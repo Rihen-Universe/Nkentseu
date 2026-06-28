@@ -60,6 +60,13 @@ namespace nkcode {
 
         void Rect(const NkRect& r, const NkColor& c, float32 round = 0.f) const { dl->AddRectFilled(r, c, round); }
         void Stroke(const NkRect& r, const NkColor& c, float32 round = 0.f, float32 th = 1.f) const { (void)round; dl->AddRect(r, c, th); }
+        // Panneau a BORD ARRONDI : fond borde (le contour suit le rayon, contrairement
+        // a AddRect qui est carre). border colore -> fond inset par 1px.
+        void Panel(const NkRect& r, const NkColor& fill, const NkColor& border, float32 round, float32 bw = 1.f) const {
+            const float32 b = bw * (S > 1.f ? S : 1.f);
+            dl->AddRectFilled(r, border, round);
+            dl->AddRectFilled({ r.x + b, r.y + b, r.w - 2.f * b, r.h - 2.f * b }, fill, round - b > 0.f ? round - b : 0.f);
+        }
         void Text(float32 x, float32 y, const char* t, const NkColor& c) const {
             if (f && t) dl->AddText(f->Face(), f->TexId(), { x, y + Asc() }, t, c);
         }
@@ -83,6 +90,16 @@ namespace nkcode {
     // Segment au trait (le draw-list NKGui gere l'epaisseur + l'AA).
     inline void NkLine(const NkUi& u, NkVec2 a, NkVec2 b, const NkColor& c, float32 th) {
         u.dl->AddLine(a, b, c, th);
+    }
+
+    // Jeu d'icones SVG (data/textures/icon) rasterisees en textures au demarrage.
+    // 0 = non chargee (NkDrawIcon ne dessine rien). Teintees au rendu.
+    struct NkIcons {
+        uint32 accueil = 0, ouvrir = 0, ouvrirDossier = 0, nouveau = 0, cloner = 0,
+               toolchains = 0, platforms = 0, gear = 0, exemple = 0, star = 0, shape = 0;
+    };
+    inline void NkDrawIcon(const NkUi& u, uint32 tex, const NkRect& r, const NkColor& tint) {
+        if (tex) u.dl->AddImage(tex, r, { 0,0 }, { 1,1 }, tint);
     }
 
     inline void NkUi::Icon(const char* name, const NkRect& r, const NkColor& c) const {

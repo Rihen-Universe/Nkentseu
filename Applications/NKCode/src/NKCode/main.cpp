@@ -135,29 +135,42 @@ int nkmain(const NkEntryState& state) {
     shell->SetFileMenu(&FileMenuThunk, &g_dialogs);  // items du menu Fichier (Nouveau/Enregistrer/Deploiement)
     shell->SetOverlay(&OverlayThunk, &g_dialogs);    // dialogues modaux (creation/enregistrement)
 
-    // ── Ecran d'accueil (Home) : nouvelle UI + logos charges en texture ──
+    // ── Ecran d'accueil (Home) : nouvelle UI + logos/icones rasterises en texture ──
     g_home.st = &g_state; g_home.dlg = &g_dialogs;
     {
-        auto loadLogo = [&](const char* const* cands, int32& outW, int32& outH) -> uint32 {
-            for (const char* const* p = cands; *p; ++p) {
-                std::FILE* fp = std::fopen(*p, "rb"); if (!fp) continue; std::fclose(fp);
-                NkImage* img = NkSVGCodec::DecodeFromFile(*p, outW, outH);
-                if (img && img->IsValid()) { uint32 id = shell->UploadRGBA(img->Pixels(), img->Width(), img->Height());
-                    outW = img->Width(); outH = img->Height(); img->Free(); return id; }
-                if (img) img->Free();
+        // Rasterise un SVG a (tw x th) -> texture. dirs candidats (cwd variable).
+        auto loadSvg = [&](const char* name, int32 tw, int32 th, int32* outW = nullptr, int32* outH = nullptr) -> uint32 {
+            const char* dirs[] = { "Applications/NKCode/data/textures/", "data/textures/", "NKCode/data/textures/", "" };
+            char path[512];
+            for (const char* const* d = dirs; ; ++d) {
+                std::snprintf(path, sizeof(path), "%s%s", *d, name);
+                std::FILE* fp = std::fopen(path, "rb");
+                if (fp) { std::fclose(fp);
+                    NkImage* img = NkSVGCodec::DecodeFromFile(path, tw, th);
+                    if (img && img->IsValid()) { uint32 id = shell->UploadRGBA(img->Pixels(), img->Width(), img->Height());
+                        if (outW) *outW = img->Width(); if (outH) *outH = img->Height(); img->Free(); return id; }
+                    if (img) img->Free();
+                }
+                if (!**d) break;
             }
             return 0;
         };
-        const char* iconC[] = {
-            "Applications/NKCode/data/textures/logo/icon_blanc_fond_transparent.svg",
-            "data/textures/logo/icon_blanc_fond_transparent.svg", nullptr };
-        const char* wordC[] = {
-            "Applications/NKCode/data/textures/logo/logo_complet_blanc_fond_transparent.svg",
-            "data/textures/logo/logo_complet_blanc_fond_transparent.svg", nullptr };
-        int32 iw = 0, ih = 0, ww = 0, wh = 0;
-        g_home.logoIcon = loadLogo(iconC, iw, ih);
-        g_home.logoWord = loadLogo(wordC, ww, wh);
-        g_home.wordW = ww; g_home.wordH = wh;
+        // Logos (aspect preserve : icone 256x256, wordmark 1024x256 = 4:1)
+        g_home.logoIcon = loadSvg("logo/icon_blanc_fond_transparent.svg", 256, 256);
+        g_home.logoWord = loadSvg("logo/logo_complet_blanc_fond_transparent.svg", 1024, 256, &g_home.wordW, &g_home.wordH);
+        // Icones (data/textures/icon) — rasterisees a 64x64, teintees au rendu
+        nkcode::NkIcons& ic = g_home.icons;
+        ic.accueil       = loadSvg("icon/Accueil.svg", 64, 64);
+        ic.ouvrir        = loadSvg("icon/Ouvrir.svg", 64, 64);
+        ic.ouvrirDossier = loadSvg("icon/OuvrirUnDossier.svg", 64, 64);
+        ic.nouveau       = loadSvg("icon/Nouveau.svg", 64, 64);
+        ic.cloner        = loadSvg("icon/Cloner.svg", 64, 64);
+        ic.toolchains    = loadSvg("icon/Toolchains.svg", 64, 64);
+        ic.platforms     = loadSvg("icon/Platforms.svg", 64, 64);
+        ic.gear          = loadSvg("icon/Gear.svg", 64, 64);
+        ic.exemple       = loadSvg("icon/Exemple.svg", 64, 64);
+        ic.star          = loadSvg("icon/Star.svg", 64, 64);
+        ic.shape         = loadSvg("icon/Shape.svg", 64, 64);
     }
     shell->SetStartScreen(&StartScreenThunk, &g_home);  // ecran de demarrage plein cadre (Home)
     // Fenetre large/centree mais NON maximisee -> redimensionnable par les bords des
