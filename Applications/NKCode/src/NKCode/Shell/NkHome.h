@@ -19,8 +19,33 @@ namespace nkcode {
         int32   wordW = 0, wordH = 0;          // dimensions naturelles du wordmark (aspect)
         NkIcons icons;                          // icones SVG (data/textures/icon)
         int32   nav = 0;                       // item de nav actif (0 = Accueil)
-        float32 scroll = 0.f;                  // defilement de la liste des recents
+        float32 scroll  = 0.f;                 // centre : defilement vertical (recents)
+        float32 scrollR = 0.f;                 // droite : defilement vertical
+        int32   barDrag = 0;                   // scrollbar en cours de drag (0 aucun)
+        float32 barOff  = 0.f;                 // offset souris->thumb pendant le drag
     };
+
+    // ── Scrollbar VERTICALE draggable au bord droit de `area`. `id` unique. ──
+    inline void NkVScroll(const NkUi& u, const NkRect& area, float32 contentH, float32& scroll, int32 id, NkHomeState* H) {
+        const float32 maxS = contentH > area.h ? contentH - area.h : 0.f;
+        if (scroll < 0.f) scroll = 0.f; if (scroll > maxS) scroll = maxS;
+        if (maxS <= 0.5f) { if (H->barDrag == id) H->barDrag = 0; return; }
+        const float32 sw = u.s(10);
+        const NkRect track = { area.x + area.w - sw, area.y, sw, area.h };
+        u.dl->AddRectFilled(track, NkColor{ 18, 21, 26, 160 }, sw * 0.5f);
+        float32 thh = area.h * (area.h / contentH); const float32 thmin = u.s(28);
+        if (thh < thmin) thh = thmin;
+        const float32 ty = area.y + (area.h - thh) * (scroll / maxS);
+        const NkRect thumb = { track.x + u.s(2), ty, sw - u.s(4), thh };
+        const bool hov = u.Hit(thumb);
+        if (H->barDrag == 0 && hov && u.click) { H->barDrag = id; H->barOff = u.mp.y - ty; }
+        if (H->barDrag == id) {
+            if (!u.down) H->barDrag = 0;
+            else { const float32 t = (u.mp.y - H->barOff - area.y) / (area.h - thh); scroll = t * maxS;
+                   if (scroll < 0.f) scroll = 0.f; if (scroll > maxS) scroll = maxS; }
+        }
+        u.dl->AddRectFilled(thumb, (H->barDrag == id || hov) ? NkColor{ 96, 104, 114, 255 } : NkColor{ 56, 63, 72, 255 }, (sw - u.s(4)) * 0.5f);
+    }
 
     // ── Item de navigation de la sidebar ──
     inline bool NkNavItem(const NkUi& u, const NkRect& r, uint32 icon, const char* label,
@@ -263,8 +288,7 @@ namespace nkcode {
         }
         const float32 contentH = (y + H->scroll) - listArea.y;
         u.dl->PopClipRect();
-        const float32 maxS = contentH - listArea.h > 0.f ? contentH - listArea.h : 0.f;
-        if (H->scroll < 0.f) H->scroll = 0.f; if (H->scroll > maxS) H->scroll = maxS;
+        NkVScroll(u, listArea, contentH, H->scroll, 1, H);   // scrollbar verticale du centre
 
         // applique les actions differees (apres le dessin)
         if (loadCur) { if (dlg) { if (H->st) H->st->RequestReload(); } dlg->showStart = false; return; }
@@ -273,31 +297,39 @@ namespace nkcode {
         if (doPin  >= 0) { if (doPin >= 1000) st->UnpinRecent(pathOf(doPin)); else st->PinRecent(pathOf(doPin)); return; }
         if (doRem  >= 0) { st->RemoveRecent(pathOf(doRem)); return; }
 
-        // ── Colonne droite : actions rapides + exemples ──
-        u.Text(right.x, right.y, "ACTIONS RAPIDES", NkCol::mutedFg);
-        float32 ry = right.y + u.s(22);
+        // ── Colonne droite (DEFILABLE) : actions rapides + exemples ──
+        if (u.Hit(right) && u.ctx->input.wheel != 0.f) { H->scrollR -= u.ctx->input.wheel * u.s(34); u.ctx->input.wheel = 0.f; }
+        u.dl->PushClipRect(right, true);
+        const float32 rcw = right.w - u.s(14);   // laisse la place a la scrollbar
+        float32 ry = right.y + u.s(2) - H->scrollR;
+        u.Text(right.x, ry, "ACTIONS RAPIDES", NkCol::mutedFg); ry += u.s(22);
         const float32 qh = u.s(52);
-        if (NkQuickAction(u, { right.x, ry, right.w, qh }, H->icons.nouveau, "Nouveau Workspace", "Creer un workspace Jenga", NkCol::primary, NkCol::primary)) dlg->Open(NkCodeDialogs::NewWorkspace);
+        if (NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.nouveau, "Nouveau Workspace", "Creer un workspace Jenga", NkCol::primary, NkCol::primary)) dlg->Open(NkCodeDialogs::NewWorkspace);
         ry += qh + u.s(10);
-        if (NkQuickAction(u, { right.x, ry, right.w, qh }, H->icons.ouvrir, "Ouvrir un Workspace", "Charger un .jenga existant", NkCol::border, NkCol::mutedFg)) dlg->OpenWorkspaceDialog();
+        if (NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.ouvrir, "Ouvrir un Workspace", "Charger un .jenga existant", NkCol::border, NkCol::mutedFg)) dlg->OpenWorkspaceDialog();
         ry += qh + u.s(10);
-        if (NkQuickAction(u, { right.x, ry, right.w, qh }, H->icons.ouvrirDossier, "Ouvrir un Dossier", "Explorer un dossier de projets", NkCol::border, NkCol::mutedFg)) dlg->OpenFolderDialog();
+        if (NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.ouvrirDossier, "Ouvrir un Dossier", "Explorer un dossier de projets", NkCol::border, NkCol::mutedFg)) dlg->OpenFolderDialog();
         ry += qh + u.s(10);
-        if (NkQuickAction(u, { right.x, ry, right.w, qh }, H->icons.cloner, "Cloner depuis Git", "GitHub, GitLab, Bitbucket...", NkCol::secondary, NkCol::secondaryFg)) {/* TODO */}
-        ry += qh + u.s(16);
+        if (NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.cloner, "Cloner depuis Git", "GitHub, GitLab, Bitbucket...", NkCol::secondary, NkCol::secondaryFg)) {/* TODO */}
+        ry += qh + u.s(18);
 
-        u.Rect({ right.x, ry - u.s(8), right.w, 1.f }, NkCol::border);
+        u.Rect({ right.x, ry - u.s(8), rcw, 1.f }, NkCol::border);
         u.Text(right.x, ry, "EXEMPLES JENGA", NkCol::mutedFg); ry += u.s(22);
         const char* ex[] = { "01_hello_console", "09_multi_projects", "25_opengl_triangle", "24_all_platforms" };
-        const NkRect exBox = { right.x, ry, right.w, u.s(34) * 5.f };
+        const NkRect exBox = { right.x, ry, rcw, u.s(34) * 5.f };
         u.Panel(exBox, NkCol::surface, NkCol::border, NkR::lg * u.S);
         for (int32 i = 0; i < 4; ++i) {
             const float32 ey = ry + i * u.s(34);
             NkDrawIcon(u, H->icons.exemple, { right.x + u.s(10), ey + u.s(10), u.s(14), u.s(14) }, NkCol::accent);
             u.TextV(right.x + u.s(30), ey, u.s(34), ex[i], NkCol::foreground);
-            if (i < 3) u.Rect({ right.x + u.s(8), ey + u.s(34), right.w - u.s(16), 1.f }, NkCol::border);
+            if (i < 3) u.Rect({ right.x + u.s(8), ey + u.s(34), rcw - u.s(16), 1.f }, NkCol::border);
         }
         u.TextV(right.x, ry + u.s(34) * 4.f, u.s(34), "  Voir les 27 exemples", NkCol::primary);
+        ry += u.s(34) * 5.f + u.s(8);
+
+        const float32 rContentH = (ry + H->scrollR) - right.y;
+        u.dl->PopClipRect();
+        NkVScroll(u, right, rContentH, H->scrollR, 2, H);   // scrollbar verticale de droite
     }
 
     // ── Point d'entree : ecran d'accueil PLEIN CADRE (via SetStartScreen) ──
