@@ -111,7 +111,7 @@ namespace nkcode {
     //    statut de build + modif, etoile + menu (format maquette) ──
     inline int32 NkWorkspaceCard(const NkUi& u, const NkRect& r, const NkWsInfo& w, uint32 starIcon) {
         const bool hov = u.Hit(r);
-        u.Panel(r, hov ? NkCol::hover : NkCol::surface, hov ? NkColor{ 48,54,61,255 } : NkCol::border, NkR::md * u.S);
+        u.Panel(r, hov ? NkCol::hover : NkCol::surface, hov ? NkColor{ 48,54,61,255 } : NkCol::border, NkR::lg * u.S);
         const float32 lh = u.Lh();
         // pastille icone (logo projet)
         const float32 ic = u.s(38);
@@ -173,7 +173,7 @@ namespace nkcode {
     inline bool NkQuickAction(const NkUi& u, const NkRect& r, uint32 icon, const char* label,
                               const char* sub, const NkColor& borderCol, const NkColor& iconCol) {
         const bool hov = u.Hit(r);
-        u.Panel(r, hov ? NkCol::hover : NkCol::surface, borderCol, NkR::md * u.S);
+        u.Panel(r, hov ? NkCol::hover : NkCol::surface, borderCol, NkR::lg * u.S);
         const float32 isz = u.s(18);
         NkDrawIcon(u, icon, { r.x + u.s(12), r.y + (r.h - isz) * 0.5f, isz, isz }, iconCol);
         u.Text(r.x + u.s(42), r.y + u.s(8), label, NkCol::foreground);
@@ -194,7 +194,8 @@ namespace nkcode {
         const float32 fh = u.s(30);
         NkRect search = { left.x, left.y, left.w - u.s(220), fh };
         u.Panel(search, NkCol::input, NkCol::border, NkR::md * u.S);
-        u.Icon("search", { search.x + u.s(9), search.y + (fh - u.s(13)) * 0.5f, u.s(13), u.s(13) }, NkCol::mutedFg);
+        if (H->icons.search) NkDrawIcon(u, H->icons.search, { search.x + u.s(9), search.y + (fh - u.s(14)) * 0.5f, u.s(14), u.s(14) }, NkCol::mutedFg);
+        else u.Icon("search", { search.x + u.s(9), search.y + (fh - u.s(13)) * 0.5f, u.s(13), u.s(13) }, NkCol::mutedFg);
         u.TextV(search.x + u.s(28), search.y, fh, "Filtrer les recents...", NkCol::mutedFg);
         auto chip = [&](float32 x, const char* t) -> NkRect {
             const float32 w = u.TextW(t) + u.s(34); const NkRect c = { x, left.y, w, fh };
@@ -232,7 +233,7 @@ namespace nkcode {
             NkWsInfo wi; wi.name = curName.CStr(); wi.path = curPath.CStr();
             wi.langVer = "C++20"; wi.configs = st->infoConfigs.CStr(); wi.platforms = st->infoOSes.CStr();
             wi.projects = curProj.CStr(); wi.buildConfig = st->ConfigName(); wi.build = 1;
-            wi.iconBg = NkCol::primary; wi.icon = H->icons.shape;
+            wi.iconBg = NkCol::primary; wi.icon = H->icons.workspace;
             const NkRect cr = { listArea.x, y, listArea.w, CH };
             if (NkWorkspaceCard(u, cr, wi, H->icons.star) == 1) loadCur = true;
             y += CSTEP;
@@ -242,7 +243,7 @@ namespace nkcode {
             groupHeader("EPINGLES", NkCol::accent, true);
             for (usize i = 0; i < st->pinned.Size(); ++i) {
                 NkWsInfo wi; wi.name = (i < st->pinnedNames.Size() && !st->pinnedNames[i].Empty()) ? st->pinnedNames[i].CStr() : st->pinned[i].CStr();
-                wi.path = st->pinned[i].CStr(); wi.pinned = true; wi.iconBg = cols[i % 4]; wi.icon = H->icons.shape;
+                wi.path = st->pinned[i].CStr(); wi.pinned = true; wi.iconBg = cols[i % 4]; wi.icon = H->icons.workspace;
                 const NkRect cr = { listArea.x, y, listArea.w, CH };
                 const int32 a = NkWorkspaceCard(u, cr, wi, H->icons.star);
                 if (a == 1) doLoad = (int32)(1000 + i); else if (a == 2) doPin = (int32)(1000 + i); else if (a == 3) doRem = (int32)(1000 + i);
@@ -254,7 +255,7 @@ namespace nkcode {
         if (!st || st->recents.Empty()) { u.Text(listArea.x + u.s(2), y, "(aucun workspace recent)", NkCol::mutedFg); y += u.s(24); }
         for (usize i = 0; st && i < st->recents.Size(); ++i) {
             NkWsInfo wi; wi.name = (i < st->recentNames.Size() && !st->recentNames[i].Empty()) ? st->recentNames[i].CStr() : st->recents[i].CStr();
-            wi.path = st->recents[i].CStr(); wi.iconBg = cols[i % 4]; wi.icon = H->icons.shape;
+            wi.path = st->recents[i].CStr(); wi.iconBg = cols[i % 4]; wi.icon = H->icons.workspace;
             const NkRect cr = { listArea.x, y, listArea.w, CH };
             const int32 a = NkWorkspaceCard(u, cr, wi, H->icons.star);
             if (a == 1) doLoad = (int32)i; else if (a == 2) doPin = (int32)i; else if (a == 3) doRem = (int32)i;
@@ -289,7 +290,7 @@ namespace nkcode {
         u.Text(right.x, ry, "EXEMPLES JENGA", NkCol::mutedFg); ry += u.s(22);
         const char* ex[] = { "01_hello_console", "09_multi_projects", "25_opengl_triangle", "24_all_platforms" };
         const NkRect exBox = { right.x, ry, right.w, u.s(34) * 5.f };
-        u.Panel(exBox, NkCol::surface, NkCol::border, NkR::md * u.S);
+        u.Panel(exBox, NkCol::surface, NkCol::border, NkR::lg * u.S);
         for (int32 i = 0; i < 4; ++i) {
             const float32 ey = ry + i * u.s(34);
             NkDrawIcon(u, H->icons.exemple, { right.x + u.s(10), ey + u.s(10), u.s(14), u.s(14) }, NkCol::accent);

@@ -96,7 +96,8 @@ namespace nkcode {
     // 0 = non chargee (NkDrawIcon ne dessine rien). Teintees au rendu.
     struct NkIcons {
         uint32 accueil = 0, ouvrir = 0, ouvrirDossier = 0, nouveau = 0, cloner = 0,
-               toolchains = 0, platforms = 0, gear = 0, exemple = 0, star = 0, shape = 0;
+               toolchains = 0, platforms = 0, gear = 0, exemple = 0, star = 0, shape = 0,
+               search = 0, workspace = 0;
     };
     inline void NkDrawIcon(const NkUi& u, uint32 tex, const NkRect& r, const NkColor& tint) {
         if (tex) u.dl->AddImage(tex, r, { 0,0 }, { 1,1 }, tint);
