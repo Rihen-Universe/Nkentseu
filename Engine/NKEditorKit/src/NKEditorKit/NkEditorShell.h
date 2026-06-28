@@ -107,6 +107,8 @@ namespace nkentseu {
                 const uint32 id = mNextTexId++;
                 return mRenderer->UploadImageRGBA(id, pixels, w, h) ? id : 0;
             }
+            // Logo (icone) dessine a gauche de la barre de titre (texId via UploadRGBA).
+            void SetTitleLogo(uint32 texId) noexcept { mTitleLogoTex = texId; }
 
             // ── Layout ──────────────────────────────────────────────────────────
             void ResetLayout() noexcept { mDockBootstrap = true; }
@@ -158,6 +160,7 @@ namespace nkentseu {
             NkWindow           mWindow;
             NkIEditorRenderer* mRenderer     = nullptr;   // backend pluggable (NKCanvas par defaut / NKRHI injecte)
             uint32             mNextTexId    = 0x4E4B0100u;// ids de textures app (logos/icones) — distincts des polices
+            uint32             mTitleLogoTex = 0;           // logo (icone) dans la barre de titre
             bool               mOwnsRenderer = false;      // true => cree par le shell (a detruire)
 
             // === NKGui (contexte + police possedee) ===

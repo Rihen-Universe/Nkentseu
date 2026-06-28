@@ -138,39 +138,48 @@ int nkmain(const NkEntryState& state) {
     // ── Ecran d'accueil (Home) : nouvelle UI + logos/icones rasterises en texture ──
     g_home.st = &g_state; g_home.dlg = &g_dialogs;
     {
-        // Rasterise un SVG a (tw x th) -> texture. dirs candidats (cwd variable).
-        auto loadSvg = [&](const char* name, int32 tw, int32 th, int32* outW = nullptr, int32* outH = nullptr) -> uint32 {
+        // Charge une texture : PNG en PRIORITE (pre-rendu net), repli SVG (rasterise
+        // a tw x th). `base` = nom sans extension sous data/textures/.
+        auto loadTex = [&](const char* base, int32 tw, int32 th, int32* outW = nullptr, int32* outH = nullptr) -> uint32 {
             const char* dirs[] = { "Applications/NKCode/data/textures/", "data/textures/", "NKCode/data/textures/", "" };
             char path[512];
             for (const char* const* d = dirs; ; ++d) {
-                std::snprintf(path, sizeof(path), "%s%s", *d, name);
-                std::FILE* fp = std::fopen(path, "rb");
-                if (fp) { std::fclose(fp);
-                    NkImage* img = NkSVGCodec::DecodeFromFile(path, tw, th);
-                    if (img && img->IsValid()) { uint32 id = shell->UploadRGBA(img->Pixels(), img->Width(), img->Height());
-                        if (outW) *outW = img->Width(); if (outH) *outH = img->Height(); img->Free(); return id; }
-                    if (img) img->Free();
-                }
+                // 1) PNG (ou tout format raster auto-detecte)
+                std::snprintf(path, sizeof(path), "%s%s.png", *d, base);
+                { std::FILE* fp = std::fopen(path, "rb");
+                  if (fp) { std::fclose(fp); NkImage img;
+                      if (img.LoadFromFile(path) && img.IsValid()) {
+                          uint32 id = shell->UploadRGBA(img.Pixels(), img.Width(), img.Height());
+                          if (outW) *outW = img.Width(); if (outH) *outH = img.Height(); return id; } } }
+                // 2) SVG (rasterise a la taille demandee)
+                std::snprintf(path, sizeof(path), "%s%s.svg", *d, base);
+                { std::FILE* fp = std::fopen(path, "rb");
+                  if (fp) { std::fclose(fp);
+                      NkImage* im = NkSVGCodec::DecodeFromFile(path, tw, th);
+                      if (im && im->IsValid()) { uint32 id = shell->UploadRGBA(im->Pixels(), im->Width(), im->Height());
+                          if (outW) *outW = im->Width(); if (outH) *outH = im->Height(); im->Free(); return id; }
+                      if (im) im->Free(); } }
                 if (!**d) break;
             }
             return 0;
         };
-        // Logos (aspect preserve : icone 256x256, wordmark 1024x256 = 4:1)
-        g_home.logoIcon = loadSvg("logo/icon_blanc_fond_transparent.svg", 256, 256);
-        g_home.logoWord = loadSvg("logo/logo_complet_blanc_fond_transparent.svg", 1024, 256, &g_home.wordW, &g_home.wordH);
-        // Icones (data/textures/icon) — rasterisees a 64x64, teintees au rendu
+        // Logos (aspect preserve : icone 256x256, wordmark 512x128 = 4:1)
+        g_home.logoIcon = loadTex("logo/icon_blanc_fond_transparent", 256, 256);
+        g_home.logoWord = loadTex("logo/logo_complet_blanc_fond_transparent", 512, 128, &g_home.wordW, &g_home.wordH);
+        shell->SetTitleLogo(g_home.logoIcon);   // logo dans la barre de titre
+        // Icones (data/textures/icon) — PNG 128x128 (repli SVG), teintees au rendu
         nkcode::NkIcons& ic = g_home.icons;
-        ic.accueil       = loadSvg("icon/Accueil.svg", 64, 64);
-        ic.ouvrir        = loadSvg("icon/Ouvrir.svg", 64, 64);
-        ic.ouvrirDossier = loadSvg("icon/OuvrirUnDossier.svg", 64, 64);
-        ic.nouveau       = loadSvg("icon/Nouveau.svg", 64, 64);
-        ic.cloner        = loadSvg("icon/Cloner.svg", 64, 64);
-        ic.toolchains    = loadSvg("icon/Toolchains.svg", 64, 64);
-        ic.platforms     = loadSvg("icon/Platforms.svg", 64, 64);
-        ic.gear          = loadSvg("icon/Gear.svg", 64, 64);
-        ic.exemple       = loadSvg("icon/Exemple.svg", 64, 64);
-        ic.star          = loadSvg("icon/Star.svg", 64, 64);
-        ic.shape         = loadSvg("icon/Shape.svg", 64, 64);
+        ic.accueil       = loadTex("icon/Accueil", 128, 128);
+        ic.ouvrir        = loadTex("icon/Ouvrir", 128, 128);
+        ic.ouvrirDossier = loadTex("icon/OuvrirUnDossier", 128, 128);
+        ic.nouveau       = loadTex("icon/Nouveau", 128, 128);
+        ic.cloner        = loadTex("icon/Cloner", 128, 128);
+        ic.toolchains    = loadTex("icon/Toolchains", 128, 128);
+        ic.platforms     = loadTex("icon/Platforms", 128, 128);
+        ic.gear          = loadTex("icon/Gear", 128, 128);
+        ic.exemple       = loadTex("icon/Exemple", 128, 128);
+        ic.star          = loadTex("icon/Star", 128, 128);
+        ic.shape         = loadTex("icon/Shape", 128, 128);
     }
     shell->SetStartScreen(&StartScreenThunk, &g_home);  // ecran de demarrage plein cadre (Home)
     // Fenetre large/centree mais NON maximisee -> redimensionnable par les bords des

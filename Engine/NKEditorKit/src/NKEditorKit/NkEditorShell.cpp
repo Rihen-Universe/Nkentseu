@@ -472,26 +472,41 @@ namespace nkentseu {
             const float32 pad = mUI.S(8.f);
             const float32 cy  = bar.y + bar.h * 0.5f;
 
-            // Logo (carre accent) a l'extreme gauche.
-            const float32 lg = mUI.S(12.f);
-            dl.AddRectFilled({ bar.x + pad, cy - lg * 0.5f, lg, lg }, accent);
-            const float32 menuX = bar.x + pad + lg + mUI.S(8.f);
+            // Logo NKCode (icone) a l'extreme gauche, sinon carre accent de repli.
+            float32 cursorX = bar.x + pad;
+            if (mTitleLogoTex) {
+                const float32 lg = bar.h * 0.62f;
+                dl.AddImage(mTitleLogoTex, { cursorX, cy - lg * 0.5f, lg, lg }, { 0.f, 0.f }, { 1.f, 1.f }, { 255, 255, 255, 255 });
+                cursorX += lg + mUI.S(8.f);
+            } else {
+                const float32 lg = mUI.S(12.f);
+                dl.AddRectFilled({ cursorX, cy - lg * 0.5f, lg, lg }, accent);
+                cursorX += lg + mUI.S(8.f);
+            }
+            // Sur le launcher : nom "nkcode" + AUCUN menu. Dans l'editeur : menus.
+            float32 menuX = cursorX;
+            if (mUI.appFullScreen && mUI.font && mUI.font->Face()) {
+                const float32 by = bar.y + (bar.h - mUI.font->LineHeight()) * 0.5f + mUI.font->Ascent();
+                dl.AddText(mUI.font->Face(), mUI.font->TexId(), { cursorX, by }, "nkcode", fg);
+                menuX = cursorX + mUI.font->MeasureWidth("nkcode") + mUI.S(12.f);
+            }
 
             auto inR = [&](const NkRect& r){ return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h; };
             const NkColor hovBg = { 255, 255, 255, 26 };
-            const float32 bw = mUI.S(46.f);
+            const float32 bw = mUI.S(42.f);
             const NkRect cClose = { bar.x + bar.w - bw,       bar.y, bw, bar.h };
             const NkRect cMax   = { bar.x + bar.w - bw * 2.f, bar.y, bw, bar.h };
             const NkRect cMin   = { bar.x + bar.w - bw * 3.f, bar.y, bw, bar.h };
 
-            // Menus a la suite du logo, DANS la barre de titre.
-            BuildMenuBar(ec, { menuX, bar.y, cMin.x - menuX, bar.h });
+            // Menus DANS la barre de titre (uniquement dans l'editeur, pas le launcher).
+            if (!mUI.appFullScreen) BuildMenuBar(ec, { menuX, bar.y, cMin.x - menuX, bar.h });
+            else mUI.menuBarX = menuX;   // pour les zones de drag
 
             // Infos specifiques au centre (ex. fichier actif) = "panneau du milieu".
             // On retient son rect [titleLx, titleRx] pour delimiter les zones de drag.
             float32 titleLx = bar.x + bar.w, titleRx = bar.x + bar.w;   // vide par defaut
             const char* info = mTitleCenter[0] ? mTitleCenter : mTitle;
-            if (mUI.font && mUI.font->Face() && info[0]) {
+            if (mUI.font && mUI.font->Face() && info[0] && !mUI.appFullScreen) {
                 const float32 iw = mUI.font->MeasureWidth(info);
                 const float32 ix = bar.x + (bar.w - iw) * 0.5f;
                 titleLx = ix - mUI.S(10.f); titleRx = ix + iw + mUI.S(10.f);   // + petite marge
@@ -500,13 +515,16 @@ namespace nkentseu {
             }
 
             bool consumed = false;
+            // Chip arrondi inset (style design) pour le fond de survol des controles.
+            auto chip = [&](const NkRect& r) -> NkRect { const float32 vy = mUI.S(5.f), hx = mUI.S(3.f); return { r.x + hx, r.y + vy, r.w - 2.f * hx, r.h - 2.f * vy }; };
+            const float32 cround = mUI.S(4.f);
             // Minimiser (trait).
-            { const bool h = inR(cMin); if (h) dl.AddRectFilled(cMin, hovBg);
+            { const bool h = inR(cMin); if (h) dl.AddRectFilled(chip(cMin), hovBg, cround);
               const float32 gx = cMin.x + cMin.w * 0.5f;
               dl.AddLine({ gx - mUI.S(5.f), cy }, { gx + mUI.S(5.f), cy }, fg, 1.f);
               if (h && mUI.input.mouseClicked[0]) { mWindow.Minimize(); consumed = true; } }
             // Maximiser / restaurer (carre, ou double carre si maximise).
-            { const bool h = inR(cMax); if (h) dl.AddRectFilled(cMax, hovBg);
+            { const bool h = inR(cMax); if (h) dl.AddRectFilled(chip(cMax), hovBg, cround);
               const float32 gx = cMax.x + cMax.w * 0.5f, s = mUI.S(9.f);
               if (mWindow.IsMaximized()) {
                   dl.AddRect({ gx - s * 0.5f + 2.f, cy - s * 0.5f - 2.f, s - 2.f, s - 2.f }, fg, 1.f);
@@ -516,8 +534,8 @@ namespace nkentseu {
                   dl.AddRect({ gx - s * 0.5f, cy - s * 0.5f, s, s }, fg, 1.f);
               }
               if (h && mUI.input.mouseClicked[0]) { mWindow.Maximize(); consumed = true; } }
-            // Fermer (X, survol rouge).
-            { const bool h = inR(cClose); if (h) dl.AddRectFilled(cClose, { 232, 17, 35, 255 });
+            // Fermer (X, survol rouge #f85149 arrondi).
+            { const bool h = inR(cClose); if (h) dl.AddRectFilled(chip(cClose), { 248, 81, 73, 255 }, cround);
               const NkColor xc = h ? NkColor{ 255, 255, 255, 255 } : fg;
               const float32 gx = cClose.x + cClose.w * 0.5f, s = mUI.S(5.f);
               dl.AddLine({ gx - s, cy - s }, { gx + s, cy + s }, xc, 1.2f);
