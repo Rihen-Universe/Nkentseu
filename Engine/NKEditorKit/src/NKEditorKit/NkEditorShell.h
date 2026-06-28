@@ -97,6 +97,16 @@ namespace nkentseu {
             }
             // Maximise la fenetre (ex. au lancement, pour l'ecran de demarrage).
             void Maximize() noexcept { mWindow.Maximize(); }
+            // Donne une taille/position de fenetre (non maximisee).
+            void Resize(uint32 w, uint32 h) noexcept { mWindow.SetSize(w, h); }
+
+            // Upload une image RGBA8 comme texture backend ; renvoie un texId stable
+            // (0 si echec). Pour les logos/icones de l'app (dessines via AddImage).
+            uint32 UploadRGBA(const uint8* pixels, int32 w, int32 h) noexcept {
+                if (!mRenderer || !pixels || w <= 0 || h <= 0) return 0;
+                const uint32 id = mNextTexId++;
+                return mRenderer->UploadImageRGBA(id, pixels, w, h) ? id : 0;
+            }
 
             // ── Layout ──────────────────────────────────────────────────────────
             void ResetLayout() noexcept { mDockBootstrap = true; }
@@ -147,6 +157,7 @@ namespace nkentseu {
             // === Fenetre / rendu ===
             NkWindow           mWindow;
             NkIEditorRenderer* mRenderer     = nullptr;   // backend pluggable (NKCanvas par defaut / NKRHI injecte)
+            uint32             mNextTexId    = 0x4E4B0100u;// ids de textures app (logos/icones) — distincts des polices
             bool               mOwnsRenderer = false;      // true => cree par le shell (a detruire)
 
             // === NKGui (contexte + police possedee) ===

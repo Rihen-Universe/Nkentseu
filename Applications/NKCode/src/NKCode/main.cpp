@@ -12,7 +12,9 @@
 #include "NKCode/Shell/Toolbar.h"
 #include "NKCode/Shell/Dialogs.h"
 #include "NKCode/Shell/ScaffoldPanels.h"
+#include "NKCode/Shell/NkHome.h"
 #include "NKCode/Project/NkLogSink.h"
+#include "NKImage/NKImage.h"
 
 #include <cstdio>
 #include <cstddef>
@@ -54,8 +56,10 @@ static void FileMenuThunk(NkEditorFrameContext& ec, void* u) {
 static void OverlayThunk(NkEditorFrameContext& ec, void* u) {
     nkcode::DrawOverlay(ec, static_cast<nkcode::NkCodeDialogs*>(u));
 }
+// Ecran d'accueil (Home) — nouvelle UI propre (design Banani).
+static nkcode::NkHomeState g_home;
 static void StartScreenThunk(NkEditorFrameContext& ec, void* u) {
-    nkcode::DrawStartScreen(ec, static_cast<nkcode::NkCodeDialogs*>(u));
+    nkcode::DrawHome(ec, static_cast<nkcode::NkHomeState*>(u));
 }
 // Pose appFullScreen/appModal CHAQUE FRAME (barre de menus, inconditionnel).
 static void AppFlagsThunk(NkEditorFrameContext& ec, void* u) {
@@ -130,7 +134,32 @@ int nkmain(const NkEntryState& state) {
     shell->SetAppMenu(&AppFlagsThunk, &g_dialogs);   // pose appFullScreen/appModal chaque frame
     shell->SetFileMenu(&FileMenuThunk, &g_dialogs);  // items du menu Fichier (Nouveau/Enregistrer/Deploiement)
     shell->SetOverlay(&OverlayThunk, &g_dialogs);    // dialogues modaux (creation/enregistrement)
-    shell->SetStartScreen(&StartScreenThunk, &g_dialogs);  // ecran de demarrage plein cadre
+
+    // ── Ecran d'accueil (Home) : nouvelle UI + logos charges en texture ──
+    g_home.st = &g_state; g_home.dlg = &g_dialogs;
+    {
+        auto loadLogo = [&](const char* const* cands, int32& outW, int32& outH) -> uint32 {
+            for (const char* const* p = cands; *p; ++p) {
+                std::FILE* fp = std::fopen(*p, "rb"); if (!fp) continue; std::fclose(fp);
+                NkImage* img = NkSVGCodec::DecodeFromFile(*p, outW, outH);
+                if (img && img->IsValid()) { uint32 id = shell->UploadRGBA(img->Pixels(), img->Width(), img->Height());
+                    outW = img->Width(); outH = img->Height(); img->Free(); return id; }
+                if (img) img->Free();
+            }
+            return 0;
+        };
+        const char* iconC[] = {
+            "Applications/NKCode/data/textures/logo/icon_blanc_fond_transparent.svg",
+            "data/textures/logo/icon_blanc_fond_transparent.svg", nullptr };
+        const char* wordC[] = {
+            "Applications/NKCode/data/textures/logo/logo_complet_blanc_fond_transparent.svg",
+            "data/textures/logo/logo_complet_blanc_fond_transparent.svg", nullptr };
+        int32 iw = 0, ih = 0, ww = 0, wh = 0;
+        g_home.logoIcon = loadLogo(iconC, iw, ih);
+        g_home.logoWord = loadLogo(wordC, ww, wh);
+        g_home.wordW = ww; g_home.wordH = wh;
+    }
+    shell->SetStartScreen(&StartScreenThunk, &g_home);  // ecran de demarrage plein cadre (Home)
     // Fenetre large/centree mais NON maximisee -> redimensionnable par les bords des
     // le lancement (une fenetre maximisee n'est pas redimensionnable). L'utilisateur
     // peut maximiser via le bouton de la barre de titre ; l'etat projet le surchargera.
