@@ -670,3 +670,6 @@ FodyWeavers.xsd
 # Additional files built by Visual Studio
 
 # End of https://www.toptal.com/developers/gitignore/api/c++,vs,visualstudio,visualstudiocode,lua,batch,powershell
+
+# Captures perso (screenshots/videos) — jamais suivies
+/Captures/
