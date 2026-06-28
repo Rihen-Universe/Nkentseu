@@ -29,9 +29,9 @@ namespace nkcode {
         if (active)      u.Rect(r, NkColor{ 22, 32, 46, 255 }, NkR::md * u.S);
         else if (hov)    u.Rect(r, NkCol::hover, NkR::md * u.S);
         if (active)      u.Rect({ r.x, r.y + u.s(6), u.s(3), r.h - u.s(12) }, accent, u.s(2));
-        const NkColor ic = active ? accent : NkCol::sidebarFg;
-        const float32 isz = u.s(17);
-        NkDrawIcon(u, icon, { r.x + u.s(14), r.y + (r.h - isz) * 0.5f, isz, isz }, ic);
+        const NkColor ic = active ? accent : NkColor{ 188, 196, 206, 255 };   // icone plus lumineuse
+        const float32 isz = u.s(19);
+        NkDrawIcon(u, icon, { r.x + u.s(13), r.y + (r.h - isz) * 0.5f, isz, isz }, ic);
         u.TextV(r.x + u.s(42), r.y, r.h, label, active ? NkCol::foreground : NkCol::sidebarFg);
         return hov && u.click;
     }

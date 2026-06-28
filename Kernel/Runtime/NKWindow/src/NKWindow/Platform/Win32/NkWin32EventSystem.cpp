@@ -610,15 +610,26 @@ namespace nkentseu {
             case WM_NCHITTEST:
                 if (owner && !owner->GetConfig().frame) {
                     RECT rc; GetWindowRect(hwnd, &rc);
-                    int x = GET_X_LPARAM(lp) - rc.left;
-                    int y = GET_Y_LPARAM(lp) - rc.top;
-                    int w = rc.right  - rc.left;
-                    int h = rc.bottom - rc.top;
-                    (void)w; (void)h;
-                    // TOUT = HTCLIENT : l'app recoit TOUS les events (menus cliquables,
-                    // deplacement via BeginDragMove, ET redimensionnement par les bords
-                    // gere MANUELLEMENT par le shell -> le resize natif NC ne fonctionnait
-                    // pas dans ce setup borderless). PAS de HTLEFT/HTCAPTION codes en dur.
+                    const int x = GET_X_LPARAM(lp) - rc.left;
+                    const int y = GET_Y_LPARAM(lp) - rc.top;
+                    const int w = rc.right  - rc.left;
+                    const int h = rc.bottom - rc.top;
+                    // Bords de redimensionnement = HT* de resize -> Windows redimensionne
+                    // NATIVEMENT (boucle modale fluide, suit la souris hors fenetre). Le
+                    // reste (barre de titre comprise) = HTCLIENT : menus cliquables +
+                    // deplacement gere par l'app (BeginDragMove dans les zones vides).
+                    const int b = IsZoomed(hwnd) ? 0 : 8;   // pas de bord quand maximise
+                    if (b > 0) {
+                        const bool L = x < b, R = x >= w - b, T = y < b, B = y >= h - b;
+                        if      (T && L) { result = HTTOPLEFT;     break; }
+                        else if (T && R) { result = HTTOPRIGHT;    break; }
+                        else if (B && L) { result = HTBOTTOMLEFT;  break; }
+                        else if (B && R) { result = HTBOTTOMRIGHT; break; }
+                        else if (L)      { result = HTLEFT;        break; }
+                        else if (R)      { result = HTRIGHT;       break; }
+                        else if (T)      { result = HTTOP;         break; }
+                        else if (B)      { result = HTBOTTOM;      break; }
+                    }
                     result = HTCLIENT;
                 }
                 break;
