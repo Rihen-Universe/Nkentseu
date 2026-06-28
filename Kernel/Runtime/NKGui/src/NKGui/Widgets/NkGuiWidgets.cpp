@@ -1948,13 +1948,16 @@ namespace nkentseu {
                 const NkGuiDockNode node = ctx.dockNodes[ni];       // copie (sécurité)
                 if (node.kind == 2) {
                     const NkRect  r  = node.rect;
-                    const float32 th = ctx.ItemHeight();
+                    // Masque la barre d'onglets d'un nœud à 1 seul panneau (opt-in) :
+                    // l'éditeur n'affiche alors que ses propres onglets de fichiers.
+                    const float32 th = (ctx.dockHideSingleTab && node.winCount <= 1) ? 0.f : ctx.ItemHeight();
                     if (node.winCount == 0) {
                         ctx.DL().AddRectFilled(r, ctx.theme.bgPrimary, 0.f);
                         ctx.DL().AddRect(r, ctx.theme.border, 1.f);
                         return;
                     }
                     int32 active = node.activeTab; if (active >= node.winCount) active = node.winCount - 1;
+                    if (th > 0.f) {
                     ctx.DL().AddRectFilled({ r.x, r.y, r.w, th }, ctx.theme.tabBar, 0.f);   // fond barre (≠ onglets)
                     // Réserve à DROITE : bouton « + » (si activé) + « ▾ » overflow (si débordement).
                     const float32 addW = ctx.dockTabAddButton ? th : 0.f;
@@ -2029,6 +2032,9 @@ namespace nkentseu {
                         ctx.DL().AddRectFilled({ cx - a, cy - 1.f, 2.f * a, 2.f }, ctx.theme.text);
                         ctx.DL().AddRectFilled({ cx - 1.f, cy - a, 2.f, 2.f * a }, ctx.theme.text);
                     }
+                    // Hook : actions du panneau actif sur la barre d'onglets (à droite).
+                    if (ctx.dockHeaderFn) ctx.dockHeaderFn(ctx, { r.x, r.y, r.w, th }, node.windows[active], ctx.dockHeaderUser);
+                    }   // fin barre d'onglets (masquee si th == 0 -> 1 seul panneau)
                     const NkRect content = { r.x, r.y + th, r.w, r.h - th };
                     ctx.DL().AddRectFilled(content, ctx.theme.panel, 0.f);
                     ctx.DL().AddRect(r, ctx.theme.border, 1.f);
@@ -2187,9 +2193,45 @@ namespace nkentseu {
             int32 mi; NkGuiWindowMeta* m = WinFind(ctx, wid, mi);
             if (!m) { NkGuiWindowMeta nm; nm.id = wid; ctx.windowMeta.PushBack(nm); mi = static_cast<int32>(ctx.windowMeta.Size()) - 1; m = &ctx.windowMeta[mi]; }
             if (m->dockNode >= 0) return;                          // déjà ancrée
-            int32 leaf = ctx.dockRoot;                             // descend jusqu'à une feuille
-            while (ctx.dockNodes[leaf].kind == 1) leaf = ctx.dockNodes[leaf].child0;
-            DockWindow(ctx, wid, leaf, zone);
+
+            const bool rootEmpty = (ctx.dockNodes[ctx.dockRoot].kind == 2 && ctx.dockNodes[ctx.dockRoot].winCount == 0);
+            if (zone == 0 || rootEmpty) {                          // onglet : descend vers une feuille
+                int32 leaf = ctx.dockRoot;
+                while (ctx.dockNodes[leaf].kind == 1) leaf = ctx.dockNodes[leaf].child0;
+                DockWindow(ctx, wid, leaf, zone);
+                return;
+            }
+            // Bord EXTERNE : on enveloppe TOUTE la racine -> le panneau occupe le bord
+            // entier (pleine largeur en haut/bas, pleine hauteur à gauche/droite).
+            const int32 panel = DockNew(ctx, 2);                   // (PushBack peut réallouer)
+            const int32 split = DockNew(ctx, 1);                   // -> accès par index ensuite
+            const int32 oldRoot = ctx.dockRoot;
+            { NkGuiDockNode& P = ctx.dockNodes[panel]; P.kind = 2; P.windows[0] = wid; P.winCount = 1; P.activeTab = 0; P.parent = split; }
+            { NkGuiDockNode& S = ctx.dockNodes[split];
+              S.kind = 1; S.vertical = (zone == 1 || zone == 2);   // gauche/droite = split vertical
+              const bool firstIsNew = (zone == 1 || zone == 3);    // gauche/haut -> panneau en 1er
+              S.child0 = firstIsNew ? panel : oldRoot;
+              S.child1 = firstIsNew ? oldRoot : panel;
+              S.ratio  = firstIsNew ? 0.22f : 0.78f;               // le panneau de bord ≈ 22%
+              S.parent = -1; }
+            ctx.dockNodes[oldRoot].parent = split;
+            ctx.dockRoot = split;
+            int32 mi2; NkGuiWindowMeta* wm = WinFind(ctx, wid, mi2);
+            if (wm) { wm->dockNode = panel; wm->dockActiveTab = true; }
+        }
+
+        // Ancre `windowTitle` en ONGLET dans le nœud qui contient `targetTitle`
+        // (même barre d'onglets). Si la cible n'est pas encore ancrée, repli sur un
+        // dock bas. Sert à regrouper Terminal + Sortie sur une seule barre.
+        void DockBuilderDockTab(NkGuiContext& ctx, const char* windowTitle, const char* targetTitle) noexcept {
+            const NkGuiId wid = ctx.GetId(windowTitle);
+            int32 mi; NkGuiWindowMeta* m = WinFind(ctx, wid, mi);
+            if (!m) { NkGuiWindowMeta nm; nm.id = wid; ctx.windowMeta.PushBack(nm); mi = static_cast<int32>(ctx.windowMeta.Size()) - 1; m = &ctx.windowMeta[mi]; }
+            if (m->dockNode >= 0) return;                          // déjà ancrée
+            const NkGuiId tid = ctx.GetId(targetTitle);
+            int32 ti; NkGuiWindowMeta* t = WinFind(ctx, tid, ti);
+            if (t && t->dockNode >= 0) { DockWindow(ctx, wid, t->dockNode, 0); return; }   // onglet dans la cible
+            DockBuilderDock(ctx, windowTitle, 4);                  // cible non ancrée -> dock bas
         }
 
         void DockWindowIntoWindow(NkGuiContext& ctx, const char* hostTitle, const char* winTitle) noexcept {
@@ -3180,8 +3222,18 @@ namespace nkentseu {
 
             bool hov = false, held = false;
             const bool clicked = ctx.ButtonBehavior(id, field, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
-            if (clicked) { if (ctx.IsPopupOpen(id)) ctx.ClosePopup(); else ctx.OpenPopup(id); }
+            if (clicked) { if (ctx.IsPopupOpen(id)) ctx.ClosePopup(); else { ctx.OpenPopup(id); ctx.comboNav = 0; ScrollSet(ctx, id ^ 0xC0FFEEu, NkGuiScrollState{}); } }
             const bool open = ctx.IsPopupOpen(id);
+            // Navigation CLAVIER quand le combo est ouvert : ↑/↓ deplacent l'item
+            // surligne, Entree le choisit (l'appelant lit ctx.comboNav/comboEnter),
+            // Echap ferme.
+            if (open) {
+                const int32 cn = itemCount < 1 ? 1 : itemCount;
+                if (ctx.input.KeyPressedRepeat(NkGuiKey::Down)) ctx.comboNav = (ctx.comboNav + 1) % cn;
+                if (ctx.input.KeyPressedRepeat(NkGuiKey::Up))   ctx.comboNav = (ctx.comboNav - 1 + cn) % cn;
+                ctx.comboEnter = ctx.input.KeyPressed(NkGuiKey::Enter);
+                if (ctx.input.KeyPressed(NkGuiKey::Escape)) ctx.ClosePopup();
+            }
 
             // Champ (couche principale).
             ctx.DL().AddRectFilled(field, ctx.theme.track, ctx.theme.rounding);
@@ -3205,15 +3257,33 @@ namespace nkentseu {
 
             if (!open) return false;
 
-            // Popup sous le champ (rabattu vers le haut si ça déborde en bas).
-            const int32   n  = itemCount < 1 ? 1 : itemCount;
-            const float32 ph = n * (h + ctx.layout.itemSpacingY) + 14.f;
-            NkRect pr = { field.x, field.y + field.h + 2.f, field.w, ph };
-            if (pr.y + pr.h > static_cast<float32>(ctx.viewH)) pr.y = field.y - ph - 2.f;
-            return BeginPopupLevel(ctx, id, 0, pr, field);
+            // Popup : ouvre VERS LE BAS en priorite ; hauteur PLAFONNEE a l'espace
+            // disponible (et a un max) -> au-dela, le contenu DEFILE (scrollbar V).
+            const int32   n        = itemCount < 1 ? 1 : itemCount;
+            const float32 rowH     = h + ctx.layout.itemSpacingY;
+            const float32 desiredH = n * rowH + 10.f;
+            const float32 below    = static_cast<float32>(ctx.viewH) - (field.y + field.h + 4.f);
+            const float32 above    = field.y - 4.f;
+            const float32 capMax   = 360.f;
+            float32 popH = desiredH < capMax ? desiredH : capMax;
+            bool up = false;
+            if (popH > below && above > below) { up = true; if (popH > above) popH = above; }
+            else if (popH > below)             { popH = below; }
+            if (popH < rowH) popH = rowH;
+            NkRect pr = { field.x, up ? (field.y - popH - 2.f) : (field.y + field.h + 2.f), field.w, popH };
+
+            if (!BeginPopupLevel(ctx, id, 0, pr, field)) return false;
+            // Contenu defilant (scrollbar verticale auto quand ca deborde).
+            const NkRect inner = { pr.x + 2.f, pr.y + 3.f, pr.w - 4.f, pr.h - 6.f };
+            BeginScrollFrame(ctx, id ^ 0xC0FFEEu, inner, /*horizontal=*/false, /*fillWidth=*/true);
+            // La molette sur le popup a deja servi a defiler le combo -> on la CONSOMME
+            // pour que les panneaux dessous (editeur/explorateur, dessines apres) ne
+            // defilent pas en meme temps.
+            if (NkGuiRectContains(pr, ctx.input.mousePos)) { ctx.input.wheel = 0.f; ctx.input.wheelH = 0.f; }
+            return true;
         }
 
-        void EndCombo(NkGuiContext& ctx) noexcept { EndPopup(ctx); }
+        void EndCombo(NkGuiContext& ctx) noexcept { EndScrollFrame(ctx); EndPopup(ctx); }
 
         // ── Menus (barre + sous-menus imbriqués + menu contextuel) ───────────
         // Taille auto-mesurée d'un menu (mesurée une frame, appliquée la suivante).
@@ -3272,7 +3342,15 @@ namespace nkentseu {
             const bool clicked = ctx.ButtonBehavior(id, titleR, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
             const bool curOpen = (ctx.popupDepth > level && ctx.popupStack[level] == id);
             if (inBar) {
-                if (clicked) { if (curOpen) ctx.ClosePopup(); else ctx.OpenPopupLevel(id, level); }
+                // Ouverture au PRESS via test geometrique direct : ne depend PAS du
+                // survol resolu (hotIdPrev) de la frame precedente. Sinon un clic sur
+                // un titre jamais survole avant n'ouvrait pas le menu au 1er coup.
+                // On N'utilise PAS `clicked` (relachement) ici : sinon press ouvrirait
+                // et release refermerait aussitot (double bascule).
+                (void)clicked;
+                const bool pressInside = ctx.input.mouseClicked[0]
+                                       && NkGuiRectContains(titleR, ctx.input.mousePos);
+                if (pressInside) { if (curOpen) ctx.ClosePopup(); else ctx.OpenPopupLevel(id, level); }
                 else if (hov && ctx.popupDepth > 0 && ctx.popupStack[0] != id) ctx.OpenPopupLevel(id, level);
             } else {
                 if (hov || clicked) ctx.OpenPopupLevel(id, level);  // sous-menu : survol ouvre

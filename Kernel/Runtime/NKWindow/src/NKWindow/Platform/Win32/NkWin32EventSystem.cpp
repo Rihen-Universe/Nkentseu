@@ -153,6 +153,22 @@ namespace nkentseu {
         auto* owner  = reinterpret_cast<NkWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
         NkWindowId winId = owner ? owner->GetId() : NK_INVALID_WINDOW_ID;
 
+        // Fenetre SANS decoration (frame=false) : supprime la zone non-cliente
+        // (barre de titre + bordure OS) en gardant le comportement (snap/min/max/
+        // resize). On etend la zone client a toute la fenetre.
+        if (msg == WM_NCCALCSIZE && wp == TRUE && owner && owner->mData.mBorderless) {
+            NCCALCSIZE_PARAMS* p = reinterpret_cast<NCCALCSIZE_PARAMS*>(lp);
+            if (IsZoomed(hwnd)) {   // maximise : insere le cadre pour ne pas couvrir la barre des taches
+                const int fx = GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+                const int fy = GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+                p->rgrc[0].left   += fx;
+                p->rgrc[0].top    += fy;
+                p->rgrc[0].right  -= fx;
+                p->rgrc[0].bottom -= fy;
+            }
+            return 0;   // client = toute la fenetre (aucune bordure dessinee par l'OS)
+        }
+
         return NkWin32_ProcessMessage(sys, hwnd, msg, wp, lp, winId, owner);
     }
 
@@ -593,21 +609,9 @@ namespace nkentseu {
 
             case WM_NCHITTEST:
                 if (owner && !owner->GetConfig().frame) {
-                    RECT rc; GetWindowRect(hwnd, &rc);
-                    int x = GET_X_LPARAM(lp) - rc.left;
-                    int y = GET_Y_LPARAM(lp) - rc.top;
-                    int w = rc.right  - rc.left;
-                    int h = rc.bottom - rc.top;
-                    int b = IsZoomed(hwnd) ? 0 : 5;
-                    if (x < b && y < b)             { result = HTTOPLEFT;     break; }
-                    if (x > w-b && y < b)           { result = HTTOPRIGHT;    break; }
-                    if (x < b && y > h-b)           { result = HTBOTTOMLEFT;  break; }
-                    if (x > w-b && y > h-b)         { result = HTBOTTOMRIGHT; break; }
-                    if (x < b)                      { result = HTLEFT;        break; }
-                    if (x > w-b)                    { result = HTRIGHT;       break; }
-                    if (y < b)                      { result = HTTOP;         break; }
-                    if (y > h-b)                    { result = HTBOTTOM;      break; }
-                    if (y < 32 && x > 260 && x < w-260) { result = HTCAPTION; break; }
+                    // TOUT = HTCLIENT : le resize NATIF ne fonctionne pas dans ce setup
+                    // borderless (WM_NCCALCSIZE renvoie 0). On gere donc le resize a la
+                    // MAIN cote shell (HandleEdgeResize), et l'app recoit tous les events.
                     result = HTCLIENT;
                 }
                 break;

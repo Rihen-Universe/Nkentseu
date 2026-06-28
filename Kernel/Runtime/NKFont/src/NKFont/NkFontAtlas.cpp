@@ -667,6 +667,13 @@ namespace nkentseu {
 
     void NkFont::AddGlyph(const NkFontGlyph& g) {
         if (glyphCount >= NK_FONT_MAX_GLYPHS) return;
+        // Anti-doublon (fallback de police) : si ce codepoint existe deja, on GARDE
+        // le 1er (la police primaire est rasterisee avant les polices de repli) ->
+        // pas de melange de design pour les glyphes communs (ex. 'A').
+        for (nkft_uint32 i = 0; i < sortedCount; ++i) {
+            if (glyphSortedCodepoints[i] == g.codepoint) return;
+            if (glyphSortedCodepoints[i] > g.codepoint) break;   // tri croissant -> absent
+        }
         glyphs[glyphCount] = g;
         AddGlyphSorted(g);
         ++glyphCount;

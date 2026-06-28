@@ -273,6 +273,8 @@ namespace nkentseu {
         // Ancre une fenêtre dans le DockSpace PAR PROGRAMME (layout par défaut au boot).
         // `zone` : 0 = onglet, 1 = gauche, 2 = droite, 3 = haut, 4 = bas (sur la 1re feuille).
         NKENTSEU_NKGUI_API void DockBuilderDock(NkGuiContext& ctx, const char* windowTitle, int32 zone) noexcept;
+        // Ancre `windowTitle` en ONGLET dans le nœud de `targetTitle` (même barre).
+        NKENTSEU_NKGUI_API void DockBuilderDockTab(NkGuiContext& ctx, const char* windowTitle, const char* targetTitle) noexcept;
         // DockSpace qui remplit TOUT le viewport (responsive : suit la taille de la
         // fenêtre OS → le dock + les fenêtres ancrées s'agrandissent avec elle).
         // `topMargin` = hauteur réservée en haut (ex. barre de menus).

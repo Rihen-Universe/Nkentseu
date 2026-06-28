@@ -56,6 +56,12 @@ namespace nkentseu {
             bool    keyInit[KeyCount] = {};   ///< vient d'être enfoncée cette frame
             float32 keyDur [KeyCount] = {};   ///< durée d'appui (s ; -1 = relâchée)
 
+            // Raccourcis d'edition demandes cette frame (poses par l'app sur Ctrl+C/X/V/A).
+            bool    wantCopy      = false;
+            bool    wantCut       = false;
+            bool    wantPaste     = false;
+            bool    wantSelectAll = false;
+
             void PushChar(uint32 cp) noexcept { if (charCount < 32) chars[charCount++] = cp; }
             void SetKey(NkGuiKey k, bool down) noexcept { keyDown[static_cast<int32>(k)] = down; }
 
@@ -107,7 +113,10 @@ namespace nkentseu {
             }
 
             // Texte consommé chaque frame (les touches restent en état down/up).
-            void ClearPerFrameText() noexcept { charCount = 0; }
+            void ClearPerFrameText() noexcept {
+                charCount = 0;
+                wantCopy = wantCut = wantPaste = wantSelectAll = false;
+            }
         };
 
     } // namespace nkgui
