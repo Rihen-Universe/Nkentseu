@@ -174,6 +174,9 @@ namespace nkentseu { namespace demo {
         auto* r3d=ctx.renderer->GetRender3D();
         if(!r3d){ ctx.renderer->Present(); ctx.renderer->EndFrame(); return; }
         const uint32 jc=(uint32)st->bindGlobal.Size();
+        // Garde-fou : glTF non chargé (modèle manquant) -> squelette vide. On présente
+        // une frame vide au lieu d'indexer des NkVector vides (assert/crash).
+        if(jc==0 || st->chain.Empty()){ ctx.renderer->Present(); ctx.renderer->EndFrame(); return; }
         const float32 t=ctx.totalTime;
 
         // 1) pose animée -> matrices de skinning
