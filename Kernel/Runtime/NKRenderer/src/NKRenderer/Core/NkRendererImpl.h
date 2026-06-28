@@ -63,6 +63,7 @@ namespace nkentseu {
 
                 NkOffscreenTarget* CreateOffscreen(const NkOffscreenDesc& desc) override;
                 void               DestroyOffscreen(NkOffscreenTarget*& t)      override;
+                void               SetFinalColorTarget(NkTextureHandle target)  override;
 
                 class NkPlanarReflectionSystem* GetPlanarReflection() override { return mPlanarReflection.Get(); }
                 class NkVoxelAOSystem*          GetVoxelAO()          override { return mVoxelAO.Get(); }
@@ -121,6 +122,7 @@ namespace nkentseu {
                 memory::NkUniquePtr<class NkVoxelAOSystem>          mVoxelAO;     // Phase H.6
 
                 NkVector<NkOffscreenTarget*> mOffscreenTargets;
+                NkTextureHandle              mFinalColorOverride{};  // sortie graph -> RT externe (vide=swapchain)
 
                 bool InitRHI();
                 void BuildDefaultRenderGraph();
