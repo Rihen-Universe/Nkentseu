@@ -31,9 +31,17 @@ namespace nkcode {
         int32   langIdx   = 0;
         int32   projDialect = 0;               // index NkDialects (NewProject)
         int32   projFocus   = 0;               // champ focus du dialogue NewProject
+        int32   projWarn    = 0;               // 0=Defaut,1=Off,2=High,3=Extra,4=Everything
+        float32 projScroll  = 0.f;             // defilement du formulaire projet
+        char    projFiles[160]   = {};         // motif fichiers (defaut src/**.<ext>)
         char    projDefines[256] = {};         // defines projet (csv)
+        char    projInc[256]     = {};         // includedirs (csv)
+        char    projLib[256]     = {};         // libdirs (csv)
+        char    projLinks[256]   = {};         // links (csv)
+        char    projDeps[256]    = {};         // dependson (csv)
         char    projVersion[32]  = {};         // appversion (apps)
         char    projPublisher[64]= {};         // apppublisher (apps)
+        char    projIcon[512]    = {};         // appicon (apps)
         bool    justOpened = false;
         NkString status;          // message d'erreur/succes affiche dans le dialogue
 
@@ -692,7 +700,7 @@ namespace nkcode {
         text(cx, py + 16.f * S, "Toolchains detectees par Jenga", cText);
         text(cx, py + 16.f * S + lh + 2.f, "Modifier/Supprimer un toolchain (registre Jenga) ou editer les chemins SDK.", cSub);
 
-        const NkRect area = { cx, py + 64.f * S, cwid, ph - 64.f * S - 150.f * S };
+        const NkRect area = { cx, py + 64.f * S, cwid, ph - 64.f * S - 182.f * S };
         dl.AddRectFilled(area, NkColor{ 16,18,22,255 }, 6.f * S); dl.AddRect(area, cBorder, 1.f);
         if (hit(area) && ctx.input.wheel != 0.f) { d->tcScroll -= ctx.input.wheel * 34.f; ctx.input.wheel = 0.f; }
         dl.PushClipRect(area, true);
@@ -728,9 +736,9 @@ namespace nkcode {
         // Chemins SDK editables (override via environnement)
         text(cx, area.y + area.h + 8.f * S, "Chemins SDK (override) :", cSub);
         struct PF { const char* lab; char* buf; int32 id; };
-        const PF pfs[] = { { "Android NDK", d->androidNdk, 1 }, { "Java JDK", d->javaJdk, 2 }, { "HarmonyOS", d->harmonySdk, 3 }, { "Xbox GDK", d->gdkPath, 4 } };
+        const PF pfs[] = { { "Android SDK", d->androidSdk, 0 }, { "Android NDK", d->androidNdk, 1 }, { "Java JDK", d->javaJdk, 2 }, { "HarmonyOS", d->harmonySdk, 3 }, { "Xbox GDK", d->gdkPath, 4 } };
         const float32 yy = area.y + area.h + 30.f * S, colA = cx, colB = cx + cwid * 0.5f + 8.f * S;
-        for (int32 i = 0; i < 4; ++i) {
+        for (int32 i = 0; i < 5; ++i) {
             const float32 bx = (i % 2 == 0) ? colA : colB; const float32 bw = cwid * 0.5f - 8.f * S;
             const float32 ry = yy + (i / 2) * 28.f * S;
             text(bx, ry, pfs[i].lab, cSub);
@@ -882,7 +890,7 @@ namespace nkcode {
 
         const bool isProj   = (d->mode == NkCodeDialogs::NewProject);
         const bool isSaveAs = (d->mode == NkCodeDialogs::SaveAs);
-        const float32 pw = 460.f, ph = isProj ? 488.f : 220.f, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+        const float32 pw = 460.f, ph = isProj ? 560.f : 220.f, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
         dl.AddRectFilled({ 0.f, 0.f, W, H }, NkColor{ 0, 0, 0, 150 });
         const NkRect panel = { px, py, pw, ph };
         // Fermeture par clic hors panneau (sauf frame d'ouverture).
@@ -895,53 +903,89 @@ namespace nkcode {
         text(px + 18.f, py + 16.f, title, NkColor{ 230, 237, 243, 255 });
 
         const float32 cx = px + 20.f;
-        float32 y = py + 52.f;
-        text(cx, y, isSaveAs ? "Nom ou chemin du fichier" : "Nom", NkColor{ 160, 170, 180, 255 }); y += 22.f;
-        { const NkRect r = { cx, y, pw - 40.f, 28.f };
-          NkOverlayTextField(ctx, dl, f, r, d->nameBuf, (int32)sizeof(d->nameBuf), isSaveAs || d->projFocus == 0);
-          if (hit(r) && click) d->projFocus = 0; }
-        y += 40.f;
+        const NkColor lblC = { 160, 170, 180, 255 };
 
-        if (isProj) {
+        if (!isProj) {
+            // ── Workspace / Enregistrer sous : champ Nom simple ──
+            float32 y = py + 52.f;
+            text(cx, y, isSaveAs ? "Nom ou chemin du fichier" : "Nom", lblC); y += 22.f;
+            const NkRect r = { cx, y, pw - 40.f, 28.f };
+            NkOverlayTextField(ctx, dl, f, r, d->nameBuf, (int32)sizeof(d->nameBuf), true);
+        } else {
+            // ── Projet : formulaire COMPLET, defilable ──
             int32 nk = 0, nl = 0, nd = 0; const NkKindDef* K = NkKinds(&nk); const NkLangDef* L = NkLangs(&nl); const char* const* D = NkDialects(&nd);
             const bool isApp = K[d->kindIdx >= 0 && d->kindIdx < nk ? d->kindIdx : 0].app;
             const bool isCpp = (d->langIdx == 0);
-            // Genre (2 colonnes compactes)
-            text(cx, y, "Genre", NkColor{ 160, 170, 180, 255 }); y += 22.f;
+            const NkRect content = { px + 2.f, py + 42.f, pw - 4.f, ph - 42.f - 50.f };
+            const bool mic = NkGuiRectContains(content, mp);
+            if (mic && ctx.input.wheel != 0.f) { d->projScroll -= ctx.input.wheel * 30.f; ctx.input.wheel = 0.f; }
+            dl.PushClipRect(content, true);
+            const float32 fw = pw - 40.f;
+            float32 y = content.y + 6.f - d->projScroll;
+            auto field = [&](const char* lab, char* buf, int32 cap, int32 id, bool browse) {
+                text(cx, y, lab, lblC); y += 20.f;
+                const NkRect r = { cx, y, fw - (browse ? 36.f : 0.f), 26.f };
+                NkOverlayTextField(ctx, dl, f, r, buf, cap, d->projFocus == id);
+                if (mic && hit(r) && click) d->projFocus = id;
+                if (browse && btn({ cx + fw - 32.f, y, 32.f, 26.f }, "...", true) && mic) d->BrowseInto(buf, cap, lab);
+                y += 32.f;
+            };
+            field("Nom du projet", d->nameBuf, (int32)sizeof(d->nameBuf), 0, false);
+            // Genre (2 colonnes)
+            text(cx, y, "Genre", lblC); y += 22.f;
             for (int32 i = 0; i < nk; ++i) {
-                const NkRect r = { cx + (i % 2) * ((pw - 40.f) * 0.5f + 4.f), y + (i / 2) * 28.f, (pw - 40.f) * 0.5f - 4.f, 24.f };
+                const NkRect r = { cx + (i % 2) * (fw * 0.5f + 4.f), y + (i / 2) * 28.f, fw * 0.5f - 4.f, 24.f };
                 const bool sel = (d->kindIdx == i);
                 dl.AddRectFilled(r, sel ? NkColor{ 38, 60, 92, 255 } : (hit(r) ? NkColor{ 33, 39, 48, 255 } : NkColor{ 24, 28, 34, 255 }), 4.f);
                 if (sel) dl.AddRect(r, NkColor{ 88, 166, 255, 255 }, 1.f);
                 text(r.x + 10.f, r.y + (r.h - lh) * 0.5f, K[i].label, sel ? NkColor{ 230, 237, 243, 255 } : NkColor{ 180, 188, 196, 255 });
-                if (hit(r) && click) d->kindIdx = i;
+                if (mic && hit(r) && click) d->kindIdx = i;
             }
             y += ((nk + 1) / 2) * 28.f + 8.f;
-            // Langage + (C++) dialecte sur la meme ligne logique
-            text(cx, y, "Langage", NkColor{ 160, 170, 180, 255 }); y += 22.f;
+            // Langage
+            text(cx, y, "Langage", lblC); y += 22.f;
             float32 lx = cx;
             for (int32 i = 0; i < nl; ++i) { const float32 bw = f->MeasureWidth(L[i].label) + 20.f;
-                if (btn({ lx, y, bw, 26.f }, L[i].label, true)) d->langIdx = i;
+                if (btn({ lx, y, bw, 26.f }, L[i].label, true) && mic) d->langIdx = i;
                 if (d->langIdx == i) dl.AddRect({ lx, y, bw, 26.f }, NkColor{ 88, 166, 255, 255 }, 1.5f); lx += bw + 6.f; }
             y += 34.f;
             if (isCpp) {
-                text(cx, y, "Dialecte C++", NkColor{ 160, 170, 180, 255 }); y += 22.f;
+                text(cx, y, "Dialecte C++", lblC); y += 22.f;
                 float32 dx = cx;
                 for (int32 i = 0; i < nd; ++i) { const float32 bw = f->MeasureWidth(D[i]) + 18.f;
-                    if (btn({ dx, y, bw, 24.f }, D[i], true)) d->projDialect = i;
+                    if (btn({ dx, y, bw, 24.f }, D[i], true) && mic) d->projDialect = i;
                     if (d->projDialect == i) dl.AddRect({ dx, y, bw, 24.f }, NkColor{ 88, 166, 255, 255 }, 1.5f); dx += bw + 6.f; }
                 y += 32.f;
             }
-            // Defines
-            text(cx, y, "Defines (separes par des virgules)", NkColor{ 160, 170, 180, 255 }); y += 22.f;
-            { const NkRect r = { cx, y, pw - 40.f, 26.f }; NkOverlayTextField(ctx, dl, f, r, d->projDefines, (int32)sizeof(d->projDefines), d->projFocus == 1); if (hit(r) && click) d->projFocus = 1; } y += 34.f;
-            // App : version + editeur
+            { char ph2[64]; std::snprintf(ph2, sizeof(ph2), "Fichiers sources (defaut src/**.%s)", L[d->langIdx >= 0 && d->langIdx < nl ? d->langIdx : 0].ext);
+              field(ph2, d->projFiles, (int32)sizeof(d->projFiles), 1, false); }
+            field("Dossiers d'include (csv)", d->projInc, (int32)sizeof(d->projInc), 2, false);
+            field("Bibliotheques a lier - links (csv)", d->projLinks, (int32)sizeof(d->projLinks), 3, false);
+            field("Dossiers de bibliotheques - libdirs (csv)", d->projLib, (int32)sizeof(d->projLib), 4, false);
+            field("Dependances - dependson (csv)", d->projDeps, (int32)sizeof(d->projDeps), 5, false);
+            field("Defines (csv)", d->projDefines, (int32)sizeof(d->projDefines), 6, false);
+            // Avertissements
+            text(cx, y, "Avertissements", lblC); y += 22.f;
+            { const char* wl[] = { "Defaut", "Off", "High", "Extra", "Everything" }; float32 wx = cx;
+              for (int32 i = 0; i < 5; ++i) { const float32 bw = f->MeasureWidth(wl[i]) + 16.f;
+                  if (btn({ wx, y, bw, 24.f }, wl[i], true) && mic) d->projWarn = i;
+                  if (d->projWarn == i) dl.AddRect({ wx, y, bw, 24.f }, NkColor{ 88, 166, 255, 255 }, 1.5f); wx += bw + 5.f; } }
+            y += 34.f;
             if (isApp) {
-                text(cx, y, "Version", NkColor{ 160, 170, 180, 255 }); text(cx + (pw - 40.f) * 0.5f + 6.f, y, "Editeur", NkColor{ 160, 170, 180, 255 }); y += 22.f;
-                { const NkRect r = { cx, y, (pw - 40.f) * 0.5f - 6.f, 26.f }; NkOverlayTextField(ctx, dl, f, r, d->projVersion, (int32)sizeof(d->projVersion), d->projFocus == 2); if (hit(r) && click) d->projFocus = 2; }
-                { const NkRect r = { cx + (pw - 40.f) * 0.5f + 6.f, y, (pw - 40.f) * 0.5f - 6.f, 26.f }; NkOverlayTextField(ctx, dl, f, r, d->projPublisher, (int32)sizeof(d->projPublisher), d->projFocus == 3); if (hit(r) && click) d->projFocus = 3; }
-                y += 34.f;
+                text(cx, y, "Version", lblC); text(cx + fw * 0.5f + 6.f, y, "Editeur", lblC); y += 20.f;
+                { const NkRect r = { cx, y, fw * 0.5f - 6.f, 26.f }; NkOverlayTextField(ctx, dl, f, r, d->projVersion, (int32)sizeof(d->projVersion), d->projFocus == 7); if (mic && hit(r) && click) d->projFocus = 7; }
+                { const NkRect r = { cx + fw * 0.5f + 6.f, y, fw * 0.5f - 6.f, 26.f }; NkOverlayTextField(ctx, dl, f, r, d->projPublisher, (int32)sizeof(d->projPublisher), d->projFocus == 8); if (mic && hit(r) && click) d->projFocus = 8; }
+                y += 32.f;
+                field("Icone de l'application", d->projIcon, (int32)sizeof(d->projIcon), 9, true);
             }
+            const float32 contentH = (y + d->projScroll) - (content.y + 6.f);
+            dl.PopClipRect();
+            // barre de defilement
+            const float32 maxS = contentH - content.h > 0.f ? contentH - content.h : 0.f;
+            if (d->projScroll < 0.f) d->projScroll = 0.f; if (d->projScroll > maxS) d->projScroll = maxS;
+            if (maxS > 0.f) { const float32 th = content.h * (content.h / contentH);
+                const float32 ty = content.y + (content.h - th) * (d->projScroll / maxS);
+                dl.AddRectFilled({ content.x + content.w - 5.f, ty, 4.f, th }, NkColor{ 80, 88, 96, 255 }, 2.f); }
         }
 
         if (!d->status.Empty())
@@ -960,9 +1004,13 @@ namespace nkcode {
                 NkString made;
                 if (isProj) {
                     int32 nd = 0; const char* const* D = NkDialects(&nd);
+                    const char* warnL[] = { "", "Off", "High", "Extra", "Everything" };
                     NkProjectOpts po; po.name = d->nameBuf; po.kindIdx = d->kindIdx; po.langIdx = d->langIdx;
                     po.cppDialect = (d->langIdx == 0 && d->projDialect >= 0 && d->projDialect < nd) ? D[d->projDialect] : "";
-                    po.defines = d->projDefines; po.appVersion = d->projVersion; po.appPublisher = d->projPublisher;
+                    po.filesPattern = d->projFiles; po.defines = d->projDefines;
+                    po.includeDirs = d->projInc; po.libDirs = d->projLib; po.links = d->projLinks; po.dependsOn = d->projDeps;
+                    po.warnings = warnL[d->projWarn >= 0 && d->projWarn < 5 ? d->projWarn : 0];
+                    po.appVersion = d->projVersion; po.appPublisher = d->projPublisher; po.appIcon = d->projIcon;
                     made = GenerateProjectEx(d->st->root, NkPath(d->st->wsPaths[d->st->wsIdx].CStr()), po);
                 }
                 else        made = GenerateWorkspace(d->st->root, d->nameBuf);

@@ -181,9 +181,16 @@ namespace nkentseu {
             int32       kindIdx     = 0;
             int32       langIdx     = 0;
             const char* cppDialect  = "";   // "" => defaut du langage
+            const char* filesPattern= "";   // "" => src/**.<ext> par defaut
             const char* defines     = "";   // liste separee par virgules
+            const char* includeDirs = "";   // includedirs([...])
+            const char* libDirs     = "";   // libdirs([...])
+            const char* links       = "";   // links([...])
+            const char* dependsOn   = "";   // dependson([...]) — projets du workspace
+            const char* warnings    = "";   // "" / Off / Default / High / Extra / Everything
             const char* appVersion  = "";   // apps : appversion()
             const char* appPublisher= "";   // apps : apppublisher()
+            const char* appIcon     = "";   // apps : appicon()
         };
         // Decoupe une liste "A, B,C" en ["A", "B", "C"] (DSL Python).
         inline NkString NkPyList(const char* csv) noexcept {
@@ -244,10 +251,19 @@ namespace nkentseu {
             c += "    language(\""; c += ld.dsl; c += "\")\n";
             if (dialect && dialect[0]) { c += "    cppdialect(\""; c += dialect; c += "\")\n"; }
             c += "    location(\".\")\n\n";
-            c += "    files([\"src/**."; c += ld.ext; c += "\", \"src/**.h\"])\n\n";
+            // Fichiers sources : motif personnalise ou defaut src/**.<ext>
+            if (opts.filesPattern && *opts.filesPattern) { NkString fp = NkPyList(opts.filesPattern); c += "    files(["; c += fp; c += "])\n\n"; }
+            else { c += "    files([\"src/**."; c += ld.ext; c += "\", \"src/**.h\"])\n\n"; }
+            auto listProp = [&](const char* fn, const char* csv) { if (csv && *csv) { NkString l = NkPyList(csv); if (!l.Empty()) { c += "    "; c += fn; c += "(["; c += l; c += "])\n"; } } };
+            listProp("includedirs", opts.includeDirs);
+            listProp("libdirs",     opts.libDirs);
+            listProp("links",       opts.links);
+            listProp("dependson",   opts.dependsOn);
             if (opts.defines && *opts.defines) { NkString dl2 = NkPyList(opts.defines); if (!dl2.Empty()) { c += "    defines(["; c += dl2; c += "])\n"; } }
+            if (opts.warnings && *opts.warnings) { c += "    warnings(\""; c += opts.warnings; c += "\")\n"; }
             if (kd.app && opts.appVersion && *opts.appVersion)     { c += "    appversion(\""; c += opts.appVersion; c += "\")\n"; }
             if (kd.app && opts.appPublisher && *opts.appPublisher) { c += "    apppublisher(\""; c += opts.appPublisher; c += "\")\n"; }
+            if (kd.app && opts.appIcon && *opts.appIcon)           { c += "    appicon(\""; c += opts.appIcon; c += "\")\n"; }
             c += "\n    objdir(\"%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}\")\n";
             c += "    targetdir(\"%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}\")\n\n";
             c += "    with filter(\"config:Debug\"):\n";
