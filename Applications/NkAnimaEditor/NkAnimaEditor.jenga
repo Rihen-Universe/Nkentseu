@@ -55,10 +55,15 @@ with project("NkAnimaEditor"):
          "NKFont", "NKImage", "NKLogger", "NKMath", "NKTime", "NKStream", "NKFileSystem",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading",
          "NKRHI", "NKRenderer", "NKSL", "NKSerialization"],
-        extra_includes=["src", "src/NkAnimaEditor", "%{NKGlad.location}/include"]
+        extra_includes=["src", "src/NkAnimaEditor", "%{wks.location}/Integrations",
+                        "%{NKGlad.location}/include"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
         extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"],
     )
+
+    # Backend UI NKGui->NKRHI (static lib d'integration, hors registre des modules
+    # coeur) : lie par dependance projet brute.
+    dependson(["NKGuiIntegration"])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")

@@ -376,6 +376,9 @@ with workspace("Nkentseu", location="."):
     with include("Integrations/NKUI/NKUIIntegration.jenga"):
         pass
 
+    with include("Integrations/NKGui/NKGuiIntegration.jenga"):
+        pass
+
     with include("Kernel/Runtime/NKCamera/NKCamera.jenga"):
         pass
 

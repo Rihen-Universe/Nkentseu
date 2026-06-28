@@ -9,6 +9,7 @@
 #include "NKMemory/NkUniquePtr.h"
 #include "AnimBridge.h"
 #include "Panels.h"
+#include "NkEditorRHIRenderer.h"   // UI sur NKRHI/NKRenderer (pas NKCanvas)
 
 using namespace nkentseu;
 using namespace nkentseu::editorkit;
@@ -25,17 +26,61 @@ static void CmdRedo(void*)   { nkanima::AnimRedo(); }
 static void CmdInsert(void*) { nkanima::AnimInsertKeyAtCursor(); }
 static void CmdQuit(void* u) { if (u) static_cast<NkEditorShell*>(u)->RequestClose(); }
 
+// Hook pré-UI : rend le viewport 3D dans l'offscreen (device partagé) AVANT la passe
+// UI, puis publie sa texture au backend NKGui pour AddImage. user = NkEditorRHIRenderer*.
+static void PreUI3D(NkICommandBuffer* cmd, void* user) {
+    auto* r = static_cast<nkanima::NkEditorRHIRenderer*>(user);
+    nkanima::Anim3DRenderOffscreen(cmd);
+    nkanima::Anim3DRegisterInto(&r->GetBackend(), nkanima::ANIM_VIEWPORT_TEXID);
+}
+
 int nkmain(const NkEntryState& state) {
     (void)state;
 
     auto shell = memory::NkMakeUnique<NkEditorShell>();
+    // Backend de rendu NKRHI/NKRenderer injecte (PAS NKCanvas) : l'UI NKGui et le
+    // viewport 3D partageront ce device. Doit survivre au shell.
+    static nkanima::NkEditorRHIRenderer rhi;
     NkEditorShellConfig cfg;
-    cfg.title  = "NkAnimaEditor — timeline (NkAnima M1.c)";
-    cfg.width  = 1280;
-    cfg.height = 720;
+    cfg.title    = "NkAnimaEditor — timeline (NkAnima M1.c)";
+    cfg.width    = 1280;
+    cfg.height   = 720;
+    // OpenGL : backend RHI validé bout-en-bout. DX11 : swapchain E_ACCESSDENIED
+    // sur fenêtre sans bordure (à corriger) -> GL en attendant.
+    cfg.graphicsApi = NkEditorGfxApi::OpenGL;
+    cfg.renderer = &rhi;
     if (!shell || !shell->Init(cfg)) return -1;
 
+    // ── Thème « Dark Pro » épuré (cf interface.md §1 : fond #1a1a1a, accent cyan) ──
+    {
+        nkgui::NkGuiTheme t;
+        t.bgPrimary    = {  26,  26,  28, 255 };   // #1a1a1c quasi-noir
+        t.panel        = {  30,  31,  34, 255 };
+        t.header       = {  34,  35,  39, 255 };
+        t.button       = {  40,  42,  47, 255 };
+        t.buttonHover  = {  52,  56,  64, 255 };
+        t.buttonActive = {   0, 168, 208, 255 };   // cyan profond
+        t.border       = {  46,  48,  55, 255 };
+        t.text         = { 222, 226, 232, 255 };
+        t.textDisabled = { 110, 114, 124, 255 };
+        t.selection    = {   0, 150, 190, 200 };
+        t.accent       = {   0, 212, 255, 255 };    // #00d4ff cyan
+        t.track        = {  24,  25,  28, 255 };
+        t.tabBar       = {  20,  20,  22, 255 };
+        t.tab          = {  28,  29,  32, 255 };
+        t.tabHover     = {  40,  42,  47, 255 };
+        t.tabActive    = {  34,  36,  41, 255 };
+        t.rounding     = 4.f;
+        t.framePadX    = 12.f;
+        t.framePadY    = 7.f;
+        shell->Ui().theme = t;
+    }
+
     nkanima::AnimInit("Resources/Models/CesiumMan/CesiumMan.glb");
+
+    // Viewport 3D : partage le device NKRHI de l'éditeur + rend en début de frame.
+    nkanima::Anim3DSetSharedDevice(rhi.GetDevice());
+    rhi.SetPreUI(&PreUI3D, &rhi);
 
     static nkanima::PreviewPanel  preview;
     static nkanima::TimelinePanel timeline;

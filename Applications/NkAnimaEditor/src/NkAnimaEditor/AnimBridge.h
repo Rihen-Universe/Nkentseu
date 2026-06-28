@@ -14,6 +14,7 @@ namespace nkanima {
     using nkentseu::float32;
     using nkentseu::int32;
     using nkentseu::uint32;
+    using nkentseu::uint8;
     using nkentseu::math::NkVec3f;
     template<typename T> using NkVector = nkentseu::NkVector<T>;
 
@@ -57,7 +58,40 @@ namespace nkanima {
     // IK-drag : tire le joint `jointIdx` vers la cible MONDE (wx,wy,wz). Résout une
     // courte chaîne IK (FABRIK) et met à jour la pose de travail.
     void  AnimDragJoint(int32 jointIdx, float32 wx, float32 wy, float32 wz);
+    // FK-rotate : fait pivoter le joint `jointIdx` sur lui-même de `deltaRadians`
+    // autour de l'axe Z monde (normale du plan d'aperçu) ; les enfants suivent en
+    // FK. Édition directe « os par os » façon Blender/Cascadeur (R).
+    void  AnimRotateJoint(int32 jointIdx, float32 deltaRadians);
+    // FK-translate : déplace le joint `jointIdx` de (dx,dy,dz) en MONDE ; tout le
+    // sous-arbre suit (les enfants conservent leur offset local). Façon Blender (G).
+    void  AnimTranslateJoint(int32 jointIdx, float32 dx, float32 dy, float32 dz);
+    // Position MONDE d'un joint dans la pose de travail (pour l'ancrage du gizmo).
+    void  AnimJointWorldPos(int32 jointIdx, float32& x, float32& y, float32& z);
     // Enregistre la pose de travail en pose-clé au curseur courant.
     void  AnimCommitPoseKey();
+
+    // ── Viewport 3D embarqué (NKRenderer offscreen, device PARTAGÉ avec l'UI) ──
+    // texId du viewport dans le backend NKGui (AddImage côté panneau / RegisterTexture
+    // côté glue). Hors plage des atlas de police (0/1).
+    static const uint32 ANIM_VIEWPORT_TEXID = 4001u;
+
+    // Fournit le device NKRHI de l'éditeur (rhi.GetDevice()) : le viewport 3D le
+    // PARTAGE (pas de 2e device, pas de readback). À appeler avant le 1er rendu.
+    void  Anim3DSetSharedDevice(void* device);            // NkIDevice* (void* = header NKRHI-free)
+    bool  Anim3DReady();                                   // moteur 3D dispo ?
+    void  Anim3DOrbit(float32 dYaw, float32 dPitch, float32 dZoom);  // caméra interactive
+    // Rend la pose courante dans l'offscreen via le command buffer FOURNI (celui de
+    // l'éditeur, AVANT la passe UI). Lazy-init au 1er appel. cmd = NkICommandBuffer*.
+    void  Anim3DRenderOffscreen(void* cmd);
+    // Publie la texture offscreen dans le backend NKGui (guiBackend = NkGuiRHIBackend*)
+    // sous `texId`, pour l'afficher via AddImage. Pas de copie (même device).
+    void  Anim3DRegisterInto(void* guiBackend, uint32 texId);
+
+    // Mode d'affichage du viewport (façon Blender) : Solide = albedo flat sans
+    // éclairage (toujours visible, idéal posing) ; Rendu = PBR éclairé ; Filaire =
+    // wireframe. Défaut = Solide.
+    enum class NkAnimViewMode : int32 { SOLIDE = 0, RENDU = 1, FILAIRE = 2 };
+    void           Anim3DSetViewMode(NkAnimViewMode mode);
+    NkAnimViewMode Anim3DViewMode();
 
 } // namespace nkanima
