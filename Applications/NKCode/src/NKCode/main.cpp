@@ -185,7 +185,7 @@ int nkmain(const NkEntryState& state) {
         ic.exemple       = loadTex("icon/Exemple", 64, 64);
         ic.star          = loadTex("icon/Star", 64, 64);
         ic.search        = loadTex("icon/Search", 48, 48);
-        ic.workspace     = loadTex("icon/workspace", 64, 64);
+        ic.workspace     = loadTex("logo/workspace", 64, 64);   // workspace.png est dans logo/
     }
     shell->SetStartScreen(&StartScreenThunk, &g_home);  // ecran de demarrage plein cadre (Home)
     // Fenetre large/centree mais NON maximisee -> redimensionnable par les bords des
