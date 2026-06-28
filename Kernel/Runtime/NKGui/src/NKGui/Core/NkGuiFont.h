@@ -32,6 +32,10 @@ namespace nkentseu {
             // Charge une police embarquée à la taille donnée + construit l'atlas.
             bool LoadEmbedded(NkEmbeddedFontId id, float32 sizePx) noexcept;
 
+            // Charge une police depuis un fichier TTF/OTF (ex. police système Windows).
+            // Rechargeable : réinitialise l'atlas avant. Conserve `texId` (ré-upload).
+            bool LoadFromFile(const char* path, float32 sizePx) noexcept;
+
             const NkFont* Face()  const noexcept { return face; }
             uint32        TexId() const noexcept { return texId; }
             bool          Valid() const noexcept { return face != nullptr; }
@@ -43,6 +47,15 @@ namespace nkentseu {
                 return (face && s) ? face->CalcTextSizeX(s) : 0.f;
             }
         };
+
+        // Polices de REPLI EXTERNES (fichiers .ttf charges au runtime) : tout glyphe
+        // absent des polices principales (Inter/DejaVu) y est cherche. Roles :
+        //   broad : large couverture (latin etendu, grec, cyrillique, hebreu, arabe, symboles)
+        //   cjk   : ideogrammes (中文/日本語/한국어) — volumineux, opt-in
+        //   emoji : emoji monochrome
+        // A poser par l'APPLICATION (ex. NKCode, depuis son dossier data/fonts) AVANT
+        // de charger les polices. Un chemin nullptr/vide = role desactive.
+        NKENTSEU_NKGUI_API void NkSetFallbackFontPaths(const char* broad, const char* cjk, const char* emoji) noexcept;
 
     } // namespace nkgui
 } // namespace nkentseu
