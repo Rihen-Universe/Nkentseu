@@ -90,8 +90,8 @@ int nkmain(const NkEntryState& state) {
     auto shell = memory::NkMakeUnique<NkEditorShell>();
     NkEditorShellConfig cfg;
     cfg.title  = "NKCode - IDE (Jenga)";
-    cfg.width  = 1280;
-    cfg.height = 720;
+    cfg.width  = 1440;     // grande fenetre centree, REDIMENSIONNABLE (pas maximisee de force)
+    cfg.height = 900;
     if (!shell || !shell->Init(cfg)) return -1;
 
     // Ouvre un fichier au demarrage (demo) : le README de NKCode.
@@ -131,7 +131,9 @@ int nkmain(const NkEntryState& state) {
     shell->SetFileMenu(&FileMenuThunk, &g_dialogs);  // items du menu Fichier (Nouveau/Enregistrer/Deploiement)
     shell->SetOverlay(&OverlayThunk, &g_dialogs);    // dialogues modaux (creation/enregistrement)
     shell->SetStartScreen(&StartScreenThunk, &g_dialogs);  // ecran de demarrage plein cadre
-    shell->Maximize();                               // launcher maximise par defaut (l'etat projet le surchargera)
+    // Fenetre large/centree mais NON maximisee -> redimensionnable par les bords des
+    // le lancement (une fenetre maximisee n'est pas redimensionnable). L'utilisateur
+    // peut maximiser via le bouton de la barre de titre ; l'etat projet le surchargera.
     // g_dialogs.showStart est vrai par defaut -> l'ecran de demarrage s'affiche au lancement.
 
     shell->RegisterCommand("Projet: Construire (jenga build)", &CmdBuild, nullptr,      "Ctrl+B");
