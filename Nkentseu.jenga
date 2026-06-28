@@ -409,6 +409,11 @@ with workspace("Nkentseu", location="."):
     with include("Applications/NKPA/NKPA.jenga"):
         pass
 
+    # NKECS (ECS bas niveau archetypes) — DOIT etre enregistre AVANT Noge qui en
+    # depend (sinon %{NKECS.location} vide -> includes NKECS/* introuvables).
+    with include("Kernel/Runtime/NKECS/NKECS.jenga"):
+        pass
+
     with include("Engine/Noge/Noge.jenga"):
         pass
 
