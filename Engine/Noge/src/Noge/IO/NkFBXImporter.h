@@ -7,7 +7,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "Nkentseu/Modeling/NkEditableMesh.h"
-#include "Nkentseu/ECS/Components/Animation/NkAnimation.h"
+#include "Noge/ECS/Components/Animation/NkAnimation.h"
 
 namespace nkentseu {
 

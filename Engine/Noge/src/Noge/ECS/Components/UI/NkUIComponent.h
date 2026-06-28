@@ -24,8 +24,8 @@
 //    NkHealthBar3D   — barre de vie en espace 3D
 // -----------------------------------------------------------------------------
 
-#include "../../NkECSDefines.h"
-#include "../../Core/NkTypeRegistry.h"
+#include "NKECS/NkECSDefines.h"
+#include "NKECS/Core/NkTypeRegistry.h"
 #include "../Core/NkTransform.h"
 #include <cstring>
 
