@@ -1,6 +1,26 @@
 # NKCollision — Roadmap
 
-État actuel (mai 2026) : module **non intégré au framework Nkentseu**. Le dossier ne contient qu'un prototype tiers `collision_lib/` (namespace `col::`, en-têtes C++17 STL, CMake autonome, archive `collision_lib_complete.tar.gz`) qui n'utilise aucune convention Nkentseu (`Nk*` types, `NKContainers`, `NKMath`, `NkAllocator`, `NkLog`). Les fonctionnalités prévues (AABB/OBB/Sphere/Capsule, raycast, broadphase DBVH, narrowphase GJK/EPA, CCD, contacts persistants, backends GPU) sont **présentes en code prototype** mais doivent être ré-écrites/portées au style Nkentseu pour devenir le module `NKCollision` officiel mentionné par ARCHITECTURE.md §2.4 (`NKPhysics: Rigidbody, collision AABB/OBB/sphere/capsule, raycast`).
+État actuel (**2026-06-29**) : **module Nkentseu démarré, zéro-STL, qui COMPILE et passe son self-test (22/22)**. Phase 0 (bootstrap) + amorce de Phase 1/4/7 livrées : `NKCollision.jenga` + enregistrement (`config/modules.jenga` + `Nkentseu.jenga`), namespace `nkentseu::collision`, types sur **NKMath** (zéro math maison), conteneurs **NKContainers** (`NkVector`), zéro `std::`. Le prototype tiers STL (`col::`) a été **écarté** vers `scratchpad/NKCollision_legacy/` (référence à porter : GJK/EPA, DBVH, CCD, contacts persistants, backends GPU). Objectif final = module `NKCollision` officiel d'ARCHITECTURE.md §2.4.
+
+### Livré 2026-06-29 (commit côté worktree `Nkentseu-anima`)
+- **Phase 0** : structure `src/NKCollision/`, jenga, umbrella `NKCollision.h`, enregistrement workspace. ✅
+- **Types** (`NkColTypes.h`) : `NkAABB2D/3D` (overlap/contains/merge/grow), `NkManifold2D/3D`, `NkRay2D/3D`, `NkRayHit2D/3D` — sur NKMath. ✅
+- **Formes** (`NkColShapes.h`) : `NkShape` (cercle/sphère, boîte, capsule 2D+3D) + `NkComputeAABB2D/3D`. ✅ (OBB plein/polygone/convexe = à venir)
+- **Narrowphase analytique** (`NkColTests.h`) : sphère-sphère, sphère-boîte, boîte-boîte, sphère-capsule, capsule-capsule (3D) ; cercle-cercle, cercle-boîte, boîte-boîte (2D) → manifolds (normale A→B + depth). ✅
+- **Raycast** : sphère/cercle (analytique), AABB (slab). ✅
+- **World** (`NkCollisionWorld.*`) : corps + broadphase O(n²) (AABB) + narrowphase dispatch + **layer/mask** + raycast monde. ✅ (SAP/DBVH/grille = Phase 3)
+- **OBB 2D** (`NkColSAT.h`) : boîtes ORIENTÉES via SAT — OBB-OBB (4 axes) + OBB-cercle
+  (repère local). Câblé dans le narrowphase : la rotation des boîtes 2D est désormais
+  prise en compte (avant : traitées AABB). ✅
+- **Self-test** (`tests/test_collision.cpp`, **NKLogger** pas printf) : **26 assertions, 0 échec**. ✅
+
+### Reste prioritaire (prochaines sessions)
+- **OBB 3D** (SAT 15 axes) : ajouter une orientation (quat) à `NkShape` Box3D + SAT 3D.
+- **GJK + EPA** (2D/3D) via fonctions de support : couvre polygone/convexe/capsule/OBB de
+  façon unifiée + profondeur/normale (le vrai « puissant »).
+- **Polygone 2D / ConvexHull 3D** (stockage sommets) + support functions.
+- **Broadphase SAP / DBVH** (perf, remplace le O(n²) actuel).
+- **Triggers / events** (OnEnter/Stay/Exit), **debug draw** (NKUI), **intégration ECS**.
 
 ---
 

@@ -1013,10 +1013,13 @@
                 NkMat4T Inverse() const noexcept
                 {
                     NkMat4T adjugate;
-                    // Calcul de la matrice adjointe (cofacteurs transposés)
+                    // Matrice adjointe = TRANSPOSEE de la matrice des cofacteurs :
+                    // adj(i,j) = Cofactor(j,i). element(row,col) = Cofactor(col,row).
+                    // (Auparavant Cofactor(row,col) -> renvoyait l'inverse TRANSPOSEE,
+                    //  correct seulement pour rotations pures, faux dès translation/scale.)
                     for (int col = 0; col < 4; ++col) {
                         for (int row = 0; row < 4; ++row) {
-                            adjugate.mat[col][row] = Cofactor(row, col);
+                            adjugate.mat[col][row] = Cofactor(col, row);
                         }
                     }
                     T determinant = Determinant();
@@ -1030,6 +1033,29 @@
                         adjugate.data[index] *= inverseDet;
                     }
                     return adjugate;
+                }
+
+                // -----------------------------------------------------------------
+                // Décomposition affine TRS : translation + rotation + scale
+                // -----------------------------------------------------------------
+                // Extrait la translation (colonne 3), le scale (longueur de chaque
+                // colonne de base) et la rotation (base orthonormée, en MATRICE pour
+                // éviter le cycle d'include NkMat↔NkQuat — convertir via NkQuatT(rot)).
+                // Suppose une matrice affine sans shear/projection (cas transforms).
+                // Indispensable pour interpoler des transforms (slerp la rotation
+                // plutôt que lerp les 16 éléments, qui déforme la rotation).
+                void DecomposeTRS(NkVec3T<T>& outTranslation,
+                                  NkMat4T<T>& outRotation,
+                                  NkVec3T<T>& outScale) const noexcept
+                {
+                    outTranslation = NkVec3T<T>(m30, m31, m32);
+                    NkVec3T<T> c0(m00, m01, m02), c1(m10, m11, m12), c2(m20, m21, m22);
+                    T sx = c0.Len(), sy = c1.Len(), sz = c2.Len();
+                    outScale = NkVec3T<T>(sx, sy, sz);
+                    outRotation = Identity();
+                    if (sx > T(1e-8)) { outRotation.m00 = m00/sx; outRotation.m01 = m01/sx; outRotation.m02 = m02/sx; }
+                    if (sy > T(1e-8)) { outRotation.m10 = m10/sy; outRotation.m11 = m11/sy; outRotation.m12 = m12/sy; }
+                    if (sz > T(1e-8)) { outRotation.m20 = m20/sz; outRotation.m21 = m21/sz; outRotation.m22 = m22/sz; }
                 }
 
                 // -----------------------------------------------------------------
@@ -1190,6 +1216,16 @@
                     result.mat[1][1] = scaleFactors.y;
                     result.mat[2][2] = scaleFactors.z;
                     return result;
+                }
+
+                // Compose TRS = Translation * Rotation * Scale. `rotation` = un type
+                // exposant .ToMat4() (typiquement NkQuat). Template pour eviter le cycle
+                // d'include NkMat <-> NkQuat (resolu au site d'appel). Inverse de DecomposeTRS.
+                template<typename TRot>
+                static NkMat4T TRS(const NkVec3T<T>& translation, const TRot& rotation,
+                                   const NkVec3T<T>& scale) noexcept
+                {
+                    return Translation(translation) * rotation.ToMat4() * Scale(scale);
                 }
 
                 // Rotation autour d'un axe arbitraire (formule de Rodrigues)
