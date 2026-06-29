@@ -44,13 +44,19 @@
 - **Overlap query** : `NkWorld::Overlap(shape, out, mask)` — tous les corps chevauchant
   une forme arbitraire (broadphase AABB + narrowphase). ✅
 
-### Reste prioritaire (vague 6)
+### Livré 2026-06-29 — vague 6 : casts génériques (GJK / conservative advancement) — 76/76
+- **GJK ray-cast / conservative advancement** (`NkColCast.h`) : `NkConvexCast3D` (TOI d'une
+  forme convexe translatée vers une autre) via fonctions de support + GJK-distance avec offset. ✅
+- **Raycast exact** capsule/cylindre/cône/convexe (`NkRayConvex3D` = point casté) — câblé dans `Raycast3D`. ✅
+- **Shape cast** : `NkWorld::ShapeCast(shape, dir, maxDist, hit, mask)` (Sphere/Box/CapsuleCast) avec
+  cull par AABB balayée. ✅
+
+### Reste prioritaire (vague 7)
 - **Manifold multi-points** (clipping Sutherland-Hodgman) : 1 pt -> 2 (2D)/4 (3D) pour la
-  stabilité de la résolution physique.
-- **Raycast exact capsule/cylindre/cône/convexe** (GJK ray-cast par conservative advancement).
-- **Shape casts** (SphereCast/BoxCast/CapsuleCast) + **DBVH** (queries accélérées).
-- **CCD** (swept + TOI) + **contacts persistants** (warm-starting pour NKPhysics).
-- **Debug draw** (NKUI/NKRenderer) + **intégration ECS** (`NkColliderComponent`).
+  stabilité de la résolution physique (le plus important pour NKPhysics au-dessus).
+- **DBVH** (Dynamic AABB tree) : broadphase persistante + queries (raycast/overlap) accélérées.
+- **CCD** intégré au world (swept des corps rapides) + **contacts persistants** (warm-starting).
+- **Debug draw** (NKUI/NKRenderer) + **intégration ECS** (`NkColliderComponent` + système).
 
 ---
 

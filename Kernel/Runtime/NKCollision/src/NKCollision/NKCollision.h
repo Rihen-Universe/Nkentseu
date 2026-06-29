@@ -15,4 +15,5 @@
 #include "NKCollision/NkColSAT.h"
 #include "NKCollision/NkColGJK.h"
 #include "NKCollision/NkColConcave.h"
+#include "NKCollision/NkColCast.h"
 #include "NKCollision/NkCollisionWorld.h"
