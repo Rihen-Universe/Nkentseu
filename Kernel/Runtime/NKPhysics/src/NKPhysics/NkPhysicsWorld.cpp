@@ -72,7 +72,7 @@ namespace nkentseu {
             b.linearVelocity = def.linearVelocity; b.angularVelocity = def.angularVelocity;
             b.material = def.material; b.flags = def.flags;
             b.linearDamping = def.linearDamping; b.angularDamping = def.angularDamping;
-            b.gravityScale = def.gravityScale; b.user = def.user;
+            b.gravityScale = def.gravityScale; b.user = def.user; b.layer = def.layer;
             NkComputeMassProps(shape, def.material.density, def.type, def.flags, b.invMass, b.invInertiaDiag);
             b.collisionId = mCollision.AddBody(shape, def.layer, def.mask, def.user);
             if (def.flags & NK_BODY_TRIGGER) mCollision.SetTrigger(b.collisionId, true);
@@ -92,6 +92,45 @@ namespace nkentseu {
         const NkRigidBody* NkPhysicsWorld::GetBody(NkBodyId id) const noexcept {
             for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) if (mBodies[i].id == id) return &mBodies[i];
             return nullptr;
+        }
+
+        // ── Validation physique (M10) : COM + moments ────────────────────────
+        // Inertie (forward) en repère monde appliquée à ω : I·ω = R·(Idiag ⊙ (Rᵀω)).
+        static NkVec3f NkInertiaApply(const NkRigidBody& b, const NkVec3f& w) noexcept {
+            const NkVec3f loc = b.orientation.Conjugate() * w;
+            const NkVec3f I{ b.invInertiaDiag.x > 0.f ? 1.f / b.invInertiaDiag.x : 0.f,
+                             b.invInertiaDiag.y > 0.f ? 1.f / b.invInertiaDiag.y : 0.f,
+                             b.invInertiaDiag.z > 0.f ? 1.f / b.invInertiaDiag.z : 0.f };
+            return b.orientation * NkVec3f{ loc.x * I.x, loc.y * I.y, loc.z * I.z };
+        }
+
+        float32 NkPhysicsWorld::TotalMass(uint32 lm) const {
+            float32 m = 0.f;
+            for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) { const NkRigidBody& b = mBodies[i]; if (b.invMass > 0.f && (b.layer & lm)) m += 1.f / b.invMass; }
+            return m;
+        }
+        NkVec3f NkPhysicsWorld::CenterOfMass(uint32 lm) const {
+            NkVec3f s{}; float32 m = 0.f;
+            for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) { const NkRigidBody& b = mBodies[i]; if (b.invMass > 0.f && (b.layer & lm)) { const float32 mi = 1.f / b.invMass; s = s + b.position * mi; m += mi; } }
+            return (m > 0.f) ? s * (1.f / m) : NkVec3f{};
+        }
+        NkVec3f NkPhysicsWorld::LinearMomentum(uint32 lm) const {
+            NkVec3f p{};
+            for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) { const NkRigidBody& b = mBodies[i]; if (b.invMass > 0.f && (b.layer & lm)) p = p + b.linearVelocity * (1.f / b.invMass); }
+            return p;
+        }
+        NkVec3f NkPhysicsWorld::CenterOfMassVelocity(uint32 lm) const {
+            const float32 m = TotalMass(lm); return (m > 0.f) ? LinearMomentum(lm) * (1.f / m) : NkVec3f{};
+        }
+        NkVec3f NkPhysicsWorld::AngularMomentum(const NkVec3f& about, uint32 lm) const {
+            NkVec3f L{};
+            for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
+                const NkRigidBody& b = mBodies[i];
+                if (b.invMass <= 0.f || !(b.layer & lm)) continue;
+                const NkVec3f r = b.position - about;
+                L = L + r.Cross(b.linearVelocity * (1.f / b.invMass)) + NkInertiaApply(b, b.angularVelocity);
+            }
+            return L;
         }
 
         // ── Articulations (M7) ───────────────────────────────────────────────

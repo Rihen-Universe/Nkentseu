@@ -316,6 +316,40 @@ int main() {
         CHECK(Near(b2->position.x, 0.f, 0.4f), "M9 ragdoll : pend ~droit (self-collision off, pas d'explosion)");
     }
 
+    // ── M10 : centre de masse + vitesse COM + moment angulaire ──────────────
+    {
+        // COM de 2 masses égales = milieu.
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, 0.f, 0.f} });
+        NkBodyDef d; d.type = NkBodyType::DYNAMIC;
+        d.position = { 0.f, 0.f, 0.f }; world.CreateBody(d, collision::NkShape::Box3D({0,0,0}, {0.5f,0.5f,0.5f}));
+        d.position = { 2.f, 0.f, 0.f }; world.CreateBody(d, collision::NkShape::Box3D({2,0,0}, {0.5f,0.5f,0.5f}));
+        const NkVec3f com = world.CenterOfMass();
+        CHECK(world.TotalMass() > 0.f, "M10 : masse totale > 0");
+        CHECK(Near(com.x, 1.f) && Near(com.y, 0.f) && Near(com.z, 0.f), "M10 : COM = milieu de 2 masses egales");
+    }
+    {
+        // Vitesse du COM en chute libre = g·t.
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkBodyDef d; d.type = NkBodyType::DYNAMIC;
+        d.position = { 0.f, 10.f, 0.f }; world.CreateBody(d, collision::NkShape::Sphere({0,10,0}, 0.5f));
+        d.position = { 3.f, 10.f, 0.f }; world.CreateBody(d, collision::NkShape::Sphere({3,10,0}, 0.5f));
+        for (int i = 0; i < 60; ++i) world.Step(1.f / 60.f);
+        CHECK(Near(world.CenterOfMassVelocity().y, -9.81f, 0.1f), "M10 : vitesse COM chute libre ~ -9.81");
+    }
+    {
+        // Moment angulaire conservé (cube en rotation, sans gravité ni couple ni damping).
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, 0.f, 0.f} });
+        NkBodyDef d; d.type = NkBodyType::DYNAMIC; d.position = { 0.f, 0.f, 0.f };
+        d.angularVelocity = { 0.f, 5.f, 0.f }; d.angularDamping = 0.f;
+        world.CreateBody(d, collision::NkShape::Box3D({0,0,0}, {0.3f,0.3f,0.3f}));
+        const NkVec3f L0 = world.AngularMomentum({0,0,0});
+        for (int i = 0; i < 120; ++i) world.Step(1.f / 60.f);
+        const NkVec3f L1 = world.AngularMomentum({0,0,0});
+        const float32 m0 = math::NkSqrt(L0.Dot(L0)), m1 = math::NkSqrt(L1.Dot(L1));
+        CHECK(m0 > 0.01f, "M10 : moment angulaire non nul (corps en rotation)");
+        CHECK(Near(m1, m0, 0.1f * m0 + 1e-4f), "M10 : moment angulaire CONSERVE (sans couple externe)");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

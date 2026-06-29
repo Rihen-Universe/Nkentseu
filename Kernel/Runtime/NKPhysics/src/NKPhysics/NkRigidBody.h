@@ -49,6 +49,7 @@ namespace nkentseu {
             float32 angularDamping  = 0.05f;
             float32 gravityScale    = 1.0f;
             uint32  flags = NK_BODY_NONE;
+            uint32  layer = 0x1u;          // bitmask d'appartenance (filtre des requêtes COM/moment)
             float32 sleepTimer = 0.f;
             // liens
             NkBodyId id = NK_INVALID_BODY;
