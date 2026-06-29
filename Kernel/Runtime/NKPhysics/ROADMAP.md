@@ -44,7 +44,7 @@
 | **M6** Mise en sommeil (sleeping) + réveil au contact | ✅ | L | P1 |
 | **M7** Articulations — *distance/ball/revolute/weld faits ; reste prismatic* | 🔶 | XL | P2 |
 | **M8** Moteurs & **drives PD** + limites → *ragdoll actif* (tient/atteint une pose) | ✅ | L | P1 |
-| **M9** **Ragdoll générique** : builder squelette (os+joints depuis hiérarchie), self-collision | ⏳ | L | P1 |
+| **M9** **Ragdoll générique** : builder squelette (os+joints depuis hiérarchie), self-collision | ✅ | L | P1 |
 | **M10** **Centre de masse + moment angulaire** (validation « physiquement correct » Cascadeur) | ⏳ | M | P1 |
 | **M11** CCD (corps rapides) via `NkWorld::SweepBody` | ⏳ | M | P2 |
 | **M12** Sous-pas (sub-stepping) + déterminisme | ⏳ | M | P2 |
@@ -200,10 +200,23 @@ Scaffold de structure uniquement (pas de simulation) :
 > ⭐ C'est le passage du ragdoll *passif* au ragdoll *actif* — la brique signature de
 > l'assistance physique d'animation (Cascadeur), valable pour toute morphologie.
 
+## Livré — M9 (2026-06-29, self-test 41/41)
+
+- **`NkRagdoll`** (`NkRagdoll.h`, header-only) : `Build(world, NkBoneDef[], n, group)` crée
+  un `NkRigidBody` par os + un `NkJoint` par lien parent-enfant, depuis une **hiérarchie d'os
+  arbitraire** (`NkBoneDef` : parent, pose, forme, type de joint + pivot/axe/limites). Accès
+  `Body(i)` / `Joint(i)`.
+- **Self-collision désactivée** par bit de layer dédié (`layer=group`, `mask=~group`) : les os
+  d'un même ragdoll ne se percutent pas, mais collisionnent normalement avec le monde.
+- **GÉNÉRIQUE** : aucune morphologie figée — humanoïde, quadrupède, créature, mécanique ne sont
+  que des listes d'os différentes.
+- **Démo** : une chaîne de 3 os suspendue à une ancre **tient** (os liés à ~1, pend droit, pas
+  d'explosion).
+
 ## En cours
 
-- **M9** — **Ragdoll générique** (`NkRagdoll`) : construire corps+joints depuis une hiérarchie
-  d'os arbitraire (humanoïde, animal, créature) + self-collision.
+- **M10** — **centre de masse + moment angulaire** (validation « physiquement correct »
+  Cascadeur) : requêtes COM global/par-membre, moment angulaire total, support/équilibre.
 
 ---
 

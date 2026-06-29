@@ -17,3 +17,4 @@
 #include "NKPhysics/NkContactSolver.h"
 #include "NKPhysics/NkJoint.h"
 #include "NKPhysics/NkPhysicsWorld.h"
+#include "NKPhysics/NkRagdoll.h"
