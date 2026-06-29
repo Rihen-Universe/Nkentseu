@@ -24,6 +24,9 @@
 namespace nkentseu {
     namespace physics {
 
+        // Événement de zone de détection : `trigger` (le corps trigger) chevauche `other`.
+        struct NkTriggerEvent { NkBodyId trigger = NK_INVALID_BODY; NkBodyId other = NK_INVALID_BODY; };
+
         class NkPhysicsWorld {
             public:
                 explicit NkPhysicsWorld(const NkPhysicsConfig& cfg = {}) noexcept;
@@ -60,6 +63,16 @@ namespace nkentseu {
                 void SetLinearVelocity(NkBodyId id, const NkVec3f& v) noexcept { if (NkRigidBody* b = GetBody(id)) b->linearVelocity = v; }
                 void SetAngularVelocity(NkBodyId id, const NkVec3f& w) noexcept { if (NkRigidBody* b = GetBody(id)) b->angularVelocity = w; }
 
+                // ── Requêtes physiques (M13) : renvoient des NkBodyId ────────
+                // Raycast : remplit `outBody` (corps touché) + `hit`. Filtre par layer.
+                bool   Raycast(const collision::NkRay3D& ray, NkBodyId& outBody, collision::NkRayHit3D& hit, uint32 layerMask = 0xFFFFFFFFu) const;
+                // Tous les corps chevauchant la forme `s` -> ids physiques.
+                uint32 OverlapShape(const collision::NkShape& s, NkVector<NkBodyId>& out, uint32 layerMask = 0xFFFFFFFFu) const;
+                // Événements de trigger (zones) calculés par Step (corps flag NK_BODY_TRIGGER).
+                const NkVector<NkTriggerEvent>& TriggerEnter() const noexcept { return mTrigEnter; }
+                const NkVector<NkTriggerEvent>& TriggerStay()  const noexcept { return mTrigStay; }
+                const NkVector<NkTriggerEvent>& TriggerExit()  const noexcept { return mTrigExit; }
+
                 // ── Validation « physiquement correct » (M10) ────────────────
                 // Requêtes sur les corps DYNAMIQUES filtrés par `layerMask` (passer le `group`
                 // d'un ragdoll pour ne mesurer que lui). Base de la validation type Cascadeur.
@@ -91,6 +104,7 @@ namespace nkentseu {
                 void         UpdateSleep(float32 dt);       // M6 : endormir les corps immobiles
                 void         SolveJoints(float32 dt);       // M7 : contraintes d'articulation
                 void         Substep(float32 h);            // M12 : un pas de simulation atomique
+                void         ProcessTriggers();             // M13 : mappe les events collision -> triggers
 
                 NkPhysicsConfig          mConfig;
                 collision::NkWorld       mCollision;   // détection (DBVH, manifolds)
@@ -98,6 +112,7 @@ namespace nkentseu {
                 NkContactSolver          mSolver;
                 NkVector<NkWarmEntry>    mWarm;         // cache d'impulses (frame précédente)
                 NkVector<NkJoint>        mJoints;       // articulations (M7)
+                NkVector<NkTriggerEvent> mTrigEnter, mTrigStay, mTrigExit; // M13
                 float32                  mAccumulator = 0.f; // pas fixe (M12)
                 NkBodyId                 mNextId = 1u;
                 NkJointId                mNextJointId = 1u;

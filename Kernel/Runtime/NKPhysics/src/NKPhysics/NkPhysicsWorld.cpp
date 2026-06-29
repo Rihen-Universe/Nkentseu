@@ -133,6 +133,36 @@ namespace nkentseu {
             return L;
         }
 
+        // ── Requêtes physiques (M13) ─────────────────────────────────────────
+        bool NkPhysicsWorld::Raycast(const collision::NkRay3D& ray, NkBodyId& outBody, collision::NkRayHit3D& hit, uint32 lm) const {
+            if (!mCollision.Raycast3D(ray, hit, lm)) return false;
+            outBody = NK_INVALID_BODY;
+            for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) if (mBodies[i].collisionId == hit.bodyId) { outBody = mBodies[i].id; break; }
+            return true;
+        }
+        uint32 NkPhysicsWorld::OverlapShape(const collision::NkShape& s, NkVector<NkBodyId>& out, uint32 lm) const {
+            out.Clear();
+            NkVector<uint32> cids; mCollision.Overlap(s, cids, lm);      // ids de collision
+            for (uint32 c = 0; c < (uint32)cids.Size(); ++c)
+                for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i)
+                    if (mBodies[i].collisionId == cids[c]) { out.PushBack(mBodies[i].id); break; }
+            return (uint32)out.Size();
+        }
+        void NkPhysicsWorld::ProcessTriggers() {
+            mTrigEnter.Clear(); mTrigStay.Clear(); mTrigExit.Clear();
+            auto mapEvents = [&](const NkVector<collision::NkCollisionEvent>& evs, NkVector<NkTriggerEvent>& out) {
+                for (uint32 i = 0; i < (uint32)evs.Size(); ++i) {
+                    NkRigidBody* A = FindByCollisionId(evs[i].a); NkRigidBody* B = FindByCollisionId(evs[i].b);
+                    if (!A || !B) continue;
+                    if (A->flags & NK_BODY_TRIGGER)      out.PushBack(NkTriggerEvent{ A->id, B->id });
+                    else if (B->flags & NK_BODY_TRIGGER) out.PushBack(NkTriggerEvent{ B->id, A->id });
+                }
+            };
+            mapEvents(mCollision.EnterEvents(), mTrigEnter);
+            mapEvents(mCollision.StayEvents(),  mTrigStay);
+            mapEvents(mCollision.ExitEvents(),  mTrigExit);
+        }
+
         // ── Articulations (M7) ───────────────────────────────────────────────
         NkJointId NkPhysicsWorld::CreateDistanceJoint(NkBodyId a, NkBodyId b, const NkVec3f& anchorAWorld, const NkVec3f& anchorBWorld) {
             NkRigidBody* A = GetBody(a); NkRigidBody* B = GetBody(b);
@@ -556,6 +586,8 @@ namespace nkentseu {
             mCollision.Step();
             // 2b) réveiller les corps endormis touchés par un perturbateur
             WakeContacts();
+            // 2c) événements de trigger (zones de détection) -> NkBodyId
+            ProcessTriggers();
             // 3) solveur de contacts (vitesses, sans Baumgarte) + warm-start
             SolveContacts(dt);
             // 3b) solveur d'articulations (joints) + warm-start

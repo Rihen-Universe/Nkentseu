@@ -10,7 +10,8 @@
 > État : **M0→M12 livrés** — intégration, contacts (frottement/angulaire/restitution),
 > warm-starting, split-impulse, static/kinematic, sommeil, **4 joints** (distance/ball/
 > revolute/weld), **moteurs PD + limites**, **ragdoll générique**, **COM + moment angulaire**,
-> **CCD**, **sous-pas + déterminisme**. Self-test **52/52**. Reste : M13 requêtes filtrées.
+> **CCD**, **sous-pas + déterminisme**, **requêtes/triggers**. **MOTEUR COMPLET M0→M13,
+> self-test 56/56.** La suite (produit Cascadeur) s'assemble côté NkAnima.
 > Dernière mise à jour : 2026-06-29.
 >
 > ### ⭐ CAP — substrat d'un système type **Cascadeur** (tout corps articulé)
@@ -50,7 +51,7 @@
 | **M10** **Centre de masse + moment angulaire** (validation « physiquement correct » Cascadeur) | ✅ | M | P1 |
 | **M11** CCD (corps rapides) via `NkWorld::SweepBody` | ✅ | M | P2 |
 | **M12** Sous-pas (sub-stepping) + déterminisme + `Advance` pas fixe | ✅ | M | P2 |
-| **M13** Requêtes physiques (raycast/overlap filtrés) + triggers | ⏳ | S | P2 |
+| **M13** Requêtes physiques (raycast/overlap → `NkBodyId`) + triggers | ✅ | S | P2 |
 | Pont Noge (`NkRigidBodyComponent`, synchro) | 🚫 (hors module) | M | P1 |
 | Système Cascadeur (ragdoll actif + IK + auto-pose IA + UI) | 🚫 → **NkAnima** | XL | — |
 
@@ -248,10 +249,33 @@ Scaffold de structure uniquement (pas de simulation) :
 - **Démo** : 2 runs identiques **bit-exact** ; sous-pas (×4) → la caisse repose toujours ;
   `Advance(0.055s)` exécute 3 pas fixes.
 
-## En cours
+## Livré — M13 (2026-06-29, self-test 56/56)
 
-- **M13** — **requêtes physiques** filtrées (Raycast/Overlap/ShapeCast → `NkBodyId`) +
-  remontée des **triggers** (enter/stay/exit) au niveau physique. *(dernier jalon du moteur)*
+- **`Raycast(ray, outBody, hit, layerMask)`** → renvoie le `NkBodyId` touché (ajout d'un
+  champ `bodyId` à `collision::NkRayHit3D`, mappé via `collisionId`).
+- **`OverlapShape(shape, out, layerMask)`** → liste des `NkBodyId` chevauchant une forme.
+- **Triggers** : `TriggerEnter/Stay/Exit()` (paires `{trigger, other}`) calculés par `Step`
+  depuis les événements NKCollision, filtrés aux corps `NK_BODY_TRIGGER`.
+- **Démo** : raycast renvoie le bon id ; overlap liste les corps ; une **zone trigger**
+  détecte un corps qui la **traverse** (enter, sans réponse physique).
+
+## ✅ MOTEUR COMPLET — M0→M13 livrés (56 tests verts)
+
+NKPhysics fournit désormais **tout le substrat physique** d'un système type Cascadeur, pour
+**toute morphologie** : dynamique complète, 4 joints + moteurs PD + limites, **ragdoll actif
+générique**, validation COM/moment, CCD, sous-pas/déterminisme, requêtes/triggers.
+
+## Suite (hors NKPhysics) — côté **NkAnima**
+
+Le produit type Cascadeur s'assemble PAR-DESSUS, dans **NkAnima** :
+- couplage **ragdoll ↔ squelette skinné** (les os physiques pilotent/suivent le skin)
+- **IK** (déjà livré) + retargeting
+- **auto-pose / auto-physique par IA** (le côté assistance, futur NKAI)
+- UI éditeur (timeline, manipulation, validation visuelle COM/moment)
+
+## Améliorations futures possibles (NKPhysics, optionnelles)
+- Îlots union-find (sommeil groupé), joint PRISMATIC, self-collision par-paire non-adjacente,
+  solveur articulé (Featherstone) pour chaînes très longues, raycast exact 2D filtré.
 
 ---
 
