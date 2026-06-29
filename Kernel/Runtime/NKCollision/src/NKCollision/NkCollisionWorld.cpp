@@ -2,11 +2,41 @@
 // NkCollisionWorld.cpp — Implémentation du monde de collision (ZÉRO STL).
 // =============================================================================
 #include "NKCollision/NkCollisionWorld.h"
-#include "NKCollision/NkColSAT.h"   // OBB (boîtes orientées) via SAT
-#include "NKCollision/NkColGJK.h"   // narrowphase générique convexe (GJK/EPA)
+#include "NKCollision/NkColSAT.h"      // OBB (boîtes orientées) via SAT
+#include "NKCollision/NkColGJK.h"      // narrowphase générique convexe (GJK/EPA)
+#include "NKCollision/NkColConcave.h"  // décomposition des concaves (trimesh/heightfield/chain)
 
 namespace nkentseu {
     namespace collision {
+
+        static bool NkNarrow3D(const NkShape& A, const NkShape& B, NkManifold3D& m) noexcept;   // fwd
+        static bool NkNarrow2D(const NkShape& A, const NkShape& B, NkManifold3D& out) noexcept; // fwd
+
+        // Translate une sous-forme PRIMITIVE par un offset (compound). Les formes à
+        // sommets (verts) doivent être pré-positionnées (offset ignoré).
+        static NkShape NkTranslateShape(const NkShape& s, const NkVec3f& off) noexcept {
+            NkShape r = s; r.p0 = s.p0 + off;
+            if (s.type == NkShapeType::NK_CAPSULE3D || s.type == NkShapeType::NK_SEGMENT2D
+                || s.type == NkShapeType::NK_CAPSULE2D) r.p1 = s.p1 + off; // p1 = 2e extrémité
+            return r;
+        }
+
+        // Compound : décompose en sous-formes, garde le contact le plus profond.
+        static bool NkCompoundNarrow(const NkShape& A, const NkShape& B, NkManifold3D& out) noexcept {
+            bool any = false; float32 best = -1.f;
+            const bool aCompound = (A.type == NkShapeType::NK_COMPOUND);
+            const NkShape& comp = aCompound ? A : B;
+            for (uint32 i = 0; i < comp.childCount; ++i) {
+                NkShape c = NkTranslateShape(comp.children[i], comp.p0);
+                const NkShape& X = aCompound ? c : A;
+                const NkShape& Y = aCompound ? B : c;
+                if (NkShapeIs2D(X.type) != NkShapeIs2D(Y.type)) continue;
+                NkManifold3D m;
+                const bool hit = NkShapeIs2D(X.type) ? NkNarrow2D(X, Y, m) : NkNarrow3D(X, Y, m);
+                if (hit && m.points[0].depth > best) { best = m.points[0].depth; out = m; any = true; }
+            }
+            return any;
+        }
 
         // ── Plan / half-space infini vs convexe (le plan n'est pas GJK-able) ──
         // Normale renvoyée = du PLAN vers l'autre forme (+n). depth = pénétration.
@@ -37,6 +67,16 @@ namespace nkentseu {
         // ── Narrowphase 3D : dispatch type×type avec swap (normale A->B) ──────
         static bool NkNarrow3D(const NkShape& A, const NkShape& B, NkManifold3D& m) noexcept {
             using T = NkShapeType;
+
+            // Compound : décomposition en sous-formes.
+            if (A.type == T::NK_COMPOUND || B.type == T::NK_COMPOUND)
+                return NkCompoundNarrow(A, B, m);
+
+            // Concaves statiques (trimesh / heightfield) vs convexe -> décomposition.
+            if (A.type == T::NK_TRIMESH3D && NkShapeIsConvex(B.type)) return NkConvexVsTrimesh3D(A, B, m);
+            if (B.type == T::NK_TRIMESH3D && NkShapeIsConvex(A.type)) { if (!NkConvexVsTrimesh3D(B, A, m)) return false; m.normal = m.normal * -1.f; return true; }
+            if (A.type == T::NK_HEIGHTFIELD3D && NkShapeIsConvex(B.type)) return NkConvexVsHeightfield3D(A, B, m);
+            if (B.type == T::NK_HEIGHTFIELD3D && NkShapeIsConvex(A.type)) { if (!NkConvexVsHeightfield3D(B, A, m)) return false; m.normal = m.normal * -1.f; return true; }
 
             // Plan / half-space infini : test dédié (non convexe borné -> hors GJK).
             if (A.type == T::NK_PLANE3D && NkShapeIsConvex(B.type))
@@ -74,8 +114,27 @@ namespace nkentseu {
         }
 
         // ── Narrowphase 2D -> rempli dans un manifold 3D (z=0) ───────────────
+        // Remplit un manifold 3D (z=0) depuis un manifold 2D.
+        static void NkFill3DFrom2D(const NkManifold2D& m, NkManifold3D& out) noexcept {
+            out.normal = { m.normal.x, m.normal.y, 0.f };
+            out.count = m.count;
+            for (int32 i = 0; i < m.count; ++i) {
+                out.points[i].point = { m.points[i].point.x, m.points[i].point.y, 0.f };
+                out.points[i].depth = m.points[i].depth;
+            }
+        }
+
         static bool NkNarrow2D(const NkShape& A, const NkShape& B, NkManifold3D& out) noexcept {
             using T = NkShapeType;
+
+            // Chain 2D (concave) vs convexe -> décomposition en segments.
+            if (A.type == T::NK_CHAIN2D && NkShapeIsConvex(B.type)) {
+                NkManifold2D m; if (!NkConvexVsChain2D(A, B, m)) return false; NkFill3DFrom2D(m, out); return true;
+            }
+            if (B.type == T::NK_CHAIN2D && NkShapeIsConvex(A.type)) {
+                NkManifold2D m; if (!NkConvexVsChain2D(B, A, m)) return false; m.normal = m.normal * -1.f; NkFill3DFrom2D(m, out); return true;
+            }
+
             auto rank = [](T t) -> int32 { return (int32)t; };
             const NkShape* a = &A; const NkShape* b = &B; bool swapped = false;
             if (rank(A.type) > rank(B.type)) { a = &B; b = &A; swapped = true; }
@@ -146,11 +205,18 @@ namespace nkentseu {
         void NkWorld::SetShape(uint32 id, const NkShape& s) {
             if (NkBody* b = GetBody(id)) b->shape = s;
         }
-        void NkWorld::Clear() { mBodies.Clear(); mPairs.Clear(); mNextId = 1u; }
+        void NkWorld::Clear() { mBodies.Clear(); mPairs.Clear(); mEnter.Clear(); mStay.Clear(); mExit.Clear(); mPrevKeys.Clear(); mNextId = 1u; }
 
-        // ── Step : broadphase O(n²) + narrowphase ────────────────────────────
+        // Clé ordonnée d'une paire (min,max) -> uint64, pour comparer les frames.
+        static nkentseu::uint64 NkPairKey(uint32 a, uint32 b) noexcept {
+            const uint32 lo = a < b ? a : b, hi = a < b ? b : a;
+            return ((nkentseu::uint64)lo << 32) | (nkentseu::uint64)hi;
+        }
+
+        // ── Step : broadphase O(n²) + narrowphase + événements enter/stay/exit ─
         void NkWorld::Step() {
-            mPairs.Clear();
+            mPairs.Clear(); mEnter.Clear(); mStay.Clear(); mExit.Clear();
+            NkVector<nkentseu::uint64> curKeys;
             const uint32 n = (uint32)mBodies.Size();
             for (uint32 i = 0; i < n; ++i) {
                 const NkBody& A = mBodies[i];
@@ -167,9 +233,24 @@ namespace nkentseu {
                     if (Narrow(A.shape, B.shape, m)) {        // narrowphase
                         NkCollisionPair pair; pair.a = A.id; pair.b = B.id; pair.manifold = m;
                         mPairs.PushBack(pair);
+                        const nkentseu::uint64 key = NkPairKey(A.id, B.id);
+                        curKeys.PushBack(key);
+                        // enter si absente de la frame précédente, sinon stay.
+                        bool wasThere = false;
+                        for (uint32 k = 0; k < (uint32)mPrevKeys.Size(); ++k) if (mPrevKeys[k] == key) { wasThere = true; break; }
+                        NkCollisionEvent ev{ A.id, B.id };
+                        if (wasThere) mStay.PushBack(ev); else mEnter.PushBack(ev);
                     }
                 }
             }
+            // exit : présentes la frame d'avant, absentes maintenant.
+            for (uint32 k = 0; k < (uint32)mPrevKeys.Size(); ++k) {
+                const nkentseu::uint64 pk = mPrevKeys[k];
+                bool still = false;
+                for (uint32 c = 0; c < (uint32)curKeys.Size(); ++c) if (curKeys[c] == pk) { still = true; break; }
+                if (!still) { NkCollisionEvent ev{ (uint32)(pk >> 32), (uint32)(pk & 0xFFFFFFFFu) }; mExit.PushBack(ev); }
+            }
+            mPrevKeys = curKeys;
         }
 
         // ── Raycast 3D (hit le plus proche) ──────────────────────────────────
