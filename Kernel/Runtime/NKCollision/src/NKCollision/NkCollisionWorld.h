@@ -29,6 +29,7 @@ namespace nkentseu {
             uint32       a = 0;
             uint32       b = 0;
             NkManifold3D manifold;
+            bool         warm = false;     // true = la paire existait déjà la frame précédente
         };
 
         // Événement de collision entre deux corps (par id). Émis par Step().
@@ -54,6 +55,10 @@ namespace nkentseu {
                 const NkVector<NkCollisionEvent>& EnterEvents() const noexcept { return mEnter; }
                 const NkVector<NkCollisionEvent>& StayEvents()  const noexcept { return mStay; }
                 const NkVector<NkCollisionEvent>& ExitEvents()  const noexcept { return mExit; }
+
+                // Manifold de la paire (a,b) à la frame PRÉCÉDENTE (pour warm-starting le
+                // solveur : matcher les points par `id`). false si la paire n'existait pas.
+                bool GetPreviousManifold(uint32 a, uint32 b, NkManifold3D& out) const;
 
                 // Marquer un corps comme trigger (zone de détection).
                 void   SetTrigger(uint32 id, bool t) { if (NkBody* b = GetBody(id)) b->trigger = t; }
@@ -84,6 +89,7 @@ namespace nkentseu {
 
                 NkVector<NkBody>           mBodies;
                 NkVector<NkCollisionPair>  mPairs;
+                NkVector<NkCollisionPair>  mPrevPairs; // paires de la frame précédente (warm-start)
                 NkVector<NkCollisionEvent> mEnter, mStay, mExit;
                 NkVector<nkentseu::uint64> mPrevKeys;   // clés de paires de la frame précédente
                 mutable NkDbvh             mTree;       // broadphase persistante (DBVH)
