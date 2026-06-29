@@ -366,6 +366,44 @@ int main() {
         CHECK(Near(b->position.x, 4.7f, 0.35f), "M11 CCD : elle s'arrete a la surface (~4.7)");
     }
 
+    // ── M12 : déterminisme (2 runs bit-exact) ───────────────────────────────
+    {
+        auto runSim = []() -> NkVec3f {
+            NkPhysicsWorld w(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+            NkBodyDef gd; gd.type = NkBodyType::STATIC;
+            w.CreateBody(gd, collision::NkShape::Box3D({0,0,0}, {10,1,10}));
+            NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 0.3f, 4.f, 0.1f };
+            const NkBodyId id = w.CreateBody(bd, collision::NkShape::Box3D({0.3f,4,0.1f}, {0.5f,0.5f,0.5f}));
+            for (int i = 0; i < 240; ++i) w.Step(1.f / 60.f);
+            return w.GetBody(id)->position;
+        };
+        const NkVec3f a = runSim(), b = runSim();
+        CHECK(a.x == b.x && a.y == b.y && a.z == b.z, "M12 determinisme : 2 runs bit-exact");
+    }
+
+    // ── M12 : sous-pas internes (la simulation reste valide) ────────────────
+    {
+        NkPhysicsConfig cfg{ {0.f, -9.81f, 0.f} }; cfg.subSteps = 4;
+        NkPhysicsWorld world(cfg);
+        NkBodyDef gd; gd.type = NkBodyType::STATIC;
+        world.CreateBody(gd, collision::NkShape::Box3D({0,0,0}, {10,1,10}));  // sommet y=1
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 0.f, 4.f, 0.f };
+        const NkBodyId id = world.CreateBody(bd, collision::NkShape::Box3D({0,4,0}, {0.5f,0.5f,0.5f}));
+        for (int i = 0; i < 240; ++i) world.Step(1.f / 60.f);   // 4 sous-pas par Step
+        CHECK(Near(world.GetBody(id)->position.y, 1.5f, 0.1f), "M12 sous-pas (4) : la caisse repose toujours");
+    }
+
+    // ── M12 : Advance à pas fixe (accumulateur) ─────────────────────────────
+    {
+        NkPhysicsConfig cfg{ {0.f, -9.81f, 0.f} }; cfg.fixedTimeStep = 1.f / 60.f; cfg.maxSubSteps = 8;
+        NkPhysicsWorld world(cfg);
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 0.f, 10.f, 0.f };
+        const NkBodyId id = world.CreateBody(bd, collision::NkShape::Sphere({0,10,0}, 0.5f));
+        const int32 n = world.Advance(0.055f);                  // 0.055 / (1/60) = 3.3 -> 3 pas
+        CHECK(n == 3, "M12 Advance : 3 pas fixes executes pour 0.055 s");
+        CHECK(world.GetBody(id)->position.y < 10.f, "M12 Advance : le corps a bien avance");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

@@ -43,6 +43,9 @@ namespace nkentseu {
             float32 baumgarte      = 0.2f;  // facteur de correction positionnelle
             float32 slop           = 0.005f;// pénétration tolérée (anti-jitter)
             bool    enable2D       = false; // true => simulation contrainte au plan XY
+            int32   subSteps       = 1;     // sous-pas internes par Step (chaînes de joints raides)
+            float32 fixedTimeStep  = 1.f/60.f; // pas fixe pour Advance() (déterminisme)
+            int32   maxSubSteps    = 8;     // garde-fou Advance (anti spirale de la mort)
         };
 
     } // namespace physics

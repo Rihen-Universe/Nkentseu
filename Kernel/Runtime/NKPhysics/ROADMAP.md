@@ -7,10 +7,10 @@
 > `NkRigidBodyComponent` / `NkColliderComponent`, synchro transform) se fait **dans
 > Noge**, jamais ici (NKECS reste l'ECS générique de base).
 >
-> État : **M0→M11 livrés** — intégration, contacts (frottement/angulaire/restitution),
+> État : **M0→M12 livrés** — intégration, contacts (frottement/angulaire/restitution),
 > warm-starting, split-impulse, static/kinematic, sommeil, **4 joints** (distance/ball/
 > revolute/weld), **moteurs PD + limites**, **ragdoll générique**, **COM + moment angulaire**,
-> **CCD**. Self-test **48/48**. Reste : M12 sous-pas, M13 requêtes filtrées.
+> **CCD**, **sous-pas + déterminisme**. Self-test **52/52**. Reste : M13 requêtes filtrées.
 > Dernière mise à jour : 2026-06-29.
 >
 > ### ⭐ CAP — substrat d'un système type **Cascadeur** (tout corps articulé)
@@ -49,7 +49,7 @@
 | **M9** **Ragdoll générique** : builder squelette (os+joints depuis hiérarchie), self-collision | ✅ | L | P1 |
 | **M10** **Centre de masse + moment angulaire** (validation « physiquement correct » Cascadeur) | ✅ | M | P1 |
 | **M11** CCD (corps rapides) via `NkWorld::SweepBody` | ✅ | M | P2 |
-| **M12** Sous-pas (sub-stepping) + déterminisme | ⏳ | M | P2 |
+| **M12** Sous-pas (sub-stepping) + déterminisme + `Advance` pas fixe | ✅ | M | P2 |
 | **M13** Requêtes physiques (raycast/overlap filtrés) + triggers | ⏳ | S | P2 |
 | Pont Noge (`NkRigidBodyComponent`, synchro) | 🚫 (hors module) | M | P1 |
 | Système Cascadeur (ragdoll actif + IK + auto-pose IA + UI) | 🚫 → **NkAnima** | XL | — |
@@ -238,10 +238,20 @@ Scaffold de structure uniquement (pas de simulation) :
 - **Démo** : une bille à **600 m/s** (10 m/pas) **s'arrête au mur fin** (~4.7) au lieu de le
   traverser.
 
+## Livré — M12 (2026-06-29, self-test 52/52)
+
+- **Sous-pas internes** : `Step(dt)` découpe en `config.subSteps` `Substep(dt/n)` atomiques
+  (chaînes de joints raides plus stables).
+- **`Advance(realDt)`** : accumulateur à **pas fixe** (`config.fixedTimeStep`, borné par
+  `maxSubSteps`) — découple simulation et affichage, **déterministe**.
+- **Déterminisme** garanti : aucune dépendance à `Date.now()`/random, ordre d'itération stable.
+- **Démo** : 2 runs identiques **bit-exact** ; sous-pas (×4) → la caisse repose toujours ;
+  `Advance(0.055s)` exécute 3 pas fixes.
+
 ## En cours
 
-- **M12** — **sous-pas (sub-stepping)** à pas fixe + accumulateur + déterminisme (chaînes de
-  joints raides plus stables, reproductibilité).
+- **M13** — **requêtes physiques** filtrées (Raycast/Overlap/ShapeCast → `NkBodyId`) +
+  remontée des **triggers** (enter/stay/exit) au niveau physique. *(dernier jalon du moteur)*
 
 ---
 
