@@ -20,8 +20,15 @@ namespace nkentseu {
             float32        radius   = 0.5f; // cercle/sphère/capsule/cylindre/cône
             float32        rotation = 0.f;  // boîte 2D (radians)
             float32        height   = 0.f;  // cylindre (demi-hauteur) · cône (hauteur base->apex)
-            const NkVec3f* verts    = nullptr; // triangle/polygone/convexe (z=0 en 2D)
+            const NkVec3f* verts    = nullptr; // triangle/polygone/convexe (z=0 en 2D) · sommets trimesh · sommets chain2D
             uint32         vertCount = 0;
+            // ── Concaves / composite (non-ownants) ───────────────────────────
+            const uint32*  indices   = nullptr; // trimesh : triplets de sommets
+            uint32         indexCount = 0;       // = 3 * nbTriangles
+            const float32* heights   = nullptr; // heightfield : grille rows*cols de hauteurs (Y)
+            uint32         rows = 0, cols = 0;   // heightfield : dimensions de la grille
+            const NkShape* children   = nullptr; // compound : sous-formes (positionnées dans le repère local)
+            uint32         childCount = 0;
 
             // ── Fabriques 2D (z ignoré) ──────────────────────────────────────
             static NkShape Point2D(const NkVec2f& p) noexcept {
@@ -86,6 +93,27 @@ namespace nkentseu {
             static NkShape Plane3D(const NkVec3f& point, const NkVec3f& normalUnit) noexcept {
                 NkShape s; s.type = NkShapeType::NK_PLANE3D; s.p0 = point; s.p1 = normalUnit; s.radius = 0.f; return s;
             }
+
+            // ── Concaves / composite (statiques sauf compound) ───────────────
+            // Triangle mesh : sommets + indices (triplets). Buffers non-ownants.
+            static NkShape Trimesh3D(const NkVec3f* verts, uint32 vertN, const uint32* indices, uint32 indexN) noexcept {
+                NkShape s; s.type = NkShapeType::NK_TRIMESH3D; s.verts = verts; s.vertCount = vertN;
+                s.indices = indices; s.indexCount = indexN; s.radius = 0.f; return s;
+            }
+            // Heightfield : grille rows*cols de hauteurs Y. p0 = coin (x,_,z) min, p1 = (dx,_,dz) pas de cellule.
+            static NkShape Heightfield3D(const NkVec3f& origin, float32 cellX, float32 cellZ,
+                                         const float32* heights, uint32 rows, uint32 cols) noexcept {
+                NkShape s; s.type = NkShapeType::NK_HEIGHTFIELD3D; s.p0 = origin;
+                s.p1 = { cellX, 0.f, cellZ }; s.heights = heights; s.rows = rows; s.cols = cols; s.radius = 0.f; return s;
+            }
+            // Chain 2D : polyligne concave (sol/terrain). Segments = sommets consécutifs.
+            static NkShape Chain2D(const NkVec3f* verts, uint32 n) noexcept {
+                NkShape s; s.type = NkShapeType::NK_CHAIN2D; s.verts = verts; s.vertCount = n; s.radius = 0.f; return s;
+            }
+            // Compound : sous-formes positionnées dans le repère local (offset = p0). Non-ownant.
+            static NkShape Compound(const NkShape* children, uint32 n, const NkVec3f& offset = {}) noexcept {
+                NkShape s; s.type = NkShapeType::NK_COMPOUND; s.children = children; s.childCount = n; s.p0 = offset; s.radius = 0.f; return s;
+            }
         };
 
         // ── AABB d'une forme (broadphase) ────────────────────────────────────
@@ -138,6 +166,33 @@ namespace nkentseu {
                     const float32 big = 1e18f;
                     box.min = { -big, -big, -big }; box.max = { big, big, big }; break;
                 }
+                case NkShapeType::NK_TRIMESH3D: {
+                    if (s.verts && s.vertCount) {
+                        box.min = box.max = s.verts[0];
+                        for (uint32 i = 1; i < s.vertCount; ++i) box.Expand(s.verts[i]);
+                    } else { box.min = s.p0; box.max = s.p0; }
+                    break;
+                }
+                case NkShapeType::NK_HEIGHTFIELD3D: {
+                    const float32 w = (s.cols > 0 ? (float32)(s.cols - 1) : 0.f) * s.p1.x;
+                    const float32 d = (s.rows > 0 ? (float32)(s.rows - 1) : 0.f) * s.p1.z;
+                    float32 ymin = 0.f, ymax = 0.f;
+                    if (s.heights && s.rows * s.cols) { ymin = ymax = s.heights[0]; for (uint32 i = 1; i < s.rows * s.cols; ++i) { ymin = math::NkMin(ymin, s.heights[i]); ymax = math::NkMax(ymax, s.heights[i]); } }
+                    box.min = { s.p0.x, s.p0.y + ymin, s.p0.z };
+                    box.max = { s.p0.x + w, s.p0.y + ymax, s.p0.z + d };
+                    break;
+                }
+                case NkShapeType::NK_COMPOUND: {
+                    if (s.children && s.childCount) {
+                        NkAABB3D c0 = NkComputeAABB3D(s.children[0]);
+                        box.min = c0.min + s.p0; box.max = c0.max + s.p0;
+                        for (uint32 i = 1; i < s.childCount; ++i) {
+                            NkAABB3D ci = NkComputeAABB3D(s.children[i]);
+                            box.Expand(ci.min + s.p0); box.Expand(ci.max + s.p0);
+                        }
+                    } else { box.min = s.p0; box.max = s.p0; }
+                    break;
+                }
                 default: { box.min = s.p0; box.max = s.p0; break; }
             }
             return box;
@@ -165,7 +220,8 @@ namespace nkentseu {
                     box.min = mn - r; box.max = mx + r; break;
                 }
                 case NkShapeType::NK_TRIANGLE2D:
-                case NkShapeType::NK_POLYGON2D: {
+                case NkShapeType::NK_POLYGON2D:
+                case NkShapeType::NK_CHAIN2D: {
                     if (s.verts && s.vertCount) {
                         NkVec2f v0{ s.verts[0].x, s.verts[0].y };
                         box.min = box.max = v0;

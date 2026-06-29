@@ -205,6 +205,67 @@ int main() {
         CHECK(cw.Pairs().Size() == 1, "world cylindre-sphere : 1 paire (dispatch GJK)");
     }
 
+    // ── VAGUE 3 : concaves par décomposition + compound + événements ─────────
+    {
+        // Triangle mesh (quad XZ à y=0) vs sphère
+        static const NkVec3f quad[4] = { {-1,0,-1}, {1,0,-1}, {1,0,1}, {-1,0,1} };
+        static const uint32  idx[6]  = { 0,1,2, 0,2,3 };
+        NkShape mesh = NkShape::Trimesh3D(quad, 4, idx, 6);
+        NkManifold3D m;
+        CHECK(NkConvexVsTrimesh3D(mesh, NkShape::Sphere({0,0.3f,0}, 0.5f), m), "trimesh-sphere overlap");
+        NkManifold3D m2;
+        CHECK(!NkConvexVsTrimesh3D(mesh, NkShape::Sphere({0,5,0}, 0.5f), m2), "trimesh-sphere separated");
+
+        // Heightfield plat (2x2, y=0) vs sphère
+        static const float32 hh[4] = { 0,0, 0,0 };
+        NkShape hf = NkShape::Heightfield3D({-1,0,-1}, 2.f, 2.f, hh, 2, 2);
+        NkManifold3D mh;
+        CHECK(NkConvexVsHeightfield3D(hf, NkShape::Sphere({0,0.3f,0}, 0.5f), mh), "heightfield-sphere overlap");
+        NkManifold3D mh2;
+        CHECK(!NkConvexVsHeightfield3D(hf, NkShape::Sphere({0,5,0}, 0.5f), mh2), "heightfield-sphere separated");
+
+        // Chain 2D (polyligne y=0) vs cercle
+        static const NkVec3f chainV[3] = { {-2,0,0}, {0,0,0}, {2,0,0} };
+        NkShape chain = NkShape::Chain2D(chainV, 3);
+        NkManifold2D mc;
+        CHECK(NkConvexVsChain2D(chain, NkShape::Circle2D({0,0.3f}, 0.5f), mc), "chain2D-cercle overlap");
+        NkManifold2D mc2;
+        CHECK(!NkConvexVsChain2D(chain, NkShape::Circle2D({0,5}, 0.5f), mc2), "chain2D-cercle separated");
+    }
+
+    // ── World : trimesh + compound (dispatch) ────────────────────────────────
+    {
+        static const NkVec3f quad[4] = { {-1,0,-1}, {1,0,-1}, {1,0,1}, {-1,0,1} };
+        static const uint32  idx[6]  = { 0,1,2, 0,2,3 };
+        NkWorld w;
+        w.AddBody(NkShape::Trimesh3D(quad, 4, idx, 6));
+        w.AddBody(NkShape::Sphere({0,0.3f,0}, 0.5f));
+        w.Step();
+        CHECK(w.Pairs().Size() == 1, "world trimesh-sphere : 1 paire");
+
+        // Compound (2 sphères) vs sphère touchant l'une d'elles
+        static const NkShape kids[2] = { NkShape::Sphere({-1,0,0}, 0.5f), NkShape::Sphere({1,0,0}, 0.5f) };
+        NkWorld wc;
+        wc.AddBody(NkShape::Compound(kids, 2));
+        wc.AddBody(NkShape::Sphere({1.f,0.6f,0}, 0.5f));   // proche du child (1,0,0)
+        wc.Step();
+        CHECK(wc.Pairs().Size() == 1, "world compound-sphere : 1 paire (sous-forme)");
+    }
+
+    // ── Événements : enter / stay / exit ─────────────────────────────────────
+    {
+        NkWorld w;
+        w.AddBody(NkShape::Sphere({0,0,0}, 1.f));
+        uint32 b = w.AddBody(NkShape::Sphere({1.5f,0,0}, 1.f));
+        w.Step();   // frame 1 : entrée
+        CHECK(w.EnterEvents().Size() == 1 && w.StayEvents().Size() == 0 && w.ExitEvents().Size() == 0, "events: ENTER frame 1");
+        w.Step();   // frame 2 : maintien
+        CHECK(w.EnterEvents().Size() == 0 && w.StayEvents().Size() == 1 && w.ExitEvents().Size() == 0, "events: STAY frame 2");
+        w.SetShape(b, NkShape::Sphere({5,0,0}, 1.f));     // on écarte b
+        w.Step();   // frame 3 : sortie
+        CHECK(w.EnterEvents().Size() == 0 && w.StayEvents().Size() == 0 && w.ExitEvents().Size() == 1, "events: EXIT frame 3");
+    }
+
     logger.Info("=== NKCollision : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
