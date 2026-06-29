@@ -42,7 +42,7 @@
 | **M4** Correction positionnelle (split-impulse) | ✅ | M | P1 |
 | **M5** Types static / kinematic + masses infinies | ✅ | S | P1 |
 | **M6** Mise en sommeil (sleeping) + réveil au contact | ✅ | L | P1 |
-| **M7** Articulations génériques + limites — *distance/ball/revolute faits* | 🔶 | XL | P2 |
+| **M7** Articulations — *distance/ball/revolute/weld faits ; reste prismatic* | 🔶 | XL | P2 |
 | **M8** Moteurs & **drives PD** sur joints → *ragdoll actif* (tient/atteint une pose) | ⏳ | L | P1 |
 | **M9** **Ragdoll générique** : builder squelette (os+joints depuis hiérarchie), self-collision | ⏳ | L | P1 |
 | **M10** **Centre de masse + moment angulaire** (validation « physiquement correct » Cascadeur) | ⏳ | M | P1 |
@@ -177,10 +177,19 @@ Scaffold de structure uniquement (pas de simulation) :
 - **Démo** : une trappe à charnière (axe Z) **bascule sous la gravité dans son plan** (z reste
   ~0, pivot tenu à ~1).
 
+## Livré — M7 cut 3 (2026-06-29, self-test 32/32)
+
+- **WELD** (soudure rigide) : point-à-point (bloc 3×3) **+ verrou d'orientation** (3 DOF
+  angulaires, bloc 3×3 sur `invIA+invIB`, erreur = axe-angle de `refRotation⁻¹·(qA⁻¹·qB)`).
+  `CreateWeldJoint(a,b,pivot)` mémorise l'orientation relative cible. Warm-start linéaire + couple.
+- **Démo** : une caisse **soudée** à une ancre statique reste **figée** en position **et**
+  orientation (ne tombe pas, ne tourne pas) au lieu de chuter.
+
 ## En cours
 
-- **M7 cut 3** — WELD (soudure rigide) + PRISMATIC (glissière) + **limites** d'angle/course
-  (base anatomique : empêcher les coudes/genoux d'hyperextension). Puis **M8** moteurs/drives PD.
+- **M8** — **moteurs / drives PD** (couple vers une cible) **+ limites** d'angle sur revolute
+  (anti-hyperextension) = **ragdoll actif** (cœur Cascadeur). *(PRISMATIC reporté — peu utile
+  pour les créatures, surtout mécanique.)*
 
 ---
 

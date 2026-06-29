@@ -9,9 +9,12 @@
 //   À venir  : REVOLUTE (pivot 1 DOF + limites), PRISMATIC, WELD, + moteurs/drives (M8).
 // =============================================================================
 #include "NKPhysics/NkPhysicsTypes.h"
+#include "NKMath/NkQuat.h"
 
 namespace nkentseu {
     namespace physics {
+
+        using NkQuatf = nkentseu::math::NkQuatf;
 
         using NkJointId = uint32;
         static constexpr NkJointId NK_INVALID_JOINT = 0u;
@@ -34,8 +37,9 @@ namespace nkentseu {
             NkVec3f     localAxisA{ 0,0,1 }; // REVOLUTE : axe de charnière (repère local A)
             NkVec3f     localAxisB{ 0,0,1 }; // REVOLUTE : axe de charnière (repère local B)
             float32     restLength = 0.f;    // DISTANCE : longueur cible
+            NkQuatf     refRotation{};       // WELD : orientation relative cible (qA⁻¹·qB à la création)
             NkVec3f     impulse{};           // warm-start linéaire (ball/point-à-point : 3 axes ; distance : .x)
-            NkVec3f     angImpulse{};        // warm-start angulaire (revolute : 2 ; weld : 3)
+            NkVec3f     angImpulse{};        // warm-start angulaire (weld : 3 axes monde)
             bool        enabled = true;
         };
 
