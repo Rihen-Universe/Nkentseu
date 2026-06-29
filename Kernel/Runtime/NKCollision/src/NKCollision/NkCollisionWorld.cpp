@@ -3,9 +3,24 @@
 // =============================================================================
 #include "NKCollision/NkCollisionWorld.h"
 #include "NKCollision/NkColSAT.h"   // OBB (boîtes orientées) via SAT
+#include "NKCollision/NkColGJK.h"   // narrowphase générique convexe (GJK/EPA)
 
 namespace nkentseu {
     namespace collision {
+
+        // ── Plan / half-space infini vs convexe (le plan n'est pas GJK-able) ──
+        // Normale renvoyée = du PLAN vers l'autre forme (+n). depth = pénétration.
+        static bool NkPlaneVsConvex3D(const NkShape& plane, const NkShape& other, NkManifold3D& m) noexcept {
+            const NkVec3f n = plane.p1;                       // normale unité du plan
+            NkVec3f deepest = NkSupport3D(other, n * -1.f);   // point le + enfoncé (vers le solide)
+            const float32 sep = n.Dot(deepest - plane.p0);    // <=0 => pénètre
+            if (sep > 0.f) return false;
+            m.normal = n;                                     // plan -> other
+            m.points[0].point = deepest - n * (sep * 0.5f);
+            m.points[0].depth = -sep;
+            m.count = 1;
+            return true;
+        }
 
         // ── AABB 3D unifiée d'un corps (2D promu en tranche fine z≈0) ─────────
         static NkAABB3D NkBodyAABB(const NkShape& s) noexcept {
@@ -22,6 +37,16 @@ namespace nkentseu {
         // ── Narrowphase 3D : dispatch type×type avec swap (normale A->B) ──────
         static bool NkNarrow3D(const NkShape& A, const NkShape& B, NkManifold3D& m) noexcept {
             using T = NkShapeType;
+
+            // Plan / half-space infini : test dédié (non convexe borné -> hors GJK).
+            if (A.type == T::NK_PLANE3D && NkShapeIsConvex(B.type))
+                return NkPlaneVsConvex3D(A, B, m);            // normale plan(A)->B = +n : déjà A->B
+            if (B.type == T::NK_PLANE3D && NkShapeIsConvex(A.type)) {
+                if (!NkPlaneVsConvex3D(B, A, m)) return false;
+                m.normal = m.normal * -1.f;                   // plan(B)->A -> on veut A->B
+                return true;
+            }
+
             // Ordonner pour factoriser les paires asymétriques ; flip si on a swappé.
             auto rank = [](T t) -> int32 { return (int32)t; };
             const NkShape* a = &A; const NkShape* b = &B; bool swapped = false;
@@ -39,8 +64,10 @@ namespace nkentseu {
                 hit = NkBoxBox3D(a->p0, a->p1, b->p0, b->p1, m);
             else if (ta == T::NK_CAPSULE3D && tb == T::NK_CAPSULE3D)
                 hit = NkCapsuleCapsule(a->p0, a->p1, a->radius, b->p0, b->p1, b->radius, m);
+            else if (NkShapeIsConvex(ta) && NkShapeIsConvex(tb))
+                return NkGJKEPA3D(A, B, m);                   // fallback générique (box-capsule, cône, convexe…)
             else
-                return false; // paire non gérée en v1 (box-capsule, convex... -> phase suivante)
+                return false;                                 // concave (trimesh/heightfield/compound) -> vague suivante
 
             if (hit && swapped) m.normal = m.normal * -1.f;  // rétablir A->B d'origine
             return hit;
@@ -64,6 +91,18 @@ namespace nkentseu {
                 hit = NkOBB2DvsCircle(bp, bh, b->rotation, ap, a->radius, m), m.normal = m.normal * -1.f;
             else if (ta == T::NK_BOX2D && tb == T::NK_BOX2D)
                 hit = NkOBB2DvsOBB2D(ap, ah, a->rotation, bp, bh, b->rotation, m);  // OBB-OBB (rotation)
+            else if (NkShapeIsConvex(ta) && NkShapeIsConvex(tb)) {
+                // fallback générique 2D (segment/triangle/polygone/capsule-box…)
+                NkManifold2D gm;
+                if (!NkGJKEPA2D(A, B, gm)) return false;       // A,B d'origine (pas de swap)
+                out.normal = { gm.normal.x, gm.normal.y, 0.f };
+                out.count = gm.count;
+                for (int32 i = 0; i < gm.count; ++i) {
+                    out.points[i].point = { gm.points[i].point.x, gm.points[i].point.y, 0.f };
+                    out.points[i].depth = gm.points[i].depth;
+                }
+                return true;
+            }
             else
                 return false;
 
