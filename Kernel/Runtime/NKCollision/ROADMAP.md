@@ -63,11 +63,16 @@
   (Insert/Remove/Update incrémentaux) ; `Step()` trouve les paires par `Query(AABB)` du DBVH
   (dédup par id) au lieu du SAP O(n²)/sweep. Aucune régression (83 tests verts). ✅
 
-### Reste prioritaire (vague 9)
+### Livré 2026-06-29 — vague 9 : équilibrage DBVH (AVL) + queries world via l'arbre — 87/87
+- **Équilibrage par rotations** (algorithme b2DynamicTree) : hauteur bornée même en insertion
+  triée (64 inserts -> hauteur <= 12 au lieu de 63). ✅
+- **Queries world accélérées** : `Raycast3D` (préfiltre `mTree.RayCast`) et `Overlap`
+  (`mTree.Query`) passent par le DBVH au lieu d'itérer tous les corps. ✅
+
+### Reste prioritaire (vague 10)
 - **Manifold multi-points** (clipping Sutherland-Hodgman) : 1 pt -> 2 (2D)/4 (3D) pour la
-  stabilité de la résolution physique (le plus important pour NKPhysics au-dessus).
-- **Équilibrage DBVH** (rotations AVL) + queries world (raycast/overlap/shapecast) via l'arbre.
-- **CCD** intégré au world (swept des corps rapides) + **contacts persistants** (warm-starting).
+  stabilité de la résolution physique (LE chantier majeur restant pour NKPhysics au-dessus).
+- **CCD** intégré au world (swept des corps rapides via ShapeCast) + **contacts persistants**.
 - **Debug draw** (NKUI/NKRenderer) + **intégration ECS** (`NkColliderComponent` + système).
 
 ---
