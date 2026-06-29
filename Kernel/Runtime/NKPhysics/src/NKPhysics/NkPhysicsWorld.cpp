@@ -112,6 +112,18 @@ namespace nkentseu {
             j.localAnchorB = B->orientation.Conjugate() * (pivotWorld - B->position);
             mJoints.PushBack(j); return mNextJointId++;
         }
+        NkJointId NkPhysicsWorld::CreateRevoluteJoint(NkBodyId a, NkBodyId b, const NkVec3f& pivotWorld, const NkVec3f& axisWorld) {
+            NkRigidBody* A = GetBody(a); NkRigidBody* B = GetBody(b);
+            if (!A || !B) return NK_INVALID_JOINT;
+            NkJoint j; j.type = NkJointType::REVOLUTE; j.a = a; j.b = b;
+            j.localAnchorA = A->orientation.Conjugate() * (pivotWorld - A->position);
+            j.localAnchorB = B->orientation.Conjugate() * (pivotWorld - B->position);
+            const float32 al = math::NkSqrt(axisWorld.Dot(axisWorld));
+            const NkVec3f axis = (al > 1e-6f) ? axisWorld * (1.f / al) : NkVec3f{ 0,0,1 };
+            j.localAxisA = A->orientation.Conjugate() * axis;
+            j.localAxisB = B->orientation.Conjugate() * axis;
+            mJoints.PushBack(j); return mNextJointId++;
+        }
         void NkPhysicsWorld::DestroyJoint(NkJointId id) {
             // id renvoyé = mNextJointId au moment de la création -> index = id-1 si pas de trous.
             if (id == NK_INVALID_JOINT) return;
@@ -153,6 +165,20 @@ namespace nkentseu {
             const float32 ang = rnA.Dot(NkInvInertiaApply(A, rnA)) + rnB.Dot(NkInvInertiaApply(B, rnB));
             const float32 k = A.invMass + B.invMass + ang;
             return k > 0.f ? 1.f / k : 0.f;
+        }
+
+        // Résout K·x = rhs (K donnée par ses 3 colonnes) par la règle de Cramer.
+        static NkVec3f NkSolve3(const NkVec3f& kx, const NkVec3f& ky, const NkVec3f& kz, const NkVec3f& rhs) noexcept {
+            const float32 det = kx.Dot(ky.Cross(kz));
+            if (math::NkAbs(det) < 1e-12f) return { 0,0,0 };
+            const float32 inv = 1.f / det;
+            return { rhs.Dot(ky.Cross(kz)) * inv, kx.Dot(rhs.Cross(kz)) * inv, kx.Dot(ky.Cross(rhs)) * inv };
+        }
+        // Masse effective 3x3 d'un point-à-point (colonne i = K·e_i).
+        static NkVec3f NkPointMassCol(const NkRigidBody& A, const NkRigidBody& B, const NkVec3f& rA, const NkVec3f& rB, const NkVec3f& e) noexcept {
+            return e * (A.invMass + B.invMass)
+                 - rA.Cross(NkInvInertiaApply(A, rA.Cross(e)))
+                 - rB.Cross(NkInvInertiaApply(B, rB.Cross(e)));
         }
 
         void NkPhysicsWorld::SolveContacts(float32 dt) {
@@ -339,8 +365,8 @@ namespace nkentseu {
                 if (B->IsDynamic() && !B->IsAwake() && A->IsAwake()) NkWake(*B);
                 const NkVec3f rA = A->orientation * j.localAnchorA, rB = B->orientation * j.localAnchorB;
                 NkVec3f P{};
-                if (j.type == NkJointType::BALL) P = j.impulse;
-                else { const NkVec3f d = (B->position + rB) - (A->position + rA); const float32 L = math::NkSqrt(d.Dot(d)); if (L > 1e-6f) P = d * (j.impulse.x / L); }
+                if (j.type == NkJointType::BALL || j.type == NkJointType::REVOLUTE) P = j.impulse;  // point-à-point
+                else if (j.type == NkJointType::DISTANCE) { const NkVec3f d = (B->position + rB) - (A->position + rA); const float32 L = math::NkSqrt(d.Dot(d)); if (L > 1e-6f) P = d * (j.impulse.x / L); }
                 A->linearVelocity  = A->linearVelocity  - P * A->invMass;
                 A->angularVelocity = A->angularVelocity - NkInvInertiaApply(*A, rA.Cross(P));
                 B->linearVelocity  = B->linearVelocity  + P * B->invMass;
@@ -355,19 +381,36 @@ namespace nkentseu {
                     if (!A || !B || (!A->IsAwake() && !B->IsAwake())) continue;
                     const NkVec3f rA = A->orientation * j.localAnchorA, rB = B->orientation * j.localAnchorB;
                     const NkVec3f wA = A->position + rA, wB = B->position + rB;
-                    if (j.type == NkJointType::BALL) {
-                        const NkVec3f C = wB - wA;            // erreur de position (à annuler)
-                        for (int32 ax = 0; ax < 3; ++ax) {
-                            const NkVec3f e = (ax == 0) ? NkVec3f{1,0,0} : (ax == 1) ? NkVec3f{0,1,0} : NkVec3f{0,0,1};
-                            const NkVec3f vrel = (B->linearVelocity + B->angularVelocity.Cross(rB)) - (A->linearVelocity + A->angularVelocity.Cross(rA));
-                            const float32 mass = NkEffMass(*A, *B, rA, rB, e);
-                            const float32 lambda = -mass * (vrel.Dot(e) + beta * invDt * C.Dot(e));
-                            (&j.impulse.x)[ax] += lambda;
-                            const NkVec3f P = e * lambda;
-                            A->linearVelocity  = A->linearVelocity  - P * A->invMass;
-                            A->angularVelocity = A->angularVelocity - NkInvInertiaApply(*A, rA.Cross(P));
-                            B->linearVelocity  = B->linearVelocity  + P * B->invMass;
-                            B->angularVelocity = B->angularVelocity + NkInvInertiaApply(*B, rB.Cross(P));
+                    if (j.type == NkJointType::BALL || j.type == NkJointType::REVOLUTE) {
+                        // (1) point-à-point : résolution de BLOC 3x3 exacte (stable même si
+                        // l'ancre est loin du centre de masse — cas des membres).
+                        const NkVec3f C = wB - wA;
+                        const NkVec3f vrel = (B->linearVelocity + B->angularVelocity.Cross(rB)) - (A->linearVelocity + A->angularVelocity.Cross(rA));
+                        const NkVec3f kx = NkPointMassCol(*A, *B, rA, rB, {1,0,0});
+                        const NkVec3f ky = NkPointMassCol(*A, *B, rA, rB, {0,1,0});
+                        const NkVec3f kz = NkPointMassCol(*A, *B, rA, rB, {0,0,1});
+                        const NkVec3f P = NkSolve3(kx, ky, kz, (vrel + C * (beta * invDt)) * -1.f);
+                        j.impulse = j.impulse + P;
+                        A->linearVelocity  = A->linearVelocity  - P * A->invMass;
+                        A->angularVelocity = A->angularVelocity - NkInvInertiaApply(*A, rA.Cross(P));
+                        B->linearVelocity  = B->linearVelocity  + P * B->invMass;
+                        B->angularVelocity = B->angularVelocity + NkInvInertiaApply(*B, rB.Cross(P));
+                        // (2) REVOLUTE : aligner les axes de charnière (2 DOF angulaires)
+                        if (j.type == NkJointType::REVOLUTE) {
+                            const NkVec3f aA = (A->orientation * j.localAxisA).Normalized();
+                            const NkVec3f aB = (B->orientation * j.localAxisB).Normalized();
+                            const NkVec3f err = aA.Cross(aB);             // ~ axe×sin(désalignement)
+                            NkVec3f t1 = (math::NkAbs(aA.x) > 0.9f) ? aA.Cross(NkVec3f{0,1,0}) : aA.Cross(NkVec3f{1,0,0});
+                            t1 = t1.Normalized(); const NkVec3f t2 = aA.Cross(t1);
+                            for (int32 ti = 0; ti < 2; ++ti) {
+                                const NkVec3f t = (ti == 0) ? t1 : t2;
+                                const float32 angMass = 1.f / (t.Dot(NkInvInertiaApply(*A, t)) + t.Dot(NkInvInertiaApply(*B, t)) + 1e-12f);
+                                const float32 wn = (B->angularVelocity - A->angularVelocity).Dot(t);
+                                const float32 lambda = -angMass * (wn + beta * invDt * err.Dot(t));
+                                const NkVec3f T = t * lambda;            // couple pur (pas de force linéaire)
+                                A->angularVelocity = A->angularVelocity - NkInvInertiaApply(*A, T);
+                                B->angularVelocity = B->angularVelocity + NkInvInertiaApply(*B, T);
+                            }
                         }
                     } else { // DISTANCE
                         const NkVec3f d = wB - wA; const float32 L = math::NkSqrt(d.Dot(d));
