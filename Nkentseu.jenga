@@ -386,6 +386,10 @@ with workspace("Nkentseu", location="."):
     with include("Kernel/Runtime/NKCamera/NKCamera.jenga"):
         pass
 
+    # NKCollision (collision 2D+3D, zero-STL).
+    with include("Kernel/Runtime/NKCollision/NKCollision.jenga"):
+        pass
+
     with include("Applications/Sandbox/Sandbox.jenga"):
         pass
 
