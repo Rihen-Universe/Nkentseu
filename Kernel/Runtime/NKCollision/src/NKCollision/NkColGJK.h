@@ -40,10 +40,12 @@ namespace nkentseu {
                 case NkShapeType::NK_SPHERE: return s.p0;
                 case NkShapeType::NK_CAPSULE3D:
                     return (d.Dot(s.p0) >= d.Dot(s.p1)) ? s.p0 : s.p1;
-                case NkShapeType::NK_BOX3D:
-                    return s.p0 + NkVec3f{ d.x < 0.f ? -s.p1.x : s.p1.x,
-                                           d.y < 0.f ? -s.p1.y : s.p1.y,
-                                           d.z < 0.f ? -s.p1.z : s.p1.z };
+                case NkShapeType::NK_BOX3D: {
+                    // OBB : direction -> repère local, support local, -> monde (identité = AABB).
+                    NkVec3f ld = s.orientation.Conjugate() * d;
+                    NkVec3f ls{ ld.x < 0.f ? -s.p1.x : s.p1.x, ld.y < 0.f ? -s.p1.y : s.p1.y, ld.z < 0.f ? -s.p1.z : s.p1.z };
+                    return s.p0 + s.orientation * ls;
+                }
                 case NkShapeType::NK_CYLINDER3D: {
                     const NkVec3f& a = s.p1;
                     const float32 t = d.Dot(a);
