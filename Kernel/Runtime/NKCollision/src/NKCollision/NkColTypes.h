@@ -158,8 +158,8 @@ namespace nkentseu {
         // ── Lancer de rayon ──────────────────────────────────────────────────
         struct NkRay2D  { NkVec2f origin{}; NkVec2f dir{ 1.f, 0.f }; float32 maxT = 1e30f; };
         struct NkRay3D  { NkVec3f origin{}; NkVec3f dir{ 0.f, 0.f, 1.f }; float32 maxT = 1e30f; };
-        struct NkRayHit2D { bool hit = false; float32 t = 0.f; NkVec2f point{}; NkVec2f normal{}; };
-        struct NkRayHit3D { bool hit = false; float32 t = 0.f; NkVec3f point{}; NkVec3f normal{}; };
+        struct NkRayHit2D { bool hit = false; float32 t = 0.f; NkVec2f point{}; NkVec2f normal{}; uint32 bodyId = 0; };
+        struct NkRayHit3D { bool hit = false; float32 t = 0.f; NkVec3f point{}; NkVec3f normal{}; uint32 bodyId = 0; };
 
     } // namespace collision
 } // namespace nkentseu
