@@ -108,6 +108,103 @@ int main() {
         CHECK(world.Raycast3D(ray, h) && Near(h.t, 4.f), "world raycast hit sphere");
     }
 
+    // ── GJK/EPA 3D : cohérence vs analytique + nouveaux types convexes ────────
+    {
+        // sphere-sphere via GJK/EPA == analytique (depth 0.5, normale +X)
+        NkShape sa = NkShape::Sphere({0,0,0}, 1.f), sb = NkShape::Sphere({1.5f,0,0}, 1.f);
+        NkManifold3D m;
+        CHECK(NkGJKEPA3D(sa, sb, m), "gjk3d sphere-sphere overlap");
+        CHECK(Near(m.points[0].depth, 0.5f, 2e-2f) && m.normal.x > 0.9f, "gjk3d sphere-sphere depth/normal ~ analytique");
+        NkShape sc = NkShape::Sphere({3,0,0}, 1.f); NkManifold3D m2;
+        CHECK(!NkGJKEPA3D(sa, sc, m2), "gjk3d sphere-sphere separated");
+
+        // box-box via GJK/EPA == analytique
+        NkShape ba = NkShape::Box3D({0,0,0}, {1,1,1}), bb = NkShape::Box3D({1.5f,0,0}, {1,1,1});
+        NkManifold3D mb;
+        CHECK(NkGJKEPA3D(ba, bb, mb) && Near(mb.points[0].depth, 0.5f, 3e-2f) && mb.normal.x > 0.9f, "gjk3d box-box depth/normal");
+
+        // box-capsule (paire NON gérée analytiquement -> fallback GJK)
+        NkShape box = NkShape::Box3D({0,0,0}, {1,1,1});
+        NkShape cap = NkShape::Capsule3D({1.2f,-0.5f,0}, {1.2f,0.5f,0}, 0.5f);  // surface x=0.7 vs face x=1 -> depth 0.3
+        NkManifold3D mc;
+        CHECK(NkGJKEPA3D(box, cap, mc) && mc.normal.x > 0.8f, "gjk3d box-capsule overlap");
+        CHECK(Near(mc.points[0].depth, 0.3f, 6e-2f), "gjk3d box-capsule depth ~0.3");
+
+        // cylindre-sphère
+        NkShape cyl = NkShape::Cylinder3D({0,0,0}, {0,1,0}, 1.f, 1.f);  // axe Y, rayon 1
+        NkShape cs  = NkShape::Sphere({1.5f,0,0}, 1.f);                 // côté x=1 vs surface x=0.5 -> depth 0.5
+        NkManifold3D mcy;
+        CHECK(NkGJKEPA3D(cyl, cs, mcy) && mcy.normal.x > 0.8f, "gjk3d cylinder-sphere overlap");
+        CHECK(Near(mcy.points[0].depth, 0.5f, 6e-2f), "gjk3d cylinder-sphere depth ~0.5");
+        NkShape csf = NkShape::Sphere({3,0,0}, 1.f); NkManifold3D mcy2;
+        CHECK(!NkGJKEPA3D(cyl, csf, mcy2), "gjk3d cylinder-sphere separated");
+
+        // cône-sphère (booléens)
+        NkShape cone = NkShape::Cone3D({0,0,0}, {0,1,0}, 2.f, 1.f);
+        NkShape cos1 = NkShape::Sphere({1.1f,0,0}, 0.5f); NkManifold3D mco;
+        CHECK(NkGJKEPA3D(cone, cos1, mco), "gjk3d cone-sphere overlap");
+        NkShape cosf = NkShape::Sphere({3,0,0}, 0.5f); NkManifold3D mco2;
+        CHECK(!NkGJKEPA3D(cone, cosf, mco2), "gjk3d cone-sphere separated");
+
+        // convexe (tétraèdre) - sphère
+        static const NkVec3f tet[4] = { {0,0,0}, {2,0,0}, {0,2,0}, {0,0,2} };
+        NkShape cv = NkShape::Convex3D(tet, 4);
+        NkShape cvs = NkShape::Sphere({-0.3f,0.3f,0.3f}, 0.5f); NkManifold3D mcv;
+        CHECK(NkGJKEPA3D(cv, cvs, mcv), "gjk3d convex(tetra)-sphere overlap");
+        NkShape cvsf = NkShape::Sphere({5,5,5}, 0.5f); NkManifold3D mcv2;
+        CHECK(!NkGJKEPA3D(cv, cvsf, mcv2), "gjk3d convex-sphere separated");
+
+        // triangle 3D - sphère
+        static const NkVec3f tri[3] = { {-1,0,-1}, {1,0,-1}, {0,0,1} };
+        NkShape t3 = NkShape::Triangle3D(tri);
+        NkShape t3s = NkShape::Sphere({0,0.3f,0}, 0.5f); NkManifold3D mt3;
+        CHECK(NkGJKEPA3D(t3, t3s, mt3), "gjk3d triangle-sphere overlap");
+    }
+
+    // ── Plan / half-space (analytique) via le world ──────────────────────────
+    {
+        NkWorld pw;
+        pw.AddBody(NkShape::Plane3D({0,0,0}, {0,1,0}));     // sol y=0, solide en dessous
+        pw.AddBody(NkShape::Sphere({0,0.5f,0}, 1.f));        // s'enfonce de 0.5
+        pw.Step();
+        CHECK(pw.Pairs().Size() == 1, "world plane-sphere : 1 paire");
+        if (pw.Pairs().Size() == 1) {
+            const NkManifold3D& pm = pw.Pairs()[0].manifold;
+            CHECK(pm.normal.y > 0.8f && Near(pm.points[0].depth, 0.5f, 6e-2f), "world plane-sphere normale +Y depth 0.5");
+        }
+        NkWorld pw2;
+        pw2.AddBody(NkShape::Plane3D({0,0,0}, {0,1,0}));
+        pw2.AddBody(NkShape::Sphere({0,5,0}, 1.f));          // au-dessus, pas de contact
+        pw2.Step();
+        CHECK(pw2.Pairs().Size() == 0, "world plane-sphere separes");
+    }
+
+    // ── GJK/EPA 2D : polygone, triangle, fallback world ──────────────────────
+    {
+        static const NkVec3f sq1[4] = { {-1,-1,0}, {1,-1,0}, {1,1,0}, {-1,1,0} };
+        static const NkVec3f sq2[4] = { {0.5f,-1,0}, {2.5f,-1,0}, {2.5f,1,0}, {0.5f,1,0} };
+        NkShape p1 = NkShape::Polygon2D(sq1, 4), p2 = NkShape::Polygon2D(sq2, 4);
+        NkManifold2D m2d;
+        CHECK(NkGJKEPA2D(p1, p2, m2d) && Near(m2d.points[0].depth, 0.5f, 6e-2f) && m2d.normal.x > 0.8f, "gjk2d polygone-polygone depth 0.5");
+        static const NkVec3f sq3[4] = { {5,-1,0}, {7,-1,0}, {7,1,0}, {5,1,0} };
+        NkShape p3 = NkShape::Polygon2D(sq3, 4); NkManifold2D m2s;
+        CHECK(!NkGJKEPA2D(p1, p3, m2s), "gjk2d polygone-polygone separes");
+
+        static const NkVec3f tr2[3] = { {0,0,0}, {2,0,0}, {0,2,0} };
+        NkShape tt = NkShape::Triangle2D(tr2);
+        NkShape circ = NkShape::Circle2D({-0.3f,0.3f}, 0.5f); NkManifold2D mt2;
+        CHECK(NkGJKEPA2D(tt, circ, mt2), "gjk2d triangle-cercle overlap");
+    }
+
+    // ── World : nouveaux types convexes (dispatch -> GJK/EPA) ────────────────
+    {
+        NkWorld cw;
+        cw.AddBody(NkShape::Cylinder3D({0,0,0}, {0,1,0}, 1.f, 1.f));
+        cw.AddBody(NkShape::Sphere({1.4f,0,0}, 0.5f));       // côté x=1 vs surface x=0.9 -> overlap
+        cw.Step();
+        CHECK(cw.Pairs().Size() == 1, "world cylindre-sphere : 1 paire (dispatch GJK)");
+    }
+
     logger.Info("=== NKCollision : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
