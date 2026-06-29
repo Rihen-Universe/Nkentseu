@@ -17,7 +17,8 @@ namespace nkentseu {
         // =====================================================================
         NkGraphResId NkRenderGraph::ImportTexture(const NkString& name,
                                                    NkTextureHandle tex,
-                                                   NkResourceState initialState) {
+                                                   NkResourceState initialState,
+                                                   const NkTextureDesc& desc) {
             GraphResource r;
             r.name         = name;
             r.texture      = tex;
@@ -25,6 +26,7 @@ namespace nkentseu {
             r.initialState = initialState;
             r.isImported   = true;
             r.isBuffer     = false;
+            r.transientDesc = desc;   // format/taille (pour FBO/RP custom si import = attachement)
             NkGraphResId id = NextResId();
             mResources.PushBack(r);
             mResByName.Insert(name, id);
@@ -393,7 +395,9 @@ namespace nkentseu {
                 bool writesSwap = false;
                 for (auto& ca : p.colors) {
                     if (auto* r = FindRes(ca.resId)) {
-                        if (!r->isTransient) { writesSwap = true; break; }
+                        // Vraie swapchain = import SANS handle (texture null). Un import
+                        // AVEC handle (offscreen editeur) est un RT externe, pas la swapchain.
+                        if (!r->isTransient && !r->texture.IsValid()) { writesSwap = true; break; }
                     }
                 }
                 if (writesSwap) { lastSwapchainPassIdx = i; break; }
@@ -445,10 +449,13 @@ namespace nkentseu {
                     bool needsCustomFB = false;
                     for (auto& ca : pass.colors) {
                         if (auto* r = FindRes(ca.resId)) {
-                            if (r->isTransient && r->texture.IsValid()) {
+                            // FBO custom si l'attachement a une texture concrete : transient
+                            // (off-screen) OU import AVEC handle (redirection swapchain ->
+                            // offscreen editeur). La vraie swapchain a un handle null.
+                            if (r->texture.IsValid()) {
                                 needsCustomFB = true;
-                                rpW = r->transientDesc.width;
-                                rpH = r->transientDesc.height;
+                                if (r->transientDesc.width)  rpW = r->transientDesc.width;
+                                if (r->transientDesc.height) rpH = r->transientDesc.height;
                                 break;
                             }
                         }

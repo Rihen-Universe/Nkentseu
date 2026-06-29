@@ -10,8 +10,8 @@
 //   NkPersist  — tag : survit au changement de scène
 // -----------------------------------------------------------------------------
 
-#include "../../NkECSDefines.h"
-#include "../../Core/NkTypeRegistry.h"
+#include "NKECS/NkECSDefines.h"
+#include "NKECS/Core/NkTypeRegistry.h"
 #include <cstring>
 
 namespace nkentseu { namespace ecs {

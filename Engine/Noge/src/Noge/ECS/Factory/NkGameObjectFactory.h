@@ -18,9 +18,9 @@
 
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/World/NkWorld.h"
-#include "Nkentseu/ECS/Entities/NkGameObject.h"
-#include "Nkentseu/ECS/Components/Core/NkTransform.h"
-#include "Nkentseu/ECS/Components/Core/NkTag.h"
+#include "Noge/ECS/Entities/NkGameObject.h"
+#include "Noge/ECS/Components/Core/NkTransform.h"
+#include "Noge/ECS/Components/Core/NkTag.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKCore/NkTraits.h"

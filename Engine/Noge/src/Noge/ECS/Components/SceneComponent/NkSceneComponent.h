@@ -3,9 +3,9 @@
 // DESCRIPTION: Composant hiérarchique style Unreal (Phase P1 - Mise à jour)
 // =============================================================================
 #pragma once
-#include "../../NkECSDefines.h"
-#include "../../Core/NkTypeRegistry.h"
-#include "Nkentseu/ECS/Components/Core/NkTransform.h"
+#include "NKECS/NkECSDefines.h"
+#include "NKECS/Core/NkTypeRegistry.h"
+#include "Noge/ECS/Components/Core/NkTransform.h"
 #include <cstring>
 
 

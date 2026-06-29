@@ -52,8 +52,8 @@
 #include "NKContainers/String/NkString.h"
 #include "NKRenderer/src/Resources/NkResourceDescs.h"
 #include "Nkentseu/Modeling/NkEditableMesh.h"
-#include "Nkentseu/ECS/Components/Animation/NkAnimation.h"
-#include "Nkentseu/ECS/Factory/NkGameObjectFactory.h"
+#include "Noge/ECS/Components/Animation/NkAnimation.h"
+#include "Noge/ECS/Factory/NkGameObjectFactory.h"
 
 namespace nkentseu {
 

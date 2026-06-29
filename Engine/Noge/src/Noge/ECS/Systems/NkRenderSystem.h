@@ -21,8 +21,8 @@
 
 #include "NKECS/System/NkSystem.h"
 #include "NKECS/World/NkWorld.h"
-#include "Nkentseu/ECS/Components/Core/NkTransform.h"
-#include "Nkentseu/ECS/Components/Rendering/NkRenderComponents.h"
+#include "Noge/ECS/Components/Core/NkTransform.h"
+#include "Noge/ECS/Components/Rendering/NkRenderComponents.h"
 #include "NKRenderer/src/NkRenderer.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKContainers/Sequential/NkVector.h"

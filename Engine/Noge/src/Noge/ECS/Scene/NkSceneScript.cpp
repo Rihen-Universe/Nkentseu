@@ -29,10 +29,10 @@
 
 #include "NkSceneScript.h"
 #include "NKECS/World/NkWorld.h"
-#include "NKECS/Scene/NkSceneGraph.h"
+#include "Noge/ECS/Scene/NkSceneGraph.h"
 #include "NKECS/GameObject/NkGameObject.h"
-#include "NKECS/Components/Core/NkTag.h"
-#include "NKECS/Components/Core/NkName.h"
+#include "Noge/ECS/Components/Core/NkTag.h"
+#include "Noge/ECS/Components/Core/NkName.h"
 #include "NKECS/Prefabs/NkPrefab.h"
 #include "NKMath/NKMath.h"
 

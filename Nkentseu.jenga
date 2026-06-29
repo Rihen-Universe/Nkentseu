@@ -383,7 +383,14 @@ with workspace("Nkentseu", location="."):
     with include("Integrations/NKUI/NKUIIntegration.jenga"):
         pass
 
+    with include("Integrations/NKGui/NKGuiIntegration.jenga"):
+        pass
+
     with include("Kernel/Runtime/NKCamera/NKCamera.jenga"):
+        pass
+
+    # NKCollision (collision 2D+3D, zero-STL).
+    with include("Kernel/Runtime/NKCollision/NKCollision.jenga"):
         pass
 
     with include("Applications/Sandbox/Sandbox.jenga"):
@@ -413,10 +420,30 @@ with workspace("Nkentseu", location="."):
     with include("Applications/NKPA/NKPA.jenga"):
         pass
 
+    # NKECS (ECS bas niveau archetypes) — DOIT etre enregistre AVANT Noge qui en
+    # depend (sinon %{NKECS.location} vide -> includes NKECS/* introuvables).
+    with include("Kernel/Runtime/NKECS/NKECS.jenga"):
+        pass
+
     with include("Engine/Noge/Noge.jenga"):
         pass
 
     with include("Applications/Nogee/Nogee.jenga"):
+        pass
+
+    with include("Applications/NKEditorKitDemo/NKEditorKitDemo.jenga"):
+        pass
+
+    with include("Applications/NkAnimaEditor/NkAnimaEditor.jenga"):
+        pass
+
+    with include("Applications/ImGuiRef/ImGuiRef.jenga"):
+        pass
+
+    with include("Applications/NKGuiDemo/NKGuiDemo.jenga"):
+        pass
+
+    with include("Applications/NKViewportDemo/NKViewportDemo.jenga"):
         pass
 
     with include("Applications/PV3DE/PV3DE.jenga"):

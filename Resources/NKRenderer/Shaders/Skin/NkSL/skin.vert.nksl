@@ -1,0 +1,111 @@
+// skin.vert.nksl — NKRenderer — Skin Vertex (VRAI dialecte NkSL)
+// Linear blend skinning (4 influences/vertex via UBO bones[64]) + TBN.
+// SOURCE UNIQUE : transpilee VK / GL / HLSL(DX11,DX12) / MSL par le backend NkSL.
+// Le Y-flip clip par backend est gere automatiquement par le transpileur.
+
+@location(0) in vec3 aPos;
+@location(1) in vec3 aNormal;
+@location(2) in vec3 aTangent;
+@location(3) in vec2 aUV;
+@location(4) in vec2 aUV2;
+@location(5) in vec4 aColor;
+@location(6) in vec4 aBoneIdx;     // indices de bones (stockes en float)
+@location(7) in vec4 aBoneWeight;  // poids LBS (normalises cote loader)
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+    float _p0;
+    float _p1;
+    float _p2;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;
+} uCam;
+
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model;
+    mat4  normalMatrix;
+    vec4  tint;
+    float metallic;
+    float roughness;
+    float aoStrength;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRoughness;
+    float subsurface;
+    vec4  subsurfaceColor;
+    vec4  shadowOverrides;
+    vec4  triplanarParams;
+} uObj;
+
+// Joint matrices (= globalTransform * inverseBind, calcule cote CPU).
+@binding(set=1, binding=2)
+uniform NkBonesUBO {
+    mat4 bones[64];
+} uBones;
+
+@location(0) out vec3 vWorldPos;
+@location(1) out vec3 vNormal;
+@location(2) out vec3 vTangent;
+@location(3) out vec3 vBitangent;
+@location(4) out vec2 vUV;
+@location(5) out vec2 vUV2;
+@location(6) out vec4 vColor;
+
+@stage(vertex)
+@entry
+void main() {
+    // Linear blend skinning : 4 joint matrices ponderees.
+    ivec4 bi = clamp(ivec4(aBoneIdx + 0.5), ivec4(0), ivec4(63));
+    mat4 skinMat = aBoneWeight.x * uBones.bones[bi.x]
+                 + aBoneWeight.y * uBones.bones[bi.y]
+                 + aBoneWeight.z * uBones.bones[bi.z]
+                 + aBoneWeight.w * uBones.bones[bi.w];
+    float wsum = aBoneWeight.x + aBoneWeight.y + aBoneWeight.z + aBoneWeight.w;
+    // wsum ~ 0 => pas d'influence d'os => bind pose (aPos/aNormal direct).
+    // IMPORTANT cross-backend : on EVITE mat4(1.0) (identite) et mat3(mat4)
+    // (troncature) -> INVALIDES en HLSL (DX11/DX12 : erreur X3014 "incorrect number
+    // of arguments to numeric-type constructor"). A la place :
+    //   - garde booleen noSkin pour le cas degenere ;
+    //   - normales/tangentes transformees par (M * vec4(v, 0.0)).xyz : le w=0 annule
+    //     la translation, ce qui equivaut a appliquer la partie 3x3 de M, et reste
+    //     valide GLSL/VK/HLSL/MSL sans piege row/col-major.
+    bool noSkin = (wsum < 1e-4);
+
+    vec4 skinnedPos = noSkin ? vec4(aPos, 1.0) : (skinMat * vec4(aPos, 1.0));
+    vec4 worldPos   = uObj.model * skinnedPos;
+    vWorldPos       = worldPos.xyz;
+
+    // Normale/tangente : partie 3x3 de (normalMatrix) * partie 3x3 de (skinMat).
+    vec3 nSkin = noSkin ? aNormal  : (skinMat * vec4(aNormal,  0.0)).xyz;
+    vec3 tSkin = noSkin ? aTangent : (skinMat * vec4(aTangent, 0.0)).xyz;
+    vec3 N = normalize((uObj.normalMatrix * vec4(nSkin, 0.0)).xyz);
+    vec3 T;
+    if (dot(aTangent, aTangent) > 1e-6) {
+        T = normalize((uObj.normalMatrix * vec4(tSkin, 0.0)).xyz);
+        T = normalize(T - dot(T, N) * N);
+    } else {
+        vec3 fb = abs(N.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+        T = normalize(cross(fb, N));
+    }
+    vNormal    = N;
+    vTangent   = T;
+    vBitangent = cross(N, T);
+
+    vUV    = aUV;
+    vUV2   = aUV2;
+    vColor = aColor * uObj.tint;
+
+    gl_Position = uCam.viewProj * worldPos;
+}

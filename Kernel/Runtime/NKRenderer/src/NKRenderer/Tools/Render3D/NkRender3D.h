@@ -143,6 +143,13 @@ namespace nkentseu {
                 // V1 future : dynamic offsets UBO (1 buffer + per-draw offset) pour
                 // scale a 10k+ draws sans alloc de descriptor sets supplementaires.
                 static constexpr uint32 kMaxObjectsPerFrame = 1024;
+
+                // Nombre max de bones par skeleton (taille de l'UBO bones[N],
+                // std140). DOIT matcher mat4 bones[64] dans skin.vert.vk.glsl.
+                // Squelettes plus grands : clamp cote FlushSkinned (les indices
+                // > 63 sont clampes a 63 dans le shader). 64 mat4 = 4096 octets,
+                // sous la limite UBO 16 Ko garantie partout (VK/GL/DX).
+                static constexpr uint32 kMaxBonesUBO = 64;
                 void SetLightCookie3D(uint32 slot, NkTextureHandle tex);
 
                 // E.6b : bind une cubemap comme cookie pour point lights
@@ -228,7 +235,17 @@ namespace nkentseu {
                 // meme compteur monotone (ordre : shadow d'abord, puis opaque, puis
                 // skinned).
                 NkVector<NkVector<NkBufferHandle>>  mUBOObjectPool;   // [frame][drawIdx]
-                NkBufferHandle             mSSBOBones;
+                // Bones UBO : UN uniform buffer (mat4 bones[64], std140) PAR
+                // frame-in-flight (ring), bind au binding=2 des sets objet de la
+                // frame i a Init. Sans ring (1 seul buffer partage), la frame N+1
+                // reecrivait le buffer pendant que le GPU lisait encore la frame N
+                // (Vulkan multi-frame) -> course -> clignotement. Indexe par
+                // mFrameSlot comme mUBOCameraRing/mUBOObjectPool.
+                // Migration UBO (ex-SSBO) : un UBO est portable et solide sur les
+                // 4 backends (GL/VK/DX11/DX12) — le SSBO StructuredBuffer/SRV ne
+                // remontait pas au shader sur DX11/DX12 (skin invisible) et
+                // creait une course sur Vulkan. 64 bones max (=4096 octets).
+                NkVector<NkBufferHandle>   mUBOBonesRing;   // [frame]
                 NkTextureHandle            mDefaultCubeWhite;   // E.6b : fallback cube cookie
                 uint32                     mFramesInFlight = 1;
                 uint32                     mFrameSlot      = 0;
@@ -281,6 +298,14 @@ namespace nkentseu {
                 ::nkentseu::NkShaderHandle mShadowShader;
                 NkPipelineHandle           mShadowPipeline;
 
+                // Skinning GPU : shader + pipeline dedies. Le pipeline skin utilise
+                // un vertex layout NkVertexSkinned (pos/nrm/tan/uv/uv2/color +
+                // boneIdx vec4 + boneWeight vec4) et lit l'UBO de bones (mUBOBonesRing)
+                // bind dans le set objet (set=1, binding=2). Pipeline lazy comme PBR.
+                ::nkentseu::NkShaderHandle mSkinShader;
+                NkPipelineHandle           mSkinPipeline;
+                NkRenderPassHandle         mSkinPipelineRP{};
+
                 // ── Phase N v0.5 : Background HDR Skybox ───────────────────────
                 // Skybox dessinee en debut de Flush (avant FlushOpaque) avec
                 // depth=1.0 LEQUAL, donc cachee par tout objet opaque dessine
@@ -300,7 +325,8 @@ namespace nkentseu {
                 void FlushTransparent(NkICommandBuffer* cmd);
                 void FlushInstanced  (NkICommandBuffer* cmd);
                 void FlushSkinned    (NkICommandBuffer* cmd);
-                void FlushDebug      (NkICommandBuffer* cmd);
+                void FlushDebug      (NkICommandBuffer* cmd, NkRenderPassHandle currentRP,
+                                      NkDescSetHandle gs);
                 void SortDrawCalls();
 
                 // Cree (ou recree) le pipeline PBR pour qu'il soit compatible
@@ -310,6 +336,11 @@ namespace nkentseu {
                 // si le RP n'a pas change. Retourne false si shader ou create
                 // ont echoue.
                 bool EnsurePBRPipeline(NkRenderPassHandle currentRP);
+
+                // Cree (lazy) le pipeline de skinning GPU, compatible avec le RP
+                // courant. Vertex layout NkVertexSkinned + shader "Skin". Le SSBO
+                // de bones est lie au set objet (set=1, binding=2). Idempotent.
+                bool EnsureSkinPipeline(NkRenderPassHandle currentRP);
 
                 // ── DEBUG triangle minimal (isolation bug PBR Vulkan) ────────
                 // Mode 0 = PBR normal. Mode 1 = triangle non-indexed (cmd->Draw).
@@ -328,6 +359,18 @@ namespace nkentseu {
                 bool EnsureDebugTriangle(NkRenderPassHandle currentRP);
                 void DebugDrawTriangleNoIdx(NkICommandBuffer* cmd);
                 void DebugDrawTriangleIdx  (NkICommandBuffer* cmd);
+
+                // ── Debug LINE renderer (gizmos, squelettes IK, axes…) ──────────
+                // Vrai rendu des lignes accumulées (DrawDebugLine/Sphere/Grid/…),
+                // avant : FlushDebug ne faisait que gérer la durée de vie (stub).
+                // Vertex = pos vec3 + couleur vec4 (stride 28), topologie LINE_LIST,
+                // VBO dynamique réuploadé par frame, transformé par la CameraUBO.
+                ::nkentseu::NkShaderHandle mLineShader;
+                NkPipelineHandle           mLinePipeline;
+                NkRenderPassHandle         mLinePipelineRP{};
+                NkBufferHandle             mLineVBO;          // dynamique
+                uint32                     mLineVBOCapVerts = 0;
+                bool EnsureDebugLinePipeline(NkRenderPassHandle currentRP);
         };
 
     } // namespace renderer
