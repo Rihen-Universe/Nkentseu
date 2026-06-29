@@ -6,6 +6,7 @@
 #include "NKCollision/NkColGJK.h"      // narrowphase générique convexe (GJK/EPA)
 #include "NKCollision/NkColConcave.h"  // décomposition des concaves (trimesh/heightfield/chain)
 #include "NKCollision/NkColCast.h"     // casts génériques (ray-convexe, shape cast) par CA
+#include "NKCollision/NkColClip.h"     // manifolds multi-points 2D (clipping polygones)
 
 namespace nkentseu {
     namespace collision {
@@ -134,6 +135,12 @@ namespace nkentseu {
             }
             if (B.type == T::NK_CHAIN2D && NkShapeIsConvex(A.type)) {
                 NkManifold2D m; if (!NkConvexVsChain2D(B, A, m)) return false; m.normal = m.normal * -1.f; NkFill3DFrom2D(m, out); return true;
+            }
+
+            // Polygone/boîte/triangle vs idem -> manifold MULTI-POINTS (clipping).
+            if (NkShapeIsPoly2(A.type) && NkShapeIsPoly2(B.type)) {
+                NkManifold2D pm; if (!NkCollidePolygons2D(A, B, pm)) return false;
+                NkFill3DFrom2D(pm, out); return true;
             }
 
             auto rank = [](T t) -> int32 { return (int32)t; };

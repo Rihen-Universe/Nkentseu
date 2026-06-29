@@ -69,9 +69,14 @@
 - **Queries world accélérées** : `Raycast3D` (préfiltre `mTree.RayCast`) et `Overlap`
   (`mTree.Query`) passent par le DBVH au lieu d'itérer tous les corps. ✅
 
-### Reste prioritaire (vague 10)
-- **Manifold multi-points** (clipping Sutherland-Hodgman) : 1 pt -> 2 (2D)/4 (3D) pour la
-  stabilité de la résolution physique (LE chantier majeur restant pour NKPhysics au-dessus).
+### Livré 2026-06-29 — vague 10 : manifolds multi-points 2D (clipping) — 94/94
+- **`NkCollidePolygons2D`** (`NkColClip.h`) : SAT + clipping d'arête incidente (façon
+  b2CollidePolygons) -> jusqu'à **2 points de contact** pour box/polygone/triangle 2D.
+  Câblé dans `NkNarrow2D` (supplante l'OBB-SAT 1-point). Vérifié : empilement de caisses
+  = 2 points, normale +Y (stabilité de résolution). ✅
+
+### Reste prioritaire (vague 11)
+- **Manifold multi-points 3D** (box-box : SAT 15 axes + clipping de face -> 4 points).
 - **CCD** intégré au world (swept des corps rapides via ShapeCast) + **contacts persistants**.
 - **Debug draw** (NKUI/NKRenderer) + **intégration ECS** (`NkColliderComponent` + système).
 
