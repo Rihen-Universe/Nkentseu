@@ -263,8 +263,11 @@ namespace nkentseu {
         // ── Raycast 3D (hit le plus proche) ──────────────────────────────────
         bool NkWorld::Raycast3D(const NkRay3D& ray, NkRayHit3D& hit, uint32 mask) const {
             bool found = false; NkRayHit3D best; best.t = ray.maxT;
-            for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
-                const NkBody& b = mBodies[i];
+            NkVector<uint32> cand; mTree.RayCast(ray, cand);          // préfiltre DBVH (AABB traversées)
+            for (uint32 i = 0; i < (uint32)cand.Size(); ++i) {
+                const NkBody* bp = GetBody(cand[i]);
+                if (!bp) continue;
+                const NkBody& b = *bp;
                 if (!b.active || NkShapeIs2D(b.shape.type) || !(b.layer & mask)) continue;
                 NkRayHit3D h;
                 bool ok = false;
@@ -326,13 +329,13 @@ namespace nkentseu {
             out.Clear();
             const NkAABB3D sab = NkBodyAABB(s);
             const bool s2 = NkShapeIs2D(s.type);
-            for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
-                const NkBody& b = mBodies[i];
-                if (!b.active || !(b.layer & mask)) continue;
-                if (NkShapeIs2D(b.shape.type) != s2) continue;        // pas de mixte 2D/3D
-                if (!sab.Overlaps(NkBodyAABB(b.shape))) continue;     // broadphase
+            NkVector<uint32> cand; mTree.Query(sab, cand);            // broadphase DBVH O(log n)
+            for (uint32 c = 0; c < (uint32)cand.Size(); ++c) {
+                const NkBody* bp = GetBody(cand[c]);
+                if (!bp || !bp->active || !(bp->layer & mask)) continue;
+                if (NkShapeIs2D(bp->shape.type) != s2) continue;      // pas de mixte 2D/3D
                 NkManifold3D m;
-                if (Narrow(s, b.shape, m)) out.PushBack(b.id);        // narrowphase
+                if (Narrow(s, bp->shape, m)) out.PushBack(bp->id);    // narrowphase
             }
             return (uint32)out.Size();
         }

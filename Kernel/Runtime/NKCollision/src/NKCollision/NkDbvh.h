@@ -210,10 +210,60 @@ namespace nkentseu {
                     }
                 }
 
-                // Équilibrage par rotations : DIFFÉRÉ (vague suivante). No-op = arbre
-                // toujours CORRECT (la sélection SAH du frère garde une profondeur
-                // raisonnable) ; les rotations AVL-like seront ajoutées + testées à part.
-                int32 Balance(int32 iA) noexcept { return iA; }
+                // Équilibrage par rotation (algorithme b2DynamicTree, connu-correct) :
+                // si un sous-arbre est déséquilibré de +/-2 en hauteur, on remonte
+                // l'enfant le plus haut. Renvoie la nouvelle racine du sous-arbre.
+                int32 Balance(int32 iA) noexcept {
+                    NkDbvhNode& A = mNodes[(uint32)iA];
+                    if (A.IsLeaf() || A.height < 2) return iA;
+                    const int32 iB = A.child1, iC = A.child2;
+                    const int32 bal = mNodes[(uint32)iC].height - mNodes[(uint32)iB].height;
+                    if (bal > 1) {                       // remonter C
+                        const int32 iF = mNodes[(uint32)iC].child1, iG = mNodes[(uint32)iC].child2;
+                        mNodes[(uint32)iC].child1 = iA; mNodes[(uint32)iC].parent = A.parent; A.parent = iC;
+                        if (mNodes[(uint32)iC].parent != kNull) {
+                            if (mNodes[(uint32)mNodes[(uint32)iC].parent].child1 == iA) mNodes[(uint32)mNodes[(uint32)iC].parent].child1 = iC;
+                            else mNodes[(uint32)mNodes[(uint32)iC].parent].child2 = iC;
+                        } else mRoot = iC;
+                        if (mNodes[(uint32)iF].height > mNodes[(uint32)iG].height) {
+                            mNodes[(uint32)iC].child2 = iF; A.child2 = iG; mNodes[(uint32)iG].parent = iA;
+                            A.aabb = NkAABBUnion(mNodes[(uint32)iB].aabb, mNodes[(uint32)iG].aabb);
+                            mNodes[(uint32)iC].aabb = NkAABBUnion(A.aabb, mNodes[(uint32)iF].aabb);
+                            A.height = 1 + math::NkMax(mNodes[(uint32)iB].height, mNodes[(uint32)iG].height);
+                            mNodes[(uint32)iC].height = 1 + math::NkMax(A.height, mNodes[(uint32)iF].height);
+                        } else {
+                            mNodes[(uint32)iC].child2 = iG; A.child2 = iF; mNodes[(uint32)iF].parent = iA;
+                            A.aabb = NkAABBUnion(mNodes[(uint32)iB].aabb, mNodes[(uint32)iF].aabb);
+                            mNodes[(uint32)iC].aabb = NkAABBUnion(A.aabb, mNodes[(uint32)iG].aabb);
+                            A.height = 1 + math::NkMax(mNodes[(uint32)iB].height, mNodes[(uint32)iF].height);
+                            mNodes[(uint32)iC].height = 1 + math::NkMax(A.height, mNodes[(uint32)iG].height);
+                        }
+                        return iC;
+                    }
+                    if (bal < -1) {                      // remonter B
+                        const int32 iD = mNodes[(uint32)iB].child1, iE = mNodes[(uint32)iB].child2;
+                        mNodes[(uint32)iB].child1 = iA; mNodes[(uint32)iB].parent = A.parent; A.parent = iB;
+                        if (mNodes[(uint32)iB].parent != kNull) {
+                            if (mNodes[(uint32)mNodes[(uint32)iB].parent].child1 == iA) mNodes[(uint32)mNodes[(uint32)iB].parent].child1 = iB;
+                            else mNodes[(uint32)mNodes[(uint32)iB].parent].child2 = iB;
+                        } else mRoot = iB;
+                        if (mNodes[(uint32)iD].height > mNodes[(uint32)iE].height) {
+                            mNodes[(uint32)iB].child2 = iD; A.child1 = iE; mNodes[(uint32)iE].parent = iA;
+                            A.aabb = NkAABBUnion(mNodes[(uint32)iC].aabb, mNodes[(uint32)iE].aabb);
+                            mNodes[(uint32)iB].aabb = NkAABBUnion(A.aabb, mNodes[(uint32)iD].aabb);
+                            A.height = 1 + math::NkMax(mNodes[(uint32)iC].height, mNodes[(uint32)iE].height);
+                            mNodes[(uint32)iB].height = 1 + math::NkMax(A.height, mNodes[(uint32)iD].height);
+                        } else {
+                            mNodes[(uint32)iB].child2 = iE; A.child1 = iD; mNodes[(uint32)iD].parent = iA;
+                            A.aabb = NkAABBUnion(mNodes[(uint32)iC].aabb, mNodes[(uint32)iD].aabb);
+                            mNodes[(uint32)iB].aabb = NkAABBUnion(A.aabb, mNodes[(uint32)iE].aabb);
+                            A.height = 1 + math::NkMax(mNodes[(uint32)iC].height, mNodes[(uint32)iD].height);
+                            mNodes[(uint32)iB].height = 1 + math::NkMax(A.height, mNodes[(uint32)iE].height);
+                        }
+                        return iB;
+                    }
+                    return iA;
+                }
 
                 NkVector<NkDbvhNode> mNodes;
                 int32   mRoot = kNull;

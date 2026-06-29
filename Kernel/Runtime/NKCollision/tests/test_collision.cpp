@@ -411,6 +411,35 @@ int main() {
         CHECK(res.Size() == 1, "DBVH Update : boite retrouvee a sa nouvelle position");
     }
 
+    // ── VAGUE 9 : équilibrage DBVH (AVL) + queries world via l'arbre ─────────
+    {
+        // Insertion de 64 boîtes EN ORDRE TRIÉ (pire cas sans équilibrage -> arbre
+        // dégénéré de hauteur ~63). Avec rotations AVL, hauteur ~log2(64)=6 (<= ~12).
+        NkDbvh tree(0.f);
+        for (int32 i = 0; i < 64; ++i) {
+            NkAABB3D b; NkVec3f c{ (float32)i, 0.f, 0.f };
+            b.min = c - NkVec3f{0.3f,0.3f,0.3f}; b.max = c + NkVec3f{0.3f,0.3f,0.3f};
+            tree.Insert(b, (uint32)i);
+        }
+        CHECK(tree.Height() <= 12, "DBVH equilibrage : hauteur bornee apres 64 inserts tries");
+        // requête correcte malgré l'équilibrage
+        NkVector<uint32> res;
+        tree.Query(NkAABB3D{ {9.5f,-1,-1}, {12.5f,1,1} }, res);
+        CHECK(res.Size() == 3, "DBVH equilibre : Query exacte (boites 10,11,12)");
+    }
+    {
+        // Queries du world accélérées par le DBVH (résultats inchangés).
+        NkWorld w;
+        w.AddBody(NkShape::Sphere({0,0,0}, 1.f));
+        w.AddBody(NkShape::Sphere({1.5f,0,0}, 1.f));
+        w.AddBody(NkShape::Sphere({100,0,0}, 1.f));
+        NkRay3D ray; ray.origin = {-5,0,0}; ray.dir = {1,0,0}; ray.maxT = 100.f;
+        NkRayHit3D h;
+        CHECK(w.Raycast3D(ray, h) && Near(h.t, 4.f), "world raycast via DBVH t=4");
+        NkVector<uint32> ids;
+        CHECK(w.Overlap(NkShape::Sphere({0.7f,0,0}, 1.f), ids) == 2, "world Overlap via DBVH : 2 corps");
+    }
+
     logger.Info("=== NKCollision : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
