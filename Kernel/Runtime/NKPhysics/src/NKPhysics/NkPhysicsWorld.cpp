@@ -269,17 +269,17 @@ namespace nkentseu {
             mCollision.Step();
             // 3) solveur de contacts (vitesses, sans Baumgarte) + warm-start
             SolveContacts(dt);
-            // 4) vitesses -> positions
+            // 4) vitesses -> positions (DYNAMIC + KINEMATIC : le kinematic suit sa vitesse imposée)
             for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
                 NkRigidBody& b = mBodies[i];
-                if (b.type == NkBodyType::DYNAMIC && b.IsAwake()) NkIntegratePosition(b, dt);
+                if (b.type != NkBodyType::STATIC && b.IsAwake()) NkIntegratePosition(b, dt);
             }
-            // 5) correction positionnelle (split-impulse)
+            // 5) correction positionnelle (split-impulse) — n'affecte que les invMass>0
             CorrectPositions();
             // 6) re-synchroniser les shapes de collision sur la pose finale
             for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
                 NkRigidBody& b = mBodies[i];
-                if (b.type != NkBodyType::DYNAMIC) continue;
+                if (b.type == NkBodyType::STATIC) continue;     // static : jamais re-sync
                 if (collision::NkBody* cb = mCollision.GetBody(b.collisionId)) {
                     collision::NkShape s = cb->shape;
                     NkSyncShape(s, b.position - collision::NkShapeCenter3D(s), b.orientation);  // resynchro absolue
