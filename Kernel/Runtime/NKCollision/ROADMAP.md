@@ -81,9 +81,14 @@
   (OBB ou AABB). Câblé dans `NkNarrow3D` pour toute paire box-box. Vérifié : empilement
   (4 pts, +Y) + côte-à-côte (4 pts, +X). ✅
 
-### Reste prioritaire (vague 12)
-- **CCD** intégré au world (swept des corps rapides via ShapeCast) + **contacts persistants**
-  (warm-starting inter-frames pour NKPhysics).
+### Livré 2026-06-29 — vague 12 : CCD (anti-tunneling) — 102/102
+- **`NkWorld::SweepBody(id, translation, hit, mask)`** : balaie le corps convexe le long de
+  son déplacement (via `NkConvexCast3D` + broadphase DBVH sur le volume balayé), renvoie le
+  TOI avant impact. La physique au-dessus clampe le déplacement -> pas de tunneling. Vérifié :
+  sphère rapide stoppée au mur. ✅
+
+### Reste prioritaire (vague 13)
+- **Contacts persistants** (cache de manifolds par paire + IDs de features pour warm-starting).
 - **Debug draw** (NKUI/NKRenderer) + **intégration ECS** (`NkColliderComponent` + système).
 - **NKPhysics** au-dessus (résolution d'impulses/contraintes sur les manifolds produits).
 

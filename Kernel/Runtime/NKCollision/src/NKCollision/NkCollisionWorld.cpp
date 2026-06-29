@@ -374,5 +374,29 @@ namespace nkentseu {
             return found;
         }
 
+        // ── CCD : balayage d'un corps existant (anti-tunneling) ──────────────
+        bool NkWorld::SweepBody(uint32 id, const NkVec3f& translation, NkRayHit3D& hit, uint32 mask) const {
+            const NkBody* self = GetBody(id);
+            if (!self || !NkShapeIsConvex(self->shape.type)) return false;
+            const float32 dl = math::NkSqrt(translation.Dot(translation));
+            if (dl < 1e-8f) return false;
+            const NkVec3f d = translation * (1.f / dl);
+            NkAABB3D a0 = NkBodyAABB(self->shape);
+            NkAABB3D swept = a0; swept.Expand(a0.min + translation); swept.Expand(a0.max + translation);
+            NkVector<uint32> cand; mTree.Query(swept, cand);     // broadphase DBVH (volume balayé)
+            bool found = false; NkRayHit3D best; best.t = dl;
+            for (uint32 i = 0; i < (uint32)cand.Size(); ++i) {
+                if (cand[i] == id) continue;                     // exclure soi-même
+                const NkBody* bp = GetBody(cand[i]);
+                if (!bp || !bp->active || !(bp->layer & mask) || NkShapeIs2D(bp->shape.type) || !NkShapeIsConvex(bp->shape.type)) continue;
+                float32 t; NkVec3f nrm, p;
+                if (NkConvexCast3D(self->shape, d, dl, bp->shape, t, nrm, p) && t < best.t) {
+                    best.hit = true; best.t = t; best.normal = nrm; best.point = p; found = true;
+                }
+            }
+            if (found) hit = best;
+            return found;
+        }
+
     } // namespace collision
 } // namespace nkentseu
