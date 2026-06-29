@@ -576,7 +576,13 @@ namespace nkentseu {
                     entry.Size = (static_cast<nk_int64>(findData.nFileSizeHigh) << 32)
                                | findData.nFileSizeLow;
 
-                    // Note : ModificationTime n'est pas extrait ici (disponible via findData.ftLastWriteTime)
+                    // Date de derniere modification : FILETIME (100ns depuis 1601)
+                    // converti en epoch Unix (secondes depuis 1970), conforme au contrat.
+                    {
+                        const nk_int64 ft = (static_cast<nk_int64>(findData.ftLastWriteTime.dwHighDateTime) << 32)
+                                          | static_cast<nk_int64>(findData.ftLastWriteTime.dwLowDateTime);
+                        entry.ModificationTime = ft > 0 ? (ft - 116444736000000000LL) / 10000000LL : 0;
+                    }
 
                     results.PushBack(entry);
                 }

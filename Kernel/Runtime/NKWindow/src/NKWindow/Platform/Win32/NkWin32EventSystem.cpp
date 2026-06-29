@@ -609,9 +609,12 @@ namespace nkentseu {
 
             case WM_NCHITTEST:
                 if (owner && !owner->GetConfig().frame) {
-                    // TOUT = HTCLIENT : le resize NATIF ne fonctionne pas dans ce setup
-                    // borderless (WM_NCCALCSIZE renvoie 0). On gere donc le resize a la
-                    // MAIN cote shell (HandleEdgeResize), et l'app recoit tous les events.
+                    // TOUT = HTCLIENT : la zone client couvre toute la fenetre (NCCALCSIZE=0),
+                    // donc l'app recoit WM_MOUSEMOVE jusqu'aux bords -> elle detecte le bord
+                    // survole (coords client) et delegue a l'OS via NkWindow::BeginResize
+                    // (hand-off natif WM_NCLBUTTONDOWN). Approche CROSS-PLATFORM (chaque
+                    // backend implemente BeginResize nativement). Le drag de titre = idem
+                    // via BeginDragMove. Voir NkEditorShell::HandleEdgeResize.
                     result = HTCLIENT;
                 }
                 break;
