@@ -89,6 +89,10 @@ namespace nkentseu {
                 return true;
             }
 
+            // Box-box (OBB ou AABB) -> manifold MULTI-POINTS (EPA + clipping de face).
+            if (A.type == T::NK_BOX3D && B.type == T::NK_BOX3D)
+                return NkCollideBoxBox3D(A, B, m);
+
             // Ordonner pour factoriser les paires asymétriques ; flip si on a swappé.
             auto rank = [](T t) -> int32 { return (int32)t; };
             const NkShape* a = &A; const NkShape* b = &B; bool swapped = false;

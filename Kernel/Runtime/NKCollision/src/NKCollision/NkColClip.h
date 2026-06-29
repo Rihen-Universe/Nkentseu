@@ -8,6 +8,7 @@
 // Les formes courbes (cercle/capsule) gardent 1 point (correct par nature).
 // =============================================================================
 #include "NKCollision/NkColShapes.h"
+#include "NKCollision/NkColGJK.h"   // EPA fournit la normale robuste, le clipping les points
 
 namespace nkentseu {
     namespace collision {
@@ -106,6 +107,86 @@ namespace nkentseu {
             }
             if (m.count == 0) return false;
             m.normal = outN;
+            return true;
+        }
+
+        // =====================================================================
+        //  Manifold MULTI-POINTS 3D — box-box (OBB) : EPA (normale) + clipping de face
+        // =====================================================================
+        struct NkBoxFrame { NkVec3f c; NkVec3f u[3]; float32 e[3]; };
+        inline NkBoxFrame NkBoxFrameOf(const NkShape& s) noexcept {
+            NkBoxFrame f; f.c = s.p0;
+            f.u[0] = s.orientation * NkVec3f{1,0,0}; f.u[1] = s.orientation * NkVec3f{0,1,0}; f.u[2] = s.orientation * NkVec3f{0,0,1};
+            f.e[0] = s.p1.x; f.e[1] = s.p1.y; f.e[2] = s.p1.z; return f;
+        }
+        // Clip un polygone (<=8 pts) par le demi-espace n·x <= offset (Sutherland-Hodgman 3D).
+        inline int32 NkClipPolyPlane3(NkVec3f* poly, int32 count, const NkVec3f& n, float32 offset) noexcept {
+            NkVec3f out[8]; int32 c = 0;
+            for (int32 i = 0; i < count && c < 8; ++i) {
+                const NkVec3f& A = poly[i]; const NkVec3f& B = poly[(i + 1) % count];
+                const float32 da = n.Dot(A) - offset, db = n.Dot(B) - offset;
+                if (da <= 0.f) out[c++] = A;
+                if (da * db < 0.f && c < 8) { const float32 t = da / (da - db); out[c++] = A + (B - A) * t; }
+            }
+            for (int32 i = 0; i < c; ++i) poly[i] = out[i];
+            return c;
+        }
+
+        // box-box (OBB) -> manifold (1 à 4 points). normale A->B (issue d'EPA).
+        inline bool NkCollideBoxBox3D(const NkShape& sa, const NkShape& sb, NkManifold3D& m) noexcept {
+            NkManifold3D epa;
+            if (!NkGJKEPA3D(sa, sb, epa)) return false;          // normale + 1 point (repli)
+            const NkVec3f n = epa.normal;                        // A->B
+            const NkBoxFrame A = NkBoxFrameOf(sa), B = NkBoxFrameOf(sb);
+
+            // Référence = boîte dont une face est la plus parallèle à la normale.
+            int32 ai = 0; float32 bestA = -1.f; for (int32 i = 0; i < 3; ++i) { float32 d = math::NkAbs(A.u[i].Dot(n)); if (d > bestA) { bestA = d; ai = i; } }
+            int32 bi = 0; float32 bestB = -1.f; for (int32 i = 0; i < 3; ++i) { float32 d = math::NkAbs(B.u[i].Dot(n)); if (d > bestB) { bestB = d; bi = i; } }
+
+            const NkBoxFrame* ref; const NkBoxFrame* inc; int32 refAxis; NkVec3f rn;
+            if (bestA >= bestB) { ref = &A; inc = &B; refAxis = ai; rn = A.u[ai] * (A.u[ai].Dot(n) < 0.f ? -1.f : 1.f); } // rn ~ +n (A->B)
+            else                { ref = &B; inc = &A; refAxis = bi; rn = B.u[bi] * (B.u[bi].Dot(n) < 0.f ? 1.f : -1.f); } // rn ~ -n (B->A)
+
+            // Face de référence : centre + rn*extent ; 2 axes tangents.
+            const int32 t1 = (refAxis + 1) % 3, t2 = (refAxis + 2) % 3;
+            const NkVec3f refC = ref->c + rn * ref->e[refAxis];
+            const NkVec3f T1 = ref->u[t1], T2 = ref->u[t2];
+            const float32 e1 = ref->e[t1], e2 = ref->e[t2];
+
+            // Face incidente : face de `inc` la plus anti-parallèle à rn.
+            int32 ii = 0; float32 worst = 1e30f; float32 incSign = 1.f;
+            for (int32 i = 0; i < 3; ++i) {
+                const float32 dp = inc->u[i].Dot(rn);
+                if (dp < worst)  { worst = dp;  ii = i; incSign =  1.f; }
+                if (-dp < worst) { worst = -dp; ii = i; incSign = -1.f; }
+            }
+            const int32 it1 = (ii + 1) % 3, it2 = (ii + 2) % 3;
+            const NkVec3f incC = inc->c + inc->u[ii] * (incSign * inc->e[ii]);
+            NkVec3f poly[8]; int32 pc = 4;
+            poly[0] = incC + inc->u[it1] * inc->e[it1] + inc->u[it2] * inc->e[it2];
+            poly[1] = incC - inc->u[it1] * inc->e[it1] + inc->u[it2] * inc->e[it2];
+            poly[2] = incC - inc->u[it1] * inc->e[it1] - inc->u[it2] * inc->e[it2];
+            poly[3] = incC + inc->u[it1] * inc->e[it1] - inc->u[it2] * inc->e[it2];
+
+            // Clip par les 4 plans latéraux de la face de référence.
+            pc = NkClipPolyPlane3(poly, pc,  T1,  T1.Dot(refC) + e1);
+            pc = NkClipPolyPlane3(poly, pc,  T1 * -1.f, (T1 * -1.f).Dot(refC) + e1);
+            pc = NkClipPolyPlane3(poly, pc,  T2,  T2.Dot(refC) + e2);
+            pc = NkClipPolyPlane3(poly, pc,  T2 * -1.f, (T2 * -1.f).Dot(refC) + e2);
+            if (pc == 0) { m = epa; return true; }               // repli : point EPA
+
+            // Garder les points pénétrants (sous la face de réf), <= 4, les plus profonds.
+            const float32 refOffset = rn.Dot(refC);
+            m.normal = n; m.count = 0;
+            for (int32 i = 0; i < pc && m.count < 4; ++i) {
+                const float32 depth = refOffset - rn.Dot(poly[i]);
+                if (depth >= -1e-3f) {
+                    m.points[m.count].point = poly[i];
+                    m.points[m.count].depth = depth > 0.f ? depth : 0.f;
+                    ++m.count;
+                }
+            }
+            if (m.count == 0) { m = epa; }
             return true;
         }
 
