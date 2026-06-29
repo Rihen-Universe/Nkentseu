@@ -71,6 +71,12 @@ namespace nkentseu {
                 bool   ShapeCast(const NkShape& shape, const NkVec3f& dir, float32 maxDist,
                                  NkRayHit3D& hit, uint32 mask = 0xFFFFFFFFu) const;
 
+                // CCD : balaie le corps `id` (convexe) de son `translation` et renvoie le 1er
+                // contact (TOI) avec un AUTRE corps convexe. `hit.t` = distance avant impact.
+                // Anti-tunneling : la physique au-dessus clampe le déplacement à hit.t.
+                bool   SweepBody(uint32 id, const NkVec3f& translation, NkRayHit3D& hit,
+                                 uint32 mask = 0xFFFFFFFFu) const;
+
                 uint32 BodyCount() const noexcept { return (uint32)mBodies.Size(); }
 
             private:
