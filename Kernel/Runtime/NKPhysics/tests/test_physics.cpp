@@ -128,6 +128,20 @@ int main() {
         CHECK(top && Near(top->linearVelocity.y, 0.f, 0.3f), "M3 pile : au repos (vy ~ 0)");
     }
 
+    // ── M4 : split-impulse -> repos PRÉCIS (pénétration ~ slop) et PROPRE ────
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkBodyDef gd; gd.type = NkBodyType::STATIC;
+        world.CreateBody(gd, collision::NkShape::Box3D({0,0,0}, {20,1,20}));   // sommet y=1
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 0.f, 3.f, 0.f };
+        const NkBodyId id = world.CreateBody(bd, collision::NkShape::Box3D({0,3,0}, {0.5f,0.5f,0.5f}));
+        for (int i = 0; i < 300; ++i) world.Step(1.f / 60.f);
+        const NkRigidBody* b = world.GetBody(id);
+        // centre au repos ≈ 1 + 0.5 - slop ≈ 1.495 -> tolérance serrée
+        CHECK(b && Near(b->position.y, 1.5f, 0.03f), "M4 : repos precis (penetration ~ slop)");
+        CHECK(b && Near(b->linearVelocity.y, 0.f, 0.05f), "M4 : repos propre (vy ~ 0, pas d'energie injectee)");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

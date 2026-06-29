@@ -25,7 +25,7 @@
 | **M1** Solveur de contacts (impulses séquentielles, normale) | ✅ | L | P0 |
 | **M2** Frottement (cône Coulomb) + angulaire + restitution | ✅ | M | P0 |
 | **M3** Warm-starting (via `NkContactPoint::id` NKCollision) | ✅ | M | P1 |
-| **M4** Correction positionnelle (Baumgarte / split-impulse) | ⏳ | M | P1 |
+| **M4** Correction positionnelle (split-impulse) | ✅ | M | P1 |
 | **M5** Types static / kinematic + masses infinies | ⏳ | S | P1 |
 | **M6** Îlots (islands) + mise en sommeil (sleeping) | ⏳ | L | P1 |
 | **M7** Articulations (distance/revolute/prismatic/weld) | ⏳ | XL | P2 |
@@ -101,18 +101,23 @@ Scaffold de structure uniquement (pas de simulation) :
 - **Démo** : une **pile de 3 caisses** tient (bas ~1.5, haut ~3.5, au repos) au lieu de
   s'enfoncer / s'effondrer.
 
+## Livré — M4 (2026-06-29, self-test 16/16)
+
+- **Split-impulse** (`CorrectPositions`) : le biais de Baumgarte est **retiré** du solveur
+  de vitesse (plus d'injection d'énergie) ; une passe de **projection positionnelle**
+  pousse les corps en chevauchement le long de la normale (`factor·(depth-slop)/(invMA+invMB)`,
+  réparti par masse inverse) directement sur la **position**. La pénétration converge vers
+  `slop` sur quelques frames. Re-sync absolu des shapes via `NkShapeCenter3D`.
+- **Démo** : caisse au repos précise (`y≈1.5` à ±0.03, pénétration ≈ slop) et **propre**
+  (`vy≈0`, aucun rebond résiduel).
+
 ## En cours
 
-- **M4** — correction positionnelle propre (split-impulse) pour éliminer le résidu
-  d'enfoncement sans injecter d'énergie.
+- **M5** — static/kinematic affinés (corps cinématiques pilotés qui poussent les dynamiques).
 
 ---
 
 ## À venir (jalons détaillés)
-
-### M4 — Correction positionnelle
-- Anti-enfoncement : Baumgarte (biais proportionnel à la pénétration) **ou** split-impulse
-  (pseudo-vitesses) pour ne pas injecter d'énergie. Slop + facteur de correction.
 
 ### M5 — Static / Kinematic
 - `STATIC` (masse ∞, ne bouge pas), `KINEMATIC` (piloté, ignore les forces, pousse les
