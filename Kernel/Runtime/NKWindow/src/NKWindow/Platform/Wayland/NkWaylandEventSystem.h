@@ -24,6 +24,10 @@ namespace nkentseu {
     void NkWaylandAttachSeatListener(NkEventSystem* eventSystem, ::wl_seat* seat);
     void NkWaylandNotifySeatDestroy(::wl_seat* seat);
 
+    // Serial du dernier evenement d'entree pointeur (bouton/enter). Requis par
+    // xdg_toplevel_move / xdg_toplevel_resize (grab implicite cote compositeur).
+    unsigned int NkWaylandLastInputSerial();
+
 } // namespace nkentseu
 
 #endif // NKENTSEU_PLATFORM_LINUX && NKENTSEU_WINDOWING_WAYLAND

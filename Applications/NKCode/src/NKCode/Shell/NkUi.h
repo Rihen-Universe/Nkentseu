@@ -74,6 +74,22 @@ namespace nkcode {
         void TextV(float32 x, float32 y, float32 h, const char* t, const NkColor& c) const {
             Text(x, y + (h - Lh()) * 0.5f, t, c);
         }
+        // Texte tronque avec "..." s'il depasse maxW. Renvoie la largeur dessinee.
+        float32 TextEllipsis(float32 x, float32 y, float32 maxW, const char* t, const NkColor& c) const {
+            if (!f || !t || !*t || maxW <= 0.f) return 0.f;
+            const float32 full = f->MeasureWidth(t);
+            if (full <= maxW) { Text(x, y, t, c); return full; }
+            char buf[260]; int32 n = 0;
+            const float32 dots = f->MeasureWidth("...");
+            for (const char* p = t; *p && n < 252; ++p) {
+                buf[n] = *p; buf[n + 1] = '\0';
+                if (f->MeasureWidth(buf) + dots > maxW) { buf[n] = '\0'; break; }
+                ++n;
+            }
+            buf[n] = '.'; buf[n + 1] = '.'; buf[n + 2] = '.'; buf[n + 3] = '\0';
+            Text(x, y, buf, c);
+            return f->MeasureWidth(buf);
+        }
         // Bouton plein (renvoie true au clic). bg/hover/texte personnalisables.
         bool Button(const NkRect& r, const char* label, const NkColor& bg, const NkColor& bgH, const NkColor& fg, float32 round) const {
             const bool h = Hit(r);
