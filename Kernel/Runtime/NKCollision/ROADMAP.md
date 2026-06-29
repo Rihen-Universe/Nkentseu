@@ -87,10 +87,17 @@
   TOI avant impact. La physique au-dessus clampe le déplacement -> pas de tunneling. Vérifié :
   sphère rapide stoppée au mur. ✅
 
-### Reste prioritaire (vague 13)
-- **Contacts persistants** (cache de manifolds par paire + IDs de features pour warm-starting).
-- **Debug draw** (NKUI/NKRenderer) + **intégration ECS** (`NkColliderComponent` + système).
-- **NKPhysics** au-dessus (résolution d'impulses/contraintes sur les manifolds produits).
+### Livré 2026-06-29 — vague 13 : contacts persistants (warm-starting) — 107/107
+- **IDs de feature** sur `NkContactPoint2D/3D` (`id`) : encodage arête/face source, STABLE
+  entre frames (clipping 2D et 3D). ✅
+- **Cache de manifolds** : `NkCollisionPair::warm` (paire déjà présente) + `mPrevPairs` +
+  `NkWorld::GetPreviousManifold(a, b, out)` -> le solveur retrouve les contacts de la frame
+  précédente et warm-starte par `id`. Vérifié : warm false->true, manifold précédent récupéré. ✅
+
+### Reste prioritaire (vague 14)
+- **Intégration ECS** (`NkColliderComponent` + système de synchro transform->shape sur NKECS).
+- **Debug draw** (NKUI/NKRenderer) des formes/AABB/contacts.
+- **NKPhysics** au-dessus (résolution d'impulses séquentielle sur les manifolds + warm-start).
 
 ---
 

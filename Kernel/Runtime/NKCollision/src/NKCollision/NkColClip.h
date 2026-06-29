@@ -102,6 +102,7 @@ namespace nkentseu {
                 if (depth >= -1e-4f) {
                     m.points[m.count].point = seg[i];
                     m.points[m.count].depth = depth > 0.f ? depth : 0.f;
+                    m.points[m.count].id = (uint32)((refEdge << 8) | (incEdge << 4) | i) | (flip ? 0x10000u : 0u);
                     ++m.count;
                 }
             }
@@ -183,6 +184,7 @@ namespace nkentseu {
                 if (depth >= -1e-3f) {
                     m.points[m.count].point = poly[i];
                     m.points[m.count].depth = depth > 0.f ? depth : 0.f;
+                    m.points[m.count].id = (uint32)((refAxis << 8) | (ii << 4) | i);
                     ++m.count;
                 }
             }

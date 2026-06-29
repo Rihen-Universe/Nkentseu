@@ -218,7 +218,7 @@ namespace nkentseu {
         void NkWorld::SetShape(uint32 id, const NkShape& s) {
             if (NkBody* b = GetBody(id)) { b->shape = s; mTree.Update(b->proxy, NkBodyAABB(s)); } // garder le DBVH à jour
         }
-        void NkWorld::Clear() { mBodies.Clear(); mPairs.Clear(); mEnter.Clear(); mStay.Clear(); mExit.Clear(); mPrevKeys.Clear(); mTree.Clear(); mNextId = 1u; }
+        void NkWorld::Clear() { mBodies.Clear(); mPairs.Clear(); mPrevPairs.Clear(); mEnter.Clear(); mStay.Clear(); mExit.Clear(); mPrevKeys.Clear(); mTree.Clear(); mNextId = 1u; }
 
         // Clé ordonnée d'une paire (min,max) -> uint64, pour comparer les frames.
         static nkentseu::uint64 NkPairKey(uint32 a, uint32 b) noexcept {
@@ -250,12 +250,12 @@ namespace nkentseu {
                     if (!aabbA.Overlaps(NkBodyAABB(B.shape))) continue;          // AABB serrée
                     NkManifold3D m;
                     if (Narrow(A.shape, B.shape, m)) {                          // narrowphase
-                        NkCollisionPair pair; pair.a = A.id; pair.b = B.id; pair.manifold = m;
-                        mPairs.PushBack(pair);
                         const nkentseu::uint64 key = NkPairKey(A.id, B.id);
                         curKeys.PushBack(key);
                         bool wasThere = false;
                         for (uint32 k = 0; k < (uint32)mPrevKeys.Size(); ++k) if (mPrevKeys[k] == key) { wasThere = true; break; }
+                        NkCollisionPair pair; pair.a = A.id; pair.b = B.id; pair.manifold = m; pair.warm = wasThere;
+                        mPairs.PushBack(pair);
                         NkCollisionEvent ev{ A.id, B.id };
                         if (wasThere) mStay.PushBack(ev); else mEnter.PushBack(ev);
                     }
@@ -269,6 +269,16 @@ namespace nkentseu {
                 if (!still) { NkCollisionEvent ev{ (uint32)(pk >> 32), (uint32)(pk & 0xFFFFFFFFu) }; mExit.PushBack(ev); }
             }
             mPrevKeys = curKeys;
+            mPrevPairs = mPairs;            // cache pour le warm-starting de la frame suivante
+        }
+
+        // Manifold de la paire (a,b) à la frame précédente (matcher les points par `id`).
+        bool NkWorld::GetPreviousManifold(uint32 a, uint32 b, NkManifold3D& out) const {
+            for (uint32 i = 0; i < (uint32)mPrevPairs.Size(); ++i) {
+                const NkCollisionPair& p = mPrevPairs[i];
+                if ((p.a == a && p.b == b) || (p.a == b && p.b == a)) { out = p.manifold; return true; }
+            }
+            return false;
         }
 
         // ── Raycast 3D (hit le plus proche) ──────────────────────────────────
