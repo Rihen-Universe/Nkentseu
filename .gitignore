@@ -677,3 +677,10 @@ FodyWeavers.xsd
 Applications/NkAnimaEditor/
 Applications/NKCode/important/*.pdf
 Applications/NKCode/data/fonts/NotoEmoji-Regular.ttf
+
+# Externals/Temp : references Xiph (libogg/libvorbis) gardees en LOCAL uniquement.
+# Base pour reimplementer NKAudio/NKVideo from scratch — AUCUNE dependance de build
+# (verifie : non reference par les .jenga ni inclus par les sources). Etaient des
+# gitlinks orphelins (absents de .gitmodules) qui cassaient `git submodule update`.
+/Externals/Temp/xiph-ogg/
+/Externals/Temp/xiph-vorbis/
