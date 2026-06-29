@@ -20,6 +20,7 @@ namespace nkentseu {
             float32        radius   = 0.5f; // cercle/sphère/capsule/cylindre/cône
             float32        rotation = 0.f;  // boîte 2D (radians)
             float32        height   = 0.f;  // cylindre (demi-hauteur) · cône (hauteur base->apex)
+            nkentseu::math::NkQuatf orientation{}; // boîte 3D ORIENTÉE (identité par défaut = AABB)
             const NkVec3f* verts    = nullptr; // triangle/polygone/convexe (z=0 en 2D) · sommets trimesh · sommets chain2D
             uint32         vertCount = 0;
             // ── Concaves / composite (non-ownants) ───────────────────────────
@@ -66,6 +67,10 @@ namespace nkentseu {
             }
             static NkShape Box3D(const NkVec3f& center, const NkVec3f& halfExtents) noexcept {
                 NkShape s; s.type = NkShapeType::NK_BOX3D; s.p0 = center; s.p1 = halfExtents; return s;
+            }
+            // Boîte 3D ORIENTÉE (OBB) : centre + demi-extents + orientation.
+            static NkShape OBB3D(const NkVec3f& center, const NkVec3f& halfExtents, const nkentseu::math::NkQuatf& orient) noexcept {
+                NkShape s; s.type = NkShapeType::NK_BOX3D; s.p0 = center; s.p1 = halfExtents; s.orientation = orient; return s;
             }
             static NkShape Capsule3D(const NkVec3f& a, const NkVec3f& b, float32 r) noexcept {
                 NkShape s; s.type = NkShapeType::NK_CAPSULE3D; s.p0 = a; s.p1 = b; s.radius = r; return s;
@@ -116,6 +121,13 @@ namespace nkentseu {
             }
         };
 
+        // Boîte 3D alignée (orientation ~ identité) -> les fast-paths analytiques
+        // AABB sont valides ; sinon (OBB) on route vers GJK/EPA.
+        NK_FORCE_INLINE bool NkBoxAligned(const NkShape& s) noexcept {
+            const nkentseu::math::NkQuatf& q = s.orientation;
+            return math::NkAbs(q.x) < 1e-5f && math::NkAbs(q.y) < 1e-5f && math::NkAbs(q.z) < 1e-5f;
+        }
+
         // ── AABB d'une forme (broadphase) ────────────────────────────────────
         NK_FORCE_INLINE NkAABB3D NkComputeAABB3D(const NkShape& s) noexcept {
             NkAABB3D box;
@@ -125,7 +137,14 @@ namespace nkentseu {
                     box.min = s.p0 - r; box.max = s.p0 + r; break;
                 }
                 case NkShapeType::NK_BOX3D: {
-                    box.min = s.p0 - s.p1; box.max = s.p0 + s.p1; break;
+                    // OBB : enveloppe alignée = somme des |axes monde * demi-extents| (identité = AABB).
+                    NkVec3f ex = s.orientation * NkVec3f{ s.p1.x, 0.f, 0.f };
+                    NkVec3f ey = s.orientation * NkVec3f{ 0.f, s.p1.y, 0.f };
+                    NkVec3f ez = s.orientation * NkVec3f{ 0.f, 0.f, s.p1.z };
+                    NkVec3f e{ math::NkAbs(ex.x) + math::NkAbs(ey.x) + math::NkAbs(ez.x),
+                               math::NkAbs(ex.y) + math::NkAbs(ey.y) + math::NkAbs(ez.y),
+                               math::NkAbs(ex.z) + math::NkAbs(ey.z) + math::NkAbs(ez.z) };
+                    box.min = s.p0 - e; box.max = s.p0 + e; break;
                 }
                 case NkShapeType::NK_CAPSULE3D: {
                     NkVec3f r{ s.radius, s.radius, s.radius };
