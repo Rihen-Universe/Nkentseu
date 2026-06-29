@@ -266,6 +266,39 @@ int main() {
         CHECK(w.EnterEvents().Size() == 0 && w.StayEvents().Size() == 0 && w.ExitEvents().Size() == 1, "events: EXIT frame 3");
     }
 
+    // ── VAGUE 4 : OBB 3D orientée + broadphase Sweep-and-Prune ───────────────
+    {
+        // OBB tournée 45° autour de Z : son coin porte à ~1.41 sur +X ; une AABB ne
+        // porte qu'à 1.0. Une sphère à x=1.3 (surface 1.1) touche l'OBB, pas l'AABB.
+        const float32 s22 = 0.38268343f, c22 = 0.92387953f;   // quat 45° autour de Z
+        NkShape obb  = NkShape::OBB3D({0,0,0}, {1,1,1}, math::NkQuatf(0.f, 0.f, s22, c22));
+        NkShape aabb = NkShape::Box3D({0,0,0}, {1,1,1});
+        NkShape sp   = NkShape::Sphere({1.3f,0,0}, 0.2f);
+        NkManifold3D mo, ma;
+        CHECK(NkGJKEPA3D(obb, sp, mo), "OBB3D 45deg vs sphere : overlap (coin ~1.41)");
+        CHECK(!NkGJKEPA3D(aabb, sp, ma), "AABB vs sphere : pas de contact a 1.3 (portee 1.0)");
+
+        // Dispatch world : l'OBB orientée doit être routée vers GJK (pas l'analytique AABB).
+        NkWorld wo;
+        wo.AddBody(NkShape::OBB3D({0,0,0}, {1,1,1}, math::NkQuatf(0.f, 0.f, s22, c22)));
+        wo.AddBody(NkShape::Sphere({1.3f,0,0}, 0.2f));
+        wo.Step();
+        CHECK(wo.Pairs().Size() == 1, "world OBB3D-sphere : 1 paire (dispatch GJK)");
+    }
+    {
+        // Sweep-and-Prune : chaîne de 5 sphères, seules les adjacentes se touchent.
+        NkWorld sw;
+        for (int32 i = 0; i < 5; ++i) sw.AddBody(NkShape::Sphere({ (float32)i, 0.f, 0.f }, 0.6f));
+        sw.Step();
+        CHECK(sw.Pairs().Size() == 4, "SAP : 4 paires adjacentes (chaine de 5 spheres)");
+
+        // Sphères toutes éloignées -> 0 paire (le balayage prune tout).
+        NkWorld sw2;
+        for (int32 i = 0; i < 6; ++i) sw2.AddBody(NkShape::Sphere({ (float32)i * 10.f, 0.f, 0.f }, 0.6f));
+        sw2.Step();
+        CHECK(sw2.Pairs().Size() == 0, "SAP : 0 paire (spheres eloignees)");
+    }
+
     logger.Info("=== NKCollision : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
