@@ -113,6 +113,7 @@ namespace nkentseu {
             float32 nMass = 0.f, t1Mass = 0.f, t2Mass = 0.f;
             float32 bias = 0.f;              // biais normal (Baumgarte + restitution)
             float32 nImp = 0.f, t1Imp = 0.f, t2Imp = 0.f;
+            uint32  id = 0;                  // feature-id NKCollision (matching warm-start)
         };
         struct NkSolverContact {
             NkRigidBody* a; NkRigidBody* b;
@@ -160,9 +161,27 @@ namespace nkentseu {
                     const float32 pos  = mConfig.baumgarte * invDt * math::NkMax(0.f, mp.depth - mConfig.slop);
                     const float32 rest = (vn0 < -1.f) ? -e * vn0 : 0.f;
                     sp.bias = pos + rest;
+                    sp.id = mp.id;
+                    // M3 : récupérer l'impulse accumulée de la frame précédente (même feature).
+                    for (uint32 w = 0; w < (uint32)mWarm.Size(); ++w) {
+                        const NkWarmEntry& we = mWarm[w];
+                        if (we.a == A->id && we.b == B->id && we.id == sp.id) { sp.nImp = we.n; sp.t1Imp = we.t1; sp.t2Imp = we.t2; break; }
+                    }
                     c.p[c.count++] = sp;
                 }
                 if (c.count > 0) cs.PushBack(c);
+            }
+            // M3 : WARM-START — ré-appliquer les impulses accumulées avant d'itérer.
+            for (uint32 i = 0; i < (uint32)cs.Size(); ++i) {
+                NkSolverContact& c = cs[i];
+                for (int32 k = 0; k < c.count; ++k) {
+                    NkSolverPoint& sp = c.p[k];
+                    const NkVec3f P = c.n * sp.nImp + c.t1 * sp.t1Imp + c.t2 * sp.t2Imp;
+                    c.a->linearVelocity  = c.a->linearVelocity  - P * c.a->invMass;
+                    c.a->angularVelocity = c.a->angularVelocity - NkInvInertiaApply(*c.a, sp.rA.Cross(P));
+                    c.b->linearVelocity  = c.b->linearVelocity  + P * c.b->invMass;
+                    c.b->angularVelocity = c.b->angularVelocity + NkInvInertiaApply(*c.b, sp.rB.Cross(P));
+                }
             }
             // Itérations séquentielles : frottement (borné par μ·N) puis normale.
             for (int32 it = 0; it < mConfig.velocityIters; ++it) {
@@ -200,6 +219,16 @@ namespace nkentseu {
                         c.b->linearVelocity  = c.b->linearVelocity  + P * c.b->invMass;
                         c.b->angularVelocity = c.b->angularVelocity + NkInvInertiaApply(*c.b, sp.rB.Cross(P));
                     }
+                }
+            }
+            // M3 : sauvegarder les impulses pour le warm-start de la frame suivante.
+            mWarm.Clear();
+            for (uint32 i = 0; i < (uint32)cs.Size(); ++i) {
+                const NkSolverContact& c = cs[i];
+                for (int32 k = 0; k < c.count; ++k) {
+                    NkWarmEntry we; we.a = c.a->id; we.b = c.b->id; we.id = c.p[k].id;
+                    we.n = c.p[k].nImp; we.t1 = c.p[k].t1Imp; we.t2 = c.p[k].t2Imp;
+                    mWarm.PushBack(we);
                 }
             }
         }
