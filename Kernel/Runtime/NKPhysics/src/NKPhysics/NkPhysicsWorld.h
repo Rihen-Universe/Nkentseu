@@ -47,14 +47,19 @@ namespace nkentseu {
                 // uint32 OverlapShape(const collision::NkShape& s, NkVector<NkBodyId>& out, ...);
 
             private:
-                NkRigidBody* FindByCollisionId(uint32 cid) noexcept;
-                void         SolveContacts(float32 dt);     // M1 : impulses séquentielles
+                // Impulse accumulée d'un point de contact, conservée pour le warm-start
+                // (clé = paire de corps + feature-id NKCollision).
+                struct NkWarmEntry { uint32 a = 0, b = 0, id = 0; float32 n = 0.f, t1 = 0.f, t2 = 0.f; };
 
-                NkPhysicsConfig        mConfig;
-                collision::NkWorld     mCollision;   // détection (DBVH, manifolds)
-                NkVector<NkRigidBody>  mBodies;
-                NkContactSolver        mSolver;
-                NkBodyId               mNextId = 1u;
+                NkRigidBody* FindByCollisionId(uint32 cid) noexcept;
+                void         SolveContacts(float32 dt);     // M1..M3 : impulses séquentielles + warm-start
+
+                NkPhysicsConfig          mConfig;
+                collision::NkWorld       mCollision;   // détection (DBVH, manifolds)
+                NkVector<NkRigidBody>    mBodies;
+                NkContactSolver          mSolver;
+                NkVector<NkWarmEntry>    mWarm;         // cache d'impulses (frame précédente)
+                NkBodyId                 mNextId = 1u;
         };
 
     } // namespace physics

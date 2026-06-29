@@ -24,7 +24,7 @@
 | **M0** Intégration semi-implicite (gravité + vitesses) | ✅ | M | P0 |
 | **M1** Solveur de contacts (impulses séquentielles, normale) | ✅ | L | P0 |
 | **M2** Frottement (cône Coulomb) + angulaire + restitution | ✅ | M | P0 |
-| **M3** Warm-starting (via `NkContactPoint::id` NKCollision) | ⏳ | M | P1 |
+| **M3** Warm-starting (via `NkContactPoint::id` NKCollision) | ✅ | M | P1 |
 | **M4** Correction positionnelle (Baumgarte / split-impulse) | ⏳ | M | P1 |
 | **M5** Types static / kinematic + masses infinies | ⏳ | S | P1 |
 | **M6** Îlots (islands) + mise en sommeil (sleeping) | ⏳ | L | P1 |
@@ -92,18 +92,23 @@ Scaffold de structure uniquement (pas de simulation) :
 - **Restitution** affinée (vitesse relative au point, seuil anti-jitter).
 - **Démo** : caisse lancée à 3 m/s s'arrête par frottement ; bille (e=0.8) rebondit.
 
+## Livré — M3 (2026-06-29, self-test 14/14)
+
+- **Cache d'impulses** `mWarm` (clé : ids des 2 corps + `NkContactPoint::id` NKCollision) :
+  en fin de `SolveContacts`, les impulses normale/tangentes accumulées sont sauvegardées ;
+  à la frame suivante, chaque point retrouve son impulse (même feature) et la **ré-applique
+  AVANT d'itérer** (warm-start). Convergence accélérée + empilements stables.
+- **Démo** : une **pile de 3 caisses** tient (bas ~1.5, haut ~3.5, au repos) au lieu de
+  s'enfoncer / s'effondrer.
+
 ## En cours
 
-- **M3** — warm-starting (réutiliser les impulses via `NkContactPoint::id`).
+- **M4** — correction positionnelle propre (split-impulse) pour éliminer le résidu
+  d'enfoncement sans injecter d'énergie.
 
 ---
 
 ## À venir (jalons détaillés)
-
-### M3 — Warm-starting
-- Réutiliser les impulses accumulées de la frame précédente en **matchant les points
-  par `NkContactPoint::id`** (déjà fourni par NKCollision via `GetPreviousManifold`).
-  Convergence nettement plus rapide ; empilements stables.
 
 ### M4 — Correction positionnelle
 - Anti-enfoncement : Baumgarte (biais proportionnel à la pénétration) **ou** split-impulse
