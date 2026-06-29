@@ -54,12 +54,39 @@ namespace nkentseu {
                                       : NkVec3f{ I.x > 0 ? 1.f/I.x : 0.f, I.y > 0 ? 1.f/I.y : 0.f, I.z > 0 ? 1.f/I.z : 0.f };
         }
 
-        // Translate/oriente la shape de collision pour suivre la pose du corps.
-        static void NkSyncShape(collision::NkShape& s, const NkVec3f& delta, const NkQuatf& orient) noexcept {
-            s.p0 = s.p0 + delta;
-            if (s.type == NkShapeType::NK_CAPSULE3D || s.type == NkShapeType::NK_SEGMENT2D
-                || s.type == NkShapeType::NK_CAPSULE2D) s.p1 = s.p1 + delta;
-            if (s.type == NkShapeType::NK_BOX3D) s.orientation = orient;
+        // Forme MONDE = forme de REPOS (locale) transformée par la pose (position+orientation).
+        // Générale : box, capsule, cylindre, cône, sphère… tournent CORRECTEMENT.
+        static collision::NkShape NkTransformShape(const collision::NkShape& rest, const NkVec3f& pos, const NkQuatf& q) noexcept {
+            using T = NkShapeType;
+            collision::NkShape s = rest;
+            switch (rest.type) {
+                case T::NK_BOX3D:
+                    s.p0 = pos + q * rest.p0; s.orientation = q * rest.orientation; break;
+                case T::NK_CAPSULE3D: case T::NK_SEGMENT2D: case T::NK_CAPSULE2D:
+                    s.p0 = pos + q * rest.p0; s.p1 = pos + q * rest.p1; break;        // 2 extrémités
+                case T::NK_CYLINDER3D: case T::NK_CONE3D:
+                    s.p0 = pos + q * rest.p0; s.p1 = q * rest.p1; break;              // p1 = axe (direction)
+                default:
+                    s.p0 = pos + q * rest.p0; break;                                  // sphère/cercle/point…
+            }
+            return s;
+        }
+        // Forme de REPOS (locale) depuis la forme monde initiale + pose initiale (inverse).
+        static collision::NkShape NkComputeRestShape(const collision::NkShape& world, const NkVec3f& pos, const NkQuatf& q) noexcept {
+            using T = NkShapeType;
+            const NkQuatf cq = q.Conjugate();
+            collision::NkShape s = world;
+            switch (world.type) {
+                case T::NK_BOX3D:
+                    s.p0 = cq * (world.p0 - pos); s.orientation = cq * world.orientation; break;
+                case T::NK_CAPSULE3D: case T::NK_SEGMENT2D: case T::NK_CAPSULE2D:
+                    s.p0 = cq * (world.p0 - pos); s.p1 = cq * (world.p1 - pos); break;
+                case T::NK_CYLINDER3D: case T::NK_CONE3D:
+                    s.p0 = cq * (world.p0 - pos); s.p1 = cq * world.p1; break;
+                default:
+                    s.p0 = cq * (world.p0 - pos); break;
+            }
+            return s;
         }
 
         NkPhysicsWorld::NkPhysicsWorld(const NkPhysicsConfig& cfg) noexcept : mConfig(cfg) {}
@@ -74,6 +101,7 @@ namespace nkentseu {
             b.linearDamping = def.linearDamping; b.angularDamping = def.angularDamping;
             b.gravityScale = def.gravityScale; b.user = def.user; b.layer = def.layer;
             NkComputeMassProps(shape, def.material.density, def.type, def.flags, b.invMass, b.invInertiaDiag);
+            b.restShape = NkComputeRestShape(shape, def.position, def.orientation);   // forme locale (pour la synchro)
             b.collisionId = mCollision.AddBody(shape, def.layer, def.mask, def.user);
             if (def.flags & NK_BODY_TRIGGER) mCollision.SetTrigger(b.collisionId, true);
             mBodies.PushBack(b);
@@ -627,10 +655,9 @@ namespace nkentseu {
             for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
                 NkRigidBody& b = mBodies[i];
                 if (b.type == NkBodyType::STATIC) continue;     // static : jamais re-sync
-                if (collision::NkBody* cb = mCollision.GetBody(b.collisionId)) {
-                    collision::NkShape s = cb->shape;
-                    NkSyncShape(s, b.position - collision::NkShapeCenter3D(s), b.orientation);  // resynchro absolue
-                    mCollision.SetShape(b.collisionId, s);
+                if (mCollision.GetBody(b.collisionId)) {
+                    // forme monde = forme de repos transformée par la pose (rotation correcte).
+                    mCollision.SetShape(b.collisionId, NkTransformShape(b.restShape, b.position, b.orientation));
                 }
             }
             // 7) mise en sommeil des corps immobiles
