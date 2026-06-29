@@ -47,6 +47,9 @@ namespace nkentseu {
                 // uint32 OverlapShape(const collision::NkShape& s, NkVector<NkBodyId>& out, ...);
 
             private:
+                NkRigidBody* FindByCollisionId(uint32 cid) noexcept;
+                void         SolveContacts(float32 dt);     // M1 : impulses séquentielles
+
                 NkPhysicsConfig        mConfig;
                 collision::NkWorld     mCollision;   // détection (DBVH, manifolds)
                 NkVector<NkRigidBody>  mBodies;

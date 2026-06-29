@@ -43,6 +43,36 @@ int main() {
         CHECK(Near(world.GetBody(fid)->position.y, 2.f), "gravityScale=0 : pas de chute");
     }
 
+    // ── M1 : la bille tombe et REPOSE sur le sol (ne le traverse pas) ────────
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        // sol statique : sommet à y=1
+        NkBodyDef gd; gd.type = NkBodyType::STATIC;
+        world.CreateBody(gd, collision::NkShape::Box3D({0,0,0}, {10,1,10}));
+        // bille dynamique r=0.5 lâchée de y=5 -> repos attendu centre y ≈ 1.5
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 0.f, 5.f, 0.f };
+        const NkBodyId id = world.CreateBody(bd, collision::NkShape::Sphere({0,5,0}, 0.5f));
+
+        for (int i = 0; i < 240; ++i) world.Step(1.f / 60.f);  // 4 s
+
+        const NkRigidBody* b = world.GetBody(id);
+        CHECK(b && b->position.y > 1.0f, "M1 : la bille ne traverse PAS le sol (y > 1)");
+        CHECK(b && Near(b->position.y, 1.5f, 0.06f), "M1 : la bille REPOSE (centre y ~ 1.5)");
+        CHECK(b && Near(b->linearVelocity.y, 0.f, 0.2f), "M1 : au repos (vy ~ 0)");
+    }
+
+    // ── M1 : caisse dynamique posée sur le sol ───────────────────────────────
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkBodyDef gd; gd.type = NkBodyType::STATIC;
+        world.CreateBody(gd, collision::NkShape::Box3D({0,0,0}, {10,1,10}));   // sommet y=1
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 0.f, 4.f, 0.f };
+        const NkBodyId id = world.CreateBody(bd, collision::NkShape::Box3D({0,4,0}, {0.5f,0.5f,0.5f}));
+        for (int i = 0; i < 240; ++i) world.Step(1.f / 60.f);
+        const NkRigidBody* b = world.GetBody(id);
+        CHECK(b && Near(b->position.y, 1.5f, 0.08f), "M1 : la caisse REPOSE (centre y ~ 1.5)");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
