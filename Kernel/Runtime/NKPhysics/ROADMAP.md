@@ -27,7 +27,7 @@
 | **M3** Warm-starting (via `NkContactPoint::id` NKCollision) | ✅ | M | P1 |
 | **M4** Correction positionnelle (split-impulse) | ✅ | M | P1 |
 | **M5** Types static / kinematic + masses infinies | ✅ | S | P1 |
-| **M6** Îlots (islands) + mise en sommeil (sleeping) | ⏳ | L | P1 |
+| **M6** Mise en sommeil (sleeping) + réveil au contact | ✅ | L | P1 |
 | **M7** Articulations (distance/revolute/prismatic/weld) | ⏳ | XL | P2 |
 | **M8** CCD (corps rapides) via `NkWorld::SweepBody` | ⏳ | M | P2 |
 | **M9** Sous-pas (sub-stepping) + déterminisme | ⏳ | M | P2 |
@@ -120,17 +120,27 @@ Scaffold de structure uniquement (pas de simulation) :
 - **Démo** : une plateforme kinematic montante (1 m/s) **porte** une caisse dynamique vers
   le haut (la caisse suit, reste posée).
 
+## Livré — M6 (2026-06-29, self-test 21/21)
+
+- **Mise en sommeil par corps** (`UpdateSleep`) : un corps dynamique dont les vitesses
+  lin./ang. restent sous `linearSleepTol`/`angularSleepTol` pendant `sleepTime` reçoit le
+  flag `NK_BODY_SLEEPING` (vitesses mises à zéro) → exclu de l'intégration et du solveur.
+- **Réveil au contact** (`WakeContacts`) : un corps endormi en contact avec un
+  **perturbateur** (dynamique éveillé en mouvement, ou kinematic mobile) est réveillé.
+  Les contacts avec un corps **statique** ne réveillent pas (un corps posé peut dormir).
+- Le solveur/correction traitent un dormeur comme **immovable** (invMass effective = 0) ;
+  paires « deux dormeurs » ignorées.
+- **Démo** : une caisse posée **s'endort** ; une 2ᵉ caisse lâchée dessus la **réveille**.
+- *Note* : sommeil par-corps (pas d'îlots union-find) — le réveil se propage de proche en
+  proche frame à frame (suffisant ; les îlots groupés sont une optimisation ultérieure).
+
 ## En cours
 
-- **M6** — îlots & mise en sommeil (perf + stabilité des corps immobiles).
+- **M7** — articulations (joints) : distance / pivot / glissière / soudure.
 
 ---
 
 ## À venir (jalons détaillés)
-
-### M6 — Îlots & sommeil
-- Regrouper les corps en contact/joints en **îlots** ; endormir un îlot dont toutes les
-  vitesses sont sous seuil pendant T (perf + stabilité). Réveil au contact.
 
 ### M7 — Articulations (joints)
 - `NkDistanceJoint`, `NkRevoluteJoint`, `NkPrismaticJoint`, `NkWeldJoint`, `NkMouseJoint`

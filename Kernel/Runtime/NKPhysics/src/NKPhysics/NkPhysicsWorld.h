@@ -58,6 +58,8 @@ namespace nkentseu {
                 NkRigidBody* FindByCollisionId(uint32 cid) noexcept;
                 void         SolveContacts(float32 dt);     // M1..M3 : impulses séquentielles + warm-start
                 void         CorrectPositions();            // M4 : split-impulse (projection positionnelle)
+                void         WakeContacts();                // M6 : réveiller les corps touchés par un perturbateur
+                void         UpdateSleep(float32 dt);       // M6 : endormir les corps immobiles
 
                 NkPhysicsConfig          mConfig;
                 collision::NkWorld       mCollision;   // détection (DBVH, manifolds)

@@ -141,6 +141,7 @@ namespace nkentseu {
                 if (!A || !B) continue;
                 if ((A->flags & NK_BODY_TRIGGER) || (B->flags & NK_BODY_TRIGGER)) continue;
                 if (A->invMass + B->invMass <= 0.f) continue;
+                if (!A->IsAwake() && !B->IsAwake()) continue;   // M6 : deux corps endormis -> rien à faire
                 NkSolverContact c; c.a = A; c.b = B; c.n = p.manifold.normal; c.count = 0;
                 // base tangente orthonormée à n
                 c.t1 = (math::NkAbs(c.n.x) > 0.9f) ? c.n.Cross(NkVec3f{0,1,0}) : c.n.Cross(NkVec3f{1,0,0});
@@ -246,15 +247,56 @@ namespace nkentseu {
                 NkRigidBody* A = FindByCollisionId(p.a); NkRigidBody* B = FindByCollisionId(p.b);
                 if (!A || !B) continue;
                 if ((A->flags & NK_BODY_TRIGGER) || (B->flags & NK_BODY_TRIGGER)) continue;
-                const float32 kSum = A->invMass + B->invMass;
+                // M6 : un corps endormi est immovable (invMass effective = 0).
+                const float32 imA = A->IsAwake() ? A->invMass : 0.f;
+                const float32 imB = B->IsAwake() ? B->invMass : 0.f;
+                const float32 kSum = imA + imB;
                 if (kSum <= 0.f) continue;
                 float32 maxPen = 0.f;
                 for (int32 k = 0; k < p.manifold.count; ++k) maxPen = math::NkMax(maxPen, p.manifold.points[k].depth);
                 const float32 pen = maxPen - mConfig.slop;
                 if (pen <= 0.f) continue;
                 const NkVec3f corr = p.manifold.normal * (factor * pen / kSum);
-                A->position = A->position - corr * A->invMass;  // normale A->B : A recule, B avance
-                B->position = B->position + corr * B->invMass;
+                A->position = A->position - corr * imA;         // normale A->B : A recule, B avance
+                B->position = B->position + corr * imB;
+            }
+        }
+
+        // ── M6 : sommeil ──────────────────────────────────────────────────────
+        // Un corps « perturbateur » peut réveiller ses voisins endormis.
+        static bool NkIsDisturbing(const NkRigidBody& b, const NkPhysicsConfig& cfg) noexcept {
+            if (b.type == NkBodyType::STATIC) return false;
+            const float32 lv2 = b.linearVelocity.Dot(b.linearVelocity);
+            const float32 av2 = b.angularVelocity.Dot(b.angularVelocity);
+            const bool moving = lv2 > cfg.linearSleepTol * cfg.linearSleepTol
+                             || av2 > cfg.angularSleepTol * cfg.angularSleepTol;
+            return (b.type == NkBodyType::KINEMATIC) ? moving : (b.IsAwake() && moving);
+        }
+        static void NkWake(NkRigidBody& b) noexcept { b.flags &= ~NK_BODY_SLEEPING; b.sleepTimer = 0.f; }
+
+        void NkPhysicsWorld::WakeContacts() {
+            const auto& pairs = mCollision.Pairs();
+            for (uint32 i = 0; i < (uint32)pairs.Size(); ++i) {
+                NkRigidBody* A = FindByCollisionId(pairs[i].a); NkRigidBody* B = FindByCollisionId(pairs[i].b);
+                if (!A || !B) continue;
+                if (NkIsDisturbing(*A, mConfig) && B->IsDynamic() && !B->IsAwake()) NkWake(*B);
+                if (NkIsDisturbing(*B, mConfig) && A->IsDynamic() && !A->IsAwake()) NkWake(*A);
+            }
+        }
+
+        void NkPhysicsWorld::UpdateSleep(float32 dt) {
+            for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
+                NkRigidBody& b = mBodies[i];
+                if (!b.IsDynamic() || !b.IsAwake()) continue;
+                const float32 lv2 = b.linearVelocity.Dot(b.linearVelocity);
+                const float32 av2 = b.angularVelocity.Dot(b.angularVelocity);
+                if (lv2 < mConfig.linearSleepTol * mConfig.linearSleepTol
+                 && av2 < mConfig.angularSleepTol * mConfig.angularSleepTol) b.sleepTimer += dt;
+                else b.sleepTimer = 0.f;
+                if (b.sleepTimer >= mConfig.sleepTime) {
+                    b.flags |= NK_BODY_SLEEPING;
+                    b.linearVelocity = { 0,0,0 }; b.angularVelocity = { 0,0,0 };
+                }
             }
         }
 
@@ -267,6 +309,8 @@ namespace nkentseu {
             }
             // 2) détection (broadphase DBVH + manifolds multi-points)
             mCollision.Step();
+            // 2b) réveiller les corps endormis touchés par un perturbateur
+            WakeContacts();
             // 3) solveur de contacts (vitesses, sans Baumgarte) + warm-start
             SolveContacts(dt);
             // 4) vitesses -> positions (DYNAMIC + KINEMATIC : le kinematic suit sa vitesse imposée)
@@ -286,7 +330,8 @@ namespace nkentseu {
                     mCollision.SetShape(b.collisionId, s);
                 }
             }
-            // (M6) sommeil — à venir.
+            // 7) mise en sommeil des corps immobiles
+            UpdateSleep(dt);
         }
 
     } // namespace physics

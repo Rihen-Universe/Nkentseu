@@ -162,6 +162,24 @@ int main() {
         CHECK(b && b->position.y < 2.2f, "M5 kinematic : la caisse reste posee (pas ejectee)");
     }
 
+    // ── M6 : sommeil (la caisse immobile s'endort) + réveil au choc ─────────
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkBodyDef gd; gd.type = NkBodyType::STATIC;
+        world.CreateBody(gd, collision::NkShape::Box3D({0,0,0}, {20,1,20}));   // sommet y=1
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 0.f, 1.5f, 0.f };
+        const NkBodyId id = world.CreateBody(bd, collision::NkShape::Box3D({0,1.5f,0}, {0.5f,0.5f,0.5f}));
+        for (int i = 0; i < 240; ++i) world.Step(1.f / 60.f);  // 4 s -> repos puis sommeil
+        CHECK(world.GetBody(id) && !world.GetBody(id)->IsAwake(), "M6 sommeil : la caisse immobile s'endort");
+
+        // réveil : on lâche une 2e caisse dessus.
+        NkBodyDef d2; d2.type = NkBodyType::DYNAMIC; d2.position = { 0.f, 4.f, 0.f };
+        world.CreateBody(d2, collision::NkShape::Box3D({0,4,0}, {0.5f,0.5f,0.5f}));
+        bool woke = false;
+        for (int i = 0; i < 120; ++i) { world.Step(1.f / 60.f); if (world.GetBody(id)->IsAwake()) woke = true; }
+        CHECK(woke, "M6 reveil : la caisse se reveille au choc de la 2e");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
