@@ -5,6 +5,7 @@
 // =============================================================================
 #include "NKPhysics/NkPhysicsMaterial.h"
 #include "NKMath/NkQuat.h"
+#include "NKCollision/NkColShapes.h"   // forme de repos (locale) pour la synchro
 
 namespace nkentseu {
     namespace physics {
@@ -54,6 +55,7 @@ namespace nkentseu {
             // liens
             NkBodyId id = NK_INVALID_BODY;
             uint32   collisionId = 0;   // id du body NKCollision associé
+            collision::NkShape restShape;   // forme en repère LOCAL (transformée par pose -> shape monde)
             void*    user = nullptr;
 
             NK_FORCE_INLINE bool IsDynamic()  const noexcept { return type == NkBodyType::DYNAMIC; }
