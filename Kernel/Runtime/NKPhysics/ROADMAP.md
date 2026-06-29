@@ -265,13 +265,26 @@ NKPhysics fournit désormais **tout le substrat physique** d'un système type Ca
 **toute morphologie** : dynamique complète, 4 joints + moteurs PD + limites, **ragdoll actif
 générique**, validation COM/moment, CCD, sous-pas/déterminisme, requêtes/triggers.
 
-## Suite (hors NKPhysics) — côté **NkAnima**
+## Couplage — boîte à outils livrée (2026-06-29, self-test 59/59)
 
-Le produit type Cascadeur s'assemble PAR-DESSUS, dans **NkAnima** :
-- couplage **ragdoll ↔ squelette skinné** (les os physiques pilotent/suivent le skin)
-- **IK** (déjà livré) + retargeting
-- **auto-pose / auto-physique par IA** (le côté assistance, futur NKAI)
-- UI éditeur (timeline, manipulation, validation visuelle COM/moment)
+Côté NKPhysics, `NkRagdoll` expose la **toolkit de couplage** (réutilisable, toute morphologie) :
+- **`ReadPose(world, outPos, outRot)`** : lit la pose physique par os → NkAnima **pilote le
+  skin** (ragdoll passif drive le mesh).
+- **`SetActive(world, kp, maxTorque)`** : active les **moteurs PD** sur tous les joints revolute
+  → **ragdoll actif** (tient une pose).
+- **`SetPoseTargets(world, angles, n)`** : pilote les moteurs vers une **pose cible** (depuis
+  l'animation) → NkAnima **dirige la physique**.
+- Vérifié : un bras à 2 os **reste tendu** (ragdoll actif) au lieu de s'effondrer ; `ReadPose`
+  colle aux corps.
+
+## Suite (hors NKPhysics) — câblage dans **NkAnima**
+
+Le produit type Cascadeur s'assemble PAR-DESSUS, dans **NkAnima** (app sur NKRenderer) :
+- construire un `NkRagdoll` (NkBoneDef par os) depuis le **squelette glTF** (`NkAnimationSystem`)
+- chaque frame : `ReadPose` → transforms d'os → **re-skin** (passif) **ou** `SetPoseTargets`
+  depuis l'anim → physique (actif) ; **IK** (déjà livré) + retargeting
+- **auto-pose / auto-physique par IA** (futur NKAI) ; UI éditeur (timeline, validation COM/moment)
+- *(Noge ECS bridge = chantier séparé, gated par la réhabilitation de Noge qui ne compile pas)*
 
 ## Améliorations futures possibles (NKPhysics, optionnelles)
 - Îlots union-find (sommeil groupé), joint PRISMATIC, self-collision par-paire non-adjacente,

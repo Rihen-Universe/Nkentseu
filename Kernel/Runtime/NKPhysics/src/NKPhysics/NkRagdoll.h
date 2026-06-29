@@ -67,6 +67,28 @@ namespace nkentseu {
                 NkBodyId  Body(uint32 i) const noexcept { return i < (uint32)mBodies.Size() ? mBodies[i] : NK_INVALID_BODY; }
                 NkJointId Joint(uint32 i) const noexcept { return i < (uint32)mJoints.Size() ? mJoints[i] : NK_INVALID_JOINT; }
 
+                // ── Boîte à outils de COUPLAGE (NkAnima ; tout corps articulé) ──
+                // Lit la pose physique courante : position (COM) + orientation par os.
+                // -> NkAnima s'en sert pour PILOTER LE SKIN (ragdoll passif drive le mesh).
+                void ReadPose(const NkPhysicsWorld& w, NkVector<NkVec3f>& outPos, NkVector<NkQuatf>& outRot) const {
+                    outPos.Clear(); outRot.Clear();
+                    for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
+                        const NkRigidBody* b = w.GetBody(mBodies[i]);
+                        outPos.PushBack(b ? b->position : NkVec3f{});
+                        outRot.PushBack(b ? b->orientation : NkQuatf{});
+                    }
+                }
+                // Active le RAGDOLL ACTIF : moteurs PD sur tous les joints revolute.
+                void SetActive(NkPhysicsWorld& w, float32 kp = 25.f, float32 maxTorque = 500.f) {
+                    for (uint32 i = 0; i < (uint32)mJoints.Size(); ++i)
+                        if (mJoints[i] != NK_INVALID_JOINT) w.SetRevoluteMotor(mJoints[i], 0.f, kp, maxTorque);
+                }
+                // Pilote vers une pose : angle cible par os (depuis l'animation). NkAnima -> physique.
+                void SetPoseTargets(NkPhysicsWorld& w, const float32* targetAngles, uint32 n) {
+                    for (uint32 i = 0; i < (uint32)mJoints.Size() && i < n; ++i)
+                        if (mJoints[i] != NK_INVALID_JOINT) w.SetRevoluteMotor(mJoints[i], targetAngles[i], 25.f, 500.f);
+                }
+
             private:
                 NkVector<NkBodyId>  mBodies;
                 NkVector<NkJointId> mJoints;   // joint vers le parent (NK_INVALID_JOINT pour la racine)
