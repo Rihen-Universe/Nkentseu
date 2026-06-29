@@ -7,6 +7,7 @@
 // SAP/grille/BVH = phase suivante (architecture prête).
 // =============================================================================
 #include "NKCollision/NkColTests.h"
+#include "NKCollision/NkDbvh.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
@@ -20,6 +21,7 @@ namespace nkentseu {
             void*   user    = nullptr;      // donnée applicative (entité, etc.)
             bool    active  = true;
             bool    trigger = false;        // zone de détection (la physique au-dessus ne résout pas)
+            int32   proxy   = -1;           // index dans le DBVH (broadphase persistante)
         };
 
         // Paire en contact. Manifold universel 3D (les contacts 2D ont z=0).
@@ -78,6 +80,7 @@ namespace nkentseu {
                 NkVector<NkCollisionPair>  mPairs;
                 NkVector<NkCollisionEvent> mEnter, mStay, mExit;
                 NkVector<nkentseu::uint64> mPrevKeys;   // clés de paires de la frame précédente
+                mutable NkDbvh             mTree;       // broadphase persistante (DBVH)
                 uint32                     mNextId = 1u;
         };
 
