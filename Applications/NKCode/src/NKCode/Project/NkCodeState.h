@@ -549,7 +549,7 @@ namespace nkcode {
         // ── Metadonnees d'un workspace NON ouvert (carte du launcher) ─────────────
         // Parse leger du .jenga : configs, plateformes, langage, projets. Mis en
         // cache par chemin (le Home redessine chaque frame -> pas de relecture disque).
-        struct WsMeta { NkString path, configs, platforms, projects, langVer; int64 activity = 0; int32 projCount = 0; };
+        struct WsMeta { NkString path, configs, platforms, projects, langVer, toolchains, jengaVer; int64 activity = 0; int32 projCount = 0; };
         NkVector<WsMeta> mWsMeta;
 
         static char UpC(char c) { return (c >= 'a' && c <= 'z') ? char(c - 'a' + 'A') : c; }
@@ -636,6 +636,19 @@ namespace nkcode {
             for (usize i = 0; i < names.Size() && i < 6; ++i) { if (!out.Empty()) out += ", "; out += names[i]; }
             return out;
         }
+        // Noms entre guillemets du PREMIER argument de chaque appel `pat...("name"...)`
+        // (uniques, jusqu'a 8). Ex. pat = "toolchain(".
+        static NkString JoinCallArgs(const char* txt, const char* pat) {
+            NkVector<NkString> names; const char* p = txt;
+            while ((p = FindStr(p, pat))) {
+                p += Len(pat); while (*p && *p != '"' && *p != ')') ++p;
+                if (*p == '"') { ++p; NkString t; while (*p && *p != '"') t += *p++;
+                    bool dup = false; for (usize i = 0; i < names.Size(); ++i) if (StrEq(names[i].CStr(), t.CStr())) { dup = true; break; }
+                    if (!dup && !t.Empty()) names.PushBack(t); }
+            }
+            NkString out; for (usize i = 0; i < names.Size() && i < 8; ++i) { if (!out.Empty()) out += ", "; out += names[i]; }
+            return out;
+        }
         // Renvoie (par valeur, duree de vie sure cote appelant) les metadonnees parsees.
         WsMeta WorkspaceMeta(const char* path) {
             for (usize i = 0; i < mWsMeta.Size(); ++i) if (StrEq(mWsMeta[i].path.CStr(), path)) return mWsMeta[i];
@@ -644,6 +657,8 @@ namespace nkcode {
             m.configs   = JoinQuotedInCall(txt.CStr(), "configurations([");
             m.platforms = JoinEnumInCall(txt.CStr(), "targetoses([", "TargetOS.");
             m.langVer   = DetectLang(txt.CStr());
+            m.toolchains = JoinCallArgs(txt.CStr(), "toolchain(");
+            { const char* v = FindStr(txt.CStr(), "jengaversion(\""); if (v) { v += Len("jengaversion(\""); NkString t; while (*v && *v != '"') t += *v++; m.jengaVer = t; } }
             m.projects  = CollectProjects(txt.CStr(), &m.projCount);
             m.activity  = ActivityTime(NkPath(path).GetParent().ToString().CStr());   // derniere activite reelle
             if (m.activity == 0) m.activity = MTimeOf(path);                            // repli : mtime du .jenga
@@ -787,8 +802,7 @@ namespace nkcode {
             if (mx > mLastJengaMtime) { mLastJengaMtime = mx; RequestReload(); }
         }
 
-    private:
-        float32   mWatchTimer = 0.f;
+        float32   mWatchTimer = 0.f;   // (struct interne -> helpers statiques accessibles a NkOpenWs)
         int64 mLastJengaMtime = 0;
         static bool EndsWithI(const char* s, const char* suf) {
             usize ls = 0, lf = 0; for (const char* p = s; *p; ++p) ++ls; for (const char* p = suf; *p; ++p) ++lf;

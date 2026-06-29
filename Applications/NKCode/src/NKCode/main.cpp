@@ -197,9 +197,16 @@ int nkmain(const NkEntryState& state) {
             if (minX == 0 && minY == 0 && maxX == w - 1 && maxY == h - 1) return nullptr; // deja bord-a-bord
             return src.Crop(minX, minY, maxX - minX + 1, maxY - minY + 1);
         };
+        // Dossier d'OVERRIDE utilisateur (icones personnalisees, data-driven) : deposer un
+        // PNG dans <ovrDir>icon/<Nom>.png remplace l'icone livree, sans recompiler.
+        char ovrDir[512] = {};
+        { const char* ad = std::getenv("APPDATA"); const char* hm = std::getenv("HOME");
+          if (ad && *ad)      std::snprintf(ovrDir, sizeof(ovrDir), "%s/NKCode/", ad);
+          else if (hm && *hm) std::snprintf(ovrDir, sizeof(ovrDir), "%s/.config/nkcode/", hm);
+          else                std::snprintf(ovrDir, sizeof(ovrDir), "Applications/NKCode/data/textures/"); }
         auto loadTex = [&](const char* base, int32 tw, int32 th, int32* outW = nullptr, int32* outH = nullptr,
                            bool trim = true, bool box = true) -> uint32 {
-            const char* dirs[] = { "Applications/NKCode/data/textures/", "data/textures/", "NKCode/data/textures/", "" };
+            const char* dirs[] = { ovrDir, "Applications/NKCode/data/textures/", "data/textures/", "NKCode/data/textures/", "" };
             char path[512];
             auto put = [&](NkImage& img) -> uint32 {                              // rogne (option) puis upload
                 NkImage* t = trim ? trimAlpha(img) : nullptr;
@@ -231,20 +238,79 @@ int nkmain(const NkEntryState& state) {
         g_home.logoIcon = loadTex("logo/icon_blanc_fond_transparent", 48, 48);
         g_home.logoWord = loadTex("logo/logo_complet_blanc_fond_transparent", 360, 90, &g_home.wordW, &g_home.wordH, /*trim*/true, /*box*/false);
         shell->SetTitleLogo(g_home.logoIcon);   // icone seule (aspect 0) -> icone + texte "nkcode" net
-        // Icones : redimensionnees a ~64px (proche de l'affichage 17-38px) -> NET
+        // Icones : uploadees a la taille d'AFFICHAGE (DPI-aware) -> NET. Sans mipmaps,
+        // uploader plus grand que l'ecran puis laisser le GPU reduire = flou. On
+        // redimensionne donc la source 128px directement a ~ sa taille ecran (CPU, filtre
+        // qualite). Les icones s'affichent ~13-22 px logiques -> upload ~26 px * DPI.
+        const float32 dpi = shell->DpiScale();
+        int32 IS = (int32)(26.f * dpi + 0.5f); if (IS < 20) IS = 20;
         nkcode::NkIcons& ic = g_home.icons;
-        ic.accueil       = loadTex("icon/Accueil", 64, 64);
-        ic.ouvrir        = loadTex("icon/Ouvrir", 64, 64);
-        ic.ouvrirDossier = loadTex("icon/OuvrirUnDossier", 64, 64);
-        ic.nouveau       = loadTex("icon/Nouveau", 64, 64);
-        ic.cloner        = loadTex("icon/Cloner", 64, 64);
-        ic.toolchains    = loadTex("icon/Toolchains", 64, 64);
-        ic.platforms     = loadTex("icon/Platforms", 64, 64);
-        ic.gear          = loadTex("icon/Gear", 64, 64);
-        ic.exemple       = loadTex("icon/Exemple", 64, 64);
-        ic.star          = loadTex("icon/Star", 64, 64);
-        ic.search        = loadTex("icon/Search", 48, 48);
-        ic.workspace     = loadTex("logo/workspace", 64, 64);   // workspace.png est dans logo/
+        ic.accueil       = loadTex("icon/Accueil", IS, IS);
+        ic.ouvrir        = loadTex("icon/Ouvrir", IS, IS);
+        ic.ouvrirDossier = loadTex("icon/OuvrirUnDossier", IS, IS);
+        ic.nouveau       = loadTex("icon/Nouveau", IS, IS);
+        ic.cloner        = loadTex("icon/Cloner", IS, IS);
+        ic.toolchains    = loadTex("icon/Toolchains", IS, IS);
+        ic.platforms     = loadTex("icon/Platforms", IS, IS);
+        ic.gear          = loadTex("icon/Gear", IS, IS);
+        ic.exemple       = loadTex("icon/Exemple", IS, IS);
+        ic.star          = loadTex("icon/Star", IS, IS);
+        ic.search        = loadTex("icon/Search", IS, IS);
+        ic.workspace     = loadTex("logo/workspace", IS, IS);   // workspace.png est dans logo/
+        // Navigateur « Ouvrir un Workspace »
+        ic.back          = loadTex("icon/LeftArrow", IS, IS);
+        ic.forward       = loadTex("icon/RightArrow", IS, IS);
+        ic.up            = loadTex("icon/UpArrow", IS, IS);
+        ic.downArrow     = loadTex("icon/DownArrow", IS, IS);
+        ic.bureau        = loadTex("icon/Bureau", IS, IS);
+        ic.disque        = loadTex("icon/Disque", IS, IS);
+        ic.jenga         = loadTex("icon/Jenga", IS, IS);
+        ic.valide        = loadTex("icon/Valide", IS, IS);
+        ic.horloge       = loadTex("icon/Horloge", IS, IS);
+        ic.fichier       = loadTex("icon/Fichier", IS, IS);
+        ic.sort          = loadTex("icon/Sort", IS, IS);
+        // toggle liste/grille : pas d'asset adapte (`<>` et `↕` ne conviennent pas) -> dessine.
+
+        // ── Registre d'extensions DATA-DRIVEN (icons.cfg) : .ext -> icone ──
+        {
+            NkVector<NkString> stemName; NkVector<uint32> stemTex;   // cache stem -> texture (evite re-upload)
+            auto loadStem = [&](const NkString& stem) -> uint32 {
+                for (usize i = 0; i < stemName.Size(); ++i) if (stemName[i] == stem) return stemTex[i];
+                const NkString base = NkString("icon/") + stem.CStr();
+                const uint32 t = loadTex(base.CStr(), IS, IS);
+                stemName.PushBack(stem); stemTex.PushBack(t); return t;
+            };
+            auto trim = [](NkString s) -> NkString {
+                int32 a = 0, b = (int32)s.Length(); const char* d = s.CStr();
+                while (a < b && (d[a] == ' ' || d[a] == '\t')) ++a;
+                while (b > a && (d[b - 1] == ' ' || d[b - 1] == '\t' || d[b - 1] == '\r')) --b;
+                return s.SubStr(a, b - a);
+            };
+            auto applyManifest = [&](const NkString& text) {
+                const char* p = text.CStr(); NkString line;
+                auto flush = [&]() {
+                    NkString l = trim(line);
+                    if (!l.Empty() && l.CStr()[0] != '#') {
+                        int32 eq = -1; const char* d = l.CStr();
+                        for (int32 k = 0; d[k]; ++k) if (d[k] == '=') { eq = k; break; }
+                        if (eq > 0) {
+                            const NkString key = trim(l.SubStr(0, eq));
+                            const NkString val = trim(l.SubStr(eq + 1, l.Length() - eq - 1));
+                            if (!key.Empty() && key.CStr()[0] == '.' && !val.Empty()) ic.SetExt(key.CStr(), loadStem(val));
+                        }
+                    }
+                    line.Clear();
+                };
+                for (; ; ++p) { if (*p == '\n' || *p == '\0') { flush(); if (*p == '\0') break; } else line += *p; }
+            };
+            // 1) defauts integres (au cas ou aucun manifeste n'est present) ;
+            applyManifest(NkString(".cpp=Cpp\n.cc=Cpp\n.h=Header\n.hpp=Header\n.c=C\n.py=Python\n.rs=Rust\n.zig=Zig\n.jenga=Jenga\n.md=Markdown\n.txt=Texte\n.json=Json\n.png=Image\n.jpg=Image\n.zip=Archive\n.exe=Binaire\n.dll=Binaire\n"));
+            // 2) manifeste livre ; 3) override utilisateur (applique en dernier -> gagne).
+            for (const char* mp : { "Applications/NKCode/data/icons.cfg", "data/icons.cfg" })
+                if (NkFile::Exists(mp)) { applyManifest(NkFile::ReadAllText(NkPath(mp))); break; }
+            { const NkString uman = NkString(ovrDir) + "icons.cfg";
+              if (NkFile::Exists(uman.CStr())) applyManifest(NkFile::ReadAllText(NkPath(uman.CStr()))); }
+        }
     }
     shell->SetStartScreen(&StartScreenThunk, &g_home);  // ecran de demarrage plein cadre (Home)
     // Fenetre large/centree mais NON maximisee -> redimensionnable par les bords des

@@ -23,6 +23,7 @@
 
 #include "pch.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKFileSystem/NkDirectory.h"   // MoveToTrash : impl partagee (fichiers + dossiers)
 
 // En-têtes C standard pour les opérations fichier
 #include <cstdio>
@@ -645,6 +646,9 @@ namespace nkentseu {
         // Retourne 0 en cas de succès, non-zéro en cas d'erreur
         return remove(path) == 0;
     }
+
+    bool NkFile::MoveToTrash(const char* path) { return NkDirectory::MoveToTrash(path); }
+    bool NkFile::MoveToTrash(const NkPath& path) { return NkDirectory::MoveToTrash(path.CStr()); }
 
     bool NkFile::Delete(const NkPath& path) {
         // Délégation à la version C-string

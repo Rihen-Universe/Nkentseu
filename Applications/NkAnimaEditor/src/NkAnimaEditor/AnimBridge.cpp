@@ -22,6 +22,7 @@
 #include "NKRenderer/Tools/PostProcess/NkPostProcessStack.h"  // Execute() tonemap ACES
 #include "NKRenderer/Core/NkRenderGraph.h"                    // Execute() pipeline complet (option A)
 #include "NKGui/NkGuiRHIBackend.h"                        // RegisterTexture (Integrations/NKGui)
+#include "NkAnimaEditor/NkRagdollBridge.h"                // couplage ragdoll <-> squelette (NKPhysics)
 #include "NKLogger/NkLog.h"
 #include <cstdlib>
 #include <cmath>
@@ -75,6 +76,11 @@ namespace nkanima {
             NkVec3f              center3d = {0,0,0};
             float32              radius3d = 2.f;
             float32              camYaw = 0.6f, camPitch = 0.12f, camZoom = 1.f;
+
+            // ── Ragdoll physique (couplage NKPhysics) ───────────────────────
+            nkentseu::physics::NkPhysicsWorld physWorld{ nkentseu::physics::NkPhysicsConfig{ {0.f,-9.81f,0.f} } };
+            NkRagdollBridge      ragdoll;
+            bool                 physicsOn = false;
         };
         Doc g;
 
@@ -163,8 +169,29 @@ namespace nkanima {
     bool AnimLoaded() { return g.loaded; }
 
     void AnimUpdate(float32 dt) {
+        if (g.physicsOn) {                       // ragdoll : la physique pilote la pose (worldEdit)
+            const float32 h = (dt > 0.f && dt < 0.1f) ? dt : (1.f / 60.f);
+            g.physWorld.Step(h);
+            g.ragdoll.SyncToSkeleton(g.worldEdit);
+            return;
+        }
         if (g.loaded && g.playing) { g.player.Update(dt); g.editor.SetCursor(g.player.GetTime()); }
     }
+
+    // ── Ragdoll physique : couplage NKPhysics <-> squelette skinné ───────────
+    void AnimSetPhysics(bool on) {
+        if (!g.loaded) { g.physicsOn = false; return; }
+        if (on) {
+            if (!g.editMode) AnimBeginPoseEdit();    // capture la pose courante -> worldEdit (editMode)
+            g.physWorld = nkentseu::physics::NkPhysicsWorld(nkentseu::physics::NkPhysicsConfig{ {0.f,-9.81f,0.f} });
+            g.ragdoll.Build(g.physWorld, g.bindGlobal, g.clip.jointParent);
+            g.physicsOn = true;
+            logger.Info("[AnimBridge] ragdoll physique ON ({0} os)\n", g.ragdoll.Count());
+        } else {
+            g.physicsOn = false; g.ragdoll.Clear();
+        }
+    }
+    bool AnimPhysicsEnabled() { return g.physicsOn; }
     bool AnimIsPlaying() { return g.playing; }
     void AnimSetPlaying(bool p) {
         g.playing = p;
