@@ -438,6 +438,38 @@ int main() {
         CHECK(passedThrough, "M13 trigger : le corps TRAVERSE la zone (pas de reponse physique)");
     }
 
+    // ── Couplage : ReadPose (ragdoll -> skin) + ragdoll ACTIF (tient une pose) ──
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkBodyDef ad; ad.type = NkBodyType::STATIC; ad.position = { 0.f, 5.f, 0.f };
+        const NkBodyId anchor = world.CreateBody(ad, collision::NkShape::Sphere({0,5,0}, 0.1f));
+
+        // bras à 2 os (révolute axe Z) tendu horizontalement.
+        NkBoneDef bones[2];
+        bones[0].parent = -1; bones[0].position = { 1.f, 5.f, 0.f };
+        bones[0].shape = collision::NkShape::Box3D({1,5,0}, {1.f,0.15f,0.15f});
+        bones[1].parent = 0; bones[1].position = { 3.f, 5.f, 0.f };
+        bones[1].shape = collision::NkShape::Box3D({3,5,0}, {1.f,0.15f,0.15f});
+        bones[1].jointType = NkJointType::REVOLUTE; bones[1].jointPivot = { 2.f, 5.f, 0.f }; bones[1].jointAxis = { 0,0,1 };
+
+        NkRagdoll ragdoll;
+        ragdoll.Build(world, bones, 2);
+        // ancrer l'os racine (révolute motorisé) + activer les moteurs du ragdoll.
+        const NkJointId aj = world.CreateRevoluteJoint(anchor, ragdoll.Body(0), {0,5,0}, {0,0,1});
+        world.SetRevoluteMotor(aj, 0.f, 30.f, 800.f);
+        ragdoll.SetActive(world, 30.f, 800.f);          // moteurs PD -> tiennent la pose initiale (angle 0)
+
+        for (int i = 0; i < 180; ++i) world.Step(1.f / 60.f);   // 3 s
+
+        NkVector<NkVec3f> pos; NkVector<NkQuatf> rot;
+        ragdoll.ReadPose(world, pos, rot);
+        CHECK(pos.Size() == 2 && rot.Size() == 2, "couplage ReadPose : pose lue (2 os)");
+        // ReadPose doit coller aux corps physiques.
+        CHECK(pos[1].x == world.GetBody(ragdoll.Body(1))->position.x, "couplage ReadPose : colle aux corps");
+        // ragdoll ACTIF : le bras reste tendu horizontalement (sans moteurs il s'effondrerait).
+        CHECK(pos[0].y > 4.5f && pos[1].y > 4.3f, "couplage : ragdoll ACTIF tient la pose (bras tendu)");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
