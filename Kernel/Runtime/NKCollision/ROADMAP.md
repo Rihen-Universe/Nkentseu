@@ -37,11 +37,18 @@
   `NkBoxAligned`) ; **broadphase Sweep-and-Prune** (tri AABB par min.x quicksort + balayage,
   remplace le O(n²) de `Step()`). ✅
 
-### Reste prioritaire (vague 5)
+### Livré 2026-06-29 — vague 5 : requêtes de scène — self-test 70/70
+- **Raycast exact par forme** : OBB 3D (slab en repère local), plan, triangle
+  (Möller–Trumbore), trimesh (triangle le plus proche) ; câblés dans `Raycast3D`
+  (capsule/cylindre/cône/convexe restent en AABB approx). ✅
+- **Overlap query** : `NkWorld::Overlap(shape, out, mask)` — tous les corps chevauchant
+  une forme arbitraire (broadphase AABB + narrowphase). ✅
+
+### Reste prioritaire (vague 6)
 - **Manifold multi-points** (clipping Sutherland-Hodgman) : 1 pt -> 2 (2D)/4 (3D) pour la
   stabilité de la résolution physique.
-- **DBVH** (Dynamic AABB tree) en complément du SAP (raycast/overlap accélérés).
-- **Raycast exact** par forme (box/capsule/convexe via AABB pour l'instant).
+- **Raycast exact capsule/cylindre/cône/convexe** (GJK ray-cast par conservative advancement).
+- **Shape casts** (SphereCast/BoxCast/CapsuleCast) + **DBVH** (queries accélérées).
 - **CCD** (swept + TOI) + **contacts persistants** (warm-starting pour NKPhysics).
 - **Debug draw** (NKUI/NKRenderer) + **intégration ECS** (`NkColliderComponent`).
 
