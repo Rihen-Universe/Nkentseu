@@ -45,7 +45,7 @@
 | **M7** Articulations — *distance/ball/revolute/weld faits ; reste prismatic* | 🔶 | XL | P2 |
 | **M8** Moteurs & **drives PD** + limites → *ragdoll actif* (tient/atteint une pose) | ✅ | L | P1 |
 | **M9** **Ragdoll générique** : builder squelette (os+joints depuis hiérarchie), self-collision | ✅ | L | P1 |
-| **M10** **Centre de masse + moment angulaire** (validation « physiquement correct » Cascadeur) | ⏳ | M | P1 |
+| **M10** **Centre de masse + moment angulaire** (validation « physiquement correct » Cascadeur) | ✅ | M | P1 |
 | **M11** CCD (corps rapides) via `NkWorld::SweepBody` | ⏳ | M | P2 |
 | **M12** Sous-pas (sub-stepping) + déterminisme | ⏳ | M | P2 |
 | **M13** Requêtes physiques (raycast/overlap filtrés) + triggers | ⏳ | S | P2 |
@@ -213,10 +213,22 @@ Scaffold de structure uniquement (pas de simulation) :
 - **Démo** : une chaîne de 3 os suspendue à une ancre **tient** (os liés à ~1, pend droit, pas
   d'explosion).
 
+## Livré — M10 (2026-06-29, self-test 46/46) — validation « physiquement correct »
+
+- **Requêtes** (filtrables par `layerMask` → mesurer un ragdoll précis via son `group`) :
+  `TotalMass`, `CenterOfMass` (Σm·p/Σm), `LinearMomentum` (Σm·v), `CenterOfMassVelocity`
+  (P/M), `AngularMomentum(about)` (Σ r×m·v + I·ω, avec inertie monde `R·Idiag·Rᵀ`).
+- **Démo** : COM = milieu de 2 masses égales ; vitesse du COM en chute libre = g·t (−9.81) ;
+  **moment angulaire conservé** (cube en rotation, sans couple externe).
+- C'est la signature Cascadeur : vérifier qu'un mouvement respecte la physique (trajectoire
+  balistique du COM, conservation du moment) — exposé à NkAnima pour valider/corriger une pose.
+
+> ⭐ Avec M7–M10, le **substrat physique du système Cascadeur** est complet : ragdoll **actif**
+> générique (joints + moteurs + limites) **+ validation** (COM/moment), pour toute morphologie.
+
 ## En cours
 
-- **M10** — **centre de masse + moment angulaire** (validation « physiquement correct »
-  Cascadeur) : requêtes COM global/par-membre, moment angulaire total, support/équilibre.
+- **M11** — **CCD** intégré au `Step` (corps `NK_BODY_CCD` rapides) via `SweepBody`.
 
 ---
 

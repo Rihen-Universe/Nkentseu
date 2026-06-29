@@ -57,6 +57,15 @@ namespace nkentseu {
                 void SetLinearVelocity(NkBodyId id, const NkVec3f& v) noexcept { if (NkRigidBody* b = GetBody(id)) b->linearVelocity = v; }
                 void SetAngularVelocity(NkBodyId id, const NkVec3f& w) noexcept { if (NkRigidBody* b = GetBody(id)) b->angularVelocity = w; }
 
+                // ── Validation « physiquement correct » (M10) ────────────────
+                // Requêtes sur les corps DYNAMIQUES filtrés par `layerMask` (passer le `group`
+                // d'un ragdoll pour ne mesurer que lui). Base de la validation type Cascadeur.
+                float32 TotalMass(uint32 layerMask = 0xFFFFFFFFu) const;
+                NkVec3f CenterOfMass(uint32 layerMask = 0xFFFFFFFFu) const;          // somme(m·p)/somme(m)
+                NkVec3f LinearMomentum(uint32 layerMask = 0xFFFFFFFFu) const;        // somme(m·v)
+                NkVec3f CenterOfMassVelocity(uint32 layerMask = 0xFFFFFFFFu) const;  // P/M
+                NkVec3f AngularMomentum(const NkVec3f& about, uint32 layerMask = 0xFFFFFFFFu) const; // somme(r×m·v + I·ω)
+
                 // Réglages.
                 void SetGravity(const NkVec3f& g) noexcept { mConfig.gravity = g; }
                 const NkPhysicsConfig& Config() const noexcept { return mConfig; }
