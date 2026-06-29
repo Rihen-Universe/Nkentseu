@@ -393,6 +393,10 @@ with workspace("Nkentseu", location="."):
     with include("Kernel/Runtime/NKCollision/NKCollision.jenga"):
         pass
 
+    # NKPhysics (dynamique corps rigide 2D+3D, sur NKCollision).
+    with include("Kernel/Runtime/NKPhysics/NKPhysics.jenga"):
+        pass
+
     with include("Applications/Sandbox/Sandbox.jenga"):
         pass
 
