@@ -404,6 +404,40 @@ int main() {
         CHECK(world.GetBody(id)->position.y < 10.f, "M12 Advance : le corps a bien avance");
     }
 
+    // ── M13 : requêtes physiques (Raycast/Overlap -> NkBodyId) + triggers ───
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, 0.f, 0.f} });
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 0.f, 0.f, 0.f };
+        const NkBodyId id = world.CreateBody(bd, collision::NkShape::Sphere({0,0,0}, 1.f));
+        collision::NkRay3D ray; ray.origin = { -5.f, 0.f, 0.f }; ray.dir = { 1.f, 0.f, 0.f }; ray.maxT = 100.f;
+        NkBodyId hitBody = 0; collision::NkRayHit3D hit;
+        CHECK(world.Raycast(ray, hitBody, hit) && hitBody == id, "M13 Raycast : renvoie le NkBodyId touche");
+
+        // OverlapShape -> ids
+        world.CreateBody(bd, collision::NkShape::Sphere({0,0,0}, 1.f));  // (déjà un à 0)
+        NkBodyDef b2; b2.type = NkBodyType::DYNAMIC; b2.position = { 1.5f, 0.f, 0.f };
+        world.CreateBody(b2, collision::NkShape::Sphere({1.5f,0,0}, 1.f));
+        NkVector<NkBodyId> ids;
+        const uint32 n = world.OverlapShape(collision::NkShape::Sphere({0.7f,0,0}, 1.f), ids);
+        CHECK(n >= 2, "M13 OverlapShape : renvoie les corps chevauchants");
+    }
+    {
+        // Trigger : une zone détecte un corps qui la traverse (sans réponse physique).
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkBodyDef td; td.type = NkBodyType::STATIC; td.flags = NK_BODY_TRIGGER;
+        const NkBodyId trig = world.CreateBody(td, collision::NkShape::Box3D({0,2,0}, {2.f,0.5f,2.f}));
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 0.f, 5.f, 0.f };
+        const NkBodyId ball = world.CreateBody(bd, collision::NkShape::Sphere({0,5,0}, 0.3f));
+        bool entered = false; NkBodyId trigId = 0, otherId = 0; bool passedThrough = false;
+        for (int i = 0; i < 180; ++i) {
+            world.Step(1.f / 60.f);
+            if (world.TriggerEnter().Size() > 0) { entered = true; trigId = world.TriggerEnter()[0].trigger; otherId = world.TriggerEnter()[0].other; }
+            if (world.GetBody(ball)->position.y < 0.f) passedThrough = true;   // tombe au travers (trigger = pas de réponse)
+        }
+        CHECK(entered && trigId == trig && otherId == ball, "M13 trigger : ENTER detecte (zone, corps)");
+        CHECK(passedThrough, "M13 trigger : le corps TRAVERSE la zone (pas de reponse physique)");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

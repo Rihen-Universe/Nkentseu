@@ -314,7 +314,7 @@ namespace nkentseu {
                         break;
                     }
                 }
-                if (ok && h.t < best.t) { best = h; found = true; }
+                if (ok && h.t < best.t) { h.bodyId = b.id; best = h; found = true; }
             }
             if (found) hit = best;
             return found;
