@@ -510,6 +510,31 @@ int main() {
         CHECK(!w.SweepBody(ball, {0,-10,0}, hit2), "CCD SweepBody : pas d'impact (direction libre)");
     }
 
+    // ── VAGUE 13 : contacts persistants (IDs de feature + warm-starting) ─────
+    {
+        // IDs de contact stables : même config -> mêmes ids (matchables entre frames).
+        NkManifold3D m1, m2;
+        NkCollideBoxBox3D(NkShape::Box3D({0,0,0}, {1,1,1}), NkShape::Box3D({0,1.9f,0}, {1,1,1}), m1);
+        NkCollideBoxBox3D(NkShape::Box3D({0,0,0}, {1,1,1}), NkShape::Box3D({0,1.9f,0}, {1,1,1}), m2);
+        bool sameIds = (m1.count == m2.count);
+        for (int32 i = 0; i < m1.count; ++i) sameIds = sameIds && (m1.points[i].id == m2.points[i].id);
+        CHECK(sameIds && m1.count == 4, "contacts : IDs de feature stables (4 pts identiques)");
+        // ids distincts entre les 4 points
+        bool distinct = m1.points[0].id != m1.points[1].id && m1.points[1].id != m1.points[2].id;
+        CHECK(distinct, "contacts : IDs distincts par point");
+
+        // Persistance world : 2 caisses, 2 Step -> warm + manifold précédent.
+        NkWorld w;
+        const uint32 a = w.AddBody(NkShape::Box3D({0,0,0}, {1,1,1}));
+        const uint32 b = w.AddBody(NkShape::Box3D({0,1.9f,0}, {1,1,1}));
+        w.Step();
+        CHECK(w.Pairs().Size() == 1 && !w.Pairs()[0].warm, "warm : frame 1 = NOUVELLE paire (warm=false)");
+        w.Step();
+        CHECK(w.Pairs().Size() == 1 && w.Pairs()[0].warm, "warm : frame 2 = paire PERSISTANTE (warm=true)");
+        NkManifold3D prev;
+        CHECK(w.GetPreviousManifold(a, b, prev) && prev.count == 4, "warm : manifold precedent recupere (4 pts)");
+    }
+
     logger.Info("=== NKCollision : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

@@ -137,7 +137,9 @@ namespace nkentseu {
         // ── Manifold de contact (résultat narrowphase) ───────────────────────
         // Normale orientée de A vers B ; depth = profondeur de pénétration (>0 si
         // chevauchement). Jusqu'à 2 points en 2D, 4 en 3D (faces).
-        struct NkContactPoint2D { NkVec2f point{}; float32 depth = 0.f; };
+        // `id` = identifiant de feature (arête/sommet source) STABLE entre frames ->
+        // permet de retrouver le même point d'une frame à l'autre (warm-starting solveur).
+        struct NkContactPoint2D { NkVec2f point{}; float32 depth = 0.f; uint32 id = 0; };
         struct NkManifold2D {
             NkVec2f          normal{};        // A -> B, normalisée
             NkContactPoint2D points[2];
@@ -145,7 +147,7 @@ namespace nkentseu {
             NK_FORCE_INLINE bool Hit() const noexcept { return count > 0; }
         };
 
-        struct NkContactPoint3D { NkVec3f point{}; float32 depth = 0.f; };
+        struct NkContactPoint3D { NkVec3f point{}; float32 depth = 0.f; uint32 id = 0; };
         struct NkManifold3D {
             NkVec3f          normal{};        // A -> B, normalisée
             NkContactPoint3D points[4];
