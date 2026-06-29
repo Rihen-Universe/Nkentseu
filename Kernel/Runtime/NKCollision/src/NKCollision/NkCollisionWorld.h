@@ -64,6 +64,11 @@ namespace nkentseu {
                 // (broadphase AABB + narrowphase). Remplit `out` avec leurs ids, renvoie le nombre.
                 uint32 Overlap(const NkShape& s, NkVector<uint32>& out, uint32 mask = 0xFFFFFFFFu) const;
 
+                // Shape cast : translate la forme convexe `shape` le long de `dir` (unité) sur
+                // `maxDist` et renvoie le 1er contact (TOI) avec un corps convexe. `hit.t` = distance.
+                bool   ShapeCast(const NkShape& shape, const NkVec3f& dir, float32 maxDist,
+                                 NkRayHit3D& hit, uint32 mask = 0xFFFFFFFFu) const;
+
                 uint32 BodyCount() const noexcept { return (uint32)mBodies.Size(); }
 
             private:

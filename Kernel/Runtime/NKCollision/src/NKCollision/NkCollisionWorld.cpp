@@ -5,6 +5,7 @@
 #include "NKCollision/NkColSAT.h"      // OBB (boîtes orientées) via SAT
 #include "NKCollision/NkColGJK.h"      // narrowphase générique convexe (GJK/EPA)
 #include "NKCollision/NkColConcave.h"  // décomposition des concaves (trimesh/heightfield/chain)
+#include "NKCollision/NkColCast.h"     // casts génériques (ray-convexe, shape cast) par CA
 
 namespace nkentseu {
     namespace collision {
@@ -305,9 +306,9 @@ namespace nkentseu {
                         }
                         break;
                     }
-                    default: {                                  // capsule/cylindre/cône/convexe -> AABB (approx)
-                        NkAABB3D a = NkComputeAABB3D(s);
-                        ok = NkRayAABB3D(ray, a.min, a.max, h);
+                    default: {                                  // capsule/cylindre/cône/convexe -> ray-cast GJK exact
+                        if (NkShapeIsConvex(s.type)) ok = NkRayConvex3D(ray, s, h);
+                        else { NkAABB3D a = NkComputeAABB3D(s); ok = NkRayAABB3D(ray, a.min, a.max, h); } // concave non géré -> AABB
                         break;
                     }
                 }
@@ -356,6 +357,29 @@ namespace nkentseu {
                 if (Narrow(s, b.shape, m)) out.PushBack(b.id);        // narrowphase
             }
             return (uint32)out.Size();
+        }
+
+        // ── Shape cast (TOI) : forme convexe translatée le long de dir ────────
+        bool NkWorld::ShapeCast(const NkShape& shape, const NkVec3f& dir, float32 maxDist,
+                                NkRayHit3D& hit, uint32 mask) const {
+            const float32 dl = math::NkSqrt(dir.Dot(dir));
+            if (dl < 1e-8f || !NkShapeIsConvex(shape.type)) return false;
+            const NkVec3f d = dir * (1.f / dl);                       // direction unité
+            // AABB balayée (départ U arrivée) pour le cull broadphase.
+            NkAABB3D a0 = NkBodyAABB(shape);
+            NkAABB3D swept = a0; swept.Expand(a0.min + d * maxDist); swept.Expand(a0.max + d * maxDist);
+            bool found = false; NkRayHit3D best; best.t = maxDist;
+            for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
+                const NkBody& b = mBodies[i];
+                if (!b.active || !(b.layer & mask) || NkShapeIs2D(b.shape.type) || !NkShapeIsConvex(b.shape.type)) continue;
+                if (!swept.Overlaps(NkBodyAABB(b.shape))) continue;   // broadphase
+                float32 t; NkVec3f nrm, p;
+                if (NkConvexCast3D(shape, d, maxDist, b.shape, t, nrm, p) && t < best.t) {
+                    best.hit = true; best.t = t; best.normal = nrm; best.point = p; found = true;
+                }
+            }
+            if (found) hit = best;
+            return found;
         }
 
     } // namespace collision

@@ -343,6 +343,37 @@ int main() {
         CHECK(cnt == 2, "Overlap sphere : 2 corps touches (pas le lointain)");
     }
 
+    // ── VAGUE 6 : ray-cast convexe générique (GJK/CA) + shape cast ───────────
+    {
+        NkRay3D ray; ray.origin = {-5,0,0}; ray.dir = {1,0,0}; ray.maxT = 100.f;
+        // ray vs sphère via CA == analytique (t=4)
+        NkRayHit3D h;
+        CHECK(NkRayConvex3D(ray, NkShape::Sphere({0,0,0}, 1.f), h) && Near(h.t, 4.f, 1e-2f), "ray-convexe sphere t=4 (CA)");
+        // ray vs capsule (côté à x=-0.5) -> t=4.5
+        NkRayHit3D hc;
+        CHECK(NkRayConvex3D(ray, NkShape::Capsule3D({0,-1,0}, {0,1,0}, 0.5f), hc) && Near(hc.t, 4.5f, 2e-2f), "ray-convexe capsule t=4.5 (CA)");
+        // ray vs cône (booléen : touche)
+        NkRayHit3D hco;
+        CHECK(NkRayConvex3D(ray, NkShape::Cone3D({0,-1,0}, {0,1,0}, 2.f, 1.f), hco), "ray-convexe cone (CA) touche");
+
+        // World : raycast exact sur un corps capsule
+        NkWorld w;
+        w.AddBody(NkShape::Capsule3D({0,-1,0}, {0,1,0}, 0.5f));
+        NkRayHit3D hw;
+        CHECK(w.Raycast3D(ray, hw) && Near(hw.t, 4.5f, 2e-2f), "world raycast capsule t=4.5 (exact)");
+    }
+    {
+        // Shape cast : sphère r=0.5 partant de x=-5 vers +X, cible sphère r=1 à l'origine.
+        // Contact quand |centre| = 1.5 -> centre à x=-1.5 -> distance parcourue 3.5.
+        NkWorld w;
+        w.AddBody(NkShape::Sphere({0,0,0}, 1.f));
+        NkRayHit3D hit;
+        CHECK(w.ShapeCast(NkShape::Sphere({-5,0,0}, 0.5f), {1,0,0}, 100.f, hit) && Near(hit.t, 3.5f, 2e-2f), "shapecast sphere TOI=3.5");
+        // Passe au-dessus -> rate
+        NkRayHit3D hit2;
+        CHECK(!w.ShapeCast(NkShape::Sphere({-5,5,0}, 0.5f), {1,0,0}, 100.f, hit2), "shapecast sphere rate (passe au-dessus)");
+    }
+
     logger.Info("=== NKCollision : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
