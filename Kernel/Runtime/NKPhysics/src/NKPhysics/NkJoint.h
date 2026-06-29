@@ -31,8 +31,11 @@ namespace nkentseu {
             NkBodyId    a = NK_INVALID_BODY, b = NK_INVALID_BODY;
             NkVec3f     localAnchorA{};      // ancre dans le repère local de A
             NkVec3f     localAnchorB{};      // ancre dans le repère local de B
+            NkVec3f     localAxisA{ 0,0,1 }; // REVOLUTE : axe de charnière (repère local A)
+            NkVec3f     localAxisB{ 0,0,1 }; // REVOLUTE : axe de charnière (repère local B)
             float32     restLength = 0.f;    // DISTANCE : longueur cible
-            NkVec3f     impulse{};           // warm-start (ball : 3 axes ; distance : .x)
+            NkVec3f     impulse{};           // warm-start linéaire (ball/point-à-point : 3 axes ; distance : .x)
+            NkVec3f     angImpulse{};        // warm-start angulaire (revolute : 2 ; weld : 3)
             bool        enabled = true;
         };
 
