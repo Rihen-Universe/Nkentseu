@@ -186,12 +186,13 @@ namespace nkentseu {
         // ── Gestion des corps ────────────────────────────────────────────────
         uint32 NkWorld::AddBody(const NkShape& shape, uint32 layer, uint32 mask, void* user) {
             NkBody b; b.shape = shape; b.id = mNextId++; b.layer = layer; b.mask = mask; b.user = user;
+            b.proxy = mTree.Insert(NkBodyAABB(shape), b.id);   // broadphase persistante
             mBodies.PushBack(b);
             return b.id;
         }
         void NkWorld::RemoveBody(uint32 id) {
             for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i)
-                if (mBodies[i].id == id) { mBodies.RemoveAt(i); return; }
+                if (mBodies[i].id == id) { mTree.Remove(mBodies[i].proxy); mBodies.RemoveAt(i); return; }
         }
         NkBody* NkWorld::GetBody(uint32 id) {
             for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i)
@@ -204,9 +205,9 @@ namespace nkentseu {
             return nullptr;
         }
         void NkWorld::SetShape(uint32 id, const NkShape& s) {
-            if (NkBody* b = GetBody(id)) b->shape = s;
+            if (NkBody* b = GetBody(id)) { b->shape = s; mTree.Update(b->proxy, NkBodyAABB(s)); } // garder le DBVH à jour
         }
-        void NkWorld::Clear() { mBodies.Clear(); mPairs.Clear(); mEnter.Clear(); mStay.Clear(); mExit.Clear(); mPrevKeys.Clear(); mNextId = 1u; }
+        void NkWorld::Clear() { mBodies.Clear(); mPairs.Clear(); mEnter.Clear(); mStay.Clear(); mExit.Clear(); mPrevKeys.Clear(); mTree.Clear(); mNextId = 1u; }
 
         // Clé ordonnée d'une paire (min,max) -> uint64, pour comparer les frames.
         static nkentseu::uint64 NkPairKey(uint32 a, uint32 b) noexcept {
@@ -214,53 +215,30 @@ namespace nkentseu {
             return ((nkentseu::uint64)lo << 32) | (nkentseu::uint64)hi;
         }
 
-        // ── Broadphase Sweep-and-Prune : entrée + tri par min.x ──────────────
-        struct NkSweepEntry { NkAABB3D aabb; uint32 bodyIdx; };
-        static void NkSortByMinX(NkSweepEntry* a, int32 lo, int32 hi) noexcept {
-            while (lo < hi) {                                 // quicksort (récursion sur le petit côté)
-                const float32 pivot = a[(lo + hi) / 2].aabb.min.x;
-                int32 i = lo, j = hi;
-                while (i <= j) {
-                    while (a[i].aabb.min.x < pivot) ++i;
-                    while (a[j].aabb.min.x > pivot) --j;
-                    if (i <= j) { NkSweepEntry t = a[i]; a[i] = a[j]; a[j] = t; ++i; --j; }
-                }
-                if (j - lo < hi - i) { NkSortByMinX(a, lo, j); lo = i; }
-                else { NkSortByMinX(a, i, hi); hi = j; }
-            }
-        }
-
-        // ── Step : broadphase SAP + narrowphase + événements enter/stay/exit ──
+        // ── Step : broadphase DBVH + narrowphase + événements enter/stay/exit ─
         void NkWorld::Step() {
             mPairs.Clear(); mEnter.Clear(); mStay.Clear(); mExit.Clear();
             NkVector<nkentseu::uint64> curKeys;
-
-            // 1) Construire les entrées (AABB monde) des corps actifs.
-            NkVector<NkSweepEntry> ents;
             const uint32 n = (uint32)mBodies.Size();
-            for (uint32 i = 0; i < n; ++i) {
-                if (!mBodies[i].active) continue;
-                NkSweepEntry e; e.aabb = NkBodyAABB(mBodies[i].shape); e.bodyIdx = i;
-                ents.PushBack(e);
-            }
-            const int32 m1 = (int32)ents.Size() - 1;
-            if (m1 > 0) NkSortByMinX(&ents[0], 0, m1);
 
-            // 2) Balayage : ne comparer qu'avec les voisins dont l'intervalle X chevauche.
-            const uint32 cnt = (uint32)ents.Size();
-            for (uint32 i = 0; i < cnt; ++i) {
-                const NkSweepEntry& ei = ents[i];
-                for (uint32 j = i + 1; j < cnt; ++j) {
-                    const NkSweepEntry& ej = ents[j];
-                    if (ej.aabb.min.x > ei.aabb.max.x) break;     // plus aucun chevauchement X -> stop
-                    // Ordonner par index de corps (cohérent : A->B stable comme l'ancien O(n²)).
-                    const uint32 ia = ei.bodyIdx < ej.bodyIdx ? ei.bodyIdx : ej.bodyIdx;
-                    const uint32 ib = ei.bodyIdx < ej.bodyIdx ? ej.bodyIdx : ei.bodyIdx;
-                    const NkBody& A = mBodies[ia]; const NkBody& B = mBodies[ib];
+            // Pour chaque corps actif : requête DBVH de son AABB -> candidats voisins.
+            // Dédup : on ne traite la paire que depuis le corps d'id le plus petit.
+            NkVector<uint32> cand;
+            for (uint32 i = 0; i < n; ++i) {
+                const NkBody& A = mBodies[i];
+                if (!A.active) continue;
+                const NkAABB3D aabbA = NkBodyAABB(A.shape);
+                mTree.Query(aabbA, cand);
+                for (uint32 c = 0; c < (uint32)cand.Size(); ++c) {
+                    const uint32 candId = cand[c];
+                    if (candId <= A.id) continue;             // self + dédup (traité côté plus petit id)
+                    NkBody* Bp = GetBody(candId);
+                    if (!Bp || !Bp->active) continue;
+                    const NkBody& B = *Bp;
                     if (!((A.layer & B.mask) && (B.layer & A.mask))) continue;   // filtre layers
-                    if (!ei.aabb.Overlaps(ej.aabb)) continue;     // AABB complète (Y/Z)
+                    if (!aabbA.Overlaps(NkBodyAABB(B.shape))) continue;          // AABB serrée
                     NkManifold3D m;
-                    if (Narrow(A.shape, B.shape, m)) {            // narrowphase
+                    if (Narrow(A.shape, B.shape, m)) {                          // narrowphase
                         NkCollisionPair pair; pair.a = A.id; pair.b = B.id; pair.manifold = m;
                         mPairs.PushBack(pair);
                         const nkentseu::uint64 key = NkPairKey(A.id, B.id);

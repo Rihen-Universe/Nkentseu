@@ -58,10 +58,15 @@
   remove/update). **Équilibrage par rotations DIFFÉRÉ** (no-op : arbre toujours correct, SAH
   garde une profondeur raisonnable). ✅
 
-### Reste prioritaire (vague 8)
+### Livré 2026-06-29 — vague 8 : DBVH branché comme broadphase du world — 83/83
+- **`NkWorld` utilise le `NkDbvh`** : `AddBody`/`RemoveBody`/`SetShape` maintiennent l'arbre
+  (Insert/Remove/Update incrémentaux) ; `Step()` trouve les paires par `Query(AABB)` du DBVH
+  (dédup par id) au lieu du SAP O(n²)/sweep. Aucune régression (83 tests verts). ✅
+
+### Reste prioritaire (vague 9)
 - **Manifold multi-points** (clipping Sutherland-Hodgman) : 1 pt -> 2 (2D)/4 (3D) pour la
   stabilité de la résolution physique (le plus important pour NKPhysics au-dessus).
-- **DBVH** : brancher dans le world (broadphase persistante incrémentale) + équilibrage AVL.
+- **Équilibrage DBVH** (rotations AVL) + queries world (raycast/overlap/shapecast) via l'arbre.
 - **CCD** intégré au world (swept des corps rapides) + **contacts persistants** (warm-starting).
 - **Debug draw** (NKUI/NKRenderer) + **intégration ECS** (`NkColliderComponent` + système).
 
