@@ -132,9 +132,9 @@ namespace nkentseu {
         }
 
         void NkPhysicsWorld::SolveContacts(float32 dt) {
+            (void)dt;                                          // M4 : la vitesse n'utilise plus dt (Baumgarte retiré)
             const auto& pairs = mCollision.Pairs();
             NkVector<NkSolverContact> cs;
-            const float32 invDt = 1.f / dt;
             for (uint32 i = 0; i < (uint32)pairs.Size(); ++i) {
                 const collision::NkCollisionPair& p = pairs[i];
                 NkRigidBody* A = FindByCollisionId(p.a); NkRigidBody* B = FindByCollisionId(p.b);
@@ -158,9 +158,10 @@ namespace nkentseu {
                     const NkVec3f vA = A->linearVelocity + A->angularVelocity.Cross(sp.rA);
                     const NkVec3f vB = B->linearVelocity + B->angularVelocity.Cross(sp.rB);
                     const float32 vn0 = (vB - vA).Dot(c.n);
-                    const float32 pos  = mConfig.baumgarte * invDt * math::NkMax(0.f, mp.depth - mConfig.slop);
+                    // M4 : plus de biais Baumgarte dans la vitesse (géré par split-impulse
+                    // positionnel) -> pas d'injection d'énergie. On garde la restitution.
                     const float32 rest = (vn0 < -1.f) ? -e * vn0 : 0.f;
-                    sp.bias = pos + rest;
+                    sp.bias = rest;
                     sp.id = mp.id;
                     // M3 : récupérer l'impulse accumulée de la frame précédente (même feature).
                     for (uint32 w = 0; w < (uint32)mWarm.Size(); ++w) {
@@ -233,6 +234,30 @@ namespace nkentseu {
             }
         }
 
+        // ── M4 : split-impulse — projection positionnelle (sans énergie) ─────
+        // Pousse les corps en chevauchement le long de la normale, proportionnellement
+        // à leur masse inverse. Agit sur la POSITION (pas la vitesse) -> pas de rebond
+        // parasite. Une passe par frame, facteur < 1 -> la pénétration converge vers slop.
+        void NkPhysicsWorld::CorrectPositions() {
+            const auto& pairs = mCollision.Pairs();
+            const float32 factor = 0.8f;                       // part de pénétration corrigée par frame
+            for (uint32 i = 0; i < (uint32)pairs.Size(); ++i) {
+                const collision::NkCollisionPair& p = pairs[i];
+                NkRigidBody* A = FindByCollisionId(p.a); NkRigidBody* B = FindByCollisionId(p.b);
+                if (!A || !B) continue;
+                if ((A->flags & NK_BODY_TRIGGER) || (B->flags & NK_BODY_TRIGGER)) continue;
+                const float32 kSum = A->invMass + B->invMass;
+                if (kSum <= 0.f) continue;
+                float32 maxPen = 0.f;
+                for (int32 k = 0; k < p.manifold.count; ++k) maxPen = math::NkMax(maxPen, p.manifold.points[k].depth);
+                const float32 pen = maxPen - mConfig.slop;
+                if (pen <= 0.f) continue;
+                const NkVec3f corr = p.manifold.normal * (factor * pen / kSum);
+                A->position = A->position - corr * A->invMass;  // normale A->B : A recule, B avance
+                B->position = B->position + corr * B->invMass;
+            }
+        }
+
         void NkPhysicsWorld::Step(float32 dt) {
             if (dt <= 0.f) return;
             // 1) forces -> vitesses
@@ -242,17 +267,22 @@ namespace nkentseu {
             }
             // 2) détection (broadphase DBVH + manifolds multi-points)
             mCollision.Step();
-            // 3) solveur de contacts (vitesses)
+            // 3) solveur de contacts (vitesses, sans Baumgarte) + warm-start
             SolveContacts(dt);
-            // 4) vitesses -> positions + 5) re-synchroniser les shapes de collision
+            // 4) vitesses -> positions
             for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
                 NkRigidBody& b = mBodies[i];
-                if (b.type != NkBodyType::DYNAMIC || !b.IsAwake()) continue;
-                const NkVec3f oldPos = b.position;
-                NkIntegratePosition(b, dt);
+                if (b.type == NkBodyType::DYNAMIC && b.IsAwake()) NkIntegratePosition(b, dt);
+            }
+            // 5) correction positionnelle (split-impulse)
+            CorrectPositions();
+            // 6) re-synchroniser les shapes de collision sur la pose finale
+            for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
+                NkRigidBody& b = mBodies[i];
+                if (b.type != NkBodyType::DYNAMIC) continue;
                 if (collision::NkBody* cb = mCollision.GetBody(b.collisionId)) {
                     collision::NkShape s = cb->shape;
-                    NkSyncShape(s, b.position - oldPos, b.orientation);
+                    NkSyncShape(s, b.position - collision::NkShapeCenter3D(s), b.orientation);  // resynchro absolue
                     mCollision.SetShape(b.collisionId, s);
                 }
             }
