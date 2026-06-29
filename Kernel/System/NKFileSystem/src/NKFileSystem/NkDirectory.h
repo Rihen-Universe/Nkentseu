@@ -58,6 +58,7 @@
             NkPath FullPath;            ///< Chemin complet vers l'entrée
             bool IsDirectory;           ///< true si c'est un répertoire
             bool IsFile;                ///< true si c'est un fichier régulier
+            bool IsHidden = false;      ///< true si caché/système (attribut OS, ou nom commençant par '.')
             nk_int64 Size;              ///< Taille en octets (0 pour les répertoires)
             nk_int64 ModificationTime;  ///< Timestamp de dernière modification (epoch)
 
@@ -128,6 +129,14 @@
             /// @param recursive Si true, supprime récursivement tout le contenu
             /// @return true si la suppression a réussi, false sinon
             static bool Delete(const NkPath& path, bool recursive = false);
+
+            /// Déplace un fichier OU un répertoire vers la corbeille du système (annulable).
+            /// @note Windows : Corbeille (SHFileOperation, FOF_ALLOWUNDO). Linux : spec
+            ///       freedesktop (~/.local/share/Trash). macOS : ~/.Trash.
+            /// @return true si déplacé ; false si non supporté/échec (l'appelant peut alors
+            ///         retomber sur Delete pour une suppression définitive).
+            static bool MoveToTrash(const char* path);
+            static bool MoveToTrash(const NkPath& path);
 
             /// Vérifie si un répertoire existe sur le système.
             /// @param path Chemin à tester en format C-string
