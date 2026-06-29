@@ -545,7 +545,7 @@ namespace nkentseu {
             }
         }
 
-        void NkPhysicsWorld::Step(float32 dt) {
+        void NkPhysicsWorld::Substep(float32 dt) {
             if (dt <= 0.f) return;
             // 1) forces -> vitesses
             for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
@@ -603,6 +603,23 @@ namespace nkentseu {
             }
             // 7) mise en sommeil des corps immobiles
             UpdateSleep(dt);
+        }
+
+        // ── M12 : sous-pas internes (chaînes de joints raides plus stables) ──
+        void NkPhysicsWorld::Step(float32 dt) {
+            if (dt <= 0.f) return;
+            const int32 n = (mConfig.subSteps > 1) ? mConfig.subSteps : 1;
+            const float32 h = dt / (float32)n;
+            for (int32 i = 0; i < n; ++i) Substep(h);
+        }
+
+        // ── M12 : avance à pas fixe (déterministe, découple sim/affichage) ───
+        int32 NkPhysicsWorld::Advance(float32 realDt) {
+            if (realDt > 0.f) mAccumulator += realDt;
+            const float32 h = (mConfig.fixedTimeStep > 0.f) ? mConfig.fixedTimeStep : (1.f / 60.f);
+            int32 n = 0;
+            while (mAccumulator >= h && n < mConfig.maxSubSteps) { Step(h); mAccumulator -= h; ++n; }
+            return n;
         }
 
     } // namespace physics
