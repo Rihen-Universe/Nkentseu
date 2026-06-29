@@ -560,10 +560,34 @@ namespace nkentseu {
             SolveContacts(dt);
             // 3b) solveur d'articulations (joints) + warm-start
             SolveJoints(dt);
-            // 4) vitesses -> positions (DYNAMIC + KINEMATIC : le kinematic suit sa vitesse imposée)
+            // 4) vitesses -> positions (DYNAMIC + KINEMATIC) avec CCD anti-tunneling
             for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
                 NkRigidBody& b = mBodies[i];
-                if (b.type != NkBodyType::STATIC && b.IsAwake()) NkIntegratePosition(b, dt);
+                if (b.type == NkBodyType::STATIC || !b.IsAwake()) continue;
+                NkIntegrateOrientation(b, dt);
+                const NkVec3f tr = b.linearVelocity * dt;
+                bool moved = false;
+                // M11 : balayage des corps rapides marqués CCD (évite de traverser un mur fin).
+                if ((b.flags & NK_BODY_CCD) && b.type == NkBodyType::DYNAMIC) {
+                    float32 minExt = 1e30f;
+                    if (collision::NkBody* cb = mCollision.GetBody(b.collisionId)) {
+                        const collision::NkAABB3D bb = collision::NkComputeAABB3D(cb->shape);
+                        const NkVec3f e = bb.max - bb.min;
+                        minExt = math::NkMin(e.x, math::NkMin(e.y, e.z));
+                    }
+                    const float32 len = math::NkSqrt(tr.Dot(tr));
+                    if (len > 0.5f * minExt) {                  // déplacement > moitié de l'épaisseur du corps
+                        collision::NkRayHit3D hit;
+                        if (mCollision.SweepBody(b.collisionId, tr, hit, 0xFFFFFFFFu)) {
+                            const float32 frac = math::NkClamp((hit.t - 0.01f) / len, 0.f, 1.f);
+                            b.position = b.position + tr * frac;        // avance jusqu'au TOI (skin 1 cm)
+                            const float32 vn = b.linearVelocity.Dot(hit.normal);
+                            if (vn < 0.f) b.linearVelocity = b.linearVelocity - hit.normal * vn; // tue la composante entrante
+                            moved = true;
+                        }
+                    }
+                }
+                if (!moved) b.position = b.position + tr;
             }
             // 5) correction positionnelle (split-impulse) — n'affecte que les invMass>0
             CorrectPositions();

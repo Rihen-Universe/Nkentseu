@@ -14,6 +14,8 @@ namespace nkentseu {
         void NkIntegrateVelocity(NkRigidBody& b, const NkVec3f& gravity, float32 dt) noexcept;
         // Intègre les vitesses -> pose (position + orientation). [spec]
         void NkIntegratePosition(NkRigidBody& b, float32 dt) noexcept;
+        // Intègre seulement l'orientation (la position est gérée à part pour le CCD).
+        void NkIntegrateOrientation(NkRigidBody& b, float32 dt) noexcept;
 
     } // namespace physics
 } // namespace nkentseu
