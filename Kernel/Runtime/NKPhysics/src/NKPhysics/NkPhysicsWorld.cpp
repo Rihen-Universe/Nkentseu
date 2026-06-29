@@ -94,6 +94,30 @@ namespace nkentseu {
             return nullptr;
         }
 
+        // ── Articulations (M7) ───────────────────────────────────────────────
+        NkJointId NkPhysicsWorld::CreateDistanceJoint(NkBodyId a, NkBodyId b, const NkVec3f& anchorAWorld, const NkVec3f& anchorBWorld) {
+            NkRigidBody* A = GetBody(a); NkRigidBody* B = GetBody(b);
+            if (!A || !B) return NK_INVALID_JOINT;
+            NkJoint j; j.type = NkJointType::DISTANCE; j.a = a; j.b = b;
+            j.localAnchorA = A->orientation.Conjugate() * (anchorAWorld - A->position);
+            j.localAnchorB = B->orientation.Conjugate() * (anchorBWorld - B->position);
+            const NkVec3f d = anchorBWorld - anchorAWorld; j.restLength = math::NkSqrt(d.Dot(d));
+            mJoints.PushBack(j); return mNextJointId++;
+        }
+        NkJointId NkPhysicsWorld::CreateBallJoint(NkBodyId a, NkBodyId b, const NkVec3f& pivotWorld) {
+            NkRigidBody* A = GetBody(a); NkRigidBody* B = GetBody(b);
+            if (!A || !B) return NK_INVALID_JOINT;
+            NkJoint j; j.type = NkJointType::BALL; j.a = a; j.b = b;
+            j.localAnchorA = A->orientation.Conjugate() * (pivotWorld - A->position);
+            j.localAnchorB = B->orientation.Conjugate() * (pivotWorld - B->position);
+            mJoints.PushBack(j); return mNextJointId++;
+        }
+        void NkPhysicsWorld::DestroyJoint(NkJointId id) {
+            // id renvoyé = mNextJointId au moment de la création -> index = id-1 si pas de trous.
+            if (id == NK_INVALID_JOINT) return;
+            for (uint32 i = 0; i < (uint32)mJoints.Size(); ++i) if ((NkJointId)(i + 1) == id) { mJoints.RemoveAt(i); return; }
+        }
+
         NkRigidBody* NkPhysicsWorld::FindByCollisionId(uint32 cid) noexcept {
             for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) if (mBodies[i].collisionId == cid) return &mBodies[i];
             return nullptr;
@@ -300,6 +324,69 @@ namespace nkentseu {
             }
         }
 
+        // ── M7 : solveur d'articulations (contraintes séquentielles + warm-start) ──
+        void NkPhysicsWorld::SolveJoints(float32 dt) {
+            if (mJoints.Size() == 0) return;
+            const float32 beta = 0.2f, invDt = 1.f / dt;
+            // Préparation + warm-start.
+            for (uint32 i = 0; i < (uint32)mJoints.Size(); ++i) {
+                NkJoint& j = mJoints[i];
+                if (!j.enabled) continue;
+                NkRigidBody* A = GetBody(j.a); NkRigidBody* B = GetBody(j.b);
+                if (!A || !B) continue;
+                // un joint transmet le mouvement -> réveiller le partenaire dynamique.
+                if (A->IsDynamic() && !A->IsAwake() && B->IsAwake()) NkWake(*A);
+                if (B->IsDynamic() && !B->IsAwake() && A->IsAwake()) NkWake(*B);
+                const NkVec3f rA = A->orientation * j.localAnchorA, rB = B->orientation * j.localAnchorB;
+                NkVec3f P{};
+                if (j.type == NkJointType::BALL) P = j.impulse;
+                else { const NkVec3f d = (B->position + rB) - (A->position + rA); const float32 L = math::NkSqrt(d.Dot(d)); if (L > 1e-6f) P = d * (j.impulse.x / L); }
+                A->linearVelocity  = A->linearVelocity  - P * A->invMass;
+                A->angularVelocity = A->angularVelocity - NkInvInertiaApply(*A, rA.Cross(P));
+                B->linearVelocity  = B->linearVelocity  + P * B->invMass;
+                B->angularVelocity = B->angularVelocity + NkInvInertiaApply(*B, rB.Cross(P));
+            }
+            // Itérations de vitesse.
+            for (int32 it = 0; it < mConfig.velocityIters; ++it) {
+                for (uint32 i = 0; i < (uint32)mJoints.Size(); ++i) {
+                    NkJoint& j = mJoints[i];
+                    if (!j.enabled) continue;
+                    NkRigidBody* A = GetBody(j.a); NkRigidBody* B = GetBody(j.b);
+                    if (!A || !B || (!A->IsAwake() && !B->IsAwake())) continue;
+                    const NkVec3f rA = A->orientation * j.localAnchorA, rB = B->orientation * j.localAnchorB;
+                    const NkVec3f wA = A->position + rA, wB = B->position + rB;
+                    if (j.type == NkJointType::BALL) {
+                        const NkVec3f C = wB - wA;            // erreur de position (à annuler)
+                        for (int32 ax = 0; ax < 3; ++ax) {
+                            const NkVec3f e = (ax == 0) ? NkVec3f{1,0,0} : (ax == 1) ? NkVec3f{0,1,0} : NkVec3f{0,0,1};
+                            const NkVec3f vrel = (B->linearVelocity + B->angularVelocity.Cross(rB)) - (A->linearVelocity + A->angularVelocity.Cross(rA));
+                            const float32 mass = NkEffMass(*A, *B, rA, rB, e);
+                            const float32 lambda = -mass * (vrel.Dot(e) + beta * invDt * C.Dot(e));
+                            (&j.impulse.x)[ax] += lambda;
+                            const NkVec3f P = e * lambda;
+                            A->linearVelocity  = A->linearVelocity  - P * A->invMass;
+                            A->angularVelocity = A->angularVelocity - NkInvInertiaApply(*A, rA.Cross(P));
+                            B->linearVelocity  = B->linearVelocity  + P * B->invMass;
+                            B->angularVelocity = B->angularVelocity + NkInvInertiaApply(*B, rB.Cross(P));
+                        }
+                    } else { // DISTANCE
+                        const NkVec3f d = wB - wA; const float32 L = math::NkSqrt(d.Dot(d));
+                        if (L < 1e-6f) continue;
+                        const NkVec3f n = d * (1.f / L); const float32 C = L - j.restLength;
+                        const NkVec3f vrel = (B->linearVelocity + B->angularVelocity.Cross(rB)) - (A->linearVelocity + A->angularVelocity.Cross(rA));
+                        const float32 mass = NkEffMass(*A, *B, rA, rB, n);
+                        const float32 lambda = -mass * (vrel.Dot(n) + beta * invDt * C);
+                        j.impulse.x += lambda;
+                        const NkVec3f P = n * lambda;
+                        A->linearVelocity  = A->linearVelocity  - P * A->invMass;
+                        A->angularVelocity = A->angularVelocity - NkInvInertiaApply(*A, rA.Cross(P));
+                        B->linearVelocity  = B->linearVelocity  + P * B->invMass;
+                        B->angularVelocity = B->angularVelocity + NkInvInertiaApply(*B, rB.Cross(P));
+                    }
+                }
+            }
+        }
+
         void NkPhysicsWorld::Step(float32 dt) {
             if (dt <= 0.f) return;
             // 1) forces -> vitesses
@@ -313,6 +400,8 @@ namespace nkentseu {
             WakeContacts();
             // 3) solveur de contacts (vitesses, sans Baumgarte) + warm-start
             SolveContacts(dt);
+            // 3b) solveur d'articulations (joints) + warm-start
+            SolveJoints(dt);
             // 4) vitesses -> positions (DYNAMIC + KINEMATIC : le kinematic suit sa vitesse imposée)
             for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
                 NkRigidBody& b = mBodies[i];

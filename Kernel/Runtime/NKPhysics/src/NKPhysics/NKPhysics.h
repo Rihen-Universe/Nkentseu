@@ -15,4 +15,5 @@
 #include "NKPhysics/NkRigidBody.h"
 #include "NKPhysics/NkIntegrator.h"
 #include "NKPhysics/NkContactSolver.h"
+#include "NKPhysics/NkJoint.h"
 #include "NKPhysics/NkPhysicsWorld.h"
