@@ -60,6 +60,23 @@ int main() {
         CHECK(!NkBoxBox2D({0,0}, {1,1}, {3,0}, {1,1}, m), "box2D-box2D separated");
     }
 
+    // ── 2D OBB (boîtes orientées, SAT) ───────────────────────────────────────
+    {
+        const float32 PI4 = 0.785398f;  // 45°
+        NkManifold2D m;
+        // Deux boîtes unité, l'une tournée à 45°, centres à 1.3 : se touchent en OBB.
+        CHECK(NkOBB2DvsOBB2D({0,0}, {1,1}, 0.f, {1.3f,0}, {1,1}, PI4, m), "OBB-OBB overlap (45deg)");
+        NkManifold2D m2;
+        // Séparées nettement.
+        CHECK(!NkOBB2DvsOBB2D({0,0}, {1,1}, 0.f, {5,0}, {1,1}, PI4, m2), "OBB-OBB separated");
+        // OBB tournée 45° : son coin pointe vers +X (portée ~sqrt(2)). À x=2.2 un cercle
+        // r=0.3 touche le coin, alors qu'une AABB (portée 1) ne toucherait pas.
+        NkManifold2D mc;
+        CHECK(NkOBB2DvsCircle({0,0}, {1,1}, PI4, {1.6f,0}, 0.3f, mc), "OBB-cercle touche le coin (45deg)");
+        NkManifold2D mc2;
+        CHECK(!NkOBB2DvsCircle({0,0}, {1,1}, 0.f, {1.6f,0}, 0.3f, mc2), "AABB-cercle (0deg) ne touche pas a 1.6");
+    }
+
     // ── Raycast ──────────────────────────────────────────────────────────────
     {
         NkRay3D ray; ray.origin = {-5,0,0}; ray.dir = {1,0,0}; ray.maxT = 100.f;

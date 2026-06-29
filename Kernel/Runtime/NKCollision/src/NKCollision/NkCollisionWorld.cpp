@@ -2,6 +2,7 @@
 // NkCollisionWorld.cpp — Implémentation du monde de collision (ZÉRO STL).
 // =============================================================================
 #include "NKCollision/NkCollisionWorld.h"
+#include "NKCollision/NkColSAT.h"   // OBB (boîtes orientées) via SAT
 
 namespace nkentseu {
     namespace collision {
@@ -59,9 +60,10 @@ namespace nkentseu {
             if (ta == T::NK_CIRCLE2D && tb == T::NK_CIRCLE2D)
                 hit = NkCircleCircle(ap, a->radius, bp, b->radius, m);
             else if (ta == T::NK_CIRCLE2D && tb == T::NK_BOX2D)
-                hit = NkCircleBox2D(ap, a->radius, bp, bh, m), m.normal = m.normal * -1.f;
+                // OBB (gère la rotation ; normale boîte->cercle -> on inverse pour A->B).
+                hit = NkOBB2DvsCircle(bp, bh, b->rotation, ap, a->radius, m), m.normal = m.normal * -1.f;
             else if (ta == T::NK_BOX2D && tb == T::NK_BOX2D)
-                hit = NkBoxBox2D(ap, ah, bp, bh, m);
+                hit = NkOBB2DvsOBB2D(ap, ah, a->rotation, bp, bh, b->rotation, m);  // OBB-OBB (rotation)
             else
                 return false;
 

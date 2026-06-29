@@ -12,4 +12,5 @@
 #include "NKCollision/NkColTypes.h"
 #include "NKCollision/NkColShapes.h"
 #include "NKCollision/NkColTests.h"
+#include "NKCollision/NkColSAT.h"
 #include "NKCollision/NkCollisionWorld.h"
