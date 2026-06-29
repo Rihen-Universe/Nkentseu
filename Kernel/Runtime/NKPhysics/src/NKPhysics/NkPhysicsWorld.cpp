@@ -122,7 +122,18 @@ namespace nkentseu {
             const NkVec3f axis = (al > 1e-6f) ? axisWorld * (1.f / al) : NkVec3f{ 0,0,1 };
             j.localAxisA = A->orientation.Conjugate() * axis;
             j.localAxisB = B->orientation.Conjugate() * axis;
+            j.refRotation = A->orientation.Conjugate() * B->orientation;   // référence pour mesurer l'angle
             mJoints.PushBack(j); return mNextJointId++;
+        }
+        void NkPhysicsWorld::SetRevoluteMotor(NkJointId id, float32 targetAngle, float32 kp, float32 maxTorque) {
+            if (id == NK_INVALID_JOINT || id > (NkJointId)mJoints.Size()) return;
+            NkJoint& j = mJoints[id - 1];
+            j.motorEnabled = true; j.targetAngle = targetAngle; j.motorKp = kp; j.maxMotorTorque = maxTorque;
+        }
+        void NkPhysicsWorld::SetRevoluteLimit(NkJointId id, float32 lower, float32 upper) {
+            if (id == NK_INVALID_JOINT || id > (NkJointId)mJoints.Size()) return;
+            NkJoint& j = mJoints[id - 1];
+            j.limitEnabled = true; j.lowerAngle = lower; j.upperAngle = upper;
         }
         NkJointId NkPhysicsWorld::CreateWeldJoint(NkBodyId a, NkBodyId b, const NkVec3f& pivotWorld) {
             NkRigidBody* A = GetBody(a); NkRigidBody* B = GetBody(b);
@@ -367,6 +378,7 @@ namespace nkentseu {
             for (uint32 i = 0; i < (uint32)mJoints.Size(); ++i) {
                 NkJoint& j = mJoints[i];
                 if (!j.enabled) continue;
+                j.motorImpulse = 0.f;                            // borne moteur RE-évaluée par pas
                 NkRigidBody* A = GetBody(j.a); NkRigidBody* B = GetBody(j.b);
                 if (!A || !B) continue;
                 // un joint transmet le mouvement -> réveiller le partenaire dynamique.
@@ -423,6 +435,43 @@ namespace nkentseu {
                                 const NkVec3f T = t * lambda;            // couple pur (pas de force linéaire)
                                 A->angularVelocity = A->angularVelocity - NkInvInertiaApply(*A, T);
                                 B->angularVelocity = B->angularVelocity + NkInvInertiaApply(*B, T);
+                            }
+                            // (2b) M8 : moteur (drive PD vers un angle) + limites, autour de l'axe.
+                            if (j.motorEnabled || j.limitEnabled) {
+                                const NkQuatf qDelta = j.refRotation.Conjugate() * (A->orientation.Conjugate() * B->orientation);
+                                const float32 proj = qDelta.x * j.localAxisA.x + qDelta.y * j.localAxisA.y + qDelta.z * j.localAxisA.z;
+                                const float32 theta = 2.f * math::NkAtan2(proj, qDelta.w);   // angle de charnière (rad)
+                                const float32 angMass = 1.f / (aA.Dot(NkInvInertiaApply(*A, aA)) + aA.Dot(NkInvInertiaApply(*B, aA)) + 1e-12f);
+                                // MOTEUR : amène la vitesse relative autour de l'axe vers kp·(cible−θ), couple borné.
+                                if (j.motorEnabled) {
+                                    const float32 desiredW = j.motorKp * (j.targetAngle - theta);
+                                    const float32 cdot = (B->angularVelocity - A->angularVelocity).Dot(aA) - desiredW;
+                                    float32 lambda = -angMass * cdot;
+                                    const float32 maxImp = j.maxMotorTorque * dt;
+                                    const float32 old = j.motorImpulse;
+                                    j.motorImpulse = math::NkClamp(old + lambda, -maxImp, maxImp);
+                                    lambda = j.motorImpulse - old;
+                                    const NkVec3f T = aA * lambda;
+                                    A->angularVelocity = A->angularVelocity - NkInvInertiaApply(*A, T);
+                                    B->angularVelocity = B->angularVelocity + NkInvInertiaApply(*B, T);
+                                }
+                                // LIMITES : contrainte unilatérale quand θ sort de [lower, upper].
+                                if (j.limitEnabled) {
+                                    const float32 wAxis = (B->angularVelocity - A->angularVelocity).Dot(aA);
+                                    if (theta <= j.lowerAngle) {
+                                        float32 lambda = -angMass * (wAxis + beta * invDt * (theta - j.lowerAngle));
+                                        if (lambda < 0.f) lambda = 0.f;          // ne pousse que vers le haut
+                                        const NkVec3f T = aA * lambda;
+                                        A->angularVelocity = A->angularVelocity - NkInvInertiaApply(*A, T);
+                                        B->angularVelocity = B->angularVelocity + NkInvInertiaApply(*B, T);
+                                    } else if (theta >= j.upperAngle) {
+                                        float32 lambda = -angMass * (wAxis + beta * invDt * (theta - j.upperAngle));
+                                        if (lambda > 0.f) lambda = 0.f;          // ne pousse que vers le bas
+                                        const NkVec3f T = aA * lambda;
+                                        A->angularVelocity = A->angularVelocity - NkInvInertiaApply(*A, T);
+                                        B->angularVelocity = B->angularVelocity + NkInvInertiaApply(*B, T);
+                                    }
+                                }
                             }
                         }
                         // (3) WELD : verrouiller l'orientation relative (3 DOF angulaires, bloc 3x3)
