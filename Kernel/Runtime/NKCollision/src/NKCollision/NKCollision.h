@@ -16,5 +16,6 @@
 #include "NKCollision/NkColGJK.h"
 #include "NKCollision/NkColConcave.h"
 #include "NKCollision/NkColCast.h"
+#include "NKCollision/NkColClip.h"
 #include "NKCollision/NkDbvh.h"
 #include "NKCollision/NkCollisionWorld.h"

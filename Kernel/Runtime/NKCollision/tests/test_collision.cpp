@@ -440,6 +440,36 @@ int main() {
         CHECK(w.Overlap(NkShape::Sphere({0.7f,0,0}, 1.f), ids) == 2, "world Overlap via DBVH : 2 corps");
     }
 
+    // ── VAGUE 10 : manifolds MULTI-POINTS 2D (clipping polygones) ────────────
+    {
+        // box2D vs box2D côte à côte -> 2 points de contact (face contre face).
+        NkManifold2D m;
+        CHECK(NkCollidePolygons2D(NkShape::Box2D({0,0}, {1,1}), NkShape::Box2D({1.5f,0}, {1,1}), m), "clip box2D overlap");
+        CHECK(m.count == 2, "clip box2D : 2 points de contact");
+        CHECK(m.normal.x > 0.8f && Near(m.points[0].depth, 0.5f, 2e-2f), "clip box2D normale +X depth 0.5");
+
+        // empilement : caisse posée sur une autre -> 2 points, normale +Y (stabilité).
+        NkManifold2D ms;
+        CHECK(NkCollidePolygons2D(NkShape::Box2D({0,0}, {1,1}), NkShape::Box2D({0,1.9f}, {1,1}), ms)
+              && ms.count == 2 && ms.normal.y > 0.8f, "clip box2D empilement : 2 pts normale +Y");
+
+        // séparées -> pas de collision
+        NkManifold2D m2;
+        CHECK(!NkCollidePolygons2D(NkShape::Box2D({0,0}, {1,1}), NkShape::Box2D({5,0}, {1,1}), m2), "clip box2D separes");
+
+        // triangle vs boîte (polygone général)
+        static const NkVec3f tri[3] = { {0,0,0}, {2,0,0}, {0,2,0} };
+        NkManifold2D mt;
+        CHECK(NkCollidePolygons2D(NkShape::Triangle2D(tri), NkShape::Box2D({-0.3f,0.3f}, {0.5f,0.5f}), mt), "clip triangle2D-box overlap");
+
+        // World : box2D-box2D passe par le clipping -> manifold 2 points
+        NkWorld w;
+        w.AddBody(NkShape::Box2D({0,0}, {1,1}));
+        w.AddBody(NkShape::Box2D({1.5f,0}, {1,1}));
+        w.Step();
+        CHECK(w.Pairs().Size() == 1 && w.Pairs()[0].manifold.count == 2, "world box2D-box2D : manifold 2 points");
+    }
+
     logger.Info("=== NKCollision : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
