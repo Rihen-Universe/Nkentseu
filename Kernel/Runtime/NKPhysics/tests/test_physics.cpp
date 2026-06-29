@@ -350,6 +350,22 @@ int main() {
         CHECK(Near(m1, m0, 0.1f * m0 + 1e-4f), "M10 : moment angulaire CONSERVE (sans couple externe)");
     }
 
+    // ── M11 : CCD intégré -> une bille rapide (flag CCD) ne traverse pas un mur ──
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, 0.f, 0.f} });   // pas de gravité (test horizontal pur)
+        // mur fin (épaisseur 0.2) à x=5.
+        NkBodyDef wd; wd.type = NkBodyType::STATIC;
+        world.CreateBody(wd, collision::NkShape::Box3D({5,0,0}, {0.1f,5,5}));   // face gauche x=4.9
+        // bille TRÈS rapide vers +X (10 m/pas -> traverserait le mur sans CCD).
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 0.f, 0.f, 0.f };
+        bd.linearVelocity = { 600.f, 0.f, 0.f }; bd.flags = NK_BODY_CCD;
+        const NkBodyId ball = world.CreateBody(bd, collision::NkShape::Sphere({0,0,0}, 0.2f));
+        for (int i = 0; i < 10; ++i) world.Step(1.f / 60.f);
+        const NkRigidBody* b = world.GetBody(ball);
+        CHECK(b->position.x < 5.f, "M11 CCD : la bille rapide ne TRAVERSE PAS le mur");
+        CHECK(Near(b->position.x, 4.7f, 0.35f), "M11 CCD : elle s'arrete a la surface (~4.7)");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
