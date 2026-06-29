@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKPhysics — Dynamique du corps rigide 2D + 3D (C++17, ZÉRO STL)
+===============================================================
+Bibliothèque de simulation PURE (sans ECS), posée sur NKCollision (détection) :
+intègre les corps, résout les contacts (impulses séquentielles + warm-starting via
+les feature-ids des manifolds NKCollision), gère matériaux / static / kinematic /
+joints / CCD. L'intégration gameplay (composants) se fait dans Noge, pas ici.
+
+Contenu (src/NKPhysics/) :
+  NkPhysicsTypes.h    => BodyType, flags, ids, NkPhysicsConfig
+  NkPhysicsMaterial.h => densité, friction, restitution + combinaison
+  NkRigidBody.h       => masse/inertie, vitesses, état (données)
+  NkPhysicsWorld.*    => monde : CreateBody/DestroyBody/Step + requêtes
+  NkIntegrator.*      => intégration semi-implicite (gravité, damping)
+  NkContactSolver.*   => solveur d'impulses séquentiel (normale/frottement) + warm-start
+  NKPhysics.h         => umbrella
+
+NB : module SCAFFOLD — PAS encore inclus dans Nkentseu.jenga (activer au jalon M0).
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+with project("NKPhysics"):
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    nkentseudependson(
+        ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKContainers", "NKLogger", "NKCollision"],
+        selfexport="NKPhysics",
+        extra_includes=["src"],
+    )
+
+    files(["src/**.cpp"])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+
+    with filter("system:Linux"):
+        links(["pthread"])
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        links(["android", "log"])
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+    with filter("system:HarmonyOS"):
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
+        links(["hilog_ndk.z"])
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+
+    # Tests unitaires (desktop uniquement) — à activer au jalon M0.
+    with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
+        with test():
+            testfiles(["tests/**.cpp"])
+            links(["NKPhysics", "NKCollision", "NKContainers", "NKCore", "NKMemory", "NKLogger", "NKMath", "NKPlatform"])
