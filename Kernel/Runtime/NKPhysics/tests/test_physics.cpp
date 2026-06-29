@@ -233,6 +233,21 @@ int main() {
         CHECK(b->position.x < 0.8f, "M7 revolute : bascule vers l'equilibre (rentre depuis x=1)");
     }
 
+    // ── M7 cut3 : WELD (soudure rigide) -> corps fige en pose ───────────────
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkBodyDef ad; ad.type = NkBodyType::STATIC; ad.position = { 0.f, 0.f, 0.f };
+        const NkBodyId anchor = world.CreateBody(ad, collision::NkShape::Sphere({0,0,0}, 0.1f));
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 2.f, 0.f, 0.f };
+        const NkBodyId box = world.CreateBody(bd, collision::NkShape::Box3D({2,0,0}, {0.5f,0.5f,0.5f}));
+        world.CreateWeldJoint(anchor, box, {1.f, 0.f, 0.f});       // soudé (offset 1 du pivot)
+        for (int i = 0; i < 180; ++i) world.Step(1.f / 60.f);      // 3 s
+        const NkRigidBody* b = world.GetBody(box);
+        CHECK(Near(b->position.x, 2.f, 0.15f) && Near(b->position.y, 0.f, 0.15f) && Near(b->position.z, 0.f, 0.1f),
+              "M7 weld : le corps reste fige en position (pas de chute)");
+        CHECK(Near(b->orientation.w, 1.f, 0.1f), "M7 weld : orientation verrouillee (pas de rotation)");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

@@ -44,6 +44,8 @@ namespace nkentseu {
                 NkJointId CreateBallJoint(NkBodyId a, NkBodyId b, const NkVec3f& pivotWorld);
                 // Joint revolute (charnière 1 DOF) : pivot + axe de rotation (monde) — coude, genou, trappe.
                 NkJointId CreateRevoluteJoint(NkBodyId a, NkBodyId b, const NkVec3f& pivotWorld, const NkVec3f& axisWorld);
+                // Joint weld (soudure rigide) : verrouille position ET orientation relatives.
+                NkJointId CreateWeldJoint(NkBodyId a, NkBodyId b, const NkVec3f& pivotWorld);
                 void      DestroyJoint(NkJointId id);
                 NkVector<NkJoint>&       Joints() noexcept { return mJoints; }
                 const NkVector<NkJoint>& Joints() const noexcept { return mJoints; }
