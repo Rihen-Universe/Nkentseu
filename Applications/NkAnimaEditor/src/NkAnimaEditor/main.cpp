@@ -35,7 +35,15 @@ static void PreUI3D(NkICommandBuffer* cmd, void* user) {
 }
 
 int nkmain(const NkEntryState& state) {
-    (void)state;
+    // Backend graphique depuis les args (-bgl défaut, -bvk, -bdx11, -bdx12, -bsw).
+    NkEditorGfxApi gfx = NkEditorGfxApi::OpenGL;
+    for (const auto& a : state.GetArgs()) {
+        if      (a == "-bvk"   || a == "--backend=vulkan") gfx = NkEditorGfxApi::Vulkan;
+        else if (a == "-bdx11" || a == "--backend=dx11")   gfx = NkEditorGfxApi::DX11;
+        else if (a == "-bdx12" || a == "--backend=dx12")   gfx = NkEditorGfxApi::DX12;
+        else if (a == "-bsw"   || a == "--backend=sw")     gfx = NkEditorGfxApi::Software;
+        else if (a == "-bgl"   || a == "--backend=opengl") gfx = NkEditorGfxApi::OpenGL;
+    }
 
     auto shell = memory::NkMakeUnique<NkEditorShell>();
     // Backend de rendu NKRHI/NKRenderer injecte (PAS NKCanvas) : l'UI NKGui et le
@@ -45,9 +53,7 @@ int nkmain(const NkEntryState& state) {
     cfg.title    = "NkAnimaEditor — timeline (NkAnima M1.c)";
     cfg.width    = 1280;
     cfg.height   = 720;
-    // OpenGL : backend RHI validé bout-en-bout. DX11 : swapchain E_ACCESSDENIED
-    // sur fenêtre sans bordure (à corriger) -> GL en attendant.
-    cfg.graphicsApi = NkEditorGfxApi::OpenGL;
+    cfg.graphicsApi = gfx;        // choisi par -b<backend> (OpenGL par défaut)
     cfg.renderer = &rhi;
     if (!shell || !shell->Init(cfg)) return -1;
 

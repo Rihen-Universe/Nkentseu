@@ -414,6 +414,10 @@ with workspace("Nkentseu", location="."):
     with include("Kernel/Runtime/NKECS/NKECS.jenga"):
         pass
 
+    # NKCollision (collision 2D+3D, zero-STL).
+    with include("Kernel/Runtime/NKCollision/NKCollision.jenga"):
+        pass
+
     with include("Engine/Noge/Noge.jenga"):
         pass
 

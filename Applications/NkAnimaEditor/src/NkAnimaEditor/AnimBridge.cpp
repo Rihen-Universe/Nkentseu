@@ -425,17 +425,31 @@ namespace nkanima {
                 }
             }
 
-            // inverseBind + cadrage caméra (depuis bindGlobal).
             uint32 jc = (uint32)g.clip.jointInverseBind.Size();
             g.invBind.Resize(jc); g.skin3d.Resize(jc);
             for (uint32 j=0;j<jc;++j) g.invBind[j] = g.clip.jointInverseBind[j];
+
+            // Cadrage caméra sur les SOMMETS SKINNÉS POSÉS réels (calque DemoAnim) —
+            // PAS sur bindGlobal (espace/échelle différents du mesh rendu -> caméra mal
+            // cadrée -> seule une partie du mesh visible). On pose à t=0 et on calcule
+            // l'AABB du mesh déformé (blend des matrices d'os par sommet).
+            g.player.Update(0.f);
+            const NkVector<NkMat4f>& bones0 = g.player.GetState().boneMatrices;
             float32 mnx=1e9f,mny=1e9f,mnz=1e9f,mxx=-1e9f,mxy=-1e9f,mxz=-1e9f;
-            for (uint32 j=0;j<jc;++j){ const NkMat4f& m=g.bindGlobal[j];
-                mnx=fmin(mnx,m.position.x); mny=fmin(mny,m.position.y); mnz=fmin(mnz,m.position.z);
-                mxx=fmax(mxx,m.position.x); mxy=fmax(mxy,m.position.y); mxz=fmax(mxz,m.position.z); }
+            const auto& svs = g.gltf.skinnedVertices;
+            for (uint32 vi=0; vi<(uint32)svs.Size(); ++vi){
+                const auto& v = svs[vi];
+                NkMat4f m; for(int e=0;e<16;e++) m.data[e]=0.f; float32 wsum=0.f;
+                for(int b=0;b<4;b++){ int j=(int)(v.boneIdx[b]+0.5f); float32 w=v.boneWeight[b];
+                    if(j>=0&&j<(int)bones0.Size()&&w>0.f){ for(int e=0;e<16;e++) m.data[e]+=w*bones0[(uint32)j].data[e]; wsum+=w; } }
+                if(wsum<1e-4f) m=NkMat4f::Identity();
+                NkVec4f wp = m * NkVec4f{v.pos.x,v.pos.y,v.pos.z,1.f};
+                mnx=fmin(mnx,wp.x); mny=fmin(mny,wp.y); mnz=fmin(mnz,wp.z);
+                mxx=fmax(mxx,wp.x); mxy=fmax(mxy,wp.y); mxz=fmax(mxz,wp.z);
+            }
             g.center3d = {(mnx+mxx)*0.5f,(mny+mxy)*0.5f,(mnz+mxz)*0.5f};
             float32 ex=(mxx-mnx)*0.5f, ey=(mxy-mny)*0.5f, ez=(mxz-mnz)*0.5f;
-            g.radius3d = fmax(0.5f, sqrtf(ex*ex+ey*ey+ez*ez)*1.5f);
+            g.radius3d = fmax(0.7f, sqrtf(ex*ex+ey*ey+ez*ez));   // demi-diagonale ; dist = r*2.2 (cf render)
 
             if (const char* vm = getenv("NK_ANIM_VIEW")) g.viewModeSel = atoi(vm);  // 0/1/2 mode initial
             g.ok3d = true;
