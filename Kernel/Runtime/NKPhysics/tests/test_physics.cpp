@@ -107,6 +107,27 @@ int main() {
         CHECK(impacted && maxYAfterImpact > 2.2f, "M2 restitution : la bille rebondit (pic > 2.2)");
     }
 
+    // ── M3 : warm-starting -> pile de 3 caisses STABLE ──────────────────────
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkBodyDef gd; gd.type = NkBodyType::STATIC;
+        world.CreateBody(gd, collision::NkShape::Box3D({0,0,0}, {20,1,20}));   // sommet y=1
+        // 3 caisses empilées (demi 0.5) -> repos 1.5 / 2.5 / 3.5
+        NkBodyId ids[3];
+        for (int k = 0; k < 3; ++k) {
+            NkBodyDef bd; bd.type = NkBodyType::DYNAMIC;
+            const float32 y = 1.5f + k * 1.0f;
+            bd.position = { 0.f, y, 0.f };
+            ids[k] = world.CreateBody(bd, collision::NkShape::Box3D({0,y,0}, {0.5f,0.5f,0.5f}));
+        }
+        for (int i = 0; i < 300; ++i) world.Step(1.f / 60.f);   // 5 s
+        const NkRigidBody* bottom = world.GetBody(ids[0]);
+        const NkRigidBody* top    = world.GetBody(ids[2]);
+        CHECK(bottom && Near(bottom->position.y, 1.5f, 0.1f), "M3 pile : caisse du bas tenue (~1.5)");
+        CHECK(top && top->position.y > 3.2f && top->position.y < 3.7f, "M3 pile : caisse du haut tenue (~3.5, pas effondree)");
+        CHECK(top && Near(top->linearVelocity.y, 0.f, 0.3f), "M3 pile : au repos (vy ~ 0)");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
