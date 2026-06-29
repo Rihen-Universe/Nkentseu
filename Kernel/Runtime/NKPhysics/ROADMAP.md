@@ -20,8 +20,8 @@
 | `NkPhysicsTypes` (BodyType, flags, ids, config monde) | ✅ | S | P0 |
 | `NkPhysicsMaterial` (densité, friction, restitution) | ✅ | S | P0 |
 | `NkRigidBody` (masse/inertie, vitesses, état) — données | ✅ | S | P0 |
-| `NkPhysicsWorld` (API : Add/Remove body, Step) — spec | 🔶 | M | P0 |
-| **M0** Intégration semi-implicite (gravité + vitesses) | ⏳ | M | P0 |
+| `NkPhysicsWorld` (CreateBody/DestroyBody/GetBody/Step) | ✅ | M | P0 |
+| **M0** Intégration semi-implicite (gravité + vitesses) | ✅ | M | P0 |
 | **M1** Solveur de contacts (impulses séquentielles, normale) | ⏳ | L | P0 |
 | **M2** Frottement (impulses tangentes) + restitution | ⏳ | M | P0 |
 | **M3** Warm-starting (via `NkContactPoint::id` NKCollision) | ⏳ | M | P1 |
@@ -59,21 +59,26 @@ Scaffold de structure uniquement (pas de simulation) :
 
 ---
 
+## Livré — M0 (2026-06-29, self-test 4/4)
+
+- **`NkPhysicsWorld`** implémenté (`NkPhysicsWorld.cpp`) : `CreateBody` (masse+inertie
+  diagonale depuis forme+densité — sphère/box exacts, autres via AABB ; static/kinematic
+  ⇒ invMass=0), `DestroyBody`, `GetBody`, `Step(dt)`.
+- **`Step`** : forces→vitesses (`NkIntegrator`, gravité + damping, Euler symplectique) →
+  `collision.Step()` (broadphase DBVH + manifolds, prêts pour M1) → vitesses→positions →
+  re-sync des shapes NKCollision (`SetShape`). Sans solveur : les corps tombent (et se
+  traversent — c'est M1).
+- **Module enregistré** (`Nkentseu.jenga` + `config/modules.jenga`) ; NKPhysics.lib build OK.
+- **Self-test** (`tests/test_physics.cpp`, NKLogger) : chute libre conforme à l'Euler
+  symplectique (`y≈5.013`, `vy≈-9.81` après 1 s), statique immobile, `gravityScale=0`.
+
 ## En cours
 
-- **`NkPhysicsWorld`** : surface publique posée, implémentation `.cpp` à écrire (M0).
+- **M1** — solveur de contacts (les corps doivent désormais *reposer* sur le sol).
 
 ---
 
 ## À venir (jalons détaillés)
-
-### M0 — Intégration & boucle (le squelette qui bouge)
-- `NkPhysicsWorld::Step(dt)` : (1) intégrer les forces → vitesses (gravité, damping,
-  semi-implicite Euler), (2) déléguer la **broadphase + narrowphase à NKCollision**
-  (le monde possède un `collision::NkWorld` interne, les `NkRigidBody` référencent un
-  body de collision par id), (3) intégrer les vitesses → positions, (4) re-synchroniser
-  les shapes de collision (`SetShape`). Sans solveur : les corps tombent et se
-  traversent. Démo : une bille en chute libre (vérifier `y(t) = ½ g t²`).
 
 ### M1 — Solveur de contacts (impulses séquentielles, normale)
 - Pour chaque `NkCollisionPair` (manifold multi-points NKCollision) : construire des
