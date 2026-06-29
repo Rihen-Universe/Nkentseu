@@ -264,6 +264,17 @@ namespace nkentseu {
                 case NkKey::NK_DELETE: mUI.input.SetKey(NkGuiKey::Delete,    down); break;
                 case NkKey::NK_ENTER:  mUI.input.SetKey(NkGuiKey::Enter,     down); break;
                 case NkKey::NK_ESCAPE: mUI.input.SetKey(NkGuiKey::Escape,    down); break;
+                // Touches additionnelles pour les raccourcis du file browser.
+                case NkKey::NK_TAB:    mUI.input.SetKey(NkGuiKey::Tab,       down); break;
+                case NkKey::NK_F2:     mUI.input.SetKey(NkGuiKey::F2,        down); break;
+                case NkKey::NK_F5:     mUI.input.SetKey(NkGuiKey::F5,        down); break;
+                case NkKey::NK_C:      mUI.input.SetKey(NkGuiKey::C,         down); break;
+                case NkKey::NK_D:      mUI.input.SetKey(NkGuiKey::D,         down); break;
+                case NkKey::NK_H:      mUI.input.SetKey(NkGuiKey::H,         down); break;
+                case NkKey::NK_L:      mUI.input.SetKey(NkGuiKey::L,         down); break;
+                case NkKey::NK_N:      mUI.input.SetKey(NkGuiKey::N,         down); break;
+                case NkKey::NK_NUM1:   mUI.input.SetKey(NkGuiKey::Num1,      down); break;
+                case NkKey::NK_NUM2:   mUI.input.SetKey(NkGuiKey::Num2,      down); break;
                 default: break;
             }
         }

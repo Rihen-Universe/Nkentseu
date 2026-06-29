@@ -114,6 +114,44 @@ namespace nkcode {
         uint32 accueil = 0, ouvrir = 0, ouvrirDossier = 0, nouveau = 0, cloner = 0,
                toolchains = 0, platforms = 0, gear = 0, exemple = 0, star = 0, shape = 0,
                search = 0, workspace = 0;
+        // Navigateur « Ouvrir un Workspace »
+        uint32 back = 0, forward = 0, up = 0, downArrow = 0,
+               bureau = 0, disque = 0, jenga = 0, valide = 0, horloge = 0,
+               fichier = 0, sort = 0;
+        // toggle liste/grille -> icones DESSINEES (pas d'asset adapte) : viewList/viewGrid restent 0
+        uint32 viewList = 0, viewGrid = 0;
+
+        // ── Registre d'extensions (data-driven) : ".cpp" (minuscule) -> texture ──
+        // Rempli au demarrage depuis des defauts integres + le manifeste icons.cfg.
+        NkVector<NkString> extKey;
+        NkVector<uint32>   extTex;
+        // Texture associee a l'extension d'un nom de fichier (0 si aucune / non chargee).
+        uint32 ForFile(const char* filename) const {
+            if (!filename) return 0;
+            const char* dot = nullptr; for (const char* p = filename; *p; ++p) if (*p == '.') dot = p;
+            if (!dot || !dot[1]) return 0;
+            char ext[24]; int32 n = 0;
+            for (const char* p = dot; *p && n < 23; ++p) { char c = *p; if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a'); ext[n++] = c; }
+            ext[n] = '\0';
+            for (usize i = 0; i < extKey.Size(); ++i) {
+                const char* a = extKey[i].CStr(); const char* b = ext; bool eq = true;
+                while (*a && *b) { if (*a != *b) { eq = false; break; } ++a; ++b; }
+                if (eq && *a == '\0' && *b == '\0') return extTex[i];
+            }
+            return 0;
+        }
+        // Ajoute / remplace une association extension -> texture.
+        void SetExt(const char* ext, uint32 tex) {
+            char e[24]; int32 n = 0;
+            for (const char* p = ext; *p && n < 23; ++p) { char c = *p; if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a'); e[n++] = c; }
+            e[n] = '\0'; if (!e[0]) return;
+            for (usize i = 0; i < extKey.Size(); ++i) {
+                const char* a = extKey[i].CStr(); const char* b = e; bool eq = true;
+                while (*a && *b) { if (*a != *b) { eq = false; break; } ++a; ++b; }
+                if (eq && *a == '\0' && *b == '\0') { extTex[i] = tex; return; }
+            }
+            extKey.PushBack(NkString(e)); extTex.PushBack(tex);
+        }
     };
     inline void NkDrawIcon(const NkUi& u, uint32 tex, const NkRect& r, const NkColor& tint) {
         if (tex) u.dl->AddImage(tex, r, { 0,0 }, { 1,1 }, tint);
@@ -126,7 +164,7 @@ namespace nkcode {
         auto strokeBox = [&](float32 rx, float32 ry, float32 rw, float32 rh, float32 rad) { (void)rad; dl->AddRect({ rx, ry, rw, rh }, c, th); };
         auto cmp = [&](const char* a, const char* b) { while (*a && *b) { if (*a != *b) return false; ++a; ++b; } return *a == *b; };
 
-        if (cmp(name, "house")) {
+        if (cmp(name, "house") || cmp(name, "home")) {
             NkLine(*this, { x + w*0.5f, y + h*0.12f }, { x + w*0.08f, y + h*0.5f }, c, th);
             NkLine(*this, { x + w*0.5f, y + h*0.12f }, { x + w*0.92f, y + h*0.5f }, c, th);
             strokeBox(x + w*0.18f, y + h*0.5f, w*0.64f, h*0.38f, 1.f);
@@ -180,6 +218,52 @@ namespace nkcode {
         } else if (cmp(name, "x")) {
             NkLine(*this, { x + w*0.25f, y + h*0.25f }, { x + w*0.75f, y + h*0.75f }, c, th);
             NkLine(*this, { x + w*0.75f, y + h*0.25f }, { x + w*0.25f, y + h*0.75f }, c, th);
+        } else if (cmp(name, "arrow-left")) {
+            NkLine(*this, { x + w*0.2f, y + h*0.5f }, { x + w*0.85f, y + h*0.5f }, c, th);
+            NkLine(*this, { x + w*0.2f, y + h*0.5f }, { x + w*0.45f, y + h*0.28f }, c, th);
+            NkLine(*this, { x + w*0.2f, y + h*0.5f }, { x + w*0.45f, y + h*0.72f }, c, th);
+        } else if (cmp(name, "arrow-right")) {
+            NkLine(*this, { x + w*0.15f, y + h*0.5f }, { x + w*0.8f, y + h*0.5f }, c, th);
+            NkLine(*this, { x + w*0.8f, y + h*0.5f }, { x + w*0.55f, y + h*0.28f }, c, th);
+            NkLine(*this, { x + w*0.8f, y + h*0.5f }, { x + w*0.55f, y + h*0.72f }, c, th);
+        } else if (cmp(name, "arrow-up")) {
+            NkLine(*this, { x + w*0.5f, y + h*0.18f }, { x + w*0.5f, y + h*0.82f }, c, th);
+            NkLine(*this, { x + w*0.5f, y + h*0.18f }, { x + w*0.28f, y + h*0.42f }, c, th);
+            NkLine(*this, { x + w*0.5f, y + h*0.18f }, { x + w*0.72f, y + h*0.42f }, c, th);
+        } else if (cmp(name, "list")) {
+            rectS(x + w*0.2f, y + h*0.28f, w*0.6f, th);
+            rectS(x + w*0.2f, y + h*0.5f - th*0.5f, w*0.6f, th);
+            rectS(x + w*0.2f, y + h*0.72f - th, w*0.6f, th);
+        } else if (cmp(name, "grid") || cmp(name, "layout-grid")) {
+            strokeBox(x + w*0.18f, y + h*0.18f, w*0.28f, h*0.28f, 1.f);
+            strokeBox(x + w*0.54f, y + h*0.18f, w*0.28f, h*0.28f, 1.f);
+            strokeBox(x + w*0.18f, y + h*0.54f, w*0.28f, h*0.28f, 1.f);
+            strokeBox(x + w*0.54f, y + h*0.54f, w*0.28f, h*0.28f, 1.f);
+        } else if (cmp(name, "file")) {
+            strokeBox(x + w*0.25f, y + h*0.12f, w*0.5f, h*0.76f, 1.f);
+            NkLine(*this, { x + w*0.58f, y + h*0.12f }, { x + w*0.58f, y + h*0.28f }, c, th);
+            NkLine(*this, { x + w*0.58f, y + h*0.28f }, { x + w*0.75f, y + h*0.28f }, c, th);
+        } else if (cmp(name, "clock")) {
+            strokeBox(x + w*0.15f, y + h*0.15f, w*0.7f, h*0.7f, w*0.35f);
+            NkLine(*this, { x + w*0.5f, y + h*0.5f }, { x + w*0.5f, y + h*0.28f }, c, th);
+            NkLine(*this, { x + w*0.5f, y + h*0.5f }, { x + w*0.66f, y + h*0.58f }, c, th);
+        } else if (cmp(name, "monitor")) {
+            strokeBox(x + w*0.12f, y + h*0.18f, w*0.76f, h*0.48f, 2.f);
+            rectS(x + w*0.34f, y + h*0.74f, w*0.32f, th);
+            rectS(x + w*0.5f - th*0.5f, y + h*0.66f, th, h*0.08f);
+        } else if (cmp(name, "hard-drive")) {
+            strokeBox(x + w*0.12f, y + h*0.32f, w*0.76f, h*0.36f, 2.f);
+            rectS(x + w*0.66f, y + h*0.46f, w*0.09f, h*0.09f);
+        } else if (cmp(name, "check-circle")) {
+            strokeBox(x + w*0.12f, y + h*0.12f, w*0.76f, h*0.76f, w*0.38f);
+            NkLine(*this, { x + w*0.3f, y + h*0.52f }, { x + w*0.45f, y + h*0.67f }, c, th);
+            NkLine(*this, { x + w*0.45f, y + h*0.67f }, { x + w*0.72f, y + h*0.35f }, c, th);
+        } else if (cmp(name, "alert-triangle") || cmp(name, "alert-circle")) {
+            NkLine(*this, { x + w*0.5f, y + h*0.14f }, { x + w*0.9f, y + h*0.84f }, c, th);
+            NkLine(*this, { x + w*0.9f, y + h*0.84f }, { x + w*0.1f, y + h*0.84f }, c, th);
+            NkLine(*this, { x + w*0.1f, y + h*0.84f }, { x + w*0.5f, y + h*0.14f }, c, th);
+            rectS(x + w*0.5f - th*0.5f, y + h*0.4f, th, h*0.2f);
+            rectS(x + w*0.5f - th*0.5f, y + h*0.68f, th, th);
         } else {
             strokeBox(x + w*0.2f, y + h*0.2f, w*0.6f, h*0.6f, 2.f);   // fallback
         }

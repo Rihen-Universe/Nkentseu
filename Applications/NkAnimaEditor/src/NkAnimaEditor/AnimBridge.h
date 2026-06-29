@@ -49,6 +49,13 @@ namespace nkanima {
     uint32 AnimJointCount();
     void   AnimGetSkeleton(NkVector<NkVec3f>& outPos, NkVector<int32>& outParent);
 
+    // ── Ragdoll physique (couplage NKPhysics) ─────────────────────────────────
+    // Active/désactive la simulation : ON capture la pose courante, construit un
+    // ragdoll depuis le squelette, et chaque AnimUpdate(dt) le simule -> le perso
+    // réagit physiquement (chute/ballant), la pose suit la physique.
+    void  AnimSetPhysics(bool on);
+    bool  AnimPhysicsEnabled();
+
     // ── Édition de pose (§2 Pose Mode) ────────────────────────────────────────
     // Entre en édition : capture la pose courante comme pose de TRAVAIL, met la
     // lecture en pause. Le squelette affiché devient éditable.

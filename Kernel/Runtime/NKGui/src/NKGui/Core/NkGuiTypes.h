@@ -70,7 +70,10 @@ namespace nkentseu {
 
         // ── Touches d'édition suivies par NKGui (pour la répétition au maintien) ─
         enum class NkGuiKey : uint8 {
-            Left = 0, Right, Up, Down, Home, End, Backspace, Delete, Enter, Escape, Count
+            Left = 0, Right, Up, Down, Home, End, Backspace, Delete, Enter, Escape,
+            // Touches additionnelles pour les raccourcis (Ctrl+lettre, F2/F5, Tab, chiffres).
+            Tab, F2, F5, C, D, H, L, N, Num1, Num2,
+            Count
         };
 
         // ── Flags de Table ────────────────────────────────────────────────────

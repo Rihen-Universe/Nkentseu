@@ -7,6 +7,8 @@
 #include "NKCode/Shell/NkUi.h"
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Shell/Dialogs.h"   // reutilise la logique d'actions (ouvrir/creer)
+#include "NKCode/Shell/NkOpenWs.h"  // vue « Ouvrir un Workspace » (navigateur de fichiers)
+#include "NKCode/Shell/NkNewWorkspace.h"  // wizard « Nouveau Workspace »
 #include <cstdio>
 
 namespace nkentseu {
@@ -18,7 +20,9 @@ namespace nkcode {
         uint32  logoIcon = 0, logoWord = 0;   // textures (0 = repli dessine)
         int32   wordW = 0, wordH = 0;          // dimensions naturelles du wordmark (aspect)
         NkIcons icons;                          // icones SVG (data/textures/icon)
-        int32   nav = 0;                       // item de nav actif (0 = Accueil)
+        int32   nav = 0;                       // item de nav actif (0 = Accueil, 1 = Ouvrir, 2 = Nouveau Workspace)
+        NkOpenWsState ow;                      // etat de la vue « Ouvrir un Workspace »
+        NkNewWsState  nw;                      // etat du wizard « Nouveau Workspace »
         float32 scroll  = 0.f;                 // centre : defilement vertical (recents)
         float32 scrollR = 0.f;                 // droite : defilement vertical
         float32 scrollMax  = 0.f;              // borne max du centre (frame precedente) -> anti-clignotement
@@ -123,9 +127,8 @@ namespace nkcode {
             const NkRect ir = { r.x + u.s(8), y, r.w - u.s(16), u.s(34) };
             if (NkNavItem(u, ir, main_[i].icon, main_[i].label, H->nav == i, NkCol::primary)) {
                 H->nav = i;
-                if (i == 1) H->dlg->OpenFolderDialog();
-                else if (i == 2) H->dlg->Open(NkCodeDialogs::NewWorkspace);
-                else if (i == 3) {/* TODO clone git */}
+                // i == 0 Accueil, i == 1 Ouvrir, i == 2 Nouveau Workspace (wizard plein cadre)
+                if (i == 3) {/* TODO clone git */}
             }
             y += u.s(36);
         }
@@ -666,11 +669,11 @@ namespace nkcode {
         float32 ry = right.y + u.s(2);
         u.Text(right.x, ry, "ACTIONS RAPIDES", NkCol::mutedFg); ry += u.s(22);
         const float32 qh = u.s(52);
-        { const bool c = NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.nouveau, "Nouveau Workspace", "Creer un workspace Jenga", NkCol::primary, NkCol::primary); if (!anyPopup && c) dlg->Open(NkCodeDialogs::NewWorkspace); }
+        { const bool c = NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.nouveau, "Nouveau Workspace", "Creer un workspace Jenga", NkCol::primary, NkCol::primary); if (!anyPopup && c) H->nav = 2; }
         ry += qh + u.s(10);
-        { const bool c = NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.ouvrir, "Ouvrir un Workspace", "Charger un .jenga existant", NkCol::border, NkCol::mutedFg); if (!anyPopup && c) dlg->OpenWorkspaceDialog(); }
+        { const bool c = NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.ouvrir, "Ouvrir un Workspace", "Parcourir un dossier .jenga", NkCol::border, NkCol::mutedFg); if (!anyPopup && c) H->nav = 1; }
         ry += qh + u.s(10);
-        { const bool c = NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.ouvrirDossier, "Ouvrir un Dossier", "Explorer un dossier de projets", NkCol::border, NkCol::mutedFg); if (!anyPopup && c) dlg->OpenFolderDialog(); }
+        { const bool c = NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.ouvrirDossier, "Ouvrir un Dossier", "Explorer un dossier de projets", NkCol::border, NkCol::mutedFg); if (!anyPopup && c) H->nav = 1; }
         ry += qh + u.s(10);
         (void)NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.cloner, "Cloner depuis Git", "GitHub, GitLab, Bitbucket...", NkCol::secondary, NkCol::secondaryFg);  // TODO clone
         ry += qh + u.s(18);
@@ -733,7 +736,14 @@ namespace nkcode {
         const float32 top = u.ctx->titleBarH > 1.f ? u.ctx->titleBarH : u.ctx->ItemHeight();
         const float32 sbW = u.s(220);
         NkHomeSidebar(u, { 0.f, top, sbW, Ht - top }, H);
-        NkHomePanel  (u, { sbW, top, W - sbW, Ht - top }, H);
+        const NkRect panel = { sbW, top, W - sbW, Ht - top };
+        if (H->nav == 1) {                                   // vue « Ouvrir un Workspace »
+            if (NkOpenWsPanel(u, panel, &H->ow, H->st, H->dlg, ec.dt, H->icons) == 1) H->nav = 0;   // Annuler -> retour Accueil
+        } else if (H->nav == 2) {                            // wizard « Nouveau Workspace »
+            if (NkNewWsPanel(u, panel, &H->nw, H->st, H->dlg, ec.dt, H->icons) == 1) H->nav = 0;     // Annuler -> retour Accueil
+        } else {
+            NkHomePanel(u, panel, H);                        // Accueil (recents + actions + exemples)
+        }
     }
 
 } // namespace nkcode

@@ -29,6 +29,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <ctime>
 
 // En-têtes plateforme pour les opérations sur les répertoires
 #ifdef _WIN32
@@ -547,34 +548,48 @@ namespace nkentseu {
         }
 
         #ifdef _WIN32
-            // Windows : FindFirstFile fournit directement les métadonnées
-            WIN32_FIND_DATAA findData;
-            NkString searchPath = NkString(path) + "\\*";
-            HANDLE hFind = FindFirstFileA(searchPath.CStr(), &findData);
-
+            // Windows : API LARGE (UTF-16) + conversion UTF-8. L'API ANSI (FindFirstFileA)
+            // mutile les noms hors page de code ANSI (caracteres remplaces par '?') et peut
+            // « perdre » des fichiers ; l'API large gere correctement tous les noms.
+            const NkString searchPathU8 = NkString(path) + "\\*";
+            wchar_t wsearch[2048];
+            if (MultiByteToWideChar(CP_UTF8, 0, searchPathU8.CStr(), -1, wsearch, 2048) <= 0) {
+                return results;
+            }
+            WIN32_FIND_DATAW findData;
+            HANDLE hFind = FindFirstFileW(wsearch, &findData);
             if (hFind == INVALID_HANDLE_VALUE) {
                 return results;
             }
 
             do {
-                if (strcmp(findData.cFileName, ".") == 0
-                    || strcmp(findData.cFileName, "..") == 0) {
+                // Ignorer "." et ".." (en UTF-16).
+                if (findData.cFileName[0] == L'.' &&
+                    (findData.cFileName[1] == L'\0' ||
+                     (findData.cFileName[1] == L'.' && findData.cFileName[2] == L'\0'))) {
+                    continue;
+                }
+
+                // Nom UTF-16 -> UTF-8.
+                char nameU8[1024];
+                if (WideCharToMultiByte(CP_UTF8, 0, findData.cFileName, -1, nameU8, (int)sizeof(nameU8), nullptr, nullptr) <= 0) {
                     continue;
                 }
 
                 // Appliquer le pattern de filtrage
-                if (MatchesPattern(findData.cFileName, pattern)) {
+                if (MatchesPattern(nameU8, pattern)) {
                     NkDirectoryEntry entry;
-                    entry.Name = findData.cFileName;
-                    entry.FullPath = NkPath(path) / findData.cFileName;
+                    entry.Name = nameU8;
+                    entry.FullPath = NkPath(path) / nameU8;
 
                     // Détermination du type via les attributs Windows
                     entry.IsDirectory = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
                     entry.IsFile = !entry.IsDirectory;
+                    entry.IsHidden = (findData.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) != 0;
 
-                    // Taille : combinaison des parties haute et basse (64-bit)
+                    // Taille : combinaison des parties haute et basse (64-bit, sans extension de signe)
                     entry.Size = (static_cast<nk_int64>(findData.nFileSizeHigh) << 32)
-                               | findData.nFileSizeLow;
+                               | static_cast<nk_int64>(findData.nFileSizeLow);
 
                     // Date de derniere modification : FILETIME (100ns depuis 1601)
                     // converti en epoch Unix (secondes depuis 1970), conforme au contrat.
@@ -586,7 +601,7 @@ namespace nkentseu {
 
                     results.PushBack(entry);
                 }
-            } while (FindNextFileA(hFind, &findData));
+            } while (FindNextFileW(hFind, &findData));
 
             FindClose(hFind);
 
@@ -609,6 +624,7 @@ namespace nkentseu {
                     NkDirectoryEntry dirEntry;
                     dirEntry.Name = entry->d_name;
                     dirEntry.FullPath = NkPath(path) / entry->d_name;
+                    dirEntry.IsHidden = (entry->d_name[0] == '.');   // convention Unix
 
                     // Appel à stat() pour obtenir les métadonnées
                     struct stat st;
@@ -641,6 +657,67 @@ namespace nkentseu {
     ) {
         // Délégation à la version C-string
         return GetEntries(path.CStr(), pattern, option);
+    }
+
+    // =============================================================================
+    //  Corbeille (suppression annulable) — cross-platform
+    // =============================================================================
+    bool NkDirectory::MoveToTrash(const char* path) {
+        if (!path || !*path) return false;
+
+        #ifdef _WIN32
+            // UTF-8 -> UTF-16, separateurs backslash, chemin DOUBLE-null-termine (exige par
+            // SHFileOperation : pFrom est une liste de chemins terminee par un null supplementaire).
+            wchar_t wp[4096] = {};                       // zero-init => 2e null garanti apres le chemin
+            const int wl = MultiByteToWideChar(CP_UTF8, 0, path, -1, wp, 4094);
+            if (wl <= 0) return false;
+            for (int i = 0; wp[i]; ++i) if (wp[i] == L'/') wp[i] = L'\\';
+            SHFILEOPSTRUCTW op = {};
+            op.wFunc  = FO_DELETE;
+            op.pFrom  = wp;
+            op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
+            return SHFileOperationW(&op) == 0 && !op.fAnyOperationsAborted;
+        #else
+            // Unix : deplacer vers la corbeille utilisateur (rename, donc meme systeme de fichiers).
+            const char* home = std::getenv("HOME");
+            if (!home || !*home) return false;
+            #ifdef __APPLE__
+                const NkString trashFiles = NkString(home) + "/.Trash";
+                NkString trashInfo;                       // non utilise sur macOS
+            #else
+                const char* xdg = std::getenv("XDG_DATA_HOME");
+                const NkString base = (xdg && *xdg) ? NkString(xdg) : (NkString(home) + "/.local/share");
+                const NkString trashFiles = base + "/Trash/files";
+                const NkString trashInfo  = base + "/Trash/info";
+                CreateRecursive(trashInfo.CStr());
+            #endif
+            CreateRecursive(trashFiles.CStr());
+
+            NkString name = NkPath(path).GetFileName();
+            if (name.Empty()) return false;
+            // Eviter les collisions de noms dans la corbeille.
+            NkString dest = trashFiles + "/" + name.CStr();
+            for (int n = 1; (Exists(dest.CStr()) || NkFile::Exists(dest.CStr())) && n < 10000; ++n) {
+                char b[24]; std::snprintf(b, sizeof(b), ".%d", n);
+                dest = trashFiles + "/" + name.CStr() + b;
+            }
+            #ifndef __APPLE__
+                // Fichier .trashinfo (freedesktop) -> permet la restauration depuis le gestionnaire.
+                char ds[32] = "1970-01-01T00:00:00";
+                time_t t = std::time(nullptr); struct tm tmv;
+                if (localtime_r(&t, &tmv)) std::strftime(ds, sizeof(ds), "%Y-%m-%dT%H:%M:%S", &tmv);
+                const NkString info = trashInfo + "/" + NkPath(dest.CStr()).GetFileName().CStr() + ".trashinfo";
+                if (FILE* fi = std::fopen(info.CStr(), "w")) {
+                    std::fprintf(fi, "[Trash Info]\nPath=%s\nDeletionDate=%s\n", path, ds);
+                    std::fclose(fi);
+                }
+            #endif
+            return std::rename(path, dest.CStr()) == 0;
+        #endif
+    }
+
+    bool NkDirectory::MoveToTrash(const NkPath& path) {
+        return MoveToTrash(path.CStr());
     }
 
     // =============================================================================

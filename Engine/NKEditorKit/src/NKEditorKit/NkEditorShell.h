@@ -99,6 +99,7 @@ namespace nkentseu {
             void Maximize() noexcept { mWindow.Maximize(); }
             // Donne une taille/position de fenetre (non maximisee).
             void Resize(uint32 w, uint32 h) noexcept { mWindow.SetSize(w, h); }
+            float32 DpiScale() const noexcept { const float32 s = mUI.S(1.f); return s > 0.5f ? s : 1.f; }  ///< echelle DPI (pour uploader les icones a la taille ecran)
 
             // Upload une image RGBA8 comme texture backend ; renvoie un texId stable
             // (0 si echec). Pour les logos/icones de l'app (dessines via AddImage).

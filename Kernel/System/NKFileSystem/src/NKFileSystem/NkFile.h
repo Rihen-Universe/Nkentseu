@@ -379,6 +379,12 @@
             /// @return true si la suppression a réussi, false sinon
             static bool Delete(const NkPath& path);
 
+            /// Déplace un fichier vers la corbeille du système (annulable). Voir
+            /// NkDirectory::MoveToTrash (implémentation partagée, gère fichiers et dossiers).
+            /// @return true si déplacé ; false si non supporté/échec.
+            static bool MoveToTrash(const char* path);
+            static bool MoveToTrash(const NkPath& path);
+
             /// Copie un fichier vers une destination.
             /// @param source Chemin du fichier source en format C-string
             /// @param dest Chemin de destination en format C-string

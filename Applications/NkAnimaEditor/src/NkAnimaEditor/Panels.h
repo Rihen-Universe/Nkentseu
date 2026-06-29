@@ -107,12 +107,14 @@ namespace nkanima {
             bool bIK   = ec.Button(mTool==0 ? "[ Drag IK ]" : "Drag IK");   ctx.SameLine();
             bool bFK   = ec.Button(mTool==1 ? "[ Rotation FK ]" : "Rotation FK"); ctx.SameLine();
             bool bTR   = ec.Button(mTool==2 ? "[ Translation FK ]" : "Translation FK"); ctx.SameLine();
-            bool bRec  = ec.Button("Enregistrer pose");
+            bool bRec  = ec.Button("Enregistrer pose"); ctx.SameLine();
+            bool bRag  = ec.Button(AnimPhysicsEnabled() ? "[ Ragdoll: ON ]" : "Ragdoll: OFF");
             if (bMode) { if (AnimInPoseEdit()) AnimEndPoseEdit(); else AnimBeginPoseEdit(); }
             if (bIK)   mTool = 0;
             if (bFK)   mTool = 1;
             if (bTR)   mTool = 2;
             if (bRec)  AnimCommitPoseKey();
+            if (bRag)  AnimSetPhysics(!AnimPhysicsEnabled());   // couplage NKPhysics : le perso devient un ragdoll
 
             // 2e ligne : modes d'affichage du viewport (façon Blender).
             const NkAnimViewMode vm = Anim3DViewMode();
