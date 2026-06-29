@@ -142,6 +142,26 @@ int main() {
         CHECK(b && Near(b->linearVelocity.y, 0.f, 0.05f), "M4 : repos propre (vy ~ 0, pas d'energie injectee)");
     }
 
+    // ── M5 : plateforme KINEMATIC montante porte une caisse dynamique ───────
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        // plateforme kinematic (demi 0.5 en Y) montant à 1 m/s, sommet initial y=0.5
+        NkBodyDef pd; pd.type = NkBodyType::KINEMATIC; pd.position = { 0.f, 0.f, 0.f };
+        pd.linearVelocity = { 0.f, 1.f, 0.f };
+        const NkBodyId plat = world.CreateBody(pd, collision::NkShape::Box3D({0,0,0}, {5,0.5f,5}));
+        // caisse dynamique posée dessus (centre y=1.0)
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 0.f, 1.f, 0.f };
+        const NkBodyId box = world.CreateBody(bd, collision::NkShape::Box3D({0,1,0}, {0.5f,0.5f,0.5f}));
+
+        for (int i = 0; i < 60; ++i) world.Step(1.f / 60.f);   // 1 s
+
+        const NkRigidBody* p = world.GetBody(plat);
+        const NkRigidBody* b = world.GetBody(box);
+        CHECK(p && Near(p->position.y, 1.0f, 0.05f), "M5 kinematic : la plateforme suit sa vitesse (y ~ 1.0)");
+        CHECK(b && b->position.y > 1.7f, "M5 kinematic : la caisse est PORTEE vers le haut (y > 1.7)");
+        CHECK(b && b->position.y < 2.2f, "M5 kinematic : la caisse reste posee (pas ejectee)");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
