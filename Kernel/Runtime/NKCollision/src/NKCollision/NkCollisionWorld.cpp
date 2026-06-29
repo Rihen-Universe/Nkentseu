@@ -289,11 +289,27 @@ namespace nkentseu {
                 if (!b.active || NkShapeIs2D(b.shape.type) || !(b.layer & mask)) continue;
                 NkRayHit3D h;
                 bool ok = false;
-                if (b.shape.type == NkShapeType::NK_SPHERE)
-                    ok = NkRaySphere(ray, b.shape.p0, b.shape.radius, h);
-                else {                                        // box/capsule -> AABB (v1)
-                    NkAABB3D a = NkComputeAABB3D(b.shape);
-                    ok = NkRayAABB3D(ray, a.min, a.max, h);
+                const NkShape& s = b.shape;
+                switch (s.type) {
+                    case NkShapeType::NK_SPHERE:  ok = NkRaySphere(ray, s.p0, s.radius, h); break;
+                    case NkShapeType::NK_BOX3D:   ok = NkRayOBB3D(ray, s.p0, s.p1, s.orientation, h); break; // OBB exact (identité = AABB)
+                    case NkShapeType::NK_PLANE3D: ok = NkRayPlane3D(ray, s.p0, s.p1, h); break;
+                    case NkShapeType::NK_TRIANGLE3D:
+                        if (s.verts && s.vertCount >= 3) ok = NkRayTriangle3D(ray, s.verts[0], s.verts[1], s.verts[2], h);
+                        break;
+                    case NkShapeType::NK_TRIMESH3D: {           // triangle le plus proche
+                        if (s.verts && s.indices) {
+                            NkRayHit3D th; float32 bt = ray.maxT;
+                            for (uint32 t = 0; t + 2 < s.indexCount; t += 3)
+                                if (NkRayTriangle3D(ray, s.verts[s.indices[t]], s.verts[s.indices[t + 1]], s.verts[s.indices[t + 2]], th) && th.t < bt) { bt = th.t; h = th; ok = true; }
+                        }
+                        break;
+                    }
+                    default: {                                  // capsule/cylindre/cône/convexe -> AABB (approx)
+                        NkAABB3D a = NkComputeAABB3D(s);
+                        ok = NkRayAABB3D(ray, a.min, a.max, h);
+                        break;
+                    }
                 }
                 if (ok && h.t < best.t) { best = h; found = true; }
             }
@@ -324,6 +340,22 @@ namespace nkentseu {
             }
             if (found) hit = best;
             return found;
+        }
+
+        // ── Overlap : corps chevauchant une forme arbitraire (broad + narrow) ──
+        uint32 NkWorld::Overlap(const NkShape& s, NkVector<uint32>& out, uint32 mask) const {
+            out.Clear();
+            const NkAABB3D sab = NkBodyAABB(s);
+            const bool s2 = NkShapeIs2D(s.type);
+            for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
+                const NkBody& b = mBodies[i];
+                if (!b.active || !(b.layer & mask)) continue;
+                if (NkShapeIs2D(b.shape.type) != s2) continue;        // pas de mixte 2D/3D
+                if (!sab.Overlaps(NkBodyAABB(b.shape))) continue;     // broadphase
+                NkManifold3D m;
+                if (Narrow(s, b.shape, m)) out.PushBack(b.id);        // narrowphase
+            }
+            return (uint32)out.Size();
         }
 
     } // namespace collision

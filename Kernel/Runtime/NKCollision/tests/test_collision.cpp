@@ -299,6 +299,50 @@ int main() {
         CHECK(sw2.Pairs().Size() == 0, "SAP : 0 paire (spheres eloignees)");
     }
 
+    // ── VAGUE 5 : requêtes de scène (raycast exact + overlap) ────────────────
+    {
+        const float32 s22 = 0.38268343f, c22 = 0.92387953f;   // 45° autour de Z
+        // OBB identité == AABB : rayon +X vers boîte à l'origine -> t=4
+        NkRay3D rx; rx.origin = {-5,0,0}; rx.dir = {1,0,0}; rx.maxT = 100.f;
+        NkRayHit3D h;
+        CHECK(NkRayOBB3D(rx, {0,0,0}, {1,1,1}, math::NkQuatf(), h) && Near(h.t, 4.f), "ray-OBB(identite)==AABB t=4");
+        // OBB tournée 45° : portée en Y = ~1.414 -> rayon +Y depuis y=-5 entre à t~3.586
+        NkRay3D ry; ry.origin = {0,-5,0}; ry.dir = {0,1,0}; ry.maxT = 100.f;
+        NkRayHit3D h2;
+        CHECK(NkRayOBB3D(ry, {0,0,0}, {1,1,1}, math::NkQuatf(0.f,0.f,s22,c22), h2) && Near(h2.t, 3.5858f, 1e-2f), "ray-OBB 45deg t~3.586");
+        // ray-plane
+        NkRayHit3D hp;
+        CHECK(NkRayPlane3D(ry, {0,0,0}, {0,1,0}, hp) && Near(hp.t, 5.f), "ray-plane t=5");
+        // ray-triangle (Möller-Trumbore)
+        NkRayHit3D ht;
+        CHECK(NkRayTriangle3D(ry, {-1,0,-1}, {1,0,-1}, {0,0,1}, ht) && Near(ht.t, 5.f), "ray-triangle t=5");
+    }
+
+    // ── World : raycast exact (OBB/plan/trimesh) + Overlap ───────────────────
+    {
+        NkWorld w;
+        w.AddBody(NkShape::Plane3D({0,0,0}, {0,1,0}));
+        NkRay3D ray; ray.origin = {0,5,0}; ray.dir = {0,-1,0}; ray.maxT = 100.f;
+        NkRayHit3D h;
+        CHECK(w.Raycast3D(ray, h) && Near(h.t, 5.f) && h.normal.y > 0.8f, "world raycast plane t=5 normale+Y");
+
+        static const NkVec3f quad[4] = { {-1,0,-1}, {1,0,-1}, {1,0,1}, {-1,0,1} };
+        static const uint32  idx[6]  = { 0,1,2, 0,2,3 };
+        NkWorld wm;
+        wm.AddBody(NkShape::Trimesh3D(quad, 4, idx, 6));
+        NkRayHit3D hm;
+        CHECK(wm.Raycast3D(ray, hm) && Near(hm.t, 5.f), "world raycast trimesh t=5");
+
+        // Overlap : forme arbitraire vs monde
+        NkWorld wo;
+        wo.AddBody(NkShape::Sphere({0,0,0}, 1.f));
+        wo.AddBody(NkShape::Sphere({1.5f,0,0}, 1.f));
+        wo.AddBody(NkShape::Sphere({100,0,0}, 1.f));
+        NkVector<uint32> ids;
+        const uint32 cnt = wo.Overlap(NkShape::Sphere({0.7f,0,0}, 1.f), ids);
+        CHECK(cnt == 2, "Overlap sphere : 2 corps touches (pas le lointain)");
+    }
+
     logger.Info("=== NKCollision : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
