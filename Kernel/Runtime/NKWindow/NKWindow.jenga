@@ -87,7 +87,7 @@ with project("NKWindow"):
             "src/NKWindow/Platform/Win32/**.h",
         ])
         links([
-            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32", "comdlg32",
             "mf", "mfplat", "mfreadwrite", "mfuuid",
             "uuid", "ole32", "dinput8", "dxguid"
         ])

@@ -212,6 +212,23 @@ namespace nkentseu {
         ici.ppEnabledExtensionNames = instanceExts.Data();
         ici.enabledLayerCount = (uint32)layers.Size();
         ici.ppEnabledLayerNames = layers.Empty() ? nullptr : layers.Data();
+
+        // ── Synchronization validation (DIAG) ────────────────────────────────
+        // Quand la validation est demandée, on active aussi la SYNCHRONIZATION
+        // VALIDATION : c'est elle qui détecte les hazards read-after-write /
+        // write-after-read sur buffers/images (ex. un UBO écrit par WriteBuffer
+        // pendant que le GPU le lit, ou un descriptor set mis à jour in-flight).
+        // Chaîné via VkValidationFeaturesEXT dans pNext de l'instance. Inoffensif
+        // si la couche n'est pas chargée (layers vide -> pNext ignoré côté loader).
+        VkValidationFeatureEnableEXT syncEnables[] = {
+            VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT,
+        };
+        VkValidationFeaturesEXT valFeatures{VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT};
+        if (vkdesc.validationLayers && !layers.Empty()) {
+            valFeatures.enabledValidationFeatureCount = 1;
+            valFeatures.pEnabledValidationFeatures    = syncEnables;
+            ici.pNext = &valFeatures;
+        }
         NK_VK_CHECKRET(vkCreateInstance(&ici, nullptr, &mInstance), "vkCreateInstance");
 
         // Debug messenger : route les validation layers vers NkLog (severity -> level).
@@ -1545,6 +1562,7 @@ namespace nkentseu {
         spd.colorAttachmentCount=(uint32)colorRefs.Size(); spd.pColorAttachments=colorRefs.Data();
         if (d.hasDepth) spd.pDepthStencilAttachment=&depthRef;
 
+        // Dependance d'entree EXTERNAL -> subpass 0 (version d'origine).
         VkSubpassDependency dep{};
         dep.srcSubpass=VK_SUBPASS_EXTERNAL; dep.dstSubpass=0;
         dep.srcStageMask=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;

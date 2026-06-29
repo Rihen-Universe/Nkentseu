@@ -447,6 +447,10 @@ namespace nkentseu {
             res.bytecode.Resize(hlslSrc.Size()+1);
             memcpy(res.bytecode.Data(), hlslSrc.CStr(), hlslSrc.Size()+1);
     #endif
+            // HLSL = cible texte : exposer aussi via preprocessed pour que le cache
+            // disque (IsTextTarget) le stocke et le restitue dans vsGlslStr/fsGlslStr
+            // au cache-hit (sinon CompileVF n'aurait plus de HLSL apres reload).
+            res.preprocessed = hlslSrc;
             return res;
         }
 
@@ -481,6 +485,9 @@ namespace nkentseu {
             if (!res.success) { res.errors = "Empty HLSL SM6 source"; return res; }
             res.bytecode.Resize(hlslSrc.Size()+1);
             memcpy(res.bytecode.Data(), hlslSrc.CStr(), hlslSrc.Size()+1);
+            // HLSL = cible texte : exposer aussi via preprocessed pour le cache disque
+            // (cf NkShaderBackendDX11). Sinon au cache-hit le HLSL serait perdu.
+            res.preprocessed = hlslSrc;
             return res;
         }
 

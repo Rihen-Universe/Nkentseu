@@ -395,16 +395,16 @@ namespace nkentseu {
         {
             if (nodeIdx < 0 || nodeIdx >= numNodes) return;
             const NkRect& r = nodes[nodeIdx].rect;
-            const float32 th = 3.f;
+            const float32 th = 4.f;   // bande pleine (plus visible qu'un trait)
             switch (drop) {
                 case NkUIDockDrop::NK_LEFT:
-                    dl.AddLine({r.x, r.y}, {r.x, r.y + r.h}, color, th); break;
+                    dl.AddRectFilled({r.x, r.y, th, r.h}, color); break;
                 case NkUIDockDrop::NK_RIGHT:
-                    dl.AddLine({r.x+r.w, r.y}, {r.x+r.w, r.y+r.h}, color, th); break;
+                    dl.AddRectFilled({r.x+r.w-th, r.y, th, r.h}, color); break;
                 case NkUIDockDrop::NK_TOP:
-                    dl.AddLine({r.x, r.y}, {r.x+r.w, r.y}, color, th); break;
+                    dl.AddRectFilled({r.x, r.y, r.w, th}, color); break;
                 case NkUIDockDrop::NK_BOTTOM:
-                    dl.AddLine({r.x, r.y+r.h}, {r.x+r.w, r.y+r.h}, color, th); break;
+                    dl.AddRectFilled({r.x, r.y+r.h-th, r.w, th}, color); break;
                 default: break;
             }
         }
@@ -419,21 +419,24 @@ namespace nkentseu {
         {
             if (nodeIdx < 0 || nodeIdx >= numNodes) return NkUIDockDrop::NK_NONE;
             const NkRect& r   = nodes[nodeIdx].rect;
-            const float32 sz  = ctx.theme.metrics.dockZoneSize;
-            const NkColor zBg = ctx.theme.colors.dockZone;
-            const NkColor zBd = ctx.theme.colors.dockZoneBorder;
-            const NkColor hl  = {100, 180, 255, 220};
+            // Boussole COMPACTE centrée (façon ImGui) : 5 petits boutons groupés au
+            // centre du nœud — au lieu de gros boutons écartés aux bords (10%/90%) qui
+            // envahissaient l'écran et donnaient une sensation de docking agressif.
+            const float32 bs  = 40.f;                        // taille d'un bouton
+            const float32 off = bs + 6.f;                    // décalage centre→bouton
+            const NkVec2  cc  = {r.x + r.w*0.5f, r.y + r.h*0.5f};
+            const NkColor hl  = {120, 190, 255, 235};
             const float32 rx  = 6.f;
             const NkVec2  mp  = ctx.input.mousePos;
             const bool centerOk = ctx.wm ? NodeAllowsTabs(*ctx.wm, nodeIdx, dragWindowId) : true;
 
             struct Zone { NkUIDockDrop drop; NkRect rect; bool enabled; };
             const Zone zones[] = {
-                {NkUIDockDrop::NK_LEFT,   {r.x+r.w*.1f,         r.y+r.h*.5f-sz*.5f, sz, sz}, true},
-                {NkUIDockDrop::NK_RIGHT,  {r.x+r.w*.9f-sz,      r.y+r.h*.5f-sz*.5f, sz, sz}, true},
-                {NkUIDockDrop::NK_TOP,    {r.x+r.w*.5f-sz*.5f,  r.y+r.h*.1f,         sz, sz}, true},
-                {NkUIDockDrop::NK_BOTTOM, {r.x+r.w*.5f-sz*.5f,  r.y+r.h*.9f-sz,      sz, sz}, true},
-                {NkUIDockDrop::NK_CENTER, {r.x+r.w*.5f-sz*.5f,  r.y+r.h*.5f-sz*.5f,  sz, sz}, centerOk},
+                {NkUIDockDrop::NK_LEFT,   {cc.x-off-bs*.5f, cc.y-bs*.5f,     bs, bs}, true},
+                {NkUIDockDrop::NK_RIGHT,  {cc.x+off-bs*.5f, cc.y-bs*.5f,     bs, bs}, true},
+                {NkUIDockDrop::NK_TOP,    {cc.x-bs*.5f,     cc.y-off-bs*.5f, bs, bs}, true},
+                {NkUIDockDrop::NK_BOTTOM, {cc.x-bs*.5f,     cc.y+off-bs*.5f, bs, bs}, true},
+                {NkUIDockDrop::NK_CENTER, {cc.x-bs*.5f,     cc.y-bs*.5f,     bs, bs}, centerOk},
             };
 
             // Hovered drop
@@ -441,50 +444,55 @@ namespace nkentseu {
             for (const auto& z : zones)
                 if (z.enabled && NkRectContains(z.rect, mp)) { hovered = z.drop; break; }
 
-            // Edge detection si aucune icône n'est survolée
-            if (hovered == NkUIDockDrop::NK_NONE && NkRectContains(r, mp)) {
-                const float32 band = std::clamp((r.w < r.h ? r.w : r.h) * 0.1f,
-                                                 sz * 0.4f, sz * 0.9f);
-                const float32 dL = mp.x - r.x, dR = r.x+r.w - mp.x;
-                const float32 dT = mp.y - r.y, dB = r.y+r.h - mp.y;
-                float32 dMin = dL; hovered = NkUIDockDrop::NK_LEFT;
-                if (dR < dMin) { dMin = dR; hovered = NkUIDockDrop::NK_RIGHT; }
-                if (dT < dMin) { dMin = dT; hovered = NkUIDockDrop::NK_TOP;   }
-                if (dB < dMin) { dMin = dB; hovered = NkUIDockDrop::NK_BOTTOM;}
-                if (dMin > band) hovered = NkUIDockDrop::NK_NONE;
-            }
+            // NB : docking DÉLIBÉRÉ (façon ImGui) — on n'ancre QUE si la souris est
+            // sur un bouton boussole explicite. Plus d'auto-détection de bord (qui
+            // ancrait dès qu'on relâchait près d'un bord) : on peut donc déplacer
+            // une fenêtre librement, et choisir d'ancrer en visant une flèche.
 
-            // Preview de la zone de drop
+            // ── Couleurs d'overlay facon ImGui (accent semi-transparent) ──────────
+            const NkColor accent  = {96, 165, 250, 255};   // bleu accent
+            const NkColor boxBg   = {38, 43, 56, 235};      // fond bouton boussole
+            const NkColor boxBd   = {110, 122, 145, 255};   // bord bouton
+            const NkColor iconCol = {205, 214, 230, 255};   // icone au repos
+            const NkColor white   = {255, 255, 255, 255};
+
+            // Rectangle d'atterrissage : montre OU la fenetre va se poser (50% pour un
+            // split, plein node pour un tab au centre) — semi-transparent comme ImGui.
             if (hovered != NkUIDockDrop::NK_NONE) {
                 NkRect prev = {};
                 switch (hovered) {
-                    case NkUIDockDrop::NK_LEFT:   prev={r.x,r.y,r.w*.4f,r.h}; break;
-                    case NkUIDockDrop::NK_RIGHT:  prev={r.x+r.w*.6f,r.y,r.w*.4f,r.h}; break;
-                    case NkUIDockDrop::NK_TOP:    prev={r.x,r.y,r.w,r.h*.4f}; break;
-                    case NkUIDockDrop::NK_BOTTOM: prev={r.x,r.y+r.h*.6f,r.w,r.h*.4f}; break;
-                    case NkUIDockDrop::NK_CENTER: prev={r.x+r.w*.2f,r.y+r.h*.2f,r.w*.6f,r.h*.6f}; break;
+                    case NkUIDockDrop::NK_LEFT:   prev={r.x,           r.y,           r.w*.5f, r.h}; break;
+                    case NkUIDockDrop::NK_RIGHT:  prev={r.x+r.w*.5f,   r.y,           r.w*.5f, r.h}; break;
+                    case NkUIDockDrop::NK_TOP:    prev={r.x,           r.y,           r.w,     r.h*.5f}; break;
+                    case NkUIDockDrop::NK_BOTTOM: prev={r.x,           r.y+r.h*.5f,   r.w,     r.h*.5f}; break;
+                    case NkUIDockDrop::NK_CENTER: prev=r; break;
                     default: break;
                 }
-                dl.AddRectFilled(prev, zBd.WithAlpha(60), rx);
-                dl.AddRect(prev, zBd.WithAlpha(200), 2.f, rx);
+                dl.AddRectFilled(prev, accent.WithAlpha(72), rx);
+                dl.AddRect(prev, accent.WithAlpha(225), 2.f, rx);
                 if (hovered != NkUIDockDrop::NK_CENTER)
                     DrawDirectionalHighlight(dl, nodeIdx, hovered, hl);
             }
 
-            // Icônes des zones
+            // ── Boussole : 5 boutons directionnels (boites arrondies, survol vif) ──
             for (const auto& z : zones) {
                 if (!z.enabled) continue;
                 const bool hov = (hovered == z.drop);
-                dl.AddRectFilled(z.rect, hov ? zBd.WithAlpha(180) : zBg, rx);
-                dl.AddRect(z.rect, zBd, 2.f, rx);
-                const NkVec2 c = {z.rect.x + z.rect.w*.5f, z.rect.y + z.rect.h*.5f};
+                dl.AddRectFilled(z.rect, hov ? accent.WithAlpha(235) : boxBg, rx);
+                dl.AddRect(z.rect, hov ? white : boxBd, hov ? 2.f : 1.5f, rx);
+                const NkVec2  c  = {z.rect.x + z.rect.w*.5f, z.rect.y + z.rect.h*.5f};
+                const NkColor ic = hov ? white : iconCol;
                 switch (z.drop) {
-                    case NkUIDockDrop::NK_LEFT:   dl.AddArrow(c, sz*.3f, 2, zBd); break;
-                    case NkUIDockDrop::NK_RIGHT:  dl.AddArrow(c, sz*.3f, 0, zBd); break;
-                    case NkUIDockDrop::NK_TOP:    dl.AddArrow(c, sz*.3f, 3, zBd); break;
-                    case NkUIDockDrop::NK_BOTTOM: dl.AddArrow(c, sz*.3f, 1, zBd); break;
-                    case NkUIDockDrop::NK_CENTER:
-                        dl.AddRectFilled({c.x-sz*.2f,c.y-sz*.2f,sz*.4f,sz*.4f},zBd,3.f); break;
+                    case NkUIDockDrop::NK_LEFT:   dl.AddArrow(c, bs*.3f, 2, ic); break;
+                    case NkUIDockDrop::NK_RIGHT:  dl.AddArrow(c, bs*.3f, 0, ic); break;
+                    case NkUIDockDrop::NK_TOP:    dl.AddArrow(c, bs*.3f, 3, ic); break;
+                    case NkUIDockDrop::NK_BOTTOM: dl.AddArrow(c, bs*.3f, 1, ic); break;
+                    case NkUIDockDrop::NK_CENTER: {
+                        // Petite icone "fenetre/onglet" (cadre + bandeau de titre).
+                        const NkRect box = {c.x-bs*.22f, c.y-bs*.22f, bs*.44f, bs*.44f};
+                        dl.AddRect(box, ic, 2.f, 2.f);
+                        dl.AddRectFilled({box.x, box.y, box.w, bs*.12f}, ic, 2.f);
+                    } break;
                     default: break;
                 }
             }
@@ -1054,7 +1062,11 @@ namespace nkentseu {
                     dl.PushClipRect(clientR, true);
                     dl.AddRectFilled(clientR, col.bgWindow);
                     dl.PopClipRect();
-                    dl.AddRect({r.x, r.y, r.w, r.h}, col.separator.WithAlpha(120), 1.f);
+                    // Bord du panneau docké plus visible (avant: alpha 120 ~invisible)
+                    // + ligne sous la barre d'onglets qui sert d'en-tête.
+                    dl.AddRect({r.x, r.y, r.w, r.h}, col.separator.WithAlpha(235), 1.f);
+                    dl.AddLine({r.x, r.y + tabH}, {r.x + r.w, r.y + tabH},
+                               col.separator.WithAlpha(235), 1.f);
                     ws->pos  = {r.x, r.y + tabH};
                     ws->size = {r.w, r.h - tabH};
                     ws->isActiveTab = true;   // ← marqué actif
@@ -1100,8 +1112,8 @@ namespace nkentseu {
                     // BeginFrame ne gère que les drops hors tabBar
                     if (!mouseOnTabBar) {
                         NkUIDrawList& overlay = ctx.layers[NkUIContext::LAYER_OVERLAY];
-                        overlay.AddRectFilled(nodes[nodeUnder].rect,
-                                            ctx.theme.colors.dockZone.WithAlpha(35));
+                        // Pas de teint plein du nœud (donnait une impression « occupé ») :
+                        // on laisse la boussole + le rectangle d'atterrissage guider.
                         const NkUIDockDrop drop = DrawDropZones(ctx, overlay, nodeUnder);
                         if (!ctx.input.mouseDown[0] && drop != NkUIDockDrop::NK_NONE) {
                             DockWindow(wm, dragWindowId, nodeUnder, drop);

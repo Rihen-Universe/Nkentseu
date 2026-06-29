@@ -383,6 +383,9 @@ with workspace("Nkentseu", location="."):
     with include("Integrations/NKUI/NKUIIntegration.jenga"):
         pass
 
+    with include("Integrations/NKGui/NKGuiIntegration.jenga"):
+        pass
+
     with include("Kernel/Runtime/NKCamera/NKCamera.jenga"):
         pass
 
@@ -426,6 +429,21 @@ with workspace("Nkentseu", location="."):
         pass
 
     with include("Applications/Nogee/Nogee.jenga"):
+        pass
+
+    with include("Applications/NKEditorKitDemo/NKEditorKitDemo.jenga"):
+        pass
+
+    with include("Applications/NkAnimaEditor/NkAnimaEditor.jenga"):
+        pass
+
+    with include("Applications/ImGuiRef/ImGuiRef.jenga"):
+        pass
+
+    with include("Applications/NKGuiDemo/NKGuiDemo.jenga"):
+        pass
+
+    with include("Applications/NKViewportDemo/NKViewportDemo.jenga"):
         pass
 
     with include("Applications/PV3DE/PV3DE.jenga"):

@@ -15,7 +15,9 @@ layout(binding=7) uniform sampler2D tEmissive;
 layout(binding=8) uniform samplerCube tEnvIrradiance;
 void main(){
     vec4 albSamp=texture(tAlbedo,vUV)*vColor;
-    vec3 albedo=pow(albSamp.rgb,vec3(2.2)); float alpha=albSamp.a; if(alpha<0.01)discard;
+    // Texture sRGB deja delinearisee par le sampler -> PAS de pow(2.2) (double-gamma
+    // -> sur-saturation/vert). Opaque -> pas de discard.
+    vec3 albedo=albSamp.rgb; float alpha=1.0;
     vec3 orm=texture(tORM,vUV).rgb;
     float ao=orm.r*uObj.aoStrength, rog=orm.g*uObj.roughness, met=orm.b*uObj.metallic;
     vec3 nTs=texture(tNormal,vUV).xyz*2.-1.; nTs.xy*=uObj.normalStrength;
@@ -32,14 +34,19 @@ void main(){
         // SSS: wrap lighting + subsurface color bleed
         float wrapNdL=max(dot(N,L)+uObj.subsurface,0.)/(1.+uObj.subsurface);
         sssOut+=uObj.subsurfaceColor.rgb*albedo*rad*wrapNdL*uObj.subsurface;
-        // Specular (Beckmann for skin)
+        // Specular dielectrique FAIBLE module par la rugosite (avant: pow(..,32)
+        // *0.3 fixe -> tout brillait comme un miroir, meme les mats).
         vec3 H=normalize(V+L);
-        float spec=pow(max(dot(N,H),0.),32.)*NdL;
-        Lo+=spec*vec3(0.3)*rad;
+        float sm   = 1.0 - clamp(rog, 0.0, 1.0);
+        float shin = mix(8.0, 128.0, sm);
+        float spec = pow(max(dot(N,H),0.0), shin) * NdL;
+        Lo += spec * 0.04 * (sm*sm) * rad;
     }
     // Ambient + IBL approximation
     vec3 amb=texture(tEnvIrradiance,N).rgb*albedo*ao*0.3;
     // Emissive (blush map in B channel of emissive)
     vec3 emissive=texture(tEmissive,vUV).rgb*uObj.emissiveStrength;
-    fragColor=vec4(amb+Lo+sssOut+emissive, alpha);
+    vec3 col = amb+Lo+sssOut+emissive;
+    if (any(isnan(col)) || any(isinf(col))) col = vec3(0.0);
+    fragColor = vec4(clamp(col, vec3(0.0), vec3(64.0)), alpha);
 }

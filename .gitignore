@@ -674,6 +674,5 @@ FodyWeavers.xsd
 # NKCode runtime + WIP local (jamais suivis)
 /.nkcode/
 /Captures/
-Applications/NkAnimaEditor/
 Applications/NKCode/important/*.pdf
 Applications/NKCode/data/fonts/NotoEmoji-Regular.ttf
