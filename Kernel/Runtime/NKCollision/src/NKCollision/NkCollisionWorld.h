@@ -60,6 +60,10 @@ namespace nkentseu {
                 bool   Raycast3D(const NkRay3D& ray, NkRayHit3D& hit, uint32 mask = 0xFFFFFFFFu) const;
                 bool   Raycast2D(const NkRay2D& ray, NkRayHit2D& hit, uint32 mask = 0xFFFFFFFFu) const;
 
+                // Requête d'overlap : tous les corps qui chevauchent la forme `s`
+                // (broadphase AABB + narrowphase). Remplit `out` avec leurs ids, renvoie le nombre.
+                uint32 Overlap(const NkShape& s, NkVector<uint32>& out, uint32 mask = 0xFFFFFFFFu) const;
+
                 uint32 BodyCount() const noexcept { return (uint32)mBodies.Size(); }
 
             private:

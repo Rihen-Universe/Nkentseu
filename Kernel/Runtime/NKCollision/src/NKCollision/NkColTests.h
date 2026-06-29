@@ -147,5 +147,39 @@ namespace nkentseu {
             hit.normal = (hit.point - c).Normalized(); return true;
         }
 
+        // Boîte ORIENTÉE (OBB) : on ramène le rayon dans le repère local puis slab AABB.
+        inline bool NkRayOBB3D(const NkRay3D& ray, const NkVec3f& c, const NkVec3f& h, const nkentseu::math::NkQuatf& q, NkRayHit3D& hit) noexcept {
+            const NkVec3f lo = q.Conjugate() * (ray.origin - c);
+            const NkVec3f ld = q.Conjugate() * ray.dir;
+            NkRay3D lr{ lo, ld, ray.maxT }; NkRayHit3D lh;
+            if (!NkRayAABB3D(lr, h * -1.f, h, lh)) return false;
+            hit.hit = true; hit.t = lh.t; hit.point = ray.origin + ray.dir * lh.t;
+            hit.normal = q * lh.normal; return true;
+        }
+
+        // Plan infini (point p + normale n).
+        inline bool NkRayPlane3D(const NkRay3D& ray, const NkVec3f& p, const NkVec3f& n, NkRayHit3D& hit) noexcept {
+            const float32 denom = n.Dot(ray.dir);
+            if (math::NkAbs(denom) < 1e-8f) return false;
+            const float32 t = n.Dot(p - ray.origin) / denom;
+            if (t < 0.f || t > ray.maxT) return false;
+            hit.hit = true; hit.t = t; hit.point = ray.origin + ray.dir * t;
+            hit.normal = (denom < 0.f) ? n : n * -1.f; return true;
+        }
+
+        // Triangle (Möller–Trumbore).
+        inline bool NkRayTriangle3D(const NkRay3D& ray, const NkVec3f& v0, const NkVec3f& v1, const NkVec3f& v2, NkRayHit3D& hit) noexcept {
+            const NkVec3f e1 = v1 - v0, e2 = v2 - v0, p = ray.dir.Cross(e2);
+            const float32 det = e1.Dot(p); if (math::NkAbs(det) < 1e-8f) return false;
+            const float32 inv = 1.f / det; const NkVec3f tv = ray.origin - v0;
+            const float32 u = tv.Dot(p) * inv; if (u < 0.f || u > 1.f) return false;
+            const NkVec3f qv = tv.Cross(e1);
+            const float32 v = ray.dir.Dot(qv) * inv; if (v < 0.f || u + v > 1.f) return false;
+            const float32 t = e2.Dot(qv) * inv; if (t < 0.f || t > ray.maxT) return false;
+            hit.hit = true; hit.t = t; hit.point = ray.origin + ray.dir * t;
+            NkVec3f nrm = e1.Cross(e2).Normalized();
+            hit.normal = (nrm.Dot(ray.dir) < 0.f) ? nrm : nrm * -1.f; return true;
+        }
+
     } // namespace collision
 } // namespace nkentseu
