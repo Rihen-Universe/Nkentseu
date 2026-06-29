@@ -1,6 +1,19 @@
 # NKCollision — Roadmap
 
-État actuel (**2026-06-29**) : **module Nkentseu démarré, zéro-STL, qui COMPILE et passe son self-test (22/22)**. Phase 0 (bootstrap) + amorce de Phase 1/4/7 livrées : `NKCollision.jenga` + enregistrement (`config/modules.jenga` + `Nkentseu.jenga`), namespace `nkentseu::collision`, types sur **NKMath** (zéro math maison), conteneurs **NKContainers** (`NkVector`), zéro `std::`. Le prototype tiers STL (`col::`) a été **écarté** vers `scratchpad/NKCollision_legacy/` (référence à porter : GJK/EPA, DBVH, CCD, contacts persistants, backends GPU). Objectif final = module `NKCollision` officiel d'ARCHITECTURE.md §2.4.
+État actuel (**2026-06-29**) : **module zéro-STL qui COMPILE et passe son self-test (47/47)**. Phases 0/1/2/4/7 livrées + **narrowphase générique GJK/EPA 2D+3D** (vague 2). Sur **NKMath** (zéro math maison), conteneurs **NKContainers** (`NkVector`), `NKLogger` (pas de printf), zéro `std::`. Le prototype tiers STL (`col::`) a été **remplacé**. Objectif final = module `NKCollision` officiel d'ARCHITECTURE.md §2.4.
+
+### Livré 2026-06-29 — vague 2 : GJK/EPA générique + taxonomie « type PhysX »
+- **Taxonomie de formes étendue** (`NkColTypes.h` `NkShapeType`) : 2D = Point, Segment, Cercle, Capsule, Triangle, Box/OBB, Polygone (+ Chain concave) ; 3D = Sphère, Capsule, Triangle, Box, **Cylindre**, **Cône**, **Convex hull**, **Plan/half-space** (+ Heightfield, Trimesh, Compound concaves). Helpers `NkShapeIs2D/IsConvex/IsConcave`. ✅
+- **NkShape étendu** (`NkColShapes.h`) : sommets non-ownants (triangle/polygone/convexe), params cylindre/cône/plan, fabriques dédiées + AABB exacte de chaque type. ✅
+- **GJK + EPA génériques** (`NkColGJK.h`, **le cœur « puissant »**) : modèle **cœur + marge** (Bullet-like) — GJK-distance sur les cœurs (formes arrondies gérées par la marge analytiquement), GJK booléen + EPA pour la pénétration profonde. Fonctions de support pour TOUTE la famille convexe 2D+3D → **ajouter un type convexe = écrire son support**. Sortie : normale A→B + profondeur + 1 point de contact. ✅
+- **Plan / half-space** : test analytique dédié (infini, hors GJK) vs toute forme convexe. ✅
+- **Dispatch** (`NkCollisionWorld.cpp`) : fast-paths analytiques conservés (sphère/box/capsule) + **fallback GJK/EPA** pour toute paire convexe non couverte (box-capsule, cône, cylindre, convexe, triangle…) + plan. ✅
+- **Self-test** : **47 assertions, 0 échec** (cohérence GJK vs analytique sphère/box, box-capsule, cylindre, cône, convexe-tétraèdre, triangle, plan, polygones 2D, intégration world). ✅
+- **Reste (concaves)** : Chain2D / Heightfield / Trimesh / Compound = enum + dispatch prêts, **décomposition à implémenter (vague 3)**.
+
+---
+
+### Vague 1 (2026-06-29) — bootstrap + analytique
 
 ### Livré 2026-06-29 (commit côté worktree `Nkentseu-anima`)
 - **Phase 0** : structure `src/NKCollision/`, jenga, umbrella `NKCollision.h`, enregistrement workspace. ✅
@@ -14,13 +27,16 @@
   prise en compte (avant : traitées AABB). ✅
 - **Self-test** (`tests/test_collision.cpp`, **NKLogger** pas printf) : **26 assertions, 0 échec**. ✅
 
-### Reste prioritaire (prochaines sessions)
-- **OBB 3D** (SAT 15 axes) : ajouter une orientation (quat) à `NkShape` Box3D + SAT 3D.
-- **GJK + EPA** (2D/3D) via fonctions de support : couvre polygone/convexe/capsule/OBB de
-  façon unifiée + profondeur/normale (le vrai « puissant »).
-- **Polygone 2D / ConvexHull 3D** (stockage sommets) + support functions.
+### Reste prioritaire (prochaines vagues)
+- **Concaves / composite (vague 3)** : Trimesh (BVH) + Heightfield + Chain2D + Compound
+  par **décomposition** (broadphase interne -> GJK/EPA par morceau convexe). Enum + dispatch déjà prêts.
+- **OBB 3D orientée** : ajouter une orientation (quat) à `NkShape` Box3D (le support GJK box est
+  AABB pour l'instant ; GJK gère déjà box-vs-tout, reste l'orientation propre).
 - **Broadphase SAP / DBVH** (perf, remplace le O(n²) actuel).
-- **Triggers / events** (OnEnter/Stay/Exit), **debug draw** (NKUI), **intégration ECS**.
+- **Manifold multi-points** (clipping faces) : GJK/EPA sort 1 point ; le clipping (Sutherland-Hodgman)
+  donnera 2 pts (2D) / 4 pts (3D) pour la stabilité de la résolution physique.
+- **Triggers / events** (OnEnter/Stay/Exit), **debug draw** (NKUI/NKRenderer), **intégration ECS**.
+- **CCD** (swept + TOI) et **contacts persistants** (warm-starting pour NKPhysics).
 
 ---
 

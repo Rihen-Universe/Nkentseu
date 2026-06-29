@@ -17,24 +17,62 @@ namespace nkentseu {
         using nkentseu::math::NkVec2f;
         using nkentseu::math::NkVec3f;
 
-        // ── Types de forme (2D + 3D) ─────────────────────────────────────────
+        // ── Types de forme (2D + 3D) — taxonomie « type PhysX » ──────────────
+        // Trois familles selon le chemin de narrowphase :
+        //   • CONVEXE  -> fonction de support unique => GJK/EPA générique.
+        //   • ANALYTIQUE special (plan/half-space infini) -> test dédié.
+        //   • CONCAVE/COMPOSITE -> décomposition en convexes (vague suivante).
+        // L'ordre groupe 2D puis 3D ; NkShapeIs2D/IsConvex/IsConcave classent.
         enum class NkShapeType : uint8 {
-            // 2D
-            NK_CIRCLE2D = 0,
-            NK_BOX2D,            // OBB : centre + demi-extents + rotation (radians)
+            // ── 2D convexes ──────────────────────────────────────────────────
+            NK_POINT2D = 0,      // point (degenere, utile pour requetes)
+            NK_SEGMENT2D,        // segment a-b (epaisseur nulle)
+            NK_CIRCLE2D,         // centre + rayon
             NK_CAPSULE2D,        // segment a-b + rayon
-            NK_POLYGON2D,        // convexe, sommets CCW
-            // 3D
-            NK_SPHERE,
-            NK_BOX3D,            // OBB : centre + demi-extents + base orthonormée
+            NK_TRIANGLE2D,       // 3 sommets (verts)
+            NK_BOX2D,            // OBB : centre + demi-extents + rotation (radians)
+            NK_POLYGON2D,        // convexe, sommets CCW (verts)
+            // ── 2D concave / statique ────────────────────────────────────────
+            NK_CHAIN2D,          // polyligne concave (sol/terrain 2D, statique)
+            // ── 3D convexes ──────────────────────────────────────────────────
+            NK_SPHERE,           // centre + rayon
             NK_CAPSULE3D,        // segment a-b + rayon
-            NK_CONVEX3D,         // enveloppe convexe (sommets)
+            NK_TRIANGLE3D,       // 3 sommets (verts)
+            NK_BOX3D,            // boite alignee : centre + demi-extents
+            NK_CYLINDER3D,       // centre + axe (p1, unite) + demi-hauteur + rayon
+            NK_CONE3D,           // base (p0) + axe (p1, unite) + hauteur + rayon base
+            NK_CONVEX3D,         // enveloppe convexe (verts)
+            // ── 3D analytique special ────────────────────────────────────────
+            NK_PLANE3D,          // half-space infini : point (p0) + normale (p1)
+            // ── 3D concave / composite (statique) ────────────────────────────
+            NK_HEIGHTFIELD3D,    // terrain regulier
+            NK_TRIMESH3D,        // soupe de triangles (BVH), statique
+            NK_COMPOUND,         // plusieurs sous-formes + transform local (2D ou 3D)
             NK_COUNT
         };
 
+        // 2D = tout ce qui precede NK_SPHERE.
         NK_FORCE_INLINE bool NkShapeIs2D(NkShapeType t) noexcept {
-            return t == NkShapeType::NK_CIRCLE2D || t == NkShapeType::NK_BOX2D
-                || t == NkShapeType::NK_CAPSULE2D || t == NkShapeType::NK_POLYGON2D;
+            return (uint8)t <= (uint8)NkShapeType::NK_CHAIN2D;
+        }
+        // Famille convexe -> support function -> GJK/EPA.
+        NK_FORCE_INLINE bool NkShapeIsConvex(NkShapeType t) noexcept {
+            switch (t) {
+                case NkShapeType::NK_POINT2D:   case NkShapeType::NK_SEGMENT2D:
+                case NkShapeType::NK_CIRCLE2D:  case NkShapeType::NK_CAPSULE2D:
+                case NkShapeType::NK_TRIANGLE2D:case NkShapeType::NK_BOX2D:
+                case NkShapeType::NK_POLYGON2D:
+                case NkShapeType::NK_SPHERE:    case NkShapeType::NK_CAPSULE3D:
+                case NkShapeType::NK_TRIANGLE3D:case NkShapeType::NK_BOX3D:
+                case NkShapeType::NK_CYLINDER3D:case NkShapeType::NK_CONE3D:
+                case NkShapeType::NK_CONVEX3D:  return true;
+                default:                        return false;
+            }
+        }
+        // Concave/composite -> decomposition (CHAIN2D, HEIGHTFIELD3D, TRIMESH3D, COMPOUND).
+        NK_FORCE_INLINE bool NkShapeIsConcave(NkShapeType t) noexcept {
+            return t == NkShapeType::NK_CHAIN2D || t == NkShapeType::NK_HEIGHTFIELD3D
+                || t == NkShapeType::NK_TRIMESH3D || t == NkShapeType::NK_COMPOUND;
         }
 
         // ── Boîtes englobantes alignées (broadphase) ─────────────────────────
