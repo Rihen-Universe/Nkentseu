@@ -895,10 +895,10 @@ NkPipelineHandle NkOpenGLDevice::CreateGraphicsPipeline(const NkGraphicsPipeline
     glBindVertexArray(0);
 #endif
 
-    uint64 hid=NextId(); 
+    uint64 hid=NextId();
     mPipelines[hid]=p;
-    NkPipelineHandle h; 
-    h.id=hid; 
+    NkPipelineHandle h;
+    h.id=hid;
     return h;
 }
 

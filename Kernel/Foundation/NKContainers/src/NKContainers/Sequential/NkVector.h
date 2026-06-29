@@ -2221,6 +2221,27 @@
                     return Erase(Begin() + pos, Begin() + pos + count);
                 }
 
+                // ── Recherche lineaire (style STL : Iterator + End() si absent) ──
+                Iterator Find(const T& value) {
+                    for (SizeType i = 0; i < mSize; ++i)
+                        if (mData[i] == value) return Begin() + i;
+                    return End();
+                }
+                ConstIterator Find(const T& value) const {
+                    for (SizeType i = 0; i < mSize; ++i)
+                        if (mData[i] == value) return Begin() + i;
+                    return End();
+                }
+                // Index de la 1ere occurrence, ou SizeType(-1) si absent.
+                SizeType IndexOf(const T& value) const {
+                    for (SizeType i = 0; i < mSize; ++i)
+                        if (mData[i] == value) return i;
+                    return static_cast<SizeType>(-1);
+                }
+                bool Contains(const T& value) const {
+                    return IndexOf(value) != static_cast<SizeType>(-1);
+                }
+
         }; // class NkVector
 
         // -------------------------------------------------------------------------

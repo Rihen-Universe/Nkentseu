@@ -136,7 +136,10 @@ namespace nkentseu {
             mTmplArchviz  = reg(NkMaterialType::NK_ARCHIVIZ,     "Default_Archviz",  "PBR");
             mTmplReflFloor= reg(NkMaterialType::NK_REFL_FLOOR,   "Default_ReflFloor","ReflFloor");
             // M.1 v0 : Layered material (2 layers PBR + masque vertex-color).
-            // Shader Resources/.../Shaders/Layered/VK/layered.{vert,frag}.vk.glsl.
+            // Shader Resources/.../Shaders/Layered/NkSL/layered.{vert,frag}.nksl
+            // (VRAI dialecte NkSL → generateur HLSL DIRECT pour DX11/DX12, evite
+            // le chemin GLSL→SPIRV→SPIRV-Cross→HLSL "Invalid SPIRV"). LoadOrCompileVF
+            // prefere automatiquement le .nksl s'il existe, fallback .vk.glsl sinon.
             // L'instance Layered ecrit un NkLayeredParams (208B) dans son UBO
             // au lieu du NkPBRParams (96B) standard — cf. BindInstance branch.
             mTmplLayered  = reg(NkMaterialType::NK_LAYERED,      "Default_Layered",  "Layered");

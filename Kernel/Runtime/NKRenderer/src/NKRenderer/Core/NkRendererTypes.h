@@ -120,8 +120,14 @@ namespace nkentseu {
             uint32   color;
         };
 
+        // Skinning GPU : 4 influences par vertex. Les indices de bones sont
+        // stockes en float32 (et non uint8) pour rester PORTABLE sur tous les
+        // backends : le format vertex entier x4 (RGBA8_UINT / RGBA16_UINT /
+        // RGBA32_UINT) n'est pas mappe par DX11 (et partiellement ailleurs),
+        // alors que RGBA32_FLOAT l'est partout. Le shader skin lit aBoneIdx en
+        // vec4 et indexe bones[int(aBoneIdx.x + 0.5)]. Stride = 56 + 16 + 16 = 88.
         struct NkVertexSkinned : NkVertex3D {
-            uint8    boneIdx[4]    = {0,0,0,0};
+            float32  boneIdx[4]    = {0.f,0.f,0.f,0.f};
             float32  boneWeight[4] = {1.f,0.f,0.f,0.f};
         };
 
@@ -458,6 +464,13 @@ namespace nkentseu {
             float32           alpha = 1.f;
             NkAABB            aabb;
             bool              castShadow = true;
+
+            // Phase M.8 (skinne) — Multi-material par sous-mesh, calque sur
+            // NkDrawCall3D::materialSlots. Si non-vide, FlushSkinned itere sur
+            // les sous-meshes du mesh et bind materialSlots[i] (un materiau par
+            // primitive glTF). Le champ `material` ci-dessus reste le fallback
+            // global (mono-draw) quand materialSlots est vide ou un slot invalide.
+            NkVector<NkMatInstHandle> materialSlots;
         };
 
         // Indirect draw command (GPU-driven) — match GL_DRAW_ELEMENTS_INDIRECT_COMMAND

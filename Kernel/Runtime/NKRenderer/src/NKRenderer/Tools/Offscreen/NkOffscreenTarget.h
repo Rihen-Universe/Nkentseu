@@ -27,6 +27,10 @@ namespace nkentseu {
                                 bool clearDepth=true);
                 void EndCapture(NkICommandBuffer* cmd);
                 bool ReadbackPixels(uint8* dst, uint32 rowPitch=0);
+                // Capture le rendu offscreen vers un fichier image (format selon
+                // l'extension via NkImage). Exige readback=true + colorFmt LDR RGBA8.
+                // Pendant NKRHI de NkRenderTarget::Capture (cf. système de capture).
+                bool Capture(const char* path);
                 bool Resize(uint32 w, uint32 h);
                 NkTexHandle        GetColorResult() const { return mColor; }
                 NkTexHandle        GetDepthResult() const { return mDepth; }

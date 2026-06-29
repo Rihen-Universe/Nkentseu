@@ -263,20 +263,33 @@ namespace nkentseu {
             const auto& c=ctx.theme.colors;
             const auto& m=ctx.theme.metrics;
             const float32 hw=m.dockSplitW*0.5f;
-            NkRect splitter=rect;
+            // Zone VISUELLE (fine) vs zone de PRÉHENSION (large) : il faut pouvoir
+            // attraper le séparateur facilement, sinon on attrape la barre d'onglets
+            // par erreur (et ça déclenche un undock au lieu d'un redimensionnement).
+            const float32 grabHw=(m.dockSplitW<12.f?12.f:m.dockSplitW)*0.5f;
+            NkRect splitter=rect;   // visuel
+            NkRect hit=rect;        // interaction (préhension élargie)
             if(vertical){
-                splitter.x=rect.x+rect.w*ratio-hw;
-                splitter.w=m.dockSplitW;
+                splitter.x=rect.x+rect.w*ratio-hw;  splitter.w=m.dockSplitW;
+                hit.x=rect.x+rect.w*ratio-grabHw;   hit.w=grabHw*2.f;
             } else {
-                splitter.y=rect.y+rect.h*ratio-hw;
-                splitter.h=m.dockSplitW;
+                splitter.y=rect.y+rect.h*ratio-hw;  splitter.h=m.dockSplitW;
+                hit.y=rect.y+rect.h*ratio-grabHw;   hit.h=grabHw*2.f;
             }
 
             const bool canInteract = LayoutWindowCanInteract(ctx, id);
-            const bool hov=canInteract && ctx.IsHovered(splitter);
+            const bool hov=canInteract && ctx.IsHovered(hit);
             const bool act=ctx.IsActive(id);
 
-            dl.AddRectFilled(splitter,hov||act?c.accentHover:c.separator);
+            // Survol/actif : élargir le visuel (6px accent) pour une affordance nette.
+            if(hov||act){
+                NkRect vis=splitter;
+                if(vertical){ vis.x=rect.x+rect.w*ratio-3.f; vis.w=6.f; }
+                else        { vis.y=rect.y+rect.h*ratio-3.f; vis.h=6.f; }
+                dl.AddRectFilled(vis,c.accentHover);
+            } else {
+                dl.AddRectFilled(splitter,c.separator);
+            }
             const NkVec2 center={splitter.x+splitter.w*0.5f,splitter.y+splitter.h*0.5f};
             const NkColor handleCol=(hov||act)?c.textOnAccent:c.textSecondary;
             const float32 arrowSize=vertical?6.f:5.f;

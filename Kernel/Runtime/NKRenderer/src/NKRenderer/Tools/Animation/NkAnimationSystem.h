@@ -39,6 +39,7 @@ namespace nkentseu {
         class NkMaterialInstance;
         class NkMeshSystem;
         struct NkPostConfig;
+        struct NkGLTFMeshData;
 
         // =========================================================================
         // Mode d'interpolation
@@ -111,6 +112,33 @@ namespace nkentseu {
                     return mKeys.Empty()?0.f:mKeys[mKeys.Size()-1].time;
                 }
                 uint32  KeyCount()    const { return (uint32)mKeys.Size(); }
+                const NkKeyframe<T>& GetKey(uint32 i) const { return mKeys[i]; }  // serialisation
+
+                // ── Édition (timeline) ────────────────────────────────────────────────
+                // Indice de la clé au temps ~t (tolérance), ou -1.
+                int32 FindKeyAtTime(float32 t, float32 tol = 1e-4f) const {
+                    for (uint32 i=0;i<(uint32)mKeys.Size();++i) {
+                        float32 d = mKeys[i].time - t; if (d < 0.f) d = -d;
+                        if (d <= tol) return (int32)i;
+                    }
+                    return -1;
+                }
+                bool RemoveKeyAt(uint32 i) {
+                    if (i >= (uint32)mKeys.Size()) return false;
+                    mKeys.Erase(mKeys.Begin() + i); return true;
+                }
+                bool SetKeyInterp(uint32 i, NkInterpMode m) {
+                    if (i >= (uint32)mKeys.Size()) return false;
+                    mKeys[i].interp = m; return true;
+                }
+                // Déplace la clé i au temps newTime (re-trie). Retourne le nouvel indice.
+                int32 MoveKey(uint32 i, float32 newTime) {
+                    if (i >= (uint32)mKeys.Size()) return -1;
+                    NkKeyframe<T> kf = mKeys[i]; kf.time = newTime;
+                    mKeys.Erase(mKeys.Begin() + i);
+                    uint32 j=0; while(j<(uint32)mKeys.Size() && mKeys[j].time<newTime) ++j;
+                    mKeys.Insert(mKeys.Begin() + j, kf); return (int32)j;
+                }
 
             private:
                 NkVector<NkKeyframe<T>> mKeys;
@@ -160,6 +188,19 @@ namespace nkentseu {
                 // ── Skeletal ─────────────────────────────────────────────────────────
                 NkVector<NkAnimationTrack<NkMat4f>> boneTracks;  // un par bone
                 uint32 boneCount = 0;
+
+                // Mode LOCAL (M1) : si true, boneTracks = matrices bone-LOCAL (relatives
+                // au parent JOINT), PAS des matrices de skinning. Le player fait alors FK
+                // (global = parent×local) + skinning (global×inverseBind) au sample. Avantages :
+                // interp slerp CORRECTE (transforms rigides locaux, pas de scale composite),
+                // édition de pose naturelle (timeline), retargetable. Squelette requis :
+                bool              skeletalLocal = false;
+                NkVector<int32>   jointParent;       // parent de chaque joint (-1 = racine)
+                NkVector<NkMat4f> jointInverseBind;  // inverseBind par joint
+                NkVector<uint32>  jointTopo;         // ordre topo (parent avant enfant)
+                // Convertit en place des matrices bone-LOCAL en matrices de SKINNING
+                // (FK hiérarchique + inverseBind). Utilisé par le player en mode local.
+                void ApplyFKSkinning(NkVector<NkMat4f>& boneLocalToSkin) const;
 
                 // ── Morph targets ─────────────────────────────────────────────────────
                 NkVector<NkAnimationTrack<float32>> morphTracks;
@@ -215,6 +256,20 @@ namespace nkentseu {
                 void AddBoneKey(uint32 boneIdx, float32 time, const NkMat4f& mat,
                                 NkInterpMode interp = NkInterpMode::NK_LINEAR);
                 void ResizeBones(uint32 count);
+
+                // ── Sérialisation BINAIRE .nkanim (M1) ────────────────────────────────
+                // Format compact versionné (header NKAN + tracks d'os). Pas de JSON :
+                // l'anim = beaucoup de keyframes (floats) -> binaire = compact + chargement
+                // rapide sans parsing. Sert l'app NkAnima ET le moteur de jeu (rejouer un clip).
+                bool SaveBinary(const NkString& path) const;
+                bool LoadBinary(const NkString& path);
+
+                // ── Import : bake une animation glTF en clip éditable (M1) ─────────────
+                // Échantillonne la pose squelettique (EvaluateGLTFPose) à `fps` sur toute
+                // la durée et stocke chaque frame en keyframes par os (matrices de
+                // skinning) -> l'anim devient éditable + sauvegardable .nkanim, et
+                // rejouable par NkAnimationPlayer. Engine-level (jeu + app NkAnima).
+                bool BakeFromGLTF(const NkGLTFMeshData& data, int32 animIdx, float32 fps = 30.f);
 
                 void BuildSpriteFlipBook(uint32 frameCount, float32 spriteFPS = 12.f);
 

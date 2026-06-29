@@ -256,3 +256,5 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
 # sandboxusenkrenderer("Scene", ["src/DemoNkentseu/Base05/NkRendererDemo.cpp"], "sandbox.scene.base04", use_nkimage=True, use_nkfont=True, use_nkui=True)
 sandboxusenkrenderer("r2d01", ["src/DemoNkentseu/Base05/NkRenderer2DDemo.cpp"], "sandbox.scene.r2d01", use_nkimage=True, use_nkfont=True, use_nkui=True)
 sandboxusenkrenderer("renderdemo", ["src/Demo/**.cpp"], "sandbox.render.demo", use_nkimage=True, use_nkfont=True, use_nkui=True)
+# Test CPU du loader glTF 2.0 (NkGLTFLoader) — pas de GPU requis.
+sandboxusenkrenderer("gltftest", ["src/GLTFTest/**.cpp"], "sandbox.render.gltftest", use_nkimage=True, use_nkfont=True, use_nkui=True)

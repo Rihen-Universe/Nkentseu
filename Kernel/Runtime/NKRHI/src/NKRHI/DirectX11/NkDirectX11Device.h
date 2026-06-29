@@ -24,7 +24,14 @@ namespace nkentseu {
 
     class NkDirectX11CommandBuffer;
 
-    struct NkDX11Buffer  { ID3D11Buffer*  buf=nullptr; NkBufferDesc  desc; };
+    struct NkDX11Buffer  {
+        ID3D11Buffer*             buf=nullptr;
+        // Vues pour les storage buffers (skinning/instancing) : SRV ByteAddress
+        // (lecture en graphics) + UAV (compute). Null pour les uniform buffers.
+        ID3D11ShaderResourceView* srv=nullptr;
+        ID3D11UnorderedAccessView*uav=nullptr;
+        NkBufferDesc              desc;
+    };
     struct NkDX11Texture {
         ID3D11Texture2D*          tex=nullptr;
         ID3D11Texture3D*          tex3d=nullptr;   // textures volumétriques (VoxelAO, LUT 3D…)

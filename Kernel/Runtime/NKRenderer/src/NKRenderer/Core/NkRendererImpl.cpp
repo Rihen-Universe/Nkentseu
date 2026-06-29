@@ -482,8 +482,19 @@ namespace nkentseu {
             const bool hasVFX      = (mVFX.Get()         != nullptr);
             const bool hasOverlay  = (mOverlay.Get()     != nullptr);
 
-            // Swapchain (toujours imported — c'est l'output final de la frame)
-            auto colorId = g.ImportTexture("Swapchain", NkTextureHandle{}, NkResourceState::NK_PRESENT);
+            // Swapchain (toujours imported — c'est l'output final de la frame).
+            // Si une cible finale externe est fournie (viewport editeur sur device
+            // partage), on redirige la sortie du graph vers elle (RT echantillonnable)
+            // au lieu de la swapchain — pipeline COMPLET (ombres/eclairage/IBL/tonemap).
+            NkGraphResId colorId;
+            if (mFinalColorOverride.IsValid()) {
+                NkTextureDesc fd = NkTextureDesc::RenderTarget(
+                    mCfg.width, mCfg.height, mDevice->GetSwapchainFormat());
+                colorId = g.ImportTexture("Swapchain", mFinalColorOverride,
+                                          NkResourceState::NK_SHADER_READ, fd);
+            } else {
+                colorId = g.ImportTexture("Swapchain", NkTextureHandle{}, NkResourceState::NK_PRESENT);
+            }
 
             // Cible 3D : si POST_PROCESS active → HDR transient ; sinon ecrit directement dans Swapchain.
             NkGraphResId mainColor = colorId;
@@ -847,6 +858,12 @@ namespace nkentseu {
                 }
             }
             t = nullptr;
+        }
+
+        void NkRendererImpl::SetFinalColorTarget(NkTextureHandle target) {
+            if (mFinalColorOverride.id == target.id) return;
+            mFinalColorOverride = target;
+            if (mInitialized) RebuildRenderGraph();   // l'import swapchain change de cible
         }
 
     } // namespace renderer

@@ -184,9 +184,23 @@ namespace nkentseu {
                             mDeferred->PSSetConstantBuffers(slot, 1, &s.buf);
                             mDeferred->CSSetConstantBuffers(slot, 1, &s.buf);
                         }
+                    } else if (s.type == NkDescriptorType::NK_STORAGE_BUFFER ||
+                               s.type == NkDescriptorType::NK_STORAGE_BUFFER_DYNAMIC) {
+                        // Storage buffer LU en graphics (skinning : bones[]) ->
+                        // SRV ByteAddressBuffer en VS/PS. Le converter NkSL->HLSL
+                        // (ce SPIRV-Cross) place TOUJOURS le ByteAddressBuffer au
+                        // register t0 (compteur SRV propre aux raw buffers,
+                        // independant du binding GLSL). On binde donc a t0, pas a
+                        // t<slot>. Sans ce bind, le VS skin lit une SRV nulle ->
+                        // bones=0 -> mesh a l'origine -> INVISIBLE sur DX11.
+                        if (s.srv) {
+                            ID3D11ShaderResourceView* srvBones = s.srv;
+                            mDeferred->VSSetShaderResources(0, 1, &srvBones);
+                            mDeferred->PSSetShaderResources(0, 1, &srvBones);
+                        }
                     } else {
                         // UAV (compute)
-                        mDeferred->CSSetUnorderedAccessViews(slot, 1, &s.uav, nullptr);
+                        if (s.uav) mDeferred->CSSetUnorderedAccessViews(slot, 1, &s.uav, nullptr);
                     }
                     break;
                 case NkDX11DescSet::Slot::Texture:

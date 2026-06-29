@@ -1,0 +1,59 @@
+// m5demo.vert.nksl — M.5 Demo : minimal pass-through (UV + worldPos + tint).
+// Traduit de M5Demo/VK/m5demo.vert.vk.glsl vers le VRAI dialecte NkSL pour le
+// generateur HLSL DIRECT (DX11/DX12) au lieu du chemin GLSL->SPIRV->SPIRV-Cross.
+// std140 des UBO identique au .vk.glsl (CameraUBO set=0 bind=0, ObjectUBO set=1 bind=1).
+
+@location(0) in vec3 aPos;
+@location(1) in vec3 aNormal;
+@location(2) in vec3 aTangent;
+@location(3) in vec2 aUV;
+@location(4) in vec2 aUV2;
+@location(5) in vec4 aColor;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+} uCam;
+
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model;
+    mat4  normalMatrix;
+    vec4  tint;
+    float metallic;
+    float roughness;
+    float aoStrength;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRoughness;
+    float subsurface;
+    vec4  subsurfaceColor;
+} uObj;
+
+@location(0) out vec3 vWorldPos;
+@location(1) out vec3 vNormal;
+@location(2) out vec2 vUV;
+@location(3) out vec4 vColor;
+@location(4) out float vTime;
+
+@stage(vertex)
+@entry
+void main() {
+    vec4 wp     = uObj.model * vec4(aPos, 1.0);
+    vWorldPos   = wp.xyz;
+    vNormal     = normalize(mat3(uObj.normalMatrix) * aNormal);
+    vUV         = aUV;
+    vColor      = aColor * uObj.tint;
+    vTime       = uCam.time;
+    gl_Position = uCam.viewProj * wp;
+}

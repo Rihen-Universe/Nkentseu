@@ -84,6 +84,7 @@ _REGISTRY: dict = {
     "NKFont"         : _m("NKENTSEU_FONT",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKImage"]),
     "NKECS"          : _m("NKENTSEU_ECS",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKThreading", "NKReflection", "NKSerialization"]),
     "NKCamera"       : _m("NKENTSEU_CAMERA",       ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath"]),
+    "NKCollision"    : _m("NKENTSEU_COLLISION",    ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath"]),
     "NKUI"           : _m("NKENTSEU_UI",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKEvent", "NKFont", "NKImage"]),
     # NKGui : framework UI nouvelle génération (réécriture de NKUI, immédiat+retenu).
     "NKGui"          : _m("NKENTSEU_NKGUI",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKThreading", "NKEvent", "NKFont", "NKImage"]),
@@ -120,7 +121,7 @@ _ALIASES: dict = {
     "time": "NKTime", "reflection": "NKReflection", "serialization": "NKSerialization",
     "network": "NKNetwork", "event": "NKEvent", "window": "NKWindow", "canvas": "NKCanvas",
     "nksl": "NKSL", "rhi": "NKRHI", "renderer": "NKRenderer", "image": "NKImage",
-    "font": "NKFont", "ecs": "NKECS", "camera": "NKCamera", "ui": "NKUI", "audio": "NKAudio",
+    "font": "NKFont", "ecs": "NKECS", "camera": "NKCamera", "collision": "NKCollision", "ui": "NKUI", "audio": "NKAudio",
     "noge": "Noge", "engine": "Noge", "nkentseu": "Noge", "glad": "NKGlad",
 }
 

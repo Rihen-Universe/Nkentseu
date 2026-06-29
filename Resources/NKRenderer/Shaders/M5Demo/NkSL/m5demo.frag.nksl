@@ -1,0 +1,105 @@
+// m5demo.frag.nksl — M.5 Material Functions DEMO (VRAI dialecte NkSL)
+// Traduit de M5Demo/VK/m5demo.frag.vk.glsl. Migre vers NkSL pour le generateur
+// HLSL DIRECT (DX11/DX12) au lieu du chemin GLSL->SPIRV->SPIRV-Cross->HLSL.
+//
+// Effet : sphere stylisee avec couleur HSV cycling, texture FBM, ramp Toon (NdotL
+// fictif) et halo Fresnel parametrable sur les bords.
+//
+// Mapping NkPBRParams (UBO set=2 bind=8) -> params M5Demo :
+//   albedo.rgb       : couleur tinte (multiplie le HSV cycle)
+//   albedo.a         : mix HSV<->tinte (0=cycle pur, 1=tinte pure)
+//   emissive.rgb     : couleur du halo Fresnel
+//   emissiveStrength : intensite du halo (0..10+)
+//   roughness        : "rim power" — mappe sur pow(fres, 1+roughness*8)
+//
+// @material("M5Demo")
+//
+// Les helpers (NkHSVToRGB/NkSaturate/NkFBM2D/NkToonShade/NkFresnelSchlickScalar)
+// prennent leurs entrees en PARAMETRE (pas de varying directe dans un helper :
+// le generateur HLSL traduirait une varying en input.xxx, indispo hors entry -> X3004).
+
+@location(0) in vec3 vWorldPos;
+@location(1) in vec3 vNormal;
+@location(2) in vec2 vUV;
+@location(3) in vec4 vColor;
+@location(4) in float vTime;
+
+@location(0) out vec4 fragColor;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+} uCam;
+
+// UBO materiau : layout NkPBRParams (96 bytes). Le NkMaterialSystem upload ce
+// struct quand le type est NK_CUSTOM (defaut PBR).
+@binding(set=2, binding=8)
+uniform M5DemoUBO {
+    vec4  albedo;
+    vec4  emissive;
+    float metallic;
+    float roughness;
+    float ao;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRough;
+    float subsurface;
+    vec4  subsurfaceColor;
+    float anisotropy;
+    float sheen;
+    float reflFloorFaceMode;
+    float _pad;
+} uMat;
+
+#include "Include/NkNoise.glsli"
+#include "Include/NkColor.glsli"
+#include "Include/NkToonRamp.glsli"
+#include "Include/NkFresnel.glsli"
+
+@stage(fragment)
+@entry
+void main() {
+    vec3 N = normalize(vNormal);
+    vec3 V = normalize(uCam.camPos.xyz - vWorldPos);
+    float NdV = clamp(dot(N, V), 0.0, 1.0);
+
+    // Lumiere fictive fixe (top-front) pour ramp Toon
+    vec3 L = normalize(vec3(-0.3, 1.0, 0.4));
+    float NdL = clamp(dot(N, L), 0.0, 1.0);
+
+    // 1. Couleur de base : cycle HSV en fonction du temps + UV
+    float hue = fract(vTime * 0.15 + vUV.x);
+    vec3 baseHSV = vec3(hue, 0.85, 0.95);
+    vec3 cycledRGB = NkHSVToRGB(baseHSV);
+    vec3 baseRGB = mix(cycledRGB, uMat.albedo.rgb, uMat.albedo.a);
+
+    // 2. Texture FBM (procedural) : module la saturation
+    // 'n' renomme en 'noiseN' : le generateur HLSL passe les noms de fonctions en
+    // minuscules -> une fonction d'include (ex. 'N(...)') collisionnait avec 'n' -> X3003.
+    float noiseN = NkFBM2D(vUV * 6.0 + vec2(vTime * 0.2, 0.0), 4);
+    baseRGB = NkSaturate(baseRGB, 0.4 + 0.6 * noiseN);
+
+    // 3. Toon ramp 2-step depuis NdotL
+    vec3 litColor    = baseRGB;
+    vec3 shadowColor = baseRGB * 0.35;
+    vec3 toned       = NkToonShade(litColor, shadowColor, NdL, 0.45, 0.06);
+
+    // 4. Halo Fresnel parametrable
+    float fres   = NkFresnelSchlickScalar(NdV, 0.04);
+    float rimPow = 1.0 + uMat.roughness * 8.0;
+    float rim    = pow(fres, rimPow);
+    vec3 halo    = uMat.emissive.rgb * rim * uMat.emissiveStrength;
+
+    vec3 final = toned + halo;
+    fragColor = vec4(final, 1.0) * vColor;
+}

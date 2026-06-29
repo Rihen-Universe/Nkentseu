@@ -1,0 +1,32 @@
+// debugline.vert.nksl — NKRenderer — Debug line renderer (gizmos/squelettes/IK)
+// Vertex : position monde + couleur -> clip via CameraUBO.viewProj. Topologie LINE.
+@location(0) in vec3 aPos;
+@location(1) in vec4 aColor;
+
+@location(0) out vec4 vColor;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+    float _p0;
+    float _p1;
+    float _p2;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;
+} uCam;
+
+@stage(vertex)
+@entry
+void main() {
+    vColor      = aColor;
+    gl_Position = uCam.viewProj * vec4(aPos, 1.0);
+}

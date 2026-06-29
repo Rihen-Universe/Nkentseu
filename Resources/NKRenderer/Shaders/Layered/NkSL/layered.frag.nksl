@@ -1,0 +1,182 @@
+// layered.frag.nksl — NKRenderer M.1 Material Layering (VRAI dialecte NkSL)
+// Traduit de Layered/VK/layered.frag.vk.glsl. 2 couches PBR superposees, blend
+// par un masque (vColor/vUV), eval simplifie (Lambert + Phong spec) + shadow
+// atlas par-light + voxel AO + globalTint (Material Parameter Collection).
+//
+// Migre vers NkSL pour le generateur HLSL DIRECT (DX11/DX12). Le layout std140
+// de LayeredUBO (set=2 binding=8) doit matcher EXACTEMENT NkLayeredParams (208B)
+// cote CPU : 2 x NkPBRParams (96B) + maskSource(int) + 3 pad.
+
+@location(0) in vec3 vWorldPos;
+@location(1) in vec3 vNormal;
+@location(2) in vec3 vTangent;
+@location(3) in vec2 vUV;
+@location(4) in vec4 vColor;
+
+@location(0) out vec4 fragColor;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+    float _p0;
+    float _p1;
+    float _p2;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;   // .x = isMirrorPass
+} uCam;
+
+@binding(set=0, binding=2)
+uniform LightsUBO {
+    vec4 positions[32];
+    vec4 colors[32];
+    vec4 directions[32];
+    vec4 angles[32];
+    int  count;
+    int  _pad[3];
+} uLights;
+
+// Phase NkVSM : layout matche ShadowSlotsUBOBlock (NkVirtualShadowMaps.cpp).
+struct NkShadowSlot {
+    mat4 shadowMatrix;
+    vec4 tileUV;
+    vec4 lightPosOrDir;
+    vec4 packedIds;
+};
+
+@binding(set=0, binding=3)
+uniform ShadowSlotsUBO {
+    NkShadowSlot slots[256];
+    vec4         firstSlotPerLight[8];
+    vec4         slotCountPerLight[8];
+    vec4         globalCfg;
+    vec4         biasParams;
+} uShadows;
+
+@binding(set=0, binding=11) uniform sampler2DShadow tShadowAtlas;
+@binding(set=0, binding=12) uniform sampler2D       tShadowAtlasRaw;
+#include "Include/NkShadowAtlas.glsli"
+
+// Phase H.6 : voxel AO grid (3D R8) au binding=27.
+@binding(set=0, binding=27) uniform sampler3D tVoxelOpacity;
+#include "Include/NkVoxelAO.glsli"
+
+// Phase M.2 : Material Parameter Collection (pool global de params partages).
+//   params[0] = globalTint (vec4)
+//   params[1] = gameTime  (float .x)
+@binding(set=0, binding=25)
+uniform MPC_UBO {
+    vec4 params[64];
+} uMPC;
+
+// NkLayerParams = 2 PBR layers cote a cote. Doit matcher NkPBRParams cote CPU
+// (96B chacun). Champs identiques au VK : anisotropy/sheen/_p0/_p1 ferment le
+// 6e vec4 (reflFloorFaceMode/_pad cote CPU, ignores ici).
+struct LayerPBR {
+    vec4 albedo;
+    vec4 emissive;
+    float metallic;
+    float roughness;
+    float ao;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRough;
+    float subsurface;
+    vec4 subsurfaceColor;
+    float anisotropy;
+    float sheen;
+    float _p0;
+    float _p1;
+};
+
+@binding(set=2, binding=8)
+uniform LayeredUBO {
+    LayerPBR base;
+    LayerPBR top;
+    int maskSource;     // 0=vColor.r 1=.g 2=.b 3=.a 4=vUV.y 5=1-vUV.y
+    int _padA;
+    int _padB;
+    int _padC;
+} uLayered;
+
+// Evaluation simplifiee : Lambert diffus + Phong spec teinte metal/albedo.
+// Shadow per-light via SampleLightShadow (atlas), dispatch DIR/POINT/SPOT.
+// worldPos passe en PARAMETRE (pas de varying directe dans un helper : le generateur
+// HLSL traduirait vWorldPos en input.vworldpos, indispo hors de l'entry -> X3004).
+vec3 EvalLayer(LayerPBR p, vec3 N, vec3 V, float voxAO, vec3 worldPos) {
+    vec3 albedo = p.albedo.rgb;
+    vec3 result = albedo * 0.10 * voxAO;
+
+    for (int i = 0; i < uLights.count && i < 32; i++) {
+        int lt = int(uLights.positions[i].w);
+        vec3 L;
+        float att = 1.0;
+        if (lt == 0) {
+            L = normalize(-uLights.directions[i].xyz);
+        } else {
+            vec3 d = uLights.positions[i].xyz - worldPos;
+            float dist = length(d);
+            L = normalize(d);
+            att = max(1.0 - dist / max(uLights.directions[i].w, 0.001), 0.0);
+            att *= att;
+        }
+        float lightShadow = (uLights.angles[i].z > 0.5)
+                            ? SampleLightShadow(i, worldPos, N, L) : 1.0;
+        float NdL = max(dot(N, L), 0.0);
+        vec3 diffuse = albedo * NdL;
+
+        vec3 H = normalize(V + L);
+        float spec = pow(max(dot(N, H), 0.0), mix(64.0, 8.0, p.roughness));
+        vec3 specColor = mix(vec3(1.0), albedo, p.metallic);
+        vec3 specular = specColor * spec * (1.0 - p.roughness * 0.7);
+
+        result += uLights.colors[i].rgb * uLights.colors[i].w * att * lightShadow
+                * (diffuse + specular);
+    }
+    return result * p.ao + p.emissive.rgb * p.emissiveStrength;
+}
+
+@stage(fragment)
+@entry
+void main() {
+    vec3 N = normalize(vNormal);
+    vec3 camPosForV = uCam.camPos.xyz;
+    if (uCam.reflectionFlags.x > 0.5) camPosForV.y = -camPosForV.y;
+    vec3 V = normalize(camPosForV - vWorldPos);
+
+    // Selection du masque selon maskSource.
+    float mask = vColor.r;
+    if (uLayered.maskSource == 1) mask = vColor.g;
+    if (uLayered.maskSource == 2) mask = vColor.b;
+    if (uLayered.maskSource == 3) mask = vColor.a;
+    if (uLayered.maskSource == 4) mask = vUV.y;
+    if (uLayered.maskSource == 5) mask = 1.0 - vUV.y;
+
+    // Phase M.2 : anime UNIQUEMENT les masks UV (4/5) via gameTime.
+    if (uLayered.maskSource >= 4) {
+        float gameTime = uMPC.params[1].x;
+        mask = mask + 0.5 * sin(gameTime * 1.5);
+    }
+    mask = clamp(mask, 0.0, 1.0);
+
+    float voxAO = NkComputeVoxelAO(vWorldPos, N);
+
+    vec3 c0 = EvalLayer(uLayered.base, N, V, voxAO, vWorldPos);
+    vec3 c1 = EvalLayer(uLayered.top,  N, V, voxAO, vWorldPos);
+    vec3 color = mix(c0, c1, mask);
+
+    // Phase M.2 : globalTint depuis la Material Parameter Collection.
+    vec3 globalTint = uMPC.params[0].rgb;
+    color *= globalTint;
+
+    fragColor = vec4(color, uLayered.base.albedo.a);
+}

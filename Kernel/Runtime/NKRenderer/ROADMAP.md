@@ -21,12 +21,29 @@ Materials/Shader, Render2D, Text, Overlay, Offscreen, VFX (CPU), Animation (+ski
 câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
 
 **Partiels (cœur, trou identifié)** :
-- PostProcess : tonemap ACES + bloom OK ; **FXAA non câblé au RenderGraph** ; LUT 3D dégradé
-  en dummy 1×1 sur OpenGL.
-- Animation : tracks/blend/skinning réels ; **morph targets = stub** (`ApplyMorphTargets`
-  return base) ; pas de state machine / blend tree / retargeting.
-- Render2D : **`DrawSpriteGlow` = stub** (fallback DrawSprite). Mesh : **loader GLTF = stub**
-  (cube placeholder, NkMeshSystem.cpp:120).
+- PostProcess : tonemap ACES + bloom OK ; **FXAA DÉJÀ câblé au RenderGraph** (split
+  tonemap→`ToneLDR` puis passe `FXAA_Final`→swapchain, flag `cfg.postProcess.fxaa`, shader
+  `PP_FXAA/NkSL/pp_fxaa.nksl` FXAA 3.11 ; validé exécutant sur OpenGL 2026-06-25 — la mention
+  « non câblé » était périmée). Reste : LUT 3D dégradé en dummy 1×1 sur OpenGL.
+- Animation : tracks/blend réels ; **skinning GPU RÉEL (2026-06-25)** sur GL/VK/DX11 — shader
+  `Skin/VK/skin.vert.vk.glsl` calcule `skinMat = Σ wᵢ·bones[jᵢ]`, SSBO bones (set=1,b=2),
+  `NkRender3D::EnsureSkinPipeline`+`FlushSkinned` bindent le pipeline skin. DX12 bloqué
+  (HLSL SM6 ne cross-compile pas le SSBO → draw sauté sans crash, à régler côté converter).
+  **morph targets = stub** (`ApplyMorphTargets` return base) ; pas de state machine / blend
+  tree / retargeting.
+- Render2D : **`DrawSpriteGlow` = stub** (fallback DrawSprite).
+- Mesh : **loader glTF 2.0 LIVRÉ** — `NkGLTFLoader.{h,cpp}` from-scratch zero-STL.
+  `.gltf` (JSON + .bin externe + data URI base64) et `.glb` (chunks JSON/BIN). Attributs
+  POSITION/NORMAL/TANGENT/TEXCOORD_0/1/COLOR_0 ; indices u8/u16/u32→u32 ; normales calculées
+  si absentes ; AABB global + par-submesh ; un NkSubMesh par primitive. **MATÉRIAUX PBR
+  LIVRÉS (2026-06-25)** : `NkGLTFMaterial`/`NkGLTFImage` (baseColor/metallicRoughness/normal/
+  emissive/occlusion, décodage data URI/externe/.glb via NKImage) + pont `NkGLTFMaterialBridge`
+  → `NkMaterialInstance(DefaultPBR())` (API publique). **SKINNING LIVRÉ (2026-06-25)** :
+  JOINTS_0/WEIGHTS_0 + `skins`/inverseBind + hiérarchie `nodes` + `animations` (LINEAR/STEP/
+  CUBICSPLINE, slerp) + `EvaluateGLTFPose(t)`. Câblé dans `NkMeshSystem::Import`. Démos :
+  `renderdemo --demo=12` (rubber_duck texturé) + `--demo=13` (Khronos SimpleSkin animé).
+  Validé `gltftest` (rubber_duck 5676 v / 33216 i). **DIFFÉRÉ** : morph targets, cameras/lights
+  glTF, KHR extensions, sparse accessors, ombres du mesh skinné (pose de repos), DX12 skin.
 
 **⚠️ Couche « v4.0 » ORPHELINE — compile mais JAMAIS instanciée ni exposée par `NkRenderer`/
 `NkRendererImpl`** (le renderer ne les utilise pas ; code à finir/brancher, pas à réécrire) :
@@ -43,9 +60,10 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
 
 **Reste à faire priorisé** : 1) Deferred lighting pass + branchement (gros). 2) Streaming réel
 (connecter à TextureLibrary/MeshSystem). 3) IK fonctionnel (lire/écrire bones depuis Animation).
-4) Morph targets (pipeline déjà créé). 5) FXAA wiring + LUT 3D GL (petit). 6) DrawSpriteGlow.
-7) GLTF loader réel. 8) Brancher les orphelins utiles (Culling frustum-cull). 9) Animation
-avancée (state machines/blend trees). 10) Metal + Software.
+4) Morph targets (pipeline déjà créé). 5) ~~FXAA wiring~~ ✅ (déjà câblé) + LUT 3D GL (petit).
+6) DrawSpriteGlow. 7) ~~GLTF loader~~ ✅ (géométrie + matériaux PBR + skinning livrés ;
+reste morph/cameras/KHR/DX12-skin — voir ci-dessus). 8) Brancher les orphelins utiles
+(Culling frustum-cull). 9) Animation avancée (state machines/blend trees). 10) Metal + Software.
 
 ## ✅ Livré
 

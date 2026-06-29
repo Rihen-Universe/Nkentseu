@@ -245,6 +245,9 @@ void NkDirectX12CommandBuffer::BindDescriptorSet(NkDescSetHandle set,
     if (!ds) return;
 
     using namespace NkDX12RootLayout;
+    // Register SRV (t#) ou le converter NkSL->HLSL place le storage buffer en
+    // lecture (ByteAddressBuffer). Ce SPIRV-Cross l'assigne toujours a t0.
+    constexpr uint32 kStorageBufferSrvReg = 0;
     // TABLES LARGES + FUSION MULTI-SET : on ACCUMULE d'abord les descripteurs de CE set dans
     // l'état fusionné (mMerged*, persistant depuis le dernier BeginRenderPass), puis on alloue
     // UN bloc de ring frais et on y RECOPIE l'INTÉGRALITÉ de l'état fusionné. Ainsi le set 0
@@ -267,8 +270,17 @@ void NkDirectX12CommandBuffer::BindDescriptorSet(NkDescSetHandle set,
                 break;
             case NkDescriptorType::NK_STORAGE_BUFFER:
             case NkDescriptorType::NK_STORAGE_BUFFER_DYNAMIC:
-                if (b.bufId != 0 && b.slot < kMergedUav)
-                    mMergedUav[b.slot] = mDev->GetBufferUavIndex(b.bufId);
+                // Le converter NkSL->HLSL emet le storage buffer en lecture
+                // (readonly buffer) comme une SRV ByteAddressBuffer. CE
+                // SPIRV-Cross l'assigne TOUJOURS au register t0 (compteur SRV
+                // propre aux raw buffers, independant du binding GLSL). On binde
+                // donc la SRV du storage buffer a t0 (mMergedSrv[0]) — pas a
+                // t<binding>. Les router vers mMergedUav (u#) laissait la SRV
+                // nulle -> bones=0 -> skin a l'origine -> INVISIBLE sur DX12.
+                // (Un storage buffer en ECRITURE compute resterait un UAV ; le
+                // skinning graphique est read-only, SRV t0 est le bon type.)
+                if (b.bufId != 0)
+                    mMergedSrv[kStorageBufferSrvReg] = mDev->GetBufferSrvIndex(b.bufId);
                 break;
             case NkDescriptorType::NK_STORAGE_TEXTURE:
                 if (b.texId != 0 && b.slot < kMergedUav)

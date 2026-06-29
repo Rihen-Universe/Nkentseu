@@ -2,6 +2,13 @@
 // NkMeshSystem.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkMeshSystem.h"
+#include "NkGLTFLoader.h"
+#include "NkOBJLoader.h"
+#include "NkSTLLoader.h"
+#include "NkPLYLoader.h"
+#include "NkFBXLoader.h"
+#include "NkDAELoader.h"
+#include "NkUSDALoader.h"
 #include "NKLogger/NkLog.h"
 #include <cmath>
 #include <cstring>
@@ -117,8 +124,50 @@ namespace nkentseu {
         }
 
         NkMeshHandle NkMeshSystem::Import(const NkString& path, bool importMat) {
-            // TODO: GLTF2 via micro_gltf / assimp
-            // Retourner un cube placeholder pour l'instant
+            // importMat est ignore pour le MVP : les materiaux glTF sont differes
+            // (NkMaterialSystem est en cours de reecriture). Les sous-meshes sont
+            // crees avec material invalide ; l'appelant assigne ses materiaux.
+            (void)importMat;
+
+            // Detection de format par extension (insensible a la casse).
+            NkString lower = path;
+            for (uint32 i = 0; i < (uint32)lower.Size(); ++i) {
+                char c = lower[i];
+                if (c >= 'A' && c <= 'Z') lower[i] = (char)(c + 32);
+            }
+
+            // Tous les loaders produisent le meme format CPU (NkGLTFMeshData) ;
+            // on factorise la creation du mesh GPU.
+            NkGLTFMeshData data;
+            bool ok = false;
+            if      (lower.EndsWith(".gltf") || lower.EndsWith(".glb")) ok = LoadGLTF(path, data);
+            else if (lower.EndsWith(".obj"))                            ok = LoadOBJ(path, data);
+            else if (lower.EndsWith(".stl"))                            ok = LoadSTL(path, data);
+            else if (lower.EndsWith(".ply"))                            ok = LoadPLY(path, data);
+            else if (lower.EndsWith(".fbx"))                            ok = LoadFBX(path, data);
+            else if (lower.EndsWith(".dae"))                            ok = LoadDAE(path, data);
+            else if (lower.EndsWith(".usda") || lower.EndsWith(".usd"))  ok = LoadUSDA(path, data);
+            else {
+                logger.Warnf("[NkMeshSystem] Import : format non gere '%s' (fallback cube)\n",
+                             path.CStr());
+                return GetCube();
+            }
+
+            if (ok) {
+                NkMeshDesc d;
+                d.layout      = NkVertexLayout::Default3D();
+                d.vertices    = data.vertices.Data();
+                d.vertexCount = (uint32)data.vertices.Size();
+                d.indices     = data.indices.Data();
+                d.indexCount  = (uint32)data.indices.Size();
+                d.subMeshes   = data.subMeshes;
+                d.bounds      = data.bounds;
+                d.debugName   = data.debugName;
+                // data reste vivant jusqu'a la fin du scope -> Create copie
+                // les buffers CPU dans le GPU (CreateBuffer initialData).
+                return Create(d);
+            }
+            logger.Warnf("[NkMeshSystem] Import echoue (fallback cube) : %s\n", path.CStr());
             return GetCube();
         }
 

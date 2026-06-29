@@ -1,0 +1,25 @@
+; FBX 7.4.0 project file (ASCII de test)
+FBXHeaderExtension:  {
+    FBXVersion: 7400
+}
+GlobalSettings:  {
+    Version: 1000
+    Properties70:  {
+        P: "UpAxis", "int", "Integer", "",1
+        P: "UpAxisSign", "int", "Integer", "",1
+    }
+}
+Objects:  {
+    Geometry: 140000000, "Geometry::Cube", "Mesh" {
+        Vertices: *24 {
+            a: -1.0,-1.0,-1.0,1.0,-1.0,-1.0,1.0,1.0,-1.0,-1.0,1.0,-1.0,-1.0,-1.0,1.0,1.0,-1.0,1.0,1.0,1.0,1.0,-1.0,1.0,1.0
+        }
+        PolygonVertexIndex: *24 {
+            a: 0,3,2,-2,4,5,6,-8,0,1,5,-5,2,3,7,-7,1,2,6,-6,0,4,7,-4
+        }
+        LayerElementNormal: 0 {
+            MappingInformationType: "ByPolygonVertex"
+            ReferenceInformationType: "Direct"
+        }
+    }
+}
