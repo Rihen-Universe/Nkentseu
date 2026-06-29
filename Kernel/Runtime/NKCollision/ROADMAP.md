@@ -27,16 +27,23 @@
   prise en compte (avant : traitées AABB). ✅
 - **Self-test** (`tests/test_collision.cpp`, **NKLogger** pas printf) : **26 assertions, 0 échec**. ✅
 
-### Reste prioritaire (prochaines vagues)
-- **Concaves / composite (vague 3)** : Trimesh (BVH) + Heightfield + Chain2D + Compound
-  par **décomposition** (broadphase interne -> GJK/EPA par morceau convexe). Enum + dispatch déjà prêts.
-- **OBB 3D orientée** : ajouter une orientation (quat) à `NkShape` Box3D (le support GJK box est
-  AABB pour l'instant ; GJK gère déjà box-vs-tout, reste l'orientation propre).
-- **Broadphase SAP / DBVH** (perf, remplace le O(n²) actuel).
-- **Manifold multi-points** (clipping faces) : GJK/EPA sort 1 point ; le clipping (Sutherland-Hodgman)
-  donnera 2 pts (2D) / 4 pts (3D) pour la stabilité de la résolution physique.
-- **Triggers / events** (OnEnter/Stay/Exit), **debug draw** (NKUI/NKRenderer), **intégration ECS**.
-- **CCD** (swept + TOI) et **contacts persistants** (warm-starting pour NKPhysics).
+### Livré 2026-06-29 — vague 3 (concaves) + vague 4 (OBB3D + SAP) — self-test 63/63
+- **Vague 3** : **Trimesh3D** (sommets+indices) / **Heightfield3D** (grille) / **Chain2D**
+  (polyligne) décomposés en triangles/segments via GJK/EPA + cull AABB (`NkColConcave.h`) ;
+  **Compound** (sous-formes + offset) ; **événements** `EnterEvents/StayEvents/ExitEvents`
+  (suivi frame-à-frame) + flag `trigger`/`SetTrigger`. ✅
+- **Vague 4** : **OBB 3D orientée** (`NkShape::orientation` quaternion + `OBB3D(...)`,
+  support GJK & AABB orientés, fast-paths analytiques gardés sur boîtes alignées via
+  `NkBoxAligned`) ; **broadphase Sweep-and-Prune** (tri AABB par min.x quicksort + balayage,
+  remplace le O(n²) de `Step()`). ✅
+
+### Reste prioritaire (vague 5)
+- **Manifold multi-points** (clipping Sutherland-Hodgman) : 1 pt -> 2 (2D)/4 (3D) pour la
+  stabilité de la résolution physique.
+- **DBVH** (Dynamic AABB tree) en complément du SAP (raycast/overlap accélérés).
+- **Raycast exact** par forme (box/capsule/convexe via AABB pour l'instant).
+- **CCD** (swept + TOI) + **contacts persistants** (warm-starting pour NKPhysics).
+- **Debug draw** (NKUI/NKRenderer) + **intégration ECS** (`NkColliderComponent`).
 
 ---
 
