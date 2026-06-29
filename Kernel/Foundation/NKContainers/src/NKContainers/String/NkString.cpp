@@ -1091,6 +1091,12 @@ namespace nkentseu {
     }
 
     void NkString::AllocateHeap(SizeType capacity) {
+        // INVARIANT : une chaine heap ne doit JAMAIS avoir mCapacity == SSO_SIZE, sinon
+        // IsSSO() (== mCapacity == SSO_SIZE) la prend pour une chaine SSO et GetData()
+        // renvoie mSSOData (qui recouvre le pointeur mHeapData via l'union) -> donnees
+        // corrompues. Se produisait pour toute chaine de longueur exactement SSO_SIZE
+        // passant par AllocateHeap (ex. constructeur de copie d'une source heap).
+        if (capacity <= SSO_SIZE) capacity = SSO_SIZE + 1;
         mHeapData = static_cast<char*>(mAllocator->Allocate((capacity + 1) * sizeof(char)));
         mCapacity = capacity;
     }

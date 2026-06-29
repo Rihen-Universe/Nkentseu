@@ -117,10 +117,117 @@ namespace nkcode {
         bool    pickerNewFocus = false;
         int32   pickerDrag    = 0;             // 0 aucun, 1 thumb V, 2 thumb H
         float32 pickerDragOff = 0.f;           // offset souris/thumb pendant le drag
-        NkVector<NkString> pickerDirs;         // sous-dossiers du chemin courant
+        NkVector<NkString> pickerDirs;         // (legacy) sous-dossiers du chemin courant
+        // ── Arborescence du picker (style Windows : fleches d'expansion, pas de « Remonter ») ──
+        struct PickNode { NkString path, name; int32 depth = 0; bool hasKids = false; bool open = false; };
+        NkVector<PickNode> pickerTree;
+        int32   pickerSel = -1;                 // ligne selectionnee (= dossier choisi)
+        // clic-droit : menu contextuel + renommage inline
+        int32   pickMenu = -1; float32 pickMenuX = 0.f, pickMenuY = 0.f;
+        int32   pickRename = -1; char pickRenameBuf[256] = {}; bool pickRenameFocus = false;
+        void PickBeginRename(int32 i) {
+            if (i < 0 || i >= (int32)pickerTree.Size() || pickerTree[i].depth == 0) return;   // pas les racines
+            pickRename = i; CopyTo(pickRenameBuf, pickerTree[i].name.CStr(), (int32)sizeof(pickRenameBuf)); pickRenameFocus = true; pickMenu = -1;
+        }
+        void PickRenameCommit() {
+            if (pickRename < 0 || pickRename >= (int32)pickerTree.Size()) { pickRename = -1; return; }
+            PickNode& n = pickerTree[pickRename];
+            if (pickRenameBuf[0]) {
+                const NkString parent = NkPath(n.path.CStr()).GetParent().ToString();
+                const NkString dst = (NkPath(parent.CStr()) / pickRenameBuf).ToString();
+                if (NkDirectory::Move(n.path.CStr(), dst.CStr())) {
+                    const bool wasOpen = n.open; const int32 idx = pickRename;
+                    if (wasOpen) TogglePickerNode(idx);                 // replie (chemins enfants perimes)
+                    pickerTree[idx].path = dst; pickerTree[idx].name = pickRenameBuf;
+                }
+            }
+            pickRename = -1;
+        }
+        void PickDelete(int32 i) {
+            if (i < 0 || i >= (int32)pickerTree.Size() || pickerTree[i].depth == 0) return;   // pas les racines
+            if (NkDirectory::MoveToTrash(pickerTree[i].path.CStr())) {
+                const int32 d0 = pickerTree[i].depth;
+                while (i + 1 < (int32)pickerTree.Size() && pickerTree[i + 1].depth > d0) pickerTree.Erase(pickerTree.Begin() + i + 1);
+                pickerTree.Erase(pickerTree.Begin() + i);
+                if (pickerSel == i) pickerSel = -1;
+            }
+            pickMenu = -1;
+        }
+        static bool DirHasSubdirs(const char* path) {
+            NkVector<NkDirectoryEntry> e = NkDirectory::GetEntries(NkPath(path), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+            for (usize i = 0; i < e.Size(); ++i) if (e[i].IsDirectory && !e[i].IsHidden && e[i].Name.CStr()[0] != '.') return true;
+            return false;
+        }
+        void AddPickRoot(const char* path, const char* label) {
+            if (!path || !*path || !NkDirectory::Exists(path)) return;
+            PickNode n; n.path = path; n.name = label; n.hasKids = DirHasSubdirs(path); pickerTree.PushBack(n);
+        }
+        void BuildPickerTree() {
+            pickerTree.Clear(); pickerSel = -1; pickerScroll = 0.f;
+            // ── Raccourcis (facon Windows) : Accueil / Bureau / Documents / Favoris ──
+            const char* home = std::getenv("USERPROFILE"); if (!home || !*home) home = std::getenv("HOME");
+            auto known = [&](const char* sub) -> NkString {
+                const char* od = std::getenv("OneDrive");
+                if (od && *od) { NkString p = (NkPath(od) / sub).ToString(); if (NkDirectory::Exists(p.CStr())) return p; }
+                return home ? (NkPath(home) / sub).ToString() : NkString();
+            };
+            if (home && *home) AddPickRoot(home, "Accueil");
+            { const NkString d = known("Desktop");   if (!d.Empty()) AddPickRoot(d.CStr(), "Bureau"); }
+            { const NkString d = known("Documents"); if (!d.Empty()) AddPickRoot(d.CStr(), "Documents"); }
+            // Favoris (~/.nkcode/favorites.txt : « chemin<TAB>alias » par ligne)
+            if (home && *home) {
+                const NkString favF = (NkPath(home) / ".nkcode" / "favorites.txt").ToString();
+                if (NkFile::Exists(favF.CStr())) {
+                    const NkString txt = NkFile::ReadAllText(NkPath(favF.CStr()));
+                    NkString line;
+                    for (const char* p = txt.CStr(); ; ++p) {
+                        if (*p == '\n' || *p == '\0') {
+                            if (!line.Empty()) { const char* s = line.CStr(); int32 tab = -1; for (int32 k = 0; s[k]; ++k) if (s[k] == '\t') { tab = k; break; }
+                                NkString path, alias; if (tab >= 0) { for (int32 k = 0; k < tab; ++k) path += s[k]; for (int32 k = tab + 1; s[k]; ++k) alias += s[k]; } else path = line;
+                                if (!path.Empty()) AddPickRoot(path.CStr(), alias.Empty() ? path.CStr() : alias.CStr()); }
+                            line.Clear(); if (*p == '\0') break;
+                        } else if (*p != '\r') line += *p;
+                    }
+                }
+            }
+            // ── Disques ──
+            #ifdef _WIN32
+                for (char c = 'C'; c <= 'Z'; ++c) { const char root[4] = { c, ':', '/', 0 };
+                    if (NkDirectory::Exists(root)) { PickNode n; n.path = root; n.name = root; n.hasKids = DirHasSubdirs(root); pickerTree.PushBack(n); } }
+            #else
+                AddPickRoot("/", "/");
+            #endif
+        }
+        void TogglePickerNode(int32 i) {
+            if (i < 0 || i >= (int32)pickerTree.Size() || !pickerTree[i].hasKids) return;
+            const int32 d0 = pickerTree[i].depth;
+            if (pickerTree[i].open) {                                  // replier : retire les descendants
+                pickerTree[i].open = false;
+                while (i + 1 < (int32)pickerTree.Size() && pickerTree[i + 1].depth > d0) pickerTree.Erase(pickerTree.Begin() + i + 1);
+            } else {                                                   // deplier : insere les sous-dossiers
+                pickerTree[i].open = true;
+                const NkString base = pickerTree[i].path;
+                NkVector<NkDirectoryEntry> e = NkDirectory::GetEntries(NkPath(base), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+                int32 ins = i + 1;
+                for (usize k = 0; k < e.Size(); ++k) if (e[k].IsDirectory && !e[k].IsHidden && e[k].Name.CStr()[0] != '.') {
+                    PickNode cn; cn.path = (NkPath(base.CStr()) / e[k].Name.CStr()).ToString(); cn.name = e[k].Name;
+                    cn.depth = d0 + 1; cn.hasKids = DirHasSubdirs(cn.path.CStr());
+                    pickerTree.Insert(pickerTree.Begin() + ins, cn); ++ins;
+                }
+            }
+        }
         void PickerCreateFolder() {
             if (!pickerNew[0]) return;
-            if (NkDirectory::CreateRecursive(NkPath(pickerPath) / pickerNew)) { pickerNew[0] = '\0'; ScanPicker(); }
+            // Cree sous le dossier SELECTIONNE (sinon le chemin courant), sans reconstruire tout l'arbre.
+            const NkString parent = (pickerSel >= 0 && pickerSel < (int32)pickerTree.Size()) ? pickerTree[pickerSel].path : NkString(pickerPath);
+            if (NkDirectory::CreateRecursive(NkPath(parent.CStr()) / pickerNew)) {
+                pickerNew[0] = '\0';
+                if (pickerSel >= 0 && pickerSel < (int32)pickerTree.Size()) {
+                    pickerTree[pickerSel].hasKids = true;
+                    if (pickerTree[pickerSel].open) { TogglePickerNode(pickerSel); TogglePickerNode(pickerSel); }  // replie+deplie = rafraichit
+                    else TogglePickerNode(pickerSel);                                                              // deplie pour montrer le nouveau
+                }
+            }
         }
 
         static void CopyTo(char* dst, const char* src, int32 cap) {
@@ -131,7 +238,7 @@ namespace nkcode {
             pickerScroll = 0.f; pickerEditing = false;
             const char* start = (startDir && *startDir) ? startDir : (st ? st->root.ToString().CStr() : ".");
             CopyTo(pickerPath, start, (int32)sizeof(pickerPath));
-            ScanPicker();
+            BuildPickerTree();
         }
         void ScanPicker() {
             pickerDirs.Clear();
@@ -330,8 +437,12 @@ namespace nkcode {
             dl.AddText(f->Face(), f->TexId(), { r.x + pad - offX, r.y + (r.h - lh) * 0.5f + asc },
                        buf[0] ? buf : "", NkColor{ 230, 237, 243, 255 });
             if (focused) {
-                const float32 caretX = r.x + pad + (tw - offX) + 1.f;
-                dl.AddRectFilled({ caretX, r.y + 5.f, 1.5f, r.h - 10.f }, NkColor{ 200, 210, 220, 255 });
+                static float32 g_caretBlink = 0.f; g_caretBlink += ctx.input.dt;   // clignotement (partage)
+                const float32 phase = g_caretBlink - (float32)(int64)g_caretBlink;
+                if (phase < 0.55f) {
+                    const float32 caretX = r.x + pad + (tw - offX) + 1.f;
+                    dl.AddRectFilled({ caretX, r.y + 5.f, 1.5f, r.h - 10.f }, NkColor{ 200, 210, 220, 255 });
+                }
             }
             dl.PopClipRect();
         }
@@ -766,6 +877,7 @@ namespace nkcode {
         const float32 W = (float32)ctx.viewW, H = (float32)ctx.viewH, S = ctx.S(1.f);
         const float32 asc = f->Ascent(), lh = f->LineHeight();
         const NkVec2 mp = ctx.input.mousePos; const bool click = ctx.input.mouseClicked[0];
+        const bool rclick = ctx.input.mouseClicked[1];
         auto hit  = [&](const NkRect& r) { return NkGuiRectContains(r, mp); };
         auto text = [&](float32 x, float32 y, const char* s, const NkColor& c) { dl.AddText(f->Face(), f->TexId(), { x, y + asc }, s, c); };
         const NkColor cCard = { 22,24,29,255 }, cBorder = { 50,55,63,255 }, cAccent = { 15,115,213,255 };
@@ -783,48 +895,83 @@ namespace nkcode {
 
         const float32 pw = 580.f * S, ph = 500.f * S, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
         const bool down = ctx.input.mouseDown[0];
+        bool fieldClicked = false;   // un champ de saisie a-t-il ete clique cette frame ?
         dl.AddRectFilled({ 0.f, 0.f, W, H }, NkColor{ 0,0,0,160 });
         dl.AddRectFilled({ px, py, pw, ph }, cCard, 10.f * S); dl.AddRect({ px, py, pw, ph }, cBorder, 1.5f);
         text(px + 20.f * S, py + 16.f * S, "Choisir un dossier", cText);
 
-        // Champ chemin editable + Aller + Remonter
+        // Champ chemin (selection courante) + Aller (saisie libre). PAS de « Remonter » -> arbre.
         const float32 cx = px + 20.f * S, cwid = pw - 40.f * S;
         float32 y = py + 50.f * S;
-        { const NkRect r = { cx, y, cwid - 180.f * S, 30.f * S };
+        { const NkRect r = { cx, y, cwid - 96.f * S, 30.f * S };
           NkOverlayTextField(ctx, dl, f, r, d->pickerPath, (int32)sizeof(d->pickerPath), d->pickerEditing);
-          if (hit(r) && click) { d->pickerEditing = true; d->pickerNewFocus = false; }
-          if (sbtn({ cx + cwid - 170.f * S, y, 80.f * S, 30.f * S }, "Aller")) { d->PickerGoto(NkPath(d->pickerPath)); d->pickerEditing = false; }
-          if (sbtn({ cx + cwid - 84.f * S, y, 84.f * S, 30.f * S }, ".. Remonter")) d->PickerUp();
+          if (hit(r) && click) { d->pickerEditing = true; d->pickerNewFocus = false; fieldClicked = true; }
+          if (sbtn({ cx + cwid - 84.f * S, y, 84.f * S, 30.f * S }, "Aller")) { d->pickerSel = -1; d->pickerEditing = false; }
         }
         y += 42.f * S;
 
-        // Liste des sous-dossiers (defilante V + H), avec barres VISIBLES
+        // Arborescence des dossiers : fleche d'expansion sur les dossiers NON VIDES, clic = selectionner.
         const float32 barW = 10.f * S;
         const NkRect area = { cx, y, cwid, ph - (y - py) - 96.f * S };
         const NkRect inner = { area.x, area.y, area.w - barW, area.h - barW };   // zone hors barres
         dl.AddRectFilled(area, NkColor{ 16,18,22,255 }, 6.f * S); dl.AddRect(area, cBorder, 1.f);
         if (hit(inner) && ctx.input.wheel != 0.f) { d->pickerScroll -= ctx.input.wheel * 34.f; ctx.input.wheel = 0.f; }
-        // largeur de contenu (nom le plus long)
+        const float32 rowH = 28.f * S, rowStep = 30.f * S, indent = 16.f * S;
         float32 contentW = 0.f;
-        for (usize i = 0; i < d->pickerDirs.Size(); ++i) { const float32 w = f->MeasureWidth(d->pickerDirs[i].CStr()) + 40.f * S; if (w > contentW) contentW = w; }
-        dl.PushClipRect(inner, true);
-        float32 ly = inner.y + 6.f * S - d->pickerScroll;
-        for (usize i = 0; i < d->pickerDirs.Size(); ++i) {
-            const NkRect r = { inner.x + 4.f * S - d->pickerScrollX, ly, (contentW > inner.w ? contentW : inner.w) - 8.f * S, 28.f * S };
-            const bool hov = NkGuiRectContains(r, mp) && hit(inner);
-            if (hov) dl.AddRectFilled(r, cRowHov, 5.f * S);
-            dl.AddRectFilled({ r.x + 8.f * S, r.y + 9.f * S, 16.f * S, 11.f * S }, NkColor{ 247,154,40,220 }, 2.f * S);
-            dl.AddRectFilled({ r.x + 8.f * S, r.y + 7.f * S, 8.f * S, 4.f * S }, NkColor{ 247,154,40,220 }, 1.f * S);
-            text(r.x + 32.f * S, r.y + (28.f * S - lh) * 0.5f, d->pickerDirs[i].CStr(), cText);
-            if (hov && click) { d->PickerEnter(d->pickerDirs[i].CStr()); dl.PopClipRect(); return; }
-            ly += 30.f * S;
+        for (usize i = 0; i < d->pickerTree.Size(); ++i) {
+            const float32 w = d->pickerTree[i].depth * indent + f->MeasureWidth(d->pickerTree[i].name.CStr()) + 60.f * S;
+            if (w > contentW) contentW = w;
         }
-        const float32 contentH = (ly + d->pickerScroll) - (inner.y + 6.f * S);
-        dl.PopClipRect();
-        if (d->pickerDirs.Empty()) text(inner.x + 12.f * S, inner.y + 10.f * S, "(aucun sous-dossier)", cSub);
-        // clamp
+        // UN SEUL contentH/maxS/maxX (sinon pre-clamp et clamp final divergent -> clignotement bas).
+        const float32 contentH = d->pickerTree.Size() * rowStep + 12.f * S;
         const float32 maxS = contentH - inner.h > 0.f ? contentH - inner.h : 0.f;
         const float32 maxX = contentW - inner.w > 0.f ? contentW - inner.w : 0.f;
+        // Clamp AVANT de dessiner (sinon overshoot d'1 frame aux limites = clignotement).
+        if (d->pickerScroll < 0.f) d->pickerScroll = 0.f; if (d->pickerScroll > maxS) d->pickerScroll = maxS;
+        if (d->pickerScrollX < 0.f) d->pickerScrollX = 0.f; if (d->pickerScrollX > maxX) d->pickerScrollX = maxX;
+        const bool menuOpen = (d->pickMenu >= 0);   // un menu contextuel ouvert capture les clics
+        dl.PushClipRect(inner, true);
+        int32 doToggle = -1, doSelect = -1;
+        float32 ly = inner.y + 6.f * S - d->pickerScroll;
+        for (usize i = 0; i < d->pickerTree.Size(); ++i) {
+            const auto& n = d->pickerTree[i];
+            const float32 rowW = (contentW > inner.w ? contentW : inner.w) - 8.f * S;
+            const NkRect r = { inner.x + 4.f * S - d->pickerScrollX, ly, rowW, rowH };
+            if (ly + rowH > inner.y && ly < inner.y + inner.h) {
+                const bool sel = ((int32)i == d->pickerSel);
+                const bool hov = NkGuiRectContains(r, mp) && hit(inner);
+                if (sel)      dl.AddRectFilled(r, NkColor{ 15,115,213,90 }, 5.f * S);
+                else if (hov) dl.AddRectFilled(r, cRowHov, 5.f * S);
+                const float32 ix = r.x + 8.f * S + n.depth * indent;
+                if (n.hasKids) {                                   // chevron ► (replie) / ▼ (deplie) — NEUTRE (pas bleu)
+                    const float32 ax = ix, ay = r.y + rowH * 0.5f, s = 4.f * S;
+                    const NkColor ac = n.open ? cText : cSub;
+                    if (n.open) { dl.AddLine({ ax - s, ay - s * 0.5f }, { ax, ay + s * 0.6f }, ac, 1.6f * S); dl.AddLine({ ax + s, ay - s * 0.5f }, { ax, ay + s * 0.6f }, ac, 1.6f * S); }
+                    else        { dl.AddLine({ ax - s * 0.5f, ay - s }, { ax + s * 0.6f, ay }, ac, 1.6f * S); dl.AddLine({ ax - s * 0.5f, ay + s }, { ax + s * 0.6f, ay }, ac, 1.6f * S); }
+                }
+                const float32 fx = ix + 14.f * S;                  // icone dossier
+                dl.AddRectFilled({ fx, r.y + 9.f * S, 16.f * S, 11.f * S }, NkColor{ 247,154,40,220 }, 2.f * S);
+                dl.AddRectFilled({ fx, r.y + 7.f * S, 8.f * S, 4.f * S }, NkColor{ 247,154,40,220 }, 1.f * S);
+                if (d->pickRename == (int32)i) {                   // renommage inline
+                    const NkRect fr = { fx + 22.f * S, r.y + 2.f * S, rowW - (fx + 22.f * S - r.x) - 8.f * S, rowH - 4.f * S };
+                    NkOverlayTextField(ctx, dl, f, fr, d->pickRenameBuf, (int32)sizeof(d->pickRenameBuf), d->pickRenameFocus);
+                    if (ctx.input.KeyPressed(NkGuiKey::Enter))  d->PickRenameCommit();
+                    if (ctx.input.KeyPressed(NkGuiKey::Escape)) d->pickRename = -1;
+                } else {
+                    text(fx + 22.f * S, r.y + (rowH - lh) * 0.5f, n.name.CStr(), cText);
+                    if (hov && click && !menuOpen) {
+                        const NkRect arrowR = { ix - 8.f * S, r.y, 18.f * S, rowH };
+                        if (n.hasKids && NkGuiRectContains(arrowR, mp)) doToggle = (int32)i; else doSelect = (int32)i;
+                    }
+                    if (hov && rclick && !menuOpen) { d->pickMenu = (int32)i; d->pickMenuX = mp.x; d->pickMenuY = mp.y; d->pickerSel = (int32)i; }
+                }
+            }
+            ly += rowStep;
+        }
+        dl.PopClipRect();
+        if (d->pickerTree.Empty()) text(inner.x + 12.f * S, inner.y + 10.f * S, "(aucun lecteur)", cSub);
+        if (doSelect >= 0) { d->pickerSel = doSelect; NkCodeDialogs::CopyTo(d->pickerPath, d->pickerTree[doSelect].path.CStr(), (int32)sizeof(d->pickerPath)); d->pickerEditing = false; }
+        else if (doToggle >= 0) d->TogglePickerNode(doToggle);
         // gestion du drag des thumbs
         if (!down) d->pickerDrag = 0;
         // barre V (toujours visible)
@@ -852,16 +999,50 @@ namespace nkcode {
         const float32 ny = area.y + area.h + 8.f * S;
         { const NkRect r = { cx, ny, cwid - 150.f * S, 30.f * S };
           NkOverlayTextField(ctx, dl, f, r, d->pickerNew, (int32)sizeof(d->pickerNew), d->pickerNewFocus);
-          if (hit(r) && click) { d->pickerNewFocus = true; d->pickerEditing = false; }
+          if (hit(r) && click) { d->pickerNewFocus = true; d->pickerEditing = false; fieldClicked = true; }
           if (d->pickerNew[0] == '\0' && !d->pickerNewFocus) text(r.x + 10.f * S, r.y + (30.f * S - lh) * 0.5f, "nom du nouveau dossier", cSub);
           if (sbtn({ cx + cwid - 140.f * S, ny, 140.f * S, 30.f * S }, "+ Creer dossier")) d->PickerCreateFolder();
         }
+        // Clic AILLEURS (arbre, vide, boutons) -> desactive la saisie des champs.
+        if (click && !fieldClicked) { d->pickerEditing = false; d->pickerNewFocus = false; }
 
-        // Boutons bas
+        // Boutons bas (geles si un menu contextuel est ouvert)
         const float32 by = py + ph - 44.f * S;
-        if (pbtn({ px + pw - 200.f * S, by, 180.f * S, 32.f * S }, "Selectionner ce dossier", true)) { d->PickerConfirm(); return; }
-        if (sbtn({ px + pw - 290.f * S, by, 80.f * S, 32.f * S }, "Annuler")) { d->PickerCancel(); return; }
-        if (ctx.input.KeyPressed(NkGuiKey::Escape)) { d->PickerCancel(); return; }
+        if (!menuOpen && pbtn({ px + pw - 200.f * S, by, 180.f * S, 32.f * S }, "Selectionner ce dossier", true)) { d->PickerConfirm(); return; }
+        if (!menuOpen && sbtn({ px + pw - 290.f * S, by, 80.f * S, 32.f * S }, "Annuler")) { d->PickerCancel(); return; }
+
+        // ── Menu contextuel (clic droit) : Nouveau dossier / Renommer / Supprimer ──
+        if (d->pickMenu >= 0 && d->pickMenu < (int32)d->pickerTree.Size()) {
+            const bool isRoot = d->pickerTree[d->pickMenu].depth == 0;
+            struct MI { const char* lab; int32 act; bool en; };
+            const MI items[] = { { "Nouveau dossier", 0, true }, { "Renommer", 1, !isRoot }, { "Supprimer", 2, !isRoot } };
+            const float32 mw = 180.f * S, ih = 28.f * S;
+            float32 mx = d->pickMenuX, my = d->pickMenuY;
+            if (mx + mw > W) mx = W - mw - 4.f * S;
+            if (my + ih * 3 + 8.f * S > H) my = H - ih * 3 - 8.f * S;
+            const NkRect menu = { mx, my, mw, ih * 3 + 8.f * S };
+            dl.AddRectFilled(menu, NkColor{ 26,30,37,255 }, 6.f * S); dl.AddRect(menu, cBorder, 1.f);
+            int32 chosen = -1;
+            for (int32 k = 0; k < 3; ++k) {
+                const NkRect ir = { menu.x + 4.f * S, menu.y + 4.f * S + k * ih, mw - 8.f * S, ih };
+                const bool hov = items[k].en && hit(ir);
+                if (hov) dl.AddRectFilled(ir, cRowHov, 4.f * S);
+                const NkColor tc = !items[k].en ? cSub : (items[k].act == 2 ? NkColor{ 248,81,73,255 } : cText);
+                text(ir.x + 12.f * S, ir.y + (ih - lh) * 0.5f, items[k].lab, tc);
+                if (hov && click) chosen = items[k].act;
+            }
+            const int32 node = d->pickMenu;
+            if (chosen == 0)      { d->pickMenu = -1; d->pickerSel = node; d->pickerNewFocus = true; d->pickerEditing = false; }
+            else if (chosen == 1) d->PickBeginRename(node);
+            else if (chosen == 2) d->PickDelete(node);
+            else if (click && !hit(menu)) d->pickMenu = -1;
+        }
+
+        if (ctx.input.KeyPressed(NkGuiKey::Escape)) {
+            if (d->pickMenu >= 0)       d->pickMenu = -1;
+            else if (d->pickRename >= 0) d->pickRename = -1;
+            else { d->PickerCancel(); return; }
+        }
     }
 
     // ── Overlay modal (appele apres les panneaux via SetOverlay) ──
