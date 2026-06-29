@@ -99,10 +99,36 @@ namespace nkentseu {
             return nullptr;
         }
 
-        // ── M1 : solveur de contacts par impulses séquentielles (normale) ─────
-        // Modèle linéaire (point-masse) + biais de Baumgarte (anti-enfoncement) +
-        // restitution. Les termes angulaires (rotation au contact) arrivent en M2.
-        struct NkSolverContact { NkRigidBody* a; NkRigidBody* b; NkVec3f n; float32 nm; float32 bias[4]; float32 imp[4]; NkVec3f pt[4]; int32 count; };
+        // Inertie inverse en repère MONDE appliquée à un vecteur (torque -> accel ang.) :
+        //   invI_world * v = R * (invInertiaDiag ⊙ (Rᵀ v))   avec R = orientation.
+        static NkVec3f NkInvInertiaApply(const NkRigidBody& b, const NkVec3f& v) noexcept {
+            const NkVec3f loc = b.orientation.Conjugate() * v;
+            const NkVec3f sc{ loc.x * b.invInertiaDiag.x, loc.y * b.invInertiaDiag.y, loc.z * b.invInertiaDiag.z };
+            return b.orientation * sc;
+        }
+
+        // ── M1+M2 : solveur de contacts (normale + frottement + angulaire) ────
+        struct NkSolverPoint {
+            NkVec3f rA, rB;                  // bras de levier (contact - centre de masse)
+            float32 nMass = 0.f, t1Mass = 0.f, t2Mass = 0.f;
+            float32 bias = 0.f;              // biais normal (Baumgarte + restitution)
+            float32 nImp = 0.f, t1Imp = 0.f, t2Imp = 0.f;
+        };
+        struct NkSolverContact {
+            NkRigidBody* a; NkRigidBody* b;
+            NkVec3f n, t1, t2;               // normale + 2 tangentes
+            float32 friction;
+            NkSolverPoint p[4]; int32 count;
+        };
+
+        // Masse effective d'une contrainte le long de `dir` (linéaire + angulaire).
+        static float32 NkEffMass(const NkRigidBody& A, const NkRigidBody& B,
+                                 const NkVec3f& rA, const NkVec3f& rB, const NkVec3f& dir) noexcept {
+            const NkVec3f rnA = rA.Cross(dir), rnB = rB.Cross(dir);
+            const float32 ang = rnA.Dot(NkInvInertiaApply(A, rnA)) + rnB.Dot(NkInvInertiaApply(B, rnB));
+            const float32 k = A.invMass + B.invMass + ang;
+            return k > 0.f ? 1.f / k : 0.f;
+        }
 
         void NkPhysicsWorld::SolveContacts(float32 dt) {
             const auto& pairs = mCollision.Pairs();
@@ -112,37 +138,67 @@ namespace nkentseu {
                 const collision::NkCollisionPair& p = pairs[i];
                 NkRigidBody* A = FindByCollisionId(p.a); NkRigidBody* B = FindByCollisionId(p.b);
                 if (!A || !B) continue;
-                if ((A->flags & NK_BODY_TRIGGER) || (B->flags & NK_BODY_TRIGGER)) continue; // triggers = pas de réponse
-                const float32 kSum = A->invMass + B->invMass;
-                if (kSum <= 0.f) continue;                       // deux corps non dynamiques
-                NkSolverContact c; c.a = A; c.b = B; c.n = p.manifold.normal; c.nm = 1.f / kSum; c.count = 0;
+                if ((A->flags & NK_BODY_TRIGGER) || (B->flags & NK_BODY_TRIGGER)) continue;
+                if (A->invMass + B->invMass <= 0.f) continue;
+                NkSolverContact c; c.a = A; c.b = B; c.n = p.manifold.normal; c.count = 0;
+                // base tangente orthonormée à n
+                c.t1 = (math::NkAbs(c.n.x) > 0.9f) ? c.n.Cross(NkVec3f{0,1,0}) : c.n.Cross(NkVec3f{1,0,0});
+                c.t1 = c.t1.Normalized(); c.t2 = c.n.Cross(c.t1);
+                c.friction = NkMixFriction(A->material, B->material);
                 const float32 e = NkMixRestitution(A->material, B->material);
                 for (int32 k = 0; k < p.manifold.count && k < 4; ++k) {
                     const collision::NkContactPoint3D& mp = p.manifold.points[k];
-                    const NkVec3f rv = B->linearVelocity - A->linearVelocity;
-                    const float32 vn0 = rv.Dot(c.n);
-                    const float32 pos = mConfig.baumgarte * invDt * math::NkMax(0.f, mp.depth - mConfig.slop);
-                    const float32 rest = (vn0 < -1.f) ? -e * vn0 : 0.f; // rebond seulement au-dessus d'un seuil
-                    c.bias[c.count] = pos + rest;
-                    c.imp[c.count] = 0.f;
-                    c.pt[c.count] = mp.point;
-                    ++c.count;
+                    NkSolverPoint sp;
+                    sp.rA = mp.point - A->position; sp.rB = mp.point - B->position;
+                    sp.nMass  = NkEffMass(*A, *B, sp.rA, sp.rB, c.n);
+                    sp.t1Mass = NkEffMass(*A, *B, sp.rA, sp.rB, c.t1);
+                    sp.t2Mass = NkEffMass(*A, *B, sp.rA, sp.rB, c.t2);
+                    // vitesse relative initiale (au point) pour la restitution
+                    const NkVec3f vA = A->linearVelocity + A->angularVelocity.Cross(sp.rA);
+                    const NkVec3f vB = B->linearVelocity + B->angularVelocity.Cross(sp.rB);
+                    const float32 vn0 = (vB - vA).Dot(c.n);
+                    const float32 pos  = mConfig.baumgarte * invDt * math::NkMax(0.f, mp.depth - mConfig.slop);
+                    const float32 rest = (vn0 < -1.f) ? -e * vn0 : 0.f;
+                    sp.bias = pos + rest;
+                    c.p[c.count++] = sp;
                 }
                 if (c.count > 0) cs.PushBack(c);
             }
-            // Itérations séquentielles (Gauss-Seidel) sur les impulses normales.
+            // Itérations séquentielles : frottement (borné par μ·N) puis normale.
             for (int32 it = 0; it < mConfig.velocityIters; ++it) {
                 for (uint32 i = 0; i < (uint32)cs.Size(); ++i) {
                     NkSolverContact& c = cs[i];
                     for (int32 k = 0; k < c.count; ++k) {
-                        const NkVec3f rv = c.b->linearVelocity - c.a->linearVelocity;
-                        const float32 vn = rv.Dot(c.n);
-                        float32 lambda = -c.nm * (vn - c.bias[k]);
-                        const float32 newImp = math::NkMax(0.f, c.imp[k] + lambda); // accumulé >= 0
-                        lambda = newImp - c.imp[k]; c.imp[k] = newImp;
+                        NkSolverPoint& sp = c.p[k];
+                        // -- frottement (2 axes), borné par le cône de Coulomb --
+                        const float32 maxF = c.friction * sp.nImp;
+                        for (int32 ti = 0; ti < 2; ++ti) {
+                            const NkVec3f t = (ti == 0) ? c.t1 : c.t2;
+                            float32& acc = (ti == 0) ? sp.t1Imp : sp.t2Imp;
+                            const float32 tm = (ti == 0) ? sp.t1Mass : sp.t2Mass;
+                            const NkVec3f vA = c.a->linearVelocity + c.a->angularVelocity.Cross(sp.rA);
+                            const NkVec3f vB = c.b->linearVelocity + c.b->angularVelocity.Cross(sp.rB);
+                            float32 lambda = -tm * (vB - vA).Dot(t);
+                            const float32 newImp = math::NkClamp(acc + lambda, -maxF, maxF);
+                            lambda = newImp - acc; acc = newImp;
+                            const NkVec3f P = t * lambda;
+                            c.a->linearVelocity  = c.a->linearVelocity  - P * c.a->invMass;
+                            c.a->angularVelocity = c.a->angularVelocity - NkInvInertiaApply(*c.a, sp.rA.Cross(P));
+                            c.b->linearVelocity  = c.b->linearVelocity  + P * c.b->invMass;
+                            c.b->angularVelocity = c.b->angularVelocity + NkInvInertiaApply(*c.b, sp.rB.Cross(P));
+                        }
+                        // -- normale (non-pénétration + restitution + Baumgarte) --
+                        const NkVec3f vA = c.a->linearVelocity + c.a->angularVelocity.Cross(sp.rA);
+                        const NkVec3f vB = c.b->linearVelocity + c.b->angularVelocity.Cross(sp.rB);
+                        const float32 vn = (vB - vA).Dot(c.n);
+                        float32 lambda = -sp.nMass * (vn - sp.bias);
+                        const float32 newImp = math::NkMax(0.f, sp.nImp + lambda);
+                        lambda = newImp - sp.nImp; sp.nImp = newImp;
                         const NkVec3f P = c.n * lambda;
-                        c.a->linearVelocity = c.a->linearVelocity - P * c.a->invMass;
-                        c.b->linearVelocity = c.b->linearVelocity + P * c.b->invMass;
+                        c.a->linearVelocity  = c.a->linearVelocity  - P * c.a->invMass;
+                        c.a->angularVelocity = c.a->angularVelocity - NkInvInertiaApply(*c.a, sp.rA.Cross(P));
+                        c.b->linearVelocity  = c.b->linearVelocity  + P * c.b->invMass;
+                        c.b->angularVelocity = c.b->angularVelocity + NkInvInertiaApply(*c.b, sp.rB.Cross(P));
                     }
                 }
             }
