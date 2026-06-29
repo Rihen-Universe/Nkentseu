@@ -214,6 +214,25 @@ int main() {
         CHECK(Near(math::NkSqrt(d.Dot(d)), 1.f, 0.15f), "M7 ball : distance au pivot ~ 1 (tenu)");
     }
 
+    // ── M7 cut2 : REVOLUTE (charnière) -> trappe qui bascule dans son plan ──
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkBodyDef ad; ad.type = NkBodyType::STATIC; ad.position = { 0.f, 5.f, 0.f };
+        const NkBodyId anchor = world.CreateBody(ad, collision::NkShape::Sphere({0,5,0}, 0.1f));
+        // panneau : centre en (1,5,0), bord gauche au pivot (0,5,0). Charnière axe Z.
+        NkBodyDef pd; pd.type = NkBodyType::DYNAMIC; pd.position = { 1.f, 5.f, 0.f };
+        pd.linearDamping = 0.6f; pd.angularDamping = 0.6f;
+        const NkBodyId panel = world.CreateBody(pd, collision::NkShape::Box3D({1,5,0}, {1.f,0.1f,0.5f}));
+        world.CreateRevoluteJoint(anchor, panel, {0,5,0}, {0,0,1});   // axe Z
+        for (int i = 0; i < 360; ++i) world.Step(1.f / 60.f);         // 6 s
+        const NkRigidBody* b = world.GetBody(panel);
+        const NkVec3f d = b->position - NkVec3f{0,5,0};
+        CHECK(Near(math::NkSqrt(d.Dot(d)), 1.f, 0.12f), "M7 revolute : pivot tenu (centre a ~1 du pivot)");
+        CHECK(b->position.y < 4.5f, "M7 revolute : la trappe a bascule sous la gravite");
+        CHECK(Near(b->position.z, 0.f, 0.08f), "M7 revolute : reste dans le plan (axe Z aligne)");
+        CHECK(b->position.x < 0.8f, "M7 revolute : bascule vers l'equilibre (rentre depuis x=1)");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

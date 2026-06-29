@@ -42,7 +42,7 @@
 | **M4** Correction positionnelle (split-impulse) | ✅ | M | P1 |
 | **M5** Types static / kinematic + masses infinies | ✅ | S | P1 |
 | **M6** Mise en sommeil (sleeping) + réveil au contact | ✅ | L | P1 |
-| **M7** Articulations génériques + limites — *cut 1 : distance + ball* | 🔶 | XL | P2 |
+| **M7** Articulations génériques + limites — *distance/ball/revolute faits* | 🔶 | XL | P2 |
 | **M8** Moteurs & **drives PD** sur joints → *ragdoll actif* (tient/atteint une pose) | ⏳ | L | P1 |
 | **M9** **Ragdoll générique** : builder squelette (os+joints depuis hiérarchie), self-collision | ⏳ | L | P1 |
 | **M10** **Centre de masse + moment angulaire** (validation « physiquement correct » Cascadeur) | ⏳ | M | P1 |
@@ -165,10 +165,22 @@ Scaffold de structure uniquement (pas de simulation) :
 - **Démo** : pendule à distance (longueur maintenue à 2.00003, descend vers l'équilibre) ;
   ball joint qui **suspend** un corps au pivot (ne tombe pas).
 
+## Livré — M7 cut 2 (2026-06-29, self-test 30/30)
+
+- **REVOLUTE** (charnière 1 DOF = coude, genou, trappe, roue) : point-à-point + **alignement
+  d'axe** (2 DOF angulaires verrouillés via couples purs, 1 rotation libre autour de l'axe).
+  `CreateRevoluteJoint(a,b,pivot,axe)`.
+- **Solveur point-à-point durci** : remplacé la résolution décomposée par-axe (instable quand
+  l'ancre est loin du COM — cas des membres : le corps « flinguait » vers le haut) par une
+  **résolution de bloc 3×3 exacte** (`NkPointMassCol` + `NkSolve3` Cramer). Stable, convergence
+  en 1 itération. Bénéficie aussi au BALL joint.
+- **Démo** : une trappe à charnière (axe Z) **bascule sous la gravité dans son plan** (z reste
+  ~0, pivot tenu à ~1).
+
 ## En cours
 
-- **M7 cut 2** — REVOLUTE (pivot 1 DOF) + PRISMATIC + WELD + **limites d'angle/course**
-  (la base anatomique des coudes/genoux/colonnes). Puis **M8** moteurs/drives PD.
+- **M7 cut 3** — WELD (soudure rigide) + PRISMATIC (glissière) + **limites** d'angle/course
+  (base anatomique : empêcher les coudes/genoux d'hyperextension). Puis **M8** moteurs/drives PD.
 
 ---
 
