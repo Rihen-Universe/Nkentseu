@@ -345,12 +345,16 @@ namespace nkentseu {
         return ResolveWindowIdFromSeat(ctx, surface);
     }
 
+    // Serial du dernier evenement d'entree pointeur (enter/bouton) — pour move/resize.
+    static uint32_t sLastInputSerial = 0u;
+
     static void OnPointerEnter(void* data, wl_pointer*, uint32_t serial,
                                wl_surface* surface, wl_fixed_t sx, wl_fixed_t sy) {
         auto* ctx = static_cast<NkWaylandSeatCtx*>(data);
         if (!ctx) return;
 
         ctx->pointerSerial  = serial;
+        sLastInputSerial    = serial;
         ctx->pointerSurface = surface;
         ctx->pointerX       = static_cast<float32>(wl_fixed_to_double(sx));
         ctx->pointerY       = static_cast<float32>(wl_fixed_to_double(sy));
@@ -400,10 +404,12 @@ namespace nkentseu {
         ctx->eventSystem->Enqueue_Public(e, FindWindowForSurface(ctx, ctx->pointerSurface));
     }
 
-    static void OnPointerButton(void* data, wl_pointer*, uint32_t, uint32_t,
+    static void OnPointerButton(void* data, wl_pointer*, uint32_t serial, uint32_t,
                                 uint32_t button, uint32_t state) {
         auto* ctx = static_cast<NkWaylandSeatCtx*>(data);
         if (!ctx || !ctx->eventSystem) return;
+        ctx->pointerSerial = serial;            // serial du clic -> grab implicite (move/resize)
+        sLastInputSerial   = serial;
 
         const int32 x       = static_cast<int32>(ctx->pointerX);
         const int32 y       = static_cast<int32>(ctx->pointerY);
@@ -533,6 +539,8 @@ namespace nkentseu {
             gSeatListenerAttached = true;
         }
     }
+
+    unsigned int NkWaylandLastInputSerial() { return static_cast<unsigned int>(sLastInputSerial); }
 
     void NkWaylandNotifySeatDestroy(wl_seat* seat) {
         if (!seat || !gSeatCtx) return;

@@ -360,12 +360,18 @@ namespace nkentseu {
         // Title
         XStoreName(sDisplay, mData.mXid, config.title.CStr());
 
-        // Size constraints
-        if (!config.resizable) {
+        // Size constraints : non-resizable -> taille fixe ; resizable -> taille MINI.
+        {
             XSizeHints hints = {};
-            hints.flags      = PMinSize | PMaxSize;
-            hints.min_width  = hints.max_width  = static_cast<int>(config.width);
-            hints.min_height = hints.max_height = static_cast<int>(config.height);
+            if (!config.resizable) {
+                hints.flags      = PMinSize | PMaxSize;
+                hints.min_width  = hints.max_width  = static_cast<int>(config.width);
+                hints.min_height = hints.max_height = static_cast<int>(config.height);
+            } else {
+                hints.flags      = PMinSize;
+                hints.min_width  = static_cast<int>(config.minWidth);
+                hints.min_height = static_cast<int>(config.minHeight);
+            }
             XSetWMNormalHints(sDisplay, mData.mXid, &hints);
         }
 
@@ -807,8 +813,43 @@ namespace nkentseu {
     }
 
     bool NkWindow::IsMaximized() const { return false; }
-    void NkWindow::BeginDragMove() {}
-    void NkWindow::BeginResize(NkResizeEdge) {}
+
+    // Hand-off natif (deplacement/redimensionnement) via _NET_WM_MOVERESIZE : le WM
+    // prend la main jusqu'au relachement du bouton. direction = enum EWMH.
+    static void NkXlibMoveResize(Display* dpy, Window xid, int direction) {
+        if (!dpy || !xid) return;
+        Window root = DefaultRootWindow(dpy);
+        Window rr = 0, cr = 0; int rx = 0, ry = 0, wx = 0, wy = 0; unsigned int mask = 0;
+        XQueryPointer(dpy, xid, &rr, &cr, &rx, &ry, &wx, &wy, &mask);
+        XUngrabPointer(dpy, CurrentTime);
+        XEvent xev; memset(&xev, 0, sizeof(xev));
+        xev.type = ClientMessage;
+        xev.xclient.window = xid;
+        xev.xclient.message_type = XInternAtom(dpy, "_NET_WM_MOVERESIZE", False);
+        xev.xclient.format = 32;
+        xev.xclient.data.l[0] = rx;          // souris (coords racine)
+        xev.xclient.data.l[1] = ry;
+        xev.xclient.data.l[2] = direction;   // 0..7 = bords/coins, 8 = move
+        xev.xclient.data.l[3] = 1;           // bouton gauche
+        xev.xclient.data.l[4] = 1;           // source = application
+        XSendEvent(dpy, root, False, SubstructureRedirectMask | SubstructureNotifyMask, &xev);
+        XFlush(dpy);
+    }
+    void NkWindow::BeginDragMove() { NkXlibMoveResize(mData.mDisplay, mData.mXid, 8 /*_NET_WM_MOVERESIZE_MOVE*/); }
+    void NkWindow::BeginResize(NkResizeEdge edge) {
+        int dir = 8;
+        switch (edge) {   // EWMH _NET_WM_MOVERESIZE_SIZE_*
+            case NkResizeEdge::TopLeft:     dir = 0; break;
+            case NkResizeEdge::Top:         dir = 1; break;
+            case NkResizeEdge::TopRight:    dir = 2; break;
+            case NkResizeEdge::Right:       dir = 3; break;
+            case NkResizeEdge::BottomRight: dir = 4; break;
+            case NkResizeEdge::Bottom:      dir = 5; break;
+            case NkResizeEdge::BottomLeft:  dir = 6; break;
+            case NkResizeEdge::Left:        dir = 7; break;
+        }
+        NkXlibMoveResize(mData.mDisplay, mData.mXid, dir);
+    }
 
     void NkWindow::Restore() {
         if (mData.mDisplay && mData.mXid) {

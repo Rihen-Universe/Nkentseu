@@ -422,11 +422,15 @@ namespace nkentseu {
                                 1, &opacity);
         }
 
-        // --- WM size hints (non-resizable) ---
-        if (!config.resizable) {
+        // --- WM size hints : non-resizable -> taille fixe ; resizable -> taille MINI ---
+        {
             xcb_size_hints_t hints{};
-            xcb_icccm_size_hints_set_min_size(&hints, (int)config.width, (int)config.height);
-            xcb_icccm_size_hints_set_max_size(&hints, (int)config.width, (int)config.height);
+            if (!config.resizable) {
+                xcb_icccm_size_hints_set_min_size(&hints, (int)config.width, (int)config.height);
+                xcb_icccm_size_hints_set_max_size(&hints, (int)config.width, (int)config.height);
+            } else {
+                xcb_icccm_size_hints_set_min_size(&hints, (int)config.minWidth, (int)config.minHeight);
+            }
             xcb_icccm_set_wm_normal_hints(sConnection, mData.mWindow, &hints);
         }
 
@@ -930,8 +934,45 @@ namespace nkentseu {
     }
 
     bool NkWindow::IsMaximized() const { return false; }
-    void NkWindow::BeginDragMove() {}
-    void NkWindow::BeginResize(NkResizeEdge) {}
+
+    // Hand-off natif via _NET_WM_MOVERESIZE (le WM gere le drag jusqu'au relachement).
+    static void NkXcbMoveResize(xcb_connection_t* conn, xcb_window_t win, int direction) {
+        if (!conn || !win || !sDefaultScreen) return;
+        const xcb_window_t root = sDefaultScreen->root;
+        int rx = 0, ry = 0;
+        xcb_query_pointer_reply_t* qp = xcb_query_pointer_reply(conn, xcb_query_pointer(conn, win), nullptr);
+        if (qp) { rx = qp->root_x; ry = qp->root_y; platform::NkXcbFree(qp); }
+        xcb_ungrab_pointer(conn, XCB_CURRENT_TIME);
+        xcb_client_message_event_t ev = {};
+        ev.response_type = XCB_CLIENT_MESSAGE;
+        ev.window  = win;
+        ev.type    = NkXCBInternAtom(conn, "_NET_WM_MOVERESIZE");
+        ev.format  = 32;
+        ev.data.data32[0] = static_cast<uint32_t>(rx);
+        ev.data.data32[1] = static_cast<uint32_t>(ry);
+        ev.data.data32[2] = static_cast<uint32_t>(direction);
+        ev.data.data32[3] = XCB_BUTTON_INDEX_1;
+        ev.data.data32[4] = 1;
+        xcb_send_event(conn, 0, root,
+                       XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
+                       reinterpret_cast<const char*>(&ev));
+        xcb_flush(conn);
+    }
+    void NkWindow::BeginDragMove() { NkXcbMoveResize(mData.mConnection, mData.mWindow, 8 /*MOVE*/); }
+    void NkWindow::BeginResize(NkResizeEdge edge) {
+        int dir = 8;
+        switch (edge) {   // EWMH _NET_WM_MOVERESIZE_SIZE_*
+            case NkResizeEdge::TopLeft:     dir = 0; break;
+            case NkResizeEdge::Top:         dir = 1; break;
+            case NkResizeEdge::TopRight:    dir = 2; break;
+            case NkResizeEdge::Right:       dir = 3; break;
+            case NkResizeEdge::BottomRight: dir = 4; break;
+            case NkResizeEdge::Bottom:      dir = 5; break;
+            case NkResizeEdge::BottomLeft:  dir = 6; break;
+            case NkResizeEdge::Left:        dir = 7; break;
+        }
+        NkXcbMoveResize(mData.mConnection, mData.mWindow, dir);
+    }
 
     void NkWindow::Restore() {
         if (!mData.mConnection || !mData.mWindow) return;

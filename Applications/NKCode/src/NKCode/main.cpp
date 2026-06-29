@@ -137,12 +137,20 @@ int nkmain(const NkEntryState& state) {
 
     // ── Ecran d'accueil (Home) : nouvelle UI + logos/icones rasterises en texture ──
     g_home.st = &g_state; g_home.dlg = &g_dialogs;
+    g_home.exePath = (state.args.Size() > 0) ? state.args[0] : NkString();   // pour "Ouvrir dans une nouvelle fenetre"
+    // Argument : un dossier de workspace -> ouvre directement (cas "nouvelle fenetre").
+    for (usize ai = 1; ai < state.args.Size(); ++ai) {
+        const char* a = state.args[ai].CStr();
+        if (a && a[0] && a[0] != '-') { g_dialogs.DoLoad(NkPath(a)); break; }
+    }
     {
         // Charge une texture NETTE : PNG en priorite (repli SVG), puis REDIMENSIONNE
         // a ~ la taille d'affichage (tw x th) au filtre bilineaire. Sans mipmaps, une
         // texture bien plus grande que l'affichage est sous-echantillonnee (flou) ;
         // on l'amene donc proche de sa taille a l'ecran. `base` = nom sans extension.
-        auto upload = [&](NkImage& img, int32 tw, int32 th, int32* outW, int32* outH) -> uint32 {
+        // box=true : letterbox dans un carre tw x th (icones -> taille uniforme).
+        // box=false : upload a la taille ajustee fw x fh (wordmark -> ratio tight, sans bandes).
+        auto upload = [&](NkImage& img, int32 tw, int32 th, int32* outW, int32* outH, bool box) -> uint32 {
             const int32 sw = img.Width(), sh = img.Height();
             if (sw <= 0 || sh <= 0) return 0;
             // Fit en PRESERVANT L'ASPECT (anti-deformation) dans tw x th.
@@ -154,7 +162,7 @@ int nkmain(const NkEntryState& state) {
             NkImage* fitted = (sw == fw && sh == fh) ? &img : img.Resize(fw, fh);
             if (!fitted) fitted = &img;
             uint32 id = 0;
-            if (fw == tw && fh == th) {                       // remplit la cible -> direct
+            if (!box || (fw == tw && fh == th)) {             // remplit la cible (ou pas de letterbox) -> direct
                 id = shell->UploadRGBA(fitted->Pixels(), fw, fh);
                 if (outW) *outW = fw; if (outH) *outH = fh;
             } else {                                          // LETTERBOX dans un carre transparent
@@ -172,28 +180,57 @@ int nkmain(const NkEntryState& state) {
             if (fitted != &img) fitted->Free();
             return id;
         };
-        auto loadTex = [&](const char* base, int32 tw, int32 th, int32* outW = nullptr, int32* outH = nullptr) -> uint32 {
+        // Rogne les marges TRANSPARENTES (bounding box alpha) -> le glyphe remplit son
+        // bitmap. Sans ca, une icone 128x128 avec grande marge interne parait plus PETITE
+        // qu'une icone qui remplit son bitmap (ex. Ouvrir 40x32) -> tailles inegales.
+        auto trimAlpha = [](NkImage& src) -> NkImage* {
+            if (!src.IsValid() || src.Channels() < 4) return nullptr;
+            const int32 w = src.Width(), h = src.Height(), ch = src.Channels();
+            const uint8* px = src.Pixels(); if (!px) return nullptr;
+            const usize stride = (usize)w * ch;
+            int32 minX = w, minY = h, maxX = -1, maxY = -1;
+            for (int32 yy = 0; yy < h; ++yy) { const uint8* row = px + (usize)yy * stride;
+                for (int32 xx = 0; xx < w; ++xx) if (row[(usize)xx * ch + 3] > 10) {
+                    if (xx < minX) minX = xx; if (xx > maxX) maxX = xx;
+                    if (yy < minY) minY = yy; if (yy > maxY) maxY = yy; } }
+            if (maxX < minX || maxY < minY) return nullptr;                       // tout transparent
+            if (minX == 0 && minY == 0 && maxX == w - 1 && maxY == h - 1) return nullptr; // deja bord-a-bord
+            return src.Crop(minX, minY, maxX - minX + 1, maxY - minY + 1);
+        };
+        auto loadTex = [&](const char* base, int32 tw, int32 th, int32* outW = nullptr, int32* outH = nullptr,
+                           bool trim = true, bool box = true) -> uint32 {
             const char* dirs[] = { "Applications/NKCode/data/textures/", "data/textures/", "NKCode/data/textures/", "" };
             char path[512];
+            auto put = [&](NkImage& img) -> uint32 {                              // rogne (option) puis upload
+                NkImage* t = trim ? trimAlpha(img) : nullptr;
+                uint32 id = upload(t ? *t : img, tw, th, outW, outH, box);
+                if (t) t->Free();
+                return id;
+            };
             for (const char* const* d = dirs; ; ++d) {
                 std::snprintf(path, sizeof(path), "%s%s.png", *d, base);
                 { std::FILE* fp = std::fopen(path, "rb");
                   if (fp) { std::fclose(fp); NkImage img;
-                      if (img.LoadFromFile(path) && img.IsValid()) return upload(img, tw, th, outW, outH); } }
+                      if (img.LoadFromFile(path) && img.IsValid()) return put(img); } }
                 std::snprintf(path, sizeof(path), "%s%s.svg", *d, base);
                 { std::FILE* fp = std::fopen(path, "rb");
                   if (fp) { std::fclose(fp);
                       NkImage* im = NkSVGCodec::DecodeFromFile(path, tw * 2, th * 2);   // rasterise large puis reduit = net
-                      if (im && im->IsValid()) { uint32 id = upload(*im, tw, th, outW, outH); im->Free(); return id; }
+                      if (im && im->IsValid()) { uint32 id = put(*im); im->Free(); return id; }
                       if (im) im->Free(); } }
                 if (!**d) break;
             }
             return 0;
         };
-        // Logos : icone titre ~ petite (48), wordmark sidebar ~320x80 (aspect 4:1)
+        // Logos. Le wordmark COMPLET contient "nkcode" + sous-titre "INTELLIGENT IDE" :
+        // illisible/flou s'il est reduit a la taille minuscule de la barre de titre. On
+        // pre-redimensionne donc le wordmark cote CPU (filtre qualite) a ~ sa taille
+        // d'affichage sidebar -> NET (sans mipmaps, uploader 512px puis laisser le GPU
+        // sous-echantillonner produit du flou). La barre de titre utilise l'ICONE (nette)
+        // + "nkcode" en police vectorielle (toujours net), conforme a la maquette.
         g_home.logoIcon = loadTex("logo/icon_blanc_fond_transparent", 48, 48);
-        g_home.logoWord = loadTex("logo/logo_complet_blanc_fond_transparent", 320, 80, &g_home.wordW, &g_home.wordH);
-        shell->SetTitleLogo(g_home.logoIcon);
+        g_home.logoWord = loadTex("logo/logo_complet_blanc_fond_transparent", 360, 90, &g_home.wordW, &g_home.wordH, /*trim*/true, /*box*/false);
+        shell->SetTitleLogo(g_home.logoIcon);   // icone seule (aspect 0) -> icone + texte "nkcode" net
         // Icones : redimensionnees a ~64px (proche de l'affichage 17-38px) -> NET
         nkcode::NkIcons& ic = g_home.icons;
         ic.accueil       = loadTex("icon/Accueil", 64, 64);

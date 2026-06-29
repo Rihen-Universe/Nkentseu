@@ -90,6 +90,8 @@ namespace nkentseu {
             wc.title     = config.title;
             wc.width     = config.width;
             wc.height    = config.height;
+            wc.minWidth  = 1024;             // taille MINI de l'IDE (sidebar + panneau lisibles)
+            wc.minHeight = 640;
             wc.centered  = true;
             wc.resizable = config.resizable;
             wc.frame     = false;            // SANS bordure OS -> barre de titre custom (VSCode)
@@ -289,23 +291,40 @@ namespace nkentseu {
         }
 
         // ── Boucle principale ────────────────────────────────────────────────────
-        int NkEditorShell::Run() noexcept {
-            while (mRunning && mWindow.IsOpen()) {
-                float32 dt = mClock.Tick().delta;
-                if (dt <= 0.f) dt = 1.f / 60.f;
-                if (dt > 0.1f) dt = 0.1f;
+        // Callback OS appele pendant la boucle modale de resize/move (timer 0xB1A5) :
+        // redessine UNE frame a la nouvelle taille -> supprime le "stretch" du framebuffer.
+        void NkEditorShell::SizeMoveFrameThunk(void* user) noexcept {
+            if (user) static_cast<NkEditorShell*>(user)->RenderFrame();
+        }
 
+        int NkEditorShell::Run() noexcept {
+            NkEvents().SetSizeMoveFrameCallback(&SizeMoveFrameThunk, this);   // anti-stretch pendant le resize natif
+            while (mRunning && mWindow.IsOpen()) {
                 while (NkEvent* ev = NkEvents().PollEvent()) { (void)ev; }
                 if (!mRunning) break;
+                RenderFrame();
+                // Hand-off NATIF differe : BeginResize/BeginDragMove BLOQUENT (boucle modale
+                // OS) ; on les lance ICI (hors frame) pour eviter la re-entrance de RenderFrame.
+                // Pendant la boucle modale, le callback ci-dessus rappelle RenderFrame -> rendu live.
+                if (mPendingDragMove)             { mPendingDragMove = false;   mWindow.BeginDragMove(); }
+                else if (mPendingResizeEdge >= 0) { const NkWindow::NkResizeEdge e = static_cast<NkWindow::NkResizeEdge>(mPendingResizeEdge); mPendingResizeEdge = -1; mWindow.BeginResize(e); }
+            }
+            return 0;
+        }
 
-                // Resize : suit la taille de la fenetre OS.
-                const math::NkVec2u wsz = mWindow.GetSize();
-                if (wsz.x > 0 && wsz.y > 0 && (wsz.x != mLastWidth || wsz.y != mLastHeight)) {
-                    mRenderer->OnResize(wsz.x, wsz.y);
-                    mLastWidth = wsz.x; mLastHeight = wsz.y;
-                }
-                const math::NkVec2u sz = mRenderer->Size();
-                if (sz.x > 0 && sz.y > 0) { mUI.viewW = static_cast<int32>(sz.x); mUI.viewH = static_cast<int32>(sz.y); }
+        void NkEditorShell::RenderFrame() noexcept {
+            float32 dt = mClock.Tick().delta;
+            if (dt <= 0.f) dt = 1.f / 60.f;
+            if (dt > 0.1f) dt = 0.1f;
+
+            // Resize : suit la taille de la fenetre OS.
+            const math::NkVec2u wsz = mWindow.GetSize();
+            if (wsz.x > 0 && wsz.y > 0 && (wsz.x != mLastWidth || wsz.y != mLastHeight)) {
+                mRenderer->OnResize(wsz.x, wsz.y);
+                mLastWidth = wsz.x; mLastHeight = wsz.y;
+            }
+            const math::NkVec2u sz = mRenderer->Size();
+            if (sz.x > 0 && sz.y > 0) { mUI.viewW = static_cast<int32>(sz.x); mUI.viewH = static_cast<int32>(sz.y); }
 
                 mUI.BeginFrame(dt);
 
@@ -382,8 +401,6 @@ namespace nkentseu {
                 mRenderer->SubmitDrawList(mUI.dl,        sz.x, sz.y);
                 mRenderer->SubmitDrawList(mUI.dlOverlay, sz.x, sz.y);
                 mRenderer->EndFrame();
-            }
-            return 0;
         }
 
         // ── Activity bar (bande verticale d'icones a gauche, facon VSCode) ────────
@@ -473,20 +490,29 @@ namespace nkentseu {
             const float32 pad = mUI.S(8.f);
             const float32 cy  = bar.y + bar.h * 0.5f;
 
-            // Logo NKCode (icone) a l'extreme gauche, sinon carre accent de repli.
-            float32 cursorX = bar.x + pad;
+            // Logo NKCode a l'extreme gauche. Wordmark complet (aspect>0) => icone+nom
+            // deja dans l'image, on NE re-ecrit PAS "nkcode". Sinon icone carree (+ texte).
+            float32 cursorX  = bar.x + pad;
+            bool    wordmark = false;
             if (mTitleLogoTex) {
                 const float32 lg = bar.h * 0.62f;
-                dl.AddImage(mTitleLogoTex, { cursorX, cy - lg * 0.5f, lg, lg }, { 0.f, 0.f }, { 1.f, 1.f }, { 255, 255, 255, 255 });
-                cursorX += lg + mUI.S(8.f);
+                if (mTitleLogoAspect > 0.f) {                       // logo complet (ratio preserve)
+                    const float32 lw = lg * mTitleLogoAspect;
+                    dl.AddImage(mTitleLogoTex, { cursorX, cy - lg * 0.5f, lw, lg }, { 0.f, 0.f }, { 1.f, 1.f }, { 255, 255, 255, 255 });
+                    cursorX += lw + mUI.S(10.f);
+                    wordmark = true;
+                } else {                                            // icone carree
+                    dl.AddImage(mTitleLogoTex, { cursorX, cy - lg * 0.5f, lg, lg }, { 0.f, 0.f }, { 1.f, 1.f }, { 255, 255, 255, 255 });
+                    cursorX += lg + mUI.S(8.f);
+                }
             } else {
                 const float32 lg = mUI.S(12.f);
                 dl.AddRectFilled({ cursorX, cy - lg * 0.5f, lg, lg }, accent);
                 cursorX += lg + mUI.S(8.f);
             }
-            // Sur le launcher : nom "nkcode" + AUCUN menu. Dans l'editeur : menus.
+            // Sur le launcher : nom "nkcode" (seulement si pas deja dans le wordmark) + AUCUN menu.
             float32 menuX = cursorX;
-            if (mUI.appFullScreen && mUI.font && mUI.font->Face()) {
+            if (mUI.appFullScreen && !wordmark && mUI.font && mUI.font->Face()) {
                 const float32 by = bar.y + (bar.h - mUI.font->LineHeight()) * 0.5f + mUI.font->Ascent();
                 dl.AddText(mUI.font->Face(), mUI.font->TexId(), { cursorX, by }, "nkcode", fg);
                 menuX = cursorX + mUI.font->MeasureWidth("nkcode") + mUI.S(12.f);
@@ -567,7 +593,7 @@ namespace nkentseu {
                     const float32 dx = m.x - mDragStartX, dy = m.y - mDragStartY;
                     if (dx * dx + dy * dy > 25.f) {                            // > ~5 px = vrai glissement
                         mTitleDragArmed = false;
-                        mWindow.BeginDragMove();
+                        mPendingDragMove = true;   // hand-off natif en fin de boucle Run() (anti re-entrance)
                         mUI.input.mouseDown[0] = mUI.input.mouseClicked[0] = false;
                     }
                 }
@@ -595,50 +621,36 @@ namespace nkentseu {
         // HTLEFT) ne fonctionne pas dans ce setup borderless ; on gere donc tout a la
         // main via GetPosition/GetSize + SetPosition/SetSize, en suivant la souris ECRAN.
         void NkEditorShell::HandleEdgeResize(float32 W, float32 H) noexcept {
-            if (mWindow.IsMaximized()) { mResizeEdge = 0; return; }
+            if (mWindow.IsMaximized()) return;
             const float32 b = mUI.S(7.f);
-            const NkVec2  m = mUI.input.mousePos;                 // coords CLIENT
-            const auto    wp = mWindow.GetPosition();
-            const float32 screenX = static_cast<float32>(wp.x) + m.x;   // souris ECRAN
-            const float32 screenY = static_cast<float32>(wp.y) + m.y;
-
+            const NkVec2  m = mUI.input.mousePos;                 // coords CLIENT (NCHITTEST=HTCLIENT)
             const bool L = m.x <= b, R = m.x >= W - b, T = m.y <= b, Bm = m.y >= H - b;
-            const int32 hoverEdge = (L ? 1 : 0) | (R ? 2 : 0) | (T ? 4 : 0) | (Bm ? 8 : 0);
+            const int32 edge = (L ? 1 : 0) | (R ? 2 : 0) | (T ? 4 : 0) | (Bm ? 8 : 0);
+            if (!edge) return;
 
-            // Curseur de redimensionnement au survol d'un bord (ou pendant le drag).
-            const int32 fb = mResizeEdge ? mResizeEdge : hoverEdge;
-            if (fb) {
-                if ((fb & 3) && !(fb & 12))      mUI.wantCursor = NkGuiCursor::ResizeEW;  // L/R seul
-                else if ((fb & 12) && !(fb & 3)) mUI.wantCursor = NkGuiCursor::ResizeNS;  // T/B seul
-                else                              mUI.wantCursor = NkGuiCursor::ResizeEW;  // coin (pas de diagonale dispo)
-            }
+            // Curseur de redimensionnement au survol d'un bord (pas de diagonale dispo).
+            if ((edge & 3) && !(edge & 12))      mUI.wantCursor = NkGuiCursor::ResizeEW;   // gauche/droite
+            else if ((edge & 12) && !(edge & 3)) mUI.wantCursor = NkGuiCursor::ResizeNS;   // haut/bas
+            else                                  mUI.wantCursor = NkGuiCursor::ResizeEW;   // coin
 
-            // Demarrage du drag : clic sur un bord.
-            if (mResizeEdge == 0 && hoverEdge && mUI.input.mouseClicked[0]) {
-                mResizeEdge = hoverEdge;
-                const auto sz = mWindow.GetSize();
-                mResizeWinX = static_cast<int32>(wp.x); mResizeWinY = static_cast<int32>(wp.y);
-                mResizeWinW = static_cast<int32>(sz.x); mResizeWinH = static_cast<int32>(sz.y);
-                mResizeMouseX = screenX; mResizeMouseY = screenY;
-                mUI.input.mouseClicked[0] = false;   // consomme (pas de drag de titre)
-            }
-
-            // Pendant le drag : applique le delta souris ecran a la geometrie.
-            if (mResizeEdge) {
-                if (!mUI.input.mouseDown[0]) { mResizeEdge = 0; return; }
-                const float32 dx = screenX - mResizeMouseX;
-                const float32 dy = screenY - mResizeMouseY;
-                int32 nx = mResizeWinX, ny = mResizeWinY, nw = mResizeWinW, nh = mResizeWinH;
-                if (mResizeEdge & 2) nw = mResizeWinW + static_cast<int32>(dx);                      // droite
-                if (mResizeEdge & 8) nh = mResizeWinH + static_cast<int32>(dy);                      // bas
-                if (mResizeEdge & 1) { nw = mResizeWinW - static_cast<int32>(dx); nx = mResizeWinX + static_cast<int32>(dx); }  // gauche
-                if (mResizeEdge & 4) { nh = mResizeWinH - static_cast<int32>(dy); ny = mResizeWinY + static_cast<int32>(dy); }  // haut
-                const int32 minW = static_cast<int32>(mUI.S(480.f)), minH = static_cast<int32>(mUI.S(320.f));
-                if (nw < minW) { if (mResizeEdge & 1) nx -= (minW - nw); nw = minW; }
-                if (nh < minH) { if (mResizeEdge & 4) ny -= (minH - nh); nh = minH; }
-                if (mResizeEdge & 5) mWindow.SetPosition(nx, ny);   // gauche/haut : la fenetre bouge
-                mWindow.SetSize(static_cast<uint32>(nw), static_cast<uint32>(nh));
-                mUI.input.mouseClicked[0] = false;
+            // Clic sur un bord -> HAND-OFF NATIF a l'OS (resize fluide + aero-snap), sans
+            // contournement : chaque backend implemente NkWindow::BeginResize nativement.
+            if (mUI.input.mouseClicked[0]) {
+                NkWindow::NkResizeEdge e = NkWindow::NkResizeEdge::Left;
+                switch (edge) {
+                    case 1:  e = NkWindow::NkResizeEdge::Left;        break;
+                    case 2:  e = NkWindow::NkResizeEdge::Right;       break;
+                    case 4:  e = NkWindow::NkResizeEdge::Top;         break;
+                    case 8:  e = NkWindow::NkResizeEdge::Bottom;      break;
+                    case 1 | 4:  e = NkWindow::NkResizeEdge::TopLeft;     break;
+                    case 2 | 4:  e = NkWindow::NkResizeEdge::TopRight;    break;
+                    case 1 | 8:  e = NkWindow::NkResizeEdge::BottomLeft; break;
+                    case 2 | 8:  e = NkWindow::NkResizeEdge::BottomRight;break;
+                    default: return;
+                }
+                mUI.input.mouseClicked[0] = false;            // consomme (pas de drag de barre de titre)
+                mTitleDragArmed = false;                      // annule un eventuel arme de drag titre
+                mPendingResizeEdge = static_cast<int32>(e);   // declenche le hand-off natif en fin de boucle Run()
             }
         }
 

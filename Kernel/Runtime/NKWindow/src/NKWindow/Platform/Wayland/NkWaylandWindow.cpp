@@ -1402,8 +1402,28 @@ namespace nkentseu {
     }
 
     bool NkWindow::IsMaximized() const { return false; }
-    void NkWindow::BeginDragMove() {}
-    void NkWindow::BeginResize(NkResizeEdge) {}
+
+    // Hand-off natif Wayland : le compositeur gere le drag jusqu'au relachement.
+    // Necessite le seat + le serial du dernier event pointeur (grab implicite).
+    void NkWindow::BeginDragMove() {
+        if (!mData.mXdgToplevel || !mData.mSeat) return;
+        xdg_toplevel_move(mData.mXdgToplevel, mData.mSeat, NkWaylandLastInputSerial());
+    }
+    void NkWindow::BeginResize(NkResizeEdge edge) {
+        if (!mData.mXdgToplevel || !mData.mSeat) return;
+        uint32_t e = XDG_TOPLEVEL_RESIZE_EDGE_NONE;
+        switch (edge) {
+            case NkResizeEdge::Left:        e = XDG_TOPLEVEL_RESIZE_EDGE_LEFT;         break;
+            case NkResizeEdge::Right:       e = XDG_TOPLEVEL_RESIZE_EDGE_RIGHT;        break;
+            case NkResizeEdge::Top:         e = XDG_TOPLEVEL_RESIZE_EDGE_TOP;          break;
+            case NkResizeEdge::Bottom:      e = XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM;       break;
+            case NkResizeEdge::TopLeft:     e = XDG_TOPLEVEL_RESIZE_EDGE_TOP_LEFT;     break;
+            case NkResizeEdge::TopRight:    e = XDG_TOPLEVEL_RESIZE_EDGE_TOP_RIGHT;    break;
+            case NkResizeEdge::BottomLeft:  e = XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_LEFT;  break;
+            case NkResizeEdge::BottomRight: e = XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT; break;
+        }
+        xdg_toplevel_resize(mData.mXdgToplevel, mData.mSeat, NkWaylandLastInputSerial(), e);
+    }
 
     void NkWindow::Restore() {
         if (!mData.mXdgToplevel || !mData.mDisplay) return;

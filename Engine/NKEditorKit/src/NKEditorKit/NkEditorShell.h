@@ -107,8 +107,11 @@ namespace nkentseu {
                 const uint32 id = mNextTexId++;
                 return mRenderer->UploadImageRGBA(id, pixels, w, h) ? id : 0;
             }
-            // Logo (icone) dessine a gauche de la barre de titre (texId via UploadRGBA).
-            void SetTitleLogo(uint32 texId) noexcept { mTitleLogoTex = texId; }
+            // Logo dessine a gauche de la barre de titre (texId via UploadRGBA).
+            // aspect > 0 : LOGO COMPLET (wordmark icone+nom) dessine en preservant son
+            // ratio largeur/hauteur ; "nkcode" n'est alors PAS re-ecrit a cote (deja dans
+            // l'image). aspect == 0 : logo carre (icone seule).
+            void SetTitleLogo(uint32 texId, float32 aspect = 0.f) noexcept { mTitleLogoTex = texId; mTitleLogoAspect = aspect; }
 
             // ── Layout ──────────────────────────────────────────────────────────
             void ResetLayout() noexcept { mDockBootstrap = true; }
@@ -151,16 +154,20 @@ namespace nkentseu {
             void DrawActivityBar(const nkgui::NkRect& bar) noexcept;
             void DrawStatusBar(float32 footerH) noexcept;
 
-            // === Redimensionnement MANUEL par les bords (resize natif KO en borderless) ===
-            int32   mResizeEdge   = 0;     // bitmask en cours : 1=L 2=R 4=T 8=B (0 = aucun)
-            float32 mResizeMouseX = 0.f, mResizeMouseY = 0.f;   // souris ECRAN au depart
-            int32   mResizeWinX = 0, mResizeWinY = 0, mResizeWinW = 0, mResizeWinH = 0;
+            // === Redimensionnement / deplacement : hand-off NATIF (BeginResize/BeginDragMove).
+            // Le hand-off bloque (boucle modale OS) -> on le DIFFERE en fin de boucle Run()
+            // (jamais en plein milieu d'une frame, pour eviter la re-entrance de RenderFrame). ===
+            void  RenderFrame() noexcept;                     // rend UNE frame (appele par Run + le callback size/move)
+            static void SizeMoveFrameThunk(void* user) noexcept;   // callback OS : redessine pendant le resize (anti-stretch)
+            int32 mPendingResizeEdge = -1;                    // -1 aucun ; sinon NkResizeEdge a declencher
+            bool  mPendingDragMove   = false;                 // deplacement de barre de titre a declencher
 
             // === Fenetre / rendu ===
             NkWindow           mWindow;
             NkIEditorRenderer* mRenderer     = nullptr;   // backend pluggable (NKCanvas par defaut / NKRHI injecte)
             uint32             mNextTexId    = 0x4E4B0100u;// ids de textures app (logos/icones) — distincts des polices
-            uint32             mTitleLogoTex = 0;           // logo (icone) dans la barre de titre
+            uint32             mTitleLogoTex = 0;           // logo dans la barre de titre
+            float32            mTitleLogoAspect = 0.f;       // >0 => wordmark (ratio l/h), pas de texte "nkcode"
             bool               mOwnsRenderer = false;      // true => cree par le shell (a detruire)
 
             // === NKGui (contexte + police possedee) ===

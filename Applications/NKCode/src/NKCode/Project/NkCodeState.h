@@ -14,6 +14,7 @@
 #include "NKCode/Editor/NkCodeEditor.h"
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 
 namespace nkentseu {
 namespace nkcode {
@@ -212,6 +213,52 @@ namespace nkcode {
             if (mInfo.Done()) { mInfoParsed = true; ParseProjects(); }
         }
 
+        // ── Exemples Jenga : enumeres dynamiquement via `jenga examples list` ──
+        struct Example { NkString id, desc, platforms, difficulty; };
+        NkVector<Example>  examples;
+        NkProcess          mExamples;
+        bool               mExStarted = false, mExParsed = false;
+        NkVector<NkString> mExLines;
+
+        void LoadExamples() {
+            if (mExStarted) return;
+            mExStarted = true; mExParsed = false; mExLines.Clear();
+            mExamples.Start(NkString("jenga examples list"));
+        }
+        void PollExamples() {
+            if (!mExStarted || mExParsed) return;
+            mExamples.Drain(mExLines);
+            if (mExamples.Done()) { mExParsed = true; ParseExamples(); }
+        }
+        // Retire les codes ANSI (ESC[...m) + trim debut/fin d'une ligne.
+        static NkString CleanLine(const char* s) {
+            char out[512]; usize n = 0;
+            for (const char* p = s; *p && n + 1 < sizeof(out); ++p) {
+                if (*p == 0x1b) { while (*p && *p != 'm') ++p; if (!*p) break; continue; }
+                out[n++] = *p;
+            }
+            out[n] = '\0';
+            char* b = out; while (*b == ' ' || *b == '\t') ++b;
+            usize m = 0; while (b[m]) ++m;
+            while (m > 0 && (b[m - 1] == ' ' || b[m - 1] == '\r' || b[m - 1] == '\t')) --m;
+            b[m] = '\0';
+            return NkString(b);
+        }
+        void ParseExamples() {
+            examples.Clear();
+            for (usize i = 0; i < mExLines.Size(); ++i) {
+                const NkString cl = CleanLine(mExLines[i].CStr());
+                const char* L = cl.CStr();
+                if (StartsWithI(L, "ID:")) { Example e; e.id = AfterColon(L); examples.PushBack(e); }
+                else if (!examples.Empty()) {
+                    Example& e = examples[examples.Size() - 1];
+                    if      (StartsWithI(L, "Description:")) e.desc       = AfterColon(L);
+                    else if (StartsWithI(L, "Platforms:"))   e.platforms  = AfterColon(L);
+                    else if (StartsWithI(L, "Difficulty:"))  e.difficulty = AfterColon(L);
+                }
+            }
+        }
+
         // Construit le projet selectionne (config/plateforme courantes).
         void BuildSelected(const char* platformArg) {
             NkString a("build --target "); a += SelectedProject();
@@ -335,8 +382,50 @@ namespace nkcode {
         }
         void RebuildRecentNames() {
             recentNames.Clear(); pinnedNames.Clear();
-            for (usize i = 0; i < recents.Size(); ++i) recentNames.PushBack(WorkspaceNameOf(recents[i].CStr()));
-            for (usize i = 0; i < pinned.Size();  ++i) pinnedNames.PushBack(WorkspaceNameOf(pinned[i].CStr()));
+            for (usize i = 0; i < recents.Size(); ++i) { const char* o = NameOverride(recents[i].CStr()); recentNames.PushBack(o ? NkString(o) : WorkspaceNameOf(recents[i].CStr())); }
+            for (usize i = 0; i < pinned.Size();  ++i) { const char* o = NameOverride(pinned[i].CStr());  pinnedNames.PushBack(o ? NkString(o) : WorkspaceNameOf(pinned[i].CStr())); }
+        }
+
+        // ── Noms personnalises (menu "Renommer dans les recents") -> ~/.nkcode_recent_names.cfg ──
+        NkVector<NkString> nameOvrPath, nameOvrName;
+        static NkString NamesPath() {
+            const char* home = std::getenv("USERPROFILE"); if (!home || !*home) home = std::getenv("HOME");
+            if (home && *home) return NkString(home) + "/.nkcode_recent_names.cfg";
+            return NkString("nkcode_recent_names.cfg");
+        }
+        const char* NameOverride(const char* path) const {
+            for (usize i = 0; i < nameOvrPath.Size(); ++i) if (StrEq(nameOvrPath[i].CStr(), path)) return nameOvrName[i].CStr();
+            return nullptr;
+        }
+        void LoadNameOverrides() {
+            nameOvrPath.Clear(); nameOvrName.Clear();
+            NkString txt = NkFile::ReadAllText(NkPath(NamesPath().CStr())), line;
+            auto flush = [&]() {
+                if (line.Empty()) return;
+                const char* s = line.CStr(); const char* bar = nullptr;
+                for (const char* p = s; *p; ++p) if (*p == '|') { bar = p; break; }
+                if (bar) {
+                    char pbuf[512]; usize n = (usize)(bar - s); if (n >= sizeof(pbuf)) n = sizeof(pbuf) - 1;
+                    for (usize k = 0; k < n; ++k) pbuf[k] = s[k]; pbuf[n] = '\0';
+                    nameOvrPath.PushBack(NkString(pbuf)); nameOvrName.PushBack(NkString(bar + 1));
+                }
+                line.Clear();
+            };
+            for (const char* p = txt.CStr(); *p; ++p) { if (*p == '\n' || *p == '\r') flush(); else line += *p; }
+            flush();
+        }
+        void SaveNameOverrides() {
+            NkString out;
+            for (usize i = 0; i < nameOvrPath.Size(); ++i) { out += nameOvrPath[i]; out += "|"; out += nameOvrName[i]; out += "\n"; }
+            NkFile::WriteAllText(NkPath(NamesPath().CStr()), out);
+        }
+        void SetRecentName(const NkString& path, const NkString& name) {
+            for (usize i = 0; i < nameOvrPath.Size(); ++i) if (StrEq(nameOvrPath[i].CStr(), path.CStr())) {
+                if (name.Empty()) { nameOvrPath.Erase(nameOvrPath.Begin() + i); nameOvrName.Erase(nameOvrName.Begin() + i); }
+                else nameOvrName[i] = name;
+                SaveNameOverrides(); RebuildRecentNames(); return;
+            }
+            if (!name.Empty()) { nameOvrPath.PushBack(path); nameOvrName.PushBack(name); SaveNameOverrides(); RebuildRecentNames(); }
         }
         static NkString RecentsPath() {
             const char* home = std::getenv("USERPROFILE");
@@ -365,6 +454,7 @@ namespace nkcode {
             };
             for (const char* p = txt.CStr(); *p; ++p) { if (*p == '\n' || *p == '\r') flush(); else cur += *p; }
             flush();
+            LoadNameOverrides();
             RebuildRecentNames();
         }
         void SaveRecents() {
@@ -385,6 +475,181 @@ namespace nkcode {
         void PinRecent(const NkString& path)   { RemoveFrom(recents, path.CStr()); if (!IsPinned(path.CStr())) pinned.PushBack(path); SaveRecents(); RebuildRecentNames(); }
         void UnpinRecent(const NkString& path) { RemoveFrom(pinned, path.CStr()); RemoveFrom(recents, path.CStr()); recents.Insert(recents.Begin(), path); SaveRecents(); RebuildRecentNames(); }
         void RemoveRecent(const NkString& path){ RemoveFrom(recents, path.CStr()); RemoveFrom(pinned, path.CStr()); SaveRecents(); RebuildRecentNames(); }
+
+        // ── Dates : groupes AUJOURD'HUI / CETTE SEMAINE + libelle "Modifie il y a X" ──
+        static int64 NowEpoch() { return static_cast<int64>(std::time(nullptr)); }
+        // Date de modif d'un .jenga via NkDirectory (evite NKFileSystem.h -> collision
+        // macro winbase 'GetFreeSpace'). NkDirectoryEntry.ModificationTime peut etre un
+        // FILETIME brut (100ns depuis 1601) sur Windows -> on normalise en epoch Unix (s).
+        static int64 MTimeOf(const char* path) {
+            const NkPath p(path);
+            const NkString fname = p.GetFileName();
+            NkVector<NkDirectoryEntry> es = NkDirectory::GetEntries(p.GetParent(), fname.CStr(), NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+            int64 t = 0;
+            for (usize i = 0; i < es.Size(); ++i)
+                if (StrEq(es[i].Name.CStr(), fname.CStr())) { t = static_cast<int64>(es[i].ModificationTime); break; }
+            if (t > 100000000000000LL) t = (t - 116444736000000000LL) / 10000000LL;
+            return t;
+        }
+        // 0 = aujourd'hui (<24h), 1 = cette semaine (<7j), 2 = plus ancien.
+        static int32 AgeBucket(int64 mtime, int64 now) {
+            if (mtime <= 0) return 3;
+            const int64 d = now - mtime;
+            if (d < 86400)        return 0;   // aujourd'hui
+            if (d < 7 * 86400)    return 1;   // cette semaine
+            if (d < 30 * 86400)   return 2;   // ce mois
+            return 3;                          // plus anciens
+        }
+        static const char* BucketLabel(int32 b) {
+            return b == 0 ? "AUJOURD'HUI" : b == 1 ? "CETTE SEMAINE" : b == 2 ? "CE MOIS" : "PLUS ANCIEN";
+        }
+        // ── "Derniere activite reelle" : le fichier le PLUS recemment modifie du dossier
+        //    workspace (hors Build/.git/Externals/...). Borne par un budget de fichiers. ──
+        static bool IsSkippedDir(const char* nm) {
+            static const char* skip[] = { "Build","build","Externals","External","node_modules","cache",
+                                          "dist","tmps","tmp","__pycache__","bin","obj","target",".git",".nkcode",".vs",".idea" };
+            for (const char* s : skip) if (StrEqI(nm, s)) return true;
+            return false;
+        }
+        static void ScanActivity(const NkPath& dir, int64& maxT, int32& budget) {
+            if (budget <= 0) return;
+            NkVector<NkDirectoryEntry> es = NkDirectory::GetEntries(dir, "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+            for (usize i = 0; i < es.Size() && budget > 0; ++i) {
+                const NkDirectoryEntry& e = es[i];
+                const char* nm = e.Name.CStr();
+                if (e.IsDirectory) {
+                    if (nm[0] == '.' || IsSkippedDir(nm)) continue;
+                    ScanActivity(e.FullPath, maxT, budget);
+                } else {
+                    --budget;
+                    int64 t = static_cast<int64>(e.ModificationTime);
+                    if (t > 100000000000000LL) t = (t - 116444736000000000LL) / 10000000LL;   // FILETIME->epoch (repli)
+                    if (t > maxT) maxT = t;
+                }
+            }
+        }
+        static int64 ActivityTime(const char* folder) {
+            int64 maxT = 0; int32 budget = 2500;
+            if (folder && *folder) ScanActivity(NkPath(folder), maxT, budget);
+            return maxT;
+        }
+
+        static NkString HumanAge(int64 mtime, int64 now) {
+            if (mtime <= 0) return NkString("");
+            int64 d = now - mtime; if (d < 0) d = 0;
+            char b[48];
+            if      (d < 60)        std::snprintf(b, sizeof(b), "a l'instant");
+            else if (d < 3600)      std::snprintf(b, sizeof(b), "il y a %d min", (int)(d / 60));
+            else if (d < 86400)     std::snprintf(b, sizeof(b), "il y a %d h",   (int)(d / 3600));
+            else if (d < 7 * 86400) std::snprintf(b, sizeof(b), "il y a %d j",   (int)(d / 86400));
+            else                    std::snprintf(b, sizeof(b), "il y a %d sem", (int)(d / (7 * 86400)));
+            return NkString(b);
+        }
+
+        // ── Metadonnees d'un workspace NON ouvert (carte du launcher) ─────────────
+        // Parse leger du .jenga : configs, plateformes, langage, projets. Mis en
+        // cache par chemin (le Home redessine chaque frame -> pas de relecture disque).
+        struct WsMeta { NkString path, configs, platforms, projects, langVer; int64 activity = 0; int32 projCount = 0; };
+        NkVector<WsMeta> mWsMeta;
+
+        static char UpC(char c) { return (c >= 'a' && c <= 'z') ? char(c - 'a' + 'A') : c; }
+        static bool StrEqI(const char* a, const char* b) {
+            if (!a || !b) return a == b;
+            while (*a && *b) { if (UpC(*a) != UpC(*b)) return false; ++a; ++b; }
+            return *a == *b;
+        }
+        // Sous-chaine insensible a la casse (filtres de recherche).
+        static bool ContainsI(const char* hay, const char* needle) {
+            if (!needle || !*needle) return true;
+            if (!hay) return false;
+            for (const char* h = hay; *h; ++h) {
+                const char* a = h; const char* b = needle;
+                while (*a && *b && UpC(*a) == UpC(*b)) { ++a; ++b; }
+                if (!*b) return true;
+            }
+            return false;
+        }
+        static const char* FindStr(const char* h, const char* n) {
+            if (!h || !n || !*n) return nullptr;
+            for (; *h; ++h) { const char* a = h; const char* b = n; while (*a && *b && *a == *b) { ++a; ++b; } if (!*b) return h; }
+            return nullptr;
+        }
+        // Concatene les chaines entre guillemets a l'interieur de `open` jusqu'a ']'.
+        static NkString JoinQuotedInCall(const char* txt, const char* open) {
+            const char* s = FindStr(txt, open); if (!s) return NkString();
+            s += Len(open);
+            NkString out;
+            for (const char* p = s; *p && *p != ']'; ++p)
+                if (*p == '"') { ++p; NkString tok; while (*p && *p != '"') tok += *p++; if (!tok.Empty()) { if (!out.Empty()) out += ", "; out += tok; } }
+            return out;
+        }
+        static NkString FriendlyOS(const char* t) {
+            if (StrEqI(t, "WINDOWS"))   return NkString("Windows");
+            if (StrEqI(t, "LINUX"))     return NkString("Linux");
+            if (StrEqI(t, "MACOS"))     return NkString("macOS");
+            if (StrEqI(t, "ANDROID"))   return NkString("Android");
+            if (StrEqI(t, "IOS"))       return NkString("iOS");
+            if (StrEqI(t, "WEB") || StrEqI(t, "EMSCRIPTEN")) return NkString("Web");
+            if (StrEqI(t, "HARMONYOS")) return NkString("HarmonyOS");
+            NkString o; bool first = true;                       // repli : Titlecase
+            for (const char* p = t; *p; ++p) { char c = *p; c = first ? UpC(c) : char((c >= 'A' && c <= 'Z') ? c - 'A' + 'a' : c); first = false; o += c; }
+            return o;
+        }
+        // Tokens `prefix.XXX` a l'interieur de `open` jusqu'a ']' (ex. TargetOS.WINDOWS).
+        static NkString JoinEnumInCall(const char* txt, const char* open, const char* prefix) {
+            const char* s = FindStr(txt, open); if (!s) return NkString();
+            s += Len(open);
+            const usize pl = Len(prefix); NkString out;
+            for (const char* p = s; *p && *p != ']'; ++p) {
+                bool m = true; for (usize k = 0; k < pl; ++k) if (p[k] != prefix[k]) { m = false; break; }
+                if (!m) continue;
+                p += pl; NkString tok;
+                while (*p && (*p == '_' || (*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9'))) tok += *p++;
+                --p;
+                if (!tok.Empty()) { if (!out.Empty()) out += ", "; out += FriendlyOS(tok.CStr()); }
+            }
+            return out;
+        }
+        static NkString DetectLang(const char* txt) {
+            const char* d = FindStr(txt, "cppdialect(\"");
+            if (d) { d += Len("cppdialect(\""); NkString t; while (*d && *d != '"') t += *d++; if (!t.Empty()) return t; }
+            if (FindStr(txt, "cppcompiler") || FindStr(txt, "cxxflags") || FindStr(txt, "C++")) return NkString("C++");
+            if (FindStr(txt, "python") || FindStr(txt, "Python")) return NkString("Python");
+            return NkString("C++");
+        }
+        static NkString CollectProjects(const char* txt, int32* outCount = nullptr) {
+            NkVector<NkString> names;
+            auto collect = [&](const char* pat) {
+                const char* p = txt;
+                while ((p = FindStr(p, pat))) {
+                    p += Len(pat);
+                    while (*p && *p != '"') ++p;
+                    if (*p == '"') { ++p; NkString tok; while (*p && *p != '"') tok += *p++;
+                        bool dup = false; for (usize i = 0; i < names.Size(); ++i) if (StrEq(names[i].CStr(), tok.CStr())) { dup = true; break; }
+                        if (!dup && !tok.Empty()) names.PushBack(tok); }
+                }
+            };
+            collect("with project(");
+            collect("startproject(");
+            if (outCount) *outCount = (int32)names.Size();
+            NkString out;                                  // noms (jusqu'a 6) ; le total "(N)" est affiche a part
+            for (usize i = 0; i < names.Size() && i < 6; ++i) { if (!out.Empty()) out += ", "; out += names[i]; }
+            return out;
+        }
+        // Renvoie (par valeur, duree de vie sure cote appelant) les metadonnees parsees.
+        WsMeta WorkspaceMeta(const char* path) {
+            for (usize i = 0; i < mWsMeta.Size(); ++i) if (StrEq(mWsMeta[i].path.CStr(), path)) return mWsMeta[i];
+            WsMeta m; m.path = path;
+            const NkString txt = NkFile::ReadAllText(NkPath(path));
+            m.configs   = JoinQuotedInCall(txt.CStr(), "configurations([");
+            m.platforms = JoinEnumInCall(txt.CStr(), "targetoses([", "TargetOS.");
+            m.langVer   = DetectLang(txt.CStr());
+            m.projects  = CollectProjects(txt.CStr(), &m.projCount);
+            m.activity  = ActivityTime(NkPath(path).GetParent().ToString().CStr());   // derniere activite reelle
+            if (m.activity == 0) m.activity = MTimeOf(path);                            // repli : mtime du .jenga
+            mWsMeta.PushBack(m);
+            return m;
+        }
 
         // Argument --jenga-file pour cibler le workspace selectionne.
         NkString JengaFileArg() const {
