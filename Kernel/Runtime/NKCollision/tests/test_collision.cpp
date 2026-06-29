@@ -495,6 +495,21 @@ int main() {
         CHECK(w.Pairs().Size() == 1 && w.Pairs()[0].manifold.count == 4, "world box3D-box3D : manifold 4 points");
     }
 
+    // ── VAGUE 12 : CCD (SweepBody, anti-tunneling) ───────────────────────────
+    {
+        NkWorld w;
+        // mur fin à x=5 (demi-épaisseur 0.1) + petite sphère rapide partant de x=0.
+        w.AddBody(NkShape::Box3D({5,0,0}, {0.1f,5,5}));
+        const uint32 ball = w.AddBody(NkShape::Sphere({0,0,0}, 0.2f));
+        NkRayHit3D hit;
+        // déplacement de +10 en X : doit toucher le mur AVANT de le traverser.
+        // face mur x=4.9 ; surface sphère atteint 4.9 quand centre=4.7 -> distance 4.7.
+        CHECK(w.SweepBody(ball, {10,0,0}, hit) && Near(hit.t, 4.7f, 3e-2f), "CCD SweepBody : impact mur a 4.7 (anti-tunneling)");
+        // déplacement vers le bas : aucun obstacle -> pas d'impact.
+        NkRayHit3D hit2;
+        CHECK(!w.SweepBody(ball, {0,-10,0}, hit2), "CCD SweepBody : pas d'impact (direction libre)");
+    }
+
     logger.Info("=== NKCollision : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
