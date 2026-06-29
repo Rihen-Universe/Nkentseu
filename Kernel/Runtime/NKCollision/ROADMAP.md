@@ -9,7 +9,18 @@
 - **Narrowphase analytique** (`NkColTests.h`) : sphère-sphère, sphère-boîte, boîte-boîte, sphère-capsule, capsule-capsule (3D) ; cercle-cercle, cercle-boîte, boîte-boîte (2D) → manifolds (normale A→B + depth). ✅
 - **Raycast** : sphère/cercle (analytique), AABB (slab). ✅
 - **World** (`NkCollisionWorld.*`) : corps + broadphase O(n²) (AABB) + narrowphase dispatch + **layer/mask** + raycast monde. ✅ (SAP/DBVH/grille = Phase 3)
-- **Self-test** (`tests/test_collision.cpp`, **NKLogger** pas printf) : 22 assertions, 0 échec. ✅
+- **OBB 2D** (`NkColSAT.h`) : boîtes ORIENTÉES via SAT — OBB-OBB (4 axes) + OBB-cercle
+  (repère local). Câblé dans le narrowphase : la rotation des boîtes 2D est désormais
+  prise en compte (avant : traitées AABB). ✅
+- **Self-test** (`tests/test_collision.cpp`, **NKLogger** pas printf) : **26 assertions, 0 échec**. ✅
+
+### Reste prioritaire (prochaines sessions)
+- **OBB 3D** (SAT 15 axes) : ajouter une orientation (quat) à `NkShape` Box3D + SAT 3D.
+- **GJK + EPA** (2D/3D) via fonctions de support : couvre polygone/convexe/capsule/OBB de
+  façon unifiée + profondeur/normale (le vrai « puissant »).
+- **Polygone 2D / ConvexHull 3D** (stockage sommets) + support functions.
+- **Broadphase SAP / DBVH** (perf, remplace le O(n²) actuel).
+- **Triggers / events** (OnEnter/Stay/Exit), **debug draw** (NKUI), **intégration ECS**.
 
 ---
 
