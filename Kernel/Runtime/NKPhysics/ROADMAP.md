@@ -7,8 +7,10 @@
 > `NkRigidBodyComponent` / `NkColliderComponent`, synchro transform) se fait **dans
 > Noge**, jamais ici (NKECS reste l'ECS générique de base).
 >
-> État : **M0→M6 livrés** (intégration, contacts, frottement+angulaire, warm-starting,
-> split-impulse, static/kinematic, sommeil) — self-test 21/21.
+> État : **M0→M11 livrés** — intégration, contacts (frottement/angulaire/restitution),
+> warm-starting, split-impulse, static/kinematic, sommeil, **4 joints** (distance/ball/
+> revolute/weld), **moteurs PD + limites**, **ragdoll générique**, **COM + moment angulaire**,
+> **CCD**. Self-test **48/48**. Reste : M12 sous-pas, M13 requêtes filtrées.
 > Dernière mise à jour : 2026-06-29.
 >
 > ### ⭐ CAP — substrat d'un système type **Cascadeur** (tout corps articulé)
