@@ -470,6 +470,22 @@ int main() {
         CHECK(pos[0].y > 4.5f && pos[1].y > 4.3f, "couplage : ragdoll ACTIF tient la pose (bras tendu)");
     }
 
+    // ── Synchro générale : une CAPSULE TOURNE correctement (collision suit) ──
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, 0.f, 0.f} });   // pas de gravité
+        // capsule verticale (0,4,0)->(0,6,0), tournant à π/2 rad/s autour de Z.
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 0.f, 5.f, 0.f };
+        bd.angularVelocity = { 0.f, 0.f, 1.5707963f }; bd.angularDamping = 0.f;
+        world.CreateBody(bd, collision::NkShape::Capsule3D({0,4,0}, {0,6,0}, 0.3f));
+        for (int i = 0; i < 60; ++i) world.Step(1.f / 60.f);        // 1 s -> ~90°, capsule -> horizontale (le long de X)
+        NkVector<NkBodyId> ids;
+        CHECK(world.OverlapShape(collision::NkShape::Sphere({1.0f,5.f,0.f}, 0.15f), ids) >= 1,
+              "capsule tournee : la collision suit (couvre (1,5,0))");
+        NkVector<NkBodyId> ids2;
+        CHECK(world.OverlapShape(collision::NkShape::Sphere({0.f,6.0f,0.f}, 0.1f), ids2) == 0,
+              "capsule tournee : ne couvre plus l'ancien sommet vertical (0,6,0)");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
