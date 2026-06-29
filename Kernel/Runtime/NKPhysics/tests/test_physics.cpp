@@ -180,6 +180,40 @@ int main() {
         CHECK(woke, "M6 reveil : la caisse se reveille au choc de la 2e");
     }
 
+    // ── M7 : DISTANCE joint -> pendule (la longueur est maintenue) ──────────
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkBodyDef ad; ad.type = NkBodyType::STATIC; ad.position = { 0.f, 5.f, 0.f };
+        const NkBodyId anchor = world.CreateBody(ad, collision::NkShape::Sphere({0,5,0}, 0.1f));
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 2.f, 5.f, 0.f };
+        bd.linearDamping = 0.6f; bd.angularDamping = 0.6f;
+        const NkBodyId ball = world.CreateBody(bd, collision::NkShape::Sphere({2,5,0}, 0.3f));
+        world.CreateDistanceJoint(anchor, ball, {0,5,0}, {2,5,0});   // longueur 2
+        for (int i = 0; i < 360; ++i) world.Step(1.f / 60.f);        // 6 s
+        const NkRigidBody* b = world.GetBody(ball);
+        const NkVec3f d = b->position - NkVec3f{0,5,0};
+        const float32 L = math::NkSqrt(d.Dot(d));
+        CHECK(Near(L, 2.f, 0.1f), "M7 distance : la longueur du pendule est maintenue (~2)");
+        CHECK(b->position.y < 4.f, "M7 distance : le pendule est descendu (swing)");
+        CHECK(b->position.x < 1.5f && b->position.y < 3.6f, "M7 distance : descend vers l'equilibre (sous l'ancre)");
+    }
+
+    // ── M7 : BALL joint -> le corps est SUSPENDU au pivot (ne tombe pas) ────
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkBodyDef ad; ad.type = NkBodyType::STATIC; ad.position = { 0.f, 5.f, 0.f };
+        const NkBodyId anchor = world.CreateBody(ad, collision::NkShape::Sphere({0,5,0}, 0.1f));
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 0.f, 4.f, 0.f };
+        bd.linearDamping = 0.6f; bd.angularDamping = 0.6f;
+        const NkBodyId body = world.CreateBody(bd, collision::NkShape::Box3D({0,4,0}, {0.3f,0.3f,0.3f}));
+        world.CreateBallJoint(anchor, body, {0,5,0});               // pivot au-dessus du corps
+        for (int i = 0; i < 240; ++i) world.Step(1.f / 60.f);
+        const NkRigidBody* b = world.GetBody(body);
+        CHECK(b->position.y > 3.5f, "M7 ball : le corps reste SUSPENDU (ne tombe pas)");
+        const NkVec3f d = b->position - NkVec3f{0,5,0};
+        CHECK(Near(math::NkSqrt(d.Dot(d)), 1.f, 0.15f), "M7 ball : distance au pivot ~ 1 (tenu)");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

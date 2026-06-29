@@ -42,7 +42,7 @@
 | **M4** Correction positionnelle (split-impulse) | ✅ | M | P1 |
 | **M5** Types static / kinematic + masses infinies | ✅ | S | P1 |
 | **M6** Mise en sommeil (sleeping) + réveil au contact | ✅ | L | P1 |
-| **M7** Articulations génériques (distance/revolute/prismatic/weld/ball) **+ limites** | ⏳ | XL | P2 |
+| **M7** Articulations génériques + limites — *cut 1 : distance + ball* | 🔶 | XL | P2 |
 | **M8** Moteurs & **drives PD** sur joints → *ragdoll actif* (tient/atteint une pose) | ⏳ | L | P1 |
 | **M9** **Ragdoll générique** : builder squelette (os+joints depuis hiérarchie), self-collision | ⏳ | L | P1 |
 | **M10** **Centre de masse + moment angulaire** (validation « physiquement correct » Cascadeur) | ⏳ | M | P1 |
@@ -152,10 +152,23 @@ Scaffold de structure uniquement (pas de simulation) :
 - *Note* : sommeil par-corps (pas d'îlots union-find) — le réveil se propage de proche en
   proche frame à frame (suffisant ; les îlots groupés sont une optimisation ultérieure).
 
+## Livré — M7 cut 1 (2026-06-29, self-test 26/26)
+
+- **`NkJoint`** générique (`NkJoint.h`) : type, 2 corps, **ancres locales** (repère du corps),
+  warm-start. Aucune notion de morphologie.
+- **Joints implémentés** : **DISTANCE** (garde 2 ancres à une longueur cible — corde,
+  entretoise) et **BALL / point-à-point** (3 DOF, les 2 ancres coïncident — épaule, hanche,
+  attache de membre). Résolus dans `SolveJoints` (contraintes séquentielles décomposées par
+  axe, masse effective `NkEffMass` avec termes angulaires, biais de position, **warm-start**).
+- **API** : `CreateDistanceJoint(a,b,ancreA,ancreB)`, `CreateBallJoint(a,b,pivot)`,
+  `DestroyJoint`. Réveille le corps partenaire (un joint transmet le mouvement).
+- **Démo** : pendule à distance (longueur maintenue à 2.00003, descend vers l'équilibre) ;
+  ball joint qui **suspend** un corps au pivot (ne tombe pas).
+
 ## En cours
 
-- **M7** — articulations génériques (joints) : distance / pivot / glissière / soudure / ball
-  + **limites**. Briques assemblables en **n'importe quel squelette** (humanoïde, animal…).
+- **M7 cut 2** — REVOLUTE (pivot 1 DOF) + PRISMATIC + WELD + **limites d'angle/course**
+  (la base anatomique des coudes/genoux/colonnes). Puis **M8** moteurs/drives PD.
 
 ---
 

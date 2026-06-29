@@ -17,6 +17,7 @@
 // =============================================================================
 #include "NKPhysics/NkRigidBody.h"
 #include "NKPhysics/NkContactSolver.h"
+#include "NKPhysics/NkJoint.h"
 #include "NKCollision/NKCollision.h"
 #include "NKContainers/Sequential/NkVector.h"
 
@@ -35,6 +36,15 @@ namespace nkentseu {
 
                 // Avance la simulation de `dt` (cf. boucle en tête de fichier). [spec M0..M6]
                 void Step(float32 dt);
+
+                // ── Articulations (M7) ───────────────────────────────────────
+                // Joint à distance : garde les 2 ancres (monde) à leur distance courante.
+                NkJointId CreateDistanceJoint(NkBodyId a, NkBodyId b, const NkVec3f& anchorAWorld, const NkVec3f& anchorBWorld);
+                // Joint ball (point-à-point) : les 2 corps partagent le pivot (monde).
+                NkJointId CreateBallJoint(NkBodyId a, NkBodyId b, const NkVec3f& pivotWorld);
+                void      DestroyJoint(NkJointId id);
+                NkVector<NkJoint>&       Joints() noexcept { return mJoints; }
+                const NkVector<NkJoint>& Joints() const noexcept { return mJoints; }
 
                 // Pilotage (utile pour les corps KINEMATIC : plateformes, ascenseurs…).
                 void SetLinearVelocity(NkBodyId id, const NkVec3f& v) noexcept { if (NkRigidBody* b = GetBody(id)) b->linearVelocity = v; }
@@ -60,13 +70,16 @@ namespace nkentseu {
                 void         CorrectPositions();            // M4 : split-impulse (projection positionnelle)
                 void         WakeContacts();                // M6 : réveiller les corps touchés par un perturbateur
                 void         UpdateSleep(float32 dt);       // M6 : endormir les corps immobiles
+                void         SolveJoints(float32 dt);       // M7 : contraintes d'articulation
 
                 NkPhysicsConfig          mConfig;
                 collision::NkWorld       mCollision;   // détection (DBVH, manifolds)
                 NkVector<NkRigidBody>    mBodies;
                 NkContactSolver          mSolver;
                 NkVector<NkWarmEntry>    mWarm;         // cache d'impulses (frame précédente)
+                NkVector<NkJoint>        mJoints;       // articulations (M7)
                 NkBodyId                 mNextId = 1u;
+                NkJointId                mNextJointId = 1u;
         };
 
     } // namespace physics
