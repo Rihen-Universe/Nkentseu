@@ -54,7 +54,7 @@ with project("NkAnimaEditor"):
         ["NKEditorKit", "NKCanvas", "NKGui", "NKReflection", "NKWindow", "NKEvent", "NKGlad",
          "NKFont", "NKImage", "NKLogger", "NKMath", "NKTime", "NKStream", "NKFileSystem",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading",
-         "NKRHI", "NKRenderer", "NKSL", "NKSerialization"],
+         "NKRHI", "NKRenderer", "NKSL", "NKSerialization", "NKCollision", "NKPhysics"],
         extra_includes=["src", "src/NkAnimaEditor", "%{wks.location}/Integrations",
                         "%{NKGlad.location}/include"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
