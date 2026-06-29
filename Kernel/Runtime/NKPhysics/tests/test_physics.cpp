@@ -280,6 +280,42 @@ int main() {
         CHECK(b->position.y < 4.85f, "M8 limite : elle a bien bascule jusqu'a la limite");
     }
 
+    // ── M9 : RAGDOLL générique -> chaîne de 3 os suspendue (joints portants) ─
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkBodyDef ad; ad.type = NkBodyType::STATIC; ad.position = { 0.f, 5.f, 0.f };
+        const NkBodyId anchor = world.CreateBody(ad, collision::NkShape::Sphere({0,5,0}, 0.1f));
+
+        NkBoneDef bones[3];
+        // os 0 (haut), centre 4.5 ; os 1, centre 3.5 ; os 2, centre 2.5 (demi-hauteur 0.5)
+        for (int k = 0; k < 3; ++k) {
+            bones[k].position = { 0.f, 4.5f - k * 1.0f, 0.f };
+            bones[k].shape = collision::NkShape::Box3D({0, 4.5f - k * 1.0f, 0}, {0.2f,0.5f,0.2f});
+            bones[k].jointType = NkJointType::BALL;
+        }
+        bones[0].parent = -1;
+        bones[1].parent = 0; bones[1].jointPivot = { 0.f, 4.f, 0.f };
+        bones[2].parent = 1; bones[2].jointPivot = { 0.f, 3.f, 0.f };
+
+        NkRagdoll ragdoll;
+        ragdoll.Build(world, bones, 3);
+        // suspendre l'os racine à l'ancre statique.
+        world.CreateBallJoint(anchor, ragdoll.Body(0), {0.f, 5.f, 0.f});
+
+        CHECK(ragdoll.Count() == 3, "M9 ragdoll : 3 os crees");
+        CHECK(ragdoll.Joint(0) == NK_INVALID_JOINT && ragdoll.Joint(1) != NK_INVALID_JOINT, "M9 ragdoll : joints parent-enfant");
+
+        for (int i = 0; i < 300; ++i) world.Step(1.f / 60.f);  // 5 s
+
+        const NkRigidBody* b0 = world.GetBody(ragdoll.Body(0));
+        const NkRigidBody* b1 = world.GetBody(ragdoll.Body(1));
+        const NkRigidBody* b2 = world.GetBody(ragdoll.Body(2));
+        CHECK(b0->position.y > 4.f, "M9 ragdoll : la chaine est SUSPENDUE (pas tombee)");
+        CHECK(Near(b0->position.y - b1->position.y, 1.f, 0.25f), "M9 ragdoll : os 0-1 restent lies (~1)");
+        CHECK(Near(b1->position.y - b2->position.y, 1.f, 0.25f), "M9 ragdoll : os 1-2 restent lies (~1)");
+        CHECK(Near(b2->position.x, 0.f, 0.4f), "M9 ragdoll : pend ~droit (self-collision off, pas d'explosion)");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
