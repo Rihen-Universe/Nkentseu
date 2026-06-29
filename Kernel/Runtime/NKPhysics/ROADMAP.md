@@ -46,7 +46,7 @@
 | **M8** Moteurs & **drives PD** + limites → *ragdoll actif* (tient/atteint une pose) | ✅ | L | P1 |
 | **M9** **Ragdoll générique** : builder squelette (os+joints depuis hiérarchie), self-collision | ✅ | L | P1 |
 | **M10** **Centre de masse + moment angulaire** (validation « physiquement correct » Cascadeur) | ✅ | M | P1 |
-| **M11** CCD (corps rapides) via `NkWorld::SweepBody` | ⏳ | M | P2 |
+| **M11** CCD (corps rapides) via `NkWorld::SweepBody` | ✅ | M | P2 |
 | **M12** Sous-pas (sub-stepping) + déterminisme | ⏳ | M | P2 |
 | **M13** Requêtes physiques (raycast/overlap filtrés) + triggers | ⏳ | S | P2 |
 | Pont Noge (`NkRigidBodyComponent`, synchro) | 🚫 (hors module) | M | P1 |
@@ -226,9 +226,20 @@ Scaffold de structure uniquement (pas de simulation) :
 > ⭐ Avec M7–M10, le **substrat physique du système Cascadeur** est complet : ragdoll **actif**
 > générique (joints + moteurs + limites) **+ validation** (COM/moment), pour toute morphologie.
 
+## Livré — M11 (2026-06-29, self-test 48/48)
+
+- **CCD intégré au `Step`** : pour un corps `NK_BODY_CCD` dont le déplacement dépasse la
+  moitié de sa plus petite extension, on balaie via `collision::NkWorld::SweepBody` (TOI),
+  on **clampe la position au point d'impact** (skin 1 cm) et on **tue la composante de vitesse
+  entrante** (le contact solver gère le repos ensuite). Intégration d'orientation séparée
+  (`NkIntegrateOrientation`).
+- **Démo** : une bille à **600 m/s** (10 m/pas) **s'arrête au mur fin** (~4.7) au lieu de le
+  traverser.
+
 ## En cours
 
-- **M11** — **CCD** intégré au `Step` (corps `NK_BODY_CCD` rapides) via `SweepBody`.
+- **M12** — **sous-pas (sub-stepping)** à pas fixe + accumulateur + déterminisme (chaînes de
+  joints raides plus stables, reproductibilité).
 
 ---
 

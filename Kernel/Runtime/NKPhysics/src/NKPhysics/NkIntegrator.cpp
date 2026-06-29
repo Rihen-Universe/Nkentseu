@@ -18,14 +18,18 @@ namespace nkentseu {
             b.torque = { 0.f, 0.f, 0.f };
         }
 
-        void NkIntegratePosition(NkRigidBody& b, float32 dt) noexcept {
-            b.position = b.position + b.linearVelocity * dt;
+        void NkIntegrateOrientation(NkRigidBody& b, float32 dt) noexcept {
             // orientation : q += 0.5 * (w⊗q) * dt, puis renormalisation.
             const NkVec3f w = b.angularVelocity;
             if (w.Dot(w) > 1e-12f) {
                 const NkQuatf wq(w.x, w.y, w.z, 0.f);           // (x,y,z,w)
                 b.orientation = (b.orientation + (wq * b.orientation) * (0.5f * dt)).Normalized();
             }
+        }
+
+        void NkIntegratePosition(NkRigidBody& b, float32 dt) noexcept {
+            b.position = b.position + b.linearVelocity * dt;
+            NkIntegrateOrientation(b, dt);
         }
 
     } // namespace physics
