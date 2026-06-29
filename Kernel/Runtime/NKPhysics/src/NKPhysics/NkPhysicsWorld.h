@@ -34,8 +34,11 @@ namespace nkentseu {
                 NkRigidBody*       GetBody(NkBodyId id) noexcept;
                 const NkRigidBody* GetBody(NkBodyId id) const noexcept;
 
-                // Avance la simulation de `dt` (cf. boucle en tête de fichier). [spec M0..M6]
+                // Avance la simulation de `dt` (découpé en `config.subSteps` sous-pas internes).
                 void Step(float32 dt);
+                // Avance à PAS FIXE (déterministe) : accumule `realDt` et exécute des Step de
+                // `config.fixedTimeStep` (au plus `maxSubSteps`). Renvoie le nb de pas exécutés.
+                int32 Advance(float32 realDt);
 
                 // ── Articulations (M7) ───────────────────────────────────────
                 // Joint à distance : garde les 2 ancres (monde) à leur distance courante.
@@ -87,6 +90,7 @@ namespace nkentseu {
                 void         WakeContacts();                // M6 : réveiller les corps touchés par un perturbateur
                 void         UpdateSleep(float32 dt);       // M6 : endormir les corps immobiles
                 void         SolveJoints(float32 dt);       // M7 : contraintes d'articulation
+                void         Substep(float32 h);            // M12 : un pas de simulation atomique
 
                 NkPhysicsConfig          mConfig;
                 collision::NkWorld       mCollision;   // détection (DBVH, manifolds)
@@ -94,6 +98,7 @@ namespace nkentseu {
                 NkContactSolver          mSolver;
                 NkVector<NkWarmEntry>    mWarm;         // cache d'impulses (frame précédente)
                 NkVector<NkJoint>        mJoints;       // articulations (M7)
+                float32                  mAccumulator = 0.f; // pas fixe (M12)
                 NkBodyId                 mNextId = 1u;
                 NkJointId                mNextJointId = 1u;
         };
