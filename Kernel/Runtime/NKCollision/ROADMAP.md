@@ -51,10 +51,17 @@
 - **Shape cast** : `NkWorld::ShapeCast(shape, dir, maxDist, hit, mask)` (Sphere/Box/CapsuleCast) avec
   cull par AABB balayée. ✅
 
-### Reste prioritaire (vague 7)
+### Livré 2026-06-29 — vague 7 : Dynamic AABB Tree (DBVH) — self-test 83/83
+- **`NkDbvh`** (`NkDbvh.h`) : arbre binaire d'AABB index-based (zéro pointeur), free-list,
+  AABB grossies (marge), insertion par coût SAH. `Insert/Remove/Update(proxy)` incrémentaux,
+  `Query(AABB)` et `RayCast` en O(log n). Vérifié vs brute force (grille 3×3 : query/raycast/
+  remove/update). **Équilibrage par rotations DIFFÉRÉ** (no-op : arbre toujours correct, SAH
+  garde une profondeur raisonnable). ✅
+
+### Reste prioritaire (vague 8)
 - **Manifold multi-points** (clipping Sutherland-Hodgman) : 1 pt -> 2 (2D)/4 (3D) pour la
   stabilité de la résolution physique (le plus important pour NKPhysics au-dessus).
-- **DBVH** (Dynamic AABB tree) : broadphase persistante + queries (raycast/overlap) accélérées.
+- **DBVH** : brancher dans le world (broadphase persistante incrémentale) + équilibrage AVL.
 - **CCD** intégré au world (swept des corps rapides) + **contacts persistants** (warm-starting).
 - **Debug draw** (NKUI/NKRenderer) + **intégration ECS** (`NkColliderComponent` + système).
 

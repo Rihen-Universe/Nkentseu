@@ -374,6 +374,43 @@ int main() {
         CHECK(!w.ShapeCast(NkShape::Sphere({-5,5,0}, 0.5f), {1,0,0}, 100.f, hit2), "shapecast sphere rate (passe au-dessus)");
     }
 
+    // ── VAGUE 7 : Dynamic AABB Tree (DBVH) — requêtes accélérées ─────────────
+    {
+        NkDbvh tree(0.f);                       // marge 0 -> Query exacte (== brute force)
+        int32 proxies[9]; uint32 k = 0;
+        for (int32 i = 0; i < 3; ++i)
+            for (int32 j = 0; j < 3; ++j) {
+                NkAABB3D b; NkVec3f c{ (float32)i * 2.f, (float32)j * 2.f, 0.f };
+                b.min = c - NkVec3f{0.4f,0.4f,0.4f}; b.max = c + NkVec3f{0.4f,0.4f,0.4f};
+                proxies[k] = tree.Insert(b, k); ++k;
+            }
+        NkVector<uint32> res;
+        // toute la grille
+        tree.Query(NkAABB3D{ {-1,-1,-1}, {5,5,1} }, res);
+        CHECK(res.Size() == 9, "DBVH Query : 9 boites (toute la grille)");
+        // coin 2x2 (centres (0,0)(0,2)(2,0)(2,2))
+        tree.Query(NkAABB3D{ {-0.5f,-0.5f,-0.5f}, {2.5f,2.5f,0.5f} }, res);
+        CHECK(res.Size() == 4, "DBVH Query : 4 boites (coin 2x2)");
+        // région lointaine -> 0
+        tree.Query(NkAABB3D{ {100,100,-1}, {101,101,1} }, res);
+        CHECK(res.Size() == 0, "DBVH Query : 0 boite (loin)");
+        // raycast le long de la rangée y=0 -> 3 boites
+        NkRay3D ray; ray.origin = {-5,0,0}; ray.dir = {1,0,0}; ray.maxT = 100.f;
+        tree.RayCast(ray, res);
+        CHECK(res.Size() == 3, "DBVH RayCast : 3 boites (rangee y=0)");
+        // retrait d'une boite -> 8 dans la grille
+        tree.Remove(proxies[0]);
+        tree.Query(NkAABB3D{ {-1,-1,-1}, {5,5,1} }, res);
+        CHECK(res.Size() == 8, "DBVH Remove : 8 boites restantes");
+        // update : déplacer une boite hors grille puis requêter la grille -> 7
+        NkAABB3D away; away.min = {50,50,-0.4f}; away.max = {50.8f,50.8f,0.4f};
+        tree.Update(proxies[4], away);
+        tree.Query(NkAABB3D{ {-1,-1,-1}, {5,5,1} }, res);
+        CHECK(res.Size() == 7, "DBVH Update : boite deplacee hors grille");
+        tree.Query(NkAABB3D{ {49,49,-1}, {52,52,1} }, res);
+        CHECK(res.Size() == 1, "DBVH Update : boite retrouvee a sa nouvelle position");
+    }
+
     logger.Info("=== NKCollision : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
