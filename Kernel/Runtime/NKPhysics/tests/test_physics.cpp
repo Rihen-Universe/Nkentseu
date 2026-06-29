@@ -248,6 +248,38 @@ int main() {
         CHECK(Near(b->orientation.w, 1.f, 0.1f), "M7 weld : orientation verrouillee (pas de rotation)");
     }
 
+    // ── M8 : MOTEUR (drive PD) -> un bras se TIENT a l'horizontale (ragdoll actif) ──
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkBodyDef ad; ad.type = NkBodyType::STATIC; ad.position = { 0.f, 5.f, 0.f };
+        const NkBodyId anchor = world.CreateBody(ad, collision::NkShape::Sphere({0,5,0}, 0.1f));
+        NkBodyDef pd; pd.type = NkBodyType::DYNAMIC; pd.position = { 1.f, 5.f, 0.f };
+        const NkBodyId arm = world.CreateBody(pd, collision::NkShape::Box3D({1,5,0}, {1.f,0.1f,0.3f}));
+        const NkJointId jt = world.CreateRevoluteJoint(anchor, arm, {0,5,0}, {0,0,1});
+        world.SetRevoluteMotor(jt, /*angle cible*/ 0.f, /*kp*/ 25.f, /*couple max*/ 500.f);
+        for (int i = 0; i < 180; ++i) world.Step(1.f / 60.f);
+        const NkRigidBody* b = world.GetBody(arm);
+        // sans moteur le bras tomberait à (0,4,0) ; avec moteur il TIENT l'horizontale (~1,5,0).
+        CHECK(Near(b->position.x, 1.f, 0.3f) && Near(b->position.y, 5.f, 0.3f), "M8 moteur : le bras TIENT la pose horizontale");
+    }
+
+    // ── M8 : LIMITE d'angle -> la trappe s'arrête à la borne (anti-hyperextension) ──
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkBodyDef ad; ad.type = NkBodyType::STATIC; ad.position = { 0.f, 5.f, 0.f };
+        const NkBodyId anchor = world.CreateBody(ad, collision::NkShape::Sphere({0,5,0}, 0.1f));
+        NkBodyDef pd; pd.type = NkBodyType::DYNAMIC; pd.position = { 1.f, 5.f, 0.f };
+        pd.angularDamping = 0.6f;
+        const NkBodyId panel = world.CreateBody(pd, collision::NkShape::Box3D({1,5,0}, {1.f,0.1f,0.3f}));
+        const NkJointId jt = world.CreateRevoluteJoint(anchor, panel, {0,5,0}, {0,0,1});
+        world.SetRevoluteLimit(jt, /*lower*/ -0.5f, /*upper*/ 1.0f);   // ne descend pas sous -0.5 rad
+        for (int i = 0; i < 240; ++i) world.Step(1.f / 60.f);
+        const NkRigidBody* b = world.GetBody(panel);
+        // arrêt à ~-0.5 rad -> centre ~ (0.88, 4.52) ; PAS de pleine pente (0,4).
+        CHECK(b->position.y > 4.3f, "M8 limite : la trappe s'ARRETE a la borne (ne pend pas a fond)");
+        CHECK(b->position.y < 4.85f, "M8 limite : elle a bien bascule jusqu'a la limite");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

@@ -43,7 +43,7 @@
 | **M5** Types static / kinematic + masses infinies | ✅ | S | P1 |
 | **M6** Mise en sommeil (sleeping) + réveil au contact | ✅ | L | P1 |
 | **M7** Articulations — *distance/ball/revolute/weld faits ; reste prismatic* | 🔶 | XL | P2 |
-| **M8** Moteurs & **drives PD** sur joints → *ragdoll actif* (tient/atteint une pose) | ⏳ | L | P1 |
+| **M8** Moteurs & **drives PD** + limites → *ragdoll actif* (tient/atteint une pose) | ✅ | L | P1 |
 | **M9** **Ragdoll générique** : builder squelette (os+joints depuis hiérarchie), self-collision | ⏳ | L | P1 |
 | **M10** **Centre de masse + moment angulaire** (validation « physiquement correct » Cascadeur) | ⏳ | M | P1 |
 | **M11** CCD (corps rapides) via `NkWorld::SweepBody` | ⏳ | M | P2 |
@@ -185,11 +185,25 @@ Scaffold de structure uniquement (pas de simulation) :
 - **Démo** : une caisse **soudée** à une ancre statique reste **figée** en position **et**
   orientation (ne tombe pas, ne tourne pas) au lieu de chuter.
 
+## Livré — M8 (2026-06-29, self-test 35/35) — ⭐ RAGDOLL ACTIF (cœur Cascadeur)
+
+- **Moteur / drive PD** sur revolute : `SetRevoluteMotor(joint, angleCible, kp, coupleMax)`.
+  Angle de charnière θ mesuré par décomposition twist (`2·atan2(qDelta·axe, qDelta.w)` avec
+  `qDelta = refRotation⁻¹·(qA⁻¹·qB)`). Le moteur amène la vitesse relative autour de l'axe vers
+  `kp·(cible−θ)`, **couple borné** par `coupleMax·dt` (ré-évalué par pas). → un membre **tient
+  et atteint une pose** au lieu de s'effondrer.
+- **Limites d'angle** : `SetRevoluteLimit(joint, lower, upper)` — contrainte **unilatérale**
+  (anti-hyperextension coude/genou) qui stoppe la course à la borne.
+- **Démo** : un bras **se tient à l'horizontale** sous moteur (vs chute) ; une trappe **s'arrête**
+  à sa limite d'angle (ne pend pas à fond).
+
+> ⭐ C'est le passage du ragdoll *passif* au ragdoll *actif* — la brique signature de
+> l'assistance physique d'animation (Cascadeur), valable pour toute morphologie.
+
 ## En cours
 
-- **M8** — **moteurs / drives PD** (couple vers une cible) **+ limites** d'angle sur revolute
-  (anti-hyperextension) = **ragdoll actif** (cœur Cascadeur). *(PRISMATIC reporté — peu utile
-  pour les créatures, surtout mécanique.)*
+- **M9** — **Ragdoll générique** (`NkRagdoll`) : construire corps+joints depuis une hiérarchie
+  d'os arbitraire (humanoïde, animal, créature) + self-collision.
 
 ---
 
