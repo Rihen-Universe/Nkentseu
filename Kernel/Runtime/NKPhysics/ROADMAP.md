@@ -7,8 +7,22 @@
 > `NkRigidBodyComponent` / `NkColliderComponent`, synchro transform) se fait **dans
 > Noge**, jamais ici (NKECS reste l'ECS générique de base).
 >
-> État : **SCAFFOLD** (structure + specs + roadmap). Aucune simulation encore.
+> État : **M0→M6 livrés** (intégration, contacts, frottement+angulaire, warm-starting,
+> split-impulse, static/kinematic, sommeil) — self-test 21/21.
 > Dernière mise à jour : 2026-06-29.
+>
+> ### ⭐ CAP — substrat d'un système type **Cascadeur** (tout corps articulé)
+> NKPhysics ne vise pas que les jeux : il doit fournir le **substrat physique d'animation
+> assistée façon Cascadeur**, pour **n'importe quel corps articulé** — humanoïde, **animal /
+> quadrupède**, créature, oiseau, rig mécanique… (rien d'humanoïde-spécifique : tout repose
+> sur une **hiérarchie générique d'os + joints**). Concrètement, en plus du corps rigide
+> générique, il livre : (1) des **articulations complètes & génériques** (hinge, ball,
+> prismatic, weld… avec limites — assemblables en n'importe quel squelette) ; (2) des
+> **moteurs / drives PD** → *ragdoll actif* qui **tient et atteint des poses** au lieu de
+> s'effondrer ; (3) des outils de **centre de masse + moment angulaire** = la « validation
+> physiquement correcte » signature de Cascadeur, valable pour toute morphologie. Le
+> **système Cascadeur complet** (IK déjà livré + auto-pose IA + UI) se construit dans
+> **NkAnima** PAR-DESSUS NKPhysics — cf. [Applications/NkAnima/ROADMAP.md].
 
 ---
 
@@ -28,11 +42,15 @@
 | **M4** Correction positionnelle (split-impulse) | ✅ | M | P1 |
 | **M5** Types static / kinematic + masses infinies | ✅ | S | P1 |
 | **M6** Mise en sommeil (sleeping) + réveil au contact | ✅ | L | P1 |
-| **M7** Articulations (distance/revolute/prismatic/weld) | ⏳ | XL | P2 |
-| **M8** CCD (corps rapides) via `NkWorld::SweepBody` | ⏳ | M | P2 |
-| **M9** Sous-pas (sub-stepping) + déterminisme | ⏳ | M | P2 |
-| **M10** Requêtes physiques (raycast/overlap filtrés) + triggers | ⏳ | S | P2 |
+| **M7** Articulations génériques (distance/revolute/prismatic/weld/ball) **+ limites** | ⏳ | XL | P2 |
+| **M8** Moteurs & **drives PD** sur joints → *ragdoll actif* (tient/atteint une pose) | ⏳ | L | P1 |
+| **M9** **Ragdoll générique** : builder squelette (os+joints depuis hiérarchie), self-collision | ⏳ | L | P1 |
+| **M10** **Centre de masse + moment angulaire** (validation « physiquement correct » Cascadeur) | ⏳ | M | P1 |
+| **M11** CCD (corps rapides) via `NkWorld::SweepBody` | ⏳ | M | P2 |
+| **M12** Sous-pas (sub-stepping) + déterminisme | ⏳ | M | P2 |
+| **M13** Requêtes physiques (raycast/overlap filtrés) + triggers | ⏳ | S | P2 |
 | Pont Noge (`NkRigidBodyComponent`, synchro) | 🚫 (hors module) | M | P1 |
+| Système Cascadeur (ragdoll actif + IK + auto-pose IA + UI) | 🚫 → **NkAnima** | XL | — |
 
 Marqueurs : ✅ livré · 🔶 en cours · ⏳ à venir · ❌ bug · 🚫 hors périmètre.
 
@@ -136,28 +154,72 @@ Scaffold de structure uniquement (pas de simulation) :
 
 ## En cours
 
-- **M7** — articulations (joints) : distance / pivot / glissière / soudure.
+- **M7** — articulations génériques (joints) : distance / pivot / glissière / soudure / ball
+  + **limites**. Briques assemblables en **n'importe quel squelette** (humanoïde, animal…).
 
 ---
 
 ## À venir (jalons détaillés)
 
-### M7 — Articulations (joints)
-- `NkDistanceJoint`, `NkRevoluteJoint`, `NkPrismaticJoint`, `NkWeldJoint`, `NkMouseJoint`
-  (debug). Mêmes contraintes séquentielles + warm-start. Moteurs/limites.
+### M7 — Articulations génériques (joints) + limites
+- `NkDistanceJoint` (longueur cible/min-max), `NkRevoluteJoint` (pivot 1 DOF = coude, genou,
+  charnière, roue) **+ limites d'angle**, `NkPrismaticJoint` (glissière 1 DOF = piston,
+  ascenseur) **+ limites**, `NkWeldJoint` (soudure rigide), `NkBallJoint`/spherical (3 DOF =
+  épaule, hanche, base de cou, attache de membre) **+ cône-limite**, `NkMouseJoint` (debug).
+- Implémentation **homogène aux contacts** : contraintes séquentielles (masse effective,
+  biais, warm-start) résolues dans le même solveur. **Aucune notion de morphologie** : ce
+  sont des primitives génériques — un humanoïde, un quadrupède, un oiseau ou un bras
+  robotisé ne sont que des **graphes différents** de ces mêmes joints.
 
-### M8 — CCD
-- Corps rapides : détecter le TOI via **`collision::NkWorld::SweepBody`** (déjà livré),
-  avancer le corps au TOI, re-résoudre. Évite le tunneling.
+### M8 — Moteurs & drives PD (ragdoll ACTIF)
+- Sur chaque joint : **moteur** (vitesse cible + couple/force max) et **drive PD** (angle/
+  position cible + raideur `kp` + amortissement `kd` → couple). C'est ce qui transforme un
+  ragdoll *passif* (qui s'effondre) en ragdoll *actif* qui **tient une pose** et **se déplace
+  vers une pose cible** — le cœur de l'assistance physique d'animation.
 
-### M9 — Sous-pas & déterminisme
-- `Step` à pas fixe + accumulateur (sous-pas) ; ordre d'itération stable ; pas de
-  dépendance à `Date.now()`/random ⇒ reproductible.
+### M9 — Ragdoll générique (toute morphologie)
+- `NkRagdoll` : construit un ensemble corps-rigides + joints **depuis une hiérarchie d'os
+  arbitraire** (pas de schéma humanoïde figé) → humanoïde, animal/quadrupède, créature,
+  mécanique. Gestion **self-collision** (masque par paire), mapping bone↔body, application
+  des limites anatomiques par joint. Sert directement NkAnima (couplage ragdoll ↔ skin).
 
-### M10 — Requêtes physiques
+### M10 — Centre de masse & moment angulaire (validation Cascadeur)
+- Outils d'analyse **physiquement correcte** : centre de masse global/par-membre, **moment
+  angulaire total**, support polygon / équilibre, trajectoire balistique du COM. C'est la
+  signature de Cascadeur (vérifier qu'un saut/une rotation respecte la conservation du
+  moment) — fourni ici comme **requêtes** sur le monde/ragdoll, réutilisables pour toute
+  morphologie. Exposé à NkAnima pour la validation et l'auto-correction de pose.
+
+### M11 — CCD
+- Corps rapides (`NK_BODY_CCD`) : détecter le TOI via **`collision::NkWorld::SweepBody`**
+  (déjà livré), avancer le corps au TOI, re-résoudre. Évite le tunneling.
+
+### M12 — Sous-pas & déterminisme
+- `Step` à pas fixe + accumulateur (sous-pas) → chaînes de joints raides (squelettes) stables ;
+  ordre d'itération stable ; pas de dépendance à `Date.now()`/random ⇒ reproductible.
+
+### M13 — Requêtes physiques
 - Raycast/Overlap/ShapeCast **filtrés par groupe/masque/type de corps**, renvoyant le
-  `NkRigidBody`. Triggers (corps `trigger` NKCollision) → callbacks enter/stay/exit
-  remontés au niveau physique.
+  `NkRigidBody`. Triggers (corps `trigger` NKCollision) → callbacks enter/stay/exit.
+
+---
+
+## Cap « système type Cascadeur » — qui fait quoi
+
+| Brique | Module | Statut |
+|--------|--------|--------|
+| Corps rigides + contacts + frottement + sommeil | NKPhysics M0–M6 | ✅ |
+| Joints génériques + limites (tout squelette) | NKPhysics **M7** | ⏳ |
+| Moteurs / drives PD → **ragdoll actif** (tient/atteint une pose) | NKPhysics **M8** | ⏳ |
+| Ragdoll générique (humanoïde/animal/créature) + self-collision | NKPhysics **M9** | ⏳ |
+| Centre de masse + moment angulaire (validation) | NKPhysics **M10** | ⏳ |
+| **IK** (chaînes, FABRIK) | NkAnima | ✅ (M0 IK livré) |
+| Couplage ragdoll ↔ squelette skinné, retargeting | NkAnima | ⏳ |
+| **Auto-pose / auto-physique par IA** (style Cascadeur) | NkAnima (+ NKAI futur) | ⏳ |
+| UI éditeur d'animation (timeline, manip, validation visuelle) | NkAnima / Editor Kit | ⏳ |
+
+> **NKPhysics** fournit le *moteur* (ragdoll actif générique + analyse physique) ; le
+> *produit* type Cascadeur s'assemble dans **NkAnima**, valable pour toute morphologie.
 
 ---
 
@@ -178,7 +240,10 @@ Scaffold de structure uniquement (pas de simulation) :
 ### Consommateurs (futurs)
 - **Noge** : `NkRigidBodyComponent` + `NkColliderComponent` (pont ECS → physics), système
   de synchro `Transform ↔ NkRigidBody`. C'est **là** que se fait l'intégration ECS.
-- Applications (NkAnima pour la physique d'animation, jeux, sandbox).
+- **NkAnima** : assemble le **système type Cascadeur** sur NKPhysics (ragdoll actif
+  générique + COM/moment) + son IK (déjà livré) + auto-pose IA + UI — pour **toute
+  morphologie** (humanoïde, animal, créature, mécanique).
+- Jeux / sandbox (gameplay physique générique).
 
 ---
 
