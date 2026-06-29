@@ -470,6 +470,31 @@ int main() {
         CHECK(w.Pairs().Size() == 1 && w.Pairs()[0].manifold.count == 2, "world box2D-box2D : manifold 2 points");
     }
 
+    // ── VAGUE 11 : manifolds MULTI-POINTS 3D (box-box, EPA + clipping de face) ─
+    {
+        // Empilement : caisse posée sur une autre -> 4 points, normale +Y.
+        NkManifold3D m;
+        CHECK(NkCollideBoxBox3D(NkShape::Box3D({0,0,0}, {1,1,1}), NkShape::Box3D({0,1.9f,0}, {1,1,1}), m), "boxbox3D empilement overlap");
+        CHECK(m.count == 4, "boxbox3D : 4 points de contact");
+        CHECK(m.normal.y > 0.8f && Near(m.points[0].depth, 0.1f, 3e-2f), "boxbox3D normale +Y depth ~0.1");
+
+        // côte à côte sur X -> 4 points, normale +X.
+        NkManifold3D mx;
+        CHECK(NkCollideBoxBox3D(NkShape::Box3D({0,0,0}, {1,1,1}), NkShape::Box3D({1.8f,0,0}, {1,1,1}), mx)
+              && mx.count == 4 && mx.normal.x > 0.8f, "boxbox3D cote-a-cote X : 4 pts normale +X");
+
+        // séparées -> pas de collision
+        NkManifold3D m2;
+        CHECK(!NkCollideBoxBox3D(NkShape::Box3D({0,0,0}, {1,1,1}), NkShape::Box3D({5,0,0}, {1,1,1}), m2), "boxbox3D separes");
+
+        // World : box3D-box3D passe par le clipping -> manifold 4 points
+        NkWorld w;
+        w.AddBody(NkShape::Box3D({0,0,0}, {1,1,1}));
+        w.AddBody(NkShape::Box3D({0,1.9f,0}, {1,1,1}));
+        w.Step();
+        CHECK(w.Pairs().Size() == 1 && w.Pairs()[0].manifold.count == 4, "world box3D-box3D : manifold 4 points");
+    }
+
     logger.Info("=== NKCollision : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

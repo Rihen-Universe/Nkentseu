@@ -75,10 +75,17 @@
   Câblé dans `NkNarrow2D` (supplante l'OBB-SAT 1-point). Vérifié : empilement de caisses
   = 2 points, normale +Y (stabilité de résolution). ✅
 
-### Reste prioritaire (vague 11)
-- **Manifold multi-points 3D** (box-box : SAT 15 axes + clipping de face -> 4 points).
-- **CCD** intégré au world (swept des corps rapides via ShapeCast) + **contacts persistants**.
+### Livré 2026-06-29 — vague 11 : manifolds multi-points 3D (box-box) — 100/100
+- **`NkCollideBoxBox3D`** (`NkColClip.h`) : hybride EPA (normale robuste) + **clipping de
+  face 3D** (Sutherland-Hodgman, `NkClipPolyPlane3`) -> jusqu'à **4 points de contact**
+  (OBB ou AABB). Câblé dans `NkNarrow3D` pour toute paire box-box. Vérifié : empilement
+  (4 pts, +Y) + côte-à-côte (4 pts, +X). ✅
+
+### Reste prioritaire (vague 12)
+- **CCD** intégré au world (swept des corps rapides via ShapeCast) + **contacts persistants**
+  (warm-starting inter-frames pour NKPhysics).
 - **Debug draw** (NKUI/NKRenderer) + **intégration ECS** (`NkColliderComponent` + système).
+- **NKPhysics** au-dessus (résolution d'impulses/contraintes sur les manifolds produits).
 
 ---
 
