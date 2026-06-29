@@ -94,6 +94,60 @@ namespace nkentseu {
             return nullptr;
         }
 
+        NkRigidBody* NkPhysicsWorld::FindByCollisionId(uint32 cid) noexcept {
+            for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) if (mBodies[i].collisionId == cid) return &mBodies[i];
+            return nullptr;
+        }
+
+        // ── M1 : solveur de contacts par impulses séquentielles (normale) ─────
+        // Modèle linéaire (point-masse) + biais de Baumgarte (anti-enfoncement) +
+        // restitution. Les termes angulaires (rotation au contact) arrivent en M2.
+        struct NkSolverContact { NkRigidBody* a; NkRigidBody* b; NkVec3f n; float32 nm; float32 bias[4]; float32 imp[4]; NkVec3f pt[4]; int32 count; };
+
+        void NkPhysicsWorld::SolveContacts(float32 dt) {
+            const auto& pairs = mCollision.Pairs();
+            NkVector<NkSolverContact> cs;
+            const float32 invDt = 1.f / dt;
+            for (uint32 i = 0; i < (uint32)pairs.Size(); ++i) {
+                const collision::NkCollisionPair& p = pairs[i];
+                NkRigidBody* A = FindByCollisionId(p.a); NkRigidBody* B = FindByCollisionId(p.b);
+                if (!A || !B) continue;
+                if ((A->flags & NK_BODY_TRIGGER) || (B->flags & NK_BODY_TRIGGER)) continue; // triggers = pas de réponse
+                const float32 kSum = A->invMass + B->invMass;
+                if (kSum <= 0.f) continue;                       // deux corps non dynamiques
+                NkSolverContact c; c.a = A; c.b = B; c.n = p.manifold.normal; c.nm = 1.f / kSum; c.count = 0;
+                const float32 e = NkMixRestitution(A->material, B->material);
+                for (int32 k = 0; k < p.manifold.count && k < 4; ++k) {
+                    const collision::NkContactPoint3D& mp = p.manifold.points[k];
+                    const NkVec3f rv = B->linearVelocity - A->linearVelocity;
+                    const float32 vn0 = rv.Dot(c.n);
+                    const float32 pos = mConfig.baumgarte * invDt * math::NkMax(0.f, mp.depth - mConfig.slop);
+                    const float32 rest = (vn0 < -1.f) ? -e * vn0 : 0.f; // rebond seulement au-dessus d'un seuil
+                    c.bias[c.count] = pos + rest;
+                    c.imp[c.count] = 0.f;
+                    c.pt[c.count] = mp.point;
+                    ++c.count;
+                }
+                if (c.count > 0) cs.PushBack(c);
+            }
+            // Itérations séquentielles (Gauss-Seidel) sur les impulses normales.
+            for (int32 it = 0; it < mConfig.velocityIters; ++it) {
+                for (uint32 i = 0; i < (uint32)cs.Size(); ++i) {
+                    NkSolverContact& c = cs[i];
+                    for (int32 k = 0; k < c.count; ++k) {
+                        const NkVec3f rv = c.b->linearVelocity - c.a->linearVelocity;
+                        const float32 vn = rv.Dot(c.n);
+                        float32 lambda = -c.nm * (vn - c.bias[k]);
+                        const float32 newImp = math::NkMax(0.f, c.imp[k] + lambda); // accumulé >= 0
+                        lambda = newImp - c.imp[k]; c.imp[k] = newImp;
+                        const NkVec3f P = c.n * lambda;
+                        c.a->linearVelocity = c.a->linearVelocity - P * c.a->invMass;
+                        c.b->linearVelocity = c.b->linearVelocity + P * c.b->invMass;
+                    }
+                }
+            }
+        }
+
         void NkPhysicsWorld::Step(float32 dt) {
             if (dt <= 0.f) return;
             // 1) forces -> vitesses
@@ -101,10 +155,11 @@ namespace nkentseu {
                 NkRigidBody& b = mBodies[i];
                 if (b.type == NkBodyType::DYNAMIC && b.IsAwake()) NkIntegrateVelocity(b, mConfig.gravity, dt);
             }
-            // 2) détection (broadphase DBVH + manifolds) — exploitée par le solveur en M1.
+            // 2) détection (broadphase DBVH + manifolds multi-points)
             mCollision.Step();
-            // (M1) NkContactSolver : préparer + warm-start + résoudre les vitesses ICI.
-            // 3) vitesses -> positions + 4) re-synchroniser les shapes de collision
+            // 3) solveur de contacts (vitesses)
+            SolveContacts(dt);
+            // 4) vitesses -> positions + 5) re-synchroniser les shapes de collision
             for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
                 NkRigidBody& b = mBodies[i];
                 if (b.type != NkBodyType::DYNAMIC || !b.IsAwake()) continue;
@@ -116,7 +171,7 @@ namespace nkentseu {
                     mCollision.SetShape(b.collisionId, s);
                 }
             }
-            // (M4) correction positionnelle ; (M6) sommeil — à venir.
+            // (M6) sommeil — à venir.
         }
 
     } // namespace physics

@@ -22,7 +22,7 @@
 | `NkRigidBody` (masse/inertie, vitesses, état) — données | ✅ | S | P0 |
 | `NkPhysicsWorld` (CreateBody/DestroyBody/GetBody/Step) | ✅ | M | P0 |
 | **M0** Intégration semi-implicite (gravité + vitesses) | ✅ | M | P0 |
-| **M1** Solveur de contacts (impulses séquentielles, normale) | ⏳ | L | P0 |
+| **M1** Solveur de contacts (impulses séquentielles, normale) | ✅ | L | P0 |
 | **M2** Frottement (impulses tangentes) + restitution | ⏳ | M | P0 |
 | **M3** Warm-starting (via `NkContactPoint::id` NKCollision) | ⏳ | M | P1 |
 | **M4** Correction positionnelle (Baumgarte / split-impulse) | ⏳ | M | P1 |
@@ -72,19 +72,22 @@ Scaffold de structure uniquement (pas de simulation) :
 - **Self-test** (`tests/test_physics.cpp`, NKLogger) : chute libre conforme à l'Euler
   symplectique (`y≈5.013`, `vy≈-9.81` après 1 s), statique immobile, `gravityScale=0`.
 
+## Livré — M1 (2026-06-29, self-test 8/8)
+
+- **`SolveContacts(dt)`** : une contrainte par `NkCollisionPair`, masse effective normale
+  `1/(invMassA+invMassB)`, biais **Baumgarte** (anti-enfoncement) + restitution, puis
+  **itérations séquentielles** (Gauss-Seidel, `velocityIters`) d'impulses normales
+  accumulées (≥ 0). Triggers ignorés. Modèle linéaire (point-masse) — angulaire en M2.
+- **Démo** : bille **et** caisse tombent et **reposent** sur un sol statique (`y≈1.5`,
+  `vy≈0`, ne traversent pas).
+
 ## En cours
 
-- **M1** — solveur de contacts (les corps doivent désormais *reposer* sur le sol).
+- **M2** — frottement (impulses tangentes) + termes angulaires au contact.
 
 ---
 
 ## À venir (jalons détaillés)
-
-### M1 — Solveur de contacts (impulses séquentielles, normale)
-- Pour chaque `NkCollisionPair` (manifold multi-points NKCollision) : construire des
-  contraintes de contact (masse effective, biais), itérer N fois la résolution
-  d'impulses normales (non-pénétration). Static/dynamique via masses inverses.
-  Démo : une caisse tombe et **repose** sur un sol statique (2D et 3D).
 
 ### M2 — Frottement + restitution
 - Impulses **tangentes** bornées par `μ·impulseNormale` (cône de Coulomb), 1 axe (2D)
