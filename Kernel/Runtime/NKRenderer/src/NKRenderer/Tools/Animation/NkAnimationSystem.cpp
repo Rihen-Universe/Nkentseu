@@ -5,8 +5,12 @@
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"
 #include "NKRenderer/Materials/NkMaterialSystem.h"
 #include "NKMemory/NkAllocator.h"
+#include "NKFileSystem/NkFile.h"
+#include "NKRenderer/Mesh/NkGLTFLoader.h"
+#include "NKLogger/NkLog.h"
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 
 #ifndef NK_PI
 #define NK_PI 3.14159265358979f
@@ -33,6 +37,12 @@ namespace nkentseu {
                     a.z+(b.z-a.z)*t, a.w+(b.w-a.w)*t};
         }
         template<> NkMat4f NkAnimationTrack<NkMat4f>::Lerp(const NkMat4f& a, const NkMat4f& b, float32 t) const {
+            // Lerp matriciel composant-par-composant. NOTE : les boneTracks stockent
+            // des MATRICES DE SKINNING bakées (global×inverseBind), pas des TRS d'os
+            // locaux. Décomposer/SLERP une matrice de skinning (scale composite,
+            // réflexions possibles) donne des poses FAUSSES -> on garde le lerp direct,
+            // correct à haut fps (clés rapprochées). Le slerp TRS appartient au niveau
+            // bone-LOCAL (cf RESTE M1 : stocker les tracks en TRS local + FK au sample).
             NkMat4f r;
             for(int i=0;i<4;i++) for(int j=0;j<4;j++)
                 r[i][j]=a[i][j]+(b[i][j]-a[i][j])*t;
@@ -72,6 +82,213 @@ namespace nkentseu {
             if(boneIdx>=(uint32)boneTracks.Size()) ResizeBones(boneIdx+1);
             boneTracks[boneIdx].AddKey(time, mat, interp);
             duration=fmaxf(duration, time);
+        }
+
+        // =====================================================================
+        // Sérialisation BINAIRE .nkanim (M1) — format compact versionné
+        // ---------------------------------------------------------------------
+        // [magic 'NKAN'(u32)] [version(u32)] [nameLen(u32)+name] [duration(f32)]
+        // [fps(f32)] [loop(u8)] [boneCount(u32)]
+        //   par os : [nameLen(u32)+name] [enabled(u8)] [keyCount(u32)]
+        //            par clé : [time(f32)] [mat(16*f32)] [interp(u8)]
+        // (Section os uniquement en v1 — le header versionné permet d'ajouter
+        //  morph/transform/material plus tard sans casser les fichiers.)
+        // =====================================================================
+        namespace {
+            constexpr uint32 kNkAnimMagic   = 0x4E414B4E; // 'NKAN' (little-endian)
+            constexpr uint32 kNkAnimVersion = 2;          // v2 : + section squelette (mode local)
+
+            struct ByteWriter {
+                NkVector<nk_uint8> buf;
+                void raw(const void* p, usize n) { const nk_uint8* b=(const nk_uint8*)p; for(usize i=0;i<n;++i) buf.PushBack(b[i]); }
+                void u8(uint8 v)   { raw(&v,1); }
+                void u32(uint32 v) { raw(&v,4); }
+                void i32(int32 v)  { raw(&v,4); }
+                void f32(float32 v){ raw(&v,4); }
+                void str(const NkString& s) { uint32 n=(uint32)s.Size(); u32(n); if(n) raw(s.CStr(), n); }
+                void mat(const NkMat4f& m)  { raw(m.data, 16*sizeof(float32)); }
+            };
+            struct ByteReader {
+                const nk_uint8* p; usize n, off=0; bool ok=true;
+                ByteReader(const nk_uint8* d, usize len): p(d), n(len) {}
+                bool need(usize c){ if(off+c>n){ok=false;return false;} return true; }
+                uint8  u8()  { if(!need(1))return 0; return p[off++]; }
+                uint32 u32() { if(!need(4))return 0; uint32 v; memcpy(&v,p+off,4); off+=4; return v; }
+                int32  i32() { if(!need(4))return 0; int32 v; memcpy(&v,p+off,4); off+=4; return v; }
+                float32 f32(){ if(!need(4))return 0; float32 v; memcpy(&v,p+off,4); off+=4; return v; }
+                NkString str(){ uint32 c=u32(); NkString s; if(c && need(c)){ s=NkString((const char*)(p+off), c); off+=c; } return s; }
+                NkMat4f mat(){ NkMat4f m; if(need(16*sizeof(float32))){ memcpy(m.data,p+off,16*sizeof(float32)); off+=16*sizeof(float32);} return m; }
+            };
+        }
+
+        bool NkAnimationClip::SaveBinary(const NkString& path) const {
+            ByteWriter w;
+            w.u32(kNkAnimMagic); w.u32(kNkAnimVersion);
+            w.str(name); w.f32(duration); w.f32(fps); w.u8(loop?1:0);
+            w.u32((uint32)boneTracks.Size());
+            for (uint32 b=0; b<(uint32)boneTracks.Size(); ++b) {
+                const NkAnimationTrack<NkMat4f>& tr = boneTracks[b];
+                w.str(tr.name); w.u8(tr.enabled?1:0);
+                w.u32(tr.KeyCount());
+                for (uint32 k=0; k<tr.KeyCount(); ++k) {
+                    const NkKeyframe<NkMat4f>& kf = tr.GetKey(k);
+                    w.f32(kf.time); w.mat(kf.value); w.u8((uint8)kf.interp);
+                }
+            }
+            // Section squelette (v2) : mode local + hiérarchie + inverseBind + topo.
+            w.u8(skeletalLocal?1:0);
+            w.u32((uint32)jointParent.Size());      for (uint32 j=0;j<(uint32)jointParent.Size();++j) w.i32(jointParent[j]);
+            w.u32((uint32)jointInverseBind.Size());  for (uint32 j=0;j<(uint32)jointInverseBind.Size();++j) w.mat(jointInverseBind[j]);
+            w.u32((uint32)jointTopo.Size());         for (uint32 j=0;j<(uint32)jointTopo.Size();++j) w.u32(jointTopo[j]);
+            if (!NkFile::WriteAllBytes(path.CStr(), w.buf)) {
+                logger.Errorf("[NkAnimClip] SaveBinary echec : %s\n", path.CStr());
+                return false;
+            }
+            logger.Info("[NkAnimClip] Saved '{0}' : {1} os, {2} octets\n",
+                        path.CStr(), (uint32)boneTracks.Size(), (uint32)w.buf.Size());
+            return true;
+        }
+
+        bool NkAnimationClip::LoadBinary(const NkString& path) {
+            NkVector<nk_uint8> bytes = NkFile::ReadAllBytes(path.CStr());
+            if (bytes.Empty()) { logger.Errorf("[NkAnimClip] LoadBinary vide/absent : %s\n", path.CStr()); return false; }
+            ByteReader r(bytes.Data(), bytes.Size());
+            uint32 magic=r.u32(), ver=r.u32();
+            if (magic!=kNkAnimMagic) { logger.Errorf("[NkAnimClip] magic invalide (0x%08X) : %s\n", magic, path.CStr()); return false; }
+            if (ver<1 || ver>kNkAnimVersion) { logger.Errorf("[NkAnimClip] version %u non supportee : %s\n", ver, path.CStr()); return false; }
+            name=r.str(); duration=r.f32(); fps=r.f32(); loop=(r.u8()!=0);
+            uint32 nb=r.u32();
+            boneTracks.Clear(); boneTracks.Resize(nb); boneCount=nb;
+            for (uint32 b=0; b<nb; ++b) {
+                NkAnimationTrack<NkMat4f>& tr = boneTracks[b];
+                tr.name=r.str(); tr.enabled=(r.u8()!=0);
+                uint32 nk=r.u32();
+                for (uint32 k=0; k<nk; ++k) {
+                    float32 t=r.f32(); NkMat4f m=r.mat(); uint8 interp=r.u8();
+                    tr.AddKey(t, m, (NkInterpMode)interp);
+                }
+            }
+            // Section squelette (v2+).
+            skeletalLocal=false; jointParent.Clear(); jointInverseBind.Clear(); jointTopo.Clear();
+            if (ver >= 2) {
+                skeletalLocal = (r.u8()!=0);
+                uint32 np=r.u32(); jointParent.Resize(np);      for(uint32 j=0;j<np;++j) jointParent[j]=r.i32();
+                uint32 ni=r.u32(); jointInverseBind.Resize(ni);  for(uint32 j=0;j<ni;++j) jointInverseBind[j]=r.mat();
+                uint32 nt=r.u32(); jointTopo.Resize(nt);         for(uint32 j=0;j<nt;++j) jointTopo[j]=r.u32();
+            }
+            if (!r.ok) { logger.Errorf("[NkAnimClip] LoadBinary tronque : %s\n", path.CStr()); return false; }
+            logger.Info("[NkAnimClip] Loaded '{0}' : {1} os, dur={2}s fps={3}\n",
+                        path.CStr(), nb, duration, fps);
+            return true;
+        }
+
+        bool NkAnimationClip::BakeFromGLTF(const NkGLTFMeshData& data, int32 animIdx, float32 fps) {
+            if (!data.isSkinned || data.skinJoints.Empty()) {
+                logger.Errorf("[NkAnimClip] BakeFromGLTF : modele non skinne\n");
+                return false;
+            }
+            if (fps < 1.f) fps = 30.f;
+            // Duree de l'animation (sinon 1 frame de bind pose).
+            float32 dur = 0.f;
+            if (animIdx >= 0 && animIdx < (int32)data.animations.Size())
+                dur = data.animations[(uint32)animIdx].duration;
+            const uint32 jc = (uint32)data.skinJoints.Size();
+
+            boneTracks.Clear();
+            ResizeBones(jc);
+            for (uint32 b = 0; b < jc; ++b) boneTracks[b].name = NkFormat("joint_{0}", b);
+
+            // ── Squelette : hiérarchie (parentJoint) + inverseBind + bindGlobal ──
+            // bindGlobal[j] = inverse(inverseBind[j]) (= global bind cohérent avec le skin,
+            // PAS EvaluateGLTFWorldJoints dont le global diffère). Sert à récupérer le
+            // global animé : global = skin × bindGlobal, puis local = inv(global[parent])×global.
+            NkVector<NkMat4f> bindGlobalUnused;
+            EvaluateGLTFWorldJoints(data, -1, 0.f, bindGlobalUnused, jointParent);
+            jointInverseBind = data.inverseBind;
+            NkVector<NkMat4f> bindGlobal; bindGlobal.Resize(jc);
+            for (uint32 j=0;j<jc;++j)
+                bindGlobal[j] = (j<(uint32)data.inverseBind.Size()) ? data.inverseBind[j].Inverse() : NkMat4f::Identity();
+            // topo (parent avant enfant)
+            jointTopo.Clear();
+            { NkVector<bool> placed; placed.Resize(jc); for(uint32 j=0;j<jc;++j) placed[j]=false;
+              uint32 done=0,g=0; while(done<jc && g++<jc+2){ for(uint32 j=0;j<jc;++j){ if(placed[j])continue;
+                int32 p=(j<(uint32)jointParent.Size())?jointParent[j]:-1; if(p<0||placed[(uint32)p]){ jointTopo.PushBack(j); placed[j]=true; ++done; } } }
+              for(uint32 j=0;j<jc;++j) if(!placed[j]) jointTopo.PushBack(j); }
+            skeletalLocal = true;
+
+            // Echantillonne la pose en MATRICES BONE-LOCAL (relatives au parent joint).
+            const uint32 frameCount = (dur > 1e-4f) ? (uint32)(dur * fps) + 1u : 1u;
+            NkVector<NkMat4f> pose, global; global.Resize(jc);
+            for (uint32 f = 0; f < frameCount; ++f) {
+                float32 t = (frameCount > 1) ? (float32)f / fps : 0.f;
+                if (t > dur) t = dur;
+                if (!EvaluateGLTFPose(data, animIdx, t, pose)) break;  // skinning
+                for (uint32 j=0;j<jc && j<(uint32)pose.Size(); ++j) global[j] = pose[j]*bindGlobal[j];
+                for (uint32 j=0;j<jc;++j) {
+                    int32 p = (j<(uint32)jointParent.Size())?jointParent[j]:-1;
+                    NkMat4f local = (p>=0) ? (global[(uint32)p].Inverse()*global[j]) : global[j];
+                    boneTracks[j].AddKey(t, local, NkInterpMode::NK_LINEAR);
+                }
+            }
+            this->fps = fps;
+            this->duration = dur;
+            this->loop = true;
+            RecalcDuration();
+            logger.Info("[NkAnimClip] BakeFromGLTF : {0} os, {1} frames @ {2}fps, dur={3}s (LOCAL)\n",
+                        jc, frameCount, fps, duration);
+            return true;
+        }
+
+        void NkAnimationClip::ApplyFKSkinning(NkVector<NkMat4f>& boneMats) const {
+            const uint32 n = (uint32)jointTopo.Size();
+            if (n == 0) return;
+            NkVector<NkMat4f> global; global.Resize(n > (uint32)boneMats.Size() ? n : (uint32)boneMats.Size());
+            // FK : global[j] = global[parent] × local[j]  (boneMats = locaux en entrée)
+            for (uint32 oi = 0; oi < (uint32)jointTopo.Size(); ++oi) {
+                uint32 j = jointTopo[oi];
+                int32 p = (j < (uint32)jointParent.Size()) ? jointParent[j] : -1;
+                NkMat4f local = (j < (uint32)boneMats.Size()) ? boneMats[j] : NkMat4f::Identity();
+                global[j] = (p >= 0) ? (global[(uint32)p] * local) : local;
+            }
+            // skinning[j] = global[j] × inverseBind[j]  (écrit en place)
+            for (uint32 j = 0; j < (uint32)boneMats.Size(); ++j) {
+                NkMat4f ib = (j < (uint32)jointInverseBind.Size()) ? jointInverseBind[j] : NkMat4f::Identity();
+                boneMats[j] = global[j] * ib;
+            }
+        }
+
+        // Échantillonne une track de matrices BONE-LOCAL avec interp TRS-slerp (correct
+        // car les locaux sont des transforms rigides — décompose, lerp T/S, SLERP rotation).
+        static NkMat4f SampleBoneLocalSlerp(const NkAnimationTrack<NkMat4f>& tr, float32 t) {
+            uint32 n = tr.KeyCount();
+            if (n == 0) return NkMat4f::Identity();
+            if (n == 1 || t <= tr.GetKey(0).time)   return tr.GetKey(0).value;
+            if (t >= tr.GetKey(n-1).time)           return tr.GetKey(n-1).value;
+            uint32 hi = 1; while (hi < n && tr.GetKey(hi).time <= t) ++hi;
+            uint32 lo = hi - 1;
+            const NkKeyframe<NkMat4f>& ka = tr.GetKey(lo);
+            const NkKeyframe<NkMat4f>& kb = tr.GetKey(hi);
+            float32 dt = kb.time - ka.time;
+            float32 a = (dt > 1e-6f) ? (t - ka.time) / dt : 0.f;
+            // Interp TRS-NLerp : décompose A/B, lerp translation/scale, NLERP la rotation
+            // (lerp de quaternions + normalize, chemin court via le signe du dot). Correct
+            // sur des transforms LOCAUX rigides + visuellement propre. (NB : NkQuat::SLerp
+            // pur reste buggé sur sa branche trigonométrique pour les grosses rotations ;
+            // NLerp est suffisant et stable à 30fps. Cf NkAnima ROADMAP.) Debug : lerp
+            // matriciel direct via NK_ANIM_LERPMAT.
+            static int lerpmat=-1; if(lerpmat<0){ const char* v=getenv("NK_ANIM_LERPMAT"); lerpmat=(v&&v[0]&&v[0]!='0')?1:0; }
+            if (lerpmat) { NkMat4f r; for(int i=0;i<4;i++)for(int j=0;j<4;j++) r[i][j]=ka.value[i][j]+(kb.value[i][j]-ka.value[i][j])*a; return r; }
+            NkVec3f ta, sa, tb, sb; NkMat4f ra, rb;
+            ka.value.DecomposeTRS(ta, ra, sa);
+            kb.value.DecomposeTRS(tb, rb, sb);
+            NkQuatf qa(ra), qb(rb);
+            NkVec3f tt = { ta.x+(tb.x-ta.x)*a, ta.y+(tb.y-ta.y)*a, ta.z+(tb.z-ta.z)*a };
+            NkVec3f ss = { sa.x+(sb.x-sa.x)*a, sa.y+(sb.y-sa.y)*a, sa.z+(sb.z-sa.z)*a };
+            float32 d = qa.x*qb.x+qa.y*qb.y+qa.z*qb.z+qa.w*qb.w;
+            NkQuatf qbb = (d<0.f) ? NkQuatf(-qb.x,-qb.y,-qb.z,-qb.w) : qb;
+            NkQuatf qq(qa.x+(qbb.x-qa.x)*a, qa.y+(qbb.y-qa.y)*a, qa.z+(qbb.z-qa.z)*a, qa.w+(qbb.w-qa.w)*a);
+            qq = qq.Normalized();
+            return NkMat4f::Translate(tt) * qq.ToMat4() * NkMat4f::Scale(ss);
         }
 
         void NkAnimationClip::BuildSpriteFlipBook(uint32 frameCount, float32 spriteFPS) {
@@ -252,11 +469,17 @@ namespace nkentseu {
             if(!clip) return;
             // Bones
             s.boneMatrices.Resize(clip->boneCount);
-            for(uint32 i=0;i<clip->boneCount;i++){
-                if(i<(uint32)clip->boneTracks.Size() && !clip->boneTracks[i].Empty())
-                    s.boneMatrices[i]=clip->boneTracks[i].Evaluate(t);
-                else
-                    s.boneMatrices[i]=NkMat4f::Identity();
+            if (clip->skeletalLocal && !clip->jointTopo.Empty()) {
+                // Mode LOCAL : sample bone-local (slerp) -> FK -> skinning.
+                for(uint32 i=0;i<clip->boneCount;i++)
+                    s.boneMatrices[i] = (i<(uint32)clip->boneTracks.Size() && !clip->boneTracks[i].Empty())
+                                      ? SampleBoneLocalSlerp(clip->boneTracks[i], t) : NkMat4f::Identity();
+                clip->ApplyFKSkinning(s.boneMatrices);
+            } else {
+                // Mode legacy : boneTracks = matrices de skinning directes.
+                for(uint32 i=0;i<clip->boneCount;i++)
+                    s.boneMatrices[i] = (i<(uint32)clip->boneTracks.Size() && !clip->boneTracks[i].Empty())
+                                      ? clip->boneTracks[i].Evaluate(t) : NkMat4f::Identity();
             }
             // Morph
             s.morphWeights.Resize((uint32)clip->morphTracks.Size(), 0.f);

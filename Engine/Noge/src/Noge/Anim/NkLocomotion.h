@@ -33,7 +33,7 @@
 #include "NKECS/World/NkWorld.h"
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "Nkentseu/ECS/Components/Animation/NkAnimation.h"
+#include "Noge/ECS/Components/Animation/NkAnimation.h"
 #include "Nkentseu/Rigging/NkIKSolver.h"
 
 namespace nkentseu {

@@ -209,7 +209,10 @@ void main() {
         ? NkTriplanarSampleRGBA(tAlbedo, vWorldPos, triW, invTile)
         : texture(tAlbedo, vUV);
     albSample *= vColor;
-    vec3 albedo    = pow(albSample.rgb, vec3(2.2));
+    // PAS de pow(2.2) : le baseColor est uploade en FORMAT sRGB -> le sampler GPU
+    // delinearise DEJA. Un pow(2.2) ici appliquait une 2e conversion gamma
+    // (double-gamma) -> couleurs sur-saturees / trop sombres. (Idem fix skin.)
+    vec3 albedo    = albSample.rgb;
     float alpha    = albSample.a;
     if (alpha < 0.01) discard;
 

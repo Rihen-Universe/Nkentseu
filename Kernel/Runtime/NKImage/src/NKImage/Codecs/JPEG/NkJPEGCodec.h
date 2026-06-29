@@ -17,7 +17,8 @@ namespace nkentseu {
              * @param size  Taille en octets.
              * @return NkImage alloué (appelant doit appeler Free()), nullptr si échec.
              *         Formats de sortie : NK_GRAY8 (grayscale) ou NK_RGB24 (couleur).
-             *         JPEG progressif : rejeté (retourne nullptr).
+             *         Supporte baseline (SOF0) ET progressif (SOF2), 4:4:4 / 4:2:2 /
+             *         4:2:0, restart markers (DRI/RSTn).
              */
             static NkImage* Decode(const uint8* data, usize size) noexcept;
 

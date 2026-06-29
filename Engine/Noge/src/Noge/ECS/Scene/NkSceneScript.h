@@ -454,7 +454,7 @@ namespace nkentseu {
          * @brief Implémentation basique des callbacks lifecycle.
          * 
          * @code
-         * #include "NKECS/Scene/NkSceneScript.h"
+         * #include "Noge/ECS/Scene/NkSceneScript.h"
          * #include "MyGame/Components/Health.h"
          * 
          * using namespace nkentseu;
@@ -527,7 +527,7 @@ namespace nkentseu {
          * @brief Utilisation des helpers utilitaires (Find*, SpawnPrefab, etc.).
          * 
          * @code
-         * #include "NKECS/Scene/NkSceneScript.h"
+         * #include "Noge/ECS/Scene/NkSceneScript.h"
          * #include "MyGame/Prefabs/EnemyPrefabs.h"
          * 
          * using namespace nkentseu;
@@ -658,7 +658,7 @@ namespace nkentseu {
          * @brief Gestion de la pause/reprise dans un script de scène.
          * 
          * @code
-         * #include "NKECS/Scene/NkSceneScript.h"
+         * #include "Noge/ECS/Scene/NkSceneScript.h"
          * #include "MyGame/Systems/AudioManager.h"
          * 
          * using namespace nkentseu;

@@ -1,0 +1,149 @@
+// layeredv1.frag.nksl — M.1 v1 : Material Layering N=8 (VRAI dialecte NkSL)
+// Traduit de LayeredV1/VK/layeredv1.frag.vk.glsl. Migre vers NkSL pour le
+// generateur HLSL DIRECT (DX11/DX12).
+//
+// Empile jusqu'a 8 couches PBR-simplifiees (albedo, metallic, roughness) blend
+// via masks parametriques (vColor, vUV, constant ou albedo.a). Lighting Phong-like
+// minimal (1 directionnelle fixe + ambient).
+//
+// Layout UBO std140 (set=2 bind=8) — voir struct C++ NkLayeredV1Params :
+//   NkPBRLayer layers[8] (8*32=256) + 2 ivec4 maskSources + 2 vec4 maskConstants
+//   + numLayers(int) + 3 pad.
+//
+// @material("LayeredV1")
+//
+// NOTE NkSL : le parseur NkSL ne supporte PAS la declaration d'une variable
+// locale de type struct utilisateur (ex. `NkLayerAccum acc;`) ni le retour d'un
+// struct depuis un helper. On n'inclut donc PAS NkLayerBlend.glsli ; on definit
+// NkPBRLayer inline (uniquement pour le tableau du UBO, comme NkShadowSlot dans
+// PBR/Layered) et on accumule albedo/metallic/roughness dans des LOCALES scalaires
+// vec3/float (pattern supporte, identique a PBR/Layered).
+// Les varyings (vColor/vUV) ne sont JAMAIS referencees dans un helper : passees
+// en PARAMETRE (sinon le generateur HLSL ferait input.xxx hors entry -> X3004).
+
+@location(0) in vec3 vWorldPos;
+@location(1) in vec3 vNormal;
+@location(2) in vec2 vUV;
+@location(3) in vec4 vColor;
+
+@location(0) out vec4 fragColor;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+} uCam;
+
+// Une "couche" PBR simplifiee (32 bytes std140-aligned) — doit matcher la struct
+// CPU NkPBRLayer (albedo vec4 + metallic + roughness + 2 pad).
+struct NkPBRLayer {
+    vec4  albedo;
+    float metallic;
+    float roughness;
+    float _pad0;
+    float _pad1;
+};
+
+// UBO LayeredV1 (set=2 binding=8). std140 force le padding sur 16 bytes — d'ou
+// les arrays d'int wrappes en ivec4 (4 ints/vec4 = 2 ivec4 pour 8 sources).
+@binding(set=2, binding=8)
+uniform LayeredV1UBO {
+    NkPBRLayer layers[8];
+    ivec4 maskSources0;   // sources des layers 0..3
+    ivec4 maskSources1;   // sources des layers 4..7
+    vec4  maskConstants0; // constants 0..3
+    vec4  maskConstants1; // constants 4..7
+    int   numLayers;
+    int   _pad0;
+    int   _pad1;
+    int   _pad2;
+} uMat;
+
+// Helpers d'extraction par index dans les arrays packees ivec4/vec4 (lecture UBO,
+// autorise : un UBO est global). Pas de struct locale, pas de retour de struct.
+int maskSources0_at(int i) {
+    if (i == 0) return uMat.maskSources0.x;
+    if (i == 1) return uMat.maskSources0.y;
+    if (i == 2) return uMat.maskSources0.z;
+    return uMat.maskSources0.w;
+}
+int maskSources1_at(int i) {
+    if (i == 0) return uMat.maskSources1.x;
+    if (i == 1) return uMat.maskSources1.y;
+    if (i == 2) return uMat.maskSources1.z;
+    return uMat.maskSources1.w;
+}
+float maskConstants_at(int i) {
+    if (i == 0) return uMat.maskConstants0.x;
+    if (i == 1) return uMat.maskConstants0.y;
+    if (i == 2) return uMat.maskConstants0.z;
+    if (i == 3) return uMat.maskConstants0.w;
+    if (i == 4) return uMat.maskConstants1.x;
+    if (i == 5) return uMat.maskConstants1.y;
+    if (i == 6) return uMat.maskConstants1.z;
+    return uMat.maskConstants1.w;
+}
+
+// Selection du masque par source. vColor/vUV recus en PARAMETRE (pas de varying
+// directe dans un helper). Equivalent de NkPickMask (NkLayerBlend.glsli).
+float PickMask(int source, vec4 color, vec2 uv, float k, float layerAlbedoA) {
+    if (source == 0) return color.r;
+    if (source == 1) return color.g;
+    if (source == 2) return color.b;
+    if (source == 3) return color.a;
+    if (source == 4) return clamp(uv.x, 0.0, 1.0);
+    if (source == 5) return clamp(uv.y, 0.0, 1.0);
+    if (source == 6) return clamp(k, 0.0, 1.0);
+    if (source == 7) return clamp(layerAlbedoA, 0.0, 1.0);
+    return 0.0;
+}
+
+@stage(fragment)
+@entry
+void main() {
+    int N = clamp(uMat.numLayers, 1, 8);
+
+    // Accumulateur en LOCALES scalaires (pas de struct locale). Layer 0 = base.
+    vec3  accAlbedo    = uMat.layers[0].albedo.rgb;
+    float accMetallic  = uMat.layers[0].metallic;
+    float accRoughness = uMat.layers[0].roughness;
+
+    // Layers 1..N-1 : blendes selon leur mask (mix "alpha over").
+    for (int i = 1; i < 8; ++i) {
+        if (i >= N) break;
+        int src = (i < 4) ? maskSources0_at(i) : maskSources1_at(i - 4);
+        float k = maskConstants_at(i);
+        float mask = PickMask(src, vColor, vUV, k, uMat.layers[i].albedo.a);
+        accAlbedo    = mix(accAlbedo,    uMat.layers[i].albedo.rgb, mask);
+        accMetallic  = mix(accMetallic,  uMat.layers[i].metallic,   mask);
+        accRoughness = mix(accRoughness, uMat.layers[i].roughness,  mask);
+    }
+
+    // Lighting Phong-like simple.
+    vec3 N3 = normalize(vNormal);
+    vec3 L  = normalize(vec3(-0.3, 1.0, 0.4));
+    vec3 V  = normalize(uCam.camPos.xyz - vWorldPos);
+    vec3 H  = normalize(L + V);
+
+    float NdotL = max(dot(N3, L), 0.0);
+    float NdotH = max(dot(N3, H), 0.0);
+
+    float specExp = mix(128.0, 2.0, accRoughness);
+    float spec    = pow(NdotH, specExp);
+
+    vec3 specColor = mix(vec3(1.0), accAlbedo, accMetallic);
+
+    vec3 diffuse = accAlbedo * (NdotL + 0.18);   // ambient = 0.18
+    vec3 specular = specColor * spec * (accMetallic * 0.7 + 0.3);
+
+    vec3 final = diffuse + specular;
+    fragColor  = vec4(final, 1.0);
+}

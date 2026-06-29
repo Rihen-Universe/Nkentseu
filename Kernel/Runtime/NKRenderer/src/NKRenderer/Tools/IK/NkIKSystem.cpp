@@ -72,6 +72,13 @@ namespace nkentseu {
 
         uint32 NkIKRig::GetChainCount() const { return (uint32)mChains.Size(); }
 
+        void NkIKRig::SetWorldPose(const NkMat4f* worldMats, uint32 count) {
+            mBoneMatrices.Clear();
+            if (!worldMats || count == 0) return;
+            mBoneMatrices.Reserve(count);
+            for (uint32 i = 0; i < count; ++i) mBoneMatrices.PushBack(worldMats[i]);
+        }
+
         const NkMat4f* NkIKRig::GetBoneMatrices()    const { return mBoneMatrices.Data(); }
         uint32         NkIKRig::GetBoneMatrixCount()  const { return (uint32)mBoneMatrices.Size(); }
 
@@ -159,66 +166,163 @@ namespace nkentseu {
             return { m[3][0], m[3][1], m[3][2] };
         }
 
-        void NkIKSystem::SolveChain_TwoBone(NkIKRig::ChainEntry& chain,
-                                            NkVector<NkMat4f>& /*bones*/) {
-            // Analytical two-bone IK (arm / leg)
-            if (chain.desc.bones.Size() < 2) return;
-
-            const NkIKBone& boneA = chain.desc.bones[0]; // root (hip/shoulder)
-            const NkIKBone& boneB = chain.desc.bones[1]; // mid  (knee/elbow)
-            float32 la = boneA.length;
-            float32 lb = boneB.length;
-
-            NkVec3f root   = chain.target.position; // placeholder — should come from bone matrix
-            NkVec3f target = chain.target.position;
-            NkVec3f diff   = { target.x - root.x, target.y - root.y, target.z - root.z };
-            float32 dist   = sqrtf(diff.x*diff.x + diff.y*diff.y + diff.z*diff.z);
-
-            // Clamp to reach
-            float32 maxReach = la + lb;
-            if (dist > maxReach) dist = maxReach;
-            if (dist < fabsf(la - lb)) dist = fabsf(la - lb) + 1e-5f;
-
-            // Law of cosines: cos(theta_b) = (la²+lb²-dist²) / (2·la·lb)
-            float32 cosB = (la*la + lb*lb - dist*dist) / (2.f*la*lb);
-            cosB = cosB < -1.f ? -1.f : cosB > 1.f ? 1.f : cosB;
-            float32 /*thetaB*/ _ = acosf(cosB);
-            (void)_;
-            // Full bone matrix computation would write into bones[boneA.boneIdx/boneB.boneIdx]
+        // ── Helpers partagés (positions monde + write-back bind-fidèle b+) ────
+        // Construit les positions MONDE de la chaîne depuis bones[boneIdx] et déduit
+        // les longueurs de segment manquantes. Retourne n.
+        static uint32 BuildChainPositions(NkVector<NkIKBone>& descBones,
+                                          const NkVector<NkMat4f>& bones,
+                                          NkVector<NkVec3f>& pos) {
+            uint32 n = (uint32)descBones.Size();
+            pos.Clear();
+            for (uint32 i = 0; i < n; ++i) {
+                uint32 bi = descBones[i].boneIdx;
+                if (bi < bones.Size()) { const NkMat4f& m = bones[bi];
+                    pos.PushBack({m.position.x, m.position.y, m.position.z}); }
+                else pos.PushBack({0,0,0});
+            }
+            for (uint32 i = 1; i < n; ++i)
+                if (descBones[i].length <= 1e-6f) {
+                    NkVec3f d = {pos[i].x-pos[i-1].x, pos[i].y-pos[i-1].y, pos[i].z-pos[i-1].z};
+                    descBones[i].length = sqrtf(d.x*d.x+d.y*d.y+d.z*d.z);
+                }
+            return n;
         }
 
-        void NkIKSystem::SolveChain_CCD(NkIKRig::ChainEntry& chain,
-                                        NkVector<NkMat4f>& /*bones*/) {
-            if (chain.desc.bones.Empty()) return;
-            NkVec3f target = chain.target.position;
-            uint32  iters  = chain.desc.maxIterations;
-
-            // CCD: iterate from effector toward root
-            for (uint32 iter = 0; iter < iters; ++iter) {
-                int32 n = (int32)chain.desc.bones.Size() - 1;
-                for (int32 i = n - 1; i >= 0; --i) {
-                    // Rotate bone[i] to point toward target
-                    // Stub — requires current end effector position from bone matrices
-                    (void)i;
+        // Réécrit les matrices MONDE des os = translation résolue + rotation
+        // BIND-FIDÈLE : delta monde (bindDir->newDir) appliqué sur la rotation bind
+        // locale de l'os (bones[bi] sans translation) -> préserve le twist d'origine.
+        // En bind pose (dir inchangée) le delta = identité -> matrice bind exacte.
+        // L'effecteur (sans segment fils) suit le delta de son parent.
+        static void WriteBackBindFidele(const NkVector<NkIKBone>& descBones, NkVector<NkMat4f>& bones,
+                                        const NkVector<NkVec3f>& pos,
+                                        const NkVector<NkVec3f>& bindPos) {
+            uint32 n = (uint32)descBones.Size();
+            NkQuatf lastDelta;  // identité
+            for (uint32 i = 0; i < n; ++i) {
+                uint32 bi = descBones[i].boneIdx;
+                if (bi >= bones.Size()) continue;
+                NkMat4f bindRot = bones[bi];
+                bindRot.m30 = 0.f; bindRot.m31 = 0.f; bindRot.m32 = 0.f; bindRot.m33 = 1.f;
+                NkQuatf delta = lastDelta;
+                if (i + 1 < n) {
+                    NkVec3f bd = { bindPos[i+1].x-bindPos[i].x, bindPos[i+1].y-bindPos[i].y, bindPos[i+1].z-bindPos[i].z };
+                    NkVec3f nd = { pos[i+1].x-pos[i].x, pos[i+1].y-pos[i].y, pos[i+1].z-pos[i].z };
+                    float32 bl = sqrtf(bd.x*bd.x+bd.y*bd.y+bd.z*bd.z);
+                    float32 nl = sqrtf(nd.x*nd.x+nd.y*nd.y+nd.z*nd.z);
+                    if (bl > 1e-6f && nl > 1e-6f) {
+                        bd.x/=bl; bd.y/=bl; bd.z/=bl; nd.x/=nl; nd.y/=nl; nd.z/=nl;
+                        delta = NkQuatf(bd, nd); lastDelta = delta;
+                    }
                 }
-                // Check convergence
-                float32 err = 0.f; // distance from effector to target
-                if (err < chain.desc.tolerance) break;
+                bones[bi] = NkMat4f::Translate(pos[i]) * delta.ToMat4() * bindRot;
             }
         }
 
-        void NkIKSystem::SolveChain_FABRIK(NkIKRig::ChainEntry& chain,
-                                            NkVector<NkMat4f>& /*bones*/) {
+        void NkIKSystem::SolveChain_TwoBone(NkIKRig::ChainEntry& chain,
+                                            NkVector<NkMat4f>& bones) {
+            // Two-bone analytique (bras / jambe) : résout les 3 premiers joints
+            // (racine, milieu, effecteur) par loi des cosinus + pôle, puis write-back
+            // bind-fidèle. Les joints au-delà (chaîne >3) suivent le dernier segment.
+            if (chain.desc.bones.Size() < 2) return;
+            NkVector<NkVec3f> pos;
+            uint32 n = BuildChainPositions(chain.desc.bones, bones, pos);
+            NkVector<NkVec3f> bindPos = pos;
+
+            const uint32 iMid = 1u;
+            const uint32 iEnd = (n >= 3) ? 2u : 1u;
+            NkVec3f root   = pos[0];
+            NkVec3f target = chain.target.position;
+            float32 la = chain.desc.bones[iMid].length;            // root -> mid
+            float32 lb = (n >= 3) ? chain.desc.bones[iEnd].length : 0.f; // mid -> end
+
+            NkVec3f toT = { target.x-root.x, target.y-root.y, target.z-root.z };
+            float32 dist = sqrtf(toT.x*toT.x+toT.y*toT.y+toT.z*toT.z);
+            if (dist < 1e-6f || la < 1e-6f) { WriteBackBindFidele(chain.desc.bones, bones, pos, bindPos); return; }
+            NkVec3f dirT = { toT.x/dist, toT.y/dist, toT.z/dist };
+
+            float32 reach = la + lb;
+            float32 d = dist;
+            if (d > reach) d = reach;
+            if (d < fabsf(la - lb)) d = fabsf(la - lb) + 1e-5f;
+
+            // Projection racine->milieu sur dirT (loi des cosinus) + hauteur perpend.
+            float32 a = (lb > 1e-6f) ? (la*la - lb*lb + d*d) / (2.f*d) : la;
+            float32 h2 = la*la - a*a;
+            float32 h  = (h2 > 0.f) ? sqrtf(h2) : 0.f;
+
+            // Direction du coude : pôle si fourni, sinon direction bind du milieu.
+            NkVec3f ref = (chain.target.usePole) ? chain.target.poleVector
+                : NkVec3f{ bindPos[iMid].x-bindPos[0].x, bindPos[iMid].y-bindPos[0].y, bindPos[iMid].z-bindPos[0].z };
+            float32 rl = sqrtf(ref.x*ref.x+ref.y*ref.y+ref.z*ref.z);
+            if (rl < 1e-6f) ref = {0,1,0}; else { ref.x/=rl; ref.y/=rl; ref.z/=rl; }
+            float32 dp = ref.x*dirT.x + ref.y*dirT.y + ref.z*dirT.z;
+            NkVec3f perp = { ref.x-dirT.x*dp, ref.y-dirT.y*dp, ref.z-dirT.z*dp };
+            float32 pl = sqrtf(perp.x*perp.x+perp.y*perp.y+perp.z*perp.z);
+            if (pl < 1e-6f) perp = {0,1,0}; else { perp.x/=pl; perp.y/=pl; perp.z/=pl; }
+
+            pos[iMid] = { root.x + dirT.x*a + perp.x*h,
+                          root.y + dirT.y*a + perp.y*h,
+                          root.z + dirT.z*a + perp.z*h };
+            pos[iEnd] = { root.x + dirT.x*d, root.y + dirT.y*d, root.z + dirT.z*d };
+
+            // Joints supplémentaires (chaîne > 3) : prolongent le dernier segment.
+            for (uint32 i = iEnd + 1; i < n; ++i) {
+                NkVec3f pv = { pos[i-1].x-pos[i-2].x, pos[i-1].y-pos[i-2].y, pos[i-1].z-pos[i-2].z };
+                float32 vl = sqrtf(pv.x*pv.x+pv.y*pv.y+pv.z*pv.z);
+                if (vl > 1e-6f) { pv.x/=vl; pv.y/=vl; pv.z/=vl; }
+                float32 len = chain.desc.bones[i].length;
+                pos[i] = { pos[i-1].x+pv.x*len, pos[i-1].y+pv.y*len, pos[i-1].z+pv.z*len };
+            }
+            WriteBackBindFidele(chain.desc.bones, bones, pos, bindPos);
+        }
+
+        void NkIKSystem::SolveChain_CCD(NkIKRig::ChainEntry& chain,
+                                        NkVector<NkMat4f>& bones) {
+            // Cyclic Coordinate Descent : à chaque passe (effecteur -> racine), on
+            // fait pivoter le sous-bras [i+1..n-1] autour du joint i pour aligner
+            // l'effecteur sur la cible. Rotations rigides -> longueurs préservées.
             if (chain.desc.bones.Empty()) return;
-            uint32  n      = (uint32)chain.desc.bones.Size();
+            NkVector<NkVec3f> pos;
+            uint32 n = BuildChainPositions(chain.desc.bones, bones, pos);
+            NkVector<NkVec3f> bindPos = pos;
+            if (n < 2) { WriteBackBindFidele(chain.desc.bones, bones, pos, bindPos); return; }
+
+            NkVec3f target = chain.target.position;
+            uint32  iters  = chain.desc.maxIterations;
+            for (uint32 iter = 0; iter < iters; ++iter) {
+                for (int32 i = (int32)n - 2; i >= 0; --i) {
+                    NkVec3f P  = pos[(uint32)i];
+                    NkVec3f E  = pos[n-1];
+                    NkVec3f aE = { E.x-P.x, E.y-P.y, E.z-P.z };
+                    NkVec3f aT = { target.x-P.x, target.y-P.y, target.z-P.z };
+                    float32 le = sqrtf(aE.x*aE.x+aE.y*aE.y+aE.z*aE.z);
+                    float32 lt = sqrtf(aT.x*aT.x+aT.y*aT.y+aT.z*aT.z);
+                    if (le < 1e-6f || lt < 1e-6f) continue;
+                    aE.x/=le; aE.y/=le; aE.z/=le; aT.x/=lt; aT.y/=lt; aT.z/=lt;
+                    NkQuatf q(aE, aT);  // rotation minimale aE -> aT
+                    for (uint32 j = (uint32)i + 1; j < n; ++j) {
+                        NkVec3f rel = { pos[j].x-P.x, pos[j].y-P.y, pos[j].z-P.z };
+                        NkVec3f rr  = q * rel;
+                        pos[j] = { P.x+rr.x, P.y+rr.y, P.z+rr.z };
+                    }
+                }
+                NkVec3f d = { pos[n-1].x-target.x, pos[n-1].y-target.y, pos[n-1].z-target.z };
+                if (sqrtf(d.x*d.x+d.y*d.y+d.z*d.z) < chain.desc.tolerance) break;
+            }
+            WriteBackBindFidele(chain.desc.bones, bones, pos, bindPos);
+        }
+
+        void NkIKSystem::SolveChain_FABRIK(NkIKRig::ChainEntry& chain,
+                                            NkVector<NkMat4f>& bones) {
+            if (chain.desc.bones.Empty()) return;
             NkVec3f target = chain.target.position;
             uint32  iters  = chain.desc.maxIterations;
 
-            // Temporary positions
+            // Positions MONDE courantes (pose fournie par SetWorldPose) + longueurs.
             NkVector<NkVec3f> pos;
-            for (uint32 i = 0; i < n; ++i) pos.PushBack({0,0,0}); // placeholder
-
-            NkVec3f root = pos[0];
+            uint32 n = BuildChainPositions(chain.desc.bones, bones, pos);
+            NkVec3f root = pos[0];                 // racine MONDE (ancrage fixe)
+            NkVector<NkVec3f> bindPos = pos;        // positions BIND pour le write-back (b+)
 
             for (uint32 iter = 0; iter < iters; ++iter) {
                 // Forward pass — from root to effector
@@ -258,7 +362,7 @@ namespace nkentseu {
                 float32 err = sqrtf(diff.x*diff.x + diff.y*diff.y + diff.z*diff.z);
                 if (err < chain.desc.tolerance) break;
             }
-            // Write positions back to bone matrices (stub)
+            WriteBackBindFidele(chain.desc.bones, bones, pos, bindPos);
         }
 
         void NkIKSystem::SolveChain_Spline(NkIKRig::ChainEntry& chain,

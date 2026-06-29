@@ -52,8 +52,8 @@
  * @date 2026
  */
 
-#include "Nkentseu/ECS/Scene/NkSceneGraph.h"
-#include "Nkentseu/ECS/Scene/NkSceneScript.h"
+#include "Noge/ECS/Scene/NkSceneGraph.h"
+#include "Noge/ECS/Scene/NkSceneScript.h"
 #include "NKECS/World/NkWorld.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
@@ -558,7 +558,7 @@ namespace nkentseu {
          * @brief Enregistrement des scènes et chargement initial au démarrage.
          * 
          * @code
-         * #include "NKECS/Scene/NkSceneManager.h"
+         * #include "Noge/ECS/Scene/NkSceneManager.h"
          * #include "NKECS/World/NkWorld.h"
          * #include "MyGame/Scenes/MainMenuScene.h"
          * #include "MyGame/Scenes/GameLevelScene.h"
@@ -640,7 +640,7 @@ namespace nkentseu {
          * @brief Gestion des transitions entre scènes avec effets visuels.
          * 
          * @code
-         * #include "NKECS/Scene/NkSceneManager.h"
+         * #include "Noge/ECS/Scene/NkSceneManager.h"
          * 
          * using namespace nkentseu::ecs;
          * 
@@ -705,7 +705,7 @@ namespace nkentseu {
          * @brief Contrôle de la scène courante : pause, reprise, rechargement.
          * 
          * @code
-         * #include "NKECS/Scene/NkSceneManager.h"
+         * #include "Noge/ECS/Scene/NkSceneManager.h"
          * 
          * using namespace nkentseu::ecs;
          * 
@@ -784,7 +784,7 @@ namespace nkentseu {
          * @brief Patterns avancés : chargement asynchrone, transitions custom, gestion d'erreurs.
          * 
          * @code
-         * #include "NKECS/Scene/NkSceneManager.h"
+         * #include "Noge/ECS/Scene/NkSceneManager.h"
          * #include "NKThreading/NkAsyncLoader.h"
          * 
          * using namespace nkentseu::ecs;

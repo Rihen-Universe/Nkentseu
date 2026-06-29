@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NkOffscreenTarget.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
+#include "NKImage/Core/NkImage.h"   // Capture -> NkImage::Save (multi-format)
 #include <cstring>
 
 namespace nkentseu {
@@ -127,6 +128,18 @@ namespace nkentseu {
             d.width = w; d.height = h;
             Shutdown();
             return Init(mDevice, mTexLib, d);
+        }
+
+        // Capture NKRHI : readback du color attachment -> NkImage -> fichier.
+        // Pendant de NkRenderTarget::Capture (NKCanvas). Exige readback=true + LDR.
+        bool NkOffscreenTarget::Capture(const char* path) {
+            if (!mValid || !path || !*path) return false;
+            if (!mDesc.readback || mDesc.hdr) return false;   // besoin d'un readback LDR RGBA8
+            const uint32 w = mDesc.width, h = mDesc.height;
+            NkImage img;
+            if (!img.Create(w, h, math::NkColor(0, 0, 0, 255), 4)) return false;
+            if (!ReadbackPixels(img.Pixels(), w * 4u)) return false;  // RGBA8 jointif
+            return img.Save(path);
         }
 
     } // namespace renderer

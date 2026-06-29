@@ -361,6 +361,27 @@ namespace nkentseu {
             return int32(h.vals[c]);
         }
 
+        // stbi__jpeg_get_bit — lit 1 bit MSB-first (renvoie 0 ou non-nul)
+        // Utilisé par les scans progressifs (raffinement DC/AC)
+        int32 GetBit() noexcept {
+            if (cnt < 1) Grow();
+            if (err) return 0;
+            uint32 k = buf & 0x80000000u;
+            buf <<= 1; cnt -= 1;
+            return int32(k);
+        }
+
+        // stbi__jpeg_get_bits — lit n bits MSB-first, valeur NON signée
+        // Utilisé par le calcul d'EOB run dans les scans AC progressifs
+        int32 GetBits(int32 n) noexcept {
+            if (n == 0) return 0;
+            if (cnt < n) Grow();
+            if (err) return 0;
+            uint32 k = buf >> (32 - n);
+            buf <<= n; cnt -= n;
+            return int32(k);
+        }
+
         // stbi__extend_receive — extrait n bits MSB-first et retourne la valeur signée
         // BUG D CORRIGÉ : int32 sgn = int32(buf) >> 31
         int32 ExtendReceive(int32 n) noexcept {
@@ -388,12 +409,30 @@ namespace nkentseu {
             // Les bits non consommés dans buf correspondent à des octets déjà lus
             return pos - usize(cnt / 8);
         }
+
+        // Position (dans data[]) du PROCHAIN marqueur à reparser par le flux principal.
+        // Si Grow() s'est arrêté sur un marker, pos pointe juste après ses 2 octets
+        // (0xFF + code) → le marker commence à pos-2. Sinon, on rend la position
+        // courante désalignée des bits encore en buffer.
+        usize NextMarkerPos() const noexcept {
+            if (noMore && marker != 0) {
+                return (pos >= 2) ? (pos - 2) : 0;
+            }
+            return CurrentBytePos();
+        }
     };
 
     // ═══════════════════════════════════════════════════════════════════════════
     // CONVERSION YCbCr → RGB — portage exact de stbi__YCbCr_to_RGB_row (BT.601)
+    //
+    // BUG L CORRIGÉ — le point fixe doit être décalé de <<8 (comme stb
+    // stbi__float2fixed = ((int)(x*4096+0.5)) << 8). Sans ce <<8, la
+    // contribution chroma était sous-pondérée d'un facteur 256 → toutes les
+    // images JPEG couleur sortaient quasi-grises (R≈G≈B). Affecte baseline ET
+    // progressif (fonction partagée). yf est en échelle 2^20 ; les coefficients
+    // doivent donc être en échelle 2^20 (4096<<8 = 2^12<<8 = 2^20).
     // ═══════════════════════════════════════════════════════════════════════════
-    #define YCC_F(x) ((int32)(((x) * 4096.0f + 0.5f)))
+    #define YCC_F(x) (((int32)(((x) * 4096.0f + 0.5f))) << 8)
 
     static void YCbCr2RGB(uint8* out, const uint8* y,
                           const uint8* pcb, const uint8* pcr, int32 w) noexcept {
@@ -469,6 +508,10 @@ namespace nkentseu {
         int32  dcPred = 0;
         uint8* data   = nullptr;
         int32  w2 = 0, h2 = 0; // dimensions du plan alloué (multiples de 8*hSamp/vSamp)
+        // ── Progressif (SOF2) uniquement ──────────────────────────────────────
+        int32  x = 0, y = 0;        // dimensions réelles de la composante (pixels)
+        int32  coeffW = 0, coeffH = 0; // nombre de blocs 8x8 en X / Y
+        short* coeff = nullptr;     // buffer pleine-image des coeffs DCT (coeffW*coeffH*64), ordre NATUREL
     };
 
     struct JDec {
@@ -479,12 +522,15 @@ namespace nkentseu {
         JComp   comps[4] = {};
         bool    progressive = false;
         bool    valid = false;
+        int32   restartInterval = 0; // DRI (0 = pas de restart)
     };
 
     static void jCleanup(JDec& d) noexcept {
         for (int32 i = 0; i < 4; ++i) {
             jF(d.comps[i].data);
             d.comps[i].data = nullptr;
+            jF(d.comps[i].coeff);
+            d.comps[i].coeff = nullptr;
         }
     }
 
@@ -539,6 +585,329 @@ namespace nkentseu {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // DÉCODAGE PROGRESSIF (SOF2) — portage de stb_image
+    //
+    // Le progressif accumule les coefficients DCT pleine-image (par composante)
+    // sur PLUSIEURS scans (SOS) qui raffinent des sous-ensembles de coefficients,
+    // puis déquantifie + IDCT TOUS les blocs une seule fois à la fin (finish).
+    //
+    // Réutilise : JBits (lecteur Huffman), jIDCT, qtab, upsampling, YCbCr→RGB.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // État d'un scan progressif (lu depuis l'en-tête SOS)
+    struct JProgScan {
+        int32 specStart = 0;  // Ss
+        int32 specEnd   = 0;  // Se
+        int32 succHigh  = 0;  // Ah
+        int32 succLow   = 0;  // Al
+        int32 scanN     = 0;  // nombre de composantes dans ce scan
+        int32 order[4]  = {}; // indices (dans dec.comps) des composantes du scan
+        int32 eobRun    = 0;  // EOB run courant (partagé entre blocs du scan)
+        int32 todo      = 0;  // compteur restart
+    };
+
+    // stbi__jpeg_reset — après un restart marker : reset bitreader + predicteurs DC + eobRun
+    static void jProgReset(JBits& br, JDec& dec, JProgScan& sc) noexcept {
+        br.cnt = 0; br.buf = 0; br.noMore = false; br.marker = 0;
+        for (int32 i = 0; i < 4; ++i) dec.comps[i].dcPred = 0;
+        sc.eobRun = 0;
+        sc.todo   = dec.restartInterval ? dec.restartInterval : 0x7FFFFFFF;
+    }
+
+    // stbi__jpeg_decode_block_prog_dc
+    static bool jProgDC(JBits& br, JDec& dec, JProgScan& sc, short* data, int32 compIdx) noexcept {
+        if (sc.specEnd != 0) return false; // DC+AC mélangés interdits
+        if (br.cnt < 16) br.Grow();
+        JComp& comp = dec.comps[compIdx];
+
+        if (sc.succHigh == 0) {
+            // 1er scan DC : décode le coefficient DC initial décalé de Al
+            jSt(data, 0, 64 * sizeof(short)); // tous les AC à 0
+            int32 t = br.DecodeHuff(dec.htDC[comp.dcId < 4 ? comp.dcId : 0]);
+            if (t < 0 || t > 15) return false;
+            int32 diff = t ? br.ExtendReceive(t) : 0;
+            comp.dcPred += diff;
+            data[0] = short(comp.dcPred * (1 << sc.succLow));
+        } else {
+            // Raffinement DC : 1 bit ajouté
+            if (br.GetBit())
+                data[0] = short(data[0] + (1 << sc.succLow));
+        }
+        return !br.err;
+    }
+
+    // stbi__jpeg_decode_block_prog_ac
+    static bool jProgAC(JBits& br, JDec& dec, JProgScan& sc, short* data, int32 compIdx) noexcept {
+        if (sc.specStart == 0) return false; // AC scan ne peut commencer à 0
+        JComp& comp = dec.comps[compIdx];
+        const HuffDec& hac = dec.htAC[comp.acId < 4 ? comp.acId : 0];
+
+        if (sc.succHigh == 0) {
+            // ── 1er scan AC ──────────────────────────────────────────────────
+            const int32 shift = sc.succLow;
+            if (sc.eobRun) { --sc.eobRun; return true; }
+
+            int32 k = sc.specStart;
+            do {
+                if (br.cnt < 16) br.Grow();
+                int32 rs = br.DecodeHuff(hac);
+                if (rs < 0) return false;
+                int32 s = rs & 15;
+                int32 r = rs >> 4;
+                if (s == 0) {
+                    if (r < 15) {
+                        sc.eobRun = (1 << r);
+                        if (r) sc.eobRun += br.GetBits(r);
+                        --sc.eobRun;
+                        break;
+                    }
+                    k += 16; // ZRL : 16 zéros
+                } else {
+                    k += r;
+                    // kDeZig dispose de 15 entrées de padding (k<=78) → pas d'OOB
+                    const uint8 zig = kDeZig[k++];
+                    data[zig] = short(br.ExtendReceive(s) * (1 << shift));
+                }
+            } while (k <= sc.specEnd);
+        } else {
+            // ── Raffinement AC (logique stb exacte) ──────────────────────────
+            const short bit = short(1 << sc.succLow);
+
+            if (sc.eobRun) {
+                --sc.eobRun;
+                for (int32 k = sc.specStart; k <= sc.specEnd; ++k) {
+                    short* p = &data[kDeZig[k]];
+                    if (*p != 0)
+                        if (br.GetBit())
+                            if ((*p & bit) == 0) {
+                                if (*p > 0) *p = short(*p + bit);
+                                else        *p = short(*p - bit);
+                            }
+                }
+            } else {
+                int32 k = sc.specStart;
+                do {
+                    int32 rs = br.DecodeHuff(hac);
+                    if (rs < 0) return false;
+                    int32 s = rs & 15;
+                    int32 r = rs >> 4;
+                    if (s == 0) {
+                        if (r < 15) {
+                            sc.eobRun = (1 << r) - 1;
+                            if (r) sc.eobRun += br.GetBits(r);
+                            r = 64; // force fin de bloc
+                        }
+                        // r == 15, s == 0 → run de 16 zéros, rien de spécial
+                    } else {
+                        if (s != 1) return false;
+                        if (br.GetBit()) s = bit;
+                        else             s = -bit;
+                    }
+
+                    // avance de r zéros (en raffinant les coeffs non-nuls rencontrés)
+                    while (k <= sc.specEnd) {
+                        short* p = &data[kDeZig[k++]];
+                        if (*p != 0) {
+                            if (br.GetBit())
+                                if ((*p & bit) == 0) {
+                                    if (*p > 0) *p = short(*p + bit);
+                                    else        *p = short(*p - bit);
+                                }
+                        } else {
+                            if (r == 0) { *p = short(s); break; }
+                            --r;
+                        }
+                    }
+                } while (k <= sc.specEnd);
+            }
+        }
+        return !br.err;
+    }
+
+    // Vérifie qu'un marker rencontré est un restart (0xD0..0xD7)
+    static NKIMG_INLINE bool jIsRestart(uint8 m) noexcept { return m >= 0xD0 && m <= 0xD7; }
+
+    // Décode un scan progressif complet à partir des données entropiques.
+    // Retourne le nombre d'octets consommés (pour repositionner le flux principal).
+    static usize jProgDecodeScan(const uint8* entropy, usize avail, JDec& dec, JProgScan& sc) noexcept {
+        JBits br;
+        br.Init(entropy, avail);
+        jProgReset(br, dec, sc);
+
+        const int32 hMax = [&]{ int32 m=1; for(int32 i=0;i<dec.nComp;++i) if(dec.comps[i].hSamp>m) m=dec.comps[i].hSamp; return m; }();
+        const int32 vMax = [&]{ int32 m=1; for(int32 i=0;i<dec.nComp;++i) if(dec.comps[i].vSamp>m) m=dec.comps[i].vSamp; return m; }();
+        const int32 mcuX = (dec.w + 8*hMax - 1) / (8*hMax);
+        const int32 mcuY = (dec.h + 8*vMax - 1) / (8*vMax);
+
+        if (sc.scanN == 1) {
+            // Non-interleavé : on parcourt les blocs réels de la composante
+            const int32 n = sc.order[0];
+            JComp& c = dec.comps[n];
+            const int32 w = (c.x + 7) >> 3;
+            const int32 h = (c.y + 7) >> 3;
+            for (int32 j = 0; j < h && !br.err; ++j) {
+                for (int32 i = 0; i < w && !br.err; ++i) {
+                    short* d = c.coeff + 64 * usize(i + j * c.coeffW);
+                    bool ok = (sc.specStart == 0) ? jProgDC(br, dec, sc, d, n)
+                                                  : jProgAC(br, dec, sc, d, n);
+                    if (!ok) { br.err = true; break; }
+                    if (--sc.todo <= 0) {
+                        if (br.cnt < 24) br.Grow();
+                        if (!jIsRestart(br.marker)) { return br.NextMarkerPos(); }
+                        jProgReset(br, dec, sc);
+                    }
+                }
+            }
+        } else {
+            // Interleavé : DC uniquement (le standard impose Ss=Se=0 si interleavé)
+            for (int32 j = 0; j < mcuY && !br.err; ++j) {
+                for (int32 i = 0; i < mcuX && !br.err; ++i) {
+                    for (int32 k = 0; k < sc.scanN && !br.err; ++k) {
+                        const int32 n = sc.order[k];
+                        JComp& c = dec.comps[n];
+                        for (int32 vy = 0; vy < c.vSamp && !br.err; ++vy) {
+                            for (int32 vx = 0; vx < c.hSamp && !br.err; ++vx) {
+                                const int32 x2 = i * c.hSamp + vx;
+                                const int32 y2 = j * c.vSamp + vy;
+                                short* d = c.coeff + 64 * usize(x2 + y2 * c.coeffW);
+                                if (!jProgDC(br, dec, sc, d, n)) { br.err = true; break; }
+                            }
+                        }
+                    }
+                    if (--sc.todo <= 0) {
+                        if (br.cnt < 24) br.Grow();
+                        if (!jIsRestart(br.marker)) { return br.NextMarkerPos(); }
+                        jProgReset(br, dec, sc);
+                    }
+                }
+            }
+        }
+
+        // Si le reader s'est arrêté sur un marker, on est positionné juste avant
+        return br.NextMarkerPos();
+    }
+
+    // stbi__jpeg_finish — déquantifie + IDCT tous les blocs des coeff buffers
+    // vers les plans data[] de chaque composante (ordre identique au baseline).
+    static bool jProgFinish(JDec& dec) noexcept {
+        for (int32 n = 0; n < dec.nComp; ++n) {
+            JComp& c = dec.comps[n];
+            // Plan d'échantillons (mêmes dimensions w2/h2 que le baseline)
+            c.data = static_cast<uint8*>(jM(usize(c.w2) * usize(c.h2)));
+            if (!c.data) return false;
+            jSt(c.data, (n == 0) ? 0 : 128, usize(c.w2) * usize(c.h2));
+
+            const uint16* qt = dec.qtab[c.qtId < 4 ? c.qtId : 0];
+            const int32 w = (c.x + 7) >> 3;
+            const int32 h = (c.y + 7) >> 3;
+            for (int32 j = 0; j < h; ++j) {
+                for (int32 i = 0; i < w; ++i) {
+                    short* src = c.coeff + 64 * usize(i + j * c.coeffW);
+                    short blkCoeff[64];
+                    for (int32 t = 0; t < 64; ++t)
+                        blkCoeff[t] = short(int32(src[t]) * int32(qt[t]));
+                    uint8 block[64];
+                    jIDCT(block, 8, blkCoeff);
+                    const int32 bx = i * 8, by = j * 8;
+                    const int32 copyW = (bx + 8 <= c.w2) ? 8 : c.w2 - bx;
+                    if (copyW > 0) {
+                        for (int32 iy = 0; iy < 8; ++iy) {
+                            const int32 py = by + iy;
+                            if (py >= c.h2) break;
+                            jCp(c.data + py * c.w2 + bx, block + iy * 8, usize(copyW));
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // RECONSTRUCTION FINALE — upsampling chroma + YCbCr→RGB (partagée base/prog)
+    // Les plans dec.comps[*].data sont supposés remplis (baseline ou prog finish).
+    // Retourne la NkImage (alloue), nullptr si échec.
+    // ═══════════════════════════════════════════════════════════════════════════
+    static NkImage* jReconstruct(JDec& dec, int32 hMax, int32 vMax) noexcept {
+        const int32 w  = dec.w;
+        const int32 h  = dec.h;
+        const int32 nC = dec.nComp;
+
+        const NkImagePixelFormat fmt =
+            (nC == 1) ? NkImagePixelFormat::NK_GRAY8 : NkImagePixelFormat::NK_RGB24;
+        NkImage* img = NkImage::Alloc(w, h, fmt);
+        if (!img) return nullptr;
+
+        if (nC == 1) {
+            const int32 sw = dec.comps[0].w2;
+            for (int32 y = 0; y < h; ++y) {
+                const uint8* src2 = dec.comps[0].data + y * sw;
+                jCp(img->RowPtr(y), src2, usize(w < sw ? w : sw));
+            }
+            return img;
+        }
+
+        const int32 cbW = dec.comps[1].w2;
+        const int32 cbH = dec.comps[1].h2;
+        const int32 crW = dec.comps[2].w2;
+        const int32 crH = dec.comps[2].h2;
+
+        const int32 hs1 = hMax / (dec.comps[1].hSamp > 0 ? dec.comps[1].hSamp : 1);
+        const int32 vs1 = vMax / (dec.comps[1].vSamp > 0 ? dec.comps[1].vSamp : 1);
+        const int32 hs2 = hMax / (dec.comps[2].hSamp > 0 ? dec.comps[2].hSamp : 1);
+        const int32 vs2 = vMax / (dec.comps[2].vSamp > 0 ? dec.comps[2].vSamp : 1);
+
+        const int32 maxCW = (cbW > crW ? cbW : crW);
+        const int32 lsz   = (maxCW * 2) + 16;
+        uint8* lCb = static_cast<uint8*>(jM(usize(lsz)));
+        uint8* lCr = static_cast<uint8*>(jM(usize(lsz)));
+        if (!lCb || !lCr) { jF(lCb); jF(lCr); img->Free(); return nullptr; }
+
+        for (int32 y = 0; y < h; ++y) {
+            uint8*       row = img->RowPtr(y);
+            const uint8* yp  = dec.comps[0].data + y * dec.comps[0].w2;
+            {
+                const int32  cy = y / vs1;
+                const uint8* n0 = dec.comps[1].data + cy * cbW;
+                if (hs1 == 2 && vs1 == 2) {
+                    const uint8* f0 = (cy + 1 < cbH) ? dec.comps[1].data + (cy + 1) * cbW : n0;
+                    Ups_hv2(lCb, n0, f0, cbW);
+                } else if (hs1 == 2) { Ups_h2(lCb, n0, cbW); }
+                else if (vs1 == 2) {
+                    const uint8* f0 = (cy + 1 < cbH) ? dec.comps[1].data + (cy + 1) * cbW : n0;
+                    Ups_v2(lCb, n0, f0, cbW);
+                } else { Ups_11(lCb, n0, cbW, w); }
+            }
+            {
+                const int32  cy = y / vs2;
+                const uint8* n0 = dec.comps[2].data + cy * crW;
+                if (hs2 == 2 && vs2 == 2) {
+                    const uint8* f0 = (cy + 1 < crH) ? dec.comps[2].data + (cy + 1) * crW : n0;
+                    Ups_hv2(lCr, n0, f0, crW);
+                } else if (hs2 == 2) { Ups_h2(lCr, n0, crW); }
+                else if (vs2 == 2) {
+                    const uint8* f0 = (cy + 1 < crH) ? dec.comps[2].data + (cy + 1) * crW : n0;
+                    Ups_v2(lCr, n0, f0, crW);
+                } else { Ups_11(lCr, n0, crW, w); }
+            }
+            YCbCr2RGB(row, yp, lCb, lCr, w);
+        }
+
+        jF(lCb); jF(lCr);
+        return img;
+    }
+
+    // Applique la correction d'orientation EXIF (cas miroir uniquement)
+    static void jApplyExif(NkImage* img, int32 exifOri) noexcept {
+        switch (exifOri) {
+            case 2: img->FlipHorizontal(); break;
+            case 3: img->FlipVertical(); img->FlipHorizontal(); break;
+            case 4: img->FlipVertical(); break;
+            default: break;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // NkJPEGCodec::Decode
     // ═══════════════════════════════════════════════════════════════════════════
     NkImage* NkJPEGCodec::Decode(const uint8* data, usize size) noexcept {
@@ -558,7 +927,17 @@ namespace nkentseu {
             if (b != 0xFF) continue;
             uint8 mk = s.ReadU8();
             if (mk == 0x00 || mk == 0xFF) continue; // byte-stuffing ou fill
-            if (mk == 0xD9) break;                  // EOI
+            if (mk == 0xD9) {                       // EOI
+                // Progressif : finalisation (déquant + IDCT) puis reconstruction
+                if (dec.progressive && dec.valid && !result) {
+                    if (jProgFinish(dec)) {
+                        result = jReconstruct(dec, hMax, vMax);
+                        if (result) jApplyExif(result, exifOri);
+                    }
+                    jCleanup(dec); // libère coeff + data (result possède sa copie)
+                }
+                break;
+            }
 
             // RST markers (0xD0..0xD7) : pas de payload, déjà gérés dans JBits
             if (mk >= 0xD0 && mk <= 0xD7) continue;
@@ -570,9 +949,10 @@ namespace nkentseu {
             const usize segEnd = s.Tell() + usize(segLen - 2);
             if (segEnd > s.Size()) break;
 
-            // ─── SOF0 : Start of Frame 0 (Baseline DCT) ────────────────────
-            if (mk == 0xC0) {
-                (void)s.ReadU8(); // précision (toujours 8 pour baseline)
+            // ─── SOF0 (baseline) / SOF2 (progressif) : Start of Frame ──────
+            if (mk == 0xC0 || mk == 0xC2) {
+                dec.progressive = (mk == 0xC2);
+                (void)s.ReadU8(); // précision (toujours 8)
                 dec.h = s.ReadU16BE();
                 dec.w = s.ReadU16BE();
                 dec.nComp = s.ReadU8();
@@ -597,11 +977,34 @@ namespace nkentseu {
                     if (dec.comps[i].vSamp > vMax) vMax = dec.comps[i].vSamp;
                 }
                 dec.valid = true;
+
+                // ── Progressif : dimensions par composante + buffers coeffs ──
+                if (dec.progressive) {
+                    const int32 mcuX = (dec.w + 8*hMax - 1) / (8*hMax);
+                    const int32 mcuY = (dec.h + 8*vMax - 1) / (8*vMax);
+                    bool ok = true;
+                    for (int32 i = 0; i < dec.nComp && i < 4; ++i) {
+                        JComp& c = dec.comps[i];
+                        // Dimensions réelles de la composante (pixels, arrondis bloc)
+                        c.x  = (dec.w * c.hSamp + hMax - 1) / hMax;
+                        c.y  = (dec.h * c.vSamp + vMax - 1) / vMax;
+                        // Plans alloués (multiples de blocs MCU complets, comme baseline)
+                        c.w2 = mcuX * c.hSamp * 8;
+                        c.h2 = mcuY * c.vSamp * 8;
+                        c.coeffW = c.w2 / 8;
+                        c.coeffH = c.h2 / 8;
+                        const usize nCoeff = usize(c.coeffW) * usize(c.coeffH) * 64;
+                        jF(c.coeff);
+                        c.coeff = static_cast<short*>(jM(nCoeff * sizeof(short)));
+                        if (!c.coeff) { ok = false; break; }
+                        jSt(c.coeff, 0, nCoeff * sizeof(short));
+                    }
+                    if (!ok) { jCleanup(dec); return nullptr; }
+                }
             }
-            // ─── SOF2 : Progressif (non supporté, signalé) ─────────────────
-            else if (mk == 0xC2) {
-                dec.progressive = true;
-                s.Seek(segEnd); continue;
+            // ─── DRI : Define Restart Interval ─────────────────────────────
+            else if (mk == 0xDD) {
+                dec.restartInterval = s.ReadU16BE();
             }
             // ─── DQT : Define Quantization Table ───────────────────────────
             else if (mk == 0xDB) {
@@ -651,8 +1054,38 @@ namespace nkentseu {
             // ─── SOS : Start of Scan ─────────────────────────────────────────
             else if (mk == 0xDA) {
                 // Validation préalable
-                if (!dec.valid || dec.progressive || dec.w <= 0 || dec.h <= 0) {
+                if (!dec.valid || dec.w <= 0 || dec.h <= 0) {
                     s.Seek(segEnd); continue;
+                }
+
+                // ── Chemin PROGRESSIF : un scan parmi plusieurs ──────────────
+                if (dec.progressive) {
+                    JProgScan sc;
+                    int32 ns = s.ReadU8();
+                    sc.scanN = ns;
+                    for (int32 i = 0; i < ns && i < 4 && !s.HasError(); ++i) {
+                        uint8 cid  = s.ReadU8();
+                        uint8 tdta = s.ReadU8();
+                        for (int32 c = 0; c < dec.nComp && c < 4; ++c) {
+                            if (dec.comps[c].id == cid) {
+                                dec.comps[c].dcId = (tdta >> 4) & 0xF;
+                                dec.comps[c].acId =  tdta & 0xF;
+                                if (i < 4) sc.order[i] = c;
+                            }
+                        }
+                    }
+                    sc.specStart = s.ReadU8();
+                    sc.specEnd   = s.ReadU8();
+                    uint8 aa     = s.ReadU8();
+                    sc.succHigh  = (aa >> 4) & 0xF;
+                    sc.succLow   =  aa & 0xF;
+
+                    // Décode le scan dans les buffers de coefficients
+                    const usize bStart = s.Tell();
+                    const usize used   = jProgDecodeScan(data + bStart, size - bStart, dec, sc);
+                    // Repositionne le flux après les données entropiques de ce scan
+                    s.Seek(bStart + used);
+                    continue; // le scan suivant (ou EOI) sera lu par la boucle
                 }
 
                 // Lecture de l'en-tête SOS

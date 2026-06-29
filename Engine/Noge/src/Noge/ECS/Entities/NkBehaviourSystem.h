@@ -1,7 +1,7 @@
 #pragma once
 
 #include "NKECS/System/NkSystem.h"
-#include "Nkentseu/ECS/Entities/NkGameObject.h"
+#include "Noge/ECS/Entities/NkGameObject.h"
 
 namespace nkentseu {
 namespace ecs {

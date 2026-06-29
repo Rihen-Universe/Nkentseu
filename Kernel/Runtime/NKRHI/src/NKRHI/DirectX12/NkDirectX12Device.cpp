@@ -805,12 +805,18 @@ NkBufferHandle NkDirectX12Device::CreateBuffer(const NkBufferDesc& desc) {
     if (NkHasFlag(desc.bindFlags, NkBindFlags::NK_STORAGE_BUFFER) ||
         desc.type == NkBufferType::NK_STORAGE) {
         b.srvIdx = mCbvSrvUavHeap.allocated;
+        // RAW (ByteAddressBuffer) : SPIRV-Cross convertit un `readonly buffer`
+        // GLSL en `ByteAddressBuffer` HLSL (acces .Load<T> par offset octet),
+        // PAS en `StructuredBuffer<T>`. Une vue STRUCTURED (stride 4) serait
+        // incompatible avec le ByteAddressBuffer du shader -> lecture invalide.
+        // RAW exige R32_TYPELESS + FLAG_RAW + NumElements en mots de 4 octets.
         D3D12_SHADER_RESOURCE_VIEW_DESC srvd{};
         srvd.ViewDimension              = D3D12_SRV_DIMENSION_BUFFER;
-        srvd.Format                     = DXGI_FORMAT_UNKNOWN;
+        srvd.Format                     = DXGI_FORMAT_R32_TYPELESS;
         srvd.Shader4ComponentMapping    = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srvd.Buffer.NumElements         = (UINT)(desc.sizeBytes / sizeof(float));
-        srvd.Buffer.StructureByteStride = sizeof(float);
+        srvd.Buffer.NumElements         = (UINT)(desc.sizeBytes / sizeof(uint32_t));
+        srvd.Buffer.StructureByteStride = 0;
+        srvd.Buffer.Flags               = D3D12_BUFFER_SRV_FLAG_RAW;
         mDevice->CreateShaderResourceView(res.Get(), &srvd, mCbvSrvUavHeap.AllocCPU());
 
         b.uavIdx = mCbvSrvUavHeap.allocated;

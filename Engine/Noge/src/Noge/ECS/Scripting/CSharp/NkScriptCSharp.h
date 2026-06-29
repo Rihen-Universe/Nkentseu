@@ -36,7 +36,7 @@
 //     CMake : find_package(Mono) ou configure manuellement
 // =============================================================================
 
-#include "../../NkECSDefines.h"
+#include "NKECS/NkECSDefines.h"
 #include "../NkScriptComponent.h"
 #include <functional>
 #include <memory>

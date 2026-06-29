@@ -1,0 +1,14 @@
+// debugtri.frag.nksl — DEBUG triangle minimal (VRAI dialecte NkSL)
+// Traduit de DebugTri/VK/debugtri.frag.vk.glsl. Sortie couleur basee sur la
+// position NDC interpolee. Aucun UBO, aucun sampler.
+// Migre vers NkSL pour le generateur HLSL DIRECT (DX11/DX12).
+
+@location(0) in vec3 vColor;
+
+@location(0) out vec4 fragColor;
+
+@stage(fragment)
+@entry
+void main() {
+    fragColor = vec4(vColor, 1.0);
+}

@@ -725,20 +725,42 @@
             template <typename T>
             NkQuatT<T>::NkQuatT(const NkMat4T<T>& matrix) noexcept
             {
-                // Extraction et normalisation des axes depuis la matrice
-                NkVec3T<T> upAxis = matrix.up.xyz().Normalized();
-                NkVec3T<T> forwardAxis = matrix.forward.xyz().Normalized();
-
-                // Reconstruction de l'axe right par produit vectoriel
-                NkVec3T<T> rightAxis = upAxis.Cross(forwardAxis);
-
-                // Ré-orthogonalisation de up pour garantir l'orthonormalité
-                upAxis = forwardAxis.Cross(rightAxis);
-
-                // Construction du quaternion via LookAt
-                *this = LookAt(forwardAxis, upAxis);
-
-                // Nettoyage des erreurs d'arrondi infimes
+                // Conversion GÉNÉRALE matrice de rotation -> quaternion (méthode
+                // trace-based de Mike Day, robuste numériquement). L'ancienne version
+                // reconstruisait via LookAt(forward,up) — convention CAMÉRA qui ignorait
+                // l'axe right réel et donnait des quaternions FAUX pour une rotation
+                // d'os quelconque. Indices : R(i,j) = matrix.mat[col=j][row=i].
+                // On normalise d'abord les axes (la matrice peut contenir du scale).
+                NkVec3T<T> ax = matrix.right.xyz().Normalized();
+                NkVec3T<T> ay = matrix.up.xyz().Normalized();
+                NkVec3T<T> az = matrix.forward.xyz().Normalized();
+                // R(i,j) : colonne j = axe (ax=col0, ay=col1, az=col2), row i.
+                const T r00=ax.x, r10=ax.y, r20=ax.z;   // col0
+                const T r01=ay.x, r11=ay.y, r21=ay.z;   // col1
+                const T r02=az.x, r12=az.y, r22=az.z;   // col2
+                // Convention moteur (cf operator NkMat4) : R(2,1)-R(1,2)=+4wx, etc.
+                // -> les termes en DIFFÉRENCE (w·axe) sont r_ba - r_ab (pas r_ab - r_ba).
+                // Les termes symétriques (xy/xz/yz) restent r_ab + r_ba.
+                T qx,qy,qz,qw,t;
+                if (r22 < T(0)) {
+                    if (r00 > r11) {
+                        t  = T(1) + r00 - r11 - r22;
+                        qx = t; qy = r01 + r10; qz = r20 + r02; qw = r21 - r12;
+                    } else {
+                        t  = T(1) - r00 + r11 - r22;
+                        qx = r01 + r10; qy = t; qz = r12 + r21; qw = r02 - r20;
+                    }
+                } else {
+                    if (r00 < -r11) {
+                        t  = T(1) - r00 - r11 + r22;
+                        qx = r20 + r02; qy = r12 + r21; qz = t; qw = r10 - r01;
+                    } else {
+                        t  = T(1) + r00 + r11 + r22;
+                        qx = r21 - r12; qy = r02 - r20; qz = r10 - r01; qw = t;
+                    }
+                }
+                const T s = T(0.5) / static_cast<T>(sqrt(static_cast<double>(t)));
+                x = qx * s; y = qy * s; z = qz * s; w = qw * s;
                 ClampEpsilon();
             }
 
@@ -818,11 +840,21 @@
             template <typename T>
             NkQuatT<T> NkQuatT<T>::operator*(const NkQuatT& other) const noexcept
             {
+                // Produit de Hamilton this ⊗ other (convention M·v : 'other' est
+                // appliqué AVANT 'this', donc mat(this*other)==mat(this)*mat(other)).
+                //   w = w₁w₂ - x₁x₂ - y₁y₂ - z₁z₂
+                //   x = w₁x₂ + x₁w₂ + y₁z₂ - z₁y₂
+                //   y = w₁y₂ - x₁z₂ + y₁w₂ + z₁x₂
+                //   z = w₁z₂ + x₁y₂ - y₁x₂ + z₁w₂
+                //
+                // NB : l'ancienne formule avait les termes croisés inversés de signe
+                // → elle calculait other⊗this, soit mat(qA*qB)==mat(qB)*mat(qA),
+                // incohérent avec la composition matricielle.
                 return {
-                    other.x * w + other.y * z - other.z * y + other.w * x,
-                    -other.x * z + other.y * w + other.z * x + other.w * y,
-                    other.x * y - other.y * x + other.z * w + other.w * z,
-                    -other.x * x - other.y * y - other.z * z + other.w * w
+                    w * other.x + x * other.w + y * other.z - z * other.y,
+                    w * other.y - x * other.z + y * other.w + z * other.x,
+                    w * other.z + x * other.y - y * other.x + z * other.w,
+                    w * other.w - x * other.x - y * other.y - z * other.z
                 };
             }
 
@@ -847,10 +879,17 @@
             template <typename T>
             NkVec3T<T> NkQuatT<T>::operator*(const NkVec3T<T>& vector) const noexcept
             {
-                // Formule de Rodrigues optimisée (Vince 2011)
-                return vector * (T(2) * vector.Dot(vector))
-                     + vector * (scalar * scalar - vector.Dot(vector))
-                     + vector.Cross(vector) * (T(2) * scalar);
+                // Rotation d'un vecteur par quaternion (forme de Rodrigues).
+                //   v' = v + 2*qxyz × (qxyz × v + w*v)
+                // où qxyz=(x,y,z) est la partie vectorielle, w le scalaire.
+                // Équivalent à mat(q)*v et préserve la norme si q est unitaire.
+                //
+                // NB : l'ancienne implémentation utilisait `vector` (l'argument) à
+                // la place de la partie vectorielle du quaternion et un
+                // `vector.Cross(vector)` toujours nul → résultat faux/non-unitaire.
+                const NkVec3T<T> qv(x, y, z);
+                const NkVec3T<T> t = qv.Cross(vector) + vector * scalar;
+                return vector + qv.Cross(t) * T(2);
             }
 
             // -----------------------------------------------------------------
@@ -902,17 +941,24 @@
             // -----------------------------------------------------------------
             // Conversion : Quaternion → Matrice 4×4
             // -----------------------------------------------------------------
-            // Génère la matrice de rotation 4×4 column-major équivalente
-            // à ce quaternion unitaire.
+            // Génère la matrice de rotation 4×4 équivalente à ce quaternion
+            // unitaire, pour la convention M·v utilisée par NkMat4T.
             //
             // Formule (optimisée pour éviter les calculs redondants) :
             //   xx=x², yy=y², zz=z², xy=x*y, xz=x*z, yz=y*z
             //   wx=w*x, wy=w*y, wz=w*z
             //
-            //   [ 1-2(yy+zz)   2(xy+wz)     2(xz-wy)     0 ]
-            //   [ 2(xy-wz)     1-2(xx+zz)   2(yz+wx)     0 ]
-            //   [ 2(xz+wy)     2(yz-wx)     1-2(xx+yy)   0 ]
+            // Matrice de rotation R (élément [ligne][colonne]) :
+            //   [ 1-2(yy+zz)   2(xy-wz)     2(xz+wy)     0 ]
+            //   [ 2(xy+wz)     1-2(xx+zz)   2(yz-wx)     0 ]
+            //   [ 2(xz-wy)     2(yz+wx)     1-2(xx+yy)   0 ]
             //   [ 0            0            0            1 ]
+            //
+            // IMPORTANT : le constructeur 16-args de NkMat4T lit ses arguments
+            // en ROW-MAJOR (les 4 premiers = la 1re LIGNE, toutes colonnes).
+            // On passe donc R ligne par ligne. (Avant correction : R était
+            // passée colonne par colonne → on obtenait Rᵀ, soit la rotation
+            // inverse, ce qui inversait le sens de toutes les rotations.)
             //
             // Retour :
             //   NkMat4T<T> contenant la matrice de rotation équivalente
@@ -931,12 +977,12 @@
                 T wy = w * y;
                 T wz = w * z;
 
-                // Construction de la matrice column-major
+                // Construction de R passée LIGNE PAR LIGNE (constructeur row-major)
                 return NkMat4T<T>(
-                    // Colonne 0 (axe X)          Colonne 1 (axe Y)          Colonne 2 (axe Z)          Colonne 3 (translation)
-                    T(1) - T(2) * (yy + zz),     T(2) * (xy + wz),          T(2) * (xz - wy),          T(0),
-                    T(2) * (xy - wz),            T(1) - T(2) * (xx + zz),   T(2) * (yz + wx),          T(0),
-                    T(2) * (xz + wy),            T(2) * (yz - wx),          T(1) - T(2) * (xx + yy),   T(0),
+                    // Ligne 0 de R                Ligne 1 de R               Ligne 2 de R               Ligne 3 (homogène)
+                    T(1) - T(2) * (yy + zz),     T(2) * (xy - wz),          T(2) * (xz + wy),          T(0),
+                    T(2) * (xy + wz),            T(1) - T(2) * (xx + zz),   T(2) * (yz - wx),          T(0),
+                    T(2) * (xz - wy),            T(2) * (yz + wx),          T(1) - T(2) * (xx + yy),   T(0),
                     T(0),                        T(0),                      T(0),                      T(1)
                 );
             }
@@ -1202,12 +1248,21 @@
                     return NLerp(target, interpolationFactor);
                 }
 
-                // Étape 3 : Interpolation sphérique via exponentiation
-                // Formule : result = start ⊗ (start⁻¹ ⊗ target)^t
-                NkQuatT<T> deltaQuaternion = Inverse() * target;
-                NkQuatT<T> interpolated = (deltaQuaternion ^ interpolationFactor) * (*this);
-
-                // Normalisation finale pour corriger la dérive numérique
+                // Étape 3 : SLERP DIRECT (formule de Shoemake, sans operator^ qui
+                // souffrait d'un défaut de linkage friend↔template) :
+                //   result = sin((1-t)θ)/sinθ · start + sin(tθ)/sinθ · target
+                // avec θ = acos(dot). Stable ici car dot < 1-ε (sinθ non nul).
+                const float32 ti    = static_cast<float32>(interpolationFactor);
+                const float32 theta = acosf(dotProduct);
+                const float32 invSin = 1.0f / sinf(theta);
+                const float32 wa = sinf((1.0f - ti) * theta) * invSin;
+                const float32 wb = sinf(ti * theta) * invSin;
+                NkQuatT<T> interpolated = {
+                    static_cast<T>(wa)*x + static_cast<T>(wb)*target.x,
+                    static_cast<T>(wa)*y + static_cast<T>(wb)*target.y,
+                    static_cast<T>(wa)*z + static_cast<T>(wb)*target.z,
+                    static_cast<T>(wa)*w + static_cast<T>(wb)*target.w
+                };
                 return interpolated.Normalized();
             }
 

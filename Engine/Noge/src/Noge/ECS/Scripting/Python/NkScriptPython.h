@@ -35,7 +35,7 @@
 //             target_link_libraries(MyGame PRIVATE Python3::Python)
 // =============================================================================
 
-#include "../../NkECSDefines.h"
+#include "NKECS/NkECSDefines.h"
 #include "../NkScriptComponent.h"
 #include "../NkScriptBridge.h"
 #include <functional>

@@ -26,7 +26,7 @@
 
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/World/NkWorld.h"
-#include "Nkentseu/ECS/Entities/NkGameObject.h"
+#include "Noge/ECS/Entities/NkGameObject.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Associative/NkUnorderedMap.h"

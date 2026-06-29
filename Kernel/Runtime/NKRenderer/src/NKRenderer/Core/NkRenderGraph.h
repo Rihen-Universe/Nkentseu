@@ -206,8 +206,13 @@ namespace nkentseu {
                 NkRenderGraph& operator=(const NkRenderGraph&) = delete;
 
                 // ── Declaration des ressources ──────────────────────────────────
+                // `desc` (optionnel) : format/taille de la texture importee. Requis
+                // SEULEMENT si l'import sert d'attachement couleur d'une pass (FBO/RP
+                // custom) — ex. redirection swapchain -> offscreen editeur. Laisse vide
+                // pour un import swapchain classique (handle null).
                 NkGraphResId ImportTexture (const NkString& name, NkTextureHandle tex,
-                                            NkResourceState initialState);
+                                            NkResourceState initialState,
+                                            const NkTextureDesc& desc = {});
                 NkGraphResId ImportBuffer  (const NkString& name, NkBufferHandle  buf,
                                             NkResourceState initialState);
                 NkGraphResId CreateTransient(const NkString& name, const NkTextureDesc& desc);

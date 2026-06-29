@@ -42,8 +42,8 @@
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
-#include "Nkentseu/ECS/Components/Animation/NkAnimation.h"
-#include "Nkentseu/ECS/Components/Rendering/NkRenderComponents.h"
+#include "Noge/ECS/Components/Animation/NkAnimation.h"
+#include "Noge/ECS/Components/Rendering/NkRenderComponents.h"
 
 namespace nkentseu {
     using namespace math;

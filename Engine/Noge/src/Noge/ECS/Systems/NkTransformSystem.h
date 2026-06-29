@@ -27,7 +27,7 @@
 
 #include "NKECS/System/NkSystem.h"
 #include "NKECS/World/NkWorld.h"
-#include "Nkentseu/ECS/Components/Core/NkTransform.h"
+#include "Noge/ECS/Components/Core/NkTransform.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKMath/NKMath.h"
 

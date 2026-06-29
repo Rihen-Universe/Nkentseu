@@ -3,9 +3,9 @@
 // =============================================================================
 #include "NkEngineLayer.h"
 #include "NkApplication.h"
-#include "Nkentseu/ECS/Systems/NkTransformSystem.h"
-#include "Nkentseu/ECS/Entities/NkBehaviourSystem.h"
-#include "Nkentseu/ECS/Scripting/NkScriptSystem.h"
+#include "Noge/ECS/Systems/NkTransformSystem.h"
+#include "Noge/ECS/Entities/NkBehaviourSystem.h"
+#include "Noge/ECS/Scripting/NkScriptSystem.h"
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {

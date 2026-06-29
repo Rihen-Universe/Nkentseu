@@ -1,0 +1,173 @@
+// skin.frag.nksl — NKRenderer — Skin Fragment (VRAI dialecte NkSL)
+// PBR Cook-Torrance (metallic-roughness) + IBL + SSS optionnel.
+// SOURCE UNIQUE : transpilee VK / GL / HLSL(DX11,DX12) / MSL par le backend NkSL.
+//
+// IMPORTANT : PAS de pow(albedo, 2.2). La texture baseColor est uploadee en
+// FORMAT sRGB -> le sampler GPU la delinearise DEJA. Un pow(2.2) ici appliquait
+// une 2e conversion gamma (double-gamma) -> sur-saturation (ex. blanc-verdatre
+// devenait vert neon). La BRDF (D_GGX rugosite-aware) remplace l'ancien spec
+// fixe pow(.,32)*0.3 qui faisait briller toute surface comme un miroir.
+
+@location(0) in vec3 vWorldPos;
+@location(1) in vec3 vNormal;
+@location(2) in vec3 vTangent;
+@location(3) in vec3 vBitangent;
+@location(4) in vec2 vUV;
+@location(5) in vec2 vUV2;
+@location(6) in vec4 vColor;
+
+@location(0) out vec4 fragColor;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+    float _p0;
+    float _p1;
+    float _p2;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;
+} uCam;
+
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model;
+    mat4  normalMatrix;
+    vec4  tint;
+    float metallic;
+    float roughness;
+    float aoStrength;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRoughness;
+    float subsurface;
+    vec4  subsurfaceColor;
+    vec4  shadowOverrides;
+    vec4  triplanarParams;
+} uObj;
+
+@binding(set=0, binding=2)
+uniform LightsUBO {
+    vec4 positions[32];
+    vec4 colors[32];
+    vec4 directions[32];
+    vec4 angles[32];
+    int  count;
+    int  _pad[3];
+} uLights;
+
+@binding(set=2, binding=3)  uniform sampler2D   tAlbedo;
+@binding(set=2, binding=4)  uniform sampler2D   tNormal;
+@binding(set=2, binding=5)  uniform sampler2D   tORM;
+@binding(set=2, binding=6)  uniform sampler2D   tEmissive;
+@binding(set=0, binding=8)  uniform samplerCube tEnvIrradiance;
+@binding(set=0, binding=9)  uniform samplerCube tEnvPrefilter;
+@binding(set=0, binding=10) uniform sampler2D   tBRDFLUT;
+
+const float PI = 3.14159265358979;
+
+float D_GGX(vec3 N, vec3 H, float r) {
+    float a = r*r, a2 = a*a, NdH = max(dot(N,H), 0.0);
+    float d = NdH*NdH*(a2-1.0)+1.0;
+    return a2 / (PI*d*d + 1e-4);
+}
+float G_Schlick(float x, float k) { return x/(x*(1.0-k)+k); }
+float G_Smith(vec3 N, vec3 V, vec3 L, float r) {
+    float k = (r+1.0)*(r+1.0)/8.0;
+    return G_Schlick(max(dot(N,V),0.0),k) * G_Schlick(max(dot(N,L),0.0),k);
+}
+vec3 F_Schlick(float cosT, vec3 F0) {
+    return F0 + (1.0-F0)*pow(max(1.0-cosT,0.0),5.0);
+}
+vec3 F_SchlickR(float cosT, vec3 F0, float r) {
+    return F0 + (max(vec3(1.0-r),F0)-F0)*pow(max(1.0-cosT,0.0),5.0);
+}
+
+@stage(fragment)
+@entry
+void main() {
+    vec4 albSample = texture(tAlbedo, vUV) * vColor;
+    vec3 albedo    = albSample.rgb;   // sRGB deja delinearise par le sampler -> PAS de pow
+    float alpha    = 1.0;             // peau = opaque
+
+    vec3 orm  = texture(tORM, vUV).rgb;
+    float ao  = orm.r * uObj.aoStrength;
+    float rog = clamp(orm.g * uObj.roughness, 0.04, 1.0);
+    float met = orm.b * uObj.metallic;
+
+    vec3 nTs = texture(tNormal, vUV).xyz * 2.0 - 1.0;
+    nTs.xy  *= uObj.normalStrength;
+    mat3 TBN = mat3(normalize(vTangent), normalize(vBitangent), normalize(vNormal));
+    vec3 N   = normalize(TBN * nTs);
+    vec3 V   = normalize(uCam.camPos.xyz - vWorldPos);
+    vec3 F0  = mix(vec3(0.04), albedo, met);
+
+    // ── Direct lighting (Cook-Torrance) ──────────────────────────────────
+    vec3 Lo = vec3(0.0);
+    for (int i = 0; i < uLights.count && i < 32; i++) {
+        int   lt  = int(uLights.positions[i].w);
+        vec3  L;
+        float att = 1.0;
+        if (lt == 0) {
+            L = normalize(-uLights.directions[i].xyz);
+        } else {
+            vec3 d = uLights.positions[i].xyz - vWorldPos;
+            float dist = length(d);
+            L = normalize(d);
+            att = max(1.0 - dist / max(uLights.directions[i].w, 0.001), 0.0);
+            att = att * att;
+            if (lt == 2) {
+                float th = dot(L, normalize(-uLights.directions[i].xyz));
+                att *= clamp((th - uLights.angles[i].y) /
+                             (uLights.angles[i].x - uLights.angles[i].y + 1e-4), 0.0, 1.0);
+            }
+        }
+        vec3  H   = normalize(V + L);
+        float NdL = max(dot(N, L), 0.0);
+        vec3  rad = uLights.colors[i].rgb * uLights.colors[i].w * att;
+
+        float NDF = D_GGX(N, H, rog);
+        float G   = G_Smith(N, V, L, rog);
+        vec3  F   = F_Schlick(max(dot(H,V),0.0), F0);
+        vec3  spec = NDF*G*F / (4.0*max(dot(N,V),0.0)*NdL + 1e-4);
+        vec3  kD   = (1.0-F)*(1.0-met);
+        Lo += (kD*albedo/PI + spec) * rad * NdL;
+    }
+
+    // ── IBL ambient : DIFFUS SEUL ────────────────────────────────────────
+    // PAS de specular IBL (prefilter * BRDF) : il refletait le ciel sur les
+    // surfaces -> "lumiere/miroir" sur les modeles (visible sur les clairs).
+    // Diffus seul = rendu mat. (Le specular IBL est utile pour metal/lisse ;
+    // a reactiver quand on aura des materiaux metalliques, pondere par metal.)
+    vec3 irr = texture(tEnvIrradiance, N).rgb;
+    vec3 amb = irr * albedo * ao * uCam.iblStrength;
+
+    // ── Subsurface (wrap) optionnel ──────────────────────────────────────
+    vec3 sss = vec3(0.0);
+    if (uObj.subsurface > 0.0) {
+        for (int i = 0; i < uLights.count && i < 32; i++) {
+            vec3 L = (int(uLights.positions[i].w) == 0)
+                ? normalize(-uLights.directions[i].xyz)
+                : normalize(uLights.positions[i].xyz - vWorldPos);
+            float wrap = max(dot(N,L)+uObj.subsurface, 0.0) / (1.0+uObj.subsurface);
+            sss += uObj.subsurfaceColor.rgb * uLights.colors[i].rgb *
+                   uLights.colors[i].w * wrap * uObj.subsurface;
+        }
+    }
+
+    vec3 emissive = texture(tEmissive, vUV).rgb * uObj.emissiveStrength;
+
+    vec3 color = amb + Lo + sss*albedo + emissive;
+    // Garde anti-NaN/Inf (normalize degenere sur certains drivers) + clamp HDR.
+    if (any(isnan(color)) || any(isinf(color))) color = vec3(0.0);
+    fragColor = vec4(clamp(color, vec3(0.0), vec3(64.0)), alpha);
+}

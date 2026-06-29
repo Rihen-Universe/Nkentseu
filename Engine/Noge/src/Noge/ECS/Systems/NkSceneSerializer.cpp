@@ -1,5 +1,5 @@
 #include "NkSceneSerializer.h"
-#include "NKECS/Components/Core/NkCoreComponents.h"
+#include "Noge/ECS/Components/Core/NkCoreComponents.h"
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {

@@ -12,8 +12,8 @@
 //   NkLineRenderer  — rendu de lignes 3D
 // -----------------------------------------------------------------------------
 
-#include "../../NkECSDefines.h"
-#include "../../Core/NkTypeRegistry.h"
+#include "NKECS/NkECSDefines.h"
+#include "NKECS/Core/NkTypeRegistry.h"
 #include "../Core/NkTransform.h"
 #include <cstring>
 #include <cmath>

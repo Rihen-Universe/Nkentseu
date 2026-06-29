@@ -287,6 +287,13 @@ namespace nkentseu {
             NkIBLConfig        ibl;
             NkClusterConfig    cluster;
 
+            // Voxel Ambient Occlusion (occlusion de proximite via voxelisation 3D).
+            // Cout non negligeable (texture 3D + compute) ; opt-in / desactive par
+            // defaut. L'app enregistre ses occluders via
+            // GetVoxelAO()->RegisterOccluder() puis Build(). false = sous-systeme
+            // NON alloue (gratuit) et GetVoxelAO() renvoie nullptr.
+            bool               voxelAOEnabled = false;
+
             // Debug
             bool               debugOverlay  = false;
             bool               wireframe     = false;

@@ -7,8 +7,8 @@
 //   NkAudioMixer    — bus de mixage
 // -----------------------------------------------------------------------------
 
-#include "../../NkECSDefines.h"
-#include "../../Core/NkTypeRegistry.h"
+#include "NKECS/NkECSDefines.h"
+#include "NKECS/Core/NkTypeRegistry.h"
 
 namespace nkentseu { namespace ecs {
 

@@ -14,6 +14,7 @@
         "***.py",
         "***.py",
         "***.py",
+        "***.py",
         "**/*.jenga",
         "**/*.py"
     ],
@@ -27,6 +28,6 @@
         ".jenga-typings",
         "/mnt/d/Projets/MacShared/Projets/Jenga"
     ],
-    "_jengaIdeConfigVersion": "5b5e14e1b4015cfd",
+    "_jengaIdeConfigVersion": "5f918a0a1623c8de",
     "cmake.sourceDirectory": "D:/Projets/2026/Nkentseu/Nkentseu/Externals/Libs/NKAssimp"
 }
