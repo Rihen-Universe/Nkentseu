@@ -23,7 +23,7 @@
 | `NkPhysicsWorld` (CreateBody/DestroyBody/GetBody/Step) | ✅ | M | P0 |
 | **M0** Intégration semi-implicite (gravité + vitesses) | ✅ | M | P0 |
 | **M1** Solveur de contacts (impulses séquentielles, normale) | ✅ | L | P0 |
-| **M2** Frottement (impulses tangentes) + restitution | ⏳ | M | P0 |
+| **M2** Frottement (cône Coulomb) + angulaire + restitution | ✅ | M | P0 |
 | **M3** Warm-starting (via `NkContactPoint::id` NKCollision) | ⏳ | M | P1 |
 | **M4** Correction positionnelle (Baumgarte / split-impulse) | ⏳ | M | P1 |
 | **M5** Types static / kinematic + masses infinies | ⏳ | S | P1 |
@@ -81,18 +81,24 @@ Scaffold de structure uniquement (pas de simulation) :
 - **Démo** : bille **et** caisse tombent et **reposent** sur un sol statique (`y≈1.5`,
   `vy≈0`, ne traversent pas).
 
+## Livré — M2 (2026-06-29, self-test 11/11)
+
+- **Termes angulaires** : masse effective `1/(invMA+invMB + (rA×d)·invIA·(rA×d) +
+  (rB×d)·invIB·(rB×d))` ; inertie inverse en repère **monde** via
+  `NkInvInertiaApply` (R·diag·Rᵀ par quaternion) ; impulses appliquées aussi à la
+  vitesse **angulaire** (`ω ± invI·(r×P)`).
+- **Frottement** : 2 axes tangents orthonormés à n, impulses tangentes bornées par
+  le **cône de Coulomb** (`|impTangent| ≤ μ·impNormale`), résolues avant la normale.
+- **Restitution** affinée (vitesse relative au point, seuil anti-jitter).
+- **Démo** : caisse lancée à 3 m/s s'arrête par frottement ; bille (e=0.8) rebondit.
+
 ## En cours
 
-- **M2** — frottement (impulses tangentes) + termes angulaires au contact.
+- **M3** — warm-starting (réutiliser les impulses via `NkContactPoint::id`).
 
 ---
 
 ## À venir (jalons détaillés)
-
-### M2 — Frottement + restitution
-- Impulses **tangentes** bornées par `μ·impulseNormale` (cône de Coulomb), 1 axe (2D)
-  ou 2 axes (3D). Restitution (rebond) appliquée au biais de vitesse. Matériaux
-  combinés via `NkPhysicsMaterial`.
 
 ### M3 — Warm-starting
 - Réutiliser les impulses accumulées de la frame précédente en **matchant les points

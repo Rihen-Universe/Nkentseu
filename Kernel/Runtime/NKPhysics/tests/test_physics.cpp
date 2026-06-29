@@ -73,6 +73,40 @@ int main() {
         CHECK(b && Near(b->position.y, 1.5f, 0.08f), "M1 : la caisse REPOSE (centre y ~ 1.5)");
     }
 
+    // ── M2 : frottement (le glissement s'arrête) ────────────────────────────
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkPhysicsMaterial grippy; grippy.dynamicFriction = 0.9f; grippy.staticFriction = 0.9f;
+        NkBodyDef gd; gd.type = NkBodyType::STATIC; gd.material = grippy;
+        world.CreateBody(gd, collision::NkShape::Box3D({0,0,0}, {20,1,20}));   // sommet y=1
+        // caisse posée (y=1.5) lancée horizontalement -> le frottement la freine.
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 0.f, 1.5f, 0.f };
+        bd.linearVelocity = { 3.f, 0.f, 0.f }; bd.material = grippy;
+        const NkBodyId id = world.CreateBody(bd, collision::NkShape::Box3D({0,1.5f,0}, {0.5f,0.5f,0.5f}));
+        for (int i = 0; i < 180; ++i) world.Step(1.f / 60.f);
+        const NkRigidBody* b = world.GetBody(id);
+        CHECK(b && Near(b->linearVelocity.x, 0.f, 0.2f), "M2 frottement : la caisse s'arrete (vx ~ 0)");
+        CHECK(b && b->position.x < 2.0f, "M2 frottement : distance de glissement bornee");
+    }
+
+    // ── M2 : restitution (la bille rebondit) ────────────────────────────────
+    {
+        NkPhysicsWorld world(NkPhysicsConfig{ {0.f, -9.81f, 0.f} });
+        NkBodyDef gd; gd.type = NkBodyType::STATIC;
+        world.CreateBody(gd, collision::NkShape::Box3D({0,0,0}, {20,1,20}));   // sommet y=1
+        NkBodyDef bd; bd.type = NkBodyType::DYNAMIC; bd.position = { 0.f, 3.f, 0.f };
+        bd.material.restitution = 0.8f;
+        const NkBodyId id = world.CreateBody(bd, collision::NkShape::Sphere({0,3,0}, 0.5f));
+        float32 maxYAfterImpact = 0.f; bool impacted = false;
+        for (int i = 0; i < 240; ++i) {
+            world.Step(1.f / 60.f);
+            const NkRigidBody* b = world.GetBody(id);
+            if (b->position.y < 1.7f) impacted = true;            // proche du sol -> a touché
+            if (impacted && b->position.y > maxYAfterImpact) maxYAfterImpact = b->position.y;
+        }
+        CHECK(impacted && maxYAfterImpact > 2.2f, "M2 restitution : la bille rebondit (pic > 2.2)");
+    }
+
     logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
