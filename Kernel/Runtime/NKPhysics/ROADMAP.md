@@ -26,7 +26,7 @@
 | **M2** Frottement (cône Coulomb) + angulaire + restitution | ✅ | M | P0 |
 | **M3** Warm-starting (via `NkContactPoint::id` NKCollision) | ✅ | M | P1 |
 | **M4** Correction positionnelle (split-impulse) | ✅ | M | P1 |
-| **M5** Types static / kinematic + masses infinies | ⏳ | S | P1 |
+| **M5** Types static / kinematic + masses infinies | ✅ | S | P1 |
 | **M6** Îlots (islands) + mise en sommeil (sleeping) | ⏳ | L | P1 |
 | **M7** Articulations (distance/revolute/prismatic/weld) | ⏳ | XL | P2 |
 | **M8** CCD (corps rapides) via `NkWorld::SweepBody` | ⏳ | M | P2 |
@@ -111,17 +111,22 @@ Scaffold de structure uniquement (pas de simulation) :
 - **Démo** : caisse au repos précise (`y≈1.5` à ±0.03, pénétration ≈ slop) et **propre**
   (`vy≈0`, aucun rebond résiduel).
 
+## Livré — M5 (2026-06-29, self-test 19/19)
+
+- **KINEMATIC** : `invMass=0` (ni gravité ni réponse aux impulses) mais **intègre sa
+  position** depuis sa vitesse imposée (`Step` intègre la position des DYNAMIC **et**
+  KINEMATIC ; STATIC jamais). Il **pousse** les dynamiques car sa vitesse entre dans la
+  vitesse relative du contact. API `SetLinearVelocity` / `SetAngularVelocity`.
+- **Démo** : une plateforme kinematic montante (1 m/s) **porte** une caisse dynamique vers
+  le haut (la caisse suit, reste posée).
+
 ## En cours
 
-- **M5** — static/kinematic affinés (corps cinématiques pilotés qui poussent les dynamiques).
+- **M6** — îlots & mise en sommeil (perf + stabilité des corps immobiles).
 
 ---
 
 ## À venir (jalons détaillés)
-
-### M5 — Static / Kinematic
-- `STATIC` (masse ∞, ne bouge pas), `KINEMATIC` (piloté, ignore les forces, pousse les
-  dynamiques). Masses inverses = 0 ⇒ le solveur les traite naturellement.
 
 ### M6 — Îlots & sommeil
 - Regrouper les corps en contact/joints en **îlots** ; endormir un îlot dont toutes les

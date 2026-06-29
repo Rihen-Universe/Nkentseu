@@ -36,6 +36,10 @@ namespace nkentseu {
                 // Avance la simulation de `dt` (cf. boucle en tête de fichier). [spec M0..M6]
                 void Step(float32 dt);
 
+                // Pilotage (utile pour les corps KINEMATIC : plateformes, ascenseurs…).
+                void SetLinearVelocity(NkBodyId id, const NkVec3f& v) noexcept { if (NkRigidBody* b = GetBody(id)) b->linearVelocity = v; }
+                void SetAngularVelocity(NkBodyId id, const NkVec3f& w) noexcept { if (NkRigidBody* b = GetBody(id)) b->angularVelocity = w; }
+
                 // Réglages.
                 void SetGravity(const NkVec3f& g) noexcept { mConfig.gravity = g; }
                 const NkPhysicsConfig& Config() const noexcept { return mConfig; }
