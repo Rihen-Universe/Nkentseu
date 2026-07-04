@@ -794,6 +794,11 @@ namespace nkentseu {
 
     void NkWindow::SetProgress(float) {}
 
+    // Clavier logiciel : géré côté HTML/JS (input caché), non branché ici. No-op.
+    void NkWindow::ShowSoftKeyboard(const NkSoftKeyboardConfig&) {}
+    void NkWindow::HideSoftKeyboard() {}
+    bool NkWindow::IsSoftKeyboardVisible() const { return false; }
+
     NkSafeAreaInsets NkWindow::GetSafeAreaInsets() const {
         return {};
     }

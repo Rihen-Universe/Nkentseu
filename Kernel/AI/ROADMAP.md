@@ -10,17 +10,30 @@ Légende : ⬜ à faire · 🟡 en cours · ✅ fait.
 
 ## Phase 0 — Mise en place
 
-- ⬜ Intégration Jenga (`.jenga` par module), namespace `nkentseu::ai`.
-- ⬜ Vérifier la voie **GPU** : confirmer que NKRHI expose le **compute** (shaders de calcul) utilisable par NKTensor.
-- ⬜ Décider le format des tenseurs (types, layout mémoire, alignement via NKMemory).
+- ✅ Intégration Jenga (`NKTensor.jenga` + registre `config/modules.jenga` + workspace),
+  namespace `nkentseu::ai`.
+- ✅ Voie **GPU** confirmée : **compute écrit en NkSL** (contrainte « NkSL pour tout »),
+  converti vers tous les backends. **Vérifié** (`NkSLComputeCheck`) : compute NkSL →
+  GLSL/GLSL-Vulkan/**SPIR-V**/HLSL-DX11/HLSL-DX12/**MSL Metal** OK sur 2 kernels.
+  Bug corrigé : crash SPIR-V compute (glslang `InitializeProcess` manquant).
+  (NKRHI expose aussi `NkMLContext` en GLSL, mais on privilégie NkSL.)
+- ✅ Format des tenseurs décidé : stockage refcompté (`NkTensorStorage`), row-major,
+  strides en éléments, dtypes f32/f64/i32/i64/u8, alignement 64 via NKMemory.
 
-## Phase 1 — Le calcul (la pierre angulaire)
+## Phase 1 — Le calcul (la pierre angulaire) — 🟡 en cours
 
 **Module : NKTensor.**
-- ⬜ Tenseurs n-dim sur **CPU** (NKMath/SIMD) : création, indexation, broadcasting, ops élémentaires.
-- ⬜ Produit de matrices + ops de réduction.
-- ⬜ Backend **GPU** (NKRHI compute) derrière la **même API** ; choix du device à la création.
-- 🎯 **Jalon : multiplier deux grandes matrices, CPU puis GPU, et mesurer l'accélération.**
+- ✅ Tenseurs n-dim sur **CPU** : création (Zeros/Ones/Full/Arange/Eye/FromData),
+  indexation, vues (reshape/transpose/permute/slice), broadcasting, ops élémentaires
+  + unaires.
+- ✅ Produit de matrices (matmul 2D) + réductions (Sum/Mean/Max/Argmax global + axe).
+- ✅ **Prouvé fonctionnel** : app `NKTensorDemo` (`jenga run`) → **34/34 OK**.
+- ✅ Backend **GPU** (NKRHI compute, kernels **écrits en NkSL**) — contexte `NkTensorGpu` :
+  `add`/`matmul` NkSL exécutés sur GPU (DX11 headless), validés == CPU (`NkTensorGpuTest`
+  → 2/2 OK). Chemin NkSL→GLSL→SPIR-V→HLSL/MSL prouvé + 4 bugs compute moteur corrigés.
+- 🎯 **Jalon : multiplier deux matrices, CPU puis GPU.** → CPU ✅ **et GPU ✅**.
+  Reste : intégration `ai::NkTensor` (ToGPU/ToCPU + dispatch `ops::`), accélération mesurée,
+  DX12/Vulkan/Metal.
 
 ## Phase 2 — L'apprentissage
 

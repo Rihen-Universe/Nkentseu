@@ -9,68 +9,10 @@
 namespace nkentseu {
     namespace ecs {
 
-        // ============================================================================
-        // Helpers Hiérarchie (Niveau SceneComponent ↔ ECS)
-        // ============================================================================
-
-        void AttachSceneComponent(NkWorld& world, NkEntityId childId, NkEntityId parentId) noexcept {
-            if (!world.IsAlive(childId) || !world.IsAlive(parentId)) {
-                return;
-            }
-
-            // Mise à jour du composant OOP de l'enfant
-            auto* childScene = world.Get<NkSceneComponent>(childId);
-            if (childScene) {
-                childScene->AttachTo(parentId);
-            }
-
-            // Mise à jour des composants ECS
-            if (auto* pComp = world.Get<NkParent>(childId)) {
-                pComp->entity = parentId;
-            } else {
-                world.Add<NkParent>(childId, NkParent{parentId});
-            }
-
-            auto* children = world.Get<NkChildren>(parentId);
-            if (!children) {
-                children = &world.Add<NkChildren>(parentId, NkChildren{});
-            }
-            if (!children->Has(childId)) {
-                children->Add(childId);
-            }
-
-            // Marquer comme dirty pour le calcul des matrices
-            if (auto* t = world.Get<NkTransform>(childId)) {
-                t->dirty = true;
-            }
-        }
-
-        void DetachSceneComponent(NkWorld& world, NkEntityId childId) noexcept {
-            if (!world.IsAlive(childId)) {
-                return;
-            }
-
-            // Mise à jour du composant OOP
-            auto* childScene = world.Get<NkSceneComponent>(childId);
-            if (childScene) {
-                childScene->Detach();
-            }
-
-            // Nettoyage ECS (Retrait de la liste enfants du parent)
-            if (const auto* pComp = world.Get<NkParent>(childId)) {
-                if (pComp->entity.IsValid()) {
-                    if (auto* children = world.Get<NkChildren>(pComp->entity)) {
-                        children->Remove(childId);
-                    }
-                }
-            }
-            world.Remove<NkParent>(childId);
-
-            // Marquer comme dirty
-            if (auto* t = world.Get<NkTransform>(childId)) {
-                t->dirty = true;
-            }
-        }
+        // AttachSceneComponent / DetachSceneComponent : definis INLINE dans
+        // NkSceneComponent.h (source unique). Pas de redefinition out-of-line ici
+        // (evite la redefinition ODR ; les versions OOP AttachTo()/Detach()
+        // n'existent pas sur NkSceneComponent).
 
         // ============================================================================
         // Helpers Sockets (Calcul Matriciel)
@@ -95,40 +37,40 @@ namespace nkentseu {
 
         NkVec3 GetSocketWorldPosition(const NkWorld& world, NkEntityId entityId, const char* socketName) noexcept {
             const NkMat4 mat = GetSocketWorldMatrix(world, entityId, socketName);
-            return {mat.m[12], mat.m[13], mat.m[14]};
+            return {mat.data[12], mat.data[13], mat.data[14]};
         }
 
         NkQuat GetSocketWorldRotation(const NkWorld& world, NkEntityId entityId, const char* socketName) noexcept {
             const NkMat4 mat = GetSocketWorldMatrix(world, entityId, socketName);
             // Extraction quaternion depuis matrice 4x4 (algorithme standard)
-            float32 trace = mat.m[0] + mat.m[5] + mat.m[10];
+            float32 trace = mat.data[0] + mat.data[5] + mat.data[10];
             NkQuat q;
 
             if (trace > 0.f) {
                 float32 s = 0.5f / NkSqrt(trace + 1.f);
                 q.w = 0.25f / s;
-                q.x = (mat.m[9] - mat.m[6]) * s;
-                q.y = (mat.m[2] - mat.m[8]) * s;
-                q.z = (mat.m[4] - mat.m[1]) * s;
+                q.x = (mat.data[9] - mat.data[6]) * s;
+                q.y = (mat.data[2] - mat.data[8]) * s;
+                q.z = (mat.data[4] - mat.data[1]) * s;
             } else {
-                if (mat.m[0] > mat.m[5] && mat.m[0] > mat.m[10]) {
-                    float32 s = 2.f * NkSqrt(1.f + mat.m[0] - mat.m[5] - mat.m[10]);
+                if (mat.data[0] > mat.data[5] && mat.data[0] > mat.data[10]) {
+                    float32 s = 2.f * NkSqrt(1.f + mat.data[0] - mat.data[5] - mat.data[10]);
                     q.x = 0.25f * s;
-                    q.y = (mat.m[4] + mat.m[1]) / s;
-                    q.z = (mat.m[2] + mat.m[8]) / s;
-                    q.w = (mat.m[9] - mat.m[6]) / s;
-                } else if (mat.m[5] > mat.m[10]) {
-                    float32 s = 2.f * NkSqrt(1.f + mat.m[5] - mat.m[0] - mat.m[10]);
-                    q.x = (mat.m[4] + mat.m[1]) / s;
+                    q.y = (mat.data[4] + mat.data[1]) / s;
+                    q.z = (mat.data[2] + mat.data[8]) / s;
+                    q.w = (mat.data[9] - mat.data[6]) / s;
+                } else if (mat.data[5] > mat.data[10]) {
+                    float32 s = 2.f * NkSqrt(1.f + mat.data[5] - mat.data[0] - mat.data[10]);
+                    q.x = (mat.data[4] + mat.data[1]) / s;
                     q.y = 0.25f * s;
-                    q.z = (mat.m[9] + mat.m[6]) / s;
-                    q.w = (mat.m[2] - mat.m[8]) / s;
+                    q.z = (mat.data[9] + mat.data[6]) / s;
+                    q.w = (mat.data[2] - mat.data[8]) / s;
                 } else {
-                    float32 s = 2.f * NkSqrt(1.f + mat.m[10] - mat.m[0] - mat.m[5]);
-                    q.x = (mat.m[2] + mat.m[8]) / s;
-                    q.y = (mat.m[9] + mat.m[6]) / s;
+                    float32 s = 2.f * NkSqrt(1.f + mat.data[10] - mat.data[0] - mat.data[5]);
+                    q.x = (mat.data[2] + mat.data[8]) / s;
+                    q.y = (mat.data[9] + mat.data[6]) / s;
                     q.z = 0.25f * s;
-                    q.w = (mat.m[4] - mat.m[1]) / s;
+                    q.w = (mat.data[4] - mat.data[1]) / s;
                 }
             }
             return q;

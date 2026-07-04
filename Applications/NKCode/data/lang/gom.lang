@@ -1,0 +1,36 @@
+# =============================================================================
+# gom.lang — Traductions GHOMALA' (bamiléké) de l'interface NKCode.
+# Format : cle=valeur (une par ligne). Lignes vides et lignes # ignorées.
+# Encodage : UTF-8. Ces valeurs REMPLACENT la table compilée (aucun recompilation).
+# Emplacements lus : data/lang/, Applications/NKCode/data/lang/, ~/.nkcode/lang/.
+#
+# → Remplace le texte français ci-dessous par la traduction Ghomala'.
+#   (Envoie-moi le dictionnaire et je remplis / corrige directement.)
+# =============================================================================
+
+# — Général —
+settings.title=PARAMÈTRES
+settings.unapplied=Modifications non appliquées
+gen.header=GÉNÉRAL
+gen.lang=Langue de l'IDE
+gen.startup=Ouvrir au démarrage
+gen.launcher=Launcher
+gen.lastws=Dernier workspace
+gen.recmax=Nombre de récents max
+gen.groupby=Grouper récents par
+gen.date=Date
+gen.platform=Plateforme
+gen.language=Langage
+
+# — Catégories —
+cat.general=Général
+cat.paths=Chemins
+cat.jenga=Jenga
+cat.theme=Thème
+cat.toolchain=Toolchain
+cat.git=Git
+cat.accounts=Comptes
+
+# — Boutons —
+btn.apply=Appliquer
+btn.resetall=Réinitialiser tout

@@ -85,12 +85,12 @@ namespace nkentseu {
             };                            // total 224
             static_assert(sizeof(ObjectUBO) == 224, "ObjectUBO std140 layout");
             // Phase F.B.1 : pool d'ObjectUBO (frame x drawIdx). Pre-alloue
-            // mFramesInFlight * kMaxObjectsPerFrame buffers a Init pour eviter
+            // mFramesInFlight * mObjectPoolCap buffers a Init pour eviter
             // toute allocation dans le hot path et tout vkCmdUpdateBuffer dans
             // un renderPass actif (interdit par Vulkan).
             for (uint32 i=0; i<mFramesInFlight; i++) {
-                mUBOObjectPool[i].Resize(kMaxObjectsPerFrame);
-                for (uint32 d=0; d<kMaxObjectsPerFrame; d++) {
+                mUBOObjectPool[i].Resize(mObjectPoolCap);
+                for (uint32 d=0; d<mObjectPoolCap; d++) {
                     mUBOObjectPool[i][d] = mDevice->CreateBuffer(
                         NkBufferDesc::Uniform(sizeof(ObjectUBO)));
                 }
@@ -107,6 +107,29 @@ namespace nkentseu {
             mUBOBonesRing.Resize(mFramesInFlight);
             for (uint32 i=0; i<mFramesInFlight; i++) {
                 mUBOBonesRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(kMaxBonesUBO*sizeof(NkMat4f)));
+            }
+
+            // Buffer d'instances (GPU instancing 1-draw) : models[128]+tints[128]
+            // (std140, 10240 octets). Même stratégie ring que les bones.
+            mUBOInstanceRing.Resize(mFramesInFlight);
+            for (uint32 i=0; i<mFramesInFlight; i++) {
+                mUBOInstanceRing[i] = mDevice->CreateBuffer(
+                    NkBufferDesc::Uniform(kMaxInstancesUBO * (sizeof(NkMat4f) + sizeof(NkVec4f))));
+            }
+
+            // Pool de buffers d'instances pour les ombres instanciées : un buffer par
+            // (batch × invocation de shadow pass), consommé via mShadowInstIdx et reset
+            // par frame. Chaque buffer = même layout que mUBOInstanceRing (models+tints).
+            // Distinct du ring principal pour éviter tout hazard write/draw entre les
+            // multiples passes shadow (une par lumière/cascade/face) qui partageraient
+            // sinon le même buffer.
+            mUBOShadowInstPool.Resize(mFramesInFlight);
+            for (uint32 i=0; i<mFramesInFlight; i++) {
+                mUBOShadowInstPool[i].Resize(kShadowInstPoolCap);
+                for (uint32 d=0; d<kShadowInstPoolCap; d++) {
+                    mUBOShadowInstPool[i][d] = mDevice->CreateBuffer(
+                        NkBufferDesc::Uniform(kMaxInstancesUBO * (sizeof(NkMat4f) + sizeof(NkVec4f))));
+                }
             }
 
             // Phase E.6b : default white cubemap pour les 4 slots de point cookie.
@@ -175,16 +198,20 @@ namespace nkentseu {
                 .Add(27, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
             mGlobalLayout = mDevice->CreateDescriptorSetLayout(frameLayout);
 
-            // Object set layout (set 1) : Object UBO(1) + Bones UBO(2).
-            // binding=2 = uniform buffer des joint matrices (mat4 bones[64]) pour
-            // le skinning GPU (lu uniquement par le vertex shader skin). Declare
-            // ici pour TOUS les pipelines qui partagent mObjectLayout (PBR/Shadow/
-            // Skin) afin que le set objet reste compatible quel que soit le
-            // pipeline lie. Les pipelines non-skin ne referencent simplement pas
-            // ce binding. UBO (ex-SSBO) : portable et solide sur les 4 backends.
+            // Object set layout (set 1) : Object UBO(1) + Bones/Instance UBO(4).
+            // binding=4 = uniform buffer des joint matrices (skin) OU des instances
+            // (instancing GPU) — lu par le vertex shader concerné. Declare ici pour
+            // TOUS les pipelines qui partagent mObjectLayout (PBR/Shadow/Skin).
+            // *** binding=4 et PAS 2 *** : sur GL/DX le modèle de binding est APLATI
+            // (le numéro de set est ignoré), donc set1/binding2 (bones) collisionnait
+            // avec set0/binding2 (LightsUBO du global set) au même point GL 2 — le bind
+            // de l'object set écrasait les lumières par draw -> ZÉRO lumière directe +
+            // aucune ombre sur GL/DX (VK, avec de vrais descriptor sets, n'était pas
+            // touché). binding=4 est libre côté global set (0/2/3/8/25/27). UBO
+            // (ex-SSBO) : portable et solide sur les 4 backends.
             NkDescriptorSetLayoutDesc objectLayout;
             objectLayout.Add(1, NkDescriptorType::NK_UNIFORM_BUFFER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
-            objectLayout.Add(2, NkDescriptorType::NK_UNIFORM_BUFFER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+            objectLayout.Add(4, NkDescriptorType::NK_UNIFORM_BUFFER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
             mObjectLayout = mDevice->CreateDescriptorSetLayout(objectLayout);
 
             // ── Allocate descriptor sets ─────────────────────────────────────────
@@ -197,8 +224,8 @@ namespace nkentseu {
             for (uint32 i=0; i<mFramesInFlight; i++) {
                 mGlobalSetRing[i]       = mDevice->AllocateDescriptorSet(mGlobalLayout);
                 mGlobalSetMirrorRing[i] = mDevice->AllocateDescriptorSet(mGlobalLayout);
-                mObjectSetPool[i].Resize(kMaxObjectsPerFrame);
-                for (uint32 d=0; d<kMaxObjectsPerFrame; d++) {
+                mObjectSetPool[i].Resize(mObjectPoolCap);
+                for (uint32 d=0; d<mObjectPoolCap; d++) {
                     mObjectSetPool[i][d] = mDevice->AllocateDescriptorSet(mObjectLayout);
                 }
             }
@@ -286,7 +313,7 @@ namespace nkentseu {
                 //   chaque set objet (le contenu est reecrit par draw skinne dans
                 //   FlushSkinned ; les draws non-skinnes ne lisent jamais ce slot
                 //   mais le binding doit etre valide pour le layout VK/DX).
-                for (uint32 d=0; d<kMaxObjectsPerFrame; d++) {
+                for (uint32 d=0; d<mObjectPoolCap; d++) {
                     NkDescSetHandle os = mObjectSetPool[i][d];
                     if (os.IsValid()) {
                         mDevice->BindUniformBuffer(os, 1, mUBOObjectPool[i][d]);
@@ -294,7 +321,7 @@ namespace nkentseu {
                         // buffer partage) -> la frame N+1 ecrit mUBOBonesRing[N+1]
                         // pendant que le GPU lit encore mUBOBonesRing[N].
                         if (i < mUBOBonesRing.Size() && mUBOBonesRing[i].IsValid()) {
-                            mDevice->BindUniformBuffer(os, 2, mUBOBonesRing[i]);
+                            mDevice->BindUniformBuffer(os, 4, mUBOBonesRing[i]);  // binding 4 (anti-collision GL/DX)
                         }
                     }
                 }
@@ -361,6 +388,36 @@ namespace nkentseu {
                             mShadowShader.IsValid() ? 1 : 0, mShadowPipeline.IsValid() ? 1 : 0);
             }
 
+            // ── Shadow INSTANCIÉ (ombres des mInstanced en 1 draw/batch) ──────────
+            // Version depth-only du shader Instanced : projette N instances dans
+            // l'atlas via lightVP (push const) + InstanceUBO (set1 binding4). Réutilise
+            // le shadow render pass + mObjectLayout (qui a déjà binding1 + binding4).
+            if (mShaderLib) {
+                auto progSInst = mShaderLib->LoadOrCompileVF("ShadowInstanced", "", "");
+                if (progSInst.IsValid())
+                    mShadowInstanceShader = mShaderLib->GetRHIHandle(progSInst);
+                logger.Info("[NkRender3D] ShadowInstanced shader compile: valid={0}\n",
+                            mShadowInstanceShader.IsValid() ? 1 : 0);
+            }
+            if (mShadowInstanceShader.IsValid()) {
+                NkGraphicsPipelineDesc pd;
+                pd.shader       = mShadowInstanceShader;
+                pd.depthStencil = NkDepthStencilDesc::Default();    // depth write
+                if (mShadow) pd.renderPass = mShadow->GetShadowRenderPass();
+                pd.rasterizer   = NkRasterizerDesc::NoCull();
+                pd.blend        = NkBlendDesc::Opaque();
+                pd.debugName    = "ShadowInstanced_DepthOnly";
+                pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f));
+                pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+                pd.descriptorSetLayouts.PushBack(mObjectLayout);    // binding1 + binding4
+                pd.vertexLayout
+                  .AddBinding(0, sizeof(NkVertex3D), false)
+                  .AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0, "POSITION", 0);
+                mShadowInstancePipeline = mDevice->CreateGraphicsPipeline(pd);
+                logger.Info("[NkRender3D] ShadowInstanced pipeline create: shader_valid={0} pipeline_valid={1}\n",
+                            mShadowInstanceShader.IsValid() ? 1 : 0, mShadowInstancePipeline.IsValid() ? 1 : 0);
+            }
+
             // ── Skinning GPU : shader Skin ───────────────────────────────────
             // Source canonique : Resources/NKRenderer/Shaders/Skin/VK/skin.{vert,frag}.vk.glsl
             // (converti VK->GL/HLSL/MSL au run par SPIRV-Cross). Le vertex shader
@@ -374,6 +431,19 @@ namespace nkentseu {
                             mSkinShader.IsValid() ? 1 : 0);
             }
 
+            // ── GPU instancing : shader Instanced (instanced.{vert,frag}.nksl) ───
+            // Source NkSL UNIQUE Resources/.../Shaders/Instanced/NkSL/ compilée par
+            // le VRAI NkSLCompiler vers le backend courant (chemin .nksl de
+            // LoadOrCompileVF). Vertex layout standard ; lit la matrice par instance
+            // via gl_InstanceID. Pipeline créé lazy (EnsureInstancePipeline).
+            if (mShaderLib) {
+                auto progInst = mShaderLib->LoadOrCompileVF("Instanced", "", "");
+                if (progInst.IsValid())
+                    mInstanceShader = mShaderLib->GetRHIHandle(progInst);
+                logger.Info("[NkRender3D] Instanced shader compile: valid={0}\n",
+                            mInstanceShader.IsValid() ? 1 : 0);
+            }
+
             // ── Phase N v0.5 : Skybox shader ────────────────────────────────
             // Compile le shader Skybox au Init ; le pipeline est cree lazy au
             // 1er Flush quand mDrawSkybox=true (cf. EnsureSkyboxPipeline).
@@ -381,6 +451,15 @@ namespace nkentseu {
                 auto progSky = mShaderLib->LoadOrCompileVF("Skybox", "", "");
                 if (progSky.IsValid())
                     mSkyboxShader = mShaderLib->GetRHIHandle(progSky);
+            }
+
+            // ── Grille infinie (InfiniteGrid) : shader compilé au Init, pipeline lazy ──
+            if (mShaderLib) {
+                auto progGrid = mShaderLib->LoadOrCompileVF("InfiniteGrid", "", "");
+                if (progGrid.IsValid())
+                    mGridShader = mShaderLib->GetRHIHandle(progGrid);
+                logger.Info("[NkRender3D] InfiniteGrid shader compile: valid={0}\n",
+                            mGridShader.IsValid() ? 1 : 0);
             }
 
             // Fournit les layouts partagés au material system afin que ses pipelines
@@ -515,6 +594,44 @@ namespace nkentseu {
             return mSkinPipeline.IsValid();
         }
 
+        // ── Lazy create du pipeline d'instancing GPU ─────────────────────────
+        // Calque sur EnsureSkinPipeline mais avec le vertex layout STANDARD
+        // (NkVertex3D, sans bones) et le shader "Instanced". Le buffer d'instances
+        // est lié au set objet (binding 2). Mêmes set layouts que le PBR/skin.
+        bool NkRender3D::EnsureInstancePipeline(NkRenderPassHandle currentRP) {
+            if (!mInstanceShader.IsValid()) return false;
+            if (mInstancePipeline.IsValid()) return true;
+
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = mInstanceShader;
+            pd.depthStencil = NkDepthStencilDesc::Default();
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.blend        = NkBlendDesc::Opaque();
+            pd.debugName    = "Instanced_Opaque";
+            pd.renderPass   = currentRP;
+            pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+            pd.descriptorSetLayouts.PushBack(mObjectLayout);
+            if (mMat && mMat->GetInstanceLayout().IsValid())
+                pd.descriptorSetLayouts.PushBack(mMat->GetInstanceLayout());
+
+            // Vertex layout STANDARD NkVertex3D (56 octets) — identique au PBR.
+            pd.vertexLayout
+              .AddBinding(0, sizeof(NkVertex3D), false)
+              .AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT,  0,  "POSITION", 0)
+              .AddAttribute(1, 0, NkVertexFormat::NK_RGB32_FLOAT,  12, "NORMAL",   0)
+              .AddAttribute(2, 0, NkVertexFormat::NK_RGB32_FLOAT,  24, "TANGENT",  0)
+              .AddAttribute(3, 0, NkVertexFormat::NK_RG32_FLOAT,   36, "TEXCOORD", 0)
+              .AddAttribute(4, 0, NkVertexFormat::NK_RG32_FLOAT,   44, "TEXCOORD", 1)
+              .AddAttribute(5, 0, NkVertexFormat::NK_RGBA8_UNORM,  52, "COLOR",    0);
+
+            mInstancePipeline   = mDevice->CreateGraphicsPipeline(pd);
+            mInstancePipelineRP = currentRP;
+            logger.Info("[NkRender3D] Instanced pipeline (lazy) create: shader_valid={0} pipeline_valid={1} rp.id={2}\n",
+                        mInstanceShader.IsValid() ? 1 : 0, mInstancePipeline.IsValid() ? 1 : 0,
+                        currentRP.id);
+            return mInstancePipeline.IsValid();
+        }
+
         // ── Phase N v0.5 : EnsureSkyboxPipeline (lazy, RP-compatible) ───────
         // Pipeline minimal : pas de VBO (gl_VertexIndex pour 3 verts fullscreen),
         // depth test LEQUAL + depthWrite=false (les objets dessines apres
@@ -575,10 +692,77 @@ namespace nkentseu {
             cmd->Draw(3, 1, 0, 0);
         }
 
+        // ── Grille infinie style Blender (plan y=0) ─────────────────────────────
+        bool NkRender3D::EnsureGridPipeline(NkRenderPassHandle currentRP) {
+            if (!mGridShader.IsValid()) return false;
+            if (mGridPipeline.IsValid() && mGridPipelineRP == currentRP) return true;
+            if (mGridPipeline.IsValid()) { mDevice->DestroyPipeline(mGridPipeline); mGridPipeline = {}; }
+
+            NkGraphicsPipelineDesc pd;
+            pd.shader = mGridShader;
+            // Depth : test LEQUAL (la grille au sol s'affiche sur/à hauteur du sol),
+            // pas d'écriture (overlay qui respecte la profondeur des objets opaques).
+            {
+                NkDepthStencilDesc ds;
+                ds.depthTestEnable  = true;
+                ds.depthWriteEnable = false;
+                ds.depthCompareOp   = ::nkentseu::NkCompareOp::NK_LESS_EQUAL;
+                pd.depthStencil = ds;
+            }
+            pd.rasterizer = NkRasterizerDesc::NoCull();   // triangle plein-écran, pas de cull
+            pd.blend      = NkBlendDesc::Alpha();          // fondu de l'intérieur + lignes
+            pd.debugName  = "InfiniteGrid";
+            pd.renderPass = currentRP;
+            // Push constant = 6 vec4 (lineColor, cellColor, axisX, axisZ, params, extra).
+            pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkVec4f) * 6);
+            pd.descriptorSetLayouts.PushBack(mGlobalLayout);  // set 0 = CameraUBO
+            // Pas de vertex layout (le quad est généré via gl_VertexID).
+
+            mGridPipeline   = mDevice->CreateGraphicsPipeline(pd);
+            mGridPipelineRP = currentRP;
+            logger.Info("[NkRender3D] Grid pipeline create: shader_valid={0} pipeline_valid={1} rp.id={2}\n",
+                        mGridShader.IsValid() ? 1 : 0, mGridPipeline.IsValid() ? 1 : 0, currentRP.id);
+            return mGridPipeline.IsValid();
+        }
+
+        void NkRender3D::DrawGrid(NkICommandBuffer* cmd) {
+            if (!mDrawGrid || !cmd || !mGridPipeline.IsValid()) return;
+            cmd->BindGraphicsPipeline(mGridPipeline);
+
+            // Push constant : doit matcher le bloc PC des shaders infinitegrid.*.nksl.
+            struct GridPC {
+                NkVec4f lineColor;
+                NkVec4f cellColor;
+                NkVec4f axisXColor;
+                NkVec4f axisZColor;
+                NkVec4f params;   // .x=cellSize .y=majorEvery .z=extent .w=fadeEnd
+                NkVec4f extra;    // .x=planeY ; .yzw réservés
+            } pc;
+            pc.lineColor  = mGridParams.lineColor;
+            pc.cellColor  = mGridParams.cellColor;
+            pc.axisXColor = mGridParams.axisXColor;
+            pc.axisZColor = mGridParams.axisZColor;
+            pc.params     = NkVec4f{ mGridParams.cellSize, mGridParams.majorEvery,
+                                     mGridParams.extent,   mGridParams.fadeEnd };
+            pc.extra      = NkVec4f{ mGridParams.planeY,
+                                     mGridParams.showMinor ? 1.f : 0.f,
+                                     mGridParams.showMajor ? 1.f : 0.f,
+                                     mGridParams.showAxes  ? 1.f : 0.f };
+            cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(GridPC), &pc);
+
+            NkDescSetHandle gs = (mFrameSlot < mGlobalSetRing.Size())
+                               ? mGlobalSetRing[mFrameSlot] : NkDescSetHandle{};
+            if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+
+            cmd->Draw(3, 1, 0, 0);   // 1 triangle plein-écran (reconstruction de rayon)
+        }
+
         void NkRender3D::Shutdown() {
             if (mSkyboxPipeline.IsValid()) { mDevice->DestroyPipeline(mSkyboxPipeline); mSkyboxPipeline={}; }
+            if (mGridPipeline.IsValid())   { mDevice->DestroyPipeline(mGridPipeline);   mGridPipeline={}; }
             if (mSkinPipeline.IsValid())   { mDevice->DestroyPipeline(mSkinPipeline);   mSkinPipeline={}; }
             if (mShadowPipeline.IsValid()) { mDevice->DestroyPipeline(mShadowPipeline); mShadowPipeline={}; }
+            if (mShadowInstancePipeline.IsValid()) { mDevice->DestroyPipeline(mShadowInstancePipeline); mShadowInstancePipeline={}; }
             if (mPBRPipeline.IsValid()) { mDevice->DestroyPipeline(mPBRPipeline); mPBRPipeline={}; }
             // Les shader handles sont detenus par NkShaderLibrary, pas a detruire ici.
             for (auto& s : mGlobalSetRing)       if (s.IsValid()) mDevice->FreeDescriptorSet(s);
@@ -606,6 +790,11 @@ namespace nkentseu {
             mUBOLightsRing.Clear();
             for (auto& b : mUBOBonesRing) if (b.IsValid()) mDevice->DestroyBuffer(b);
             mUBOBonesRing.Clear();
+            for (auto& perFrame : mUBOShadowInstPool) {
+                for (auto& b : perFrame) if (b.IsValid()) mDevice->DestroyBuffer(b);
+                perFrame.Clear();
+            }
+            mUBOShadowInstPool.Clear();
             if(mDefaultCubeWhite.IsValid()){mDevice->DestroyTexture(mDefaultCubeWhite);mDefaultCubeWhite={};}
 
             // DEBUG triangle resources
@@ -616,13 +805,51 @@ namespace nkentseu {
         }
 
         // ── Scene ─────────────────────────────────────────────────────────────────
+        void NkRender3D::GrowObjectPool(uint32 newCap) {
+            if (newCap > kObjectPoolHardMax) newCap = kObjectPoolHardMax;
+            if (newCap <= mObjectPoolCap || !mDevice) return;
+
+            // Alloc les nouveaux buffers + descriptor sets pour CHAQUE frame-in-flight
+            // (HORS render pass — appelé depuis ResetFrame). Réplique le pré-bind d'Init :
+            // binding1 = ObjectUBO du slot, binding4 = bones ring de la frame (défaut ;
+            // réécrit dynamiquement par les draws instanciés/skinnés).
+            for (uint32 i=0; i<mFramesInFlight; i++) {
+                const uint32 old = (uint32)mUBOObjectPool[i].Size();
+                mUBOObjectPool[i].Resize(newCap);
+                mObjectSetPool[i].Resize(newCap);
+                for (uint32 d=old; d<newCap; d++) {
+                    mUBOObjectPool[i][d] = mDevice->CreateBuffer(NkBufferDesc::Uniform(kObjectUBOBytes));
+                    NkDescSetHandle os   = mDevice->AllocateDescriptorSet(mObjectLayout);
+                    mObjectSetPool[i][d] = os;
+                    if (os.IsValid()) {
+                        if (mUBOObjectPool[i][d].IsValid())
+                            mDevice->BindUniformBuffer(os, 1, mUBOObjectPool[i][d]);
+                        if (i < mUBOBonesRing.Size() && mUBOBonesRing[i].IsValid())
+                            mDevice->BindUniformBuffer(os, 4, mUBOBonesRing[i]);
+                    }
+                }
+            }
+            logger.Info("[NkRender3D] Object pool grown: {0} -> {1} (x{2} frames)\n",
+                        mObjectPoolCap, newCap, mFramesInFlight);
+            mObjectPoolCap = newCap;
+        }
+
         void NkRender3D::ResetFrame() {
             // Appelee une seule fois par frame depuis NkRendererImpl::BeginFrame.
             // Reset l'index du pool d'UBO objets pour la nouvelle frame.
             // Doit NE PAS etre fait dans BeginScene : si la frame a deux passes
             // (ex: passe miroir + passe principale), reset entre les deux ecrase
             // les UBOs de la 1ere passe au moment du Execute() differe (backend GL).
+            // Croissance dynamique du pool object-UBO : si la frame précédente a
+            // atteint (donc frôlé/dépassé) la capacité, on double AVANT la nouvelle
+            // frame (ici = hors render pass). mObjectDrawIdx est plafonné à mObjectPoolCap
+            // par les guards → « == cap » signale un besoin non satisfait. Converge en
+            // quelques frames ; les guards évitent tout crash entre-temps.
+            if (mObjectDrawIdx >= mObjectPoolCap && mObjectPoolCap < kObjectPoolHardMax) {
+                GrowObjectPool(mObjectPoolCap * 2);
+            }
             mObjectDrawIdx = 0;
+            mShadowInstIdx = 0;   // pool d'instances shadow : reset pour la nouvelle frame
         }
 
         void NkRender3D::BeginScene(const NkSceneContext& ctx) {
@@ -662,6 +889,15 @@ namespace nkentseu {
 
         void NkRender3D::SubmitInstanced(const NkDrawCallInstanced& dc) {
             mInstanced.PushBack(dc);
+        }
+
+        NkAABB NkRender3D::GetShadowCasterBounds() const {
+            NkAABB b;  // min = +inf, max = -inf (cf. NkRendererTypes.h)
+            for (const auto& sdc : mShadowCasters) b.Merge(sdc.dc.aabb);
+            for (const auto& idc : mInstanced)     b.Merge(idc.aabb);
+            // Aucun caster -> AABB "inverse" (min>max) ; retourne un cube unite.
+            if (b.min.x > b.max.x) { b.min = {-1.f, -1.f, -1.f}; b.max = {1.f, 1.f, 1.f}; }
+            return b;
         }
 
         void NkRender3D::SubmitSkinned(const NkDrawCallSkinned& dc) {
@@ -733,6 +969,20 @@ namespace nkentseu {
             // No-op si aucun shader skin (build sans assets) ou deja cree.
             if (!mSkinned.Empty()) EnsureSkinPipeline(currentRP);
 
+            // Instancing GPU 1-draw — EXPÉRIMENTAL (opt-in STRICT NK_INSTANCING_GPU_1DRAW).
+            // Le pipeline + shaders compilent sur les 5 backends (pipeline_valid=1) mais
+            // la livraison du buffer d'instances (set objet binding 2) ne rend visible
+            // que sur Vulkan ; GL/DX n'affichent pas les cubes (binding descriptor à
+            // creuser, cf. RenderDoc). Tant que ce n'est pas résolu, le DÉFAUT reste
+            // l'expansion object-UBO (N draws) dans FlushInstanced — CORRECTE + éclairée
+            // sur tous les backends. NK_INSTANCING_GPU (ancien flag) ne suffit plus pour
+            // éviter d'activer le chemin cassé par mégarde.
+            {
+                static int gpuInst = -1;
+                if (gpuInst == -1) { const char* v = getenv("NK_INSTANCING_GPU_1DRAW"); gpuInst = (v && v[0] && v[0] != '0') ? 1 : 0; }
+                if (gpuInst && !mInstanced.Empty()) EnsureInstancePipeline(currentRP);
+            }
+
             // Phase N v0.5 : Background HDR skybox. Cree paresseusement le
             // pipeline (RP-compatible) puis draw 1 triangle fullscreen. Doit
             // etre fait AVANT FlushOpaque pour que les objets opaques puissent
@@ -772,6 +1022,15 @@ namespace nkentseu {
             FlushOpaque(cmd);
             FlushInstanced(cmd);
             FlushSkinned(cmd);
+            // Grille infinie : APRÈS l'opaque (occlusion correcte par les objets),
+            // AVANT le transparent (le transparent se blend par-dessus la grille).
+            if (mDrawGrid) {
+                EnsureGridPipeline(currentRP);
+                DrawGrid(cmd);
+                // Le grid a re-bindé son pipeline/PC ; on rétablit le set global 0
+                // pour les passes suivantes (transparent/debug le rebindent au besoin).
+                if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+            }
             FlushTransparent(cmd);
             FlushDebug(cmd, currentRP, gs);
             mInScene=false;
@@ -925,10 +1184,18 @@ namespace nkentseu {
             // On compose clipZ01 * proj : z_new = 0.5*z + 0.5*w. NkMat4f column-major,
             // donc m[2][2]=0.5 (m22) et m[3][2]=0.5 (m23, translation Z). Le Y-flip DX est
             // gere par le shader (output._Position.y = -y), donc on ne touche QUE Z ici.
+            // OpenGL INCLUS : le backend GL force glClipControl(GL_LOWER_LEFT,
+            // GL_ZERO_TO_ONE) (NkOpenglDevice.cpp) -> il attend un NDC Z en [0,1] comme
+            // VK/DX, PAS le [-1,1] historique. Sans cette correction, le mapping de
+            // profondeur GL est incohérent : la comparaison de profondeur devient
+            // non-fiable près de la caméra (ex. la grille au sol, décalée de 2 cm,
+            // était rejetée par le sol -> invisible en avant-plan sur GL alors que
+            // correcte sur VK). Même famille de bug que les ombres GL.
             const auto _depthApi = mDevice ? mDevice->GetApi() : ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
             if (_depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN ||
                 _depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11   ||
-                _depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12) {
+                _depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12   ||
+                _depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL) {
                 NkMat4f clipZ01 = NkMat4f::Identity();
                 clipZ01[2][2] = 0.5f;
                 clipZ01[3][2] = 0.5f;
@@ -1070,10 +1337,10 @@ namespace nkentseu {
             // d'ombre (cf. Submit). Tous les elements ici ont castShadow=true.
             for (auto& sdc : mShadowCasters) {
                 auto& dc = sdc.dc;
-                if (mObjectDrawIdx >= kMaxObjectsPerFrame) {
+                if (mObjectDrawIdx >= mObjectPoolCap) {
                     logger.Errorf("[NkRender3D] ObjectUBO pool overflow (shadow): "
                                   "drawIdx=%u >= max=%u, skipping draw\n",
-                                  mObjectDrawIdx, kMaxObjectsPerFrame);
+                                  mObjectDrawIdx, mObjectPoolCap);
                     break;
                 }
                 ObjBlock ob{};
@@ -1092,6 +1359,54 @@ namespace nkentseu {
                 else
                     mMesh->DrawSubMesh(cmd, dc.mesh, dc.subMeshIdx);
                 mObjectDrawIdx++;
+            }
+
+            // ── Ombres des instanciés (mInstanced) : 1 draw/batch ────────────────
+            // Pipeline shadow INSTANCIÉ : projette N instances via lightVP + InstanceUBO
+            // (set1 binding4). NE consomme PAS un slot d'ObjectUBO par instance (ce qui
+            // débordait le pool) mais UN slot par batch (identité binding1 + buffer
+            // d'instances binding4). Le buffer d'instances vient d'un pool dédié
+            // (mUBOShadowInstPool) → pas de hazard entre les passes shadow successives.
+            if (mShadowInstancePipeline.IsValid() && !mInstanced.Empty()
+                && mFrameSlot < mUBOShadowInstPool.Size()) {
+                cmd->BindGraphicsPipeline(mShadowInstancePipeline);
+                cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f), &lightVP);
+
+                static NkMat4f sShModels[kMaxInstancesUBO];
+                for (auto& dc : mInstanced) {
+                    const uint32 total = (uint32)dc.transforms.Size();
+                    if (total == 0) continue;
+                    for (uint32 b = 0; b < total; b += kMaxInstancesUBO) {
+                        if (mObjectDrawIdx >= mObjectPoolCap) break;
+                        if (mShadowInstIdx >= kShadowInstPoolCap)   break;
+                        const uint32 n = (total - b < kMaxInstancesUBO) ? (total - b) : kMaxInstancesUBO;
+                        for (uint32 i = 0; i < n; i++) sShModels[i] = dc.transforms[b + i];
+
+                        // Buffer d'instances dédié (models seulement ; le VS shadow ne lit
+                        // pas les tints, mais le layout InstanceUBO les prévoit → offset OK).
+                        NkBufferHandle ib = mUBOShadowInstPool[mFrameSlot][mShadowInstIdx];
+                        if (ib.IsValid()) mDevice->WriteBuffer(ib, sShModels, n * sizeof(NkMat4f), 0);
+
+                        // Set objet : binding1 = identité (le VS fait uObj.model*inst[id]),
+                        // binding4 = buffer d'instances. 1 slot du pool object/batch.
+                        NkBufferHandle  objUbo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
+                        if (objUbo.IsValid()) {
+                            ObjBlock ob{};
+                            ob.model        = NkMat4f::Identity();
+                            ob.normalMatrix = NkMat4f::Identity();
+                            ob.tint         = {1, 1, 1, 1};
+                            ob.metallic = 0.f; ob.roughness = 0.5f; ob.aoStrength = 1.f;
+                            mDevice->WriteBuffer(objUbo, &ob, sizeof(ob), 0);
+                        }
+                        NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
+                        if (os.IsValid() && ib.IsValid()) mDevice->BindUniformBuffer(os, 4, ib);
+                        if (os.IsValid()) cmd->BindDescriptorSet(os, 1);
+                        mMesh->BindMesh(cmd, dc.mesh);
+                        mMesh->DrawAll(cmd, dc.mesh, n);   // 1 DRAW, n instances
+                        mObjectDrawIdx++;
+                        mShadowInstIdx++;
+                    }
+                }
             }
         }
 
@@ -1140,10 +1455,10 @@ namespace nkentseu {
 
             for (auto& sdc : mOpaque) {
                 auto& dc = sdc.dc;
-                if (mObjectDrawIdx >= kMaxObjectsPerFrame) {
+                if (mObjectDrawIdx >= mObjectPoolCap) {
                     logger.Errorf("[NkRender3D] ObjectUBO pool overflow (opaque): "
                                   "drawIdx=%u >= max=%u, skipping draw\n",
-                                  mObjectDrawIdx, kMaxObjectsPerFrame);
+                                  mObjectDrawIdx, mObjectPoolCap);
                     break;
                 }
 
@@ -1298,25 +1613,180 @@ namespace nkentseu {
         }
 
         void NkRender3D::FlushInstanced(NkICommandBuffer* cmd) {
-            // Instanced ne touche pas a ObjectUBO. On bind quand meme un set du
-            // pool pour satisfaire le pipeline layout (set=1 attendu) ; le contenu
-            // de ce slot est ignore par le draw instanced (aucun shader instanced
-            // ne lit le binding=2 actuellement -> pas de buffer de transforms a
-            // ecrire ici). Auparavant FlushInstanced ecrivait dc.transforms dans
-            // le ring de bones (devenu un UBO de 64 mat4) : retire car ces
-            // transforms n'etaient lues par aucun shader et auraient deborde
-            // l'UBO. Le rendu instancie reste identique (DrawAll(count)).
-            const bool poolFrameValid = (mFrameSlot < mObjectSetPool.Size());
+            // ObjBlock std140 (224 octets) — layout commun aux deux chemins (binding 1).
+            struct ObjBlock {
+                NkMat4f model;
+                NkMat4f normalMatrix;
+                NkVec4f tint;
+                float32 metallic;
+                float32 roughness;
+                float32 aoStrength;
+                float32 emissiveStrength;
+                float32 normalStrength;
+                float32 clearcoat;
+                float32 clearcoatRough;
+                float32 subsurface;
+                NkVec4f subsurfaceColor;
+                NkVec4f shadowOverrides;
+                NkVec4f triplanarParams;
+            };
+            static_assert(sizeof(ObjBlock) == 224, "ObjBlock std140 instanced");
+            // ObjBlock identité : le shader instancié fait worldPos = uObj.model *
+            // inst.models[id] * pos ; avec model=identité, l'instance porte tout.
+            auto MakeIdentityObj = []() {
+                ObjBlock ob{};
+                ob.model = NkMat4f::Identity();
+                ob.normalMatrix = NkMat4f::Identity();
+                ob.tint = {1.f, 1.f, 1.f, 1.f};
+                ob.metallic = 0.f; ob.roughness = 0.5f; ob.aoStrength = 1.f;
+                ob.normalStrength = 1.f;
+                ob.shadowOverrides = NkVec4f{1.f, 0.f, 1.f, 0.f};
+                const float32 mpu = NkUnits().metersPerUnit;
+                ob.triplanarParams = NkVec4f{0.f, mpu > 0.f ? mpu : 1.f, 0.f, 0.f};
+                return ob;
+            };
+
+            // ── Chemin GPU 1-draw (actif si le pipeline instancié a été créé, lui-
+            //    même opt-in NK_INSTANCING_GPU). Sinon expansion object-UBO ci-après.
+            //    Mirror EXACT du skin : set objet = binding1 (ObjectUBO identité) +
+            //    binding2 (buffer d'instances). Indispensable pour que la root sig DX
+            //    matche le set objet pré-câblé (sinon instances absentes sur GL/DX).
+            if (mInstancePipeline.IsValid()
+                && mFrameSlot < mUBOInstanceRing.Size()
+                && mFrameSlot < mUBOObjectPool.Size()
+                && mFrameSlot < mObjectSetPool.Size()) {
+
+                cmd->BindGraphicsPipeline(mInstancePipeline);
+                NkBufferHandle instBuf = mUBOInstanceRing[mFrameSlot];
+                NkDescSetHandle gs = (mFrameSlot < mGlobalSetRing.Size())
+                                   ? mGlobalSetRing[mFrameSlot] : NkDescSetHandle{};
+
+                static NkMat4f sModels[kMaxInstancesUBO];
+                static NkVec4f sTints [kMaxInstancesUBO];
+
+                for (auto& dc : mInstanced) {
+                    const uint32 total = (uint32)dc.transforms.Size();
+                    if (total == 0) continue;
+
+                    NkMaterialInstance* matInst = nullptr;
+                    if (dc.material.IsValid() && mMat) matInst = mMat->GetInstance(dc.material);
+                    if (!matInst && mMat) {
+                        if (!mFallbackMatInst.IsValid()) {
+                            auto* in = mMat->CreateInstance(mMat->DefaultPBR());
+                            if (in) mFallbackMatInst = in->GetHandle();
+                        }
+                        matInst = mMat->GetInstance(mFallbackMatInst);
+                    }
+
+                    for (uint32 b = 0; b < total; b += kMaxInstancesUBO) {
+                        if (mObjectDrawIdx >= mObjectPoolCap) break;
+                        const uint32 n = (total - b < kMaxInstancesUBO) ? (total - b) : kMaxInstancesUBO;
+                        for (uint32 i = 0; i < n; i++) {
+                            sModels[i] = dc.transforms[b + i];
+                            const NkVec3f t = (b + i < (uint32)dc.tints.Size()) ? dc.tints[b + i] : NkVec3f{1,1,1};
+                            sTints[i] = NkVec4f{ t.x, t.y, t.z, 1.f };
+                        }
+                        if (instBuf.IsValid()) {
+                            mDevice->WriteBuffer(instBuf, sModels, n * sizeof(NkMat4f), 0);
+                            mDevice->WriteBuffer(instBuf, sTints,  n * sizeof(NkVec4f),
+                                                 kMaxInstancesUBO * sizeof(NkMat4f));
+                        }
+
+                        // ObjectUBO identité au binding 1 (le pool pré-câble binding 1
+                        // -> ce buffer). Sans données valides ici, uObj.model serait nul
+                        // -> cubes collapse. Mirror du skin (Object + bones tous deux liés).
+                        NkBufferHandle  objUbo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
+                        if (objUbo.IsValid()) {
+                            ObjBlock ob = MakeIdentityObj();
+                            mDevice->WriteBuffer(objUbo, &ob, sizeof(ob), 0);
+                        }
+
+                        NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
+                        // Buffer d'instances bindé au set objet, binding 2 (comme les bones).
+                        if (os.IsValid() && instBuf.IsValid()) mDevice->BindUniformBuffer(os, 4, instBuf);  // binding 4 (anti-collision GL/DX)
+                        if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);   // caméra/lumières
+                        if (os.IsValid()) cmd->BindDescriptorSet(os, 1);
+                        if (matInst)      mMat->BindInstance(cmd, matInst); // textures (set 2)
+                        mMesh->BindMesh(cmd, dc.mesh);
+                        mMesh->DrawAll(cmd, dc.mesh, n);   // 1 DRAW, n instances
+                        mObjectDrawIdx++;
+                    }
+                }
+                return;
+            }
+
+            // ── Instancing CORRECT (2026-06-30) ───────────────────────────────────
+            // L'ancienne version emettait DrawAll(count) SANS jamais transmettre les
+            // transforms par instance au shader -> les N instances se dessinaient
+            // SUPERPOSEES (au transform de l'ObjectUBO courant). Bug.
+            //
+            // Ici on EXPANSE chaque instance via le chemin object-UBO PBR deja
+            // prouve (cf. FlushOpaque) : materiau + mesh lies UNE fois par drawcall,
+            // puis pour chaque instance on ecrit son model dans un slot d'ObjectUBO
+            // et on dessine -> instances correctement placees ET eclairees.
+            // (Optimisation future : vrai GPU instancing 1-draw via buffer SSBO +
+            //  VS instancie lisant gl_InstanceIndex.)
+            const bool poolFrameValid = (mFrameSlot < mUBOObjectPool.Size())
+                                     && (mFrameSlot < mObjectSetPool.Size());
+            if (!poolFrameValid) return;
+
+            NkPipelineHandle lastPipeline = mPBRPipeline;
+
             for (auto& dc : mInstanced) {
-                if (dc.transforms.Empty()) continue;
-                uint32 count=(uint32)dc.transforms.Size();
-                if (poolFrameValid && mObjectDrawIdx < kMaxObjectsPerFrame) {
-                    NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
-                    if (os.IsValid()) cmd->BindDescriptorSet(os, 1);
+                const uint32 n = (uint32)dc.transforms.Size();
+                if (n == 0) continue;
+
+                // Materiau + pipeline : resolus UNE fois pour tout le drawcall.
+                NkMaterialInstance* matInst  = nullptr;
+                NkPipelineHandle    pipeline = mPBRPipeline;
+                if (dc.material.IsValid() && mMat) {
+                    matInst = mMat->GetInstance(dc.material);
+                    if (matInst) {
+                        NkPipelineHandle p = mMat->GetPipeline(matInst->GetTemplate());
+                        if (p.IsValid()) pipeline = p;
+                    }
+                }
+                if (!matInst && mMat) {
+                    if (!mFallbackMatInst.IsValid()) {
+                        auto* inst = mMat->CreateInstance(mMat->DefaultPBR());
+                        if (inst) mFallbackMatInst = inst->GetHandle();
+                    }
+                    matInst = mMat->GetInstance(mFallbackMatInst);
+                }
+                if (pipeline != lastPipeline) {
+                    if (pipeline.IsValid()) cmd->BindGraphicsPipeline(pipeline);
+                    lastPipeline = pipeline;
+                }
+                if (matInst) mMat->BindInstance(cmd, matInst);
+                mMesh->BindMesh(cmd, dc.mesh);
+
+                // Une instance = un slot d'ObjectUBO + un draw (mesh deja lie).
+                for (uint32 i = 0; i < n; ++i) {
+                    if (mObjectDrawIdx >= mObjectPoolCap) {
+                        logger.Errorf("[NkRender3D] ObjectUBO pool overflow (instanced): "
+                                      "drawIdx=%u >= max=%u\n", mObjectDrawIdx, mObjectPoolCap);
+                        break;
+                    }
+                    const NkMat4f& m = dc.transforms[i];
+
+                    ObjBlock ob{};
+                    ob.model            = m;
+                    ob.normalMatrix     = m.Inverse().Transpose();
+                    const NkVec3f t     = (i < (uint32)dc.tints.Size()) ? dc.tints[i] : NkVec3f{1,1,1};
+                    ob.tint             = {t.x, t.y, t.z, 1.f};
+                    ob.metallic = 0.f; ob.roughness = 0.5f; ob.aoStrength = 1.f;
+                    ob.normalStrength   = 1.f;
+                    ob.shadowOverrides  = NkVec4f{1.f, 0.f, 1.f, 0.f};
+                    const float32 mpu   = NkUnits().metersPerUnit;
+                    ob.triplanarParams  = NkVec4f{0.f, mpu > 0.f ? mpu : 1.f, 0.f, 0.f};
+
+                    NkBufferHandle  ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
+                    NkDescSetHandle os  = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
+                    if (ubo.IsValid()) mDevice->WriteBuffer(ubo, &ob, sizeof(ob), 0);
+                    if (os.IsValid())  cmd->BindDescriptorSet(os, 1);
+                    mMesh->DrawAll(cmd, dc.mesh);   // 1 instance, a SA position
                     mObjectDrawIdx++;
                 }
-                mMesh->BindMesh(cmd, dc.mesh);
-                mMesh->DrawAll(cmd, dc.mesh, count);
             }
         }
 
@@ -1403,10 +1873,10 @@ namespace nkentseu {
             NkMat4f bonesScratch[kMaxBonesUBO];
             for (auto& dc : mSkinned) {
                 if (dc.boneMatrices.Empty()) continue;
-                if (mObjectDrawIdx >= kMaxObjectsPerFrame) {
+                if (mObjectDrawIdx >= mObjectPoolCap) {
                     logger.Errorf("[NkRender3D] ObjectUBO pool overflow (skinned): "
                                   "drawIdx={0} >= max={1}, skipping draw\n",
-                                  mObjectDrawIdx, kMaxObjectsPerFrame);
+                                  mObjectDrawIdx, mObjectPoolCap);
                     break;
                 }
                 uint32 count=(uint32)dc.boneMatrices.Size();
@@ -1456,7 +1926,7 @@ namespace nkentseu {
                     if (sslot == -1) { const char* v = getenv("NK_SKIN_DIAG"); sslot = (v && v[0] && v[0]!='0') ? 1 : 0; }
                     const NkMat4f dnm = dc.transform.Inverse().Transpose();
                     for (uint32 si = 0; si < nSubs; ++si) {
-                        if (mObjectDrawIdx >= kMaxObjectsPerFrame) break;
+                        if (mObjectDrawIdx >= mObjectPoolCap) break;
                         NkMaterialInstance* sInst = matInst;  // fallback global
                         if (si < dc.materialSlots.Size()
                             && dc.materialSlots[si].IsValid()) {

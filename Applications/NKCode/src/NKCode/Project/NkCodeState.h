@@ -12,12 +12,15 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKCode/Project/NkProcess.h"
 #include "NKCode/Editor/NkCodeEditor.h"
+#include "NKCode/Shell/NkI18n.h"        // NkT() : ages relatifs traduits
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
 
 namespace nkentseu {
 namespace nkcode {
+
+    struct NkIcons;   // forward (defini dans Shell/NkUi.h) — icones de la vue principale IDE
 
     using namespace nkentseu;
 
@@ -37,6 +40,7 @@ namespace nkcode {
     };
 
     struct NkCodeState {
+        NkIcons*           icons = nullptr;   // icones de la vue principale IDE (pose par main.cpp)
         NkPath             root;        // dossier racine de l'explorateur (arbre)
         NkVector<OpenFile> files;       // onglets ouverts
         int32              active = -1; // onglet actif
@@ -211,6 +215,27 @@ namespace nkcode {
             if (!mInfoStarted || mInfoParsed) return;
             mInfo.Drain(mInfoLines);
             if (mInfo.Done()) { mInfoParsed = true; ParseProjects(); }
+        }
+
+        // ── Aides pour l'écran de chargement (section 14) ──
+        bool InfoStarted() const { return mInfoStarted; }
+        bool InfoParsed()  const { return mInfoParsed; }
+        bool InfoHasError() const {
+            for (usize i = 0; i < mInfoLines.Size(); ++i) { const NkString c = CleanLine(mInfoLines[i].CStr());
+                if (c.Contains("Error:") || c.Contains("Traceback") || c.Contains("Exception")) return true; }
+            return false;
+        }
+        // Renvoie la ligne d'erreur la plus parlante, préfixée du n° de ligne si trouvé.
+        NkString InfoErrorLine() const {
+            NkString num, err;
+            for (usize i = 0; i < mInfoLines.Size(); ++i) { const NkString c = CleanLine(mInfoLines[i].CStr());
+                if (c.Contains("Error:") || c.Contains("Exception:")) err = c;
+                const char* p = c.CStr();
+                for (const char* q = p; *q; ++q) if (q[0]=='l'&&q[1]=='i'&&q[2]=='n'&&q[3]=='e'&&q[4]==' ') { const char* d = q + 5; NkString n; while (*d >= '0' && *d <= '9') n += *d++; if (!n.Empty()) num = n; }
+            }
+            NkString out; if (!num.Empty()) { out += "Ligne "; out += num; out += " : "; }
+            out += err.Empty() ? NkString("erreur inconnue (voir logs)") : err;
+            return out;
         }
 
         // ── Exemples Jenga : enumeres dynamiquement via `jenga examples list` ──
@@ -537,12 +562,12 @@ namespace nkcode {
         static NkString HumanAge(int64 mtime, int64 now) {
             if (mtime <= 0) return NkString("");
             int64 d = now - mtime; if (d < 0) d = 0;
-            char b[48];
-            if      (d < 60)        std::snprintf(b, sizeof(b), "a l'instant");
-            else if (d < 3600)      std::snprintf(b, sizeof(b), "il y a %d min", (int)(d / 60));
-            else if (d < 86400)     std::snprintf(b, sizeof(b), "il y a %d h",   (int)(d / 3600));
-            else if (d < 7 * 86400) std::snprintf(b, sizeof(b), "il y a %d j",   (int)(d / 86400));
-            else                    std::snprintf(b, sizeof(b), "il y a %d sem", (int)(d / (7 * 86400)));
+            char b[64];
+            if      (d < 60)        std::snprintf(b, sizeof(b), "%s", NkT("age.now"));
+            else if (d < 3600)      std::snprintf(b, sizeof(b), NkT("age.min"), (int)(d / 60));
+            else if (d < 86400)     std::snprintf(b, sizeof(b), NkT("age.h"),   (int)(d / 3600));
+            else if (d < 7 * 86400) std::snprintf(b, sizeof(b), NkT("age.j"),   (int)(d / 86400));
+            else                    std::snprintf(b, sizeof(b), NkT("age.sem"), (int)(d / (7 * 86400)));
             return NkString(b);
         }
 

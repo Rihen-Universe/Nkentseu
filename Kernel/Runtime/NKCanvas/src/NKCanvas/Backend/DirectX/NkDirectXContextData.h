@@ -37,9 +37,14 @@ namespace nkentseu {
         ComPtr<ID3D11Device1>           device;
         ComPtr<ID3D11DeviceContext1>     context;
         ComPtr<IDXGISwapChain1>         swapchain;
-        ComPtr<ID3D11RenderTargetView>  rtv;
+        ComPtr<ID3D11RenderTargetView>  rtv;          // RTV de RENDU (= cible MSAA si activé, sinon backbuffer)
         ComPtr<ID3D11DepthStencilView>  dsv;
         ComPtr<ID3D11Texture2D>         depthTex;
+        // MSAA (flip-model : rendu dans une cible multi-échantillon puis ResolveSubresource
+        // vers le backbuffer avant Present). Vides si MSAA désactivé (msaaSamples <= 1).
+        ComPtr<ID3D11Texture2D>         msaaTex;      // cible couleur multi-échantillon
+        ComPtr<ID3D11Texture2D>         backTex;      // buffer du swapchain (cible du resolve)
+        uint32                          msaaCount = 1;
         HWND                            hwnd    = nullptr;
         uint32                          width   = 0;
         uint32                          height  = 0;

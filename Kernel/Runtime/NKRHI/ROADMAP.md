@@ -202,6 +202,18 @@ Effort : S (≤1j) · M (2-5j) · L (1-2 sem) · XL (>2 sem)
 - MSL via `NkShaderConverter::SpirvToMsl` (SPIRV-Cross) validé pour la
   conversion mais pas pour le run-time Metal
 
+### Backend Software — optimisation perf (futur)
+Le rasteriseur CPU (`NkSoftwareDevice` / `NkSWRasterizer`) est **scalaire mono-thread**.
+Comparaison porteuse : **lavapipe** (Vulkan software Mesa) est 10-100× plus rapide grâce à
+JIT LLVM + SIMD AVX + multi-thread par tuiles. Pistes, par gain décroissant :
+- **Tiling multi-thread** (LE plus gros gain, le plus simple) : découper l'écran en tuiles
+  (32×32 / 64×64), rasteriser en parallèle via NKThreading ThreadPool → cache-friendly, scale
+  linéaire avec les cœurs. **x4-x8 seul.**
+- **SIMD** : traiter 4-8 pixels/fragments à la fois via `NKMath/NkSIMD` (AVX) dans le fragment
+  shading + blend + depth test ; rasterisation par quad (2×2) pour les dérivées.
+- **Éviter les branches par-pixel** : pré-trier les draws par état (pipeline/material/blend),
+  spécialiser les boucles opaque vs alpha, sortir les conditions du hot loop.
+
 ### Async compute & semaphores
 - `HasDedicatedComputeQueue()` retourne `true` sur VK/DX12 mais peu utilisé
 - `SubmitOnQueue(NK_COMPUTE, info)` à valider avec un cas réel :

@@ -60,6 +60,8 @@ _REGISTRY: dict = {
     "NKMemory"       : _m("NKENTSEU_MEMORY",       ["NKPlatform", "NKCore"]),
     "NKContainers"   : _m("NKENTSEU_CONTAINERS",   ["NKPlatform", "NKCore", "NKMemory"]),
     "NKMath"         : _m("NKENTSEU_MATH",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers"]),
+    # --- Sous-systeme IA (Kernel/AI) : construit bottom-up, cf Kernel/AI/ARCHITECTURE.md ---
+    "NKTensor"       : _m("NKENTSEU_TENSOR",       ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath"]),
 
     # ---- System --------------------------------------------------------------
     "NKThreading"    : _m("NKENTSEU_THREADING",    ["NKPlatform", "NKCore", "NKMemory", "NKContainers"]),
@@ -112,6 +114,8 @@ _REGISTRY: dict = {
     "NKGLSlang"      : _m(None, [], includes=["%{NKGLSlang.location}"]),       # glslang : <glslang/Public/ShaderLang.h>
     "NKSPIRVCross"   : _m(None, [], includes=["%{NKSPIRVCross.location}/src"]),# SPIRV-Cross
     "NKShaderc"      : _m(None, [], includes=["%{NKShaderc.location}/include"]),
+    # Mbed-TLS (TLS/HTTPS, C pur) — opt-in via NK_ENABLE_TLS (cf NKNetwork.jenga) :
+    "NKMbedTLS"      : _m(None, [], includes=["%{NKMbedTLS.location}/include"]),
 }
 
 # Retro-compat : anciennes cles courtes ("core", "rhi"...) -> nom de projet exact.

@@ -455,6 +455,26 @@ namespace nkentseu {
             NkAABB            aabb;
         };
 
+        // Grille infinie style Blender (plan y=0). Intérieur gris d'opacité réglable
+        // (cellColor.w : 0 = voir à travers, 1 = opaque) avec lignes toujours visibles
+        // (lineColor.w), axes X rouge / Z bleu sur le plan, fondu radial avec la distance.
+        struct NkInfiniteGridParams {
+            NkVec4f lineColor  = {0.45f, 0.45f, 0.45f, 1.0f};  // gris lignes + alpha
+            NkVec4f cellColor  = {0.13f, 0.13f, 0.14f, 0.0f};  // gris intérieur ; .w = opacité
+            NkVec4f axisXColor = {0.86f, 0.22f, 0.24f, 1.0f};  // axe X rouge
+            NkVec4f axisZColor = {0.20f, 0.38f, 0.90f, 1.0f};  // axe Z bleu
+            float32 cellSize   = 1.0f;     // taille d'une cellule (unités monde)
+            float32 majorEvery = 10.0f;    // ligne majeure toutes les N cellules
+            float32 extent     = 250.0f;   // demi-taille du quad (suit la caméra)
+            float32 fadeEnd    = 120.0f;   // distance de disparition (fondu)
+            float32 planeY     = 0.0f;     // hauteur du plan (léger epsilon au-dessus d'un
+                                           // sol coplanaire pour éviter le z-fighting)
+            // Toggles indépendants (activer/désactiver à chaud) :
+            bool    showMinor  = true;     // lignes INTERNES (sous-grille + grille fine)
+            bool    showMajor  = true;     // lignes MAJEURES (décade)
+            bool    showAxes   = true;     // axes X (rouge) / Z (bleu) sur le plan
+        };
+
         struct NkDrawCallSkinned {
             NkMeshHandle      mesh;
             NkMatInstHandle   material;

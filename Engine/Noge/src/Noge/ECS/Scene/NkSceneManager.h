@@ -970,7 +970,7 @@ namespace nkentseu {
          * //    });
          * 
          * // 3. Oublier d'appeler Update(dt) → transitions animées bloquées
-         * // ❌ while (running) { /* pas d'appel à mgr.Update() */ }
+         * // ❌ while (running) { ... pas d'appel à mgr.Update() ... }
          * // ✅ Toujours appeler mgr.Update(dt) dans la boucle principale
          * 
          * // 4. Stocker un pointeur vers GetCurrent() au-delà de sa validité

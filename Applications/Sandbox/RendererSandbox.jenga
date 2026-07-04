@@ -62,6 +62,10 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             _BASE_LINKS.append("NKFont")
         if use_nkui:
             _BASE_LINKS.append("NKUI")
+        if USE_NKGLSLANG:
+            _BASE_LINKS.append("NKGLSlang")
+        if USE_NKSPIRVCROSS:
+            _BASE_LINKS.append("NKSPIRVCross")
 
         links(_BASE_LINKS)
         dependson(_BASE_LINKS)
@@ -93,7 +97,8 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
                 "user32", "gdi32", "opengl32", "dwmapi", "shell32",
                 "mf", "mfplat", "mfreadwrite", "mfuuid",
                 "uuid", "ole32", "dinput8", "dxguid",
-                "d3d11", "d3d12", "dxgi", "d3dcompiler"
+                "d3d11", "d3d12", "dxgi", "d3dcompiler",
+                "winmm"   # timeBeginPeriod(1) : Sleep 1 ms pour le pacing FPS moteur
             ]
             _IS_MINGW_R = "mingw" in TC_WINDOWS.lower()
             if WANT_VULKAN:
@@ -127,7 +132,10 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             windowedapp()
             usetoolchain("clang-native")
             defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
-            links(["pthread", "X11", "Xext", "GL"])
+            _LINUX_XLIB_LINKS = ["pthread", "X11", "Xrandr", "Xext", "GL", "asound", "m"]
+            if WANT_VULKAN:
+                _LINUX_XLIB_LINKS.append("vulkan")   # loader Vulkan sur la ligne de link finale
+            links(_LINUX_XLIB_LINKS)
 
         # ===== Linux XCB ==============================================================
         with filter("system:Linux && options:linux-backend=xcb"):
@@ -136,7 +144,10 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
             targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
             defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
-            links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL"])
+            _LINUX_XCB_LINKS = ["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL"]
+            if WANT_VULKAN:
+                _LINUX_XCB_LINKS.append("vulkan")
+            links(_LINUX_XCB_LINKS)
             ldflags(["-fuse-ld=lld"])
 
         # ===== Linux Wayland ==========================================================
@@ -146,7 +157,10 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
             targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
             defines(WAYLAND_DEFINES)
-            links(WAYLAND_LINKS)
+            _LINUX_WL_LINKS = list(WAYLAND_LINKS)
+            if WANT_VULKAN:
+                _LINUX_WL_LINKS.append("vulkan")
+            links(_LINUX_WL_LINKS)
 
         # ===== macOS ==================================================================
         with filter("system:macOS"):

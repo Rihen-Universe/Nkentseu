@@ -268,7 +268,10 @@ namespace nkentseu {
             {
                 static int sDbgIdx = 0;
                 char dbgPath[256];
-    #ifdef _WIN32
+                // system() est indisponible sur iOS/tvOS/watchOS -> no-op mobile.
+    #if defined(NKENTSEU_PLATFORM_IOS) || defined(NKENTSEU_PLATFORM_TVOS) || defined(NKENTSEU_PLATFORM_WATCHOS)
+                /* dump debug desactive sur mobile Apple */
+    #elif defined(_WIN32)
                 system("if not exist \"Build\\debug_gl\" mkdir \"Build\\debug_gl\"");
     #else
                 system("mkdir -p Build/debug_gl");

@@ -1,0 +1,38 @@
+// ============================================================================
+// instanced.frag.nksl — NKRenderer — Fragment des meshes instanciés (NkSL UNIQUE)
+// AUTONOME : la couleur de base vient du tint PAR INSTANCE (interpolé dans vColor),
+// PAS d'une texture. C'est volontaire — le but de ce shader stopgap est de valider
+// le chemin instancing 1-draw de façon FIABLE sur TOUS les backends (GL/VK/DX11/
+// DX12/SW), sans dépendre d'un binding de texture ou d'un vertex-color du mesh
+// (sources fréquentes de « tout noir » selon le backend). Éclairage = key light
+// directionnelle + ambiant hémisphérique → rendu clairement « éclairé » partout.
+// ============================================================================
+
+// IMPORTANT : déclarer EXACTEMENT les mêmes varyings que la sortie du VS, dans le
+// même ordre/location — même ceux non utilisés (vTangent). D3D12 assigne les
+// registres hardware par ordre de déclaration ; si le FS saute vTangent (TEXCOORD2),
+// vUV/vColor tombent sur des registres différents du VS -> « Signatures between
+// stages are incompatible » au PSO. GL/VK tolèrent les trous, pas DX12.
+@location(0) in vec3 vWorldPos;
+@location(1) in vec3 vNormal;
+@location(2) in vec3 vTangent;
+@location(3) in vec2 vUV;
+@location(4) in vec4 vColor;
+
+@location(0) out vec4 fragColor;
+
+@stage(fragment)
+@entry
+void main() {
+    vec3 albedo = vColor.rgb;                 // tint par instance (jamais nul)
+
+    vec3 N = normalize(vNormal);
+    // Key light directionnelle (haut-droite-avant).
+    vec3 L = normalize(vec3(0.4, 0.8, 0.5));
+    float diff = max(dot(N, L), 0.0);
+    // Ambiant hémisphérique doux (ciel en haut, sol en bas) pour un volume lisible.
+    float hemi = 0.5 + 0.5 * N.y;
+
+    vec3 lit = albedo * (vec3(0.30) + vec3(0.40) * hemi + vec3(0.85) * diff);
+    fragColor = vec4(lit, 1.0);
+}

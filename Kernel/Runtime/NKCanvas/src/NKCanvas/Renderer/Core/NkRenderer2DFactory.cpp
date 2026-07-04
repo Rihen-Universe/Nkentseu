@@ -1,10 +1,14 @@
 // =============================================================================
 // NkRenderer2DFactory.cpp
 // =============================================================================
+#include "NKPlatform/NkPlatformDetect.h"
 #include "NkRenderer2DFactory.h"
 #include "NKCanvas/Backend/Software/NkSoftwareRenderer2D.h"
-#include "NKCanvas/Backend/OpenGL/NkOpenGLRenderer2D.h"
-#include "NKCanvas/Backend/Vulkan/NkVulkanRenderer2D.h"
+// iOS = Metal uniquement : les renderers OpenGL/Vulkan desktop sont exclus du build.
+#if !defined(NKENTSEU_PLATFORM_IOS)
+#   include "NKCanvas/Backend/OpenGL/NkOpenGLRenderer2D.h"
+#   include "NKCanvas/Backend/Vulkan/NkVulkanRenderer2D.h"
+#endif
 #include "NKCanvas/Core/NkIGraphicsContext.h"
 #include "NKLogger/NkLog.h"
 
@@ -49,16 +53,20 @@ namespace nkentseu {
                     r2d = alloc.New<NkSoftwareRenderer2D>();
                     break;
 
-                // ── OpenGL / OpenGL ES / WebGL ────────────────────────────────────────
+                // ── OpenGL / OpenGL ES / WebGL / Vulkan ───────────────────────────────
+                // iOS = Metal uniquement : ces renderers sont exclus du build.
                 case NkGraphicsApi::NK_GFX_API_OPENGL:
                 case NkGraphicsApi::NK_GFX_API_OPENGLES:
                 case NkGraphicsApi::NK_GFX_API_WEBGL:
+#if !defined(NKENTSEU_PLATFORM_IOS)
                     r2d = alloc.New<NkOpenGLRenderer2D>();
+#endif
                     break;
 
-                // ── Vulkan ────────────────────────────────────────────────────────────
                 case NkGraphicsApi::NK_GFX_API_VULKAN:
+#if !defined(NKENTSEU_PLATFORM_IOS)
                     r2d = alloc.New<NkVulkanRenderer2D>();
+#endif
                     break;
 
         #if defined(NKENTSEU_PLATFORM_WINDOWS)

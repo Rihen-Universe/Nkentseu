@@ -55,7 +55,11 @@
 #       import <UIKit/UIKit.h>
 #       import <OpenGLES/ES3/gl.h>
 #   else
-        struct EAGLContext; struct UIView;
+        // Aligne UIView sur NkUIKitWindow.h (using = objc_object) pour éviter un
+        // conflit "struct vs type alias" quand les deux en-têtes sont dans la même
+        // unité de compilation .cpp (non-ObjC).
+        struct EAGLContext;
+        using UIView = struct objc_object;
 #   endif
 
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)

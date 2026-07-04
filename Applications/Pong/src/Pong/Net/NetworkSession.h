@@ -38,6 +38,10 @@ namespace nkentseu
     namespace pong
     {
 
+#if defined(None)
+#undef None
+#endif
+
         enum class NetworkRole : uint8
         {
             None,

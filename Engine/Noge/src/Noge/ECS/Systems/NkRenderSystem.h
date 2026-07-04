@@ -23,7 +23,9 @@
 #include "NKECS/World/NkWorld.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
 #include "Noge/ECS/Components/Rendering/NkRenderComponents.h"
-#include "NKRenderer/src/NkRenderer.h"
+#include "NKRenderer/NkRenderer.h"
+#include "NKRenderer/Core/NkSceneContext.h"          // NkSceneContext (membre par valeur)
+#include "NKRenderer/Tools/Render3D/NkRender3D.h"     // NkRender3D complet (SetWireframe inline)
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKMath/NKMath.h"
@@ -64,8 +66,13 @@ namespace nkentseu {
             void SetAmbientIntensity(float32 v)          noexcept { mAmbientIntensity = v; }
             void SetEnvMap(nk_uint64 handle)             noexcept { mEnvMapHandle = handle; }
             void SetWireframe(bool v)                    noexcept {
-                if (mRenderer) mRenderer->Renderer3D().SetWireframe(v);
+                if (mRenderer && mRenderer->GetRender3D())
+                    mRenderer->GetRender3D()->SetWireframe(v);
             }
+            // Modes de rendu façon Unreal/Blender (Solid / Wireframe / Unlit /
+            // Rendered...). Le viewMode est propagé au NkSceneContext chaque frame.
+            void SetViewMode(renderer::NkViewMode mode)  noexcept { mViewMode = mode; }
+            [[nodiscard]] renderer::NkViewMode GetViewMode() const noexcept { return mViewMode; }
 
             [[nodiscard]] const renderer::NkRendererStats& GetStats() const noexcept {
                 return mRenderer ? mRenderer->GetStats() : mEmptyStats;
@@ -85,7 +92,8 @@ namespace nkentseu {
                     case ecs::NkLightType::Point:       return renderer::NkLightType::NK_POINT;
                     case ecs::NkLightType::Spot:        return renderer::NkLightType::NK_SPOT;
                     case ecs::NkLightType::Area:        return renderer::NkLightType::NK_AREA;
-                    case ecs::NkLightType::Ambient:     return renderer::NkLightType::NK_AMBIENT;
+                    // NkLightType::Ambient (ECS) -> pas de type GPU dédié : géré via
+                    // NkSceneContext::ambientIntensity (lumière ambiante globale).
                     default:                            return renderer::NkLightType::NK_DIRECTIONAL;
                 }
             }
@@ -95,8 +103,9 @@ namespace nkentseu {
             nk_uint64                         mEnvMapHandle     = 0;
             float32                           mAmbientIntensity = 0.2f;
 
-            renderer::NkSceneContext3D        mSceneCtx;
+            renderer::NkSceneContext          mSceneCtx;
             NkVector<renderer::NkDrawCall3D>  mOpaqueCalls;
+            renderer::NkViewMode              mViewMode = renderer::NkViewMode::NK_SOLID;
 
             ecs::NkEntityId mActiveCameraId  = ecs::NkEntityId::Invalid();
             NkMat4f         mViewProjMatrix   = NkMat4f::Identity();

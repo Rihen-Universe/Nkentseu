@@ -54,6 +54,18 @@ namespace nkentseu {
                                        const char*   entry) {
         NkGLSLCompileResult result;
 
+        // glslang EXIGE InitializeProcess() une fois par process avant tout
+        // usage (TShader::parse / GlslangToSpv). Sans ça, les pools internes ne
+        // sont pas alloués -> corruption pile -> crash 0xC0000409. Le call_once
+        // "officiel" vit dans GLSLtoSPIRV_glslang() qui est compilé out
+        // (NKSL_HAS_GLSLANG jamais défini) : on garantit l'init ICI, sur le vrai
+        // chemin. Static local = thread-safe et exécuté une seule fois (C++11).
+        static const bool s_glslangReady = []() {
+            glslang::InitializeProcess();
+            return true;
+        }();
+        (void)s_glslangReady;
+
         if (!glslSrc || !*glslSrc) {
             result.errorLog = "NkGLSLToSPIRV: source GLSL vide";
             return result;

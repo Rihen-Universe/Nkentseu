@@ -163,6 +163,7 @@ with project("NKWindow"):
         files([
             "src/NKWindow/Platform/Android/NkAndroidWindow.cpp",
             "src/NKWindow/Platform/Android/NkAndroidEventSystem.cpp",
+            "src/NKWindow/Platform/Android/NkAndroidTextInputJNI.cpp",
             "src/NKWindow/Platform/Android/NkAndroidWindow.h",
             "src/NKWindow/Platform/Android/NkAndroidEventSystem.h",
             "src/NKWindow/Platform/Android/NkAndroidGamepad.h",
@@ -181,11 +182,14 @@ with project("NKWindow"):
         files([
             "src/NKWindow/Platform/UIKit/NkUIKitWindow.mm",
             "src/NKWindow/Platform/UIKit/NkUIKitEventSystem.mm",
+            "src/NKWindow/Platform/UIKit/NkDialogs_iOS.mm",
             "src/NKWindow/Platform/UIKit/NkUIKitWindow.h",
             "src/NKWindow/Platform/UIKit/NkUIKitEventSystem.h",
             "src/NKWindow/Platform/UIKit/NkUIKitGamepad.h",
         ])
-        frameworks(["UIKit", "QuartzCore", "OpenGLES", "AVFoundation"])
+        # Metal : surface de rendu iOS (CAMetalLayer dans NkUIKitWindow.mm).
+        # OpenGLES conservé pour compat mais le backend GLES iOS est un stub.
+        frameworks(["UIKit", "QuartzCore", "Metal", "OpenGLES", "AVFoundation"])
         iosbundleid("com.nkentseu.nkwindow")
         iosversion("1.0")
         iosminsdk("14.0")

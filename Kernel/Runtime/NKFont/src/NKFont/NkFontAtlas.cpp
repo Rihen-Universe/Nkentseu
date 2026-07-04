@@ -497,8 +497,14 @@ namespace nkentseu {
             nkft_int32 bw = bx1 - bx0, bh = by1 - by0;
 
             if (!isSpace && bw > 0 && bh > 0) {
+                nkft_int32 drawW = bw;
+                nkft_int32 drawH = bh;
+                if (drawW > atlasW - r.x) drawW = atlasW - r.x;
+                if (drawH > atlasH - r.y) drawH = atlasH - r.y;
+                if (drawW <= 0 || drawH <= 0) continue;
+
                 nkft_uint8* dst = texPixels + r.y * atlasW + r.x;
-                nkfont::NkMakeGlyphBitmap(&face, dst, bw, bh, atlasW,
+                nkfont::NkMakeGlyphBitmap(&face, dst, drawW, drawH, atlasW,
                                         sc * cfg.oversampleH,
                                         sc * cfg.oversampleV,
                                         0, 0,
@@ -506,16 +512,16 @@ namespace nkentseu {
 
                 if (sdfMode && sdfTemp) {
                     nkft_uint8* sdfDst = sdfTemp + r.y * atlasW + r.x;
-                    nkfont::NkMakeSDFFromBitmap(dst, bw, bh, sdfDst, sdfSpread);
-                    for (nkft_int32 row = 0; row < bh; ++row) {
-                        memcpy(dst + row * atlasW, sdfDst + row * atlasW, (nkft_size)bw);
+                    nkfont::NkMakeSDFFromBitmap(dst, drawW, drawH, sdfDst, sdfSpread);
+                    for (nkft_int32 row = 0; row < drawH; ++row) {
+                        memcpy(dst + row * atlasW, sdfDst + row * atlasW, (nkft_size)drawW);
                     }
                 }
 
                 if (cfg.rasterizerMultiply != 1.f) {
                     nkft_uint8 mt[256];
                     CalcMultiplyLookup(mt, cfg.rasterizerMultiply);
-                    ApplyMultiplyRect(mt, texPixels, r.x, r.y, bw, bh, atlasW);
+                    ApplyMultiplyRect(mt, texPixels, r.x, r.y, drawW, drawH, atlasW);
                 }
                 ++glyphsRast;
             }

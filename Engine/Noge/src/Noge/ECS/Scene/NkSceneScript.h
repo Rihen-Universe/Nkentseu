@@ -35,20 +35,22 @@
  */
 
 #include "NKECS/NkECSDefines.h"
+#include "NKECS/World/NkWorld.h"                 // NkWorld complet (templates inline)
+#include "Noge/ECS/Prefab/NkPrefab.h"            // nkentseu::NkPrefab (SpawnPrefab)
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
+#include "NKMath/NKMath.h"   // math::NkVec3f (param SpawnPrefab)
 
 namespace nkentseu {
 
     // Forward declarations pour éviter les inclusions circulaires
     namespace ecs {
 
-        class NkWorld;
         class NkSceneGraph;
         class NkGameObject;
         struct NkTag;
         struct NkName;
-        class NkPrefab;
+        // NkWorld (NKECS) + NkPrefab (nkentseu) : types complets via includes ci-dessus.
 
         // =====================================================================
         // 🎭 NkSceneScript — Interface de base pour les scripts de scène
@@ -394,7 +396,7 @@ namespace nkentseu {
                  */
                 [[nodiscard]] NkGameObject
                 SpawnPrefab(const NkPrefab& prefab,
-                            const NkMath::NkVec3f& position = {0.f, 0.f, 0.f},
+                            const math::NkVec3f& position = {0.f, 0.f, 0.f},
                             const char* name = nullptr);
 
                 /**
@@ -438,7 +440,15 @@ namespace nkentseu {
          */
         template<typename T>
         [[nodiscard]] T* NkSceneScript::GetComponentInWorld() const {
-            return mWorld ? mWorld->GetGlobalComponent<T>() : nullptr;
+            // « Composant global » = unique instance de T dans le monde (singleton
+            // ECS : GameManager/AudioManager...). NkWorld n'expose pas de getter
+            // global dédié ; on récupère donc la 1re instance de T via une query.
+            if (!mWorld) return nullptr;
+            T* found = nullptr;
+            mWorld->Query<T>().ForEach([&](NkEntityId, T& c) {
+                if (!found) found = &c;
+            });
+            return found;
         }
 
         // =====================================================================
@@ -833,7 +843,7 @@ namespace nkentseu {
         * 
         * // 5. Documenter l'ordre d'appel attendu des callbacks
         * /// @lifecycle Order: BeginPlay → (FixedTick)* → Tick → LateTick → EndPlay
-        * class WellDocumentedScript : public NkSceneScript { /* ... */ };
+        * class WellDocumentedScript : public NkSceneScript { ... };
         * 
         * 
         * // ❌ PIÈGES À ÉVITER

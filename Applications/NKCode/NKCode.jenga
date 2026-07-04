@@ -94,6 +94,38 @@ with project("NKCode"):
         usetoolchain("clang-native")
         frameworks(["Cocoa", "QuartzCore", "OpenGL"])
 
+    # ===== iOS ====================================================================
+    # Rendu via Metal (NkContextFactory sélectionne automatiquement le backend
+    # Metal sur iOS ; le loader NKGlad ne compile qu'un stub GLES, inoffensif).
+    # Saisie via clavier logiciel UIKit (NkWindow::ShowSoftKeyboard) -> NkTextInputEvent.
+    with filter("system:iOS"):
+        windowedapp()
+        frameworks(["UIKit", "QuartzCore", "Metal", "Foundation"])
+        iosbundleid("com.rihen.nkentseu.nkcode")
+        iosversion("0.1.0")
+
+    # ===== Android ================================================================
+    # IME complet (composition CJK, suggestions, dictée) : Activity Java custom
+    # (NkNativeActivity) + InputConnection -> NkTextInputEvent. Sans le bloc Java,
+    # le clavier natif basique (KeyCharacterMap) fonctionne quand même.
+    with filter("system:Android"):
+        windowedapp()
+        usetoolchain("android-ndk")
+        _NKCODE_ANDROID_LINKS = ["android", "log", "EGL", "GLESv3", "dl"]
+        if _WANT_VULKAN:
+            _NKCODE_ANDROID_LINKS.append("vulkan")
+        links(_NKCODE_ANDROID_LINKS)
+        androidapplicationid("com.rihen.nkentseu.nkcode")
+        androidminsdk(24)
+        androidtargetsdk(34)
+        androidcompilesdk(34)
+        # x86_64 inclus pour les émulateurs (MEmu / Android Studio AVD Intel).
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+        androidnativeactivity(True)
+        androidstl("c++_shared")
+        androidjavafiles(["%{NKWindow.location}/src/NKWindow/Platform/Android/java/**.java"])
+        androidactivityclass("com.nkentseu.window.NkNativeActivity")
+
     with filter("config:Debug"):
         defines(["_DEBUG", "DEBUG"])
         optimize("Off")

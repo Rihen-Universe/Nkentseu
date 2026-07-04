@@ -13,24 +13,76 @@ namespace nkcode {
     using namespace nkentseu::nkgui;
 
     // ── Palette (tokens Banani) ──────────────────────────────────────────────
+    // MUTABLE (pas constexpr) : le thème actif (Paramètres > Thème) réécrit ces
+    // valeurs à chaud via NkApplyTheme(). Tout le dessin lit NkCol::X chaque frame.
     namespace NkCol {
-        inline constexpr NkColor background  { 13, 17, 23, 255 };   // #0d1117
-        inline constexpr NkColor foreground  { 230, 237, 243, 255 };// #e6edf3
-        inline constexpr NkColor border      { 33, 38, 45, 255 };   // #21262d
-        inline constexpr NkColor input       { 22, 27, 34, 255 };   // #161b22
-        inline constexpr NkColor surface      { 22, 27, 34, 255 };  // #161b22
-        inline constexpr NkColor primary     { 15, 115, 213, 255 }; // #0F73D5
-        inline constexpr NkColor primaryFg   { 255, 255, 255, 255 };
-        inline constexpr NkColor secondary   { 10, 85, 95, 255 };   // #0A555F
-        inline constexpr NkColor secondaryFg { 220, 235, 238, 255 };
-        inline constexpr NkColor accent      { 247, 154, 40, 255 }; // #F79A28
-        inline constexpr NkColor sidebar     { 1, 4, 9, 255 };      // #010409
-        inline constexpr NkColor sidebarFg   { 139, 148, 158, 255 };// #8b949e
-        inline constexpr NkColor muted       { 33, 38, 45, 255 };   // #21262d
-        inline constexpr NkColor mutedFg     { 110, 118, 129, 255 };// #6e7681
-        inline constexpr NkColor success     { 63, 185, 80, 255 };  // #3fb950
-        inline constexpr NkColor danger      { 248, 81, 73, 255 };  // #f85149
-        inline constexpr NkColor hover       { 28, 33, 40, 255 };   // survol discret
+        inline NkColor background  { 13, 17, 23, 255 };   // #0d1117
+        inline NkColor foreground  { 230, 237, 243, 255 };// #e6edf3
+        inline NkColor border      { 33, 38, 45, 255 };   // #21262d
+        inline NkColor input       { 22, 27, 34, 255 };   // #161b22
+        inline NkColor surface      { 22, 27, 34, 255 };  // #161b22
+        inline NkColor primary     { 15, 115, 213, 255 }; // #0F73D5
+        inline NkColor primaryFg   { 255, 255, 255, 255 };
+        inline NkColor secondary   { 10, 85, 95, 255 };   // #0A555F
+        inline NkColor secondaryFg { 220, 235, 238, 255 };
+        inline NkColor accent      { 247, 154, 40, 255 }; // #F79A28
+        inline NkColor sidebar     { 1, 4, 9, 255 };      // #010409
+        inline NkColor sidebarFg   { 139, 148, 158, 255 };// #8b949e
+        inline NkColor muted       { 33, 38, 45, 255 };   // #21262d
+        inline NkColor mutedFg     { 110, 118, 129, 255 };// #6e7681
+        inline NkColor success     { 63, 185, 80, 255 };  // #3fb950
+        inline NkColor danger      { 248, 81, 73, 255 };  // #f85149
+        inline NkColor hover       { 28, 33, 40, 255 };   // survol discret
+        inline NkColor selection   { 22, 32, 46, 255 };   // fond d'un element ACTIF/selectionne (nav, onglet)
+    }
+
+    // ── Thèmes commutables (Paramètres > Thème) ───────────────────────────────
+    static const int32 NK_THEME_COUNT = 4;
+    inline const char* const* NkThemeNames() { static const char* N[] = { "Dark Pro", "Dark", "Midnight", "Light" }; return N; }
+    struct NkThemePalette {
+        NkColor background, foreground, border, input, surface, primary, primaryFg,
+                secondary, secondaryFg, accent, sidebar, sidebarFg, muted, mutedFg, success, danger, hover, selection;
+    };
+    inline NkThemePalette NkThemePreset(int32 id) {
+        switch (id) {
+            case 1: return { {24,24,27,255},{228,228,231,255},{39,39,42,255},{32,32,36,255},{32,32,36,255},{15,115,213,255},{255,255,255,255},{10,85,95,255},{220,235,238,255},{247,154,40,255},{15,15,17,255},{140,140,150,255},{39,39,42,255},{115,115,125,255},{63,185,80,255},{248,81,73,255},{40,40,44,255},{30,42,58,255} };   // Dark
+            case 2: return { {8,11,20,255},{224,230,245,255},{26,32,52,255},{14,18,32,255},{14,18,32,255},{60,110,240,255},{255,255,255,255},{20,60,110,255},{210,225,245,255},{120,150,255,255},{4,6,14,255},{120,132,160,255},{26,32,52,255},{95,105,140,255},{63,185,80,255},{248,81,73,255},{20,26,44,255},{22,32,60,255} };   // Midnight
+            case 3: return { {255,255,255,255},{31,35,40,255},{216,222,228,255},{255,255,255,255},{246,248,250,255},{9,105,218,255},{255,255,255,255},{221,244,255,255},{5,80,174,255},{154,103,0,255},{243,244,246,255},{87,96,106,255},{234,238,242,255},{101,109,118,255},{26,127,55,255},{207,34,46,255},{234,238,242,255},{221,235,252,255} };   // Light (GitHub Light)
+            default: return { {13,17,23,255},{230,237,243,255},{33,38,45,255},{22,27,34,255},{22,27,34,255},{15,115,213,255},{255,255,255,255},{10,85,95,255},{220,235,238,255},{247,154,40,255},{1,4,9,255},{139,148,158,255},{33,38,45,255},{110,118,129,255},{63,185,80,255},{248,81,73,255},{28,33,40,255},{22,32,46,255} };   // Dark Pro
+        }
+    }
+    // Parse "#RRGGBB" -> NkColor (a=255). Renvoie `fallback` si invalide.
+    inline NkColor NkParseHex(const char* h, NkColor fallback) {
+        if (!h || h[0] != '#') return fallback;
+        auto hx = [](char c) -> int32 { if (c >= '0' && c <= '9') return c - '0'; if (c >= 'a' && c <= 'f') return c - 'a' + 10; if (c >= 'A' && c <= 'F') return c - 'A' + 10; return -1; };
+        int32 v[6]; for (int32 i = 0; i < 6; ++i) { v[i] = hx(h[1 + i]); if (v[i] < 0) return fallback; }
+        return NkColor{ (uint8)(v[0] * 16 + v[1]), (uint8)(v[2] * 16 + v[3]), (uint8)(v[4] * 16 + v[5]), 255 };
+    }
+    // Applique le thème + la couleur d'accent perso (temps réel). A appeler chaque frame.
+    inline void NkApplyTheme(int32 id, const char* accentHex) {
+        const NkThemePalette p = NkThemePreset(id);
+        NkCol::background = p.background; NkCol::foreground = p.foreground; NkCol::border = p.border; NkCol::input = p.input;
+        NkCol::surface = p.surface; NkCol::primary = p.primary; NkCol::primaryFg = p.primaryFg; NkCol::secondary = p.secondary;
+        NkCol::secondaryFg = p.secondaryFg; NkCol::sidebar = p.sidebar; NkCol::sidebarFg = p.sidebarFg;
+        NkCol::muted = p.muted; NkCol::mutedFg = p.mutedFg; NkCol::success = p.success; NkCol::danger = p.danger; NkCol::hover = p.hover;
+        NkCol::selection = p.selection;
+        NkCol::accent = NkParseHex(accentHex, p.accent);   // accent perso, sinon celui du thème
+    }
+    // Vrai si le thème actif est CLAIR (fond lumineux) — pour adapter les éléments à fond codé (logo…).
+    inline bool NkThemeIsLight() { return ((int32)NkCol::background.r + (int32)NkCol::background.g + (int32)NkCol::background.b) > 384; }
+    // Voile (scrim) de fond THEME-AWARE : dim NOIR sur thème sombre (invisible sur du sombre),
+    // mais dim beaucoup plus LÉGER + teinté sur thème clair (sinon le noir opaque « éteint » toute la page).
+    // `a` = alpha voulu sur thème sombre.
+    inline NkColor NkScrim(uint8 a) {
+        if (NkThemeIsLight()) return NkColor{ 22, 27, 34, (uint8)((int32)a * 42 / 100) };
+        return NkColor{ 0, 0, 0, a };
+    }
+    // Variante « survol » d'une couleur, THEME-AWARE : éclaircit sur thème sombre, assombrit sur thème clair.
+    // Remplace les bleus/verts de survol codés en dur (qui ne suivaient pas le thème).
+    inline NkColor NkColHover(const NkColor& c) {
+        if (NkThemeIsLight()) return NkColor{ (uint8)((int32)c.r * 84 / 100), (uint8)((int32)c.g * 84 / 100), (uint8)((int32)c.b * 84 / 100), c.a };
+        auto up = [](uint8 v) -> uint8 { const int32 n = (int32)v + 22; return (uint8)(n > 255 ? 255 : n); };
+        return NkColor{ up(c.r), up(c.g), up(c.b), c.a };
     }
     // Rayons (px @1x)
     namespace NkR { inline constexpr float32 sm = 4.f, md = 6.f, lg = 10.f, xl = 16.f; }
@@ -120,6 +172,18 @@ namespace nkcode {
                fichier = 0, sort = 0;
         // toggle liste/grille -> icones DESSINEES (pas d'asset adapte) : viewList/viewGrid restent 0
         uint32 viewList = 0, viewGrid = 0;
+        // Wizard projet : types + actions + validation
+        uint32 kConsole = 0, kWindowed = 0, kStatic = 0, kShared = 0, kTest = 0, kConfig = 0;
+        uint32 valideSimple = 0, editer = 0, dependance = 0, creeProjet = 0, fileCode = 0, plus = 0, corbeille = 0, lock = 0;
+        // Clone Git : telechargement, github, oeil ouvert/ferme, rond info
+        uint32 clonerTel = 0, github = 0, oeilOuvert = 0, oeilFermer = 0, rondI = 0;
+        // ── Vue principale IDE (toolbar, activity bar, panneaux, status bar) ──
+        uint32 hammer = 0, bug = 0, sparkles = 0, zap = 0, chart = 0, puzzle = 0,
+               eraser = 0, rebuild = 0, monitor = 0, flask = 0, layers = 0, pkg = 0,
+               globe = 0, pause = 0, stop = 0, gitPush = 0, gitPull = 0, split = 0,
+               folderOpen = 0, fileText = 0, fileCode2 = 0, filePlus = 0, code = 0,
+               compare = 0, blame = 0, exit = 0, tags = 0, cloud = 0, docker = 0, linux = 0,
+               play = 0;
 
         // ── Registre d'extensions (data-driven) : ".cpp" (minuscule) -> texture ──
         // Rempli au demarrage depuis des defauts integres + le manifeste icons.cfg.

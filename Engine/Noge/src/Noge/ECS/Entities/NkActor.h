@@ -26,8 +26,10 @@
 
 #include "NkGameObject.h"
 #include "Noge/ECS/Components/Physics/NkPhysicsComponents.h"
-#include "Noge/ECS/Components/Animation/NkAnimation.h"
+#include "Noge/ECS/Components/Physics/NkPhysics.h"        // NkCharacterController
+#include "Noge/ECS/Components/Animation/NkAnimation.h"     // NkSkeletalMesh, NkAnimator
 #include "Noge/ECS/Components/Audio/NkAudioComponents.h"
+#include "Noge/ECS/Components/Audio/NkAudio.h"             // NkAudioSource
 
 namespace nkentseu {
     namespace ecs {

@@ -2,8 +2,10 @@
 // Nkentseu/Core/NkEngineLayer.cpp
 // =============================================================================
 #include "NkEngineLayer.h"
-#include "NkApplication.h"
+#include "../Core/NkApplication.h"
 #include "Noge/ECS/Systems/NkTransformSystem.h"
+#include "Noge/ECS/Systems/NkPhysicsSystem.h"
+#include "Noge/ECS/Systems/NkParticleSystem.h"
 #include "Noge/ECS/Entities/NkBehaviourSystem.h"
 #include "Noge/ECS/Scripting/NkScriptSystem.h"
 #include "NKLogger/NkLog.h"
@@ -119,24 +121,19 @@ namespace nkentseu {
         mResizeW = cfg.windowConfig.width;
         mResizeH = cfg.windowConfig.height;
 
-        renderer::NkRendererConfig rendCfg;
-        rendCfg.width          = mResizeW;
-        rendCfg.height         = mResizeH;
-        rendCfg.shadowMapSize  = 2048;
-        rendCfg.enableShadows  = true;
-        rendCfg.msaa           = renderer::NkMSAA::NK_4X;
-
-        if (!mRenderer.Init(device, rendCfg)) {
-            logger.Errorf("[NkEngineLayer] Échec init NkRenderer\n");
+        // Le renderer 2D/3D est CRÉÉ et POSSÉDÉ par NkApplication. NkEngineLayer
+        // l'emprunte simplement et y branche le pont ECS (NkRenderSystem).
+        mRenderer = app.GetRenderer();
+        if (!mRenderer) {
+            logger.Errorf("[NkEngineLayer] NkApplication n'a pas de renderer\n");
             return;
         }
-
         mRendererInitialized = true;
 
-        // Lie le RenderSystem au renderer
-        mRenderSystem.Init(&mRenderer, app.GetCmd());
+        // Lie le RenderSystem au renderer de l'application.
+        mRenderSystem.Init(mRenderer, app.GetCmd());
 
-        logger.Infof("[NkEngineLayer] NkRenderer initialisé (%ux%u)\n",
+        logger.Infof("[NkEngineLayer] NkRenderer branché (%ux%u)\n",
                      mResizeW, mResizeH);
     }
 
@@ -145,21 +142,29 @@ namespace nkentseu {
     // =========================================================================
     void NkEngineLayer::RegisterCoreSystems() noexcept {
         // PreUpdate — Transform avant tout
-        mScheduler.AddSystem<ecs::NkTransformSystem>();
+        mScheduler.AddSystem<NkTransformSystem>();
 
         // PreUpdate — Behaviours (OnStart → OnUpdate)
         mScheduler.AddSystem<ecs::NkBehaviourSystem>();
         mScheduler.AddSystem<ecs::NkBehaviourLateSystem>();
         mScheduler.AddSystem<ecs::NkBehaviourFixedSystem>();
 
+        // FixedUpdate — Physique rigide (pont ECS -> NKCollision/NKPhysics)
+        mScheduler.AddSystem<NkPhysicsSystem>();
+
         // Update — Scripts C++ natifs
         mScheduler.AddSystem<ecs::NkScriptSystem>();
 
-        // Render — Bridge ECS → GPU (si renderer disponible)
-        if (mRendererInitialized) {
-            // NkRenderSystem est enregistré directement (pas via template car déjà créé)
-            // Utiliser AddSystem avec pointeur owné
-            mScheduler.AddSystem<NkRenderSystem>();
+        // Render + VFX — ponts ECS → NKRenderer (si renderer disponible).
+        // AddSystem<T>() retourne l'instance OWNED par le scheduler : c'est ELLE
+        // qu'il faut Init (et non un membre séparé) pour qu'elle s'exécute.
+        if (mRendererInitialized && mRenderer) {
+            NkICommandBuffer* cmd = NkApplication::Get().GetCmd();
+            NkRenderSystem&   rs  = mScheduler.AddSystem<NkRenderSystem>();
+            rs.Init(mRenderer, cmd);
+
+            NkParticleSystem& ps = mScheduler.AddSystem<NkParticleSystem>();
+            ps.Init(mRenderer);
         }
 
         logger.Infof("[NkEngineLayer] %u systèmes core enregistrés\n",
@@ -170,10 +175,9 @@ namespace nkentseu {
     // ShutdownRenderer
     // =========================================================================
     void NkEngineLayer::ShutdownRenderer() noexcept {
-        if (mRendererInitialized) {
-            mRenderer.Shutdown();
-            mRendererInitialized = false;
-        }
+        // Le renderer est possédé par NkApplication : on relâche juste l'emprunt.
+        mRenderer = nullptr;
+        mRendererInitialized = false;
     }
 
 } // namespace nkentseu

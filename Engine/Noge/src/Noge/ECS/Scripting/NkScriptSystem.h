@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "../NkECSDefines.h"
+#include "NKECS/NkECSDefines.h"
 #include "NkScriptComponent.h"
 
 namespace nkentseu {

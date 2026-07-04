@@ -1,7 +1,9 @@
 # NKTensor — tenseurs (CPU & GPU)
 
-> ⚠️ Squelette : pas encore de code. Voir la [ROADMAP](ROADMAP.md) et l'[architecture de la
-> couche](../ARCHITECTURE.md).
+> 🟡 **En cours.** Backend **CPU** fonctionnel (Jalon 1 + cœur du Jalon 2) : tenseur
+> n-dim à stockage refcompté, vues à strides (reshape/transpose), ops élémentaires +
+> broadcasting, matmul 2D, réductions. Backend **GPU** (NKRHI compute) = Jalon 3.
+> Code sous `src/NKTensor/` ; tests sous `tests/`. Voir la [ROADMAP](ROADMAP.md).
 
 ## Rôle
 

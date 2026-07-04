@@ -7,23 +7,9 @@
 namespace nkentseu {
     namespace ecs {
 
-        // Les méthodes BeginPlay/Tick/EndPlay sont inline dans le header
-        // car elles sont purement virtuelles par défaut et appellées via vtable
-        // par le système de cycle de vie. Ce fichier sert de point d'ancrage
-        // pour l'édition de liens et les futures spécialisations.
-
-        // Hook pour débogage global des acteurs (optionnel)
-        void NkActor::BeginPlay() noexcept {
-            // Par défaut : rien
-        }
-
-        void NkActor::Tick(float32) noexcept {
-            // Par défaut : rien
-        }
-
-        void NkActor::EndPlay() noexcept {
-            // Par défaut : rien
-        }
+        // Les méthodes BeginPlay/Tick/EndPlay sont définies INLINE dans NkActor.h
+        // (corps virtuels vides par défaut). Ce .cpp sert uniquement de point
+        // d'ancrage de l'édition de liens — ne pas les redéfinir ici (ODR).
 
     } // namespace ecs
 } // namespace nkentseu

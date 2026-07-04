@@ -3,12 +3,15 @@
 // DESCRIPTION: Implémentations des méthodes d'instanciation et sérialisation.
 // =============================================================================
 #include "NkPrefab.h"
-#include "../Reflect/NkReflect.h"
+#include "NKECS/Reflect/NkReflect.h"
+#include "Noge/ECS/Components/SceneComponent/NkSceneComponent.h"  // NkSceneComponent
+#include "NKContainers/String/NkFormat.h"                        // NkFormat
 #include <cstdio>
 #include <cstring>
 
 namespace nkentseu {
-    namespace ecs {
+    // NkPrefab vit dans nkentseu ; on importe ecs pour les types composants.
+    using namespace ecs;
 
         // ============================================================================
         // Helpers de sérialisation JSON (minimaliste, sans dépendance externe)
@@ -55,10 +58,10 @@ namespace nkentseu {
         // NkPrefab::Instantiate — Création d'une instance dans le monde
         // ============================================================================
 
-        NkGameObject NkPrefab::Instantiate(NkWorld& world, const char* instanceName) noexcept {
+        NkEntityId NkPrefab::Instantiate(NkWorld& world, const char* instanceName) const noexcept {
             // 1. Création de l'entité racine
             NkEntityId rootId = world.CreateEntity();
-            world.Add<NkName>(rootId, NkName(instanceName ? instanceName : name.c_str()));
+            world.Add<NkName>(rootId, NkName(instanceName ? instanceName : name.CStr()));
             world.Add<NkTag>(rootId);
             world.Add<NkTransform>(rootId);
             world.Add<NkParent>(rootId);
@@ -68,13 +71,13 @@ namespace nkentseu {
             // 2. Application des composants définis dans le prefab
             for (const auto& [typeName, data] : components) {
                 // Recherche du type via le registre de réflexion
-                const NkTypeInfo* info = NkReflectRegistry::Global().FindByName(typeName.c_str());
+                const reflect::NkTypeInfo* info = reflect::NkReflectRegistry::Global().GetByName(typeName.CStr());
                 if (info && info->deserialize) {
                     // Allocation temporaire pour désérialiser
                     void* buffer = std::malloc(info->size);
                     if (buffer) {
                         std::memset(buffer, 0, info->size);
-                        if (info->deserialize(buffer, data.jsonValue.c_str())) {
+                        if (info->deserialize(buffer, data.jsonValue.CStr())) {
                             // Ajout au monde via AddImpl générique (simplifié ici)
                             // En production : utiliser un dispatcher par type
                             std::free(buffer);
@@ -89,20 +92,22 @@ namespace nkentseu {
             // 4. Instanciation récursive des enfants
             for (const auto& childData : children) {
                 NkGameObject childGO;
-                if (!childData.prefabPath.empty()) {
+                if (!childData.prefabPath.Empty()) {
                     // Instanciation d'un prefab imbriqué
-                    const NkPrefab* nested = NkPrefabRegistry::Global().Get(childData.prefabPath.c_str());
+                    const NkPrefab* nested = NkPrefabRegistry::Global().Get(childData.prefabPath.CStr());
                     if (nested) {
-                        childGO = nested->Instantiate(world, childData.name.c_str());
+                        childGO = NkGameObject(nested->Instantiate(world, childData.name.CStr()), &world);
                     }
                 } else {
-                    // Création d'un nœud simple
-                    childGO = world.CreateGameObject(childData.name.c_str());
+                    // Création d'un nœud simple (entité + nom, wrappée en GameObject)
+                    NkEntityId e = world.CreateEntity();
+                    world.Add<NkName>(e, NkName(childData.name.CStr()));
+                    childGO = NkGameObject(e, &world);
                 }
 
                 if (childGO.IsValid()) {
                     // Appliquer la transform locale
-                    if (auto* t = childGO.GetComponent<NkSceneComponent>()) {
+                    if (auto t = childGO.GetComponent<NkSceneComponent>()) {
                         t->SetLocalTransform(
                             childData.localPosition,
                             childData.localRotation,
@@ -118,33 +123,28 @@ namespace nkentseu {
             }
 
             // 5. Chargement du Blueprint optionnel
-            if (!blueprintPath.empty()) {
+            if (!blueprintPath.Empty()) {
                 // En production : charger et attacher le blueprint via NkBlueprintComponent
                 // auto* bp = go.Add<NkBlueprintComponent>();
-                // if (bp) bp->LoadFromFile(blueprintPath.c_str());
+                // if (bp) bp->LoadFromFile(blueprintPath.CStr());
             }
 
             // 6. Activation finale (les entités sont créées inactives par défaut)
             go.SetActive(true);
 
-            return go;
+            return rootId;   // contrat header : Instantiate() retourne l'entité (bas niveau)
         }
 
         // ============================================================================
         // NkPrefab::InstantiateBatch — Création de multiples instances
         // ============================================================================
 
-        void NkPrefab::InstantiateBatch(NkWorld& world, uint32 count, std::vector<NkGameObject>* out) noexcept {
-            if (out) {
-                out->reserve(out->size() + count);
-            }
+        void NkPrefab::InstantiateBatch(NkWorld& world, uint32 count,
+                                        NkVector<NkEntityId>& out) const noexcept {
+            out.Reserve(out.Size() + count);
             for (uint32 i = 0; i < count; ++i) {
-                char instanceName[256];
-                std::snprintf(instanceName, sizeof(instanceName), "%s_%u", name.c_str(), i);
-                NkGameObject go = Instantiate(world, instanceName);
-                if (out) {
-                    out->push_back(std::move(go));
-                }
+                NkString instanceName = NkFormat("{0}_{1}", name, i);
+                out.PushBack(Instantiate(world, instanceName.CStr()));
             }
         }
 
@@ -163,17 +163,17 @@ namespace nkentseu {
             // Métadonnées
             buffer[offset++] = '"'; std::memcpy(buffer + offset, "name", 4); offset += 4; buffer[offset++] = '"';
             buffer[offset++] = ':';
-            WriteJsonString(buffer, offset, bufSize, name.c_str());
+            WriteJsonString(buffer, offset, bufSize, name.CStr());
             buffer[offset++] = ',';
 
             buffer[offset++] = '"'; std::memcpy(buffer + offset, "path", 4); offset += 4; buffer[offset++] = '"';
             buffer[offset++] = ':';
-            WriteJsonString(buffer, offset, bufSize, path.c_str());
+            WriteJsonString(buffer, offset, bufSize, path.CStr());
             buffer[offset++] = ',';
 
             buffer[offset++] = '"'; std::memcpy(buffer + offset, "version", 7); offset += 7; buffer[offset++] = '"';
             buffer[offset++] = ':';
-            WriteJsonString(buffer, offset, bufSize, version.c_str());
+            WriteJsonString(buffer, offset, bufSize, version.CStr());
             buffer[offset++] = ',';
 
             // Composants
@@ -186,12 +186,12 @@ namespace nkentseu {
                     buffer[offset++] = ',';
                 }
                 firstComp = false;
-                WriteJsonString(buffer, offset, bufSize, typeName.c_str());
+                WriteJsonString(buffer, offset, bufSize, typeName.CStr());
                 buffer[offset++] = ':';
                 buffer[offset++] = '{';
                 buffer[offset++] = '"'; std::memcpy(buffer + offset, "json", 4); offset += 4; buffer[offset++] = '"';
                 buffer[offset++] = ':';
-                WriteJsonString(buffer, offset, bufSize, data.jsonValue.c_str());
+                WriteJsonString(buffer, offset, bufSize, data.jsonValue.CStr());
                 if (data.isOverridden) {
                     buffer[offset++] = ',';
                     buffer[offset++] = '"'; std::memcpy(buffer + offset, "overridden", 10); offset += 10; buffer[offset++] = '"';
@@ -216,12 +216,12 @@ namespace nkentseu {
                 buffer[offset++] = '{';
                 WriteJsonString(buffer, offset, bufSize, "name");
                 buffer[offset++] = ':';
-                WriteJsonString(buffer, offset, bufSize, child.name.c_str());
+                WriteJsonString(buffer, offset, bufSize, child.name.CStr());
                 buffer[offset++] = ',';
-                if (!child.prefabPath.empty()) {
+                if (!child.prefabPath.Empty()) {
                     WriteJsonString(buffer, offset, bufSize, "prefabPath");
                     buffer[offset++] = ':';
-                    WriteJsonString(buffer, offset, bufSize, child.prefabPath.c_str());
+                    WriteJsonString(buffer, offset, bufSize, child.prefabPath.CStr());
                     buffer[offset++] = ',';
                 }
                 WriteJsonString(buffer, offset, bufSize, "localPosition");
@@ -239,11 +239,11 @@ namespace nkentseu {
             buffer[offset++] = ']';
 
             // Blueprint optionnel
-            if (!blueprintPath.empty()) {
+            if (!blueprintPath.Empty()) {
                 buffer[offset++] = ',';
                 WriteJsonString(buffer, offset, bufSize, "blueprintPath");
                 buffer[offset++] = ':';
-                WriteJsonString(buffer, offset, bufSize, blueprintPath.c_str());
+                WriteJsonString(buffer, offset, bufSize, blueprintPath.CStr());
             }
 
             buffer[offset++] = '}';
@@ -277,7 +277,7 @@ namespace nkentseu {
                         ++valStart;
                         const char* valEnd = std::strchr(valStart, '"');
                         if (valEnd) {
-                            name.assign(valStart, valEnd - valStart);
+                            name = NkString(valStart, static_cast<NkString::SizeType>(valEnd - valStart));
                         }
                     }
                 }
@@ -293,8 +293,8 @@ namespace nkentseu {
                         ++valStart;
                         const char* valEnd = std::strchr(valStart, '"');
                         if (valEnd) {
-                            path.assign(valStart, valEnd - valStart);
-                            guid = detail::FNV1a(path.c_str());
+                            path = NkString(valStart, static_cast<NkString::SizeType>(valEnd - valStart));
+                            guid = ecs::detail::FNV1a(path.CStr());
                         }
                     }
                 }
@@ -310,7 +310,7 @@ namespace nkentseu {
                         ++valStart;
                         const char* valEnd = std::strchr(valStart, '"');
                         if (valEnd) {
-                            version.assign(valStart, valEnd - valStart);
+                            version = NkString(valStart, static_cast<NkString::SizeType>(valEnd - valStart));
                         }
                     }
                 }
@@ -326,7 +326,7 @@ namespace nkentseu {
                         ++valStart;
                         const char* valEnd = std::strchr(valStart, '"');
                         if (valEnd) {
-                            blueprintPath.assign(valStart, valEnd - valStart);
+                            blueprintPath = NkString(valStart, static_cast<NkString::SizeType>(valEnd - valStart));
                         }
                     }
                 }
@@ -381,14 +381,13 @@ namespace nkentseu {
             // Définir le chemin et GUID
             prefab.path = filePath;
             if (prefab.guid == 0) {
-                prefab.guid = detail::FNV1a(filePath);
+                prefab.guid = ecs::detail::FNV1a(filePath);
             }
 
             // Enregistrer dans le registre global
             return Register(prefab);
         }
 
-    } // namespace ecs
 } // namespace nkentseu
 
 // =============================================================================

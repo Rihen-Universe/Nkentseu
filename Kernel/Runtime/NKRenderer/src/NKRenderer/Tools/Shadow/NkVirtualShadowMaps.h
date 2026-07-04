@@ -105,6 +105,15 @@ namespace nkentseu {
             // le centre fixe couvre toujours la meme region).
             bool     useFixedCascadeCenter = false;
             NkVec3f  cascadeWorldCenter     = {0.f, 0.f, 0.f};
+
+            // AUTO-FIT directionnel (scene close) : si true, la cascade est ajustee
+            // CHAQUE frame aux bornes reelles des casters (NkRender3D::GetShadowCasterBounds).
+            // Centre = centre des bornes (ancre monde -> pas de swimming), rayon = demi-
+            // diagonale (couverture complete -> pas de clipping), au plus serre (resolution
+            // OPTIMALE, contrairement a un rayon fixe trop grand qui perd les petites ombres).
+            // Prioritaire sur useFixedCascadeCenter/useFixedCascadeRadius quand actif.
+            // A laisser false pour les grands mondes ouverts (cascade qui suit la camera).
+            bool     autoFitDirectional     = false;
         };
 
         // Slot CPU (info de quoi rendre et ou).

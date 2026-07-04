@@ -24,6 +24,7 @@
  */
 
 #include "NkSceneGraph.h"
+#include "Noge/ECS/NkEcsUtil.h"   // NkStrEqual
 // Inclut déjà NkWorld.h via le header — pas de réinclusion nécessaire
 
 namespace nkentseu {

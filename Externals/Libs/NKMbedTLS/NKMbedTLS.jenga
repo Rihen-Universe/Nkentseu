@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKMbedTLS — Mbed-TLS v3.6 LTS comme bibliotheque statique C pure.
+
+TLS/HTTPS portable pour NKNetwork. Mbed-TLS etant du C ANSI sans dependance OS
+(hors sockets BSD + entropie /dev/urandom, disponibles partout y compris iOS),
+une seule source cross-compile pour TOUTES les plateformes via la toolchain zig
+(Windows/Linux/Android/macOS/iOS/tvOS). Aucun backend natif a ecrire.
+
+Config : utilise le config par defaut include/mbedtls/mbedtls_config.h (client TLS
+1.2/1.3 complet). Everest / p256-m restent desactives (3rdparty non compile).
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+with project("NKMbedTLS"):
+    staticlib()
+    language("C")
+    location(".")
+
+    includedirs([
+        "include",
+        "library",   # certains .c incluent des en-tetes internes locaux
+    ])
+
+    files([
+        "library/**.c",
+        "library/**.h",
+        "include/**.h",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && options:windows-runtime=uwp"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")

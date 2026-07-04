@@ -230,8 +230,10 @@ bool NkDX11Context::CreateDeviceAndSwapchain(const NkContextDesc& d, HWND hwnd) 
     scDesc.Width              = mData.width;
     scDesc.Height             = mData.height;
     scDesc.Format             = DXGI_FORMAT_R8G8B8A8_UNORM;
-    scDesc.SampleDesc.Count   = dx11.msaaSamples > 1 ? dx11.msaaSamples : 1;
-    scDesc.SampleDesc.Quality = dx11.msaaSamples > 1 ? dx11.msaaQuality : 0;
+    // FLIP_DISCARD IMPOSE un swapchain NON multi-échantillon : le MSAA se fait sur une
+    // cible séparée (msaaTex) puis ResolveSubresource -> backbuffer (cf. CreateRenderTargets/Present).
+    scDesc.SampleDesc.Count   = 1;
+    scDesc.SampleDesc.Quality = 0;
     scDesc.BufferUsage        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     scDesc.BufferCount        = dx11.swapchainBuffers;
     scDesc.SwapEffect         = DXGI_SWAP_EFFECT_FLIP_DISCARD;
@@ -252,19 +254,44 @@ bool NkDX11Context::CreateDeviceAndSwapchain(const NkContextDesc& d, HWND hwnd) 
 }
 
 bool NkDX11Context::CreateRenderTargets() {
-    // RTV
-    ComPtr<ID3D11Texture2D> backBuf;
-    NK_DX11_CHECK(mData.swapchain->GetBuffer(0, IID_PPV_ARGS(&backBuf)), "GetBuffer");
-    NK_DX11_CHECK(mData.device->CreateRenderTargetView(backBuf.Get(), nullptr, &mData.rtv), "CreateRTV");
+    // Backbuffer du swapchain (toujours 1 échantillon en flip-model) : conservé pour le resolve.
+    NK_DX11_CHECK(mData.swapchain->GetBuffer(0, IID_PPV_ARGS(&mData.backTex)), "GetBuffer");
 
-    // DSV
+    // MSAA : nb d'échantillons demandé, borné à ce que le device supporte pour RGBA8.
+    uint32 want = mDesc.dx11.msaaSamples;
+    if (want < 1) want = 1;
+    uint32 samples = 1;
+    if (want > 1) {
+        for (uint32 s = want; s >= 2; s >>= 1) {   // 4 -> 2 -> (1)
+            UINT q = 0;
+            if (SUCCEEDED(mData.device->CheckMultisampleQualityLevels(DXGI_FORMAT_R8G8B8A8_UNORM, s, &q)) && q > 0) { samples = s; break; }
+        }
+    }
+    mData.msaaCount = samples;
+
+    if (samples > 1) {
+        // Cible couleur MULTI-ÉCHANTILLON -> c'est ELLE que le rendu vise (mData.rtv).
+        D3D11_TEXTURE2D_DESC cd = {};
+        cd.Width = mData.width; cd.Height = mData.height; cd.MipLevels = 1; cd.ArraySize = 1;
+        cd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        cd.SampleDesc.Count = samples; cd.SampleDesc.Quality = 0;
+        cd.Usage = D3D11_USAGE_DEFAULT; cd.BindFlags = D3D11_BIND_RENDER_TARGET;
+        NK_DX11_CHECK(mData.device->CreateTexture2D(&cd, nullptr, &mData.msaaTex), "CreateMSAAColor");
+        NK_DX11_CHECK(mData.device->CreateRenderTargetView(mData.msaaTex.Get(), nullptr, &mData.rtv), "CreateMSAARTV");
+    } else {
+        // Pas de MSAA : on rend directement dans le backbuffer.
+        mData.msaaTex.Reset();
+        NK_DX11_CHECK(mData.device->CreateRenderTargetView(mData.backTex.Get(), nullptr, &mData.rtv), "CreateRTV");
+    }
+
+    // DSV — même nb d'échantillons que la cible couleur.
     D3D11_TEXTURE2D_DESC depthDesc = {};
     depthDesc.Width     = mData.width;
     depthDesc.Height    = mData.height;
     depthDesc.MipLevels = 1;
     depthDesc.ArraySize = 1;
     depthDesc.Format    = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    depthDesc.SampleDesc.Count   = 1;
+    depthDesc.SampleDesc.Count   = samples;
     depthDesc.SampleDesc.Quality = 0;
     depthDesc.Usage     = D3D11_USAGE_DEFAULT;
     depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
@@ -279,6 +306,8 @@ void NkDX11Context::DestroyRenderTargets() {
     mData.rtv.Reset();
     mData.dsv.Reset();
     mData.depthTex.Reset();
+    mData.msaaTex.Reset();
+    mData.backTex.Reset();
 }
 
 void NkDX11Context::HandleDeviceLost() {
@@ -323,6 +352,11 @@ void NkDX11Context::EndFrame() { /* flush optionnel */ }
 
 void NkDX11Context::Present() {
     if (!mIsValid) return;
+    // MSAA : résout la cible multi-échantillon vers le backbuffer avant de présenter.
+    if (mData.msaaTex && mData.backTex && mData.context) {
+        mData.context->OMSetRenderTargets(0, nullptr, nullptr);   // délie la RTV MSAA
+        mData.context->ResolveSubresource(mData.backTex.Get(), 0, mData.msaaTex.Get(), 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+    }
     bool allowTearing = mDesc.dx11.allowTearing;
     UINT flags = (!mVSync && allowTearing) ? DXGI_PRESENT_ALLOW_TEARING : 0;
     HRESULT hr = mData.swapchain->Present(mVSync ? 1 : 0, flags);
