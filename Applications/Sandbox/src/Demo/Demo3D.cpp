@@ -615,13 +615,16 @@ namespace nkentseu { namespace demo {
         }
 
         // ── Cube central rotatif : metal or poli (gold metallic, low rough) ──
+        // Transform calculé UNE fois -> SOURCE UNIQUE partagée par le draw call ET le
+        // marqueur de sélection (plus bas). Le marqueur applique cette même matrice à ses
+        // coins -> il suit position + rotation + échelle SANS recalcul ni duplication.
+        NkMat4f cubeXform = NkMat4f::Translate({0, 0.5f + sinf(ctx.totalTime * 1.5f) * 0.2f, 0}) *
+                            NkMat4f::RotationY(NkAngle::FromRad(ctx.totalTime * 0.8f)) *
+                            NkMat4f::Scale({0.6f, 0.6f, 0.6f});
         {
             NkDrawCall3D dc;
             dc.mesh = st->meshCube;
-            float32 y = 0.5f + sinf(ctx.totalTime * 1.5f) * 0.2f;
-            dc.transform = NkMat4f::Translate({0, y, 0}) *
-                           NkMat4f::RotationY(NkAngle::FromRad(ctx.totalTime * 0.8f)) *
-                           NkMat4f::Scale({0.6f, 0.6f, 0.6f});
+            dc.transform = cubeXform;
             dc.aabb = {{-0.35f, 0.1f, -0.35f}, {0.35f, 0.9f, 0.35f}};
             dc.tint      = {1.f, 0.8f, 0.3f};   // gold albedo
             dc.metallic  = 1.f;
@@ -662,19 +665,24 @@ namespace nkentseu { namespace demo {
             auto cross3 = [](NkVec3f a, NkVec3f b){ return NkVec3f{a.y*b.z-a.z*b.y, a.z*b.x-a.x*b.z, a.x*b.y-a.y*b.x}; };
             auto norm3  = [&](NkVec3f v){ float32 l = sqrtf(dot3(v,v)); return (l>1e-6f) ? NkVec3f{v.x/l,v.y/l,v.z/l} : v; };
 
-            // Table des objets sélectionnables (centre vivant, rayon de pick, demi-AABB,
-            // yaw = rotation Y vivante -> la boîte SUIT aussi la rotation, en OBB).
-            struct PickObj { NkVec3f c; float32 pr; NkVec3f half; float32 yaw; };
+            // Table des objets sélectionnables : on stocke la MATRICE DE TRANSFORM de
+            // l'objet (= sa source de vérité position+rotation+échelle) + le demi-extent
+            // du MESH en espace modèle (toutes les primitives de base font ±0.5). Le
+            // marqueur applique cette matrice à ses coins -> il suit tout automatiquement,
+            // sans dupliquer la moindre formule (le cube partage cubeXform avec son draw).
+            struct PickObj { NkMat4f xf; NkVec3f localHalf; float32 pr; };
+            const NkVec3f H = {0.5f, 0.5f, 0.5f};      // demi-extent modèle commun
             PickObj objs[16 + 1 + 2 + 64];
             int32   nObj = 0;
-            for (int row=0; row<4; row++) for (int col=0; col<4; col++)     // 16 sphères (pas de rotation)
-                objs[nObj++] = {{(col-1.5f)*1.2f, 0.5f, (row-1.5f)*1.2f}, 0.5f, {0.45f,0.45f,0.45f}, 0.f};
-            objs[nObj++] = {{0.f, 0.5f + sinf(ctx.totalTime*1.5f)*0.2f, 0.f}, 0.55f, {0.32f,0.32f,0.32f},
-                            ctx.totalTime * 0.8f}; // cube central : oscille EN Y + tourne (même yaw que le draw)
-            objs[nObj++] = {{-4.f, 1.f, -2.f}, 1.3f, {0.3f,1.f,0.3f}, 0.f}; // colonne 0
-            objs[nObj++] = {{ 1.f, 1.f,  4.f}, 1.3f, {0.3f,1.f,0.3f}, 0.f}; // colonne 1
+            for (int row=0; row<4; row++) for (int col=0; col<4; col++)     // 16 sphères
+                objs[nObj++] = { NkMat4f::Translate({(col-1.5f)*1.2f, 0.5f, (row-1.5f)*1.2f}) *
+                                 NkMat4f::Scale({0.45f,0.45f,0.45f}), H, 0.35f };
+            objs[nObj++] = { cubeXform, H, 0.45f };                          // cube central (source unique)
+            objs[nObj++] = { NkMat4f::Translate({-4.f,1.f,-2.f}) * NkMat4f::Scale({0.3f,2.f,0.3f}), H, 1.3f }; // colonne 0
+            objs[nObj++] = { NkMat4f::Translate({ 1.f,1.f, 4.f}) * NkMat4f::Scale({0.3f,2.f,0.3f}), H, 1.3f }; // colonne 1
             for (int gz=0; gz<8; gz++) for (int gx=0; gx<8; gx++)           // 64 cubes INSTANCIÉS
-                objs[nObj++] = {{(gx-3.5f)*0.55f, 1.6f, (gz-3.5f)*0.55f-4.5f}, 0.32f, {0.18f,0.18f,0.18f}, 0.f};
+                objs[nObj++] = { NkMat4f::Translate({(gx-3.5f)*0.55f, 1.6f, (gz-3.5f)*0.55f-4.5f}) *
+                                 NkMat4f::Scale({0.18f,0.18f,0.18f}), H, 0.2f };
 
             if (st->pickPending) {
                 st->pickPending = false;
@@ -689,10 +697,12 @@ namespace nkentseu { namespace demo {
                 NkVec3f rd   = norm3(NkVec3f{ fwd.x + rgt.x*(ndcX*thX) + up2.x*(ndcY*thY),
                                               fwd.y + rgt.y*(ndcX*thX) + up2.y*(ndcY*thY),
                                               fwd.z + rgt.z*(ndcX*thX) + up2.z*(ndcY*thY) });
+                // Centre monde = matrice appliquée à l'origine locale (colonne translation).
                 // Rayon-sphère pour le pick ; on retient l'INDEX de l'objet le plus proche.
                 float32 bestT = 1e30f; int32 bestId = -1;
                 for (int32 i = 0; i < nObj; i++) {
-                    NkVec3f oc = {ro.x-objs[i].c.x, ro.y-objs[i].c.y, ro.z-objs[i].c.z};
+                    NkVec3f c = objs[i].xf * NkVec3f{0.f, 0.f, 0.f};
+                    NkVec3f oc = {ro.x-c.x, ro.y-c.y, ro.z-c.z};
                     float32 b = dot3(oc, rd), cc = dot3(oc,oc) - objs[i].pr*objs[i].pr, disc = b*b - cc;
                     if (disc >= 0.f) { float32 t = -b - sqrtf(disc);
                         if (t > 0.f && t < bestT) { bestT = t; bestId = i; } }
@@ -700,15 +710,15 @@ namespace nkentseu { namespace demo {
                 st->selId = bestId;
                 logger.Info("[Demo3D] Pick : {0}\n", (bestId >= 0) ? "objet selectionne" : "rien");
             }
-            // Surlignage : boîte filaire JAUNE SERRÉE (OBB) qui SUIT position + rotation.
+            // Surlignage : boîte filaire JAUNE SERRÉE (OBB). Chaque coin = matrice de
+            // l'objet appliquée au coin LOCAL (±half) -> position + rotation + échelle
+            // suivies exactement, via la MÊME matrice que le rendu (zéro trig manuel).
             if (st->selId >= 0 && st->selId < nObj) {
-                NkVec3f c = objs[st->selId].c, hh = objs[st->selId].half;
-                float32 cy = cosf(objs[st->selId].yaw), sy = sinf(objs[st->selId].yaw);
+                const NkMat4f& M = objs[st->selId].xf;
+                NkVec3f hh = objs[st->selId].localHalf;
                 NkVec4f Y = {1.f, 0.85f, 0.1f, 1.f};
-                // Coin = centre + Ry(yaw) * (±hx, ±hy, ±hz). Ry ne touche pas Y.
-                auto corner = [&](float32 sx, float32 syn, float32 sz){
-                    float32 ox = sx*hh.x, oy = syn*hh.y, oz = sz*hh.z;
-                    return NkVec3f{ c.x + ox*cy - oz*sy, c.y + oy, c.z + ox*sy + oz*cy };
+                auto corner = [&](float32 sx, float32 sy, float32 sz){
+                    return M * NkVec3f{sx*hh.x, sy*hh.y, sz*hh.z};
                 };
                 NkVec3f c000=corner(-1,-1,-1), c100=corner(+1,-1,-1), c010=corner(-1,+1,-1), c110=corner(+1,+1,-1);
                 NkVec3f c001=corner(-1,-1,+1), c101=corner(+1,-1,+1), c011=corner(-1,+1,+1), c111=corner(+1,+1,+1);
