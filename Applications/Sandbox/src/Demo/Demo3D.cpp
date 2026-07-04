@@ -14,8 +14,11 @@
 #include "NKWindow/Core/NkWESystem.h"   // NkEvents()
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkKeyboardEvent.h"
+#include "NKEvent/NkMouseEvent.h"       // NkMouseWheelVerticalEvent, NkMouseButton
+#include "NKEvent/NkEventDispatcher.h"  // NkInput (IsMouseDown / MouseDeltaX/Y / IsKeyDown)
 #include "NKRenderer/Tools/Shadow/NkShadowSystem.h"
 #include "NKRenderer/Tools/Shadow/NkVirtualShadowMaps.h"
+#include "NKRenderer/Core/NkCameraController.h"  // NkOrbitCameraController3D / NkFlyCameraController3D
 #include "NKImage/NKImage.h"            // Phase H : test ecriture PNG procedural
 #include <cstdio>
 
@@ -37,6 +40,17 @@ namespace nkentseu { namespace demo {
         // presse/relache a la main).
         bool         biasUpHeld   = false;   // ] enfonce
         bool         biasDownHeld = false;   // [ enfonce
+        // ── Caméras réutilisables du moteur (NkCameraController.h) ──
+        // ÉDITEUR (Blender) : orbit = milieu ; pan = Shift+milieu ; zoom = molette.
+        renderer::NkOrbitCameraController3D editorCam;
+        // SIMULATION (jeu/archviz) : fly/FPS (WASD + regard clic-droit).
+        renderer::NkFlyCameraController3D   simCam;
+        bool         useSimCam  = false;           // F = bascule éditeur/simulation
+        float64      wheelAccum = 0.0;             // molette accumulée (callback -> frame)
+        // ── Sélection (ray-pick au clic gauche) ──
+        bool         pickPending = false;          // clic gauche en attente de pick
+        int32        pickX = 0, pickY = 0;         // position écran du clic (pixels)
+        int32        selId    = -1;                // index de l'objet sélectionné (-1 = aucun)
     };
 
     // E.6b : cubemap procedurale 128x128x6 pour point light.
@@ -254,6 +268,39 @@ namespace nkentseu { namespace demo {
         // V     : toggle VSync (utile pour mesurer le vrai FPS GPU)
         auto* shadowSys = ctx.renderer->GetShadow();
         auto* renderer = ctx.renderer;
+        // Molette souris -> zoom caméra (accumulée ici, appliquée dans Demo3D_Frame).
+        NkEvents().AddEventCallback<NkMouseWheelVerticalEvent>([st](NkMouseWheelVerticalEvent* e) {
+            st->wheelAccum += e->GetDeltaY();
+        });
+        // Clic GAUCHE -> demande de sélection (ray-pick, traité dans Demo3D_Frame).
+        NkEvents().AddEventCallback<NkMouseButtonPressEvent>([st](NkMouseButtonPressEvent* e) {
+            if (e->GetButton() == NkMouseButton::NK_MB_LEFT) {
+                st->pickPending = true;
+                st->pickX = e->GetX();
+                st->pickY = e->GetY();
+            }
+        });
+        // F : bascule caméra ÉDITEUR (orbit) <-> SIMULATION (fly).
+        NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent* e) {
+            if (e->GetKey() == NkKey::NK_F) {
+                st->useSimCam = !st->useSimCam;
+                logger.Info("[Demo3D] Camera = {0}\n", st->useSimCam ? "SIMULATION (fly: WASD+clic droit)" : "EDITEUR (orbit: milieu/Shift+milieu/molette)");
+            }
+        });
+        // Pavé numérique 1-6 : vues orthos façon Blender (snap de la caméra éditeur).
+        NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent* e) {
+            auto& c = st->editorCam;
+            const NkVec3f t = c.GetTarget();
+            const float32 d = c.GetDistance();
+            const float32 P = 1.55f;               // ~90° (clamp pitch)
+            const NkKey   k = e->GetKey();
+            if      (k == NkKey::NK_NUMPAD_1) { c.SetCenter(t, d,  1.5708f, 0.f); logger.Info("[Demo3D] Vue FRONT\n"); }
+            else if (k == NkKey::NK_NUMPAD_2) { c.SetCenter(t, d, -1.5708f, 0.f); logger.Info("[Demo3D] Vue BACK\n"); }
+            else if (k == NkKey::NK_NUMPAD_3) { c.SetCenter(t, d,  0.f,     0.f); logger.Info("[Demo3D] Vue RIGHT\n"); }
+            else if (k == NkKey::NK_NUMPAD_4) { c.SetCenter(t, d,  3.1416f, 0.f); logger.Info("[Demo3D] Vue LEFT\n"); }
+            else if (k == NkKey::NK_NUMPAD_5) { c.SetCenter(t, d,  0.f,     P);   logger.Info("[Demo3D] Vue TOP\n"); }
+            else if (k == NkKey::NK_NUMPAD_6) { c.SetCenter(t, d,  0.f,    -P);   logger.Info("[Demo3D] Vue BOTTOM\n"); }
+        });
         NkEvents().AddEventCallback<NkKeyPressEvent>([renderer](NkKeyPressEvent* e) {
             if (e->GetKey() == NkKey::NK_V) {
                 static bool vsync = true;
@@ -275,6 +322,9 @@ namespace nkentseu { namespace demo {
                 if (e->GetKey() == NkKey::NK_NUM1) { g.showMinor = !g.showMinor; logger.Info("[Demo3D] Grille lignes internes = {0}\n", g.showMinor); }
                 if (e->GetKey() == NkKey::NK_NUM2) { g.showMajor = !g.showMajor; logger.Info("[Demo3D] Grille lignes majeures = {0}\n", g.showMajor); }
                 if (e->GetKey() == NkKey::NK_NUM3) { g.showAxes  = !g.showAxes;  logger.Info("[Demo3D] Grille axes = {0}\n", g.showAxes); }
+                // O / L : opacité du PLAN INFINI (remplissage cellColor.a), PAS les lignes.
+                if (e->GetKey() == NkKey::NK_O) { g.cellColor.w = NkMin(1.0f,  g.cellColor.w + 0.05f); logger.Info("[Demo3D] Opacite plan infini = {0}\n", g.cellColor.w); }
+                if (e->GetKey() == NkKey::NK_L) { g.cellColor.w = NkMax(0.0f,  g.cellColor.w - 0.05f); logger.Info("[Demo3D] Opacite plan infini = {0}\n", g.cellColor.w); }
             }
         });
         if (shadowSys) {
@@ -330,14 +380,23 @@ namespace nkentseu { namespace demo {
             g.cellSize   = 1.0f;
             g.majorEvery = 10.0f;
             g.fadeEnd    = 10.0f;   // FACTEUR de portée : rayon net ~ hauteur_cam * 10 (proportionnel)
-            g.planeY     = 0.0f;   // coplanaire au sol (le depth bias du pipeline évite le z-fight)
+            g.planeY     = 0.01f;  // 1 cm au-dessus du sol solide -> grille visible, pas de z-fight
             g.lineColor  = {0.42f, 0.45f, 0.52f, 1.0f};  // gris moyen : bien visible sur fond sombre MAIS sous le seuil du bloom
             g.cellColor  = {0.09f, 0.10f, 0.12f, 0.18f}; // intérieur = PLAN INFINI (.w=opacité ; 0=transparent)
             g.axisXColor = {1.0f, 0.0f, 0.0f, 1.0f};  // X rouge PLEIN
             g.axisZColor = {0.0f, 0.0f, 1.0f, 1.0f};  // Z bleu PLEIN
-            // Les 3 axes (X rouge / Y vert / Z bleu) sont dessinés par le SHADER grille,
-            // même épaisseur (~2px). L'axe Y vertical est projeté à l'écran dans le FS.
+            // Axes du SHADER grille DÉSACTIVÉS : on dessine les 3 axes X/Y/Z en lignes 3D
+            // réelles (DrawDebugLine, cf. Frame). Raison : l'axe Y en projection écran dans
+            // le FS avait des artefacts (quittait l'origine / pas parallèle aux verticales
+            // en perspective). Une vraie ligne 3D est correcte partout (perspective, ancrée,
+            // top/bottom) ET cohérente en épaisseur pour les 3.
+            g.showAxes = false;
         }
+
+        // ── Caméras réutilisables du moteur ──────────────────────────────────
+        // Éditeur (Blender) : orbit autour de (0,0.5,0). Simulation (fly) : recul sur -Z.
+        st->editorCam.SetCenter({0.f, 0.5f, 0.f}, 6.5f, 0.7f, 0.4f);
+        st->simCam.SetPose({0.f, 1.5f, 6.f}, -1.5708f, -0.15f);
 
         logger.Info("[Demo3D] Init OK — meshes : sphere={0} plane={1} cube={2}\n",
                     (uint64)st->meshSphere.id,
@@ -377,16 +436,55 @@ namespace nkentseu { namespace demo {
             return;
         }
 
-        // ── Camera (orbite autour de l'origine) ─────────────────────────────
+        // ── Caméra : ÉDITEUR (orbit/pan/zoom, Blender) ou SIMULATION (fly), via
+        //    les contrôleurs RÉUTILISABLES du moteur. F bascule. NK_FIX_CAM fige.
+        //    Éditeur : orbit=clic MILIEU, pan=Shift+MILIEU, zoom=molette.
+        //    Simulation : regard=clic DROIT, déplacement=WASD + E/Q (Shift=rapide).
         NkCamera3DData camData;
-        camData.position  = {cosf(st->angle) * 5.5f, 2.5f, sinf(st->angle) * 5.5f};
-        camData.target    = {0.f, 0.5f, 0.f};
         camData.up        = {0.f, 1.f, 0.f};
         camData.fovY      = 60.f;
         camData.aspect    = (float32)ctx.width / (float32)ctx.height;
         camData.nearPlane = 0.1f;
         camData.farPlane  = 100.f;
         NkCamera3D cam(camData);
+
+        const float32 wheel = (float32)st->wheelAccum; st->wheelAccum = 0.0;
+        if (!fixcam) {
+            const float32 mdx   = (float32)NkInput.MouseDeltaX();
+            const float32 mdy   = (float32)NkInput.MouseDeltaY();
+            const bool    shift = NkInput.IsKeyDown(NkKey::NK_LSHIFT);
+            if (st->useSimCam) {
+                if (NkInput.IsMouseDown(NkMouseButton::NK_MB_RIGHT)) st->simCam.Look(mdx, -mdy);
+                const float32 spd = (shift ? 12.f : 4.f) * dt;
+                float32 fwd = 0.f, rgt = 0.f, up = 0.f;
+                if (NkInput.IsKeyDown(NkKey::NK_W) || NkInput.IsKeyDown(NkKey::NK_UP))    fwd += spd;
+                if (NkInput.IsKeyDown(NkKey::NK_S) || NkInput.IsKeyDown(NkKey::NK_DOWN))  fwd -= spd;
+                if (NkInput.IsKeyDown(NkKey::NK_D) || NkInput.IsKeyDown(NkKey::NK_RIGHT)) rgt += spd;
+                if (NkInput.IsKeyDown(NkKey::NK_A) || NkInput.IsKeyDown(NkKey::NK_LEFT))  rgt -= spd;
+                if (NkInput.IsKeyDown(NkKey::NK_E)) up += spd;
+                if (NkInput.IsKeyDown(NkKey::NK_Q)) up -= spd;
+                st->simCam.Move(fwd, rgt, up);
+                if (wheel != 0.f) st->simCam.Move(wheel * 0.6f, 0.f, 0.f);  // molette = avancer
+                st->simCam.Apply(cam);
+            } else {
+                if (NkInput.IsMouseDown(NkMouseButton::NK_MB_MIDDLE)) {
+                    if (shift) st->editorCam.Pan(mdx, mdy);
+                    else       st->editorCam.Rotate(mdx, mdy);
+                }
+                if (wheel != 0.f) st->editorCam.Zoom(wheel);
+                // Déplacement du pivot au clavier : WASD + flèches (Shift = rapide).
+                const float32 mv = (shift ? 10.f : 4.f) * dt;
+                float32 sx = 0.f, sz = 0.f;
+                if (NkInput.IsKeyDown(NkKey::NK_W) || NkInput.IsKeyDown(NkKey::NK_UP))    sz += mv;
+                if (NkInput.IsKeyDown(NkKey::NK_S) || NkInput.IsKeyDown(NkKey::NK_DOWN))  sz -= mv;
+                if (NkInput.IsKeyDown(NkKey::NK_D) || NkInput.IsKeyDown(NkKey::NK_RIGHT)) sx -= mv; // droite = pan vers la droite
+                if (NkInput.IsKeyDown(NkKey::NK_A) || NkInput.IsKeyDown(NkKey::NK_LEFT))  sx += mv; // gauche = pan vers la gauche
+                if (sx != 0.f || sz != 0.f) st->editorCam.MoveCameraRelative(sx, 0.f, sz);
+                st->editorCam.Apply(cam);
+            }
+        } else {
+            st->editorCam.Apply(cam);   // NK_FIX_CAM : pose figée déterministe
+        }
 
         // ── Lights ───────────────────────────────────────────────────────────
         NkSceneContext sctx;
@@ -459,12 +557,12 @@ namespace nkentseu { namespace demo {
         // NB : sans sol, pas de récepteur d'ombres au sol dans cette démo (les casters
         // castent quand même dans l'atlas). Pour ré-afficher les ombres au sol, remettre
         // un sol ET décaler la grille (planeY) ou la rendre en depth-bias constant.
-        if (false) {
+        if (true) {
             NkDrawCall3D dc;
             dc.mesh      = st->meshPlane;
-            dc.transform = NkMat4f::Scale({10.f, 1.f, 10.f});
-            dc.aabb      = {{-5, 0, -5}, {5, 0, 5}};
-            dc.castShadow= false;
+            dc.transform = NkMat4f::Scale({40.f, 1.f, 40.f});   // sol AGRANDI (80x80)
+            dc.aabb      = {{-40, 0, -40}, {40, 0, 40}};
+            dc.castShadow= false;                                // reçoit les ombres (pas caster)
             dc.tint      = {0.12f, 0.12f, 0.13f};
             dc.metallic  = 0.f;
             dc.roughness = 0.92f;
@@ -517,13 +615,16 @@ namespace nkentseu { namespace demo {
         }
 
         // ── Cube central rotatif : metal or poli (gold metallic, low rough) ──
+        // Transform calculé UNE fois -> SOURCE UNIQUE partagée par le draw call ET le
+        // marqueur de sélection (plus bas). Le marqueur applique cette même matrice à ses
+        // coins -> il suit position + rotation + échelle SANS recalcul ni duplication.
+        NkMat4f cubeXform = NkMat4f::Translate({0, 0.5f + sinf(ctx.totalTime * 1.5f) * 0.2f, 0}) *
+                            NkMat4f::RotationY(NkAngle::FromRad(ctx.totalTime * 0.8f)) *
+                            NkMat4f::Scale({0.6f, 0.6f, 0.6f});
         {
             NkDrawCall3D dc;
             dc.mesh = st->meshCube;
-            float32 y = 0.5f + sinf(ctx.totalTime * 1.5f) * 0.2f;
-            dc.transform = NkMat4f::Translate({0, y, 0}) *
-                           NkMat4f::RotationY(NkAngle::FromRad(ctx.totalTime * 0.8f)) *
-                           NkMat4f::Scale({0.6f, 0.6f, 0.6f});
+            dc.transform = cubeXform;
             dc.aabb = {{-0.35f, 0.1f, -0.35f}, {0.35f, 0.9f, 0.35f}};
             dc.tint      = {1.f, 0.8f, 0.3f};   // gold albedo
             dc.metallic  = 1.f;
@@ -554,12 +655,93 @@ namespace nkentseu { namespace demo {
             r3d->Submit(dc);
         }
 
-        // Debug visualizations
-        // Axes : la grille infinie dessine déjà X (rouge) et Z (bleu) sur le sol (lignes
-        // infinies). On ajoute UNIQUEMENT l'axe Y VERT vertical (hors plan) -> pas de
-        // doublon (avant, DrawDebugAxes redessinait X/Z par-dessus ceux de la grille).
-        // (Les 3 axes X/Y/Z sont dessinés par le SHADER grille — cf. infinitegrid.frag.nksl.)
-        // (DrawDebugGrid finie retirée -> remplacée par la grille infinie, cf. Init.)
+        // ── Sélection : ray-pick au clic gauche ─────────────────────────────────
+        // On (re)construit la liste des objets AVEC LEUR POSITION VIVANTE chaque frame
+        // (le cube central oscille en Y) -> le marqueur de sélection SUIT l'objet, car
+        // il est retracé depuis l'entrée courante (identifiée par son index selId), pas
+        // depuis une position figée au moment du clic.
+        {
+            auto dot3   = [](NkVec3f a, NkVec3f b){ return a.x*b.x + a.y*b.y + a.z*b.z; };
+            auto cross3 = [](NkVec3f a, NkVec3f b){ return NkVec3f{a.y*b.z-a.z*b.y, a.z*b.x-a.x*b.z, a.x*b.y-a.y*b.x}; };
+            auto norm3  = [&](NkVec3f v){ float32 l = sqrtf(dot3(v,v)); return (l>1e-6f) ? NkVec3f{v.x/l,v.y/l,v.z/l} : v; };
+
+            // Table des objets sélectionnables : on stocke la MATRICE DE TRANSFORM de
+            // l'objet (= sa source de vérité position+rotation+échelle) + le demi-extent
+            // du MESH en espace modèle (toutes les primitives de base font ±0.5). Le
+            // marqueur applique cette matrice à ses coins -> il suit tout automatiquement,
+            // sans dupliquer la moindre formule (le cube partage cubeXform avec son draw).
+            struct PickObj { NkMat4f xf; NkVec3f localHalf; float32 pr; };
+            const NkVec3f H = {0.5f, 0.5f, 0.5f};      // demi-extent modèle commun
+            PickObj objs[16 + 1 + 2 + 64];
+            int32   nObj = 0;
+            for (int row=0; row<4; row++) for (int col=0; col<4; col++)     // 16 sphères
+                objs[nObj++] = { NkMat4f::Translate({(col-1.5f)*1.2f, 0.5f, (row-1.5f)*1.2f}) *
+                                 NkMat4f::Scale({0.45f,0.45f,0.45f}), H, 0.35f };
+            objs[nObj++] = { cubeXform, H, 0.45f };                          // cube central (source unique)
+            objs[nObj++] = { NkMat4f::Translate({-4.f,1.f,-2.f}) * NkMat4f::Scale({0.3f,2.f,0.3f}), H, 1.3f }; // colonne 0
+            objs[nObj++] = { NkMat4f::Translate({ 1.f,1.f, 4.f}) * NkMat4f::Scale({0.3f,2.f,0.3f}), H, 1.3f }; // colonne 1
+            for (int gz=0; gz<8; gz++) for (int gx=0; gx<8; gx++)           // 64 cubes INSTANCIÉS
+                objs[nObj++] = { NkMat4f::Translate({(gx-3.5f)*0.55f, 1.6f, (gz-3.5f)*0.55f-4.5f}) *
+                                 NkMat4f::Scale({0.18f,0.18f,0.18f}), H, 0.2f };
+
+            if (st->pickPending) {
+                st->pickPending = false;
+                NkVec3f ro  = cam.GetPosition();
+                NkVec3f fwd = norm3(NkVec3f{cam.GetTarget().x-ro.x, cam.GetTarget().y-ro.y, cam.GetTarget().z-ro.z});
+                NkVec3f rgt = norm3(cross3(fwd, NkVec3f{0.f,1.f,0.f}));
+                NkVec3f up2 = cross3(rgt, fwd);
+                float32 ndcX = 2.f * (float32)st->pickX / (float32)ctx.width  - 1.f;
+                float32 ndcY = 1.f - 2.f * (float32)st->pickY / (float32)ctx.height;
+                float32 thY  = tanf((60.f * 0.5f) * 3.14159265f / 180.f);
+                float32 thX  = thY * (float32)ctx.width / (float32)ctx.height;
+                NkVec3f rd   = norm3(NkVec3f{ fwd.x + rgt.x*(ndcX*thX) + up2.x*(ndcY*thY),
+                                              fwd.y + rgt.y*(ndcX*thX) + up2.y*(ndcY*thY),
+                                              fwd.z + rgt.z*(ndcX*thX) + up2.z*(ndcY*thY) });
+                // Centre monde = matrice appliquée à l'origine locale (colonne translation).
+                // Rayon-sphère pour le pick ; on retient l'INDEX de l'objet le plus proche.
+                float32 bestT = 1e30f; int32 bestId = -1;
+                for (int32 i = 0; i < nObj; i++) {
+                    NkVec3f c = objs[i].xf * NkVec3f{0.f, 0.f, 0.f};
+                    NkVec3f oc = {ro.x-c.x, ro.y-c.y, ro.z-c.z};
+                    float32 b = dot3(oc, rd), cc = dot3(oc,oc) - objs[i].pr*objs[i].pr, disc = b*b - cc;
+                    if (disc >= 0.f) { float32 t = -b - sqrtf(disc);
+                        if (t > 0.f && t < bestT) { bestT = t; bestId = i; } }
+                }
+                st->selId = bestId;
+                logger.Info("[Demo3D] Pick : {0}\n", (bestId >= 0) ? "objet selectionne" : "rien");
+            }
+            // Surlignage : boîte filaire JAUNE SERRÉE (OBB). Chaque coin = matrice de
+            // l'objet appliquée au coin LOCAL (±half) -> position + rotation + échelle
+            // suivies exactement, via la MÊME matrice que le rendu (zéro trig manuel).
+            if (st->selId >= 0 && st->selId < nObj) {
+                const NkMat4f& M = objs[st->selId].xf;
+                NkVec3f hh = objs[st->selId].localHalf;
+                NkVec4f Y = {1.f, 0.85f, 0.1f, 1.f};
+                auto corner = [&](float32 sx, float32 sy, float32 sz){
+                    return M * NkVec3f{sx*hh.x, sy*hh.y, sz*hh.z};
+                };
+                NkVec3f c000=corner(-1,-1,-1), c100=corner(+1,-1,-1), c010=corner(-1,+1,-1), c110=corner(+1,+1,-1);
+                NkVec3f c001=corner(-1,-1,+1), c101=corner(+1,-1,+1), c011=corner(-1,+1,+1), c111=corner(+1,+1,+1);
+                r3d->DrawDebugLine(c000,c100,Y); r3d->DrawDebugLine(c010,c110,Y);
+                r3d->DrawDebugLine(c001,c101,Y); r3d->DrawDebugLine(c011,c111,Y);
+                r3d->DrawDebugLine(c000,c010,Y); r3d->DrawDebugLine(c100,c110,Y);
+                r3d->DrawDebugLine(c001,c011,Y); r3d->DrawDebugLine(c101,c111,Y);
+                r3d->DrawDebugLine(c000,c001,Y); r3d->DrawDebugLine(c100,c101,Y);
+                r3d->DrawDebugLine(c010,c011,Y); r3d->DrawDebugLine(c110,c111,Y);
+            }
+        }
+
+        // ── Axes X/Y/Z en LIGNES 3D réelles (DrawDebugLine) : correct partout ───
+        // (perspective, ancrés à l'origine, parallèles aux objets verticaux, top/bottom OK).
+        // Remplace les axes du SHADER grille (désactivés via g.showAxes=false à l'Init) qui
+        // avaient des artefacts de projection sur l'axe Y. Étendus loin -> effet "infini".
+        {
+            const float32 A = 1000.f;
+            const float32 h = 0.02f;   // légèrement au-dessus du sol/grille -> pas de z-fight (pointillés)
+            r3d->DrawDebugLine({-A, h, 0.f}, {A, h, 0.f}, {1.f, 0.f, 0.f, 1.f}); // X rouge
+            r3d->DrawDebugLine({0.f, -A, 0.f}, {0.f, A, 0.f}, {0.f, 1.f, 0.f, 1.f}); // Y vert
+            r3d->DrawDebugLine({0.f, h, -A}, {0.f, h, A}, {0.f, 0.f, 1.f, 1.f}); // Z bleu
+        }
 
         // ── Overlay ──────────────────────────────────────────────────────────
         if (auto* overlay = ctx.renderer->GetOverlay()) {

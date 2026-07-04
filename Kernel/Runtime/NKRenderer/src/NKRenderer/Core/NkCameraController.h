@@ -196,5 +196,87 @@ namespace nkentseu {
                 float32 mMaxDistance    = 200.f;
         };
 
+        // =====================================================================
+        // NkFlyCameraController3D
+        //
+        // Caméra LIBRE (fly / FPS) pour jeu / simulation / archviz. Position +
+        // yaw/pitch. Look() tourne le regard, Move() translate dans le repère
+        // local (avant / droite / haut). Apply() écrit position + target
+        // (= position + direction du regard). Indépendant de l'input comme l'orbit.
+        //
+        // Usage :
+        //   NkFlyCameraController3D fly;
+        //   fly.SetPose({0,1.5f,6.f}, -1.57f, 0.f);
+        //   if (rightDrag) fly.Look(dx, dy);
+        //   fly.Move(fwd*spd*dt, right*spd*dt, up*spd*dt);   // WASD/EQ
+        //   fly.Apply(myCam);
+        // =====================================================================
+        class NkFlyCameraController3D {
+            public:
+                void SetPose(NkVec3f position, float32 yaw, float32 pitch) {
+                    mPos = position; mYaw = yaw; mPitch = pitch;
+                }
+                // Regard : dx/dy en pixels souris. Clamp pitch (±89°) anti gimbal-lock.
+                void Look(float32 dx, float32 dy) {
+                    mYaw   += dx * mLookSpeed;
+                    mPitch += dy * mLookSpeed;
+                    ClampPitch();
+                }
+                // Déplacement local : forward/right/up en unités monde (l'appelant
+                // multiplie par vitesse*dt). Si mFlyVertical=false, l'avant reste
+                // horizontal (FPS au sol) ; sinon il suit le pitch (vol libre).
+                void Move(float32 forward, float32 right, float32 up) {
+                    NkVec3f f = ForwardDir();
+                    NkVec3f fMove = f;
+                    if (!mFlyVertical) { fMove.y = 0.f; }
+                    const float32 l = Length(fMove);
+                    if (l > 1e-6f) fMove = fMove * (1.f / l);
+                    NkVec3f r = RightDir(f);
+                    mPos = mPos + fMove * forward + r * right + NkVec3f{0.f, up, 0.f};
+                }
+                void MoveWorld(NkVec3f delta) { mPos = mPos + delta; }
+
+                void Apply(NkCamera3D& cam) const {
+                    cam.SetPosition(mPos);
+                    cam.SetTarget(mPos + ForwardDir());
+                }
+                NkVec3f GetPosition() const { return mPos; }
+                NkVec3f GetForward()  const { return ForwardDir(); }
+                float32 GetYaw()   const { return mYaw;   }
+                float32 GetPitch() const { return mPitch; }
+
+                void SetLookSpeed(float32 v)  { mLookSpeed = v; }
+                void SetFlyVertical(bool on)  { mFlyVertical = on; }
+
+            private:
+                void ClampPitch() {
+                    const float32 kLimit = 1.553f; // ~89°
+                    if (mPitch >  kLimit) mPitch =  kLimit;
+                    if (mPitch < -kLimit) mPitch = -kLimit;
+                }
+                NkVec3f ForwardDir() const {
+                    const float32 cp = cosf(mPitch);
+                    return { cp * cosf(mYaw), sinf(mPitch), cp * sinf(mYaw) };
+                }
+                NkVec3f RightDir(NkVec3f f) const {
+                    NkVec3f up = {0,1,0};
+                    NkVec3f r  = { f.z*up.y - f.y*up.z,
+                                   f.x*up.z - f.z*up.x,
+                                   f.y*up.x - f.x*up.y };
+                    const float32 len = Length(r);
+                    if (len > 1e-6f) r = r * (1.f / len);
+                    return r;
+                }
+                static float32 Length(NkVec3f v) {
+                    return sqrtf(v.x*v.x + v.y*v.y + v.z*v.z);
+                }
+
+                NkVec3f mPos        = {0.f, 1.5f, 6.f};
+                float32 mYaw        = -1.5708f;  // regard vers -Z
+                float32 mPitch      = 0.f;
+                float32 mLookSpeed  = 0.004f;    // radians par pixel
+                bool    mFlyVertical= true;      // true = vol libre ; false = FPS au sol
+        };
+
     } // namespace renderer
 } // namespace nkentseu
