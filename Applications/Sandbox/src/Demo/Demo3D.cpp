@@ -50,22 +50,25 @@ namespace nkentseu { namespace demo {
         // ── Sélection (ray-pick au clic gauche) ──
         bool         pickPending = false;          // clic gauche en attente de pick
         int32        pickX = 0, pickY = 0;         // position écran du clic (pixels)
-        int32        selId    = -1;                // index de l'objet sélectionné (-1 = aucun)
-        // ── Gizmo de transformation (façon Blender) sur l'objet sélectionné ──
+        int32        selId    = -1;                // objet ACTIF (dernier cliqué ; -1 = aucun)
+        // ── Gizmo de transformation (façon Blender) ──
         // Décalage UTILISATEUR mutable par objet (indexé comme la table de pick :
         // 16 sphères, 1 cube, 2 colonnes, 64 instanciés = 83). Appliqué au draw ET
         // au pick via un helper unique -> le gizmo modifie l'objet réellement.
         static const int32 kNumObj = 16 + 1 + 2 + 64;
-        NkVec3f      objTranslate[kNumObj] = {};   // décalage translation monde (X/Y/Z)
-        NkVec3f      objRot[kNumObj]       = {};   // rotation utilisateur par axe (rad)
+        bool         objSel[kNumObj]       = {};   // SÉLECTION MULTIPLE (flags par objet)
+        NkVec3f      objTranslate[kNumObj] = {};   // décalage translation monde
+        NkMat4f      objRotM[kNumObj];             // rotation utilisateur (MATRICE, init identité)
         NkVec3f      objScale[kNumObj]     = {};   // delta échelle par axe (échelle = 1 + delta)
         int32        gizmoMode    = 0;             // 0=translate 1=rotate 2=scale 3=COMBINÉ (TAB)
+        int32        gizmoOrient  = 0;             // 0=GLOBAL 1=LOCAL 2=NORMAL (touche N)
         bool         gizmoDragging= false;         // drag d'une poignée en cours
         // Poignée active (pendant le drag) : opération, masque d'axes (bit0=X,1=Y,2=Z),
-        // type (0=axe 1=plan 2=centre/uniforme 3=anneau-axe 4=anneau-écran).
+        // type (0=axe 1=plan 2=centre/uniforme 3=anneau-axe).
         int32        gizmoOp      = 0;
         int32        gizmoMask    = 0;
         int32        gizmoKind    = 0;
+        float32      gizmoLastAngle = 0.f;         // angle écran précédent (rotation cohérente)
     };
 
     // E.6b : cubemap procedurale 128x128x6 pour point light.
@@ -219,6 +222,8 @@ namespace nkentseu { namespace demo {
         st->meshSphere = meshSys->GetSphere();
         st->meshPlane  = meshSys->GetPlane();
         st->meshCube   = meshSys->GetCube();
+        // Rotation utilisateur = identité au départ (NkMat4f() défaut = matrice NULLE).
+        for (int32 i = 0; i < Demo3DState::kNumObj; i++) st->objRotM[i] = NkMat4f::Identity();
 
         // ── Phase E.6 : creation procedurale des cookies + bind ──────────────
         auto* texLib = ctx.renderer->GetTextures();
@@ -351,11 +356,18 @@ namespace nkentseu { namespace demo {
                 const char* n[4] = {"TRANSLATE", "ROTATE", "SCALE", "COMBINE (T+R+S)"};
                 logger.Info("[Demo3D] Gizmo mode = {0}\n", n[st->gizmoMode]);
             }
-            if ((k == NkKey::NK_DELETE || k == NkKey::NK_BACK) && st->selId >= 0 && st->selId < Demo3DState::kNumObj) {
-                st->objTranslate[st->selId] = {0.f,0.f,0.f};
-                st->objRot[st->selId]       = {0.f,0.f,0.f};
-                st->objScale[st->selId]     = {0.f,0.f,0.f};
-                logger.Info("[Demo3D] Transform objet {0} reset\n", st->selId);
+            if (k == NkKey::NK_N) {   // orientation du gizmo : GLOBAL -> LOCAL -> NORMAL
+                st->gizmoOrient = (st->gizmoOrient + 1) % 3;
+                const char* o[3] = {"GLOBAL", "LOCAL", "NORMAL"};
+                logger.Info("[Demo3D] Gizmo orientation = {0}\n", o[st->gizmoOrient]);
+            }
+            if (k == NkKey::NK_DELETE || k == NkKey::NK_BACK) {   // reset des objets SÉLECTIONNÉS
+                for (int32 i=0;i<Demo3DState::kNumObj;i++) if (st->objSel[i]) {
+                    st->objTranslate[i] = {0.f,0.f,0.f};
+                    st->objRotM[i]      = NkMat4f::Identity();
+                    st->objScale[i]     = {0.f,0.f,0.f};
+                }
+                logger.Info("[Demo3D] Transform des objets selectionnes reset\n");
             }
         });
         if (shadowSys) {
@@ -587,16 +599,11 @@ namespace nkentseu { namespace demo {
         // ce que le gizmo modifie bouge vraiment, et la sélection suit.
         auto userXform = [st](int32 idx, const NkMat4f& base) -> NkMat4f {
             const NkVec3f t = st->objTranslate[idx];
-            const NkVec3f r = st->objRot[idx];
             const NkVec3f s = st->objScale[idx];
-            const bool identity = (t.x==0.f&&t.y==0.f&&t.z==0.f && r.x==0.f&&r.y==0.f&&r.z==0.f
-                                   && s.x==0.f&&s.y==0.f&&s.z==0.f);
-            if (identity) return base;
             const NkVec3f c = base * NkVec3f{0.f, 0.f, 0.f};          // centre monde de l'objet
+            // Rotation (matrice) + échelle appliquées AUTOUR du centre, puis translation monde.
             NkMat4f about = NkMat4f::Translate(c)
-                          * NkMat4f::RotationZ(NkAngle::FromRad(r.z))
-                          * NkMat4f::RotationY(NkAngle::FromRad(r.y))
-                          * NkMat4f::RotationX(NkAngle::FromRad(r.x))
+                          * st->objRotM[idx]
                           * NkMat4f::Scale({1.f+s.x, 1.f+s.y, 1.f+s.z})
                           * NkMat4f::Translate({-c.x, -c.y, -c.z});
             return NkMat4f::Translate(t) * about * base;
@@ -763,44 +770,58 @@ namespace nkentseu { namespace demo {
                 t = t<0.f?0.f:(t>1.f?1.f:t);
                 float32 cx=ax+t*dx, cy=ay+t*dy; return sqrtf((px-cx)*(px-cx)+(py-cy)*(py-cy));
             };
-            const NkVec3f AX[3]   = {{1,0,0},{0,1,0},{0,0,1}};
-            const NkVec4f ACOL[3] = {{0.90f,0.22f,0.22f,1.f},   // X rouge
-                                     {0.45f,0.80f,0.20f,1.f},   // Y vert
-                                     {0.22f,0.45f,0.95f,1.f}};  // Z bleu
-            const NkVec4f AHOT    = {1.f,0.85f,0.1f,1.f};       // axe actif (jaune)
+            const NkVec3f WX[3]   = {{1,0,0},{0,1,0},{0,0,1}};  // axes MONDE (global)
+            const NkVec4f ACOL[3] = {{1.00f,0.15f,0.20f,1.f},   // X rouge VIF
+                                     {0.35f,0.95f,0.10f,1.f},   // Y vert VIF
+                                     {0.15f,0.45f,1.00f,1.f}};  // Z bleu VIF
+            const NkVec4f AHOT    = {1.f,0.92f,0.15f,1.f};      // poignée active (jaune vif)
+            const NkVec4f AWHITE  = {0.95f,0.95f,0.95f,1.f};    // poignée uniforme/écran
             auto addComp = [](NkVec3f& v, int32 a, float32 x){ if(a==0)v.x+=x; else if(a==1)v.y+=x; else v.z+=x; };
+            auto ctr     = [&](int32 i){ return objs[i].xf * NkVec3f{0.f,0.f,0.f}; };  // centre monde objet i
 
-            // Centre + taille écran-constante du gizmo pour l'objet sélectionné courant.
-            auto gizmoCL = [&](int32 sel, NkVec3f& C, float32& L) {
-                C = objs[sel].xf * NkVec3f{0.f,0.f,0.f};
-                float32 d = sqrtf((C.x-camPos.x)*(C.x-camPos.x)+(C.y-camPos.y)*(C.y-camPos.y)+(C.z-camPos.z)*(C.z-camPos.z));
-                L = NkMax(0.35f, 0.14f * d);
-            };
+            // ── SÉLECTION MULTIPLE : liste + pivot (barycentre des centres) ──
+            int32 selCount=0; NkVec3f pivot={0.f,0.f,0.f};
+            for (int32 i=0;i<nObj;i++) if (st->objSel[i]) { selCount++; NkVec3f c=ctr(i); pivot=pivot+c; }
+            if (selCount>0) pivot = pivot * (1.f/(float32)selCount);
+            const bool haveSel = (selCount>0);
+            // Taille écran-constante du gizmo au pivot.
+            const float32 pivDist = sqrtf((pivot.x-camPos.x)*(pivot.x-camPos.x)+(pivot.y-camPos.y)*(pivot.y-camPos.y)+(pivot.z-camPos.z)*(pivot.z-camPos.z));
+            const float32 GL = NkMax(0.35f, 0.14f * pivDist);
+
+            // ── ORIENTATION (base GB) : GLOBAL=monde ; LOCAL/NORMAL=repère de l'objet ACTIF ──
+            NkVec3f GB[3] = { WX[0], WX[1], WX[2] };
+            if (st->gizmoOrient != 0 && st->selId>=0 && st->selId<nObj) {
+                const NkMat4f& M = objs[st->selId].xf; NkVec3f o=M*NkVec3f{0.f,0.f,0.f};
+                GB[0]=norm3((M*NkVec3f{1.f,0.f,0.f})-o); GB[1]=norm3((M*NkVec3f{0.f,1.f,0.f})-o); GB[2]=norm3((M*NkVec3f{0.f,0.f,1.f})-o);
+            }
+            // OVERLAY : tire le point VERS la caméra le long de son rayon. La position ET la
+            // taille ÉCRAN sont inchangées (chaque point reste sur son rayon), mais toute la
+            // géométrie passe à ~65% de la distance -> devant l'objet sélectionné malgré le
+            // depth-test des debug-lines. Facteur élevé = tout le gizmo (même les parties
+            // pointant vers l'arrière) est garanti au-dessus.
+            auto overlayPt = [&](NkVec3f P){ return P + (camPos - P)*0.35f; };
 
             // ═══ GIZMO à POIGNÉES (façon Blender) ═══════════════════════════════════
-            // Chaque poignée = { op (0=T 1=R 2=S), mask (bits X/Y/Z), kind } :
-            //   kind 0=axe (1 axe), 1=plan (2 axes), 2=centre (uniforme/écran),
-            //        3=anneau-axe (rotate 1 axe), 4=anneau-écran (rotate libre/trackball).
-            // Le mode COMBINÉ (3) empile translate + rotate + scale simultanément.
-            struct GH { int32 op, mask, kind; };
+            struct GH { int32 op, mask, kind; };  // op:0=T 1=R 2=S ; kind:0=axe 1=plan 2=centre 3=anneau
             GH hs[32]; int32 nh = 0;
             auto add = [&](int32 op,int32 mask,int32 kind){ hs[nh++] = {op,mask,kind}; };
             const int32 mode = st->gizmoMode;
             const bool cT=(mode==0||mode==3), cR=(mode==1||mode==3), cS=(mode==2||mode==3);
             if (cT){ add(0,1,0);add(0,2,0);add(0,4,0); add(0,3,1);add(0,6,1);add(0,5,1); add(0,7,2); }
-            if (cR){ add(1,1,3);add(1,2,3);add(1,4,3); add(1,7,4); }
+            if (cR){ add(1,1,3);add(1,2,3);add(1,4,3); }   // 3 anneaux d'axe (comme les références)
             if (cS){ add(2,1,0);add(2,2,0);add(2,4,0); add(2,3,1);add(2,6,1);add(2,5,1); add(2,7,2); }
             const bool combine = (mode==3);
 
             auto axisOf   = [](int32 m){ return (m&1)?0:(m&2)?1:2; };
             auto planeAx  = [](int32 m, int32& i, int32& j){ int32 f=-1; i=0;j=0; for(int32 k=0;k<3;k++) if(m&(1<<k)){ if(f<0){i=k;f=k;} else j=k; } };
+            auto gizmoCenterR = [](int32 op, float32 L){ return (op==2)?0.16f*L:0.13f*L; }; // rayon poignée centrale
 
-            // Énumère les segments monde d'une poignée (hit-test ET dessin partagent
-            // exactement la même géométrie). L = taille écran-constante déjà calculée.
+            // Segments monde d'une poignée (hit-test ET dessin partagent la même géométrie).
+            // Repère = GB (orientation courante). C = pivot. L = GL.
             auto forEachSeg = [&](const GH& h, NkVec3f C, float32 L, auto cb) {
                 const float32 Lt=L, Ls=combine?0.55f*L:L, Lr=combine?0.90f*L:L;
                 if (h.kind==0) {                                   // axe : tige + flèche (T) ou cube (S)
-                    int32 a=axisOf(h.mask); NkVec3f dir=AX[a], u=AX[(a+1)%3], w=AX[(a+2)%3];
+                    int32 a=axisOf(h.mask); NkVec3f dir=GB[a], u=GB[(a+1)%3], w=GB[(a+2)%3];
                     float32 len=(h.op==0)?Lt:Ls; NkVec3f E=C+dir*len; cb(C,E);
                     if (h.op==0) {                                 // pointe conique (flèche)
                         float32 hl=0.20f*L, hw=0.07f*L; NkVec3f b=E-dir*hl;
@@ -813,50 +834,71 @@ namespace nkentseu { namespace demo {
                         for(int32 j=0;j<12;j++) cb(cc[ed[j][0]], cc[ed[j][1]]);
                     }
                 } else if (h.kind==1) {                            // plan : carré dans le plan des 2 axes
-                    int32 i,j; planeAx(h.mask,i,j); NkVec3f di=AX[i], dj=AX[j];
+                    int32 i,j; planeAx(h.mask,i,j); NkVec3f di=GB[i], dj=GB[j];
                     float32 a0=(h.op==0)?0.22f*L:0.32f*L, b0=(h.op==0)?0.45f*L:0.58f*L;
                     NkVec3f p00=C+di*a0+dj*a0, p10=C+di*b0+dj*a0, p11=C+di*b0+dj*b0, p01=C+di*a0+dj*b0;
                     cb(p00,p10);cb(p10,p11);cb(p11,p01);cb(p01,p00);
-                } else if (h.kind==2) {                            // centre : carré face caméra (uniforme/écran)
-                    float32 s=(h.op==2)?0.13f*L:0.10f*L;
-                    NkVec3f p0=C+rgt*s+up2*s, p1=C-rgt*s+up2*s, p2=C-rgt*s-up2*s, p3=C+rgt*s-up2*s;
-                    cb(p0,p1);cb(p1,p2);cb(p2,p3);cb(p3,p0);
-                } else if (h.kind==3) {                            // anneau autour d'un axe
-                    int32 a=axisOf(h.mask); NkVec3f u=AX[(a+1)%3], w=AX[(a+2)%3]; NkVec3f prev{};
+                } else if (h.kind==2) {                            // centre : ANNEAU face caméra (uniforme/écran)
+                    float32 rU=gizmoCenterR(h.op, L); NkVec3f prev{};
+                    for(int32 k=0;k<=28;k++){ float32 t=(float32)k/28.f*6.2831853f; NkVec3f P=C+(rgt*cosf(t)+up2*sinf(t))*rU; if(k>0) cb(prev,P); prev=P; }
+                } else {                                           // anneau autour d'un axe (rotate)
+                    int32 a=axisOf(h.mask); NkVec3f u=GB[(a+1)%3], w=GB[(a+2)%3]; NkVec3f prev{};
                     for(int32 k=0;k<=48;k++){ float32 t=(float32)k/48.f*6.2831853f; NkVec3f P=C+(u*cosf(t)+w*sinf(t))*Lr; if(k>0) cb(prev,P); prev=P; }
-                } else {                                           // anneau écran (trackball)
-                    float32 rr=1.22f*L; NkVec3f prev{};
-                    for(int32 k=0;k<=48;k++){ float32 t=(float32)k/48.f*6.2831853f; NkVec3f P=C+(rgt*cosf(t)+up2*sinf(t))*rr; if(k>0) cb(prev,P); prev=P; }
                 }
             };
             auto handleColor = [&](const GH& h) -> NkVec4f {
                 if (st->gizmoDragging && st->gizmoOp==h.op && st->gizmoMask==h.mask && st->gizmoKind==h.kind) return AHOT;
-                if (h.kind==2 || h.kind==4) return NkVec4f{0.85f,0.85f,0.85f,1.f};      // blanc (uniforme/écran)
+                if (h.kind==2) return AWHITE;                                             // uniforme/écran
                 if (h.kind==1) { int32 nrm=(h.mask==3)?2:(h.mask==6)?0:1; return ACOL[nrm]; } // plan = couleur axe normal
                 return ACOL[axisOf(h.mask)];
             };
+            // Ligne ÉPAISSE + OVERLAY : `tPx` copies décalées perpendiculairement (plan écran)
+            // -> épaisseur ~constante ; points tirés vers la caméra -> toujours au-dessus.
+            auto thickLine = [&](NkVec3f A0, NkVec3f B0, NkVec4f col, int32 tPx) {
+                NkVec3f A=overlayPt(A0), B=overlayPt(B0);
+                float32 ax,ay,bx,by; bool oa=project(A,ax,ay), ob=project(B,bx,by);
+                NkVec3f mid={ (A.x+B.x)*0.5f,(A.y+B.y)*0.5f,(A.z+B.z)*0.5f };
+                float32 dist=sqrtf((mid.x-camPos.x)*(mid.x-camPos.x)+(mid.y-camPos.y)*(mid.y-camPos.y)+(mid.z-camPos.z)*(mid.z-camPos.z));
+                float32 wpp=(2.f*thY*dist)/vpH;
+                NkVec3f perp = rgt;
+                if (oa && ob) { float32 sdx=bx-ax, sdy=by-ay, sl=sqrtf(sdx*sdx+sdy*sdy);
+                    if (sl>1e-3f){ float32 pxn=-sdy/sl, pyn=sdx/sl; perp = rgt*pxn - up2*pyn; } }
+                if (tPx<1) tPx=1;
+                for (int32 i=0;i<tPx;i++){ float32 off=((float32)i-(tPx-1)*0.5f)*wpp; NkVec3f o=perp*off; r3d->DrawDebugLine(A+o,B+o,col); }
+            };
 
-            // ── Interaction : clic gauche -> saisir une poignée, sinon pick objet ──
+            // ── Interaction : clic gauche -> saisir une poignée, sinon (dé)sélectionner ──
             if (st->pickPending) {
                 st->pickPending = false;
+                const bool shiftSel = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
                 int32 hit = -1;
-                if (st->selId >= 0 && st->selId < nObj) {
-                    NkVec3f C; float32 L; gizmoCL(st->selId, C, L);
+                if (haveSel) {                                   // tester les poignées gizmo (au pivot)
                     const float32 cur=(float32)st->pickX, curY=(float32)st->pickY;
+                    float32 cpx,cpy; bool cok=project(pivot,cpx,cpy);
+                    float32 pxPerW = vpH/(2.f*thY*NkMax(pivDist,1e-3f));
                     float32 best = 13.f;
                     for (int32 hi=0; hi<nh; hi++) {
                         float32 d = 1e30f;
-                        forEachSeg(hs[hi], C, L, [&](NkVec3f P0, NkVec3f P1){
-                            float32 ax,ay,bx,by;
-                            if (project(P0,ax,ay) && project(P1,bx,by)) { float32 dd=segDist(cur,curY,ax,ay,bx,by); if(dd<d)d=dd; }
-                        });
+                        if (hs[hi].kind==2) {
+                            if (cok) { float32 dc=sqrtf((cur-cpx)*(cur-cpx)+(curY-cpy)*(curY-cpy));
+                                float32 rpx=gizmoCenterR(hs[hi].op, GL)*pxPerW; if (dc < rpx) d = dc*0.4f; }
+                        } else {
+                            forEachSeg(hs[hi], pivot, GL, [&](NkVec3f P0, NkVec3f P1){
+                                float32 ax,ay,bx,by;
+                                if (project(P0,ax,ay) && project(P1,bx,by)) { float32 dd=segDist(cur,curY,ax,ay,bx,by); if(dd<d)d=dd; }
+                            });
+                        }
                         if (d < best) { best = d; hit = hi; }
                     }
                 }
                 if (hit >= 0) {
                     st->gizmoDragging = true;
                     st->gizmoOp = hs[hit].op; st->gizmoMask = hs[hit].mask; st->gizmoKind = hs[hit].kind;
+                    if (hs[hit].op == 1) {                       // rotation : angle écran initial (autour du pivot)
+                        float32 cpx,cpy; if (project(pivot,cpx,cpy)) st->gizmoLastAngle = atan2f((float32)st->pickY-cpy, (float32)st->pickX-cpx);
+                    }
                 } else {
+                    // Pick objet (rayon-sphère).
                     float32 ndcX = 2.f * (float32)st->pickX / vpW - 1.f;
                     float32 ndcY = 1.f - 2.f * (float32)st->pickY / vpH;
                     NkVec3f rd = norm3(NkVec3f{ fwd.x + rgt.x*(ndcX*thX) + up2.x*(ndcY*thY),
@@ -864,82 +906,115 @@ namespace nkentseu { namespace demo {
                                                fwd.z + rgt.z*(ndcX*thX) + up2.z*(ndcY*thY) });
                     float32 bestT = 1e30f; int32 bestId = -1;
                     for (int32 i = 0; i < nObj; i++) {
-                        NkVec3f c = objs[i].xf * NkVec3f{0.f,0.f,0.f};
+                        NkVec3f c = ctr(i);
                         NkVec3f oc = {camPos.x-c.x, camPos.y-c.y, camPos.z-c.z};
                         float32 b = dot3(oc, rd), cc = dot3(oc,oc) - objs[i].pr*objs[i].pr, disc = b*b - cc;
                         if (disc >= 0.f) { float32 t = -b - sqrtf(disc); if (t>0.f && t<bestT) { bestT=t; bestId=i; } }
                     }
-                    st->selId = bestId;
-                    logger.Info("[Demo3D] Pick : {0}\n", (bestId>=0) ? "objet selectionne" : "rien");
+                    if (bestId >= 0) {
+                        if (!shiftSel) { for (int32 i=0;i<nObj;i++) st->objSel[i]=false; st->objSel[bestId]=true; st->selId=bestId; }
+                        else {          // Shift = ajouter/retirer de la sélection
+                            st->objSel[bestId] = !st->objSel[bestId];
+                            if (st->objSel[bestId]) st->selId=bestId;
+                            else { st->selId=-1; for (int32 i=0;i<nObj;i++) if (st->objSel[i]) { st->selId=i; break; } }
+                        }
+                    } else if (!shiftSel) {                       // clic dans le vide = tout désélectionner
+                        for (int32 i=0;i<nObj;i++) st->objSel[i]=false; st->selId=-1;
+                    }
+                    logger.Info("[Demo3D] Pick : {0} (sel={1})\n", (bestId>=0)?"objet":"vide", selCount);
                 }
             }
 
-            // ── Drag d'une poignée : modifie le décalage utilisateur (translate/rotate/scale) ──
+            // ── Drag d'une poignée : applique la transformation à TOUS les sélectionnés ──
+            // ORIENTATION :
+            //   GLOBAL : repère MONDE, pivot COMMUN (barycentre) -> les objets orbitent
+            //            autour du pivot (rotation/échelle de groupe).
+            //   LOCAL/NORMAL : repère PROPRE de chaque objet, pivot = ORIGINE de chaque objet
+            //            -> chacun tourne/scale SUR PLACE autour de sa propre origine.
             if (st->gizmoDragging) {
-                if (!NkInput.IsMouseDown(NkMouseButton::NK_MB_LEFT) || st->selId < 0 || st->selId >= nObj) {
+                if (!NkInput.IsMouseDown(NkMouseButton::NK_MB_LEFT) || !haveSel) {
                     st->gizmoDragging = false;
                 } else {
-                    const int32 op=st->gizmoOp, mask=st->gizmoMask, kind=st->gizmoKind, sel=st->selId;
+                    const int32 op=st->gizmoOp, mask=st->gizmoMask, kind=st->gizmoKind;
                     const float32 mdx=(float32)NkInput.MouseDeltaX(), mdy=(float32)NkInput.MouseDeltaY();
-                    NkVec3f C; float32 L; gizmoCL(sel, C, L);
+                    const float32 mx=(float32)NkInput.MouseX(), my=(float32)NkInput.MouseY();
+                    const bool localOri = (st->gizmoOrient != 0);
+                    float32 cpx,cpy; bool cok=project(pivot,cpx,cpy);
+                    // Repère + pivot PROPRES à l'objet i (selon l'orientation courante).
+                    auto basisPivot = [&](int32 i, NkVec3f B[3], NkVec3f& Pi){
+                        if (!localOri) { B[0]=WX[0]; B[1]=WX[1]; B[2]=WX[2]; Pi=pivot; }
+                        else { const NkMat4f& M=objs[i].xf; NkVec3f o=M*NkVec3f{0.f,0.f,0.f};
+                               B[0]=norm3((M*NkVec3f{1.f,0.f,0.f})-o); B[1]=norm3((M*NkVec3f{0.f,1.f,0.f})-o); B[2]=norm3((M*NkVec3f{0.f,0.f,1.f})-o); Pi=o; }
+                    };
                     if (op == 0) {                                 // ── TRANSLATE ──
-                        if (kind == 2) {                           // écran : plan caméra (X/Y écran)
-                            float32 dist=sqrtf((C.x-camPos.x)*(C.x-camPos.x)+(C.y-camPos.y)*(C.y-camPos.y)+(C.z-camPos.z)*(C.z-camPos.z));
-                            float32 wpp=(2.f*thY*dist)/vpH;
-                            st->objTranslate[sel] = st->objTranslate[sel] + rgt*(mdx*wpp) + up2*(-mdy*wpp);
-                        } else {                                   // 1 ou 2 axes : chaque axe suivi séparément
-                            for (int32 a=0;a<3;a++) if (mask&(1<<a)) {
-                                NkVec3f E=C+AX[a]*L; float32 cpx,cpy,epx,epy;
-                                if (project(C,cpx,cpy)&&project(E,epx,epy)) {
-                                    float32 sdx=epx-cpx, sdy=epy-cpy, sl=sqrtf(sdx*sdx+sdy*sdy);
-                                    if (sl>1e-3f){ sdx/=sl; sdy/=sl; }
-                                    float32 amount=mdx*sdx+mdy*sdy, wpp=L/NkMax(sl,1.f);
-                                    addComp(st->objTranslate[sel], a, amount*wpp);
-                                }
-                            }
+                        if (kind == 2) {                           // écran : plan caméra commun à tous
+                            float32 wpp=(2.f*thY*pivDist)/vpH; NkVec3f wd = rgt*(mdx*wpp) + up2*(-mdy*wpp);
+                            for (int32 i=0;i<nObj;i++) if (st->objSel[i]) st->objTranslate[i] = st->objTranslate[i] + wd;
+                        } else {                                   // scalaire par axe (projeté sur le gizmo affiché)
+                            float32 amtT[3]={0.f,0.f,0.f};
+                            for (int32 a=0;a<3;a++) if (mask&(1<<a)) { NkVec3f E=pivot+GB[a]*GL; float32 epx,epy;
+                                if (cok && project(E,epx,epy)) { float32 sdx=epx-cpx, sdy=epy-cpy, sl=sqrtf(sdx*sdx+sdy*sdy);
+                                    if (sl>1e-3f){ sdx/=sl; sdy/=sl; } amtT[a]=(mdx*sdx+mdy*sdy)*(GL/NkMax(sl,1.f)); } }
+                            for (int32 i=0;i<nObj;i++) if (st->objSel[i]) { NkVec3f B[3],Pi; basisPivot(i,B,Pi);
+                                for (int32 a=0;a<3;a++) if (mask&(1<<a)) st->objTranslate[i] = st->objTranslate[i] + B[a]*amtT[a]; }
                         }
                     } else if (op == 2) {                          // ── SCALE ──
-                        float32 amt=(mdx - mdy)*0.01f;             // droite/haut = agrandir
-                        for (int32 a=0;a<3;a++) if (mask&(1<<a)) {
-                            float32& comp=(a==0)?st->objScale[sel].x:(a==1)?st->objScale[sel].y:st->objScale[sel].z;
-                            comp+=amt; if (comp<-0.9f) comp=-0.9f;
+                        const float32 k=0.012f; float32 amt[3]={0.f,0.f,0.f};
+                        if (kind == 2) { float32 rdx=mx-cpx, rdy=my-cpy, rl=sqrtf(rdx*rdx+rdy*rdy); if (rl>1e-3f){ rdx/=rl; rdy/=rl; }
+                            float32 a=(mdx*rdx+mdy*rdy)*k; amt[0]=amt[1]=amt[2]=a; }
+                        else for (int32 a=0;a<3;a++) if (mask&(1<<a)) { NkVec3f E=pivot+GB[a]*GL; float32 epx,epy;
+                            if (cok && project(E,epx,epy)) { float32 sdx=epx-cpx, sdy=epy-cpy, sl=sqrtf(sdx*sdx+sdy*sdy);
+                                if (sl>1e-3f){ sdx/=sl; sdy/=sl; } amt[a]=(mdx*sdx+mdy*sdy)*k; } }
+                        for (int32 i=0;i<nObj;i++) if (st->objSel[i]) { NkVec3f B[3],Pi; basisPivot(i,B,Pi); NkVec3f rel = ctr(i)-Pi;
+                            for (int32 a=0;a<3;a++) if (amt[a]!=0.f) {
+                                addComp(st->objScale[i], a, amt[a]);
+                                float32 along = dot3(rel, B[a]);           // orbite (=0 en LOCAL, pivot=centre)
+                                st->objTranslate[i] = st->objTranslate[i] + B[a]*(along*amt[a]);
+                            }
+                            if (st->objScale[i].x<-0.9f) st->objScale[i].x=-0.9f;
+                            if (st->objScale[i].y<-0.9f) st->objScale[i].y=-0.9f;
+                            if (st->objScale[i].z<-0.9f) st->objScale[i].z=-0.9f;
                         }
                     } else {                                       // ── ROTATE ──
-                        if (kind == 4) {                           // trackball écran : pitch(X)/yaw(Y)
-                            st->objRot[sel].x += -mdy*0.01f;
-                            st->objRot[sel].y +=  mdx*0.01f;
-                        } else {
-                            addComp(st->objRot[sel], axisOf(mask), mdx*0.01f);
+                        if (cok) {
+                            const int32 a=axisOf(mask);
+                            float32 ang=atan2f(my-cpy, mx-cpx), d=ang-st->gizmoLastAngle;
+                            while (d> 3.14159265f) d-=6.2831853f; while (d<-3.14159265f) d+=6.2831853f;
+                            st->gizmoLastAngle = ang;
+                            float32 viewSign = (dot3(NkVec3f{camPos.x-pivot.x,camPos.y-pivot.y,camPos.z-pivot.z}, GB[a]) > 0.f) ? 1.f : -1.f;
+                            float32 th = -d * viewSign;
+                            for (int32 i=0;i<nObj;i++) if (st->objSel[i]) { NkVec3f B[3],Pi; basisPivot(i,B,Pi);
+                                NkMat4f R = NkMat4f::Rotation(B[a], NkAngle::FromRad(th));   // axe PROPRE si LOCAL
+                                st->objRotM[i] = R * st->objRotM[i];                          // rotation propre de l'objet
+                                NkVec3f rel = ctr(i) - Pi, relR = R * rel;                    // orbite (=0 en LOCAL)
+                                st->objTranslate[i] = st->objTranslate[i] + (relR - rel);
+                            }
                         }
                     }
                 }
             }
 
-            // ── Dessin du GIZMO : toutes les poignées du mode courant ──
-            if (st->selId >= 0 && st->selId < nObj) {
-                NkVec3f C; float32 L; gizmoCL(st->selId, C, L);
+            // ── Dessin du GIZMO (une fois, au pivot) : poignées ÉPAISSES + OVERLAY ──
+            if (haveSel) {
                 for (int32 hi=0; hi<nh; hi++) {
                     const NkVec4f col = handleColor(hs[hi]);
-                    forEachSeg(hs[hi], C, L, [&](NkVec3f P0, NkVec3f P1){ r3d->DrawDebugLine(P0, P1, col); });
+                    const bool active = st->gizmoDragging && st->gizmoOp==hs[hi].op && st->gizmoMask==hs[hi].mask && st->gizmoKind==hs[hi].kind;
+                    const int32 tPx = active ? 7 : 4;
+                    forEachSeg(hs[hi], pivot, GL, [&](NkVec3f P0, NkVec3f P1){ thickLine(P0, P1, col, tPx); });
                 }
             }
 
-            // ── Marqueur de sélection : boîte filaire JAUNE serrée (OBB) suivant l'objet ──
-            if (st->selId >= 0 && st->selId < nObj) {
-                const NkMat4f& M = objs[st->selId].xf;
-                NkVec3f hh = objs[st->selId].localHalf;
-                NkVec4f Y = {1.f, 0.85f, 0.1f, 1.f};
-                auto corner = [&](float32 sx, float32 sy, float32 sz){
-                    return M * NkVec3f{sx*hh.x, sy*hh.y, sz*hh.z};
-                };
+            // ── Marqueurs : boîte filaire serrée (OBB) sur CHAQUE objet sélectionné ──
+            for (int32 i=0;i<nObj;i++) if (st->objSel[i]) {
+                const NkMat4f& M = objs[i].xf; NkVec3f hh = objs[i].localHalf;
+                const NkVec4f Y = (i==st->selId) ? NkVec4f{1.f,0.6f,0.05f,1.f}   // actif = orange
+                                                 : NkVec4f{1.f,0.85f,0.1f,1.f};  // autres = jaune
+                auto corner = [&](float32 sx, float32 sy, float32 sz){ return M * NkVec3f{sx*hh.x, sy*hh.y, sz*hh.z}; };
                 NkVec3f c000=corner(-1,-1,-1), c100=corner(+1,-1,-1), c010=corner(-1,+1,-1), c110=corner(+1,+1,-1);
                 NkVec3f c001=corner(-1,-1,+1), c101=corner(+1,-1,+1), c011=corner(-1,+1,+1), c111=corner(+1,+1,+1);
-                r3d->DrawDebugLine(c000,c100,Y); r3d->DrawDebugLine(c010,c110,Y);
-                r3d->DrawDebugLine(c001,c101,Y); r3d->DrawDebugLine(c011,c111,Y);
-                r3d->DrawDebugLine(c000,c010,Y); r3d->DrawDebugLine(c100,c110,Y);
-                r3d->DrawDebugLine(c001,c011,Y); r3d->DrawDebugLine(c101,c111,Y);
-                r3d->DrawDebugLine(c000,c001,Y); r3d->DrawDebugLine(c100,c101,Y);
-                r3d->DrawDebugLine(c010,c011,Y); r3d->DrawDebugLine(c110,c111,Y);
+                thickLine(c000,c100,Y,2); thickLine(c010,c110,Y,2); thickLine(c001,c101,Y,2); thickLine(c011,c111,Y,2);
+                thickLine(c000,c010,Y,2); thickLine(c100,c110,Y,2); thickLine(c001,c011,Y,2); thickLine(c101,c111,Y,2);
+                thickLine(c000,c001,Y,2); thickLine(c100,c101,Y,2); thickLine(c010,c011,Y,2); thickLine(c110,c111,Y,2);
             }
         }
 
@@ -968,13 +1043,14 @@ namespace nkentseu { namespace demo {
                 "[Phase H] Texture file-based : %s",
                 st->phaseHLoadOk ? "test_pattern.png LOAD OK"
                                  : "fallback procedural");
-            // Aide gizmo : mode courant + rappel des touches.
+            // Aide gizmo : mode + orientation + rappel des touches.
             const char* gmName[4] = {"TRANSLATE", "ROTATE", "SCALE", "COMBINE (T+R+S)"};
+            const char* orName[3] = {"GLOBAL", "LOCAL", "NORMAL"};
             overlay->DrawText({20.f, 100.f},
-                "Gizmo: %s  (TAB=mode  clic=selection  Suppr=reset)",
-                gmName[st->gizmoMode & 3]);
+                "Gizmo: %s  |  Orient: %s  (TAB=mode  N=orient)",
+                gmName[st->gizmoMode & 3], orName[st->gizmoOrient % 3]);
             overlay->DrawText({20.f, 118.f},
-                "Poignees: axe=1 axe | plan=2 axes | centre=uniforme/ecran");
+                "clic=selection  Shift+clic=multi  Suppr=reset  |  axe/plan/centre = 1/2/uniforme");
 
             // ── Debug panel : params shadow live-tunable ───────────────────────
             // Background semi-transparent en haut a droite
