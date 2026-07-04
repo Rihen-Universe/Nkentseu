@@ -1,0 +1,24 @@
+// ============================================================================
+// infinitegrid.vert.nksl — NKRenderer — Grille infinie (VS plein-écran)
+// Compilé par NkSLCompiler vers : GLSL-GL · GLSL-Vulkan · HLSL-DX11/DX12 · MSL
+//
+// Triangle plein-écran (3 verts sans VBO), EXACTEMENT comme le skybox (pattern
+// validé sur 5 backends). Le fragment shader reconstruit un rayon monde depuis le
+// NDC + FOV, l'intersecte avec le plan y=planeY, et dessine la grille. Aucune
+// géométrie monde (pas de grand quad qui se déforme selon la convention Y-flip du
+// backend) -> rendu IDENTIQUE VK/GL/DX.
+// ============================================================================
+
+@location(0) out vec2 vNDC;
+
+@stage(vertex)
+@entry
+void main() {
+    // Triangle plein-écran couvrant [-1,+3] en clip space (comme skybox).
+    vec2 pos = vec2(
+        (gl_VertexID == 1) ? 3.0 : -1.0,
+        (gl_VertexID == 2) ? 3.0 : -1.0
+    );
+    gl_Position = vec4(pos, 1.0, 1.0);
+    vNDC = pos;
+}

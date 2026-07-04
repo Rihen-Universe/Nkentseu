@@ -433,6 +433,22 @@ int nkmain(const NkEntryState& state) {
     events.AddEventCallback<NkWindowCloseEvent>([&](NkWindowCloseEvent*) { running = false; });
     events.AddEventCallback<NkKeyPressEvent>([&](NkKeyPressEvent* e) {
         if (e->GetKey() == NkKey::NK_ESCAPE) running = false;
+        // Cap FPS DYNAMIQUE (le pacing est fait par le moteur, cf. NkRenderer::SetFrameRateCap) :
+        //   F1 = on/off (bascule cap courant <-> illimité) ; F2 = cycle 30/60/120/144/illimité.
+        else if (e->GetKey() == NkKey::NK_F1 && renderer) {
+            const float32 cur = renderer->GetFrameRateCap();
+            static float32 sLast = 120.f;
+            if (cur > 0.f) { sLast = cur; renderer->SetFrameRateCap(0.f); logger.Info("[FPS] cap OFF (illimite)\n"); }
+            else           { renderer->SetFrameRateCap(sLast);            logger.Info("[FPS] cap ON = {0}\n", sLast); }
+        }
+        else if (e->GetKey() == NkKey::NK_F2 && renderer) {
+            const float32 steps[] = { 30.f, 60.f, 120.f, 144.f, 0.f };
+            const float32 cur = renderer->GetFrameRateCap();
+            int idx = 0; for (int i = 0; i < 5; i++) if (steps[i] == cur) { idx = i; break; }
+            const float32 next = steps[(idx + 1) % 5];
+            renderer->SetFrameRateCap(next);
+            logger.Info("[FPS] cap = {0} (0=illimite)\n", next);
+        }
     });
     // Resize appliqué IMMÉDIATEMENT dans le handler (et pas différé en boucle de jeu) :
     // sous DX12 flip-model, présenter un swapchain à l'ANCIENNE taille dans une fenêtre déjà
@@ -452,6 +468,9 @@ int nkmain(const NkEntryState& state) {
     const char* mfEnv = getenv("NK_MAXFRAMES");
     const uint64 maxFrames = mfEnv ? (uint64)atoll(mfEnv) : 0;
 
+    // Le cap FPS (garde-fou thermique + anti-jitter) est désormais géré par le MOTEUR
+    // dans NkRenderer::Present() (pacing haute précision). Défaut = NK_FPS_CAP (120),
+    // modifiable à chaud via F1/F2 (cf. callback clavier). Plus de limiteur ici.
     while (running) {
         events.PollEvents();
         if (!running) break;

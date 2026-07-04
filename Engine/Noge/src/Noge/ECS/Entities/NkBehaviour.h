@@ -44,6 +44,8 @@ namespace ecs {
     private:
         friend class NkGameObject;
         friend class NkBehaviourSystem;
+        friend class NkBehaviourLateSystem;   // lit mStarted (OnLateUpdate)
+        friend class NkBehaviourFixedSystem;  // lit mStarted (OnFixedUpdate)
         void SetGameObject(NkGameObject* go) { mGameObject = go; }
         virtual void OnEnableStateChanged() {
             if (mEnabled) OnEnable();

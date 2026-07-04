@@ -807,10 +807,17 @@
     // Android est POSIX-compatible (bionic libc, sys/socket.h, etc.) — on
     // l'inclut pour que les modules comme NKNetwork compilent leur branche
     // POSIX sur NDK.
+    // iOS/tvOS/watchOS/visionOS sont des dérivés Darwin/BSD : POSIX complet
+    // (sys/socket.h, pthread, clock_gettime, statvfs…). Les inclure évite que
+    // des modules gatés sur NKENTSEU_PLATFORM_POSIX (NKNetwork, NkSocket…)
+    // tombent silencieusement dans un #else vide / type non déclaré sur mobile
+    // Apple. (NKENTSEU_PLATFORM_MACOS reste, lui, strictement macOS.)
     #if defined(NKENTSEU_PLATFORM_LINUX) || defined(NKENTSEU_PLATFORM_MACOS) || \
         defined(NKENTSEU_PLATFORM_FREEBSD) || defined(NKENTSEU_PLATFORM_OPENBSD) || \
         defined(NKENTSEU_PLATFORM_NETBSD) || defined(NKENTSEU_PLATFORM_UNIX) || \
-        defined(NKENTSEU_PLATFORM_ANDROID)
+        defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_IOS) || \
+        defined(NKENTSEU_PLATFORM_TVOS) || defined(NKENTSEU_PLATFORM_WATCHOS) || \
+        defined(NKENTSEU_PLATFORM_VISIONOS)
         #define NKENTSEU_PLATFORM_POSIX
         #define NKENTSEU_PLATFORM_UNIX_LIKE
     #endif

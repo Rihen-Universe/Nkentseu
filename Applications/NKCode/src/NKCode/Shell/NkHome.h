@@ -4,12 +4,19 @@
 // design Banani « Launcher — Accueil ». Sidebar (marque + navigation + versions)
 // + panneau (filtres, workspaces recents groupes, actions rapides, exemples).
 // =============================================================================
+#include "NKCode/Shell/NkShell.h"   // nkcode::NkShellRun (std::system gardé iOS)
 #include "NKCode/Shell/NkUi.h"
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Shell/Dialogs.h"   // reutilise la logique d'actions (ouvrir/creer)
 #include "NKCode/Shell/NkOpenWs.h"  // vue « Ouvrir un Workspace » (navigateur de fichiers)
 #include "NKCode/Shell/NkNewWorkspace.h"  // wizard « Nouveau Workspace »
+#include "NKCode/Shell/NkCloneGit.h"      // panneau « Cloner un depot Git »
+#include "NKCode/Shell/NkToolchains.h"    // gestionnaire de toolchains
+#include "NKCode/Shell/NkPlatforms.h"     // gestionnaire de plateformes
+#include "NKCode/Shell/NkSettings.h"      // parametres du launcher (nav==12)
+#include "NKCode/Shell/NkLoading.h"       // ecran de chargement (section 14)
 #include <cstdio>
+#include <cmath>
 
 namespace nkentseu {
 namespace nkcode {
@@ -17,12 +24,16 @@ namespace nkcode {
     struct NkHomeState {
         NkCodeState*   st  = nullptr;
         NkCodeDialogs* dlg = nullptr;
-        uint32  logoIcon = 0, logoWord = 0;   // textures (0 = repli dessine)
-        int32   wordW = 0, wordH = 0;          // dimensions naturelles du wordmark (aspect)
+        uint32  logoIcon = 0, logoWord = 0, logoWordDark = 0;   // textures (0 = repli) : wordmark clair (nkcode_white) + sombre (nkcode_dark)
+        int32   wordW = 0, wordH = 0;          // dimensions naturelles du wordmark clair (aspect)
+        int32   wordWD = 0, wordHD = 0;        // dimensions du wordmark sombre (thème Light)
         NkIcons icons;                          // icones SVG (data/textures/icon)
         int32   nav = 0;                       // item de nav actif (0 = Accueil, 1 = Ouvrir, 2 = Nouveau Workspace)
         NkOpenWsState ow;                      // etat de la vue « Ouvrir un Workspace »
         NkNewWsState  nw;                      // etat du wizard « Nouveau Workspace »
+        NkCloneGitState cg;                    // etat du panneau « Cloner un depot Git »
+        NkToolchainsState tc;                  // etat du gestionnaire de toolchains
+        NkSettingsState settings;              // etat des parametres du launcher (nav==12)
         float32 scroll  = 0.f;                 // centre : defilement vertical (recents)
         float32 scrollR = 0.f;                 // droite : defilement vertical
         float32 scrollMax  = 0.f;              // borne max du centre (frame precedente) -> anti-clignotement
@@ -40,13 +51,14 @@ namespace nkcode {
         int32   langFilter = 0;                // index dans NkLangFilters (0 = Tous)
         int32   sysFilter  = 0;                // index dans NkSysFilters (0 = Tous)
         int32   focusField = 0;                // 0 aucun, 1 recherche recents, 2 recherche exemples
+        bool    fieldClaim = false;            // un champ a capte le clic cette frame ? (sinon clic vide = defocus)
         char    exSearch[64] = {};             // filtre des exemples
         // Combo box des chips (langage/systeme) : menu deroulant.
         int32   comboOpen = 0;                 // 0 ferme, 1 langage, 2 systeme
         NkVec2  comboPos{};                    // coin haut-gauche du deroulant
         float32 comboW = 0.f;                  // largeur du deroulant
         float32 caretBlink = 0.f;              // accumulateur (s) pour le clignotement du caret
-        bool    groupCollapsed[5] = {};        // pliage : 0 epingles,1 aujourd'hui,2 semaine,3 mois,4 plus anciens
+        bool    groupCollapsed[24] = {};       // pliage : 0 epingles ; 1..N groupes (date/plateforme/langage selon groupBy)
         NkString exePath;                      // chemin de l'executable NKCode (pour "nouvelle fenetre")
         // Popup de renommage dans les recents.
         bool     renameOpen = false;
@@ -58,6 +70,10 @@ namespace nkcode {
     // Options des chips de filtre (0 = "Tous" -> pas de filtre).
     static const char* const NkLangFilters[] = { "Tous", "C++", "C", "Python", "Rust", "Zig" };
     static const char* const NkSysFilters[]  = { "Tous", "Windows", "Linux", "macOS", "Android", "Web", "iOS", "HarmonyOS", "Xbox" };
+    // Seul l'index 0 « Tous » est traduit ; le reste = noms propres.
+    inline const char* NkFilterLabel(const char* const* opts, int32 idx) { return idx == 0 ? NkT("filter.all") : opts[idx]; }
+    // Libelle traduit d'un groupe de recents (bucket 0..3).
+    inline const char* NkHomeBucketLabel(int32 b) { return NkT(b == 0 ? "bucket.today" : b == 1 ? "bucket.week" : b == 2 ? "bucket.month" : "bucket.older"); }
     // (Les exemples sont enumeres dynamiquement via `jenga examples list` -> st->examples.)
 
     // ── Scrollbar VERTICALE draggable au bord droit de `area`. `id` unique. ──
@@ -86,7 +102,7 @@ namespace nkcode {
     inline bool NkNavItem(const NkUi& u, const NkRect& r, uint32 icon, const char* label,
                           bool active, const NkColor& accent) {
         const bool hov = u.Hit(r);
-        if (active)      u.Rect(r, NkColor{ 22, 32, 46, 255 }, NkR::md * u.S);
+        if (active)      u.Rect(r, NkCol::selection, NkR::md * u.S);
         else if (hov)    u.Rect(r, NkCol::hover, NkR::md * u.S);
         if (active)      u.Rect({ r.x, r.y + u.s(6), u.s(3), r.h - u.s(12) }, accent, u.s(2));
         const NkColor ic = active ? accent : NkColor{ 188, 196, 206, 255 };   // icone plus lumineuse
@@ -104,28 +120,36 @@ namespace nkcode {
         // Logo dans un CADRE borde (cf. maquette) — wordmark aspect 512:128 preserve.
         const float32 logoH = u.s(78);
         const NkRect box = { r.x + u.s(12), r.y + u.s(12), r.w - u.s(24), logoH - u.s(22) };
-        u.Panel(box, NkColor{ 9, 19, 14, 255 }, NkCol::border, NkR::md * u.S);   // fond sombre legerement vert
-        if (H->logoWord) {
-            const float32 aspect = (H->wordH > 0) ? (float32)H->wordW / (float32)H->wordH : 4.f;
+        // Fond du logo adapté au thème : vert-nuit sur thèmes sombres, gris très clair sur thème clair.
+        // Le wordmark est fourni en 2 versions PRÊTES (nkcode_white pour fond sombre, nkcode_dark pour fond clair) -> pas de teinte.
+        const bool lightTheme = NkThemeIsLight();
+        const NkColor logoBg = lightTheme ? NkColor{ 236, 239, 243, 255 } : NkColor{ 9, 19, 14, 255 };
+        const bool useDark = lightTheme && H->logoWordDark;
+        const uint32 wordTex = useDark ? H->logoWordDark : H->logoWord;
+        const int32  ww = useDark ? H->wordWD : H->wordW, wh = useDark ? H->wordHD : H->wordH;
+        u.Panel(box, logoBg, NkCol::border, NkR::md * u.S);
+        if (wordTex) {
+            const float32 aspect = (wh > 0) ? (float32)ww / (float32)wh : 4.f;
             const float32 padX = u.s(12), padY = u.s(8);
             float32 lw = box.w - padX * 2.f, lh2 = lw / aspect;
             if (lh2 > box.h - padY * 2.f) { lh2 = box.h - padY * 2.f; lw = lh2 * aspect; }
-            u.dl->AddImage(H->logoWord, { box.x + (box.w - lw) * 0.5f, box.y + (box.h - lh2) * 0.5f, lw, lh2 }, { 0,0 }, { 1,1 }, NkCol::foreground);
+            u.dl->AddImage(wordTex, { box.x + (box.w - lw) * 0.5f, box.y + (box.h - lh2) * 0.5f, lw, lh2 }, { 0,0 }, { 1,1 }, NkColor{ 255,255,255,255 });   // image telle quelle
         } else {
-            NkBrandMark(u, { box.x + u.s(8), box.y + (box.h - u.s(28)) * 0.5f, u.s(28), u.s(28) }, NkCol::foreground);
-            u.TextV(box.x + u.s(44), box.y, box.h, "nkcode", NkCol::foreground);
+            const NkColor tint = lightTheme ? NkColor{ 20, 26, 32, 255 } : NkColor{ 235, 240, 238, 255 };
+            NkBrandMark(u, { box.x + u.s(8), box.y + (box.h - u.s(28)) * 0.5f, u.s(28), u.s(28) }, tint);
+            u.TextV(box.x + u.s(44), box.y, box.h, "nkcode", tint);
         }
 
         auto section = [&](float32 y, const char* title) {
             u.Text(r.x + u.s(16), y, title, NkCol::mutedFg);
         };
         float32 y = r.y + logoH + u.s(14);
-        section(y, "PRINCIPAL"); y += u.s(20);
-        struct NavDef { uint32 icon; const char* label; };
-        const NavDef main_[] = { {H->icons.accueil,"Accueil"}, {H->icons.ouvrir,"Ouvrir"}, {H->icons.nouveau,"Nouveau Workspace"}, {H->icons.cloner,"Cloner (Git)"} };
+        section(y, NkT("sb.main")); y += u.s(20);
+        struct NavDef { uint32 icon; const char* key; };
+        const NavDef main_[] = { {H->icons.accueil,"nav.home"}, {H->icons.ouvrir,"nav.open"}, {H->icons.nouveau,"nav.newws"}, {H->icons.cloner,"nav.clone"} };
         for (int32 i = 0; i < 4; ++i) {
             const NkRect ir = { r.x + u.s(8), y, r.w - u.s(16), u.s(34) };
-            if (NkNavItem(u, ir, main_[i].icon, main_[i].label, H->nav == i, NkCol::primary)) {
+            if (NkNavItem(u, ir, main_[i].icon, NkT(main_[i].key), H->nav == i, NkCol::primary)) {
                 H->nav = i;
                 // i == 0 Accueil, i == 1 Ouvrir, i == 2 Nouveau Workspace (wizard plein cadre)
                 if (i == 3) {/* TODO clone git */}
@@ -134,13 +158,13 @@ namespace nkcode {
         }
         y += u.s(8);
         u.Rect({ r.x + u.s(16), y, r.w - u.s(32), 1.f }, NkCol::border); y += u.s(12);
-        section(y, "OUTILS"); y += u.s(20);
-        const NavDef tools[] = { {H->icons.toolchains,"Toolchains"}, {H->icons.platforms,"Plateformes"}, {H->icons.gear,"Parametres"} };
+        section(y, NkT("sb.tools")); y += u.s(20);
+        const NavDef tools[] = { {H->icons.toolchains,"nav.toolchains"}, {H->icons.platforms,"nav.platforms"}, {H->icons.gear,"nav.settings"} };
         for (int32 i = 0; i < 3; ++i) {
             const NkRect ir = { r.x + u.s(8), y, r.w - u.s(16), u.s(34) };
-            if (NkNavItem(u, ir, tools[i].icon, tools[i].label, H->nav == 10 + i, NkCol::secondary)) {
+            if (NkNavItem(u, ir, tools[i].icon, NkT(tools[i].key), H->nav == 10 + i, NkCol::secondary)) {
                 H->nav = 10 + i;
-                if (i == 0 && H->dlg) H->dlg->tcOpen = true;   // ouvre la gestion des toolchains
+                // i == 0 -> gestionnaire de toolchains (panneau plein cadre nav==10, plus de modale)
             }
             y += u.s(36);
         }
@@ -217,7 +241,7 @@ namespace nkcode {
         if (w.platforms && *w.platforms) { float32 cx = tx; field(cx, "Plateformes: ", w.platforms, NkCol::foreground); y += lh + u.s(5); }
         // Ligne 5 : Projets: A, B, C (N)
         if (w.projects && *w.projects) {
-            float32 cx = tx; u.Text(cx, y, "Projets: ", NkCol::mutedFg); cx += u.TextW("Projets: ");
+            float32 cx = tx; u.Text(cx, y, NkT("card.projects"), NkCol::mutedFg); cx += u.TextW(NkT("card.projects"));
             char cnt[16]; cnt[0] = '\0'; if (w.projCount > 0) std::snprintf(cnt, sizeof(cnt), "  (%d)", w.projCount);
             const float32 cntw = cnt[0] ? u.TextW(cnt) : 0.f;
             cx += u.TextEllipsis(cx, y, lineRight - cx - cntw, w.projects, NkCol::foreground);
@@ -226,7 +250,7 @@ namespace nkcode {
         }
         // Ligne 6 : Dernier build: [statut] Cfg  ·  Modifie: ...
         { float32 cx = tx;
-          u.Text(cx, y, "Dernier build: ", NkCol::mutedFg); cx += u.TextW("Dernier build: ");
+          u.Text(cx, y, NkT("card.lastbuild"), NkCol::mutedFg); cx += u.TextW(NkT("card.lastbuild"));
           const NkColor stc = w.build == 1 ? NkCol::success : w.build == 2 ? NkCol::danger : w.build == 3 ? NkCol::accent : NkCol::mutedFg;
           const NkRect sb = { cx, y + u.s(1), u.s(14), u.s(14) };
           u.Rect(sb, w.build ? NkColor{ stc.r, stc.g, stc.b, 40 } : NkCol::muted, NkR::sm * u.S);
@@ -235,7 +259,7 @@ namespace nkcode {
                  u.dl->AddLine({ sb.x + u.s(6), sb.y + u.s(10) }, { sb.x + u.s(11), sb.y + u.s(4) }, stc, u.s(1.6f)); }
           cx = sb.x + u.s(20);
           if (w.buildConfig && *w.buildConfig) { u.Text(cx, y, w.buildConfig, NkCol::foreground); cx += u.TextW(w.buildConfig); }
-          else { u.Text(cx, y, "inconnu", NkCol::mutedFg); cx += u.TextW("inconnu"); }
+          else { u.Text(cx, y, NkT("card.unknown"), NkCol::mutedFg); cx += u.TextW(NkT("card.unknown")); }
           if (w.modified && *w.modified) { dot(cx); field(cx, "Modifie: ", w.modified, NkCol::mutedFg); }
         }
 
@@ -274,11 +298,11 @@ namespace nkcode {
     inline void NkHomeOpenFolder(const NkString& folder) {
     #ifdef _WIN32
         NkString bs; for (const char* p = folder.CStr(); *p; ++p) bs += (*p == '/') ? '\\' : *p;
-        std::system((NkString("explorer \"") + bs + "\"").CStr());
+        NkCodeShellRun((NkString("explorer \"") + bs + "\"").CStr());
     #elif defined(__APPLE__)
-        std::system((NkString("open \"") + folder + "\"").CStr());
+        NkCodeShellRun((NkString("open \"") + folder + "\"").CStr());
     #else
-        std::system((NkString("xdg-open \"") + folder + "\"").CStr());
+        NkCodeShellRun((NkString("xdg-open \"") + folder + "\"").CStr());
     #endif
     }
 
@@ -286,20 +310,20 @@ namespace nkcode {
     inline void NkHomeOpenTerminal(const NkString& folder) {
     #ifdef _WIN32
         NkString bs; for (const char* p = folder.CStr(); *p; ++p) bs += (*p == '/') ? '\\' : *p;
-        std::system((NkString("start \"\" cmd /K cd /d \"") + bs + "\"").CStr());
+        NkCodeShellRun((NkString("start \"\" cmd /K cd /d \"") + bs + "\"").CStr());
     #elif defined(__APPLE__)
-        std::system((NkString("open -a Terminal \"") + folder + "\"").CStr());
+        NkCodeShellRun((NkString("open -a Terminal \"") + folder + "\"").CStr());
     #else
-        std::system((NkString("(x-terminal-emulator --working-directory=\"") + folder + "\" || gnome-terminal --working-directory=\"" + folder + "\") &").CStr());
+        NkCodeShellRun((NkString("(x-terminal-emulator --working-directory=\"") + folder + "\" || gnome-terminal --working-directory=\"" + folder + "\") &").CStr());
     #endif
     }
     // Lance une NOUVELLE fenetre NKCode sur ce dossier (re-exec de l'executable + arg dossier).
     inline void NkHomeOpenNewWindow(const NkString& exe, const NkString& folder) {
         if (exe.Empty()) return;
     #ifdef _WIN32
-        std::system((NkString("start \"\" \"") + exe + "\" \"" + folder + "\"").CStr());
+        NkCodeShellRun((NkString("start \"\" \"") + exe + "\" \"" + folder + "\"").CStr());
     #else
-        std::system((NkString("\"") + exe + "\" \"" + folder + "\" &").CStr());
+        NkCodeShellRun((NkString("\"") + exe + "\" \"" + folder + "\" &").CStr());
     #endif
     }
 
@@ -307,19 +331,19 @@ namespace nkcode {
     inline void NkHomeCardMenu(const NkUi& u, NkHomeState* H, NkCodeState* st, NkCodeDialogs* dlg, bool justOpened) {
         if (H->ctxIdx == -2) return;
         struct Item { const char* label; int32 id; bool sep; };
-        const NkString pinLbl = H->ctxPinned ? NkString("Detacher des favoris") : NkString("Epingler en favori");
+        const NkString pinLbl = H->ctxPinned ? NkString(NkT("ctx.unpin")) : NkString(NkT("ctx.pin"));
         const Item items[] = {
-            { "Ouvrir",                          1, false },
-            { "Ouvrir dans une nouvelle fenetre",2, false },
+            { NkT("ctx.open"),                          1, false },
+            { NkT("ctx.opennew"),2, false },
             { "",                                0, true  },
-            { "Ouvrir dans le terminal",         3, false },
-            { "Reveler dans l'explorateur",      4, false },
+            { NkT("ctx.openterm"),         3, false },
+            { NkT("ctx.reveal"),      4, false },
             { "",                                0, true  },
             { pinLbl.CStr(),                     5, false },
-            { "Renommer dans les recents",       6, false },
+            { NkT("ctx.rename"),       6, false },
             { "",                                0, true  },
-            { "Copier le chemin",                7, false },
-            { "Supprimer des recents",           8, false },
+            { NkT("ctx.copypath"),                7, false },
+            { NkT("ctx.remove"),           8, false },
         };
         const int32 N = (int32)(sizeof(items) / sizeof(items[0]));
         const float32 ih = u.s(26), sh = u.s(9), w = u.s(248);
@@ -351,7 +375,7 @@ namespace nkcode {
         u.ctx->input.mouseClicked[0] = false;   // consomme le clic (menu prioritaire)
         H->ctxIdx = -2;                          // ferme le menu
         switch (clicked) {
-            case 1: if (isCur) { st->RequestReload(); dlg->showStart = false; } else dlg->DoLoad(NkPath(path.CStr()).GetParent()); break;
+            case 1: dlg->DoLoad(NkPath(path.CStr()).GetParent()); break;   // ecran de chargement (courant OU recent)
             case 2: NkHomeOpenNewWindow(H->exePath, folder); break;
             case 3: NkHomeOpenTerminal(folder); break;
             case 4: NkHomeOpenFolder(folder); break;
@@ -380,22 +404,17 @@ namespace nkcode {
         if (box.y < u.s(4)) box.y = u.s(4);
         u.dl->AddRectFilled({ box.x + u.s(2), box.y + u.s(3), box.w, box.h }, NkColor{ 0,0,0,110 }, NkR::md * u.S);
         u.Panel(box, NkCol::surface, NkColor{ 48,54,61,255 }, NkR::md * u.S);
-        u.Text(box.x + u.s(14), box.y + u.s(10), "Renommer dans les recents", NkCol::foreground);
+        u.Text(box.x + u.s(14), box.y + u.s(10), NkT("ctx.rename"), NkCol::foreground);
         const NkRect field = { box.x + u.s(14), box.y + u.s(34), w - u.s(28), u.s(28) };
-        if (!justOpened) {
-            if (u.ctx->input.KeyPressedRepeat(NkGuiKey::Backspace)) { int32 n = 0; while (H->renameBuf[n]) ++n; if (n > 0) H->renameBuf[n - 1] = '\0'; }
-            for (int32 i = 0; i < u.ctx->input.charCount; ++i) {
-                const uint32 cp = u.ctx->input.chars[i];
-                if (cp >= 32 && cp < 127) { int32 n = 0; while (H->renameBuf[n]) ++n; if (n + 1 < (int32)sizeof(H->renameBuf)) { H->renameBuf[n] = (char)cp; H->renameBuf[n + 1] = '\0'; } }
-            }
-        }
         u.Panel(field, NkCol::input, NkCol::primary, NkR::md * u.S);
-        u.Text(field.x + u.s(8), field.y + (field.h - u.Lh()) * 0.5f, H->renameBuf[0] ? H->renameBuf : "(nom personnalise)", H->renameBuf[0] ? NkCol::foreground : NkCol::mutedFg);
-        u.dl->AddRectFilled({ field.x + u.s(8) + (H->renameBuf[0] ? u.TextW(H->renameBuf) : 0.f) + u.s(1), field.y + u.s(6), u.s(1.5f), field.h - u.s(12) }, NkCol::primary, 0.f);
+        const float32 fty = field.y + (field.h - u.Lh()) * 0.5f;
+        if (H->renameBuf[0] == '\0') u.Text(field.x + u.s(8), fty, NkT("rename.placeholder"), NkCol::mutedFg);   // placeholder
+        if (!justOpened) NkOwEditA(u, field, H->renameBuf, (int32)sizeof(H->renameBuf), u.ctx->input.dt, u.s(8));   // saisie complete
+        else if (H->renameBuf[0]) u.Text(field.x + u.s(8), fty, H->renameBuf, NkCol::foreground);
         const NkRect okR = { box.x + w - u.s(160), box.y + h - u.s(32), u.s(72), u.s(24) };
         const NkRect caR = { box.x + w - u.s(82),  box.y + h - u.s(32), u.s(72), u.s(24) };
         const bool okClick = u.Button(okR, "OK",      NkCol::primary, NkCol::primary, NkCol::primaryFg, NkR::md * u.S);
-        const bool caClick = u.Button(caR, "Annuler", NkCol::input,   NkCol::hover,   NkCol::foreground, NkR::md * u.S);
+        const bool caClick = u.Button(caR, NkT("btn.cancel"), NkCol::input,   NkCol::hover,   NkCol::foreground, NkR::md * u.S);
         if (justOpened) return;
         if (okClick)                       { st->SetRecentName(H->renamePath, NkString(H->renameBuf)); H->renameOpen = false; u.ctx->input.mouseClicked[0] = false; }
         else if (caClick)                  { H->renameOpen = false; u.ctx->input.mouseClicked[0] = false; }
@@ -420,7 +439,7 @@ namespace nkcode {
             const bool hv = u.Hit(ir);
             if (hv) u.Rect(ir, NkCol::hover, NkR::sm * u.S);
             if (i == *target) u.dl->AddRectFilled({ ir.x + u.s(2), ir.y + u.s(6), u.s(3), ih - u.s(12) }, NkCol::primary, u.s(1.5f));
-            u.TextV(ir.x + u.s(12), ir.y, ih, opts[i], (i == *target) ? NkCol::foreground : NkCol::sidebarFg);
+            u.TextV(ir.x + u.s(12), ir.y, ih, NkFilterLabel(opts, i), (i == *target) ? NkCol::foreground : NkCol::sidebarFg);
             if (hv && u.click) picked = i;
         }
         if (justOpened) return;   // ignore le clic d'ouverture
@@ -440,22 +459,13 @@ namespace nkcode {
         const float32 isz = u.s(14);
         if (icon) NkDrawIcon(u, icon, { r.x + u.s(9), r.y + (r.h - isz) * 0.5f, isz, isz }, NkCol::mutedFg);
         else      u.Icon("search", { r.x + u.s(9), r.y + (r.h - u.s(13)) * 0.5f, u.s(13), u.s(13) }, NkCol::mutedFg);
-        if (focused) {
-            if (u.ctx->input.KeyPressedRepeat(NkGuiKey::Backspace)) { int32 n = 0; while (buf[n]) ++n; if (n > 0) buf[n - 1] = '\0'; }
-            for (int32 i = 0; i < u.ctx->input.charCount; ++i) {
-                const uint32 cp = u.ctx->input.chars[i];
-                if (cp >= 32 && cp < 127) { int32 n = 0; while (buf[n]) ++n; if (n + 1 < cap) { buf[n] = (char)cp; buf[n + 1] = '\0'; } }
-            }
-        }
+        (void)caretOn;
         const float32 tx = r.x + u.s(28), ty = r.y + (r.h - u.Lh()) * 0.5f;
         const float32 availW = r.x + r.w - u.s(10) - tx;
-        if (buf[0]) u.TextEllipsis(tx, ty, availW, buf, NkCol::foreground);
-        else        u.Text(tx, ty, placeholder, NkCol::mutedFg);
-        if (focused && caretOn) {   // caret clignotant (curseur de saisie)
-            float32 cxp = tx + (buf[0] ? u.TextW(buf) : 0.f);
-            if (cxp > tx + availW) cxp = tx + availW;
-            u.dl->AddRectFilled({ cxp + u.s(1.f), r.y + u.s(7), u.s(1.5f), r.h - u.s(14) }, NkCol::primary, 0.f);
-        }
+        // Saisie complete (selection, copier/couper/coller, double-clic) via l'editeur unifie.
+        if (focused)     NkOwEditA(u, r, buf, cap, u.ctx->input.dt, u.s(28));
+        else if (buf[0]) u.TextEllipsis(tx, ty, availW, buf, NkCol::foreground);
+        else             u.Text(tx, ty, placeholder, NkCol::mutedFg);
         return u.Hit(r) && u.click;
     }
 
@@ -472,21 +482,22 @@ namespace nkcode {
         const bool menuOpen      = (H->ctxIdx != -2);
         const bool comboWasOpen  = (H->comboOpen != 0);
         const bool renameWasOpen = H->renameOpen;
-        const bool anyPopup      = menuOpen || comboWasOpen || renameWasOpen;
+        const bool anyPopup      = menuOpen || comboWasOpen || renameWasOpen || NkTxtMenu().open;
         const bool caretOn      = (H->caretBlink - (float32)(int32)H->caretBlink) < 0.55f;   // clignotement ~1s
+        H->fieldClaim = false;   // reinitialise : un champ de recherche posera true s'il capte le clic
 
         // ── Barre de filtres : recherche + combo langage + combo systeme (fonctionnels) ──
         const float32 fh = u.s(30);
         const float32 cw = u.s(110);
         const NkRect searchR = { left.x, left.y, left.w - cw * 2.f - u.s(16), fh };
-        { const bool clk = NkHomeSearch(u, searchR, H->searchText, (int32)sizeof(H->searchText), H->focusField == 1, H->icons.search, "Filtrer les recents...", caretOn);
-          if (!anyPopup && clk) H->focusField = 1; }
+        { const bool clk = NkHomeSearch(u, searchR, H->searchText, (int32)sizeof(H->searchText), H->focusField == 1, H->icons.search, NkT("home.search.recents"), caretOn);
+          if (!anyPopup && clk) { H->focusField = 1; H->fieldClaim = true; } }
         // Chip = bouton ouvrant un COMBO BOX (liste deroulante des options).
         auto chip = [&](float32 x, int32 which, int32 idx, const char* const* opts) {
             const NkRect c = { x, left.y, cw, fh };
             const bool active = (idx != 0);
             u.Panel(c, NkCol::input, (active || H->comboOpen == which) ? NkCol::primary : NkCol::border, NkR::md * u.S);
-            u.TextV(c.x + u.s(10), c.y, fh, opts[idx], active ? NkCol::foreground : NkCol::mutedFg);
+            u.TextV(c.x + u.s(10), c.y, fh, NkFilterLabel(opts, idx), active ? NkCol::foreground : NkCol::mutedFg);
             u.Icon("chevron-down", { c.x + cw - u.s(18), c.y + (fh - u.s(12)) * 0.5f, u.s(12), u.s(12) }, NkCol::mutedFg);
             if (!anyPopup && u.Hit(c) && u.click) { H->comboOpen = which; H->comboPos = { c.x, c.y + fh + u.s(3) }; H->comboW = cw; H->focusField = 0; }
         };
@@ -551,7 +562,7 @@ namespace nkcode {
             bool hasAny = false;
             for (usize i = 0; i < st->pinned.Size() && !hasAny; ++i) hasAny = pinnedPasses(i);
             if (hasAny) {
-                const bool open = groupHeader(0, "EPINGLES", NkCol::accent);
+                const bool open = groupHeader(0, NkT("home.pinned"), NkCol::accent);
                 for (usize i = 0; open && i < st->pinned.Size(); ++i) {
                     if (!pinnedPasses(i)) continue;
                     const auto meta = st->WorkspaceMeta(st->pinned[i].CStr());
@@ -577,36 +588,55 @@ namespace nkcode {
         // ── RÉCENTS groupes PAR DATE (AUJOURD'HUI / CETTE SEMAINE / PLUS ANCIEN).
         //    Le workspace COURANT est fondu dans ces groupes (idx -1), trie par mtime. ──
         {
-            struct Row { int32 idx; int64 mtime; int32 bucket; };   // idx -1 = courant
+            struct Row { int32 idx; int64 mtime; NkString gkey; };   // idx -1 = courant ; gkey = libelle de groupe
             NkVector<Row> rows;
-            if (!curWsPath.Empty()) {                                // le courant : montre (riche) dans son bucket, si filtre OK
+            // groupBy : 0 Date (buckets d'age), 1 Plateforme (1re plateforme), 2 Langage.
+            const int32 gmode = H->settings.groupBy;
+            auto firstTok = [](const char* s) -> NkString { NkString t; for (const char* c = s; *c && *c != ',' && *c != ';'; ++c) { if (*c == ' ' && t.Empty()) continue; t += *c; } return t; };
+            auto gkeyOf = [&](int64 mt, const char* platforms, const char* langVer) -> NkString {
+                if (gmode == 1) { const NkString p = firstTok(platforms ? platforms : ""); return p.Empty() ? NkString(NkT("home.nogroup")) : p; }
+                if (gmode == 2) { return (langVer && *langVer) ? NkString(langVer) : NkString(NkT("home.nogroup")); }
+                return NkString(NkHomeBucketLabel(NkCodeState::AgeBucket(mt, now)));
+            };
+            if (!curWsPath.Empty()) {                                // le courant : montre (riche) dans son groupe, si filtre OK
                 const NkString cn = st->root.GetFileName(), cp = st->root.ToString();
                 if (passFilter(cn.CStr(), cp.CStr(), "C++20", st->infoOSes.CStr())) {
                     const int64 mt = st->WorkspaceMeta(curWsPath.CStr()).activity;
-                    rows.PushBack({ -1, mt, NkCodeState::AgeBucket(mt, now) });
+                    rows.PushBack({ -1, mt, gkeyOf(mt, st->infoOSes.CStr(), "C++20") });
                 }
             }
             for (usize i = 0; st && i < st->recents.Size(); ++i) {
                 if (!curWsPath.Empty() && StrEq(curWsPath.CStr(), st->recents[i].CStr())) continue;   // pas de doublon avec le courant
+                const char* rp = st->recents[i].CStr();
+                if (!NkDirectory::Exists(rp) && !NkFile::Exists(rp)) continue;   // workspace disparu du disque -> ne pas l'afficher
                 const auto meta = st->WorkspaceMeta(st->recents[i].CStr());
                 const char* nm = (i < st->recentNames.Size() && !st->recentNames[i].Empty()) ? st->recentNames[i].CStr() : st->recents[i].CStr();
                 if (!passFilter(nm, st->recents[i].CStr(), meta.langVer.CStr(), meta.platforms.CStr())) continue;   // filtres actifs
-                rows.PushBack({ (int32)i, meta.activity, NkCodeState::AgeBucket(meta.activity, now) });
+                rows.PushBack({ (int32)i, meta.activity, gkeyOf(meta.activity, meta.platforms.CStr(), meta.langVer.CStr()) });
             }
-            for (usize a = 0; a < rows.Size(); ++a)                  // tri mtime decroissant (peu d'elements)
-                for (usize b = a + 1; b < rows.Size(); ++b)
-                    if (rows[b].mtime > rows[a].mtime) { Row t = rows[a]; rows[a] = rows[b]; rows[b] = t; }
+            auto keyLess = [](const NkString& A, const NkString& B) -> bool { const char* a = A.CStr(); const char* b = B.CStr(); while (*a && *a == *b) { ++a; ++b; } return (unsigned char)*a < (unsigned char)*b; };
+            for (usize a = 0; a < rows.Size(); ++a)                  // tri : Date = mtime desc ; sinon groupe (asc) puis mtime desc
+                for (usize b = a + 1; b < rows.Size(); ++b) {
+                    bool swap;
+                    if (gmode == 0) swap = rows[b].mtime > rows[a].mtime;
+                    else { if (keyLess(rows[b].gkey, rows[a].gkey)) swap = true; else if (keyLess(rows[a].gkey, rows[b].gkey)) swap = false; else swap = rows[b].mtime > rows[a].mtime; }
+                    if (swap) { Row t = rows[a]; rows[a] = rows[b]; rows[b] = t; }
+                }
+            // recentsMax : plafonne le nombre de workspaces affiches (0/vide = illimite).
+            { const int32 rmax = std::atoi(H->settings.recentsMax);
+              if (rmax > 0) while ((int32)rows.Size() > rmax) rows.Erase(rows.Begin() + (rows.Size() - 1)); }
 
             if (rows.Empty()) {
                 u.Icon("chevron-down", { listArea.x, y + u.s(1), u.s(12), u.s(12) }, NkCol::mutedFg);
-                u.Text(listArea.x + u.s(18), y, "RECENTS", NkCol::mutedFg); y += u.s(20);
-                u.Text(listArea.x + u.s(2), y, "(aucun workspace recent)", NkCol::mutedFg); y += u.s(24);
+                u.Text(listArea.x + u.s(18), y, NkT("home.recents"), NkCol::mutedFg); y += u.s(20);
+                u.Text(listArea.x + u.s(2), y, NkT("home.norecent"), NkCol::mutedFg); y += u.s(24);
             }
-            int32 lastBucket = -1; bool bucketOpen = true;
+            NkString lastKey; bool haveKey = false; int32 gcount = 0; bool bucketOpen = true;
             for (usize r = 0; r < rows.Size(); ++r) {
-                if (rows[r].bucket != lastBucket) {                  // nouvel en-tete de bucket (pliable)
-                    lastBucket  = rows[r].bucket;
-                    bucketOpen  = groupHeader(1 + lastBucket, NkCodeState::BucketLabel(lastBucket), NkCol::mutedFg);
+                if (!haveKey || !StrEq(rows[r].gkey.CStr(), lastKey.CStr())) {   // nouvel en-tete de groupe (pliable)
+                    lastKey = rows[r].gkey; haveKey = true;
+                    int32 gid = 1 + gcount; if (gid > 23) gid = 23; ++gcount;
+                    bucketOpen = groupHeader(gid, lastKey.CStr(), NkCol::mutedFg);
                 }
                 if (!bucketOpen) continue;                          // groupe plie -> cartes masquees
                 const int32 idx = rows[r].idx;
@@ -651,7 +681,7 @@ namespace nkcode {
 
         // applique les actions differees (apres le dessin)
         if (!revealPath.Empty()) NkHomeOpenFolder(revealPath);   // chemin clique -> revele dans l'explorateur
-        if (loadCur) { if (dlg) { if (H->st) H->st->RequestReload(); } dlg->showStart = false; return; }
+        if (loadCur) { if (dlg && !curWsPath.Empty()) dlg->DoLoad(NkPath(curWsPath.CStr()).GetParent()); return; }   // ecran de chargement
         auto pathOf = [&](int32 idx) -> NkString { return idx >= 2000 ? curWsPath : idx >= 1000 ? st->pinned[idx - 1000] : st->recents[idx]; };
         if (doLoad >= 0) { dlg->DoLoad(NkPath(pathOf(doLoad).CStr()).GetParent()); return; }
         if (doPin  >= 0) {   // (des)epingle : courant (2000) ou epingle (>=1000) -> retire ; recent -> epingle
@@ -667,25 +697,25 @@ namespace nkcode {
         //    puis BAS DEFILABLE = UNIQUEMENT la liste des exemples. ──
         const float32 rcw = right.w;             // zone fixe : pas de scrollbar
         float32 ry = right.y + u.s(2);
-        u.Text(right.x, ry, "ACTIONS RAPIDES", NkCol::mutedFg); ry += u.s(22);
+        u.Text(right.x, ry, NkT("home.actions"), NkCol::mutedFg); ry += u.s(22);
         const float32 qh = u.s(52);
-        { const bool c = NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.nouveau, "Nouveau Workspace", "Creer un workspace Jenga", NkCol::primary, NkCol::primary); if (!anyPopup && c) H->nav = 2; }
+        { const bool c = NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.nouveau, NkT("nav.newws"), NkT("qa.newws.sub"), NkCol::primary, NkCol::primary); if (!anyPopup && c) H->nav = 2; }
         ry += qh + u.s(10);
-        { const bool c = NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.ouvrir, "Ouvrir un Workspace", "Parcourir un dossier .jenga", NkCol::border, NkCol::mutedFg); if (!anyPopup && c) H->nav = 1; }
+        { const bool c = NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.ouvrir, NkT("qa.openws"), NkT("qa.openws.sub"), NkCol::border, NkCol::mutedFg); if (!anyPopup && c) H->nav = 1; }
         ry += qh + u.s(10);
-        { const bool c = NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.ouvrirDossier, "Ouvrir un Dossier", "Explorer un dossier de projets", NkCol::border, NkCol::mutedFg); if (!anyPopup && c) H->nav = 1; }
+        { const bool c = NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.ouvrirDossier, NkT("qa.openfolder"), NkT("qa.openfolder.sub"), NkCol::border, NkCol::mutedFg); if (!anyPopup && c) H->nav = 1; }
         ry += qh + u.s(10);
-        (void)NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.cloner, "Cloner depuis Git", "GitHub, GitLab, Bitbucket...", NkCol::secondary, NkCol::secondaryFg);  // TODO clone
+        { const bool c = NkQuickAction(u, { right.x, ry, rcw, qh }, H->icons.cloner, NkT("qa.clone"), NkT("qa.clone.sub"), NkCol::secondary, NkCol::secondaryFg); if (!anyPopup && c) H->nav = 3; }
         ry += qh + u.s(18);
 
         u.Rect({ right.x, ry - u.s(8), rcw, 1.f }, NkCol::border);
         // En-tete + compteur (exemples enumeres via `jenga examples list`).
-        { char hdr[48]; std::snprintf(hdr, sizeof(hdr), "EXEMPLES JENGA (%d)", st ? (int)st->examples.Size() : 0);
+        { char hdr[48]; std::snprintf(hdr, sizeof(hdr), "%s (%d)", NkT("home.examples"), st ? (int)st->examples.Size() : 0);
           u.Text(right.x, ry, hdr, NkCol::mutedFg); } ry += u.s(20);
         // Recherche d'exemple (champ fixe, hors scroll).
         const NkRect exSearchR = { right.x, ry, rcw, u.s(28) };
-        { const bool clk = NkHomeSearch(u, exSearchR, H->exSearch, (int32)sizeof(H->exSearch), H->focusField == 2, H->icons.search, "Rechercher un exemple...", caretOn);
-          if (!anyPopup && clk) H->focusField = 2; }
+        { const bool clk = NkHomeSearch(u, exSearchR, H->exSearch, (int32)sizeof(H->exSearch), H->focusField == 2, H->icons.search, NkT("home.search.examples"), caretOn);
+          if (!anyPopup && clk) { H->focusField = 2; H->fieldClaim = true; } }
         ry += u.s(28) + u.s(10);
 
         // ── Zone DEFILABLE : la LISTE des exemples uniquement ──
@@ -710,17 +740,108 @@ namespace nkcode {
             if (e.platforms.CStr()[0]) u.TextEllipsis(exList.x + u.s(28), ey + u.s(4) + u.Lh(), elw - u.s(34), e.platforms.CStr(), NkCol::mutedFg);
             ey += u.s(42); ++shown;
         }
-        if (st && st->examples.Empty()) { u.Text(exList.x, ey, "(chargement des exemples...)", NkCol::mutedFg); ey += u.s(20); }
-        else if (shown == 0)            { u.Text(exList.x, ey, "(aucun exemple trouve)", NkCol::mutedFg); ey += u.s(20); }
+        if (st && st->examples.Empty()) { u.Text(exList.x, ey, NkT("home.ex.loading"), NkCol::mutedFg); ey += u.s(20); }
+        else if (shown == 0)            { u.Text(exList.x, ey, NkT("home.ex.none"), NkCol::mutedFg); ey += u.s(20); }
 
         const float32 elContentH = (ey + H->scrollR) - exList.y;
         H->scrollRMax = elContentH > exList.h ? elContentH - exList.h : 0.f;   // memorise pour borner la frame suivante
         u.dl->PopClipRect();
         NkVScroll(u, exList, elContentH, H->scrollR, 2, H);   // scrollbar de la LISTE d'exemples
 
+        // Clic dans le vide (hors champ de recherche, hors popup) -> defocus des champs.
+        if (u.click && !anyPopup && !H->fieldClaim && u.Hit(r)) H->focusField = 0;
         NkHomeCardMenu(u, H, st, dlg, /*justOpened=*/!menuOpen);    // menu "..." dessine EN DERNIER (au-dessus de tout)
         NkHomeCombo(u, H, /*justOpened=*/!comboWasOpen);           // combo box des filtres (au-dessus de tout)
         NkHomeRenamePopup(u, H, st, /*justOpened=*/!renameWasOpen); // popup de renommage (au-dessus de tout)
+    }
+
+    // ── Écran de Chargement (section 14) : workspace sélectionné -> éditeur ──
+    // Progression pilotée par le VRAI chargement (LoadFolder + jenga info). Escape = annuler.
+    inline void NkDrawLoading(const NkUi& u, NkHomeState* H, float32 dt) {
+        NkLoadingState& L = H->dlg->loading;
+        NkCodeState* st = H->st;
+        if (!L.error) L.Tick(st, dt);
+
+        const float32 W = (float32)u.ctx->viewW, Ht = (float32)u.ctx->viewH;
+        const float32 top = u.ctx->titleBarH > 1.f ? u.ctx->titleBarH : 0.f;
+        u.Rect({ 0, 0, W, Ht }, NkCol::background);
+        // Halos d'accent subtils, légèrement animés (fond vivant).
+        auto glow = [&](float32 gx, float32 gy, float32 rad, uint8 al) { u.dl->AddRectFilled({ gx - rad, gy - rad, rad * 2, rad * 2 }, NkColor{ NkCol::primary.r, NkCol::primary.g, NkCol::primary.b, al }, rad); };
+        glow(W * 0.30f, Ht * 0.30f + std::sin(L.anim * 0.6f) * u.s(18), u.s(230), 14);
+        glow(W * 0.72f, Ht * 0.60f + std::cos(L.anim * 0.5f) * u.s(22), u.s(260), 10);
+
+        const float32 colW = u.s(460);
+        const float32 cx = (W - colW) * 0.5f;
+        float32 y = top + Ht * 0.10f;
+        auto center = [&](const char* t, const NkColor& c, float32 yy) { u.Text((W - u.TextW(t)) * 0.5f, yy, t, c); };
+
+        // Logo + NKCode + version
+        if (H->logoIcon) u.dl->AddImage(H->logoIcon, { (W - u.s(52)) * 0.5f, y, u.s(52), u.s(52) }, { 0,0 }, { 1,1 }, NkColor{ 255,255,255,255 });
+        else NkBrandMark(u, { (W - u.s(40)) * 0.5f, y, u.s(40), u.s(40) }, NkCol::primary);
+        y += u.s(66);
+        center("NKCode", NkCol::foreground, y); y += u.s(24);
+        center(NkT("load.version"), NkCol::mutedFg, y); y += u.s(34);
+
+        if (!L.error) {
+            { char b[160]; std::snprintf(b, sizeof(b), NkT("load.loading"), L.wsName.CStr()); center(b, NkCol::foreground, y); } y += u.s(30);
+            { char pc[8]; std::snprintf(pc, sizeof(pc), "%d%%", (int32)(L.Progress() * 100.f)); u.Text(cx, y, pc, NkCol::mutedFg); } y += u.s(18);
+            u.dl->AddRectFilled({ cx, y, colW, u.s(6) }, NkCol::muted, u.s(3));
+            u.dl->AddRectFilled({ cx, y, colW * L.Progress(), u.s(6) }, NkCol::primary, u.s(3));
+            y += u.s(26);
+            for (int32 i = 0; i < NkLoadingState::STEPS; ++i) {
+                const bool done = i < L.step, cur = (i == L.step);
+                NkColor tint = done ? NkCol::success : (cur ? NkCol::primary : NkCol::mutedFg);
+                if (cur) { const float32 p = 0.5f + 0.5f * std::sin(L.anim * 4.f); tint.a = (uint8)(120 + (int32)(135 * p)); }
+                u.Icon(done ? "check-circle" : (cur ? "refresh" : "circle"), { cx, y + u.s(1), u.s(14), u.s(14) }, tint);
+                u.Text(cx + u.s(24), y, L.StepLabel(i).CStr(), (done || cur) ? NkCol::foreground : NkCol::mutedFg);
+                y += u.s(24);
+            }
+            y += u.s(16);
+            { NkString info = NkT("load.startupproj"); info += " "; info += st->SelectedProject();
+              info += "    \xC2\xB7    "; info += NkT("load.config"); info += " "; info += st->ConfigName();
+              center(info.CStr(), NkCol::mutedFg, y); } y += u.s(28);
+            { NkString jv = "Jenga "; jv += H->settings.jengaVersion.Empty() ? NkString("\xE2\x80\xA6") : H->settings.jengaVersion;
+              center(jv.CStr(), NkCol::mutedFg, y); } y += u.s(30);
+            center(NkT("load.escape"), NkCol::mutedFg, y);
+            if (u.ctx->input.KeyPressed(NkGuiKey::Escape)) L.Cancel();
+        } else {
+            // ── État d'erreur ──
+            for (int32 i = 0; i < 5; ++i) {
+                const bool done = i < L.step;
+                u.Icon(done ? "check-circle" : "circle", { cx, y + u.s(1), u.s(13), u.s(13) }, done ? NkCol::success : NkCol::mutedFg);
+                u.Text(cx + u.s(22), y, L.StepLabel(i).CStr(), done ? NkCol::foreground : NkCol::mutedFg);
+                y += u.s(22);
+            }
+            y += u.s(12);
+            const NkRect box = { cx, y, colW, u.s(150) };
+            u.Panel(box, NkColor{ 40, 20, 22, 255 }, NkCol::danger, NkR::md * u.S);
+            u.Icon("alert-triangle", { box.x + u.s(12), box.y + u.s(12), u.s(15), u.s(15) }, NkCol::danger);
+            u.Text(box.x + u.s(34), box.y + u.s(11), NkT("load.err.title"), NkCol::danger);
+            { char b[220]; std::snprintf(b, sizeof(b), NkT("load.err.cannotparse"), L.wsName.CStr()); u.TextEllipsis(box.x + u.s(14), box.y + u.s(36), colW - u.s(28), b, NkCol::foreground); }
+            const NkRect code = { box.x + u.s(14), box.y + u.s(58), colW - u.s(28), u.s(52) };
+            u.Panel(code, NkCol::input, NkCol::border, NkR::sm * u.S);
+            u.TextEllipsis(code.x + u.s(10), code.y + u.s(8), code.w - u.s(20), L.errLine.CStr(), NkCol::danger);
+            if (!L.errHint.Empty()) { NkString h = NkT("load.cause"); h += " "; h += L.errHint; u.TextEllipsis(code.x + u.s(10), code.y + u.s(28), code.w - u.s(20), h.CStr(), NkCol::mutedFg); }
+            y = box.y + box.h + u.s(16);
+            const float32 bw = (colW - u.s(20)) / 3.f;
+            auto ebtn = [&](float32 bx, const char* icon, const char* lab, const NkColor& bg, const NkColor& fg) -> bool {
+                const NkRect b = { bx, y, bw, u.s(34) }; const bool hv = u.Hit(b);
+                u.Rect(b, hv ? NkCol::hover : bg, NkR::md * u.S);
+                const float32 tw = u.TextW(lab) + u.s(20);
+                u.Icon(icon, { b.x + (bw - tw) * 0.5f, b.y + u.s(10), u.s(13), u.s(13) }, fg);
+                u.TextV(b.x + (bw - tw) * 0.5f + u.s(20), b.y, u.s(34), lab, fg);
+                return hv && u.click;
+            };
+            if (ebtn(cx, "edit", NkT("load.openjenga"), NkCol::muted, NkCol::foreground)) {
+                if (H->dlg->shell) H->dlg->shell->LoadUiState(st->UiConfigPath().CStr());
+                H->dlg->showStart = false; L.active = false; L.error = false; H->dlg->Close();
+            }
+            if (ebtn(cx + bw + u.s(10), "copy", NkT("load.copyerr"), NkCol::muted, NkCol::foreground)) {
+                NkString all = L.errLine; if (!L.errHint.Empty()) { all += "\n"; all += L.errHint; } u.ctx->SetClipboard(all.CStr());
+            }
+            if (ebtn(cx + (bw + u.s(10)) * 2.f, "chevron-left", NkT("load.backlauncher"), NkCol::primary, NkCol::primaryFg)) L.Cancel();
+            if (u.ctx->input.KeyPressed(NkGuiKey::Escape)) L.Cancel();
+        }
     }
 
     // ── Point d'entree : ecran d'accueil PLEIN CADRE (via SetStartScreen) ──
@@ -728,8 +849,28 @@ namespace nkcode {
         if (!H || !H->dlg || !H->dlg->showStart) return;
         H->caretBlink += ec.dt;                          // avance le clignotement du caret
         if (H->caretBlink > 1.0e6f) H->caretBlink = 0.f; // anti-overflow lointain
-        const NkUi u = NkUi::From(ec);
+        NkUi u = NkUi::From(ec);
         if (!u.Valid()) return;
+        // Langue GLOBALE : chargee des le demarrage + appliquee chaque frame -> toute l'UI se traduit
+        // en temps reel (pas seulement l'ecran Parametres).
+        if (!H->settings.loaded) H->settings.Load();
+        NkI18nSet(H->settings.lang);
+        NkApplyTheme(H->settings.theme, H->settings.accent);   // thème GLOBAL (Dark Pro/Dark/Midnight/Light) + accent, temps réel
+        // Écran de chargement (section 14) : prioritaire sur le launcher tant qu'un workspace charge.
+        if (H->dlg->loading.active) {
+            NkDrawLoading(u, H, ec.dt);
+            if (H->dlg->loading.finished) {   // -> bascule vers l'éditeur
+                if (H->dlg->shell) H->dlg->shell->LoadUiState(H->st->UiConfigPath().CStr());
+                H->dlg->showStart = false; H->dlg->loading.active = false; H->dlg->loading.finished = false; H->dlg->Close();
+            }
+            return;
+        }
+        NkTextMenuInput(u);   // menu contextuel : traite le clic AVANT les panneaux et le CONSOMME (rien ne passe)
+        // Menu ouvert = MODAL : on neutralise le fond (souris hors-champ) -> plus de survol ni de clic
+        // derriere ; on restaure la vraie position juste avant de dessiner le menu.
+        const bool txtMenuOpen = NkTxtMenu().open;
+        const NkVec2 savedMp = u.mp; const bool savedClick = u.click;
+        if (txtMenuOpen) { u.mp = NkVec2{ -100000.f, -100000.f }; u.click = false; }
         // pompe jenga info (toolchains/projets) comme avant
         if (H->st) { H->st->ScanWorkspaces(); H->st->LoadProjects(); H->st->PollProjects(); H->st->PollConfig(); H->st->LoadExamples(); H->st->PollExamples(); }
         const float32 W = (float32)u.ctx->viewW, Ht = (float32)u.ctx->viewH;
@@ -741,9 +882,19 @@ namespace nkcode {
             if (NkOpenWsPanel(u, panel, &H->ow, H->st, H->dlg, ec.dt, H->icons) == 1) H->nav = 0;   // Annuler -> retour Accueil
         } else if (H->nav == 2) {                            // wizard « Nouveau Workspace »
             if (NkNewWsPanel(u, panel, &H->nw, H->st, H->dlg, ec.dt, H->icons) == 1) H->nav = 0;     // Annuler -> retour Accueil
+        } else if (H->nav == 3) {                            // panneau « Cloner un depot Git »
+            if (NkCloneGitPanel(u, panel, &H->cg, H->st, H->dlg, ec.dt, H->icons) == 1) H->nav = 0;  // Annuler -> retour Accueil
+        } else if (H->nav == 10) {                           // gestionnaire de toolchains
+            if (NkToolchainsPanel(u, panel, &H->tc, &H->nw, H->st, H->dlg, ec.dt, H->icons) == 1) H->nav = 0;
+        } else if (H->nav == 11) {                           // gestionnaire de plateformes
+            if (NkPlatformsPanel(u, panel, &H->tc, &H->nw, H->st, H->dlg, ec.dt, H->icons) == 1) H->nav = 0;
+        } else if (H->nav == 12) {                           // parametres du launcher
+            if (NkSettingsPanel(u, panel, &H->settings, H->st, H->dlg, ec.dt, H->icons, &H->nav) == 1) H->nav = 0;
         } else {
             NkHomePanel(u, panel, H);                        // Accueil (recents + actions + exemples)
         }
+        if (txtMenuOpen) { u.mp = savedMp; u.click = savedClick; }   // restaure la vraie souris pour le menu
+        NkDrawTextMenu(u);                                   // menu contextuel des champs (clic droit) — AU-DESSUS de tout
     }
 
 } // namespace nkcode

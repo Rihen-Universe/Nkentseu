@@ -22,6 +22,8 @@
  */
 
 #include "NkSceneLifecycleSystem.h"
+#include "NKECS/System/NkScheduler.h"   // NkScheduler (params RegisterSceneLifecycle/RegisterScene)
+#include "Noge/ECS/NkEcsUtil.h"         // NkStrEqual
 
 namespace nkentseu {
     namespace ecs {
@@ -52,7 +54,7 @@ namespace nkentseu {
             return NkSystemDesc{}
                 .InGroup(NkSystemGroup::FixedUpdate)
                 .Named("NkSceneFixedTick")
-                .Priority(100);
+                .WithPriority(100);
         }
 
         /**
@@ -89,7 +91,7 @@ namespace nkentseu {
             return NkSystemDesc{}
                 .InGroup(NkSystemGroup::Update)
                 .Named("NkSceneTick")
-                .Priority(100);
+                .WithPriority(100);
         }
 
         /**
@@ -125,7 +127,7 @@ namespace nkentseu {
             return NkSystemDesc{}
                 .InGroup(NkSystemGroup::PostUpdate)
                 .Named("NkSceneLateTick")
-                .Priority(200);
+                .WithPriority(200);
         }
 
         /**
@@ -167,9 +169,10 @@ namespace nkentseu {
             // Création et enregistrement des trois systèmes de lifecycle
             // L'ordre d'ajout n'affecte pas l'exécution — c'est Describe() qui détermine
             // le groupe et la priorité dans le DAG du scheduler
-            scheduler.AddSystem(new NkSceneFixedTickSystem(scene));
-            scheduler.AddSystem(new NkSceneTickSystem(scene));
-            scheduler.AddSystem(new NkSceneLateTickSystem(scene));
+            // AddSystem<T>(args) instancie le systeme en interne (pas de new brut).
+            scheduler.AddSystem<NkSceneFixedTickSystem>(scene);
+            scheduler.AddSystem<NkSceneTickSystem>(scene);
+            scheduler.AddSystem<NkSceneLateTickSystem>(scene);
         }
 
     } // namespace ecs

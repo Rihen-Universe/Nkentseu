@@ -25,9 +25,9 @@
 //   };
 // =============================================================================
 
-#include "NkLayer.h"
-#include "NkApplication.h"
-#include "NkProfiler.h"
+#include "../Core/NkLayer.h"
+#include "../Core/NkApplication.h"
+#include "../Core/NkProfiler.h"
 #include "NKECS/World/NkWorld.h"
 #include "NKECS/System/NkScheduler.h"
 #include "Noge/ECS/Scene/NkSceneManager.h"
@@ -35,8 +35,8 @@
 #include "Noge/ECS/Systems/NkTransformSystem.h"
 #include "Noge/ECS/Entities/NkBehaviourSystem.h"
 #include "Noge/ECS/Scripting/NkScriptSystem.h"
-#include "Nkentseu/Renderer/NkRenderSystem.h"
-#include "NKRenderer/src/NkRenderer.h"
+#include "Noge/ECS/Systems/NkRenderSystem.h"
+#include "NKRenderer/NkRenderer.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKContainers/String/NkString.h"
 
@@ -77,7 +77,7 @@ namespace nkentseu {
             [[nodiscard]] ecs::NkScheduler&        GetScheduler()    noexcept { return mScheduler; }
             [[nodiscard]] ecs::NkSceneManager&     GetSceneManager() noexcept { return mSceneMgr; }
             [[nodiscard]] NkRenderSystem&          GetRenderSystem() noexcept { return mRenderSystem; }
-            [[nodiscard]] renderer::NkRenderer&    GetRenderer()     noexcept { return mRenderer; }
+            [[nodiscard]] renderer::NkRenderer*    GetRenderer()     noexcept { return mRenderer; }
 
             // ── Raccourcis scène ──────────────────────────────────────────
             /**
@@ -118,11 +118,10 @@ namespace nkentseu {
              * @brief Redimensionne le renderer (appel depuis OnResize de l'app).
              */
             void Resize(nk_uint32 w, nk_uint32 h) noexcept {
-                if (mRendererInitialized) {
-                    mRenderer.Resize(w, h);
-                    mResizeW = w;
-                    mResizeH = h;
-                }
+                // Le resize du renderer est piloté par NkApplication (propriétaire).
+                // On mémorise juste la taille pour les systèmes ECS.
+                mResizeW = w;
+                mResizeH = h;
             }
 
         private:
@@ -136,7 +135,7 @@ namespace nkentseu {
             ecs::NkScheduler      mScheduler;
             ecs::NkSceneManager   mSceneMgr;
 
-            renderer::NkRenderer  mRenderer;
+            renderer::NkRenderer* mRenderer = nullptr;  // EMPRUNTÉ à NkApplication (non possédé)
             NkRenderSystem        mRenderSystem;
 
             bool                  mRendererInitialized = false;

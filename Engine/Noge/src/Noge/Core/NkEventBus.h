@@ -136,12 +136,12 @@ namespace nkentseu {
             // TFunctor : callable bool(TEvent*)
             template<typename TEvent, typename TFunctor>
             static NkEventHandlerId Subscribe(TFunctor&& functor) {
-                static_assert(sizeof(TFunctor) <= internal::NkkLambdaStorage,
+                static_assert(sizeof(TFunctor) <= internal::kLambdaStorage,
                     "Functor trop grand pour le stockage inline EventBus — "
                     "capturer moins de variables ou augmenter kLambdaStorage");
 
                 auto& reg   = internal::NkGetRegistry();
-                nk_uint32 typeId = TEvent::StaticTypeId();
+                nk_uint32 typeId = TEvent::GetStaticType();
                 auto* table = reg.FindOrCreate(typeId);
                 if (!table) return NK_INVALID_HANDLER_ID;
 
@@ -170,11 +170,11 @@ namespace nkentseu {
             static NkEventHandlerId Subscribe(TClass* obj,
                                             bool(TClass::*fn)(TEvent*)) {
                 using MemberFn = bool(TClass::*)(TEvent*);
-                static_assert(sizeof(MemberFn) <= internal::NkkLambdaStorage,
+                static_assert(sizeof(MemberFn) <= internal::kLambdaStorage,
                     "Pointeur de méthode trop grand pour le stockage inline EventBus");
 
                 auto& reg    = internal::NkGetRegistry();
-                nk_uint32 typeId = TEvent::StaticTypeId();
+                nk_uint32 typeId = TEvent::GetStaticType();
                 auto* table  = reg.FindOrCreate(typeId);
                 if (!table) return NK_INVALID_HANDLER_ID;
 
@@ -198,7 +198,7 @@ namespace nkentseu {
             static void Unsubscribe(NkEventHandlerId id) {
                 if (id == NK_INVALID_HANDLER_ID) return;
                 auto& reg   = internal::NkGetRegistry();
-                auto* table = reg.Find(TEvent::StaticTypeId());
+                auto* table = reg.Find(TEvent::GetStaticType());
                 if (!table) return;
 
                 for (nk_uint32 i = 0; i < NK_EVENTBUS_MAX_HANDLERS; ++i) {
@@ -239,7 +239,7 @@ namespace nkentseu {
             // Retourne true si l'événement a été consommé.
             template<typename TEvent>
             static bool Dispatch(TEvent* event) {
-                return DispatchRaw(TEvent::StaticTypeId(), static_cast<NkEvent*>(event));
+                return DispatchRaw(TEvent::GetStaticType(), static_cast<NkEvent*>(event));
             }
 
             // Variante sans type connu à la compilation (pour dispatch depuis NKEvent).

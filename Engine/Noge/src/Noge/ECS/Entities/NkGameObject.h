@@ -29,6 +29,7 @@
 #include "Noge/ECS/Components/Core/NkTransform.h"
 #include "Noge/ECS/Components/Core/NkTag.h"
 #include "NkBehaviour.h"
+#include "NkBehaviourHost.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKCore/NkTraits.h"
@@ -37,7 +38,7 @@ namespace nkentseu {
     namespace ecs {
 
         class NkSceneGraph;
-        struct NkBehaviourHost;
+        // NkBehaviourHost : type complet via "NkBehaviourHost.h" (inclus ci-dessus).
 
         // =====================================================================
         // NkComponentBag<T> — Stockage multi-instances (SBO 8 éléments)
@@ -48,7 +49,7 @@ namespace nkentseu {
             NkComponentBag() noexcept = default;
             ~NkComponentBag() noexcept {
                 if (mIsHeap) { delete heapVec; }
-                else if constexpr (!traits::NkIsTriviallyDestructible_v<T>) {
+                else if constexpr (!traits::NkIsTriviallyDestructible<T>) {
                     for (uint32 i = 0; i < mCount; ++i)
                         reinterpret_cast<T*>(inlineBuf)[i].~T();
                 }
@@ -315,7 +316,7 @@ namespace nkentseu {
             if (!IsValid()) return nullptr;
             auto* host = mWorld->Get<NkBehaviourHost>(mId);
             if (!host) host = &mWorld->Add<NkBehaviourHost>(mId);
-            T* raw = host->template Add<T>(traits::NkForward<Args>(args)...);
+            T* raw = host->Add<T>(traits::NkForward<Args>(args)...);
             if (raw) raw->SetGameObject(this);
             return raw;
         }
@@ -323,7 +324,7 @@ namespace nkentseu {
         T* NkGameObject::GetBehaviour() const noexcept {
             if (!IsValid()) return nullptr;
             auto* host = mWorld->Get<NkBehaviourHost>(mId);
-            return host ? host->template Get<T>() : nullptr;
+            return host ? host->Get<T>() : nullptr;
         }
 
     } // namespace ecs

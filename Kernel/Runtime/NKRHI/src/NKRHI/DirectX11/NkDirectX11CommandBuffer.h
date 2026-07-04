@@ -74,6 +74,10 @@ namespace nkentseu {
             ID3D11DeviceContext1* mDeferred = nullptr;
             ID3D11CommandList*    mCmdList  = nullptr;
             NkCommandBufferType   mType;
+            // Un pipeline COMPUTE est-il lié ? -> un storage buffer se binde en UAV
+            // (compute) et NON en SRV (graphics). Éviter le double-bind SRV+UAV d'une
+            // même ressource (interdit en D3D11 -> débind intermittent = résultats flaky).
+            bool mComputeBound = false;
             UINT mVertexStrides[D3D11_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT] = {};
             float  mClearColor[4] = {0.f, 0.f, 0.f, 1.f};
             float  mClearDepth    = 1.f;

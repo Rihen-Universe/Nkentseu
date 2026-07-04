@@ -5,7 +5,7 @@
 #ifdef NK_RHI_METAL_ENABLED
 #import "NkMetalDevice.h"
 #import "NkMetalCommandBuffer.h"
-#import "NKRHI/Core/NkNativeContextAccess.h"
+#import <TargetConditionals.h>   // TARGET_OS_OSX / TARGET_OS_IPHONE
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
 #import <QuartzCore/CAMetalLayer.h>
@@ -37,14 +37,28 @@ static MTLPixelFormat ToMTLFormat(NkGPUFormat f) {
         case NkGPUFormat::NK_RG32_FLOAT:       return MTLPixelFormatRG32Float;
         case NkGPUFormat::NK_RGBA32_FLOAT:     return MTLPixelFormatRGBA32Float;
         case NkGPUFormat::NK_R32_UINT:         return MTLPixelFormatR32Uint;
-        case NkGPUFormat::NK_D16_UNORM:        return MTLPixelFormatDepth16Unorm;
+        // Depth16Unorm = iOS 13+, Depth24Unorm_Stencil8 + BC* = macOS uniquement.
+        // Sur iOS on retombe sur des formats universellement disponibles.
+        case NkGPUFormat::NK_D16_UNORM:
+#if TARGET_OS_OSX
+            return MTLPixelFormatDepth16Unorm;
+#else
+            return MTLPixelFormatDepth32Float;
+#endif
         case NkGPUFormat::NK_D32_FLOAT:        return MTLPixelFormatDepth32Float;
-        case NkGPUFormat::NK_D24_UNORM_S8_UINT:return MTLPixelFormatDepth24Unorm_Stencil8;
+        case NkGPUFormat::NK_D24_UNORM_S8_UINT:
+#if TARGET_OS_OSX
+            return MTLPixelFormatDepth24Unorm_Stencil8;
+#else
+            return MTLPixelFormatDepth32Float_Stencil8;
+#endif
         case NkGPUFormat::NK_D32_FLOAT_S8_UINT:return MTLPixelFormatDepth32Float_Stencil8;
+#if TARGET_OS_OSX
         case NkGPUFormat::NK_BC1_RGB_UNORM:    return MTLPixelFormatBC1_RGBA;
         case NkGPUFormat::NK_BC3_UNORM:        return MTLPixelFormatBC3_RGBA;
         case NkGPUFormat::NK_BC5_UNORM:        return MTLPixelFormatBC5_RGUnorm;
         case NkGPUFormat::NK_BC7_UNORM:        return MTLPixelFormatBC7_RGBAUnorm;
+#endif
         case NkGPUFormat::NK_R11G11B10_FLOAT:  return MTLPixelFormatRG11B10Float;
         case NkGPUFormat::NK_A2B10G10R10_UNORM:return MTLPixelFormatBGR10A2Unorm;
         default:                         return MTLPixelFormatRGBA8Unorm;
@@ -55,7 +69,12 @@ static MTLSamplerAddressMode ToMTLAddress(NkAddressMode a) {
         case NkAddressMode::NK_REPEAT:         return MTLSamplerAddressModeRepeat;
         case NkAddressMode::NK_MIRRORED_REPEAT: return MTLSamplerAddressModeMirrorRepeat;
         case NkAddressMode::NK_CLAMP_TO_EDGE:    return MTLSamplerAddressModeClampToEdge;
-        case NkAddressMode::NK_CLAMP_TO_BORDER:  return MTLSamplerAddressModeClampToBorderColor;
+        case NkAddressMode::NK_CLAMP_TO_BORDER:
+#if TARGET_OS_OSX
+            return MTLSamplerAddressModeClampToBorderColor;
+#else
+            return MTLSamplerAddressModeClampToEdge;  // ClampToBorderColor = iOS 14+
+#endif
         default:                            return MTLSamplerAddressModeRepeat;
     }
 }
@@ -148,32 +167,48 @@ static MTLVertexFormat ToMTLVertexFormat(NkVertexFormat f) {
 // =============================================================================
 NkMetalDevice::~NkMetalDevice() { if (mIsValid) Shutdown(); }
 
-bool NkMetalDevice::Initialize(NkIGraphicsContext* ctx) {
-    if (!ctx || !ctx->IsValid()) return false;
-    mCtx   = ctx;
-    mWidth = ctx->GetInfo().windowWidth;
-    mHeight= ctx->GetInfo().windowHeight;
+bool NkMetalDevice::Initialize(const NkDeviceInitInfo& init) {
+    const NkMetalDesc& desc = init.context.metal;
 
-    auto* native = NkNativeContext::Metal(ctx);
-    if (!native) { NK_MTL_ERR("Contexte non Metal\n"); return false; }
-    if (!native->metalLayer) {
-        NK_MTL_ERR("CAMetalLayer manquante dans NkMetalNativeContextData\n");
-        return false;
-    }
-    mLayer  = (__bridge CAMetalLayer*)native->metalLayer;
+    // Headless / compute-only : pas de CAMetalLayer -> on cree juste le MTLDevice
+    // + la queue (Metal n'exige pas de surface pour le compute). Sinon, la layer
+    // est FOURNIE par l'appelant (NKRHI ne connait pas la couche fenetrage).
+    const bool headless = (desc.metalLayer == nullptr);
 
-    // Le contexte expose la surface; le RHI selectionne/construit le device Metal.
-    if (native->preferredDevice) {
-        mDevice = (__bridge id<MTLDevice>)native->preferredDevice;
+    // Device : prefere celui fourni, sinon le device systeme par defaut.
+    if (desc.preferredDevice) {
+        mDevice = (__bridge id<MTLDevice>)desc.preferredDevice;
     } else {
         mDevice = MTLCreateSystemDefaultDevice();
     }
     if (!mDevice) { NK_MTL_ERR("MTLDevice indisponible\n"); return false; }
-
     mQueue = [mDevice newCommandQueue];
-    mLayer.device          = mDevice;
-    mLayer.pixelFormat     = MTLPixelFormatBGRA8Unorm_sRGB;
-    mLayer.drawableSize    = CGSizeMake(mWidth, mHeight);
+
+    if (headless) {
+        mLayer  = nil;
+        mWidth  = 0;
+        mHeight = 0;
+        QueryCaps();
+        mIsValid = true;
+        NK_MTL_LOG("Initialisé HEADLESS (compute, sans layer) sur %s\n",
+                   [mDevice.name UTF8String]);
+        return true;
+    }
+
+    mLayer = (__bridge CAMetalLayer*)desc.metalLayer;
+    mLayer.device      = mDevice;
+    mLayer.pixelFormat = MTLPixelFormatBGRA8Unorm_sRGB; // cf CreateSwapchainObjects (NK_BGRA8_SRGB)
+
+    // Dimensions : la layer est la source de verite (drawableSize, sinon bounds*scale).
+    CGSize ds = mLayer.drawableSize;
+    if (ds.width < 1.0 || ds.height < 1.0) {
+        CGFloat scale = mLayer.contentsScale > 0.0 ? mLayer.contentsScale : 1.0;
+        ds = CGSizeMake(mLayer.bounds.size.width  * scale,
+                        mLayer.bounds.size.height * scale);
+        mLayer.drawableSize = ds;
+    }
+    mWidth  = (uint32)ds.width;
+    mHeight = (uint32)ds.height;
 
     CreateSwapchainObjects();
     QueryCaps();
@@ -198,7 +233,7 @@ void NkMetalDevice::CreateSwapchainObjects() {
     // Framebuffer swapchain (la color attachment sera remplacée à chaque frame)
     NkFramebufferDesc fbd;
     fbd.renderPass = mSwapchainRP;
-    fbd.colorCount = 0; // sera remplie dans BeginFrame
+    // colorAttachments laisse vide ici (rempli dans BeginFrame avec le drawable).
     fbd.depthAttachment = mDepthTex;
     fbd.width = mWidth; fbd.height = mHeight;
     mSwapchainFB = CreateFramebuffer(fbd);
@@ -206,11 +241,13 @@ void NkMetalDevice::CreateSwapchainObjects() {
 
 void NkMetalDevice::Shutdown() {
     WaitIdle();
-    for (auto& [id, b] : mBuffers)  [(__bridge id<MTLBuffer>)b.buf  setPurgeableState:MTLPurgeableStateEmpty];
-    for (auto& [id, t] : mTextures) if (!t.isSwapchain) {} // ARC libère
-    mBuffers.clear(); mTextures.clear(); mSamplers.clear();
-    mShaders.clear(); mPipelines.clear(); mRenderPasses.clear();
-    mFramebuffers.clear(); mDescLayouts.clear(); mDescSets.clear();
+    mBuffers.ForEach([](const uint64&, NkMetalBuffer& b){
+        if (b.buf) [(__bridge id<MTLBuffer>)b.buf setPurgeableState:MTLPurgeableStateEmpty];
+    });
+    // (textures : rien a faire ici, ARC libere les id<MTLTexture>)
+    mBuffers.Clear(); mTextures.Clear(); mSamplers.Clear();
+    mShaders.Clear(); mPipelines.Clear(); mRenderPasses.Clear();
+    mFramebuffers.Clear(); mDescLayouts.Clear(); mDescSets.Clear();
     mIsValid = false;
     NK_MTL_LOG("Shutdown\n");
 }
@@ -242,14 +279,14 @@ NkBufferHandle NkMetalDevice::CreateBuffer(const NkBufferDesc& desc) {
 
 void NkMetalDevice::DestroyBuffer(NkBufferHandle& h) {
     threading::NkScopedLockMutex lock(mMutex);
-    auto it = mBuffers.find(h.id); if (it == mBuffers.end()) return;
-    if (it->second.buf) CFRelease(it->second.buf);
-    mBuffers.erase(it); h.id = 0;
+    auto* it = mBuffers.Find(h.id); if (!it) return;
+    if (it->buf) CFRelease(it->buf);
+    mBuffers.Erase(h.id); h.id = 0;
 }
 
 bool NkMetalDevice::WriteBuffer(NkBufferHandle buf, const void* data, uint64 sz, uint64 off) {
-    auto it = mBuffers.find(buf.id); if (it == mBuffers.end()) return false;
-    auto* b = (__bridge id<MTLBuffer>)it->second.buf;
+    auto* it = mBuffers.Find(buf.id); if (!it) return false;
+    auto* b = (__bridge id<MTLBuffer>)it->buf;
     if (b.storageMode == MTLStorageModeShared) {
         memcpy((uint8*)b.contents + off, data, (size_t)sz);
         return true;
@@ -265,14 +302,14 @@ bool NkMetalDevice::WriteBuffer(NkBufferHandle buf, const void* data, uint64 sz,
     return true;
 }
 bool NkMetalDevice::WriteBufferAsync(NkBufferHandle buf, const void* data, uint64 sz, uint64 off) {
-    auto it = mBuffers.find(buf.id); if (it == mBuffers.end()) return false;
-    auto* b = (__bridge id<MTLBuffer>)it->second.buf;
+    auto* it = mBuffers.Find(buf.id); if (!it) return false;
+    auto* b = (__bridge id<MTLBuffer>)it->buf;
     if (b.storageMode == MTLStorageModeShared) { memcpy((uint8*)b.contents+off,data,(size_t)sz); return true; }
     return WriteBuffer(buf,data,sz,off);
 }
 bool NkMetalDevice::ReadBuffer(NkBufferHandle buf, void* out, uint64 sz, uint64 off) {
-    auto it = mBuffers.find(buf.id); if (it == mBuffers.end()) return false;
-    auto* b = (__bridge id<MTLBuffer>)it->second.buf;
+    auto* it = mBuffers.Find(buf.id); if (!it) return false;
+    auto* b = (__bridge id<MTLBuffer>)it->buf;
     if (b.storageMode == MTLStorageModeShared) { memcpy(out,(uint8*)b.contents+off,(size_t)sz); return true; }
     id<MTLBuffer> stage = [mDevice newBufferWithLength:sz options:MTLResourceStorageModeShared];
     id<MTLCommandBuffer> cmd=[mQueue commandBuffer];
@@ -283,10 +320,10 @@ bool NkMetalDevice::ReadBuffer(NkBufferHandle buf, void* out, uint64 sz, uint64 
     return true;
 }
 NkMappedMemory NkMetalDevice::MapBuffer(NkBufferHandle buf, uint64 off, uint64 sz) {
-    auto it = mBuffers.find(buf.id); if (it == mBuffers.end()) return {};
-    auto* b = (__bridge id<MTLBuffer>)it->second.buf;
+    auto* it = mBuffers.Find(buf.id); if (!it) return {};
+    auto* b = (__bridge id<MTLBuffer>)it->buf;
     if (b.storageMode != MTLStorageModeShared) return {};
-    uint64 mapSz = sz > 0 ? sz : it->second.desc.sizeBytes - off;
+    uint64 mapSz = sz > 0 ? sz : it->desc.sizeBytes - off;
     return { (uint8*)b.contents + off, mapSz };
 }
 void NkMetalDevice::UnmapBuffer(NkBufferHandle) {} // No-op pour Metal shared
@@ -302,7 +339,7 @@ NkTextureHandle NkMetalDevice::CreateTexture(const NkTextureDesc& desc) {
     td.height       = desc.height;
     td.depth        = desc.depth > 0 ? desc.depth : 1;
     td.mipmapLevelCount = desc.mipLevels == 0
-        ? (NSUInteger)(floor(log2(std::max(desc.width, desc.height))) + 1)
+        ? (NSUInteger)(floor(log2((double)(desc.width > desc.height ? desc.width : desc.height))) + 1)
         : desc.mipLevels;
     td.arrayLength  = desc.arrayLayers;
     td.sampleCount  = (NSUInteger)desc.samples;
@@ -360,22 +397,22 @@ NkTextureHandle NkMetalDevice::CreateTexture(const NkTextureDesc& desc) {
 
 void NkMetalDevice::DestroyTexture(NkTextureHandle& h) {
     threading::NkScopedLockMutex lock(mMutex);
-    auto it = mTextures.find(h.id); if (it == mTextures.end()) return;
-    if (!it->second.isSwapchain && it->second.tex) CFRelease(it->second.tex);
-    mTextures.erase(it); h.id = 0;
+    auto* it = mTextures.Find(h.id); if (!it) return;
+    if (!it->isSwapchain && it->tex) CFRelease(it->tex);
+    mTextures.Erase(h.id); h.id = 0;
 }
 
 bool NkMetalDevice::WriteTexture(NkTextureHandle t, const void* p, uint32 rp) {
-    auto it = mTextures.find(t.id); if (it == mTextures.end()) return false;
-    auto& desc = it->second.desc;
+    auto* it = mTextures.Find(t.id); if (!it) return false;
+    auto& desc = it->desc;
     return WriteTextureRegion(t, p, 0, 0, 0, desc.width, desc.height, 1, 0, 0, rp);
 }
 bool NkMetalDevice::WriteTextureRegion(NkTextureHandle t, const void* pixels,
     uint32 x, uint32 y, uint32 /*z*/, uint32 w, uint32 h, uint32 /*d2*/,
     uint32 mip, uint32 slice, uint32 rowPitch) {
-    auto it = mTextures.find(t.id); if (it == mTextures.end()) return false;
-    auto* tex = (__bridge id<MTLTexture>)it->second.tex;
-    uint32 bpp = NkFormatBytesPerPixel(it->second.desc.format);
+    auto* it = mTextures.Find(t.id); if (!it) return false;
+    auto* tex = (__bridge id<MTLTexture>)it->tex;
+    uint32 bpp = NkFormatBytesPerPixel(it->desc.format);
     uint32 rp  = rowPitch > 0 ? rowPitch : w * bpp;
     id<MTLBuffer> stage = [mDevice newBufferWithBytes:pixels length:rp*h options:MTLResourceStorageModeShared];
     id<MTLCommandBuffer> cmd = [mQueue commandBuffer];
@@ -388,8 +425,8 @@ bool NkMetalDevice::WriteTextureRegion(NkTextureHandle t, const void* pixels,
     return true;
 }
 bool NkMetalDevice::GenerateMipmaps(NkTextureHandle t, NkFilter) {
-    auto it = mTextures.find(t.id); if (it == mTextures.end()) return false;
-    auto* tex = (__bridge id<MTLTexture>)it->second.tex;
+    auto* it = mTextures.Find(t.id); if (!it) return false;
+    auto* tex = (__bridge id<MTLTexture>)it->tex;
     id<MTLCommandBuffer> cmd = [mQueue commandBuffer];
     id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
     [blit generateMipmapsForTexture:tex];
@@ -419,9 +456,9 @@ NkSamplerHandle NkMetalDevice::CreateSampler(const NkSamplerDesc& d) {
 }
 void NkMetalDevice::DestroySampler(NkSamplerHandle& h) {
     threading::NkScopedLockMutex lock(mMutex);
-    auto it = mSamplers.find(h.id); if (it == mSamplers.end()) return;
-    if (it->second.ss) CFRelease(it->second.ss);
-    mSamplers.erase(it); h.id = 0;
+    auto* it = mSamplers.Find(h.id); if (!it) return;
+    if (it->ss) CFRelease(it->ss);
+    mSamplers.Erase(h.id); h.id = 0;
 }
 
 // =============================================================================
@@ -439,16 +476,19 @@ NkShaderHandle NkMetalDevice::CreateShader(const NkShaderDesc& desc) {
             NSString* src = [NSString stringWithUTF8String:s.mslSource];
             lib = [mDevice newLibraryWithSource:src options:nil error:&err];
             if (err) NK_MTL_ERR("Shader MSL: %s\n", [err.localizedDescription UTF8String]);
-        } else if (s.spirvData) {
-            // Metal ne lit pas nativement le SPIR-V
-            // Il faut SPIRV-Cross pour convertir en MSL — à faire en pré-build
+        } else if (!s.spirvBinary.Empty()) {
+            // Metal ne lit pas nativement le SPIR-V : conversion en MSL requise
+            // (SPIRV-Cross) en pré-build.
             NK_MTL_ERR("Metal: SPIR-V non supporté directement, utiliser MSL\n");
             continue;
-        } else if (s.metalLibPath) {
-            NSString* path = [NSString stringWithUTF8String:s.metalLibPath];
+        } else if (s.metalIRData && s.metalIRSize) {
+            // Metal IR / metallib précompilé fourni comme blob mémoire.
+            dispatch_data_t dd = dispatch_data_create(
+                s.metalIRData, (size_t)s.metalIRSize,
+                dispatch_get_main_queue(), DISPATCH_DATA_DESTRUCTOR_DEFAULT);
             NSError* err = nil;
-            lib = [mDevice newLibraryWithURL:[NSURL fileURLWithPath:path] error:&err];
-            if (err) NK_MTL_ERR("metallib: %s\n", [err.localizedDescription UTF8String]);
+            lib = [mDevice newLibraryWithData:dd error:&err];
+            if (err) NK_MTL_ERR("metallib (data): %s\n", [err.localizedDescription UTF8String]);
         }
 
         if (!lib) continue;
@@ -470,11 +510,11 @@ NkShaderHandle NkMetalDevice::CreateShader(const NkShaderDesc& desc) {
 }
 void NkMetalDevice::DestroyShader(NkShaderHandle& h) {
     threading::NkScopedLockMutex lock(mMutex);
-    auto it = mShaders.find(h.id); if (it == mShaders.end()) return;
-    if (it->second.vert) CFRelease(it->second.vert);
-    if (it->second.frag) CFRelease(it->second.frag);
-    if (it->second.comp) CFRelease(it->second.comp);
-    mShaders.erase(it); h.id = 0;
+    auto* it = mShaders.Find(h.id); if (!it) return;
+    if (it->vert) CFRelease(it->vert);
+    if (it->frag) CFRelease(it->frag);
+    if (it->comp) CFRelease(it->comp);
+    mShaders.Erase(h.id); h.id = 0;
 }
 
 // =============================================================================
@@ -482,8 +522,8 @@ void NkMetalDevice::DestroyShader(NkShaderHandle& h) {
 // =============================================================================
 NkPipelineHandle NkMetalDevice::CreateGraphicsPipeline(const NkGraphicsPipelineDesc& d) {
     threading::NkScopedLockMutex lock(mMutex);
-    auto sit = mShaders.find(d.shader.id); if (sit == mShaders.end()) return {};
-    auto& sh = sit->second;
+    auto* sit = mShaders.Find(d.shader.id); if (!sit) return {};
+    auto& sh = *sit;
 
     MTLRenderPipelineDescriptor* pd = [[MTLRenderPipelineDescriptor alloc] init];
     if (sh.vert) pd.vertexFunction   = (__bridge id<MTLFunction>)sh.vert;
@@ -509,12 +549,12 @@ NkPipelineHandle NkMetalDevice::CreateGraphicsPipeline(const NkGraphicsPipelineD
     }
 
     // Render target formats
-    auto rpit = mRenderPasses.find(d.renderPass.id);
-    if (rpit != mRenderPasses.end()) {
-        for (uint32 i = 0; i < rpit->second.desc.colorAttachments.Size(); i++)
-            pd.colorAttachments[i].pixelFormat = ToMTLFormat(rpit->second.desc.colorAttachments[i].format);
-        if (rpit->second.desc.hasDepth)
-            pd.depthAttachmentPixelFormat = ToMTLFormat(rpit->second.desc.depthAttachment.format);
+    auto* rpit = mRenderPasses.Find(d.renderPass.id);
+    if (rpit) {
+        for (uint32 i = 0; i < rpit->desc.colorAttachments.Size(); i++)
+            pd.colorAttachments[i].pixelFormat = ToMTLFormat(rpit->desc.colorAttachments[i].format);
+        if (rpit->desc.hasDepth)
+            pd.depthAttachmentPixelFormat = ToMTLFormat(rpit->desc.depthAttachment.format);
     } else {
         pd.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm_sRGB;
         pd.depthAttachmentPixelFormat      = MTLPixelFormatDepth32Float;
@@ -573,8 +613,8 @@ NkPipelineHandle NkMetalDevice::CreateGraphicsPipeline(const NkGraphicsPipelineD
 
 NkPipelineHandle NkMetalDevice::CreateComputePipeline(const NkComputePipelineDesc& d) {
     threading::NkScopedLockMutex lock(mMutex);
-    auto sit = mShaders.find(d.shader.id); if (sit == mShaders.end()) return {};
-    id<MTLFunction> comp = (__bridge id<MTLFunction>)sit->second.comp;
+    auto* sit = mShaders.Find(d.shader.id); if (!sit) return {};
+    id<MTLFunction> comp = (__bridge id<MTLFunction>)sit->comp;
     if (!comp) return {};
     NSError* err = nil;
     id<MTLComputePipelineState> cpso = [mDevice newComputePipelineStateWithFunction:comp error:&err];
@@ -586,11 +626,11 @@ NkPipelineHandle NkMetalDevice::CreateComputePipeline(const NkComputePipelineDes
 
 void NkMetalDevice::DestroyPipeline(NkPipelineHandle& h) {
     threading::NkScopedLockMutex lock(mMutex);
-    auto it = mPipelines.find(h.id); if (it == mPipelines.end()) return;
-    if (it->second.rpso) CFRelease(it->second.rpso);
-    if (it->second.cpso) CFRelease(it->second.cpso);
-    if (it->second.dss)  CFRelease(it->second.dss);
-    mPipelines.erase(it); h.id = 0;
+    auto* it = mPipelines.Find(h.id); if (!it) return;
+    if (it->rpso) CFRelease(it->rpso);
+    if (it->cpso) CFRelease(it->cpso);
+    if (it->dss)  CFRelease(it->dss);
+    mPipelines.Erase(h.id); h.id = 0;
 }
 
 // =============================================================================
@@ -602,7 +642,7 @@ NkRenderPassHandle NkMetalDevice::CreateRenderPass(const NkRenderPassDesc& d) {
     NkRenderPassHandle h; h.id = hid; return h;
 }
 void NkMetalDevice::DestroyRenderPass(NkRenderPassHandle& h) {
-    threading::NkScopedLockMutex lock(mMutex); mRenderPasses.erase(h.id); h.id = 0;
+    threading::NkScopedLockMutex lock(mMutex); mRenderPasses.Erase(h.id); h.id = 0;
 }
 
 NkFramebufferHandle NkMetalDevice::CreateFramebuffer(const NkFramebufferDesc& d) {
@@ -616,7 +656,7 @@ NkFramebufferHandle NkMetalDevice::CreateFramebuffer(const NkFramebufferDesc& d)
     NkFramebufferHandle h; h.id = hid; return h;
 }
 void NkMetalDevice::DestroyFramebuffer(NkFramebufferHandle& h) {
-    threading::NkScopedLockMutex lock(mMutex); mFramebuffers.erase(h.id); h.id = 0;
+    threading::NkScopedLockMutex lock(mMutex); mFramebuffers.Erase(h.id); h.id = 0;
 }
 
 // =============================================================================
@@ -628,7 +668,7 @@ NkDescSetHandle NkMetalDevice::CreateDescriptorSetLayout(const NkDescriptorSetLa
     NkDescSetHandle h; h.id = hid; return h;
 }
 void NkMetalDevice::DestroyDescriptorSetLayout(NkDescSetHandle& h) {
-    threading::NkScopedLockMutex lock(mMutex); mDescLayouts.erase(h.id); h.id = 0;
+    threading::NkScopedLockMutex lock(mMutex); mDescLayouts.Erase(h.id); h.id = 0;
 }
 NkDescSetHandle NkMetalDevice::AllocateDescriptorSet(NkDescSetHandle layout) {
     threading::NkScopedLockMutex lock(mMutex);
@@ -637,17 +677,18 @@ NkDescSetHandle NkMetalDevice::AllocateDescriptorSet(NkDescSetHandle layout) {
     NkDescSetHandle h; h.id = hid; return h;
 }
 void NkMetalDevice::FreeDescriptorSet(NkDescSetHandle& h) {
-    threading::NkScopedLockMutex lock(mMutex); mDescSets.erase(h.id); h.id = 0;
+    threading::NkScopedLockMutex lock(mMutex); mDescSets.Erase(h.id); h.id = 0;
 }
 void NkMetalDevice::UpdateDescriptorSets(const NkDescriptorWrite* writes, uint32 n) {
     threading::NkScopedLockMutex lock(mMutex);
     for (uint32 i = 0; i < n; i++) {
         auto& w = writes[i];
-        auto sit = mDescSets.find(w.set.id); if (sit == mDescSets.end()) continue;
+        auto* sit = mDescSets.Find(w.set.id); if (!sit) continue;
         NkMetalDescSet::Binding b{ w.binding, w.type, w.buffer.id, w.texture.id, w.sampler.id };
         bool found = false;
-        for (auto& e : sit->second.bindings) if (e.slot == w.binding) { e = b; found = true; break; }
-        if (!found) sit->second.bindings.push_back(b);
+        for (uint32 j = 0; j < sit->bindings.Size(); j++)
+            if (sit->bindings[j].slot == w.binding) { sit->bindings[j] = b; found = true; break; }
+        if (!found) sit->bindings.PushBack(b);
     }
 }
 
@@ -668,7 +709,7 @@ void NkMetalDevice::Submit(NkICommandBuffer* const* cbs, uint32 n, NkFenceHandle
         if (m) m->CommitAndWait();
     }
     if (fence.IsValid()) {
-        auto it = mFences.find(fence.id); if (it != mFences.end()) it->second.signaled = true;
+        auto* it = mFences.Find(fence.id); if (it) it->signaled = true;
     }
 }
 
@@ -685,15 +726,15 @@ NkFenceHandle NkMetalDevice::CreateFence(bool signaled) {
     uint64 hid = NextId(); mFences[hid] = { signaled };
     NkFenceHandle h; h.id = hid; return h;
 }
-void NkMetalDevice::DestroyFence(NkFenceHandle& h) { mFences.erase(h.id); h.id = 0; }
+void NkMetalDevice::DestroyFence(NkFenceHandle& h) { mFences.Erase(h.id); h.id = 0; }
 bool NkMetalDevice::WaitFence(NkFenceHandle f, uint64) {
-    auto it = mFences.find(f.id); return it != mFences.end() && it->second.signaled;
+    auto* it = mFences.Find(f.id); return it && it->signaled;
 }
 bool NkMetalDevice::IsFenceSignaled(NkFenceHandle f) {
-    auto it = mFences.find(f.id); return it != mFences.end() && it->second.signaled;
+    auto* it = mFences.Find(f.id); return it && it->signaled;
 }
 void NkMetalDevice::ResetFence(NkFenceHandle f) {
-    auto it = mFences.find(f.id); if (it != mFences.end()) it->second.signaled = false;
+    auto* it = mFences.Find(f.id); if (it) it->signaled = false;
 }
 void NkMetalDevice::WaitIdle() {
     id<MTLCommandBuffer> cmd = [mQueue commandBuffer];
@@ -716,11 +757,11 @@ bool NkMetalDevice::BeginFrame(NkFrameContext& frame) {
     mTextures[colorId] = swt;
 
     // Mettre à jour le framebuffer
-    auto fbit = mFramebuffers.find(mSwapchainFB.id);
-    if (fbit != mFramebuffers.end()) {
+    auto* fbit = mFramebuffers.Find(mSwapchainFB.id);
+    if (fbit) {
         NkTextureHandle ch; ch.id = colorId;
-        fbit->second.colorAttachments[0] = ch;
-        fbit->second.colorCount = 1;
+        fbit->colorAttachments[0] = ch;
+        fbit->colorCount = 1;
     }
 
     frame.frameIndex  = mFrameIndex;
@@ -744,10 +785,10 @@ void NkMetalDevice::OnResize(uint32 w, uint32 h) {
     NkTextureDesc dd = NkTextureDesc::DepthStencil(w, h);
     mDepthTex = CreateTexture(dd);
 
-    auto fbit = mFramebuffers.find(mSwapchainFB.id);
-    if (fbit != mFramebuffers.end()) {
-        fbit->second.depthAttachment = mDepthTex;
-        fbit->second.w = w; fbit->second.h = h;
+    auto* fbit = mFramebuffers.Find(mSwapchainFB.id);
+    if (fbit) {
+        fbit->depthAttachment = mDepthTex;
+        fbit->w = w; fbit->h = h;
     }
 }
 
@@ -760,7 +801,11 @@ void NkMetalDevice::QueryCaps() {
     mCaps.drawIndirect        = true;
     mCaps.multiViewport       = false; // Metal 3+
     mCaps.independentBlend    = true;
-    mCaps.textureCompressionBC= [mDevice supportsFamily:MTLGPUFamilyApple1] ? false : true;
+#if TARGET_OS_OSX
+    mCaps.textureCompressionBC = true;   // Macs (Intel/AMD/Apple Silicon en rosetta) : BC
+#else
+    mCaps.textureCompressionBC = false;  // iOS/GPU Apple : ASTC/ETC/PVRTC, pas de BC
+#endif
     mCaps.textureCompressionASTC = true;
     mCaps.maxTextureDim2D     = 16384;
     mCaps.maxTextureDim3D     = 2048;
@@ -770,29 +815,32 @@ void NkMetalDevice::QueryCaps() {
     mCaps.minUniformBufferAlign = 256;
     mCaps.timestampQueries    = true;
     mCaps.msaa2x = mCaps.msaa4x = mCaps.msaa8x = true;
-    mCaps.meshShaders = [mDevice supportsFamily:MTLGPUFamilyApple6];
+    // Mesh shaders = Metal 3 (Apple7+/famille recente) : indispo sur SDK anciens
+    // (les enums MTLGPUFamilyApple6/Metal3 n'existent pas avant iOS 13/16).
+    // Conservativement false ici ; a affiner avec @available sur SDK recent.
+    mCaps.meshShaders = false;
 }
 
 // =============================================================================
 // Accesseurs internes
 // =============================================================================
-NkMTLBuffer  NkMetalDevice::GetMTLBuffer(uint64 id) const {
-    auto it = mBuffers.find(id); return it != mBuffers.end() ? it->second.buf : nullptr;
+void* NkMetalDevice::GetMTLBuffer(uint64 id) const {
+    auto* it = mBuffers.Find(id); return it ? it->buf : nullptr;
 }
-NkMTLTexture NkMetalDevice::GetMTLTexture(uint64 id) const {
-    auto it = mTextures.find(id); return it != mTextures.end() ? it->second.tex : nullptr;
+void* NkMetalDevice::GetMTLTexture(uint64 id) const {
+    auto* it = mTextures.Find(id); return it ? it->tex : nullptr;
 }
-NkMTLSamplerState NkMetalDevice::GetMTLSampler(uint64 id) const {
-    auto it = mSamplers.find(id); return it != mSamplers.end() ? it->second.ss : nullptr;
+void* NkMetalDevice::GetMTLSampler(uint64 id) const {
+    auto* it = mSamplers.Find(id); return it ? it->ss : nullptr;
 }
 const NkMetalPipeline* NkMetalDevice::GetPipeline(uint64 id) const {
-    auto it = mPipelines.find(id); return it != mPipelines.end() ? &it->second : nullptr;
+    return mPipelines.Find(id);
 }
 const NkMetalDescSet* NkMetalDevice::GetDescSet(uint64 id) const {
-    auto it = mDescSets.find(id); return it != mDescSets.end() ? &it->second : nullptr;
+    return mDescSets.Find(id);
 }
 const NkMetalFramebuffer* NkMetalDevice::GetFBO(uint64 id) const {
-    auto it = mFramebuffers.find(id); return it != mFramebuffers.end() ? &it->second : nullptr;
+    return mFramebuffers.Find(id);
 }
 
 } // namespace nkentseu

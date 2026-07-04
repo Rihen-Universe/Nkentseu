@@ -72,6 +72,12 @@ with project("Noge"):
         "%{NKThreading.location}/src",
         "%{NKCanvas.location}/src",
         "%{NKRHI.location}/src",
+        "%{NKSL.location}/src",        # NKSL/Core/NkSLTypes.h via les headers NKRHI
+        "%{NKRenderer.location}/src",  # NKRenderer/NkRenderer.h (moteur 2D/3D Noge)
+        "%{NKCollision.location}/src", # NKCollision (pont physique ECS)
+        "%{NKPhysics.location}/src",   # NKPhysics/NkPhysicsWorld.h (NkPhysicsSystem)
+        "%{NKSerialization.location}/src",  # NKSerialization/NkSerializer.h (NkSceneSerializer)
+        "%{NKFileSystem.location}/src",     # NKFileSystem/NkFile.h (NkSceneSerializer)
         "%{NKFont.location}/src",
         "%{NKImage.location}/src",
         "%{NKStream.location}/src",   # NKIResource.h via NkImage.h
@@ -86,7 +92,7 @@ with project("Noge"):
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
 
-    _DEPS = ["NKGlad", "NKUI", "NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKFont", "NKImage", "NKECS"]
+    _DEPS = ["NKGlad", "NKUI", "NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKSL", "NKRenderer", "NKCollision", "NKPhysics", "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKECS"]
    
     dependson(_DEPS)
     _RENDERER_DEFINES = [

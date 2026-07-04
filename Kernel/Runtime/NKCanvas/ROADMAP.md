@@ -611,6 +611,12 @@ Légende : Livré, Partiel, En cours, TODO, Abandonné.
   (1440p+). Envisager Direct2D présenter pour software fallback.
 - Path XShm vs MIT-SHM extension : vérifier que XShm est dispo (sinon
   fallback XPutImage non-shm très lent).
+- **Rasteriseur CPU lui-même** (scalaire mono-thread) : très en retard sur lavapipe
+  (Vulkan software Mesa = JIT LLVM + SIMD + tiling multi-thread, 10-100× plus rapide).
+  Pistes par gain décroissant : **(1) tiling multi-thread** (tuiles 32/64 px via NKThreading
+  ThreadPool → x4-x8 seul), **(2) SIMD AVX** (4-8 pixels via NKMath/NkSIMD dans fragment/blend/
+  depth, quad 2×2 pour dérivées), **(3) tri par état** (pré-trier par pipeline/material, sortir
+  les branches du hot loop). Mutualiser avec le backend Software NKRHI (`NkSWRasterizer`).
 
 ---
 

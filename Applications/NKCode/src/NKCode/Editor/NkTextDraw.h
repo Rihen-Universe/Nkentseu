@@ -7,6 +7,8 @@
 //   du texte passe par AddTextRange (police). Partage par l'editeur et le terminal.
 // =============================================================================
 #include "NKGui/NKGui.h"
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
 namespace nkcode {
@@ -41,6 +43,63 @@ namespace nkcode {
         if (cp < 0x800)     { dst[0] = static_cast<char>(0xC0 | (cp >> 6)); dst[1] = static_cast<char>(0x80 | (cp & 0x3F)); return 2; }
         if (cp < 0x10000)   { dst[0] = static_cast<char>(0xE0 | (cp >> 12)); dst[1] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); dst[2] = static_cast<char>(0x80 | (cp & 0x3F)); return 3; }
         dst[0] = static_cast<char>(0xF0 | (cp >> 18)); dst[1] = static_cast<char>(0x80 | ((cp >> 12) & 0x3F)); dst[2] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); dst[3] = static_cast<char>(0x80 | (cp & 0x3F)); return 4;
+    }
+
+    // ── Réparation du DOUBLE-ENCODAGE UTF-8 (« mojibake ») ────────────────────
+    // Un fichier UTF-8 relu en CP1252 puis re-sauvé en UTF-8 donne "Ã©" au lieu de "é".
+    // Réparer = décoder l'UTF-8 courant en codepoints, remapper chaque codepoint vers
+    // son OCTET CP1252 d'origine ; le flux d'octets obtenu EST l'UTF-8 correct.
+    // Renvoie l'octet CP1252 d'un codepoint ; ok=false si le codepoint n'en provient pas.
+    inline unsigned char NkCp1252ByteOf(uint32 cp, bool& ok) {
+        ok = true;
+        if (cp < 0x80u)                 return static_cast<unsigned char>(cp);
+        if (cp >= 0xA0u && cp <= 0xFFu) return static_cast<unsigned char>(cp);
+        switch (cp) {   // spécifiques CP1252 (plage 0x80-0x9F)
+            case 0x20ACu: return 0x80; case 0x201Au: return 0x82; case 0x0192u: return 0x83;
+            case 0x201Eu: return 0x84; case 0x2026u: return 0x85; case 0x2020u: return 0x86;
+            case 0x2021u: return 0x87; case 0x02C6u: return 0x88; case 0x2030u: return 0x89;
+            case 0x0160u: return 0x8A; case 0x2039u: return 0x8B; case 0x0152u: return 0x8C;
+            case 0x017Du: return 0x8E; case 0x2018u: return 0x91; case 0x2019u: return 0x92;
+            case 0x201Cu: return 0x93; case 0x201Du: return 0x94; case 0x2022u: return 0x95;
+            case 0x2013u: return 0x96; case 0x2014u: return 0x97; case 0x02DCu: return 0x98;
+            case 0x2122u: return 0x99; case 0x0161u: return 0x9A; case 0x203Au: return 0x9B;
+            case 0x0153u: return 0x9C; case 0x017Eu: return 0x9E; case 0x0178u: return 0x9F;
+        }
+        ok = false; return 0;
+    }
+    // Longueur d'une chaîne C (sans dépendre de <cstring>).
+    inline const char* NkStrEndPtr(const char* s) { const char* e = s; while (*e) ++e; return e; }
+
+    // Répare une chaîne double-encodée -> UTF-8 correct. Les codepoints non issus de
+    // CP1252 (contenu déjà bon / CJK réel) sont laissés tels quels (sécurité contenu mixte).
+    inline NkString NkMojibakeRepair(const char* s) {
+        if (!s) return NkString();
+        const char* end = NkStrEndPtr(s);
+        NkVector<char> out;
+        for (const char* p = s; p < end; ) {
+            const char* q = p; const uint32 cp = NkDecodeU8(q, end);
+            bool ok; const unsigned char b = NkCp1252ByteOf(cp, ok);
+            if (ok) out.PushBack(static_cast<char>(b));
+            else    { char t[4]; const int32 n = NkEncodeU8(cp, t); for (int32 i = 0; i < n; ++i) out.PushBack(t[i]); }
+            p = q;
+        }
+        out.PushBack('\0');
+        return NkString(out.Data());
+    }
+    // Détecte un contenu vraisemblablement double-encodé : compte les têtes de mojibake
+    // (Ã U+00C3, Â U+00C2, â U+00E2) suivies d'un codepoint « haut ». Seuil prudent.
+    inline bool NkMojibakeDetect(const char* s) {
+        if (!s) return false;
+        const char* end = NkStrEndPtr(s);
+        int32 hits = 0;
+        for (const char* p = s; p < end; ) {
+            const char* q = p; const uint32 cp = NkDecodeU8(q, end);
+            if (cp == 0x00C3u || cp == 0x00C2u || cp == 0x00E2u) {
+                const char* r = q; if (r < end) { const uint32 nx = NkDecodeU8(r, end); if (nx >= 0x80u && nx <= 0x2122u) ++hits; }
+            }
+            p = q;
+        }
+        return hits >= 4;
     }
 
     // ── Menu contextuel (clic droit) Copier/Couper/Coller — reutilise par

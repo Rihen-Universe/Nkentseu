@@ -233,6 +233,21 @@ void main() {
         mat3 TBN = mat3(normalize(vTangent), normalize(vBitangent), normalize(vNormal));
         N = normalize(TBN * nTs);
     }
+
+    // Geometric Specular AA (Kaplanyan/Tokuyoshi). Là où la normale N varie vite en
+    // écran (silhouettes / forte courbure des sphères), le reflet spéculaire sharp est
+    // sous-échantillonné -> il SCINTILLE au mouvement de la caméra (aliasing de shading,
+    // que ni MSAA ni FXAA ne corrigent). On élargit la roughness effective selon la
+    // variance de N (dérivées écran) -> reflet plus doux sur les zones à forte courbure
+    // -> plus de shimmer. Affecte le spéculaire direct (NDF) ET l'IBL prefilter via rog.
+    {
+        vec3  dNx    = dFdx(N);
+        vec3  dNy    = dFdy(N);
+        float geoVar = dot(dNx, dNx) + dot(dNy, dNy);
+        float kRough = min(2.0 * geoVar, 0.25);           // cap (KAPPA)
+        rog = min(sqrt(rog * rog + kRough), 1.0);
+    }
+
     vec3 camPosForV = uCam.camPos.xyz;
     if (uCam.reflectionFlags.x > 0.5) camPosForV.y = -camPosForV.y;
     vec3 V    = normalize(camPosForV - vWorldPos);

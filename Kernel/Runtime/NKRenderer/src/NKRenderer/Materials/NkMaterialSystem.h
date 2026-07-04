@@ -330,10 +330,12 @@ namespace nkentseu {
                 // propager dans ObjBlock.triplanarParams.
                 float32 mTriplanarTileSize    = 0.0f;
                 struct Param {
+                    Param() : name(), kind(Kind::F), f(0.f), tex() {}
+
                     NkString name;
                     enum class Kind:uint8{F,V2,V3,V4,I,B,TEX} kind = Kind::F;
                     union {
-                        float32 f = 0.f;
+                        float32 f;
                         math::NkVec2f v2;
                         math::NkVec3f v3;
                         math::NkVec4f v4;

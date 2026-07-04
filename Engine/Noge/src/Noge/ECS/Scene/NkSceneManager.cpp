@@ -23,8 +23,8 @@
 
 #include "NkSceneManager.h"
 
-// Logger global pour les messages d'erreur/info — à adapter à votre système de logging
-extern nkentseu::logger::NkLogger logger;
+// `logger` est une MACRO fournie par NKLogger/NkLog.h (pas une variable globale).
+// Ne pas la redéclarer en extern (cela casse l'expansion de la macro).
 
 namespace nkentseu {
     namespace ecs {
@@ -265,7 +265,7 @@ namespace nkentseu {
 
             // ── Étape 2 : Scène de chargement (si transition animée) ──
             if (transition.type != NkTransitionType::Instant &&
-                !transition.loadingScene.IsEmpty()) {
+                !transition.loadingScene.Empty()) {
                 LoadLoadingScene(transition.loadingScene);
             }
 
@@ -317,7 +317,7 @@ namespace nkentseu {
          *          qu'un rechargement complet.
          */
         bool NkSceneManager::ReloadCurrent() noexcept {
-            if (mCurrentName.IsEmpty()) {
+            if (mCurrentName.Empty()) {
                 return false;
             }
             // Recharge avec transition instantanée par défaut

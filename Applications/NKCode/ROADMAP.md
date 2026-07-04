@@ -92,6 +92,21 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 - ⬜ **Débogueur** (points d'arrêt) intégré.
 - ⬜ Système d'**extensions** ; sens inverse **texte → graphe** (parsing).
 - ⬜ Portage tactile/web (le moteur le permet).
+- 🟡 **Internationalisation (i18n)** : document de traductions multi-langue (démarré
+  côté Paramètres › Général) ; 5 langues majeures + Ghomala' (bamiléké).
+
+## Phase 12 — Intégration Jenga « zéro-dépendance » (in-process) ⬜
+> Objectif : **Jenga totalement intégré et fiable** dans NKCode, sans imposer
+> l'installation de Python à l'utilisateur, **en gardant le DSL Python**.
+- ⬜ **Embarquer libpython dans NKCode** (in-process) : exécuter Jenga **dans**
+  l'IDE via `libpython`/`pybind`, **sans spawn de `jenga.exe`** → plus rapide,
+  ultra-fiable, remontée directe des erreurs/logs (fin des popen fragiles).
+- ⬜ **CPython embeddable** bundlé (~10–15 Mo) : zéro install côté utilisateur,
+  plus de conflits de version.
+- ⬜ (Optionnel, côté Jenga) **cœur natif C++** pour le graphe de build/cache, le
+  `.jenga` restant le frontend Python via l'interpréteur embarqué.
+- 🎯 **Jalon** : `Construire` lance Jenga in-process, aucun Python système requis.
+  (Voir aussi Jenga `ROADMAP.md` § 6.5.)
 
 ## Phase 10 — Extensions (NKCode devient une plateforme) ⬜
 - ⬜ **API d'extension** + **points de contribution** (commandes, panneaux, langages, **nœuds**, thèmes).

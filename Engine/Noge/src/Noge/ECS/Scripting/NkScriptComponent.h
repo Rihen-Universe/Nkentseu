@@ -3,9 +3,9 @@
 // DESCRIPTION: Système de scripting natif C++ (cycle de vie Unity/MonoBehaviour).
 // =============================================================================
 #pragma once
-#include "../NkECSDefines.h"
-#include "../World/NkWorld.h"
-#include "../System/NkSystem.h"
+#include "NKECS/NkECSDefines.h"
+#include "NKECS/World/NkWorld.h"
+#include "NKECS/System/NkSystem.h"
 #include <memory>
 #include <vector>
 #include <type_traits>

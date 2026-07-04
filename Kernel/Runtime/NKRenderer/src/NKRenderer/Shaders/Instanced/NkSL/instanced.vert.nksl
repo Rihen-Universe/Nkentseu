@@ -1,0 +1,90 @@
+// ============================================================================
+// instanced.vert.nksl — NKRenderer — Vertex instancié (source NkSL UNIQUE)
+// Compilé par NkSLCompiler vers : GLSL-GL · GLSL-Vulkan · HLSL-DX11 · HLSL-DX12 · MSL
+//
+// GPU instancing 1-draw : la matrice modèle (et le tint) de CHAQUE instance est
+// lue dans un buffer indexé par gl_InstanceID (NkSL canonique). Le compilateur
+// le mappe par backend : GL gl_InstanceID · VK gl_InstanceIndex · DX SV_InstanceID.
+// Un seul DrawAll(mesh, count) dessine les N instances à leurs vraies positions.
+// ============================================================================
+
+// Caméra (set 0, binding 0) — même layout que le PBR.
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4 view;
+    mat4 proj;
+    mat4 viewProj;
+    mat4 invViewProj;
+    vec4 camPos;
+    vec4 camDir;
+    vec2 viewport;
+    float time;
+    float deltaTime;
+} cam;
+
+// ObjectUBO (set 1, binding 1) — DÉCLARÉ pour que la layout du set objet corresponde
+// EXACTEMENT à celle du skin (binding1=Object, binding2=bones/instances). Sur DX la
+// root signature vient du shader : sans binding1, elle ne matche pas le set objet
+// pré-câblé -> les instances (binding2) n'arrivent pas (GL/DX). uObj.model sert de
+// transform de base (identité ici) et garde le bloc « utilisé » (pas éliminé).
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model;
+    mat4  normalMatrix;
+    vec4  tint;
+    float metallic;
+    float roughness;
+    float aoStrength;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRoughness;
+    float subsurface;
+    vec4  subsurfaceColor;
+    vec4  shadowOverrides;
+    vec4  triplanarParams;
+} uObj;
+
+// Buffer d'instances (set 1 = set objet, binding 2 — comme les bones du skin).
+// model + tint PAR instance. 128 instances/draw (10 Ko, sous la limite UBO GL
+// garantie de 16 Ko) ; au-delà le renderer découpe en plusieurs draws.
+@binding(set=1, binding=4)
+uniform InstanceUBO {
+    mat4 models[128];
+    vec4 tints[128];
+} inst;
+
+@location(0) in vec3 aPos;
+@location(1) in vec3 aNormal;
+@location(2) in vec3 aTangent;
+@location(3) in vec2 aUV;
+@location(4) in vec2 aUV2;
+@location(5) in vec4 aColor;
+
+@location(0) out vec3 vWorldPos;
+@location(1) out vec3 vNormal;
+@location(2) out vec3 vTangent;
+@location(3) out vec2 vUV;
+@location(4) out vec4 vColor;
+
+@stage(vertex)
+@entry
+void main() {
+    // uObj.model = transform de base partagé (identité par défaut) ; l'instance porte
+    // la position/échelle. worldPos = base * instance * pos. Garde uObj « utilisé ».
+    mat4 m        = uObj.model * inst.models[gl_InstanceID];
+    vec4 worldPos = m * vec4(aPos, 1.0);
+    vWorldPos     = worldPos.xyz;
+
+    mat3 nm       = mat3(transpose(inverse(m)));
+    vNormal       = normalize(nm * aNormal);
+    vTangent      = normalize(nm * aTangent);
+
+    vUV           = aUV;
+    // Couleur = tint PAR instance, SANS multiplier par aColor : le mesh peut ne pas
+    // fournir d'attribut COLOR (aColor=0) -> sinon vColor=0 -> cubes noirs sur les
+    // backends qui utilisent ce shader (GL/DX). Le tint porte déjà la couleur voulue.
+    vColor        = inst.tints[gl_InstanceID];
+
+    gl_Position   = cam.viewProj * worldPos;
+}

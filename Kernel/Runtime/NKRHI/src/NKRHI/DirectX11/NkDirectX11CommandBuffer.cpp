@@ -38,7 +38,17 @@ namespace nkentseu {
     }
 
     void NkDirectX11CommandBuffer::Execute(NkDirectX11Device* dev) {
-        if (mCmdList) dev->Ctx()->ExecuteCommandList(mCmdList, FALSE);
+        if (mCmdList) {
+            dev->Ctx()->ExecuteCommandList(mCmdList, FALSE);
+            // Relâcher le command list DÈS l'exécution (au lieu d'attendre le Reset de la
+            // frame suivante). Sinon il garde des références sur les ressources qu'il
+            // référence — dont le RTV du back-buffer (via BeginRenderPass) — jusqu'à la
+            // frame d'après. Or un resize (OnResize) survient AVANT ce Reset : la référence
+            // traînante fait échouer IDXGISwapChain::ResizeBuffers en DXGI_ERROR_INVALID_CALL
+            // -> fallback recreate -> swapchain occlus -> ÉCRAN FIGÉ après maximize DX11.
+            mCmdList->Release();
+            mCmdList = nullptr;
+        }
     }
 
     // =============================================================================
@@ -127,6 +137,7 @@ namespace nkentseu {
     void NkDirectX11CommandBuffer::BindComputePipeline(NkPipelineHandle p) {
         auto* pipe = mDev->GetPipeline(p.id);
         if (!pipe || !pipe->isCompute) return;
+        mComputeBound = true;   // les storage buffers -> UAV (pas SRV)
         mDeferred->CSSetShader(pipe->cs, nullptr, 0);
     }
 
@@ -186,20 +197,21 @@ namespace nkentseu {
                         }
                     } else if (s.type == NkDescriptorType::NK_STORAGE_BUFFER ||
                                s.type == NkDescriptorType::NK_STORAGE_BUFFER_DYNAMIC) {
-                        // Storage buffer LU en graphics (skinning : bones[]) ->
-                        // SRV ByteAddressBuffer en VS/PS. Le converter NkSL->HLSL
-                        // (ce SPIRV-Cross) place TOUJOURS le ByteAddressBuffer au
-                        // register t0 (compteur SRV propre aux raw buffers,
-                        // independant du binding GLSL). On binde donc a t0, pas a
-                        // t<slot>. Sans ce bind, le VS skin lit une SRV nulle ->
-                        // bones=0 -> mesh a l'origine -> INVISIBLE sur DX11.
-                        if (s.srv) {
+                        // Un storage buffer a une SRV ET une UAV. D3D11 INTERDIT de lier
+                        // la même ressource en SRV et UAV simultanément (débind aléatoire
+                        // de l'une -> résultats flaky). On choisit selon le mode :
+                        if (mComputeBound) {
+                            // COMPUTE read-write -> UAV en CS, register = binding (u<slot>).
+                            if (s.uav) mDeferred->CSSetUnorderedAccessViews(slot, 1, &s.uav, nullptr);
+                        } else if (s.srv) {
+                            // GRAPHICS read (skinning : bones[]) -> SRV ByteAddressBuffer
+                            // en VS/PS a t0 (le converter place le raw buffer readonly a t0).
                             ID3D11ShaderResourceView* srvBones = s.srv;
                             mDeferred->VSSetShaderResources(0, 1, &srvBones);
                             mDeferred->PSSetShaderResources(0, 1, &srvBones);
                         }
                     } else {
-                        // UAV (compute)
+                        // UAV (compute) — descripteur explicitement typé UAV.
                         if (s.uav) mDeferred->CSSetUnorderedAccessViews(slot, 1, &s.uav, nullptr);
                     }
                     break;

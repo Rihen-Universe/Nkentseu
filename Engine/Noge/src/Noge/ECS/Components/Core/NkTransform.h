@@ -49,7 +49,10 @@ namespace nkentseu {
                 localRotation = q; worldDirty = true;
             }
             void SetLocalRotationEuler(float32 pitchDeg, float32 yawDeg, float32 rollDeg) noexcept {
-                localRotation = NkQuatf(NkEulerAngle(pitchDeg, yawDeg, rollDeg));
+                localRotation = NkQuatf(NkEulerAngle(
+                    nkentseu::math::NkAngle(pitchDeg),
+                    nkentseu::math::NkAngle(yawDeg),
+                    nkentseu::math::NkAngle(rollDeg)));
                 worldDirty = true;
             }
             void Rotate(const NkQuatf& delta) noexcept {

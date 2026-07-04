@@ -113,9 +113,12 @@ bool NkDirectX12Device::Initialize(const NkDeviceInitInfo& init) {
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
     mHwnd = init.surface.hwnd;
 #endif
-    if (!mHwnd) {
-        NK_DX12_ERR("HWND manquant dans NkDeviceInitInfo.surface\n");
-        return false;
+    // Headless / compute-only : pas de HWND -> device SANS swapchain. Le device
+    // DX12 (+ queues, heaps) n'exige pas de fenêtre ; seul le swapchain en a besoin.
+    // Permet à NKAI (NKTensor) d'utiliser le GPU sans ouvrir de fenêtre.
+    const bool headless = (mHwnd == nullptr);
+    if (headless) {
+        NK_DX12_LOG("Mode headless (pas de HWND) : compute/offscreen sans swapchain\n");
     }
 
     mWidth  = NkDeviceInitWidth(init);
@@ -271,7 +274,7 @@ bool NkDirectX12Device::Initialize(const NkDeviceInitInfo& init) {
     }
 
     InitDescriptorHeaps();
-    CreateSwapchain(mWidth, mHeight);
+    if (!headless) CreateSwapchain(mWidth, mHeight);
     QueryCaps();
 
     mIsValid = true;

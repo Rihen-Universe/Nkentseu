@@ -449,12 +449,35 @@ namespace nkentseu {
 	NkDialogResult NkDialogs::OpenFolderDialog(const NkString &) {
 		return {};
 	}
+	// iOS : OpenMessageBox est implemente en UIKit dans NkDialogs_iOS.mm.
+	#if !defined(NKENTSEU_PLATFORM_IOS)
 	void NkDialogs::OpenMessageBox(const NkString &, const NkString &, int) {
 	}
+	#endif
 	NkDialogResult NkDialogs::ColorPicker(uint32) {
 		return {};
 	}
 
+	#endif
+
+	// ===========================================================================
+	// Variantes ASYNCHRONES — implementation generique (desktop + stubs).
+	// Sur iOS elles sont implementees en UIKit (NkDialogs_iOS.mm) ; ailleurs on
+	// enveloppe l'API synchrone et on invoque le callback immediatement.
+	// ===========================================================================
+	#if !defined(NKENTSEU_PLATFORM_IOS)
+	void NkDialogs::OpenFileDialogAsync(const Callback& cb, const NkString& filter, const NkString& title) {
+		NkDialogResult r = OpenFileDialog(filter, title);
+		if (cb) cb(r);
+	}
+	void NkDialogs::SaveFileDialogAsync(const Callback& cb, const NkString& defaultExt, const NkString& title) {
+		NkDialogResult r = SaveFileDialog(defaultExt, title);
+		if (cb) cb(r);
+	}
+	void NkDialogs::OpenFolderDialogAsync(const Callback& cb, const NkString& title) {
+		NkDialogResult r = OpenFolderDialog(title);
+		if (cb) cb(r);
+	}
 	#endif
 
 } // namespace nkentseu

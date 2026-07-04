@@ -4,10 +4,17 @@
 #include "NkDeviceFactory.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
-#include "NKRHI/Opengl/NkOpenglDevice.h"
+#include "NKPlatform/NkPlatformDetect.h"
 #include "NKRHI/Software/NkSoftwareDevice.h"
 
-#ifdef NK_RHI_VK_ENABLED
+// iOS = Metal uniquement. Le device OpenGL desktop (GLAD/Mesa) et Vulkan ne sont
+// ni compilables ni utilisables sur iOS : on les exclut du build (voir NKRHI.jenga
+// excludefiles) et de la factory pour eviter des symboles non definis au link.
+#if !defined(NKENTSEU_PLATFORM_IOS)
+#include "NKRHI/Opengl/NkOpenglDevice.h"
+#endif
+
+#if defined(NK_RHI_VK_ENABLED) && !defined(NKENTSEU_PLATFORM_IOS)
 #include "NKRHI/Vulkan/NkVulkanDevice.h"
 #endif
 #ifdef NK_RHI_DX11_ENABLED
@@ -36,19 +43,37 @@ NkIDevice* NkDeviceFactory::Create(const NkDeviceInitInfo& init) {
     return CreateForApi(api, effectiveInit);
 }
 
+NkIDevice* NkDeviceFactory::CreateMetalFromLayer(void* caMetalLayer, void* preferredDevice) {
+#if defined(NK_RHI_METAL_ENABLED)
+    NkDeviceInitInfo init;
+    init.context = NkContextDesc::MakeMetal();
+    init.context.metal.metalLayer      = caMetalLayer;
+    init.context.metal.preferredDevice = preferredDevice;
+    return CreateForApi(NkGraphicsApi::NK_GFX_API_METAL, init);
+#else
+    (void)caMetalLayer; (void)preferredDevice;
+    logger_src.Infof("[NkDeviceFactory] Metal non compile (NK_RHI_METAL_ENABLED)\n");
+    return nullptr;
+#endif
+}
+
 NkIDevice* NkDeviceFactory::CreateForApi(NkGraphicsApi api, const NkDeviceInitInfo& init) {
     NkIDevice* dev = nullptr;
 
     switch (api) {
         case NkGraphicsApi::NK_GFX_API_OPENGL:
+#if !defined(NKENTSEU_PLATFORM_IOS)
             dev = nkentseu::memory::NkGetDefaultAllocator().New<NkOpenGLDevice>();
+#else
+            logger_src.Infof("[NkDeviceFactory] OpenGL non disponible sur iOS (Metal uniquement)\n");
+#endif
             break;
 
         case NkGraphicsApi::NK_GFX_API_VULKAN:
-#ifdef NK_RHI_VK_ENABLED
+#if defined(NK_RHI_VK_ENABLED) && !defined(NKENTSEU_PLATFORM_IOS)
             dev = nkentseu::memory::NkGetDefaultAllocator().New<NkVulkanDevice>();
 #else
-            logger_src.Infof("[NkDeviceFactory] Vulkan non disponible (NK_RHI_VK_ENABLED non defini)\n");
+            logger_src.Infof("[NkDeviceFactory] Vulkan non disponible (NK_RHI_VK_ENABLED non defini / iOS)\n");
 #endif
             break;
 
@@ -120,9 +145,11 @@ NkIDevice* NkDeviceFactory::CreateWithFallback(const NkDeviceInitInfo& init,
 
 bool NkDeviceFactory::IsApiSupported(NkGraphicsApi api) {
     switch (api) {
+#if !defined(NKENTSEU_PLATFORM_IOS)
         case NkGraphicsApi::NK_GFX_API_OPENGL:   return true;
+#endif
         case NkGraphicsApi::NK_GFX_API_SOFTWARE: return true;
-#ifdef NK_RHI_VK_ENABLED
+#if defined(NK_RHI_VK_ENABLED) && !defined(NKENTSEU_PLATFORM_IOS)
         case NkGraphicsApi::NK_GFX_API_VULKAN:   return true;
 #endif
 #ifdef NK_RHI_DX11_ENABLED
@@ -151,7 +178,11 @@ void NkDeviceFactory::Destroy(NkIDevice*& device) {
 static NkVector<NkGraphicsApi> GetPlatformPriorityOrder() {
     NkVector<NkGraphicsApi> order;
 
-#if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
+#if defined(NKENTSEU_PLATFORM_IOS)
+    // iOS = Metal uniquement (pas de device OpenGL/Vulkan).
+    order.PushBack(NkGraphicsApi::NK_GFX_API_METAL);
+
+#elif defined(NKENTSEU_PLATFORM_MACOS)
     order.PushBack(NkGraphicsApi::NK_GFX_API_METAL);
     order.PushBack(NkGraphicsApi::NK_GFX_API_OPENGL);
 

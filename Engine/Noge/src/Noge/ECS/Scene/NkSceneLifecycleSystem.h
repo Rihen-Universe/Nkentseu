@@ -57,6 +57,10 @@
 namespace nkentseu {
     namespace ecs {
 
+        // Forward-decl : RegisterSceneLifecycle/RegisterScene prennent NkScheduler&
+        // (référence → forward-declaration suffit ; le .cpp inclut NkScheduler.h).
+        class NkScheduler;
+
         // =====================================================================
         // ⚙️ NkSceneFixedTickSystem — Mise à jour fixe (physique/réseau)
         // =====================================================================

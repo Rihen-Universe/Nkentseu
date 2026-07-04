@@ -28,6 +28,10 @@ namespace nkentseu
     namespace pong
     {
 
+#if defined(None)
+#undef None
+#endif
+
         class Scene;
 
         class SceneManager

@@ -345,13 +345,20 @@ namespace nkentseu {
 
                 NkEditorFrameContext ec; ec.ui = &mUI; ec.dt = dt;
 
+                // FIX deadlock launcher->editeur : en fullScreen la barre de menus n'est PAS
+                // dessinee (cf. BuildMenuBar, garde `if (!appFullScreen)`), donc mAppMenuFn (qui
+                // pose appFullScreen = showStart) ne tournait plus une fois dans le launcher ->
+                // appFullScreen restait bloque a true et l'editeur n'etait JAMAIS atteint apres
+                // showStart=false. On resynchronise donc les flags AVANT de decider du plein-ecran.
+                if (mUI.appFullScreen && mAppMenuFn) mAppMenuFn(ec, mAppMenuUser);
+
                 // Ecran de demarrage (launcher) : occupe tout le corps, sans barre
                 // d'outils / panneaux / barre d'etat (façon « page de demarrage » VS).
                 const bool fullScreen = mUI.appFullScreen && mStartScreenFn;
 
                 const float32 titleH    = mUI.ItemHeight() + mUI.S(10.f);   // barre de titre legerement plus grande
                 mUI.titleBarH = titleH;   // l'ecran de demarrage doit commencer en dessous
-                const float32 toolbarH  = (mToolbarFn && !fullScreen) ? mUI.ItemHeight() + mUI.S(8.f) : 0.f;
+                const float32 toolbarH  = (mToolbarFn && !fullScreen) ? mUI.S(46.f) : 0.f;   // combos labellises (vue principale IDE)
                 const float32 footerH   = fullScreen ? 0.f : mUI.S(22.f);
                 const float32 activityW = mUI.S(48.f);
 

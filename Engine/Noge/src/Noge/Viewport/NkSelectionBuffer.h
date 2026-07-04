@@ -9,7 +9,7 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NKRenderer/src/NkRenderer.h"
+#include "NKRenderer/NkRenderer.h"
 
 namespace nkentseu {
     using namespace math;

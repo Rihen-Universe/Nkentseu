@@ -1,8 +1,17 @@
 // =============================================================================
-// Nkentseu/Renderer/NkRenderSystem.cpp
+// Noge/ECS/Systems/NkRenderSystem.cpp — pont ECS -> NKRenderer (3D)
+// =============================================================================
+// Adapté à l'API NKRenderer actuelle :
+//   - NkRenderer::GetRender3D() (pointeur)
+//   - NkRender3D : BeginScene(NkSceneContext) -> Submit(NkDrawCall3D) -> Flush(cmd)
+//   - NkSceneContext : camera (NkCamera3D), lights (NkVector<NkLightDesc>),
+//     ambientIntensity, viewMode (modes Solid/Wireframe/Unlit/... façon Unreal)
+//   - NkMeshSystem : Import(path) + GetBounds(handle)
 // =============================================================================
 #include "NkRenderSystem.h"
 #include "Noge/ECS/Components/Core/NkTag.h"
+#include "NKRenderer/Mesh/NkMeshSystem.h"
+#include "NKRenderer/Tools/Render3D/NkRender3D.h"   // type complet (Submit/Flush)
 
 namespace nkentseu {
 
@@ -15,38 +24,36 @@ namespace nkentseu {
     // =========================================================================
     void NkRenderSystem::Execute(NkWorld& world, float32 dt) noexcept {
         if (!mRenderer || !mCmd || !mRenderer->IsValid()) return;
+        NkRender3D* r3d = mRenderer->GetRender3D();
+        if (!r3d) return;
 
-        // Reset frame state
+        // Reset de l'état de frame
         mSceneCtx.lights.Clear();
         mOpaqueCalls.Clear();
 
-        // 1. Caméra active → matrices view/proj
+        // 1. Caméra active -> matrices view/proj
         UpdateActiveCamera(world);
-
-        // 2. Lumières actives → NkSceneContext3D
+        // 2. Lumières actives -> NkSceneContext
         CollectLights(world);
-
-        // 3. Meshes visibles → draw calls
+        // 3. Meshes visibles -> draw calls
         SubmitMeshes(world);
 
-        // 4. Envoi GPU
-        mSceneCtx.envMap          = NkTextureHandle{ mEnvMapHandle };
+        // 4. Paramètres globaux de scène
         mSceneCtx.ambientIntensity = mAmbientIntensity;
         mSceneCtx.deltaTime        = dt;
         mSceneCtx.time            += dt;
+        mSceneCtx.viewMode         = mViewMode;   // mode de rendu (Solid/Wireframe/...)
 
-        auto& r3d = mRenderer->Renderer3D();
-        r3d.BeginScene(mSceneCtx);
-
+        // 5. Envoi GPU : BeginScene -> Submit* -> Flush
+        r3d->BeginScene(mSceneCtx);
         for (const auto& dc : mOpaqueCalls) {
-            r3d.Submit(dc);
+            r3d->Submit(dc);
         }
-
-        r3d.EndScene(mCmd);
+        r3d->Flush(mCmd);
     }
 
     // =========================================================================
-    // UpdateActiveCamera
+    // UpdateActiveCamera — sélectionne la caméra de priorité max
     // =========================================================================
     void NkRenderSystem::UpdateActiveCamera(NkWorld& world) noexcept {
         mActiveCameraId = NkEntityId::Invalid();
@@ -56,14 +63,12 @@ namespace nkentseu {
             .ForEach([&](NkEntityId id,
                          NkCameraComponent& cam,
                          const NkTransform& tf) {
-                // Skip inactive entities
                 if (world.Has<NkInactive>(id)) return;
                 if (cam.priority <= maxPriority) return;
 
                 maxPriority     = cam.priority;
                 mActiveCameraId = id;
 
-                // ── Calcul des matrices ──────────────────────────────────
                 const NkVec3f pos = tf.GetWorldPosition();
                 const NkVec3f fwd = tf.GetWorldForward();
                 const NkVec3f up  = tf.GetWorldUp();
@@ -71,35 +76,38 @@ namespace nkentseu {
                 cam.viewMatrix = NkMat4f::LookAt(pos, pos + fwd, up);
 
                 const float32 aspect = (cam.aspect > 0.f) ? cam.aspect : (16.f / 9.f);
-
                 if (cam.projection == NkCameraProjection::Perspective) {
+                    // Perspective prend un NkAngle (le ctor NkAngle prend des degrés).
                     cam.projMatrix = NkMat4f::Perspective(
-                        cam.fovDeg * (3.14159265f / 180.f),
-                        aspect,
-                        cam.nearClip,
-                        cam.farClip);
+                        math::NkAngle(cam.fovDeg), aspect, cam.nearClip, cam.farClip);
                 } else {
-                    const float32 h = cam.orthoSize;
-                    const float32 w = h * aspect;
-                    cam.projMatrix = NkMat4f::Ortho(-w, w, -h, h,
-                                                    cam.nearClip, cam.farClip);
+                    const float32 h = cam.orthoSize;          // demi-hauteur
+                    const float32 w = h * aspect;             // demi-largeur
+                    cam.projMatrix = NkMat4f::Orthogonal(
+                        2.f * w, 2.f * h, cam.nearClip, cam.farClip);
                 }
 
                 cam.viewProjMatrix = cam.projMatrix * cam.viewMatrix;
                 mViewProjMatrix    = cam.viewProjMatrix;
 
-                // ── Alimente le contexte de scène ────────────────────────
-                mSceneCtx.camera.viewMatrix = cam.viewMatrix;
-                mSceneCtx.camera.projMatrix = cam.projMatrix;
-                mSceneCtx.camera.fovRad     = cam.fovDeg * (3.14159265f / 180.f);
-                mSceneCtx.camera.nearPlane  = cam.nearClip;
-                mSceneCtx.camera.farPlane   = cam.farClip;
-                mSceneCtx.cameraPos         = pos;
+                // Alimente la caméra du renderer (classe NkCamera3D : on lui passe
+                // les params haut-niveau via SetData, elle calcule view/proj).
+                NkCamera3DData cd;
+                cd.position  = pos;
+                cd.target    = pos + fwd;
+                cd.up        = up;
+                cd.fovY      = cam.fovDeg;
+                cd.aspect    = aspect;
+                cd.nearPlane = cam.nearClip;
+                cd.farPlane  = cam.farClip;
+                cd.ortho     = (cam.projection != NkCameraProjection::Perspective);
+                cd.orthoSize = cam.orthoSize;
+                mSceneCtx.camera.SetData(cd);
             });
     }
 
     // =========================================================================
-    // CollectLights
+    // CollectLights — Query NkLightComponent -> NkSceneContext.lights
     // =========================================================================
     void NkRenderSystem::CollectLights(NkWorld& world) noexcept {
         world.Query<NkTransform, NkLightComponent>()
@@ -107,37 +115,31 @@ namespace nkentseu {
                          const NkTransform& tf,
                          const NkLightComponent& lc) {
                 if (world.Has<NkInactive>(id)) return;
+                // La lumière ambiante (ECS) est gérée via ambientIntensity, pas un light GPU.
+                if (lc.type == ecs::NkLightType::Ambient) return;
 
                 NkLightDesc desc;
-                desc.type      = ConvertLightType(lc.type);
-                desc.color     = NkColorF(lc.color.r, lc.color.g, lc.color.b, lc.color.a);
-                desc.intensity = lc.intensity;
-                desc.range     = lc.range;
+                desc.type       = ConvertLightType(lc.type);
+                desc.color      = { lc.color.r, lc.color.g, lc.color.b };
+                desc.intensity  = lc.intensity;
+                desc.range      = lc.range;
                 desc.innerAngle = lc.innerAngle;
                 desc.outerAngle = lc.outerAngle;
                 desc.castShadow = lc.castShadow;
                 desc.position   = tf.GetWorldPosition();
                 desc.direction  = tf.GetWorldForward();
-                desc.enabled    = true;
-
-                // Lumière directionnelle principale → sunLight
-                if (lc.type == NkLightType::Directional && !mSceneCtx.hasSunLight) {
-                    mSceneCtx.sunLight    = desc;
-                    mSceneCtx.hasSunLight = true;
-                } else {
-                    mSceneCtx.lights.PushBack(desc);
-                }
+                mSceneCtx.lights.PushBack(desc);
             });
     }
 
     // =========================================================================
-    // SubmitMeshes
+    // SubmitMeshes — Query mesh+material+transform -> draw calls
     // =========================================================================
     void NkRenderSystem::SubmitMeshes(NkWorld& world) noexcept {
-        if (!mRenderer->IsValid()) return;
+        NkMeshSystem* meshSys = mRenderer->GetMeshSystem();
+        if (!meshSys) return;
 
-        auto& resources = mRenderer->Resources();
-
+        // ── Meshes statiques (mesh + material) ──────────────────────────────
         world.Query<NkTransform, NkMeshComponent, NkMaterialComponent>()
             .ForEach([&](NkEntityId id,
                          const NkTransform& tf,
@@ -146,47 +148,38 @@ namespace nkentseu {
                 if (world.Has<NkInactive>(id)) return;
                 if (!mesh.visible) return;
 
-                // ── Résolution du mesh GPU ──────────────────────────────
+                // Résolution / lazy-load du mesh GPU.
                 NkMeshHandle meshHandle{ mesh.meshHandle };
-                if (!meshHandle.IsValid() && !mesh.meshPath.IsEmpty()) {
-                    // Lazy load depuis le chemin
-                    meshHandle = resources.LoadMesh(mesh.meshPath.CStr());
-                    // Mise à jour du composant (cast away const pour cache)
+                if (!meshHandle.IsValid() && !mesh.meshPath.Empty()) {
+                    meshHandle = meshSys->Import(mesh.meshPath);
                     const_cast<NkMeshComponent&>(mesh).meshHandle = meshHandle.id;
                 }
                 if (!meshHandle.IsValid()) return;
 
-                // ── Frustum culling ─────────────────────────────────────
-                const NkAABB& aabb = resources.GetMeshAABB(meshHandle);
-                // Transforme l'AABB en world space (approximation rapide)
-                NkAABB worldAABB = aabb;
+                // Frustum culling (AABB monde vs viewProj).
+                NkAABB worldAABB = meshSys->GetBounds(meshHandle);
                 const NkVec3f wpos = tf.GetWorldPosition();
                 worldAABB.min = worldAABB.min + wpos;
                 worldAABB.max = worldAABB.max + wpos;
                 if (!IsVisible(worldAABB)) return;
 
-                // ── Résolution du matériau GPU ──────────────────────────
-                NkMaterialInstHandle matHandle;
+                // Matériau GPU (instance) depuis le slot du composant.
+                NkMatInstHandle matHandle;
                 if (mat.slotCount > 0) {
-                    matHandle.id = mat.slots[mesh.subMeshIndex < mat.slotCount
-                                             ? mesh.subMeshIndex : 0].materialHandle;
+                    const uint32 slot = (mesh.subMeshIndex < mat.slotCount) ? mesh.subMeshIndex : 0;
+                    matHandle.id = mat.slots[slot].materialHandle;
                 }
-                // Si pas de matériau configuré, utiliser un matériau par défaut
-                // (NkResourceManager fournit des ressources par défaut)
 
-                // ── Soumission du draw call ─────────────────────────────
                 NkDrawCall3D dc;
                 dc.mesh       = meshHandle;
                 dc.material   = matHandle;
                 dc.transform  = tf.worldMatrix;
                 dc.castShadow = mesh.castShadow;
                 dc.aabb       = worldAABB;
-                dc.visible    = true;
-
                 mOpaqueCalls.PushBack(dc);
             });
 
-        // ── Meshes skinnés ──────────────────────────────────────────────
+        // ── Meshes skinnés ──────────────────────────────────────────────────
         world.Query<NkTransform, NkSkinnedMeshComponent>()
             .ForEach([&](NkEntityId id,
                          const NkTransform& tf,
@@ -195,32 +188,25 @@ namespace nkentseu {
                 if (!smesh.visible) return;
 
                 NkMeshHandle meshHandle{ smesh.meshHandle };
-                if (!meshHandle.IsValid() && !smesh.meshPath.IsEmpty()) {
-                    meshHandle = resources.LoadMesh(smesh.meshPath.CStr());
+                if (!meshHandle.IsValid() && !smesh.meshPath.Empty()) {
+                    meshHandle = meshSys->Import(smesh.meshPath);
                     const_cast<NkSkinnedMeshComponent&>(smesh).meshHandle = meshHandle.id;
                 }
                 if (!meshHandle.IsValid()) return;
 
-                // Pour les meshes skinnés, on soumet le mesh complet
-                // Le skinning est géré via SSBO bones dans NkRender3D
                 NkDrawCall3D dc;
                 dc.mesh       = meshHandle;
                 dc.transform  = tf.worldMatrix;
                 dc.castShadow = smesh.castShadow;
-                dc.visible    = true;
                 mOpaqueCalls.PushBack(dc);
             });
     }
 
     // =========================================================================
-    // IsVisible — Frustum culling (clip space AABB test)
+    // IsVisible — frustum culling (Gribb-Hartmann, AABB vs viewProj)
     // =========================================================================
     bool NkRenderSystem::IsVisible(const NkAABB& aabb) const noexcept {
-        // Test rapide : les 8 coins de l'AABB contre les 6 plans du frustum
-        // Extrait les plans depuis mViewProjMatrix (Gribb-Hartmann)
         const NkMat4f& m = mViewProjMatrix;
-
-        // Plans en row-major : left, right, bottom, top, near, far
         struct Plane { float32 a, b, c, d; };
         const Plane planes[6] = {
             { m[0][3]+m[0][0], m[1][3]+m[1][0], m[2][3]+m[2][0], m[3][3]+m[3][0] },
@@ -230,9 +216,7 @@ namespace nkentseu {
             { m[0][3]+m[0][2], m[1][3]+m[1][2], m[2][3]+m[2][2], m[3][3]+m[3][2] },
             { m[0][3]-m[0][2], m[1][3]-m[1][2], m[2][3]-m[2][2], m[3][3]-m[3][2] },
         };
-
         for (auto& p : planes) {
-            // Teste le coin le plus positif (optimistic culling)
             const float32 px = (p.a > 0) ? aabb.max.x : aabb.min.x;
             const float32 py = (p.b > 0) ? aabb.max.y : aabb.min.y;
             const float32 pz = (p.c > 0) ? aabb.max.z : aabb.min.z;

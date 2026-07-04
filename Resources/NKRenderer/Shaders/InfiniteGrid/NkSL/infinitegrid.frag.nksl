@@ -1,0 +1,167 @@
+// ============================================================================
+// infinitegrid.frag.nksl — NKRenderer — Grille infinie (réécriture propre)
+//
+// Principe : triangle plein-écran -> on reconstruit le rayon monde depuis le NDC
+// (comme skybox, cross-backend, gère yFlipNDC) -> intersection avec le plan y=planeY
+// -> grille dessinée en coordonnées MONDE (verrouillée au monde).
+//
+// Anti-artefacts (leçons des versions précédentes) :
+//  - Ligne = distance à la ligne la PLUS PROCHE (min) -> intersections PAS
+//    sur-illuminées (l'union x+y-xy faisait une grille de points aux transitions).
+//  - Chaque niveau LOD DISPARAÎT franchement quand ses lignes deviennent sous-pixel
+//    (fade->0, pas ->gris) -> zéro moiré / zéro point de densité.
+//  - Sortie CLAMPÉE à [0,1] -> zéro valeur >1 -> zéro bloom.
+//  - Fondu distance PROPORTIONNEL à la hauteur caméra + fondu à l'angle rasant.
+// ============================================================================
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+    float yFlipNDC;      // +1 Vulkan, -1 OpenGL
+    float _p1;
+    float _p2;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;
+} uCam;
+
+layout(push_constant) uniform PC {
+    vec4 lineColor;    // rgb + a (alpha des lignes)
+    vec4 cellColor;    // rgb (gris) + a (opacité intérieur : 0=transparent, 1=opaque)
+    vec4 axisXColor;   // axe X (rouge)
+    vec4 axisZColor;   // axe Z (bleu)
+    vec4 params;       // .x=cellSize .y=majorEvery .z=extent .w=facteurPortée
+    vec4 extra;        // .x=planeY ; .yzw réservés
+} pc;
+
+@location(0) in vec2 vNDC;
+@location(0) out vec4 fragColor;
+
+// Couverture anti-aliasée de la ligne de grille la plus proche, pas `cell`, largeur
+// `lwPx` pixels. Intersections propres (min = ligne la plus proche). Le niveau
+// s'estompe totalement quand ses lignes deviennent sous-pixel (anti-moiré).
+float gridCoverage(vec2 P, float cell, float lwPx) {
+    vec2  c      = P / cell;
+    vec2  d      = fwidth(c) + vec2(1e-6, 1e-6);          // cellules par pixel (par axe)
+    vec2  toLine = vec2(0.5, 0.5) - abs(fract(c) - vec2(0.5, 0.5)); // 0 aux lignes
+    vec2  px     = toLine / d;                            // distance en pixels à la ligne
+    // NB : NE PAS nommer cette variable `line` -> mot RÉSERVÉ en HLSL (primitive
+    // geometry shader) -> X3000 -> shader DX cassé / grille invisible sur DX11/DX12.
+    float nearest = min(px.x, px.y);                      // ligne la plus proche (union propre)
+    // lwPx = demi-largeur de ligne en pixels (contrôle direct de la finesse).
+    float cov    = 1.0 - smoothstep(0.0, lwPx, nearest);
+    // Disparition franche quand trop dense (lignes < ~1-2 px) -> un niveau plus
+    // grossier prend le relais, sans zone dense/moiré/points.
+    float dens   = max(d.x, d.y);
+    cov *= 1.0 - smoothstep(0.5, 1.0, dens);
+    return clamp(cov, 0.0, 1.0);
+}
+
+@stage(fragment)
+@entry
+void main() {
+    // ── Rayon monde depuis le NDC (comme skybox) ────────────────────────────
+    float tanHalfY = 1.0 / uCam.proj[1][1];
+    float tanHalfX = 1.0 / uCam.proj[0][0];
+    vec3  viewRay  = normalize(vec3(vNDC.x * tanHalfX,
+                                    vNDC.y * tanHalfY * uCam.yFlipNDC,
+                                    -1.0));
+    vec3  dir = transpose(mat3(uCam.view)) * viewRay;    // direction monde
+    vec3  ro  = uCam.camPos.xyz;                          // origine = caméra
+    float planeY = pc.extra.x;
+
+    vec4 col = vec4(pc.cellColor.rgb, 0.0);               // couleur ; alpha accumulé
+
+    // ── Grille + axes X/Z sur le plan y=planeY (si le rayon le touche devant) ──
+    // (On ne discard PAS ici : l'axe Y vertical doit aussi s'afficher AU-DESSUS de
+    //  l'horizon, là où le rayon ne touche pas le plan.)
+    float t = (abs(dir.y) > 1e-6) ? (planeY - ro.y) / dir.y : -1.0;
+    if (t > 0.0) {
+        vec2  P    = (ro + t * dir).xz;
+        float cell  = max(pc.params.x, 1e-4);
+        float major = max(pc.params.y, 2.0);       // majeure tous les N cells
+        vec2  dP    = fwidth(P);
+
+        // ── Grille FIXE à 2 échelles (shader classique Marie/Panda3D, cf. Blender) ──
+        // Mineure tous les `cell`, majeure tous les `cell*major`. PAS de LOD adaptatif :
+        // le LOD ajoutait des sous-lignes cm/mm sous la caméra -> maillage GRIS UNIFORME.
+        // gridCoverage estompe déjà chaque échelle quand elle devient sous-pixel (anti-
+        // moiré au loin) ; ici, sous la caméra, seule la mineure (`cell`) est visible ->
+        // lignes bien séparées, pas de maillage dense.
+        // Sous-grille FINE (cell/major) : incluse dans les "internes" (extra.y). Elle
+        // n'apparaît QUE lorsqu'on s'approche (gridCoverage l'estompe dès qu'elle devient
+        // dense) -> subdivisions visibles au zoom, sans maillage uniforme au loin.
+        float gSub   = gridCoverage(P, cell / major, 0.70) * pc.extra.y;
+        float gMinor = gridCoverage(P, cell,         1.10) * pc.extra.y; // mineure = bien visible
+        float gMajor = gridCoverage(P, cell * major, 2.60) * pc.extra.z; // MAJEURE épaisse++
+
+        float axisX = (1.0 - smoothstep(0.0, dP.y * 2.0, abs(P.y))) * pc.extra.w; // ligne z=0
+        float axisZ = (1.0 - smoothstep(0.0, dP.x * 2.0, abs(P.x))) * pc.extra.w; // ligne x=0
+
+        float dist     = t;
+        float camH     = max(abs(uCam.camPos.y - planeY), 0.25);
+        float fadeDist = camH * max(pc.params.w, 1.0);
+        float distFade = exp(-dist / max(fadeDist, 1e-3));
+        float grazeF   = smoothstep(0.05, 0.5, abs(dir.y));
+        // Mineures s'estompent PLUS VITE (distFade²) que majeures (distFade) : au loin il
+        // ne reste que la grille MAJEURE + les axes -> hiérarchie toujours lisible.
+        float fadeMinor = grazeF * distFade * distFade;
+        float fadeMajor = grazeF * distFade;
+
+        col.a = max(col.a, pc.cellColor.a * grazeF * distFade);  // remplissage = plan infini
+        // Hiérarchie NETTE : sous-grille très discrète < mineure discrète < MAJEURE épaisse+claire.
+        float aSub = gSub * pc.lineColor.a * 0.45 * fadeMinor;   // sous-grille (visible de près)
+        col.rgb = mix(col.rgb, pc.lineColor.rgb, aSub);    col.a = max(col.a, aSub);
+        float aMinor = gMinor * pc.lineColor.a * fadeMinor;      // mineure = pleine (bien visible)
+        col.rgb = mix(col.rgb, pc.lineColor.rgb, aMinor);  col.a = max(col.a, aMinor);
+        vec3  majRGB = min(pc.lineColor.rgb * 2.8, vec3(1.0, 1.0, 1.0)); // majeure quasi-blanche
+        float aMajor = gMajor * pc.lineColor.a * fadeMajor;             // + épaisse (lwPx 2.6) -> très marquée
+        col.rgb = mix(col.rgb, majRGB, aMajor);            col.a = max(col.a, aMajor);
+        // Axes X (rouge) / Z (bleu) : VIFS et SATURÉS -> PAS de fondu distance (sinon le mix
+        // < 1 au centre de la ligne les dilue avec le gris = aspect "délavé"). On garde juste
+        // le fondu rasant. Le cœur de la ligne reçoit ainsi la couleur PLEINE.
+        float aAxX = axisX * pc.axisXColor.a * grazeF;
+        col.rgb = mix(col.rgb, pc.axisXColor.rgb, aAxX);   col.a = max(col.a, aAxX);
+        float aAxZ = axisZ * pc.axisZColor.a * grazeF;
+        col.rgb = mix(col.rgb, pc.axisZColor.rgb, aAxZ);   col.a = max(col.a, aAxZ);
+    }
+
+    // ── Axe Y VERT (ligne monde x=0,z=0) : MÊME shader, MÊME épaisseur que X/Z. ──
+    // On projette 2 points de l'axe monde en écran -> ligne écran -> distance en px.
+    // Indépendant du plan (visible aussi au-dessus de l'horizon).
+    if (pc.extra.w > 0.5) {
+        vec4 yc0 = uCam.viewProj * vec4(0.0, 0.0, 0.0, 1.0);
+        vec4 yc1 = uCam.viewProj * vec4(0.0, 1.0, 0.0, 1.0);
+        if (yc0.w > 1e-4 && yc1.w > 1e-4) {
+            vec2 n0 = yc0.xy / yc0.w;
+            vec2 n1 = yc1.xy / yc1.w;
+            vec2 sd = n1 - n0;
+            float L = length(sd);
+            if (L > 1e-6) {
+                vec2  nd      = sd / L;
+                vec2  rel     = vNDC - n0;
+                float perpNDC = abs(rel.x * nd.y - rel.y * nd.x);   // distance NDC à la ligne Y
+                float wNDC    = fwidth(perpNDC) * 1.5;              // ~1.5 px (indép. viewport)
+                float axisY   = 1.0 - smoothstep(0.0, max(wNDC, 1e-7), perpNDC);
+                // Léger fondu avec l'éloignement (cohérent avec les autres axes).
+                float dOrig  = length(uCam.camPos.xyz);
+                float refD   = max(abs(uCam.camPos.y - planeY), 0.25) * max(pc.params.w, 1.0) * 3.0;
+                axisY *= clamp(exp(-dOrig / max(refD, 1e-3)) + 0.15, 0.0, 1.0);
+                vec3 axisYCol = vec3(0.0, 1.0, 0.0);               // vert PLEIN
+                col.rgb = mix(col.rgb, axisYCol, axisY);
+                col.a   = max(col.a, axisY);
+            }
+        }
+    }
+
+    if (col.a < 0.002) discard;
+    fragColor = vec4(clamp(col.rgb, 0.0, 1.0), clamp(col.a, 0.0, 1.0));
+}

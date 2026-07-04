@@ -192,6 +192,18 @@ with project("NKCanvas"):
     with filter("system:iOS"):
         defines([_VK_OFF] + _GLAD_DEF_OTHER)
         frameworks(["Metal", "QuartzCore"])
+        # Le backend Metal est en Objective-C++ (.mm) : le glob de base ne prend
+        # que **.cpp, il faut donc ajouter explicitement les .mm.
+        files([
+            "src/NKCanvas/Backend/Metal/**.mm",
+            "src/NKCanvas/Backend/Metal/**.h",
+        ])
+        # iOS = Metal uniquement : exclure les backends desktop (OpenGL : GL/gl.h ;
+        # Vulkan : symboles vk non linkés) — jamais sélectionnés par le factory sur iOS.
+        excludefiles([
+            "src/NKCanvas/Backend/OpenGL/**",
+            "src/NKCanvas/Backend/Vulkan/**",
+        ])
 
     # ===== Web ====================================================================
     with filter("system:Web"):

@@ -50,12 +50,19 @@ void main() {
         exposure = mix(exposure, autoExp, clamp(autoExpStr, 0.0, 1.0));
     }
 
+    // Garde-fou HDR (pc.p2.w) : borne max des valeurs HDR. 0 = desactive. Protege
+    // d'un emballement de brillance (scene sur-exposee -> bloom geant). Inoffensif
+    // sur un rendu sain (HDR de scene normal < ~16). Configurable / NK_HDR_CLAMP.
+    float hdrClamp = pc.p2.w;
+
     // HDR * exposure, * SSAO (assombrit les zones occluses), + Bloom.
     vec3  hdr   = texture(uHDR, vUV).rgb * exposure;
+    if (hdrClamp > 0.0) hdr = min(hdr, vec3(hdrClamp));
     float ao    = texture(uSSAO, vUV).r;        // SSAO aligné HDR → vUV (PAS bloomUV)
     hdr *= ao;
     vec3  bloom = texture(uBloom, bloomUV).rgb; // bloom Y-up sur DX → bloomUV
     hdr += bloom * bloomStr;
+    if (hdrClamp > 0.0) hdr = min(hdr, vec3(hdrClamp));
 
     // Tonemap ACES filmic.
     vec3 mapped = ACESFilm(hdr);

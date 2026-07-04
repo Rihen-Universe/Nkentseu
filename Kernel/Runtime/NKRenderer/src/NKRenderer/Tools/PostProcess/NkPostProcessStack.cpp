@@ -666,6 +666,17 @@ void main() {
         // swapchain (réglage global NkSwapchainFormat), PAS sur le backend — sinon VK en
         // UNORM resterait trop sombre (pas de gamma) vs GL.
         const bool swapchainSrgb = mDevice && mDevice->IsSwapchainSrgb();
+        // Garde-fou HDR (cf. NkPostConfig::hdrSafetyClamp). Override runtime via
+        // NK_HDR_CLAMP (valeur en float ; "0" ou negatif = desactive). Lu une fois.
+        float32 hdrClamp = mCfg.hdrSafetyClamp;
+        {
+            static int sInit = 0; static float32 sEnv = 0.f; static bool sHasEnv = false;
+            if (!sInit) { sInit = 1; const char* v = getenv("NK_HDR_CLAMP");
+                          if (v && v[0]) { sHasEnv = true; sEnv = (float32)atof(v); } }
+            if (sHasEnv) hdrClamp = sEnv;
+        }
+        // <= 0 -> desactive : on passe une borne enorme que le shader traite comme "off".
+        const float32 hdrClampValue = (hdrClamp > 0.f) ? hdrClamp : 0.f;
         float32 pc[12] = {
             // p0 = (exposure, gamma, vignetteIntens, saturation)
             mCfg.exposure,
@@ -690,7 +701,8 @@ void main() {
             // glow "ghost" miroir vertical sur DX.
             ((mDevice && (mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_DX11 ||
                           mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_DX12)) ? 1.f : 0.f),
-            0.f
+            // p2.w = garde-fou HDR (0 = desactive). Le tonemap clampe le HDR avant ACES.
+            hdrClampValue
         };
         // Push avec NK_ALL_GRAPHICS pour matcher la range pipeline (cf. fix
         // VUID-vkCmdPushConstants-offset-01796 — VS lit yFlipUV au slot PC[1].z).

@@ -49,27 +49,30 @@ using NkCAMetalLayer         = void*;
 using NkCAMetalDrawable      = void*;
 #endif
 
+// NB: les handles de ressources sont stockes en void* opaque et geres a la main
+// (__bridge_retained / CFRelease) — c'est le style du .mm. On n'utilise PAS les
+// typedefs id<> ici (ceux-ci servent aux variables ObjC directes : mDevice, mQueue).
 struct NkMetalBuffer  {
-    NkMTLBuffer buf = nullptr;
+    void* buf = nullptr;              // id<MTLBuffer>
     NkBufferDesc desc;
 };
 struct NkMetalTexture {
-    NkMTLTexture tex = nullptr;
+    void* tex = nullptr;             // id<MTLTexture>
     NkTextureDesc desc;
     bool isSwapchain = false;
 };
-struct NkMetalSampler { NkMTLSamplerState ss = nullptr; };
+struct NkMetalSampler { void* ss = nullptr; };   // id<MTLSamplerState>
 
 struct NkMetalShader {
-    NkMTLFunction vert = nullptr;
-    NkMTLFunction frag = nullptr;
-    NkMTLFunction comp = nullptr;
+    void* vert = nullptr;            // id<MTLFunction>
+    void* frag = nullptr;
+    void* comp = nullptr;
 };
 
 struct NkMetalPipeline {
-    NkMTLRenderPipelineState  rpso = nullptr;
-    NkMTLComputePipelineState cpso = nullptr;
-    NkMTLDepthStencilState    dss  = nullptr;
+    void* rpso = nullptr;            // id<MTLRenderPipelineState>
+    void* cpso = nullptr;            // id<MTLComputePipelineState>
+    void* dss  = nullptr;            // id<MTLDepthStencilState>
     bool isCompute = false;
     // Rasterizer state (Metal n'a pas d'objet RS, stocker pour application manuelle)
     bool  frontFaceCCW = true;
@@ -171,9 +174,10 @@ public:
     // Accès interne
     NkMTLDevice         MtlDevice()  const { return mDevice; }
     NkMTLCommandQueue   MtlQueue()   const { return mQueue;  }
-    NkMTLBuffer         GetMTLBuffer (uint64 id) const;
-    NkMTLTexture        GetMTLTexture(uint64 id) const;
-    NkMTLSamplerState   GetMTLSampler(uint64 id) const;
+    // Handles natifs opaques (void*) : le caller bridge en id<...> cote ObjC.
+    void*               GetMTLBuffer (uint64 id) const;
+    void*               GetMTLTexture(uint64 id) const;
+    void*               GetMTLSampler(uint64 id) const;
     const NkMetalPipeline*   GetPipeline(uint64 id) const;
     const NkMetalDescSet*    GetDescSet (uint64 id) const;
     const NkMetalFramebuffer* GetFBO    (uint64 id) const;
@@ -195,6 +199,8 @@ private:
     NkRenderPassHandle  mSwapchainRP;
     NkTextureHandle     mDepthTex;
 
+    // Tables de ressources GPU (handle -> objet natif), API NkUnorderedMap du
+    // moteur (Find()/Erase()/Insert()/ForEach()), cohérent avec NkVulkanDevice.
     NkUnorderedMap<uint64, NkMetalBuffer>       mBuffers;
     NkUnorderedMap<uint64, NkMetalTexture>      mTextures;
     NkUnorderedMap<uint64, NkMetalSampler>      mSamplers;

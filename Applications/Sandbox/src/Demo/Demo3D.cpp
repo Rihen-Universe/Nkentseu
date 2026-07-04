@@ -32,6 +32,11 @@ namespace nkentseu { namespace demo {
         int32        pcfIdx = (int32)NkPCFMode::PCF5x5;
         // Phase H : true si le PNG a ete charge avec succes (vs fallback procedural).
         bool         phaseHLoadOk = false;
+        // [ / ] maintenus : ajustent le bias en continu (taux x dt) via l'update
+        // frame (le poll clavier NkInput est casse sur Win32 -> on tracke l'etat
+        // presse/relache a la main).
+        bool         biasUpHeld   = false;   // ] enfonce
+        bool         biasDownHeld = false;   // [ enfonce
     };
 
     // E.6b : cubemap procedurale 128x128x6 pour point light.
@@ -256,15 +261,43 @@ namespace nkentseu { namespace demo {
                 renderer->SetVSync(vsync);
                 logger.Info("[Demo3D] VSync = {0}\n", vsync);
             }
+            // G : activer/désactiver la grille infinie (toute la grille).
+            if (e->GetKey() == NkKey::NK_G) {
+                if (auto* r3d = renderer->GetRender3D()) {
+                    bool on = !r3d->IsInfiniteGridEnabled();
+                    r3d->SetInfiniteGridEnabled(on);
+                    logger.Info("[Demo3D] Grille infinie = {0}\n", on);
+                }
+            }
+            // 1/2/3 : toggles indépendants lignes internes / majeures / axes.
+            if (auto* r3d = renderer->GetRender3D()) {
+                auto& g = r3d->GetInfiniteGridParams();
+                if (e->GetKey() == NkKey::NK_NUM1) { g.showMinor = !g.showMinor; logger.Info("[Demo3D] Grille lignes internes = {0}\n", g.showMinor); }
+                if (e->GetKey() == NkKey::NK_NUM2) { g.showMajor = !g.showMajor; logger.Info("[Demo3D] Grille lignes majeures = {0}\n", g.showMajor); }
+                if (e->GetKey() == NkKey::NK_NUM3) { g.showAxes  = !g.showAxes;  logger.Info("[Demo3D] Grille axes = {0}\n", g.showAxes); }
+            }
         });
         if (shadowSys) {
+            // ── Scène CLOSE : AUTO-FIT de la cascade directionnelle aux casters ──
+            // La cascade est ajustée chaque frame aux bornes RÉELLES de tous les casters
+            // (sphères + grille 8x8 de cubes + poteaux) : centre ancré au monde (pas de
+            // swimming) + rayon au plus serré (couverture complète SANS gaspiller la
+            // résolution). Un rayon fixe trop grand perdait les petites ombres ; un rayon
+            // suivant la caméra les faisait glisser/disparaître. L'auto-fit résout les deux.
+            shadowSys->GetConfig().autoFitDirectional = true;
             NkEvents().AddEventCallback<NkKeyPressEvent>([shadowSys, st](NkKeyPressEvent* e) {
                 auto& cfg = shadowSys->GetConfig();
                 switch (e->GetKey()) {
+                    // [ / ] : au 1er appui, un pas immediat (tap) ; tant que la touche
+                    // reste enfoncee, l'update frame fait evoluer le bias en continu
+                    // (cf. biasUpHeld/biasDownHeld + Demo3D_Frame).
                     case NkKey::NK_LBRACKET:
-                        cfg.shadowBias = NkMax(0.0001f, cfg.shadowBias - 0.0005f); break;
+                        if (!st->biasDownHeld)
+                            cfg.shadowBias = NkMax(0.0001f, cfg.shadowBias - 0.0005f);
+                        st->biasDownHeld = true; break;
                     case NkKey::NK_RBRACKET:
-                        cfg.shadowBias += 0.0005f; break;
+                        if (!st->biasUpHeld) cfg.shadowBias += 0.0005f;
+                        st->biasUpHeld = true; break;
                     case NkKey::NK_P:
                         st->pcfIdx = (st->pcfIdx + 1) % 5;
                         cfg.quality = (NkVSMShadowQuality)st->pcfIdx; break;
@@ -281,6 +314,29 @@ namespace nkentseu { namespace demo {
                     default: break;
                 }
             });
+            // Relache [ / ] -> stoppe l'evolution continue du bias.
+            NkEvents().AddEventCallback<NkKeyReleaseEvent>([st](NkKeyReleaseEvent* e) {
+                if (e->GetKey() == NkKey::NK_LBRACKET) st->biasDownHeld = false;
+                if (e->GetKey() == NkKey::NK_RBRACKET) st->biasUpHeld   = false;
+            });
+        }
+
+        // ── Grille infinie style Blender (remplace la DrawDebugGrid finie) ──────
+        // Intérieur des cellules gris SEMI-transparent (cellColor.w) : on voit à
+        // travers mais les lignes restent visibles. Axes X rouge / Z bleu sur le plan.
+        if (auto* r3d = ctx.renderer->GetRender3D()) {
+            r3d->SetInfiniteGridEnabled(true);
+            auto& g = r3d->GetInfiniteGridParams();
+            g.cellSize   = 1.0f;
+            g.majorEvery = 10.0f;
+            g.fadeEnd    = 10.0f;   // FACTEUR de portée : rayon net ~ hauteur_cam * 10 (proportionnel)
+            g.planeY     = 0.0f;   // coplanaire au sol (le depth bias du pipeline évite le z-fight)
+            g.lineColor  = {0.42f, 0.45f, 0.52f, 1.0f};  // gris moyen : bien visible sur fond sombre MAIS sous le seuil du bloom
+            g.cellColor  = {0.09f, 0.10f, 0.12f, 0.18f}; // intérieur = PLAN INFINI (.w=opacité ; 0=transparent)
+            g.axisXColor = {1.0f, 0.0f, 0.0f, 1.0f};  // X rouge PLEIN
+            g.axisZColor = {0.0f, 0.0f, 1.0f, 1.0f};  // Z bleu PLEIN
+            // Les 3 axes (X rouge / Y vert / Z bleu) sont dessinés par le SHADER grille,
+            // même épaisseur (~2px). L'axe Y vertical est projeté à l'écran dans le FS.
         }
 
         logger.Info("[Demo3D] Init OK — meshes : sphere={0} plane={1} cube={2}\n",
@@ -296,8 +352,21 @@ namespace nkentseu { namespace demo {
         // au MÊME angle/pose. Pose déterministe identique sur les 2 backends.
         static int fixcam = -1;
         if (fixcam == -1) { const char* v = getenv("NK_FIX_CAM"); fixcam = (v && v[0] && v[0] != '0') ? 1 : 0; }
-        if (fixcam) { st->angle = 0.6f; ctx.totalTime = 1.0f; }
+        // NK_FIX_CAM : fige la CAMÉRA uniquement (angle constant), le temps continue
+        // -> le spot bouge toujours. Isole "flicker vient de la caméra" vs "de l'ombre".
+        if (fixcam) { st->angle = 0.6f; }
         else        { st->angle += dt * 0.45f; }
+
+        // [ / ] maintenus : evolution CONTINUE du bias (taux x dt). Permet de
+        // balayer rapidement la plage sans marteler la touche.
+        if (st->biasUpHeld || st->biasDownHeld) {
+            if (auto* ssys = ctx.renderer->GetShadow()) {
+                auto& cfg = ssys->GetConfig();
+                const float32 kBiasRate = 0.02f;   // unites de bias par seconde
+                if (st->biasUpHeld)   cfg.shadowBias += kBiasRate * dt;
+                if (st->biasDownHeld) cfg.shadowBias  = NkMax(0.0001f, cfg.shadowBias - kBiasRate * dt);
+            }
+        }
 
         if (!ctx.renderer->BeginFrame()) return;
 
@@ -383,12 +452,22 @@ namespace nkentseu { namespace demo {
         r3d->BeginScene(sctx);
 
         // ── Sol ──────────────────────────────────────────────────────────────
-        {
+        // RETIRÉ : la grille infinie sert désormais de sol de référence (façon Blender/
+        // Unreal). Un sol solide coplanaire au plan y=0 de la grille provoquait du
+        // z-fighting sur GL/DX (grille qui semblait NON coplanaire / inclinée). Sans sol,
+        // plus aucune surface coplanaire -> grille propre sur tous les backends.
+        // NB : sans sol, pas de récepteur d'ombres au sol dans cette démo (les casters
+        // castent quand même dans l'atlas). Pour ré-afficher les ombres au sol, remettre
+        // un sol ET décaler la grille (planeY) ou la rendre en depth-bias constant.
+        if (false) {
             NkDrawCall3D dc;
             dc.mesh      = st->meshPlane;
             dc.transform = NkMat4f::Scale({10.f, 1.f, 10.f});
             dc.aabb      = {{-5, 0, -5}, {5, 0, 5}};
             dc.castShadow= false;
+            dc.tint      = {0.12f, 0.12f, 0.13f};
+            dc.metallic  = 0.f;
+            dc.roughness = 0.92f;
             r3d->Submit(dc);
         }
 
@@ -414,6 +493,27 @@ namespace nkentseu { namespace demo {
                 dc.roughness = 0.05f + (float32)row / 3.f * 0.95f; // 0.05 .. 1
                 r3d->Submit(dc);
             }
+        }
+
+        // ── DÉMO GPU INSTANCING : grille 8x8 de cubes via SubmitInstanced ─────
+        // Avec NK_INSTANCING_GPU=1 -> 1 SEUL draw (gl_InstanceID). Sans -> chemin
+        // object-UBO (N draws, correct). Dans les deux cas, 64 cubes en grille
+        // derrière la scène : s'ils sont bien répartis -> instancing OK.
+        {
+            NkDrawCallInstanced inst;
+            inst.mesh = st->meshCube;
+            for (int gz = 0; gz < 8; gz++) {
+                for (int gx = 0; gx < 8; gx++) {
+                    const float32 x = (gx - 3.5f) * 0.55f;
+                    const float32 z = (gz - 3.5f) * 0.55f - 4.5f;  // décalé derrière le sol
+                    inst.transforms.PushBack(
+                        NkMat4f::Translate({x, 1.6f, z}) *
+                        NkMat4f::Scale({0.18f, 0.18f, 0.18f}));
+                    inst.tints.PushBack({(float32)gx / 7.f, 0.6f, (float32)gz / 7.f});
+                }
+            }
+            inst.aabb = {{-3.f, 1.f, -9.f}, {3.f, 2.5f, 0.f}};
+            r3d->SubmitInstanced(inst);   // 64 instances
         }
 
         // ── Cube central rotatif : metal or poli (gold metallic, low rough) ──
@@ -455,8 +555,11 @@ namespace nkentseu { namespace demo {
         }
 
         // Debug visualizations
-        r3d->DrawDebugAxes(NkMat4f::Identity(), 1.f);
-        r3d->DrawDebugGrid({0, 0, 0}, 1.f, 20, {0.3f, 0.3f, 0.3f, 1.f});
+        // Axes : la grille infinie dessine déjà X (rouge) et Z (bleu) sur le sol (lignes
+        // infinies). On ajoute UNIQUEMENT l'axe Y VERT vertical (hors plan) -> pas de
+        // doublon (avant, DrawDebugAxes redessinait X/Z par-dessus ceux de la grille).
+        // (Les 3 axes X/Y/Z sont dessinés par le SHADER grille — cf. infinitegrid.frag.nksl.)
+        // (DrawDebugGrid finie retirée -> remplacée par la grille infinie, cf. Init.)
 
         // ── Overlay ──────────────────────────────────────────────────────────
         if (auto* overlay = ctx.renderer->GetOverlay()) {

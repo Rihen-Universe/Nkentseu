@@ -35,9 +35,8 @@ namespace nkentseu {
 
         out.Reserve(out.Size() + count);
         for (uint32 i = 0; i < count; ++i) {
-            char nameBuf[256];
-            NkSNPrintf(nameBuf, sizeof(nameBuf), "Instance_%u", i);
-            out.PushBack(prefab->InstantiateGameObject(world, nameBuf));
+            NkString nameBuf = NkFormat("Instance_{0}", i);
+            out.PushBack(prefab->InstantiateGameObject(world, nameBuf.CStr()));
         }
     }
 

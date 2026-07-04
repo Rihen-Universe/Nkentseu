@@ -5,6 +5,12 @@
 #include "NKCanvas/Compute/NkIComputeContext.h"
 #include "NKCanvas/Core/NkIGraphicsContext.h"
 
+// windows.h definit une macro MemoryBarrier qui casse la methode virtuelle homonyme
+// (meme garde que NkSoftwareComputeContext.cpp / NkVulkanComputeContext.h / NkIComputeContext.h).
+#if defined(NKENTSEU_PLATFORM_WINDOWS) && defined(MemoryBarrier)
+#undef MemoryBarrier
+#endif
+
 namespace nkentseu {
 
 class NkSoftwareComputeContext final : public NkIComputeContext {

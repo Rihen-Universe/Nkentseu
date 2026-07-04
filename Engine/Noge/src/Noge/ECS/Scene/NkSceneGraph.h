@@ -40,6 +40,10 @@
 #include "NKECS/NkECSDefines.h"
 #include "Noge/ECS/Factory/NkGameObjectFactory.h"
 #include "NKECS/World/NkWorld.h"
+// Composants de hierarchie (NkParent / NkChildren / NkSceneNode) : definition
+// CANONIQUE dans NkSceneComponent.h. NkSceneGraph.h les reutilise (plus de
+// redefinition locale) pour eviter les conflits ODR/redefinition.
+#include "Noge/ECS/Components/SceneComponent/NkSceneComponent.h"
 #include "NkSceneScript.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
@@ -66,11 +70,7 @@ namespace nkentseu {
          *       La modification de ce composant marque automatiquement
          *       NkWorldTransform::dirty = true pour recalcul hiérarchique.
          */
-        struct NkParent {
-            /// ID de l'entité parente (Invalid = racine de scène)
-            NkEntityId entity = NkEntityId::Invalid();
-        };
-        NK_COMPONENT(NkParent)
+        // NkParent : defini dans NkSceneComponent.h (inclus plus haut).
 
         /**
          * @struct NkChildren
@@ -93,69 +93,8 @@ namespace nkentseu {
          *       (swap-with-last). Si l'ordre est critique, utiliser une
          *       structure externe ou un composant personnalisé.
          */
-        struct NkChildren {
-            /// Nombre maximum d'enfants stockables inline
-            static constexpr uint32 kMax = 64u;
-
-            /// Tableau inline des IDs d'enfants
-            NkEntityId children[kMax] = {};
-
-            /// Nombre actuel d'enfants valides dans le tableau
-            uint32 count = 0;
-
-            /**
-             * @brief Ajoute un enfant à la liste.
-             * @param c ID de l'entité à ajouter comme enfant.
-             * @return true si l'ajout a réussi, false si la liste est pleine.
-             * 
-             * @note Ajout en fin de tableau — O(1).
-             *       Aucune vérification de doublon — à gérer en amont si nécessaire.
-             */
-            bool Add(NkEntityId c) noexcept {
-                if (count >= kMax) {
-                    return false;
-                }
-                children[count++] = c;
-                return true;
-            }
-
-            /**
-             * @brief Supprime un enfant de la liste.
-             * @param c ID de l'entité à retirer.
-             * 
-             * 🔹 Algorithme :
-             *    • Recherche linéaire de l'ID
-             *    • Remplacement par le dernier élément (swap-with-last)
-             *    • Décrémentation de count — O(1) après recherche
-             * 
-             * @note L'ordre des enfants n'est pas préservé après suppression.
-             */
-            void Remove(NkEntityId c) noexcept {
-                for (uint32 i = 0; i < count; ++i) {
-                    if (children[i] == c) {
-                        children[i] = children[--count];
-                        return;
-                    }
-                }
-            }
-
-            /**
-             * @brief Vérifie si une entité est dans la liste des enfants.
-             * @param c ID de l'entité à rechercher.
-             * @return true si l'entité est présente, false sinon.
-             * 
-             * @note Recherche linéaire O(n) — acceptable pour n ≤ 64.
-             */
-            bool Has(NkEntityId c) const noexcept {
-                for (uint32 i = 0; i < count; ++i) {
-                    if (children[i] == c) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-        };
-        NK_COMPONENT(NkChildren)
+        // NkChildren : defini dans NkSceneComponent.h (inclus plus haut).
+        // (alias NkChildren::kMax conserve pour compat.)
 
         /**
          * @struct NkSceneNode
@@ -177,31 +116,7 @@ namespace nkentseu {
          * @note Le nom est copié via NkStrNCpy — tronqué silencieusement à 63 chars.
          *       Pour des noms plus longs, utiliser un composant personnalisé.
          */
-        struct NkSceneNode {
-            /// Nom lisible du nœud (buffer fixe, null-terminated)
-            char name[64] = {};
-
-            /// Flag d'activation logique (gameplay)
-            bool active = true;
-
-            /// Flag de visibilité (rendu uniquement)
-            bool visible = true;
-
-            /// Identifiant de layer pour culling/grouping (0-255)
-            uint8 layer = 0;
-
-            /// Constructeur par défaut
-            NkSceneNode() noexcept = default;
-
-            /**
-             * @brief Constructeur avec initialisation du nom.
-             * @param n String C source pour le nom (copiée, tronquée si >63).
-             */
-            explicit NkSceneNode(const char* n) noexcept {
-                NkStrNCpy(name, n, 63);
-            }
-        };
-        NK_COMPONENT(NkSceneNode)
+        // NkSceneNode : defini dans NkSceneComponent.h (inclus plus haut).
 
         /**
          * @struct NkLocalTransform
@@ -325,7 +240,7 @@ namespace nkentseu {
          * NkSceneGraph scene(world, "MainLevel");
          * 
          * // Attacher un script de scène personnalisé
-         * auto* script = scene.SetScript<MyLevelScript>(/*params=*/);
+         * auto* script = scene.SetScript<MyLevelScript>(...);
          * 
          * // Spawner un acteur avec position initiale
          * auto player = scene.SpawnActor<Player>("Hero", 10.f, 0.f, 5.f);
@@ -425,7 +340,7 @@ namespace nkentseu {
                  *     int mDifficulty;
                  * };
                  * 
-                 * auto* level = scene.SetScript<MyLevelScript>(/*difficulty=*/3);
+                 * auto* level = scene.SetScript<MyLevelScript>(3); // difficulty=3
                  * @endcode
                  */
                 template<typename T, typename... Args>
@@ -658,7 +573,7 @@ namespace nkentseu {
                  * auto enemy = scene.SpawnActor<EnemyAI>(
                  *     "Orc_01",
                  *     15.f, 0.f, 3.f,  // position initiale
-                 *     /*difficulty=*/2  // argument pour le constructeur EnemyAI
+                 *     2  // difficulty=2, argument pour le constructeur EnemyAI
                  * );
                  * enemy.SetAggression(0.8f);  // Configuration post-spawn
                  * @endcode

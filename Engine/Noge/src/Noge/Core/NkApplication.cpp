@@ -1,4 +1,7 @@
 #include "NkApplication.h"
+#include "NkEventBus.h"        // NkEventBus::Dispatch (pont événements -> layers)
+#include "NKRenderer/NkRenderer.h"            // moteur 2D/3D (façade NKRenderer)
+#include "NKRenderer/Core/NkRendererConfig.h" // NkRendererConfig
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {
@@ -12,10 +15,14 @@ namespace nkentseu {
     }
 
     NkApplication::~NkApplication() {
+        Shutdown();              // RAII : libère device + fenêtre même si Run() non atteint
         sInstance = nullptr;
     }
 
     bool NkApplication::Init() {
+        // Hook AVANT création fenêtre/device : l'utilisateur peut ajuster mConfig.
+        OnPreInit();
+
         // ── Init plateforme & device ──────────────────────────────────────────
         if (!InitPlatform()) {
             logger.Errorf("[Application] Échec InitPlatform\n");
@@ -43,6 +50,9 @@ namespace nkentseu {
     // Run — point d'entrée de la boucle principale
     // =========================================================================
     void NkApplication::Run() {
+        // L'initialisation (plateforme/device/OnInit/OnStart) est faite par
+        // NkApplication::Init(), appelée AVANT Run() (cf. NkMainApp). Run() ne
+        // contient QUE la boucle principale — pas de double InitPlatform.
 
         // ── Boucle principale ─────────────────────────────────────────────────
         mRunning    = true;
@@ -82,25 +92,18 @@ namespace nkentseu {
             }
             OnUpdate(dt);
 
-            // ── Rendu GPU ─────────────────────────────────────────────────────
+            // ── Rendu 2D/3D via NKRenderer (pipeline complet) ─────────────────
             if (mWidth == 0 || mHeight == 0) continue;
 
-            // Resize swapchain si la fenêtre a changé de taille
-            if (mWidth != mDevice->GetSwapchainWidth() || mHeight != mDevice->GetSwapchainHeight()) {
-                mDevice->OnResize(mWidth, mHeight);
+            // Resize : le renderer redimensionne le device + son render graph.
+            if (mWidth != mRenderer->GetWidth() || mHeight != mRenderer->GetHeight()) {
+                mRenderer->OnResize(mWidth, mHeight);
             }
 
-            NkFrameContext frame;
-            if (!mDevice->BeginFrame(frame)) continue;
+            if (!mRenderer->BeginFrame()) continue;   // ouvre device + frame de rendu
+            mCmd = mRenderer->GetCmd();                // cmd buffer de la frame courante
 
-            mWidth  = mDevice->GetSwapchainWidth();
-            mHeight = mDevice->GetSwapchainHeight();
-            if (mWidth == 0 || mHeight == 0) {
-                mDevice->EndFrame(frame);
-                continue;
-            }
-
-            // Render layers
+            // Render layers : accèdent aux sous-systèmes via GetRenderer().
             for (NkLayer* layer : mLayerStack) {
                 layer->OnRender();
             }
@@ -112,52 +115,26 @@ namespace nkentseu {
             }
             OnUIRender();
 
-            mDevice->SubmitAndPresent(mCmd);
-            mDevice->EndFrame(frame);
+            mRenderer->EndFrame();   // soumet le render graph (géométrie/ombres/PP)
+            mRenderer->Present();    // présente la swapchain
         }
 
-        // ── Arrêt propre ──────────────────────────────────────────────────────
-        logger.Infof("[Application] Arrêt demandé, nettoyage...\n");
-
-        OnShutdown();
-
-        // Detach des couches (inverse de l'attachement)
-        for (nk_isize i = (nk_isize)mLayerStack.Size() - 1; i >= 0; --i) {
-        }
-
-        ShutdownDevice();
-        ShutdownPlatform();
-
-        logger.Infof("[Application] Terminé proprement.\n");
+        // ── Arrêt propre (idempotent ; le destructeur l'appelle aussi) ────────
+        Shutdown();
     }
 
     // =========================================================================
-    // Run
+    // Shutdown — nettoyage complet idempotent (OnShutdown + device + plateforme)
     // =========================================================================
-    void NkApplication::Run() {
-        if (!InitPlatform()) {
-            logger.Errorf("[Application] Échec InitPlatform\n");
-            return;
-        }
-        if (!InitDevice()) {
-            logger.Errorf("[Application] Échec InitDevice\n");
-            ShutdownPlatform();
-            return;
-        }
+    void NkApplication::Shutdown() {
+        if (mShutdownDone) return;   // déjà fait (Run() puis destructeur) → no-op
+        mShutdownDone = true;
 
-        mWidth  = mDevice->GetSwapchainWidth();
-        mHeight = mDevice->GetSwapchainHeight();
-
-        OnInit();
-        OnStart();
-
-        mRunning     = true;
-        mAccumulator = 0.0f;
-        NkClock clock;
-        NkEventSystem& events = NkEvents();
-
-        logger.Infof("[Application] Boucle — fixed={:.4f}s maxDt={:.3f}s\n",
-                     mConfig.fixedTimeStep, mConfig.maxDeltaTime);
+        logger.Infof("[Application] Nettoyage...\n");
+        OnShutdown();                // callback utilisateur (libère ses ressources)
+        ShutdownDevice();            // WaitIdle + détruit cmd buffer + device (null-safe)
+        ShutdownPlatform();          // ferme la fenêtre
+        logger.Infof("[Application] Terminé proprement.\n");
     }
 
     // =========================================================================
@@ -204,10 +181,8 @@ namespace nkentseu {
 
         // Resize
         events.AddEventCallback<NkWindowResizeEvent>([this](NkWindowResizeEvent* e) {
-            mWidth  = static_cast<nk_uint32>(e->GetWidth());
-            mHeight = static_cast<nk_uint32>(e->GetHeight());
-            OnResize(mWidth, mHeight);
-            NkEventBus::Dispatch(e); // pas de consommation — tout le monde doit voir
+            OnWindowResize(e);        // met à jour mWidth/mHeight + appelle OnResize()
+            NkEventBus::Dispatch(e);  // pas de consommation — tout le monde doit voir
         });
 
         // Propagation aux layers pour Clavier
@@ -280,6 +255,19 @@ namespace nkentseu {
         }
 
         logger.Infof("[Application] Device RHI OK — {0}\n", NkGraphicsApiName(di.api));
+
+        // ── Moteur de rendu 2D/3D (NKRenderer, sur le device) ─────────────────
+        // Façade exposant TOUS les sous-systèmes (Render2D/Render3D/ombres/IBL/
+        // post-process/VFX/anim...). Create() appelle Initialize() en interne.
+        renderer::NkRendererConfig rcfg;   // configuration par défaut
+        mRenderer = renderer::NkRenderer::Create(mDevice, rcfg);
+        if (!mRenderer) {
+            logger.Errorf("[Application] NKRenderer : échec d'initialisation\n");
+            mDevice->DestroyCommandBuffer(mCmd); mCmd = nullptr;
+            NkDeviceFactory::Destroy(mDevice);   mDevice = nullptr;
+            return false;
+        }
+        logger.Infof("[Application] NKRenderer OK (moteur 2D/3D)\n");
         return true;
     }
 
@@ -287,6 +275,11 @@ namespace nkentseu {
     void NkApplication::ShutdownDevice() {
         if (mDevice) {
             mDevice->WaitIdle();
+            // Détruire le renderer AVANT le device (il référence le device).
+            if (mRenderer) {
+                renderer::NkRenderer::Destroy(mRenderer);  // appelle Shutdown() en interne
+                mRenderer = nullptr;
+            }
             if (mCmd) {
                 mDevice->DestroyCommandBuffer(mCmd);
                 mCmd = nullptr;
@@ -298,17 +291,6 @@ namespace nkentseu {
 
     void NkApplication::ShutdownPlatform() {
         mWindow.Close();
-    }
-
-    // =========================================================================
-    // DispatchEvent — propage aux layers (droite → gauche, consommation possible)
-    // =========================================================================
-    void NkApplication::DispatchEvent(NkEvent* event) {
-        if (!event) return;
-        // Parcours des overlays puis des layers (droite → gauche)
-        for (NkLayer** it = mLayerStack.rbegin(); it != mLayerStack.rend(); --it) {
-            if ((*it)->OnEvent(event)) break; // consommé
-        }
     }
 
     // =========================================================================
