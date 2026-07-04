@@ -50,7 +50,7 @@ uniform ObjectUBO {
 } uObj;
 
 // Joint matrices (= globalTransform * inverseBind, calcule cote CPU).
-@binding(set=1, binding=2)
+@binding(set=1, binding=4)
 uniform NkBonesUBO {
     mat4 bones[64];
 } uBones;

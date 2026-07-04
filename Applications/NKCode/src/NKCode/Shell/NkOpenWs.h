@@ -17,6 +17,7 @@
 // (0 = rien, 1 = annuler -> retour Home) pour eviter toute dependance circulaire.
 // =============================================================================
 #include "NKCode/Shell/NkUi.h"
+#include "NKCode/Shell/NkI18n.h"          // NkT() : traductions multi-langue
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Shell/Dialogs.h"
 #include <cstdio>
@@ -106,6 +107,83 @@ namespace nkcode {
         }
         static NkString Desktop()   { return KnownFolder("Desktop"); }
         static NkString Documents() { return KnownFolder("Documents"); }
+
+        // Lit une valeur brute (key=value) dans ~/.nkcode/settings.cfg. Vide si absente.
+        // Permet à New Workspace / Clone de respecter les chemins par défaut choisis dans les Paramètres,
+        // sans dépendance circulaire vers NkSettingsState.
+        static NkString ReadNkSetting(const char* key) {
+            const NkString path = (NkPath(Home().CStr()) / ".nkcode" / "settings.cfg").ToString();
+            if (!NkFile::Exists(path.CStr())) return NkString();
+            const NkString js = NkFile::ReadAllText(NkPath(path.CStr()));
+            NkString line;
+            for (const char* s = js.CStr(); ; ++s) {
+                if (*s == '\n' || *s == '\0') {
+                    const char* eq = nullptr; for (const char* p = line.CStr(); *p; ++p) if (*p == '=') { eq = p; break; }
+                    if (eq) { NkString k; for (const char* p = line.CStr(); p < eq; ++p) k += *p;
+                        if (StrEq(k.CStr(), key)) { NkString v; for (const char* p = eq + 1; *p; ++p) if (*p != '\r') v += *p; return v; } }
+                    line = NkString(); if (*s == '\0') break;
+                } else if (*s != '\r') line += *s;
+            }
+            return NkString();
+        }
+        // Dossier d'enregistrement par défaut des workspaces : réglage utilisateur (projDir) sinon ~/Projects.
+        static NkString DefaultProjectDir() {
+            const NkString v = ReadNkSetting("projDir");
+            if (!v.Empty()) return v;
+            return (NkPath(Home().CStr()) / "Projects").ToString();
+        }
+        // Dossier de config Jenga (~/.jenga, ou override JENGA_CONFIG_DIR / JENGA_HOME — aligné sur JengaConfig.py).
+        static NkString JengaConfigDir() {
+            const char* ov = std::getenv("JENGA_CONFIG_DIR"); if (!ov || !*ov) ov = std::getenv("JENGA_HOME");
+            if (ov && *ov) return NkString(ov);
+            return (NkPath(Home().CStr()) / ".jenga").ToString();
+        }
+        // Dossier de cache Jenga : <config>/cache.
+        static NkString JengaCacheDir() { return (NkPath(JengaConfigDir().CStr()) / "cache").ToString(); }
+
+        // Dossier de l'exécutable NKCode (renseigné par main.cpp au démarrage) — pour trouver le Jenga EMBARQUÉ.
+        static NkString& ExeDir() { static NkString d; return d; }
+        // Chemin RÉEL du binaire Jenga :
+        //  1) override JENGA_EXE,
+        //  2) Jenga EMBARQUÉ à côté de NKCode : <exe>/tools/jenga/jenga(.exe|.cmd)  (intégration future, zéro install Python),
+        //  3) sinon "jenga" du PATH (résolu en chemin complet si possible).
+        static NkString DefaultJengaPath() {
+            const char* ov = std::getenv("JENGA_EXE");
+            if (ov && *ov && NkFile::Exists(ov)) return NkString(ov);
+            const NkString ed = ExeDir();
+            if (!ed.Empty()) {
+                const char* cand[] = {
+#if defined(_WIN32)
+                    "tools/jenga/jenga.exe", "tools/jenga/jenga.cmd", "jenga/jenga.exe",
+#else
+                    "tools/jenga/jenga", "jenga/jenga",
+#endif
+                };
+                for (const char* rel : cand) { const NkString p = (NkPath(ed.CStr()) / rel).ToString(); if (NkFile::Exists(p.CStr())) return p; }
+            }
+            // PATH : renvoie le chemin complet si trouvé, sinon le littéral "jenga" (exécutable via PATH).
+            const NkString w = NkNewWsState_TcWhich_jenga();
+            return w.Empty() ? NkString("jenga") : w;
+        }
+        // Petit wrapper (NkNewWsState n'est pas encore visible ici) : cherche "jenga" dans le PATH.
+        static NkString NkNewWsState_TcWhich_jenga() {
+            const char* path = std::getenv("PATH"); if (!path) return NkString();
+#if defined(_WIN32)
+            const char sep = ';'; const char* exts[] = { ".exe", ".cmd", ".bat", "" };
+#else
+            const char sep = ':'; const char* exts[] = { "" };
+#endif
+            NkString dir;
+            auto tryDir = [&](const NkString& d) -> NkString {
+                for (const char* e : exts) { NkString name = "jenga"; name += e; NkString f = (NkPath(d.CStr()) / name.CStr()).ToString(); if (NkFile::Exists(f.CStr())) return f; }
+                return NkString();
+            };
+            for (const char* c = path; ; ++c) {
+                if (*c == sep || *c == '\0') { if (!dir.Empty()) { const NkString r = tryDir(dir); if (!r.Empty()) return r; } dir = NkString(); if (*c == '\0') break; }
+                else dir += *c;
+            }
+            return NkString();
+        }
 
         // Taille lisible (octets -> « 12.3 Ko », « 1.4 Mo »…).
         static NkString HumanSize(int64 b) {
@@ -205,19 +283,19 @@ namespace nkcode {
                 const NkString dst = (NkPath(curDir) / renameBuf).ToString();
                 const bool ok = entries[renameIdx].isDir ? NkDirectory::Move(src.CStr(), dst.CStr())
                                                          : NkFile::Move(src.CStr(), dst.CStr());
-                if (!ok) status = "Echec du renommage"; scanned = false;
+                if (!ok) status = NkT("ow.st.renamefail"); scanned = false;
             }
             renameIdx = -1;
         }
         void NewFolder() {
-            NkString name = "Nouveau dossier"; int32 k = 2;
+            NkString name = NkT("ow.st.newfolder"); int32 k = 2;
             while (NkDirectory::Exists((NkPath(curDir) / name.CStr()).ToString().CStr())) {
                 char b[64]; std::snprintf(b, sizeof(b), "Nouveau dossier (%d)", k++); name = b;
             }
             if (NkDirectory::CreateRecursive((NkPath(curDir) / name.CStr()).ToString().CStr())) {
                 Rescan();
                 for (usize i = 0; i < entries.Size(); ++i) if (StrEq(entries[i].name.CStr(), name.CStr())) { selected = (int32)i; BeginRename((int32)i); break; }
-            } else status = "Echec de creation du dossier";
+            } else status = NkT("ow.st.createfail");
         }
         void DeleteEntry(int32 idx) {
             confirmDel = -1;
@@ -226,7 +304,7 @@ namespace nkcode {
             const NkString p = (NkPath(curDir) / entries[idx].name.CStr()).ToString();
             bool ok = dir ? NkDirectory::MoveToTrash(p.CStr()) : NkFile::MoveToTrash(p.CStr());   // corbeille (annulable)
             if (!ok) ok = dir ? NkDirectory::Delete(p.CStr(), true) : NkFile::Delete(p.CStr());     // repli : definitif
-            if (!ok) status = "Echec de suppression"; scanned = false;
+            if (!ok) status = NkT("ow.st.deletefail"); scanned = false;
         }
         // ── Favoris : persistance dans ~/.nkcode/favorites.txt (une ligne « chemin<TAB>alias ») ──
         static NkString FavFile() { return (NkPath(Home().CStr()) / ".nkcode" / "favorites.txt").ToString(); }
@@ -342,17 +420,17 @@ namespace nkcode {
                     else                                 r.jengaKind = 0;   // .jenga sans contenu reconnu
                 }
                 // chaines figees au scan (Type / Taille)
-                if (r.isDir)            r.typeStr = r.isWsDir ? NkString("Workspace Jenga") : NkString("Dossier");
+                if (r.isDir)            r.typeStr = r.isWsDir ? NkString(NkT("ow.type.wsjenga")) : NkString(NkT("ow.type.folder"));
                 else if (r.isJenga) {
                     switch (r.jengaKind) {
                         case 1:  r.typeStr = "Workspace Jenga"; break;
                         case 2:  r.typeStr = "Projet Jenga";    break;
                         case 3:  r.typeStr = "Config Jenga";    break;
-                        default: r.typeStr = (r.size == 0) ? NkString("Jenga vide") : NkString("Fichier Jenga"); break;
+                        default: r.typeStr = (r.size == 0) ? NkString(NkT("ow.type.jengaempty")) : NkString(NkT("ow.type.jengafile")); break;
                     }
                 }
-                else if (r.size == 0) r.typeStr = "Fichier vide";
-                else { const NkString e = ExtUpper(d.Name.CStr()); r.typeStr = e.Empty() ? NkString("Fichier") : (NkString("Fichier ") + e.CStr()); }
+                else if (r.size == 0) r.typeStr = NkT("ow.type.emptyfile");
+                else { const NkString e = ExtUpper(d.Name.CStr()); r.typeStr = e.Empty() ? NkString(NkT("ow.type.file")) : (NkString(NkT("ow.type.fileprefix")) + e.CStr()); }
                 if (!r.isDir) r.sizeStr = HumanSize(r.size);
                 entries.PushBack(r);
             }
@@ -406,73 +484,201 @@ namespace nkcode {
         if (texId) NkDrawIcon(u, texId, r, c); else u.Icon(drawn, r, c);
     }
 
-    // ── Champ de recherche local (icone loupe + saisie + caret) — autonome ──
-    inline bool NkOwSearch(const NkUi& u, const NkRect& r, char* buf, int32 cap, bool focused, const char* placeholder, uint32 searchTex = 0) {
-        u.Panel(r, NkCol::input, focused ? NkCol::primary : NkCol::border, NkR::md * u.S);
-        NkOwIco(u, searchTex, "search", { r.x + u.s(9), r.y + (r.h - u.s(13)) * 0.5f, u.s(13), u.s(13) }, NkCol::mutedFg);
-        if (focused) {
-            if (u.ctx->input.KeyPressedRepeat(NkGuiKey::Backspace)) { int32 n = 0; while (buf[n]) ++n; if (n > 0) buf[n - 1] = '\0'; }
-            for (int32 i = 0; i < u.ctx->input.charCount; ++i) { const uint32 cp = u.ctx->input.chars[i];
-                if (cp >= 32 && cp < 127) { int32 n = 0; while (buf[n]) ++n; if (n + 1 < cap) { buf[n] = (char)cp; buf[n + 1] = '\0'; } } }
-        }
-        const float32 tx = r.x + u.s(28), ty = r.y + (r.h - u.Lh()) * 0.5f;
-        if (buf[0]) u.TextEllipsis(tx, ty, r.x + r.w - u.s(10) - tx, buf, NkCol::foreground);
-        else        u.Text(tx, ty, placeholder, NkCol::mutedFg);
-        if (focused) u.dl->AddRectFilled({ tx + (buf[0] ? u.TextW(buf) : 0.f) + u.s(1), r.y + u.s(6), u.s(1.5f), r.h - u.s(12) }, NkCol::primary, 0.f);
-        return u.Hit(r) && u.click;
-    }
 
     // ── Editeur de texte mono-ligne avec caret positionnable ──
     // Caret deplacable (fleches / Home / End), clignotant, insertion/suppression AU caret,
     // collage au caret, defilement horizontal pour garder le caret visible. Le panneau de
     // fond est dessine par l'appelant ; ici on gere saisie + texte + caret. Renvoie true si Entree.
-    inline bool NkOwEdit(const NkUi& u, const NkRect& fr, char* buf, int32 cap, int32& caret, float32& blink, float32 dt, float32 leftPad) {
+    // ── Menu contextuel PARTAGE des champs texte (clic droit) : Couper/Copier/Coller/Tout.
+    //    Ouvert par un champ (NkOwEdit / NkOverlayTextField), rendu EN DERNIER (au-dessus de tout),
+    //    et il depose une `action` que le champ focus execute a la frame suivante.
+    struct NkTxtMenuState { bool open = false; float32 x = 0.f, y = 0.f; int32 action = 0; bool hasSelection = false; };  // action : 0 rien,1 couper,2 copier,3 coller,4 tout
+    inline NkTxtMenuState& NkTxtMenu() { static NkTxtMenuState m; return m; }
+
+    // Champ de saisie mono-ligne : navigation flechee, SELECTION (Maj+fleches / Ctrl+A),
+    // COPIER (Ctrl+C) / COUPER (Ctrl+X) / COLLER (Ctrl+V, remplace la selection), surbrillance,
+    // cliquer-glisser, double-clic (tout), et CLIC DROIT -> menu contextuel.
+    inline bool NkOwEdit(const NkUi& u, const NkRect& fr, char* buf, int32 cap, int32& caret, float32& blink, float32 dt, float32 leftPad, bool mask = false) {
+        static const void* s_owner = nullptr;
+        static int32        s_anchor = -1;              // -1 = pas de selection
+        static bool         s_drag = false;             // selection souris en cours (cliquer-glisser)
+        if (s_owner != buf) { s_owner = buf; s_anchor = -1; s_drag = false; }
+
+        auto& in = u.ctx->input;
         blink += dt;
         int32 len = 0; while (buf[len]) ++len;
         if (caret > len) caret = len; if (caret < 0) caret = 0;
-        // — navigation —
-        if (u.ctx->input.KeyPressedRepeat(NkGuiKey::Left)  && caret > 0)   { --caret; blink = 0.f; }
-        if (u.ctx->input.KeyPressedRepeat(NkGuiKey::Right) && caret < len) { ++caret; blink = 0.f; }
-        if (u.ctx->input.KeyPressed(NkGuiKey::Home)) { caret = 0;   blink = 0.f; }
-        if (u.ctx->input.KeyPressed(NkGuiKey::End))  { caret = len; blink = 0.f; }
-        // — suppression au caret —
-        if (u.ctx->input.KeyPressedRepeat(NkGuiKey::Backspace) && caret > 0) {
-            for (int32 k = caret - 1; k < len; ++k) buf[k] = buf[k + 1]; --caret; --len; blink = 0.f;
+        if (s_anchor > len) s_anchor = len;
+        const bool shift = in.shiftDown;
+        // Indice du caractere sous la souris (tient compte du masque + defilement).
+        auto caretAtMouse = [&]() -> int32 {
+            const float32 availW0 = fr.w - leftPad - u.s(6);
+            char tp[600]; { int32 cc = caret < 599 ? caret : 599; for (int32 k = 0; k < cc; ++k) tp[k] = mask ? '*' : buf[k]; tp[cc] = '\0'; }
+            const float32 pw = u.TextW(tp);
+            const float32 offc = (pw > availW0) ? (pw - availW0) : 0.f;
+            const float32 target = u.mp.x - (fr.x + leftPad) + offc;
+            int32 best = 0; float32 bestd = 1e9f; char acc[600]; int32 an = 0;
+            for (int32 i = 0; ; ++i) { acc[an] = '\0'; const float32 wv = u.TextW(acc); const float32 d = wv > target ? wv - target : target - wv; if (d < bestd) { bestd = d; best = i; } if (!buf[i] || an >= 599) break; acc[an++] = mask ? '*' : buf[i]; }
+            return best;
+        };
+        const bool menuOpen = NkTxtMenu().open;
+        bool menuPaste = false;
+        // Clic DROIT -> ouvre le menu contextuel a la position souris (memorise l'etat de selection).
+        if (!menuOpen && u.Hit(fr) && in.mouseClicked[1]) { auto& mn = NkTxtMenu(); mn.open = true; mn.x = u.mp.x; mn.y = u.mp.y; mn.action = 0; mn.hasSelection = (s_anchor >= 0 && s_anchor != caret); }
+        // Double-clic -> tout ; appui -> ancre ; glisser -> etend ; clic simple = curseur + deselection.
+        // (souris gauche INACTIVE tant que le menu contextuel est ouvert)
+        if (!menuOpen) {
+            if (u.Hit(fr) && in.mouseDoubleClicked[0]) { s_anchor = 0; caret = len; s_drag = false; blink = 0.f; }
+            else if (u.Hit(fr) && u.click) { const int32 c = caretAtMouse(); caret = c; s_anchor = c; s_drag = true; blink = 0.f; }
+            else if (s_drag && in.mouseDown[0]) { caret = caretAtMouse(); blink = 0.f; }   // glissement : etend
+            if (!in.mouseDown[0]) s_drag = false;
         }
-        if (u.ctx->input.KeyPressedRepeat(NkGuiKey::Delete) && caret < len) {
-            for (int32 k = caret; k < len; ++k) buf[k] = buf[k + 1]; --len; blink = 0.f;
+        auto hasSel  = [&]() -> bool { return s_anchor >= 0 && s_anchor != caret; };
+        auto selLo   = [&]() -> int32 { return s_anchor < caret ? s_anchor : caret; };
+        auto selHi   = [&]() -> int32 { return s_anchor < caret ? caret : s_anchor; };
+        auto startSel= [&]() { if (s_anchor < 0) s_anchor = caret; };
+        auto delSel  = [&]() { const int32 lo = selLo(), n = selHi() - lo; for (int32 k = lo; k + n <= len; ++k) buf[k] = buf[k + n]; len -= n; buf[len] = '\0'; caret = lo; s_anchor = -1; };
+        auto copySel = [&]() { char t2[600]; int32 lo = selLo(), hi = selHi(), j = 0; for (int32 k = lo; k < hi && j < 599; ++k) t2[j++] = buf[k]; t2[j] = '\0'; u.ctx->SetClipboard(t2); };
+        // Action deposee par le menu contextuel (choisie a la frame precedente).
+        { auto& mn = NkTxtMenu(); if (mn.action) { const int32 a = mn.action; mn.action = 0; blink = 0.f;
+            if (a == 1) { if (hasSel()) { copySel(); delSel(); } }
+            else if (a == 2) { if (hasSel()) copySel(); }
+            else if (a == 4) { s_anchor = 0; caret = len; }
+            else if (a == 3) menuPaste = true; } }
+
+        // — navigation (Shift = etend la selection ; sans Shift = deplace et efface la selection) —
+        if (in.KeyPressedRepeat(NkGuiKey::Left)) {
+            if (shift) { startSel(); if (caret > 0) --caret; }
+            else { if (hasSel()) caret = selLo(); else if (caret > 0) --caret; s_anchor = -1; }
+            blink = 0.f;
         }
-        // — collage au caret —
-        if (u.ctx->input.wantPaste) {
-            const NkString c = u.ctx->GetClipboard();
-            for (const char* s = c.CStr(); *s; ++s) {
+        if (in.KeyPressedRepeat(NkGuiKey::Right)) {
+            if (shift) { startSel(); if (caret < len) ++caret; }
+            else { if (hasSel()) caret = selHi(); else if (caret < len) ++caret; s_anchor = -1; }
+            blink = 0.f;
+        }
+        if (in.KeyPressed(NkGuiKey::Home)) { if (shift) startSel(); else s_anchor = -1; caret = 0;   blink = 0.f; }
+        if (in.KeyPressed(NkGuiKey::End))  { if (shift) startSel(); else s_anchor = -1; caret = len; blink = 0.f; }
+        // — tout selectionner / copier / couper —
+        if (in.wantSelectAll) { s_anchor = 0; caret = len; in.wantSelectAll = false; blink = 0.f; }
+        if (in.wantCopy)      { if (hasSel()) copySel(); in.wantCopy = false; }
+        if (in.wantCut)       { if (hasSel()) { copySel(); delSel(); } in.wantCut = false; blink = 0.f; }
+        // — suppression (efface la selection si presente) —
+        if (in.KeyPressedRepeat(NkGuiKey::Backspace)) { if (hasSel()) delSel(); else if (caret > 0) { for (int32 k = caret - 1; k < len; ++k) buf[k] = buf[k + 1]; --caret; --len; } blink = 0.f; }
+        if (in.KeyPressedRepeat(NkGuiKey::Delete))    { if (hasSel()) delSel(); else if (caret < len) { for (int32 k = caret; k < len; ++k) buf[k] = buf[k + 1]; --len; } blink = 0.f; }
+        // — collage (remplace la selection) — Ctrl+V ou item « Coller » du menu contextuel —
+        if (in.wantPaste || menuPaste) {
+            if (hasSel()) delSel();
+            const NkString cb = u.ctx->GetClipboard();
+            for (const char* s = cb.CStr(); *s; ++s) {
                 if ((unsigned char)*s < 32 || len + 1 >= cap) continue;
                 for (int32 k = len; k >= caret; --k) buf[k + 1] = buf[k];
                 buf[caret] = *s; ++caret; ++len;
             }
-            u.ctx->input.wantPaste = false; blink = 0.f;
+            in.wantPaste = false; blink = 0.f;
         }
-        // — insertion des caracteres tapes au caret —
-        for (int32 i = 0; i < u.ctx->input.charCount; ++i) {
-            const uint32 cp = u.ctx->input.chars[i];
-            if (cp < 32 || cp >= 127 || len + 1 >= cap) continue;
+        // — insertion des caracteres tapes (remplace la selection) —
+        for (int32 i = 0; i < in.charCount; ++i) {
+            const uint32 cp = in.chars[i];
+            if (cp < 32 || cp >= 127) continue;
+            if (hasSel()) delSel();
+            if (len + 1 >= cap) break;
             for (int32 k = len; k >= caret; --k) buf[k + 1] = buf[k];
             buf[caret] = (char)cp; ++caret; ++len; blink = 0.f;
         }
         if (caret > len) caret = len;
-        // — dessin (texte + caret), clip + defilement vers le caret —
+        if (s_anchor > len) s_anchor = len;
+        // — dessin (surbrillance selection + texte + caret), clip + defilement vers le caret —
+        // En mode masque (mot de passe), on affiche/mesure sur une chaine de '*'.
+        char disp[600]; { int32 n = len < 599 ? len : 599; for (int32 k = 0; k < n; ++k) disp[k] = mask ? '*' : buf[k]; disp[n] = '\0'; }
         const float32 viewW = fr.w - leftPad - u.s(6);
         const float32 tx = fr.x + leftPad, ty = fr.y + (fr.h - u.Lh()) * 0.5f;
         char tmp[600]; int32 c = caret < (int32)sizeof(tmp) - 1 ? caret : (int32)sizeof(tmp) - 1;
-        for (int32 k = 0; k < c; ++k) tmp[k] = buf[k]; tmp[c] = '\0';
+        for (int32 k = 0; k < c; ++k) tmp[k] = disp[k]; tmp[c] = '\0';
         const float32 prefW = u.TextW(tmp);
         const float32 off = (prefW > viewW) ? (prefW - viewW) : 0.f;   // garde le caret visible
         u.dl->PushClipRect({ fr.x + leftPad, fr.y, viewW, fr.h }, true);
-        u.Text(tx - off, ty, buf, NkCol::foreground);
+        if (hasSel()) {
+            const int32 lo = selLo(), hi = selHi();
+            char a[600]; int32 na = lo < 599 ? lo : 599; for (int32 k = 0; k < na; ++k) a[k] = disp[k]; a[na] = '\0';
+            char b[600]; int32 nb = hi < 599 ? hi : 599; for (int32 k = 0; k < nb; ++k) b[k] = disp[k]; b[nb] = '\0';
+            const float32 xa = u.TextW(a), xb = u.TextW(b);
+            u.dl->AddRectFilled({ tx - off + xa, fr.y + u.s(4), (xb - xa), fr.h - u.s(8) }, NkColor{ 46,110,190,140 }, u.s(2));
+        }
+        u.Text(tx - off, ty, disp, NkCol::foreground);
         const float32 frac = blink - (float32)(int64)blink;
         if (frac < 0.5f) u.dl->AddRectFilled({ tx - off + prefW, fr.y + u.s(5), u.s(1.5f), fr.h - u.s(10) }, NkCol::primary, 0.f);
         u.dl->PopClipRect();
-        return u.ctx->input.KeyPressed(NkGuiKey::Enter);
+        return in.KeyPressed(NkGuiKey::Enter);
+    }
+
+    // ── Variante caret AUTOMATIQUE : pour les champs simples SANS etat caret dedie.
+    //    Le caret/blink sont conserves en statique, associes au buffer focus (un seul a la fois).
+    //    Offre toutes les capacites de NkOwEdit (selection, copier/couper/coller, double-clic).
+    inline bool NkOwEditA(const NkUi& u, const NkRect& fr, char* buf, int32 cap, float32 dt, float32 leftPad, bool mask = false) {
+        static const void* s_owner = nullptr; static int32 s_caret = 0; static float32 s_blink = 0.f;
+        if (s_owner != buf) { s_owner = buf; int32 n = 0; while (buf[n]) ++n; s_caret = n; s_blink = 0.f; }
+        return NkOwEdit(u, fr, buf, cap, s_caret, s_blink, dt, leftPad, mask);
+    }
+
+    // Rectangle du menu contextuel (clampe a la fenetre).
+    inline NkRect NkTxtMenuBox(const NkUi& u) {
+        auto& mn = NkTxtMenu();
+        const float32 iw = u.s(172), ih = u.s(26), pad = u.s(4), mh = 4 * ih + 2 * pad;
+        float32 mx = mn.x, my = mn.y;
+        if (mx + iw > (float32)u.ctx->viewW) mx = (float32)u.ctx->viewW - iw - u.s(4);
+        if (my + mh > (float32)u.ctx->viewH) my = (float32)u.ctx->viewH - mh - u.s(4);
+        if (mx < u.s(2)) mx = u.s(2); if (my < u.s(2)) my = u.s(2);
+        return { mx, my, iw, mh };
+    }
+    // Item actif ? 0 couper / 1 copier -> selection requise ; 2 coller -> presse-papier non vide ; 3 tout -> toujours.
+    inline bool NkTxtMenuEnabled(const NkUi& u, int32 i) {
+        if (i == 0 || i == 1) return NkTxtMenu().hasSelection;
+        if (i == 2) return !u.ctx->GetClipboard().Empty();
+        return true;
+    }
+    // ── Input du menu : a appeler AVANT les panneaux. Consomme le clic (u.click = false) pour
+    //    ne RIEN laisser passer vers les widgets derriere. Depose l'action choisie. ──
+    inline void NkTextMenuInput(NkUi& u) {
+        auto& mn = NkTxtMenu();
+        if (!mn.open) return;
+        if (u.ctx->input.KeyPressed(NkGuiKey::Escape)) { mn.open = false; }
+        if (!u.click) return;
+        const NkRect box = NkTxtMenuBox(u);
+        const float32 ih = u.s(26), pad = u.s(4);
+        for (int32 i = 0; i < 4; ++i) { const NkRect ir = { box.x + pad, box.y + pad + i * ih, box.w - 2 * pad, ih };
+            if (u.Hit(ir) && NkTxtMenuEnabled(u, i)) { mn.action = i + 1; break; } }
+        mn.open = false;                                   // tout clic (item ou dehors) ferme le menu
+        u.click = false; u.ctx->input.mouseClicked[0] = false;   // CONSOMME : les panneaux ne verront pas ce clic
+    }
+    // ── Rendu du menu : a appeler EN DERNIER (au-dessus de tout). Grise les items inactifs. ──
+    inline void NkDrawTextMenu(const NkUi& u) {
+        auto& mn = NkTxtMenu();
+        if (!mn.open) return;
+        const char* items[] = { NkT("menu.cut"), NkT("menu.copy"), NkT("menu.paste"), NkT("menu.selectall") };
+        const NkRect box = NkTxtMenuBox(u);
+        const float32 ih = u.s(26), pad = u.s(4);
+        u.dl->AddRectFilled({ box.x + u.s(2), box.y + u.s(3), box.w, box.h }, NkColor{ 0,0,0,90 }, NkR::md * u.S);
+        u.Panel(box, NkCol::surface, NkColor{ 48,54,61,255 }, NkR::md * u.S);
+        for (int32 i = 0; i < 4; ++i) {
+            const NkRect ir = { box.x + pad, box.y + pad + i * ih, box.w - 2 * pad, ih };
+            const bool en = NkTxtMenuEnabled(u, i);
+            if (en && u.Hit(ir)) u.Rect(ir, NkCol::hover, NkR::sm * u.S);
+            u.TextV(ir.x + u.s(10), ir.y, ih, items[i], en ? NkCol::foreground : NkCol::mutedFg);
+            if (i == 3) u.Rect({ box.x + pad, ir.y - 1.f, box.w - 2 * pad, 1.f }, NkCol::border);   // separateur avant « Tout »
+        }
+    }
+
+    // ── Champ de recherche local (icone loupe + saisie complete) — autonome ──
+    // Saisie via NkOwEditA : selection, copier/couper/coller, double-clic tout selectionner.
+    inline bool NkOwSearch(const NkUi& u, const NkRect& r, char* buf, int32 cap, bool focused, const char* placeholder, uint32 searchTex, float32 dt) {
+        u.Panel(r, NkCol::input, focused ? NkCol::primary : NkCol::border, NkR::md * u.S);
+        NkOwIco(u, searchTex, "search", { r.x + u.s(9), r.y + (r.h - u.s(13)) * 0.5f, u.s(13), u.s(13) }, NkCol::mutedFg);
+        const float32 padL = u.s(28), ty = r.y + (r.h - u.Lh()) * 0.5f;
+        if (focused)       NkOwEditA(u, r, buf, cap, dt, padL);
+        else if (buf[0])   u.TextEllipsis(r.x + padL, ty, r.w - padL - u.s(10), buf, NkCol::foreground);
+        else               u.Text(r.x + padL, ty, placeholder, NkCol::mutedFg);
+        return u.Hit(r) && u.click;
     }
 
     // ── Bouton icone carre (barre d'outils) ──
@@ -495,7 +701,7 @@ namespace nkcode {
         // Un overlay (menu contextuel / modale de suppression) est-il ouvert ? Si oui,
         // le fond ne doit PLUS recevoir d'evenements (sinon le clic « traverse » le menu).
         // L'etat est lu en DEBUT de frame : le menu s'ouvre frame N, l'item est clique frame N+1.
-        const bool blockBg = (ow->menuIdx != -1) || (ow->confirmDel >= 0) || (ow->favMenuIdx != -1);
+        const bool blockBg = (ow->menuIdx != -1) || (ow->confirmDel >= 0) || (ow->favMenuIdx != -1) || NkTxtMenu().open;
         NkRect pathFieldR = { 0,0,0,0 }; bool pathFieldShown = false, pathFieldUp = false;   // dropdown autocompletion
         u.Rect(r, NkCol::background);
 
@@ -527,7 +733,7 @@ namespace nkcode {
             if (ent) {
                 if (ow->suggSel >= 0 && ow->suggSel < (int32)ow->suggIdx.Size()) ow->ApplySugg(ow->suggIdx[ow->suggSel]);
                 else if (NkDirectory::Exists(ow->pathBuf)) { ow->SetDir(ow->pathBuf, true); ow->pathEdit = false; }
-                else ow->status = "Chemin introuvable";
+                else ow->status = NkT("ow.st.pathnotfound");
             }
             if (u.ctx->input.KeyPressed(NkGuiKey::Escape)) ow->pathEdit = false;
         } else {
@@ -563,7 +769,7 @@ namespace nkcode {
         }
         // Recherche (vrai champ avec caret)
         const NkRect searchR = { crBar.x + crBar.w + u.s(8), by, searchW, bw };
-        { const bool clk = NkOwSearch(u, searchR, ow->search, (int32)sizeof(ow->search), ow->focusSearch, "Rechercher...", ic.search);
+        { const bool clk = NkOwSearch(u, searchR, ow->search, (int32)sizeof(ow->search), ow->focusSearch, NkT("ow.search"), ic.search, dt);
           // Tout clic (re)definit le focus : sur le champ -> actif ; ailleurs -> inactif.
           if (u.click && !blockBg) ow->focusSearch = clk; }
         // Bascule liste / grille
@@ -614,12 +820,12 @@ namespace nkcode {
             auto header = [&](const char* t) { u.Text(r.x + u.s(14), yy, t, NkCol::mutedFg); yy += u.s(20); };
 
             // ── EMPLACEMENTS ──
-            header("EMPLACEMENTS");
+            header(NkT("ow.places"));
             struct Place { uint32 tex; const char* drawn; const char* label; NkString path; };
             NkVector<Place> places;
-            places.PushBack({ ic.accueil,       "home",     "Accueil",   NkOpenWsState::Home() });
-            places.PushBack({ ic.bureau,        "monitor",  "Bureau",    NkOpenWsState::Desktop() });
-            places.PushBack({ ic.ouvrirDossier, "folder",   "Documents", NkOpenWsState::Documents() });
+            places.PushBack({ ic.accueil,       "home",     NkT("nav.home"),   NkOpenWsState::Home() });
+            places.PushBack({ ic.bureau,        "monitor",  NkT("ow.desktop"),    NkOpenWsState::Desktop() });
+            places.PushBack({ ic.ouvrirDossier, "folder",   NkT("ow.documents"), NkOpenWsState::Documents() });
             for (usize i = 0; i < places.Size(); ++i)
                 if (navItem(places[i].tex, places[i].drawn, places[i].label, NkCol::mutedFg, StrEq(ow->curDir, places[i].path.CStr())) == 1)
                     ow->SetDir(places[i].path.CStr(), true);
@@ -627,7 +833,7 @@ namespace nkcode {
             // ── FAVORIS (persistes, glisser-deposer, clic-droit renommer/retirer) ──
             yy += u.s(4); u.Rect({ r.x + u.s(14), yy, sbW - u.s(28), 1.f }, NkCol::border); yy += u.s(10);
             const float32 favTop = yy - u.s(4);
-            header("FAVORIS");
+            header(NkT("ow.favorites"));
             if (ow->favs.Empty()) { u.TextV(r.x + u.s(14), yy, u.s(20), "(glissez un dossier ici)", NkCol::mutedFg); yy += u.s(22); }
             for (usize i = 0; i < ow->favs.Size(); ++i) {
                 if (ow->favRename == (int32)i) {
@@ -645,10 +851,19 @@ namespace nkcode {
 
             // ── PROJETS (workspaces Jenga connus : epingles + recents) ──
             yy += u.s(4); u.Rect({ r.x + u.s(14), yy, sbW - u.s(28), 1.f }, NkCol::border); yy += u.s(10);
-            header("PROJETS");
-            NkVector<NkString> projPaths; NkVector<NkString> projNames;
-            for (usize i = 0; st && i < st->pinned.Size(); ++i) { projPaths.PushBack(st->pinned[i]); projNames.PushBack(i < st->pinnedNames.Size() ? st->pinnedNames[i] : NkString()); }
-            for (usize i = 0; st && i < st->recents.Size(); ++i) { projPaths.PushBack(st->recents[i]); projNames.PushBack(i < st->recentNames.Size() ? st->recentNames[i] : NkString()); }
+            header(NkT("ow.projects"));
+            NkVector<NkString> projPaths; NkVector<NkString> projNames; NkVector<NkString> seenDirs;
+            // N'affiche QUE des workspaces reellement presents sur le disque, et SANS doublon
+            // (un meme workspace epingle ET recent n'apparait qu'une fois).
+            auto addProj = [&](const NkString& path, const NkString& name) {
+                const NkString dir = NkPath(path.CStr()).GetParent().ToString();
+                if (!NkFile::Exists(path.CStr()) && !NkDirectory::Exists(dir.CStr())) return;   // entree perimee -> ignoree
+                NkString key; for (const char* c = dir.CStr(); *c; ++c) { char ch = (*c == '\\') ? '/' : *c; if (ch >= 'A' && ch <= 'Z') ch = (char)(ch + 32); key += ch; }
+                for (usize k = 0; k < seenDirs.Size(); ++k) if (seenDirs[k] == key) return;      // deja liste -> pas de doublon
+                seenDirs.PushBack(key); projPaths.PushBack(path); projNames.PushBack(name);
+            };
+            for (usize i = 0; st && i < st->pinned.Size(); ++i)  addProj(st->pinned[i],  i < st->pinnedNames.Size()  ? st->pinnedNames[i]  : NkString());
+            for (usize i = 0; st && i < st->recents.Size(); ++i) addProj(st->recents[i], i < st->recentNames.Size() ? st->recentNames[i] : NkString());
             if (projPaths.Empty()) { u.TextV(r.x + u.s(14), yy, u.s(20), "(aucun)", NkCol::mutedFg); yy += u.s(22); }
             for (usize i = 0; i < projPaths.Size() && i < 8; ++i) {
                 const NkString dir = NkPath(projPaths[i].CStr()).GetParent().ToString();
@@ -658,7 +873,7 @@ namespace nkcode {
 
             // ── APPAREILS (disques montes) ── enumeration sans header lourd : lettres existantes.
             yy += u.s(4); u.Rect({ r.x + u.s(14), yy, sbW - u.s(28), 1.f }, NkCol::border); yy += u.s(10);
-            header("APPAREILS");
+            header(NkT("ow.devices"));
             int32 shown = 0;
             for (char d = 'C'; d <= 'Z'; ++d) {
                 const char root[4] = { d, ':', '/', 0 };
@@ -697,16 +912,16 @@ namespace nkcode {
         u.dl->PushClipRect({ list.x, list.y, list.w, hH }, true);
         // En-tete « Nom » : cliquable (tri) + icone de tri (↕)
         { const NkRect hh = { lox, list.y, xType - lox, hH };
-          u.Text(lox + u.s(16), list.y + (hH - lh) * 0.5f, "Nom", ow->sortBy == 0 ? NkCol::foreground : NkCol::mutedFg);
-          NkOwIco(u, ic.sort, "chevron-down", { lox + u.s(16) + u.TextW("Nom") + u.s(5), list.y + (hH - u.s(11)) * 0.5f, u.s(11), u.s(11) }, ow->sortBy == 0 ? NkCol::accent : NkCol::mutedFg);
+          u.Text(lox + u.s(16), list.y + (hH - lh) * 0.5f, NkT("ow.col.name"), ow->sortBy == 0 ? NkCol::foreground : NkCol::mutedFg);
+          NkOwIco(u, ic.sort, "chevron-down", { lox + u.s(16) + u.TextW(NkT("ow.col.name")) + u.s(5), list.y + (hH - u.s(11)) * 0.5f, u.s(11), u.s(11) }, ow->sortBy == 0 ? NkCol::accent : NkCol::mutedFg);
           if (u.Hit(hh) && u.click && !blockBg) ow->SetSort(0); }
-        u.Text(xType, list.y + (hH - lh) * 0.5f, "Type",    NkCol::mutedFg);
-        u.Text(xSize, list.y + (hH - lh) * 0.5f, "Taille",  NkCol::mutedFg);
-        u.Text(xProj, list.y + (hH - lh) * 0.5f, "Projets", NkCol::mutedFg);
+        u.Text(xType, list.y + (hH - lh) * 0.5f, NkT("ow.col.type"),    NkCol::mutedFg);
+        u.Text(xSize, list.y + (hH - lh) * 0.5f, NkT("ow.col.size"),  NkCol::mutedFg);
+        u.Text(xProj, list.y + (hH - lh) * 0.5f, NkT("ow.col.projects"), NkCol::mutedFg);
         // En-tete « Modifie » : cliquable (tri par date)
         { const NkRect hh = { xMod, list.y, colMod, hH };
-          u.Text(hh.x, list.y + (hH - lh) * 0.5f, "Modifie", ow->sortBy == 1 ? NkCol::foreground : NkCol::mutedFg);
-          if (ow->sortBy == 1) NkOwIco(u, ic.sort, "chevron-down", { hh.x + u.TextW("Modifie") + u.s(5), list.y + (hH - u.s(11)) * 0.5f, u.s(11), u.s(11) }, NkCol::accent);
+          u.Text(hh.x, list.y + (hH - lh) * 0.5f, NkT("ow.col.modified"), ow->sortBy == 1 ? NkCol::foreground : NkCol::mutedFg);
+          if (ow->sortBy == 1) NkOwIco(u, ic.sort, "chevron-down", { hh.x + u.TextW(NkT("ow.col.modified")) + u.s(5), list.y + (hH - u.s(11)) * 0.5f, u.s(11), u.s(11) }, NkCol::accent);
           if (u.Hit(hh) && u.click && !blockBg) ow->SetSort(1); }
         u.dl->PopClipRect();
 
@@ -905,9 +1120,9 @@ namespace nkcode {
             };
             float32 cx = strip.x + u.s(14);
             cx = checkbox(cx, "Workspaces .jenga", ow->showJenga, false);
-            cx = checkbox(cx, "Dossiers",          ow->showDirs,  false);
-            cx = checkbox(cx, "Fichiers caches",    ow->showHidden, true);
-            cx = checkbox(cx, "Tous les fichiers",  ow->showAll,   false);
+            cx = checkbox(cx, NkT("ow.dirs"),          ow->showDirs,  false);
+            cx = checkbox(cx, NkT("ow.hidden"),    ow->showHidden, true);
+            cx = checkbox(cx, NkT("ow.allfiles"),  ow->showAll,   false);
         }
 
         // ============ BARRE DU BAS ============
@@ -932,7 +1147,7 @@ namespace nkcode {
             if (ent) {
                 if (ow->suggSel >= 0 && ow->suggSel < (int32)ow->suggIdx.Size()) ow->ApplySugg(ow->suggIdx[ow->suggSel]);
                 else if (NkDirectory::Exists(ow->pathBuf)) { ow->SetDir(ow->pathBuf, true); ow->pathEdit = false; }
-                else ow->status = "Chemin introuvable";
+                else ow->status = NkT("ow.st.pathnotfound");
             }
             if (u.ctx->input.KeyPressed(NkGuiKey::Escape)) ow->pathEdit = false;
         } else {
@@ -941,11 +1156,11 @@ namespace nkcode {
         }
         // bouton Ouvrir / Choisir (grise si erreur, sauf en mode pick)
         const bool err = pickFolder ? false : ow->HasError();
-        const char* openLbl = pickFolder ? "Choisir ce dossier" : "Ouvrir le dossier";
+        const char* openLbl = pickFolder ? NkT("ow.choosefolder") : NkT("ow.openfolder");
         const NkRect openR = { bot.x + bot.w - u.s(14) - btnOpenW - btnCancelW - u.s(8), bot.y + (botH - u.s(32)) * 0.5f, btnOpenW, u.s(32) };
         {
             const bool hv = !err && u.Hit(openR);
-            u.Rect(openR, err ? NkCol::muted : (hv ? NkColor{ 35,135,233,255 } : NkCol::primary), NkR::md * u.S);
+            u.Rect(openR, err ? NkCol::muted : (hv ? NkColHover(NkCol::primary) : NkCol::primary), NkR::md * u.S);
             const float32 tw = u.TextW(openLbl);
             NkOwIco(u, ic.ouvrirDossier, "folder-open", { openR.x + (openR.w - tw - u.s(20)) * 0.5f, openR.y + (openR.h - u.s(14)) * 0.5f, u.s(14), u.s(14) }, err ? NkCol::mutedFg : NkCol::primaryFg);
             u.TextV(openR.x + (openR.w - tw - u.s(20)) * 0.5f + u.s(20), openR.y, openR.h, openLbl, err ? NkCol::mutedFg : NkCol::primaryFg);
@@ -953,7 +1168,7 @@ namespace nkcode {
         }
         // bouton Annuler
         const NkRect cancelR = { bot.x + bot.w - u.s(14) - btnCancelW, bot.y + (botH - u.s(32)) * 0.5f, btnCancelW, u.s(32) };
-        if (u.Button(cancelR, "Annuler", NkCol::muted, NkCol::hover, NkCol::foreground, NkR::md * u.S) && !blockBg) result = 1;
+        if (u.Button(cancelR, NkT("btn.cancel"), NkCol::muted, NkCol::hover, NkCol::foreground, NkR::md * u.S) && !blockBg) result = 1;
 
         // bandeau d'etat / erreur : dans son ESPACE RESERVE (au-dessus de la rangee d'options, sous la liste)
         {

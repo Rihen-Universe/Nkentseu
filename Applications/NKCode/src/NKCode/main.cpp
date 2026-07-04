@@ -138,10 +138,20 @@ int nkmain(const NkEntryState& state) {
     // ── Ecran d'accueil (Home) : nouvelle UI + logos/icones rasterises en texture ──
     g_home.st = &g_state; g_home.dlg = &g_dialogs;
     g_home.exePath = (state.args.Size() > 0) ? state.args[0] : NkString();   // pour "Ouvrir dans une nouvelle fenetre"
+    if (state.args.Size() > 0) nkcode::NkOpenWsState::ExeDir() = NkPath(state.args[0].CStr()).GetParent().ToString();   // pour trouver le Jenga embarque (tools/jenga)
     // Argument : un dossier de workspace -> ouvre directement (cas "nouvelle fenetre").
+    bool g_openedArg = false;
     for (usize ai = 1; ai < state.args.Size(); ++ai) {
         const char* a = state.args[ai].CStr();
-        if (a && a[0] && a[0] != '-') { g_dialogs.DoLoad(NkPath(a)); break; }
+        if (a && a[0] && a[0] != '-') { g_dialogs.DoLoad(NkPath(a)); g_openedArg = true; break; }
+    }
+    // Parametre General « Au demarrage = Dernier workspace » (openStartup==1) :
+    // ouvre directement le workspace recent le plus recent qui existe encore sur disque.
+    if (!g_openedArg && nkcode::StrEq(nkcode::NkOpenWsState::ReadNkSetting("openStartup").CStr(), "1")) {
+        for (usize i = 0; i < g_state.recents.Size(); ++i) {
+            const char* rp = g_state.recents[i].CStr();
+            if (rp && rp[0] && (NkDirectory::Exists(rp) || NkFile::Exists(rp))) { g_dialogs.DoLoad(NkPath(rp)); break; }
+        }
     }
     {
         // Charge une texture NETTE : PNG en priorite (repli SVG), puis REDIMENSIONNE
@@ -159,8 +169,22 @@ int nkmain(const NkEntryState& state) {
             if (ar >= tar) { fw = tw; fh = (int32)((float32)tw / ar + 0.5f); }
             else           { fh = th; fw = (int32)((float32)th * ar + 0.5f); }
             if (fw < 1) fw = 1; if (fh < 1) fh = 1;
-            NkImage* fitted = (sw == fw && sh == fh) ? &img : img.Resize(fw, fh);
-            if (!fitted) fitted = &img;
+            // Downscale PROGRESSIF par demi-pas : un bilinéaire direct 128->~35 ne prend que
+            // 2x2 texels et CRÉNÈLE le line-art (pas de mipmaps). En halvant (128->64->35),
+            // chaque étape moyenne 2x2 -> approxime un filtre surface -> icônes NETTES.
+            NkImage* fitted;
+            if (sw == fw && sh == fh) { fitted = &img; }
+            else {
+                NkImage* inter = nullptr; const NkImage* src = &img; int32 cw = sw, chh = sh;
+                while (cw >= fw * 2 && chh >= fh * 2) {
+                    NkImage* half = src->Resize(cw / 2, chh / 2);
+                    if (!half) break;
+                    if (inter) inter->Free(); inter = half; src = half; cw = half->Width(); chh = half->Height();
+                }
+                fitted = src->Resize(fw, fh);
+                if (inter) inter->Free();
+                if (!fitted) fitted = &img;
+            }
             uint32 id = 0;
             if (!box || (fw == tw && fh == th)) {             // remplit la cible (ou pas de letterbox) -> direct
                 id = shell->UploadRGBA(fitted->Pixels(), fw, fh);
@@ -235,15 +259,17 @@ int nkmain(const NkEntryState& state) {
         // d'affichage sidebar -> NET (sans mipmaps, uploader 512px puis laisser le GPU
         // sous-echantillonner produit du flou). La barre de titre utilise l'ICONE (nette)
         // + "nkcode" en police vectorielle (toujours net), conforme a la maquette.
-        g_home.logoIcon = loadTex("logo/icon_blanc_fond_transparent", 48, 48);
-        g_home.logoWord = loadTex("logo/logo_complet_blanc_fond_transparent", 360, 90, &g_home.wordW, &g_home.wordH, /*trim*/true, /*box*/false);
-        shell->SetTitleLogo(g_home.logoIcon);   // icone seule (aspect 0) -> icone + texte "nkcode" net
+        g_home.logoIcon = loadTex("logo/nkcode_icon", 48, 48);   // icone barre de titre (elle seule, sans texte)
+        // Wordmark en 2 versions PRETES : nkcode_white (fond sombre) + nkcode_dark (fond clair / theme Light).
+        g_home.logoWord     = loadTex("logo/nkcode_white", 360, 90, &g_home.wordW,  &g_home.wordH,  /*trim*/true, /*box*/false);
+        g_home.logoWordDark = loadTex("logo/nkcode_dark",  360, 90, &g_home.wordWD, &g_home.wordHD, /*trim*/true, /*box*/false);
+        shell->SetTitleLogo(g_home.logoIcon, 1.0f);   // aspect>0 => icone carree SEULE (pas de texte "nkcode")
         // Icones : uploadees a la taille d'AFFICHAGE (DPI-aware) -> NET. Sans mipmaps,
         // uploader plus grand que l'ecran puis laisser le GPU reduire = flou. On
         // redimensionne donc la source 128px directement a ~ sa taille ecran (CPU, filtre
         // qualite). Les icones s'affichent ~13-22 px logiques -> upload ~26 px * DPI.
         const float32 dpi = shell->DpiScale();
-        int32 IS = (int32)(26.f * dpi + 0.5f); if (IS < 20) IS = 20;
+        int32 IS = (int32)(32.f * dpi + 0.5f); if (IS < 24) IS = 24;   // source 128px -> downscale progressif net
         nkcode::NkIcons& ic = g_home.icons;
         ic.accueil       = loadTex("icon/Accueil", IS, IS);
         ic.ouvrir        = loadTex("icon/Ouvrir", IS, IS);
@@ -269,6 +295,59 @@ int nkmain(const NkEntryState& state) {
         ic.horloge       = loadTex("icon/Horloge", IS, IS);
         ic.fichier       = loadTex("icon/Fichier", IS, IS);
         ic.sort          = loadTex("icon/Sort", IS, IS);
+        // Wizard projet : types + actions + validation
+        ic.kConsole      = loadTex("icon/consoleapp", IS, IS);
+        ic.kWindowed     = loadTex("icon/windowedapp", IS, IS);
+        ic.kStatic       = loadTex("icon/staticlib", IS, IS);
+        ic.kShared       = loadTex("icon/sharedlib", IS, IS);
+        ic.kTest         = loadTex("icon/test", IS, IS);
+        ic.kConfig       = loadTex("icon/config", IS, IS);
+        ic.valideSimple  = loadTex("icon/ValideSimple", IS, IS);
+        ic.editer        = loadTex("icon/editer", IS, IS);
+        ic.dependance    = loadTex("icon/Dependance", IS, IS);
+        ic.creeProjet    = loadTex("icon/CreeProjet", IS, IS);
+        ic.fileCode      = loadTex("icon/FileCode", IS, IS);
+        ic.plus          = loadTex("icon/Plus", IS, IS);
+        ic.corbeille     = loadTex("icon/Corbeil", IS, IS);
+        ic.lock          = loadTex("icon/Lock", IS, IS);
+        ic.clonerTel     = loadTex("icon/ClonerTelecharger", IS, IS);
+        ic.github        = loadTex("icon/Github", IS, IS);
+        ic.oeilOuvert    = loadTex("icon/OeilOuvert", IS, IS);
+        ic.oeilFermer    = loadTex("icon/OeilFermer", IS, IS);
+        ic.rondI         = loadTex("icon/RondI", IS, IS);
+        // ── Vue principale IDE : vraies icones (Lucide -> assets reels) ──
+        ic.hammer        = loadTex("icon/Mateau", IS, IS);        // build
+        ic.bug           = loadTex("icon/cocsinelle", IS, IS);    // debug
+        ic.sparkles      = loadTex("icon/EtoileEtoile", IS, IS);  // IA
+        ic.zap           = loadTex("icon/Eclaire", IS, IS);       // moteur
+        ic.chart         = loadTex("icon/gRAPH", IS, IS);         // profiler
+        ic.puzzle        = loadTex("icon/stack", IS, IS);         // extensions
+        ic.eraser        = loadTex("icon/Gomme", IS, IS);         // nettoyer
+        ic.rebuild       = loadTex("icon/circletwoarrow", IS, IS);// rebuild
+        ic.play          = loadTex("icon/Play", IS, IS);          // executer
+        ic.monitor       = loadTex("icon/Ordinateur", IS, IS);    // plateforme
+        ic.flask         = loadTex("icon/test", IS, IS);          // tests
+        ic.layers        = loadTex("icon/Piles", IS, IS);         // solution
+        ic.pkg           = loadTex("icon/stack", IS, IS);         // projet
+        ic.globe         = loadTex("icon/Globe", IS, IS);         // web
+        ic.pause         = loadTex("icon/Pause", IS, IS);
+        ic.stop          = loadTex("icon/Stop", IS, IS);
+        ic.gitPush       = loadTex("icon/Push", IS, IS);
+        ic.gitPull       = loadTex("icon/Pull", IS, IS);
+        ic.split         = loadTex("icon/Split", IS, IS);
+        ic.folderOpen    = loadTex("icon/FolderOpen", IS, IS);
+        ic.fileText      = loadTex("icon/FileText", IS, IS);
+        ic.fileCode2     = loadTex("icon/FileCode2", IS, IS);
+        ic.filePlus      = loadTex("icon/FilePlus", IS, IS);
+        ic.code          = loadTex("icon/Code", IS, IS);
+        ic.compare       = loadTex("icon/Compare", IS, IS);
+        ic.blame         = loadTex("icon/Blame", IS, IS);
+        ic.exit          = loadTex("icon/Exit", IS, IS);
+        ic.tags          = loadTex("icon/Tags", IS, IS);
+        ic.cloud         = loadTex("icon/Cloud", IS, IS);
+        ic.docker        = loadTex("icon/docker", IS, IS);
+        ic.linux         = loadTex("icon/Linux", IS, IS);
+        g_state.icons    = &g_home.icons;   // rend les icones accessibles aux panneaux/toolbar (via l'etat)
         // toggle liste/grille : pas d'asset adapte (`<>` et `↕` ne conviennent pas) -> dessine.
 
         // ── Registre d'extensions DATA-DRIVEN (icons.cfg) : .ext -> icone ──

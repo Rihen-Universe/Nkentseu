@@ -23,6 +23,7 @@
 #include "Noge/ECS/Components/Core/NkTag.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkFormat.h"
 #include "NKCore/NkTraits.h"
 
 namespace nkentseu {
@@ -80,10 +81,9 @@ namespace nkentseu {
             {
                 static_assert(std::is_base_of_v<ecs::NkGameObject, T>,
                               "T must derive from NkGameObject");
-                char nameBuf[256];
                 for (uint32 i = 0; i < count; ++i) {
-                    NkSNPrintf(nameBuf, sizeof(nameBuf), "%s_%u", baseName, i);
-                    out.PushBack(Create<T>(world, nameBuf));
+                    NkString nameBuf = NkFormat("{0}_{1}", baseName, i);
+                    out.PushBack(Create<T>(world, nameBuf.CStr()));
                 }
             }
 

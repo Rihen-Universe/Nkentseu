@@ -30,8 +30,13 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Associative/NkUnorderedMap.h"
+#include "NKMath/NKMath.h"
 
 namespace nkentseu {
+
+    // Types math utilises dans les structures de prefab (NkVec3f/NkQuatf).
+    using math::NkVec3f;
+    using math::NkQuatf;
 
     // =========================================================================
     // NkPrefabComponentData — Données d'un composant sérialisé dans un prefab
@@ -72,6 +77,11 @@ namespace nkentseu {
             NkString path;              ///< "Assets/Prefabs/Player.prefab"
             NkString version = "1.0";
             uint64   guid    = 0;
+
+            // Prefab valide = a un identifiant (guid) ou un nom non vide.
+            [[nodiscard]] bool IsValid() const noexcept {
+                return guid != 0 || !name.Empty();
+            }
 
             // ── Données ────────────────────────────────────────────────────
             NkUnorderedMap<NkString, NkPrefabComponentData> components;
@@ -207,7 +217,7 @@ namespace nkentseu {
         }
 
         bool RevertOverride(const char* key) noexcept {
-            return overrides.Remove(NkString(key));
+            return overrides.Erase(NkString(key));
         }
 
         void RevertAll() noexcept {
@@ -228,7 +238,7 @@ namespace nkentseu {
             }
 
             bool Register(const NkPrefab& prefab) noexcept {
-                if (prefab.path.IsEmpty()) return false;
+                if (prefab.path.Empty()) return false;
                 mPrefabs.Insert(prefab.path, prefab);
                 return true;
             }

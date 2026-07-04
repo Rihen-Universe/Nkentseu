@@ -522,7 +522,16 @@ namespace nkentseu {
         }
     }
 
+    // Ancre anti-GC : force le linker a conserver les natives JNI de l'IME
+    // (definies dans NkAndroidTextInputJNI.cpp, appelees uniquement depuis Java).
+    extern "C" void* NkAndroidImeJniAnchor();
+
     bool NkWindow::Create(const NkWindowConfig& config) {
+        // Reference l'ancre pour que --gc-sections ne retire pas nkCommitText/
+        // nkKeyEvent du .so (sinon UnsatisfiedLinkError cote Java).
+        static volatile void* const s_imeJniKeep = NkAndroidImeJniAnchor();
+        (void)s_imeJniKeep;
+
         mConfig = config;
         mData.mAppliedHints = config.surfaceHints;
         mData.mExternal = false;
@@ -885,6 +894,228 @@ namespace nkentseu {
     NkWebInputOptions NkWindow::GetWebInputOptions() const { return mConfig.webInput; }
 
     void NkWindow::SetProgress(float) {}
+
+    // =========================================================================
+    // Clavier logiciel Android (JNI → InputMethodManager)
+    // =========================================================================
+    //
+    // NativeActivity n'expose pas de champ texte : on pilote directement
+    // l'InputMethodManager du service système via JNI, sur la decor view de
+    // l'activité. Les caractères tapés reviennent ensuite sous forme
+    // d'événements clavier (AKEYCODE_*) traités par NkAndroidEventSystem, qui
+    // émet aussi NkTextInputEvent (conversion keycode→Unicode via KeyCharacterMap).
+    //
+    // Limite : la composition IME complexe (CJK, dictée, suggestions) nécessite
+    // une couche Java (InputConnection/EditText) — non couverte à ce niveau.
+
+    static bool sAndroidSoftKeyboardVisible = false;
+
+    static bool NkAndroidGetJNIEnv(JNIEnv*& outEnv, bool& attachedHere) {
+        outEnv = nullptr;
+        attachedHere = false;
+        if (!nk_android_global_app || !nk_android_global_app->activity ||
+            !nk_android_global_app->activity->vm) {
+            return false;
+        }
+        JavaVM* vm = nk_android_global_app->activity->vm;
+        if (vm->GetEnv(reinterpret_cast<void**>(&outEnv), JNI_VERSION_1_6) != JNI_OK) {
+            if (vm->AttachCurrentThread(&outEnv, nullptr) != JNI_OK || !outEnv) {
+                return false;
+            }
+            attachedHere = true;
+        }
+        return true;
+    }
+
+    // Affiche (show=true) ou masque (show=false) le clavier logiciel système.
+    static bool NkAndroidSetSoftKeyboard(bool show) {
+        JNIEnv* env = nullptr;
+        bool attachedHere = false;
+        if (!NkAndroidGetJNIEnv(env, attachedHere)) {
+            return false;
+        }
+
+        bool ok = false;
+        jobject activity = nk_android_global_app->activity->clazz;
+        jclass actClass = activity ? env->GetObjectClass(activity) : nullptr;
+
+        if (actClass) {
+            // imm = (InputMethodManager) activity.getSystemService("input_method");
+            jmethodID getSystemService = env->GetMethodID(
+                actClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
+            jmethodID getWindow = env->GetMethodID(
+                actClass, "getWindow", "()Landroid/view/Window;");
+
+            if (getSystemService && getWindow) {
+                jstring svcName = env->NewStringUTF("input_method");
+                jobject imm = env->CallObjectMethod(activity, getSystemService, svcName);
+                env->DeleteLocalRef(svcName);
+
+                jobject window = env->CallObjectMethod(activity, getWindow);
+                jobject decorView = nullptr;
+                if (window) {
+                    jclass windowClass = env->GetObjectClass(window);
+                    jmethodID getDecorView = env->GetMethodID(
+                        windowClass, "getDecorView", "()Landroid/view/View;");
+                    if (getDecorView) {
+                        decorView = env->CallObjectMethod(window, getDecorView);
+                    }
+                    env->DeleteLocalRef(windowClass);
+                }
+
+                if (imm && decorView) {
+                    jclass immClass = env->GetObjectClass(imm);
+                    if (show) {
+                        // decorView.requestFocus() puis imm.showSoftInput(view, SHOW_FORCED=2)
+                        jclass viewClass = env->GetObjectClass(decorView);
+                        jmethodID requestFocus = env->GetMethodID(viewClass, "requestFocus", "()Z");
+                        if (requestFocus) {
+                            env->CallBooleanMethod(decorView, requestFocus);
+                        }
+                        env->DeleteLocalRef(viewClass);
+
+                        jmethodID showSoftInput = env->GetMethodID(
+                            immClass, "showSoftInput", "(Landroid/view/View;I)Z");
+                        if (showSoftInput) {
+                            env->CallBooleanMethod(imm, showSoftInput, decorView, 2);
+                            ok = true;
+                        }
+                    } else {
+                        // imm.hideSoftInputFromWindow(decorView.getWindowToken(), 0)
+                        jclass viewClass = env->GetObjectClass(decorView);
+                        jmethodID getWindowToken = env->GetMethodID(
+                            viewClass, "getWindowToken", "()Landroid/os/IBinder;");
+                        jobject token = getWindowToken
+                            ? env->CallObjectMethod(decorView, getWindowToken) : nullptr;
+                        env->DeleteLocalRef(viewClass);
+
+                        jmethodID hideSoftInput = env->GetMethodID(
+                            immClass, "hideSoftInputFromWindow", "(Landroid/os/IBinder;I)Z");
+                        if (hideSoftInput && token) {
+                            env->CallBooleanMethod(imm, hideSoftInput, token, 0);
+                            ok = true;
+                        }
+                        if (token) {
+                            env->DeleteLocalRef(token);
+                        }
+                    }
+                    env->DeleteLocalRef(immClass);
+                }
+
+                if (imm)       env->DeleteLocalRef(imm);
+                if (window)    env->DeleteLocalRef(window);
+                if (decorView) env->DeleteLocalRef(decorView);
+            }
+            env->DeleteLocalRef(actClass);
+        }
+
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            ok = false;
+        }
+        if (attachedHere) {
+            nk_android_global_app->activity->vm->DetachCurrentThread();
+        }
+        return ok;
+    }
+
+    // Traduit la config en valeur android.text.InputType (pour l'IME complet).
+    static int NkAndroidInputType(const NkWindow::NkSoftKeyboardConfig& c) {
+        // Constantes android.text.InputType (valeurs stables de l'API).
+        constexpr int TYPE_CLASS_TEXT              = 0x00000001;
+        constexpr int TYPE_CLASS_NUMBER            = 0x00000002;
+        constexpr int TYPE_CLASS_PHONE             = 0x00000003;
+        constexpr int TYPE_TEXT_VARIATION_URI      = 0x00000010;
+        constexpr int TYPE_TEXT_VARIATION_EMAIL    = 0x00000020;
+        constexpr int TYPE_TEXT_VARIATION_PASSWORD = 0x00000080;
+        constexpr int TYPE_NUMBER_FLAG_DECIMAL     = 0x00002000;
+        constexpr int TYPE_TEXT_FLAG_CAP_SENTENCES = 0x00004000;
+        constexpr int TYPE_TEXT_FLAG_NO_SUGGESTION = 0x00080000;
+
+        int t;
+        switch (c.type) {
+            case NkWindow::NkSoftKeyboardType::Number:  t = TYPE_CLASS_NUMBER; break;
+            case NkWindow::NkSoftKeyboardType::Phone:   t = TYPE_CLASS_PHONE;  break;
+            case NkWindow::NkSoftKeyboardType::Decimal: t = TYPE_CLASS_NUMBER | TYPE_NUMBER_FLAG_DECIMAL; break;
+            case NkWindow::NkSoftKeyboardType::Email:   t = TYPE_CLASS_TEXT | TYPE_TEXT_VARIATION_EMAIL; break;
+            case NkWindow::NkSoftKeyboardType::Url:     t = TYPE_CLASS_TEXT | TYPE_TEXT_VARIATION_URI;   break;
+            case NkWindow::NkSoftKeyboardType::Ascii:
+            case NkWindow::NkSoftKeyboardType::Default:
+            default:                                    t = TYPE_CLASS_TEXT; break;
+        }
+        const bool isText = (t & 0x0F) == TYPE_CLASS_TEXT;
+        if (isText && c.secure)         t |= TYPE_TEXT_VARIATION_PASSWORD;
+        if (isText && !c.autocorrect)   t |= TYPE_TEXT_FLAG_NO_SUGGESTION;
+        if (isText && c.autocapitalize) t |= TYPE_TEXT_FLAG_CAP_SENTENCES;
+        return t;
+    }
+
+    // Tente de piloter l'IME complet via l'Activity Java custom
+    // (com.nkentseu.window.NkNativeActivity). Renvoie false si cette activity
+    // n'est pas utilisée (méthode absente) → l'appelant retombe sur le clavier
+    // natif basique.
+    static bool NkAndroidTryActivityKeyboard(bool show, int inputType) {
+        JNIEnv* env = nullptr;
+        bool attachedHere = false;
+        if (!NkAndroidGetJNIEnv(env, attachedHere)) {
+            return false;
+        }
+        bool handled = false;
+        jobject activity = (nk_android_global_app && nk_android_global_app->activity)
+            ? nk_android_global_app->activity->clazz : nullptr;
+        jclass cls = activity ? env->GetObjectClass(activity) : nullptr;
+        if (cls) {
+            if (show) {
+                jmethodID m = env->GetMethodID(cls, "nkShowKeyboard", "(I)V");
+                if (m) {
+                    env->CallVoidMethod(activity, m, static_cast<jint>(inputType));
+                    handled = true;
+                } else {
+                    env->ExceptionClear();  // NoSuchMethodError si activity standard
+                }
+            } else {
+                jmethodID m = env->GetMethodID(cls, "nkHideKeyboard", "()V");
+                if (m) {
+                    env->CallVoidMethod(activity, m);
+                    handled = true;
+                } else {
+                    env->ExceptionClear();
+                }
+            }
+            env->DeleteLocalRef(cls);
+        }
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+        if (attachedHere) {
+            nk_android_global_app->activity->vm->DetachCurrentThread();
+        }
+        return handled;
+    }
+
+    void NkWindow::ShowSoftKeyboard(const NkSoftKeyboardConfig& config) {
+        // 1) IME complet (composition CJK, suggestions, dictée) si l'Activity Java
+        //    custom est présente. 2) Sinon clavier natif basique (decor view +
+        //    KeyCharacterMap dans NkAndroidEventSystem).
+        if (NkAndroidTryActivityKeyboard(true, NkAndroidInputType(config))) {
+            sAndroidSoftKeyboardVisible = true;
+            return;
+        }
+        if (NkAndroidSetSoftKeyboard(true)) {
+            sAndroidSoftKeyboardVisible = true;
+        }
+    }
+
+    void NkWindow::HideSoftKeyboard() {
+        if (!NkAndroidTryActivityKeyboard(false, 0)) {
+            NkAndroidSetSoftKeyboard(false);
+        }
+        sAndroidSoftKeyboardVisible = false;
+    }
+
+    bool NkWindow::IsSoftKeyboardVisible() const {
+        return sAndroidSoftKeyboardVisible;
+    }
 
     NkSafeAreaInsets NkWindow::GetSafeAreaInsets() const {
         if (!mConfig.respectSafeArea) {

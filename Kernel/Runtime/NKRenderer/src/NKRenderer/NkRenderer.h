@@ -58,6 +58,14 @@ namespace nkentseu {
             virtual void EndFrame()   = 0;
             virtual void Present()    = 0;
 
+            // ── Cap de framerate (pacing haute précision, niveau MOTEUR) ──────────
+            // Plafonne le FPS dans Present() via un pacing sleep+spin précis (évite le
+            // jitter de dt qui fait saccader/clignoter). fps <= 0 => illimité.
+            // Défaut au démarrage = variable d'env NK_FPS_CAP (120 si absente, 0=off).
+            // MODIFIABLE À CHAUD (dynamique) : appeler pendant le run pour changer/couper.
+            virtual void    SetFrameRateCap(float32 fps) = 0;
+            virtual float32 GetFrameRateCap() const      = 0;
+
             // ── Resize (appeler depuis NkGraphicsContextResizeEvent) ──────────────
             virtual void OnResize(uint32 width, uint32 height) = 0;
 

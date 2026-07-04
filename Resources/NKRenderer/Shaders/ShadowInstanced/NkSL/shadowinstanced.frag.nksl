@@ -1,0 +1,6 @@
+// shadowinstanced.frag.nksl — NKRenderer — Shadow instancié depth-only FS (NkSL)
+// Depth-only : aucun output couleur, gl_FragDepth écrit implicitement.
+
+@stage(fragment)
+@entry
+void main() {}

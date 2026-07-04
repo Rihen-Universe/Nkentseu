@@ -100,7 +100,10 @@ namespace nkentseu {
             // Cree le dossier de sortie (mkdir-like). Win32 + POSIX gerees via NK_MKDIR
             // inferable, mais ici on tente direct l'ecriture (fopen wb echouera si
             // le dossier n'existe pas).
-        #ifdef _WIN32
+        // system() est indisponible sur iOS/tvOS/watchOS -> no-op mobile.
+        #if defined(NKENTSEU_PLATFORM_IOS) || defined(NKENTSEU_PLATFORM_TVOS) || defined(NKENTSEU_PLATFORM_WATCHOS)
+            /* dump cross-API desactive sur mobile Apple */
+        #elif defined(_WIN32)
             system("if not exist \"Build\\cross_api_output\" mkdir \"Build\\cross_api_output\"");
         #else
             system("mkdir -p Build/cross_api_output");
@@ -190,6 +193,13 @@ namespace nkentseu {
         // le résultat compilé pour une API (ex. SPIR-V Vulkan, ou HLSL DX11) est rechargé
         // pour une autre (DX12, Software…) → pollution. Avant : tout sauf OpenGL = "spirv"
         // → VK/DX11/DX12/SW collisionnaient (il fallait purger le cache à chaque switch).
+        // Version du GÉNÉRATEUR de code NkSL (codegen GLSL/HLSL/MSL). À INCRÉMENTER
+        // dès qu'on modifie un NkSLCodeGen* : la clé de cache dépend du HASH DE LA
+        // SOURCE .nksl, pas du code généré — donc sans ce salt, un fix de codegen
+        // (même HLSL régénéré) sert l'ancien résultat bugué depuis le cache disque
+        // jusqu'à purge manuelle. Bumper invalide automatiquement tous les .nksc.
+        static const char* kShaderGenVersion = "g4";
+
         static const char* ApiCacheTag(NkGraphicsApi api) {
             switch (api) {
                 case NkGraphicsApi::NK_GFX_API_OPENGL:   return "glsl";
@@ -271,7 +281,7 @@ namespace nkentseu {
             NkString fragGlsl = fragSrc;
 
             // Format cible pour la cle de cache : "glsl" pour OpenGL, "spirv" pour Vulkan.
-            const NkString fmtKey = ApiCacheTag(mApi); // clé distincte par backend (anti-pollution)
+            const NkString fmtKey = NkString(ApiCacheTag(mApi)) + "." + kShaderGenVersion; // clé par backend (anti-pollution) + version codegen (auto-invalidation)
 
             bool ok = true;
             if (!vertSrc.Empty()) {
@@ -416,7 +426,7 @@ namespace nkentseu {
             NkString src  = ReadFile(cPath);
             if (src.Empty()) return NkShaderHandle::Null();
 
-            const NkString fmtKey = ApiCacheTag(mApi); // clé distincte par backend (anti-pollution)
+            const NkString fmtKey = NkString(ApiCacheTag(mApi)) + "." + kShaderGenVersion; // clé par backend (anti-pollution) + version codegen (auto-invalidation)
             auto key = NkShaderCache::Global().ComputeKey(src, NkSLStage::NK_COMPUTE, fmtKey);
 
             NkString glslStr = src;
@@ -442,7 +452,7 @@ namespace nkentseu {
             NkShaderCompileOptions opts; opts.optimize = false;
             NkShaderBackend* be = backendOverride ? backendOverride : mBackend;
 
-            const NkString fmtKey = ApiCacheTag(mApi); // clé distincte par backend (anti-pollution)
+            const NkString fmtKey = NkString(ApiCacheTag(mApi)) + "." + kShaderGenVersion; // clé par backend (anti-pollution) + version codegen (auto-invalidation)
 
             // Vertex : cache ou compilation
             NkString vsGlslStr = vSrc;
@@ -525,7 +535,9 @@ namespace nkentseu {
             if (isDX) {
                 const char* dn = getenv("NK_DUMP_HLSL");
                 if (dn && prog.name == dn) {
+                #if !defined(NKENTSEU_PLATFORM_IOS) && !defined(NKENTSEU_PLATFORM_TVOS) && !defined(NKENTSEU_PLATFORM_WATCHOS)
                     system("if not exist \"Build\\hlsl_dump\" mkdir \"Build\\hlsl_dump\"");
+                #endif
                     if (!vsHlslStr.Empty()) {
                         FILE* f = fopen("Build/hlsl_dump/skin_vs.hlsl", "wb");
                         if (f) { fwrite(vsHlslStr.CStr(),1,vsHlslStr.Size(),f); fclose(f); }
@@ -540,9 +552,15 @@ namespace nkentseu {
             {
                 const char* dn = getenv("NK_DUMP_GLSL");
                 if (dn && prog.name == dn && vsGlsl && vsGlsl[0]) {
+                #if !defined(NKENTSEU_PLATFORM_IOS) && !defined(NKENTSEU_PLATFORM_TVOS) && !defined(NKENTSEU_PLATFORM_WATCHOS)
                     system("if not exist \"Build\\hlsl_dump\" mkdir \"Build\\hlsl_dump\"");
+                #endif
                     FILE* f = fopen("Build/hlsl_dump/dump_vs.glsl", "wb");
                     if (f) { fwrite(vsGlsl,1,strlen(vsGlsl),f); fclose(f); }
+                    if (fsGlsl && fsGlsl[0]) {
+                        FILE* ff = fopen("Build/hlsl_dump/dump_fs.glsl", "wb");
+                        if (ff) { fwrite(fsGlsl,1,strlen(fsGlsl),ff); fclose(ff); }
+                    }
                 }
             }
 

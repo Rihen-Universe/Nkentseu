@@ -9,8 +9,7 @@
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NkTypes.h"
 #include "NKContainers/String/NkString.h"
-#include <string>
-#include <vector>
+#include "NKContainers/Functional/NkFunction.h"
 #include <cstdlib> // pour system()
 #include <cstdio>  // pour popen()
 
@@ -69,6 +68,23 @@ namespace nkentseu {
 			 * @param initial Couleur initiale RGBA.
 			 */
 			static NkDialogResult ColorPicker(uint32 initial = 0xFFFFFFFF);
+
+			// -------------------------------------------------------------------
+			// Variantes ASYNCHRONES (callback)
+			// -------------------------------------------------------------------
+			// Requises sur mobile : iOS présente ses pickers de façon asynchrone
+			// (UIDocumentPickerViewController) — une API synchrone bloquerait la
+			// runloop et provoquerait un interblocage. Sur desktop, ces variantes
+			// enveloppent simplement l'implémentation synchrone (callback immédiat).
+			// Le callback est invoqué sur le thread principal.
+			using Callback = NkFunction<void(const NkDialogResult&)>;
+
+			static void OpenFileDialogAsync(const Callback& cb,
+				const NkString& filter = "*.*", const NkString& title = "Open File");
+			static void SaveFileDialogAsync(const Callback& cb,
+				const NkString& defaultExt = "", const NkString& title = "Save File");
+			static void OpenFolderDialogAsync(const Callback& cb,
+				const NkString& title = "Selectionner un dossier");
 	};
 
 } // namespace nkentseu

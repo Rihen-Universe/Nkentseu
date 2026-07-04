@@ -58,6 +58,8 @@ namespace {
         { 0x90, 0xE9, 0x9E, 0x9F, 0x8A, 0x5E, 0xEA, 0x84 }
     };
 
+    typedef BOOL (WINAPI* SetProcessDpiAwarenessContextProc)(DPI_AWARENESS_CONTEXT);
+
     void InitializeDpiAPIs() {
         if (sDpiAPIsInitialized) return;
         sDpiAPIsInitialized = true;
@@ -67,6 +69,15 @@ namespace {
                 GetProcAddress(user32, "SetThreadDpiAwarenessContext");
             pGetDpiForWindow = (GetDpiForWindowProc)
                 GetProcAddress(user32, "GetDpiForWindow");
+            // DPI-awareness au niveau PROCESS (per-monitor v2) : sans ça, sur un moniteur >100 %
+            // Windows fait rendre l'app en résolution LOGIQUE puis l'UPSCALE vers le physique
+            // -> tout est flou (icônes ET texte). Avec, on rend en pixels PHYSIQUES = net.
+            // Doit être appelé AVANT toute fenêtre (ici : à la 1re création). Échoue sans effet
+            // si un manifeste a déjà fixé l'awareness — acceptable.
+            SetProcessDpiAwarenessContextProc pSetProcessDpiAwarenessContext =
+                (SetProcessDpiAwarenessContextProc)GetProcAddress(user32, "SetProcessDpiAwarenessContext");
+            if (pSetProcessDpiAwarenessContext)
+                pSetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
         // shcore.dll (Win 8.1+) pour le DPI par moniteur. Chargée une fois,
         // jamais libérée (vit toute la durée du process) — acceptable.
@@ -984,6 +995,11 @@ namespace nkentseu {
                 (ULONGLONG)(progress * kMax), kMax);
         }
     }
+
+    // Desktop Windows : clavier physique, pas de clavier logiciel. No-op.
+    void NkWindow::ShowSoftKeyboard(const NkSoftKeyboardConfig&) {}
+    void NkWindow::HideSoftKeyboard() {}
+    bool NkWindow::IsSoftKeyboardVisible() const { return false; }
 
     // =============================================================================
     // Surface

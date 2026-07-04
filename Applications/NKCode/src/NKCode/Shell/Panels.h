@@ -10,6 +10,7 @@
 #include "NKCode/Project/NkPty.h"
 #include "NKCode/Project/NkTerm.h"
 #include "NKCode/Editor/NkTextDraw.h"
+#include "NKCode/Shell/NkI18n.h"          // NkT() : bannière mojibake traduite
 
 namespace nkentseu {
 namespace nkcode {
@@ -127,6 +128,29 @@ namespace nkcode {
             NkRect r = { ctx.layout.cursor.x, ctx.layout.cursor.y, ctx.ContentWidth(), ctx.AvailHeight() };
             if (r.x + r.w > clip.x + clip.w) r.w = clip.x + clip.w - r.x;
             if (r.y + r.h > clip.y + clip.h) r.h = clip.y + clip.h - r.y;
+
+            // ── Bannière « encodage double (mojibake) détecté » + bouton Réparer ──
+            if (f.doc.mojibake) {
+                const float32 lh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
+                const float32 asc = (ctx.font && ctx.font->Valid()) ? ctx.font->Ascent() : 12.f;
+                const float32 bh = lh + 12.f;
+                const NkRect bar = { r.x, r.y, r.w, bh };
+                ctx.DL().AddRectFilled(bar, NkColor{ 58, 46, 20, 255 });                         // ambre sombre
+                ctx.DL().AddRectFilled({ bar.x, bar.y + bh - 1.f, bar.w, 1.f }, ctx.theme.border);
+                if (ctx.font && ctx.font->Valid())
+                    ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), { bar.x + 12.f, bar.y + (bh - lh) * 0.5f + asc }, NkT("edit.mojibake"), NkColor{ 240, 210, 140, 255 });
+                const char* blab = NkT("edit.repairenc");
+                const float32 bw = ((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(blab) : 80.f) + 24.f;
+                const NkRect btn = { bar.x + bar.w - bw - 12.f, bar.y + 5.f, bw, bh - 10.f };
+                const NkVec2 mm = ctx.input.mousePos;
+                const bool hov = mm.x >= btn.x && mm.x < btn.x + btn.w && mm.y >= btn.y && mm.y < btn.y + btn.h;
+                ctx.DL().AddRectFilled(btn, hov ? ctx.theme.buttonHover : ctx.theme.button, 4.f);
+                if (ctx.font && ctx.font->Valid())
+                    ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), { btn.x + 12.f, btn.y + (btn.h - lh) * 0.5f + asc }, blab, ctx.theme.text);
+                if (hov && ctx.input.mouseClicked[0]) f.doc.RepairEncoding();
+                r.y += bh; if (r.h > bh) r.h -= bh;
+            }
+
             CodeEditor(ctx, "##code", f.doc, r, NkLangFromExt(f.path.GetExtension().CStr()));
 
             // Footer VSCode : nom du fichier (gauche) + Ln/Col + langage (droite).

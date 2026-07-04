@@ -397,15 +397,18 @@ void NkSLCodeGenGLSL::GenBlock(NkSLBlockDeclNode* b) {
         return;
     }
     NkString line;
+    // Les storage buffers (SSBO) exigent std430 (les arrays non-dimensionnés y sont
+    // valides et le packing est serré) ; les uniform blocks (UBO) utilisent std140.
+    const char* pk = (b->storage == NkSLStorageQual::NK_BUFFER) ? "std430" : "std140";
     // binding layout
     if (b->binding.HasBinding()) {
         char buf[128];
         if (b->binding.HasSet() && !mOpts->flattenGLSLBindings) {
-            snprintf(buf, sizeof(buf), "layout(set = %d, binding = %d, std140) ",
-                     b->binding.set, b->binding.binding);
+            snprintf(buf, sizeof(buf), "layout(set = %d, binding = %d, %s) ",
+                     b->binding.set, b->binding.binding, pk);
         } else {
             int flat = b->binding.HasBinding() ? b->binding.binding : mAutoBinding++;
-            snprintf(buf, sizeof(buf), "layout(binding = %d, std140) ", flat);
+            snprintf(buf, sizeof(buf), "layout(binding = %d, %s) ", flat, pk);
         }
         Emit(NkString(buf));
     } else {
@@ -417,7 +420,7 @@ void NkSLCodeGenGLSL::GenBlock(NkSLBlockDeclNode* b) {
         // suivre une numerotation UNIFIEE qui reproduit le descriptor layout.
         // (Un compteur separe pour les UBO decalait les samplers -> ecran noir.)
         char buf[64];
-        snprintf(buf, sizeof(buf), "layout(binding = %d, std140) ", mAutoBinding++);
+        snprintf(buf, sizeof(buf), "layout(binding = %d, %s) ", mAutoBinding++, pk);
         Emit(NkString(buf));
     }
 

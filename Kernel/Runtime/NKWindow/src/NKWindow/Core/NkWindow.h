@@ -171,6 +171,51 @@ namespace nkentseu {
             // sans curseur (mobile / web tactile).
             void ClipMouseToClient(bool clip);
 
+            // --- Clavier logiciel (mobile : iOS / Android) ---
+            // Type de clavier logiciel demandé — influe sur la disposition des
+            // touches proposées par l'OS (mappé sur UIKeyboardType iOS / inputType
+            // Android). Ignoré sur les plateformes à clavier physique.
+            enum class NkSoftKeyboardType {
+                Default = 0, ///< clavier alphanumérique standard
+                Ascii,       ///< ASCII uniquement (identifiants, code)
+                Number,      ///< pavé numérique (chiffres)
+                Phone,       ///< pavé téléphone
+                Email,       ///< optimisé e-mail (« @ » accessible)
+                Url,         ///< optimisé URL (« / » « .com » accessibles)
+                Decimal      ///< numérique avec séparateur décimal
+            };
+            // Libellé / sémantique de la touche de retour du clavier logiciel.
+            enum class NkSoftKeyboardReturnKey {
+                Default = 0, Done, Go, Next, Search, Send
+            };
+            // Options d'un clavier logiciel (valeurs par défaut = saisie de texte
+            // générique avec correction automatique).
+            struct NkSoftKeyboardConfig {
+                NkSoftKeyboardType      type      = NkSoftKeyboardType::Default;
+                NkSoftKeyboardReturnKey returnKey = NkSoftKeyboardReturnKey::Default;
+                bool autocorrect    = true;   ///< correction/suggestions automatiques
+                bool autocapitalize = false;  ///< majuscule auto en début de phrase
+                bool secure         = false;  ///< champ mot de passe (saisie masquée)
+            };
+            // Affiche le clavier logiciel (mobile) et démarre une session de saisie.
+            // La saisie est ensuite délivrée par le système d'événements :
+            //   - NkTextInputEvent  pour chaque caractère Unicode (via GetUtf8/GetCodepoint) ;
+            //   - NkKeyPressEvent/NkKeyReleaseEvent pour NK_BACK (retour arrière),
+            //     NK_ENTER (retour) et NK_TAB (tabulation).
+            // À appeler quand un champ texte prend le focus. No-op sur desktop
+            // (clavier physique) et sur les backends sans clavier logiciel.
+            // NB : pas de défaut `= {}` ici — clang-mingw (Windows) refuse un
+            // brace-init d'une struct imbriquée à initialiseurs par défaut tant que
+            // la classe englobante est incomplète ("default member initializer for
+            // 'type' needed within definition of enclosing class"). Pour un appel
+            // "défauts", passer explicitement `NkSoftKeyboardConfig{}`.
+            void ShowSoftKeyboard(const NkSoftKeyboardConfig& config);
+            // Masque le clavier logiciel et termine la session de saisie. No-op
+            // là où ShowSoftKeyboard l'est.
+            void HideSoftKeyboard();
+            // true si le clavier logiciel est actuellement affiché par cette fenêtre.
+            bool IsSoftKeyboardVisible() const;
+
             // --- Web / WASM ---
             void SetWebInputOptions(const NkWebInputOptions& options);
             NkWebInputOptions GetWebInputOptions() const;

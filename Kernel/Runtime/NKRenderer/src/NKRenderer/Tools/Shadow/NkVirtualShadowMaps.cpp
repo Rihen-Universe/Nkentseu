@@ -109,9 +109,17 @@ namespace nkentseu {
         bool NkVirtualShadowMaps::DepthIsZeroToOne() const {
             if (!mDevice) return false;
             auto api = mDevice->GetApi();
+            // OpenGL INCLUS : le backend GL force glClipControl(GL_LOWER_LEFT,
+            // GL_ZERO_TO_ONE) (NkOpenglDevice.cpp) pour aligner la profondeur sur
+            // Vulkan -> le NDC z est [0,1], PAS le [-1,1] historique d'OpenGL. Sans ça,
+            // la matrice ortho d'ombre produisait un z [-1,1] alors que le clip attend
+            // [0,1] -> la moitié near du frustum lumière était CLIPPÉE -> casters absents
+            // de l'atlas -> ombres manquantes/dépendantes de la hauteur (bug GL only ;
+            // VK/DX11/DX12 corrects). On bake donc clipZ01 + depthRemap=0 sur GL aussi.
             return api == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN
                 || api == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11
-                || api == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12;
+                || api == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12
+                || api == ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
         }
         void NkVirtualShadowMaps::ApplyDepthClipCorrection(NkMat4f& m) const {
             if (!DepthIsZeroToOne()) return;
@@ -186,7 +194,41 @@ namespace nkentseu {
             // l'environnement immediat). XY snap stabilise le centre.
             NkVec3f center;
             float32 radius;
-            if (mCfg.useFixedCascadeRadius && cascadeIdx < kMaxCascades) {
+            if (mCfg.autoFitDirectional && mRender3D) {
+                // Auto-fit aux bornes reelles des casters : centre monde = centre des
+                // bornes (stable, pas de swimming), rayon = demi-diagonale (couvre tout,
+                // pas de clipping) au plus serre -> resolution optimale. Le texel-snap
+                // ci-dessous stabilise en plus le centre. Marge 1.05 pour l'extension
+                // des ombres au-dela des casters (ombres projetees au sol).
+                NkAABB b   = mRender3D->GetShadowCasterBounds();
+                // Les OMBRES s'étendent au-delà des casters, le long de la lumière, sur
+                // le sol : un caster de hauteur H projette une ombre de longueur ~H/sin(
+                // élévation) au sol. Si on fitte SEULEMENT les casters, la pointe de ces
+                // ombres tombe hors couverture -> le sol n'échantillonne pas la shadow
+                // map là -> ombre coupée (surtout pour les casters périphériques hauts,
+                // ex. colonnes). On étend donc les bornes horizontalement de la longueur
+                // d'ombre projetée AVANT de fitter.
+                {
+                    const float32 height    = b.max.y - b.min.y;
+                    NkVec3f       L         = light.direction.Normalized();
+                    const float32 elevY     = (std::fabs(L.y) < 0.15f) ? 0.15f : std::fabs(L.y);
+                    const float32 shadowLen = height / elevY;
+                    b.min.x -= shadowLen; b.max.x += shadowLen;
+                    b.min.z -= shadowLen; b.max.z += shadowLen;
+                }
+                center     = b.Center();
+                NkVec3f ex = { (b.max.x - b.min.x) * 0.5f,
+                               (b.max.y - b.min.y) * 0.5f,
+                               (b.max.z - b.min.z) * 0.5f };
+                radius     = std::sqrt(ex.x*ex.x + ex.y*ex.y + ex.z*ex.z) * 1.05f;
+                if (radius < 1.f) radius = 1.f;
+                static int afDiag = -1;
+                if (afDiag == -1) { const char* v = getenv("NK_VSM_DIAG"); afDiag = (v && v[0] && v[0] != '0') ? 1 : 0; }
+                if (afDiag && cascadeIdx == 0) {
+                    logger.Info("[VSMAutoFit] bounds min=({0},{1},{2}) max=({3},{4},{5}) center=({6},{7},{8}) radius={9}\n",
+                                b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z, center.x, center.y, center.z, radius);
+                }
+            } else if (mCfg.useFixedCascadeRadius && cascadeIdx < kMaxCascades) {
                 // Center : soit ancre au monde (anti-swimming total pour une scene
                 // close couverte par une seule grande cascade), soit suivant la
                 // camera (mondes ouverts). Le snap-to-texel ci-dessous quantifie

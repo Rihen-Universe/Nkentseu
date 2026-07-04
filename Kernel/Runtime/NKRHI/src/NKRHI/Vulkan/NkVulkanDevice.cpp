@@ -10,6 +10,7 @@
 #include "NKMemory/NkAllocator.h"
 #include "NKContainers/Associative/NkSet.h"
 #include <cstring>
+#include <cstdlib>   // getenv (NK_VK_MAILBOX : présent mode opt-in)
 #include <algorithm>
 #include <cmath>
 
@@ -242,15 +243,18 @@ namespace nkentseu {
         }
 
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        VkWin32SurfaceCreateInfoKHR sci{};
-        sci.sType     = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-        sci.hinstance = init.surface.hinstance ? init.surface.hinstance : GetModuleHandleW(nullptr);
-        sci.hwnd = init.surface.hwnd;
-        if (!sci.hwnd) {
-            NK_VK_ERR("HWND missing in NkDeviceInitInfo.surface\n");
-            return false;
+        // Headless / compute-only : pas de HWND -> pas de surface (mSurface reste
+        // VK_NULL_HANDLE). La sélection GPU + le swapchain sont gatés sur mSurface
+        // plus bas, donc le chemin FENÊTRÉ (hwnd != null) reste identique.
+        if (init.surface.hwnd) {
+            VkWin32SurfaceCreateInfoKHR sci{};
+            sci.sType     = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+            sci.hinstance = init.surface.hinstance ? init.surface.hinstance : GetModuleHandleW(nullptr);
+            sci.hwnd = init.surface.hwnd;
+            NK_VK_CHECK(vkCreateWin32SurfaceKHR(mInstance, &sci, nullptr, &mSurface));
+        } else {
+            NK_VK_LOG("Mode headless (pas de HWND) : Vulkan compute sans surface/swapchain\n");
         }
-        NK_VK_CHECK(vkCreateWin32SurfaceKHR(mInstance, &sci, nullptr, &mSurface));
     #elif defined(NKENTSEU_WINDOWING_XLIB)
         VkXlibSurfaceCreateInfoKHR sci{};
         sci.sType  = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
@@ -346,6 +350,7 @@ namespace nkentseu {
             NkVector<VkExtensionProperties> exts(extCount);
             vkEnumerateDeviceExtensionProperties(gpu, nullptr, &extCount, exts.Data());
 
+            // En headless (mSurface == NULL), l'extension swapchain n'est pas requise.
             bool hasSwapchain = false;
             for (uint32 e = 0; e < exts.Size(); ++e) {
                 if (std::strcmp(exts[e].extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) {
@@ -353,7 +358,7 @@ namespace nkentseu {
                     break;
                 }
             }
-            if (!hasSwapchain) continue;
+            if (mSurface != VK_NULL_HANDLE && !hasSwapchain) continue;
 
             uint32 qCount = 0;
             vkGetPhysicalDeviceQueueFamilyProperties(gpu, &qCount, nullptr);
@@ -366,24 +371,30 @@ namespace nkentseu {
             for (uint32 i = 0; i < qCount; ++i) {
                 if ((qprops[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && graphics == UINT32_MAX) graphics = i;
                 if ((qprops[i].queueFlags & VK_QUEUE_COMPUTE_BIT)  && compute  == UINT32_MAX) compute  = i;
-                VkBool32 canPresent = VK_FALSE;
-                vkGetPhysicalDeviceSurfaceSupportKHR(gpu, i, mSurface, &canPresent);
-                if (canPresent && present == UINT32_MAX) present = i;
+                if (mSurface != VK_NULL_HANDLE) {
+                    VkBool32 canPresent = VK_FALSE;
+                    vkGetPhysicalDeviceSurfaceSupportKHR(gpu, i, mSurface, &canPresent);
+                    if (canPresent && present == UINT32_MAX) present = i;
+                }
             }
 
-            if (graphics != UINT32_MAX && present != UINT32_MAX) {
+            // Headless : une queue graphics (ou compute) suffit ; sinon il faut present.
+            const bool presentOk = (mSurface == VK_NULL_HANDLE) || (present != UINT32_MAX);
+            const uint32 gfxOrCompute = (graphics != UINT32_MAX) ? graphics : compute;
+            if (gfxOrCompute != UINT32_MAX && presentOk) {
                 const int score = ScoreVkDevice(props, mInit.context.gpu.preference);
                 if (score > bestScore) {
                     bestScore = score;
                     mPhysicalDevice = gpu;
-                    mGraphicsFamily = graphics;
+                    mGraphicsFamily = gfxOrCompute;
                     mPresentFamily  = present;
-                    mComputeFamily  = (compute != UINT32_MAX) ? compute : graphics;
+                    mComputeFamily  = (compute != UINT32_MAX) ? compute : gfxOrCompute;
                 }
             }
         }
 
-        if (!mPhysicalDevice || mGraphicsFamily == UINT32_MAX || mPresentFamily == UINT32_MAX) {
+        if (!mPhysicalDevice || mGraphicsFamily == UINT32_MAX ||
+            (mSurface != VK_NULL_HANDLE && mPresentFamily == UINT32_MAX)) {
             NK_VK_ERR("No Vulkan GPU supports required queues/swapchain\n");
             return false;
         }
@@ -397,7 +408,9 @@ namespace nkentseu {
         // (un par draw call pour ring multi-frame), plus les autres rings
         // (mGlobalSetRing, mGlobalSetMirrorRing, etc).
         VkDescriptorPoolSize poolSizes[] = {
-            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,          4096},
+            // 20480 : supporte la croissance dynamique du pool object-UBO de NkRender3D
+            // (cap max 4096 × 2 frames × 2 UBO/set = 16384) + globals/lights/mirror.
+            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,          20480},
             {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,  256},
             {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,          1000},
             {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,  256},
@@ -415,7 +428,7 @@ namespace nkentseu {
         // re-bindent textures/samplers entre draws (cas Render2D atlas, etc).
         dpci.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT
                            | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-        dpci.maxSets       = 8192;
+        dpci.maxSets       = 12288;  // cap 4096 × 2 frames = 8192 sets objet + globals/mirror/matériaux
         dpci.poolSizeCount = (uint32)std::size(poolSizes);
         dpci.pPoolSizes    = poolSizes;
         NK_VK_CHECKRET(vkCreateDescriptorPool(mDevice, &dpci, nullptr, &mDescPool),
@@ -450,8 +463,9 @@ namespace nkentseu {
             NK_VK_CHECK(vkCreateSemaphore(mDevice, &si, nullptr, &mFrames[i].renderFinished));
         }
 
-        // ── Swapchain ─────────────────────────────────────────────────────────────
-        CreateSwapchain(mWidth, mHeight);
+        // ── Swapchain (uniquement si on a une surface — pas en headless) ───────────
+        if (mSurface != VK_NULL_HANDLE)
+            CreateSwapchain(mWidth, mHeight);
         QueryCaps();
 
         mIsValid = true;
@@ -462,7 +476,12 @@ namespace nkentseu {
     bool NkVulkanDevice::CreateLogicalDevice() {
         const float queuePriority = 1.0f;
         const NkVulkanDesc& vkdesc = mInit.context.vulkan;
-        NkSet<uint32> queueFamilies = {mGraphicsFamily, mPresentFamily};
+        NkSet<uint32> queueFamilies;
+        queueFamilies.Insert(mGraphicsFamily);
+        // Present-family uniquement si on a une surface (pas en headless/compute).
+        if (mSurface != VK_NULL_HANDLE && mPresentFamily != UINT32_MAX) {
+            queueFamilies.Insert(mPresentFamily);
+        }
         if (vkdesc.enableComputeQueue) {
             queueFamilies.Insert(mComputeFamily);
         }
@@ -477,7 +496,9 @@ namespace nkentseu {
         }
 
         NkVector<const char*> deviceExts;
-        deviceExts.PushBack(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+        // Extension swapchain requise seulement si on présente (pas en headless).
+        if (mSurface != VK_NULL_HANDLE)
+            deviceExts.PushBack(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
         // descriptor_indexing : requis pour UPDATE_AFTER_BIND_BIT sur les
         // descriptor pools/layouts. Promu core en Vulkan 1.2 mais le validator
         // exige toujours l'extension explicitement listee (VUID-VkDescriptor*-flags-parameter).
@@ -539,7 +560,10 @@ namespace nkentseu {
         NK_VK_CHECKRET(vkCreateDevice(mPhysicalDevice, &dci, nullptr, &mDevice), "vkCreateDevice");
 
         vkGetDeviceQueue(mDevice, mGraphicsFamily, 0, &mGraphicsQueue);
-        vkGetDeviceQueue(mDevice, mPresentFamily, 0, &mPresentQueue);
+        if (mSurface != VK_NULL_HANDLE && mPresentFamily != UINT32_MAX)
+            vkGetDeviceQueue(mDevice, mPresentFamily, 0, &mPresentQueue);
+        else
+            mPresentQueue = mGraphicsQueue;   // headless : pas de present queue
         if (vkdesc.enableComputeQueue) {
             vkGetDeviceQueue(mDevice, mComputeFamily, 0, &mComputeQueue);
         } else {
@@ -649,8 +673,16 @@ namespace nkentseu {
         vkGetPhysicalDeviceSurfacePresentModesKHR(mPhysicalDevice,mSurface,&pmCnt,nullptr);
         NkVector<VkPresentModeKHR> pms(pmCnt);
         vkGetPhysicalDeviceSurfacePresentModesKHR(mPhysicalDevice,mSurface,&pmCnt,pms.Data());
+        // FIFO par défaut = VSync garanti : présentation calée sur le vblank -> pas de
+        // tearing, GPU non saturé (protection thermique). MAILBOX (basse latence, mais le
+        // GPU tourne à fond entre les vblanks -> 100% / chauffe) reste OPT-IN sur PC costaud
+        // via NK_VK_MAILBOX (même logique "désactivable sur machine capable" que le HDR).
         VkPresentModeKHR pm = VK_PRESENT_MODE_FIFO_KHR; // VSync garanti
-        for (auto p:pms) if (p==VK_PRESENT_MODE_MAILBOX_KHR) { pm=p; break; }
+        {
+            const char* mb = getenv("NK_VK_MAILBOX");
+            if (mb && mb[0] && mb[0] != '0')
+                for (auto p:pms) if (p==VK_PRESENT_MODE_MAILBOX_KHR) { pm=p; break; }
+        }
 
         VkSwapchainCreateInfoKHR sci{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
         sci.surface          = mSurface;

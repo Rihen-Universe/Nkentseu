@@ -44,6 +44,57 @@ namespace nkentseu {
     static NkEventSystem* gAndroidEventSystem = nullptr;
     static NkWindowId gFocusedWindowId = NK_INVALID_WINDOW_ID;
 
+    // Convertit un keycode Android + metaState en point de code Unicode via
+    // KeyCharacterMap (JNI). Renvoie 0 si la touche ne produit pas de caractère
+    // imprimable (accent mort, touche de contrôle...). Permet d'émettre
+    // NkTextInputEvent pour la saisie au clavier logiciel (caractères latins,
+    // chiffres, ponctuation). La composition IME complexe (CJK) reste hors champ.
+    static uint32 AKeyToUnicode(int32_t keycode, int32_t metaState) {
+        if (!nk_android_global_app || !nk_android_global_app->activity ||
+            !nk_android_global_app->activity->vm) {
+            return 0;
+        }
+        JavaVM* vm = nk_android_global_app->activity->vm;
+        JNIEnv* env = nullptr;
+        bool attached = false;
+        if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
+            if (vm->AttachCurrentThread(&env, nullptr) != JNI_OK || !env) {
+                return 0;
+            }
+            attached = true;
+        }
+
+        uint32 codepoint = 0;
+        jclass kcmClass = env->FindClass("android/view/KeyCharacterMap");
+        if (kcmClass) {
+            jmethodID loadId = env->GetStaticMethodID(
+                kcmClass, "load", "(I)Landroid/view/KeyCharacterMap;");
+            jmethodID getId = env->GetMethodID(kcmClass, "get", "(II)I");
+            if (loadId && getId) {
+                // KeyCharacterMap.VIRTUAL_KEYBOARD = -1
+                jobject kcm = env->CallStaticObjectMethod(kcmClass, loadId, static_cast<jint>(-1));
+                if (kcm) {
+                    jint uc = env->CallIntMethod(kcm, getId,
+                        static_cast<jint>(keycode), static_cast<jint>(metaState));
+                    // COMBINING_ACCENT met le bit de signe → uc < 0, exclu par uc > 0.
+                    if (uc > 0) {
+                        codepoint = static_cast<uint32>(uc);
+                    }
+                    env->DeleteLocalRef(kcm);
+                }
+            }
+            env->DeleteLocalRef(kcmClass);
+        }
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            codepoint = 0;
+        }
+        if (attached) {
+            vm->DetachCurrentThread();
+        }
+        return codepoint;
+    }
+
     template <typename Fn>
     static void ForEachAndroidWindow(Fn&& fn) {
         const nkentseu::NkVector<NkWindow*> windows = NkAndroidGetWindowsSnapshot();
@@ -312,6 +363,19 @@ namespace nkentseu {
                 } else if (action == AKEY_EVENT_ACTION_UP) {
                     NkKeyReleaseEvent event(key, NkScancode::NK_SC_UNKNOWN, mods, static_cast<uint32>(keycode));
                     gAndroidEventSystem->Enqueue_Public(event, targetWinId);
+                    handledKey = true;
+                }
+            }
+
+            // Saisie de texte (clavier logiciel) : convertir la touche pressée en
+            // caractère Unicode et émettre NkTextInputEvent. Indépendant du mapping
+            // NkKey ci-dessus pour couvrir aussi la ponctuation non mappée.
+            if (action == AKEY_EVENT_ACTION_DOWN) {
+                const int32_t metaAll = AKeyEvent_getMetaState(ev);
+                const uint32 cp = AKeyToUnicode(keycode, metaAll);
+                if (cp >= 0x20 && cp != 0x7F) {
+                    NkTextInputEvent textEvent(cp, targetWinId);
+                    gAndroidEventSystem->Enqueue_Public(textEvent, targetWinId);
                     handledKey = true;
                 }
             }

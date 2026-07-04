@@ -33,9 +33,8 @@
 
 #include "NKECS/World/NkWorld.h"
 #include "Noge/ECS/Scene/NkSceneGraph.h"
-#include "NKSerialization/NkSerializer.h"
-#include "NKSerialization/JSON/NkJSONWriter.h"
-#include "NKSerialization/JSON/NkJSONReader.h"
+#include "Noge/ECS/NkEcsUtil.h"   // NkStrEqual
+#include "NKSerialization/NkSerializer.h"   // NkArchive, NkSerializationFormat, Serialize/Deserialize
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
@@ -109,7 +108,15 @@ namespace nkentseu {
             bool LoadFromArchive(NkSceneGraph& scene,
                                  const NkArchive& archive) const noexcept;
 
+            // ── Format de sérialisation (configurable) ────────────────────────
+            // Défaut : NK_NATIVE (binaire propriétaire optimisé). JSON/XML/YAML
+            // disponibles pour debug/interop/versioning lisible.
+            void SetFormat(NkSerializationFormat fmt) noexcept { mFormat = fmt; }
+            [[nodiscard]] NkSerializationFormat GetFormat() const noexcept { return mFormat; }
+
         private:
+            NkSerializationFormat mFormat = NkSerializationFormat::NK_NATIVE;
+
             bool SerializeEntity(NkEntityId id,
                                  const NkWorld& world,
                                  NkArchive& entityArchive) const noexcept;

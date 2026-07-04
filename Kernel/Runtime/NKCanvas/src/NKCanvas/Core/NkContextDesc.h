@@ -53,7 +53,7 @@ namespace nkentseu {
         bool   debugDevice       =  false;
         bool   vsync             =  true;
         bool   allowTearing      =  false;
-        uint32 msaaSamples       =  1;
+        uint32 msaaSamples       =  4;   // MSAA 4x par défaut (AA des formes vectorielles UI) — resolve en flip-model
         uint32 msaaQuality       =  0;
         uint32 swapchainBuffers  =  2;
         uint32 preferredAdapter  =  UINT32_MAX;

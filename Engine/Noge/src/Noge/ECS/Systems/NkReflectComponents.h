@@ -21,6 +21,7 @@
 
 #include "NKCore/NkTypes.h"
 #include "NKContainers/Sequential/NkVector.h"
+#include "Noge/ECS/NkEcsUtil.h"   // NkStrEqual
 #include "NKContainers/String/NkString.h"
 #include "NKMath/NKMath.h"
 

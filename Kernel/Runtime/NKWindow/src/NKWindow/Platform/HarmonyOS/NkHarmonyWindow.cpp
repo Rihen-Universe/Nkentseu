@@ -1178,6 +1178,11 @@ namespace nkentseu {
     {
     }
 
+    // Clavier logiciel HarmonyOS : à câbler via l'IME ArkUI/NAPI. No-op pour l'instant.
+    void NkWindow::ShowSoftKeyboard(const NkSoftKeyboardConfig&) {}
+    void NkWindow::HideSoftKeyboard() {}
+    bool NkWindow::IsSoftKeyboardVisible() const { return false; }
+
     /**
      * @brief Retourne les marges de sécurité (safe area)
      * @return NkSafeAreaInsets Les marges actuelles

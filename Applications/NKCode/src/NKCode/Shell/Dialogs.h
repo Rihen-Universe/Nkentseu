@@ -10,6 +10,7 @@
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Project/NkCodeGen.h"
+#include "NKCode/Shell/NkLoading.h"     // ecran de chargement (section 14)
 #include "NKWindow/Core/NkDialogs.h"
 
 namespace nkentseu {
@@ -23,6 +24,7 @@ namespace nkcode {
     struct NkCodeDialogs {
         NkCodeState*  st    = nullptr;
         NkEditorShell* shell = nullptr;   // pour appliquer l'etat d'UI du projet (ui.cfg)
+        NkLoadingState loading;           // ecran de chargement (workspace -> editeur)
         enum Mode { None = 0, NewProject, NewWorkspace, SaveAs, Properties };
         int32   mode      = None;
         bool    showStart = true;     // ecran de demarrage plein cadre (remplace l'editeur)
@@ -103,8 +105,10 @@ namespace nkcode {
             NkString o; for (; s && *s; ++s) { if (*s == '\\') o += "\\\\"; else o += *s; } return o;
         }
 
-        // ── Selecteur de dossier CUSTOM (NKGui) ──
-        enum PickFor { PK_None = 0, PK_Open, PK_NewDir, PK_LoadDir, PK_Buf };
+        // ── Selecteur de dossier / fichier CUSTOM (NKGui) ──
+        enum PickFor { PK_None = 0, PK_Open, PK_NewDir, PK_LoadDir, PK_Buf, PK_File };
+        NkVector<NkString> pickerFiles;        // fichiers du dossier selectionne (mode PK_File)
+        int32   pickerFileSel = -1;            // fichier choisi (index dans pickerFiles)
         bool    pickerOpen    = false;
         int32   pickerFor     = PK_None;
         char    pickerPath[512] = {};
@@ -239,6 +243,7 @@ namespace nkcode {
             const char* start = (startDir && *startDir) ? startDir : (st ? st->root.ToString().CStr() : ".");
             CopyTo(pickerPath, start, (int32)sizeof(pickerPath));
             BuildPickerTree();
+            if (purpose == PK_File) ScanPickerFiles(pickerPath);
         }
         void ScanPicker() {
             pickerDirs.Clear();
@@ -248,14 +253,26 @@ namespace nkcode {
         void PickerGoto(const NkPath& p) { CopyTo(pickerPath, p.ToString().CStr(), (int32)sizeof(pickerPath)); pickerScroll = 0.f; ScanPicker(); }
         void PickerUp()    { PickerGoto(NkPath(pickerPath).GetParent()); }
         void PickerEnter(const char* sub) { PickerGoto(NkPath(pickerPath) / sub); }
-        void PickerCancel(){ pickerOpen = false; pickerFor = PK_None; pickerBuf = nullptr; }
+        void PickerCancel(){ pickerOpen = false; pickerFor = PK_None; pickerBuf = nullptr; pickerFileSel = -1; pickerFiles.Clear(); }
         void PickerConfirm() {
             NkString chosen(pickerPath); const int32 purpose = pickerFor; char* buf = pickerBuf; const int32 cap = pickerBufCap;
             PickerCancel();
             if (purpose == PK_Open)        DoLoad(NkPath(chosen.CStr()));
             else if (purpose == PK_NewDir) CopyTo(wsDir, chosen.CStr(), (int32)sizeof(wsDir));
             else if (purpose == PK_LoadDir){ CopyTo(loadDir, chosen.CStr(), (int32)sizeof(loadDir)); ScanLoad(); }
-            else if (purpose == PK_Buf && buf) CopyTo(buf, chosen.CStr(), cap);
+            else if ((purpose == PK_Buf || purpose == PK_File) && buf) CopyTo(buf, chosen.CStr(), cap);
+        }
+        // Liste les FICHIERS (non-dossiers) du repertoire courant (mode PK_File).
+        void ScanPickerFiles(const char* dir) {
+            pickerFiles.Clear(); pickerFileSel = -1;
+            if (!dir || !dir[0]) return;
+            NkVector<NkDirectoryEntry> e = NkDirectory::GetEntries(NkPath(dir), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+            for (usize i = 0; i < e.Size(); ++i) if (!e[i].IsDirectory && e[i].Name.CStr()[0] != '.') pickerFiles.PushBack(e[i].Name);
+        }
+        // Parcourir pour choisir un FICHIER (executable de toolchain).
+        void BrowseFile(char* dst, int32 cap, const char* /*title*/) {
+            NkString start = dst[0] ? NkPath(dst).GetParent().ToString() : NkString();
+            OpenPicker(PK_File, start.Empty() ? nullptr : start.CStr(), dst, cap);
         }
 
         void Open(int32 m) { mode = m; justOpened = true; status.Clear(); if (m == NewProject || m == NewWorkspace) nameBuf[0] = '\0'; }
@@ -291,10 +308,7 @@ namespace nkcode {
             // Projet de demarrage : genere le projet + son include() dans le workspace.
             if (wsMakeProj && wsProjName[0])
                 GenerateProject(dir, NkPath(made.CStr()), wsProjName, wsProjKind, wsProjLang);
-            if (st->LoadFolder(dir)) {
-                if (shell) shell->LoadUiState(st->UiConfigPath().CStr());
-                showStart = false;
-            }
+            loading.Start(dir, st, made.CStr());   // ecran de chargement (workspace fraichement cree)
         }
         // Pre-remplit les chemins SDK depuis les variables d'environnement (une fois).
         void FillEnvOnce() {
@@ -316,14 +330,10 @@ namespace nkcode {
         static bool StrEqA(const char* a, const char* b) {
             if (!a || !b) return false; while (*a && *b) { if (*a != *b) return false; ++a; ++b; } return *a == *b;
         }
-        // Onglet Charger : charge le workspace `i` trouve dans loadDir.
+        // Onglet Charger : charge le workspace `i` trouve dans loadDir (via l'ecran de chargement).
         void LoadFoundAt(usize i) {
             if (!st || i >= foundPaths.Size()) return;
-            if (st->LoadFolder(NkPath(loadDir))) {
-                if (i < st->wsPaths.Size()) { st->wsIdx = (int32)i; st->OpenPath(NkPath(foundPaths[i].CStr())); st->RequestReload(); }
-                if (shell) shell->LoadUiState(st->UiConfigPath().CStr());
-                showStart = false;
-            }
+            loading.Start(NkPath(loadDir), st, foundPaths[i].CStr());
         }
 
         // Selecteur de dossier CUSTOM (NKGui) pour ouvrir un workspace.
@@ -333,15 +343,10 @@ namespace nkcode {
             NkDialogResult res = NkDialogs::OpenFileDialog("*.jenga", "Ouvrir un workspace (.jenga)");
             if (res.confirmed && st) DoLoad(NkPath(res.path.CStr()).GetParent());
         }
-        void DoLoad(const NkPath& folder) {
-            if (st->LoadFolder(folder)) {
-                if (shell) shell->LoadUiState(st->UiConfigPath().CStr());   // restaure l'etat d'UI du projet
-                showStart = false; Close();                                // -> bascule vers l'editeur
-            }
-            else NkDialogs::OpenMessageBox(
-                "Aucun workspace (.jenga avec 'with workspace') dans ce dossier. Chargement refuse.",
-                "NKCode", 2);
-        }
+        // Lance l'ecran de CHARGEMENT (section 14) : LoadFolder + etapes reelles.
+        // La bascule vers l'editeur (LoadUiState + showStart=false) se fait quand loading.finished
+        // (gere dans DrawHome). Une erreur .jenga affiche l'etat d'erreur inline (pas de bascule).
+        void DoLoad(const NkPath& folder) { loading.Start(folder, st); }
         void OpenSaveAs() {
             mode = SaveAs; justOpened = true; status.Clear(); nameBuf[0] = '\0';
             if (st && st->HasActive()) {   // prefill = nom du fichier actif (ou vide si sans titre)
@@ -408,41 +413,65 @@ namespace nkcode {
         const float32 asc = f ? f->Ascent() : 0.f, lh = f ? f->LineHeight() : 0.f;
         dl.AddRectFilled(r, NkColor{ 22, 27, 34, 255 }, 4.f);
         dl.AddRect(r, focused ? NkColor{ 88, 166, 255, 255 } : NkColor{ 48, 54, 61, 255 }, 1.f);
+        // Edition complete (caret, SELECTION, copier/couper/coller, double-clic, clic-position).
+        // Etat statique associe au buffer focus (un seul champ edite a la fois).
+        static const void* s_owner = nullptr; static int32 s_caret = 0, s_anchor = -1; static float32 s_blink = 0.f; static bool s_drag = false;
+        const float32 pad = 8.f;
+        int32 len = 0; while (buf[len]) ++len;
+        auto measW = [&](const char* s) -> float32 { return f ? f->MeasureWidth(s) : 0.f; };
+        auto slice = [&](int32 n, char* out) { int32 m = n < 599 ? n : 599; for (int32 k = 0; k < m; ++k) out[k] = buf[k]; out[m] = '\0'; };
         if (focused) {
-            // Backspace
-            if (ctx.input.KeyPressedRepeat(NkGuiKey::Backspace)) {
-                int32 n = 0; while (buf[n]) ++n;
-                if (n > 0) { // retire 1 octet (ASCII suffit pour un nom sanitize)
-                    buf[n - 1] = '\0';
-                }
-            }
-            // Caracteres tapes cette frame (ASCII imprimable)
-            for (int32 i = 0; i < ctx.input.charCount; ++i) {
-                const uint32 cp = ctx.input.chars[i];
-                if (cp >= 32 && cp < 127) {
-                    int32 n = 0; while (buf[n]) ++n;
-                    if (n + 1 < cap) { buf[n] = (char)cp; buf[n + 1] = '\0'; }
-                }
-            }
+            if (s_owner != buf) { s_owner = buf; s_caret = len; s_anchor = -1; }
+            auto& in = ctx.input; s_blink += in.dt;
+            if (s_caret > len) s_caret = len; if (s_caret < 0) s_caret = 0; if (s_anchor > len) s_anchor = len;
+            const bool shift = in.shiftDown;
+            auto hasSel = [&]() { return s_anchor >= 0 && s_anchor != s_caret; };
+            auto selLo = [&]() { return s_anchor < s_caret ? s_anchor : s_caret; };
+            auto selHi = [&]() { return s_anchor < s_caret ? s_caret : s_anchor; };
+            auto startSel = [&]() { if (s_anchor < 0) s_anchor = s_caret; };
+            auto delSel = [&]() { const int32 lo = selLo(), n = selHi() - lo; for (int32 k = lo; k + n <= len; ++k) buf[k] = buf[k + n]; len -= n; buf[len] = '\0'; s_caret = lo; s_anchor = -1; };
+            auto copySel = [&]() { char t2[600]; int32 lo = selLo(), hi = selHi(), j = 0; for (int32 k = lo; k < hi && j < 599; ++k) t2[j++] = buf[k]; t2[j] = '\0'; ctx.SetClipboard(t2); };
+            const NkVec2 mp = in.mousePos; const bool hit = (mp.x >= r.x && mp.x <= r.x + r.w && mp.y >= r.y && mp.y <= r.y + r.h);
+            auto caretAtMouse = [&]() -> int32 {
+                const float32 availW0 = r.w - pad * 2.f; char tp0[600]; slice(s_caret, tp0); const float32 pw = measW(tp0);
+                const float32 offc = (pw > availW0) ? (pw - availW0) : 0.f; const float32 target = mp.x - (r.x + pad) + offc;
+                int32 best = 0; float32 bestd = 1e9f; char acc[600]; int32 an = 0;
+                for (int32 i = 0; ; ++i) { acc[an] = '\0'; const float32 wv = measW(acc); const float32 d = wv > target ? wv - target : target - wv; if (d < bestd) { bestd = d; best = i; } if (!buf[i] || an >= 599) break; acc[an++] = buf[i]; }
+                return best;
+            };
+            // Double-clic -> tout ; appui -> ancre ; glisser -> etend ; clic simple -> curseur + deselection.
+            if (hit && in.mouseDoubleClicked[0]) { s_anchor = 0; s_caret = len; s_drag = false; s_blink = 0.f; }
+            else if (hit && in.mouseClicked[0]) { const int32 c = caretAtMouse(); s_caret = c; s_anchor = c; s_drag = true; s_blink = 0.f; }
+            else if (s_drag && in.mouseDown[0]) { s_caret = caretAtMouse(); s_blink = 0.f; }
+            if (!in.mouseDown[0]) s_drag = false;
+            if (in.KeyPressedRepeat(NkGuiKey::Left))  { if (shift) { startSel(); if (s_caret > 0) --s_caret; } else { if (hasSel()) s_caret = selLo(); else if (s_caret > 0) --s_caret; s_anchor = -1; } s_blink = 0.f; }
+            if (in.KeyPressedRepeat(NkGuiKey::Right)) { if (shift) { startSel(); if (s_caret < len) ++s_caret; } else { if (hasSel()) s_caret = selHi(); else if (s_caret < len) ++s_caret; s_anchor = -1; } s_blink = 0.f; }
+            if (in.KeyPressed(NkGuiKey::Home)) { if (shift) startSel(); else s_anchor = -1; s_caret = 0;   s_blink = 0.f; }
+            if (in.KeyPressed(NkGuiKey::End))  { if (shift) startSel(); else s_anchor = -1; s_caret = len; s_blink = 0.f; }
+            if (in.wantSelectAll) { s_anchor = 0; s_caret = len; in.wantSelectAll = false; s_blink = 0.f; }
+            if (in.wantCopy)      { if (hasSel()) copySel(); in.wantCopy = false; }
+            if (in.wantCut)       { if (hasSel()) { copySel(); delSel(); } in.wantCut = false; s_blink = 0.f; }
+            if (in.KeyPressedRepeat(NkGuiKey::Backspace)) { if (hasSel()) delSel(); else if (s_caret > 0) { for (int32 k = s_caret - 1; k < len; ++k) buf[k] = buf[k + 1]; --s_caret; --len; } s_blink = 0.f; }
+            if (in.KeyPressedRepeat(NkGuiKey::Delete))    { if (hasSel()) delSel(); else if (s_caret < len) { for (int32 k = s_caret; k < len; ++k) buf[k] = buf[k + 1]; --len; } s_blink = 0.f; }
+            if (in.wantPaste) { if (hasSel()) delSel(); const NkString cb = ctx.GetClipboard(); for (const char* s = cb.CStr(); *s; ++s) { if ((unsigned char)*s < 32 || len + 1 >= cap) continue; for (int32 k = len; k >= s_caret; --k) buf[k + 1] = buf[k]; buf[s_caret] = *s; ++s_caret; ++len; } in.wantPaste = false; s_blink = 0.f; }
+            for (int32 i = 0; i < in.charCount; ++i) { const uint32 cp = in.chars[i]; if (cp < 32 || cp >= 127) continue; if (hasSel()) delSel(); if (len + 1 >= cap) break; for (int32 k = len; k >= s_caret; --k) buf[k + 1] = buf[k]; buf[s_caret] = (char)cp; ++s_caret; ++len; s_blink = 0.f; }
+            if (s_caret > len) s_caret = len; if (s_anchor > len) s_anchor = len;
         }
         if (f) {
-            // Texte clippe a la zone interne. Par DEFAUT (champ non focus) on montre
-            // le DEBUT (du 1er caractere) ; on ne defile vers la fin (caret) QUE pendant
-            // l'edition (focused) — sinon on verrait le dernier caractere, ce qui est faux.
-            const float32 pad = 8.f, availW = r.w - pad * 2.f;
-            const float32 tw = buf[0] ? f->MeasureWidth(buf) : 0.f;
-            const float32 offX = (focused && tw > availW) ? (tw - availW) : 0.f;
+            const float32 availW = r.w - pad * 2.f;
+            char tp[600]; slice(focused ? s_caret : 0, tp); const float32 caretW = focused ? measW(tp) : 0.f;
+            const float32 offX = (focused && caretW > availW) ? (caretW - availW) : 0.f;
             const NkRect clip = { r.x + pad, r.y, r.w - pad * 2.f, r.h };
             dl.PushClipRect(clip, true);
-            dl.AddText(f->Face(), f->TexId(), { r.x + pad - offX, r.y + (r.h - lh) * 0.5f + asc },
-                       buf[0] ? buf : "", NkColor{ 230, 237, 243, 255 });
+            if (focused && s_anchor >= 0 && s_anchor != s_caret) {   // surbrillance selection
+                const int32 lo = s_anchor < s_caret ? s_anchor : s_caret, hi = s_anchor < s_caret ? s_caret : s_anchor;
+                char a[600], b[600]; slice(lo, a); slice(hi, b); const float32 xa = measW(a), xb = measW(b);
+                dl.AddRectFilled({ r.x + pad - offX + xa, r.y + 4.f, xb - xa, r.h - 8.f }, NkColor{ 46, 110, 190, 140 });
+            }
+            dl.AddText(f->Face(), f->TexId(), { r.x + pad - offX, r.y + (r.h - lh) * 0.5f + asc }, buf[0] ? buf : "", NkColor{ 230, 237, 243, 255 });
             if (focused) {
-                static float32 g_caretBlink = 0.f; g_caretBlink += ctx.input.dt;   // clignotement (partage)
-                const float32 phase = g_caretBlink - (float32)(int64)g_caretBlink;
-                if (phase < 0.55f) {
-                    const float32 caretX = r.x + pad + (tw - offX) + 1.f;
-                    dl.AddRectFilled({ caretX, r.y + 5.f, 1.5f, r.h - 10.f }, NkColor{ 200, 210, 220, 255 });
-                }
+                const float32 phase = s_blink - (float32)(int64)s_blink;
+                if (phase < 0.55f) { const float32 caretX = r.x + pad + (caretW - offX) + 1.f; dl.AddRectFilled({ caretX, r.y + 5.f, 1.5f, r.h - 10.f }, NkColor{ 200, 210, 220, 255 }); }
             }
             dl.PopClipRect();
         }
@@ -898,7 +927,8 @@ namespace nkcode {
         bool fieldClicked = false;   // un champ de saisie a-t-il ete clique cette frame ?
         dl.AddRectFilled({ 0.f, 0.f, W, H }, NkColor{ 0,0,0,160 });
         dl.AddRectFilled({ px, py, pw, ph }, cCard, 10.f * S); dl.AddRect({ px, py, pw, ph }, cBorder, 1.5f);
-        text(px + 20.f * S, py + 16.f * S, "Choisir un dossier", cText);
+        const bool fileMode = (d->pickerFor == NkCodeDialogs::PK_File);
+        text(px + 20.f * S, py + 16.f * S, fileMode ? "Choisir un fichier (executable)" : "Choisir un dossier", cText);
 
         // Champ chemin (selection courante) + Aller (saisie libre). PAS de « Remonter » -> arbre.
         const float32 cx = px + 20.f * S, cwid = pw - 40.f * S;
@@ -906,7 +936,7 @@ namespace nkcode {
         { const NkRect r = { cx, y, cwid - 96.f * S, 30.f * S };
           NkOverlayTextField(ctx, dl, f, r, d->pickerPath, (int32)sizeof(d->pickerPath), d->pickerEditing);
           if (hit(r) && click) { d->pickerEditing = true; d->pickerNewFocus = false; fieldClicked = true; }
-          if (sbtn({ cx + cwid - 84.f * S, y, 84.f * S, 30.f * S }, "Aller")) { d->pickerSel = -1; d->pickerEditing = false; }
+          if (sbtn({ cx + cwid - 84.f * S, y, 84.f * S, 30.f * S }, "Aller")) { d->pickerSel = -1; d->pickerEditing = false; if (fileMode) d->ScanPickerFiles(d->pickerPath); }
         }
         y += 42.f * S;
 
@@ -923,7 +953,8 @@ namespace nkcode {
             if (w > contentW) contentW = w;
         }
         // UN SEUL contentH/maxS/maxX (sinon pre-clamp et clamp final divergent -> clignotement bas).
-        const float32 contentH = d->pickerTree.Size() * rowStep + 12.f * S;
+        const int32 totalRows = (int32)d->pickerTree.Size() + (fileMode ? (int32)d->pickerFiles.Size() + 1 : 0);
+        const float32 contentH = totalRows * rowStep + 12.f * S;
         const float32 maxS = contentH - inner.h > 0.f ? contentH - inner.h : 0.f;
         const float32 maxX = contentW - inner.w > 0.f ? contentW - inner.w : 0.f;
         // Clamp AVANT de dessiner (sinon overshoot d'1 frame aux limites = clignotement).
@@ -968,10 +999,35 @@ namespace nkcode {
             }
             ly += rowStep;
         }
+        // Fichiers du dossier selectionne (mode PK_File) — listes a la suite de l'arbre.
+        int32 doFile = -1;
+        if (fileMode) {
+            const float32 rowW = (contentW > inner.w ? contentW : inner.w) - 8.f * S;
+            if (ly + rowH > inner.y && ly < inner.y + inner.h)
+                text(inner.x + 8.f * S - d->pickerScrollX, ly + (rowH - lh) * 0.5f, "Fichiers du dossier selectionne :", cSub);
+            ly += rowStep;
+            for (usize i = 0; i < d->pickerFiles.Size(); ++i) {
+                const NkRect r = { inner.x + 4.f * S - d->pickerScrollX, ly, rowW, rowH };
+                if (ly + rowH > inner.y && ly < inner.y + inner.h) {
+                    const bool sel = ((int32)i == d->pickerFileSel);
+                    const bool hov = NkGuiRectContains(r, mp) && hit(inner);
+                    if (sel)      dl.AddRectFilled(r, NkColor{ 15,115,213,90 }, 5.f * S);
+                    else if (hov) dl.AddRectFilled(r, cRowHov, 5.f * S);
+                    const float32 fx = r.x + 8.f * S + indent;
+                    dl.AddRectFilled({ fx, r.y + 6.f * S, 13.f * S, 15.f * S }, NkColor{ 120,130,145,230 }, 2.f * S);
+                    text(fx + 20.f * S, r.y + (rowH - lh) * 0.5f, d->pickerFiles[i].CStr(), cText);
+                    if (hov && click && !menuOpen) doFile = (int32)i;
+                }
+                ly += rowStep;
+            }
+            if (d->pickerFiles.Empty() && ly < inner.y + inner.h)
+                text(inner.x + 16.f * S - d->pickerScrollX, ly - rowStep + (rowH - lh) * 0.5f + rowStep, "(aucun fichier)", cSub);
+        }
         dl.PopClipRect();
         if (d->pickerTree.Empty()) text(inner.x + 12.f * S, inner.y + 10.f * S, "(aucun lecteur)", cSub);
-        if (doSelect >= 0) { d->pickerSel = doSelect; NkCodeDialogs::CopyTo(d->pickerPath, d->pickerTree[doSelect].path.CStr(), (int32)sizeof(d->pickerPath)); d->pickerEditing = false; }
+        if (doSelect >= 0) { d->pickerSel = doSelect; NkCodeDialogs::CopyTo(d->pickerPath, d->pickerTree[doSelect].path.CStr(), (int32)sizeof(d->pickerPath)); d->pickerEditing = false; if (fileMode) d->ScanPickerFiles(d->pickerPath); }
         else if (doToggle >= 0) d->TogglePickerNode(doToggle);
+        if (doFile >= 0) d->pickerFileSel = doFile;
         // gestion du drag des thumbs
         if (!down) d->pickerDrag = 0;
         // barre V (toujours visible)
@@ -1008,7 +1064,15 @@ namespace nkcode {
 
         // Boutons bas (geles si un menu contextuel est ouvert)
         const float32 by = py + ph - 44.f * S;
-        if (!menuOpen && pbtn({ px + pw - 200.f * S, by, 180.f * S, 32.f * S }, "Selectionner ce dossier", true)) { d->PickerConfirm(); return; }
+        if (fileMode) {
+            const bool en = d->pickerFileSel >= 0 && d->pickerFileSel < (int32)d->pickerFiles.Size();
+            if (!menuOpen && pbtn({ px + pw - 200.f * S, by, 180.f * S, 32.f * S }, "Selectionner ce fichier", en)) {
+                NkString fp = (NkPath(d->pickerPath) / d->pickerFiles[d->pickerFileSel].CStr()).ToString();
+                NkCodeDialogs::CopyTo(d->pickerPath, fp.CStr(), (int32)sizeof(d->pickerPath)); d->PickerConfirm(); return;
+            }
+        } else {
+            if (!menuOpen && pbtn({ px + pw - 200.f * S, by, 180.f * S, 32.f * S }, "Selectionner ce dossier", true)) { d->PickerConfirm(); return; }
+        }
         if (!menuOpen && sbtn({ px + pw - 290.f * S, by, 80.f * S, 32.f * S }, "Annuler")) { d->PickerCancel(); return; }
 
         // ── Menu contextuel (clic droit) : Nouveau dossier / Renommer / Supprimer ──

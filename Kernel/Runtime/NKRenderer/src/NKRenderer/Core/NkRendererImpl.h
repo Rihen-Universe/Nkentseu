@@ -43,6 +43,8 @@ namespace nkentseu {
                 bool BeginFrame() override;
                 void EndFrame()   override;
                 void Present()    override;
+                void    SetFrameRateCap(float32 fps) override { mFrameCapFps = (fps > 0.f) ? fps : 0.f; }
+                float32 GetFrameRateCap() const      override { return mFrameCapFps; }
                 void OnResize(uint32 w, uint32 h) override;
 
                 NkRenderGraph*        GetRenderGraph()  override { return mRenderGraph.Get(); }
@@ -94,6 +96,11 @@ namespace nkentseu {
                 NkICommandBuffer*mCmd     = nullptr;
                 NkISwapchain*    mSwapchain= nullptr;
                 uint32           mFrameIndex = 0;
+                // Cap FPS (pacing haute précision dans Present). 0 = illimité.
+                // Init depuis NK_FPS_CAP dans Initialize. mPaceNs = timestamp (ns) de
+                // fin de la frame précédente pour mesurer la période.
+                float32          mFrameCapFps = 0.f;
+                float64          mPaceNs      = 0.0;
                 uint32           mFrameCounter = 0; // throttle counter for hot-reload polling
                 NkFrameContext   mFrameCtx;
                 bool             mInitialized= false;

@@ -37,6 +37,7 @@ namespace nkcode {
         int32   selLine = 0, selCol = 0;     // ancre de selection (== curseur si vide)
         float32 scrollX = 0.f, scrollY = 0.f;
         bool    dirty   = false;
+        bool    mojibake = false;            // contenu vraisemblablement double-encodé UTF-8 (bannière « Réparer »)
         // Cache de la largeur de la PLUS LONGUE ligne (px) -> barre H stable
         // (recalcule seulement a l'edition, pas a chaque frame / scroll).
         bool    widthDirty   = true;
@@ -79,6 +80,17 @@ namespace nkcode {
                 else                 lines[lines.Size() - 1].PushBack(*p);
             }
             EnsureNonEmpty();
+            mojibake = NkMojibakeDetect(s);   // détecte le double-encodage à l'ouverture
+        }
+
+        // Répare le double-encodage UTF-8 du document (bouton « Réparer l'encodage »).
+        // Reconstruit le texte correct puis le recharge ; marque le doc modifié (à enregistrer).
+        void RepairEncoding() {
+            const NkString fixed = NkMojibakeRepair(GetText().CStr());
+            const int32 sl = curLine, sc = curCol;             // préserve grossièrement le curseur
+            SetText(fixed.CStr());                             // recharge (mojibake re-détecté -> false)
+            curLine = sl; curCol = sc; ClampCursor(); Collapse();
+            dirty = true; widthDirty = true;
         }
 
         NkString GetText() const {

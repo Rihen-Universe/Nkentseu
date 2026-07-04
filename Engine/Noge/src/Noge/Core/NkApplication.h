@@ -15,6 +15,8 @@
 
 namespace nkentseu {
 
+    namespace renderer { class NkRenderer; }  // moteur 2D/3D (façade NKRenderer)
+
     // =========================================================================
     // Application
     // Classe de base abstraite pour toute application Nkentseu.
@@ -54,6 +56,9 @@ namespace nkentseu {
             NkWindow&         GetWindow()  { return mWindow; }
             NkICommandBuffer*          GetCmd()     { return mCmd; }
             NkIDevice*        GetDevice()  { return mDevice; }
+            // Moteur de rendu 2D/3D : les layers/systèmes accèdent à TOUS les
+            // sous-systèmes via GetRenderer()->GetRender2D()/GetRender3D()/...
+            renderer::NkRenderer* GetRenderer() { return mRenderer; }
             const NkApplicationConfig& GetConfig() const { return mConfig; }
 
             // Singleton — accès global à l'application courante.
@@ -98,8 +103,9 @@ namespace nkentseu {
             // ── Données membres protégées ─────────────────────────────────────────
             NkApplicationConfig mConfig;
             NkWindow            mWindow;
-            NkIDevice*          mDevice  = nullptr;
-            NkICommandBuffer*   mCmd     = nullptr;
+            NkIDevice*          mDevice   = nullptr;
+            NkICommandBuffer*   mCmd      = nullptr;
+            renderer::NkRenderer* mRenderer = nullptr;  // moteur 2D/3D (sur mDevice)
             NkLayerStack          mLayerStack;
             bool                mRunning = false;
 
@@ -111,10 +117,10 @@ namespace nkentseu {
             void ShutdownDevice();
             void ShutdownPlatform();
 
-            void DispatchEvent(NkEvent* event);
-
-            // Rendu d'une frame complète : logique layers → render layers → submit.
-            void RenderFrame(float dt, float fixedDt);
+            // Nettoyage complet et IDEMPOTENT (OnShutdown + device + plateforme).
+            // Appelé par Run() en fin de boucle ET par le destructeur (RAII) : si
+            // Run() n'est jamais atteint, les ressources sont quand même libérées.
+            void Shutdown();
 
             // Propage aux layers (droite → gauche, consommation possible).
             void DispatchToLayers(NkEvent* event);
@@ -127,6 +133,7 @@ namespace nkentseu {
             float     mAccumulator  = 0.0f;
             nk_uint32 mWidth        = 0;
             nk_uint32 mHeight       = 0;
+            bool      mShutdownDone = false;   // garde idempotente de Shutdown()
 
             static NkApplication* sInstance;
     };

@@ -1,0 +1,25 @@
+"""NkSLCheck — validation console de la conversion NkSL -> backends (sans GPU)."""
+from Jenga import *
+from jengaconfig import *
+
+with project("NkSLCheck"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    _DEPS = ["NKSL", "NKMath", "NKLogger", "NKContainers", "NKMemory",
+             "NKCore", "NKPlatform", "NKThreading", "NKGLSlang", "NKSPIRVCross"]
+    nkentseudependson(
+        _DEPS,
+        extra_includes=["src", "%{wks.location}/Externals"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN"])
+        links(["NKGLSlang", "NKSPIRVCross"])

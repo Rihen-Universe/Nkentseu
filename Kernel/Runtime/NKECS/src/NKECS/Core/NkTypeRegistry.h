@@ -333,6 +333,17 @@ namespace nkentseu {
                 }
 
                 // ---------------------------------------------------------------------
+                // Helper : nom lisible du type T (enregistre automatiquement si besoin).
+                // Utilisé par la couche moteur (Noge : prefab/factory) comme clé de
+                // composant. Voir doc NkWorld.h (« typeid().name() -> TypeName<T>() »).
+                // ---------------------------------------------------------------------
+                template<typename T>
+                [[nodiscard]] const char* TypeName() noexcept {
+                    const NkComponentId id = Register<T>();
+                    return (id < kMaxComponentTypes && mMetas[id].name) ? mMetas[id].name : "";
+                }
+
+                // ---------------------------------------------------------------------
                 // Version const – ne modifie pas l'état du registre.
                 // Si le type n'a jamais été enregistré, retourne kInvalidComponentId.
                 // ---------------------------------------------------------------------

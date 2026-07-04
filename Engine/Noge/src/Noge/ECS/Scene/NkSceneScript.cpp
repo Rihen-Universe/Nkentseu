@@ -30,10 +30,11 @@
 #include "NkSceneScript.h"
 #include "NKECS/World/NkWorld.h"
 #include "Noge/ECS/Scene/NkSceneGraph.h"
-#include "NKECS/GameObject/NkGameObject.h"
+#include "Noge/ECS/NkEcsUtil.h"   // NkStrEqual
+#include "Noge/ECS/Entities/NkGameObject.h"
 #include "Noge/ECS/Components/Core/NkTag.h"
-#include "Noge/ECS/Components/Core/NkName.h"
-#include "NKECS/Prefabs/NkPrefab.h"
+#include "Noge/ECS/Components/Core/NkTag.h"   // NkName + NkTag
+#include "Noge/ECS/Prefab/NkPrefab.h"
 #include "NKMath/NKMath.h"
 
 namespace nkentseu {
@@ -169,14 +170,12 @@ namespace nkentseu {
                 return result;
             }
             
-            // Query sur toutes les entités avec un composant NkTag
-            // Note : const_cast nécessaire car Query() n'est pas const dans NkWorld
+            // NkTag est désormais bit-based (NkTagBit), pas string : la recherche
+            // par chaîne se fait donc sur NkName (nom de l'entité == `tag`).
             const_cast<NkWorld*>(mWorld)
-                ->Query<NkTag>()
-                .ForEach([&](NkEntityId id, NkTag& t) {
-                    // Comparaison exacte case-sensitive via NkTag::Has()
-                    if (t.Has(tag)) {
-                        // Construction du handle GameObject et ajout au résultat
+                ->Query<NkName>()
+                .ForEach([&](NkEntityId id, NkName& n) {
+                    if (NkStrEqual(n.Get(), tag)) {
                         result.PushBack(NkGameObject(id, mWorld));
                     }
                 });
@@ -232,7 +231,7 @@ namespace nkentseu {
          *       • L'instanciation échoue pour une raison interne
          */
         NkGameObject NkSceneScript::SpawnPrefab(const NkPrefab& prefab,
-                                                    const NkMath::NkVec3f& position,
+                                                    const math::NkVec3f& position,
                                                     const char* name) {
             // Handle de résultat invalide par défaut (en cas d'erreur)
             NkGameObject result;
@@ -245,8 +244,8 @@ namespace nkentseu {
             // Nom par défaut si non spécifié
             const char* instanceName = name ? name : "Spawned";
             
-            // Instanciation via la méthode du prefab
-            result = prefab.Instantiate(*mWorld, instanceName);
+            // Instanciation via la méthode du prefab (retourne NkEntityId -> wrap GO).
+            result = NkGameObject(prefab.Instantiate(*mWorld, instanceName), mWorld);
             
             // Application de la position si l'instance est valide et a un root component
             if (result.IsValid()) {

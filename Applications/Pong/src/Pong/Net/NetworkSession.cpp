@@ -290,7 +290,6 @@ namespace nkentseu
             {
                 const auto& msg = all[i];
                 if (msg.size >= sizeof(netproto::PktHello)
-                 && msg.data != nullptr
                  && msg.data[0] == netproto::kMsgHello)
                 {
                     netproto::PktHello pkt;
@@ -316,15 +315,13 @@ namespace nkentseu
                     }
                     continue;
                 }
-                if (msg.size >= 1 && msg.data != nullptr
-                 && msg.data[0] == netproto::kMsgAccept)
+                if (msg.size >= 1 && msg.data[0] == netproto::kMsgAccept)
                 {
                     mValidatedByHost = true;
                     logger.Info("[Net] PktAccept recu : valide par l'host");
                     continue;
                 }
-                if (msg.size >= 1 && msg.data != nullptr
-                 && msg.data[0] == netproto::kMsgReject)
+                if (msg.size >= 1 && msg.data[0] == netproto::kMsgReject)
                 {
                     mRejectedByHost = true;
                     std::snprintf(mRejectReason, sizeof(mRejectReason),

@@ -134,7 +134,7 @@ with project("Pong"):
     with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
         usetoolchain("clang-native")
         defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
-        links(["pthread", "X11", "Xext", "GL"])
+        links(["pthread", "X11", "Xrandr", "Xext", "GL", "asound", "m"])
 
     # ===== Linux Wayland ======================================================
     with filter("system:Linux && options:linux-backend=wayland"):

@@ -16,13 +16,29 @@ Contenu (src/NKNetwork/) :
 
 from Jenga import *
 from jengaconfig import *
+import os
+
+# TLS/HTTPS opt-in : NK_ENABLE_TLS=1 (ou mbedtls) active le backend mbed-TLS
+# (bibliotheque NKMbedTLS, C pur, cross-compilee pour toutes les plateformes y
+# compris iOS). Desactive par defaut -> HTTP simple uniquement, aucune dependance.
+_TLS_OPT = os.getenv("NK_ENABLE_TLS", "").strip().lower()
+_WANT_MBEDTLS = _TLS_OPT in ("1", "true", "on", "yes", "mbedtls")
+
+_NET_DEPS = ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKLogger", "NKThreading", "NKMath"]
+_NET_INCLUDES = ["src", "pch"]
+_NET_DEFINES = []
+if _WANT_MBEDTLS:
+    _NET_DEPS.append("NKMbedTLS")
+    _NET_INCLUDES.append("%{wks.location}/Externals/Libs/NKMbedTLS/include")
+    _NET_DEFINES.append("NKENTSEU_HTTP_USE_MBEDTLS")
 
 
 with project("NKNetwork"):
     nkentseudependson(
-        ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKLogger", "NKThreading", "NKMath"],
+        _NET_DEPS,
         selfexport="NKNetwork",
-        extra_includes=["src", "pch"],
+        extra_includes=_NET_INCLUDES,
+        extra_defines=_NET_DEFINES,
     )
 
     language("C++")

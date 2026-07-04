@@ -5,6 +5,8 @@
 #pragma once
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/Core/NkTypeRegistry.h"
+#include "NKECS/World/NkWorld.h"      // NkWorld (helpers Attach/Detach + systeme)
+#include "NKECS/System/NkSystem.h"   // NkSystem / NkSystemDesc / NkSystemGroup
 #include "Noge/ECS/Components/Core/NkTransform.h"
 #include <cstring>
 
@@ -16,45 +18,9 @@ namespace nkentseu {
         class NkGameObject;
         struct NkSceneComponent;
 
-        // ============================================================================
-        // NkParent — Référence à l'entité parente dans la hiérarchie
-        // ============================================================================
-        struct NkParent {
-            NkEntityId entity = NkEntityId::Invalid();
-        };
-        NK_COMPONENT(NkParent)
-
-        // ============================================================================
-        // NkChildren — Liste des entités enfants (max 64 pour cache-friendly)
-        // ============================================================================
-        struct NkChildren {
-            static constexpr uint32 kMaxChildren = 64u;
-            NkEntityId children[kMaxChildren] = {};
-            uint32     count = 0;
-
-            bool Add(NkEntityId child) noexcept {
-                if (count >= kMaxChildren) return false;
-                children[count++] = child;
-                return true;
-            }
-
-            void Remove(NkEntityId child) noexcept {
-                for (uint32 i = 0; i < count; ++i) {
-                    if (children[i] == child) {
-                        children[i] = children[--count];
-                        return;
-                    }
-                }
-            }
-
-            bool Has(NkEntityId child) const noexcept {
-                for (uint32 i = 0; i < count; ++i) {
-                    if (children[i] == child) return true;
-                }
-                return false;
-            }
-        };
-        NK_COMPONENT(NkChildren)
+        // NkParent / NkChildren : composants de hierarchie CANONIQUES definis dans
+        // NkTransform.h (« source unique »), inclus ci-dessus. On ne les redefinit
+        // pas ici (evite la redefinition ODR). NkChildren expose `kMax` (= 64).
 
         // ============================================================================
         // NkSceneNode — Métadonnées de nœud de scène (optionnel, pour éditeur)
@@ -67,7 +33,7 @@ namespace nkentseu {
 
             NkSceneNode() noexcept = default;
             explicit NkSceneNode(const char* n) noexcept {
-                NkStrNCpy(name, n, 63);
+                std::strncpy(name, n, 63);
             }
         };
         NK_COMPONENT(NkSceneNode)
@@ -84,7 +50,7 @@ namespace nkentseu {
 
             NkSocket() noexcept = default;
             NkSocket(const char* n, const NkVec3& pos, const NkQuat& rot, const NkVec3& scale) noexcept {
-                NkStrNCpy(name, n, kMaxNameLen - 1);
+                std::strncpy(name, n, kMaxNameLen - 1);
                 localPosition = pos;
                 localRotation = rot;
                 localScale = scale;
@@ -130,7 +96,7 @@ namespace nkentseu {
             // ── Constructeurs ─────────────────────────────────────────────────────
             NkSceneComponent() noexcept = default;
             explicit NkSceneComponent(const char* name) noexcept {
-                NkStrNCpy(componentName, name, 63);
+                std::strncpy(componentName, name, 63);
             }
 
             // ── API de transformation locale ──────────────────────────────────────
@@ -192,7 +158,7 @@ namespace nkentseu {
 
             [[nodiscard]] const NkSocket* FindSocket(const char* name) const noexcept {
                 for (uint32 i = 0; i < socketCount; ++i) {
-                    if (NkStrCmp(sockets[i].name, name) == 0) return &sockets[i];
+                    if (std::strcmp(sockets[i].name, name) == 0) return &sockets[i];
                 }
                 return nullptr;
             }
@@ -207,8 +173,9 @@ namespace nkentseu {
             }
 
             void SetLocalRotation2D(float32 angleDeg) noexcept {
-                const float32 rad = angleDeg * (3.14159265f / 180.f);
-                SetLocalRotation(NkQuat::FromAxisAngle({0, 0, 1}, rad));
+                // Rotation 2D autour de Z = roll (NkQuat depuis angles d'Euler).
+                SetLocalRotation(NkQuat(math::NkEulerAngle(
+                    math::NkAngle(0.f), math::NkAngle(0.f), math::NkAngle(angleDeg))));
             }
         };
         NK_COMPONENT(NkSceneComponent)
@@ -239,7 +206,7 @@ namespace nkentseu {
             }
 
             // Marquer les transforms comme dirty pour recalcul
-            if (auto* t = world.Get<NkTransform>(childId)) t->MarkDirty();
+            if (auto* t = world.Get<NkTransform>(childId)) t->worldDirty = true;
             if (auto* s = world.Get<NkSceneComponent>(childId)) s->MarkDirty();
         }
 
@@ -257,7 +224,7 @@ namespace nkentseu {
             world.Remove<NkParent>(childId);
 
             // Marquer comme dirty
-            if (auto* t = world.Get<NkTransform>(childId)) t->MarkDirty();
+            if (auto* t = world.Get<NkTransform>(childId)) t->worldDirty = true;
             if (auto* s = world.Get<NkSceneComponent>(childId)) s->MarkDirty();
         }
 
@@ -305,13 +272,12 @@ namespace nkentseu {
                     const NkMat4 localMat = scene.GetLocalMatrix();
                     const NkMat4 worldMat = parentWorld * localMat;
 
-                    // Mise à jour du NkTransform ECS (source de vérité pour le rendu)
-                    transform.worldMatrix = worldMat;
-                    transform.localMatrix = localMat;
-                    transform.dirty = false;
-
-                    // Extraction position world pour accès rapide
-                    transform.position = {worldMat.m[12], worldMat.m[13], worldMat.m[14]};
+                    // Mise à jour du NkTransform ECS (source de vérité pour le rendu).
+                    // API actuelle : worldMatrix (column-major), worldPosition, worldDirty.
+                    transform.worldMatrix   = worldMat;
+                    transform.worldDirty    = false;
+                    // Position world = colonne 3 de la matrice (m30/m31/m32).
+                    transform.worldPosition = {worldMat.m30, worldMat.m31, worldMat.m32};
 
                     scene.MarkClean();
                 }

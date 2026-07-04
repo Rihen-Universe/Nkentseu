@@ -5,7 +5,7 @@
 #pragma once
 #include "../NkECSDefines.h"
 #include "../Core/NkTypeRegistry.h"
-#include "../World/NkWorld.h"
+#include "NKECS/World/NkWorld.h"
 #include "../GameObject/NkGameObject.h"
 #include "../Components/Physics/NkPhysics.h"
 #include <vector>
