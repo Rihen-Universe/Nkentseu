@@ -293,6 +293,11 @@ namespace nkentseu {
 
     void NkWindow::SetProgress(float) {}
 
+    // Backend headless : aucun clavier logiciel. No-op.
+    void NkWindow::ShowSoftKeyboard(const NkSoftKeyboardConfig&) {}
+    void NkWindow::HideSoftKeyboard() {}
+    bool NkWindow::IsSoftKeyboardVisible() const { return false; }
+
     NkSafeAreaInsets NkWindow::GetSafeAreaInsets() const {
         return {};
     }

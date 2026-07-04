@@ -7,6 +7,7 @@
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
 
 #include "NkMetalContext.h"
+#include "NKWindow/Core/NkWindow.h"   // NkWindow complet + NkSurfaceDesc (GetSurfaceDesc)
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 #if defined(NKENTSEU_PLATFORM_MACOS)
@@ -69,7 +70,9 @@ bool NkMetalContext::Initialize(const NkWindow& window, const NkContextDesc& des
                                       : MTLPixelFormatBGRA8Unorm;
     layer.framebufferOnly    = YES;
     layer.drawableSize       = CGSizeMake((CGFloat)surf.width, (CGFloat)surf.height);
-    layer.displaySyncEnabled = m.vsync;
+#if defined(NKENTSEU_PLATFORM_MACOS)
+    layer.displaySyncEnabled = m.vsync;   // propriété CAMetalLayer macOS uniquement
+#endif
 
     mData.layer = (void*)CFBridgingRetain(layer);
 
@@ -87,7 +90,11 @@ bool NkMetalContext::Initialize(const NkWindow& window, const NkContextDesc& des
 
     // Infos
     mData.renderer = [device.name UTF8String];
+#if defined(NKENTSEU_PLATFORM_MACOS)
     mData.vramMB   = (uint32)(device.recommendedMaxWorkingSetSize / (1024*1024));
+#else
+    mData.vramMB   = 0;   // recommendedMaxWorkingSetSize indisponible sur iOS
+#endif
 
     mIsValid = true;
     NK_MTL_LOG("Ready â€” %s | VRAM %u MB | vsync=%s\n",
@@ -212,7 +219,11 @@ bool NkMetalContext::OnResize(uint32 w, uint32 h) {
 void NkMetalContext::SetVSync(bool e) {
     mVSync = e;
     CAMetalLayer* layer = (__bridge CAMetalLayer*)mData.layer;
-    layer.displaySyncEnabled = e;
+#if defined(NKENTSEU_PLATFORM_MACOS)
+    layer.displaySyncEnabled = e;   // macOS uniquement ; iOS : VSync implicite
+#else
+    (void)layer;
+#endif
 }
 
 bool          NkMetalContext::GetVSync()  const { return mVSync; }

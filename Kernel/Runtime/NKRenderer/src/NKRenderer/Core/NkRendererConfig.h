@@ -103,6 +103,14 @@ namespace nkentseu {
             bool    aces              = true;       // ACES Filmic ; sinon Reinhard
             float32 exposure          = 1.f;
             float32 gamma             = 2.2f;
+            // Garde-fou HDR : borne max des valeurs HDR AVANT bloom + tonemap. Protege
+            // le materiel d'un emballement (valeurs HDR pathologiques -> bloom geant ->
+            // surcharge GPU -> extinction PC, cf. scenes sur-exposees facon Blender/UE).
+            // Inoffensif pour un rendu sain (un HDR normal de scene reste < ~16).
+            //  > 0  : clamp actif a cette valeur (defaut 64, securite).
+            //  <= 0 : DESACTIVE (aucun clamp) — pour machines capables.
+            // Override runtime : variable d'env NK_HDR_CLAMP (ex. NK_HDR_CLAMP=0 off).
+            float32 hdrSafetyClamp    = 64.f;
             // Bloom (inline 13-sample cross dans tonemap ; dual-Kawase multi-pass a venir)
             bool    bloom             = true;
             float32 bloomThreshold    = 0.85f;  // pixels > 0.85 HDR recoivent du bloom

@@ -44,7 +44,7 @@ namespace nkentseu {
             mEventQueue.Clear();
         }
         mPumping = false;
-        mData.mInitialized = true;
+        mData->mInitialized = true;
         mReady   = true;
         return true;
     }

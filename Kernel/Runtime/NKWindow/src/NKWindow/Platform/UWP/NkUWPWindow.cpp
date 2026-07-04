@@ -234,6 +234,12 @@ namespace nkentseu {
 
     void NkWindow::SetProgress(float) {}
 
+    // Clavier logiciel : géré par le shell UWP (CoreTextEditContext), non branché
+    // sur ce backend. No-op.
+    void NkWindow::ShowSoftKeyboard(const NkSoftKeyboardConfig&) {}
+    void NkWindow::HideSoftKeyboard() {}
+    bool NkWindow::IsSoftKeyboardVisible() const { return false; }
+
     NkSurfaceDesc NkWindow::GetSurfaceDesc() const {
         NkSurfaceDesc desc;
         desc.width = mData.mWidth;

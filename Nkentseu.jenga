@@ -346,6 +346,9 @@ with workspace("Nkentseu", location="."):
     with include("Externals/Libs/NKSPIRVCross/NKSPIRVCross.jenga"):
         pass
 
+    with include("Externals/Libs/NKMbedTLS/NKMbedTLS.jenga"):
+        pass
+
     with include("Kernel/Runtime/NKEvent/NKEvent.jenga"):
         pass
 
@@ -418,7 +421,29 @@ with workspace("Nkentseu", location="."):
     with include("Kernel/Runtime/NKRenderer/NKRenderer.jenga"):
         pass
 
+    # ===== Sous-systeme IA (Kernel/AI) — construit bottom-up =====
+    with include("Kernel/AI/NKTensor/NKTensor.jenga"):
+        pass
+
+    with include("Applications/NKTensorDemo/NKTensorDemo.jenga"):
+        pass
+
+    with include("Applications/NkSLComputeCheck/NkSLComputeCheck.jenga"):
+        pass
+
+    with include("Applications/NkGpuProbe/NkGpuProbe.jenga"):
+        pass
+
+    with include("Applications/NkComputeNkSL/NkComputeNkSL.jenga"):
+        pass
+
+    with include("Applications/NkTensorGpuTest/NkTensorGpuTest.jenga"):
+        pass
+
     with include("Applications/Model/Model.jenga"):
+        pass
+
+    with include("Applications/NkSLCheck/NkSLCheck.jenga"):
         pass
 
     with include("Applications/NKPA/NKPA.jenga"):
@@ -465,5 +490,11 @@ with workspace("Nkentseu", location="."):
     with include("Applications/Mou/Mou.jenga"):
         pass
 
+    with include("Applications/NkImeTest/NkImeTest.jenga"):
+        pass
+
     with include("Applications/NkImageDemo/NkImageDemo.jenga"):
+        pass
+
+    with include("Applications/RihenDefi/RihenDefi.jenga"):
         pass

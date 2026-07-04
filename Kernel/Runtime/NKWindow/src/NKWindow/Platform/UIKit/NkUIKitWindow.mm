@@ -16,15 +16,35 @@
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkWindowEvent.h"
 #include "NKEvent/NkTouchEvent.h"
+#include "NKEvent/NkKeyboardEvent.h"
 #include "NKMath/NkFunctions.h"
 
 #include <cstdint>
 #include <cstring>
 
-@interface NkUIKitTouchView : UIView {
+// Le code Objective-C ci-dessous (hors 'namespace nkentseu') utilise math::NkMax
+// et d'autres noms nkentseu non qualifies : on les amene dans la portee.
+using namespace nkentseu;
+
+// Definie plus bas mais utilisee avant (dans Create, observers hot-plug ecran).
+namespace nkentseu { static NkDisplayInfo UIKitFillDisplayInfo(UIScreen* screen, uint32 index); }
+
+@interface NkUIKitTouchView : UIView <UIKeyInput, UITextInputTraits> {
 @public
     nkentseu::NkWindow* mOwner;
+@private
+    BOOL mKeyboardActive;   // true entre ShowSoftKeyboard et HideSoftKeyboard
 }
+// Traits du clavier logiciel (protocole UITextInputTraits) : lus par UIKit
+// quand la vue devient premier répondeur pour configurer le clavier affiché.
+@property (nonatomic) UIKeyboardType             keyboardType;
+@property (nonatomic) UIReturnKeyType            returnKeyType;
+@property (nonatomic) UITextAutocorrectionType   autocorrectionType;
+@property (nonatomic) UITextAutocapitalizationType autocapitalizationType;
+@property (nonatomic, getter=isSecureTextEntry)  BOOL secureTextEntry;
+// Active/désactive la capacité à devenir premier répondeur (donc à afficher le
+// clavier). Piloté par NkWindow::ShowSoftKeyboard / HideSoftKeyboard.
+- (void)nk_setKeyboardActive:(BOOL)active;
 @end
 
 @implementation NkUIKitTouchView
@@ -124,6 +144,94 @@
     [self nk_dispatchTouches:touches phase:nkentseu::NkTouchPhase::NK_TOUCH_PHASE_CANCELLED];
 }
 
+// -------------------------------------------------------------------------
+// Clavier logiciel — saisie de texte via le protocole UIKeyInput.
+// -------------------------------------------------------------------------
+
+- (void)nk_setKeyboardActive:(BOOL)active {
+    mKeyboardActive = active;
+}
+
+// Une UIView ne peut afficher le clavier que si elle peut devenir premier
+// répondeur. On ne l'autorise qu'entre ShowSoftKeyboard et HideSoftKeyboard
+// pour éviter qu'un simple tap ouvre le clavier.
+- (BOOL)canBecomeFirstResponder {
+    return mKeyboardActive;
+}
+
+// Émet un NkTextInputEvent par point de code Unicode de la chaîne fournie par
+// UIKit (peut contenir plusieurs caractères : autocomplétion, emoji, dictée).
+// Les caractères de contrôle usuels sont convertis en événements clavier :
+//   '\n'/'\r' -> NK_ENTER, '\t' -> NK_TAB. Les autres contrôles sont ignorés.
+- (void)nk_emitTextFromString:(NSString*)text {
+    if (!mOwner || !mOwner->IsOpen() || text.length == 0) {
+        return;
+    }
+    // NSString est UTF-16 ; on décode en UTF-32 (points de code, gère les paires
+    // de substitution/surrogates) via l'encodage natif little-endian.
+    NSData* utf32 = [text dataUsingEncoding:NSUTF32LittleEndianStringEncoding];
+    if (!utf32 || utf32.length < 4) {
+        return;
+    }
+    const uint32_t* cps = static_cast<const uint32_t*>(utf32.bytes);
+    const NSUInteger count = utf32.length / 4;
+    const nkentseu::uint64 winId = mOwner->GetId();
+
+    for (NSUInteger i = 0; i < count; ++i) {
+        const uint32_t cp = cps[i];
+
+        if (cp == '\n' || cp == '\r') {
+            nkentseu::NkKeyPressEvent press(nkentseu::NkKey::NK_ENTER,
+                nkentseu::NkScancode::NK_SC_ENTER, {}, 0, false, winId);
+            nkentseu::NkWESystem::Events().Enqueue_Public(press, winId);
+            nkentseu::NkKeyReleaseEvent release(nkentseu::NkKey::NK_ENTER,
+                nkentseu::NkScancode::NK_SC_ENTER, {}, 0, false, winId);
+            nkentseu::NkWESystem::Events().Enqueue_Public(release, winId);
+            continue;
+        }
+        if (cp == '\t') {
+            nkentseu::NkKeyPressEvent press(nkentseu::NkKey::NK_TAB,
+                nkentseu::NkScancode::NK_SC_TAB, {}, 0, false, winId);
+            nkentseu::NkWESystem::Events().Enqueue_Public(press, winId);
+            nkentseu::NkKeyReleaseEvent release(nkentseu::NkKey::NK_TAB,
+                nkentseu::NkScancode::NK_SC_TAB, {}, 0, false, winId);
+            nkentseu::NkWESystem::Events().Enqueue_Public(release, winId);
+            continue;
+        }
+        if (cp < 0x20 || cp == 0x7F) {
+            continue;  // autres caractères de contrôle : non imprimables
+        }
+
+        nkentseu::NkTextInputEvent evt(cp, winId);
+        nkentseu::NkWESystem::Events().Enqueue_Public(evt, winId);
+    }
+}
+
+#pragma mark - UIKeyInput
+
+// hasText renvoie toujours YES afin que deleteBackward soit délivré même quand
+// le tampon applicatif (géré côté NKGui/NKEditorKit) semble vide côté UIKit.
+- (BOOL)hasText {
+    return YES;
+}
+
+- (void)insertText:(NSString*)text {
+    [self nk_emitTextFromString:text];
+}
+
+- (void)deleteBackward {
+    if (!mOwner || !mOwner->IsOpen()) {
+        return;
+    }
+    const nkentseu::uint64 winId = mOwner->GetId();
+    nkentseu::NkKeyPressEvent press(nkentseu::NkKey::NK_BACK,
+        nkentseu::NkScancode::NK_SC_BACKSPACE, {}, 0, false, winId);
+    nkentseu::NkWESystem::Events().Enqueue_Public(press, winId);
+    nkentseu::NkKeyReleaseEvent release(nkentseu::NkKey::NK_BACK,
+        nkentseu::NkScancode::NK_SC_BACKSPACE, {}, 0, false, winId);
+    nkentseu::NkWESystem::Events().Enqueue_Public(release, winId);
+}
+
 @end
 
 namespace nkentseu {
@@ -187,7 +295,7 @@ namespace nkentseu {
     // Fonctions de synchronisation mData ↔ mConfig
     // =========================================================================
 
-    static void SyncConfigFromWindow(const NkUIKitWindowData& data, NkWindowConfig& config) {
+    static void SyncConfigFromWindow(const NkWindowData& data, NkWindowConfig& config) {
         config.width = data.mWidth;
         config.height = data.mHeight;
         config.visible = data.mVisible;
@@ -196,7 +304,7 @@ namespace nkentseu {
         // La position n'est pas pertinente, on garde config.x/config.y
     }
 
-    static void SyncWindowFromConfig(NkUIKitWindowData& data, const NkWindowConfig& config) {
+    static void SyncWindowFromConfig(NkWindowData& data, const NkWindowConfig& config) {
         data.mVisible = config.visible;
         data.mFullscreen = config.fullscreen;
     }
@@ -662,6 +770,11 @@ namespace nkentseu {
 
     void NkWindow::Restore() {}
 
+    // iOS : fenêtre plein écran, pas de barre de titre custom -> no-op.
+    bool NkWindow::IsMaximized() const { return true; }
+    void NkWindow::BeginDragMove() {}
+    void NkWindow::BeginResize(NkResizeEdge) {}
+
     void NkWindow::SetFullscreen(bool fullscreen) {
         if (mData.mFullscreen == fullscreen) {
             return;
@@ -708,6 +821,72 @@ namespace nkentseu {
 
     // iOS : pas de curseur natif (touch only), no-op.
     void NkWindow::ClipMouseToClient(bool) {}
+
+    // =========================================================================
+    // Clavier logiciel iOS (UIKeyInput) — mapping config → traits UIKit
+    // =========================================================================
+
+    static UIKeyboardType UIKitMapKeyboardType(NkWindow::NkSoftKeyboardType t) {
+        switch (t) {
+            case NkWindow::NkSoftKeyboardType::Ascii:   return UIKeyboardTypeASCIICapable;
+            case NkWindow::NkSoftKeyboardType::Number:  return UIKeyboardTypeNumberPad;
+            case NkWindow::NkSoftKeyboardType::Phone:   return UIKeyboardTypePhonePad;
+            case NkWindow::NkSoftKeyboardType::Email:   return UIKeyboardTypeEmailAddress;
+            case NkWindow::NkSoftKeyboardType::Url:     return UIKeyboardTypeURL;
+            case NkWindow::NkSoftKeyboardType::Decimal: return UIKeyboardTypeDecimalPad;
+            case NkWindow::NkSoftKeyboardType::Default:
+            default:                                    return UIKeyboardTypeDefault;
+        }
+    }
+
+    static UIReturnKeyType UIKitMapReturnKey(NkWindow::NkSoftKeyboardReturnKey r) {
+        switch (r) {
+            case NkWindow::NkSoftKeyboardReturnKey::Done:   return UIReturnKeyDone;
+            case NkWindow::NkSoftKeyboardReturnKey::Go:     return UIReturnKeyGo;
+            case NkWindow::NkSoftKeyboardReturnKey::Next:   return UIReturnKeyNext;
+            case NkWindow::NkSoftKeyboardReturnKey::Search: return UIReturnKeySearch;
+            case NkWindow::NkSoftKeyboardReturnKey::Send:   return UIReturnKeySend;
+            case NkWindow::NkSoftKeyboardReturnKey::Default:
+            default:                                        return UIReturnKeyDefault;
+        }
+    }
+
+    void NkWindow::ShowSoftKeyboard(const NkSoftKeyboardConfig& config) {
+        if (!mData.mUIView || ![mData.mUIView isKindOfClass:[NkUIKitTouchView class]]) {
+            return;
+        }
+        NkUIKitTouchView* view = static_cast<NkUIKitTouchView*>(mData.mUIView);
+
+        view.keyboardType           = UIKitMapKeyboardType(config.type);
+        view.returnKeyType          = UIKitMapReturnKey(config.returnKey);
+        view.autocorrectionType     = config.autocorrect
+            ? UITextAutocorrectionTypeYes : UITextAutocorrectionTypeNo;
+        view.autocapitalizationType = config.autocapitalize
+            ? UITextAutocapitalizationTypeSentences : UITextAutocapitalizationTypeNone;
+        view.secureTextEntry        = config.secure ? YES : NO;
+
+        [view nk_setKeyboardActive:YES];
+        if (![view isFirstResponder]) {
+            [view becomeFirstResponder];
+        } else {
+            // Déjà actif : réappliquer les traits au clavier affiché.
+            [view reloadInputViews];
+        }
+        mData.mSoftKeyboardVisible = true;
+    }
+
+    void NkWindow::HideSoftKeyboard() {
+        if (mData.mUIView && [mData.mUIView isKindOfClass:[NkUIKitTouchView class]]) {
+            NkUIKitTouchView* view = static_cast<NkUIKitTouchView*>(mData.mUIView);
+            [view nk_setKeyboardActive:NO];
+            [view resignFirstResponder];
+        }
+        mData.mSoftKeyboardVisible = false;
+    }
+
+    bool NkWindow::IsSoftKeyboardVisible() const {
+        return mData.mSoftKeyboardVisible;
+    }
 
     void NkWindow::SetWebInputOptions(const NkWebInputOptions&) {}
 

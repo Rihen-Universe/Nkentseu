@@ -8,9 +8,11 @@
 #import <UIKit/UIKit.h>
 #include "NKWindow/Core/NkEntry.h"
 
+// TARGET_OS_VISION n'existe pas sur les SDK anciens (< visionOS) : garder avec
+// defined() pour eviter une erreur -Wundef.
 #if TARGET_OS_TV
 #define NK_APP_NAME "tvos_app"
-#elif TARGET_OS_VISION
+#elif defined(TARGET_OS_VISION) && TARGET_OS_VISION
 #define NK_APP_NAME "visionos_app"
 #else
 #define NK_APP_NAME "ios_app"
@@ -24,7 +26,7 @@ NkEntryState *gState = nullptr;
 }
 
 // Stockage global des args pour la durée de vie de l'app
-static NkVector<NkString> g_apple_mobile_args;
+static nkentseu::NkVector<nkentseu::NkString> g_apple_mobile_args;
 
 @interface NkAppDelegate : UIResponder <UIApplicationDelegate>
 @property(nonatomic, strong) UIWindow *window;

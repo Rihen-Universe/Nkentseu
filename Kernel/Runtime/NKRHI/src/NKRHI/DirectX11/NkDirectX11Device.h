@@ -214,6 +214,8 @@ namespace nkentseu {
 
             NkFramebufferHandle mSwapchainFB;
             NkRenderPassHandle  mSwapchainRP;
+            NkTextureHandle     mSwapchainColorTex;  // back-buffer (isSwapchain) : à relâcher
+            NkTextureHandle     mSwapchainDepthTex;  // depth du swapchain
 
             NkUnorderedMap<uint64, NkDX11Buffer>       mBuffers;
             NkUnorderedMap<uint64, NkDX11Texture>      mTextures;

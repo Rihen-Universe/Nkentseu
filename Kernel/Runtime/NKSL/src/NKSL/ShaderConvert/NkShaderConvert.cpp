@@ -389,7 +389,17 @@ namespace nkentseu {
             // (et non via le mapping compacte out.dxBindings). Sans ca, bones
             // compacte a t0 cote shader mais le device le binde a t<binding> ->
             // SRV nulle -> bones=0 -> skin a l'origine -> INVISIBLE sur DX.
-            add(resources.storage_buffers,   5); // SRV storage buffer (register = binding, pas de compaction)
+            // Storage buffers : distinguer READ-ONLY (SRV ByteAddressBuffer, cls 5,
+            // usage renderer skin/instancing) et READ-WRITE (UAV RWByteAddressBuffer,
+            // cls 6). Le COMPUTE a plusieurs SSBO RW -> il FAUT preserver
+            // register=binding (u0,u1,u2), sinon SPIRV-Cross les ecrase tous sur u0
+            // (X4500 overlapping register). cf VecAdd/matmul NKTensor.
+            for (auto& r : resources.storage_buffers) {
+                uint32 set = compiler.get_decoration(r.id, spv::DecorationDescriptorSet);
+                uint32 bnd = compiler.get_decoration(r.id, spv::DecorationBinding);
+                bool readonly = compiler.get_buffer_block_flags(r.id).get(spv::DecorationNonWritable);
+                entries.push_back({set, bnd, r.id, readonly ? 5 : 6});
+            }
             add(resources.separate_images,   1); // SRV
             add(resources.sampled_images,    2); // SRV + Sampler (combiné)
             add(resources.separate_samplers, 3); // Sampler
@@ -445,10 +455,29 @@ namespace nkentseu {
                     // device DX binde la SRV du storage buffer a t0 (cf.
                     // NkDX12/DX11 CommandBuffer : kStorageBufferSrvReg=0).
                     case 5: { hb.srv.register_space=map.space; hb.srv.register_binding=0; map.srvReg=0; } break;
+                    // cls 6 : storage buffer READ-WRITE -> UAV RWByteAddressBuffer.
+                    // register = binding (comme les storage_images), pour supporter
+                    // plusieurs SSBO RW en compute sans collision (u0, u1, u2…).
+                    case 6: { hb.uav.register_space=map.space; hb.uav.register_binding=reg; map.uavReg=reg; } break;
                     default: break;
                 }
                 compiler.add_hlsl_resource_binding(hb);
                 out.dxBindings.PushBack(map);
+            }
+
+            // Push constants -> cbuffer b13 : le device DX (DX11/DX12) emule les push
+            // constants par un cbuffer bindé a kPushConstantReg=13 (cf NkDirectX11/12
+            // CommandBuffer::PushConstants). Par defaut SPIRV-Cross les met a b0 ->
+            // le device ecrit b13 mais le shader lit b0 -> constantes = 0. On epingle
+            // donc le push_constant a b13 pour matcher la convention du device.
+            if (!resources.push_constant_buffers.empty()) {
+                spirv_cross::HLSLResourceBinding pcb{};
+                pcb.stage   = em;
+                pcb.desc_set = spirv_cross::ResourceBindingPushConstantDescriptorSet; // ~0u
+                pcb.binding  = spirv_cross::ResourceBindingPushConstantBinding;        // 0
+                pcb.cbv.register_space   = 0;
+                pcb.cbv.register_binding = 13; // b13
+                compiler.add_hlsl_resource_binding(pcb);
             }
 
             std::string hlsl = compiler.compile();

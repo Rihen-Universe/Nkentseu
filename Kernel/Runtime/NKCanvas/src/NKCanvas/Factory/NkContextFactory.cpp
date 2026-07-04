@@ -1,15 +1,18 @@
 ﻿// =============================================================================
 // NkContextFactory.cpp
 // =============================================================================
+#include "NKPlatform/NkPlatformDetect.h"
 #include "NkContextFactory.h"
-#include "NKCanvas/Backend/OpenGL/NkOpenGLContext.h"
 #include "NKCanvas/Backend/Software/NkSoftwareContext.h"
-#include "NKCanvas/Backend/OpenGL/NkOpenGLComputeContext.h"
 #include "NKCanvas/Backend/Software/NkSoftwareComputeContext.h"
+// iOS : pas de backend OpenGL (Metal uniquement). Le backend GL desktop ne
+// compile pas sur iOS (GL/gl.h, glGetString...) et n'y est jamais sélectionné.
+#if !defined(NKENTSEU_PLATFORM_IOS)
+#   include "NKCanvas/Backend/OpenGL/NkOpenGLContext.h"
+#   include "NKCanvas/Backend/OpenGL/NkOpenGLComputeContext.h"
+#endif
 #include "NKCanvas/Core/NkGpuPolicy.h"
 #include <cstdio>
-
-#include "NKPlatform/NkPlatformDetect.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NKMemory.h"   // RÈGLE : allocation/liberation via NKMemory, jamais new/delete
 
@@ -50,7 +53,11 @@ NkIGraphicsContext* NkContextFactory::Create(const NkWindow& window,
         case NkGraphicsApi::NK_GFX_API_OPENGL:
         case NkGraphicsApi::NK_GFX_API_OPENGLES:
         case NkGraphicsApi::NK_GFX_API_WEBGL:
+#if !defined(NKENTSEU_PLATFORM_IOS)
             ctx = alloc.New<NkOpenGLContext>();
+#else
+            NK_FACTORY_ERR("OpenGL non disponible sur iOS (utiliser Metal)\n");
+#endif
             break;
 
         case NkGraphicsApi::NK_GFX_API_VULKAN:
@@ -164,6 +171,7 @@ NkIComputeContext* NkContextFactory::CreateCompute(NkGraphicsApi api,
     switch (api) {
         case NkGraphicsApi::NK_GFX_API_OPENGL:
         case NkGraphicsApi::NK_GFX_API_OPENGLES: {
+#if !defined(NKENTSEU_PLATFORM_IOS)
             auto* ctx = alloc.New<NkOpenGLComputeContext>();
             if (!ctx->Init(desc)) {
                 NK_FACTORY_ERR("OpenGL standalone compute init failed\n");
@@ -172,6 +180,10 @@ NkIComputeContext* NkContextFactory::CreateCompute(NkGraphicsApi api,
             }
             NK_FACTORY_LOG("Compute context created: %s\n", NkGraphicsApiName(api));
             return ctx;
+#else
+            NK_FACTORY_ERR("OpenGL compute non disponible sur iOS (Metal)\n");
+            return nullptr;
+#endif
         }
 
         case NkGraphicsApi::NK_GFX_API_VULKAN:
@@ -271,10 +283,14 @@ NkIComputeContext* NkContextFactory::ComputeFromGraphics(NkIGraphicsContext* gfx
     switch (gfx->GetApi()) {
         case NkGraphicsApi::NK_GFX_API_OPENGL:
         case NkGraphicsApi::NK_GFX_API_OPENGLES: {
+#if !defined(NKENTSEU_PLATFORM_IOS)
             auto* c = alloc.New<NkOpenGLComputeContext>();
             c->InitFromGraphicsContext(gfx);
             if (!c->IsValid()) { alloc.Delete(c); return nullptr; }
             return c;
+#else
+            return nullptr;
+#endif
         }
         case NkGraphicsApi::NK_GFX_API_VULKAN: {
 #if NKENTSEU_ENABLE_VULKAN_BACKEND

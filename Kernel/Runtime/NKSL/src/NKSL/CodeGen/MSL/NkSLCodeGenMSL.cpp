@@ -108,15 +108,19 @@ NkString NkSLCodeGen_MSL::TypeToMSL(NkSLTypeNode* t) {
 }
 
 NkString NkSLCodeGen_MSL::BuiltinToMSL(const NkString& name, NkSLStage stage) {
-    if (name == "gl_Position")          return "out.position";
-    if (name == "gl_FragCoord")         return "in.position";
+    // NB: le membre position des structs IO s'appelle `_position` et le param
+    // d'entrée `_in` (cf GenInputOutputStructs / BuildEntryPointSignature).
+    if (name == "gl_Position")          return "out._position";
+    if (name == "gl_FragCoord")         return "_in._position";
     if (name == "gl_FragDepth")         return "out.depth";
     if (name == "gl_VertexID")          return "vertex_id";
     if (name == "gl_InstanceID")        return "instance_id";
     if (name == "gl_FrontFacing")       return "front_facing";
-    if (name == "gl_LocalInvocationID") return "thread_position_in_threadgroup";
-    if (name == "gl_GlobalInvocationID")return "thread_position_in_grid";
-    if (name == "gl_WorkGroupID")       return "threadgroup_position_in_grid";
+    // Compute : renvoyer le NOM DU PARAMÈTRE (pas l'attribut). Ces params sont
+    // déclarés dans BuildEntryPointSignature : _thread_pos_in_grid, etc.
+    if (name == "gl_LocalInvocationID") return "_thread_pos_in_group";
+    if (name == "gl_GlobalInvocationID")return "_thread_pos_in_grid";
+    if (name == "gl_WorkGroupID")       return "_threadgroup_pos_in_grid";
     return name;
 }
 
@@ -323,7 +327,19 @@ NkString NkSLCodeGen_MSL::GenExpr(NkSLNode* node) {
             return LiteralToStr(static_cast<NkSLLiteralNode*>(node));
         case NkSLNodeKind::NK_EXPR_IDENT: {
             auto* id = static_cast<NkSLIdentNode*>(node);
-            return BuiltinToMSL(id->name, mStage);
+            const NkString& nm = id->name;
+            // Builtins (gl_*) : mapping dédié (out._position, thread_position_in_grid…).
+            if (nm.Size() > 3 && nm[0] == 'g' && nm[1] == 'l' && nm[2] == '_')
+                return BuiltinToMSL(nm, mStage);
+            // En MSL, les in/out deviennent des membres de structs : une variable
+            // d'ENTRÉE se lit `_in.NAME`, une variable de SORTIE s'écrit `out.NAME`.
+            // (Sans ça, le code référençait des identifiants hors portée -> MSL invalide.)
+            for (uint32 i = 0; i < mInputVars.Size(); i++)
+                if (mInputVars[i] && mInputVars[i]->name == nm) return "_in." + nm;
+            for (uint32 i = 0; i < mOutputVars.Size(); i++)
+                if (mOutputVars[i] && mOutputVars[i]->name == nm) return "out." + nm;
+            // Locaux / uniformes / alias de blocs : nom inchangé.
+            return BuiltinToMSL(nm, mStage);
         }
         case NkSLNodeKind::NK_EXPR_UNARY: {
             auto* u = static_cast<NkSLUnaryNode*>(node);

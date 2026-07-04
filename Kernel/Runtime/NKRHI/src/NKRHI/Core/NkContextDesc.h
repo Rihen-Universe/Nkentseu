@@ -117,6 +117,11 @@ namespace nkentseu {
         bool   vsync       = true;
         uint32 sampleCount = 1;
         bool   srgb        = true;
+        // Handles natifs fournis par l'appelant (fenetre/canvas). Le device RHI ne
+        // cree PAS la surface : il la recoit. Opaques (void*) pour rester hors ObjC
+        // et garder NKRHI ignorant de la couche fenetrage / de NKCanvas.
+        void*  metalLayer      = nullptr;  // CAMetalLayer*
+        void*  preferredDevice = nullptr;  // id<MTLDevice> (optionnel; sinon defaut systeme)
     };
 
     struct NkSoftwareDesc {

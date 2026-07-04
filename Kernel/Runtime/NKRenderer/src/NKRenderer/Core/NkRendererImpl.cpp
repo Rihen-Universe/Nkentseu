@@ -7,6 +7,17 @@
 #include "NKRenderer/Materials/NkMaterialCollection.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
+#include "NKTime/NkChrono.h"   // cap FPS : pacing haute précision (Now/Sleep)
+#include <cstdlib>              // getenv (NK_FPS_CAP)
+
+// Windows : ::Sleep() a une granularité ~15,6 ms par défaut -> le sleep du pacing
+// FPS déborde le spin -> jitter (saccade/clignotement des ombres). timeBeginPeriod(1)
+// passe la résolution du timer système à 1 ms -> Sleep précis -> pacing lisse.
+// Forward-decl (winmm) pour éviter d'inclure <windows.h> dans ce TU.
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+extern "C" unsigned int __stdcall timeBeginPeriod(unsigned int uPeriod);
+extern "C" unsigned int __stdcall timeEndPeriod(unsigned int uPeriod);
+#endif
 
 namespace nkentseu {
     namespace renderer {
@@ -60,6 +71,25 @@ namespace nkentseu {
                 return false;
             }
             logger.Info("[NkRendererImpl] Initialize start (api={0})\n", (int)mCfg.api);
+
+            // Cap FPS par défaut = 0 (DESACTIVE). Le rythme + la protection thermique
+            // sont assurés par le VSYNC (GL wglSwapIntervalEXT / VK FIFO) : la présentation
+            // se cale sur le vblank de l'écran -> pas de tearing, pas de GPU 100%.
+            //
+            // IMPORTANT : le cap-sleep ci-dessous NE DOIT PAS tourner en même temps que le
+            // vsync -> ils se battent (le sleep déborde APRES un SwapBuffers déjà bloqué au
+            // vblank) et capper SOUS la fréquence écran (ex. 60 sur 144 Hz) produit un
+            // JUDDER (clignotement du mouvement). Le cap reste OPT-IN via NK_FPS_CAP ou
+            // SetFrameRateCap()/F1 (utile sans vsync ou pour brider volontairement).
+            {
+                const char* fc = getenv("NK_FPS_CAP");
+                mFrameCapFps = fc ? (float32)atof(fc) : 0.f;
+                if (mFrameCapFps < 0.f) mFrameCapFps = 0.f;
+                logger.Info("[NkRendererImpl] FPS cap = {0} (0=vsync gere le rythme, env NK_FPS_CAP)\n", mFrameCapFps);
+              #if defined(NKENTSEU_PLATFORM_WINDOWS)
+                timeBeginPeriod(1);  // Sleep précis (1 ms) pour un pacing FPS sans jitter.
+              #endif
+            }
 
             // 0. RHI (toujours requis)
             logger.Info("[NkRendererImpl]  step 0: InitRHI\n");
@@ -801,6 +831,34 @@ namespace nkentseu {
             // changent (Enable/Disable). Le destructor du graph fait le clean final.
             mCmd->End();
             mDevice->SubmitAndPresent(mCmd);
+
+            // ── Cap FPS (pacing haute précision) ──────────────────────────────────
+            // Plafonne la cadence sans jitter : sleep gros grain jusqu'à ~1.2 ms de la
+            // cible (la granularité OS du sleep est ~1-15 ms), puis busy-wait (spin) le
+            // reste. On ANCRE la prochaine échéance sur l'horaire idéal (mPaceNs +=
+            // target), pas sur "now" -> période régulière -> dt lisse (pas de saccade
+            // ni de crawl d'ombres). Resync si on prend > 1 frame de retard.
+            if (mFrameCapFps > 0.f) {
+                const float64 targetNs = 1.0e9 / (float64)mFrameCapFps;
+                const float64 nowNs    = ::nkentseu::NkChrono::Now().nanoseconds;
+                if (mPaceNs > 0.0) {
+                    const float64 nextNs   = mPaceNs + targetNs;
+                    const float64 remainNs = nextNs - nowNs;
+                    if (remainNs > 0.0) {
+                        const float64 spinNs = 1.2e6;  // 1.2 ms de spin final
+                        if (remainNs > spinNs)
+                            ::nkentseu::NkChrono::Sleep((int64)((remainNs - spinNs) / 1.0e6));
+                        while (::nkentseu::NkChrono::Now().nanoseconds < nextNs) { /* spin */ }
+                    }
+                    mPaceNs = nextNs;
+                    const float64 after = ::nkentseu::NkChrono::Now().nanoseconds;
+                    if (after - mPaceNs > targetNs) mPaceNs = after;  // trop en retard -> resync
+                } else {
+                    mPaceNs = nowNs;
+                }
+            } else {
+                mPaceNs = 0.0;
+            }
         }
 
         void NkRendererImpl::OnResize(uint32 w, uint32 h) {

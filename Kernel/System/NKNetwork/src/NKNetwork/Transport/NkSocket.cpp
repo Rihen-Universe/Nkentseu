@@ -642,6 +642,16 @@ namespace nkentseu {
                 return NkNetResult::NK_NET_SOCKET_ERROR;
             }
 
+#if defined(__APPLE__)
+            // Apple ne fournit pas MSG_NOSIGNAL : sans SO_NOSIGPIPE, un send() sur
+            // une socket dont le pair a ferme leve SIGPIPE et tue le process.
+            {
+                int nosigpipe = 1;
+                ::setsockopt(mHandle, SOL_SOCKET, SO_NOSIGPIPE,
+                             &nosigpipe, sizeof(nosigpipe));
+            }
+#endif
+
             // Préparation de l'adresse pour bind()
             sockaddr_storage addressStorage = {};
             socklen_t addressLength = 0;
@@ -1102,6 +1112,15 @@ namespace nkentseu {
 
                 return NkNetResult::NK_NET_SOCKET_ERROR;
             }
+
+#if defined(__APPLE__)
+            // Meme protection SIGPIPE que pour les sockets crees (cf Bind).
+            {
+                int nosigpipe = 1;
+                ::setsockopt(clientHandle, SOL_SOCKET, SO_NOSIGPIPE,
+                             &nosigpipe, sizeof(nosigpipe));
+            }
+#endif
 
             // Transfert du handle vers le socket client
             outClient.Close();  // Nettoyage préventif

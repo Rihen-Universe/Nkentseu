@@ -25,6 +25,13 @@ public:
     // Creer en specifiant l'API explicitement.
     static NkIDevice* CreateForApi(NkGraphicsApi api, const NkDeviceInitInfo& init);
 
+    // Raccourci Apple : cree un device Metal a partir d'une CAMetalLayer opaque
+    // (typiquement window->GetSurfaceDesc().metalLayer). Le device ne cree PAS la
+    // surface, il la recoit — c'est la glue fenetre -> RHI. preferredDevice est
+    // optionnel (id<MTLDevice> ; sinon device systeme par defaut).
+    // Retourne nullptr si Metal n'est pas compile (NK_RHI_METAL_ENABLED).
+    static NkIDevice* CreateMetalFromLayer(void* caMetalLayer, void* preferredDevice = nullptr);
+
     // Creer avec chaine de fallback explicite.
     static NkIDevice* CreateWithFallback(const NkDeviceInitInfo& init,
                                          std::initializer_list<NkGraphicsApi> order);

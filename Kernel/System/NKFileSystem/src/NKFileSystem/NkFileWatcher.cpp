@@ -39,6 +39,19 @@
     #ifdef ReadDirectoryChangesW
         #undef ReadDirectoryChangesW
     #endif
+#elif defined(__APPLE__)
+    // macOS / iOS : surveillance via kqueue (EVFILT_VNODE) + diff de snapshot du
+    // repertoire (inotify n'existe pas sur Darwin ; FSEvents est macOS-only).
+    #include <unistd.h>
+    #include <pthread.h>
+    #include <fcntl.h>
+    #include <dirent.h>
+    #include <sys/event.h>
+    #include <sys/time.h>
+    #include <sys/stat.h>
+    #include <errno.h>
+    #include <map>
+    #include <string>
 #elif defined(__EMSCRIPTEN__)
     // WebAssembly : pas d'accès aux API natives de surveillance de fichiers
     // La surveillance est désactivée sur cette plateforme (fallback silencieux)
@@ -284,6 +297,101 @@ namespace nkentseu {
             CloseHandle(hDir);
         }
 
+    #elif defined(__APPLE__)
+
+        // =====================================================================
+        //  Implémentation Apple (macOS/iOS) : kqueue + diff de snapshot
+        // =====================================================================
+
+        void* NkFileWatcher::ThreadProc(void* param)
+        {
+            NkFileWatcher* watcher = static_cast<NkFileWatcher*>(param);
+            watcher->WatchThread();
+            return nullptr;
+        }
+
+        void NkFileWatcher::WatchThread()
+        {
+            // Snapshot initial du repertoire : nom -> mtime (secondes).
+            auto snapshot = [this](std::map<std::string, long>& out) {
+                out.clear();
+                DIR* d = ::opendir(mPath.CStr());
+                if (!d) return;
+                struct dirent* e;
+                while ((e = ::readdir(d)) != nullptr) {
+                    if (e->d_name[0] == '.' &&
+                        (e->d_name[1] == '\0' ||
+                         (e->d_name[1] == '.' && e->d_name[2] == '\0'))) {
+                        continue; // ignorer "." et ".."
+                    }
+                    struct stat st;
+                    NkString full = (NkPath(mPath.CStr()) / e->d_name).ToString();
+                    if (::stat(full.CStr(), &st) == 0) {
+                        out[e->d_name] = static_cast<long>(st.st_mtime);
+                    } else {
+                        out[e->d_name] = 0;
+                    }
+                }
+                ::closedir(d);
+            };
+
+            // Ouvre le repertoire en mode "evenement seul" et l'enregistre.
+            int dirFd = ::open(mPath.CStr(), O_EVTONLY);
+            if (dirFd < 0) return;
+
+            int kq = ::kqueue();
+            if (kq < 0) { ::close(dirFd); return; }
+
+            struct kevent change;
+            EV_SET(&change, dirFd, EVFILT_VNODE, EV_ADD | EV_CLEAR,
+                   NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB, 0, nullptr);
+
+            std::map<std::string, long> prev;
+            snapshot(prev);
+
+            auto emit = [this](const NkString& name, NkFileChangeType type) {
+                if (!mCallback) return;
+                NkFileChangeEvent ev;
+                ev.Path = (NkPath(mPath.CStr()) / name.CStr()).ToString();
+                ev.Timestamp = static_cast<nk_int64>(time(nullptr));
+                ev.Type = type;
+                mCallback->OnFileChanged(ev);
+            };
+
+            while (mIsWatching) {
+                struct timespec tmo; tmo.tv_sec = 0; tmo.tv_nsec = 100 * 1000 * 1000; // 100ms
+                struct kevent event;
+                int n = ::kevent(kq, &change, 1, &event, 1, &tmo);
+                if (n < 0) {
+                    if (errno == EINTR) continue;
+                    break;
+                }
+                if (n == 0) continue; // timeout : re-verifie mIsWatching
+
+                // Le repertoire a change : on diffe le snapshot pour savoir quoi.
+                std::map<std::string, long> cur;
+                snapshot(cur);
+
+                for (auto& kv : cur) {
+                    auto it = prev.find(kv.first);
+                    if (it == prev.end()) {
+                        emit(NkString(kv.first.c_str()), NkFileChangeType::NK_CREATED);
+                    } else if (it->second != kv.second) {
+                        emit(NkString(kv.first.c_str()), NkFileChangeType::NK_MODIFIED);
+                    }
+                }
+                for (auto& kv : prev) {
+                    if (cur.find(kv.first) == cur.end()) {
+                        emit(NkString(kv.first.c_str()), NkFileChangeType::NK_DELETED);
+                    }
+                }
+                prev.swap(cur);
+            }
+
+            ::close(kq);
+            ::close(dirFd);
+        }
+
     #elif !defined(__EMSCRIPTEN__)
 
         // =====================================================================
@@ -468,7 +576,7 @@ namespace nkentseu {
             mThread = nullptr;
             return true;
         #else
-            // POSIX : création de thread avec pthread
+            // POSIX (Linux inotify + Apple kqueue) : création de thread pthread
             pthread_t* thread = new pthread_t;
 
             if (pthread_create(thread, NULL, ThreadProc, this) == 0)
@@ -512,7 +620,7 @@ namespace nkentseu {
             WaitForSingleObject(mThread, INFINITE);
             CloseHandle(mThread);
         #elif !defined(__EMSCRIPTEN__)
-            // POSIX : join du thread puis libération mémoire
+            // POSIX (Linux + Apple) : join du thread puis libération mémoire
             pthread_t* thread = static_cast<pthread_t*>(mThread);
             pthread_join(*thread, NULL);
             delete thread;

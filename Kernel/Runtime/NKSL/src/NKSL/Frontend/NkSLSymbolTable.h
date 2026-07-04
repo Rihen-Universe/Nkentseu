@@ -7,6 +7,10 @@
 #include "NKSL/Core/NkSLAST.h"
 #include "NKContainers/Associative/NkUnorderedMap.h"
 
+#if defined(Bool)
+#undef Bool
+#endif
+
 namespace nkentseu {
 
     // =============================================================================

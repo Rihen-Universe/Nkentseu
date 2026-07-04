@@ -11,6 +11,29 @@
 #include <cmath>
 #include <cstring>
 
+// ── Contexte GLX (Linux/X11) ────────────────────────────────────────────────
+// glad (via NkOpenglDevice.h) définit __gl_h_ AVANT -> <GL/glx.h> n'inclut pas
+// <GL/gl.h> une 2e fois (pas de conflit avec glad). On retire ensuite les macros
+// Xlib polluantes (None/Status/Success/Always) qui collisionnent avec des
+// identifiants du reste de ce TU / NKRHI. True/False/Bool sont conservés (glx.h).
+#if defined(NKENTSEU_WINDOWING_XLIB)
+#   include <cstdlib>      // setenv/getenv (override version Mesa WSLg)
+#   include <X11/Xlib.h>
+#   include <glad/glx.h>   // wrappers GLX glad (chargés via gladLoaderLoadGLX)
+#   ifdef None
+#       undef None
+#   endif
+#   ifdef Status
+#       undef Status
+#   endif
+#   ifdef Success
+#       undef Success
+#   endif
+#   ifdef Always
+#       undef Always
+#   endif
+#endif
+
 #define NK_GL_LOG(...) logger_src.Infof("[NkRHI_GL] " __VA_ARGS__)
 #define NK_GL_ERR(...) logger_src.Infof("[NkRHI_GL][ERR] " __VA_ARGS__)
 #define NK_GL_CHECK() do { GLenum e=glGetError(); if(e!=GL_NO_ERROR) NK_GL_ERR("GL error 0x%X at %s:%d\n",e,__FILE__,__LINE__); } while(0)
@@ -120,6 +143,24 @@ namespace {
     } // namespace
 #endif
 
+#if defined(NKENTSEU_WINDOWING_XLIB)
+namespace {
+    // Loader glad pour GLX : glXGetProcAddressARB(const GLubyte*) -> GLADapiproc.
+    static GLADapiproc NkGlxGetProcCompat(const char* name) {
+        if (!name) return nullptr;
+        return reinterpret_cast<GLADapiproc>(
+            glXGetProcAddressARB(reinterpret_cast<const GLubyte*>(name)));
+    }
+
+    // glXCreateContextAttribsARB lève des ERREURS X ASYNCHRONES (ex. GLXBadFBConfig
+    // si la version/profil demandé n'est pas supporté par le FBConfig, fréquent sur
+    // WSLg/Mesa). Le handler X par défaut TUE le process -> notre fallback (4.3) ne
+    // s'exécute jamais. On installe un handler qui note l'erreur au lieu de crasher.
+    static int gGlxCtxErr = 0;
+    static int NkGlxCtxErrorHandler(Display*, XErrorEvent*) { gGlxCtxErr = 1; return 0; }
+} // namespace
+#endif
+
 NkOpenGLDevice::~NkOpenGLDevice() { if(mIsValid) Shutdown(); }
 
 // =============================================================================
@@ -131,8 +172,19 @@ bool NkOpenGLDevice::Initialize(const NkDeviceInitInfo& init) {
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
     mNativeHwnd = init.surface.hwnd;
     if (!mNativeHwnd) {
-        NK_GL_ERR("HWND missing in NkDeviceInitInfo.surface\n");
-        return false;
+        // Headless / compute-only : OpenGL exige un contexte lié à une surface, on
+        // crée donc une fenêtre CACHÉE 1x1 (jamais affichée, classe STATIC built-in)
+        // juste pour obtenir un HDC. C'est la voie "compute GL sans fenêtre visible"
+        // (équivalent WGL du pbuffer / EGL surfaceless).
+        mNativeHwnd = CreateWindowExW(0, L"STATIC", L"NkGLHeadless", WS_POPUP,
+                                      0, 0, 1, 1, nullptr, nullptr,
+                                      GetModuleHandleW(nullptr), nullptr);
+        if (!mNativeHwnd) {
+            NK_GL_ERR("HWND absent et création fenêtre cachée échouée\n");
+            return false;
+        }
+        mOwnsHeadlessWindow = true;
+        NK_GL_LOG("Mode headless : fenêtre cachée créée pour le contexte GL compute\n");
     }
 
     mNativeHdc = GetDC(mNativeHwnd);
@@ -237,6 +289,141 @@ bool NkOpenGLDevice::Initialize(const NkDeviceInitInfo& init) {
     if (mWglSwapIntervalExt) {
         mWglSwapIntervalExt(static_cast<int>(init.context.opengl.swapInterval));
     }
+
+#elif defined(NKENTSEU_WINDOWING_XLIB)
+    // ── Contexte GLX (Linux/X11) ──────────────────────────────────────────
+    // init.surface porte Display*/Window/screen (rempli par le backend NKWindow
+    // XLIB). Le RHI crée SON contexte GLX Core 4.3+ sur cette fenêtre, comme le
+    // fait le chemin WGL sous Windows, puis charge glad via glXGetProcAddressARB.
+    Display* dpy = init.surface.display;
+    ::Window win = init.surface.window;
+    if (!dpy || !win) {
+        NK_GL_ERR("X11 Display/Window manquant dans NkDeviceInitInfo.surface\n");
+        return false;
+    }
+    const int screen = init.surface.screen;
+
+    // WSLg (et certains Mesa) rapportent GL 4.2 PAR DÉFAUT alors que le driver réel
+    // (ex. D3D12/RTX) supporte 4.6 — or le moteur exige 4.3 (compute). On force le
+    // niveau rapporté AVANT toute création de contexte, SANS écraser une valeur déjà
+    // posée par l'utilisateur (overwrite=0). N'affecte QUE les drivers Mesa (ignoré
+    // par NVIDIA/AMD propriétaires, où 4.6 est déjà natif). Désactivable en exportant
+    // soi-même MESA_GL_VERSION_OVERRIDE (ex. à une autre valeur).
+    setenv("MESA_GL_VERSION_OVERRIDE",   "4.6", 0);
+    setenv("MESA_GLSL_VERSION_OVERRIDE", "460", 0);
+
+    // Charge les fonctions GLX de glad via son loader dlopen(libGL) — nécessaire
+    // AVANT tout appel glXxxx (les wrappers glad sont NULL sinon -> segfault).
+    if (!gladLoaderLoadGLX(dpy, screen)) {
+        NK_GL_ERR("gladLoaderLoadGLX failed (libGL introuvable ?)\n");
+        return false;
+    }
+
+    // FBConfig volontairement PERMISSIF (WSLg/Mesa software rejettent les configs
+    // strictes) : pas de GLX_X_VISUAL_TYPE imposé, stencil optionnel.
+    const int fbAttrs[] = {
+        GLX_X_RENDERABLE,  True,
+        GLX_DRAWABLE_TYPE, GLX_WINDOW_BIT,
+        GLX_RENDER_TYPE,   GLX_RGBA_BIT,
+        GLX_RED_SIZE, 8, GLX_GREEN_SIZE, 8, GLX_BLUE_SIZE, 8, GLX_ALPHA_SIZE, 8,
+        GLX_DEPTH_SIZE, 24, GLX_STENCIL_SIZE, 8,
+        GLX_DOUBLEBUFFER, True,
+        0
+    };
+    int fbCount = 0;
+    GLXFBConfig* fbs = glXChooseFBConfig(dpy, screen, fbAttrs, &fbCount);
+    if (!fbs || fbCount <= 0) {
+        // 2e essai encore plus permissif (sans depth/stencil imposés).
+        const int fbAttrsMin[] = {
+            GLX_RENDER_TYPE, GLX_RGBA_BIT, GLX_DOUBLEBUFFER, True,
+            GLX_RED_SIZE, 8, GLX_GREEN_SIZE, 8, GLX_BLUE_SIZE, 8, 0
+        };
+        fbs = glXChooseFBConfig(dpy, screen, fbAttrsMin, &fbCount);
+    }
+    if (!fbs || fbCount <= 0) {
+        NK_GL_ERR("glXChooseFBConfig : aucun FBConfig compatible\n");
+        return false;
+    }
+    GLXFBConfig fbConfig = fbs[0];
+    XFree(fbs);
+
+    typedef GLXContext (*NkGlxCreateCtxProc)(Display*, GLXFBConfig, GLXContext, Bool, const int*);
+    NkGlxCreateCtxProc glXCreateContextAttribsARB_ =
+        reinterpret_cast<NkGlxCreateCtxProc>(glXGetProcAddressARB(
+            reinterpret_cast<const GLubyte*>("glXCreateContextAttribsARB")));
+    if (!glXCreateContextAttribsARB_) {
+        NK_GL_ERR("glXCreateContextAttribsARB introuvable (driver trop ancien?)\n");
+        return false;
+    }
+
+    constexpr int NK_GLX_MAJOR = 0x2091, NK_GLX_MINOR = 0x2092,
+                  NK_GLX_FLAGS = 0x2094, NK_GLX_PROFILE = 0x9126,
+                  NK_GLX_CORE_BIT = 0x1, NK_GLX_DEBUG_BIT = 0x1;
+    // On tente 4.6 -> 4.5 -> 4.3 Core, chaque version AVEC puis SANS le bit debug
+    // (Mesa software rejette souvent les contextes debug). Le handler X rend
+    // GLXBadFBConfig non-fatal pour enchaîner les fallbacks.
+    int (*oldXErr)(Display*, XErrorEvent*) = XSetErrorHandler(NkGlxCtxErrorHandler);
+    GLXContext glx = nullptr;
+    const int kMinors[] = { 6, 5, 3 };
+    for (int mIdx = 0; mIdx < 3 && !glx; ++mIdx) {
+        for (int dbg = 1; dbg >= 0 && !glx; --dbg) {
+            const int ctxAttribs[] = {
+                NK_GLX_MAJOR, 4, NK_GLX_MINOR, kMinors[mIdx],
+                NK_GLX_PROFILE, NK_GLX_CORE_BIT,
+                NK_GLX_FLAGS,   dbg ? NK_GLX_DEBUG_BIT : 0,
+                0
+            };
+            gGlxCtxErr = 0;
+            GLXContext c = glXCreateContextAttribsARB_(dpy, fbConfig, nullptr, True, ctxAttribs);
+            XSync(dpy, False);
+            if (c && !gGlxCtxErr) glx = c;
+            else if (c) glXDestroyContext(dpy, c);
+        }
+    }
+    // Dernier recours : contexte sans contrainte de version/profil (le driver donne
+    // son max ; on vérifie ensuite qu'on a bien >= 4.3 plus bas).
+    if (!glx) {
+        gGlxCtxErr = 0;
+        GLXContext c = glXCreateNewContext(dpy, fbConfig, GLX_RGBA_TYPE, nullptr, True);
+        XSync(dpy, False);
+        if (c && !gGlxCtxErr) glx = c;
+        else if (c) glXDestroyContext(dpy, c);
+    }
+    XSetErrorHandler(oldXErr);
+    if (!glx) {
+        NK_GL_ERR("Création contexte GLX échouée (aucun profil compatible sur ce driver)\n");
+        return false;
+    }
+
+    if (!glXMakeCurrent(dpy, win, glx)) {
+        NK_GL_ERR("glXMakeCurrent failed\n");
+        glXDestroyContext(dpy, glx);
+        return false;
+    }
+
+    mGlxDisplay = reinterpret_cast<void*>(dpy);
+    mGlxWindow  = static_cast<unsigned long>(win);
+    mGlxContext = reinterpret_cast<void*>(glx);
+
+#ifndef NK_NO_GLAD2
+    if (!gladLoadGL(NkGlxGetProcCompat)) {
+        NK_GL_ERR("gladLoadGL (GLX) failed\n");
+        glXMakeCurrent(dpy, 0, nullptr);
+        glXDestroyContext(dpy, glx);
+        mGlxContext = nullptr;
+        return false;
+    }
+#endif
+
+    // VSync via GLX_EXT_swap_control (best-effort).
+    {
+        typedef void (*NkGlxSwapIntervalProc)(Display*, GLXDrawable, int);
+        NkGlxSwapIntervalProc glXSwapIntervalEXT_ =
+            reinterpret_cast<NkGlxSwapIntervalProc>(glXGetProcAddressARB(
+                reinterpret_cast<const GLubyte*>("glXSwapIntervalEXT")));
+        if (glXSwapIntervalEXT_)
+            glXSwapIntervalEXT_(dpy, win, static_cast<int>(init.context.opengl.swapInterval));
+    }
 #endif
 
     // Vérifier GL 4.3 minimum (compute shaders) ou OpenGL ES 3.1+
@@ -327,7 +514,22 @@ void NkOpenGLDevice::Shutdown() {
         ReleaseDC(mNativeHwnd, mNativeHdc);
         mNativeHdc = nullptr;
     }
+    // Détruire la fenêtre cachée si on l'a créée nous-mêmes (headless).
+    if (mOwnsHeadlessWindow && mNativeHwnd) {
+        DestroyWindow(mNativeHwnd);
+        mOwnsHeadlessWindow = false;
+    }
     mNativeHwnd = nullptr;
+#elif defined(NKENTSEU_WINDOWING_XLIB)
+    if (mGlxDisplay && mGlxContext) {
+        Display* dpy = reinterpret_cast<Display*>(mGlxDisplay);
+        glXMakeCurrent(dpy, 0, nullptr);
+        glXDestroyContext(dpy, reinterpret_cast<GLXContext>(mGlxContext));
+        mGlxContext = nullptr;
+    }
+    // Display appartient au backend NKWindow (surface) : ne pas XCloseDisplay ici.
+    mGlxDisplay = nullptr;
+    mGlxWindow  = 0;
 #endif
 
     mIsValid = false;
@@ -1126,6 +1328,11 @@ void NkOpenGLDevice::SubmitAndPresent(NkICommandBuffer* cb) {
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
     if (mNativeHdc) {
         SwapBuffers(mNativeHdc);
+    }
+#elif defined(NKENTSEU_WINDOWING_XLIB)
+    if (mGlxDisplay && mGlxWindow) {
+        glXSwapBuffers(reinterpret_cast<Display*>(mGlxDisplay),
+                       static_cast<::Window>(mGlxWindow));
     }
 #endif
 }

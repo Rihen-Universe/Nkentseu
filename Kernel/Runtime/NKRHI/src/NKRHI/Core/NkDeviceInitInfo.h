@@ -15,6 +15,20 @@ struct IDXGIAdapter1;
 #   define VK_USE_PLATFORM_WIN32_KHR
 #endif
 
+// Surfaces Vulkan Linux : le define VK_USE_PLATFORM_*_KHR DOIT précéder <vulkan.h>
+// pour que les types (VkXlibSurfaceCreateInfoKHR…) + fonctions (vkCreateXlibSurfaceKHR)
+// soient déclarés. On se base sur les defines command-line du jenga
+// (NKENTSEU_FORCE_WINDOWING_*_ONLY, toujours dispo) + leur dérivé NKENTSEU_WINDOWING_*.
+#if (defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_FORCE_WINDOWING_XLIB_ONLY)) && !defined(VK_USE_PLATFORM_XLIB_KHR)
+#   define VK_USE_PLATFORM_XLIB_KHR
+#endif
+#if (defined(NKENTSEU_WINDOWING_XCB) || defined(NKENTSEU_FORCE_WINDOWING_XCB_ONLY)) && !defined(VK_USE_PLATFORM_XCB_KHR)
+#   define VK_USE_PLATFORM_XCB_KHR
+#endif
+#if (defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY)) && !defined(VK_USE_PLATFORM_WAYLAND_KHR)
+#   define VK_USE_PLATFORM_WAYLAND_KHR
+#endif
+
 #ifdef NK_RHI_VK_ENABLED
 #include <vulkan/vulkan.h>
 #endif
@@ -70,7 +84,10 @@ struct IDXGIAdapter1;
 #       import <UIKit/UIKit.h>
 #       import <OpenGLES/ES3/gl.h>
 #   else
-        struct EAGLContext; struct UIView;
+        // En TU non-ObjC, UIView est un alias objc_object partout ailleurs dans le
+        // moteur (NkSurface.h, NkUIKitWindow.h) : « struct UIView; » créerait une
+        // redéclaration « kind différent » si les deux en-têtes se croisent.
+        struct EAGLContext; using UIView = struct objc_object;
 #   endif
 
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)

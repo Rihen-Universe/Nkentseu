@@ -412,6 +412,11 @@ namespace nkentseu {
 
     void NkWindow::SetProgress(float) {}
 
+    // Xbox : saisie via clavier virtuel système (non branché ici). No-op.
+    void NkWindow::ShowSoftKeyboard(const NkSoftKeyboardConfig&) {}
+    void NkWindow::HideSoftKeyboard() {}
+    bool NkWindow::IsSoftKeyboardVisible() const { return false; }
+
     NkSurfaceDesc NkWindow::GetSurfaceDesc() const {
         NkSurfaceDesc desc;
         desc.width = mData.mWidth;

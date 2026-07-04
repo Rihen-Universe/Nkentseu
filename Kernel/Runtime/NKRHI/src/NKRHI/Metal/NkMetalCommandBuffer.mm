@@ -7,7 +7,7 @@
 #import <Metal/Metal.h>
 
 #define RENDER_ENC ((__bridge id<MTLRenderCommandEncoder>)mRenderEncoder)
-#define COMPUTE_ENC((__bridge id<MTLComputeCommandEncoder>)mComputeEncoder)
+#define COMPUTE_ENC ((__bridge id<MTLComputeCommandEncoder>)mComputeEncoder)
 #define BLIT_ENC  ((__bridge id<MTLBlitCommandEncoder>)mBlitEncoder)
 #define CMD_BUF   ((__bridge id<MTLCommandBuffer>)mCmdBuf)
 #define DEV_MTL   (mDev->MtlDevice())
@@ -180,7 +180,7 @@ void NkMetalCommandBuffer::BindDescriptorSet(NkDescSetHandle set,
     if (!ds) return;
 
     for (auto& b : ds->bindings) {
-        UINT slot = b.slot;
+        uint32 slot = b.slot;  // UINT est un type Windows, indisponible sur Apple/clang
         if (b.bufId) {
             id<MTLBuffer> buf = (__bridge id<MTLBuffer>)mDev->GetMTLBuffer(b.bufId);
             if (mRenderEncoder) {
@@ -216,7 +216,7 @@ void NkMetalCommandBuffer::BindDescriptorSet(NkDescSetHandle set,
 // =============================================================================
 void NkMetalCommandBuffer::PushConstants(NkShaderStage stages, uint32 /*offset*/,
                                            uint32 size, const void* data) {
-    UINT slot = 30; // slot réservé pour les push constants en MSL
+    uint32 slot = 30; // slot réservé pour les push constants en MSL (UINT = type Windows)
     if (!mRenderEncoder && !mComputeEncoder) return;
     bool doVert = (uint32)stages & (uint32)NkShaderStage::NK_VERTEX;
     bool doFrag = (uint32)stages & (uint32)NkShaderStage::NK_FRAGMENT;

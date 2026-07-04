@@ -3,7 +3,7 @@
 // NkMetalComputeContext.h — Compute Metal via MTLComputeCommandEncoder
 // =============================================================================
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
-#include "NkIComputeContext.h"
+#include "NKCanvas/Compute/NkIComputeContext.h"
 #include "NKCanvas/Core/NkIGraphicsContext.h"
 
 namespace nkentseu {

@@ -123,9 +123,13 @@ namespace nkentseu {
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
         mHwnd = init.surface.hwnd;
     #endif
-        if (!mHwnd) {
-            NK_DX11_ERR("HWND manquant dans NkDeviceInitInfo.surface\n");
-            return false;
+        // Headless / compute-only : pas de HWND -> device SANS swapchain (offscreen
+        // + compute). Le device DX11 lui-même n'exige pas de fenêtre ; seul le
+        // swapchain en a besoin. On ne rejette donc plus l'absence de HWND — c'est
+        // ce qui permet à NKAI (NKTensor) d'utiliser le GPU sans ouvrir de fenêtre.
+        const bool headless = (mHwnd == nullptr);
+        if (headless) {
+            NK_DX11_LOG("Mode headless (pas de HWND) : compute/offscreen sans swapchain\n");
         }
 
         mWidth  = NkDeviceInitWidth(init);
@@ -292,9 +296,9 @@ namespace nkentseu {
             }
         }
 
-        // Créer la factory DXGI
+        // Créer la factory DXGI + swapchain (uniquement si on a une fenêtre).
         CreateDXGIFactory1(__uuidof(IDXGIFactory2), (void**)&mFactory);
-        CreateSwapchain(mWidth, mHeight);
+        if (!headless) CreateSwapchain(mWidth, mHeight);
         QueryCaps();
 
         // Pool de samplers partagés (s12..s15) — modèle static samplers pour les
@@ -379,10 +383,12 @@ namespace nkentseu {
         mDevice->CreateRenderTargetView(bb,nullptr,&swt.rtv);
         mTextures[colorId]=swt;
         NkTextureHandle colorH; colorH.id=colorId;
+        mSwapchainColorTex = colorH;
 
         // Depth
         NkTextureDesc dd=NkTextureDesc::DepthStencil(w,h);
         auto depthH=CreateTexture(dd);
+        mSwapchainDepthTex = depthH;
 
         // Render pass
         NkRenderPassDesc rpd;
@@ -399,16 +405,99 @@ namespace nkentseu {
     }
 
     void NkDirectX11Device::DestroySwapchain() {
-        mContext->OMSetRenderTargets(0,nullptr,nullptr);
+        if (mContext) mContext->OMSetRenderTargets(0,nullptr,nullptr);
         DestroyFramebuffer(mSwapchainFB);
         DestroyRenderPass(mSwapchainRP);
+        // CRUCIAL : relâcher EXPLICITEMENT le back-buffer (tex + rtv). DestroyTexture
+        // SKIP les textures isSwapchain, et DestroyFramebuffer ne libère aucune texture.
+        // Or le back-buffer (obtenu via GetBuffer) garde une référence sur le swapchain :
+        // sans ce release, NK_DX11_SAFE(mSwapchain) NE libère PAS le swapchain (refcount>0)
+        // -> CreateSwapchain crée un nouveau swapchain FLIP sur le MÊME HWND alors que
+        // l'ancien vit encore -> conflit DXGI / HANG au resize (+ fuite d'un back-buffer
+        // à chaque redimensionnement).
+        {
+            threading::NkScopedLockMutex lock(mMutex);
+            auto* ct = mTextures.Find(mSwapchainColorTex.id);
+            if (ct) { NK_DX11_SAFE(ct->rtv); NK_DX11_SAFE(ct->tex); }
+            mTextures.Erase(mSwapchainColorTex.id);
+            mSwapchainColorTex.id = 0;
+        }
+        if (mSwapchainDepthTex.id) DestroyTexture(mSwapchainDepthTex); // depth normal
         NK_DX11_SAFE(mSwapchain);
     }
 
     void NkDirectX11Device::ResizeSwapchain(uint32 w, uint32 h) {
+        NK_DX11_LOG("ResizeSwapchain -> %ux%u (avant: %ux%u)\n", w, h, mWidth, mHeight);
+        if (w==0 || h==0) return;
+        // Pas encore de swapchain -> création initiale.
+        if (!mSwapchain) { CreateSwapchain(w,h); return; }
+
+        // IMPORTANT : on utilise IDXGISwapChain::ResizeBuffers (le standard DX11) au lieu
+        // de DÉTRUIRE + RECRÉER le swapchain. Le destroy+recreate laissait, sur certains
+        // pilotes (NVIDIA + flip-model), le NOUVEAU swapchain dans un état "occlus" tant
+        // qu'un event fenêtre (minimize) ne le rafraîchissait pas : le rendu continuait
+        // (DX11 dessine) mais Present n'affichait plus -> ÉCRAN FIGÉ après un maximize,
+        // débloqué seulement au minimize. ResizeBuffers garde le MÊME swapchain -> aucun
+        // état occlus, présentation immédiate à la nouvelle taille. (Diag gdb : thread
+        // principal en plein rendu, pas bloqué -> problème de présentation, pas de hang.)
         WaitIdle();
-        DestroySwapchain();
-        CreateSwapchain(w,h);
+        // ClearState() relâche TOUTES les liaisons du contexte immédiat (RTV/DSV/SRV/
+        // buffers/shaders). Indispensable AVANT ResizeBuffers : sinon le back-buffer
+        // reste bindé en render target (résidu de la dernière frame exécutée) -> une
+        // référence en cours -> ResizeBuffers échoue en DXGI_ERROR_INVALID_CALL (0x887A0001)
+        // -> fallback recreate -> swapchain occlus -> ÉCRAN FIGÉ après maximize.
+        // (OMSetRenderTargets(0,null,null) seul ne suffisait pas.)
+        if (mContext) { mContext->ClearState(); }
+        // Relâcher les ressources dépendantes de la taille — MAIS garder mSwapchain.
+        DestroyFramebuffer(mSwapchainFB);
+        DestroyRenderPass(mSwapchainRP);
+        {
+            threading::NkScopedLockMutex lock(mMutex);
+            auto* ct = mTextures.Find(mSwapchainColorTex.id);
+            if (ct) { NK_DX11_SAFE(ct->rtv); NK_DX11_SAFE(ct->tex); }
+            mTextures.Erase(mSwapchainColorTex.id);
+            mSwapchainColorTex.id = 0;
+        }
+        if (mSwapchainDepthTex.id) DestroyTexture(mSwapchainDepthTex);
+        if (mContext) mContext->Flush();
+
+        HRESULT hr = mSwapchain->ResizeBuffers(mSwapchainBufferCount, w, h,
+                        DXGI_FORMAT_B8G8R8A8_UNORM,
+                        mAllowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0);
+        if (FAILED(hr)) {
+            // Repli dur : recréer intégralement (rare — device removed, etc.).
+            NK_DX11_CHECK(hr, "ResizeBuffers");
+            NK_DX11_SAFE(mSwapchain);
+            CreateSwapchain(w,h);
+            return;
+        }
+
+        // Ré-acquérir le back-buffer + recréer RTV / depth / render pass / framebuffer
+        // (partie identique à la fin de CreateSwapchain, mais SANS recréer le swapchain).
+        ID3D11Texture2D* bb=nullptr;
+        mSwapchain->GetBuffer(0,__uuidof(ID3D11Texture2D),(void**)&bb);
+        if (!bb) return;
+        uint64 colorId=NextId();
+        NkDX11Texture swt; swt.tex=bb; swt.isSwapchain=true;
+        swt.desc=NkTextureDesc::RenderTarget(w,h,NkGPUFormat::NK_BGRA8_UNORM);
+        mDevice->CreateRenderTargetView(bb,nullptr,&swt.rtv);
+        mTextures[colorId]=swt;
+        NkTextureHandle colorH; colorH.id=colorId; mSwapchainColorTex=colorH;
+
+        NkTextureDesc dd=NkTextureDesc::DepthStencil(w,h);
+        mSwapchainDepthTex=CreateTexture(dd);
+
+        NkRenderPassDesc rpd;
+        rpd.AddColor(NkAttachmentDesc::Color(NkGPUFormat::NK_BGRA8_UNORM))
+           .SetDepth(NkAttachmentDesc::Depth());
+        mSwapchainRP=CreateRenderPass(rpd);
+
+        NkFramebufferDesc fbd;
+        fbd.renderPass=mSwapchainRP;
+        fbd.colorAttachments.PushBack(colorH);
+        fbd.depthAttachment=mSwapchainDepthTex;
+        fbd.width=w; fbd.height=h;
+        mSwapchainFB=CreateFramebuffer(fbd);
     }
 
     void NkDirectX11Device::DrainInfoQueue() { DrainDX11InfoQueue(mInfoQueue); }
@@ -1198,7 +1287,16 @@ namespace nkentseu {
         if (!mSwapchain) return;
         const UINT syncInterval = mVsync ? 1u : 0u;
         const UINT flags = (!mVsync && mAllowTearing) ? DXGI_PRESENT_ALLOW_TEARING : 0u;
-        mSwapchain->Present(syncInterval, flags);
+        HRESULT phr = mSwapchain->Present(syncInterval, flags);
+        // DIAG gated (NK_DX11_PRESENT_DIAG) : log si Present ne renvoie pas S_OK
+        // (DXGI_STATUS_OCCLUDED=0x087A0001, DEVICE_REMOVED=0x887A0005...) + la taille
+        // courante -> sert à diagnostiquer le "figeage après maximize" (occlusion).
+        static int sPdiag = -1;
+        if (sPdiag == -1) { const char* v = getenv("NK_DX11_PRESENT_DIAG"); sPdiag = (v && v[0] && v[0] != '0') ? 1 : 0; }
+        if (sPdiag && phr != S_OK) {
+            NK_DX11_LOG("Present hr=0x%08X size=%ux%u sync=%u (OCCLUDED=0x087A0001)\n",
+                        (unsigned)phr, mWidth, mHeight, syncInterval);
+        }
     }
 
     // Fence (émulation CPU pour DX11)

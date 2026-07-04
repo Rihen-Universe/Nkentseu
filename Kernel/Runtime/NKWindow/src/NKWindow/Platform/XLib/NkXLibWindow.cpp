@@ -977,6 +977,10 @@ namespace nkentseu {
     void NkWindow::SetWebInputOptions(const NkWebInputOptions&) {}
     NkWebInputOptions NkWindow::GetWebInputOptions() const { return {}; }
     void NkWindow::SetProgress(float) {}
+    // Desktop X11 : clavier physique, pas de clavier logiciel. No-op.
+    void NkWindow::ShowSoftKeyboard(const NkSoftKeyboardConfig&) {}
+    void NkWindow::HideSoftKeyboard() {}
+    bool NkWindow::IsSoftKeyboardVisible() const { return false; }
     NkSafeAreaInsets NkWindow::GetSafeAreaInsets() const { return {}; }
 
     // =============================================================================

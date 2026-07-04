@@ -1,0 +1,55 @@
+// ============================================================================
+// shadowinstanced.vert.nksl — NKRenderer — Shadow depth-only INSTANCIÉ (NkSL)
+// Compilé par NkSLCompiler vers : GLSL-GL · GLSL-Vulkan · HLSL-DX11/DX12 · MSL
+//
+// Version depth-only du shader Instanced : projette chaque instance dans l'atlas
+// d'ombre via la matrice lightVP (push constant). La matrice modèle de CHAQUE
+// instance est lue dans l'InstanceUBO (set 1, binding 4) indexé par gl_InstanceID
+// (GL gl_InstanceID · VK gl_InstanceIndex · DX SV_InstanceID). Un seul DrawAll(
+// mesh, count) projette les N instances → ombres correctes sans consommer un slot
+// d'ObjectUBO par instance (cause de l'overflow du pool en "1 draw par instance").
+// ============================================================================
+
+// ObjectUBO (set 1, binding 1) — identité ici (comme instanced.vert.nksl). Déclaré
+// pour que la layout du set objet corresponde (binding1=Object, binding4=instances)
+// et que la root signature DX matche le set pré-câblé.
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model;
+    mat4  normalMatrix;
+    vec4  tint;
+    float metallic;
+    float roughness;
+    float aoStrength;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRoughness;
+    float subsurface;
+    vec4  subsurfaceColor;
+    vec4  shadowOverrides;
+    vec4  triplanarParams;
+} uObj;
+
+// Buffer d'instances (set 1, binding 4) — même layout que instanced.vert.nksl.
+@binding(set=1, binding=4)
+uniform InstanceUBO {
+    mat4 models[128];
+    vec4 tints[128];
+} inst;
+
+// lightVP (push constant) — même convention que shadow.vert.nksl (la correction
+// Z clip-space VK/DX est déjà bakée dans lightVP côté C++).
+layout(push_constant) uniform PC {
+    mat4 lightVP;
+} pc;
+
+@location(0) in vec3 aPos;
+
+@stage(vertex)
+@entry
+void main() {
+    // worldPos = base(identité) * instance * pos ; garde uObj « utilisé ».
+    mat4 m = uObj.model * inst.models[gl_InstanceID];
+    gl_Position = pc.lightVP * m * vec4(aPos, 1.0);
+}

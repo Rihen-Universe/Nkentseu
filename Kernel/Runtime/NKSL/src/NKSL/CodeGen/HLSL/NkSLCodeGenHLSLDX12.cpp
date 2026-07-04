@@ -331,12 +331,16 @@ NkString NkSLCodeGenHLSL_DX12::SemanticFor(NkSLVarDeclNode* v, NkSLStage stage,
         char buf[32]; snprintf(buf, sizeof(buf), "SV_Target%d", loc);
         return NkString(buf);
     }
-    if (!isInput) {
-        char buf[32]; snprintf(buf, sizeof(buf), "TEXCOORD%d", autoIndex);
+    // Varyings (VS-out / FS-in) sans règle sémantique (noms vWorldPos/vUV/vColor…) :
+    // utiliser @location si présent, PAS l'index séquentiel. Sinon un FS qui consomme
+    // un SOUS-ENSEMBLE des sorties VS (ex. sans vTangent) renumérote 0,1,2,3 et ne
+    // matche plus le VS 0,1,3,4 -> vUV/vColor lus depuis le mauvais TEXCOORD ->
+    // albedo + couleur corrompus (instanced.frag DX12 « pas éclairé »).
+    {
+        int loc = v->binding.HasLocation() ? v->binding.location : autoIndex;
+        char buf[32]; snprintf(buf, sizeof(buf), "TEXCOORD%d", loc);
         return NkString(buf);
     }
-    char buf[32]; snprintf(buf, sizeof(buf), "TEXCOORD%d", autoIndex);
-    return NkString(buf);
 }
 
 // =============================================================================

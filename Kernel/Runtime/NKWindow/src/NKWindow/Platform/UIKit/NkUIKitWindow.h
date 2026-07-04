@@ -38,6 +38,7 @@ namespace nkentseu {
             bool  mExternal   = false;
             bool  mOwnsWindow = true;
             bool  mOwnsView   = false;
+            bool  mSoftKeyboardVisible = false; ///< clavier logiciel iOS actif
     };
 
 } // namespace nkentseu

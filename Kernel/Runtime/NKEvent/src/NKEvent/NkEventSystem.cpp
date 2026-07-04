@@ -62,7 +62,10 @@ namespace nkentseu {
     !(defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_XCB) && !defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY)) && \
     !(defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_WAYLAND) && !defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY)) && \
     !(defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_XLIB) && !defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY)) && \
-    !defined(NKENTSEU_PLATFORM_ANDROID)
+    !defined(NKENTSEU_PLATFORM_ANDROID) && \
+    !defined(NKENTSEU_PLATFORM_MACOS) && !defined(NKENTSEU_PLATFORM_IOS)
+    // macOS/iOS : Shutdown() est fourni par le backend Cocoa/UIKit
+    // (NkCocoaEventSystem.mm / NkUIKitEventSystem.mm) — éviter le doublon au link.
     void NkEventSystem::Shutdown() {
         ClearAllCallbacks();
         mHidMapper.Clear();
@@ -267,7 +270,42 @@ namespace nkentseu {
             mGlobalCallback(ev);
     }
 
-    void NkEventSystem::UpdateInputState(NkEvent* /*ev*/) {
+    void NkEventSystem::UpdateInputState(NkEvent* ev) {
+        // Met a jour l'etat d'input persistant (poll-based : NkInput.IsKeyDown /
+        // IsMouseDown / MouseX...) a partir de CHAQUE event, de facon CROSS-PLATFORM.
+        // Tous les backends (Win32/XLib/XCB/Wayland/Cocoa/Android/...) passent par
+        // Enqueue() -> ici, donc le poll fonctionne partout. Avant : corps vide (le
+        // state n'etait rempli que par certains ProcessMessage platform) -> IsKeyDown
+        // casse sur Win32.
+        if (!ev) return;
+
+        // -- Clavier ----------------------------------------------------------
+        if (ev->Is<NkKeyPressEvent>()) {
+            auto& e = *static_cast<NkKeyPressEvent*>(ev);
+            mInputState.keyboard.OnKeyPress(e.GetKey(), e.GetScancode(), e.GetModifiers());
+        } else if (ev->Is<NkKeyRepeatEvent>()) {
+            auto& e = *static_cast<NkKeyRepeatEvent*>(ev);
+            mInputState.keyboard.OnKeyRepeat(e.GetKey(), e.GetScancode(), e.GetModifiers());
+        } else if (ev->Is<NkKeyReleaseEvent>()) {
+            auto& e = *static_cast<NkKeyReleaseEvent*>(ev);
+            mInputState.keyboard.OnKeyRelease(e.GetKey(), e.GetModifiers());
+        }
+        // -- Souris -----------------------------------------------------------
+        else if (ev->Is<NkMouseMoveEvent>()) {
+            auto& e = *static_cast<NkMouseMoveEvent*>(ev);
+            mInputState.mouse.OnMove(e.GetX(), e.GetY(), e.GetScreenX(), e.GetScreenY());
+        } else if (ev->Is<NkMouseRawEvent>()) {
+            auto& e = *static_cast<NkMouseRawEvent*>(ev);
+            mInputState.mouse.OnRaw(e.GetDeltaX(), e.GetDeltaY());
+        } else if (ev->Is<NkMouseButtonPressEvent>()) {
+            auto& e = *static_cast<NkMouseButtonPressEvent*>(ev);
+            mInputState.mouse.OnButtonPress(e.GetButton(), e.GetModifiers());
+        } else if (ev->Is<NkMouseButtonReleaseEvent>()) {
+            auto& e = *static_cast<NkMouseButtonReleaseEvent*>(ev);
+            mInputState.mouse.OnButtonRelease(e.GetButton(), e.GetModifiers());
+        }
+        return;
+        // (ancien corps : vide — l'input state n'etait pas rempli de facon portable)
         // Input state mis Ã  jour dans ProcessMessage platform-spÃ©cifique
     }
 

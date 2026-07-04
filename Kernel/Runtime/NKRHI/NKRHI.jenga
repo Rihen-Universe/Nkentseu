@@ -122,7 +122,13 @@ with project("NKRHI"):
         links(["pthread", "X11", "Xext", "GL"])
         defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
         if WANT_VULKAN:
-            links(["vulkan"] + GLSLANG_LIBS_UNIX)
+            # VK_USE_PLATFORM_XLIB_KHR AVANT <vulkan.h> -> déclare VkXlibSurfaceCreateInfoKHR
+            # + vkCreateXlibSurfaceKHR (sinon "use of undeclared identifier").
+            defines(["VK_USE_PLATFORM_XLIB_KHR"])
+            # glslang système (GLSLANG_LIBS_UNIX) UNIQUEMENT si on n'utilise pas
+            # NKGLSlang (le projet build son propre glslang) -> évite link fail
+            # (glslang système absent sur WSL2) + doublons de symboles.
+            links(["vulkan"] + ([] if USE_NKGLSLANG else GLSLANG_LIBS_UNIX))
         _LINUX_SC_LINKS = []
         if USE_NKGLSLANG:    _LINUX_SC_LINKS.append("NKGLSlang")
         if USE_NKSPIRVCROSS: _LINUX_SC_LINKS.append("NKSPIRVCross")
@@ -140,7 +146,11 @@ with project("NKRHI"):
         links(["pthread", "xcb", "xcb-image", "X11", "Xext", "GL"])
         defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
         if WANT_VULKAN:
-            links(["vulkan"] + GLSLANG_LIBS_UNIX)
+            defines(["VK_USE_PLATFORM_XCB_KHR"])
+            # glslang système (GLSLANG_LIBS_UNIX) UNIQUEMENT si on n'utilise pas
+            # NKGLSlang (le projet build son propre glslang) -> évite link fail
+            # (glslang système absent sur WSL2) + doublons de symboles.
+            links(["vulkan"] + ([] if USE_NKGLSLANG else GLSLANG_LIBS_UNIX))
 
     with filter("system:Linux && options:linux-backend=wayland"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
@@ -148,11 +158,18 @@ with project("NKRHI"):
         defines(WAYLAND_DEFINES)
         links(WAYLAND_LINKS)
         if WANT_VULKAN:
-            links(["vulkan"] + GLSLANG_LIBS_UNIX)
+            defines(["VK_USE_PLATFORM_WAYLAND_KHR"])
+            # glslang système (GLSLANG_LIBS_UNIX) UNIQUEMENT si on n'utilise pas
+            # NKGLSlang (le projet build son propre glslang) -> évite link fail
+            # (glslang système absent sur WSL2) + doublons de symboles.
+            links(["vulkan"] + ([] if USE_NKGLSLANG else GLSLANG_LIBS_UNIX))
 
     with filter("system:macOS"):
         usetoolchain("clang-native")
-        frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal"])
+        frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal", "MetalKit"])
+        # Backend Metal RHI actif : NkMetalDevice.mm recoit la CAMetalLayer via
+        # init.context.metal.metalLayer (aucune dependance a NKCanvas).
+        defines(["NK_RHI_METAL_ENABLED"])
         libdirs(macGlslangDir)
         _MAC_LINKS = list(macGlslang)
         if USE_NKGLSLANG:    _MAC_LINKS.append("NKGLSlang")
@@ -182,7 +199,11 @@ with project("NKRHI"):
         links(_HARMONY_LINKS)
 
     with filter("system:iOS"):
-        frameworks(["UIKit", "QuartzCore", "OpenGLES", "Metal"])
+        # iOS = Metal uniquement. On EXCLUT les backends OpenGL desktop (GLAD/Mesa)
+        # et Vulkan : non compilables/linkables sur iOS. Le stub GLES (loader) suffit.
+        frameworks(["UIKit", "QuartzCore", "Metal", "MetalKit"])
+        defines(["NK_RHI_METAL_ENABLED"])
+        excludefiles(["src/NKRHI/Opengl/**", "src/NKRHI/Vulkan/**"])
 
     with filter("system:Web"):
         usetoolchain("emscripten")

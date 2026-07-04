@@ -26,6 +26,14 @@
 #   include <unistd.h>
 #endif
 
+// CoreAudio/AudioToolbox : en-tetes ObjC (Foundation @class ...) qui DOIVENT
+// etre inclus au scope global (une inclusion dans `namespace nkentseu` provoque
+// « Objective-C declarations may only appear in global scope »). Les types
+// (AudioUnit, AudioComponentDescription…) restent visibles dans le namespace.
+#if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
+#   include <AudioToolbox/AudioToolbox.h>
+#endif
+
 namespace nkentseu {
     namespace audio {
 
@@ -360,8 +368,7 @@ namespace nkentseu {
         // ====================================================================
 
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
-
-#include <AudioToolbox/AudioToolbox.h>
+        // (AudioToolbox est inclus au scope global en haut du fichier.)
 
         struct CoreAudioBackend::CoreAudioImpl {
             AudioUnit outputUnit = nullptr;

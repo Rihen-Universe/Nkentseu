@@ -97,6 +97,13 @@ namespace nkentseu {
                 // Shadows du RenderGraph. Reutilise mUBOObject pour le model.
                 void RenderShadowPass(NkICommandBuffer* cmd, const NkMat4f& lightVP);
 
+                // AABB monde englobant TOUS les casters d'ombre de la frame courante
+                // (mShadowCasters + mInstanced). Utilise par NkVirtualShadowMaps pour
+                // auto-fitter la cascade directionnelle a la scene (couverture complete
+                // + resolution optimale, sans clipping ni swimming). Fallback [-1,1]^3
+                // si aucun caster.
+                NkAABB GetShadowCasterBounds() const;
+
                 // Acces au scene context courant (pour NkShadowSystem qui a besoin
                 // de la light direction + camera frustum pour le fitting).
                 const NkSceneContext& GetSceneContext() const noexcept { return mCtx; }
@@ -123,6 +130,15 @@ namespace nkentseu {
                 // procedural) pour avoir un cubemap a sampler.
                 void SetSkyboxEnabled(bool e) { mDrawSkybox = e; }
                 bool IsSkyboxEnabled() const  { return mDrawSkybox; }
+
+                // Grille infinie style Blender (plan y=0). Activer + configurer :
+                //   grid.cellColor.w  = opacité de l'intérieur (0 = voir à travers, 1 = opaque)
+                //   grid.lineColor.w  = alpha des lignes (restent visibles indépendamment)
+                //   axes X rouge / Z bleu ; cellSize / majorEvery / fadeEnd réglables.
+                void SetInfiniteGridEnabled(bool e) { mDrawGrid = e; }
+                bool IsInfiniteGridEnabled() const  { return mDrawGrid; }
+                void SetInfiniteGridParams(const NkInfiniteGridParams& p) { mGridParams = p; }
+                NkInfiniteGridParams& GetInfiniteGridParams() { return mGridParams; }
                 float32 GetIBLStrength() const  { return mIBLStrength; }
 
                 // Phase E.6 : bind une texture comme cookie 3D au slot [0..7].
@@ -142,7 +158,16 @@ namespace nkentseu {
                 // alloue maxSets=8192 et UNIFORM_BUFFER=4096 dans NkVulkanDevice).
                 // V1 future : dynamic offsets UBO (1 buffer + per-draw offset) pour
                 // scale a 10k+ draws sans alloc de descriptor sets supplementaires.
-                static constexpr uint32 kMaxObjectsPerFrame = 1024;
+                // Capacité INITIALE du pool object-UBO. La capacité courante
+                // (mObjectPoolCap) CROÎT dynamiquement (GrowObjectPool) quand une frame
+                // dépasse la capacité — cf. ResetFrame. Le plafond dur borne la conso
+                // mémoire ET reste sous le descriptor pool VK (bumpé en conséquence).
+                static constexpr uint32 kObjectPoolInitial = 1024;
+                // Plafond = 4096 : à 2 frames, 2 UBO/set → 16384 descripteurs UBO,
+                // exactement ce que le pool descriptor VK bumpé (20480) autorise.
+                static constexpr uint32 kObjectPoolHardMax = 4096;
+                static constexpr uint32 kObjectUBOBytes    = 224;   // == sizeof(ObjectUBO)
+                uint32                  mObjectPoolCap = kObjectPoolInitial;  // capacité courante (dynamique)
 
                 // Nombre max de bones par skeleton (taille de l'UBO bones[N],
                 // std140). DOIT matcher mat4 bones[64] dans skin.vert.vk.glsl.
@@ -150,6 +175,7 @@ namespace nkentseu {
                 // > 63 sont clampes a 63 dans le shader). 64 mat4 = 4096 octets,
                 // sous la limite UBO 16 Ko garantie partout (VK/GL/DX).
                 static constexpr uint32 kMaxBonesUBO = 64;
+                static constexpr uint32 kMaxInstancesUBO = 128;  // instances/draw (cf instanced.nksl)
                 void SetLightCookie3D(uint32 slot, NkTextureHandle tex);
 
                 // E.6b : bind une cubemap comme cookie pour point lights
@@ -246,6 +272,7 @@ namespace nkentseu {
                 // remontait pas au shader sur DX11/DX12 (skin invisible) et
                 // creait une course sur Vulkan. 64 bones max (=4096 octets).
                 NkVector<NkBufferHandle>   mUBOBonesRing;   // [frame]
+                NkVector<NkBufferHandle>   mUBOInstanceRing;// [frame] models[128]+tints[128] (instancing GPU)
                 NkTextureHandle            mDefaultCubeWhite;   // E.6b : fallback cube cookie
                 uint32                     mFramesInFlight = 1;
                 uint32                     mFrameSlot      = 0;
@@ -298,6 +325,19 @@ namespace nkentseu {
                 ::nkentseu::NkShaderHandle mShadowShader;
                 NkPipelineHandle           mShadowPipeline;
 
+                // Shadow INSTANCIÉ : projette les instances (mInstanced) dans l'atlas
+                // d'ombre en 1 draw/batch (InstanceUBO set=1 binding=4 + lightVP push
+                // constant), au lieu d'un slot d'ObjectUBO par instance (qui débordait
+                // le pool). Pool de buffers d'instances dédié (data indépendante de la
+                // lumière → write-once par batch/invocation, pas de hazard). Le set
+                // objet (binding1 identité + binding4 = buffer d'instances) est pris
+                // dans mObjectSetPool (1 slot/batch, négligeable).
+                ::nkentseu::NkShaderHandle          mShadowInstanceShader;
+                NkPipelineHandle                    mShadowInstancePipeline;
+                NkVector<NkVector<NkBufferHandle>>  mUBOShadowInstPool;   // [frame][idx] models[128]+tints[128]
+                uint32                              mShadowInstIdx     = 0;
+                static constexpr uint32             kShadowInstPoolCap = 128;  // batches×invocations/frame
+
                 // Skinning GPU : shader + pipeline dedies. Le pipeline skin utilise
                 // un vertex layout NkVertexSkinned (pos/nrm/tan/uv/uv2/color +
                 // boneIdx vec4 + boneWeight vec4) et lit l'UBO de bones (mUBOBonesRing)
@@ -305,6 +345,15 @@ namespace nkentseu {
                 ::nkentseu::NkShaderHandle mSkinShader;
                 NkPipelineHandle           mSkinPipeline;
                 NkRenderPassHandle         mSkinPipelineRP{};
+
+                // ── GPU instancing 1-draw (instanced.nksl, opt-in NK_INSTANCING_GPU) ──
+                // Shader instancié : layout vertex STANDARD (NkVertex3D) + lit la
+                // matrice modèle/tint par instance dans mUBOInstanceRing[frame]
+                // (bindé au set objet, comme les bones). Si le pipeline n'est pas
+                // créé, FlushInstanced retombe sur l'expansion object-UBO (correcte).
+                ::nkentseu::NkShaderHandle mInstanceShader;
+                NkPipelineHandle           mInstancePipeline;
+                NkRenderPassHandle         mInstancePipelineRP{};
 
                 // ── Phase N v0.5 : Background HDR Skybox ───────────────────────
                 // Skybox dessinee en debut de Flush (avant FlushOpaque) avec
@@ -316,11 +365,22 @@ namespace nkentseu {
                 NkRenderPassHandle         mSkyboxPipelineRP{};
                 bool                       mDrawSkybox = false;
 
+                // Grille infinie style Blender (plan y=0). Grand quad suivant la caméra,
+                // rendu APRÈS l'opaque (depth test read-only + alpha blend). Params
+                // (couleurs, opacité intérieur, taille cellule, fondu) via push constant.
+                ::nkentseu::NkShaderHandle mGridShader;
+                NkPipelineHandle           mGridPipeline;
+                NkRenderPassHandle         mGridPipelineRP{};
+                bool                       mDrawGrid = false;
+                NkInfiniteGridParams       mGridParams;
+
                 void UploadUBOs(NkICommandBuffer* cmd);
 
                 // Phase N v0.5 : Skybox lazy pipeline + draw call.
                 bool EnsureSkyboxPipeline(NkRenderPassHandle currentRP);
                 void DrawSkybox(NkICommandBuffer* cmd);
+                bool EnsureGridPipeline(NkRenderPassHandle currentRP);
+                void DrawGrid(NkICommandBuffer* cmd);
                 void FlushOpaque     (NkICommandBuffer* cmd);
                 void FlushTransparent(NkICommandBuffer* cmd);
                 void FlushInstanced  (NkICommandBuffer* cmd);
@@ -337,10 +397,22 @@ namespace nkentseu {
                 // ont echoue.
                 bool EnsurePBRPipeline(NkRenderPassHandle currentRP);
 
+                // Agrandit le pool object-UBO (buffers + descriptor sets) à `newCap`
+                // pour CHAQUE frame-in-flight. Appelé HORS render pass (depuis
+                // ResetFrame) — Vulkan interdit l'alloc dans une passe active. Idempotent
+                // si newCap <= capacité courante ; borné par kObjectPoolHardMax.
+                void GrowObjectPool(uint32 newCap);
+
                 // Cree (lazy) le pipeline de skinning GPU, compatible avec le RP
                 // courant. Vertex layout NkVertexSkinned + shader "Skin". Le SSBO
                 // de bones est lie au set objet (set=1, binding=2). Idempotent.
                 bool EnsureSkinPipeline(NkRenderPassHandle currentRP);
+
+                // Cree (lazy) le pipeline d'instancing GPU (shader "Instanced",
+                // vertex layout STANDARD NkVertex3D). Le buffer d'instances est lie
+                // au set objet (binding 2, comme les bones). Renvoie false si le
+                // shader instancié n'a pas pu être chargé/compilé. Idempotent.
+                bool EnsureInstancePipeline(NkRenderPassHandle currentRP);
 
                 // ── DEBUG triangle minimal (isolation bug PBR Vulkan) ────────
                 // Mode 0 = PBR normal. Mode 1 = triangle non-indexed (cmd->Draw).

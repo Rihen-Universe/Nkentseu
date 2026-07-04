@@ -10,6 +10,7 @@
 //   6. FillShaderDesc() compatible nouveaux targets
 // =============================================================================
 #include "NKSL/Compiler/NkSLCompiler.h"
+#include "NKSL/Compiler/NkGLSLCompiler.h"   // NkGLSLToSPIRV (glslang in-tree via NKGLSlang)
 #include "NKSL/Frontend/NkSLLexer.h"
 #include "NKSL/Frontend/NkSLParser.h"
 #include "NKSL/CodeGen/Bytecode/NkSLCodeGenBytecode.h"  // cible NK_BYTECODE
@@ -466,6 +467,22 @@ NkSLCompileResult NkSLCompiler::CompileToSPIRV(
         res.success = true; return res;
     }
 #endif
+
+    // Chemin RÉEL : NkGLSLToSPIRV (glslang embarqué via NKGLSlang, guardé par
+    // NK_RHI_GLSLANG_ENABLED). Les macros NKSL_HAS_SHADERC/NKSL_HAS_GLSLANG ci-dessus
+    // ne sont définies par AUCUN jenga -> sans ceci, CompileToSPIRV échouait toujours
+    // et le compilateur renvoyait le TEXTE GLSL comme "SPIR-V" (magic "#ver") ->
+    // vkCreateShaderModule KO -> pipeline VK_ERROR_UNKNOWN.
+    {
+        NkGLSLCompileResult gc = NkGLSLToSPIRV(stage, glslSource.CStr(), "main");
+        if (gc.success && gc.spirv.Size() > 0) {
+            res.bytecode.Resize((uint32)(gc.spirv.Size() * 4));
+            memcpy(res.bytecode.Data(), gc.spirv.Data(), (size_t)gc.spirv.Size() * 4);
+            res.success = true;
+            return res;
+        }
+        if (gc.errorLog) res.AddError(0, gc.errorLog);
+    }
 
     if (res.errors.Empty())
         res.AddError(0, "No SPIR-V compiler available (install Vulkan SDK or add glslang submodule)");

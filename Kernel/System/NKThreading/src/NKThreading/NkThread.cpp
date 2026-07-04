@@ -327,7 +327,10 @@ namespace nkentseu {
                 shortName[sizeof(shortName) - 1] = '\0';
                 (void)pthread_setname_np(mThread, shortName);
 
-            #elif defined(NKENTSEU_PLATFORM_MACOS)
+            #elif defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS) || \
+                  defined(NKENTSEU_PLATFORM_TVOS)  || defined(NKENTSEU_PLATFORM_WATCHOS)
+                // Darwin : pthread_setname_np(const char*) ne nomme QUE le thread
+                // courant (pas d'argument thread). Idem iOS/tvOS/watchOS.
                 if (mJoinable && pthread_equal(mThread, pthread_self())) {
                     (void)pthread_setname_np(name);
                 }
@@ -436,7 +439,11 @@ namespace nkentseu {
                 }
                 (void)SetThreadPriority(mHandle, nativePriority);
 
-            #elif defined(NKENTSEU_PLATFORM_LINUX) || defined(NKENTSEU_PLATFORM_MACOS)
+            #elif defined(NKENTSEU_PLATFORM_LINUX) || defined(NKENTSEU_PLATFORM_MACOS) || \
+                  defined(NKENTSEU_PLATFORM_IOS)   || defined(NKENTSEU_PLATFORM_TVOS)  || \
+                  defined(NKENTSEU_PLATFORM_WATCHOS)
+                // pthread sched API (pthread_getschedparam/sched_get_priority_*) est
+                // disponible sur tout Darwin, y compris iOS/tvOS/watchOS.
                 if (!mJoinable) {
                     return;
                 }

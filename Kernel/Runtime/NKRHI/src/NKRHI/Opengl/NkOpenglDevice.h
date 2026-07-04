@@ -219,9 +219,17 @@ private:
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
     HWND  mNativeHwnd  = nullptr;
+    bool  mOwnsHeadlessWindow = false;   // fenêtre cachée créée par nous (compute headless)
     HDC   mNativeHdc   = nullptr;
     HGLRC mNativeGlrc  = nullptr;
     BOOL (WINAPI* mWglSwapIntervalExt)(int) = nullptr;
+#elif defined(NKENTSEU_WINDOWING_XLIB)
+    // Contexte GLX (Linux/X11). Types opaques (void*/XID) pour NE PAS tirer
+    // <X11/Xlib.h> dans ce header (macros None/Status/Bool polluantes). Le .cpp
+    // caste vers Display*/GLXContext. mGlxWindow = ::Window = XID = unsigned long.
+    void*         mGlxDisplay = nullptr;   // Display*
+    unsigned long mGlxWindow  = 0;         // ::Window
+    void*         mGlxContext = nullptr;   // GLXContext
 #endif
 
     // Compile un shader GL stage

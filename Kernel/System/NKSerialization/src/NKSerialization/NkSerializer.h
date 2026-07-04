@@ -982,20 +982,21 @@
          * }
          * @endcode
          */
-        inline NkUniquePtr<NkISerializable>
+        inline memory::NkUniquePtr<NkISerializable>
         CreateFromArchive(const NkArchive& archive) noexcept {
             NkString typeName;
 
             if (!archive.GetString("__type__", typeName)) {
-                return nullptr;
+                return {};   // NkUniquePtr vide (pas de conversion implicite nullptr)
             }
 
-            auto obj = NkSerializableRegistry::Global().Create(typeName.CStr());
+            // Create() retourne un pointeur brut NkISerializable* : on en prend la
+            // propriété via NkUniquePtr (factory) — ctor explicite, pas de return brut.
+            memory::NkUniquePtr<NkISerializable> obj(NkSerializableRegistry::Global().Create(typeName.CStr()));
 
             if (obj && !obj->Deserialize(archive)) {
-                return nullptr;
+                return {};
             }
-
             return obj;
         }
 

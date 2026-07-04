@@ -11,6 +11,10 @@
 #include "NKCamera/NkCameraSystem.h"
 #include "NKMemory/NkAllocator.h"
 
+// Ce .mm n'est pas dans un bloc `namespace nkentseu` : on rend visibles les
+// alias de types du moteur utilises hors-classe (uint64 aux lignes ObjC).
+using nkentseu::uint64;
+
 // ---------------------------------------------------------------------------
 // Delegate vidéo
 // ---------------------------------------------------------------------------
@@ -95,13 +99,19 @@ void NkUIKitCameraBackend::Shutdown()
 NkVector<NkCameraDevice> NkUIKitCameraBackend::EnumerateDevices()
 {
     NkVector<NkCameraDevice> result;
-    NSArray<AVCaptureDeviceType>* types = @[
+    // UltraWide/Triple = API iOS 13+ : absentes des SDK < 13 (ex. 12.2) -> on ne
+    // les reference qu'a la compilation avec un SDK >= 13, sous @available.
+    NSMutableArray<AVCaptureDeviceType>* types = [@[
         AVCaptureDeviceTypeBuiltInWideAngleCamera,
         AVCaptureDeviceTypeBuiltInTelephotoCamera,
-        AVCaptureDeviceTypeBuiltInUltraWideCamera,
-        AVCaptureDeviceTypeBuiltInDualCamera,
-        AVCaptureDeviceTypeBuiltInTripleCamera
-    ];
+        AVCaptureDeviceTypeBuiltInDualCamera
+    ] mutableCopy];
+#if defined(__IPHONE_13_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_13_0
+    if (@available(iOS 13.0, *)) {
+        [types addObject:AVCaptureDeviceTypeBuiltInUltraWideCamera];
+        [types addObject:AVCaptureDeviceTypeBuiltInTripleCamera];
+    }
+#endif
     AVCaptureDeviceDiscoverySession* ds =
         [AVCaptureDeviceDiscoverySession
             discoverySessionWithDeviceTypes:types
@@ -136,7 +146,7 @@ bool NkUIKitCameraBackend::StartStreaming(const NkCameraConfig& config)
     { mLastError="Device index out of range"; return false; }
 
     auto* p = (UIKitPrivate*)mPriv;
-    NSString* uid = [NSString stringWithUTF8String:devs[config.deviceIndex].id.c_str()];
+    NSString* uid = [NSString stringWithUTF8String:devs[config.deviceIndex].id.CStr()];
     p->device = [AVCaptureDevice deviceWithUniqueID:uid];
     if (!p->device) { mLastError="Cannot find device"; return false; }
 
@@ -235,7 +245,7 @@ bool NkUIKitCameraBackend::CapturePhoto(NkPhotoCaptureResult& res)
     const NkElapsedTime start = NkChrono::Now();
     while (!mPhotoReady && (NkChrono::Now() - start).seconds < 5.0) {
         lk.unlock();
-        NkChrono::Sleep(10);
+        NkChrono::Sleep(10LL);  // 10LL -> overload Sleep(int64) (sinon ambigu int64/float64)
         lk.lock();
     }
     res=mPhotoPending; return res.success;
@@ -279,7 +289,7 @@ bool NkUIKitCameraBackend::StartVideoRecord(const NkVideoRecordConfig& config)
         return false;
     }
     auto* p=(UIKitPrivate*)mPriv;
-    NSURL* url=[NSURL fileURLWithPath:[NSString stringWithUTF8String:config.outputPath.c_str()]];
+    NSURL* url=[NSURL fileURLWithPath:[NSString stringWithUTF8String:config.outputPath.CStr()]];
     NSError* err=nil;
     p->writer=[[AVAssetWriter alloc]initWithURL:url fileType:AVFileTypeMPEG4 error:&err];
     if (!p->writer){mLastError=[[err localizedDescription]UTF8String];return false;}

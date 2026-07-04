@@ -64,6 +64,7 @@ with project("NKRenderer"):
             "gdi32", "user32", "opengl32", "dwmapi", "shell32",
             "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler",
             "uuid", "ole32",
+            "winmm",   # timeBeginPeriod(1) : Sleep 1 ms pour le pacing FPS moteur
         ]
         if WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
