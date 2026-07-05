@@ -81,6 +81,8 @@ namespace nkentseu { namespace demo {
         bool                            editOverlayDirty  = true;  // reconstruire les buffers overlay (cage/points/faces)
         bool                            editExtrudePending = false; // E : extrude région (traité côté frame)
         bool                            editDeletePending  = false; // X : supprime faces (traité côté frame)
+        bool                            editMergePending   = false; // M : soude les vertices sélectionnés
+        bool                            editMakeFacePending= false; // F : crée une face (n-gon) depuis la sélection
         renderer::NkGizmo3D             editGizmo;     // 1 seule cible = centroïde de la sélection
     };
 
@@ -190,6 +192,48 @@ namespace nkentseu { namespace demo {
             if(remap[vi]<0){ remap[vi]=(int32)nV.Size(); nV.PushBack(V[vi]); nS.PushBack(S[vi]); }
             nI[j]=(uint32)remap[vi]; }
         V=nV; I=nI; S=nS;
+    }
+
+    // MERGE (M) : soude tous les vertices sélectionnés en UN SEUL (au centroïde),
+    // façon Blender "Merge at Center". Réduit le nombre de vertices ; les triangles
+    // devenus dégénérés (2 indices égaux) sont supprimés ; orphelins compactés.
+    static void Demo3D_MergeSelectedVerts(Demo3DState* st) {
+        auto& V=st->editRest; auto& I=st->editIdx; auto& S=st->vertSel;
+        NkVec3f c{0.f,0.f,0.f}; int32 n=0, first=-1;
+        for (uint32 i=0;i<(uint32)V.Size();i++) if(S[i]){ c=c+V[i].pos; n++; if(first<0)first=(int32)i; }
+        if (n<2) return;                       // rien à souder
+        c=c*(1.f/(float32)n);
+        V[(uint32)first].pos=c;                // le représentant prend le centroïde
+        // Remap : tout vertex sélectionné -> `first`.
+        NkVector<int32> map; map.Resize((uint32)V.Size());
+        for (uint32 i=0;i<(uint32)map.Size();i++) map[i]=(int32)i;
+        for (uint32 i=0;i<(uint32)V.Size();i++) if(S[i]) map[i]=first;
+        // Retire les triangles dégénérés (au moins 2 sommets soudés ensemble).
+        NkVector<uint32> nI;
+        for (uint32 t=0;t+2<(uint32)I.Size();t+=3){
+            uint32 a=(uint32)map[I[t]], b=(uint32)map[I[t+1]], c2=(uint32)map[I[t+2]];
+            if(a==b||b==c2||a==c2) continue;
+            nI.PushBack(a); nI.PushBack(b); nI.PushBack(c2);
+        }
+        // Compacte les vertices orphelins.
+        NkVector<int32> remap; remap.Resize((uint32)V.Size()); for(uint32 i=0;i<(uint32)remap.Size();i++) remap[i]=-1;
+        NkVector<renderer::NkVertex3D> nV; NkVector<uint8> nS;
+        for (uint32 j=0;j<(uint32)nI.Size();j++){ uint32 vi=nI[j];
+            if(remap[vi]<0){ remap[vi]=(int32)nV.Size(); nV.PushBack(V[vi]); nS.PushBack(S[vi]); }
+            nI[j]=(uint32)remap[vi]; }
+        V=nV; I=nI; S=nS;
+    }
+
+    // CREATE FACE (F) : crée une face à partir des vertices sélectionnés (3 ou plus),
+    // façon Blender. Triangulée en ÉVENTAIL autour du 1er sélectionné -> supporte les
+    // n-gons (3=triangle, 4=quad, n=n-gon). Aucun vertex ajouté (réutilise l'existant).
+    static void Demo3D_CreateFaceFromSelection(Demo3DState* st) {
+        NkVector<uint32> sel;
+        for (uint32 i=0;i<(uint32)st->vertSel.Size();i++) if(st->vertSel[i]) sel.PushBack(i);
+        if (sel.Size() < 3) return;
+        for (uint32 k=1;k+1<(uint32)sel.Size();k++){
+            st->editIdx.PushBack(sel[0]); st->editIdx.PushBack(sel[k]); st->editIdx.PushBack(sel[k+1]);
+        }
     }
 
     // E.6b : cubemap procedurale 128x128x6 pour point light.
@@ -427,9 +471,10 @@ namespace nkentseu { namespace demo {
                 st->pickY = e->GetY();
             }
         });
-        // F : bascule caméra ÉDITEUR (orbit) <-> SIMULATION (fly).
+        // F : bascule caméra ÉDITEUR (orbit) <-> SIMULATION (fly). En EDIT MODE, F crée
+        // une face (n-gon) depuis la sélection -> ne pas basculer la caméra.
         NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent* e) {
-            if (e->GetKey() == NkKey::NK_F) {
+            if (e->GetKey() == NkKey::NK_F && !st->editMode) {
                 st->useSimCam = !st->useSimCam;
                 logger.Info("[Demo3D] Camera = {0}\n", st->useSimCam ? "SIMULATION (fly: WASD+clic droit)" : "EDITEUR (orbit: milieu/Shift+milieu/molette)");
             }
@@ -468,7 +513,8 @@ namespace nkentseu { namespace demo {
                     logger.Info("[Demo3D] Affichage = {0}\n", sm[st->shadingMode]);
                 }
                 // M : cycle le preset MatCap (effet en mode SOLID/WIREFRAME).
-                if (k == NkKey::NK_M) {
+                // En EDIT MODE, M = Merge (soudure) -> ne pas cycler le matcap.
+                if (k == NkKey::NK_M && !st->editMode) {
                     r3d->SetMatcap(r3d->Matcap() + 1);
                     const char* mc[5] = {"Studio", "Clay", "Metal", "Toon", "Chrome(tex)"};
                     logger.Info("[Demo3D] MatCap = {0}\n", mc[r3d->Matcap() % 5]);
@@ -510,10 +556,12 @@ namespace nkentseu { namespace demo {
                     st->editOverlayDirty=true;
                     return;
                 }
-                // Outils topologie (hors drag) : E = extrude région, X = supprimer faces.
+                // Outils topologie (hors drag) : E = extrude, X = supprimer, M = souder.
                 if (!st->editGizmo.IsDragging()) {
                     if (k == NkKey::NK_E) { st->editExtrudePending = true; return; }
                     if (k == NkKey::NK_X) { st->editDeletePending  = true; return; }
+                    if (k == NkKey::NK_M) { st->editMergePending   = true; return; }
+                    if (k == NkKey::NK_F) { st->editMakeFacePending= true; return; }
                 }
             }
             // Gizmo ACTIF selon le mode : objet ou vertices.
@@ -939,6 +987,19 @@ namespace nkentseu { namespace demo {
             if (st->editExtrudePending) { st->editExtrudePending=false;
                 Demo3D_ExtrudeSelectedFaces(st); if(meshSysF) Demo3D_RebuildEditMesh(st, meshSysF);
                 logger.Info("[Demo3D] Extrude -> {0} vertices\n", (int32)st->editRest.Size()); }
+            if (st->editMakeFacePending) { st->editMakeFacePending=false;
+                Demo3D_CreateFaceFromSelection(st); if(meshSysF) Demo3D_RebuildEditMesh(st, meshSysF);
+                logger.Info("[Demo3D] Create face -> {0} triangles\n", (int32)st->editIdx.Size()/3); }
+            if (st->editMergePending) { st->editMergePending=false;
+                Demo3D_MergeSelectedVerts(st);
+                if (st->editIdx.Empty()) {
+                    if (meshSysF && st->editMesh.IsValid()) meshSysF->Release(st->editMesh);
+                    st->editMesh = {}; st->editMode = false; st->editObjIdx = -1; r3d->ClearEditOverlay();
+                    logger.Info("[Demo3D] Merge : mesh vide -> sortie edit mode\n");
+                } else if (meshSysF) {
+                    Demo3D_RebuildEditMesh(st, meshSysF);
+                    logger.Info("[Demo3D] Merge -> {0} vertices\n", (int32)st->editRest.Size());
+                } }
             if (st->editDeletePending) { st->editDeletePending=false;
                 Demo3D_DeleteSelectedFaces(st);
                 if (st->editIdx.Empty()) {
@@ -1032,7 +1093,22 @@ namespace nkentseu { namespace demo {
                         NkVec3f c3 = (worldV(a)+worldV(b)+worldV(c))*(1.f/3.f);
                         float32 px,py; if(project(c3,px,py)){ float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my)); if(d<bd){bd=d;bt=(int32)t;} }
                     }
-                    if (bt>=0){ st->vertSel[st->editIdx[bt]]=1; st->vertSel[st->editIdx[bt+1]]=1; st->vertSel[st->editIdx[bt+2]]=1; }
+                    if (bt>=0){
+                        const uint32 a0=st->editIdx[bt],b0=st->editIdx[bt+1],c0=st->editIdx[bt+2];
+                        st->vertSel[a0]=1; st->vertSel[b0]=1; st->vertSel[c0]=1;
+                        // Un "quad" = 2 triangles coplanaires partageant une arête : on sélectionne
+                        // AUSSI les triangles adjacents coplanaires -> toute la face surlignée.
+                        NkVec3f n0=(st->editRest[b0].pos-st->editRest[a0].pos).Cross(st->editRest[c0].pos-st->editRest[a0].pos);
+                        float32 l0=n0.Len(); if(l0>1e-6f) n0=n0*(1.f/l0);
+                        for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){ if((int32)t==bt) continue;
+                            const uint32 a=st->editIdx[t],b=st->editIdx[t+1],c=st->editIdx[t+2];
+                            int32 shared=0; for(uint32 v : {a,b,c}) if(v==a0||v==b0||v==c0) shared++;
+                            if (shared < 2) continue;   // pas la même face
+                            NkVec3f n=(st->editRest[b].pos-st->editRest[a].pos).Cross(st->editRest[c].pos-st->editRest[a].pos);
+                            float32 l=n.Len(); if(l>1e-6f) n=n*(1.f/l);
+                            if (n.Dot(n0) > 0.99f){ st->vertSel[a]=1; st->vertSel[b]=1; st->vertSel[c]=1; }
+                        }
+                    }
                 }
             }
             // Garder la cible-0 sélectionnée pour que les poignées s'affichent.
@@ -1216,7 +1292,7 @@ namespace nkentseu { namespace demo {
                     st->editObjIdx, seName[st->editSelMode % 3],
                     gmName[st->editGizmo.Mode() & 3], st->editXray ? "ON" : "OFF");
                 overlay->DrawText({20.f, 118.f},
-                    "clic=sel  Shift+clic=ajout  A/Alt+A=tout/rien  |  E=extrude  X=supprimer  |  TAB=sortir  Alt+Z=x-ray");
+                    "clic=sel Shift+clic=ajout A/Alt+A=tout/rien | E=extrude X=supprimer M=souder F=face | TAB=sortir Alt+Z=x-ray");
             } else {
                 overlay->DrawText({20.f, 100.f},
                     "OBJET  |  Gizmo(G/R/S/C): %s  |  Orient(,): %s   |  TAB=editer l'objet selectionne",
