@@ -293,73 +293,56 @@ namespace nkentseu { namespace demo {
                 logger.Info("[Demo3D] Camera = {0}\n", st->useSimCam ? "SIMULATION (fly: WASD+clic droit)" : "EDITEUR (orbit: milieu/Shift+milieu/molette)");
             }
         });
-        // Pavé numérique 1-6 : vues orthos façon Blender (snap de la caméra éditeur).
+        // Pavé numérique façon Blender : 1=FRONT (Ctrl=BACK) · 3=RIGHT (Ctrl=LEFT) ·
+        // 7=TOP (Ctrl=BOTTOM). Snap de la caméra éditeur.
         NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent* e) {
             auto& c = st->editorCam;
             const NkVec3f t = c.GetTarget();
             const float32 d = c.GetDistance();
             const float32 P = 1.55f;               // ~90° (clamp pitch)
+            const bool ctrl = NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
             const NkKey   k = e->GetKey();
-            if      (k == NkKey::NK_NUMPAD_1) { c.SetCenter(t, d,  1.5708f, 0.f); logger.Info("[Demo3D] Vue FRONT\n"); }
-            else if (k == NkKey::NK_NUMPAD_2) { c.SetCenter(t, d, -1.5708f, 0.f); logger.Info("[Demo3D] Vue BACK\n"); }
-            else if (k == NkKey::NK_NUMPAD_3) { c.SetCenter(t, d,  0.f,     0.f); logger.Info("[Demo3D] Vue RIGHT\n"); }
-            else if (k == NkKey::NK_NUMPAD_4) { c.SetCenter(t, d,  3.1416f, 0.f); logger.Info("[Demo3D] Vue LEFT\n"); }
-            else if (k == NkKey::NK_NUMPAD_5) { c.SetCenter(t, d,  0.f,     P);   logger.Info("[Demo3D] Vue TOP\n"); }
-            else if (k == NkKey::NK_NUMPAD_6) { c.SetCenter(t, d,  0.f,    -P);   logger.Info("[Demo3D] Vue BOTTOM\n"); }
+            if      (k == NkKey::NK_NUMPAD_1) { if(!ctrl){ c.SetCenter(t,d, 1.5708f,0.f); logger.Info("[Demo3D] Vue FRONT\n"); } else { c.SetCenter(t,d,-1.5708f,0.f); logger.Info("[Demo3D] Vue BACK\n"); } }
+            else if (k == NkKey::NK_NUMPAD_3) { if(!ctrl){ c.SetCenter(t,d, 0.f,    0.f); logger.Info("[Demo3D] Vue RIGHT\n"); } else { c.SetCenter(t,d, 3.1416f,0.f); logger.Info("[Demo3D] Vue LEFT\n"); } }
+            else if (k == NkKey::NK_NUMPAD_7) { if(!ctrl){ c.SetCenter(t,d, 0.f,    P);   logger.Info("[Demo3D] Vue TOP\n"); } else { c.SetCenter(t,d, 0.f,   -P);   logger.Info("[Demo3D] Vue BOTTOM\n"); } }
         });
+        // Réglages viewport/debug sur F-keys (hors keymap Blender essentiel) :
+        //   F1=grille on/off · F2/F3/F4=grille internes/majeures/axes · F11/F12=opacité plan -/+
+        //   V=VSync
         NkEvents().AddEventCallback<NkKeyPressEvent>([renderer](NkKeyPressEvent* e) {
-            if (e->GetKey() == NkKey::NK_V) {
-                static bool vsync = true;
-                vsync = !vsync;
-                renderer->SetVSync(vsync);
-                logger.Info("[Demo3D] VSync = {0}\n", vsync);
-            }
-            // G : activer/désactiver la grille infinie (toute la grille).
-            if (e->GetKey() == NkKey::NK_G) {
-                if (auto* r3d = renderer->GetRender3D()) {
-                    bool on = !r3d->IsInfiniteGridEnabled();
-                    r3d->SetInfiniteGridEnabled(on);
-                    logger.Info("[Demo3D] Grille infinie = {0}\n", on);
-                }
-            }
-            // 1/2/3 : toggles indépendants lignes internes / majeures / axes.
+            const NkKey k = e->GetKey();
+            if (k == NkKey::NK_V) { static bool vsync=true; vsync=!vsync; renderer->SetVSync(vsync); logger.Info("[Demo3D] VSync = {0}\n", vsync); }
             if (auto* r3d = renderer->GetRender3D()) {
                 auto& g = r3d->GetInfiniteGridParams();
-                if (e->GetKey() == NkKey::NK_NUM1) { g.showMinor = !g.showMinor; logger.Info("[Demo3D] Grille lignes internes = {0}\n", g.showMinor); }
-                if (e->GetKey() == NkKey::NK_NUM2) { g.showMajor = !g.showMajor; logger.Info("[Demo3D] Grille lignes majeures = {0}\n", g.showMajor); }
-                if (e->GetKey() == NkKey::NK_NUM3) { g.showAxes  = !g.showAxes;  logger.Info("[Demo3D] Grille axes = {0}\n", g.showAxes); }
-                // O / L : opacité du PLAN INFINI (remplissage cellColor.a), PAS les lignes.
-                if (e->GetKey() == NkKey::NK_O) { g.cellColor.w = NkMin(1.0f,  g.cellColor.w + 0.05f); logger.Info("[Demo3D] Opacite plan infini = {0}\n", g.cellColor.w); }
-                if (e->GetKey() == NkKey::NK_L) { g.cellColor.w = NkMax(0.0f,  g.cellColor.w - 0.05f); logger.Info("[Demo3D] Opacite plan infini = {0}\n", g.cellColor.w); }
+                if (k == NkKey::NK_F1) { bool on=!r3d->IsInfiniteGridEnabled(); r3d->SetInfiniteGridEnabled(on); logger.Info("[Demo3D] Grille = {0}\n", on); }
+                if (k == NkKey::NK_F2) { g.showMinor=!g.showMinor; logger.Info("[Demo3D] Grille internes = {0}\n", g.showMinor); }
+                if (k == NkKey::NK_F3) { g.showMajor=!g.showMajor; logger.Info("[Demo3D] Grille majeures = {0}\n", g.showMajor); }
+                if (k == NkKey::NK_F4) { g.showAxes =!g.showAxes;  logger.Info("[Demo3D] Grille axes = {0}\n", g.showAxes); }
+                if (k == NkKey::NK_F11) { g.cellColor.w = NkMax(0.0f, g.cellColor.w - 0.05f); logger.Info("[Demo3D] Opacite plan = {0}\n", g.cellColor.w); }
+                if (k == NkKey::NK_F12) { g.cellColor.w = NkMin(1.0f, g.cellColor.w + 0.05f); logger.Info("[Demo3D] Opacite plan = {0}\n", g.cellColor.w); }
             }
         });
-        // GIZMO : TAB cycle le mode (0 translate, 1 rotate, 2 scale, 3 COMBINÉ = les 3),
-        //         Suppr/Retour arrière = reset du transform utilisateur de l'objet sélectionné.
+        // ── KEYMAP GIZMO façon Blender ────────────────────────────────────────
+        //   G / R / S = translate / rotate / scale (hors drag)  ·  C = combiné  ·  TAB = cycle
+        //   Alt+G / Alt+R / Alt+S = efface translation / rotation / échelle des sélectionnés
+        //   A = tout sélectionner  ·  Alt+A = tout désélectionner  ·  , = orientation (G/L/N)
+        //   (pendant un drag : X/Y/Z = verrou d'axe, Ctrl = snap)
         NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent* e) {
             const NkKey k = e->GetKey();
+            const bool alt = NkInput.IsKeyDown(NkKey::NK_LALT) || NkInput.IsKeyDown(NkKey::NK_RALT);
             const char* mn[4] = {"TRANSLATE", "ROTATE", "SCALE", "COMBINE (T+R+S)"};
-            // Choix DIRECT du mode (pas besoin de cycler) : T/Y/U/C. TAB reste un cycle.
-            // (G/R/S facon Blender indisponibles : G=grille, S=recul camera, R=reset ombres.)
-            // Ignoré pendant un drag (X/Y/Z = verrou d'axe à ce moment-là).
-            if (!st->gizmo.IsDragging()) {
-                if (k == NkKey::NK_T) { st->gizmo.SetMode(renderer::NkGizmo3D::MODE_TRANSLATE); logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[st->gizmo.Mode()]); }
-                if (k == NkKey::NK_Y) { st->gizmo.SetMode(renderer::NkGizmo3D::MODE_ROTATE);    logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[st->gizmo.Mode()]); }
-                if (k == NkKey::NK_U) { st->gizmo.SetMode(renderer::NkGizmo3D::MODE_SCALE);     logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[st->gizmo.Mode()]); }
-                if (k == NkKey::NK_C) { st->gizmo.SetMode(renderer::NkGizmo3D::MODE_COMBINE);   logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[st->gizmo.Mode()]); }
-            }
-            if (k == NkKey::NK_TAB) {
-                st->gizmo.CycleMode();
+            using GZ = renderer::NkGizmo3D;
+            if (st->gizmo.IsDragging()) return;   // en plein drag : X/Y/Z = verrou (pas de switch)
+            if (k == NkKey::NK_G) { if (alt) st->gizmo.ClearSelectedTranslate(); else st->gizmo.SetMode(GZ::MODE_TRANSLATE); }
+            if (k == NkKey::NK_R) { if (alt) st->gizmo.ClearSelectedRotation();  else st->gizmo.SetMode(GZ::MODE_ROTATE); }
+            if (k == NkKey::NK_S) { if (alt) st->gizmo.ClearSelectedScale();     else st->gizmo.SetMode(GZ::MODE_SCALE); }
+            if (k == NkKey::NK_C)   st->gizmo.SetMode(GZ::MODE_COMBINE);
+            if (k == NkKey::NK_TAB) st->gizmo.CycleMode();
+            if (k == NkKey::NK_A) { if (alt) st->gizmo.ClearSelection(); else st->gizmo.SelectAll(); }
+            if (k == NkKey::NK_COMMA) { st->gizmo.CycleOrientation();
+                const char* o[3]={"GLOBAL","LOCAL","NORMAL"}; logger.Info("[Demo3D] Orientation = {0}\n", o[st->gizmo.Orientation()]); }
+            if (k==NkKey::NK_G||k==NkKey::NK_R||k==NkKey::NK_S||k==NkKey::NK_C||k==NkKey::NK_TAB)
                 logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[st->gizmo.Mode()]);
-            }
-            if (k == NkKey::NK_N) {   // orientation du gizmo : GLOBAL -> LOCAL -> NORMAL
-                st->gizmo.CycleOrientation();
-                const char* o[3] = {"GLOBAL", "LOCAL", "NORMAL"};
-                logger.Info("[Demo3D] Gizmo orientation = {0}\n", o[st->gizmo.Orientation()]);
-            }
-            if (k == NkKey::NK_DELETE || k == NkKey::NK_BACK) {   // reset des objets SÉLECTIONNÉS
-                st->gizmo.ResetSelected();
-                logger.Info("[Demo3D] Transform des objets selectionnes reset\n");
-            }
         });
         if (shadowSys) {
             // ── Scène CLOSE : AUTO-FIT de la cascade directionnelle aux casters ──
@@ -371,25 +354,24 @@ namespace nkentseu { namespace demo {
             shadowSys->GetConfig().autoFitDirectional = true;
             NkEvents().AddEventCallback<NkKeyPressEvent>([shadowSys, st](NkKeyPressEvent* e) {
                 auto& cfg = shadowSys->GetConfig();
+                // Debug ombres sur F-keys (libère [ ] P N M R pour le keymap Blender) :
+                //   F5/F6 = bias -/+ (maintenu = continu) · F7 = cycle PCF ·
+                //   F8/F9 = softness -/+ · F10 = reset ombres.
                 switch (e->GetKey()) {
-                    // [ / ] : au 1er appui, un pas immediat (tap) ; tant que la touche
-                    // reste enfoncee, l'update frame fait evoluer le bias en continu
-                    // (cf. biasUpHeld/biasDownHeld + Demo3D_Frame).
-                    case NkKey::NK_LBRACKET:
-                        if (!st->biasDownHeld)
-                            cfg.shadowBias = NkMax(0.0001f, cfg.shadowBias - 0.0005f);
+                    case NkKey::NK_F5:
+                        if (!st->biasDownHeld) cfg.shadowBias = NkMax(0.0001f, cfg.shadowBias - 0.0005f);
                         st->biasDownHeld = true; break;
-                    case NkKey::NK_RBRACKET:
+                    case NkKey::NK_F6:
                         if (!st->biasUpHeld) cfg.shadowBias += 0.0005f;
                         st->biasUpHeld = true; break;
-                    case NkKey::NK_P:
+                    case NkKey::NK_F7:
                         st->pcfIdx = (st->pcfIdx + 1) % 5;
                         cfg.quality = (NkVSMShadowQuality)st->pcfIdx; break;
-                    case NkKey::NK_N:    // softness - (ombres plus dures)
+                    case NkKey::NK_F8:
                         cfg.softness = NkMax(0.0005f, cfg.softness - 0.001f); break;
-                    case NkKey::NK_M:    // softness + (ombres plus douces)
+                    case NkKey::NK_F9:
                         cfg.softness = NkMin(0.020f,  cfg.softness + 0.001f); break;
-                    case NkKey::NK_R:
+                    case NkKey::NK_F10:
                         cfg.shadowBias  = 0.001f;
                         cfg.softness    = 0.003f;
                         cfg.quality     = NkVSMShadowQuality::PCF5x5;
@@ -398,10 +380,10 @@ namespace nkentseu { namespace demo {
                     default: break;
                 }
             });
-            // Relache [ / ] -> stoppe l'evolution continue du bias.
+            // Relache F5 / F6 -> stoppe l'evolution continue du bias.
             NkEvents().AddEventCallback<NkKeyReleaseEvent>([st](NkKeyReleaseEvent* e) {
-                if (e->GetKey() == NkKey::NK_LBRACKET) st->biasDownHeld = false;
-                if (e->GetKey() == NkKey::NK_RBRACKET) st->biasUpHeld   = false;
+                if (e->GetKey() == NkKey::NK_F5) st->biasDownHeld = false;
+                if (e->GetKey() == NkKey::NK_F6) st->biasUpHeld   = false;
             });
         }
 
@@ -506,14 +488,8 @@ namespace nkentseu { namespace demo {
                     else       st->editorCam.Rotate(mdx, mdy);
                 }
                 if (wheel != 0.f) st->editorCam.Zoom(wheel);
-                // Déplacement du pivot au clavier : WASD + flèches (Shift = rapide).
-                const float32 mv = (shift ? 10.f : 4.f) * dt;
-                float32 sx = 0.f, sz = 0.f;
-                if (NkInput.IsKeyDown(NkKey::NK_W) || NkInput.IsKeyDown(NkKey::NK_UP))    sz += mv;
-                if (NkInput.IsKeyDown(NkKey::NK_S) || NkInput.IsKeyDown(NkKey::NK_DOWN))  sz -= mv;
-                if (NkInput.IsKeyDown(NkKey::NK_D) || NkInput.IsKeyDown(NkKey::NK_RIGHT)) sx -= mv; // droite = pan vers la droite
-                if (NkInput.IsKeyDown(NkKey::NK_A) || NkInput.IsKeyDown(NkKey::NK_LEFT))  sx += mv; // gauche = pan vers la gauche
-                if (sx != 0.f || sz != 0.f) st->editorCam.MoveCameraRelative(sx, 0.f, sz);
+                // Nav éditeur façon Blender = souris uniquement (molette milieu / Shift+milieu /
+                // molette). Pas de WASD ici -> G/R/S/A restent libres pour le gizmo/sélection.
                 st->editorCam.Apply(cam);
             }
         } else {
@@ -760,10 +736,10 @@ namespace nkentseu { namespace demo {
             const char* gmName[4] = {"TRANSLATE", "ROTATE", "SCALE", "COMBINE (T+R+S)"};
             const char* orName[3] = {"GLOBAL", "LOCAL", "NORMAL"};
             overlay->DrawText({20.f, 100.f},
-                "Gizmo: %s  |  Orient: %s     T=trans Y=rot U=scale C=combine  (TAB=cycle  N=orient)",
+                "Gizmo: %s  |  Orient: %s     G/R/S=trans/rot/scale  C=combine  TAB=cycle  ,=orient",
                 gmName[st->gizmo.Mode() & 3], orName[st->gizmo.Orientation() % 3]);
             overlay->DrawText({20.f, 118.f},
-                "clic=sel  Shift+clic=multi  Suppr=reset  |  Ctrl=snap (pas fixes)  X/Y/Z(drag)=verrou d'axe");
+                "clic=sel  Shift+clic=multi  A/Alt+A=tout/rien  Alt+G/R/S=clear  |  Ctrl=snap  X/Y/Z=verrou axe");
 
             // ── Debug panel : params shadow live-tunable ───────────────────────
             // Background semi-transparent en haut a droite
@@ -775,10 +751,10 @@ namespace nkentseu { namespace demo {
             overlay->DrawText({px, 30.f},  "== Shadow tweak (panel debug) ==");
             if (auto* sh = ctx.renderer->GetShadow()) {
                 const auto& cfg = sh->GetConfig();
-                overlay->DrawText({px, 50.f},  "[ / ]      bias     : %.4f", cfg.shadowBias);
-                overlay->DrawText({px, 70.f},  " VSM atlas : %u px",         sh->GetAtlasSize());
-                overlay->DrawText({px, 90.f},  " P         quality  : %d",   (int)cfg.quality);
-                overlay->DrawText({px, 110.f}, " N / M     softness : %.3f", cfg.softness);
+                overlay->DrawText({px, 50.f},  "F5/F6    bias     : %.4f", cfg.shadowBias);
+                overlay->DrawText({px, 70.f},  " VSM atlas : %u px",       sh->GetAtlasSize());
+                overlay->DrawText({px, 90.f},  "F7       quality  : %d",   (int)cfg.quality);
+                overlay->DrawText({px, 110.f}, "F8/F9    softness : %.3f", cfg.softness);
                 overlay->DrawText({px, 130.f}, " slots: %u (rend %u | cache %u)",
                                    sh->GetActiveSlotCount(),
                                    sh->GetRenderedSlotsCount(),

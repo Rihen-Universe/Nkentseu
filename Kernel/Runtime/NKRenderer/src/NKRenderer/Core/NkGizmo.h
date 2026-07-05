@@ -105,11 +105,16 @@ namespace nkentseu {
                 bool  IsSelected(int32 i) const { return (i>=0&&i<kMax) ? mSel[i] : false; }
                 bool  IsDragging()   const { return mDragging; }
                 void  ClearSelection() { for (int32 i=0;i<kMax;i++) mSel[i]=false; mSelId=-1; }
+                void  SelectAll() { for (int32 i=0;i<mCount;i++) mSel[i]=true; if (mCount>0) mSelId=mCount-1; }
                 void  ResetSelected() {
                     for (int32 i=0;i<kMax;i++) if (mSel[i]) {
                         mTr[i]={0.f,0.f,0.f}; mRot[i]=NkMat4f::Identity(); mScale[i]={0.f,0.f,0.f};
                     }
                 }
+                // Effacements sélectifs (Alt+G / Alt+R / Alt+S façon Blender) sur la sélection.
+                void ClearSelectedTranslate() { for (int32 i=0;i<kMax;i++) if (mSel[i]) mTr[i]={0.f,0.f,0.f}; }
+                void ClearSelectedRotation()  { for (int32 i=0;i<kMax;i++) if (mSel[i]) mRot[i]=NkMat4f::Identity(); }
+                void ClearSelectedScale()     { for (int32 i=0;i<kMax;i++) if (mSel[i]) mScale[i]={0.f,0.f,0.f}; }
 
                 // Transform final (base + décalage utilisateur) pour la cible i.
                 NkMat4f Apply(int32 i, const NkMat4f& base) const {
