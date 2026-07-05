@@ -21,6 +21,7 @@
 #include "NKRenderer/Core/NkCameraController.h"  // NkOrbitCameraController3D / NkFlyCameraController3D
 #include "NKRenderer/Core/NkGizmo.h"             // NkGizmo3D (gizmo éditeur réutilisable)
 #include "NKImage/NKImage.h"            // Phase H : test ecriture PNG procedural
+#include "NKContainers/Associative/NkHashMap.h"  // dedup arêtes Edit Mode
 #include <cstdio>
 
 namespace nkentseu { namespace demo {
@@ -67,11 +68,13 @@ namespace nkentseu { namespace demo {
         NkVector<renderer::NkVertex3D>  editRest;      // vertices LOCAUX de repos (autorité CPU)
         NkVector<renderer::NkVertex3D>  editLive;      // rest + delta (re-upload pendant drag)
         NkVector<uint32>                editIdx;       // topologie (triangles)
+        NkVector<uint32>                editEdges;     // arêtes UNIQUES (paires) pour la cage — bâti à l'entrée
         NkVector<uint8>                 vertSel;       // 1 = vertex sélectionné (taille = nb vertices)
         NkMat4f                         editAnchor    = NkMat4f::Identity();  // transform monde de l'objet
         NkMat4f                         editAnchorInv = NkMat4f::Identity();
         int32                           editObjIdx    = -1;    // objet en cours d'édition (index gizmo)
         int32                           editSelMode   = 0;     // 0=VERTEX 1=EDGE 2=FACE (touches 1/2/3)
+        bool                            editXray      = false; // Alt+Z : voir/sélectionner à travers (façon Blender)
         bool                            editMode      = false; // TAB : bascule objet <-> édition
         bool                            editTogglePending = false; // TAB traité côté frame (accès meshSys)
         bool                            editWasDragging   = false; // pour baker le delta en fin de drag
@@ -353,9 +356,11 @@ namespace nkentseu { namespace demo {
             const NkKey k = e->GetKey();
             if (k == NkKey::NK_V) { static bool vsync=true; vsync=!vsync; renderer->SetVSync(vsync); logger.Info("[Demo3D] VSync = {0}\n", vsync); }
             if (auto* r3d = renderer->GetRender3D()) {
-                // Z (hors drag) = cycle mode d'affichage façon Blender : RENDERED -> SOLID
-                // -> WIREFRAME. (En drag, Z = verrou d'axe.)
-                if (k == NkKey::NK_Z && !st->gizmo.IsDragging()) {
+                // Z (hors drag, SANS Alt) = cycle mode d'affichage façon Blender :
+                // RENDERED -> SOLID -> WIREFRAME. (En drag, Z = verrou d'axe ;
+                // Alt+Z = toggle X-ray en Edit Mode, géré dans le keymap.)
+                const bool altHeld = NkInput.IsKeyDown(NkKey::NK_LALT) || NkInput.IsKeyDown(NkKey::NK_RALT);
+                if (k == NkKey::NK_Z && !altHeld && !st->gizmo.IsDragging() && !st->editGizmo.IsDragging()) {
                     st->shadingMode = (st->shadingMode + 1) % 3;
                     const char* sm[3] = {"RENDERED", "SOLID", "WIREFRAME"};
                     r3d->SetWireframe(st->shadingMode == 2);           // wireframe = rasterizer fil de fer
@@ -395,6 +400,9 @@ namespace nkentseu { namespace demo {
                 if (k == NkKey::NK_NUM1) { st->editSelMode = 0; logger.Info("[Demo3D] Edit = VERTEX\n"); return; }
                 if (k == NkKey::NK_NUM2) { st->editSelMode = 1; logger.Info("[Demo3D] Edit = EDGE\n");   return; }
                 if (k == NkKey::NK_NUM3) { st->editSelMode = 2; logger.Info("[Demo3D] Edit = FACE\n");   return; }
+                // Alt+Z : toggle X-RAY (voir/sélectionner à travers le mesh), façon Blender.
+                if (k == NkKey::NK_Z && alt) { st->editXray = !st->editXray;
+                    logger.Info("[Demo3D] X-ray = {0}\n", st->editXray); return; }
                 // A / Alt+A : tout sélectionner / désélectionner (les VERTICES).
                 if (k == NkKey::NK_A) {
                     const uint8 v = alt ? 0 : 1;
@@ -553,6 +561,22 @@ namespace nkentseu { namespace demo {
                         for (uint32 i=0;i<ic;i++) st->editIdx.PushBack(si[i]);
                         st->editLive = st->editRest;
                         st->vertSel.Resize(vc); for (uint32 i=0;i<vc;i++) st->vertSel[i]=0;
+                        // Arêtes UNIQUES pour la cage (bâties UNE fois : topologie fixe).
+                        // Dedup O(E) via table de hachage (clé = lo<<32 | hi).
+                        st->editEdges.Clear();
+                        {
+                            NkHashMap<uint64,uint8> seen; seen.Reserve(ic);
+                            for (uint32 t=0;t+2<ic;t+=3){
+                                const uint32 tri[3]={si[t],si[t+1],si[t+2]};
+                                for (int32 k=0;k<3;k++){
+                                    uint32 a=tri[k], b=tri[(k+1)%3];
+                                    uint32 lo=a<b?a:b, hi=a<b?b:a;
+                                    uint64 key=((uint64)lo<<32)|(uint64)hi;
+                                    if (!seen.Contains(key)){ seen.InsertOrAssign(key,(uint8)1);
+                                        st->editEdges.PushBack(lo); st->editEdges.PushBack(hi); }
+                                }
+                            }
+                        }
                         // (Re)crée le mesh dynamique éditable.
                         if (st->editMesh.IsValid()) ms->Release(st->editMesh);
                         NkMeshDesc d = NkMeshDesc::Simple(renderer::NkVertexLayout::Default3D(),
@@ -815,6 +839,15 @@ namespace nkentseu { namespace demo {
                 px = (nx*0.5f+0.5f)*VW; py = (0.5f-ny*0.5f)*VH; return true;
             };
             auto worldV = [&](int32 i){ return st->editAnchor * st->editRest[i].pos; };
+            // Test FACE-AVANT (normale du vertex tournée vers la caméra). Sert à ne
+            // PAS voir/sélectionner les vertices de derrière quand X-ray est OFF
+            // (fiable, indépendant du depth-buffer). X-ray ON -> tout est visible.
+            auto frontV = [&](int32 i)->bool {
+                if (st->editXray) return true;
+                NkVec3f w  = worldV(i);
+                NkVec3f nW = (st->editAnchor * (st->editRest[i].pos + st->editRest[i].normal)) - w;
+                return nW.Dot(camPos - w) > 0.f;
+            };
 
             // Centroïde monde de la sélection courante.
             NkVec3f cen = {0.f,0.f,0.f}; int32 selCnt = 0;
@@ -848,23 +881,26 @@ namespace nkentseu { namespace demo {
             if (gin.leftPressed && !grabbedHandle) {
                 const float32 mx = gin.mouseX, my = gin.mouseY;
                 if (!gin.shiftDown) for (int32 i=0;i<nv;i++) st->vertSel[i]=0;
-                if (st->editSelMode == 0) {                       // VERTEX : plus proche point
+                if (st->editSelMode == 0) {                       // VERTEX : plus proche point (visible)
                     int32 best=-1; float32 bd=14.f;
-                    for (int32 i=0;i<nv;i++){ float32 px,py; if(project(worldV(i),px,py)){ float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my)); if(d<bd){bd=d;best=i;} } }
+                    for (int32 i=0;i<nv;i++){ if(!frontV(i)) continue; float32 px,py; if(project(worldV(i),px,py)){ float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my)); if(d<bd){bd=d;best=i;} } }
                     if (best>=0) st->vertSel[best] = gin.shiftDown ? (uint8)(1-st->vertSel[best]) : 1;
-                } else if (st->editSelMode == 1) {                // EDGE : plus proche arête (2 verts)
+                } else if (st->editSelMode == 1) {                // EDGE : plus proche arête visible (2 verts)
                     int32 ba=-1,bb=-1; float32 bd=12.f;
                     for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
                         const uint32 e[3][2]={{st->editIdx[t],st->editIdx[t+1]},{st->editIdx[t+1],st->editIdx[t+2]},{st->editIdx[t+2],st->editIdx[t]}};
-                        for (int32 k=0;k<3;k++){ float32 ax,ay,bx,by; if(project(worldV(e[k][0]),ax,ay)&&project(worldV(e[k][1]),bx,by)){
+                        for (int32 k=0;k<3;k++){ if(!frontV((int32)e[k][0]) && !frontV((int32)e[k][1])) continue;
+                            float32 ax,ay,bx,by; if(project(worldV(e[k][0]),ax,ay)&&project(worldV(e[k][1]),bx,by)){
                             float32 dx=bx-ax,dy=by-ay,l2=dx*dx+dy*dy,tt=(l2>1e-6f)?((mx-ax)*dx+(my-ay)*dy)/l2:0.f; tt=tt<0?0:(tt>1?1:tt);
                             float32 cx=ax+tt*dx,cy=ay+tt*dy,d=sqrtf((mx-cx)*(mx-cx)+(my-cy)*(my-cy)); if(d<bd){bd=d;ba=(int32)e[k][0];bb=(int32)e[k][1];} } }
                     }
                     if (ba>=0){ st->vertSel[ba]=1; st->vertSel[bb]=1; }
-                } else {                                          // FACE : triangle au centroïde le plus proche
+                } else {                                          // FACE : triangle visible au centroïde le plus proche
                     int32 bt=-1; float32 bd=1e30f;
                     for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
-                        NkVec3f c3 = (worldV(st->editIdx[t])+worldV(st->editIdx[t+1])+worldV(st->editIdx[t+2]))*(1.f/3.f);
+                        const uint32 a=st->editIdx[t],b=st->editIdx[t+1],c=st->editIdx[t+2];
+                        if(!frontV((int32)a) && !frontV((int32)b) && !frontV((int32)c)) continue;
+                        NkVec3f c3 = (worldV(a)+worldV(b)+worldV(c))*(1.f/3.f);
                         float32 px,py; if(project(c3,px,py)){ float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my)); if(d<bd){bd=d;bt=(int32)t;} }
                     }
                     if (bt>=0){ st->vertSel[st->editIdx[bt]]=1; st->vertSel[st->editIdx[bt+1]]=1; st->vertSel[st->editIdx[bt+2]]=1; }
@@ -898,36 +934,50 @@ namespace nkentseu { namespace demo {
                 r3d->Submit(dc);
             }
 
-            // ── Marqueurs FINS (taille écran constante) façon Blender ──────────────
-            // Cage : arêtes du mesh (fines) ; sélectionnées en orange épais.
-            auto dl = [&](NkVec3f a, NkVec3f b, NkVec4f c){ r3d->DrawDebugLine(a,b,c,0.f,true); };
-            const NkVec4f cageCol{0.05f,0.05f,0.06f,1.f}, selCol{1.f,0.55f,0.05f,1.f};
-            for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
-                const uint32 a=st->editIdx[t],b=st->editIdx[t+1],c=st->editIdx[t+2];
-                NkVec3f wa=worldV(a),wb=worldV(b),wc=worldV(c);
-                bool sab=st->vertSel[a]&&st->vertSel[b], sbc=st->vertSel[b]&&st->vertSel[c], sca=st->vertSel[c]&&st->vertSel[a];
-                dl(wa,wb, sab?selCol:cageCol); dl(wb,wc, sbc?selCol:cageCol); dl(wc,wa, sca?selCol:cageCol);
+            // ── Marqueurs FINS façon Blender — DEPTH-TESTÉS (pas overlay) ──────────
+            // Clé du rendu Blender "solid + cage" : la cage et les points sont testés
+            // en profondeur -> la surface pleine CACHE les arêtes/points du fond (sinon
+            // effet x-ray/wireframe). Léger décalage VERS LA CAMÉRA pour vaincre le
+            // z-fighting avec la surface. Seul le GIZMO reste en overlay.
+            // X-ray ON -> overlay (depth OFF, on voit tout à travers) ; OFF -> depth-testé
+            // + on masque en plus les éléments FACE-ARRIÈRE (cull par normale = robuste).
+            const bool ov = st->editXray;
+            const float32 kBias = 0.0022f;   // décalage vers la caméra (anti z-fight en mode depth)
+            auto off = [&](NkVec3f p)->NkVec3f { NkVec3f d=camPos-p; return p + d*kBias; };
+            auto dlD = [&](NkVec3f a, NkVec3f b, NkVec4f c){
+                if (ov) r3d->DrawDebugLine(a,b,c,0.f,true);
+                else    r3d->DrawDebugLine(off(a),off(b),c,0.f,false);
+            };
+            const NkVec4f cageCol{0.02f,0.02f,0.03f,1.f}, selCol{1.f,0.55f,0.05f,1.f};
+            // Cage = arêtes UNIQUES ; sélectionnées (2 verts) en orange. X-ray OFF :
+            // on saute l'arête si ses DEUX sommets sont face-arrière (cachée).
+            for (uint32 e=0;e+1<(uint32)st->editEdges.Size();e+=2){
+                const uint32 a=st->editEdges[e], b=st->editEdges[e+1];
+                if (!st->editXray && !frontV((int32)a) && !frontV((int32)b)) continue;
+                bool sel = st->vertSel[a] && st->vertSel[b];
+                dlD(worldV(a), worldV(b), sel?selCol:cageCol);
             }
             // Points de vertices (petits carrés face-caméra, taille écran ~ pixels).
             auto dotAt = [&](NkVec3f w, NkVec4f col, float32 px){
                 float32 dist = (w-camPos).Len(); float32 s = px*(2.f*thY*dist)/VH;
                 NkVec3f R=rgt*s, U=upv*s, a=w-R-U,b=w+R-U,c2=w+R+U,d=w-R+U;
-                dl(a,b,col); dl(b,c2,col); dl(c2,d,col); dl(d,a,col);
+                dlD(a,b,col); dlD(b,c2,col); dlD(c2,d,col); dlD(d,a,col);
             };
             if (st->editSelMode == 0 || st->editSelMode == 1) {
-                for (int32 i=0;i<nv;i++){ bool s=st->vertSel[i]!=0;
+                for (int32 i=0;i<nv;i++){ if(!frontV(i)) continue; bool s=st->vertSel[i]!=0;
                     dotAt(worldV(i), s?NkVec4f{1.f,0.6f,0.05f,1.f}:NkVec4f{0.1f,0.1f,0.12f,1.f}, s?2.6f:1.8f); }
             }
-            // FACE : point au centroïde des faces sélectionnées.
+            // FACE : point au centroïde des faces sélectionnées (visibles).
             if (st->editSelMode == 2) {
                 for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
                     const uint32 a=st->editIdx[t],b=st->editIdx[t+1],c=st->editIdx[t+2];
+                    if (!st->editXray && !frontV((int32)a) && !frontV((int32)b) && !frontV((int32)c)) continue;
                     if (st->vertSel[a]&&st->vertSel[b]&&st->vertSel[c])
                         dotAt((worldV(a)+worldV(b)+worldV(c))*(1.f/3.f), NkVec4f{1.f,0.6f,0.05f,1.f}, 3.f);
                 }
             }
-            // Poignées du gizmo (overlay).
-            st->editGizmo.Draw(dl);
+            // Poignées du gizmo (OVERLAY, au-dessus de tout).
+            st->editGizmo.Draw([&](NkVec3f a, NkVec3f b, NkVec4f c){ r3d->DrawDebugLine(a,b,c,0.f,true); });
         }
 
         // ── Gizmo éditeur (composant réutilisable NkGizmo3D) ────────────────────
@@ -1009,9 +1059,9 @@ namespace nkentseu { namespace demo {
             const char* seName[3] = {"VERTEX", "EDGE", "FACE"};
             if (st->editMode) {
                 overlay->DrawText({20.f, 100.f},
-                    "EDIT MODE (obj #%d)  |  Selection(1/2/3): %s  |  Gizmo(G/R/S/C): %s  |  Orient(,): %s",
+                    "EDIT MODE (obj #%d)  |  Selection(1/2/3): %s  |  Gizmo(G/R/S/C): %s  |  X-ray(Alt+Z): %s",
                     st->editObjIdx, seName[st->editSelMode % 3],
-                    gmName[st->editGizmo.Mode() & 3], orName[st->editGizmo.Orientation() % 3]);
+                    gmName[st->editGizmo.Mode() & 3], st->editXray ? "ON" : "OFF");
                 overlay->DrawText({20.f, 118.f},
                     "clic=sel  Shift+clic=ajout  A/Alt+A=tout/rien  |  TAB=sortir  |  Ctrl=snap  X/Y/Z=verrou axe");
             } else {
