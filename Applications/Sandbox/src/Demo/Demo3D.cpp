@@ -207,6 +207,9 @@ namespace nkentseu { namespace demo {
         st->meshSphere = meshSys->GetSphere();
         st->meshPlane  = meshSys->GetPlane();
         st->meshCube   = meshSys->GetCube();
+        // Pas de SNAP (touche Ctrl) — LIBREMENT ajustables ici par l'application :
+        //   translate (unités monde) · rotation (degrés) · échelle (delta).
+        st->gizmo.SetSnapSteps(/*translate*/ 0.5f, /*rotation°*/ 15.f, /*échelle*/ 0.1f);
 
         // ── Phase E.6 : creation procedurale des cookies + bind ──────────────
         auto* texLib = ctx.renderer->GetTextures();

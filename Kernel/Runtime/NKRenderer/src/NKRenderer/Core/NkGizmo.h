@@ -88,10 +88,16 @@ namespace nkentseu {
                 int32 Mode()        const { return mMode; }
                 int32 Orientation() const { return mOrient; }
                 // Pas de SNAP (quand ctrlDown) : translate (unités monde), rotation (degrés),
-                // échelle (delta). Valeurs façon Blender par défaut (0.5 / 15° / 0.1).
+                // échelle (delta). LIBREMENT définis par l'application (défauts 0.5 / 15° / 0.1).
                 void SetSnapSteps(float32 translate, float32 rotateDeg, float32 scale) {
-                    if (translate>0.f) mSnapT=translate; if (rotateDeg>0.f) mSnapRdeg=rotateDeg; if (scale>0.f) mSnapS=scale;
+                    SetSnapTranslate(translate); SetSnapRotateDeg(rotateDeg); SetSnapScale(scale);
                 }
+                void SetSnapTranslate(float32 v) { if (v>0.f) mSnapT=v; }
+                void SetSnapRotateDeg(float32 v) { if (v>0.f) mSnapRdeg=v; }
+                void SetSnapScale(float32 v)     { if (v>0.f) mSnapS=v; }
+                float32 SnapTranslate() const { return mSnapT; }
+                float32 SnapRotateDeg() const { return mSnapRdeg; }
+                float32 SnapScale()     const { return mSnapS; }
 
                 // ── Sélection ─────────────────────────────────────────────────────
                 bool  HasSelection() const { return mHaveSel; }
