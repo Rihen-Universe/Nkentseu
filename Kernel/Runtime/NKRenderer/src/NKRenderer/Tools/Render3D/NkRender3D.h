@@ -131,6 +131,10 @@ namespace nkentseu {
                 static const int32 kMatcapCount = 5;
                 void  SetMatcap(int32 id) { mMatcapId = ((id % kMatcapCount) + kMatcapCount) % kMatcapCount; }
                 int32 Matcap() const      { return mMatcapId; }
+                // Remplace À CHAUD la boule matcap texture (preset Chrome/binding 28) par une
+                // texture chargée par l'utilisateur (.exr/.png décodé). tex invalide -> revient
+                // à la boule chrome générée. Rebinde tous les sets globaux immédiatement.
+                void  SetMatcapTexture(NkTextureHandle tex);
 
                 // Contrôle de la force du terme ambient IBL (0=aucun, 1=complet).
                 // Défaut 0.3 — réduit le blanchiment par le ciel procédural.

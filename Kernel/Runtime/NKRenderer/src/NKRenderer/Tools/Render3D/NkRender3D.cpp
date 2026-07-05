@@ -320,8 +320,11 @@ namespace nkentseu {
                 }
 
                 // Binding 28 : boule matcap (mode SOLID/WIREFRAME, matcap texture).
-                if (mMatcapTex.IsValid() && defSampler.IsValid())
-                    mDevice->BindTextureSampler(gs, 28, mMatcapTex, defSampler);
+                // Sampler CLAMP (pas repeat !) : au bord des sphères l'UV frôle 0/1 et le
+                // repeat rebouclerait sur le bord opposé -> stries sombres. Clamp = propre.
+                NkSamplerHandle mcSamp = mResources ? mResources->GetSamplerLinearClamp() : defSampler;
+                if (mMatcapTex.IsValid() && mcSamp.IsValid())
+                    mDevice->BindTextureSampler(gs, 28, mMatcapTex, mcSamp);
 
                 if (mShadow && mShadow->GetAtlasTexture().IsValid()) {
                     mDevice->BindTextureSampler(gs, 11,
@@ -1133,6 +1136,21 @@ namespace nkentseu {
                     mDevice->BindTextureSampler(gsm, 27, tex, samp);
             }
             logger.Info("[NkRender3D] VoxelAO texture bind a set=0 binding=27\n");
+        }
+
+        // Remplace À CHAUD la boule matcap (binding 28). Permet à l'utilisateur de charger
+        // sa propre texture matcap (.exr/.png décodé) et de la changer au runtime.
+        void NkRender3D::SetMatcapTexture(NkTextureHandle tex) {
+            NkTextureHandle bind = tex.IsValid() ? tex : mMatcapTex;   // fallback = chrome généré
+            if (!bind.IsValid() || !mResources) return;
+            NkSamplerHandle samp = mResources->GetSamplerLinearClamp();
+            if (!samp.IsValid()) return;
+            for (uint32 i = 0; i < mFramesInFlight; i++) {
+                if (i < mGlobalSetRing.Size() && mGlobalSetRing[i].IsValid())
+                    mDevice->BindTextureSampler(mGlobalSetRing[i], 28, bind, samp);
+                if (i < mGlobalSetMirrorRing.Size() && mGlobalSetMirrorRing[i].IsValid())
+                    mDevice->BindTextureSampler(mGlobalSetMirrorRing[i], 28, bind, samp);
+            }
         }
 
         void NkRender3D::FlushIntoRT(NkICommandBuffer* cmd, NkRenderPassHandle rp,
