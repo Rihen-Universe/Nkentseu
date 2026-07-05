@@ -40,7 +40,7 @@ namespace nkentseu { namespace demo {
         // option "Color" du mode Solid de Blender. 0=MATERIAL (couleur du matériau),
         // 1=GRIS uniforme (défaut), 2=CUSTOM (couleur choisie). Touche B pour cycler.
         int32        unlitColorMode  = 1;
-        NkVec3f      unlitGray       = {0.72f, 0.73f, 0.76f};
+        NkVec3f      unlitGray       = {0.38f, 0.39f, 0.42f};   // gris moyen-foncé façon Blender
         NkVec3f      unlitCustom     = {0.45f, 0.62f, 0.85f};
         // Panel debug : index PCF mode courant pour cycle (P)
         int32        pcfIdx = (int32)NkPCFMode::PCF5x5;
