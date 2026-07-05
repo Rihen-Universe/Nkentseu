@@ -1183,19 +1183,30 @@ namespace nkentseu { namespace demo {
                 // Modes combinables : on cherche le meilleur candidat de CHAQUE mode actif
                 // puis on sélectionne le plus proche du curseur (vertex/arête gagnent près
                 // d'eux, la face gagne au centre). Façon Blender (vertex/edge/face combinés).
-                int32 bestV=-1; float32 dV=14.f;
+                // VERTEX : parmi les sommets SOUS le curseur (dans un rayon écran), on prend
+                // le plus PROCHE DE LA CAMÉRA (= celui devant, visible), pas le plus proche
+                // en 2D -> corrige la sélection d'un sommet DERRIÈRE.
+                const float32 kVertPx = 14.f;
+                int32 bestV=-1; float32 bestVdepth=1e30f;
                 if (st->editSelMask & 1) {
                     for (int32 i=0;i<nv;i++){ if(!frontV(i)) continue; float32 px,py;
-                        if(project(worldV(i),px,py)){ float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my)); if(d<dV){dV=d;bestV=i;} } }
+                        if(project(worldV(i),px,py)){
+                            float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my));
+                            if (d<kVertPx){ float32 dep=(worldV(i)-camPos).Len(); if(dep<bestVdepth){ bestVdepth=dep; bestV=i; } } } }
                 }
-                int32 bestEa=-1,bestEb=-1; float32 dE=12.f;
+                // EDGE : idem, parmi les arêtes sous le curseur on prend celle dont le milieu
+                // est le plus proche de la caméra.
+                const float32 kEdgePx = 12.f;
+                int32 bestEa=-1,bestEb=-1; float32 bestEdepth=1e30f;
                 if (st->editSelMask & 2) {
                     for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
                         const uint32 e[3][2]={{st->editIdx[t],st->editIdx[t+1]},{st->editIdx[t+1],st->editIdx[t+2]},{st->editIdx[t+2],st->editIdx[t]}};
                         for (int32 k=0;k<3;k++){ if(!frontV((int32)e[k][0]) && !frontV((int32)e[k][1])) continue;
                             float32 ax,ay,bx,by; if(project(worldV(e[k][0]),ax,ay)&&project(worldV(e[k][1]),bx,by)){
                             float32 dx=bx-ax,dy=by-ay,l2=dx*dx+dy*dy,tt=(l2>1e-6f)?((mx-ax)*dx+(my-ay)*dy)/l2:0.f; tt=tt<0?0:(tt>1?1:tt);
-                            float32 cx=ax+tt*dx,cy=ay+tt*dy,d=sqrtf((mx-cx)*(mx-cx)+(my-cy)*(my-cy)); if(d<dE){dE=d;bestEa=(int32)e[k][0];bestEb=(int32)e[k][1];} } }
+                            float32 cx=ax+tt*dx,cy=ay+tt*dy,d=sqrtf((mx-cx)*(mx-cx)+(my-cy)*(my-cy));
+                            if (d<kEdgePx){ NkVec3f mid=(worldV(e[k][0])+worldV(e[k][1]))*0.5f; float32 dep=(mid-camPos).Len();
+                                if(dep<bestEdepth){ bestEdepth=dep; bestEa=(int32)e[k][0]; bestEb=(int32)e[k][1]; } } } }
                     }
                 }
                 // FACE : RAYON depuis la caméra à travers le curseur -> triangle le plus
