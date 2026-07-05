@@ -855,6 +855,8 @@ namespace nkentseu {
             if (mEditLineBuf.IsValid())         { mDevice->DestroyBuffer(mEditLineBuf); mEditLineBuf={}; }
             if (mEditTriBuf.IsValid())          { mDevice->DestroyBuffer(mEditTriBuf); mEditTriBuf={}; }
             if (mEditPointBuf.IsValid())        { mDevice->DestroyBuffer(mEditPointBuf); mEditPointBuf={}; }
+            if (mEditPointPipeline.IsValid())        { mDevice->DestroyPipeline(mEditPointPipeline); mEditPointPipeline={}; }
+            if (mEditPointPipelineNoDepth.IsValid()) { mDevice->DestroyPipeline(mEditPointPipelineNoDepth); mEditPointPipelineNoDepth={}; }
             mDebugInited = false;
         }
 
@@ -2182,18 +2184,67 @@ namespace nkentseu {
             return mTriPipeline.IsValid();
         }
 
+        // Pipeline point-sprite écran-constant (marqueurs de vertices façon Blender) :
+        // shader EditPoint (billboard en espace écran), quads (TRIANGLE_LIST), stride 36
+        // (pos3 + corner2 + rgba4). Même polygon-offset que le fill pour coller à la surface.
+        bool NkRender3D::EnsureEditPointPipeline(NkRenderPassHandle currentRP) {
+            if (mEditPointPipeline.IsValid() && mEditPointPipelineRP == currentRP) return true;
+            if (!mShaderLib) return false;
+            if (!mEditPointShader.IsValid()) {
+                auto prog = mShaderLib->LoadOrCompileVF("EditPoint", "", "");
+                if (!prog.IsValid()) { logger.Errorf("[NkR3D::EditPoint] shader compile FAIL\n"); return false; }
+                mEditPointShader = mShaderLib->GetRHIHandle(prog);
+                if (!mEditPointShader.IsValid()) { logger.Errorf("[NkR3D::EditPoint] RHI handle FAIL\n"); return false; }
+            }
+            if (mEditPointPipeline.IsValid())        { mDevice->DestroyPipeline(mEditPointPipeline);        mEditPointPipeline = {}; }
+            if (mEditPointPipelineNoDepth.IsValid()) { mDevice->DestroyPipeline(mEditPointPipelineNoDepth); mEditPointPipelineNoDepth = {}; }
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = mEditPointShader;
+            pd.depthStencil = NkDepthStencilDesc::Default();
+            pd.depthStencil.depthCompareOp   = NkCompareOp::NK_LESS_EQUAL;
+            pd.depthStencil.depthWriteEnable = false;
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.rasterizer.depthBiasConst = -2.0f;
+            pd.rasterizer.depthBiasSlope = -2.0f;
+            pd.blend        = NkBlendDesc::Alpha();
+            pd.topology     = NkPrimitiveTopology::NK_TRIANGLE_LIST;
+            pd.debugName    = "EditPoint";
+            pd.renderPass   = currentRP;
+            pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+            pd.vertexLayout
+              .AddBinding(0, 36, false)
+              .AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT,  0,  "POSITION", 0)
+              .AddAttribute(1, 0, NkVertexFormat::NK_RG32_FLOAT,   12, "TEXCOORD", 0)
+              .AddAttribute(2, 0, NkVertexFormat::NK_RGBA32_FLOAT, 20, "COLOR",    0);
+            mEditPointPipeline   = mDevice->CreateGraphicsPipeline(pd);
+            mEditPointPipelineRP = currentRP;
+            pd.depthStencil = NkDepthStencilDesc::NoDepth();
+            pd.debugName    = "EditPointOverlay";
+            mEditPointPipelineNoDepth = mDevice->CreateGraphicsPipeline(pd);
+            return mEditPointPipeline.IsValid();
+        }
+
         void NkRender3D::FlushDebug(NkICommandBuffer* cmd, NkRenderPassHandle currentRP,
                                     NkDescSetHandle gs) {
             // ── Edit overlay PERSISTANT (cage/faces/points) : rendu chaque frame depuis
             //    des buffers GPU gardés (aucune reconstruction CPU tant que rien ne
             //    change). Faces/points d'abord (fill), puis la cage par-dessus. ────────
-            if ((mEditTriN || mEditPointN) && EnsureDebugTriOverlayPipeline(currentRP)) {
+            // Faces (fill translucide) — pipeline triangles.
+            if (mEditTriN && EnsureDebugTriOverlayPipeline(currentRP)) {
                 NkPipelineHandle tp = mEditOverlayNoDepth ? mTriPipelineNoDepth : mTriPipeline;
                 if (tp.IsValid()) {
                     cmd->BindGraphicsPipeline(tp);
                     if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
-                    if (mEditTriN)   { cmd->BindVertexBuffer(0, mEditTriBuf,   0); cmd->Draw(mEditTriN); }
-                    if (mEditPointN) { cmd->BindVertexBuffer(0, mEditPointBuf, 0); cmd->Draw(mEditPointN); }
+                    cmd->BindVertexBuffer(0, mEditTriBuf, 0); cmd->Draw(mEditTriN);
+                }
+            }
+            // Points (marqueurs de vertices) — pipeline POINT SPRITE écran-constant.
+            if (mEditPointN && EnsureEditPointPipeline(currentRP)) {
+                NkPipelineHandle pp = mEditOverlayNoDepth ? mEditPointPipelineNoDepth : mEditPointPipeline;
+                if (pp.IsValid()) {
+                    cmd->BindGraphicsPipeline(pp);
+                    if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+                    cmd->BindVertexBuffer(0, mEditPointBuf, 0); cmd->Draw(mEditPointN);
                 }
             }
             if (mEditLineN && EnsureDebugLinePipeline(currentRP)) {
@@ -2363,19 +2414,19 @@ namespace nkentseu {
             mDebugTris.PushBack({a,b,c,color,life,overlay});
         }
         // ── Edit overlay persistant ────────────────────────────────────────────────
-        void NkRender3D::UploadEditBuf(NkBufferHandle& buf, uint32& cap, const float* v, uint32 vcount) {
+        void NkRender3D::UploadEditBuf(NkBufferHandle& buf, uint32& cap, const float* v, uint32 vcount, uint32 strideBytes) {
             if (vcount == 0) return;
-            const uint64 stride = 7 * sizeof(float);   // pos3 + rgba4
             if (!buf.IsValid() || cap < vcount) {
                 if (buf.IsValid()) mDevice->DestroyBuffer(buf);
                 cap = vcount + 256;
-                buf = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)cap * stride));
+                buf = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)cap * strideBytes));
             }
-            mDevice->WriteBuffer(buf, v, (uint64)vcount * stride, 0);
+            mDevice->WriteBuffer(buf, v, (uint64)vcount * strideBytes, 0);
         }
-        void NkRender3D::SetEditOverlayLines (const float* v, uint32 n){ UploadEditBuf(mEditLineBuf, mEditLineCap, v, n); mEditLineN=n; }
-        void NkRender3D::SetEditOverlayTris  (const float* v, uint32 n){ UploadEditBuf(mEditTriBuf,  mEditTriCap,  v, n); mEditTriN=n; }
-        void NkRender3D::SetEditOverlayPoints(const float* v, uint32 n){ UploadEditBuf(mEditPointBuf,mEditPointCap,v, n); mEditPointN=n; }
+        void NkRender3D::SetEditOverlayLines (const float* v, uint32 n){ UploadEditBuf(mEditLineBuf, mEditLineCap, v, n, 7*sizeof(float)); mEditLineN=n; }
+        void NkRender3D::SetEditOverlayTris  (const float* v, uint32 n){ UploadEditBuf(mEditTriBuf,  mEditTriCap,  v, n, 7*sizeof(float)); mEditTriN=n; }
+        // Points = sprites écran-constant : vertex = pos3 + corner2(px) + rgba4 = 9 float.
+        void NkRender3D::SetEditOverlayPoints(const float* v, uint32 n){ UploadEditBuf(mEditPointBuf,mEditPointCap,v, n, 9*sizeof(float)); mEditPointN=n; }
         void NkRender3D::SetEditOverlayXray  (bool xray){ mEditOverlayNoDepth = xray; }
         void NkRender3D::ClearEditOverlay(){ mEditLineN=mEditTriN=mEditPointN=0; }
         void NkRender3D::DrawDebugSphere(NkVec3f c, float32 r, NkVec4f color) {

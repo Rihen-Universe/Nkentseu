@@ -493,7 +493,13 @@ namespace nkentseu {
                 uint32                     mEditLineN=0, mEditTriN=0, mEditPointN=0;      // vertices actifs
                 uint32                     mEditLineCap=0, mEditTriCap=0, mEditPointCap=0; // capacité (vertices)
                 bool                       mEditOverlayNoDepth=false;                      // X-ray
-                void UploadEditBuf(NkBufferHandle& buf, uint32& cap, const float* v, uint32 vcount);
+                // Point sprite écran-constant (marqueurs de vertices façon Blender).
+                ::nkentseu::NkShaderHandle mEditPointShader;
+                NkPipelineHandle           mEditPointPipeline, mEditPointPipelineNoDepth;
+                NkRenderPassHandle         mEditPointPipelineRP{};
+                bool EnsureEditPointPipeline(NkRenderPassHandle currentRP);
+                // stride en OCTETS d'un vertex (7*float lignes/tris, 9*float points sprite).
+                void UploadEditBuf(NkBufferHandle& buf, uint32& cap, const float* v, uint32 vcount, uint32 strideBytes);
                 bool EnsureDebugLinePipeline(NkRenderPassHandle currentRP);
         };
 

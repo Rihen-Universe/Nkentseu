@@ -1,0 +1,10 @@
+// editpoint.frag.nksl — NKRenderer — sortie = couleur du point (carré plein façon
+// Blender). Pas d'éclairage.
+@location(0) in  vec4 vColor;
+@location(0) out vec4 oColor;
+
+@stage(fragment)
+@entry
+void main() {
+    oColor = vColor;
+}

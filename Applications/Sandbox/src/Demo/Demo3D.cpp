@@ -1300,21 +1300,28 @@ namespace nkentseu { namespace demo {
                     pushV(L, liveW((int32)a), c); pushV(L, liveW((int32)b), c);
                 }
                 r3d->SetEditOverlayLines(L.Empty()?nullptr:L.Data(), (uint32)(L.Size()/7));
-                // POINTS : petits quads pleins (plan tangent) — mode VERTEX actif seulement
-                // (en EDGE seul, on ne montre PAS les points -> les arêtes suffisent, façon Blender).
+                // POINTS : marqueurs de vertices en SPRITE ÉCRAN-CONSTANT (taille en pixels
+                // fixe quel que soit le zoom, façon Blender). Chaque point = un quad dont
+                // chaque sommet porte {centre monde, coin en PIXELS, couleur} (9 floats) ;
+                // le vertex shader billboarde en espace écran. Mode VERTEX actif seulement.
+                (void)dotS;
                 NkVector<float> P;
                 if (st->editSelMask & 1) {
-                    P.Reserve((uint32)nv*6*7);
+                    auto pushPt=[&](NkVec3f w, NkVec2f corner, NkVec4f c){
+                        P.PushBack(w.x);P.PushBack(w.y);P.PushBack(w.z);
+                        P.PushBack(corner.x);P.PushBack(corner.y);
+                        P.PushBack(c.x);P.PushBack(c.y);P.PushBack(c.z);P.PushBack(c.w); };
+                    P.Reserve((uint32)nv*6*9);
                     for (int32 i=0;i<nv;i++){
-                        NkVec3f w=liveW(i), nW=normW(i);
-                        NkVec3f t=nW.Cross(NkVec3f{0.f,1.f,0.f}); if(t.Len()<1e-3f) t=nW.Cross(NkVec3f{1.f,0.f,0.f});
-                        t=t*(1.f/NkMax(t.Len(),1e-6f)); NkVec3f bt=nW.Cross(t);
-                        NkVec3f R=t*dotS, U=bt*dotS, q0=w-R-U,q1=w+R-U,q2=w+R+U,q3=w-R+U;
-                        NkVec4f c=st->vertSel[i]?NkVec4f{1.f,0.6f,0.05f,1.f}:NkVec4f{0.05f,0.05f,0.07f,1.f};
-                        pushV(P,q0,c);pushV(P,q1,c);pushV(P,q2,c); pushV(P,q0,c);pushV(P,q2,c);pushV(P,q3,c);
+                        NkVec3f w=liveW(i);
+                        const float32 s = st->vertSel[i] ? 4.5f : 3.2f;   // demi-taille en PIXELS
+                        NkVec4f c=st->vertSel[i]?NkVec4f{1.f,0.6f,0.05f,1.f}:NkVec4f{0.f,0.f,0.f,1.f};
+                        NkVec2f q0{-s,-s},q1{s,-s},q2{s,s},q3{-s,s};
+                        pushPt(w,q0,c);pushPt(w,q1,c);pushPt(w,q2,c);
+                        pushPt(w,q0,c);pushPt(w,q2,c);pushPt(w,q3,c);
                     }
                 }
-                r3d->SetEditOverlayPoints(P.Empty()?nullptr:P.Data(), (uint32)(P.Size()/7));
+                r3d->SetEditOverlayPoints(P.Empty()?nullptr:P.Data(), (uint32)(P.Size()/9));
                 // FACES : UN seul triangle coplanaire translucide (pas de géométrie ajoutée,
                 // juste un overlay). Le pipeline de fill (LESS_EQUAL + biais vers la caméra)
                 // le rend visible des DEUX CÔTÉS façon Blender, sans créer de second plan.
