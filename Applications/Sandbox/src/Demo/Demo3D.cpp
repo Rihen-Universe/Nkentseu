@@ -79,6 +79,8 @@ namespace nkentseu { namespace demo {
         bool                            editTogglePending = false; // TAB traité côté frame (accès meshSys)
         bool                            editWasDragging   = false; // pour baker le delta en fin de drag
         bool                            editOverlayDirty  = true;  // reconstruire les buffers overlay (cage/points/faces)
+        bool                            editExtrudePending = false; // E : extrude région (traité côté frame)
+        bool                            editDeletePending  = false; // X : supprime faces (traité côté frame)
         renderer::NkGizmo3D             editGizmo;     // 1 seule cible = centroïde de la sélection
     };
 
@@ -93,6 +95,101 @@ namespace nkentseu { namespace demo {
         if (idx >= 19 && idx < 83) { int32 g = idx-19, gz = g/8, gx = g%8;
             return NkMat4f::Translate({(gx-3.5f)*0.55f, 1.6f, (gz-3.5f)*0.55f-4.5f}) * NkMat4f::Scale({0.18f,0.18f,0.18f}); }
         return NkMat4f::Identity();
+    }
+
+    // ── Outils d'édition de topologie (Phase C) ──────────────────────────────────
+    // Recalcule les normales par vertex = moyenne (pondérée par l'aire) des normales
+    // de face. À appeler après toute déformation / changement de topologie.
+    static void Demo3D_RecomputeNormals(NkVector<renderer::NkVertex3D>& V, const NkVector<uint32>& I) {
+        for (uint32 i=0;i<(uint32)V.Size();i++) V[i].normal = {0.f,0.f,0.f};
+        for (uint32 t=0;t+2<(uint32)I.Size();t+=3){
+            const uint32 a=I[t],b=I[t+1],c=I[t+2];
+            NkVec3f fn=(V[b].pos-V[a].pos).Cross(V[c].pos-V[a].pos);   // pondérée par l'aire (non normalisée)
+            V[a].normal=V[a].normal+fn; V[b].normal=V[b].normal+fn; V[c].normal=V[c].normal+fn;
+        }
+        for (uint32 i=0;i<(uint32)V.Size();i++){ float32 l=V[i].normal.Len();
+            V[i].normal = (l>1e-6f)? V[i].normal*(1.f/l) : NkVec3f{0.f,1.f,0.f}; }
+    }
+
+    // Reconstruit les arêtes UNIQUES (cage) depuis la topologie courante.
+    static void Demo3D_RebuildEdges(Demo3DState* st) {
+        st->editEdges.Clear();
+        NkHashMap<uint64,uint8> seen; seen.Reserve((uint32)st->editIdx.Size());
+        for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
+            const uint32 tri[3]={st->editIdx[t],st->editIdx[t+1],st->editIdx[t+2]};
+            for (int32 k=0;k<3;k++){ uint32 a=tri[k],b=tri[(k+1)%3]; uint32 lo=a<b?a:b,hi=a<b?b:a;
+                uint64 key=((uint64)lo<<32)|(uint64)hi;
+                if(!seen.Contains(key)){ seen.InsertOrAssign(key,(uint8)1); st->editEdges.PushBack(lo); st->editEdges.PushBack(hi); } }
+        }
+    }
+
+    // Recrée le mesh GPU dynamique depuis les données CPU (après topologie/normales).
+    // Un mesh dynamique a une taille FIXE -> après ajout/suppression de vertices il faut
+    // le RECRÉER (pas juste UpdateVertices). Opérations rares -> coût négligeable.
+    static void Demo3D_RebuildEditMesh(Demo3DState* st, renderer::NkMeshSystem* ms) {
+        Demo3D_RecomputeNormals(st->editRest, st->editIdx);
+        st->editLive = st->editRest;
+        Demo3D_RebuildEdges(st);
+        if (st->editMesh.IsValid()) ms->Release(st->editMesh);
+        renderer::NkMeshDesc d = renderer::NkMeshDesc::Simple(renderer::NkVertexLayout::Default3D(),
+            st->editRest.Data(), (uint32)st->editRest.Size(), st->editIdx.Data(), (uint32)st->editIdx.Size());
+        d.dynamic = true; d.debugName = "Demo3D_EditMesh";
+        st->editMesh = ms->Create(d);
+        st->editOverlayDirty = true;
+    }
+
+    // EXTRUDE (E) : extrude la RÉGION des faces sélectionnées le long de la normale
+    // moyenne. Duplique les vertices des faces sélectionnées (cap du dessus), crée des
+    // quads latéraux sur les arêtes de BORD, sélectionne le cap -> prêt pour un G (grab).
+    static void Demo3D_ExtrudeSelectedFaces(Demo3DState* st) {
+        auto& V=st->editRest; auto& I=st->editIdx; auto& S=st->vertSel;
+        NkVector<uint32> selT; NkVec3f avgN{0.f,0.f,0.f};
+        for (uint32 t=0;t+2<(uint32)I.Size();t+=3){ const uint32 a=I[t],b=I[t+1],c=I[t+2];
+            if(S[a]&&S[b]&&S[c]){ selT.PushBack(t); avgN=avgN+(V[b].pos-V[a].pos).Cross(V[c].pos-V[a].pos); } }
+        if (selT.Empty()) return;
+        { float32 l=avgN.Len(); avgN=(l>1e-6f)?avgN*(1.f/l):NkVec3f{0.f,1.f,0.f}; }
+        NkVec3f bmin{1e30f,1e30f,1e30f},bmax{-1e30f,-1e30f,-1e30f};
+        for (uint32 i=0;i<(uint32)V.Size();i++){ NkVec3f p=V[i].pos;
+            bmin.x=NkMin(bmin.x,p.x);bmin.y=NkMin(bmin.y,p.y);bmin.z=NkMin(bmin.z,p.z);
+            bmax.x=NkMax(bmax.x,p.x);bmax.y=NkMax(bmax.y,p.y);bmax.z=NkMax(bmax.z,p.z); }
+        const float32 off=(bmax-bmin).Len()*0.08f;
+        // Duplique les vertices des faces sélectionnées + compte les arêtes.
+        NkVector<int32> vmap; vmap.Resize((uint32)V.Size()); for(uint32 i=0;i<(uint32)vmap.Size();i++) vmap[i]=-1;
+        NkHashMap<uint64,int32> ecount;
+        auto ekey=[&](uint32 a,uint32 b)->uint64{ uint32 lo=a<b?a:b,hi=a<b?b:a; return ((uint64)lo<<32)|(uint64)hi; };
+        for (uint32 s=0;s<(uint32)selT.Size();s++){ const uint32 t=selT[s]; const uint32 tri[3]={I[t],I[t+1],I[t+2]};
+            for (int32 k=0;k<3;k++){ uint32 vi=tri[k]; if(vmap[vi]<0){ vmap[vi]=(int32)V.Size(); renderer::NkVertex3D nv=V[vi]; nv.pos=nv.pos+avgN*off; V.PushBack(nv); } }
+            for (int32 k=0;k<3;k++){ uint64 key=ekey(tri[k],tri[(k+1)%3]); int32* p=ecount.Find(key); if(p)(*p)++; else ecount.InsertOrAssign(key,1); }
+        }
+        // Quads latéraux sur les arêtes de BORD (utilisées par UNE seule face sélectionnée).
+        for (auto& [key,cnt] : ecount){ if(cnt!=1) continue;
+            uint32 lo=(uint32)(key>>32), hi=(uint32)(key & 0xFFFFFFFFu);
+            uint32 nlo=(uint32)vmap[lo], nhi=(uint32)vmap[hi];
+            I.PushBack(lo); I.PushBack(hi); I.PushBack(nhi);
+            I.PushBack(lo); I.PushBack(nhi); I.PushBack(nlo);
+        }
+        // Re-pointe les faces sélectionnées vers le cap dupliqué.
+        for (uint32 s=0;s<(uint32)selT.Size();s++){ const uint32 t=selT[s];
+            I[t]=(uint32)vmap[I[t]]; I[t+1]=(uint32)vmap[I[t+1]]; I[t+2]=(uint32)vmap[I[t+2]]; }
+        // Sélection = uniquement le cap (nouveaux vertices).
+        S.Resize((uint32)V.Size()); for(uint32 i=0;i<(uint32)S.Size();i++) S[i]=0;
+        for (uint32 i=0;i<(uint32)vmap.Size();i++) if(vmap[i]>=0) S[(uint32)vmap[i]]=1;
+    }
+
+    // DELETE (X) : supprime les faces sélectionnées (3 vertices sélectionnés) puis
+    // compacte les vertices orphelins (réindexation).
+    static void Demo3D_DeleteSelectedFaces(Demo3DState* st) {
+        auto& V=st->editRest; auto& I=st->editIdx; auto& S=st->vertSel;
+        NkVector<uint32> nI;
+        for (uint32 t=0;t+2<(uint32)I.Size();t+=3){ const uint32 a=I[t],b=I[t+1],c=I[t+2];
+            if(S[a]&&S[b]&&S[c]) continue;   // face sélectionnée -> supprimée
+            nI.PushBack(a); nI.PushBack(b); nI.PushBack(c); }
+        NkVector<int32> remap; remap.Resize((uint32)V.Size()); for(uint32 i=0;i<(uint32)remap.Size();i++) remap[i]=-1;
+        NkVector<renderer::NkVertex3D> nV; NkVector<uint8> nS;
+        for (uint32 j=0;j<(uint32)nI.Size();j++){ uint32 vi=nI[j];
+            if(remap[vi]<0){ remap[vi]=(int32)nV.Size(); nV.PushBack(V[vi]); nS.PushBack(S[vi]); }
+            nI[j]=(uint32)remap[vi]; }
+        V=nV; I=nI; S=nS;
     }
 
     // E.6b : cubemap procedurale 128x128x6 pour point light.
@@ -412,6 +509,11 @@ namespace nkentseu { namespace demo {
                     for (uint32 i=0;i<(uint32)st->vertSel.Size();i++) st->vertSel[i] = v;
                     st->editOverlayDirty=true;
                     return;
+                }
+                // Outils topologie (hors drag) : E = extrude région, X = supprimer faces.
+                if (!st->editGizmo.IsDragging()) {
+                    if (k == NkKey::NK_E) { st->editExtrudePending = true; return; }
+                    if (k == NkKey::NK_X) { st->editDeletePending  = true; return; }
                 }
             }
             // Gizmo ACTIF selon le mode : objet ou vertices.
@@ -832,6 +934,23 @@ namespace nkentseu { namespace demo {
         // le clic sélectionne (vertex / arête / face). Marqueurs = taille écran (fins).
         if (st->editMode && st->editMesh.IsValid()) {
             auto* meshSysF = ctx.renderer->GetMeshSystem();
+            // Outils topologie (E/X) : modifient les données CPU puis RECRÉENT le mesh GPU
+            // (taille change) + recalculent normales/arêtes. Fait avant de lire `nv`.
+            if (st->editExtrudePending) { st->editExtrudePending=false;
+                Demo3D_ExtrudeSelectedFaces(st); if(meshSysF) Demo3D_RebuildEditMesh(st, meshSysF);
+                logger.Info("[Demo3D] Extrude -> {0} vertices\n", (int32)st->editRest.Size()); }
+            if (st->editDeletePending) { st->editDeletePending=false;
+                Demo3D_DeleteSelectedFaces(st);
+                if (st->editIdx.Empty()) {
+                    // Plus aucune face -> on sort de l'édition (l'objet source réapparaît).
+                    if (meshSysF && st->editMesh.IsValid()) meshSysF->Release(st->editMesh);
+                    st->editMesh = {}; st->editMode = false; st->editObjIdx = -1;
+                    r3d->ClearEditOverlay();
+                    logger.Info("[Demo3D] Delete : mesh vide -> sortie edit mode\n");
+                } else if (meshSysF) {
+                    Demo3D_RebuildEditMesh(st, meshSysF);
+                    logger.Info("[Demo3D] Delete faces -> {0} vertices\n", (int32)st->editRest.Size());
+                } }
             const int32 nv = (int32)st->editRest.Size();
 
             // Projection monde->écran (même convention que le gizmo).
@@ -927,10 +1046,15 @@ namespace nkentseu { namespace demo {
                 if (meshSysF) meshSysF->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv);
                 st->editOverlayDirty = true;   // positions changées -> overlay suit le mesh
             }
-            // Fin de drag -> baker le delta dans le repos + reset du gizmo.
+            // Fin de drag -> baker le delta dans le repos + RECALCUL des normales
+            // (la surface a changé -> l'éclairage doit suivre) + reset du gizmo.
             if (st->editWasDragging && !st->editGizmo.IsDragging()) {
                 for (int32 i=0;i<nv;i++) st->editRest[i]=st->editLive[i];
+                Demo3D_RecomputeNormals(st->editRest, st->editIdx);
+                st->editLive = st->editRest;
+                if (meshSysF) meshSysF->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv);
                 st->editGizmo.ResetSelected();
+                st->editOverlayDirty = true;
             }
             st->editWasDragging = st->editGizmo.IsDragging();
 
@@ -1092,7 +1216,7 @@ namespace nkentseu { namespace demo {
                     st->editObjIdx, seName[st->editSelMode % 3],
                     gmName[st->editGizmo.Mode() & 3], st->editXray ? "ON" : "OFF");
                 overlay->DrawText({20.f, 118.f},
-                    "clic=sel  Shift+clic=ajout  A/Alt+A=tout/rien  |  TAB=sortir  |  Ctrl=snap  X/Y/Z=verrou axe");
+                    "clic=sel  Shift+clic=ajout  A/Alt+A=tout/rien  |  E=extrude  X=supprimer  |  TAB=sortir  Alt+Z=x-ray");
             } else {
                 overlay->DrawText({20.f, 100.f},
                     "OBJET  |  Gizmo(G/R/S/C): %s  |  Orient(,): %s   |  TAB=editer l'objet selectionne",
