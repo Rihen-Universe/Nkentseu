@@ -309,10 +309,12 @@ namespace nkentseu { namespace demo {
         // Réglages viewport/debug sur F-keys (hors keymap Blender essentiel) :
         //   F1=grille on/off · F2/F3/F4=grille internes/majeures/axes · F11/F12=opacité plan -/+
         //   V=VSync
-        NkEvents().AddEventCallback<NkKeyPressEvent>([renderer](NkKeyPressEvent* e) {
+        NkEvents().AddEventCallback<NkKeyPressEvent>([renderer, st](NkKeyPressEvent* e) {
             const NkKey k = e->GetKey();
             if (k == NkKey::NK_V) { static bool vsync=true; vsync=!vsync; renderer->SetVSync(vsync); logger.Info("[Demo3D] VSync = {0}\n", vsync); }
             if (auto* r3d = renderer->GetRender3D()) {
+                // Z (hors drag) = wireframe on/off (façon Blender ; en drag, Z = verrou d'axe).
+                if (k == NkKey::NK_Z && !st->gizmo.IsDragging()) { bool w=!r3d->IsWireframe(); r3d->SetWireframe(w); logger.Info("[Demo3D] Wireframe = {0}\n", w); }
                 auto& g = r3d->GetInfiniteGridParams();
                 if (k == NkKey::NK_F1) { bool on=!r3d->IsInfiniteGridEnabled(); r3d->SetInfiniteGridEnabled(on); logger.Info("[Demo3D] Grille = {0}\n", on); }
                 if (k == NkKey::NK_F2) { g.showMinor=!g.showMinor; logger.Info("[Demo3D] Grille internes = {0}\n", g.showMinor); }

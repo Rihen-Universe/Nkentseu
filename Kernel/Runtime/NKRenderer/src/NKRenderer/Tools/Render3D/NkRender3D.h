@@ -120,6 +120,7 @@ namespace nkentseu {
                 void SubmitSkinnedTinted(const NkDrawCallSkinned& dc, NkVec3f tint, float32 alpha=1.f);
 
                 void SetWireframe(bool e) { mWireframe=e; }
+                bool IsWireframe() const  { return mWireframe; }
 
                 // Contrôle de la force du terme ambient IBL (0=aucun, 1=complet).
                 // Défaut 0.3 — réduit le blanchiment par le ciel procédural.

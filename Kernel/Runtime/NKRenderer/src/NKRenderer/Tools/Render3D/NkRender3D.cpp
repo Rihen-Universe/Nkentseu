@@ -536,8 +536,7 @@ namespace nkentseu {
             mPBRPipeline = mDevice->CreateGraphicsPipeline(pd);
             mPBRPipelineRP = currentRP;
             logger.Info("[NkRender3D] PBR pipeline (lazy) create: shader_valid={0} pipeline_valid={1} rp.id={2}\n",
-                        mPBRShader.IsValid() ? 1 : 0, mPBRPipeline.IsValid() ? 1 : 0,
-                        currentRP.id);
+                        mPBRShader.IsValid() ? 1 : 0, mPBRPipeline.IsValid() ? 1 : 0, currentRP.id);
             return mPBRPipeline.IsValid();
         }
 
@@ -1019,6 +1018,9 @@ namespace nkentseu {
             if (gs.IsValid())
                 cmd->BindDescriptorSet(gs, 0);
 
+            // Mode d'affichage wireframe : propage au material system (c'est lui qui binde
+            // le pipeline final par BindInstance -> il doit choisir la variante fil-de-fer).
+            if (mMat) mMat->SetWireframe(mWireframe);
             FlushOpaque(cmd);
             FlushInstanced(cmd);
             FlushSkinned(cmd);
