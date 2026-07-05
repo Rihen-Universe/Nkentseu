@@ -1261,8 +1261,10 @@ namespace nkentseu { namespace demo {
                     bmin.x=NkMin(bmin.x,w.x); bmin.y=NkMin(bmin.y,w.y); bmin.z=NkMin(bmin.z,w.z);
                     bmax.x=NkMax(bmax.x,w.x); bmax.y=NkMax(bmax.y,w.y); bmax.z=NkMax(bmax.z,w.z); }
                 float32 rad=(bmax-bmin).Len()*0.5f; if(rad<1e-4f) rad=1.f;
-                const float32 nOff=rad*0.004f, dotS=rad*0.012f;
-                auto woff=[&](int32 i){ return liveW(i)+normW(i)*nOff; };
+                const float32 dotS=rad*0.012f;   // demi-taille des points (monde)
+                // Plus de décalage le long de la normale : cage/points/faces sont
+                // COPLANAIRES à la surface. Le depth-bias des pipelines (lignes + fill)
+                // évite le z-fighting -> tout COLLE au modèle (pas de flottement).
                 auto pushV=[&](NkVector<float>& A, NkVec3f p, NkVec4f c){
                     A.PushBack(p.x);A.PushBack(p.y);A.PushBack(p.z);
                     A.PushBack(c.x);A.PushBack(c.y);A.PushBack(c.z);A.PushBack(c.w); };
@@ -1272,7 +1274,7 @@ namespace nkentseu { namespace demo {
                 for (uint32 e=0;e+1<(uint32)st->editEdges.Size();e+=2){
                     const uint32 a=st->editEdges[e], b=st->editEdges[e+1];
                     NkVec4f c=(st->vertSel[a]&&st->vertSel[b])?selCol:cageCol;
-                    pushV(L, woff((int32)a), c); pushV(L, woff((int32)b), c);
+                    pushV(L, liveW((int32)a), c); pushV(L, liveW((int32)b), c);
                 }
                 r3d->SetEditOverlayLines(L.Empty()?nullptr:L.Data(), (uint32)(L.Size()/7));
                 // POINTS : petits quads pleins (plan tangent) — VERTEX/EDGE seulement.
@@ -1280,7 +1282,7 @@ namespace nkentseu { namespace demo {
                 if (st->editSelMode==0 || st->editSelMode==1) {
                     P.Reserve((uint32)nv*6*7);
                     for (int32 i=0;i<nv;i++){
-                        NkVec3f w=woff(i), nW=normW(i);
+                        NkVec3f w=liveW(i), nW=normW(i);
                         NkVec3f t=nW.Cross(NkVec3f{0.f,1.f,0.f}); if(t.Len()<1e-3f) t=nW.Cross(NkVec3f{1.f,0.f,0.f});
                         t=t*(1.f/NkMax(t.Len(),1e-6f)); NkVec3f bt=nW.Cross(t);
                         NkVec3f R=t*dotS, U=bt*dotS, q0=w-R-U,q1=w+R-U,q2=w+R+U,q3=w-R+U;

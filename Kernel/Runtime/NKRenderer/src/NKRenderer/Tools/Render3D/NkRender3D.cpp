@@ -2107,8 +2107,17 @@ namespace nkentseu {
 
             NkGraphicsPipelineDesc pd;
             pd.shader       = mLineShader;
-            pd.depthStencil = NkDepthStencilDesc::Default();   // depth test ON (lignes occluses)
+            // Lignes debug depth-testées (cage d'édition, axes) : elles doivent COLLER à
+            // la surface du modèle sans z-fighting ni flottement. Technique standard =
+            // POLYGON OFFSET / depth-bias (cf. glPolygonOffset) : LESS_EQUAL (le coplanaire
+            // passe) + lecture seule + biais négatif (tire vers la caméra) -> la cage
+            // adhère pile au maillage, occluse par le reste de la scène.
+            pd.depthStencil = NkDepthStencilDesc::Default();
+            pd.depthStencil.depthCompareOp   = NkCompareOp::NK_LESS_EQUAL;
+            pd.depthStencil.depthWriteEnable = false;
             pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.rasterizer.depthBiasConst = -1.5f;
+            pd.rasterizer.depthBiasSlope = -1.5f;
             pd.blend        = NkBlendDesc::Opaque();
             pd.topology     = NkPrimitiveTopology::NK_LINE_LIST;
             pd.debugName    = "DebugLine";
