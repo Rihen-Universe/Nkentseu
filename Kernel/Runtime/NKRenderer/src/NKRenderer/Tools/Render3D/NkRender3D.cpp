@@ -147,6 +147,41 @@ namespace nkentseu {
                 }
             }
 
+            // ── MatCap texture (boule chrome studio) ──────────────────────────────
+            // Génère une "boule matcap" 128x128 : chaque pixel = normale de sphère,
+            // colorée par un éclairage chrome/studio. Échantillonnée par la normale-vue
+            // en mode SOLID/WIREFRAME (matcap TEXTURE). Base pour charger de vrais
+            // matcaps .exr/.png plus tard (remplacer la génération par un Load).
+            {
+                const uint32 S = 128;
+                auto td = NkTextureDesc::Tex2D(S, S, NkGPUFormat::NK_RGBA8_UNORM, 1);
+                td.debugName = "MatcapChrome";
+                mMatcapTex = mDevice->CreateTexture(td);
+                if (mMatcapTex.IsValid()) {
+                    NkVector<uint8> px; px.Resize(S * S * 4);
+                    auto norm3 = [](float a,float b,float c){ float l=sqrtf(a*a+b*b+c*c); return l>1e-6f?1.f/l:0.f; };
+                    const float kl=norm3(0.40f,0.50f,0.77f), fl=norm3(-0.5f,0.15f,0.85f);
+                    for (uint32 y=0; y<S; ++y) for (uint32 x=0; x<S; ++x) {
+                        float nx = ((float)x/(float)(S-1))*2.f - 1.f;
+                        float ny = 1.f - ((float)y/(float)(S-1))*2.f;
+                        float r2 = nx*nx + ny*ny; float s;
+                        if (r2 > 1.f) { s = 0.05f; }                    // hors sphère : fond sombre
+                        else {
+                            float nz = sqrtf(1.f - r2);
+                            float key  = nx*0.40f*kl + ny*0.50f*kl + nz*0.77f*kl; if (key<0.f) key=0.f;
+                            float spec = powf(key, 42.f);
+                            float fill = nx*(-0.5f)*fl + ny*0.15f*fl + nz*0.85f*fl; if (fill<0.f) fill=0.f;
+                            float fres = powf(1.f-nz, 3.f);
+                            s = 0.12f + 0.45f*key + 0.9f*spec + 0.22f*fill + 0.32f*fres;
+                            if (s>1.f) s=1.f;
+                        }
+                        uint8 v = (uint8)(s*255.f); uint32 i=(y*S+x)*4;
+                        px[i]=v; px[i+1]=v; px[i+2]=v; px[i+3]=255;      // chrome = niveaux de gris
+                    }
+                    mDevice->WriteTextureRegion(mMatcapTex, px.Data(), 0,0,0, S,S,1, 0, 0);
+                }
+            }
+
             // ── Descriptor set layouts ────────────────────────────────────────────
             // Frame set (set 0) : Camera(0) + Lights(2) + Shadow(3) + 4 textures
             // materiel par defaut(4-7) + Env irradiance/prefilter/BRDFLUT(8/9/10)
@@ -195,7 +230,10 @@ namespace nkentseu {
                 // Phase H.6 : binding=27 = tVoxelOpacity (sampler3D R8_UNORM).
                 // Voxel grid de la scene pour AO long-range via cone-tracing
                 // dans le PBR shader. cf. NkVoxelAOSystem.
-                .Add(27, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+                .Add(27, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                // Mode d'affichage : binding=28 = tMatcap (sampler2D), boule matcap
+                // échantillonnée par la normale-vue en mode SOLID/WIREFRAME (matcap texture).
+                .Add(28, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
             mGlobalLayout = mDevice->CreateDescriptorSetLayout(frameLayout);
 
             // Object set layout (set 1) : Object UBO(1) + Bones/Instance UBO(4).
@@ -280,6 +318,10 @@ namespace nkentseu {
                     mDevice->BindTextureSampler(gs, 27,
                         mVoxelAO->GetVoxelTexture(), mVoxelAO->GetVoxelSampler());
                 }
+
+                // Binding 28 : boule matcap (mode SOLID/WIREFRAME, matcap texture).
+                if (mMatcapTex.IsValid() && defSampler.IsValid())
+                    mDevice->BindTextureSampler(gs, 28, mMatcapTex, defSampler);
 
                 if (mShadow && mShadow->GetAtlasTexture().IsValid()) {
                     mDevice->BindTextureSampler(gs, 11,

@@ -103,6 +103,9 @@ uniform ShadowSlotsUBO {
 @binding(set=0, binding=23) uniform samplerCube tLight3DCubeCookie2;
 @binding(set=0, binding=24) uniform samplerCube tLight3DCubeCookie3;
 
+// Boule MatCap (mode SOLID/WIREFRAME) : échantillonnée par la normale en espace-vue.
+@binding(set=0, binding=28) uniform sampler2D tMatcap;
+
 float SampleLight3DCubeCookie(int idx, vec3 dir) {
     if (idx == 0) return texture(tLight3DCubeCookie0, dir).r;
     if (idx == 1) return texture(tLight3DCubeCookie1, dir).r;
@@ -393,10 +396,15 @@ void main() {
             float spec = pow(key, 20.0);
             float fres = pow(1.0 - max(vn.z, 0.0), 4.0);
             shade = 0.14 + 0.42*key + 0.7*spec + 0.5*fres;
-        } else {
+        } else if (mc < 3.5) {
             // 3 — TOON : bandes dures (cel-shading).
             float key = max(dot(vn, vec3(0.30, 0.55, 0.78)), 0.0);
             shade = (key > 0.62) ? 0.82 : ((key > 0.32) ? 0.55 : 0.30);
+        } else {
+            // 4 — CHROME (matcap TEXTURE) : on échantillonne la boule matcap par la
+            // normale-vue (uv = vn.xy*0.5+0.5). C'est ça, un "matcap texture".
+            vec2 muv = vn.xy * 0.5 + 0.5;
+            shade = texture(tMatcap, muv).r;
         }
         color = albedo * uObj.tint.rgb * clamp(shade, 0.0, 0.85);
     }

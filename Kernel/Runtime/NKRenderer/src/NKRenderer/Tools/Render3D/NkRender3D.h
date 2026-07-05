@@ -126,8 +126,9 @@ namespace nkentseu {
                 // le CameraUBO (uCam.viewMode) et consommé par pbr.frag.
                 void SetViewMode(int32 m) { mViewMode = m; }
                 int32 ViewMode() const    { return mViewMode; }
-                // Preset MatCap (mode SOLID/WIREFRAME) : 0=Studio 1=Clay 2=Metal 3=Toon.
-                static const int32 kMatcapCount = 4;
+                // Preset MatCap (mode SOLID/WIREFRAME) : 0=Studio 1=Clay 2=Metal 3=Toon (procéduraux)
+                // + 4=Chrome (TEXTURE, boule matcap échantillonnée par la normale-vue).
+                static const int32 kMatcapCount = 5;
                 void  SetMatcap(int32 id) { mMatcapId = ((id % kMatcapCount) + kMatcapCount) % kMatcapCount; }
                 int32 Matcap() const      { return mMatcapId; }
 
@@ -288,6 +289,7 @@ namespace nkentseu {
                 NkVector<NkBufferHandle>   mUBOBonesRing;   // [frame]
                 NkVector<NkBufferHandle>   mUBOInstanceRing;// [frame] models[128]+tints[128] (instancing GPU)
                 NkTextureHandle            mDefaultCubeWhite;   // E.6b : fallback cube cookie
+                NkTextureHandle            mMatcapTex;          // boule matcap (mode solid, binding 28)
                 uint32                     mFramesInFlight = 1;
                 uint32                     mFrameSlot      = 0;
                 uint32                     mObjectDrawIdx  = 0;
