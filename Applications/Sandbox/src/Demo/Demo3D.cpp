@@ -36,6 +36,12 @@ namespace nkentseu { namespace demo {
         // Mode d'affichage viewport (touche Z, façon Blender) : 0=RENDERED (PBR éclairé),
         // 1=SOLID (unlit, phare caméra), 2=WIREFRAME (unlit + fil de fer).
         int32        shadingMode = 0;
+        // Source de COULEUR en modes unlit (SOLID/WIREFRAME) et en EDIT MODE, façon
+        // option "Color" du mode Solid de Blender. 0=MATERIAL (couleur du matériau),
+        // 1=GRIS uniforme (défaut), 2=CUSTOM (couleur choisie). Touche B pour cycler.
+        int32        unlitColorMode  = 1;
+        NkVec3f      unlitGray       = {0.72f, 0.73f, 0.76f};
+        NkVec3f      unlitCustom     = {0.45f, 0.62f, 0.85f};
         // Panel debug : index PCF mode courant pour cycle (P)
         int32        pcfIdx = (int32)NkPCFMode::PCF5x5;
         // Phase H : true si le PNG a ete charge avec succes (vs fallback procedural).
@@ -512,6 +518,13 @@ namespace nkentseu { namespace demo {
                     r3d->SetViewMode(vm[st->shadingMode]);
                     logger.Info("[Demo3D] Affichage = {0}\n", sm[st->shadingMode]);
                 }
+                // B : cycle la SOURCE DE COULEUR en edit/unlit (façon "Color" du mode
+                // Solid de Blender) : MATERIAL -> GRIS -> CUSTOM.
+                if (k == NkKey::NK_B) {
+                    st->unlitColorMode = (st->unlitColorMode + 1) % 3;
+                    const char* cm[3] = {"MATERIAL", "GRIS", "CUSTOM"};
+                    logger.Info("[Demo3D] Couleur unlit/edit = {0}\n", cm[st->unlitColorMode]);
+                }
                 // M : cycle le preset MatCap (effet en mode SOLID/WIREFRAME).
                 // En EDIT MODE, M = Merge (soudure) -> ne pas cycler le matcap.
                 if (k == NkKey::NK_M && !st->editMode) {
@@ -866,6 +879,16 @@ namespace nkentseu { namespace demo {
         // composant NkGizmo3D (source unique : draw calls ET pick/marqueur passent par lui).
         auto userXform = [st](int32 idx, const NkMat4f& base) { return st->gizmo.Apply(idx, base); };
 
+        // Couleur EFFECTIVE d'un objet : en EDIT MODE ou en modes unlit (SOLID/WIREFRAME),
+        // et si l'option n'est pas MATERIAL, on force une couleur uniforme (gris façon
+        // Blender, ou custom). Sinon = couleur du matériau (RENDERED garde le matériau).
+        const bool grayActive = (st->unlitColorMode != 0) &&
+                                (st->editMode || st->shadingMode == 1 || st->shadingMode == 2);
+        auto effTint = [st, grayActive](NkVec3f matTint) -> NkVec3f {
+            if (!grayActive) return matTint;
+            return (st->unlitColorMode == 2) ? st->unlitCustom : st->unlitGray;
+        };
+
         // ── Sol ──────────────────────────────────────────────────────────────
         // RETIRÉ : la grille infinie sert désormais de sol de référence (façon Blender/
         // Unreal). Un sol solide coplanaire au plan y=0 de la grille provoquait du
@@ -904,7 +927,7 @@ namespace nkentseu { namespace demo {
                                NkMat4f::Scale({0.45f, 0.45f, 0.45f}));
                 dc.aabb      = {{x - 0.25f, 0.25f, z - 0.25f},
                                 {x + 0.25f, 0.75f, z + 0.25f}};
-                dc.tint      = {(float32)col / 3.f, (float32)row / 3.f, 0.7f};
+                dc.tint      = effTint({(float32)col / 3.f, (float32)row / 3.f, 0.7f});
                 dc.metallic  = (float32)col / 3.f;             // 0, 0.33, 0.66, 1
                 dc.roughness = 0.05f + (float32)row / 3.f * 0.95f; // 0.05 .. 1
                 // En Edit Mode, l'objet édité est remplacé par son clone (plus bas).
@@ -926,7 +949,7 @@ namespace nkentseu { namespace demo {
                     inst.transforms.PushBack(userXform(19 + gz*8 + gx,   // idx pick instanciés
                         NkMat4f::Translate({x, 1.6f, z}) *
                         NkMat4f::Scale({0.18f, 0.18f, 0.18f})));
-                    inst.tints.PushBack({(float32)gx / 7.f, 0.6f, (float32)gz / 7.f});
+                    inst.tints.PushBack(effTint({(float32)gx / 7.f, 0.6f, (float32)gz / 7.f}));
                 }
             }
             inst.aabb = {{-3.f, 1.f, -9.f}, {3.f, 2.5f, 0.f}};
@@ -945,7 +968,7 @@ namespace nkentseu { namespace demo {
             dc.mesh = st->meshCube;
             dc.transform = userXform(16, cubeXform);   // idx pick cube central = 16
             dc.aabb = {{-0.35f, 0.1f, -0.35f}, {0.35f, 0.9f, 0.35f}};
-            dc.tint      = {1.f, 0.8f, 0.3f};   // gold albedo
+            dc.tint      = effTint({1.f, 0.8f, 0.3f});   // gold albedo (ou gris en edit/unlit)
             dc.metallic  = 1.f;
             dc.roughness = 0.15f;
             if (!(st->editMode && st->editObjIdx == 16)) r3d->Submit(dc);
@@ -968,7 +991,7 @@ namespace nkentseu { namespace demo {
                            NkMat4f::Scale({0.3f, 2.f, 0.3f}));  // colonne 2m haute
             dc.aabb      = {{cx - 0.2f, 0.f, cz - 0.2f},
                             {cx + 0.2f, 2.f, cz + 0.2f}};
-            dc.tint      = {0.7f, 0.7f, 0.7f};
+            dc.tint      = effTint({0.7f, 0.7f, 0.7f});
             dc.metallic  = 0.f;
             dc.roughness = 0.6f;
             dc.castShadow= true;
@@ -1140,7 +1163,7 @@ namespace nkentseu { namespace demo {
                 dc.mesh      = st->editMesh;
                 dc.transform = st->editAnchor;
                 dc.aabb      = {{-1.f,-1.f,-1.f},{1.f,1.f,1.f}};
-                dc.tint      = {0.72f,0.74f,0.8f};
+                dc.tint      = effTint({0.72f,0.74f,0.8f});
                 dc.metallic  = 0.f; dc.roughness = 0.7f;
                 r3d->Submit(dc);
             }
@@ -1266,14 +1289,15 @@ namespace nkentseu { namespace demo {
             {
                 const char* sm[6] = {"RENDERED", "SOLID", "WIREFRAME", "NORMAL", "UV", "AO"};
                 const char* mc[5] = {"Studio", "Clay", "Metal", "Toon", "Chrome(tex)"};
+                const char* cm[3] = {"MATERIAL", "GRIS", "CUSTOM"};
                 int32 mcId = 0; if (auto* r3dh = ctx.renderer->GetRender3D()) mcId = r3dh->Matcap();
                 // MatCap pertinent seulement en SOLID/WIREFRAME (modes 1 et 2).
                 if (st->shadingMode == 1 || st->shadingMode == 2)
-                    overlay->DrawText({20.f, 35.f}, "Demo 3D - PBR primitives  |  API : %s  |  Affichage(Z): %s  |  MatCap(M): %s",
-                                      NkGraphicsApiName(ctx.api), sm[st->shadingMode % 6], mc[mcId % 5]);
+                    overlay->DrawText({20.f, 35.f}, "Demo 3D  |  API : %s  |  Affichage(Z): %s  |  MatCap(M): %s  |  Couleur(B): %s",
+                                      NkGraphicsApiName(ctx.api), sm[st->shadingMode % 6], mc[mcId % 5], cm[st->unlitColorMode % 3]);
                 else
-                    overlay->DrawText({20.f, 35.f}, "Demo 3D - PBR primitives  |  API : %s  |  Affichage(Z): %s",
-                                      NkGraphicsApiName(ctx.api), sm[st->shadingMode % 6]);
+                    overlay->DrawText({20.f, 35.f}, "Demo 3D  |  API : %s  |  Affichage(Z): %s  |  Couleur(B): %s",
+                                      NkGraphicsApiName(ctx.api), sm[st->shadingMode % 6], cm[st->unlitColorMode % 3]);
             }
             overlay->DrawText({20.f, 55.f}, "FPS approx: %.1f  |  dt: %.2f ms",
                               dt > 1e-4f ? 1.f / dt : 0.f, dt * 1000.f);
