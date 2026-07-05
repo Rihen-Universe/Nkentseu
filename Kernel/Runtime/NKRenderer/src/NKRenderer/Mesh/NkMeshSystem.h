@@ -66,6 +66,12 @@ namespace nkentseu {
             uint32              indexCount  = 0;
             NkVector<NkSubMesh> subMeshes;
             bool                dynamic     = false;
+            // keepCPU : conserve une copie CPU des vertices/indices dans le mesh
+            // (modele Blender : le CPU est l'autorite, le GPU n'est qu'un cache).
+            // Indispensable pour l'Edit Mode / la modification de topologie sans
+            // readback GPU. Cout = une copie CPU par mesh UNIQUE (les instances
+            // partagent le meme mesh -> une seule copie). true par defaut.
+            bool                keepCPU     = true;
             NkAABB              bounds;
             NkString            debugName;
 
@@ -124,6 +130,16 @@ namespace nkentseu {
                 NkBufferHandle GetVBO(NkMeshHandle h) const;
                 NkBufferHandle GetIBO(NkMeshHandle h) const;
 
+                // ── Acces CPU (modele Blender : le mesh CPU est l'autorite) ─────────
+                // Disponible uniquement si le mesh a ete cree avec keepCPU=true.
+                // Retourne nullptr / 0 sinon. Ne fait AUCUN readback GPU.
+                const void*   GetVertices   (NkMeshHandle h) const; // pointeur vers NkVertex3D[...]
+                uint32        GetVertexCount (NkMeshHandle h) const;
+                uint32        GetVertexStride(NkMeshHandle h) const;
+                const uint32* GetIndices    (NkMeshHandle h) const;
+                uint32        GetIndexCount  (NkMeshHandle h) const;
+                bool          HasCPUData     (NkMeshHandle h) const;
+
             private:
                 struct MeshEntry {
                     NkBufferHandle      vbo, ibo;
@@ -133,6 +149,9 @@ namespace nkentseu {
                     NkAABB              bounds;
                     bool                dynamic=false;
                     NkString            debugName;
+                    // Copie CPU optionnelle (keepCPU) : autorite mesh cote CPU.
+                    NkVector<uint8>     cpuVerts;   // vertexCount * layout.stride octets
+                    NkVector<uint32>    cpuIdx;     // indexCount indices
                 };
 
                 NkIDevice*                     mDevice = nullptr;

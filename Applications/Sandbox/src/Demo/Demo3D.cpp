@@ -57,14 +57,39 @@ namespace nkentseu { namespace demo {
         // Indices des cibles : 16 sphères, 1 cube, 2 colonnes, 64 instanciés = 83.
         static const int32 kNumObj = 16 + 1 + 2 + 64;
         renderer::NkGizmo3D gizmo;                 // sélection multiple + translate/rotate/scale/combiné
-        // ── Volet 2 : EDIT MODE mesh (édition de vertices façon Blender) ──
-        NkMeshHandle                    meshEdit;      // grille éditable (dynamic)
-        NkVector<renderer::NkVertex3D>  editRest;      // positions de REPOS (CPU, source unique)
-        NkVector<renderer::NkVertex3D>  editLive;      // positions courantes (rest + delta gizmo) -> re-upload
-        NkVector<uint32>                editIdx;
-        bool                            editMode = false;  // TAB : bascule objet <-> édition
-        renderer::NkGizmo3D             editGizmo;     // gizmo dédié aux vertices
+        // ── Volet 2 : EDIT MODE mesh (édition façon Blender, sur l'OBJET SÉLECTIONNÉ) ──
+        // TAB entre en édition de l'objet actif (gizmo.ActiveIndex). On CLONE ses
+        // données CPU (modèle Blender : le CPU est l'autorité) en un mesh dynamique
+        // propre -> éditer une sphère ne déforme pas les autres. Les vertices sont
+        // édités en espace LOCAL ; l'ancre (transform monde de l'objet) sert au
+        // rendu, au pick et aux marqueurs.
+        NkMeshHandle                    editMesh;      // clone dynamique du mesh édité
+        NkVector<renderer::NkVertex3D>  editRest;      // vertices LOCAUX de repos (autorité CPU)
+        NkVector<renderer::NkVertex3D>  editLive;      // rest + delta (re-upload pendant drag)
+        NkVector<uint32>                editIdx;       // topologie (triangles)
+        NkVector<uint8>                 vertSel;       // 1 = vertex sélectionné (taille = nb vertices)
+        NkMat4f                         editAnchor    = NkMat4f::Identity();  // transform monde de l'objet
+        NkMat4f                         editAnchorInv = NkMat4f::Identity();
+        int32                           editObjIdx    = -1;    // objet en cours d'édition (index gizmo)
+        int32                           editSelMode   = 0;     // 0=VERTEX 1=EDGE 2=FACE (touches 1/2/3)
+        bool                            editMode      = false; // TAB : bascule objet <-> édition
+        bool                            editTogglePending = false; // TAB traité côté frame (accès meshSys)
+        bool                            editWasDragging   = false; // pour baker le delta en fin de drag
+        renderer::NkGizmo3D             editGizmo;     // 1 seule cible = centroïde de la sélection
     };
+
+    // Transform de BASE (repos, sans animation) d'un objet de la démo par son index
+    // gizmo — MÊME disposition que la boucle de soumission. Sert d'ancre à l'Edit Mode.
+    static NkMat4f Demo3D_ObjBase(int32 idx) {
+        if (idx >= 0 && idx < 16) { int32 row = idx/4, col = idx%4;
+            return NkMat4f::Translate({(col-1.5f)*1.2f, 0.5f, (row-1.5f)*1.2f}) * NkMat4f::Scale({0.45f,0.45f,0.45f}); }
+        if (idx == 16) return NkMat4f::Translate({0.f,0.5f,0.f}) * NkMat4f::Scale({0.6f,0.6f,0.6f}); // cube central (figé)
+        if (idx == 17) return NkMat4f::Translate({-4.f,1.f,-2.f}) * NkMat4f::Scale({0.3f,2.f,0.3f});  // colonne 0
+        if (idx == 18) return NkMat4f::Translate({ 1.f,1.f, 4.f}) * NkMat4f::Scale({0.3f,2.f,0.3f});  // colonne 1
+        if (idx >= 19 && idx < 83) { int32 g = idx-19, gz = g/8, gx = g%8;
+            return NkMat4f::Translate({(gx-3.5f)*0.55f, 1.6f, (gz-3.5f)*0.55f-4.5f}) * NkMat4f::Scale({0.18f,0.18f,0.18f}); }
+        return NkMat4f::Identity();
+    }
 
     // E.6b : cubemap procedurale 128x128x6 pour point light.
     // Chaque face = pattern "X" : 2 bandes diagonales lumineuses sur fond noir.
@@ -217,29 +242,11 @@ namespace nkentseu { namespace demo {
         st->meshSphere = meshSys->GetSphere();
         st->meshPlane  = meshSys->GetPlane();
         st->meshCube   = meshSys->GetCube();
-        // ── Volet 2 : mesh ÉDITABLE (grille plane subdivisée, flottante, dynamic) ──
-        {
-            const int32 S = 6; const float32 sz = 3.2f, gy = 2.4f;   // 7x7 = 49 vertices
-            for (int32 j=0;j<=S;j++) for (int32 i=0;i<=S;i++) {
-                renderer::NkVertex3D v{};
-                v.pos    = { ((float32)i/(float32)S - 0.5f)*sz, gy, ((float32)j/(float32)S - 0.5f)*sz };
-                v.normal = {0.f,1.f,0.f};
-                v.uv     = { (float32)i/(float32)S, (float32)j/(float32)S };
-                v.color  = 0xFFFFFFFFu;
-                st->editRest.PushBack(v);
-            }
-            for (int32 j=0;j<S;j++) for (int32 i=0;i<S;i++) {
-                uint32 v0=(uint32)(j*(S+1)+i), v1=v0+1, v2=v0+(uint32)(S+1)+1, v3=v0+(uint32)(S+1);
-                st->editIdx.PushBack(v0); st->editIdx.PushBack(v1); st->editIdx.PushBack(v2);
-                st->editIdx.PushBack(v0); st->editIdx.PushBack(v2); st->editIdx.PushBack(v3);
-            }
-            st->editLive = st->editRest;
-            NkMeshDesc d = NkMeshDesc::Simple(renderer::NkVertexLayout::Default3D(),
-                st->editRest.Data(), (uint32)st->editRest.Size(),
-                st->editIdx.Data(),  (uint32)st->editIdx.Size());
-            d.debugName = "Demo3D_EditMesh"; d.dynamic = true; d.bounds = NkAABB::Unit();
-            st->meshEdit = meshSys->Create(d);
-        }
+        // Volet 2 : le mesh éditable n'est plus une grille test — il est CLONÉ à la
+        // volée depuis l'objet sélectionné à l'entrée en Edit Mode (TAB), cf. la
+        // section « EDIT MODE » dans la frame. Les primitives (sphère/cube) gardent
+        // leurs données CPU (NkMeshDesc::keepCPU par défaut) -> clonage sans readback.
+
         // Pas de SNAP (touche Ctrl) — LIBREMENT ajustables ici par l'application :
         //   translate (unités monde) · rotation (degrés) · échelle (delta).
         st->gizmo.SetSnapSteps(/*translate*/ 0.5f, /*rotation°*/ 15.f, /*échelle*/ 0.1f);
@@ -380,9 +387,21 @@ namespace nkentseu { namespace demo {
             const bool alt = NkInput.IsKeyDown(NkKey::NK_LALT) || NkInput.IsKeyDown(NkKey::NK_RALT);
             const char* mn[4] = {"TRANSLATE", "ROTATE", "SCALE", "COMBINE (T+R+S)"};
             using GZ = renderer::NkGizmo3D;
-            // TAB : bascule OBJET <-> EDIT MODE (édition de vertices) façon Blender.
-            if (k == NkKey::NK_TAB) { st->editMode = !st->editMode;
-                logger.Info("[Demo3D] Mode = {0}\n", st->editMode ? "EDIT (vertices)" : "OBJET"); return; }
+            // TAB : bascule OBJET <-> EDIT MODE. Traité côté frame (accès meshSys pour
+            // cloner le mesh de l'objet sélectionné). Façon Blender.
+            if (k == NkKey::NK_TAB) { st->editTogglePending = true; return; }
+            // En EDIT MODE : touches 1/2/3 = sous-mode sélection VERTEX / EDGE / FACE.
+            if (st->editMode) {
+                if (k == NkKey::NK_NUM1) { st->editSelMode = 0; logger.Info("[Demo3D] Edit = VERTEX\n"); return; }
+                if (k == NkKey::NK_NUM2) { st->editSelMode = 1; logger.Info("[Demo3D] Edit = EDGE\n");   return; }
+                if (k == NkKey::NK_NUM3) { st->editSelMode = 2; logger.Info("[Demo3D] Edit = FACE\n");   return; }
+                // A / Alt+A : tout sélectionner / désélectionner (les VERTICES).
+                if (k == NkKey::NK_A) {
+                    const uint8 v = alt ? 0 : 1;
+                    for (uint32 i=0;i<(uint32)st->vertSel.Size();i++) st->vertSel[i] = v;
+                    return;
+                }
+            }
             // Gizmo ACTIF selon le mode : objet ou vertices.
             renderer::NkGizmo3D& G = st->editMode ? st->editGizmo : st->gizmo;
             if (G.IsDragging()) return;   // en plein drag : X/Y/Z = verrou (pas de switch)
@@ -502,6 +521,55 @@ namespace nkentseu { namespace demo {
             ctx.renderer->Present();
             ctx.renderer->EndFrame();
             return;
+        }
+
+        // ── Volet 2 : TAB traité ici (accès meshSys) : entre/sort d'EDIT MODE ──
+        // Entrée : CLONE les données CPU de l'objet sélectionné (modèle Blender) en
+        // un mesh dynamique propre + capture son ancre (transform monde). Sortie :
+        // désactive l'édition (le mesh cloné garde son dernier état).
+        if (st->editTogglePending) {
+            st->editTogglePending = false;
+            auto* ms = ctx.renderer->GetMeshSystem();
+            if (st->editMode) {
+                // Sortie d'édition.
+                st->editMode   = false;
+                st->editObjIdx = -1;
+            } else {
+                const int32 sel = st->gizmo.ActiveIndex();
+                if (sel < 0) {
+                    logger.Info("[Demo3D] Sélectionne un objet (clic) avant TAB.\n");
+                } else {
+                    const NkMeshHandle src = (sel < 16) ? st->meshSphere : st->meshCube;
+                    if (!ms || !ms->HasCPUData(src)) {
+                        logger.Warn("[Demo3D] Mesh sans copie CPU (keepCPU) — édition impossible.\n");
+                    } else {
+                        const uint32 vc = ms->GetVertexCount(src);
+                        const uint32 ic = ms->GetIndexCount(src);
+                        const auto*  sv = (const renderer::NkVertex3D*)ms->GetVertices(src);
+                        const uint32* si = ms->GetIndices(src);
+                        // Clone LOCAL (autorité CPU).
+                        st->editRest.Clear(); st->editLive.Clear(); st->editIdx.Clear(); st->vertSel.Clear();
+                        for (uint32 i=0;i<vc;i++) st->editRest.PushBack(sv[i]);
+                        for (uint32 i=0;i<ic;i++) st->editIdx.PushBack(si[i]);
+                        st->editLive = st->editRest;
+                        st->vertSel.Resize(vc); for (uint32 i=0;i<vc;i++) st->vertSel[i]=0;
+                        // (Re)crée le mesh dynamique éditable.
+                        if (st->editMesh.IsValid()) ms->Release(st->editMesh);
+                        NkMeshDesc d = NkMeshDesc::Simple(renderer::NkVertexLayout::Default3D(),
+                            st->editRest.Data(), vc, st->editIdx.Data(), ic);
+                        d.debugName = "Demo3D_EditMesh"; d.dynamic = true; d.bounds = ms->GetBounds(src);
+                        st->editMesh = ms->Create(d);
+                        // Ancre = transform MONDE de l'objet (base repos + delta gizmo).
+                        st->editAnchor    = st->gizmo.Apply(sel, Demo3D_ObjBase(sel));
+                        st->editAnchorInv = st->editAnchor.Inverse();
+                        st->editObjIdx    = sel;
+                        st->editGizmo.ClearSelection();
+                        st->editWasDragging = false;
+                        st->editMode = true;
+                        logger.Info("[Demo3D] EDIT MODE objet #{0} ({1} vertices).\n", sel, vc);
+                    }
+                }
+            }
         }
 
         // ── Caméra : ÉDITEUR (orbit/pan/zoom, Blender) ou SIMULATION (fly), via
@@ -656,7 +724,8 @@ namespace nkentseu { namespace demo {
                 dc.tint      = {(float32)col / 3.f, (float32)row / 3.f, 0.7f};
                 dc.metallic  = (float32)col / 3.f;             // 0, 0.33, 0.66, 1
                 dc.roughness = 0.05f + (float32)row / 3.f * 0.95f; // 0.05 .. 1
-                r3d->Submit(dc);
+                // En Edit Mode, l'objet édité est remplacé par son clone (plus bas).
+                if (!(st->editMode && st->editObjIdx == row*4 + col)) r3d->Submit(dc);
             }
         }
 
@@ -696,7 +765,7 @@ namespace nkentseu { namespace demo {
             dc.tint      = {1.f, 0.8f, 0.3f};   // gold albedo
             dc.metallic  = 1.f;
             dc.roughness = 0.15f;
-            r3d->Submit(dc);
+            if (!(st->editMode && st->editObjIdx == 16)) r3d->Submit(dc);
         }
 
         // ── Colonnes bloquantes pour visualiser les ombres point/spot ────────
@@ -720,32 +789,145 @@ namespace nkentseu { namespace demo {
             dc.metallic  = 0.f;
             dc.roughness = 0.6f;
             dc.castShadow= true;
-            r3d->Submit(dc);
+            if (!(st->editMode && st->editObjIdx == 17 + c)) r3d->Submit(dc);
         }
 
-        // ── Volet 2 : mesh ÉDITABLE (Edit Mode) ─────────────────────────────────
-        // Recompose les positions vivantes = repos + décalage du gizmo d'édition, puis
-        // re-upload (UpdateVertices). En Edit Mode chaque vertex est une cible du gizmo.
-        {
+        // ── Volet 2 : EDIT MODE — gizmo centroïde + pick VERTEX/EDGE/FACE + marqueurs ──
+        // Modèle Blender : la sélection est un ENSEMBLE de vertices ; le gizmo a UNE
+        // seule cible = leur centroïde ; le drag applique la transform de groupe (G,
+        // autour du centroïde) à tous les vertices sélectionnés. 1/2/3 changent ce que
+        // le clic sélectionne (vertex / arête / face). Marqueurs = taille écran (fins).
+        if (st->editMode && st->editMesh.IsValid()) {
             auto* meshSysF = ctx.renderer->GetMeshSystem();
             const int32 nv = (int32)st->editRest.Size();
-            // Re-upload GPU UNIQUEMENT pendant un drag (un vertex bouge) -> pas de coût
-            // par frame. Hors drag, le mesh GPU garde son dernier état édité.
-            if (st->editMode && st->editGizmo.IsDragging()) {
-                for (int32 i=0;i<nv;i++) {
-                    NkVec3f p = st->editRest[i].pos;
-                    NkVec3f np = st->editGizmo.Apply(i, NkMat4f::Translate(p)) * NkVec3f{0.f,0.f,0.f};
-                    st->editLive[i] = st->editRest[i]; st->editLive[i].pos = np;
-                }
-                if (meshSysF) meshSysF->UpdateVertices(st->meshEdit, st->editLive.Data(), (uint32)nv);
+
+            // Projection monde->écran (même convention que le gizmo).
+            const NkVec3f camPos = cam.GetPosition(), camTgt = cam.GetTarget();
+            const NkVec3f fwd = (camTgt - camPos).Normalized();
+            const NkVec3f rgt = fwd.Cross(NkVec3f{0.f,1.f,0.f}).Normalized();
+            const NkVec3f upv = rgt.Cross(fwd).Normalized();
+            const float32 thY = tanf(60.f * 0.5f * 3.14159265f/180.f);
+            const float32 thX = thY * ((float32)ctx.width/(float32)ctx.height);
+            const float32 VW = (float32)ctx.width, VH = (float32)ctx.height;
+            auto project = [&](NkVec3f P, float32& px, float32& py)->bool {
+                NkVec3f v = P - camPos; float32 zc = v.Dot(fwd); if (zc<=1e-3f) return false;
+                float32 nx = v.Dot(rgt)/(zc*thX), ny = v.Dot(upv)/(zc*thY);
+                px = (nx*0.5f+0.5f)*VW; py = (0.5f-ny*0.5f)*VH; return true;
+            };
+            auto worldV = [&](int32 i){ return st->editAnchor * st->editRest[i].pos; };
+
+            // Centroïde monde de la sélection courante.
+            NkVec3f cen = {0.f,0.f,0.f}; int32 selCnt = 0;
+            for (int32 i=0;i<nv;i++) if (st->vertSel[i]) { cen = cen + worldV(i); selCnt++; }
+            if (selCnt>0) cen = cen * (1.f/(float32)selCnt);
+
+            // Cible unique du gizmo = centroïde.
+            renderer::NkGizmoTarget vt[1];
+            vt[0] = { NkMat4f::Translate(cen), {0.001f,0.001f,0.001f}, 0.0001f };
+            const int32 gcount = (selCnt>0) ? 1 : 0;
+
+            st->editGizmo.SetCamera(camPos, camTgt, 60.f, VW, VH);
+            renderer::NkGizmoInput gin;
+            gin.mouseX  = (float32)NkInput.MouseX();      gin.mouseY  = (float32)NkInput.MouseY();
+            gin.mouseDX = (float32)NkInput.MouseDeltaX(); gin.mouseDY = (float32)NkInput.MouseDeltaY();
+            gin.leftPressed = st->pickPending; st->pickPending = false;
+            gin.leftDown  = NkInput.IsMouseDown(NkMouseButton::NK_MB_LEFT);
+            gin.shiftDown = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
+            gin.ctrlDown  = NkInput.IsKeyDown(NkKey::NK_LCTRL)  || NkInput.IsKeyDown(NkKey::NK_RCTRL);
+            gin.lockAxis = -1;
+            if (st->editGizmo.IsDragging()) {
+                if      (NkInput.IsKeyDown(NkKey::NK_X)) gin.lockAxis = 0;
+                else if (NkInput.IsKeyDown(NkKey::NK_Y)) gin.lockAxis = 1;
+                else if (NkInput.IsKeyDown(NkKey::NK_Z)) gin.lockAxis = 2;
             }
-            NkDrawCall3D dc;
-            dc.mesh      = st->meshEdit;
-            dc.transform = NkMat4f::Identity();     // vertices déjà en espace monde
-            dc.aabb      = {{-2.f, 2.f, -2.f}, {2.f, 3.f, 2.f}};
-            dc.tint      = st->editMode ? NkVec3f{0.55f,0.65f,0.9f} : NkVec3f{0.75f,0.78f,0.85f};
-            dc.metallic  = 0.f; dc.roughness = 0.7f;
-            r3d->Submit(dc);
+            const bool wasDrag = st->editGizmo.IsDragging();
+            st->editGizmo.Update(vt, gcount, gin);
+            const bool grabbedHandle = (!wasDrag && st->editGizmo.IsDragging());
+
+            // Clic qui n'a PAS attrapé une poignée -> pick VERTEX/EDGE/FACE en espace écran.
+            if (gin.leftPressed && !grabbedHandle) {
+                const float32 mx = gin.mouseX, my = gin.mouseY;
+                if (!gin.shiftDown) for (int32 i=0;i<nv;i++) st->vertSel[i]=0;
+                if (st->editSelMode == 0) {                       // VERTEX : plus proche point
+                    int32 best=-1; float32 bd=14.f;
+                    for (int32 i=0;i<nv;i++){ float32 px,py; if(project(worldV(i),px,py)){ float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my)); if(d<bd){bd=d;best=i;} } }
+                    if (best>=0) st->vertSel[best] = gin.shiftDown ? (uint8)(1-st->vertSel[best]) : 1;
+                } else if (st->editSelMode == 1) {                // EDGE : plus proche arête (2 verts)
+                    int32 ba=-1,bb=-1; float32 bd=12.f;
+                    for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
+                        const uint32 e[3][2]={{st->editIdx[t],st->editIdx[t+1]},{st->editIdx[t+1],st->editIdx[t+2]},{st->editIdx[t+2],st->editIdx[t]}};
+                        for (int32 k=0;k<3;k++){ float32 ax,ay,bx,by; if(project(worldV(e[k][0]),ax,ay)&&project(worldV(e[k][1]),bx,by)){
+                            float32 dx=bx-ax,dy=by-ay,l2=dx*dx+dy*dy,tt=(l2>1e-6f)?((mx-ax)*dx+(my-ay)*dy)/l2:0.f; tt=tt<0?0:(tt>1?1:tt);
+                            float32 cx=ax+tt*dx,cy=ay+tt*dy,d=sqrtf((mx-cx)*(mx-cx)+(my-cy)*(my-cy)); if(d<bd){bd=d;ba=(int32)e[k][0];bb=(int32)e[k][1];} } }
+                    }
+                    if (ba>=0){ st->vertSel[ba]=1; st->vertSel[bb]=1; }
+                } else {                                          // FACE : triangle au centroïde le plus proche
+                    int32 bt=-1; float32 bd=1e30f;
+                    for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
+                        NkVec3f c3 = (worldV(st->editIdx[t])+worldV(st->editIdx[t+1])+worldV(st->editIdx[t+2]))*(1.f/3.f);
+                        float32 px,py; if(project(c3,px,py)){ float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my)); if(d<bd){bd=d;bt=(int32)t;} }
+                    }
+                    if (bt>=0){ st->vertSel[st->editIdx[bt]]=1; st->vertSel[st->editIdx[bt+1]]=1; st->vertSel[st->editIdx[bt+2]]=1; }
+                }
+            }
+            // Garder la cible-0 sélectionnée pour que les poignées s'affichent.
+            if (selCnt>0 && !st->editGizmo.IsDragging()) st->editGizmo.SelectAll();
+
+            // Drag : applique la transform de groupe G (autour du centroïde) aux verts sélectionnés.
+            if (st->editGizmo.IsDragging() && selCnt>0) {
+                NkMat4f G = st->editGizmo.Apply(0, NkMat4f::Translate(cen)) * NkMat4f::Translate({-cen.x,-cen.y,-cen.z});
+                for (int32 i=0;i<nv;i++){ st->editLive[i]=st->editRest[i];
+                    if (st->vertSel[i]) st->editLive[i].pos = st->editAnchorInv * (G * worldV(i)); }
+                if (meshSysF) meshSysF->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv);
+            }
+            // Fin de drag -> baker le delta dans le repos + reset du gizmo.
+            if (st->editWasDragging && !st->editGizmo.IsDragging()) {
+                for (int32 i=0;i<nv;i++) st->editRest[i]=st->editLive[i];
+                st->editGizmo.ResetSelected();
+            }
+            st->editWasDragging = st->editGizmo.IsDragging();
+
+            // Dessin du mesh édité à son ancre (les vertices sont en espace LOCAL).
+            {
+                NkDrawCall3D dc;
+                dc.mesh      = st->editMesh;
+                dc.transform = st->editAnchor;
+                dc.aabb      = {{-1.f,-1.f,-1.f},{1.f,1.f,1.f}};
+                dc.tint      = {0.72f,0.74f,0.8f};
+                dc.metallic  = 0.f; dc.roughness = 0.7f;
+                r3d->Submit(dc);
+            }
+
+            // ── Marqueurs FINS (taille écran constante) façon Blender ──────────────
+            // Cage : arêtes du mesh (fines) ; sélectionnées en orange épais.
+            auto dl = [&](NkVec3f a, NkVec3f b, NkVec4f c){ r3d->DrawDebugLine(a,b,c,0.f,true); };
+            const NkVec4f cageCol{0.05f,0.05f,0.06f,1.f}, selCol{1.f,0.55f,0.05f,1.f};
+            for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
+                const uint32 a=st->editIdx[t],b=st->editIdx[t+1],c=st->editIdx[t+2];
+                NkVec3f wa=worldV(a),wb=worldV(b),wc=worldV(c);
+                bool sab=st->vertSel[a]&&st->vertSel[b], sbc=st->vertSel[b]&&st->vertSel[c], sca=st->vertSel[c]&&st->vertSel[a];
+                dl(wa,wb, sab?selCol:cageCol); dl(wb,wc, sbc?selCol:cageCol); dl(wc,wa, sca?selCol:cageCol);
+            }
+            // Points de vertices (petits carrés face-caméra, taille écran ~ pixels).
+            auto dotAt = [&](NkVec3f w, NkVec4f col, float32 px){
+                float32 dist = (w-camPos).Len(); float32 s = px*(2.f*thY*dist)/VH;
+                NkVec3f R=rgt*s, U=upv*s, a=w-R-U,b=w+R-U,c2=w+R+U,d=w-R+U;
+                dl(a,b,col); dl(b,c2,col); dl(c2,d,col); dl(d,a,col);
+            };
+            if (st->editSelMode == 0 || st->editSelMode == 1) {
+                for (int32 i=0;i<nv;i++){ bool s=st->vertSel[i]!=0;
+                    dotAt(worldV(i), s?NkVec4f{1.f,0.6f,0.05f,1.f}:NkVec4f{0.15f,0.15f,0.18f,1.f}, s?4.5f:3.f); }
+            }
+            // FACE : point au centroïde des faces sélectionnées.
+            if (st->editSelMode == 2) {
+                for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
+                    const uint32 a=st->editIdx[t],b=st->editIdx[t+1],c=st->editIdx[t+2];
+                    if (st->vertSel[a]&&st->vertSel[b]&&st->vertSel[c])
+                        dotAt((worldV(a)+worldV(b)+worldV(c))*(1.f/3.f), NkVec4f{1.f,0.6f,0.05f,1.f}, 5.f);
+                }
+            }
+            // Poignées du gizmo (overlay).
+            st->editGizmo.Draw(dl);
         }
 
         // ── Gizmo éditeur (composant réutilisable NkGizmo3D) ────────────────────
@@ -784,41 +966,8 @@ namespace nkentseu { namespace demo {
             }
         }
 
-        // ── Volet 2 : GIZMO d'ÉDITION de VERTICES (Edit Mode) ───────────────────
-        // Chaque vertex = une cible du gizmo (base = Translate(pos de repos)). Le gizmo
-        // gère pick/translate/rotate/scale de la sélection de vertices (comme Blender).
-        if (st->editMode) {
-            const int32 nv = (int32)st->editRest.Size();
-            renderer::NkGizmoTarget vt[64]; int32 n = 0;
-            const NkVec3f vh = {0.03f, 0.03f, 0.03f};
-            for (int32 i=0;i<nv && n<64;i++)
-                vt[n++] = { NkMat4f::Translate(st->editRest[i].pos), vh, 0.12f };
-            st->editGizmo.SetCamera(cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width, (float32)ctx.height);
-            renderer::NkGizmoInput gin;
-            gin.mouseX  = (float32)NkInput.MouseX();      gin.mouseY  = (float32)NkInput.MouseY();
-            gin.mouseDX = (float32)NkInput.MouseDeltaX(); gin.mouseDY = (float32)NkInput.MouseDeltaY();
-            gin.leftPressed = st->pickPending; st->pickPending = false;
-            gin.leftDown  = NkInput.IsMouseDown(NkMouseButton::NK_MB_LEFT);
-            gin.shiftDown = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
-            gin.ctrlDown  = NkInput.IsKeyDown(NkKey::NK_LCTRL)  || NkInput.IsKeyDown(NkKey::NK_RCTRL);
-            gin.lockAxis = -1;
-            if (st->editGizmo.IsDragging()) {
-                if      (NkInput.IsKeyDown(NkKey::NK_X)) gin.lockAxis = 0;
-                else if (NkInput.IsKeyDown(NkKey::NK_Y)) gin.lockAxis = 1;
-                else if (NkInput.IsKeyDown(NkKey::NK_Z)) gin.lockAxis = 2;
-            }
-            st->editGizmo.Update(vt, n, gin);
-            // Points de vertices : petite croix overlay (jaune ; sélectionné = orange).
-            for (int32 i=0;i<n;i++) {
-                NkVec3f p = st->editGizmo.Apply(i, NkMat4f::Translate(st->editRest[i].pos)) * NkVec3f{0.f,0.f,0.f};
-                NkVec4f c = st->editGizmo.IsSelected(i) ? NkVec4f{1.f,0.5f,0.f,1.f} : NkVec4f{1.f,0.9f,0.2f,1.f};
-                const float32 s = 0.05f;
-                r3d->DrawDebugLine({p.x-s,p.y,p.z},{p.x+s,p.y,p.z}, c, 0.f, true);
-                r3d->DrawDebugLine({p.x,p.y-s,p.z},{p.x,p.y+s,p.z}, c, 0.f, true);
-                r3d->DrawDebugLine({p.x,p.y,p.z-s},{p.x,p.y,p.z+s}, c, 0.f, true);
-            }
-            st->editGizmo.Draw([&](NkVec3f a, NkVec3f b, NkVec4f c){ r3d->DrawDebugLine(a, b, c, 0.f, true); });
-        }
+        // (Le gizmo d'édition de vertices + pick VERTEX/EDGE/FACE + marqueurs fins
+        //  sont désormais gérés plus haut, dans la section « EDIT MODE ».)
 
         // ── Axes X/Y/Z en LIGNES 3D réelles (DrawDebugLine) : correct partout ───
         // (perspective, ancrés à l'origine, parallèles aux objets verticaux, top/bottom OK).
@@ -857,13 +1006,21 @@ namespace nkentseu { namespace demo {
             // Aide gizmo : mode + orientation + rappel des touches.
             const char* gmName[4] = {"TRANSLATE", "ROTATE", "SCALE", "COMBINE (T+R+S)"};
             const char* orName[3] = {"GLOBAL", "LOCAL", "NORMAL"};
-            overlay->DrawText({20.f, 100.f},
-                "Mode(TAB): %s  |  Gizmo: %s  |  Orient: %s   G/R/S=trans/rot/scale  C=combine  ,=orient",
-                st->editMode ? "EDIT (vertices)" : "OBJET",
-                gmName[(st->editMode ? st->editGizmo.Mode() : st->gizmo.Mode()) & 3],
-                orName[(st->editMode ? st->editGizmo.Orientation() : st->gizmo.Orientation()) % 3]);
-            overlay->DrawText({20.f, 118.f},
-                "clic=sel  Shift+clic=multi  A/Alt+A=tout/rien  Alt+G/R/S=clear  |  Ctrl=snap  X/Y/Z=verrou axe");
+            const char* seName[3] = {"VERTEX", "EDGE", "FACE"};
+            if (st->editMode) {
+                overlay->DrawText({20.f, 100.f},
+                    "EDIT MODE (obj #%d)  |  Selection(1/2/3): %s  |  Gizmo(G/R/S/C): %s  |  Orient(,): %s",
+                    st->editObjIdx, seName[st->editSelMode % 3],
+                    gmName[st->editGizmo.Mode() & 3], orName[st->editGizmo.Orientation() % 3]);
+                overlay->DrawText({20.f, 118.f},
+                    "clic=sel  Shift+clic=ajout  A/Alt+A=tout/rien  |  TAB=sortir  |  Ctrl=snap  X/Y/Z=verrou axe");
+            } else {
+                overlay->DrawText({20.f, 100.f},
+                    "OBJET  |  Gizmo(G/R/S/C): %s  |  Orient(,): %s   |  TAB=editer l'objet selectionne",
+                    gmName[st->gizmo.Mode() & 3], orName[st->gizmo.Orientation() % 3]);
+                overlay->DrawText({20.f, 118.f},
+                    "clic=sel  Shift+clic=multi  A/Alt+A=tout/rien  Alt+G/R/S=clear  |  Ctrl=snap  X/Y/Z=verrou axe");
+            }
 
             // ── Debug panel : params shadow live-tunable ───────────────────────
             // Background semi-transparent en haut a droite

@@ -111,6 +111,17 @@ namespace nkentseu {
                 e.ibo = mDevice->CreateBuffer(ibd);
             }
 
+            // Copie CPU (modele Blender : le CPU reste l'autorite du mesh).
+            if (desc.keepCPU && desc.vertices && desc.vertexCount > 0) {
+                const uint32 vbytes = desc.vertexCount * desc.layout.stride;
+                e.cpuVerts.Resize(vbytes);
+                std::memcpy(e.cpuVerts.Data(), desc.vertices, vbytes);
+                if (desc.indices && desc.indexCount > 0) {
+                    e.cpuIdx.Resize(desc.indexCount);
+                    std::memcpy(e.cpuIdx.Data(), desc.indices, desc.indexCount * sizeof(uint32));
+                }
+            }
+
             // Si pas de sous-meshes, créer un sous-mesh qui couvre tout
             if (e.subMeshes.Empty()) {
                 NkSubMesh sm;
@@ -174,6 +185,12 @@ namespace nkentseu {
         bool NkMeshSystem::UpdateVertices(NkMeshHandle h, const void* data, uint32 count) {
             auto* e = mMeshes.Find(h.id);
             if (!e || !e->dynamic) return false;
+            // Garder la copie CPU synchro (autorite).
+            if (!e->cpuVerts.Empty()) {
+                const uint32 bytes = count * e->layout.stride;
+                if (bytes == (uint32)e->cpuVerts.Size())
+                    std::memcpy(e->cpuVerts.Data(), data, bytes);
+            }
             return mDevice->WriteBuffer(e->vbo, data, count * e->layout.stride);
         }
 
@@ -185,6 +202,8 @@ namespace nkentseu {
             const uint32 stride = e->layout.stride;
             const uint64 offset = (uint64)firstVertex * (uint64)stride;
             const uint64 bytes  = (uint64)count * (uint64)stride;
+            if (!e->cpuVerts.Empty() && offset + bytes <= (uint64)e->cpuVerts.Size())
+                std::memcpy(e->cpuVerts.Data() + offset, data, (size_t)bytes);
             return mDevice->WriteBuffer(e->vbo, data, bytes, offset);
         }
 
@@ -237,6 +256,27 @@ namespace nkentseu {
         }
         NkBufferHandle NkMeshSystem::GetIBO(NkMeshHandle h) const {
             auto* e = mMeshes.Find(h.id); return e ? e->ibo : NkBufferHandle{};
+        }
+
+        const void* NkMeshSystem::GetVertices(NkMeshHandle h) const {
+            auto* e = mMeshes.Find(h.id);
+            return (e && !e->cpuVerts.Empty()) ? (const void*)e->cpuVerts.Data() : nullptr;
+        }
+        uint32 NkMeshSystem::GetVertexCount(NkMeshHandle h) const {
+            auto* e = mMeshes.Find(h.id); return e ? e->vertexCount : 0;
+        }
+        uint32 NkMeshSystem::GetVertexStride(NkMeshHandle h) const {
+            auto* e = mMeshes.Find(h.id); return e ? e->layout.stride : 0;
+        }
+        const uint32* NkMeshSystem::GetIndices(NkMeshHandle h) const {
+            auto* e = mMeshes.Find(h.id);
+            return (e && !e->cpuIdx.Empty()) ? e->cpuIdx.Data() : nullptr;
+        }
+        uint32 NkMeshSystem::GetIndexCount(NkMeshHandle h) const {
+            auto* e = mMeshes.Find(h.id); return e ? e->indexCount : 0;
+        }
+        bool NkMeshSystem::HasCPUData(NkMeshHandle h) const {
+            auto* e = mMeshes.Find(h.id); return e && !e->cpuVerts.Empty();
         }
 
         // ── Draw ──────────────────────────────────────────────────────────────────
