@@ -64,6 +64,9 @@ namespace nkentseu { namespace demo {
         // Indices des cibles : 16 sphères, 1 cube, 2 colonnes, 64 instanciés = 83.
         static const int32 kNumObj = 16 + 1 + 2 + 64;
         renderer::NkGizmo3D gizmo;                 // sélection multiple + translate/rotate/scale/combiné
+        // Mesh ÉDITÉ propre à un objet (persiste l'édition) : si valide, l'objet est
+        // rendu avec CE mesh au lieu de sa primitive partagée. Rempli à la SORTIE d'edit.
+        NkMeshHandle objMesh[kNumObj]{};
         // ── Volet 2 : EDIT MODE mesh (édition façon Blender, sur l'OBJET SÉLECTIONNÉ) ──
         // TAB entre en édition de l'objet actif (gizmo.ActiveIndex). On CLONE ses
         // données CPU (modèle Blender : le CPU est l'autorité) en un mesh dynamique
@@ -709,7 +712,15 @@ namespace nkentseu { namespace demo {
             st->editTogglePending = false;
             auto* ms = ctx.renderer->GetMeshSystem();
             if (st->editMode) {
-                // Sortie d'édition.
+                // Sortie d'édition : on PERSISTE le mesh édité DANS l'objet -> il garde
+                // sa nouvelle forme en mode objet (au lieu de retomber sur la primitive
+                // partagée). Transfert de propriété (pas de Release).
+                if (st->editObjIdx >= 0 && st->editObjIdx < Demo3DState::kNumObj) {
+                    if (st->objMesh[st->editObjIdx].IsValid() && ms)
+                        ms->Release(st->objMesh[st->editObjIdx]);
+                    st->objMesh[st->editObjIdx] = st->editMesh;   // l'objet adopte le mesh édité
+                    st->editMesh = {};
+                }
                 st->editMode   = false;
                 st->editObjIdx = -1;
                 r3d->ClearEditOverlay();
@@ -718,7 +729,11 @@ namespace nkentseu { namespace demo {
                 if (sel < 0) {
                     logger.Info("[Demo3D] Sélectionne un objet (clic) avant TAB.\n");
                 } else {
-                    const NkMeshHandle src = (sel < 16) ? st->meshSphere : st->meshCube;
+                    // Source = le mesh DÉJÀ édité de l'objet s'il existe (on continue
+                    // l'édition), sinon la primitive partagée.
+                    const NkMeshHandle prim = (sel < 16) ? st->meshSphere : st->meshCube;
+                    const bool hadEdit = st->objMesh[sel].IsValid();
+                    const NkMeshHandle src = hadEdit ? st->objMesh[sel] : prim;
                     if (!ms || !ms->HasCPUData(src)) {
                         logger.Warn("[Demo3D] Mesh sans copie CPU (keepCPU) — édition impossible.\n");
                     } else {
@@ -754,6 +769,9 @@ namespace nkentseu { namespace demo {
                             st->editRest.Data(), vc, st->editIdx.Data(), ic);
                         d.debugName = "Demo3D_EditMesh"; d.dynamic = true; d.bounds = ms->GetBounds(src);
                         st->editMesh = ms->Create(d);
+                        // Le mesh objet a été cloné dans editMesh -> on le libère ; il sera
+                        // ré-adopté (mis à jour) à la sortie d'édition.
+                        if (hadEdit) { ms->Release(st->objMesh[sel]); st->objMesh[sel] = {}; }
                         // Ancre = transform MONDE de l'objet (base repos + delta gizmo).
                         st->editAnchor    = st->gizmo.Apply(sel, Demo3D_ObjBase(sel));
                         st->editAnchorInv = st->editAnchor.Inverse();
@@ -888,6 +906,12 @@ namespace nkentseu { namespace demo {
             if (!grayActive) return matTint;
             return (st->unlitColorMode == 2) ? st->unlitCustom : st->unlitGray;
         };
+        // Mesh EFFECTIF d'un objet : son mesh édité persistant s'il existe, sinon la
+        // primitive partagée. Permet à l'édition de survivre au retour en mode objet.
+        auto meshFor = [st](int32 idx, NkMeshHandle prim) -> NkMeshHandle {
+            return (idx>=0 && idx<Demo3DState::kNumObj && st->objMesh[idx].IsValid())
+                   ? st->objMesh[idx] : prim;
+        };
 
         // ── Sol ──────────────────────────────────────────────────────────────
         // RETIRÉ : la grille infinie sert désormais de sol de référence (façon Blender/
@@ -903,7 +927,7 @@ namespace nkentseu { namespace demo {
             dc.transform = NkMat4f::Scale({40.f, 1.f, 40.f});   // sol AGRANDI (80x80)
             dc.aabb      = {{-40, 0, -40}, {40, 0, 40}};
             dc.castShadow= false;                                // reçoit les ombres (pas caster)
-            dc.tint      = {0.12f, 0.12f, 0.13f};
+            dc.tint      = effTint({0.12f, 0.12f, 0.13f});
             dc.metallic  = 0.f;
             dc.roughness = 0.92f;
             r3d->Submit(dc);
@@ -921,7 +945,7 @@ namespace nkentseu { namespace demo {
                 float32 z = (row - 1.5f) * 1.2f;
 
                 NkDrawCall3D dc;
-                dc.mesh      = st->meshSphere;
+                dc.mesh      = meshFor(row*4 + col, st->meshSphere);
                 dc.transform = userXform(row*4 + col,               // idx pick = row*4+col
                                NkMat4f::Translate({x, 0.5f, z}) *
                                NkMat4f::Scale({0.45f, 0.45f, 0.45f}));
@@ -944,16 +968,26 @@ namespace nkentseu { namespace demo {
             inst.mesh = st->meshCube;
             for (int gz = 0; gz < 8; gz++) {
                 for (int gx = 0; gx < 8; gx++) {
+                    const int32 idx = 19 + gz*8 + gx;
                     const float32 x = (gx - 3.5f) * 0.55f;
                     const float32 z = (gz - 3.5f) * 0.55f - 4.5f;  // décalé derrière le sol
-                    inst.transforms.PushBack(userXform(19 + gz*8 + gx,   // idx pick instanciés
-                        NkMat4f::Translate({x, 1.6f, z}) *
-                        NkMat4f::Scale({0.18f, 0.18f, 0.18f})));
-                    inst.tints.PushBack(effTint({(float32)gx / 7.f, 0.6f, (float32)gz / 7.f}));
+                    const NkMat4f xf = userXform(idx,
+                        NkMat4f::Translate({x, 1.6f, z}) * NkMat4f::Scale({0.18f, 0.18f, 0.18f}));
+                    const NkVec3f tint = effTint({(float32)gx / 7.f, 0.6f, (float32)gz / 7.f});
+                    if (st->editMode && st->editObjIdx == idx) continue;   // édité -> via editMesh
+                    if (st->objMesh[idx].IsValid()) {                      // édité persisté -> draw séparé
+                        NkDrawCall3D dc; dc.mesh = st->objMesh[idx]; dc.transform = xf;
+                        dc.aabb = {{x-0.15f,1.4f,z-0.15f},{x+0.15f,1.8f,z+0.15f}};
+                        dc.tint = tint; dc.metallic = 0.f; dc.roughness = 0.6f;
+                        r3d->Submit(dc);
+                    } else {
+                        inst.transforms.PushBack(xf);
+                        inst.tints.PushBack(tint);
+                    }
                 }
             }
             inst.aabb = {{-3.f, 1.f, -9.f}, {3.f, 2.5f, 0.f}};
-            r3d->SubmitInstanced(inst);   // 64 instances
+            if (!inst.transforms.Empty()) r3d->SubmitInstanced(inst);
         }
 
         // ── Cube central rotatif : metal or poli (gold metallic, low rough) ──
@@ -965,7 +999,7 @@ namespace nkentseu { namespace demo {
                             NkMat4f::Scale({0.6f, 0.6f, 0.6f});
         {
             NkDrawCall3D dc;
-            dc.mesh = st->meshCube;
+            dc.mesh = meshFor(16, st->meshCube);
             dc.transform = userXform(16, cubeXform);   // idx pick cube central = 16
             dc.aabb = {{-0.35f, 0.1f, -0.35f}, {0.35f, 0.9f, 0.35f}};
             dc.tint      = effTint({1.f, 0.8f, 0.3f});   // gold albedo (ou gris en edit/unlit)
@@ -985,7 +1019,7 @@ namespace nkentseu { namespace demo {
             float32 cx = (c == 0) ? -4.f : 1.f;
             float32 cz = (c == 0) ? -2.f :  4.f;
             NkDrawCall3D dc;
-            dc.mesh      = st->meshCube;
+            dc.mesh      = meshFor(17 + c, st->meshCube);
             dc.transform = userXform(17 + c,                    // idx pick colonnes = 17,18
                            NkMat4f::Translate({cx, 1.f, cz}) *
                            NkMat4f::Scale({0.3f, 2.f, 0.3f}));  // colonne 2m haute
