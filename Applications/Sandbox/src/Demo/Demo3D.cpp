@@ -1205,23 +1205,32 @@ namespace nkentseu { namespace demo {
                             float32 cx=ax+tt*dx,cy=ay+tt*dy,d=sqrtf((mx-cx)*(mx-cx)+(my-cy)*(my-cy)); if(d<dE){dE=d;bestEa=(int32)e[k][0];bestEb=(int32)e[k][1];} } }
                     }
                 }
-                int32 bestFt=-1; float32 dF=1e30f;
+                // FACE : RAYON depuis la caméra à travers le curseur -> triangle le plus
+                // PROCHE réellement touché (Möller-Trumbore). Corrige le bug où le triangle
+                // derrière était pris (le centroïde 2D ignorait la profondeur).
+                int32 bestFt=-1;
                 if (st->editSelMask & 4) {
+                    const float32 ndcX = mx/VW*2.f - 1.f, ndcY = 1.f - my/VH*2.f;
+                    NkVec3f rd = fwd + rgt*(ndcX*thX) + upv*(ndcY*thY);
+                    { float32 l=rd.Len(); if(l>1e-6f) rd=rd*(1.f/l); }
+                    float32 bestT=1e30f;
                     for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
-                        const uint32 a=st->editIdx[t],b=st->editIdx[t+1],c=st->editIdx[t+2];
-                        if(!frontV((int32)a) && !frontV((int32)b) && !frontV((int32)c)) continue;
-                        NkVec3f c3 = (worldV(a)+worldV(b)+worldV(c))*(1.f/3.f);
-                        float32 px,py; if(project(c3,px,py)){ float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my)); if(d<dF){dF=d;bestFt=(int32)t;} }
+                        const NkVec3f v0=worldV(st->editIdx[t]), v1=worldV(st->editIdx[t+1]), v2=worldV(st->editIdx[t+2]);
+                        NkVec3f e1=v1-v0, e2=v2-v0, h=rd.Cross(e2); float32 aa=e1.Dot(h);
+                        if (fabsf(aa) < 1e-7f) continue;                 // rayon parallèle
+                        float32 f=1.f/aa; NkVec3f s=camPos-v0; float32 u=f*s.Dot(h);
+                        if (u<0.f || u>1.f) continue;
+                        NkVec3f q=s.Cross(e1); float32 vv=f*rd.Dot(q);
+                        if (vv<0.f || u+vv>1.f) continue;
+                        float32 tt=f*e2.Dot(q);
+                        if (tt>1e-4f && tt<bestT){ bestT=tt; bestFt=(int32)t; }
                     }
                 }
-                // Élire le plus proche.
-                float32 best=1e30f; int32 win=-1;
-                if (bestV>=0  && dV<best){ best=dV; win=0; }
-                if (bestEa>=0 && dE<best){ best=dE; win=1; }
-                if (bestFt>=0 && dF<best){ best=dF; win=2; }
-                if      (win==0) st->vertSel[bestV] = gin.shiftDown ? (uint8)(1-st->vertSel[bestV]) : 1;
-                else if (win==1){ st->vertSel[bestEa]=1; st->vertSel[bestEb]=1; }
-                else if (win==2){ st->vertSel[st->editIdx[bestFt]]=1; st->vertSel[st->editIdx[bestFt+1]]=1; st->vertSel[st->editIdx[bestFt+2]]=1; }
+                // Élection PAR PRIORITÉ façon Blender : vertex (près d'un sommet) > arête
+                // (près d'une arête) > face (rayon). Chacun n'est retenu que dans son seuil.
+                if      (bestV>=0)  st->vertSel[bestV] = gin.shiftDown ? (uint8)(1-st->vertSel[bestV]) : 1;
+                else if (bestEa>=0){ st->vertSel[bestEa]=1; st->vertSel[bestEb]=1; }
+                else if (bestFt>=0){ st->vertSel[st->editIdx[bestFt]]=1; st->vertSel[st->editIdx[bestFt+1]]=1; st->vertSel[st->editIdx[bestFt+2]]=1; }
             }
             // Garder la cible-0 sélectionnée pour que les poignées s'affichent.
             if (selCnt>0 && !st->editGizmo.IsDragging()) st->editGizmo.SelectAll();
