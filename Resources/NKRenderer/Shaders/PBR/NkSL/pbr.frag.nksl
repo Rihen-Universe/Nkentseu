@@ -25,7 +25,7 @@ uniform CameraUBO {
     float deltaTime;
     float iblStrength;
     float _p0;
-    float _p1;
+    float viewMode;      // 0=SOLID (PBR éclairé) ; >0.5 = UNLIT plat (wireframe / vue debug)
     float _p2;
     mat4  mirrorViewProj;
     vec4  reflectionFlags;
@@ -365,5 +365,8 @@ void main() {
     vec3 emissive = texture(tEmissive, vUV).rgb * uObj.emissiveStrength;
 
     vec3 color = amb + Lo + ccContrib + sssContrib + emissive;
+    // Mode UNLIT (wireframe / vue debug, façon Blender) : couleur plate = albedo * tint,
+    // SANS éclairage/ombres/IBL. Contrôlé par uCam.viewMode (0 = PBR normal).
+    if (uCam.viewMode > 0.5) color = albedo * uObj.tint.rgb;
     fragColor  = vec4(color, 1.0);
 }
