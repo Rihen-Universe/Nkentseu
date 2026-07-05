@@ -126,6 +126,10 @@ namespace nkentseu {
                 // le CameraUBO (uCam.viewMode) et consommé par pbr.frag.
                 void SetViewMode(int32 m) { mViewMode = m; }
                 int32 ViewMode() const    { return mViewMode; }
+                // Preset MatCap (mode SOLID/WIREFRAME) : 0=Studio 1=Clay 2=Metal 3=Toon.
+                static const int32 kMatcapCount = 4;
+                void  SetMatcap(int32 id) { mMatcapId = ((id % kMatcapCount) + kMatcapCount) % kMatcapCount; }
+                int32 Matcap() const      { return mMatcapId; }
 
                 // Contrôle de la force du terme ambient IBL (0=aucun, 1=complet).
                 // Défaut 0.3 — réduit le blanchiment par le ciel procédural.
@@ -226,6 +230,7 @@ namespace nkentseu {
                 bool              mInScene  = false;
                 bool              mWireframe= false;
                 int32             mViewMode = 0;   // 0=rendered(lit) 1=solid(unlit)
+                int32             mMatcapId = 0;   // preset matcap (mode solid)
                 uint32            mW = 0, mH = 0;  // taille courante (mise a jour par OnResize)
 
                 // Fallback material instance : utilise pour les drawcalls sans

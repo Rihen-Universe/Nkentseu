@@ -22,7 +22,7 @@ uniform CameraUBO {
     float iblStrength;
     float _p0;
     float viewMode;
-    float _p2;
+    float matcapId;
     mat4  mirrorViewProj;
     vec4  reflectionFlags;
 } uCam;

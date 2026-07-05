@@ -25,8 +25,8 @@ uniform CameraUBO {
     float deltaTime;
     float iblStrength;
     float _p0;
-    float viewMode;      // 0=SOLID (PBR éclairé) ; >0.5 = UNLIT plat (wireframe / vue debug)
-    float _p2;
+    float viewMode;      // 0=RENDERED (PBR éclairé) ; >0.5 = SOLID/UNLIT (matcap)
+    float matcapId;      // preset matcap en mode SOLID/WIREFRAME : 0=Studio 1=Clay 2=Metal 3=Toon
     mat4  mirrorViewProj;
     vec4  reflectionFlags;
 } uCam;
@@ -369,17 +369,36 @@ void main() {
     // révélée par un "phare caméra" (N·V) pour voir la FORME, SANS lumières de scène /
     // ombres / IBL. Facteur borné (<1) -> reste sous le seuil de bloom (pas de halo).
     if (uCam.viewMode > 0.5) {
-        // MatCap STUDIO procédural (façon Blender Solid) : shading en ESPACE VUE (tourne
-        // avec la caméra comme un vrai matcap), 3 sources fixes clé/fill/liseré, SANS
-        // lumières de scène / ombres / IBL. Borné (<0.85) -> pas de halo bloom.
-        // NB : mat3(mat4) est INTERDIT en HLSL (X3014) -> on extrait les colonnes à la main.
+        // MODE SOLID/WIREFRAME : matcap procédural en ESPACE VUE (tourne avec la caméra
+        // comme un vrai matcap), SANS lumières de scène / ombres / IBL. Plusieurs presets
+        // sélectionnables (uCam.matcapId). Borné (<0.85) -> pas de halo bloom.
+        // NB : mat3(mat4) INTERDIT en HLSL (X3014) -> extraction des colonnes à la main.
         mat3  vRot = mat3(uCam.view[0].xyz, uCam.view[1].xyz, uCam.view[2].xyz);
-        vec3  vn   = normalize(vRot * geomN);            // normale en espace vue
-        float key  = max(dot(vn, vec3(0.32, 0.53, 0.78)), 0.0);   // clé haut-droite
-        float fill = max(dot(vn, vec3(-0.60, 0.10, 0.79)), 0.0);  // fill gauche
-        float rim  = pow(1.0 - max(vn.z, 0.0), 3.0);              // liseré silhouette
-        float shade = clamp(0.25 + 0.50*key + 0.18*fill + 0.22*rim, 0.0, 0.85);
-        color = albedo * uObj.tint.rgb * shade;
+        vec3  vn   = normalize(vRot * geomN);                     // normale en espace vue
+        float mc   = uCam.matcapId;
+        float shade;
+        if (mc < 0.5) {
+            // 0 — STUDIO : clé + fill + liseré (défaut, équilibré).
+            float key  = max(dot(vn, vec3(0.32, 0.53, 0.78)), 0.0);
+            float fill = max(dot(vn, vec3(-0.60, 0.10, 0.79)), 0.0);
+            float rim  = pow(1.0 - max(vn.z, 0.0), 3.0);
+            shade = 0.25 + 0.50*key + 0.18*fill + 0.22*rim;
+        } else if (mc < 1.5) {
+            // 1 — CLAY : mat doux, éclairage hémisphérique vertical (haut clair, bas sombre).
+            float up = vn.y * 0.5 + 0.5;
+            shade = 0.30 + 0.50*up;
+        } else if (mc < 2.5) {
+            // 2 — METAL : highlight net + fresnel de bord (aspect métallique brossé).
+            float key  = max(dot(vn, vec3(0.30, 0.50, 0.80)), 0.0);
+            float spec = pow(key, 20.0);
+            float fres = pow(1.0 - max(vn.z, 0.0), 4.0);
+            shade = 0.14 + 0.42*key + 0.7*spec + 0.5*fres;
+        } else {
+            // 3 — TOON : bandes dures (cel-shading).
+            float key = max(dot(vn, vec3(0.30, 0.55, 0.78)), 0.0);
+            shade = (key > 0.62) ? 0.82 : ((key > 0.32) ? 0.55 : 0.30);
+        }
+        color = albedo * uObj.tint.rgb * clamp(shade, 0.0, 0.85);
     }
     fragColor  = vec4(color, 1.0);
 }

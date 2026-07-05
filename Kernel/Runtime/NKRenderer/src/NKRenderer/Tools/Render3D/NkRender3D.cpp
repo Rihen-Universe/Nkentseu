@@ -1159,7 +1159,7 @@ namespace nkentseu {
                 //   donc on doit inverser pour obtenir le meme viewRay.y final.
                 //   +1.0 en VK, -1.0 en GL. Les shaders qui n'utilisent pas ce
                 //   champ ignorent le slot.
-                float32 iblStrength, yFlipNDC, viewMode, _p2;  // viewMode : 0=PBR, >0.5=UNLIT (wireframe)
+                float32 iblStrength, yFlipNDC, viewMode, matcapId;  // viewMode:0=PBR,>0.5=SOLID ; matcapId=preset
                 // Phase Planar Reflection : viewProj de la cam miroir, exposée
                 // au shader ReflFloor pour calculer reflectionUV via
                 // projection explicite. Les shaders qui n'utilisent pas ce
@@ -1215,6 +1215,7 @@ namespace nkentseu {
             cb.deltaTime   = mCtx.deltaTime;
             cb.iblStrength = mIBLStrength;
             cb.viewMode    = (float32)mViewMode;  // 0=rendered(PBR) 1=solid/unlit (indépendant du wireframe)
+            cb.matcapId    = (float32)mMatcapId;  // preset matcap en mode SOLID/WIREFRAME
             // yFlipNDC : UNIQUEMENT consommé par le SKYBOX (reconstruction du view-ray à
             // partir de vNDC). C'est l'orientation Y du VS PLEIN ÉCRAN du skybox, qui
             // n'a PAS d'inputs → le générateur HLSL ne le Y-négate PAS sur DX (il ne

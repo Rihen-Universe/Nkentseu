@@ -325,6 +325,12 @@ namespace nkentseu { namespace demo {
                     r3d->SetViewMode(st->shadingMode == 0 ? 0 : 1);    // 0=PBR éclairé ; 1=unlit (solid+wire)
                     logger.Info("[Demo3D] Affichage = {0}\n", sm[st->shadingMode]);
                 }
+                // M : cycle le preset MatCap (effet en mode SOLID/WIREFRAME).
+                if (k == NkKey::NK_M) {
+                    r3d->SetMatcap(r3d->Matcap() + 1);
+                    const char* mc[4] = {"Studio", "Clay", "Metal", "Toon"};
+                    logger.Info("[Demo3D] MatCap = {0}\n", mc[r3d->Matcap() % 4]);
+                }
                 auto& g = r3d->GetInfiniteGridParams();
                 if (k == NkKey::NK_F1) { bool on=!r3d->IsInfiniteGridEnabled(); r3d->SetInfiniteGridEnabled(on); logger.Info("[Demo3D] Grille = {0}\n", on); }
                 if (k == NkKey::NK_F2) { g.showMinor=!g.showMinor; logger.Info("[Demo3D] Grille internes = {0}\n", g.showMinor); }
@@ -737,8 +743,14 @@ namespace nkentseu { namespace demo {
             overlay->DrawStats(ctx.renderer->GetStats());
             {
                 const char* sm[3] = {"RENDERED", "SOLID", "WIREFRAME"};
-                overlay->DrawText({20.f, 35.f}, "Demo 3D - PBR primitives  |  API : %s  |  Affichage(Z): %s",
-                                  NkGraphicsApiName(ctx.api), sm[st->shadingMode % 3]);
+                const char* mc[4] = {"Studio", "Clay", "Metal", "Toon"};
+                int32 mcId = 0; if (auto* r3dh = ctx.renderer->GetRender3D()) mcId = r3dh->Matcap();
+                if (st->shadingMode == 0)
+                    overlay->DrawText({20.f, 35.f}, "Demo 3D - PBR primitives  |  API : %s  |  Affichage(Z): %s",
+                                      NkGraphicsApiName(ctx.api), sm[st->shadingMode % 3]);
+                else
+                    overlay->DrawText({20.f, 35.f}, "Demo 3D - PBR primitives  |  API : %s  |  Affichage(Z): %s  |  MatCap(M): %s",
+                                      NkGraphicsApiName(ctx.api), sm[st->shadingMode % 3], mc[mcId % 4]);
             }
             overlay->DrawText({20.f, 55.f}, "FPS approx: %.1f  |  dt: %.2f ms",
                               dt > 1e-4f ? 1.f / dt : 0.f, dt * 1000.f);
