@@ -845,6 +845,13 @@ namespace nkentseu {
             if (mDebugPipeline.IsValid()) { mDevice->DestroyPipeline(mDebugPipeline); mDebugPipeline={}; }
             if (mDebugVBO.IsValid())      { mDevice->DestroyBuffer(mDebugVBO); mDebugVBO={}; }
             if (mDebugIBO.IsValid())      { mDevice->DestroyBuffer(mDebugIBO); mDebugIBO={}; }
+            // Lignes + triangles debug (gizmos/cage/faces éditeur).
+            if (mLinePipeline.IsValid())        { mDevice->DestroyPipeline(mLinePipeline); mLinePipeline={}; }
+            if (mLinePipelineNoDepth.IsValid()) { mDevice->DestroyPipeline(mLinePipelineNoDepth); mLinePipelineNoDepth={}; }
+            if (mLineVBO.IsValid())             { mDevice->DestroyBuffer(mLineVBO); mLineVBO={}; }
+            if (mTriPipeline.IsValid())         { mDevice->DestroyPipeline(mTriPipeline); mTriPipeline={}; }
+            if (mTriPipelineNoDepth.IsValid())  { mDevice->DestroyPipeline(mTriPipelineNoDepth); mTriPipelineNoDepth={}; }
+            if (mTriVBO.IsValid())              { mDevice->DestroyBuffer(mTriVBO); mTriVBO={}; }
             mDebugInited = false;
         }
 
@@ -2124,8 +2131,88 @@ namespace nkentseu {
             return mLinePipeline.IsValid();
         }
 
+        // Pipelines pour les TRIANGLES debug pleins (surlignage de faces, etc.) :
+        // même shader/layout que les lignes (pos vec3 + couleur vec4), mais topologie
+        // TRIANGLE_LIST + blend ALPHA. Variante depth (occluse) + overlay (au-dessus).
+        bool NkRender3D::EnsureDebugTriOverlayPipeline(NkRenderPassHandle currentRP) {
+            if (mTriPipeline.IsValid() && mTriPipelineRP == currentRP) return true;
+            if (!EnsureDebugLinePipeline(currentRP)) return false;   // garantit mLineShader
+            if (mTriPipeline.IsValid())        { mDevice->DestroyPipeline(mTriPipeline);        mTriPipeline = {}; }
+            if (mTriPipelineNoDepth.IsValid()) { mDevice->DestroyPipeline(mTriPipelineNoDepth); mTriPipelineNoDepth = {}; }
+
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = mLineShader;
+            pd.depthStencil = NkDepthStencilDesc::Default();
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.blend        = NkBlendDesc::Alpha();
+            pd.topology     = NkPrimitiveTopology::NK_TRIANGLE_LIST;
+            pd.debugName    = "DebugTriFill";
+            pd.renderPass   = currentRP;
+            pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+            pd.vertexLayout
+              .AddBinding(0, 28, false)
+              .AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT,  0,  "POSITION", 0)
+              .AddAttribute(1, 0, NkVertexFormat::NK_RGBA32_FLOAT, 12, "COLOR",    0);
+            mTriPipeline   = mDevice->CreateGraphicsPipeline(pd);
+            mTriPipelineRP = currentRP;
+            pd.depthStencil = NkDepthStencilDesc::NoDepth();
+            pd.debugName    = "DebugTriFillOverlay";
+            mTriPipelineNoDepth = mDevice->CreateGraphicsPipeline(pd);
+            return mTriPipeline.IsValid();
+        }
+
         void NkRender3D::FlushDebug(NkICommandBuffer* cmd, NkRenderPassHandle currentRP,
                                     NkDescSetHandle gs) {
+            if (mDebugLines.Empty() && mDebugTris.Empty()) return;
+
+            // ── 0. TRIANGLES debug pleins (surlignage de faces) — AVANT les lignes,
+            //        pour que la cage/les points passent par-dessus le fill. ────────
+            if (!mDebugTris.Empty() && EnsureDebugTriOverlayPipeline(currentRP)) {
+                struct LV { float x, y, z, r, g, b, a; };
+                NkVector<LV> tv; tv.Reserve(mDebugTris.Size() * 3);
+                auto emitT = [&](const DebugTri& t){
+                    tv.PushBack({t.a.x,t.a.y,t.a.z, t.color.x,t.color.y,t.color.z,t.color.w});
+                    tv.PushBack({t.b.x,t.b.y,t.b.z, t.color.x,t.color.y,t.color.z,t.color.w});
+                    tv.PushBack({t.c.x,t.c.y,t.c.z, t.color.x,t.color.y,t.color.z,t.color.w});
+                };
+                for (uint32 i=0;i<mDebugTris.Size();++i) if (!mDebugTris[i].overlay) emitT(mDebugTris[i]);
+                const uint32 tNormal = (uint32)tv.Size();
+                for (uint32 i=0;i<mDebugTris.Size();++i) if ( mDebugTris[i].overlay) emitT(mDebugTris[i]);
+                const uint32 tcount = (uint32)tv.Size();
+                const uint32 tOverlay = tcount - tNormal;
+                if (tcount > 0) {
+                    if (!mTriVBO.IsValid() || mTriVBOCapVerts < tcount) {
+                        if (mTriVBO.IsValid()) mDevice->DestroyBuffer(mTriVBO);
+                        const uint32 cap = tcount + 256;
+                        mTriVBO = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)cap * sizeof(LV)));
+                        mTriVBOCapVerts = cap;
+                    }
+                    mDevice->WriteBuffer(mTriVBO, tv.Data(), (uint64)tcount * sizeof(LV), 0);
+                    if (tNormal > 0) {
+                        cmd->BindGraphicsPipeline(mTriPipeline);
+                        if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+                        cmd->BindVertexBuffer(0, mTriVBO, 0);
+                        cmd->Draw(tNormal);
+                    }
+                    if (tOverlay > 0 && mTriPipelineNoDepth.IsValid()) {
+                        cmd->BindGraphicsPipeline(mTriPipelineNoDepth);
+                        if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+                        cmd->BindVertexBuffer(0, mTriVBO, (uint64)tNormal * sizeof(LV));
+                        cmd->Draw(tOverlay);
+                    }
+                }
+                // Purge O(n) (mêmes règles que les lignes).
+                uint32 tkeep = 0;
+                for (uint32 i=0;i<(uint32)mDebugTris.Size();++i) {
+                    if (mDebugTris[i].life <= 0.f) continue;
+                    mDebugTris[i].life -= mCtx.deltaTime;
+                    if (mDebugTris[i].life <= 0.f) continue;
+                    if (tkeep != i) mDebugTris[tkeep] = mDebugTris[i];
+                    ++tkeep;
+                }
+                mDebugTris.Resize(tkeep);
+            }
+
             if (mDebugLines.Empty()) return;
 
             // ── 1. RENDU des lignes courantes ────────────────────────────────────
@@ -2228,6 +2315,9 @@ namespace nkentseu {
             // l'accumulation à haut FPS). life>0 => persiste cette durée (secondes).
             // overlay=true => rendue sans depth-test (toujours au-dessus, gizmo éditeur).
             mDebugLines.PushBack({a,b,color,life,overlay});
+        }
+        void NkRender3D::DrawDebugTriangle(NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f color, float32 life, bool overlay) {
+            mDebugTris.PushBack({a,b,c,color,life,overlay});
         }
         void NkRender3D::DrawDebugSphere(NkVec3f c, float32 r, NkVec4f color) {
             const int N=16;

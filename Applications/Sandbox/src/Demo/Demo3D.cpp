@@ -492,7 +492,10 @@ namespace nkentseu { namespace demo {
 
         // ── Caméras réutilisables du moteur ──────────────────────────────────
         // Éditeur (Blender) : orbit autour de (0,0.5,0). Simulation (fly) : recul sur -Z.
-        st->editorCam.SetCenter({0.f, 0.5f, 0.f}, 6.5f, 0.7f, 0.4f);
+        // NK_CAM_DIST : recule la caméra orbit (rayon) pour les captures de test. Défaut 6.5.
+        float32 camRadius = 6.5f;
+        if (const char* cd = getenv("NK_CAM_DIST")) { float32 v = (float32)atof(cd); if (v > 0.5f) camRadius = v; }
+        st->editorCam.SetCenter({0.f, 0.5f, 0.f}, camRadius, 0.7f, 0.4f);
         st->simCam.SetPose({0.f, 1.5f, 6.f}, -1.5708f, -0.15f);
 
         logger.Info("[Demo3D] Init OK — meshes : sphere={0} plane={1} cube={2}\n",
@@ -969,13 +972,17 @@ namespace nkentseu { namespace demo {
                 for (int32 i=0;i<nv;i++){ if(!frontV(i)) continue; bool s=st->vertSel[i]!=0;
                     dotAt(worldV(i), s?NkVec4f{1.f,0.6f,0.05f,1.f}:NkVec4f{0.1f,0.1f,0.12f,1.f}, s?2.6f:1.8f); }
             }
-            // FACE : point au centroïde des faces sélectionnées (visibles).
+            // FACE : la face sélectionnée est REMPLIE (translucide, façon Blender),
+            // pas juste un point. Léger offset caméra pour passer devant la surface.
             if (st->editSelMode == 2) {
+                const NkVec4f faceFill{1.f,0.55f,0.05f,0.38f};
                 for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
                     const uint32 a=st->editIdx[t],b=st->editIdx[t+1],c=st->editIdx[t+2];
+                    if (!(st->vertSel[a]&&st->vertSel[b]&&st->vertSel[c])) continue;
                     if (!st->editXray && !frontV((int32)a) && !frontV((int32)b) && !frontV((int32)c)) continue;
-                    if (st->vertSel[a]&&st->vertSel[b]&&st->vertSel[c])
-                        dotAt((worldV(a)+worldV(b)+worldV(c))*(1.f/3.f), NkVec4f{1.f,0.6f,0.05f,1.f}, 3.f);
+                    NkVec3f wa=worldV(a), wb=worldV(b), wc=worldV(c);
+                    if (!st->editXray) { wa=off(wa); wb=off(wb); wc=off(wc); }
+                    r3d->DrawDebugTriangle(wa, wb, wc, faceFill, 0.f, st->editXray);
                 }
             }
             // Poignées du gizmo (OVERLAY, au-dessus de tout).

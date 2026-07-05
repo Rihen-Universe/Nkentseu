@@ -209,6 +209,9 @@ namespace nkentseu {
                 // overlay=true : ligne dessinée SANS depth-test (toujours au-dessus de la
                 // scène, façon gizmo Blender). Défaut false = depth-test normal (occlusion).
                 void DrawDebugLine  (NkVec3f a, NkVec3f b,   NkVec4f color, float32 life=0.f, bool overlay=false);
+                // Triangle debug PLEIN (alpha-blend). Utile pour surligner des faces
+                // sélectionnées (éditeur), des zones, etc. overlay=true -> sans depth-test.
+                void DrawDebugTriangle(NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f color, float32 life=0.f, bool overlay=false);
                 void DrawDebugSphere(NkVec3f c, float32 r,   NkVec4f color);
                 void DrawDebugCircle(NkVec3f c, float32 r, NkVec3f normal,   NkVec4f color);
                 void DrawDebugAABB  (const NkAABB& box,       NkVec4f color);
@@ -219,6 +222,7 @@ namespace nkentseu {
             private:
                 struct SortedDC { NkDrawCall3D dc; float32 depth; };
                 struct DebugLine { NkVec3f a,b; NkVec4f color; float32 life; bool overlay; };
+                struct DebugTri  { NkVec3f a,b,c; NkVec4f color; float32 life; bool overlay; };
 
                 float32              mIBLStrength = 0.3f;
                 NkIDevice*           mDevice  = nullptr;
@@ -257,6 +261,7 @@ namespace nkentseu {
                 NkVector<NkDrawCallInstanced>   mInstanced;
                 NkVector<NkDrawCallSkinned>     mSkinned;
                 NkVector<DebugLine>             mDebugLines;
+                NkVector<DebugTri>              mDebugTris;
 
                 // Ring buffers per-frame UBOs (taille = NkRendererConfig::framesInFlight,
                 // clampe a [1,3]). mFrameSlot tourne 0..N-1 a chaque BeginScene.
@@ -463,6 +468,14 @@ namespace nkentseu {
                 NkPipelineHandle           mLinePipelineNoDepth;   // depth-test OFF (overlay gizmo)
                 NkBufferHandle             mLineVBO;          // dynamique
                 uint32                     mLineVBOCapVerts = 0;
+                // Triangles debug pleins (alpha-blend) : mêmes shader/VBO logique que
+                // les lignes mais topologie TRIANGLE_LIST + blend.
+                NkPipelineHandle           mTriPipeline;
+                NkPipelineHandle           mTriPipelineNoDepth;
+                NkRenderPassHandle         mTriPipelineRP{};
+                NkBufferHandle             mTriVBO;
+                uint32                     mTriVBOCapVerts = 0;
+                bool EnsureDebugTriOverlayPipeline(NkRenderPassHandle currentRP);
                 bool EnsureDebugLinePipeline(NkRenderPassHandle currentRP);
         };
 
