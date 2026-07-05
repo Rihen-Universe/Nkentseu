@@ -337,10 +337,13 @@ namespace nkentseu { namespace demo {
             const char* mn[4] = {"TRANSLATE", "ROTATE", "SCALE", "COMBINE (T+R+S)"};
             // Choix DIRECT du mode (pas besoin de cycler) : T/Y/U/C. TAB reste un cycle.
             // (G/R/S facon Blender indisponibles : G=grille, S=recul camera, R=reset ombres.)
-            if (k == NkKey::NK_T) { st->gizmo.SetMode(renderer::NkGizmo3D::MODE_TRANSLATE); logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[st->gizmo.Mode()]); }
-            if (k == NkKey::NK_Y) { st->gizmo.SetMode(renderer::NkGizmo3D::MODE_ROTATE);    logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[st->gizmo.Mode()]); }
-            if (k == NkKey::NK_U) { st->gizmo.SetMode(renderer::NkGizmo3D::MODE_SCALE);     logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[st->gizmo.Mode()]); }
-            if (k == NkKey::NK_C) { st->gizmo.SetMode(renderer::NkGizmo3D::MODE_COMBINE);   logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[st->gizmo.Mode()]); }
+            // Ignoré pendant un drag (X/Y/Z = verrou d'axe à ce moment-là).
+            if (!st->gizmo.IsDragging()) {
+                if (k == NkKey::NK_T) { st->gizmo.SetMode(renderer::NkGizmo3D::MODE_TRANSLATE); logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[st->gizmo.Mode()]); }
+                if (k == NkKey::NK_Y) { st->gizmo.SetMode(renderer::NkGizmo3D::MODE_ROTATE);    logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[st->gizmo.Mode()]); }
+                if (k == NkKey::NK_U) { st->gizmo.SetMode(renderer::NkGizmo3D::MODE_SCALE);     logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[st->gizmo.Mode()]); }
+                if (k == NkKey::NK_C) { st->gizmo.SetMode(renderer::NkGizmo3D::MODE_COMBINE);   logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[st->gizmo.Mode()]); }
+            }
             if (k == NkKey::NK_TAB) {
                 st->gizmo.CycleMode();
                 logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[st->gizmo.Mode()]);
@@ -711,6 +714,15 @@ namespace nkentseu { namespace demo {
             gin.leftPressed = st->pickPending; st->pickPending = false;
             gin.leftDown  = NkInput.IsMouseDown(NkMouseButton::NK_MB_LEFT);
             gin.shiftDown = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
+            gin.ctrlDown  = NkInput.IsKeyDown(NkKey::NK_LCTRL)  || NkInput.IsKeyDown(NkKey::NK_RCTRL);  // SNAP
+            // Verrou d'axe : X/Y/Z maintenu PENDANT le drag (façon Blender). Hors drag,
+            // Y sert au choix du mode (rotate) -> la garde !IsDragging() évite le conflit.
+            gin.lockAxis = -1;
+            if (st->gizmo.IsDragging()) {
+                if      (NkInput.IsKeyDown(NkKey::NK_X)) gin.lockAxis = 0;
+                else if (NkInput.IsKeyDown(NkKey::NK_Y)) gin.lockAxis = 1;
+                else if (NkInput.IsKeyDown(NkKey::NK_Z)) gin.lockAxis = 2;
+            }
             st->gizmo.Update(targets, n, gin);
             // Rendu OVERLAY : lignes du gizmo/marqueurs toujours au-dessus (depth-off).
             st->gizmo.Draw([&](NkVec3f a, NkVec3f b, NkVec4f c){ r3d->DrawDebugLine(a, b, c, 0.f, true); });
@@ -748,7 +760,7 @@ namespace nkentseu { namespace demo {
                 "Gizmo: %s  |  Orient: %s     T=trans Y=rot U=scale C=combine  (TAB=cycle  N=orient)",
                 gmName[st->gizmo.Mode() & 3], orName[st->gizmo.Orientation() % 3]);
             overlay->DrawText({20.f, 118.f},
-                "clic=selection  Shift+clic=multi  Suppr=reset  |  axe/plan/centre = 1/2/uniforme");
+                "clic=sel  Shift+clic=multi  Suppr=reset  |  Ctrl=snap (pas fixes)  X/Y/Z(drag)=verrou d'axe");
 
             // ── Debug panel : params shadow live-tunable ───────────────────────
             // Background semi-transparent en haut a droite

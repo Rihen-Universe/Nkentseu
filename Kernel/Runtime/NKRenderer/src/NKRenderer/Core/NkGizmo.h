@@ -41,6 +41,8 @@ namespace nkentseu {
             bool    leftPressed = false;           // front montant du clic gauche
             bool    leftDown    = false;           // bouton gauche maintenu
             bool    shiftDown   = false;           // modificateur multi-sélection
+            bool    ctrlDown    = false;           // SNAP : transforme par pas fixes (façon Blender)
+            int32   lockAxis    = -1;              // VERROU d'axe pendant le drag : 0=X 1=Y 2=Z (-1=aucun)
         };
 
         class NkGizmo3D {
@@ -85,6 +87,11 @@ namespace nkentseu {
                 }
                 int32 Mode()        const { return mMode; }
                 int32 Orientation() const { return mOrient; }
+                // Pas de SNAP (quand ctrlDown) : translate (unités monde), rotation (degrés),
+                // échelle (delta). Valeurs façon Blender par défaut (0.5 / 15° / 0.1).
+                void SetSnapSteps(float32 translate, float32 rotateDeg, float32 scale) {
+                    if (translate>0.f) mSnapT=translate; if (rotateDeg>0.f) mSnapRdeg=rotateDeg; if (scale>0.f) mSnapS=scale;
+                }
 
                 // ── Sélection ─────────────────────────────────────────────────────
                 bool  HasSelection() const { return mHaveSel; }
@@ -270,6 +277,7 @@ namespace nkentseu {
                         }
                         if (hit>=0) {
                             mDragging=true; mGOp=hs[hit].op; mGMask=hs[hit].mask; mGKind=hs[hit].kind;
+                            mResT={0,0,0}; mResR=0.f; mResS={0,0,0};   // reset des résidus de snap
                             if (hs[hit].op==1) { float32 cx,cy; if (Project(mPivot,cx,cy)) mLastAngle=atan2f(in.mouseY-cy, in.mouseX-cx); }
                             return;
                         }
@@ -290,9 +298,19 @@ namespace nkentseu {
                     } else if (!in.shiftDown) { for (int32 i=0;i<mCount;i++) mSel[i]=false; mSelId=-1; }
                 }
 
+                // Accumule `raw` dans `res` ; si `on` (Ctrl), ne restitue que les multiples
+                // ENTIERS de `step` (garde le reste) -> déplacement par pas. Sinon = `raw`.
+                static float32 SnapAmt(float32& res, float32 raw, float32 step, bool on) {
+                    if (!on || step<=0.f) { res=0.f; return raw; }
+                    res += raw; float32 q = truncf(res/step)*step; res -= q; return q;
+                }
+
                 // ── Drag : applique à tous les sélectionnés (repère/pivot par orientation) ──
                 void DoDrag(const NkGizmoInput& in) {
-                    const int32 op=mGOp, mask=mGMask, kind=mGKind;
+                    const int32 op=mGOp; int32 mask=mGMask, kind=mGKind;
+                    // VERROU d'axe (X/Y/Z) : force l'axe unique + chemin par-axe.
+                    if (in.lockAxis>=0 && in.lockAxis<3) { mask=(1<<in.lockAxis); if (op!=1) kind=0; }
+                    const bool snap=in.ctrlDown;
                     const float32 mdx=in.mouseDX, mdy=in.mouseDY, mx=in.mouseX, my=in.mouseY;
                     const bool localOri=(mOrient!=ORIENT_GLOBAL);
                     float32 cpx,cpy; bool cok=Project(mPivot,cpx,cpy);
@@ -302,16 +320,18 @@ namespace nkentseu {
                         else { float32 amtT[3]={0.f,0.f,0.f};
                             for (int32 a=0;a<3;a++) if (mask&(1<<a)) { NkVec3f E=mPivot+mGB[a]*mGL; float32 epx,epy;
                                 if (cok&&Project(E,epx,epy)){ float32 sdx=epx-cpx, sdy=epy-cpy, sl=sqrtf(sdx*sdx+sdy*sdy);
-                                    if (sl>1e-3f){ sdx/=sl; sdy/=sl; } amtT[a]=(mdx*sdx+mdy*sdy)*(mGL/NkGMax(sl,1.f)); } }
+                                    if (sl>1e-3f){ sdx/=sl; sdy/=sl; } amtT[a]=(mdx*sdx+mdy*sdy)*(mGL/NkGMax(sl,1.f)); }
+                                float32& r=(a==0)?mResT.x:(a==1)?mResT.y:mResT.z; amtT[a]=SnapAmt(r, amtT[a], mSnapT, snap); }
                             for (int32 i=0;i<mCount;i++) if (mSel[i]) { NkVec3f B[3],Pi; BasisPivot(i,localOri,B,Pi);
                                 for (int32 a=0;a<3;a++) if (mask&(1<<a)) mTr[i]=mTr[i]+B[a]*amtT[a]; } }
                     } else if (op==2) {
                         const float32 k=0.012f; float32 amt[3]={0.f,0.f,0.f};
                         if (kind==2) { float32 rdx=mx-cpx, rdy=my-cpy, rl=sqrtf(rdx*rdx+rdy*rdy); if (rl>1e-3f){ rdx/=rl; rdy/=rl; }
-                            float32 a=(mdx*rdx+mdy*rdy)*k; amt[0]=amt[1]=amt[2]=a; }
+                            float32 a=(mdx*rdx+mdy*rdy)*k; a=SnapAmt(mResS.x, a, mSnapS, snap); amt[0]=amt[1]=amt[2]=a; }
                         else for (int32 a=0;a<3;a++) if (mask&(1<<a)) { NkVec3f E=mPivot+mGB[a]*mGL; float32 epx,epy;
                             if (cok&&Project(E,epx,epy)){ float32 sdx=epx-cpx, sdy=epy-cpy, sl=sqrtf(sdx*sdx+sdy*sdy);
-                                if (sl>1e-3f){ sdx/=sl; sdy/=sl; } amt[a]=(mdx*sdx+mdy*sdy)*k; } }
+                                if (sl>1e-3f){ sdx/=sl; sdy/=sl; } amt[a]=(mdx*sdx+mdy*sdy)*k; }
+                            float32& r=(a==0)?mResS.x:(a==1)?mResS.y:mResS.z; amt[a]=SnapAmt(r, amt[a], mSnapS, snap); }
                         for (int32 i=0;i<mCount;i++) if (mSel[i]) { NkVec3f B[3],Pi; BasisPivot(i,localOri,B,Pi); NkVec3f rel=Ctr(i)-Pi;
                             for (int32 a=0;a<3;a++) if (amt[a]!=0.f) { AddComp(mScale[i],a,amt[a]);
                                 float32 along=Dot(rel,B[a]); mTr[i]=mTr[i]+B[a]*(along*amt[a]); }
@@ -322,7 +342,8 @@ namespace nkentseu {
                             while (d> 3.14159265f) d-=6.2831853f; while (d<-3.14159265f) d+=6.2831853f; mLastAngle=ang;
                             float32 viewSign=(Dot(NkVec3f{mCamPos.x-mPivot.x,mCamPos.y-mPivot.y,mCamPos.z-mPivot.z}, mGB[a])>0.f)?1.f:-1.f;
                             float32 th=-d*viewSign;
-                            for (int32 i=0;i<mCount;i++) if (mSel[i]) { NkVec3f B[3],Pi; BasisPivot(i,localOri,B,Pi);
+                            th=SnapAmt(mResR, th, mSnapRdeg*3.14159265f/180.f, snap);   // snap rotation (pas en degrés)
+                            if (th!=0.f) for (int32 i=0;i<mCount;i++) if (mSel[i]) { NkVec3f B[3],Pi; BasisPivot(i,localOri,B,Pi);
                                 NkMat4f R=NkMat4f::Rotation(B[a], NkAngle::FromRad(th));
                                 mRot[i]=R*mRot[i]; NkVec3f rel=Ctr(i)-Pi, relR=R*rel; mTr[i]=mTr[i]+(relR-rel); } }
                     }
@@ -337,6 +358,9 @@ namespace nkentseu {
                 // ── État ──────────────────────────────────────────────────────────
                 int32   mMode=0, mOrient=0;
                 bool    mDragging=false; int32 mGOp=0, mGMask=0, mGKind=0; float32 mLastAngle=0.f;
+                // Snap (quand ctrlDown) : pas + résidus accumulés par drag (quantification).
+                float32 mSnapT=0.5f, mSnapRdeg=15.f, mSnapS=0.1f;
+                NkVec3f mResT={0,0,0}; float32 mResR=0.f; NkVec3f mResS={0,0,0};
                 int32   mSelId=-1;
                 bool    mSel[kMax]={};
                 NkVec3f mTr[kMax]={};
