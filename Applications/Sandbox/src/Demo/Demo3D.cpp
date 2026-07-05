@@ -57,6 +57,13 @@ namespace nkentseu { namespace demo {
         // Indices des cibles : 16 sphères, 1 cube, 2 colonnes, 64 instanciés = 83.
         static const int32 kNumObj = 16 + 1 + 2 + 64;
         renderer::NkGizmo3D gizmo;                 // sélection multiple + translate/rotate/scale/combiné
+        // ── Volet 2 : EDIT MODE mesh (édition de vertices façon Blender) ──
+        NkMeshHandle                    meshEdit;      // grille éditable (dynamic)
+        NkVector<renderer::NkVertex3D>  editRest;      // positions de REPOS (CPU, source unique)
+        NkVector<renderer::NkVertex3D>  editLive;      // positions courantes (rest + delta gizmo) -> re-upload
+        NkVector<uint32>                editIdx;
+        bool                            editMode = false;  // TAB : bascule objet <-> édition
+        renderer::NkGizmo3D             editGizmo;     // gizmo dédié aux vertices
     };
 
     // E.6b : cubemap procedurale 128x128x6 pour point light.
@@ -210,6 +217,29 @@ namespace nkentseu { namespace demo {
         st->meshSphere = meshSys->GetSphere();
         st->meshPlane  = meshSys->GetPlane();
         st->meshCube   = meshSys->GetCube();
+        // ── Volet 2 : mesh ÉDITABLE (grille plane subdivisée, flottante, dynamic) ──
+        {
+            const int32 S = 6; const float32 sz = 3.2f, gy = 2.4f;   // 7x7 = 49 vertices
+            for (int32 j=0;j<=S;j++) for (int32 i=0;i<=S;i++) {
+                renderer::NkVertex3D v{};
+                v.pos    = { ((float32)i/(float32)S - 0.5f)*sz, gy, ((float32)j/(float32)S - 0.5f)*sz };
+                v.normal = {0.f,1.f,0.f};
+                v.uv     = { (float32)i/(float32)S, (float32)j/(float32)S };
+                v.color  = 0xFFFFFFFFu;
+                st->editRest.PushBack(v);
+            }
+            for (int32 j=0;j<S;j++) for (int32 i=0;i<S;i++) {
+                uint32 v0=(uint32)(j*(S+1)+i), v1=v0+1, v2=v0+(uint32)(S+1)+1, v3=v0+(uint32)(S+1);
+                st->editIdx.PushBack(v0); st->editIdx.PushBack(v1); st->editIdx.PushBack(v2);
+                st->editIdx.PushBack(v0); st->editIdx.PushBack(v2); st->editIdx.PushBack(v3);
+            }
+            st->editLive = st->editRest;
+            NkMeshDesc d = NkMeshDesc::Simple(renderer::NkVertexLayout::Default3D(),
+                st->editRest.Data(), (uint32)st->editRest.Size(),
+                st->editIdx.Data(),  (uint32)st->editIdx.Size());
+            d.debugName = "Demo3D_EditMesh"; d.dynamic = true; d.bounds = NkAABB::Unit();
+            st->meshEdit = meshSys->Create(d);
+        }
         // Pas de SNAP (touche Ctrl) — LIBREMENT ajustables ici par l'application :
         //   translate (unités monde) · rotation (degrés) · échelle (delta).
         st->gizmo.SetSnapSteps(/*translate*/ 0.5f, /*rotation°*/ 15.f, /*échelle*/ 0.1f);
@@ -350,17 +380,21 @@ namespace nkentseu { namespace demo {
             const bool alt = NkInput.IsKeyDown(NkKey::NK_LALT) || NkInput.IsKeyDown(NkKey::NK_RALT);
             const char* mn[4] = {"TRANSLATE", "ROTATE", "SCALE", "COMBINE (T+R+S)"};
             using GZ = renderer::NkGizmo3D;
-            if (st->gizmo.IsDragging()) return;   // en plein drag : X/Y/Z = verrou (pas de switch)
-            if (k == NkKey::NK_G) { if (alt) st->gizmo.ClearSelectedTranslate(); else st->gizmo.SetMode(GZ::MODE_TRANSLATE); }
-            if (k == NkKey::NK_R) { if (alt) st->gizmo.ClearSelectedRotation();  else st->gizmo.SetMode(GZ::MODE_ROTATE); }
-            if (k == NkKey::NK_S) { if (alt) st->gizmo.ClearSelectedScale();     else st->gizmo.SetMode(GZ::MODE_SCALE); }
-            if (k == NkKey::NK_C)   st->gizmo.SetMode(GZ::MODE_COMBINE);
-            if (k == NkKey::NK_TAB) st->gizmo.CycleMode();
-            if (k == NkKey::NK_A) { if (alt) st->gizmo.ClearSelection(); else st->gizmo.SelectAll(); }
-            if (k == NkKey::NK_COMMA) { st->gizmo.CycleOrientation();
-                const char* o[3]={"GLOBAL","LOCAL","NORMAL"}; logger.Info("[Demo3D] Orientation = {0}\n", o[st->gizmo.Orientation()]); }
-            if (k==NkKey::NK_G||k==NkKey::NK_R||k==NkKey::NK_S||k==NkKey::NK_C||k==NkKey::NK_TAB)
-                logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[st->gizmo.Mode()]);
+            // TAB : bascule OBJET <-> EDIT MODE (édition de vertices) façon Blender.
+            if (k == NkKey::NK_TAB) { st->editMode = !st->editMode;
+                logger.Info("[Demo3D] Mode = {0}\n", st->editMode ? "EDIT (vertices)" : "OBJET"); return; }
+            // Gizmo ACTIF selon le mode : objet ou vertices.
+            renderer::NkGizmo3D& G = st->editMode ? st->editGizmo : st->gizmo;
+            if (G.IsDragging()) return;   // en plein drag : X/Y/Z = verrou (pas de switch)
+            if (k == NkKey::NK_G) { if (alt) G.ClearSelectedTranslate(); else G.SetMode(GZ::MODE_TRANSLATE); }
+            if (k == NkKey::NK_R) { if (alt) G.ClearSelectedRotation();  else G.SetMode(GZ::MODE_ROTATE); }
+            if (k == NkKey::NK_S) { if (alt) G.ClearSelectedScale();     else G.SetMode(GZ::MODE_SCALE); }
+            if (k == NkKey::NK_C)   G.SetMode(GZ::MODE_COMBINE);
+            if (k == NkKey::NK_A) { if (alt) G.ClearSelection(); else G.SelectAll(); }
+            if (k == NkKey::NK_COMMA) { G.CycleOrientation();
+                const char* o[3]={"GLOBAL","LOCAL","NORMAL"}; logger.Info("[Demo3D] Orientation = {0}\n", o[G.Orientation()]); }
+            if (k==NkKey::NK_G||k==NkKey::NK_R||k==NkKey::NK_S||k==NkKey::NK_C)
+                logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[G.Mode()]);
         });
         if (shadowSys) {
             // ── Scène CLOSE : AUTO-FIT de la cascade directionnelle aux casters ──
@@ -689,6 +723,31 @@ namespace nkentseu { namespace demo {
             r3d->Submit(dc);
         }
 
+        // ── Volet 2 : mesh ÉDITABLE (Edit Mode) ─────────────────────────────────
+        // Recompose les positions vivantes = repos + décalage du gizmo d'édition, puis
+        // re-upload (UpdateVertices). En Edit Mode chaque vertex est une cible du gizmo.
+        {
+            auto* meshSysF = ctx.renderer->GetMeshSystem();
+            const int32 nv = (int32)st->editRest.Size();
+            // Re-upload GPU UNIQUEMENT pendant un drag (un vertex bouge) -> pas de coût
+            // par frame. Hors drag, le mesh GPU garde son dernier état édité.
+            if (st->editMode && st->editGizmo.IsDragging()) {
+                for (int32 i=0;i<nv;i++) {
+                    NkVec3f p = st->editRest[i].pos;
+                    NkVec3f np = st->editGizmo.Apply(i, NkMat4f::Translate(p)) * NkVec3f{0.f,0.f,0.f};
+                    st->editLive[i] = st->editRest[i]; st->editLive[i].pos = np;
+                }
+                if (meshSysF) meshSysF->UpdateVertices(st->meshEdit, st->editLive.Data(), (uint32)nv);
+            }
+            NkDrawCall3D dc;
+            dc.mesh      = st->meshEdit;
+            dc.transform = NkMat4f::Identity();     // vertices déjà en espace monde
+            dc.aabb      = {{-2.f, 2.f, -2.f}, {2.f, 3.f, 2.f}};
+            dc.tint      = st->editMode ? NkVec3f{0.55f,0.65f,0.9f} : NkVec3f{0.75f,0.78f,0.85f};
+            dc.metallic  = 0.f; dc.roughness = 0.7f;
+            r3d->Submit(dc);
+        }
+
         // ── Gizmo éditeur (composant réutilisable NkGizmo3D) ────────────────────
         // Table des CIBLES (transform de BASE + demi-extent mesh + rayon de pick),
         // MÊME ordre/indices que les draw calls. Le gizmo compose le décalage
@@ -704,25 +763,61 @@ namespace nkentseu { namespace demo {
             for (int gz=0; gz<8; gz++) for (int gx=0; gx<8; gx++)           // 64 cubes INSTANCIÉS
                 targets[n++] = { NkMat4f::Translate({(gx-3.5f)*0.55f, 1.6f, (gz-3.5f)*0.55f-4.5f}) * NkMat4f::Scale({0.18f,0.18f,0.18f}), H, 0.2f };
 
-            st->gizmo.SetCamera(cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width, (float32)ctx.height);
+            // Gizmo OBJET actif UNIQUEMENT hors Edit Mode (sinon c'est le gizmo vertices).
+            if (!st->editMode) {
+                st->gizmo.SetCamera(cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width, (float32)ctx.height);
+                renderer::NkGizmoInput gin;
+                gin.mouseX  = (float32)NkInput.MouseX();      gin.mouseY  = (float32)NkInput.MouseY();
+                gin.mouseDX = (float32)NkInput.MouseDeltaX(); gin.mouseDY = (float32)NkInput.MouseDeltaY();
+                gin.leftPressed = st->pickPending; st->pickPending = false;
+                gin.leftDown  = NkInput.IsMouseDown(NkMouseButton::NK_MB_LEFT);
+                gin.shiftDown = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
+                gin.ctrlDown  = NkInput.IsKeyDown(NkKey::NK_LCTRL)  || NkInput.IsKeyDown(NkKey::NK_RCTRL);  // SNAP
+                gin.lockAxis = -1;
+                if (st->gizmo.IsDragging()) {
+                    if      (NkInput.IsKeyDown(NkKey::NK_X)) gin.lockAxis = 0;
+                    else if (NkInput.IsKeyDown(NkKey::NK_Y)) gin.lockAxis = 1;
+                    else if (NkInput.IsKeyDown(NkKey::NK_Z)) gin.lockAxis = 2;
+                }
+                st->gizmo.Update(targets, n, gin);
+                st->gizmo.Draw([&](NkVec3f a, NkVec3f b, NkVec4f c){ r3d->DrawDebugLine(a, b, c, 0.f, true); });
+            }
+        }
+
+        // ── Volet 2 : GIZMO d'ÉDITION de VERTICES (Edit Mode) ───────────────────
+        // Chaque vertex = une cible du gizmo (base = Translate(pos de repos)). Le gizmo
+        // gère pick/translate/rotate/scale de la sélection de vertices (comme Blender).
+        if (st->editMode) {
+            const int32 nv = (int32)st->editRest.Size();
+            renderer::NkGizmoTarget vt[64]; int32 n = 0;
+            const NkVec3f vh = {0.03f, 0.03f, 0.03f};
+            for (int32 i=0;i<nv && n<64;i++)
+                vt[n++] = { NkMat4f::Translate(st->editRest[i].pos), vh, 0.12f };
+            st->editGizmo.SetCamera(cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width, (float32)ctx.height);
             renderer::NkGizmoInput gin;
             gin.mouseX  = (float32)NkInput.MouseX();      gin.mouseY  = (float32)NkInput.MouseY();
             gin.mouseDX = (float32)NkInput.MouseDeltaX(); gin.mouseDY = (float32)NkInput.MouseDeltaY();
             gin.leftPressed = st->pickPending; st->pickPending = false;
             gin.leftDown  = NkInput.IsMouseDown(NkMouseButton::NK_MB_LEFT);
             gin.shiftDown = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
-            gin.ctrlDown  = NkInput.IsKeyDown(NkKey::NK_LCTRL)  || NkInput.IsKeyDown(NkKey::NK_RCTRL);  // SNAP
-            // Verrou d'axe : X/Y/Z maintenu PENDANT le drag (façon Blender). Hors drag,
-            // Y sert au choix du mode (rotate) -> la garde !IsDragging() évite le conflit.
+            gin.ctrlDown  = NkInput.IsKeyDown(NkKey::NK_LCTRL)  || NkInput.IsKeyDown(NkKey::NK_RCTRL);
             gin.lockAxis = -1;
-            if (st->gizmo.IsDragging()) {
+            if (st->editGizmo.IsDragging()) {
                 if      (NkInput.IsKeyDown(NkKey::NK_X)) gin.lockAxis = 0;
                 else if (NkInput.IsKeyDown(NkKey::NK_Y)) gin.lockAxis = 1;
                 else if (NkInput.IsKeyDown(NkKey::NK_Z)) gin.lockAxis = 2;
             }
-            st->gizmo.Update(targets, n, gin);
-            // Rendu OVERLAY : lignes du gizmo/marqueurs toujours au-dessus (depth-off).
-            st->gizmo.Draw([&](NkVec3f a, NkVec3f b, NkVec4f c){ r3d->DrawDebugLine(a, b, c, 0.f, true); });
+            st->editGizmo.Update(vt, n, gin);
+            // Points de vertices : petite croix overlay (jaune ; sélectionné = orange).
+            for (int32 i=0;i<n;i++) {
+                NkVec3f p = st->editGizmo.Apply(i, NkMat4f::Translate(st->editRest[i].pos)) * NkVec3f{0.f,0.f,0.f};
+                NkVec4f c = st->editGizmo.IsSelected(i) ? NkVec4f{1.f,0.5f,0.f,1.f} : NkVec4f{1.f,0.9f,0.2f,1.f};
+                const float32 s = 0.05f;
+                r3d->DrawDebugLine({p.x-s,p.y,p.z},{p.x+s,p.y,p.z}, c, 0.f, true);
+                r3d->DrawDebugLine({p.x,p.y-s,p.z},{p.x,p.y+s,p.z}, c, 0.f, true);
+                r3d->DrawDebugLine({p.x,p.y,p.z-s},{p.x,p.y,p.z+s}, c, 0.f, true);
+            }
+            st->editGizmo.Draw([&](NkVec3f a, NkVec3f b, NkVec4f c){ r3d->DrawDebugLine(a, b, c, 0.f, true); });
         }
 
         // ── Axes X/Y/Z en LIGNES 3D réelles (DrawDebugLine) : correct partout ───
@@ -763,8 +858,10 @@ namespace nkentseu { namespace demo {
             const char* gmName[4] = {"TRANSLATE", "ROTATE", "SCALE", "COMBINE (T+R+S)"};
             const char* orName[3] = {"GLOBAL", "LOCAL", "NORMAL"};
             overlay->DrawText({20.f, 100.f},
-                "Gizmo: %s  |  Orient: %s     G/R/S=trans/rot/scale  C=combine  TAB=cycle  ,=orient",
-                gmName[st->gizmo.Mode() & 3], orName[st->gizmo.Orientation() % 3]);
+                "Mode(TAB): %s  |  Gizmo: %s  |  Orient: %s   G/R/S=trans/rot/scale  C=combine  ,=orient",
+                st->editMode ? "EDIT (vertices)" : "OBJET",
+                gmName[(st->editMode ? st->editGizmo.Mode() : st->gizmo.Mode()) & 3],
+                orName[(st->editMode ? st->editGizmo.Orientation() : st->gizmo.Orientation()) % 3]);
             overlay->DrawText({20.f, 118.f},
                 "clic=sel  Shift+clic=multi  A/Alt+A=tout/rien  Alt+G/R/S=clear  |  Ctrl=snap  X/Y/Z=verrou axe");
 
