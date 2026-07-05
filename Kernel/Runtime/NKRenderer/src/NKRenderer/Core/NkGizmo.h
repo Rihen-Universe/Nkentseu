@@ -142,7 +142,11 @@ namespace nkentseu {
                     if (selCount>0) pivot=pivot*(1.f/(float32)selCount);
                     mPivot=pivot; mHaveSel=(selCount>0);
                     mPivDist=Len(NkVec3f{pivot.x-mCamPos.x,pivot.y-mCamPos.y,pivot.z-mCamPos.z});
-                    mGL=NkGMax(0.35f, 0.14f*mPivDist);
+                    // Taille ÉCRAN-CONSTANTE (façon Blender) : la taille MONDE du gizmo est
+                    // proportionnelle à la distance caméra->pivot -> taille écran ~constante.
+                    // Plancher très bas (0.02) pour rester proportionnel même en zoom très
+                    // proche (avant : 0.35 le figeait et il grossissait à l'écran de près).
+                    mGL=NkGMax(0.02f, 0.14f*mPivDist);
                     mGB[0]={1,0,0}; mGB[1]={0,1,0}; mGB[2]={0,0,1};
                     if (mOrient!=ORIENT_GLOBAL && mSelId>=0 && mSelId<count) {
                         const NkMat4f& M=mComposed[mSelId]; NkVec3f o=M*NkVec3f{0.f,0.f,0.f};
