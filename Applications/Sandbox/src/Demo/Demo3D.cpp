@@ -22,6 +22,7 @@
 #include "NKRenderer/Core/NkGizmo.h"             // NkGizmo3D (gizmo éditeur réutilisable)
 #include "NKImage/NKImage.h"            // Phase H : test ecriture PNG procedural
 #include "NKContainers/Associative/NkHashMap.h"  // dedup arêtes Edit Mode
+#include "NKRenderer/Mesh/NkEditMesh.h"           // structure demi-arête n-gon
 #include <cstdio>
 
 namespace nkentseu { namespace demo {
@@ -83,6 +84,7 @@ namespace nkentseu { namespace demo {
         NkVector<renderer::NkVertex3D>  editLive;      // rest + delta (re-upload pendant drag)
         NkVector<uint32>                editIdx;       // topologie (triangles)
         NkVector<uint32>                editEdges;     // arêtes UNIQUES (paires) pour la cage — bâti à l'entrée
+        renderer::NkEditMesh            editHE;        // vue demi-arête (n-gon) : cage quad + pick face n-gon
         NkVector<uint8>                 vertSel;       // 1 = vertex sélectionné (taille = nb vertices)
         NkMat4f                         editAnchor    = NkMat4f::Identity();  // transform monde de l'objet
         NkMat4f                         editAnchorInv = NkMat4f::Identity();
@@ -144,16 +146,20 @@ namespace nkentseu { namespace demo {
             V[i].normal = (l>1e-6f)? V[i].normal*(1.f/l) : NkVec3f{0.f,1.f,0.f}; }
     }
 
-    // Reconstruit les arêtes UNIQUES (cage) depuis la topologie courante.
+    // Reconstruit la vue DEMI-ARÊTE (n-gon, quadify) depuis la topologie triangle
+    // courante, puis les arêtes UNIQUES de la cage = arêtes des QUADS (SANS diagonales
+    // de triangulation, façon Blender). editHE sert aussi au pick de face n-gon.
     static void Demo3D_RebuildEdges(Demo3DState* st) {
-        st->editEdges.Clear();
-        NkHashMap<uint64,uint8> seen; seen.Reserve((uint32)st->editIdx.Size());
-        for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
-            const uint32 tri[3]={st->editIdx[t],st->editIdx[t+1],st->editIdx[t+2]};
-            for (int32 k=0;k<3;k++){ uint32 a=tri[k],b=tri[(k+1)%3]; uint32 lo=a<b?a:b,hi=a<b?b:a;
-                uint64 key=((uint64)lo<<32)|(uint64)hi;
-                if(!seen.Contains(key)){ seen.InsertOrAssign(key,(uint8)1); st->editEdges.PushBack(lo); st->editEdges.PushBack(hi); } }
-        }
+        st->editHE.BuildFromIndexed(st->editRest.Data(), (uint32)st->editRest.Size(),
+                                    st->editIdx.Data(),  (uint32)st->editIdx.Size(), /*quadify*/true);
+        st->editHE.GetUniqueEdges(st->editEdges);
+    }
+    // Face n-gon d'un triangle de rendu (index editIdx/3). quadify fusionne (2k,2k+1)
+    // en gardant 2k ; un triangle "mort" (face non alive) appartient au quad précédent.
+    static renderer::NkEmId Demo3D_FaceOfTri(Demo3DState* st, uint32 triIdx) {
+        if (triIdx >= st->editHE.FaceCount()) return renderer::NK_EM_INVALID;
+        if (st->editHE.faces[triIdx].alive) return (renderer::NkEmId)triIdx;
+        return (triIdx>0) ? (renderer::NkEmId)(triIdx-1) : renderer::NK_EM_INVALID;
     }
 
     // Recrée le mesh GPU dynamique depuis les données CPU (après topologie/normales).
@@ -783,22 +789,9 @@ namespace nkentseu { namespace demo {
                         for (uint32 i=0;i<ic;i++) st->editIdx.PushBack(si[i]);
                         st->editLive = st->editRest;
                         st->vertSel.Resize(vc); for (uint32 i=0;i<vc;i++) st->vertSel[i]=0;
-                        // Arêtes UNIQUES pour la cage (bâties UNE fois : topologie fixe).
-                        // Dedup O(E) via table de hachage (clé = lo<<32 | hi).
-                        st->editEdges.Clear();
-                        {
-                            NkHashMap<uint64,uint8> seen; seen.Reserve(ic);
-                            for (uint32 t=0;t+2<ic;t+=3){
-                                const uint32 tri[3]={si[t],si[t+1],si[t+2]};
-                                for (int32 k=0;k<3;k++){
-                                    uint32 a=tri[k], b=tri[(k+1)%3];
-                                    uint32 lo=a<b?a:b, hi=a<b?b:a;
-                                    uint64 key=((uint64)lo<<32)|(uint64)hi;
-                                    if (!seen.Contains(key)){ seen.InsertOrAssign(key,(uint8)1);
-                                        st->editEdges.PushBack(lo); st->editEdges.PushBack(hi); }
-                                }
-                            }
-                        }
+                        // Vue demi-arête (n-gon quadify) + cage = arêtes des quads (sans
+                        // diagonales de triangulation, façon Blender).
+                        Demo3D_RebuildEdges(st);
                         // (Re)crée le mesh dynamique éditable.
                         if (st->editMesh.IsValid()) ms->Release(st->editMesh);
                         NkMeshDesc d = NkMeshDesc::Simple(renderer::NkVertexLayout::Default3D(),
@@ -1230,7 +1223,16 @@ namespace nkentseu { namespace demo {
                 // (près d'une arête) > face (rayon). Chacun n'est retenu que dans son seuil.
                 if      (bestV>=0)  st->vertSel[bestV] = gin.shiftDown ? (uint8)(1-st->vertSel[bestV]) : 1;
                 else if (bestEa>=0){ st->vertSel[bestEa]=1; st->vertSel[bestEb]=1; }
-                else if (bestFt>=0){ st->vertSel[st->editIdx[bestFt]]=1; st->vertSel[st->editIdx[bestFt+1]]=1; st->vertSel[st->editIdx[bestFt+2]]=1; }
+                else if (bestFt>=0){
+                    // FACE N-GON : triangle touché -> sa face n-gon (quadify) -> tous ses sommets.
+                    renderer::NkEmId f = Demo3D_FaceOfTri(st, (uint32)bestFt/3u);
+                    if (f != renderer::NK_EM_INVALID) {
+                        NkVector<renderer::NkEmId> fv; st->editHE.GetFaceVerts(f, fv);
+                        for (uint32 k=0;k<(uint32)fv.Size();k++) st->vertSel[fv[k]]=1;
+                    } else {
+                        st->vertSel[st->editIdx[bestFt]]=1; st->vertSel[st->editIdx[bestFt+1]]=1; st->vertSel[st->editIdx[bestFt+2]]=1;
+                    }
+                }
             }
             // Garder la cible-0 sélectionnée pour que les poignées s'affichent.
             if (selCnt>0 && !st->editGizmo.IsDragging()) st->editGizmo.SelectAll();

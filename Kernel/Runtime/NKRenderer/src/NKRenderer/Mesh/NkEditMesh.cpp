@@ -34,7 +34,42 @@ namespace nkentseu {
             }
             LinkTwins();
             RecomputeNormals();
-            (void)quadify;   // Phase 1b : fusion des triangles coplanaires en quads
+            if (quadify) Quadify();
+        }
+
+        uint32 NkEditMesh::FaceSize(NkEmId f) const {
+            if (f>=(NkEmId)faces.Size() || !faces[f].alive) return 0;
+            const NkEmId start=faces[f].hedge; if (start==NK_EM_INVALID) return 0;
+            NkEmId h=start; uint32 n=0, guard=0;
+            do { ++n; h=hedges[h].next; if(++guard>100000u) break; } while(h!=start && h!=NK_EM_INVALID);
+            return n;
+        }
+
+        void NkEditMesh::Quadify(float32 coplanarDot) {
+            // Paires de triangles CONSÉCUTIFS (issus de la triangulation quad-par-quad).
+            for (uint32 f1=0; f1+1<(uint32)faces.Size(); f1+=2){
+                const uint32 f2=f1+1;
+                if (!faces[f1].alive || !faces[f2].alive) continue;
+                if (FaceSize(f1)!=3 || FaceSize(f2)!=3) continue;
+                if (faces[f1].normal.Dot(faces[f2].normal) < coplanarDot) continue;
+                // Demi-arête partagée h (dans f1) dont le twin est dans f2.
+                NkEmId h=NK_EM_INVALID, start=faces[f1].hedge, hh=start; uint32 guard=0;
+                do { const NkEmId tw=hedges[hh].twin;
+                     if (tw!=NK_EM_INVALID && hedges[tw].alive && hedges[tw].face==f2){ h=hh; break; }
+                     hh=hedges[hh].next; } while(hh!=start && ++guard<100000u);
+                if (h==NK_EM_INVALID) continue;            // triangles non adjacents
+                const NkEmId tw=hedges[h].twin;
+                const NkEmId hA=hedges[h].next,  hB=hedges[hA].next;   // f1 : b->c, c->a
+                const NkEmId hC=hedges[tw].next, hD=hedges[hC].next;   // f2 : a->d, d->b
+                hedges[hB].next=hC; hedges[hD].next=hA;                // recoud la boucle quad
+                hedges[hA].face=f1; hedges[hB].face=f1; hedges[hC].face=f1; hedges[hD].face=f1;
+                faces[f1].hedge=hA; faces[f2].alive=0;
+                const uint32 a=hedges[h].origin, b=hedges[tw].origin;
+                hedges[h].alive=0; hedges[tw].alive=0;
+                hedges[h].face=NK_EM_INVALID; hedges[tw].face=NK_EM_INVALID;
+                verts[a].hedge=hC; verts[b].hedge=hA;                  // repointe (h/tw morts)
+            }
+            RecomputeNormals();
         }
 
         void NkEditMesh::LinkTwins() {
@@ -83,6 +118,7 @@ namespace nkentseu {
         void NkEditMesh::GetUniqueEdges(NkVector<uint32>& outPairs) const {
             outPairs.Clear();
             for (uint32 h=0; h<(uint32)hedges.Size(); ++h){
+                if (!hedges[h].alive) continue;         // arête interne dissoute (quadify)
                 const NkEmId tw = hedges[h].twin;
                 if (tw==NK_EM_INVALID || h < tw){       // une seule des deux demi-arêtes
                     const uint32 o = hedges[h].origin;

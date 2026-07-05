@@ -33,6 +33,7 @@ namespace nkentseu {
                     NkEmId   twin    = NK_EM_INVALID;   // demi-arête opposée (autre face)
                     NkEmId   next    = NK_EM_INVALID;   // suivante autour de la face
                     NkEmId   face    = NK_EM_INVALID;   // face incidente
+                    uint8    alive   = 1;               // 0 = arête interne dissoute (quadify)
                 };
                 struct Face {
                     NkEmId   hedge   = NK_EM_INVALID;   // une demi-arête du bord (boucle via next)
@@ -64,6 +65,12 @@ namespace nkentseu {
 
                 // Sommets (dans l'ordre du bord) d'une face n-gon.
                 void GetFaceVerts(NkEmId f, NkVector<NkEmId>& out) const;
+                uint32 FaceSize(NkEmId f) const;   // nombre de sommets du bord
+
+                // Fusionne les paires de triangles CONSÉCUTIFS (2k,2k+1) adjacents et
+                // coplanaires en QUADS. Adapté aux meshes triangulés quad-par-quad
+                // (primitives, grilles). coplanarDot ~0.9995 (cube) à 0.98 (sphère fine).
+                void Quadify(float32 coplanarDot = 0.985f);
 
                 // Normales par face (produit vectoriel) puis par sommet (moyenne).
                 void RecomputeNormals();
