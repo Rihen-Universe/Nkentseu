@@ -1363,13 +1363,30 @@ namespace nkentseu { namespace demo {
         {
             renderer::NkGizmoTarget targets[Demo3DState::kNumObj]; int32 n = 0;
             const NkVec3f H = {0.5f, 0.5f, 0.5f};
+            auto* msG = ctx.renderer->GetMeshSystem();
+            // Pour un objet ÉDITÉ, le marqueur OBB épouse l'AABB LOCALE réelle du mesh
+            // modifié (centre + demi-extent), au lieu du demi-extent fixe de la primitive.
+            auto fitTarget = [&](int32 idx, const NkMat4f& base, float32 pickR) -> renderer::NkGizmoTarget {
+                if (idx>=0 && idx<Demo3DState::kNumObj && st->objMesh[idx].IsValid() &&
+                    msG && msG->HasCPUData(st->objMesh[idx])) {
+                    const auto* vv = (const renderer::NkVertex3D*)msG->GetVertices(st->objMesh[idx]);
+                    const uint32 vc = msG->GetVertexCount(st->objMesh[idx]);
+                    NkVec3f mn{1e30f,1e30f,1e30f}, mx{-1e30f,-1e30f,-1e30f};
+                    for (uint32 i=0;i<vc;i++){ NkVec3f p=vv[i].pos;
+                        mn.x=NkMin(mn.x,p.x);mn.y=NkMin(mn.y,p.y);mn.z=NkMin(mn.z,p.z);
+                        mx.x=NkMax(mx.x,p.x);mx.y=NkMax(mx.y,p.y);mx.z=NkMax(mx.z,p.z); }
+                    if (vc>0){ NkVec3f c=(mn+mx)*0.5f, h=(mx-mn)*0.5f;
+                        return { base * NkMat4f::Translate(c), h, pickR }; }
+                }
+                return { base, H, pickR };
+            };
             for (int row=0; row<4; row++) for (int col=0; col<4; col++)     // 16 sphères
-                targets[n++] = { NkMat4f::Translate({(col-1.5f)*1.2f, 0.5f, (row-1.5f)*1.2f}) * NkMat4f::Scale({0.45f,0.45f,0.45f}), H, 0.35f };
-            targets[n++] = { cubeXform, H, 0.45f };                          // cube central (source unique)
-            targets[n++] = { NkMat4f::Translate({-4.f,1.f,-2.f}) * NkMat4f::Scale({0.3f,2.f,0.3f}), H, 1.3f }; // colonne 0
-            targets[n++] = { NkMat4f::Translate({ 1.f,1.f, 4.f}) * NkMat4f::Scale({0.3f,2.f,0.3f}), H, 1.3f }; // colonne 1
+                targets[n++] = fitTarget(row*4+col, NkMat4f::Translate({(col-1.5f)*1.2f, 0.5f, (row-1.5f)*1.2f}) * NkMat4f::Scale({0.45f,0.45f,0.45f}), 0.35f);
+            targets[n++] = fitTarget(16, cubeXform, 0.45f);                  // cube central
+            targets[n++] = fitTarget(17, NkMat4f::Translate({-4.f,1.f,-2.f}) * NkMat4f::Scale({0.3f,2.f,0.3f}), 1.3f); // colonne 0
+            targets[n++] = fitTarget(18, NkMat4f::Translate({ 1.f,1.f, 4.f}) * NkMat4f::Scale({0.3f,2.f,0.3f}), 1.3f); // colonne 1
             for (int gz=0; gz<8; gz++) for (int gx=0; gx<8; gx++)           // 64 cubes INSTANCIÉS
-                targets[n++] = { NkMat4f::Translate({(gx-3.5f)*0.55f, 1.6f, (gz-3.5f)*0.55f-4.5f}) * NkMat4f::Scale({0.18f,0.18f,0.18f}), H, 0.2f };
+                targets[n++] = fitTarget(19+gz*8+gx, NkMat4f::Translate({(gx-3.5f)*0.55f, 1.6f, (gz-3.5f)*0.55f-4.5f}) * NkMat4f::Scale({0.18f,0.18f,0.18f}), 0.2f);
 
             // Gizmo OBJET actif UNIQUEMENT hors Edit Mode (sinon c'est le gizmo vertices).
             if (!st->editMode) {
