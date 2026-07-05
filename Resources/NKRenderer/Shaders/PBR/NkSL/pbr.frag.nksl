@@ -371,42 +371,48 @@ void main() {
     // Mode SOLID / UNLIT (façon Blender Solid & Wireframe) : couleur plate = albedo*tint,
     // révélée par un "phare caméra" (N·V) pour voir la FORME, SANS lumières de scène /
     // ombres / IBL. Facteur borné (<1) -> reste sous le seuil de bloom (pas de halo).
+    // Canaux d'affichage viewport (façon Blender / DCC) : 0=RENDERED (PBR ci-dessus),
+    // 1=SOLID/matcap, 2=NORMAL, 3=UV, 4=AO. Tous sans lumières de scène (débogage).
     if (uCam.viewMode > 0.5) {
-        // MODE SOLID/WIREFRAME : matcap procédural en ESPACE VUE (tourne avec la caméra
-        // comme un vrai matcap), SANS lumières de scène / ombres / IBL. Plusieurs presets
-        // sélectionnables (uCam.matcapId). Borné (<0.85) -> pas de halo bloom.
-        // NB : mat3(mat4) INTERDIT en HLSL (X3014) -> extraction des colonnes à la main.
-        mat3  vRot = mat3(uCam.view[0].xyz, uCam.view[1].xyz, uCam.view[2].xyz);
-        vec3  vn   = normalize(vRot * geomN);                     // normale en espace vue
-        float mc   = uCam.matcapId;
-        float shade;
-        if (mc < 0.5) {
-            // 0 — STUDIO : clé + fill + liseré (défaut, équilibré).
-            float key  = max(dot(vn, vec3(0.32, 0.53, 0.78)), 0.0);
-            float fill = max(dot(vn, vec3(-0.60, 0.10, 0.79)), 0.0);
-            float rim  = pow(1.0 - max(vn.z, 0.0), 3.0);
-            shade = 0.25 + 0.50*key + 0.18*fill + 0.22*rim;
-        } else if (mc < 1.5) {
-            // 1 — CLAY : mat doux, éclairage hémisphérique vertical (haut clair, bas sombre).
-            float up = vn.y * 0.5 + 0.5;
-            shade = 0.30 + 0.50*up;
-        } else if (mc < 2.5) {
-            // 2 — METAL : highlight net + fresnel de bord (aspect métallique brossé).
-            float key  = max(dot(vn, vec3(0.30, 0.50, 0.80)), 0.0);
-            float spec = pow(key, 20.0);
-            float fres = pow(1.0 - max(vn.z, 0.0), 4.0);
-            shade = 0.14 + 0.42*key + 0.7*spec + 0.5*fres;
-        } else if (mc < 3.5) {
-            // 3 — TOON : bandes dures (cel-shading).
-            float key = max(dot(vn, vec3(0.30, 0.55, 0.78)), 0.0);
-            shade = (key > 0.62) ? 0.82 : ((key > 0.32) ? 0.55 : 0.30);
+        if (uCam.viewMode < 1.5) {
+            // 1 — SOLID/WIREFRAME : matcap procédural en ESPACE VUE (tourne avec la
+            // caméra), SANS lumières/ombres/IBL. Presets sélectionnables (matcapId).
+            // Borné (<0.85) -> pas de halo bloom. NB : mat3(mat4) INTERDIT HLSL (X3014).
+            mat3  vRot = mat3(uCam.view[0].xyz, uCam.view[1].xyz, uCam.view[2].xyz);
+            vec3  vn   = normalize(vRot * geomN);                 // normale en espace vue
+            float mc   = uCam.matcapId;
+            float shade;
+            if (mc < 0.5) {
+                float key  = max(dot(vn, vec3(0.32, 0.53, 0.78)), 0.0);
+                float fill = max(dot(vn, vec3(-0.60, 0.10, 0.79)), 0.0);
+                float rim  = pow(1.0 - max(vn.z, 0.0), 3.0);
+                shade = 0.25 + 0.50*key + 0.18*fill + 0.22*rim;
+            } else if (mc < 1.5) {
+                float up = vn.y * 0.5 + 0.5;
+                shade = 0.30 + 0.50*up;
+            } else if (mc < 2.5) {
+                float key  = max(dot(vn, vec3(0.30, 0.50, 0.80)), 0.0);
+                float spec = pow(key, 20.0);
+                float fres = pow(1.0 - max(vn.z, 0.0), 4.0);
+                shade = 0.14 + 0.42*key + 0.7*spec + 0.5*fres;
+            } else if (mc < 3.5) {
+                float key = max(dot(vn, vec3(0.30, 0.55, 0.78)), 0.0);
+                shade = (key > 0.62) ? 0.82 : ((key > 0.32) ? 0.55 : 0.30);
+            } else {
+                vec2 muv = vn.xy * 0.5 + 0.5;
+                shade = texture(tMatcap, muv).r;
+            }
+            color = albedo * uObj.tint.rgb * clamp(shade, 0.0, 0.85);
+        } else if (uCam.viewMode < 2.5) {
+            // 2 — NORMAL : normale MONDE (avec normal map) encodée RGB [0,1].
+            color = N * 0.5 + vec3(0.5);
+        } else if (uCam.viewMode < 3.5) {
+            // 3 — UV : coordonnées de texture (R=u, G=v) -> damier de contrôle du mapping.
+            color = vec3(fract(vUV), 0.0);
         } else {
-            // 4 — CHROME (matcap TEXTURE) : on échantillonne la boule matcap par la
-            // normale-vue (uv = vn.xy*0.5+0.5). C'est ça, un "matcap texture".
-            vec2 muv = vn.xy * 0.5 + 0.5;
-            shade = texture(tMatcap, muv).r;
+            // 4 — AO : occlusion ambiante (ORM.r*aoStrength × Voxel AO) en niveaux de gris.
+            color = vec3(clamp(ao * voxAO, 0.0, 1.0));
         }
-        color = albedo * uObj.tint.rgb * clamp(shade, 0.0, 0.85);
     }
     fragColor  = vec4(color, 1.0);
 }

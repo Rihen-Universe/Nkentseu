@@ -361,10 +361,12 @@ namespace nkentseu { namespace demo {
                 // Alt+Z = toggle X-ray en Edit Mode, géré dans le keymap.)
                 const bool altHeld = NkInput.IsKeyDown(NkKey::NK_LALT) || NkInput.IsKeyDown(NkKey::NK_RALT);
                 if (k == NkKey::NK_Z && !altHeld && !st->gizmo.IsDragging() && !st->editGizmo.IsDragging()) {
-                    st->shadingMode = (st->shadingMode + 1) % 3;
-                    const char* sm[3] = {"RENDERED", "SOLID", "WIREFRAME"};
+                    st->shadingMode = (st->shadingMode + 1) % 6;
+                    const char* sm[6] = {"RENDERED", "SOLID", "WIREFRAME", "NORMAL", "UV", "AO"};
+                    // viewMode shader : 0=PBR éclairé, 1=matcap unlit, 2=normal, 3=uv, 4=ao.
+                    const int32 vm[6] = {0, 1, 1, 2, 3, 4};
                     r3d->SetWireframe(st->shadingMode == 2);           // wireframe = rasterizer fil de fer
-                    r3d->SetViewMode(st->shadingMode == 0 ? 0 : 1);    // 0=PBR éclairé ; 1=unlit (solid+wire)
+                    r3d->SetViewMode(vm[st->shadingMode]);
                     logger.Info("[Demo3D] Affichage = {0}\n", sm[st->shadingMode]);
                 }
                 // M : cycle le preset MatCap (effet en mode SOLID/WIREFRAME).
@@ -1036,15 +1038,16 @@ namespace nkentseu { namespace demo {
             overlay->BeginOverlay(ctx.renderer->GetCmd(), ctx.width, ctx.height);
             overlay->DrawStats(ctx.renderer->GetStats());
             {
-                const char* sm[3] = {"RENDERED", "SOLID", "WIREFRAME"};
+                const char* sm[6] = {"RENDERED", "SOLID", "WIREFRAME", "NORMAL", "UV", "AO"};
                 const char* mc[5] = {"Studio", "Clay", "Metal", "Toon", "Chrome(tex)"};
                 int32 mcId = 0; if (auto* r3dh = ctx.renderer->GetRender3D()) mcId = r3dh->Matcap();
-                if (st->shadingMode == 0)
-                    overlay->DrawText({20.f, 35.f}, "Demo 3D - PBR primitives  |  API : %s  |  Affichage(Z): %s",
-                                      NkGraphicsApiName(ctx.api), sm[st->shadingMode % 3]);
-                else
+                // MatCap pertinent seulement en SOLID/WIREFRAME (modes 1 et 2).
+                if (st->shadingMode == 1 || st->shadingMode == 2)
                     overlay->DrawText({20.f, 35.f}, "Demo 3D - PBR primitives  |  API : %s  |  Affichage(Z): %s  |  MatCap(M): %s",
-                                      NkGraphicsApiName(ctx.api), sm[st->shadingMode % 3], mc[mcId % 5]);
+                                      NkGraphicsApiName(ctx.api), sm[st->shadingMode % 6], mc[mcId % 5]);
+                else
+                    overlay->DrawText({20.f, 35.f}, "Demo 3D - PBR primitives  |  API : %s  |  Affichage(Z): %s",
+                                      NkGraphicsApiName(ctx.api), sm[st->shadingMode % 6]);
             }
             overlay->DrawText({20.f, 55.f}, "FPS approx: %.1f  |  dt: %.2f ms",
                               dt > 1e-4f ? 1.f / dt : 0.f, dt * 1000.f);
