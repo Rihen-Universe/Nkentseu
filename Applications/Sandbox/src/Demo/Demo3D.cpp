@@ -1199,16 +1199,13 @@ namespace nkentseu { namespace demo {
                         float32 px,py; if(project(c3,px,py)){ float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my)); if(d<bd){bd=d;bt=(int32)t;} }
                     }
                     if (bt>=0){
-                        // Une FACE = un QUAD = 2 triangles CONSÉCUTIFS (les meshes primitifs
-                        // sont triangulés quad par quad : indices par blocs de 6). On
-                        // sélectionne les DEUX triangles du bloc -> toute la face surlignée
-                        // (robuste même sur une sphère où la coplanarité stricte échouait).
-                        const uint32 block = ((uint32)bt/6u)*6u;
-                        for (uint32 tt=block; tt<block+6u && tt+2<(uint32)st->editIdx.Size(); tt+=3){
-                            st->vertSel[st->editIdx[tt]]=1;
-                            st->vertSel[st->editIdx[tt+1]]=1;
-                            st->vertSel[st->editIdx[tt+2]]=1;
-                        }
+                        // Une FACE = le TRIANGLE cliqué (3 sommets). En soupe de triangles
+                        // on ne présume PAS de quads : on sélectionne exactement la face
+                        // pointée. (Pour de vrais n-gons -> future structure demi-arête ;
+                        // pour prendre le quad entier, Shift+clic le 2e triangle.)
+                        st->vertSel[st->editIdx[bt]]=1;
+                        st->vertSel[st->editIdx[bt+1]]=1;
+                        st->vertSel[st->editIdx[bt+2]]=1;
                     }
                 }
             }
