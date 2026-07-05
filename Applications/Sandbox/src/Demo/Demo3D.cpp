@@ -1137,15 +1137,8 @@ namespace nkentseu { namespace demo {
                 px = (nx*0.5f+0.5f)*VW; py = (0.5f-ny*0.5f)*VH; return true;
             };
             auto worldV = [&](int32 i){ return st->editAnchor * st->editRest[i].pos; };
-            // Test FACE-AVANT (normale du vertex tournée vers la caméra). Sert à ne
-            // PAS voir/sélectionner les vertices de derrière quand X-ray est OFF
-            // (fiable, indépendant du depth-buffer). X-ray ON -> tout est visible.
-            auto frontV = [&](int32 i)->bool {
-                if (st->editXray) return true;
-                NkVec3f w  = worldV(i);
-                NkVec3f nW = (st->editAnchor * (st->editRest[i].pos + st->editRest[i].normal)) - w;
-                return nW.Dot(camPos - w) > 0.f;
-            };
+            // (L'occlusion au pick est gérée par un test de PROFONDEUR par rayon curseur,
+            //  plus bas dans le bloc de sélection — indépendant de l'orientation caméra.)
 
             // Centroïde monde de la sélection courante.
             NkVec3f cen = {0.f,0.f,0.f}; int32 selCnt = 0;
@@ -1180,6 +1173,27 @@ namespace nkentseu { namespace demo {
                 st->editOverlayDirty = true;   // la sélection va changer -> reconstruire l'overlay
                 const float32 mx = gin.mouseX, my = gin.mouseY;
                 if (!gin.shiftDown) for (int32 i=0;i<nv;i++) st->vertSel[i]=0;
+                // Rayon curseur -> profondeurs d'ENTRÉE (near) et de SORTIE (far) dans le
+                // mesh. Un sommet est "devant" (visible) s'il est dans la moitié NEAR
+                // (depth < milieu). Test de PROFONDEUR (pas de normale) -> INDÉPENDANT de
+                // l'orientation caméra (corrige "impossible de sélectionner selon l'angle").
+                const float32 rNdcX = mx/VW*2.f - 1.f, rNdcY = 1.f - my/VH*2.f;
+                NkVec3f rDir = fwd + rgt*(rNdcX*thX) + upv*(rNdcY*thY);
+                { float32 l=rDir.Len(); if(l>1e-6f) rDir=rDir*(1.f/l); }
+                float32 tNear=1e30f, tFar=-1e30f; int32 nearestTri=-1;
+                for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
+                    const NkVec3f v0=worldV(st->editIdx[t]), v1=worldV(st->editIdx[t+1]), v2=worldV(st->editIdx[t+2]);
+                    NkVec3f e1=v1-v0, e2=v2-v0, h=rDir.Cross(e2); float32 aa=e1.Dot(h);
+                    if (fabsf(aa)<1e-7f) continue;
+                    float32 f=1.f/aa; NkVec3f s=camPos-v0; float32 u=f*s.Dot(h); if(u<0.f||u>1.f) continue;
+                    NkVec3f q=s.Cross(e1); float32 vv=f*rDir.Dot(q); if(vv<0.f||u+vv>1.f) continue;
+                    float32 tt=f*e2.Dot(q); if(tt>1e-4f){ if(tt<tNear){ tNear=tt; nearestTri=(int32)t; } if(tt>tFar) tFar=tt; }
+                }
+                const float32 depthMid = (tNear<1e29f) ? 0.5f*(tNear+tFar) : 1e30f;
+                auto visibleD = [&](NkVec3f w)->bool {
+                    if (st->editXray || depthMid>=1e29f) return true;   // x-ray ou pas de surface -> tout visible
+                    return (w-camPos).Len() < depthMid + 1e-3f;         // moitié near = devant
+                };
                 // Modes combinables : on cherche le meilleur candidat de CHAQUE mode actif
                 // puis on sélectionne le plus proche du curseur (vertex/arête gagnent près
                 // d'eux, la face gagne au centre). Façon Blender (vertex/edge/face combinés).
@@ -1189,10 +1203,10 @@ namespace nkentseu { namespace demo {
                 const float32 kVertPx = 14.f;
                 int32 bestV=-1; float32 bestVdepth=1e30f;
                 if (st->editSelMask & 1) {
-                    for (int32 i=0;i<nv;i++){ if(!frontV(i)) continue; float32 px,py;
-                        if(project(worldV(i),px,py)){
+                    for (int32 i=0;i<nv;i++){ NkVec3f w=worldV(i); if(!visibleD(w)) continue; float32 px,py;
+                        if(project(w,px,py)){
                             float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my));
-                            if (d<kVertPx){ float32 dep=(worldV(i)-camPos).Len(); if(dep<bestVdepth){ bestVdepth=dep; bestV=i; } } } }
+                            if (d<kVertPx){ float32 dep=(w-camPos).Len(); if(dep<bestVdepth){ bestVdepth=dep; bestV=i; } } } }
                 }
                 // EDGE : idem, parmi les arêtes sous le curseur on prend celle dont le milieu
                 // est le plus proche de la caméra.
@@ -1201,35 +1215,18 @@ namespace nkentseu { namespace demo {
                 if (st->editSelMask & 2) {
                     for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
                         const uint32 e[3][2]={{st->editIdx[t],st->editIdx[t+1]},{st->editIdx[t+1],st->editIdx[t+2]},{st->editIdx[t+2],st->editIdx[t]}};
-                        for (int32 k=0;k<3;k++){ if(!frontV((int32)e[k][0]) && !frontV((int32)e[k][1])) continue;
-                            float32 ax,ay,bx,by; if(project(worldV(e[k][0]),ax,ay)&&project(worldV(e[k][1]),bx,by)){
+                        for (int32 k=0;k<3;k++){ NkVec3f wa=worldV(e[k][0]), wb=worldV(e[k][1]);
+                            NkVec3f mid=(wa+wb)*0.5f; if(!visibleD(mid)) continue;
+                            float32 ax,ay,bx,by; if(project(wa,ax,ay)&&project(wb,bx,by)){
                             float32 dx=bx-ax,dy=by-ay,l2=dx*dx+dy*dy,tt=(l2>1e-6f)?((mx-ax)*dx+(my-ay)*dy)/l2:0.f; tt=tt<0?0:(tt>1?1:tt);
                             float32 cx=ax+tt*dx,cy=ay+tt*dy,d=sqrtf((mx-cx)*(mx-cx)+(my-cy)*(my-cy));
-                            if (d<kEdgePx){ NkVec3f mid=(worldV(e[k][0])+worldV(e[k][1]))*0.5f; float32 dep=(mid-camPos).Len();
+                            if (d<kEdgePx){ float32 dep=(mid-camPos).Len();
                                 if(dep<bestEdepth){ bestEdepth=dep; bestEa=(int32)e[k][0]; bestEb=(int32)e[k][1]; } } } }
                     }
                 }
-                // FACE : RAYON depuis la caméra à travers le curseur -> triangle le plus
-                // PROCHE réellement touché (Möller-Trumbore). Corrige le bug où le triangle
-                // derrière était pris (le centroïde 2D ignorait la profondeur).
-                int32 bestFt=-1;
-                if (st->editSelMask & 4) {
-                    const float32 ndcX = mx/VW*2.f - 1.f, ndcY = 1.f - my/VH*2.f;
-                    NkVec3f rd = fwd + rgt*(ndcX*thX) + upv*(ndcY*thY);
-                    { float32 l=rd.Len(); if(l>1e-6f) rd=rd*(1.f/l); }
-                    float32 bestT=1e30f;
-                    for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
-                        const NkVec3f v0=worldV(st->editIdx[t]), v1=worldV(st->editIdx[t+1]), v2=worldV(st->editIdx[t+2]);
-                        NkVec3f e1=v1-v0, e2=v2-v0, h=rd.Cross(e2); float32 aa=e1.Dot(h);
-                        if (fabsf(aa) < 1e-7f) continue;                 // rayon parallèle
-                        float32 f=1.f/aa; NkVec3f s=camPos-v0; float32 u=f*s.Dot(h);
-                        if (u<0.f || u>1.f) continue;
-                        NkVec3f q=s.Cross(e1); float32 vv=f*rd.Dot(q);
-                        if (vv<0.f || u+vv>1.f) continue;
-                        float32 tt=f*e2.Dot(q);
-                        if (tt>1e-4f && tt<bestT){ bestT=tt; bestFt=(int32)t; }
-                    }
-                }
+                // FACE : le triangle le plus PROCHE touché par le rayon curseur (déjà calculé
+                // ci-dessus = nearestTri). C'est la face EXTERNE visible, jamais celle de derrière.
+                const int32 bestFt = (st->editSelMask & 4) ? nearestTri : -1;
                 // Élection PAR PRIORITÉ façon Blender : vertex (près d'un sommet) > arête
                 // (près d'une arête) > face (rayon). Chacun n'est retenu que dans son seuil.
                 if      (bestV>=0)  st->vertSel[bestV] = gin.shiftDown ? (uint8)(1-st->vertSel[bestV]) : 1;
