@@ -212,6 +212,18 @@ namespace nkentseu {
                 // Triangle debug PLEIN (alpha-blend). Utile pour surligner des faces
                 // sélectionnées (éditeur), des zones, etc. overlay=true -> sans depth-test.
                 void DrawDebugTriangle(NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f color, float32 life=0.f, bool overlay=false);
+
+                // ── Edit overlay PERSISTANT (cage/faces/points d'un Edit Mode) ───────
+                // Buffers GPU gardés d'une frame à l'autre : on N'UPLOADE QUE quand la
+                // donnée change (entrée/sélection/drag). Rendu chaque frame par le GPU
+                // sans reconstruction CPU -> reste fluide même sur mesh dense. Les
+                // vertices sont { pos.x,pos.y,pos.z, r,g,b,a } (7 float, stride 28).
+                // depthTest=false -> mode X-ray (dessiné au-dessus de tout).
+                void SetEditOverlayLines (const float* verts, uint32 vertexCount);
+                void SetEditOverlayTris  (const float* verts, uint32 vertexCount);
+                void SetEditOverlayPoints(const float* verts, uint32 vertexCount);
+                void SetEditOverlayXray  (bool xray);
+                void ClearEditOverlay();
                 void DrawDebugSphere(NkVec3f c, float32 r,   NkVec4f color);
                 void DrawDebugCircle(NkVec3f c, float32 r, NkVec3f normal,   NkVec4f color);
                 void DrawDebugAABB  (const NkAABB& box,       NkVec4f color);
@@ -476,6 +488,12 @@ namespace nkentseu {
                 NkBufferHandle             mTriVBO;
                 uint32                     mTriVBOCapVerts = 0;
                 bool EnsureDebugTriOverlayPipeline(NkRenderPassHandle currentRP);
+                // Edit overlay persistant (uploadé seulement au changement).
+                NkBufferHandle             mEditLineBuf, mEditTriBuf, mEditPointBuf;
+                uint32                     mEditLineN=0, mEditTriN=0, mEditPointN=0;      // vertices actifs
+                uint32                     mEditLineCap=0, mEditTriCap=0, mEditPointCap=0; // capacité (vertices)
+                bool                       mEditOverlayNoDepth=false;                      // X-ray
+                void UploadEditBuf(NkBufferHandle& buf, uint32& cap, const float* v, uint32 vcount);
                 bool EnsureDebugLinePipeline(NkRenderPassHandle currentRP);
         };
 

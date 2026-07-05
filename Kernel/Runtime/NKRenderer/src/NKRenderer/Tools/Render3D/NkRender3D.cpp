@@ -852,6 +852,9 @@ namespace nkentseu {
             if (mTriPipeline.IsValid())         { mDevice->DestroyPipeline(mTriPipeline); mTriPipeline={}; }
             if (mTriPipelineNoDepth.IsValid())  { mDevice->DestroyPipeline(mTriPipelineNoDepth); mTriPipelineNoDepth={}; }
             if (mTriVBO.IsValid())              { mDevice->DestroyBuffer(mTriVBO); mTriVBO={}; }
+            if (mEditLineBuf.IsValid())         { mDevice->DestroyBuffer(mEditLineBuf); mEditLineBuf={}; }
+            if (mEditTriBuf.IsValid())          { mDevice->DestroyBuffer(mEditTriBuf); mEditTriBuf={}; }
+            if (mEditPointBuf.IsValid())        { mDevice->DestroyBuffer(mEditPointBuf); mEditPointBuf={}; }
             mDebugInited = false;
         }
 
@@ -2163,6 +2166,28 @@ namespace nkentseu {
 
         void NkRender3D::FlushDebug(NkICommandBuffer* cmd, NkRenderPassHandle currentRP,
                                     NkDescSetHandle gs) {
+            // ── Edit overlay PERSISTANT (cage/faces/points) : rendu chaque frame depuis
+            //    des buffers GPU gardés (aucune reconstruction CPU tant que rien ne
+            //    change). Faces/points d'abord (fill), puis la cage par-dessus. ────────
+            if ((mEditTriN || mEditPointN) && EnsureDebugTriOverlayPipeline(currentRP)) {
+                NkPipelineHandle tp = mEditOverlayNoDepth ? mTriPipelineNoDepth : mTriPipeline;
+                if (tp.IsValid()) {
+                    cmd->BindGraphicsPipeline(tp);
+                    if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+                    if (mEditTriN)   { cmd->BindVertexBuffer(0, mEditTriBuf,   0); cmd->Draw(mEditTriN); }
+                    if (mEditPointN) { cmd->BindVertexBuffer(0, mEditPointBuf, 0); cmd->Draw(mEditPointN); }
+                }
+            }
+            if (mEditLineN && EnsureDebugLinePipeline(currentRP)) {
+                NkPipelineHandle lp = mEditOverlayNoDepth ? mLinePipelineNoDepth : mLinePipeline;
+                if (lp.IsValid()) {
+                    cmd->BindGraphicsPipeline(lp);
+                    if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+                    cmd->BindVertexBuffer(0, mEditLineBuf, 0);
+                    cmd->Draw(mEditLineN);
+                }
+            }
+
             if (mDebugLines.Empty() && mDebugTris.Empty()) return;
 
             // ── 0. TRIANGLES debug pleins (surlignage de faces) — AVANT les lignes,
@@ -2319,6 +2344,22 @@ namespace nkentseu {
         void NkRender3D::DrawDebugTriangle(NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f color, float32 life, bool overlay) {
             mDebugTris.PushBack({a,b,c,color,life,overlay});
         }
+        // ── Edit overlay persistant ────────────────────────────────────────────────
+        void NkRender3D::UploadEditBuf(NkBufferHandle& buf, uint32& cap, const float* v, uint32 vcount) {
+            if (vcount == 0) return;
+            const uint64 stride = 7 * sizeof(float);   // pos3 + rgba4
+            if (!buf.IsValid() || cap < vcount) {
+                if (buf.IsValid()) mDevice->DestroyBuffer(buf);
+                cap = vcount + 256;
+                buf = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)cap * stride));
+            }
+            mDevice->WriteBuffer(buf, v, (uint64)vcount * stride, 0);
+        }
+        void NkRender3D::SetEditOverlayLines (const float* v, uint32 n){ UploadEditBuf(mEditLineBuf, mEditLineCap, v, n); mEditLineN=n; }
+        void NkRender3D::SetEditOverlayTris  (const float* v, uint32 n){ UploadEditBuf(mEditTriBuf,  mEditTriCap,  v, n); mEditTriN=n; }
+        void NkRender3D::SetEditOverlayPoints(const float* v, uint32 n){ UploadEditBuf(mEditPointBuf,mEditPointCap,v, n); mEditPointN=n; }
+        void NkRender3D::SetEditOverlayXray  (bool xray){ mEditOverlayNoDepth = xray; }
+        void NkRender3D::ClearEditOverlay(){ mEditLineN=mEditTriN=mEditPointN=0; }
         void NkRender3D::DrawDebugSphere(NkVec3f c, float32 r, NkVec4f color) {
             const int N=16;
             for(int i=0;i<N;i++){

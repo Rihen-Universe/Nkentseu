@@ -78,6 +78,7 @@ namespace nkentseu { namespace demo {
         bool                            editMode      = false; // TAB : bascule objet <-> édition
         bool                            editTogglePending = false; // TAB traité côté frame (accès meshSys)
         bool                            editWasDragging   = false; // pour baker le delta en fin de drag
+        bool                            editOverlayDirty  = true;  // reconstruire les buffers overlay (cage/points/faces)
         renderer::NkGizmo3D             editGizmo;     // 1 seule cible = centroïde de la sélection
     };
 
@@ -399,16 +400,17 @@ namespace nkentseu { namespace demo {
             if (k == NkKey::NK_TAB) { st->editTogglePending = true; return; }
             // En EDIT MODE : touches 1/2/3 = sous-mode sélection VERTEX / EDGE / FACE.
             if (st->editMode) {
-                if (k == NkKey::NK_NUM1) { st->editSelMode = 0; logger.Info("[Demo3D] Edit = VERTEX\n"); return; }
-                if (k == NkKey::NK_NUM2) { st->editSelMode = 1; logger.Info("[Demo3D] Edit = EDGE\n");   return; }
-                if (k == NkKey::NK_NUM3) { st->editSelMode = 2; logger.Info("[Demo3D] Edit = FACE\n");   return; }
+                if (k == NkKey::NK_NUM1) { st->editSelMode = 0; st->editOverlayDirty=true; logger.Info("[Demo3D] Edit = VERTEX\n"); return; }
+                if (k == NkKey::NK_NUM2) { st->editSelMode = 1; st->editOverlayDirty=true; logger.Info("[Demo3D] Edit = EDGE\n");   return; }
+                if (k == NkKey::NK_NUM3) { st->editSelMode = 2; st->editOverlayDirty=true; logger.Info("[Demo3D] Edit = FACE\n");   return; }
                 // Alt+Z : toggle X-RAY (voir/sélectionner à travers le mesh), façon Blender.
-                if (k == NkKey::NK_Z && alt) { st->editXray = !st->editXray;
+                if (k == NkKey::NK_Z && alt) { st->editXray = !st->editXray; st->editOverlayDirty=true;
                     logger.Info("[Demo3D] X-ray = {0}\n", st->editXray); return; }
                 // A / Alt+A : tout sélectionner / désélectionner (les VERTICES).
                 if (k == NkKey::NK_A) {
                     const uint8 v = alt ? 0 : 1;
                     for (uint32 i=0;i<(uint32)st->vertSel.Size();i++) st->vertSel[i] = v;
+                    st->editOverlayDirty=true;
                     return;
                 }
             }
@@ -547,6 +549,7 @@ namespace nkentseu { namespace demo {
                 // Sortie d'édition.
                 st->editMode   = false;
                 st->editObjIdx = -1;
+                r3d->ClearEditOverlay();
             } else {
                 const int32 sel = st->gizmo.ActiveIndex();
                 if (sel < 0) {
@@ -594,6 +597,7 @@ namespace nkentseu { namespace demo {
                         st->editObjIdx    = sel;
                         st->editGizmo.ClearSelection();
                         st->editWasDragging = false;
+                        st->editOverlayDirty = true;
                         st->editMode = true;
                         logger.Info("[Demo3D] EDIT MODE objet #{0} ({1} vertices).\n", sel, vc);
                     }
@@ -884,6 +888,7 @@ namespace nkentseu { namespace demo {
 
             // Clic qui n'a PAS attrapé une poignée -> pick VERTEX/EDGE/FACE en espace écran.
             if (gin.leftPressed && !grabbedHandle) {
+                st->editOverlayDirty = true;   // la sélection va changer -> reconstruire l'overlay
                 const float32 mx = gin.mouseX, my = gin.mouseY;
                 if (!gin.shiftDown) for (int32 i=0;i<nv;i++) st->vertSel[i]=0;
                 if (st->editSelMode == 0) {                       // VERTEX : plus proche point (visible)
@@ -920,6 +925,7 @@ namespace nkentseu { namespace demo {
                 for (int32 i=0;i<nv;i++){ st->editLive[i]=st->editRest[i];
                     if (st->vertSel[i]) st->editLive[i].pos = st->editAnchorInv * (G * worldV(i)); }
                 if (meshSysF) meshSysF->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv);
+                st->editOverlayDirty = true;   // positions changées -> overlay suit le mesh
             }
             // Fin de drag -> baker le delta dans le repos + reset du gizmo.
             if (st->editWasDragging && !st->editGizmo.IsDragging()) {
@@ -939,53 +945,66 @@ namespace nkentseu { namespace demo {
                 r3d->Submit(dc);
             }
 
-            // ── Marqueurs FINS façon Blender — DEPTH-TESTÉS (pas overlay) ──────────
-            // Clé du rendu Blender "solid + cage" : la cage et les points sont testés
-            // en profondeur -> la surface pleine CACHE les arêtes/points du fond (sinon
-            // effet x-ray/wireframe). Léger décalage VERS LA CAMÉRA pour vaincre le
-            // z-fighting avec la surface. Seul le GIZMO reste en overlay.
-            // X-ray ON -> overlay (depth OFF, on voit tout à travers) ; OFF -> depth-testé
-            // + on masque en plus les éléments FACE-ARRIÈRE (cull par normale = robuste).
-            const bool ov = st->editXray;
-            const float32 kBias = 0.0022f;   // décalage vers la caméra (anti z-fight en mode depth)
-            auto off = [&](NkVec3f p)->NkVec3f { NkVec3f d=camPos-p; return p + d*kBias; };
-            auto dlD = [&](NkVec3f a, NkVec3f b, NkVec4f c){
-                if (ov) r3d->DrawDebugLine(a,b,c,0.f,true);
-                else    r3d->DrawDebugLine(off(a),off(b),c,0.f,false);
-            };
-            const NkVec4f cageCol{0.02f,0.02f,0.03f,1.f}, selCol{1.f,0.55f,0.05f,1.f};
-            // Cage = arêtes UNIQUES ; sélectionnées (2 verts) en orange. X-ray OFF :
-            // on saute l'arête si ses DEUX sommets sont face-arrière (cachée).
-            for (uint32 e=0;e+1<(uint32)st->editEdges.Size();e+=2){
-                const uint32 a=st->editEdges[e], b=st->editEdges[e+1];
-                if (!st->editXray && !frontV((int32)a) && !frontV((int32)b)) continue;
-                bool sel = st->vertSel[a] && st->vertSel[b];
-                dlD(worldV(a), worldV(b), sel?selCol:cageCol);
-            }
-            // Points de vertices (petits carrés face-caméra, taille écran ~ pixels).
-            auto dotAt = [&](NkVec3f w, NkVec4f col, float32 px){
-                float32 dist = (w-camPos).Len(); float32 s = px*(2.f*thY*dist)/VH;
-                NkVec3f R=rgt*s, U=upv*s, a=w-R-U,b=w+R-U,c2=w+R+U,d=w-R+U;
-                dlD(a,b,col); dlD(b,c2,col); dlD(c2,d,col); dlD(d,a,col);
-            };
-            if (st->editSelMode == 0 || st->editSelMode == 1) {
-                for (int32 i=0;i<nv;i++){ if(!frontV(i)) continue; bool s=st->vertSel[i]!=0;
-                    dotAt(worldV(i), s?NkVec4f{1.f,0.6f,0.05f,1.f}:NkVec4f{0.1f,0.1f,0.12f,1.f}, s?2.6f:1.8f); }
-            }
-            // FACE : la face sélectionnée est REMPLIE (translucide, façon Blender),
-            // pas juste un point. Léger offset caméra pour passer devant la surface.
-            if (st->editSelMode == 2) {
-                const NkVec4f faceFill{1.f,0.55f,0.05f,0.38f};
-                for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
-                    const uint32 a=st->editIdx[t],b=st->editIdx[t+1],c=st->editIdx[t+2];
-                    if (!(st->vertSel[a]&&st->vertSel[b]&&st->vertSel[c])) continue;
-                    if (!st->editXray && !frontV((int32)a) && !frontV((int32)b) && !frontV((int32)c)) continue;
-                    NkVec3f wa=worldV(a), wb=worldV(b), wc=worldV(c);
-                    if (!st->editXray) { wa=off(wa); wb=off(wb); wc=off(wc); }
-                    r3d->DrawDebugTriangle(wa, wb, wc, faceFill, 0.f, st->editXray);
+            // ── Overlay d'édition PERSISTANT (batch GPU) ───────────────────────────
+            // Reconstruit SEULEMENT quand ça change (entrée/sélection/drag/mode/xray).
+            // L'orbite caméra ne reconstruit RIEN : le GPU redessine les buffers gardés
+            // -> fluide même sur mesh dense. Occlusion = depth-test (X-ray OFF) ; offset
+            // le long de la NORMALE (indépendant caméra) pour vaincre le z-fighting.
+            if (st->editOverlayDirty) {
+                st->editOverlayDirty = false;
+                auto liveW = [&](int32 i){ return st->editAnchor * st->editLive[i].pos; };
+                auto normW = [&](int32 i)->NkVec3f {
+                    NkVec3f nW=(st->editAnchor*(st->editLive[i].pos+st->editLive[i].normal))-liveW(i);
+                    float32 l=nW.Len(); return (l>1e-6f)? nW*(1.f/l) : NkVec3f{0.f,1.f,0.f};
+                };
+                // Rayon monde (dimensionne points + offset).
+                NkVec3f bmin{1e30f,1e30f,1e30f}, bmax{-1e30f,-1e30f,-1e30f};
+                for (int32 i=0;i<nv;i++){ NkVec3f w=liveW(i);
+                    bmin.x=NkMin(bmin.x,w.x); bmin.y=NkMin(bmin.y,w.y); bmin.z=NkMin(bmin.z,w.z);
+                    bmax.x=NkMax(bmax.x,w.x); bmax.y=NkMax(bmax.y,w.y); bmax.z=NkMax(bmax.z,w.z); }
+                float32 rad=(bmax-bmin).Len()*0.5f; if(rad<1e-4f) rad=1.f;
+                const float32 nOff=rad*0.004f, dotS=rad*0.012f;
+                auto woff=[&](int32 i){ return liveW(i)+normW(i)*nOff; };
+                auto pushV=[&](NkVector<float>& A, NkVec3f p, NkVec4f c){
+                    A.PushBack(p.x);A.PushBack(p.y);A.PushBack(p.z);
+                    A.PushBack(c.x);A.PushBack(c.y);A.PushBack(c.z);A.PushBack(c.w); };
+                const NkVec4f cageCol{0.02f,0.02f,0.03f,1.f}, selCol{1.f,0.55f,0.05f,1.f};
+                // LINES : cage (arêtes uniques) ; sélectionnées (2 verts) en orange.
+                NkVector<float> L; L.Reserve((uint32)st->editEdges.Size()*7);
+                for (uint32 e=0;e+1<(uint32)st->editEdges.Size();e+=2){
+                    const uint32 a=st->editEdges[e], b=st->editEdges[e+1];
+                    NkVec4f c=(st->vertSel[a]&&st->vertSel[b])?selCol:cageCol;
+                    pushV(L, woff((int32)a), c); pushV(L, woff((int32)b), c);
                 }
+                r3d->SetEditOverlayLines(L.Empty()?nullptr:L.Data(), (uint32)(L.Size()/7));
+                // POINTS : petits quads pleins (plan tangent) — VERTEX/EDGE seulement.
+                NkVector<float> P;
+                if (st->editSelMode==0 || st->editSelMode==1) {
+                    P.Reserve((uint32)nv*6*7);
+                    for (int32 i=0;i<nv;i++){
+                        NkVec3f w=woff(i), nW=normW(i);
+                        NkVec3f t=nW.Cross(NkVec3f{0.f,1.f,0.f}); if(t.Len()<1e-3f) t=nW.Cross(NkVec3f{1.f,0.f,0.f});
+                        t=t*(1.f/NkMax(t.Len(),1e-6f)); NkVec3f bt=nW.Cross(t);
+                        NkVec3f R=t*dotS, U=bt*dotS, q0=w-R-U,q1=w+R-U,q2=w+R+U,q3=w-R+U;
+                        NkVec4f c=st->vertSel[i]?NkVec4f{1.f,0.6f,0.05f,1.f}:NkVec4f{0.05f,0.05f,0.07f,1.f};
+                        pushV(P,q0,c);pushV(P,q1,c);pushV(P,q2,c); pushV(P,q0,c);pushV(P,q2,c);pushV(P,q3,c);
+                    }
+                }
+                r3d->SetEditOverlayPoints(P.Empty()?nullptr:P.Data(), (uint32)(P.Size()/7));
+                // FACES : triangles pleins translucides — FACE seulement.
+                NkVector<float> F;
+                if (st->editSelMode==2) {
+                    const NkVec4f faceFill{1.f,0.55f,0.05f,0.5f};
+                    for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
+                        const uint32 a=st->editIdx[t],b=st->editIdx[t+1],c=st->editIdx[t+2];
+                        if (!(st->vertSel[a]&&st->vertSel[b]&&st->vertSel[c])) continue;
+                        pushV(F, woff((int32)a), faceFill); pushV(F, woff((int32)b), faceFill); pushV(F, woff((int32)c), faceFill);
+                    }
+                }
+                r3d->SetEditOverlayTris(F.Empty()?nullptr:F.Data(), (uint32)(F.Size()/7));
+                r3d->SetEditOverlayXray(st->editXray);
             }
-            // Poignées du gizmo (OVERLAY, au-dessus de tout).
+            // Poignées du gizmo (OVERLAY) — rendu chaque frame (peu de lignes, négligeable).
             st->editGizmo.Draw([&](NkVec3f a, NkVec3f b, NkVec4f c){ r3d->DrawDebugLine(a,b,c,0.f,true); });
         }
 
