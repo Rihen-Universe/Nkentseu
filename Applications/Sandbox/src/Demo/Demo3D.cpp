@@ -42,6 +42,11 @@ namespace nkentseu { namespace demo {
         int32        unlitColorMode  = 1;
         NkVec3f      unlitGray       = {0.38f, 0.39f, 0.42f};   // gris moyen-foncé façon Blender
         NkVec3f      unlitCustom     = {0.45f, 0.62f, 0.85f};
+        // Vues axiales (pavé num 1/3/7 = front/right/top…) : façon Blender, on passe en
+        // PROJECTION ORTHO. Une orbite libre (clic-milieu) rebascule en perspective.
+        bool         orthoView       = false;
+        // Option (touche G off? non — touche dédiée) : montrer la grille en vue axiale ortho.
+        bool         viewGridInOrtho = true;
         // Panel debug : index PCF mode courant pour cycle (P)
         int32        pcfIdx = (int32)NkPCFMode::PCF5x5;
         // Phase H : true si le PNG a ete charge avec succes (vs fallback procedural).
@@ -497,9 +502,12 @@ namespace nkentseu { namespace demo {
             const float32 P = 1.55f;               // ~90° (clamp pitch)
             const bool ctrl = NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
             const NkKey   k = e->GetKey();
-            if      (k == NkKey::NK_NUMPAD_1) { if(!ctrl){ c.SetCenter(t,d, 1.5708f,0.f); logger.Info("[Demo3D] Vue FRONT\n"); } else { c.SetCenter(t,d,-1.5708f,0.f); logger.Info("[Demo3D] Vue BACK\n"); } }
-            else if (k == NkKey::NK_NUMPAD_3) { if(!ctrl){ c.SetCenter(t,d, 0.f,    0.f); logger.Info("[Demo3D] Vue RIGHT\n"); } else { c.SetCenter(t,d, 3.1416f,0.f); logger.Info("[Demo3D] Vue LEFT\n"); } }
-            else if (k == NkKey::NK_NUMPAD_7) { if(!ctrl){ c.SetCenter(t,d, 0.f,    P);   logger.Info("[Demo3D] Vue TOP\n"); } else { c.SetCenter(t,d, 0.f,   -P);   logger.Info("[Demo3D] Vue BOTTOM\n"); } }
+            bool axisView = false;
+            if      (k == NkKey::NK_NUMPAD_1) { axisView=true; if(!ctrl){ c.SetCenter(t,d, 1.5708f,0.f); logger.Info("[Demo3D] Vue FRONT (ortho)\n"); } else { c.SetCenter(t,d,-1.5708f,0.f); logger.Info("[Demo3D] Vue BACK (ortho)\n"); } }
+            else if (k == NkKey::NK_NUMPAD_3) { axisView=true; if(!ctrl){ c.SetCenter(t,d, 0.f,    0.f); logger.Info("[Demo3D] Vue RIGHT (ortho)\n"); } else { c.SetCenter(t,d, 3.1416f,0.f); logger.Info("[Demo3D] Vue LEFT (ortho)\n"); } }
+            else if (k == NkKey::NK_NUMPAD_7) { axisView=true; if(!ctrl){ c.SetCenter(t,d, 0.f,    P);   logger.Info("[Demo3D] Vue TOP (ortho)\n"); } else { c.SetCenter(t,d, 0.f,   -P);   logger.Info("[Demo3D] Vue BOTTOM (ortho)\n"); } }
+            else if (k == NkKey::NK_NUMPAD_5) { st->orthoView = !st->orthoView; logger.Info("[Demo3D] Projection = {0}\n", st->orthoView?"ORTHO":"PERSPECTIVE"); } // pavé 5 = toggle ortho/persp
+            if (axisView) st->orthoView = true;   // vue axiale -> ortho auto (façon Blender)
         });
         // Réglages viewport/debug sur F-keys (hors keymap Blender essentiel) :
         //   F1=grille on/off · F2/F3/F4=grille internes/majeures/axes · F11/F12=opacité plan -/+
@@ -817,14 +825,34 @@ namespace nkentseu { namespace demo {
                 if (wheel != 0.f) st->simCam.Move(wheel * 0.6f, 0.f, 0.f);  // molette = avancer
                 st->simCam.Apply(cam);
             } else {
+                const bool ctrl = NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
                 if (NkInput.IsMouseDown(NkMouseButton::NK_MB_MIDDLE)) {
                     if (shift) st->editorCam.Pan(mdx, mdy);
-                    else       st->editorCam.Rotate(mdx, mdy);
+                    else       { if (mdx!=0.f||mdy!=0.f) st->orthoView = false;  // orbite libre -> perspective (Blender)
+                                 st->editorCam.Rotate(mdx, mdy); }
                 }
-                if (wheel != 0.f) st->editorCam.Zoom(wheel);
+                // Molette façon Blender : seule = ZOOM ; Shift+molette = PAN VERTICAL ;
+                // Ctrl+molette = PAN HORIZONTAL. (mdx/mdy pixels ~10-20 ; une crantée de
+                // molette ~1 -> multiplier pour un pan comparable.)
+                if (wheel != 0.f) {
+                    const float32 step = wheel * 22.f;
+                    if      (shift) st->editorCam.Pan(0.f,  step);   // vertical
+                    else if (ctrl)  st->editorCam.Pan(step, 0.f);   // horizontal
+                    else            st->editorCam.Zoom(wheel);       // zoom
+                }
                 // Nav éditeur façon Blender = souris uniquement (molette milieu / Shift+milieu /
                 // molette). Pas de WASD ici -> G/R/S/A restent libres pour le gizmo/sélection.
                 st->editorCam.Apply(cam);
+                // Projection ORTHO en vue axiale (façon Blender) : orthoSize dérivé de la
+                // distance pour un cadrage comparable à la perspective (demi-hauteur ≈ d·tan(fov/2)).
+                if (st->orthoView) {
+                    const float32 dist = (cam.GetPosition() - cam.GetTarget()).Len();
+                    cam.SetOrtho(true, dist * 0.55f);
+                    // Option : afficher la grille en vue axiale ortho (façon Blender).
+                    r3d->SetInfiniteGridEnabled(st->viewGridInOrtho);
+                } else {
+                    cam.SetOrtho(false);
+                }
             }
         } else {
             st->editorCam.Apply(cam);   // NK_FIX_CAM : pose figée déterministe
