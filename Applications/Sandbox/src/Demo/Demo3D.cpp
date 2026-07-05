@@ -90,7 +90,7 @@ namespace nkentseu { namespace demo {
         NkVec3f                         editObjTint      = {0.75f,0.78f,0.85f};  // matériau capturé de l'objet
         float32                         editObjMetallic  = 0.f;
         float32                         editObjRoughness = 0.7f;
-        int32                           editSelMode   = 0;     // 0=VERTEX 1=EDGE 2=FACE (touches 1/2/3)
+        int32                           editSelMask   = 1;     // bits : 1=VERTEX 2=EDGE 4=FACE (touches 1/2/3 ; Shift+ = combiner)
         bool                            editXray      = false; // Alt+Z : voir/sélectionner à travers (façon Blender)
         bool                            editMode      = false; // TAB : bascule objet <-> édition
         bool                            editTogglePending = false; // TAB traité côté frame (accès meshSys)
@@ -584,9 +584,20 @@ namespace nkentseu { namespace demo {
             if (k == NkKey::NK_TAB) { st->editTogglePending = true; return; }
             // En EDIT MODE : touches 1/2/3 = sous-mode sélection VERTEX / EDGE / FACE.
             if (st->editMode) {
-                if (k == NkKey::NK_NUM1) { st->editSelMode = 0; st->editOverlayDirty=true; logger.Info("[Demo3D] Edit = VERTEX\n"); return; }
-                if (k == NkKey::NK_NUM2) { st->editSelMode = 1; st->editOverlayDirty=true; logger.Info("[Demo3D] Edit = EDGE\n");   return; }
-                if (k == NkKey::NK_NUM3) { st->editSelMode = 2; st->editOverlayDirty=true; logger.Info("[Demo3D] Edit = FACE\n");   return; }
+                // 1/2/3 = mode SEUL (vertex/arête/face) ; Shift+1/2/3 = COMBINER (toggle),
+                // façon Blender (on peut avoir plusieurs modes actifs à la fois).
+                {
+                    const bool shiftK = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
+                    int32 bit = (k==NkKey::NK_NUM1)?1 : (k==NkKey::NK_NUM2)?2 : (k==NkKey::NK_NUM3)?4 : 0;
+                    if (bit) {
+                        if (shiftK) st->editSelMask ^= bit; else st->editSelMask = bit;
+                        if (st->editSelMask == 0) st->editSelMask = bit;   // toujours >=1 mode actif
+                        st->editOverlayDirty = true;
+                        logger.Info("[Demo3D] Edit modes = {0}{1}{2}\n",
+                            (st->editSelMask&1)?"V":"-", (st->editSelMask&2)?"E":"-", (st->editSelMask&4)?"F":"-");
+                        return;
+                    }
+                }
                 // Alt+Z : toggle X-RAY (voir/sélectionner à travers le mesh), façon Blender.
                 if (k == NkKey::NK_Z && alt) { st->editXray = !st->editXray; st->editOverlayDirty=true;
                     logger.Info("[Demo3D] X-ray = {0}\n", st->editXray); return; }
@@ -846,7 +857,7 @@ namespace nkentseu { namespace demo {
             } else {
                 const bool ctrl = NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
                 if (NkInput.IsMouseDown(NkMouseButton::NK_MB_MIDDLE)) {
-                    if (shift) st->editorCam.Pan(mdx, mdy);
+                    if (shift) st->editorCam.Pan(-mdx, -mdy);   // "grab" façon Blender : on tire la scène (axes inversés)
                     else       { if (mdx!=0.f||mdy!=0.f) st->orthoView = false;  // orbite libre -> perspective (Blender)
                                  st->editorCam.Rotate(mdx, mdy); }
                 }
@@ -1176,38 +1187,41 @@ namespace nkentseu { namespace demo {
                 st->editOverlayDirty = true;   // la sélection va changer -> reconstruire l'overlay
                 const float32 mx = gin.mouseX, my = gin.mouseY;
                 if (!gin.shiftDown) for (int32 i=0;i<nv;i++) st->vertSel[i]=0;
-                if (st->editSelMode == 0) {                       // VERTEX : plus proche point (visible)
-                    int32 best=-1; float32 bd=14.f;
-                    for (int32 i=0;i<nv;i++){ if(!frontV(i)) continue; float32 px,py; if(project(worldV(i),px,py)){ float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my)); if(d<bd){bd=d;best=i;} } }
-                    if (best>=0) st->vertSel[best] = gin.shiftDown ? (uint8)(1-st->vertSel[best]) : 1;
-                } else if (st->editSelMode == 1) {                // EDGE : plus proche arête visible (2 verts)
-                    int32 ba=-1,bb=-1; float32 bd=12.f;
+                // Modes combinables : on cherche le meilleur candidat de CHAQUE mode actif
+                // puis on sélectionne le plus proche du curseur (vertex/arête gagnent près
+                // d'eux, la face gagne au centre). Façon Blender (vertex/edge/face combinés).
+                int32 bestV=-1; float32 dV=14.f;
+                if (st->editSelMask & 1) {
+                    for (int32 i=0;i<nv;i++){ if(!frontV(i)) continue; float32 px,py;
+                        if(project(worldV(i),px,py)){ float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my)); if(d<dV){dV=d;bestV=i;} } }
+                }
+                int32 bestEa=-1,bestEb=-1; float32 dE=12.f;
+                if (st->editSelMask & 2) {
                     for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
                         const uint32 e[3][2]={{st->editIdx[t],st->editIdx[t+1]},{st->editIdx[t+1],st->editIdx[t+2]},{st->editIdx[t+2],st->editIdx[t]}};
                         for (int32 k=0;k<3;k++){ if(!frontV((int32)e[k][0]) && !frontV((int32)e[k][1])) continue;
                             float32 ax,ay,bx,by; if(project(worldV(e[k][0]),ax,ay)&&project(worldV(e[k][1]),bx,by)){
                             float32 dx=bx-ax,dy=by-ay,l2=dx*dx+dy*dy,tt=(l2>1e-6f)?((mx-ax)*dx+(my-ay)*dy)/l2:0.f; tt=tt<0?0:(tt>1?1:tt);
-                            float32 cx=ax+tt*dx,cy=ay+tt*dy,d=sqrtf((mx-cx)*(mx-cx)+(my-cy)*(my-cy)); if(d<bd){bd=d;ba=(int32)e[k][0];bb=(int32)e[k][1];} } }
+                            float32 cx=ax+tt*dx,cy=ay+tt*dy,d=sqrtf((mx-cx)*(mx-cx)+(my-cy)*(my-cy)); if(d<dE){dE=d;bestEa=(int32)e[k][0];bestEb=(int32)e[k][1];} } }
                     }
-                    if (ba>=0){ st->vertSel[ba]=1; st->vertSel[bb]=1; }
-                } else {                                          // FACE : triangle visible au centroïde le plus proche
-                    int32 bt=-1; float32 bd=1e30f;
+                }
+                int32 bestFt=-1; float32 dF=1e30f;
+                if (st->editSelMask & 4) {
                     for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
                         const uint32 a=st->editIdx[t],b=st->editIdx[t+1],c=st->editIdx[t+2];
                         if(!frontV((int32)a) && !frontV((int32)b) && !frontV((int32)c)) continue;
                         NkVec3f c3 = (worldV(a)+worldV(b)+worldV(c))*(1.f/3.f);
-                        float32 px,py; if(project(c3,px,py)){ float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my)); if(d<bd){bd=d;bt=(int32)t;} }
-                    }
-                    if (bt>=0){
-                        // Une FACE = le TRIANGLE cliqué (3 sommets). En soupe de triangles
-                        // on ne présume PAS de quads : on sélectionne exactement la face
-                        // pointée. (Pour de vrais n-gons -> future structure demi-arête ;
-                        // pour prendre le quad entier, Shift+clic le 2e triangle.)
-                        st->vertSel[st->editIdx[bt]]=1;
-                        st->vertSel[st->editIdx[bt+1]]=1;
-                        st->vertSel[st->editIdx[bt+2]]=1;
+                        float32 px,py; if(project(c3,px,py)){ float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my)); if(d<dF){dF=d;bestFt=(int32)t;} }
                     }
                 }
+                // Élire le plus proche.
+                float32 best=1e30f; int32 win=-1;
+                if (bestV>=0  && dV<best){ best=dV; win=0; }
+                if (bestEa>=0 && dE<best){ best=dE; win=1; }
+                if (bestFt>=0 && dF<best){ best=dF; win=2; }
+                if      (win==0) st->vertSel[bestV] = gin.shiftDown ? (uint8)(1-st->vertSel[bestV]) : 1;
+                else if (win==1){ st->vertSel[bestEa]=1; st->vertSel[bestEb]=1; }
+                else if (win==2){ st->vertSel[st->editIdx[bestFt]]=1; st->vertSel[st->editIdx[bestFt+1]]=1; st->vertSel[st->editIdx[bestFt+2]]=1; }
             }
             // Garder la cible-0 sélectionnée pour que les poignées s'affichent.
             if (selCnt>0 && !st->editGizmo.IsDragging()) st->editGizmo.SelectAll();
@@ -1277,9 +1291,10 @@ namespace nkentseu { namespace demo {
                     pushV(L, liveW((int32)a), c); pushV(L, liveW((int32)b), c);
                 }
                 r3d->SetEditOverlayLines(L.Empty()?nullptr:L.Data(), (uint32)(L.Size()/7));
-                // POINTS : petits quads pleins (plan tangent) — VERTEX/EDGE seulement.
+                // POINTS : petits quads pleins (plan tangent) — mode VERTEX actif seulement
+                // (en EDGE seul, on ne montre PAS les points -> les arêtes suffisent, façon Blender).
                 NkVector<float> P;
-                if (st->editSelMode==0 || st->editSelMode==1) {
+                if (st->editSelMask & 1) {
                     P.Reserve((uint32)nv*6*7);
                     for (int32 i=0;i<nv;i++){
                         NkVec3f w=liveW(i), nW=normW(i);
@@ -1295,7 +1310,7 @@ namespace nkentseu { namespace demo {
                 // juste un overlay). Le pipeline de fill (LESS_EQUAL + biais vers la caméra)
                 // le rend visible des DEUX CÔTÉS façon Blender, sans créer de second plan.
                 NkVector<float> F;
-                if (st->editSelMode==2) {
+                if (st->editSelMask & 4) {
                     const NkVec4f faceFill{1.f,0.55f,0.05f,0.5f};
                     for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
                         const uint32 a=st->editIdx[t],b=st->editIdx[t+1],c=st->editIdx[t+2];
@@ -1390,9 +1405,15 @@ namespace nkentseu { namespace demo {
             const char* orName[3] = {"GLOBAL", "LOCAL", "NORMAL"};
             const char* seName[3] = {"VERTEX", "EDGE", "FACE"};
             if (st->editMode) {
+                char modeStr[8]; int mi=0;
+                if (st->editSelMask&1) modeStr[mi++]='V';
+                if (st->editSelMask&2) modeStr[mi++]='E';
+                if (st->editSelMask&4) modeStr[mi++]='F';
+                modeStr[mi]='\0';
+                (void)seName;
                 overlay->DrawText({20.f, 100.f},
-                    "EDIT MODE (obj #%d)  |  Selection(1/2/3): %s  |  Gizmo(G/R/S/C): %s  |  X-ray(Alt+Z): %s",
-                    st->editObjIdx, seName[st->editSelMode % 3],
+                    "EDIT MODE (obj #%d)  |  Modes(1/2/3,Shift=combi): %s  |  Gizmo(G/R/S/C): %s  |  X-ray(Alt+Z): %s",
+                    st->editObjIdx, modeStr,
                     gmName[st->editGizmo.Mode() & 3], st->editXray ? "ON" : "OFF");
                 overlay->DrawText({20.f, 118.f},
                     "clic=sel Shift+clic=ajout A/Alt+A=tout/rien | E=extrude X=supprimer M=souder F=face | TAB=sortir Alt+Z=x-ray");
