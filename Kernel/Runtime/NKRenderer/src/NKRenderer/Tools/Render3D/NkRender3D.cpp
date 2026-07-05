@@ -1214,7 +1214,7 @@ namespace nkentseu {
             cb.time        = mCtx.time;
             cb.deltaTime   = mCtx.deltaTime;
             cb.iblStrength = mIBLStrength;
-            cb.viewMode    = mWireframe ? 1.f : 0.f;  // wireframe -> shading UNLIT plat (façon Blender)
+            cb.viewMode    = (float32)mViewMode;  // 0=rendered(PBR) 1=solid/unlit (indépendant du wireframe)
             // yFlipNDC : UNIQUEMENT consommé par le SKYBOX (reconstruction du view-ray à
             // partir de vNDC). C'est l'orientation Y du VS PLEIN ÉCRAN du skybox, qui
             // n'a PAS d'inputs → le générateur HLSL ne le Y-négate PAS sur DX (il ne

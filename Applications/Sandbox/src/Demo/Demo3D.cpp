@@ -32,6 +32,9 @@ namespace nkentseu { namespace demo {
         NkTexHandle  cookieWindow;    // E.6 : cookie 2D pour le spot
         NkTexHandle  cookieCube;      // E.6b : cookie cube pour le point red
         float32      angle = 0.f;     // orbite camera
+        // Mode d'affichage viewport (touche Z, façon Blender) : 0=RENDERED (PBR éclairé),
+        // 1=SOLID (unlit, phare caméra), 2=WIREFRAME (unlit + fil de fer).
+        int32        shadingMode = 0;
         // Panel debug : index PCF mode courant pour cycle (P)
         int32        pcfIdx = (int32)NkPCFMode::PCF5x5;
         // Phase H : true si le PNG a ete charge avec succes (vs fallback procedural).
@@ -313,8 +316,15 @@ namespace nkentseu { namespace demo {
             const NkKey k = e->GetKey();
             if (k == NkKey::NK_V) { static bool vsync=true; vsync=!vsync; renderer->SetVSync(vsync); logger.Info("[Demo3D] VSync = {0}\n", vsync); }
             if (auto* r3d = renderer->GetRender3D()) {
-                // Z (hors drag) = wireframe on/off (façon Blender ; en drag, Z = verrou d'axe).
-                if (k == NkKey::NK_Z && !st->gizmo.IsDragging()) { bool w=!r3d->IsWireframe(); r3d->SetWireframe(w); logger.Info("[Demo3D] Wireframe = {0}\n", w); }
+                // Z (hors drag) = cycle mode d'affichage façon Blender : RENDERED -> SOLID
+                // -> WIREFRAME. (En drag, Z = verrou d'axe.)
+                if (k == NkKey::NK_Z && !st->gizmo.IsDragging()) {
+                    st->shadingMode = (st->shadingMode + 1) % 3;
+                    const char* sm[3] = {"RENDERED", "SOLID", "WIREFRAME"};
+                    r3d->SetWireframe(st->shadingMode == 2);           // wireframe = rasterizer fil de fer
+                    r3d->SetViewMode(st->shadingMode == 0 ? 0 : 1);    // 0=PBR éclairé ; 1=unlit (solid+wire)
+                    logger.Info("[Demo3D] Affichage = {0}\n", sm[st->shadingMode]);
+                }
                 auto& g = r3d->GetInfiniteGridParams();
                 if (k == NkKey::NK_F1) { bool on=!r3d->IsInfiniteGridEnabled(); r3d->SetInfiniteGridEnabled(on); logger.Info("[Demo3D] Grille = {0}\n", on); }
                 if (k == NkKey::NK_F2) { g.showMinor=!g.showMinor; logger.Info("[Demo3D] Grille internes = {0}\n", g.showMinor); }
@@ -725,8 +735,11 @@ namespace nkentseu { namespace demo {
         if (auto* overlay = ctx.renderer->GetOverlay()) {
             overlay->BeginOverlay(ctx.renderer->GetCmd(), ctx.width, ctx.height);
             overlay->DrawStats(ctx.renderer->GetStats());
-            overlay->DrawText({20.f, 35.f}, "Demo 3D - PBR primitives  |  API : %s",
-                              NkGraphicsApiName(ctx.api));
+            {
+                const char* sm[3] = {"RENDERED", "SOLID", "WIREFRAME"};
+                overlay->DrawText({20.f, 35.f}, "Demo 3D - PBR primitives  |  API : %s  |  Affichage(Z): %s",
+                                  NkGraphicsApiName(ctx.api), sm[st->shadingMode % 3]);
+            }
             overlay->DrawText({20.f, 55.f}, "FPS approx: %.1f  |  dt: %.2f ms",
                               dt > 1e-4f ? 1.f / dt : 0.f, dt * 1000.f);
             // Phase H : indication visuelle du chargement texture file-based.

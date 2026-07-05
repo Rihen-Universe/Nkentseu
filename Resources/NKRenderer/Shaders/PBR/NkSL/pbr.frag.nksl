@@ -365,8 +365,21 @@ void main() {
     vec3 emissive = texture(tEmissive, vUV).rgb * uObj.emissiveStrength;
 
     vec3 color = amb + Lo + ccContrib + sssContrib + emissive;
-    // Mode UNLIT (wireframe / vue debug, façon Blender) : couleur plate = albedo * tint,
-    // SANS éclairage/ombres/IBL. Contrôlé par uCam.viewMode (0 = PBR normal).
-    if (uCam.viewMode > 0.5) color = albedo * uObj.tint.rgb;
+    // Mode SOLID / UNLIT (façon Blender Solid & Wireframe) : couleur plate = albedo*tint,
+    // révélée par un "phare caméra" (N·V) pour voir la FORME, SANS lumières de scène /
+    // ombres / IBL. Facteur borné (<1) -> reste sous le seuil de bloom (pas de halo).
+    if (uCam.viewMode > 0.5) {
+        // MatCap STUDIO procédural (façon Blender Solid) : shading en ESPACE VUE (tourne
+        // avec la caméra comme un vrai matcap), 3 sources fixes clé/fill/liseré, SANS
+        // lumières de scène / ombres / IBL. Borné (<0.85) -> pas de halo bloom.
+        // NB : mat3(mat4) est INTERDIT en HLSL (X3014) -> on extrait les colonnes à la main.
+        mat3  vRot = mat3(uCam.view[0].xyz, uCam.view[1].xyz, uCam.view[2].xyz);
+        vec3  vn   = normalize(vRot * geomN);            // normale en espace vue
+        float key  = max(dot(vn, vec3(0.32, 0.53, 0.78)), 0.0);   // clé haut-droite
+        float fill = max(dot(vn, vec3(-0.60, 0.10, 0.79)), 0.0);  // fill gauche
+        float rim  = pow(1.0 - max(vn.z, 0.0), 3.0);              // liseré silhouette
+        float shade = clamp(0.25 + 0.50*key + 0.18*fill + 0.22*rim, 0.0, 0.85);
+        color = albedo * uObj.tint.rgb * shade;
+    }
     fragColor  = vec4(color, 1.0);
 }

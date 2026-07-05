@@ -121,6 +121,11 @@ namespace nkentseu {
 
                 void SetWireframe(bool e) { mWireframe=e; }
                 bool IsWireframe() const  { return mWireframe; }
+                // Mode de shading (indépendant du wireframe) : 0=RENDERED (PBR éclairé),
+                // 1=SOLID/UNLIT (plat, phare caméra, sans lumières de scène). Écrit dans
+                // le CameraUBO (uCam.viewMode) et consommé par pbr.frag.
+                void SetViewMode(int32 m) { mViewMode = m; }
+                int32 ViewMode() const    { return mViewMode; }
 
                 // Contrôle de la force du terme ambient IBL (0=aucun, 1=complet).
                 // Défaut 0.3 — réduit le blanchiment par le ciel procédural.
@@ -220,6 +225,7 @@ namespace nkentseu {
                 NkSceneContext    mCtx;
                 bool              mInScene  = false;
                 bool              mWireframe= false;
+                int32             mViewMode = 0;   // 0=rendered(lit) 1=solid(unlit)
                 uint32            mW = 0, mH = 0;  // taille courante (mise a jour par OnResize)
 
                 // Fallback material instance : utilise pour les drawcalls sans
