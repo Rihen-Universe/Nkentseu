@@ -1311,14 +1311,19 @@ namespace nkentseu { namespace demo {
                         P.PushBack(w.x);P.PushBack(w.y);P.PushBack(w.z);
                         P.PushBack(corner.x);P.PushBack(corner.y);
                         P.PushBack(c.x);P.PushBack(c.y);P.PushBack(c.z);P.PushBack(c.w); };
-                    P.Reserve((uint32)nv*6*9);
-                    for (int32 i=0;i<nv;i++){
-                        NkVec3f w=liveW(i);
-                        const float32 s = st->vertSel[i] ? 4.5f : 3.2f;   // demi-taille en PIXELS
-                        NkVec4f c=st->vertSel[i]?NkVec4f{1.f,0.6f,0.05f,1.f}:NkVec4f{0.f,0.f,0.f,1.f};
+                    auto quad=[&](NkVec3f w, float32 s, NkVec4f c){
                         NkVec2f q0{-s,-s},q1{s,-s},q2{s,s},q3{-s,s};
                         pushPt(w,q0,c);pushPt(w,q1,c);pushPt(w,q2,c);
-                        pushPt(w,q0,c);pushPt(w,q2,c);pushPt(w,q3,c);
+                        pushPt(w,q0,c);pushPt(w,q2,c);pushPt(w,q3,c); };
+                    P.Reserve((uint32)nv*12*9);
+                    for (int32 i=0;i<nv;i++){
+                        NkVec3f w=liveW(i); const bool sel=st->vertSel[i]!=0;
+                        // Chaque vertex = NOIR par défaut (orange si sélectionné) + un CONTOUR
+                        // clair légèrement plus grand -> TOUJOURS visible (surface sombre ou
+                        // claire), façon Blender. Le contour est dessiné D'ABORD (dessous).
+                        const float32 sCore = sel ? 4.2f : 3.2f;
+                        quad(w, sCore+1.4f, NkVec4f{0.9f,0.9f,0.92f,1.f});             // contour clair
+                        quad(w, sCore, sel ? NkVec4f{1.f,0.6f,0.05f,1.f} : NkVec4f{0.f,0.f,0.f,1.f}); // coeur
                     }
                 }
                 r3d->SetEditOverlayPoints(P.Empty()?nullptr:P.Data(), (uint32)(P.Size()/9));
