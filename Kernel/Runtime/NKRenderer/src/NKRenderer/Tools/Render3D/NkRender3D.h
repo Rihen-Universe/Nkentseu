@@ -191,7 +191,9 @@ namespace nkentseu {
                 void DebugDrawDirectSwapchain(NkICommandBuffer* cmd);
 
                 // ── Debug gizmos ─────────────────────────────────────────────────────
-                void DrawDebugLine  (NkVec3f a, NkVec3f b,   NkVec4f color, float32 life=0.f);
+                // overlay=true : ligne dessinée SANS depth-test (toujours au-dessus de la
+                // scène, façon gizmo Blender). Défaut false = depth-test normal (occlusion).
+                void DrawDebugLine  (NkVec3f a, NkVec3f b,   NkVec4f color, float32 life=0.f, bool overlay=false);
                 void DrawDebugSphere(NkVec3f c, float32 r,   NkVec4f color);
                 void DrawDebugCircle(NkVec3f c, float32 r, NkVec3f normal,   NkVec4f color);
                 void DrawDebugAABB  (const NkAABB& box,       NkVec4f color);
@@ -201,7 +203,7 @@ namespace nkentseu {
 
             private:
                 struct SortedDC { NkDrawCall3D dc; float32 depth; };
-                struct DebugLine { NkVec3f a,b; NkVec4f color; float32 life; };
+                struct DebugLine { NkVec3f a,b; NkVec4f color; float32 life; bool overlay; };
 
                 float32              mIBLStrength = 0.3f;
                 NkIDevice*           mDevice  = nullptr;
@@ -440,6 +442,7 @@ namespace nkentseu {
                 ::nkentseu::NkShaderHandle mLineShader;
                 NkPipelineHandle           mLinePipeline;
                 NkRenderPassHandle         mLinePipelineRP{};
+                NkPipelineHandle           mLinePipelineNoDepth;   // depth-test OFF (overlay gizmo)
                 NkBufferHandle             mLineVBO;          // dynamique
                 uint32                     mLineVBOCapVerts = 0;
                 bool EnsureDebugLinePipeline(NkRenderPassHandle currentRP);

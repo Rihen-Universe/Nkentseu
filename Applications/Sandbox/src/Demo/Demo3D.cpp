@@ -794,12 +794,9 @@ namespace nkentseu { namespace demo {
                 const NkMat4f& M = objs[st->selId].xf; NkVec3f o=M*NkVec3f{0.f,0.f,0.f};
                 GB[0]=norm3((M*NkVec3f{1.f,0.f,0.f})-o); GB[1]=norm3((M*NkVec3f{0.f,1.f,0.f})-o); GB[2]=norm3((M*NkVec3f{0.f,0.f,1.f})-o);
             }
-            // OVERLAY : tire le point VERS la caméra le long de son rayon. La position ET la
-            // taille ÉCRAN sont inchangées (chaque point reste sur son rayon), mais toute la
-            // géométrie passe à ~65% de la distance -> devant l'objet sélectionné malgré le
-            // depth-test des debug-lines. Facteur élevé = tout le gizmo (même les parties
-            // pointant vers l'arrière) est garanti au-dessus.
-            auto overlayPt = [&](NkVec3f P){ return P + (camPos - P)*0.35f; };
+            // OVERLAY : le gizmo et les marqueurs sont dessinés avec DrawDebugLine(overlay=true)
+            // -> pipeline debug-line depth-test OFF dans NKRenderer -> TOUJOURS au-dessus de la
+            // scène (vrai x-ray façon Blender, sans hack de décalage caméra).
 
             // ═══ GIZMO à POIGNÉES (façon Blender) ═══════════════════════════════════
             struct GH { int32 op, mask, kind; };  // op:0=T 1=R 2=S ; kind:0=axe 1=plan 2=centre 3=anneau
@@ -854,8 +851,7 @@ namespace nkentseu { namespace demo {
             };
             // Ligne ÉPAISSE + OVERLAY : `tPx` copies décalées perpendiculairement (plan écran)
             // -> épaisseur ~constante ; points tirés vers la caméra -> toujours au-dessus.
-            auto thickLine = [&](NkVec3f A0, NkVec3f B0, NkVec4f col, int32 tPx) {
-                NkVec3f A=overlayPt(A0), B=overlayPt(B0);
+            auto thickLine = [&](NkVec3f A, NkVec3f B, NkVec4f col, int32 tPx) {
                 float32 ax,ay,bx,by; bool oa=project(A,ax,ay), ob=project(B,bx,by);
                 NkVec3f mid={ (A.x+B.x)*0.5f,(A.y+B.y)*0.5f,(A.z+B.z)*0.5f };
                 float32 dist=sqrtf((mid.x-camPos.x)*(mid.x-camPos.x)+(mid.y-camPos.y)*(mid.y-camPos.y)+(mid.z-camPos.z)*(mid.z-camPos.z));
@@ -864,7 +860,8 @@ namespace nkentseu { namespace demo {
                 if (oa && ob) { float32 sdx=bx-ax, sdy=by-ay, sl=sqrtf(sdx*sdx+sdy*sdy);
                     if (sl>1e-3f){ float32 pxn=-sdy/sl, pyn=sdx/sl; perp = rgt*pxn - up2*pyn; } }
                 if (tPx<1) tPx=1;
-                for (int32 i=0;i<tPx;i++){ float32 off=((float32)i-(tPx-1)*0.5f)*wpp; NkVec3f o=perp*off; r3d->DrawDebugLine(A+o,B+o,col); }
+                // overlay=true -> lignes du gizmo TOUJOURS au-dessus (pipeline depth-OFF).
+                for (int32 i=0;i<tPx;i++){ float32 off=((float32)i-(tPx-1)*0.5f)*wpp; NkVec3f o=perp*off; r3d->DrawDebugLine(A+o,B+o,col,0.f,true); }
             };
 
             // ── Interaction : clic gauche -> saisir une poignée, sinon (dé)sélectionner ──

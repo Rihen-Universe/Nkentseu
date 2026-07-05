@@ -2028,7 +2028,8 @@ namespace nkentseu {
                 mLineShader = mShaderLib->GetRHIHandle(prog);
                 if (!mLineShader.IsValid()) { logger.Errorf("[NkR3D::DebugLine] RHI handle FAIL\n"); return false; }
             }
-            if (mLinePipeline.IsValid()) { mDevice->DestroyPipeline(mLinePipeline); mLinePipeline = {}; }
+            if (mLinePipeline.IsValid())        { mDevice->DestroyPipeline(mLinePipeline);        mLinePipeline = {}; }
+            if (mLinePipelineNoDepth.IsValid()) { mDevice->DestroyPipeline(mLinePipelineNoDepth); mLinePipelineNoDepth = {}; }
 
             NkGraphicsPipelineDesc pd;
             pd.shader       = mLineShader;
@@ -2046,8 +2047,16 @@ namespace nkentseu {
               .AddAttribute(1, 0, NkVertexFormat::NK_RGBA32_FLOAT, 12, "COLOR",    0);
             mLinePipeline   = mDevice->CreateGraphicsPipeline(pd);
             mLinePipelineRP = currentRP;
-            logger.Info("[NkRender3D] DebugLine pipeline create: shader_valid={0} pipeline_valid={1} rp.id={2}\n",
-                        mLineShader.IsValid() ? 1 : 0, mLinePipeline.IsValid() ? 1 : 0, currentRP.id);
+
+            // Variante OVERLAY : mêmes réglages mais depth-test OFF -> lignes toujours
+            // au-dessus de la scène (gizmos/marqueurs éditeur, façon Blender).
+            pd.depthStencil = NkDepthStencilDesc::NoDepth();
+            pd.debugName    = "DebugLineOverlay";
+            mLinePipelineNoDepth = mDevice->CreateGraphicsPipeline(pd);
+
+            logger.Info("[NkRender3D] DebugLine pipeline create: shader_valid={0} pipeline_valid={1} overlay_valid={2} rp.id={3}\n",
+                        mLineShader.IsValid() ? 1 : 0, mLinePipeline.IsValid() ? 1 : 0,
+                        mLinePipelineNoDepth.IsValid() ? 1 : 0, currentRP.id);
             return mLinePipeline.IsValid();
         }
 
@@ -2058,16 +2067,21 @@ namespace nkentseu {
             // ── 1. RENDU des lignes courantes ────────────────────────────────────
             if (EnsureDebugLinePipeline(currentRP)) {
                 // Vertices : 2 par ligne (a,b) avec la couleur. Stride 28.
+                // On range les lignes NORMALES (depth ON) d'abord, puis les lignes
+                // OVERLAY (depth OFF), dans le MÊME VBO -> deux Draw depuis un offset.
                 struct LV { float x, y, z, r, g, b, a; };
                 NkVector<LV> verts;
                 verts.Reserve(mDebugLines.Size() * 2);
-                for (uint32 i = 0; i < mDebugLines.Size(); ++i) {
-                    const DebugLine& l = mDebugLines[i];
+                auto emit = [&](const DebugLine& l){
                     verts.PushBack({ l.a.x, l.a.y, l.a.z, l.color.x, l.color.y, l.color.z, l.color.w });
                     verts.PushBack({ l.b.x, l.b.y, l.b.z, l.color.x, l.color.y, l.color.z, l.color.w });
-                }
-                const uint32 vcount = (uint32)verts.Size();
-                const uint64 bytes  = (uint64)vcount * sizeof(LV);
+                };
+                for (uint32 i = 0; i < mDebugLines.Size(); ++i) if (!mDebugLines[i].overlay) emit(mDebugLines[i]);
+                const uint32 vNormal = (uint32)verts.Size();
+                for (uint32 i = 0; i < mDebugLines.Size(); ++i) if ( mDebugLines[i].overlay) emit(mDebugLines[i]);
+                const uint32 vcount  = (uint32)verts.Size();
+                const uint32 vOverlay = vcount - vNormal;
+                const uint64 bytes   = (uint64)vcount * sizeof(LV);
 
                 // (Re)créer le VBO dynamique si trop petit, puis uploader.
                 if (!mLineVBO.IsValid() || mLineVBOCapVerts < vcount) {
@@ -2078,10 +2092,20 @@ namespace nkentseu {
                 }
                 mDevice->WriteBuffer(mLineVBO, verts.Data(), bytes, 0);
 
-                cmd->BindGraphicsPipeline(mLinePipeline);
-                if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
-                cmd->BindVertexBuffer(0, mLineVBO, 0);
-                cmd->Draw(vcount);
+                // Lot 1 : lignes normales (depth-test ON).
+                if (vNormal > 0) {
+                    cmd->BindGraphicsPipeline(mLinePipeline);
+                    if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+                    cmd->BindVertexBuffer(0, mLineVBO, 0);
+                    cmd->Draw(vNormal);
+                }
+                // Lot 2 : lignes OVERLAY (depth-test OFF) -> toujours au-dessus.
+                if (vOverlay > 0 && mLinePipelineNoDepth.IsValid()) {
+                    cmd->BindGraphicsPipeline(mLinePipelineNoDepth);
+                    if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+                    cmd->BindVertexBuffer(0, mLineVBO, (uint64)vNormal * sizeof(LV));
+                    cmd->Draw(vOverlay);
+                }
             }
 
             // ── 2. PURGE (après rendu) : one-frame (life<=0) retirées ; persistantes
@@ -2128,10 +2152,11 @@ namespace nkentseu {
         }
 
         // ── Debug gizmos ─────────────────────────────────────────────────────────
-        void NkRender3D::DrawDebugLine(NkVec3f a, NkVec3f b, NkVec4f color, float32 life) {
+        void NkRender3D::DrawDebugLine(NkVec3f a, NkVec3f b, NkVec4f color, float32 life, bool overlay) {
             // life<=0 => ligne "une frame" (rendue puis purgée par FlushDebug, évite
             // l'accumulation à haut FPS). life>0 => persiste cette durée (secondes).
-            mDebugLines.PushBack({a,b,color,life});
+            // overlay=true => rendue sans depth-test (toujours au-dessus, gizmo éditeur).
+            mDebugLines.PushBack({a,b,color,life,overlay});
         }
         void NkRender3D::DrawDebugSphere(NkVec3f c, float32 r, NkVec4f color) {
             const int N=16;
