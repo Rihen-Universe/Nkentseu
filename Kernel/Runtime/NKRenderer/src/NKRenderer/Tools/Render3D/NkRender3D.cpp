@@ -2145,8 +2145,17 @@ namespace nkentseu {
 
             NkGraphicsPipelineDesc pd;
             pd.shader       = mLineShader;
+            // Surbrillance de face façon Blender : UN seul triangle coplanaire visible des
+            // DEUX CÔTÉS. depthCompareOp=LESS_EQUAL (le coplanaire passe) + lecture seule
+            // (pas d'occlusion mutuelle) + biais NÉGATIF (tire vers la caméra) -> gagne le
+            // z-fight contre sa propre surface quel que soit le côté regardé, tout en
+            // restant occlus par les AUTRES objets devant.
             pd.depthStencil = NkDepthStencilDesc::Default();
+            pd.depthStencil.depthCompareOp   = NkCompareOp::NK_LESS_EQUAL;
+            pd.depthStencil.depthWriteEnable = false;
             pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.rasterizer.depthBiasConst = -1.5f;
+            pd.rasterizer.depthBiasSlope = -1.5f;
             pd.blend        = NkBlendDesc::Alpha();
             pd.topology     = NkPrimitiveTopology::NK_TRIANGLE_LIST;
             pd.debugName    = "DebugTriFill";

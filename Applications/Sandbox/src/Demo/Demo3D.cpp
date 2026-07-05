@@ -1289,19 +1289,16 @@ namespace nkentseu { namespace demo {
                     }
                 }
                 r3d->SetEditOverlayPoints(P.Empty()?nullptr:P.Data(), (uint32)(P.Size()/7));
-                // FACES : triangles pleins translucides — FACE seulement. On dessine le
-                // remplissage des DEUX CÔTÉS (décalé +normale ET −normale) pour que la
-                // surbrillance soit visible qu'on regarde la face de face OU de dos (façon
-                // Blender : une face sélectionnée se voit des deux côtés).
+                // FACES : UN seul triangle coplanaire translucide (pas de géométrie ajoutée,
+                // juste un overlay). Le pipeline de fill (LESS_EQUAL + biais vers la caméra)
+                // le rend visible des DEUX CÔTÉS façon Blender, sans créer de second plan.
                 NkVector<float> F;
                 if (st->editSelMode==2) {
                     const NkVec4f faceFill{1.f,0.55f,0.05f,0.5f};
-                    auto woffN=[&](int32 i){ return liveW(i)-normW(i)*nOff; };   // côté −normale
                     for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
                         const uint32 a=st->editIdx[t],b=st->editIdx[t+1],c=st->editIdx[t+2];
                         if (!(st->vertSel[a]&&st->vertSel[b]&&st->vertSel[c])) continue;
-                        pushV(F, woff((int32)a), faceFill);  pushV(F, woff((int32)b), faceFill);  pushV(F, woff((int32)c), faceFill);
-                        pushV(F, woffN((int32)a), faceFill); pushV(F, woffN((int32)b), faceFill); pushV(F, woffN((int32)c), faceFill);
+                        pushV(F, liveW((int32)a), faceFill); pushV(F, liveW((int32)b), faceFill); pushV(F, liveW((int32)c), faceFill);
                     }
                 }
                 r3d->SetEditOverlayTris(F.Empty()?nullptr:F.Data(), (uint32)(F.Size()/7));
