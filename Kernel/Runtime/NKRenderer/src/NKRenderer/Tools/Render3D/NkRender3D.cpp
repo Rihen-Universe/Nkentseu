@@ -2174,12 +2174,19 @@ namespace nkentseu {
 
             // ── 2. PURGE (après rendu) : one-frame (life<=0) retirées ; persistantes
             //        (life>0) décrémentées et retirées si expirées. Évite l'accumulation.
-            for (uint32 i = 0; i < (uint32)mDebugLines.Size();) {
-                if (mDebugLines[i].life <= 0.f) { mDebugLines.RemoveAt(i); continue; }
+            // COMPACTION EN PLACE O(n) : indispensable quand beaucoup de lignes
+            // one-frame sont émises par frame (ex. cage d'un mesh en Edit Mode :
+            // des milliers d'arêtes). Un RemoveAt(i) par ligne serait O(n²) et
+            // ferait chuter le framerate (12k arêtes -> ~144M ops/frame).
+            uint32 keep = 0;
+            for (uint32 i = 0; i < (uint32)mDebugLines.Size(); ++i) {
+                if (mDebugLines[i].life <= 0.f) continue;          // one-frame -> drop
                 mDebugLines[i].life -= mCtx.deltaTime;
-                if (mDebugLines[i].life <= 0.f) { mDebugLines.RemoveAt(i); continue; }
-                i++;
+                if (mDebugLines[i].life <= 0.f) continue;          // persistante expirée -> drop
+                if (keep != i) mDebugLines[keep] = mDebugLines[i]; // survit -> compacte
+                ++keep;
             }
+            mDebugLines.Resize(keep);
         }
 
         // ── Phase E.6 : Light cookies 3D ─────────────────────────────────────────

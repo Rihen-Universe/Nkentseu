@@ -916,14 +916,14 @@ namespace nkentseu { namespace demo {
             };
             if (st->editSelMode == 0 || st->editSelMode == 1) {
                 for (int32 i=0;i<nv;i++){ bool s=st->vertSel[i]!=0;
-                    dotAt(worldV(i), s?NkVec4f{1.f,0.6f,0.05f,1.f}:NkVec4f{0.15f,0.15f,0.18f,1.f}, s?4.5f:3.f); }
+                    dotAt(worldV(i), s?NkVec4f{1.f,0.6f,0.05f,1.f}:NkVec4f{0.1f,0.1f,0.12f,1.f}, s?2.6f:1.8f); }
             }
             // FACE : point au centroïde des faces sélectionnées.
             if (st->editSelMode == 2) {
                 for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){
                     const uint32 a=st->editIdx[t],b=st->editIdx[t+1],c=st->editIdx[t+2];
                     if (st->vertSel[a]&&st->vertSel[b]&&st->vertSel[c])
-                        dotAt((worldV(a)+worldV(b)+worldV(c))*(1.f/3.f), NkVec4f{1.f,0.6f,0.05f,1.f}, 5.f);
+                        dotAt((worldV(a)+worldV(b)+worldV(c))*(1.f/3.f), NkVec4f{1.f,0.6f,0.05f,1.f}, 3.f);
                 }
             }
             // Poignées du gizmo (overlay).

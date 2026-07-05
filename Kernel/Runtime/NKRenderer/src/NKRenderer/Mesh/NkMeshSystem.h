@@ -68,10 +68,16 @@ namespace nkentseu {
             bool                dynamic     = false;
             // keepCPU : conserve une copie CPU des vertices/indices dans le mesh
             // (modele Blender : le CPU est l'autorite, le GPU n'est qu'un cache).
-            // Indispensable pour l'Edit Mode / la modification de topologie sans
-            // readback GPU. Cout = une copie CPU par mesh UNIQUE (les instances
-            // partagent le meme mesh -> une seule copie). true par defaut.
-            bool                keepCPU     = true;
+            // Necessaire UNIQUEMENT pour ce qui touche les vertices cote CPU :
+            // Edit Mode / modification de topologie, skinning CPU (fallback),
+            // mesh de collision/raycast, generation procedurale. PAS necessaire
+            // pour le rendu, ni le skinning/morphing/rigging GPU (bones+poids en
+            // buffers GPU, deformation dans le vertex shader -> le CPU ne touche
+            // jamais les vertices). Defaut = false (moteur de jeu : evite de
+            // dupliquer des centaines de Mo de geometrie statique en RAM).
+            // NkMeshDesc::Simple() l'active (petits meshes procéduraux/éditables) ;
+            // Import (gros assets) le laisse a false.
+            bool                keepCPU     = false;
             NkAABB              bounds;
             NkString            debugName;
 

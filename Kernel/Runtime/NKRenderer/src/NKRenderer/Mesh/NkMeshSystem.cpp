@@ -539,6 +539,11 @@ namespace nkentseu {
             NkMeshDesc d;
             d.layout=l; d.vertices=verts; d.vertexCount=vc;
             d.indices=inds; d.indexCount=ic;
+            // Meshes "Simple" = petits meshes procéduraux/inline (primitives, meshes
+            // éditables) -> on garde la copie CPU (éditables sans readback). Les GROS
+            // assets importés (NkMeshSystem::Import) construisent un NkMeshDesc brut
+            // avec keepCPU=false par défaut -> pas de gaspillage RAM au runtime jeu.
+            d.keepCPU=true;
             return d;
         }
 
