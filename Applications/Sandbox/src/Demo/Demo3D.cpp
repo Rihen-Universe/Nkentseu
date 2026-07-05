@@ -1199,19 +1199,15 @@ namespace nkentseu { namespace demo {
                         float32 px,py; if(project(c3,px,py)){ float32 d=sqrtf((px-mx)*(px-mx)+(py-my)*(py-my)); if(d<bd){bd=d;bt=(int32)t;} }
                     }
                     if (bt>=0){
-                        const uint32 a0=st->editIdx[bt],b0=st->editIdx[bt+1],c0=st->editIdx[bt+2];
-                        st->vertSel[a0]=1; st->vertSel[b0]=1; st->vertSel[c0]=1;
-                        // Un "quad" = 2 triangles coplanaires partageant une arête : on sélectionne
-                        // AUSSI les triangles adjacents coplanaires -> toute la face surlignée.
-                        NkVec3f n0=(st->editRest[b0].pos-st->editRest[a0].pos).Cross(st->editRest[c0].pos-st->editRest[a0].pos);
-                        float32 l0=n0.Len(); if(l0>1e-6f) n0=n0*(1.f/l0);
-                        for (uint32 t=0;t+2<(uint32)st->editIdx.Size();t+=3){ if((int32)t==bt) continue;
-                            const uint32 a=st->editIdx[t],b=st->editIdx[t+1],c=st->editIdx[t+2];
-                            int32 shared=0; for(uint32 v : {a,b,c}) if(v==a0||v==b0||v==c0) shared++;
-                            if (shared < 2) continue;   // pas la même face
-                            NkVec3f n=(st->editRest[b].pos-st->editRest[a].pos).Cross(st->editRest[c].pos-st->editRest[a].pos);
-                            float32 l=n.Len(); if(l>1e-6f) n=n*(1.f/l);
-                            if (n.Dot(n0) > 0.99f){ st->vertSel[a]=1; st->vertSel[b]=1; st->vertSel[c]=1; }
+                        // Une FACE = un QUAD = 2 triangles CONSÉCUTIFS (les meshes primitifs
+                        // sont triangulés quad par quad : indices par blocs de 6). On
+                        // sélectionne les DEUX triangles du bloc -> toute la face surlignée
+                        // (robuste même sur une sphère où la coplanarité stricte échouait).
+                        const uint32 block = ((uint32)bt/6u)*6u;
+                        for (uint32 tt=block; tt<block+6u && tt+2<(uint32)st->editIdx.Size(); tt+=3){
+                            st->vertSel[st->editIdx[tt]]=1;
+                            st->vertSel[st->editIdx[tt+1]]=1;
+                            st->vertSel[st->editIdx[tt+2]]=1;
                         }
                     }
                 }
