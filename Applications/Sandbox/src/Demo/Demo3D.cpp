@@ -87,6 +87,9 @@ namespace nkentseu { namespace demo {
         NkMat4f                         editAnchor    = NkMat4f::Identity();  // transform monde de l'objet
         NkMat4f                         editAnchorInv = NkMat4f::Identity();
         int32                           editObjIdx    = -1;    // objet en cours d'édition (index gizmo)
+        NkVec3f                         editObjTint      = {0.75f,0.78f,0.85f};  // matériau capturé de l'objet
+        float32                         editObjMetallic  = 0.f;
+        float32                         editObjRoughness = 0.7f;
         int32                           editSelMode   = 0;     // 0=VERTEX 1=EDGE 2=FACE (touches 1/2/3)
         bool                            editXray      = false; // Alt+Z : voir/sélectionner à travers (façon Blender)
         bool                            editMode      = false; // TAB : bascule objet <-> édition
@@ -111,6 +114,20 @@ namespace nkentseu { namespace demo {
         if (idx >= 19 && idx < 83) { int32 g = idx-19, gz = g/8, gx = g%8;
             return NkMat4f::Translate({(gx-3.5f)*0.55f, 1.6f, (gz-3.5f)*0.55f-4.5f}) * NkMat4f::Scale({0.18f,0.18f,0.18f}); }
         return NkMat4f::Identity();
+    }
+
+    // Matériau (tint/metallic/roughness) d'un objet de la démo par son index — MÊMES
+    // valeurs que la boucle de soumission. Sert à rendre le mesh ÉDITÉ avec le matériau
+    // d'origine de l'objet (en RENDERED : couleur PBR de l'objet, pas un gris fixe).
+    static void Demo3D_ObjMaterial(int32 idx, NkVec3f& tint, float32& metallic, float32& roughness) {
+        if (idx >= 0 && idx < 16) { int32 row=idx/4, col=idx%4;
+            tint = {(float32)col/3.f, (float32)row/3.f, 0.7f};
+            metallic = (float32)col/3.f; roughness = 0.05f + (float32)row/3.f*0.95f; return; }
+        if (idx == 16) { tint = {1.f,0.8f,0.3f}; metallic = 1.f; roughness = 0.15f; return; }        // cube or
+        if (idx == 17 || idx == 18) { tint = {0.7f,0.7f,0.7f}; metallic = 0.f; roughness = 0.6f; return; }
+        if (idx >= 19 && idx < 83) { int32 g=idx-19, gz=g/8, gx=g%8;
+            tint = {(float32)gx/7.f, 0.6f, (float32)gz/7.f}; metallic = 0.f; roughness = 0.6f; return; }
+        tint = {0.75f,0.78f,0.85f}; metallic = 0.f; roughness = 0.7f;
     }
 
     // ── Outils d'édition de topologie (Phase C) ──────────────────────────────────
@@ -784,6 +801,8 @@ namespace nkentseu { namespace demo {
                         st->editAnchor    = st->gizmo.Apply(sel, Demo3D_ObjBase(sel));
                         st->editAnchorInv = st->editAnchor.Inverse();
                         st->editObjIdx    = sel;
+                        // Capture le matériau de l'objet -> le mesh édité garde sa couleur PBR.
+                        Demo3D_ObjMaterial(sel, st->editObjTint, st->editObjMetallic, st->editObjRoughness);
                         st->editGizmo.ClearSelection();
                         st->editWasDragging = false;
                         st->editOverlayDirty = true;
@@ -1226,8 +1245,8 @@ namespace nkentseu { namespace demo {
                 dc.mesh      = st->editMesh;
                 dc.transform = st->editAnchor;
                 dc.aabb      = {{-1.f,-1.f,-1.f},{1.f,1.f,1.f}};
-                dc.tint      = effTint({0.72f,0.74f,0.8f});
-                dc.metallic  = 0.f; dc.roughness = 0.7f;
+                dc.tint      = effTint(st->editObjTint);           // matériau de l'objet (gris en SOLID/WIREFRAME)
+                dc.metallic  = st->editObjMetallic; dc.roughness = st->editObjRoughness;
                 r3d->Submit(dc);
             }
 
