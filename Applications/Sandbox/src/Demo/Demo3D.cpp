@@ -925,11 +925,12 @@ namespace nkentseu { namespace demo {
         // composant NkGizmo3D (source unique : draw calls ET pick/marqueur passent par lui).
         auto userXform = [st](int32 idx, const NkMat4f& base) { return st->gizmo.Apply(idx, base); };
 
-        // Couleur EFFECTIVE d'un objet : en EDIT MODE ou en modes unlit (SOLID/WIREFRAME),
-        // et si l'option n'est pas MATERIAL, on force une couleur uniforme (gris façon
-        // Blender, ou custom). Sinon = couleur du matériau (RENDERED garde le matériau).
+        // Couleur EFFECTIVE d'un objet : la couleur uniforme (gris/custom) est une
+        // propriété du MODE D'AFFICHAGE SOLID/WIREFRAME UNIQUEMENT (façon Blender), PAS
+        // de l'edit mode. L'edit mode fonctionne dans N'IMPORTE QUEL mode d'affichage
+        // (RENDERED garde le matériau PBR, NORMAL/UV/AO gardent leur canal, etc.).
         const bool grayActive = (st->unlitColorMode != 0) &&
-                                (st->editMode || st->shadingMode == 1 || st->shadingMode == 2);
+                                (st->shadingMode == 1 || st->shadingMode == 2);
         auto effTint = [st, grayActive](NkVec3f matTint) -> NkVec3f {
             if (!grayActive) return matTint;
             return (st->unlitColorMode == 2) ? st->unlitCustom : st->unlitGray;
