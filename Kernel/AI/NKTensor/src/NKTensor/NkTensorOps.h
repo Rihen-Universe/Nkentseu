@@ -27,6 +27,7 @@ namespace nkentseu {
             NkTensor Neg (const NkTensor& a);
             NkTensor Abs (const NkTensor& a);
             NkTensor Exp (const NkTensor& a);   // flottants
+            NkTensor Sqrt(const NkTensor& a);   // flottants
             NkTensor Relu(const NkTensor& a);
             NkTensor Sigmoid(const NkTensor& a);
             NkTensor Tanh(const NkTensor& a);

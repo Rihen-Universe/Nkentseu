@@ -53,6 +53,7 @@ namespace nkentseu { namespace demo {
     bool DemoIKChar_Init                 (DemoCtx&); void DemoIKChar_Frame                 (DemoCtx&, float32); void DemoIKChar_Shutdown                 (DemoCtx&);
     bool DemoAnim_Init                   (DemoCtx&); void DemoAnim_Frame                   (DemoCtx&, float32); void DemoAnim_Shutdown                   (DemoCtx&);
     bool DemoAnimIK_Init                 (DemoCtx&); void DemoAnimIK_Frame                 (DemoCtx&, float32); void DemoAnimIK_Shutdown                 (DemoCtx&);
+    bool DemoNKGen_Init                  (DemoCtx&); void DemoNKGen_Frame                  (DemoCtx&, float32); void DemoNKGen_Shutdown                  (DemoCtx&);
 
     static const DemoEntry kDemos[] = {
         { "Subsystems", "Runtime enable/disable des sous-systemes",
@@ -106,6 +107,9 @@ namespace nkentseu { namespace demo {
         // atteint une cible). Signature Cascadeur : animation + IK ensemble.
         { "AnimIK",     "DemoAnimIK : NkAnima M1+M0 — IK sur anim (marche + bras qui atteint une cible)",
             DemoAnimIK_Init, DemoAnimIK_Frame, DemoAnimIK_Shutdown },
+        // DemoNKGen : maillage GENERE par l'IA (NKGen -> Surface Nets) charge et rendu.
+        { "NKGen",      "DemoNKGen : maillage genere par l'IA (metaballs -> SurfaceNets -> rendu 3D)",
+            DemoNKGen_Init, DemoNKGen_Frame, DemoNKGen_Shutdown },
     };
     static constexpr uint32 kDemoCount = (uint32)(sizeof(kDemos) / sizeof(kDemos[0]));
 
@@ -129,6 +133,14 @@ namespace nkentseu { namespace demo {
                 // ombres quand la camera orbite. CSM 4-cascades reste actif
                 // dans le code et utilisable pour des scenes plus ouvertes.
                 c.shadow.cascadeCount = 1;
+                // Test backend software (NK_SW_MINCFG=1) : config 3D minimale, rendu
+                // direct swapchain, sans passes offscreen (shadow/post-process) — contourne
+                // le crash FBO software non valide et exerce le shader taille NKRenderer.
+                if (const char* e = std::getenv("NK_SW_MINCFG")) if (e[0] == '1') {
+                    c.subsystems          = NK_SS_RENDER3D;
+                    c.shadow.cascadeCount = 0;
+                    c.hdr                 = false;
+                }
                 return c;
             }
             case 3: {
@@ -332,6 +344,7 @@ int nkmain(const NkEntryState& state) {
     if (demoIx == 15) demoIx = 14;  // DemoIKChar     -> kDemos[14]
     if (demoIx == 16) demoIx = 15;  // DemoAnim       -> kDemos[15]
     if (demoIx == 17) demoIx = 16;  // DemoAnimIK     -> kDemos[16]
+    if (demoIx == 18) demoIx = 17;  // DemoNKGen      -> kDemos[17]
     if (demoIx < 0 || (uint32)demoIx >= kDemoCount) demoIx = 0;
     const DemoEntry& demo = kDemos[demoIx];
 

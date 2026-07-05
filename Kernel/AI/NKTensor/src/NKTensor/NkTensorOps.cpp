@@ -67,12 +67,13 @@ namespace nkentseu {
                 }
                 return x;
             }
-            enum class UnOp { Neg, Abs, Exp, Relu, Sigmoid, Tanh };
+            enum class UnOp { Neg, Abs, Exp, Sqrt, Relu, Sigmoid, Tanh };
             template<typename T> static inline T ApplyUn(UnOp op, T x) {
                 switch (op) {
                     case UnOp::Neg:     return (T)(-(x));
                     case UnOp::Abs:     return x < (T)0 ? (T)(-(x)) : x;
                     case UnOp::Exp:     return (T)exp((double)x);
+                    case UnOp::Sqrt:    return (T)sqrt((double)x);
                     case UnOp::Relu:    return x > (T)0 ? x : (T)0;
                     case UnOp::Sigmoid: return (T)(1.0 / (1.0 + exp(-(double)x)));
                     case UnOp::Tanh:    return (T)tanh((double)x);
@@ -161,6 +162,7 @@ namespace nkentseu {
             NkTensor Neg (const NkTensor& a) { return Unary(a, UnOp::Neg,  false); }
             NkTensor Abs (const NkTensor& a) { return Unary(a, UnOp::Abs,  false); }
             NkTensor Exp (const NkTensor& a) { return Unary(a, UnOp::Exp,  true);  }
+            NkTensor Sqrt(const NkTensor& a) { return Unary(a, UnOp::Sqrt, true);  }
             NkTensor Relu(const NkTensor& a) { return Unary(a, UnOp::Relu, false); }
             NkTensor Sigmoid(const NkTensor& a) { return Unary(a, UnOp::Sigmoid, true); }
             NkTensor Tanh(const NkTensor& a) { return Unary(a, UnOp::Tanh, true); }
@@ -208,6 +210,19 @@ namespace nkentseu {
                             (long long)M, (long long)K, (long long)K2, (long long)N);
                     return NkTensor();
                 }
+                // Auto-accélération GPU pour les GRANDES matrices : résultats identiques
+                // au CPU (cf NKGpuBenchTest : ~100-160× dès 256²). Sous le seuil, le
+                // transfert + l'init ne valent pas le coup -> on reste CPU. Si le GPU est
+                // indispo, ToGPU renvoie un tenseur CPU -> on retombe naturellement sur CPU.
+                if (a.DType() == NkDType::NK_F32 && (double)M * (double)N * (double)K >= 8.0e6) {
+                    NkTensor ag = a.ToGPU();
+                    if (ag.Device() == NkDevice::NK_GPU) {
+                        NkTensor bg = b.ToGPU();
+                        if (bg.Device() == NkDevice::NK_GPU)
+                            return NkGpuMatmul(ag, bg).ToCPU();
+                    }
+                }
+
                 NkTensor ac = a.IsContiguous() ? a : a.Contiguous();
                 NkTensor bc = b.IsContiguous() ? b : b.Contiguous();
                 NkTensor out = NkTensor::Zeros(NkShape{ M, N }, a.DType());

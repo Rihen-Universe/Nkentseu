@@ -20,7 +20,7 @@ Légende : ⬜ à faire · 🟡 en cours · ✅ fait.
 - ✅ Format des tenseurs décidé : stockage refcompté (`NkTensorStorage`), row-major,
   strides en éléments, dtypes f32/f64/i32/i64/u8, alignement 64 via NKMemory.
 
-## Phase 1 — Le calcul (la pierre angulaire) — 🟡 en cours
+## Phase 1 — Le calcul (la pierre angulaire) — ✅
 
 **Module : NKTensor.**
 - ✅ Tenseurs n-dim sur **CPU** : création (Zeros/Ones/Full/Arange/Eye/FromData),
@@ -29,34 +29,57 @@ Légende : ⬜ à faire · 🟡 en cours · ✅ fait.
 - ✅ Produit de matrices (matmul 2D) + réductions (Sum/Mean/Max/Argmax global + axe).
 - ✅ **Prouvé fonctionnel** : app `NKTensorDemo` (`jenga run`) → **34/34 OK**.
 - ✅ Backend **GPU** (NKRHI compute, kernels **écrits en NkSL**) — contexte `NkTensorGpu` :
-  `add`/`matmul` NkSL exécutés sur GPU (DX11 headless), validés == CPU (`NkTensorGpuTest`
-  → 2/2 OK). Chemin NkSL→GLSL→SPIR-V→HLSL/MSL prouvé + 4 bugs compute moteur corrigés.
-- 🎯 **Jalon : multiplier deux matrices, CPU puis GPU.** → CPU ✅ **et GPU ✅**.
-  Reste : intégration `ai::NkTensor` (ToGPU/ToCPU + dispatch `ops::`), accélération mesurée,
-  DX12/Vulkan/Metal.
+  `add`/`matmul` NkSL exécutés sur GPU, validés == CPU. Chemin NkSL→GLSL→SPIR-V→HLSL/MSL
+  prouvé + **10 bugs compute moteur corrigés**.
+- ✅ **Validé sur les 4 backends Desktop (GPU NVIDIA réel)** : Vulkan, OpenGL, DX11, DX12
+  → `NkComputeNkSL` et `NkTensorGpuTest` **4/4 OK** (matmul inclus). Override diagnostic
+  `NK_TENSOR_API`. Intégration `ai::NkTensor` (ToGPU/ToCPU + dispatch `ops::`) OK.
+- 🎯 ✅ **Jalon atteint : multiplier deux matrices, CPU ✅ ET GPU ✅** (4 backends).
+- ⬜ Reste (raffinement) : accélération mesurée CPU vs GPU, Metal sur matériel Apple.
 
-## Phase 2 — L'apprentissage
+## Phase 2 — L'apprentissage — 🟡 en cours
 
 **Modules : NKAutograd, NKNN, NKOptim.**
-- ⬜ NKAutograd : graphe de calcul + rétropropagation (mode inverse).
-- ⬜ NKNN : couche dense, activations, fonction de perte.
-- ⬜ NKOptim : SGD puis Adam.
-- 🎯 **Jalon : entraîner un mini-réseau (ex. XOR) qui converge.**
+- ✅ **NKAutograd** : graphe define-by-run + rétropropagation mode inverse (sans STL,
+  dispatch sur tag). Dérivées Add/Sub/Mul/Matmul/Relu/Sigmoid/Tanh/Sum/MSE +
+  **SoftmaxCrossEntropy** (fusionné, stable) + unbroadcast. **Prouvé**
+  (`NKAutogradTest`) : **8/8 gradients == différences finies**.
+- ✅ **NKNN** : `nn::NkDense` (params persistants + Xavier), activations `Relu/Sigmoid/
+  Tanh`, pertes `MSELoss` **et `CrossEntropyLoss`** (+ `OneHot`).
+- ✅ **NKOptim** : `optim::NkSGD` (+ momentum) **et `optim::NkAdam`** (correction de
+  biais ; `ops::Sqrt` ajouté à NKTensor).
+- 🎯 ✅ **Jalon Phase 2 atteint et dépassé** (`NKNNTest`) : **XOR** (Dense+SGD → perte
+  1.8e-5, 4/4) **et classification 3-classes** (Dense+relu+CrossEntropy+**Adam** →
+  **100%**). Pile Phase 2 complète : **NKTensor → NKAutograd → NKNN + NKOptim**. Prête
+  pour la Phase 3 (entropie croisée + Adam = tout pour MNIST).
 
-## Phase 3 — Données, entraînement, inférence
+## Phase 3 — Données, entraînement, inférence — 🟡 en cours
 
 **Modules : NKData, NKTrain, NKInfer.**
-- ⬜ NKData : chargeur de jeu de données + batchs (ex. MNIST).
-- ⬜ NKTrain : boucle d'entraînement + checkpoints + métriques.
-- ⬜ NKInfer : charger un modèle entraîné et l'exécuter.
-- 🎯 **Jalon : entraîner puis inférer un vrai petit modèle (classer des chiffres MNIST).**
+- ✅ **NKData** : `NkDataset` + `NkDataLoader` (shuffle Fisher-Yates, lots, one-hot) +
+  `MakeBlobs` + **chargeur MNIST IDX** (`LoadMnist`). Prouvé (`NKDataTest` 7/7).
+- ✅ **NKTrain** : `TrainEpoch` (forward→CE→backward→step, métriques perte+exactitude)
+  + `Accuracy`. Prouvé (`NKTrainTest`) : Dense+relu+Dense, Adam+CE → **train/test 100%**.
+- ✅ **NKInfer** : `SaveParams`/`LoadParams` (format NKMD) + `Predict`. Prouvé
+  (`NKInferTest`) : round-trip **exact** (A entraîné → sauve → B neuf recharge → 100%).
+- ⬜ Checkpoints d'optimiseur (reprise) + boucle de validation (NKTrain Jalon 2).
+- 🎯 ✅ **Pipeline complet données→train→save→load→infer** validé de bout en bout.
+- ✅ **Entraînement sur le VRAI MNIST** (`Datasets/mnist/` téléchargé, `NK_MNIST_DIR`) :
+  MLP 784→64→10 (Adam+CE) sur les **60 000 vraies images** → **96.3%** en 3 époques
+  (`NKTrainTest`). Le framework from-scratch apprend sur données réelles. (113 s CPU debug
+  → confirme le besoin d'accélération GPU pour scaler.)
+- ⬜ Checkpoints d'optimiseur (reprise) + boucle de validation (NKTrain Jalon 2) ;
+  chargeurs d'autres datasets (Fashion-MNIST = même format IDX ; CIFAR ; 3D via OFF/OBJ).
 
-## Phase 4 — La décision
+## Phase 4 — La décision — 🟡 en cours
 
 **Modules : NKRL, NKAgent.**
-- ⬜ NKRL : interface d'environnement + Q-learning tabulaire, puis DQN.
+- ✅ **NKRL** : interface d'environnement + monde-grille + **Q-learning tabulaire**
+  (ε-greedy, TD). Prouvé (`NKRLTest`) : l'agent passe de 7.9% à **100%** de réussite,
+  politique optimale apprise. ⬜ DQN (Jalon 2, réutilisera NKNN/NKOptim).
 - ⬜ NKAgent : agent avec mémoire (passé), perception (présent), politique de décision.
-- 🎯 **Jalon « ça vit » : un agent apprend tout seul à résoudre un environnement simple.**
+- 🎯 ✅ **Jalon « ça vit » atteint** : un agent apprend tout seul à résoudre un
+  environnement simple.
 
 ## Phase 5 — La vie et l'émergence
 
@@ -69,9 +92,13 @@ Légende : ⬜ à faire · 🟡 en cours · ✅ fait.
 ## Phase 6 — Génération & incarnation
 
 **Modules : NKGen, NKEmbodied.**
-- ⬜ NKGen : un petit modèle génératif (image 2D) ; brancher la génération d'assets au moteur.
+- ⬜ NKGen : un petit modèle génératif (image 2D → texture) ; brancher la génération
+  d'assets au moteur. Puis **formes 3D** générées par **catégories** :
+  🌿 végétal, 🐾 animal/créature, 🧍 humanoïde, 🌍 monde/terrain (+ rig + animation).
 - ⬜ NKEmbodied : relier une politique à un corps simulé (puis réel via Kernel/Bare).
-- 🎯 **Jalon : générer un asset dans le moteur ; piloter un corps par une IA.**
+- ⬜ **Acteurs génératifs** : un personnage reçoit un **rôle** et le joue (apparence +
+  animation + comportement) → animation 3D & jeux **pilotés par IA** (NKGen + NKAgent).
+- 🎯 **Jalon : générer un asset (2D puis 3D) dans le moteur ; piloter un corps par une IA.**
 
 ## Phase 7 — Montée en échelle (plus tard)
 

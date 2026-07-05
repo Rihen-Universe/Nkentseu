@@ -4,6 +4,7 @@
 // =============================================================================
 #include "NKTensor/NkTensorGpu.h"
 #include "NKTensor/NkTensor.h"
+#include "NKTensor/NkTensorOps.h"
 
 #include <cstdio>
 #include <cmath>
@@ -99,6 +100,24 @@ int main() {
                back.DataAs<float>()[0], back.DataAs<float>()[1],
                back.DataAs<float>()[2], back.DataAs<float>()[3]);
         check(ok, "NkTensor CPU -> ToGPU -> ToCPU preserve les donnees");
+    }
+
+    // ---- 4) API UNIFIÉE : ops::Matmul dispatché automatiquement sur GPU --------
+    {
+        float av[6] = { 1,2,3,4,5,6 };
+        float bv[6] = { 7,8,9,10,11,12 };
+        NkShape sa; sa.PushBack(2); sa.PushBack(3);
+        NkShape sb; sb.PushBack(3); sb.PushBack(2);
+        NkTensor a = NkTensor::FromData(sa, av, NkDType::NK_F32).ToGPU();
+        NkTensor b = NkTensor::FromData(sb, bv, NkDType::NK_F32).ToGPU();
+        NkTensor c = ops::Matmul(a, b);           // <- MÊME API que le CPU, routée GPU
+        NkTensor cpu = c.ToCPU();
+        const float* r = cpu.DataAs<float>();
+        printf("  ops::Matmul(GPU) -> C=[%.0f %.0f %.0f %.0f] (attendu 58 64 139 154)\n",
+               r[0], r[1], r[2], r[3]);
+        bool ok = c.IsValid() && c.Device() == NkDevice::NK_GPU
+               && fabs(r[0]-58)<0.5f && fabs(r[3]-154)<0.5f;
+        check(ok, "ops::Matmul dispatché sur GPU (API unifiée)");
     }
 
     printf("\n=== Résultat : %d OK, %d échec(s) ===\n", g_ok, g_fail);
