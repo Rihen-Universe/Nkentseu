@@ -483,5 +483,41 @@ namespace nkentseu {
             return true;
         }
 
+        // =====================================================================
+        // HISTORIQUE UNDO/REDO (mémento : snapshots complets de NkEditMesh)
+        // =====================================================================
+
+        // Empile un snapshot en respectant le plafond (retire le plus ancien si dépassé).
+        static void EM_PushCapped(NkVector<NkEditMesh>& stack, const NkEditMesh& m, uint32 limit) {
+            stack.PushBack(m);
+            while ((uint32)stack.Size() > limit) {              // retire le plus ancien (décalage)
+                for (uint32 i=1;i<(uint32)stack.Size();++i) stack[i-1] = stack[i];
+                stack.Resize((uint32)stack.Size()-1);
+            }
+        }
+
+        void NkEditHistory::Clear() { mUndo.Clear(); mRedo.Clear(); }
+
+        void NkEditHistory::Commit(const NkEditMesh& preState) {
+            EM_PushCapped(mUndo, preState, mLimit);
+            mRedo.Clear();                                       // nouvelle branche -> redo invalidé
+        }
+
+        bool NkEditHistory::Undo(NkEditMesh& mesh) {
+            if (mUndo.Empty()) return false;
+            mRedo.PushBack(mesh);                               // sauve l'état courant pour redo
+            mesh = mUndo[(uint32)mUndo.Size()-1];              // restaure le précédent
+            mUndo.Resize((uint32)mUndo.Size()-1);
+            return true;
+        }
+
+        bool NkEditHistory::Redo(NkEditMesh& mesh) {
+            if (mRedo.Empty()) return false;
+            mUndo.PushBack(mesh);
+            mesh = mRedo[(uint32)mRedo.Size()-1];
+            mRedo.Resize((uint32)mRedo.Size()-1);
+            return true;
+        }
+
     } // namespace renderer
 } // namespace nkentseu
