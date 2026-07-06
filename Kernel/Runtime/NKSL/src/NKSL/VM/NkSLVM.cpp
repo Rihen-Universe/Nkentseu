@@ -131,9 +131,13 @@ namespace nkentseu {
                 }
                 case NkSLOp::OP_LOAD_UNI: {
                     A.count = in.aux;
-                    if (env.uniforms) std::memcpy(A.v, env.uniforms + (uint32)in.imm, (size_t)in.aux * sizeof(float));
+                    // Multi-UBO : in.c = index de bloc → blob dédié ; sinon fallback env.uniforms (bloc 0).
+                    const uint8* blob = (in.c < 8 && env.uboBlobs[in.c]) ? env.uboBlobs[in.c] : env.uniforms;
+                    if (blob) std::memcpy(A.v, blob + (uint32)in.imm, (size_t)in.aux * sizeof(float));
                     break;
                 }
+                case NkSLOp::OP_LOAD_VID: A = VScalar((float)env.vertexID);   break;
+                case NkSLOp::OP_LOAD_IID: A = VScalar((float)env.instanceID); break;
                 case NkSLOp::OP_STORE_OUT: {
                     const NkSLValue& S = reg[in.b];
                     if (env.outputs) for (uint8 i=0;i<in.aux;++i) env.outputs[(uint32)in.imm + i] = S.v[i];
@@ -211,6 +215,14 @@ namespace nkentseu {
                 case NkSLOp::OP_AND:A = VScalar((reg[in.b].v[0]!=0.f && reg[in.c].v[0]!=0.f)?1.f:0.f); break;
                 case NkSLOp::OP_OR: A = VScalar((reg[in.b].v[0]!=0.f || reg[in.c].v[0]!=0.f)?1.f:0.f); break;
                 case NkSLOp::OP_NOT:A = VScalar(reg[in.b].v[0]==0.f?1.f:0.f); break;
+                case NkSLOp::OP_ANY: { const NkSLValue& B=reg[in.b]; float a=0.f; for(uint8 i=0;i<B.count;++i) if(B.v[i]!=0.f){a=1.f;break;} A=VScalar(a); break; }
+                case NkSLOp::OP_ALL: { const NkSLValue& B=reg[in.b]; float a=1.f; for(uint8 i=0;i<B.count;++i) if(B.v[i]==0.f){a=0.f;break;} A=VScalar(a); break; }
+                case NkSLOp::OP_CMP_LT: A=VBin(reg[in.b],reg[in.c],[](float x,float y){return x< y?1.f:0.f;}); break;
+                case NkSLOp::OP_CMP_GT: A=VBin(reg[in.b],reg[in.c],[](float x,float y){return x> y?1.f:0.f;}); break;
+                case NkSLOp::OP_CMP_LE: A=VBin(reg[in.b],reg[in.c],[](float x,float y){return x<=y?1.f:0.f;}); break;
+                case NkSLOp::OP_CMP_GE: A=VBin(reg[in.b],reg[in.c],[](float x,float y){return x>=y?1.f:0.f;}); break;
+                case NkSLOp::OP_CMP_EQ: A=VBin(reg[in.b],reg[in.c],[](float x,float y){return x==y?1.f:0.f;}); break;
+                case NkSLOp::OP_CMP_NE: A=VBin(reg[in.b],reg[in.c],[](float x,float y){return x!=y?1.f:0.f;}); break;
 
                 case NkSLOp::OP_DOT:       A = VScalar(VDot(reg[in.b], reg[in.c])); break;
                 case NkSLOp::OP_LENGTH:    A = VScalar(VLen(reg[in.b])); break;

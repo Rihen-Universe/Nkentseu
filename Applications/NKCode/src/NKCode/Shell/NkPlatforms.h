@@ -102,6 +102,7 @@ namespace nkcode {
         (void)st;
         tc->EnsureDetectedAsync();   // detection sur thread de fond : ne gele jamais l'UI
         int32 result = 0;
+        u.Rect(r, NkCol::background);   // fond du panneau (theme-aware) : sinon le fond de base sombre transparaît
         const bool blockBg = tc->assistDlg || (dlg && dlg->pickerOpen);
         // En-tete + placeholder tant que la detection (thread) n'a pas fini.
         if (!tc->detected || tc->bgBusy.Load()) {

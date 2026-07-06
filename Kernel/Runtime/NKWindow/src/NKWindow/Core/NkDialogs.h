@@ -46,7 +46,7 @@ namespace nkentseu {
 			 * @param defaultExt Extension par défaut sans point (ex: "png")
 			 * @param title  Titre de la boîte de dialogue.
 			 */
-			static NkDialogResult SaveFileDialog(const NkString &defaultExt = "", const NkString &title = "Save File");
+			static NkDialogResult SaveFileDialog(const NkString &defaultExt = "", const NkString &title = "Save File", const NkString &initialDir = "");
 
 			/**
 			 * @brief Ouvre un dialogue de sélection de DOSSIER (façon "Open Folder").

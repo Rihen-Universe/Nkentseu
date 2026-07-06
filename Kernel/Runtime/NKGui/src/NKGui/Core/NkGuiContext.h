@@ -60,6 +60,9 @@ namespace nkentseu {
             NkColor preproc = { 197, 134, 192, 255 };
             NkColor heading = {  78, 201, 176, 255 };   // titres Markdown
             NkColor mdcode  = { 206, 145, 120, 255 };   // code Markdown
+            NkColor function = { 225, 205, 120, 255 };  // appels / définitions de fonction (jaune franc)
+            NkColor constant = {  79, 193, 255, 255 };  // MAJUSCULES / true / false / null / None…
+            NkColor oper     = { 200, 200, 200, 255 };  // opérateurs + - * / = < > & | etc.
         };
 
         // État de mise en page (curseur immédiat). Chaque widget « auto » prend son

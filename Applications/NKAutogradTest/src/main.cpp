@@ -94,6 +94,50 @@ int main() {
         GradCheck("Matmul+Sum", Mat(NkShape{ 2, 3 }, ad),
                   [B](NkVar A) { return autograd::Sum(autograd::Matmul(A, NkVar::Leaf(B, false))); });
     }
+    // 5bis) Matmul par LOTS : Sum(A · B) sur [2,2,3]·[2,3,2] -> dA et dB.
+    {
+        float ad[12]; for (int i=0;i<12;i++) ad[i]=(float)(i+1)*0.1f;   // [2,2,3]
+        float bd[12]; for (int i=0;i<12;i++) bd[i]=(float)(i%5-2)*0.3f; // [2,3,2]
+        NkTensor Bb = Mat(NkShape{ 2, 3, 2 }, bd);
+        GradCheck("BMatmul dA", Mat(NkShape{ 2, 2, 3 }, ad),
+                  [Bb](NkVar A) { return autograd::Sum(autograd::Matmul(A, NkVar::Leaf(Bb, false))); });
+        NkTensor Aa = Mat(NkShape{ 2, 2, 3 }, ad);
+        GradCheck("BMatmul dB", Mat(NkShape{ 2, 3, 2 }, bd),
+                  [Aa](NkVar B) { return autograd::Sum(autograd::Matmul(NkVar::Leaf(Aa, false), B)); });
+    }
+    // 5ter) LayerNorm sur le dernier axe : Sum(LayerNorm(x)).
+    {
+        float xd[8] = { 1, 3, 2, 5, -1, 0, 4, 2 };   // [2,4]
+        GradCheck("LayerNorm", Mat(NkShape{ 2, 4 }, xd),
+                  [](NkVar x) { return autograd::Sum(autograd::LayerNorm(x)); });
+    }
+    // 5quater) Softmax (dernier axe) : Sum(softmax(x) ⊙ W) -> gradient non trivial.
+    {
+        float xd[8] = { 1, 2, 0, -1,  0.5f, 1.5f, -0.5f, 2 };  // [2,4]
+        float wd[8] = { 0.3f, -0.2f, 0.5f, 0.1f, -0.4f, 0.2f, 0.6f, -0.1f };
+        NkTensor W = Mat(NkShape{ 2, 4 }, wd);
+        GradCheck("Softmax", Mat(NkShape{ 2, 4 }, xd),
+                  [W](NkVar x) { return autograd::Sum(autograd::Mul(autograd::Softmax(x), NkVar::Leaf(W, false))); });
+        // Softmax CAUSAL sur [2,2] (T=2) : la requête i ne voit que les clés j<=i.
+        float sd[4] = { 0.5f, -1, 2, 0.3f };   // scores [2,2]
+        float w2[4] = { 0.4f, 0.2f, -0.3f, 0.5f };
+        NkTensor W2 = Mat(NkShape{ 2, 2 }, w2);
+        GradCheck("SoftmaxCausal", Mat(NkShape{ 2, 2 }, sd),
+                  [W2](NkVar x) { return autograd::Sum(autograd::Mul(autograd::SoftmaxCausal(x), NkVar::Leaf(W2, false))); });
+    }
+    // 5quinquies) GELU + Embedding.
+    {
+        float xd[6] = { -2, -0.5f, 0, 0.5f, 1, 2 };
+        GradCheck("GELU", Mat(NkShape{ 6 }, xd),
+                  [](NkVar x) { return autograd::Sum(autograd::Gelu(x)); });
+        // Embedding : gradient p/r à la TABLE [vocab=3, d=2] ; indices {0,1,2,1}.
+        float idd[4] = { 0, 1, 2, 1 };
+        NkTensor idx = Mat(NkShape{ 4 }, idd);
+        float wd[8] = { 0.2f,-0.3f, 0.5f,0.1f, -0.4f,0.6f, 0.3f,-0.2f };  // [4,2] poids
+        NkTensor W = Mat(NkShape{ 4, 2 }, wd);
+        GradCheck("Embedding", Mat(NkShape{ 3, 2 }, wd),   // table init (réutilise wd, 6 val)
+                  [idx, W](NkVar table) { return autograd::Sum(autograd::Mul(autograd::Embedding(table, idx), NkVar::Leaf(W, false))); });
+    }
     // 6) MSE(pred, cible) : dL/dpred = 2(pred-cible)/N.
     {
         float pd[4] = { 0.2f, 0.9f, 0.7f, 0.1f };

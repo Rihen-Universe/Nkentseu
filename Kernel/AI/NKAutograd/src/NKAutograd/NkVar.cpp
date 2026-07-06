@@ -10,6 +10,7 @@
 // =============================================================================
 #include "NKAutograd/NkVar.h"
 #include "NKTensor/NkTensorOps.h"
+#include "NKTensor/NkTensorGpu.h"   // im2col/col2im GPU quand l'entrée est résidente
 #include "NKMemory/NkAllocator.h"
 
 #include <cmath>
@@ -100,6 +101,21 @@ namespace nkentseu {
             NkShape sh = a.Shape(); sh[axis] = 1;  // on le réinsère à 1 (keepdim)
             return s.Reshape(sh);
         }
+        // --- Helpers résidence GPU ---------------------------------------------
+        // Un noyau CPU-only reçoit une COPIE CPU ; son résultat est ramené sur le
+        // device d'un tenseur de référence -> la chaîne reste résidente autour de
+        // l'op (l'op elle-même fait un aller-retour, faute de noyau GPU dédié).
+        static NkTensor ToCpuT(const NkTensor& t) {
+            return (t.IsValid() && t.Device() == NkDevice::NK_GPU) ? t.ToCPU() : t;
+        }
+        static NkTensor ToDevOf(const NkTensor& r, const NkTensor& ref) {
+            return (ref.Device() == NkDevice::NK_GPU && r.IsValid() && r.Device() != NkDevice::NK_GPU)
+                   ? r.ToGPU() : r;
+        }
+        static double ScalarOf(const NkTensor& t) {
+            NkTensor c = ToCpuT(t); return c.IsValid() ? c.GetItem(NkShape{ (int64)0 }) : 0.0;
+        }
+
         static NkTensor Unbroadcast(const NkTensor& g, const NkShape& target) {
             NkTensor r = g;
             // 1) réduire les dimensions de tête en trop (rang plus grand que la cible).
@@ -120,12 +136,12 @@ namespace nkentseu {
             node->grad = node->grad.IsValid() ? ops::Add(node->grad, c) : c;
         }
 
-        // Softmax par ligne d'une matrice [B,C] (F32), stable (soustraction du max).
+        // Softmax sur le DERNIER axe (F32), stable (soustraction du max).
         static NkTensor SoftmaxRows(const NkTensor& logits) {
-            NkTensor x = logits.Contiguous();
-            const NkShape& sh = x.Shape();
-            const int64 B = sh.Size() >= 1 ? sh[0] : 1;
-            const int64 C = sh.Size() >= 2 ? sh[1] : NkShapeNumel(sh);
+            if (logits.Device() == NkDevice::NK_GPU) return NkGpuSoftmaxRows(logits);  // natif GPU
+            NkTensor x = ToCpuT(logits).Contiguous();   // noyau CPU
+            const int64 C = x.Shape()[x.Rank()-1];      // dernier axe
+            const int64 B = (C > 0) ? x.Numel()/C : 0;
             NkTensor out = NkTensor::Zeros(x.Shape());
             const float* xp = x.DataAs<float>();
             float*       op = out.DataAs<float>();
@@ -139,7 +155,70 @@ namespace nkentseu {
                 const double inv = (sum > 0.0) ? 1.0 / sum : 0.0;
                 for (int64 c = 0; c < C; ++c) orow[c] = (float)((double)orow[c] * inv);
             }
+            return ToDevOf(out, logits);   // ramène sur le device de l'entrée
+        }
+        // Softmax backward (CPU) : dx = y ⊙ (dy − Σ_lastaxis(dy⊙y)).
+        static NkTensor SoftmaxBackwardCpu(const NkTensor& y, const NkTensor& g) {
+            NkTensor yc = y.Contiguous(); NkTensor gc = g.Contiguous();
+            const int64 C = yc.Shape()[yc.Rank()-1]; const int64 R = (C>0)?yc.Numel()/C:0;
+            NkTensor dx = NkTensor::Zeros(yc.Shape());
+            const float* yp=yc.DataAs<float>(); const float* gp=gc.DataAs<float>(); float* dp=dx.DataAs<float>();
+            for (int64 r=0;r<R;++r){ const float* yr=yp+r*C; const float* gr=gp+r*C; float* dr=dp+r*C;
+                double s=0; for (int64 c=0;c<C;++c) s+=(double)gr[c]*yr[c];
+                for (int64 c=0;c<C;++c) dr[c]=(float)(yr[c]*(gr[c]-s));
+            }
+            return dx;
+        }
+        // Softmax CAUSAL (CPU) : dernier axe [.., T, T], requête = row % T ; masque j > pos.
+        static NkTensor SoftmaxCausalCpu(const NkTensor& x) {
+            NkTensor xc = x.Contiguous();
+            const int64 T = xc.Shape()[xc.Rank()-1]; const int64 R = (T>0)?xc.Numel()/T:0;
+            NkTensor out = NkTensor::Zeros(xc.Shape());
+            const float* xp=xc.DataAs<float>(); float* op=out.DataAs<float>();
+            for (int64 r=0;r<R;++r){ const float* xr=xp+r*T; float* orr=op+r*T;
+                int64 pos = r % T;
+                float mx = xr[0]; for (int64 c=1;c<=pos;++c) if (xr[c]>mx) mx=xr[c];
+                double sum=0; for (int64 c=0;c<=pos;++c){ double e=std::exp((double)(xr[c]-mx)); orr[c]=(float)e; sum+=e; }
+                double inv = sum>0?1.0/sum:0; for (int64 c=0;c<=pos;++c) orr[c]=(float)(orr[c]*inv);
+                for (int64 c=pos+1;c<T;++c) orr[c]=0.f;
+            }
             return out;
+        }
+        // GELU (tanh-approx) CPU + backward.
+        static NkTensor GeluCpu(const NkTensor& x) {
+            NkTensor xc=x.Contiguous(); NkTensor out=NkTensor::Zeros(xc.Shape());
+            const float* xp=xc.DataAs<float>(); float* op=out.DataAs<float>(); const int64 n=xc.Numel();
+            const double c=0.7978845608;
+            for (int64 i=0;i<n;++i){ double v=xp[i]; double inner=c*(v+0.044715*v*v*v); op[i]=(float)(0.5*v*(1.0+std::tanh(inner))); }
+            return out;
+        }
+        static NkTensor GeluBackwardCpu(const NkTensor& x, const NkTensor& g) {
+            NkTensor xc=x.Contiguous(); NkTensor gc=g.Contiguous(); NkTensor dx=NkTensor::Zeros(xc.Shape());
+            const float* xp=xc.DataAs<float>(); const float* gp=gc.DataAs<float>(); float* dp=dx.DataAs<float>(); const int64 n=xc.Numel();
+            const double c=0.7978845608;
+            for (int64 i=0;i<n;++i){ double v=xp[i]; double v2=v*v; double inner=c*(v+0.044715*v2*v); double t=std::tanh(inner);
+                double sech2=1.0-t*t; double dg=0.5*(1.0+t)+0.5*v*sech2*c*(1.0+3.0*0.044715*v2); dp[i]=(float)(gp[i]*dg); }
+            return dx;
+        }
+        // Embedding CPU (lookup) + backward (scatter-add).
+        static NkTensor EmbeddingCpu(const NkTensor& table, const NkTensor& idx) {
+            NkTensor tc=table.Contiguous(); NkTensor ic=idx.Contiguous();
+            const int64 vocab=tc.Shape()[0], d=tc.Shape()[1]; const int64 numPos=ic.Numel();
+            NkShape outShape; outShape.Resize(ic.Rank()+1);
+            for (uint32 k=0;k<ic.Rank();++k) outShape[k]=ic.Shape()[k]; outShape[ic.Rank()]=d;
+            NkTensor out=NkTensor::Zeros(outShape);
+            const float* tp=tc.DataAs<float>(); const float* ip=ic.DataAs<float>(); float* op=out.DataAs<float>();
+            for (int64 pos=0;pos<numPos;++pos){ int64 tid=(int64)(ip[pos]+0.5f); if(tid<0||tid>=vocab)tid=0;
+                for (int64 c=0;c<d;++c) op[pos*d+c]=tp[tid*d+c]; }
+            return out;
+        }
+        static NkTensor EmbeddingBackwardCpu(const NkTensor& g, const NkTensor& idx, int64 vocab, int64 d) {
+            NkTensor gc=g.Contiguous(); NkTensor ic=idx.Contiguous(); const int64 numPos=ic.Numel();
+            NkTensor dt=NkTensor::Zeros(NkShape{ vocab, d });
+            const float* gp=gc.DataAs<float>(); const float* ip=ic.DataAs<float>(); float* dp=dt.DataAs<float>();
+            for (int64 pos=0;pos<numPos;++pos){ int64 tid=(int64)(ip[pos]+0.5f); if(tid<0||tid>=vocab)tid=0;
+                for (int64 c=0;c<d;++c) dp[tid*d+c]+=gp[pos*d+c]; }
+            return dt;
         }
 
         // im2col : déplie les fenêtres réceptives en une matrice [B·outH·outW, Cin·kH·kW]
@@ -148,6 +227,8 @@ namespace nkentseu {
         // juste du réarrangement mémoire.
         static NkTensor Im2Col(const NkTensor& x, int64 kH, int64 kW, int64 stride, int64 pad,
                                int64 outH, int64 outW) {
+            if (x.Device() == NkDevice::NK_GPU)   // conv résidente : réarrangement sur GPU
+                return NkGpuIm2Col(x, kH, kW, stride, pad, outH, outW);
             const NkShape& xs = x.Shape();
             const int64 B = xs[0], Cin = xs[1], H = xs[2], W = xs[3];
             const int64 K = Cin * kH * kW, M = B * outH * outW;
@@ -171,6 +252,8 @@ namespace nkentseu {
         // col2im : transposé de im2col — redistribue (accumule) les colonnes vers [B,Cin,H,W].
         static NkTensor Col2Im(const NkTensor& col, int64 B, int64 Cin, int64 H, int64 W,
                                int64 kH, int64 kW, int64 stride, int64 pad, int64 outH, int64 outW) {
+            if (col.Device() == NkDevice::NK_GPU)   // conv résidente : redistribution sur GPU
+                return NkGpuCol2Im(col, B, Cin, H, W, kH, kW, stride, pad, outH, outW);
             const int64 K = Cin * kH * kW;
             NkTensor dx = NkTensor::Zeros(NkShape{ B, Cin, H, W });
             float* dp = dx.DataAs<float>(); const float* cp = col.DataAs<float>();
@@ -193,6 +276,7 @@ namespace nkentseu {
 
         // Masque de la dérivée de ReLU : 1 où x>0, sinon 0 (F32, forme de x).
         static NkTensor ReluMask(const NkTensor& x) {
+            if (x.Device() == NkDevice::NK_GPU) return NkGpuStep(x);   // masque ReLU' sur GPU
             NkTensor xc = x.Contiguous();
             NkTensor m  = NkTensor::Zeros(xc.Shape());
             const float* src = xc.DataAs<float>();
@@ -200,6 +284,37 @@ namespace nkentseu {
             int64 n = NkShapeNumel(xc.Shape());
             for (int64 i = 0; i < n; ++i) dst[i] = src[i] > 0.f ? 1.f : 0.f;
             return m;
+        }
+
+        // LayerNorm sur le dernier axe (CPU) : y=(x−μ)/√(var+ε), ε=1e-5.
+        static NkTensor LayerNormStdCpu(const NkTensor& x) {
+            NkTensor xc = x.Contiguous();
+            const int64 D = xc.Shape()[xc.Rank()-1]; const int64 rows = (D>0)?xc.Numel()/D:0;
+            NkTensor out = NkTensor::Zeros(xc.Shape());
+            const float* xp = xc.DataAs<float>(); float* op = out.DataAs<float>();
+            for (int64 r = 0; r < rows; ++r) {
+                const float* xr = xp + r*D; float* orr = op + r*D;
+                double mean=0; for (int64 c=0;c<D;++c) mean+=xr[c]; mean/=(double)D;
+                double var=0;  for (int64 c=0;c<D;++c){ double t=xr[c]-mean; var+=t*t; } var/=(double)D;
+                double invstd=1.0/std::sqrt(var+1e-5);
+                for (int64 c=0;c<D;++c) orr[c]=(float)((xr[c]-mean)*invstd);
+            }
+            return out;
+        }
+        static NkTensor LayerNormStdBackwardCpu(const NkTensor& x, const NkTensor& g) {
+            NkTensor xc = x.Contiguous(); NkTensor gc = g.Contiguous();
+            const int64 D = xc.Shape()[xc.Rank()-1]; const int64 rows = (D>0)?xc.Numel()/D:0;
+            NkTensor dx = NkTensor::Zeros(xc.Shape());
+            const float* xp=xc.DataAs<float>(); const float* gp=gc.DataAs<float>(); float* dp=dx.DataAs<float>();
+            for (int64 r=0;r<rows;++r) {
+                const float* xr=xp+r*D; const float* gr=gp+r*D; float* dr=dp+r*D;
+                double mean=0; for (int64 c=0;c<D;++c) mean+=xr[c]; mean/=(double)D;
+                double var=0;  for (int64 c=0;c<D;++c){ double t=xr[c]-mean; var+=t*t; } var/=(double)D;
+                double invstd=1.0/std::sqrt(var+1e-5);
+                double m1=0,m2=0; for (int64 c=0;c<D;++c){ double xh=(xr[c]-mean)*invstd; m1+=gr[c]; m2+=gr[c]*xh; } m1/=(double)D; m2/=(double)D;
+                for (int64 c=0;c<D;++c){ double xh=(xr[c]-mean)*invstd; dr[c]=(float)(invstd*(gr[c]-m1-xh*m2)); }
+            }
+            return dx;
         }
 
         // =====================================================================
@@ -242,14 +357,16 @@ namespace nkentseu {
                     if (n->b) AccumGrad(n->b, ops::Mul(g, n->a->value));
                     break;
 
-                case NkAutoOp::NK_MATMUL: {       // c = a[M,K] · b[K,N]
-                    // dA = dC · Bᵀ ; dB = Aᵀ · dC
+                case NkAutoOp::NK_MATMUL: {       // c = a[..,M,K] · b[..,K,N] (2D ou par lots)
+                    // dA = dC · Bᵀ ; dB = Aᵀ · dC  (transpose des 2 DERNIERS axes).
                     if (n->a) {
-                        NkTensor bt = n->b->value.Transpose(0, 1).Contiguous();
+                        const uint32 rb = n->b->value.Rank();
+                        NkTensor bt = n->b->value.Transpose(rb-2, rb-1).Contiguous();
                         AccumGrad(n->a, ops::Matmul(g, bt));
                     }
                     if (n->b) {
-                        NkTensor at = n->a->value.Transpose(0, 1).Contiguous();
+                        const uint32 ra = n->a->value.Rank();
+                        NkTensor at = n->a->value.Transpose(ra-2, ra-1).Contiguous();
                         AccumGrad(n->b, ops::Matmul(at, g));
                     }
                     break;
@@ -273,13 +390,18 @@ namespace nkentseu {
                 }
 
                 case NkAutoOp::NK_SUM: {          // c = Σ a  -> chaque a_i reçoit dC
-                    double s = g.GetItem(NkShape{ (int64)0 });
-                    AccumGrad(n->a, NkTensor::Full(n->a->value.Shape(), s));
+                    // Lit le scalaire côté CPU (g peut résider sur GPU) et recrée le
+                    // gradient plein sur le MÊME device que l'entrée -> backward résident.
+                    NkTensor gc = (g.Device() == NkDevice::NK_GPU) ? g.ToCPU() : g;
+                    double s = gc.GetItem(NkShape{ (int64)0 });
+                    NkTensor full = NkTensor::Full(n->a->value.Shape(), s);
+                    if (n->a->value.Device() == NkDevice::NK_GPU) full = full.ToGPU();
+                    AccumGrad(n->a, full);
                     break;
                 }
 
                 case NkAutoOp::NK_MSE: {          // c = mean((p-t)²) ; dP = 2(p-t)/N · dC
-                    double s = g.GetItem(NkShape{ (int64)0 });
+                    double s = ScalarOf(g);   // g peut résider sur GPU
                     int64  N = NkShapeNumel(n->a->value.Shape());
                     NkTensor diff = ops::Sub(n->a->value, n->b->value);
                     double  coef = (N > 0) ? (2.0 / (double)N) * s : 0.0;
@@ -289,7 +411,7 @@ namespace nkentseu {
                 }
 
                 case NkAutoOp::NK_SOFTMAX_CE: {   // dLogits = (softmax(logits) − onehot)/B · dC
-                    double s = g.GetItem(NkShape{ (int64)0 });
+                    double s = ScalarOf(g);   // g peut résider sur GPU
                     NkTensor probs = SoftmaxRows(n->a->value);
                     int64 B = probs.Shape().Size() >= 1 ? probs.Shape()[0] : 1;
                     double coef = (B > 0) ? s / (double)B : 0.0;
@@ -326,12 +448,21 @@ namespace nkentseu {
                 }
 
                 case NkAutoOp::NK_MAXPOOL2D: {    // grad routé vers l'argmax mémorisé
-                    NkTensor go = g.Contiguous();
+                    if (g.Device() == NkDevice::NK_GPU || n->aux.Device() == NkDevice::NK_GPU) {
+                        const NkShape& xsg = n->a->value.Shape();
+                        NkTensor dXg = NkGpuMaxPool2DBackward(g, n->aux, xsg[0], xsg[1], xsg[2], xsg[3],
+                                                              g.Shape()[2], g.Shape()[3],
+                                                              n->iparam[0], n->iparam[1]);
+                        AccumGrad(n->a, dXg);
+                        break;
+                    }
+                    NkTensor go = ToCpuT(g).Contiguous();
+                    NkTensor auxC = ToCpuT(n->aux);
                     const NkShape& xs = n->a->value.Shape();
                     const int64 B = xs[0], C = xs[1], H = xs[2], W = xs[3];
                     const int64 outH = go.Shape()[2], outW = go.Shape()[3];
                     const float* gp = go.DataAs<float>();
-                    const float* ap = n->aux.DataAs<float>();
+                    const float* ap = auxC.DataAs<float>();
                     NkTensor dX = NkTensor::Zeros(xs); float* dxp = dX.DataAs<float>();
                     for (int64 b = 0; b < B; ++b)
                     for (int64 c = 0; c < C; ++c)
@@ -341,7 +472,7 @@ namespace nkentseu {
                         const int64 hw = (int64)(ap[oidx] + 0.5f);
                         dxp[(b * C + c) * H * W + hw] += gp[oidx];
                     }
-                    AccumGrad(n->a, dX);
+                    AccumGrad(n->a, ToDevOf(dX, n->a->value));
                     break;
                 }
 
@@ -353,9 +484,18 @@ namespace nkentseu {
 
                 case NkAutoOp::NK_CONVT2D: {      // conv transposée : miroir du forward (scatter)
                     const int32 stride = n->iparam[0], pad = n->iparam[1];
-                    NkTensor x = n->a->value.Contiguous();  // [B,Cin,H,W]
-                    NkTensor w = n->b->value.Contiguous();  // [Cin,Cout,kH,kW]
-                    NkTensor go = g.Contiguous();           // [B,Cout,outH,outW]
+                    if (g.Device() == NkDevice::NK_GPU) {   // résident GPU
+                        const NkShape& xs4 = n->a->value.Shape(); const NkShape& ws4 = n->b->value.Shape();
+                        const int64 B=xs4[0],Cin=xs4[1],H=xs4[2],W=xs4[3];
+                        const int64 Cout=ws4[1],kH=ws4[2],kW=ws4[3];
+                        const int64 oH=g.Shape()[2], oW=g.Shape()[3];
+                        AccumGrad(n->a, NkGpuConvTranspose2DBackwardX(g, n->b->value, B,Cin,H,W,Cout,kH,kW,stride,pad,oH,oW));
+                        AccumGrad(n->b, NkGpuConvTranspose2DBackwardW(n->a->value, g, B,Cin,H,W,Cout,kH,kW,stride,pad,oH,oW));
+                        break;
+                    }
+                    NkTensor x = ToCpuT(n->a->value).Contiguous();  // [B,Cin,H,W]
+                    NkTensor w = ToCpuT(n->b->value).Contiguous();  // [Cin,Cout,kH,kW]
+                    NkTensor go = ToCpuT(g).Contiguous();           // [B,Cout,outH,outW]
                     const NkShape& xs = x.Shape(); const NkShape& ws = w.Shape();
                     const int64 B = xs[0], Cin = xs[1], H = xs[2], W = xs[3];
                     const int64 Cout = ws[1], kH = ws[2], kW = ws[3];
@@ -381,8 +521,8 @@ namespace nkentseu {
                             dwp[wi] += xp[xi] * gp[gi];
                         }
                     }
-                    AccumGrad(n->a, dX);
-                    AccumGrad(n->b, dW);
+                    AccumGrad(n->a, ToDevOf(dX, n->a->value));
+                    AccumGrad(n->b, ToDevOf(dW, n->b->value));
                     break;
                 }
 
@@ -398,8 +538,13 @@ namespace nkentseu {
 
                 case NkAutoOp::NK_CONV3D: {       // conv 3D : dX/dW explicites
                     const int32 stride = n->iparam[0], pad = n->iparam[1];
-                    NkTensor x = n->a->value.Contiguous(); NkTensor w = n->b->value.Contiguous();
-                    NkTensor go = g.Contiguous();
+                    if (g.Device() == NkDevice::NK_GPU) {   // résident GPU
+                        AccumGrad(n->a, NkGpuConv3DBackwardX(g, n->b->value, n->a->value, stride, pad));
+                        AccumGrad(n->b, NkGpuConv3DBackwardW(g, n->a->value, n->b->value, stride, pad));
+                        break;
+                    }
+                    NkTensor x = ToCpuT(n->a->value).Contiguous(); NkTensor w = ToCpuT(n->b->value).Contiguous();
+                    NkTensor go = ToCpuT(g).Contiguous();
                     const NkShape& xs = x.Shape(); const NkShape& ws = w.Shape();
                     const int64 B=xs[0],Cin=xs[1],Dd=xs[2],H=xs[3],W=xs[4];
                     const int64 Cout=ws[0],kD=ws[2],kH=ws[3],kW=ws[4];
@@ -419,14 +564,19 @@ namespace nkentseu {
                             dxp[xi]+=gg*wp[wi]; dwp[wi]+=gg*xp[xi];
                         }
                     }
-                    AccumGrad(n->a,dX); AccumGrad(n->b,dW);
+                    AccumGrad(n->a, ToDevOf(dX, n->a->value)); AccumGrad(n->b, ToDevOf(dW, n->b->value));
                     break;
                 }
 
                 case NkAutoOp::NK_CONVT3D: {      // conv transposée 3D : miroir du forward
                     const int32 stride = n->iparam[0], pad = n->iparam[1];
-                    NkTensor x = n->a->value.Contiguous(); NkTensor w = n->b->value.Contiguous();
-                    NkTensor go = g.Contiguous();
+                    if (g.Device() == NkDevice::NK_GPU) {   // résident GPU
+                        AccumGrad(n->a, NkGpuConvTranspose3DBackwardX(g, n->b->value, n->a->value, stride, pad));
+                        AccumGrad(n->b, NkGpuConvTranspose3DBackwardW(g, n->a->value, n->b->value, stride, pad));
+                        break;
+                    }
+                    NkTensor x = ToCpuT(n->a->value).Contiguous(); NkTensor w = ToCpuT(n->b->value).Contiguous();
+                    NkTensor go = ToCpuT(g).Contiguous();
                     const NkShape& xs = x.Shape(); const NkShape& ws = w.Shape();
                     const int64 B=xs[0],Cin=xs[1],Dd=xs[2],H=xs[3],W=xs[4];
                     const int64 Cout=ws[1],kD=ws[2],kH=ws[3],kW=ws[4];
@@ -446,12 +596,12 @@ namespace nkentseu {
                             dxp[xi]+=gp[gi]*wp[wi]; dwp[wi]+=xp[xi]*gp[gi];
                         }
                     }
-                    AccumGrad(n->a,dX); AccumGrad(n->b,dW);
+                    AccumGrad(n->a, ToDevOf(dX, n->a->value)); AccumGrad(n->b, ToDevOf(dW, n->b->value));
                     break;
                 }
 
                 case NkAutoOp::NK_SIGMOID_BCE: {  // dLogits = (sigmoid(logits) − cible)/N · dC
-                    double s = g.GetItem(NkShape{ (int64)0 });
+                    double s = ScalarOf(g);   // g peut résider sur GPU
                     int64 N = NkShapeNumel(n->a->value.Shape());
                     double coef = (N > 0) ? s / (double)N : 0.0;
                     NkTensor sig = ops::Sigmoid(n->a->value);
@@ -459,8 +609,54 @@ namespace nkentseu {
                     break;
                 }
 
+                case NkAutoOp::NK_PERMUTE: {      // backward = permutation inverse
+                    const uint32 r = n->a->value.Rank();
+                    NkShape inv; inv.Resize(r);
+                    for (uint32 i = 0; i < r; ++i) inv[(uint32)n->iparam[i]] = i;
+                    AccumGrad(n->a, g.Permute(inv).Contiguous());
+                    break;
+                }
+
+                case NkAutoOp::NK_GELU: {         // dx = g · GELU'(x)
+                    NkTensor dx = (g.Device() == NkDevice::NK_GPU || n->a->value.Device() == NkDevice::NK_GPU)
+                                  ? NkGpuGeluBackward(n->a->value, g) : GeluBackwardCpu(n->a->value, g);
+                    AccumGrad(n->a, dx);
+                    break;
+                }
+
+                case NkAutoOp::NK_EMBEDDING: {    // backward = scatter-add du grad vers la table
+                    const int64 vocab = n->a->value.Shape()[0], d = n->a->value.Shape()[1];
+                    NkTensor dt = (g.Device() == NkDevice::NK_GPU || n->a->value.Device() == NkDevice::NK_GPU)
+                                  ? NkGpuEmbeddingBackward(g, n->aux, vocab, d)
+                                  : EmbeddingBackwardCpu(g, n->aux, vocab, d);
+                    AccumGrad(n->a, dt);
+                    break;
+                }
+
+                case NkAutoOp::NK_SOFTMAX:
+                case NkAutoOp::NK_SOFTMAX_CAUSAL: {   // dx = y ⊙ (dy − Σ dy⊙y) ; y = sortie stockée
+                    NkTensor dx = (g.Device() == NkDevice::NK_GPU || n->value.Device() == NkDevice::NK_GPU)
+                                  ? NkGpuSoftmaxBackward(n->value, g)
+                                  : SoftmaxBackwardCpu(n->value, g);
+                    AccumGrad(n->a, dx);
+                    break;
+                }
+
+                case NkAutoOp::NK_LAYERNORM: {    // dx = invstd·(dy − mean(dy) − x̂·mean(dy·x̂))
+                    NkTensor dx = (g.Device() == NkDevice::NK_GPU || n->a->value.Device() == NkDevice::NK_GPU)
+                                  ? NkGpuLayerNormStdBackward(n->a->value, g)
+                                  : LayerNormStdBackwardCpu(n->a->value, g);
+                    AccumGrad(n->a, dx);
+                    break;
+                }
+
                 case NkAutoOp::NK_UPSAMPLE2X: {   // dIn[y,x] = Σ_{dy,dx} dOut[2y+dy, 2x+dx]
-                    NkTensor go = g.Contiguous();
+                    if (g.Device() == NkDevice::NK_GPU) {
+                        const NkShape& xsu = n->a->value.Shape();
+                        AccumGrad(n->a, NkGpuUpsample2xBackward(g, xsu[0], xsu[1], xsu[2], xsu[3]));
+                        break;
+                    }
+                    NkTensor go = ToCpuT(g).Contiguous();
                     const NkShape& xs = n->a->value.Shape();
                     const int64 B=xs[0], C=xs[1], H=xs[2], W=xs[3], oH=2*H, oW=2*W;
                     const float* gp = go.DataAs<float>();
@@ -472,7 +668,7 @@ namespace nkentseu {
                             s += gp[(((b*C+c)*oH+(2*y+dy))*oW+(2*x+dx))];
                         dp[(((b*C+c)*H+y)*W+x)] = (float)s;
                     }
-                    AccumGrad(n->a, dX);
+                    AccumGrad(n->a, ToDevOf(dX, n->a->value));
                     break;
                 }
             }
@@ -486,8 +682,8 @@ namespace nkentseu {
             // Réinitialise les accumulateurs (forme de la valeur), puis amorce la
             // racine (perte scalaire) à 1.
             for (uint32 i = 0; i < order.Size(); ++i)
-                order[i]->grad = NkTensor::Zeros(order[i]->value.Shape());
-            mNode->grad = NkTensor::Ones(mNode->value.Shape());
+                order[i]->grad = ToDevOf(NkTensor::Zeros(order[i]->value.Shape()), order[i]->value);
+            mNode->grad = ToDevOf(NkTensor::Ones(mNode->value.Shape()), mNode->value);
 
             // Remonte de la racine vers les feuilles (ordre post-fixe inversé).
             for (int64 i = (int64)order.Size() - 1; i >= 0; --i)
@@ -544,8 +740,8 @@ namespace nkentseu {
             NkVar SoftmaxCrossEntropy(const NkVar& logits, const NkVar& targetOneHot) {
                 // Forward stable : probs = softmax(logits) par ligne ; perte moyenne
                 //   L = −(1/B) Σ_b Σ_c onehot[b,c]·log(probs[b,c]).
-                NkTensor probs = SoftmaxRows(logits.Value());
-                NkTensor tc    = targetOneHot.Value().Contiguous();
+                NkTensor probs = SoftmaxRows(ToCpuT(logits.Value()));   // CPU-only
+                NkTensor tc    = ToCpuT(targetOneHot.Value()).Contiguous();
                 const NkShape& sh = probs.Shape();
                 const int64 B = sh.Size() >= 1 ? sh[0] : 1;
                 const int64 C = sh.Size() >= 2 ? sh[1] : NkShapeNumel(sh);
@@ -566,8 +762,8 @@ namespace nkentseu {
             NkVar SigmoidBCE(const NkVar& logits, const NkVar& target) {
                 // BCE-with-logits stable, moyennée :
                 //   L = mean( max(x,0) − x·t + log(1 + exp(−|x|)) )
-                NkTensor x = logits.Value().Contiguous();
-                NkTensor t = target.Value().Contiguous();
+                NkTensor x = ToCpuT(logits.Value()).Contiguous();   // CPU-only
+                NkTensor t = ToCpuT(target.Value()).Contiguous();
                 const int64 N = NkShapeNumel(x.Shape());
                 const float* xp = x.DataAs<float>();
                 const float* tp = t.DataAs<float>();
@@ -582,7 +778,9 @@ namespace nkentseu {
             }
 
             NkVar Upsample2x(const NkVar& a) {
-                NkTensor x = a.Value().Contiguous();
+                if (a.Value().Device() == NkDevice::NK_GPU)   // résident GPU
+                    return NkMakeOp(NkAutoOp::NK_UPSAMPLE2X, NkGpuUpsample2x(a.Value()), a.Node(), nullptr);
+                NkTensor x = ToCpuT(a.Value()).Contiguous();   // noyau CPU
                 const NkShape& xs = x.Shape();
                 const int64 B=xs[0], C=xs[1], H=xs[2], W=xs[3], oH=2*H, oW=2*W;
                 NkTensor out = NkTensor::Zeros(NkShape{ B, C, oH, oW });
@@ -593,7 +791,38 @@ namespace nkentseu {
                     for (int64 dy=0;dy<2;++dy) for (int64 dx=0;dx<2;++dx)
                         op[(((b*C+c)*oH+(2*y+dy))*oW+(2*x2+dx))] = v;
                 }
-                return NkMakeOp(NkAutoOp::NK_UPSAMPLE2X, out, a.Node(), nullptr);
+                return NkMakeOp(NkAutoOp::NK_UPSAMPLE2X, ToDevOf(out, a.Value()), a.Node(), nullptr);
+            }
+
+            NkVar LayerNorm(const NkVar& x) {
+                NkTensor y = (x.Value().Device() == NkDevice::NK_GPU)
+                             ? NkGpuLayerNormStd(x.Value()) : LayerNormStdCpu(x.Value());
+                return NkMakeOp(NkAutoOp::NK_LAYERNORM, y, x.Node(), nullptr);
+            }
+            NkVar Softmax(const NkVar& x) {
+                return NkMakeOp(NkAutoOp::NK_SOFTMAX, SoftmaxRows(x.Value()), x.Node(), nullptr);
+            }
+            NkVar SoftmaxCausal(const NkVar& x) {
+                NkTensor y = (x.Value().Device() == NkDevice::NK_GPU)
+                             ? NkGpuSoftmaxCausal(x.Value()) : SoftmaxCausalCpu(x.Value());
+                return NkMakeOp(NkAutoOp::NK_SOFTMAX_CAUSAL, y, x.Node(), nullptr);
+            }
+            NkVar Gelu(const NkVar& x) {
+                NkTensor y = (x.Value().Device() == NkDevice::NK_GPU) ? NkGpuGelu(x.Value()) : GeluCpu(x.Value());
+                return NkMakeOp(NkAutoOp::NK_GELU, y, x.Node(), nullptr);
+            }
+            NkVar Embedding(const NkVar& table, const NkTensor& indices) {
+                NkTensor out = (table.Value().Device() == NkDevice::NK_GPU)
+                               ? NkGpuEmbedding(table.Value(), indices) : EmbeddingCpu(table.Value(), indices);
+                NkVar v = NkMakeOp(NkAutoOp::NK_EMBEDDING, out, table.Node(), nullptr);
+                v.Node()->aux = indices;   // indices (non différentiables) pour le backward
+                return v;
+            }
+            NkVar Permute(const NkVar& x, const NkShape& order) {
+                NkTensor y = x.Value().Permute(order).Contiguous();
+                NkVar v = NkMakeOp(NkAutoOp::NK_PERMUTE, y, x.Node(), nullptr);
+                for (uint32 i = 0; i < order.Size() && i < 4; ++i) v.Node()->iparam[i] = (int32)order[i];
+                return v;
             }
 
             NkVar Conv2D(const NkVar& input, const NkVar& weight, int32 stride, int32 pad) {
@@ -620,7 +849,15 @@ namespace nkentseu {
             }
 
             NkVar MaxPool2D(const NkVar& input, int32 kernel, int32 stride) {
-                NkTensor x = input.Value().Contiguous();
+                if (input.Value().Device() == NkDevice::NK_GPU) {   // maxpool résident GPU
+                    NkTensor argG;
+                    NkTensor outG = NkGpuMaxPool2D(input.Value(), kernel, stride, argG);
+                    NkVar v = NkMakeOp(NkAutoOp::NK_MAXPOOL2D, outG, input.Node(), nullptr);
+                    v.Node()->iparam[0] = kernel; v.Node()->iparam[1] = stride;
+                    v.Node()->aux = argG;   // indices argmax (GPU)
+                    return v;
+                }
+                NkTensor x = ToCpuT(input.Value()).Contiguous();   // noyau CPU
                 const NkShape& xs = x.Shape();
                 const int64 B = xs[0], C = xs[1], H = xs[2], W = xs[3];
                 const int64 outH = (H - kernel) / stride + 1;
@@ -643,9 +880,9 @@ namespace nkentseu {
                     const int64 oidx = ((b * C + c) * outH + oy) * outW + ox;
                     op[oidx] = best; ap[oidx] = (float)bestIdx;
                 }
-                NkVar v = NkMakeOp(NkAutoOp::NK_MAXPOOL2D, out, input.Node(), nullptr);
+                NkVar v = NkMakeOp(NkAutoOp::NK_MAXPOOL2D, ToDevOf(out, input.Value()), input.Node(), nullptr);
                 v.Node()->iparam[0] = kernel; v.Node()->iparam[1] = stride;
-                v.Node()->aux = arg;
+                v.Node()->aux = arg;   // argmax gardé CPU
                 return v;
             }
 
@@ -655,8 +892,14 @@ namespace nkentseu {
             }
 
             NkVar ConvTranspose2D(const NkVar& input, const NkVar& weight, int32 stride, int32 pad) {
-                NkTensor x = input.Value().Contiguous();   // [B,Cin,H,W]
-                NkTensor w = weight.Value().Contiguous();  // [Cin,Cout,kH,kW]
+                if (input.Value().Device() == NkDevice::NK_GPU) {   // résident GPU
+                    NkTensor outG = NkGpuConvTranspose2D(input.Value(), weight.Value(), stride, pad);
+                    NkVar v = NkMakeOp(NkAutoOp::NK_CONVT2D, outG, input.Node(), weight.Node());
+                    v.Node()->iparam[0] = stride; v.Node()->iparam[1] = pad;
+                    return v;
+                }
+                NkTensor x = ToCpuT(input.Value()).Contiguous();   // [B,Cin,H,W] (CPU-only)
+                NkTensor w = ToCpuT(weight.Value()).Contiguous();  // [Cin,Cout,kH,kW]
                 const NkShape& xs = x.Shape(); const NkShape& ws = w.Shape();
                 const int64 B = xs[0], Cin = xs[1], H = xs[2], W = xs[3];
                 const int64 Cout = ws[1], kH = ws[2], kW = ws[3];
@@ -680,7 +923,7 @@ namespace nkentseu {
                             += xv * wp[((ic * Cout + oc) * kH + ky) * kW + kx];
                     }
                 }
-                NkVar v = NkMakeOp(NkAutoOp::NK_CONVT2D, out, input.Node(), weight.Node());
+                NkVar v = NkMakeOp(NkAutoOp::NK_CONVT2D, ToDevOf(out, input.Value()), input.Node(), weight.Node());
                 v.Node()->iparam[0] = stride; v.Node()->iparam[1] = pad;
                 return v;
             }
@@ -698,8 +941,12 @@ namespace nkentseu {
             }
 
             NkVar Conv3D(const NkVar& input, const NkVar& weight, int32 stride, int32 pad) {
-                NkTensor x = input.Value().Contiguous();  // [B,Cin,D,H,W]
-                NkTensor w = weight.Value().Contiguous(); // [Cout,Cin,kD,kH,kW]
+                if (input.Value().Device() == NkDevice::NK_GPU) {   // résident GPU
+                    NkVar v = NkMakeOp(NkAutoOp::NK_CONV3D, NkGpuConv3D(input.Value(), weight.Value(), stride, pad), input.Node(), weight.Node());
+                    v.Node()->iparam[0]=stride; v.Node()->iparam[1]=pad; return v;
+                }
+                NkTensor x = ToCpuT(input.Value()).Contiguous();  // [B,Cin,D,H,W] (CPU-only)
+                NkTensor w = ToCpuT(weight.Value()).Contiguous(); // [Cout,Cin,kD,kH,kW]
                 const NkShape& xs = x.Shape(); const NkShape& ws = w.Shape();
                 const int64 B=xs[0],Cin=xs[1],Dd=xs[2],H=xs[3],W=xs[4];
                 const int64 Cout=ws[0],kD=ws[2],kH=ws[3],kW=ws[4];
@@ -718,13 +965,17 @@ namespace nkentseu {
                     }
                     op[((((b*Cout+oc)*oD+od)*oH+oy)*oW+ox)] = (float)s;
                 }
-                NkVar v = NkMakeOp(NkAutoOp::NK_CONV3D, out, input.Node(), weight.Node());
+                NkVar v = NkMakeOp(NkAutoOp::NK_CONV3D, ToDevOf(out, input.Value()), input.Node(), weight.Node());
                 v.Node()->iparam[0]=stride; v.Node()->iparam[1]=pad; return v;
             }
 
             NkVar ConvTranspose3D(const NkVar& input, const NkVar& weight, int32 stride, int32 pad) {
-                NkTensor x = input.Value().Contiguous();  // [B,Cin,D,H,W]
-                NkTensor w = weight.Value().Contiguous(); // [Cin,Cout,kD,kH,kW]
+                if (input.Value().Device() == NkDevice::NK_GPU) {   // résident GPU
+                    NkVar v = NkMakeOp(NkAutoOp::NK_CONVT3D, NkGpuConvTranspose3D(input.Value(), weight.Value(), stride, pad), input.Node(), weight.Node());
+                    v.Node()->iparam[0]=stride; v.Node()->iparam[1]=pad; return v;
+                }
+                NkTensor x = ToCpuT(input.Value()).Contiguous();  // [B,Cin,D,H,W] (CPU-only)
+                NkTensor w = ToCpuT(weight.Value()).Contiguous(); // [Cin,Cout,kD,kH,kW]
                 const NkShape& xs = x.Shape(); const NkShape& ws = w.Shape();
                 const int64 B=xs[0],Cin=xs[1],Dd=xs[2],H=xs[3],W=xs[4];
                 const int64 Cout=ws[1],kD=ws[2],kH=ws[3],kW=ws[4];
@@ -741,7 +992,7 @@ namespace nkentseu {
                         op[((((b*Cout+oc)*oD+od)*oH+oy)*oW+ox)] += xv * wp[((((ic*Cout+oc)*kD+kz)*kH+ky)*kW+kx)];
                     }
                 }
-                NkVar v = NkMakeOp(NkAutoOp::NK_CONVT3D, out, input.Node(), weight.Node());
+                NkVar v = NkMakeOp(NkAutoOp::NK_CONVT3D, ToDevOf(out, input.Value()), input.Node(), weight.Node());
                 v.Node()->iparam[0]=stride; v.Node()->iparam[1]=pad; return v;
             }
 

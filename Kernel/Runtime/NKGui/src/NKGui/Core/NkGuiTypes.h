@@ -73,6 +73,10 @@ namespace nkentseu {
             Left = 0, Right, Up, Down, Home, End, Backspace, Delete, Enter, Escape,
             // Touches additionnelles pour les raccourcis (Ctrl+lettre, F2/F5, Tab, chiffres).
             Tab, F2, F5, C, D, H, L, N, Num1, Num2,
+            // Raccourcis éditeur (Phase 4) : G, K, /, [, ], Z/Y (undo/redo).
+            G, K, Slash, LBracket, RBracket, Z, Y,
+            // Zoom éditeur (Ctrl+-/Ctrl+=) : touches - et =.
+            Minus, Equal,
             Count
         };
 

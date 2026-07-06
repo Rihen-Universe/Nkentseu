@@ -114,22 +114,50 @@ namespace nkentseu {
                 return out;
             }
 
+            // Les noyaux GPU élémentaires exigent le MÊME nombre d'éléments. Pour un
+            // broadcast (ex. biais [1,N] + [B,N]), on retombe sur le CPU (qui gère le
+            // broadcast) en PRÉSERVANT le device -> résultat ramené sur GPU.
             NkTensor Add(const NkTensor& a, const NkTensor& b) {
-                // Dispatch selon le device : si un opérande est sur GPU, on calcule
-                // sur GPU (kernel NkSL) — « même API, deux backends ».
-                if (a.Device() == NkDevice::NK_GPU || b.Device() == NkDevice::NK_GPU)
-                    return NkGpuAdd(a, b);
+                if (a.Device() == NkDevice::NK_GPU || b.Device() == NkDevice::NK_GPU) {
+                    if (a.Numel() == b.Numel()) return NkGpuAdd(a, b);
+                    return Binary(a.ToCPU(), b.ToCPU(), BinOp::Add).ToGPU();   // broadcast
+                }
                 return Binary(a, b, BinOp::Add);
             }
-            NkTensor Sub(const NkTensor& a, const NkTensor& b) { return Binary(a, b, BinOp::Sub); }
-            NkTensor Mul(const NkTensor& a, const NkTensor& b) { return Binary(a, b, BinOp::Mul); }
-            NkTensor Div(const NkTensor& a, const NkTensor& b) { return Binary(a, b, BinOp::Div); }
+            NkTensor Sub(const NkTensor& a, const NkTensor& b) {
+                if (a.Device() == NkDevice::NK_GPU || b.Device() == NkDevice::NK_GPU) {
+                    if (a.Numel() == b.Numel()) return NkGpuSub(a, b);
+                    return Binary(a.ToCPU(), b.ToCPU(), BinOp::Sub).ToGPU();   // broadcast
+                }
+                return Binary(a, b, BinOp::Sub);
+            }
+            NkTensor Mul(const NkTensor& a, const NkTensor& b) {
+                if (a.Device() == NkDevice::NK_GPU || b.Device() == NkDevice::NK_GPU) {
+                    if (a.Numel() != b.Numel())
+                        return Binary(a.ToCPU(), b.ToCPU(), BinOp::Mul).ToGPU();   // broadcast
+                    return NkGpuMul(a, b);
+                }
+                return Binary(a, b, BinOp::Mul);
+            }
+            NkTensor Div(const NkTensor& a, const NkTensor& b) {
+                if (a.Device() == NkDevice::NK_GPU || b.Device() == NkDevice::NK_GPU) {
+                    if (a.Numel() == b.Numel()) return NkGpuDiv(a, b);
+                    return Binary(a.ToCPU(), b.ToCPU(), BinOp::Div).ToGPU();   // broadcast
+                }
+                return Binary(a, b, BinOp::Div);
+            }
 
             // ---- Unaire générique ---------------------------------------------
             static NkTensor Unary(const NkTensor& a, UnOp op, bool floatOnly) {
                 if (floatOnly && !NkDTypeIsFloat(a.DType())) {
                     fprintf(stderr, "[NkTensorOps] op unaire flottante sur dtype %s\n", NkDTypeName(a.DType()));
                     return NkTensor();
+                }
+                // Résidence GPU : Neg a un noyau (mul par -1) ; Exp/Sqrt/Abs n'en ont pas
+                // encore -> repli CPU en PRÉSERVANT le device (l'op fait un aller-retour).
+                if (a.Device() == NkDevice::NK_GPU) {
+                    if (op == UnOp::Neg) return NkGpuMulScalar(a, -1.0);
+                    return Unary(a.ToCPU(), op, floatOnly).ToGPU();
                 }
                 NkTensor out = NkTensor::Empty(a.Shape(), a.DType());
                 const int64 n = a.Numel();
@@ -161,13 +189,29 @@ namespace nkentseu {
 
             NkTensor Neg (const NkTensor& a) { return Unary(a, UnOp::Neg,  false); }
             NkTensor Abs (const NkTensor& a) { return Unary(a, UnOp::Abs,  false); }
-            NkTensor Exp (const NkTensor& a) { return Unary(a, UnOp::Exp,  true);  }
-            NkTensor Sqrt(const NkTensor& a) { return Unary(a, UnOp::Sqrt, true);  }
-            NkTensor Relu(const NkTensor& a) { return Unary(a, UnOp::Relu, false); }
-            NkTensor Sigmoid(const NkTensor& a) { return Unary(a, UnOp::Sigmoid, true); }
-            NkTensor Tanh(const NkTensor& a) { return Unary(a, UnOp::Tanh, true); }
+            NkTensor Exp (const NkTensor& a) {
+                if (a.Device() == NkDevice::NK_GPU) return NkGpuExp(a);
+                return Unary(a, UnOp::Exp, true);
+            }
+            NkTensor Sqrt(const NkTensor& a) {
+                if (a.Device() == NkDevice::NK_GPU) return NkGpuSqrt(a);
+                return Unary(a, UnOp::Sqrt, true);
+            }
+            NkTensor Relu(const NkTensor& a) {
+                if (a.Device() == NkDevice::NK_GPU) return NkGpuRelu(a);
+                return Unary(a, UnOp::Relu, false);
+            }
+            NkTensor Sigmoid(const NkTensor& a) {
+                if (a.Device() == NkDevice::NK_GPU) return NkGpuSigmoid(a);
+                return Unary(a, UnOp::Sigmoid, true);
+            }
+            NkTensor Tanh(const NkTensor& a) {
+                if (a.Device() == NkDevice::NK_GPU) return NkGpuTanh(a);
+                return Unary(a, UnOp::Tanh, true);
+            }
 
             NkTensor AddScalar(const NkTensor& a, double s) {
+                if (a.Device() == NkDevice::NK_GPU) return NkGpuAddScalar(a, s);
                 NkTensor out = NkTensor::Empty(a.Shape(), a.DType());
                 const int64 n = a.Numel();
                 NkTensor ac = a.IsContiguous() ? a : a.Contiguous();
@@ -179,6 +223,7 @@ namespace nkentseu {
                 return out;
             }
             NkTensor MulScalar(const NkTensor& a, double s) {
+                if (a.Device() == NkDevice::NK_GPU) return NkGpuMulScalar(a, s);
                 NkTensor out = NkTensor::Empty(a.Shape(), a.DType());
                 const int64 n = a.Numel();
                 NkTensor ac = a.IsContiguous() ? a : a.Contiguous();
@@ -190,8 +235,49 @@ namespace nkentseu {
                 return out;
             }
 
+            // ---- Produit de matrices par LOTS (rang > 2 : dims de tête = lots) ----
+            // a[..,M,K] · b[..,K,N] -> [..,M,N]. Dims de tête (lots) identiques des deux côtés.
+            static NkTensor MatmulBatched(const NkTensor& a, const NkTensor& b) {
+                const uint32 ra = a.Rank(), rb = b.Rank();
+                if (ra < 3 || rb != ra) {
+                    fprintf(stderr, "[NkTensorOps] Matmul batched : rangs incompatibles (a=%u,b=%u)\n", ra, rb);
+                    return NkTensor();
+                }
+                int64 batch = 1;
+                for (uint32 i = 0; i < ra - 2; ++i) {
+                    if (a.Shape()[i] != b.Shape()[i]) { fprintf(stderr, "[NkTensorOps] Matmul batched : lots differents\n"); return NkTensor(); }
+                    batch *= a.Shape()[i];
+                }
+                const int64 M = a.Shape()[ra-2], K = a.Shape()[ra-1];
+                const int64 N = b.Shape()[rb-1];
+                if (b.Shape()[rb-2] != K) { fprintf(stderr, "[NkTensorOps] Matmul batched : K incompatibles\n"); return NkTensor(); }
+                NkShape outShape; outShape.Resize(ra);
+                for (uint32 i = 0; i < ra-2; ++i) outShape[i] = a.Shape()[i];
+                outShape[ra-2] = M; outShape[ra-1] = N;
+                if (a.Device() == NkDevice::NK_GPU || b.Device() == NkDevice::NK_GPU) {
+                    NkTensor ar = a.Reshape(NkShape{ batch, M, K });
+                    NkTensor br = b.Reshape(NkShape{ batch, K, N });
+                    return NkGpuBatchedMatmul(ar, br).Reshape(outShape);
+                }
+                // CPU
+                NkTensor ac = a.IsContiguous() ? a : a.Contiguous();
+                NkTensor bc = b.IsContiguous() ? b : b.Contiguous();
+                NkTensor out = NkTensor::Zeros(outShape, a.DType());
+                const float* A = ac.DataAs<float>(); const float* B = bc.DataAs<float>(); float* C = out.DataAs<float>();
+                for (int64 bi = 0; bi < batch; ++bi) {
+                    const float* Ab = A + bi*M*K; const float* Bb = B + bi*K*N; float* Cb = C + bi*M*N;
+                    for (int64 i = 0; i < M; ++i)
+                        for (int64 k = 0; k < K; ++k) {
+                            const float aik = Ab[i*K+k]; const float* Brow = Bb + k*N; float* Crow = Cb + i*N;
+                            for (int64 j = 0; j < N; ++j) Crow[j] += aik * Brow[j];
+                        }
+                }
+                return out;
+            }
+
             // ---- Produit de matrices (2D, flottants) --------------------------
             NkTensor Matmul(const NkTensor& a, const NkTensor& b) {
+                if (a.Rank() > 2 || b.Rank() > 2) return MatmulBatched(a, b);   // par lots
                 // Dispatch GPU si un opérande y réside (kernel NkSL matmul).
                 if (a.Device() == NkDevice::NK_GPU || b.Device() == NkDevice::NK_GPU)
                     return NkGpuMatmul(a, b);
@@ -246,6 +332,7 @@ namespace nkentseu {
 
             // ---- Réductions globales ------------------------------------------
             NkTensor Sum(const NkTensor& a) {
+                if (a.Device() == NkDevice::NK_GPU) return NkGpuReduceAll(a, 0);
                 double acc = 0.0;
                 NkShape idx; ZeroIndex(idx, a.Rank());
                 if (a.Numel() > 0) do { acc += a.GetItem(idx); } while (NextIndex(idx, a.Shape()));
@@ -254,6 +341,7 @@ namespace nkentseu {
                 return out;
             }
             NkTensor Mean(const NkTensor& a) {
+                if (a.Device() == NkDevice::NK_GPU) return NkGpuReduceAll(a, 1);
                 const int64 n = a.Numel();
                 NkTensor s = Sum(a);
                 double v = s.GetItem(NkShape{ 0 }) / (n > 0 ? (double)n : 1.0);
@@ -261,6 +349,7 @@ namespace nkentseu {
                 return s;
             }
             NkTensor Max(const NkTensor& a) {
+                if (a.Device() == NkDevice::NK_GPU) return NkGpuReduceAll(a, 2);
                 NkShape idx; ZeroIndex(idx, a.Rank());
                 double m = 0.0; bool first = true;
                 if (a.Numel() > 0) do {
@@ -278,6 +367,20 @@ namespace nkentseu {
             static NkTensor ReduceAxis(const NkTensor& a, uint32 axis, RedKind kind) {
                 const uint32 r = a.Rank();
                 if (axis >= r) { fprintf(stderr, "[NkTensorOps] axe %u hors rang %u\n", axis, r); return NkTensor(); }
+
+                // Dispatch GPU (résidence). Argmax : calcul sur GPU (indices en f32) puis
+                // conversion en i64 (petit téléchargement des seuls indices).
+                if (a.Device() == NkDevice::NK_GPU) {
+                    if (kind == RedKind::Argmax) {
+                        NkTensor idxF = NkGpuReduceAxis(a, axis, 3).ToCPU();
+                        NkTensor out  = NkTensor::Empty(idxF.Shape(), NkDType::NK_I64);
+                        NkShape ii; ZeroIndex(ii, (uint32)idxF.Shape().Size());
+                        if (idxF.Numel() > 0) do { out.SetItem(ii, idxF.GetItem(ii)); } while (NextIndex(ii, idxF.Shape()));
+                        return out;
+                    }
+                    const int k = (kind == RedKind::Sum) ? 0 : (kind == RedKind::Mean) ? 1 : 2;
+                    return NkGpuReduceAxis(a, axis, k);
+                }
 
                 // Rang 1 : l'axe disparaît -> résultat scalaire {1}.
                 if (r == 1) {

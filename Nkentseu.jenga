@@ -941,6 +941,36 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKConvResidentBench/NKConvResidentBench.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKMlpResidentBench/NKMlpResidentBench.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKMnistGpuTrain/NKMnistGpuTrain.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKMnistCnnGpuTrain/NKMnistCnnGpuTrain.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKTransformerTest/NKTransformerTest.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKAutogradTest/NKAutogradTest.jenga"):
 
         pass

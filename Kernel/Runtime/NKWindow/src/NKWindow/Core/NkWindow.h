@@ -2,9 +2,9 @@
 
 // =============================================================================
 // NkWindow.h
-// Classe publique Window √¢‚Ç¨‚Äù impl√É¬©mentation concr√É¬®te.
-// Les membres platform-sp√É¬©cifiques sont encapsul√É¬©s dans NkWindowData,
-// d√É¬©fini par le backend platform (NkWin32Window.h, NkXLibWindow.h√¢‚Ç¨¬¶).
+// Classe publique Window ‚Äî impl√©mentation concr√®te.
+// Les membres platform-sp√©cifiques sont encapsul√©s dans NkWindowData,
+// d√©fini par le backend platform (NkWin32Window.h, NkXLibWindow.h‚Ä¶).
 //
 // Usage :
 //   nkentseu::NkInitialise();
@@ -21,7 +21,7 @@
 #include "NKEvent/NkSafeArea.h"
 #include "NkSurface.h"
 #include "NKEvent/NkWindowId.h"
-#include "NKEvent/NkSystemEvent.h"   // NkDisplayInfo, NkDisplayChange (√©num√©ration moniteurs)
+#include "NKEvent/NkSystemEvent.h"   // NkDisplayInfo, NkDisplayChange (ÈnumÈration moniteurs)
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKMath/NKMath.h"
@@ -61,7 +61,7 @@ namespace nkentseu {
     class NkEventSystem;
 
     // ---------------------------------------------------------------------------
-    // NkWindow √¢‚Ç¨‚Äù fa√É¬ßade de fen√É¬™tre cross-plateforme
+    // NkWindow ‚Äî fa√ßade de fen√™tre cross-plateforme
     // ---------------------------------------------------------------------------
 
     class NkWindow {
@@ -84,7 +84,7 @@ namespace nkentseu {
             // --- Identifiant ---
             NkWindowId GetId() const { return mId; }
 
-            // --- Propri√É¬©t√É¬©s ---
+            // --- Propri√©t√©s ---
             NkString            GetTitle() const;
             void                SetTitle(const NkString& title);
             math::NkVec2u       GetSize() const;
@@ -96,15 +96,15 @@ namespace nkentseu {
             NkWindowConfig      GetConfig() const;
 
             // --- Moniteurs / Display (hot-plug + DPI runtime) ---
-            // √ânum√®re tous les moniteurs connect√©s. Recalcule √† chaque appel
-            // (refl√®te l'√©tat courant ‚Äî utile apr√®s un NkSystemDisplayEvent de
-            // hot-plug). Le premier √©l√©ment n'est pas garanti d'√™tre le primaire :
+            // …numËre tous les moniteurs connectÈs. Recalcule ‡ chaque appel
+            // (reflËte l'Ètat courant ó utile aprËs un NkSystemDisplayEvent de
+            // hot-plug). Le premier ÈlÈment n'est pas garanti d'Ítre le primaire :
             // utiliser NkDisplayInfo::isPrimary pour l'identifier.
             NkVector<NkDisplayInfo> EnumerateMonitors() const;
-            // Moniteur qui contient (majoritairement) cette fen√™tre. Sur les
-            // plateformes mono-√©cran (mobile/web) retourne l'√©cran courant.
+            // Moniteur qui contient (majoritairement) cette fenÍtre. Sur les
+            // plateformes mono-Ècran (mobile/web) retourne l'Ècran courant.
             NkDisplayInfo           GetCurrentMonitor() const;
-            // Nombre de moniteurs connect√©s (>= 1 si au moins un √©cran).
+            // Nombre de moniteurs connectÈs (>= 1 si au moins un Ècran).
             uint32                  GetMonitorCount() const;
 
             // --- Manipulation ---
@@ -137,7 +137,7 @@ namespace nkentseu {
             // --- Android specifics ---
             void SetHideSystemUI(bool hide);          // Masquer status bar + navigation bar
             bool GetHideSystemUI() const;
-            void SetLockOrientation(bool lock);       // Emp√™cher la rotation
+            void SetLockOrientation(bool lock);       // EmpÍcher la rotation
             bool GetLockOrientation() const;
 
             // --- Souris ---
@@ -147,11 +147,11 @@ namespace nkentseu {
             void CaptureMouse(bool capture);
 
             // --- Curseur ---
-            // Forme du curseur dans la zone client (consomm√© par les UI : poign√©e de
-            // redimensionnement, lien cliquable, champ texte...). Mapp√© sur les
+            // Forme du curseur dans la zone client (consommÈ par les UI : poignÈe de
+            // redimensionnement, lien cliquable, champ texte...). MappÈ sur les
             // curseurs natifs (Win32 IDC_*, etc.). No-op sur mobile/web (sans curseur).
             enum class NkCursorType {
-                Arrow = 0,   ///< fl√®che standard
+                Arrow = 0,   ///< flËche standard
                 TextInput,   ///< I-beam (saisie texte)
                 Hand,        ///< main (lien)
                 ResizeNS,    ///< redimensionnement vertical  ‚Üï
@@ -159,8 +159,8 @@ namespace nkentseu {
                 ResizeNWSE,  ///< diagonale ‚Üò‚Üñ
                 ResizeNESW   ///< diagonale ‚Üó‚Üô
             };
-            // Persistant : √† rappeler chaque frame avec le curseur voulu (sinon, sur
-            // certaines plateformes, le syst√®me le r√©initialise √† la fl√®che).
+            // Persistant : ‡ rappeler chaque frame avec le curseur voulu (sinon, sur
+            // certaines plateformes, le systËme le rÈinitialise ‡ la flËche).
             void SetCursor(NkCursorType cursor);
 
             // Empeche le curseur de sortir de la zone client de la fenetre
@@ -172,48 +172,48 @@ namespace nkentseu {
             void ClipMouseToClient(bool clip);
 
             // --- Clavier logiciel (mobile : iOS / Android) ---
-            // Type de clavier logiciel demand√© ‚Äî influe sur la disposition des
-            // touches propos√©es par l'OS (mapp√© sur UIKeyboardType iOS / inputType
-            // Android). Ignor√© sur les plateformes √† clavier physique.
+            // Type de clavier logiciel demandÈ ó influe sur la disposition des
+            // touches proposÈes par l'OS (mappÈ sur UIKeyboardType iOS / inputType
+            // Android). IgnorÈ sur les plateformes ‡ clavier physique.
             enum class NkSoftKeyboardType {
-                Default = 0, ///< clavier alphanum√©rique standard
+                Default = 0, ///< clavier alphanumÈrique standard
                 Ascii,       ///< ASCII uniquement (identifiants, code)
-                Number,      ///< pav√© num√©rique (chiffres)
-                Phone,       ///< pav√© t√©l√©phone
-                Email,       ///< optimis√© e-mail (¬´ @ ¬ª accessible)
-                Url,         ///< optimis√© URL (¬´ / ¬ª ¬´ .com ¬ª accessibles)
-                Decimal      ///< num√©rique avec s√©parateur d√©cimal
+                Number,      ///< pavÈ numÈrique (chiffres)
+                Phone,       ///< pavÈ tÈlÈphone
+                Email,       ///< optimisÈ e-mail (´ @ ª accessible)
+                Url,         ///< optimisÈ URL (´ / ª ´ .com ª accessibles)
+                Decimal      ///< numÈrique avec sÈparateur dÈcimal
             };
-            // Libell√© / s√©mantique de la touche de retour du clavier logiciel.
+            // LibellÈ / sÈmantique de la touche de retour du clavier logiciel.
             enum class NkSoftKeyboardReturnKey {
                 Default = 0, Done, Go, Next, Search, Send
             };
-            // Options d'un clavier logiciel (valeurs par d√©faut = saisie de texte
-            // g√©n√©rique avec correction automatique).
+            // Options d'un clavier logiciel (valeurs par dÈfaut = saisie de texte
+            // gÈnÈrique avec correction automatique).
             struct NkSoftKeyboardConfig {
                 NkSoftKeyboardType      type      = NkSoftKeyboardType::Default;
                 NkSoftKeyboardReturnKey returnKey = NkSoftKeyboardReturnKey::Default;
                 bool autocorrect    = true;   ///< correction/suggestions automatiques
-                bool autocapitalize = false;  ///< majuscule auto en d√©but de phrase
-                bool secure         = false;  ///< champ mot de passe (saisie masqu√©e)
+                bool autocapitalize = false;  ///< majuscule auto en dÈbut de phrase
+                bool secure         = false;  ///< champ mot de passe (saisie masquÈe)
             };
-            // Affiche le clavier logiciel (mobile) et d√©marre une session de saisie.
-            // La saisie est ensuite d√©livr√©e par le syst√®me d'√©v√©nements :
-            //   - NkTextInputEvent  pour chaque caract√®re Unicode (via GetUtf8/GetCodepoint) ;
-            //   - NkKeyPressEvent/NkKeyReleaseEvent pour NK_BACK (retour arri√®re),
+            // Affiche le clavier logiciel (mobile) et dÈmarre une session de saisie.
+            // La saisie est ensuite dÈlivrÈe par le systËme d'ÈvÈnements :
+            //   - NkTextInputEvent  pour chaque caractËre Unicode (via GetUtf8/GetCodepoint) ;
+            //   - NkKeyPressEvent/NkKeyReleaseEvent pour NK_BACK (retour arriËre),
             //     NK_ENTER (retour) et NK_TAB (tabulation).
-            // √Ä appeler quand un champ texte prend le focus. No-op sur desktop
+            // ¿ appeler quand un champ texte prend le focus. No-op sur desktop
             // (clavier physique) et sur les backends sans clavier logiciel.
-            // NB : pas de d√©faut `= {}` ici ‚Äî clang-mingw (Windows) refuse un
-            // brace-init d'une struct imbriqu√©e √† initialiseurs par d√©faut tant que
-            // la classe englobante est incompl√®te ("default member initializer for
+            // NB : pas de dÈfaut `= {}` ici ó clang-mingw (Windows) refuse un
+            // brace-init d'une struct imbriquÈe ‡ initialiseurs par dÈfaut tant que
+            // la classe englobante est incomplËte ("default member initializer for
             // 'type' needed within definition of enclosing class"). Pour un appel
-            // "d√©fauts", passer explicitement `NkSoftKeyboardConfig{}`.
+            // "dÈfauts", passer explicitement `NkSoftKeyboardConfig{}`.
             void ShowSoftKeyboard(const NkSoftKeyboardConfig& config);
             // Masque le clavier logiciel et termine la session de saisie. No-op
-            // l√† o√π ShowSoftKeyboard l'est.
+            // l‡ o˘ ShowSoftKeyboard l'est.
             void HideSoftKeyboard();
-            // true si le clavier logiciel est actuellement affich√© par cette fen√™tre.
+            // true si le clavier logiciel est actuellement affichÈ par cette fenÍtre.
             bool IsSoftKeyboardVisible() const;
 
             // --- Web / WASM ---
@@ -229,7 +229,7 @@ namespace nkentseu {
             // --- Surface graphique ---
             NkSurfaceDesc GetSurfaceDesc() const;
 
-            // Platform data √¢‚Ç¨‚Äù accessed directly by backend .cpp files
+            // Platform data ‚Äî accessed directly by backend .cpp files
             struct NkWindowData mData;
 
             // Config accessible aux backends (.cpp plateforme), comme mData : permet

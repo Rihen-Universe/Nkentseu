@@ -20,13 +20,19 @@ namespace nkcode {
     using namespace nkentseu::editorkit;
     using namespace nkentseu::nkgui;
 
-    // État local (un seul combo ouvert à la fois).
-    struct NkTbState { int32 open = -1; NkRect openR{}; bool justOpened = false; };
+    // État local (un seul combo ouvert à la fois). `scroll` = défilement du dropdown
+    // (listes longues : projets/tests/compilateurs) ; `scrollDrag` = glissement du pouce.
+    struct NkTbState { int32 open = -1; NkRect openR{}; bool justOpened = false;
+                       float32 scroll = 0.f; bool scrollDrag = false; float32 scrollDragOff = 0.f; };
     inline NkTbState& NkTb() { static NkTbState s; return s; }
 
     inline void DrawCodeToolbar(NkEditorFrameContext& ec, NkCodeState* s) {
         if (!s) return;
         s->ScanWorkspaces(); s->TickWatch(ec.dt); s->LoadProjects(); s->PollProjects();
+        s->PollFlags(); s->PollMacros(); s->PollDiagnostics(); s->TickDiagnostics(ec.dt);   // flags + macros préproc + diagnostics LIVE (squiggles, débounce)
+        s->ProcessNavigation(); s->PollNav(); s->ProcessNavPick();   // Ctrl+clic : include / go-to-def (thread) / choix liste (différé hors rendu)
+        s->TickSession(ec.dt);   // persistance session : onglets + contenu non sauvegardé (hot-exit / reprise crash)
+        s->TickFileWatch(ec.dt); // détecte suppression / modification EXTERNE des fichiers ouverts
 
         const NkUi u = NkUi::From(ec);
         const NkRect r = ec.Ui().layout.region;   // bornes de la toolbar (46px)
@@ -99,54 +105,94 @@ namespace nkcode {
         if (s->testIdx >= 0 && !s->TestVisible(s->testIdx)) s->testIdx = -1;
         const char* testPrev = (s->testIdx >= 0 && s->TestVisible(s->testIdx)) ? s->tests[s->testIdx].CStr() : NkT("tb.alltests");
 
-        // ── Largeurs & centrage ──
-        const float32 wSol = u.s(140), wProj = u.s(120), wPlat = u.s(104), wCfg = u.s(92), wArch = u.s(92), wTest = u.s(140);
-        const float32 gap = u.s(6), sep = u.s(10);
+        // Compilateur : combo CONDITIONNEL — n'apparait QUE si la plateforme courante
+        // a >=2 compilateurs detectes (sinon aucun choix a faire). Filtre reel `jenga info`.
+        s->ValidateCompilerForPlatform();
+        const NkVector<int32> comps = s->CompilersForCurrentPlatform();
+        const bool  hasCompiler = comps.Size() >= 2;
+        const char* compPrev = s->compilerName.Empty() ? NkT("tb.compilerauto") : s->compilerName.CStr();
+
+        // ── Largeurs des contrôles ──
+        const float32 wSol = u.s(140), wProj = u.s(120), wPlat = u.s(104), wCfg = u.s(92), wArch = u.s(92), wTest = u.s(140), wComp = u.s(120), wSearch = u.s(150);
+        const float32 gap = u.s(6), sep = u.s(14);
         auto btnW = [&](const char* l) { return u.s(12) + u.s(6) + u.TextW(l) + u.s(20); };
-        float32 total = wSol + u.s(14) + wProj + sep + wPlat + gap + wCfg + gap + wArch + sep + (hasTests ? wTest + sep : 0.f)
-                      + btnW(NkT("tb.build")) + gap + btnW(NkT("tb.rebuild")) + gap + btnW(NkT("tb.clean")) + sep
-                      + btnW(NkT("tb.run")) + gap + btnW(NkT("tb.debug")) + gap + btnW(NkT("tb.test")) + sep + u.s(150);
-        float32 x = r.x + (r.w - total) * 0.5f; if (x < r.x + u.s(8)) x = r.x + u.s(8);
+        (void)vsep;
 
-        combo(x, NkT("tb.solution"), wsPrev, TEX(ic ? ic->jenga : 0), "git-branch", true, 0, wSol); x += wSol + u.s(6);
-        u.Text(x, ctrlY + (ctrlH - u.Lh()) * 0.5f, "\xE2\x80\xBA", NkCol::border); x += u.s(8);
-        combo(x, NkT("tb.projet"), projPrev, TEX(ic ? ic->pkg : 0), "package", false, 1, wProj); x += wProj + sep; vsep(x - sep * 0.5f);
-        combo(x, NkT("tb.plateforme"), SY.name, TEX(ic ? ic->monitor : 0), "monitor", false, 2, wPlat); x += wPlat + gap;
-        combo(x, NkT("tb.config"), kCfg[cfgI], TEX(ic ? ic->kConfig : 0), "settings", false, 3, wCfg); x += wCfg + gap;
-        combo(x, NkT("tb.archi"), archPrev, TEX(ic ? ic->platforms : 0), "cpu", false, 4, wArch); x += wArch + sep; vsep(x - sep * 0.5f);
-        if (hasTests) { combo(x, NkT("tb.tests"), testPrev, TEX(ic ? ic->kTest : 0), "flask", false, 5, wTest); x += wTest + sep; vsep(x - sep * 0.5f); }
-
-        // Groupe Build
-        float32 xB = x; float32 wB = btn(x, NkT("tb.build"), TEX(ic ? ic->hammer : 0), "hammer", 0, nullptr);
-        const NkRect bBuild = { xB, cyBtn - u.s(13), wB, u.s(26) }; x += wB + gap;
-        float32 xR = x; float32 wR = btn(x, NkT("tb.rebuild"), TEX(ic ? ic->rebuild : 0), "refresh", 0, nullptr);
-        const NkRect bRebuild = { xR, cyBtn - u.s(13), wR, u.s(26) }; x += wR + gap;
-        float32 wClean = btn(x, NkT("tb.clean"), TEX(ic ? ic->eraser : 0), "eraser", 0, nullptr);
-        const NkRect bClean = { x, cyBtn - u.s(13), wClean, u.s(26) }; x += wClean + sep; vsep(x - sep * 0.5f);
-        // Groupe Run/Debug/Test
-        float32 wRun = btn(x, NkT("tb.run"), TEX(ic ? ic->play : 0), "play", 1, nullptr);
-        const NkRect bRun = { x, cyBtn - u.s(13), wRun, u.s(26) }; x += wRun + gap;
-        float32 wDbg = btn(x, NkT("tb.debug"), TEX(ic ? ic->bug : 0), "bug", 0, nullptr);
-        const NkRect bDbg = { x, cyBtn - u.s(13), wDbg, u.s(26) }; x += wDbg + gap;
+        // ── Modèle de SEGMENTS (ordre visuel) : permet un repli PROGRESSIF quand la
+        // barre est trop étroite. Chaque segment porte sa largeur + une priorité (plus
+        // haute = gardée plus longtemps ; 1000 = jamais repliée). Build/Run ne sont
+        // jamais repliés. Le surplus va derrière un bouton « » » qui ouvre un menu.
+        struct Seg { int32 kind; int32 id; float32 w; int32 prio; bool grp;
+                     const char* label; const char* value; uint32 tex; const char* drawn; bool accent;
+                     int32 variant; const char* badge; };
+        NkVector<Seg> segs;
+        auto C = [&](int32 id, float32 w, int32 prio, bool grp, const char* label, const char* value, uint32 tex, const char* drawn, bool accent){ segs.PushBack({ 0, id, w, prio, grp, label, value, tex, drawn, accent, 0, nullptr }); };
+        auto Bt = [&](int32 id, int32 prio, bool grp, const char* label, uint32 tex, const char* drawn, int32 variant, const char* badge){ segs.PushBack({ 1, id, btnW(label), prio, grp, label, nullptr, tex, drawn, false, variant, badge }); };
         char testBadge[8] = ""; if (nTestVis > 0) std::snprintf(testBadge, sizeof(testBadge), "%d", nTestVis);
-        float32 wTst = btn(x, NkT("tb.test"), TEX(ic ? ic->kTest : 0), "flask", 2, hasTests ? testBadge : nullptr);
-        const NkRect bTst = { x, cyBtn - u.s(13), wTst, u.s(26) }; x += wTst + sep; vsep(x - sep * 0.5f);
-        // Recherche rapide (même hauteur que le reste)
-        { const NkRect sb = { x, ctrlY, u.s(150), ctrlH }; u.Panel(sb, NkCol::input, NkCol::border, NkR::sm * u.S);
-          NkOwIco(u, TEX(ic ? ic->search : 0), "search", { sb.x + u.s(9), ctrlY + (ctrlH - u.s(12)) * 0.5f, u.s(12), u.s(12) }, NkCol::mutedFg);
-          u.Text(sb.x + u.s(27), ctrlY + (ctrlH - u.Lh()) * 0.5f, NkT("tb.quicksearch"), NkCol::mutedFg); }
+        C(0, wSol, 90, false, NkT("tb.solution"),   wsPrev,      TEX(ic ? ic->jenga : 0),      "git-branch", true);
+        C(1, wProj, 40, false, NkT("tb.projet"),     projPrev,    TEX(ic ? ic->pkg : 0),        "package",    false);
+        C(2, wPlat, 85, true,  NkT("tb.plateforme"), SY.name,     TEX(ic ? ic->monitor : 0),    "monitor",    false);
+        C(3, wCfg, 70, false,  NkT("tb.config"),     kCfg[cfgI],  TEX(ic ? ic->kConfig : 0),    "settings",   false);
+        C(4, wArch, 35, false, NkT("tb.archi"),      archPrev,    TEX(ic ? ic->platforms : 0),  "cpu",        false);
+        if (hasCompiler) C(6, wComp, 30, false, NkT("tb.compiler"), compPrev, TEX(ic ? ic->toolchains : 0), "config", false);
+        if (hasTests)    C(5, wTest, 25, false, NkT("tb.tests"),    testPrev, TEX(ic ? ic->kTest : 0),      "flask",  false);
+        Bt(0, 1000, true, NkT("tb.build"),   TEX(ic ? ic->hammer : 0),  "hammer",  0, nullptr);
+        Bt(1, 55, false,  NkT("tb.rebuild"), TEX(ic ? ic->rebuild : 0), "refresh", 0, nullptr);
+        Bt(2, 50, false,  NkT("tb.clean"),   TEX(ic ? ic->eraser : 0),  "eraser",  0, nullptr);
+        Bt(3, 1000, true, NkT("tb.run"),     TEX(ic ? ic->play : 0),    "play",    1, nullptr);
+        Bt(4, 45, false,  NkT("tb.debug"),   TEX(ic ? ic->bug : 0),     "bug",     0, nullptr);
+        Bt(5, 65, false,  NkT("tb.test"),    TEX(ic ? ic->kTest : 0),   "flask",   2, hasTests ? testBadge : nullptr);
+        segs.PushBack({ 2, -1, wSearch, 10, true, NkT("tb.quicksearch"), nullptr, TEX(ic ? ic->search : 0), "search", false, 0, nullptr });   // recherche : repliée en 1er, absente du menu
 
-        // ── Actions (clic sur les boutons) ──
-        if (u.Hit(bBuild)   && u.click) s->DoBuildAction("build");
-        if (u.Hit(bRebuild) && u.click) s->DoBuildAction("rebuild");
-        if (u.Hit(bClean)   && u.click) s->DoClean();
-        if (u.Hit(bRun)     && u.click) s->DoRun();
-        if (u.Hit(bDbg)     && u.click) s->DoRun();            // debug -> run (câblage debug ultérieur)
-        if (u.Hit(bTst)     && u.click && hasTests) s->DoTest();
+        // Largeur totale + décision de repli.
+        auto sgGap = [&](usize i){ return (i == 0) ? 0.f : (segs[i].grp ? sep : gap); };
+        float32 contentW = 0.f; for (usize i = 0; i < segs.Size(); ++i) contentW += segs[i].w + sgGap(i);
+        const float32 margin = u.s(8), ovBtnW = u.s(30);
+        const float32 avail = r.w - 2.f * margin;
+        const bool overflow = contentW > avail;
+
+        bool vis[24]; for (usize i = 0; i < segs.Size(); ++i) vis[i] = true;
+        NkVector<int32> dropped;
+        if (overflow) {
+            while (true) {
+                float32 w = 0.f; bool first = true;
+                for (usize i = 0; i < segs.Size(); ++i) if (vis[i]) { w += segs[i].w + (first ? 0.f : (segs[i].grp ? sep : gap)); first = false; }
+                if (w + ovBtnW + gap <= avail) break;
+                int32 lo = -1; for (usize i = 0; i < segs.Size(); ++i) if (vis[i] && segs[i].prio < 1000 && (lo < 0 || segs[i].prio < segs[(usize)lo].prio)) lo = (int32)i;
+                if (lo < 0) break;
+                vis[(usize)lo] = false; dropped.PushBack(lo);
+            }
+        }
+
+        // Actions boutons (id) + dessin d'un segment à x.
+        auto doBtn = [&](int32 aid){ switch (aid){ case 0: s->DoBuildAction("build"); break; case 1: s->DoBuildAction("rebuild"); break; case 2: s->DoClean(); break; case 3: s->DoRun(); break; case 4: s->DoRun(); break; case 5: if (hasTests) s->DoTest(); break; } };
+        auto drawSeg = [&](const Seg& sg, float32 sx){
+            if (sg.kind == 0) combo(sx, sg.label, sg.value, sg.tex, sg.drawn, sg.accent, sg.id, sg.w);
+            else if (sg.kind == 1) { btn(sx, sg.label, sg.tex, sg.drawn, sg.variant, sg.badge);
+                const NkRect b = { sx, cyBtn - u.s(13), sg.w, u.s(26) }; if (tb.open < 0 && u.Hit(b) && u.click) doBtn(sg.id); }
+            else { const NkRect sb = { sx, ctrlY, sg.w, ctrlH }; u.Panel(sb, NkCol::input, NkCol::border, NkR::sm * u.S);
+                NkOwIco(u, sg.tex, "search", { sb.x + u.s(9), ctrlY + (ctrlH - u.s(12)) * 0.5f, u.s(12), u.s(12) }, NkCol::mutedFg);
+                u.Text(sb.x + u.s(27), ctrlY + (ctrlH - u.Lh()) * 0.5f, sg.label, NkCol::mutedFg); }
+        };
+
+        float32 startX = overflow ? (r.x + margin) : (r.x + (r.w - contentW) * 0.5f);
+        if (startX < r.x + margin) startX = r.x + margin;
+        { float32 cx = startX; bool first = true;
+          for (usize i = 0; i < segs.Size(); ++i) if (vis[i]) { if (!first) cx += (segs[i].grp ? sep : gap); drawSeg(segs[i], cx); cx += segs[i].w; first = false; } }
+
+        // Bouton de repli « » » (seulement si des segments ont été repliés).
+        NkRect ovBtn = { 0, 0, 0, 0 }; const bool hasOv = !dropped.Empty();
+        if (hasOv) {
+            ovBtn = { r.x + r.w - margin - ovBtnW, ctrlY, ovBtnW, ctrlH };
+            const bool ovOpen = (tb.open == 100);
+            u.Panel(ovBtn, ovOpen ? NkCol::secondary : NkCol::muted, ovOpen ? NkCol::primary : NkCol::border, NkR::sm * u.S);
+            u.Text(ovBtn.x + (ovBtnW - u.TextW("\xC2\xBB")) * 0.5f, ctrlY + (ctrlH - u.Lh()) * 0.5f, "\xC2\xBB", NkCol::foreground);
+            if (u.Hit(ovBtn) && u.click) { if (ovOpen) tb.open = -1; else { tb.open = 100; tb.openR = ovBtn; tb.justOpened = true; } }
+        } else if (tb.open == 100) tb.open = -1;   // plus rien de replié -> ferme le menu
 
         // ── Dropdown différé (par-dessus TOUT : couche overlay, sinon l'éditeur le recouvre) ──
         const bool ddWasOpen = (tb.open >= 0);   // (le clic de fermeture est consommé aussi -> pas de fuite vers le corps)
-        if (tb.open >= 0) {
+        if (tb.open >= 0 && tb.open < 100) {
             const NkUi uo = NkUi::From(ec, /*overlay*/true);   // dessine dans dlOverlay (composité en dernier)
             const NkRect a = tb.openR;
             struct Item { NkString label; int32 idx; };
@@ -158,17 +204,40 @@ namespace nkcode {
                 case 3: for (int32 i = 0; i < 3; ++i) items.PushBack({ NkString(kCfg[i]), i }); curSel = cfgI; break;
                 case 4: { for (int32 i = 0; i < SY.nArch; ++i) items.PushBack({ NkString(SY.archs[i]), i }); items.PushBack({ NkString(NkT("tb.all")), SY.nArch }); curSel = s->archIdx; } break;
                 case 5: { items.PushBack({ NkString(NkT("tb.alltests")), -1 }); for (int32 i = 0; i < (int32)s->tests.Size(); ++i) if (s->TestVisible(i)) items.PushBack({ s->tests[i], i }); curSel = s->testIdx; } break;
+                case 6: { items.PushBack({ NkString(NkT("tb.compilerauto")), -1 });
+                          const NkVector<int32> cs = s->CompilersForCurrentPlatform();
+                          for (usize i = 0; i < cs.Size(); ++i) { items.PushBack({ s->toolchains[cs[i]].name, (int32)i });
+                              if (NkCodeState::StrEqI(s->toolchains[cs[i]].name.CStr(), s->compilerName.CStr())) curSel = (int32)i; } } break;
             }
             const float32 ih = u.s(24);
+            if (tb.justOpened) tb.scroll = 0.f;
+            // Largeur BORNÉE (ellipse au-delà) -> pas de scroll horizontal nécessaire.
             float32 ddw = a.w; for (usize i = 0; i < items.Size(); ++i) { const float32 tw = u.TextW(items[i].label.CStr()) + u.s(28); if (tw > ddw) ddw = tw; }
+            const float32 maxDdw = u.s(340); if (ddw > maxDdw) ddw = maxDdw;
+            // Hauteur PLAFONNÉE par l'écran -> défilement vertical si trop d'items.
+            const float32 pad = u.s(6);
+            const float32 contentH = (float32)items.Size() * ih + pad;
+            float32 maxH = (float32)ec.Ui().viewH - (a.y + a.h + u.s(2)) - u.s(12);
+            if (maxH > u.s(440)) maxH = u.s(440); if (maxH < ih + pad) maxH = ih + pad;
+            const bool  scroll = contentH > maxH;
+            const float32 ddh = scroll ? maxH : contentH;
+            const float32 sbW = scroll ? u.s(10) : 0.f;
             float32 ddx = a.x; if (ddx + ddw > r.x + r.w - u.s(8)) ddx = r.x + r.w - u.s(8) - ddw;
-            const NkRect dd = { ddx, a.y + a.h + u.s(2), ddw, items.Size() * ih + u.s(6) };
+            const NkRect dd = { ddx, a.y + a.h + u.s(2), ddw, ddh };
             uo.dl->AddRectFilled({ dd.x + u.s(2), dd.y + u.s(3), dd.w, dd.h }, NkColor{ 0,0,0,110 }, NkR::md * u.S);
             uo.Panel(dd, NkCol::surface, NkCol::primary, NkR::md * u.S);
+            const float32 maxScroll = scroll ? (contentH - ddh) : 0.f;
+            if (scroll && u.Hit(dd)) { tb.scroll -= ec.Ui().input.wheel * ih * 2.f; ec.Ui().input.wheel = 0.f; }
+            if (tb.scroll < 0.f) tb.scroll = 0.f; if (tb.scroll > maxScroll) tb.scroll = maxScroll;
+            const NkRect inner = { dd.x, dd.y + u.s(3), dd.w - sbW, ddh - u.s(6) };
+            uo.dl->PushClipRect(inner, true);
             bool chose = false;
             for (usize i = 0; i < items.Size(); ++i) {
-                const NkRect ir = { dd.x + u.s(4), dd.y + u.s(3) + (float32)i * ih, dd.w - u.s(8), ih };
-                const bool hv = u.Hit(ir); const bool selrow = (items[i].idx == curSel);
+                const float32 iy = dd.y + u.s(3) + (float32)i * ih - tb.scroll;
+                if (iy + ih < inner.y || iy > inner.y + inner.h) continue;   // hors vue
+                const NkRect ir = { dd.x + u.s(4), iy, dd.w - u.s(8) - sbW, ih };
+                const bool vis2 = (iy >= inner.y - 1.f && iy + ih <= inner.y + inner.h + 1.f);
+                const bool hv = vis2 && u.Hit(ir); const bool selrow = (items[i].idx == curSel);
                 if (hv || selrow) uo.Rect(ir, NkCol::hover, NkR::sm * u.S);
                 uo.TextEllipsis(ir.x + u.s(8), ir.y + (ih - u.Lh()) * 0.5f, ir.w - u.s(12), items[i].label.CStr(), selrow ? NkCol::primary : NkCol::foreground);
                 if (hv && u.click) {
@@ -179,21 +248,75 @@ namespace nkcode {
                         case 3: s->cfgIdx = items[i].idx; break;
                         case 4: s->archIdx = items[i].idx; break;
                         case 5: s->testIdx = items[i].idx; break;
+                        case 6: if (items[i].idx < 0) s->compilerName = NkString();
+                                else { const NkVector<int32> cs = s->CompilersForCurrentPlatform();
+                                       if (items[i].idx < (int32)cs.Size()) s->compilerName = s->toolchains[cs[items[i].idx]].name; } break;
                     }
                     chose = true;
                 }
             }
-            if (chose || (u.click && !u.Hit(dd) && !tb.justOpened)) tb.open = -1;
+            uo.dl->PopClipRect();
+            // Barre de défilement verticale UNIFORME (thème-aware) + glissement du pouce.
+            if (scroll) {
+                const NkRect track = { dd.x + dd.w - sbW, dd.y + u.s(2), sbW, ddh - u.s(4) };
+                uo.dl->AddRectFilled(track, NkScrollTrack(), sbW * 0.5f);
+                float32 thh = track.h * (ddh / contentH); if (thh < u.s(24)) thh = u.s(24); if (thh > track.h) thh = track.h;
+                const float32 ty = track.y + (maxScroll > 0.f ? (tb.scroll / maxScroll) : 0.f) * (track.h - thh);
+                const NkRect thumb = { track.x + u.s(2), ty, sbW - u.s(4), thh };
+                const bool thov = u.Hit(thumb);
+                if (u.click && thov) { tb.scrollDrag = true; tb.scrollDragOff = u.mp.y - ty; }
+                if (tb.scrollDrag) {
+                    if (!u.down) tb.scrollDrag = false;
+                    else if (track.h - thh > 0.f) { tb.scroll = ((u.mp.y - tb.scrollDragOff - track.y) / (track.h - thh)) * maxScroll;
+                        if (tb.scroll < 0.f) tb.scroll = 0.f; if (tb.scroll > maxScroll) tb.scroll = maxScroll; }
+                }
+                uo.dl->AddRectFilled(thumb, NkScrollThumb(tb.scrollDrag || thov), (sbW - u.s(4)) * 0.5f);
+            }
+            if (chose || (u.click && !u.Hit(dd) && !tb.justOpened && !tb.scrollDrag)) tb.open = -1;
             tb.justOpened = false;
         }
-        // MODAL : tant qu'un dropdown est (ou vient d'être) ouvert, le corps (éditeur/panneaux,
-        // dessinés APRÈS la toolbar) ne doit recevoir NI survol NI clic -> on neutralise l'input.
-        if (ddWasOpen) {
-            auto& in = ec.Ui().input;
-            in.mousePos = { -1.0e6f, -1.0e6f };
-            for (int32 k = 0; k < 3; ++k) { in.mouseClicked[k] = false; in.mouseDown[k] = false; in.mouseDoubleClicked[k] = false; }
-            in.wheel = in.wheelH = 0.f; in.charCount = 0;
+
+        // ── Menu de REPLI (overflow) : liste les segments masqués. Un combo y ouvre
+        // son propre dropdown (bascule tb.open sur son id) ; un bouton exécute son action. ──
+        if (tb.open == 100 && hasOv) {
+            const NkUi uo = NkUi::From(ec, /*overlay*/true);
+            int32 nrows = 0; float32 mw = u.s(190);
+            for (usize k = 0; k < dropped.Size(); ++k) { const Seg& sg = segs[dropped[k]]; if (sg.kind == 2) continue; ++nrows;
+                float32 tw = u.TextW(sg.label) + (sg.value ? u.TextW(sg.value) : 0.f) + u.s(70); if (tw > mw) mw = tw; }
+            const float32 ih = u.s(28);
+            float32 mx = ovBtn.x + ovBtn.w - mw; if (mx < r.x + u.s(8)) mx = r.x + u.s(8);
+            const NkRect mm = { mx, ovBtn.y + ovBtn.h + u.s(2), mw, nrows * ih + u.s(6) };
+            uo.dl->AddRectFilled({ mm.x + u.s(2), mm.y + u.s(3), mm.w, mm.h }, NkColor{ 0,0,0,110 }, NkR::md * u.S);
+            uo.Panel(mm, NkCol::surface, NkCol::primary, NkR::md * u.S);
+            bool chose = false; float32 ry = mm.y + u.s(3);
+            for (usize k = 0; k < dropped.Size(); ++k) {
+                const Seg& sg = segs[dropped[k]]; if (sg.kind == 2) continue;
+                const NkRect ir = { mm.x + u.s(4), ry, mm.w - u.s(8), ih }; const bool hv = u.Hit(ir);
+                if (hv) uo.Rect(ir, NkCol::hover, NkR::sm * u.S);
+                NkOwIco(uo, sg.tex, sg.drawn, { ir.x + u.s(8), ry + (ih - u.s(13)) * 0.5f, u.s(13), u.s(13) }, sg.accent ? NkCol::primary : NkCol::mutedFg);
+                uo.Text(ir.x + u.s(32), ry + (ih - u.Lh()) * 0.5f, sg.label, NkCol::foreground);
+                if (sg.kind == 0) {
+                    if (sg.value) uo.TextEllipsis(ir.x + mm.w * 0.5f, ry + (ih - u.Lh()) * 0.5f, mm.w * 0.5f - u.s(24), sg.value, NkCol::mutedFg);
+                    NkOwIco(uo, 0u, "chevron-right", { ir.x + ir.w - u.s(14), ry + (ih - u.s(9)) * 0.5f, u.s(9), u.s(9) }, NkCol::mutedFg);
+                }
+                if (hv && u.click) {
+                    if (sg.kind == 0) { tb.open = sg.id; tb.openR = ir; tb.justOpened = true; }
+                    else { doBtn(sg.id); tb.open = -1; }
+                    chose = true;
+                }
+                ry += ih;
+            }
+            if (!chose && u.click && !u.Hit(mm) && !u.Hit(ovBtn) && !tb.justOpened) tb.open = -1;
+            tb.justOpened = false;
         }
+        // MODAL : tant qu'un dropdown est (ou vient d'être) ouvert, le corps
+        // (éditeur/panneaux, dessinés APRÈS la toolbar) ne doit recevoir ni survol ni
+        // clic. On lève `appModal` : le shell masque alors l'input du corps de façon
+        // NON DESTRUCTIVE (save/restore de ec.Ui().input autour des panneaux). L'ancienne
+        // approche écrasait mousePos/mouseDown en PERSISTANT — or mousePos n'est rafraîchi
+        // que sur mouvement souris — ce qui gelait l'input et rendait les combos non
+        // modifiables. `ddWasOpen` (état AVANT fermeture) protège aussi le clic de fermeture.
+        if (ddWasOpen) ec.Ui().appModal = true;
     }
 
 } // namespace nkcode
