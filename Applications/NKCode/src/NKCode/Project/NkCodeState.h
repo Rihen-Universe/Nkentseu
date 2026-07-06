@@ -42,6 +42,7 @@ namespace nkcode {
         int64      diskMtime = 0;       // date de modif sur disque au dernier open/save (detection externe)
         bool       deletedOnDisk = false;  // le fichier a ete supprime en dehors de NKCode
         bool       changedOnDisk = false;  // le fichier a ete modifie en dehors de NKCode
+        float32    codeZoom = 0.f;          // taille police PROPRE a cet onglet (0 = taille globale). Zoom par-fichier.
         NkString Name() const { return path.GetFileName(); }
     };
 

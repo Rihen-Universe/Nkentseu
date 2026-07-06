@@ -724,7 +724,7 @@ namespace nkentseu {
             }
             // Indicateur de ZOOM (police du code) : "Zoom NNN%" cliquable -> reinitialise (Ctrl+0).
             {
-                const int32 pct = static_cast<int32>(mFontPrefs.codeSize / kDefaultCodeFontSize * 100.f + 0.5f);
+                const int32 pct = static_cast<int32>(ActiveCodeSize() / kDefaultCodeFontSize * 100.f + 0.5f);
                 char z[24]; std::snprintf(z, sizeof(z), "Zoom %d%%", pct);
                 const float32 zw = mUI.font->MeasureWidth(z);
                 const NkRect zr = { rightX - zw - pad, bar.y + 2.f, zw + pad * 2.f, footerH - 3.f };
@@ -938,7 +938,10 @@ namespace nkentseu {
 
         void NkEditorShell::LoadCodeFont() noexcept {
             const float32 dpi = mUI.S(1.f) > 0.5f ? mUI.S(1.f) : 1.f;
-            const float32 codePx = mFontPrefs.codeSize * dpi;
+            // Taille EFFECTIVE = taille de l'onglet actif (mCodeTargetSize) si demandee, sinon globale.
+            const float32 logical = mCodeTargetSize > 0.f ? mCodeTargetSize : mFontPrefs.codeSize;
+            const float32 codePx = logical * dpi;
+            mCodeLoadedSize = logical;
             mCodeFont.texId = mFont.TexId() + 1u;   // atlas distinct (anti-collision backend)
             // Police MONOSPACE : AUCUN repli externe (broad/CJK/emoji = plusieurs milliers de
             // glyphes). L'atlas reste petit -> reconstruction rapide (l'interface garde les
@@ -952,7 +955,20 @@ namespace nkentseu {
 
         // ── Zoom editeur : ajuste la taille de la police du code puis reconstruit ──
         float32 NkEditorShell::CodeFontSize() const noexcept { return mFontPrefs.codeSize; }
+        float32 NkEditorShell::ActiveCodeSize() const noexcept {
+            return mCodeTargetSize > 0.f ? mCodeTargetSize : mFontPrefs.codeSize;
+        }
+        // Demande la taille de l'atlas code (0 = globale). Rebuild DEBOUNCE, et seulement
+        // quand la cible CHANGE (l'app appelle chaque frame -> pas de re-armement continu).
+        void NkEditorShell::RequestCodeSize(float32 logicalPx) noexcept {
+            if (logicalPx > 0.f) { if (logicalPx < 8.f) logicalPx = 8.f; if (logicalPx > 40.f) logicalPx = 40.f; }
+            if (logicalPx == mCodeTargetSize) return;      // cible inchangee -> rien
+            mCodeTargetSize = logicalPx;
+            const float32 eff = logicalPx > 0.f ? logicalPx : mFontPrefs.codeSize;
+            mCodeReloadCountdown = (eff == mCodeLoadedSize) ? -1.f : kCodeReloadDebounce;
+        }
         void NkEditorShell::NudgeCodeFontSize(float32 delta) noexcept {
+            if (mZoomFn) { mZoomFn(mZoomUser, delta, false); return; }   // zoom PAR ONGLET (app)
             float32 s = mFontPrefs.codeSize + delta;
             if (s < 8.f)  s = 8.f;
             if (s > 40.f) s = 40.f;
@@ -966,6 +982,7 @@ namespace nkentseu {
         }
         // Réinitialise la police du code à la taille par défaut (Ctrl+0), reload différé + persiste.
         void NkEditorShell::ResetCodeFontSize() noexcept {
+            if (mZoomFn) { mZoomFn(mZoomUser, 0.f, true); return; }      // reset PAR ONGLET (app)
             if (mFontPrefs.codeSize == kDefaultCodeFontSize) return;
             mFontPrefs.codeSize = kDefaultCodeFontSize;
             mCodeReloadCountdown = kCodeReloadDebounce;

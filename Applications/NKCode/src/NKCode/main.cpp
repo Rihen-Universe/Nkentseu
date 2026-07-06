@@ -44,6 +44,20 @@ static void CmdFormat(void*)       {            // Formater le document actif (C
 static void CmdQuit(void* user)    { if (user) static_cast<NkEditorShell*>(user)->RequestClose(); }
 static void CmdResetLayout(void* u){ if (u) static_cast<NkEditorShell*>(u)->ResetLayout(); }
 
+// ── Zoom PAR ONGLET : le shell route Ctrl+molette / Ctrl+± / Ctrl+0 ici. On ajuste la
+//    taille PROPRE de l'onglet actif (0 = taille globale). L'atlas suit via RequestCodeSize.
+struct ZoomCtx { nkcode::NkCodeState* st; NkEditorShell* shell; };
+static ZoomCtx g_zoomCtx;
+static void ZoomHandler(void* u, nkentseu::float32 delta, bool reset) {
+    auto* z = static_cast<ZoomCtx*>(u);
+    if (!z || !z->st || !z->st->HasActive()) return;
+    auto& f = z->st->files[z->st->active];
+    if (reset) { f.codeZoom = 0.f; return; }
+    nkentseu::float32 s = (f.codeZoom > 0.f ? f.codeZoom : z->shell->CodeFontSize()) + delta;
+    if (s < 8.f) s = 8.f; if (s > 40.f) s = 40.f;
+    f.codeZoom = s;
+}
+
 // Barre d'outils Visual Studio (config/plateforme + Demarrer) -> delegue a NKCode.
 static void ToolbarThunk(NkEditorFrameContext& ec, void* u) {
     nkcode::DrawCodeToolbar(ec, static_cast<nkcode::NkCodeState*>(u));
@@ -138,6 +152,8 @@ int nkmain(const NkEntryState& state) {
     shell->AddPanel(&aiPanel);  shell->AddPanel(&pEngine);  shell->AddPanel(&pExt);
 
     shell->SetToolbar(&ToolbarThunk, &g_state);   // barre d'outils Visual Studio
+    g_zoomCtx = { &g_state, shell.Get() };
+    shell->SetZoomHandler(&ZoomHandler, &g_zoomCtx);   // zoom Ctrl+molette/±/0 -> onglet actif
     g_dialogs.st    = &g_state;
     g_dialogs.shell = shell.Get();
     g_state.LoadRecents();                           // workspaces recents (ecran de demarrage)
