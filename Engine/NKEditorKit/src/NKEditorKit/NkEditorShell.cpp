@@ -359,10 +359,6 @@ namespace nkentseu {
                 // la re-rasterisation + re-upload backend.
                 if (mFontReloadPending) { mFontReloadPending = false; LoadFontsFromPrefs(); }
 
-                // TEMP DEBUG: stress reload (bascule 15<->30 toutes les 20 frames) pour marteler
-                // NkFontAtlas::Clear() sur l'atlas a repli fusionne (valide le fix double-free).
-                { static int32 s_f = 0; if (++s_f >= 20) { s_f = 0; mFontPrefs.codeSize = (mFontPrefs.codeSize < 22.f ? 30.f : 15.f); mFontReloadPending = true; } }
-
                 mUI.BeginFrame(dt);
 
                 const float32 W = static_cast<float32>(mUI.viewW);
