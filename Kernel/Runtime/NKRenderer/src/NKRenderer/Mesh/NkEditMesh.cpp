@@ -519,5 +519,44 @@ namespace nkentseu {
             return true;
         }
 
+        // =====================================================================
+        // COMMANDE D'ÉDITION SÉRIALISABLE — pose la sélection puis dispatch l'op.
+        // C'est ce qui rend la couche de commandes SCRIPTABLE (modificateurs + IA).
+        // =====================================================================
+        bool NkMeshEditCommand::Apply(NkEditMesh& m) const {
+            // Rejoue la sélection enregistrée sur le maillage courant.
+            for (uint32 i=0;i<m.VertCount();++i) m.verts[i].sel = 0;
+            for (uint32 k=0;k<(uint32)selection.Size();++k){
+                const uint32 vi = selection[k];
+                if (vi < m.VertCount()) m.verts[vi].sel = 1;
+            }
+            switch (op) {
+                case NkMeshEditOp::Extrude:   return m.ExtrudeSelectedFaces(extrude);
+                case NkMeshEditOp::Delete:    return m.DeleteSelectedFaces();
+                case NkMeshEditOp::Merge:     return m.MergeSelectedVerts(merge);
+                case NkMeshEditOp::MakeFace:  return m.MakeFaceFromSelected();
+                case NkMeshEditOp::Subdivide: return m.SubdivideSelectedFaces(subdiv);
+                case NkMeshEditOp::LoopCut:   return m.LoopCutFromSelectedEdge();
+                case NkMeshEditOp::Bisect:    return m.BisectByPlane(planePoint, planeNormal, bisectXform);
+                case NkMeshEditOp::Move: {
+                    bool changed = false;
+                    for (uint32 k=0;k<(uint32)selection.Size() && k<(uint32)moveDeltas.Size();++k){
+                        const uint32 vi = selection[k];
+                        if (vi < m.VertCount()){ m.verts[vi].pos = m.verts[vi].pos + moveDeltas[k]; changed = true; }
+                    }
+                    if (changed) m.RecomputeNormals();
+                    return changed;
+                }
+                default: return false;
+            }
+        }
+
+        uint32 NkMeshEditRecorder::ReplayOnto(NkEditMesh& mesh) const {
+            uint32 applied = 0;
+            for (uint32 i=0;i<(uint32)mCommands.Size();++i)
+                if (mCommands[i].Apply(mesh)) ++applied;
+            return applied;
+        }
+
     } // namespace renderer
 } // namespace nkentseu
