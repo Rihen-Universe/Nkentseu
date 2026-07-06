@@ -144,6 +144,9 @@ namespace nkentseu {
             void    SetZoomHandler(NkZoomFn fn, void* user) noexcept { mZoomFn = fn; mZoomUser = user; }
             void    RequestCodeSize(float32 logicalPx) noexcept;   ///< taille voulue de l'atlas code (0 = globale) ; rebuild debounce
             float32 ActiveCodeSize() const noexcept;               ///< taille de code actuellement affichée (indicateur)
+            // Police du TERMINAL : atlas PROPRE a taille GLOBALE fixe, decouple du zoom
+            // par-onglet de l'editeur (le terminal ne bouge pas quand on zoome un fichier).
+            nkgui::NkGuiFont* TermCodeFont() noexcept;
             // ── Infos centrees dans la barre de titre (ex. fichier actif) ────────
             void SetTitleInfo(const char* center) noexcept;
 
@@ -157,6 +160,7 @@ namespace nkentseu {
             void LoadFontsFromPrefs() noexcept;                               ///< (re)charge mFont + mCodeFont
             void LoadUiFont() noexcept;                                       ///< (re)charge SEULE la police d'interface
             void LoadCodeFont() noexcept;                                     ///< (re)charge SEULE la police du code (zoom rapide)
+            void LoadTermFont() noexcept;                                     ///< (re)charge la police du TERMINAL (taille globale fixe)
             void DrawPreferences(NkEditorFrameContext& ec) noexcept;          ///< fenetre Preferences (categories)
             void BuildMenuBar(NkEditorFrameContext& ec, const nkgui::NkRect& rect) noexcept;
             void DrawTitleBar(NkEditorFrameContext& ec, const nkgui::NkRect& bar) noexcept;
@@ -191,7 +195,9 @@ namespace nkentseu {
             // === NKGui (contexte + police possedee) ===
             nkgui::NkGuiContext mUI;
             nkgui::NkGuiFont    mFont;       ///< police d'interface (Inter/Karla)
-            nkgui::NkGuiFont    mCodeFont;   ///< police monospace code/terminal (DejaVu)
+            nkgui::NkGuiFont    mCodeFont;   ///< police monospace de l'EDITEUR (taille = onglet actif, zoom)
+            nkgui::NkGuiFont    mTermFont;   ///< police monospace du TERMINAL (taille GLOBALE fixe, non zoomee)
+            float32             mTermLoadedSize = 0.f;       ///< taille logique a laquelle mTermFont est construit
             bool                mFontOk = false;
             bool                mFontReloadPending = false;  ///< reload des DEUX polices differe au debut de frame (anti-crash)
             float32             mCodeReloadCountdown = -1.f; ///< zoom : debounce (s). >=0 => reconstruit l'atlas code quand il atteint 0 (evite 1 rebuild/cran)

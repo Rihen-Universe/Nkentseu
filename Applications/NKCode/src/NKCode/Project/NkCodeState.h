@@ -614,7 +614,7 @@ namespace nkcode {
             auto nextField = [](const char*& q){ while (*q == ' ') ++q; bool neg = false; if (*q == '-') { neg = true; ++q; } int32 v = 0; while (*q >= '0' && *q <= '9') { v = v * 10 + (*q - '0'); ++q; } return neg ? -v : v; };
             while (*p) {
                 int32 n = 0; while (*p && *p != '\n' && *p != '\r' && n < 65535) line[n++] = *p++; line[n] = 0; while (*p == '\n' || *p == '\r') ++p;
-                if (line[0] == 'n' && line[8] == '/') { const char* q = line + 9; ver = nextField(q); }   // "nksession/N"
+                if (line[0] == 'n' && line[1] == 'k' && line[2] == 's') { const char* q = line; while (*q && *q != '/') ++q; if (*q == '/') { ++q; ver = nextField(q); } }   // "nksession/N"
                 else if (line[0] == 'a' && line[1] == 'c') { const char* q = line + 6; savedActive = nextField(q); }
                 else if (line[0] == 'F' && line[1] == ' ') {
                     const char* q = line + 2; const int32 cl = nextField(q), cc = nextField(q), pin = nextField(q), dy = nextField(q);

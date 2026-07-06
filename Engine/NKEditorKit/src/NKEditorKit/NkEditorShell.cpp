@@ -920,7 +920,7 @@ namespace nkentseu {
         // Recharge les DEUX polices (interface + code). Appelé au démarrage et quand la
         // police d'interface change. Le ZOOM, lui, n'appelle QUE LoadCodeFont() -> pas de
         // reconstruction inutile de l'atlas d'interface à chaque cran.
-        void NkEditorShell::LoadFontsFromPrefs() noexcept { LoadUiFont(); LoadCodeFont(); }
+        void NkEditorShell::LoadFontsFromPrefs() noexcept { LoadUiFont(); LoadCodeFont(); LoadTermFont(); }
 
         void NkEditorShell::LoadUiFont() noexcept {
             // Police chargee a uiSize x DPI : le LAYOUT est mis a l'echelle (ctx.S) mais
@@ -951,6 +951,25 @@ namespace nkentseu {
             if (!codeOk) codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::Cousine, 15.f * dpi, /*extFallback=*/false);
             if (codeOk) { if (mRenderer) mRenderer->UploadFontGray8(mCodeFont.TexId(), mCodeFont.pixels, mCodeFont.atlasW, mCodeFont.atlasH); mUI.codeFont = &mCodeFont; }
             else mUI.codeFont = &mFont;
+        }
+
+        // Police du TERMINAL : atlas SEPARE a la taille GLOBALE (mFontPrefs.codeSize), JAMAIS
+        // pilote par le zoom par-onglet -> le terminal ne change pas quand on zoome un fichier.
+        // texId +2 (editeur = +1) pour un atlas backend distinct. Rechargee uniquement au boot
+        // et sur changement de prefs (rare), donc rebuild inconditionnel = OK.
+        void NkEditorShell::LoadTermFont() noexcept {
+            const float32 dpi = mUI.S(1.f) > 0.5f ? mUI.S(1.f) : 1.f;
+            const float32 logical = mFontPrefs.codeSize;
+            const float32 codePx = logical * dpi;
+            mTermLoadedSize = logical;
+            mTermFont.texId = mFont.TexId() + 2u;
+            bool ok = NkResolveFont(mTermFont, mFontPrefs.codeFont, codePx, /*extFallback=*/false);
+            if (!ok) ok = mTermFont.LoadEmbedded(NkEmbeddedFontId::DejaVuSansMono, codePx, /*extFallback=*/false);
+            if (!ok) ok = mTermFont.LoadEmbedded(NkEmbeddedFontId::Cousine, 15.f * dpi, /*extFallback=*/false);
+            if (ok && mRenderer) mRenderer->UploadFontGray8(mTermFont.TexId(), mTermFont.pixels, mTermFont.atlasW, mTermFont.atlasH);
+        }
+        nkgui::NkGuiFont* NkEditorShell::TermCodeFont() noexcept {
+            return mTermFont.Valid() ? &mTermFont : mUI.codeFont;
         }
 
         // ── Zoom editeur : ajuste la taille de la police du code puis reconstruit ──

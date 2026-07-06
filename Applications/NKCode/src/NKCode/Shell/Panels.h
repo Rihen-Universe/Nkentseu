@@ -786,6 +786,7 @@ namespace nkcode {
             mTerm[0].alive = true;   // un terminal PowerShell par defaut
             mTerm[0].label = "powershell";
         }
+        NkEditorShell* mShell = nullptr;   // pour la police propre du terminal (TermCodeFont)
 
         void OnUI(NkEditorFrameContext& ec) override {
             auto& ctx = ec.Ui();
@@ -802,8 +803,9 @@ namespace nkcode {
             const NkRect  listR = { clip.x + clip.w - listW, clip.y, listW, clip.h };
             DrawTermList(ctx, listR);
 
-            // A partir d'ici : police MONOSPACE (grille du terminal).
-            NkCodeFontScope _cfs(ctx);
+            // A partir d'ici : police MONOSPACE du TERMINAL (atlas propre, taille globale fixe :
+            // decouple du zoom par-onglet de l'editeur).
+            NkCodeFontScope _cfs(ctx, mShell ? mShell->TermCodeFont() : nullptr);
 
             // Lance le shell (ConPTY) au premier affichage de cet onglet.
             StartTerm(t);

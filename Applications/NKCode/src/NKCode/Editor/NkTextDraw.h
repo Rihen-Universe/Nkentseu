@@ -34,6 +34,12 @@ namespace nkcode {
         explicit NkCodeFontScope(NkGuiContext& ctx) : c(ctx), prev(ctx.font) {
             if (ctx.codeFont && ctx.codeFont->Valid()) ctx.font = ctx.codeFont;
         }
+        // Variante avec police EXPLICITE (ex. terminal -> atlas propre, decouple du zoom
+        // par-onglet de l'editeur). Repli sur ctx.codeFont si f nul/invalide.
+        NkCodeFontScope(NkGuiContext& ctx, NkGuiFont* f) : c(ctx), prev(ctx.font) {
+            if (f && f->Valid()) ctx.font = f;
+            else if (ctx.codeFont && ctx.codeFont->Valid()) ctx.font = ctx.codeFont;
+        }
         ~NkCodeFontScope() { c.font = prev; }
     };
 
