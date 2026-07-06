@@ -1363,17 +1363,33 @@ namespace nkentseu {
                     return out;
                 };
                 sh.fragFn = [dev, rf](const NkVertexSoftware& f, const void*, const void*) -> math::NkVec4 {
+                    // PERF : résout les bindings UNE FOIS PAR DRAW (pas par pixel). Les pointeurs UBO/texture
+                    // sont constants pendant la rasterisation d'un draw ; SwBindGen() n'est incrémenté qu'au
+                    // changement de descriptor set (donc ~1×/objet). Sur le grand sol (~900k px) on passait
+                    // ~6 lookups (map/scan) PAR PIXEL → désormais 1 comparaison de génération par pixel.
+                    struct FragBind { uint64 gen; const uint8 *obj,*cam,*lu,*su; const NkSWTexture *alb,*atlas; };
+                    static thread_local FragBind fb{ ~0ull, nullptr,nullptr,nullptr,nullptr, nullptr,nullptr };
+                    const uint64 bgen = dev->SwBindGen();
+                    if (fb.gen != bgen) {
+                        fb.gen = bgen;
+                        fb.obj   = dev->SwGetUBOBytes(1,1);   // ObjectUBO (model/tint/metal/rough)
+                        fb.cam   = dev->SwGetUBOBytes(0,0);   // CameraUBO (camPos @256)
+                        fb.lu    = dev->SwGetUBOBytes(0,2);   // LightsUBO
+                        fb.su    = dev->SwGetUBOBytes(0,3);   // ShadowSlots UBO
+                        fb.alb   = dev->SwFindTexInSet(2,1);  // albedo
+                        fb.atlas = dev->SwFindTexInSet(0,11); if (!fb.atlas) fb.atlas = dev->SwFindTexInSet(0,12);
+                    }
                     float nx=f.normal.x, ny=f.normal.y, nz=f.normal.z;
                     const float len=std::sqrt(nx*nx+ny*ny+nz*nz); if (len>1e-6f){nx/=len;ny/=len;nz/=len;}
                     // ── Albédo = vertex color × tint (+ texture) ; matériau metallic/roughness ──
                     float cr=f.color.r, cg=f.color.g, cb=f.color.b, ca=f.color.a;
                     float metal=0.f, rough=0.5f;
-                    if (const uint8* obj=dev->SwGetUBOBytes(1,1)) {   // tint @128, metallic @144, roughness @148
+                    if (const uint8* obj=fb.obj) {   // tint @128, metallic @144, roughness @148
                         cr*=rf(obj,128); cg*=rf(obj,132); cb*=rf(obj,136); ca*=rf(obj,140);
                         metal=rf(obj,144); rough=rf(obj,148);
                         if (!(metal>=0.f&&metal<=1.f)) metal=0.f; if (!(rough>0.f&&rough<=1.f)) rough=0.5f;
                     }
-                    if (const NkSWTexture* alb=dev->SwFindTexInSet(2,1)) {   // albedo (match exact set2,b1)
+                    if (const NkSWTexture* alb=fb.alb) {   // albedo (match exact set2,b1)
                         if (!alb->mips.Empty()) {
                             const uint32 w=alb->Width(0),h=alb->Height(0),bpp=alb->Bpp();
                             float su=f.uv.x-std::floor(f.uv.x), sv=f.uv.y-std::floor(f.uv.y);
@@ -1385,7 +1401,7 @@ namespace nkentseu {
                     }
                     // Direction de vue (depuis camPos @256).
                     float vx=0.f,vy=0.f,vz=1.f;
-                    if (const uint8* cam=dev->SwGetUBOBytes(0,0)) {
+                    if (const uint8* cam=fb.cam) {
                         const float* cp=(const float*)(cam+256);
                         vx=cp[0]-f.attrs[0]; vy=cp[1]-f.attrs[1]; vz=cp[2]-f.attrs[2];
                         float vl=std::sqrt(vx*vx+vy*vy+vz*vz); if(vl>1e-6f){vx/=vl;vy/=vl;vz/=vl;}
@@ -1409,10 +1425,10 @@ namespace nkentseu {
                     // échantillonne l'atlas et compare la profondeur (PCF 3×3). depthRemap=1 en
                     // software → fragD = ndcz*0.5+0.5 (idem Project côté rasterizer). Retourne un
                     // facteur [0,1] (1=éclairé, 0=ombre). Voir NkVirtualShadowMaps (layout std140).
-                    const uint8* su = dev->SwGetUBOBytes(0,3);
-                    const NkSWTexture* atlas = dev->SwFindTexInSet(0,11);
-                    if (!atlas) atlas = dev->SwFindTexInSet(0,12);
-                    const bool hasShadows = su && atlas && !atlas->mips.Empty();
+                    const uint8* su = fb.su;
+                    const NkSWTexture* atlas = fb.atlas;
+                    static const bool s_noShadow = [](){ const char* e=std::getenv("NK_SW_NOSHADOW"); return e && e[0]=='1'; }();  // diag perf
+                    const bool hasShadows = !s_noShadow && su && atlas && !atlas->mips.Empty();
                     auto sampleShadow = [&](int lightIdx)->float {
                         if (!hasShadows || lightIdx<0 || lightIdx>=32) return 1.f;
                         const float* gcfg   = (const float*)(su + 28928u);  // .x=numSlots .z=depthRemap
@@ -1445,20 +1461,32 @@ namespace nkentseu {
                             if (fragD<0.f||fragD>1.f) continue;
                             const float u = tuv[0] + (ndcx*0.5f+0.5f)*(tuv[2]-tuv[0]);
                             const float vv= tuv[1] + (ndcy*0.5f+0.5f)*(tuv[3]-tuv[1]);   // software : pas de Y-flip
-                            const int cx=(int)(u*aw), cy=(int)(vv*ah);
-                            float acc=0.f; int cnt=0;
-                            for (int dy=-1;dy<=1;++dy) for (int dx=-1;dx<=1;++dx) {
-                                const int ax=cx+dx, ay=cy+dy;
-                                if (ax<0||ay<0||ax>=(int)aw||ay>=(int)ah) { acc+=1.f; ++cnt; continue; }
-                                const float stored = ad[(uint32)ay*aw+(uint32)ax];
-                                acc += (fragD - sbias > stored) ? 0.f : 1.f;   // plus loin que le caster => ombre
-                                ++cnt;
+                            // PCF. Défaut = 3×3 (9 taps, pénombre douce). Mesuré : le nombre de taps
+                            // n'est PAS le goulot (3×3 ~283ms vs 2×2 ~309ms = bruit de mesure ±40ms ;
+                            // le coût par pixel est dominé par le fragment 3D d'éclairage, pas par le
+                            // sampling d'ombre). On garde donc le 3×3 (meilleure qualité, perf neutre).
+                            // Toggle : NK_SW_PCF=2 sélectionne un 2×2 bilinéaire (4 taps, plus dur).
+                            auto tap = [&](int ax,int ay)->float {
+                                if (ax<0||ay<0||ax>=(int)aw||ay>=(int)ah) return 1.f;   // hors tuile => éclairé
+                                return (fragD - sbias > ad[(uint32)ay*aw+(uint32)ax]) ? 0.f : 1.f;
+                            };
+                            static const bool s_pcf2 = [](){ const char* e=std::getenv("NK_SW_PCF"); return e && e[0]=='2'; }();
+                            if (s_pcf2) {   // 2×2 bilinéaire (expérimental, bords plus durs)
+                                const float fx = u*(float)aw - 0.5f, fy = vv*(float)ah - 0.5f;
+                                const int x0 = (int)std::floor(fx), y0 = (int)std::floor(fy);
+                                const float wx = fx - (float)x0, wy = fy - (float)y0;
+                                const float s00=tap(x0,y0),   s10=tap(x0+1,y0);
+                                const float s01=tap(x0,y0+1), s11=tap(x0+1,y0+1);
+                                return (s00*(1.f-wx)+s10*wx)*(1.f-wy) + (s01*(1.f-wx)+s11*wx)*wy;
                             }
-                            return cnt>0 ? acc/(float)cnt : 1.f;
+                            const int cx=(int)(u*(float)aw), cy=(int)(vv*(float)ah);   // 3×3 (défaut)
+                            float acc=0.f;
+                            for (int dy=-1;dy<=1;++dy) for (int dx=-1;dx<=1;++dx) acc += tap(cx+dx,cy+dy);
+                            return acc*(1.f/9.f);
                         }
                         return 1.f;   // aucun slot ne couvre ce fragment -> éclairé
                     };
-                    const uint8* lu = dev->SwGetUBOBytes(0,2);
+                    const uint8* lu = fb.lu;
                     int lcount = lu ? *(const int*)(lu+2048) : 0;
                     if (lcount<0) lcount=0; if (lcount>8) lcount=8;
                     for (int i=0;i<lcount;++i) {
