@@ -53,21 +53,34 @@ namespace nkentseu {
                 }
 
                 // GLSL-Vulkan -> source du backend courant.
+                // IMPORTANT : NkShaderStageDesc.{hlsl,glsl,msl}Source sont des `const char*`
+                // NON possédés — la source doit rester VIVANTE jusqu'après CreateShader. On
+                // hisse donc les holders (hl/sp/ms/glo) hors des branches `if` : sinon ils
+                // sont détruits à la fermeture de leur bloc -> pointeur dangling lu par
+                // CreateShader (mémoire libérée éventuellement réallouée -> source corrompue).
+                NkShaderConvertResult hl, sp, ms;
+                NkSLCompileResult     glo;
                 NkShaderDesc sd; sd.debugName = name;
                 const NkGraphicsApi api = device->GetApi();
                 if (api == NkGraphicsApi::NK_GFX_API_DX11 || api == NkGraphicsApi::NK_GFX_API_DX12) {
-                    uint32 sm = (api == NkGraphicsApi::NK_GFX_API_DX12) ? 60u : 50u;
-                    NkShaderConvertResult hl = NkShaderConverter::GlslToHlsl(gl.source, NkSLStage::NK_COMPUTE, sm, name);
+                    // SM5.0 pour DX11 ET DX12 : le device DX12 retombe sur fxc (cs_5_1) —
+                    // chemin prouvé (dxc SM6 a un bug d'encodage source à corriger à part).
+                    const uint32 sm = 50u;
+                    hl = NkShaderConverter::GlslToHlsl(gl.source, NkSLStage::NK_COMPUTE, sm, name);
                     if (!hl.success) { logger_src.Errorf("[NkTensorGpu] GLSL->HLSL KO (%s): %s\n", name, hl.errors.CStr()); return nullptr; }
                     sd.AddHLSL(NkShaderStage::NK_COMPUTE, hl.source.CStr(), "main");
                 } else if (api == NkGraphicsApi::NK_GFX_API_VULKAN) {
-                    NkShaderConvertResult sp = NkShaderConverter::GlslToSpirv(gl.source, NkSLStage::NK_COMPUTE, name);
+                    sp = NkShaderConverter::GlslToSpirv(gl.source, NkSLStage::NK_COMPUTE, name);
                     if (!sp.success) { logger_src.Errorf("[NkTensorGpu] GLSL->SPIRV KO (%s)\n", name); return nullptr; }
                     sd.AddSPIRV(NkShaderStage::NK_COMPUTE, sp.binary.Data(), (uint64)sp.binary.Size());
                 } else if (api == NkGraphicsApi::NK_GFX_API_METAL) {
-                    NkShaderConvertResult ms = NkShaderConverter::GlslToMsl(gl.source, NkSLStage::NK_COMPUTE, name);
+                    ms = NkShaderConverter::GlslToMsl(gl.source, NkSLStage::NK_COMPUTE, name);
                     if (!ms.success) { logger_src.Errorf("[NkTensorGpu] GLSL->MSL KO (%s)\n", name); return nullptr; }
                     sd.AddMSL(NkShaderStage::NK_COMPUTE, ms.source.CStr(), "main");
+                } else if (api == NkGraphicsApi::NK_GFX_API_OPENGL) {
+                    glo = slc.Compile(nksl, NkSLStage::NK_COMPUTE, NkSLTarget::NK_GLSL);
+                    if (!glo.success) { logger_src.Errorf("[NkTensorGpu] NkSL->GLSL(GL) KO (%s)\n", name); return nullptr; }
+                    sd.AddGLSL(NkShaderStage::NK_COMPUTE, glo.source.CStr(), "main");
                 } else {
                     logger_src.Errorf("[NkTensorGpu] API compute non supportée (%s)\n", name);
                     return nullptr;
@@ -75,15 +88,18 @@ namespace nkentseu {
 
                 NkShaderHandle sh = device->CreateShader(sd);
                 if (!sh.IsValid()) { logger_src.Errorf("[NkTensorGpu] CreateShader KO (%s)\n", name); return nullptr; }
-                NkComputePipelineDesc cpd; cpd.shader = sh; cpd.debugName = name;
-                NkPipelineHandle pipe = device->CreateComputePipeline(cpd);
-                if (!pipe.IsValid()) { logger_src.Errorf("[NkTensorGpu] Pipeline KO (%s)\n", name); return nullptr; }
 
+                // Layout D'ABORD : le pipeline Vulkan en a besoin (setLayouts).
                 NkDescriptorSetLayoutDesc ld;
                 for (uint32 i = 0; i < nBuffers; i++)
                     ld.Add(i, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
                 ld.Add(uboBinding, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_COMPUTE);
                 NkDescSetHandle layout = device->CreateDescriptorSetLayout(ld);
+
+                NkComputePipelineDesc cpd; cpd.shader = sh; cpd.debugName = name;
+                cpd.descriptorSetLayouts.PushBack(layout);   // requis par Vulkan
+                NkPipelineHandle pipe = device->CreateComputePipeline(cpd);
+                if (!pipe.IsValid()) { logger_src.Errorf("[NkTensorGpu] Pipeline KO (%s)\n", name); return nullptr; }
 
                 Kernel k; k.name = name; k.shader = sh; k.pipe = pipe; k.layout = layout;
                 k.params = device->CreateBuffer(NkBufferDesc::Uniform(16)); // persistant
@@ -111,15 +127,32 @@ namespace nkentseu {
             if (mImpl->tried) return mImpl->device != nullptr;
             mImpl->tried = true;
 
-            // Device compute headless : on tente DX11 puis DX12 (Windows), sinon
-            // l'auto-détection choisit selon la plateforme.
-            const NkGraphicsApi tryOrder[] = {
+            // Device compute headless. Ordre par FIABILITÉ compute vérifiée sur NVIDIA :
+            // les 4 backends (Vulkan, OpenGL, DX11, DX12) sont désormais VALIDÉS (compute
+            // NkSL headless = résultat exact, 4/4). Vulkan reste préféré (le plus robuste).
+            // Override diagnostic : NK_TENSOR_API=vulkan|opengl|dx11|dx12|metal force un
+            // backend précis (utile pour valider/reproduire un backend donné).
+            NkGraphicsApi forced = (NkGraphicsApi)0; bool hasForced = false;
+            if (const char* e = getenv("NK_TENSOR_API")) {
+                NkString s(e);
+                if      (s == NkString("vulkan")) { forced = NkGraphicsApi::NK_GFX_API_VULKAN; hasForced = true; }
+                else if (s == NkString("opengl")) { forced = NkGraphicsApi::NK_GFX_API_OPENGL; hasForced = true; }
+                else if (s == NkString("dx11"))   { forced = NkGraphicsApi::NK_GFX_API_DX11;   hasForced = true; }
+                else if (s == NkString("dx12"))   { forced = NkGraphicsApi::NK_GFX_API_DX12;   hasForced = true; }
+                else if (s == NkString("metal"))  { forced = NkGraphicsApi::NK_GFX_API_METAL;  hasForced = true; }
+            }
+            const NkGraphicsApi tryOrderAll[] = {
+                NkGraphicsApi::NK_GFX_API_VULKAN,
+                NkGraphicsApi::NK_GFX_API_METAL,   // Apple
+                NkGraphicsApi::NK_GFX_API_OPENGL,
                 NkGraphicsApi::NK_GFX_API_DX11,
                 NkGraphicsApi::NK_GFX_API_DX12,
-                NkGraphicsApi::NK_GFX_API_VULKAN,
-                NkGraphicsApi::NK_GFX_API_METAL,
             };
-            for (NkGraphicsApi api : tryOrder) {
+            const NkGraphicsApi  one[1]   = { forced };
+            const NkGraphicsApi* tryOrder = hasForced ? one : tryOrderAll;
+            const nk_size        tryCount = hasForced ? 1 : (nk_size)(sizeof(tryOrderAll)/sizeof(tryOrderAll[0]));
+            for (nk_size ti = 0; ti < tryCount; ++ti) {
+                NkGraphicsApi api = tryOrder[ti];
                 NkDeviceInitInfo di; di.api = api;   // pas de surface -> headless
                 di.context.software.threading = true;
                 NkIDevice* dev = NkDeviceFactory::Create(di);

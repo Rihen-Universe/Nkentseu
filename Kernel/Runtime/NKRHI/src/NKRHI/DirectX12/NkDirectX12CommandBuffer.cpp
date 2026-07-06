@@ -17,9 +17,12 @@ NkDirectX12CommandBuffer::NkDirectX12CommandBuffer(NkDirectX12Device* dev, NkCom
     : mDev(dev), mType(type) {
     if (!dev || !dev->Dev()) return;
 
-    auto listType = (type == NkCommandBufferType::NK_COMPUTE)
-                  ? D3D12_COMMAND_LIST_TYPE_COMPUTE
-                  : D3D12_COMMAND_LIST_TYPE_DIRECT;
+    // On utilise TOUJOURS une liste DIRECT (même pour le compute) : une DIRECT queue
+    // exécute les dispatches compute, et NkDirectX12Device::Submit soumet sur la
+    // DIRECT queue. Une liste COMPUTE soumise à une DIRECT queue -> « command list
+    // type must match queue » -> device removal. (cf compute NkTensor headless.)
+    const D3D12_COMMAND_LIST_TYPE listType = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    (void)type;
 
     HRESULT hr = dev->Dev()->CreateCommandAllocator(listType, IID_PPV_ARGS(&mAllocator));
     if (FAILED(hr) || !mAllocator) return;
@@ -270,17 +273,26 @@ void NkDirectX12CommandBuffer::BindDescriptorSet(NkDescSetHandle set,
                 break;
             case NkDescriptorType::NK_STORAGE_BUFFER:
             case NkDescriptorType::NK_STORAGE_BUFFER_DYNAMIC:
-                // Le converter NkSL->HLSL emet le storage buffer en lecture
-                // (readonly buffer) comme une SRV ByteAddressBuffer. CE
-                // SPIRV-Cross l'assigne TOUJOURS au register t0 (compteur SRV
-                // propre aux raw buffers, independant du binding GLSL). On binde
-                // donc la SRV du storage buffer a t0 (mMergedSrv[0]) — pas a
-                // t<binding>. Les router vers mMergedUav (u#) laissait la SRV
-                // nulle -> bones=0 -> skin a l'origine -> INVISIBLE sur DX12.
-                // (Un storage buffer en ECRITURE compute resterait un UAV ; le
-                // skinning graphique est read-only, SRV t0 est le bon type.)
-                if (b.bufId != 0)
-                    mMergedSrv[kStorageBufferSrvReg] = mDev->GetBufferSrvIndex(b.bufId);
+                // Deux cas selon le pipeline :
+                //  • COMPUTE : le converter NkSL->HLSL emet les storage buffers
+                //    read-write comme des RWByteAddressBuffer (UAV) au register
+                //    u<binding> (register=binding, cf fix SPIRV-Cross cls 6). On
+                //    les binde donc en UAV a mMergedUav[b.slot] — exact miroir du
+                //    fix DX11 (CSSetUnorderedAccessViews). Sans ca -> u# nul ->
+                //    dispatch lit/ecrit rien -> resultat 0 (bug compute DX12).
+                //  • GRAPHICS : SPIRV-Cross emet le storage buffer read-only
+                //    (skinning) comme une SRV ByteAddressBuffer TOUJOURS assignee
+                //    au register t0 (compteur SRV propre aux raw buffers). On la
+                //    binde a mMergedSrv[0] — pas a t<binding>. Les router vers UAV
+                //    laissait la SRV nulle -> bones=0 -> skin invisible sur DX12.
+                if (b.bufId != 0) {
+                    if (mIsCompute) {
+                        if (b.slot < kMergedUav)
+                            mMergedUav[b.slot] = mDev->GetBufferUavIndex(b.bufId);
+                    } else {
+                        mMergedSrv[kStorageBufferSrvReg] = mDev->GetBufferSrvIndex(b.bufId);
+                    }
+                }
                 break;
             case NkDescriptorType::NK_STORAGE_TEXTURE:
                 if (b.texId != 0 && b.slot < kMergedUav)

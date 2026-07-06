@@ -56,21 +56,48 @@ static bool RunOn(NkGraphicsApi api) {
     NkSLCompileResult gl = slc.Compile(NkString(kVecAdd), NkSLStage::NK_COMPUTE, NkSLTarget::NK_GLSL_VULKAN);
     if (!gl.success) { printf("  NkSL->GLSL KO\n"); NkDeviceFactory::Destroy(dev); return false; }
 
-    // GLSL Vulkan -> HLSL via glslang -> SPIR-V -> SPIRV-Cross (chemin robuste).
-    const uint32 sm = (api == NkGraphicsApi::NK_GFX_API_DX12) ? 60u : 50u;
-    NkShaderConvertResult hl = NkShaderConverter::GlslToHlsl(gl.source, NkSLStage::NK_COMPUTE, sm, "vecadd");
-    if (!hl.success) {
-        printf("  GLSL->HLSL KO: %s\n", hl.errors.CStr());
-        NkDeviceFactory::Destroy(dev); return false;
+    // Conversion vers le backend du device : HLSL (DX), SPIR-V (Vulkan), GLSL (OpenGL).
+    // IMPORTANT : NkShaderStageDesc.hlslSource/glslSource sont des `const char*`
+    // NON possédés — la source doit rester VIVANTE jusqu'après CreateShader. On hisse
+    // donc les holders (hl/sp/glo) au scope de la fonction : sinon, déclarés dans le
+    // bloc `if`, ils sont détruits à sa fermeture -> pointeur dangling. DX11 (appelé en
+    // 1er) lisait la mémoire libérée encore intacte ; DX12 (plus tard) lisait un bloc
+    // réalloué -> HLSL corrompu ("not valid UTF-8", identifiants tronqués gl_Globa...).
+    NkShaderConvertResult hl, sp;   // stockage possédant qui survit à CreateShader
+    NkSLCompileResult glo;
+    NkShaderDesc sd; sd.debugName = "vecadd";
+    if (api == NkGraphicsApi::NK_GFX_API_DX11 || api == NkGraphicsApi::NK_GFX_API_DX12) {
+        // SM5.0 pour les deux : dxc (SM6) est souvent indispo -> le device retombe sur
+        // fxc (cs_5_1) qui compile le HLSL SM5. (SM6 via dxc = amélioration future.)
+        const uint32 sm = 50u;
+        hl = NkShaderConverter::GlslToHlsl(gl.source, NkSLStage::NK_COMPUTE, sm, "vecadd");
+        if (!hl.success) { printf("  GLSL->HLSL KO: %s\n", hl.errors.CStr()); NkDeviceFactory::Destroy(dev); return false; }
+        sd.AddHLSL(NkShaderStage::NK_COMPUTE, hl.source.CStr(), "main");
+    } else if (api == NkGraphicsApi::NK_GFX_API_VULKAN) {
+        sp = NkShaderConverter::GlslToSpirv(gl.source, NkSLStage::NK_COMPUTE, "vecadd");
+        if (!sp.success) { printf("  GLSL->SPIRV KO: %s\n", sp.errors.CStr()); NkDeviceFactory::Destroy(dev); return false; }
+        sd.AddSPIRV(NkShaderStage::NK_COMPUTE, sp.binary.Data(), (uint64)sp.binary.Size());
+    } else if (api == NkGraphicsApi::NK_GFX_API_OPENGL) {
+        // OpenGL : NkSL -> GLSL OpenGL (bindings aplatis), donné directement au device.
+        glo = slc.Compile(NkString(kVecAdd), NkSLStage::NK_COMPUTE, NkSLTarget::NK_GLSL);
+        if (!glo.success) { printf("  NkSL->GLSL(GL) KO\n"); NkDeviceFactory::Destroy(dev); return false; }
+        sd.AddGLSL(NkShaderStage::NK_COMPUTE, glo.source.CStr(), "main");
+    } else {
+        printf("  API non gérée par ce test\n"); NkDeviceFactory::Destroy(dev); return false;
     }
-
-    NkShaderDesc sd;
-    sd.AddHLSL(NkShaderStage::NK_COMPUTE, hl.source.CStr(), "main");
-    sd.debugName = "vecadd";
     NkShaderHandle sh = dev->CreateShader(sd);
-    if (!sh.IsValid()) { printf("  CreateShader(HLSL) KO\n"); NkDeviceFactory::Destroy(dev); return false; }
+    if (!sh.IsValid()) { printf("  CreateShader KO\n"); NkDeviceFactory::Destroy(dev); return false; }
+
+    // Layout D'ABORD (le pipeline Vulkan en a besoin).
+    NkDescriptorSetLayoutDesc ld;
+    ld.Add(0, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
+    ld.Add(1, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
+    ld.Add(2, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
+    ld.Add(3, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_COMPUTE);
+    NkDescSetHandle layout = dev->CreateDescriptorSetLayout(ld);
 
     NkComputePipelineDesc cpd; cpd.shader = sh; cpd.debugName = "vecadd";
+    cpd.descriptorSetLayouts.PushBack(layout);   // requis par Vulkan
     NkPipelineHandle pipe = dev->CreateComputePipeline(cpd);
     if (!pipe.IsValid()) { printf("  pipeline compute KO\n"); NkDeviceFactory::Destroy(dev); return false; }
 
@@ -86,14 +113,7 @@ static bool RunOn(NkGraphicsApi api) {
     dev->WriteBuffer(ba, a, N * sizeof(float));
     dev->WriteBuffer(bb, b, N * sizeof(float));
 
-    // 3) Descriptor set (3 storage buffers)
-    NkDescriptorSetLayoutDesc ld;
-    ld.Add(0, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
-    ld.Add(1, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
-    ld.Add(2, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
-    ld.Add(3, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_COMPUTE);
-    NkDescSetHandle layout = dev->CreateDescriptorSetLayout(ld);
-
+    // 3) Descriptor set (layout créé plus haut, réutilisé ici)
     // UBO params (count) — plus portable que push_constant (pas d'emulation cbuffer b13).
     uint32 count = N;
     NkBufferHandle bparams = dev->CreateBuffer(NkBufferDesc::Uniform(16));
@@ -169,8 +189,19 @@ int main(int argc, char** argv) {
         return 0;
     }
     printf("=== NkComputeNkSL : kernel NkSL exécuté sur GPU headless ===\n"); fflush(stdout);
-    bool ok = false;
-    if (RunOn(NkGraphicsApi::NK_GFX_API_DX11)) { printf("\n>>> DX11 : NkSL compute FONCTIONNEL\n"); ok = true; }
-    if (!ok) printf("\n>>> Echec NkSL compute headless (DX11).\n");
-    return ok ? 0 : 1;
+    struct { NkGraphicsApi api; const char* name; } backs[] = {
+        { NkGraphicsApi::NK_GFX_API_DX11,   "DX11"   },
+        { NkGraphicsApi::NK_GFX_API_VULKAN, "Vulkan" },
+        { NkGraphicsApi::NK_GFX_API_OPENGL, "OpenGL" },
+        { NkGraphicsApi::NK_GFX_API_DX12,   "DX12"   },  // en dernier (crash queue à fixer)
+    };
+    int okCount = 0, tried = 0;
+    for (auto& b : backs) {
+        tried++;
+        bool r = RunOn(b.api);
+        printf("  >>> %-6s : %s\n", b.name, r ? "OK" : "KO");
+        if (r) okCount++;
+    }
+    printf("\n=== %d/%d backends OK (compute NkSL headless sur ce GPU) ===\n", okCount, tried);
+    return okCount > 0 ? 0 : 1;
 }

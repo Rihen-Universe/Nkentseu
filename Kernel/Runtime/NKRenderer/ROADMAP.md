@@ -65,6 +65,30 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
 reste morph/cameras/KHR/DX12-skin — voir ci-dessus). 8) Brancher les orphelins utiles
 (Culling frustum-cull). 9) Animation avancée (state machines/blend trees). 10) Metal + Software.
 
+## 🧭 Éditeur / Viewport (chantier 2026-07, cap « famille d'éditeurs »)
+
+Socle d'un viewport d'édition façon Blender (testbed `renderdemo --demo=2`, futur socle
+éditeur partagé). Détail + plan : mémoire `project_editor_gizmo_20260704` /
+`project_editor_viewmodes_meshedit_plan`.
+
+- ✅ **Gizmo 3D réutilisable** `NkGizmo3D` (`Core/NkGizmo.h`, header-only, découplé de
+  NKEvent/NkRender3D) — translate/rotate/scale/combiné, poignées axe(1)/plan(2)/uniforme,
+  orientation Global/Local/Normal, multi-sélection (pivot barycentre OU origines
+  individuelles en Local), **snapping Ctrl** (pas configurables) + **verrou d'axe X/Y/Z**.
+  Overlay via **nouvelle option moteur `NkRender3D::DrawDebugLine(..., overlay=true)`**
+  (pipeline debug-line **depth-OFF** `mLinePipelineNoDepth`). Contrôleurs caméra réutilisables
+  `NkOrbitCameraController3D` / `NkFlyCameraController3D`. Grille infinie `SetInfiniteGridEnabled`.
+- ⏳ **Modes d'affichage** — `SetWireframe` est un **STUB** (`mWireframe` jamais consommé,
+  pipelines PBR tous en `NoCull` solide) et l'enum `NkViewMode`
+  (SOLID/WIREFRAME/NORMALS/UV/DEPTH/AO/UNLIT) est **déclaré mais non branché** (pas dans
+  `NkSceneContext`, aucune conso). À FAIRE : variante pipeline `Wireframe()` bindée selon le
+  mode + uniforme `viewMode` (pad CameraUBO) + branche debug en fin de `pbr.frag` NkSL
+  (normal/UV/depth/AO/unlit) recompilée cross-backend (GL/VK/DX).
+- ⏳ **Edit Mode mesh** (Blender-like) — sélection/édition **vertices / arêtes / faces** des
+  meshes sélectionnés. Phases : A) copie CPU éditable + pick de vertices + déplacement **via
+  `NkGizmo3D`** + re-upload GPU → B) arêtes + faces → C) outils topologie (extrude / subdivise /
+  supprime). Prérequis : API d'accès/màj des buffers de mesh (`NkMeshSystem` = GPU-only aujourd'hui).
+
 ## ✅ Livré
 
 ### Fondations (Phase A → D.3d) — toutes livrées

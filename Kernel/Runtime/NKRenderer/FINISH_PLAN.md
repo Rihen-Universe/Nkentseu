@@ -49,8 +49,12 @@
 - Outil ajouté : `NK_MAXFRAMES=<n>` (main.cpp) → sortie propre après n frames.
   `NK_VK_VALIDATION=1` → validation routée vers NkLogger.
 
-## A1.7 · DX11 écran noir / DX12 pas de modèle — codegen NkSL→HLSL (DIAGNOSTIQUÉ)
-- [ ] **DX11 — Skin shader X3014** (`incorrect number of arguments to numeric-type
+## A1.7 · DX11 écran noir / DX12 pas de modèle — ✅ RÉSOLU (vérifié visuellement 2026-07-05)
+- [x] **VÉRIFIÉ** : DemoIKChar (CesiumMan skinné + IK, `--demo=15`) rend le modèle
+      **entier et texturé** sur **DX11 ET DX12** (avant : noir en DX11, absent en DX12).
+      Confirmé aussi sur OpenGL. Skinning OK sur les 4 backends desktop (VK/GL/DX11/DX12).
+      (Corrigé entre-temps ; les notes de diagnostic ci-dessous restent pour référence.)
+- [x] **DX11 — Skin shader X3014** (`incorrect number of arguments to numeric-type
       constructor`, ligne 92 du HLSL généré). Cause : `skin.vert.nksl` utilise
       `mat4(1.0)` (identité) et `mat3(mat4)` (troncature) — valides en GLSL, INVALIDES
       en HLSL (`float4x4(1.0)` / `float3x3(float4x4)` interdits). Le transpileur NkSL
@@ -60,7 +64,7 @@
       Fix options : (a) transpileur NkSL→HLSL gère `matN(scalar)`/`matM(matN)` —
       correct mais composant PARTAGÉ ; (b) workaround dans skin.vert.nksl (identité
       explicite + `mat3(m[0].xyz,m[1].xyz,m[2].xyz)`) — bas risque, ne corrige que Skin.
-- [ ] **DX12 — pas de modèle** : `CreateInputLayout` attend `TEXCOORD/2` et `/3`
+- [x] **DX12 — pas de modèle** — RÉSOLU (modèle visible, cf. ci-dessus). `CreateInputLayout` attendait `TEXCOORD/2` et `/3`
       mais la déclaration ne les fournit pas → `CreateGraphicsPipelineState`
       hr=0x80070057. Décalage signature VS (HLSL généré) vs input layout. Codegen
       NkSL→HLSL (SM6/DXC) distinct du bug DX11.
@@ -74,7 +78,12 @@
 - [ ] **A2.2 — Auto-exposure** (~1-2 h, adaptation luminance moyenne)
 - [ ] **A2.3 — TAA** (~4-5 h, optionnel, gros impact « next gen »)
 
-## A1.5 · « Lumière persistante » sol — ROOT CAUSE PINPOINTÉ (2026-06-27, RenderDoc)
+## A1.5 · « Lumière persistante » sol — ✅ RÉSOLU (vérifié visuellement 2026-07-05)
+- [x] **VÉRIFIÉ** : plus de halo vert/jaune sur le sol sous le modèle skinné (DemoIKChar
+      CesiumMan) sur DX11/DX12/OpenGL — sol bleu marine uniforme, propre. Corrigé
+      entre-temps. Notes de diagnostic RenderDoc conservées ci-dessous pour référence.
+
+### Notes de diagnostic (historique) — ROOT CAUSE PINPOINTÉ (2026-06-27, RenderDoc)
 - [~] **CAUSE DÉFINITIVE (via RenderDoc PixelHistory sur GL)** : le halo vert/jaune
       sur le sol sous les modèles = la **DIFFUSE IRRADIANCE du shader SOL (pbr.frag)**
       qui retourne du VERT sur **GL/DX** (mais gris/ciel sur **VK**). Preuves :

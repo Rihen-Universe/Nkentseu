@@ -108,6 +108,27 @@ namespace nkentseu {
         bool NkOffscreenTarget::ReadbackPixels(uint8* dst, uint32 rowPitch) {
             if (!mValid || !mReadBuf.IsValid() || !dst) return false;
 
+            // Copie GPU : texture couleur -> staging buffer (readback) via une commande
+            // transitoire. SANS ça le staging reste vide (le CopyTextureToBuffer manquait
+            // -> Capture lisait du vide). Backends avec vraie impl : Vulkan, DX12, OpenGL.
+            // (DX11 stub le CopyTextureToBuffer : capture via un autre chemin, à part.)
+            NkTextureHandle colorRHI = mTexLib->GetRHIHandle(mColor);
+            NkICommandBuffer* cmd = mDevice->CreateCommandBuffer();
+            if (cmd && cmd->Begin()) {
+                cmd->TextureBarrier(colorRHI, NkResourceState::NK_SHADER_READ,
+                                    NkResourceState::NK_TRANSFER_SRC);
+                NkBufferTextureCopyRegion region{};
+                region.width  = mDesc.width;
+                region.height = mDesc.height;
+                region.depth  = 1;
+                region.bufferRowPitch = 0; // tight packed (width*4)
+                cmd->CopyTextureToBuffer(colorRHI, mReadBuf, region);
+                cmd->TextureBarrier(colorRHI, NkResourceState::NK_TRANSFER_SRC,
+                                    NkResourceState::NK_SHADER_READ);
+                cmd->End();
+                mDevice->Submit(&cmd, 1);
+            }
+
             mDevice->WaitIdle();
 
             // Map staging buffer → copier vers dst

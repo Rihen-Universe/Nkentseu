@@ -392,6 +392,11 @@ namespace nkentseu {
                 // Bind avant draw (met à jour descset si dirty, utilise mTexLib interne).
                 bool BindInstance(NkICommandBuffer* cmd, NkMaterialInstance* inst);
 
+                // Mode d'affichage WIREFRAME : quand actif, BindInstance binde une variante
+                // fil-de-fer (lazy) de chaque template au lieu du pipeline plein.
+                void SetWireframe(bool e) { mWireframe = e; }
+                bool IsWireframe() const  { return mWireframe; }
+
                 // Accès instance depuis handle (draw call)
                 NkMaterialInstance* GetInstance(NkMatInstHandle h) const;
 
@@ -436,6 +441,7 @@ namespace nkentseu {
                 struct TemplateEntry {
                     NkMaterialTemplateDesc  desc;
                     NkPipelineHandle        pipeline;
+                    NkPipelineHandle        pipelineWire;    // variante wireframe (lazy, mode d'affichage)
                     ::nkentseu::NkShaderHandle shaderHandle; // RHI shader handle
                     bool                    compiled = false;
                 };
@@ -475,7 +481,8 @@ namespace nkentseu {
                 class NkMaterialLibrary* mLibrary = nullptr;
 
                 void RegisterBuiltins();
-                NkPipelineHandle CompilePipeline(TemplateEntry& t);
+                NkPipelineHandle CompilePipeline(TemplateEntry& t, bool forceWireframe = false);
+                bool             mWireframe = false;
         };
 
     } // namespace renderer
