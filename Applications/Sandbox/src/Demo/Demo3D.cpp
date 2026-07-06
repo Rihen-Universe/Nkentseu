@@ -103,6 +103,7 @@ namespace nkentseu { namespace demo {
         bool                            editDeletePending  = false; // X : supprime faces (traité côté frame)
         bool                            editMergePending   = false; // M : soude les vertices sélectionnés
         bool                            editMakeFacePending= false; // F : crée une face (n-gon) depuis la sélection
+        bool                            editSubdivPending  = false; // W : subdivise les faces sélectionnées
         renderer::NkGizmo3D             editGizmo;     // 1 seule cible = centroïde de la sélection
     };
 
@@ -264,6 +265,50 @@ namespace nkentseu { namespace demo {
         NkVector<uint8> keep; keep.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)keep.Size();i++) keep[i]=st->vertSel[i];
         st->editHE.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), (uint32)fs.Size()-1, fv.Data());
         st->vertSel = keep;
+        Demo3D_SyncFromHE(st, ms);
+    }
+
+    // SUBDIVIDE (W) sur n-gons : chaque face sélectionnée -> sous-quads (type Catmull-
+    // Clark : + un point CENTRE de face + un point MILIEU par arête, partagé entre faces
+    // subdivisées -> pas de fissure). Une face à n côtés -> n quads. Sélectionne le résultat.
+    static void Demo3D_SubdivideHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
+        NkVector<renderer::NkVertex3D> pv; NkVector<uint32> fs, fv;
+        st->editHE.ToPolygons(pv, fs, fv);
+        const uint32 fc=(fs.Size()>0)?(uint32)fs.Size()-1:0;
+        NkVector<uint8> faceSel; faceSel.Resize(fc); int32 selCount=0;
+        for (uint32 f=0;f<fc;f++){ bool s=Demo3D_PolyFaceSel(st,fv,fs[f],fs[f+1]); faceSel[f]=s?1:0; if(s) selCount++; }
+        if (selCount==0) return;
+        auto lerp=[&](uint32 a,uint32 b){ renderer::NkVertex3D r=pv[a];
+            r.pos=(pv[a].pos+pv[b].pos)*0.5f; r.uv=(pv[a].uv+pv[b].uv)*0.5f; return r; };
+        // Milieux d'arête PARTAGÉS (clé = lo<<32|hi).
+        NkHashMap<uint64,uint32> emid;
+        auto edgeMid=[&](uint32 a,uint32 b)->uint32{ uint32 lo=a<b?a:b,hi=a<b?b:a; uint64 key=((uint64)lo<<32)|hi;
+            uint32* p=emid.Find(key); if(p) return *p; uint32 idx=(uint32)pv.Size(); pv.PushBack(lerp(a,b)); emid.InsertOrAssign(key,idx); return idx; };
+        NkVector<uint32> nfs, nfv; nfs.PushBack(0);
+        NkVector<uint8> vsel; vsel.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)vsel.Size();i++) vsel[i]=0;
+        // Faces non sélectionnées : inchangées.
+        for (uint32 f=0;f<fc;f++){ if(faceSel[f]) continue; for(uint32 k=fs[f];k<fs[f+1];k++) nfv.PushBack(fv[k]); nfs.PushBack((uint32)nfv.Size()); }
+        // Faces sélectionnées : centre + n sous-quads.
+        for (uint32 f=0;f<fc;f++){ if(!faceSel[f]) continue; const uint32 s=fs[f],e=fs[f+1],n=e-s;
+            if(n<3) { for(uint32 k=s;k<e;k++) nfv.PushBack(fv[k]); nfs.PushBack((uint32)nfv.Size()); continue; }
+            renderer::NkVertex3D ctr{}; NkVec3f cp{0,0,0}; NkVec2f cuv{0,0};
+            for(uint32 k=s;k<e;k++){ cp=cp+pv[fv[k]].pos; cuv=cuv+pv[fv[k]].uv; }
+            ctr=pv[fv[s]]; ctr.pos=cp*(1.f/(float32)n); ctr.uv=cuv*(1.f/(float32)n);
+            uint32 cidx=(uint32)pv.Size(); pv.PushBack(ctr);
+            if((uint32)vsel.Size()<=cidx) vsel.Resize(cidx+1);
+            for(uint32 k=0;k<n;k++){
+                uint32 v0=fv[s+k], v1=fv[s+(k+1)%n], vp=fv[s+(k+n-1)%n];
+                uint32 m1=edgeMid(v0,v1), m0=edgeMid(vp,v0);
+                if((uint32)vsel.Size()<=cidx || (uint32)vsel.Size()<=m1 || (uint32)vsel.Size()<=m0){
+                    uint32 mx=cidx; if(m1>mx)mx=m1; if(m0>mx)mx=m0; vsel.Resize(mx+1); }
+                nfv.PushBack(v0); nfv.PushBack(m1); nfv.PushBack(cidx); nfv.PushBack(m0);
+                nfs.PushBack((uint32)nfv.Size());
+                vsel[cidx]=1; vsel[m1]=1; vsel[m0]=1;
+            }
+        }
+        st->editHE.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
+        if((uint32)vsel.Size()<(uint32)pv.Size()) vsel.Resize((uint32)pv.Size());
+        st->vertSel = vsel;
         Demo3D_SyncFromHE(st, ms);
     }
 
@@ -614,6 +659,7 @@ namespace nkentseu { namespace demo {
                     if (k == NkKey::NK_X) { st->editDeletePending  = true; return; }
                     if (k == NkKey::NK_M) { st->editMergePending   = true; return; }
                     if (k == NkKey::NK_F) { st->editMakeFacePending= true; return; }
+                    if (k == NkKey::NK_W) { st->editSubdivPending  = true; return; }
                 }
             }
             // Gizmo ACTIF selon le mode : objet ou vertices.
@@ -1086,6 +1132,9 @@ namespace nkentseu { namespace demo {
                 if (st->editMakeFacePending) { st->editMakeFacePending=false;
                     Demo3D_MakeFaceHE(st, meshSysT);
                     logger.Info("[Demo3D] Create face -> {0} faces\n", (int32)st->editHE.FaceCount()); }
+                if (st->editSubdivPending) { st->editSubdivPending=false;
+                    Demo3D_SubdivideHE(st, meshSysT);
+                    logger.Info("[Demo3D] Subdivide -> {0} faces\n", (int32)st->editHE.FaceCount()); }
                 if (st->editMergePending) { st->editMergePending=false;
                     Demo3D_MergeHE(st, meshSysT);
                     logger.Info("[Demo3D] Merge -> {0} vertices\n", (int32)st->editHE.VertCount()); }
@@ -1449,7 +1498,7 @@ namespace nkentseu { namespace demo {
                     st->editObjIdx, modeStr,
                     gmName[st->editGizmo.Mode() & 3], st->editXray ? "ON" : "OFF");
                 overlay->DrawText({20.f, 118.f},
-                    "clic=sel Shift+clic=ajout A/Alt+A=tout/rien | E=extrude X=supprimer M=souder F=face | TAB=sortir Alt+Z=x-ray");
+                    "clic=sel Shift+clic=ajout | E=extrude X=supprimer M=souder F=face W=subdiv | TAB=sortir Alt+Z=x-ray");
             } else {
                 overlay->DrawText({20.f, 100.f},
                     "OBJET  |  Gizmo(G/R/S/C): %s  |  Orient(,): %s   |  TAB=editer l'objet selectionne",
