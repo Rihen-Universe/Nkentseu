@@ -654,6 +654,9 @@ FodyWeavers.xsd
 # VS Code files for those working on multiple tools
 *.code-workspace
 
+
+GUIDE_GIT_MULTI_AGENTS.md
+
 # Local History for Visual Studio Code
 
 # Windows Installer files from build outputs
