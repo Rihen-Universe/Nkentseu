@@ -1429,10 +1429,12 @@ namespace nkentseu {
                     const NkSWTexture* atlas = fb.atlas;
                     static const bool s_noShadow = [](){ const char* e=std::getenv("NK_SW_NOSHADOW"); return e && e[0]=='1'; }();  // diag perf
                     const bool hasShadows = !s_noShadow && su && atlas && !atlas->mips.Empty();
-                    auto sampleShadow = [&](int lightIdx)->float {
+                    // ndl = N·L de la lumière (pour le slope bias). Parité GPU : biais normal (offset
+                    // le long de N, côté récepteur) + biais de profondeur slope-scaled (÷ N·L).
+                    auto sampleShadow = [&](int lightIdx, float ndl)->float {
                         if (!hasShadows || lightIdx<0 || lightIdx>=32) return 1.f;
                         const float* gcfg   = (const float*)(su + 28928u);  // .x=numSlots .z=depthRemap
-                        const float* biasP  = (const float*)(su + 28944u);  // .x=shadowBias
+                        const float* biasP  = (const float*)(su + 28944u);  // .x=shadowBias .y=normalBias
                         const float* firstA = (const float*)(su + 28672u);  // firstSlotPerLight (packé vec4)
                         const float* countA = (const float*)(su + 28800u);  // slotCountPerLight
                         const int numSlots  = (int)gcfg[0];
@@ -1441,7 +1443,14 @@ namespace nkentseu {
                         const int first = (int)firstA[lightIdx];
                         const int count = (int)countA[lightIdx];
                         if (first<0 || count<=0) return 1.f;
-                        const float sbias = (biasP[0]>0.f) ? biasP[0] : 0.0005f;
+                        // Biais de profondeur SLOPE-SCALED : plus la surface est rasante (N·L faible),
+                        // plus l'écart de profondeur par texel est grand → biais ∝ 1/(N·L), borné.
+                        const float shBias0 = (biasP[0]>0.f) ? biasP[0] : 0.0005f;
+                        const float invNdl  = 1.f / (ndl > 0.15f ? ndl : 0.15f);   // borné (anti sur-biais rasant)
+                        const float sbias   = shBias0 * invNdl;
+                        // Biais NORMAL (world units) : pousse le point échantillonné le long de la normale
+                        // avant projection → anti peter-panning (décollement de l'ombre au pied du caster).
+                        const float nBias = (biasP[1]>0.f) ? biasP[1] : 0.f;
                         const uint32 aw = atlas->Width(0), ah = atlas->Height(0);
                         const float* ad = (const float*)atlas->mips[0].Data();
                         for (int s=0;s<count;++s) {
@@ -1449,7 +1458,7 @@ namespace nkentseu {
                             if (slot<0 || slot>=numSlots) continue;
                             const float* sm  = (const float*)(su + (uint32)slot*112u);        // shadowMatrix @0
                             const float* tuv = (const float*)(su + (uint32)slot*112u + 64u);  // tileUV @64 (minU,minV,maxU,maxV)
-                            const float wpx=f.attrs[0], wpy=f.attrs[1], wpz=f.attrs[2];
+                            const float wpx=f.attrs[0]+nx*nBias, wpy=f.attrs[1]+ny*nBias, wpz=f.attrs[2]+nz*nBias;
                             float qx=sm[0]*wpx+sm[4]*wpy+sm[ 8]*wpz+sm[12];
                             float qy=sm[1]*wpx+sm[5]*wpy+sm[ 9]*wpz+sm[13];
                             float qz=sm[2]*wpx+sm[6]*wpy+sm[10]*wpz+sm[14];
@@ -1511,7 +1520,7 @@ namespace nkentseu {
                         // Ombre portée : atténue la contribution DIRECTE (diffus+spéc), pas l'ambiant.
                         // PERF : n'échantillonne l'atlas (PCF) que pour les fragments FACE à la lumière
                         // (ndl>0) — sinon la contribution directe est nulle et l'ombre n'a aucun effet.
-                        if (ndl>0.f) inten *= sampleShadow(i);
+                        if (ndl>0.f) inten *= sampleShadow(i, ndl);
                         float lr=C[0]*inten*att, lg=C[1]*inten*att, lb=C[2]*inten*att;
                         // diffus
                         litR += cr*ndl*lr*kd; litG += cg*ndl*lg*kd; litB += cb*ndl*lb*kd;

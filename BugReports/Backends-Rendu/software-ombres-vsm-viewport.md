@@ -69,9 +69,11 @@ Mesures (MIN, bruit de fond ±40 ms car process lancé en arrière-plan) :
 
 **Piège de mesure CRITIQUE** : `NK_SW_PERF=1` logge 1 ligne/frame dans un app.log de plusieurs Mo → I/O synchrone par frame qui **fausse la HUD FPS** (lectures 5-8 artificiellement basses). Sans ce log, la HUD est à **60 FPS** (vsync-capé) ; mesurer le coût raster via le replay NK_SW_PERF (MIN, pas avg).
 
+## 6. Biais normal + slope-scaled (parité GPU)
+Le fragment applique désormais, côté récepteur (comme les backends GPU) : (a) **biais normal** en world units (`biasParams.y`, défaut 0.05) — le point échantillonné est poussé le long de la normale monde avant projection (anti *peter-panning*) ; (b) **biais de profondeur slope-scaled** — `shadowBias / max(N·L, 0.15)`. `sampleShadow(lightIdx, ndl)` reçoit `N·L`. Avant : seul un `shadowBias` fixe → léger décollement de l'ombre au pied des casters vs GPU. Impact visuel subtil (refinement, pas de régression).
+
 ## Limites assumées
-- Une seule lumière directionnelle validée pour l'instant (le mécanisme couvre spots/points par la même sélection de tuile, à valider).
-- Biais de profondeur fixe (pas de slope/normal bias).
+- Une seule lumière directionnelle validée visuellement (le mécanisme couvre spots/points par la même sélection de tuile — à valider).
 - **Optimisation perf restante = la passe shadow** (re-render des slots cached, code NKRenderer partagé) et/ou SIMD du fragment par pixel. Le PCF et les lookups ne sont pas des leviers.
 
 ## Vérification
