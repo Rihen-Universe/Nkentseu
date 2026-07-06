@@ -558,5 +558,70 @@ namespace nkentseu {
             return applied;
         }
 
+        // ── Sérialisation binaire (petit lecteur/écriveur d'octets, little-endian) ──
+        namespace {
+            struct EmW { NkVector<uint8>& b;
+                void U8(uint8 v){ b.PushBack(v); }
+                void U32(uint32 v){ b.PushBack((uint8)(v&0xFF)); b.PushBack((uint8)((v>>8)&0xFF));
+                                    b.PushBack((uint8)((v>>16)&0xFF)); b.PushBack((uint8)((v>>24)&0xFF)); }
+                void I32(int32 v){ U32((uint32)v); }
+                void F32(float32 v){ union { float32 f; uint32 u; } c; c.f=v; U32(c.u); }
+            };
+            struct EmR { const uint8* d; uint32 n; uint32 p; bool ok;
+                EmR(const uint8* dd, uint32 nn):d(dd),n(nn),p(0),ok(true){}
+                uint8  U8(){ if(p+1>n){ok=false;return 0;} return d[p++]; }
+                uint32 U32(){ if(p+4>n){ok=false;return 0;} uint32 v=(uint32)d[p]|((uint32)d[p+1]<<8)
+                                |((uint32)d[p+2]<<16)|((uint32)d[p+3]<<24); p+=4; return v; }
+                int32  I32(){ return (int32)U32(); }
+                float32 F32(){ union { float32 f; uint32 u; } c; c.u=U32(); return c.f; }
+            };
+            static const uint32 NK_EMREC_MAGIC = 0x4E4D4543u; // "NMEC"
+        }
+
+        void NkMeshEditRecorder::Serialize(NkVector<uint8>& out) const {
+            out.Clear();
+            EmW w{out};
+            w.U32(NK_EMREC_MAGIC); w.U32(1u); w.U32((uint32)mCommands.Size());
+            for (uint32 i=0;i<(uint32)mCommands.Size();++i){
+                const NkMeshEditCommand& c = mCommands[i];
+                w.U8((uint8)c.op);
+                w.U32((uint32)c.selection.Size());
+                for (uint32 k=0;k<(uint32)c.selection.Size();++k) w.U32(c.selection[k]);
+                w.U8((uint8)(c.extrude.individual?1:0)); w.F32(c.extrude.offset);
+                w.I32(c.merge.mode);
+                w.I32(c.subdiv.cuts);
+                w.F32(c.planePoint.x);  w.F32(c.planePoint.y);  w.F32(c.planePoint.z);
+                w.F32(c.planeNormal.x); w.F32(c.planeNormal.y); w.F32(c.planeNormal.z);
+                for (int32 col=0;col<4;++col) for (int32 row=0;row<4;++row) w.F32(c.bisectXform[col][row]);
+                w.U32((uint32)c.moveDeltas.Size());
+                for (uint32 k=0;k<(uint32)c.moveDeltas.Size();++k){
+                    w.F32(c.moveDeltas[k].x); w.F32(c.moveDeltas[k].y); w.F32(c.moveDeltas[k].z); }
+            }
+        }
+
+        bool NkMeshEditRecorder::Deserialize(const uint8* data, uint32 size) {
+            mCommands.Clear();
+            EmR r(data, size);
+            if (r.U32()!=NK_EMREC_MAGIC) return false;
+            (void)r.U32();                                  // version
+            const uint32 count = r.U32();
+            for (uint32 i=0;i<count && r.ok;++i){
+                NkMeshEditCommand c;
+                c.op = (NkMeshEditOp)r.U8();
+                const uint32 sc = r.U32();
+                for (uint32 k=0;k<sc && r.ok;++k) c.selection.PushBack(r.U32());
+                c.extrude.individual = (r.U8()!=0); c.extrude.offset = r.F32();
+                c.merge.mode  = r.I32();
+                c.subdiv.cuts = r.I32();
+                { float32 x=r.F32(), y=r.F32(), z=r.F32(); c.planePoint  = {x,y,z}; }
+                { float32 x=r.F32(), y=r.F32(), z=r.F32(); c.planeNormal = {x,y,z}; }
+                for (int32 col=0;col<4;++col) for (int32 row=0;row<4;++row) c.bisectXform[col][row] = r.F32();
+                const uint32 mc = r.U32();
+                for (uint32 k=0;k<mc && r.ok;++k){ float32 x=r.F32(), y=r.F32(), z=r.F32(); NkVec3f d={x,y,z}; c.moveDeltas.PushBack(d); }
+                if (r.ok) mCommands.PushBack(c);
+            }
+            return r.ok;
+        }
+
     } // namespace renderer
 } // namespace nkentseu

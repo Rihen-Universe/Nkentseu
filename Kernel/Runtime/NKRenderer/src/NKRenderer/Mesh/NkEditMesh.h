@@ -185,6 +185,10 @@ namespace nkentseu {
                 const NkMeshEditCommand& At(uint32 i) const { return mCommands[i]; }
                 // Rejoue toutes les commandes (dans l'ordre) sur `mesh`. Renvoie le nb appliquées.
                 uint32 ReplayOnto(NkEditMesh& mesh) const;
+                // Sérialisation binaire autonome (magic "NMEC", versionnée) — persiste une
+                // session sur disque : données d'imitation IA + modificateurs sauvegardables.
+                void   Serialize(NkVector<uint8>& out) const;
+                bool   Deserialize(const uint8* data, uint32 size);
             private:
                 NkVector<NkMeshEditCommand> mCommands;
         };

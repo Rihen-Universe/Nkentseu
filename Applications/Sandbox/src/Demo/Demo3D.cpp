@@ -90,7 +90,7 @@ namespace nkentseu { namespace demo {
         bool                            editDragSnapValid = false;
         renderer::NkMeshEditRecorder    editRecorder;  // journal des commandes (rejeu / modificateurs / IA)
         renderer::NkEditMesh            editBase;      // maillage de BASE (à l'entrée) pour le rejeu
-        bool                            editShowingBase = false; // P : bascule base <-> modèle rejoué
+        int32                           editReplayStep = -1;     // P : rejeu PAS-À-PAS (-1=off, 0=base, k=base+k commandes)
         NkVector<renderer::NkEmId>      editTriFace;   // map triangle de rendu -> face n-gon (pick)
         NkVector<uint8>                 vertSel;       // 1 = vertex sélectionné (taille = nb vertices)
         NkMat4f                         editAnchor    = NkMat4f::Identity();  // transform monde de l'objet
@@ -206,7 +206,7 @@ namespace nkentseu { namespace demo {
         if (!cmd.Apply(st->editHE)) return false;               // no-op -> ni undo ni enregistrement
         st->editHistory.Commit(snapshot);
         st->editRecorder.Push(cmd);                             // journalise la commande
-        st->editShowingBase = false;                            // on repart d'un état "édité"
+        st->editReplayStep = -1;                                // une édition sort du mode rejeu
         Demo3D_PullSel(st); Demo3D_SyncFromHE(st, ms);
         return true;
     }
@@ -263,26 +263,25 @@ namespace nkentseu { namespace demo {
     // REJEU (P) : reconstruit editHE depuis le maillage de BASE (capturé à l'entrée) et
     // rejoue TOUTES les commandes enregistrées. Preuve que la couche de commandes est
     // scriptable (fondation modificateurs non-destructifs + données d'imitation IA).
+    // REJEU PAS-À-PAS (P) : chaque appui applique UNE commande de plus depuis la base, pour
+    // VOIR le modèle se reconstruire étape par étape (comme regarder rejouer la session —
+    // exactement l'observation qu'aurait une IA d'apprentissage). Boucle : après la dernière
+    // commande, un appui de plus revient à la base.
     static void Demo3D_ReplayEdits(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        st->editHE = st->editBase;                              // repart TOUJOURS du maillage de base
-        if (st->editShowingBase) {
-            // 2e appui : REJOUE toutes les commandes -> reconstruit le modèle édité (VISIBLE).
-            const uint32 applied = st->editRecorder.ReplayOnto(st->editHE);
-            st->editShowingBase = false;
-            st->vertSel.Clear(); st->vertSel.Resize(st->editHE.VertCount());
-            for (uint32 i=0;i<st->editHE.VertCount();++i) st->vertSel[i] = st->editHE.verts[i].sel;
-            Demo3D_SyncFromHE(st, ms);
-            logger.Info("[Demo3D] REJEU: {0}/{1} commandes -> {2} faces (ré-appuie P pour revoir la base)\n",
-                        applied, st->editRecorder.Count(), (int32)st->editHE.FaceCount());
-        } else {
-            // 1er appui : montre le maillage de BASE (avant toute édition) — le modèle « revient
-            // à zéro » à l'écran ; ré-appuyer sur P le reconstruit depuis le journal.
-            st->editShowingBase = true;
-            st->vertSel.Clear(); st->vertSel.Resize(st->editHE.VertCount());
-            Demo3D_SyncFromHE(st, ms);
-            logger.Info("[Demo3D] BASE (avant edition, {0} faces) — appuie encore sur P pour REJOUER {1} commandes\n",
-                        (int32)st->editHE.FaceCount(), st->editRecorder.Count());
-        }
+        const int32 total = (int32)st->editRecorder.Count();
+        if (st->editReplayStep < 0) st->editReplayStep = 0;    // 1er appui -> base (0 commande)
+        else                        st->editReplayStep++;      // appui suivant -> une commande de plus
+        if (st->editReplayStep > total) st->editReplayStep = 0;// après la fin -> reboucle à la base
+
+        st->editHE = st->editBase;                             // repart de la base
+        int32 applied = 0;
+        for (int32 i=0; i<st->editReplayStep && i<total; ++i)  // rejoue les k premières commandes
+            if (st->editRecorder.At((uint32)i).Apply(st->editHE)) ++applied;
+        st->vertSel.Clear(); st->vertSel.Resize(st->editHE.VertCount());
+        for (uint32 i=0;i<st->editHE.VertCount();++i) st->vertSel[i] = st->editHE.verts[i].sel;
+        Demo3D_SyncFromHE(st, ms);
+        logger.Info("[Demo3D] Rejeu pas-a-pas: etape {0}/{1} ({2} appliquees) -> {3} faces\n",
+                    st->editReplayStep, total, applied, (int32)st->editHE.FaceCount());
     }
 
     // UNDO / REDO : restaure un snapshot de editHE, resynchronise sélection + rendu.
@@ -845,7 +844,7 @@ namespace nkentseu { namespace demo {
                         st->editHistory.Clear();   // nouvel objet en édition -> historique neuf
                         st->editRecorder.Clear();  // journal des commandes neuf
                         st->editBase = st->editHE; // maillage de BASE pour le rejeu (modificateurs/IA)
-                        st->editShowingBase = false;
+                        st->editReplayStep = -1;
                         st->vertSel.Clear(); st->vertSel.Resize(st->editHE.VertCount());
                         for (uint32 i=0;i<st->editHE.VertCount();i++) st->vertSel[i]=0;
                         st->editMesh = {};
