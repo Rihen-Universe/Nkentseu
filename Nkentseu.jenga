@@ -1167,9 +1167,14 @@ with workspace("Nkentseu", location="."):
 
 
 
-    with include("Applications/Songoo/Songoo.jenga"):
-
-        pass
+    # TODO(Songoo) : migration rendu GL -> NKCanvas a FINIR (12 scenes UI utilisent encore
+    # Render/GLContext|GLRenderer2D|Texture2D|FontAtlas supprimes). Desactive du build pour
+    # ne pas casser `jenga build`. Le code source reste dans main ; reactiver apres migration.
+    # with include("Applications/Songoo/Songoo.jenga"):
+    #     pass
+    if False:
+        with include("Applications/Songoo/Songoo.jenga"):
+            pass
 
 
 
