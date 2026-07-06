@@ -77,6 +77,10 @@ namespace nkcode {
                 if (StrEq(files[i].path.ToString().CStr(), ps.CStr())) { active = static_cast<int32>(i); return; }
 
             const NkString content = NkFile::ReadAllText(p);
+            // GARDE-FOU anti perte de donnees : le fichier existe et est NON VIDE sur disque,
+            // mais on lit un contenu VIDE (echec de lecture / verrou / chemin foireux) -> NE PAS
+            // ouvrir un onglet vide (un Ctrl+S l'ecraserait). On abandonne l'ouverture.
+            if (content.Empty() && NkFile::GetFileSize(p) > 0) return;
             OpenFile f; f.path = p;
             f.doc.SetText(content.CStr());
             f.diskMtime = MTimeOf(p.ToString().CStr());   // référence pour la détection de changement externe
