@@ -62,6 +62,14 @@ _REGISTRY: dict = {
     "NKMath"         : _m("NKENTSEU_MATH",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers"]),
     # --- Sous-systeme IA (Kernel/AI) : construit bottom-up, cf Kernel/AI/ARCHITECTURE.md ---
     "NKTensor"       : _m("NKENTSEU_TENSOR",       ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath"]),
+    "NKAutograd"     : _m("NKENTSEU_AUTOGRAD",     ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor"]),
+    "NKNN"           : _m("NKENTSEU_NN",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd"]),
+    "NKOptim"        : _m("NKENTSEU_OPTIM",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd"]),
+    "NKData"         : _m("NKENTSEU_DATA",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor"]),
+    "NKTrain"        : _m("NKENTSEU_TRAIN",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN", "NKData"]),
+    "NKInfer"        : _m("NKENTSEU_INFER",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd"]),
+    "NKRL"           : _m("NKENTSEU_RL",            ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor"]),
+    "NKGen"          : _m("NKENTSEU_GEN",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN"]),
 
     # ---- System --------------------------------------------------------------
     "NKThreading"    : _m("NKENTSEU_THREADING",    ["NKPlatform", "NKCore", "NKMemory", "NKContainers"]),

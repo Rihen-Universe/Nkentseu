@@ -147,6 +147,41 @@ namespace nkentseu {
                 }
             }
 
+            // ── MatCap texture (boule chrome studio) ──────────────────────────────
+            // Génère une "boule matcap" 128x128 : chaque pixel = normale de sphère,
+            // colorée par un éclairage chrome/studio. Échantillonnée par la normale-vue
+            // en mode SOLID/WIREFRAME (matcap TEXTURE). Base pour charger de vrais
+            // matcaps .exr/.png plus tard (remplacer la génération par un Load).
+            {
+                const uint32 S = 128;
+                auto td = NkTextureDesc::Tex2D(S, S, NkGPUFormat::NK_RGBA8_UNORM, 1);
+                td.debugName = "MatcapChrome";
+                mMatcapTex = mDevice->CreateTexture(td);
+                if (mMatcapTex.IsValid()) {
+                    NkVector<uint8> px; px.Resize(S * S * 4);
+                    auto norm3 = [](float a,float b,float c){ float l=sqrtf(a*a+b*b+c*c); return l>1e-6f?1.f/l:0.f; };
+                    const float kl=norm3(0.40f,0.50f,0.77f), fl=norm3(-0.5f,0.15f,0.85f);
+                    for (uint32 y=0; y<S; ++y) for (uint32 x=0; x<S; ++x) {
+                        float nx = ((float)x/(float)(S-1))*2.f - 1.f;
+                        float ny = 1.f - ((float)y/(float)(S-1))*2.f;
+                        float r2 = nx*nx + ny*ny; float s;
+                        if (r2 > 1.f) { s = 0.05f; }                    // hors sphère : fond sombre
+                        else {
+                            float nz = sqrtf(1.f - r2);
+                            float key  = nx*0.40f*kl + ny*0.50f*kl + nz*0.77f*kl; if (key<0.f) key=0.f;
+                            float spec = powf(key, 42.f);
+                            float fill = nx*(-0.5f)*fl + ny*0.15f*fl + nz*0.85f*fl; if (fill<0.f) fill=0.f;
+                            float fres = powf(1.f-nz, 3.f);
+                            s = 0.12f + 0.45f*key + 0.9f*spec + 0.22f*fill + 0.32f*fres;
+                            if (s>1.f) s=1.f;
+                        }
+                        uint8 v = (uint8)(s*255.f); uint32 i=(y*S+x)*4;
+                        px[i]=v; px[i+1]=v; px[i+2]=v; px[i+3]=255;      // chrome = niveaux de gris
+                    }
+                    mDevice->WriteTextureRegion(mMatcapTex, px.Data(), 0,0,0, S,S,1, 0, 0);
+                }
+            }
+
             // ── Descriptor set layouts ────────────────────────────────────────────
             // Frame set (set 0) : Camera(0) + Lights(2) + Shadow(3) + 4 textures
             // materiel par defaut(4-7) + Env irradiance/prefilter/BRDFLUT(8/9/10)
@@ -195,7 +230,10 @@ namespace nkentseu {
                 // Phase H.6 : binding=27 = tVoxelOpacity (sampler3D R8_UNORM).
                 // Voxel grid de la scene pour AO long-range via cone-tracing
                 // dans le PBR shader. cf. NkVoxelAOSystem.
-                .Add(27, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+                .Add(27, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                // Mode d'affichage : binding=28 = tMatcap (sampler2D), boule matcap
+                // échantillonnée par la normale-vue en mode SOLID/WIREFRAME (matcap texture).
+                .Add(28, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
             mGlobalLayout = mDevice->CreateDescriptorSetLayout(frameLayout);
 
             // Object set layout (set 1) : Object UBO(1) + Bones/Instance UBO(4).
@@ -280,6 +318,13 @@ namespace nkentseu {
                     mDevice->BindTextureSampler(gs, 27,
                         mVoxelAO->GetVoxelTexture(), mVoxelAO->GetVoxelSampler());
                 }
+
+                // Binding 28 : boule matcap (mode SOLID/WIREFRAME, matcap texture).
+                // Sampler CLAMP (pas repeat !) : au bord des sphères l'UV frôle 0/1 et le
+                // repeat rebouclerait sur le bord opposé -> stries sombres. Clamp = propre.
+                NkSamplerHandle mcSamp = mResources ? mResources->GetSamplerLinearClamp() : defSampler;
+                if (mMatcapTex.IsValid() && mcSamp.IsValid())
+                    mDevice->BindTextureSampler(gs, 28, mMatcapTex, mcSamp);
 
                 if (mShadow && mShadow->GetAtlasTexture().IsValid()) {
                     mDevice->BindTextureSampler(gs, 11,
@@ -536,8 +581,7 @@ namespace nkentseu {
             mPBRPipeline = mDevice->CreateGraphicsPipeline(pd);
             mPBRPipelineRP = currentRP;
             logger.Info("[NkRender3D] PBR pipeline (lazy) create: shader_valid={0} pipeline_valid={1} rp.id={2}\n",
-                        mPBRShader.IsValid() ? 1 : 0, mPBRPipeline.IsValid() ? 1 : 0,
-                        currentRP.id);
+                        mPBRShader.IsValid() ? 1 : 0, mPBRPipeline.IsValid() ? 1 : 0, currentRP.id);
             return mPBRPipeline.IsValid();
         }
 
@@ -801,6 +845,18 @@ namespace nkentseu {
             if (mDebugPipeline.IsValid()) { mDevice->DestroyPipeline(mDebugPipeline); mDebugPipeline={}; }
             if (mDebugVBO.IsValid())      { mDevice->DestroyBuffer(mDebugVBO); mDebugVBO={}; }
             if (mDebugIBO.IsValid())      { mDevice->DestroyBuffer(mDebugIBO); mDebugIBO={}; }
+            // Lignes + triangles debug (gizmos/cage/faces éditeur).
+            if (mLinePipeline.IsValid())        { mDevice->DestroyPipeline(mLinePipeline); mLinePipeline={}; }
+            if (mLinePipelineNoDepth.IsValid()) { mDevice->DestroyPipeline(mLinePipelineNoDepth); mLinePipelineNoDepth={}; }
+            if (mLineVBO.IsValid())             { mDevice->DestroyBuffer(mLineVBO); mLineVBO={}; }
+            if (mTriPipeline.IsValid())         { mDevice->DestroyPipeline(mTriPipeline); mTriPipeline={}; }
+            if (mTriPipelineNoDepth.IsValid())  { mDevice->DestroyPipeline(mTriPipelineNoDepth); mTriPipelineNoDepth={}; }
+            if (mTriVBO.IsValid())              { mDevice->DestroyBuffer(mTriVBO); mTriVBO={}; }
+            if (mEditLineBuf.IsValid())         { mDevice->DestroyBuffer(mEditLineBuf); mEditLineBuf={}; }
+            if (mEditTriBuf.IsValid())          { mDevice->DestroyBuffer(mEditTriBuf); mEditTriBuf={}; }
+            if (mEditPointBuf.IsValid())        { mDevice->DestroyBuffer(mEditPointBuf); mEditPointBuf={}; }
+            if (mEditPointPipeline.IsValid())        { mDevice->DestroyPipeline(mEditPointPipeline); mEditPointPipeline={}; }
+            if (mEditPointPipelineNoDepth.IsValid()) { mDevice->DestroyPipeline(mEditPointPipelineNoDepth); mEditPointPipelineNoDepth={}; }
             mDebugInited = false;
         }
 
@@ -1019,6 +1075,9 @@ namespace nkentseu {
             if (gs.IsValid())
                 cmd->BindDescriptorSet(gs, 0);
 
+            // Mode d'affichage wireframe : propage au material system (c'est lui qui binde
+            // le pipeline final par BindInstance -> il doit choisir la variante fil-de-fer).
+            if (mMat) mMat->SetWireframe(mWireframe);
             FlushOpaque(cmd);
             FlushInstanced(cmd);
             FlushSkinned(cmd);
@@ -1091,6 +1150,21 @@ namespace nkentseu {
             logger.Info("[NkRender3D] VoxelAO texture bind a set=0 binding=27\n");
         }
 
+        // Remplace À CHAUD la boule matcap (binding 28). Permet à l'utilisateur de charger
+        // sa propre texture matcap (.exr/.png décodé) et de la changer au runtime.
+        void NkRender3D::SetMatcapTexture(NkTextureHandle tex) {
+            NkTextureHandle bind = tex.IsValid() ? tex : mMatcapTex;   // fallback = chrome généré
+            if (!bind.IsValid() || !mResources) return;
+            NkSamplerHandle samp = mResources->GetSamplerLinearClamp();
+            if (!samp.IsValid()) return;
+            for (uint32 i = 0; i < mFramesInFlight; i++) {
+                if (i < mGlobalSetRing.Size() && mGlobalSetRing[i].IsValid())
+                    mDevice->BindTextureSampler(mGlobalSetRing[i], 28, bind, samp);
+                if (i < mGlobalSetMirrorRing.Size() && mGlobalSetMirrorRing[i].IsValid())
+                    mDevice->BindTextureSampler(mGlobalSetMirrorRing[i], 28, bind, samp);
+            }
+        }
+
         void NkRender3D::FlushIntoRT(NkICommandBuffer* cmd, NkRenderPassHandle rp,
                                      const NkMat4f& mirrorMat,
                                      const NkMat4f& mirrorViewProj,
@@ -1157,7 +1231,7 @@ namespace nkentseu {
                 //   donc on doit inverser pour obtenir le meme viewRay.y final.
                 //   +1.0 en VK, -1.0 en GL. Les shaders qui n'utilisent pas ce
                 //   champ ignorent le slot.
-                float32 iblStrength, yFlipNDC, _p1, _p2;
+                float32 iblStrength, yFlipNDC, viewMode, matcapId;  // viewMode:0=PBR,>0.5=SOLID ; matcapId=preset
                 // Phase Planar Reflection : viewProj de la cam miroir, exposée
                 // au shader ReflFloor pour calculer reflectionUV via
                 // projection explicite. Les shaders qui n'utilisent pas ce
@@ -1212,6 +1286,8 @@ namespace nkentseu {
             cb.time        = mCtx.time;
             cb.deltaTime   = mCtx.deltaTime;
             cb.iblStrength = mIBLStrength;
+            cb.viewMode    = (float32)mViewMode;  // 0=rendered(PBR) 1=solid/unlit (indépendant du wireframe)
+            cb.matcapId    = (float32)mMatcapId;  // preset matcap en mode SOLID/WIREFRAME
             // yFlipNDC : UNIQUEMENT consommé par le SKYBOX (reconstruction du view-ray à
             // partir de vNDC). C'est l'orientation Y du VS PLEIN ÉCRAN du skybox, qui
             // n'a PAS d'inputs → le générateur HLSL ne le Y-négate PAS sur DX (il ne
@@ -2028,12 +2104,22 @@ namespace nkentseu {
                 mLineShader = mShaderLib->GetRHIHandle(prog);
                 if (!mLineShader.IsValid()) { logger.Errorf("[NkR3D::DebugLine] RHI handle FAIL\n"); return false; }
             }
-            if (mLinePipeline.IsValid()) { mDevice->DestroyPipeline(mLinePipeline); mLinePipeline = {}; }
+            if (mLinePipeline.IsValid())        { mDevice->DestroyPipeline(mLinePipeline);        mLinePipeline = {}; }
+            if (mLinePipelineNoDepth.IsValid()) { mDevice->DestroyPipeline(mLinePipelineNoDepth); mLinePipelineNoDepth = {}; }
 
             NkGraphicsPipelineDesc pd;
             pd.shader       = mLineShader;
-            pd.depthStencil = NkDepthStencilDesc::Default();   // depth test ON (lignes occluses)
+            // Lignes debug depth-testées (cage d'édition, axes) : elles doivent COLLER à
+            // la surface du modèle sans z-fighting ni flottement. Technique standard =
+            // POLYGON OFFSET / depth-bias (cf. glPolygonOffset) : LESS_EQUAL (le coplanaire
+            // passe) + lecture seule + biais négatif (tire vers la caméra) -> la cage
+            // adhère pile au maillage, occluse par le reste de la scène.
+            pd.depthStencil = NkDepthStencilDesc::Default();
+            pd.depthStencil.depthCompareOp   = NkCompareOp::NK_LESS_EQUAL;
+            pd.depthStencil.depthWriteEnable = false;
             pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.rasterizer.depthBiasConst = -1.5f;
+            pd.rasterizer.depthBiasSlope = -1.5f;
             pd.blend        = NkBlendDesc::Opaque();
             pd.topology     = NkPrimitiveTopology::NK_LINE_LIST;
             pd.debugName    = "DebugLine";
@@ -2046,28 +2132,201 @@ namespace nkentseu {
               .AddAttribute(1, 0, NkVertexFormat::NK_RGBA32_FLOAT, 12, "COLOR",    0);
             mLinePipeline   = mDevice->CreateGraphicsPipeline(pd);
             mLinePipelineRP = currentRP;
-            logger.Info("[NkRender3D] DebugLine pipeline create: shader_valid={0} pipeline_valid={1} rp.id={2}\n",
-                        mLineShader.IsValid() ? 1 : 0, mLinePipeline.IsValid() ? 1 : 0, currentRP.id);
+
+            // Variante OVERLAY : mêmes réglages mais depth-test OFF -> lignes toujours
+            // au-dessus de la scène (gizmos/marqueurs éditeur, façon Blender).
+            pd.depthStencil = NkDepthStencilDesc::NoDepth();
+            pd.debugName    = "DebugLineOverlay";
+            mLinePipelineNoDepth = mDevice->CreateGraphicsPipeline(pd);
+
+            logger.Info("[NkRender3D] DebugLine pipeline create: shader_valid={0} pipeline_valid={1} overlay_valid={2} rp.id={3}\n",
+                        mLineShader.IsValid() ? 1 : 0, mLinePipeline.IsValid() ? 1 : 0,
+                        mLinePipelineNoDepth.IsValid() ? 1 : 0, currentRP.id);
             return mLinePipeline.IsValid();
+        }
+
+        // Pipelines pour les TRIANGLES debug pleins (surlignage de faces, etc.) :
+        // même shader/layout que les lignes (pos vec3 + couleur vec4), mais topologie
+        // TRIANGLE_LIST + blend ALPHA. Variante depth (occluse) + overlay (au-dessus).
+        bool NkRender3D::EnsureDebugTriOverlayPipeline(NkRenderPassHandle currentRP) {
+            if (mTriPipeline.IsValid() && mTriPipelineRP == currentRP) return true;
+            if (!EnsureDebugLinePipeline(currentRP)) return false;   // garantit mLineShader
+            if (mTriPipeline.IsValid())        { mDevice->DestroyPipeline(mTriPipeline);        mTriPipeline = {}; }
+            if (mTriPipelineNoDepth.IsValid()) { mDevice->DestroyPipeline(mTriPipelineNoDepth); mTriPipelineNoDepth = {}; }
+
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = mLineShader;
+            // Surbrillance de face façon Blender : UN seul triangle coplanaire visible des
+            // DEUX CÔTÉS. depthCompareOp=LESS_EQUAL (le coplanaire passe) + lecture seule
+            // (pas d'occlusion mutuelle) + biais NÉGATIF (tire vers la caméra) -> gagne le
+            // z-fight contre sa propre surface quel que soit le côté regardé, tout en
+            // restant occlus par les AUTRES objets devant.
+            pd.depthStencil = NkDepthStencilDesc::Default();
+            pd.depthStencil.depthCompareOp   = NkCompareOp::NK_LESS_EQUAL;
+            pd.depthStencil.depthWriteEnable = false;
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.rasterizer.depthBiasConst = -1.5f;
+            pd.rasterizer.depthBiasSlope = -1.5f;
+            pd.blend        = NkBlendDesc::Alpha();
+            pd.topology     = NkPrimitiveTopology::NK_TRIANGLE_LIST;
+            pd.debugName    = "DebugTriFill";
+            pd.renderPass   = currentRP;
+            pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+            pd.vertexLayout
+              .AddBinding(0, 28, false)
+              .AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT,  0,  "POSITION", 0)
+              .AddAttribute(1, 0, NkVertexFormat::NK_RGBA32_FLOAT, 12, "COLOR",    0);
+            mTriPipeline   = mDevice->CreateGraphicsPipeline(pd);
+            mTriPipelineRP = currentRP;
+            pd.depthStencil = NkDepthStencilDesc::NoDepth();
+            pd.debugName    = "DebugTriFillOverlay";
+            mTriPipelineNoDepth = mDevice->CreateGraphicsPipeline(pd);
+            return mTriPipeline.IsValid();
+        }
+
+        // Pipeline point-sprite écran-constant (marqueurs de vertices façon Blender) :
+        // shader EditPoint (billboard en espace écran), quads (TRIANGLE_LIST), stride 36
+        // (pos3 + corner2 + rgba4). Même polygon-offset que le fill pour coller à la surface.
+        bool NkRender3D::EnsureEditPointPipeline(NkRenderPassHandle currentRP) {
+            if (mEditPointPipeline.IsValid() && mEditPointPipelineRP == currentRP) return true;
+            if (!mShaderLib) return false;
+            if (!mEditPointShader.IsValid()) {
+                auto prog = mShaderLib->LoadOrCompileVF("EditPoint", "", "");
+                if (!prog.IsValid()) { logger.Errorf("[NkR3D::EditPoint] shader compile FAIL\n"); return false; }
+                mEditPointShader = mShaderLib->GetRHIHandle(prog);
+                if (!mEditPointShader.IsValid()) { logger.Errorf("[NkR3D::EditPoint] RHI handle FAIL\n"); return false; }
+            }
+            if (mEditPointPipeline.IsValid())        { mDevice->DestroyPipeline(mEditPointPipeline);        mEditPointPipeline = {}; }
+            if (mEditPointPipelineNoDepth.IsValid()) { mDevice->DestroyPipeline(mEditPointPipelineNoDepth); mEditPointPipelineNoDepth = {}; }
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = mEditPointShader;
+            pd.depthStencil = NkDepthStencilDesc::Default();
+            pd.depthStencil.depthCompareOp   = NkCompareOp::NK_LESS_EQUAL;
+            pd.depthStencil.depthWriteEnable = false;
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.rasterizer.depthBiasConst = -2.0f;
+            pd.rasterizer.depthBiasSlope = -2.0f;
+            pd.blend        = NkBlendDesc::Alpha();
+            pd.topology     = NkPrimitiveTopology::NK_TRIANGLE_LIST;
+            pd.debugName    = "EditPoint";
+            pd.renderPass   = currentRP;
+            pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+            pd.vertexLayout
+              .AddBinding(0, 36, false)
+              .AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT,  0,  "POSITION", 0)
+              .AddAttribute(1, 0, NkVertexFormat::NK_RG32_FLOAT,   12, "TEXCOORD", 0)
+              .AddAttribute(2, 0, NkVertexFormat::NK_RGBA32_FLOAT, 20, "COLOR",    0);
+            mEditPointPipeline   = mDevice->CreateGraphicsPipeline(pd);
+            mEditPointPipelineRP = currentRP;
+            pd.depthStencil = NkDepthStencilDesc::NoDepth();
+            pd.debugName    = "EditPointOverlay";
+            mEditPointPipelineNoDepth = mDevice->CreateGraphicsPipeline(pd);
+            return mEditPointPipeline.IsValid();
         }
 
         void NkRender3D::FlushDebug(NkICommandBuffer* cmd, NkRenderPassHandle currentRP,
                                     NkDescSetHandle gs) {
+            // ── Edit overlay PERSISTANT (cage/faces/points) : rendu chaque frame depuis
+            //    des buffers GPU gardés (aucune reconstruction CPU tant que rien ne
+            //    change). Faces/points d'abord (fill), puis la cage par-dessus. ────────
+            // Faces (fill translucide) — pipeline triangles.
+            if (mEditTriN && EnsureDebugTriOverlayPipeline(currentRP)) {
+                NkPipelineHandle tp = mEditOverlayNoDepth ? mTriPipelineNoDepth : mTriPipeline;
+                if (tp.IsValid()) {
+                    cmd->BindGraphicsPipeline(tp);
+                    if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+                    cmd->BindVertexBuffer(0, mEditTriBuf, 0); cmd->Draw(mEditTriN);
+                }
+            }
+            // Points (marqueurs de vertices) — pipeline POINT SPRITE écran-constant.
+            if (mEditPointN && EnsureEditPointPipeline(currentRP)) {
+                NkPipelineHandle pp = mEditOverlayNoDepth ? mEditPointPipelineNoDepth : mEditPointPipeline;
+                if (pp.IsValid()) {
+                    cmd->BindGraphicsPipeline(pp);
+                    if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+                    cmd->BindVertexBuffer(0, mEditPointBuf, 0); cmd->Draw(mEditPointN);
+                }
+            }
+            if (mEditLineN && EnsureDebugLinePipeline(currentRP)) {
+                NkPipelineHandle lp = mEditOverlayNoDepth ? mLinePipelineNoDepth : mLinePipeline;
+                if (lp.IsValid()) {
+                    cmd->BindGraphicsPipeline(lp);
+                    if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+                    cmd->BindVertexBuffer(0, mEditLineBuf, 0);
+                    cmd->Draw(mEditLineN);
+                }
+            }
+
+            if (mDebugLines.Empty() && mDebugTris.Empty()) return;
+
+            // ── 0. TRIANGLES debug pleins (surlignage de faces) — AVANT les lignes,
+            //        pour que la cage/les points passent par-dessus le fill. ────────
+            if (!mDebugTris.Empty() && EnsureDebugTriOverlayPipeline(currentRP)) {
+                struct LV { float x, y, z, r, g, b, a; };
+                NkVector<LV> tv; tv.Reserve(mDebugTris.Size() * 3);
+                auto emitT = [&](const DebugTri& t){
+                    tv.PushBack({t.a.x,t.a.y,t.a.z, t.color.x,t.color.y,t.color.z,t.color.w});
+                    tv.PushBack({t.b.x,t.b.y,t.b.z, t.color.x,t.color.y,t.color.z,t.color.w});
+                    tv.PushBack({t.c.x,t.c.y,t.c.z, t.color.x,t.color.y,t.color.z,t.color.w});
+                };
+                for (uint32 i=0;i<mDebugTris.Size();++i) if (!mDebugTris[i].overlay) emitT(mDebugTris[i]);
+                const uint32 tNormal = (uint32)tv.Size();
+                for (uint32 i=0;i<mDebugTris.Size();++i) if ( mDebugTris[i].overlay) emitT(mDebugTris[i]);
+                const uint32 tcount = (uint32)tv.Size();
+                const uint32 tOverlay = tcount - tNormal;
+                if (tcount > 0) {
+                    if (!mTriVBO.IsValid() || mTriVBOCapVerts < tcount) {
+                        if (mTriVBO.IsValid()) mDevice->DestroyBuffer(mTriVBO);
+                        const uint32 cap = tcount + 256;
+                        mTriVBO = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)cap * sizeof(LV)));
+                        mTriVBOCapVerts = cap;
+                    }
+                    mDevice->WriteBuffer(mTriVBO, tv.Data(), (uint64)tcount * sizeof(LV), 0);
+                    if (tNormal > 0) {
+                        cmd->BindGraphicsPipeline(mTriPipeline);
+                        if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+                        cmd->BindVertexBuffer(0, mTriVBO, 0);
+                        cmd->Draw(tNormal);
+                    }
+                    if (tOverlay > 0 && mTriPipelineNoDepth.IsValid()) {
+                        cmd->BindGraphicsPipeline(mTriPipelineNoDepth);
+                        if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+                        cmd->BindVertexBuffer(0, mTriVBO, (uint64)tNormal * sizeof(LV));
+                        cmd->Draw(tOverlay);
+                    }
+                }
+                // Purge O(n) (mêmes règles que les lignes).
+                uint32 tkeep = 0;
+                for (uint32 i=0;i<(uint32)mDebugTris.Size();++i) {
+                    if (mDebugTris[i].life <= 0.f) continue;
+                    mDebugTris[i].life -= mCtx.deltaTime;
+                    if (mDebugTris[i].life <= 0.f) continue;
+                    if (tkeep != i) mDebugTris[tkeep] = mDebugTris[i];
+                    ++tkeep;
+                }
+                mDebugTris.Resize(tkeep);
+            }
+
             if (mDebugLines.Empty()) return;
 
             // ── 1. RENDU des lignes courantes ────────────────────────────────────
             if (EnsureDebugLinePipeline(currentRP)) {
                 // Vertices : 2 par ligne (a,b) avec la couleur. Stride 28.
+                // On range les lignes NORMALES (depth ON) d'abord, puis les lignes
+                // OVERLAY (depth OFF), dans le MÊME VBO -> deux Draw depuis un offset.
                 struct LV { float x, y, z, r, g, b, a; };
                 NkVector<LV> verts;
                 verts.Reserve(mDebugLines.Size() * 2);
-                for (uint32 i = 0; i < mDebugLines.Size(); ++i) {
-                    const DebugLine& l = mDebugLines[i];
+                auto emit = [&](const DebugLine& l){
                     verts.PushBack({ l.a.x, l.a.y, l.a.z, l.color.x, l.color.y, l.color.z, l.color.w });
                     verts.PushBack({ l.b.x, l.b.y, l.b.z, l.color.x, l.color.y, l.color.z, l.color.w });
-                }
-                const uint32 vcount = (uint32)verts.Size();
-                const uint64 bytes  = (uint64)vcount * sizeof(LV);
+                };
+                for (uint32 i = 0; i < mDebugLines.Size(); ++i) if (!mDebugLines[i].overlay) emit(mDebugLines[i]);
+                const uint32 vNormal = (uint32)verts.Size();
+                for (uint32 i = 0; i < mDebugLines.Size(); ++i) if ( mDebugLines[i].overlay) emit(mDebugLines[i]);
+                const uint32 vcount  = (uint32)verts.Size();
+                const uint32 vOverlay = vcount - vNormal;
+                const uint64 bytes   = (uint64)vcount * sizeof(LV);
 
                 // (Re)créer le VBO dynamique si trop petit, puis uploader.
                 if (!mLineVBO.IsValid() || mLineVBOCapVerts < vcount) {
@@ -2078,20 +2337,37 @@ namespace nkentseu {
                 }
                 mDevice->WriteBuffer(mLineVBO, verts.Data(), bytes, 0);
 
-                cmd->BindGraphicsPipeline(mLinePipeline);
-                if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
-                cmd->BindVertexBuffer(0, mLineVBO, 0);
-                cmd->Draw(vcount);
+                // Lot 1 : lignes normales (depth-test ON).
+                if (vNormal > 0) {
+                    cmd->BindGraphicsPipeline(mLinePipeline);
+                    if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+                    cmd->BindVertexBuffer(0, mLineVBO, 0);
+                    cmd->Draw(vNormal);
+                }
+                // Lot 2 : lignes OVERLAY (depth-test OFF) -> toujours au-dessus.
+                if (vOverlay > 0 && mLinePipelineNoDepth.IsValid()) {
+                    cmd->BindGraphicsPipeline(mLinePipelineNoDepth);
+                    if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+                    cmd->BindVertexBuffer(0, mLineVBO, (uint64)vNormal * sizeof(LV));
+                    cmd->Draw(vOverlay);
+                }
             }
 
             // ── 2. PURGE (après rendu) : one-frame (life<=0) retirées ; persistantes
             //        (life>0) décrémentées et retirées si expirées. Évite l'accumulation.
-            for (uint32 i = 0; i < (uint32)mDebugLines.Size();) {
-                if (mDebugLines[i].life <= 0.f) { mDebugLines.RemoveAt(i); continue; }
+            // COMPACTION EN PLACE O(n) : indispensable quand beaucoup de lignes
+            // one-frame sont émises par frame (ex. cage d'un mesh en Edit Mode :
+            // des milliers d'arêtes). Un RemoveAt(i) par ligne serait O(n²) et
+            // ferait chuter le framerate (12k arêtes -> ~144M ops/frame).
+            uint32 keep = 0;
+            for (uint32 i = 0; i < (uint32)mDebugLines.Size(); ++i) {
+                if (mDebugLines[i].life <= 0.f) continue;          // one-frame -> drop
                 mDebugLines[i].life -= mCtx.deltaTime;
-                if (mDebugLines[i].life <= 0.f) { mDebugLines.RemoveAt(i); continue; }
-                i++;
+                if (mDebugLines[i].life <= 0.f) continue;          // persistante expirée -> drop
+                if (keep != i) mDebugLines[keep] = mDebugLines[i]; // survit -> compacte
+                ++keep;
             }
+            mDebugLines.Resize(keep);
         }
 
         // ── Phase E.6 : Light cookies 3D ─────────────────────────────────────────
@@ -2128,11 +2404,31 @@ namespace nkentseu {
         }
 
         // ── Debug gizmos ─────────────────────────────────────────────────────────
-        void NkRender3D::DrawDebugLine(NkVec3f a, NkVec3f b, NkVec4f color, float32 life) {
+        void NkRender3D::DrawDebugLine(NkVec3f a, NkVec3f b, NkVec4f color, float32 life, bool overlay) {
             // life<=0 => ligne "une frame" (rendue puis purgée par FlushDebug, évite
             // l'accumulation à haut FPS). life>0 => persiste cette durée (secondes).
-            mDebugLines.PushBack({a,b,color,life});
+            // overlay=true => rendue sans depth-test (toujours au-dessus, gizmo éditeur).
+            mDebugLines.PushBack({a,b,color,life,overlay});
         }
+        void NkRender3D::DrawDebugTriangle(NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f color, float32 life, bool overlay) {
+            mDebugTris.PushBack({a,b,c,color,life,overlay});
+        }
+        // ── Edit overlay persistant ────────────────────────────────────────────────
+        void NkRender3D::UploadEditBuf(NkBufferHandle& buf, uint32& cap, const float* v, uint32 vcount, uint32 strideBytes) {
+            if (vcount == 0) return;
+            if (!buf.IsValid() || cap < vcount) {
+                if (buf.IsValid()) mDevice->DestroyBuffer(buf);
+                cap = vcount + 256;
+                buf = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)cap * strideBytes));
+            }
+            mDevice->WriteBuffer(buf, v, (uint64)vcount * strideBytes, 0);
+        }
+        void NkRender3D::SetEditOverlayLines (const float* v, uint32 n){ UploadEditBuf(mEditLineBuf, mEditLineCap, v, n, 7*sizeof(float)); mEditLineN=n; }
+        void NkRender3D::SetEditOverlayTris  (const float* v, uint32 n){ UploadEditBuf(mEditTriBuf,  mEditTriCap,  v, n, 7*sizeof(float)); mEditTriN=n; }
+        // Points = sprites écran-constant : vertex = pos3 + corner2(px) + rgba4 = 9 float.
+        void NkRender3D::SetEditOverlayPoints(const float* v, uint32 n){ UploadEditBuf(mEditPointBuf,mEditPointCap,v, n, 9*sizeof(float)); mEditPointN=n; }
+        void NkRender3D::SetEditOverlayXray  (bool xray){ mEditOverlayNoDepth = xray; }
+        void NkRender3D::ClearEditOverlay(){ mEditLineN=mEditTriN=mEditPointN=0; }
         void NkRender3D::DrawDebugSphere(NkVec3f c, float32 r, NkVec4f color) {
             const int N=16;
             for(int i=0;i<N;i++){

@@ -496,8 +496,16 @@ namespace nkentseu {
                 tmplEntry->pipeline = CompilePipeline(*tmplEntry);
                 tmplEntry->compiled = true;
             }
-            if (tmplEntry->pipeline.IsValid())
-                cmd->BindGraphicsPipeline(tmplEntry->pipeline);
+            // Mode WIREFRAME : binde la variante fil-de-fer (compilée à la demande) au
+            // lieu du pipeline plein. Même shader/layout -> descriptors compatibles.
+            NkPipelineHandle usePipe = tmplEntry->pipeline;
+            if (mWireframe) {
+                if (!tmplEntry->pipelineWire.IsValid())
+                    tmplEntry->pipelineWire = CompilePipeline(*tmplEntry, /*forceWireframe*/true);
+                if (tmplEntry->pipelineWire.IsValid()) usePipe = tmplEntry->pipelineWire;
+            }
+            if (usePipe.IsValid())
+                cmd->BindGraphicsPipeline(usePipe);
 
             if (inst->mDirty && inst->mDescSet.IsValid()) {
                 // Determine which params to upload based on material type.
@@ -581,7 +589,7 @@ namespace nkentseu {
             return true;
         }
 
-        NkPipelineHandle NkMaterialSystem::CompilePipeline(TemplateEntry& t) {
+        NkPipelineHandle NkMaterialSystem::CompilePipeline(TemplateEntry& t, bool forceWireframe) {
             // Chargement lazy du shader au premier CompilePipeline().
             // Priority :
             //   1. shaderHandle deja valide (custom material ou appel precedent)
@@ -637,7 +645,7 @@ namespace nkentseu {
                 pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_BACK;
             else if (t.desc.cullMode == NkCullMode::NK_FRONT)
                 pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_FRONT;
-            if (t.desc.fillMode == NkFillMode::NK_WIREFRAME)
+            if (t.desc.fillMode == NkFillMode::NK_WIREFRAME || forceWireframe)
                 pd.rasterizer.fillMode = nkentseu::NkFillMode::NK_WIREFRAME;
 
             // Depth

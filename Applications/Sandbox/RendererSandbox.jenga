@@ -7,7 +7,7 @@ from jengaconfig import *
 from Jenga.Core.Api import androidallowrotation
 
 
-def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False, use_nkui: bool = False):
+def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False, use_nkui: bool = False, use_nkgen: bool = False):
     with project(project_name):
         useappdeps("platform", "core", "memory", "containers", "math", "threading", "logger", "time", "event", "window", "image", "font", "ui", "rhi", "stream", "filesystem", "renderer", "serialization", "reflection")
         windowedapp()
@@ -45,6 +45,12 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             _SANDBOX_INCLUDE_DIRS.append("%{NKFont.location}/src")
         if use_nkui:
             _SANDBOX_INCLUDE_DIRS.append("%{NKUI.location}/src")
+        if use_nkgen:
+            # Sous-systeme IA (Kernel/AI) : NKGen + sa pile (pour DemoNKGen).
+            _SANDBOX_INCLUDE_DIRS.append("%{NKGen.location}/src")
+            _SANDBOX_INCLUDE_DIRS.append("%{NKNN.location}/src")
+            _SANDBOX_INCLUDE_DIRS.append("%{NKAutograd.location}/src")
+            _SANDBOX_INCLUDE_DIRS.append("%{NKTensor.location}/src")
 
         if VULKAN_INCLUDE:
             _SANDBOX_INCLUDE_DIRS.append(VULKAN_INCLUDE)
@@ -66,6 +72,8 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             _BASE_LINKS.append("NKGLSlang")
         if USE_NKSPIRVCROSS:
             _BASE_LINKS.append("NKSPIRVCross")
+        if use_nkgen:
+            _BASE_LINKS.extend(["NKGen", "NKNN", "NKAutograd", "NKTensor"])
 
         links(_BASE_LINKS)
         dependson(_BASE_LINKS)
@@ -269,6 +277,6 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
 # =================================== NKRenderer UI =======================================================
 # sandboxusenkrenderer("Scene", ["src/DemoNkentseu/Base05/NkRendererDemo.cpp"], "sandbox.scene.base04", use_nkimage=True, use_nkfont=True, use_nkui=True)
 sandboxusenkrenderer("r2d01", ["src/DemoNkentseu/Base05/NkRenderer2DDemo.cpp"], "sandbox.scene.r2d01", use_nkimage=True, use_nkfont=True, use_nkui=True)
-sandboxusenkrenderer("renderdemo", ["src/Demo/**.cpp"], "sandbox.render.demo", use_nkimage=True, use_nkfont=True, use_nkui=True)
+sandboxusenkrenderer("renderdemo", ["src/Demo/**.cpp"], "sandbox.render.demo", use_nkimage=True, use_nkfont=True, use_nkui=True, use_nkgen=True)
 # Test CPU du loader glTF 2.0 (NkGLTFLoader) — pas de GPU requis.
 sandboxusenkrenderer("gltftest", ["src/GLTFTest/**.cpp"], "sandbox.render.gltftest", use_nkimage=True, use_nkfont=True, use_nkui=True)

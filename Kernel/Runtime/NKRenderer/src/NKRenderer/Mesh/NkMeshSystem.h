@@ -66,6 +66,18 @@ namespace nkentseu {
             uint32              indexCount  = 0;
             NkVector<NkSubMesh> subMeshes;
             bool                dynamic     = false;
+            // keepCPU : conserve une copie CPU des vertices/indices dans le mesh
+            // (modele Blender : le CPU est l'autorite, le GPU n'est qu'un cache).
+            // Necessaire UNIQUEMENT pour ce qui touche les vertices cote CPU :
+            // Edit Mode / modification de topologie, skinning CPU (fallback),
+            // mesh de collision/raycast, generation procedurale. PAS necessaire
+            // pour le rendu, ni le skinning/morphing/rigging GPU (bones+poids en
+            // buffers GPU, deformation dans le vertex shader -> le CPU ne touche
+            // jamais les vertices). Defaut = false (moteur de jeu : evite de
+            // dupliquer des centaines de Mo de geometrie statique en RAM).
+            // NkMeshDesc::Simple() l'active (petits meshes procéduraux/éditables) ;
+            // Import (gros assets) le laisse a false.
+            bool                keepCPU     = false;
             NkAABB              bounds;
             NkString            debugName;
 
@@ -124,6 +136,16 @@ namespace nkentseu {
                 NkBufferHandle GetVBO(NkMeshHandle h) const;
                 NkBufferHandle GetIBO(NkMeshHandle h) const;
 
+                // ── Acces CPU (modele Blender : le mesh CPU est l'autorite) ─────────
+                // Disponible uniquement si le mesh a ete cree avec keepCPU=true.
+                // Retourne nullptr / 0 sinon. Ne fait AUCUN readback GPU.
+                const void*   GetVertices   (NkMeshHandle h) const; // pointeur vers NkVertex3D[...]
+                uint32        GetVertexCount (NkMeshHandle h) const;
+                uint32        GetVertexStride(NkMeshHandle h) const;
+                const uint32* GetIndices    (NkMeshHandle h) const;
+                uint32        GetIndexCount  (NkMeshHandle h) const;
+                bool          HasCPUData     (NkMeshHandle h) const;
+
             private:
                 struct MeshEntry {
                     NkBufferHandle      vbo, ibo;
@@ -133,6 +155,9 @@ namespace nkentseu {
                     NkAABB              bounds;
                     bool                dynamic=false;
                     NkString            debugName;
+                    // Copie CPU optionnelle (keepCPU) : autorite mesh cote CPU.
+                    NkVector<uint8>     cpuVerts;   // vertexCount * layout.stride octets
+                    NkVector<uint32>    cpuIdx;     // indexCount indices
                 };
 
                 NkIDevice*                     mDevice = nullptr;

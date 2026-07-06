@@ -825,9 +825,16 @@ NkBufferHandle NkDirectX12Device::CreateBuffer(const NkBufferDesc& desc) {
         b.uavIdx = mCbvSrvUavHeap.allocated;
         D3D12_UNORDERED_ACCESS_VIEW_DESC uavd{};
         uavd.ViewDimension              = D3D12_UAV_DIMENSION_BUFFER;
-        uavd.Format                     = DXGI_FORMAT_UNKNOWN;
-        uavd.Buffer.NumElements         = (UINT)(desc.sizeBytes / sizeof(float));
-        uavd.Buffer.StructureByteStride = sizeof(float);
+        // RAW (comme la SRV ci-dessus) : SPIRV-Cross convertit un `buffer` GLSL
+        // read-write en `RWByteAddressBuffer` HLSL (acces .Store<T>/.Load<T> par
+        // offset octet), PAS en `RWStructuredBuffer<T>`. Une UAV STRUCTURED
+        // (stride 4, FLAG_NONE) est INCOMPATIBLE avec le RWByteAddressBuffer du
+        // shader -> writes perdues -> resultat compute 0 (bug DX12). RAW exige
+        // R32_TYPELESS + FLAG_RAW + NumElements en mots de 4 octets.
+        uavd.Format                     = DXGI_FORMAT_R32_TYPELESS;
+        uavd.Buffer.NumElements         = (UINT)(desc.sizeBytes / sizeof(uint32_t));
+        uavd.Buffer.StructureByteStride = 0;
+        uavd.Buffer.Flags               = D3D12_BUFFER_UAV_FLAG_RAW;
         mDevice->CreateUnorderedAccessView(res.Get(), nullptr, &uavd, mCbvSrvUavHeap.AllocCPU());
     }
 

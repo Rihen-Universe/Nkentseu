@@ -21,8 +21,8 @@ uniform CameraUBO {
     float deltaTime;
     float iblStrength;
     float _p0;
-    float _p1;
-    float _p2;
+    float viewMode;
+    float matcapId;
     mat4  mirrorViewProj;
     vec4  reflectionFlags;
 } uCam;

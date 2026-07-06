@@ -1010,6 +1010,15 @@ namespace nkentseu {
         auto stageH=CreateBuffer(sd);
         auto& stage=mBuffers[stageH.id];
         auto cmd=BeginOneShot();
+        // Barrière : rendre VISIBLES au transfer les écritures antérieures (dont les
+        // stores d'un compute shader). Sans ça, la copie de readback peut lire des
+        // données périmées (ex. 0) — Vulkan exige la barrière explicite (contrairement
+        // à DX11 où le contexte immédiat sérialise). cf compute NkTensor -> readback.
+        VkMemoryBarrier mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        mb.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        mb.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &mb, 0, nullptr, 0, nullptr);
         VkBufferCopy cp{off,0,sz};
         vkCmdCopyBuffer(cmd,it->buffer,stage.buffer,1,&cp);
         EndOneShot(cmd);
@@ -1519,8 +1528,20 @@ namespace nkentseu {
         auto sit=mShaders.Find(d.shader.id); if (!sit) return {};
         if (sit->stages.Empty()) return {};
 
+        // Descriptor set layouts du pipeline (SANS ça, les SSBO/UBO du kernel ne sont
+        // bindés à RIEN -> le compute lit/écrit du vide -> résultat 0). Le graphique
+        // le faisait déjà ; le compute l'ignorait. cf NKTensor GPU (bindings 0..N).
+        NkVector<VkDescriptorSetLayout> setLayouts;
+        for (uint32 i = 0; i < d.descriptorSetLayouts.Size(); ++i) {
+            auto* lit = mDescLayouts.Find(d.descriptorSetLayouts[i].id);
+            if (!lit) { NK_VK_ERR("CreateComputePipeline: descriptor set layout id=%llu absent\n",
+                                  (unsigned long long)d.descriptorSetLayouts[i].id); return {}; }
+            setLayouts.PushBack(lit->layout);
+        }
         VkPushConstantRange pcr{VK_SHADER_STAGE_COMPUTE_BIT,0,128};
         VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        plci.setLayoutCount = (uint32)setLayouts.Size();
+        plci.pSetLayouts = setLayouts.IsEmpty() ? nullptr : setLayouts.Data();
         plci.pushConstantRangeCount=1; plci.pPushConstantRanges=&pcr;
         VkPipelineLayout layout=VK_NULL_HANDLE;
         NK_VK_CHECK(vkCreatePipelineLayout(mDevice,&plci,nullptr,&layout));
