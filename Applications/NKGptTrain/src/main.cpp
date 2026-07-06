@@ -21,8 +21,10 @@
 #include <cmath>
 #include <string>
 #include <vector>
+#include <algorithm>
 #include <fstream>
 #include <chrono>
+#include <filesystem>
 
 using namespace nkentseu;
 using namespace nkentseu::ai;
@@ -42,6 +44,30 @@ static std::string LoadCorpus(const std::string& path, size_t maxChars) {
     return body;
 }
 
+// ---- Corpus dossier : concatène TOUS les .txt, part égale par fichier --------
+// (couverture multilingue balancée : chaque livre contribue ~totalCap/N caractères).
+static std::string LoadCorpusDir(const std::string& dir, size_t totalCap) {
+    namespace fs = std::filesystem;
+    std::vector<std::string> files;
+    std::error_code ec;
+    for (fs::directory_iterator it(dir, ec), endIt; !ec && it != endIt; it.increment(ec)) {
+        if (!it->is_regular_file()) continue;
+        std::string p = it->path().string();
+        if (p.size() >= 4 && p.compare(p.size() - 4, 4, ".txt") == 0) files.push_back(p);
+    }
+    std::sort(files.begin(), files.end());               // déterministe
+    if (files.empty()) return std::string();
+    const size_t perFile = totalCap / files.size();
+    std::string corpus; corpus.reserve(totalCap + files.size() * 2);
+    for (const std::string& p : files) {
+        std::string body = LoadCorpus(p, perFile);
+        if (body.size() < 200) continue;                 // ignore fichiers vides/parasites
+        corpus += body; corpus += "\n\n";
+        printf("  + %-40s %8zu car.\n", fs::path(p).filename().string().c_str(), body.size());
+    }
+    return corpus;
+}
+
 int main() {
     printf("=== NKGptTrain : petit GPT char-level (from-scratch, GPU-résident) ===\n");
     NkTensorGpu& gpu = NkTensorGpu::Get();
@@ -49,13 +75,24 @@ int main() {
     printf("GPU compute : %s (%s)\n", useGpu ? "OUI" : "NON", gpu.BackendName());
 
     // ---- Corpus ----
+    // Défaut : TOUT le dossier Datasets (multilingue FR+EN). NK_GPT_FILE force un
+    // seul livre ; NK_GPT_DIR change le dossier ; NK_GPT_CHARS = cap total.
     const char* envf = getenv("NK_GPT_FILE");
-    std::string path = envf ? envf
-        : "D:/Projets/2026/Nkentseu/Nkentseu/Resources/Datasets/pg17989.txt"; // Comte de Monte-Cristo (FR)
+    const char* envd = getenv("NK_GPT_DIR");
     const char* envc = getenv("NK_GPT_CHARS");
-    size_t maxChars = envc ? (size_t)atol(envc) : 150000;
-    std::string text = LoadCorpus(path, maxChars);
-    if (text.size() < 1000) { printf("Corpus introuvable/trop court : %s\n", path.c_str()); return 2; }
+    const std::string datasetsDir = envd ? envd
+        : "D:/Projets/2026/Nkentseu/Nkentseu/Resources/Datasets";
+    std::string text;
+    if (envf) {
+        size_t maxChars = envc ? (size_t)atol(envc) : 150000;
+        printf("Corpus : fichier unique %s\n", envf);
+        text = LoadCorpus(envf, maxChars);
+    } else {
+        size_t totalCap = envc ? (size_t)atol(envc) : 1200000;   // ~1,2 M car. par défaut
+        printf("Corpus : dossier %s (part égale/livre, cap total %zu)\n", datasetsDir.c_str(), totalCap);
+        text = LoadCorpusDir(datasetsDir, totalCap);
+    }
+    if (text.size() < 1000) { printf("Corpus introuvable/trop court.\n"); return 2; }
 
     // ---- Brique 9 : tokenizer char-level (vocab = octets présents) ----
     int stoi[256]; for (int i = 0; i < 256; ++i) stoi[i] = -1;
