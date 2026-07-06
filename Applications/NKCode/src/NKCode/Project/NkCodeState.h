@@ -626,6 +626,10 @@ namespace nkcode {
             files.Clear(); active = -1;
             for (usize k = 0; k < ents.Size(); ++k) {
                 Ent& e = ents[k];
+                // Robustesse : une entree dont le fichier n'existe PAS sur disque et qui n'a
+                // pas de contenu non-sauvegarde (bak) est ignoree -> evite les onglets VIDES
+                // issus d'une session empoisonnee (chemins corrompus). Auto-nettoyage au prochain SaveSession.
+                if (!e.dy && !NkFile::Exists(NkPath(e.path))) continue;
                 OpenPath(NkPath(e.path));
                 if (active < 0 || active >= static_cast<int32>(files.Size())) continue;
                 OpenFile& g = files[active];
