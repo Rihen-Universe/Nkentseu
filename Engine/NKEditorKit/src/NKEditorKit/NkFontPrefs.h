@@ -60,13 +60,15 @@ namespace nkentseu {
 
         // Charge `name` (taille `size`) dans `font`. Embarquee d'abord, sinon police
         // systeme (Windows). Retourne false si rien n'a pu etre charge.
-        inline bool NkResolveFont(nkgui::NkGuiFont& font, const NkString& name, float32 size) {
+        // extFallback=false pour les polices MONOSPACE (code) : atlas sans repli externe
+        // (broad/CJK/emoji) -> reconstruction RAPIDE au zoom.
+        inline bool NkResolveFont(nkgui::NkGuiFont& font, const NkString& name, float32 size, bool extFallback = true) {
             NkEmbeddedFontId id;
-            if (NkEmbeddedIdFromName(name, id)) return font.LoadEmbedded(id, size);
+            if (NkEmbeddedIdFromName(name, id)) return font.LoadEmbedded(id, size, extFallback);
 #if defined(_WIN32)
             if (const char* file = NkSystemFontFile(name)) {
                 NkString path = NkString("C:\\Windows\\Fonts\\") + file;
-                return font.LoadFromFile(path.CStr(), size);
+                return font.LoadFromFile(path.CStr(), size, extFallback);
             }
 #endif
             return false;

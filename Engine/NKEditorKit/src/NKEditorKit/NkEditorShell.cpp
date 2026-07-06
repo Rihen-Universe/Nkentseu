@@ -357,7 +357,14 @@ namespace nkentseu {
                 // Rechargement de police differe (zoom Ctrl+molette / Ctrl+±) : execute ICI,
                 // avant BeginFrame, donc aucune draw list ne reference l'ancien atlas pendant
                 // la re-rasterisation + re-upload backend.
-                if (mFontReloadPending) { mFontReloadPending = false; LoadFontsFromPrefs(); }
+                // Full = les deux polices (changement UI/prefs, immediat). Zoom = DEBOUNCE :
+                // l'atlas code n'est reconstruit qu'apres kCodeReloadDebounce sans nouveau cran
+                // -> molette fluide (pas de rebuild par cran), un seul rebuild a la fin.
+                if (mFontReloadPending) { mFontReloadPending = false; mCodeReloadCountdown = -1.f; LoadFontsFromPrefs(); }
+                else if (mCodeReloadCountdown >= 0.f) {
+                    mCodeReloadCountdown -= dt;
+                    if (mCodeReloadCountdown <= 0.f) { mCodeReloadCountdown = -1.f; LoadCodeFont(); }
+                }
 
                 mUI.BeginFrame(dt);
 
@@ -895,23 +902,35 @@ namespace nkentseu {
 
         // ── Polices : (re)charge mFont (interface) + mCodeFont (code) depuis les
         //    reglages, avec replis surs, puis re-upload des atlas au backend. ──
-        void NkEditorShell::LoadFontsFromPrefs() noexcept {
+        // Recharge les DEUX polices (interface + code). Appelé au démarrage et quand la
+        // police d'interface change. Le ZOOM, lui, n'appelle QUE LoadCodeFont() -> pas de
+        // reconstruction inutile de l'atlas d'interface à chaque cran.
+        void NkEditorShell::LoadFontsFromPrefs() noexcept { LoadUiFont(); LoadCodeFont(); }
+
+        void NkEditorShell::LoadUiFont() noexcept {
             // Police chargee a uiSize x DPI : le LAYOUT est mis a l'echelle (ctx.S) mais
             // la police etait a une taille ABSOLUE -> texte trop petit sur ecran scale.
             // On la met a la meme echelle pour des proportions correctes (lisible).
             const float32 dpi = mUI.S(1.f) > 0.5f ? mUI.S(1.f) : 1.f;
-            const float32 uiPx = mFontPrefs.uiSize * dpi, codePx = mFontPrefs.codeSize * dpi;
+            const float32 uiPx = mFontPrefs.uiSize * dpi;
             mFontOk = NkResolveFont(mFont, mFontPrefs.uiFont, uiPx);
             if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::Inter, uiPx);
             if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::Karla, 16.f * dpi);
             if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::ProggyClean, 13.f * dpi);
             mUI.font = &mFont;
             if (mFontOk && mRenderer) mRenderer->UploadFontGray8(mFont.TexId(), mFont.pixels, mFont.atlasW, mFont.atlasH);
+        }
 
+        void NkEditorShell::LoadCodeFont() noexcept {
+            const float32 dpi = mUI.S(1.f) > 0.5f ? mUI.S(1.f) : 1.f;
+            const float32 codePx = mFontPrefs.codeSize * dpi;
             mCodeFont.texId = mFont.TexId() + 1u;   // atlas distinct (anti-collision backend)
-            bool codeOk = NkResolveFont(mCodeFont, mFontPrefs.codeFont, codePx);
-            if (!codeOk) codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::DejaVuSansMono, codePx);
-            if (!codeOk) codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::Cousine, 15.f * dpi);
+            // Police MONOSPACE : AUCUN repli externe (broad/CJK/emoji = plusieurs milliers de
+            // glyphes). L'atlas reste petit -> reconstruction rapide (l'interface garde les
+            // replis complets pour l'i18n). La police embarquee couvre deja Latin/accents/box-drawing.
+            bool codeOk = NkResolveFont(mCodeFont, mFontPrefs.codeFont, codePx, /*extFallback=*/false);
+            if (!codeOk) codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::DejaVuSansMono, codePx, /*extFallback=*/false);
+            if (!codeOk) codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::Cousine, 15.f * dpi, /*extFallback=*/false);
             if (codeOk) { if (mRenderer) mRenderer->UploadFontGray8(mCodeFont.TexId(), mCodeFont.pixels, mCodeFont.atlasW, mCodeFont.atlasH); mUI.codeFont = &mCodeFont; }
             else mUI.codeFont = &mFont;
         }
@@ -924,17 +943,17 @@ namespace nkentseu {
             if (s > 40.f) s = 40.f;
             if (s == mFontPrefs.codeSize) return;
             mFontPrefs.codeSize = s;
-            // NE PAS re-rasteriser ici : on est en pleine frame, la draw list courante
-            // reference encore l'atlas. On differe au debut de la frame suivante (RenderFrame),
-            // avant toute construction de draw list -> plus de crash au zoom.
-            mFontReloadPending = true;
+            // DEBOUNCE : on ne reconstruit PAS l'atlas a chaque cran (couteux). On (re)arme un
+            // compte a rebours ; l'atlas code est reconstruit ~120 ms apres le DERNIER cran ->
+            // molette fluide, un seul rebuild a la fin. (Reconstruit hors frame, cf. RenderFrame.)
+            mCodeReloadCountdown = kCodeReloadDebounce;
             NkSaveFontPrefs(mFontPrefs);   // persiste la taille
         }
         // Réinitialise la police du code à la taille par défaut (Ctrl+0), reload différé + persiste.
         void NkEditorShell::ResetCodeFontSize() noexcept {
             if (mFontPrefs.codeSize == kDefaultCodeFontSize) return;
             mFontPrefs.codeSize = kDefaultCodeFontSize;
-            mFontReloadPending = true;
+            mCodeReloadCountdown = kCodeReloadDebounce;
             NkSaveFontPrefs(mFontPrefs);
         }
 
