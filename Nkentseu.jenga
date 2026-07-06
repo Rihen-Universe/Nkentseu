@@ -971,6 +971,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKGptTrain/NKGptTrain.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKAutogradTest/NKAutogradTest.jenga"):
 
         pass
