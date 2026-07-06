@@ -23,6 +23,7 @@
 #include "NKImage/NKImage.h"            // Phase H : test ecriture PNG procedural
 #include "NKContainers/Associative/NkHashMap.h"  // dedup arêtes Edit Mode
 #include "NKRenderer/Mesh/NkEditMesh.h"           // structure demi-arête n-gon
+#include "NKFileSystem/NkFile.h"                   // save/load session d'édition (journal de commandes)
 #include <cstdio>
 
 namespace nkentseu { namespace demo {
@@ -91,6 +92,8 @@ namespace nkentseu { namespace demo {
         renderer::NkMeshEditRecorder    editRecorder;  // journal des commandes (rejeu / modificateurs / IA)
         renderer::NkEditMesh            editBase;      // maillage de BASE (à l'entrée) pour le rejeu
         int32                           editReplayStep = -1;     // P : rejeu PAS-À-PAS (-1=off, 0=base, k=base+k commandes)
+        bool                            editSavePending = false; // F5 : sauver la session (journal) sur disque
+        bool                            editLoadPending = false; // F6 : charger une session + rejouer
         NkVector<renderer::NkEmId>      editTriFace;   // map triangle de rendu -> face n-gon (pick)
         NkVector<uint8>                 vertSel;       // 1 = vertex sélectionné (taille = nb vertices)
         NkMat4f                         editAnchor    = NkMat4f::Identity();  // transform monde de l'objet
@@ -282,6 +285,33 @@ namespace nkentseu { namespace demo {
         Demo3D_SyncFromHE(st, ms);
         logger.Info("[Demo3D] Rejeu pas-a-pas: etape {0}/{1} ({2} appliquees) -> {3} faces\n",
                     st->editReplayStep, total, applied, (int32)st->editHE.FaceCount());
+    }
+
+    // SAUVER (F5) : sérialise le journal de commandes -> fichier binaire .nmec (persistance
+    // de la session : donnée d'imitation IA + modificateur sauvegardable).
+    static void Demo3D_SaveSession(Demo3DState* st) {
+        NkVector<uint8> bytes; st->editRecorder.Serialize(bytes);
+        const char* path = "edit_session.nmec";
+        const bool ok = NkFile::WriteAllBytes(path, bytes);
+        logger.Info("[Demo3D] Sauvegarde '{0}' : {1} commandes, {2} octets -> {3}\n",
+                    path, st->editRecorder.Count(), (int32)bytes.Size(), ok ? "OK" : "ECHEC");
+    }
+    // CHARGER (F6) : lit le fichier -> désérialise dans le journal -> rejoue depuis la base
+    // (reconstruit le modèle édité). Le maillage de base courant doit correspondre.
+    static void Demo3D_LoadSession(Demo3DState* st, renderer::NkMeshSystem* ms) {
+        const char* path = "edit_session.nmec";
+        NkVector<uint8> bytes = NkFile::ReadAllBytes(path);
+        if (bytes.Empty()) { logger.Warn("[Demo3D] Chargement '{0}' : fichier vide/absent\n", path); return; }
+        if (!st->editRecorder.Deserialize(bytes.Data(), (uint32)bytes.Size())) {
+            logger.Warn("[Demo3D] Chargement '{0}' : format invalide\n", path); return; }
+        st->editHE = st->editBase;
+        const uint32 applied = st->editRecorder.ReplayOnto(st->editHE);
+        st->editReplayStep = -1;
+        st->vertSel.Clear(); st->vertSel.Resize(st->editHE.VertCount());
+        for (uint32 i=0;i<st->editHE.VertCount();++i) st->vertSel[i] = st->editHE.verts[i].sel;
+        Demo3D_SyncFromHE(st, ms);
+        logger.Info("[Demo3D] Session chargee '{0}' : {1} commandes rejouees -> {2} faces\n",
+                    path, applied, (int32)st->editHE.FaceCount());
     }
 
     // UNDO / REDO : restaure un snapshot de editHE, resynchronise sélection + rendu.
@@ -641,6 +671,9 @@ namespace nkentseu { namespace demo {
                 // P : REJOUE le journal des commandes depuis le maillage de base (preuve que
                 // la couche de commandes est scriptable -> modificateurs + données IA).
                 if (k == NkKey::NK_P) { st->editReplayPending = true; return; }
+                // F5 / F6 : SAUVER / CHARGER la session (journal sérialisé sur disque).
+                if (k == NkKey::NK_F5) { st->editSavePending = true; return; }
+                if (k == NkKey::NK_F6) { st->editLoadPending = true; return; }
                 // A / Alt+A : tout sélectionner / désélectionner (les VERTICES).
                 if (k == NkKey::NK_A) {
                     const uint8 v = alt ? 0 : 1;
@@ -1156,6 +1189,8 @@ namespace nkentseu { namespace demo {
                         (int32)st->editHE.FaceCount(), st->editHistory.UndoCount(), st->editHistory.RedoCount()); }
                 if (st->editReplayPending) { st->editReplayPending=false;
                     Demo3D_ReplayEdits(st, meshSysT); }
+                if (st->editSavePending) { st->editSavePending=false; Demo3D_SaveSession(st); }
+                if (st->editLoadPending) { st->editLoadPending=false; Demo3D_LoadSession(st, meshSysT); }
                 if (st->editExtrudePending) { st->editExtrudePending=false;
                     Demo3D_ExtrudeHE(st, meshSysT);
                     logger.Info("[Demo3D] Extrude -> {0} faces\n", (int32)st->editHE.FaceCount()); }
