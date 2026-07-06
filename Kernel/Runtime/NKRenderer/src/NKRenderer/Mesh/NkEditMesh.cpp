@@ -150,5 +150,49 @@ namespace nkentseu {
             }
         }
 
+        void NkEditMesh::ToPolygons(NkVector<NkVertex3D>& ov, NkVector<uint32>& ofaceStart,
+                                    NkVector<uint32>& ofaceVerts) const {
+            ov.Resize((uint32)verts.Size());
+            for (uint32 i=0;i<(uint32)verts.Size();++i){
+                NkVertex3D nv{};
+                nv.pos=verts[i].pos; nv.normal=verts[i].normal; nv.tangent={1.f,0.f,0.f};
+                nv.uv=verts[i].uv; nv.uv2={0.f,0.f}; nv.color=0xFFFFFFFFu;
+                ov[i]=nv;
+            }
+            ofaceStart.Clear(); ofaceVerts.Clear();
+            ofaceStart.PushBack(0);
+            NkVector<NkEmId> loop;
+            for (uint32 f=0; f<(uint32)faces.Size(); ++f){
+                if (!faces[f].alive) continue;
+                loop.Clear(); GetFaceVerts(f, loop);
+                if (loop.Size()<3) continue;
+                for (uint32 k=0;k<(uint32)loop.Size();++k) ofaceVerts.PushBack(loop[k]);
+                ofaceStart.PushBack((uint32)ofaceVerts.Size());
+            }
+        }
+
+        void NkEditMesh::BuildFromPolygons(const NkVertex3D* v, uint32 vc,
+                                           const uint32* faceStart, uint32 faceCount, const uint32* faceVerts) {
+            Clear();
+            verts.Resize(vc);
+            for (uint32 i=0;i<vc;++i){
+                verts[i].pos=v[i].pos; verts[i].normal=v[i].normal; verts[i].uv=v[i].uv;
+                verts[i].hedge=NK_EM_INVALID; verts[i].sel=0;
+            }
+            for (uint32 f=0; f<faceCount; ++f){
+                const uint32 s=faceStart[f], e=faceStart[f+1], n=e-s;
+                if (n<3) continue;
+                const NkEmId h0=(NkEmId)hedges.Size();
+                for (uint32 k=0;k<n;++k){
+                    Hedge he; he.origin=faceVerts[s+k]; he.next=h0+((k+1)%n); he.face=(NkEmId)faces.Size(); he.alive=1;
+                    hedges.PushBack(he);
+                    if (verts[faceVerts[s+k]].hedge==NK_EM_INVALID) verts[faceVerts[s+k]].hedge=h0+k;
+                }
+                Face fc; fc.hedge=h0; fc.alive=1; faces.PushBack(fc);
+            }
+            LinkTwins();
+            RecomputeNormals();
+        }
+
     } // namespace renderer
 } // namespace nkentseu

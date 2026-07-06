@@ -60,6 +60,15 @@ namespace nkentseu {
                 void Triangulate(NkVector<NkVertex3D>& outV, NkVector<uint32>& outIdx,
                                  NkVector<NkEmId>& outTriFace) const;
 
+                // ── Représentation POLYGONES (n-gons) — CSR ─────────────────────────
+                // Extrait les faces vivantes : sommets + boucles (face i = outFaceVerts
+                // [outFaceStart[i] .. outFaceStart[i+1]]). outFaceStart a faceCount+1 entrées.
+                void ToPolygons(NkVector<NkVertex3D>& outVerts,
+                                NkVector<uint32>& outFaceStart, NkVector<uint32>& outFaceVerts) const;
+                // (Re)construit le half-edge depuis des n-gons (même format CSR).
+                void BuildFromPolygons(const NkVertex3D* v, uint32 vc,
+                                       const uint32* faceStart, uint32 faceCount, const uint32* faceVerts);
+
                 // Arêtes uniques (paires de sommets) pour la cage d'affichage.
                 void GetUniqueEdges(NkVector<uint32>& outPairs) const;
 
