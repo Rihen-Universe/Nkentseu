@@ -287,9 +287,11 @@ namespace nkcode {
             if (mShell) {
                 const NkVec2 zm = ctx.input.mousePos;
                 const bool overEd = zm.x >= r.x && zm.x < r.x + r.w && zm.y >= r.y && zm.y < r.y + r.h;
+                // Ctrl+molette -> zoom de l'ONGLET ACTIF (via le handler enregistre par NKCode).
+                // (Ctrl+= / Ctrl+- / Ctrl+0 sont geres cote shell -> meme handler.)
                 if (ctx.input.ctrlDown && overEd && ctx.input.wheel != 0.f) { mShell->NudgeCodeFontSize(ctx.input.wheel > 0.f ? 1.f : -1.f); ctx.input.wheel = 0.f; }
-                if (ctx.input.ctrlDown && ctx.input.KeyPressedRepeat(NkGuiKey::Equal)) mShell->NudgeCodeFontSize(1.f);
-                if (ctx.input.ctrlDown && ctx.input.KeyPressedRepeat(NkGuiKey::Minus)) mShell->NudgeCodeFontSize(-1.f);
+                // Pilote l'atlas de code a la taille de l'onglet actif (0 = taille globale).
+                mShell->RequestCodeSize(mS && mS->HasActive() ? mS->files[mS->active].codeZoom : 0.f);
             }
 
             // ── Picker « aller à la définition » : INPUT traité AVANT l'éditeur, et clic CONSOMMÉ

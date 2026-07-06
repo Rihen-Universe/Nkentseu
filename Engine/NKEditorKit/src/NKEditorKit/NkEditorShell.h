@@ -133,9 +133,17 @@ namespace nkentseu {
             //    police du code (+ terminal), reconstruit l'atlas, persiste. ──────────
             void NudgeCodeFontSize(float32 delta) noexcept;
             void ResetCodeFontSize() noexcept;               ///< remet la police du code à la taille par défaut (Ctrl+0)
-            float32 CodeFontSize() const noexcept;
+            float32 CodeFontSize() const noexcept;           ///< taille GLOBALE par défaut (prefs)
             static constexpr float32 kDefaultCodeFontSize = 15.f;   ///< défaut (= NkFontPrefs::codeSize)
             static constexpr float32 kCodeReloadDebounce  = 0.12f;  ///< délai (s) avant rebuild de l'atlas code après le dernier cran de zoom
+
+            // ── Zoom PAR ONGLET (per-file) : l'app (qui possède les onglets) enregistre un
+            //    handler ; Nudge/Reset le routent vers lui (delta, ou reset=true) au lieu
+            //    d'agir sur la taille globale. L'app pilote ensuite l'atlas via RequestCodeSize.
+            using NkZoomFn = void(*)(void* user, float32 delta, bool reset);
+            void    SetZoomHandler(NkZoomFn fn, void* user) noexcept { mZoomFn = fn; mZoomUser = user; }
+            void    RequestCodeSize(float32 logicalPx) noexcept;   ///< taille voulue de l'atlas code (0 = globale) ; rebuild debounce
+            float32 ActiveCodeSize() const noexcept;               ///< taille de code actuellement affichée (indicateur)
             // ── Infos centrees dans la barre de titre (ex. fichier actif) ────────
             void SetTitleInfo(const char* center) noexcept;
 
@@ -187,6 +195,10 @@ namespace nkentseu {
             bool                mFontOk = false;
             bool                mFontReloadPending = false;  ///< reload des DEUX polices differe au debut de frame (anti-crash)
             float32             mCodeReloadCountdown = -1.f; ///< zoom : debounce (s). >=0 => reconstruit l'atlas code quand il atteint 0 (evite 1 rebuild/cran)
+            float32             mCodeTargetSize = 0.f;       ///< taille logique voulue pour l'atlas code (0 = globale). Pilotee par RequestCodeSize.
+            float32             mCodeLoadedSize = 0.f;       ///< taille logique a laquelle l'atlas code est actuellement construit
+            NkZoomFn            mZoomFn   = nullptr;         ///< handler zoom per-onglet (app)
+            void*               mZoomUser = nullptr;
             NkFontPrefs         mFontPrefs;          ///< reglages de polices (persistes)
             nkgui::NkGuiTheme   mDefaultTheme;       ///< theme par defaut (vit dans l'app) -> Reinitialiser
             nkgui::NkGuiSyntax  mDefaultSyntax;      ///< couleurs langages par defaut -> Reinitialiser
