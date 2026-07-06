@@ -4,6 +4,7 @@
 // =============================================================================
 #include "NKEditorKit/NkEditorShell.h"
 #include "NKEditorKit/NkEditorCanvasRenderer.h"   // backend de rendu par defaut (IDE)
+#include <cstdio>   // snprintf (indicateur de zoom barre d'etat)
 
 #include "NKEvent/NkWindowEvent.h"
 #include "NKEvent/NkMouseEvent.h"
@@ -715,9 +716,23 @@ namespace nkentseu {
             const float32 by  = bar.y + (footerH - mUI.font->LineHeight()) * 0.5f + mUI.font->Ascent();
             if (mFooterLeft[0])
                 mUI.dl.AddText(mUI.font->Face(), mUI.font->TexId(), { bar.x + pad, by }, mFooterLeft, fg);
+            float32 rightX = bar.x + W - pad;   // bord droit courant (les elements s'empilent vers la gauche)
             if (mFooterRight[0]) {
                 const float32 rw = mUI.font->MeasureWidth(mFooterRight);
-                mUI.dl.AddText(mUI.font->Face(), mUI.font->TexId(), { bar.x + W - pad - rw, by }, mFooterRight, fg);
+                mUI.dl.AddText(mUI.font->Face(), mUI.font->TexId(), { rightX - rw, by }, mFooterRight, fg);
+                rightX -= rw + pad * 2.f;
+            }
+            // Indicateur de ZOOM (police du code) : "Zoom NNN%" cliquable -> reinitialise (Ctrl+0).
+            {
+                const int32 pct = static_cast<int32>(mFontPrefs.codeSize / kDefaultCodeFontSize * 100.f + 0.5f);
+                char z[24]; std::snprintf(z, sizeof(z), "Zoom %d%%", pct);
+                const float32 zw = mUI.font->MeasureWidth(z);
+                const NkRect zr = { rightX - zw - pad, bar.y + 2.f, zw + pad * 2.f, footerH - 3.f };
+                const bool zhov = nkgui::NkGuiRectContains(zr, mUI.input.mousePos);
+                if (zhov) mUI.dl.AddRectFilled(zr, mUI.theme.buttonHover, 3.f);
+                mUI.dl.AddText(mUI.font->Face(), mUI.font->TexId(), { zr.x + pad, by }, z,
+                               (pct != 100 || zhov) ? fg : mUI.theme.textDisabled);
+                if (zhov) { mUI.wantCursor = nkgui::NkGuiCursor::Hand; if (mUI.input.mouseClicked[0]) ResetCodeFontSize(); }
             }
         }
 
