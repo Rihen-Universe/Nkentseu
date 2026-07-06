@@ -117,10 +117,21 @@ namespace nkentseu {
             // Les noyaux GPU élémentaires exigent le MÊME nombre d'éléments. Pour un
             // broadcast (ex. biais [1,N] + [B,N]), on retombe sur le CPU (qui gère le
             // broadcast) en PRÉSERVANT le device -> résultat ramené sur GPU.
+            // Broadcast d'un VECTEUR sur le dernier axe (biais [1,C]+[..,C], affine LayerNorm) :
+            // reste sur GPU. Renvoie invalide si le motif ne s'y prête pas.
+            static NkTensor TryRowBroadcast(const NkTensor& a, const NkTensor& b, bool isAdd) {
+                const NkTensor& big = (a.Numel() >= b.Numel()) ? a : b;
+                const NkTensor& sml = (a.Numel() >= b.Numel()) ? b : a;
+                if (big.Rank() >= 1 && sml.Numel() == big.Shape()[big.Rank()-1] && (big.Numel() % sml.Numel()) == 0)
+                    return isAdd ? NkGpuAddBroadcastRow(big, sml) : NkGpuMulBroadcastRow(big, sml);
+                return NkTensor();
+            }
             NkTensor Add(const NkTensor& a, const NkTensor& b) {
                 if (a.Device() == NkDevice::NK_GPU || b.Device() == NkDevice::NK_GPU) {
                     if (a.Numel() == b.Numel()) return NkGpuAdd(a, b);
-                    return Binary(a.ToCPU(), b.ToCPU(), BinOp::Add).ToGPU();   // broadcast
+                    NkTensor r = TryRowBroadcast(a, b, /*isAdd*/true);   // biais/affine sur GPU
+                    if (r.IsValid()) return r;
+                    return Binary(a.ToCPU(), b.ToCPU(), BinOp::Add).ToGPU();   // broadcast général
                 }
                 return Binary(a, b, BinOp::Add);
             }
@@ -133,8 +144,11 @@ namespace nkentseu {
             }
             NkTensor Mul(const NkTensor& a, const NkTensor& b) {
                 if (a.Device() == NkDevice::NK_GPU || b.Device() == NkDevice::NK_GPU) {
-                    if (a.Numel() != b.Numel())
-                        return Binary(a.ToCPU(), b.ToCPU(), BinOp::Mul).ToGPU();   // broadcast
+                    if (a.Numel() != b.Numel()) {
+                        NkTensor r = TryRowBroadcast(a, b, /*isAdd*/false);   // affine sur GPU
+                        if (r.IsValid()) return r;
+                        return Binary(a.ToCPU(), b.ToCPU(), BinOp::Mul).ToGPU();   // broadcast général
+                    }
                     return NkGpuMul(a, b);
                 }
                 return Binary(a, b, BinOp::Mul);

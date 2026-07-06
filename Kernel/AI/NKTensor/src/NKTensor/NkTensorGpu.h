@@ -109,6 +109,10 @@ namespace nkentseu {
         NkTensor NkGpuMatmul(const NkTensor& a, const NkTensor& b);   // a[M,K] · b[K,N] -> [M,N]
         // Matmul par LOTS : a[batch,M,K] · b[batch,K,N] -> [batch,M,N] (attention transformer).
         NkTensor NkGpuBatchedMatmul(const NkTensor& a, const NkTensor& b);
+        // Broadcast d'un vecteur vec[C] sur le DERNIER axe de big[..,C] (biais Dense, affine
+        // LayerNorm) — reste sur GPU. out[i] = big[i] (op) vec[i%C].
+        NkTensor NkGpuAddBroadcastRow(const NkTensor& big, const NkTensor& vec);
+        NkTensor NkGpuMulBroadcastRow(const NkTensor& big, const NkTensor& vec);
         NkTensor NkGpuMul    (const NkTensor& a, const NkTensor& b);  // élémentaire A ⊙ B
         NkTensor NkGpuSub    (const NkTensor& a, const NkTensor& b);  // élémentaire A − B
         NkTensor NkGpuRelu   (const NkTensor& a);                     // max(A,0)

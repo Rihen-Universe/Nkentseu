@@ -250,13 +250,24 @@ le moteur** (agents, civilisation, génération d'assets), pas la course au comp
   (embedding token + positionnel appris → N blocs → LN final → tête LM). 🎯 **JALON ATTEINT :
   le petit GPT (2 couches, d=16) SUR-APPREND une séquence — perte 2,92 → 0,0012** (`NKTransformerTest`
   3/3). Prouve toute la chaîne fwd+bwd+optimiseur du transformer.
-- ⬜ **8. AdamW** (Adam + weight decay) — variante du kernel Adam fusé. 🎯 Test : la perte descend, ==CPU.
-- ⬜ **9. Données char-level** : lire un texte, construire le vocab, encoder en tokens, fabriquer
-  les couples `(x[T], y[T]=x décalé de 1)` ; loader de séquences. *(NKData.)* 🎯 Test : décodage round-trip.
-- ⬜ **10. Entraînement + génération** : app `NKGptTrain` (GPU-résident) → entraîner sur un petit
-  corpus → **échantillonnage autoregressif** (greedy/température) → **texte lisible**.
-- 🎯 **JALON FINAL : le petit GPT, entraîné 100% sur GPU, génère du texte char-level cohérent.**
-- Puis : montée en échelle (tokenizer BPE, contexte plus long, corpus réel, GPU serveurs) — Phase 7.
+- ✅ **8. AdamW** (2026-07-06) : weight decay découplé ajouté au kernel Adam fusé (`RunAdam`/`NkGpuAdamStep`
+  paramètre `wd`) + `NkAdam(..., weightDecay)`. `wd=0` → Adam classique.
+- ✅ **9. Tokenizer char-level** (2026-07-06) : vocabulaire = octets présents (compact), encode/decode,
+  couples `(x[B,T], y décalé)` échantillonnés aléatoirement (dans `NKGptTrain`).
+- ✅ **10. Entraînement + génération — `NKGptTrain`** (2026-07-06) : lit un livre réel (Project
+  Gutenberg, `Resources/Datasets/`), entraîne `NkGPT` avec **AdamW 100% GPU-résident**,
+  **échantillonnage autoregressif à température**.
+- ✅ **Optim vitesse — broadcast GPU (2026-07-06)** : biais `Dense` (`[1,C]+[..,C]`) et affine
+  `LayerNorm` (γ/β) faisaient un **aller-retour CPU** à chaque appel (broadcast non géré par les
+  kernels élémentaires). Ajout de kernels GPU `addbcast`/`mulbcast` (`out[i]=big[i] op vec[i%C]`)
+  → biais/affine **restent sur GPU**. `NKGptTrain` : **3,37 → 0,89 s/pas (~3,8×)**, résultat
+  numérique **identique**. Validé `NKTransformerTest` 3/3, `NkTensorGpuTest` 44/44.
+- 🎯 **JALON FINAL ATTEINT** : petit GPT (T=64, d=128, 2 couches, 4 têtes) entraîné **100% sur GPU**
+  sur *Le Comte de Monte-Cristo* (~150 Ko) — **perte 5,04 → 2,21 (400 pas)** et **génère du texte
+  français** (vrais mots *le/la/de/vous/qui/que/une*, apostrophes, accents, ponctuation). Preuve que
+  toute l'architecture transformer/GPT *from-scratch, sans STL* tourne de bout en bout et génère du texte.
+- Puis (montée en gamme) : plus de pas/données, modèle plus grand, **tokenizer BPE**, contexte plus long ;
+  **corpus trilingue FR + EN + ghɔmáláʼ** (`bbj`, extraction du `DICTIONNAIRE_GHOMALA.pdf`) ; GPU serveurs — Phase 7.
 
 ### Où va le code (modules)
 - **NKAutograd** : ops batched-matmul, LayerNorm, softmax-axe+masque, embedding, GELU (fwd+bwd, gradient-checkés dans `NKAutogradTest`).

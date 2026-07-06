@@ -722,6 +722,41 @@ void main() {
             return NkTensorInternal::MakeGpu(NkShape{batch,M,N},ga.DType(),cbuf);
         }
 
+        // ---- Broadcast vec[C] sur le dernier axe de big[..,C] : biais / affine (résident) ----
+        static const char* kAddBcastNkSL = R"NKSL(
+@binding(set=0, binding=0) buffer BufA { float data[]; } A;
+@binding(set=0, binding=1) buffer BufB { float data[]; } Bv;
+@binding(set=0, binding=2) buffer BufC { float data[]; } C;
+@binding(set=0, binding=3) uniform P { uint count; uint cols; } d;
+layout(local_size_x = 64) in;
+@stage(compute)
+@entry
+void main() { uint i = gl_GlobalInvocationID.x; if (i < d.count) { C.data[i] = A.data[i] + Bv.data[i % d.cols]; } }
+)NKSL";
+        static const char* kMulBcastNkSL = R"NKSL(
+@binding(set=0, binding=0) buffer BufA { float data[]; } A;
+@binding(set=0, binding=1) buffer BufB { float data[]; } Bv;
+@binding(set=0, binding=2) buffer BufC { float data[]; } C;
+@binding(set=0, binding=3) uniform P { uint count; uint cols; } d;
+layout(local_size_x = 64) in;
+@stage(compute)
+@entry
+void main() { uint i = gl_GlobalInvocationID.x; if (i < d.count) { C.data[i] = A.data[i] * Bv.data[i % d.cols]; } }
+)NKSL";
+        static NkTensor GpuBroadcastRow(const char* name, const char* src, const NkTensor& big, const NkTensor& vec) {
+            NkTensor gb = (big.Device()==NkDevice::NK_GPU)?big:big.ToGPU();
+            NkTensor gv = (vec.Device()==NkDevice::NK_GPU)?vec:vec.ToGPU();
+            if (!gb.IsValid()||!gv.IsValid()) return NkTensor{};
+            const int64 count = gb.Numel(); const int64 C = gv.Numel();
+            if (C <= 0 || (count % C) != 0) return NkTensor{};
+            uint64 ob = NkTensorGpu::Get().CreateBuffer((nk_size)count*NkDTypeSize(gb.DType())); if(!ob) return NkTensor{};
+            uint32 p[12] = { (uint32)count, (uint32)C, 0,0,0,0,0,0,0,0,0,0 };
+            NkTensorGpu::Get().RunOp3(name, NkString(src), NkTensorInternal::GpuBuffer(gb), NkTensorInternal::GpuBuffer(gv), ob, p, (uint32)count);
+            return NkTensorInternal::MakeGpu(gb.Shape(), gb.DType(), ob);
+        }
+        NkTensor NkGpuAddBroadcastRow(const NkTensor& big, const NkTensor& vec) { return GpuBroadcastRow("addbcast", kAddBcastNkSL, big, vec); }
+        NkTensor NkGpuMulBroadcastRow(const NkTensor& big, const NkTensor& vec) { return GpuBroadcastRow("mulbcast", kMulBcastNkSL, big, vec); }
+
         // ---- Ops élémentaires GPU supplémentaires (résidence : opèrent sur des
         //      tenseurs déjà sur GPU et renvoient un tenseur GPU -> pas de transfert). ----
         static const char* kMulNkSL = R"NKSL(
