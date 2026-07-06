@@ -136,6 +136,7 @@ namespace nkcode {
         int32 result = 0;
         const bool blockBg = (g->comboOpen >= 0) || NkTxtMenu().open || (dlg && dlg->pickerOpen);
         g->focusClaimed = false;   // un champ revendiquera le clic ; sinon clic dans le vide = deselection
+        u.Rect(r, NkCol::background);   // fond du panneau (theme-aware) : sinon le fond de base sombre transparaît
 
         // En-tete
         const float32 hH = u.s(54);

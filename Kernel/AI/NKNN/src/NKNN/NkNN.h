@@ -5,6 +5,7 @@
 //   • NkDense.h        — couche entièrement connectée
 //   • NkActivations.h  — Relu / Sigmoid / Tanh
 //   • NkLosses.h       — MSELoss / CrossEntropyLoss (+ OneHot)
+//   • NkTransformer.h  — LayerNorm affine / attention multi-têtes / bloc / GPT
 // Inclure ce header suffit pour tout le module. Namespace : nkentseu::ai::nn.
 // =============================================================================
 #pragma once
@@ -13,3 +14,4 @@
 #include "NKNN/NkConv.h"
 #include "NKNN/NkActivations.h"
 #include "NKNN/NkLosses.h"
+#include "NKNN/NkTransformer.h"

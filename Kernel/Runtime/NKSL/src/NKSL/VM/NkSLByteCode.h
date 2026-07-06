@@ -58,6 +58,9 @@ namespace nkentseu {
         // Comparaisons / logique (résultat scalaire 0/1)
         OP_LT, OP_GT, OP_LE, OP_GE, OP_EQ, OP_NE,
         OP_AND, OP_OR, OP_NOT,
+        OP_ANY, OP_ALL,   // réduction bvecN → scalaire (any/all)
+        OP_CMP_LT, OP_CMP_GT, OP_CMP_LE, OP_CMP_GE, OP_CMP_EQ, OP_CMP_NE, // comparaisons composante (lessThan…)
+        OP_LOAD_VID, OP_LOAD_IID,   // gl_VertexID / gl_InstanceID (fournis par l'hôte)
 
         // Builtins maths
         OP_DOT, OP_CROSS, OP_NORMALIZE, OP_LENGTH, OP_DISTANCE,
@@ -107,6 +110,13 @@ namespace nkentseu {
         bool     isShadow = false;
     };
 
+    // ── Bloc UBO (multi-UBO) : (set,binding) descripteur du bloc, par index ───
+    // OP_LOAD_UNI.c = index de bloc ; l'hôte fournit env.uboBlobs[index].
+    struct NkSLUBOBlock {
+        uint16 set     = 0;
+        uint16 binding = 0;
+    };
+
     // ── Programme bytecode (un stage) ─────────────────────────────────────────
     struct NkSLByteProgram {
         NkSLStage                stage = NkSLStage::NK_VERTEX;
@@ -116,8 +126,9 @@ namespace nkentseu {
 
         NkVector<NkSLVMSymbol>   inputs;         // attributs (vertex) ou varyings (fragment)
         NkVector<NkSLVMSymbol>   outputs;        // position+varyings (vertex) ou fragColor (fragment)
-        NkVector<NkSLVMSymbol>   uniforms;       // membres d'UBO (par byteOffset)
+        NkVector<NkSLVMSymbol>   uniforms;       // membres d'UBO (par byteOffset, dans le bloc)
         NkVector<NkSLVMSampler>  samplers;
+        NkVector<NkSLUBOBlock>   uboBlocks;      // multi-UBO : (set,binding) par index de bloc
 
         uint32 inputFloats  = 0;  // taille du tableau d'inputs (floats)
         uint32 outputFloats = 0;  // taille du tableau d'outputs (floats)
@@ -143,7 +154,10 @@ namespace nkentseu {
     struct NkSLVMEnv {
         const float* inputs   = nullptr;  // floats d'entrée  (taille = inputFloats)
         float*       outputs  = nullptr;  // floats de sortie (taille = outputFloats)
-        const uint8* uniforms = nullptr;  // blob UBO
+        const uint8* uniforms = nullptr;  // blob UBO (mono-UBO / fallback bloc 0)
+        const uint8* uboBlobs[8] = {};    // multi-UBO : blob par index de bloc (OP_LOAD_UNI.c)
+        int          vertexID   = 0;      // gl_VertexID   (fourni par l'hôte, stage vertex)
+        int          instanceID = 0;      // gl_InstanceID
 
         // Échantillonnage texture (callbacks vers NkSWTexture). ctx = opaque hôte.
         void* ctx = nullptr;

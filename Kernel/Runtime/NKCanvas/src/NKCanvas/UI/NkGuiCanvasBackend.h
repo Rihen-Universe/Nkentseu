@@ -56,7 +56,7 @@ namespace nkentseu {
                 for (uint32 i = 0; i < mFonts.Size(); ++i) if (mFonts[i].id == texId) { ft = &mFonts[i]; break; }
 
                 // (Re)créer la texture si elle n'existe pas OU si la taille change (rechargement
-                // de police à une autre taille = DPI). Sinon Update() déborderait l'ancienne taille.
+                // de police à une autre taille = zoom / DPI). Sinon Update() déborderait l'ancienne taille.
                 auto& alloc = memory::NkGetDefaultAllocator();
                 if (!ft) {
                     mFonts.PushBack(FontTex{ texId, nullptr, 0, 0 });

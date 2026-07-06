@@ -11,6 +11,7 @@
 #include "NKCode/Project/NkTerm.h"
 #include "NKCode/Editor/NkTextDraw.h"
 #include "NKCode/Shell/NkI18n.h"          // NkT() : bannière mojibake traduite
+#include "NKCode/Shell/NkShell.h"         // NkCodeShellRun (révéler dans l'explorateur / terminal)
 
 namespace nkentseu {
 namespace nkcode {
@@ -100,6 +101,103 @@ namespace nkcode {
         bool               mRootOpen = true;   // noeud racine (projet) deplie par defaut
     };
 
+    // ── Panneau STRUCTURE / OUTLINE : symboles du fichier actif (namespaces, classes,
+    //    structs, enums, fonctions ; def/class Python ; titres Markdown). Clic sur un
+    //    symbole -> révèle sa ligne dans l'éditeur (wantReveal). Extraction heuristique
+    //    par ligne (cache tant que le fichier actif / nb de lignes ne change pas). ──
+    class OutlinePanel : public NkEditorPanel {
+    public:
+        explicit OutlinePanel(NkCodeState* s)
+            : NkEditorPanel("Structure", NkEditorDockSide::NK_LEFT), mS(s) {}
+        void OnUI(NkEditorFrameContext& ec) override {
+            auto& ctx = ec.Ui();
+            ec.Text(NkT("outline.title"));
+            ec.Separator();
+            if (mS->files.Empty() || mS->active < 0 || mS->active >= static_cast<int32>(mS->files.Size())) {
+                mCacheActive = -1; ec.Text(NkT("outline.empty")); return;
+            }
+            OpenFile& f = mS->files[mS->active];
+            Rebuild(f);
+            if (mSyms.Empty()) { ec.Text(NkT("outline.nosym")); return; }
+            for (usize i = 0; i < mSyms.Size(); ++i) {
+                const Sym& sy = mSyms[i];
+                char lbl[320]; int32 n = 0;
+                for (int32 d = 0; d < sy.depth && n < 10; ++d) { lbl[n++] = ' '; lbl[n++] = ' '; }
+                lbl[n++] = kKindGlyph[sy.kind]; lbl[n++] = ' ';
+                std::snprintf(lbl + n, sizeof(lbl) - n, "%s", sy.name.CStr());
+                if (Selectable(ctx, lbl, false)) {
+                    f.doc.curLine = (sy.line < f.doc.LineCount()) ? sy.line : f.doc.LineCount() - 1;
+                    f.doc.curCol = 0; f.doc.Collapse(); f.doc.wantReveal = true;
+                }
+            }
+        }
+    private:
+        struct Sym { NkString name; int32 line; int32 depth; int32 kind; };   // kind: 0 titre,1 fn,2 type,3 ns,4 enum
+        static constexpr char kKindGlyph[5] = { '#', 'f', 'C', 'N', 'E' };
+        NkCodeState* mS;
+        NkVector<Sym> mSyms;
+        int32 mCacheActive = -1; int32 mCacheLines = -1;
+
+        static bool Starts(const char* s, const char* p) { for (; *p; ++s, ++p) if (*s != *p) return false; return true; }
+        static bool IsIdent(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'; }
+        static bool ExtEq(const char* e, const char* w) { if (*e == '.') ++e; for (; *e && *w; ++e, ++w) { char a = *e, b = *w; if (a >= 'A' && a <= 'Z') a += 32; if (a != b) return false; } return !*e && !*w; }
+        static bool IsCtrlKw(const char* n) {
+            static const char* kw[] = { "if","for","while","switch","catch","return","sizeof","else","do","using","typedef","template","new","delete","and","or","not","case","alignof","static_assert",nullptr };
+            for (int32 i = 0; kw[i]; ++i) { const char* a = n; const char* b = kw[i]; bool eq = true; for (; *a && *b; ++a, ++b) if (*a != *b) { eq = false; break; } if (eq && !*a && !*b) return true; }
+            return false;
+        }
+        void AddName(const char* p, int32 li, int32 depth, int32 kind) {
+            while (*p == ' ') ++p;
+            char nm[128]; int32 k = 0; while (*p && IsIdent(*p) && k < 127) nm[k++] = *p++;
+            nm[k] = 0; if (k > 0) mSyms.PushBack({ NkString(nm), li, depth, kind });
+        }
+        void Rebuild(OpenFile& f) {
+            const int32 lc = f.doc.LineCount();
+            if (mCacheActive == mS->active && mCacheLines == lc) return;   // cache (invalidé au changement de fichier / nb lignes)
+            mCacheActive = mS->active; mCacheLines = lc; mSyms.Clear();
+            const NkString ext = f.path.GetExtension();
+            const bool py = ExtEq(ext.CStr(), "py") || ExtEq(ext.CStr(), "pyi") || ExtEq(ext.CStr(), "jenga");   // .jenga = DSL Python
+            const bool md = ExtEq(ext.CStr(), "md") || ExtEq(ext.CStr(), "markdown");
+            char buf[512];
+            for (int32 li = 0; li < lc; ++li) {
+                const NkCodeLine& ln = f.doc.lines[li];
+                int32 m = 0; for (usize k = 0; k < ln.Size() && m < 510; ++k) buf[m++] = ln[k]; buf[m] = 0;
+                ExtractLine(buf, li, py, md);
+            }
+        }
+        void ExtractLine(const char* raw, int32 li, bool py, bool md) {
+            const char* p = raw; int32 indent = 0; while (*p == ' ' || *p == '\t') { ++p; indent += (*p == '\t') ? 4 : 1; }
+            if (!*p) return;
+            if (Starts(p, "//") || Starts(p, "/*") || *p == '*') return;   // commentaires
+            if (md) { if (*p == '#') { int32 lvl = 0; const char* q = p; while (*q == '#') { ++lvl; ++q; } while (*q == ' ') ++q; if (*q) mSyms.PushBack({ NkString(q), li, lvl - 1 < 0 ? 0 : lvl - 1, 0 }); } return; }
+            if (py) {
+                if (Starts(p, "def ")) AddName(p + 4, li, indent / 4, 1);
+                else if (Starts(p, "class ")) AddName(p + 6, li, indent / 4, 2);
+                return;
+            }
+            // C/C++/ObjC (et défaut)
+            if (Starts(p, "namespace ")) { AddName(p + 10, li, 0, 3); return; }
+            if (Starts(p, "class "))     { AddName(p + 6,  li, 0, 2); return; }
+            if (Starts(p, "struct "))    { AddName(p + 7,  li, 0, 2); return; }
+            if (Starts(p, "enum class ")){ AddName(p + 11, li, 0, 4); return; }
+            if (Starts(p, "enum "))      { AddName(p + 5,  li, 0, 4); return; }
+            // Fonction : identifiant juste avant '(' ; ligne finissant par '{' (déf) ou
+            // par ')' sans ';' (déf sur plusieurs lignes) ; hors mots-clés de contrôle.
+            const char* paren = nullptr; for (const char* q = p; *q; ++q) { if (*q == '(') { paren = q; break; } if (*q == ';' || *q == '=') break; }
+            if (!paren || paren == p) return;
+            const char* e = paren; while (e > p && e[-1] == ' ') --e;
+            const char* b = e; while (b > p && (IsIdent(b[-1]))) --b;
+            if (e <= b) return;
+            char nm[128]; int32 k = 0; for (const char* q = b; q < e && k < 127; ++q) nm[k++] = *q; nm[k] = 0;
+            if (k == 0 || (nm[0] >= '0' && nm[0] <= '9') || IsCtrlKw(nm)) return;
+            int32 L = 0; while (p[L]) ++L; while (L > 0 && (p[L-1] == ' ' || p[L-1] == '\r' || p[L-1] == '\t')) --L;
+            const bool endsBrace = (L > 0 && p[L-1] == '{');
+            const bool endsParen = (L > 0 && p[L-1] == ')');
+            bool hasSemi = false; for (const char* q = p; *q; ++q) if (*q == ';') { hasSemi = true; break; }
+            if (endsBrace || (endsParen && !hasSemi)) mSyms.PushBack({ NkString(nm), li, 1, 1 });
+        }
+    };
+
     // ── Editeur : onglets des fichiers ouverts + saisie multi-ligne du fichier actif. ──
     class EditorPanel : public NkEditorPanel {
     public:
@@ -129,6 +227,9 @@ namespace nkcode {
             if (r.x + r.w > clip.x + clip.w) r.w = clip.x + clip.w - r.x;
             if (r.y + r.h > clip.y + clip.h) r.h = clip.y + clip.h - r.y;
 
+            // ── Fil d'Ariane (workspace › dossier › … › fichier) ──
+            { const float32 bcH = DrawBreadcrumb(ctx, f, r); r.y += bcH; if (r.h > bcH) r.h -= bcH; }
+
             // ── Bannière « encodage double (mojibake) détecté » + bouton Réparer ──
             if (f.doc.mojibake) {
                 const float32 lh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
@@ -148,15 +249,123 @@ namespace nkcode {
                 if (ctx.font && ctx.font->Valid())
                     ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), { btn.x + 12.f, btn.y + (btn.h - lh) * 0.5f + asc }, blab, ctx.theme.text);
                 if (hov && ctx.input.mouseClicked[0]) f.doc.RepairEncoding();
+                // Bouton « Tout réparer (N) » : répare en une fois TOUS les fichiers ouverts affectés.
+                const int32 nMoji = mS->CountMojibake();
+                if (nMoji > 1 && ctx.font && ctx.font->Valid()) {
+                    char alab[64]; std::snprintf(alab, sizeof(alab), "%s (%d)", NkT("edit.repairall"), nMoji);
+                    const float32 aw = ctx.font->MeasureWidth(alab) + 24.f;
+                    const NkRect abtn = { btn.x - aw - 8.f, bar.y + 5.f, aw, bh - 10.f };
+                    const bool ahov = mm.x >= abtn.x && mm.x < abtn.x + abtn.w && mm.y >= abtn.y && mm.y < abtn.y + abtn.h;
+                    ctx.DL().AddRectFilled(abtn, ahov ? ctx.theme.buttonHover : ctx.theme.button, 4.f);
+                    ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), { abtn.x + 12.f, abtn.y + (abtn.h - lh) * 0.5f + asc }, alab, ctx.theme.text);
+                    if (ahov && ctx.input.mouseClicked[0]) mS->RepairAllOpenEncodings();
+                }
                 r.y += bh; if (r.h > bh) r.h -= bh;
             }
 
-            CodeEditor(ctx, "##code", f.doc, r, NkLangFromExt(f.path.GetExtension().CStr()));
+            // ── Bannière « fichier supprimé / modifié en dehors de NKCode » + action ──
+            if ((f.deletedOnDisk || f.changedOnDisk) && ctx.font && ctx.font->Valid()) {
+                const float32 lh = ctx.font->LineHeight(); const float32 asc = ctx.font->Ascent(); const float32 bh = lh + 12.f;
+                const NkRect bar = { r.x, r.y, r.w, bh };
+                const bool del = f.deletedOnDisk;
+                ctx.DL().AddRectFilled(bar, del ? NkColor{ 66, 30, 30, 255 } : NkColor{ 30, 46, 66, 255 });
+                ctx.DL().AddRectFilled({ bar.x, bar.y + bh - 1.f, bar.w, 1.f }, ctx.theme.border);
+                ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), { bar.x + 12.f, bar.y + (bh - lh) * 0.5f + asc }, NkT(del ? "edit.deleted" : "edit.changed"), del ? NkColor{ 240, 170, 170, 255 } : NkColor{ 170, 200, 240, 255 });
+                const char* blab = NkT(del ? "edit.resave" : "edit.reload");
+                const float32 bw = ctx.font->MeasureWidth(blab) + 24.f;
+                const NkRect btn = { bar.x + bar.w - bw - 12.f, bar.y + 5.f, bw, bh - 10.f };
+                const NkVec2 mm = ctx.input.mousePos;
+                const bool hov = mm.x >= btn.x && mm.x < btn.x + btn.w && mm.y >= btn.y && mm.y < btn.y + btn.h;
+                ctx.DL().AddRectFilled(btn, hov ? ctx.theme.buttonHover : ctx.theme.button, 4.f);
+                ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), { btn.x + 12.f, btn.y + (btn.h - lh) * 0.5f + asc }, blab, ctx.theme.text);
+                if (hov && ctx.input.mouseClicked[0]) { if (del) mS->reqSaveAs = true; else mS->ReloadActive(); }   // supprimé -> demande OÙ ré-enregistrer
+                r.y += bh; if (r.h > bh) r.h -= bh;
+            }
+
+            // ── Zoom éditeur : Ctrl+molette / Ctrl+= (zoom) / Ctrl+- (dézoom) sur la police du
+            //    code. Consommé AVANT l'éditeur pour ne pas défiler à la place de zoomer. ──
+            if (mShell) {
+                const NkVec2 zm = ctx.input.mousePos;
+                const bool overEd = zm.x >= r.x && zm.x < r.x + r.w && zm.y >= r.y && zm.y < r.y + r.h;
+                if (ctx.input.ctrlDown && overEd && ctx.input.wheel != 0.f) { mShell->NudgeCodeFontSize(ctx.input.wheel > 0.f ? 1.f : -1.f); ctx.input.wheel = 0.f; }
+                if (ctx.input.ctrlDown && ctx.input.KeyPressedRepeat(NkGuiKey::Equal)) mShell->NudgeCodeFontSize(1.f);
+                if (ctx.input.ctrlDown && ctx.input.KeyPressedRepeat(NkGuiKey::Minus)) mShell->NudgeCodeFontSize(-1.f);
+            }
+
+            // ── Picker « aller à la définition » : INPUT traité AVANT l'éditeur, et clic CONSOMMÉ
+            //    -> l'éditeur dessous ne déplace pas le caret / ne démarre pas de sélection (drag). ──
+            if (mS->navPickerOpen && !mS->navResults.Empty() && ctx.font && ctx.font->Valid()) {
+                const float32 lh = ctx.font->LineHeight();
+                const int32 n = static_cast<int32>(mS->navResults.Size()); const int32 shown = n < 12 ? n : 12;
+                const float32 rowH = lh + 8.f; const float32 bw = (r.w - 60.f) < 640.f ? (r.w - 60.f) : 640.f;
+                const float32 headH = lh + 10.f; const float32 bh = headH + shown * rowH + 8.f;
+                const NkRect box = { r.x + (r.w - bw) * 0.5f, r.y + 44.f, bw, bh };
+                const NkVec2 mm = ctx.input.mousePos;
+                for (int32 i = 0; i < shown; ++i) { const NkRect row = { box.x + 4.f, box.y + headH + i * rowH, bw - 8.f, rowH }; if (mm.x >= row.x && mm.x < row.x + row.w && mm.y >= row.y && mm.y < row.y + row.h) mS->navPickerSel = i; }
+                if (ctx.input.mouseClicked[0]) {
+                    bool onRow = false;
+                    for (int32 i = 0; i < shown; ++i) { const NkRect row = { box.x + 4.f, box.y + headH + i * rowH, bw - 8.f, rowH }; if (mm.x >= row.x && mm.x < row.x + row.w && mm.y >= row.y && mm.y < row.y + row.h) { mS->NavPick(i); onRow = true; break; } }
+                    const bool inBox = mm.x >= box.x && mm.x < box.x + box.w && mm.y >= box.y && mm.y < box.y + box.h;
+                    if (!onRow && !inBox) mS->navPickerOpen = false;
+                    ctx.input.mouseClicked[0] = false;   // CONSOMME : pas de déplacement caret / drag dans l'éditeur
+                }
+                if (ctx.input.KeyPressed(NkGuiKey::Escape)) mS->navPickerOpen = false;
+            }
+
+            mS->StartProjectIndex();   // index sémantique niveau projet (async, une fois)
+            const NkVector<NkString>* ppDefs = mS->EffectiveDefines(f.path.ToString());   // macros effectives (dump compilo) -> grisage préproc exact
+            CodeEditor(ctx, "##code", f.doc, r, NkLangFromExt(f.path.GetExtension().CStr()),
+                       mS->projReady ? &mS->projTypes : nullptr, mS->projReady ? &mS->projFuncs : nullptr,
+                       ppDefs);
+
+            // ── Overlay Ctrl+clic : barre de PROGRESSION (recherche) + LISTE de toutes les
+            //    occurrences (façon VSCode « aller à la définition » multi-résultats). ──
+            if ((mS->navBusy || mS->navPickerOpen) && ctx.font && ctx.font->Valid()) {
+                const float32 lh = ctx.font->LineHeight(); const float32 asc = ctx.font->Ascent();
+                if (mS->navBusy) {
+                    const float32 bw = 360.f, bh = lh + 28.f;
+                    const NkRect box = { r.x + (r.w - bw) * 0.5f, r.y + 14.f, bw, bh };
+                    ctx.DL().AddRectFilled(box, ctx.theme.header, 6.f); ctx.DL().AddRect(box, ctx.theme.border, 1.f);
+                    NkString t = NkString("Recherche de « ") + mS->navSym.CStr() + " »…";
+                    ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), { box.x + 12.f, box.y + 7.f + asc }, t.CStr(), ctx.theme.text);
+                    const float32 pbY = box.y + bh - 11.f, pbW = bw - 24.f;
+                    ctx.DL().AddRectFilled({ box.x + 12.f, pbY, pbW, 4.f }, ctx.theme.border, 2.f);
+                    float32 frac = mS->navTotal > 0 ? (float32)mS->navScanned / (float32)mS->navTotal : 0.15f;
+                    if (frac < 0.05f) frac = 0.05f; if (frac > 1.f) frac = 1.f;
+                    ctx.DL().AddRectFilled({ box.x + 12.f, pbY, pbW * frac, 4.f }, ctx.theme.accent, 2.f);
+                }
+                if (mS->navPickerOpen && !mS->navResults.Empty()) {
+                    const NkVec2 mm = ctx.input.mousePos;
+                    const int32 n = static_cast<int32>(mS->navResults.Size());
+                    const int32 shown = n < 12 ? n : 12;
+                    const float32 rowH = lh + 8.f;
+                    const float32 bw = (r.w - 60.f) < 640.f ? (r.w - 60.f) : 640.f;
+                    const float32 headH = lh + 10.f;
+                    const float32 bh = headH + shown * rowH + 8.f;
+                    const NkRect box = { r.x + (r.w - bw) * 0.5f, r.y + 44.f, bw, bh };
+                    ctx.DL().AddRectFilled(box, ctx.theme.header, 8.f); ctx.DL().AddRect(box, ctx.theme.accent, 1.5f);
+                    char hb[64]; std::snprintf(hb, sizeof(hb), "Aller à la définition — %d résultats  (clic · Échap)", n);
+                    ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), { box.x + 12.f, box.y + 6.f + asc }, hb, ctx.theme.textDisabled);
+                    if (ctx.input.KeyPressed(NkGuiKey::Escape)) mS->navPickerOpen = false;   // souris-primaire : survol + clic
+                    const NkColor selC = { ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 70 };
+                    for (int32 i = 0; i < shown; ++i) {
+                        const NkCodeState::NavHit& hit = mS->navResults[static_cast<usize>(i)];
+                        const NkRect row = { box.x + 4.f, box.y + headH + i * rowH, bw - 8.f, rowH };
+                        const bool hov = mm.x >= row.x && mm.x < row.x + row.w && mm.y >= row.y && mm.y < row.y + row.h;
+                        if (hov) mS->navPickerSel = i;
+                        if (i == mS->navPickerSel) ctx.DL().AddRectFilled(row, selC, 4.f);
+                        NkString base = NkPath(hit.file).GetFileName(); { char c[16]; std::snprintf(c, sizeof(c), ":%d", hit.line + 1); base += c; }
+                        ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), { row.x + 8.f, row.y + 4.f + asc }, base.CStr(), ctx.theme.text);
+                        const float32 bx = row.x + 8.f + ctx.font->MeasureWidth(base.CStr()) + 16.f;
+                        ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), { bx, row.y + 4.f + asc }, hit.preview.CStr(), ctx.theme.textDisabled);
+                    }
+                }
+            }
 
             // Footer VSCode : nom du fichier (gauche) + Ln/Col + langage (droite).
             if (mShell) {
-                char rbuf[128];
-                std::snprintf(rbuf, sizeof(rbuf), "Ln %d, Col %d    %s",
+                char rbuf[160];
+                std::snprintf(rbuf, sizeof(rbuf), "Ln %d, Col %d     Espaces : 4     UTF-8     %s",
                               f.doc.curLine + 1, f.doc.curCol + 1, LangOf(f.path));
                 NkString left = f.Name();
                 if (f.doc.dirty) left = NkString("* ") + left.CStr();
@@ -170,6 +379,48 @@ namespace nkcode {
             }
         }
     private:
+        // Fil d'Ariane : chemin du fichier actif relatif au workspace, façon VS Code
+        // (workspace › dossier › … › fichier). Dessiné en haut de la zone code ;
+        // renvoie la hauteur consommée (la zone code est décalée d'autant).
+        float32 DrawBreadcrumb(NkGuiContext& ctx, const OpenFile& f, const NkRect& r) {
+            auto& dl = ctx.DL();
+            const float32 h = ctx.ItemHeight() + ctx.S(4.f);
+            dl.AddRectFilled({ r.x, r.y, r.w, h }, ctx.theme.bgPrimary);
+            dl.AddRectFilled({ r.x, r.y + h - 1.f, r.w, 1.f }, ctx.theme.border);
+            if (!ctx.font || !ctx.font->Valid()) return h;
+            const float32 by = r.y + (h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent();
+
+            // Strip du préfixe racine (séparateurs / et \ traités à l'identique).
+            auto norm = [](char c) -> char { return (c == '\\') ? '/' : ((c >= 'A' && c <= 'Z') ? (char)(c + 32) : c); };
+            const NkString full = f.path.ToString();
+            const NkString base = mS->root.ToString();
+            const char* fp = full.CStr(); const char* bp = base.CStr();
+            bool pref = true; { const char* a = fp; const char* b = bp; for (; *b; ++a, ++b) if (norm(*a) != norm(*b)) { pref = false; break; } }
+            const char* rp = fp; if (pref) { rp += base.Size(); } while (*rp == '/' || *rp == '\\') ++rp;
+
+            // Segments : nom du workspace + chemin relatif découpé.
+            NkVector<NkString> segs; segs.PushBack(mS->root.GetFileName());
+            NkString cur;
+            for (const char* q = rp; ; ++q) {
+                if (*q == '/' || *q == '\\' || *q == '\0') { if (!cur.Empty()) { segs.PushBack(cur); cur = NkString(); } if (!*q) break; }
+                else { char cb[2] = { *q, 0 }; cur += cb; }
+            }
+            const char* chev = "\xE2\x80\xBA";
+            const float32 chevW = ctx.font->MeasureWidth(chev);
+            float32 x = r.x + ctx.S(12.f);
+            const NkVec2 m = ctx.input.mousePos;
+            for (usize i = 0; i < segs.Size(); ++i) {
+                const bool last = (i + 1 == segs.Size());
+                const float32 sw = ctx.font->MeasureWidth(segs[i].CStr());
+                if (x + sw > r.x + r.w - ctx.S(16.f)) { dl.AddText(ctx.font->Face(), ctx.font->TexId(), { x, by }, "…", ctx.theme.textDisabled); break; }
+                const bool hov = (m.x >= x - 2.f && m.x < x + sw + 2.f && m.y >= r.y && m.y < r.y + h);
+                const NkColor col = last ? ctx.theme.text : (hov ? ctx.theme.text : ctx.theme.textDisabled);
+                dl.AddText(ctx.font->Face(), ctx.font->TexId(), { x, by }, segs[i].CStr(), col);
+                x += sw + ctx.S(7.f);
+                if (!last) { dl.AddText(ctx.font->Face(), ctx.font->TexId(), { x, by }, chev, ctx.theme.textDisabled); x += chevW + ctx.S(7.f); }
+            }
+            return h;
+        }
         // Bandeau d'onglets de fichiers (facon VSCode) : dessine chaque fichier
         // ouvert, gere clic (activer) + X (fermer), puis avance le curseur de layout
         // sous le bandeau. Pilote par mS->active (source de verite).
@@ -186,20 +437,25 @@ namespace nkcode {
                 const NkString nm = f.Name();
                 const float32 nameW = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(nm.CStr()) : 40.f;
                 const float32 dotW = 16.f;
-                const float32 tabW = nameW + 14.f + dotW + 6.f;
+                const float32 pinW = f.pinned ? 13.f : 0.f;                 // icône épingle en tête
+                const float32 tabW = pinW + nameW + 14.f + dotW + 6.f;
                 const NkRect  tab  = { x, y0, tabW, h };
                 const bool active = (static_cast<int32>(i) == mS->active);
                 const bool hov = m.x >= tab.x && m.x < tab.x + tab.w && m.y >= tab.y && m.y < tab.y + tab.h;
                 dl.AddRectFilled(tab, active ? ctx.theme.tabActive : (hov ? ctx.theme.tabHover : ctx.theme.tab));
                 if (active) dl.AddRectFilled({ tab.x, y0 + h - 2.f, tab.w, 2.f }, ctx.theme.accent);
+                float32 tx = tab.x + 8.f;
+                if (f.pinned) { DrawPin(dl, { tx, y0 + h * 0.5f }, active ? ctx.theme.accent : ctx.theme.textDisabled); tx += pinW; }
                 if (ctx.font && ctx.font->Valid())
                     dl.AddText(ctx.font->Face(), ctx.font->TexId(),
-                               { tab.x + 8.f, y0 + (h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent() },
+                               { tx, y0 + (h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent() },
                                nm.CStr(), active ? ctx.theme.text : ctx.theme.textDisabled, nameW);
-                // Zone droite : point "modifie" (si dirty et non survole) sinon X.
+                // Zone droite : épingle -> pas de X ; sinon point "modifié" (si dirty non survolé) sinon X.
                 const NkRect cl = { tab.x + tabW - dotW - 5.f, y0 + (h - dotW) * 0.5f, dotW, dotW };
                 const bool clHov = m.x >= cl.x && m.x < cl.x + cl.w && m.y >= cl.y && m.y < cl.y + cl.h;
-                if (f.doc.dirty && !clHov) {
+                if (f.pinned) {
+                    if (f.doc.dirty) dl.AddCircleFilled({ cl.x + cl.w * 0.5f, cl.y + cl.h * 0.5f }, 4.f, ctx.theme.text);
+                } else if (f.doc.dirty && !clHov) {
                     dl.AddCircleFilled({ cl.x + cl.w * 0.5f, cl.y + cl.h * 0.5f }, 4.f, ctx.theme.text);
                 } else {
                     if (clHov) dl.AddRectFilled(cl, ctx.theme.buttonHover);
@@ -207,16 +463,85 @@ namespace nkcode {
                     dl.AddLine({ cx - a, cy - a }, { cx + a, cy + a }, ctx.theme.text, 1.2f);
                     dl.AddLine({ cx - a, cy + a }, { cx + a, cy - a }, ctx.theme.text, 1.2f);
                 }
-                if (ctx.input.mouseClicked[0] && hov) { if (clHov) toClose = static_cast<int32>(i); else mS->active = static_cast<int32>(i); }
+                if (ctx.input.mouseClicked[0] && hov) {
+                    if (clHov && !f.pinned) toClose = static_cast<int32>(i); else mS->active = static_cast<int32>(i);
+                }
+                // Clic-molette (bouton milieu) = fermer (sauf épinglé).
+                if (ctx.input.mouseClicked[2] && hov && !f.pinned) toClose = static_cast<int32>(i);
+                // Clic droit = menu contextuel de l'onglet.
+                if (ctx.input.mouseClicked[1] && hov && ctx.popupDepth == 0) {
+                    mTabMenu.open = true; mTabMenu.pos = m; mTabMenuIdx = static_cast<int32>(i);
+                }
                 dl.AddRectFilled({ tab.x + tabW - 1.f, y0, 1.f, h }, ctx.theme.border);
                 x += tabW;
             }
+            // Bouton « + » (nouvel onglet vierge).
+            const NkRect plus = { x + 4.f, y0 + (h - 22.f) * 0.5f, 24.f, 22.f };
+            const bool pHov = m.x >= plus.x && m.x < plus.x + plus.w && m.y >= plus.y && m.y < plus.y + plus.h;
+            if (pHov) dl.AddRectFilled(plus, ctx.theme.buttonHover, ctx.theme.rounding);
+            { const float32 cx = plus.x + plus.w * 0.5f, cy = plus.y + plus.h * 0.5f, a = 5.f;
+              dl.AddLine({ cx - a, cy }, { cx + a, cy }, ctx.theme.textDisabled, 1.4f);
+              dl.AddLine({ cx, cy - a }, { cx, cy + a }, ctx.theme.textDisabled, 1.4f); }
+            if (pHov && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) { mS->NewUntitled(); mS->reqSaveAs = true; }   // + : demande direct où enregistrer (projet/dossier/extension)
+
+            // ── Menu contextuel de l'onglet (clic droit) ──
+            if (mTabMenu.open && mTabMenuIdx >= 0 && mTabMenuIdx < static_cast<int32>(mS->files.Size())) {
+                OpenFile& tf = mS->files[mTabMenuIdx];
+                const char* items[7] = {
+                    NkT("tab.close"), NkT("tab.closeothers"), NkT("tab.closeright"),
+                    tf.pinned ? NkT("tab.unpin") : NkT("tab.pin"),
+                    NkT("tab.copypath"), NkT("ctx.reveal"), NkT("ctx.openterm")
+                };
+                const bool en[7] = { !tf.pinned, true, true, true, true, true, true };
+                const int32 act = NkCtxMenuDraw(ctx, mTabMenu, items, en, 7);
+                if (act >= 0) {
+                    const int32 idx = mTabMenuIdx;
+                    const NkString full = mS->files[idx].path.ToString();
+                    switch (act) {
+                        case 0: if (!mS->files[idx].pinned) mS->CloseFile(idx); break;
+                        case 1: mS->CloseOthers(idx); break;
+                        case 2: mS->CloseToRight(idx); break;
+                        case 3: mS->TogglePin(idx); break;
+                        case 4: ctx.SetClipboard(full.CStr()); break;
+                        case 5: RevealInExplorer(full); break;
+                        case 6: NkCodeShellRunTermAt(mS->files[idx].path.GetParent().ToString()); break;
+                    }
+                    mTabMenuIdx = -1;
+                }
+            } else if (!mTabMenu.open) mTabMenuIdx = -1;
+
             // Avance le curseur de layout SOUS le bandeau (l'editeur suit dessous).
             ctx.layout.cursor.x   = x0;
             ctx.layout.cursor.y   = y0 + h;
             ctx.layout.lineStartX = x0;
             ctx.layout.curLineH   = 0.f;
             if (toClose >= 0) mS->CloseFile(toClose);
+        }
+        // Petite épingle vectorielle (tête + aiguille) centrée verticalement en `c`.
+        static void DrawPin(NkGuiDrawList& dl, const NkVec2& c, const NkColor& col) {
+            dl.AddCircleFilled({ c.x + 2.f, c.y - 2.f }, 3.f, col);
+            dl.AddLine({ c.x + 2.f, c.y - 2.f }, { c.x - 2.f, c.y + 4.f }, col, 1.4f);
+        }
+        // Révèle un FICHIER dans le gestionnaire de fichiers (le sélectionne).
+        static void RevealInExplorer(const NkString& path) {
+        #ifdef _WIN32
+            NkString bs; for (const char* p = path.CStr(); *p; ++p) bs += (*p == '/') ? '\\' : *p;
+            NkCodeShellRun((NkString("explorer /select,\"") + bs + "\"").CStr());
+        #elif defined(__APPLE__)
+            NkCodeShellRun((NkString("open -R \"") + path + "\"").CStr());
+        #else
+            NkCodeShellRun((NkString("xdg-open \"") + NkPath(path.CStr()).GetParent().ToString().CStr() + "\"").CStr());
+        #endif
+        }
+        static void NkCodeShellRunTermAt(const NkString& folder) {
+        #ifdef _WIN32
+            NkString bs; for (const char* p = folder.CStr(); *p; ++p) bs += (*p == '/') ? '\\' : *p;
+            NkCodeShellRun((NkString("start \"\" cmd /K cd /d \"") + bs + "\"").CStr());
+        #elif defined(__APPLE__)
+            NkCodeShellRun((NkString("open -a Terminal \"") + folder + "\"").CStr());
+        #else
+            NkCodeShellRun((NkString("(x-terminal-emulator --working-directory=\"") + folder + "\" || gnome-terminal --working-directory=\"" + folder + "\") &").CStr());
+        #endif
         }
         // Langage devine a partir de l'extension (affiche dans le footer).
         static const char* LangOf(const NkPath& p) {
@@ -233,6 +558,8 @@ namespace nkcode {
         }
         NkCodeState*   mS;
         NkEditorShell* mShell;
+        NkCtxMenu      mTabMenu;          // menu contextuel de la barre d'onglets (clic droit)
+        int32          mTabMenuIdx = -1;  // onglet ciblé par le menu
     };
 
     // ── OUTPUT : VRAI affichage NKLogger (logs du moteur) + sortie du build jenga.
@@ -255,7 +582,7 @@ namespace nkcode {
             while (mLogs.Size() > 5000) mLogs.Erase(mLogs.Begin());
 
             const NkRect clip = dl.CurrentClip();
-            dl.AddRectFilled(clip, NkColor{ 13, 17, 23, 255 });   // fond #0D1117
+            dl.AddRectFilled(clip, ctx.theme.bgPrimary);   // fond #0D1117
 
             NkCodeFontScope _cfs(ctx);   // police monospace (box-drawing + unicode)
             const float32 lineH = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
@@ -265,12 +592,12 @@ namespace nkcode {
             // ── En-tete : progression (barre + %) a gauche, bouton Effacer a droite ──
             const float32 hdrH = ctx.S(22.f), pad = 6.f;
             const NkRect hdr = { clip.x, clip.y, clip.w, hdrH };
-            dl.AddRectFilled(hdr, NkColor{ 22, 26, 32, 255 });
+            dl.AddRectFilled(hdr, ctx.theme.header);
             const float32 by = clip.y + (hdrH - lineH) * 0.5f + (ctx.font ? ctx.font->Ascent() : 11.f);
             // Bouton Effacer (a droite).
             const float32 clrW = ctx.S(74.f);
             const NkRect clrR = { clip.x + clip.w - clrW - 4.f, clip.y + 2.f, clrW, hdrH - 4.f };
-            { const bool h = inR(clrR); dl.AddRectFilled(clrR, h ? ctx.theme.buttonHover : NkColor{ 40, 46, 54, 255 }, 4.f);
+            { const bool h = inR(clrR); dl.AddRectFilled(clrR, h ? ctx.theme.buttonHover : ctx.theme.button, 4.f);
               if (ctx.font && ctx.font->Valid()) dl.AddText(ctx.font->Face(), ctx.font->TexId(), { clrR.x + 10.f, by }, "Effacer", ctx.theme.text);
               if (h && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) { mLogs.Clear(); ClearSel(); } }
             // Progression : barre + pourcentage (pendant/juste apres un build).
@@ -280,19 +607,19 @@ namespace nkcode {
                 if (mS->IsBuilding() && ctx.font && ctx.font->Valid()) { dl.AddText(ctx.font->Face(), ctx.font->TexId(), { x, by }, spc, ctx.theme.accent); x += ctx.S(16.f); }
                 const float32 barW = ctx.S(160.f), barH = ctx.S(8.f);
                 const NkRect bar = { x, clip.y + (hdrH - barH) * 0.5f, barW, barH };
-                dl.AddRectFilled(bar, NkColor{ 40, 46, 54, 255 }, 3.f);
+                dl.AddRectFilled(bar, ctx.theme.button, 3.f);
                 const float32 prog = mS->BuildProgress();
                 dl.AddRectFilled({ bar.x, bar.y, barW * (prog < 0.f ? 0.f : prog > 1.f ? 1.f : prog), barH }, ctx.theme.accent, 3.f);
                 char info[64]; std::snprintf(info, sizeof(info), "  %d/%d  (%d%%)", mS->buildDone, mS->buildTotal, (int)(prog * 100.f + 0.5f));
                 if (ctx.font && ctx.font->Valid()) dl.AddText(ctx.font->Face(), ctx.font->TexId(), { bar.x + barW + 4.f, by }, info, ctx.theme.text);
             } else if (ctx.font && ctx.font->Valid()) {
-                dl.AddText(ctx.font->Face(), ctx.font->TexId(), { clip.x + pad, by }, mS->status.Empty() ? "Sortie" : mS->status.CStr(), NkColor{ 150, 158, 168, 255 });
+                dl.AddText(ctx.font->Face(), ctx.font->TexId(), { clip.x + pad, by }, mS->status.Empty() ? "Sortie" : mS->status.CStr(), ctx.theme.textDisabled);
             }
 
             // ── Console (lecture seule) : defilable + selectionnable + unicode ──
             const NkRect out = { clip.x, clip.y + hdrH, clip.w, clip.h - hdrH };
             // Clic droit -> menu Copier / Tout selectionner / Effacer.
-            if (ctx.input.mouseClicked[2] && inR(out) && ctx.popupDepth == 0) { mMenu.open = true; mMenu.pos = m; }
+            if (ctx.input.mouseClicked[1] && inR(out) && ctx.popupDepth == 0) { mMenu.open = true; mMenu.pos = m; }
             DrawConsole(ctx, out, lineH, pad);
             const char* items[] = { "Copier", "Tout selectionner", "Effacer" };
             const bool  en[] = { HasSel(), !mLogs.Empty(), !mLogs.Empty() };
@@ -352,7 +679,10 @@ namespace nkcode {
         // Rend les lignes (clippees) + selection + scrollbars V/H + suivi du bas.
         void DrawConsole(NkGuiContext& ctx, const NkRect& out, float32 lineH, float32 pad) {
             auto& dl = ctx.DL();
-            const NkColor kTrk = { 25, 29, 35, 255 }, kThb = { 72, 79, 87, 200 }, kThbH = { 110, 118, 129, 235 };
+            const bool    sbLight = ((int32)ctx.theme.bgPrimary.r + ctx.theme.bgPrimary.g + ctx.theme.bgPrimary.b) > 384;
+            const NkColor kTrk  = sbLight ? NkColor{ 0, 0, 0, 20 } : NkColor{ 255, 255, 255, 16 };
+            const NkColor kThb  = sbLight ? NkColor{ 168, 176, 185, 255 } : NkColor{ 80, 88, 98, 255 };
+            const NkColor kThbH = sbLight ? NkColor{ 130, 138, 148, 255 } : NkColor{ 120, 130, 142, 255 };
             const float32 sbW = 14.f;
             const NkFont* face = (ctx.font && ctx.font->Valid()) ? ctx.font->Face() : nullptr;
             const float32 viewW = out.w - sbW - pad * 2.f, viewH = out.h - sbW;
@@ -408,7 +738,7 @@ namespace nkcode {
             dl.PopClipRect();
 
             // Scrollbars V + H avec fleches.
-            auto arrow = [&](const NkRect& r, int32 dir) -> bool { const bool h = in(r); if (h) dl.AddRectFilled(r, NkColor{ 33, 39, 48, 255 }); const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f, a = 3.2f; const NkColor c = h ? kThbH : kThb; if (dir == 0) dl.AddTriangleFilled({ cx, cy - a }, { cx - a, cy + a }, { cx + a, cy + a }, c); else if (dir == 1) dl.AddTriangleFilled({ cx - a, cy - a }, { cx + a, cy - a }, { cx, cy + a }, c); else if (dir == 2) dl.AddTriangleFilled({ cx - a, cy }, { cx + a, cy - a }, { cx + a, cy + a }, c); else dl.AddTriangleFilled({ cx - a, cy - a }, { cx + a, cy }, { cx - a, cy + a }, c); return h && ctx.input.mouseDown[0]; };
+            auto arrow = [&](const NkRect& r, int32 dir) -> bool { const bool h = in(r); if (h) dl.AddRectFilled(r, ctx.theme.button); const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f, a = 3.2f; const NkColor c = h ? kThbH : kThb; if (dir == 0) dl.AddTriangleFilled({ cx, cy - a }, { cx - a, cy + a }, { cx + a, cy + a }, c); else if (dir == 1) dl.AddTriangleFilled({ cx - a, cy - a }, { cx + a, cy - a }, { cx, cy + a }, c); else if (dir == 2) dl.AddTriangleFilled({ cx - a, cy }, { cx + a, cy - a }, { cx + a, cy + a }, c); else dl.AddTriangleFilled({ cx - a, cy - a }, { cx + a, cy }, { cx - a, cy + a }, c); return h && ctx.input.mouseDown[0]; };
             const NkRect vT = { out.x + out.w - sbW, out.y, sbW, viewH };
             const NkRect hT = { out.x, out.y + viewH, out.w - sbW, sbW };
             dl.AddRectFilled(vT, kTrk); dl.AddRectFilled(hT, kTrk); dl.AddRectFilled({ vT.x, hT.y, sbW, sbW }, kTrk);
@@ -462,7 +792,7 @@ namespace nkcode {
             Term& t = mTerm[mActive];
 
             const NkRect clip = dl.CurrentClip();
-            dl.AddRectFilled(clip, NkColor{ 13, 17, 23, 255 });    // fond terminal #0D1117
+            dl.AddRectFilled(clip, ctx.theme.bgPrimary);    // fond terminal #0D1117
 
             // Disposition VSCode : terminal a GAUCHE, LISTE des terminaux a DROITE.
             const float32 listW = ctx.S(190.f);
@@ -489,7 +819,7 @@ namespace nkcode {
                 else if (!inClip) mFocused = false;
             }
             // Clic droit dans la zone -> menu contextuel Copier/Coller.
-            if (ctx.input.mouseClicked[2] && inMain && ctx.popupDepth == 0) { mMenu.open = true; mMenu.pos = m; mFocused = true; }
+            if (ctx.input.mouseClicked[1] && inMain && ctx.popupDepth == 0) { mMenu.open = true; mMenu.pos = m; mFocused = true; }
 
             const float32 lineH = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
             const float32 pad   = 6.f;
@@ -580,7 +910,10 @@ namespace nkcode {
         //    scrollbars V/H avec fleches + auto-suivi du bas (vrai terminal). ──
         void DrawGrid(NkGuiContext& ctx, Term& t, const NkRect& out, float32 lineH, float32 pad) {
             auto& dl = ctx.DL();
-            const NkColor kTrk = { 25, 29, 35, 255 }, kThb = { 72, 79, 87, 200 }, kThbH = { 110, 118, 129, 235 };
+            const bool    sbLight = ((int32)ctx.theme.bgPrimary.r + ctx.theme.bgPrimary.g + ctx.theme.bgPrimary.b) > 384;
+            const NkColor kTrk  = sbLight ? NkColor{ 0, 0, 0, 20 } : NkColor{ 255, 255, 255, 16 };
+            const NkColor kThb  = sbLight ? NkColor{ 168, 176, 185, 255 } : NkColor{ 80, 88, 98, 255 };
+            const NkColor kThbH = sbLight ? NkColor{ 130, 138, 148, 255 } : NkColor{ 120, 130, 142, 255 };
             const float32 sbW = 14.f;
             const NkFont* face = (ctx.font && ctx.font->Valid()) ? ctx.font->Face() : nullptr;
             const float32 cellW = face ? face->CalcTextSizeX("M") : 8.f;
@@ -653,7 +986,12 @@ namespace nkcode {
                     if (cell.bg.a != 0) dl.AddRectFilled({ x, ytop, cw + 0.5f, lineH }, cell.bg);
                     if (cell.cp != 0x20 && cell.cp != 0 && face) {
                         char u8[5]; const int32 n = NkEncodeU8(cell.cp, u8);
-                        NkDrawTextU(ctx, x, ytop + asc, ytop, lineH, u8, u8 + n, cell.fg);
+                        // Cellule NON colorée (fg par défaut #CCCCCC) -> couleur de texte du
+                        // THÈME (présente + lisible en clair comme en sombre). Les cellules
+                        // colorées par ANSI gardent leur couleur.
+                        NkColor fg = cell.fg;
+                        if (fg.r == 204 && fg.g == 204 && fg.b == 204 && fg.a == 255) fg = ctx.theme.text;
+                        NkDrawTextU(ctx, x, ytop + asc, ytop, lineH, u8, u8 + n, fg);
                     }
                 }
             }
@@ -663,13 +1001,13 @@ namespace nkcode {
                 const int32 cc = t.screen.CursorCol();
                 const float32 cx = left + cc * cw;
                 const float32 cy = out.y + topPad + cl * lineH - t.scrollY;
-                dl.AddRectFilled({ cx, cy, cw, lineH }, NkColor{ 223, 223, 223, 150 });
+                dl.AddRectFilled({ cx, cy, cw, lineH }, ctx.theme.text);
             }
             dl.PopClipRect();
 
             // ── Scrollbars V + H avec fleches ──
             auto arrow = [&](const NkRect& r, int32 dir) -> bool {
-                const bool h = in(r); if (h) dl.AddRectFilled(r, NkColor{ 33, 39, 48, 255 });
+                const bool h = in(r); if (h) dl.AddRectFilled(r, ctx.theme.button);
                 const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f, a = 3.2f; const NkColor c = h ? kThbH : kThb;
                 if (dir == 0) dl.AddTriangleFilled({ cx, cy - a }, { cx - a, cy + a }, { cx + a, cy + a }, c);
                 else if (dir == 1) dl.AddTriangleFilled({ cx - a, cy - a }, { cx + a, cy - a }, { cx, cy + a }, c);
@@ -839,8 +1177,8 @@ namespace nkcode {
         void DrawTermList(NkGuiContext& ctx, const NkRect& R) {
             if (R.w < 8.f) return;
             auto& dl = ctx.DL();
-            dl.AddRectFilled(R, NkColor{ 1, 4, 9, 255 });                       // fond liste #010409
-            dl.AddRectFilled({ R.x, R.y, 1.f, R.h }, NkColor{ 33, 39, 48, 255 }); // bord gauche
+            dl.AddRectFilled(R, ctx.theme.header);                       // fond liste #010409
+            dl.AddRectFilled({ R.x, R.y, 1.f, R.h }, ctx.theme.button); // bord gauche
             const NkVec2 m = ctx.input.mousePos;
             auto inR = [&](const NkRect& r) { return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h; };
             const float32 h = ctx.ItemHeight();
@@ -863,7 +1201,7 @@ namespace nkcode {
                 bool closeClicked = false;
                 if (hov && AliveCount() > 1) {
                     const NkRect cl = { row.x + row.w - 20.f, y + (h - 14.f) * 0.5f, 14.f, 14.f };
-                    const bool ch = inR(cl); if (ch) dl.AddRectFilled(cl, NkColor{ 33, 39, 48, 255 });
+                    const bool ch = inR(cl); if (ch) dl.AddRectFilled(cl, ctx.theme.button);
                     const float32 cx = cl.x + 7.f, cy = cl.y + 7.f, a = 3.f;
                     dl.AddLine({ cx - a, cy - a }, { cx + a, cy + a }, ctx.theme.text, 1.2f);
                     dl.AddLine({ cx - a, cy + a }, { cx + a, cy - a }, ctx.theme.text, 1.2f);

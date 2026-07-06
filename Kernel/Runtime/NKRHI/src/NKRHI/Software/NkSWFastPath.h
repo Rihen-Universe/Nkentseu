@@ -12,8 +12,11 @@
 // =============================================================================
 
 #include "NkSoftwareDevice.h"
+#include "Raster/NkSWRasterCore.h"   // v4 : cœur barycentrique perspective-correct + clipping
+#include "NKThreading/NkThreadPool.h" // v4 Phase 3 : rasterisation tuilée multi-thread
 #include "NKMemory/NkAllocator.h"
 #include <cstring>
+#include <cstdlib>
 #include <cmath>
 
 // SIMD
@@ -53,6 +56,7 @@ namespace nkentseu {
         // =============================================================================
         // SIMD
         // =============================================================================
+#if 0 // [mort v4] FillSpanFast inutilise — SIMD span gere par swraster / NkSWPixel
         static inline void FillSpanFast(uint8* dst, int32 x0, int32 x1, uint8 r, uint8 g, uint8 b) {
             const uint32 px = sw_detail::PackNative(r, g, b, 255u);
             uint8* p = dst + x0*4; int32 n = x1-x0;
@@ -66,6 +70,7 @@ namespace nkentseu {
         #endif
             uint32* p32=(uint32*)p; while(n-->0) *p32++=px;
         }
+#endif // [mort v4] FillSpanFast
         
         static void FastClearColor(uint8* pixels, uint32 w, uint32 h, uint8 r, uint8 g, uint8 b, uint8 a) {
             const uint32 px = sw_detail::PackNative(r,g,b,a);
@@ -98,6 +103,7 @@ namespace nkentseu {
         #endif
         }
         
+#if 0 // [mort v4] rasterizer scanline (SWVert/Edge/HStep) — remplace par Raster/NkSWRasterCore.h
         // =============================================================================
         // Varying complet : toutes les varyings d'un vertex projeté en screen space
         // On sépare clairement screen coords (sx,sy,sz) des varyings NkVertexSoftware
@@ -251,6 +257,7 @@ namespace nkentseu {
             }
         };
         
+#endif // [mort v4] SWVert/Edge/HStep scanline
         // =============================================================================
         // NkSWTextureBatch
         // =============================================================================
@@ -263,6 +270,7 @@ namespace nkentseu {
         };
         #endif
         
+#if 0 // [mort v4] ancien scanline — remplace par swraster::DrawTriangle (perspective-correct + clip)
         // =============================================================================
         // DrawTriangleFast — version corrigée et optimisée
         // =============================================================================
@@ -424,6 +432,7 @@ namespace nkentseu {
             }
         }
         
+#endif // [mort v4] ancien scanline DrawTriangleFast
         // =============================================================================
         // Ressources résolues
         // =============================================================================
@@ -435,10 +444,21 @@ namespace nkentseu {
             const void*       uniforms=nullptr;
             NkSWTextureBatch  texBatch;
             bool depthTest=false, depthWrite=false;
+            // v4 : état pipeline complet (perspective-correct core)
+            NkCompareOp   depthOp   = NkCompareOp::NK_LESS;
+            NkCullMode    cullMode  = NkCullMode::NK_NONE;
+            NkFrontFace   frontFace = NkFrontFace::NK_CCW;
+            bool          blendEnable = false;
+            NkBlendFactor srcColor  = NkBlendFactor::NK_SRC_ALPHA;
+            NkBlendFactor dstColor  = NkBlendFactor::NK_ONE_MINUS_SRC_ALPHA;
+            NkPrimitiveTopology topology = NkPrimitiveTopology::NK_TRIANGLE_LIST;
             uint32 stride=0;
             const uint8* vdata=nullptr;
             uint64 vbCap=0;
             bool valid=false;
+            bool vertexless=false;   // draw plein-écran gl_VertexID (pas de VBO) : le vertFn synthétise les sommets
+            // Viewport SOUS-RECT (slots du shadow atlas). vpW==0 => plein RT (mapping historique).
+            float32 vpX=0, vpY=0, vpW=0, vpH=0; bool vpFlipY=true;
         };
         
         static NkSWResolvedResources ResolveResources(
@@ -450,8 +470,13 @@ namespace nkentseu {
             auto* pipe=dev->GetPipe(pipelineId);
             auto* sh  =pipe?dev->GetShader(pipe->shaderId):nullptr;
             auto* vb  =dev->GetBuf(vbId);
-            if (!vb||vb->data.Empty()||vbOffset>=vb->data.Size()) return r;
-        
+            const bool noVB = (!vb||vb->data.Empty()||vbOffset>=vb->data.Size());
+            // Draw plein-écran généré (gl_VertexID) : pipeline sans attributs (stride==0) ET shader
+            // qui opte pour la synthèse depuis l'index (genVertsFromID). On exige l'opt-in : un
+            // vertFn 3D lirait vdata+idx*stride et crasherait sur vdata==nullptr.
+            const bool genVerts = pipe && pipe->vertexStride==0 && sh && sh->genVertsFromID && sh->vertFn;
+            if (!genVerts && noVB) return r;   // attributs requis mais pas de VB
+
             auto* fbo=fbId?dev->GetFBO(fbId):nullptr;
             if (!fbo) fbo=dev->GetFBO(dev->GetSwapchainFramebuffer().id);
             if (!fbo) return r;
@@ -469,12 +494,27 @@ namespace nkentseu {
             r.shader    =sh;
             r.depthTest =pipe?pipe->depthTest :true;
             r.depthWrite=pipe?pipe->depthWrite:true;
+            if (pipe) {
+                r.depthOp    =pipe->depthOp;
+                r.cullMode   =pipe->cullMode;
+                r.frontFace  =pipe->frontFace;
+                r.blendEnable=pipe->blendEnable;
+                r.srcColor   =pipe->srcColor;
+                r.dstColor   =pipe->dstColor;
+                r.topology   =pipe->topology;
+            }
             r.stride    =pipe?pipe->vertexStride:0;
-            if (r.stride==0) return r;
-        
-            r.vdata=vb->data.Data()+vbOffset;
-            r.vbCap=(vb->data.Size()-vbOffset)/r.stride;
-        
+            if (genVerts) {
+                // Sommets générés : le vertFn ignore vdata et synthétise la position depuis l'index.
+                r.vertexless=true;
+                r.vdata=nullptr;
+                r.vbCap=0;
+            } else {
+                if (r.stride==0) return r;   // pipeline stride-0 sans opt-in : rien à indexer
+                r.vdata=vb->data.Data()+vbOffset;
+                r.vbCap=(vb->data.Size()-vbOffset)/r.stride;
+            }
+
             if (descSetId) {
                 if (auto* ds=dev->GetDescSet(descSetId)) {
                     uint32 texIdx=0;
@@ -497,6 +537,17 @@ namespace nkentseu {
                     r.texBatch.count=texIdx;
                 }
             }
+            // Viewport : n'appliquer un mapping sous-rect QUE si un viewport partiel est actif
+            // (largeur>0 ET pas plein RT). Le rendu principal ne set pas de viewport partiel, donc
+            // aucune régression. Les slots VSM (SetViewport par slot) tombent ici.
+            {
+                const NkViewport& vp = dev->SwCurViewport();
+                const bool fullRT = (vp.x==0.f && vp.y==0.f &&
+                                     (uint32)(vp.width+0.5f)>=r.W && (uint32)(vp.height+0.5f)>=r.H);
+                if (vp.width>0.f && vp.height>0.f && !fullRT) {
+                    r.vpX=vp.x; r.vpY=vp.y; r.vpW=vp.width; r.vpH=vp.height; r.vpFlipY=vp.flipY;
+                }
+            }
             r.valid=true;
             return r;
         }
@@ -506,15 +557,113 @@ namespace nkentseu {
         // =============================================================================
         static void RasterizeList(
             NkVertexSoftware* verts, uint32 count,
-            uint8* colorBuf, float32* depthBuf, uint32 W, uint32 H,
-            int32 cx0, int32 cy0, int32 cx1, int32 cy1,
-            const NkSWShader* shader, const void* uniforms,
-            const void* texPtr, bool depthTest, bool depthWrite)
+            const NkSWResolvedResources& r,
+            int32 cx0, int32 cy0, int32 cx1, int32 cy1)
         {
-            for (uint32 i=0; i+2<count; i+=3)
-                DrawTriangleFast(verts[i],verts[i+1],verts[i+2],
-                                colorBuf,depthBuf,W,H,cx0,cy0,cx1,cy1,
-                                shader,uniforms,texPtr,depthTest,depthWrite);
+            // État de rendu (perspective-correct core v4)
+            swraster::NkSWRenderState st;
+            st.depthTest = r.depthTest; st.depthWrite = r.depthWrite; st.depthOp = r.depthOp;
+            st.cullMode = r.cullMode;   st.frontFace = r.frontFace;
+            st.blendEnable = r.blendEnable; st.srcColor = r.srcColor; st.dstColor = r.dstColor;
+
+            // Miroir du batch de textures pour le sampling non-shader
+            swraster::NkSWTexBatch tb;
+            tb.count = r.texBatch.count < 8 ? r.texBatch.count : 8;
+            for (uint32 i = 0; i < tb.count; ++i) tb.tex[i] = r.texBatch.tex[i];
+
+            // texPtr transmis TEL QUEL au fragment shader (le shader de la démo en dépend)
+            const void* texPtr = r.texBatch.count > 0 ? (const void*)&r.texBatch : nullptr;
+
+            const int32 rectW = cx1 - cx0, rectH = cy1 - cy0;
+            if (rectW <= 0 || rectH <= 0) return;
+
+            // ── Étape 1 : clip near + projection de TOUS les triangles, UNE seule fois.
+            // Setup fait une fois par draw puis réutilisé par toutes les tuiles → plus de
+            // re-projection redondante par tuile (buffer thread-local réutilisé, sans alloc/frame).
+            // Viewport sous-rect (slots VSM) : nullptr => plein RT (mapping historique inchangé).
+            swraster::NkSWViewport vpLocal{ r.vpX, r.vpY, r.vpW, r.vpH, r.vpFlipY };
+            const swraster::NkSWViewport* vpPtr = (r.vpW>0.f) ? &vpLocal : nullptr;
+
+            static thread_local NkVector<swraster::ReadyTri> tl_ready;
+            tl_ready.Clear();
+            {
+                swraster::ReadyTri tmp[2];
+                #define NK_SW_PUSH(a,b,c) do { \
+                        uint32 _k = swraster::ClipProject((a),(b),(c),(float32)r.W,(float32)r.H,tmp,vpPtr); \
+                        for (uint32 _i=0;_i<_k;++_i) tl_ready.PushBack(tmp[_i]); } while(0)
+                switch (r.topology) {
+                    case NkPrimitiveTopology::NK_TRIANGLE_STRIP:
+                        for (uint32 i = 2; i < count; ++i) {
+                            if (i & 1u) NK_SW_PUSH(verts[i-1], verts[i-2], verts[i]);
+                            else        NK_SW_PUSH(verts[i-2], verts[i-1], verts[i]);
+                        }
+                        break;
+                    case NkPrimitiveTopology::NK_TRIANGLE_FAN:
+                        for (uint32 i = 2; i < count; ++i) NK_SW_PUSH(verts[0], verts[i-1], verts[i]);
+                        break;
+                    case NkPrimitiveTopology::NK_TRIANGLE_LIST:
+                    default:
+                        for (uint32 i = 0; i + 2 < count; i += 3) NK_SW_PUSH(verts[i], verts[i+1], verts[i+2]);
+                        break;
+                }
+                #undef NK_SW_PUSH
+            }
+            const uint32 triCount = (uint32)tl_ready.Size();
+            if (triCount == 0) return;
+            const swraster::ReadyTri* tris = tl_ready.Data();
+
+            // ── Étape 2 : rasterise les triangles pré-projetés dans un clip rect (= une tuile).
+            // Chaque tuile possède ses pixels de façon exclusive → aucune écriture concurrente,
+            // donc AUCUN verrou. NB : les fragment shaders doivent être read-only (appelés en //).
+            auto rasterRect = [&](int32 tX0, int32 tY0, int32 tX1, int32 tY1) {
+                for (uint32 t = 0; t < triCount; ++t)
+                    swraster::RasterScreenTriangle(tris[t].s[0], tris[t].s[1], tris[t].s[2],
+                        r.colorBuf, r.depthBuf, r.W, r.H, tX0, tY0, tX1, tY1,
+                        r.shader, r.uniforms, texPtr, &tb, st);
+            };
+
+            // Interrupteur de benchmark : NK_SW_NOMT=1 force le rendu mono-thread (A/B perf).
+            static const bool s_noMT = [](){ const char* e = std::getenv("NK_SW_NOMT"); return e && e[0]=='1'; }();
+
+            // PERF : ne tuiler/paralléliser que la BOUNDING BOX écran des triangles de CE draw, pas
+            // tout le scissor (souvent plein écran). Sinon un petit draw (sphère, cube) dispatchait
+            // 240 tuiles au thread pool dont ~238 vides -> l'overhead de dispatch rendait le
+            // multi-thread PLUS LENT que le mono-thread (1500+ petits draws par frame).
+            float bbx0=1e30f, bby0=1e30f, bbx1=-1e30f, bby1=-1e30f;
+            for (uint32 t=0;t<triCount;++t) for (int k=0;k<3;++k){
+                const float x=tris[t].s[k].sx, y=tris[t].s[k].sy;
+                if(x<bbx0)bbx0=x; if(x>bbx1)bbx1=x; if(y<bby0)bby0=y; if(y>bby1)bby1=y; }
+            int32 bx0 = cx0, by0 = cy0, bx1 = cx1, by1 = cy1;
+            if (bbx1>=bbx0) { // bbox valide -> restreindre au recouvrement bbox ∩ scissor
+                int32 fx0=(int32)floorf(bbx0), fy0=(int32)floorf(bby0);
+                int32 fx1=(int32)ceilf(bbx1)+1, fy1=(int32)ceilf(bby1)+1;
+                if (fx0>bx0)bx0=fx0; if (fy0>by0)by0=fy0; if (fx1<bx1)bx1=fx1; if (fy1<by1)by1=fy1;
+            }
+            if (bx1<=bx0 || by1<=by0) return;                 // draw hors écran
+            const int32 bW = bx1-bx0, bH = by1-by0;
+
+            threading::NkThreadPool& pool = threading::NkThreadPool::GetGlobal();
+            const uint32 workers = (uint32)pool.GetNumWorkers();
+            const bool doParallel = !s_noMT && workers > 1 &&
+                                    ((int64)bW * (int64)bH) >= (int64)(160 * 160);
+            if (!doParallel) { rasterRect(bx0, by0, bx1, by1); return; }
+
+            const int32 TILE = 64;
+            const int32 tilesX = (bW + TILE - 1) / TILE;
+            const int32 tilesY = (bH + TILE - 1) / TILE;
+            const uint32 numTiles = (uint32)tilesX * (uint32)tilesY;
+            nk_size grain = (nk_size)(numTiles / (workers * 4u));
+            if (grain == 0) grain = 1;
+
+            pool.ParallelFor((nk_size)numTiles, [&](nk_size t) {
+                const int32 ix = (int32)((uint32)t % (uint32)tilesX);
+                const int32 iy = (int32)((uint32)t / (uint32)tilesX);
+                int32 tX0 = bx0 + ix * TILE, tY0 = by0 + iy * TILE;
+                int32 tX1 = tX0 + TILE; if (tX1 > bx1) tX1 = bx1;
+                int32 tY1 = tY0 + TILE; if (tY1 > by1) tY1 = by1;
+                rasterRect(tX0, tY0, tX1, tY1);
+            }, grain);
+            pool.Join();
         }
         
         // =============================================================================
@@ -528,31 +677,61 @@ namespace nkentseu {
             int32 cx0, int32 cy0, int32 cx1, int32 cy1)
         {
             auto r=ResolveResources(dev,pipelineId,descSetId,vbId,vbOffset,fbId);
-            if (!r.valid||r.vbCap==0) return;
-        
-            const uint64 avail=r.vbCap>(uint64)firstVertex?r.vbCap-(uint64)firstVertex:0;
-            const uint32 safe=(uint32)((uint64)vertexCount<avail?vertexCount:avail);
+            if (!r.valid) return;
+            if (!r.vertexless && r.vbCap==0) return;
+
+            uint32 safe;
+            if (r.vertexless) {
+                // Sommets synthétisés par le vertFn depuis l'index (pas de VB à borner).
+                safe=vertexCount;
+            } else {
+                const uint64 avail=r.vbCap>(uint64)firstVertex?r.vbCap-(uint64)firstVertex:0;
+                safe=(uint32)((uint64)vertexCount<avail?vertexCount:avail);
+            }
             if (safe<3) return;
-        
-            const void* texPtr=r.texBatch.count>0?(const void*)&r.texBatch:nullptr;
-        
+
+            dev->SwSetCurStride(r.stride);   // pour le shader taillé NKRenderer (lit vdata+idx*stride)
             NkVertexSoftware* verts=tl_vertPool.Alloc(safe);
             if (!verts) return;
-        
-            if (r.shader&&r.shader->vertFn) {
-                for (uint32 j=0;j<safe;++j)
-                    verts[j]=r.shader->vertFn(r.vdata,firstVertex+j,r.uniforms);
-            } else {
-                for (uint32 j=0;j<safe;++j) {
-                    const uint8* src=r.vdata+(uint64)(firstVertex+j)*r.stride;
-                    verts[j]={}; verts[j].color={1,1,1,1};
-                    if (r.stride>=12){float px,py,pz;memcpy(&px,src,4);memcpy(&py,src+4,4);memcpy(&pz,src+8,4);verts[j].position={px,py,pz,1.f};}
+
+            // Génère les sommets (le vertFn peut dépendre de SwCurInstance pour l'instancing).
+            auto genVerts=[&](){
+                if (r.vertexless) {
+                    // vdata=nullptr -> le vertFn génère le triangle plein-écran depuis l'index.
+                    for (uint32 j=0;j<safe;++j)
+                        verts[j]=r.shader->vertFn(nullptr,firstVertex+j,r.uniforms);
+                } else if (r.shader&&r.shader->vertFn) {
+                    for (uint32 j=0;j<safe;++j)
+                        verts[j]=r.shader->vertFn(r.vdata,firstVertex+j,r.uniforms);
+                } else {
+                    for (uint32 j=0;j<safe;++j) {
+                        const uint8* src=r.vdata+(uint64)(firstVertex+j)*r.stride;
+                        verts[j]={}; verts[j].color={1,1,1,1};
+                        if (r.stride>=12){float px,py,pz;memcpy(&px,src,4);memcpy(&py,src+4,4);memcpy(&pz,src+8,4);verts[j].position={px,py,pz,1.f};}
+                    }
                 }
+            };
+
+            // Chemin INSTANCIÉ : re-génère les sommets par instance (vertFn indexe l'InstanceUBO).
+            if (r.shader && r.shader->usesInstancing && instanceCount>1) {
+                for (uint32 inst=0;inst<instanceCount;++inst) {
+                    dev->SwSetCurInstance(inst);
+                    genVerts();
+                    RasterizeList(verts,safe,r,cx0,cy0,cx1,cy1);
+                }
+                dev->SwSetCurInstance(0);
+                return;
             }
-        
+
+            genVerts();
+
+            // v4 Phase 4 : collecte de la géométrie pour le BPR (passe caméra = swapchain uniquement).
+            if (dev->RtCollecting() && (fbId==0 || fbId==dev->GetSwapchainFramebuffer().id))
+                for (uint32 i=0;i+2<safe;i+=3)
+                    dev->RtAddTriangle(verts[i],verts[i+1],verts[i+2]);
+
             for (uint32 inst=0;inst<instanceCount;++inst)
-                RasterizeList(verts,safe,r.colorBuf,r.depthBuf,r.W,r.H,
-                            cx0,cy0,cx1,cy1,r.shader,r.uniforms,texPtr,r.depthTest,r.depthWrite);
+                RasterizeList(verts,safe,r,cx0,cy0,cx1,cy1);
         }
         
         // =============================================================================
@@ -580,28 +759,49 @@ namespace nkentseu {
             if (safe<3) return;
         
             const uint8* idata=ib->data.Data()+ibOffset;
-            const void* texPtr=r.texBatch.count>0?(const void*)&r.texBatch:nullptr;
-        
+            dev->SwSetCurStride(r.stride);   // pour le shader taillé NKRenderer (lit vdata+idx*stride)
             NkVertexSoftware* verts=tl_vertPool.Alloc(safe);
             if (!verts) return;
-        
-            for (uint32 j=0;j<safe;++j) {
-                const uint32 rawIdx=indexUint32?((const uint32*)idata)[firstIndex+j]:(uint32)((const uint16*)idata)[firstIndex+j];
-                const int64 vi64=(int64)rawIdx+(int64)vertexOffset;
-                if (vi64<0||(uint64)vi64>=r.vbCap){verts[j]={};verts[j].color={1,1,1,1};continue;}
-                const uint32 vi=(uint32)vi64;
-                if (r.shader&&r.shader->vertFn)
-                    verts[j]=r.shader->vertFn(r.vdata,vi,r.uniforms);
-                else {
-                    const uint8* src=r.vdata+(uint64)vi*r.stride;
-                    verts[j]={}; verts[j].color={1,1,1,1};
-                    if (r.stride>=12){float px,py,pz;memcpy(&px,src,4);memcpy(&py,src+4,4);memcpy(&pz,src+8,4);verts[j].position={px,py,pz,1.f};}
+
+            // Génère les sommets (le vertFn peut dépendre de SwCurInstance pour l'instancing).
+            auto genVerts=[&](){
+                for (uint32 j=0;j<safe;++j) {
+                    const uint32 rawIdx=indexUint32?((const uint32*)idata)[firstIndex+j]:(uint32)((const uint16*)idata)[firstIndex+j];
+                    const int64 vi64=(int64)rawIdx+(int64)vertexOffset;
+                    if (vi64<0||(uint64)vi64>=r.vbCap){verts[j]={};verts[j].color={1,1,1,1};continue;}
+                    const uint32 vi=(uint32)vi64;
+                    if (r.shader&&r.shader->vertFn)
+                        verts[j]=r.shader->vertFn(r.vdata,vi,r.uniforms);
+                    else {
+                        const uint8* src=r.vdata+(uint64)vi*r.stride;
+                        verts[j]={}; verts[j].color={1,1,1,1};
+                        if (r.stride>=12){float px,py,pz;memcpy(&px,src,4);memcpy(&py,src+4,4);memcpy(&pz,src+8,4);verts[j].position={px,py,pz,1.f};}
+                    }
                 }
+            };
+
+            // Chemin INSTANCIÉ (ex. ombres des cubes) : le vertFn indexe l'InstanceUBO via
+            // SwCurInstance → on doit RE-GÉNÉRER les sommets pour chaque instance. Sinon (défaut),
+            // on génère une fois et on réutilise pour toutes les instances (comportement historique).
+            if (r.shader && r.shader->usesInstancing && instanceCount>1) {
+                for (uint32 inst=0;inst<instanceCount;++inst) {
+                    dev->SwSetCurInstance(inst);
+                    genVerts();
+                    RasterizeList(verts,safe,r,cx0,cy0,cx1,cy1);
+                }
+                dev->SwSetCurInstance(0);
+                return;
             }
-        
+
+            genVerts();
+
+            // v4 Phase 4 : collecte de la géométrie pour le BPR (passe caméra = swapchain uniquement).
+            if (dev->RtCollecting() && (fbId==0 || fbId==dev->GetSwapchainFramebuffer().id))
+                for (uint32 i=0;i+2<safe;i+=3)
+                    dev->RtAddTriangle(verts[i],verts[i+1],verts[i+2]);
+
             for (uint32 inst=0;inst<instanceCount;++inst)
-                RasterizeList(verts,safe,r.colorBuf,r.depthBuf,r.W,r.H,
-                            cx0,cy0,cx1,cy1,r.shader,r.uniforms,texPtr,r.depthTest,r.depthWrite);
+                RasterizeList(verts,safe,r,cx0,cy0,cx1,cy1);
         }
 
         // =============================================================================

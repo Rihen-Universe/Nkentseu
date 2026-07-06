@@ -68,6 +68,44 @@ namespace nkcode {
         NkCol::selection = p.selection;
         NkCol::accent = NkParseHex(accentHex, p.accent);   // accent perso, sinon celui du thème
     }
+    // Applique le thème NKCode au thème de l'ÉDITORKIT (ctx.theme = NkGuiTheme) : tout le chrome de
+    // l'éditeur (barre de titre, activity bar, onglets, dock, status bar, panneaux) suit Dark/Light.
+    // A appeler chaque frame. `rounding`/`framePad*` sont conservés.
+    inline void NkApplyEditorTheme(NkGuiContext& ctx, int32 id, const char* accentHex) {
+        const NkThemePalette p = NkThemePreset(id);
+        NkGuiTheme& t = ctx.theme;
+        t.bgPrimary    = p.background;
+        t.panel        = p.surface;
+        t.header       = p.sidebar;
+        t.button       = p.muted;
+        t.buttonHover  = p.hover;
+        t.buttonActive = p.primary;
+        t.border       = p.border;
+        t.text         = p.foreground;
+        t.textDisabled = p.mutedFg;
+        t.selection    = p.selection;
+        t.accent       = p.primary;                         // éléments actifs (soulignement d'onglet…) en primaire
+        t.track        = p.muted;
+        t.tabBar       = p.sidebar;
+        t.tab          = p.surface;
+        t.tabHover     = p.hover;
+        t.tabActive    = p.background;                       // onglet actif = fond éditeur (façon VS Code)
+        // Coloration syntaxique adaptée : palette CLAIRE (VS Light+) sur thème clair, VS Dark+ sinon.
+        const bool light = ((int32)p.background.r + (int32)p.background.g + (int32)p.background.b) > 384;
+        NkGuiSyntax& s = ctx.syntax;
+        if (light) {
+            s.text    = { 36, 41, 46, 255 };  s.keyword = { 0, 0, 255, 255 };   s.type   = { 38, 127, 153, 255 };
+            s.string  = { 163, 21, 21, 255 }; s.comment = { 0, 128, 0, 255 };   s.number = { 9, 134, 88, 255 };
+            s.preproc = { 175, 0, 219, 255 }; s.heading = { 128, 0, 0, 255 };   s.mdcode = { 163, 21, 21, 255 };
+            s.function = { 121, 94, 38, 255 };  s.constant = { 0, 92, 197, 255 };  s.oper = { 90, 100, 110, 255 };   // VS Light+
+        } else {
+            s.text    = { 212, 212, 212, 255 }; s.keyword = { 86, 156, 214, 255 }; s.type   = { 78, 201, 176, 255 };
+            s.string  = { 206, 145, 120, 255 }; s.comment = { 106, 153, 85, 255 }; s.number = { 181, 206, 168, 255 };
+            s.preproc = { 197, 134, 192, 255 }; s.heading = { 78, 201, 176, 255 }; s.mdcode = { 206, 145, 120, 255 };
+            s.function = { 225, 205, 120, 255 }; s.constant = { 79, 193, 255, 255 }; s.oper = { 200, 200, 200, 255 };  // VS Dark+ (fonction jaune franc)
+        }
+        (void)accentHex;
+    }
     // Vrai si le thème actif est CLAIR (fond lumineux) — pour adapter les éléments à fond codé (logo…).
     inline bool NkThemeIsLight() { return ((int32)NkCol::background.r + (int32)NkCol::background.g + (int32)NkCol::background.b) > 384; }
     // Voile (scrim) de fond THEME-AWARE : dim NOIR sur thème sombre (invisible sur du sombre),
@@ -77,6 +115,16 @@ namespace nkcode {
         if (NkThemeIsLight()) return NkColor{ 22, 27, 34, (uint8)((int32)a * 42 / 100) };
         return NkColor{ 0, 0, 0, a };
     }
+    // ── Scrollbars UNIFORMES + VISIBLES (tout NKCode : launcher + editeur) ─────────
+    // Meme apparence partout. Piste subtile ; pouce nettement contraste (theme-aware).
+    // Versions `C` = light explicite (pour l'editorkit qui lit ctx.theme, pas NkCol).
+    inline NkColor NkScrollTrackC(bool light) { return light ? NkColor{ 0, 0, 0, 20 } : NkColor{ 255, 255, 255, 16 }; }
+    inline NkColor NkScrollThumbC(bool light, bool hover) {
+        if (light) return hover ? NkColor{ 130, 138, 148, 255 } : NkColor{ 168, 176, 185, 255 };
+        return hover ? NkColor{ 120, 130, 142, 255 } : NkColor{ 80, 88, 98, 255 };
+    }
+    inline NkColor NkScrollTrack()            { return NkScrollTrackC(NkThemeIsLight()); }
+    inline NkColor NkScrollThumb(bool hover)  { return NkScrollThumbC(NkThemeIsLight(), hover); }
     // Variante « survol » d'une couleur, THEME-AWARE : éclaircit sur thème sombre, assombrit sur thème clair.
     // Remplace les bleus/verts de survol codés en dur (qui ne suivaient pas le thème).
     inline NkColor NkColHover(const NkColor& c) {

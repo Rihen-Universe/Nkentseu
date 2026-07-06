@@ -346,6 +346,7 @@ namespace nkentseu {
                     ::nkentseu::NkShaderStageDesc vs{};
                     vs.stage      = ::nkentseu::NkShaderStage::NK_VERTEX;
                     vs.glslSource = vertGlsl.CStr();
+                    vs.swSource   = vertSrc.CStr();   // NkSL original : lu UNIQUEMENT par le device software (VM) ; ignoré par GPU
                     vs.entryPoint = "main";
                     if (!prog.vertBytecode.Empty()) {
                         vs.spirvBinary.Resize((uint32)prog.vertBytecode.Size());
@@ -359,6 +360,7 @@ namespace nkentseu {
                     ::nkentseu::NkShaderStageDesc fs{};
                     fs.stage      = ::nkentseu::NkShaderStage::NK_FRAGMENT;
                     fs.glslSource = fragGlsl.CStr();
+                    fs.swSource   = fragSrc.CStr();   // NkSL original : lu UNIQUEMENT par le device software (VM) ; ignoré par GPU
                     fs.entryPoint = "main";
                     if (!prog.fragBytecode.Empty()) {
                         fs.spirvBinary.Resize((uint32)prog.fragBytecode.Size());
@@ -573,6 +575,7 @@ namespace nkentseu {
                 ::nkentseu::NkShaderStageDesc vs{};
                 vs.stage      = ::nkentseu::NkShaderStage::NK_VERTEX;
                 vs.glslSource = vsGlsl;
+                vs.swSource   = vSrc.CStr();   // NkSL original : lu UNIQUEMENT par le device software (VM) ; ignoré GPU
                 vs.entryPoint = "main";
                 if (isDX) {
                     if (!vsHlslStr.Empty()) vs.hlslSource = vsHlslStr.CStr();
@@ -587,6 +590,7 @@ namespace nkentseu {
                 ::nkentseu::NkShaderStageDesc fs{};
                 fs.stage      = ::nkentseu::NkShaderStage::NK_FRAGMENT;
                 fs.glslSource = fsGlsl;
+                fs.swSource   = fSrc.CStr();   // NkSL original : lu UNIQUEMENT par le device software (VM) ; ignoré GPU
                 fs.entryPoint = "main";
                 if (isDX) {
                     if (!fsHlslStr.Empty()) fs.hlslSource = fsHlslStr.CStr();

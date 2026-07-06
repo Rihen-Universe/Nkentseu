@@ -405,6 +405,12 @@ int nkmain(const NkEntryState& state) {
     // ── Renderer ─────────────────────────────────────────────────────────────
     uint32 W = (uint32)window.GetSize().width;
     uint32 H = (uint32)window.GetSize().height;
+    // PERF backend Software : NK_SW_SCALE (0.3..1.0) réduit la résolution INTERNE de NKRenderer
+    // (RT transientes géométrie/tonemap) tout en gardant le swapchain plein écran. La passe
+    // finale (FXAA, uv normalisé) upscale automatiquement → moins de pixels = plus de FPS.
+    // NOTE PERF : NK_SW_SCALE (réduction des RT intermédiaires) donnait un gain modeste MAIS
+    // dédoublait l'overlay 2D (layout texte en pixels fenêtre vs ortho réduit) -> retiré. Le vrai
+    // goulot est ailleurs (ex. shadow atlas 4096², cf. NK_SW_SHADOW_SCALE côté device).
     NkRendererConfig cfg = BuildConfig(demoIx, api, W, H);
 
     char flagsBuf[256];

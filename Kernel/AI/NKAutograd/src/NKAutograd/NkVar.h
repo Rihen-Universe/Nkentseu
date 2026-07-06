@@ -44,6 +44,12 @@ namespace nkentseu {
             NK_CONVT3D,    // conv transposée 3D (upsampling voxels) : b=[Cin,Cout,kD,kH,kW]
             NK_SIGMOID_BCE,// sigmoid(logits=a) + entropie croisée binaire vs cible b -> scalaire
             NK_UPSAMPLE2X, // suréchantillonnage nearest ×2 : [B,C,H,W] -> [B,C,2H,2W]
+            NK_LAYERNORM,  // normalisation sur le DERNIER axe : (x−μ)/√(var+ε) (γ,β via couches)
+            NK_SOFTMAX,    // softmax sur le DERNIER axe
+            NK_SOFTMAX_CAUSAL, // softmax causal (attention : masque le futur), dernier axe [..,T,T]
+            NK_GELU,       // GELU (tanh-approx)
+            NK_EMBEDDING,  // lookup table[vocab,d] par indices (aux) ; backward = scatter-add
+            NK_PERMUTE,    // permutation d'axes (rang ≤ 4) ; backward = permutation inverse
         };
 
         // Nœud du graphe (refcompté, partagé).
@@ -146,6 +152,21 @@ namespace nkentseu {
             // Suréchantillonnage nearest ×2 : [B,C,H,W] -> [B,C,2H,2W]. Combiné à un Conv2D
             // = « resize-conv » (décodeur génératif SANS artefacts damier du ConvTranspose).
             NkVar Upsample2x(const NkVar& a);
+            // LayerNorm (normalise sur le DERNIER axe) : y = (x−μ)/√(var+ε). L'affine appris
+            // (γ,β) se compose au niveau des couches (Mul/Add broadcast). ε = 1e-5.
+            NkVar LayerNorm(const NkVar& x);
+            // Softmax sur le dernier axe. Variante CAUSALE pour l'attention (masque le futur :
+            // entrée `[.., T, T]`, la requête `i` ne voit que les clés `j ≤ i`).
+            NkVar Softmax(const NkVar& x);
+            NkVar SoftmaxCausal(const NkVar& x);
+            // GELU (activation transformer, tanh-approx).
+            NkVar Gelu(const NkVar& x);
+            // Embedding : `table` [vocab,d] (paramètre appris), `indices` [..] (ids, non
+            // différentiable) -> [.., d]. Backward = scatter-add vers la table.
+            NkVar Embedding(const NkVar& table, const NkTensor& indices);
+            // Permutation d'axes (rang ≤ 4) ; backward = permutation inverse. Pour découper les
+            // têtes d'attention ([B,T,h,hd] ↔ [B,h,T,hd]).
+            NkVar Permute(const NkVar& x, const NkShape& order);
         } // namespace autograd
 
     } // namespace ai

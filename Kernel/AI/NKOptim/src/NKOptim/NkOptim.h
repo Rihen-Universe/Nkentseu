@@ -47,8 +47,10 @@ namespace nkentseu {
             class NkAdam {
             public:
                 NkAdam() = default;
+                // `weightDecay` > 0 -> AdamW (weight decay découplé).
                 NkAdam(const NkVector<NkVar>& params, float lr = 0.001f,
-                       float beta1 = 0.9f, float beta2 = 0.999f, float eps = 1e-8f);
+                       float beta1 = 0.9f, float beta2 = 0.999f, float eps = 1e-8f,
+                       float weightDecay = 0.0f);
 
                 void Step();
                 void ZeroGrad();
@@ -64,6 +66,7 @@ namespace nkentseu {
                 float mB1  = 0.9f;
                 float mB2  = 0.999f;
                 float mEps = 1e-8f;
+                float mWd  = 0.0f;       // weight decay (AdamW si > 0)
                 int64 mT   = 0;          // compteur de pas (pour la correction de biais)
             };
 

@@ -7,6 +7,17 @@
 
 Légende : ✅ fait · 🟡 partiel · ⬜ à faire.
 
+> ### 📣 RÈGLE PERMANENTE — Communiquer CHAQUE évolution (depuis 2026-07-05)
+> Toute évolution notable de NKCode (feature livrée, jalon, fix visible) doit produire,
+> **en plus du code** : (1) des **publications réseaux** (LinkedIn FR+EN, X, Facebook,
+> Instagram, TikTok) avec **captures image/vidéo réelles** (architecture, raisonnement,
+> rendu réel, résultats), et (2) un **article scientifique** publiable. Tout va dans
+> `D:\Rihen\Rodolf\Publications\NN_AAAA-MM-JJ_sujet/`, en suivant **strictement**
+> `D:\Rihen\Rodolf\CLAUDE.md` (ton **humble/en demande d'aide**, garde-fous honnêteté,
+> charte Rihen). Cf. règle globale dans le `CLAUDE.md` du dépôt.
+> Fait à ce jour : **diagnostics temps réel + grisage préproc + Ctrl+clic** →
+> `Publications/09_2026-07-05_nkcode-diagnostics/`.
+
 ---
 
 ## ✅ Déjà implémenté (au 27 juin 2026)
@@ -46,6 +57,19 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 - ✅ Rendu + gouttière (numéros de ligne) + curseur/sélection + interligne (police proportionnelle,
       pas encore monospace).
 - 🟡 **Coloration syntaxique** (C/C++, Python, NKSL, Markdown) **faite** ; **recherche/remplacement** à faire.
+- ✅ **Coloration sémantique** (types/fonctions) niveau **fichier + projet** (index async).
+- ✅ **Diagnostics C/C++ temps réel** (juil. 2026) — **compile-first, sans clangd** : compile le buffer
+      via le **compilateur cible** (`-fsyntax-only`, fichier temp frère, débounce ~0,6 s, sans save),
+      avec les flags **par projet** d'une base **`.jenga/compileflags.jcdb`** (commande Jenga
+      `compile-flags`, régénérée au reload d'un `.jenga`). Rendu : **souligné rouge ondulé** +
+      **marqueur gouttière** (numéro rouge + pastille) + message **Error-Lens** en fin de ligne.
+- ✅ **Grisage des branches préprocesseur inactives** (`#if/#else` non pris atténués) via l'ensemble
+      **effectif** des macros du compilateur (`-dM -E`, cache par projet) — branche active nette.
+- ✅ **Ctrl+clic navigation** : ouvrir un `#include` (sync) / **aller à la définition** (sur un **thread**,
+      **barre de progression** + **liste de toutes les occurrences** façon VSCode ; scan borné anti-freeze).
+- ✅ **Autocomplétion** (popup façon VSCode) : symboles fichier + projet + mots-clés du langage, filtrés
+      par préfixe ; ↑↓ naviguer, Tab/Entrée accepter, Échap fermer. ⬜ Contextuelle (`.`/`::`) via clangd plus tard.
+- ✅ **Zoom éditeur** : Ctrl+molette / Ctrl+= / Ctrl+- (taille de la police du code, persistée).
 - ✅ Ouvrir/sauver des fichiers (NKFileSystem) ; **onglets** custom (point modifié, fermeture).
 - ✅ 🎯 **Jalon** : éditer et sauver un fichier `.cpp`/`.md` avec coloration.
 

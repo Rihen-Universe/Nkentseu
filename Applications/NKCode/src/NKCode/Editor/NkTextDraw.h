@@ -134,7 +134,7 @@ namespace nkcode {
         }
         const bool inBox = m.x >= box.x && m.x < box.x + box.w && m.y >= box.y && m.y < box.y + box.h;
         if (clicked >= 0) mn.open = false;
-        else if ((ctx.input.mouseClicked[0] || ctx.input.mouseClicked[2]) && !inBox) mn.open = false;
+        else if ((ctx.input.mouseClicked[0] || ctx.input.mouseClicked[1]) && !inBox) mn.open = false;
         if (ctx.input.KeyPressed(NkGuiKey::Escape)) mn.open = false;
         return clicked;
     }

@@ -98,7 +98,7 @@ namespace nkentseu {
             void ResetRecordedState() {
                 mCurrentFramebufferId = 0;
                 mBoundPipelineId = 0;
-                mBoundDescSetId = 0;
+                for (uint32 i = 0; i < kMaxDescSets; ++i) mBoundDescSets[i] = 0;
                 mBoundIndexBufferId = 0;
                 mBoundIndexOffset = 0;
                 mBoundIndexUint32 = true;
@@ -116,9 +116,10 @@ namespace nkentseu {
             NkVector<Cmd>           mCommands;
 
             // Etat capture pendant l'enregistrement; snapshotte au moment des Draw/Dispatch.
+            static constexpr uint32 kMaxDescSets = 4;   // Frame / Object / Material / PostProcess
             uint64      mCurrentFramebufferId = 0;
             uint64      mBoundPipelineId = 0;
-            uint64      mBoundDescSetId = 0;
+            uint64      mBoundDescSets[kMaxDescSets]{};   // par index de set (NKRenderer en bind 3+)
             uint64      mBoundVertexBufferIds[8]{};
             uint64      mBoundVertexOffsets[8]{};
             uint64      mBoundIndexBufferId = 0;

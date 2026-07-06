@@ -6,6 +6,18 @@
 
 Légende : ⬜ à faire · 🟡 en cours · ✅ fait.
 
+## 🎯 Ambition & cap (Rodolf, 2026-07-05)
+
+**VISER GRAND.** On ne connaît pas les moyens de demain (GPU serveurs, financement,
+partenariats) — donc on construit **dès aujourd'hui la fondation *scalable*** qui les rendra
+exploitables. La pile est **from-scratch, GPU-résidente, multi-backend** : le *même code* qui
+entraîne MNIST sur un GPU laptop **monte à l'échelle sans réécriture**. L'**ambition est
+illimitée** ; seul le **discours public** reste honnête (jamais « niveau frontière / bat Claude »
+avant de l'avoir prouvé — cf. `Publications/00_FAITS_VERIFIES_CODE.md`). L'actif durable = la
+**maîtrise** et l'**architecture**, pas le compute. Cap : maîtriser chaque brique → petit modèle
+qui tourne → montée en échelle quand les moyens viennent. Axe différenciant = **IA incarnée dans
+le moteur** (agents, civilisation, génération d'assets), pas la course au compute des géants.
+
 ---
 
 ## Phase 0 — Mise en place
@@ -35,7 +47,97 @@ Légende : ⬜ à faire · 🟡 en cours · ✅ fait.
   → `NkComputeNkSL` et `NkTensorGpuTest` **4/4 OK** (matmul inclus). Override diagnostic
   `NK_TENSOR_API`. Intégration `ai::NkTensor` (ToGPU/ToCPU + dispatch `ops::`) OK.
 - 🎯 ✅ **Jalon atteint : multiplier deux matrices, CPU ✅ ET GPU ✅** (4 backends).
-- ⬜ Reste (raffinement) : accélération mesurée CPU vs GPU, Metal sur matériel Apple.
+- ✅ **Résidence GPU — ops élémentaires (2026-07-05)** : `Mul/Sub/Relu/Sigmoid/Tanh` en
+  noyaux NkSL, dispatchées via `ops::` quand un opérande est sur GPU (tenseur GPU → tenseur
+  GPU, **sans transfert**). Erreur max vs CPU ≈ 0.
+- ✅ **Résidence GPU — réductions (2026-07-05)** : `Sum/Mean/Max` **global et par axe** via un
+  noyau segmenté `[outer, reduce, inner]` (couvre tous les axes). Dispatch `ops::` sur tenseur
+  GPU ; Argmax → repli CPU (sortie i64). Erreur vs CPU = 0.
+- ✅ **Résidence GPU — permute/transpose (2026-07-05)** : `Contiguous()` d'une vue strided GPU
+  matérialisée par un **noyau de gather par strides** (rang ≤ 8), au lieu de repasser CPU.
+  Transpose 2D + Permute 3D validés == CPU. (Bug corrigé au passage : UBO `k.params` 16→256 o
+  pour loger les params de gather.)
+- ✅ **Résidence GPU — im2col/col2im (2026-07-05)** : conv comme réarrangement mémoire sur GPU.
+  `Im2Col`/`Col2Im` (NKAutograd) basculent sur les noyaux GPU quand l'entrée est résidente ;
+  **col2im en formulation *gather*** (un thread par élément d'entrée) → **pas d'atomics, pas de
+  course**. Validé == CPU (erreur 0). ⚠️ Le gain conv réel n'arrive **qu'avec une passe avant
+  autograd GPU-résidente** (aujourd'hui l'autograd calcule sur CPU + décharge le gros matmul) :
+  ces noyaux préparent ce chaînage complet.
+- 🎯 **`NkTensorGpuTest` : 20/20 OK** sur Vulkan (élémentaires + réductions + permute + im2col/
+  col2im). Bug corrigé : UBO `k.params` 16→256 o.
+- ✅ **Autograd conv GPU-résident bout-en-bout (2026-07-05)** : en construisant les feuilles
+  depuis des tenseurs GPU (`Leaf(x.ToGPU())`), le **forward Conv2D** (im2col→matmul→reshape/
+  permute/contiguous) **et le backward** (im2col + 2 matmuls + col2im) restent **entièrement sur
+  GPU, sans transfert**. Un seul verrou levé : le backward de `Sum` recréait le gradient plein
+  sur CPU → corrigé pour préserver le device (lit le scalaire via ToCPU, `Full` sur le device de
+  l'entrée). Chemin CPU inchangé (NKAutogradTest reste 20/20).
+- ✅ **Benchmark `NKConvResidentBench` (2026-07-05)** : conv `[8,64,32,32]∗[128,64,3,3]`,
+  **pas complet fwd+bwd**. Feuilles CPU (matmul déchargé + transferts) **447 ms** → feuilles
+  **GPU-résidentes 131 ms = ~3,4×**. **Gradients identiques** (dX err 2,4e-7, dW err 0), loss
+  151,55 des deux côtés. ⚠️ Gain « modeste » (3,4× et non 90×) car le chemin CPU **décharge
+  déjà** les matmuls sur GPU ; la résidence supprime en plus **les transferts** + met im2col/
+  col2im/permute sur GPU. Build *debug* non optimisé.
+- ✅ **Résidence généralisée — modèles entiers (2026-07-05)** :
+  - Noyaux GPU ajoutés : **`mulscalar`, `addscalar`, `step` (masque ReLU')** → Tanh/ReLU/Exp*/
+    MSE/softmax gardent leurs multiplications/additions scalaires sur GPU.
+  - Garde-fous `ToCpu/ToDev` sur **toutes** les ops sans noyau GPU dédié (SoftmaxRows, SigmoidBCE,
+    MaxPool, Upsample, Conv3D, ConvTranspose2D/3D, Exp/Sqrt/Abs) : elles font un aller-retour CPU
+    **en préservant le device** → la chaîne reste résidente autour d'elles, aucun plantage.
+  - `ops::Add/Sub/Mul` : repli CPU pour le **broadcast** (biais `[1,N]+[B,N]`) ; seed backward
+    **device-aware** ; `Neg` = `mulscalar(-1)` GPU.
+  - **`NKMlpResidentBench`** : MLP `x[128,784]→Dense512+ReLU→Dense10→SoftmaxCE`, **pas complet
+    fwd+bwd**. CPU **73,9 ms** → GPU-résident **25,4 ms = ~2,9×**. **loss identique** (2,30257 =
+    ln 10), **gradients des 4 paramètres identiques** (err ~1e-9). Modèle **entier** résident.
+  - Non-régression : `NKAutogradTest` **20/20** (les branches GPU sont gardées par `if device==GPU`,
+    le chemin CPU est inchangé).
+- ✅ **Entraînement 100% GPU-résident — Adam (2026-07-05)** :
+  - Noyaux GPU ajoutés : **`div` (élémentaire) et `sqrt`** → `ops::Div`/`ops::Sqrt` dispatchent
+    sur GPU. NKOptim (déjà écrit en `ops::`) devient **résident** sans y toucher (état Adam mM/mV
+    initialisé sur le device du paramètre ; `SetValue` garde les params sur GPU).
+  - **`NKMlpResidentBench` — boucle d'entraînement** (60 pas Adam, batch fixe surappris) :
+    perte **descend** 2,3026→2,2392 (monotone), **CPU 2,2448 ≈ GPU 2,2392** (|Δ|=0,0055 sur 60 pas
+    d'Adam → prouve que `div`/`sqrt` GPU sont exacts), **~3,2×** vs CPU. Forward + backward +
+    optimiseur : **tout sur GPU**.
+- ✅ **Kernel Adam FUSÉ (2026-07-05)** : `NkGpuAdamStep` fait tout le pas d'optimiseur en **1 seul
+  dispatch** par paramètre (param/m/v mis à jour **en place**), au lieu de ~8 ops synchrones.
+  `NkAdam::Step` prend cette voie rapide quand params/grads/état résident GPU (repli `ops::` sinon).
+  Résultat sur `NKMlpResidentBench` : **entraînement GPU 54,9 → 32,9 ms/pas**, accélération
+  **3,2× → 5,3×** ; loss identique (CPU 2,2448 ≈ GPU 2,2424, |Δ|=0,0024). L'entraînement (5,3×)
+  dépasse désormais le fwd+bwd seul (~3×) car Adam ne domine plus le pas.
+- ✅ **MNIST réel entraîné 100% GPU (2026-07-05)** — `NKMnistGpuTrain` : MLP 784→256→10 sur les
+  **60 000** images MNIST (NKData/IDX), entropie croisée softmax, **Adam fusé**, boucle NKTrain.
+  Tous les paramètres + chaque lot sur GPU → forward, backward et optimiseur **résidents**. Kernels
+  actifs (log) : matmul, relu, sub, mulscalar, add, reduce_sum, gather, step, mul, **adam**. Résultat
+  en 3 époques (~10 s/époque, debug) : **train 98,18%**, **TEST (10 000 jamais vus) 97,29%** — pas
+  de surapprentissage.
+  ⇒ La pile IA **from-scratch, sans STL**, apprend une vraie tâche **de bout en bout sur GPU**.
+- ✅ **Argmax GPU natif (2026-07-05)** : noyau `reduce_argmax` (indices en f32) → la famille des
+  réductions est **complète sur GPU** (Sum/Mean/Max/**Argmax**). `ops::Argmax` calcule sur GPU puis
+  ne rapatrie que les indices (convertis en i64). `CountCorrect` (NKTrain) passe par `ops::Argmax`
+  → plus de téléchargement manuel des logits. Exactitude MNIST **inchangée** (97,29% test) = argmax
+  GPU exact.
+- ✅ **Noyaux GPU natifs — softmax + maxpool (2026-07-05)** : suppression des derniers allers-retours
+  du chemin classifieur.
+  - **`softmax_rows`** (par ligne, stable) → `SoftmaxRows` (NKAutograd) natif GPU : le **backward
+    softmax-CE** ne repasse plus par le CPU. MNIST inchangé (test **97,23%**) = softmax GPU exact.
+  - **`maxpool_fwd` + `maxpool_bwd`** (backward en *gather* par élément d'entrée, plage de fenêtres
+    bornée, sans course) → `MaxPool2D` fwd/bwd natif GPU, argmax stocké sur GPU.
+  - Validés dans `NkTensorGpuTest` (**23/23** : softmax, maxpool fwd & bwd == CPU) ; non-régression
+    `NKAutogradTest` **20/20** (MaxPool2D gradient-check CPU OK). ⇒ le **CNN résident** est débloqué.
+- ✅ **CNN MNIST 100% GPU (2026-07-05)** — `NKMnistCnnGpuTrain` : `x[B,784]→[B,1,28,28]`,
+  Conv2D(1→8,3×3)+ReLU+MaxPool → Conv2D(8→16,3×3)+ReLU+MaxPool → flatten → Dense(784→10) →
+  SoftmaxCE. **Conv (im2col/col2im), MaxPool, ReLU, softmax-CE, Adam fusé : tout résident.**
+  1 époque (91 s, debug) : **TEST (jamais vu) 96,51%**. Valide le chemin **convolutionnel complet**
+  (forward + backward) en entraînement réel sur GPU. ⇒ CNN de bout en bout confirmé.
+- ✅ **RÉSIDENCE GPU 100% COMPLÈTE (2026-07-05)** : **plus AUCUN repli CPU** sur quelque chemin
+  que ce soit. Noyaux natifs ajoutés : **`exp`, `upsample2x` (fwd+bwd), `convT2d` (fwd+dX+dW)**,
+  puis **`conv3d` et `convt3d` voxel (fwd+dX+dW)** — toutes en formulations *gather* (sans course).
+  `NkTensorGpuTest` **35/35** (toutes vs CPU, y c. 3D), `NKAutogradTest` **20/20** (non-régression,
+  Conv3D/ConvT3D gradient-checkés). ⇒ **Toute** la pile (classifieur, génératif 2D **et 3D voxel**,
+  VAE) tourne **entièrement sur GPU**. Seul reste (matériel) : le backend **Metal** (Apple).
+- ⬜ **Prochaine grande marche** : voir section « 🧠 PROCHAINE GRANDE MARCHE — Transformers → petit
+  GPT » (matmul par lots, LayerNorm, attention+masque causal, embedding, GELU). Montée en échelle
+  (GPU serveurs) quand les moyens le permettront.
 
 ## Phase 2 — L'apprentissage — 🟡 en cours
 
@@ -100,12 +202,99 @@ Légende : ⬜ à faire · 🟡 en cours · ✅ fait.
   animation + comportement) → animation 3D & jeux **pilotés par IA** (NKGen + NKAgent).
 - 🎯 **Jalon : générer un asset (2D puis 3D) dans le moteur ; piloter un corps par une IA.**
 
+## 🧠 PROCHAINE GRANDE MARCHE — Transformers → petit GPT (PLAN, validé 2026-07-06)
+
+> **Objectif :** un **GPT char-level from-scratch, 100% GPU-résident**, qui **génère du texte**.
+> À **notre échelle d'abord** (nanoGPT : ~0,5–2 M paramètres, entraînable sur 1 GPU laptop),
+> **scalable ensuite** (cf. Phase 7). Tout s'ajoute AU-DESSUS de la pile GPU-résidente déjà faite
+> (matmul, softmax, LayerNorm à venir, Adam fusé, autograd fwd+bwd sur GPU — zéro repli CPU).
+> **Honnêteté :** échelle *petite* et pédagogique ; ce n'est PAS un LLM frontière (question de
+> compute/données, cf. Phase 7), mais la **preuve** que l'architecture tourne de bout en bout.
+
+### Architecture cible (1re preuve — volontairement petite)
+- **Char-level** : vocabulaire = caractères d'un corpus texte (~65–120 symboles).
+- `block_size T = 64` · `d_model = 128` · `n_heads = 4` (head_dim = 32) · `n_layers = 4` ·
+  `d_ff = 4·d_model = 512` · `batch = 32`. → ~0,5–1 M paramètres.
+- **Forward** : `tokens[B,T]` → **embedding** tok + **positionnel** appris → N× **bloc transformer**
+  → **LayerNorm** final → **tête LM** (matmul → `[B,T,vocab]`) → **softmax-CE** (prédire le
+  caractère suivant). **Bloc** = LN → **attention multi-têtes causale** → +résiduel → LN → **MLP**
+  (Linear→GELU→Linear) → +résiduel.
+- **Attention** : proj QKV (matmul) → `[B,heads,T,head_dim]` → `scores = Q·Kᵀ/√head_dim`
+  `[B,heads,T,T]` → **masque causal** (triangle supérieur = −∞) → **softmax** (dernier axe) →
+  `·V` → concat têtes → proj sortie.
+
+### Briques à livrer — 1 résultat testable par étape (ordre)
+- ✅ **1. Matmul par lots (batched)** (2026-07-06) : `[…,M,K]·[…,K,N]` (dims de tête = lots) —
+  kernel GPU `bmatmul`, route N-D dans `ops::Matmul` (CPU+GPU), backward autograd généralisé
+  (transpose des 2 derniers axes). `NkTensorGpuTest` **36/36** (GPU==CPU), `NKAutogradTest`
+  **22/22** (gradient-checks BMatmul dA 9e-05 / dB 7e-05).
+- ✅ **2. LayerNorm** (2026-07-06) : `autograd::LayerNorm` = normalise le dernier axe `(x−μ)/√(var+ε)`
+  (γ,β composés au niveau couche). Kernels GPU `layernorm_fwd/bwd` (backward recalculé depuis x),
+  CPU+GPU. `NKAutogradTest` **23/23** (grad-check 4,5e-05), `NkTensorGpuTest` **38/38** (fwd+bwd==CPU).
+- ✅ **3. Softmax dernier axe + masque causal** (2026-07-06) : `autograd::Softmax` (dernier axe,
+  rétro-compatible 2D) + `autograd::SoftmaxCausal` (masque le futur, fusé dans le kernel) + backward
+  (jacobien softmax). Kernels GPU `softmax_rows`(dernier axe)/`softmax_bwd`/`softmax_causal`, CPU+GPU.
+  `NKAutogradTest` **25/25** (Softmax 6,6e-06, SoftmaxCausal 1,3e-05), `NkTensorGpuTest` **40/40**.
+- ✅ **4. Embedding** (2026-07-06) : `autograd::Embedding(table[vocab,d], indices)` — lookup +
+  **backward scatter-add** (gather par ligne de table, sans course). Kernels `embedding_fwd/bwd`,
+  CPU+GPU. `NKAutogradTest` grad-check 4,6e-05, `NkTensorGpuTest` fwd/bwd==CPU. (Positionnel = même
+  op ou paramètre `[T,d]` ajouté, au niveau modèle.)
+- ✅ **5. GELU** (2026-07-06) : `autograd::Gelu` (tanh-approx) fwd+bwd, kernels `gelu`/`gelu_bwd`,
+  CPU+GPU. grad-check 1,2e-04. **`NKAutogradTest` 27/27, `NkTensorGpuTest` 44/44.**
+- ✅ **6. Attention multi-têtes causale** (2026-07-06) : `nn::NkMultiHeadAttention` (proj Q/K/V/O
+  Dense + reshape têtes via **`autograd::Permute`** + scores batched + `MulScalar(1/√hd)` +
+  **SoftmaxCausal** + `·V`). + `nn::NkLayerNorm` (affine γ,β). App `NKTransformerTest` :
+  **gradient-check attention dX 1,3e-04** + **attention GPU-résidente == CPU** (5,96e-08). 2/2.
+- ✅ **7. Bloc transformer + modèle NkGPT** (2026-07-06) : `nn::NkTransformerBlock` (pré-LN →
+  attention → +résiduel → pré-LN → MLP[Dense→GELU→Dense] → +résiduel) empilable → `nn::NkGPT`
+  (embedding token + positionnel appris → N blocs → LN final → tête LM). 🎯 **JALON ATTEINT :
+  le petit GPT (2 couches, d=16) SUR-APPREND une séquence — perte 2,92 → 0,0012** (`NKTransformerTest`
+  3/3). Prouve toute la chaîne fwd+bwd+optimiseur du transformer.
+- ⬜ **8. AdamW** (Adam + weight decay) — variante du kernel Adam fusé. 🎯 Test : la perte descend, ==CPU.
+- ⬜ **9. Données char-level** : lire un texte, construire le vocab, encoder en tokens, fabriquer
+  les couples `(x[T], y[T]=x décalé de 1)` ; loader de séquences. *(NKData.)* 🎯 Test : décodage round-trip.
+- ⬜ **10. Entraînement + génération** : app `NKGptTrain` (GPU-résident) → entraîner sur un petit
+  corpus → **échantillonnage autoregressif** (greedy/température) → **texte lisible**.
+- 🎯 **JALON FINAL : le petit GPT, entraîné 100% sur GPU, génère du texte char-level cohérent.**
+- Puis : montée en échelle (tokenizer BPE, contexte plus long, corpus réel, GPU serveurs) — Phase 7.
+
+### Où va le code (modules)
+- **NKAutograd** : ops batched-matmul, LayerNorm, softmax-axe+masque, embedding, GELU (fwd+bwd, gradient-checkés dans `NKAutogradTest`).
+- **NKNN** : couches `NkLayerNorm`, `NkEmbedding`, `NkMultiHeadAttention`, `NkTransformerBlock`, `NkGPT`.
+- **NKOptim** : `NkAdamW`. **NKData** : dataset char-level + loader séquences. **NKTensorGpu** : kernels GPU des nouvelles ops (tests dans `NkTensorGpuTest`).
+- **App** : `NKGptTrain` (entraînement + génération), enregistrée dans `Nkentseu.jenga`.
+
 ## Phase 7 — Montée en échelle (plus tard)
 
-- ⬜ **LLM** dans NKInfer : architecture transformer, inférence, fine-tune de petits modèles, quantization.
+- ⬜ **LLM** dans NKInfer : reprendre le **petit GPT** ci-dessus → inférence optimisée, fine-tune, quantization, contexte plus long, entraînement distribué (multi-GPU) quand les moyens le permettront.
 - ⬜ Grande civilisation : plus d'agents, mémoire/réflexion/planification riches (style *generative agents*), prospective.
 - ⬜ Robotique réelle / objets intelligents sur **Kernel/Bare**.
 - ⬜ Modèles génératifs 3D / animation.
+
+## 📣 Communication & diffusion — **À FAIRE À CHAQUE ÉVOLUTION** (récurrent)
+
+> **Règle permanente** : chaque évolution notable du sous-système IA doit produire, en
+> plus du code, sa **diffusion**. On documente le penser, l'architecture, les rendus réels
+> et les résultats obtenus, avec captures **images/vidéos** nécessaires.
+
+À chaque jalon/évolution significatif :
+1. **Publication multi-plateforme** dans `D:\Rihen\Rodolf\Publications\` (nouveau dossier daté
+   `NN_AAAA-MM-JJ_sujet/`), en suivant **strictement** la charte et les règles de
+   `D:\Rihen\Rodolf\CLAUDE.md` (ton **humble/travailleur/en demande d'aide**, garde-fous
+   d'honnêteté, format `post.md` = LinkedIn + X thread + Facebook + Instagram carrousel +
+   TikTok/Reels, charte Rihen pétrole `#0A555F`/orange `#F79A28`, slides Instagram 1080×1080,
+   petite voix sceptique 1 gag max, hashtags, lien GitHub en 1er commentaire).
+2. **Article scientifique** (dossier `article/`, LaTeX/Markdown) : problème, méthode
+   (from-scratch, sans STL), architecture, expériences, résultats chiffrés + figures,
+   limites honnêtes, travaux futurs. À publier (blog / preprint).
+3. **Captures** : architectures (schémas SVG charte), résultats réels (images générées,
+   rendus moteur, benchmarks), et vidéos de démo si pertinent.
+4. **Honnêteté** : le NKAI est **from-scratch, à petite échelle, pédagogique** — jamais
+   « ça bat PyTorch/frontière ». Mettre à jour `Publications/00_FAITS_VERIFIES_CODE.md` et le
+   `CLAUDE.md` de Rodolf (⚠️ leur note « AI = aucun code » est **périmée** : il y a du vrai code).
+
+État : 🟡 process défini ; **1re publication + 1er article** = l'évolution NKAI (calcul →
+génération d'images/3D + GPU compute), à produire dans `D:\Rihen\Rodolf\Publications\`.
 
 ---
 

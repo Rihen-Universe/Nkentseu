@@ -117,7 +117,7 @@ namespace nkentseu {
 		return r;
 	}
 
-	NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title) {
+	NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title, const NkString &initialDir) {
 		char buf[MAX_PATH] = {};
 		OPENFILENAMEA ofn = {};
 		ofn.lStructSize = sizeof(ofn);
@@ -125,6 +125,7 @@ namespace nkentseu {
 		ofn.nMaxFile = MAX_PATH;
 		ofn.lpstrTitle = title.Empty() ? nullptr : title.CStr();
 		ofn.lpstrDefExt = defaultExt.Empty() ? nullptr : defaultExt.CStr();
+		ofn.lpstrInitialDir = initialDir.Empty() ? nullptr : initialDir.CStr();
 		ofn.Flags = OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;
 
 		NkDialogResult r;
