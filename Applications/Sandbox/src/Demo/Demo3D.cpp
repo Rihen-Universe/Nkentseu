@@ -104,6 +104,10 @@ namespace nkentseu { namespace demo {
         bool                            editMergePending   = false; // M : soude les vertices sélectionnés
         bool                            editMakeFacePending= false; // F : crée une face (n-gon) depuis la sélection
         bool                            editSubdivPending  = false; // W : subdivise les faces sélectionnées
+        // Propriétés des outils (façon Blender) — réglées par Shift+touche, affichées au HUD.
+        int32                           subdivCuts      = 1;    // nb d'itérations de subdivision (Shift+W)
+        bool                            extrudeIndividual = false; // Extrude : région (0) vs faces individuelles (1) (Shift+E)
+        int32                           mergeMode       = 0;    // 0=CENTER 1=FIRST 2=LAST (Shift+M)
         renderer::NkGizmo3D             editGizmo;     // 1 seule cible = centroïde de la sélection
     };
 
@@ -182,6 +186,28 @@ namespace nkentseu { namespace demo {
             bmn.x=NkMin(bmn.x,p.x);bmn.y=NkMin(bmn.y,p.y);bmn.z=NkMin(bmn.z,p.z);
             bmx.x=NkMax(bmx.x,p.x);bmx.y=NkMax(bmx.y,p.y);bmx.z=NkMax(bmx.z,p.z); }
         const float32 off=(bmx-bmn).Len()*0.08f;
+
+        // ── Mode INDIVIDUEL : chaque face extrudée séparément le long de SA normale,
+        //    dup PROPRES par face (les caps se séparent aux bords). Façon Blender.
+        if (st->extrudeIndividual) {
+            NkVector<uint32> nfs, nfv; nfs.PushBack(0);
+            NkVector<uint8> vsel; vsel.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)vsel.Size();i++) vsel[i]=0;
+            for (uint32 f=0;f<fc;f++){ if(faceSel[f]) continue; for(uint32 k=fs[f];k<fs[f+1];k++) nfv.PushBack(fv[k]); nfs.PushBack((uint32)nfv.Size()); }
+            for (uint32 f=0;f<fc;f++){ if(!faceSel[f]) continue; const uint32 s=fs[f],e=fs[f+1],n=e-s;
+                NkVec3f fn=(pv[fv[s+1]].pos-pv[fv[s]].pos).Cross(pv[fv[s+2]].pos-pv[fv[s]].pos);
+                { float32 l=fn.Len(); fn=(l>1e-6f)?fn*(1.f/l):NkVec3f{0.f,1.f,0.f}; }
+                NkVector<uint32> dup; dup.Resize(n);
+                for(uint32 k=0;k<n;k++){ uint32 vi=fv[s+k]; renderer::NkVertex3D nv=pv[vi]; nv.pos=nv.pos+fn*off;
+                    dup[k]=(uint32)pv.Size(); pv.PushBack(nv); vsel.PushBack(1); }
+                for(uint32 k=0;k<n;k++) nfv.PushBack(dup[k]); nfs.PushBack((uint32)nfv.Size());   // cap
+                for(uint32 k=0;k<n;k++){ uint32 a=fv[s+k],b=fv[s+(k+1)%n], na=dup[k],nb=dup[(k+1)%n];
+                    nfv.PushBack(a);nfv.PushBack(b);nfv.PushBack(nb);nfv.PushBack(na); nfs.PushBack((uint32)nfv.Size()); } }
+            st->editHE.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
+            st->vertSel = vsel;
+            Demo3D_SyncFromHE(st, ms);
+            return;
+        }
+
         // Arêtes DIRIGÉES des faces sélectionnées (pour détecter les arêtes de bord).
         NkHashMap<uint64,uint8> selDir;
         for (uint32 f=0;f<fc;f++){ if(!faceSel[f]) continue; const uint32 s=fs[f],e=fs[f+1],n=e-s;
@@ -228,12 +254,16 @@ namespace nkentseu { namespace demo {
     static void Demo3D_MergeHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
         NkVector<renderer::NkVertex3D> pv; NkVector<uint32> fs, fv;
         st->editHE.ToPolygons(pv, fs, fv);
-        NkVec3f c{0.f,0.f,0.f}; int32 n=0, first=-1;
-        for (uint32 i=0;i<(uint32)pv.Size();i++) if(st->vertSel[i]){ c=c+pv[i].pos; n++; if(first<0)first=(int32)i; }
+        NkVec3f c{0.f,0.f,0.f}; int32 n=0, first=-1, last=-1;
+        for (uint32 i=0;i<(uint32)pv.Size();i++) if(st->vertSel[i]){ c=c+pv[i].pos; n++; if(first<0)first=(int32)i; last=(int32)i; }
         if (n<2) return;
-        c=c*(1.f/(float32)n); pv[(uint32)first].pos=c;
+        c=c*(1.f/(float32)n);
+        // Mode (Shift+M) : 0=CENTER (centroïde) 1=FIRST (1er sél.) 2=LAST (dernier sél.).
+        const int32 rep = (st->mergeMode==2)? last : first;
+        NkVec3f target = (st->mergeMode==1)? pv[(uint32)first].pos : (st->mergeMode==2)? pv[(uint32)last].pos : c;
+        pv[(uint32)rep].pos = target;
         NkVector<int32> map; map.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)map.Size();i++) map[i]=(int32)i;
-        for (uint32 i=0;i<(uint32)pv.Size();i++) if(st->vertSel[i]) map[i]=first;
+        for (uint32 i=0;i<(uint32)pv.Size();i++) if(st->vertSel[i]) map[i]=rep;
         const uint32 fc=(fs.Size()>0)?(uint32)fs.Size()-1:0;
         NkVector<int32> remap; remap.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)remap.Size();i++) remap[i]=-1;
         NkVector<renderer::NkVertex3D> nv2; NkVector<uint8> vsel; NkVector<uint32> nfs, nfv; nfs.PushBack(0);
@@ -277,7 +307,7 @@ namespace nkentseu { namespace demo {
         const uint32 fc=(fs.Size()>0)?(uint32)fs.Size()-1:0;
         NkVector<uint8> faceSel; faceSel.Resize(fc); int32 selCount=0;
         for (uint32 f=0;f<fc;f++){ bool s=Demo3D_PolyFaceSel(st,fv,fs[f],fs[f+1]); faceSel[f]=s?1:0; if(s) selCount++; }
-        if (selCount==0) return;
+        if (selCount==0){ for(uint32 f=0;f<fc;f++) faceSel[f]=1; selCount=(int32)fc; }  // rien sélectionné -> TOUT le modèle
         auto lerp=[&](uint32 a,uint32 b){ renderer::NkVertex3D r=pv[a];
             r.pos=(pv[a].pos+pv[b].pos)*0.5f; r.uv=(pv[a].uv+pv[b].uv)*0.5f; return r; };
         // Milieux d'arête PARTAGÉS (clé = lo<<32|hi).
@@ -303,7 +333,7 @@ namespace nkentseu { namespace demo {
                     uint32 mx=cidx; if(m1>mx)mx=m1; if(m0>mx)mx=m0; vsel.Resize(mx+1); }
                 nfv.PushBack(v0); nfv.PushBack(m1); nfv.PushBack(cidx); nfv.PushBack(m0);
                 nfs.PushBack((uint32)nfv.Size());
-                vsel[cidx]=1; vsel[m1]=1; vsel[m0]=1;
+                vsel[cidx]=1; vsel[m1]=1; vsel[m0]=1; if(v0<(uint32)vsel.Size()) vsel[v0]=1;  // corners sél. -> itérable
             }
         }
         st->editHE.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
@@ -653,13 +683,27 @@ namespace nkentseu { namespace demo {
                     st->editOverlayDirty=true;
                     return;
                 }
-                // Outils topologie (hors drag) : E = extrude, X = supprimer, M = souder.
+                // Outils topologie (hors drag). Shift+touche = règle la PROPRIÉTÉ de l'outil
+                // (façon Blender) ; touche seule = applique.
                 if (!st->editGizmo.IsDragging()) {
-                    if (k == NkKey::NK_E) { st->editExtrudePending = true; return; }
+                    const bool shiftK = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
+                    if (k == NkKey::NK_E) {
+                        if (shiftK) { st->extrudeIndividual = !st->extrudeIndividual;
+                            logger.Info("[Demo3D] Extrude = {0}\n", st->extrudeIndividual?"INDIVIDUEL":"REGION"); }
+                        else st->editExtrudePending = true;
+                        return; }
                     if (k == NkKey::NK_X) { st->editDeletePending  = true; return; }
-                    if (k == NkKey::NK_M) { st->editMergePending   = true; return; }
+                    if (k == NkKey::NK_M) {
+                        if (shiftK) { st->mergeMode = (st->mergeMode+1)%3;
+                            const char* mm[3]={"CENTER","FIRST","LAST"}; logger.Info("[Demo3D] Merge = {0}\n", mm[st->mergeMode]); }
+                        else st->editMergePending = true;
+                        return; }
                     if (k == NkKey::NK_F) { st->editMakeFacePending= true; return; }
-                    if (k == NkKey::NK_W) { st->editSubdivPending  = true; return; }
+                    if (k == NkKey::NK_W) {
+                        if (shiftK) { st->subdivCuts = (st->subdivCuts%4)+1;
+                            logger.Info("[Demo3D] Subdiv coupes = {0}\n", st->subdivCuts); }
+                        else st->editSubdivPending = true;
+                        return; }
                 }
             }
             // Gizmo ACTIF selon le mode : objet ou vertices.
@@ -1133,8 +1177,8 @@ namespace nkentseu { namespace demo {
                     Demo3D_MakeFaceHE(st, meshSysT);
                     logger.Info("[Demo3D] Create face -> {0} faces\n", (int32)st->editHE.FaceCount()); }
                 if (st->editSubdivPending) { st->editSubdivPending=false;
-                    Demo3D_SubdivideHE(st, meshSysT);
-                    logger.Info("[Demo3D] Subdivide -> {0} faces\n", (int32)st->editHE.FaceCount()); }
+                    for (int32 c=0;c<st->subdivCuts;c++) Demo3D_SubdivideHE(st, meshSysT);
+                    logger.Info("[Demo3D] Subdivide x{0} -> {1} faces\n", st->subdivCuts, (int32)st->editHE.FaceCount()); }
                 if (st->editMergePending) { st->editMergePending=false;
                     Demo3D_MergeHE(st, meshSysT);
                     logger.Info("[Demo3D] Merge -> {0} vertices\n", (int32)st->editHE.VertCount()); }
@@ -1498,7 +1542,9 @@ namespace nkentseu { namespace demo {
                     st->editObjIdx, modeStr,
                     gmName[st->editGizmo.Mode() & 3], st->editXray ? "ON" : "OFF");
                 overlay->DrawText({20.f, 118.f},
-                    "clic=sel Shift+clic=ajout | E=extrude X=supprimer M=souder F=face W=subdiv | TAB=sortir Alt+Z=x-ray");
+                    "clic=sel | E=extrude(Sh:%s) X=suppr M=souder(Sh:%s) F=face W=subdiv(Sh:x%d) | G+X/Y/Z=axe | TAB=sortir",
+                    st->extrudeIndividual?"indiv":"region",
+                    (st->mergeMode==2)?"last":(st->mergeMode==1)?"first":"center", st->subdivCuts);
             } else {
                 overlay->DrawText({20.f, 100.f},
                     "OBJET  |  Gizmo(G/R/S/C): %s  |  Orient(,): %s   |  TAB=editer l'objet selectionne",
