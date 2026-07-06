@@ -105,6 +105,12 @@ namespace nkentseu { namespace demo {
         bool                            editMakeFacePending= false; // F : crée une face (n-gon) depuis la sélection
         bool                            editSubdivPending  = false; // W : subdivise les faces sélectionnées
         bool                            editLoopCutPending = false; // Ctrl+R : boucle d'arêtes (loop cut)
+        // Couteau/bisect (K) : trace une ligne (2 clics) -> plan de coupe.
+        bool                            knifeArmed  = false;
+        bool                            knifeHasP0  = false;
+        NkVec2f                         knifeP0     = {0.f,0.f};
+        bool                            editBisectPending = false;   // couteau : plan prêt -> couper (côté frame)
+        NkVec3f                         bisectPt = {0.f,0.f,0.f}, bisectN = {0.f,1.f,0.f};
         // Propriétés des outils (façon Blender) — réglées par Shift+touche, affichées au HUD.
         int32                           subdivCuts      = 1;    // nb d'itérations de subdivision (Shift+W)
         bool                            extrudeIndividual = false; // Extrude : région (0) vs faces individuelles (1) (Shift+E)
@@ -393,6 +399,45 @@ namespace nkentseu { namespace demo {
         }
         HE.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
         if((uint32)vsel.Size()<(uint32)pv.Size()) vsel.Resize((uint32)pv.Size());
+        st->vertSel = vsel;
+        Demo3D_SyncFromHE(st, ms);
+    }
+
+    // KNIFE / BISECT (K) : coupe le maillage par un PLAN (défini en traçant une ligne à
+    // l'écran). Chaque arête traversant le plan reçoit un sommet à l'intersection (partagé)
+    // et chaque face traversée est coupée en 2. « Couper un plan en 2 » façon Blender Bisect.
+    static void Demo3D_BisectHE(Demo3DState* st, renderer::NkMeshSystem* ms,
+                                NkVec3f pPoint, NkVec3f pNormal) {
+        NkVector<renderer::NkVertex3D> pv; NkVector<uint32> fs, fv;
+        st->editHE.ToPolygons(pv, fs, fv);
+        NkVector<float32> sd; sd.Resize((uint32)pv.Size());
+        for (uint32 i=0;i<(uint32)pv.Size();i++){ NkVec3f w=st->editAnchor*pv[i].pos; sd[i]=(w-pPoint).Dot(pNormal); }
+        NkHashMap<uint64,uint32> cross;
+        auto crossV=[&](uint32 a,uint32 b)->int32{
+            if (sd[a]*sd[b] >= 0.f) return -1;                         // même côté (ou sur le plan)
+            uint32 lo=a<b?a:b,hi=a<b?b:a; uint64 key=((uint64)lo<<32)|hi;
+            uint32* p=cross.Find(key); if(p) return (int32)*p;
+            float32 t=sd[a]/(sd[a]-sd[b]);
+            renderer::NkVertex3D nv=pv[a]; nv.pos=pv[a].pos+(pv[b].pos-pv[a].pos)*t; nv.uv=pv[a].uv+(pv[b].uv-pv[a].uv)*t;
+            uint32 idx=(uint32)pv.Size(); pv.PushBack(nv); cross.InsertOrAssign(key,idx); return (int32)idx; };
+        NkVector<uint32> nfs, nfv; nfs.PushBack(0);
+        NkVector<uint32> selCross;   // sommets d'intersection (sélectionnés à la fin)
+        const uint32 fc=(fs.Size()>0)?(uint32)fs.Size()-1:0;
+        NkVector<uint32> loop; NkVector<uint32> cpos;
+        for (uint32 f=0;f<fc;f++){ const uint32 s=fs[f],e=fs[f+1],n=e-s;
+            loop.Clear(); cpos.Clear();
+            for (uint32 k=0;k<n;k++){ loop.PushBack(fv[s+k]);
+                int32 cv=crossV(fv[s+k], fv[s+(k+1)%n]);
+                if(cv>=0){ cpos.PushBack((uint32)loop.Size()); loop.PushBack((uint32)cv); selCross.PushBack((uint32)cv); } }
+            if (cpos.Size()==2){                                      // face traversée -> 2 sous-faces
+                uint32 c0=cpos[0], c1=cpos[1], L=(uint32)loop.Size();
+                for (uint32 i=c0;i<=c1;i++) nfv.PushBack(loop[i]); nfs.PushBack((uint32)nfv.Size());
+                for (uint32 i=c1;i<L;i++) nfv.PushBack(loop[i]); for(uint32 i=0;i<=c0;i++) nfv.PushBack(loop[i]); nfs.PushBack((uint32)nfv.Size());
+            } else { for (uint32 i=0;i<(uint32)loop.Size();i++) nfv.PushBack(loop[i]); nfs.PushBack((uint32)nfv.Size()); }
+        }
+        st->editHE.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
+        NkVector<uint8> vsel; vsel.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)vsel.Size();i++) vsel[i]=0;
+        for (uint32 i=0;i<(uint32)selCross.Size();i++) if(selCross[i]<(uint32)vsel.Size()) vsel[selCross[i]]=1;
         st->vertSel = vsel;
         Demo3D_SyncFromHE(st, ms);
     }
@@ -762,6 +807,9 @@ namespace nkentseu { namespace demo {
                             logger.Info("[Demo3D] Subdiv coupes = {0}\n", st->subdivCuts); }
                         else st->editSubdivPending = true;
                         return; }
+                    // K : arme le COUTEAU/BISECT (les 2 prochains clics tracent la ligne de coupe).
+                    if (k == NkKey::NK_K) { st->knifeArmed = !st->knifeArmed; st->knifeHasP0 = false;
+                        logger.Info("[Demo3D] Couteau = {0}\n", st->knifeArmed?"ARME (clic 2 points)":"off"); return; }
                 }
             }
             // Gizmo ACTIF selon le mode : objet ou vertices.
@@ -1240,6 +1288,9 @@ namespace nkentseu { namespace demo {
                 if (st->editLoopCutPending) { st->editLoopCutPending=false;
                     Demo3D_LoopCutHE(st, meshSysT);
                     logger.Info("[Demo3D] Loop cut -> {0} faces\n", (int32)st->editHE.FaceCount()); }
+                if (st->editBisectPending) { st->editBisectPending=false;
+                    Demo3D_BisectHE(st, meshSysT, st->bisectPt, st->bisectN);
+                    logger.Info("[Demo3D] Bisect -> {0} faces\n", (int32)st->editHE.FaceCount()); }
                 if (st->editMergePending) { st->editMergePending=false;
                     Demo3D_MergeHE(st, meshSysT);
                     logger.Info("[Demo3D] Merge -> {0} vertices\n", (int32)st->editHE.VertCount()); }
@@ -1304,7 +1355,21 @@ namespace nkentseu { namespace demo {
             const bool grabbedHandle = (!wasDrag && st->editGizmo.IsDragging());
 
             // Clic qui n'a PAS attrapé une poignée -> pick VERTEX/EDGE/FACE en espace écran.
-            if (gin.leftPressed && !grabbedHandle) {
+            // COUTEAU/BISECT armé : les 2 clics tracent la ligne -> plan de coupe.
+            if (gin.leftPressed && !grabbedHandle && st->knifeArmed) {
+                NkVec2f pc{gin.mouseX, gin.mouseY};
+                if (!st->knifeHasP0) { st->knifeP0 = pc; st->knifeHasP0 = true; }
+                else {
+                    auto rayOf=[&](NkVec2f s)->NkVec3f{ float32 nx=s.x/VW*2.f-1.f, ny=1.f-s.y/VH*2.f;
+                        NkVec3f d=fwd+rgt*(nx*thX)+upv*(ny*thY); float32 l=d.Len(); return (l>1e-6f)?d*(1.f/l):fwd; };
+                    NkVec3f d0=rayOf(st->knifeP0), d1=rayOf(pc), nrm=d0.Cross(d1);
+                    float32 l=nrm.Len();
+                    if (l>1e-4f){ st->bisectPt=camPos; st->bisectN=nrm*(1.f/l); st->editBisectPending=true; }
+                    st->knifeArmed=false; st->knifeHasP0=false;
+                }
+                st->editOverlayDirty=true;
+            }
+            if (gin.leftPressed && !grabbedHandle && !st->knifeArmed) {
                 st->editOverlayDirty = true;   // la sélection va changer -> reconstruire l'overlay
                 const float32 mx = gin.mouseX, my = gin.mouseY;
                 if (!gin.shiftDown) for (int32 i=0;i<nv;i++) st->vertSel[i]=0;
@@ -1603,9 +1668,10 @@ namespace nkentseu { namespace demo {
                     st->editObjIdx, modeStr,
                     gmName[st->editGizmo.Mode() & 3], st->editXray ? "ON" : "OFF");
                 overlay->DrawText({20.f, 118.f},
-                    "E=extrude(Sh:%s) X=suppr M=souder(Sh:%s) F=face W=subdiv(Sh:x%d) Ctrl+R=loopcut | G+X/Y/Z=axe | TAB=sortir",
+                    "E=extrude(Sh:%s) X=suppr M=souder(Sh:%s) W=subdiv(Sh:x%d) Ctrl+R=loopcut K=couteau%s | TAB=sortir",
                     st->extrudeIndividual?"indiv":"region",
-                    (st->mergeMode==2)?"last":(st->mergeMode==1)?"first":"center", st->subdivCuts);
+                    (st->mergeMode==2)?"last":(st->mergeMode==1)?"first":"center", st->subdivCuts,
+                    st->knifeArmed?(st->knifeHasP0?"[2e pt]":"[1er pt]"):"");
             } else {
                 overlay->DrawText({20.f, 100.f},
                     "OBJET  |  Gizmo(G/R/S/C): %s  |  Orient(,): %s   |  TAB=editer l'objet selectionne",
