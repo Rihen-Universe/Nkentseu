@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKTrain — boucle d'entraînement (NKAI, C++17)
+Cycle forward -> perte -> backward -> pas d'optimiseur sur N époques + métriques.
+Dépend de NKNN, NKData, NKAutograd, NKTensor. Namespace : nkentseu::ai::train.
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+with project("NKTrain"):
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    nkentseudependson(
+        ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKMath", "NKLogger",
+         "NKTensor", "NKAutograd", "NKNN", "NKData"],
+        selfexport="NKTrain",
+        extra_includes=["src", "%{wks.location}/Externals"],
+    )
+
+    files([
+        "src/NKTrain/**.cpp",
+        "src/NKTrain/**.h",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && options:windows-runtime=uwp"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+    with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
+        usetoolchain("xbox-clang")
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+    with filter("system:HarmonyOS"):
+        usetoolchain("ohos-ndk")
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+
+    with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS || system:Web"):
+        with test():
+            testfiles(["tests/**.cpp"])

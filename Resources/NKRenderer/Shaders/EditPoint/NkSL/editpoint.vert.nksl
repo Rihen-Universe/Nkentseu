@@ -1,0 +1,41 @@
+// editpoint.vert.nksl — NKRenderer — Point sprite ÉCRAN-CONSTANT (marqueurs de vertices
+// façon Blender). Chaque point = un quad (2 triangles) dont les coins sont décalés en
+// espace ÉCRAN d'un nombre de PIXELS constant, indépendamment de la distance/zoom.
+//   aPos    = centre du point (monde)
+//   aCorner = coin en PIXELS (demi-taille signée, ex. ±4) -> décalage écran
+//   aColor  = couleur
+@location(0) in vec3 aPos;
+@location(1) in vec2 aCorner;
+@location(2) in vec4 aColor;
+
+@location(0) out vec4 vColor;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+    float _p0;
+    float _p1;
+    float _p2;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;
+} uCam;
+
+@stage(vertex)
+@entry
+void main() {
+    vColor    = aColor;
+    vec4 clip = uCam.viewProj * vec4(aPos, 1.0);
+    // pixel -> NDC : (2/viewport) ; * clip.w pour annuler la division perspective
+    // -> taille constante à l'écran quelle que soit la profondeur.
+    clip.xy  += aCorner * (2.0 / uCam.viewport) * clip.w;
+    gl_Position = clip;
+}

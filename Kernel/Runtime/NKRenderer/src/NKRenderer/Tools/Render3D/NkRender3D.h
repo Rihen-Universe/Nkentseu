@@ -120,6 +120,21 @@ namespace nkentseu {
                 void SubmitSkinnedTinted(const NkDrawCallSkinned& dc, NkVec3f tint, float32 alpha=1.f);
 
                 void SetWireframe(bool e) { mWireframe=e; }
+                bool IsWireframe() const  { return mWireframe; }
+                // Mode de shading (indépendant du wireframe) : 0=RENDERED (PBR éclairé),
+                // 1=SOLID/UNLIT (plat, phare caméra, sans lumières de scène). Écrit dans
+                // le CameraUBO (uCam.viewMode) et consommé par pbr.frag.
+                void SetViewMode(int32 m) { mViewMode = m; }
+                int32 ViewMode() const    { return mViewMode; }
+                // Preset MatCap (mode SOLID/WIREFRAME) : 0=Studio 1=Clay 2=Metal 3=Toon (procéduraux)
+                // + 4=Chrome (TEXTURE, boule matcap échantillonnée par la normale-vue).
+                static const int32 kMatcapCount = 5;
+                void  SetMatcap(int32 id) { mMatcapId = ((id % kMatcapCount) + kMatcapCount) % kMatcapCount; }
+                int32 Matcap() const      { return mMatcapId; }
+                // Remplace À CHAUD la boule matcap texture (preset Chrome/binding 28) par une
+                // texture chargée par l'utilisateur (.exr/.png décodé). tex invalide -> revient
+                // à la boule chrome générée. Rebinde tous les sets globaux immédiatement.
+                void  SetMatcapTexture(NkTextureHandle tex);
 
                 // Contrôle de la force du terme ambient IBL (0=aucun, 1=complet).
                 // Défaut 0.3 — réduit le blanchiment par le ciel procédural.
@@ -191,7 +206,24 @@ namespace nkentseu {
                 void DebugDrawDirectSwapchain(NkICommandBuffer* cmd);
 
                 // ── Debug gizmos ─────────────────────────────────────────────────────
-                void DrawDebugLine  (NkVec3f a, NkVec3f b,   NkVec4f color, float32 life=0.f);
+                // overlay=true : ligne dessinée SANS depth-test (toujours au-dessus de la
+                // scène, façon gizmo Blender). Défaut false = depth-test normal (occlusion).
+                void DrawDebugLine  (NkVec3f a, NkVec3f b,   NkVec4f color, float32 life=0.f, bool overlay=false);
+                // Triangle debug PLEIN (alpha-blend). Utile pour surligner des faces
+                // sélectionnées (éditeur), des zones, etc. overlay=true -> sans depth-test.
+                void DrawDebugTriangle(NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f color, float32 life=0.f, bool overlay=false);
+
+                // ── Edit overlay PERSISTANT (cage/faces/points d'un Edit Mode) ───────
+                // Buffers GPU gardés d'une frame à l'autre : on N'UPLOADE QUE quand la
+                // donnée change (entrée/sélection/drag). Rendu chaque frame par le GPU
+                // sans reconstruction CPU -> reste fluide même sur mesh dense. Les
+                // vertices sont { pos.x,pos.y,pos.z, r,g,b,a } (7 float, stride 28).
+                // depthTest=false -> mode X-ray (dessiné au-dessus de tout).
+                void SetEditOverlayLines (const float* verts, uint32 vertexCount);
+                void SetEditOverlayTris  (const float* verts, uint32 vertexCount);
+                void SetEditOverlayPoints(const float* verts, uint32 vertexCount);
+                void SetEditOverlayXray  (bool xray);
+                void ClearEditOverlay();
                 void DrawDebugSphere(NkVec3f c, float32 r,   NkVec4f color);
                 void DrawDebugCircle(NkVec3f c, float32 r, NkVec3f normal,   NkVec4f color);
                 void DrawDebugAABB  (const NkAABB& box,       NkVec4f color);
@@ -201,7 +233,8 @@ namespace nkentseu {
 
             private:
                 struct SortedDC { NkDrawCall3D dc; float32 depth; };
-                struct DebugLine { NkVec3f a,b; NkVec4f color; float32 life; };
+                struct DebugLine { NkVec3f a,b; NkVec4f color; float32 life; bool overlay; };
+                struct DebugTri  { NkVec3f a,b,c; NkVec4f color; float32 life; bool overlay; };
 
                 float32              mIBLStrength = 0.3f;
                 NkIDevice*           mDevice  = nullptr;
@@ -217,6 +250,8 @@ namespace nkentseu {
                 NkSceneContext    mCtx;
                 bool              mInScene  = false;
                 bool              mWireframe= false;
+                int32             mViewMode = 0;   // 0=rendered(lit) 1=solid(unlit)
+                int32             mMatcapId = 0;   // preset matcap (mode solid)
                 uint32            mW = 0, mH = 0;  // taille courante (mise a jour par OnResize)
 
                 // Fallback material instance : utilise pour les drawcalls sans
@@ -238,6 +273,7 @@ namespace nkentseu {
                 NkVector<NkDrawCallInstanced>   mInstanced;
                 NkVector<NkDrawCallSkinned>     mSkinned;
                 NkVector<DebugLine>             mDebugLines;
+                NkVector<DebugTri>              mDebugTris;
 
                 // Ring buffers per-frame UBOs (taille = NkRendererConfig::framesInFlight,
                 // clampe a [1,3]). mFrameSlot tourne 0..N-1 a chaque BeginScene.
@@ -274,6 +310,7 @@ namespace nkentseu {
                 NkVector<NkBufferHandle>   mUBOBonesRing;   // [frame]
                 NkVector<NkBufferHandle>   mUBOInstanceRing;// [frame] models[128]+tints[128] (instancing GPU)
                 NkTextureHandle            mDefaultCubeWhite;   // E.6b : fallback cube cookie
+                NkTextureHandle            mMatcapTex;          // boule matcap (mode solid, binding 28)
                 uint32                     mFramesInFlight = 1;
                 uint32                     mFrameSlot      = 0;
                 uint32                     mObjectDrawIdx  = 0;
@@ -440,8 +477,29 @@ namespace nkentseu {
                 ::nkentseu::NkShaderHandle mLineShader;
                 NkPipelineHandle           mLinePipeline;
                 NkRenderPassHandle         mLinePipelineRP{};
+                NkPipelineHandle           mLinePipelineNoDepth;   // depth-test OFF (overlay gizmo)
                 NkBufferHandle             mLineVBO;          // dynamique
                 uint32                     mLineVBOCapVerts = 0;
+                // Triangles debug pleins (alpha-blend) : mêmes shader/VBO logique que
+                // les lignes mais topologie TRIANGLE_LIST + blend.
+                NkPipelineHandle           mTriPipeline;
+                NkPipelineHandle           mTriPipelineNoDepth;
+                NkRenderPassHandle         mTriPipelineRP{};
+                NkBufferHandle             mTriVBO;
+                uint32                     mTriVBOCapVerts = 0;
+                bool EnsureDebugTriOverlayPipeline(NkRenderPassHandle currentRP);
+                // Edit overlay persistant (uploadé seulement au changement).
+                NkBufferHandle             mEditLineBuf, mEditTriBuf, mEditPointBuf;
+                uint32                     mEditLineN=0, mEditTriN=0, mEditPointN=0;      // vertices actifs
+                uint32                     mEditLineCap=0, mEditTriCap=0, mEditPointCap=0; // capacité (vertices)
+                bool                       mEditOverlayNoDepth=false;                      // X-ray
+                // Point sprite écran-constant (marqueurs de vertices façon Blender).
+                ::nkentseu::NkShaderHandle mEditPointShader;
+                NkPipelineHandle           mEditPointPipeline, mEditPointPipelineNoDepth;
+                NkRenderPassHandle         mEditPointPipelineRP{};
+                bool EnsureEditPointPipeline(NkRenderPassHandle currentRP);
+                // stride en OCTETS d'un vertex (7*float lignes/tris, 9*float points sprite).
+                void UploadEditBuf(NkBufferHandle& buf, uint32& cap, const float* v, uint32 vcount, uint32 strideBytes);
                 bool EnsureDebugLinePipeline(NkRenderPassHandle currentRP);
         };
 

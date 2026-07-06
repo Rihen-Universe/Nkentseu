@@ -1,500 +1,1167 @@
 #!/usr/bin/env python3
+
 # -*- coding: utf-8 -*-
+
 r"""
-=============================================================================
-Nkentseu.jenga => Workspace principal du framework Nkentseu
+
 =============================================================================
 
+Nkentseu.jenga => Workspace principal du framework Nkentseu
+
+=============================================================================
+
+
+
 Framework C++ multi-plateforme de gestion de fenetres, d'evenements
+
 et de rendu pixel. Namespace : nkentseu
+
+
 
 Architecture et ordre de dependances :
 
+
+
   NKPlatform  => Detection OS/arch/compilateur/CPU         (C++20)
-       â†“
+
+       ↓
+
   NKCore      => Types, macros, assertions, bits            (C++20)
-       â†“            â†“
-  NKMath      => Types gÃ©omÃ©triques (Vec2, Rect, â€¦)        (C++17)
+
+       ↓            ↓
+
+  NKMath      => Types géométriques (Vec2, Rect, …)        (C++17)
+
   NKLogger    => Journalisation asynchrone multi-sink       (C++17)
-       â†“            â†“                   â†“
+
+       ↓            ↓                   ↓
+
   NKTime      => Gestion du temps / chrono                  (C++17)
-  NKStream    => Flux de donnÃ©es (fichier, binaireâ€¦)        (C++17)
-  NKMemory    => Gestion mÃ©moire + smart pointers           (C++17)
-       â†“
+
+  NKStream    => Flux de données (fichier, binaire…)        (C++17)
+
+  NKMemory    => Gestion mémoire + smart pointers           (C++17)
+
+       ↓
+
   NKWindow    => Fenetrage, evenements, entrees             (C++17)
-       â†“
-  NKRenderer  => Rendu graphique (Software, OpenGLâ€¦)        (C++17)
-       â†“
+
+       ↓
+
+  NKRenderer  => Rendu graphique (Software, OpenGL…)        (C++17)
+
+       ↓
+
   Sandbox     => Application de demonstration (tous OS)     (C++17)
 
-Chaque projet possÃ¨de son propre fichier .jenga dans son rÃ©pertoire.
-Ce fichier workspace les rÃ©unit via include().
+
+
+Chaque projet possède son propre fichier .jenga dans son répertoire.
+
+Ce fichier workspace les réunit via include().
+
+
 
 Plateformes supportees :
+
   Windows     => Backend Win32                   (clang-mingw)
+
   Linux XLib  => Backend X11/XLib (defaut)       (clang-native / WSL2)
+
   Linux XCB   => Backend X11/XCB                 (clang-native / WSL2)
+
   Linux Wayland => Backend Wayland + xdg-shell   (clang-native / WSL2)
+
   Linux NOOP  => Backend headless (CI/WSL)        (clang-native / WSL2)
+
   macOS       => Backend Cocoa                   (clang-native)
+
   Android     => NativeActivity+EGL              (android-ndk)
+
   iOS         => Backend UIKit
+
   Web         => Emscripten+Canvas               (emscripten)
+
   HarmonyOS   => ArkUI Native
+
   XboxSeries  => UWP GameCore                    (xbox-clang)
+
   XboxOne     => UWP GameCore                    (xbox-clang)
 
+
+
 Usage :
+
   jenga build                                                   # Hote (XLib)
+
   jenga build --platform windows                                # Windows
+
   jenga build --platform linux                                  # Linux XLib (defaut)
+
   jenga build --platform linux --linux-backend xcb
+
   jenga build --platform linux --linux-backend wayland
+
   jenga build --platform linux --linux-backend headless         # Linux headless
+
   jenga build --platform macos                                  # macOS Cocoa
+
   jenga build --platform android                                # Android (NDK)
+
   jenga build --platform ios                                    # iOS (UIKit)
+
   jenga build --platform web                                    # Web (Emscripten)
+
   jenga build --platform windows --windows-runtime desktop      # Windows desktop (Win32)
+
   jenga build --platform windows --windows-runtime uwp          # UWP (Windows Runtime)
+
   jenga build --platform xboxseries                             # Xbox Series
+
   jenga build --platform xboxone                                # Xbox One
+
   jenga build --config Release                                  # Build Release
 
+
+
 =============================================================================
+
 PACKAGING (jenga package) -- creer des installers distribuables
+
 =============================================================================
+
+
 
 Une fois le build OK, on peut empaqueter le binaire dans 3 formats Windows :
 
+
+
   jenga package --platform windows --project Pong --type zip --config Release
+
                 --output ./dist
+
         => Pong.zip : archive portable (decompresser + lancer .exe)
 
+
+
   jenga package --platform windows --project Pong --type exe --config Release
+
                 --output ./dist
+
         => Pong_setup.exe : installer Inno Setup avec wizard complet
+
            (EULA + choix dossier + raccourcis bureau/menu)
 
+
+
   jenga package --platform windows --project Pong --type msi --config Release
+
                 --output ./dist
+
         => Pong.msi : Windows Installer officiel (WiX 5), idem fonctions
 
+
+
 Linux : --type deb (dpkg-deb), --type rpm/appimage/snap (stubs)
+
 macOS : --type pkg (pkgbuild), --type dmg (create-dmg)
+
 Web   : --type zip (favicon + html + wasm + assets)
 
+
+
 -----------------------------------------------------------------------------
+
 PREREQUIS A INSTALLER avant de packager (Windows)
+
 -----------------------------------------------------------------------------
+
+
 
   ZIP : aucun (Python stdlib seulement)
 
+
+
   EXE (Inno Setup) :
+
     winget install JRSoftware.InnoSetup
+
     -> installe iscc dans %LOCALAPPDATA%\\Programs\\Inno Setup 6\
+
     -> jenga le detecte auto (pas besoin de toucher au PATH)
 
+
+
   MSI (WiX Toolset) :
+
     dotnet tool install --global wix --version 5.0.2
+
     -> ATTENTION : ne pas installer WiX 7+ qui demande l'OSMF EULA payante.
+
     -> jenga ajoute auto WiX a son PATH session
 
+
+
   Pillow (pour conversion icones PNG -> .ico/.icns/mipmap) :
+
     pip install Pillow>=10.0
+
     -> deja installe normalement (dep jenga via requirements.txt)
 
+
+
 =============================================================================
+
 ICONES D'APPLICATION (DSL Jenga, voir Core/IconConverter.py)
+
 =============================================================================
+
+
 
   Dans un .jenga de projet (ex: Pong.jenga, hors filter) :
 
+
+
   appicon("Resources/MyApp/icon.png")
+
         # Source UNIQUE, dispatchee a TOUTES les plateformes :
+
         #   - Windows : convertit en .ico embedded via .res
+
         #   - macOS   : convertit en .icns dans bundle .app
+
         #   - Android : genere hierarchie res/mipmap-* (ldpi..xxxhdpi)
+
         #   - iOS     : copie + reference dans Info.plist
+
         #   - Web     : favicon.ico + favicon-{16,32,180,192,512}.png
 
+
+
   # Overrides par plateforme (gagnent sur appicon) :
+
   androidappicon("path.png")    # accepte PNG ou dossier res/mipmap-*/
+
   windowsicon   ("path.ico")    # accepte PNG ou .ico natif
+
   macosicon     ("path.icns")   # accepte PNG ou .icns natif
+
   iosappicon    ("path.png")    # ou dossier AppIcon.appiconset
+
   webfavicon    ("path.png")    # PNG converti automatiquement
 
+
+
   Note : Pong.exe affiche son icone correctement dans la taskbar/titre/
+
   Alt+Tab grace a un AppUserModelID stable defini dans NKWindow Win32
+
   (Rihen.Nkentseu.<NomApp>). Sans ca, Windows utilise un AUMID auto
+
   base sur le ProductCode MSI -> icone generique cassee.
 
+
+
 =============================================================================
+
 METADONNEES INSTALLER (MSI/EXE/DEB/PKG)
+
 =============================================================================
+
+
 
   Dans un .jenga de projet (hors filter) :
 
+
+
   appversion           ("1.0.0")                  # affichee dans Programs & Features
+
   apppublisher         ("Rihen Universe")         # nom editeur
+
   licensefile          ("../../LICENSE")          # .txt/.md (auto-converti en RTF pour WiX), ou .rtf direct
+
   createdesktopshortcut(True)                     # toggle raccourci bureau
 
+
+
   # Bag d'options libres (extensible) pour les besoins avances :
+
   installeroption("autostart_on_login", True)
+
   installeroption("registry_entry",     r\"HKLM\\Software\\Pong")
+
   installeroption("autoupdate_url",     "https://updates.example.com")
 
+
+
   # Ressources runtime a embarquer dans le package :
+
   dependfiles(["../../Resources/MyApp"])          # dossier ou fichier
+
         # Preserve la hierarchie relative au workspace.
+
         # Auto-inclut aussi les SHARED_LIB declarees via dependson().
 
+
+
 =============================================================================
+
 CYCLE DE BUILD + PACKAGE TYPIQUE (Pong exemple)
+
 =============================================================================
+
+
 
   # 1. Build optimise
+
   jenga build --target Pong --config Release
 
+
+
   # 2. Generer les 3 packages Windows
+
   jenga package --platform windows --project Pong --type zip --config Release
+
   jenga package --platform windows --project Pong --type exe --config Release
+
   jenga package --platform windows --project Pong --type msi --config Release
 
+
+
   # 3. (optionnel) Build + APK Android
+
   jenga build --target Pong --config Release --platform android
+
   jenga deploy --platform android --project Pong --config Release \
+
                --apk path/to/Pong-Release.apk --force-stop --run
 
+
+
   Distribution typique pour testeurs : envoyer Pong_setup.exe (Inno EXE)
+
   car wizard plus convivial que MSI. ZIP comme alternative sans install.
 
+
+
 =============================================================================
+
 IDE auto-config (jenga ide-setup)
+
 =============================================================================
+
+
 
   jenga le fait automatiquement au premier `jenga build` :
+
     - VSCode/Cursor/Windsurf : .vscode/settings.json (associations .jenga
+
       = Python, extraPaths Jenga, diagnostics)
+
     - pyrightconfig.json universel (Neovim+pyright, Helix, Emacs+lsp-mode,
+
       Sublime+LSP, Zed)
+
   Merge non-destructif : preserve toutes vos prefs IDE existantes.
+
   Desactiver : JENGA_NO_IDE_CONFIG=1
 
+
+
   Reload editor apres premiere installation pour activer la coloration
+
   Python + autocomplete sur les .jenga.
 
+
+
   Notes Wayland :
+
     Prerequis : libwayland-dev, libxkbcommon-dev, wayland-protocols, libdecor-0-dev
+
     Generer xdg-shell-client-protocol.h :
+
       wayland-scanner client-header
+
         /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml
+
         Kernel/Runtime/NKWindow/src/NKWindow/Platform/Wayland/xdg-shell-client-protocol.h
+
       wayland-scanner private-code
+
         /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml
+
         Kernel/Runtime/NKWindow/src/NKWindow/Platform/Wayland/xdg-shell-protocol.c
 
+
+
 Auteur : Rihen
+
 Date   : 2026
+
 =============================================================================
+
 """
 
+
+
 import os
+
 import sys
+
 import shutil
+
 from Jenga import *
+
 from jengaconfig import *
 
+
+
 # Ensure workspace root is in sys.path so '' works in all .jenga files
+
 _WORKSPACE_ROOT = os.path.dirname(os.path.abspath(__file__)) if "__file__" in dir() else os.getcwd()
+
 if _WORKSPACE_ROOT not in sys.path:
+
     sys.path.insert(0, _WORKSPACE_ROOT)
 
+
+
 # Config partagee (registre des modules : kind static/shared + dependances).
+
 # Chargee UNE fois ici via useconfig() et propagee a TOUS les .jenga inclus
+
 # (feature Jenga 2.0.5) -> fini le bloc config inline (~285 lignes).
+
 useconfig("config/modules.jenga")
+
 useconfig("config/toolchain.jenga")
+
 useconfig("config/graphics.jenga")   # Vulkan SDK / glslang / SPIRV-Cross (partage)
+
 useconfig("config/wayland.jenga")    # backend Wayland Linux (partage)
 
+
+
 with workspace("Nkentseu", location="."):
+
     nkentseutoolchain()
 
+
+
     dutc(enable=True)
+
     dute(enable=True)
+
+
 
     configurations(["Debug", "Release"])
 
+
+
     # ===== Options Linux : choix du backend de fenetrage ========================
-    newoption(
-        trigger="linux-backend",
-        value="BACKEND",
-        allowed=[
-            ["xlib",     "X11/XLib  (defaut, le plus compatible)"],
-            ["xcb",      "X11/XCB   (plus leger, asynchrone)"],
-            ["wayland",  "Wayland   (compositeurs modernes, sans X11)"],
-            ["headless", "Pas de fenetre (CI, serveurs, WSL sans ecran)"],
-        ],
-        default="xlib",
-        description="Backend de fenetrage Linux"
-    )
 
     newoption(
-        trigger="headless",
-        description="[Obsolete] Utiliser --options linux-backend=headless"
+
+        trigger="linux-backend",
+
+        value="BACKEND",
+
+        allowed=[
+
+            ["xlib",     "X11/XLib  (defaut, le plus compatible)"],
+
+            ["xcb",      "X11/XCB   (plus leger, asynchrone)"],
+
+            ["wayland",  "Wayland   (compositeurs modernes, sans X11)"],
+
+            ["headless", "Pas de fenetre (CI, serveurs, WSL sans ecran)"],
+
+        ],
+
+        default="xlib",
+
+        description="Backend de fenetrage Linux"
+
     )
+
+
+
+    newoption(
+
+        trigger="headless",
+
+        description="[Obsolete] Utiliser --options linux-backend=headless"
+
+    )
+
+
 
     # ===== Option Windows : Desktop vs UWP ====================================
+
     # Jenga v2.0.1 n'expose pas TargetOS.UWP; on route UWP via une option.
+
     newoption(
+
         trigger="windows-runtime",
+
         value="RUNTIME",
+
         allowed=[
+
             ["desktop", "Windows desktop classique (Win32)"],
+
             ["uwp",     "Windows Runtime (UWP)"],
+
         ],
+
         default="desktop",
+
         description="Runtime Windows cible (desktop ou UWP)"
+
     )
 
+
+
     # ===== Plateformes et architectures cibles ==================================
+
     targetoses([
+
         TargetOS.WINDOWS,
+
         TargetOS.LINUX,
+
         TargetOS.MACOS,
+
         TargetOS.ANDROID,
+
         TargetOS.IOS,
+
         TargetOS.WEB,
+
         TargetOS.HARMONYOS,
+
         TargetOS.XBOX_SERIES,
+
         TargetOS.XBOX_ONE,
+
     ])
 
+
+
     targetarchs([
+
         TargetArch.X86_64,   # Desktop (Windows, Linux, macOS, Xbox)
+
         TargetArch.ARM64,    # Mobile  (Android, iOS)
+
         TargetArch.WASM32,   # Web     (Emscripten)
+
     ])
+
+
 
     with unitest() as u:
         u.Compile()
 
+
+
     startproject("Sandbox")
 
+
+
     # =========================================================================
+
     # Inclusion de chaque projet depuis son propre fichier .jenga
+
     # L'ordre respecte la chaine de dependances.
+
     # =========================================================================
+
+
 
     with include("Kernel/Foundation/NKPlatform/NKPlatform.jenga"):
+
         pass
+
+
 
     with include("Kernel/Foundation/NKCore/NKCore.jenga"):
+
         pass
+
+
 
     with include("Kernel/System/NKLogger/NKLogger.jenga"):
+
         pass
+
+
 
     with include("Kernel/Foundation/NKMath/NKMath.jenga"):
+
         pass
+
+
 
     with include("Kernel/Foundation/NKMemory/NKMemory.jenga"):
+
         pass
+
+
 
     with include("Kernel/Foundation/NKContainers/NKContainers.jenga"):
+
         pass
+
+
 
     with include("Kernel/Runtime/NKImage/NKImage.jenga"):
+
         pass
+
+
 
     with include("Kernel/Runtime/NKFont/NKFont.jenga"):
+
         pass
+
+
 
     with include("Kernel/Runtime/NKAudio/NKAudio.jenga"):
+
         pass
+
+
 
     with include("Kernel/System/NKTime/NKTime.jenga"):
+
         pass
+
+
 
     with include("Kernel/System/NKStream/NKStream.jenga"):
+
         pass
+
+
 
     with include("Kernel/System/NKThreading/NKThreading.jenga"):
+
         pass
+
+
 
     with include("Kernel/System/NKFileSystem/NKFileSystem.jenga"):
+
         pass
+
+
 
     with include("Kernel/System/NKReflection/NKReflection.jenga"):
+
         pass
+
+
 
     with include("Kernel/System/NKNetwork/NKNetwork.jenga"):
+
         pass
+
+
 
     with include("Kernel/System/NKSerialization/NKSerialization.jenga"):
+
         pass
+
+
 
     with include("Externals/Libs/NKGlad/NKGlad.jenga"):
+
         pass
+
+
 
     with include("Externals/Libs/NKGLSlang/NKGLSlang.jenga"):
+
         pass
+
+
 
     with include("Externals/Libs/NKSPIRVCross/NKSPIRVCross.jenga"):
+
         pass
+
+
 
     with include("Externals/Libs/NKMbedTLS/NKMbedTLS.jenga"):
+
         pass
+
+
 
     with include("Kernel/Runtime/NKEvent/NKEvent.jenga"):
+
         pass
+
+
 
     with include("Kernel/Runtime/NKWindow/NKWindow.jenga"):
+
         pass
+
+
 
     with include("Kernel/Runtime/NKSL/NKSL.jenga"):
+
         pass
+
+
 
     with include("Kernel/Runtime/NKCanvas/NKCanvas.jenga"):
+
         pass
+
+
 
     with include("Kernel/Runtime/NKRHI/NKRHI.jenga"):
+
         pass
+
+
 
     with include("Kernel/Runtime/NKUI/NKUI.jenga"):
+
         pass
+
+
 
     # NKGui (framework UI immediat) + NKEditorKit (coquille d'editeur) : requis par NKCode.
+
     with include("Kernel/Runtime/NKGui/NKGui.jenga"):
+
         pass
+
+
 
     with include("Engine/NKEditorKit/NKEditorKit.jenga"):
+
         pass
+
+
 
     with include("Applications/NKCode/NKCode.jenga"):
+
         pass
+
+
 
     # Integrations decouplees (ImGui / NKUI -> NKCanvas/NKRHI). Optionnelles :
+
     # une app les lie seulement si elle en a besoin (ImGui n'est PAS tire dans
+
     # le coeur de NKCanvas/NKRHI).
+
     with include("Integrations/ImGui/NKImGuiIntegration.jenga"):
+
         pass
+
+
 
     with include("Integrations/NKUI/NKUIIntegration.jenga"):
+
         pass
+
+
 
     with include("Integrations/NKGui/NKGuiIntegration.jenga"):
+
         pass
+
+
 
     with include("Kernel/Runtime/NKCamera/NKCamera.jenga"):
+
         pass
+
+
 
     # NKCollision (collision 2D+3D, zero-STL).
+
     with include("Kernel/Runtime/NKCollision/NKCollision.jenga"):
+
         pass
+
+
 
     # NKPhysics (dynamique corps rigide 2D+3D, sur NKCollision).
+
     with include("Kernel/Runtime/NKPhysics/NKPhysics.jenga"):
+
         pass
+
+
 
     with include("Applications/Sandbox/Sandbox.jenga"):
+
         pass
+
+
 
     with include("Applications/NkAudioDemo/NkAudioDemo.jenga"):
+
         pass
+
+
 
     with include("Applications/NkCameraDemos/NkCameraDemos.jenga"):
+
         pass
+
+
 
     with include("Sandbox/System/NKFileSystem/NKFileSystemSandbox.jenga"):
+
         pass
+
+
 
     with include("Sandbox/System/NKLogger/NKLoggerSandbox.jenga"):
+
         pass
+
+
 
     with include("Sandbox/System/NKReflection/NKReflectionSandbox.jenga"):
+
         pass
+
+
 
     with include("Kernel/Runtime/NKRenderer/NKRenderer.jenga"):
+
         pass
+
+
 
     # ===== Sous-systeme IA (Kernel/AI) — construit bottom-up =====
+
     with include("Kernel/AI/NKTensor/NKTensor.jenga"):
+
         pass
+
+
+
+    with include("Kernel/AI/NKAutograd/NKAutograd.jenga"):
+
+        pass
+
+
+
+    with include("Kernel/AI/NKNN/NKNN.jenga"):
+
+        pass
+
+
+
+    with include("Kernel/AI/NKOptim/NKOptim.jenga"):
+
+        pass
+
+
+
+    with include("Kernel/AI/NKData/NKData.jenga"):
+
+        pass
+
+
+
+    with include("Kernel/AI/NKTrain/NKTrain.jenga"):
+
+        pass
+
+
+
+    with include("Kernel/AI/NKInfer/NKInfer.jenga"):
+
+        pass
+
+
+
+    with include("Kernel/AI/NKRL/NKRL.jenga"):
+
+        pass
+
+
+
+    with include("Kernel/AI/NKGen/NKGen.jenga"):
+
+        pass
+
+
 
     with include("Applications/NKTensorDemo/NKTensorDemo.jenga"):
+
         pass
+
+
 
     with include("Applications/NkSLComputeCheck/NkSLComputeCheck.jenga"):
+
         pass
+
+
 
     with include("Applications/NkGpuProbe/NkGpuProbe.jenga"):
+
         pass
+
+
 
     with include("Applications/NkComputeNkSL/NkComputeNkSL.jenga"):
+
         pass
+
+
 
     with include("Applications/NkTensorGpuTest/NkTensorGpuTest.jenga"):
+
         pass
+
+
+
+    with include("Applications/NKGpuBenchTest/NKGpuBenchTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKConvBenchTest/NKConvBenchTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKAutogradTest/NKAutogradTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKNNTest/NKNNTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKConvTest/NKConvTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKDataTest/NKDataTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKTrainTest/NKTrainTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKInferTest/NKInferTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKRLTest/NKRLTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKGenTest/NKGenTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKVAETest/NKVAETest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKMnistVAETest/NKMnistVAETest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKMnistConvVAETest/NKMnistConvVAETest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKConvVAETest/NKConvVAETest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKVoxelGenTest/NKVoxelGenTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKObjectGenTest/NKObjectGenTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKGen3DTest/NKGen3DTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKGenMeshTest/NKGenMeshTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKSmoothMeshTest/NKSmoothMeshTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKMeshRenderTest/NKMeshRenderTest.jenga"):
+
+        pass
+
+
 
     with include("Applications/Model/Model.jenga"):
+
         pass
+
+
 
     with include("Applications/NkSLCheck/NkSLCheck.jenga"):
+
         pass
+
+
 
     with include("Applications/NKPA/NKPA.jenga"):
+
         pass
+
+
 
     # NKECS (ECS bas niveau archetypes) — DOIT etre enregistre AVANT Noge qui en
+
     # depend (sinon %{NKECS.location} vide -> includes NKECS/* introuvables).
+
     with include("Kernel/Runtime/NKECS/NKECS.jenga"):
+
         pass
+
+
 
     with include("Engine/Noge/Noge.jenga"):
+
         pass
+
+
 
     with include("Applications/Nogee/Nogee.jenga"):
+
         pass
+
+
 
     with include("Applications/NKEditorKitDemo/NKEditorKitDemo.jenga"):
+
         pass
+
+
 
     with include("Applications/NkAnimaEditor/NkAnimaEditor.jenga"):
+
         pass
+
+
 
     with include("Applications/ImGuiRef/ImGuiRef.jenga"):
+
         pass
+
+
 
     with include("Applications/NKGuiDemo/NKGuiDemo.jenga"):
+
         pass
+
+
 
     with include("Applications/NKViewportDemo/NKViewportDemo.jenga"):
+
         pass
+
+
 
     with include("Applications/PV3DE/PV3DE.jenga"):
+
         pass
+
+
 
     with include("Applications/Pong/Pong.jenga"):
+
         pass
+
+
 
     with include("Applications/Songoo/Songoo.jenga"):
+
         pass
+
+
 
     with include("Applications/Nkoung/Nkoung.jenga"):
+
         pass
+
+
 
     with include("Applications/Mou/Mou.jenga"):
+
         pass
+
+
 
     with include("Applications/NkImeTest/NkImeTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NkImageDemo/NkImageDemo.jenga"):
+
         pass
 
+
+
     with include("Applications/RihenDefi/RihenDefi.jenga"):
+
         pass
+

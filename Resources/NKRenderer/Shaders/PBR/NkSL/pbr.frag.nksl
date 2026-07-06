@@ -25,8 +25,8 @@ uniform CameraUBO {
     float deltaTime;
     float iblStrength;
     float _p0;
-    float _p1;
-    float _p2;
+    float viewMode;      // 0=RENDERED (PBR éclairé) ; >0.5 = SOLID/UNLIT (matcap)
+    float matcapId;      // preset matcap en mode SOLID/WIREFRAME : 0=Studio 1=Clay 2=Metal 3=Toon
     mat4  mirrorViewProj;
     vec4  reflectionFlags;
 } uCam;
@@ -102,6 +102,9 @@ uniform ShadowSlotsUBO {
 @binding(set=0, binding=22) uniform samplerCube tLight3DCubeCookie1;
 @binding(set=0, binding=23) uniform samplerCube tLight3DCubeCookie2;
 @binding(set=0, binding=24) uniform samplerCube tLight3DCubeCookie3;
+
+// Boule MatCap (mode SOLID/WIREFRAME) : échantillonnée par la normale en espace-vue.
+@binding(set=0, binding=28) uniform sampler2D tMatcap;
 
 float SampleLight3DCubeCookie(int idx, vec3 dir) {
     if (idx == 0) return texture(tLight3DCubeCookie0, dir).r;
@@ -365,5 +368,51 @@ void main() {
     vec3 emissive = texture(tEmissive, vUV).rgb * uObj.emissiveStrength;
 
     vec3 color = amb + Lo + ccContrib + sssContrib + emissive;
+    // Mode SOLID / UNLIT (façon Blender Solid & Wireframe) : couleur plate = albedo*tint,
+    // révélée par un "phare caméra" (N·V) pour voir la FORME, SANS lumières de scène /
+    // ombres / IBL. Facteur borné (<1) -> reste sous le seuil de bloom (pas de halo).
+    // Canaux d'affichage viewport (façon Blender / DCC) : 0=RENDERED (PBR ci-dessus),
+    // 1=SOLID/matcap, 2=NORMAL, 3=UV, 4=AO. Tous sans lumières de scène (débogage).
+    if (uCam.viewMode > 0.5) {
+        if (uCam.viewMode < 1.5) {
+            // 1 — SOLID/WIREFRAME : matcap procédural en ESPACE VUE (tourne avec la
+            // caméra), SANS lumières/ombres/IBL. Presets sélectionnables (matcapId).
+            // Borné (<0.85) -> pas de halo bloom. NB : mat3(mat4) INTERDIT HLSL (X3014).
+            mat3  vRot = mat3(uCam.view[0].xyz, uCam.view[1].xyz, uCam.view[2].xyz);
+            vec3  vn   = normalize(vRot * geomN);                 // normale en espace vue
+            float mc   = uCam.matcapId;
+            float shade;
+            if (mc < 0.5) {
+                float key  = max(dot(vn, vec3(0.32, 0.53, 0.78)), 0.0);
+                float fill = max(dot(vn, vec3(-0.60, 0.10, 0.79)), 0.0);
+                float rim  = pow(1.0 - max(vn.z, 0.0), 3.0);
+                shade = 0.25 + 0.50*key + 0.18*fill + 0.22*rim;
+            } else if (mc < 1.5) {
+                float up = vn.y * 0.5 + 0.5;
+                shade = 0.30 + 0.50*up;
+            } else if (mc < 2.5) {
+                float key  = max(dot(vn, vec3(0.30, 0.50, 0.80)), 0.0);
+                float spec = pow(key, 20.0);
+                float fres = pow(1.0 - max(vn.z, 0.0), 4.0);
+                shade = 0.14 + 0.42*key + 0.7*spec + 0.5*fres;
+            } else if (mc < 3.5) {
+                float key = max(dot(vn, vec3(0.30, 0.55, 0.78)), 0.0);
+                shade = (key > 0.62) ? 0.82 : ((key > 0.32) ? 0.55 : 0.30);
+            } else {
+                vec2 muv = vn.xy * 0.5 + 0.5;
+                shade = texture(tMatcap, muv).r;
+            }
+            color = albedo * uObj.tint.rgb * clamp(shade, 0.0, 0.85);
+        } else if (uCam.viewMode < 2.5) {
+            // 2 — NORMAL : normale MONDE (avec normal map) encodée RGB [0,1].
+            color = N * 0.5 + vec3(0.5);
+        } else if (uCam.viewMode < 3.5) {
+            // 3 — UV : coordonnées de texture (R=u, G=v) -> damier de contrôle du mapping.
+            color = vec3(fract(vUV), 0.0);
+        } else {
+            // 4 — AO : occlusion ambiante (ORM.r*aoStrength × Voxel AO) en niveaux de gris.
+            color = vec3(clamp(ao * voxAO, 0.0, 1.0));
+        }
+    }
     fragColor  = vec4(color, 1.0);
 }
