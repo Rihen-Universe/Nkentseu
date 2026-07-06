@@ -51,10 +51,28 @@ Fix — support générique de l'instance-index en software :
 
 Résultat : grille d'ombres au sol sous l'arc de cubes instanciés (une ombre par cube). Perf ~4.9 FPS (re-gen des sommets par instance pour le pass shadow).
 
+## 5. Perf — breakdown mesuré (NK_SW_PERF, MIN du replay par frame, 1280×720)
+
+Toggles de diagnostic ajoutés : `NK_SW_NOSHADOW=1` (coupe l'échantillonnage dans le fragment géométrie), `NK_SW_NOSHADOWPASS=1` (coupe le rendu des casters dans l'atlas), `NK_SW_PCF=2` (2×2 au lieu de 3×3).
+
+Mesures (MIN, bruit de fond ±40 ms car process lancé en arrière-plan) :
+- **Tout activé** : ~240-285 ms (le « défaut » est le plus bruité).
+- **Sans échantillonnage d'ombre** (`NK_SW_NOSHADOW`) : ~234 ms → **sampling ≈ 50 ms**.
+- **Sans passe shadow** (`NK_SW_NOSHADOWPASS`) : **~187 ms (stable)** → **rendu de la passe ≈ 50-99 ms**.
+- ⇒ **Base pipeline (géométrie + tonemap/FXAA, sans ombres) ≈ 135-187 ms.**
+
+**Constats :**
+1. Les ombres ~**doublent** le coût de la frame (pass + sampling). Ce n'est PAS gratuit (un run antérieur anormalement bruité l'avait faussement suggéré).
+2. Le **gros poste = la passe shadow** (~50-99 ms). Cause : elle **re-rend les 14 slots de l'atlas chaque frame** — le clear global efface même les slots « cached », donc NkRenderer les re-rend (`NkVirtualShadowMaps.cpp` : *V2 todo : ClearRect + skip cached rerender*). **Levier en code partagé** (NKRenderer), hors backend software.
+3. Le **choix du noyau PCF n'est PAS un levier** : `3×3 ≈283 ms` vs `2×2 ≈309 ms` = bruit. Gardé **3×3** (meilleure qualité).
+4. **Cache de bindings** ajouté au fragment 3D (résolution UBO/texture 1×/draw au lieu de par pixel, via `SwBindGen`) : sain et output-identique, mais gain sous le bruit (le lookup avait déjà un cache interne).
+
+**Piège de mesure CRITIQUE** : `NK_SW_PERF=1` logge 1 ligne/frame dans un app.log de plusieurs Mo → I/O synchrone par frame qui **fausse la HUD FPS** (lectures 5-8 artificiellement basses). Sans ce log, la HUD est à **60 FPS** (vsync-capé) ; mesurer le coût raster via le replay NK_SW_PERF (MIN, pas avg).
+
 ## Limites assumées
 - Une seule lumière directionnelle validée pour l'instant (le mécanisme couvre spots/points par la même sélection de tuile, à valider).
 - Biais de profondeur fixe (pas de slope/normal bias).
-- Perf : le PCF 3×3 + le rendu shadow instancié coûtent (~8 → ~5 FPS). Optimisation à venir (SIMD, sortie anticipée, masque basse résolution).
+- **Optimisation perf restante = la passe shadow** (re-render des slots cached, code NKRenderer partagé) et/ou SIMD du fragment par pixel. Le PCF et les lookups ne sont pas des leviers.
 
 ## Vérification
 Captures : sphères + colonnes + cube central projettent des ombres douces au sol, scène ancrée. Rendu principal identique avant/après le support du viewport (non-régression). Aucune modification des backends GPU ni de `NKRenderer/Tools/Shadow/`.
