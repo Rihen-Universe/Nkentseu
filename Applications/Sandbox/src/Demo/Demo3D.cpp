@@ -104,6 +104,7 @@ namespace nkentseu { namespace demo {
         bool                            editMergePending   = false; // M : soude les vertices sélectionnés
         bool                            editMakeFacePending= false; // F : crée une face (n-gon) depuis la sélection
         bool                            editSubdivPending  = false; // W : subdivise les faces sélectionnées
+        bool                            editLoopCutPending = false; // Ctrl+R : boucle d'arêtes (loop cut)
         // Propriétés des outils (façon Blender) — réglées par Shift+touche, affichées au HUD.
         int32                           subdivCuts      = 1;    // nb d'itérations de subdivision (Shift+W)
         bool                            extrudeIndividual = false; // Extrude : région (0) vs faces individuelles (1) (Shift+E)
@@ -337,6 +338,60 @@ namespace nkentseu { namespace demo {
             }
         }
         st->editHE.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
+        if((uint32)vsel.Size()<(uint32)pv.Size()) vsel.Resize((uint32)pv.Size());
+        st->vertSel = vsel;
+        Demo3D_SyncFromHE(st, ms);
+    }
+
+    // LOOP CUT (Ctrl+R) sur quads : depuis une ARÊTE sélectionnée, traverse l'ANNEAU de
+    // quads (arête opposée -> twin -> arête opposée…) et insère une boucle d'arêtes aux
+    // MILIEUX (partagés). Façon Blender (maillages quad fermés).
+    static void Demo3D_LoopCutHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
+        auto& HE = st->editHE;
+        // Arête de départ = 1re demi-arête vivante dont les 2 extrémités sont sélectionnées.
+        renderer::NkEmId h0 = renderer::NK_EM_INVALID;
+        for (uint32 h=0; h<(uint32)HE.hedges.Size(); ++h){ if(!HE.hedges[h].alive) continue;
+            uint32 o=HE.hedges[h].origin, d=HE.hedges[HE.hedges[h].next].origin;
+            if(o<(uint32)st->vertSel.Size() && d<(uint32)st->vertSel.Size() && st->vertSel[o] && st->vertSel[d]){ h0=h; break; } }
+        if (h0==renderer::NK_EM_INVALID) return;
+        // Traversée de l'anneau -> ensemble d'arêtes (non dirigées) traversées.
+        NkHashMap<uint64,uint8> ring;
+        auto addE=[&](uint32 a,uint32 b){ uint32 lo=a<b?a:b,hi=a<b?b:a; ring.InsertOrAssign(((uint64)lo<<32)|hi,(uint8)1); };
+        renderer::NkEmId h=h0; uint32 guard=0;
+        do {
+            uint32 o=HE.hedges[h].origin, d=HE.hedges[HE.hedges[h].next].origin; addE(o,d);
+            if (HE.FaceSize(HE.hedges[h].face)!=4) break;                 // anneau uniquement à travers des quads
+            renderer::NkEmId hOpp = HE.hedges[HE.hedges[h].next].next;    // arête opposée du quad
+            addE(HE.hedges[hOpp].origin, HE.hedges[HE.hedges[hOpp].next].origin);
+            renderer::NkEmId tw = HE.hedges[hOpp].twin;
+            if (tw==renderer::NK_EM_INVALID) break;                       // bord -> anneau ouvert
+            h = tw;
+        } while (h!=h0 && ++guard<100000u);
+        // Découpe : chaque quad avec 2 arêtes opposées dans l'anneau -> 2 sous-quads.
+        NkVector<renderer::NkVertex3D> pv; NkVector<uint32> fs, fv;
+        HE.ToPolygons(pv, fs, fv);
+        auto isRing=[&](uint32 a,uint32 b)->bool{ uint32 lo=a<b?a:b,hi=a<b?b:a; return ring.Find(((uint64)lo<<32)|hi)!=nullptr; };
+        NkHashMap<uint64,uint32> emid;
+        auto edgeMid=[&](uint32 a,uint32 b)->uint32{ uint32 lo=a<b?a:b,hi=a<b?b:a; uint64 key=((uint64)lo<<32)|hi;
+            uint32* p=emid.Find(key); if(p) return *p; uint32 idx=(uint32)pv.Size(); renderer::NkVertex3D nv=pv[a];
+            nv.pos=(pv[a].pos+pv[b].pos)*0.5f; nv.uv=(pv[a].uv+pv[b].uv)*0.5f; pv.PushBack(nv); emid.InsertOrAssign(key,idx); return idx; };
+        NkVector<uint32> nfs, nfv; nfs.PushBack(0);
+        NkVector<uint8> vsel; vsel.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)vsel.Size();i++) vsel[i]=0;
+        const uint32 fc=(fs.Size()>0)?(uint32)fs.Size()-1:0;
+        for (uint32 f=0;f<fc;f++){ const uint32 s=fs[f],e=fs[f+1],n=e-s;
+            int32 re0=-1,re1=-1;
+            if(n==4){ for(uint32 k=0;k<4;k++) if(isRing(fv[s+k],fv[s+(k+1)%4])){ if(re0<0)re0=(int32)k; else re1=(int32)k; } }
+            if(n==4 && re0>=0 && re1>=0 && (re1-re0)==2){                 // 2 arêtes opposées
+                uint32 k0=(uint32)re0;
+                uint32 q0=fv[s+k0], q1=fv[s+(k0+1)%4], q2=fv[s+(k0+2)%4], q3=fv[s+(k0+3)%4];
+                uint32 m0=edgeMid(q0,q1), m1=edgeMid(q2,q3);
+                uint32 mx=(m0>m1?m0:m1); if((uint32)vsel.Size()<=mx) vsel.Resize(mx+1);
+                vsel[m0]=1; vsel[m1]=1;
+                nfv.PushBack(q0);nfv.PushBack(m0);nfv.PushBack(m1);nfv.PushBack(q3); nfs.PushBack((uint32)nfv.Size());
+                nfv.PushBack(m0);nfv.PushBack(q1);nfv.PushBack(q2);nfv.PushBack(m1); nfs.PushBack((uint32)nfv.Size());
+            } else { for(uint32 k=s;k<e;k++) nfv.PushBack(fv[k]); nfs.PushBack((uint32)nfv.Size()); }
+        }
+        HE.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
         if((uint32)vsel.Size()<(uint32)pv.Size()) vsel.Resize((uint32)pv.Size());
         st->vertSel = vsel;
         Demo3D_SyncFromHE(st, ms);
@@ -687,6 +742,9 @@ namespace nkentseu { namespace demo {
                 // (façon Blender) ; touche seule = applique.
                 if (!st->editGizmo.IsDragging()) {
                     const bool shiftK = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
+                    const bool ctrlK  = NkInput.IsKeyDown(NkKey::NK_LCTRL)  || NkInput.IsKeyDown(NkKey::NK_RCTRL);
+                    // Ctrl+R = LOOP CUT (boucle d'arêtes) depuis l'arête sélectionnée.
+                    if (k == NkKey::NK_R && ctrlK) { st->editLoopCutPending = true; return; }
                     if (k == NkKey::NK_E) {
                         if (shiftK) { st->extrudeIndividual = !st->extrudeIndividual;
                             logger.Info("[Demo3D] Extrude = {0}\n", st->extrudeIndividual?"INDIVIDUEL":"REGION"); }
@@ -1179,6 +1237,9 @@ namespace nkentseu { namespace demo {
                 if (st->editSubdivPending) { st->editSubdivPending=false;
                     for (int32 c=0;c<st->subdivCuts;c++) Demo3D_SubdivideHE(st, meshSysT);
                     logger.Info("[Demo3D] Subdivide x{0} -> {1} faces\n", st->subdivCuts, (int32)st->editHE.FaceCount()); }
+                if (st->editLoopCutPending) { st->editLoopCutPending=false;
+                    Demo3D_LoopCutHE(st, meshSysT);
+                    logger.Info("[Demo3D] Loop cut -> {0} faces\n", (int32)st->editHE.FaceCount()); }
                 if (st->editMergePending) { st->editMergePending=false;
                     Demo3D_MergeHE(st, meshSysT);
                     logger.Info("[Demo3D] Merge -> {0} vertices\n", (int32)st->editHE.VertCount()); }
@@ -1542,7 +1603,7 @@ namespace nkentseu { namespace demo {
                     st->editObjIdx, modeStr,
                     gmName[st->editGizmo.Mode() & 3], st->editXray ? "ON" : "OFF");
                 overlay->DrawText({20.f, 118.f},
-                    "clic=sel | E=extrude(Sh:%s) X=suppr M=souder(Sh:%s) F=face W=subdiv(Sh:x%d) | G+X/Y/Z=axe | TAB=sortir",
+                    "E=extrude(Sh:%s) X=suppr M=souder(Sh:%s) F=face W=subdiv(Sh:x%d) Ctrl+R=loopcut | G+X/Y/Z=axe | TAB=sortir",
                     st->extrudeIndividual?"indiv":"region",
                     (st->mergeMode==2)?"last":(st->mergeMode==1)?"first":"center", st->subdivCuts);
             } else {
