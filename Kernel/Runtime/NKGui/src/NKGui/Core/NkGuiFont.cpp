@@ -76,7 +76,11 @@ namespace nkentseu {
         static bool NkFileExists(const char* p) noexcept { if (!p || !*p) return false; std::FILE* f = std::fopen(p, "rb"); if (f) { std::fclose(f); return true; } return false; }
 
         // Fusionne les polices de repli externes presentes (merge -> comble les manquants).
-        static void NkMergeFallback(NkFontAtlas& atlas, float32 sizePx) noexcept {
+        // ext=false : n'incorpore AUCUN repli externe (broad/CJK/emoji = plusieurs milliers
+        // de glyphes) -> atlas MINUSCULE + build tres rapide. Reserve aux polices MONOSPACE
+        // (code) : leur police embarquee couvre deja Latin-1/etendu, box-drawing, fleches...
+        static void NkMergeFallback(NkFontAtlas& atlas, float32 sizePx, bool ext) noexcept {
+            if (!ext) return;
             auto add = [&](const char* path, const uint32* ranges) {
                 if (!NkFileExists(path)) return;
                 NkFontConfig fb; fb.glyphRanges = ranges; fb.mergeMode = true;
@@ -87,12 +91,12 @@ namespace nkentseu {
             add(gFbEmoji, NkEmojiRanges());
         }
 
-        bool NkGuiFont::LoadEmbedded(NkEmbeddedFontId id, float32 sizePx) noexcept {
+        bool NkGuiFont::LoadEmbedded(NkEmbeddedFontId id, float32 sizePx, bool extFallback) noexcept {
             atlas.Clear(); face = nullptr; pixels = nullptr;   // rechargeable
             NkFontConfig cfg; cfg.glyphRanges = NkGlyphRanges();
             face = NkFontEmbedded::AddToAtlas(atlas, id, sizePx, &cfg);
             if (!face) return false;
-            NkMergeFallback(atlas, sizePx);            // repli pour les glyphes manquants
+            NkMergeFallback(atlas, sizePx, extFallback);   // repli pour les glyphes manquants
             if (!atlas.Build()) return false;
             int32 bpp = 0;
             atlas.GetTexDataAsAlpha8(&pixels, &atlasW, &atlasH, &bpp);
@@ -100,13 +104,13 @@ namespace nkentseu {
             return dirty;
         }
 
-        bool NkGuiFont::LoadFromFile(const char* path, float32 sizePx) noexcept {
+        bool NkGuiFont::LoadFromFile(const char* path, float32 sizePx, bool extFallback) noexcept {
             if (!path || !*path) return false;
             atlas.Clear(); face = nullptr; pixels = nullptr;   // rechargeable
             NkFontConfig cfg; cfg.glyphRanges = NkGlyphRanges();
             face = atlas.AddFontFromFile(path, sizePx > 0.f ? sizePx : 16.f, &cfg);
             if (!face) return false;
-            NkMergeFallback(atlas, sizePx > 0.f ? sizePx : 16.f);
+            NkMergeFallback(atlas, sizePx > 0.f ? sizePx : 16.f, extFallback);
             if (!atlas.Build()) return false;
             int32 bpp = 0;
             atlas.GetTexDataAsAlpha8(&pixels, &atlasW, &atlasH, &bpp);

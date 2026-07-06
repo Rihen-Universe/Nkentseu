@@ -30,11 +30,14 @@ namespace nkentseu {
             NkGuiFont& operator=(const NkGuiFont&) = delete;
 
             // Charge une police embarquée à la taille donnée + construit l'atlas.
-            bool LoadEmbedded(NkEmbeddedFontId id, float32 sizePx) noexcept;
+            // extFallback=false : n'incorpore AUCUN repli externe (broad/CJK/emoji = plusieurs
+            // milliers de glyphes) — pour les polices MONOSPACE (code) : atlas minuscule =>
+            // reconstruction RAPIDE au zoom (l'interface, elle, garde les replis complets).
+            bool LoadEmbedded(NkEmbeddedFontId id, float32 sizePx, bool extFallback = true) noexcept;
 
             // Charge une police depuis un fichier TTF/OTF (ex. police système Windows).
             // Rechargeable : réinitialise l'atlas avant. Conserve `texId` (ré-upload).
-            bool LoadFromFile(const char* path, float32 sizePx) noexcept;
+            bool LoadFromFile(const char* path, float32 sizePx, bool extFallback = true) noexcept;
 
             const NkFont* Face()  const noexcept { return face; }
             uint32        TexId() const noexcept { return texId; }

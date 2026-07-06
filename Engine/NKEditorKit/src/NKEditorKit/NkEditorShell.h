@@ -135,6 +135,7 @@ namespace nkentseu {
             void ResetCodeFontSize() noexcept;               ///< remet la police du code à la taille par défaut (Ctrl+0)
             float32 CodeFontSize() const noexcept;
             static constexpr float32 kDefaultCodeFontSize = 15.f;   ///< défaut (= NkFontPrefs::codeSize)
+            static constexpr float32 kCodeReloadDebounce  = 0.12f;  ///< délai (s) avant rebuild de l'atlas code après le dernier cran de zoom
             // ── Infos centrees dans la barre de titre (ex. fichier actif) ────────
             void SetTitleInfo(const char* center) noexcept;
 
@@ -145,7 +146,9 @@ namespace nkentseu {
             void OpenPreferences(int32 tab = 0) noexcept { mShowPrefs = true; mPrefsTab = tab; mPrefsJustOpened = true; }
 
         private:
-            void LoadFontsFromPrefs() noexcept;                               ///< (re)charge mFont/mCodeFont depuis mFontPrefs
+            void LoadFontsFromPrefs() noexcept;                               ///< (re)charge mFont + mCodeFont
+            void LoadUiFont() noexcept;                                       ///< (re)charge SEULE la police d'interface
+            void LoadCodeFont() noexcept;                                     ///< (re)charge SEULE la police du code (zoom rapide)
             void DrawPreferences(NkEditorFrameContext& ec) noexcept;          ///< fenetre Preferences (categories)
             void BuildMenuBar(NkEditorFrameContext& ec, const nkgui::NkRect& rect) noexcept;
             void DrawTitleBar(NkEditorFrameContext& ec, const nkgui::NkRect& bar) noexcept;
@@ -182,7 +185,8 @@ namespace nkentseu {
             nkgui::NkGuiFont    mFont;       ///< police d'interface (Inter/Karla)
             nkgui::NkGuiFont    mCodeFont;   ///< police monospace code/terminal (DejaVu)
             bool                mFontOk = false;
-            bool                mFontReloadPending = false;  ///< rechargement d'atlas differe au debut de frame (anti-crash zoom)
+            bool                mFontReloadPending = false;  ///< reload des DEUX polices differe au debut de frame (anti-crash)
+            float32             mCodeReloadCountdown = -1.f; ///< zoom : debounce (s). >=0 => reconstruit l'atlas code quand il atteint 0 (evite 1 rebuild/cran)
             NkFontPrefs         mFontPrefs;          ///< reglages de polices (persistes)
             nkgui::NkGuiTheme   mDefaultTheme;       ///< theme par defaut (vit dans l'app) -> Reinitialiser
             nkgui::NkGuiSyntax  mDefaultSyntax;      ///< couleurs langages par defaut -> Reinitialiser
