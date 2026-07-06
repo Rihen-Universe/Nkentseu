@@ -169,277 +169,74 @@ namespace nkentseu { namespace demo {
         return (triIdx < (uint32)st->editTriFace.Size()) ? st->editTriFace[triIdx] : renderer::NK_EM_INVALID;
     }
 
-    // Une face polygone (indices [s..e[) est sélectionnée si TOUS ses sommets le sont.
-    static bool Demo3D_PolyFaceSel(Demo3DState* st, const NkVector<uint32>& fv, uint32 s, uint32 e) {
-        for (uint32 k=s;k<e;k++) if(!st->vertSel[fv[k]]) return false; return e>s;
+    // ── Pont sélection UI <-> COUCHE DE COMMANDES (editHE = moteur, ops paramétrées) ──
+    // Les opérations d'édition (extrude/delete/merge/makeface/subdivide/loopcut/bisect)
+    // vivent désormais dans NkEditMesh (moteur, sans dépendance UI/GPU) : base pour l'undo/
+    // redo, les modificateurs et l'espace d'actions IA (NKAI). Ces wrappers poussent/
+    // récupèrent la sélection du démo (st->vertSel) autour de l'appel, puis
+    // Demo3D_SyncFromHE régénère le rendu (triangulation + cage + mesh GPU).
+    static void Demo3D_PushSel(Demo3DState* st) {
+        const uint32 n = st->editHE.VertCount();
+        for (uint32 i=0;i<n && i<(uint32)st->vertSel.Size(); ++i) st->editHE.verts[i].sel = st->vertSel[i];
+    }
+    static void Demo3D_PullSel(Demo3DState* st) {
+        const uint32 n = st->editHE.VertCount();
+        if ((uint32)st->vertSel.Size()!=n) st->vertSel.Resize(n);
+        for (uint32 i=0;i<n; ++i) st->vertSel[i] = st->editHE.verts[i].sel;
     }
 
-    // EXTRUDE (E) sur n-gons : duplique les faces sélectionnées (cap), crée des faces
-    // latérales (quads) sur les arêtes de BORD, décale le cap le long de la normale
-    // moyenne, sélectionne le cap. Préserve les n-gons (un quad extrudé reste un quad).
+    // EXTRUDE (E) : région (normale moyenne) ou individuel (Shift+E) — cf. NkEditMesh.
     static void Demo3D_ExtrudeHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        NkVector<renderer::NkVertex3D> pv; NkVector<uint32> fs, fv;
-        st->editHE.ToPolygons(pv, fs, fv);
-        const uint32 fc = (fs.Size()>0)?(uint32)fs.Size()-1:0;
-        NkVec3f avgN{0.f,0.f,0.f}; int32 selCount=0;
-        NkVector<uint8> faceSel; faceSel.Resize(fc);
-        for (uint32 f=0;f<fc;f++){ const uint32 s=fs[f],e=fs[f+1];
-            const bool sel=Demo3D_PolyFaceSel(st,fv,s,e); faceSel[f]=sel?1:0;
-            if(sel && e-s>=3){ selCount++; avgN=avgN+(pv[fv[s+1]].pos-pv[fv[s]].pos).Cross(pv[fv[s+2]].pos-pv[fv[s]].pos); } }
-        if (selCount==0) return;
-        { float32 l=avgN.Len(); avgN=(l>1e-6f)?avgN*(1.f/l):NkVec3f{0.f,1.f,0.f}; }
-        NkVec3f bmn{1e30f,1e30f,1e30f},bmx{-1e30f,-1e30f,-1e30f};
-        for (uint32 i=0;i<(uint32)pv.Size();i++){ NkVec3f p=pv[i].pos;
-            bmn.x=NkMin(bmn.x,p.x);bmn.y=NkMin(bmn.y,p.y);bmn.z=NkMin(bmn.z,p.z);
-            bmx.x=NkMax(bmx.x,p.x);bmx.y=NkMax(bmx.y,p.y);bmx.z=NkMax(bmx.z,p.z); }
-        const float32 off=(bmx-bmn).Len()*0.08f;
-
-        // ── Mode INDIVIDUEL : chaque face extrudée séparément le long de SA normale,
-        //    dup PROPRES par face (les caps se séparent aux bords). Façon Blender.
-        if (st->extrudeIndividual) {
-            NkVector<uint32> nfs, nfv; nfs.PushBack(0);
-            NkVector<uint8> vsel; vsel.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)vsel.Size();i++) vsel[i]=0;
-            for (uint32 f=0;f<fc;f++){ if(faceSel[f]) continue; for(uint32 k=fs[f];k<fs[f+1];k++) nfv.PushBack(fv[k]); nfs.PushBack((uint32)nfv.Size()); }
-            for (uint32 f=0;f<fc;f++){ if(!faceSel[f]) continue; const uint32 s=fs[f],e=fs[f+1],n=e-s;
-                NkVec3f fn=(pv[fv[s+1]].pos-pv[fv[s]].pos).Cross(pv[fv[s+2]].pos-pv[fv[s]].pos);
-                { float32 l=fn.Len(); fn=(l>1e-6f)?fn*(1.f/l):NkVec3f{0.f,1.f,0.f}; }
-                NkVector<uint32> dup; dup.Resize(n);
-                for(uint32 k=0;k<n;k++){ uint32 vi=fv[s+k]; renderer::NkVertex3D nv=pv[vi]; nv.pos=nv.pos+fn*off;
-                    dup[k]=(uint32)pv.Size(); pv.PushBack(nv); vsel.PushBack(1); }
-                for(uint32 k=0;k<n;k++) nfv.PushBack(dup[k]); nfs.PushBack((uint32)nfv.Size());   // cap
-                for(uint32 k=0;k<n;k++){ uint32 a=fv[s+k],b=fv[s+(k+1)%n], na=dup[k],nb=dup[(k+1)%n];
-                    nfv.PushBack(a);nfv.PushBack(b);nfv.PushBack(nb);nfv.PushBack(na); nfs.PushBack((uint32)nfv.Size()); } }
-            st->editHE.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
-            st->vertSel = vsel;
-            Demo3D_SyncFromHE(st, ms);
-            return;
-        }
-
-        // Arêtes DIRIGÉES des faces sélectionnées (pour détecter les arêtes de bord).
-        NkHashMap<uint64,uint8> selDir;
-        for (uint32 f=0;f<fc;f++){ if(!faceSel[f]) continue; const uint32 s=fs[f],e=fs[f+1],n=e-s;
-            for(uint32 k=0;k<n;k++){ uint32 a=fv[s+k],b=fv[s+(k+1)%n]; selDir.InsertOrAssign(((uint64)a<<32)|(uint64)b,(uint8)1); } }
-        // Duplique les sommets des faces sélectionnées (décalés le long de la normale).
-        NkVector<int32> vmap; vmap.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)vmap.Size();i++) vmap[i]=-1;
-        NkVector<uint8> vsel; vsel.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)vsel.Size();i++) vsel[i]=0;
-        for (uint32 f=0;f<fc;f++){ if(!faceSel[f]) continue; for(uint32 k=fs[f];k<fs[f+1];k++){ uint32 vi=fv[k];
-            if(vmap[vi]<0){ vmap[vi]=(int32)pv.Size(); renderer::NkVertex3D nv=pv[vi]; nv.pos=nv.pos+avgN*off; pv.PushBack(nv); vsel.PushBack(1); } } }
-        // Nouvelles faces (CSR) : non-sélectionnées inchangées, caps (dup), quads latéraux.
-        NkVector<uint32> nfs, nfv; nfs.PushBack(0);
-        for (uint32 f=0;f<fc;f++){ if(faceSel[f]) continue; for(uint32 k=fs[f];k<fs[f+1];k++) nfv.PushBack(fv[k]); nfs.PushBack((uint32)nfv.Size()); }
-        for (uint32 f=0;f<fc;f++){ if(!faceSel[f]) continue; for(uint32 k=fs[f];k<fs[f+1];k++) nfv.PushBack((uint32)vmap[fv[k]]); nfs.PushBack((uint32)nfv.Size()); }
-        for (uint32 f=0;f<fc;f++){ if(!faceSel[f]) continue; const uint32 s=fs[f],e=fs[f+1],n=e-s;
-            for(uint32 k=0;k<n;k++){ uint32 a=fv[s+k],b=fv[s+(k+1)%n];
-                if(selDir.Find(((uint64)b<<32)|(uint64)a)) continue;   // arête intérieure (2 faces sél.)
-                uint32 na=(uint32)vmap[a],nb=(uint32)vmap[b];
-                nfv.PushBack(a);nfv.PushBack(b);nfv.PushBack(nb);nfv.PushBack(na); nfs.PushBack((uint32)nfv.Size()); } }
-        st->editHE.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
-        st->vertSel = vsel;
-        Demo3D_SyncFromHE(st, ms);
+        Demo3D_PushSel(st);
+        renderer::NkExtrudeParams p; p.individual = st->extrudeIndividual;
+        if (!st->editHE.ExtrudeSelectedFaces(p)) return;
+        Demo3D_PullSel(st); Demo3D_SyncFromHE(st, ms);
     }
 
-    // DELETE (X) sur n-gons : supprime les faces sélectionnées, compacte les orphelins.
+    // DELETE (X) : supprime les faces sélectionnées, compacte — cf. NkEditMesh.
     static void Demo3D_DeleteHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        NkVector<renderer::NkVertex3D> pv; NkVector<uint32> fs, fv;
-        st->editHE.ToPolygons(pv, fs, fv);
-        const uint32 fc = (fs.Size()>0)?(uint32)fs.Size()-1:0;
-        NkVector<int32> remap; remap.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)remap.Size();i++) remap[i]=-1;
-        NkVector<renderer::NkVertex3D> nv2; NkVector<uint8> vsel; NkVector<uint32> nfs, nfv; nfs.PushBack(0);
-        for (uint32 f=0;f<fc;f++){ const uint32 s=fs[f],e=fs[f+1];
-            if (Demo3D_PolyFaceSel(st,fv,s,e)) continue;                 // face supprimée
-            for(uint32 k=s;k<e;k++){ uint32 vi=fv[k];
-                if(remap[vi]<0){ remap[vi]=(int32)nv2.Size(); nv2.PushBack(pv[vi]); vsel.PushBack(st->vertSel[vi]); }
-                nfv.PushBack((uint32)remap[vi]); }
-            nfs.PushBack((uint32)nfv.Size()); }
-        st->editHE.BuildFromPolygons(nv2.Data(), (uint32)nv2.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
-        st->vertSel = vsel;
-        Demo3D_SyncFromHE(st, ms);
+        Demo3D_PushSel(st);
+        if (!st->editHE.DeleteSelectedFaces()) return;
+        Demo3D_PullSel(st); Demo3D_SyncFromHE(st, ms);
     }
 
-    // MERGE (M) sur n-gons : soude les sommets sélectionnés en un (centroïde), retire les
-    // faces dégénérées (<3 sommets distincts), compacte.
+    // MERGE (M) : soude les sommets sélectionnés (center/first/last, Shift+M) — cf. NkEditMesh.
     static void Demo3D_MergeHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        NkVector<renderer::NkVertex3D> pv; NkVector<uint32> fs, fv;
-        st->editHE.ToPolygons(pv, fs, fv);
-        NkVec3f c{0.f,0.f,0.f}; int32 n=0, first=-1, last=-1;
-        for (uint32 i=0;i<(uint32)pv.Size();i++) if(st->vertSel[i]){ c=c+pv[i].pos; n++; if(first<0)first=(int32)i; last=(int32)i; }
-        if (n<2) return;
-        c=c*(1.f/(float32)n);
-        // Mode (Shift+M) : 0=CENTER (centroïde) 1=FIRST (1er sél.) 2=LAST (dernier sél.).
-        const int32 rep = (st->mergeMode==2)? last : first;
-        NkVec3f target = (st->mergeMode==1)? pv[(uint32)first].pos : (st->mergeMode==2)? pv[(uint32)last].pos : c;
-        pv[(uint32)rep].pos = target;
-        NkVector<int32> map; map.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)map.Size();i++) map[i]=(int32)i;
-        for (uint32 i=0;i<(uint32)pv.Size();i++) if(st->vertSel[i]) map[i]=rep;
-        const uint32 fc=(fs.Size()>0)?(uint32)fs.Size()-1:0;
-        NkVector<int32> remap; remap.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)remap.Size();i++) remap[i]=-1;
-        NkVector<renderer::NkVertex3D> nv2; NkVector<uint8> vsel; NkVector<uint32> nfs, nfv; nfs.PushBack(0);
-        NkVector<uint32> loop;
-        for (uint32 f=0;f<fc;f++){ loop.Clear();
-            for(uint32 k=fs[f];k<fs[f+1];k++){ uint32 vi=(uint32)map[fv[k]];
-                if(loop.Empty()||loop[loop.Size()-1]!=vi) loop.PushBack(vi); }              // retire doublons consécutifs
-            if(loop.Size()>=2 && loop[0]==loop[loop.Size()-1]) loop.Resize((uint32)loop.Size()-1);
-            if(loop.Size()<3) continue;                                                     // face dégénérée
-            for(uint32 k=0;k<(uint32)loop.Size();k++){ uint32 vi=loop[k];
-                if(remap[vi]<0){ remap[vi]=(int32)nv2.Size(); nv2.PushBack(pv[vi]); vsel.PushBack(st->vertSel[vi]); }
-                nfv.PushBack((uint32)remap[vi]); }
-            nfs.PushBack((uint32)nfv.Size()); }
-        st->editHE.BuildFromPolygons(nv2.Data(), (uint32)nv2.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
-        st->vertSel = vsel;
-        Demo3D_SyncFromHE(st, ms);
+        Demo3D_PushSel(st);
+        renderer::NkMergeParams p; p.mode = (int32)st->mergeMode;
+        if (!st->editHE.MergeSelectedVerts(p)) return;
+        Demo3D_PullSel(st); Demo3D_SyncFromHE(st, ms);
     }
 
-    // CREATE FACE (F) sur n-gons : ajoute UNE face n-gon depuis les sommets sélectionnés
-    // (dans l'ordre d'index). Aucun sommet ajouté.
+    // CREATE FACE (F) : une face n-gon depuis les sommets sélectionnés — cf. NkEditMesh.
     static void Demo3D_MakeFaceHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        NkVector<renderer::NkVertex3D> pv; NkVector<uint32> fs, fv;
-        st->editHE.ToPolygons(pv, fs, fv);
-        NkVector<uint32> sel;
-        for (uint32 i=0;i<(uint32)st->vertSel.Size() && i<(uint32)pv.Size();i++) if(st->vertSel[i]) sel.PushBack(i);
-        if (sel.Size()<3) return;
-        for (uint32 k=0;k<(uint32)sel.Size();k++) fv.PushBack(sel[k]);
-        fs.PushBack((uint32)fv.Size());
-        NkVector<uint8> keep; keep.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)keep.Size();i++) keep[i]=st->vertSel[i];
-        st->editHE.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), (uint32)fs.Size()-1, fv.Data());
-        st->vertSel = keep;
-        Demo3D_SyncFromHE(st, ms);
+        Demo3D_PushSel(st);
+        if (!st->editHE.MakeFaceFromSelected()) return;
+        Demo3D_PullSel(st); Demo3D_SyncFromHE(st, ms);
     }
 
-    // SUBDIVIDE (W) sur n-gons : chaque face sélectionnée -> sous-quads (type Catmull-
-    // Clark : + un point CENTRE de face + un point MILIEU par arête, partagé entre faces
-    // subdivisées -> pas de fissure). Une face à n côtés -> n quads. Sélectionne le résultat.
+    // SUBDIVIDE (W) : Catmull-Clark, faces sélectionnées ou TOUT (une passe ; l'UI appelle
+    // subdivCuts fois) — cf. NkEditMesh.
     static void Demo3D_SubdivideHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        NkVector<renderer::NkVertex3D> pv; NkVector<uint32> fs, fv;
-        st->editHE.ToPolygons(pv, fs, fv);
-        const uint32 fc=(fs.Size()>0)?(uint32)fs.Size()-1:0;
-        NkVector<uint8> faceSel; faceSel.Resize(fc); int32 selCount=0;
-        for (uint32 f=0;f<fc;f++){ bool s=Demo3D_PolyFaceSel(st,fv,fs[f],fs[f+1]); faceSel[f]=s?1:0; if(s) selCount++; }
-        if (selCount==0){ for(uint32 f=0;f<fc;f++) faceSel[f]=1; selCount=(int32)fc; }  // rien sélectionné -> TOUT le modèle
-        auto lerp=[&](uint32 a,uint32 b){ renderer::NkVertex3D r=pv[a];
-            r.pos=(pv[a].pos+pv[b].pos)*0.5f; r.uv=(pv[a].uv+pv[b].uv)*0.5f; return r; };
-        // Milieux d'arête PARTAGÉS (clé = lo<<32|hi).
-        NkHashMap<uint64,uint32> emid;
-        auto edgeMid=[&](uint32 a,uint32 b)->uint32{ uint32 lo=a<b?a:b,hi=a<b?b:a; uint64 key=((uint64)lo<<32)|hi;
-            uint32* p=emid.Find(key); if(p) return *p; uint32 idx=(uint32)pv.Size(); pv.PushBack(lerp(a,b)); emid.InsertOrAssign(key,idx); return idx; };
-        NkVector<uint32> nfs, nfv; nfs.PushBack(0);
-        NkVector<uint8> vsel; vsel.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)vsel.Size();i++) vsel[i]=0;
-        // Faces non sélectionnées : inchangées.
-        for (uint32 f=0;f<fc;f++){ if(faceSel[f]) continue; for(uint32 k=fs[f];k<fs[f+1];k++) nfv.PushBack(fv[k]); nfs.PushBack((uint32)nfv.Size()); }
-        // Faces sélectionnées : centre + n sous-quads.
-        for (uint32 f=0;f<fc;f++){ if(!faceSel[f]) continue; const uint32 s=fs[f],e=fs[f+1],n=e-s;
-            if(n<3) { for(uint32 k=s;k<e;k++) nfv.PushBack(fv[k]); nfs.PushBack((uint32)nfv.Size()); continue; }
-            renderer::NkVertex3D ctr{}; NkVec3f cp{0,0,0}; NkVec2f cuv{0,0};
-            for(uint32 k=s;k<e;k++){ cp=cp+pv[fv[k]].pos; cuv=cuv+pv[fv[k]].uv; }
-            ctr=pv[fv[s]]; ctr.pos=cp*(1.f/(float32)n); ctr.uv=cuv*(1.f/(float32)n);
-            uint32 cidx=(uint32)pv.Size(); pv.PushBack(ctr);
-            if((uint32)vsel.Size()<=cidx) vsel.Resize(cidx+1);
-            for(uint32 k=0;k<n;k++){
-                uint32 v0=fv[s+k], v1=fv[s+(k+1)%n], vp=fv[s+(k+n-1)%n];
-                uint32 m1=edgeMid(v0,v1), m0=edgeMid(vp,v0);
-                if((uint32)vsel.Size()<=cidx || (uint32)vsel.Size()<=m1 || (uint32)vsel.Size()<=m0){
-                    uint32 mx=cidx; if(m1>mx)mx=m1; if(m0>mx)mx=m0; vsel.Resize(mx+1); }
-                nfv.PushBack(v0); nfv.PushBack(m1); nfv.PushBack(cidx); nfv.PushBack(m0);
-                nfs.PushBack((uint32)nfv.Size());
-                vsel[cidx]=1; vsel[m1]=1; vsel[m0]=1; if(v0<(uint32)vsel.Size()) vsel[v0]=1;  // corners sél. -> itérable
-            }
-        }
-        st->editHE.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
-        if((uint32)vsel.Size()<(uint32)pv.Size()) vsel.Resize((uint32)pv.Size());
-        st->vertSel = vsel;
-        Demo3D_SyncFromHE(st, ms);
+        Demo3D_PushSel(st);
+        if (!st->editHE.SubdivideSelectedFaces()) return;   // 1 passe
+        Demo3D_PullSel(st); Demo3D_SyncFromHE(st, ms);
     }
 
-    // LOOP CUT (Ctrl+R) sur quads : depuis une ARÊTE sélectionnée, traverse l'ANNEAU de
-    // quads (arête opposée -> twin -> arête opposée…) et insère une boucle d'arêtes aux
-    // MILIEUX (partagés). Façon Blender (maillages quad fermés).
+    // LOOP CUT (Ctrl+R) : anneau de quads depuis l'arête sélectionnée — cf. NkEditMesh.
     static void Demo3D_LoopCutHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        auto& HE = st->editHE;
-        // Arête de départ = 1re demi-arête vivante dont les 2 extrémités sont sélectionnées.
-        renderer::NkEmId h0 = renderer::NK_EM_INVALID;
-        for (uint32 h=0; h<(uint32)HE.hedges.Size(); ++h){ if(!HE.hedges[h].alive) continue;
-            uint32 o=HE.hedges[h].origin, d=HE.hedges[HE.hedges[h].next].origin;
-            if(o<(uint32)st->vertSel.Size() && d<(uint32)st->vertSel.Size() && st->vertSel[o] && st->vertSel[d]){ h0=h; break; } }
-        if (h0==renderer::NK_EM_INVALID) return;
-        // Traversée de l'anneau -> ensemble d'arêtes (non dirigées) traversées.
-        NkHashMap<uint64,uint8> ring;
-        auto addE=[&](uint32 a,uint32 b){ uint32 lo=a<b?a:b,hi=a<b?b:a; ring.InsertOrAssign(((uint64)lo<<32)|hi,(uint8)1); };
-        renderer::NkEmId h=h0; uint32 guard=0;
-        do {
-            uint32 o=HE.hedges[h].origin, d=HE.hedges[HE.hedges[h].next].origin; addE(o,d);
-            if (HE.FaceSize(HE.hedges[h].face)!=4) break;                 // anneau uniquement à travers des quads
-            renderer::NkEmId hOpp = HE.hedges[HE.hedges[h].next].next;    // arête opposée du quad
-            addE(HE.hedges[hOpp].origin, HE.hedges[HE.hedges[hOpp].next].origin);
-            renderer::NkEmId tw = HE.hedges[hOpp].twin;
-            if (tw==renderer::NK_EM_INVALID) break;                       // bord -> anneau ouvert
-            h = tw;
-        } while (h!=h0 && ++guard<100000u);
-        // Découpe : chaque quad avec 2 arêtes opposées dans l'anneau -> 2 sous-quads.
-        NkVector<renderer::NkVertex3D> pv; NkVector<uint32> fs, fv;
-        HE.ToPolygons(pv, fs, fv);
-        auto isRing=[&](uint32 a,uint32 b)->bool{ uint32 lo=a<b?a:b,hi=a<b?b:a; return ring.Find(((uint64)lo<<32)|hi)!=nullptr; };
-        NkHashMap<uint64,uint32> emid;
-        auto edgeMid=[&](uint32 a,uint32 b)->uint32{ uint32 lo=a<b?a:b,hi=a<b?b:a; uint64 key=((uint64)lo<<32)|hi;
-            uint32* p=emid.Find(key); if(p) return *p; uint32 idx=(uint32)pv.Size(); renderer::NkVertex3D nv=pv[a];
-            nv.pos=(pv[a].pos+pv[b].pos)*0.5f; nv.uv=(pv[a].uv+pv[b].uv)*0.5f; pv.PushBack(nv); emid.InsertOrAssign(key,idx); return idx; };
-        NkVector<uint32> nfs, nfv; nfs.PushBack(0);
-        NkVector<uint8> vsel; vsel.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)vsel.Size();i++) vsel[i]=0;
-        const uint32 fc=(fs.Size()>0)?(uint32)fs.Size()-1:0;
-        for (uint32 f=0;f<fc;f++){ const uint32 s=fs[f],e=fs[f+1],n=e-s;
-            int32 re0=-1,re1=-1;
-            if(n==4){ for(uint32 k=0;k<4;k++) if(isRing(fv[s+k],fv[s+(k+1)%4])){ if(re0<0)re0=(int32)k; else re1=(int32)k; } }
-            if(n==4 && re0>=0 && re1>=0 && (re1-re0)==2){                 // 2 arêtes opposées
-                uint32 k0=(uint32)re0;
-                uint32 q0=fv[s+k0], q1=fv[s+(k0+1)%4], q2=fv[s+(k0+2)%4], q3=fv[s+(k0+3)%4];
-                uint32 m0=edgeMid(q0,q1), m1=edgeMid(q2,q3);
-                uint32 mx=(m0>m1?m0:m1); if((uint32)vsel.Size()<=mx) vsel.Resize(mx+1);
-                vsel[m0]=1; vsel[m1]=1;
-                nfv.PushBack(q0);nfv.PushBack(m0);nfv.PushBack(m1);nfv.PushBack(q3); nfs.PushBack((uint32)nfv.Size());
-                nfv.PushBack(m0);nfv.PushBack(q1);nfv.PushBack(q2);nfv.PushBack(m1); nfs.PushBack((uint32)nfv.Size());
-            } else { for(uint32 k=s;k<e;k++) nfv.PushBack(fv[k]); nfs.PushBack((uint32)nfv.Size()); }
-        }
-        HE.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
-        if((uint32)vsel.Size()<(uint32)pv.Size()) vsel.Resize((uint32)pv.Size());
-        st->vertSel = vsel;
-        Demo3D_SyncFromHE(st, ms);
+        Demo3D_PushSel(st);
+        if (!st->editHE.LoopCutFromSelectedEdge()) return;
+        Demo3D_PullSel(st); Demo3D_SyncFromHE(st, ms);
     }
 
-    // KNIFE / BISECT (K) : coupe le maillage par un PLAN (défini en traçant une ligne à
-    // l'écran). Chaque arête traversant le plan reçoit un sommet à l'intersection (partagé)
-    // et chaque face traversée est coupée en 2. « Couper un plan en 2 » façon Blender Bisect.
+    // KNIFE / BISECT (K) : coupe par un PLAN (tracé écran -> monde). Le plan est en espace
+    // MONDE : on passe editAnchor (modèle->monde) à la commande — cf. NkEditMesh.
     static void Demo3D_BisectHE(Demo3DState* st, renderer::NkMeshSystem* ms,
                                 NkVec3f pPoint, NkVec3f pNormal) {
-        NkVector<renderer::NkVertex3D> pv; NkVector<uint32> fs, fv;
-        st->editHE.ToPolygons(pv, fs, fv);
-        NkVector<float32> sd; sd.Resize((uint32)pv.Size());
-        for (uint32 i=0;i<(uint32)pv.Size();i++){ NkVec3f w=st->editAnchor*pv[i].pos; sd[i]=(w-pPoint).Dot(pNormal); }
-        NkHashMap<uint64,uint32> cross;
-        auto crossV=[&](uint32 a,uint32 b)->int32{
-            if (sd[a]*sd[b] >= 0.f) return -1;                         // même côté (ou sur le plan)
-            uint32 lo=a<b?a:b,hi=a<b?b:a; uint64 key=((uint64)lo<<32)|hi;
-            uint32* p=cross.Find(key); if(p) return (int32)*p;
-            float32 t=sd[a]/(sd[a]-sd[b]);
-            renderer::NkVertex3D nv=pv[a]; nv.pos=pv[a].pos+(pv[b].pos-pv[a].pos)*t; nv.uv=pv[a].uv+(pv[b].uv-pv[a].uv)*t;
-            uint32 idx=(uint32)pv.Size(); pv.PushBack(nv); cross.InsertOrAssign(key,idx); return (int32)idx; };
-        NkVector<uint32> nfs, nfv; nfs.PushBack(0);
-        NkVector<uint32> selCross;   // sommets d'intersection (sélectionnés à la fin)
-        const uint32 fc=(fs.Size()>0)?(uint32)fs.Size()-1:0;
-        NkVector<uint32> loop; NkVector<uint32> cpos;
-        for (uint32 f=0;f<fc;f++){ const uint32 s=fs[f],e=fs[f+1],n=e-s;
-            loop.Clear(); cpos.Clear();
-            for (uint32 k=0;k<n;k++){ loop.PushBack(fv[s+k]);
-                int32 cv=crossV(fv[s+k], fv[s+(k+1)%n]);
-                if(cv>=0){ cpos.PushBack((uint32)loop.Size()); loop.PushBack((uint32)cv); selCross.PushBack((uint32)cv); } }
-            if (cpos.Size()==2){                                      // face traversée -> 2 sous-faces
-                uint32 c0=cpos[0], c1=cpos[1], L=(uint32)loop.Size();
-                for (uint32 i=c0;i<=c1;i++) nfv.PushBack(loop[i]); nfs.PushBack((uint32)nfv.Size());
-                for (uint32 i=c1;i<L;i++) nfv.PushBack(loop[i]); for(uint32 i=0;i<=c0;i++) nfv.PushBack(loop[i]); nfs.PushBack((uint32)nfv.Size());
-            } else { for (uint32 i=0;i<(uint32)loop.Size();i++) nfv.PushBack(loop[i]); nfs.PushBack((uint32)nfv.Size()); }
-        }
-        st->editHE.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
-        NkVector<uint8> vsel; vsel.Resize((uint32)pv.Size()); for(uint32 i=0;i<(uint32)vsel.Size();i++) vsel[i]=0;
-        for (uint32 i=0;i<(uint32)selCross.Size();i++) if(selCross[i]<(uint32)vsel.Size()) vsel[selCross[i]]=1;
-        st->vertSel = vsel;
-        Demo3D_SyncFromHE(st, ms);
+        Demo3D_PushSel(st);
+        if (!st->editHE.BisectByPlane(pPoint, pNormal, st->editAnchor)) return;
+        Demo3D_PullSel(st); Demo3D_SyncFromHE(st, ms);
     }
 
     // E.6b : cubemap procedurale 128x128x6 pour point light.
