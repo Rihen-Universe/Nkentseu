@@ -126,5 +126,30 @@ namespace nkentseu {
                 bool SubdivideSelectedOnce();
         };
 
+        // ── HISTORIQUE UNDO/REDO (mémento) ──────────────────────────────────────
+        // Stocke des SNAPSHOTS complets de NkEditMesh (les maillages d'édition sont
+        // petits -> simple et robuste pour toute topologie, approche edit-mode Blender).
+        // Modèle : Commit(pré-état) AVANT une commande mutante ; Undo/Redo échangent
+        // l'état courant avec la pile. Réutilisable (éditeur, rejeu IA). Cap par défaut 64.
+        class NkEditHistory {
+            public:
+                void   Clear();
+                void   SetLimit(uint32 n) { mLimit = (n<1u)?1u:n; }
+                // À appeler AVANT une commande mutante réussie, avec l'état d'AVANT la
+                // mutation : empile le point de retour et invalide la pile de redo.
+                void   Commit(const NkEditMesh& preState);
+                bool   CanUndo() const { return !mUndo.Empty(); }
+                bool   CanRedo() const { return !mRedo.Empty(); }
+                // Échange `mesh` avec l'état précédent/suivant. false si rien à faire.
+                bool   Undo(NkEditMesh& mesh);
+                bool   Redo(NkEditMesh& mesh);
+                uint32 UndoCount() const { return (uint32)mUndo.Size(); }
+                uint32 RedoCount() const { return (uint32)mRedo.Size(); }
+            private:
+                NkVector<NkEditMesh> mUndo;   // états passés (sommet = le plus récent)
+                NkVector<NkEditMesh> mRedo;   // états annulés (rejouables)
+                uint32 mLimit = 64u;
+        };
+
     } // namespace renderer
 } // namespace nkentseu
