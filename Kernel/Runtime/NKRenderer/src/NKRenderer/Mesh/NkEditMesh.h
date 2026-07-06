@@ -151,5 +151,43 @@ namespace nkentseu {
                 uint32 mLimit = 64u;
         };
 
+        // ── COMMANDE D'ÉDITION SÉRIALISABLE (la couche de commandes rendue DONNÉE) ──
+        // Représente UNE opération d'édition comme une DONNÉE (type + paramètres +
+        // sélection au moment de l'application). Deux usages clés :
+        //   • MODIFICATEURS non-destructifs : une pile de commandes rejouée depuis un
+        //     maillage de base (mirror/array/subsurf = des commandes paramétrées).
+        //   • IA (NKAI) : espace d'actions + données d'IMITATION (on enregistre les
+        //     sessions de modélisation, on rejoue / on apprend une policy).
+        enum class NkMeshEditOp : uint8 {
+            None = 0, Extrude, Delete, Merge, MakeFace, Subdivide, LoopCut, Bisect, Move
+        };
+        struct NkMeshEditCommand {
+            NkMeshEditOp     op = NkMeshEditOp::None;
+            NkVector<uint32> selection;                  // sommets sélectionnés à l'application
+            NkExtrudeParams   extrude;                   // (op == Extrude)
+            NkMergeParams     merge;                     // (op == Merge)
+            NkSubdivideParams subdiv;                    // (op == Subdivide)
+            NkVec3f           planePoint  = {0.f,0.f,0.f};   // (op == Bisect)
+            NkVec3f           planeNormal = {0.f,1.f,0.f};
+            NkMat4f           bisectXform = NkMat4f::Identity();
+            NkVector<NkVec3f> moveDeltas;                // (op == Move) delta par sommet (aligné sur selection)
+
+            // Pose la sélection sur `m` puis exécute l'op. true si la géométrie a changé.
+            bool Apply(NkEditMesh& m) const;
+        };
+
+        // Journal de commandes : enregistre une session, la rejoue sur un maillage.
+        class NkMeshEditRecorder {
+            public:
+                void   Clear() { mCommands.Clear(); }
+                void   Push(const NkMeshEditCommand& c) { mCommands.PushBack(c); }
+                uint32 Count() const { return (uint32)mCommands.Size(); }
+                const NkMeshEditCommand& At(uint32 i) const { return mCommands[i]; }
+                // Rejoue toutes les commandes (dans l'ordre) sur `mesh`. Renvoie le nb appliquées.
+                uint32 ReplayOnto(NkEditMesh& mesh) const;
+            private:
+                NkVector<NkMeshEditCommand> mCommands;
+        };
+
     } // namespace renderer
 } // namespace nkentseu
