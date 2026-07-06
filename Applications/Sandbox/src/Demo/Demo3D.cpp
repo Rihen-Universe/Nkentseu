@@ -90,6 +90,7 @@ namespace nkentseu { namespace demo {
         bool                            editDragSnapValid = false;
         renderer::NkMeshEditRecorder    editRecorder;  // journal des commandes (rejeu / modificateurs / IA)
         renderer::NkEditMesh            editBase;      // maillage de BASE (à l'entrée) pour le rejeu
+        bool                            editShowingBase = false; // P : bascule base <-> modèle rejoué
         NkVector<renderer::NkEmId>      editTriFace;   // map triangle de rendu -> face n-gon (pick)
         NkVector<uint8>                 vertSel;       // 1 = vertex sélectionné (taille = nb vertices)
         NkMat4f                         editAnchor    = NkMat4f::Identity();  // transform monde de l'objet
@@ -205,6 +206,7 @@ namespace nkentseu { namespace demo {
         if (!cmd.Apply(st->editHE)) return false;               // no-op -> ni undo ni enregistrement
         st->editHistory.Commit(snapshot);
         st->editRecorder.Push(cmd);                             // journalise la commande
+        st->editShowingBase = false;                            // on repart d'un état "édité"
         Demo3D_PullSel(st); Demo3D_SyncFromHE(st, ms);
         return true;
     }
@@ -262,13 +264,25 @@ namespace nkentseu { namespace demo {
     // rejoue TOUTES les commandes enregistrées. Preuve que la couche de commandes est
     // scriptable (fondation modificateurs non-destructifs + données d'imitation IA).
     static void Demo3D_ReplayEdits(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        st->editHE = st->editBase;                              // repart du maillage de base
-        const uint32 applied = st->editRecorder.ReplayOnto(st->editHE);
-        st->vertSel.Clear(); st->vertSel.Resize(st->editHE.VertCount());
-        for (uint32 i=0;i<st->editHE.VertCount();++i) st->vertSel[i] = st->editHE.verts[i].sel;
-        Demo3D_SyncFromHE(st, ms);
-        logger.Info("[Demo3D] Rejeu: {0}/{1} commandes -> {2} faces\n",
-                    applied, st->editRecorder.Count(), (int32)st->editHE.FaceCount());
+        st->editHE = st->editBase;                              // repart TOUJOURS du maillage de base
+        if (st->editShowingBase) {
+            // 2e appui : REJOUE toutes les commandes -> reconstruit le modèle édité (VISIBLE).
+            const uint32 applied = st->editRecorder.ReplayOnto(st->editHE);
+            st->editShowingBase = false;
+            st->vertSel.Clear(); st->vertSel.Resize(st->editHE.VertCount());
+            for (uint32 i=0;i<st->editHE.VertCount();++i) st->vertSel[i] = st->editHE.verts[i].sel;
+            Demo3D_SyncFromHE(st, ms);
+            logger.Info("[Demo3D] REJEU: {0}/{1} commandes -> {2} faces (ré-appuie P pour revoir la base)\n",
+                        applied, st->editRecorder.Count(), (int32)st->editHE.FaceCount());
+        } else {
+            // 1er appui : montre le maillage de BASE (avant toute édition) — le modèle « revient
+            // à zéro » à l'écran ; ré-appuyer sur P le reconstruit depuis le journal.
+            st->editShowingBase = true;
+            st->vertSel.Clear(); st->vertSel.Resize(st->editHE.VertCount());
+            Demo3D_SyncFromHE(st, ms);
+            logger.Info("[Demo3D] BASE (avant edition, {0} faces) — appuie encore sur P pour REJOUER {1} commandes\n",
+                        (int32)st->editHE.FaceCount(), st->editRecorder.Count());
+        }
     }
 
     // UNDO / REDO : restaure un snapshot de editHE, resynchronise sélection + rendu.
@@ -550,8 +564,10 @@ namespace nkentseu { namespace demo {
                 // Z (hors drag, SANS Alt) = cycle mode d'affichage façon Blender :
                 // RENDERED -> SOLID -> WIREFRAME. (En drag, Z = verrou d'axe ;
                 // Alt+Z = toggle X-ray en Edit Mode, géré dans le keymap.)
-                const bool altHeld = NkInput.IsKeyDown(NkKey::NK_LALT) || NkInput.IsKeyDown(NkKey::NK_RALT);
-                if (k == NkKey::NK_Z && !altHeld && !st->gizmo.IsDragging() && !st->editGizmo.IsDragging()) {
+                const bool altHeld  = NkInput.IsKeyDown(NkKey::NK_LALT)  || NkInput.IsKeyDown(NkKey::NK_RALT);
+                const bool ctrlHeld = NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
+                // !ctrl : Ctrl+Z est réservé à l'UNDO en edit mode (ne pas cycler l'affichage).
+                if (k == NkKey::NK_Z && !altHeld && !ctrlHeld && !st->gizmo.IsDragging() && !st->editGizmo.IsDragging()) {
                     st->shadingMode = (st->shadingMode + 1) % 6;
                     const char* sm[6] = {"RENDERED", "SOLID", "WIREFRAME", "NORMAL", "UV", "AO"};
                     // viewMode shader : 0=PBR éclairé, 1=matcap unlit, 2=normal, 3=uv, 4=ao.
@@ -829,6 +845,7 @@ namespace nkentseu { namespace demo {
                         st->editHistory.Clear();   // nouvel objet en édition -> historique neuf
                         st->editRecorder.Clear();  // journal des commandes neuf
                         st->editBase = st->editHE; // maillage de BASE pour le rejeu (modificateurs/IA)
+                        st->editShowingBase = false;
                         st->vertSel.Clear(); st->vertSel.Resize(st->editHE.VertCount());
                         for (uint32 i=0;i<st->editHE.VertCount();i++) st->vertSel[i]=0;
                         st->editMesh = {};
