@@ -8,7 +8,7 @@
 namespace nkentseu {
 
     static const uint32 kMagic   = 0x4342424E; // 'N','K','B','C' little-endian
-    static const uint32 kVersion = 1;
+    static const uint32 kVersion = 2;   // v2 : + table uboBlocks (multi-UBO)
 
     // ── Writer ───────────────────────────────────────────────────────────────
     struct BcWriter {
@@ -74,6 +74,9 @@ namespace nkentseu {
         // samplers
         w.U32((uint32)prog.samplers.Size());
         for (const auto& s : prog.samplers) { w.Str(s.name); w.U32(s.index); w.U8(s.isShadow?1:0); }
+        // uboBlocks (v2)
+        w.U32((uint32)prog.uboBlocks.Size());
+        for (const auto& b : prog.uboBlocks) { w.U16(b.set); w.U16(b.binding); }
         return true;
     }
 
@@ -104,6 +107,8 @@ namespace nkentseu {
         uint32 nu = r.U32(); for (uint32 i=0;i<nu&&r.ok;++i) prog.uniforms.PushBack(r.Sym());
         uint32 ns = r.U32();
         for (uint32 i=0;i<ns&&r.ok;++i) { NkSLVMSampler s; s.name=r.Str(); s.index=r.U32(); s.isShadow=r.U8()!=0; prog.samplers.PushBack(s); }
+        uint32 nb = r.U32();   // uboBlocks (v2)
+        for (uint32 i=0;i<nb&&r.ok;++i) { NkSLUBOBlock b; b.set=r.U16(); b.binding=r.U16(); prog.uboBlocks.PushBack(b); }
         return r.ok;
     }
 

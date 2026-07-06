@@ -7,6 +7,7 @@
 #include "NKCore/NkTraits.h"
 #include "NkSWFastPath.h"
 #include <cstring>
+#include <chrono>
 
 namespace nkentseu {
 
@@ -52,9 +53,14 @@ namespace nkentseu {
                                 const NkRect2D& sc, bool scEn,
                                 int32& cx0, int32& cy0, int32& cx1, int32& cy1)
     {
+        // Cible effective : FB explicite, sinon le framebuffer swapchain.
+        const uint64 swapId = dev->GetSwapchainFramebuffer().id;
+        const uint64 effFb  = fbId ? fbId : swapId;
+        const bool   isSwap = (effFb == swapId);
+
         uint32 W=dev->GetSwapchainWidth(), H=dev->GetSwapchainHeight();
-        if (fbId) {
-            if (auto* fbo=dev->GetFBO(fbId)) {
+        if (effFb) {
+            if (auto* fbo=dev->GetFBO(effFb)) {
                 if (auto* ct=fbo->colorId?dev->GetTex(fbo->colorId):nullptr)
                     {W=ct->Width();H=ct->Height();}
                 else if (auto* dt=fbo->depthId?dev->GetTex(fbo->depthId):nullptr)
@@ -63,7 +69,15 @@ namespace nkentseu {
         }
         cx0=0; cy0=0; cx1=(int32)W; cy1=(int32)H;
         if (scEn&&sc.width>0&&sc.height>0) {
-            cx0=sc.x; cy0=sc.y; cx1=sc.x+sc.width; cy1=sc.y+sc.height;
+            // v4 Phase 2 (SSAA) : le scissor du swapchain est exprimé en coords fenêtre ;
+            // le framebuffer réel est hi-res (mWidth*ss) → on scale le scissor par ss.
+            int32 ssx=sc.x, ssy=sc.y, ssw=sc.width, ssh=sc.height;
+            if (isSwap) {
+                const uint32 swW = dev->GetSwapchainWidth();
+                const int32 ss = (swW>0)?(int32)(W/swW):1;
+                if (ss>1) { ssx*=ss; ssy*=ss; ssw*=ss; ssh*=ss; }
+            }
+            cx0=ssx; cy0=ssy; cx1=ssx+ssw; cy1=ssy+ssh;
             if (cx0<0)cx0=0; if(cy0<0)cy0=0;
             if(cx1>(int32)W)cx1=(int32)W;
             if(cy1>(int32)H)cy1=(int32)H;
@@ -116,17 +130,26 @@ namespace nkentseu {
     NkSoftwareCommandBuffer::NkSoftwareCommandBuffer(NkSoftwareDevice* dev, NkCommandBufferType type) : mDev(dev), mType(type) {}
 
     void NkSoftwareCommandBuffer::Execute(NkSoftwareDevice* dev) {
+        dev->SwResetCurDescSets();   // sets liés réinitialisés à chaque replay
+        // Perf opt-in (NK_SW_PERF=1) : mesure le temps de replay/rasterisation par frame.
+        static const bool s_perf = [](){ const char* e=std::getenv("NK_SW_PERF"); return e && e[0]=='1'; }();
+        if (!s_perf) { for (auto& cmd : mCommands) cmd(dev); return; }
+        auto t0 = std::chrono::high_resolution_clock::now();
         for (auto& cmd : mCommands) cmd(dev);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        logger.Infof("[PERF] replay : %.1f ms (%llu cmds)\n",
+                      std::chrono::duration<double,std::milli>(t1-t0).count(), (unsigned long long)mCommands.Size());
     }
 
     // =============================================================================
     // Render Pass
     // =============================================================================
-    bool NkSoftwareCommandBuffer::BeginRenderPass(NkRenderPassHandle /*rp*/, NkFramebufferHandle fb, const NkRect2D& area) {
+    bool NkSoftwareCommandBuffer::BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D& area) {
         if (!mRecording || !fb.IsValid() || area.width <= 0 || area.height <= 0) return false;
 
         mCurrentFramebufferId = fb.id;
         uint64 fbId = fb.id;
+        uint64 rpId = rp.id;   // pour respecter le loadOp (clear vs load)
         NkRect2D a  = area;
 
         // Capturer les valeurs de clear dynamiques au moment de l'enregistrement
@@ -136,19 +159,30 @@ namespace nkentseu {
         uint8 ca = (uint8)(mClearA * 255.f);
         float cdepth = mClearDepth;
 
-        Push([fbId, a, cr, cg, cb, ca, cdepth](NkSoftwareDevice* dev) {
+        Push([fbId, rpId, a, cr, cg, cb, ca, cdepth](NkSoftwareDevice* dev) {
             auto* fbo = dev->GetFBO(fbId);
             if (!fbo) return;
             auto* color = dev->GetTex(fbo->colorId);
             auto* depth = dev->GetTex(fbo->depthId);
 
+            // loadOp du render pass : SEUL NK_LOAD préserve le contenu (compositing post-process,
+            // overlay). NK_CLEAR et NK_DONT_CARE => effacer : en software il n'y a pas de sémantique
+            // "undefined preserve" ; ne pas effacer un DONT_CARE laisserait du garbage (fond lavande).
+            bool clearColor = true, clearDepth = true;
+            if (auto* rpp = rpId ? dev->GetRP(rpId) : nullptr) {
+                if (!rpp->desc.colorAttachments.Empty())
+                    clearColor = (rpp->desc.colorAttachments[0].loadOp != NkLoadOp::NK_LOAD);
+                if (rpp->desc.hasDepth)
+                    clearDepth = (rpp->desc.depthAttachment.loadOp != NkLoadOp::NK_LOAD);
+            }
+
             // ── Clear couleur SIMD ────────────────────────────────────────────────────
-            if (color && !color->mips.Empty()) {
+            if (clearColor && color && !color->mips.Empty()) {
                 swfast::FastClearColor(color->mips[0].Data(), color->Width(), color->Height(), cr, cg, cb, ca);
             }
 
             // ── Clear depth ───────────────────────────────────────────────────────────
-            if (depth && !depth->mips.Empty()) {
+            if (clearDepth && depth && !depth->mips.Empty()) {
                 swfast::FastClearDepth(reinterpret_cast<float32*>(depth->mips[0].Data()), depth->Width(), depth->Height());
             }
         });
@@ -166,7 +200,7 @@ namespace nkentseu {
     // =============================================================================
     void NkSoftwareCommandBuffer::SetViewport(const NkViewport& vp) {
         NkViewport v = vp;
-        Push([v](NkSoftwareDevice*) { /* stocké dans NkSWExecState si multi-pass */ (void)v; });
+        Push([v](NkSoftwareDevice* dev) { dev->SwSetViewport(v); });
     }
 
     void NkSoftwareCommandBuffer::SetViewports(const NkViewport* vps, uint32 n) {
@@ -198,15 +232,18 @@ namespace nkentseu {
     // =============================================================================
     // Descriptor Set
     // =============================================================================
-    void NkSoftwareCommandBuffer::BindDescriptorSet(NkDescSetHandle set, uint32, uint32*, uint32) {
-        mBoundDescSetId = set.id;
+    void NkSoftwareCommandBuffer::BindDescriptorSet(NkDescSetHandle set, uint32 idx, uint32*, uint32) {
+        if (idx < kMaxDescSets) mBoundDescSets[idx] = set.id;   // record-time (set primaire = compat)
+        // Replay-time : le device mémorise TOUS les sets liés (NKRenderer bind set 0/1/2).
+        Push([id = set.id, idx](NkSoftwareDevice* dev) { dev->SwSetCurDescSet(idx, id); });
     }
 
     void NkSoftwareCommandBuffer::PushConstants(NkShaderStage, uint32, uint32 size, const void* data) {
         NkVector<uint8> buf;
         buf.Resize(size);
         if (data && size > 0) memcpy(buf.Data(), data, size);
-        Push([b=traits::NkMove(buf)](NkSoftwareDevice*) { (void)b; });
+        // v5 : fournir le blob push constants au device pour la VM (@push → uboBlock set=0xFFFF).
+        Push([b=traits::NkMove(buf)](NkSoftwareDevice* dev) { dev->SwSetPushConstants(b.Data(), (uint32)b.Size()); });
     }
 
     // =============================================================================
@@ -342,7 +379,7 @@ namespace nkentseu {
 
     void NkSoftwareCommandBuffer::Draw(uint32 vtx, uint32 inst,
                                     uint32 firstVtx, uint32 /*firstInst*/) {
-        const uint64   pipeId=mBoundPipelineId, descId=mBoundDescSetId;
+        const uint64   pipeId=mBoundPipelineId, descId=mBoundDescSets[0];
         const uint64   vbId=mBoundVertexBufferIds[0], vbOff=mBoundVertexOffsets[0];
         const uint64   fbId=mCurrentFramebufferId;
         const NkRect2D sc=mScissorRect; const bool scEn=mScissorEnabled;
@@ -357,7 +394,7 @@ namespace nkentseu {
     void NkSoftwareCommandBuffer::DrawIndexed(uint32 idx, uint32 inst,
                                             uint32 firstIdx, int32 vtxOff,
                                             uint32 /*firstInst*/) {
-        const uint64   pipeId=mBoundPipelineId, descId=mBoundDescSetId;
+        const uint64   pipeId=mBoundPipelineId, descId=mBoundDescSets[0];
         const uint64   vbId=mBoundVertexBufferIds[0], vbOff=mBoundVertexOffsets[0];
         const uint64   ibId=mBoundIndexBufferId, ibOff=mBoundIndexOffset;
         const bool     ibU32=mBoundIndexUint32;
@@ -377,7 +414,7 @@ namespace nkentseu {
 
     void NkSoftwareCommandBuffer::DrawIndirect(NkBufferHandle indirectBuf, uint64 offset, uint32 drawCount, uint32 stride) {
         const uint64 pipelineId    = mBoundPipelineId;
-        const uint64 descSetId     = mBoundDescSetId;
+        const uint64 descSetId     = mBoundDescSets[0];
         const uint64 vbId          = mBoundVertexBufferIds[0];
         const uint64 vbOffset      = mBoundVertexOffsets[0];
         const uint64 fbId          = mCurrentFramebufferId;
@@ -407,7 +444,7 @@ namespace nkentseu {
 
     void NkSoftwareCommandBuffer::DrawIndexedIndirect(NkBufferHandle indirectBuf, uint64 offset, uint32 drawCount, uint32 stride) {
         const uint64 pipelineId    = mBoundPipelineId;
-        const uint64 descSetId     = mBoundDescSetId;
+        const uint64 descSetId     = mBoundDescSets[0];
         const uint64 vbId          = mBoundVertexBufferIds[0];
         const uint64 vbOffset      = mBoundVertexOffsets[0];
         const uint64 ibId          = mBoundIndexBufferId;

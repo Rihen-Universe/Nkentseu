@@ -8,6 +8,13 @@
 #include "NKCore/NkTraits.h"
 #include "NKMemory/NkAllocator.h"
 #include "NkSWFastPath.h"
+#include "Trace/NkSWRayTrace.h"   // v4 Phase 4 : ray-tracing CPU (BPR, fondation)
+// v5 Phase A : VM bytecode NkSL (exécute les vrais shaders sur software)
+#include "NKSL/NKSL.h"
+#include "NKRHI/SL/NkSLIntegration.h"
+#include "NKSL/VM/NkSLVM.h"
+#include "NKSL/VM/NkSLByteCodeIO.h"
+#include <cstdlib>   // getenv
 
 // #include "NKRHI/Core/NkSkSL.h"
 
@@ -41,8 +48,14 @@ namespace nkentseu {
             c.a = 1.0f;
             return c;
         }
-        if (bpp >= 4) { c.r = p[0]/255.f; c.g = p[1]/255.f; c.b = p[2]/255.f; c.a = p[3]/255.f; }
-        else if (bpp == 3) { c.r = p[0]/255.f; c.g = p[1]/255.f; c.b = p[2]/255.f; c.a = 1.f; }
+        // Les render targets sont écrites par le rasterizer via sw_detail::StorePixel, qui
+        // respecte NK_SW_PIXEL_BGRA (ordre [B][G][R][A] sur Windows). Les textures chargées
+        // (PNG) restent en RGBA. On lit donc les RT dans l'ordre natif pour éviter un swap R↔B
+        // au sampling (post-process) qui se propageait jusqu'à l'écran.
+        const bool bgra = isRenderTarget && (NK_SW_PIXEL_BGRA != 0);
+        const uint32 ir = bgra ? 2u : 0u, ib = bgra ? 0u : 2u;
+        if (bpp >= 4) { c.r = p[ir]/255.f; c.g = p[1]/255.f; c.b = p[ib]/255.f; c.a = p[3]/255.f; }
+        else if (bpp == 3) { c.r = p[ir]/255.f; c.g = p[1]/255.f; c.b = p[ib]/255.f; c.a = 1.f; }
         else if (bpp == 2) { c.r = p[0]/255.f; c.g = p[1]/255.f; c.a = 1.f; }
         else               { c.r = c.g = c.b = p[0]/255.f; c.a = 1.f; }
         return c;
@@ -64,8 +77,10 @@ namespace nkentseu {
         if (desc.format == NkGPUFormat::NK_D32_FLOAT) {
             memcpy(p, &c.r, 4); return;
         }
-        if (bpp >= 4) { p[0]=(uint8)(r*255); p[1]=(uint8)(g*255); p[2]=(uint8)(b*255); p[3]=(uint8)(a*255); }
-        else if (bpp == 3) { p[0]=(uint8)(r*255); p[1]=(uint8)(g*255); p[2]=(uint8)(b*255); }
+        const bool bgra = isRenderTarget && (NK_SW_PIXEL_BGRA != 0);
+        const uint32 ir = bgra ? 2u : 0u, ib = bgra ? 0u : 2u;
+        if (bpp >= 4) { p[ir]=(uint8)(r*255); p[1]=(uint8)(g*255); p[ib]=(uint8)(b*255); p[3]=(uint8)(a*255); }
+        else if (bpp == 3) { p[ir]=(uint8)(r*255); p[1]=(uint8)(g*255); p[ib]=(uint8)(b*255); }
         else if (bpp == 2) { p[0]=(uint8)(r*255); p[1]=(uint8)(g*255); }
         else               { p[0]=(uint8)(r*255); }
     }
@@ -551,6 +566,20 @@ namespace nkentseu {
             mThreadCount = 1;
         }
 
+        // v4 Phase 2 : SSAA opt-in (NK_SW_SSAA=1..4, défaut 1 = off)
+        { const char* e = std::getenv("NK_SW_SSAA"); uint32 s = e ? (uint32)std::atoi(e) : 1u;
+          mSSAA = s < 1u ? 1u : (s > 4u ? 4u : s); }
+
+        // v4 Phase 4 : mode BPR ray-tracing live (NK_SW_RT=1) — chaque Present ray-trace.
+        { const char* e = std::getenv("NK_SW_RT"); mRtMode = (e && e[0] == '1'); }
+        // Resolution scale du RT : rendu à 1/scale puis upscale (défaut 4 ; plus grand = plus fluide).
+        { const char* e = std::getenv("NK_SW_RT_SCALE"); uint32 s = e ? (uint32)std::atoi(e) : 4u;
+          mRtScale = s < 1u ? 1u : (s > 16u ? 16u : s); }
+
+        // Garde-fou : signaler un toggle debug qui plombe la perf (piège NK_SW_NOMT).
+        if (const char* e = std::getenv("NK_SW_NOMT")) if (e[0] == '1')
+            NK_SW_LOG("ATTENTION: NK_SW_NOMT=1 actif -> rendu MONO-THREAD force (debug). Retire la variable pour la perf.\n");
+
         CreateSwapchainObjects();
 
         mCaps.computeShaders     = NkDeviceInitComputeEnabledForApi(mInit, NkGraphicsApi::NK_GFX_API_SOFTWARE);
@@ -565,15 +594,28 @@ namespace nkentseu {
         mIsValid = true;
         // swfast::GetThreadPool().Init(mThreadCount);
         NK_SW_LOG("Initialisé (%u×%u, %u threads, SSE=%s)\n", mWidth, mHeight, mThreadCount, mUseSse ? "on" : "off");
+
+        // v4 Phase 4 : self-test ray-tracing (NK_SW_RT_TEST=1) → Build/Captures/rt_selftest.ppm
+        if (const char* e = std::getenv("NK_SW_RT_TEST")) {
+            if (e[0] == '1') {
+                swtrace::SelfTest("Build/Captures/rt_selftest.ppm");
+                NK_SW_LOG("Ray-trace self-test ecrit: Build/Captures/rt_selftest.ppm\n");
+            }
+        }
         return true;
     }
 
     void NkSoftwareDevice::CreateSwapchainObjects() {
+        // v4 Phase 2 : le swapchain est rendu à la résolution SSAA (hiW×hiH),
+        // puis résolu (downsample) vers mResolveBuf (taille fenêtre) au Present.
+        const uint32 hiW = mWidth  * mSSAA;
+        const uint32 hiH = mHeight * mSSAA;
+
         // Color backbuffer
         NkTextureDesc cd;
         cd.format     = NkGPUFormat::NK_RGBA8_UNORM;
-        cd.width      = mWidth;
-        cd.height     = mHeight;
+        cd.width      = hiW;
+        cd.height     = hiH;
         cd.bindFlags  = NkBindFlags::NK_RENDER_TARGET | NkBindFlags::NK_SHADER_RESOURCE;
         cd.debugName  = "SW_Backbuffer";
         auto colorH = CreateTexture(cd);
@@ -581,8 +623,8 @@ namespace nkentseu {
         // Depth buffer
         NkTextureDesc dd;
         dd.format     = NkGPUFormat::NK_D32_FLOAT;
-        dd.width      = mWidth;
-        dd.height     = mHeight;
+        dd.width      = hiW;
+        dd.height     = hiH;
         dd.bindFlags  = NkBindFlags::NK_DEPTH_STENCIL;
         dd.debugName  = "SW_Depthbuffer";
         auto depthH = CreateTexture(dd);
@@ -596,9 +638,13 @@ namespace nkentseu {
         fbd.renderPass = mSwapchainRP;
         fbd.colorAttachments.PushBack(colorH);
         fbd.depthAttachment = depthH;
-        fbd.width = mWidth; 
-        fbd.height = mHeight;
+        fbd.width = hiW;
+        fbd.height = hiH;
         mSwapchainFB = CreateFramebuffer(fbd);
+
+        // Buffer de résolution taille-fenêtre (uniquement si SSAA actif)
+        if (mSSAA > 1)
+            mResolveBuf.Assign((uint8)0, (NkVector<uint8>::SizeType)(mWidth * mHeight * 4u));
     }
 
     void NkSoftwareDevice::Shutdown() {
@@ -667,23 +713,43 @@ namespace nkentseu {
         t.isRenderTarget = NkHasFlag(desc.bindFlags, NkBindFlags::NK_RENDER_TARGET) ||
                         NkHasFlag(desc.bindFlags, NkBindFlags::NK_DEPTH_STENCIL);
 
-        uint32 bpp = NkFormatBytesPerPixel(desc.format);
+        // Le rasterizer, les clears et Sample software travaillent TOUJOURS en 4 octets/pixel
+        // (BGRA8 ; cf. stride de ligne W*4 hardcodé dans NkSWRasterCore). Une render target
+        // couleur HDR (RGBA16F=8, RGBA32F=16 o/px) casse ce stride → la géométrie est écrite à
+        // demi-stride et Sample la relit dupliquée horizontalement + tassée en haut. On stocke
+        // donc les RT couleur en RGBA8 (pas de vrai HDR en software : Sample clampe en 8-bit).
+        const bool isColorRT = NkHasFlag(desc.bindFlags, NkBindFlags::NK_RENDER_TARGET) &&
+                              !NkHasFlag(desc.bindFlags, NkBindFlags::NK_DEPTH_STENCIL);
+        if (isColorRT && NkFormatBytesPerPixel(desc.format) > 4u)
+            t.desc.format = NkGPUFormat::NK_RGBA8_UNORM;
+
+        uint32 bpp = NkFormatBytesPerPixel(t.desc.format);
+        // FIX heap-overflow (NKRenderer sur software) : le rasterizer et les clears écrivent
+        // toujours 4 octets/pixel. Un format inconnu (NkFormatBytesPerPixel → 0) donnait une
+        // allocation de 0 octet, et une render target < 4 o/pixel (R8/RG8) était sous-allouée →
+        // écriture au-delà → corruption du heap (nœuds de map) → crash aléatoire dans Find.
+        uint32 allocBpp = (bpp == 0u) ? 4u : bpp;
+        if (t.isRenderTarget && allocBpp < 4u) allocBpp = 4u;
+        // Cubemaps (6 faces), arrays (cascades CSM), 3D : allouer toutes les couches.
+        const uint32 layers = math::NkMax(1u, desc.arrayLayers) * math::NkMax(1u, desc.depth);
+
         uint32 mipCount = desc.mipLevels == 0
             ? (uint32)(math::NkFloor(math::NkLog2(static_cast<float32>(math::NkMax(desc.width, desc.height)))) + 1.0f)
             : desc.mipLevels;
 
         uint32 w = desc.width, hgt = desc.height;
         for (uint32 m = 0; m < mipCount; m++) {
-            uint32 sz = math::NkMax(1u, w) * math::NkMax(1u, hgt) * bpp;
+            const uint32 texels = math::NkMax(1u, w) * math::NkMax(1u, hgt) * layers;
+            uint32 sz = texels * allocBpp;
             uint8 value = (uint8)(desc.format == NkGPUFormat::NK_D32_FLOAT ? 0x3F : 0);
             t.mips.EmplaceBack(sz, value);
-            // Init depth à 1.0
+            // Init depth à 1.0 (toutes les couches)
             if (desc.format == NkGPUFormat::NK_D32_FLOAT) {
                 float32 one = 1.0f;
-                for (uint32 i = 0; i < math::NkMax(1u,w) * math::NkMax(1u, hgt); i++)
+                for (uint32 i = 0; i < texels; i++)
                     memcpy(t.mips[m].Data() + i*4, &one, 4);
             }
-            w >>= 1; 
+            w >>= 1;
             hgt >>= 1;
         }
 
@@ -796,6 +862,651 @@ namespace nkentseu {
             }
         }
 
+        // ── v5 Phase A : VM bytecode NkSL (opt-in NK_SW_VM) — exécute le VRAI shader ──
+        // Compile swSource → NK_BYTECODE → NkSLVM. STOPGAP mono-UBO (env.uniforms = set0,b0) ;
+        // le multi-UBO (Camera/Object/Lights) = Phase B. Si la VM installe vertFn/fragFn, le
+        // fixed-function ci-dessous est court-circuité (garde !sh.vertFn).
+        {
+            const char* vSw = nullptr; const char* fSw = nullptr; bool hasCpu = false;
+            for (uint32 i = 0; i < (uint32)desc.stages.Size(); ++i) {
+                const auto& s = desc.stages[i];
+                if (s.cpuFn) hasCpu = true;
+                if (s.stage == NkShaderStage::NK_VERTEX   && s.swSource) vSw = s.swSource;
+                if (s.stage == NkShaderStage::NK_FRAGMENT && s.swSource) fSw = s.swSource;
+            }
+            const char* vmEnv = std::getenv("NK_SW_VM");
+            if (vmEnv && vmEnv[0] == '1' && !hasCpu && vSw && fSw) {
+                NkSLCompiler& comp = nksl::GetCompiler();
+                NkSLCompileOptions o; o.optimize = false; o.debugInfo = false;
+                auto vr = comp.CompileWithReflection(NkString(vSw), NkSLStage::NK_VERTEX,   NkSLTarget::NK_BYTECODE, o, "sw.vert");
+                auto fr = comp.CompileWithReflection(NkString(fSw), NkSLStage::NK_FRAGMENT, NkSLTarget::NK_BYTECODE, o, "sw.frag");
+                if (!vr.result.success) for (auto& e : vr.result.errors) NK_SW_LOG("VM vert L%u: %s\n", e.line, e.message.CStr());
+                if (!fr.result.success) for (auto& e : fr.result.errors) NK_SW_LOG("VM frag L%u: %s\n", e.line, e.message.CStr());
+                if (vr.result.success && fr.result.success) {
+                    auto& alloc = nkentseu::memory::NkGetDefaultAllocator();
+                    NkSLByteProgram* vp = alloc.New<NkSLByteProgram>();
+                    NkSLByteProgram* fp = alloc.New<NkSLByteProgram>();
+                    bool dv = NkSLByteCodeDeserialize(vr.result.bytecode.Data(), vr.result.bytecode.Size(), *vp);
+                    bool df = NkSLByteCodeDeserialize(fr.result.bytecode.Data(), fr.result.bytecode.Size(), *fp);
+                    if (dv && df && vp->IsValid() && fp->IsValid()) {
+                        sh.vmVert = vp; sh.vmFrag = fp;
+                        NkSoftwareDevice* dev = this;
+                        sh.vertFn = [dev, vp](const void* vdata, uint32 idx, const void*) -> NkVertexSoftware {
+                            NkVertexSoftware out{};
+                            float outBuf[64] = {0};
+                            uint32 stride = dev->SwCurStride(); if (stride == 0) stride = 68u;
+                            NkSLVMEnv env;
+                            env.inputs   = (const float*)((const uint8*)vdata + (usize)idx * stride);
+                            env.outputs  = outBuf;
+                            env.vertexID = (int)idx;   // gl_VertexID (instanceID = 0 pour l'instant)
+                            for (uint32 ub = 0; ub < (uint32)vp->uboBlocks.Size() && ub < 8; ++ub)   // multi-UBO + push
+                                env.uboBlobs[ub] = (vp->uboBlocks[ub].set == 0xFFFFu)
+                                                 ? dev->SwPushData()
+                                                 : dev->SwGetUBOBytes(vp->uboBlocks[ub].set, vp->uboBlocks[ub].binding);
+                            env.uniforms = env.uboBlobs[0];   // fallback bloc 0
+                            NkSLVM::Execute(*vp, env);
+                            out.position = { outBuf[0], outBuf[1], outBuf[2], outBuf[3] };
+                            const uint32 nv = vp->outputFloats > 4 ? vp->outputFloats - 4 : 0;
+                            for (uint32 k = 0; k < nv && k < 16; ++k) out.attrs[k] = outBuf[4 + k];
+                            out.attrCount = nv;
+                            return out;
+                        };
+                        sh.fragFn = [dev, fp](const NkVertexSoftware& frag, const void*, const void*) -> math::NkVec4 {
+                            float outBuf[8] = {0};
+                            NkSLVMEnv env;
+                            env.inputs   = frag.attrs;
+                            env.outputs  = outBuf;
+                            for (uint32 ub = 0; ub < (uint32)fp->uboBlocks.Size() && ub < 8; ++ub)   // multi-UBO + push
+                                env.uboBlobs[ub] = (fp->uboBlocks[ub].set == 0xFFFFu)
+                                                 ? dev->SwPushData()
+                                                 : dev->SwGetUBOBytes(fp->uboBlocks[ub].set, fp->uboBlocks[ub].binding);
+                            env.uniforms = env.uboBlobs[0];   // fallback bloc 0
+                            env.ctx      = dev;
+                            env.sampleTex = [](void* c, int s, float u, float v, float, float o[4]) {
+                                auto* d = (NkSoftwareDevice*)c;
+                                const NkSWTexture* t = d->SwGetTexAt(2, (uint32)s);   // set material d'abord
+                                if (!t) t = d->SwGetTexAt(0, (uint32)s);              // puis frame
+                                if (t) { auto col = t->Sample(u, v, 0); o[0]=col.x; o[1]=col.y; o[2]=col.z; o[3]=col.w; }
+                                else  { o[0]=o[1]=o[2]=o[3]=1.f; }
+                            };
+                            env.texSize = [](void*, int, float o[2]) { o[0]=o[1]=1.f; };
+                            NkSLVM::Execute(*fp, env);
+                            return { outBuf[0], outBuf[1], outBuf[2], outBuf[3] };
+                        };
+                        NK_SW_LOG("VM NkSL bytecode installe (vert outF=%u frag inF=%u samplers=%u).\n",
+                                  vp->outputFloats, fp->inputFloats, (uint32)fp->samplers.Size());
+                    } else {
+                        alloc.Delete(vp); alloc.Delete(fp);
+                        NK_SW_LOG("VM NkSL : deserialize KO -> fallback fixed-function.\n");
+                    }
+                }
+            }
+        }
+
+        // ── v4 Phase 5 (A) : shaders NkSL de NKRenderer (source, sans cpuFn) ──────────
+        // On installe un shader fixed-function TAILLÉ sur les conventions NKRenderer :
+        //   vertex  : viewProj(set0,b0 @128) × model(set1,b1 @0) × aPos ; format 6 attributs.
+        //   fragment: Lambert (lumière directionnelle) × albedo(set2,b1) × tint(set1,b1 @128) × couleur.
+        // Le shader interroge le device par (set,binding) au shade-time (multi-descriptor-set).
+        {
+            bool hasSource = false, hasCpuFn = false;
+            for (uint32 i = 0; i < (uint32)desc.stages.Size(); ++i) {
+                const auto& s = desc.stages[i];
+                if (s.cpuFn) hasCpuFn = true;
+                if (s.glslSource || s.swSource || !s.spirvBinary.Empty()) hasSource = true;
+            }
+
+            // ── v4 Phase 5 (A) : passes PLEIN-ÉCRAN (post-process) ────────────────────────
+            // Tonemap/Bloom/FXAA/SSAO dessinent un triangle plein-écran (NkVertex3D, aPos@0
+            // déjà en NDC, aUV@36) et échantillonnent leur RT d'entrée au binding 0. Elles ne
+            // doivent PAS subir viewProj×model (sinon triangle déformé -> écran noir). On leur
+            // installe un fixed-function PASS-THROUGH : position brute + sample input, + tonemap
+            // ACES basique pour la passe Tonemap. Détecté via debugName ('PP_*').
+            bool isFullscreen = false, isTonemap = false, isSSAO = false, isSkippablePP = false;
+            if (desc.debugName && desc.debugName[0]) {
+                const char* dn = desc.debugName;
+                if (std::strncmp(dn, "PP_", 3) == 0) isFullscreen = true;
+                if (std::strstr(dn, "Tonemap")) isTonemap = true;
+                if (std::strstr(dn, "SSAO"))    isSSAO    = true;   // SSAO brut (pas SSAOBlur -> copie)
+                if (std::strstr(dn, "SSAOBlur")) isSSAO   = false;
+                // PERF : SSAO/SSAOBlur/Bloom sont INUTILISÉS par notre tonemap (qui n'échantillonne
+                // que le HDR au binding 0). Ces ~14 passes plein-écran coûtent cher pour rien en
+                // software → on les SKIP (rasterisation coupée). On garde Tonemap + FXAA (image finale).
+                if (std::strstr(dn, "SSAO") || std::strstr(dn, "Bloom")) isSkippablePP = true;
+            }
+            if (isSkippablePP && hasSource && !hasCpuFn && !sh.vertFn && !sh.fragFn) {
+                sh.genVertsFromID = true;
+                sh.vertFn = [](const void*, uint32, const void*) -> NkVertexSoftware {
+                    NkVertexSoftware out{}; out.position = { 0.f, 0.f, 0.f, -1.f };   // clippé -> pas de rasterisation
+                    return out;
+                };
+                sh.fragFn = [](const NkVertexSoftware&, const void*, const void*) -> math::NkVec4 { return {0,0,0,0}; };
+                NK_SW_LOG("Shader NkSL plein-ecran '%s' -> SKIP (inutilise en software, gain perf).\n",
+                          desc.debugName ? desc.debugName : "?");
+            }
+            if (isFullscreen && !isSkippablePP && hasSource && !hasCpuFn && !sh.vertFn && !sh.fragFn) {
+                sh.genVertsFromID = true;   // triangle plein-écran synthétisé (tolère vdata==nullptr)
+                NkSoftwareDevice* dev = this;
+                auto rf = [](const uint8* p, uint32 o) { float f; memcpy(&f, p + o, 4); return f; };
+                sh.vertFn = [dev](const void* vdata, uint32 idx, const void*) -> NkVertexSoftware {
+                    float px, py, uu, vv;
+                    if (!vdata) {
+                        // Vertexless (gl_VertexID) : grand triangle couvrant l'écran.
+                        // idx 0->(uv 0,0) 1->(2,0) 2->(0,2) ; pos = uv*2-1 -> (-1,-1),(3,-1),(-1,3)
+                        uu = (idx == 1u) ? 2.f : 0.f;
+                        vv = (idx == 2u) ? 2.f : 0.f;
+                        px = uu * 2.f - 1.f;
+                        py = vv * 2.f - 1.f;
+                    } else {
+                        uint32 stride = dev->SwCurStride(); if (stride == 0) stride = 56u;  // NkVertex3D
+                        const uint8* v = (const uint8*)vdata + (uint64)idx * stride;
+                        auto g = [&](uint32 o, float def) -> float {
+                            if (o + 4u > stride) return def; float f; memcpy(&f, v + o, 4); return f; };
+                        px=g(0,0.f); py=g(4,0.f);    // aPos.xy déjà en NDC
+                        uu=g(36,0.f); vv=g(40,0.f);  // aUV (location 3, offset 36)
+                    }
+                    NkVertexSoftware out{};
+                    out.position = { px, py, 0.f, 1.f };    // pass-through (pas de transform)
+                    out.normal   = { 0.f, 0.f, 1.f };
+                    out.uv       = { uu, vv };
+                    out.color    = { 1.f, 1.f, 1.f, 1.f };
+                    return out;
+                };
+                sh.fragFn = [dev, rf, isTonemap, isSSAO](const NkVertexSoftware& f, const void*, const void*) -> math::NkVec4 {
+                    if (isSSAO) return { 1.f, 1.f, 1.f, 1.f };   // facteur AO neutre (pas d'occlusion)
+                    const NkSWTexture* src = dev->SwGetTexAt(0, 0);  // RT d'entrée au binding 0 (modèle aplati)
+                    if (!src) return { 0.f, 0.f, 0.f, 1.f };
+                    // PERF : passe plein-écran 1:1 -> NEAREST (1 lecture) au lieu de Sample bilinéaire
+                    // (4 lectures + lerp). Tonemap/FXAA copient la RT à l'identique -> nearest exact.
+                    const uint32 sw=src->Width(0), shh=src->Height(0);
+                    int tx=(int)(f.uv.x*sw), ty=(int)(f.uv.y*shh);
+                    if(tx<0)tx=0; if(tx>=(int)sw)tx=(int)sw-1; if(ty<0)ty=0; if(ty>=(int)shh)ty=(int)shh-1;
+                    NkSWColor c = src->Read((uint32)tx,(uint32)ty,0);
+                    if (!isTonemap) return { c.r, c.g, c.b, c.a };  // FXAA/Bloom : copie directe
+                    // Tonemap : ACES + exposure/gamma depuis les push constants PC[0]=(exposure,gamma,..).
+                    // Bornés à des plages saines : des push constants absentes/garbage sur-exposaient
+                    // le fond (clear sombre {0.05} -> lavande).
+                    float exposure = 1.f, gamma = 2.2f;
+                    if (const uint8* pc = dev->SwPushData()) { exposure = rf(pc, 0); gamma = rf(pc, 4); }
+                    if (!(exposure > 0.05f && exposure < 8.f))  exposure = 1.f;
+                    if (!(gamma    > 1.0f  && gamma    < 3.0f)) gamma    = 2.2f;
+                    auto aces = [](float x){ const float a=2.51f,b=0.03f,c2=2.43f,d=0.59f,e=0.14f;
+                        float y=(x*(a*x+b))/(x*(c2*x+d)+e); return y<0.f?0.f:(y>1.f?1.f:y); };
+                    float r=aces(c.r*exposure), g=aces(c.g*exposure), b=aces(c.b*exposure);
+                    if (gamma > 0.001f) { const float ig=1.f/gamma; r=std::pow(r,ig); g=std::pow(g,ig); b=std::pow(b,ig); }
+                    return { r, g, b, 1.f };
+                };
+                NK_SW_LOG("Shader NkSL plein-ecran '%s' -> fixed-function pass-through (sample input @b0%s).\n",
+                          desc.debugName ? desc.debugName : "?", isTonemap ? " + tonemap ACES" : "");
+            }
+
+            // ── v4 Phase 5 (B) : SKYBOX ───────────────────────────────────────────────────
+            // La skybox est un triangle plein-écran (gl_VertexID) rendu au FAR plane avec depth
+            // LEQUAL + depthWrite=false : elle ne remplit QUE le fond (là où depth==1). Le
+            // fixed-function 3D lui donnait une profondeur proche -> elle occultait la scène
+            // (grand plan sombre). On force donc depth=1 (position z=w) + un ciel dégradé neutre.
+            const bool isSkybox = (desc.debugName && std::strstr(desc.debugName, "Skybox"));
+            if (isSkybox && hasSource && !hasCpuFn && !sh.vertFn && !sh.fragFn) {
+                sh.genVertsFromID = true;
+                NkSoftwareDevice* dev = this;
+                sh.vertFn = [dev](const void* vdata, uint32 idx, const void*) -> NkVertexSoftware {
+                    float px, py, uu, vv;
+                    if (!vdata) { uu=(idx==1u)?2.f:0.f; vv=(idx==2u)?2.f:0.f; px=uu*2.f-1.f; py=vv*2.f-1.f; }
+                    else { uint32 st=dev->SwCurStride(); if(st==0)st=56u; const uint8* v=(const uint8*)vdata+(uint64)idx*st;
+                           auto g=[&](uint32 o,float d){ if(o+4u>st)return d; float f; memcpy(&f,v+o,4); return f; };
+                           px=g(0,0.f); py=g(4,0.f); uu=g(36,0.f); vv=g(40,0.f); }
+                    NkVertexSoftware out{};
+                    out.position = { px, py, 1.f, 1.f };   // z=w -> depth=1 (far plane) : n'occulte rien
+                    out.normal = {0.f,0.f,1.f}; out.uv = { uu, vv }; out.color = {1.f,1.f,1.f,1.f};
+                    return out;
+                };
+                sh.fragFn = [](const NkVertexSoftware& f, const void*, const void*) -> math::NkVec4 {
+                    // Ciel dégradé neutre (gris-bleu clair). uv.y : 0=bas/horizon, 1=haut/zénith.
+                    // Volontairement quasi-neutre (peu sensible au swap R/B en attendant son fix).
+                    float t = f.uv.y; if (t<0.f)t=0.f; if (t>1.f)t=1.f;
+                    float top=0.62f, hor=0.86f; float g = hor + (top-hor)*t;
+                    return { g*0.92f, g*0.96f, g, 1.f };
+                };
+                NK_SW_LOG("Shader NkSL 'Skybox' -> fixed-function ciel far-plane (non-occultant).\n");
+            }
+
+            // ── InfiniteGrid : grille de sol infinie. Triangle plein-écran + reconstruction de
+            // rayon par pixel : on intersecte le rayon caméra avec le plan y=planeY et on dessine
+            // cellules + lignes + axes. Rendu au far plane (depth=1) -> correctement occulté par
+            // les objets opaques (depthTest LEQUAL). Push constants = GridPC (6 vec4).
+            const bool isGrid = (desc.debugName && std::strstr(desc.debugName, "InfiniteGrid"));
+            if (isGrid && hasSource && !hasCpuFn && !sh.vertFn && !sh.fragFn) {
+                sh.genVertsFromID = true;
+                sh.fragDepth      = true;   // depth = point d'intersection sol (coplanaire au sol)
+                NkSoftwareDevice* dev = this;
+                sh.vertFn = [dev](const void* vdata, uint32 idx, const void*) -> NkVertexSoftware {
+                    float px, py, uu, vv;
+                    if (!vdata) { uu=(idx==1u)?2.f:0.f; vv=(idx==2u)?2.f:0.f; px=uu*2.f-1.f; py=vv*2.f-1.f; }
+                    else { uint32 st=dev->SwCurStride(); if(st==0)st=56u; const uint8* v=(const uint8*)vdata+(uint64)idx*st;
+                           auto g=[&](uint32 o,float d){ if(o+4u>st)return d; float f; memcpy(&f,v+o,4); return f; };
+                           px=g(0,0.f); py=g(4,0.f); uu=g(36,0.f); vv=g(40,0.f); }
+                    NkVertexSoftware out{};
+                    out.position = { px, py, 1.f, 1.f };   // far plane (depth=1) -> occulté par les objets
+                    out.normal = {0.f,0.f,1.f}; out.uv = { uu, vv }; out.color = {1.f,1.f,1.f,1.f};
+                    return out;
+                };
+                sh.fragFn = [dev](const NkVertexSoftware& f, const void*, const void*) -> math::NkVec4 {
+                    static const bool s_nogrid = [](){ const char* e=std::getenv("NK_SW_NOGRID"); return e&&e[0]=='1'; }();
+                    if (s_nogrid) return { 0.f,0.f,0.f,0.f };   // A/B perf : coût de la grille
+                    const uint8* cam = dev->SwGetUBOBytes(0,0);   // CameraUBO
+                    const uint8* pc  = dev->SwPushData();          // GridPC
+                    if (!cam) return { 0.f,0.f,0.f,0.f };
+                    auto rf = [](const uint8* p, uint32 o){ float v; memcpy(&v,p+o,4); return v; };
+                    // NDC du pixel (uv 0..1 -> NDC -1..1 ; uv.y=0 en haut).
+                    // NDC du pixel. Le rasterizer software mappe NDC y=+1 -> HAUT de l'écran, et
+                    // pour ce triangle plein-écran uv.y=1 est en haut -> ndcy = uv.y*2-1 (et NON
+                    // 1-uv.y*2, qui inversait le rayon en Y => grille vue « d'en dessous »).
+                    float ndcx = f.uv.x*2.f - 1.f, ndcy = f.uv.y*2.f - 1.f;
+                    // Rayon monde : origine = camPos (@256), direction via le point far reconstruit
+                    // (invViewProj @192, ndc z=+1). Robuste vis-à-vis de la convention NDC z.
+                    const float* ivp  = (const float*)(cam + 192);
+                    const float* cpos = (const float*)(cam + 256);
+                    float pf[4];
+                    for (int i=0;i<4;++i) pf[i]=ivp[0*4+i]*ndcx+ivp[1*4+i]*ndcy+ivp[2*4+i]*1.f+ivp[3*4+i]*1.f;
+                    if (fabsf(pf[3])<1e-9f) return {0,0,0,0};
+                    float ox=cpos[0], oy=cpos[1], oz=cpos[2];
+                    float fx=pf[0]/pf[3], fy=pf[1]/pf[3], fz=pf[2]/pf[3];
+                    float dx=fx-ox, dy=fy-oy, dz=fz-oz;
+                    const float planeY = pc ? rf(pc, 80) : 0.f;    // extra.x
+                    if (fabsf(dy) < 1e-6f) return {0,0,0,0};
+                    float t = (planeY - oy) / dy;
+                    if (t <= 0.f) return {0,0,0,0};                // plan derrière / au-dessus -> ciel
+                    float wx = ox + dx*t, wz = oz + dz*t;          // point d'intersection sol
+                    // Profondeur du point d'intersection (viewProj @128) -> depth [0,1] pour le
+                    // depth-test : la grille devient coplanaire au sol et est occultée par les objets.
+                    { const float* vp = (const float*)(cam + 128);
+                      float cz = vp[0*4+2]*wx + vp[1*4+2]*planeY + vp[2*4+2]*wz + vp[3*4+2];
+                      float cw = vp[0*4+3]*wx + vp[1*4+3]*planeY + vp[2*4+3]*wz + vp[3*4+3];
+                      if (fabsf(cw) > 1e-9f) {
+                          float d = (cz/cw)*0.5f + 0.5f - 0.0015f;   // biais vers la caméra (anti z-fight sol)
+                          swraster::tl_fragDepth = d < 0.f ? 0.f : (d > 1.f ? 1.f : d);
+                          swraster::tl_fragDepthSet = true;
+                      } }
+                    // Paramètres grille (défauts raisonnables si pas de push const).
+                    float cellSize  = pc ? rf(pc,64) : 1.f;
+                    float majorEvery= pc ? rf(pc,68) : 10.f;
+                    float fadeEnd   = pc ? rf(pc,76) : 60.f;
+                    if (cellSize   < 1e-3f) cellSize = 1.f;
+                    if (majorEvery < 1.f)   majorEvery = 10.f;
+                    math::NkVec4 lineCol = pc ? math::NkVec4{rf(pc,0),rf(pc,4),rf(pc,8),rf(pc,12)} : math::NkVec4{0.8f,0.8f,0.8f,1.f};
+                    math::NkVec4 cellCol = pc ? math::NkVec4{rf(pc,16),rf(pc,20),rf(pc,24),rf(pc,28)} : math::NkVec4{0.55f,0.55f,0.58f,0.6f};
+                    math::NkVec4 axXCol  = pc ? math::NkVec4{rf(pc,32),rf(pc,36),rf(pc,40),rf(pc,44)} : math::NkVec4{0.85f,0.25f,0.25f,1.f};
+                    math::NkVec4 axZCol  = pc ? math::NkVec4{rf(pc,48),rf(pc,52),rf(pc,56),rf(pc,60)} : math::NkVec4{0.25f,0.4f,0.85f,1.f};
+                    // Distance à la ligne la plus proche (largeur world proportionnelle à la distance
+                    // pour garder ~une largeur écran constante ; pas de dérivées en software).
+                    float dist = t; if (dist<0.f) dist=0.f;
+                    float lw = 0.02f * dist * cellSize / 20.f; if (lw < 0.008f*cellSize) lw = 0.008f*cellSize;
+                    auto lineFactor = [&](float cs)->float{
+                        float ax = fabsf(wx/cs - math::NkFloor(wx/cs + 0.5f)) * cs;
+                        float az = fabsf(wz/cs - math::NkFloor(wz/cs + 0.5f)) * cs;
+                        float d = ax < az ? ax : az;
+                        return 1.f - math::NkClamp(d / lw, 0.f, 1.f);
+                    };
+                    float minorL = lineFactor(cellSize);
+                    float majorL = lineFactor(cellSize * majorEvery);
+                    // Fade distance.
+                    float fade = 1.f - math::NkClamp(dist / fadeEnd, 0.f, 1.f);
+                    if (fade <= 0.f) return {0,0,0,0};
+                    // Composition : cellule (fond) -> lignes mineures -> majeures -> axes.
+                    math::NkVec4 col = cellCol;
+                    if (minorL > 0.01f) col = { lineCol.x, lineCol.y, lineCol.z, math::NkMax(col.w, lineCol.w*minorL) };
+                    if (majorL > 0.01f) col = { lineCol.x, lineCol.y, lineCol.z, math::NkMax(col.w, lineCol.w*majorL) };
+                    float axw = lw * 1.5f;
+                    if (fabsf(wx) < axw) col = { axZCol.x, axZCol.y, axZCol.z, math::NkMax(col.w, axZCol.w) }; // axe Z (x=0)
+                    if (fabsf(wz) < axw) col = { axXCol.x, axXCol.y, axXCol.z, math::NkMax(col.w, axXCol.w) }; // axe X (z=0)
+                    col.w *= fade;
+                    return col;
+                };
+                NK_SW_LOG("Shader NkSL 'InfiniteGrid' -> fixed-function grille sol (ray-plane).\n");
+            }
+
+            // ── DebugLine / DebugLineOverlay : géométrie de debug (axes, gizmo) au format LIGNE
+            // (pos vec3 @0 + couleur vec4 @12, stride 28). Le rasterizer software ne gère pas la
+            // topologie LINE : il remplissait les « lignes » en gros triangles pleins (les axes
+            // X rouge / Z bleu devenaient d'énormes bandes occultant la scène — d'abord magenta
+            // via le fixed-function 3D). En attendant une vraie rasterisation de lignes, on NE
+            // dessine PAS le debug en software (sommet clippé). La scène reste dégagée.
+            // ── Passe SHADOW (rendu depth des casters dans le shadow atlas VSM). Maintenant que le
+            // rasterizer software gère le VIEWPORT (chaque slot rasterise dans son tileRect au lieu
+            // de tout l'atlas 4096²) ET que le fragment géométrie échantillonne l'atlas (ombres
+            // portées), on RÉTABLIT ce rendu. Le FBO est depth-only (colorBuf=null) : le rasterizer
+            // écrit seulement la depth, sans appeler le fragFn (chemin `depthOnly`). Sommet :
+            // clip = lightVP(push const @0) · model(ObjUBO set1,b1 @0) · localPos. depthRemap=1 en
+            // software (renderMatrix en [-1,1]) → Project mappe *0.5+0.5, cohérent avec le sampling.
+            //
+            // Le shader INSTANCIÉ ("ShadowInstanced") reste SKIP : l'instancing n'est pas géré en
+            // software (le vertFn ne reçoit pas gl_InstanceID), donc les N cubes se rendraient tous à
+            // l'origine (model=identité, offset par instance ignoré) → un blob d'ombre parasite. On
+            // le clippe. Les casters NON-instanciés (sphères, colonnes, cube central) passent par
+            // "Shadow_DepthOnly" (RenderShadowPass itère mShadowCasters avec un ObjUBO par caster).
+            const bool isShadowInst = (desc.debugName && std::strstr(desc.debugName, "ShadowInstanced"));
+            const bool isShadowPass = (desc.debugName && std::strstr(desc.debugName, "Shadow"));
+            if (isShadowPass && hasSource && !hasCpuFn && !sh.vertFn && !sh.fragFn) {
+                if (isShadowInst) {
+                    // Ombres des casters INSTANCIÉS (cubes) : le pass shadow instancié rend n instances
+                    // en 1 draw. model par instance = InstanceUBO(set1,b4) @ instIdx*64 (mat4 col-major) ;
+                    // l'ObjectUBO(1,1) est l'identité (le VS GPU fait uObj.model·inst[id]·pos). On indexe
+                    // via SwCurInstance() ; ExecuteDraw*Fast re-génère les sommets par instance grâce à
+                    // usesInstancing=true. clip = lightVP(pushConst@0) · instModel · localPos.
+                    NkSoftwareDevice* dev = this;
+                    sh.usesInstancing = true;
+                    sh.vertFn = [dev](const void* vdata, uint32 idx, const void*) -> NkVertexSoftware {
+                        uint32 stride = dev->SwCurStride(); if (stride == 0) stride = 12u;
+                        const uint8* v = (const uint8*)vdata + (uint64)idx * stride;
+                        float px=0.f,py=0.f,pz=0.f;
+                        if (stride >= 12u) { memcpy(&px,v,4); memcpy(&py,v+4,4); memcpy(&pz,v+8,4); }
+                        float wx=px, wy=py, wz=pz, ww=1.f;
+                        if (const uint8* inst = dev->SwGetUBOBytes(1,4)) {          // InstanceUBO
+                            const float* m = (const float*)(inst + (uint64)dev->SwCurInstance()*64u);
+                            wx=m[0]*px+m[4]*py+m[ 8]*pz+m[12];
+                            wy=m[1]*px+m[5]*py+m[ 9]*pz+m[13];
+                            wz=m[2]*px+m[6]*py+m[10]*pz+m[14];
+                            ww=m[3]*px+m[7]*py+m[11]*pz+m[15];
+                        }
+                        float cx=wx, cy=wy, cz=wz, cw=ww;
+                        if (const uint8* pc = dev->SwPushData()) {                  // lightVP
+                            const float* L = (const float*)pc;
+                            cx=L[0]*wx+L[4]*wy+L[ 8]*wz+L[12]*ww;
+                            cy=L[1]*wx+L[5]*wy+L[ 9]*wz+L[13]*ww;
+                            cz=L[2]*wx+L[6]*wy+L[10]*wz+L[14]*ww;
+                            cw=L[3]*wx+L[7]*wy+L[11]*wz+L[15]*ww;
+                        }
+                        NkVertexSoftware out{}; out.position = { cx, cy, cz, cw };
+                        return out;
+                    };
+                    sh.fragFn = [](const NkVertexSoftware&, const void*, const void*) -> math::NkVec4 { return {0,0,0,1}; };
+                    NK_SW_LOG("Shader NkSL '%s' -> fixed-function depth-only INSTANCIE (ombres cubes).\n",
+                              desc.debugName ? desc.debugName : "ShadowInstanced");
+                } else {
+                    NkSoftwareDevice* dev = this;
+                    sh.vertFn = [dev](const void* vdata, uint32 idx, const void*) -> NkVertexSoftware {
+                        uint32 stride = dev->SwCurStride(); if (stride == 0) stride = 12u;
+                        const uint8* v = (const uint8*)vdata + (uint64)idx * stride;
+                        float px=0.f,py=0.f,pz=0.f;
+                        if (stride >= 12u) { memcpy(&px,v,4); memcpy(&py,v+4,4); memcpy(&pz,v+8,4); }
+                        // model (ObjUBO set1,b1 @0) : localPos -> worldPos
+                        float wx=px, wy=py, wz=pz, ww=1.f;
+                        if (const uint8* obj = dev->SwGetUBOBytes(1,1)) {
+                            const float* m = (const float*)obj;
+                            wx=m[0]*px+m[4]*py+m[ 8]*pz+m[12];
+                            wy=m[1]*px+m[5]*py+m[ 9]*pz+m[13];
+                            wz=m[2]*px+m[6]*py+m[10]*pz+m[14];
+                            ww=m[3]*px+m[7]*py+m[11]*pz+m[15];
+                        }
+                        // lightVP (push const @0) : worldPos -> clip lumière
+                        float cx=wx, cy=wy, cz=wz, cw=ww;
+                        if (const uint8* pc = dev->SwPushData()) {
+                            const float* L = (const float*)pc;
+                            cx=L[0]*wx+L[4]*wy+L[ 8]*wz+L[12]*ww;
+                            cy=L[1]*wx+L[5]*wy+L[ 9]*wz+L[13]*ww;
+                            cz=L[2]*wx+L[6]*wy+L[10]*wz+L[14]*ww;
+                            cw=L[3]*wx+L[7]*wy+L[11]*wz+L[15]*ww;
+                        }
+                        NkVertexSoftware out{}; out.position = { cx, cy, cz, cw };
+                        return out;
+                    };
+                    sh.fragFn = [](const NkVertexSoftware&, const void*, const void*) -> math::NkVec4 { return {0,0,0,1}; };
+                    NK_SW_LOG("Shader NkSL '%s' -> fixed-function depth-only (rendu atlas d'ombre VSM).\n",
+                              desc.debugName ? desc.debugName : "Shadow");
+                }
+            }
+
+            const bool isDebugLine = (desc.debugName && std::strstr(desc.debugName, "DebugLine"));
+            if (isDebugLine && hasSource && !hasCpuFn && !sh.vertFn && !sh.fragFn) {
+                sh.vertFn = [](const void*, uint32, const void*) -> NkVertexSoftware {
+                    NkVertexSoftware out{}; out.position = { 0.f, 0.f, 0.f, -1.f };   // w<0 -> clippé
+                    return out;
+                };
+                sh.fragFn = [](const NkVertexSoftware&, const void*, const void*) -> math::NkVec4 {
+                    return { 0.f, 0.f, 0.f, 0.f };
+                };
+                NK_SW_LOG("Shader NkSL '%s' -> non dessine en software (lignes debug, topologie LINE non geree).\n",
+                          desc.debugName ? desc.debugName : "DebugLine");
+            }
+
+            // ── Render2D / overlay / texte : quads 2D. Format aPos(vec2@0) aUV(vec2@8)
+            // aColor(uint@16, RGBA packé) aFlags(uint@20), stride 24. gl_Position = ortho(push
+            // const mat4 @0) × pos. FS : flag2=texturé (atlas @binding0), flag1=texte (couverture
+            // = atlas.a × couleur), sinon quad plein = couleur. Sans ce handler, l'overlay/HUD
+            // était rendu par le fixed-function 3D (format incompatible) -> cassé.
+            const bool isR2D = (desc.debugName && (std::strstr(desc.debugName,"Render2D") ||
+                                                    std::strstr(desc.debugName,"Overlay")));
+            if (isR2D && hasSource && !hasCpuFn && !sh.vertFn && !sh.fragFn) {
+                NkSoftwareDevice* dev = this;
+                sh.vertFn = [dev](const void* vdata, uint32 idx, const void*) -> NkVertexSoftware {
+                    uint32 stride = dev->SwCurStride(); if (stride == 0) stride = 24u;
+                    const uint8* v = (const uint8*)vdata + (uint64)idx * stride;
+                    auto gf = [&](uint32 o, float d){ if(o+4u>stride)return d; float f; memcpy(&f,v+o,4); return f; };
+                    float px=gf(0,0.f), py=gf(4,0.f), uu=gf(8,0.f), vv=gf(12,0.f);
+                    uint32 col=0, flg=0;
+                    if (16u+4u<=stride) memcpy(&col, v+16, 4);
+                    if (20u+4u<=stride) memcpy(&flg, v+20, 4);
+                    float cr=(col&0xFFu)/255.f, cg=((col>>8)&0xFFu)/255.f, cb=((col>>16)&0xFFu)/255.f, ca=((col>>24)&0xFFu)/255.f;
+                    // ortho (mat4 column-major) dans les push constants @0.
+                    float clip[4]={px,py,0.f,1.f};
+                    if (const uint8* pc=dev->SwPushData()) { const float* m=(const float*)pc;
+                        clip[0]=m[0]*px+m[4]*py+m[12]; clip[1]=m[1]*px+m[5]*py+m[13];
+                        clip[2]=m[2]*px+m[6]*py+m[14]; clip[3]=m[3]*px+m[7]*py+m[15]; }
+                    NkVertexSoftware out{};
+                    out.position={clip[0],clip[1],clip[2],clip[3]};
+                    out.uv={uu,vv}; out.color={cr,cg,cb,ca};
+                    out.attrs[0]=(float)flg; out.attrCount=1;   // flags (flat)
+                    return out;
+                };
+                sh.fragFn = [dev](const NkVertexSoftware& f, const void*, const void*) -> math::NkVec4 {
+                    const uint32 flg=(uint32)(f.attrs[0]+0.5f);
+                    float r=f.color.r, g=f.color.g, b=f.color.b, a=f.color.a;
+                    if (flg & 2u) {   // texturé (atlas @binding0)
+                        const NkSWTexture* at = dev->SwGetTexAt(0,0);
+                        if (at && !at->mips.Empty()) {
+                            NkSWColor t = at->Sample(f.uv.x, f.uv.y);
+                            if (flg & 1u) { a *= t.a; }               // texte : couverture = alpha atlas
+                            else { r*=t.r; g*=t.g; b*=t.b; a*=t.a; }  // quad texturé
+                        }
+                    }
+                    if (a < 0.01f) return { 0.f,0.f,0.f,0.f };        // discard (alpha 0 -> blend no-op)
+                    return { r,g,b,a };
+                };
+                NK_SW_LOG("Shader NkSL '%s' -> fixed-function 2D (overlay/texte, ortho+atlas).\n",
+                          desc.debugName ? desc.debugName : "Render2D");
+            }
+
+            if (hasSource && !hasCpuFn && !sh.vertFn && !sh.fragFn) {
+                NkSoftwareDevice* dev = this;
+                auto rf = [](const uint8* p, uint32 o) { float f; memcpy(&f, p + o, 4); return f; };
+                auto mulCM = [](const float* m, float x, float y, float z, float w, float* o) {
+                    o[0]=m[0]*x+m[4]*y+m[ 8]*z+m[12]*w; o[1]=m[1]*x+m[5]*y+m[ 9]*z+m[13]*w;
+                    o[2]=m[2]*x+m[6]*y+m[10]*z+m[14]*w; o[3]=m[3]*x+m[7]*y+m[11]*z+m[15]*w;
+                };
+                sh.vertFn = [dev, rf, mulCM](const void* vdata, uint32 idx, const void*) -> NkVertexSoftware {
+                    uint32 stride = dev->SwCurStride(); if (stride == 0) stride = 12u;
+                    const uint8* v = (const uint8*)vdata + (uint64)idx * stride;
+                    // Lecture BORNÉE par le stride réel (évite tout OOB). Layout NKRenderer :
+                    // aPos@0 aNormal@12 aTangent@24 aUV@36 aUV2@44 aColor@52.
+                    auto g = [&](uint32 o, float def) -> float { return (o + 4u <= stride) ? rf(v, o) : def; };
+                    const float px=g(0,0.f), py=g(4,0.f), pz=g(8,0.f);
+                    const float nx=g(12,0.f), ny=g(16,0.f), nz=g(20,1.f);
+                    const float uu=g(36,0.f), vv=g(40,0.f);
+                    // Couleur : NkVertex3D (stride 56) la stocke PACKÉE en uint RGBA @52 (4 octets),
+                    // PAS en vec4 float. La lire comme float donnait un bitpattern d'uint interprété
+                    // en float = NaN (ex. blanc 0xFFFFFFFF) -> albédo NaN -> canal rouge tué (sol/objets
+                    // cyan). On la DÉPAQUÈTE. (Le format 68 o à vec4 float n'est pas utilisé ici.)
+                    float cr=1.f,cg=1.f,cb=1.f,ca=1.f;
+                    if (52u+4u <= stride) { uint32 col; memcpy(&col, v+52, 4);
+                        cr=(col&0xFFu)/255.f; cg=((col>>8)&0xFFu)/255.f; cb=((col>>16)&0xFFu)/255.f; ca=((col>>24)&0xFFu)/255.f; }
+
+                    const uint8* cam = dev->SwGetUBOBytes(0,0);   // CameraUBO (set0,binding0)
+                    const uint8* obj = dev->SwGetUBOBytes(1,1);   // ObjectUBO (set1,binding1 : NKRenderer BindUniformBuffer(os,1,...))
+                    float world[4]={px,py,pz,1.f};
+                    float wnx=nx,wny=ny,wnz=nz;
+                    if (obj) {
+                        const float* model=(const float*)(obj+0);
+                        mulCM(model, px,py,pz,1.f, world);
+                        wnx=model[0]*nx+model[4]*ny+model[8]*nz;
+                        wny=model[1]*nx+model[5]*ny+model[9]*nz;
+                        wnz=model[2]*nx+model[6]*ny+model[10]*nz;
+                    }
+                    float clip[4]={world[0],world[1],world[2],1.f};
+                    if (cam) { const float* vp=(const float*)(cam+128); mulCM(vp, world[0],world[1],world[2],world[3], clip); }
+
+                    NkVertexSoftware out{};
+                    out.position = { clip[0],clip[1],clip[2],clip[3] };
+                    out.normal   = { wnx,wny,wnz };
+                    out.uv       = { uu,vv };
+                    out.color    = { cr,cg,cb,ca };
+                    out.attrs[0]=world[0]; out.attrs[1]=world[1]; out.attrs[2]=world[2]; out.attrCount=3;  // pos monde -> vue (spéculaire)
+                    return out;
+                };
+                sh.fragFn = [dev, rf](const NkVertexSoftware& f, const void*, const void*) -> math::NkVec4 {
+                    float nx=f.normal.x, ny=f.normal.y, nz=f.normal.z;
+                    const float len=std::sqrt(nx*nx+ny*ny+nz*nz); if (len>1e-6f){nx/=len;ny/=len;nz/=len;}
+                    // ── Albédo = vertex color × tint (+ texture) ; matériau metallic/roughness ──
+                    float cr=f.color.r, cg=f.color.g, cb=f.color.b, ca=f.color.a;
+                    float metal=0.f, rough=0.5f;
+                    if (const uint8* obj=dev->SwGetUBOBytes(1,1)) {   // tint @128, metallic @144, roughness @148
+                        cr*=rf(obj,128); cg*=rf(obj,132); cb*=rf(obj,136); ca*=rf(obj,140);
+                        metal=rf(obj,144); rough=rf(obj,148);
+                        if (!(metal>=0.f&&metal<=1.f)) metal=0.f; if (!(rough>0.f&&rough<=1.f)) rough=0.5f;
+                    }
+                    if (const NkSWTexture* alb=dev->SwFindTexInSet(2,1)) {   // albedo (match exact set2,b1)
+                        if (!alb->mips.Empty()) {
+                            const uint32 w=alb->Width(0),h=alb->Height(0),bpp=alb->Bpp();
+                            float su=f.uv.x-std::floor(f.uv.x), sv=f.uv.y-std::floor(f.uv.y);
+                            int tx=(int)(su*w), ty=(int)(sv*h);
+                            if(tx<0)tx=0; if(tx>=(int)w)tx=(int)w-1; if(ty<0)ty=0; if(ty>=(int)h)ty=(int)h-1;
+                            const uint8* tp=alb->mips[0].Data()+((uint32)ty*w+(uint32)tx)*bpp;
+                            if (bpp>=3){ cr*=tp[0]/255.f; cg*=tp[1]/255.f; cb*=tp[2]/255.f; }
+                        }
+                    }
+                    // Direction de vue (depuis camPos @256).
+                    float vx=0.f,vy=0.f,vz=1.f;
+                    if (const uint8* cam=dev->SwGetUBOBytes(0,0)) {
+                        const float* cp=(const float*)(cam+256);
+                        vx=cp[0]-f.attrs[0]; vy=cp[1]-f.attrs[1]; vz=cp[2]-f.attrs[2];
+                        float vl=std::sqrt(vx*vx+vy*vy+vz*vz); if(vl>1e-6f){vx/=vl;vy/=vl;vz/=vl;}
+                    }
+                    const float kd = 1.f - 0.7f*metal;
+                    const float f0 = 0.04f;
+                    const float shin = 4.f + 180.f*(1.f-rough)*(1.f-rough);
+                    // ── Éclairage : VRAIES lumières du LightsUBO (set0,binding2). Layout :
+                    //    pos[32]@0 {xyz,type}, color[32]@512 {rgb,intensity}, dir[32]@1024 {xyz,range},
+                    //    angles[32]@1536 {cosInner,cosOuter,shadow,cookie}, count@2048.
+                    //    directionnelle(type0) L=-dir ; point(1)/spot(2) L=pos-worldPos + atténuation.
+                    // Ambiant HÉMISPHÉRIQUE (approx IBL) : ciel (normale vers le haut) légèrement
+                    // bleuté, sol (vers le bas) sombre et chaud — plus naturel que le plat 0.20.
+                    const float up = ny*0.5f + 0.5f;                       // world normal.y -> [0,1]
+                    const float ambR = 0.10f + (0.30f-0.10f)*up;
+                    const float ambG = 0.10f + (0.34f-0.10f)*up;
+                    const float ambB = 0.09f + (0.42f-0.09f)*up;
+                    float litR=cr*ambR, litG=cg*ambG, litB=cb*ambB;
+                    // ── Ombres portées VSM : slots UBO @(0,3), atlas depth D32 @(0,11). Le fragment
+                    // se projette dans le(s) slot(s) de la lumière via shadowMatrix (==renderMatrix),
+                    // échantillonne l'atlas et compare la profondeur (PCF 3×3). depthRemap=1 en
+                    // software → fragD = ndcz*0.5+0.5 (idem Project côté rasterizer). Retourne un
+                    // facteur [0,1] (1=éclairé, 0=ombre). Voir NkVirtualShadowMaps (layout std140).
+                    const uint8* su = dev->SwGetUBOBytes(0,3);
+                    const NkSWTexture* atlas = dev->SwFindTexInSet(0,11);
+                    if (!atlas) atlas = dev->SwFindTexInSet(0,12);
+                    const bool hasShadows = su && atlas && !atlas->mips.Empty();
+                    auto sampleShadow = [&](int lightIdx)->float {
+                        if (!hasShadows || lightIdx<0 || lightIdx>=32) return 1.f;
+                        const float* gcfg   = (const float*)(su + 28928u);  // .x=numSlots .z=depthRemap
+                        const float* biasP  = (const float*)(su + 28944u);  // .x=shadowBias
+                        const float* firstA = (const float*)(su + 28672u);  // firstSlotPerLight (packé vec4)
+                        const float* countA = (const float*)(su + 28800u);  // slotCountPerLight
+                        const int numSlots  = (int)gcfg[0];
+                        if (numSlots<=0) return 1.f;
+                        const float depthRemap = gcfg[2];
+                        const int first = (int)firstA[lightIdx];
+                        const int count = (int)countA[lightIdx];
+                        if (first<0 || count<=0) return 1.f;
+                        const float sbias = (biasP[0]>0.f) ? biasP[0] : 0.0005f;
+                        const uint32 aw = atlas->Width(0), ah = atlas->Height(0);
+                        const float* ad = (const float*)atlas->mips[0].Data();
+                        for (int s=0;s<count;++s) {
+                            const int slot = first + s;
+                            if (slot<0 || slot>=numSlots) continue;
+                            const float* sm  = (const float*)(su + (uint32)slot*112u);        // shadowMatrix @0
+                            const float* tuv = (const float*)(su + (uint32)slot*112u + 64u);  // tileUV @64 (minU,minV,maxU,maxV)
+                            const float wpx=f.attrs[0], wpy=f.attrs[1], wpz=f.attrs[2];
+                            float qx=sm[0]*wpx+sm[4]*wpy+sm[ 8]*wpz+sm[12];
+                            float qy=sm[1]*wpx+sm[5]*wpy+sm[ 9]*wpz+sm[13];
+                            float qz=sm[2]*wpx+sm[6]*wpy+sm[10]*wpz+sm[14];
+                            float qw=sm[3]*wpx+sm[7]*wpy+sm[11]*wpz+sm[15];
+                            if (qw<=1e-6f) continue;
+                            const float ndcx=qx/qw, ndcy=qy/qw, ndcz=qz/qw;
+                            if (ndcx<-1.f||ndcx>1.f||ndcy<-1.f||ndcy>1.f) continue;   // hors de ce slot -> cascade suivante
+                            float fragD = (depthRemap>0.5f) ? (ndcz*0.5f+0.5f) : ndcz;
+                            if (fragD<0.f||fragD>1.f) continue;
+                            const float u = tuv[0] + (ndcx*0.5f+0.5f)*(tuv[2]-tuv[0]);
+                            const float vv= tuv[1] + (ndcy*0.5f+0.5f)*(tuv[3]-tuv[1]);   // software : pas de Y-flip
+                            const int cx=(int)(u*aw), cy=(int)(vv*ah);
+                            float acc=0.f; int cnt=0;
+                            for (int dy=-1;dy<=1;++dy) for (int dx=-1;dx<=1;++dx) {
+                                const int ax=cx+dx, ay=cy+dy;
+                                if (ax<0||ay<0||ax>=(int)aw||ay>=(int)ah) { acc+=1.f; ++cnt; continue; }
+                                const float stored = ad[(uint32)ay*aw+(uint32)ax];
+                                acc += (fragD - sbias > stored) ? 0.f : 1.f;   // plus loin que le caster => ombre
+                                ++cnt;
+                            }
+                            return cnt>0 ? acc/(float)cnt : 1.f;
+                        }
+                        return 1.f;   // aucun slot ne couvre ce fragment -> éclairé
+                    };
+                    const uint8* lu = dev->SwGetUBOBytes(0,2);
+                    int lcount = lu ? *(const int*)(lu+2048) : 0;
+                    if (lcount<0) lcount=0; if (lcount>8) lcount=8;
+                    for (int i=0;i<lcount;++i) {
+                        const float* P=(const float*)(lu+(uint32)i*16u);
+                        const float* C=(const float*)(lu+512u+(uint32)i*16u);
+                        const float* D=(const float*)(lu+1024u+(uint32)i*16u);
+                        const int type=(int)P[3];
+                        float Lx,Ly,Lz, att=1.f;
+                        if (type==0) { Lx=-D[0]; Ly=-D[1]; Lz=-D[2]; }
+                        else {
+                            Lx=P[0]-f.attrs[0]; Ly=P[1]-f.attrs[1]; Lz=P[2]-f.attrs[2];
+                            float dist=std::sqrt(Lx*Lx+Ly*Ly+Lz*Lz); if(dist>1e-4f){Lx/=dist;Ly/=dist;Lz/=dist;}
+                            float range=D[3]; if(range<1e-3f)range=25.f;
+                            att=1.f-dist/range; if(att<0.f)att=0.f; att*=att;
+                            if (type==2) { const float* A=(const float*)(lu+1536u+(uint32)i*16u);
+                                float th=Lx*(-D[0])+Ly*(-D[1])+Lz*(-D[2]);
+                                float k=(th-A[1])/(A[0]-A[1]+1e-4f); if(k<0)k=0; if(k>1)k=1; att*=k; }
+                        }
+                        { float ll=std::sqrt(Lx*Lx+Ly*Ly+Lz*Lz); if(ll>1e-6f){Lx/=ll;Ly/=ll;Lz/=ll;} }
+                        float ndl=nx*Lx+ny*Ly+nz*Lz; if(ndl<0.f)ndl=0.f;
+                        float inten=C[3]; if(!(inten>0.f))inten=1.f;
+                        // Ombre portée : atténue la contribution DIRECTE (diffus+spéc), pas l'ambiant.
+                        // PERF : n'échantillonne l'atlas (PCF) que pour les fragments FACE à la lumière
+                        // (ndl>0) — sinon la contribution directe est nulle et l'ombre n'a aucun effet.
+                        if (ndl>0.f) inten *= sampleShadow(i);
+                        float lr=C[0]*inten*att, lg=C[1]*inten*att, lb=C[2]*inten*att;
+                        // diffus
+                        litR += cr*ndl*lr*kd; litG += cg*ndl*lg*kd; litB += cb*ndl*lb*kd;
+                        // spéculaire Blinn-Phong (teinté albédo pour les métaux)
+                        float hx=Lx+vx, hy=Ly+vy, hz=Lz+vz;
+                        float hl=std::sqrt(hx*hx+hy*hy+hz*hz); if(hl>1e-6f){hx/=hl;hy/=hl;hz/=hl;}
+                        float ndh=nx*hx+ny*hy+nz*hz; if(ndh<0.f)ndh=0.f;
+                        float s=std::pow(ndh,shin)*ndl;
+                        litR += s*((1.f-metal)*f0+metal*cr)*lr;
+                        litG += s*((1.f-metal)*f0+metal*cg)*lg;
+                        litB += s*((1.f-metal)*f0+metal*cb)*lb;
+                    }
+                    if (lcount==0) {   // fallback : pas de LightsUBO -> lumière fixe approx
+                        const float lx=0.4f,ly=0.82f,lz=0.41f;
+                        float ndl=nx*lx+ny*ly+nz*lz; if(ndl<0.f)ndl=0.f;
+                        float d=0.28f+0.72f*ndl; litR=cr*d; litG=cg*d; litB=cb*d;
+                    }
+                    return { litR, litG, litB, ca };
+                };
+                NK_SW_LOG("Shader NkSL sans cpuFn -> fixed-function NKRenderer installe (viewProj x model + vraies lumieres + spec).\n");
+            }
+        }
+
         uint64 hid = NextId();
         mShaders[hid] = traits::NkMove(sh);
         NkShaderHandle h; h.id = hid;
@@ -803,7 +1514,14 @@ namespace nkentseu {
     }
 
     void NkSoftwareDevice::DestroyShader(NkShaderHandle& h) {
-        threading::NkScopedLockMutex lock(mMutex); mShaders.Erase(h.id); h.id = 0;
+        threading::NkScopedLockMutex lock(mMutex);
+        if (auto* s = mShaders.Find(h.id)) {   // v5 Phase A : libérer les programmes VM heap
+            auto& alloc = nkentseu::memory::NkGetDefaultAllocator();
+            if (s->vmVert)    alloc.Delete(s->vmVert);
+            if (s->vmFrag)    alloc.Delete(s->vmFrag);
+            if (s->vmCompute) alloc.Delete(s->vmCompute);
+        }
+        mShaders.Erase(h.id); h.id = 0;
     }
 
     // =============================================================================
@@ -817,8 +1535,8 @@ namespace nkentseu {
         p.depthTest    = d.depthStencil.depthTestEnable;
         p.depthWrite   = d.depthStencil.depthWriteEnable;
         p.depthOp      = d.depthStencil.depthCompareOp;
-        // Keep software raster stable across APIs while winding conventions are aligned.
-        p.cullMode     = NkCullMode::NK_NONE;
+        // v4 : on respecte le cullMode demandé (le cœur swraster gère le winding, y-down).
+        p.cullMode     = d.rasterizer.cullMode;
         p.frontFace    = d.rasterizer.frontFace;
         p.topology     = d.topology;
         p.vertexStride = d.vertexLayout.bindings.Size() > 0 ? d.vertexLayout.bindings[0].stride : 0;
@@ -938,12 +1656,137 @@ namespace nkentseu {
         Present();
     }
 
+    // v4 Phase 4 — BPR : l'app fournit sa caméra (view/proj). On en déduit l'inverse view-proj
+    // pour reconstruire la géométrie monde à partir du clip-space des draws.
+    void NkSoftwareDevice::SetRtCamera(const math::NkMat4f& view, const math::NkMat4f& proj) {
+        mRtView = view; mRtProj = proj;
+        mRtInvVP = (proj * view).Inverse();
+        mRtHasCamera = true;
+    }
+
+    // Collecte un triangle (sommets en clip-space) → monde, poussé dans la scène BPR.
+    void NkSoftwareDevice::RtAddTriangle(const NkVertexSoftware& a, const NkVertexSoftware& b, const NkVertexSoftware& c) {
+        auto toWorld = [&](const NkVertexSoftware& v) -> swtrace::V3 {
+            const math::NkVec4 wh = mRtInvVP * v.position;           // clip → monde (homogène)
+            const float iw = (std::fabs(wh.w) > 1e-8f) ? 1.f / wh.w : 0.f;
+            return swtrace::V3(wh.x * iw, wh.y * iw, wh.z * iw);
+        };
+        swtrace::Tri t;
+        t.v0 = toWorld(a); t.v1 = toWorld(b); t.v2 = toWorld(c);
+        t.color = swtrace::V3(a.color.x, a.color.y, a.color.z);      // albedo = couleur du sommet
+        t.reflect = 0.f;
+        mRtScene.PushBack(t);
+    }
+
+    // Rend la scène BPR dans buf : géométrie de l'app si collectée, sinon scène built-in animée.
+    void NkSoftwareDevice::RtRenderInto(uint8* buf, int w, int h, bool bgra) {
+        if (mRtHasCamera && !mRtScene.Empty()) {
+            const swtrace::V3 ld = swtrace::Normalize(swtrace::V3(-0.6f, -1.f, -0.4f));
+            swtrace::RenderScene(buf, w, h, mRtView, mRtProj, mRtScene.Data(), (int)mRtScene.Size(),
+                                 ld, swtrace::V3(0.55f, 0.75f, 0.95f), swtrace::Quality::Live(), bgra);
+        } else {
+            swtrace::RenderLive(buf, w, h, (uint32)mFrameNumber, bgra);
+        }
+    }
+
+    // Récupère les octets d'un UBO lié à (set, binding) pour le shader taillé NKRenderer.
+    // Recherche d'un UBO dans un seul set slot (helper interne).
+    const uint8* NkSoftwareDevice::SwFindUBOInSet(uint32 set, uint32 binding) {
+        if (set >= kMaxCurSets || mCurDescSets[set] == 0) return nullptr;
+        auto* ds = GetDescSet(mCurDescSets[set]);
+        if (!ds) return nullptr;
+        for (uint32 i = 0; i < (uint32)ds->bindings.Size(); ++i) {
+            const auto& b = ds->bindings[i];
+            if (b.slot == binding && b.bufId &&
+                (b.type == NkDescriptorType::NK_UNIFORM_BUFFER ||
+                 b.type == NkDescriptorType::NK_UNIFORM_BUFFER_DYNAMIC)) {
+                auto* buf = GetBuf(b.bufId);
+                return (buf && !buf->data.Empty()) ? buf->data.Data() : nullptr;
+            }
+        }
+        return nullptr;
+    }
+
+    const uint8* NkSoftwareDevice::SwGetUBOBytes(uint32 set, uint32 binding) {
+        // Cache thread_local (4 entrées) : (gen,set,binding) -> ptr. La résolution suivante itère
+        // les bindings + balaie les sets ; l'appeler PAR PIXEL coûtait cher. Clé = SwBindGen()
+        // (constante pendant la rasterisation MT d'un draw), donc sûr sans verrou.
+        struct UEnt { uint64 gen; uint32 sb; const uint8* ptr; };
+        static thread_local UEnt uc[4] = {};
+        const uint64 gen = mBindGen; const uint32 sb = (set<<16)|binding;
+        for (int i=0;i<4;++i) if (uc[i].gen==gen && uc[i].sb==sb) return uc[i].ptr;
+        const uint8* res = nullptr;
+        if (!(res = SwFindUBOInSet(set, binding))) {
+            for (uint32 s = 0; s < kMaxCurSets && !res; ++s) if (s!=set) res = SwFindUBOInSet(s, binding);
+        }
+        static thread_local uint32 ur=0; uc[ur&3] = { gen, sb, res }; ++ur;
+        return res;
+    }
+
+    const NkSWTexture* NkSoftwareDevice::SwFindTexInSet(uint32 set, uint32 binding) {
+        if (set >= kMaxCurSets || mCurDescSets[set] == 0) return nullptr;
+        auto* ds = GetDescSet(mCurDescSets[set]);
+        if (!ds) return nullptr;
+        for (uint32 i = 0; i < (uint32)ds->bindings.Size(); ++i) {
+            const auto& b = ds->bindings[i];
+            if (b.slot == binding && b.texId &&
+                (b.type == NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER ||
+                 b.type == NkDescriptorType::NK_SAMPLED_TEXTURE)) {
+                return GetTex(b.texId);
+            }
+        }
+        return nullptr;
+    }
+
+    const NkSWTexture* NkSoftwareDevice::SwGetTexAt(uint32 set, uint32 binding) {
+        struct TEnt { uint64 gen; uint32 sb; const NkSWTexture* ptr; };
+        static thread_local TEnt tc[4] = {};
+        const uint64 gen = mBindGen; const uint32 sb = (set<<16)|binding;
+        for (int i=0;i<4;++i) if (tc[i].gen==gen && tc[i].sb==sb) return tc[i].ptr;
+        const NkSWTexture* res = SwFindTexInSet(set, binding);
+        for (uint32 s = 0; s < kMaxCurSets && !res; ++s) if (s!=set) res = SwFindTexInSet(s, binding);   // modèle aplati
+        static thread_local uint32 tr=0; tc[tr&3] = { gen, sb, res }; ++tr;
+        return res;
+    }
+
     void NkSoftwareDevice::Present() {
         if (mInit.presentCallback) {
             mInit.presentCallback();
             return;
         }
         
+        // v4 Phase 4 : mode BPR — ray-trace la scène dans le backbuffer (ordre natif) avant présentation.
+        if (mRtMode) {
+            auto* fbit = mFramebuffers.Find(mSwapchainFB.id);
+            auto* tit  = fbit ? mTextures.Find(fbit->colorId) : nullptr;
+            if (tit && !tit->mips.Empty()) {
+                const int W = (int)tit->Width(0), H = (int)tit->Height(0);
+                uint8* dst = tit->mips[0].Data();
+                const bool bgra = (NK_SW_PIXEL_BGRA != 0);
+                const int s = (int)(mRtScale < 1u ? 1u : mRtScale);
+                if (s <= 1 || W < s || H < s) {
+                    RtRenderInto(dst, W, H, bgra);
+                } else {
+                    // Rendu RT basse résolution (1/s) puis upscale nearest → gros gain de fluidité.
+                    const int lowW = W / s, lowH = H / s;
+                    if (mRtLowBuf.Size() < (NkVector<uint8>::SizeType)((usize)lowW * lowH * 4u))
+                        mRtLowBuf.Assign((uint8)0, (NkVector<uint8>::SizeType)((usize)lowW * lowH * 4u));
+                    uint8* low = mRtLowBuf.Data();
+                    RtRenderInto(low, lowW, lowH, bgra);
+                    for (int y = 0; y < H; ++y) {
+                        const uint8* srow = low + (usize)(y * lowH / H) * lowW * 4u;
+                        uint8* drow = dst + (usize)y * W * 4u;
+                        for (int x = 0; x < W; ++x) {
+                            const uint8* sp = srow + (usize)(x * lowW / W) * 4u;
+                            uint8* dp = drow + (usize)x * 4u;
+                            dp[0]=sp[0]; dp[1]=sp[1]; dp[2]=sp[2]; dp[3]=sp[3];
+                        }
+                    }
+                }
+            }
+        }
+
+        if (mSSAA > 1) ResolveFramebuffer();
         const uint8* pixels = BackbufferPixels();
         if (!pixels || mWidth == 0 || mHeight == 0) return;
 
@@ -1150,6 +1993,10 @@ namespace nkentseu {
     }
 
     const uint8* NkSoftwareDevice::BackbufferPixels() const {
+        // v4 Phase 2 : si SSAA actif, on présente le buffer résolu (taille fenêtre)
+        if (mSSAA > 1)
+            return mResolveBuf.Empty() ? nullptr : mResolveBuf.Data();
+
         const auto* fbit = mFramebuffers.Find(mSwapchainFB.id);
 
         if (!fbit) return nullptr;
@@ -1159,6 +2006,43 @@ namespace nkentseu {
         if (!tit || tit->mips.Empty()) return nullptr;
 
         return tit->mips[0].Data();
+    }
+
+    // =============================================================================
+    // v4 Phase 2 : résolution SSAA — box downsample hi-res → mResolveBuf (fenêtre)
+    // Moyenne mSSAA×mSSAA sous-échantillons par pixel de sortie. Ordre d'octets natif
+    // préservé (moyenne par position d'octet, indépendante de BGRA/RGBA).
+    // =============================================================================
+    void NkSoftwareDevice::ResolveFramebuffer() {
+        if (mSSAA <= 1) return;
+        const auto* fbit = mFramebuffers.Find(mSwapchainFB.id);
+        if (!fbit) return;
+        const auto* tit = mTextures.Find(fbit->colorId);
+        if (!tit || tit->mips.Empty()) return;
+
+        const uint8* src = tit->mips[0].Data();
+        const uint32 ss  = mSSAA;
+        const uint32 hiW = mWidth * ss;
+        const uint32 inv = ss * ss;
+
+        if (mResolveBuf.Size() < (NkVector<uint8>::SizeType)((usize)mWidth * mHeight * 4u))
+            mResolveBuf.Assign((uint8)0, (NkVector<uint8>::SizeType)((usize)mWidth * mHeight * 4u));
+        uint8* dst = mResolveBuf.Data();
+
+        for (uint32 y = 0; y < mHeight; ++y) {
+            for (uint32 x = 0; x < mWidth; ++x) {
+                uint32 a0 = 0, a1 = 0, a2 = 0, a3 = 0;
+                for (uint32 sy = 0; sy < ss; ++sy) {
+                    const uint8* row = src + ((usize)(y * ss + sy) * hiW + (usize)x * ss) * 4u;
+                    for (uint32 sx = 0; sx < ss; ++sx) {
+                        a0 += row[sx*4+0]; a1 += row[sx*4+1]; a2 += row[sx*4+2]; a3 += row[sx*4+3];
+                    }
+                }
+                uint8* o = dst + ((usize)y * mWidth + x) * 4u;
+                o[0] = (uint8)(a0 / inv); o[1] = (uint8)(a1 / inv);
+                o[2] = (uint8)(a2 / inv); o[3] = (uint8)(a3 / inv);
+            }
+        }
     }
 
     // =============================================================================
@@ -1183,6 +2067,7 @@ namespace nkentseu {
     // Frame
     // =============================================================================
     bool NkSoftwareDevice::BeginFrame(NkFrameContext& frame) {
+        if (mRtMode) mRtScene.Clear();   // v4 Phase 4 : réinitialiser la géométrie BPR collectée
         // Clear depth
         auto* fbit = mFramebuffers.Find(mSwapchainFB.id);
         if (fbit) {
@@ -1239,6 +2124,7 @@ namespace nkentseu {
     NkSWPipeline*    NkSoftwareDevice::GetPipe (uint64 id) { return mPipelines.Find(id); }
     NkSWDescSet*     NkSoftwareDevice::GetDescSet(uint64 id){ return mDescSets.Find(id); }
     NkSWFramebuffer* NkSoftwareDevice::GetFBO  (uint64 id) { return mFramebuffers.Find(id); }
+    NkSWRenderPass*  NkSoftwareDevice::GetRP   (uint64 id) { return mRenderPasses.Find(id); }
 
         // =============================================================================
     //  InitNativePresenter â€” par plateforme

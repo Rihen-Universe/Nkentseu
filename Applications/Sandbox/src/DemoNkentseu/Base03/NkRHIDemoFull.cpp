@@ -1240,6 +1240,10 @@ int nkmain(const nkentseu::NkEntryState& state) {
         NkMat4f matView = NkMat4f::LookAt(eye, center, up);
         NkMat4f matProj = NkMat4f::Perspective(NkAngle(60.f), aspect, 0.1f, 100.f);
 
+        // v4 Phase 4 : fournir la caméra au ray-tracer BPR software (actif si NK_SW_RT=1).
+        if (targetApi == NkGraphicsApi::NK_GFX_API_SOFTWARE)
+            static_cast<NkSoftwareDevice*>(device)->SetRtCamera(matView, matProj);
+
         // Direction lumière
         float lx = NkCos(NkToRadians(lightPitch)) * NkSin(NkToRadians(lightYaw));
         float ly = NkSin(NkToRadians(lightPitch));

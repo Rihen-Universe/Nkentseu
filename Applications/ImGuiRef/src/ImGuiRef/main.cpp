@@ -55,6 +55,8 @@ static ImGuiKey MapKey(NkKey k) {
     }
 }
 
+#include "NKCanvas/Core/NkContextInfo.h"
+
 int nkmain(const NkEntryState& state) {
     (void)state;
 
@@ -67,7 +69,7 @@ int nkmain(const NkEntryState& state) {
     cfg.centered  = true;
     cfg.resizable = true;
     if (!window.Create(cfg)) return -1;
-
+    
     NkContextDesc desc;
     desc.api = NkGraphicsApi::NK_GFX_API_AUTO;
     if (desc.api == NkGraphicsApi::NK_GFX_API_AUTO) {

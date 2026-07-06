@@ -2,16 +2,16 @@
 
 // =============================================================================
 // NkEventSystem.h
-// SystÃ¨me d'Ã©vÃ©nements cross-plateforme.
-// PossÃ©dÃ© et instanciÃ© par NkSystem â€” plus de singleton autoproclamÃ©.
+// Système d'événements cross-plateforme.
+// Possédé et instancié par NkSystem — plus de singleton autoproclamé.
 //
-// Corrections appliquÃ©es :
-//   CORRECTION 1 : NkGamepadSystem n'est plus un singleton â€” possÃ©dÃ© par NkSystem
-//   CORRECTION 2 : PollEvent() lifetime documentÃ© + PollEventCopy() ajoutÃ©
-//   CORRECTION 3 : ring buffer dual-prioritÃ© (HIGH no-drop / NORMAL drop-oldest)
+// Corrections appliquées :
+//   CORRECTION 1 : NkGamepadSystem n'est plus un singleton — possédé par NkSystem
+//   CORRECTION 2 : PollEvent() lifetime documenté + PollEventCopy() ajouté
+//   CORRECTION 3 : ring buffer dual-priorité (HIGH no-drop / NORMAL drop-oldest)
 //   CORRECTION 4 : AddEventCallbackGuard<T>() retourne un NkCallbackGuard RAII
 //   CORRECTION 5 : assertions thread ID sur PollEvent() / PollEvents()
-//   CORRECTION 6 : AddEventCallback<T>(cb, windowId) filtre par fenÃªtre
+//   CORRECTION 6 : AddEventCallback<T>(cb, windowId) filtre par fenêtre
 // =============================================================================
 
 #include "NkEvent.h"
@@ -106,18 +106,18 @@ namespace nkentseu {
     } // namespace detail
 
     // =========================================================================
-    // NkEventPriority â€” CORRECTION 3 : classification drop-safe vs droppable
+    // NkEventPriority — CORRECTION 3 : classification drop-safe vs droppable
     // =========================================================================
-    // Ã‰vÃ©nements HIGH : ne jamais dropper (lifecycle fenÃªtre, clavier, destroy)
-    // Ã‰vÃ©nements NORMAL : peuvent Ãªtre droppÃ©s sous pression (mouse move, etc.)
+    // Événements HIGH : ne jamais dropper (lifecycle fenêtre, clavier, destroy)
+    // Événements NORMAL : peuvent être droppés sous pression (mouse move, etc.)
     // =========================================================================
     enum class NkEventPriority { HIGH, NORMAL };
 
-    /// @brief Retourne la prioritÃ© d'un type d'Ã©vÃ©nement.
-    /// Les Ã©vÃ©nements HIGH ne sont jamais droppÃ©s en cas de saturation.
+    /// @brief Retourne la priorité d'un type d'événement.
+    /// Les événements HIGH ne sont jamais droppés en cas de saturation.
     inline NkEventPriority NkGetEventPriority(NkEventType::Value t) noexcept {
         switch (t) {
-            // Lifecycle fenÃªtre â€” critique (destruction/fermeture irrÃ©versible)
+            // Lifecycle fenêtre — critique (destruction/fermeture irréversible)
             case NkEventType::NK_WINDOW_CREATE:
             case NkEventType::NK_WINDOW_CLOSE:
             case NkEventType::NK_WINDOW_DESTROY:
@@ -130,13 +130,13 @@ namespace nkentseu {
             case NkEventType::NK_WINDOW_WINDOWED:
             case NkEventType::NK_WINDOW_SHOWN:
             case NkEventType::NK_WINDOW_HIDDEN:
-            // Clavier â€” chaque frappe est sÃ©mantique
+            // Clavier — chaque frappe est sémantique
             case NkEventType::NK_KEY_PRESSED:
             case NkEventType::NK_KEY_REPEATED:
             case NkEventType::NK_KEY_RELEASED:
             case NkEventType::NK_TEXT_INPUT:
             case NkEventType::NK_CHAR_ENTERED:
-            // Boutons souris â€” chaque clic est sÃ©mantique
+            // Boutons souris — chaque clic est sémantique
             case NkEventType::NK_MOUSE_BUTTON_PRESSED:
             case NkEventType::NK_MOUSE_BUTTON_RELEASED:
             case NkEventType::NK_MOUSE_DOUBLE_CLICK:
@@ -156,14 +156,14 @@ namespace nkentseu {
 
     // =========================================================================
     // NkEventRingBuffer
-    // Ring buffer prÃ©-allouÃ©e pour les Ã©vÃ©nements.
+    // Ring buffer pré-allouée pour les événements.
     // Politique drop-oldest UNIQUEMENT sur la file NORMAL.
-    // La file HIGH ne droppe jamais (taille 128 â€” overflow = assert en debug).
+    // La file HIGH ne droppe jamais (taille 128 — overflow = assert en debug).
     // =========================================================================
 
     class NkEventRingBuffer {
     public:
-        static constexpr nk_size kHighCapacity   =  128; // critique â€” no-drop
+        static constexpr nk_size kHighCapacity   =  128; // critique — no-drop
         static constexpr nk_size kNormalCapacity =  512; // droppable
 
         NkEventRingBuffer()  = default;
@@ -172,7 +172,7 @@ namespace nkentseu {
         NkEventRingBuffer(const NkEventRingBuffer&)            = delete;
         NkEventRingBuffer& operator=(const NkEventRingBuffer&) = delete;
 
-        // CORRECTION 3 : push dans la file correspondant Ã  la prioritÃ©.
+        // CORRECTION 3 : push dans la file correspondant à la priorité.
         // Retourne false uniquement pour NORMAL (drop-oldest), jamais pour HIGH.
         bool Push(NkEventPtr ev, NkEventPriority prio) {
             if (prio == NkEventPriority::HIGH) {
@@ -184,7 +184,7 @@ namespace nkentseu {
             }
         }
 
-        // Pop : prioritÃ© HIGH d'abord, ensuite NORMAL.
+        // Pop : priorité HIGH d'abord, ensuite NORMAL.
         NkEventPtr Pop() {
             if (mHighHead != mHighTail) return PopFrom(mHighSlots, kHighCapacity, mHighHead, mHighTail);
             if (mNormHead != mNormTail) return PopFrom(mNormSlots, kNormalCapacity, mNormHead, mNormTail);
@@ -231,7 +231,7 @@ namespace nkentseu {
             return ev;
         }
 
-        // File HAUTE PRIORITÃ‰ (no-drop)
+        // File HAUTE PRIORITÉ (no-drop)
         NkVector<NkEventPtr> mHighSlots{kHighCapacity};
         nk_size mHighHead = 0;
         nk_size mHighTail = 0;
@@ -243,13 +243,13 @@ namespace nkentseu {
     };
 
     // =========================================================================
-    // NkCallbackGuard â€” CORRECTION 4 : RAII pour les typed callbacks
+    // NkCallbackGuard — CORRECTION 4 : RAII pour les typed callbacks
     // =========================================================================
-    // Garantit que le callback est supprimÃ© quand le guard est dÃ©truit.
+    // Garantit que le callback est supprimé quand le guard est détruit.
     // Utilisation :
     //   auto guard = NkEvents().AddEventCallbackGuard<NkKeyPressEvent>(
     //       [&](NkKeyPressEvent* ev) { ... });
-    //   // guard tient la connexion vivante ; destruction = dÃ©sinscription auto
+    //   // guard tient la connexion vivante ; destruction = désinscription auto
     // =========================================================================
     class NkCallbackGuard {
         public:
@@ -286,7 +286,7 @@ namespace nkentseu {
     class NkEventSystem {
         public:
             // Point 1 : plus de Instance() statique.
-            // NkSystem est le seul crÃ©ateur â€” friendship explicite.
+            // NkSystem est le seul créateur — friendship explicite.
             friend class NkSystem;
 
             NkEventSystem();
@@ -304,8 +304,8 @@ namespace nkentseu {
             void RemoveWindowCallback(NkWindowId id);
             void SetGlobalCallback(NkGlobalEventCallback cb);
 
-            // CORRECTION 6 : filtre optionnel par fenÃªtre.
-            // windowId == NK_INVALID_WINDOW_ID (dÃ©faut) = toutes les fenÃªtres.
+            // CORRECTION 6 : filtre optionnel par fenêtre.
+            // windowId == NK_INVALID_WINDOW_ID (défaut) = toutes les fenêtres.
             template<typename T, typename Callback>
             void AddEventCallback(Callback&& callback,
                                   NkWindowId windowId = NK_INVALID_WINDOW_ID)
@@ -328,8 +328,8 @@ namespace nkentseu {
                 }
 
                 auto wrapper = [callback = traits::NkMove(typedCallback), filterId](NkEvent* ev) mutable {
-                    // CORRECTION 6 : si un filtre est dÃ©fini, ignorer les events
-                    // qui ne viennent pas de cette fenÃªtre.
+                    // CORRECTION 6 : si un filtre est défini, ignorer les events
+                    // qui ne viennent pas de cette fenêtre.
                     if (filterId != NK_INVALID_WINDOW_ID &&
                         ev->GetWindowId() != filterId) return;
                     if (auto* typed = ev->As<T>()) callback(typed);
@@ -337,8 +337,8 @@ namespace nkentseu {
                 AddEventCallbackRaw(type, traits::NkMove(wrapper));
             }
 
-            // CORRECTION 4 : version RAII â€” le callback est automatiquement
-            // supprimÃ© quand le guard retournÃ© est dÃ©truit.
+            // CORRECTION 4 : version RAII — le callback est automatiquement
+            // supprimé quand le guard retourné est détruit.
             template<typename T, typename Callback>
             [[nodiscard]] NkCallbackGuard AddEventCallbackGuard(
                 Callback&& callback,
@@ -361,7 +361,7 @@ namespace nkentseu {
                 };
                 uint64 token = AddEventCallbackTokenRaw(type, traits::NkMove(wrapper));
 
-                // Le guard appelle RemoveCallbackToken Ã  sa destruction
+                // Le guard appelle RemoveCallbackToken à sa destruction
                 auto remover = [this, type, token]() {
                     RemoveCallbackToken(type, token);
                 };
@@ -378,11 +378,11 @@ namespace nkentseu {
             // --- Event pump ---
             // CORRECTION 2 : PollEvent() retourne un pointeur valide uniquement
             // jusqu'au PROCHAIN appel de PollEvent(). Ne jamais stocker ce pointeur
-            // entre frames â€” utiliser PollEventCopy() si une durÃ©e de vie propre est
-            // requise (ex: file de travail asynchrone, traitement diffÃ©rÃ©).
+            // entre frames — utiliser PollEventCopy() si une durée de vie propre est
+            // requise (ex: file de travail asynchrone, traitement différé).
             NkEvent*                 PollEvent();
             bool                     PollEvent(NkEvent*& event);
-            NkEventPtr               PollEventCopy();   // durÃ©e de vie contrÃ´lÃ©e par l'appelant
+            NkEventPtr               PollEventCopy();   // durée de vie contrôlée par l'appelant
             void                     PollEvents();
 
             // --- Direct dispatch ---
@@ -396,8 +396,8 @@ namespace nkentseu {
             }
 
             // --- Pont public pour les callbacks statiques platform (Wayland, Android, WASM, UIKit) ---
-            // Les listeners/callbacks statiques n'ont pas accÃ¨s aux membres privÃ©s ;
-            // ils passent par cette fonction qui dÃ©lÃ¨gue Ã  Enqueue().
+            // Les listeners/callbacks statiques n'ont pas accès aux membres privés ;
+            // ils passent par cette fonction qui délègue à Enqueue().
             void Enqueue_Public(NkEvent& evt, NkWindowId winId);
 
             // --- Input state / info ---
@@ -418,7 +418,7 @@ namespace nkentseu {
             const char* GetPlatformName()      const noexcept;
 
         private:
-            // Platform data â€” dÃ©fini dans le header platform-spÃ©cifique inclus ci-dessus
+            // Platform data — défini dans le header platform-spécifique inclus ci-dessus
             struct NkEventSystemData *mData = nullptr;
 
             void PumpOS();
@@ -430,14 +430,14 @@ namespace nkentseu {
             void ClearEventCallbacksRaw(NkEventType::Value type);
 
             // Point 4 : Enqueue prend le winId explicitement pour que chaque
-            // event sache exactement Ã  quelle fenÃªtre il appartient.
+            // event sache exactement à quelle fenêtre il appartient.
             void Enqueue(NkEvent& evt, NkWindowId winId);
 
             NkUnorderedMap<NkWindowId, NkEventCallback>                      mWindowCallbacks;
             NkEventCallback                                                       mGlobalCallback;
             NkUnorderedMap<NkEventType::Value, NkVector<NkEventCallback>> mTypedCallbacks;
 
-            // CORRECTION 4 : callbacks tokÃ©nisÃ©s pour RAII guard
+            // CORRECTION 4 : callbacks tokénisés pour RAII guard
             struct TokenizedCallback {
                 uint64           token;
                 NkEventCallback callback;
@@ -449,7 +449,7 @@ namespace nkentseu {
             NkGenericHidMapper mHidMapper;
             bool         mReady = false;
 
-            // Point 3 : ring buffer Ã  la place d'une deque dynamique
+            // Point 3 : ring buffer à la place d'une deque dynamique
             NkEventRingBuffer mEventQueue;
             NkEventPtr        mCurrentEvent;
 
@@ -459,14 +459,14 @@ namespace nkentseu {
             uint64  mTotalEventCount      = 0;
 
             // Point 5 : deux mutex distincts
-            //   mDispatchMutex : protÃ¨ge DispatchEvent() direct (appel externe)
-            //   mQueueMutex    : protÃ¨ge mEventQueue pour l'accÃ¨s multi-thread
+            //   mDispatchMutex : protège DispatchEvent() direct (appel externe)
+            //   mQueueMutex    : protège mEventQueue pour l'accès multi-thread
             //                    entre PumpOS() (producteur) et PollEvent() (consommateur)
             mutable NkSpinLock mDispatchMutex;
             mutable NkSpinLock mQueueMutex;
 
-            // CORRECTION 5 : thread ID enregistrÃ© Ã  Init() pour assertions
-            // PollEvent() et PumpOS() doivent Ãªtre appelÃ©s depuis ce thread.
+            // CORRECTION 5 : thread ID enregistré à Init() pour assertions
+            // PollEvent() et PumpOS() doivent être appelés depuis ce thread.
             uint64 mPumpThreadId = 0;
 
             bool mPumping = false;
@@ -481,11 +481,11 @@ namespace nkentseu {
                 static NkModifierState CurrentMods();
         #endif
 
-        friend class NkGamepadSystem; // pour accÃ©der Ã  UpdateInputState() et mInputState lors du polling gamepad auto
+        friend class NkGamepadSystem; // pour accéder à UpdateInputState() et mInputState lors du polling gamepad auto
     };
 
-    // Raccourci global â€” dÃ©lÃ¨gue Ã  NkSystem (dÃ©fini dans NkSystem.h)
+    // Raccourci global — délègue à NkSystem (défini dans NkSystem.h)
     // NkEvents() reste utilisable partout sans inclure NkSystem.h complet.
-    // La dÃ©finition inline est dans NkSystem.h pour Ã©viter la dÃ©pendance circulaire.
+    // La définition inline est dans NkSystem.h pour éviter la dépendance circulaire.
 
 } // namespace nkentseu

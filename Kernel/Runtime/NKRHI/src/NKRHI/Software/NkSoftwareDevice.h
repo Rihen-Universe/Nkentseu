@@ -16,9 +16,12 @@
 #include "NKMath/NKMath.h"
 
 #include "NkSWPixel.h"
+#include "Trace/NkSWRayTrace.h"   // v4 Phase 4 : type swtrace::Tri pour la collecte BPR
+#include "NKSL/VM/NkSLByteCode.h" // v5 Phase A : NkSLByteProgram (VM NkSL software)
 
 #include <memory>
 #include <cmath>
+#include <cstring>
 #include <thread>
 #include <algorithm>
 
@@ -96,7 +99,23 @@ namespace nkentseu {
         NkVertexShaderSoftware  vertFn;
         NkPixelShaderSoftware   fragFn;
         bool isCompute = false;
+        // v4 Phase 5 : passe plein-écran générée (gl_VertexID, pipeline stride 0). Le vertFn
+        // synthétise le triangle depuis l'index et TOLÈRE vdata==nullptr. Sans ce flag, un
+        // pipeline stride-0 n'active PAS le chemin vertexless (évite un deref null dans les
+        // vertFn 3D qui lisent vdata+idx*stride).
+        bool genVertsFromID = false;
+        // Le fragment calcule SA PROPRE profondeur (ex. grille sol : depth du point d'intersection).
+        // Le rasterizer reporte alors le depth-test APRÈS le fragFn, avec swraster::tl_fragDepth.
+        bool fragDepth = false;
+        // Le vertFn dépend de l'index d'instance (gl_InstanceID via SwCurInstance) : ex. shadow
+        // instancié qui indexe l'InstanceUBO. ExecuteDraw*Fast RE-GÉNÈRE alors les sommets par
+        // instance (au lieu de les calculer une fois et réutiliser). false => draw non instancié.
+        bool usesInstancing = false;
         NkComputeShaderSoftware computeFn;
+        // v5 Phase A (VM NkSL) : programmes bytecode (heap, adresse stable), libérés au DestroyShader.
+        NkSLByteProgram* vmVert    = nullptr;
+        NkSLByteProgram* vmFrag    = nullptr;
+        NkSLByteProgram* vmCompute = nullptr;
     };
 
     struct NkSWPipeline {
@@ -710,6 +729,7 @@ namespace nkentseu {
             NkSWPipeline*               GetPipe (uint64 id);
             NkSWDescSet*                GetDescSet(uint64 id);
             NkSWFramebuffer*            GetFBO  (uint64 id);
+            NkSWRenderPass*             GetRP   (uint64 id);   // pour respecter le loadOp (clear vs load)
 
             // Présentation — copie le color buffer vers la surface native
             void                        Present();
@@ -723,8 +743,45 @@ namespace nkentseu {
             // appelé depuis NkHarmonyOnSurfaceCreated() côté C++.
             void                        SetHarmonyNativeWindow(void* ohNativeWindow);
 
+            // v4 Phase 4 — BPR : l'app fournit sa caméra ; le device collecte la géométrie
+            // des draw-calls (clip-space → monde) et ray-trace TA scène quand NK_SW_RT=1.
+            void SetRtCamera(const math::NkMat4f& view, const math::NkMat4f& proj);
+            bool RtCollecting() const { return mRtMode && mRtHasCamera; }
+            void RtAddTriangle(const NkVertexSoftware& a, const NkVertexSoftware& b, const NkVertexSoftware& c);
+
+            // Multi-descriptor-set : sets courants pendant le replay (NKRenderer bind set 0/1/2).
+            static constexpr uint32 kMaxCurSets = 4;
+            void          SwSetCurDescSet(uint32 i, uint64 id) { if (i < kMaxCurSets) { mCurDescSets[i] = id; ++mBindGen; } }
+            const uint64* SwCurDescSets() const { return mCurDescSets; }
+            void          SwResetCurDescSets() { for (uint32 i=0;i<kMaxCurSets;++i) mCurDescSets[i]=0; mCurPush.Clear(); mCurViewport=NkViewport{}; mCurViewport.width=0.f; ++mBindGen; }
+            // Génération des bindings : incrémentée à chaque changement de descriptor set. Constante
+            // pendant la rasterisation multi-thread d'un draw → sert de clé à un cache thread_local
+            // de résolution (set,binding)->ptr (évite d'itérer/balayer les sets PAR PIXEL).
+            uint64        SwBindGen() const { return mBindGen; }
+            // Viewport courant (replay). width==0 => plein RT (mapping historique, aucune régression).
+            // Sous-rect (ex. slots du shadow atlas) => on mappe NDC dans le rect du viewport.
+            void              SwSetViewport(const NkViewport& v) { mCurViewport = v; }
+            const NkViewport& SwCurViewport() const { return mCurViewport; }
+            // Push constants courants (blob) — fournis par NkSoftwareCommandBuffer::PushConstants au replay.
+            void          SwSetPushConstants(const uint8* d, uint32 n) { mCurPush.Resize(n); if (d && n) std::memcpy(mCurPush.Data(), d, n); }
+            const uint8*  SwPushData() const { return mCurPush.Empty() ? nullptr : mCurPush.Data(); }
+            // Accès UBO/texture par (set, binding) pour le shader taillé NKRenderer (au shade-time).
+            const uint8*       SwGetUBOBytes(uint32 set, uint32 binding);
+            const NkSWTexture* SwGetTexAt(uint32 set, uint32 binding);
+            const uint8*       SwFindUBOInSet(uint32 set, uint32 binding);  // helper : un seul set slot
+            const NkSWTexture* SwFindTexInSet(uint32 set, uint32 binding);
+            void               SwSetCurStride(uint32 s) { mCurStride = s; }
+            uint32             SwCurStride() const { return mCurStride; }
+            // Index d'instance courant (gl_InstanceID). Posé par ExecuteDraw*Fast avant chaque
+            // rasterisation d'instance ; lu par les vertFn instanciés (ex. ombres des cubes) pour
+            // indexer l'InstanceUBO. 0 par défaut (draw non instancié) → comportement inchangé.
+            void               SwSetCurInstance(uint32 i) { mCurInstance = i; }
+            uint32             SwCurInstance() const { return mCurInstance; }
+
         private:
             void CreateSwapchainObjects();
+            void ResolveFramebuffer();   // v4 Phase 2 : downsample SSAA hi-res → mResolveBuf (taille fenêtre)
+            void RtRenderInto(uint8* buf, int w, int h, bool bgra);  // v4 Phase 4 : rend la scène BPR
             uint64 NextId() { return ++mNextId; }
             NkAtomic<uint64> mNextId{0};
 
@@ -751,6 +808,25 @@ namespace nkentseu {
             uint64              mFrameNumber = 0;
             uint32              mThreadCount = 0;
             bool                mUseSse = true;
+            // v4 Phase 2 : super-sampling anti-aliasing (opt-in via NK_SW_SSAA=1..4, défaut 1 = off).
+            // Le swapchain est rendu à (mWidth*mSSAA)×(mHeight*mSSAA) puis résolu (box downsample)
+            // vers mResolveBuf (taille fenêtre) au Present → chemins de présentation inchangés.
+            uint32              mSSAA = 1;
+            NkVector<uint8>     mResolveBuf;
+            // v4 Phase 4 : mode ray-tracing BPR live (NK_SW_RT=1) — chaque Present ray-trace.
+            bool                mRtMode  = false;
+            uint32              mRtScale = 4;   // rendu RT à 1/scale de la résolution, puis upscale
+            NkVector<uint8>     mRtLowBuf;      // buffer basse résolution du ray-tracer
+            // BPR : caméra fournie par l'app + géométrie collectée des draws (en monde).
+            bool                   mRtHasCamera = false;
+            math::NkMat4f          mRtView, mRtProj, mRtInvVP;
+            NkVector<swtrace::Tri> mRtScene;
+            uint64                 mCurDescSets[kMaxCurSets]{};  // sets liés courants (replay)
+            uint64                 mBindGen = 1;                 // génération bindings (cache résolution)
+            NkViewport             mCurViewport{};               // viewport courant (width=0 => plein RT)
+            uint32                 mCurStride = 0;               // stride vertex du draw courant
+            uint32                 mCurInstance = 0;             // index d'instance courant (gl_InstanceID)
+            NkVector<uint8>        mCurPush;                     // blob push constants courant (replay)
 
             NkSoftwareContextData  mData;
             bool InitNativePresenter (const NkSurfaceDesc& surf);

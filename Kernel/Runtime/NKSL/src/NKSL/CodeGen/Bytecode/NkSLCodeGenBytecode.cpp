@@ -102,19 +102,29 @@ namespace nkentseu {
             }
 
             // Bloc UBO : instance + membres std140
-            if (child->kind == NkSLNodeKind::NK_DECL_UNIFORM_BLOCK) {
+            if (child->kind == NkSLNodeKind::NK_DECL_UNIFORM_BLOCK ||
+                child->kind == NkSLNodeKind::NK_DECL_PUSH_CONSTANT) {
                 auto* b = static_cast<NkSLBlockDeclNode*>(child);
+                // Push constants (@push) traités comme un bloc uniforme, marqués set=0xFFFF
+                // (l'hôte remplit ce blob depuis PushConstants, pas depuis un descriptor set).
+                const bool isPush = (child->kind == NkSLNodeKind::NK_DECL_PUSH_CONSTANT) ||
+                                    (b->storage == NkSLStorageQual::NK_PUSH_CONSTANT);
+                const uint16 blockIdx = (uint16)mProg->uboBlocks.Size();
+                { NkSLUBOBlock ub;
+                  ub.set     = isPush ? (uint16)0xFFFFu : (uint16)b->binding.set;
+                  ub.binding = isPush ? (uint16)0u      : (uint16)b->binding.binding;
+                  mProg->uboBlocks.PushBack(ub); }
                 if (!b->instanceName.Empty()) {
                     mUboInstance = b->instanceName;
-                    Sym inst; inst.kind=SymKind::UBO_INSTANCE; mSyms[b->instanceName] = inst;
+                    Sym inst; inst.kind=SymKind::UBO_INSTANCE; inst.block=blockIdx; mSyms[b->instanceName] = inst;
                 }
-                uint32 cursor = 0;
+                uint32 cursor = 0;   // byteOffset std140 DANS ce bloc (reset par bloc)
                 for (auto* m : b->members) {
                     if (!m || !m->type) continue;
                     NkSLBaseType bt = m->type->baseType;
                     uint32 al, sz; Std140(bt, al, sz);
                     cursor = AlignUp(cursor, al);
-                    Sym s; s.kind=SymKind::UNIFORM; s.type=bt; s.offset=cursor; s.count=CompOf(bt);
+                    Sym s; s.kind=SymKind::UNIFORM; s.type=bt; s.offset=cursor; s.count=CompOf(bt); s.block=blockIdx;
                     // clé qualifiée "instance.membre" ET nom court
                     if (!b->instanceName.Empty()) mSyms[b->instanceName + "." + m->name] = s;
                     mSyms[m->name] = s;
@@ -160,6 +170,14 @@ namespace nkentseu {
 
     NkSLOp NkSLCodeGenBytecode::BuiltinOp(const NkString& n) {
         if (n=="dot")        return NkSLOp::OP_DOT;
+        if (n=="any")        return NkSLOp::OP_ANY;
+        if (n=="all")        return NkSLOp::OP_ALL;
+        if (n=="lessThan")         return NkSLOp::OP_CMP_LT;
+        if (n=="greaterThan")      return NkSLOp::OP_CMP_GT;
+        if (n=="lessThanEqual")    return NkSLOp::OP_CMP_LE;
+        if (n=="greaterThanEqual") return NkSLOp::OP_CMP_GE;
+        if (n=="equal")            return NkSLOp::OP_CMP_EQ;
+        if (n=="notEqual")         return NkSLOp::OP_CMP_NE;
         if (n=="cross")      return NkSLOp::OP_CROSS;
         if (n=="normalize")  return NkSLOp::OP_NORMALIZE;
         if (n=="length")     return NkSLOp::OP_LENGTH;
@@ -234,11 +252,14 @@ namespace nkentseu {
             }
             case NkSLNodeKind::NK_EXPR_IDENT: {
                 auto* id = static_cast<NkSLIdentNode*>(n);
+                // Built-ins vertex fournis par l'hôte (env.vertexID / instanceID).
+                if (id->name=="gl_VertexID")   { uint16 r=AllocReg(); Emit(NkSLOp::OP_LOAD_VID, r); *outCount=1; return r; }
+                if (id->name=="gl_InstanceID") { uint16 r=AllocReg(); Emit(NkSLOp::OP_LOAD_IID, r); *outCount=1; return r; }
                 auto* s = mSyms.Find(id->name);
                 if (!s) { Error(n->line, NkString("symbole inconnu: ")+id->name); return AllocReg(); }
                 if (s->kind==SymKind::LOCAL)  { *outCount=s->count; return s->reg; }
                 if (s->kind==SymKind::INPUT)  { uint16 r=AllocReg(); Emit(NkSLOp::OP_LOAD_IN, r,0,0,(int32)s->offset,s->count); *outCount=s->count; return r; }
-                if (s->kind==SymKind::UNIFORM){ uint16 r=AllocReg(); Emit(NkSLOp::OP_LOAD_UNI,r,0,0,(int32)s->offset,s->count); *outCount=s->count; return r; }
+                if (s->kind==SymKind::UNIFORM){ uint16 r=AllocReg(); Emit(NkSLOp::OP_LOAD_UNI,r,0,s->block,(int32)s->offset,s->count); *outCount=s->count; return r; }
                 Error(n->line, NkString("identifiant non chargeable: ")+id->name);
                 return AllocReg();
             }
@@ -251,7 +272,7 @@ namespace nkentseu {
                     if (os && os->kind==SymKind::UBO_INSTANCE) {
                         auto* fs = mSyms.Find(obj->name + "." + m->member);
                         if (!fs) fs = mSyms.Find(m->member);
-                        if (fs) { uint16 r=AllocReg(); Emit(NkSLOp::OP_LOAD_UNI,r,0,0,(int32)fs->offset,fs->count); *outCount=fs->count; return r; }
+                        if (fs) { uint16 r=AllocReg(); Emit(NkSLOp::OP_LOAD_UNI,r,0,fs->block,(int32)fs->offset,fs->count); *outCount=fs->count; return r; }
                     }
                 }
                 // sinon : swizzle
@@ -375,8 +396,38 @@ namespace nkentseu {
                     if (call->args.Size()>2) Emit(bop, r, r0, r1, (int32)r2);
                     else                      Emit(bop, r, r0, r1);
                     // count résultat : scalaire pour dot/length/distance, sinon count arg0
-                    *outCount = (bop==NkSLOp::OP_DOT||bop==NkSLOp::OP_LENGTH||bop==NkSLOp::OP_DISTANCE)?1:c0;
+                    *outCount = (bop==NkSLOp::OP_DOT||bop==NkSLOp::OP_LENGTH||bop==NkSLOp::OP_DISTANCE||
+                                 bop==NkSLOp::OP_ANY||bop==NkSLOp::OP_ALL)?1:c0;
                     return r;
+                }
+                // Dérivées écran (dFdx/dFdy/fwidth) : incalculables en VM par-pixel (pas de voisins)
+                // → stub (0 pour dFdx/dFdy, ε pour fwidth), même count que l'argument. Débloque la compil.
+                if (name=="dFdx" || name=="dFdy" || name=="fwidth" || name=="isnan" || name=="isinf") {
+                    uint8 ac=1; if (call->args.Size()>0) { uint16 tmp=GenExpr(call->args[0],&ac); (void)tmp; }
+                    NkSLValue z; z.count = ac ? ac : 1;
+                    for (uint8 i=0;i<z.count;++i) z.v[i] = (name=="fwidth") ? 1e-3f : 0.f;   // isnan/isinf → false(0)
+                    int32 k=AddConst(z); uint16 r=AllocReg(); Emit(NkSLOp::OP_LOADK, r,0,0,k);
+                    *outCount = z.count; return r;
+                }
+                // E4 : fonction utilisateur → INLINING au site d'appel (pas de pile d'appels).
+                if (NkSLFunctionDeclNode* fn = FindFunc(name)) {
+                    NkVector<uint16> argRegs; NkVector<uint8> argCounts;
+                    for (auto* a : call->args) { uint8 ac; uint16 ar=GenExpr(a,&ac); argRegs.PushBack(ar); argCounts.PushBack(ac); }
+                    const usize scope = mSyms.Size();
+                    for (uint32 i=0;i<(uint32)fn->params.Size() && i<(uint32)argRegs.Size();++i) {
+                        Sym s; s.kind=SymKind::LOCAL; s.reg=argRegs[i]; s.count=argCounts[i];
+                        s.type = fn->params[i]->type ? fn->params[i]->type->baseType : NkSLBaseType::NK_FLOAT;
+                        mSyms.Push(fn->params[i]->name, s);   // masque l'externe le temps de l'inline
+                    }
+                    uint16 resReg = AllocReg();
+                    mInline.PushBack(InlineFrame{ resReg, {} });
+                    GenStmt(fn->body);
+                    { InlineFrame& fr = mInline[mInline.Size()-1];
+                      for (int32 j : fr.retJumps) mProg->code[(usize)j].imm = (int32)mProg->code.Size(); }
+                    mInline.PopBack();
+                    mSyms.Truncate(scope);
+                    *outCount = fn->returnType ? CompOf(fn->returnType->baseType) : 1;
+                    return resReg;
                 }
                 Error(n->line, NkString("fonction non supportée (VM): ")+name);
                 return AllocReg();
@@ -486,9 +537,20 @@ namespace nkentseu {
                 if (jz>=0) mProg->code[jz].imm=(int32)mProg->code.Size();
                 break;
             }
-            case NkSLNodeKind::NK_STMT_RETURN:
-                Emit(NkSLOp::OP_RET);
+            case NkSLNodeKind::NK_STMT_RETURN: {
+                if (!mInline.Empty()) {
+                    // Dans une fonction inlinée : évaluer la valeur, MOV vers le registre résultat,
+                    // puis saut vers la fin de l'inline (fixé après génération du corps).
+                    auto* ret = static_cast<NkSLReturnNode*>(n);
+                    if (ret->value) { uint8 rc; uint16 rr = GenExpr(ret->value, &rc);
+                                      Emit(NkSLOp::OP_MOV, mInline[mInline.Size()-1].resultReg, rr); }
+                    Emit(NkSLOp::OP_JMP, 0,0,0, 0);
+                    mInline[mInline.Size()-1].retJumps.PushBack((int32)mProg->code.Size()-1);
+                } else {
+                    Emit(NkSLOp::OP_RET);   // entrée (main void) : fin du shader
+                }
                 break;
+            }
             case NkSLNodeKind::NK_STMT_DISCARD:
                 Emit(NkSLOp::OP_DISCARD);
                 break;
@@ -501,6 +563,11 @@ namespace nkentseu {
     // =============================================================================
     // Entrée
     // =============================================================================
+    NkSLFunctionDeclNode* NkSLCodeGenBytecode::FindFunc(const NkString& name) {
+        for (auto* f : mFuncs) if (f->name == name) return f;
+        return nullptr;
+    }
+
     bool NkSLCodeGenBytecode::Generate(NkSLProgramNode* ast, NkSLStage stage,
                                        NkSLByteProgram& out, NkVector<NkSLCompileError>& errors) {
         mProg = &out; mErr = &errors; mNextReg = 0; mSyms.Clear();
@@ -509,6 +576,19 @@ namespace nkentseu {
         CollectSymbols(ast, stage);
         NkSLFunctionDeclNode* entry = FindEntry(ast, stage);
         if (!entry || !entry->body) { Error(0, "VM: fonction d'entrée introuvable"); return false; }
+
+        // E4 : collecter les fonctions utilisateur (hors entrée) pour l'inlining au site d'appel.
+        mFuncs.Clear(); mInline.Clear();
+        for (auto* child : ast->children)
+            if (child && child->kind == NkSLNodeKind::NK_DECL_FUNCTION) {
+                auto* fn = static_cast<NkSLFunctionDeclNode*>(child);
+                if (fn != entry && fn->body) mFuncs.PushBack(fn);
+            }
+
+        // Constantes/variables GLOBALES (const hors fonction : PI, seuils…) : générées comme
+        // locaux au tout début du shader → disponibles pour toute la fonction d'entrée + inlines.
+        for (auto* child : ast->children)
+            if (child && child->kind == NkSLNodeKind::NK_DECL_VAR) GenStmt(child);
 
         GenStmt(entry->body);
         Emit(NkSLOp::OP_RET);
