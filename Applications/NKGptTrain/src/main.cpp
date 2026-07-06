@@ -66,8 +66,13 @@ int main() {
     for (unsigned char c : text) data.push_back((float)stoi[c]);
     printf("Corpus : %zu caractères, vocabulaire = %d symboles distincts.\n", text.size(), V);
 
-    // ---- Modèle ----
-    const int64 T = 64, d = 128, H = 4, L = 2, B = 16;
+    // ---- Modèle (réglable par env : NK_GPT_D/H/L/T/B) ----
+    auto envI = [](const char* k, int64 def) -> int64 { const char* v = getenv(k); return v ? (int64)atol(v) : def; };
+    const int64 T = envI("NK_GPT_T", 128);   // contexte
+    const int64 d = envI("NK_GPT_D", 256);   // dimension modèle
+    const int64 H = envI("NK_GPT_H", 8);     // têtes d'attention
+    const int64 L = envI("NK_GPT_L", 4);     // couches transformer
+    const int64 B = envI("NK_GPT_B", 16);    // taille de lot
     printf("Modèle GPT : T=%lld, d=%lld, têtes=%lld, couches=%lld, batch=%lld  (AdamW, GPU-résident)\n\n",
            (long long)T,(long long)d,(long long)H,(long long)L,(long long)B);
     nn::NkGPT gpt((uint32)V, (uint32)d, (uint32)H, (uint32)L, (uint32)T, 1234u);
