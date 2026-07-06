@@ -19,6 +19,12 @@ namespace nkentseu {
         using NkEmId = uint32;
         static const NkEmId NK_EM_INVALID = 0xFFFFFFFFu;
 
+        // ── Paramètres des commandes d'édition (niveau namespace : réutilisables par les
+        //    modificateurs / l'IA, et défauts utilisables comme arguments par défaut). ──
+        struct NkExtrudeParams  { bool  individual = false;  float32 offset = -1.f; };  // offset<0 => auto (8 % bbox)
+        struct NkMergeParams    { enum Mode { Center = 0, First = 1, Last = 2 }; int32 mode = Center; };
+        struct NkSubdivideParams{ int32 cuts = 1; };   // faces sélectionnées, ou TOUT si rien n'est sélectionné
+
         class NkEditMesh {
             public:
                 struct Vert {
@@ -84,9 +90,65 @@ namespace nkentseu {
                 // Normales par face (produit vectoriel) puis par sommet (moyenne).
                 void RecomputeNormals();
 
+                // ── COUCHE DE COMMANDES D'ÉDITION (paramétrée, découplée de l'UI) ────
+                // Ces opérations agissent sur la SÉLECTION interne (Vert::sel, ou par
+                // face = tous ses sommets sélectionnés) et mutent la topologie n-gon.
+                // Elles NE touchent PAS au GPU : l'appelant régénère le rendu (Triangulate)
+                // après coup. C'est la base pour l'undo/redo, les modificateurs (stack
+                // non-destructif) et l'espace d'actions IA (NKAI). Chaque op renvoie true
+                // si la topologie/géométrie a changé. Paramètres : Nk*Params (namespace).
+
+                // Sélection interne (Vert::sel).
+                void SelectAll();
+                void SelectNone();
+                bool AnyVertSelected() const;
+
+                bool ExtrudeSelectedFaces  (const NkExtrudeParams&   p = NkExtrudeParams{});
+                bool DeleteSelectedFaces   ();
+                bool MergeSelectedVerts    (const NkMergeParams&     p = NkMergeParams{});
+                bool MakeFaceFromSelected  ();
+                bool SubdivideSelectedFaces(const NkSubdivideParams& p = NkSubdivideParams{});
+                bool LoopCutFromSelectedEdge();
+                // planePoint / planeNormal sont exprimés dans l'espace de `localToPlaneSpace`
+                // (= matrice modèle→monde côté éditeur ; identité pour une op locale pure IA).
+                bool BisectByPlane(const NkVec3f& planePoint, const NkVec3f& planeNormal,
+                                   const NkMat4f& localToPlaneSpace);
+
             private:
                 // Lie les jumeaux (twin) via une table de hachage sur (min,max) des sommets.
                 void LinkTwins();
+                // Une face polygone (indices [s..e[ dans fv) est sélectionnée si TOUS ses
+                // sommets le sont (Vert::sel).
+                bool PolyFaceSelected(const NkVector<uint32>& fv, uint32 s, uint32 e) const;
+                // Recopie une sélection par-sommet (indexée sur le nouveau maillage) dans Vert::sel.
+                void ApplyVertSel(const NkVector<uint8>& vsel);
+                // Sous-étape de subdivision (une passe Catmull-Clark).
+                bool SubdivideSelectedOnce();
+        };
+
+        // ── HISTORIQUE UNDO/REDO (mémento) ──────────────────────────────────────
+        // Stocke des SNAPSHOTS complets de NkEditMesh (les maillages d'édition sont
+        // petits -> simple et robuste pour toute topologie, approche edit-mode Blender).
+        // Modèle : Commit(pré-état) AVANT une commande mutante ; Undo/Redo échangent
+        // l'état courant avec la pile. Réutilisable (éditeur, rejeu IA). Cap par défaut 64.
+        class NkEditHistory {
+            public:
+                void   Clear();
+                void   SetLimit(uint32 n) { mLimit = (n<1u)?1u:n; }
+                // À appeler AVANT une commande mutante réussie, avec l'état d'AVANT la
+                // mutation : empile le point de retour et invalide la pile de redo.
+                void   Commit(const NkEditMesh& preState);
+                bool   CanUndo() const { return !mUndo.Empty(); }
+                bool   CanRedo() const { return !mRedo.Empty(); }
+                // Échange `mesh` avec l'état précédent/suivant. false si rien à faire.
+                bool   Undo(NkEditMesh& mesh);
+                bool   Redo(NkEditMesh& mesh);
+                uint32 UndoCount() const { return (uint32)mUndo.Size(); }
+                uint32 RedoCount() const { return (uint32)mRedo.Size(); }
+            private:
+                NkVector<NkEditMesh> mUndo;   // états passés (sommet = le plus récent)
+                NkVector<NkEditMesh> mRedo;   // états annulés (rejouables)
+                uint32 mLimit = 64u;
         };
 
     } // namespace renderer
