@@ -1520,7 +1520,9 @@ namespace nkentseu {
                         // Ombre portée : atténue la contribution DIRECTE (diffus+spéc), pas l'ambiant.
                         // PERF : n'échantillonne l'atlas (PCF) que pour les fragments FACE à la lumière
                         // (ndl>0) — sinon la contribution directe est nulle et l'ombre n'a aucun effet.
-                        if (ndl>0.f) inten *= sampleShadow(i, ndl);
+                        // Diag : NK_SW_SHADOW_NODIR=1 coupe l'ombre de la directionnelle (isole point/spot).
+                        static const bool s_noDirSh = [](){ const char* e=std::getenv("NK_SW_SHADOW_NODIR"); return e && e[0]=='1'; }();
+                        if (ndl>0.f && !(s_noDirSh && type==0)) inten *= sampleShadow(i, ndl);
                         float lr=C[0]*inten*att, lg=C[1]*inten*att, lb=C[2]*inten*att;
                         // diffus
                         litR += cr*ndl*lr*kd; litG += cg*ndl*lg*kd; litB += cb*ndl*lb*kd;
