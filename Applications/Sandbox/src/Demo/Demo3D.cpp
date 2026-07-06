@@ -88,6 +88,8 @@ namespace nkentseu { namespace demo {
         renderer::NkEditHistory         editHistory;   // undo/redo (mémento : snapshots de editHE)
         renderer::NkEditMesh            editDragSnap;  // pré-état capturé au DÉBUT d'un drag de sommets
         bool                            editDragSnapValid = false;
+        renderer::NkMeshEditRecorder    editRecorder;  // journal des commandes (rejeu / modificateurs / IA)
+        renderer::NkEditMesh            editBase;      // maillage de BASE (à l'entrée) pour le rejeu
         NkVector<renderer::NkEmId>      editTriFace;   // map triangle de rendu -> face n-gon (pick)
         NkVector<uint8>                 vertSel;       // 1 = vertex sélectionné (taille = nb vertices)
         NkMat4f                         editAnchor    = NkMat4f::Identity();  // transform monde de l'objet
@@ -110,6 +112,7 @@ namespace nkentseu { namespace demo {
         bool                            editLoopCutPending = false; // Ctrl+R : boucle d'arêtes (loop cut)
         bool                            editUndoPending    = false; // Ctrl+Z : annuler (traité côté frame)
         bool                            editRedoPending    = false; // Ctrl+Shift+Z / Ctrl+Y : rétablir
+        bool                            editReplayPending  = false; // P : rejoue le journal depuis la base
         // Couteau/bisect (K) : trace une ligne (2 clics) -> plan de coupe.
         bool                            knifeArmed  = false;
         bool                            knifeHasP0  = false;
@@ -190,59 +193,82 @@ namespace nkentseu { namespace demo {
         for (uint32 i=0;i<n; ++i) st->vertSel[i] = st->editHE.verts[i].sel;
     }
 
-    // Applique UNE commande d'édition avec HISTORIQUE : pousse la sélection live dans
-    // editHE, snapshot le pré-état (sélection comprise), exécute `op`, et SEULEMENT si la
-    // topologie a changé -> enregistre l'undo + resync (rendu/cage/mesh GPU). L'op renvoie
-    // bool changed (cf. NkEditMesh). Point d'entrée unique -> undo/redo cohérent partout.
-    template<typename F>
-    static bool Demo3D_EditCmd(Demo3DState* st, renderer::NkMeshSystem* ms, F&& op) {
+    // Applique UNE commande d'édition (DONNÉE) : capture la sélection courante dans la
+    // commande, snapshot le pré-état pour l'undo, exécute cmd.Apply, et SEULEMENT si la
+    // géométrie a changé -> enregistre l'undo + PUSH la commande dans le journal (rejeu /
+    // modificateurs / données IA) + resync. Point d'entrée unique des éditions.
+    static bool Demo3D_ApplyCmd(Demo3DState* st, renderer::NkMeshSystem* ms, renderer::NkMeshEditCommand cmd) {
+        cmd.selection.Clear();                                   // sélection = donnée rejouable
+        for (uint32 i=0;i<(uint32)st->vertSel.Size();++i) if (st->vertSel[i]) cmd.selection.PushBack(i);
         Demo3D_PushSel(st);
-        renderer::NkEditMesh snapshot = st->editHE;      // pré-état AVEC la sélection live
-        if (!op(st->editHE)) return false;               // no-op -> on ne pollue pas l'historique
+        renderer::NkEditMesh snapshot = st->editHE;              // pré-état (avec sélection live)
+        if (!cmd.Apply(st->editHE)) return false;               // no-op -> ni undo ni enregistrement
         st->editHistory.Commit(snapshot);
+        st->editRecorder.Push(cmd);                             // journalise la commande
         Demo3D_PullSel(st); Demo3D_SyncFromHE(st, ms);
         return true;
     }
 
     // EXTRUDE (E) : région (normale moyenne) ou individuel (Shift+E) — cf. NkEditMesh.
     static void Demo3D_ExtrudeHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        renderer::NkExtrudeParams p; p.individual = st->extrudeIndividual;
-        Demo3D_EditCmd(st, ms, [&](renderer::NkEditMesh& m){ return m.ExtrudeSelectedFaces(p); });
+        renderer::NkMeshEditCommand c; c.op = renderer::NkMeshEditOp::Extrude;
+        c.extrude.individual = st->extrudeIndividual;
+        Demo3D_ApplyCmd(st, ms, c);
     }
 
     // DELETE (X) : supprime les faces sélectionnées, compacte — cf. NkEditMesh.
     static void Demo3D_DeleteHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        Demo3D_EditCmd(st, ms, [&](renderer::NkEditMesh& m){ return m.DeleteSelectedFaces(); });
+        renderer::NkMeshEditCommand c; c.op = renderer::NkMeshEditOp::Delete;
+        Demo3D_ApplyCmd(st, ms, c);
     }
 
     // MERGE (M) : soude les sommets sélectionnés (center/first/last, Shift+M) — cf. NkEditMesh.
     static void Demo3D_MergeHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        renderer::NkMergeParams p; p.mode = (int32)st->mergeMode;
-        Demo3D_EditCmd(st, ms, [&](renderer::NkEditMesh& m){ return m.MergeSelectedVerts(p); });
+        renderer::NkMeshEditCommand c; c.op = renderer::NkMeshEditOp::Merge;
+        c.merge.mode = (int32)st->mergeMode;
+        Demo3D_ApplyCmd(st, ms, c);
     }
 
     // CREATE FACE (F) : une face n-gon depuis les sommets sélectionnés — cf. NkEditMesh.
     static void Demo3D_MakeFaceHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        Demo3D_EditCmd(st, ms, [&](renderer::NkEditMesh& m){ return m.MakeFaceFromSelected(); });
+        renderer::NkMeshEditCommand c; c.op = renderer::NkMeshEditOp::MakeFace;
+        Demo3D_ApplyCmd(st, ms, c);
     }
 
     // SUBDIVIDE (W) : Catmull-Clark, faces sélectionnées ou TOUT. subdivCuts passes en UNE
     // commande (donc UN seul undo) — cf. NkEditMesh.
     static void Demo3D_SubdivideHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        renderer::NkSubdivideParams p; p.cuts = st->subdivCuts;
-        Demo3D_EditCmd(st, ms, [&](renderer::NkEditMesh& m){ return m.SubdivideSelectedFaces(p); });
+        renderer::NkMeshEditCommand c; c.op = renderer::NkMeshEditOp::Subdivide;
+        c.subdiv.cuts = st->subdivCuts;
+        Demo3D_ApplyCmd(st, ms, c);
     }
 
     // LOOP CUT (Ctrl+R) : anneau de quads depuis l'arête sélectionnée — cf. NkEditMesh.
     static void Demo3D_LoopCutHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        Demo3D_EditCmd(st, ms, [&](renderer::NkEditMesh& m){ return m.LoopCutFromSelectedEdge(); });
+        renderer::NkMeshEditCommand c; c.op = renderer::NkMeshEditOp::LoopCut;
+        Demo3D_ApplyCmd(st, ms, c);
     }
 
     // KNIFE / BISECT (K) : coupe par un PLAN (tracé écran -> monde). Le plan est en espace
     // MONDE : on passe editAnchor (modèle->monde) à la commande — cf. NkEditMesh.
     static void Demo3D_BisectHE(Demo3DState* st, renderer::NkMeshSystem* ms,
                                 NkVec3f pPoint, NkVec3f pNormal) {
-        Demo3D_EditCmd(st, ms, [&](renderer::NkEditMesh& m){ return m.BisectByPlane(pPoint, pNormal, st->editAnchor); });
+        renderer::NkMeshEditCommand c; c.op = renderer::NkMeshEditOp::Bisect;
+        c.planePoint = pPoint; c.planeNormal = pNormal; c.bisectXform = st->editAnchor;
+        Demo3D_ApplyCmd(st, ms, c);
+    }
+
+    // REJEU (P) : reconstruit editHE depuis le maillage de BASE (capturé à l'entrée) et
+    // rejoue TOUTES les commandes enregistrées. Preuve que la couche de commandes est
+    // scriptable (fondation modificateurs non-destructifs + données d'imitation IA).
+    static void Demo3D_ReplayEdits(Demo3DState* st, renderer::NkMeshSystem* ms) {
+        st->editHE = st->editBase;                              // repart du maillage de base
+        const uint32 applied = st->editRecorder.ReplayOnto(st->editHE);
+        st->vertSel.Clear(); st->vertSel.Resize(st->editHE.VertCount());
+        for (uint32 i=0;i<st->editHE.VertCount();++i) st->vertSel[i] = st->editHE.verts[i].sel;
+        Demo3D_SyncFromHE(st, ms);
+        logger.Info("[Demo3D] Rejeu: {0}/{1} commandes -> {2} faces\n",
+                    applied, st->editRecorder.Count(), (int32)st->editHE.FaceCount());
     }
 
     // UNDO / REDO : restaure un snapshot de editHE, resynchronise sélection + rendu.
@@ -597,6 +623,9 @@ namespace nkentseu { namespace demo {
                     if (ctrlZ && k == NkKey::NK_Z) { if (shiftZ) st->editRedoPending=true; else st->editUndoPending=true; return; }
                     if (ctrlZ && k == NkKey::NK_Y) { st->editRedoPending=true; return; }
                 }
+                // P : REJOUE le journal des commandes depuis le maillage de base (preuve que
+                // la couche de commandes est scriptable -> modificateurs + données IA).
+                if (k == NkKey::NK_P) { st->editReplayPending = true; return; }
                 // A / Alt+A : tout sélectionner / désélectionner (les VERTICES).
                 if (k == NkKey::NK_A) {
                     const uint8 v = alt ? 0 : 1;
@@ -798,6 +827,8 @@ namespace nkentseu { namespace demo {
                         // triangulée, puis génère le mesh de rendu (Demo3D_SyncFromHE).
                         st->editHE.BuildFromIndexed(sv, vc, si, ic, /*quadify*/true);
                         st->editHistory.Clear();   // nouvel objet en édition -> historique neuf
+                        st->editRecorder.Clear();  // journal des commandes neuf
+                        st->editBase = st->editHE; // maillage de BASE pour le rejeu (modificateurs/IA)
                         st->vertSel.Clear(); st->vertSel.Resize(st->editHE.VertCount());
                         for (uint32 i=0;i<st->editHE.VertCount();i++) st->vertSel[i]=0;
                         st->editMesh = {};
@@ -1107,6 +1138,8 @@ namespace nkentseu { namespace demo {
                     Demo3D_RedoEdit(st, meshSysT);
                     logger.Info("[Demo3D] Redo -> {0} faces (undo={1} redo={2})\n",
                         (int32)st->editHE.FaceCount(), st->editHistory.UndoCount(), st->editHistory.RedoCount()); }
+                if (st->editReplayPending) { st->editReplayPending=false;
+                    Demo3D_ReplayEdits(st, meshSysT); }
                 if (st->editExtrudePending) { st->editExtrudePending=false;
                     Demo3D_ExtrudeHE(st, meshSysT);
                     logger.Info("[Demo3D] Extrude -> {0} faces\n", (int32)st->editHE.FaceCount()); }
@@ -1301,8 +1334,19 @@ namespace nkentseu { namespace demo {
                 if (meshSysF) meshSysF->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv);
                 st->editGizmo.ResetSelected();
                 st->editOverlayDirty = true;
-                // Enregistre le déplacement dans l'historique (pré-état snapshoté au début).
-                if (st->editDragSnapValid) { st->editHistory.Commit(st->editDragSnap); st->editDragSnapValid=false; }
+                // Enregistre le déplacement dans l'historique (pré-état snapshoté au début)
+                // ET comme commande Move (donnée rejouable : delta par sommet déplacé).
+                if (st->editDragSnapValid) {
+                    st->editHistory.Commit(st->editDragSnap);
+                    renderer::NkMeshEditCommand mc; mc.op = renderer::NkMeshEditOp::Move;
+                    const uint32 hv = st->editHE.VertCount(), bv = st->editDragSnap.VertCount();
+                    for (uint32 i=0;i<hv && i<bv;++i){
+                        NkVec3f d = st->editHE.verts[i].pos - st->editDragSnap.verts[i].pos;
+                        if (d.x!=0.f || d.y!=0.f || d.z!=0.f){ mc.selection.PushBack(i); mc.moveDeltas.PushBack(d); }
+                    }
+                    if (mc.selection.Size()>0) st->editRecorder.Push(mc);
+                    st->editDragSnapValid=false;
+                }
             }
             st->editWasDragging = st->editGizmo.IsDragging();
 
