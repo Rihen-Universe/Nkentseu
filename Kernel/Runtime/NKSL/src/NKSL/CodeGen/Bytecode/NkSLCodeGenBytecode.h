@@ -34,6 +34,7 @@ namespace nkentseu {
             uint16       reg    = 0;   // registre (local)
             uint8        count  = 1;
             bool         isShadow = false;
+            uint16       block  = 0;   // multi-UBO : index de bloc UBO (pour OP_LOAD_UNI.c)
         };
 
         // Table de symboles LINÉAIRE (petit nombre de symboles par shader). Évite
@@ -41,16 +42,26 @@ namespace nkentseu {
         struct SymTable {
             NkVector<NkString> names;
             NkVector<Sym>      syms;
+            // Scan INVERSE : la liaison la plus récente (paramètre/local inline) masque l'externe.
             Sym& operator[](const NkString& n) {
-                for (usize i=0;i<names.Size();++i) if (names[i]==n) return syms[i];
+                for (usize i=names.Size(); i-- > 0; ) if (names[i]==n) return syms[i];
                 names.PushBack(n); syms.PushBack(Sym{}); return syms[syms.Size()-1];
             }
             Sym* Find(const NkString& n) {
-                for (usize i=0;i<names.Size();++i) if (names[i]==n) return &syms[i];
+                for (usize i=names.Size(); i-- > 0; ) if (names[i]==n) return &syms[i];
                 return nullptr;
             }
-            void Clear() { names.Clear(); syms.Clear(); }
+            void   Push(const NkString& n, const Sym& s) { names.PushBack(n); syms.PushBack(s); } // toujours ajouter (scope)
+            usize  Size() const { return names.Size(); }
+            void   Truncate(usize sz) { while (names.Size()>sz) { names.PopBack(); syms.PopBack(); } }
+            void   Clear() { names.Clear(); syms.Clear(); }
         };
+
+        // ── Inlining des fonctions utilisateur (E4) ──────────────────────────
+        struct InlineFrame { uint16 resultReg = 0; NkVector<int32> retJumps; };
+        NkVector<NkSLFunctionDeclNode*> mFuncs;    // fonctions utilisateur (hors entrée)
+        NkVector<InlineFrame>           mInline;   // pile d'inlines actifs (pour return)
+        NkSLFunctionDeclNode* FindFunc(const NkString& name);
 
         // ── État de génération ───────────────────────────────────────────────
         NkSLByteProgram*               mProg   = nullptr;

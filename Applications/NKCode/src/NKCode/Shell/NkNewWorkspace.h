@@ -1225,25 +1225,25 @@ namespace nkcode {
         if (!u.down) { if (w->codeBar == 1 || w->codeBar == 2) w->codeBar = 0; }   // relache le drag
         if (maxSY > 0.5f) {
             const NkRect track = { rect.x + rect.w - sbW - u.s(3), rect.y + u.s(2), sbW, rect.h - u.s(4) };
-            u.dl->AddRectFilled(track, NkColor{ 10,12,16,160 }, sbW * 0.5f);
+            u.dl->AddRectFilled(track, NkScrollTrack(), sbW * 0.5f);
             float32 thh = viewH * (viewH / contentH); if (thh < u.s(24)) thh = u.s(24);
             float32 ty = track.y + (track.h - thh) * (w->codeSY / maxSY);
             const NkRect thumb = { track.x + u.s(2), ty, sbW - u.s(4), thh };
             if (!blockBg && u.click && u.Hit(thumb)) { w->codeBar = 1; w->codeBarOff = u.mp.y - ty; }
             if (w->codeBar == 1) { w->codeSY = ((u.mp.y - w->codeBarOff - track.y) / (track.h - thh)) * maxSY;
                 if (w->codeSY < 0.f) w->codeSY = 0.f; if (w->codeSY > maxSY) w->codeSY = maxSY; ty = track.y + (track.h - thh) * (w->codeSY / maxSY); }
-            u.dl->AddRectFilled({ track.x + u.s(2), ty, sbW - u.s(4), thh }, w->codeBar == 1 ? NkCol::primary : NkColor{ 70,76,84,255 }, (sbW - u.s(4)) * 0.5f);
+            u.dl->AddRectFilled({ track.x + u.s(2), ty, sbW - u.s(4), thh }, w->codeBar == 1 ? NkCol::primary : NkScrollThumb(false), (sbW - u.s(4)) * 0.5f);
         }
         if (maxSX > 0.5f) {
             const NkRect track = { rect.x + gutter, rect.y + rect.h - sbW - u.s(2), viewW, sbW };
-            u.dl->AddRectFilled(track, NkColor{ 10,12,16,160 }, sbW * 0.5f);
+            u.dl->AddRectFilled(track, NkScrollTrack(), sbW * 0.5f);
             float32 tww = viewW * (viewW / maxW); if (tww < u.s(24)) tww = u.s(24);
             float32 tx = track.x + (track.w - tww) * (w->codeSX / maxSX);
             const NkRect thumb = { tx, track.y + u.s(2), tww, sbW - u.s(4) };
             if (!blockBg && u.click && u.Hit(thumb)) { w->codeBar = 2; w->codeBarOff = u.mp.x - tx; }
             if (w->codeBar == 2) { w->codeSX = ((u.mp.x - w->codeBarOff - track.x) / (track.w - tww)) * maxSX;
                 if (w->codeSX < 0.f) w->codeSX = 0.f; if (w->codeSX > maxSX) w->codeSX = maxSX; tx = track.x + (track.w - tww) * (w->codeSX / maxSX); }
-            u.dl->AddRectFilled({ tx, track.y + u.s(2), tww, sbW - u.s(4) }, w->codeBar == 2 ? NkCol::primary : NkColor{ 70,76,84,255 }, (sbW - u.s(4)) * 0.5f);
+            u.dl->AddRectFilled({ tx, track.y + u.s(2), tww, sbW - u.s(4) }, w->codeBar == 2 ? NkCol::primary : NkScrollThumb(false), (sbW - u.s(4)) * 0.5f);
         }
     }
 
@@ -1289,10 +1289,11 @@ namespace nkcode {
         if (sx < 0.f) sx = 0.f; if (sx > maxSX) sx = maxSX;
         if (maxSY > 0.5f) {
             const NkRect track = { rect.x + rect.w - sb - u.s(2), rect.y + u.s(1), sb, rect.h - u.s(2) };
-            u.dl->AddRectFilled(track, NkColor{ 18,21,26,150 }, sb * 0.5f);
+            u.dl->AddRectFilled(track, NkScrollTrack(), sb * 0.5f);
             float32 thh = viewH * (viewH / contentH); if (thh < u.s(26)) thh = u.s(26);
             const float32 ty = track.y + (track.h - thh) * (sy / maxSY);
-            u.dl->AddRectFilled({ track.x + u.s(2), ty, sb - u.s(4), thh }, NkColor{ 70,76,84,255 }, (sb - u.s(4)) * 0.5f);
+            const bool thHov = u.Hit({ track.x + u.s(2), ty, sb - u.s(4), thh });
+            u.dl->AddRectFilled({ track.x + u.s(2), ty, sb - u.s(4), thh }, NkScrollThumb(thHov), (sb - u.s(4)) * 0.5f);
         }
         if (maxSX > 0.5f) {
             const NkRect track = { rect.x + u.s(1), rect.y + rect.h - sb - u.s(1), viewW, sb };

@@ -170,11 +170,16 @@ namespace nkentseu {
 
     void NkFontAtlas::Clear() {
         ClearTexData();
+        // Les polices FUSIONNÉES (mergeMode) partagent le MÊME NkFont* que leur police de
+        // base (cf. AddFontFromMemoryOwned) : fonts[] contient donc des pointeurs DUPLIQUÉS.
+        // Il faut ne détruire chaque pointeur unique QU'UNE fois — sinon double-free / tas
+        // corrompu au rechargement (crash zoom). On annule tous les slots partageant le
+        // pointeur avant de le libérer.
         for (nkft_uint32 i = 0; i < fontCount; ++i) {
-            if (fonts[i]) {
-                nkentseu::memory::NkGetDefaultAllocator().Delete(fonts[i]);
-                fonts[i] = nullptr;
-            }
+            NkFont* p = fonts[i];
+            if (!p) continue;
+            for (nkft_uint32 j = i; j < fontCount; ++j) if (fonts[j] == p) fonts[j] = nullptr;
+            nkentseu::memory::NkGetDefaultAllocator().Delete(p);
         }
         fontCount = 0;
         for (nkft_uint32 i = 0; i < NK_FONT_ATLAS_MAX_FONTS; ++i) {

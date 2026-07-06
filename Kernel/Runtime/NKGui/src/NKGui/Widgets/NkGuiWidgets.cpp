@@ -809,8 +809,12 @@ namespace nkentseu {
 
             // Scrollbar verticale (draggable) si débordement.
             if (maxY > 0.f) {
+                const bool    mlLight = ((int32)ctx.theme.bgPrimary.r + (int32)ctx.theme.bgPrimary.g + (int32)ctx.theme.bgPrimary.b) > 384;
+                const NkColor mlTrk = mlLight ? NkColor{ 0, 0, 0, 20 }        : NkColor{ 255, 255, 255, 16 };
+                const NkColor mlThb = mlLight ? NkColor{ 168, 176, 185, 255 } : NkColor{ 80, 88, 98, 255 };
+                const NkColor mlThbH= mlLight ? NkColor{ 130, 138, 148, 255 } : NkColor{ 120, 130, 142, 255 };
                 const NkRect track = { rect.x + rect.w - sbW, rect.y, sbW, rect.h };
-                ctx.DL().AddRectFilled(track, NkColor{ 20, 22, 28, 255 }, 0.f);
+                ctx.DL().AddRectFilled(track, mlTrk, 0.f);
                 float32 thumbH = rect.h * (inner.h / contentH);
                 if (thumbH < 24.f) thumbH = 24.f; if (thumbH > track.h) thumbH = track.h;
                 const float32 thumbY = track.y + (st.y / maxY) * (track.h - thumbH);
@@ -822,7 +826,7 @@ namespace nkentseu {
                     st.y = ((ctx.input.mousePos.y - track.y - thumbH * 0.5f) / (track.h - thumbH)) * maxY;
                     if (st.y < 0.f) st.y = 0.f; if (st.y > maxY) st.y = maxY;
                 }
-                ctx.DL().AddRectFilled(thumb, (hov || ctx.activeId == sbId) ? ctx.theme.buttonHover : ctx.theme.button, 3.f);
+                ctx.DL().AddRectFilled(thumb, (hov || ctx.activeId == sbId) ? mlThbH : mlThb, 3.f);
             }
 
             st.maxY = maxY;
@@ -2339,12 +2343,34 @@ namespace nkentseu {
 
             const bool barV = maxY > 0.f;
             const bool barH = horiz && maxX > 0.f;
+            // Scrollbar UNIFORME (identique aux panneaux code/sortie/terminal) : piste
+            // subtile theme-aware, pouce contraste, + fleches aux extremites.
+            const bool    sbLight = ((int32)ctx.theme.bgPrimary.r + (int32)ctx.theme.bgPrimary.g + (int32)ctx.theme.bgPrimary.b) > 384;
+            const NkColor sbTrk  = sbLight ? NkColor{ 0, 0, 0, 20 }        : NkColor{ 255, 255, 255, 16 };
+            const NkColor sbThb  = sbLight ? NkColor{ 168, 176, 185, 255 } : NkColor{ 80, 88, 98, 255 };
+            const NkColor sbThbH = sbLight ? NkColor{ 130, 138, 148, 255 } : NkColor{ 120, 130, 142, 255 };
+            const float32 sbStep = ((ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f) * 3.f;
             if (barV) {
-                const NkRect track = { f.area.x + f.area.w - kScrollBarW, f.area.y, kScrollBarW, f.area.h - gH };
-                ctx.DL().AddRectFilled(track, NkColor{ 20, 22, 28, 255 }, 0.f);
-                float32 thumbH = (f.area.h - gH) * ((f.area.h - gH) / contentH);
+                const NkRect full = { f.area.x + f.area.w - kScrollBarW, f.area.y, kScrollBarW, f.area.h - gH };
+                ctx.DL().AddRectFilled(full, sbTrk, 0.f);
+                const bool arr = full.h > kScrollBarW * 3.f;      // place pour 2 fleches + pouce
+                if (arr) {
+                    const NkRect up = { full.x, full.y, kScrollBarW, kScrollBarW };
+                    const NkRect dn = { full.x, full.y + full.h - kScrollBarW, kScrollBarW, kScrollBarW };
+                    bool uh = false, dhh = false, hld = false;
+                    if (ctx.ButtonBehavior(f.id ^ 0x11111111u, up, NkGuiButtonFlags::Repeat, 0.35f, 0.05f, &uh, &hld)) sy -= sbStep;
+                    if (ctx.ButtonBehavior(f.id ^ 0x22222222u, dn, NkGuiButtonFlags::Repeat, 0.35f, 0.05f, &dhh, &hld)) sy += sbStep;
+                    if (sy < 0.f) sy = 0.f; if (sy > maxY) sy = maxY;
+                    const float32 a = 3.f;
+                    { const float32 cx = up.x + kScrollBarW * 0.5f, cy = up.y + kScrollBarW * 0.5f;
+                      ctx.DL().AddTriangleFilled({ cx, cy - a }, { cx - a, cy + a }, { cx + a, cy + a }, uh ? sbThbH : sbThb); }
+                    { const float32 cx = dn.x + kScrollBarW * 0.5f, cy = dn.y + kScrollBarW * 0.5f;
+                      ctx.DL().AddTriangleFilled({ cx - a, cy - a }, { cx + a, cy - a }, { cx, cy + a }, dhh ? sbThbH : sbThb); }
+                }
+                const NkRect track = arr ? NkRect{ full.x, full.y + kScrollBarW, kScrollBarW, full.h - 2.f * kScrollBarW } : full;
+                float32 thumbH = track.h * ((f.area.h - gH) / contentH);
                 if (thumbH < 24.f) thumbH = 24.f; if (thumbH > track.h) thumbH = track.h;
-                const float32 thumbY = track.y + (sy / maxY) * (track.h - thumbH);
+                const float32 thumbY = track.y + (maxY > 0.f ? (sy / maxY) : 0.f) * (track.h - thumbH);
                 const NkRect  thumb  = { track.x + 2.f, thumbY, kScrollBarW - 4.f, thumbH };
                 bool hov = false, held = false;
                 ctx.ButtonBehavior(f.id ^ 0x5C12AB37u, thumb, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
@@ -2352,14 +2378,29 @@ namespace nkentseu {
                     sy = ((ctx.input.mousePos.y - track.y - thumbH * 0.5f) / (track.h - thumbH)) * maxY;
                     if (sy < 0.f) sy = 0.f; if (sy > maxY) sy = maxY;
                 }
-                ctx.DL().AddRectFilled(thumb, (hov || ctx.activeId == (f.id ^ 0x5C12AB37u)) ? ctx.theme.buttonHover : ctx.theme.button, 3.f);
+                ctx.DL().AddRectFilled(thumb, (hov || ctx.activeId == (f.id ^ 0x5C12AB37u)) ? sbThbH : sbThb, 3.f);
             }
             if (barH) {
-                const NkRect track = { f.area.x, f.area.y + f.area.h - kScrollBarW, f.area.w - gV, kScrollBarW };
-                ctx.DL().AddRectFilled(track, NkColor{ 20, 22, 28, 255 }, 0.f);
-                float32 thumbW = (f.area.w - gV) * ((f.area.w - gV) / contentW);
+                const NkRect full = { f.area.x, f.area.y + f.area.h - kScrollBarW, f.area.w - gV, kScrollBarW };
+                ctx.DL().AddRectFilled(full, sbTrk, 0.f);
+                const bool arr = full.w > kScrollBarW * 3.f;
+                if (arr) {
+                    const NkRect lf = { full.x, full.y, kScrollBarW, kScrollBarW };
+                    const NkRect rg = { full.x + full.w - kScrollBarW, full.y, kScrollBarW, kScrollBarW };
+                    bool lh = false, rh = false, hld = false;
+                    if (ctx.ButtonBehavior(f.id ^ 0x33333333u, lf, NkGuiButtonFlags::Repeat, 0.35f, 0.05f, &lh, &hld)) sx -= sbStep;
+                    if (ctx.ButtonBehavior(f.id ^ 0x44444444u, rg, NkGuiButtonFlags::Repeat, 0.35f, 0.05f, &rh, &hld)) sx += sbStep;
+                    if (sx < 0.f) sx = 0.f; if (sx > maxX) sx = maxX;
+                    const float32 a = 3.f;
+                    { const float32 cx = lf.x + kScrollBarW * 0.5f, cy = lf.y + kScrollBarW * 0.5f;
+                      ctx.DL().AddTriangleFilled({ cx - a, cy }, { cx + a, cy - a }, { cx + a, cy + a }, lh ? sbThbH : sbThb); }
+                    { const float32 cx = rg.x + kScrollBarW * 0.5f, cy = rg.y + kScrollBarW * 0.5f;
+                      ctx.DL().AddTriangleFilled({ cx - a, cy - a }, { cx + a, cy }, { cx - a, cy + a }, rh ? sbThbH : sbThb); }
+                }
+                const NkRect track = arr ? NkRect{ full.x + kScrollBarW, full.y, full.w - 2.f * kScrollBarW, kScrollBarW } : full;
+                float32 thumbW = track.w * ((f.area.w - gV) / contentW);
                 if (thumbW < 24.f) thumbW = 24.f; if (thumbW > track.w) thumbW = track.w;
-                const float32 thumbX = track.x + (sx / maxX) * (track.w - thumbW);
+                const float32 thumbX = track.x + (maxX > 0.f ? (sx / maxX) : 0.f) * (track.w - thumbW);
                 const NkRect  thumb  = { thumbX, track.y + 2.f, thumbW, kScrollBarW - 4.f };
                 bool hov = false, held = false;
                 ctx.ButtonBehavior(f.id ^ 0x37AB125Cu, thumb, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
@@ -2367,7 +2408,7 @@ namespace nkentseu {
                     sx = ((ctx.input.mousePos.x - track.x - thumbW * 0.5f) / (track.w - thumbW)) * maxX;
                     if (sx < 0.f) sx = 0.f; if (sx > maxX) sx = maxX;
                 }
-                ctx.DL().AddRectFilled(thumb, (hov || ctx.activeId == (f.id ^ 0x37AB125Cu)) ? ctx.theme.buttonHover : ctx.theme.button, 3.f);
+                ctx.DL().AddRectFilled(thumb, (hov || ctx.activeId == (f.id ^ 0x37AB125Cu)) ? sbThbH : sbThb, 3.f);
             }
 
             NkGuiScrollState ns;

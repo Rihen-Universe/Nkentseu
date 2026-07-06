@@ -351,6 +351,8 @@ namespace nkentseu {
 
         NkTensor NkTensor::Contiguous() const {
             if (IsContiguous()) return *this; // vue partagée déjà contiguë
+            // Vue strided sur GPU : matérialiser par gather GPU (garde la résidence).
+            if (mDevice == NkDevice::NK_GPU) return NkGpuContiguous(*this);
             NkTensor out = Empty(mShape, mDType, mDevice);
             const int64 n = Numel();
             if (n <= 0) return out;

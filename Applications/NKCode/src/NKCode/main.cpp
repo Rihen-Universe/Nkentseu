@@ -12,6 +12,7 @@
 #include "NKCode/Shell/Toolbar.h"
 #include "NKCode/Shell/Dialogs.h"
 #include "NKCode/Shell/ScaffoldPanels.h"
+#include "NKCode/Shell/NkAiPanel.h"
 #include "NKCode/Shell/NkHome.h"
 #include "NKCode/Project/NkLogSink.h"
 #include "NKImage/NKImage.h"
@@ -54,7 +55,10 @@ static void FileMenuThunk(NkEditorFrameContext& ec, void* u) {
     nkcode::DrawFileMenu(ec, static_cast<nkcode::NkCodeDialogs*>(u));
 }
 static void OverlayThunk(NkEditorFrameContext& ec, void* u) {
-    nkcode::DrawOverlay(ec, static_cast<nkcode::NkCodeDialogs*>(u));
+    auto* d = static_cast<nkcode::NkCodeDialogs*>(u);
+    // Demande d'« Enregistrer sous » (bouton +, ré-enregistrer un fichier supprimé) : ouvre le dialogue.
+    if (d->st && d->st->reqSaveAs) { d->st->reqSaveAs = false; d->SaveActiveNative(); }
+    nkcode::DrawOverlay(ec, d);
 }
 // Ecran d'accueil (Home) — nouvelle UI propre (design Banani).
 static nkcode::NkHomeState g_home;
@@ -62,8 +66,12 @@ static void StartScreenThunk(NkEditorFrameContext& ec, void* u) {
     nkcode::DrawHome(ec, static_cast<nkcode::NkHomeState*>(u));
 }
 // Pose appFullScreen/appModal CHAQUE FRAME (barre de menus, inconditionnel).
+// + synchronise le thème de l'ÉDITORKIT sur le thème NKCode : le chrome de l'éditeur
+//   (barre de titre, activity bar, onglets, dock, status bar, panneaux) suit Dark/Light.
 static void AppFlagsThunk(NkEditorFrameContext& ec, void* u) {
     nkcode::DrawAppFlags(ec, static_cast<nkcode::NkCodeDialogs*>(u));
+    if (!g_home.settings.loaded) g_home.settings.Load();
+    nkcode::NkApplyEditorTheme(ec.Ui(), g_home.settings.theme, g_home.settings.accent);
 }
 
 int nkmain(const NkEntryState& state) {
@@ -102,10 +110,12 @@ int nkmain(const NkEntryState& state) {
     g_state.OpenPath(g_state.root / "README.md");
 
     static nkcode::ExplorerPanel explorer(&g_state);
+    static nkcode::OutlinePanel  outline(&g_state);
     static nkcode::EditorPanel   editor(&g_state, shell.Get());
     static nkcode::OutputPanel   output(&g_state);
     static nkcode::TerminalPanel terminal;
     shell->AddPanel(&explorer);
+    shell->AddPanel(&outline);
     shell->AddPanel(&editor);
     shell->AddPanel(&output);
     shell->AddPanel(&terminal);
@@ -120,12 +130,12 @@ int nkmain(const NkEntryState& state) {
     static ScaffoldPanel pDebug  ("Debogueur",    NkEditorDockSide::NK_LEFT,   "Maquette - roadmap #10", sc::kDebug,     2);
     static ScaffoldPanel pBuild  ("Build & Taches", NkEditorDockSide::NK_BOTTOM, "Maquette - roadmap #14", sc::kBuild,   1);
     static ScaffoldPanel pProf   ("Profiler",     NkEditorDockSide::NK_BOTTOM, "Maquette - roadmap #19", sc::kProfiler,  1);
-    static ScaffoldPanel pAi     ("Assistant IA", NkEditorDockSide::NK_RIGHT,  "Maquette - roadmap #16", sc::kAi,        1);
+    static nkcode::AiPanel aiPanel(&g_state);   // Assistant IA FONCTIONNEL (remplace la maquette)
     static ScaffoldPanel pEngine ("Moteur",       NkEditorDockSide::NK_RIGHT,  "Maquette - roadmap #17", sc::kEngine,    1);
     static ScaffoldPanel pExt    ("Extensions",   NkEditorDockSide::NK_LEFT,   "Maquette - roadmap #12", sc::kExtensions,1);
     shell->AddPanel(&pSearch);  shell->AddPanel(&pProblem); shell->AddPanel(&pGit);
     shell->AddPanel(&pDebug);   shell->AddPanel(&pBuild);   shell->AddPanel(&pProf);
-    shell->AddPanel(&pAi);      shell->AddPanel(&pEngine);  shell->AddPanel(&pExt);
+    shell->AddPanel(&aiPanel);  shell->AddPanel(&pEngine);  shell->AddPanel(&pExt);
 
     shell->SetToolbar(&ToolbarThunk, &g_state);   // barre d'outils Visual Studio
     g_dialogs.st    = &g_state;
@@ -400,7 +410,7 @@ int nkmain(const NkEntryState& state) {
     shell->RegisterCommand("Projet: Construire (jenga build)", &CmdBuild, nullptr,      "Ctrl+B");
     shell->RegisterCommand("Projet: Demarrer (jenga run)",     &CmdRun,   nullptr,      "Ctrl+R");
     shell->RegisterCommand("Fichier: Enregistrer",             &CmdSave,  &g_state,     "Ctrl+S");
-    shell->RegisterCommand("Edition: Formater le document",    &CmdFormat, nullptr,     "Ctrl+L");
+    shell->RegisterCommand("Edition: Formater le document",    &CmdFormat, nullptr,     "Ctrl+Shift+I");   // Ctrl+L libéré pour « sélectionner la ligne » (éditeur)
     shell->RegisterCommand("Disposition: Reinitialiser",       &CmdResetLayout, shell.Get());
     shell->RegisterCommand("Application: Quitter",             &CmdQuit,  shell.Get(),  "Ctrl+Q");
 

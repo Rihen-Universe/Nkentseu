@@ -129,6 +129,12 @@ namespace nkentseu {
 
             // ── Barre d'etat (footer VSCode) : texte gauche/droite mis par l'app ─
             void SetFooter(const char* left, const char* right = "") noexcept;
+            // ── Zoom de l'editeur (Ctrl+molette / Ctrl+± ) : ajuste la taille de la
+            //    police du code (+ terminal), reconstruit l'atlas, persiste. ──────────
+            void NudgeCodeFontSize(float32 delta) noexcept;
+            void ResetCodeFontSize() noexcept;               ///< remet la police du code à la taille par défaut (Ctrl+0)
+            float32 CodeFontSize() const noexcept;
+            static constexpr float32 kDefaultCodeFontSize = 15.f;   ///< défaut (= NkFontPrefs::codeSize)
             // ── Infos centrees dans la barre de titre (ex. fichier actif) ────────
             void SetTitleInfo(const char* center) noexcept;
 
@@ -176,6 +182,7 @@ namespace nkentseu {
             nkgui::NkGuiFont    mFont;       ///< police d'interface (Inter/Karla)
             nkgui::NkGuiFont    mCodeFont;   ///< police monospace code/terminal (DejaVu)
             bool                mFontOk = false;
+            bool                mFontReloadPending = false;  ///< rechargement d'atlas differe au debut de frame (anti-crash zoom)
             NkFontPrefs         mFontPrefs;          ///< reglages de polices (persistes)
             nkgui::NkGuiTheme   mDefaultTheme;       ///< theme par defaut (vit dans l'app) -> Reinitialiser
             nkgui::NkGuiSyntax  mDefaultSyntax;      ///< couleurs langages par defaut -> Reinitialiser

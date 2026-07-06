@@ -190,15 +190,17 @@ namespace nkentseu {
                 mUI.input.mousePos = { static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY()) };
             });
             events.AddEventCallback<NkMouseButtonPressEvent>([this](NkMouseButtonPressEvent* e) {
-                if (e->GetButton() == NkMouseButton::NK_MB_LEFT)  mUI.input.mouseDown[0] = true;
-                if (e->GetButton() == NkMouseButton::NK_MB_RIGHT) mUI.input.mouseDown[1] = true;
+                if (e->GetButton() == NkMouseButton::NK_MB_LEFT)   mUI.input.mouseDown[0] = true;
+                if (e->GetButton() == NkMouseButton::NK_MB_RIGHT)  mUI.input.mouseDown[1] = true;
+                if (e->GetButton() == NkMouseButton::NK_MB_MIDDLE) mUI.input.mouseDown[2] = true;   // convention [0]=G [1]=D [2]=milieu
                 mUI.input.ctrlDown  = e->GetModifiers().ctrl;
                 mUI.input.shiftDown = e->GetModifiers().shift;
                 mUI.input.altDown   = e->GetModifiers().alt;
             });
             events.AddEventCallback<NkMouseButtonReleaseEvent>([this](NkMouseButtonReleaseEvent* e) {
-                if (e->GetButton() == NkMouseButton::NK_MB_LEFT)  mUI.input.mouseDown[0] = false;
-                if (e->GetButton() == NkMouseButton::NK_MB_RIGHT) mUI.input.mouseDown[1] = false;
+                if (e->GetButton() == NkMouseButton::NK_MB_LEFT)   mUI.input.mouseDown[0] = false;
+                if (e->GetButton() == NkMouseButton::NK_MB_RIGHT)  mUI.input.mouseDown[1] = false;
+                if (e->GetButton() == NkMouseButton::NK_MB_MIDDLE) mUI.input.mouseDown[2] = false;
             });
             // Molette : scroll vertical + horizontal (consommee en EndFrame par NKGui).
             events.AddEventCallback<NkMouseWheelVerticalEvent>([this](NkMouseWheelVerticalEvent* e) {
@@ -229,6 +231,12 @@ namespace nkentseu {
                     else if (k == NkKey::NK_X) mUI.input.wantCut       = true;
                     else if (k == NkKey::NK_V) mUI.input.wantPaste     = true;
                     else if (k == NkKey::NK_A) mUI.input.wantSelectAll = true;
+                    // Zoom éditeur au CLAVIER : Ctrl+= / Ctrl++ (pavé) zoome, Ctrl+- / Ctrl+pavé- dézoome,
+                    // Ctrl+0 réinitialise. Traité ICI (fiable, comme les autres Ctrl+touche) plutôt que
+                    // via KeyPressedRepeat dans un panneau, qui ne déclenchait pas.
+                    else if (k == NkKey::NK_EQUALS || k == NkKey::NK_NUMPAD_ADD) NudgeCodeFontSize(1.f);
+                    else if (k == NkKey::NK_MINUS  || k == NkKey::NK_NUMPAD_SUB) NudgeCodeFontSize(-1.f);
+                    else if (k == NkKey::NK_NUM0   || k == NkKey::NK_NUMPAD_0)   ResetCodeFontSize();
                 }
                 if (k == NkKey::NK_P && e->GetModifiers().ctrl) { mPaletteOpen = !mPaletteOpen; mPaletteSel = 0; return; }
                 if (mPaletteOpen) {
@@ -273,8 +281,17 @@ namespace nkentseu {
                 case NkKey::NK_H:      mUI.input.SetKey(NkGuiKey::H,         down); break;
                 case NkKey::NK_L:      mUI.input.SetKey(NkGuiKey::L,         down); break;
                 case NkKey::NK_N:      mUI.input.SetKey(NkGuiKey::N,         down); break;
+                case NkKey::NK_G:      mUI.input.SetKey(NkGuiKey::G,         down); break;
+                case NkKey::NK_K:      mUI.input.SetKey(NkGuiKey::K,         down); break;
+                case NkKey::NK_SLASH:  mUI.input.SetKey(NkGuiKey::Slash,     down); break;
+                case NkKey::NK_LBRACKET: mUI.input.SetKey(NkGuiKey::LBracket,  down); break;
+                case NkKey::NK_RBRACKET: mUI.input.SetKey(NkGuiKey::RBracket,  down); break;
+                case NkKey::NK_Z:      mUI.input.SetKey(NkGuiKey::Z,         down); break;
+                case NkKey::NK_Y:      mUI.input.SetKey(NkGuiKey::Y,         down); break;
                 case NkKey::NK_NUM1:   mUI.input.SetKey(NkGuiKey::Num1,      down); break;
                 case NkKey::NK_NUM2:   mUI.input.SetKey(NkGuiKey::Num2,      down); break;
+                case NkKey::NK_MINUS:  mUI.input.SetKey(NkGuiKey::Minus,     down); break;   // Ctrl+- : dézoom éditeur
+                case NkKey::NK_EQUALS: mUI.input.SetKey(NkGuiKey::Equal,     down); break;   // Ctrl+= / Ctrl++ : zoom éditeur
                 default: break;
             }
         }
@@ -336,6 +353,15 @@ namespace nkentseu {
             }
             const math::NkVec2u sz = mRenderer->Size();
             if (sz.x > 0 && sz.y > 0) { mUI.viewW = static_cast<int32>(sz.x); mUI.viewH = static_cast<int32>(sz.y); }
+
+                // Rechargement de police differe (zoom Ctrl+molette / Ctrl+±) : execute ICI,
+                // avant BeginFrame, donc aucune draw list ne reference l'ancien atlas pendant
+                // la re-rasterisation + re-upload backend.
+                if (mFontReloadPending) { mFontReloadPending = false; LoadFontsFromPrefs(); }
+
+                // TEMP DEBUG: stress reload (bascule 15<->30 toutes les 20 frames) pour marteler
+                // NkFontAtlas::Clear() sur l'atlas a repli fusionne (valide le fix double-free).
+                { static int32 s_f = 0; if (++s_f >= 20) { s_f = 0; mFontPrefs.codeSize = (mFontPrefs.codeSize < 22.f ? 30.f : 15.f); mFontReloadPending = true; } }
 
                 mUI.BeginFrame(dt);
 
@@ -424,11 +450,11 @@ namespace nkentseu {
         // ── Activity bar (bande verticale d'icones a gauche, facon VSCode) ────────
         void NkEditorShell::DrawActivityBar(const NkRect& bar) noexcept {
             auto& dl = mUI.dl;
-            const NkColor barBg  = {   1,   4,   9, 255 };   // activity bar #010409
-            const NkColor on     = { 255, 255, 255, 255 };
-            const NkColor off    = { 133, 133, 133, 255 };
-            const NkColor hov    = { 229, 229, 229, 255 };
-            const NkColor accent = {   0, 122, 204, 255 };
+            const NkColor barBg  = mUI.theme.header;        // theme-aware (suit Dark/Light)
+            const NkColor on     = mUI.theme.text;
+            const NkColor off    = mUI.theme.textDisabled;
+            const NkColor hov    = mUI.theme.text;
+            const NkColor accent = mUI.theme.accent;
             dl.AddRectFilled(bar, barBg);
             if (!mUI.font) {}
             const float32 cell = bar.w;                       // cellule carree = largeur barre
@@ -500,9 +526,10 @@ namespace nkentseu {
         // Layout facon VSCode : [logo][Fichier Affichage ...]   <infos centre>   [─ ☐ ✕]
         void NkEditorShell::DrawTitleBar(NkEditorFrameContext& ec, const NkRect& bar) noexcept {
             auto& dl = mUI.dl;
-            const NkColor bg     = {   1,   4,   9, 255 };   // barre de titre #010409
-            const NkColor fg     = { 204, 204, 204, 255 };
-            const NkColor accent = {   0, 122, 204, 255 };
+            const NkColor bg     = mUI.theme.header;         // barre de titre (suit Dark/Light)
+            const NkColor fg     = mUI.theme.text;
+            const NkColor accent = mUI.theme.accent;
+            const bool    lightBar = (int32(bg.r) + bg.g + bg.b) > 384;
             dl.AddRectFilled(bar, bg);
             const NkVec2  m   = mUI.input.mousePos;
             const float32 pad = mUI.S(8.f);
@@ -537,7 +564,7 @@ namespace nkentseu {
             }
 
             auto inR = [&](const NkRect& r){ return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h; };
-            const NkColor hovBg = { 255, 255, 255, 26 };
+            const NkColor hovBg = lightBar ? NkColor{ 0, 0, 0, 24 } : NkColor{ 255, 255, 255, 26 };
             const float32 bw = mUI.S(42.f);
             const NkRect cClose = { bar.x + bar.w - bw,       bar.y, bw, bar.h };
             const NkRect cMax   = { bar.x + bar.w - bw * 2.f, bar.y, bw, bar.h };
@@ -677,10 +704,10 @@ namespace nkentseu {
             const float32 W = static_cast<float32>(mUI.viewW);
             const float32 H = static_cast<float32>(mUI.viewH);
             const NkRect  bar = { 0.f, H - footerH, W, footerH };
-            mUI.dl.AddRectFilled(bar, NkColor{ 1, 4, 9, 255 });                       // status bar #010409
-            mUI.dl.AddRectFilled({ 0.f, bar.y, W, 1.f }, NkColor{ 33, 39, 48, 255 }); // liseret haut
+            mUI.dl.AddRectFilled(bar, mUI.theme.header);                              // status bar (suit Dark/Light)
+            mUI.dl.AddRectFilled({ 0.f, bar.y, W, 1.f }, mUI.theme.border);           // liseret haut
             if (!mUI.font || !mUI.font->Face()) return;
-            const NkColor fg = { 223, 223, 223, 255 };                               // texte #DFDFDF
+            const NkColor fg = mUI.theme.text;                                        // texte theme
             const float32 pad = mUI.S(10.f);
             const float32 by  = bar.y + (footerH - mUI.font->LineHeight()) * 0.5f + mUI.font->Ascent();
             if (mFooterLeft[0])
@@ -893,6 +920,28 @@ namespace nkentseu {
             else mUI.codeFont = &mFont;
         }
 
+        // ── Zoom editeur : ajuste la taille de la police du code puis reconstruit ──
+        float32 NkEditorShell::CodeFontSize() const noexcept { return mFontPrefs.codeSize; }
+        void NkEditorShell::NudgeCodeFontSize(float32 delta) noexcept {
+            float32 s = mFontPrefs.codeSize + delta;
+            if (s < 8.f)  s = 8.f;
+            if (s > 40.f) s = 40.f;
+            if (s == mFontPrefs.codeSize) return;
+            mFontPrefs.codeSize = s;
+            // NE PAS re-rasteriser ici : on est en pleine frame, la draw list courante
+            // reference encore l'atlas. On differe au debut de la frame suivante (RenderFrame),
+            // avant toute construction de draw list -> plus de crash au zoom.
+            mFontReloadPending = true;
+            NkSaveFontPrefs(mFontPrefs);   // persiste la taille
+        }
+        // Réinitialise la police du code à la taille par défaut (Ctrl+0), reload différé + persiste.
+        void NkEditorShell::ResetCodeFontSize() noexcept {
+            if (mFontPrefs.codeSize == kDefaultCodeFontSize) return;
+            mFontPrefs.codeSize = kDefaultCodeFontSize;
+            mFontReloadPending = true;
+            NkSaveFontPrefs(mFontPrefs);
+        }
+
         // ── Fenetre Preferences (overlay, menu dedie) : categories a gauche
         //    (Polices, Theme, ... extensible), contenu a droite. ──
         void NkEditorShell::DrawPreferences(NkEditorFrameContext&) noexcept {
@@ -972,10 +1021,10 @@ namespace nkentseu {
                 y += 6.f;
                 text(cx, y, "Astuce : Consolas / Segoe UI / Courier New = polices systeme", kTextTertiary); y += 18.f;
                 text(cx, y, "(chargees depuis Windows si presentes).", kTextTertiary); y += 28.f;
-                if (btn({ cx, y, 120.f, 30.f }, "Appliquer", true)) { NkSaveFontPrefs(mFontPrefs); LoadFontsFromPrefs(); }
+                if (btn({ cx, y, 120.f, 30.f }, "Appliquer", true)) { NkSaveFontPrefs(mFontPrefs); mFontReloadPending = true; }
                 if (btn({ cx + 132.f, y, 150.f, 30.f }, "Reinitialiser", true)) {
                     mFontPrefs = NkFontPrefs{};                 // defaut Inter + DejaVu
-                    NkSaveFontPrefs(mFontPrefs); LoadFontsFromPrefs();
+                    NkSaveFontPrefs(mFontPrefs); mFontReloadPending = true;
                 }
             } else if (mPrefsTab == 1) {
                 // ── Categorie Theme : couleur de l'interface, NOMMEE par element ──

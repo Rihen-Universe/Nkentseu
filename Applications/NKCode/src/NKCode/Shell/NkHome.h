@@ -83,7 +83,7 @@ namespace nkcode {
         if (maxS <= 0.5f) { if (H->barDrag == id) H->barDrag = 0; return; }
         const float32 sw = u.s(10);
         const NkRect track = { area.x + area.w - sw, area.y, sw, area.h };
-        u.dl->AddRectFilled(track, NkColor{ 18, 21, 26, 160 }, sw * 0.5f);
+        u.dl->AddRectFilled(track, NkScrollTrack(), sw * 0.5f);
         float32 thh = area.h * (area.h / contentH); const float32 thmin = u.s(28);
         if (thh < thmin) thh = thmin;
         const float32 ty = area.y + (area.h - thh) * (scroll / maxS);
@@ -95,7 +95,7 @@ namespace nkcode {
             else { const float32 t = (u.mp.y - H->barOff - area.y) / (area.h - thh); scroll = t * maxS;
                    if (scroll < 0.f) scroll = 0.f; if (scroll > maxS) scroll = maxS; }
         }
-        u.dl->AddRectFilled(thumb, (H->barDrag == id || hov) ? NkColor{ 96, 104, 114, 255 } : NkColor{ 56, 63, 72, 255 }, (sw - u.s(4)) * 0.5f);
+        u.dl->AddRectFilled(thumb, NkScrollThumb(H->barDrag == id || hov), (sw - u.s(4)) * 0.5f);
     }
 
     // ── Item de navigation de la sidebar ──
@@ -117,17 +117,14 @@ namespace nkcode {
         u.Rect(r, NkCol::sidebar);
         u.Rect({ r.x + r.w - 1.f, r.y, 1.f, r.h }, NkCol::border);
 
-        // Logo dans un CADRE borde (cf. maquette) — wordmark aspect 512:128 preserve.
+        // Logo : PAS de fond/cadre — le wordmark existe en 2 versions PRÊTES (nkcode_white pour
+        // fond sombre, nkcode_dark pour fond clair), donc il s'affiche net directement sur la sidebar.
         const float32 logoH = u.s(78);
         const NkRect box = { r.x + u.s(12), r.y + u.s(12), r.w - u.s(24), logoH - u.s(22) };
-        // Fond du logo adapté au thème : vert-nuit sur thèmes sombres, gris très clair sur thème clair.
-        // Le wordmark est fourni en 2 versions PRÊTES (nkcode_white pour fond sombre, nkcode_dark pour fond clair) -> pas de teinte.
         const bool lightTheme = NkThemeIsLight();
-        const NkColor logoBg = lightTheme ? NkColor{ 236, 239, 243, 255 } : NkColor{ 9, 19, 14, 255 };
         const bool useDark = lightTheme && H->logoWordDark;
         const uint32 wordTex = useDark ? H->logoWordDark : H->logoWord;
         const int32  ww = useDark ? H->wordWD : H->wordW, wh = useDark ? H->wordHD : H->wordH;
-        u.Panel(box, logoBg, NkCol::border, NkR::md * u.S);
         if (wordTex) {
             const float32 aspect = (wh > 0) ? (float32)ww / (float32)wh : 4.f;
             const float32 padX = u.s(12), padY = u.s(8);
