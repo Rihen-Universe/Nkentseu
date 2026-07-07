@@ -97,6 +97,9 @@ namespace nkentseu { namespace demo {
         bool                            editLoadPending = false; // F6 : charger une session + rejouer
         int32                           editAddModPending = -1;  // F7/F8/F9 : ajouter modificateur (0=Mirror 1=Array 2=Subsurf)
         bool                            editClearModPending = false; // F10 : vider la pile de modificateurs
+        int32                           editActiveMod = -1;      // index du modificateur en cours de réglage
+        int32                           editModAdjustPending = 0;// [ / ] : ajuster (-1 / +1) le param principal
+        bool                            editModCyclePending = false; // \ : changer de modificateur actif
         NkVector<renderer::NkEmId>      editTriFace;   // map triangle de rendu -> face n-gon (pick)
         NkVector<uint8>                 vertSel;       // 1 = vertex sélectionné (taille = nb vertices)
         NkMat4f                         editAnchor    = NkMat4f::Identity();  // transform monde de l'objet
@@ -329,6 +332,37 @@ namespace nkentseu { namespace demo {
         Demo3D_SyncFromHE(st, ms);
         logger.Info("[Demo3D] Session chargee '{0}' : {1} commandes rejouees -> {2} faces\n",
                     path, applied, (int32)st->editHE.FaceCount());
+    }
+
+    // MODIFICATEURS — réglage des paramètres du modificateur ACTIF ([ / ]) et changement
+    // du modificateur actif (\). Chaque changement ré-évalue la pile -> résultat live.
+    static void Demo3D_AdjustMod(Demo3DState* st, renderer::NkMeshSystem* ms, int32 dir) {
+        const int32 cnt = (int32)st->editModifiers.Count();
+        if (cnt==0) return;
+        if (st->editActiveMod < 0 || st->editActiveMod >= cnt) st->editActiveMod = cnt-1;
+        renderer::NkMeshModifier& m = st->editModifiers.modifiers[st->editActiveMod];
+        const char* nm[3] = {"Mirror","Array","Subsurf"};
+        const char* ax[3] = {"X","Y","Z"};
+        if (m.type == renderer::NkModifierType::Mirror) {
+            m.mirrorAxis = (m.mirrorAxis + (dir>0?1:2)) % 3;
+            logger.Info("[Demo3D] Modif[{0}] Mirror axe = {1}\n", st->editActiveMod, ax[m.mirrorAxis]);
+        } else if (m.type == renderer::NkModifierType::Array) {
+            m.arrayCount += dir; if (m.arrayCount<1) m.arrayCount=1; if (m.arrayCount>20) m.arrayCount=20;
+            logger.Info("[Demo3D] Modif[{0}] Array copies = {1}\n", st->editActiveMod, m.arrayCount);
+        } else {
+            m.subsurfLevels += dir; if (m.subsurfLevels<1) m.subsurfLevels=1; if (m.subsurfLevels>4) m.subsurfLevels=4;
+            logger.Info("[Demo3D] Modif[{0}] Subsurf niveaux = {1}\n", st->editActiveMod, m.subsurfLevels);
+        }
+        (void)nm;
+        Demo3D_SyncFromHE(st, ms);
+    }
+    static void Demo3D_CycleActiveMod(Demo3DState* st) {
+        const int32 cnt = (int32)st->editModifiers.Count();
+        if (cnt==0) { st->editActiveMod=-1; return; }
+        st->editActiveMod = (st->editActiveMod + 1) % cnt;
+        const char* nm[3] = {"Mirror","Array","Subsurf"};
+        logger.Info("[Demo3D] Modificateur actif = [{0}] {1}\n",
+                    st->editActiveMod, nm[(int32)st->editModifiers.modifiers[st->editActiveMod].type]);
     }
 
     // UNDO / REDO : restaure un snapshot de editHE, resynchronise sélection + rendu.
@@ -700,6 +734,11 @@ namespace nkentseu { namespace demo {
                 if (k == NkKey::NK_F8) { st->editAddModPending = 1; return; }
                 if (k == NkKey::NK_F9) { st->editAddModPending = 2; return; }
                 if (k == NkKey::NK_F10){ st->editClearModPending = true; return; }
+                // Réglage du modificateur ACTIF : ] augmente · [ diminue le param principal ·
+                // \ change de modificateur actif (Mirror=axe, Array=copies, Subsurf=niveaux).
+                if (k == NkKey::NK_RBRACKET) { st->editModAdjustPending = +1;  return; }
+                if (k == NkKey::NK_LBRACKET) { st->editModAdjustPending = -1;  return; }
+                if (k == NkKey::NK_BACKSLASH){ st->editModCyclePending  = true; return; }
                 // A / Alt+A : tout sélectionner / désélectionner (les VERTICES).
                 if (k == NkKey::NK_A) {
                     const uint8 v = alt ? 0 : 1;
@@ -903,6 +942,7 @@ namespace nkentseu { namespace demo {
                         st->editHistory.Clear();   // nouvel objet en édition -> historique neuf
                         st->editRecorder.Clear();  // journal des commandes neuf
                         st->editModifiers.Clear(); // pile de modificateurs neuve
+                        st->editActiveMod = -1;
                         st->editBase = st->editHE; // maillage de BASE pour le rejeu (modificateurs/IA)
                         st->editReplayStep = -1;
                         st->vertSel.Clear(); st->vertSel.Resize(st->editHE.VertCount());
@@ -1222,14 +1262,17 @@ namespace nkentseu { namespace demo {
                 if (st->editAddModPending >= 0) {
                     renderer::NkMeshModifier mod; mod.type = (renderer::NkModifierType)st->editAddModPending;
                     st->editModifiers.Add(mod); st->editAddModPending = -1;
+                    st->editActiveMod = (int32)st->editModifiers.Count()-1;   // le nouveau = actif (réglable [ ])
                     Demo3D_SyncFromHE(st, meshSysT);
                     const char* nm[3] = {"Mirror (axe X)", "Array (x3)", "Subsurf (1)"};
-                    logger.Info("[Demo3D] + Modificateur {0} — pile={1} (edite la BASE, le resultat se recalcule ; F10 pour vider)\n",
+                    logger.Info("[Demo3D] + Modificateur {0} — pile={1} · reglage [ / ] · change actif \\ · vider F10\n",
                                 nm[(int32)mod.type], st->editModifiers.Count());
                 }
                 if (st->editClearModPending) { st->editClearModPending=false;
-                    st->editModifiers.Clear(); Demo3D_SyncFromHE(st, meshSysT);
+                    st->editModifiers.Clear(); st->editActiveMod=-1; Demo3D_SyncFromHE(st, meshSysT);
                     logger.Info("[Demo3D] Modificateurs vides -> retour a la base editable\n"); }
+                if (st->editModAdjustPending != 0) { Demo3D_AdjustMod(st, meshSysT, st->editModAdjustPending); st->editModAdjustPending = 0; }
+                if (st->editModCyclePending) { st->editModCyclePending=false; Demo3D_CycleActiveMod(st); }
                 if (st->editExtrudePending) { st->editExtrudePending=false;
                     Demo3D_ExtrudeHE(st, meshSysT);
                     logger.Info("[Demo3D] Extrude -> {0} faces\n", (int32)st->editHE.FaceCount()); }
