@@ -77,6 +77,8 @@ namespace nkentseu {
             G, K, Slash, LBracket, RBracket, Z, Y,
             // Zoom éditeur (Ctrl+-/Ctrl+=) : touches - et =.
             Minus, Equal,
+            // Recherche/remplacement : F (Ctrl+F). H existe déjà (Ctrl+H).
+            F,
             Count
         };
 
