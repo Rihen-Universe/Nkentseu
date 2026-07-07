@@ -1005,6 +1005,10 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Applications/NKMeshAITest/NKMeshAITest.jenga"):
+
+        pass
+
 
 
     with include("Applications/NKInferTest/NKInferTest.jenga"):
