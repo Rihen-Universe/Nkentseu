@@ -290,8 +290,14 @@ namespace nkcode {
                 // Ctrl+molette -> zoom de l'ONGLET ACTIF (via le handler enregistre par NKCode).
                 // (Ctrl+= / Ctrl+- / Ctrl+0 sont geres cote shell -> meme handler.)
                 if (ctx.input.ctrlDown && overEd && ctx.input.wheel != 0.f) { mShell->NudgeCodeFontSize(ctx.input.wheel > 0.f ? 1.f : -1.f); ctx.input.wheel = 0.f; }
-                // Pilote l'atlas de code a la taille de l'onglet actif (0 = taille globale).
-                mShell->RequestCodeSize(mS && mS->HasActive() ? mS->files[mS->active].codeZoom : 0.f);
+                // Rend la taille de l'onglet actif via le CACHE d'atlas par taille : une taille
+                // deja vue = atlas pret -> revenir sur un onglet zoome n'a AUCUN « saut ». Au
+                // changement d'onglet, immediate=true (rasterise des la frame suivante si pas en cache).
+                const int32 act = (mS && mS->HasActive()) ? mS->active : -1;
+                const bool switched = (act != mZoomLastActive); mZoomLastActive = act;
+                const float32 sz = act >= 0 ? mS->files[act].codeZoom : 0.f;
+                mShell->EnsureCodeSize(sz, switched);
+                ctx.codeFont = mShell->CodeFontForSize(sz);   // police de CETTE frame (cache)
             }
 
             // ── Picker « aller à la définition » : INPUT traité AVANT l'éditeur, et clic CONSOMMÉ
@@ -562,6 +568,7 @@ namespace nkcode {
         NkEditorShell* mShell;
         NkCtxMenu      mTabMenu;          // menu contextuel de la barre d'onglets (clic droit)
         int32          mTabMenuIdx = -1;  // onglet ciblé par le menu
+        int32          mZoomLastActive = -1;  // dernier onglet actif (detection changement -> rebuild atlas immediat, anti « saut » de taille)
     };
 
     // ── OUTPUT : VRAI affichage NKLogger (logs du moteur) + sortie du build jenga.
@@ -786,6 +793,8 @@ namespace nkcode {
             mTerm[0].alive = true;   // un terminal PowerShell par defaut
             mTerm[0].label = "powershell";
         }
+        NkEditorShell* mShell = nullptr;   // pour la police propre du terminal (TermCodeFont)
+        float32        mZoom  = 0.f;        // taille PROPRE du terminal (0 = globale), zoom au survol
 
         void OnUI(NkEditorFrameContext& ec) override {
             auto& ctx = ec.Ui();
@@ -802,8 +811,9 @@ namespace nkcode {
             const NkRect  listR = { clip.x + clip.w - listW, clip.y, listW, clip.h };
             DrawTermList(ctx, listR);
 
-            // A partir d'ici : police MONOSPACE (grille du terminal).
-            NkCodeFontScope _cfs(ctx);
+            // A partir d'ici : police MONOSPACE du TERMINAL (atlas propre, taille globale fixe :
+            // decouple du zoom par-onglet de l'editeur).
+            NkCodeFontScope _cfs(ctx, mShell ? mShell->TermCodeFont() : nullptr);
 
             // Lance le shell (ConPTY) au premier affichage de cet onglet.
             StartTerm(t);
@@ -814,6 +824,17 @@ namespace nkcode {
             const NkVec2 m = ctx.input.mousePos;
             const bool inMain = m.x >= mainR.x && m.x < mainR.x + mainR.w && m.y >= mainR.y && m.y < mainR.y + mainR.h;
             const bool inClip = m.x >= clip.x && m.x < clip.x + clip.w && m.y >= clip.y && m.y < clip.y + clip.h;
+
+            // Zoom du TERMINAL : Ctrl+molette quand la souris SURVOLE le terminal ajuste SA taille
+            // (indépendant de l'éditeur). On consomme la molette pour ne pas défiler en même temps.
+            if (mShell) {
+                if (ctx.input.ctrlDown && inMain && ctx.input.wheel != 0.f) {
+                    float32 s = (mZoom > 0.f ? mZoom : mShell->TermSize()) + (ctx.input.wheel > 0.f ? 1.f : -1.f);
+                    if (s < 8.f) s = 8.f; if (s > 40.f) s = 40.f;
+                    mZoom = s; ctx.input.wheel = 0.f;
+                }
+                mShell->RequestTermSize(mZoom);   // pilote l'atlas terminal à SA taille (debounce)
+            }
 
             // Focus clavier : clic gauche dans la zone -> focus ; clic hors panneau -> defocus.
             if (ctx.input.mouseClicked[0] && ctx.popupDepth == 0) {
