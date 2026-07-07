@@ -3,11 +3,12 @@
 // qui GÉNÈRE du texte. Assemble tout NKAI : NkGPT (NKNN) + AdamW (NKOptim) +
 // softmax-CE (NKAutograd), sur un corpus texte réel (Project Gutenberg).
 //
-//   Brique 9  : tokenizer char-level (vocab = octets présents ; encode/decode).
-//   Brique 10 : boucle d'entraînement + échantillonnage autoregressif.
+//   Tokenizer : BPE from-scratch (256 octets + fusions ; NK_GPT_MERGES, défaut 600)
+//               → le modèle manipule des morceaux de mots (texte plus lisible).
+//   Entraînement : boucle + échantillonnage autoregressif, tag de langue.
 //
 // Corpus  : NK_GPT_DIR (défaut = tout Datasets) ou NK_GPT_FILE (un livre).
-// Taille  : NK_GPT_T/D/H/L/B ; étapes : NK_GPT_STEPS (défaut 300).
+// Taille  : NK_GPT_T/D/H/L/B, NK_GPT_MERGES ; étapes : NK_GPT_STEPS (défaut 300).
 // Modèle  : NK_GPT_SAVE=chemin (sauve après entraînement),
 //           NK_GPT_LOAD=chemin (recharge + génère SANS réentraîner),
 //           NK_GPT_PROMPT="amorce", NK_GPT_GENLEN=nb car. générés,
@@ -23,12 +24,15 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <climits>
 #include <string>
 #include <vector>
 #include <algorithm>
 #include <fstream>
 #include <chrono>
 #include <filesystem>
+#include <map>
+#include <utility>
 
 using namespace nkentseu;
 using namespace nkentseu::ai;
@@ -97,23 +101,113 @@ static void LoadCorpusByLang(const std::string& dir, size_t totalCap,
     }
 }
 
-// ---- Checkpoint « NKGP » : dims + vocabulaire + poids (CPU) -------------------
-// Permet de GÉNÉRER sans réentraîner. Format binaire :
-//   ['N','K','G','P'] | ver u32 | V,d,H,L,T (5×i32) | vlen i32 | itos[vlen] |
+// ================= BPE (Byte-Pair Encoding) from-scratch ======================
+// Base : 256 tokens octets (id = valeur d'octet, gère tout l'UTF-8). Puis nMerges
+// FUSIONS : le token 256+i provient de la paire merges[i]. Le vocab (id -> octets)
+// est reconstruit par concaténation. Le modèle manipule ainsi des MORCEAUX DE MOTS
+// au lieu de lettres → texte bien plus lisible.
+struct Bpe {
+    std::vector<std::pair<int,int>> merges;           // fusions ordonnées
+    std::vector<std::string> vocab;                   // id -> octets (décodage)
+    std::map<std::pair<int,int>,int> rank;            // (a,b) -> priorité (index de fusion)
+
+    int Base() const { return 256 + (int)merges.size(); }   // nb de tokens réels (hors tags)
+
+    void BuildVocabRank() {
+        vocab.assign(256, std::string());
+        for (int b = 0; b < 256; ++b) vocab[b] = std::string(1, (char)b);
+        rank.clear();
+        for (int i = 0; i < (int)merges.size(); ++i) {
+            vocab.push_back(vocab[merges[i].first] + vocab[merges[i].second]);
+            rank[merges[i]] = i;
+        }
+    }
+
+    // Pré-tokenisation façon GPT-2 : un blanc démarre un nouveau « mot » (le blanc
+    // reste attaché au mot suivant → " the " devient un token).
+    static std::vector<std::string> PreTok(const std::string& text) {
+        std::vector<std::string> words; std::string cur;
+        for (unsigned char c : text) {
+            if (c == ' ' || c == '\n' || c == '\t' || c == '\r') {
+                if (!cur.empty()) words.push_back(cur);
+                cur = std::string(1, (char)c);
+            } else cur += (char)c;
+        }
+        if (!cur.empty()) words.push_back(cur);
+        return words;
+    }
+
+    // Encode un mot (octets) en ids, en appliquant les fusions par ordre de priorité.
+    void EncodeWord(const std::string& w, std::vector<int>& out) const {
+        std::vector<int> seq; seq.reserve(w.size());
+        for (unsigned char c : w) seq.push_back((int)c);
+        while (seq.size() >= 2) {
+            int bestRank = INT_MAX, bestPos = -1;
+            for (size_t i = 0; i + 1 < seq.size(); ++i) {
+                auto it = rank.find(std::make_pair(seq[i], seq[i + 1]));
+                if (it != rank.end() && it->second < bestRank) { bestRank = it->second; bestPos = (int)i; }
+            }
+            if (bestPos < 0) break;
+            seq[bestPos] = 256 + bestRank;
+            seq.erase(seq.begin() + bestPos + 1);
+        }
+        for (int id : seq) out.push_back(id);
+    }
+
+    void Encode(const std::string& text, std::vector<int>& out) const {
+        for (const std::string& w : PreTok(text)) EncodeWord(w, out);
+    }
+    std::string Decode(int id) const { return (id >= 0 && id < (int)vocab.size()) ? vocab[id] : std::string(); }
+};
+
+// Entraîne le BPE : fusionne itérativement la paire adjacente la plus fréquente,
+// sur les MOTS UNIQUES pondérés par leur fréquence (BPE classique, efficace).
+static void TrainBpe(const std::vector<std::string>& texts, int nMerges, Bpe& bpe) {
+    std::map<std::string, long> wf;
+    for (const std::string& t : texts) for (const std::string& w : Bpe::PreTok(t)) wf[w]++;
+    std::vector<std::vector<int>> seqs; std::vector<long> freq;
+    seqs.reserve(wf.size()); freq.reserve(wf.size());
+    for (const auto& kv : wf) { std::vector<int> s; s.reserve(kv.first.size()); for (unsigned char c : kv.first) s.push_back((int)c); seqs.push_back(std::move(s)); freq.push_back(kv.second); }
+    for (int m = 0; m < nMerges; ++m) {
+        std::map<std::pair<int,int>, long> pc;
+        for (size_t k = 0; k < seqs.size(); ++k) { const std::vector<int>& s = seqs[k]; for (size_t i = 0; i + 1 < s.size(); ++i) pc[std::make_pair(s[i], s[i + 1])] += freq[k]; }
+        if (pc.empty()) break;
+        std::pair<int,int> best; long bestC = 0;
+        for (const auto& kv : pc) if (kv.second > bestC) { bestC = kv.second; best = kv.first; }
+        if (bestC < 2) break;                       // plus rien de fréquent à fusionner
+        const int newId = 256 + (int)bpe.merges.size();
+        bpe.merges.push_back(best);
+        for (std::vector<int>& s : seqs)
+            for (size_t i = 0; i + 1 < s.size(); ) {
+                if (s[i] == best.first && s[i + 1] == best.second) { s[i] = newId; s.erase(s.begin() + i + 1); }
+                else ++i;
+            }
+        if ((m + 1) % 200 == 0) printf("  BPE : %d/%d fusions...\n", m + 1, nMerges);
+    }
+    bpe.BuildVocabRank();
+}
+
+// ---- Checkpoint « NKGP » v3 : dims + BPE (fusions) + langues + poids (CPU) ----
+// Format : ['N','K','G','P'] | ver=3 u32 | V,d,H,L,T (5×i32) | nMerges i32 |
+//   merges[nMerges] (2×i32) | nLang i32 | {len u8, octets} par langue |
 //   count u32 | { rank u32, dims[rank] i64, data[numel] f32 } par tenseur.
-struct GptMeta { int32 V = 0, d = 0, H = 0, L = 0, T = 0; std::vector<unsigned char> itos; std::vector<std::string> langs; };
+struct GptMeta { int32 V = 0, d = 0, H = 0, L = 0, T = 0; std::vector<std::pair<int32,int32>> merges; std::vector<std::string> langs; };
 
 static int64 ShapeNumel(const NkShape& sh) { int64 n = 1; for (uint32 i = 0; i < sh.Size(); ++i) n *= sh[i]; return n; }
 
 static bool SaveCheckpoint(const char* path, const GptMeta& m, const NkVector<NkVar>& params) {
     FILE* f = fopen(path, "wb"); if (!f) return false;
-    const char magic[4] = { 'N','K','G','P' }; uint32 ver = 2u;   // v2 : + noms de langues
+    const char magic[4] = { 'N','K','G','P' }; uint32 ver = 3u;   // v3 : tokenizer BPE
     bool ok = fwrite(magic, 1, 4, f) == 4 && fwrite(&ver, sizeof(uint32), 1, f) == 1;
     int32 hdr[5] = { m.V, m.d, m.H, m.L, m.T };
     ok = ok && fwrite(hdr, sizeof(int32), 5, f) == 5;
-    int32 vlen = (int32)m.itos.size();
-    ok = ok && fwrite(&vlen, sizeof(int32), 1, f) == 1;
-    ok = ok && (vlen == 0 || fwrite(m.itos.data(), 1, (size_t)vlen, f) == (size_t)vlen);
+    // BPE : nMerges puis les paires (a,b).
+    int32 nMerges = (int32)m.merges.size();
+    ok = ok && fwrite(&nMerges, sizeof(int32), 1, f) == 1;
+    for (int32 i = 0; ok && i < nMerges; ++i) {
+        int32 ab[2] = { m.merges[i].first, m.merges[i].second };
+        ok = fwrite(ab, sizeof(int32), 2, f) == 2;
+    }
     // Langues (tag de langue) : nLang, puis pour chacune len(u8)+octets.
     int32 nLang = (int32)m.langs.size();
     ok = ok && fwrite(&nLang, sizeof(int32), 1, f) == 1;
@@ -136,14 +230,16 @@ static bool SaveCheckpoint(const char* path, const GptMeta& m, const NkVector<Nk
 
 static bool LoadCheckpointMeta(const char* path, GptMeta& m) {
     FILE* f = fopen(path, "rb"); if (!f) return false;
-    char magic[4]; uint32 ver = 0; int32 hdr[5] = { 0 }; int32 vlen = 0;
+    char magic[4]; uint32 ver = 0; int32 hdr[5] = { 0 };
     bool ok = fread(magic, 1, 4, f) == 4 && magic[0]=='N'&&magic[1]=='K'&&magic[2]=='G'&&magic[3]=='P'
-           && fread(&ver, sizeof(uint32), 1, f) == 1 && (ver == 1u || ver == 2u)
-           && fread(hdr, sizeof(int32), 5, f) == 5
-           && fread(&vlen, sizeof(int32), 1, f) == 1 && vlen > 0 && vlen <= 256;
-    if (ok) { m.V = hdr[0]; m.d = hdr[1]; m.H = hdr[2]; m.L = hdr[3]; m.T = hdr[4];
-              m.itos.resize((size_t)vlen); ok = fread(m.itos.data(), 1, (size_t)vlen, f) == (size_t)vlen; }
-    if (ok && ver == 2u) {   // langues (tag de langue)
+           && fread(&ver, sizeof(uint32), 1, f) == 1 && ver == 3u
+           && fread(hdr, sizeof(int32), 5, f) == 5;
+    if (ok) { m.V = hdr[0]; m.d = hdr[1]; m.H = hdr[2]; m.L = hdr[3]; m.T = hdr[4]; }
+    if (ok) {   // fusions BPE
+        int32 nMerges = 0; ok = fread(&nMerges, sizeof(int32), 1, f) == 1 && nMerges >= 0 && nMerges <= 200000;
+        for (int32 i = 0; ok && i < nMerges; ++i) { int32 ab[2]; ok = fread(ab, sizeof(int32), 2, f) == 2; if (ok) m.merges.push_back(std::make_pair(ab[0], ab[1])); }
+    }
+    if (ok) {   // langues (tag de langue)
         int32 nLang = 0; ok = fread(&nLang, sizeof(int32), 1, f) == 1 && nLang >= 0 && nLang <= 64;
         for (int32 i = 0; ok && i < nLang; ++i) {
             uint8 ln = 0; char buf[256];
@@ -156,11 +252,14 @@ static bool LoadCheckpointMeta(const char* path, GptMeta& m) {
 
 static bool LoadCheckpointWeights(const char* path, NkVector<NkVar>& params) {
     FILE* f = fopen(path, "rb"); if (!f) return false;
-    char magic[4]; uint32 ver = 0; int32 hdr[5] = { 0 }; int32 vlen = 0;
+    char magic[4]; uint32 ver = 0; int32 hdr[5] = { 0 };
     bool ok = fread(magic, 1, 4, f) == 4 && fread(&ver, sizeof(uint32), 1, f) == 1
-           && fread(hdr, sizeof(int32), 5, f) == 5 && fread(&vlen, sizeof(int32), 1, f) == 1;
-    if (ok && vlen > 0) ok = fseek(f, (long)vlen, SEEK_CUR) == 0;   // saute le vocabulaire
-    if (ok && ver == 2u) {   // saute la section langues
+           && fread(hdr, sizeof(int32), 5, f) == 5;
+    if (ok) {   // saute les fusions BPE
+        int32 nMerges = 0; ok = fread(&nMerges, sizeof(int32), 1, f) == 1 && nMerges >= 0;
+        if (ok && nMerges > 0) ok = fseek(f, (long)nMerges * 2 * (long)sizeof(int32), SEEK_CUR) == 0;
+    }
+    if (ok) {   // saute la section langues
         int32 nLang = 0; ok = fread(&nLang, sizeof(int32), 1, f) == 1 && nLang >= 0 && nLang <= 64;
         for (int32 i = 0; ok && i < nLang; ++i) {
             uint8 ln = 0; ok = fread(&ln, 1, 1, f) == 1 && (ln == 0 || fseek(f, (long)ln, SEEK_CUR) == 0);
@@ -181,7 +280,7 @@ static bool LoadCheckpointWeights(const char* path, NkVector<NkVar>& params) {
 }
 
 int main() {
-    printf("=== NKGptTrain : petit GPT char-level (from-scratch, GPU-résident) ===\n");
+    printf("=== NKGptTrain : petit GPT BPE (from-scratch, GPU-résident) ===\n");
     NkTensorGpu& gpu = NkTensorGpu::Get();
     const bool useGpu = gpu.IsAvailable();
     printf("GPU compute : %s (%s)\n", useGpu ? "OUI" : "NON", gpu.BackendName());
@@ -192,24 +291,25 @@ int main() {
     const char* envPrompt = getenv("NK_GPT_PROMPT");  // amorce de génération (défaut « Le »)
     const std::string seed = envPrompt ? std::string(envPrompt) : std::string("Le ");
 
-    // Vocabulaire (octets) + LANGUES (tag) + données corpus (train seulement).
-    // V = nByte octets distincts + 1 token-tag par langue. Tag de langue li = nByte+li.
-    int stoi[256]; for (int i = 0; i < 256; ++i) stoi[i] = -1;
-    std::vector<unsigned char> itos;                 // token octet -> octet (taille = nByte)
+    // Tokenizer BPE + LANGUES (tag) + données corpus (train seulement).
+    // Tokens réels = nByte (256 octets + fusions BPE). V = nByte + 1 tag par langue.
+    Bpe bpe;
     std::vector<std::string> langs;                  // noms de langues (fr/en/bbj…)
-    std::vector<std::vector<float>> langData;        // ids par langue (train)
+    std::vector<std::vector<float>> langData;        // ids BPE par langue (train)
     int V = 0, nByte = 0;
     int64 T = 0, d = 0, H = 0, L = 0, B = envI("NK_GPT_B", 16);
 
     if (envLoad) {
-        // ---- Mode CHARGEMENT : dims + vocabulaire + langues depuis le checkpoint ----
+        // ---- Mode CHARGEMENT : dims + BPE + langues depuis le checkpoint ----
         GptMeta meta;
-        if (!LoadCheckpointMeta(envLoad, meta)) { printf("Checkpoint illisible : %s\n", envLoad); return 2; }
+        if (!LoadCheckpointMeta(envLoad, meta)) { printf("Checkpoint illisible ou format obsolète (attendu BPE v3) : %s\n", envLoad); return 2; }
         V = meta.V; d = meta.d; H = meta.H; L = meta.L; T = meta.T;
-        itos = meta.itos; langs = meta.langs; nByte = (int)itos.size();
-        for (int i = 0; i < nByte; ++i) stoi[itos[i]] = i;
-        printf("Modèle chargé : %s (V=%d, T=%lld, d=%lld, têtes=%lld, couches=%lld)\n",
-               envLoad, V, (long long)T, (long long)d, (long long)H, (long long)L);
+        langs = meta.langs;
+        for (auto& ab : meta.merges) bpe.merges.push_back(std::make_pair((int)ab.first, (int)ab.second));
+        bpe.BuildVocabRank();
+        nByte = bpe.Base();
+        printf("Modèle chargé : %s (V=%d, T=%lld, d=%lld, têtes=%lld, couches=%lld, %zu fusions BPE)\n",
+               envLoad, V, (long long)T, (long long)d, (long long)H, (long long)L, bpe.merges.size());
         if (!langs.empty()) { printf("Langues (NK_GPT_LANG) :"); for (auto& lg : langs) printf(" %s", lg.c_str()); printf("\n"); }
     } else {
         // ---- Corpus ----
@@ -233,17 +333,23 @@ int main() {
         }
         size_t totalChars = 0; for (auto& t : texts) totalChars += t.size();
         if (totalChars < 1000) { printf("Corpus introuvable/trop court.\n"); return 2; }
-        // ---- Tokenizer char-level (vocab = octets présents dans TOUTES les langues) ----
-        for (auto& t : texts) for (unsigned char c : t) if (stoi[c] < 0) { stoi[c] = (int)itos.size(); itos.push_back(c); }
-        nByte = (int)itos.size();
+        // ---- Entraînement du tokenizer BPE (fusions), réglable via NK_GPT_MERGES ----
+        const int nMerges = (int)envI("NK_GPT_MERGES", 600);
+        printf("Entraînement du tokenizer BPE (%d fusions cible)...\n", nMerges);
+        TrainBpe(texts, nMerges, bpe);
+        nByte = bpe.Base();
         V = nByte + (int)langs.size();               // + un token-tag par langue
+        // Encode chaque langue en ids BPE.
         langData.resize(texts.size());
+        size_t totalTok = 0;
         for (size_t li = 0; li < texts.size(); ++li) {
-            langData[li].reserve(texts[li].size());
-            for (unsigned char c : texts[li]) langData[li].push_back((float)stoi[c]);
+            std::vector<int> ids; bpe.Encode(texts[li], ids);
+            langData[li].reserve(ids.size());
+            for (int id : ids) langData[li].push_back((float)id);
+            totalTok += ids.size();
         }
-        printf("Corpus : %zu caractères, %d octets + %d tags langue = vocabulaire %d.\n",
-               totalChars, nByte, (int)langs.size(), V);
+        printf("Corpus : %zu car. -> %zu tokens BPE ; %d tokens (256 + %zu fusions) + %d tags = vocab %d.\n",
+               totalChars, totalTok, nByte, bpe.merges.size(), (int)langs.size(), V);
         // ---- Dimensions modèle (réglables : NK_GPT_D/H/L/T) ----
         T = envI("NK_GPT_T", 128); d = envI("NK_GPT_D", 256);
         H = envI("NK_GPT_H", 8);   L = envI("NK_GPT_L", 4);
@@ -294,14 +400,15 @@ int main() {
 
     // Génération autoregressive (température). langIdx >= 0 => préfixe le tag de langue
     // pour piloter la langue générée. Les tokens-tag sont masqués à l'échantillonnage.
-    auto generate = [&](const std::string& seed, int nChars, double temp, int langIdx) -> std::string {
+    auto generate = [&](const std::string& seed, int nToks, double temp, int langIdx) -> std::string {
         std::vector<int> ctx;
         if (langIdx >= 0 && langIdx < (int)langs.size()) ctx.push_back(nByte + langIdx);  // tag
-        for (unsigned char c : seed) if (stoi[c] >= 0) ctx.push_back(stoi[c]);
+        std::vector<int> seedIds; bpe.Encode(seed, seedIds);
+        for (int id : seedIds) ctx.push_back(id);
         if (ctx.empty()) ctx.push_back(0);
         std::string out = seed;
         std::vector<float> logitBuf(V);
-        for (int i = 0; i < nChars; ++i) {
+        for (int i = 0; i < nToks; ++i) {   // nToks = nombre de TOKENS BPE générés
             int64 len = (int64)ctx.size(); if (len > T) len = T;
             NkTensor tok = NkTensor::Zeros(NkShape{ (int64)1, len });
             float* tp = tok.DataAs<float>();
@@ -319,7 +426,7 @@ int main() {
             double r = nextRand() * sum, acc = 0; int next = 0;
             for (int v = 0; v < nByte; ++v) { acc += logitBuf[v]; if (acc >= r) { next = v; break; } }
             ctx.push_back(next);
-            out.push_back((char)itos[next]);
+            out += bpe.Decode(next);
         }
         return out;
     };
@@ -364,7 +471,8 @@ int main() {
 
     // ---- Sauvegarde du modèle (si NK_GPT_SAVE) ----
     if (envSave) {
-        GptMeta meta; meta.V = V; meta.d = (int32)d; meta.H = (int32)H; meta.L = (int32)L; meta.T = (int32)T; meta.itos = itos; meta.langs = langs;
+        GptMeta meta; meta.V = V; meta.d = (int32)d; meta.H = (int32)H; meta.L = (int32)L; meta.T = (int32)T; meta.langs = langs;
+        for (auto& ab : bpe.merges) meta.merges.push_back(std::make_pair((int32)ab.first, (int32)ab.second));
         if (SaveCheckpoint(envSave, meta, params)) printf("Modèle sauvegardé : %s\n", envSave);
         else                                       printf("Échec de la sauvegarde : %s\n", envSave);
     }
