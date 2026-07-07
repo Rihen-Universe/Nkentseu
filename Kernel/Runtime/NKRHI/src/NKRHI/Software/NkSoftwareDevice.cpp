@@ -48,6 +48,13 @@ namespace nkentseu {
             c.a = 1.0f;
             return c;
         }
+        // RT couleur HDR RGBA32F (float linéaire, ordre RGBA écrit par OutputPixelF) : lecture
+        // directe, valeurs NON clampées (le tonemap fait l'ACES ensuite sur le vrai HDR).
+        if (desc.format == NkGPUFormat::NK_RGBA32_FLOAT) {
+            const float* fp = (const float*)p;
+            c.r = fp[0]; c.g = fp[1]; c.b = fp[2]; c.a = fp[3];
+            return c;
+        }
         // Les render targets sont écrites par le rasterizer via sw_detail::StorePixel, qui
         // respecte NK_SW_PIXEL_BGRA (ordre [B][G][R][A] sur Windows). Les textures chargées
         // (PNG) restent en RGBA. On lit donc les RT dans l'ordre natif pour éviter un swap R↔B
@@ -76,6 +83,10 @@ namespace nkentseu {
         // Cas spécial float32 pour depth
         if (desc.format == NkGPUFormat::NK_D32_FLOAT) {
             memcpy(p, &c.r, 4); return;
+        }
+        // RT couleur HDR RGBA32F : écriture directe NON clampée (ordre RGBA).
+        if (desc.format == NkGPUFormat::NK_RGBA32_FLOAT) {
+            float* fp = (float*)p; fp[0]=c.r; fp[1]=c.g; fp[2]=c.b; fp[3]=c.a; return;
         }
         const bool bgra = isRenderTarget && (NK_SW_PIXEL_BGRA != 0);
         const uint32 ir = bgra ? 2u : 0u, ib = bgra ? 0u : 2u;
@@ -713,15 +724,15 @@ namespace nkentseu {
         t.isRenderTarget = NkHasFlag(desc.bindFlags, NkBindFlags::NK_RENDER_TARGET) ||
                         NkHasFlag(desc.bindFlags, NkBindFlags::NK_DEPTH_STENCIL);
 
-        // Le rasterizer, les clears et Sample software travaillent TOUJOURS en 4 octets/pixel
-        // (BGRA8 ; cf. stride de ligne W*4 hardcodé dans NkSWRasterCore). Une render target
-        // couleur HDR (RGBA16F=8, RGBA32F=16 o/px) casse ce stride → la géométrie est écrite à
-        // demi-stride et Sample la relit dupliquée horizontalement + tassée en haut. On stocke
-        // donc les RT couleur en RGBA8 (pas de vrai HDR en software : Sample clampe en 8-bit).
+        // Render target couleur HDR (RGBA16F=8 o/px) : on la stocke en **RGBA32F** (16 o/px, float
+        // linéaire, ordre RGBA). Le rasterizer écrit alors ses valeurs SANS clamp [0,1] (chemin
+        // `colorFloat`) → le tonemap lit le VRAI HDR (rolloff des hautes lumières, traînées des
+        // point lights), au lieu de l'ancien remap RGBA8 qui écrasait tout à [0,1]. Le stride de
+        // ligne est désormais W*colorBpp (plus de W*4 hardcodé). Les RT ≤4 o/px restent RGBA8/BGRA.
         const bool isColorRT = NkHasFlag(desc.bindFlags, NkBindFlags::NK_RENDER_TARGET) &&
                               !NkHasFlag(desc.bindFlags, NkBindFlags::NK_DEPTH_STENCIL);
         if (isColorRT && NkFormatBytesPerPixel(desc.format) > 4u)
-            t.desc.format = NkGPUFormat::NK_RGBA8_UNORM;
+            t.desc.format = NkGPUFormat::NK_RGBA32_FLOAT;
 
         uint32 bpp = NkFormatBytesPerPixel(t.desc.format);
         // FIX heap-overflow (NKRenderer sur software) : le rasterizer et les clears écrivent

@@ -457,6 +457,8 @@ namespace nkentseu {
             uint64 vbCap=0;
             bool valid=false;
             bool vertexless=false;   // draw plein-écran gl_VertexID (pas de VBO) : le vertFn synthétise les sommets
+            bool colorFloat=false;   // RT couleur HDR RGBA32F (float, sans clamp) — sinon RGBA8/BGRA
+            uint32 colorBpp=4u;      // octets/pixel du color buffer (4 ou 16)
             // Viewport SOUS-RECT (slots du shadow atlas). vpW==0 => plein RT (mapping historique).
             float32 vpX=0, vpY=0, vpW=0, vpH=0; bool vpFlipY=true;
         };
@@ -486,7 +488,9 @@ namespace nkentseu {
             r.colorBuf=(colorTex&&!colorTex->mips.Empty())?colorTex->mips[0].Data():nullptr;
             r.depthBuf=(depthTex&&!depthTex->mips.Empty())?(float32*)depthTex->mips[0].Data():nullptr;
         
-            if (colorTex)      {r.W=colorTex->Width(0);r.H=colorTex->Height(0);}
+            if (colorTex)      {r.W=colorTex->Width(0);r.H=colorTex->Height(0);
+                                r.colorBpp=colorTex->Bpp();
+                                r.colorFloat=(colorTex->desc.format==NkGPUFormat::NK_RGBA32_FLOAT);}
             else if (depthTex) {r.W=depthTex->Width(0);r.H=depthTex->Height(0);}
             else return r;
             if (r.W==0||r.H==0) return r;
@@ -565,6 +569,7 @@ namespace nkentseu {
             st.depthTest = r.depthTest; st.depthWrite = r.depthWrite; st.depthOp = r.depthOp;
             st.cullMode = r.cullMode;   st.frontFace = r.frontFace;
             st.blendEnable = r.blendEnable; st.srcColor = r.srcColor; st.dstColor = r.dstColor;
+            st.colorFloat = r.colorFloat; st.colorBpp = r.colorBpp;   // RT HDR float (sans clamp) si RGBA32F
 
             // Miroir du batch de textures pour le sampling non-shader
             swraster::NkSWTexBatch tb;
