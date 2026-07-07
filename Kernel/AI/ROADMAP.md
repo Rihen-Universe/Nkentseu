@@ -45,6 +45,9 @@ CONDITION (image / texte / forme cible) ─┐
    sommets/faces vivantes, bbox, aplatissement, asymétrie), un **expert heuristique** choisit
    l'action (Subdiv/Extrude/Mirror/Array), un **MLP NKNN** apprend à l'imiter : **73.8% → 99.5%**
    entraînement, **98.8% sur données jamais vues** (4 classes, from-scratch, petite échelle).
+   📢 Publication + article : `D:\Rihen\Rodolf\Publications\12_2026-07-07_ia-modelisation\`
+   (post multi-plateforme + article scientifique avec équations ; vidéo-preuve à enregistrer,
+   cf. `captures/SHOT_LIST.md`).
 2. ⬜ **Apprendre depuis de VRAIES sessions `.nkmec`** (imitation humaine) — désérialiser le
    journal → paires (état avant commande, commande) → entraîner à prédire l'action + ses params.
 3. ⬜ **Conditionnement CIBLE** (forme visée) → modéliser **vers un but** (RL via NKRL, ou
