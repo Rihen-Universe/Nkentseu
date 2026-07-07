@@ -69,7 +69,9 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
       **barre de progression** + **liste de toutes les occurrences** façon VSCode ; scan borné anti-freeze).
 - ✅ **Autocomplétion** (popup façon VSCode) : symboles fichier + projet + mots-clés du langage, filtrés
       par préfixe ; ↑↓ naviguer, Tab/Entrée accepter, Échap fermer. ⬜ Contextuelle (`.`/`::`) via clangd plus tard.
-- ✅ **Zoom éditeur** : Ctrl+molette / Ctrl+= / Ctrl+- (taille de la police du code, persistée).
+- ✅ **Zoom éditeur** : Ctrl+molette / Ctrl+= / Ctrl+- **par onglet** (taille propre à chaque fichier,
+      persistée en session) + **terminal** (zoom au survol, atlas séparé) + **cache d'atlas par taille**
+      (revenir sur un onglet zoomé = instantané, plus de « saut » de taille).
 - ✅ Ouvrir/sauver des fichiers (NKFileSystem) ; **onglets** custom (point modifié, fermeture).
 - ✅ 🎯 **Jalon** : éditer et sauver un fichier `.cpp`/`.md` avec coloration.
 
@@ -112,6 +114,8 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 
 ## Phase 9 — Polissage & au-delà 🟡
 - 🟡 Multi-curseurs, repli de code, **minimap** (à faire) ; thèmes (**VSCode Dark+ fait**).
+- ⬜ **Zoom global de l'UI** (explorateur, panneaux, chrome) au survol des zones **non-code** — met à
+      l'échelle la police d'interface (le zoom code/terminal au survol est déjà fait, cf. Phase 2).
 - ⬜ **Complétion / LSP**, diagnostics, go-to-définition.
 - ⬜ **Débogueur** (points d'arrêt) intégré.
 - ⬜ Système d'**extensions** ; sens inverse **texte → graphe** (parsing).
