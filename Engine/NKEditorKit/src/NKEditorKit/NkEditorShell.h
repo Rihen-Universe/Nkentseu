@@ -142,7 +142,7 @@ namespace nkentseu {
             //    d'agir sur la taille globale. L'app pilote ensuite l'atlas via RequestCodeSize.
             using NkZoomFn = void(*)(void* user, float32 delta, bool reset);
             void    SetZoomHandler(NkZoomFn fn, void* user) noexcept { mZoomFn = fn; mZoomUser = user; }
-            void    RequestCodeSize(float32 logicalPx) noexcept;   ///< taille voulue de l'atlas code (0 = globale) ; rebuild debounce
+            void    RequestCodeSize(float32 logicalPx, bool immediate = false) noexcept;   ///< taille voulue de l'atlas code (0 = globale). immediate=true (changement d'onglet) -> rebuild frame suivante (pas de debounce)
             float32 ActiveCodeSize() const noexcept;               ///< taille de code actuellement affichée (indicateur)
             // Police du TERMINAL : atlas PROPRE a taille GLOBALE fixe, decouple du zoom
             // par-onglet de l'editeur (le terminal ne bouge pas quand on zoome un fichier).

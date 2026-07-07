@@ -998,12 +998,14 @@ namespace nkentseu {
         }
         // Demande la taille de l'atlas code (0 = globale). Rebuild DEBOUNCE, et seulement
         // quand la cible CHANGE (l'app appelle chaque frame -> pas de re-armement continu).
-        void NkEditorShell::RequestCodeSize(float32 logicalPx) noexcept {
+        void NkEditorShell::RequestCodeSize(float32 logicalPx, bool immediate) noexcept {
             if (logicalPx > 0.f) { if (logicalPx < 8.f) logicalPx = 8.f; if (logicalPx > 40.f) logicalPx = 40.f; }
             if (logicalPx == mCodeTargetSize) return;      // cible inchangee -> rien
             mCodeTargetSize = logicalPx;
             const float32 eff = logicalPx > 0.f ? logicalPx : mFontPrefs.codeSize;
-            mCodeReloadCountdown = (eff == mCodeLoadedSize) ? -1.f : kCodeReloadDebounce;
+            // immediate (changement d'onglet) : rebuild des la frame suivante (countdown 0) pour
+            // eviter le « saut » de taille de 120 ms. Zoom molette : debounce (evite 1 rebuild/cran).
+            mCodeReloadCountdown = (eff == mCodeLoadedSize) ? -1.f : (immediate ? 0.f : kCodeReloadDebounce);
         }
         void NkEditorShell::NudgeCodeFontSize(float32 delta) noexcept {
             if (mZoomFn) { mZoomFn(mZoomUser, delta, false); return; }   // zoom PAR ONGLET (app)

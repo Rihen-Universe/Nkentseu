@@ -291,7 +291,11 @@ namespace nkcode {
                 // (Ctrl+= / Ctrl+- / Ctrl+0 sont geres cote shell -> meme handler.)
                 if (ctx.input.ctrlDown && overEd && ctx.input.wheel != 0.f) { mShell->NudgeCodeFontSize(ctx.input.wheel > 0.f ? 1.f : -1.f); ctx.input.wheel = 0.f; }
                 // Pilote l'atlas de code a la taille de l'onglet actif (0 = taille globale).
-                mShell->RequestCodeSize(mS && mS->HasActive() ? mS->files[mS->active].codeZoom : 0.f);
+                // Au CHANGEMENT d'onglet -> immediate=true : l'atlas se reconstruit des la frame
+                // suivante (pas de « saut » de 120 ms de la taille de base vers la taille zoomee).
+                const int32 act = (mS && mS->HasActive()) ? mS->active : -1;
+                const bool switched = (act != mZoomLastActive); mZoomLastActive = act;
+                mShell->RequestCodeSize(act >= 0 ? mS->files[act].codeZoom : 0.f, switched);
             }
 
             // ── Picker « aller à la définition » : INPUT traité AVANT l'éditeur, et clic CONSOMMÉ
@@ -562,6 +566,7 @@ namespace nkcode {
         NkEditorShell* mShell;
         NkCtxMenu      mTabMenu;          // menu contextuel de la barre d'onglets (clic droit)
         int32          mTabMenuIdx = -1;  // onglet ciblé par le menu
+        int32          mZoomLastActive = -1;  // dernier onglet actif (detection changement -> rebuild atlas immediat, anti « saut » de taille)
     };
 
     // ── OUTPUT : VRAI affichage NKLogger (logs du moteur) + sortie du build jenga.
