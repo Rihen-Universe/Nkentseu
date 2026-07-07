@@ -167,21 +167,27 @@ namespace nkentseu { namespace demo {
     // Régénère le mesh de RENDU (triangulation de editHE) + cage + map tri->face n-gon,
     // et recrée le mesh GPU dynamique.
     static void Demo3D_SyncFromHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        // Maillage AFFICHÉ = base editHE, OU pile de modificateurs évaluée (non-destructif :
-        // editHE la base n'est jamais modifiée). Avec modificateurs = APERÇU (édition en pause).
-        const bool useMods = !st->editModifiers.Empty();
-        renderer::NkEditMesh evalMesh;
-        const renderer::NkEditMesh* disp = &st->editHE;
-        if (useMods) { st->editModifiers.Evaluate(st->editHE, evalMesh); disp = &evalMesh; }
-        disp->Triangulate(st->editRest, st->editIdx, st->editTriFace);
+        // BASE (editHE) -> pick + cage + overlay + sélection : on édite TOUJOURS la base,
+        // même quand des modificateurs sont affichés (façon cage Blender : la cage = la base).
+        st->editHE.Triangulate(st->editRest, st->editIdx, st->editTriFace);
         st->editLive = st->editRest;
-        disp->GetUniqueEdges(st->editEdges);
-        const uint32 dvc = disp->VertCount();
-        if ((uint32)st->vertSel.Size() != dvc) st->vertSel.Resize(dvc);
-        if (useMods) for (uint32 i=0;i<dvc;i++) st->vertSel[i]=0;   // aperçu : pas de sélection éditable
+        st->editHE.GetUniqueEdges(st->editEdges);
+        if ((uint32)st->vertSel.Size() != st->editHE.VertCount()) st->vertSel.Resize(st->editHE.VertCount());
+        // AFFICHAGE SOLIDE = base, OU résultat des modificateurs (non-destructif : editHE
+        // n'est jamais modifiée ; on triangule le résultat juste pour le mesh GPU affiché).
+        const renderer::NkVertex3D* dvData = st->editRest.Data(); uint32 dvCount = (uint32)st->editRest.Size();
+        const uint32*               diData = st->editIdx.Data();  uint32 diCount = (uint32)st->editIdx.Size();
+        renderer::NkEditMesh evalMesh;
+        NkVector<renderer::NkVertex3D> evV; NkVector<uint32> evI; NkVector<renderer::NkEmId> evTF;
+        if (!st->editModifiers.Empty()) {
+            st->editModifiers.Evaluate(st->editHE, evalMesh);
+            evalMesh.Triangulate(evV, evI, evTF);
+            dvData = evV.Data(); dvCount = (uint32)evV.Size();
+            diData = evI.Data(); diCount = (uint32)evI.Size();
+        }
         if (st->editMesh.IsValid()) ms->Release(st->editMesh);
         renderer::NkMeshDesc d = renderer::NkMeshDesc::Simple(renderer::NkVertexLayout::Default3D(),
-            st->editRest.Data(), (uint32)st->editRest.Size(), st->editIdx.Data(), (uint32)st->editIdx.Size());
+            dvData, dvCount, diData, diCount);
         d.dynamic = true; d.debugName = "Demo3D_EditMesh";
         st->editMesh = ms->Create(d);
         st->editOverlayDirty = true;
@@ -1218,7 +1224,7 @@ namespace nkentseu { namespace demo {
                     st->editModifiers.Add(mod); st->editAddModPending = -1;
                     Demo3D_SyncFromHE(st, meshSysT);
                     const char* nm[3] = {"Mirror (axe X)", "Array (x3)", "Subsurf (1)"};
-                    logger.Info("[Demo3D] + Modificateur {0} — pile={1} (APERCU : edition en pause, F10 pour editer)\n",
+                    logger.Info("[Demo3D] + Modificateur {0} — pile={1} (edite la BASE, le resultat se recalcule ; F10 pour vider)\n",
                                 nm[(int32)mod.type], st->editModifiers.Count());
                 }
                 if (st->editClearModPending) { st->editClearModPending=false;
@@ -1317,9 +1323,9 @@ namespace nkentseu { namespace demo {
                 }
                 st->editOverlayDirty=true;
             }
-            // Pick GELÉ si des modificateurs sont actifs (mode APERÇU : la base ne doit pas
-            // être éditée sous l'aperçu -> pas de sélection, donc les outils restent no-op).
-            if (gin.leftPressed && !grabbedHandle && !st->knifeArmed && st->editModifiers.Empty()) {
+            // Pick sur la BASE (editRest/editIdx = editHE), même sous modificateurs -> on
+            // sélectionne/édite la cage de base et le résultat modifié se recalcule.
+            if (gin.leftPressed && !grabbedHandle && !st->knifeArmed) {
                 st->editOverlayDirty = true;   // la sélection va changer -> reconstruire l'overlay
                 const float32 mx = gin.mouseX, my = gin.mouseY;
                 if (!gin.shiftDown) for (int32 i=0;i<nv;i++) st->vertSel[i]=0;
@@ -1404,7 +1410,10 @@ namespace nkentseu { namespace demo {
                 NkMat4f G = st->editGizmo.Apply(0, NkMat4f::Translate(cen)) * NkMat4f::Translate({-cen.x,-cen.y,-cen.z});
                 for (int32 i=0;i<nv;i++){ st->editLive[i]=st->editRest[i];
                     if (st->vertSel[i]) st->editLive[i].pos = st->editAnchorInv * (G * worldV(i)); }
-                if (meshSysF) meshSysF->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv);
+                // Update rapide du mesh solide seulement SANS modificateurs (sinon le solide =
+                // résultat évalué, nb de sommets ≠ base -> on laisse la cage bouger, le résultat
+                // se recale en fin de drag). L'overlay (cage) suit toujours via editLive.
+                if (meshSysF && st->editModifiers.Empty()) meshSysF->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv);
                 st->editOverlayDirty = true;   // positions changées -> overlay suit le mesh
             }
             // Fin de drag -> baker les positions dans l'AUTORITÉ editHE + RECALCUL des
@@ -1417,7 +1426,10 @@ namespace nkentseu { namespace demo {
                 st->editHE.RecomputeNormals();
                 for (int32 i=0;i<nv && (uint32)i<hv;i++) st->editRest[i].normal = st->editHE.verts[i].normal;
                 st->editLive = st->editRest;
-                if (meshSysF) meshSysF->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv);
+                // Sans modificateurs : update rapide. Avec : re-évaluer la pile -> le résultat
+                // affiché se recale sur les nouvelles positions de la base.
+                if (st->editModifiers.Empty()) { if (meshSysF) meshSysF->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv); }
+                else if (meshSysF)             { Demo3D_SyncFromHE(st, meshSysF); }
                 st->editGizmo.ResetSelected();
                 st->editOverlayDirty = true;
                 // Enregistre le déplacement dans l'historique (pré-état snapshoté au début)
