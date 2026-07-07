@@ -290,12 +290,14 @@ namespace nkcode {
                 // Ctrl+molette -> zoom de l'ONGLET ACTIF (via le handler enregistre par NKCode).
                 // (Ctrl+= / Ctrl+- / Ctrl+0 sont geres cote shell -> meme handler.)
                 if (ctx.input.ctrlDown && overEd && ctx.input.wheel != 0.f) { mShell->NudgeCodeFontSize(ctx.input.wheel > 0.f ? 1.f : -1.f); ctx.input.wheel = 0.f; }
-                // Pilote l'atlas de code a la taille de l'onglet actif (0 = taille globale).
-                // Au CHANGEMENT d'onglet -> immediate=true : l'atlas se reconstruit des la frame
-                // suivante (pas de « saut » de 120 ms de la taille de base vers la taille zoomee).
+                // Rend la taille de l'onglet actif via le CACHE d'atlas par taille : une taille
+                // deja vue = atlas pret -> revenir sur un onglet zoome n'a AUCUN « saut ». Au
+                // changement d'onglet, immediate=true (rasterise des la frame suivante si pas en cache).
                 const int32 act = (mS && mS->HasActive()) ? mS->active : -1;
                 const bool switched = (act != mZoomLastActive); mZoomLastActive = act;
-                mShell->RequestCodeSize(act >= 0 ? mS->files[act].codeZoom : 0.f, switched);
+                const float32 sz = act >= 0 ? mS->files[act].codeZoom : 0.f;
+                mShell->EnsureCodeSize(sz, switched);
+                ctx.codeFont = mShell->CodeFontForSize(sz);   // police de CETTE frame (cache)
             }
 
             // ── Picker « aller à la définition » : INPUT traité AVANT l'éditeur, et clic CONSOMMÉ

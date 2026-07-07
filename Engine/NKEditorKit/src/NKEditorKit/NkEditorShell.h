@@ -142,7 +142,12 @@ namespace nkentseu {
             //    d'agir sur la taille globale. L'app pilote ensuite l'atlas via RequestCodeSize.
             using NkZoomFn = void(*)(void* user, float32 delta, bool reset);
             void    SetZoomHandler(NkZoomFn fn, void* user) noexcept { mZoomFn = fn; mZoomUser = user; }
-            void    RequestCodeSize(float32 logicalPx, bool immediate = false) noexcept;   ///< taille voulue de l'atlas code (0 = globale). immediate=true (changement d'onglet) -> rebuild frame suivante (pas de debounce)
+            // CACHE d'atlas de code PAR TAILLE : l'editeur appelle EnsureCodeSize (arme la
+            // rasterisation d'une taille) + CodeFontForSize (police a utiliser MAINTENANT, non
+            // bloquant). Une taille deja rasterisee reste en cache -> revenir sur un onglet zoome
+            // = atlas DEJA pret (aucun rebuild, aucun « saut »).
+            void    EnsureCodeSize(float32 logicalPx, bool immediate = false) noexcept;
+            nkgui::NkGuiFont* CodeFontForSize(float32 logicalPx) noexcept;
             float32 ActiveCodeSize() const noexcept;               ///< taille de code actuellement affichée (indicateur)
             // Police du TERMINAL : atlas PROPRE a taille GLOBALE fixe, decouple du zoom
             // par-onglet de l'editeur (le terminal ne bouge pas quand on zoome un fichier).
@@ -161,7 +166,8 @@ namespace nkentseu {
         private:
             void LoadFontsFromPrefs() noexcept;                               ///< (re)charge mFont + mCodeFont
             void LoadUiFont() noexcept;                                       ///< (re)charge SEULE la police d'interface
-            void LoadCodeFont() noexcept;                                     ///< (re)charge SEULE la police du code (zoom rapide)
+            void LoadCodeFont() noexcept;                                     ///< (re)charge le repli mCodeFont (taille globale)
+            void BuildCodeSlot(int32 px) noexcept;                            ///< rasterise une taille dans le cache d'atlas (LRU)
             void LoadTermFont() noexcept;                                     ///< (re)charge la police du TERMINAL (taille globale fixe)
             void DrawPreferences(NkEditorFrameContext& ec) noexcept;          ///< fenetre Preferences (categories)
             void BuildMenuBar(NkEditorFrameContext& ec, const nkgui::NkRect& rect) noexcept;
@@ -204,9 +210,16 @@ namespace nkentseu {
             float32             mTermReloadCountdown = -1.f; ///< debounce du rebuild de l'atlas terminal (zoom)
             bool                mFontOk = false;
             bool                mFontReloadPending = false;  ///< reload des DEUX polices differe au debut de frame (anti-crash)
-            float32             mCodeReloadCountdown = -1.f; ///< zoom : debounce (s). >=0 => reconstruit l'atlas code quand il atteint 0 (evite 1 rebuild/cran)
-            float32             mCodeTargetSize = 0.f;       ///< taille logique voulue pour l'atlas code (0 = globale). Pilotee par RequestCodeSize.
-            float32             mCodeLoadedSize = 0.f;       ///< taille logique a laquelle l'atlas code est actuellement construit
+            float32             mCodeReloadCountdown = -1.f; ///< zoom : debounce (s). >=0 => rasterise la taille en attente quand il atteint 0
+            float32             mCodeTargetSize = 0.f;       ///< (init) taille logique de mCodeFont (repli global)
+            float32             mCodeLoadedSize = 0.f;       ///< taille logique a laquelle mCodeFont (repli) est construit
+            float32             mCodeActiveLogical = 0.f;    ///< derniere taille demandee par l'editeur (indicateur de zoom ; 0 = globale)
+            // Cache d'atlas de code par taille (px) : chaque taille rasterisee 1 seule fois.
+            static constexpr int32 kCodeCacheN = 8;
+            struct CodeSlot { nkgui::NkGuiFont* font = nullptr; int32 px = 0; uint32 lru = 0; };
+            CodeSlot            mCodeSlots[kCodeCacheN] = {};
+            uint32              mCodeClock = 0;              ///< horloge LRU du cache
+            int32               mCodePendingPx = 0;          ///< px a rasteriser quand le debounce expire
             NkZoomFn            mZoomFn   = nullptr;         ///< handler zoom per-onglet (app)
             void*               mZoomUser = nullptr;
             NkFontPrefs         mFontPrefs;          ///< reglages de polices (persistes)

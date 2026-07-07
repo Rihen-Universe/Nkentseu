@@ -76,6 +76,9 @@ namespace nkentseu {
 
         // ── Cycle de vie ─────────────────────────────────────────────────────────
         NkEditorShell::~NkEditorShell() {
+            // Libere les atlas du cache de code par taille (alloues a la demande).
+            for (int32 i = 0; i < kCodeCacheN; ++i)
+                if (mCodeSlots[i].font) { memory::NkGetDefaultAllocator().Delete(mCodeSlots[i].font); mCodeSlots[i].font = nullptr; }
             if (mRenderer) {                     // libere le contexte GPU avant la fenetre
                 mRenderer->Shutdown();
                 if (mOwnsRenderer) memory::NkGetDefaultAllocator().Delete(mRenderer);
@@ -365,7 +368,7 @@ namespace nkentseu {
                 else {
                     if (mCodeReloadCountdown >= 0.f) {
                         mCodeReloadCountdown -= dt;
-                        if (mCodeReloadCountdown <= 0.f) { mCodeReloadCountdown = -1.f; LoadCodeFont(); }
+                        if (mCodeReloadCountdown <= 0.f) { mCodeReloadCountdown = -1.f; BuildCodeSlot(mCodePendingPx); }
                     }
                     if (mTermReloadCountdown >= 0.f) {   // zoom du TERMINAL (survol) : meme debounce
                         mTermReloadCountdown -= dt;
@@ -944,8 +947,9 @@ namespace nkentseu {
 
         void NkEditorShell::LoadCodeFont() noexcept {
             const float32 dpi = mUI.S(1.f) > 0.5f ? mUI.S(1.f) : 1.f;
-            // Taille EFFECTIVE = taille de l'onglet actif (mCodeTargetSize) si demandee, sinon globale.
-            const float32 logical = mCodeTargetSize > 0.f ? mCodeTargetSize : mFontPrefs.codeSize;
+            // mCodeFont = REPLI a la taille GLOBALE (l'editeur, lui, rend via le cache par taille,
+            // cf. CodeFontForSize). Sert de police par defaut avant que l'editeur ne pilote.
+            const float32 logical = mFontPrefs.codeSize;
             const float32 codePx = logical * dpi;
             mCodeLoadedSize = logical;
             mCodeFont.texId = mFont.TexId() + 1u;   // atlas distinct (anti-collision backend)
@@ -994,18 +998,58 @@ namespace nkentseu {
         // ── Zoom editeur : ajuste la taille de la police du code puis reconstruit ──
         float32 NkEditorShell::CodeFontSize() const noexcept { return mFontPrefs.codeSize; }
         float32 NkEditorShell::ActiveCodeSize() const noexcept {
-            return mCodeTargetSize > 0.f ? mCodeTargetSize : mFontPrefs.codeSize;
+            return mCodeActiveLogical > 0.f ? mCodeActiveLogical : mFontPrefs.codeSize;
         }
-        // Demande la taille de l'atlas code (0 = globale). Rebuild DEBOUNCE, et seulement
-        // quand la cible CHANGE (l'app appelle chaque frame -> pas de re-armement continu).
-        void NkEditorShell::RequestCodeSize(float32 logicalPx, bool immediate) noexcept {
-            if (logicalPx > 0.f) { if (logicalPx < 8.f) logicalPx = 8.f; if (logicalPx > 40.f) logicalPx = 40.f; }
-            if (logicalPx == mCodeTargetSize) return;      // cible inchangee -> rien
-            mCodeTargetSize = logicalPx;
-            const float32 eff = logicalPx > 0.f ? logicalPx : mFontPrefs.codeSize;
-            // immediate (changement d'onglet) : rebuild des la frame suivante (countdown 0) pour
-            // eviter le « saut » de taille de 120 ms. Zoom molette : debounce (evite 1 rebuild/cran).
-            mCodeReloadCountdown = (eff == mCodeLoadedSize) ? -1.f : (immediate ? 0.f : kCodeReloadDebounce);
+        static inline int32 NkCodePxOf(float32 logical, float32 global) {
+            int32 px = static_cast<int32>((logical > 0.f ? logical : global) + 0.5f);
+            return px < 8 ? 8 : (px > 40 ? 40 : px);
+        }
+        // Arme la rasterisation d'une taille si elle n'est PAS deja en cache. immediate
+        // (changement d'onglet) -> des la frame suivante ; sinon debounce (zoom molette).
+        void NkEditorShell::EnsureCodeSize(float32 logicalPx, bool immediate) noexcept {
+            mCodeActiveLogical = logicalPx;
+            const int32 px = NkCodePxOf(logicalPx, mFontPrefs.codeSize);
+            for (int32 i = 0; i < kCodeCacheN; ++i) if (mCodeSlots[i].font && mCodeSlots[i].px == px) return;  // deja pret -> rien
+            if (px == mCodePendingPx && mCodeReloadCountdown >= 0.f) return;   // deja arme pour ce px
+            mCodePendingPx = px;
+            mCodeReloadCountdown = immediate ? 0.f : kCodeReloadDebounce;
+        }
+        // Police a utiliser MAINTENANT pour cette taille : exacte en cache si dispo, sinon la plus
+        // proche deja rasterisee (ou le repli global) en attendant le build. NON bloquant.
+        nkgui::NkGuiFont* NkEditorShell::CodeFontForSize(float32 logicalPx) noexcept {
+            const int32 px = NkCodePxOf(logicalPx, mFontPrefs.codeSize);
+            nkgui::NkGuiFont* best = (mCodeFont.Valid() ? &mCodeFont : &mFont);
+            int32 bestDiff = 0x7FFFFFFF;
+            for (int32 i = 0; i < kCodeCacheN; ++i) {
+                if (!mCodeSlots[i].font) continue;
+                if (mCodeSlots[i].px == px) { mCodeSlots[i].lru = ++mCodeClock; return mCodeSlots[i].font; }
+                const int32 d = px - mCodeSlots[i].px, ad = d < 0 ? -d : d;
+                if (ad < bestDiff) { bestDiff = ad; best = mCodeSlots[i].font; }
+            }
+            return best;
+        }
+        // Rasterise `px` dans le cache (slot vide sinon LRU). Appele HORS frame (debounce expire).
+        void NkEditorShell::BuildCodeSlot(int32 px) noexcept {
+            if (px < 8) px = 8;
+            if (px > 40) px = 40;
+            int32 idx = -1;
+            for (int32 i = 0; i < kCodeCacheN; ++i) {
+                if (mCodeSlots[i].font && mCodeSlots[i].px == px) { mCodeSlots[i].lru = ++mCodeClock; return; }  // course : deja fait
+                if (!mCodeSlots[i].font && idx < 0) idx = i;
+            }
+            if (idx < 0) { uint32 lru = 0xFFFFFFFFu; for (int32 i = 0; i < kCodeCacheN; ++i) if (mCodeSlots[i].lru < lru) { lru = mCodeSlots[i].lru; idx = i; } }
+            CodeSlot& s = mCodeSlots[idx];
+            if (!s.font) s.font = nkentseu::memory::NkGetDefaultAllocator().New<nkgui::NkGuiFont>();
+            if (!s.font) return;
+            s.font->texId = mFont.TexId() + 8u + static_cast<uint32>(idx);   // texIds cache = +8..+15 (distincts de +1/+2)
+            const float32 dpi = mUI.S(1.f) > 0.5f ? mUI.S(1.f) : 1.f;
+            const float32 codePx = static_cast<float32>(px) * dpi;
+            bool ok = NkResolveFont(*s.font, mFontPrefs.codeFont, codePx, /*extFallback=*/false);
+            if (!ok) ok = s.font->LoadEmbedded(NkEmbeddedFontId::DejaVuSansMono, codePx, /*extFallback=*/false);
+            if (!ok) ok = s.font->LoadEmbedded(NkEmbeddedFontId::Cousine, 15.f * dpi, /*extFallback=*/false);
+            if (!ok) { s.px = 0; return; }
+            if (mRenderer) mRenderer->UploadFontGray8(s.font->TexId(), s.font->pixels, s.font->atlasW, s.font->atlasH);
+            s.px = px; s.lru = ++mCodeClock;
         }
         void NkEditorShell::NudgeCodeFontSize(float32 delta) noexcept {
             if (mZoomFn) { mZoomFn(mZoomUser, delta, false); return; }   // zoom PAR ONGLET (app)
