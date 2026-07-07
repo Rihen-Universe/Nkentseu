@@ -47,8 +47,17 @@ static std::string LoadCorpus(const std::string& path, size_t maxChars) {
     return body;
 }
 
-// ---- Corpus dossier : concatène TOUS les .txt, part égale par fichier --------
-// (couverture multilingue balancée : chaque livre contribue ~totalCap/N caractères).
+// Langue d'un fichier = préfixe avant le premier '_' (ex. "fr_pg17989.txt" -> "fr").
+static std::string LangOf(const std::string& filename) {
+    size_t u = filename.find('_');
+    if (u != std::string::npos && u >= 1 && u <= 4) return filename.substr(0, u);
+    return "??";   // fichier non taggé
+}
+
+// ---- Corpus dossier : concatène TOUS les .txt, part égale PAR LANGUE ----------
+// Chaque langue (préfixe fr_/en_/bbj_…) reçoit ~totalCap/nbLangues caractères,
+// répartis également entre ses fichiers. Évite qu'une langue avec plus de livres
+// (ex. 8 EN vs 1 bbj) n'écrase les autres.
 static std::string LoadCorpusDir(const std::string& dir, size_t totalCap) {
     namespace fs = std::filesystem;
     std::vector<std::string> files;
@@ -60,13 +69,32 @@ static std::string LoadCorpusDir(const std::string& dir, size_t totalCap) {
     }
     std::sort(files.begin(), files.end());               // déterministe
     if (files.empty()) return std::string();
-    const size_t perFile = totalCap / files.size();
-    std::string corpus; corpus.reserve(totalCap + files.size() * 2);
+
+    // Regroupe les fichiers par langue (ordre d'apparition stable).
+    std::vector<std::string> langs;
+    std::vector<std::vector<std::string>> byLang;
     for (const std::string& p : files) {
-        std::string body = LoadCorpus(p, perFile);
-        if (body.size() < 200) continue;                 // ignore fichiers vides/parasites
-        corpus += body; corpus += "\n\n";
-        printf("  + %-40s %8zu car.\n", fs::path(p).filename().string().c_str(), body.size());
+        std::string lg = LangOf(fs::path(p).filename().string());
+        int idx = -1;
+        for (int i = 0; i < (int)langs.size(); ++i) if (langs[i] == lg) { idx = i; break; }
+        if (idx < 0) { langs.push_back(lg); byLang.push_back(std::vector<std::string>()); idx = (int)langs.size() - 1; }
+        byLang[idx].push_back(p);
+    }
+
+    const size_t perLang = totalCap / langs.size();       // part égale PAR LANGUE
+    std::string corpus; corpus.reserve(totalCap + files.size() * 2);
+    for (size_t li = 0; li < langs.size(); ++li) {
+        const size_t perFile = perLang / byLang[li].size();
+        size_t langTotal = 0;
+        for (const std::string& p : byLang[li]) {
+            std::string body = LoadCorpus(p, perFile);
+            if (body.size() < 200) continue;             // ignore fichiers vides/parasites
+            corpus += body; corpus += "\n\n";
+            langTotal += body.size();
+            printf("  + [%-3s] %-32s %8zu car.\n", langs[li].c_str(),
+                   fs::path(p).filename().string().c_str(), body.size());
+        }
+        printf("    => langue %-3s : %8zu car. (cible/langue %zu)\n", langs[li].c_str(), langTotal, perLang);
     }
     return corpus;
 }
