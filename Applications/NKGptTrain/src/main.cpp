@@ -6,8 +6,11 @@
 //   Brique 9  : tokenizer char-level (vocab = octets présents ; encode/decode).
 //   Brique 10 : boucle d'entraînement + échantillonnage autoregressif.
 //
-// Corpus : NK_GPT_FILE (défaut = un livre français du dossier Datasets).
-// Étapes : NK_GPT_STEPS (défaut 300).
+// Corpus  : NK_GPT_DIR (défaut = tout Datasets) ou NK_GPT_FILE (un livre).
+// Taille  : NK_GPT_T/D/H/L/B ; étapes : NK_GPT_STEPS (défaut 300).
+// Modèle  : NK_GPT_SAVE=chemin (sauve après entraînement),
+//           NK_GPT_LOAD=chemin (recharge + génère SANS réentraîner),
+//           NK_GPT_PROMPT="amorce", NK_GPT_GENLEN=nb car. générés.
 // =============================================================================
 #include "NKNN/NkNN.h"
 #include "NKOptim/NkOptim.h"
@@ -68,54 +71,136 @@ static std::string LoadCorpusDir(const std::string& dir, size_t totalCap) {
     return corpus;
 }
 
+// ---- Checkpoint « NKGP » : dims + vocabulaire + poids (CPU) -------------------
+// Permet de GÉNÉRER sans réentraîner. Format binaire :
+//   ['N','K','G','P'] | ver u32 | V,d,H,L,T (5×i32) | vlen i32 | itos[vlen] |
+//   count u32 | { rank u32, dims[rank] i64, data[numel] f32 } par tenseur.
+struct GptMeta { int32 V = 0, d = 0, H = 0, L = 0, T = 0; std::vector<unsigned char> itos; };
+
+static int64 ShapeNumel(const NkShape& sh) { int64 n = 1; for (uint32 i = 0; i < sh.Size(); ++i) n *= sh[i]; return n; }
+
+static bool SaveCheckpoint(const char* path, const GptMeta& m, const NkVector<NkVar>& params) {
+    FILE* f = fopen(path, "wb"); if (!f) return false;
+    const char magic[4] = { 'N','K','G','P' }; uint32 ver = 1u;
+    bool ok = fwrite(magic, 1, 4, f) == 4 && fwrite(&ver, sizeof(uint32), 1, f) == 1;
+    int32 hdr[5] = { m.V, m.d, m.H, m.L, m.T };
+    ok = ok && fwrite(hdr, sizeof(int32), 5, f) == 5;
+    int32 vlen = (int32)m.itos.size();
+    ok = ok && fwrite(&vlen, sizeof(int32), 1, f) == 1;
+    ok = ok && (vlen == 0 || fwrite(m.itos.data(), 1, (size_t)vlen, f) == (size_t)vlen);
+    uint32 count = params.Size();
+    ok = ok && fwrite(&count, sizeof(uint32), 1, f) == 1;
+    for (uint32 i = 0; ok && i < params.Size(); ++i) {
+        NkTensor v = params[i].Value().ToCPU().Contiguous();   // ramène GPU->CPU si besoin
+        const NkShape& sh = v.Shape(); uint32 rank = sh.Size();
+        ok = ok && fwrite(&rank, sizeof(uint32), 1, f) == 1;
+        for (uint32 dd = 0; ok && dd < rank; ++dd) { int64 dim = sh[dd]; ok = ok && fwrite(&dim, sizeof(int64), 1, f) == 1; }
+        int64 numel = ShapeNumel(sh); const float* p = v.DataAs<float>();
+        ok = ok && (numel == 0 || fwrite(p, sizeof(float), (size_t)numel, f) == (size_t)numel);
+    }
+    fclose(f); return ok;
+}
+
+static bool LoadCheckpointMeta(const char* path, GptMeta& m) {
+    FILE* f = fopen(path, "rb"); if (!f) return false;
+    char magic[4]; uint32 ver = 0; int32 hdr[5] = { 0 }; int32 vlen = 0;
+    bool ok = fread(magic, 1, 4, f) == 4 && magic[0]=='N'&&magic[1]=='K'&&magic[2]=='G'&&magic[3]=='P'
+           && fread(&ver, sizeof(uint32), 1, f) == 1 && ver == 1u
+           && fread(hdr, sizeof(int32), 5, f) == 5
+           && fread(&vlen, sizeof(int32), 1, f) == 1 && vlen > 0 && vlen <= 256;
+    if (ok) { m.V = hdr[0]; m.d = hdr[1]; m.H = hdr[2]; m.L = hdr[3]; m.T = hdr[4];
+              m.itos.resize((size_t)vlen); ok = fread(m.itos.data(), 1, (size_t)vlen, f) == (size_t)vlen; }
+    fclose(f); return ok;
+}
+
+static bool LoadCheckpointWeights(const char* path, NkVector<NkVar>& params) {
+    FILE* f = fopen(path, "rb"); if (!f) return false;
+    char magic[4]; uint32 ver = 0; int32 hdr[5] = { 0 }; int32 vlen = 0;
+    bool ok = fread(magic, 1, 4, f) == 4 && fread(&ver, sizeof(uint32), 1, f) == 1
+           && fread(hdr, sizeof(int32), 5, f) == 5 && fread(&vlen, sizeof(int32), 1, f) == 1;
+    if (ok && vlen > 0) ok = fseek(f, (long)vlen, SEEK_CUR) == 0;   // saute le vocabulaire
+    uint32 count = 0;
+    ok = ok && fread(&count, sizeof(uint32), 1, f) == 1 && count == params.Size();
+    for (uint32 i = 0; ok && i < params.Size(); ++i) {
+        uint32 rank = 0; ok = ok && fread(&rank, sizeof(uint32), 1, f) == 1;
+        NkShape shape;
+        for (uint32 dd = 0; ok && dd < rank; ++dd) { int64 dim = 0; ok = ok && fread(&dim, sizeof(int64), 1, f) == 1; shape.PushBack(dim); }
+        int64 numel = ok ? ShapeNumel(shape) : 0;
+        NkTensor t = NkTensor::Zeros(shape); float* p = t.DataAs<float>();
+        ok = ok && (numel == 0 || fread(p, sizeof(float), (size_t)numel, f) == (size_t)numel);
+        if (ok) params[i].SetValue(t);
+    }
+    fclose(f); return ok;
+}
+
 int main() {
     printf("=== NKGptTrain : petit GPT char-level (from-scratch, GPU-résident) ===\n");
     NkTensorGpu& gpu = NkTensorGpu::Get();
     const bool useGpu = gpu.IsAvailable();
     printf("GPU compute : %s (%s)\n", useGpu ? "OUI" : "NON", gpu.BackendName());
 
-    // ---- Corpus ----
-    // Défaut : TOUT le dossier Datasets (multilingue FR+EN). NK_GPT_FILE force un
-    // seul livre ; NK_GPT_DIR change le dossier ; NK_GPT_CHARS = cap total.
-    const char* envf = getenv("NK_GPT_FILE");
-    const char* envd = getenv("NK_GPT_DIR");
-    const char* envc = getenv("NK_GPT_CHARS");
-    const std::string datasetsDir = envd ? envd
-        : "D:/Projets/2026/Nkentseu/Nkentseu/Resources/Datasets";
-    std::string text;
-    if (envf) {
-        size_t maxChars = envc ? (size_t)atol(envc) : 150000;
-        printf("Corpus : fichier unique %s\n", envf);
-        text = LoadCorpus(envf, maxChars);
-    } else {
-        size_t totalCap = envc ? (size_t)atol(envc) : 1200000;   // ~1,2 M car. par défaut
-        printf("Corpus : dossier %s (part égale/livre, cap total %zu)\n", datasetsDir.c_str(), totalCap);
-        text = LoadCorpusDir(datasetsDir, totalCap);
-    }
-    if (text.size() < 1000) { printf("Corpus introuvable/trop court.\n"); return 2; }
+    auto envI = [](const char* k, int64 def) -> int64 { const char* v = getenv(k); return v ? (int64)atol(v) : def; };
+    const char* envLoad   = getenv("NK_GPT_LOAD");    // charge un checkpoint -> génère sans réentraîner
+    const char* envSave   = getenv("NK_GPT_SAVE");    // sauve le modèle à la fin de l'entraînement
+    const char* envPrompt = getenv("NK_GPT_PROMPT");  // amorce de génération (défaut « Le »)
+    const std::string seed = envPrompt ? std::string(envPrompt) : std::string("Le ");
 
-    // ---- Brique 9 : tokenizer char-level (vocab = octets présents) ----
+    // Vocabulaire (partagé load/train) + dimensions + données corpus (train seulement).
     int stoi[256]; for (int i = 0; i < 256; ++i) stoi[i] = -1;
     std::vector<unsigned char> itos;
-    for (unsigned char c : text) if (stoi[c] < 0) { stoi[c] = (int)itos.size(); itos.push_back(c); }
-    const int V = (int)itos.size();
-    std::vector<float> data; data.reserve(text.size());
-    for (unsigned char c : text) data.push_back((float)stoi[c]);
-    printf("Corpus : %zu caractères, vocabulaire = %d symboles distincts.\n", text.size(), V);
+    std::vector<float> data;
+    int V = 0; int64 T = 0, d = 0, H = 0, L = 0, B = envI("NK_GPT_B", 16);
 
-    // ---- Modèle (réglable par env : NK_GPT_D/H/L/T/B) ----
-    auto envI = [](const char* k, int64 def) -> int64 { const char* v = getenv(k); return v ? (int64)atol(v) : def; };
-    const int64 T = envI("NK_GPT_T", 128);   // contexte
-    const int64 d = envI("NK_GPT_D", 256);   // dimension modèle
-    const int64 H = envI("NK_GPT_H", 8);     // têtes d'attention
-    const int64 L = envI("NK_GPT_L", 4);     // couches transformer
-    const int64 B = envI("NK_GPT_B", 16);    // taille de lot
-    printf("Modèle GPT : T=%lld, d=%lld, têtes=%lld, couches=%lld, batch=%lld  (AdamW, GPU-résident)\n\n",
-           (long long)T,(long long)d,(long long)H,(long long)L,(long long)B);
+    if (envLoad) {
+        // ---- Mode CHARGEMENT : dims + vocabulaire depuis le checkpoint ----
+        GptMeta meta;
+        if (!LoadCheckpointMeta(envLoad, meta)) { printf("Checkpoint illisible : %s\n", envLoad); return 2; }
+        V = meta.V; d = meta.d; H = meta.H; L = meta.L; T = meta.T;
+        itos = meta.itos;
+        for (int i = 0; i < (int)itos.size(); ++i) stoi[itos[i]] = i;
+        printf("Modèle chargé : %s (V=%d, T=%lld, d=%lld, têtes=%lld, couches=%lld)\n",
+               envLoad, V, (long long)T, (long long)d, (long long)H, (long long)L);
+    } else {
+        // ---- Corpus ----
+        // Défaut : TOUT le dossier Datasets (multilingue). NK_GPT_FILE force un seul
+        // livre ; NK_GPT_DIR change le dossier ; NK_GPT_CHARS = cap total.
+        const char* envf = getenv("NK_GPT_FILE");
+        const char* envd = getenv("NK_GPT_DIR");
+        const char* envc = getenv("NK_GPT_CHARS");
+        const std::string datasetsDir = envd ? envd
+            : "D:/Projets/2026/Nkentseu/Nkentseu/Resources/Datasets";
+        std::string text;
+        if (envf) {
+            size_t maxChars = envc ? (size_t)atol(envc) : 150000;
+            printf("Corpus : fichier unique %s\n", envf);
+            text = LoadCorpus(envf, maxChars);
+        } else {
+            size_t totalCap = envc ? (size_t)atol(envc) : 1200000;   // ~1,2 M car. par défaut
+            printf("Corpus : dossier %s (part égale/livre, cap total %zu)\n", datasetsDir.c_str(), totalCap);
+            text = LoadCorpusDir(datasetsDir, totalCap);
+        }
+        if (text.size() < 1000) { printf("Corpus introuvable/trop court.\n"); return 2; }
+        // ---- Brique 9 : tokenizer char-level (vocab = octets présents) ----
+        for (unsigned char c : text) if (stoi[c] < 0) { stoi[c] = (int)itos.size(); itos.push_back(c); }
+        V = (int)itos.size();
+        data.reserve(text.size());
+        for (unsigned char c : text) data.push_back((float)stoi[c]);
+        printf("Corpus : %zu caractères, vocabulaire = %d symboles distincts.\n", text.size(), V);
+        // ---- Dimensions modèle (réglables : NK_GPT_D/H/L/T) ----
+        T = envI("NK_GPT_T", 128); d = envI("NK_GPT_D", 256);
+        H = envI("NK_GPT_H", 8);   L = envI("NK_GPT_L", 4);
+        printf("Modèle GPT : T=%lld, d=%lld, têtes=%lld, couches=%lld, batch=%lld  (AdamW, GPU-résident)\n\n",
+               (long long)T,(long long)d,(long long)H,(long long)L,(long long)B);
+    }
+
+    // ---- Construction + (chargement des poids | init aléatoire) ----
     nn::NkGPT gpt((uint32)V, (uint32)d, (uint32)H, (uint32)L, (uint32)T, 1234u);
     NkVector<NkVar> params; gpt.Parameters(params);
+    if (envLoad) {
+        if (!LoadCheckpointWeights(envLoad, params)) { printf("Poids du checkpoint incompatibles avec les dims.\n"); return 2; }
+        printf("Poids rechargés (%u tenseurs).\n", params.Size());
+    }
     if (useGpu) for (uint32 i = 0; i < params.Size(); ++i) params[i].SetValue(params[i].Value().ToGPU());
-    optim::NkAdam adam(params, 3e-4f, 0.9f, 0.999f, 1e-8f, /*weightDecay=AdamW*/ 0.01f);
 
     // RNG déterministe (LCG) pour échantillonner batches et génération.
     uint64 rng = 0x9E3779B97F4A7C15ull;
@@ -164,7 +249,19 @@ int main() {
         return out;
     };
 
+    const int GENLEN = (int)envI("NK_GPT_GENLEN", 400);
+
+    // ---- Mode CHARGEMENT : on génère et on sort (aucun entraînement) ----
+    if (envLoad) {
+        printf("\n=== TEXTE GÉNÉRÉ (amorce « %s », %d car., temp 0.8) ===\n", seed.c_str(), GENLEN);
+        printf("%s\n", generate(seed, GENLEN, 0.8).c_str());
+        printf("=========================================================\n");
+        gpu.Shutdown();
+        return 0;
+    }
+
     // ---- Brique 10 : entraînement ----
+    optim::NkAdam adam(params, 3e-4f, 0.9f, 0.999f, 1e-8f, /*weightDecay=AdamW*/ 0.01f);
     const char* envs = getenv("NK_GPT_STEPS");
     const int STEPS = envs ? atoi(envs) : 300;
     printf("-- Entraînement (%d pas) --\n", STEPS);
@@ -179,16 +276,23 @@ int main() {
         ema = (s == 1) ? lv : 0.98 * ema + 0.02 * lv;
         if (s % 25 == 0 || s == 1) printf("  pas %4d : perte = %.4f  (moy. %.4f)\n", s, lv, ema);
         if (s % 100 == 0) {
-            std::string g = generate("Le ", 160, 0.8);
+            std::string g = generate(seed, 160, 0.8);
             printf("    --- échantillon (pas %d) ---\n    %s\n    ---------------------------\n", s, g.c_str());
         }
     }
     auto t1 = std::chrono::high_resolution_clock::now();
     printf("Entraînement terminé en %.1f s (%s).\n", std::chrono::duration<double>(t1 - t0).count(), useGpu ? "GPU-résident" : "CPU");
 
+    // ---- Sauvegarde du modèle (si NK_GPT_SAVE) ----
+    if (envSave) {
+        GptMeta meta; meta.V = V; meta.d = (int32)d; meta.H = (int32)H; meta.L = (int32)L; meta.T = (int32)T; meta.itos = itos;
+        if (SaveCheckpoint(envSave, meta, params)) printf("Modèle sauvegardé : %s\n", envSave);
+        else                                       printf("Échec de la sauvegarde : %s\n", envSave);
+    }
+
     // ---- Génération finale ----
-    printf("\n=== TEXTE GÉNÉRÉ (amorce « Le », 400 car., temp 0.8) ===\n");
-    printf("%s\n", generate("Le ", 400, 0.8).c_str());
+    printf("\n=== TEXTE GÉNÉRÉ (amorce « %s », %d car., temp 0.8) ===\n", seed.c_str(), GENLEN);
+    printf("%s\n", generate(seed, GENLEN, 0.8).c_str());
     printf("=========================================================\n");
 
     bool ok = ema < 3.0;   // la perte a nettement baissé depuis ~ln(V)
