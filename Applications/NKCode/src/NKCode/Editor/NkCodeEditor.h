@@ -168,7 +168,7 @@ namespace nkcode {
             redoU.Clear();
             lastEdit = kind;
         }
-        void ResetEditRun() { lastEdit = 0; lineSelAnchor = -1; acOpen = false; }   // déplacement curseur : nouveau groupe undo + reset sélection-ligne + ferme l'autocomplétion
+        void ResetEditRun() { lastEdit = 0; lineSelAnchor = -1; acOpen = false; extraCarets.Clear(); }   // déplacement curseur : nouveau groupe undo + reset sélection-ligne + ferme l'autocomplétion + réduit à 1 curseur
         void Undo() {
             if (undoU.Empty()) return;
             redoU.PushBack({ GetText(), curLine, curCol });
@@ -239,6 +239,70 @@ namespace nkcode {
             FindRecompute(); findCur = -1; Collapse();
         }
         void FindClose() { findOpen = false; findCur = -1; findLine.Clear(); findCol.Clear(); findSig = -1; }
+
+        // ── Multi-curseur (Ctrl+D façon VSCode) ───────────────────────────────────
+        // Curseurs SECONDAIRES (le primaire reste curLine/curCol/sel). Rangés du haut
+        // vers le bas ; les éditions s'appliquent à TOUS, du BAS vers le HAUT (préserve
+        // les positions). Un mouvement de curseur / clic / Échap réduit à un seul curseur.
+        struct Caret { int32 sl, sc, cl, cc; };
+        NkVector<Caret> extraCarets;
+        bool McActive() const { return !extraCarets.Empty(); }
+        void McClear() { extraCarets.Clear(); }
+        static bool McIsW(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'; }
+        // Applique `edit` (opère sur le primaire) à chaque curseur, bas -> haut.
+        template <class F> void McForEach(F edit) {
+            const Caret prim = { selLine, selCol, curLine, curCol };
+            for (int32 i = static_cast<int32>(extraCarets.Size()) - 1; i >= 0; --i) {
+                Caret& c = extraCarets[i];
+                selLine = c.sl; selCol = c.sc; curLine = c.cl; curCol = c.cc; ClampCursor();
+                edit();
+                c.sl = selLine; c.sc = selCol; c.cl = curLine; c.cc = curCol;
+            }
+            selLine = prim.sl; selCol = prim.sc; curLine = prim.cl; curCol = prim.cc; ClampCursor();
+            edit();
+        }
+        // Ctrl+D : 1er appui = sélectionne le mot sous le curseur ; suivants = ajoute la
+        // prochaine occurrence du texte sélectionné (MONO-ligne) comme curseur additionnel.
+        void SelectWordOrAddNext() {
+            if (!HasSel()) {
+                const NkCodeLine& L = lines[curLine]; int32 a = curCol, b = curCol;
+                while (a > 0 && McIsW(L[a - 1])) --a;
+                while (b < static_cast<int32>(L.Size()) && McIsW(L[b])) ++b;
+                if (b > a) { selLine = curLine; selCol = a; curCol = b; }   // curLine inchangé
+                return;
+            }
+            int32 aL, aC, bL, bC; SelRange(aL, aC, bL, bC);
+            if (aL != bL) return;                                  // sélection multi-ligne -> pas d'ajout
+            const int32 wn = bC - aC; if (wn <= 0) return;
+            char needle[256]; if (wn >= 256) return;
+            for (int32 k = 0; k < wn; ++k) needle[k] = lines[aL][aC + k];
+            // point de départ = APRÈS le dernier curseur (le plus bas)
+            int32 fromL = bL, fromC = bC;
+            if (!extraCarets.Empty()) { fromL = extraCarets.Back().cl; fromC = extraCarets.Back().cc; }
+            auto matchAt = [&](int32 l, int32 c) -> bool {
+                const NkCodeLine& L = lines[l]; if (c + wn > static_cast<int32>(L.Size())) return false;
+                for (int32 k = 0; k < wn; ++k) if (L[c + k] != needle[k]) return false; return true;
+            };
+            const int32 nLines = LineCount();
+            for (int32 step = 0; step <= nLines; ++step) {         // balayage avec bouclage
+                int32 l = fromL, cStart = (step == 0) ? fromC : 0;
+                if (step > 0) l = (fromL + step) % nLines;
+                const int32 n = static_cast<int32>(lines[l].Size());
+                for (int32 c = cStart; c + wn <= n; ++c) {
+                    if (!matchAt(l, c)) continue;
+                    if (l == aL && c == aC) continue;              // saute la sélection primaire
+                    bool dup = false; for (usize e = 0; e < extraCarets.Size(); ++e) if (extraCarets[e].cl == l && extraCarets[e].sc == c) { dup = true; break; }
+                    if (dup) continue;
+                    extraCarets.PushBack({ l, c, l, c + wn }); wantReveal = true; return;
+                }
+            }
+        }
+        // Éditions « multi » : appliquent à tous les curseurs si actif, sinon au seul primaire.
+        void McType(char c)             { if (McActive()) McForEach([&] { InsertChar(c); });    else InsertChar(c); }
+        void McBackspace()              { if (McActive()) McForEach([&] { Backspace(); });      else Backspace(); }
+        void McDeleteFwd()              { if (McActive()) McForEach([&] { DeleteFwd(); });      else DeleteFwd(); }
+        void McNewline()                { if (McActive()) McForEach([&] { InsertNewline(); });  else InsertNewline(); }
+        void McInsertText(const char* s){ if (McActive()) McForEach([&] { InsertText(s); });    else InsertText(s); }
         // ── Index de symboles (coloration sémantique) : rebuild paresseux si le contenu change ──
         static int32 SymCmp(const char* a, const char* b) { while (*a && *a == *b) { ++a; ++b; } return (int32)(unsigned char)*a - (int32)(unsigned char)*b; }
         static bool  IsWChar(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'; }
@@ -783,13 +847,20 @@ namespace nkcode {
         }
         if (!ctrlLink && ctx.input.mouseClicked[0] && overText) {
             NkCodeFocusId() = id;
-            ctx.activeId = dragId;
             int32 l = static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH);
             if (l < 0) l = 0; if (l >= d.LineCount()) l = d.LineCount() - 1;
             const int32 c = ColAtX(ctx, d, l, mouse.x - textLeft + d.scrollX);
-            d.curLine = l; d.curCol = c;
-            d.lineSelAnchor = -1;             // clic -> réinitialise la sélection-ligne Ctrl+L
-            if (!ctx.input.shiftDown) d.Collapse();
+            if (ctx.input.altDown) {
+                // Alt+clic : AJOUTE un curseur à la position cliquée (multi-curseur).
+                d.extraCarets.PushBack({ d.selLine, d.selCol, d.curLine, d.curCol });   // l'ancien primaire devient secondaire
+                d.curLine = l; d.curCol = c; d.Collapse(); d.lineSelAnchor = -1;
+            } else {
+                ctx.activeId = dragId;
+                d.extraCarets.Clear();        // clic simple -> un seul curseur
+                d.curLine = l; d.curCol = c;
+                d.lineSelAnchor = -1;         // clic -> réinitialise la sélection-ligne Ctrl+L
+                if (!ctx.input.shiftDown) d.Collapse();
+            }
         }
         // Glisser : etend la selection.
         if (ctx.activeId == dragId && ctx.input.mouseDown[0]) {
@@ -836,12 +907,14 @@ namespace nkcode {
                 if (ctx.input.KeyPressed(NkGuiKey::Escape))     { d.acOpen = false; acEat = true; }
                 if (!ctrl && !alt && (ctx.input.KeyPressed(NkGuiKey::Enter) || ctx.input.KeyPressedRepeat(NkGuiKey::Tab))) { d.AcceptAutocomplete(); acEat = true; changed = true; }
             }
+            // Échap (hors autocomplétion) : réduit un multi-curseur à un seul.
+            if (!acEat && d.McActive() && ctx.input.KeyPressed(NkGuiKey::Escape)) { d.McClear(); acEat = true; }
             // Saisie texte.
             if (!ctx.input.ctrlDown) {
                 bool typed = false;
                 for (int32 i = 0; i < ctx.input.charCount; ++i) {
                     const uint32 cp = ctx.input.chars[i];
-                    if (cp >= 32 && cp < 127) { if (!typed) { d.Checkpoint(1); typed = true; } d.InsertChar(static_cast<char>(cp)); changed = true; acTyped = true; }
+                    if (cp >= 32 && cp < 127) { if (!typed) { d.Checkpoint(1); typed = true; } d.McType(static_cast<char>(cp)); changed = true; acTyped = true; }
                 }
             }
             // Tab arrive par ÉVÉNEMENT TOUCHE (0x09 est filtré au niveau WM_CHAR) :
@@ -855,9 +928,9 @@ namespace nkcode {
             }
             // Touches d'edition (avec repetition au maintien).
             auto K = [&](NkGuiKey k) { return ctx.input.KeyPressedRepeat(k); };
-            if (!acEat && !ctrl && K(NkGuiKey::Enter)) { d.Checkpoint(3); d.InsertNewline(); changed = true; }
-            if (K(NkGuiKey::Backspace)) { d.Checkpoint(2); d.Backspace();     changed = true; acTyped = true; }
-            if (K(NkGuiKey::Delete))    { d.Checkpoint(2); d.DeleteFwd();     changed = true; }
+            if (!acEat && !ctrl && K(NkGuiKey::Enter)) { d.Checkpoint(3); d.McNewline(); changed = true; }
+            if (K(NkGuiKey::Backspace)) { d.Checkpoint(2); d.McBackspace();   changed = true; acTyped = true; }
+            if (K(NkGuiKey::Delete))    { d.Checkpoint(2); d.McDeleteFwd();   changed = true; }
             if (K(NkGuiKey::Left)) {
                 d.ResetEditRun();
                 if (d.curCol > 0) --d.curCol;
@@ -882,6 +955,7 @@ namespace nkcode {
             if (ctrl && !alt) {
                 if (K(NkGuiKey::Z)) { if (shift) d.Redo(); else d.Undo(); changed = true; }      // Ctrl+Z undo / Ctrl+Maj+Z redo
                 if (K(NkGuiKey::Y)) { d.Redo(); changed = true; }                                // Ctrl+Y redo
+                if (!shift && K(NkGuiKey::D)) { d.SelectWordOrAddNext(); changed = true; }        // Ctrl+D = mot puis occurrence suivante (multi-curseur)
                 if (shift && K(NkGuiKey::K)) { d.Checkpoint(3); d.DeleteLines(); changed = true; }   // Ctrl+Maj+K = supprimer ligne
                 if (!shift && K(NkGuiKey::L)) { d.SelectCurrentLine(); }                         // Ctrl+L = sélectionner ligne (étend au répété)
                 if (K(NkGuiKey::Enter)) { d.Checkpoint(3); if (shift) d.InsertLineAbove(); else d.InsertLineBelow(); changed = true; }  // Ctrl+Entrée / Ctrl+Maj+Entrée
@@ -904,7 +978,7 @@ namespace nkcode {
             }
             if (ctx.input.wantPaste) {
                 const NkString clip = ctx.GetClipboard();
-                if (!clip.Empty()) { d.Checkpoint(3); d.InsertText(clip.CStr()); changed = true; }
+                if (!clip.Empty()) { d.Checkpoint(3); d.McInsertText(clip.CStr()); changed = true; }
             }
             // ── Recalcule l'autocomplétion après une frappe/effacement réel (identifiant) ──
             if (acTyped && lang != NkLang::None && d.curLine < d.LineCount()) {
@@ -1074,6 +1148,21 @@ namespace nkcode {
             const float32 cx = textLeft + PrefixW(ctx, d, d.curLine, d.curCol) - d.scrollX;
             const float32 cy = textTop + d.curLine * lineH - d.scrollY;
             dl.AddLine({ cx, cy + 1.f }, { cx, cy + lineH - 1.f }, kCaret, 1.5f);
+        }
+        // Curseurs SECONDAIRES (multi-curseur Ctrl+D / Alt+clic) : sélection + caret pour chacun.
+        if (focused) for (usize e = 0; e < d.extraCarets.Size(); ++e) {
+            NkCodeDoc::Caret c = d.extraCarets[e];
+            if (c.cl < 0 || c.cl >= d.LineCount()) continue;
+            const int32 llen = d.LineLen(c.cl); if (c.cc > llen) c.cc = llen; if (c.sc > llen) c.sc = llen;
+            if (c.sl == c.cl && c.sc != c.cc) {   // sélection (mono-ligne)
+                const int32 lo = c.sc < c.cc ? c.sc : c.cc, hi = c.sc < c.cc ? c.cc : c.sc;
+                const float32 sx0 = textLeft + PrefixW(ctx, d, c.cl, lo) - d.scrollX;
+                const float32 sx1 = textLeft + PrefixW(ctx, d, c.cl, hi) - d.scrollX;
+                dl.AddRectFilled({ sx0, textTop + c.cl * lineH - d.scrollY, sx1 - sx0, lineH }, kSel);
+            }
+            const float32 ecx = textLeft + PrefixW(ctx, d, c.cl, c.cc) - d.scrollX;
+            const float32 ecy = textTop + c.cl * lineH - d.scrollY;
+            dl.AddLine({ ecx, ecy + 1.f }, { ecx, ecy + lineH - 1.f }, kCaret, 1.5f);
         }
         dl.PopClipRect();
 
