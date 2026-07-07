@@ -45,6 +45,11 @@ namespace nkentseu {
             bool          blendEnable = false;
             NkBlendFactor srcColor    = NkBlendFactor::NK_SRC_ALPHA;
             NkBlendFactor dstColor    = NkBlendFactor::NK_ONE_MINUS_SRC_ALPHA;
+            // Render target couleur FLOAT (HDR RGBA32F, 16 o/px, ordre RGBA) : le fragment écrit
+            // ses valeurs linéaires SANS clamp [0,1] → le tonemap lit le vrai HDR. Défaut = false
+            // (chemin 8-bit BGRA historique, SIMD, strictement inchangé).
+            bool          colorFloat  = false;
+            uint32        colorBpp    = 4u;      // octets/pixel du color buffer (4=RGBA8, 16=RGBA32F)
         };
 
         // Batch de textures (aligné sur swfast::NkSWTextureBatch : tex[]+count)
@@ -193,6 +198,23 @@ namespace nkentseu {
                 const uint8 b8=(uint8)(Clamp01(sb)*255.f+.5f), a8=(uint8)(Clamp01(sa)*255.f+.5f);
                 if (a8 == 255u)     sw_detail::StorePixel(p, r8, g8, b8, a8);
                 else if (a8 > 0u)   sw_detail::BlendPixel(p, r8, g8, b8, a8);
+            }
+        }
+
+        // Variante FLOAT (RT HDR RGBA32F, ordre RGBA) : écrit les valeurs linéaires SANS clamp
+        // → conserve le HDR (>1.0) pour le tonemap. Blend en float. fp pointe sur 4 float32.
+        static inline void OutputPixelF(float32* fp, const NkSWRenderState& st,
+                                        float32 sr, float32 sg, float32 sb, float32 sa) {
+            if (st.blendEnable) {
+                const float32 dr=fp[0], dg=fp[1], db=fp[2], da=fp[3];
+                float32 sfr,sfg,sfb,sfa, dfr,dfg,dfb,dfa;
+                BlendFactor(st.srcColor, sr,sg,sb,sa, dr,dg,db,da, sfr,sfg,sfb,sfa);
+                BlendFactor(st.dstColor, sr,sg,sb,sa, dr,dg,db,da, dfr,dfg,dfb,dfa);
+                fp[0]=sr*sfr+dr*dfr; fp[1]=sg*sfg+dg*dfg; fp[2]=sb*sfb+db*dfb; fp[3]=sa*sfa+da*dfa;  // pas de Clamp01 (HDR)
+            } else {
+                if (sa >= 1.f)      { fp[0]=sr; fp[1]=sg; fp[2]=sb; fp[3]=sa; }
+                else if (sa > 0.f)  { const float32 inv=1.f-sa;
+                    fp[0]=sr*sa+fp[0]*inv; fp[1]=sg*sa+fp[1]*inv; fp[2]=sb*sa+fp[2]*inv; fp[3]=sa+fp[3]*inv; }
             }
         }
 
@@ -352,7 +374,7 @@ namespace nkentseu {
             for (int32 y = yMin; y <= yMax; ++y) {
                 const float32 py = (float32)y + 0.5f;
                 float32* depthRow = hasDepth ? (depthBuf + (uint32)y * W) : nullptr;
-                uint8*   colorRow = depthOnly ? nullptr : (colorBuf + (uint32)y * W * 4u);
+                uint8*   colorRow = depthOnly ? nullptr : (colorBuf + (uint32)y * W * st.colorBpp);
 
                 float32 e0 = A0*fxMin + B0*py + C0;
                 float32 e1 = A1*fxMin + B1*py + C1;
@@ -382,7 +404,7 @@ namespace nkentseu {
                     const float32 iw0 = w0 * v0->invW, iw1 = w1 * v1->invW, iw2 = w2 * v2->invW;
                     const float32 invSum = 1.f / (iw0 + iw1 + iw2);
 
-                    uint8* p = colorRow + x * 4;
+                    uint8* p = colorRow + x * st.colorBpp;
                     float32 or_, og, ob, oa;
 
                     if (hasShader) {
@@ -430,7 +452,8 @@ namespace nkentseu {
                     }
 
                     if (depthRow && st.depthWrite) depthRow[x] = z;
-                    OutputPixel(p, st, or_, og, ob, oa);
+                    if (st.colorFloat) OutputPixelF((float32*)p, st, or_, og, ob, oa);
+                    else               OutputPixel(p, st, or_, og, ob, oa);
                 }
             }
         }

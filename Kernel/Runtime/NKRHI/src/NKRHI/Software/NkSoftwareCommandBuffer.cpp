@@ -176,9 +176,16 @@ namespace nkentseu {
                     clearDepth = (rpp->desc.depthAttachment.loadOp != NkLoadOp::NK_LOAD);
             }
 
-            // ── Clear couleur SIMD ────────────────────────────────────────────────────
+            // ── Clear couleur ─────────────────────────────────────────────────────────
             if (clearColor && color && !color->mips.Empty()) {
-                swfast::FastClearColor(color->mips[0].Data(), color->Width(), color->Height(), cr, cg, cb, ca);
+                if (color->desc.format == NkGPUFormat::NK_RGBA32_FLOAT) {   // RT HDR float (ordre RGBA)
+                    float* fp = (float*)color->mips[0].Data();
+                    const float fr=cr/255.f, fg=cg/255.f, fb=cb/255.f, fa=ca/255.f;
+                    const uint32 n = color->Width() * color->Height();
+                    for (uint32 i=0;i<n;++i){ fp[i*4+0]=fr; fp[i*4+1]=fg; fp[i*4+2]=fb; fp[i*4+3]=fa; }
+                } else {
+                    swfast::FastClearColor(color->mips[0].Data(), color->Width(), color->Height(), cr, cg, cb, ca);
+                }
             }
 
             // ── Clear depth ───────────────────────────────────────────────────────────
