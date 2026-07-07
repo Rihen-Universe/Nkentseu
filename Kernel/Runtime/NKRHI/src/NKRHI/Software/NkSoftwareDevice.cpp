@@ -1034,6 +1034,34 @@ namespace nkentseu {
                     if(tx<0)tx=0; if(tx>=(int)sw)tx=(int)sw-1; if(ty<0)ty=0; if(ty>=(int)shh)ty=(int)shh-1;
                     NkSWColor c = src->Read((uint32)tx,(uint32)ty,0);
                     if (!isTonemap) return { c.r, c.g, c.b, c.a };  // FXAA/Bloom : copie directe
+                    // ── BLOOM (approximation 1-passe, auto-contenu). La chaîne Dual-Kawase (12 passes)
+                    // est skippée en software ; à la place on échantillonne le HDR autour du pixel sur
+                    // 2 anneaux (16 taps nearest), on extrait la partie brillante (luma > seuil) et on
+                    // l'ajoute au HDR AVANT l'ACES → halo autour des point lights / hautes lumières.
+                    // N'a d'effet que grâce au RT float HDR (valeurs > 1). Toggle NK_SW_NOBLOOM=1.
+                    static const bool s_noBloom = [](){ const char* e=std::getenv("NK_SW_NOBLOOM"); return e && e[0]=='1'; }();
+                    if (!s_noBloom) {
+                        auto readUV = [&](float u, float v)->NkSWColor {
+                            int x=(int)(u*sw), y=(int)(v*shh);
+                            if(x<0)x=0; if(x>=(int)sw)x=(int)sw-1; if(y<0)y=0; if(y>=(int)shh)y=(int)shh-1;
+                            return src->Read((uint32)x,(uint32)y,0); };
+                        const float TH = 2.2f;                  // seuil bright-pass (ne blooomer que les vraies hautes lumières)
+                        const float radii[2] = { 0.006f, 0.014f };
+                        const float rw[2]    = { 1.0f,   0.5f };
+                        float br=0.f,bg=0.f,bb=0.f, wsum=0.f;
+                        for (int ri=0; ri<2; ++ri) {
+                            for (int i=0;i<8;++i) {
+                                const float ang = ((float)i + (ri?0.5f:0.f)) * 0.7853981634f;
+                                NkSWColor bc = readUV(f.uv.x + std::cos(ang)*radii[ri],
+                                                      f.uv.y + std::sin(ang)*radii[ri]);
+                                const float lum = bc.r*0.299f + bc.g*0.587f + bc.b*0.114f;
+                                if (lum > TH) { const float k = (lum - TH) * rw[ri];
+                                    br += bc.r*k; bg += bc.g*k; bb += bc.b*k; wsum += rw[ri]; }
+                            }
+                        }
+                        if (wsum > 0.f) { const float inv = 1.f/wsum, strength = 0.45f;
+                            c.r += br*inv*strength; c.g += bg*inv*strength; c.b += bb*inv*strength; }
+                    }
                     // Tonemap : ACES + exposure/gamma depuis les push constants PC[0]=(exposure,gamma,..).
                     // Bornés à des plages saines : des push constants absentes/garbage sur-exposaient
                     // le fond (clear sombre {0.05} -> lavande).
