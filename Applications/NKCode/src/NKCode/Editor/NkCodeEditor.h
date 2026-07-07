@@ -1252,6 +1252,10 @@ namespace nkcode {
             float32 rx = bx + pad, ry = by + ctx.S(5.f);
             const float32 queryW = barW - pad * 2.f - countW - btnW * 4.f - gap * 4.f;
             tfield(rx, ry, queryW, d.findQuery, "Rechercher", 0);
+            // TEMPS RÉEL : le champ vient d'être édité (NkOverlayTextField). Si la requête a
+            // changé, on recalcule MAINTENANT (occurrences en ordre ligne par ligne) et on saute
+            // à la 1ʳᵉ occurrence >= curseur -> compteur + surlignage à jour dès la frappe.
+            if (d.findSig != d.FindSigOf()) { d.FindRecompute(); d.findCur = -1; d.FindNext(true); changed = true; }
             float32 cx2 = rx + queryW + gap;
             char cnt[32];
             if (d.FindCount() == 0) { cnt[0] = (d.findQuery[0] == '\0') ? '\0' : '0'; cnt[1] = '\0'; }
