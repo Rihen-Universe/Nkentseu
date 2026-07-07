@@ -20,6 +20,44 @@ le moteur** (agents, civilisation, génération d'assets), pas la course au comp
 
 ---
 
+## 🧠 Modélisation par IA (depuis 2026-07-07) — l'IA qui MODÉLISE
+
+**Vision (Rihen)** : un modèle qui, après apprentissage, **modélise en 3D** à partir d'une
+**image**, d'un **texte**, ou de **sessions `.nkmec`** — et propose un modèle 3D qui « cadre ».
+C'est de l'**image-to-3D / text-to-3D** *incarné dans le moteur* : la sortie n'est pas un
+maillage opaque mais une **suite de commandes d'édition** (notre couche `NkMeshEditCommand`)
+qui construit la forme. Le **même squelette** (observation → policy → action) se rebranche sur
+**NkAnima** (obs = squelette/pose, actions = commandes de pose/IK → auto-pose façon Cascadeur).
+
+**Architecture générique agent ↔ système :**
+```
+CONDITION (image / texte / forme cible) ─┐
+                                          ├─► POLICY (réseau NKAI) ─► ACTION (commande) ─► le maillage grandit
+ÉTAT COURANT (observation encodée) ──────┘
+```
+- **Espace d'actions** = les commandes d'édition (`NkMeshEditCommand`, éditeur NKRenderer/Mesh).
+- **Données** = les sessions `.nkmec` (journal de commandes sérialisé) → apprentissage par imitation.
+- **Socle ML** = la pile from-scratch NKAI (NKTensor/NKNN/NKOptim/NKData/NKTrain).
+
+**Étapes (chaque étape = fondation de la suivante) :**
+1. ✅ **obs → policy → action (imitation d'un expert heuristique)** — livré : app
+   **`NKMeshAITest`** (`Applications/NKMeshAITest/`). Encode `NkEditMesh → features` (nb
+   sommets/faces vivantes, bbox, aplatissement, asymétrie), un **expert heuristique** choisit
+   l'action (Subdiv/Extrude/Mirror/Array), un **MLP NKNN** apprend à l'imiter : **73.8% → 99.5%**
+   entraînement, **98.8% sur données jamais vues** (4 classes, from-scratch, petite échelle).
+2. ⬜ **Apprendre depuis de VRAIES sessions `.nkmec`** (imitation humaine) — désérialiser le
+   journal → paires (état avant commande, commande) → entraîner à prédire l'action + ses params.
+3. ⬜ **Conditionnement CIBLE** (forme visée) → modéliser **vers un but** (RL via NKRL, ou
+   imitation conditionnée) : reward = distance à la cible.
+4. ⬜ **Encodeur IMAGE / TEXTE** en conditionnement → la vision complète (image/texte → 3D).
+5. ⬜ **Rebranchement NkAnima** : action space = commandes de pose/IK, obs = squelette.
+
+⚠️ **Honnêteté** : from-scratch, **petite échelle, pédagogique** — « j'apprends à un agent à
+imiter des gestes de modélisation », jamais « text-to-3D frontière ». Chaque étape = publication
++ article (cf. section Communication).
+
+---
+
 ## Phase 0 — Mise en place
 
 - ✅ Intégration Jenga (`NKTensor.jenga` + registre `config/modules.jenga` + workspace),
