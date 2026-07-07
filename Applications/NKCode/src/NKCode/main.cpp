@@ -154,6 +154,7 @@ int nkmain(const NkEntryState& state) {
     shell->SetToolbar(&ToolbarThunk, &g_state);   // barre d'outils Visual Studio
     g_zoomCtx = { &g_state, shell.Get() };
     shell->SetZoomHandler(&ZoomHandler, &g_zoomCtx);   // zoom Ctrl+molette/±/0 -> onglet actif
+    terminal.mShell = shell.Get();                     // police propre du terminal (non zoomee)
     g_dialogs.st    = &g_state;
     g_dialogs.shell = shell.Get();
     g_state.LoadRecents();                           // workspaces recents (ecran de demarrage)

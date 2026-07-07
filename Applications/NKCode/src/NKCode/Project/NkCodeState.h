@@ -77,6 +77,10 @@ namespace nkcode {
                 if (StrEq(files[i].path.ToString().CStr(), ps.CStr())) { active = static_cast<int32>(i); return; }
 
             const NkString content = NkFile::ReadAllText(p);
+            // GARDE-FOU anti perte de donnees : le fichier existe et est NON VIDE sur disque,
+            // mais on lit un contenu VIDE (echec de lecture / verrou / chemin foireux) -> NE PAS
+            // ouvrir un onglet vide (un Ctrl+S l'ecraserait). On abandonne l'ouverture.
+            if (content.Empty() && NkFile::GetFileSize(p) > 0) return;
             OpenFile f; f.path = p;
             f.doc.SetText(content.CStr());
             f.diskMtime = MTimeOf(p.ToString().CStr());   // référence pour la détection de changement externe
@@ -587,17 +591,19 @@ namespace nkcode {
             int64 h = static_cast<int64>(1469598103934665603ULL);
             auto mix = [&](int64 v){ h = (h ^ static_cast<uint64>(v)) * 1099511628211LL; };
             mix(active); mix(static_cast<int64>(files.Size()));
-            for (usize i = 0; i < files.Size(); ++i) { OpenFile& f = files[i]; for (const char* p = f.path.ToString().CStr(); *p; ++p) h = (h ^ (unsigned char)*p) * 1099511628211LL; mix(f.doc.curLine); mix(f.doc.curCol); mix(f.pinned ? 1 : 0); mix(f.doc.dirty ? f.doc.SymSig() : 7); }
+            for (usize i = 0; i < files.Size(); ++i) { OpenFile& f = files[i]; for (const char* p = f.path.ToString().CStr(); *p; ++p) h = (h ^ (unsigned char)*p) * 1099511628211LL; mix(f.doc.curLine); mix(f.doc.curCol); mix(f.pinned ? 1 : 0); mix(static_cast<int32>(f.codeZoom)); mix(f.doc.dirty ? f.doc.SymSig() : 7); }
             return h;
         }
         void SaveSession() {
             if (!HasWorkspace()) return;
             NkPath dir = root / ".nkcode"; NkDirectory::CreateRecursive(dir);
-            NkString s = NkString("nksession/1\nactive ") + IntToStr(active).CStr() + "\n";
+            NkString s = NkString("nksession/2\nactive ") + IntToStr(active).CStr() + "\n";
             for (usize i = 0; i < files.Size(); ++i) {
                 OpenFile& f = files[i]; const int32 dy = f.doc.dirty ? 1 : 0;
                 s += "F "; s += IntToStr(f.doc.curLine).CStr(); s += " "; s += IntToStr(f.doc.curCol).CStr(); s += " ";
-                s += IntToStr(f.pinned ? 1 : 0).CStr(); s += " "; s += IntToStr(dy).CStr(); s += " "; s += f.path.ToString(); s += "\n";
+                s += IntToStr(f.pinned ? 1 : 0).CStr(); s += " "; s += IntToStr(dy).CStr(); s += " ";
+                s += IntToStr(static_cast<int32>(f.codeZoom + 0.5f)).CStr(); s += " ";   // v2 : zoom par onglet (0 = global)
+                s += f.path.ToString(); s += "\n";
                 if (dy) NkFile::WriteAllText(dir / (NkString("bak") + IntToStr(static_cast<int32>(i)).CStr() + ".txt").CStr(), f.doc.GetText());
             }
             NkFile::WriteAllText(dir / "session.nk", s);
@@ -606,27 +612,34 @@ namespace nkcode {
             NkPath sf = root / ".nkcode" / "session.nk";
             if (!NkFile::Exists(sf)) return;
             const NkString raw = NkFile::ReadAllText(sf);
-            struct Ent { NkString path; int32 cl, cc, pin, dy; };
-            NkVector<Ent> ents; int32 savedActive = 0;
+            struct Ent { NkString path; int32 cl, cc, pin, dy, zoom; };
+            NkVector<Ent> ents; int32 savedActive = 0; int32 ver = 1;
             const char* p = raw.CStr(); static char line[65536];
             auto nextField = [](const char*& q){ while (*q == ' ') ++q; bool neg = false; if (*q == '-') { neg = true; ++q; } int32 v = 0; while (*q >= '0' && *q <= '9') { v = v * 10 + (*q - '0'); ++q; } return neg ? -v : v; };
             while (*p) {
                 int32 n = 0; while (*p && *p != '\n' && *p != '\r' && n < 65535) line[n++] = *p++; line[n] = 0; while (*p == '\n' || *p == '\r') ++p;
-                if (line[0] == 'a' && line[1] == 'c') { const char* q = line + 6; savedActive = nextField(q); }
+                if (line[0] == 'n' && line[1] == 'k' && line[2] == 's') { const char* q = line; while (*q && *q != '/') ++q; if (*q == '/') { ++q; ver = nextField(q); } }   // "nksession/N"
+                else if (line[0] == 'a' && line[1] == 'c') { const char* q = line + 6; savedActive = nextField(q); }
                 else if (line[0] == 'F' && line[1] == ' ') {
                     const char* q = line + 2; const int32 cl = nextField(q), cc = nextField(q), pin = nextField(q), dy = nextField(q);
-                    while (*q == ' ') ++q; ents.PushBack(Ent{ NkString(q), cl, cc, pin, dy });
+                    const int32 zoom = (ver >= 2) ? nextField(q) : 0;   // champ zoom present depuis v2
+                    while (*q == ' ') ++q; ents.PushBack(Ent{ NkString(q), cl, cc, pin, dy, zoom });
                 }
             }
             if (ents.Empty()) return;
             files.Clear(); active = -1;
             for (usize k = 0; k < ents.Size(); ++k) {
                 Ent& e = ents[k];
+                // Robustesse : une entree dont le fichier n'existe PAS sur disque et qui n'a
+                // pas de contenu non-sauvegarde (bak) est ignoree -> evite les onglets VIDES
+                // issus d'une session empoisonnee (chemins corrompus). Auto-nettoyage au prochain SaveSession.
+                if (!e.dy && !NkFile::Exists(NkPath(e.path))) continue;
                 OpenPath(NkPath(e.path));
                 if (active < 0 || active >= static_cast<int32>(files.Size())) continue;
                 OpenFile& g = files[active];
                 if (e.dy) { NkPath bak = root / ".nkcode" / (NkString("bak") + IntToStr(static_cast<int32>(k)).CStr() + ".txt").CStr(); if (NkFile::Exists(bak)) { g.doc.SetText(NkFile::ReadAllText(bak).CStr()); g.doc.dirty = true; } }
                 g.doc.curLine = e.cl; g.doc.curCol = e.cc; g.doc.selLine = e.cl; g.doc.selCol = e.cc; g.doc.ClampCursor(); g.doc.wantReveal = true; g.pinned = (e.pin != 0);
+                g.codeZoom = static_cast<float32>(e.zoom);   // zoom par onglet restaure (0 = global)
             }
             active = (savedActive >= 0 && savedActive < static_cast<int32>(files.Size())) ? savedActive : (files.Empty() ? -1 : 0);
         }
