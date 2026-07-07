@@ -62,7 +62,7 @@ namespace nkcode {
         bool     findReplace = false;        // mode remplacement (champ « Remplacer » en plus)
         bool     findCase = false;           // sensible à la casse
         int32    findFocus = 0;              // champ actif : 0 = Rechercher, 1 = Remplacer
-        NkString findQuery, findRepl;        // termes recherché / de remplacement
+        char     findQuery[256] = {}, findRepl[256] = {};   // termes recherché / remplacement (buffers -> NkOverlayTextField)
         NkVector<int32> findLine, findCol;   // occurrences (arrays parallèles ligne/colonne)
         int32    findCur = -1;              // occurrence courante (surlignée)
         int64    findSig = -1;              // signature (contenu+query+casse) -> invalide le cache
@@ -185,20 +185,21 @@ namespace nkcode {
         }
         // ── Recherche / Remplacement ──────────────────────────────────────────────
         static char FLow(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
+        static int32 FLen(const char* s) { int32 n = 0; while (s[n]) ++n; return n; }
         int64 FindSigOf() const {
             int64 h = SymSig();                                   // contenu du document
-            for (const char* p = findQuery.CStr(); *p; ++p) h = (h ^ static_cast<unsigned char>(*p)) * 1099511628211LL;
+            for (const char* p = findQuery; *p; ++p) h = (h ^ static_cast<unsigned char>(*p)) * 1099511628211LL;
             return (h ^ (findCase ? 1 : 2)) * 1099511628211LL;
         }
         int32 FindCount() const { return static_cast<int32>(findLine.Size()); }
         void FindRecompute() {
             findLine.Clear(); findCol.Clear();
-            const int32 qn = static_cast<int32>(findQuery.Size());
+            const int32 qn = FLen(findQuery);
             if (qn > 0) for (int32 l = 0; l < LineCount(); ++l) {
                 const NkCodeLine& L = lines[l]; const int32 n = static_cast<int32>(L.Size());
                 for (int32 c = 0; c + qn <= n; ++c) {
                     bool ok = true;
-                    for (int32 k = 0; k < qn; ++k) { char a = L[c + k], b = findQuery.CStr()[k]; if (!findCase) { a = FLow(a); b = FLow(b); } if (a != b) { ok = false; break; } }
+                    for (int32 k = 0; k < qn; ++k) { char a = L[c + k], b = findQuery[k]; if (!findCase) { a = FLow(a); b = FLow(b); } if (a != b) { ok = false; break; } }
                     if (ok) { findLine.PushBack(l); findCol.PushBack(c); }
                 }
             }
@@ -208,7 +209,7 @@ namespace nkcode {
         void FindEnsure() { if (findSig != FindSigOf()) FindRecompute(); }
         void FindGoto(int32 i) {   // place curseur + sélection sur l'occurrence (surlignage + révélation réutilisés)
             if (i < 0 || i >= FindCount()) return;
-            findCur = i; const int32 qn = static_cast<int32>(findQuery.Size());
+            findCur = i; const int32 qn = FLen(findQuery);
             selLine = findLine[i]; selCol = findCol[i]; curLine = findLine[i]; curCol = findCol[i] + qn;
             ClampCursor(); wantReveal = true;
         }
@@ -224,16 +225,16 @@ namespace nkcode {
         void ReplaceCurrent() {
             FindEnsure(); if (findCur < 0 || findCur >= FindCount()) { FindNext(true); return; }
             Checkpoint(3);
-            const int32 l = findLine[findCur], c = findCol[findCur], qn = static_cast<int32>(findQuery.Size());
-            selLine = l; selCol = c; curLine = l; curCol = c + qn; EraseSelection(); InsertText(findRepl.CStr());
+            const int32 l = findLine[findCur], c = findCol[findCur], qn = FLen(findQuery);
+            selLine = l; selCol = c; curLine = l; curCol = c + qn; EraseSelection(); InsertText(findRepl);
             FindRecompute(); FindNext(true);
         }
         void ReplaceAll() {
             FindEnsure(); if (FindCount() == 0) return;
             Checkpoint(3);
             for (int32 i = FindCount() - 1; i >= 0; --i) {   // de la FIN vers le DÉBUT : préserve les positions
-                const int32 l = findLine[i], c = findCol[i], qn = static_cast<int32>(findQuery.Size());
-                selLine = l; selCol = c; curLine = l; curCol = c + qn; EraseSelection(); InsertText(findRepl.CStr());
+                const int32 l = findLine[i], c = findCol[i], qn = FLen(findQuery);
+                selLine = l; selCol = c; curLine = l; curCol = c + qn; EraseSelection(); InsertText(findRepl);
             }
             FindRecompute(); findCur = -1; Collapse();
         }
@@ -749,7 +750,12 @@ namespace nkcode {
         // Clic dans la zone texte : focus + place le curseur (+ selection si Shift) + drag.
         // Ignore si un popup (ex. combo ouvert vers le haut) recouvre l'editeur -> sinon
         // le clic sur le popup volerait le focus a l'editeur.
-        const bool overText = InRect(textArea, mouse) && ctx.popupDepth == 0;
+        bool overText = InRect(textArea, mouse) && ctx.popupDepth == 0;
+        if (d.findOpen && ctx.font) {   // la barre de recherche « mange » la souris -> pas de déplacement du caret dessous
+            const float32 _rH = ctx.font->LineHeight() + ctx.S(12.f);
+            const NkRect _br = { area.x + area.w - ctx.S(380.f) - ctx.S(18.f), area.y + ctx.S(8.f), ctx.S(380.f), _rH * (d.findReplace ? 2.f : 1.f) + ctx.S(10.f) };
+            if (InRect(_br, mouse)) overText = false;
+        }
         // ── Ctrl+survol : détecte un lien navigable (chemin d'#include OU identifiant) sous
         //    la souris -> souligné + Ctrl+clic = navigation (item traité par NkCodeState). ──
         int32 linkL = -1, linkC0 = -1, linkC1 = -1; bool linkInc = false;
@@ -806,19 +812,18 @@ namespace nkcode {
             if (ctrl && !alt) {
                 if (ctx.input.KeyPressed(NkGuiKey::F)) {
                     d.findReplace = false; d.findFocus = 0;
-                    if (!d.findOpen && d.HasSel()) { int32 aL, aC, bL, bC; d.SelRange(aL, aC, bL, bC); if (aL == bL) { NkString s; const NkCodeLine& L = d.lines[aL]; for (int32 c = aC; c < bC; ++c) s += L[c]; d.findQuery = s; } }
+                    if (!d.findOpen && d.HasSel()) { int32 aL, aC, bL, bC; d.SelRange(aL, aC, bL, bC); if (aL == bL) { const NkCodeLine& L = d.lines[aL]; int32 j = 0; for (int32 c = aC; c < bC && j < 255; ++c) d.findQuery[j++] = L[c]; d.findQuery[j] = '\0'; } }
                     d.findOpen = true; d.FindRecompute();
                 }
                 if (ctx.input.KeyPressed(NkGuiKey::H)) { d.findOpen = true; d.findReplace = true; d.findFocus = 0; d.FindRecompute(); }
             }
-            if (d.findOpen) {   // la barre capte TOUTE la saisie tant qu'elle est ouverte
-                NkString& fld = (d.findReplace && d.findFocus == 1) ? d.findRepl : d.findQuery;
-                for (int32 i = 0; i < ctx.input.charCount; ++i) { const uint32 cp = ctx.input.chars[i]; if (cp >= 32 && cp < 127) fld += static_cast<char>(cp); }
-                if (ctx.input.KeyPressedRepeat(NkGuiKey::Backspace)) { if (!fld.Empty()) fld.PopBack(); }
+            if (d.findOpen) {   // la barre gèle le document ; l'ÉDITION des champs est faite par NkOverlayTextField (rendu, plus bas)
                 if (ctx.input.KeyPressed(NkGuiKey::Escape)) d.FindClose();
                 if (d.findReplace && ctx.input.KeyPressedRepeat(NkGuiKey::Tab)) d.findFocus ^= 1;
+                // ↑ / ↓ (ou Entrée / Maj+Entrée) = SAUTER à l'occurrence suivante/précédente.
+                if (ctx.input.KeyPressedRepeat(NkGuiKey::Up))   { d.FindEnsure(); d.FindNext(false); changed = true; }
+                if (ctx.input.KeyPressedRepeat(NkGuiKey::Down)) { d.FindEnsure(); d.FindNext(true);  changed = true; }
                 if (ctx.input.KeyPressed(NkGuiKey::Enter)) { d.FindEnsure(); if (d.findReplace && d.findFocus == 1) d.ReplaceCurrent(); else d.FindNext(!shift); changed = true; }
-                d.FindEnsure();
             }
             // ── Autocomplétion ouverte : capte ↑↓ (navigue), Tab/Entrée (accepte), Échap
             //    (ferme) AVANT l'édition normale. `acEat` = touche consommée cette frame. ──
@@ -1214,55 +1219,58 @@ namespace nkcode {
         }
 
         // ── Barre de RECHERCHE / REMPLACEMENT (Ctrl+F / Ctrl+H) : flottante en haut-droite ──
+        //    Champs = NkOverlayTextField (curseur clignotant, sélection, copier/coller partagés). ──
         if (d.findOpen && ctx.font && ctx.font->Face()) {
             const float32 fh = ctx.font->LineHeight(), fasc = ctx.font->Ascent();
-            const float32 rowH = fh + ctx.S(10.f), gap = ctx.S(4.f), pad = ctx.S(6.f);
-            const float32 barW = ctx.S(360.f);
-            const float32 barH = rowH * (d.findReplace ? 2.f : 1.f) + ctx.S(8.f);
-            const float32 bx = area.x + area.w - barW - ctx.S(18.f), by = area.y + ctx.S(6.f);
-            const NkColor panel = { 40, 46, 54, 255 }, fieldBg = { 22, 27, 34, 255 }, brd = { 60, 66, 74, 255 };
-            dl.AddRectFilled({ bx, by, barW, barH }, panel, ctx.S(6.f));
+            const float32 rowH = fh + ctx.S(12.f), gap = ctx.S(5.f), pad = ctx.S(8.f);
+            const float32 barW = ctx.S(380.f);
+            const float32 barH = rowH * (d.findReplace ? 2.f : 1.f) + ctx.S(10.f);
+            const float32 bx = area.x + area.w - barW - ctx.S(18.f), by = area.y + ctx.S(8.f);
+            dl.AddRectFilled({ bx + ctx.S(3.f), by + ctx.S(4.f), barW, barH }, NkColor{ 0, 0, 0, 70 }, ctx.S(7.f));   // ombre portée
+            dl.AddRectFilled({ bx, by, barW, barH }, NkColor{ 37, 43, 51, 255 }, ctx.S(7.f));
             dl.AddRect({ bx, by, barW, barH }, ctx.theme.accent, 1.f);
             const NkVec2 mp = ctx.input.mousePos; const bool clk = ctx.input.mouseClicked[0];
             auto hit = [&](const NkRect& r) { return mp.x >= r.x && mp.x < r.x + r.w && mp.y >= r.y && mp.y < r.y + r.h; };
-            auto btn = [&](float32 x, float32 y, float32 w, const char* lbl, bool on) -> bool {
+            auto btn = [&](float32 x, float32 y, float32 w, const char* lbl, bool on, const char* tip) -> bool {
+                (void)tip;
                 const NkRect r = { x, y, w, rowH - gap };
-                if (on) dl.AddRectFilled(r, ctx.theme.accent, ctx.S(4.f));
-                else if (hit(r)) dl.AddRectFilled(r, ctx.theme.buttonHover, ctx.S(4.f));
+                const bool hv = hit(r);
+                if (on)      dl.AddRectFilled(r, ctx.theme.accent, ctx.S(4.f));
+                else if (hv) dl.AddRectFilled(r, ctx.theme.buttonHover, ctx.S(4.f));
                 const float32 tw = ctx.font->MeasureWidth(lbl);
-                dl.AddText(ctx.font->Face(), ctx.font->TexId(), { r.x + (w - tw) * 0.5f, r.y + (r.h - fh) * 0.5f + fasc }, lbl, ctx.theme.text);
-                return hit(r) && clk;
+                dl.AddText(ctx.font->Face(), ctx.font->TexId(), { r.x + (w - tw) * 0.5f, r.y + (r.h - fh) * 0.5f + fasc }, lbl, on ? NkColor{ 255,255,255,255 } : ctx.theme.text);
+                return hv && clk;
             };
-            auto field = [&](float32 x, float32 y, float32 w, const char* txt, const char* ph, bool foc, int32 idx) {
+            // Champ texte partagé (NkOverlayTextField) + placeholder + focus au clic.
+            auto tfield = [&](float32 x, float32 y, float32 w, char* buf, const char* ph, int32 idx) {
                 const NkRect r = { x, y, w, rowH - gap };
-                dl.AddRectFilled(r, fieldBg, ctx.S(4.f)); dl.AddRect(r, foc ? ctx.theme.accent : brd, 1.f);
-                const bool empty = (txt[0] == '\0');
-                dl.AddText(ctx.font->Face(), ctx.font->TexId(), { r.x + ctx.S(6.f), r.y + (r.h - fh) * 0.5f + fasc }, empty ? ph : txt, empty ? ctx.theme.textDisabled : ctx.theme.text);
-                if (foc && !empty) { const float32 cxx = r.x + ctx.S(6.f) + ctx.font->MeasureWidth(txt); dl.AddRectFilled({ cxx, r.y + ctx.S(3.f), 1.f, r.h - ctx.S(6.f) }, ctx.theme.text); }
+                NkOverlayTextField(ctx, dl, ctx.font, r, buf, 256, d.findFocus == idx);
+                if (buf[0] == '\0') dl.AddText(ctx.font->Face(), ctx.font->TexId(), { r.x + ctx.S(8.f), r.y + (r.h - fh) * 0.5f + fasc }, ph, ctx.theme.textDisabled);
                 if (hit(r) && clk) d.findFocus = idx;
             };
-            const float32 btnW = ctx.S(28.f), countW = ctx.S(52.f);
-            float32 rx = bx + pad, ry = by + ctx.S(4.f);
+            const float32 btnW = ctx.S(30.f), countW = ctx.S(54.f);
+            float32 rx = bx + pad, ry = by + ctx.S(5.f);
             const float32 queryW = barW - pad * 2.f - countW - btnW * 4.f - gap * 4.f;
-            field(rx, ry, queryW, d.findQuery.CStr(), "Rechercher", d.findFocus == 0, 0);
+            tfield(rx, ry, queryW, d.findQuery, "Rechercher", 0);
             float32 cx2 = rx + queryW + gap;
             char cnt[32];
-            if (d.FindCount() == 0) { cnt[0] = d.findQuery.Empty() ? '\0' : '0'; cnt[1] = '\0'; }
+            if (d.FindCount() == 0) { cnt[0] = (d.findQuery[0] == '\0') ? '\0' : '0'; cnt[1] = '\0'; }
             else std::snprintf(cnt, sizeof(cnt), "%d/%d", d.findCur < 0 ? 0 : d.findCur + 1, d.FindCount());
-            dl.AddText(ctx.font->Face(), ctx.font->TexId(), { cx2, ry + (rowH - gap - fh) * 0.5f + fasc }, cnt, ctx.theme.textDisabled);
+            const float32 cntW2 = ctx.font->MeasureWidth(cnt);
+            dl.AddText(ctx.font->Face(), ctx.font->TexId(), { cx2 + (countW - cntW2) * 0.5f, ry + (rowH - gap - fh) * 0.5f + fasc }, cnt, ctx.theme.textDisabled);
             cx2 += countW;
-            if (btn(cx2, ry, btnW, "Aa", d.findCase)) { d.findCase = !d.findCase; d.FindRecompute(); }  cx2 += btnW + gap;
-            if (btn(cx2, ry, btnW, "<", false)) { d.FindEnsure(); d.FindNext(false); changed = true; }  cx2 += btnW + gap;
-            if (btn(cx2, ry, btnW, ">", false)) { d.FindEnsure(); d.FindNext(true);  changed = true; }  cx2 += btnW + gap;
-            if (btn(cx2, ry, btnW, "x", false)) { d.FindClose(); }
+            if (btn(cx2, ry, btnW, "Aa", d.findCase, "Casse")) { d.findCase = !d.findCase; d.FindRecompute(); }  cx2 += btnW + gap;
+            if (btn(cx2, ry, btnW, "<", false, "Prec")) { d.FindEnsure(); d.FindNext(false); changed = true; }  cx2 += btnW + gap;   // précédent
+            if (btn(cx2, ry, btnW, ">", false, "Suiv")) { d.FindEnsure(); d.FindNext(true);  changed = true; }  cx2 += btnW + gap;   // suivant
+            if (btn(cx2, ry, btnW, "x", false, "Fermer")) { d.FindClose(); }
             if (d.findReplace) {
                 ry += rowH;
-                const float32 rBtnW = ctx.S(54.f);
+                const float32 rBtnW = ctx.S(56.f);
                 const float32 replW = barW - pad * 2.f - rBtnW * 2.f - gap * 2.f;
-                field(rx, ry, replW, d.findRepl.CStr(), "Remplacer", d.findFocus == 1, 1);
+                tfield(rx, ry, replW, d.findRepl, "Remplacer", 1);
                 float32 rcx = rx + replW + gap;
-                if (btn(rcx, ry, rBtnW, "Rempl.", false)) { d.ReplaceCurrent(); changed = true; }  rcx += rBtnW + gap;
-                if (btn(rcx, ry, rBtnW, "Tout", false))   { d.ReplaceAll();     changed = true; }
+                if (btn(rcx, ry, rBtnW, "Rempl.", false, "")) { d.ReplaceCurrent(); changed = true; }  rcx += rBtnW + gap;
+                if (btn(rcx, ry, rBtnW, "Tout", false, ""))   { d.ReplaceAll();     changed = true; }
             }
         }
 
