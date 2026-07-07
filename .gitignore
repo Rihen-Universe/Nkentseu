@@ -686,3 +686,9 @@ Applications/NKCode/data/fonts/NotoEmoji-Regular.ttf
 # gitlinks orphelins (absents de .gitmodules) qui cassaient `git submodule update`.
 /Externals/Temp/xiph-ogg/
 /Externals/Temp/xiph-vorbis/
+
+# Corpus bbj (Nouveau Testament Ghomala (c) 2002 Bible Society of Cameroon) :
+# usage LOCAL entrainement uniquement, NE PAS redistribuer/committer.
+/Resources/Datasets/ghomala_nt_bbj.txt
+# Checkpoints GPT (poids appris, volumineux) : locaux uniquement.
+/Resources/Models/
