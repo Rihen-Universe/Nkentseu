@@ -91,9 +91,12 @@ namespace nkentseu { namespace demo {
         bool                            editDragSnapValid = false;
         renderer::NkMeshEditRecorder    editRecorder;  // journal des commandes (rejeu / modificateurs / IA)
         renderer::NkEditMesh            editBase;      // maillage de BASE (à l'entrée) pour le rejeu
+        renderer::NkModifierStack       editModifiers; // pile de modificateurs NON-DESTRUCTIFS (Mirror/Array/Subsurf)
         int32                           editReplayStep = -1;     // P : rejeu PAS-À-PAS (-1=off, 0=base, k=base+k commandes)
         bool                            editSavePending = false; // F5 : sauver la session (journal) sur disque
         bool                            editLoadPending = false; // F6 : charger une session + rejouer
+        int32                           editAddModPending = -1;  // F7/F8/F9 : ajouter modificateur (0=Mirror 1=Array 2=Subsurf)
+        bool                            editClearModPending = false; // F10 : vider la pile de modificateurs
         NkVector<renderer::NkEmId>      editTriFace;   // map triangle de rendu -> face n-gon (pick)
         NkVector<uint8>                 vertSel;       // 1 = vertex sélectionné (taille = nb vertices)
         NkMat4f                         editAnchor    = NkMat4f::Identity();  // transform monde de l'objet
@@ -164,10 +167,18 @@ namespace nkentseu { namespace demo {
     // Régénère le mesh de RENDU (triangulation de editHE) + cage + map tri->face n-gon,
     // et recrée le mesh GPU dynamique.
     static void Demo3D_SyncFromHE(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        st->editHE.Triangulate(st->editRest, st->editIdx, st->editTriFace);
+        // Maillage AFFICHÉ = base editHE, OU pile de modificateurs évaluée (non-destructif :
+        // editHE la base n'est jamais modifiée). Avec modificateurs = APERÇU (édition en pause).
+        const bool useMods = !st->editModifiers.Empty();
+        renderer::NkEditMesh evalMesh;
+        const renderer::NkEditMesh* disp = &st->editHE;
+        if (useMods) { st->editModifiers.Evaluate(st->editHE, evalMesh); disp = &evalMesh; }
+        disp->Triangulate(st->editRest, st->editIdx, st->editTriFace);
         st->editLive = st->editRest;
-        st->editHE.GetUniqueEdges(st->editEdges);
-        if ((uint32)st->vertSel.Size() != st->editHE.VertCount()) st->vertSel.Resize(st->editHE.VertCount());
+        disp->GetUniqueEdges(st->editEdges);
+        const uint32 dvc = disp->VertCount();
+        if ((uint32)st->vertSel.Size() != dvc) st->vertSel.Resize(dvc);
+        if (useMods) for (uint32 i=0;i<dvc;i++) st->vertSel[i]=0;   // aperçu : pas de sélection éditable
         if (st->editMesh.IsValid()) ms->Release(st->editMesh);
         renderer::NkMeshDesc d = renderer::NkMeshDesc::Simple(renderer::NkVertexLayout::Default3D(),
             st->editRest.Data(), (uint32)st->editRest.Size(), st->editIdx.Data(), (uint32)st->editIdx.Size());
@@ -678,6 +689,11 @@ namespace nkentseu { namespace demo {
                 // F5 / F6 : SAUVER / CHARGER la session (journal sérialisé sur disque).
                 if (k == NkKey::NK_F5) { st->editSavePending = true; return; }
                 if (k == NkKey::NK_F6) { st->editLoadPending = true; return; }
+                // F7/F8/F9 = ajouter modificateur MIRROR / ARRAY / SUBSURF (non-destructif) · F10 = vider.
+                if (k == NkKey::NK_F7) { st->editAddModPending = 0; return; }
+                if (k == NkKey::NK_F8) { st->editAddModPending = 1; return; }
+                if (k == NkKey::NK_F9) { st->editAddModPending = 2; return; }
+                if (k == NkKey::NK_F10){ st->editClearModPending = true; return; }
                 // A / Alt+A : tout sélectionner / désélectionner (les VERTICES).
                 if (k == NkKey::NK_A) {
                     const uint8 v = alt ? 0 : 1;
@@ -880,6 +896,7 @@ namespace nkentseu { namespace demo {
                         st->editHE.BuildFromIndexed(sv, vc, si, ic, /*quadify*/true);
                         st->editHistory.Clear();   // nouvel objet en édition -> historique neuf
                         st->editRecorder.Clear();  // journal des commandes neuf
+                        st->editModifiers.Clear(); // pile de modificateurs neuve
                         st->editBase = st->editHE; // maillage de BASE pour le rejeu (modificateurs/IA)
                         st->editReplayStep = -1;
                         st->vertSel.Clear(); st->vertSel.Resize(st->editHE.VertCount());
@@ -1195,6 +1212,18 @@ namespace nkentseu { namespace demo {
                     Demo3D_ReplayEdits(st, meshSysT); }
                 if (st->editSavePending) { st->editSavePending=false; Demo3D_SaveSession(st); }
                 if (st->editLoadPending) { st->editLoadPending=false; Demo3D_LoadSession(st, meshSysT); }
+                // Modificateurs (F7/F8/F9 ajouter, F10 vider) : non-destructif, ré-évalué à l'affichage.
+                if (st->editAddModPending >= 0) {
+                    renderer::NkMeshModifier mod; mod.type = (renderer::NkModifierType)st->editAddModPending;
+                    st->editModifiers.Add(mod); st->editAddModPending = -1;
+                    Demo3D_SyncFromHE(st, meshSysT);
+                    const char* nm[3] = {"Mirror (axe X)", "Array (x3)", "Subsurf (1)"};
+                    logger.Info("[Demo3D] + Modificateur {0} — pile={1} (APERCU : edition en pause, F10 pour editer)\n",
+                                nm[(int32)mod.type], st->editModifiers.Count());
+                }
+                if (st->editClearModPending) { st->editClearModPending=false;
+                    st->editModifiers.Clear(); Demo3D_SyncFromHE(st, meshSysT);
+                    logger.Info("[Demo3D] Modificateurs vides -> retour a la base editable\n"); }
                 if (st->editExtrudePending) { st->editExtrudePending=false;
                     Demo3D_ExtrudeHE(st, meshSysT);
                     logger.Info("[Demo3D] Extrude -> {0} faces\n", (int32)st->editHE.FaceCount()); }
@@ -1288,7 +1317,9 @@ namespace nkentseu { namespace demo {
                 }
                 st->editOverlayDirty=true;
             }
-            if (gin.leftPressed && !grabbedHandle && !st->knifeArmed) {
+            // Pick GELÉ si des modificateurs sont actifs (mode APERÇU : la base ne doit pas
+            // être éditée sous l'aperçu -> pas de sélection, donc les outils restent no-op).
+            if (gin.leftPressed && !grabbedHandle && !st->knifeArmed && st->editModifiers.Empty()) {
                 st->editOverlayDirty = true;   // la sélection va changer -> reconstruire l'overlay
                 const float32 mx = gin.mouseX, my = gin.mouseY;
                 if (!gin.shiftDown) for (int32 i=0;i<nv;i++) st->vertSel[i]=0;

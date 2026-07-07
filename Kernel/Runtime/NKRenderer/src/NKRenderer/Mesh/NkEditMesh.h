@@ -193,5 +193,38 @@ namespace nkentseu {
                 NkVector<NkMeshEditCommand> mCommands;
         };
 
+        // ── STACK DE MODIFICATEURS (non-destructif, façon Blender) ──────────────────
+        // Un modificateur = transformation PARAMÉTRIQUE d'un maillage (Mirror/Array/Subsurf).
+        // La pile s'évalue sur un maillage de BASE (jamais modifié) -> maillage affiché :
+        //   base → mod0(params) → mod1(params) → … → résultat.
+        // Changer un paramètre = ré-évaluer la pile (la base reste éditable dessous).
+        // Fondation directe : ces modificateurs sont aussi des ACTIONS composables pour l'IA.
+        enum class NkModifierType : uint8 { Mirror = 0, Array = 1, Subsurf = 2 };
+        struct NkMeshModifier {
+            NkModifierType type    = NkModifierType::Mirror;
+            bool           enabled = true;
+            // Mirror : miroir sur un axe au plan de l'origine (+ soudure des sommets sur le plan).
+            int32   mirrorAxis     = 0;              // 0=X 1=Y 2=Z
+            bool    mirrorMerge    = true;
+            float32 mirrorMergeDist= 1e-3f;
+            // Array : duplique le maillage `arrayCount` fois avec un décalage constant.
+            int32   arrayCount     = 3;
+            NkVec3f arrayOffset    = {2.f, 0.f, 0.f};
+            // Subsurf : subdivise TOUT le maillage `subsurfLevels` fois (réutilise Subdivide).
+            int32   subsurfLevels  = 1;
+
+            void Apply(NkEditMesh& m) const;         // transforme `m` en place
+        };
+        class NkModifierStack {
+            public:
+                NkVector<NkMeshModifier> modifiers;
+                bool   Empty() const { return modifiers.Empty(); }
+                void   Clear() { modifiers.Clear(); }
+                void   Add(const NkMeshModifier& mod) { modifiers.PushBack(mod); }
+                uint32 Count() const { return (uint32)modifiers.Size(); }
+                // out = base, puis chaque modificateur activé appliqué dans l'ordre.
+                void   Evaluate(const NkEditMesh& base, NkEditMesh& out) const;
+        };
+
     } // namespace renderer
 } // namespace nkentseu
