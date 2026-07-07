@@ -10,7 +10,8 @@
 // Taille  : NK_GPT_T/D/H/L/B ; étapes : NK_GPT_STEPS (défaut 300).
 // Modèle  : NK_GPT_SAVE=chemin (sauve après entraînement),
 //           NK_GPT_LOAD=chemin (recharge + génère SANS réentraîner),
-//           NK_GPT_PROMPT="amorce", NK_GPT_GENLEN=nb car. générés.
+//           NK_GPT_PROMPT="amorce", NK_GPT_GENLEN=nb car. générés,
+//           NK_GPT_LANG=fr|en|bbj (pilote la langue via le tag de langue).
 // =============================================================================
 #include "NKNN/NkNN.h"
 #include "NKOptim/NkOptim.h"
@@ -54,11 +55,13 @@ static std::string LangOf(const std::string& filename) {
     return "??";   // fichier non taggé
 }
 
-// ---- Corpus dossier : concatène TOUS les .txt, part égale PAR LANGUE ----------
-// Chaque langue (préfixe fr_/en_/bbj_…) reçoit ~totalCap/nbLangues caractères,
-// répartis également entre ses fichiers. Évite qu'une langue avec plus de livres
-// (ex. 8 EN vs 1 bbj) n'écrase les autres.
-static std::string LoadCorpusDir(const std::string& dir, size_t totalCap) {
+// ---- Corpus dossier GROUPÉ PAR LANGUE ----------------------------------------
+// Remplit `langs` (noms, ex. fr/en/bbj) et `texts` (parallèle : texte concaténé
+// de chaque langue). Chaque langue reçoit ~totalCap/nbLangues caractères, répartis
+// également entre ses fichiers. Le tag de langue permet ensuite de piloter la
+// langue générée.
+static void LoadCorpusByLang(const std::string& dir, size_t totalCap,
+                             std::vector<std::string>& langs, std::vector<std::string>& texts) {
     namespace fs = std::filesystem;
     std::vector<std::string> files;
     std::error_code ec;
@@ -68,54 +71,56 @@ static std::string LoadCorpusDir(const std::string& dir, size_t totalCap) {
         if (p.size() >= 4 && p.compare(p.size() - 4, 4, ".txt") == 0) files.push_back(p);
     }
     std::sort(files.begin(), files.end());               // déterministe
-    if (files.empty()) return std::string();
+    if (files.empty()) return;
 
     // Regroupe les fichiers par langue (ordre d'apparition stable).
-    std::vector<std::string> langs;
     std::vector<std::vector<std::string>> byLang;
     for (const std::string& p : files) {
         std::string lg = LangOf(fs::path(p).filename().string());
         int idx = -1;
         for (int i = 0; i < (int)langs.size(); ++i) if (langs[i] == lg) { idx = i; break; }
-        if (idx < 0) { langs.push_back(lg); byLang.push_back(std::vector<std::string>()); idx = (int)langs.size() - 1; }
+        if (idx < 0) { langs.push_back(lg); byLang.push_back(std::vector<std::string>()); texts.push_back(std::string()); idx = (int)langs.size() - 1; }
         byLang[idx].push_back(p);
     }
 
     const size_t perLang = totalCap / langs.size();       // part égale PAR LANGUE
-    std::string corpus; corpus.reserve(totalCap + files.size() * 2);
     for (size_t li = 0; li < langs.size(); ++li) {
         const size_t perFile = perLang / byLang[li].size();
-        size_t langTotal = 0;
         for (const std::string& p : byLang[li]) {
             std::string body = LoadCorpus(p, perFile);
             if (body.size() < 200) continue;             // ignore fichiers vides/parasites
-            corpus += body; corpus += "\n\n";
-            langTotal += body.size();
+            texts[li] += body; texts[li] += "\n\n";
             printf("  + [%-3s] %-32s %8zu car.\n", langs[li].c_str(),
                    fs::path(p).filename().string().c_str(), body.size());
         }
-        printf("    => langue %-3s : %8zu car. (cible/langue %zu)\n", langs[li].c_str(), langTotal, perLang);
+        printf("    => langue %-3s : %8zu car. (cible/langue %zu)\n", langs[li].c_str(), texts[li].size(), perLang);
     }
-    return corpus;
 }
 
 // ---- Checkpoint « NKGP » : dims + vocabulaire + poids (CPU) -------------------
 // Permet de GÉNÉRER sans réentraîner. Format binaire :
 //   ['N','K','G','P'] | ver u32 | V,d,H,L,T (5×i32) | vlen i32 | itos[vlen] |
 //   count u32 | { rank u32, dims[rank] i64, data[numel] f32 } par tenseur.
-struct GptMeta { int32 V = 0, d = 0, H = 0, L = 0, T = 0; std::vector<unsigned char> itos; };
+struct GptMeta { int32 V = 0, d = 0, H = 0, L = 0, T = 0; std::vector<unsigned char> itos; std::vector<std::string> langs; };
 
 static int64 ShapeNumel(const NkShape& sh) { int64 n = 1; for (uint32 i = 0; i < sh.Size(); ++i) n *= sh[i]; return n; }
 
 static bool SaveCheckpoint(const char* path, const GptMeta& m, const NkVector<NkVar>& params) {
     FILE* f = fopen(path, "wb"); if (!f) return false;
-    const char magic[4] = { 'N','K','G','P' }; uint32 ver = 1u;
+    const char magic[4] = { 'N','K','G','P' }; uint32 ver = 2u;   // v2 : + noms de langues
     bool ok = fwrite(magic, 1, 4, f) == 4 && fwrite(&ver, sizeof(uint32), 1, f) == 1;
     int32 hdr[5] = { m.V, m.d, m.H, m.L, m.T };
     ok = ok && fwrite(hdr, sizeof(int32), 5, f) == 5;
     int32 vlen = (int32)m.itos.size();
     ok = ok && fwrite(&vlen, sizeof(int32), 1, f) == 1;
     ok = ok && (vlen == 0 || fwrite(m.itos.data(), 1, (size_t)vlen, f) == (size_t)vlen);
+    // Langues (tag de langue) : nLang, puis pour chacune len(u8)+octets.
+    int32 nLang = (int32)m.langs.size();
+    ok = ok && fwrite(&nLang, sizeof(int32), 1, f) == 1;
+    for (int32 i = 0; ok && i < nLang; ++i) {
+        uint8 ln = (uint8)m.langs[i].size();
+        ok = ok && fwrite(&ln, 1, 1, f) == 1 && (ln == 0 || fwrite(m.langs[i].data(), 1, ln, f) == ln);
+    }
     uint32 count = params.Size();
     ok = ok && fwrite(&count, sizeof(uint32), 1, f) == 1;
     for (uint32 i = 0; ok && i < params.Size(); ++i) {
@@ -133,11 +138,19 @@ static bool LoadCheckpointMeta(const char* path, GptMeta& m) {
     FILE* f = fopen(path, "rb"); if (!f) return false;
     char magic[4]; uint32 ver = 0; int32 hdr[5] = { 0 }; int32 vlen = 0;
     bool ok = fread(magic, 1, 4, f) == 4 && magic[0]=='N'&&magic[1]=='K'&&magic[2]=='G'&&magic[3]=='P'
-           && fread(&ver, sizeof(uint32), 1, f) == 1 && ver == 1u
+           && fread(&ver, sizeof(uint32), 1, f) == 1 && (ver == 1u || ver == 2u)
            && fread(hdr, sizeof(int32), 5, f) == 5
            && fread(&vlen, sizeof(int32), 1, f) == 1 && vlen > 0 && vlen <= 256;
     if (ok) { m.V = hdr[0]; m.d = hdr[1]; m.H = hdr[2]; m.L = hdr[3]; m.T = hdr[4];
               m.itos.resize((size_t)vlen); ok = fread(m.itos.data(), 1, (size_t)vlen, f) == (size_t)vlen; }
+    if (ok && ver == 2u) {   // langues (tag de langue)
+        int32 nLang = 0; ok = fread(&nLang, sizeof(int32), 1, f) == 1 && nLang >= 0 && nLang <= 64;
+        for (int32 i = 0; ok && i < nLang; ++i) {
+            uint8 ln = 0; char buf[256];
+            ok = fread(&ln, 1, 1, f) == 1 && (ln == 0 || fread(buf, 1, ln, f) == ln);
+            if (ok) m.langs.push_back(std::string(buf, ln));
+        }
+    }
     fclose(f); return ok;
 }
 
@@ -147,6 +160,12 @@ static bool LoadCheckpointWeights(const char* path, NkVector<NkVar>& params) {
     bool ok = fread(magic, 1, 4, f) == 4 && fread(&ver, sizeof(uint32), 1, f) == 1
            && fread(hdr, sizeof(int32), 5, f) == 5 && fread(&vlen, sizeof(int32), 1, f) == 1;
     if (ok && vlen > 0) ok = fseek(f, (long)vlen, SEEK_CUR) == 0;   // saute le vocabulaire
+    if (ok && ver == 2u) {   // saute la section langues
+        int32 nLang = 0; ok = fread(&nLang, sizeof(int32), 1, f) == 1 && nLang >= 0 && nLang <= 64;
+        for (int32 i = 0; ok && i < nLang; ++i) {
+            uint8 ln = 0; ok = fread(&ln, 1, 1, f) == 1 && (ln == 0 || fseek(f, (long)ln, SEEK_CUR) == 0);
+        }
+    }
     uint32 count = 0;
     ok = ok && fread(&count, sizeof(uint32), 1, f) == 1 && count == params.Size();
     for (uint32 i = 0; ok && i < params.Size(); ++i) {
@@ -173,53 +192,68 @@ int main() {
     const char* envPrompt = getenv("NK_GPT_PROMPT");  // amorce de génération (défaut « Le »)
     const std::string seed = envPrompt ? std::string(envPrompt) : std::string("Le ");
 
-    // Vocabulaire (partagé load/train) + dimensions + données corpus (train seulement).
+    // Vocabulaire (octets) + LANGUES (tag) + données corpus (train seulement).
+    // V = nByte octets distincts + 1 token-tag par langue. Tag de langue li = nByte+li.
     int stoi[256]; for (int i = 0; i < 256; ++i) stoi[i] = -1;
-    std::vector<unsigned char> itos;
-    std::vector<float> data;
-    int V = 0; int64 T = 0, d = 0, H = 0, L = 0, B = envI("NK_GPT_B", 16);
+    std::vector<unsigned char> itos;                 // token octet -> octet (taille = nByte)
+    std::vector<std::string> langs;                  // noms de langues (fr/en/bbj…)
+    std::vector<std::vector<float>> langData;        // ids par langue (train)
+    int V = 0, nByte = 0;
+    int64 T = 0, d = 0, H = 0, L = 0, B = envI("NK_GPT_B", 16);
 
     if (envLoad) {
-        // ---- Mode CHARGEMENT : dims + vocabulaire depuis le checkpoint ----
+        // ---- Mode CHARGEMENT : dims + vocabulaire + langues depuis le checkpoint ----
         GptMeta meta;
         if (!LoadCheckpointMeta(envLoad, meta)) { printf("Checkpoint illisible : %s\n", envLoad); return 2; }
         V = meta.V; d = meta.d; H = meta.H; L = meta.L; T = meta.T;
-        itos = meta.itos;
-        for (int i = 0; i < (int)itos.size(); ++i) stoi[itos[i]] = i;
+        itos = meta.itos; langs = meta.langs; nByte = (int)itos.size();
+        for (int i = 0; i < nByte; ++i) stoi[itos[i]] = i;
         printf("Modèle chargé : %s (V=%d, T=%lld, d=%lld, têtes=%lld, couches=%lld)\n",
                envLoad, V, (long long)T, (long long)d, (long long)H, (long long)L);
+        if (!langs.empty()) { printf("Langues (NK_GPT_LANG) :"); for (auto& lg : langs) printf(" %s", lg.c_str()); printf("\n"); }
     } else {
         // ---- Corpus ----
-        // Défaut : TOUT le dossier Datasets (multilingue). NK_GPT_FILE force un seul
-        // livre ; NK_GPT_DIR change le dossier ; NK_GPT_CHARS = cap total.
+        // Défaut : TOUT le dossier Datasets (équilibré par langue). NK_GPT_FILE force
+        // un seul livre ; NK_GPT_DIR change le dossier ; NK_GPT_CHARS = cap total.
         const char* envf = getenv("NK_GPT_FILE");
         const char* envd = getenv("NK_GPT_DIR");
         const char* envc = getenv("NK_GPT_CHARS");
         const std::string datasetsDir = envd ? envd
             : "D:/Projets/2026/Nkentseu/Nkentseu/Resources/Datasets";
-        std::string text;
+        std::vector<std::string> texts;
         if (envf) {
             size_t maxChars = envc ? (size_t)atol(envc) : 150000;
             printf("Corpus : fichier unique %s\n", envf);
-            text = LoadCorpus(envf, maxChars);
+            langs.push_back(LangOf(std::filesystem::path(envf).filename().string()));
+            texts.push_back(LoadCorpus(envf, maxChars));
         } else {
             size_t totalCap = envc ? (size_t)atol(envc) : 1200000;   // ~1,2 M car. par défaut
-            printf("Corpus : dossier %s (part égale/livre, cap total %zu)\n", datasetsDir.c_str(), totalCap);
-            text = LoadCorpusDir(datasetsDir, totalCap);
+            printf("Corpus : dossier %s (équilibré par langue, cap total %zu)\n", datasetsDir.c_str(), totalCap);
+            LoadCorpusByLang(datasetsDir, totalCap, langs, texts);
         }
-        if (text.size() < 1000) { printf("Corpus introuvable/trop court.\n"); return 2; }
-        // ---- Brique 9 : tokenizer char-level (vocab = octets présents) ----
-        for (unsigned char c : text) if (stoi[c] < 0) { stoi[c] = (int)itos.size(); itos.push_back(c); }
-        V = (int)itos.size();
-        data.reserve(text.size());
-        for (unsigned char c : text) data.push_back((float)stoi[c]);
-        printf("Corpus : %zu caractères, vocabulaire = %d symboles distincts.\n", text.size(), V);
+        size_t totalChars = 0; for (auto& t : texts) totalChars += t.size();
+        if (totalChars < 1000) { printf("Corpus introuvable/trop court.\n"); return 2; }
+        // ---- Tokenizer char-level (vocab = octets présents dans TOUTES les langues) ----
+        for (auto& t : texts) for (unsigned char c : t) if (stoi[c] < 0) { stoi[c] = (int)itos.size(); itos.push_back(c); }
+        nByte = (int)itos.size();
+        V = nByte + (int)langs.size();               // + un token-tag par langue
+        langData.resize(texts.size());
+        for (size_t li = 0; li < texts.size(); ++li) {
+            langData[li].reserve(texts[li].size());
+            for (unsigned char c : texts[li]) langData[li].push_back((float)stoi[c]);
+        }
+        printf("Corpus : %zu caractères, %d octets + %d tags langue = vocabulaire %d.\n",
+               totalChars, nByte, (int)langs.size(), V);
         // ---- Dimensions modèle (réglables : NK_GPT_D/H/L/T) ----
         T = envI("NK_GPT_T", 128); d = envI("NK_GPT_D", 256);
         H = envI("NK_GPT_H", 8);   L = envI("NK_GPT_L", 4);
         printf("Modèle GPT : T=%lld, d=%lld, têtes=%lld, couches=%lld, batch=%lld  (AdamW, GPU-résident)\n\n",
                (long long)T,(long long)d,(long long)H,(long long)L,(long long)B);
     }
+    // Langue de génération demandée (NK_GPT_LANG=fr/en/bbj) — -1 = auto (pas de tag).
+    const char* envLang = getenv("NK_GPT_LANG");
+    int genLang = -1;
+    if (envLang) for (int i = 0; i < (int)langs.size(); ++i) if (langs[i] == envLang) { genLang = i; break; }
 
     // ---- Construction + (chargement des poids | init aléatoire) ----
     nn::NkGPT gpt((uint32)V, (uint32)d, (uint32)H, (uint32)L, (uint32)T, 1234u);
@@ -234,26 +268,35 @@ int main() {
     uint64 rng = 0x9E3779B97F4A7C15ull;
     auto nextRand = [&rng]() { rng = rng * 6364136223846793005ull + 1442695040888963407ull; return (double)((rng >> 11) & 0xFFFFFFFFFFFFFull) / (double)(1ull << 52); };
 
-    // Fabrique un lot : x[B,T], cible one-hot [B*T, V] (caractère suivant).
+    // Fabrique un lot : x[B,T], cible one-hot [B*T, V]. Chaque séquence commence par
+    // le TAG de sa langue (position 0), qui prédit le 1er caractère ; puis prédiction
+    // caractère suivant. Langues réparties en round-robin sur le lot.
     auto makeBatch = [&](NkTensor& x, NkTensor& oneHot) {
         NkShape xs; xs.PushBack(B); xs.PushBack(T);
         x = NkTensor::Zeros(xs);
         oneHot = NkTensor::Zeros(NkShape{ B * T, (int64)V });
         float* xp = x.DataAs<float>(); float* op = oneHot.DataAs<float>();
-        const int64 N = (int64)data.size();
+        const int nL = (int)langData.size();
         for (int64 b = 0; b < B; ++b) {
-            int64 off = (int64)(nextRand() * (double)(N - T - 1));
-            for (int64 t = 0; t < T; ++t) {
-                xp[b*T + t] = data[off + t];
-                int tgt = (int)data[off + t + 1];
-                op[(b*T + t) * V + tgt] = 1.f;
+            const int li = nL > 0 ? (int)(b % nL) : 0;
+            const std::vector<float>& dd = langData[li];
+            const int64 N = (int64)dd.size();
+            if (N <= T) continue;
+            const int64 off = (int64)(nextRand() * (double)(N - T));   // besoin de dd[off+T-1]
+            xp[b*T + 0] = (float)(nByte + li);                         // tag de langue
+            op[(b*T + 0) * V + (int)dd[off]] = 1.f;                    // le tag prédit le 1er car.
+            for (int64 t = 1; t < T; ++t) {
+                xp[b*T + t] = dd[off + t - 1];
+                op[(b*T + t) * V + (int)dd[off + t]] = 1.f;
             }
         }
     };
 
-    // Génération autoregressive (température) depuis une amorce.
-    auto generate = [&](const std::string& seed, int nChars, double temp) -> std::string {
+    // Génération autoregressive (température). langIdx >= 0 => préfixe le tag de langue
+    // pour piloter la langue générée. Les tokens-tag sont masqués à l'échantillonnage.
+    auto generate = [&](const std::string& seed, int nChars, double temp, int langIdx) -> std::string {
         std::vector<int> ctx;
+        if (langIdx >= 0 && langIdx < (int)langs.size()) ctx.push_back(nByte + langIdx);  // tag
         for (unsigned char c : seed) if (stoi[c] >= 0) ctx.push_back(stoi[c]);
         if (ctx.empty()) ctx.push_back(0);
         std::string out = seed;
@@ -266,11 +309,15 @@ int main() {
             NkVar logits = gpt.Forward(useGpu ? tok.ToGPU() : tok);   // [len, V]
             NkTensor lc = logits.Value().ToCPU().Contiguous();
             const float* lp = lc.DataAs<float>() + (len - 1) * V;     // dernière position
-            // softmax(logits/temp) puis échantillonnage.
-            double mx = lp[0]; for (int v = 1; v < V; ++v) if (lp[v] > mx) mx = lp[v];
-            double sum = 0; for (int v = 0; v < V; ++v) { double e = std::exp((lp[v] - mx) / temp); logitBuf[v] = (float)e; sum += e; }
-            double r = nextRand() * sum, acc = 0; int next = V - 1;
-            for (int v = 0; v < V; ++v) { acc += logitBuf[v]; if (acc >= r) { next = v; break; } }
+            // softmax(logits/temp) sur les OCTETS seulement (tags masqués).
+            double mx = -1e30; for (int v = 0; v < nByte; ++v) if (lp[v] > mx) mx = lp[v];
+            double sum = 0;
+            for (int v = 0; v < V; ++v) {
+                if (v >= nByte) { logitBuf[v] = 0.f; continue; }       // masque les tags
+                double e = std::exp((lp[v] - mx) / temp); logitBuf[v] = (float)e; sum += e;
+            }
+            double r = nextRand() * sum, acc = 0; int next = 0;
+            for (int v = 0; v < nByte; ++v) { acc += logitBuf[v]; if (acc >= r) { next = v; break; } }
             ctx.push_back(next);
             out.push_back((char)itos[next]);
         }
@@ -281,8 +328,9 @@ int main() {
 
     // ---- Mode CHARGEMENT : on génère et on sort (aucun entraînement) ----
     if (envLoad) {
-        printf("\n=== TEXTE GÉNÉRÉ (amorce « %s », %d car., temp 0.8) ===\n", seed.c_str(), GENLEN);
-        printf("%s\n", generate(seed, GENLEN, 0.8).c_str());
+        printf("\n=== TEXTE GÉNÉRÉ (langue %s, amorce « %s », %d car.) ===\n",
+               genLang >= 0 ? langs[genLang].c_str() : "auto", seed.c_str(), GENLEN);
+        printf("%s\n", generate(seed, GENLEN, 0.8, genLang).c_str());
         printf("=========================================================\n");
         gpu.Shutdown();
         return 0;
@@ -304,8 +352,11 @@ int main() {
         ema = (s == 1) ? lv : 0.98 * ema + 0.02 * lv;
         if (s % 25 == 0 || s == 1) printf("  pas %4d : perte = %.4f  (moy. %.4f)\n", s, lv, ema);
         if (s % 100 == 0) {
-            std::string g = generate(seed, 160, 0.8);
-            printf("    --- échantillon (pas %d) ---\n    %s\n    ---------------------------\n", s, g.c_str());
+            printf("    --- échantillons (pas %d) ---\n", s);
+            if (langs.empty()) printf("    %s\n", generate(seed, 120, 0.8, -1).c_str());
+            else for (int li = 0; li < (int)langs.size(); ++li)
+                printf("    [%s] %s\n", langs[li].c_str(), generate(seed, 100, 0.8, li).c_str());
+            printf("    ---------------------------\n");
         }
     }
     auto t1 = std::chrono::high_resolution_clock::now();
@@ -313,14 +364,16 @@ int main() {
 
     // ---- Sauvegarde du modèle (si NK_GPT_SAVE) ----
     if (envSave) {
-        GptMeta meta; meta.V = V; meta.d = (int32)d; meta.H = (int32)H; meta.L = (int32)L; meta.T = (int32)T; meta.itos = itos;
+        GptMeta meta; meta.V = V; meta.d = (int32)d; meta.H = (int32)H; meta.L = (int32)L; meta.T = (int32)T; meta.itos = itos; meta.langs = langs;
         if (SaveCheckpoint(envSave, meta, params)) printf("Modèle sauvegardé : %s\n", envSave);
         else                                       printf("Échec de la sauvegarde : %s\n", envSave);
     }
 
-    // ---- Génération finale ----
+    // ---- Génération finale (une par langue si multilingue) ----
     printf("\n=== TEXTE GÉNÉRÉ (amorce « %s », %d car., temp 0.8) ===\n", seed.c_str(), GENLEN);
-    printf("%s\n", generate(seed, GENLEN, 0.8).c_str());
+    if (langs.size() <= 1) printf("%s\n", generate(seed, GENLEN, 0.8, langs.empty() ? -1 : 0).c_str());
+    else for (int li = 0; li < (int)langs.size(); ++li)
+        printf("[%s] %s\n\n", langs[li].c_str(), generate(seed, GENLEN, 0.8, li).c_str());
     printf("=========================================================\n");
 
     bool ok = ema < 3.0;   // la perte a nettement baissé depuis ~ln(V)
