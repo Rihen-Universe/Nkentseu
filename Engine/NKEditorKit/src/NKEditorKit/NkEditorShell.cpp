@@ -282,6 +282,7 @@ namespace nkentseu {
                 case NkKey::NK_F5:     mUI.input.SetKey(NkGuiKey::F5,        down); break;
                 case NkKey::NK_C:      mUI.input.SetKey(NkGuiKey::C,         down); break;
                 case NkKey::NK_D:      mUI.input.SetKey(NkGuiKey::D,         down); break;
+                case NkKey::NK_F:      mUI.input.SetKey(NkGuiKey::F,         down); break;   // Ctrl+F recherche
                 case NkKey::NK_H:      mUI.input.SetKey(NkGuiKey::H,         down); break;
                 case NkKey::NK_L:      mUI.input.SetKey(NkGuiKey::L,         down); break;
                 case NkKey::NK_N:      mUI.input.SetKey(NkGuiKey::N,         down); break;
