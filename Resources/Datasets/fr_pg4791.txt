@@ -1,16 +1,6 @@
-The Project Gutenberg eBook of Voyage au Centre de la Terre
-    
-This eBook is for the use of anyone anywhere in the United States and
-most other parts of the world at no cost and with almost no restrictions
-whatsoever. You may copy it, give it away or re-use it under the terms
-of the Project Gutenberg License included with this eBook or online
-at www.gutenberg.org. If you are not located in the United States,
-you will have to check the laws of the country where you are located
-before using this eBook.
+Titre: Voyage au Centre de la Terre
 
-Title: Voyage au Centre de la Terre
-
-Author: Jules Verne
+Auteur: Jules Verne
 
 
         
@@ -19,32 +9,15 @@ Release date: December 1, 2003 [eBook #4791]
 
 Language: French
 
-Other information and formats: www.gutenberg.org/ebooks/4791
 
-Credits: Carlo Traverso, Robert Rowe, Charles Franks
-        and the Online Distributed Proofreading Team.
-        Revised by Richard Tonsing.
+*** VOYAGE AU CENTRE DE LA TERRE ***
 
-
-*** START OF THE PROJECT GUTENBERG EBOOK VOYAGE AU CENTRE DE LA TERRE ***
-
-
-
-
-We thank the Bibliotheque Nationale de France that has made available
-the image files at www://gallica.bnf.fr, authorizing the preparation
-of the etext through OCR.
 
 
 Nous remercions la Bibliothèque Nationale de France qui a mis à
 disposition les images dans www://gallica.bnf.fr, et a donné
 l'authorisation à les utilizer pour préparer ce texte.
 
-
-
-
-Editorial note: We emphasize with _X_ the runes that Verne emphasizes
-with serifs, and translitterates with uppecase.
 
 Note de l'éditeur: On répresente avec _X_ les runes que Verne relève
 avec des sérifs, et transcrit avec des maj uscules.
