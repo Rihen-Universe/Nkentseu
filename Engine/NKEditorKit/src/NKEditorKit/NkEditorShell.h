@@ -147,6 +147,8 @@ namespace nkentseu {
             // Police du TERMINAL : atlas PROPRE a taille GLOBALE fixe, decouple du zoom
             // par-onglet de l'editeur (le terminal ne bouge pas quand on zoome un fichier).
             nkgui::NkGuiFont* TermCodeFont() noexcept;
+            void    RequestTermSize(float32 logicalPx) noexcept;   ///< zoom du TERMINAL (survol) : taille voulue (0 = globale), rebuild debounce
+            float32 TermSize() const noexcept;                     ///< taille actuelle du terminal (pour calculer le zoom au survol)
             // ── Infos centrees dans la barre de titre (ex. fichier actif) ────────
             void SetTitleInfo(const char* center) noexcept;
 
@@ -198,6 +200,8 @@ namespace nkentseu {
             nkgui::NkGuiFont    mCodeFont;   ///< police monospace de l'EDITEUR (taille = onglet actif, zoom)
             nkgui::NkGuiFont    mTermFont;   ///< police monospace du TERMINAL (taille GLOBALE fixe, non zoomee)
             float32             mTermLoadedSize = 0.f;       ///< taille logique a laquelle mTermFont est construit
+            float32             mTermTargetSize = 0.f;       ///< taille logique voulue du terminal (0 = globale), zoom au survol
+            float32             mTermReloadCountdown = -1.f; ///< debounce du rebuild de l'atlas terminal (zoom)
             bool                mFontOk = false;
             bool                mFontReloadPending = false;  ///< reload des DEUX polices differe au debut de frame (anti-crash)
             float32             mCodeReloadCountdown = -1.f; ///< zoom : debounce (s). >=0 => reconstruit l'atlas code quand il atteint 0 (evite 1 rebuild/cran)

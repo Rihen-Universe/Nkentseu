@@ -787,6 +787,7 @@ namespace nkcode {
             mTerm[0].label = "powershell";
         }
         NkEditorShell* mShell = nullptr;   // pour la police propre du terminal (TermCodeFont)
+        float32        mZoom  = 0.f;        // taille PROPRE du terminal (0 = globale), zoom au survol
 
         void OnUI(NkEditorFrameContext& ec) override {
             auto& ctx = ec.Ui();
@@ -816,6 +817,17 @@ namespace nkcode {
             const NkVec2 m = ctx.input.mousePos;
             const bool inMain = m.x >= mainR.x && m.x < mainR.x + mainR.w && m.y >= mainR.y && m.y < mainR.y + mainR.h;
             const bool inClip = m.x >= clip.x && m.x < clip.x + clip.w && m.y >= clip.y && m.y < clip.y + clip.h;
+
+            // Zoom du TERMINAL : Ctrl+molette quand la souris SURVOLE le terminal ajuste SA taille
+            // (indépendant de l'éditeur). On consomme la molette pour ne pas défiler en même temps.
+            if (mShell) {
+                if (ctx.input.ctrlDown && inMain && ctx.input.wheel != 0.f) {
+                    float32 s = (mZoom > 0.f ? mZoom : mShell->TermSize()) + (ctx.input.wheel > 0.f ? 1.f : -1.f);
+                    if (s < 8.f) s = 8.f; if (s > 40.f) s = 40.f;
+                    mZoom = s; ctx.input.wheel = 0.f;
+                }
+                mShell->RequestTermSize(mZoom);   // pilote l'atlas terminal à SA taille (debounce)
+            }
 
             // Focus clavier : clic gauche dans la zone -> focus ; clic hors panneau -> defocus.
             if (ctx.input.mouseClicked[0] && ctx.popupDepth == 0) {

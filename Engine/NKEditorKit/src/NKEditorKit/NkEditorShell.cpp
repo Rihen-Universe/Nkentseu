@@ -361,10 +361,16 @@ namespace nkentseu {
                 // Full = les deux polices (changement UI/prefs, immediat). Zoom = DEBOUNCE :
                 // l'atlas code n'est reconstruit qu'apres kCodeReloadDebounce sans nouveau cran
                 // -> molette fluide (pas de rebuild par cran), un seul rebuild a la fin.
-                if (mFontReloadPending) { mFontReloadPending = false; mCodeReloadCountdown = -1.f; LoadFontsFromPrefs(); }
-                else if (mCodeReloadCountdown >= 0.f) {
-                    mCodeReloadCountdown -= dt;
-                    if (mCodeReloadCountdown <= 0.f) { mCodeReloadCountdown = -1.f; LoadCodeFont(); }
+                if (mFontReloadPending) { mFontReloadPending = false; mCodeReloadCountdown = mTermReloadCountdown = -1.f; LoadFontsFromPrefs(); }
+                else {
+                    if (mCodeReloadCountdown >= 0.f) {
+                        mCodeReloadCountdown -= dt;
+                        if (mCodeReloadCountdown <= 0.f) { mCodeReloadCountdown = -1.f; LoadCodeFont(); }
+                    }
+                    if (mTermReloadCountdown >= 0.f) {   // zoom du TERMINAL (survol) : meme debounce
+                        mTermReloadCountdown -= dt;
+                        if (mTermReloadCountdown <= 0.f) { mTermReloadCountdown = -1.f; LoadTermFont(); }
+                    }
                 }
 
                 mUI.BeginFrame(dt);
@@ -959,7 +965,8 @@ namespace nkentseu {
         // et sur changement de prefs (rare), donc rebuild inconditionnel = OK.
         void NkEditorShell::LoadTermFont() noexcept {
             const float32 dpi = mUI.S(1.f) > 0.5f ? mUI.S(1.f) : 1.f;
-            const float32 logical = mFontPrefs.codeSize;
+            // Taille du terminal = son propre zoom (mTermTargetSize) si demande, sinon globale.
+            const float32 logical = mTermTargetSize > 0.f ? mTermTargetSize : mFontPrefs.codeSize;
             const float32 codePx = logical * dpi;
             mTermLoadedSize = logical;
             mTermFont.texId = mFont.TexId() + 2u;
@@ -970,6 +977,18 @@ namespace nkentseu {
         }
         nkgui::NkGuiFont* NkEditorShell::TermCodeFont() noexcept {
             return mTermFont.Valid() ? &mTermFont : mUI.codeFont;
+        }
+        float32 NkEditorShell::TermSize() const noexcept {
+            return mTermTargetSize > 0.f ? mTermTargetSize : mFontPrefs.codeSize;
+        }
+        // Demande la taille de l'atlas TERMINAL (0 = globale). Rebuild debounce ; comme le code,
+        // ne (re)arme que quand la cible change (l'app appelle chaque frame).
+        void NkEditorShell::RequestTermSize(float32 logicalPx) noexcept {
+            if (logicalPx > 0.f) { if (logicalPx < 8.f) logicalPx = 8.f; if (logicalPx > 40.f) logicalPx = 40.f; }
+            if (logicalPx == mTermTargetSize) return;
+            mTermTargetSize = logicalPx;
+            const float32 eff = logicalPx > 0.f ? logicalPx : mFontPrefs.codeSize;
+            mTermReloadCountdown = (eff == mTermLoadedSize) ? -1.f : kCodeReloadDebounce;
         }
 
         // ── Zoom editeur : ajuste la taille de la police du code puis reconstruit ──
