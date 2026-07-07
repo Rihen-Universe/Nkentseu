@@ -77,8 +77,14 @@ recompilation nécessaire.
 | `NK_GPT_SAVE`   | Chemin où **sauvegarder** le modèle après entraînement | — |
 | `NK_GPT_PROMPT` | Amorce de génération | `"Le "` |
 | `NK_GPT_GENLEN` | Nombre de caractères générés | `400` |
+| `NK_GPT_LANG`   | **Langue générée** via tag de langue (`fr`/`en`/`bbj`) | auto (aucun tag) |
 
 > `NK_GPT_D` doit être divisible par `NK_GPT_H` (dimension par tête = D / H).
+
+**Tag de langue** — à l'entraînement, chaque séquence commence par un token-tag
+indiquant sa langue (préfixe du fichier). À la génération, `NK_GPT_LANG=fr|en|bbj`
+préfixe ce tag → **la langue produite est choisie de façon déterministe**, quelle
+que soit l'amorce. Sans `NK_GPT_LANG`, la langue suit l'amorce (mode auto).
 
 ### Exemples
 
@@ -119,7 +125,8 @@ en quelques secondes — aucun entraînement.
 
 ```powershell
 $env:NK_GPT_LOAD="D:\Projets\2026\Nkentseu\Nkentseu\Resources\Models\gpt_trilingue.nkgp"
-$env:NK_GPT_PROMPT="Le comte"     # amorce française
+$env:NK_GPT_LANG="bbj"            # force la langue : fr | en | bbj
+$env:NK_GPT_PROMPT=" "           # amorce neutre : le tag pilote la langue
 $env:NK_GPT_GENLEN="300"
 .\Build\Bin\Debug-Windows\NKGptTrain\NKGptTrain.exe
 ```
