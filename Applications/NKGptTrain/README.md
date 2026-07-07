@@ -31,12 +31,23 @@ Exécutable produit : `Build\Bin\Debug-Windows\NKGptTrain\NKGptTrain.exe`
 
 ## 2. Le corpus
 
-Par défaut, l'app lit **tous les `.txt` du dossier** `Resources/Datasets/` et en
-prend une **part égale par fichier** (couverture multilingue équilibrée), puis
-concatène. Actuellement le dossier contient :
+Par défaut, l'app lit **tous les `.txt` du dossier** `Resources/Datasets/` et
+équilibre **par langue** : chaque langue reçoit **une part égale** du corpus
+(≈ `totalCap / nombre_de_langues`), répartie entre ses fichiers. Ainsi une langue
+avec beaucoup de livres (8 EN) n'écrase pas une langue avec un seul (1 bbj).
 
-- **6 livres français** + **8 livres anglais** (Project Gutenberg, domaine public).
-- `ghomala_nt_bbj.txt` — **Nouveau Testament en Ghɔmáláʼ** (texte `bbj`).
+**Convention de nommage** — chaque fichier est préfixé par sa langue :
+`<lang>_<nom>.txt`. La langue est le préfixe **avant le premier `_`**.
+
+| Préfixe | Contenu | Fichiers |
+|---------|---------|----------|
+| `fr_`  | Français (Project Gutenberg, domaine public) | 6 |
+| `en_`  | Anglais (Project Gutenberg, domaine public)  | 8 |
+| `bbj_` | **Ghɔmáláʼ** — Nouveau Testament (`bbj_ghomala_nt.txt`) | 1 |
+
+Ajouter une langue = déposer des `.txt` préfixés (ex. `de_...` pour l'allemand) ;
+l'équilibrage s'ajuste automatiquement. Un fichier **sans préfixe** est rangé dans
+une langue « ?? ».
 
 > ⚖️ **Licence** : le texte bbj provient du *Ghomala New Testament, © 2002 Bible
 > Society of Cameroon*. Il est utilisé **en local pour l'entraînement/la
@@ -81,7 +92,7 @@ $env:NK_GPT_SAVE="D:\Projets\2026\Nkentseu\Nkentseu\Resources\Models\gpt_triling
 
 **B. Entraînement rapide sur un seul livre français (plus cohérent) :**
 ```powershell
-$env:NK_GPT_FILE="D:\Projets\2026\Nkentseu\Nkentseu\Resources\Datasets\pg17989.txt"
+$env:NK_GPT_FILE="D:\Projets\2026\Nkentseu\Nkentseu\Resources\Datasets\fr_pg17989.txt"
 $env:NK_GPT_STEPS="500"
 .\Build\Bin\Debug-Windows\NKGptTrain\NKGptTrain.exe
 ```
