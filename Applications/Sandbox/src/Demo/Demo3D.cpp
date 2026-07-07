@@ -291,7 +291,7 @@ namespace nkentseu { namespace demo {
     // de la session : donnée d'imitation IA + modificateur sauvegardable).
     static void Demo3D_SaveSession(Demo3DState* st) {
         NkVector<uint8> bytes; st->editRecorder.Serialize(bytes);
-        const char* path = "edit_session.nmec";
+        const char* path = "edit_session.nkmec";
         const bool ok = NkFile::WriteAllBytes(path, bytes);
         logger.Info("[Demo3D] Sauvegarde '{0}' : {1} commandes, {2} octets -> {3}\n",
                     path, st->editRecorder.Count(), (int32)bytes.Size(), ok ? "OK" : "ECHEC");
@@ -299,7 +299,7 @@ namespace nkentseu { namespace demo {
     // CHARGER (F6) : lit le fichier -> désérialise dans le journal -> rejoue depuis la base
     // (reconstruit le modèle édité). Le maillage de base courant doit correspondre.
     static void Demo3D_LoadSession(Demo3DState* st, renderer::NkMeshSystem* ms) {
-        const char* path = "edit_session.nmec";
+        const char* path = "edit_session.nkmec";
         NkVector<uint8> bytes = NkFile::ReadAllBytes(path);
         if (bytes.Empty()) { logger.Warn("[Demo3D] Chargement '{0}' : fichier vide/absent\n", path); return; }
         if (!st->editRecorder.Deserialize(bytes.Data(), (uint32)bytes.Size())) {
@@ -626,6 +626,10 @@ namespace nkentseu { namespace demo {
                 if (k == NkKey::NK_F4) { g.showAxes =!g.showAxes;  logger.Info("[Demo3D] Grille axes = {0}\n", g.showAxes); }
                 if (k == NkKey::NK_F11) { g.cellColor.w = NkMax(0.0f, g.cellColor.w - 0.05f); logger.Info("[Demo3D] Opacite plan = {0}\n", g.cellColor.w); }
                 if (k == NkKey::NK_F12) { g.cellColor.w = NkMin(1.0f, g.cellColor.w + 0.05f); logger.Info("[Demo3D] Opacite plan = {0}\n", g.cellColor.w); }
+                // F5/F6 = sauver/charger la SESSION d'édition -> ne marchent qu'en EDIT MODE.
+                if ((k == NkKey::NK_F5 || k == NkKey::NK_F6) && !st->editMode)
+                    logger.Info("[Demo3D] {0} : entre d'abord en EDIT MODE (Tab) sur un objet selectionne\n",
+                                k==NkKey::NK_F5 ? "F5 (sauver session)" : "F6 (charger session)");
             }
         });
         // ── KEYMAP GIZMO façon Blender ────────────────────────────────────────
