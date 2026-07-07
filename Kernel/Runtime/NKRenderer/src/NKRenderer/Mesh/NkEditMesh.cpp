@@ -599,6 +599,68 @@ namespace nkentseu {
             }
         }
 
+        // =====================================================================
+        // STACK DE MODIFICATEURS — Mirror / Array / Subsurf (non-destructif)
+        // =====================================================================
+        void NkMeshModifier::Apply(NkEditMesh& m) const {
+            if (!enabled) return;
+            if (type == NkModifierType::Subsurf) {
+                for (uint32 i=0;i<m.VertCount();++i) m.verts[i].sel = 0;   // aucune sél. -> TOUT
+                NkSubdivideParams p; p.cuts = (subsurfLevels<1)?1:subsurfLevels;
+                m.SubdivideSelectedFaces(p);
+                return;
+            }
+            // Mirror & Array travaillent en représentation polygones (CSR).
+            NkVector<NkVertex3D> base; NkVector<uint32> fs, fv;
+            m.ToPolygons(base, fs, fv);
+            const uint32 baseVC = (uint32)base.Size();
+            const uint32 fc = (fs.Size()>0)?(uint32)fs.Size()-1:0;
+            if (baseVC==0 || fc==0) return;
+
+            if (type == NkModifierType::Mirror) {
+                NkVector<NkVertex3D> pv = base;                 // sortie sommets (base + miroir)
+                NkVector<int32> mir; mir.Resize(baseVC);
+                for (uint32 i=0;i<baseVC;i++){
+                    const float32 co = (mirrorAxis==0)?base[i].pos.x : (mirrorAxis==1)?base[i].pos.y : base[i].pos.z;
+                    const float32 aco = (co<0.f)?-co:co;
+                    if (mirrorMerge && aco <= mirrorMergeDist) { mir[i] = (int32)i; }   // sur le plan -> soudé
+                    else {
+                        NkVertex3D v = base[i];
+                        if (mirrorAxis==0){ v.pos.x=-v.pos.x; v.normal.x=-v.normal.x; }
+                        else if (mirrorAxis==1){ v.pos.y=-v.pos.y; v.normal.y=-v.normal.y; }
+                        else { v.pos.z=-v.pos.z; v.normal.z=-v.normal.z; }
+                        mir[i] = (int32)pv.Size(); pv.PushBack(v);
+                    }
+                }
+                NkVector<uint32> nfs, nfv; nfs.PushBack(0);
+                for (uint32 f=0;f<fc;f++){ for(uint32 k=fs[f];k<fs[f+1];k++) nfv.PushBack(fv[k]); nfs.PushBack((uint32)nfv.Size()); }
+                for (uint32 f=0;f<fc;f++){ const uint32 s=fs[f],e=fs[f+1];   // faces miroir : winding inversé
+                    for (uint32 k=e;k>s;--k) nfv.PushBack((uint32)mir[fv[k-1]]);
+                    nfs.PushBack((uint32)nfv.Size()); }
+                m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
+                return;
+            }
+
+            // Array
+            int32 cnt = (arrayCount<1)?1:arrayCount;
+            if (cnt < 2) return;
+            NkVector<NkVertex3D> pv = base;
+            NkVector<uint32> nfs, nfv; nfs.PushBack(0);
+            for (uint32 f=0;f<fc;f++){ for(uint32 k=fs[f];k<fs[f+1];k++) nfv.PushBack(fv[k]); nfs.PushBack((uint32)nfv.Size()); }
+            for (int32 c=1;c<cnt;c++){
+                const uint32 voff = (uint32)pv.Size();
+                for (uint32 i=0;i<baseVC;i++){ NkVertex3D v=base[i]; v.pos = v.pos + arrayOffset*(float32)c; pv.PushBack(v); }
+                for (uint32 f=0;f<fc;f++){ for(uint32 k=fs[f];k<fs[f+1];k++) nfv.PushBack(fv[k]+voff); nfs.PushBack((uint32)nfv.Size()); }
+            }
+            m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size()-1, nfv.Data());
+        }
+
+        void NkModifierStack::Evaluate(const NkEditMesh& base, NkEditMesh& out) const {
+            out = base;
+            for (uint32 i=0;i<(uint32)modifiers.Size();++i)
+                if (modifiers[i].enabled) modifiers[i].Apply(out);
+        }
+
         bool NkMeshEditRecorder::Deserialize(const uint8* data, uint32 size) {
             mCommands.Clear();
             EmR r(data, size);
