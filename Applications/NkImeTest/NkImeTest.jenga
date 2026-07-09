@@ -31,7 +31,7 @@ with project("NkImeTest"):
         windowedapp()
         usetoolchain(TC_WINDOWS)
         defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
-        links(["user32", "gdi32", "opengl32", "dwmapi", "shell32"])
+        links(["user32", "gdi32", "opengl32", "dwmapi", "shell32", "ole32", "oleaut32", "uuid", "dinput8", "dxguid"])
 
     # ===== Linux XLib =============================================================
     with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
