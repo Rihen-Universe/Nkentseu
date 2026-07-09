@@ -155,7 +155,17 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
   backend de lecture) + **Null** (macOS/Android/Web en attente). Validé : build 12/12 Windows + **self-test
   headless du ring buffer OK** (write/read/wrap/overflow, `NkAnimPhysTest` 5/5).
   **Outil de test livré** : `NkMicRecord` (`Applications/NkMicRecord/`) — enregistre N s du micro → **WAV 16-bit PCM**
-  (encodeur WAV inline via `NkFile::WriteAllBytes`) : `NkMicRecord.exe [secondes] [sortie.wav]`.
+  (encodeur WAV inline via `NkFile::WriteAllBytes`) : `NkMicRecord.exe [secondes] [sortie.wav] [--raw]`. Applique
+  par défaut le **débruitage + normalisation** (voir ci-dessous) et affiche la crête avant/après (dBFS).
+- **🔶 Débruitage + normalisation (2026-07-10)** — `NkDenoiser` (`NkDenoiser.{h,cpp}`, from-scratch zero-STL,
+  offline). Chaîne : **passe-haut** (DC blocker) → **débruitage spectral** (STFT Hann 50% overlap-add, **FFT
+  radix-2 maison**, profil de bruit estimé sur le début, **gain de Wiener par bin lissé en fréquence 3-taps +
+  en temps** → pas de « musical noise » ni d'amplification du plancher) → **noise gate** (enveloppe
+  attack/release) → **normalisation crête** (auto-gain vers une cible dBFS = corrige « volume trop bas »).
+  `Process(interleaved, frames, channels, sampleRate, out, opt)` par canal. Validé HEADLESS
+  (`NkAnimPhysTest` → **NkDenoiser OK** : round-trip STFT identité exact, plancher de bruit ↓, sinus préservé,
+  auto-gain remonte un signal faible). ⏳ Reste (V2) : mode temps réel (par blocs, latence bornée), VAD, AGC
+  dynamique, dé-réverbération.
   ⏳ Reste : backends **CoreAudio** (macOS/iOS — patron = AudioUnit input, EnableIO bus 1 + AudioUnitRender) et
   **AAudio** (Android — patron = dlopen `libaaudio.so` + `setDirection(INPUT)`) : **patronnés d'après les backends
   de lecture existants, à écrire+valider SUR hardware** (non compilables sur cette machine Windows → non shippés

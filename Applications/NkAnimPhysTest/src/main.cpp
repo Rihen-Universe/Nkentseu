@@ -8,6 +8,7 @@
 #include "NKRenderer/Tools/Animation/NkContactDetector.h"
 #include "NKRenderer/Tools/Animation/NkPoseBalancer.h"
 #include "NKAudio/NkAudioCapture.h"
+#include "NKAudio/NkDenoiser.h"
 
 #include <cstdio>
 
@@ -47,6 +48,10 @@ int main() {
 	// NKAudio — enregistrement : ring buffer SPSC de la capture (headless, sans micro).
 	Report("NKAudio NkAudioCapture", "ring buffer SPSC : write/read/wrap/overflow",
 		   audio::NkAudioCapture::SelfTest(), nbOk, nbTotal);
+
+	// NKAudio — débruitage + normalisation (soustraction spectrale + gate + auto-gain).
+	Report("NKAudio NkDenoiser", "soustraction spectrale (plancher bruit chute), sinus survit, normalisation",
+		   audio::NkDenoiser::SelfTest(), nbOk, nbTotal);
 
 	printf("\n=== Resultat : %d/%d suites OK ===\n", nbOk, nbTotal);
 	return (nbOk == nbTotal) ? 0 : 1;

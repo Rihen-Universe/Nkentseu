@@ -11,14 +11,16 @@
 // AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #include "NKAudio/NkAudioCapture.h"
+#include "NKAudio/NkDenoiser.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
-#include "NKLogger/NkLog.h"
 #include "NKTime/NkChrono.h"
 #include "NKTime/NkClock.h"
 
-#include <cstdlib> // atoi/atof — parsing d'arguments seulement
+#include <cstdio>  // printf — sortie directe console
+#include <cstdlib> // atoi — parsing d'arguments
+#include <cmath>   // log10 — affichage dBFS diagnostic
 
 using namespace nkentseu;
 
@@ -72,17 +74,35 @@ namespace {
 } // namespace
 
 int main(int argc, char **argv) {
-	const int32 seconds = (argc > 1) ? (atoi(argv[1]) > 0 ? atoi(argv[1]) : 5) : 5;
-	const char *outPath = (argc > 2) ? argv[2] : "nkmic_capture.wav";
+	int32 seconds = 5;
+	const char *outPath = "nkmic_capture.wav";
+	bool denoise = true; // débruitage + normalisation par défaut (corrige bruit + volume bas)
 
-	logger.Info("=== NkMicRecord — enregistrement micro {0}s -> {1} ===", seconds, outPath);
+	// Parsing simple : [secondes] [sortie.wav] [--raw]
+	int posArg = 0;
+	for (int a = 1; a < argc; ++a) {
+		if (argv[a][0] == '-') {
+			if (argv[a][1] == '-' && argv[a][2] == 'r') // --raw
+				denoise = false;
+		} else if (posArg == 0) {
+			const int v = atoi(argv[a]);
+			if (v > 0)
+				seconds = v;
+			++posArg;
+		} else if (posArg == 1) {
+			outPath = argv[a];
+			++posArg;
+		}
+	}
+
+	printf("=== NkMicRecord — enregistrement micro %ds -> %s (%s) ===\n", seconds, outPath,
+		   denoise ? "debruitage+normalisation ON" : "brut (--raw)");
 
 	// Périphériques disponibles.
 	NkVector<audio::NkCaptureDeviceInfo> devs = audio::NkAudioCapture::EnumerateDevices();
-	logger.Info("Peripheriques d'entree detectes : {0}", static_cast<int32>(devs.Size()));
+	printf("Peripheriques d'entree detectes : %d\n", static_cast<int32>(devs.Size()));
 	for (uint64 i = 0; i < devs.Size(); ++i)
-		logger.Info("  [{0}] {1}{2}", static_cast<int32>(i), devs[i].name.CStr(),
-					devs[i].isDefault ? " (defaut)" : "");
+		printf("  [%d] %s%s\n", static_cast<int32>(i), devs[i].name.CStr(), devs[i].isDefault ? " (defaut)" : "");
 
 	audio::NkCaptureConfig cfg;
 	cfg.sampleRate = 48000;
@@ -91,19 +111,19 @@ int main(int argc, char **argv) {
 
 	audio::NkAudioCapture cap;
 	if (!cap.Open(cfg)) {
-		logger.Error("Echec Open() — backend indisponible ou pas de micro. Backend : {0}", cap.BackendName());
+		printf("[ERREUR] Open() a echoue — backend indisponible ou pas de micro. Backend : %s\n", cap.BackendName());
 		return 1;
 	}
-	logger.Info("Backend capture : {0} | {1} Hz | {2} canal(aux)", cap.BackendName(), cap.SampleRate(),
-				cap.Channels());
+	printf("Backend capture : %s | %d Hz | %d canal(aux)\n", cap.BackendName(), cap.SampleRate(), cap.Channels());
 
 	if (!cap.Start()) {
-		logger.Error("Echec Start() de la capture.");
+		printf("[ERREUR] Start() de la capture a echoue.\n");
 		cap.Close();
 		return 1;
 	}
 
-	logger.Info(">>> PARLEZ MAINTENANT ({0}s)...", seconds);
+	printf(">>> PARLEZ MAINTENANT (%ds)...\n", seconds);
+	fflush(stdout);
 
 	NkVector<float32> recorded;
 	const int32 sr = cap.SampleRate();
@@ -132,18 +152,47 @@ int main(int argc, char **argv) {
 	cap.Stop();
 	cap.Close();
 
-	logger.Info("Frames capturees : {0} ({1} echantillons)", gotFrames, static_cast<int32>(recorded.Size()));
+	printf("Frames capturees : %d (%d echantillons)\n", gotFrames, static_cast<int32>(recorded.Size()));
 
 	if (recorded.Size() == 0) {
-		logger.Error("Aucun echantillon capture — micro muet ou permission refusee.");
+		printf("[ERREUR] Aucun echantillon capture — micro muet ou permission refusee.\n");
 		return 1;
 	}
 
-	if (!WriteWav16(outPath, recorded, sr, ch)) {
-		logger.Error("Echec d'ecriture du WAV : {0}", outPath);
+	// Mesure de crête brute (diagnostic « volume trop bas »).
+	float32 rawPeak = 0.f;
+	for (uint64 i = 0; i < recorded.Size(); ++i) {
+		const float32 av = recorded[i] < 0.f ? -recorded[i] : recorded[i];
+		if (av > rawPeak)
+			rawPeak = av;
+	}
+	printf("Crete brute : %.4f (%.1f dBFS)\n", rawPeak, rawPeak > 1e-6f ? 20.f * (float32)log10(rawPeak) : -120.f);
+
+	// Débruitage + normalisation (soustraction spectrale + gate + auto-gain).
+	NkVector<float32> *toWrite = &recorded;
+	NkVector<float32> clean;
+	if (denoise) {
+		printf("Debruitage (soustraction spectrale + gate) + normalisation...\n");
+		audio::NkDenoiseOptions opt; // valeurs par défaut : voix
+		if (audio::NkDenoiser::Process(recorded.Data(), gotFrames, ch, sr, clean, opt)) {
+			toWrite = &clean;
+			float32 cp = 0.f;
+			for (uint64 i = 0; i < clean.Size(); ++i) {
+				const float32 av = clean[i] < 0.f ? -clean[i] : clean[i];
+				if (av > cp)
+					cp = av;
+			}
+			printf("Crete apres traitement : %.4f (%.1f dBFS)\n", cp, cp > 1e-6f ? 20.f * (float32)log10(cp) : -120.f);
+		} else {
+			printf("[WARN] Debruitage echoue — ecriture du brut.\n");
+		}
+	}
+
+	if (!WriteWav16(outPath, *toWrite, sr, ch)) {
+		printf("[ERREUR] Ecriture du WAV a echoue : %s\n", outPath);
 		return 1;
 	}
 
-	logger.Info("=== OK — ecrit : {0} ({1} frames, {2} Hz, {3} canal) ===", outPath, gotFrames, sr, ch);
+	printf("=== OK — ecrit : %s (%d frames, %d Hz, %d canal) ===\n", outPath, gotFrames, sr, ch);
 	return 0;
 }
