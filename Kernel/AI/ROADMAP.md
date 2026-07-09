@@ -78,9 +78,10 @@ sans validation automatique + revue humaine rapide ; chaque étape produit un r�
 - ⬜ **Sculpt assisté** : brushes displacement/lissage (fondation classique) → suggestions de
   détail IA en **calque non destructif** → symétrie intelligente → style transfer de détail.
 - ⬜ **Génération procédurale paramétrique** (assets répétitifs : archi, props, décor) :
-  graphe de nodes géométriques (⚠️ substrat de graphe à PARTAGER avec NKCode/Blueprint et le
-  futur graphe matériaux/VFX — une seule implémentation) → bibliothèque de motifs (patterns
-  Bamiléké/géométriques) → paramètres pilotés par prompt → export vers retopo/UV standard.
+  graphe de nodes géométriques (⚠️ substrat = **NKGraph**, `Kernel/Runtime/NKGraph/ROADMAP.md`,
+  décision 2026-07-09 — le procédural ne fournit que sa bibliothèque de nodes, backend =
+  commandes `NkMeshEditCommand`) → bibliothèque de motifs (patterns Bamiléké/géométriques) →
+  paramètres pilotés par prompt → export vers retopo/UV standard.
 
 ### Vision pipeline global « prompt → asset complet » (fusion corpus 2026-07-09)
 

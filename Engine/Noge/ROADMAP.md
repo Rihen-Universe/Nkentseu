@@ -328,8 +328,11 @@ accélérateur de brainstorming, jamais le chemin de production.
    typés (émetteur, force, collision, couleur/gradient, rendu ; float/vecteur/
    courbe/texture), évaluation par frame parallélisable, sous-graphes
    réutilisables (encapsuler un pattern en node custom).
-   ⚠️ Substrat de graphe PARTAGÉ avec NKCode (Blueprint) et le graphe de
-   matériaux (NKRenderer Phase T.2) — une seule implémentation.
+   ⚠️ Substrat de graphe = **NKGraph** (`Kernel/Runtime/NKGraph/ROADMAP.md`,
+   décision 2026-07-09) : cœur agnostique + canvas NKEditorKit partagés avec les
+   matériaux (NKRenderer T.2, 1er consommateur), Blueprint (NKCode), procédural
+   (AI). Le VFX n'implémente que sa bibliothèque de nodes + son plan d'exécution
+   par frame (aplati, jamais d'interprétation naïve en boucle chaude).
    - Nodes particules : émission (taux/volume/burst), forces (gravité, vortex,
      attracteur, vent, courbes custom), collision (plan/sphère puis géométrie de
      scène), cycle de vie (courbes taille/couleur/opacité).

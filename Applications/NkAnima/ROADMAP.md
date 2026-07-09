@@ -289,6 +289,8 @@ Détail cible (fusion corpus IA 2026-07-09) :
 - ⏳ HFSM (machine à états hiérarchique) : états + transitions par événement,
   conditions paramétrables (seuils/timers), sous-états imbriqués, interface de
   données pour pilotage externe (préparation couche acteur, cf. M4bis).
+  Édition visuelle future (anim graph node-based) = consommateur de **NKGraph**
+  (`Kernel/Runtime/NKGraph/ROADMAP.md`, décision 2026-07-09).
 - ⏳ Retargeting : mapping bone-à-bone + normalisation de la pose de repos.
 - ⏳ Mouvement secondaire (après le primaire) : jiggle/spring bones (cheveux,
   tissus légers — meilleur ratio effort/résultat), ragdoll partiel puis complet
