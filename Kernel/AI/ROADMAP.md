@@ -418,8 +418,13 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
 - ⚠️ **Constat d'échelle honnête** : à 3 M params / 250 pas, la sortie reste « token-soup » (apprend le
   **format** Question:/Réponse: + les distributions de caractères par langue, **pas le sens**). La cohérence
   émerge avec taille+pas+données. Le Palier 1 (13 M, 4000 pas) doit donner des phrases qui tiennent mieux.
-- ⬜ **Prochaine brique proposée** : **reprise d'entraînement depuis un checkpoint** (aujourd'hui
-  `NK_GPT_LOAD` = génération seule ; ajouter la reprise pour continuer un long run après plantage/pause).
+- ✅ **Reprise d'entraînement depuis un checkpoint** (`NK_GPT_LOAD` + `NK_GPT_RESUME=1`, commit `03d1ec40`) :
+  recharge poids + BPE + dims + langues, ré-encode le corpus avec le BPE du checkpoint (vérifie que les
+  tags correspondent), et **continue** l'entraînement au lieu de seulement générer. Validé (perte repart
+  à 5,93 vs 6,38 à froid → continue bien depuis les poids). ⚠️ Limite : l'état Adam n'est pas sauvegardé
+  (optimiseur neuf + warmup LR redémarre à la reprise) — les poids, eux, sont préservés.
+- ⬜ **Restes** : sauver l'état Adam + le pas courant dans le checkpoint (reprise parfaite du schedule) ;
+  cible par indices (au lieu du one-hot dense) ; mixed precision FP16 (Palier 2) ; corpus format dialogue.
 
 ### Où va le code (modules)
 - **NKAutograd** : ops batched-matmul, LayerNorm, softmax-axe+masque, embedding, GELU (fwd+bwd, gradient-checkés dans `NKAutogradTest`).
