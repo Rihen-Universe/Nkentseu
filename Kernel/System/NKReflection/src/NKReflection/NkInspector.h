@@ -4,7 +4,7 @@
 // AUTEUR   : Rihen
 // DATE     : 2026-06-24
 // VERSION  : 1.0.0
-// LICENCE  : Proprietaire - libre d'utilisation et de modification
+// LICENCE  : Proprietaire - usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 // DESCRIPTION :
 //   API "inspecteur" de la Phase 5 : transforme une classe reflechie + une

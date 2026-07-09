@@ -5,6 +5,16 @@
 CLAUDE.md
 .claude/
 
+### Documents privés / stratégie — JAMAIS versionnés (dépôt public) ###
+*.private.md
+docs/VISION_STRATEGIE_BUSINESS_PLAN.*
+BUSINESS_PLAN_PRIVE/
+
+### Artefacts de session / caches d'outils ###
+*.nkmec
+.nkcode_diag.nkcheck
+**/.nkcode_diag.nkcheck
+
 ### Nkentseu — artefacts debug/scratch racine (ménage 2026) ###
 # Ancrés racine (/) pour ne PAS toucher Resources/ ni les Captures légitimes ailleurs.
 /*.apk

@@ -58,7 +58,7 @@
 // AUTEUR   : Rihen
 // DATE     : 2026-02-10
 // VERSION  : 1.0.0
-// LICENCE  : Propriétaire - libre d'utilisation et de modification
+// LICENCE  : Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 
 #pragma once
@@ -1617,5 +1617,5 @@
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. Tous droits réservés.
-// Licence Propriétaire - Libre d'utilisation et de modification
+// Licence Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
 // ============================================================

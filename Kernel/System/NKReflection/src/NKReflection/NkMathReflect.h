@@ -4,7 +4,7 @@
 // AUTEUR   : Rihen
 // DATE     : 2026-06-25
 // VERSION  : 1.1.0
-// LICENCE  : Proprietaire - libre d'utilisation et de modification
+// LICENCE  : Proprietaire - usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 // DESCRIPTION :
 //   Reflexion des types mathematiques NKMath pour la Phase 5. Header-only et

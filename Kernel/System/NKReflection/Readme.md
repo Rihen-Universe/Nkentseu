@@ -3,7 +3,7 @@
 > **Version** : 1.0.0
 > **Auteur** : Rihen
 > **Date** : 2026-02-07
-> **Licence** : Propriétaire - Libre d'utilisation et de modification
+> **Licence** : Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
 > **Statut** : ✅ Stable - Production Ready
 
 ---
@@ -1170,7 +1170,7 @@ namespace nkentseu {
 ```
 Copyright (c) 2024-2026 Rihen. Tous droits réservés.
 
-Licence Propriétaire - Libre d'utilisation et de modification
+Licence Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
 
 Permission est accordée, gratuitement, à toute personne obtenant une copie
 de ce logiciel et des fichiers de documentation associés (le "Logiciel"),
