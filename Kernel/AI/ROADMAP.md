@@ -451,8 +451,15 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
   quand un Palier plafonne / mémorise vs généralise). `NkGptConfig::valFrac/valEvery`, `MakeBatchFrom`
   (source paramétrable train/val), `EvaluateVal`. Validé : split « 2940 tokens réservés (15%) », val
   suit l'entraînement (5,26→4,84) + val finale rapportée.
-- ⬜ **Restes** : cible par indices (au lieu du one-hot dense) ; mixed precision FP16 (Palier 2) ;
-  corpus format dialogue.
+- ✅ **Cible par indices (index-target cross-entropy)** : `SoftmaxCrossEntropyIndexed(logits, targetIdx[B])`
+  — la cible est un vecteur d'**indices** (`-1` = ligne masquée) au lieu du **one-hot dense `[B,V]`**. Économise
+  le build CPU + le transfert GPU du one-hot (~140 Mo à l'échelle Palier 2). Backward = softmax (GPU) puis
+  scatter `-1` à la classe cible + annulation des lignes masquées → **couvre les 5 backends** (ops existants,
+  aucun kernel backend-spécifique). `MakeBatchIdx` remplace le one-hot dans `Fit`/`EvaluateVal`. **Validé** :
+  gradient-check différences finies (`NKAutogradTest` 29 OK, cas `SoftmaxCE_Idx` + `SoftmaxCE_IdxMask`) +
+  **perte pas 1 identique** au chemin one-hot (5,9703) → équivalence numérique prouvée.
+- ⬜ **Restes** : mixed precision FP16 (Palier 2, per-backend : Metal/Vulkan/DX12 ok, DX11 approx, GL patchy) ;
+  corpus format dialogue (pipeline HF validé, 63 Mo collectés) ; couche multi-GPU.
   ⚠️ Ne pas lancer un 2ᵉ entraînement GPU pendant qu'un run tourne (contention Vulkan sur 8 Go → crash
   du 2ᵉ process ; l'exe isolé du Palier n'est pas affecté).
 

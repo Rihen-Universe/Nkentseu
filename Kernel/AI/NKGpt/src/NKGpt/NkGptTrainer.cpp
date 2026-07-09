@@ -153,6 +153,43 @@ namespace nkentseu {
 				}
 			}
 
+			// Lot d'entraînement à cible INDICES (depuis mLangData).
+			void NkGptTrainer::MakeBatchIdx(NkTensor &x, NkTensor &targetIdx) {
+				MakeBatchIdxFrom(mLangData, mLangMask, x, targetIdx);
+			}
+
+			// Lot : x[B,T] + cible targetIdx[B*T] (id de la classe par position ; -1 = masquée/inactive).
+			// Même échantillonnage que MakeBatchFrom, mais sans matérialiser le one-hot [B*T,V].
+			void NkGptTrainer::MakeBatchIdxFrom(const NkVector<NkVector<float>> &data,
+												const NkVector<NkVector<float>> &mask, NkTensor &x,
+												NkTensor &targetIdx) {
+				NkShape xs;
+				xs.PushBack(mB);
+				xs.PushBack(mT);
+				x = NkTensor::Zeros(xs);
+				targetIdx = NkTensor::Full(NkShape{mB * mT}, -1.0); // -1 par défaut = masquée
+				float *xp = x.DataAs<float>();
+				float *tp = targetIdx.DataAs<float>();
+				const int nL = (int)data.Size();
+				for (int64 b = 0; b < mB; ++b) {
+					const int li = nL > 0 ? (int)(b % nL) : 0;
+					const NkVector<float> &dd = data[(nk_size)li];
+					const bool hasMask = ((nk_size)li < mask.Size()) && (mask[(nk_size)li].Size() == dd.Size());
+					const int64 N = (int64)dd.Size();
+					if (N <= mT)
+						continue; // ligne entièrement masquée (targetIdx reste -1)
+					const int64 off = (int64)(NextRand() * (double)(N - mT));
+					xp[b * mT + 0] = (float)(mNByte + li);
+					if (!hasMask || mask[(nk_size)li][(nk_size)off] != 0.f)
+						tp[b * mT + 0] = dd[(nk_size)off];
+					for (int64 t = 1; t < mT; ++t) {
+						xp[b * mT + t] = dd[(nk_size)(off + t - 1)];
+						if (!hasMask || mask[(nk_size)li][(nk_size)(off + t)] != 0.f)
+							tp[b * mT + t] = dd[(nk_size)(off + t)];
+					}
+				}
+			}
+
 			// Perte moyenne sur le held-out (forward seul, aucun gradient). -1 si pas de val.
 			double NkGptTrainer::EvaluateVal(int nBatches) {
 				if (mValData.Size() == 0)
@@ -160,11 +197,10 @@ namespace nkentseu {
 				double sum = 0.0;
 				int cnt = 0;
 				for (int i = 0; i < nBatches; ++i) {
-					NkTensor x, oneHot;
-					MakeBatchFrom(mValData, mValMask, x, oneHot);
+					NkTensor x, tgt;
+					MakeBatchIdxFrom(mValData, mValMask, x, tgt);
 					NkVar logits = mGpt->Forward(mUseGpu ? x.ToGPU() : x);
-					NkVar loss =
-						autograd::SoftmaxCrossEntropy(logits, NkVar::Leaf(mUseGpu ? oneHot.ToGPU() : oneHot, false));
+					NkVar loss = autograd::SoftmaxCrossEntropyIndexed(logits, NkVar::Leaf(tgt, false));
 					sum += loss.Value().ToCPU().GetItem(NkShape{(int64)0});
 					++cnt;
 				}
@@ -441,11 +477,11 @@ namespace nkentseu {
 					adam.ZeroGrad();
 					double lv = 0.0;
 					for (int m = 0; m < ACCUM; ++m) {
-						NkTensor x, oneHot;
-						MakeBatch(x, oneHot);
+						NkTensor x, tgt;
+						MakeBatchIdx(x, tgt); // cible = indices [B*T] (pas de one-hot dense)
 						NkVar logits = mGpt->Forward(mUseGpu ? x.ToGPU() : x);
-						NkVar loss = autograd::SoftmaxCrossEntropy(
-							logits, NkVar::Leaf(mUseGpu ? oneHot.ToGPU() : oneHot, false));
+						// tgt reste sur CPU (minuscule ; le forward et le backward la lisent en CPU).
+						NkVar loss = autograd::SoftmaxCrossEntropyIndexed(logits, NkVar::Leaf(tgt, false));
 						NkVar scaled = (ACCUM > 1) ? autograd::MulScalar(loss, 1.0 / (double)ACCUM) : loss;
 						scaled.Backward();
 						lv += loss.Value().ToCPU().GetItem(NkShape{(int64)0}) / (double)ACCUM;

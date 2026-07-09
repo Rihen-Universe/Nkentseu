@@ -607,6 +607,32 @@ namespace nkentseu {
 					break;
 				}
 
+				case NkAutoOp::NK_SOFTMAX_CE_IDX: { // cible par INDICES : dLogits = (probs − onehot(idx))/active
+					double s = ScalarOf(g);
+					NkTensor probs = SoftmaxRows(n->a->value);
+					const NkShape &sh = probs.Shape();
+					const int64 B = sh.Size() >= 1 ? sh[0] : 1;
+					const int64 C = sh.Size() >= 2 ? sh[1] : NkShapeNumel(sh);
+					const int64 activeRows = n->iparam[0] > 0 ? (int64)n->iparam[0] : B;
+					const double coef = (activeRows > 0) ? s / (double)activeRows : 0.0;
+					// probs -> CPU, soustrait 1 à la classe cible (scatter), annule les lignes masquées.
+					NkTensor diff = ToCpuT(probs).Contiguous();
+					NkTensor ti = ToCpuT(n->b->value).Contiguous();
+					float *dp = diff.DataAs<float>();
+					const float *tp = ti.DataAs<float>();
+					for (int64 b = 0; b < B; ++b) {
+						const int64 idx = (int64)((double)tp[b] + 0.5);
+						if (tp[b] < 0.f || idx < 0 || idx >= C) {
+							for (int64 c = 0; c < C; ++c)
+								dp[b * C + c] = 0.f; // ligne masquée -> gradient nul
+						} else {
+							dp[b * C + idx] -= 1.0f; // probs - onehot(idx)
+						}
+					}
+					AccumGrad(n->a, ops::MulScalar(ToDevOf(diff, n->a->value), coef));
+					break;
+				}
+
 				case NkAutoOp::NK_CONV2D: { // backward via im2col + matmul (GPU-accéléré)
 					const int32 stride = n->iparam[0], pad = n->iparam[1];
 					NkTensor x = n->a->value.Contiguous();
@@ -1016,6 +1042,34 @@ namespace nkentseu {
 				NkVar r = NkMakeOp(NkAutoOp::NK_SOFTMAX_CE, lossT, logits.Node(), targetOneHot.Node());
 				r.Node()->iparam[0] = (int32)activeRows;		 // lu par le backward
 				r.Node()->iparam[1] = (activeRows == B) ? 0 : 1; // 1 = présence de lignes masquées
+				return r;
+			}
+
+			NkVar SoftmaxCrossEntropyIndexed(const NkVar &logits, const NkVar &targetIdx) {
+				// Identique à SoftmaxCrossEntropy mais la cible est un vecteur d'INDICES [B] (un id de classe
+				// par ligne). idx < 0 => ligne MASQUÉE (ignorée en loss ET en gradient). Évite le one-hot [B,V].
+				//   L = −(1/activeRows) Σ_{b actif} log(probs[b, idx[b]]).
+				NkTensor probs = SoftmaxRows(ToCpuT(logits.Value())); // CPU-only (comme la version one-hot)
+				NkTensor ti = ToCpuT(targetIdx.Value()).Contiguous();
+				const NkShape &sh = probs.Shape();
+				const int64 B = sh.Size() >= 1 ? sh[0] : 1;
+				const int64 C = sh.Size() >= 2 ? sh[1] : NkShapeNumel(sh);
+				const float *pp = probs.DataAs<float>();
+				const float *tp = ti.DataAs<float>();
+				double loss = 0.0;
+				int64 activeRows = 0;
+				for (int64 b = 0; b < B; ++b) {
+					const int64 idx = (int64)((double)tp[b] + 0.5);
+					if (tp[b] < 0.f || idx < 0 || idx >= C)
+						continue; // ligne masquée / invalide -> ignorée
+					++activeRows;
+					loss += -std::log((double)pp[b * C + idx] + 1e-12);
+				}
+				loss = (activeRows > 0) ? loss / (double)activeRows : 0.0;
+				NkTensor lossT = NkTensor::Full(NkShape{(int64)1}, loss);
+				NkVar r = NkMakeOp(NkAutoOp::NK_SOFTMAX_CE_IDX, lossT, logits.Node(), targetIdx.Node());
+				r.Node()->iparam[0] = (int32)activeRows;
+				r.Node()->iparam[1] = (activeRows == B) ? 0 : 1;
 				return r;
 			}
 

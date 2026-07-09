@@ -112,6 +112,11 @@ namespace nkentseu {
 					// Fabrique un lot x[B,T] + cible one-hot masquée depuis une source (train ou val).
 					void MakeBatchFrom(const NkVector<NkVector<float>> &data, const NkVector<NkVector<float>> &mask,
 									   NkTensor &x, NkTensor &oneHot);
+					// Idem mais cible = INDICES [B*T] (id par position ; -1 = masquée) au lieu du one-hot [B*T,V].
+					// Économise le one-hot dense. Utilisé par l'entraînement (SoftmaxCrossEntropyIndexed).
+					void MakeBatchIdx(NkTensor &x, NkTensor &targetIdx);
+					void MakeBatchIdxFrom(const NkVector<NkVector<float>> &data, const NkVector<NkVector<float>> &mask,
+										  NkTensor &x, NkTensor &targetIdx);
 					double EvaluateVal(int nBatches); // perte moyenne sur le held-out (forward seul) ; -1 si pas de val
 					double NextRand();				  // LCG déterministe [0,1)
 					void FillMeta(GptMeta &meta) const; // dims + BPE + langues (pour la sauvegarde)

@@ -33,6 +33,7 @@ namespace nkentseu {
 			NK_SUM,			   // somme -> scalaire
 			NK_MSE,			   // erreur quadratique moyenne (a=pred, b=cible) -> scalaire
 			NK_SOFTMAX_CE,	   // softmax(logits=a) + entropie croisée vs one-hot (b) -> scalaire
+			NK_SOFTMAX_CE_IDX, // idem mais cible = INDICES [B] (b), pas one-hot -> économise [B,V]
 			NK_CONV2D,		   // convolution 2D : a=entrée [B,Cin,H,W], b=poids [Cout,Cin,kH,kW]
 			NK_CONVT2D,		   // conv transposée 2D (upsampling) : b=poids [Cin,Cout,kH,kW]
 			NK_MAXPOOL2D,	   // max-pooling 2D (a=entrée) ; argmax mémorisé dans `aux`
@@ -133,6 +134,11 @@ namespace nkentseu {
 			// Softmax (par ligne) + entropie croisée vs cible one-hot [B,C] -> scalaire.
 			// Fusionné pour la stabilité numérique ; gradient = (softmax − onehot)/B.
 			NkVar SoftmaxCrossEntropy(const NkVar &logits, const NkVar &targetOneHot);
+
+			// Variante à CIBLE PAR INDICES : `targetIdx` = [B] (un id de classe par ligne, float encodé ;
+			// valeur < 0 = ligne MASQUÉE, ignorée en loss ET en gradient). Économise le one-hot dense [B,V]
+			// (build CPU + transfert GPU) — identique numériquement à SoftmaxCrossEntropy(one-hot).
+			NkVar SoftmaxCrossEntropyIndexed(const NkVar &logits, const NkVar &targetIdx);
 			// Sigmoid + entropie croisée BINAIRE (par pixel), cible dans [0,1] -> scalaire
 			// (moyenne). Fusionné = stable ; gradient = (sigmoid(logits) − cible)/N.
 			// Idéal pour reconstruire des images (plus net que MSE). `logits` = pré-sigmoid.

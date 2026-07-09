@@ -155,6 +155,22 @@ int main() {
 		GradCheck("SoftmaxCE", Mat(NkShape{2, 3}, ld),
 				  [t](NkVar z) { return autograd::SoftmaxCrossEntropy(z, NkVar::Leaf(t, false)); });
 	}
+	// 7bis) SoftmaxCrossEntropyIndexed : MÊME résultat via des indices [B] au lieu du one-hot [B,C].
+	{
+		float ld[6] = {2.0f, 0.5f, -1.0f, 0.1f, 1.5f, 0.3f}; // [2,3] logits
+		float idx[2] = {0.f, 1.f};							 // mêmes classes que le one-hot ci-dessus
+		NkTensor ti = Mat(NkShape{2}, idx);
+		GradCheck("SoftmaxCE_Idx", Mat(NkShape{2, 3}, ld),
+				  [ti](NkVar z) { return autograd::SoftmaxCrossEntropyIndexed(z, NkVar::Leaf(ti, false)); });
+	}
+	// 7ter) Cible-indices avec ligne MASQUÉE (idx<0) : gradient NUL sur la ligne masquée.
+	{
+		float ld[6] = {2.0f, 0.5f, -1.0f, 0.1f, 1.5f, 0.3f};
+		float idx[2] = {-1.f, 1.f}; // ligne 0 masquée, ligne 1 = classe 1
+		NkTensor ti = Mat(NkShape{2}, idx);
+		GradCheck("SoftmaxCE_IdxMask", Mat(NkShape{2, 3}, ld),
+				  [ti](NkVar z) { return autograd::SoftmaxCrossEntropyIndexed(z, NkVar::Leaf(ti, false)); });
+	}
 	// 8) Conv2D — gradient p/r à l'ENTRÉE : input [1,1,4,4] ⊛ weight [1,1,2,2].
 	{
 		float xd[16] = {1, 2, 0, 1, 0, 1, 3, 2, 2, 0, 1, 1, 1, 1, 0, 2};
