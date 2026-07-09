@@ -70,7 +70,7 @@ _REGISTRY: dict = {
     "NKInfer"        : _m("NKENTSEU_INFER",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd"]),
     "NKRL"           : _m("NKENTSEU_RL",            ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor"]),
     "NKGen"          : _m("NKENTSEU_GEN",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN"]),
-    "NKGpt"          : _m("NKENTSEU_GPT",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKFileSystem"]),
+    "NKGpt"          : _m("NKENTSEU_GPT",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN", "NKOptim", "NKFileSystem", "NKTime"]),
 
     # ---- System --------------------------------------------------------------
     "NKThreading"    : _m("NKENTSEU_THREADING",    ["NKPlatform", "NKCore", "NKMemory", "NKContainers"]),

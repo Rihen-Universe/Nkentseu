@@ -12,8 +12,8 @@ AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 
 IndentCaseLabels: true
-IndentAccessModifiers: false
-AccessModifierOffset: -4
+NamespaceIndentation: All
+IndentAccessModifiers: true
 
 ReflowComments: true
 AlignTrailingComments: true
