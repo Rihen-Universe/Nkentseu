@@ -282,14 +282,75 @@ NKRenderer compile (mon code OK). Demo à relancer une fois le font réparé par
 ### M2 — State machine / blend tree / retargeting
 Transitions, blend de poses, appliquer une anim à un autre rig (retargeting).
 (= NKRenderer Tier 3 #10 « animation avancée ».)
+Détail cible (fusion corpus IA 2026-07-09) :
+- ⏳ Blend linéaire 1D (idle↔walk) → blend space 2D directionnel (locomotion) →
+  blend additif (couches : locomotion + overlay haut du corps) → crossfade avec
+  courbes d'easing configurables.
+- ⏳ HFSM (machine à états hiérarchique) : états + transitions par événement,
+  conditions paramétrables (seuils/timers), sous-états imbriqués, interface de
+  données pour pilotage externe (préparation couche acteur, cf. M4bis).
+- ⏳ Retargeting : mapping bone-à-bone + normalisation de la pose de repos.
+- ⏳ Mouvement secondaire (après le primaire) : jiggle/spring bones (cheveux,
+  tissus légers — meilleur ratio effort/résultat), ragdoll partiel puis complet
+  (transition anim→physique via NKPhysics), cloth verlet léger (capes). LOD
+  physique par distance caméra.
 
-### M3 — Physique d'animation
+### M3 — Physique d'animation : solveur de pose façon Cascadeur
 Contraintes/ragdoll + **trajectoires physiquement correctes** (centre de masse
-balistique, équilibre — la signature Cascadeur). Amorce **NKCollision** orienté anim.
+balistique, équilibre — la signature Cascadeur). ⚠️ Le substrat existe déjà :
+**NKPhysics est COMPLET M0→M13** (contacts/frottement, joints + moteurs PD,
+ragdoll actif générique, COM/moments, CCD, déterminisme) — M3 est une **couche
+mince au-dessus**, pas une réécriture.
+
+Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociable :
+équilibre statique → contacts → optimisation → auto-posing) :
+1. ❌ **Distribution de masse** — masse par segment corporel (approximations
+   anthropométriques : tête ~8%, tronc ~50%, membres proportionnés), centre de
+   masse global depuis la pose courante (réutilise le COM NKPhysics), ajustement
+   par morphologie (humain/créature/stylisé), affichage debug du COM dans l'éditeur.
+2. ❌ **Solveur d'équilibre** — polygone de support (points de contact au sol :
+   pieds, mains si quadrupède), test statique (COM projeté ∈ polygone ?), puis
+   déséquilibre dynamique (vélocité/accélération du COM), visualisation debug.
+3. ❌ **Solveur de contacts** — détection par extrémité (raycast, réutilise le
+   foot-locking IK), résolution multi-points (quadrupède, escalade), transitions
+   de contact sans rupture visuelle, surfaces non planes (pentes, escaliers).
+4. ❌ **Optimiseur de pose sous contrainte** (le cœur) — ajuste une pose proposée
+   (clip ou IA) pour respecter l'équilibre : correction itérative tronc/bassin,
+   respect des limites d'angle articulaires (NkIKSystem), **pondération
+   configurable** (curseur réalisme vs intention artistique), lissage multi-frame
+   (pas d'à-coups).
+5. ❌ **Auto-posing** — poses intermédiaires physiquement plausibles entre deux
+   clés : interpolation passant par l'optimiseur, transferts de poids (bascule
+   pied à pied), plusieurs variantes proposées → choix humain.
+6. ❌ **Pont vers l'anim existante** — correction physique en post-traitement
+   non destructif du blend (M2), toggle par personnage/scène (coût non
+   négligeable), export des poses corrigées en clips éditables (M1.c).
 
 ### M4 — IA auto-pose
 Petit modèle qui **prédit des poses plausibles** (pose→pose / physics-aware) =
-1er vrai morceau de **NKAI**.
+1er vrai morceau de **NKAI**. S'appuie sur l'auto-posing M3.5 pour garantir que
+les poses prédites restent physiquement crédibles (même squelette obs→policy→
+action que la modélisation IA, cf. `Kernel/AI/ROADMAP.md` étape 5).
+
+### M4bis — Couche acteur / directeur IA (fusion corpus IA 2026-07-09)
+Le personnage reçoit un **rôle** et le joue. Principe clé : **le modèle de
+langage reste HORS de la boucle temps réel** — appelé une fois par « beat » de
+scène, jamais par frame ; sortie **structurée validée par schéma** (jamais du
+texte libre) ; cache + fallback règles si indisponible.
+- ❌ **Contexte de rôle** — structure rôle/personnalité/état émotionnel/objectif
+  de scène + historique court, sérialisation (NKSerialization), schéma strict.
+- ❌ **Pont directeur** — inférence **locale via NkGPT** (NKAI, souverain,
+  from-scratch) en priorité ; API externe optionnelle. Asynchrone (thread dédié,
+  ne bloque jamais le rendu), cache de réponses, fallback règles.
+- ❌ **Traducteur de performance** (la pièce charnière) — sortie IA → paramètres
+  concrets : intention → sélection clip/blend tree (M2), émotion → poids de blend
+  + posture, timing/beats → durées de transition. Démarrer avec 5-6 émotions →
+  5-6 profils de blend ; gestion de conflits entre directives.
+- ❌ **Directeur de scène** — orchestration multi-acteurs (2 d'abord : dialogue,
+  regard mutuel, timing croisé), puis N (priorisation, focus caméra).
+- ❌ **Enregistreur de performance** — capture des paramètres générés → export
+  `.nkanim` éditable (« l'IA propose, l'humain dispose »), versionning des
+  générations d'une même scène.
 
 ### M5 — App standalone
 `Applications/NkAnima` complète + UI timeline/viewport via **Editor Kit** (déjà
@@ -297,7 +358,10 @@ utilisé dans NKCode).
 
 ## Dépendances / liens
 - Rendu + skinning GPU : NKRenderer (`Tools/Render3D`, `Tools/Animation`, `Tools/IK`).
-- Physique (M3) : NKCollision (non démarré, à amorcer orienté anim).
-- IA (M4) : NKAI (vision, non démarré — cf mémoire `project_nkentseu_ai_vision`).
+- Physique (M3) : **NKCollision (13 vagues, 107 tests) + NKPhysics (M0→M13, 56
+  tests, ragdoll actif + COM/moments) sont LIVRÉS** — M3 est une couche de pose
+  au-dessus, pas un démarrage à zéro.
+- IA (M4/M4bis) : NKAI est du **code qui tourne** (Tier 1 complet GPU-résident,
+  NkGPT génère du texte, NKMeshAITest 98.8% — cf `Kernel/AI/ROADMAP.md`).
 - UI (M5) : Editor Kit (Engine/NKEditorKit, utilisé dans NKCode).
 - Cibles applicatives : PV3DE (animation corps), démos Sandbox.

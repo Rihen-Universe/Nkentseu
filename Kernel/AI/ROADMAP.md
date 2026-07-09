@@ -59,6 +59,47 @@ CONDITION (image / texte / forme cible) ─┐
 imiter des gestes de modélisation », jamais « text-to-3D frontière ». Chaque étape = publication
 + article (cf. section Communication).
 
+### Pipeline de production autour de la modélisation IA (fusion corpus 2026-07-09)
+
+Complément « qualité production » des étapes 1-5 ci-dessus : un mesh généré/construit par IA
+n'est **utilisable** que s'il passe des **portes de validation**. Rien n'entre dans le pipeline
+sans validation automatique + revue humaine rapide ; chaque étape produit un résultat
+**éditable, jamais figé**.
+
+- ⬜ **Réparation de mesh** (le vrai goulot, à prioriser avant plus de qualité de génération) :
+  détection automatique des défauts (non-manifold, trous, normales inversées, doublons de
+  vertices) → réparation auto (fill holes, recalcul normales, fusion) → rapport de qualité
+  (zones à vérifier) → correction manuelle assistée. Cible : ops sur `NkEditMesh` (half-edge).
+- ⬜ **Retopologie** : décimation adaptative préservant les silhouettes → retopo quad
+  (type instant meshes) → retopo orientée-rig (edge loops alignés sur les articulations) →
+  LOD auto (jeu vs cinématique) → contrôle manuel des loops critiques (visage, mains).
+- ⬜ **Dépliage UV** : seams par angle de courbure → optimisation de distorsion → placement
+  de seams dans les zones peu visibles → édition manuelle + ré-unwrap incrémental.
+- ⬜ **Sculpt assisté** : brushes displacement/lissage (fondation classique) → suggestions de
+  détail IA en **calque non destructif** → symétrie intelligente → style transfer de détail.
+- ⬜ **Génération procédurale paramétrique** (assets répétitifs : archi, props, décor) :
+  graphe de nodes géométriques (⚠️ substrat de graphe à PARTAGER avec NKCode/Blueprint et le
+  futur graphe matériaux/VFX — une seule implémentation) → bibliothèque de motifs (patterns
+  Bamiléké/géométriques) → paramètres pilotés par prompt → export vers retopo/UV standard.
+
+### Vision pipeline global « prompt → asset complet » (fusion corpus 2026-07-09)
+
+Flux cible reliant les domaines : prompt/rôle → **modélisation** (ci-dessus) → **texturing**
+(cf. `Kernel/Runtime/NKRenderer/ROADMAP.md` Phase T) → **rig/skinning** (livré NKRenderer) →
+**rôle comportemental + performance** (cf. `Applications/NkAnima/ROADMAP.md` M3/M4bis) →
+**éclairage** (NKRenderer Phase T) → **VFX** (cf. `Engine/Noge/ROADMAP.md`) → rendu final.
+Principes transversaux (invariants) :
+1. **Technique solide d'abord, IA générative ensuite** — la couche IA enrichit un pipeline
+   stable, jamais l'inverse.
+2. **Toute génération est éditable** — l'utilisateur peut interrompre le flux et reprendre la
+   main à chaque étape (sculpt, peinture, graphe, clip, setup lumière).
+3. **L'IA compose sur un vocabulaire validé** (commandes NkMeshEditCommand, nodes de graphe,
+   presets) — elle n'invente pas from scratch. C'est déjà le choix prouvé par NKMeshAITest.
+4. **Inférence locale d'abord** (NkGPT/NKInfer, souveraineté from-scratch) ; APIs externes =
+   option, jamais dépendance du chemin critique.
+⚠️ Nommage : les documents d'origine appelaient « NKAI » une couche de transport HTTP/LLM —
+en conflit avec ce module. Cette couche s'appelle ici **pont directeur** (NkAnima M4bis).
+
 ---
 
 ## Phase 0 — Mise en place

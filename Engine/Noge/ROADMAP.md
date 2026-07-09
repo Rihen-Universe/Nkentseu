@@ -45,6 +45,7 @@ trouve une coquille `Applications/Nogee` (éditeur en gestation) et un dossier
 | Audio components | 🔶 | Headers OK, manque NkAudioSystem | Moyenne |
 | Physics components + NkPhysicsSystems | 🔶 | Headers OK, intégration NKPhysics | Moyenne |
 | Crowd sim (NkCrowdGrid, NkCrowdManager) | ❌ | Spec seulement | Basse |
+| VFX (NkParticleEmitter/System livrés ; graphe d'effets, simu, IA) | 🔶 | Graphe de nodes + simulation + génération (cf. section VFX) | Moyenne |
 | Color (NkColor, NkPalette, NkHarmony) | ❌ | Header seulement | Basse |
 | Design Raster (NkRasterCanvas, NkBrushEngine) | ❌ | Spec seulement | Basse |
 | Design Vector (NkVectorPath, NkPaint) | ❌ | Spec seulement | Basse |
@@ -313,6 +314,42 @@ Tous présents en `*.h` riches (commentaires, structs, API publique) mais
   `ARCHITECTURE.md` et `ARCHITECTURE (2).md` + `file.md`.
 - À démarrer après Phase 4 (panels éditeur stables) — Phases 5 et 6 de
   l'architecture.
+
+### VFX — graphe d'effets & simulation (fusion corpus IA 2026-07-09)
+
+Base existante : 🔶 `NkParticleEmitter` (presets) + `NkParticleSystem` livrés à la
+réhabilitation Noge du 2026-06-30 (CPU). Cible : un système d'effets éditable par
+graphe, consommé en jeu (Songoo, futurs titres) et en pipeline cinématique.
+Principe : **le graphe manuel d'abord** — le contrôle artistique fin (timing,
+courbes, physicalité) est non négociable en VFX ; l'IA générative n'est qu'un
+accélérateur de brainstorming, jamais le chemin de production.
+
+1. ❌ **Graphe VFX** (fondation, prérequis de tout le reste) : nodes/sockets
+   typés (émetteur, force, collision, couleur/gradient, rendu ; float/vecteur/
+   courbe/texture), évaluation par frame parallélisable, sous-graphes
+   réutilisables (encapsuler un pattern en node custom).
+   ⚠️ Substrat de graphe PARTAGÉ avec NKCode (Blueprint) et le graphe de
+   matériaux (NKRenderer Phase T.2) — une seule implémentation.
+   - Nodes particules : émission (taux/volume/burst), forces (gravité, vortex,
+     attracteur, vent, courbes custom), collision (plan/sphère puis géométrie de
+     scène), cycle de vie (courbes taille/couleur/opacité).
+   - Nodes de rendu : billboards, mesh particles (débris), ribbons/trails
+     (énergie/magie). GPU compute = NKRenderer Phase J.
+   - Éditeur node-based avec preview temps réel (NKEditorKit).
+2. ❌ **Simulation fumée/feu/fluides bas-coût** (grid-based temps réel) →
+   compute GPU (NKRHI) → variante haute résolution offline (film) → LOD de
+   simulation par plateforme (mobile/HarmonyOS vs desktop).
+3. ❌ **Génération IA de systèmes** (seulement une fois le vocabulaire de nodes
+   mûr) : prompt → configuration structurée de graphe, l'IA **compose à partir
+   des patterns existants** (feu, fumée, magie, impact) au lieu d'halluciner des
+   paramètres ; plusieurs variantes proposées, édition post-génération toujours
+   possible. Inférence locale (NKAI) privilégiée.
+4. ❌ **Stylisation cohérente** : palette contrainte par projet, motifs
+   signature (patterns Bamiléké dans les textures de particules), grading/glow
+   signature, presets réutilisables entre projets.
+5. ❌ **Previz productivité** : mode basse densité pour itération rapide,
+   bascule preview↔final en un clic, **coût de perf estimé affiché en temps
+   réel** (nombre de particules, coût GPU).
 
 ---
 

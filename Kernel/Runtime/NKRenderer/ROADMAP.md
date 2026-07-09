@@ -360,6 +360,67 @@ limité, DX12+Metal OK. Plan :
 
 ---
 
+## ❌ Phase T — Texturing & éclairage assistés (fusion corpus IA 2026-07-09)
+
+Couches d'assistance au-dessus de l'existant (système de matériaux 16 familles,
+IBL, NkVSM, hot-reload `.nkasset`) — **rien ne remplace, tout étend**. Principe :
+génération éditable couche par couche, jamais un bitmap figé ; l'artiste reprend
+la main à chaque étape. Inférence locale (NKAI/NKGen) privilégiée, API externe
+optionnelle.
+
+### T.1 — Bake automatique (fondation, AUCUNE IA, à faire en premier)
+- ❌ Bake AO ray-based (réutilise NKRHI ; lié Phase H mipmaps/streaming)
+- ❌ Bake curvature (pilote l'usure/dégradation procédurale)
+- ❌ Bake thickness/SSS (peau, tissus translucides)
+- ❌ Pipeline de bake batché (tous les assets d'une scène)
+
+### T.2 — Graphe de matériaux (extension des templates existants)
+- ❌ Les templates matériaux actuels deviennent des graphes pré-câblés
+  navigables/éditables — **compatibilité ascendante garantie** (les `.nkasset`
+  existants continuent de fonctionner)
+- ❌ Nodes de blend (2 textures via masque procédural : bruit, gradient)
+- ❌ Masques peints (entrée depuis la peinture 3D, cf. T.3)
+- ❌ Nodes de variation procédurale (usure/salissure pilotées par curvature/AO de T.1)
+- ❌ Compilation multi-backend via la chaîne shader existante (NkSL → GL/VK/DX)
+- ❌ Presets génériques + presets signature (métal patiné doré, motifs Bamiléké,
+  « tech-organique ») partagés entre projets
+- ⚠️ Le substrat de graphe de nodes doit être PARTAGÉ avec NKCode (Blueprint) et
+  le graphe VFX (Noge) — une seule implémentation, trois consommateurs
+
+### T.3 — Peinture de textures 3D (contrepoids manuel indispensable)
+- ❌ Projection écran→UV temps réel, calques non destructifs
+  (albedo/roughness/normal séparés), brosses classiques (dureté/opacité/flow)
+- ❌ Modes de fusion + undo/redo par calque, export/import de calques inter-assets
+- ❌ Stamps génératifs IA (zone + prompt → patch localisé), raccord automatique
+  (palette/luminosité/fréquence de détail), bibliothèque de stamps
+
+### T.4 — Génération de textures PBR
+- ❌ Albedo depuis texte/référence → dérivation des autres maps (normal from
+  height, roughness estimé) → plus tard génération multi-map native cohérente
+- ❌ Tileabilité : détection des bords non tileables + correction auto
+- ❌ Super-résolution : upscale cohérent cross-maps (albedo/normal/roughness en
+  préservant leur relation physique)
+
+### T.5 — Éclairage assisté
+- ❌ GI light probes / irradiance volumes (= Phase N « env light probes » déjà
+  listée ; prérequis SILENCIEUX de toute suggestion d'éclairage — un setup suggéré
+  sur un rendu plat ne rendra jamais bien)
+- ❌ Suggestion de setup depuis mood/référence : description → configuration
+  structurée de lumières (type/position/couleur/intensité) traduite en lumières
+  natives ; bibliothèque de setups classiques (three-point, clair-obscur,
+  rim-light) en fallback
+- ❌ Génération/calibration HDRI (import exposure/orientation via pipeline
+  Phase N existant) + presets signature (jour/nuit/dramatique/doux + identité
+  Afrofuturiste) avec variations proposées
+- ❌ (R&D, jamais sur le chemin critique) relighting neuronal 2D pour previz
+  rapide de mood sans re-render
+
+**Ordre imposé** : T.1 (bake) → T.2/T.3 (éditabilité) → T.4 (génération) → T.5.
+L'éditabilité AVANT la génération : une texture générée sans outil de retouche
+fine est inutilisable en production stylisée.
+
+---
+
 ## Minimum viable UE5-like
 
 État actuel = **~80% du minimum viable** (NkVSM v0 + v1 cascade fade + caching
