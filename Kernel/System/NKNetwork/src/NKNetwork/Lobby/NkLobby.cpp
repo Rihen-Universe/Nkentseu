@@ -33,14 +33,9 @@
 #include "pch.h"
 #include "NKNetwork/Lobby/NkLobby.h"
 
-// En-têtes standards C/C++ pour opérations bas-niveau
-#include <cstring>
-#include <algorithm>
-#include <random>
-
-// En-têtes pour opérations temporelles et threads
-#include <chrono>
-#include <thread>
+// Opérations bas-niveau et temps via les modules Nkentseu (zero-STL)
+#include "NKMemory/NkFunction.h"
+#include "NKTime/NkChrono.h"
 
 // -------------------------------------------------------------------------
 // SECTION 2 : CONSTANTES LOCALES ET HELPERS
@@ -95,8 +90,8 @@ namespace {
             buf[1] = version;
             buf[2] = type;
             buf[3] = reserved;
-            std::memcpy(buf + 4, &senderPeerId, sizeof(uint64));
-            std::memcpy(buf + 12, &payloadSize, sizeof(uint32));
+            nkentseu::memory::NkCopy(buf + 4, &senderPeerId, sizeof(uint64));
+            nkentseu::memory::NkCopy(buf + 12, &payloadSize, sizeof(uint32));
         }
 
         bool Deserialize(const uint8* buf, uint32 bufSize) noexcept
@@ -105,8 +100,8 @@ namespace {
             if (buf[0] != magic || buf[1] != version) { return false; }
             type = buf[2];
             reserved = buf[3];
-            std::memcpy(&senderPeerId, buf + 4, sizeof(uint64));
-            std::memcpy(&payloadSize, buf + 12, sizeof(uint32));
+            nkentseu::memory::NkCopy(&senderPeerId, buf + 4, sizeof(uint64));
+            nkentseu::memory::NkCopy(&payloadSize, buf + 12, sizeof(uint32));
             return true;
         }
     };
@@ -124,7 +119,7 @@ namespace {
         {
             ++len;
         }
-        std::memcpy(dst, src, len);
+        nkentseu::memory::NkCopy(dst, src, len);
         dst[len] = '\0';
     }
 
@@ -330,7 +325,7 @@ namespace nkentseu {
             // Réinitialisation de l'état
             mState = NkSessionState::NK_SESSION_IDLE;
             mPlayerCount = 0;
-            std::memset(mPlayers, 0, sizeof(mPlayers));
+            nkentseu::memory::NkZero(mPlayers, sizeof(mPlayers));
 
             // Arrêt du ConnectionManager
             mConnMgr.Shutdown();
@@ -643,7 +638,7 @@ namespace nkentseu {
 
             if (payload != nullptr && payloadSize > 0)
             {
-                std::memcpy(buffer + NkLobbyMessageHeader::kSize, payload, payloadSize);
+                nkentseu::memory::NkCopy(buffer + NkLobbyMessageHeader::kSize, payload, payloadSize);
             }
 
             // Broadcast à tous les pairs connectés
@@ -780,7 +775,7 @@ namespace nkentseu {
 
             uint8 buffer[NkLobbyMessageHeader::kSize + 512];
             header.Serialize(buffer);
-            std::memcpy(buffer + NkLobbyMessageHeader::kSize, payload, writer.BytesWritten());
+            nkentseu::memory::NkCopy(buffer + NkLobbyMessageHeader::kSize, payload, writer.BytesWritten());
 
             mSession.GetConnMgr()->Broadcast(
                 buffer,
@@ -854,7 +849,7 @@ namespace nkentseu {
 
             uint8 buffer[NkLobbyMessageHeader::kSize + 512];
             header.Serialize(buffer);
-            std::memcpy(buffer + NkLobbyMessageHeader::kSize, payload, writer.BytesWritten());
+            nkentseu::memory::NkCopy(buffer + NkLobbyMessageHeader::kSize, payload, writer.BytesWritten());
 
             mSession.GetConnMgr()->Broadcast(
                 buffer,
@@ -914,7 +909,7 @@ namespace nkentseu {
         ) noexcept
         {
             // Validation des paramètres
-            if (matchmakerUrl == nullptr || std::strlen(matchmakerUrl) == 0)
+            if (matchmakerUrl == nullptr || matchmakerUrl[0] == '\0')
             {
                 NK_NET_LOG_ERROR("RegisterServer : matchmakerUrl invalide");
                 return NkNetResult::NK_NET_INVALID_ARG;
@@ -954,39 +949,45 @@ namespace nkentseu {
             float32 timeoutSec
         ) noexcept
         {
-            // Initialisation du timer de timeout
-            const auto startTime = std::chrono::steady_clock::now();
-            const auto timeoutTime = startTime + std::chrono::milliseconds(
-                static_cast<int64>(timeoutSec * 1000.f));
+            // Initialisation du timer de timeout (horloge monotone réseau, en ms)
+            const NkTimestampMs startTime = NkNetNowMs();
+            const NkTimestampMs timeoutMs =
+                static_cast<NkTimestampMs>(timeoutSec * 1000.f);
 
             // Boucle de recherche jusqu'à timeout ou match trouvé
-            while (mSearching && std::chrono::steady_clock::now() < timeoutTime)
+            while (mSearching && (NkNetNowMs() - startTime) < timeoutMs)
             {
                 // Requête au service de matchmaking pour obtenir des sessions candidates
                 // Note : en production, requête HTTP/HTTPS vers l'API du matchmaker
                 NkVector<SearchResult> candidates = FetchMatchmakingCandidates(params);
 
-                // Évaluation et tri des candidats par score
+                // Évaluation des candidats par score
                 for (auto& candidate : candidates)
                 {
                     candidate.score = CalculateMatchScore(params, candidate);
                 }
 
-                std::sort(candidates.begin(), candidates.end(),
-                    [](const SearchResult& a, const SearchResult& b) {
-                        return a.score > b.score;  // Tri décroissant par score
-                    });
+                // Sélection du meilleur candidat (max en O(n) — le tri complet est inutile,
+                // seul le meilleur score est exploité)
+                usize bestIdx = 0;
+                for (usize i = 1; i < candidates.Size(); ++i)
+                {
+                    if (candidates[i].score > candidates[bestIdx].score)
+                    {
+                        bestIdx = i;
+                    }
+                }
 
                 // Notification du meilleur candidat si score suffisant
-                if (!candidates.IsEmpty() && candidates[0].score >= 0.7f)
+                if (!candidates.IsEmpty() && candidates[bestIdx].score >= 0.7f)
                 {
-                    if (onFound) { onFound(candidates[0]); }
+                    if (onFound) { onFound(candidates[bestIdx]); }
                     mSearching = false;
                     return;
                 }
 
                 // Pause courte avant la prochaine itération
-                std::this_thread::sleep_for(std::chrono::milliseconds(1000));  // 1 seconde
+                NkChrono::SleepMilliseconds(1000);  // 1 seconde
             }
 
             // Timeout ou annulation
@@ -1157,7 +1158,7 @@ namespace nkentseu {
                 }
 
                 // Pause courte pour éviter le busy-wait
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                NkChrono::SleepMilliseconds(10);
             }
 
             socket.Close();

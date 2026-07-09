@@ -27,9 +27,8 @@
 #include "pch.h"
 #include "NKNetwork/Protocol/NkBitStream.h"
 
-// En-têtes standards pour opérations mémoire
-#include <cstring>
-#include <cmath>
+// Opérations mémoire via NKMemory (zero-STL)
+#include "NKMemory/NkFunction.h"
 
 // -------------------------------------------------------------------------
 // SECTION 2 : NAMESPACE PRINCIPAL
@@ -108,7 +107,7 @@ namespace nkentseu {
         {
             // Copie de la représentation IEEE 754 sans conversion
             uint32 u = 0;
-            std::memcpy(&u, &v, sizeof(float32));
+            memory::NkCopy(&u, &v, sizeof(float32));
             WriteBits(u, 32);
         }
 
@@ -255,7 +254,7 @@ namespace nkentseu {
             const uint32 currentBytes = BytesWritten();
             if (currentBytes + size <= mCap)
             {
-                std::memcpy(mBuf + currentBytes, data, size);
+                memory::NkCopy(mBuf + currentBytes, data, size);
                 mBitPos += size * 8;
             }
             else
@@ -408,7 +407,7 @@ namespace nkentseu {
         {
             const uint32 u = ReadBits(32u);
             float32 v = 0.f;
-            std::memcpy(&v, &u, sizeof(float32));
+            memory::NkCopy(&v, &u, sizeof(float32));
             return v;
         }
 
@@ -527,7 +526,7 @@ namespace nkentseu {
             const uint32 bytesRead = mBitPos / 8u;
             if (bytesRead + size <= mSize / 8u)
             {
-                std::memcpy(dst, mBuf + bytesRead, size);
+                memory::NkCopy(dst, mBuf + bytesRead, size);
                 mBitPos += size * 8u;
             }
             else

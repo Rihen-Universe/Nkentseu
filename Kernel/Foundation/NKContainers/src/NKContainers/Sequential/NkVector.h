@@ -346,6 +346,7 @@
                  *  5. Met à jour les pointeurs et métadonnées internes
                  *
                  * @note Lève NKENTSEU_CONTAINERS_THROW_BAD_ALLOC si l'allocation échoue
+                 *       ou si newCapacity > MaxSize() (overflow de newCapacity * sizeof(T))
                  * @note Complexité : O(n) pour le transfert des éléments existants
                  * @note Exception-safe : état valide même en cas d'échec d'allocation
                  */
@@ -357,6 +358,12 @@
                             mData = nullptr;
                         }
                         mCapacity = 0;
+                        return;
+                    }
+
+                    // Garde d'overflow : newCapacity * sizeof(T) doit tenir dans SizeType
+                    if (newCapacity > MaxSize()) {
+                        NKENTSEU_CONTAINERS_THROW_BAD_ALLOC(newCapacity);
                         return;
                     }
 

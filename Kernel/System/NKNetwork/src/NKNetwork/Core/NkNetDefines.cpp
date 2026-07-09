@@ -22,10 +22,9 @@
 #include "pch.h"
 #include "NkNetDefines.h"
 
-// En-têtes standards C/C++ pour opérations système et temporelles
-#include <chrono>
-#include <random>
-#include <atomic>
+// Modules Nkentseu pour atomiques et temps monotone (zero-STL)
+#include "NKCore/NkAtomic.h"
+#include "NKTime/NkChrono.h"
 
 // En-têtes plateforme pour génération d'identifiants uniques
 #ifdef NKENTSEU_PLATFORM_WINDOWS
@@ -108,18 +107,22 @@ namespace nkentseu {
 
         NkPeerId NkPeerId::Generate() noexcept
         {
-            // Générateur de nombres aléatoires thread-safe
-            static std::atomic<uint64> sCounter{ 1000 };  // Commence après les IDs réservés
-            static std::mt19937_64 sEngine{
-                static_cast<uint64>(std::chrono::steady_clock::now().time_since_epoch().count())
-            };
-            static std::uniform_int_distribution<uint64> sDist{ 2, 0xFFFFFFFFFFFFFFFF };
+            // Générateur d'identifiants thread-safe (compteur atomique + splitmix64)
+            static NkAtomic<uint64> sCounter{ 1000 };  // Commence après les IDs réservés
+            static const uint64 sSeed =
+                static_cast<uint64>(NkChrono::Now().ToNanoseconds());
 
             // Incrémentation atomique pour éviter les collisions simples
-            const uint64 counter = sCounter.fetch_add(1, std::memory_order_relaxed);
+            const uint64 counter = sCounter.FetchAdd(1, NkMemoryOrder::NK_RELAXED);
+
+            // Mélange splitmix64 : diffusion 64 bits de (graine ^ compteur),
+            // thread-safe car sans état mutable partagé (contrairement à un moteur RNG)
+            uint64 z = sSeed ^ (counter * 0x9E3779B97F4A7C15ull);
+            z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+            z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+            const uint64 randomPart = z ^ (z >> 31);
 
             // Combinaison counter + random pour robustesse
-            const uint64 randomPart = sDist(sEngine);
             const uint64 generated = (counter << 32) ^ randomPart;
 
             // Garantir que l'ID n'est ni 0 (invalid) ni 1 (server)
@@ -191,16 +194,12 @@ namespace nkentseu {
 
         NkTimestampMs NkNetNowMs() noexcept
         {
-            // Utilisation d'une horloge monotone pour éviter les sauts d'heure système
+            // Utilisation d'une horloge monotone (NkChrono) pour éviter les sauts d'heure système
             // Le timestamp est relatif au premier appel dans la session
-            using Clock = std::chrono::steady_clock;
-            using Duration = std::chrono::milliseconds;
+            static const float64 sSessionStartMs = NkChrono::Now().ToMilliseconds();
+            const float64 nowMs = NkChrono::Now().ToMilliseconds();
 
-            static const auto sSessionStart = Clock::now();
-            const auto now = Clock::now();
-            const auto elapsed = std::chrono::duration_cast<Duration>(now - sSessionStart);
-
-            return static_cast<NkTimestampMs>(elapsed.count());
+            return static_cast<NkTimestampMs>(nowMs - sSessionStartMs);
         }
 
         // =====================================================================
@@ -303,14 +302,14 @@ namespace nkentseu {
 /*
     Génération d'identifiants NkPeerId :
     ------------------------------------
-    - NkPeerId::Generate() utilise un compteur atomique + RNG pour minimiser les collisions
+    - NkPeerId::Generate() utilise un compteur atomique + splitmix64 pour minimiser les collisions
     - Les IDs 0 et 1 sont réservés (Invalid/Server) et exclus de la génération
-    - Thread-safe : std::atomic garantit l'unicité même avec appels concurrents
+    - Thread-safe : NkAtomic (NKCore) garantit l'unicité même avec appels concurrents
     - Pour une distribution distribuée, envisager UUID ou timestamp+MAC address
 
     Timestamps réseau NkNetNowMs() :
     -------------------------------
-    - Utilisation de std::chrono::steady_clock pour éviter les sauts d'horloge (NTP, DST)
+    - Utilisation de NkChrono (horloge monotone NKTime) pour éviter les sauts d'horloge (NTP, DST)
     - Le timestamp est relatif au premier appel dans la session, pas à epoch Unix
     - Cela garantit la monotonie et évite les problèmes de synchronisation client/serveur
     - Précision : millisecondes, suffisant pour la plupart des jeux/applications temps réel
@@ -333,7 +332,7 @@ namespace nkentseu {
     Thread-safety :
     --------------
     - NkPeerId et NkNetId : immuables après construction, lecture seule thread-safe
-    - NkPeerId::Generate() : thread-safe via std::atomic et RNG thread-local
+    - NkPeerId::Generate() : thread-safe via NkAtomic et mélange splitmix64 sans état partagé
     - NkNetNowMs() : thread-safe, variable static initialisée une fois (C++11 magic static)
     - Helpers byte-order : stateless, thread-safe par conception
 

@@ -33,13 +33,12 @@
 #include "pch.h"
 #include "NkHTTPClient.h"
 
-// En-têtes standards C/C++ pour opérations bas-niveau
-#include <cstring>
-#include <cstdio>
-#include <cctype>
-#include <algorithm>
-#include <chrono>
-#include <thread>
+// Opérations bas-niveau, chaînes, temps et fichiers via les modules Nkentseu (zero-STL)
+#include "NKMemory/NkFunction.h"
+#include "NKContainers/String/NkStringView.h"
+#include "NKContainers/String/Encoding/NkASCII.h"
+#include "NKTime/NkChrono.h"
+#include "NKFileSystem/NkFile.h"
 
 // En-têtes système pour sockets et résolution DNS
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
@@ -93,8 +92,7 @@ namespace {
         if (a == nullptr || b == nullptr) { return a == b; }
         while (*a && *b)
         {
-            if (std::tolower(static_cast<unsigned char>(*a)) !=
-                std::tolower(static_cast<unsigned char>(*b)))
+            if (encoding::ascii::NkToLower(*a) != encoding::ascii::NkToLower(*b))
             {
                 return false;
             }
@@ -102,6 +100,22 @@ namespace {
             ++b;
         }
         return *a == *b;
+    }
+
+    // =====================================================================
+    // Helper : Parsing d'un entier décimal non signé (remplace strtoul/strtoull)
+    // =====================================================================
+    uint64 ParseDecimalU64(const char* s) noexcept
+    {
+        if (s == nullptr) { return 0; }
+        while (*s == ' ' || *s == '\t') { ++s; }
+        uint64 value = 0;
+        while (encoding::ascii::NkIsDigit(*s))
+        {
+            value = value * 10u + static_cast<uint64>(*s - '0');
+            ++s;
+        }
+        return value;
     }
 
     // =====================================================================
@@ -268,7 +282,7 @@ namespace {
     bool SendWithTimeout(NkNativeSocket sock, const char* data, uint32 size, uint32 timeoutMs) noexcept
     {
         uint32 sent = 0;
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+        const NkTimestampMs deadline = NkNetNowMs() + timeoutMs;
 
         while (sent < size)
         {
@@ -283,13 +297,13 @@ namespace {
             }
 
             // Vérification timeout
-            if (std::chrono::steady_clock::now() >= deadline)
+            if (NkNetNowMs() >= deadline)
             {
                 return false;
             }
 
             // Pause courte pour éviter busy-wait
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            NkChrono::SleepMilliseconds(1);
         }
         return true;
     }
@@ -298,9 +312,9 @@ namespace {
     {
         char buffer[4096];
         out.Clear();
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+        const NkTimestampMs deadline = NkNetNowMs() + timeoutMs;
 
-        while (std::chrono::steady_clock::now() < deadline)
+        while (NkNetNowMs() < deadline)
         {
             int result = recv(sock, buffer, sizeof(buffer), 0);
             if (result > 0)
@@ -327,7 +341,7 @@ namespace {
                 return false;  // Erreur réseau
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            NkChrono::SleepMilliseconds(1);
         }
         return false;  // Timeout
     }
@@ -486,7 +500,7 @@ namespace nkentseu {
 
         NkHTTPResponse NkHTTPClient::Send(const NkHTTPRequest& req) noexcept
         {
-            const auto startTime = std::chrono::steady_clock::now();
+            const NkTimestampMs startTime = NkNetNowMs();
 
             // Parsing de l'URL
             NkString scheme, host, path;
@@ -516,10 +530,8 @@ namespace nkentseu {
             }
 
             // Calcul du temps écoulé
-            const auto endTime = std::chrono::steady_clock::now();
-            response.timeMs = static_cast<uint32>(
-                std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count()
-            );
+            const NkTimestampMs endTime = NkNetNowMs();
+            response.timeMs = static_cast<uint32>(endTime - startTime);
 
             // Gestion des redirections
             if (req.followRedirects && response.IsRedirect() && req.maxRedirects > 0)
@@ -632,7 +644,7 @@ namespace nkentseu {
 
         void NkHTTPClient::WaitAll(uint32 timeoutMs) noexcept
         {
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+            const NkTimestampMs deadline = NkNetNowMs() + timeoutMs;
 
             while (true)
             {
@@ -650,9 +662,9 @@ namespace nkentseu {
                 }
 
                 if (allDone) { break; }
-                if (std::chrono::steady_clock::now() >= deadline) { break; }
+                if (NkNetNowMs() >= deadline) { break; }
 
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                NkChrono::SleepMilliseconds(10);
             }
 
             // Nettoyage des requêtes terminées
@@ -695,31 +707,31 @@ namespace nkentseu {
             Callback wrappedCb = [this, destPath, onProgress, onComplete](const NkHTTPResponse& resp) {
                 if (!resp.HasError() && resp.IsOK())
                 {
-                    // Écriture atomique : temp file + rename pour intégrité
+                    // Écriture atomique : temp file + rename pour intégrité (via NKFileSystem)
                     NkString tmpPath = NkString(destPath) + ".tmp";
-                    FILE* f = std::fopen(tmpPath.CStr(), "wb");
-                    if (f != nullptr)
+                    NkFile f;
+                    if (f.Open(tmpPath.CStr(), NkFileMode::NK_WRITE_BINARY))
                     {
-                        const size_t written = std::fwrite(
-                            resp.body.CStr(), 1,
-                            static_cast<size_t>(resp.body.Length()), f
+                        const usize written = f.Write(
+                            resp.body.CStr(),
+                            static_cast<usize>(resp.body.Length())
                         );
-                        std::fclose(f);
-                        if (written == static_cast<size_t>(resp.body.Length()))
+                        f.Close();
+                        if (written == static_cast<usize>(resp.body.Length()))
                         {
-                            if (std::rename(tmpPath.CStr(), destPath) == 0)
+                            if (NkFile::Move(tmpPath.CStr(), destPath))
                             {
                                 NK_NET_LOG_DEBUG("Fichier téléchargé : {}", destPath);
                             }
                             else
                             {
-                                std::remove(tmpPath.CStr());
+                                NkFile::Delete(tmpPath.CStr());
                                 NK_NET_LOG_ERROR("Échec renommage fichier : {}", destPath);
                             }
                         }
                         else
                         {
-                            std::remove(tmpPath.CStr());
+                            NkFile::Delete(tmpPath.CStr());
                             NK_NET_LOG_ERROR("Échec d'écriture du fichier : {}", destPath);
                         }
                     }
@@ -745,13 +757,13 @@ namespace nkentseu {
 
             static const char hex[] = "0123456789ABCDEF";
             NkString result;
-            result.Reserve(std::strlen(s) * 3);  // Worst case: tous les chars encodés
+            result.Reserve(NkStringView(s).Size() * 3);  // Worst case: tous les chars encodés
 
             for (const char* p = s; *p != '\0'; ++p)
             {
                 unsigned char c = static_cast<unsigned char>(*p);
                 // Caractères non réservés selon RFC 3986
-                if (std::isalnum(c) || c == '-' || c == '.' || c == '_' || c == '~')
+                if (encoding::ascii::NkIsAlphaNumeric(*p) || c == '-' || c == '.' || c == '_' || c == '~')
                 {
                     result.Append(*p);
                 }
@@ -770,11 +782,11 @@ namespace nkentseu {
             if (s == nullptr) { return {}; }
 
             NkString result;
-            result.Reserve(std::strlen(s));
+            result.Reserve(NkStringView(s).Size());
 
             for (const char* p = s; *p != '\0'; ++p)
             {
-                if (*p == '%' && std::isxdigit(*(p+1)) && std::isxdigit(*(p+2)))
+                if (*p == '%' && encoding::ascii::NkIsHexDigit(*(p+1)) && encoding::ascii::NkIsHexDigit(*(p+2)))
                 {
                     // Décodage %XX
                     auto hexToVal = [](char c) -> int {
@@ -846,7 +858,7 @@ namespace nkentseu {
             // Ligne de statut : "HTTP/1.1 200 OK"
             NkString statusLine;
             start = ReadLine(start, end, statusLine);
-            if (statusLine.Empty() || std::strncmp(statusLine.CStr(), "HTTP/", 5) != 0)
+            if (statusLine.Empty() || !statusLine.StartsWith("HTTP/"))
             {
                 resp.error = "Invalid status line";
                 return resp;
@@ -854,7 +866,7 @@ namespace nkentseu {
 
             // Parsing du code statut
             const char* codeStart = statusLine.CStr() + 9;  // Après "HTTP/x.x "
-            resp.statusCode = static_cast<uint32>(std::strtoul(codeStart, nullptr, 10));
+            resp.statusCode = static_cast<uint32>(ParseDecimalU64(codeStart));
             resp.statusText = StatusTextForCode(resp.statusCode);
 
             // Parsing des en-têtes jusqu'à \r\n\r\n
@@ -865,13 +877,13 @@ namespace nkentseu {
                 if (headerLine.Empty()) { break; }  // Fin des en-têtes
 
                 // Parsing "Key: Value"
-                const char* colon = std::strchr(headerLine.CStr(), ':');
-                if (colon != nullptr)
+                const NkString::SizeType colonPos = headerLine.Find(':');
+                if (colonPos != NkString::npos)
                 {
                     NkHTTPHeader header;
-                    header.key = NkString(headerLine.CStr(), static_cast<uint32>(colon - headerLine.CStr()));
+                    header.key = NkString(headerLine.CStr(), static_cast<uint32>(colonPos));
                     // Skip ": "
-                    const char* valueStart = colon + 1;
+                    const char* valueStart = headerLine.CStr() + colonPos + 1;
                     while (*valueStart == ' ' || *valueStart == '\t') { ++valueStart; }
                     header.value = valueStart;
                     resp.headers.PushBack(header);
@@ -971,11 +983,11 @@ namespace nkentseu {
             const char* end = p + url.Length();
 
             // Schéma
-            const char* schemeEnd = std::strstr(p, "://");
-            if (schemeEnd != nullptr)
+            const NkString::SizeType schemePos = url.Find("://");
+            if (schemePos != NkString::npos)
             {
-                scheme = NkString(p, static_cast<uint32>(schemeEnd - p));
-                p = schemeEnd + 3;
+                scheme = NkString(p, static_cast<uint32>(schemePos));
+                p = url.CStr() + schemePos + 3;
             }
             else
             {
@@ -992,10 +1004,10 @@ namespace nkentseu {
             {
                 ++p;
                 const char* portStart = p;
-                while (p < end && std::isdigit(static_cast<unsigned char>(*p))) { ++p; }
+                while (p < end && encoding::ascii::NkIsDigit(*p)) { ++p; }
                 if (portStart < p)
                 {
-                    port = static_cast<uint16>(std::strtoul(portStart, nullptr, 10));
+                    port = static_cast<uint16>(ParseDecimalU64(portStart));
                 }
             }
 
@@ -1306,10 +1318,10 @@ namespace nkentseu {
                 if (scorePos != NkString::npos)
                 {
                     size_t valStart = scorePos + 8;
-                    while (valStart < entry.Length() && !std::isdigit(entry[valStart])) { ++valStart; }
+                    while (valStart < entry.Length() && !encoding::ascii::NkIsDigit(entry[valStart])) { ++valStart; }
                     if (valStart < entry.Length())
                     {
-                        e.score = std::strtoull(entry.CStr() + valStart, nullptr, 10);
+                        e.score = ParseDecimalU64(entry.CStr() + valStart);
                     }
                 }
 
@@ -1317,10 +1329,10 @@ namespace nkentseu {
                 if (rankPos != NkString::npos)
                 {
                     size_t valStart = rankPos + 7;
-                    while (valStart < entry.Length() && !std::isdigit(entry[valStart])) { ++valStart; }
+                    while (valStart < entry.Length() && !encoding::ascii::NkIsDigit(entry[valStart])) { ++valStart; }
                     if (valStart < entry.Length())
                     {
-                        e.rank = static_cast<uint32>(std::strtoul(entry.CStr() + valStart, nullptr, 10));
+                        e.rank = static_cast<uint32>(ParseDecimalU64(entry.CStr() + valStart));
                     }
                 }
 
@@ -1338,10 +1350,10 @@ namespace nkentseu {
             if (rankPos != NkString::npos)
             {
                 size_t valStart = rankPos + 7;
-                while (valStart < json.Length() && !std::isdigit(json[valStart])) { ++valStart; }
+                while (valStart < json.Length() && !encoding::ascii::NkIsDigit(json[valStart])) { ++valStart; }
                 if (valStart < json.Length())
                 {
-                    outRank = static_cast<uint32>(std::strtoul(json.CStr() + valStart, nullptr, 10));
+                    outRank = static_cast<uint32>(ParseDecimalU64(json.CStr() + valStart));
                 }
             }
 
@@ -1349,10 +1361,10 @@ namespace nkentseu {
             if (scorePos != NkString::npos)
             {
                 size_t valStart = scorePos + 8;
-                while (valStart < json.Length() && !std::isdigit(json[valStart])) { ++valStart; }
+                while (valStart < json.Length() && !encoding::ascii::NkIsDigit(json[valStart])) { ++valStart; }
                 if (valStart < json.Length())
                 {
-                    outScore = std::strtoull(json.CStr() + valStart, nullptr, 10);
+                    outScore = ParseDecimalU64(json.CStr() + valStart);
                 }
             }
         }
@@ -1364,7 +1376,7 @@ namespace nkentseu {
             if (src == nullptr) { dst[0] = '\0'; return; }
             uint32 len = 0;
             while (src[len] && len < maxLen && len < dstSize - 1) { ++len; }
-            std::memcpy(dst, src, len);
+            memory::NkCopy(dst, src, len);
             dst[len] = '\0';
         }
 

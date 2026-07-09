@@ -33,14 +33,10 @@
 #include "pch.h"
 #include "NKNetwork/Protocol/NkConnection.h"
 
-// En-têtes standards C/C++ pour opérations bas-niveau
-#include <cstring>
-#include <algorithm>
-#include <random>
-
-// En-têtes pour opérations temporelles et threads
-#include <chrono>
-#include <thread>
+// Opérations bas-niveau, atomiques et temps via les modules Nkentseu (zero-STL)
+#include "NKMemory/NkFunction.h"
+#include "NKCore/NkAtomic.h"
+#include "NKTime/NkChrono.h"
 
 // -------------------------------------------------------------------------
 // SECTION 2 : CONSTANTES LOCALES ET HELPERS
@@ -106,10 +102,10 @@ namespace {
             buf[1] = version;
             buf[2] = type;
             buf[3] = reserved;
-            std::memcpy(buf + 4,  &challenge,  sizeof(nkentseu::uint32));
-            std::memcpy(buf + 8,  &response,   sizeof(nkentseu::uint32));
-            std::memcpy(buf + 12, &peerId,     sizeof(nkentseu::uint64));
-            std::memcpy(buf + 20, &timestamp,  sizeof(nkentseu::uint64));
+            nkentseu::memory::NkCopy(buf + 4,  &challenge,  sizeof(nkentseu::uint32));
+            nkentseu::memory::NkCopy(buf + 8,  &response,   sizeof(nkentseu::uint32));
+            nkentseu::memory::NkCopy(buf + 12, &peerId,     sizeof(nkentseu::uint64));
+            nkentseu::memory::NkCopy(buf + 20, &timestamp,  sizeof(nkentseu::uint64));
         }
 
         bool Deserialize(const nkentseu::uint8* buf, nkentseu::uint32 bufSize) noexcept
@@ -118,10 +114,10 @@ namespace {
             if (buf[0] != kProtocolMagic || buf[1] != kProtocolVersion) { return false; }
             type     = buf[2];
             reserved = buf[3];
-            std::memcpy(&challenge,  buf + 4,  sizeof(nkentseu::uint32));
-            std::memcpy(&response,   buf + 8,  sizeof(nkentseu::uint32));
-            std::memcpy(&peerId,     buf + 12, sizeof(nkentseu::uint64));
-            std::memcpy(&timestamp,  buf + 20, sizeof(nkentseu::uint64));
+            nkentseu::memory::NkCopy(&challenge,  buf + 4,  sizeof(nkentseu::uint32));
+            nkentseu::memory::NkCopy(&response,   buf + 8,  sizeof(nkentseu::uint32));
+            nkentseu::memory::NkCopy(&peerId,     buf + 12, sizeof(nkentseu::uint64));
+            nkentseu::memory::NkCopy(&timestamp,  buf + 20, sizeof(nkentseu::uint64));
             return true;
         }
     };
@@ -131,10 +127,22 @@ namespace {
     // =====================================================================
     [[nodiscard]] nkentseu::uint32 GenerateChallenge() noexcept
     {
-        static std::random_device rd;
-        static std::mt19937 gen(rd());
-        static std::uniform_int_distribution<nkentseu::uint32> dist(1u, 0xFFFFFFFFu);
-        return dist(gen);
+        // Compteur atomique + mélange splitmix64 : nonce 32 bits non nul,
+        // thread-safe sans état mutable partagé (zero-STL)
+        static nkentseu::NkAtomic<nkentseu::uint64> sCounter{ 1 };
+        static const nkentseu::uint64 sSeed =
+            static_cast<nkentseu::uint64>(nkentseu::NkChrono::Now().ToNanoseconds());
+
+        const nkentseu::uint64 counter =
+            sCounter.FetchAdd(1, nkentseu::NkMemoryOrder::NK_RELAXED);
+
+        nkentseu::uint64 z = sSeed ^ (counter * 0x9E3779B97F4A7C15ull);
+        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+        z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+        z ^= z >> 31;
+
+        const nkentseu::uint32 nonce = static_cast<nkentseu::uint32>(z ^ (z >> 32));
+        return (nonce == 0u) ? 1u : nonce;
     }
 
     // =====================================================================
@@ -208,7 +216,7 @@ namespace nkentseu {
             mRUDP.Init(socket, remote);
 
             // Réinitialisation des statistiques
-            std::memset(&mStats, 0, sizeof(mStats));
+            nkentseu::memory::NkZero(&mStats, sizeof(mStats));
             mStats.connectedSince = NkNetNowMs();
 
             // Vidage de la file de réception
@@ -253,7 +261,7 @@ namespace nkentseu {
             mRUDP.Init(socket, remote);
 
             // Réinitialisation des statistiques
-            std::memset(&mStats, 0, sizeof(mStats));
+            nkentseu::memory::NkZero(&mStats, sizeof(mStats));
 
             // Vidage de la file de réception
             {
@@ -581,7 +589,7 @@ namespace nkentseu {
                 }
                 threading::NkScopedLockMutex lock(mQueueMutex);
                 NkReceiveMsg msg;
-                std::memcpy(msg.data, entry.data, entry.size);
+                nkentseu::memory::NkCopy(msg.data, entry.data, entry.size);
                 msg.size = entry.size;
                 msg.from = mRemotePeerId;
                 msg.channel = NkNetChannel::NK_NET_CHANNEL_RELIABLE_ORDERED;
@@ -1359,7 +1367,7 @@ namespace nkentseu {
                 const uint32 frameTime = static_cast<uint32>(frameEnd - frameStart);
                 if (frameTime < 16)  // Moins de 16ms = plus de 60 FPS
                 {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(16 - frameTime));
+                    NkChrono::SleepMilliseconds(static_cast<int64>(16 - frameTime));
                 }
             }
 
