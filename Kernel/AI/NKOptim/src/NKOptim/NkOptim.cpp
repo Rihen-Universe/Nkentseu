@@ -96,6 +96,20 @@ namespace nkentseu {
 					mParams[i].ZeroGrad();
 			}
 
+			void NkAdam::SetMoments(const NkVector<NkTensor> &m, const NkVector<NkTensor> &v) {
+				const uint32 n = mParams.Size();
+				for (uint32 i = 0; i < n && i < m.Size() && i < v.Size(); ++i) {
+					NkTensor mm = m[i];
+					NkTensor vv = v[i];
+					if (mParams[i].Value().Device() == NkDevice::NK_GPU) {
+						mm = mm.ToGPU();
+						vv = vv.ToGPU();
+					}
+					mM[i] = mm;
+					mV[i] = vv;
+				}
+			}
+
 		} // namespace optim
 	} // namespace ai
 } // namespace nkentseu

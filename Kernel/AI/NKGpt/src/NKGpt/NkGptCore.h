@@ -78,9 +78,22 @@ namespace nkentseu {
 					NkVector<NkString> langs;
 			};
 
-			bool SaveCheckpoint(const char *path, const GptMeta &m, const NkVector<NkVar> &params);
+			// Sauvegarde le checkpoint. Si `optM`/`optV` sont fournis (non nuls), écrit AUSSI l'état de
+			// l'optimiseur Adam (moments 1er/2e + `step` = nombre total de pas effectués) => reprise
+			// PARFAITE du schedule (pas de warmup ni de pic de perte à la reprise). Format « NKGP » v4 :
+			// v3 + bloc optionnel {hasOpt, step, moments}. Les lecteurs v3 restent compatibles (ils
+			// s'arrêtent après les poids). optM/optV nuls => hasOpt=0 (fichier v4 sans état optimiseur).
+			bool SaveCheckpoint(const char *path, const GptMeta &m, const NkVector<NkVar> &params,
+								const NkVector<NkTensor> *optM = nullptr, const NkVector<NkTensor> *optV = nullptr,
+								int64 step = 0);
+
 			bool LoadCheckpointMeta(const char *path, GptMeta &m);
 			bool LoadCheckpointWeights(const char *path, NkVector<NkVar> &params);
+
+			// Charge l'état optimiseur du checkpoint (moments + pas). Renvoie false si le fichier est
+			// antérieur (v3) ou ne contient pas d'état (hasOpt=0). Moments rendus sur CPU.
+			bool LoadCheckpointOptState(const char *path, NkVector<NkTensor> &optM, NkVector<NkTensor> &optV,
+										int64 &step);
 
 		} // namespace gpt
 	} // namespace ai

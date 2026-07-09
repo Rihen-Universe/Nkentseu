@@ -307,7 +307,7 @@ namespace nkentseu {
 				bpe.BuildVocabRank();
 			}
 
-			// ================= Checkpoint « NKGP » v3 =====================================
+			// ================= Checkpoint « NKGP » (v3 poids · v4 + état optimiseur) =======
 			static int64 ShapeNumel(const NkShape &sh) {
 				int64 n = 1;
 				for (uint32 i = 0; i < sh.Size(); ++i)
@@ -315,12 +315,87 @@ namespace nkentseu {
 				return n;
 			}
 
-			bool SaveCheckpoint(const char *path, const GptMeta &m, const NkVector<NkVar> &params) {
+			// Écrit un tenseur (rang + dims + floats) après passage sur CPU contigu.
+			static bool WriteTensor(FILE *f, const NkTensor &src) {
+				NkTensor v = src.ToCPU().Contiguous();
+				const NkShape &sh = v.Shape();
+				uint32 rank = sh.Size();
+				bool ok = fwrite(&rank, sizeof(uint32), 1, f) == 1;
+				for (uint32 dd = 0; ok && dd < rank; ++dd) {
+					int64 dim = sh[dd];
+					ok = fwrite(&dim, sizeof(int64), 1, f) == 1;
+				}
+				int64 numel = ShapeNumel(sh);
+				const float *p = v.DataAs<float>();
+				ok = ok && (numel == 0 || fwrite(p, sizeof(float), (size_t)numel, f) == (size_t)numel);
+				return ok;
+			}
+
+			// Lit un tenseur (rang + dims + floats) dans un NkTensor CPU.
+			static bool ReadTensor(FILE *f, NkTensor &out) {
+				uint32 rank = 0;
+				if (fread(&rank, sizeof(uint32), 1, f) != 1 || rank > 8)
+					return false;
+				NkShape shape;
+				for (uint32 dd = 0; dd < rank; ++dd) {
+					int64 dim = 0;
+					if (fread(&dim, sizeof(int64), 1, f) != 1)
+						return false;
+					shape.PushBack(dim);
+				}
+				int64 numel = ShapeNumel(shape);
+				out = NkTensor::Zeros(shape);
+				float *p = out.DataAs<float>();
+				return numel == 0 || fread(p, sizeof(float), (size_t)numel, f) == (size_t)numel;
+			}
+
+			// Saute un tenseur (rang + dims + floats) sans le charger.
+			static bool SkipTensor(FILE *f) {
+				uint32 rank = 0;
+				if (fread(&rank, sizeof(uint32), 1, f) != 1 || rank > 8)
+					return false;
+				int64 numel = 1;
+				for (uint32 dd = 0; dd < rank; ++dd) {
+					int64 dim = 0;
+					if (fread(&dim, sizeof(int64), 1, f) != 1)
+						return false;
+					numel *= dim;
+				}
+				return fseek(f, (long)(numel * (int64)sizeof(float)), SEEK_CUR) == 0;
+			}
+
+			// Saute l'en-tête (magic + ver + dims + fusions + langues) et renvoie la version lue.
+			// Positionne le curseur juste avant `count` (nombre de tenseurs de poids). 0 si erreur.
+			static uint32 SkipHeader(FILE *f) {
+				char magic[4];
+				uint32 ver = 0;
+				int32 hdr[5] = {0};
+				if (fread(magic, 1, 4, f) != 4 || fread(&ver, sizeof(uint32), 1, f) != 1 ||
+					fread(hdr, sizeof(int32), 5, f) != 5)
+					return 0;
+				int32 nMerges = 0;
+				if (fread(&nMerges, sizeof(int32), 1, f) != 1 || nMerges < 0)
+					return 0;
+				if (nMerges > 0 && fseek(f, (long)nMerges * 2 * (long)sizeof(int32), SEEK_CUR) != 0)
+					return 0;
+				int32 nLang = 0;
+				if (fread(&nLang, sizeof(int32), 1, f) != 1 || nLang < 0 || nLang > 64)
+					return 0;
+				for (int32 i = 0; i < nLang; ++i) {
+					uint8 ln = 0;
+					if (fread(&ln, 1, 1, f) != 1 || (ln != 0 && fseek(f, (long)ln, SEEK_CUR) != 0))
+						return 0;
+				}
+				return ver;
+			}
+
+			bool SaveCheckpoint(const char *path, const GptMeta &m, const NkVector<NkVar> &params,
+								const NkVector<NkTensor> *optM, const NkVector<NkTensor> *optV, int64 step) {
 				FILE *f = fopen(path, "wb");
 				if (!f)
 					return false;
 				const char magic[4] = {'N', 'K', 'G', 'P'};
-				uint32 ver = 3u;
+				uint32 ver = 4u;
 				bool ok = fwrite(magic, 1, 4, f) == 4 && fwrite(&ver, sizeof(uint32), 1, f) == 1;
 				int32 hdr[5] = {m.V, m.d, m.H, m.L, m.T};
 				ok = ok && fwrite(hdr, sizeof(int32), 5, f) == 5;
@@ -339,18 +414,20 @@ namespace nkentseu {
 				}
 				uint32 count = params.Size();
 				ok = ok && fwrite(&count, sizeof(uint32), 1, f) == 1;
-				for (uint32 i = 0; ok && i < params.Size(); ++i) {
-					NkTensor v = params[i].Value().ToCPU().Contiguous();
-					const NkShape &sh = v.Shape();
-					uint32 rank = sh.Size();
-					ok = ok && fwrite(&rank, sizeof(uint32), 1, f) == 1;
-					for (uint32 dd = 0; ok && dd < rank; ++dd) {
-						int64 dim = sh[dd];
-						ok = ok && fwrite(&dim, sizeof(int64), 1, f) == 1;
-					}
-					int64 numel = ShapeNumel(sh);
-					const float *p = v.DataAs<float>();
-					ok = ok && (numel == 0 || fwrite(p, sizeof(float), (size_t)numel, f) == (size_t)numel);
+				for (uint32 i = 0; ok && i < params.Size(); ++i)
+					ok = ok && WriteTensor(f, params[i].Value());
+
+				// Bloc optimiseur (v4) : hasOpt, puis {step, moments m/v} si présent.
+				const bool hasOpt = optM != nullptr && optV != nullptr && optM->Size() == params.Size() &&
+									 optV->Size() == params.Size();
+				uint32 optFlag = hasOpt ? 1u : 0u;
+				ok = ok && fwrite(&optFlag, sizeof(uint32), 1, f) == 1;
+				if (ok && hasOpt) {
+					ok = fwrite(&step, sizeof(int64), 1, f) == 1;
+					for (uint32 i = 0; ok && i < optM->Size(); ++i)
+						ok = ok && WriteTensor(f, (*optM)[i]);
+					for (uint32 i = 0; ok && i < optV->Size(); ++i)
+						ok = ok && WriteTensor(f, (*optV)[i]);
 				}
 				fclose(f);
 				return ok;
@@ -364,7 +441,7 @@ namespace nkentseu {
 				uint32 ver = 0;
 				int32 hdr[5] = {0};
 				bool ok = fread(magic, 1, 4, f) == 4 && magic[0] == 'N' && magic[1] == 'K' && magic[2] == 'G' &&
-						  magic[3] == 'P' && fread(&ver, sizeof(uint32), 1, f) == 1 && ver == 3u &&
+						  magic[3] == 'P' && fread(&ver, sizeof(uint32), 1, f) == 1 && (ver == 3u || ver == 4u) &&
 						  fread(hdr, sizeof(int32), 5, f) == 5;
 				if (ok) {
 					m.V = hdr[0];
@@ -445,6 +522,45 @@ namespace nkentseu {
 				}
 				fclose(f);
 				return ok;
+			}
+
+			bool LoadCheckpointOptState(const char *path, NkVector<NkTensor> &optM, NkVector<NkTensor> &optV,
+									   int64 &step) {
+				FILE *f = fopen(path, "rb");
+				if (!f)
+					return false;
+				uint32 ver = SkipHeader(f);
+				if (ver != 4u) { // v3 : pas de bloc optimiseur
+					fclose(f);
+					return false;
+				}
+				uint32 count = 0;
+				bool ok = fread(&count, sizeof(uint32), 1, f) == 1;
+				for (uint32 i = 0; ok && i < count; ++i) // saute les poids
+					ok = SkipTensor(f);
+				uint32 optFlag = 0;
+				ok = ok && fread(&optFlag, sizeof(uint32), 1, f) == 1;
+				if (!ok || optFlag == 0u) { // fichier v4 sans état optimiseur
+					fclose(f);
+					return false;
+				}
+				ok = fread(&step, sizeof(int64), 1, f) == 1;
+				optM.Clear();
+				optV.Clear();
+				for (uint32 i = 0; ok && i < count; ++i) {
+					NkTensor t;
+					ok = ReadTensor(f, t);
+					if (ok)
+						optM.PushBack(t);
+				}
+				for (uint32 i = 0; ok && i < count; ++i) {
+					NkTensor t;
+					ok = ReadTensor(f, t);
+					if (ok)
+						optV.PushBack(t);
+				}
+				fclose(f);
+				return ok && optM.Size() == count && optV.Size() == count;
 			}
 
 		} // namespace gpt

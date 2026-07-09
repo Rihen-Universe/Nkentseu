@@ -230,6 +230,17 @@ namespace nkentseu {
 					if (V)
 						logger.Info("Poids rechargés ({0} tenseurs).", mParams.Size());
 				}
+				// Reprise : tente de restaurer l'état optimiseur (moments Adam + pas). Absent (v3) =>
+				// reprise des poids seuls (le warmup redémarrera). Moments gardés sur CPU jusqu'à Fit().
+				if (mCfg.resume && !mCfg.loadPath.Empty()) {
+					if (LoadCheckpointOptState(mCfg.loadPath.CStr(), mOptM, mOptV, mResumeStep)) {
+						mHasOptState = true;
+						if (V)
+							logger.Info("État optimiseur repris : pas {0}, {1} moments (reprise parfaite).",
+										(long long)mResumeStep, (unsigned long long)mOptM.Size());
+					} else if (V)
+						logger.Info("Checkpoint sans état optimiseur (v3) : reprise des poids seuls.");
+				}
 				if (mUseGpu)
 					for (uint32 i = 0; i < mParams.Size(); ++i)
 						mParams[i].SetValue(mParams[i].Value().ToGPU());
@@ -301,8 +312,7 @@ namespace nkentseu {
 				logger.Info("=========================================================");
 			}
 
-			bool NkGptTrainer::Save(const char *path) {
-				GptMeta meta;
+			void NkGptTrainer::FillMeta(GptMeta &meta) const {
 				meta.V = mV;
 				meta.d = (int32)mD;
 				meta.H = (int32)mH;
@@ -311,6 +321,11 @@ namespace nkentseu {
 				meta.langs = mLangs;
 				for (int64 i = 0; i < (int64)mBpe.merges.Size(); ++i)
 					meta.merges.PushBack(mBpe.merges[(nk_size)i]);
+			}
+
+			bool NkGptTrainer::Save(const char *path) {
+				GptMeta meta;
+				FillMeta(meta);
 				return SaveCheckpoint(path, meta, mParams);
 			}
 
@@ -329,8 +344,26 @@ namespace nkentseu {
 
 				optim::NkAdam adam(mParams, peakLr, 0.9f, 0.999f, 1e-8f, /*weightDecay=AdamW*/ 0.01f);
 
+				// Reprise parfaite : restaure les moments Adam + le compteur de pas => pas de warmup ni de
+				// pic de perte, le schedule reprend là où il s'était arrêté. `base` = pas déjà effectués.
+				int64 base = 0;
+				if (mHasOptState) {
+					adam.SetMoments(mOptM, mOptV);
+					adam.SetStepCount(mResumeStep);
+					base = mResumeStep;
+					mOptM.Clear();
+					mOptV.Clear();
+				}
+				const int64 totalHorizon = base + (int64)STEPS;
+
+				// Métadonnées de sauvegarde (dims + BPE + langues) : construites une seule fois.
+				GptMeta saveMeta;
+				FillMeta(saveMeta);
+
 				if (V) {
 					logger.Info("-- Entraînement ({0} pas) --", STEPS);
+					if (base > 0)
+						logger.Info("   Reprise au pas global {0} (schedule continué, sans warmup).", (long long)base);
 					if (ACCUM > 1)
 						logger.Info("   Accumulation de gradient : {0} micro-lots -> batch effectif = {1}", ACCUM,
 									(long long)(mB * ACCUM));
@@ -341,11 +374,13 @@ namespace nkentseu {
 				mEma = 0;
 				NkChrono chrono;
 				for (int s = 1; s <= STEPS; ++s) {
+					const int64 g = base + (int64)s; // pas global (pour le schedule)
 					float lr;
-					if (WARMUP > 0 && s <= WARMUP)
-						lr = peakLr * (float)s / (float)WARMUP;
+					if (WARMUP > 0 && g <= (int64)WARMUP)
+						lr = peakLr * (float)g / (float)WARMUP;
 					else {
-						const double prog = (STEPS > WARMUP) ? (double)(s - WARMUP) / (double)(STEPS - WARMUP) : 1.0;
+						const double prog =
+							(totalHorizon > WARMUP) ? (double)(g - WARMUP) / (double)(totalHorizon - WARMUP) : 1.0;
 						const double cosv = 0.5 * (1.0 + NkCos(kPi * prog));
 						lr = (float)(peakLr * (minLrRatio + (1.0 - minLrRatio) * cosv));
 					}
@@ -377,8 +412,11 @@ namespace nkentseu {
 						logger.Info("    ---------------------------");
 					}
 					if (SAVEEVERY > 0 && hasSave && s % SAVEEVERY == 0) {
-						if (Save(mCfg.savePath.CStr()) && V)
-							logger.Info("  [checkpoint pas {0} -> {1}]", s, mCfg.savePath.CStr());
+						const bool sv = SaveCheckpoint(mCfg.savePath.CStr(), saveMeta, mParams, &adam.FirstMoments(),
+													   &adam.SecondMoments(), adam.StepCount());
+						if (sv && V)
+							logger.Info("  [checkpoint pas {0} (global {1}) -> {2}]", s, (long long)g,
+										mCfg.savePath.CStr());
 					}
 				}
 				if (V)
@@ -386,9 +424,12 @@ namespace nkentseu {
 								mUseGpu ? "GPU-résident" : "CPU");
 
 				if (hasSave) {
-					if (Save(mCfg.savePath.CStr())) {
+					const bool sv = SaveCheckpoint(mCfg.savePath.CStr(), saveMeta, mParams, &adam.FirstMoments(),
+												   &adam.SecondMoments(), adam.StepCount());
+					if (sv) {
 						if (V)
-							logger.Info("Modèle sauvegardé : {0}", mCfg.savePath.CStr());
+							logger.Info("Modèle sauvegardé (avec état optimiseur, pas global {0}) : {1}",
+										(long long)adam.StepCount(), mCfg.savePath.CStr());
 					} else
 						logger.Info("Échec de la sauvegarde : {0}", mCfg.savePath.CStr());
 				}

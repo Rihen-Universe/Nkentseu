@@ -67,6 +67,28 @@ namespace nkentseu {
 						mLr = lr;
 					}
 
+					// --- État interne (pour checkpoint / reprise parfaite du schedule) ---
+					// Compteur de pas (correction de biais) + moments m/v par paramètre.
+
+					int64 StepCount() const {
+						return mT;
+					}
+
+					void SetStepCount(int64 t) {
+						mT = t;
+					}
+
+					const NkVector<NkTensor> &FirstMoments() const {
+						return mM;
+					}
+
+					const NkVector<NkTensor> &SecondMoments() const {
+						return mV;
+					}
+
+					// Restaure les moments (déplacés sur le device de chaque paramètre).
+					void SetMoments(const NkVector<NkTensor> &m, const NkVector<NkTensor> &v);
+
 				private:
 					NkVector<NkVar> mParams;
 					NkVector<NkTensor> mM; // 1er moment (par paramètre)

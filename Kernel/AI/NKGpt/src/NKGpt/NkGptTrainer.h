@@ -106,6 +106,7 @@ namespace nkentseu {
 					nk_size EncodeCorpus(const NkVector<NkString> &texts); // texts -> mLangData/mLangMask (masque QA)
 					void MakeBatch(NkTensor &x, NkTensor &oneHot);		   // lot x[B,T] + cible one-hot masquée
 					double NextRand();									   // LCG déterministe [0,1)
+					void FillMeta(GptMeta &meta) const;					   // dims + BPE + langues (pour la sauvegarde)
 
 					NkGptConfig mCfg;
 					bool mUseGpu = false;
@@ -119,6 +120,11 @@ namespace nkentseu {
 					int mGenLang = -1;
 					uint64 mRng = 0x9E3779B97F4A7C15ull;
 					double mEma = 0.0;
+
+					// État optimiseur repris d'un checkpoint (reprise parfaite du schedule).
+					NkVector<NkTensor> mOptM, mOptV;
+					int64 mResumeStep = 0;
+					bool mHasOptState = false;
 			};
 
 		} // namespace gpt
