@@ -337,6 +337,7 @@ int main() {
     Bpe bpe;
     NkVector<NkString> langs;
     NkVector<NkVector<float>> langData;               // ids BPE par langue (train)
+    NkVector<NkVector<float>> langMask;               // parallèle : 1=compte dans la loss, 0=masqué (question/séparateur)
     int V = 0, nByte = 0;
     int64 T = 0, d = 0, H = 0, L = 0, B = envI("NK_GPT_B", 16);
 
@@ -375,11 +376,48 @@ int main() {
         nByte = bpe.Base();
         V = nByte + (int)langs.Size();
         langData.Resize((nk_size)texts.Size());
+        langMask.Resize((nk_size)texts.Size());
         nk_size totalTok = 0;
+        const NkStringView marker("Réponse: ");
         for (int64 li = 0; li < (int64)texts.Size(); ++li) {
-            NkVector<int32> ids; bpe.Encode(texts[(nk_size)li], ids);
-            for (int64 k = 0; k < (int64)ids.Size(); ++k) langData[(nk_size)li].PushBack((float)ids[(nk_size)k]);
-            totalTok += ids.Size();
+            const NkString& txt = texts[(nk_size)li];
+            // Masquage de loss : un tag contenant des blocs "Question:/Réponse:" est traité
+            // en instruction-tuning — la QUESTION est masquée (loss=0), seule la RÉPONSE compte.
+            const bool isQa = txt.Find(marker) != NkString::npos;
+            if (!isQa) {
+                NkVector<int32> ids; bpe.Encode(txt, ids);
+                for (int64 k = 0; k < (int64)ids.Size(); ++k) {
+                    langData[(nk_size)li].PushBack((float)ids[(nk_size)k]);
+                    langMask[(nk_size)li].PushBack(1.f);   // prose/code : tout compte (comportement d'origine)
+                }
+            } else {
+                const nk_size sz = txt.Size();
+                nk_size pos = 0;
+                while (pos < sz) {
+                    const nk_size be = txt.Find("\n\n", pos);
+                    const nk_size blen = (be == NkString::npos) ? (sz - pos) : (be - pos);
+                    NkString block = txt.SubStr(pos, blen);
+                    pos = (be == NkString::npos) ? sz : be + 2;
+                    if (block.Size() == 0) continue;
+                    const nk_size mp = block.Find(marker);
+                    // Partie question (jusqu'à "Réponse: " inclus) -> masque 0.
+                    NkString qPart = (mp == NkString::npos) ? block : block.SubStr(0, mp + marker.Size());
+                    NkVector<int32> qIds; bpe.Encode(qPart, qIds);
+                    for (int64 k = 0; k < (int64)qIds.Size(); ++k) { langData[(nk_size)li].PushBack((float)qIds[(nk_size)k]); langMask[(nk_size)li].PushBack(0.f); }
+                    // Partie réponse -> masque 1 (seule à compter dans la loss).
+                    if (mp != NkString::npos) {
+                        NkString aPart = block.SubStr(mp + marker.Size());
+                        if (aPart.Size() > 0) {
+                            NkVector<int32> aIds; bpe.Encode(aPart, aIds);
+                            for (int64 k = 0; k < (int64)aIds.Size(); ++k) { langData[(nk_size)li].PushBack((float)aIds[(nk_size)k]); langMask[(nk_size)li].PushBack(1.f); }
+                        }
+                    }
+                    // Séparateur \n\n entre blocs -> masqué.
+                    NkVector<int32> sepIds; bpe.Encode(NkString("\n\n"), sepIds);
+                    for (int64 k = 0; k < (int64)sepIds.Size(); ++k) { langData[(nk_size)li].PushBack((float)sepIds[(nk_size)k]); langMask[(nk_size)li].PushBack(0.f); }
+                }
+            }
+            totalTok += langData[(nk_size)li].Size();
         }
         printf("Corpus : %llu car. -> %llu tokens BPE ; %d tokens (256 + %llu fusions) + %d tags = vocab %d.\n",
                (unsigned long long)totalChars, (unsigned long long)totalTok, nByte, (unsigned long long)bpe.merges.Size(), (int)langs.Size(), V);
@@ -417,14 +455,19 @@ int main() {
         for (int64 b = 0; b < B; ++b) {
             const int li = nL > 0 ? (int)(b % nL) : 0;
             const NkVector<float>& dd = langData[(nk_size)li];
+            // Masque parallèle (si présent et cohérent) ; sinon tout compte (comportement d'origine).
+            const bool hasMask = ((nk_size)li < langMask.Size()) && (langMask[(nk_size)li].Size() == dd.Size());
             const int64 N = (int64)dd.Size();
             if (N <= T) continue;
             const int64 off = (int64)(nextRand() * (double)(N - T));
             xp[b*T + 0] = (float)(nByte + li);
-            op[(b*T + 0) * V + (int)dd[(nk_size)off]] = 1.f;
+            // Cible d'une position = token suivant ; ligne laissée à 0 (masquée) si masque=0.
+            if (!hasMask || langMask[(nk_size)li][(nk_size)off] != 0.f)
+                op[(b*T + 0) * V + (int)dd[(nk_size)off]] = 1.f;
             for (int64 t = 1; t < T; ++t) {
                 xp[b*T + t] = dd[(nk_size)(off + t - 1)];
-                op[(b*T + t) * V + (int)dd[(nk_size)(off + t)]] = 1.f;
+                if (!hasMask || langMask[(nk_size)li][(nk_size)(off + t)] != 0.f)
+                    op[(b*T + t) * V + (int)dd[(nk_size)(off + t)]] = 1.f;
             }
         }
     };
