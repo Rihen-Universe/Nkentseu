@@ -144,9 +144,26 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 
 ## En cours / TODO immédiat
 
-### Capture micro / input
-- Pas d'API d'entrée audio actuellement (uniquement output)
-- Nécessaire pour : voice chat, enregistrement, analyse temps réel, échantillonneur
+### Capture vocale / entrée micro — MULTIPLATEFORME (priorité)
+- État : **absent** — le moteur ne fait que de la sortie (output). Aucune API d'entrée audio.
+- Nécessaire pour : **enregistrement de la voix**, voice chat, reconnaissance/commande vocale,
+  analyse temps réel, échantillonneur, et (lien IA) **capture de corpus audio pour NKAI** (dataset
+  voix, futur TTS/ASR from-scratch).
+- API cible (miroir de l'output, STL-free) : `NkAudioCapture` — `EnumerateInputDevices()`,
+  `Open(deviceId, sampleRate, channels, format)`, `Start()/Stop()`, callback `OnAudioIn(const float*,
+  frames, channels)` **ou** pull `Read(buffer, frames)` via ring buffer ; `SaveWAV`/encodage direct.
+- Backends natifs par plateforme (aligner sur les backends output existants) :
+  - Windows : **WASAPI capture** (`IAudioClient` en mode capture, `AUDCLNT_SHAREMODE_SHARED`) ; fallback DirectSound capture.
+  - Linux : **ALSA** (`snd_pcm_open` en `SND_PCM_STREAM_CAPTURE`) ; option PulseAudio/PipeWire source.
+  - macOS : **CoreAudio / AudioUnit** (AUHAL input) ou AVAudioEngine inputNode.
+  - Android : **AAudio** (`AAUDIO_DIRECTION_INPUT`) ou OpenSL ES recorder ; permission `RECORD_AUDIO`.
+  - iOS : **AudioUnit RemoteIO** / AVAudioSession `record` ; permission micro (Info.plist).
+  - Web : **getUserMedia + WebAudio** (`MediaStreamAudioSourceNode` + `ScriptProcessor`/AudioWorklet).
+  - HarmonyOS : **OHAudio** capture (`OH_AudioCapturer`) ; permission `ohos.permission.MICROPHONE`.
+  - Null : backend factice (silence) pour les plateformes sans capture.
+- Notes : gérer permissions runtime (mobile/Web/Harmony), latence/format négocié par device,
+  résampling vers le taux moteur via le resampler existant (LINEAR/SINC déjà livrés), niveau/gain +
+  détection d'activité vocale (VAD) réutilisant `NkAudioAnalyzer` (RMS/pitch YIN déjà présents).
 
 ### Streaming réel FLAC/MP3/OGG
 - Actuellement : décodage complet en RAM puis MemoryStream
