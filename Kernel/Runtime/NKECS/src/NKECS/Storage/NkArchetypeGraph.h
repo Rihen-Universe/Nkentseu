@@ -21,402 +21,399 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/Core/NkTypeRegistry.h"
 #include "NKECS/Storage/NkArchetype.h"
-#include "NKMemory/NkAllocator.h"   // pour nkentseu::memory::NkGetDefaultAllocator().New/Delete
+#include "NKMemory/NkAllocator.h" // pour nkentseu::memory::NkGetDefaultAllocator().New/Delete
 
 namespace nkentseu {
-    namespace ecs {
+	namespace ecs {
 
-        // =====================================================================
-        // NkArchetypeGraph
-        // =====================================================================
-        // Singleton implicite (un seul graphe par NkWorld). Responsable de :
-        //   - Allouer de nouveaux archétypes.
-        //   - Fournir l'archétype correspondant à un masque de composants.
-        //   - Accélérer les transitions (ajout/retrait de composant) via un cache.
-        class NkArchetypeGraph {
-          public:
-            // -----------------------------------------------------------------
-            // Constructeur
-            // -----------------------------------------------------------------
-            // Crée automatiquement l'archétype vide (id = 0) qui ne contient aucun
-            // composant. Cet archétype sert de point de départ pour les entités
-            // nouvellement créées avant l'ajout de leur premier composant.
-            NkArchetypeGraph() noexcept {
-                mEmptyArchetypeId = AllocArchetype(NkComponentMask{});
-            }
+		// =====================================================================
+		// NkArchetypeGraph
+		// =====================================================================
+		// Singleton implicite (un seul graphe par NkWorld). Responsable de :
+		//   - Allouer de nouveaux archétypes.
+		//   - Fournir l'archétype correspondant à un masque de composants.
+		//   - Accélérer les transitions (ajout/retrait de composant) via un cache.
+		class NkArchetypeGraph {
+			public:
+				// -----------------------------------------------------------------
+				// Constructeur
+				// -----------------------------------------------------------------
+				// Crée automatiquement l'archétype vide (id = 0) qui ne contient aucun
+				// composant. Cet archétype sert de point de départ pour les entités
+				// nouvellement créées avant l'ajout de leur premier composant.
+				NkArchetypeGraph() noexcept {
+					mEmptyArchetypeId = AllocArchetype(NkComponentMask{});
+				}
 
-            // -----------------------------------------------------------------
-            // Destructeur
-            // -----------------------------------------------------------------
-            // Libère tous les archétypes alloués dynamiquement.
-            ~NkArchetypeGraph() noexcept {
-                for (uint32 i = 0; i < mNumArchetypes; ++i) {
-                    if (mArchetypes[i] != nullptr) {
-                        nkentseu::memory::NkGetDefaultAllocator().Delete(mArchetypes[i]);
-                        mArchetypes[i] = nullptr;
-                    }
-                }
-            }
+				// -----------------------------------------------------------------
+				// Destructeur
+				// -----------------------------------------------------------------
+				// Libère tous les archétypes alloués dynamiquement.
+				~NkArchetypeGraph() noexcept {
+					for (uint32 i = 0; i < mNumArchetypes; ++i) {
+						if (mArchetypes[i] != nullptr) {
+							nkentseu::memory::NkGetDefaultAllocator().Delete(mArchetypes[i]);
+							mArchetypes[i] = nullptr;
+						}
+					}
+				}
 
-            // -----------------------------------------------------------------
-            // Sémantique de copie interdite (ressource unique par monde)
-            // -----------------------------------------------------------------
-            NkArchetypeGraph(const NkArchetypeGraph&) = delete;
-            NkArchetypeGraph& operator=(const NkArchetypeGraph&) = delete;
+				// -----------------------------------------------------------------
+				// Sémantique de copie interdite (ressource unique par monde)
+				// -----------------------------------------------------------------
+				NkArchetypeGraph(const NkArchetypeGraph &) = delete;
+				NkArchetypeGraph &operator=(const NkArchetypeGraph &) = delete;
 
-            // -----------------------------------------------------------------
-            // Sémantique de déplacement (transfert de propriété des archétypes)
-            // -----------------------------------------------------------------
-            // Le graphe possède les NkArchetype* alloués dynamiquement : un move
-            // doit transférer ces pointeurs ET neutraliser la source afin que son
-            // destructeur ne libère pas une seconde fois (anti double-free).
-            NkArchetypeGraph(NkArchetypeGraph&& other) noexcept {
-                MoveFrom(other);
-            }
+				// -----------------------------------------------------------------
+				// Sémantique de déplacement (transfert de propriété des archétypes)
+				// -----------------------------------------------------------------
+				// Le graphe possède les NkArchetype* alloués dynamiquement : un move
+				// doit transférer ces pointeurs ET neutraliser la source afin que son
+				// destructeur ne libère pas une seconde fois (anti double-free).
+				NkArchetypeGraph(NkArchetypeGraph &&other) noexcept {
+					MoveFrom(other);
+				}
 
-            NkArchetypeGraph& operator=(NkArchetypeGraph&& other) noexcept {
-                if (this != &other) {
-                    // Libère les archétypes actuellement possédés avant d'écraser.
-                    for (uint32 i = 0; i < mNumArchetypes; ++i) {
-                        if (mArchetypes[i] != nullptr) {
-                            nkentseu::memory::NkGetDefaultAllocator().Delete(mArchetypes[i]);
-                            mArchetypes[i] = nullptr;
-                        }
-                    }
-                    MoveFrom(other);
-                }
-                return *this;
-            }
+				NkArchetypeGraph &operator=(NkArchetypeGraph &&other) noexcept {
+					if (this != &other) {
+						// Libère les archétypes actuellement possédés avant d'écraser.
+						for (uint32 i = 0; i < mNumArchetypes; ++i) {
+							if (mArchetypes[i] != nullptr) {
+								nkentseu::memory::NkGetDefaultAllocator().Delete(mArchetypes[i]);
+								mArchetypes[i] = nullptr;
+							}
+						}
+						MoveFrom(other);
+					}
+					return *this;
+				}
 
-            // -----------------------------------------------------------------
-            // Accès aux archétypes par identifiant
-            // -----------------------------------------------------------------
-            [[nodiscard]] NkArchetype* Get(NkArchetypeId id) noexcept {
-                if (id >= mNumArchetypes) {
-                    return nullptr;
-                }
-                return mArchetypes[id];
-            }
+				// -----------------------------------------------------------------
+				// Accès aux archétypes par identifiant
+				// -----------------------------------------------------------------
+				[[nodiscard]] NkArchetype *Get(NkArchetypeId id) noexcept {
+					if (id >= mNumArchetypes) {
+						return nullptr;
+					}
+					return mArchetypes[id];
+				}
 
-            [[nodiscard]] const NkArchetype* Get(NkArchetypeId id) const noexcept {
-                if (id >= mNumArchetypes) {
-                    return nullptr;
-                }
-                return mArchetypes[id];
-            }
+				[[nodiscard]] const NkArchetype *Get(NkArchetypeId id) const noexcept {
+					if (id >= mNumArchetypes) {
+						return nullptr;
+					}
+					return mArchetypes[id];
+				}
 
-            // -----------------------------------------------------------------
-            // Propriétés du graphe
-            // -----------------------------------------------------------------
-            // Retourne l'identifiant de l'archétype vide.
-            [[nodiscard]] NkArchetypeId EmptyId() const noexcept {
-                return mEmptyArchetypeId;
-            }
+				// -----------------------------------------------------------------
+				// Propriétés du graphe
+				// -----------------------------------------------------------------
+				// Retourne l'identifiant de l'archétype vide.
+				[[nodiscard]] NkArchetypeId EmptyId() const noexcept {
+					return mEmptyArchetypeId;
+				}
 
-            // Nombre total d'archétypes créés depuis le démarrage.
-            [[nodiscard]] uint32 Count() const noexcept {
-                return mNumArchetypes;
-            }
+				// Nombre total d'archétypes créés depuis le démarrage.
+				[[nodiscard]] uint32 Count() const noexcept {
+					return mNumArchetypes;
+				}
 
-            // -----------------------------------------------------------------
-            // Recherche / création d'un archétype à partir d'un masque
-            // -----------------------------------------------------------------
-            // Retourne l'identifiant de l'archétype correspondant au masque `mask`.
-            // Si aucun archétype n'existe encore avec cette signature, il est créé
-            // et ajouté au cache.
-            NkArchetypeId GetOrCreate(const NkComponentMask& mask) noexcept {
-                const uint64 hash = mask.Hash();
-                const NkArchetypeId cached = MaskLookup(hash, mask);
-                if (cached != kInvalidArchetypeId) {
-                    return cached;
-                }
-                return AllocArchetype(mask);
-            }
+				// -----------------------------------------------------------------
+				// Recherche / création d'un archétype à partir d'un masque
+				// -----------------------------------------------------------------
+				// Retourne l'identifiant de l'archétype correspondant au masque `mask`.
+				// Si aucun archétype n'existe encore avec cette signature, il est créé
+				// et ajouté au cache.
+				NkArchetypeId GetOrCreate(const NkComponentMask &mask) noexcept {
+					const uint64 hash = mask.Hash();
+					const NkArchetypeId cached = MaskLookup(hash, mask);
+					if (cached != kInvalidArchetypeId) {
+						return cached;
+					}
+					return AllocArchetype(mask);
+				}
 
-            // -----------------------------------------------------------------
-            // Transition : ajout d'un composant
-            // -----------------------------------------------------------------
-            // Étant donné un archétype source `srcId` et un composant `cid`,
-            // retourne l'archétype destination après ajout de ce composant.
-            // Le résultat est mis en cache pour les appels ultérieurs.
-            NkArchetypeId AddComponent(NkArchetypeId srcId, NkComponentId cid) noexcept {
-                // Construction de la clé de cache pour l'arête "add".
-                const uint64 edgeKey = EdgeKey(srcId, cid, true);
-                const NkArchetypeId cached = EdgeLookup(edgeKey);
-                if (cached != kInvalidArchetypeId) {
-                    return cached;
-                }
+				// -----------------------------------------------------------------
+				// Transition : ajout d'un composant
+				// -----------------------------------------------------------------
+				// Étant donné un archétype source `srcId` et un composant `cid`,
+				// retourne l'archétype destination après ajout de ce composant.
+				// Le résultat est mis en cache pour les appels ultérieurs.
+				NkArchetypeId AddComponent(NkArchetypeId srcId, NkComponentId cid) noexcept {
+					// Construction de la clé de cache pour l'arête "add".
+					const uint64 edgeKey = EdgeKey(srcId, cid, true);
+					const NkArchetypeId cached = EdgeLookup(edgeKey);
+					if (cached != kInvalidArchetypeId) {
+						return cached;
+					}
 
-                // Récupération de l'archétype source.
-                NkArchetype* src = Get(srcId);
-                NKECS_ASSERT(src != nullptr);
+					// Récupération de l'archétype source.
+					NkArchetype *src = Get(srcId);
+					NKECS_ASSERT(src != nullptr);
 
-                // Construction du nouveau masque.
-                NkComponentMask newMask = src->Mask();
-                newMask.Set(cid);
+					// Construction du nouveau masque.
+					NkComponentMask newMask = src->Mask();
+					newMask.Set(cid);
 
-                // Obtention (ou création) de l'archétype destination.
-                const NkArchetypeId dstId = GetOrCreate(newMask);
+					// Obtention (ou création) de l'archétype destination.
+					const NkArchetypeId dstId = GetOrCreate(newMask);
 
-                // Mise en cache de la transition.
-                EdgeInsert(edgeKey, dstId);
-                return dstId;
-            }
+					// Mise en cache de la transition.
+					EdgeInsert(edgeKey, dstId);
+					return dstId;
+				}
 
-            // -----------------------------------------------------------------
-            // Transition : retrait d'un composant
-            // -----------------------------------------------------------------
-            // Symétrique de AddComponent : retourne l'archétype obtenu après
-            // suppression du composant `cid` de l'archétype source.
-            NkArchetypeId RemoveComponent(NkArchetypeId srcId, NkComponentId cid) noexcept {
-                // Clé pour l'arête "remove".
-                const uint64 edgeKey = EdgeKey(srcId, cid, false);
-                const NkArchetypeId cached = EdgeLookup(edgeKey);
-                if (cached != kInvalidArchetypeId) {
-                    return cached;
-                }
+				// -----------------------------------------------------------------
+				// Transition : retrait d'un composant
+				// -----------------------------------------------------------------
+				// Symétrique de AddComponent : retourne l'archétype obtenu après
+				// suppression du composant `cid` de l'archétype source.
+				NkArchetypeId RemoveComponent(NkArchetypeId srcId, NkComponentId cid) noexcept {
+					// Clé pour l'arête "remove".
+					const uint64 edgeKey = EdgeKey(srcId, cid, false);
+					const NkArchetypeId cached = EdgeLookup(edgeKey);
+					if (cached != kInvalidArchetypeId) {
+						return cached;
+					}
 
-                NkArchetype* src = Get(srcId);
-                NKECS_ASSERT(src != nullptr);
+					NkArchetype *src = Get(srcId);
+					NKECS_ASSERT(src != nullptr);
 
-                NkComponentMask newMask = src->Mask();
-                newMask.Clear(cid);
+					NkComponentMask newMask = src->Mask();
+					newMask.Clear(cid);
 
-                const NkArchetypeId dstId = GetOrCreate(newMask);
-                EdgeInsert(edgeKey, dstId);
-                return dstId;
-            }
+					const NkArchetypeId dstId = GetOrCreate(newMask);
+					EdgeInsert(edgeKey, dstId);
+					return dstId;
+				}
 
-            // -----------------------------------------------------------------
-            // Itération sur les archétypes correspondant à une requête
-            // -----------------------------------------------------------------
-            // Parcourt tous les archétypes non vides dont le masque :
-            //   - contient tous les bits de `required`,
-            //   - ne contient aucun bit de `excluded`.
-            // La fonction `fn` est appelée pour chaque archétype satisfaisant.
-            template<typename Fn>
-            void ForEachMatching(const NkComponentMask& required,
-                                 const NkComponentMask& excluded,
-                                 Fn&& fn) noexcept {
-                for (uint32 i = 0; i < mNumArchetypes; ++i) {
-                    NkArchetype* arch = mArchetypes[i];
-                    if (arch == nullptr) {
-                        continue;
-                    }
-                    if (arch->Empty()) {
-                        continue;
-                    }
+				// -----------------------------------------------------------------
+				// Itération sur les archétypes correspondant à une requête
+				// -----------------------------------------------------------------
+				// Parcourt tous les archétypes non vides dont le masque :
+				//   - contient tous les bits de `required`,
+				//   - ne contient aucun bit de `excluded`.
+				// La fonction `fn` est appelée pour chaque archétype satisfaisant.
+				template <typename Fn>
+				void ForEachMatching(const NkComponentMask &required, const NkComponentMask &excluded,
+									 Fn &&fn) noexcept {
+					for (uint32 i = 0; i < mNumArchetypes; ++i) {
+						NkArchetype *arch = mArchetypes[i];
+						if (arch == nullptr) {
+							continue;
+						}
+						if (arch->Empty()) {
+							continue;
+						}
 
-                    const NkComponentMask& m = arch->Mask();
+						const NkComponentMask &m = arch->Mask();
 
-                    // Vérification des composants requis.
-                    if (!m.ContainsAll(required)) {
-                        continue;
-                    }
+						// Vérification des composants requis.
+						if (!m.ContainsAll(required)) {
+							continue;
+						}
 
-                    // Vérification des composants exclus (si la liste n'est pas vide).
-                    if (!excluded.IsEmpty() && m.HasAny(excluded)) {
-                        continue;
-                    }
+						// Vérification des composants exclus (si la liste n'est pas vide).
+						if (!excluded.IsEmpty() && m.HasAny(excluded)) {
+							continue;
+						}
 
-                    // L'archétype correspond, on appelle le callback.
-                    fn(arch);
-                }
-            }
+						// L'archétype correspond, on appelle le callback.
+						fn(arch);
+					}
+				}
 
-          private:
-            // -----------------------------------------------------------------
-            // Allocation d'un nouvel archétype
-            // -----------------------------------------------------------------
-            // Crée un nouvel objet NkArchetype, l'enregistre dans le tableau
-            // `mArchetypes`, l'ajoute au cache Mask → Id, puis retourne son ID.
-            NkArchetypeId AllocArchetype(const NkComponentMask& mask) noexcept {
-                NKECS_ASSERT(mNumArchetypes < kMaxArchetypes);
+			private:
+				// -----------------------------------------------------------------
+				// Allocation d'un nouvel archétype
+				// -----------------------------------------------------------------
+				// Crée un nouvel objet NkArchetype, l'enregistre dans le tableau
+				// `mArchetypes`, l'ajoute au cache Mask → Id, puis retourne son ID.
+				NkArchetypeId AllocArchetype(const NkComponentMask &mask) noexcept {
+					NKECS_ASSERT(mNumArchetypes < kMaxArchetypes);
 
-                const NkArchetypeId id = mNumArchetypes;
-                ++mNumArchetypes;
+					const NkArchetypeId id = mNumArchetypes;
+					++mNumArchetypes;
 
-                mArchetypes[id] = nkentseu::memory::NkGetDefaultAllocator().New<NkArchetype>(id, mask);
+					mArchetypes[id] = nkentseu::memory::NkGetDefaultAllocator().New<NkArchetype>(id, mask);
 
-                // Ajout au cache Mask → Id.
-                MaskInsert(mask.Hash(), mask, id);
+					// Ajout au cache Mask → Id.
+					MaskInsert(mask.Hash(), mask, id);
 
-                return id;
-            }
+					return id;
+				}
 
-            // =================================================================
-            // Cache Mask → ArchetypeId
-            // =================================================================
-            // Table de hachage à adressage ouvert avec sondage linéaire.
-            // Taille : puissance de deux pour un modulo rapide via masquage.
+				// =================================================================
+				// Cache Mask → ArchetypeId
+				// =================================================================
+				// Table de hachage à adressage ouvert avec sondage linéaire.
+				// Taille : puissance de deux pour un modulo rapide via masquage.
 
-            // Taille de la table (doit être une puissance de deux).
-            static constexpr uint32 kMaskTableSize = kMaxArchetypes * 2u;
+				// Taille de la table (doit être une puissance de deux).
+				static constexpr uint32 kMaskTableSize = kMaxArchetypes * 2u;
 
-            // Le masquage `& (size - 1)` dans MaskLookup/MaskInsert/EdgeLookup/EdgeInsert
-            // n'est un modulo correct QUE si les tailles sont des puissances de deux.
-            // kMaskTableSize = kMaxArchetypes*2 et kEdgeTableSize = kMaxArchetypes*4
-            // le sont ssi kMaxArchetypes l'est.
-            static_assert((kMaxArchetypes & (kMaxArchetypes - 1u)) == 0u,
-                          "kMaxArchetypes doit etre une puissance de deux (hashing & (size-1)).");
+				// Le masquage `& (size - 1)` dans MaskLookup/MaskInsert/EdgeLookup/EdgeInsert
+				// n'est un modulo correct QUE si les tailles sont des puissances de deux.
+				// kMaskTableSize = kMaxArchetypes*2 et kEdgeTableSize = kMaxArchetypes*4
+				// le sont ssi kMaxArchetypes l'est.
+				static_assert((kMaxArchetypes & (kMaxArchetypes - 1u)) == 0u,
+							  "kMaxArchetypes doit etre une puissance de deux (hashing & (size-1)).");
 
-            // Entrée du cache Mask.
-            struct MaskEntry {
-                uint64        hash = 0;                     // Hash du masque (pour comparaison rapide)
-                NkComponentMask mask = {};                   // Copie du masque (pour résoudre les collisions)
-                NkArchetypeId   id   = kInvalidArchetypeId; // Identifiant de l'archétype associé
-                bool            used = false;                // Indique si l'entrée est occupée
-            };
+				// Entrée du cache Mask.
+				struct MaskEntry {
+						uint64 hash = 0;						// Hash du masque (pour comparaison rapide)
+						NkComponentMask mask = {};				// Copie du masque (pour résoudre les collisions)
+						NkArchetypeId id = kInvalidArchetypeId; // Identifiant de l'archétype associé
+						bool used = false;						// Indique si l'entrée est occupée
+				};
 
-            // Recherche un archétype à partir du hash et du masque.
-            // Retourne kInvalidArchetypeId si non trouvé.
-            NkArchetypeId MaskLookup(uint64 hash, const NkComponentMask& mask) const noexcept {
-                uint32 slot = static_cast<uint32>(hash) & (kMaskTableSize - 1u);
+				// Recherche un archétype à partir du hash et du masque.
+				// Retourne kInvalidArchetypeId si non trouvé.
+				NkArchetypeId MaskLookup(uint64 hash, const NkComponentMask &mask) const noexcept {
+					uint32 slot = static_cast<uint32>(hash) & (kMaskTableSize - 1u);
 
-                for (uint32 probe = 0; probe < kMaskTableSize; ++probe) {
-                    const MaskEntry& e = mMaskTable[slot];
-                    if (!e.used) {
-                        return kInvalidArchetypeId;
-                    }
-                    if (e.hash == hash && e.mask == mask) {
-                        return e.id;
-                    }
-                    slot = (slot + 1u) & (kMaskTableSize - 1u);
-                }
+					for (uint32 probe = 0; probe < kMaskTableSize; ++probe) {
+						const MaskEntry &e = mMaskTable[slot];
+						if (!e.used) {
+							return kInvalidArchetypeId;
+						}
+						if (e.hash == hash && e.mask == mask) {
+							return e.id;
+						}
+						slot = (slot + 1u) & (kMaskTableSize - 1u);
+					}
 
-                return kInvalidArchetypeId;
-            }
+					return kInvalidArchetypeId;
+				}
 
-            // Insère une association (hash, mask) → id dans la table.
-            void MaskInsert(uint64 hash, const NkComponentMask& mask, NkArchetypeId id) noexcept {
-                uint32 slot = static_cast<uint32>(hash) & (kMaskTableSize - 1u);
+				// Insère une association (hash, mask) → id dans la table.
+				void MaskInsert(uint64 hash, const NkComponentMask &mask, NkArchetypeId id) noexcept {
+					uint32 slot = static_cast<uint32>(hash) & (kMaskTableSize - 1u);
 
-                for (uint32 probe = 0; probe < kMaskTableSize; ++probe) {
-                    MaskEntry& e = mMaskTable[slot];
-                    if (!e.used) {
-                        e.hash = hash;
-                        e.mask = mask;
-                        e.id   = id;
-                        e.used = true;
-                        return;
-                    }
-                    slot = (slot + 1u) & (kMaskTableSize - 1u);
-                }
+					for (uint32 probe = 0; probe < kMaskTableSize; ++probe) {
+						MaskEntry &e = mMaskTable[slot];
+						if (!e.used) {
+							e.hash = hash;
+							e.mask = mask;
+							e.id = id;
+							e.used = true;
+							return;
+						}
+						slot = (slot + 1u) & (kMaskTableSize - 1u);
+					}
 
-                // La table ne devrait jamais être pleine en pratique (dimensionnée pour kMaxArchetypes).
-                NKECS_ASSERT(false && "Mask table full");
-            }
+					// La table ne devrait jamais être pleine en pratique (dimensionnée pour kMaxArchetypes).
+					NKECS_ASSERT(false && "Mask table full");
+				}
 
-            // =================================================================
-            // Cache Edge (srcId + ComponentId + opération) → dstId
-            // =================================================================
-            // Accélère les transitions add/remove les plus fréquentes.
+				// =================================================================
+				// Cache Edge (srcId + ComponentId + opération) → dstId
+				// =================================================================
+				// Accélère les transitions add/remove les plus fréquentes.
 
-            // Taille de la table des arêtes.
-            static constexpr uint32 kEdgeTableSize = kMaxArchetypes * 4u;
+				// Taille de la table des arêtes.
+				static constexpr uint32 kEdgeTableSize = kMaxArchetypes * 4u;
 
-            // Entrée du cache Edge.
-            struct EdgeEntry {
-                uint64        key = 0;                     // Clé compactée (srcId, cid, add/remove)
-                NkArchetypeId dst = kInvalidArchetypeId;   // Archétype destination
-                bool          used = false;
-            };
+				// Entrée du cache Edge.
+				struct EdgeEntry {
+						uint64 key = 0;							 // Clé compactée (srcId, cid, add/remove)
+						NkArchetypeId dst = kInvalidArchetypeId; // Archétype destination
+						bool used = false;
+				};
 
-            // Construit une clé de 64 bits à partir des trois paramètres.
-            // Bits :
-            //   - srcId  : 32 bits (mais NkArchetypeId = uint32, donc ok)
-            //   - cid    : 32 bits (NkComponentId)
-            //   - add    : 1 bit (0 = remove, 1 = add)
-            // On décale pour éviter les collisions entre les champs.
-            static uint64 EdgeKey(NkArchetypeId src, NkComponentId cid, bool add) noexcept {
-                return (static_cast<uint64>(src) << 33u)
-                     | (static_cast<uint64>(cid) << 1u)
-                     | (add ? 1ULL : 0ULL);
-            }
+				// Construit une clé de 64 bits à partir des trois paramètres.
+				// Bits :
+				//   - srcId  : 32 bits (mais NkArchetypeId = uint32, donc ok)
+				//   - cid    : 32 bits (NkComponentId)
+				//   - add    : 1 bit (0 = remove, 1 = add)
+				// On décale pour éviter les collisions entre les champs.
+				static uint64 EdgeKey(NkArchetypeId src, NkComponentId cid, bool add) noexcept {
+					return (static_cast<uint64>(src) << 33u) | (static_cast<uint64>(cid) << 1u) | (add ? 1ULL : 0ULL);
+				}
 
-            // Recherche une transition dans le cache Edge.
-            NkArchetypeId EdgeLookup(uint64 key) const noexcept {
-                uint32 slot = static_cast<uint32>(key) & (kEdgeTableSize - 1u);
+				// Recherche une transition dans le cache Edge.
+				NkArchetypeId EdgeLookup(uint64 key) const noexcept {
+					uint32 slot = static_cast<uint32>(key) & (kEdgeTableSize - 1u);
 
-                for (uint32 p = 0; p < kEdgeTableSize; ++p) {
-                    const EdgeEntry& e = mEdgeTable[slot];
-                    if (!e.used) {
-                        return kInvalidArchetypeId;
-                    }
-                    if (e.key == key) {
-                        return e.dst;
-                    }
-                    slot = (slot + 1u) & (kEdgeTableSize - 1u);
-                }
+					for (uint32 p = 0; p < kEdgeTableSize; ++p) {
+						const EdgeEntry &e = mEdgeTable[slot];
+						if (!e.used) {
+							return kInvalidArchetypeId;
+						}
+						if (e.key == key) {
+							return e.dst;
+						}
+						slot = (slot + 1u) & (kEdgeTableSize - 1u);
+					}
 
-                return kInvalidArchetypeId;
-            }
+					return kInvalidArchetypeId;
+				}
 
-            // Insère une transition dans le cache Edge.
-            void EdgeInsert(uint64 key, NkArchetypeId dst) noexcept {
-                uint32 slot = static_cast<uint32>(key) & (kEdgeTableSize - 1u);
+				// Insère une transition dans le cache Edge.
+				void EdgeInsert(uint64 key, NkArchetypeId dst) noexcept {
+					uint32 slot = static_cast<uint32>(key) & (kEdgeTableSize - 1u);
 
-                for (uint32 p = 0; p < kEdgeTableSize; ++p) {
-                    EdgeEntry& e = mEdgeTable[slot];
-                    if (!e.used) {
-                        e.key  = key;
-                        e.dst  = dst;
-                        e.used = true;
-                        return;
-                    }
-                    slot = (slot + 1u) & (kEdgeTableSize - 1u);
-                }
+					for (uint32 p = 0; p < kEdgeTableSize; ++p) {
+						EdgeEntry &e = mEdgeTable[slot];
+						if (!e.used) {
+							e.key = key;
+							e.dst = dst;
+							e.used = true;
+							return;
+						}
+						slot = (slot + 1u) & (kEdgeTableSize - 1u);
+					}
 
-                NKECS_ASSERT(false && "Edge table full");
-            }
+					NKECS_ASSERT(false && "Edge table full");
+				}
 
-            // -----------------------------------------------------------------
-            // Transfert d'état depuis `other` puis neutralisation de la source.
-            // Hypothèse : `*this` ne possède plus rien (déjà libéré par l'appelant).
-            // -----------------------------------------------------------------
-            void MoveFrom(NkArchetypeGraph& other) noexcept {
-                // Transfert des pointeurs d'archétypes (propriété).
-                for (uint32 i = 0; i < other.mNumArchetypes; ++i) {
-                    mArchetypes[i]       = other.mArchetypes[i];
-                    other.mArchetypes[i] = nullptr;
-                }
-                mNumArchetypes    = other.mNumArchetypes;
-                mEmptyArchetypeId = other.mEmptyArchetypeId;
+				// -----------------------------------------------------------------
+				// Transfert d'état depuis `other` puis neutralisation de la source.
+				// Hypothèse : `*this` ne possède plus rien (déjà libéré par l'appelant).
+				// -----------------------------------------------------------------
+				void MoveFrom(NkArchetypeGraph &other) noexcept {
+					// Transfert des pointeurs d'archétypes (propriété).
+					for (uint32 i = 0; i < other.mNumArchetypes; ++i) {
+						mArchetypes[i] = other.mArchetypes[i];
+						other.mArchetypes[i] = nullptr;
+					}
+					mNumArchetypes = other.mNumArchetypes;
+					mEmptyArchetypeId = other.mEmptyArchetypeId;
 
-                // Transfert des caches (entrées POD).
-                for (uint32 i = 0; i < kMaskTableSize; ++i) {
-                    mMaskTable[i] = other.mMaskTable[i];
-                }
-                for (uint32 i = 0; i < kEdgeTableSize; ++i) {
-                    mEdgeTable[i] = other.mEdgeTable[i];
-                }
+					// Transfert des caches (entrées POD).
+					for (uint32 i = 0; i < kMaskTableSize; ++i) {
+						mMaskTable[i] = other.mMaskTable[i];
+					}
+					for (uint32 i = 0; i < kEdgeTableSize; ++i) {
+						mEdgeTable[i] = other.mEdgeTable[i];
+					}
 
-                // La source ne possède plus aucun archétype : son destructeur ne
-                // libérera rien (mNumArchetypes = 0).
-                other.mNumArchetypes    = 0;
-                other.mEmptyArchetypeId = kInvalidArchetypeId;
-            }
+					// La source ne possède plus aucun archétype : son destructeur ne
+					// libérera rien (mNumArchetypes = 0).
+					other.mNumArchetypes = 0;
+					other.mEmptyArchetypeId = kInvalidArchetypeId;
+				}
 
-            // =================================================================
-            // Membres privés
-            // =================================================================
-            // Tableau des archétypes alloués. La taille maximale est kMaxArchetypes.
-            NkArchetype*  mArchetypes[kMaxArchetypes] = {};
+				// =================================================================
+				// Membres privés
+				// =================================================================
+				// Tableau des archétypes alloués. La taille maximale est kMaxArchetypes.
+				NkArchetype *mArchetypes[kMaxArchetypes] = {};
 
-            // Nombre d'archétypes actuellement alloués.
-            uint32        mNumArchetypes              = 0;
+				// Nombre d'archétypes actuellement alloués.
+				uint32 mNumArchetypes = 0;
 
-            // Identifiant de l'archétype vide (créé dans le constructeur).
-            NkArchetypeId mEmptyArchetypeId           = kInvalidArchetypeId;
+				// Identifiant de l'archétype vide (créé dans le constructeur).
+				NkArchetypeId mEmptyArchetypeId = kInvalidArchetypeId;
 
-            // Table de cache Mask → ArchetypeId.
-            MaskEntry     mMaskTable[kMaskTableSize]  = {};
+				// Table de cache Mask → ArchetypeId.
+				MaskEntry mMaskTable[kMaskTableSize] = {};
 
-            // Table de cache Edge → dstId.
-            EdgeEntry     mEdgeTable[kEdgeTableSize]  = {};
-        };
+				// Table de cache Edge → dstId.
+				EdgeEntry mEdgeTable[kEdgeTableSize] = {};
+		};
 
-    } // namespace ecs
+	} // namespace ecs
 } // namespace nkentseu
 
 // =============================================================================
@@ -431,165 +428,165 @@ namespace nkentseu {
 // Exemple 1 : Création manuelle d'un graphe et obtention d'archétypes
 // -----------------------------------------------------------------------------
 /*
-    #include "NkECS/Storage/NkArchetypeGraph.h"
-    #include "NkECS/Core/NkTypeRegistry.h"
+	#include "NkECS/Storage/NkArchetypeGraph.h"
+	#include "NkECS/Core/NkTypeRegistry.h"
 
-    // Composants de test.
-    struct Position { float x, y, z; };
-    struct Velocity { float vx, vy, vz; };
-    NK_COMPONENT(Position);
-    NK_COMPONENT(Velocity);
+	// Composants de test.
+	struct Position { float x, y, z; };
+	struct Velocity { float vx, vy, vz; };
+	NK_COMPONENT(Position);
+	NK_COMPONENT(Velocity);
 
-    void ExampleBasicGraph() {
-        using namespace nkentseu::ecs;
+	void ExampleBasicGraph() {
+		using namespace nkentseu::ecs;
 
-        // Création du graphe (l'archétype vide est automatiquement créé).
-        NkArchetypeGraph graph;
+		// Création du graphe (l'archétype vide est automatiquement créé).
+		NkArchetypeGraph graph;
 
-        // Récupération de l'archétype vide.
-        NkArchetypeId emptyId = graph.EmptyId();
-        const NkArchetype* emptyArch = graph.Get(emptyId);
-        printf("Empty archetype has %u entities\n", emptyArch->Count());
+		// Récupération de l'archétype vide.
+		NkArchetypeId emptyId = graph.EmptyId();
+		const NkArchetype* emptyArch = graph.Get(emptyId);
+		printf("Empty archetype has %u entities\n", emptyArch->Count());
 
-        // Construction d'un masque avec Position.
-        NkComponentMask maskPos;
-        maskPos.Set(NkIdOf<Position>());
+		// Construction d'un masque avec Position.
+		NkComponentMask maskPos;
+		maskPos.Set(NkIdOf<Position>());
 
-        // Obtention de l'archétype correspondant (créé si nécessaire).
-        NkArchetypeId posId = graph.GetOrCreate(maskPos);
-        NkArchetype* posArch = graph.Get(posId);
+		// Obtention de l'archétype correspondant (créé si nécessaire).
+		NkArchetypeId posId = graph.GetOrCreate(maskPos);
+		NkArchetype* posArch = graph.Get(posId);
 
-        // Ajout d'une entité dans cet archétype.
-        NkEntityId e = {0, 1};
-        posArch->AddEntity(e);
+		// Ajout d'une entité dans cet archétype.
+		NkEntityId e = {0, 1};
+		posArch->AddEntity(e);
 
-        // Affichage du nombre total d'archétypes créés.
-        printf("Graph contains %u archetypes\n", graph.Count());
-    }
+		// Affichage du nombre total d'archétypes créés.
+		printf("Graph contains %u archetypes\n", graph.Count());
+	}
 */
 
 // -----------------------------------------------------------------------------
 // Exemple 2 : Utilisation des transitions avec cache
 // -----------------------------------------------------------------------------
 /*
-    #include "NkECS/Storage/NkArchetypeGraph.h"
+	#include "NkECS/Storage/NkArchetypeGraph.h"
 
-    void ExampleTransitions() {
-        using namespace nkentseu::ecs;
+	void ExampleTransitions() {
+		using namespace nkentseu::ecs;
 
-        NkArchetypeGraph graph;
+		NkArchetypeGraph graph;
 
-        // Création de l'archétype de base : Position seule.
-        NkComponentMask maskPos;
-        maskPos.Set(NkIdOf<Position>());
-        NkArchetypeId posId = graph.GetOrCreate(maskPos);
+		// Création de l'archétype de base : Position seule.
+		NkComponentMask maskPos;
+		maskPos.Set(NkIdOf<Position>());
+		NkArchetypeId posId = graph.GetOrCreate(maskPos);
 
-        // Transition : ajout de Velocity.
-        NkComponentId velId = NkIdOf<Velocity>();
-        NkArchetypeId posVelId = graph.AddComponent(posId, velId);
+		// Transition : ajout de Velocity.
+		NkComponentId velId = NkIdOf<Velocity>();
+		NkArchetypeId posVelId = graph.AddComponent(posId, velId);
 
-        // La même transition appelée une seconde fois retourne immédiatement
-        // le résultat depuis le cache (aucune création).
-        NkArchetypeId cachedId = graph.AddComponent(posId, velId);
-        assert(cachedId == posVelId);
+		// La même transition appelée une seconde fois retourne immédiatement
+		// le résultat depuis le cache (aucune création).
+		NkArchetypeId cachedId = graph.AddComponent(posId, velId);
+		assert(cachedId == posVelId);
 
-        // Transition inverse : retrait de Velocity.
-        NkArchetypeId backToPosId = graph.RemoveComponent(posVelId, velId);
-        assert(backToPosId == posId);  // On retombe sur l'archétype original.
+		// Transition inverse : retrait de Velocity.
+		NkArchetypeId backToPosId = graph.RemoveComponent(posVelId, velId);
+		assert(backToPosId == posId);  // On retombe sur l'archétype original.
 
-        // Vérification des signatures.
-        const NkArchetype* archPosVel = graph.Get(posVelId);
-        assert(archPosVel->Mask().Has(velId));
-        assert(archPosVel->Mask().Has(NkIdOf<Position>()));
-    }
+		// Vérification des signatures.
+		const NkArchetype* archPosVel = graph.Get(posVelId);
+		assert(archPosVel->Mask().Has(velId));
+		assert(archPosVel->Mask().Has(NkIdOf<Position>()));
+	}
 */
 
 // -----------------------------------------------------------------------------
 // Exemple 3 : Itération sur les archétypes correspondant à une requête
 // -----------------------------------------------------------------------------
 /*
-    #include "NkECS/Storage/NkArchetypeGraph.h"
+	#include "NkECS/Storage/NkArchetypeGraph.h"
 
-    void ExampleForEachMatching() {
-        using namespace nkentseu::ecs;
+	void ExampleForEachMatching() {
+		using namespace nkentseu::ecs;
 
-        NkArchetypeGraph graph;
+		NkArchetypeGraph graph;
 
-        // Création de plusieurs archétypes.
-        NkComponentMask maskPos;
-        maskPos.Set(NkIdOf<Position>());
-        NkArchetypeId posId = graph.GetOrCreate(maskPos);
+		// Création de plusieurs archétypes.
+		NkComponentMask maskPos;
+		maskPos.Set(NkIdOf<Position>());
+		NkArchetypeId posId = graph.GetOrCreate(maskPos);
 
-        NkComponentMask maskPosVel;
-        maskPosVel.Set(NkIdOf<Position>());
-        maskPosVel.Set(NkIdOf<Velocity>());
-        NkArchetypeId posVelId = graph.GetOrCreate(maskPosVel);
+		NkComponentMask maskPosVel;
+		maskPosVel.Set(NkIdOf<Position>());
+		maskPosVel.Set(NkIdOf<Velocity>());
+		NkArchetypeId posVelId = graph.GetOrCreate(maskPosVel);
 
-        // Requête : tous les archétypes ayant Position, mais sans Velocity.
-        NkComponentMask required;
-        required.Set(NkIdOf<Position>());
+		// Requête : tous les archétypes ayant Position, mais sans Velocity.
+		NkComponentMask required;
+		required.Set(NkIdOf<Position>());
 
-        NkComponentMask excluded;
-        excluded.Set(NkIdOf<Velocity>());
+		NkComponentMask excluded;
+		excluded.Set(NkIdOf<Velocity>());
 
-        // Parcours des archétypes correspondants.
-        graph.ForEachMatching(required, excluded, [](NkArchetype* arch) {
-            printf("Found archetype %u with %u entities\n", arch->Id(), arch->Count());
-            // Ici, seul l'archétype posId sera listé (posVelId est exclu).
-        });
+		// Parcours des archétypes correspondants.
+		graph.ForEachMatching(required, excluded, [](NkArchetype* arch) {
+			printf("Found archetype %u with %u entities\n", arch->Id(), arch->Count());
+			// Ici, seul l'archétype posId sera listé (posVelId est exclu).
+		});
 
-        // Requête avec excluded vide : tous les archétypes ayant Position.
-        NkComponentMask noExcluded;
-        graph.ForEachMatching(required, noExcluded, [](NkArchetype* arch) {
-            printf("Archetype %u matches (has Position)\n", arch->Id());
-            // posId et posVelId seront listés.
-        });
-    }
+		// Requête avec excluded vide : tous les archétypes ayant Position.
+		NkComponentMask noExcluded;
+		graph.ForEachMatching(required, noExcluded, [](NkArchetype* arch) {
+			printf("Archetype %u matches (has Position)\n", arch->Id());
+			// posId et posVelId seront listés.
+		});
+	}
 */
 
 // -----------------------------------------------------------------------------
 // Exemple 4 : Simulation de l'ajout/retrait de composant d'une entité
 // -----------------------------------------------------------------------------
 /*
-    #include "NkECS/Storage/NkArchetypeGraph.h"
-    #include "NkECS/Storage/NkArchetype.h"
+	#include "NkECS/Storage/NkArchetypeGraph.h"
+	#include "NkECS/Storage/NkArchetype.h"
 
-    void SimulateEntityComponentChange() {
-        using namespace nkentseu::ecs;
+	void SimulateEntityComponentChange() {
+		using namespace nkentseu::ecs;
 
-        // Initialisation : graphe et index d'entités (pour la position).
-        NkArchetypeGraph graph;
-        NkEntityIndex entityIndex;
+		// Initialisation : graphe et index d'entités (pour la position).
+		NkArchetypeGraph graph;
+		NkEntityIndex entityIndex;
 
-        // Création d'une entité.
-        NkEntityId entity = entityIndex.Allocate();
+		// Création d'une entité.
+		NkEntityId entity = entityIndex.Allocate();
 
-        // Ajout d'un composant Position.
-        NkComponentId posId = NkIdOf<Position>();
-        NkArchetypeId srcId = graph.EmptyId();  // l'entité est actuellement "vide"
-        NkArchetypeId dstId = graph.AddComponent(srcId, posId);
+		// Ajout d'un composant Position.
+		NkComponentId posId = NkIdOf<Position>();
+		NkArchetypeId srcId = graph.EmptyId();  // l'entité est actuellement "vide"
+		NkArchetypeId dstId = graph.AddComponent(srcId, posId);
 
-        // Mise à jour de l'index.
-        NkArchetype* dstArch = graph.Get(dstId);
-        uint32 row = dstArch->AddEntity(entity);
-        entityIndex.SetRecord(entity, dstId, row);
+		// Mise à jour de l'index.
+		NkArchetype* dstArch = graph.Get(dstId);
+		uint32 row = dstArch->AddEntity(entity);
+		entityIndex.SetRecord(entity, dstId, row);
 
-        // Plus tard, on ajoute Velocity.
-        NkComponentId velId = NkIdOf<Velocity>();
-        NkArchetypeId srcId2 = entityIndex.GetRecord(entity)->archetypeId;
-        uint32 srcRow = entityIndex.GetRecord(entity)->row;
-        NkArchetypeId dstId2 = graph.AddComponent(srcId2, velId);
+		// Plus tard, on ajoute Velocity.
+		NkComponentId velId = NkIdOf<Velocity>();
+		NkArchetypeId srcId2 = entityIndex.GetRecord(entity)->archetypeId;
+		uint32 srcRow = entityIndex.GetRecord(entity)->row;
+		NkArchetypeId dstId2 = graph.AddComponent(srcId2, velId);
 
-        // Migration de l'entité.
-        NkArchetype* srcArch = graph.Get(srcId2);
-        NkArchetype* newArch = graph.Get(dstId2);
-        uint32 newRow = newArch->MigrateFrom(*srcArch, srcRow, entity);
-        srcArch->RemoveEntity(srcRow);
-        entityIndex.SetRecord(entity, dstId2, newRow);
+		// Migration de l'entité.
+		NkArchetype* srcArch = graph.Get(srcId2);
+		NkArchetype* newArch = graph.Get(dstId2);
+		uint32 newRow = newArch->MigrateFrom(*srcArch, srcRow, entity);
+		srcArch->RemoveEntity(srcRow);
+		entityIndex.SetRecord(entity, dstId2, newRow);
 
-        // L'entité possède maintenant Position et Velocity.
-        assert(newArch->Has(posId) && newArch->Has(velId));
-    }
+		// L'entité possède maintenant Position et Velocity.
+		assert(newArch->Has(posId) && newArch->Has(velId));
+	}
 */
 
 // =============================================================================

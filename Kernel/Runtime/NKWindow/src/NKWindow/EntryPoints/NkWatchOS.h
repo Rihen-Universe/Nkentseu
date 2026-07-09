@@ -8,13 +8,13 @@
 
 #import <WatchKit/WatchKit.h>
 #include "NKWindow/Core/NkEntry.h"
-#include "NKMemory/NkAllocator.h"   // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
+#include "NKMemory/NkAllocator.h" // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 
 /**
  * @brief Namespace nkentseu.
  */
 namespace nkentseu {
-NkEntryState *gState = nullptr;
+	NkEntryState *gState = nullptr;
 }
 
 // ---------------------------------------------------------------------------
@@ -22,11 +22,11 @@ NkEntryState *gState = nullptr;
 // ---------------------------------------------------------------------------
 
 struct NkWatchOSArgs {
-	NkString bundleId;
-	NkString version;
-	NkString build;
-	NkString cachePath;
-	NkVector<NkString> args;
+		NkString bundleId;
+		NkString version;
+		NkString build;
+		NkString cachePath;
+		NkVector<NkString> args;
 };
 
 static NkWatchOSArgs g_watchos_args;

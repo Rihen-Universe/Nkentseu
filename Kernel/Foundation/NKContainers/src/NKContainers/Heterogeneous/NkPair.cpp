@@ -8,9 +8,9 @@
 #include "NkPair.h"
 
 namespace nkentseu {
-    namespace entseu {
-        // Placeholder explicite: implementation a completer; cette unite ne contient pas encore de logique runtime.
-    } // namespace entseu
+	namespace entseu {
+		// Placeholder explicite: implementation a completer; cette unite ne contient pas encore de logique runtime.
+	} // namespace entseu
 } // namespace nkentseu
 
 // ============================================================

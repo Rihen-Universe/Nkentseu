@@ -29,75 +29,60 @@
 
 #include "NKMath/NkFunctions.h"
 
-namespace nkentseu
-{
-    namespace pong
-    {
+namespace nkentseu {
+	namespace pong {
 
-        /// Helpers de calcul de dimensions en pourcentage de viewport.
-        /// Toutes les methodes sont inline + noexcept pour zero overhead.
-        struct Pct
-        {
-            /// Largeur en % du viewport, clampee dans [minPx, maxPx].
-            /// @param vW  Largeur viewport (en pixels).
-            /// @param frac Fraction de vW (ex: 0.30f = 30 % de la largeur).
-            /// @param minPx Cap inferieur en pixels (eviter degenere petit).
-            /// @param maxPx Cap superieur en pixels (eviter ultrawide).
-            static inline float W(int vW, float frac,
-                                  float minPx = 0.0f,
-                                  float maxPx = 1.0e6f) noexcept
-            {
-                const float v = (float)vW * frac;
-                return math::NkClamp(v, minPx, maxPx);
-            }
+		/// Helpers de calcul de dimensions en pourcentage de viewport.
+		/// Toutes les methodes sont inline + noexcept pour zero overhead.
+		struct Pct {
+				/// Largeur en % du viewport, clampee dans [minPx, maxPx].
+				/// @param vW  Largeur viewport (en pixels).
+				/// @param frac Fraction de vW (ex: 0.30f = 30 % de la largeur).
+				/// @param minPx Cap inferieur en pixels (eviter degenere petit).
+				/// @param maxPx Cap superieur en pixels (eviter ultrawide).
+				static inline float W(int vW, float frac, float minPx = 0.0f, float maxPx = 1.0e6f) noexcept {
+					const float v = (float)vW * frac;
+					return math::NkClamp(v, minPx, maxPx);
+				}
 
-            /// Hauteur en % du viewport, clampee dans [minPx, maxPx].
-            static inline float H(int vH, float frac,
-                                  float minPx = 0.0f,
-                                  float maxPx = 1.0e6f) noexcept
-            {
-                const float v = (float)vH * frac;
-                return math::NkClamp(v, minPx, maxPx);
-            }
+				/// Hauteur en % du viewport, clampee dans [minPx, maxPx].
+				static inline float H(int vH, float frac, float minPx = 0.0f, float maxPx = 1.0e6f) noexcept {
+					const float v = (float)vH * frac;
+					return math::NkClamp(v, minPx, maxPx);
+				}
 
-            /// Helper centre horizontal d'un element de largeur `w` dans `vW`.
-            static inline float CenterX(int vW, float w) noexcept
-            {
-                return (float)vW * 0.5f - w * 0.5f;
-            }
+				/// Helper centre horizontal d'un element de largeur `w` dans `vW`.
+				static inline float CenterX(int vW, float w) noexcept {
+					return (float)vW * 0.5f - w * 0.5f;
+				}
 
-            /// Helper centre vertical d'un element de hauteur `h` dans `vH`.
-            static inline float CenterY(int vH, float h) noexcept
-            {
-                return (float)vH * 0.5f - h * 0.5f;
-            }
+				/// Helper centre vertical d'un element de hauteur `h` dans `vH`.
+				static inline float CenterY(int vH, float h) noexcept {
+					return (float)vH * 0.5f - h * 0.5f;
+				}
 
-            /// Plus petite dimension du viewport (utile pour les elements
-            /// dont la taille doit dependre du plus petit cote, ex: pastilles
-            /// circulaires).
-            static inline float MinDim(int vW, int vH) noexcept
-            {
-                return (vW < vH) ? (float)vW : (float)vH;
-            }
+				/// Plus petite dimension du viewport (utile pour les elements
+				/// dont la taille doit dependre du plus petit cote, ex: pastilles
+				/// circulaires).
+				static inline float MinDim(int vW, int vH) noexcept {
+					return (vW < vH) ? (float)vW : (float)vH;
+				}
 
-            /// Plus grande dimension du viewport.
-            static inline float MaxDim(int vW, int vH) noexcept
-            {
-                return (vW > vH) ? (float)vW : (float)vH;
-            }
+				/// Plus grande dimension du viewport.
+				static inline float MaxDim(int vW, int vH) noexcept {
+					return (vW > vH) ? (float)vW : (float)vH;
+				}
 
-            /// Ratio largeur / hauteur (>1 = paysage, <1 = portrait).
-            static inline float Aspect(int vW, int vH) noexcept
-            {
-                return (vH > 0) ? (float)vW / (float)vH : 1.0f;
-            }
+				/// Ratio largeur / hauteur (>1 = paysage, <1 = portrait).
+				static inline float Aspect(int vW, int vH) noexcept {
+					return (vH > 0) ? (float)vW / (float)vH : 1.0f;
+				}
 
-            /// Vrai si le viewport est en mode portrait (H > W).
-            static inline bool IsPortrait(int vW, int vH) noexcept
-            {
-                return vH > vW;
-            }
-        };
+				/// Vrai si le viewport est en mode portrait (H > W).
+				static inline bool IsPortrait(int vW, int vH) noexcept {
+					return vH > vW;
+				}
+		};
 
-    } // namespace pong
+	} // namespace pong
 } // namespace nkentseu

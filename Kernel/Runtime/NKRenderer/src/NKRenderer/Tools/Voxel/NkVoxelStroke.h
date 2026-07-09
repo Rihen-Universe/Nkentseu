@@ -16,41 +16,52 @@
 #include "NKRenderer/Tools/Voxel/NkVoxelTypes.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        using namespace math;
+		using namespace math;
 
-        class NkVoxelStroke {
-            public:
-                NkVoxelStroke() noexcept = default;
-                ~NkVoxelStroke() noexcept = default;
+		class NkVoxelStroke {
+			public:
+				NkVoxelStroke() noexcept = default;
+				~NkVoxelStroke() noexcept = default;
 
-                void Begin(const NkVoxelBrush& brush) noexcept;
-                // Ajoute un echantillon en coordonnees voxel ; interpole et genere
-                // les dabs espaces de brush.dabSpacing * radius.
-                void AddSample(const NkVec3f& centerVox, float32 pressure) noexcept;
-                void End() noexcept;
+				void Begin(const NkVoxelBrush &brush) noexcept;
+				// Ajoute un echantillon en coordonnees voxel ; interpole et genere
+				// les dabs espaces de brush.dabSpacing * radius.
+				void AddSample(const NkVec3f &centerVox, float32 pressure) noexcept;
+				void End() noexcept;
 
-                [[nodiscard]] bool IsActive() const noexcept { return mActive; }
-                [[nodiscard]] const NkVector<NkVoxelDab>& PendingDabs() const noexcept { return mPending; }
-                [[nodiscard]] NkVoxelBox DirtyBox() const noexcept { return mDirty; }
-                [[nodiscard]] const NkVoxelBrush& Brush() const noexcept { return mBrush; }
+				[[nodiscard]] bool IsActive() const noexcept {
+					return mActive;
+				}
 
-                void ClearPending() noexcept; // appele apres dispatch
-                void Reset() noexcept;
+				[[nodiscard]] const NkVector<NkVoxelDab> &PendingDabs() const noexcept {
+					return mPending;
+				}
 
-            private:
-                // Etend la dirty box pour englober un dab (aligne sur la grille de
-                // tuiles kNkVoxelTileSize), clampe aux dimensions de la grille.
-                void ExpandDirty(const NkVoxelDab& dab) noexcept;
+				[[nodiscard]] NkVoxelBox DirtyBox() const noexcept {
+					return mDirty;
+				}
 
-                NkVoxelBrush          mBrush;
-                NkVector<NkVoxelDab>  mPending;
-                NkVoxelBox            mDirty;
-                NkVec3f               mLastSample = {0, 0, 0};
-                bool                  mActive  = false;
-                bool                  mHasLast = false;
-        };
+				[[nodiscard]] const NkVoxelBrush &Brush() const noexcept {
+					return mBrush;
+				}
 
-    } // namespace renderer
+				void ClearPending() noexcept; // appele apres dispatch
+				void Reset() noexcept;
+
+			private:
+				// Etend la dirty box pour englober un dab (aligne sur la grille de
+				// tuiles kNkVoxelTileSize), clampe aux dimensions de la grille.
+				void ExpandDirty(const NkVoxelDab &dab) noexcept;
+
+				NkVoxelBrush mBrush;
+				NkVector<NkVoxelDab> mPending;
+				NkVoxelBox mDirty;
+				NkVec3f mLastSample = {0, 0, 0};
+				bool mActive = false;
+				bool mHasLast = false;
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

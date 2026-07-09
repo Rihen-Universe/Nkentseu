@@ -22,68 +22,63 @@
 #ifndef NKENTSEU_NKLOGGERFORMATTER_H
 #define NKENTSEU_NKLOGGERFORMATTER_H
 
+// -------------------------------------------------------------------------
+// SECTION 1 : EN-TÊTES ET DÉPENDANCES
+// -------------------------------------------------------------------------
+// Inclusions standards pour le formatage et les conteneurs.
+// Dépendances projet pour NkString, NkLogMessage et NkFormat.
 
-	// -------------------------------------------------------------------------
-	// SECTION 1 : EN-TÊTES ET DÉPENDANCES
-	// -------------------------------------------------------------------------
-	// Inclusions standards pour le formatage et les conteneurs.
-	// Dépendances projet pour NkString, NkLogMessage et NkFormat.
+#include "NKCore/NkTypes.h"
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringView.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKMemory/NkUniquePtr.h"
+#include "NKContainers/String/NkFormat.h"
+#include "NKLogger/NkLogLevel.h"
+#include "NKLogger/NkLogMessage.h"
+#include "NKLogger/NkLoggerApi.h"
 
-	#include "NKCore/NkTypes.h"
-	#include "NKContainers/String/NkString.h"
-	#include "NKContainers/String/NkStringView.h"
-	#include "NKContainers/Sequential/NkVector.h"
-	#include "NKMemory/NkUniquePtr.h"
-	#include "NKContainers/String/NkFormat.h"
-	#include "NKLogger/NkLogLevel.h"
-	#include "NKLogger/NkLogMessage.h"
-	#include "NKLogger/NkLoggerApi.h"
+// -------------------------------------------------------------------------
+// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
+// -------------------------------------------------------------------------
+// Tous les symboles du module logger sont dans le namespace nkentseu.
+// Pas de sous-namespace logger pour simplifier l'usage.
 
+namespace nkentseu {
 
-	// -------------------------------------------------------------------------
-	// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
-	// -------------------------------------------------------------------------
-	// Tous les symboles du module logger sont dans le namespace nkentseu.
-	// Pas de sous-namespace logger pour simplifier l'usage.
-
-	namespace nkentseu {
-
-
-		// ---------------------------------------------------------------------
-		// STRUCTURE : NkPatternToken
-		// DESCRIPTION : Représentation interne d'un élément de pattern
-		// ---------------------------------------------------------------------
-		/**
-		 * @struct NkPatternToken
-		 * @brief Token individuel résultant du parsing d'un pattern de formatage
-		 * @ingroup LoggerFormatterTypes
-		 *
-		 * Chaque token représente soit :
-		 *  - Un littéral texte à copier tel quel
-		 *  - Un placeholder dynamique à remplacer par une valeur du message
-		 *  - Un marqueur de couleur pour l'affichage console
-		 *
-		 * @note Les tokens sont parsés une fois lors de SetPattern(),
-		 *       puis réutilisés pour chaque appel à Format() → performance O(1).
-		 *
-		 * @example Pattern : "[%Y-%m-%d %L] %v"
-		 * @code
-		 * Tokens générés :
-		 *  1. LITERAL "["
-		 *  2. YEAR      → 2024
-		 *  3. LITERAL "-"
-		 *  4. MONTH     → 01
-		 *  5. LITERAL "-"
-		 *  6. DAY       → 15
-		 *  7. LITERAL " "
-		 *  8. LEVEL_SHORT → "INF"
-		 *  9. LITERAL "] "
-		 * 10. MESSAGE   → "Application started"
-		 * @endcode
-		 */
-		struct NKENTSEU_LOGGER_CLASS_EXPORT NkPatternToken {
-
-
+	// ---------------------------------------------------------------------
+	// STRUCTURE : NkPatternToken
+	// DESCRIPTION : Représentation interne d'un élément de pattern
+	// ---------------------------------------------------------------------
+	/**
+	 * @struct NkPatternToken
+	 * @brief Token individuel résultant du parsing d'un pattern de formatage
+	 * @ingroup LoggerFormatterTypes
+	 *
+	 * Chaque token représente soit :
+	 *  - Un littéral texte à copier tel quel
+	 *  - Un placeholder dynamique à remplacer par une valeur du message
+	 *  - Un marqueur de couleur pour l'affichage console
+	 *
+	 * @note Les tokens sont parsés une fois lors de SetPattern(),
+	 *       puis réutilisés pour chaque appel à Format() → performance O(1).
+	 *
+	 * @example Pattern : "[%Y-%m-%d %L] %v"
+	 * @code
+	 * Tokens générés :
+	 *  1. LITERAL "["
+	 *  2. YEAR      → 2024
+	 *  3. LITERAL "-"
+	 *  4. MONTH     → 01
+	 *  5. LITERAL "-"
+	 *  6. DAY       → 15
+	 *  7. LITERAL " "
+	 *  8. LEVEL_SHORT → "INF"
+	 *  9. LITERAL "] "
+	 * 10. MESSAGE   → "Application started"
+	 * @endcode
+	 */
+	struct NKENTSEU_LOGGER_CLASS_EXPORT NkPatternToken {
 			// -----------------------------------------------------------------
 			// ÉNUMÉRATION : Type de token
 			// -----------------------------------------------------------------
@@ -160,7 +155,6 @@
 				NK_COLOR_END = 20
 			};
 
-
 			// -----------------------------------------------------------------
 			// MEMBRES DE LA STRUCTURE
 			// -----------------------------------------------------------------
@@ -172,50 +166,44 @@
 			/// @note Pour les autres types, la valeur est extraite du NkLogMessage
 			NkString value;
 
+	}; // struct NkPatternToken
 
-		}; // struct NkPatternToken
-
-
-		// ---------------------------------------------------------------------
-		// CLASSE : NkLoggerFormatter
-		// DESCRIPTION : Formateur de messages de log basé sur des patterns
-		// ---------------------------------------------------------------------
-		/**
-		 * @class NkLoggerFormatter
-		 * @brief Formate les messages de log selon un pattern configurable
-		 * @ingroup LoggerComponents
-		 *
-		 * Ce formateur combine :
-		 *  - Un parser de pattern style spdlog (%Y, %L, %v, etc.)
-		 *  - Le système NkFormat pour le formatage positionnel avancé
-		 *  - Un cache de tokens pour éviter le reparsing à chaque log
-		 *  - Un support optionnel des couleurs ANSI pour console
-		 *
-		 * Thread-safety :
-		 *  - SetPattern() n'est PAS thread-safe : à appeler avant tout logging
-		 *  - Format() EST thread-safe pour lecture concurrente (tokens immuables)
-		 *
-		 * @note Les patterns sont compilés une fois : overhead initial, puis O(1).
-		 *
-		 * @example
-		 * @code
-		 * // Pattern style spdlog avec couleurs
-		 * NkLoggerFormatter fmt("[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] %v");
-		 *
-		 * NkLogMessage msg(NkLogLevel::NK_INFO, "Server started");
-		 * NkString output = fmt.Format(msg, true);  // avec couleurs
-		 * // Résultat : [2024-01-15 14:30:45.123] [INF] Server started
-		 * @endcode
-		 */
-		class NKENTSEU_LOGGER_CLASS_EXPORT NkLoggerFormatter {
-
-
+	// ---------------------------------------------------------------------
+	// CLASSE : NkLoggerFormatter
+	// DESCRIPTION : Formateur de messages de log basé sur des patterns
+	// ---------------------------------------------------------------------
+	/**
+	 * @class NkLoggerFormatter
+	 * @brief Formate les messages de log selon un pattern configurable
+	 * @ingroup LoggerComponents
+	 *
+	 * Ce formateur combine :
+	 *  - Un parser de pattern style spdlog (%Y, %L, %v, etc.)
+	 *  - Le système NkFormat pour le formatage positionnel avancé
+	 *  - Un cache de tokens pour éviter le reparsing à chaque log
+	 *  - Un support optionnel des couleurs ANSI pour console
+	 *
+	 * Thread-safety :
+	 *  - SetPattern() n'est PAS thread-safe : à appeler avant tout logging
+	 *  - Format() EST thread-safe pour lecture concurrente (tokens immuables)
+	 *
+	 * @note Les patterns sont compilés une fois : overhead initial, puis O(1).
+	 *
+	 * @example
+	 * @code
+	 * // Pattern style spdlog avec couleurs
+	 * NkLoggerFormatter fmt("[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] %v");
+	 *
+	 * NkLogMessage msg(NkLogLevel::NK_INFO, "Server started");
+	 * NkString output = fmt.Format(msg, true);  // avec couleurs
+	 * // Résultat : [2024-01-15 14:30:45.123] [INF] Server started
+	 * @endcode
+	 */
+	class NKENTSEU_LOGGER_CLASS_EXPORT NkLoggerFormatter {
 			// -----------------------------------------------------------------
 			// SECTION 3 : MEMBRES PUBLICS
 			// -----------------------------------------------------------------
 		public:
-
-
 			// -----------------------------------------------------------------
 			// CONSTRUCTEURS ET DESTRUCTEUR
 			// -----------------------------------------------------------------
@@ -247,7 +235,7 @@
 			 * NkLoggerFormatter debug("%Y-%m-%d %H:%M:%S [%f:%#] %v");  // Avec source
 			 * @endcode
 			 */
-			explicit NkLoggerFormatter(const NkString& pattern);
+			explicit NkLoggerFormatter(const NkString &pattern);
 
 			/**
 			 * @brief Destructeur par défaut
@@ -256,7 +244,6 @@
 			 * @note Libération automatique des NkVector et NkString via RAII
 			 */
 			~NkLoggerFormatter() = default;
-
 
 			// -----------------------------------------------------------------
 			// CONFIGURATION DU PATTERN
@@ -282,7 +269,7 @@
 			 * fmt.SetPattern("[%Y-%m-%d] %v");  // Format avec date
 			 * @endcode
 			 */
-			void SetPattern(const NkString& pattern);
+			void SetPattern(const NkString &pattern);
 
 			/**
 			 * @brief Obtient le pattern de formatage courant
@@ -297,8 +284,7 @@
 			 * Logger::Log(NkLogLevel::NK_DEBUG, "Current pattern: %s", current.CStr());
 			 * @endcode
 			 */
-			const NkString& GetPattern() const;
-
+			const NkString &GetPattern() const;
 
 			// -----------------------------------------------------------------
 			// FORMATAGE DES MESSAGES
@@ -323,7 +309,7 @@
 			 * // "[2024-01-15 14:30:45.123] [INF] [default] [12345] -> Connection established"
 			 * @endcode
 			 */
-			NkString Format(const NkLogMessage& message);
+			NkString Format(const NkLogMessage &message);
 
 			/**
 			 * @brief Formate un message de log avec option de couleurs
@@ -341,8 +327,7 @@
 			 * NkString plain = fmt.Format(msg, false);    // Sans ANSI : [INF] ...
 			 * @endcode
 			 */
-			NkString Format(const NkLogMessage& message, bool useColors);
-
+			NkString Format(const NkLogMessage &message, bool useColors);
 
 			// -----------------------------------------------------------------
 			// PATTERNS PRÉDÉFINIS (CONSTANTES STATIQUES)
@@ -358,55 +343,52 @@
 			/// @brief Pattern par défaut : équilibré entre lisibilité et informations
 			/// @ingroup FormatterPresets
 			/// @code "[%Y-%m-%d %H:%M:%S.%e] [%L] [%n] [%t] -> %v" @endcode
-			static const char* NK_DEFAULT_PATTERN;
+			static const char *NK_DEFAULT_PATTERN;
 
 			/// @brief Pattern minimal : uniquement le message
 			/// @ingroup FormatterPresets
 			/// @code "%v" @endcode
-			static const char* NK_SIMPLE_PATTERN;
+			static const char *NK_SIMPLE_PATTERN;
 
 			/// @brief Pattern détaillé : toutes les métadonnées de debug
 			/// @ingroup FormatterPresets
 			/// @code "[%Y-%m-%d %H:%M:%S.%e] [%L] [%n] [thread %t] [%s:%# in %f] -> %v" @endcode
-			static const char* NK_DETAILED_PATTERN;
+			static const char *NK_DETAILED_PATTERN;
 
 			/// @brief Pattern NKENTSEU : avec support des couleurs via %^%L%$
 			/// @ingroup FormatterPresets
 			/// @code "[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] [%n] [%s:%# in %F] -> %v" @endcode
-			static const char* NK_NKENTSEU_PATTERN;
+			static const char *NK_NKENTSEU_PATTERN;
 
 			/// @brief Pattern console : couleurs autour du niveau de log uniquement
 			/// @ingroup FormatterPresets
 			/// @code "[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] [%n] [%t] -> %v" @endcode
-			static const char* NK_COLOR_PATTERN;
+			static const char *NK_COLOR_PATTERN;
 
 			/// @brief Pattern JSON : pour ingestion dans systèmes de métriques
 			/// @ingroup FormatterPresets
 			/// @note Les champs sont échappés pour validité JSON
-			static const char* NK_JSON_PATTERN;
+			static const char *NK_JSON_PATTERN;
 
 			/// @brief Pattern court pour production : "12:34:56 INF Message"
 			/// @ingroup FormatterPresets
 			/// @code "%H:%M:%S %L %v" @endcode
-			static const char* NK_SHORT_PATTERN;
+			static const char *NK_SHORT_PATTERN;
 
 			/// @brief Pattern ISO 8601 : "2026-01-01T12:34:56.789Z [INF] Message"
 			/// @ingroup FormatterPresets
 			/// @code "%Y-%m-%dT%H:%M:%S.%fZ [%L] %v" @endcode
-			static const char* NK_ISO8601_PATTERN;
+			static const char *NK_ISO8601_PATTERN;
 
 			/// @brief Pattern syslog : "Jan 01 12:34:56 hostname logger[12345]: Message"
 			/// @ingroup FormatterPresets
 			/// @code "%b %d %H:%M:%S %h %n[%t]: %v" @endcode
-			static const char* NK_SYSLOG_PATTERN;
-
+			static const char *NK_SYSLOG_PATTERN;
 
 			// -----------------------------------------------------------------
 			// SECTION 4 : MEMBRES PROTÉGÉS (POUR HÉRITAGE CONTRÔLÉ)
 			// -----------------------------------------------------------------
 		protected:
-
-
 			// -----------------------------------------------------------------
 			// MÉTHODES PROTÉGÉES POUR EXTENSION
 			// -----------------------------------------------------------------
@@ -443,20 +425,13 @@
 			 * }
 			 * @endcode
 			 */
-			void FormatToken(
-				const NkPatternToken& token,
-				const NkLogMessage& message,
-				bool useColors,
-				NkString& result
-			);
-
+			void FormatToken(const NkPatternToken &token, const NkLogMessage &message, bool useColors,
+							 NkString &result);
 
 			// -----------------------------------------------------------------
 			// SECTION 5 : MEMBRES PRIVÉS (IMPLÉMENTATION INTERNE)
 			// -----------------------------------------------------------------
 		private:
-
-
 			// -----------------------------------------------------------------
 			// MÉTHODES PRIVÉES D'IMPLÉMENTATION
 			// -----------------------------------------------------------------
@@ -482,7 +457,7 @@
 			 *  4. NK_LOGGER_NAME → remplacé par message.loggerName
 			 * @endcode
 			 */
-			void ParsePattern(const NkString& pattern);
+			void ParsePattern(const NkString &pattern);
 
 			/**
 			 * @brief Formate un entier avec padding et caractère de remplissage
@@ -536,7 +511,6 @@
 			 */
 			NkString GetANSIReset() const;
 
-
 			// -----------------------------------------------------------------
 			// VARIABLES MEMBRES PRIVÉES
 			// -----------------------------------------------------------------
@@ -560,85 +534,79 @@
 			/// @note false après construction ou SetPattern(), true après ParsePattern()
 			bool m_TokensValid;
 
+	}; // class NkLoggerFormatter
 
-		}; // class NkLoggerFormatter
+	// ---------------------------------------------------------------------
+	// TYPE ALIAS POUR GESTION DE MÉMOIRE
+	// ---------------------------------------------------------------------
+	/**
+	 * @typedef FormatterPtr
+	 * @brief Pointeur unique vers NkLoggerFormatter pour gestion automatique
+	 * @ingroup LoggerTypes
+	 *
+	 * Alias vers memory::NkUniquePtr<NkLoggerFormatter> pour :
+	 *  - Libération automatique via RAII
+	 *  - Sémantique de mouvement exclusive
+	 *  - Compatibilité avec le système d'allocateur du projet
+	 *
+	 * @example
+	 * @code
+	 * // Création avec pattern personnalisé
+	 * FormatterPtr fmt = memory::MakeUnique<NkLoggerFormatter>("[%L] %v");
+	 *
+	 * // Transfert de propriété
+	 * void SetFormatter(FormatterPtr&& newFmt) {
+	 *     m_formatter = std::move(newFmt);  // Ancien automatiquement libéré
+	 * }
+	 * @endcode
+	 */
+	using FormatterPtr = memory::NkUniquePtr<NkLoggerFormatter>;
 
+	// ---------------------------------------------------------------------
+	// DOCUMENTATION DES TOKENS DE PATTERN (DOXYGEN TABLE)
+	// ---------------------------------------------------------------------
+	/**
+	 * @defgroup PatternTokens Tokens de Pattern Disponibles
+	 * @brief Référence complète des placeholders supportés dans les patterns
+	 * @ingroup LoggerFormatter
+	 *
+	 * | Token | Description | Exemple de sortie |
+	 * |-------|-------------|-------------------|
+	 * | `%Y` | Année (4 chiffres) | `2026` |
+	 * | `%m` | Mois (2 chiffres) | `01` .. `12` |
+	 * | `%d` | Jour du mois (2 chiffres) | `01` .. `31` |
+	 * | `%H` | Heure (24h, 2 chiffres) | `00` .. `23` |
+	 * | `%M` | Minute (2 chiffres) | `00` .. `59` |
+	 * | `%S` | Seconde (2 chiffres) | `00` .. `59` |
+	 * | `%e` | Millisecondes (3 chiffres) | `000` .. `999` |
+	 * | `%f` | Microsecondes (6 chiffres) | `000000` .. `999999` |
+	 * | `%l` | Niveau de log (texte complet) | `info`, `error` |
+	 * | `%L` | Niveau de log (code court) | `INF`, `ERR` |
+	 * | `%t` | ID numérique du thread | `12345` |
+	 * | `%T` | Nom du thread (ou ID si vide) | `MainThread` |
+	 * | `%s` | Nom du fichier source (sans chemin) | `main.cpp` |
+	 * | `%#` | Numéro de ligne source | `42` |
+	 * | `%F` | Nom de la fonction émettrice | `ProcessRequest` |
+	 * | `%v` | Contenu du message de log | `Connection established` |
+	 * | `%n` | Nom hiérarchique du logger | `nkentseu.network` |
+	 * | `%%` | Caractère `%` littéral | `%` |
+	 * | `%^` | Début de zone colorée (ANSI) | `\033[32m` |
+	 * | `%$` | Fin de zone colorée (ANSI) | `\033[0m` |
+	 *
+	 * @note Les tokens sont sensibles à la casse : `%L` ≠ `%l`
+	 * @note Les tokens inconnus sont traités comme littéraux (robustesse)
+	 *
+	 * @example
+	 * @code
+	 * // Pattern personnalisé combinant plusieurs tokens
+	 * NkLoggerFormatter fmt("[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] [%n] %v");
+	 * // Résultat : [2026-01-15 14:30:45.123] [INF] [nkentseu.app] Server started
+	 * @endcode
+	 */
 
-		// ---------------------------------------------------------------------
-		// TYPE ALIAS POUR GESTION DE MÉMOIRE
-		// ---------------------------------------------------------------------
-		/**
-		 * @typedef FormatterPtr
-		 * @brief Pointeur unique vers NkLoggerFormatter pour gestion automatique
-		 * @ingroup LoggerTypes
-		 *
-		 * Alias vers memory::NkUniquePtr<NkLoggerFormatter> pour :
-		 *  - Libération automatique via RAII
-		 *  - Sémantique de mouvement exclusive
-		 *  - Compatibilité avec le système d'allocateur du projet
-		 *
-		 * @example
-		 * @code
-		 * // Création avec pattern personnalisé
-		 * FormatterPtr fmt = memory::MakeUnique<NkLoggerFormatter>("[%L] %v");
-		 *
-		 * // Transfert de propriété
-		 * void SetFormatter(FormatterPtr&& newFmt) {
-		 *     m_formatter = std::move(newFmt);  // Ancien automatiquement libéré
-		 * }
-		 * @endcode
-		 */
-		using FormatterPtr = memory::NkUniquePtr<NkLoggerFormatter>;
-
-
-		// ---------------------------------------------------------------------
-		// DOCUMENTATION DES TOKENS DE PATTERN (DOXYGEN TABLE)
-		// ---------------------------------------------------------------------
-		/**
-		 * @defgroup PatternTokens Tokens de Pattern Disponibles
-		 * @brief Référence complète des placeholders supportés dans les patterns
-		 * @ingroup LoggerFormatter
-		 *
-		 * | Token | Description | Exemple de sortie |
-		 * |-------|-------------|-------------------|
-		 * | `%Y` | Année (4 chiffres) | `2026` |
-		 * | `%m` | Mois (2 chiffres) | `01` .. `12` |
-		 * | `%d` | Jour du mois (2 chiffres) | `01` .. `31` |
-		 * | `%H` | Heure (24h, 2 chiffres) | `00` .. `23` |
-		 * | `%M` | Minute (2 chiffres) | `00` .. `59` |
-		 * | `%S` | Seconde (2 chiffres) | `00` .. `59` |
-		 * | `%e` | Millisecondes (3 chiffres) | `000` .. `999` |
-		 * | `%f` | Microsecondes (6 chiffres) | `000000` .. `999999` |
-		 * | `%l` | Niveau de log (texte complet) | `info`, `error` |
-		 * | `%L` | Niveau de log (code court) | `INF`, `ERR` |
-		 * | `%t` | ID numérique du thread | `12345` |
-		 * | `%T` | Nom du thread (ou ID si vide) | `MainThread` |
-		 * | `%s` | Nom du fichier source (sans chemin) | `main.cpp` |
-		 * | `%#` | Numéro de ligne source | `42` |
-		 * | `%F` | Nom de la fonction émettrice | `ProcessRequest` |
-		 * | `%v` | Contenu du message de log | `Connection established` |
-		 * | `%n` | Nom hiérarchique du logger | `nkentseu.network` |
-		 * | `%%` | Caractère `%` littéral | `%` |
-		 * | `%^` | Début de zone colorée (ANSI) | `\033[32m` |
-		 * | `%$` | Fin de zone colorée (ANSI) | `\033[0m` |
-		 *
-		 * @note Les tokens sont sensibles à la casse : `%L` ≠ `%l`
-		 * @note Les tokens inconnus sont traités comme littéraux (robustesse)
-		 *
-		 * @example
-		 * @code
-		 * // Pattern personnalisé combinant plusieurs tokens
-		 * NkLoggerFormatter fmt("[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] [%n] %v");
-		 * // Résultat : [2026-01-15 14:30:45.123] [INF] [nkentseu.app] Server started
-		 * @endcode
-		 */
-
-
-	} // namespace nkentseu
-
+} // namespace nkentseu
 
 #endif // NKENTSEU_NKLOGGERFORMATTER_H
-
 
 // =============================================================================
 // EXEMPLES D'UTILISATION DE NKLOGGERFORMATTER.H
@@ -665,7 +633,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 2 : Pattern personnalisé avec couleurs console
 // -----------------------------------------------------------------------------
@@ -689,7 +656,6 @@
 		Console::WriteColored(errorOut);
 	}
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 3 : Formatage JSON pour ingestion dans système de métriques
@@ -721,7 +687,6 @@
 	//  "function":"HandleRequest","message":"Connection established"}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 4 : Formatage positionnel avancé via NkFormat dans les littéraux
 // -----------------------------------------------------------------------------
@@ -751,7 +716,6 @@
 		// Résultat : [WRN] Resource /api/users not found (error 194)
 	}
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 5 : Changement dynamique de pattern à runtime (configuration)
@@ -794,7 +758,6 @@
 		bool m_useColors = true;
 	};
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 6 : Héritage pour formatage personnalisé
@@ -845,7 +808,6 @@
 	// fmt.Format(msg) → "[MyApp] Message original"
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 7 : Performance - Pré-allocation et réutilisation
 // -----------------------------------------------------------------------------
@@ -881,7 +843,6 @@
 	// - Désactiver couleurs si non nécessaires : évite concaténation de séquences ANSI
 */
 
-
 // =============================================================================
 // NOTES DE MAINTENANCE ET EXTENSIBILITÉ
 // =============================================================================
@@ -913,7 +874,6 @@
 	   - Pas d'exécution de code : les tokens sont purement déclaratifs
 	   - Limiter la longueur maximale de pattern pour éviter DoS par parsing
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

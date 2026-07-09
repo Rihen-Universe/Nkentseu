@@ -19,34 +19,34 @@ struct android_app;
 
 namespace nkentseu {
 
-    class NkAndroidDropTarget;
+	class NkAndroidDropTarget;
 
-	    struct NkWindowData {
-            ANativeWindow*      mNativeWindow  = nullptr;
-            AConfiguration*     mAConfig       = nullptr;
-            struct android_app* mAndroidApp    = nullptr;
-            NkAndroidDropTarget* mDropTarget   = nullptr;
-            NkSurfaceHints      mAppliedHints{};
-            bool                mExternal      = false;
+	struct NkWindowData {
+			ANativeWindow *mNativeWindow = nullptr;
+			AConfiguration *mAConfig = nullptr;
+			struct android_app *mAndroidApp = nullptr;
+			NkAndroidDropTarget *mDropTarget = nullptr;
+			NkSurfaceHints mAppliedHints{};
+			bool mExternal = false;
 
-            uint32               mWidth         = 0;
-            uint32               mHeight        = 0;
-            uint32               mPrevWidth     = 0;
-            uint32               mPrevHeight    = 0;
+			uint32 mWidth = 0;
+			uint32 mHeight = 0;
+			uint32 mPrevWidth = 0;
+			uint32 mPrevHeight = 0;
 
-            bool                mFullscreen = true;
+			bool mFullscreen = true;
 
-            NkSafeAreaInsets    mSafeArea{};
-            NkScreenOrientation mOrientation   = NkScreenOrientation::NK_SCREEN_ORIENTATION_AUTO;
-    };
+			NkSafeAreaInsets mSafeArea{};
+			NkScreenOrientation mOrientation = NkScreenOrientation::NK_SCREEN_ORIENTATION_AUTO;
+	};
 
-    class NkWindow;
-    NkWindow*              NkAndroidFindWindowById(NkWindowId id);
-    NkVector<NkWindow*> NkAndroidGetWindowsSnapshot();
-    NkWindow*              NkAndroidGetLastWindow();
-    void                   NkAndroidRegisterWindow(NkWindow* window);
-    void                   NkAndroidUnregisterWindow(NkWindow* window);
-    bool                   NkAndroidHideSystemUI(struct android_app* app);  // Masquer status bar + navigation bar
+	class NkWindow;
+	NkWindow *NkAndroidFindWindowById(NkWindowId id);
+	NkVector<NkWindow *> NkAndroidGetWindowsSnapshot();
+	NkWindow *NkAndroidGetLastWindow();
+	void NkAndroidRegisterWindow(NkWindow *window);
+	void NkAndroidUnregisterWindow(NkWindow *window);
+	bool NkAndroidHideSystemUI(struct android_app *app); // Masquer status bar + navigation bar
 
 } // namespace nkentseu
 

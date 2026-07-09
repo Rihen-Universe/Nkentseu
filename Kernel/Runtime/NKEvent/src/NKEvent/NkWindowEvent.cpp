@@ -8,8 +8,8 @@
 #include "NkWindowEvent.h"
 
 namespace nkentseu {
-    // Toutes les classes d'événements fenêtre sont entièrement définies dans le
-    // header (méthodes inline / final). Ce .cpp existe pour :
-    //   1. Satisfaire les systèmes de build qui exigent une unité de compilation.
-    //   2. Accueillir à l'avenir des implémentations non-inline si nécessaire.
+	// Toutes les classes d'événements fenêtre sont entièrement définies dans le
+	// header (méthodes inline / final). Ce .cpp existe pour :
+	//   1. Satisfaire les systèmes de build qui exigent une unité de compilation.
+	//   2. Accueillir à l'avenir des implémentations non-inline si nécessaire.
 } // namespace nkentseu

@@ -24,434 +24,434 @@
 
 namespace {
 
-    constexpr wchar_t kNkXboxFallbackWindowClassName[] = L"NkXboxFallbackWindowClass";
+	constexpr wchar_t kNkXboxFallbackWindowClassName[] = L"NkXboxFallbackWindowClass";
 
-    LRESULT CALLBACK NkXboxFallbackWindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-        if (msg == WM_CLOSE) {
-            DestroyWindow(hwnd);
-            return 0;
-        }
-        return DefWindowProcW(hwnd, msg, wparam, lparam);
-    }
+	LRESULT CALLBACK NkXboxFallbackWindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+		if (msg == WM_CLOSE) {
+			DestroyWindow(hwnd);
+			return 0;
+		}
+		return DefWindowProcW(hwnd, msg, wparam, lparam);
+	}
 
-    NkWString NkUtf8ToWide(const NkString &value) {
-        if (value.empty()) return {};
-        const int size = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, nullptr, 0);
-        if (size <= 1) return {};
-        NkWString wide(static_cast<usize>(size - 1), L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, wide.Data(), size);
-        return wide;
-    }
+	NkWString NkUtf8ToWide(const NkString &value) {
+		if (value.empty())
+			return {};
+		const int size = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, nullptr, 0);
+		if (size <= 1)
+			return {};
+		NkWString wide(static_cast<usize>(size - 1), L'\0');
+		MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, wide.Data(), size);
+		return wide;
+	}
 
-    void NkApplyFallbackWindowIcon(HWND hwnd, const nkentseu::NkString& iconPath) {
-        if (!hwnd || iconPath.Empty()) {
-            return;
-        }
-        NkWString wPath = NkUtf8ToWide(iconPath);
-        if (wPath.Empty()) {
-            return;
-        }
-        HICON icon = reinterpret_cast<HICON>(LoadImageW(
-            nullptr,
-            wPath.CStr(),
-            IMAGE_ICON,
-            0,
-            0,
-            LR_LOADFROMFILE | LR_DEFAULTSIZE));
-        if (!icon) {
-            return;
-        }
-        SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(icon));
-        SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(icon));
-    }
+	void NkApplyFallbackWindowIcon(HWND hwnd, const nkentseu::NkString &iconPath) {
+		if (!hwnd || iconPath.Empty()) {
+			return;
+		}
+		NkWString wPath = NkUtf8ToWide(iconPath);
+		if (wPath.Empty()) {
+			return;
+		}
+		HICON icon = reinterpret_cast<HICON>(
+			LoadImageW(nullptr, wPath.CStr(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE));
+		if (!icon) {
+			return;
+		}
+		SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(icon));
+		SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(icon));
+	}
 
-    HWND NkCreateFallbackXboxWindow(const nkentseu::NkWindowConfig &config, HWND parent) {
-        HINSTANCE hInstance = GetModuleHandleW(nullptr);
-        if (!hInstance) return nullptr;
+	HWND NkCreateFallbackXboxWindow(const nkentseu::NkWindowConfig &config, HWND parent) {
+		HINSTANCE hInstance = GetModuleHandleW(nullptr);
+		if (!hInstance)
+			return nullptr;
 
-        WNDCLASSEXW wc{};
-        wc.cbSize = sizeof(WNDCLASSEXW);
-        wc.lpfnWndProc = NkXboxFallbackWindowProc;
-        wc.hInstance = hInstance;
-        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        wc.lpszClassName = kNkXboxFallbackWindowClassName;
-        RegisterClassExW(&wc);
+		WNDCLASSEXW wc{};
+		wc.cbSize = sizeof(WNDCLASSEXW);
+		wc.lpfnWndProc = NkXboxFallbackWindowProc;
+		wc.hInstance = hInstance;
+		wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+		wc.lpszClassName = kNkXboxFallbackWindowClassName;
+		RegisterClassExW(&wc);
 
-        const nkentseu::uint32 width = config.width > 0 ? config.width : 1280u;
-        const nkentseu::uint32 height = config.height > 0 ? config.height : 720u;
-        DWORD style = WS_OVERLAPPEDWINDOW;
-        DWORD exStyle = 0;
-        if (!config.frame) {
-            style = WS_POPUP | WS_VISIBLE;
-        }
-        if (config.native.utilityWindow) {
-            exStyle |= WS_EX_TOOLWINDOW;
-            exStyle &= ~WS_EX_APPWINDOW;
-        } else {
-            exStyle |= WS_EX_APPWINDOW;
-        }
-        if (config.transparent) {
-            exStyle |= WS_EX_LAYERED;
-        }
+		const nkentseu::uint32 width = config.width > 0 ? config.width : 1280u;
+		const nkentseu::uint32 height = config.height > 0 ? config.height : 720u;
+		DWORD style = WS_OVERLAPPEDWINDOW;
+		DWORD exStyle = 0;
+		if (!config.frame) {
+			style = WS_POPUP | WS_VISIBLE;
+		}
+		if (config.native.utilityWindow) {
+			exStyle |= WS_EX_TOOLWINDOW;
+			exStyle &= ~WS_EX_APPWINDOW;
+		} else {
+			exStyle |= WS_EX_APPWINDOW;
+		}
+		if (config.transparent) {
+			exStyle |= WS_EX_LAYERED;
+		}
 
-        RECT rect{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
-        AdjustWindowRectEx(&rect, style, FALSE, exStyle);
+		RECT rect{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+		AdjustWindowRectEx(&rect, style, FALSE, exStyle);
 
-        NkWString title = NkUtf8ToWide(config.title);
-        if (title.Empty()) title = L"NkXboxWindow";
+		NkWString title = NkUtf8ToWide(config.title);
+		if (title.Empty())
+			title = L"NkXboxWindow";
 
-        HWND hwnd = CreateWindowExW(
-            exStyle,
-            kNkXboxFallbackWindowClassName,
-            title.CStr(),
-            style,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            rect.right - rect.left,
-            rect.bottom - rect.top,
-            parent,
-            nullptr,
-            hInstance,
-            nullptr);
+		HWND hwnd =
+			CreateWindowExW(exStyle, kNkXboxFallbackWindowClassName, title.CStr(), style, CW_USEDEFAULT, CW_USEDEFAULT,
+							rect.right - rect.left, rect.bottom - rect.top, parent, nullptr, hInstance, nullptr);
 
-        if (hwnd && config.transparent) {
-            BYTE alpha = static_cast<BYTE>(config.bgColor & 0xFFu);
-            if (alpha == 0xFFu) {
-                alpha = 230u;
-            }
-            SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
-        }
-        if (hwnd) {
-            NkApplyFallbackWindowIcon(hwnd, config.iconPath);
-        }
-        if (hwnd && config.visible) {
-            ShowWindow(hwnd, SW_SHOWNORMAL);
-            UpdateWindow(hwnd);
-        }
-        return hwnd;
-    }
+		if (hwnd && config.transparent) {
+			BYTE alpha = static_cast<BYTE>(config.bgColor & 0xFFu);
+			if (alpha == 0xFFu) {
+				alpha = 230u;
+			}
+			SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
+		}
+		if (hwnd) {
+			NkApplyFallbackWindowIcon(hwnd, config.iconPath);
+		}
+		if (hwnd && config.visible) {
+			ShowWindow(hwnd, SW_SHOWNORMAL);
+			UpdateWindow(hwnd);
+		}
+		return hwnd;
+	}
 
 } // namespace
 
 namespace nkentseu {
-    using namespace math;
+	using namespace math;
 
-    NkWindow::NkWindow() = default;
+	NkWindow::NkWindow() = default;
 
-    NkWindow::NkWindow(const NkWindowConfig& config) {
-        Create(config);
-    }
+	NkWindow::NkWindow(const NkWindowConfig &config) {
+		Create(config);
+	}
 
-    NkWindow::~NkWindow() {
-        if (mIsOpen) {
-            Close();
-        }
-    }
+	NkWindow::~NkWindow() {
+		if (mIsOpen) {
+			Close();
+		}
+	}
 
-    bool NkWindow::Create(const NkWindowConfig& config) {
-        if (mIsOpen) {
-            Close();
-        }
+	bool NkWindow::Create(const NkWindowConfig &config) {
+		if (mIsOpen) {
+			Close();
+		}
 
-        mConfig = config;
-        mData.mAppliedHints = config.surfaceHints;
-        mData.mExternal = false;
-        mData.mTitle = config.title;
-        mData.mWidth = config.width > 0 ? config.width : 1280u;
-        mData.mHeight = config.height > 0 ? config.height : 720u;
-        mData.mVisible = config.visible;
-        mData.mFullscreen = config.fullscreen;
-        mData.mOwnsNativeWindow = false;
+		mConfig = config;
+		mData.mAppliedHints = config.surfaceHints;
+		mData.mExternal = false;
+		mData.mTitle = config.title;
+		mData.mWidth = config.width > 0 ? config.width : 1280u;
+		mData.mHeight = config.height > 0 ? config.height : 720u;
+		mData.mVisible = config.visible;
+		mData.mFullscreen = config.fullscreen;
+		mData.mOwnsNativeWindow = false;
 
-        const bool wantsExternal = config.native.useExternalWindow;
-        const bool hasExternalHandle = (config.native.externalWindowHandle != 0);
-        if (wantsExternal && !hasExternalHandle) {
-            mLastError = NkError(1, "Xbox: useExternalWindow=true but externalWindowHandle is null");
-            return false;
-        }
+		const bool wantsExternal = config.native.useExternalWindow;
+		const bool hasExternalHandle = (config.native.externalWindowHandle != 0);
+		if (wantsExternal && !hasExternalHandle) {
+			mLastError = NkError(1, "Xbox: useExternalWindow=true but externalWindowHandle is null");
+			return false;
+		}
 
-        if (wantsExternal && hasExternalHandle) {
-            mData.mNativeWindow = reinterpret_cast<void*>(config.native.externalWindowHandle);
-            mData.mExternal = true;
-        } else {
-            mData.mNativeWindow = nullptr;
-        }
+		if (wantsExternal && hasExternalHandle) {
+			mData.mNativeWindow = reinterpret_cast<void *>(config.native.externalWindowHandle);
+			mData.mExternal = true;
+		} else {
+			mData.mNativeWindow = nullptr;
+		}
 
-        // 1) runtime handle exposé par l'entrypoint Xbox
-        if (!mData.mNativeWindow) {
-            mData.mNativeWindow = NkXboxGetNativeWindowHandle();
-            if (!mData.mNativeWindow && gState) {
-                mData.mNativeWindow = gState->xboxNativeWindow;
-            }
-        }
+		// 1) runtime handle exposé par l'entrypoint Xbox
+		if (!mData.mNativeWindow) {
+			mData.mNativeWindow = NkXboxGetNativeWindowHandle();
+			if (!mData.mNativeWindow && gState) {
+				mData.mNativeWindow = gState->xboxNativeWindow;
+			}
+		}
 
-        // 2) fallback desktop-compatible (utile hors runtime console complet)
-        if (!mData.mNativeWindow) {
-            HWND parent = reinterpret_cast<HWND>(config.native.parentWindowHandle);
-            HWND fallback = NkCreateFallbackXboxWindow(config, parent);
-            if (fallback) {
-                mData.mNativeWindow = reinterpret_cast<void *>(fallback);
-                mData.mOwnsNativeWindow = true;
-            }
-        }
+		// 2) fallback desktop-compatible (utile hors runtime console complet)
+		if (!mData.mNativeWindow) {
+			HWND parent = reinterpret_cast<HWND>(config.native.parentWindowHandle);
+			HWND fallback = NkCreateFallbackXboxWindow(config, parent);
+			if (fallback) {
+				mData.mNativeWindow = reinterpret_cast<void *>(fallback);
+				mData.mOwnsNativeWindow = true;
+			}
+		}
 
-        if (!mData.mNativeWindow) {
-            mLastError = NkError(1, "Xbox: native window not available");
-            return false;
-        }
+		if (!mData.mNativeWindow) {
+			mLastError = NkError(1, "Xbox: native window not available");
+			return false;
+		}
 
-        mId = NkWESystem::Instance().RegisterWindow(this);
-        if (mId == NK_INVALID_WINDOW_ID) {
-            mLastError = NkError(1, "Xbox: failed to register window");
-            if (mData.mOwnsNativeWindow) {
-                DestroyWindow(reinterpret_cast<HWND>(mData.mNativeWindow));
-                mData.mOwnsNativeWindow = false;
-                mData.mNativeWindow = nullptr;
-            }
-            return false;
-        }
+		mId = NkWESystem::Instance().RegisterWindow(this);
+		if (mId == NK_INVALID_WINDOW_ID) {
+			mLastError = NkError(1, "Xbox: failed to register window");
+			if (mData.mOwnsNativeWindow) {
+				DestroyWindow(reinterpret_cast<HWND>(mData.mNativeWindow));
+				mData.mOwnsNativeWindow = false;
+				mData.mNativeWindow = nullptr;
+			}
+			return false;
+		}
 
-        mIsOpen = true;
+		mIsOpen = true;
 
-        NkWindowCreateEvent createEvent(mData.mWidth, mData.mHeight);
-        NkWESystem::Events().Enqueue_Public(createEvent, mId);
+		NkWindowCreateEvent createEvent(mData.mWidth, mData.mHeight);
+		NkWESystem::Events().Enqueue_Public(createEvent, mId);
 
-        if (mData.mVisible) {
-            NkWindowShownEvent shownEvent;
-            NkWESystem::Events().Enqueue_Public(shownEvent, mId);
-        }
-        if (mData.mFullscreen) {
-            NkWindowFullscreenEvent fullscreenEvent;
-            NkWESystem::Events().Enqueue_Public(fullscreenEvent, mId);
-        }
+		if (mData.mVisible) {
+			NkWindowShownEvent shownEvent;
+			NkWESystem::Events().Enqueue_Public(shownEvent, mId);
+		}
+		if (mData.mFullscreen) {
+			NkWindowFullscreenEvent fullscreenEvent;
+			NkWESystem::Events().Enqueue_Public(fullscreenEvent, mId);
+		}
 
-        return true;
-    }
+		return true;
+	}
 
-    void NkWindow::Close() {
-        if (!mIsOpen) {
-            return;
-        }
+	void NkWindow::Close() {
+		if (!mIsOpen) {
+			return;
+		}
 
-        const NkWindowId closingId = mId;
+		const NkWindowId closingId = mId;
 
-        NkWindowCloseEvent closeEvent(false);
-        NkWESystem::Events().Enqueue_Public(closeEvent, closingId);
+		NkWindowCloseEvent closeEvent(false);
+		NkWESystem::Events().Enqueue_Public(closeEvent, closingId);
 
-        NkWindowDestroyEvent destroyEvent;
-        NkWESystem::Events().Enqueue_Public(destroyEvent, closingId);
+		NkWindowDestroyEvent destroyEvent;
+		NkWESystem::Events().Enqueue_Public(destroyEvent, closingId);
 
-        NkWESystem::Instance().UnregisterWindow(closingId);
+		NkWESystem::Instance().UnregisterWindow(closingId);
 
-        if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
-            DestroyWindow(reinterpret_cast<HWND>(mData.mNativeWindow));
-        }
+		if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
+			DestroyWindow(reinterpret_cast<HWND>(mData.mNativeWindow));
+		}
 
-        mId = NK_INVALID_WINDOW_ID;
-        mIsOpen = false;
-        mData.mNativeWindow = nullptr;
-        mData.mWidth = 0;
-        mData.mHeight = 0;
-        mData.mVisible = false;
-        mData.mFullscreen = false;
-        mData.mOwnsNativeWindow = false;
-        mData.mExternal = false;
-    }
+		mId = NK_INVALID_WINDOW_ID;
+		mIsOpen = false;
+		mData.mNativeWindow = nullptr;
+		mData.mWidth = 0;
+		mData.mHeight = 0;
+		mData.mVisible = false;
+		mData.mFullscreen = false;
+		mData.mOwnsNativeWindow = false;
+		mData.mExternal = false;
+	}
 
-    bool NkWindow::IsOpen() const {
-        return mIsOpen;
-    }
+	bool NkWindow::IsOpen() const {
+		return mIsOpen;
+	}
 
-    bool NkWindow::IsValid() const {
-        return mIsOpen && (mData.mNativeWindow != nullptr);
-    }
+	bool NkWindow::IsValid() const {
+		return mIsOpen && (mData.mNativeWindow != nullptr);
+	}
 
-    NkError NkWindow::GetLastError() const {
-        return mLastError;
-    }
+	NkError NkWindow::GetLastError() const {
+		return mLastError;
+	}
 
-    NkWindowConfig NkWindow::GetConfig() const {
-        return mConfig;
-    }
+	NkWindowConfig NkWindow::GetConfig() const {
+		return mConfig;
+	}
 
-    NkString NkWindow::GetTitle() const {
-        return mData.mTitle;
-    }
+	NkString NkWindow::GetTitle() const {
+		return mData.mTitle;
+	}
 
-    void NkWindow::SetTitle(const NkString& title) {
-        mData.mTitle = title;
-        mConfig.title = title;
-        if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
-            NkWString wide = NkUtf8ToWide(title);
-            if (!wide.Empty()) {
-                SetWindowTextW(reinterpret_cast<HWND>(mData.mNativeWindow), wide.CStr());
-            }
-        }
-    }
+	void NkWindow::SetTitle(const NkString &title) {
+		mData.mTitle = title;
+		mConfig.title = title;
+		if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
+			NkWString wide = NkUtf8ToWide(title);
+			if (!wide.Empty()) {
+				SetWindowTextW(reinterpret_cast<HWND>(mData.mNativeWindow), wide.CStr());
+			}
+		}
+	}
 
-    NkVec2u NkWindow::GetSize() const {
-        return { mData.mWidth, mData.mHeight };
-    }
+	NkVec2u NkWindow::GetSize() const {
+		return {mData.mWidth, mData.mHeight};
+	}
 
-    NkVec2u NkWindow::GetPosition() const {
-        return { 0u, 0u };
-    }
+	NkVec2u NkWindow::GetPosition() const {
+		return {0u, 0u};
+	}
 
-    float NkWindow::GetDpiScale() const {
-        return 1.0f;
-    }
+	float NkWindow::GetDpiScale() const {
+		return 1.0f;
+	}
 
-    NkVec2u NkWindow::GetDisplaySize() const {
-        return { mData.mWidth, mData.mHeight };
-    }
+	NkVec2u NkWindow::GetDisplaySize() const {
+		return {mData.mWidth, mData.mHeight};
+	}
 
-    NkVec2u NkWindow::GetDisplayPosition() const {
-        return { 0u, 0u };
-    }
+	NkVec2u NkWindow::GetDisplayPosition() const {
+		return {0u, 0u};
+	}
 
-    void NkWindow::SetSize(uint32 width, uint32 height) {
-        const uint32 w = math::NkMax<uint32>(width, 1u);
-        const uint32 h = math::NkMax<uint32>(height, 1u);
-        const uint32 oldW = mData.mWidth;
-        const uint32 oldH = mData.mHeight;
+	void NkWindow::SetSize(uint32 width, uint32 height) {
+		const uint32 w = math::NkMax<uint32>(width, 1u);
+		const uint32 h = math::NkMax<uint32>(height, 1u);
+		const uint32 oldW = mData.mWidth;
+		const uint32 oldH = mData.mHeight;
 
-        mData.mWidth = w;
-        mData.mHeight = h;
-        mConfig.width = w;
-        mConfig.height = h;
+		mData.mWidth = w;
+		mData.mHeight = h;
+		mConfig.width = w;
+		mConfig.height = h;
 
-        NkWindowResizeEvent resizeEvent(w, h, oldW, oldH);
-        NkWESystem::Events().Enqueue_Public(resizeEvent, mId);
+		NkWindowResizeEvent resizeEvent(w, h, oldW, oldH);
+		NkWESystem::Events().Enqueue_Public(resizeEvent, mId);
 
-        if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
-            SetWindowPos(
-                reinterpret_cast<HWND>(mData.mNativeWindow),
-                nullptr,
-                0,
-                0,
-                static_cast<int>(w),
-                static_cast<int>(h),
-                SWP_NOZORDER | SWP_NOMOVE);
-        }
-    }
+		if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
+			SetWindowPos(reinterpret_cast<HWND>(mData.mNativeWindow), nullptr, 0, 0, static_cast<int>(w),
+						 static_cast<int>(h), SWP_NOZORDER | SWP_NOMOVE);
+		}
+	}
 
-    void NkWindow::SetPosition(int32 x, int32 y) {
-        if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
-            SetWindowPos(
-                reinterpret_cast<HWND>(mData.mNativeWindow),
-                nullptr,
-                static_cast<int>(x),
-                static_cast<int>(y),
-                0,
-                0,
-                SWP_NOZORDER | SWP_NOSIZE);
-        }
-    }
+	void NkWindow::SetPosition(int32 x, int32 y) {
+		if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
+			SetWindowPos(reinterpret_cast<HWND>(mData.mNativeWindow), nullptr, static_cast<int>(x), static_cast<int>(y),
+						 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+		}
+	}
 
-    void NkWindow::SetVisible(bool visible) {
-        if (mData.mVisible == visible) {
-            return;
-        }
-        mData.mVisible = visible;
-        mConfig.visible = visible;
+	void NkWindow::SetVisible(bool visible) {
+		if (mData.mVisible == visible) {
+			return;
+		}
+		mData.mVisible = visible;
+		mConfig.visible = visible;
 
-        if (visible) {
-            NkWindowShownEvent event;
-            NkWESystem::Events().Enqueue_Public(event, mId);
-            if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
-                ShowWindow(reinterpret_cast<HWND>(mData.mNativeWindow), SW_SHOW);
-            }
-        } else {
-            NkWindowHiddenEvent event;
-            NkWESystem::Events().Enqueue_Public(event, mId);
-            if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
-                ShowWindow(reinterpret_cast<HWND>(mData.mNativeWindow), SW_HIDE);
-            }
-        }
-    }
+		if (visible) {
+			NkWindowShownEvent event;
+			NkWESystem::Events().Enqueue_Public(event, mId);
+			if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
+				ShowWindow(reinterpret_cast<HWND>(mData.mNativeWindow), SW_SHOW);
+			}
+		} else {
+			NkWindowHiddenEvent event;
+			NkWESystem::Events().Enqueue_Public(event, mId);
+			if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
+				ShowWindow(reinterpret_cast<HWND>(mData.mNativeWindow), SW_HIDE);
+			}
+		}
+	}
 
-    void NkWindow::Minimize() {}
+	void NkWindow::Minimize() {
+	}
 
-    void NkWindow::Maximize() {}
+	void NkWindow::Maximize() {
+	}
 
-    bool NkWindow::IsMaximized() const { return false; }
-    void NkWindow::BeginDragMove() {}
-    void NkWindow::BeginResize(NkResizeEdge) {}
+	bool NkWindow::IsMaximized() const {
+		return false;
+	}
 
-    void NkWindow::Restore() {}
+	void NkWindow::BeginDragMove() {
+	}
 
-    void NkWindow::SetFullscreen(bool fullscreen) {
-        if (mData.mFullscreen == fullscreen) {
-            return;
-        }
-        mData.mFullscreen = fullscreen;
-        mConfig.fullscreen = fullscreen;
+	void NkWindow::BeginResize(NkResizeEdge) {
+	}
 
-        if (fullscreen) {
-            NkWindowFullscreenEvent event;
-            NkWESystem::Events().Enqueue_Public(event, mId);
-            if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
-                ShowWindow(reinterpret_cast<HWND>(mData.mNativeWindow), SW_MAXIMIZE);
-            }
-        } else {
-            NkWindowWindowedEvent event;
-            NkWESystem::Events().Enqueue_Public(event, mId);
-            if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
-                ShowWindow(reinterpret_cast<HWND>(mData.mNativeWindow), SW_RESTORE);
-            }
-        }
-    }
+	void NkWindow::Restore() {
+	}
 
-    void NkWindow::SetMousePosition(uint32, uint32) {}
+	void NkWindow::SetFullscreen(bool fullscreen) {
+		if (mData.mFullscreen == fullscreen) {
+			return;
+		}
+		mData.mFullscreen = fullscreen;
+		mConfig.fullscreen = fullscreen;
 
-    void NkWindow::ShowMouse(bool) {}
+		if (fullscreen) {
+			NkWindowFullscreenEvent event;
+			NkWESystem::Events().Enqueue_Public(event, mId);
+			if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
+				ShowWindow(reinterpret_cast<HWND>(mData.mNativeWindow), SW_MAXIMIZE);
+			}
+		} else {
+			NkWindowWindowedEvent event;
+			NkWESystem::Events().Enqueue_Public(event, mId);
+			if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
+				ShowWindow(reinterpret_cast<HWND>(mData.mNativeWindow), SW_RESTORE);
+			}
+		}
+	}
 
-    void NkWindow::CaptureMouse(bool) {}
+	void NkWindow::SetMousePosition(uint32, uint32) {
+	}
 
-    void NkWindow::ClipMouseToClient(bool) {}
+	void NkWindow::ShowMouse(bool) {
+	}
 
-    void NkWindow::SetProgress(float) {}
+	void NkWindow::CaptureMouse(bool) {
+	}
 
-    // Xbox : saisie via clavier virtuel système (non branché ici). No-op.
-    void NkWindow::ShowSoftKeyboard(const NkSoftKeyboardConfig&) {}
-    void NkWindow::HideSoftKeyboard() {}
-    bool NkWindow::IsSoftKeyboardVisible() const { return false; }
+	void NkWindow::ClipMouseToClient(bool) {
+	}
 
-    NkSurfaceDesc NkWindow::GetSurfaceDesc() const {
-        NkSurfaceDesc desc;
-        desc.width = mData.mWidth;
-        desc.height = mData.mHeight;
-        desc.dpi = 1.0f;
-        desc.nativeWindow = mData.mNativeWindow;
-        desc.appliedHints = mData.mAppliedHints;
-        return desc;
-    }
+	void NkWindow::SetProgress(float) {
+	}
 
-    NkSafeAreaInsets NkWindow::GetSafeAreaInsets() const {
-        return {};
-    }
+	// Xbox : saisie via clavier virtuel système (non branché ici). No-op.
+	void NkWindow::ShowSoftKeyboard(const NkSoftKeyboardConfig &) {
+	}
 
-    bool NkWindow::SupportsOrientationControl() const {
-        return false;
-    }
+	void NkWindow::HideSoftKeyboard() {
+	}
 
-    void NkWindow::SetScreenOrientation(NkScreenOrientation) {}
+	bool NkWindow::IsSoftKeyboardVisible() const {
+		return false;
+	}
 
-    NkScreenOrientation NkWindow::GetScreenOrientation() const {
-        return NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE;
-    }
+	NkSurfaceDesc NkWindow::GetSurfaceDesc() const {
+		NkSurfaceDesc desc;
+		desc.width = mData.mWidth;
+		desc.height = mData.mHeight;
+		desc.dpi = 1.0f;
+		desc.nativeWindow = mData.mNativeWindow;
+		desc.appliedHints = mData.mAppliedHints;
+		return desc;
+	}
 
-    void NkWindow::SetAutoRotateEnabled(bool) {}
+	NkSafeAreaInsets NkWindow::GetSafeAreaInsets() const {
+		return {};
+	}
 
-    bool NkWindow::IsAutoRotateEnabled() const {
-        return false;
-    }
+	bool NkWindow::SupportsOrientationControl() const {
+		return false;
+	}
 
-    void NkWindow::SetWebInputOptions(const NkWebInputOptions&) {}
+	void NkWindow::SetScreenOrientation(NkScreenOrientation) {
+	}
 
-    NkWebInputOptions NkWindow::GetWebInputOptions() const {
-        return {};
-    }
+	NkScreenOrientation NkWindow::GetScreenOrientation() const {
+		return NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE;
+	}
+
+	void NkWindow::SetAutoRotateEnabled(bool) {
+	}
+
+	bool NkWindow::IsAutoRotateEnabled() const {
+		return false;
+	}
+
+	void NkWindow::SetWebInputOptions(const NkWebInputOptions &) {
+	}
+
+	NkWebInputOptions NkWindow::GetWebInputOptions() const {
+		return {};
+	}
 
 } // namespace nkentseu
 

@@ -17,729 +17,1043 @@
 #endif
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        // =========================================================================
-        // NkAnimationTrack<T>::Lerp spécialisations
-        // =========================================================================
-        template<> float32 NkAnimationTrack<float32>::Lerp(const float32& a, const float32& b, float32 t) const {
-            return a + (b-a)*t;
-        }
-        template<> NkVec2f NkAnimationTrack<NkVec2f>::Lerp(const NkVec2f& a, const NkVec2f& b, float32 t) const {
-            return {a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t};
-        }
-        template<> NkVec3f NkAnimationTrack<NkVec3f>::Lerp(const NkVec3f& a, const NkVec3f& b, float32 t) const {
-            return {a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t, a.z+(b.z-a.z)*t};
-        }
-        template<> NkVec4f NkAnimationTrack<NkVec4f>::Lerp(const NkVec4f& a, const NkVec4f& b, float32 t) const {
-            // Slerp pour quaternions si besoin, lerp pour couleurs
-            return {a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t,
-                    a.z+(b.z-a.z)*t, a.w+(b.w-a.w)*t};
-        }
-        template<> NkMat4f NkAnimationTrack<NkMat4f>::Lerp(const NkMat4f& a, const NkMat4f& b, float32 t) const {
-            // Lerp matriciel composant-par-composant. NOTE : les boneTracks stockent
-            // des MATRICES DE SKINNING bakées (global×inverseBind), pas des TRS d'os
-            // locaux. Décomposer/SLERP une matrice de skinning (scale composite,
-            // réflexions possibles) donne des poses FAUSSES -> on garde le lerp direct,
-            // correct à haut fps (clés rapprochées). Le slerp TRS appartient au niveau
-            // bone-LOCAL (cf RESTE M1 : stocker les tracks en TRS local + FK au sample).
-            NkMat4f r;
-            for(int i=0;i<4;i++) for(int j=0;j<4;j++)
-                r[i][j]=a[i][j]+(b[i][j]-a[i][j])*t;
-            return r;
-        }
-        template<> int32 NkAnimationTrack<int32>::Lerp(const int32& a, const int32& b, float32 t) const {
-            return (t<0.5f)?a:b;  // step pour int (frame index)
-        }
+		// =========================================================================
+		// NkAnimationTrack<T>::Lerp spécialisations
+		// =========================================================================
+		template <> float32 NkAnimationTrack<float32>::Lerp(const float32 &a, const float32 &b, float32 t) const {
+			return a + (b - a) * t;
+		}
 
-        // =========================================================================
-        // NkAnimationClip helpers
-        // =========================================================================
-        void NkAnimationClip::RecalcDuration() {
-            duration = 0.f;
-            for(auto& t:boneTracks)  if(!t.Empty()) duration=fmaxf(duration,t.GetDuration());
-            for(auto& t:morphTracks) if(!t.Empty()) duration=fmaxf(duration,t.GetDuration());
-            if(!uvOffset.Empty())     duration=fmaxf(duration,uvOffset.GetDuration());
-            if(!uvScale.Empty())      duration=fmaxf(duration,uvScale.GetDuration());
-            if(!spriteFrame.Empty())  duration=fmaxf(duration,spriteFrame.GetDuration());
-            if(!albedoColor.Empty())  duration=fmaxf(duration,albedoColor.GetDuration());
-            if(!emissiveColor.Empty())duration=fmaxf(duration,emissiveColor.GetDuration());
-            if(!position.Empty())     duration=fmaxf(duration,position.GetDuration());
-            if(!rotation.Empty())     duration=fmaxf(duration,rotation.GetDuration());
-            if(!scale.Empty())        duration=fmaxf(duration,scale.GetDuration());
-            if(!cameraPosition.Empty())duration=fmaxf(duration,cameraPosition.GetDuration());
-            if(!lightIntensity.Empty())duration=fmaxf(duration,lightIntensity.GetDuration());
-            if(!ppExposure.Empty())   duration=fmaxf(duration,ppExposure.GetDuration());
-        }
+		template <> NkVec2f NkAnimationTrack<NkVec2f>::Lerp(const NkVec2f &a, const NkVec2f &b, float32 t) const {
+			return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t};
+		}
 
-        void NkAnimationClip::ResizeBones(uint32 count) {
-            boneCount = count;
-            while((uint32)boneTracks.Size()<count) boneTracks.PushBack({});
-        }
+		template <> NkVec3f NkAnimationTrack<NkVec3f>::Lerp(const NkVec3f &a, const NkVec3f &b, float32 t) const {
+			return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
+		}
 
-        void NkAnimationClip::AddBoneKey(uint32 boneIdx, float32 time,
-                                        const NkMat4f& mat, NkInterpMode interp) {
-            if(boneIdx>=(uint32)boneTracks.Size()) ResizeBones(boneIdx+1);
-            boneTracks[boneIdx].AddKey(time, mat, interp);
-            duration=fmaxf(duration, time);
-        }
+		template <> NkVec4f NkAnimationTrack<NkVec4f>::Lerp(const NkVec4f &a, const NkVec4f &b, float32 t) const {
+			// Slerp pour quaternions si besoin, lerp pour couleurs
+			return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t};
+		}
 
-        // =====================================================================
-        // Sérialisation BINAIRE .nkanim (M1) — format compact versionné
-        // ---------------------------------------------------------------------
-        // [magic 'NKAN'(u32)] [version(u32)] [nameLen(u32)+name] [duration(f32)]
-        // [fps(f32)] [loop(u8)] [boneCount(u32)]
-        //   par os : [nameLen(u32)+name] [enabled(u8)] [keyCount(u32)]
-        //            par clé : [time(f32)] [mat(16*f32)] [interp(u8)]
-        // (Section os uniquement en v1 — le header versionné permet d'ajouter
-        //  morph/transform/material plus tard sans casser les fichiers.)
-        // =====================================================================
-        namespace {
-            constexpr uint32 kNkAnimMagic   = 0x4E414B4E; // 'NKAN' (little-endian)
-            constexpr uint32 kNkAnimVersion = 2;          // v2 : + section squelette (mode local)
+		template <> NkMat4f NkAnimationTrack<NkMat4f>::Lerp(const NkMat4f &a, const NkMat4f &b, float32 t) const {
+			// Lerp matriciel composant-par-composant. NOTE : les boneTracks stockent
+			// des MATRICES DE SKINNING bakées (global×inverseBind), pas des TRS d'os
+			// locaux. Décomposer/SLERP une matrice de skinning (scale composite,
+			// réflexions possibles) donne des poses FAUSSES -> on garde le lerp direct,
+			// correct à haut fps (clés rapprochées). Le slerp TRS appartient au niveau
+			// bone-LOCAL (cf RESTE M1 : stocker les tracks en TRS local + FK au sample).
+			NkMat4f r;
+			for (int i = 0; i < 4; i++)
+				for (int j = 0; j < 4; j++)
+					r[i][j] = a[i][j] + (b[i][j] - a[i][j]) * t;
+			return r;
+		}
 
-            struct ByteWriter {
-                NkVector<nk_uint8> buf;
-                void raw(const void* p, usize n) { const nk_uint8* b=(const nk_uint8*)p; for(usize i=0;i<n;++i) buf.PushBack(b[i]); }
-                void u8(uint8 v)   { raw(&v,1); }
-                void u32(uint32 v) { raw(&v,4); }
-                void i32(int32 v)  { raw(&v,4); }
-                void f32(float32 v){ raw(&v,4); }
-                void str(const NkString& s) { uint32 n=(uint32)s.Size(); u32(n); if(n) raw(s.CStr(), n); }
-                void mat(const NkMat4f& m)  { raw(m.data, 16*sizeof(float32)); }
-            };
-            struct ByteReader {
-                const nk_uint8* p; usize n, off=0; bool ok=true;
-                ByteReader(const nk_uint8* d, usize len): p(d), n(len) {}
-                bool need(usize c){ if(off+c>n){ok=false;return false;} return true; }
-                uint8  u8()  { if(!need(1))return 0; return p[off++]; }
-                uint32 u32() { if(!need(4))return 0; uint32 v; memcpy(&v,p+off,4); off+=4; return v; }
-                int32  i32() { if(!need(4))return 0; int32 v; memcpy(&v,p+off,4); off+=4; return v; }
-                float32 f32(){ if(!need(4))return 0; float32 v; memcpy(&v,p+off,4); off+=4; return v; }
-                NkString str(){ uint32 c=u32(); NkString s; if(c && need(c)){ s=NkString((const char*)(p+off), c); off+=c; } return s; }
-                NkMat4f mat(){ NkMat4f m; if(need(16*sizeof(float32))){ memcpy(m.data,p+off,16*sizeof(float32)); off+=16*sizeof(float32);} return m; }
-            };
-        }
+		template <> int32 NkAnimationTrack<int32>::Lerp(const int32 &a, const int32 &b, float32 t) const {
+			return (t < 0.5f) ? a : b; // step pour int (frame index)
+		}
 
-        bool NkAnimationClip::SaveBinary(const NkString& path) const {
-            ByteWriter w;
-            w.u32(kNkAnimMagic); w.u32(kNkAnimVersion);
-            w.str(name); w.f32(duration); w.f32(fps); w.u8(loop?1:0);
-            w.u32((uint32)boneTracks.Size());
-            for (uint32 b=0; b<(uint32)boneTracks.Size(); ++b) {
-                const NkAnimationTrack<NkMat4f>& tr = boneTracks[b];
-                w.str(tr.name); w.u8(tr.enabled?1:0);
-                w.u32(tr.KeyCount());
-                for (uint32 k=0; k<tr.KeyCount(); ++k) {
-                    const NkKeyframe<NkMat4f>& kf = tr.GetKey(k);
-                    w.f32(kf.time); w.mat(kf.value); w.u8((uint8)kf.interp);
-                }
-            }
-            // Section squelette (v2) : mode local + hiérarchie + inverseBind + topo.
-            w.u8(skeletalLocal?1:0);
-            w.u32((uint32)jointParent.Size());      for (uint32 j=0;j<(uint32)jointParent.Size();++j) w.i32(jointParent[j]);
-            w.u32((uint32)jointInverseBind.Size());  for (uint32 j=0;j<(uint32)jointInverseBind.Size();++j) w.mat(jointInverseBind[j]);
-            w.u32((uint32)jointTopo.Size());         for (uint32 j=0;j<(uint32)jointTopo.Size();++j) w.u32(jointTopo[j]);
-            if (!NkFile::WriteAllBytes(path.CStr(), w.buf)) {
-                logger.Errorf("[NkAnimClip] SaveBinary echec : %s\n", path.CStr());
-                return false;
-            }
-            logger.Info("[NkAnimClip] Saved '{0}' : {1} os, {2} octets\n",
-                        path.CStr(), (uint32)boneTracks.Size(), (uint32)w.buf.Size());
-            return true;
-        }
+		// =========================================================================
+		// NkAnimationClip helpers
+		// =========================================================================
+		void NkAnimationClip::RecalcDuration() {
+			duration = 0.f;
+			for (auto &t : boneTracks)
+				if (!t.Empty())
+					duration = fmaxf(duration, t.GetDuration());
+			for (auto &t : morphTracks)
+				if (!t.Empty())
+					duration = fmaxf(duration, t.GetDuration());
+			if (!uvOffset.Empty())
+				duration = fmaxf(duration, uvOffset.GetDuration());
+			if (!uvScale.Empty())
+				duration = fmaxf(duration, uvScale.GetDuration());
+			if (!spriteFrame.Empty())
+				duration = fmaxf(duration, spriteFrame.GetDuration());
+			if (!albedoColor.Empty())
+				duration = fmaxf(duration, albedoColor.GetDuration());
+			if (!emissiveColor.Empty())
+				duration = fmaxf(duration, emissiveColor.GetDuration());
+			if (!position.Empty())
+				duration = fmaxf(duration, position.GetDuration());
+			if (!rotation.Empty())
+				duration = fmaxf(duration, rotation.GetDuration());
+			if (!scale.Empty())
+				duration = fmaxf(duration, scale.GetDuration());
+			if (!cameraPosition.Empty())
+				duration = fmaxf(duration, cameraPosition.GetDuration());
+			if (!lightIntensity.Empty())
+				duration = fmaxf(duration, lightIntensity.GetDuration());
+			if (!ppExposure.Empty())
+				duration = fmaxf(duration, ppExposure.GetDuration());
+		}
 
-        bool NkAnimationClip::LoadBinary(const NkString& path) {
-            NkVector<nk_uint8> bytes = NkFile::ReadAllBytes(path.CStr());
-            if (bytes.Empty()) { logger.Errorf("[NkAnimClip] LoadBinary vide/absent : %s\n", path.CStr()); return false; }
-            ByteReader r(bytes.Data(), bytes.Size());
-            uint32 magic=r.u32(), ver=r.u32();
-            if (magic!=kNkAnimMagic) { logger.Errorf("[NkAnimClip] magic invalide (0x%08X) : %s\n", magic, path.CStr()); return false; }
-            if (ver<1 || ver>kNkAnimVersion) { logger.Errorf("[NkAnimClip] version %u non supportee : %s\n", ver, path.CStr()); return false; }
-            name=r.str(); duration=r.f32(); fps=r.f32(); loop=(r.u8()!=0);
-            uint32 nb=r.u32();
-            boneTracks.Clear(); boneTracks.Resize(nb); boneCount=nb;
-            for (uint32 b=0; b<nb; ++b) {
-                NkAnimationTrack<NkMat4f>& tr = boneTracks[b];
-                tr.name=r.str(); tr.enabled=(r.u8()!=0);
-                uint32 nk=r.u32();
-                for (uint32 k=0; k<nk; ++k) {
-                    float32 t=r.f32(); NkMat4f m=r.mat(); uint8 interp=r.u8();
-                    tr.AddKey(t, m, (NkInterpMode)interp);
-                }
-            }
-            // Section squelette (v2+).
-            skeletalLocal=false; jointParent.Clear(); jointInverseBind.Clear(); jointTopo.Clear();
-            if (ver >= 2) {
-                skeletalLocal = (r.u8()!=0);
-                uint32 np=r.u32(); jointParent.Resize(np);      for(uint32 j=0;j<np;++j) jointParent[j]=r.i32();
-                uint32 ni=r.u32(); jointInverseBind.Resize(ni);  for(uint32 j=0;j<ni;++j) jointInverseBind[j]=r.mat();
-                uint32 nt=r.u32(); jointTopo.Resize(nt);         for(uint32 j=0;j<nt;++j) jointTopo[j]=r.u32();
-            }
-            if (!r.ok) { logger.Errorf("[NkAnimClip] LoadBinary tronque : %s\n", path.CStr()); return false; }
-            logger.Info("[NkAnimClip] Loaded '{0}' : {1} os, dur={2}s fps={3}\n",
-                        path.CStr(), nb, duration, fps);
-            return true;
-        }
+		void NkAnimationClip::ResizeBones(uint32 count) {
+			boneCount = count;
+			while ((uint32)boneTracks.Size() < count)
+				boneTracks.PushBack({});
+		}
 
-        bool NkAnimationClip::BakeFromGLTF(const NkGLTFMeshData& data, int32 animIdx, float32 fps) {
-            if (!data.isSkinned || data.skinJoints.Empty()) {
-                logger.Errorf("[NkAnimClip] BakeFromGLTF : modele non skinne\n");
-                return false;
-            }
-            if (fps < 1.f) fps = 30.f;
-            // Duree de l'animation (sinon 1 frame de bind pose).
-            float32 dur = 0.f;
-            if (animIdx >= 0 && animIdx < (int32)data.animations.Size())
-                dur = data.animations[(uint32)animIdx].duration;
-            const uint32 jc = (uint32)data.skinJoints.Size();
+		void NkAnimationClip::AddBoneKey(uint32 boneIdx, float32 time, const NkMat4f &mat, NkInterpMode interp) {
+			if (boneIdx >= (uint32)boneTracks.Size())
+				ResizeBones(boneIdx + 1);
+			boneTracks[boneIdx].AddKey(time, mat, interp);
+			duration = fmaxf(duration, time);
+		}
 
-            boneTracks.Clear();
-            ResizeBones(jc);
-            for (uint32 b = 0; b < jc; ++b) boneTracks[b].name = NkFormat("joint_{0}", b);
+		// =====================================================================
+		// Sérialisation BINAIRE .nkanim (M1) — format compact versionné
+		// ---------------------------------------------------------------------
+		// [magic 'NKAN'(u32)] [version(u32)] [nameLen(u32)+name] [duration(f32)]
+		// [fps(f32)] [loop(u8)] [boneCount(u32)]
+		//   par os : [nameLen(u32)+name] [enabled(u8)] [keyCount(u32)]
+		//            par clé : [time(f32)] [mat(16*f32)] [interp(u8)]
+		// (Section os uniquement en v1 — le header versionné permet d'ajouter
+		//  morph/transform/material plus tard sans casser les fichiers.)
+		// =====================================================================
+		namespace {
+			constexpr uint32 kNkAnimMagic = 0x4E414B4E; // 'NKAN' (little-endian)
+			constexpr uint32 kNkAnimVersion = 2;		// v2 : + section squelette (mode local)
 
-            // ── Squelette : hiérarchie (parentJoint) + inverseBind + bindGlobal ──
-            // bindGlobal[j] = inverse(inverseBind[j]) (= global bind cohérent avec le skin,
-            // PAS EvaluateGLTFWorldJoints dont le global diffère). Sert à récupérer le
-            // global animé : global = skin × bindGlobal, puis local = inv(global[parent])×global.
-            NkVector<NkMat4f> bindGlobalUnused;
-            EvaluateGLTFWorldJoints(data, -1, 0.f, bindGlobalUnused, jointParent);
-            jointInverseBind = data.inverseBind;
-            NkVector<NkMat4f> bindGlobal; bindGlobal.Resize(jc);
-            for (uint32 j=0;j<jc;++j)
-                bindGlobal[j] = (j<(uint32)data.inverseBind.Size()) ? data.inverseBind[j].Inverse() : NkMat4f::Identity();
-            // topo (parent avant enfant)
-            jointTopo.Clear();
-            { NkVector<bool> placed; placed.Resize(jc); for(uint32 j=0;j<jc;++j) placed[j]=false;
-              uint32 done=0,g=0; while(done<jc && g++<jc+2){ for(uint32 j=0;j<jc;++j){ if(placed[j])continue;
-                int32 p=(j<(uint32)jointParent.Size())?jointParent[j]:-1; if(p<0||placed[(uint32)p]){ jointTopo.PushBack(j); placed[j]=true; ++done; } } }
-              for(uint32 j=0;j<jc;++j) if(!placed[j]) jointTopo.PushBack(j); }
-            skeletalLocal = true;
+			struct ByteWriter {
+					NkVector<nk_uint8> buf;
 
-            // Echantillonne la pose en MATRICES BONE-LOCAL (relatives au parent joint).
-            const uint32 frameCount = (dur > 1e-4f) ? (uint32)(dur * fps) + 1u : 1u;
-            NkVector<NkMat4f> pose, global; global.Resize(jc);
-            for (uint32 f = 0; f < frameCount; ++f) {
-                float32 t = (frameCount > 1) ? (float32)f / fps : 0.f;
-                if (t > dur) t = dur;
-                if (!EvaluateGLTFPose(data, animIdx, t, pose)) break;  // skinning
-                for (uint32 j=0;j<jc && j<(uint32)pose.Size(); ++j) global[j] = pose[j]*bindGlobal[j];
-                for (uint32 j=0;j<jc;++j) {
-                    int32 p = (j<(uint32)jointParent.Size())?jointParent[j]:-1;
-                    NkMat4f local = (p>=0) ? (global[(uint32)p].Inverse()*global[j]) : global[j];
-                    boneTracks[j].AddKey(t, local, NkInterpMode::NK_LINEAR);
-                }
-            }
-            this->fps = fps;
-            this->duration = dur;
-            this->loop = true;
-            RecalcDuration();
-            logger.Info("[NkAnimClip] BakeFromGLTF : {0} os, {1} frames @ {2}fps, dur={3}s (LOCAL)\n",
-                        jc, frameCount, fps, duration);
-            return true;
-        }
+					void raw(const void *p, usize n) {
+						const nk_uint8 *b = (const nk_uint8 *)p;
+						for (usize i = 0; i < n; ++i)
+							buf.PushBack(b[i]);
+					}
 
-        void NkAnimationClip::ApplyFKSkinning(NkVector<NkMat4f>& boneMats) const {
-            const uint32 n = (uint32)jointTopo.Size();
-            if (n == 0) return;
-            NkVector<NkMat4f> global; global.Resize(n > (uint32)boneMats.Size() ? n : (uint32)boneMats.Size());
-            // FK : global[j] = global[parent] × local[j]  (boneMats = locaux en entrée)
-            for (uint32 oi = 0; oi < (uint32)jointTopo.Size(); ++oi) {
-                uint32 j = jointTopo[oi];
-                int32 p = (j < (uint32)jointParent.Size()) ? jointParent[j] : -1;
-                NkMat4f local = (j < (uint32)boneMats.Size()) ? boneMats[j] : NkMat4f::Identity();
-                global[j] = (p >= 0) ? (global[(uint32)p] * local) : local;
-            }
-            // skinning[j] = global[j] × inverseBind[j]  (écrit en place)
-            for (uint32 j = 0; j < (uint32)boneMats.Size(); ++j) {
-                NkMat4f ib = (j < (uint32)jointInverseBind.Size()) ? jointInverseBind[j] : NkMat4f::Identity();
-                boneMats[j] = global[j] * ib;
-            }
-        }
+					void u8(uint8 v) {
+						raw(&v, 1);
+					}
 
-        // Échantillonne une track de matrices BONE-LOCAL avec interp TRS-slerp (correct
-        // car les locaux sont des transforms rigides — décompose, lerp T/S, SLERP rotation).
-        static NkMat4f SampleBoneLocalSlerp(const NkAnimationTrack<NkMat4f>& tr, float32 t) {
-            uint32 n = tr.KeyCount();
-            if (n == 0) return NkMat4f::Identity();
-            if (n == 1 || t <= tr.GetKey(0).time)   return tr.GetKey(0).value;
-            if (t >= tr.GetKey(n-1).time)           return tr.GetKey(n-1).value;
-            uint32 hi = 1; while (hi < n && tr.GetKey(hi).time <= t) ++hi;
-            uint32 lo = hi - 1;
-            const NkKeyframe<NkMat4f>& ka = tr.GetKey(lo);
-            const NkKeyframe<NkMat4f>& kb = tr.GetKey(hi);
-            float32 dt = kb.time - ka.time;
-            float32 a = (dt > 1e-6f) ? (t - ka.time) / dt : 0.f;
-            // Interp TRS-NLerp : décompose A/B, lerp translation/scale, NLERP la rotation
-            // (lerp de quaternions + normalize, chemin court via le signe du dot). Correct
-            // sur des transforms LOCAUX rigides + visuellement propre. (NB : NkQuat::SLerp
-            // pur reste buggé sur sa branche trigonométrique pour les grosses rotations ;
-            // NLerp est suffisant et stable à 30fps. Cf NkAnima ROADMAP.) Debug : lerp
-            // matriciel direct via NK_ANIM_LERPMAT.
-            static int lerpmat=-1; if(lerpmat<0){ const char* v=getenv("NK_ANIM_LERPMAT"); lerpmat=(v&&v[0]&&v[0]!='0')?1:0; }
-            if (lerpmat) { NkMat4f r; for(int i=0;i<4;i++)for(int j=0;j<4;j++) r[i][j]=ka.value[i][j]+(kb.value[i][j]-ka.value[i][j])*a; return r; }
-            NkVec3f ta, sa, tb, sb; NkMat4f ra, rb;
-            ka.value.DecomposeTRS(ta, ra, sa);
-            kb.value.DecomposeTRS(tb, rb, sb);
-            NkQuatf qa(ra), qb(rb);
-            NkVec3f tt = { ta.x+(tb.x-ta.x)*a, ta.y+(tb.y-ta.y)*a, ta.z+(tb.z-ta.z)*a };
-            NkVec3f ss = { sa.x+(sb.x-sa.x)*a, sa.y+(sb.y-sa.y)*a, sa.z+(sb.z-sa.z)*a };
-            float32 d = qa.x*qb.x+qa.y*qb.y+qa.z*qb.z+qa.w*qb.w;
-            NkQuatf qbb = (d<0.f) ? NkQuatf(-qb.x,-qb.y,-qb.z,-qb.w) : qb;
-            NkQuatf qq(qa.x+(qbb.x-qa.x)*a, qa.y+(qbb.y-qa.y)*a, qa.z+(qbb.z-qa.z)*a, qa.w+(qbb.w-qa.w)*a);
-            qq = qq.Normalized();
-            return NkMat4f::Translate(tt) * qq.ToMat4() * NkMat4f::Scale(ss);
-        }
+					void u32(uint32 v) {
+						raw(&v, 4);
+					}
 
-        void NkAnimationClip::BuildSpriteFlipBook(uint32 frameCount, float32 spriteFPS) {
-            float32 frameDur = 1.f/spriteFPS;
-            for(uint32 i=0;i<frameCount;i++)
-                spriteFrame.AddKey(i*frameDur, (int32)i, NkInterpMode::NK_STEP);
-            RecalcDuration();
-        }
+					void i32(int32 v) {
+						raw(&v, 4);
+					}
 
-        // ── Clips prédéfinis ──────────────────────────────────────────────────────
-        NkAnimationClip* NkAnimationClip::MakeSpinClip(const NkString& name,
-                                                        float32 rpm, NkVec3f axis) {
-            auto* c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
-            c->name = name; c->duration = 60.f/fmaxf(rpm,0.001f);
-            // Rotation complète : deux keyframes (0 → 360)
-            c->rotation.AddKey(0.f,        {0,0,0,1},   NkInterpMode::NK_LINEAR);
-            c->rotation.AddKey(c->duration, {0,sinf(NK_PI)*axis.y,0,cosf(NK_PI)*axis.y},
-                                NkInterpMode::NK_LINEAR);
-            return c;
-        }
+					void f32(float32 v) {
+						raw(&v, 4);
+					}
 
-        NkAnimationClip* NkAnimationClip::MakeLightPulse(const NkString& name,
-                                                        float32 minI, float32 maxI,
-                                                        float32 freq) {
-            auto* c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
-            c->name = name; float32 per=1.f/fmaxf(freq,0.001f);
-            c->lightIntensity.AddKey(0.f,       minI, NkInterpMode::NK_EASE_IN_OUT);
-            c->lightIntensity.AddKey(per*0.5f,  maxI, NkInterpMode::NK_EASE_IN_OUT);
-            c->lightIntensity.AddKey(per,        minI, NkInterpMode::NK_EASE_IN_OUT);
-            c->duration=per; c->loop=true;
-            return c;
-        }
+					void str(const NkString &s) {
+						uint32 n = (uint32)s.Size();
+						u32(n);
+						if (n)
+							raw(s.CStr(), n);
+					}
 
-        NkAnimationClip* NkAnimationClip::MakeColorFade(const NkString& name,
-                                                        NkVec4f from, NkVec4f to,
-                                                        float32 dur, NkInterpMode interp) {
-            auto* c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
-            c->name = name; c->duration = dur;
-            c->albedoColor.AddKey(0.f,   from, interp);
-            c->albedoColor.AddKey(dur,   to,   interp);
-            return c;
-        }
+					void mat(const NkMat4f &m) {
+						raw(m.data, 16 * sizeof(float32));
+					}
+			};
 
-        NkAnimationClip* NkAnimationClip::MakeCameraShake(const NkString& name,
-                                                            float32 intensity, float32 dur,
-                                                            float32 freq) {
-            auto* c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
-            c->name = name; c->duration = dur;
-            uint32 steps = (uint32)(dur*freq);
-            for(uint32 i=0;i<=steps;i++){
-                float32 t=(float32)i/steps*dur;
-                float32 env=1.f-t/dur;  // enveloppe d'atténuation
-                float32 ox=(((i*12345+7)%100)/100.f*2.f-1.f)*intensity*env;
-                float32 oy=(((i*23456+3)%100)/100.f*2.f-1.f)*intensity*env;
-                c->cameraPosition.AddKey(t, {ox,oy,0}, NkInterpMode::NK_LINEAR);
-            }
-            return c;
-        }
+			struct ByteReader {
+					const nk_uint8 *p;
+					usize n, off = 0;
+					bool ok = true;
 
-        NkAnimationClip* NkAnimationClip::MakeProceduralWalk(uint32 boneCount, float32 dur) {
-            auto* c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
-            c->name="ProceduralWalk"; c->duration=dur;
-            c->ResizeBones(boneCount);
-            // Animer chaque bone avec une sinusoïde décalée
-            for(uint32 b=0;b<boneCount;b++){
-                float32 phase=(float32)b/(boneCount>1?boneCount-1:1)*NK_PI;
-                uint32 steps=16;
-                for(uint32 s=0;s<=steps;s++){
-                    float32 t=(float32)s/steps*dur;
-                    float32 a=sinf(2*NK_PI*t/dur+phase)*0.3f;
-                    // Rotation Y simple
-                    NkMat4f mat;
-                    float32 ca=cosf(a),sa=sinf(a);
-                    mat=NkMat4f::Identity();
-                    mat[0][0]=ca; mat[2][0]=-sa;
-                    mat[0][2]=sa; mat[2][2]=ca;
-                    mat[3][1]=(float32)b*0.15f;
-                    c->boneTracks[b].AddKey(t, mat, NkInterpMode::NK_LINEAR);
-                }
-            }
-            return c;
-        }
+					ByteReader(const nk_uint8 *d, usize len) : p(d), n(len) {
+					}
 
-        // =========================================================================
-        // NkAnimationPlayer
-        // =========================================================================
-        void NkAnimationPlayer::SetClip(const NkAnimationClip* clip, bool autoResize) {
-            mClip=clip; mTime=0.f;
-            if(clip && autoResize){
-                mState.boneMatrices.Resize(clip->boneCount);
-                for(auto& b:mState.boneMatrices) b=NkMat4f::Identity();
-                mState.morphWeights.Resize((uint32)clip->morphTracks.Size(), 0.f);
-            }
-        }
+					bool need(usize c) {
+						if (off + c > n) {
+							ok = false;
+							return false;
+						}
+						return true;
+					}
 
-        void NkAnimationPlayer::Play(NkPlayMode mode, float32 speed) {
-            mMode=mode; mSpeed=speed; mPlaying=true;
-            for(auto& mk:mMarkers) mk.fired=false;
-        }
-        void NkAnimationPlayer::Pause() { mPlaying=false; }
-        void NkAnimationPlayer::Stop()  { mPlaying=false; mTime=0.f; }
-        void NkAnimationPlayer::SeekTo(float32 t) { mTime=t; }
+					uint8 u8() {
+						if (!need(1))
+							return 0;
+						return p[off++];
+					}
 
-        float32 NkAnimationPlayer::GetNormTime() const {
-            if(!mClip||mClip->duration<=0.f) return 0.f;
-            return mTime/mClip->duration;
-        }
-        int32 NkAnimationPlayer::GetFrame() const {
-            if(!mClip) return 0;
-            return (int32)(mTime*mClip->fps);
-        }
+					uint32 u32() {
+						if (!need(4))
+							return 0;
+						uint32 v;
+						memcpy(&v, p + off, 4);
+						off += 4;
+						return v;
+					}
 
-        void NkAnimationPlayer::AddMarker(float32 t, const NkString& ev) {
-            Marker mk; mk.time=t; mk.name=ev;
-            mMarkers.PushBack(mk);
-        }
+					int32 i32() {
+						if (!need(4))
+							return 0;
+						int32 v;
+						memcpy(&v, p + off, 4);
+						off += 4;
+						return v;
+					}
 
-        void NkAnimationPlayer::BlendTo(const NkAnimationClip* next, float32 blendDur) {
-            mNextClip=next; mBlendT=blendDur; mBlendDur=blendDur;
-        }
+					float32 f32() {
+						if (!need(4))
+							return 0;
+						float32 v;
+						memcpy(&v, p + off, 4);
+						off += 4;
+						return v;
+					}
 
-        void NkAnimationPlayer::WrapTime(float32& t, float32 dur) {
-            if(dur<=0.f){t=0.f;return;}
-            switch(mMode){
-                case NkPlayMode::NK_LOOP:
-                    while(t>=dur) t-=dur;
-                    while(t<0.f)  t+=dur;
-                    break;
-                case NkPlayMode::NK_PING_PONG: {
-                    float32 cycle=2.f*dur;
-                    while(t>=cycle) t-=cycle;
-                    if(t>dur) t=cycle-t;
-                    break;
-                }
-                case NkPlayMode::NK_CLAMP:
-                    if(t>dur) t=dur;
-                    break;
-                case NkPlayMode::NK_ONCE:
-                    if(t>=dur){ t=dur; mPlaying=false; }
-                    break;
-            }
-        }
+					NkString str() {
+						uint32 c = u32();
+						NkString s;
+						if (c && need(c)) {
+							s = NkString((const char *)(p + off), c);
+							off += c;
+						}
+						return s;
+					}
 
-        void NkAnimationPlayer::Update(float32 dt) {
-            if(!mClip) return;
+					NkMat4f mat() {
+						NkMat4f m;
+						if (need(16 * sizeof(float32))) {
+							memcpy(m.data, p + off, 16 * sizeof(float32));
+							off += 16 * sizeof(float32);
+						}
+						return m;
+					}
+			};
+		} // namespace
 
-            if(mPlaying) {
-                mTime += dt * mSpeed;
-                WrapTime(mTime, mClip->duration);
-            }
+		bool NkAnimationClip::SaveBinary(const NkString &path) const {
+			ByteWriter w;
+			w.u32(kNkAnimMagic);
+			w.u32(kNkAnimVersion);
+			w.str(name);
+			w.f32(duration);
+			w.f32(fps);
+			w.u8(loop ? 1 : 0);
+			w.u32((uint32)boneTracks.Size());
+			for (uint32 b = 0; b < (uint32)boneTracks.Size(); ++b) {
+				const NkAnimationTrack<NkMat4f> &tr = boneTracks[b];
+				w.str(tr.name);
+				w.u8(tr.enabled ? 1 : 0);
+				w.u32(tr.KeyCount());
+				for (uint32 k = 0; k < tr.KeyCount(); ++k) {
+					const NkKeyframe<NkMat4f> &kf = tr.GetKey(k);
+					w.f32(kf.time);
+					w.mat(kf.value);
+					w.u8((uint8)kf.interp);
+				}
+			}
+			// Section squelette (v2) : mode local + hiérarchie + inverseBind + topo.
+			w.u8(skeletalLocal ? 1 : 0);
+			w.u32((uint32)jointParent.Size());
+			for (uint32 j = 0; j < (uint32)jointParent.Size(); ++j)
+				w.i32(jointParent[j]);
+			w.u32((uint32)jointInverseBind.Size());
+			for (uint32 j = 0; j < (uint32)jointInverseBind.Size(); ++j)
+				w.mat(jointInverseBind[j]);
+			w.u32((uint32)jointTopo.Size());
+			for (uint32 j = 0; j < (uint32)jointTopo.Size(); ++j)
+				w.u32(jointTopo[j]);
+			if (!NkFile::WriteAllBytes(path.CStr(), w.buf)) {
+				logger.Errorf("[NkAnimClip] SaveBinary echec : %s\n", path.CStr());
+				return false;
+			}
+			logger.Info("[NkAnimClip] Saved '{0}' : {1} os, {2} octets\n", path.CStr(), (uint32)boneTracks.Size(),
+						(uint32)w.buf.Size());
+			return true;
+		}
 
-            // Markers
-            for(auto& mk:mMarkers){
-                if(!mk.fired && mTime>=mk.time){
-                    mk.fired=true;
-                    if(mMarkerCb) mMarkerCb(mk.name);
-                }
-            }
+		bool NkAnimationClip::LoadBinary(const NkString &path) {
+			NkVector<nk_uint8> bytes = NkFile::ReadAllBytes(path.CStr());
+			if (bytes.Empty()) {
+				logger.Errorf("[NkAnimClip] LoadBinary vide/absent : %s\n", path.CStr());
+				return false;
+			}
+			ByteReader r(bytes.Data(), bytes.Size());
+			uint32 magic = r.u32(), ver = r.u32();
+			if (magic != kNkAnimMagic) {
+				logger.Errorf("[NkAnimClip] magic invalide (0x%08X) : %s\n", magic, path.CStr());
+				return false;
+			}
+			if (ver < 1 || ver > kNkAnimVersion) {
+				logger.Errorf("[NkAnimClip] version %u non supportee : %s\n", ver, path.CStr());
+				return false;
+			}
+			name = r.str();
+			duration = r.f32();
+			fps = r.f32();
+			loop = (r.u8() != 0);
+			uint32 nb = r.u32();
+			boneTracks.Clear();
+			boneTracks.Resize(nb);
+			boneCount = nb;
+			for (uint32 b = 0; b < nb; ++b) {
+				NkAnimationTrack<NkMat4f> &tr = boneTracks[b];
+				tr.name = r.str();
+				tr.enabled = (r.u8() != 0);
+				uint32 nk = r.u32();
+				for (uint32 k = 0; k < nk; ++k) {
+					float32 t = r.f32();
+					NkMat4f m = r.mat();
+					uint8 interp = r.u8();
+					tr.AddKey(t, m, (NkInterpMode)interp);
+				}
+			}
+			// Section squelette (v2+).
+			skeletalLocal = false;
+			jointParent.Clear();
+			jointInverseBind.Clear();
+			jointTopo.Clear();
+			if (ver >= 2) {
+				skeletalLocal = (r.u8() != 0);
+				uint32 np = r.u32();
+				jointParent.Resize(np);
+				for (uint32 j = 0; j < np; ++j)
+					jointParent[j] = r.i32();
+				uint32 ni = r.u32();
+				jointInverseBind.Resize(ni);
+				for (uint32 j = 0; j < ni; ++j)
+					jointInverseBind[j] = r.mat();
+				uint32 nt = r.u32();
+				jointTopo.Resize(nt);
+				for (uint32 j = 0; j < nt; ++j)
+					jointTopo[j] = r.u32();
+			}
+			if (!r.ok) {
+				logger.Errorf("[NkAnimClip] LoadBinary tronque : %s\n", path.CStr());
+				return false;
+			}
+			logger.Info("[NkAnimClip] Loaded '{0}' : {1} os, dur={2}s fps={3}\n", path.CStr(), nb, duration, fps);
+			return true;
+		}
 
-            // Blending
-            if(mBlendT>0.f && mNextClip){
-                mBlendT=fmaxf(0.f, mBlendT-dt);
-                float32 w=mBlendT/fmaxf(mBlendDur,0.001f);
-                Evaluate(mClip,     mTime, mState);
-                Evaluate(mNextClip, mTime, mBlendState);
-                BlendStates(mState, mBlendState, w);
-                if(mBlendT<=0.f){ mClip=mNextClip; mNextClip=nullptr; }
-            } else {
-                Evaluate(mClip, mTime, mState);
-            }
+		bool NkAnimationClip::BakeFromGLTF(const NkGLTFMeshData &data, int32 animIdx, float32 fps) {
+			if (!data.isSkinned || data.skinJoints.Empty()) {
+				logger.Errorf("[NkAnimClip] BakeFromGLTF : modele non skinne\n");
+				return false;
+			}
+			if (fps < 1.f)
+				fps = 30.f;
+			// Duree de l'animation (sinon 1 frame de bind pose).
+			float32 dur = 0.f;
+			if (animIdx >= 0 && animIdx < (int32)data.animations.Size())
+				dur = data.animations[(uint32)animIdx].duration;
+			const uint32 jc = (uint32)data.skinJoints.Size();
 
-            ComputeSpriteUV(mState, mClip);
-            ComputeTransformMatrix(mState);
-        }
+			boneTracks.Clear();
+			ResizeBones(jc);
+			for (uint32 b = 0; b < jc; ++b)
+				boneTracks[b].name = NkFormat("joint_{0}", b);
 
-        void NkAnimationPlayer::Evaluate(const NkAnimationClip* clip,
-                                        float32 t, NkAnimationState& s) {
-            if(!clip) return;
-            // Bones
-            s.boneMatrices.Resize(clip->boneCount);
-            if (clip->skeletalLocal && !clip->jointTopo.Empty()) {
-                // Mode LOCAL : sample bone-local (slerp) -> FK -> skinning.
-                for(uint32 i=0;i<clip->boneCount;i++)
-                    s.boneMatrices[i] = (i<(uint32)clip->boneTracks.Size() && !clip->boneTracks[i].Empty())
-                                      ? SampleBoneLocalSlerp(clip->boneTracks[i], t) : NkMat4f::Identity();
-                clip->ApplyFKSkinning(s.boneMatrices);
-            } else {
-                // Mode legacy : boneTracks = matrices de skinning directes.
-                for(uint32 i=0;i<clip->boneCount;i++)
-                    s.boneMatrices[i] = (i<(uint32)clip->boneTracks.Size() && !clip->boneTracks[i].Empty())
-                                      ? clip->boneTracks[i].Evaluate(t) : NkMat4f::Identity();
-            }
-            // Morph
-            s.morphWeights.Resize((uint32)clip->morphTracks.Size(), 0.f);
-            for(uint32 i=0;i<(uint32)clip->morphTracks.Size();i++)
-                s.morphWeights[i]=clip->morphTracks[i].Evaluate(t);
-            // UV
-            if(!clip->uvOffset.Empty())   s.uvOffset   =clip->uvOffset.Evaluate(t);
-            if(!clip->uvScale.Empty())    s.uvScale    =clip->uvScale.Evaluate(t);
-            if(!clip->uvRotation.Empty()) s.uvRotation =clip->uvRotation.Evaluate(t);
-            if(!clip->spriteFrame.Empty())s.spriteFrame=clip->spriteFrame.Evaluate(t);
-            // Matériau
-            if(!clip->albedoColor.Empty())   s.albedo  =clip->albedoColor.Evaluate(t);
-            if(!clip->emissiveColor.Empty()) {auto c=clip->emissiveColor.Evaluate(t); s.emissive={c.x,c.y,c.z};}
-            if(!clip->emissiveStrength.Empty()) s.emissiveStrength=clip->emissiveStrength.Evaluate(t);
-            if(!clip->metallic.Empty())  s.metallic =clip->metallic.Evaluate(t);
-            if(!clip->roughness.Empty()) s.roughness=clip->roughness.Evaluate(t);
-            if(!clip->opacity.Empty())   s.opacity  =clip->opacity.Evaluate(t);
-            // Transform
-            if(!clip->position.Empty()) s.position=clip->position.Evaluate(t);
-            if(!clip->rotation.Empty()) s.rotation=clip->rotation.Evaluate(t);
-            if(!clip->scale.Empty())    s.scale   =clip->scale.Evaluate(t);
-            // Caméra
-            if(!clip->cameraPosition.Empty()) s.camPos   =clip->cameraPosition.Evaluate(t);
-            if(!clip->cameraTarget.Empty())   s.camTarget=clip->cameraTarget.Evaluate(t);
-            if(!clip->cameraFOV.Empty())      s.camFOV   =clip->cameraFOV.Evaluate(t);
-            if(!clip->cameraDOFFocus.Empty()) s.camDOFFocus=clip->cameraDOFFocus.Evaluate(t);
-            if(!clip->cameraDOFAperture.Empty())s.camDOFApt=clip->cameraDOFAperture.Evaluate(t);
-            // Lumière
-            if(!clip->lightIntensity.Empty()){s.lightIntensity=clip->lightIntensity.Evaluate(t);}
-            if(!clip->lightColor.Empty())    {s.lightColor=clip->lightColor.Evaluate(t);}
-            if(!clip->lightPosition.Empty()) {s.lightPos=clip->lightPosition.Evaluate(t);}
-            if(!clip->lightRange.Empty())    {s.lightRange=clip->lightRange.Evaluate(t);}
-            // Post-process
-            if(!clip->ppExposure.Empty())        s.ppExposure  =clip->ppExposure.Evaluate(t);
-            if(!clip->ppSaturation.Empty())      s.ppSaturation=clip->ppSaturation.Evaluate(t);
-            if(!clip->ppContrast.Empty())        s.ppContrast  =clip->ppContrast.Evaluate(t);
-            if(!clip->ppBloomStrength.Empty())   s.ppBloom     =clip->ppBloomStrength.Evaluate(t);
-            if(!clip->ppDOFFocus.Empty())        s.ppDOFFocus  =clip->ppDOFFocus.Evaluate(t);
-            if(!clip->ppVignetteIntensity.Empty())s.ppVignette =clip->ppVignetteIntensity.Evaluate(t);
-        }
+			// ── Squelette : hiérarchie (parentJoint) + inverseBind + bindGlobal ──
+			// bindGlobal[j] = inverse(inverseBind[j]) (= global bind cohérent avec le skin,
+			// PAS EvaluateGLTFWorldJoints dont le global diffère). Sert à récupérer le
+			// global animé : global = skin × bindGlobal, puis local = inv(global[parent])×global.
+			NkVector<NkMat4f> bindGlobalUnused;
+			EvaluateGLTFWorldJoints(data, -1, 0.f, bindGlobalUnused, jointParent);
+			jointInverseBind = data.inverseBind;
+			NkVector<NkMat4f> bindGlobal;
+			bindGlobal.Resize(jc);
+			for (uint32 j = 0; j < jc; ++j)
+				bindGlobal[j] =
+					(j < (uint32)data.inverseBind.Size()) ? data.inverseBind[j].Inverse() : NkMat4f::Identity();
+			// topo (parent avant enfant)
+			jointTopo.Clear();
+			{
+				NkVector<bool> placed;
+				placed.Resize(jc);
+				for (uint32 j = 0; j < jc; ++j)
+					placed[j] = false;
+				uint32 done = 0, g = 0;
+				while (done < jc && g++ < jc + 2) {
+					for (uint32 j = 0; j < jc; ++j) {
+						if (placed[j])
+							continue;
+						int32 p = (j < (uint32)jointParent.Size()) ? jointParent[j] : -1;
+						if (p < 0 || placed[(uint32)p]) {
+							jointTopo.PushBack(j);
+							placed[j] = true;
+							++done;
+						}
+					}
+				}
+				for (uint32 j = 0; j < jc; ++j)
+					if (!placed[j])
+						jointTopo.PushBack(j);
+			}
+			skeletalLocal = true;
 
-        void NkAnimationPlayer::BlendStates(NkAnimationState& a, const NkAnimationState& b, float32 w) {
-            // w=1 → a, w=0 → b
-            float32 iw=1.f-w;
-            for(uint32 i=0;i<(uint32)a.boneMatrices.Size()&&i<(uint32)b.boneMatrices.Size();i++){
-                for(int r=0;r<4;r++) for(int c=0;c<4;c++)
-                    a.boneMatrices[i][r][c]=a.boneMatrices[i][r][c]*w+b.boneMatrices[i][r][c]*iw;
-            }
-            auto lerpf=[](float32 x,float32 y,float32 t){ return x+(y-x)*t; };
-            auto lerpv3=[](NkVec3f x,NkVec3f y,float32 t)->NkVec3f{ return {x.x+(y.x-x.x)*t,x.y+(y.y-x.y)*t,x.z+(y.z-x.z)*t}; };
-            a.albedo.x=lerpf(a.albedo.x,b.albedo.x,iw); a.albedo.y=lerpf(a.albedo.y,b.albedo.y,iw);
-            a.albedo.z=lerpf(a.albedo.z,b.albedo.z,iw); a.albedo.w=lerpf(a.albedo.w,b.albedo.w,iw);
-            a.metallic=lerpf(a.metallic,b.metallic,iw); a.roughness=lerpf(a.roughness,b.roughness,iw);
-            a.opacity=lerpf(a.opacity,b.opacity,iw);
-            a.position=lerpv3(a.position,b.position,iw);
-            a.lightIntensity=lerpf(a.lightIntensity,b.lightIntensity,iw);
-            a.ppExposure=lerpf(a.ppExposure,b.ppExposure,iw);
-        }
+			// Echantillonne la pose en MATRICES BONE-LOCAL (relatives au parent joint).
+			const uint32 frameCount = (dur > 1e-4f) ? (uint32)(dur * fps) + 1u : 1u;
+			NkVector<NkMat4f> pose, global;
+			global.Resize(jc);
+			for (uint32 f = 0; f < frameCount; ++f) {
+				float32 t = (frameCount > 1) ? (float32)f / fps : 0.f;
+				if (t > dur)
+					t = dur;
+				if (!EvaluateGLTFPose(data, animIdx, t, pose))
+					break; // skinning
+				for (uint32 j = 0; j < jc && j < (uint32)pose.Size(); ++j)
+					global[j] = pose[j] * bindGlobal[j];
+				for (uint32 j = 0; j < jc; ++j) {
+					int32 p = (j < (uint32)jointParent.Size()) ? jointParent[j] : -1;
+					NkMat4f local = (p >= 0) ? (global[(uint32)p].Inverse() * global[j]) : global[j];
+					boneTracks[j].AddKey(t, local, NkInterpMode::NK_LINEAR);
+				}
+			}
+			this->fps = fps;
+			this->duration = dur;
+			this->loop = true;
+			RecalcDuration();
+			logger.Info("[NkAnimClip] BakeFromGLTF : {0} os, {1} frames @ {2}fps, dur={3}s (LOCAL)\n", jc, frameCount,
+						fps, duration);
+			return true;
+		}
 
-        void NkAnimationPlayer::ComputeSpriteUV(NkAnimationState& s, const NkAnimationClip* clip) {
-            if(!clip||clip->spriteAtlasCols<1||clip->spriteAtlasRows<1) return;
-            uint32 f=(uint32)fmaxf(0.f,(float32)s.spriteFrame);
-            uint32 total=clip->spriteAtlasCols*clip->spriteAtlasRows;
-            f%=math::NkMax(1u,total);
-            uint32 col=f%clip->spriteAtlasCols;
-            uint32 row=f/clip->spriteAtlasCols;
-            float32 cw=1.f/clip->spriteAtlasCols;
-            float32 rh=1.f/clip->spriteAtlasRows;
-            s.spriteUV={col*cw, row*rh, (col+1)*cw, (row+1)*rh};
-        }
+		void NkAnimationClip::ApplyFKSkinning(NkVector<NkMat4f> &boneMats) const {
+			const uint32 n = (uint32)jointTopo.Size();
+			if (n == 0)
+				return;
+			NkVector<NkMat4f> global;
+			global.Resize(n > (uint32)boneMats.Size() ? n : (uint32)boneMats.Size());
+			// FK : global[j] = global[parent] × local[j]  (boneMats = locaux en entrée)
+			for (uint32 oi = 0; oi < (uint32)jointTopo.Size(); ++oi) {
+				uint32 j = jointTopo[oi];
+				int32 p = (j < (uint32)jointParent.Size()) ? jointParent[j] : -1;
+				NkMat4f local = (j < (uint32)boneMats.Size()) ? boneMats[j] : NkMat4f::Identity();
+				global[j] = (p >= 0) ? (global[(uint32)p] * local) : local;
+			}
+			// skinning[j] = global[j] × inverseBind[j]  (écrit en place)
+			for (uint32 j = 0; j < (uint32)boneMats.Size(); ++j) {
+				NkMat4f ib = (j < (uint32)jointInverseBind.Size()) ? jointInverseBind[j] : NkMat4f::Identity();
+				boneMats[j] = global[j] * ib;
+			}
+		}
 
-        void NkAnimationPlayer::ComputeTransformMatrix(NkAnimationState& s) {
-            // TRS : Translation * Rotation(quat) * Scale
-            // Quaternion → matrice
-            float32 qx=s.rotation.x,qy=s.rotation.y,qz=s.rotation.z,qw=s.rotation.w;
-            float32 x2=qx*qx,y2=qy*qy,z2=qz*qz;
-            NkMat4f rot=NkMat4f::Identity();
-            rot[0][0]=1-2*(y2+z2); rot[1][0]=2*(qx*qy-qz*qw); rot[2][0]=2*(qx*qz+qy*qw);
-            rot[0][1]=2*(qx*qy+qz*qw); rot[1][1]=1-2*(x2+z2); rot[2][1]=2*(qy*qz-qx*qw);
-            rot[0][2]=2*(qx*qz-qy*qw); rot[1][2]=2*(qy*qz+qx*qw); rot[2][2]=1-2*(x2+y2);
-            NkMat4f trs = NkMat4f::Translate(s.position)
-                        * rot
-                        * NkMat4f::Scale(s.scale);
-            s.transform = trs;
-        }
+		// Échantillonne une track de matrices BONE-LOCAL avec interp TRS-slerp (correct
+		// car les locaux sont des transforms rigides — décompose, lerp T/S, SLERP rotation).
+		static NkMat4f SampleBoneLocalSlerp(const NkAnimationTrack<NkMat4f> &tr, float32 t) {
+			uint32 n = tr.KeyCount();
+			if (n == 0)
+				return NkMat4f::Identity();
+			if (n == 1 || t <= tr.GetKey(0).time)
+				return tr.GetKey(0).value;
+			if (t >= tr.GetKey(n - 1).time)
+				return tr.GetKey(n - 1).value;
+			uint32 hi = 1;
+			while (hi < n && tr.GetKey(hi).time <= t)
+				++hi;
+			uint32 lo = hi - 1;
+			const NkKeyframe<NkMat4f> &ka = tr.GetKey(lo);
+			const NkKeyframe<NkMat4f> &kb = tr.GetKey(hi);
+			float32 dt = kb.time - ka.time;
+			float32 a = (dt > 1e-6f) ? (t - ka.time) / dt : 0.f;
+			// Interp TRS-NLerp : décompose A/B, lerp translation/scale, NLERP la rotation
+			// (lerp de quaternions + normalize, chemin court via le signe du dot). Correct
+			// sur des transforms LOCAUX rigides + visuellement propre. (NB : NkQuat::SLerp
+			// pur reste buggé sur sa branche trigonométrique pour les grosses rotations ;
+			// NLerp est suffisant et stable à 30fps. Cf NkAnima ROADMAP.) Debug : lerp
+			// matriciel direct via NK_ANIM_LERPMAT.
+			static int lerpmat = -1;
+			if (lerpmat < 0) {
+				const char *v = getenv("NK_ANIM_LERPMAT");
+				lerpmat = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			if (lerpmat) {
+				NkMat4f r;
+				for (int i = 0; i < 4; i++)
+					for (int j = 0; j < 4; j++)
+						r[i][j] = ka.value[i][j] + (kb.value[i][j] - ka.value[i][j]) * a;
+				return r;
+			}
+			NkVec3f ta, sa, tb, sb;
+			NkMat4f ra, rb;
+			ka.value.DecomposeTRS(ta, ra, sa);
+			kb.value.DecomposeTRS(tb, rb, sb);
+			NkQuatf qa(ra), qb(rb);
+			NkVec3f tt = {ta.x + (tb.x - ta.x) * a, ta.y + (tb.y - ta.y) * a, ta.z + (tb.z - ta.z) * a};
+			NkVec3f ss = {sa.x + (sb.x - sa.x) * a, sa.y + (sb.y - sa.y) * a, sa.z + (sb.z - sa.z) * a};
+			float32 d = qa.x * qb.x + qa.y * qb.y + qa.z * qb.z + qa.w * qb.w;
+			NkQuatf qbb = (d < 0.f) ? NkQuatf(-qb.x, -qb.y, -qb.z, -qb.w) : qb;
+			NkQuatf qq(qa.x + (qbb.x - qa.x) * a, qa.y + (qbb.y - qa.y) * a, qa.z + (qbb.z - qa.z) * a,
+					   qa.w + (qbb.w - qa.w) * a);
+			qq = qq.Normalized();
+			return NkMat4f::Translate(tt) * qq.ToMat4() * NkMat4f::Scale(ss);
+		}
 
-        // =========================================================================
-        // NkAnimationSystem
-        // =========================================================================
-        NkAnimationSystem::~NkAnimationSystem() { Shutdown(); }
+		void NkAnimationClip::BuildSpriteFlipBook(uint32 frameCount, float32 spriteFPS) {
+			float32 frameDur = 1.f / spriteFPS;
+			for (uint32 i = 0; i < frameCount; i++)
+				spriteFrame.AddKey(i * frameDur, (int32)i, NkInterpMode::NK_STEP);
+			RecalcDuration();
+		}
 
-        bool NkAnimationSystem::Init(NkIDevice* device, NkRender3D* r3d) {
-            mDevice=device; mR3D=r3d;
-            NkComputePipelineDesc pd; pd.debugName="MorphTargets";
-            mMorphCompute=mDevice->CreateComputePipeline(pd);
-            return true;
-        }
+		// ── Clips prédéfinis ──────────────────────────────────────────────────────
+		NkAnimationClip *NkAnimationClip::MakeSpinClip(const NkString &name, float32 rpm, NkVec3f axis) {
+			auto *c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
+			c->name = name;
+			c->duration = 60.f / fmaxf(rpm, 0.001f);
+			// Rotation complète : deux keyframes (0 → 360)
+			c->rotation.AddKey(0.f, {0, 0, 0, 1}, NkInterpMode::NK_LINEAR);
+			c->rotation.AddKey(c->duration, {0, sinf(NK_PI) * axis.y, 0, cosf(NK_PI) * axis.y},
+							   NkInterpMode::NK_LINEAR);
+			return c;
+		}
 
-        void NkAnimationSystem::Shutdown() {
-            for(auto* p:mPlayers) memory::NkGetDefaultAllocator().Delete(p); mPlayers.Clear();
-            for(auto* c:mClips)   memory::NkGetDefaultAllocator().Delete(c); mClips.Clear();
-        }
+		NkAnimationClip *NkAnimationClip::MakeLightPulse(const NkString &name, float32 minI, float32 maxI,
+														 float32 freq) {
+			auto *c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
+			c->name = name;
+			float32 per = 1.f / fmaxf(freq, 0.001f);
+			c->lightIntensity.AddKey(0.f, minI, NkInterpMode::NK_EASE_IN_OUT);
+			c->lightIntensity.AddKey(per * 0.5f, maxI, NkInterpMode::NK_EASE_IN_OUT);
+			c->lightIntensity.AddKey(per, minI, NkInterpMode::NK_EASE_IN_OUT);
+			c->duration = per;
+			c->loop = true;
+			return c;
+		}
 
-        void NkAnimationSystem::Update(float32 dt) {
-            for(auto* p:mPlayers) if(p) p->Update(dt);
-        }
+		NkAnimationClip *NkAnimationClip::MakeColorFade(const NkString &name, NkVec4f from, NkVec4f to, float32 dur,
+														NkInterpMode interp) {
+			auto *c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
+			c->name = name;
+			c->duration = dur;
+			c->albedoColor.AddKey(0.f, from, interp);
+			c->albedoColor.AddKey(dur, to, interp);
+			return c;
+		}
 
-        // ── Clips ─────────────────────────────────────────────────────────────────
-        NkAnimationClip* NkAnimationSystem::CreateClip(const NkString& name) {
-            auto* c=memory::NkGetDefaultAllocator().New<NkAnimationClip>(); c->name=name;
-            mClips.PushBack(c); return c;
-        }
-        NkAnimationClip* NkAnimationSystem::FindClip(const NkString& name) const {
-            for(auto* c:mClips) if(c&&c->name==name) return c;
-            return nullptr;
-        }
-        void NkAnimationSystem::DestroyClip(NkAnimationClip*& c){
-            for(uint32 i=0;i<(uint32)mClips.Size();i++){
-                if(mClips[i]==c){memory::NkGetDefaultAllocator().Delete(c);mClips.RemoveAt(i);break;}
-            }
-            c=nullptr;
-        }
+		NkAnimationClip *NkAnimationClip::MakeCameraShake(const NkString &name, float32 intensity, float32 dur,
+														  float32 freq) {
+			auto *c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
+			c->name = name;
+			c->duration = dur;
+			uint32 steps = (uint32)(dur * freq);
+			for (uint32 i = 0; i <= steps; i++) {
+				float32 t = (float32)i / steps * dur;
+				float32 env = 1.f - t / dur; // enveloppe d'atténuation
+				float32 ox = (((i * 12345 + 7) % 100) / 100.f * 2.f - 1.f) * intensity * env;
+				float32 oy = (((i * 23456 + 3) % 100) / 100.f * 2.f - 1.f) * intensity * env;
+				c->cameraPosition.AddKey(t, {ox, oy, 0}, NkInterpMode::NK_LINEAR);
+			}
+			return c;
+		}
 
-        // ── Players ───────────────────────────────────────────────────────────────
-        NkAnimationPlayer* NkAnimationSystem::CreatePlayer(const NkString& name) {
-            auto* p=memory::NkGetDefaultAllocator().New<NkAnimationPlayer>(); p->name=name;
-            mPlayers.PushBack(p); return p;
-        }
-        NkAnimationPlayer* NkAnimationSystem::FindPlayer(const NkString& name) const {
-            for(auto* p:mPlayers) if(p&&p->name==name) return p;
-            return nullptr;
-        }
-        void NkAnimationSystem::DestroyPlayer(NkAnimationPlayer*& p){
-            for(uint32 i=0;i<(uint32)mPlayers.Size();i++){
-                if(mPlayers[i]==p){memory::NkGetDefaultAllocator().Delete(p);mPlayers.RemoveAt(i);break;}
-            }
-            p=nullptr;
-        }
+		NkAnimationClip *NkAnimationClip::MakeProceduralWalk(uint32 boneCount, float32 dur) {
+			auto *c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
+			c->name = "ProceduralWalk";
+			c->duration = dur;
+			c->ResizeBones(boneCount);
+			// Animer chaque bone avec une sinusoïde décalée
+			for (uint32 b = 0; b < boneCount; b++) {
+				float32 phase = (float32)b / (boneCount > 1 ? boneCount - 1 : 1) * NK_PI;
+				uint32 steps = 16;
+				for (uint32 s = 0; s <= steps; s++) {
+					float32 t = (float32)s / steps * dur;
+					float32 a = sinf(2 * NK_PI * t / dur + phase) * 0.3f;
+					// Rotation Y simple
+					NkMat4f mat;
+					float32 ca = cosf(a), sa = sinf(a);
+					mat = NkMat4f::Identity();
+					mat[0][0] = ca;
+					mat[2][0] = -sa;
+					mat[0][2] = sa;
+					mat[2][2] = ca;
+					mat[3][1] = (float32)b * 0.15f;
+					c->boneTracks[b].AddKey(t, mat, NkInterpMode::NK_LINEAR);
+				}
+			}
+			return c;
+		}
 
-        // ── Application au renderer ───────────────────────────────────────────────
-        void NkAnimationSystem::ApplySkinnedMesh(NkMeshHandle mesh, NkMatInstHandle mat,
-                                                const NkMat4f& baseWorld,
-                                                const NkAnimationPlayer& player) {
-            if(!mR3D) return;
-            const auto& s=player.GetState();
-            NkDrawCallSkinned dc;
-            dc.mesh=mesh; dc.material=mat;
-            dc.transform=baseWorld*s.transform;
-            dc.boneMatrices=s.boneMatrices;
-            dc.tint={s.albedo.x,s.albedo.y,s.albedo.z};
-            dc.alpha=s.opacity;
-            mR3D->SubmitSkinned(dc);
-        }
+		// =========================================================================
+		// NkAnimationPlayer
+		// =========================================================================
+		void NkAnimationPlayer::SetClip(const NkAnimationClip *clip, bool autoResize) {
+			mClip = clip;
+			mTime = 0.f;
+			if (clip && autoResize) {
+				mState.boneMatrices.Resize(clip->boneCount);
+				for (auto &b : mState.boneMatrices)
+					b = NkMat4f::Identity();
+				mState.morphWeights.Resize((uint32)clip->morphTracks.Size(), 0.f);
+			}
+		}
 
-        void NkAnimationSystem::ApplyOnionSkin(NkMeshHandle mesh, NkMatInstHandle mat,
-                                                const NkMat4f& baseWorld,
-                                                const NkAnimationPlayer& player,
-                                                const int32* offsets, uint32 ghostCount,
-                                                NkVec4f pastCol, NkVec4f futureCol) {
-            if(!mR3D || !player.GetClip()) return;
-            const NkAnimationClip* clip=player.GetClip();
-            mTmpBones.Resize(clip->boneCount);
+		void NkAnimationPlayer::Play(NkPlayMode mode, float32 speed) {
+			mMode = mode;
+			mSpeed = speed;
+			mPlaying = true;
+			for (auto &mk : mMarkers)
+				mk.fired = false;
+		}
 
-            for(uint32 g=0;g<ghostCount;g++){
-                float32 t=player.GetTime()+(float32)offsets[g]/fmaxf(clip->fps,1.f);
-                // Évaluer les bones à ce temps
-                for(uint32 b=0;b<clip->boneCount;b++){
-                    if(b<(uint32)clip->boneTracks.Size()&&!clip->boneTracks[b].Empty())
-                        mTmpBones[b]=clip->boneTracks[b].Evaluate(t);
-                    else
-                        mTmpBones[b]=NkMat4f::Identity();
-                }
-                NkVec4f col=(offsets[g]<0)?pastCol:futureCol;
-                float32 dist=(float32)abs(offsets[g])/(float32)(ghostCount/2+1);
-                col.w*=(1.f-dist*0.5f);
+		void NkAnimationPlayer::Pause() {
+			mPlaying = false;
+		}
 
-                NkDrawCallSkinned dc;
-                dc.mesh=mesh; dc.material=mat;
-                dc.transform=baseWorld;
-                dc.boneMatrices=mTmpBones;
-                dc.tint={col.x,col.y,col.z}; dc.alpha=col.w;
-                mR3D->SubmitSkinnedTinted(dc,{col.x,col.y,col.z},col.w);
-            }
-            // Frame courant par-dessus
-            ApplySkinnedMesh(mesh,mat,baseWorld,player);
-        }
+		void NkAnimationPlayer::Stop() {
+			mPlaying = false;
+			mTime = 0.f;
+		}
 
-        NkMat4f NkAnimationSystem::ApplyTransform(const NkAnimationPlayer& player,
-                                                const NkMat4f& base) {
-            return base * player.GetState().transform;
-        }
+		void NkAnimationPlayer::SeekTo(float32 t) {
+			mTime = t;
+		}
 
-        void NkAnimationSystem::ApplyMaterial(NkMaterialInstance* inst,
-                                            const NkAnimationPlayer& player) {
-            if(!inst) return;
-            const auto& s=player.GetState();
-            inst->SetAlbedo({s.albedo.x,s.albedo.y,s.albedo.z}, s.albedo.w)
-                ->SetEmissive({s.emissive.x,s.emissive.y,s.emissive.z}, s.emissiveStrength)
-                ->SetMetallic(s.metallic)
-                ->SetRoughness(s.roughness);
-        }
+		float32 NkAnimationPlayer::GetNormTime() const {
+			if (!mClip || mClip->duration <= 0.f)
+				return 0.f;
+			return mTime / mClip->duration;
+		}
 
-        void NkAnimationSystem::ApplyCamera(NkCamera3D& cam, const NkAnimationPlayer& player) {
-            const auto& s=player.GetState();
-            cam.SetPosition(s.camPos);
-            cam.SetTarget  (s.camTarget);
-            cam.SetFOV     (s.camFOV);
-        }
+		int32 NkAnimationPlayer::GetFrame() const {
+			if (!mClip)
+				return 0;
+			return (int32)(mTime * mClip->fps);
+		}
 
-        void NkAnimationSystem::ApplyLight(NkLightDesc& light, const NkAnimationPlayer& player) {
-            const auto& s=player.GetState();
-            light.intensity = s.lightIntensity;
-            light.color     = s.lightColor;
-            light.position  = s.lightPos;
-            light.range     = s.lightRange;
-        }
+		void NkAnimationPlayer::AddMarker(float32 t, const NkString &ev) {
+			Marker mk;
+			mk.time = t;
+			mk.name = ev;
+			mMarkers.PushBack(mk);
+		}
 
-        void NkAnimationSystem::ApplyPostProcess(NkPostConfig& pp, const NkAnimationPlayer& player) {
-            const auto& s=player.GetState();
-            pp.exposure         = s.ppExposure;
-            pp.saturation       = s.ppSaturation;
-            pp.contrast         = s.ppContrast;
-            pp.bloomStrength    = s.ppBloom;
-            pp.dofFocusDist     = s.ppDOFFocus;
-            pp.vignetteIntens   = s.ppVignette;
-        }
+		void NkAnimationPlayer::BlendTo(const NkAnimationClip *next, float32 blendDur) {
+			mNextClip = next;
+			mBlendT = blendDur;
+			mBlendDur = blendDur;
+		}
 
-        NkVec4f NkAnimationSystem::GetAnimatedSpriteUV(const NkAnimationPlayer& player) {
-            return player.GetState().spriteUV;
-        }
+		void NkAnimationPlayer::WrapTime(float32 &t, float32 dur) {
+			if (dur <= 0.f) {
+				t = 0.f;
+				return;
+			}
+			switch (mMode) {
+				case NkPlayMode::NK_LOOP:
+					while (t >= dur)
+						t -= dur;
+					while (t < 0.f)
+						t += dur;
+					break;
+				case NkPlayMode::NK_PING_PONG: {
+					float32 cycle = 2.f * dur;
+					while (t >= cycle)
+						t -= cycle;
+					if (t > dur)
+						t = cycle - t;
+					break;
+				}
+				case NkPlayMode::NK_CLAMP:
+					if (t > dur)
+						t = dur;
+					break;
+				case NkPlayMode::NK_ONCE:
+					if (t >= dur) {
+						t = dur;
+						mPlaying = false;
+					}
+					break;
+			}
+		}
 
-        void NkAnimationSystem::DrawSkeleton(const NkAnimationPlayer& player,
-                                            const NkMat4f& baseWorld,
-                                            const int32* parentIdx,
-                                            NkVec4f boneColor, float32 boneSize) {
-            if(!mR3D) return;
-            const auto& s=player.GetState();
-            uint32 n=(uint32)s.boneMatrices.Size();
-            for(uint32 i=0;i<n;i++){
-                NkMat4f bw=baseWorld*s.boneMatrices[i];
-                NkVec3f pos={bw[3][0],bw[3][1],bw[3][2]};
-                mR3D->DrawDebugSphere(pos, boneSize, boneColor);
-                if(parentIdx&&parentIdx[i]>=0){
-                    int32 pi=parentIdx[i];
-                    NkMat4f pw=baseWorld*s.boneMatrices[pi];
-                    NkVec3f ppos={pw[3][0],pw[3][1],pw[3][2]};
-                    mR3D->DrawDebugLine(pos,ppos,boneColor);
-                }
-                mR3D->DrawDebugAxes(bw, boneSize*2.f);
-            }
-        }
+		void NkAnimationPlayer::Update(float32 dt) {
+			if (!mClip)
+				return;
 
-        NkMeshHandle NkAnimationSystem::ApplyMorphTargets(NkMeshHandle base,
-                                                        const NkMeshHandle* targets,
-                                                        const float32* weights,
-                                                        uint32 count, bool useGPU) {
-            // GPU : compute shader (stub) ; CPU : retourne le mesh de base pour l'instant
-            (void)targets; (void)weights; (void)count; (void)useGPU;
-            return base;
-        }
+			if (mPlaying) {
+				mTime += dt * mSpeed;
+				WrapTime(mTime, mClip->duration);
+			}
 
-    } // namespace renderer
+			// Markers
+			for (auto &mk : mMarkers) {
+				if (!mk.fired && mTime >= mk.time) {
+					mk.fired = true;
+					if (mMarkerCb)
+						mMarkerCb(mk.name);
+				}
+			}
+
+			// Blending
+			if (mBlendT > 0.f && mNextClip) {
+				mBlendT = fmaxf(0.f, mBlendT - dt);
+				float32 w = mBlendT / fmaxf(mBlendDur, 0.001f);
+				Evaluate(mClip, mTime, mState);
+				Evaluate(mNextClip, mTime, mBlendState);
+				BlendStates(mState, mBlendState, w);
+				if (mBlendT <= 0.f) {
+					mClip = mNextClip;
+					mNextClip = nullptr;
+				}
+			} else {
+				Evaluate(mClip, mTime, mState);
+			}
+
+			ComputeSpriteUV(mState, mClip);
+			ComputeTransformMatrix(mState);
+		}
+
+		void NkAnimationPlayer::Evaluate(const NkAnimationClip *clip, float32 t, NkAnimationState &s) {
+			if (!clip)
+				return;
+			// Bones
+			s.boneMatrices.Resize(clip->boneCount);
+			if (clip->skeletalLocal && !clip->jointTopo.Empty()) {
+				// Mode LOCAL : sample bone-local (slerp) -> FK -> skinning.
+				for (uint32 i = 0; i < clip->boneCount; i++)
+					s.boneMatrices[i] = (i < (uint32)clip->boneTracks.Size() && !clip->boneTracks[i].Empty())
+											? SampleBoneLocalSlerp(clip->boneTracks[i], t)
+											: NkMat4f::Identity();
+				clip->ApplyFKSkinning(s.boneMatrices);
+			} else {
+				// Mode legacy : boneTracks = matrices de skinning directes.
+				for (uint32 i = 0; i < clip->boneCount; i++)
+					s.boneMatrices[i] = (i < (uint32)clip->boneTracks.Size() && !clip->boneTracks[i].Empty())
+											? clip->boneTracks[i].Evaluate(t)
+											: NkMat4f::Identity();
+			}
+			// Morph
+			s.morphWeights.Resize((uint32)clip->morphTracks.Size(), 0.f);
+			for (uint32 i = 0; i < (uint32)clip->morphTracks.Size(); i++)
+				s.morphWeights[i] = clip->morphTracks[i].Evaluate(t);
+			// UV
+			if (!clip->uvOffset.Empty())
+				s.uvOffset = clip->uvOffset.Evaluate(t);
+			if (!clip->uvScale.Empty())
+				s.uvScale = clip->uvScale.Evaluate(t);
+			if (!clip->uvRotation.Empty())
+				s.uvRotation = clip->uvRotation.Evaluate(t);
+			if (!clip->spriteFrame.Empty())
+				s.spriteFrame = clip->spriteFrame.Evaluate(t);
+			// Matériau
+			if (!clip->albedoColor.Empty())
+				s.albedo = clip->albedoColor.Evaluate(t);
+			if (!clip->emissiveColor.Empty()) {
+				auto c = clip->emissiveColor.Evaluate(t);
+				s.emissive = {c.x, c.y, c.z};
+			}
+			if (!clip->emissiveStrength.Empty())
+				s.emissiveStrength = clip->emissiveStrength.Evaluate(t);
+			if (!clip->metallic.Empty())
+				s.metallic = clip->metallic.Evaluate(t);
+			if (!clip->roughness.Empty())
+				s.roughness = clip->roughness.Evaluate(t);
+			if (!clip->opacity.Empty())
+				s.opacity = clip->opacity.Evaluate(t);
+			// Transform
+			if (!clip->position.Empty())
+				s.position = clip->position.Evaluate(t);
+			if (!clip->rotation.Empty())
+				s.rotation = clip->rotation.Evaluate(t);
+			if (!clip->scale.Empty())
+				s.scale = clip->scale.Evaluate(t);
+			// Caméra
+			if (!clip->cameraPosition.Empty())
+				s.camPos = clip->cameraPosition.Evaluate(t);
+			if (!clip->cameraTarget.Empty())
+				s.camTarget = clip->cameraTarget.Evaluate(t);
+			if (!clip->cameraFOV.Empty())
+				s.camFOV = clip->cameraFOV.Evaluate(t);
+			if (!clip->cameraDOFFocus.Empty())
+				s.camDOFFocus = clip->cameraDOFFocus.Evaluate(t);
+			if (!clip->cameraDOFAperture.Empty())
+				s.camDOFApt = clip->cameraDOFAperture.Evaluate(t);
+			// Lumière
+			if (!clip->lightIntensity.Empty()) {
+				s.lightIntensity = clip->lightIntensity.Evaluate(t);
+			}
+			if (!clip->lightColor.Empty()) {
+				s.lightColor = clip->lightColor.Evaluate(t);
+			}
+			if (!clip->lightPosition.Empty()) {
+				s.lightPos = clip->lightPosition.Evaluate(t);
+			}
+			if (!clip->lightRange.Empty()) {
+				s.lightRange = clip->lightRange.Evaluate(t);
+			}
+			// Post-process
+			if (!clip->ppExposure.Empty())
+				s.ppExposure = clip->ppExposure.Evaluate(t);
+			if (!clip->ppSaturation.Empty())
+				s.ppSaturation = clip->ppSaturation.Evaluate(t);
+			if (!clip->ppContrast.Empty())
+				s.ppContrast = clip->ppContrast.Evaluate(t);
+			if (!clip->ppBloomStrength.Empty())
+				s.ppBloom = clip->ppBloomStrength.Evaluate(t);
+			if (!clip->ppDOFFocus.Empty())
+				s.ppDOFFocus = clip->ppDOFFocus.Evaluate(t);
+			if (!clip->ppVignetteIntensity.Empty())
+				s.ppVignette = clip->ppVignetteIntensity.Evaluate(t);
+		}
+
+		void NkAnimationPlayer::BlendStates(NkAnimationState &a, const NkAnimationState &b, float32 w) {
+			// w=1 → a, w=0 → b
+			float32 iw = 1.f - w;
+			for (uint32 i = 0; i < (uint32)a.boneMatrices.Size() && i < (uint32)b.boneMatrices.Size(); i++) {
+				for (int r = 0; r < 4; r++)
+					for (int c = 0; c < 4; c++)
+						a.boneMatrices[i][r][c] = a.boneMatrices[i][r][c] * w + b.boneMatrices[i][r][c] * iw;
+			}
+			auto lerpf = [](float32 x, float32 y, float32 t) { return x + (y - x) * t; };
+			auto lerpv3 = [](NkVec3f x, NkVec3f y, float32 t) -> NkVec3f {
+				return {x.x + (y.x - x.x) * t, x.y + (y.y - x.y) * t, x.z + (y.z - x.z) * t};
+			};
+			a.albedo.x = lerpf(a.albedo.x, b.albedo.x, iw);
+			a.albedo.y = lerpf(a.albedo.y, b.albedo.y, iw);
+			a.albedo.z = lerpf(a.albedo.z, b.albedo.z, iw);
+			a.albedo.w = lerpf(a.albedo.w, b.albedo.w, iw);
+			a.metallic = lerpf(a.metallic, b.metallic, iw);
+			a.roughness = lerpf(a.roughness, b.roughness, iw);
+			a.opacity = lerpf(a.opacity, b.opacity, iw);
+			a.position = lerpv3(a.position, b.position, iw);
+			a.lightIntensity = lerpf(a.lightIntensity, b.lightIntensity, iw);
+			a.ppExposure = lerpf(a.ppExposure, b.ppExposure, iw);
+		}
+
+		void NkAnimationPlayer::ComputeSpriteUV(NkAnimationState &s, const NkAnimationClip *clip) {
+			if (!clip || clip->spriteAtlasCols < 1 || clip->spriteAtlasRows < 1)
+				return;
+			uint32 f = (uint32)fmaxf(0.f, (float32)s.spriteFrame);
+			uint32 total = clip->spriteAtlasCols * clip->spriteAtlasRows;
+			f %= math::NkMax(1u, total);
+			uint32 col = f % clip->spriteAtlasCols;
+			uint32 row = f / clip->spriteAtlasCols;
+			float32 cw = 1.f / clip->spriteAtlasCols;
+			float32 rh = 1.f / clip->spriteAtlasRows;
+			s.spriteUV = {col * cw, row * rh, (col + 1) * cw, (row + 1) * rh};
+		}
+
+		void NkAnimationPlayer::ComputeTransformMatrix(NkAnimationState &s) {
+			// TRS : Translation * Rotation(quat) * Scale
+			// Quaternion → matrice
+			float32 qx = s.rotation.x, qy = s.rotation.y, qz = s.rotation.z, qw = s.rotation.w;
+			float32 x2 = qx * qx, y2 = qy * qy, z2 = qz * qz;
+			NkMat4f rot = NkMat4f::Identity();
+			rot[0][0] = 1 - 2 * (y2 + z2);
+			rot[1][0] = 2 * (qx * qy - qz * qw);
+			rot[2][0] = 2 * (qx * qz + qy * qw);
+			rot[0][1] = 2 * (qx * qy + qz * qw);
+			rot[1][1] = 1 - 2 * (x2 + z2);
+			rot[2][1] = 2 * (qy * qz - qx * qw);
+			rot[0][2] = 2 * (qx * qz - qy * qw);
+			rot[1][2] = 2 * (qy * qz + qx * qw);
+			rot[2][2] = 1 - 2 * (x2 + y2);
+			NkMat4f trs = NkMat4f::Translate(s.position) * rot * NkMat4f::Scale(s.scale);
+			s.transform = trs;
+		}
+
+		// =========================================================================
+		// NkAnimationSystem
+		// =========================================================================
+		NkAnimationSystem::~NkAnimationSystem() {
+			Shutdown();
+		}
+
+		bool NkAnimationSystem::Init(NkIDevice *device, NkRender3D *r3d) {
+			mDevice = device;
+			mR3D = r3d;
+			NkComputePipelineDesc pd;
+			pd.debugName = "MorphTargets";
+			mMorphCompute = mDevice->CreateComputePipeline(pd);
+			return true;
+		}
+
+		void NkAnimationSystem::Shutdown() {
+			for (auto *p : mPlayers)
+				memory::NkGetDefaultAllocator().Delete(p);
+			mPlayers.Clear();
+			for (auto *c : mClips)
+				memory::NkGetDefaultAllocator().Delete(c);
+			mClips.Clear();
+		}
+
+		void NkAnimationSystem::Update(float32 dt) {
+			for (auto *p : mPlayers)
+				if (p)
+					p->Update(dt);
+		}
+
+		// ── Clips ─────────────────────────────────────────────────────────────────
+		NkAnimationClip *NkAnimationSystem::CreateClip(const NkString &name) {
+			auto *c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
+			c->name = name;
+			mClips.PushBack(c);
+			return c;
+		}
+
+		NkAnimationClip *NkAnimationSystem::FindClip(const NkString &name) const {
+			for (auto *c : mClips)
+				if (c && c->name == name)
+					return c;
+			return nullptr;
+		}
+
+		void NkAnimationSystem::DestroyClip(NkAnimationClip *&c) {
+			for (uint32 i = 0; i < (uint32)mClips.Size(); i++) {
+				if (mClips[i] == c) {
+					memory::NkGetDefaultAllocator().Delete(c);
+					mClips.RemoveAt(i);
+					break;
+				}
+			}
+			c = nullptr;
+		}
+
+		// ── Players ───────────────────────────────────────────────────────────────
+		NkAnimationPlayer *NkAnimationSystem::CreatePlayer(const NkString &name) {
+			auto *p = memory::NkGetDefaultAllocator().New<NkAnimationPlayer>();
+			p->name = name;
+			mPlayers.PushBack(p);
+			return p;
+		}
+
+		NkAnimationPlayer *NkAnimationSystem::FindPlayer(const NkString &name) const {
+			for (auto *p : mPlayers)
+				if (p && p->name == name)
+					return p;
+			return nullptr;
+		}
+
+		void NkAnimationSystem::DestroyPlayer(NkAnimationPlayer *&p) {
+			for (uint32 i = 0; i < (uint32)mPlayers.Size(); i++) {
+				if (mPlayers[i] == p) {
+					memory::NkGetDefaultAllocator().Delete(p);
+					mPlayers.RemoveAt(i);
+					break;
+				}
+			}
+			p = nullptr;
+		}
+
+		// ── Application au renderer ───────────────────────────────────────────────
+		void NkAnimationSystem::ApplySkinnedMesh(NkMeshHandle mesh, NkMatInstHandle mat, const NkMat4f &baseWorld,
+												 const NkAnimationPlayer &player) {
+			if (!mR3D)
+				return;
+			const auto &s = player.GetState();
+			NkDrawCallSkinned dc;
+			dc.mesh = mesh;
+			dc.material = mat;
+			dc.transform = baseWorld * s.transform;
+			dc.boneMatrices = s.boneMatrices;
+			dc.tint = {s.albedo.x, s.albedo.y, s.albedo.z};
+			dc.alpha = s.opacity;
+			mR3D->SubmitSkinned(dc);
+		}
+
+		void NkAnimationSystem::ApplyOnionSkin(NkMeshHandle mesh, NkMatInstHandle mat, const NkMat4f &baseWorld,
+											   const NkAnimationPlayer &player, const int32 *offsets, uint32 ghostCount,
+											   NkVec4f pastCol, NkVec4f futureCol) {
+			if (!mR3D || !player.GetClip())
+				return;
+			const NkAnimationClip *clip = player.GetClip();
+			mTmpBones.Resize(clip->boneCount);
+
+			for (uint32 g = 0; g < ghostCount; g++) {
+				float32 t = player.GetTime() + (float32)offsets[g] / fmaxf(clip->fps, 1.f);
+				// Évaluer les bones à ce temps
+				for (uint32 b = 0; b < clip->boneCount; b++) {
+					if (b < (uint32)clip->boneTracks.Size() && !clip->boneTracks[b].Empty())
+						mTmpBones[b] = clip->boneTracks[b].Evaluate(t);
+					else
+						mTmpBones[b] = NkMat4f::Identity();
+				}
+				NkVec4f col = (offsets[g] < 0) ? pastCol : futureCol;
+				float32 dist = (float32)abs(offsets[g]) / (float32)(ghostCount / 2 + 1);
+				col.w *= (1.f - dist * 0.5f);
+
+				NkDrawCallSkinned dc;
+				dc.mesh = mesh;
+				dc.material = mat;
+				dc.transform = baseWorld;
+				dc.boneMatrices = mTmpBones;
+				dc.tint = {col.x, col.y, col.z};
+				dc.alpha = col.w;
+				mR3D->SubmitSkinnedTinted(dc, {col.x, col.y, col.z}, col.w);
+			}
+			// Frame courant par-dessus
+			ApplySkinnedMesh(mesh, mat, baseWorld, player);
+		}
+
+		NkMat4f NkAnimationSystem::ApplyTransform(const NkAnimationPlayer &player, const NkMat4f &base) {
+			return base * player.GetState().transform;
+		}
+
+		void NkAnimationSystem::ApplyMaterial(NkMaterialInstance *inst, const NkAnimationPlayer &player) {
+			if (!inst)
+				return;
+			const auto &s = player.GetState();
+			inst->SetAlbedo({s.albedo.x, s.albedo.y, s.albedo.z}, s.albedo.w)
+				->SetEmissive({s.emissive.x, s.emissive.y, s.emissive.z}, s.emissiveStrength)
+				->SetMetallic(s.metallic)
+				->SetRoughness(s.roughness);
+		}
+
+		void NkAnimationSystem::ApplyCamera(NkCamera3D &cam, const NkAnimationPlayer &player) {
+			const auto &s = player.GetState();
+			cam.SetPosition(s.camPos);
+			cam.SetTarget(s.camTarget);
+			cam.SetFOV(s.camFOV);
+		}
+
+		void NkAnimationSystem::ApplyLight(NkLightDesc &light, const NkAnimationPlayer &player) {
+			const auto &s = player.GetState();
+			light.intensity = s.lightIntensity;
+			light.color = s.lightColor;
+			light.position = s.lightPos;
+			light.range = s.lightRange;
+		}
+
+		void NkAnimationSystem::ApplyPostProcess(NkPostConfig &pp, const NkAnimationPlayer &player) {
+			const auto &s = player.GetState();
+			pp.exposure = s.ppExposure;
+			pp.saturation = s.ppSaturation;
+			pp.contrast = s.ppContrast;
+			pp.bloomStrength = s.ppBloom;
+			pp.dofFocusDist = s.ppDOFFocus;
+			pp.vignetteIntens = s.ppVignette;
+		}
+
+		NkVec4f NkAnimationSystem::GetAnimatedSpriteUV(const NkAnimationPlayer &player) {
+			return player.GetState().spriteUV;
+		}
+
+		void NkAnimationSystem::DrawSkeleton(const NkAnimationPlayer &player, const NkMat4f &baseWorld,
+											 const int32 *parentIdx, NkVec4f boneColor, float32 boneSize) {
+			if (!mR3D)
+				return;
+			const auto &s = player.GetState();
+			uint32 n = (uint32)s.boneMatrices.Size();
+			for (uint32 i = 0; i < n; i++) {
+				NkMat4f bw = baseWorld * s.boneMatrices[i];
+				NkVec3f pos = {bw[3][0], bw[3][1], bw[3][2]};
+				mR3D->DrawDebugSphere(pos, boneSize, boneColor);
+				if (parentIdx && parentIdx[i] >= 0) {
+					int32 pi = parentIdx[i];
+					NkMat4f pw = baseWorld * s.boneMatrices[pi];
+					NkVec3f ppos = {pw[3][0], pw[3][1], pw[3][2]};
+					mR3D->DrawDebugLine(pos, ppos, boneColor);
+				}
+				mR3D->DrawDebugAxes(bw, boneSize * 2.f);
+			}
+		}
+
+		NkMeshHandle NkAnimationSystem::ApplyMorphTargets(NkMeshHandle base, const NkMeshHandle *targets,
+														  const float32 *weights, uint32 count, bool useGPU) {
+			// GPU : compute shader (stub) ; CPU : retourne le mesh de base pour l'instant
+			(void)targets;
+			(void)weights;
+			(void)count;
+			(void)useGPU;
+			return base;
+		}
+
+	} // namespace renderer
 } // namespace nkentseu

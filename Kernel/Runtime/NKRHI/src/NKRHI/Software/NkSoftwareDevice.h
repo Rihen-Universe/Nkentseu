@@ -16,7 +16,7 @@
 #include "NKMath/NKMath.h"
 
 #include "NkSWPixel.h"
-#include "Trace/NkSWRayTrace.h"   // v4 Phase 4 : type swtrace::Tri pour la collecte BPR
+#include "Trace/NkSWRayTrace.h"	  // v4 Phase 4 : type swtrace::Tri pour la collecte BPR
 #include "NKSL/VM/NkSLByteCode.h" // v5 Phase A : NkSLByteProgram (VM NkSL software)
 
 #include <memory>
@@ -26,811 +26,990 @@
 #include <algorithm>
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-#   ifndef WIN32_LEAN_AND_MEAN
-#   define WIN32_LEAN_AND_MEAN
-#   endif
-#   include <windows.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #elif defined(NKENTSEU_WINDOWING_XLIB)
-#   include <X11/Xlib.h>
-#   include <X11/Xutil.h>
-#   include <X11/extensions/XShm.h>
-#   include <sys/ipc.h>
-#   include <sys/shm.h>
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <X11/extensions/XShm.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #elif defined(NKENTSEU_WINDOWING_XCB)
-#   include <xcb/xcb.h>
-#   include <xcb/xcb_image.h>
+#include <xcb/xcb.h>
+#include <xcb/xcb_image.h>
 #elif defined(NKENTSEU_WINDOWING_WAYLAND)
-#   include <wayland-client.h>
-#   include <sys/mman.h>
-#   include <unistd.h>
+#include <wayland-client.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #elif defined(NKENTSEU_PLATFORM_ANDROID)
-#   include <android/native_window.h> 
+#include <android/native_window.h>
 #elif defined(NKENTSEU_PLATFORM_HARMONYOS)
-    // HarmonyOS : présentation via OHNativeWindow (identique à ANativeWindow côté ABI)
-    // Le XComponent héberge la surface native — OH_NativeXComponent fournit le handle.
-    // Format RGBA8888 — pas de swap de canaux (NK_SW_PIXEL_BGRA = 0).
-#   include <native_window/external_window.h>      // OHNativeWindow
-    // Note : l'include exact dépend de la version du NDK OHOS.
-    // Si external_window.h n'est pas disponible, utiliser le handle vide et
-    // implémenter la présentation via un callback ArkTS (NkHarmonyBridge.presentFrame).
+// HarmonyOS : présentation via OHNativeWindow (identique à ANativeWindow côté ABI)
+// Le XComponent héberge la surface native — OH_NativeXComponent fournit le handle.
+// Format RGBA8888 — pas de swap de canaux (NK_SW_PIXEL_BGRA = 0).
+#include <native_window/external_window.h> // OHNativeWindow
+// Note : l'include exact dépend de la version du NDK OHOS.
+// Si external_window.h n'est pas disponible, utiliser le handle vide et
+// implémenter la présentation via un callback ArkTS (NkHarmonyBridge.presentFrame).
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-#   include <emscripten.h>
-#   include <emscripten/html5.h>
+#include <emscripten.h>
+#include <emscripten/html5.h>
 #endif
 
 namespace nkentseu {
 
-    class NkSoftwareCommandBuffer;
-
-    // =============================================================================
-    // Types internes
-    // =============================================================================
-    using NkSWVec4  = math::NkVec4;
-    using NkSWVec3  = math::NkVec3;
-    using NkSWVec2  = math::NkVec2;
-    using NkSWColor = math::NkVec4;
-
-    // =============================================================================
-    struct NkSWBuffer {
-        NkVector<uint8> data;
-        NkBufferDesc desc;
-        bool mapped = false;
-    };
-
-    struct NkSWSampler {
-        NkSamplerDesc desc;
-        NkSWColor Sample(const NkVector<uint8>& pixels, uint32 width, uint32 height, uint32 bpp, float32 u, float32 v) const;
-    };
-
-    struct NkSWTexture {
-        NkVector<NkVector<uint8>> mips; // mip[0] = niveau 0
-        NkTextureDesc desc;
-        bool isRenderTarget = false;
-        NkSWSampler defaultSampler;
-        uint32 Width (uint32 mip=0) const { return math::NkMax(1u, desc.width  >> mip); }
-        uint32 Height(uint32 mip=0) const { return math::NkMax(1u, desc.height >> mip); }
-        uint32 Bpp()                const { return NkFormatBytesPerPixel(desc.format); }
-        NkSWColor Sample(float32 u, float32 v, uint32 mip=0) const;
-        NkSWColor Read(uint32 x, uint32 y, uint32 mip=0) const;
-        void Write(uint32 x, uint32 y, const NkSWColor& c, uint32 mip=0);
-    };
-
-    struct NkSWShader {
-        NkVertexShaderSoftware  vertFn;
-        NkPixelShaderSoftware   fragFn;
-        bool isCompute = false;
-        // v4 Phase 5 : passe plein-écran générée (gl_VertexID, pipeline stride 0). Le vertFn
-        // synthétise le triangle depuis l'index et TOLÈRE vdata==nullptr. Sans ce flag, un
-        // pipeline stride-0 n'active PAS le chemin vertexless (évite un deref null dans les
-        // vertFn 3D qui lisent vdata+idx*stride).
-        bool genVertsFromID = false;
-        // Le fragment calcule SA PROPRE profondeur (ex. grille sol : depth du point d'intersection).
-        // Le rasterizer reporte alors le depth-test APRÈS le fragFn, avec swraster::tl_fragDepth.
-        bool fragDepth = false;
-        // Le vertFn dépend de l'index d'instance (gl_InstanceID via SwCurInstance) : ex. shadow
-        // instancié qui indexe l'InstanceUBO. ExecuteDraw*Fast RE-GÉNÈRE alors les sommets par
-        // instance (au lieu de les calculer une fois et réutiliser). false => draw non instancié.
-        bool usesInstancing = false;
-        NkComputeShaderSoftware computeFn;
-        // v5 Phase A (VM NkSL) : programmes bytecode (heap, adresse stable), libérés au DestroyShader.
-        NkSLByteProgram* vmVert    = nullptr;
-        NkSLByteProgram* vmFrag    = nullptr;
-        NkSLByteProgram* vmCompute = nullptr;
-    };
-
-    struct NkSWPipeline {
-        uint64 shaderId   = 0;
-        bool isCompute    = false;
-        bool depthTest    = true;
-        bool depthWrite   = true;
-        bool blendEnable  = false;
-        NkCompareOp  depthOp   = NkCompareOp::NK_LESS;
-        NkCullMode   cullMode  = NkCullMode::NK_BACK;
-        NkFrontFace  frontFace = NkFrontFace::NK_CCW;
-        NkBlendFactor srcColor = NkBlendFactor::NK_SRC_ALPHA;
-        NkBlendFactor dstColor = NkBlendFactor::NK_ONE_MINUS_SRC_ALPHA;
-        NkPrimitiveTopology topology = NkPrimitiveTopology::NK_TRIANGLE_LIST;
-        uint32 vertexStride = 0;
-    };
-
-    struct NkSWRenderPass   { NkRenderPassDesc desc; };
-
-    struct NkSWFramebuffer  {
-        uint64 colorId   = 0;
-        uint64 depthId   = 0;
-        uint32 w=0, h=0;
-    };
-
-    struct NkSWDescSetLayout { NkDescriptorSetLayoutDesc desc; };
-
-    struct NkSWDescSet {
-        struct Binding { uint32 slot=0; NkDescriptorType type{}; uint64 bufId=0; uint64 texId=0; uint64 sampId=0; };
-        NkVector<Binding> bindings;
-    };
-
-    struct NkSWFence { bool signaled=false; };
-
-
-    // =============================================================================
-    // Batch de textures pour le fragment shader (jusqu'à 8 textures)
-    // =============================================================================
-    static constexpr uint32 kMaxTextures = 8;
-    static constexpr uint32 kMaxUBOs     = 8;
-
-    struct NkSWTextureBatch {
-        const NkSWTexture* tex[kMaxTextures] = {};
-        uint32             count = 0;
-
-        const NkSWTexture* operator[](uint32 i) const {
-            return i < count ? tex[i] : nullptr;
-        }
-    };
-
-    struct NkSWUniformBatch {
-        const void* ubo[kMaxUBOs] = {};
-        uint32      sizes[kMaxUBOs] = {};
-        uint32      count = 0;
-
-        const void* operator[](uint32 i) const {
-            return i < count ? ubo[i] : nullptr;
-        }
-    };
-    // =============================================================================
-    // Rastériseur interne
-    // =============================================================================
-    struct NkSWRasterState {
-        NkSWTexture*   colorTarget = nullptr;
-        NkSWTexture*   depthTarget = nullptr;
-        NkSWPipeline*  pipeline    = nullptr;
-        NkSWShader*    shader      = nullptr;
-        const void*    uniformData = nullptr;
-        const void*    texSampler  = nullptr;
-        const void*    vertexData  = nullptr;
-        uint32         vertexStride= 0;
-        bool           wireframe   = false;
-    };
-
-    struct NkSWRasterizer {
-            void SetState(const NkSWRasterState& state) { mState = state; }
-
-            void DrawTriangles(const NkVertexSoftware* vertices, uint32 count);
-            void DrawTriangle (const NkVertexSoftware& v0, const NkVertexSoftware& v1, const NkVertexSoftware& v2);
-            void DrawLine     (const NkVertexSoftware& v0, const NkVertexSoftware& v1);
-            void DrawPoint    (const NkVertexSoftware& v0);
-
-            using Vertex = math::NkVec3;
-            using Color  = math::NkColor;
-
-            struct VertexColor {
-                Vertex position;
-                Color color;
-
-                VertexColor() : position(), color() {}
-                VertexColor(const Vertex& inPosition, const Color& inColor)
-                    : position(inPosition), color(inColor) {}
-                VertexColor(float32 x, float32 y, float32 z,
-                            uint8 r, uint8 g, uint8 b, uint8 a = 255u)
-                    : position(x, y, z), color(r, g, b, a) {}
-            };
-
-            NkVector<uint8> pixels;
-            NkVector<float32> depth;
-            uint32 width  = 0;
-            uint32 height = 0;
-            uint32 stride = 0;
-            uint32 clipMinX = 0;
-            uint32 clipMinY = 0;
-            uint32 clipMaxX = 0;
-            uint32 clipMaxY = 0;
-            bool   depthEnabled = true;
-
-            void Resize(uint32 w, uint32 h) {
-                width = w;
-                height = h;
-                stride = w * 4u;
-
-                const usize pixelCount = static_cast<usize>(stride) * static_cast<usize>(h);
-                pixels.Assign(static_cast<uint8>(0), static_cast<NkVector<uint8>::SizeType>(pixelCount));
-
-                ResetClipRect();
-                if (depthEnabled) {
-                    const usize depthCount = static_cast<usize>(w) * static_cast<usize>(h);
-                    depth.Assign(1.0f, static_cast<NkVector<float32>::SizeType>(depthCount));
-                } else {
-                    depth.Clear();
-                }
-            }
-
-            void Clear(uint8 r = 0, uint8 g = 0, uint8 b = 0, uint8 a = 255) {
-                for (uint32 y = 0; y < height; ++y) {
-                    nkentseu::sw_detail::ClearRow(RowPtr(y), width, r, g, b, a);
-                }
-                if (depthEnabled) ClearDepth(1.0f);
-            }
-
-            void ClearDepth(float32 clearValue = 1.0f) {
-                if (!depthEnabled) return;
-
-                const usize depthCount = static_cast<usize>(width) * static_cast<usize>(height);
-                if (depth.Size() != depthCount) {
-                    depth.Assign(clearValue, static_cast<NkVector<float32>::SizeType>(depthCount));
-                    return;
-                }
-
-                for (usize i = 0; i < depth.Size(); ++i) {
-                    depth[i] = clearValue;
-                }
-            }
-
-            void EnableDepthBuffer(bool enabled = true, float32 clearValue = 1.0f) {
-                depthEnabled = enabled;
-                if (!enabled) {
-                    depth.Clear();
-                    return;
-                }
-
-                const usize depthCount = static_cast<usize>(width) * static_cast<usize>(height);
-                depth.Assign(clearValue, static_cast<NkVector<float32>::SizeType>(depthCount));
-            }
-
-            bool HasDepthBuffer() const {
-                return depthEnabled && !depth.Empty() &&
-                    depth.Size() == static_cast<usize>(width) * static_cast<usize>(height);
-            }
-
-            uint8*       RowPtr(uint32 y)       { return pixels.Data() + y * stride; }
-            const uint8* RowPtr(uint32 y) const { return pixels.Data() + y * stride; }
-
-            void SetPixel(uint32 x, uint32 y, uint8 r, uint8 g, uint8 b, uint8 a = 255) {
-                if (x >= width || y >= height) return;
-                PutPixelUnchecked(x, y, r, g, b, a, false);
-            }
-
-            void DrawPoint(int32 x, int32 y, uint8 r, uint8 g, uint8 b, uint8 a = 255,
-                        float32 z = 0.0f, bool blend = true) {
-                if (!IsInsideRasterBounds(x, y) || !IsInsideClip(x, y)) return;
-
-                const uint32 px = static_cast<uint32>(x);
-                const uint32 py = static_cast<uint32>(y);
-                if (!DepthPass(px, py, z)) return;
-                PutPixelUnchecked(px, py, r, g, b, a, blend);
-            }
-
-            void DrawLine(int32 x0, int32 y0, int32 x1, int32 y1,
-                        uint8 r, uint8 g, uint8 b, uint8 a = 255,
-                        float32 z0 = 0.0f, float32 z1 = 0.0f, bool blend = true) {
-                int32 dx = AbsInt(x1 - x0);
-                int32 sx = (x0 < x1) ? 1 : -1;
-                int32 dy = -AbsInt(y1 - y0);
-                int32 sy = (y0 < y1) ? 1 : -1;
-                int32 err = dx + dy;
-                int32 step = 0;
-                const int32 steps = MaxInt(dx, -dy);
-
-                for (;;) {
-                    const float32 t = (steps > 0) ? static_cast<float32>(step) / static_cast<float32>(steps) : 0.0f;
-                    DrawPoint(x0, y0, r, g, b, a, z0 + (z1 - z0) * t, blend);
-                    if (x0 == x1 && y0 == y1) break;
-                    const int32 e2 = err * 2;
-                    if (e2 >= dy) { err += dy; x0 += sx; }
-                    if (e2 <= dx) { err += dx; y0 += sy; }
-                    ++step;
-                }
-            }
-
-            void DrawRect(int32 x, int32 y, int32 w, int32 h,
-                        uint8 r, uint8 g, uint8 b, uint8 a = 255,
-                        float32 z = 0.0f, bool blend = true) {
-                if (w <= 0 || h <= 0) return;
-
-                const int32 x1 = x + w - 1;
-                const int32 y1 = y + h - 1;
-                DrawLine(x,  y,  x1, y,  r, g, b, a, z, z, blend);
-                DrawLine(x1, y,  x1, y1, r, g, b, a, z, z, blend);
-                DrawLine(x1, y1, x,  y1, r, g, b, a, z, z, blend);
-                DrawLine(x,  y1, x,  y,  r, g, b, a, z, z, blend);
-            }
-
-            void FillRect(int32 x, int32 y, int32 w, int32 h,
-                        uint8 r, uint8 g, uint8 b, uint8 a = 255,
-                        float32 z = 0.0f, bool blend = true) {
-                if (w <= 0 || h <= 0 || width == 0 || height == 0) return;
-                int32 x0 = MaxInt(x, static_cast<int32>(clipMinX));
-                int32 y0 = MaxInt(y, static_cast<int32>(clipMinY));
-                int32 x1 = MinInt(x + w, static_cast<int32>(clipMaxX));
-                int32 y1 = MinInt(y + h, static_cast<int32>(clipMaxY));
-                if (x0 >= x1 || y0 >= y1) return;
-                for (int32 py = y0; py < y1; ++py) {
-                    uint8* row = RowPtr(static_cast<uint32>(py));
-                    if (!blend || a == 255u)
-                        nkentseu::sw_detail::FillSpanOpaque(row, x0, x1, r, g, b);
-                    else
-                        nkentseu::sw_detail::BlendSpanAlpha(row, x0, x1, r, g, b, a);
-                }
-            }
-
-            void DrawTriangle(const Vertex& v0, const Vertex& v1, const Vertex& v2,
-                            uint8 r, uint8 g, uint8 b, uint8 a = 255, bool blend = true) {
-                DrawLine(RoundToInt(v0.x), RoundToInt(v0.y), RoundToInt(v1.x), RoundToInt(v1.y), r, g, b, a, v0.z, v1.z, blend);
-                DrawLine(RoundToInt(v1.x), RoundToInt(v1.y), RoundToInt(v2.x), RoundToInt(v2.y), r, g, b, a, v1.z, v2.z, blend);
-                DrawLine(RoundToInt(v2.x), RoundToInt(v2.y), RoundToInt(v0.x), RoundToInt(v0.y), r, g, b, a, v2.z, v0.z, blend);
-            }
-
-            void DrawTriangle(int32 x0, int32 y0, int32 x1, int32 y1, int32 x2, int32 y2, uint8 r, uint8 g, uint8 b, uint8 a = 255, float32 z0 = 0.0f, float32 z1 = 0.0f, float32 z2 = 0.0f, bool blend = true) {
-                DrawTriangle(Vertex{static_cast<float32>(x0), static_cast<float32>(y0), z0},
-                            Vertex{static_cast<float32>(x1), static_cast<float32>(y1), z1},
-                            Vertex{static_cast<float32>(x2), static_cast<float32>(y2), z2},
-                            r, g, b, a, blend);
-            }
-
-            void FillTriangle(const Vertex& v0, const Vertex& v1, const Vertex& v2,
-                            uint8 r, uint8 g, uint8 b, uint8 a = 255, bool blend = true) {
-                const Color c(r, g, b, a);
-                FillTriangleInterpolated(v0, c, v1, c, v2, c, blend);
-            }
-
-            void FillTriangle(int32 x0, int32 y0, int32 x1, int32 y1, int32 x2, int32 y2,
-                            uint8 r, uint8 g, uint8 b, uint8 a = 255,
-                            float32 z0 = 0.0f, float32 z1 = 0.0f, float32 z2 = 0.0f, bool blend = true) {
-                FillTriangle(Vertex{static_cast<float32>(x0), static_cast<float32>(y0), z0},
-                            Vertex{static_cast<float32>(x1), static_cast<float32>(y1), z1},
-                            Vertex{static_cast<float32>(x2), static_cast<float32>(y2), z2},
-                            r, g, b, a, blend);
-            }
-
-            void FillTriangleInterpolated(const VertexColor& v0,
-                                        const VertexColor& v1,
-                                        const VertexColor& v2,
-                                        bool blend = true) {
-                FillTriangleInterpolated(v0.position, v0.color,
-                                        v1.position, v1.color,
-                                        v2.position, v2.color,
-                                        blend);
-            }
-
-            void FillTriangleInterpolated(const Vertex& v0, const Color& c0,
-                                        const Vertex& v1, const Color& c1,
-                                        const Vertex& v2, const Color& c2,
-                                        bool blend = true) {
-                if (width == 0 || height == 0) return;
-
-                const float32 area = EdgeFunction(v0, v1, v2.x, v2.y);
-                if (math::NkIsNearlyZero(area)) {
-                    DrawTriangle(v0, v1, v2,
-                                ColorToByte(c0.r), ColorToByte(c0.g),
-                                ColorToByte(c0.b), ColorToByte(c0.a), blend);
-                    return;
-                }
-
-                int32 minX = FloorToInt(MinFloat(v0.x, MinFloat(v1.x, v2.x)));
-                int32 minY = FloorToInt(MinFloat(v0.y, MinFloat(v1.y, v2.y)));
-                int32 maxX = CeilToInt(MaxFloat(v0.x, MaxFloat(v1.x, v2.x)));
-                int32 maxY = CeilToInt(MaxFloat(v0.y, MaxFloat(v1.y, v2.y)));
-
-                minX = MaxInt(minX, static_cast<int32>(clipMinX));
-                minY = MaxInt(minY, static_cast<int32>(clipMinY));
-                maxX = MinInt(maxX, static_cast<int32>(clipMaxX) - 1);
-                maxY = MinInt(maxY, static_cast<int32>(clipMaxY) - 1);
-                if (minX > maxX || minY > maxY) return;
-
-                const bool ccw = (area > 0.0f);
-                const float32 invArea = 1.0f / area;
-
-                for (int32 y = minY; y <= maxY; ++y) {
-                    const float32 py = static_cast<float32>(y) + 0.5f;
-                    for (int32 x = minX; x <= maxX; ++x) {
-                        const float32 px = static_cast<float32>(x) + 0.5f;
-                        const float32 w0 = EdgeFunction(v1, v2, px, py);
-                        const float32 w1 = EdgeFunction(v2, v0, px, py);
-                        const float32 w2 = EdgeFunction(v0, v1, px, py);
-
-                        if (ccw) {
-                            if (w0 < 0.0f || w1 < 0.0f || w2 < 0.0f) continue;
-                        } else {
-                            if (w0 > 0.0f || w1 > 0.0f || w2 > 0.0f) continue;
-                        }
-
-                        const float32 b0 = w0 * invArea;
-                        const float32 b1 = w1 * invArea;
-                        const float32 b2 = w2 * invArea;
-                        const float32 z = b0 * v0.z + b1 * v1.z + b2 * v2.z;
-
-                        const uint32 ux = static_cast<uint32>(x);
-                        const uint32 uy = static_cast<uint32>(y);
-                        if (!DepthPass(ux, uy, z)) continue;
-
-                        const uint8 outR = ToByte(b0 * ColorTo255(c0.r) +
-                                                b1 * ColorTo255(c1.r) +
-                                                b2 * ColorTo255(c2.r));
-                        const uint8 outG = ToByte(b0 * ColorTo255(c0.g) +
-                                                b1 * ColorTo255(c1.g) +
-                                                b2 * ColorTo255(c2.g));
-                        const uint8 outB = ToByte(b0 * ColorTo255(c0.b) +
-                                                b1 * ColorTo255(c1.b) +
-                                                b2 * ColorTo255(c2.b));
-                        const uint8 outA = ToByte(b0 * ColorTo255(c0.a) +
-                                                b1 * ColorTo255(c1.a) +
-                                                b2 * ColorTo255(c2.a));
-                        uint8* p = RowPtr(uy) + ux * 4u;
-                        if (blend && outA < 255u) {
-                            nkentseu::sw_detail::BlendPixel(p, outR, outG, outB, outA);
-                        } else {
-                            nkentseu::sw_detail::StorePixel(p, outR, outG, outB, outA);
-                        }
-                    }
-                }
-            }
-
-            void SetClipRect(int32 x, int32 y, int32 w, int32 h) {
-                if (w <= 0 || h <= 0 || width == 0 || height == 0) {
-                    clipMinX = clipMinY = clipMaxX = clipMaxY = 0;
-                    return;
-                }
-
-                const int32 x0 = MaxInt(0, x);
-                const int32 y0 = MaxInt(0, y);
-                const int32 x1 = MinInt(static_cast<int32>(width), x + w);
-                const int32 y1 = MinInt(static_cast<int32>(height), y + h);
-                if (x0 >= x1 || y0 >= y1) {
-                    clipMinX = clipMinY = clipMaxX = clipMaxY = 0;
-                    return;
-                }
-
-                clipMinX = static_cast<uint32>(x0);
-                clipMinY = static_cast<uint32>(y0);
-                clipMaxX = static_cast<uint32>(x1);
-                clipMaxY = static_cast<uint32>(y1);
-            }
-
-            void ResetClipRect() {
-                clipMinX = 0;
-                clipMinY = 0;
-                clipMaxX = width;
-                clipMaxY = height;
-            }
-
-            void Swap(NkSWRasterizer& other) {
-                pixels.Swap(other.pixels);
-                depth.Swap(other.depth);
-                SwapValue(width, other.width);
-                SwapValue(height, other.height);
-                SwapValue(stride, other.stride);
-                SwapValue(clipMinX, other.clipMinX);
-                SwapValue(clipMinY, other.clipMinY);
-                SwapValue(clipMaxX, other.clipMaxX);
-                SwapValue(clipMaxY, other.clipMaxY);
-                SwapValue(depthEnabled, other.depthEnabled);
-            }
-
-            bool IsValid() const { return width > 0 && height > 0 && !pixels.Empty(); }
-
-        private:
-            NkVertexSoftware ClipToNDC(const NkVertexSoftware& vertex) const;
-            NkVertexSoftware NDCToScreen(const NkVertexSoftware& vertex, float32 width, float32 height) const;
-            NkVertexSoftware Interpolate(const NkVertexSoftware& a, const NkVertexSoftware& b, float32 t) const;
-            NkVertexSoftware BaryInterp(const NkVertexSoftware& v0, const NkVertexSoftware& v1, const NkVertexSoftware& v2,
-                                float32 l0, float32 l1, float32 l2) const;
-            bool DepthTest(uint32 x, uint32 y, float32 z);
-            NkSWColor BlendColor(const NkSWColor& src, const NkSWColor& dst) const;
-            float32 ApplyBlendFactor(NkBlendFactor factor, float32 src, float32 dst, float32 srcAlpha, float32 dstAlpha) const;
-
-            NkSWRasterState mState;
-
-            static int32 AbsInt(int32 v) { return math::NkAbs(v); }
-            static int32 MinInt(int32 a, int32 b) { return math::NkMin<int32>(a, b); }
-            static int32 MaxInt(int32 a, int32 b) { return math::NkMax<int32>(a, b); }
-            static float32 MinFloat(float32 a, float32 b) { return math::NkMin<float32>(a, b); }
-            static float32 MaxFloat(float32 a, float32 b) { return math::NkMax<float32>(a, b); }
-            static int32 FloorToInt(float32 v) { return static_cast<int32>(math::NkFloor(v)); }
-            static int32 CeilToInt(float32 v)  { return static_cast<int32>(math::NkCeil(v)); }
-            static int32 RoundToInt(float32 v) { return static_cast<int32>(math::NkRound(v)); }
-            static uint8 ToByte(float32 v) {
-                const float32 clamped = math::NkClamp<float32>(v, 0.0f, 255.0f);
-                return static_cast<uint8>(RoundToInt(clamped));
-            }
-            static float32 ColorTo255(float32 c) {
-                // Legacy Color stores normalized channels [0..1]. Keep compatibility if [0..255] is passed.
-                if (c >= 0.0f && c <= 1.0f) {
-                    return c * 255.0f;
-                }
-                return c;
-            }
-            static uint8 ColorToByte(float32 c) { return ToByte(ColorTo255(c)); }
-
-            template<typename T>
-            static void SwapValue(T& a, T& b) {
-                T tmp = a;
-                a = b;
-                b = tmp;
-            }
-
-            static float32 EdgeFunction(const Vertex& a, const Vertex& b, float32 px, float32 py) {
-                return (px - a.x) * (b.y - a.y) - (py - a.y) * (b.x - a.x);
-            }
-
-            bool IsInsideRasterBounds(int32 x, int32 y) const {
-                return x >= 0 && y >= 0 &&
-                    x < static_cast<int32>(width) &&
-                    y < static_cast<int32>(height);
-            }
-
-            bool IsInsideClip(int32 x, int32 y) const {
-                return x >= static_cast<int32>(clipMinX) &&
-                    y >= static_cast<int32>(clipMinY) &&
-                    x < static_cast<int32>(clipMaxX) &&
-                    y < static_cast<int32>(clipMaxY);
-            }
-
-            bool DepthPass(uint32 x, uint32 y, float32 z) {
-                if (!depthEnabled) return true;
-                if (depth.Empty()) return true;
-
-                const usize index = static_cast<usize>(y) * static_cast<usize>(width) + static_cast<usize>(x);
-                if (index >= depth.Size()) return true;
-                if (z > depth[index]) return false;
-                depth[index] = z;
-                return true;
-            }
-
-            void PutPixelUnchecked(uint32 x, uint32 y, uint8 r, uint8 g, uint8 b, uint8 a, bool blend) {
-                uint8* p = RowPtr(y) + x * 4u;
-                if (!blend || a == 255u) {
-                    nkentseu::sw_detail::StorePixel(p, r, g, b, a);
-                    return;
-                }
-                if (a == 0u) return;
-                nkentseu::sw_detail::BlendPixel(p, r, g, b, a);
-            }
-    };
-
-    struct NkSoftwareContextData {
+	class NkSoftwareCommandBuffer;
+
+	// =============================================================================
+	// Types internes
+	// =============================================================================
+	using NkSWVec4 = math::NkVec4;
+	using NkSWVec3 = math::NkVec3;
+	using NkSWVec2 = math::NkVec2;
+	using NkSWColor = math::NkVec4;
+
+	// =============================================================================
+	struct NkSWBuffer {
+			NkVector<uint8> data;
+			NkBufferDesc desc;
+			bool mapped = false;
+	};
+
+	struct NkSWSampler {
+			NkSamplerDesc desc;
+			NkSWColor Sample(const NkVector<uint8> &pixels, uint32 width, uint32 height, uint32 bpp, float32 u,
+							 float32 v) const;
+	};
+
+	struct NkSWTexture {
+			NkVector<NkVector<uint8>> mips; // mip[0] = niveau 0
+			NkTextureDesc desc;
+			bool isRenderTarget = false;
+			NkSWSampler defaultSampler;
+
+			uint32 Width(uint32 mip = 0) const {
+				return math::NkMax(1u, desc.width >> mip);
+			}
+
+			uint32 Height(uint32 mip = 0) const {
+				return math::NkMax(1u, desc.height >> mip);
+			}
+
+			uint32 Bpp() const {
+				return NkFormatBytesPerPixel(desc.format);
+			}
+
+			NkSWColor Sample(float32 u, float32 v, uint32 mip = 0) const;
+			NkSWColor Read(uint32 x, uint32 y, uint32 mip = 0) const;
+			void Write(uint32 x, uint32 y, const NkSWColor &c, uint32 mip = 0);
+	};
+
+	struct NkSWShader {
+			NkVertexShaderSoftware vertFn;
+			NkPixelShaderSoftware fragFn;
+			bool isCompute = false;
+			// v4 Phase 5 : passe plein-écran générée (gl_VertexID, pipeline stride 0). Le vertFn
+			// synthétise le triangle depuis l'index et TOLÈRE vdata==nullptr. Sans ce flag, un
+			// pipeline stride-0 n'active PAS le chemin vertexless (évite un deref null dans les
+			// vertFn 3D qui lisent vdata+idx*stride).
+			bool genVertsFromID = false;
+			// Le fragment calcule SA PROPRE profondeur (ex. grille sol : depth du point d'intersection).
+			// Le rasterizer reporte alors le depth-test APRÈS le fragFn, avec swraster::tl_fragDepth.
+			bool fragDepth = false;
+			// Le vertFn dépend de l'index d'instance (gl_InstanceID via SwCurInstance) : ex. shadow
+			// instancié qui indexe l'InstanceUBO. ExecuteDraw*Fast RE-GÉNÈRE alors les sommets par
+			// instance (au lieu de les calculer une fois et réutiliser). false => draw non instancié.
+			bool usesInstancing = false;
+			NkComputeShaderSoftware computeFn;
+			// v5 Phase A (VM NkSL) : programmes bytecode (heap, adresse stable), libérés au DestroyShader.
+			NkSLByteProgram *vmVert = nullptr;
+			NkSLByteProgram *vmFrag = nullptr;
+			NkSLByteProgram *vmCompute = nullptr;
+	};
+
+	struct NkSWPipeline {
+			uint64 shaderId = 0;
+			bool isCompute = false;
+			bool depthTest = true;
+			bool depthWrite = true;
+			bool blendEnable = false;
+			NkCompareOp depthOp = NkCompareOp::NK_LESS;
+			NkCullMode cullMode = NkCullMode::NK_BACK;
+			NkFrontFace frontFace = NkFrontFace::NK_CCW;
+			NkBlendFactor srcColor = NkBlendFactor::NK_SRC_ALPHA;
+			NkBlendFactor dstColor = NkBlendFactor::NK_ONE_MINUS_SRC_ALPHA;
+			NkPrimitiveTopology topology = NkPrimitiveTopology::NK_TRIANGLE_LIST;
+			uint32 vertexStride = 0;
+	};
+
+	struct NkSWRenderPass {
+			NkRenderPassDesc desc;
+	};
+
+	struct NkSWFramebuffer {
+			uint64 colorId = 0;
+			uint64 depthId = 0;
+			uint32 w = 0, h = 0;
+	};
+
+	struct NkSWDescSetLayout {
+			NkDescriptorSetLayoutDesc desc;
+	};
+
+	struct NkSWDescSet {
+			struct Binding {
+					uint32 slot = 0;
+					NkDescriptorType type{};
+					uint64 bufId = 0;
+					uint64 texId = 0;
+					uint64 sampId = 0;
+			};
+
+			NkVector<Binding> bindings;
+	};
+
+	struct NkSWFence {
+			bool signaled = false;
+	};
+
+	// =============================================================================
+	// Batch de textures pour le fragment shader (jusqu'à 8 textures)
+	// =============================================================================
+	static constexpr uint32 kMaxTextures = 8;
+	static constexpr uint32 kMaxUBOs = 8;
+
+	struct NkSWTextureBatch {
+			const NkSWTexture *tex[kMaxTextures] = {};
+			uint32 count = 0;
+
+			const NkSWTexture *operator[](uint32 i) const {
+				return i < count ? tex[i] : nullptr;
+			}
+	};
+
+	struct NkSWUniformBatch {
+			const void *ubo[kMaxUBOs] = {};
+			uint32 sizes[kMaxUBOs] = {};
+			uint32 count = 0;
+
+			const void *operator[](uint32 i) const {
+				return i < count ? ubo[i] : nullptr;
+			}
+	};
+
+	// =============================================================================
+	// Rastériseur interne
+	// =============================================================================
+	struct NkSWRasterState {
+			NkSWTexture *colorTarget = nullptr;
+			NkSWTexture *depthTarget = nullptr;
+			NkSWPipeline *pipeline = nullptr;
+			NkSWShader *shader = nullptr;
+			const void *uniformData = nullptr;
+			const void *texSampler = nullptr;
+			const void *vertexData = nullptr;
+			uint32 vertexStride = 0;
+			bool wireframe = false;
+	};
+
+	struct NkSWRasterizer {
+			void SetState(const NkSWRasterState &state) {
+				mState = state;
+			}
+
+			void DrawTriangles(const NkVertexSoftware *vertices, uint32 count);
+			void DrawTriangle(const NkVertexSoftware &v0, const NkVertexSoftware &v1, const NkVertexSoftware &v2);
+			void DrawLine(const NkVertexSoftware &v0, const NkVertexSoftware &v1);
+			void DrawPoint(const NkVertexSoftware &v0);
+
+			using Vertex = math::NkVec3;
+			using Color = math::NkColor;
+
+			struct VertexColor {
+					Vertex position;
+					Color color;
+
+					VertexColor() : position(), color() {
+					}
+
+					VertexColor(const Vertex &inPosition, const Color &inColor) : position(inPosition), color(inColor) {
+					}
+
+					VertexColor(float32 x, float32 y, float32 z, uint8 r, uint8 g, uint8 b, uint8 a = 255u)
+						: position(x, y, z), color(r, g, b, a) {
+					}
+			};
+
+			NkVector<uint8> pixels;
+			NkVector<float32> depth;
+			uint32 width = 0;
+			uint32 height = 0;
+			uint32 stride = 0;
+			uint32 clipMinX = 0;
+			uint32 clipMinY = 0;
+			uint32 clipMaxX = 0;
+			uint32 clipMaxY = 0;
+			bool depthEnabled = true;
+
+			void Resize(uint32 w, uint32 h) {
+				width = w;
+				height = h;
+				stride = w * 4u;
+
+				const usize pixelCount = static_cast<usize>(stride) * static_cast<usize>(h);
+				pixels.Assign(static_cast<uint8>(0), static_cast<NkVector<uint8>::SizeType>(pixelCount));
+
+				ResetClipRect();
+				if (depthEnabled) {
+					const usize depthCount = static_cast<usize>(w) * static_cast<usize>(h);
+					depth.Assign(1.0f, static_cast<NkVector<float32>::SizeType>(depthCount));
+				} else {
+					depth.Clear();
+				}
+			}
+
+			void Clear(uint8 r = 0, uint8 g = 0, uint8 b = 0, uint8 a = 255) {
+				for (uint32 y = 0; y < height; ++y) {
+					nkentseu::sw_detail::ClearRow(RowPtr(y), width, r, g, b, a);
+				}
+				if (depthEnabled)
+					ClearDepth(1.0f);
+			}
+
+			void ClearDepth(float32 clearValue = 1.0f) {
+				if (!depthEnabled)
+					return;
+
+				const usize depthCount = static_cast<usize>(width) * static_cast<usize>(height);
+				if (depth.Size() != depthCount) {
+					depth.Assign(clearValue, static_cast<NkVector<float32>::SizeType>(depthCount));
+					return;
+				}
+
+				for (usize i = 0; i < depth.Size(); ++i) {
+					depth[i] = clearValue;
+				}
+			}
+
+			void EnableDepthBuffer(bool enabled = true, float32 clearValue = 1.0f) {
+				depthEnabled = enabled;
+				if (!enabled) {
+					depth.Clear();
+					return;
+				}
+
+				const usize depthCount = static_cast<usize>(width) * static_cast<usize>(height);
+				depth.Assign(clearValue, static_cast<NkVector<float32>::SizeType>(depthCount));
+			}
+
+			bool HasDepthBuffer() const {
+				return depthEnabled && !depth.Empty() &&
+					   depth.Size() == static_cast<usize>(width) * static_cast<usize>(height);
+			}
+
+			uint8 *RowPtr(uint32 y) {
+				return pixels.Data() + y * stride;
+			}
+
+			const uint8 *RowPtr(uint32 y) const {
+				return pixels.Data() + y * stride;
+			}
+
+			void SetPixel(uint32 x, uint32 y, uint8 r, uint8 g, uint8 b, uint8 a = 255) {
+				if (x >= width || y >= height)
+					return;
+				PutPixelUnchecked(x, y, r, g, b, a, false);
+			}
+
+			void DrawPoint(int32 x, int32 y, uint8 r, uint8 g, uint8 b, uint8 a = 255, float32 z = 0.0f,
+						   bool blend = true) {
+				if (!IsInsideRasterBounds(x, y) || !IsInsideClip(x, y))
+					return;
+
+				const uint32 px = static_cast<uint32>(x);
+				const uint32 py = static_cast<uint32>(y);
+				if (!DepthPass(px, py, z))
+					return;
+				PutPixelUnchecked(px, py, r, g, b, a, blend);
+			}
+
+			void DrawLine(int32 x0, int32 y0, int32 x1, int32 y1, uint8 r, uint8 g, uint8 b, uint8 a = 255,
+						  float32 z0 = 0.0f, float32 z1 = 0.0f, bool blend = true) {
+				int32 dx = AbsInt(x1 - x0);
+				int32 sx = (x0 < x1) ? 1 : -1;
+				int32 dy = -AbsInt(y1 - y0);
+				int32 sy = (y0 < y1) ? 1 : -1;
+				int32 err = dx + dy;
+				int32 step = 0;
+				const int32 steps = MaxInt(dx, -dy);
+
+				for (;;) {
+					const float32 t = (steps > 0) ? static_cast<float32>(step) / static_cast<float32>(steps) : 0.0f;
+					DrawPoint(x0, y0, r, g, b, a, z0 + (z1 - z0) * t, blend);
+					if (x0 == x1 && y0 == y1)
+						break;
+					const int32 e2 = err * 2;
+					if (e2 >= dy) {
+						err += dy;
+						x0 += sx;
+					}
+					if (e2 <= dx) {
+						err += dx;
+						y0 += sy;
+					}
+					++step;
+				}
+			}
+
+			void DrawRect(int32 x, int32 y, int32 w, int32 h, uint8 r, uint8 g, uint8 b, uint8 a = 255,
+						  float32 z = 0.0f, bool blend = true) {
+				if (w <= 0 || h <= 0)
+					return;
+
+				const int32 x1 = x + w - 1;
+				const int32 y1 = y + h - 1;
+				DrawLine(x, y, x1, y, r, g, b, a, z, z, blend);
+				DrawLine(x1, y, x1, y1, r, g, b, a, z, z, blend);
+				DrawLine(x1, y1, x, y1, r, g, b, a, z, z, blend);
+				DrawLine(x, y1, x, y, r, g, b, a, z, z, blend);
+			}
+
+			void FillRect(int32 x, int32 y, int32 w, int32 h, uint8 r, uint8 g, uint8 b, uint8 a = 255,
+						  float32 z = 0.0f, bool blend = true) {
+				if (w <= 0 || h <= 0 || width == 0 || height == 0)
+					return;
+				int32 x0 = MaxInt(x, static_cast<int32>(clipMinX));
+				int32 y0 = MaxInt(y, static_cast<int32>(clipMinY));
+				int32 x1 = MinInt(x + w, static_cast<int32>(clipMaxX));
+				int32 y1 = MinInt(y + h, static_cast<int32>(clipMaxY));
+				if (x0 >= x1 || y0 >= y1)
+					return;
+				for (int32 py = y0; py < y1; ++py) {
+					uint8 *row = RowPtr(static_cast<uint32>(py));
+					if (!blend || a == 255u)
+						nkentseu::sw_detail::FillSpanOpaque(row, x0, x1, r, g, b);
+					else
+						nkentseu::sw_detail::BlendSpanAlpha(row, x0, x1, r, g, b, a);
+				}
+			}
+
+			void DrawTriangle(const Vertex &v0, const Vertex &v1, const Vertex &v2, uint8 r, uint8 g, uint8 b,
+							  uint8 a = 255, bool blend = true) {
+				DrawLine(RoundToInt(v0.x), RoundToInt(v0.y), RoundToInt(v1.x), RoundToInt(v1.y), r, g, b, a, v0.z, v1.z,
+						 blend);
+				DrawLine(RoundToInt(v1.x), RoundToInt(v1.y), RoundToInt(v2.x), RoundToInt(v2.y), r, g, b, a, v1.z, v2.z,
+						 blend);
+				DrawLine(RoundToInt(v2.x), RoundToInt(v2.y), RoundToInt(v0.x), RoundToInt(v0.y), r, g, b, a, v2.z, v0.z,
+						 blend);
+			}
+
+			void DrawTriangle(int32 x0, int32 y0, int32 x1, int32 y1, int32 x2, int32 y2, uint8 r, uint8 g, uint8 b,
+							  uint8 a = 255, float32 z0 = 0.0f, float32 z1 = 0.0f, float32 z2 = 0.0f,
+							  bool blend = true) {
+				DrawTriangle(Vertex{static_cast<float32>(x0), static_cast<float32>(y0), z0},
+							 Vertex{static_cast<float32>(x1), static_cast<float32>(y1), z1},
+							 Vertex{static_cast<float32>(x2), static_cast<float32>(y2), z2}, r, g, b, a, blend);
+			}
+
+			void FillTriangle(const Vertex &v0, const Vertex &v1, const Vertex &v2, uint8 r, uint8 g, uint8 b,
+							  uint8 a = 255, bool blend = true) {
+				const Color c(r, g, b, a);
+				FillTriangleInterpolated(v0, c, v1, c, v2, c, blend);
+			}
+
+			void FillTriangle(int32 x0, int32 y0, int32 x1, int32 y1, int32 x2, int32 y2, uint8 r, uint8 g, uint8 b,
+							  uint8 a = 255, float32 z0 = 0.0f, float32 z1 = 0.0f, float32 z2 = 0.0f,
+							  bool blend = true) {
+				FillTriangle(Vertex{static_cast<float32>(x0), static_cast<float32>(y0), z0},
+							 Vertex{static_cast<float32>(x1), static_cast<float32>(y1), z1},
+							 Vertex{static_cast<float32>(x2), static_cast<float32>(y2), z2}, r, g, b, a, blend);
+			}
+
+			void FillTriangleInterpolated(const VertexColor &v0, const VertexColor &v1, const VertexColor &v2,
+										  bool blend = true) {
+				FillTriangleInterpolated(v0.position, v0.color, v1.position, v1.color, v2.position, v2.color, blend);
+			}
+
+			void FillTriangleInterpolated(const Vertex &v0, const Color &c0, const Vertex &v1, const Color &c1,
+										  const Vertex &v2, const Color &c2, bool blend = true) {
+				if (width == 0 || height == 0)
+					return;
+
+				const float32 area = EdgeFunction(v0, v1, v2.x, v2.y);
+				if (math::NkIsNearlyZero(area)) {
+					DrawTriangle(v0, v1, v2, ColorToByte(c0.r), ColorToByte(c0.g), ColorToByte(c0.b), ColorToByte(c0.a),
+								 blend);
+					return;
+				}
+
+				int32 minX = FloorToInt(MinFloat(v0.x, MinFloat(v1.x, v2.x)));
+				int32 minY = FloorToInt(MinFloat(v0.y, MinFloat(v1.y, v2.y)));
+				int32 maxX = CeilToInt(MaxFloat(v0.x, MaxFloat(v1.x, v2.x)));
+				int32 maxY = CeilToInt(MaxFloat(v0.y, MaxFloat(v1.y, v2.y)));
+
+				minX = MaxInt(minX, static_cast<int32>(clipMinX));
+				minY = MaxInt(minY, static_cast<int32>(clipMinY));
+				maxX = MinInt(maxX, static_cast<int32>(clipMaxX) - 1);
+				maxY = MinInt(maxY, static_cast<int32>(clipMaxY) - 1);
+				if (minX > maxX || minY > maxY)
+					return;
+
+				const bool ccw = (area > 0.0f);
+				const float32 invArea = 1.0f / area;
+
+				for (int32 y = minY; y <= maxY; ++y) {
+					const float32 py = static_cast<float32>(y) + 0.5f;
+					for (int32 x = minX; x <= maxX; ++x) {
+						const float32 px = static_cast<float32>(x) + 0.5f;
+						const float32 w0 = EdgeFunction(v1, v2, px, py);
+						const float32 w1 = EdgeFunction(v2, v0, px, py);
+						const float32 w2 = EdgeFunction(v0, v1, px, py);
+
+						if (ccw) {
+							if (w0 < 0.0f || w1 < 0.0f || w2 < 0.0f)
+								continue;
+						} else {
+							if (w0 > 0.0f || w1 > 0.0f || w2 > 0.0f)
+								continue;
+						}
+
+						const float32 b0 = w0 * invArea;
+						const float32 b1 = w1 * invArea;
+						const float32 b2 = w2 * invArea;
+						const float32 z = b0 * v0.z + b1 * v1.z + b2 * v2.z;
+
+						const uint32 ux = static_cast<uint32>(x);
+						const uint32 uy = static_cast<uint32>(y);
+						if (!DepthPass(ux, uy, z))
+							continue;
+
+						const uint8 outR =
+							ToByte(b0 * ColorTo255(c0.r) + b1 * ColorTo255(c1.r) + b2 * ColorTo255(c2.r));
+						const uint8 outG =
+							ToByte(b0 * ColorTo255(c0.g) + b1 * ColorTo255(c1.g) + b2 * ColorTo255(c2.g));
+						const uint8 outB =
+							ToByte(b0 * ColorTo255(c0.b) + b1 * ColorTo255(c1.b) + b2 * ColorTo255(c2.b));
+						const uint8 outA =
+							ToByte(b0 * ColorTo255(c0.a) + b1 * ColorTo255(c1.a) + b2 * ColorTo255(c2.a));
+						uint8 *p = RowPtr(uy) + ux * 4u;
+						if (blend && outA < 255u) {
+							nkentseu::sw_detail::BlendPixel(p, outR, outG, outB, outA);
+						} else {
+							nkentseu::sw_detail::StorePixel(p, outR, outG, outB, outA);
+						}
+					}
+				}
+			}
+
+			void SetClipRect(int32 x, int32 y, int32 w, int32 h) {
+				if (w <= 0 || h <= 0 || width == 0 || height == 0) {
+					clipMinX = clipMinY = clipMaxX = clipMaxY = 0;
+					return;
+				}
+
+				const int32 x0 = MaxInt(0, x);
+				const int32 y0 = MaxInt(0, y);
+				const int32 x1 = MinInt(static_cast<int32>(width), x + w);
+				const int32 y1 = MinInt(static_cast<int32>(height), y + h);
+				if (x0 >= x1 || y0 >= y1) {
+					clipMinX = clipMinY = clipMaxX = clipMaxY = 0;
+					return;
+				}
+
+				clipMinX = static_cast<uint32>(x0);
+				clipMinY = static_cast<uint32>(y0);
+				clipMaxX = static_cast<uint32>(x1);
+				clipMaxY = static_cast<uint32>(y1);
+			}
+
+			void ResetClipRect() {
+				clipMinX = 0;
+				clipMinY = 0;
+				clipMaxX = width;
+				clipMaxY = height;
+			}
+
+			void Swap(NkSWRasterizer &other) {
+				pixels.Swap(other.pixels);
+				depth.Swap(other.depth);
+				SwapValue(width, other.width);
+				SwapValue(height, other.height);
+				SwapValue(stride, other.stride);
+				SwapValue(clipMinX, other.clipMinX);
+				SwapValue(clipMinY, other.clipMinY);
+				SwapValue(clipMaxX, other.clipMaxX);
+				SwapValue(clipMaxY, other.clipMaxY);
+				SwapValue(depthEnabled, other.depthEnabled);
+			}
+
+			bool IsValid() const {
+				return width > 0 && height > 0 && !pixels.Empty();
+			}
+
+		private:
+			NkVertexSoftware ClipToNDC(const NkVertexSoftware &vertex) const;
+			NkVertexSoftware NDCToScreen(const NkVertexSoftware &vertex, float32 width, float32 height) const;
+			NkVertexSoftware Interpolate(const NkVertexSoftware &a, const NkVertexSoftware &b, float32 t) const;
+			NkVertexSoftware BaryInterp(const NkVertexSoftware &v0, const NkVertexSoftware &v1,
+										const NkVertexSoftware &v2, float32 l0, float32 l1, float32 l2) const;
+			bool DepthTest(uint32 x, uint32 y, float32 z);
+			NkSWColor BlendColor(const NkSWColor &src, const NkSWColor &dst) const;
+			float32 ApplyBlendFactor(NkBlendFactor factor, float32 src, float32 dst, float32 srcAlpha,
+									 float32 dstAlpha) const;
+
+			NkSWRasterState mState;
+
+			static int32 AbsInt(int32 v) {
+				return math::NkAbs(v);
+			}
+
+			static int32 MinInt(int32 a, int32 b) {
+				return math::NkMin<int32>(a, b);
+			}
+
+			static int32 MaxInt(int32 a, int32 b) {
+				return math::NkMax<int32>(a, b);
+			}
+
+			static float32 MinFloat(float32 a, float32 b) {
+				return math::NkMin<float32>(a, b);
+			}
+
+			static float32 MaxFloat(float32 a, float32 b) {
+				return math::NkMax<float32>(a, b);
+			}
+
+			static int32 FloorToInt(float32 v) {
+				return static_cast<int32>(math::NkFloor(v));
+			}
+
+			static int32 CeilToInt(float32 v) {
+				return static_cast<int32>(math::NkCeil(v));
+			}
+
+			static int32 RoundToInt(float32 v) {
+				return static_cast<int32>(math::NkRound(v));
+			}
+
+			static uint8 ToByte(float32 v) {
+				const float32 clamped = math::NkClamp<float32>(v, 0.0f, 255.0f);
+				return static_cast<uint8>(RoundToInt(clamped));
+			}
+
+			static float32 ColorTo255(float32 c) {
+				// Legacy Color stores normalized channels [0..1]. Keep compatibility if [0..255] is passed.
+				if (c >= 0.0f && c <= 1.0f) {
+					return c * 255.0f;
+				}
+				return c;
+			}
+
+			static uint8 ColorToByte(float32 c) {
+				return ToByte(ColorTo255(c));
+			}
+
+			template <typename T> static void SwapValue(T &a, T &b) {
+				T tmp = a;
+				a = b;
+				b = tmp;
+			}
+
+			static float32 EdgeFunction(const Vertex &a, const Vertex &b, float32 px, float32 py) {
+				return (px - a.x) * (b.y - a.y) - (py - a.y) * (b.x - a.x);
+			}
+
+			bool IsInsideRasterBounds(int32 x, int32 y) const {
+				return x >= 0 && y >= 0 && x < static_cast<int32>(width) && y < static_cast<int32>(height);
+			}
+
+			bool IsInsideClip(int32 x, int32 y) const {
+				return x >= static_cast<int32>(clipMinX) && y >= static_cast<int32>(clipMinY) &&
+					   x < static_cast<int32>(clipMaxX) && y < static_cast<int32>(clipMaxY);
+			}
+
+			bool DepthPass(uint32 x, uint32 y, float32 z) {
+				if (!depthEnabled)
+					return true;
+				if (depth.Empty())
+					return true;
+
+				const usize index = static_cast<usize>(y) * static_cast<usize>(width) + static_cast<usize>(x);
+				if (index >= depth.Size())
+					return true;
+				if (z > depth[index])
+					return false;
+				depth[index] = z;
+				return true;
+			}
+
+			void PutPixelUnchecked(uint32 x, uint32 y, uint8 r, uint8 g, uint8 b, uint8 a, bool blend) {
+				uint8 *p = RowPtr(y) + x * 4u;
+				if (!blend || a == 255u) {
+					nkentseu::sw_detail::StorePixel(p, r, g, b, a);
+					return;
+				}
+				if (a == 0u)
+					return;
+				nkentseu::sw_detail::BlendPixel(p, r, g, b, a);
+			}
+	};
+
+	struct NkSoftwareContextData {
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        void* hwnd      = nullptr;  // HWND
-        void* hdc       = nullptr;  // HDC
-        void* dibBitmap = nullptr;  // HBITMAP DIBSection
-        void* dibDC     = nullptr;  // HDC mémoire
-        void* dibBits   = nullptr;  // Pointeur pixels DIB
+			void *hwnd = nullptr;	   // HWND
+			void *hdc = nullptr;	   // HDC
+			void *dibBitmap = nullptr; // HBITMAP DIBSection
+			void *dibDC = nullptr;	   // HDC mémoire
+			void *dibBits = nullptr;   // Pointeur pixels DIB
 #elif defined(NKENTSEU_WINDOWING_XLIB)
-        void*         display  = nullptr;
-        unsigned long window   = 0;
-        void*         gc       = nullptr;  // GC
-        void*         ximage   = nullptr;  // XImage
-        void*         shmInfo  = nullptr;  // XShmSegmentInfo*
-        bool          useSHM   = false;
-        int           shmid    = -1;
+			void *display = nullptr;
+			unsigned long window = 0;
+			void *gc = nullptr;		 // GC
+			void *ximage = nullptr;	 // XImage
+			void *shmInfo = nullptr; // XShmSegmentInfo*
+			bool useSHM = false;
+			int shmid = -1;
 #elif defined(NKENTSEU_WINDOWING_XCB)
-        void*    connection = nullptr;
-        unsigned long window= 0;
-        uint32   gc         = 0;   // xcb_gcontext_t
+			void *connection = nullptr;
+			unsigned long window = 0;
+			uint32 gc = 0; // xcb_gcontext_t
 #elif defined(NKENTSEU_WINDOWING_WAYLAND)
-        void*  wlDisplay  = nullptr;
-        void*  wlSurface  = nullptr;
-        void*  wlBuffer   = nullptr;
-        void*  shmPixels  = nullptr;
-        bool   waylandConfigured = false;
-        uint32 shmStride  = 0;
-        uint64 shmSize    = 0;
+			void *wlDisplay = nullptr;
+			void *wlSurface = nullptr;
+			void *wlBuffer = nullptr;
+			void *shmPixels = nullptr;
+			bool waylandConfigured = false;
+			uint32 shmStride = 0;
+			uint64 shmSize = 0;
 #elif defined(NKENTSEU_PLATFORM_ANDROID)
-        void*  nativeWindow = nullptr;
- 
+			void *nativeWindow = nullptr;
+
 #elif defined(NKENTSEU_PLATFORM_HARMONYOS)
-        // HarmonyOS : le backend software présente via OHNativeWindow
-        // ou via un callback ArkTS (NkHarmonyBridge.presentFrame) si le NDK
-        // ne fournit pas d'accès direct à la mémoire de la surface.
-        //
-        // Stratégie recommandée :
-        //   1. Méthode directe  : OH_NativeWindow_NativeWindowRequestBuffer → lock pixels
-        //   2. Méthode bridge   : copier pixels dans un ArrayBuffer JS via N-API,
-        //      ArkTS les dessine dans le XComponent via ImageBitmap.
-        //   3. Méthode EGL      : créer un EGL context + glTexImage2D + blit quad.
-        //      (préférable si le hardware supporte OpenGL ES 3.2)
-        //
-        // Pour Nkentseu, le backend Software sur HarmonyOS est un fallback.
-        // Le backend Vulkan ou OpenGL ES est préférable en production.
-        void*  ohNativeWindow = nullptr;   // OHNativeWindow* (handle XComponent)
-        void*  eglDisplay     = nullptr;   // EGLDisplay (optionnel, pour blit EGL)
-        void*  eglSurface     = nullptr;   // EGLSurface
-        void*  eglContext     = nullptr;   // EGLContext
-        // Callback de présentation ArkTS (bridge) — utilisé si EGL non dispo
-        // Signature : void(*)(const uint8* pixels, uint32 w, uint32 h)
-        void*  presentCallback = nullptr;
+			// HarmonyOS : le backend software présente via OHNativeWindow
+			// ou via un callback ArkTS (NkHarmonyBridge.presentFrame) si le NDK
+			// ne fournit pas d'accès direct à la mémoire de la surface.
+			//
+			// Stratégie recommandée :
+			//   1. Méthode directe  : OH_NativeWindow_NativeWindowRequestBuffer → lock pixels
+			//   2. Méthode bridge   : copier pixels dans un ArrayBuffer JS via N-API,
+			//      ArkTS les dessine dans le XComponent via ImageBitmap.
+			//   3. Méthode EGL      : créer un EGL context + glTexImage2D + blit quad.
+			//      (préférable si le hardware supporte OpenGL ES 3.2)
+			//
+			// Pour Nkentseu, le backend Software sur HarmonyOS est un fallback.
+			// Le backend Vulkan ou OpenGL ES est préférable en production.
+			void *ohNativeWindow = nullptr; // OHNativeWindow* (handle XComponent)
+			void *eglDisplay = nullptr;		// EGLDisplay (optionnel, pour blit EGL)
+			void *eglSurface = nullptr;		// EGLSurface
+			void *eglContext = nullptr;		// EGLContext
+			// Callback de présentation ArkTS (bridge) — utilisé si EGL non dispo
+			// Signature : void(*)(const uint8* pixels, uint32 w, uint32 h)
+			void *presentCallback = nullptr;
 #elif defined(NKENTSEU_PLATFORM_MACOS)
-        void*  nsView    = nullptr;
-        void*  cgContext = nullptr;
+			void *nsView = nullptr;
+			void *cgContext = nullptr;
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-        const char* canvasId = "#canvas";
+			const char *canvasId = "#canvas";
 #endif
-        uint32 width  = 0;
-        uint32 height = 0;
-    };
+			uint32 width = 0;
+			uint32 height = 0;
+	};
 
-    // =============================================================================
-    // NkSoftwareDevice
-    // =============================================================================
-    class NkSoftwareDevice final : public NkIDevice {
-        public:
-            NkSoftwareDevice()  = default;
-            ~NkSoftwareDevice() override;
+	// =============================================================================
+	// NkSoftwareDevice
+	// =============================================================================
+	class NkSoftwareDevice final : public NkIDevice {
+		public:
+			NkSoftwareDevice() = default;
+			~NkSoftwareDevice() override;
 
-            bool                        Initialize(const NkDeviceInitInfo& init) override;
-            void                        Shutdown()                          override;
-            bool                        IsValid()                     const override { return mIsValid; }
-            NkGraphicsApi               GetApi()                      const override { return NkGraphicsApi::NK_GFX_API_SOFTWARE; }
-            const NkDeviceCaps&         GetCaps()               const override { return mCaps; }
+			bool Initialize(const NkDeviceInitInfo &init) override;
+			void Shutdown() override;
 
-            NkBufferHandle              CreateBuffer (const NkBufferDesc& d)                      override;
-            void                        DestroyBuffer(NkBufferHandle& h)                          override;
-            bool                        WriteBuffer(NkBufferHandle,const void*,uint64,uint64)                override;
-            bool                        WriteBufferAsync(NkBufferHandle,const void*,uint64,uint64)           override;
-            bool                        ReadBuffer(NkBufferHandle,void*,uint64,uint64)                       override;
-            NkMappedMemory              MapBuffer(NkBufferHandle,uint64,uint64)                    override;
-            void                        UnmapBuffer(NkBufferHandle)                                override;
+			bool IsValid() const override {
+				return mIsValid;
+			}
 
-            NkTextureHandle             CreateTexture (const NkTextureDesc& d)                   override;
-            void                        DestroyTexture(NkTextureHandle& h)                        override;
-            bool                        WriteTexture(NkTextureHandle,const void*,uint32)                     override;
-            bool                        WriteTextureRegion(NkTextureHandle,const void*,uint32,uint32,uint32,uint32,uint32,uint32,uint32,uint32,uint32) override;
-            bool                        GenerateMipmaps(NkTextureHandle, NkFilter)                           override;
+			NkGraphicsApi GetApi() const override {
+				return NkGraphicsApi::NK_GFX_API_SOFTWARE;
+			}
 
-            NkSamplerHandle             CreateSampler (const NkSamplerDesc& d)                   override;
-            void                        DestroySampler(NkSamplerHandle& h)                        override;
+			const NkDeviceCaps &GetCaps() const override {
+				return mCaps;
+			}
 
-            NkShaderHandle              CreateShader (const NkShaderDesc& d)                     override;
-            void                        DestroyShader(NkShaderHandle& h)                          override;
+			NkBufferHandle CreateBuffer(const NkBufferDesc &d) override;
+			void DestroyBuffer(NkBufferHandle &h) override;
+			bool WriteBuffer(NkBufferHandle, const void *, uint64, uint64) override;
+			bool WriteBufferAsync(NkBufferHandle, const void *, uint64, uint64) override;
+			bool ReadBuffer(NkBufferHandle, void *, uint64, uint64) override;
+			NkMappedMemory MapBuffer(NkBufferHandle, uint64, uint64) override;
+			void UnmapBuffer(NkBufferHandle) override;
 
-            NkPipelineHandle            CreateGraphicsPipeline(const NkGraphicsPipelineDesc& d)  override;
-            NkPipelineHandle            CreateComputePipeline (const NkComputePipelineDesc& d)   override;
-            void                        DestroyPipeline(NkPipelineHandle& h)                     override;
+			NkTextureHandle CreateTexture(const NkTextureDesc &d) override;
+			void DestroyTexture(NkTextureHandle &h) override;
+			bool WriteTexture(NkTextureHandle, const void *, uint32) override;
+			bool WriteTextureRegion(NkTextureHandle, const void *, uint32, uint32, uint32, uint32, uint32, uint32,
+									uint32, uint32, uint32) override;
+			bool GenerateMipmaps(NkTextureHandle, NkFilter) override;
 
-            NkRenderPassHandle          CreateRenderPass  (const NkRenderPassDesc& d)         override;
-            void                        DestroyRenderPass (NkRenderPassHandle& h)              override;
-            NkFramebufferHandle         CreateFramebuffer (const NkFramebufferDesc& d)        override;
-            void                        DestroyFramebuffer(NkFramebufferHandle& h)             override;
-            NkFramebufferHandle         GetSwapchainFramebuffer() const override { return mSwapchainFB; }
-            NkRenderPassHandle          GetSwapchainRenderPass()  const override { return mSwapchainRP; }
-            NkGPUFormat                 GetSwapchainFormat()      const override { return NkGPUFormat::NK_RGBA8_UNORM; }
-            NkGPUFormat                 GetSwapchainDepthFormat() const override { return NkGPUFormat::NK_D32_FLOAT;   }
-            uint32                      GetSwapchainWidth()       const override { return mWidth; }
-            uint32                      GetSwapchainHeight()      const override { return mHeight; }
+			NkSamplerHandle CreateSampler(const NkSamplerDesc &d) override;
+			void DestroySampler(NkSamplerHandle &h) override;
 
-            NkDescSetHandle             CreateDescriptorSetLayout(const NkDescriptorSetLayoutDesc& d) override;
-            void                        DestroyDescriptorSetLayout(NkDescSetHandle& h)                override;
-            NkDescSetHandle             AllocateDescriptorSet(NkDescSetHandle layoutHandle)           override;
-            void                        FreeDescriptorSet    (NkDescSetHandle& h)                     override;
-            void                        UpdateDescriptorSets(const NkDescriptorWrite* w, uint32 n)   override;
+			NkShaderHandle CreateShader(const NkShaderDesc &d) override;
+			void DestroyShader(NkShaderHandle &h) override;
 
-            NkICommandBuffer*           CreateCommandBuffer(NkCommandBufferType t)                  override;
-            void                        DestroyCommandBuffer(NkICommandBuffer*& cb)                 override;
+			NkPipelineHandle CreateGraphicsPipeline(const NkGraphicsPipelineDesc &d) override;
+			NkPipelineHandle CreateComputePipeline(const NkComputePipelineDesc &d) override;
+			void DestroyPipeline(NkPipelineHandle &h) override;
 
-            void                        Submit(NkICommandBuffer* const* cbs, uint32 n, NkFenceHandle fence)     override;
-            void                        SubmitAndPresent(NkICommandBuffer* cb)                                   override;
-            NkFenceHandle               CreateFence(bool signaled)  override;
-            void                        DestroyFence(NkFenceHandle& h)       override;
-            bool                        WaitFence(NkFenceHandle f,uint64 to) override;
-            bool                        IsFenceSignaled(NkFenceHandle f)     override;
-            void                        ResetFence(NkFenceHandle f)          override;
-            void                        WaitIdle()                           override {}
+			NkRenderPassHandle CreateRenderPass(const NkRenderPassDesc &d) override;
+			void DestroyRenderPass(NkRenderPassHandle &h) override;
+			NkFramebufferHandle CreateFramebuffer(const NkFramebufferDesc &d) override;
+			void DestroyFramebuffer(NkFramebufferHandle &h) override;
 
-            bool                        BeginFrame(NkFrameContext& frame) override;
-            void                        EndFrame  (NkFrameContext& frame) override;
-            uint32                      GetFrameIndex()        const override { return mFrameIndex; }
-            uint32                      GetMaxFramesInFlight() const override { return 1; }
-            uint64                      GetFrameNumber()       const override { return mFrameNumber; }
-            void                        OnResize(uint32 w, uint32 h) override;
+			NkFramebufferHandle GetSwapchainFramebuffer() const override {
+				return mSwapchainFB;
+			}
 
-            void*                       GetNativeDevice()       const override { return nullptr; }
-            void*                       GetNativeCommandQueue() const override { return nullptr; }
+			NkRenderPassHandle GetSwapchainRenderPass() const override {
+				return mSwapchainRP;
+			}
 
-            // Accès interne
-            NkSWBuffer*                 GetBuf  (uint64 id);
-            NkSWTexture*                GetTex  (uint64 id);
-            NkSWSampler*                GetSamp (uint64 id);
-            NkSWShader*                 GetShader(uint64 id);
-            NkSWPipeline*               GetPipe (uint64 id);
-            NkSWDescSet*                GetDescSet(uint64 id);
-            NkSWFramebuffer*            GetFBO  (uint64 id);
-            NkSWRenderPass*             GetRP   (uint64 id);   // pour respecter le loadOp (clear vs load)
+			NkGPUFormat GetSwapchainFormat() const override {
+				return NkGPUFormat::NK_RGBA8_UNORM;
+			}
 
-            // Présentation — copie le color buffer vers la surface native
-            void                        Present();
-            // Accès direct au backbuffer pour présentation (lecture seule)
-            const uint8*                BackbufferPixels() const;
-            const uint8*                BackbufferSize() const;
-            uint32                      BackbufferWidth()  const { return mWidth; }
-            uint32                      BackbufferHeight() const { return mHeight; }
- 
-            // HarmonyOS — permet à NkHarmonyBridge de fournir le handle OHNativeWindow
-            // appelé depuis NkHarmonyOnSurfaceCreated() côté C++.
-            void                        SetHarmonyNativeWindow(void* ohNativeWindow);
+			NkGPUFormat GetSwapchainDepthFormat() const override {
+				return NkGPUFormat::NK_D32_FLOAT;
+			}
 
-            // v4 Phase 4 — BPR : l'app fournit sa caméra ; le device collecte la géométrie
-            // des draw-calls (clip-space → monde) et ray-trace TA scène quand NK_SW_RT=1.
-            void SetRtCamera(const math::NkMat4f& view, const math::NkMat4f& proj);
-            bool RtCollecting() const { return mRtMode && mRtHasCamera; }
-            void RtAddTriangle(const NkVertexSoftware& a, const NkVertexSoftware& b, const NkVertexSoftware& c);
+			uint32 GetSwapchainWidth() const override {
+				return mWidth;
+			}
 
-            // Multi-descriptor-set : sets courants pendant le replay (NKRenderer bind set 0/1/2).
-            static constexpr uint32 kMaxCurSets = 4;
-            void          SwSetCurDescSet(uint32 i, uint64 id) { if (i < kMaxCurSets) { mCurDescSets[i] = id; ++mBindGen; } }
-            const uint64* SwCurDescSets() const { return mCurDescSets; }
-            void          SwResetCurDescSets() { for (uint32 i=0;i<kMaxCurSets;++i) mCurDescSets[i]=0; mCurPush.Clear(); mCurViewport=NkViewport{}; mCurViewport.width=0.f; ++mBindGen; }
-            // Génération des bindings : incrémentée à chaque changement de descriptor set. Constante
-            // pendant la rasterisation multi-thread d'un draw → sert de clé à un cache thread_local
-            // de résolution (set,binding)->ptr (évite d'itérer/balayer les sets PAR PIXEL).
-            uint64        SwBindGen() const { return mBindGen; }
-            // Viewport courant (replay). width==0 => plein RT (mapping historique, aucune régression).
-            // Sous-rect (ex. slots du shadow atlas) => on mappe NDC dans le rect du viewport.
-            void              SwSetViewport(const NkViewport& v) { mCurViewport = v; }
-            const NkViewport& SwCurViewport() const { return mCurViewport; }
-            // Push constants courants (blob) — fournis par NkSoftwareCommandBuffer::PushConstants au replay.
-            void          SwSetPushConstants(const uint8* d, uint32 n) { mCurPush.Resize(n); if (d && n) std::memcpy(mCurPush.Data(), d, n); }
-            const uint8*  SwPushData() const { return mCurPush.Empty() ? nullptr : mCurPush.Data(); }
-            // Accès UBO/texture par (set, binding) pour le shader taillé NKRenderer (au shade-time).
-            const uint8*       SwGetUBOBytes(uint32 set, uint32 binding);
-            const NkSWTexture* SwGetTexAt(uint32 set, uint32 binding);
-            const uint8*       SwFindUBOInSet(uint32 set, uint32 binding);  // helper : un seul set slot
-            const NkSWTexture* SwFindTexInSet(uint32 set, uint32 binding);
-            void               SwSetCurStride(uint32 s) { mCurStride = s; }
-            uint32             SwCurStride() const { return mCurStride; }
-            // Index d'instance courant (gl_InstanceID). Posé par ExecuteDraw*Fast avant chaque
-            // rasterisation d'instance ; lu par les vertFn instanciés (ex. ombres des cubes) pour
-            // indexer l'InstanceUBO. 0 par défaut (draw non instancié) → comportement inchangé.
-            void               SwSetCurInstance(uint32 i) { mCurInstance = i; }
-            uint32             SwCurInstance() const { return mCurInstance; }
+			uint32 GetSwapchainHeight() const override {
+				return mHeight;
+			}
 
-        private:
-            void CreateSwapchainObjects();
-            void ResolveFramebuffer();   // v4 Phase 2 : downsample SSAA hi-res → mResolveBuf (taille fenêtre)
-            void RtRenderInto(uint8* buf, int w, int h, bool bgra);  // v4 Phase 4 : rend la scène BPR
-            uint64 NextId() { return ++mNextId; }
-            NkAtomic<uint64> mNextId{0};
+			NkDescSetHandle CreateDescriptorSetLayout(const NkDescriptorSetLayoutDesc &d) override;
+			void DestroyDescriptorSetLayout(NkDescSetHandle &h) override;
+			NkDescSetHandle AllocateDescriptorSet(NkDescSetHandle layoutHandle) override;
+			void FreeDescriptorSet(NkDescSetHandle &h) override;
+			void UpdateDescriptorSets(const NkDescriptorWrite *w, uint32 n) override;
 
-            NkUnorderedMap<uint64, NkSWBuffer>       mBuffers;
-            NkUnorderedMap<uint64, NkSWTexture>       mTextures;
-            NkUnorderedMap<uint64, NkSWSampler>       mSamplers;
-            NkUnorderedMap<uint64, NkSWShader>        mShaders;
-            NkUnorderedMap<uint64, NkSWPipeline>      mPipelines;
-            NkUnorderedMap<uint64, NkSWRenderPass>    mRenderPasses;
-            NkUnorderedMap<uint64, NkSWFramebuffer>   mFramebuffers;
-            NkUnorderedMap<uint64, NkSWDescSetLayout> mDescLayouts;
-            NkUnorderedMap<uint64, NkSWDescSet>       mDescSets;
-            NkUnorderedMap<uint64, NkSWFence>         mFences;
+			NkICommandBuffer *CreateCommandBuffer(NkCommandBufferType t) override;
+			void DestroyCommandBuffer(NkICommandBuffer *&cb) override;
 
-            NkFramebufferHandle mSwapchainFB;
-            NkRenderPassHandle  mSwapchainRP;
+			void Submit(NkICommandBuffer *const *cbs, uint32 n, NkFenceHandle fence) override;
+			void SubmitAndPresent(NkICommandBuffer *cb) override;
+			NkFenceHandle CreateFence(bool signaled) override;
+			void DestroyFence(NkFenceHandle &h) override;
+			bool WaitFence(NkFenceHandle f, uint64 to) override;
+			bool IsFenceSignaled(NkFenceHandle f) override;
+			void ResetFence(NkFenceHandle f) override;
 
-            mutable threading::NkMutex mMutex;
-            NkDeviceInitInfo    mInit   {};
-            NkDeviceCaps        mCaps   {};
-            bool                mIsValid= false;
-            uint32              mWidth=0, mHeight=0;
-            uint32              mFrameIndex  = 0;
-            uint64              mFrameNumber = 0;
-            uint32              mThreadCount = 0;
-            bool                mUseSse = true;
-            // v4 Phase 2 : super-sampling anti-aliasing (opt-in via NK_SW_SSAA=1..4, défaut 1 = off).
-            // Le swapchain est rendu à (mWidth*mSSAA)×(mHeight*mSSAA) puis résolu (box downsample)
-            // vers mResolveBuf (taille fenêtre) au Present → chemins de présentation inchangés.
-            uint32              mSSAA = 1;
-            NkVector<uint8>     mResolveBuf;
-            // v4 Phase 4 : mode ray-tracing BPR live (NK_SW_RT=1) — chaque Present ray-trace.
-            bool                mRtMode  = false;
-            uint32              mRtScale = 4;   // rendu RT à 1/scale de la résolution, puis upscale
-            NkVector<uint8>     mRtLowBuf;      // buffer basse résolution du ray-tracer
-            // BPR : caméra fournie par l'app + géométrie collectée des draws (en monde).
-            bool                   mRtHasCamera = false;
-            math::NkMat4f          mRtView, mRtProj, mRtInvVP;
-            NkVector<swtrace::Tri> mRtScene;
-            uint64                 mCurDescSets[kMaxCurSets]{};  // sets liés courants (replay)
-            uint64                 mBindGen = 1;                 // génération bindings (cache résolution)
-            NkViewport             mCurViewport{};               // viewport courant (width=0 => plein RT)
-            uint32                 mCurStride = 0;               // stride vertex du draw courant
-            uint32                 mCurInstance = 0;             // index d'instance courant (gl_InstanceID)
-            NkVector<uint8>        mCurPush;                     // blob push constants courant (replay)
+			void WaitIdle() override {
+			}
 
-            NkSoftwareContextData  mData;
-            bool InitNativePresenter (const NkSurfaceDesc& surf);
-            void ShutdownNativePresenter();
-    };
+			bool BeginFrame(NkFrameContext &frame) override;
+			void EndFrame(NkFrameContext &frame) override;
+
+			uint32 GetFrameIndex() const override {
+				return mFrameIndex;
+			}
+
+			uint32 GetMaxFramesInFlight() const override {
+				return 1;
+			}
+
+			uint64 GetFrameNumber() const override {
+				return mFrameNumber;
+			}
+
+			void OnResize(uint32 w, uint32 h) override;
+
+			void *GetNativeDevice() const override {
+				return nullptr;
+			}
+
+			void *GetNativeCommandQueue() const override {
+				return nullptr;
+			}
+
+			// Accès interne
+			NkSWBuffer *GetBuf(uint64 id);
+			NkSWTexture *GetTex(uint64 id);
+			NkSWSampler *GetSamp(uint64 id);
+			NkSWShader *GetShader(uint64 id);
+			NkSWPipeline *GetPipe(uint64 id);
+			NkSWDescSet *GetDescSet(uint64 id);
+			NkSWFramebuffer *GetFBO(uint64 id);
+			NkSWRenderPass *GetRP(uint64 id); // pour respecter le loadOp (clear vs load)
+
+			// Présentation — copie le color buffer vers la surface native
+			void Present();
+			// Accès direct au backbuffer pour présentation (lecture seule)
+			const uint8 *BackbufferPixels() const;
+			const uint8 *BackbufferSize() const;
+
+			uint32 BackbufferWidth() const {
+				return mWidth;
+			}
+
+			uint32 BackbufferHeight() const {
+				return mHeight;
+			}
+
+			// HarmonyOS — permet à NkHarmonyBridge de fournir le handle OHNativeWindow
+			// appelé depuis NkHarmonyOnSurfaceCreated() côté C++.
+			void SetHarmonyNativeWindow(void *ohNativeWindow);
+
+			// v4 Phase 4 — BPR : l'app fournit sa caméra ; le device collecte la géométrie
+			// des draw-calls (clip-space → monde) et ray-trace TA scène quand NK_SW_RT=1.
+			void SetRtCamera(const math::NkMat4f &view, const math::NkMat4f &proj);
+
+			bool RtCollecting() const {
+				return mRtMode && mRtHasCamera;
+			}
+
+			void RtAddTriangle(const NkVertexSoftware &a, const NkVertexSoftware &b, const NkVertexSoftware &c);
+
+			// Multi-descriptor-set : sets courants pendant le replay (NKRenderer bind set 0/1/2).
+			static constexpr uint32 kMaxCurSets = 4;
+
+			void SwSetCurDescSet(uint32 i, uint64 id) {
+				if (i < kMaxCurSets) {
+					mCurDescSets[i] = id;
+					++mBindGen;
+				}
+			}
+
+			const uint64 *SwCurDescSets() const {
+				return mCurDescSets;
+			}
+
+			void SwResetCurDescSets() {
+				for (uint32 i = 0; i < kMaxCurSets; ++i)
+					mCurDescSets[i] = 0;
+				mCurPush.Clear();
+				mCurViewport = NkViewport{};
+				mCurViewport.width = 0.f;
+				++mBindGen;
+			}
+
+			// Génération des bindings : incrémentée à chaque changement de descriptor set. Constante
+			// pendant la rasterisation multi-thread d'un draw → sert de clé à un cache thread_local
+			// de résolution (set,binding)->ptr (évite d'itérer/balayer les sets PAR PIXEL).
+			uint64 SwBindGen() const {
+				return mBindGen;
+			}
+
+			// Viewport courant (replay). width==0 => plein RT (mapping historique, aucune régression).
+			// Sous-rect (ex. slots du shadow atlas) => on mappe NDC dans le rect du viewport.
+			void SwSetViewport(const NkViewport &v) {
+				mCurViewport = v;
+			}
+
+			const NkViewport &SwCurViewport() const {
+				return mCurViewport;
+			}
+
+			// Push constants courants (blob) — fournis par NkSoftwareCommandBuffer::PushConstants au replay.
+			void SwSetPushConstants(const uint8 *d, uint32 n) {
+				mCurPush.Resize(n);
+				if (d && n)
+					std::memcpy(mCurPush.Data(), d, n);
+			}
+
+			const uint8 *SwPushData() const {
+				return mCurPush.Empty() ? nullptr : mCurPush.Data();
+			}
+
+			// Accès UBO/texture par (set, binding) pour le shader taillé NKRenderer (au shade-time).
+			const uint8 *SwGetUBOBytes(uint32 set, uint32 binding);
+			const NkSWTexture *SwGetTexAt(uint32 set, uint32 binding);
+			const uint8 *SwFindUBOInSet(uint32 set, uint32 binding); // helper : un seul set slot
+			const NkSWTexture *SwFindTexInSet(uint32 set, uint32 binding);
+
+			void SwSetCurStride(uint32 s) {
+				mCurStride = s;
+			}
+
+			uint32 SwCurStride() const {
+				return mCurStride;
+			}
+
+			// Index d'instance courant (gl_InstanceID). Posé par ExecuteDraw*Fast avant chaque
+			// rasterisation d'instance ; lu par les vertFn instanciés (ex. ombres des cubes) pour
+			// indexer l'InstanceUBO. 0 par défaut (draw non instancié) → comportement inchangé.
+			void SwSetCurInstance(uint32 i) {
+				mCurInstance = i;
+			}
+
+			uint32 SwCurInstance() const {
+				return mCurInstance;
+			}
+
+		private:
+			void CreateSwapchainObjects();
+			void ResolveFramebuffer(); // v4 Phase 2 : downsample SSAA hi-res → mResolveBuf (taille fenêtre)
+			void RtRenderInto(uint8 *buf, int w, int h, bool bgra); // v4 Phase 4 : rend la scène BPR
+
+			uint64 NextId() {
+				return ++mNextId;
+			}
+
+			NkAtomic<uint64> mNextId{0};
+
+			NkUnorderedMap<uint64, NkSWBuffer> mBuffers;
+			NkUnorderedMap<uint64, NkSWTexture> mTextures;
+			NkUnorderedMap<uint64, NkSWSampler> mSamplers;
+			NkUnorderedMap<uint64, NkSWShader> mShaders;
+			NkUnorderedMap<uint64, NkSWPipeline> mPipelines;
+			NkUnorderedMap<uint64, NkSWRenderPass> mRenderPasses;
+			NkUnorderedMap<uint64, NkSWFramebuffer> mFramebuffers;
+			NkUnorderedMap<uint64, NkSWDescSetLayout> mDescLayouts;
+			NkUnorderedMap<uint64, NkSWDescSet> mDescSets;
+			NkUnorderedMap<uint64, NkSWFence> mFences;
+
+			NkFramebufferHandle mSwapchainFB;
+			NkRenderPassHandle mSwapchainRP;
+
+			mutable threading::NkMutex mMutex;
+			NkDeviceInitInfo mInit{};
+			NkDeviceCaps mCaps{};
+			bool mIsValid = false;
+			uint32 mWidth = 0, mHeight = 0;
+			uint32 mFrameIndex = 0;
+			uint64 mFrameNumber = 0;
+			uint32 mThreadCount = 0;
+			bool mUseSse = true;
+			// v4 Phase 2 : super-sampling anti-aliasing (opt-in via NK_SW_SSAA=1..4, défaut 1 = off).
+			// Le swapchain est rendu à (mWidth*mSSAA)×(mHeight*mSSAA) puis résolu (box downsample)
+			// vers mResolveBuf (taille fenêtre) au Present → chemins de présentation inchangés.
+			uint32 mSSAA = 1;
+			NkVector<uint8> mResolveBuf;
+			// v4 Phase 4 : mode ray-tracing BPR live (NK_SW_RT=1) — chaque Present ray-trace.
+			bool mRtMode = false;
+			uint32 mRtScale = 4;	   // rendu RT à 1/scale de la résolution, puis upscale
+			NkVector<uint8> mRtLowBuf; // buffer basse résolution du ray-tracer
+			// BPR : caméra fournie par l'app + géométrie collectée des draws (en monde).
+			bool mRtHasCamera = false;
+			math::NkMat4f mRtView, mRtProj, mRtInvVP;
+			NkVector<swtrace::Tri> mRtScene;
+			uint64 mCurDescSets[kMaxCurSets]{}; // sets liés courants (replay)
+			uint64 mBindGen = 1;				// génération bindings (cache résolution)
+			NkViewport mCurViewport{};			// viewport courant (width=0 => plein RT)
+			uint32 mCurStride = 0;				// stride vertex du draw courant
+			uint32 mCurInstance = 0;			// index d'instance courant (gl_InstanceID)
+			NkVector<uint8> mCurPush;			// blob push constants courant (replay)
+
+			NkSoftwareContextData mData;
+			bool InitNativePresenter(const NkSurfaceDesc &surf);
+			void ShutdownNativePresenter();
+	};
 
 } // namespace nkentseu

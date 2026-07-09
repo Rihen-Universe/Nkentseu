@@ -21,16 +21,16 @@
 
 // Suppress Win32 GDI macros that collide with renderer method names
 #ifdef DrawText
-#  undef DrawText
+#undef DrawText
 #endif
 #ifdef DrawTextCentered
-#  undef DrawTextCentered
+#undef DrawTextCentered
 #endif
 
 // Convenience using-declarations for demo code
 namespace nkentseu {
-    namespace renderer {
-        // All types are in nkentseu::renderer — demos can use unqualified names
-        // after `using namespace nkentseu::renderer;`
-    }
-}
+	namespace renderer {
+		// All types are in nkentseu::renderer — demos can use unqualified names
+		// after `using namespace nkentseu::renderer;`
+	}
+} // namespace nkentseu

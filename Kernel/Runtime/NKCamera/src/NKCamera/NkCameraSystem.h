@@ -23,19 +23,19 @@
 #include "NKPlatform/NkPlatformDetect.h"
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
-    #include "NKCamera/Backend/NkWin32CameraBackend.h"
+#include "NKCamera/Backend/NkWin32CameraBackend.h"
 #elif defined(NKENTSEU_PLATFORM_MACOS)
-    #include "NKCamera/Backend/NkCocoaCameraBackend.h"
+#include "NKCamera/Backend/NkCocoaCameraBackend.h"
 #elif defined(NKENTSEU_PLATFORM_IOS)
-    #include "NKCamera/Backend/NkUIKitCameraBackend.h"
+#include "NKCamera/Backend/NkUIKitCameraBackend.h"
 #elif defined(NKENTSEU_PLATFORM_ANDROID)
-    #include "NKCamera/Backend/NkAndroidCameraBackend.h"
+#include "NKCamera/Backend/NkAndroidCameraBackend.h"
 #elif defined(NKENTSEU_PLATFORM_LINUX)
-    #include "NKCamera/Backend/NkLinuxCameraBackend.h"
+#include "NKCamera/Backend/NkLinuxCameraBackend.h"
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-    #include "NKCamera/Backend/NkEmscriptenCameraBackend.h"
+#include "NKCamera/Backend/NkEmscriptenCameraBackend.h"
 #else
-    #include "NKCamera/Backend/NkNoopCameraBackend.h"
+#include "NKCamera/Backend/NkNoopCameraBackend.h"
 #endif
 
 #include <memory>
@@ -43,290 +43,311 @@
 #include <queue>
 #include <string>
 
-namespace nkentseu
-{
-    #if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
-        using NkCameraBackend = NkWin32CameraBackend;
-    #elif defined(NKENTSEU_PLATFORM_MACOS)
-        using NkCameraBackend = NkCocoaCameraBackend;
-    #elif defined(NKENTSEU_PLATFORM_IOS)
-        using NkCameraBackend = NkUIKitCameraBackend;
-    #elif defined(NKENTSEU_PLATFORM_ANDROID)
-        using NkCameraBackend = NkAndroidCameraBackend;
-    #elif defined(NKENTSEU_PLATFORM_LINUX)
-        using NkCameraBackend = NkLinuxCameraBackend;
-    #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-        using NkCameraBackend = NkEmscriptenCameraBackend;
-    #else
-        using NkCameraBackend = NkNoopCameraBackend;
-    #endif
+namespace nkentseu {
+#if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
+	using NkCameraBackend = NkWin32CameraBackend;
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+	using NkCameraBackend = NkCocoaCameraBackend;
+#elif defined(NKENTSEU_PLATFORM_IOS)
+	using NkCameraBackend = NkUIKitCameraBackend;
+#elif defined(NKENTSEU_PLATFORM_ANDROID)
+	using NkCameraBackend = NkAndroidCameraBackend;
+#elif defined(NKENTSEU_PLATFORM_LINUX)
+	using NkCameraBackend = NkLinuxCameraBackend;
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+	using NkCameraBackend = NkEmscriptenCameraBackend;
+#else
+	using NkCameraBackend = NkNoopCameraBackend;
+#endif
 
-    // Forward dÃ©clarations
-    class NkCamera2D;
+	// Forward dÃ©clarations
+	class NkCamera2D;
 
-    // ===========================================================================
-    // NkCameraSystem â€” Une camÃ©ra physique Ã  la fois (multi via NkMultiCamera)
-    // ===========================================================================
+	// ===========================================================================
+	// NkCameraSystem â€” Une camÃ©ra physique Ã  la fois (multi via NkMultiCamera)
+	// ===========================================================================
 
-    class NkCameraSystem {
-        public:
-            // -----------------------------------------------------------------------
-            // Singleton
-            // -----------------------------------------------------------------------
-            static NkCameraSystem& Instance()
-            {
-                static NkCameraSystem s;
-                return s;
-            }
+	class NkCameraSystem {
+		public:
+			// -----------------------------------------------------------------------
+			// Singleton
+			// -----------------------------------------------------------------------
+			static NkCameraSystem &Instance() {
+				static NkCameraSystem s;
+				return s;
+			}
 
-            NkCameraSystem(const NkCameraSystem&)            = delete;
-            NkCameraSystem& operator=(const NkCameraSystem&) = delete;
+			NkCameraSystem(const NkCameraSystem &) = delete;
+			NkCameraSystem &operator=(const NkCameraSystem &) = delete;
 
-            // -----------------------------------------------------------------------
-            // Cycle de vie (appelÃ© par NkSystem::Initialise / NkSystem::Close)
-            // -----------------------------------------------------------------------
-            bool Init();
-            void Shutdown();
-            bool IsReady() const { return mReady; }
+			// -----------------------------------------------------------------------
+			// Cycle de vie (appelÃ© par NkSystem::Initialise / NkSystem::Close)
+			// -----------------------------------------------------------------------
+			bool Init();
+			void Shutdown();
 
-            // -----------------------------------------------------------------------
-            // Ã‰numÃ©ration de TOUS les pÃ©riphÃ©riques disponibles
-            //
-            // Retourne la liste complÃ¨te. Pour en choisir un, passer l'index dans
-            // NkCameraConfig::deviceIndex. L'index correspond Ã  devices[i].index.
-            // -----------------------------------------------------------------------
-            NkVector<NkCameraDevice> EnumerateDevices();
-            void SetHotPlugCallback(NkCameraHotPlugCallback cb);
+			bool IsReady() const {
+				return mReady;
+			}
 
-            // -----------------------------------------------------------------------
-            // Streaming â€” ouvrir LE pÃ©riphÃ©rique de config.deviceIndex
-            //
-            // Pour changer de camÃ©ra : StopStreaming() puis StartStreaming(newCfg)
-            // -----------------------------------------------------------------------
-            bool          StartStreaming(const NkCameraConfig& config = {});
-            void          StopStreaming();
-            NkCameraState GetState()    const;
-            bool          IsStreaming() const;
+			// -----------------------------------------------------------------------
+			// Ã‰numÃ©ration de TOUS les pÃ©riphÃ©riques disponibles
+			//
+			// Retourne la liste complÃ¨te. Pour en choisir un, passer l'index dans
+			// NkCameraConfig::deviceIndex. L'index correspond Ã  devices[i].index.
+			// -----------------------------------------------------------------------
+			NkVector<NkCameraDevice> EnumerateDevices();
+			void SetHotPlugCallback(NkCameraHotPlugCallback cb);
 
-            void SetFrameCallback(NkFrameCallback cb);
+			// -----------------------------------------------------------------------
+			// Streaming â€” ouvrir LE pÃ©riphÃ©rique de config.deviceIndex
+			//
+			// Pour changer de camÃ©ra : StopStreaming() puis StartStreaming(newCfg)
+			// -----------------------------------------------------------------------
+			bool StartStreaming(const NkCameraConfig &config = {});
+			void StopStreaming();
+			NkCameraState GetState() const;
+			bool IsStreaming() const;
 
-            // Thread-safe â€” copie la derniÃ¨re frame disponible
-            bool GetLastFrame(NkCameraFrame& outFrame);
+			void SetFrameCallback(NkFrameCallback cb);
 
-            // Queue thread-safe â€” recommandÃ© dans la boucle principale
-            void EnableFrameQueue(uint32 maxQueueSize = 4);
-            bool DrainFrameQueue(NkCameraFrame& outFrame);
+			// Thread-safe â€” copie la derniÃ¨re frame disponible
+			bool GetLastFrame(NkCameraFrame &outFrame);
 
-            // -----------------------------------------------------------------------
-            // Capture photo
-            // -----------------------------------------------------------------------
-            bool        CapturePhoto(NkPhotoCaptureResult& outResult);
-            // API conservÃ©e pour compatibilitÃ©, mais l'Ã©criture fichier est dÃ©sactivÃ©e.
-            NkString CapturePhotoToFile(const NkString& path = "");
+			// Queue thread-safe â€” recommandÃ© dans la boucle principale
+			void EnableFrameQueue(uint32 maxQueueSize = 4);
+			bool DrainFrameQueue(NkCameraFrame &outFrame);
 
-            // -----------------------------------------------------------------------
-            // Enregistrement vidÃ©o
-            // -----------------------------------------------------------------------
-            bool  StartVideoRecord(const NkVideoRecordConfig& config = {});
-            void  StopVideoRecord();
-            bool  IsRecording()                 const;
-            float GetRecordingDurationSeconds() const;
+			// -----------------------------------------------------------------------
+			// Capture photo
+			// -----------------------------------------------------------------------
+			bool CapturePhoto(NkPhotoCaptureResult &outResult);
+			// API conservÃ©e pour compatibilitÃ©, mais l'Ã©criture fichier est dÃ©sactivÃ©e.
+			NkString CapturePhotoToFile(const NkString &path = "");
 
-            // -----------------------------------------------------------------------
-            // ContrÃ´les camÃ©ra physique
-            // -----------------------------------------------------------------------
-            bool SetAutoFocus       (bool e);
-            bool SetAutoExposure    (bool e);
-            bool SetAutoWhiteBalance(bool e);
-            bool SetZoom            (float level);   ///< 1.0 = aucun zoom
-            bool SetFlash           (bool e);
-            bool SetTorch           (bool e);
-            bool SetFocusPoint      (float normX, float normY);
+			// -----------------------------------------------------------------------
+			// Enregistrement vidÃ©o
+			// -----------------------------------------------------------------------
+			bool StartVideoRecord(const NkVideoRecordConfig &config = {});
+			void StopVideoRecord();
+			bool IsRecording() const;
+			float GetRecordingDurationSeconds() const;
 
-            // -----------------------------------------------------------------------
-            // Informations session courante
-            // -----------------------------------------------------------------------
-            uint32         GetWidth()     const;
-            uint32         GetHeight()    const;
-            uint32         GetFPS()       const;
-            NkPixelFormat GetFormat()    const;
-            NkString   GetLastError() const;
-            uint32         GetCurrentDeviceIndex() const { return mCurrentDeviceIndex; }
+			// -----------------------------------------------------------------------
+			// ContrÃ´les camÃ©ra physique
+			// -----------------------------------------------------------------------
+			bool SetAutoFocus(bool e);
+			bool SetAutoExposure(bool e);
+			bool SetAutoWhiteBalance(bool e);
+			bool SetZoom(float level); ///< 1.0 = aucun zoom
+			bool SetFlash(bool e);
+			bool SetTorch(bool e);
+			bool SetFocusPoint(float normX, float normY);
 
-            NKICameraBackend* GetBackend() { return &mBackend; }
-            const NKICameraBackend* GetBackend() const { return &mBackend; }
+			// -----------------------------------------------------------------------
+			// Informations session courante
+			// -----------------------------------------------------------------------
+			uint32 GetWidth() const;
+			uint32 GetHeight() const;
+			uint32 GetFPS() const;
+			NkPixelFormat GetFormat() const;
+			NkString GetLastError() const;
 
-            // -----------------------------------------------------------------------
-            // MAPPING CAMÃ‰RA VIRTUELLE â† CAMÃ‰RA RÃ‰ELLE (IMU)
-            //
-            // Quand activÃ©, les donnÃ©es d'orientation IMU de la camÃ©ra physique
-            // (gyroscope / accÃ©lÃ©romÃ¨tre) sont utilisÃ©es pour dÃ©placer une NkCamera2D.
-            //
-            // Usage :
-            //   cam.SetVirtualCameraTarget(&myCamera2D);   // lier la camÃ©ra 2D
-            //   cam.SetVirtualCameraMapping(true);          // activer le mapping
-            //   // Dans la boucle :
-            //   cam.UpdateVirtualCamera(dt);                // appliquer les mouvements
-            // -----------------------------------------------------------------------
+			uint32 GetCurrentDeviceIndex() const {
+				return mCurrentDeviceIndex;
+			}
 
-            /// Lie une NkCamera2D cible dont la position/rotation sera pilotÃ©e par l'IMU
-            void SetVirtualCameraTarget(NkCamera2D* cam2D);
+			NKICameraBackend *GetBackend() {
+				return &mBackend;
+			}
 
-            /// Active / dÃ©sactive le mapping physique â†’ virtuel
-            void SetVirtualCameraMapping(bool enable);
-            bool IsVirtualCameraMappingEnabled() const { return mVirtualMappingEnabled; }
+			const NKICameraBackend *GetBackend() const {
+				return &mBackend;
+			}
 
-            /// ParamÃ¨tres de sensibilitÃ© du mapping
-            struct VirtualCameraMapConfig {
-                float yawSensitivity   = 1.0f;  ///< SensibilitÃ© rotation gauche/droite
-                float pitchSensitivity = 1.0f;  ///< SensibilitÃ© rotation haut/bas
-                float translationScale = 0.f;   ///< Translation (0 = rotation seulement)
-                bool  invertX          = false;
-                bool  invertY          = false;
-                bool  smoothing        = true;
-                float smoothFactor     = 0.15f; ///< Lerp de lissage (0.05 trÃ¨s lisse, 1.0 instantanÃ©)
-            };
+			// -----------------------------------------------------------------------
+			// MAPPING CAMÃ‰RA VIRTUELLE â† CAMÃ‰RA RÃ‰ELLE (IMU)
+			//
+			// Quand activÃ©, les donnÃ©es d'orientation IMU de la camÃ©ra physique
+			// (gyroscope / accÃ©lÃ©romÃ¨tre) sont utilisÃ©es pour dÃ©placer une NkCamera2D.
+			//
+			// Usage :
+			//   cam.SetVirtualCameraTarget(&myCamera2D);   // lier la camÃ©ra 2D
+			//   cam.SetVirtualCameraMapping(true);          // activer le mapping
+			//   // Dans la boucle :
+			//   cam.UpdateVirtualCamera(dt);                // appliquer les mouvements
+			// -----------------------------------------------------------------------
 
-            void SetVirtualCameraMapConfig(const VirtualCameraMapConfig& cfg) { mMapConfig = cfg; }
-            const VirtualCameraMapConfig& GetVirtualCameraMapConfig() const { return mMapConfig; }
+			/// Lie une NkCamera2D cible dont la position/rotation sera pilotÃ©e par l'IMU
+			void SetVirtualCameraTarget(NkCamera2D *cam2D);
 
-            /// Ã€ appeler chaque frame (boucle principale)
-            /// Met Ã  jour la camÃ©ra virtuelle selon l'orientation IMU courante
-            void UpdateVirtualCamera(float dt);
+			/// Active / dÃ©sactive le mapping physique â†’ virtuel
+			void SetVirtualCameraMapping(bool enable);
 
-            /// Retourne l'orientation IMU courante (si supportÃ©e par le backend)
-            bool GetCurrentOrientation(NkCameraOrientation& out) const;
+			bool IsVirtualCameraMappingEnabled() const {
+				return mVirtualMappingEnabled;
+			}
 
-            // -----------------------------------------------------------------------
-            // Utilitaires statiques
-            // -----------------------------------------------------------------------
+			/// ParamÃ¨tres de sensibilitÃ© du mapping
+			struct VirtualCameraMapConfig {
+					float yawSensitivity = 1.0f;   ///< SensibilitÃ© rotation gauche/droite
+					float pitchSensitivity = 1.0f; ///< SensibilitÃ© rotation haut/bas
+					float translationScale = 0.f;  ///< Translation (0 = rotation seulement)
+					bool invertX = false;
+					bool invertY = false;
+					bool smoothing = true;
+					float smoothFactor = 0.15f; ///< Lerp de lissage (0.05 trÃ¨s lisse, 1.0 instantanÃ©)
+			};
 
-            /// Convertit n'importe quel format de frame en RGBA8
-            static bool ConvertToRGBA8(NkCameraFrame& frame);
+			void SetVirtualCameraMapConfig(const VirtualCameraMapConfig &cfg) {
+				mMapConfig = cfg;
+			}
 
-            /// API conservÃ©e pour compatibilitÃ© (retourne false : I/O dÃ©sactivÃ©)
-            static bool SaveFrameToFile(const NkCameraFrame& frame,
-                                        const NkString& path,
-                                        int quality = 90);
+			const VirtualCameraMapConfig &GetVirtualCameraMapConfig() const {
+				return mMapConfig;
+			}
 
-            /// GÃ©nÃ¨re un chemin automatique pour sauvegarder une photo
-            static NkString GenerateAutoPath(const NkString& prefix,
-                                                const NkString& ext);
+			/// Ã€ appeler chaque frame (boucle principale)
+			/// Met Ã  jour la camÃ©ra virtuelle selon l'orientation IMU courante
+			void UpdateVirtualCamera(float dt);
 
-        private:
-            NkCameraSystem() = default;
+			/// Retourne l'orientation IMU courante (si supportÃ©e par le backend)
+			bool GetCurrentOrientation(NkCameraOrientation &out) const;
 
-            void OnFrame(const NkCameraFrame& frame);
+			// -----------------------------------------------------------------------
+			// Utilitaires statiques
+			// -----------------------------------------------------------------------
 
-            // Backend
-            NkCameraBackend mBackend;
-            bool            mReady               = false;
-            uint32           mCurrentDeviceIndex  = 0;
+			/// Convertit n'importe quel format de frame en RGBA8
+			static bool ConvertToRGBA8(NkCameraFrame &frame);
 
-            // Frame thread-safe
-            mutable std::mutex  mFrameMutex;
-            NkCameraFrame       mLastFrame;
-            bool                mHasFrame    = false;
-            NkFrameCallback     mUserCallback;
+			/// API conservÃ©e pour compatibilitÃ© (retourne false : I/O dÃ©sactivÃ©)
+			static bool SaveFrameToFile(const NkCameraFrame &frame, const NkString &path, int quality = 90);
 
-            // Queue optionnelle
-            bool                         mQueueEnabled = false;
-            uint32                        mMaxQueueSize = 4;
-            std::queue<NkCameraFrame>    mFrameQueue;
-            mutable std::mutex           mQueueMutex;
+			/// GÃ©nÃ¨re un chemin automatique pour sauvegarder une photo
+			static NkString GenerateAutoPath(const NkString &prefix, const NkString &ext);
 
-            // Mapping camÃ©ra virtuelle
-            NkCamera2D*          mVirtualCamera         = nullptr;
-            bool                 mVirtualMappingEnabled = false;
-            VirtualCameraMapConfig mMapConfig;
+		private:
+			NkCameraSystem() = default;
 
-            // Mode IMAGE_SEQUENCE_ONLY â€” fallback cross-platform sans encodeur
-            // video natif. Quand actif, OnFrame sauve chaque frame en PNG/JPG.
-            bool                 mImageSequenceActive   = false;
-            NkString             mImageSequenceDir;       ///< dossier ou prefix
-            NkString             mImageSequenceExt;       ///< "png" / "jpg" / "bmp"
-            uint32                mImageSequenceIndex    = 0;
-            int32                 mImageSequenceQuality  = 90;
-            uint64                mImageSequenceStartUs  = 0;
+			void OnFrame(const NkCameraFrame &frame);
 
-            // Orientation de rÃ©fÃ©rence (lors de l'activation du mapping)
-            NkCameraOrientation  mRefOrientation {};
-            bool                 mRefCaptured    = false;
+			// Backend
+			NkCameraBackend mBackend;
+			bool mReady = false;
+			uint32 mCurrentDeviceIndex = 0;
 
-            // Orientation lissÃ©e courante
-            float mSmoothedYaw   = 0.f;
-            float mSmoothedPitch = 0.f;
-    };
+			// Frame thread-safe
+			mutable std::mutex mFrameMutex;
+			NkCameraFrame mLastFrame;
+			bool mHasFrame = false;
+			NkFrameCallback mUserCallback;
 
-    // ---------------------------------------------------------------------------
-    // Raccourci global
-    // ---------------------------------------------------------------------------
-    inline NkCameraSystem& NkCamera() { return NkCameraSystem::Instance(); }
+			// Queue optionnelle
+			bool mQueueEnabled = false;
+			uint32 mMaxQueueSize = 4;
+			std::queue<NkCameraFrame> mFrameQueue;
+			mutable std::mutex mQueueMutex;
 
+			// Mapping camÃ©ra virtuelle
+			NkCamera2D *mVirtualCamera = nullptr;
+			bool mVirtualMappingEnabled = false;
+			VirtualCameraMapConfig mMapConfig;
 
-    // ===========================================================================
-    // NkMultiCamera â€” GÃ©rer PLUSIEURS camÃ©ras physiques simultanÃ©ment
-    //
-    // Chaque NkMultiCamera::Stream encapsule un backend indÃ©pendant.
-    // Utilisation :
-    //   NkMultiCamera multi;
-    //   auto& s0 = multi.Open(0, cfg0);  // camÃ©ra index 0
-    //   auto& s1 = multi.Open(1, cfg1);  // camÃ©ra index 1
-    //   NkCameraFrame f0, f1;
-    //   s0.GetLastFrame(f0);
-    //   s1.GetLastFrame(f1);
-    // ===========================================================================
+			// Mode IMAGE_SEQUENCE_ONLY â€” fallback cross-platform sans encodeur
+			// video natif. Quand actif, OnFrame sauve chaque frame en PNG/JPG.
+			bool mImageSequenceActive = false;
+			NkString mImageSequenceDir; ///< dossier ou prefix
+			NkString mImageSequenceExt; ///< "png" / "jpg" / "bmp"
+			uint32 mImageSequenceIndex = 0;
+			int32 mImageSequenceQuality = 90;
+			uint64 mImageSequenceStartUs = 0;
 
-    class NkMultiCamera {
-        public:
-            // Un stream = une camÃ©ra physique ouverte
-            class Stream {
-                public:
-                    explicit Stream(uint32 deviceIndex);
-                    ~Stream();
+			// Orientation de rÃ©fÃ©rence (lors de l'activation du mapping)
+			NkCameraOrientation mRefOrientation{};
+			bool mRefCaptured = false;
 
-                    bool          Start(const NkCameraConfig& cfg);
-                    void          Stop();
-                    bool          GetLastFrame(NkCameraFrame& out);
-                    bool          DrainFrame(NkCameraFrame& out);
-                    void          EnableQueue(uint32 sz = 4);
-                    NkCameraState GetState()  const;
-                    uint32         DeviceIndex() const { return mDeviceIndex; }
-                    NkString   GetLastError() const;
+			// Orientation lissÃ©e courante
+			float mSmoothedYaw = 0.f;
+			float mSmoothedPitch = 0.f;
+	};
 
-                    bool CapturePhotoToFile(const NkString& path = "");
+	// ---------------------------------------------------------------------------
+	// Raccourci global
+	// ---------------------------------------------------------------------------
+	inline NkCameraSystem &NkCamera() {
+		return NkCameraSystem::Instance();
+	}
 
-                private:
-                    void OnFrame(const NkCameraFrame& f);
+	// ===========================================================================
+	// NkMultiCamera â€” GÃ©rer PLUSIEURS camÃ©ras physiques simultanÃ©ment
+	//
+	// Chaque NkMultiCamera::Stream encapsule un backend indÃ©pendant.
+	// Utilisation :
+	//   NkMultiCamera multi;
+	//   auto& s0 = multi.Open(0, cfg0);  // camÃ©ra index 0
+	//   auto& s1 = multi.Open(1, cfg1);  // camÃ©ra index 1
+	//   NkCameraFrame f0, f1;
+	//   s0.GetLastFrame(f0);
+	//   s1.GetLastFrame(f1);
+	// ===========================================================================
 
-                    uint32                     mDeviceIndex;
-                    NkCameraBackend           mBackend;
-                    bool                      mBackendReady = false;
-                    mutable std::mutex        mMutex;
-                    NkCameraFrame             mLastFrame;
-                    bool                      mHasFrame = false;
-                    bool                      mQueueEnabled = false;
-                    uint32                     mMaxQueue = 4;
-                    std::queue<NkCameraFrame> mQueue;
-                    mutable std::mutex        mQueueMutex;
-            };
+	class NkMultiCamera {
+		public:
+			// Un stream = une camÃ©ra physique ouverte
+			class Stream {
+				public:
+					explicit Stream(uint32 deviceIndex);
+					~Stream();
 
-            /// Ouvre la camÃ©ra d'index deviceIndex et dÃ©marre le streaming
-            Stream& Open(uint32 deviceIndex, const NkCameraConfig& config = {});
+					bool Start(const NkCameraConfig &cfg);
+					void Stop();
+					bool GetLastFrame(NkCameraFrame &out);
+					bool DrainFrame(NkCameraFrame &out);
+					void EnableQueue(uint32 sz = 4);
+					NkCameraState GetState() const;
 
-            /// Ferme une camÃ©ra par index
-            void Close(uint32 deviceIndex);
+					uint32 DeviceIndex() const {
+						return mDeviceIndex;
+					}
 
-            /// Ferme toutes les camÃ©ras
-            void CloseAll();
+					NkString GetLastError() const;
 
-            /// AccÃ¨s Ã  un stream par index de device
-            Stream* Get(uint32 deviceIndex);
+					bool CapturePhotoToFile(const NkString &path = "");
 
-            uint32 Count() const { return static_cast<uint32>(mStreams.Size()); }
+				private:
+					void OnFrame(const NkCameraFrame &f);
 
-        private:
-            NkVector<std::unique_ptr<Stream>> mStreams;
-    };
+					uint32 mDeviceIndex;
+					NkCameraBackend mBackend;
+					bool mBackendReady = false;
+					mutable std::mutex mMutex;
+					NkCameraFrame mLastFrame;
+					bool mHasFrame = false;
+					bool mQueueEnabled = false;
+					uint32 mMaxQueue = 4;
+					std::queue<NkCameraFrame> mQueue;
+					mutable std::mutex mQueueMutex;
+			};
+
+			/// Ouvre la camÃ©ra d'index deviceIndex et dÃ©marre le streaming
+			Stream &Open(uint32 deviceIndex, const NkCameraConfig &config = {});
+
+			/// Ferme une camÃ©ra par index
+			void Close(uint32 deviceIndex);
+
+			/// Ferme toutes les camÃ©ras
+			void CloseAll();
+
+			/// AccÃ¨s Ã  un stream par index de device
+			Stream *Get(uint32 deviceIndex);
+
+			uint32 Count() const {
+				return static_cast<uint32>(mStreams.Size());
+			}
+
+		private:
+			NkVector<std::unique_ptr<Stream>> mStreams;
+	};
 
 } // namespace nkentseu

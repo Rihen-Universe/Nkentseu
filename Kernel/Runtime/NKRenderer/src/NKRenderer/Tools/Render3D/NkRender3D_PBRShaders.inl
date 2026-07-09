@@ -7,7 +7,7 @@
 
 namespace {
 
-static const char* kPBR_VS = R"GLSL(
+	static const char *kPBR_VS = R"GLSL(
 #version 460 core
 
 layout(location=0) in vec3 aPos;
@@ -100,7 +100,7 @@ void main() {
 }
 )GLSL";
 
-static const char* kPBR_FS = R"GLSL(
+	static const char *kPBR_FS = R"GLSL(
 #version 460 core
 
 layout(location=0) in vec3 vWorldPos;
@@ -464,12 +464,12 @@ void main() {
 }
 )GLSL";
 
-// =============================================================================
-// Shaders shadow pass (D.3b) : depth-only render depuis la perspective de la
-// lumiere directionnelle. Reutilise ObjectUBO (binding=1) pour le model — meme
-// layout que le shader PBR principal. La lightVP est passee en push constant.
-// =============================================================================
-static const char* kShadow_VS = R"GLSL(
+	// =============================================================================
+	// Shaders shadow pass (D.3b) : depth-only render depuis la perspective de la
+	// lumiere directionnelle. Reutilise ObjectUBO (binding=1) pour le model — meme
+	// layout que le shader PBR principal. La lightVP est passee en push constant.
+	// =============================================================================
+	static const char *kShadow_VS = R"GLSL(
 #version 460 core
 layout(location=0) in vec3 aPos;
 
@@ -491,7 +491,7 @@ void main() {
 }
 )GLSL";
 
-static const char* kShadow_FS = R"GLSL(
+	static const char *kShadow_FS = R"GLSL(
 #version 460 core
 // Depth-only : pas d'output color. GL ecrit gl_FragDepth implicite.
 void main() {}

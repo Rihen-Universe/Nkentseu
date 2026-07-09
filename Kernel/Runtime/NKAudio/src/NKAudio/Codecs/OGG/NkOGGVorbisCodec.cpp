@@ -34,7 +34,7 @@
 #include "NKPlatform/NkEndianness.h"
 #include "NKPlatform/NkPlatformInline.h"
 #include "NKMemory/NkAllocator.h"
-#include <climits>  // UINT_MAX (non transitivement inclus par OHOS clang)
+#include <climits> // UINT_MAX (non transitivement inclus par OHOS clang)
 #include "NKLogger/NkLog.h"
 #include <cstring>
 
@@ -112,8 +112,8 @@ namespace nkentseu {
 			// to use malloc()/alloca()
 
 			typedef struct {
-				char *allocBuffer;
-				int32 allocBufferLengthInBytes;
+					char *allocBuffer;
+					int32 allocBufferLengthInBytes;
 			} NkVorbisAllocator;
 
 			///////////   FUNCTIONS USEABLE WITH ALL INPUT MODES
@@ -121,21 +121,21 @@ namespace nkentseu {
 			typedef struct NkVorbisDecoder NkVorbisDecoder;
 
 			typedef struct {
-				uint32 sampleRate;
-				int32 channels;
+					uint32 sampleRate;
+					int32 channels;
 
-				uint32 setupMemoryRequired;
-				uint32 setupTempMemoryRequired;
-				uint32 tempMemoryRequired;
+					uint32 setupMemoryRequired;
+					uint32 setupTempMemoryRequired;
+					uint32 tempMemoryRequired;
 
-				int32 maxFrameSize;
+					int32 maxFrameSize;
 			} NkVorbisInfo;
 
 			typedef struct {
-				char *vendor;
+					char *vendor;
 
-				int32 commentListLength;
-				char **commentList;
+					int32 commentListLength;
+					char **commentList;
 			} NkVorbisComment;
 
 			// get general information about the file
@@ -403,10 +403,10 @@ namespace nkentseu {
 			// (juste avant le bloc nkentseu::audio Decode wrapper).
 
 #endif // NK_VORBIS_DECODER_HEADER_H
-			//
-			//  HEADER ENDS HERE
-			//
-			//////////////////////////////////////////////////////////////////////////////
+	   //
+	   //  HEADER ENDS HERE
+	   //
+	   //////////////////////////////////////////////////////////////////////////////
 
 #ifndef NK_VORBIS_HEADER_ONLY
 
@@ -599,215 +599,215 @@ namespace nkentseu {
 #define FAST_HUFFMAN_TABLE_MASK (FAST_HUFFMAN_TABLE_SIZE - 1)
 
 			typedef struct {
-				int32 dimensions, entries;
-				uint8 *codewordLengths;
-				float32 minimumValue;
-				float32 deltaValue;
-				uint8 valueBits;
-				uint8 lookupType;
-				uint8 sequenceP;
-				uint8 sparse;
-				uint32 lookupValues;
-				codetype *multiplicands;
-				uint32 *codewords;
+					int32 dimensions, entries;
+					uint8 *codewordLengths;
+					float32 minimumValue;
+					float32 deltaValue;
+					uint8 valueBits;
+					uint8 lookupType;
+					uint8 sequenceP;
+					uint8 sparse;
+					uint32 lookupValues;
+					codetype *multiplicands;
+					uint32 *codewords;
 #ifdef NK_VORBIS_FAST_HUFFMAN_SHORT
-				int16 fastHuffman[FAST_HUFFMAN_TABLE_SIZE];
+					int16 fastHuffman[FAST_HUFFMAN_TABLE_SIZE];
 #else
-				int32 fastHuffman[FAST_HUFFMAN_TABLE_SIZE];
+					int32 fastHuffman[FAST_HUFFMAN_TABLE_SIZE];
 #endif
-				uint32 *sortedCodewords;
-				int32 *sortedValues;
-				int32 sortedEntries;
+					uint32 *sortedCodewords;
+					int32 *sortedValues;
+					int32 sortedEntries;
 			} NkCodebook;
 
 			typedef struct {
-				uint8 order;
-				uint16 rate;
-				uint16 barkMapSize;
-				uint8 amplitudeBits;
-				uint8 amplitudeOffset;
-				uint8 numberOfBooks;
-				uint8 bookList[16]; // varies
+					uint8 order;
+					uint16 rate;
+					uint16 barkMapSize;
+					uint8 amplitudeBits;
+					uint8 amplitudeOffset;
+					uint8 numberOfBooks;
+					uint8 bookList[16]; // varies
 			} Floor0;
 
 			typedef struct {
-				uint8 partitions;
-				uint8 partitionClassList[32]; // varies
-				uint8 classDimensions[16];	  // varies
-				uint8 classSubclasses[16];	  // varies
-				uint8 classMasterbooks[16];	  // varies
-				int16 subclassBooks[16][8];	  // varies
-				uint16 Xlist[31 * 8 + 2];	  // varies
-				uint8 sortedOrder[31 * 8 + 2];
-				uint8 NkNeighbors[31 * 8 + 2][2];
-				uint8 floor1Multiplier;
-				uint8 rangebits;
-				int32 values;
+					uint8 partitions;
+					uint8 partitionClassList[32]; // varies
+					uint8 classDimensions[16];	  // varies
+					uint8 classSubclasses[16];	  // varies
+					uint8 classMasterbooks[16];	  // varies
+					int16 subclassBooks[16][8];	  // varies
+					uint16 Xlist[31 * 8 + 2];	  // varies
+					uint8 sortedOrder[31 * 8 + 2];
+					uint8 NkNeighbors[31 * 8 + 2][2];
+					uint8 floor1Multiplier;
+					uint8 rangebits;
+					int32 values;
 			} NkFloor1;
 
 			typedef union {
-				Floor0 floor0;
-				NkFloor1 floor1;
+					Floor0 floor0;
+					NkFloor1 floor1;
 			} NkFloor;
 
 			typedef struct {
-				uint32 begin, end;
-				uint32 partSize;
-				uint8 classifications;
-				uint8 classbook;
-				uint8 **classdata;
-				int16 (*residueBooks)[8];
+					uint32 begin, end;
+					uint32 partSize;
+					uint8 classifications;
+					uint8 classbook;
+					uint8 **classdata;
+					int16 (*residueBooks)[8];
 			} NkResidue;
 
 			typedef struct {
-				uint8 magnitude;
-				uint8 angle;
-				uint8 mux;
+					uint8 magnitude;
+					uint8 angle;
+					uint8 mux;
 			} NkMappingChannel;
 
 			typedef struct {
-				uint16 couplingSteps;
-				NkMappingChannel *chan;
-				uint8 submaps;
-				uint8 submapFloor[15];	 // varies
-				uint8 submapResidue[15]; // varies
+					uint16 couplingSteps;
+					NkMappingChannel *chan;
+					uint8 submaps;
+					uint8 submapFloor[15];	 // varies
+					uint8 submapResidue[15]; // varies
 			} NkMapping;
 
 			typedef struct {
-				uint8 blockflag;
-				uint8 mapping;
-				uint16 windowtype;
-				uint16 transformtype;
+					uint8 blockflag;
+					uint8 mapping;
+					uint16 windowtype;
+					uint16 transformtype;
 			} NkMode;
 
 			typedef struct {
-				uint32 goalCrc;	  // expected crc if match
-				int32 bytesLeft;  // bytes left in packet
-				uint32 crcSoFar;  // running crc
-				int32 bytesDone;  // bytes processed in _current_ chunk
-				uint32 sampleLoc; // granule pos encoded in page
+					uint32 goalCrc;	  // expected crc if match
+					int32 bytesLeft;  // bytes left in packet
+					uint32 crcSoFar;  // running crc
+					int32 bytesDone;  // bytes processed in _current_ chunk
+					uint32 sampleLoc; // granule pos encoded in page
 			} NkCrcScan;
 
 			typedef struct {
-				uint32 pageStart, pageEnd;
-				uint32 lastDecodedSample;
+					uint32 pageStart, pageEnd;
+					uint32 lastDecodedSample;
 			} NkProbedPage;
 
 			struct NkVorbisDecoder {
-				// user-accessible info
-				uint32 sampleRate;
-				int32 channels;
+					// user-accessible info
+					uint32 sampleRate;
+					int32 channels;
 
-				uint32 setupMemoryRequired;
-				uint32 tempMemoryRequired;
-				uint32 setupTempMemoryRequired;
+					uint32 setupMemoryRequired;
+					uint32 tempMemoryRequired;
+					uint32 setupTempMemoryRequired;
 
-				char *vendor;
-				int32 commentListLength;
-				char **commentList;
+					char *vendor;
+					int32 commentListLength;
+					char **commentList;
 
-				// input config
+					// input config
 #ifndef NK_VORBIS_NO_STDIO
-				FILE *f;
-				uint32 fStart;
-				int32 closeOnFree;
+					FILE *f;
+					uint32 fStart;
+					int32 closeOnFree;
 #endif
 
-				uint8 *stream;
-				uint8 *streamStart;
-				uint8 *streamEnd;
+					uint8 *stream;
+					uint8 *streamStart;
+					uint8 *streamEnd;
 
-				uint32 streamLen;
+					uint32 streamLen;
 
-				uint8 pushMode;
+					uint8 pushMode;
 
-				// the page to seek to when seeking to start, may be zero
-				uint32 firstAudioPageOffset;
+					// the page to seek to when seeking to start, may be zero
+					uint32 firstAudioPageOffset;
 
-				// pFirst is the page on which the first audio packet ends
-				// (but not necessarily the page on which it starts)
-				NkProbedPage pFirst, pLast;
+					// pFirst is the page on which the first audio packet ends
+					// (but not necessarily the page on which it starts)
+					NkProbedPage pFirst, pLast;
 
-				// memory management
-				NkVorbisAllocator alloc;
-				int32 setupOffset;
-				int32 tempOffset;
+					// memory management
+					NkVorbisAllocator alloc;
+					int32 setupOffset;
+					int32 tempOffset;
 
-				// run-time results
-				int32 eof;
-				enum NkVorbisError error;
+					// run-time results
+					int32 eof;
+					enum NkVorbisError error;
 
-				// user-useful data
+					// user-useful data
 
-				// header info
-				int32 blocksize[2];
-				int32 blocksize0, blocksize1;
-				int32 codebookCount;
-				NkCodebook *codebooks;
-				int32 floorCount;
-				uint16 floorTypes[64]; // varies
-				NkFloor *floorConfig;
-				int32 residueCount;
-				uint16 residueTypes[64]; // varies
-				NkResidue *residueConfig;
-				int32 mappingCount;
-				NkMapping *mapping;
-				int32 modeCount;
-				NkMode modeConfig[64]; // varies
+					// header info
+					int32 blocksize[2];
+					int32 blocksize0, blocksize1;
+					int32 codebookCount;
+					NkCodebook *codebooks;
+					int32 floorCount;
+					uint16 floorTypes[64]; // varies
+					NkFloor *floorConfig;
+					int32 residueCount;
+					uint16 residueTypes[64]; // varies
+					NkResidue *residueConfig;
+					int32 mappingCount;
+					NkMapping *mapping;
+					int32 modeCount;
+					NkMode modeConfig[64]; // varies
 
-				uint32 totalSamples;
+					uint32 totalSamples;
 
-				// decode buffer
-				float32 *channelBuffers[NK_VORBIS_MAX_CHANNELS];
-				float32 *outputs[NK_VORBIS_MAX_CHANNELS];
+					// decode buffer
+					float32 *channelBuffers[NK_VORBIS_MAX_CHANNELS];
+					float32 *outputs[NK_VORBIS_MAX_CHANNELS];
 
-				float32 *previousWindow[NK_VORBIS_MAX_CHANNELS];
-				int32 previousLength;
+					float32 *previousWindow[NK_VORBIS_MAX_CHANNELS];
+					int32 previousLength;
 
 #ifndef NK_VORBIS_NO_DEFER_FLOOR
-				int16 *finalY[NK_VORBIS_MAX_CHANNELS];
+					int16 *finalY[NK_VORBIS_MAX_CHANNELS];
 #else
-				float32 *floorBuffers[NK_VORBIS_MAX_CHANNELS];
+					float32 *floorBuffers[NK_VORBIS_MAX_CHANNELS];
 #endif
 
-				uint32 currentLoc; // sample location of next frame to decode
-				int32 currentLocValid;
+					uint32 currentLoc; // sample location of next frame to decode
+					int32 currentLocValid;
 
-				// per-blocksize precomputed data
+					// per-blocksize precomputed data
 
-				// twiddle factors
-				float32 *A[2], *B[2], *C[2];
-				float32 *window[2];
-				uint16 *NkBitReverse[2];
+					// twiddle factors
+					float32 *A[2], *B[2], *C[2];
+					float32 *window[2];
+					uint16 *NkBitReverse[2];
 
-				// current page/packet/segment streaming info
-				uint32 serial; // stream serial number for verification
-				int32 lastPage;
-				int32 segmentCount;
-				uint8 segments[255];
-				uint8 pageFlag;
-				uint8 bytesInSeg;
-				uint8 firstDecode;
-				int32 nextSeg;
-				int32 lastSeg;		// flag that we're on the last segment
-				int32 lastSegWhich; // what was the segment number of the last seg?
-				uint32 acc;
-				int32 validBits;
-				int32 packetBytes;
-				int32 endSegWithKnownLoc;
-				uint32 knownLocForPacket;
-				int32 discardSamplesDeferred;
-				uint32 samplesOutput;
+					// current page/packet/segment streaming info
+					uint32 serial; // stream serial number for verification
+					int32 lastPage;
+					int32 segmentCount;
+					uint8 segments[255];
+					uint8 pageFlag;
+					uint8 bytesInSeg;
+					uint8 firstDecode;
+					int32 nextSeg;
+					int32 lastSeg;		// flag that we're on the last segment
+					int32 lastSegWhich; // what was the segment number of the last seg?
+					uint32 acc;
+					int32 validBits;
+					int32 packetBytes;
+					int32 endSegWithKnownLoc;
+					uint32 knownLocForPacket;
+					int32 discardSamplesDeferred;
+					uint32 samplesOutput;
 
-				// push mode scanning
-				int32 pageCrcTests; // only in pushMode: number of tests active; -1 if not searching
+					// push mode scanning
+					int32 pageCrcTests; // only in pushMode: number of tests active; -1 if not searching
 #ifndef NK_VORBIS_NO_PUSHDATA_API
-				NkCrcScan scan[NK_VORBIS_PUSHDATA_CRC_COUNT];
+					NkCrcScan scan[NK_VORBIS_PUSHDATA_CRC_COUNT];
 #endif
 
-				// sample-access
-				int32 channelBufferStart;
-				int32 channelBufferEnd;
+					// sample-access
+					int32 channelBufferStart;
+					int32 channelBufferEnd;
 			};
 
 #if defined(NK_VORBIS_NO_PUSHDATA_API)
@@ -898,6 +898,7 @@ namespace nkentseu {
 #define CRC32_POLY 0x04c11db7 // from spec
 
 			static uint32 crcTable[256];
+
 			static void NkCrc32Init(void) {
 				int32 i, j;
 				uint32 s;
@@ -1235,7 +1236,7 @@ namespace nkentseu {
 
 			// this has been repurposed so y is now the original index instead of y
 			typedef struct {
-				uint16 x, id;
+					uint16 x, id;
 			} NkVorbisFloorOrdering;
 
 			static int32 NKV_CDECL NkPointCompare(const void *p, const void *q) {
@@ -1330,13 +1331,13 @@ namespace nkentseu {
 					// `streamStart + loc < streamStart` est toujours faux en arithmetique
 					// de pointeur definie -> on neutralise le warning sans toucher la logique.
 #if defined(__clang__)
-#  pragma clang diagnostic push
-#  pragma clang diagnostic ignored "-Wtautological-pointer-compare"
-#  pragma clang diagnostic ignored "-Wtautological-compare"
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wtautological-pointer-compare"
+#pragma clang diagnostic ignored "-Wtautological-compare"
 #endif
 					if (f->streamStart + loc >= f->streamEnd || f->streamStart + loc < f->streamStart) {
 #if defined(__clang__)
-#  pragma clang diagnostic pop
+#pragma clang diagnostic pop
 #endif
 						f->stream = f->streamEnd;
 						f->eof = 1;
@@ -2336,13 +2337,13 @@ void NkInverseMdctSlow(float32 *buffer, int32 n)
 			// directly call the vorbis MDCT using an interface documented
 			// by Jeff Roberts... useful for performance comparison
 			typedef struct {
-				int32 n;
-				int32 log2n;
+					int32 n;
+					int32 log2n;
 
-				float32 *trig;
-				int32 *bitrev;
+					float32 *trig;
+					int32 *bitrev;
 
-				float32 scale;
+					float32 scale;
 			} mdctLookup;
 
 			extern void NkMdctInit(mdctLookup *lookup, int32 n);
@@ -2602,7 +2603,8 @@ void NkInverseMdctSlow(float32 *buffer, int32 n)
 				float32 *A = f->A[blocktype];
 
 				// IMDCT algorithm from "The use of multirate filter banks for coding of high quality digital audio"
-				// See notes about bugs in that paper in less-optimal implementation 'NkInverseMdct_old' after this function.
+				// See notes about bugs in that paper in less-optimal implementation 'NkInverseMdct_old' after this
+				// function.
 
 				// kernel from paper
 
@@ -3350,9 +3352,8 @@ void NkInverseMdctNaive(float32 *buffer, int32 n)
 					// this isn't to spec, but spec would require us to read ahead
 					// and decode the size of all current frames--could be done,
 					// but presumably it's not a commonly used feature
-					f->currentLoc =
-						0u - n2; // start of first frame is positioned for discard (NB this is an intentional uint32
-								 // overflow/wrap-around)
+					f->currentLoc = 0u - n2; // start of first frame is positioned for discard (NB this is an
+											 // intentional uint32 overflow/wrap-around)
 					// we might have to discard samples "from" the next frame too,
 					// if we're lapping a large block then a small at the start?
 					f->discardSamplesDeferred = n - rightEnd;
@@ -5218,9 +5219,10 @@ void NkInverseMdctNaive(float32 *buffer, int32 n)
 
 #ifndef NK_VORBIS_NO_FAST_SCALED_FLOAT
 			typedef union {
-				float32 f;
-				int32 i;
+					float32 f;
+					int32 i;
 			} floatConv;
+
 			typedef char NkVorbisFloatSizeTest[sizeof(float32) == 4 && sizeof(int32) == 4];
 #define FASTDEF(x) floatConv x
 // add (1<<23) to convert to int32, then divide by 2^SHIFT, then add 0.5/2^SHIFT to round

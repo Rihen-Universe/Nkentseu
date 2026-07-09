@@ -18,25 +18,25 @@ using CAMetalLayer = struct objc_object;
 
 namespace nkentseu {
 
-    struct NkWindowData {
-            NSWindow*      mNSWindow   = nullptr;
-            NSView*        mNSView     = nullptr;
-            CAMetalLayer*  mMetalLayer = nullptr;
-            NSWindow*      mParentWindow = nullptr;
+	struct NkWindowData {
+			NSWindow *mNSWindow = nullptr;
+			NSView *mNSView = nullptr;
+			CAMetalLayer *mMetalLayer = nullptr;
+			NSWindow *mParentWindow = nullptr;
 #ifdef __OBJC__
-            id             mDelegate   = nil;   // NkCocoaWindowDelegate*
-            id             mScreenObserver = nil; // token NSNotificationCenter (hot-plug écrans)
+			id mDelegate = nil;		  // NkCocoaWindowDelegate*
+			id mScreenObserver = nil; // token NSNotificationCenter (hot-plug écrans)
 #else
-            void*          mDelegate   = nullptr;
-            void*          mScreenObserver = nullptr;
+			void *mDelegate = nullptr;
+			void *mScreenObserver = nullptr;
 #endif
-            NkSurfaceHints mAppliedHints{};
-            uint32 mWidth      = 0;
-            uint32 mHeight     = 0;
-            bool  mVisible    = false;
-            bool  mFullscreen = false;
-            bool  mExternal   = false;
-            bool  mOwnsWindow = true;
-    };
+			NkSurfaceHints mAppliedHints{};
+			uint32 mWidth = 0;
+			uint32 mHeight = 0;
+			bool mVisible = false;
+			bool mFullscreen = false;
+			bool mExternal = false;
+			bool mOwnsWindow = true;
+	};
 
 } // namespace nkentseu

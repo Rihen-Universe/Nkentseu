@@ -34,193 +34,194 @@
 #include "NKRHI/Core/NkIDevice.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        class NkAnimationSystem;
+		class NkAnimationSystem;
 
-        // =========================================================================
-        // Identifiants opaques
-        // =========================================================================
-        struct TagIKRig   {};
-        struct TagIKChain {};
-        using NkIKRigId   = NkRendHandle<TagIKRig>;
-        using NkIKChainId = NkRendHandle<TagIKChain>;
+		// =========================================================================
+		// Identifiants opaques
+		// =========================================================================
+		struct TagIKRig {};
 
-        // =========================================================================
-        // Algorithme de résolution
-        // =========================================================================
-        enum class NkIKSolver : uint8 {
-            NK_TWO_BONE   = 0, // analytique — bras / jambes
-            NK_CCD        = 1, // Cyclic Coordinate Descent
-            NK_FABRIK     = 2, // Forward And Backward Reaching IK
-            NK_SPLINE     = 3, // Spline IK — colonne, tentacules
-            NK_FBIK       = 4, // Full Body IK
-        };
+		struct TagIKChain {};
 
-        // =========================================================================
-        // Contrainte sur une articulation
-        // =========================================================================
-        enum class NkIKConstraintType : uint8 {
-            NK_FREE       = 0, // aucune contrainte
-            NK_HINGE      = 1, // rotation autour d'un axe unique (genou, coude)
-            NK_BALL_SOCKET= 2, // rotule — angle max configurable
-            NK_TWIST      = 3, // contrainte en torsion uniquement
-            NK_PLANAR     = 4, // mouvement contraint dans un plan
-        };
+		using NkIKRigId = NkRendHandle<TagIKRig>;
+		using NkIKChainId = NkRendHandle<TagIKChain>;
 
-        struct NkIKConstraint {
-            NkIKConstraintType type  = NkIKConstraintType::NK_FREE;
-            NkVec3f            axis  = {0,1,0};  // pour NK_HINGE
-            float32            minAngleDeg = -180.f;
-            float32            maxAngleDeg =  180.f;
-            float32            stiffness   =  1.f;  // 0=souple, 1=rigide
-        };
+		// =========================================================================
+		// Algorithme de résolution
+		// =========================================================================
+		enum class NkIKSolver : uint8 {
+			NK_TWO_BONE = 0, // analytique — bras / jambes
+			NK_CCD = 1,		 // Cyclic Coordinate Descent
+			NK_FABRIK = 2,	 // Forward And Backward Reaching IK
+			NK_SPLINE = 3,	 // Spline IK — colonne, tentacules
+			NK_FBIK = 4,	 // Full Body IK
+		};
 
-        // =========================================================================
-        // Os dans une chaîne IK
-        // =========================================================================
-        struct NkIKBone {
-            uint32         boneIdx = 0;           // index dans le skeleton
-            NkString       boneName;
-            float32        length  = 1.f;          // longueur du segment
-            NkIKConstraint constraint;
-            NkVec3f        restDir = {0,1,0};      // direction au repos
-        };
+		// =========================================================================
+		// Contrainte sur une articulation
+		// =========================================================================
+		enum class NkIKConstraintType : uint8 {
+			NK_FREE = 0,		// aucune contrainte
+			NK_HINGE = 1,		// rotation autour d'un axe unique (genou, coude)
+			NK_BALL_SOCKET = 2, // rotule — angle max configurable
+			NK_TWIST = 3,		// contrainte en torsion uniquement
+			NK_PLANAR = 4,		// mouvement contraint dans un plan
+		};
 
-        // =========================================================================
-        // Cible IK (effector)
-        // =========================================================================
-        struct NkIKTarget {
-            NkVec3f  position  = {};
-            NkQuatf  rotation  = NkQuatf::Identity();
-            float32  weight    = 1.f;        // 0=ignore, 1=full IK
-            bool     matchRotation = false;  // contraindre aussi l'orientation
-            NkVec3f  poleVector = {};        // guide pour le genou / coude
-            bool     usePole    = false;
-        };
+		struct NkIKConstraint {
+				NkIKConstraintType type = NkIKConstraintType::NK_FREE;
+				NkVec3f axis = {0, 1, 0}; // pour NK_HINGE
+				float32 minAngleDeg = -180.f;
+				float32 maxAngleDeg = 180.f;
+				float32 stiffness = 1.f; // 0=souple, 1=rigide
+		};
 
-        // =========================================================================
-        // Configuration d'une chaîne IK
-        // =========================================================================
-        struct NkIKChainDesc {
-            NkString            name;
-            NkIKSolver          solver       = NkIKSolver::NK_FABRIK;
-            NkVector<NkIKBone>  bones;       // racine → effecteur
-            NkIKTarget          target;
-            uint32              maxIterations= 10;
-            float32             tolerance    = 0.001f; // distance au but acceptable
-            bool                enabled      = true;
-        };
+		// =========================================================================
+		// Os dans une chaîne IK
+		// =========================================================================
+		struct NkIKBone {
+				uint32 boneIdx = 0; // index dans le skeleton
+				NkString boneName;
+				float32 length = 1.f; // longueur du segment
+				NkIKConstraint constraint;
+				NkVec3f restDir = {0, 1, 0}; // direction au repos
+		};
 
-        // =========================================================================
-        // NkIKRig — ensemble de chaînes pour un squelette
-        // =========================================================================
-        class NkIKRig {
-            public:
-                explicit NkIKRig(uint64 skeletonId);
+		// =========================================================================
+		// Cible IK (effector)
+		// =========================================================================
+		struct NkIKTarget {
+				NkVec3f position = {};
+				NkQuatf rotation = NkQuatf::Identity();
+				float32 weight = 1.f;		// 0=ignore, 1=full IK
+				bool matchRotation = false; // contraindre aussi l'orientation
+				NkVec3f poleVector = {};	// guide pour le genou / coude
+				bool usePole = false;
+		};
 
-                NkIKChainId AddChain  (const NkIKChainDesc& desc);
-                void        RemoveChain(NkIKChainId id);
+		// =========================================================================
+		// Configuration d'une chaîne IK
+		// =========================================================================
+		struct NkIKChainDesc {
+				NkString name;
+				NkIKSolver solver = NkIKSolver::NK_FABRIK;
+				NkVector<NkIKBone> bones; // racine → effecteur
+				NkIKTarget target;
+				uint32 maxIterations = 10;
+				float32 tolerance = 0.001f; // distance au but acceptable
+				bool enabled = true;
+		};
 
-                void SetTarget  (NkIKChainId id, NkVec3f pos,
-                                NkQuatf rot = NkQuatf::Identity());
-                void SetWeight  (NkIKChainId id, float32 w);
-                void SetEnabled (NkIKChainId id, bool enabled);
-                void EnableAll  (bool enabled);
+		// =========================================================================
+		// NkIKRig — ensemble de chaînes pour un squelette
+		// =========================================================================
+		class NkIKRig {
+			public:
+				explicit NkIKRig(uint64 skeletonId);
 
-                const NkIKChainDesc* GetChain(NkIKChainId id) const;
-                NkIKChainId          FindChain(const NkString& name) const;
-                uint64               GetSkeletonId() const { return mSkeletonId; }
-                uint32               GetChainCount() const;
+				NkIKChainId AddChain(const NkIKChainDesc &desc);
+				void RemoveChain(NkIKChainId id);
 
-                // ENTRÉE : pose MONDE courante du squelette (matrices world-space par
-                // os). À appeler AVANT Solve() : le solveur lit les positions réelles
-                // ici (bones[boneIdx].position) puis réécrit le résultat au même endroit.
-                void SetWorldPose(const NkMat4f* worldMats, uint32 count);
+				void SetTarget(NkIKChainId id, NkVec3f pos, NkQuatf rot = NkQuatf::Identity());
+				void SetWeight(NkIKChainId id, float32 w);
+				void SetEnabled(NkIKChainId id, bool enabled);
+				void EnableAll(bool enabled);
 
-                // Résultats — bone matrices après résolution (world-space)
-                const NkMat4f* GetBoneMatrices()    const;
-                uint32         GetBoneMatrixCount() const;
+				const NkIKChainDesc *GetChain(NkIKChainId id) const;
+				NkIKChainId FindChain(const NkString &name) const;
 
-            private:
-                friend class NkIKSystem;
+				uint64 GetSkeletonId() const {
+					return mSkeletonId;
+				}
 
-                uint64 mSkeletonId = 0;
-                uint64 mNextChainId = 1;
+				uint32 GetChainCount() const;
 
-                struct ChainEntry {
-                    NkIKChainId   id;
-                    NkIKChainDesc desc;
-                    NkIKTarget    target;
-                    bool          enabled = true;
-                    float32       weight  = 1.f;
-                };
+				// ENTRÉE : pose MONDE courante du squelette (matrices world-space par
+				// os). À appeler AVANT Solve() : le solveur lit les positions réelles
+				// ici (bones[boneIdx].position) puis réécrit le résultat au même endroit.
+				void SetWorldPose(const NkMat4f *worldMats, uint32 count);
 
-                NkVector<ChainEntry>  mChains;
-                NkVector<NkMat4f>     mBoneMatrices; // résultats
-        };
+				// Résultats — bone matrices après résolution (world-space)
+				const NkMat4f *GetBoneMatrices() const;
+				uint32 GetBoneMatrixCount() const;
 
-        // =========================================================================
-        // Configuration globale
-        // =========================================================================
-        struct NkIKConfig {
-            bool   gpuSkinning   = true;  // écriture des résultats vers GPU
-            bool   debugDraw     = false;
-            uint32 maxRigs       = 128;
-            uint32 maxChainsTotal= 1024;
-        };
+			private:
+				friend class NkIKSystem;
 
-        // =========================================================================
-        // NkIKSystem
-        // =========================================================================
-        class NkIKSystem {
-            public:
-                NkIKSystem()  = default;
-                ~NkIKSystem();
+				uint64 mSkeletonId = 0;
+				uint64 mNextChainId = 1;
 
-                // ── Cycle de vie ──────────────────────────────────────────────────────
-                bool Init(NkIDevice*        device,
-                        NkAnimationSystem* animSys,
-                        const NkIKConfig&  cfg = {});
-                void Shutdown();
+				struct ChainEntry {
+						NkIKChainId id;
+						NkIKChainDesc desc;
+						NkIKTarget target;
+						bool enabled = true;
+						float32 weight = 1.f;
+				};
 
-                // ── Gestion des rigs ──────────────────────────────────────────────────
-                NkIKRig*  CreateRig (uint64 skeletonId);
-                void      DestroyRig(NkIKRig*& rig);
+				NkVector<ChainEntry> mChains;
+				NkVector<NkMat4f> mBoneMatrices; // résultats
+		};
 
-                NkIKRig*  GetRig(uint64 skeletonId);
+		// =========================================================================
+		// Configuration globale
+		// =========================================================================
+		struct NkIKConfig {
+				bool gpuSkinning = true; // écriture des résultats vers GPU
+				bool debugDraw = false;
+				uint32 maxRigs = 128;
+				uint32 maxChainsTotal = 1024;
+		};
 
-                // ── Résolution (une fois par frame, après Update de l'animation) ──────
-                // pose = bone matrices d'entrée (depuis NkAnimationSystem)
-                // Écrit les résultats directement dans pose (blend avec weight)
-                void Solve(float32 deltaTimeSec);
+		// =========================================================================
+		// NkIKSystem
+		// =========================================================================
+		class NkIKSystem {
+			public:
+				NkIKSystem() = default;
+				~NkIKSystem();
 
-                // Résoudre un rig unique seulement
-                void SolveRig(NkIKRig* rig, float32 deltaTimeSec);
+				// ── Cycle de vie ──────────────────────────────────────────────────────
+				bool Init(NkIDevice *device, NkAnimationSystem *animSys, const NkIKConfig &cfg = {});
+				void Shutdown();
 
-                // ── Config ────────────────────────────────────────────────────────────
-                const NkIKConfig& GetConfig() const { return mCfg; }
-                void SetDebugDraw(bool enabled);
+				// ── Gestion des rigs ──────────────────────────────────────────────────
+				NkIKRig *CreateRig(uint64 skeletonId);
+				void DestroyRig(NkIKRig *&rig);
 
-            private:
-                NkIDevice*         mDevice   = nullptr;
-                NkAnimationSystem* mAnimSys  = nullptr;
-                NkIKConfig         mCfg;
-                bool               mReady    = false;
+				NkIKRig *GetRig(uint64 skeletonId);
 
-                NkHashMap<uint64, NkIKRig*> mRigs;
+				// ── Résolution (une fois par frame, après Update de l'animation) ──────
+				// pose = bone matrices d'entrée (depuis NkAnimationSystem)
+				// Écrit les résultats directement dans pose (blend avec weight)
+				void Solve(float32 deltaTimeSec);
 
-                void SolveChain_TwoBone(NkIKRig::ChainEntry& chain,
-                                        NkVector<NkMat4f>&   bones);
-                void SolveChain_CCD    (NkIKRig::ChainEntry& chain,
-                                        NkVector<NkMat4f>&   bones);
-                void SolveChain_FABRIK (NkIKRig::ChainEntry& chain,
-                                        NkVector<NkMat4f>&   bones);
-                void SolveChain_Spline (NkIKRig::ChainEntry& chain,
-                                        NkVector<NkMat4f>&   bones);
-                void ApplyConstraint(const NkIKConstraint& c, NkQuatf& q,
-                                    NkQuatf prevQ);
-        };
+				// Résoudre un rig unique seulement
+				void SolveRig(NkIKRig *rig, float32 deltaTimeSec);
 
-    } // namespace renderer
+				// ── Config ────────────────────────────────────────────────────────────
+				const NkIKConfig &GetConfig() const {
+					return mCfg;
+				}
+
+				void SetDebugDraw(bool enabled);
+
+			private:
+				NkIDevice *mDevice = nullptr;
+				NkAnimationSystem *mAnimSys = nullptr;
+				NkIKConfig mCfg;
+				bool mReady = false;
+
+				NkHashMap<uint64, NkIKRig *> mRigs;
+
+				void SolveChain_TwoBone(NkIKRig::ChainEntry &chain, NkVector<NkMat4f> &bones);
+				void SolveChain_CCD(NkIKRig::ChainEntry &chain, NkVector<NkMat4f> &bones);
+				void SolveChain_FABRIK(NkIKRig::ChainEntry &chain, NkVector<NkMat4f> &bones);
+				void SolveChain_Spline(NkIKRig::ChainEntry &chain, NkVector<NkMat4f> &bones);
+				void ApplyConstraint(const NkIKConstraint &c, NkQuatf &q, NkQuatf prevQ);
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

@@ -1,4 +1,5 @@
 #pragma once
+
 // =============================================================================
 // NkDrawable.h — Interface abstraite des objets dessinables (style SFML)
 //
@@ -34,22 +35,21 @@
 // =============================================================================
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        class NkRenderTarget;   // NkRenderTarget.h — pas encore livre (etape A.5)
-        struct NkRenderStates;  // NkRenderStates.h  — etat compose (etape A.2, fait)
+		class NkRenderTarget;  // NkRenderTarget.h — pas encore livre (etape A.5)
+		struct NkRenderStates; // NkRenderStates.h  — etat compose (etape A.2, fait)
 
-        class NkDrawable {
-            public:
-                virtual ~NkDrawable() noexcept = default;
+		class NkDrawable {
+			public:
+				virtual ~NkDrawable() noexcept = default;
 
-                /// Methode de rendu : le drawable se dessine sur `target`, en
-                /// composant son propre etat avec `states`.
-                /// `const` : un drawable ne mute pas pendant son rendu ;
-                /// les caches mutables (NkTransformable) restent valides.
-                virtual void Draw(NkRenderTarget& target,
-                                  const NkRenderStates& states) const = 0;
-        };
+				/// Methode de rendu : le drawable se dessine sur `target`, en
+				/// composant son propre etat avec `states`.
+				/// `const` : un drawable ne mute pas pendant son rendu ;
+				/// les caches mutables (NkTransformable) restent valides.
+				virtual void Draw(NkRenderTarget &target, const NkRenderStates &states) const = 0;
+		};
 
-    } // namespace renderer
+	} // namespace renderer
 } // namespace nkentseu

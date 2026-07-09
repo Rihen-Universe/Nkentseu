@@ -20,7 +20,6 @@
 #include "NKLogger/NkLogMessage.h"
 #include "NKLogger/NkLoggerFormatter.h"
 
-
 // -------------------------------------------------------------------------
 // SECTION 1 : NAMESPACE PRINCIPAL - IMPLÉMENTATIONS DES MÉTHODES
 // -------------------------------------------------------------------------
@@ -28,7 +27,6 @@
 // Aucune macro NKENTSEU_LOGGER_API : export hérité de la déclaration de classe.
 
 namespace nkentseu {
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Constructeur
@@ -39,7 +37,6 @@ namespace nkentseu {
 		// noexcept implicite : aucune exception possible
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Destructeur
 	// DESCRIPTION : Cleanup trivial : aucune ressource à libérer
@@ -49,12 +46,11 @@ namespace nkentseu {
 		// noexcept implicite : destruction safe dans tous les contextes
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Log
 	// DESCRIPTION : Ignore silencieusement le message (no-op)
 	// -------------------------------------------------------------------------
-	void NkNullSink::Log(const NkLogMessage& message) {
+	void NkNullSink::Log(const NkLogMessage &message) {
 		// No-op : le message est ignoré sans traitement ni allocation
 		// Thread-safe : aucun état mutable, safe pour appel concurrent
 		// Performance : overhead minimal, potentiellement optimisé par le compilateur
@@ -63,7 +59,6 @@ namespace nkentseu {
 		// Pour éviter les warnings compiler : (void)message; si nécessaire
 		(void)message;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Flush
@@ -76,7 +71,6 @@ namespace nkentseu {
 
 		// Note : méthode requise par l'interface NkISink pour compatibilité
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetFormatter
@@ -92,12 +86,11 @@ namespace nkentseu {
 		(void)formatter;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetPattern
 	// DESCRIPTION : Ignore le pattern fourni (no-op)
 	// -------------------------------------------------------------------------
-	void NkNullSink::SetPattern(const NkString& pattern) {
+	void NkNullSink::SetPattern(const NkString &pattern) {
 		// No-op : ce sink n'utilise pas de pattern interne
 		// Thread-safe : safe pour appel concurrent
 		// Aucun état modifié : retour immédiat
@@ -106,19 +99,17 @@ namespace nkentseu {
 		(void)pattern;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetFormatter
 	// DESCRIPTION : Retourne nullptr : aucun formatter associé
 	// -------------------------------------------------------------------------
-	NkLoggerFormatter* NkNullSink::GetFormatter() const {
+	NkLoggerFormatter *NkNullSink::GetFormatter() const {
 		// Retour constant : ce sink ne gère pas de formatter interne
 		// Thread-safe : lecture safe sans synchronisation
 		// Compatible avec l'API NkISink : retour de pointeur brut
 
 		return nullptr;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetPattern
@@ -132,9 +123,7 @@ namespace nkentseu {
 		return NkString{};
 	}
 
-
 } // namespace nkentseu
-
 
 // =============================================================================
 // NOTES D'IMPLÉMENTATION ET BONNES PRATIQUES
@@ -170,7 +159,6 @@ namespace nkentseu {
 	   - Pour variantes : créer de nouvelles classes plutôt que dériver
 	   - Documenter clairement le contrat no-op pour éviter les mauvaises surprises
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

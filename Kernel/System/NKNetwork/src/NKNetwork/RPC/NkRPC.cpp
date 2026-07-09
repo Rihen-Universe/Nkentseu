@@ -45,272 +45,230 @@
 
 namespace nkentseu {
 
-    namespace net {
+	namespace net {
 
-        // =====================================================================
-        // IMPLÉMENTATION : NkRPCRouter — Enregistrement
-        // =====================================================================
+		// =====================================================================
+		// IMPLÉMENTATION : NkRPCRouter — Enregistrement
+		// =====================================================================
 
-        uint32 NkRPCRouter::Register(
-            const char* name,
-            NkRPCType type,
-            NkRPCDescriptor::HandlerFn handler,
-            NkRPCReliability rel
-        ) noexcept
-        {
-            // Validation des paramètres d'entrée
-            if (name == nullptr || handler == nullptr)
-            {
-                NK_NET_LOG_ERROR("RPC Register : paramètres invalides (name ou handler null)");
-                return 0u;
-            }
+		uint32 NkRPCRouter::Register(const char *name, NkRPCType type, NkRPCDescriptor::HandlerFn handler,
+									 NkRPCReliability rel) noexcept {
+			// Validation des paramètres d'entrée
+			if (name == nullptr || handler == nullptr) {
+				NK_NET_LOG_ERROR("RPC Register : paramètres invalides (name ou handler null)");
+				return 0u;
+			}
 
-            // Vérification de la capacité de la table
-            if (mCount >= kMaxRPCs)
-            {
-                NK_NET_LOG_ERROR("RPC Register : table pleine (max {} RPCs)", kMaxRPCs);
-                return 0u;
-            }
+			// Vérification de la capacité de la table
+			if (mCount >= kMaxRPCs) {
+				NK_NET_LOG_ERROR("RPC Register : table pleine (max {} RPCs)", kMaxRPCs);
+				return 0u;
+			}
 
-            // Calcul de l'ID hashé pour lookup rapide
-            const uint32 rpcId = HashRPCName(name);
+			// Calcul de l'ID hashé pour lookup rapide
+			const uint32 rpcId = HashRPCName(name);
 
-            // Vérification de collision d'ID (deux noms différents → même hash)
-            // Probabilité très faible avec hash 32-bit, mais vérification défensive
-            if (FindDescriptor(rpcId) != nullptr)
-            {
-                NK_NET_LOG_WARN("RPC Register : collision d'ID pour '{}', hash={}", name, rpcId);
-                // Ne pas bloquer — accepter la collision (rare) ou gérer autrement selon besoin
-            }
+			// Vérification de collision d'ID (deux noms différents → même hash)
+			// Probabilité très faible avec hash 32-bit, mais vérification défensive
+			if (FindDescriptor(rpcId) != nullptr) {
+				NK_NET_LOG_WARN("RPC Register : collision d'ID pour '{}', hash={}", name, rpcId);
+				// Ne pas bloquer — accepter la collision (rare) ou gérer autrement selon besoin
+			}
 
-            // Remplissage du descriptor dans la table
-            NkRPCDescriptor& desc = mDescriptors[mCount];
+			// Remplissage du descriptor dans la table
+			NkRPCDescriptor &desc = mDescriptors[mCount];
 
-            // Copie sécurisée du nom avec terminateur nul
-            const usize nameLen = NkStringView(name).Size();
-            const usize copyLen = (nameLen < NkRPCDescriptor::kMaxNameLen - 1) ? nameLen : (NkRPCDescriptor::kMaxNameLen - 1);
-            memory::NkCopy(desc.name, name, copyLen);
-            desc.name[copyLen] = '\0';  // Terminaison explicite
+			// Copie sécurisée du nom avec terminateur nul
+			const usize nameLen = NkStringView(name).Size();
+			const usize copyLen =
+				(nameLen < NkRPCDescriptor::kMaxNameLen - 1) ? nameLen : (NkRPCDescriptor::kMaxNameLen - 1);
+			memory::NkCopy(desc.name, name, copyLen);
+			desc.name[copyLen] = '\0'; // Terminaison explicite
 
-            // Initialisation des métadonnées
-            desc.id = rpcId;
-            desc.type = type;
-            desc.reliability = rel;
-            desc.handler = traits::NkMove(handler);
+			// Initialisation des métadonnées
+			desc.id = rpcId;
+			desc.type = type;
+			desc.reliability = rel;
+			desc.handler = traits::NkMove(handler);
 
-            // Incrémentation du compteur et retour de l'ID
-            ++mCount;
-            return rpcId;
-        }
+			// Incrémentation du compteur et retour de l'ID
+			++mCount;
+			return rpcId;
+		}
 
-        // =====================================================================
-        // IMPLÉMENTATION : NkRPCRouter — Templates d'appel (instanciations)
-        // =====================================================================
+		// =====================================================================
+		// IMPLÉMENTATION : NkRPCRouter — Templates d'appel (instanciations)
+		// =====================================================================
 
-        // Note : Les méthodes templates sont définies inline dans le header.
-        // Cette section documente leur comportement pour référence.
+		// Note : Les méthodes templates sont définies inline dans le header.
+		// Cette section documente leur comportement pour référence.
 
-        // CallServer<Args...> :
-        //   • Résout le descriptor par nom → ID hash
-        //   • Sérialise l'ID + arguments dans un buffer temporaire
-        //   • Envoie via NkConnectionManager vers le serveur (NkPeerId::Server())
-        //   • Utilise le canal ReliableOrdered par défaut (configurable via descriptor)
+		// CallServer<Args...> :
+		//   • Résout le descriptor par nom → ID hash
+		//   • Sérialise l'ID + arguments dans un buffer temporaire
+		//   • Envoie via NkConnectionManager vers le serveur (NkPeerId::Server())
+		//   • Utilise le canal ReliableOrdered par défaut (configurable via descriptor)
 
-        // CallClient<Args...> :
-        //   • Même logique que CallServer mais cible un NkPeerId spécifique
-        //   • Uniquement valide côté serveur ou pair autorisé
-        //   • Retourne NkNetResult::NotInitialized si mConnMgr est null
+		// CallClient<Args...> :
+		//   • Même logique que CallServer mais cible un NkPeerId spécifique
+		//   • Uniquement valide côté serveur ou pair autorisé
+		//   • Retourne NkNetResult::NotInitialized si mConnMgr est null
 
-        // Multicast<Args...> :
-        //   • Même logique mais utilise Broadcast() au lieu de SendTo()
-        //   • Target = NkPeerId::Invalid() indique "tous les pairs"
-        //   • Attention : peut générer beaucoup de trafic — utiliser avec modération
+		// Multicast<Args...> :
+		//   • Même logique mais utilise Broadcast() au lieu de SendTo()
+		//   • Target = NkPeerId::Invalid() indique "tous les pairs"
+		//   • Attention : peut générer beaucoup de trafic — utiliser avec modération
 
-        // =====================================================================
-        // IMPLÉMENTATION : NkRPCRouter — Réception et dispatch
-        // =====================================================================
+		// =====================================================================
+		// IMPLÉMENTATION : NkRPCRouter — Réception et dispatch
+		// =====================================================================
 
-        void NkRPCRouter::OnRPCReceived(
-            NkPeerId caller,
-            const uint8* data,
-            uint32 size
-        ) noexcept
-        {
-            // Validation des paramètres d'entrée
-            if (data == nullptr || size == 0)
-            {
-                NK_NET_LOG_WARN("RPC reçu invalide : buffer null ou vide depuis {}", caller.value);
-                return;
-            }
+		void NkRPCRouter::OnRPCReceived(NkPeerId caller, const uint8 *data, uint32 size) noexcept {
+			// Validation des paramètres d'entrée
+			if (data == nullptr || size == 0) {
+				NK_NET_LOG_WARN("RPC reçu invalide : buffer null ou vide depuis {}", caller.value);
+				return;
+			}
 
-            // Création d'un BitReader pour désérialisation
-            NkBitReader reader(data, size);
+			// Création d'un BitReader pour désérialisation
+			NkBitReader reader(data, size);
 
-            // Lecture de l'ID du RPC (premier champ : uint32)
-            uint32 rpcId = 0u;
-            if (!(rpcId = reader.ReadU32()))
-            {
-                NK_NET_LOG_ERROR("RPC : échec de lecture de l'ID depuis {}", caller.value);
-                return;
-            }
+			// Lecture de l'ID du RPC (premier champ : uint32)
+			uint32 rpcId = 0u;
+			if (!(rpcId = reader.ReadU32())) {
+				NK_NET_LOG_ERROR("RPC : échec de lecture de l'ID depuis {}", caller.value);
+				return;
+			}
 
-            // Recherche du descriptor correspondant
-            const NkRPCDescriptor* desc = FindDescriptor(rpcId);
-            if (desc == nullptr)
-            {
-                NK_NET_LOG_WARN("RPC inconnu : id={} depuis {}", rpcId, caller.value);
-                return;
-            }
+			// Recherche du descriptor correspondant
+			const NkRPCDescriptor *desc = FindDescriptor(rpcId);
+			if (desc == nullptr) {
+				NK_NET_LOG_WARN("RPC inconnu : id={} depuis {}", rpcId, caller.value);
+				return;
+			}
 
-            // Validation du type de RPC selon la direction attendue
-            // (ex: un ServerRPC ne devrait pas être reçu côté client)
-            // Cette vérification est optionnelle mais recommandée pour la sécurité
-            #if defined(NKNET_DEBUG_RPC)
-                if (desc->type == NkRPCType::NK_SERVER_RPC && !caller.IsServer())
-                {
-                    NK_NET_LOG_DEBUG("RPC Server reçu côté client (normal si client appelle serveur)");
-                }
-            #endif
+// Validation du type de RPC selon la direction attendue
+// (ex: un ServerRPC ne devrait pas être reçu côté client)
+// Cette vérification est optionnelle mais recommandée pour la sécurité
+#if defined(NKNET_DEBUG_RPC)
+			if (desc->type == NkRPCType::NK_SERVER_RPC && !caller.IsServer()) {
+				NK_NET_LOG_DEBUG("RPC Server reçu côté client (normal si client appelle serveur)");
+			}
+#endif
 
-            // Exécution du handler avec protection contre les exceptions
-            if (desc->handler)
-            {
-                try
-                {
-                    // Appel du handler avec le caller et le reader positionné après l'ID
-                    desc->handler(caller, reader);
-                }
-                catch (...)
-                {
-                    NK_NET_LOG_ERROR("RPC '{}' : exception depuis {}", desc->name, caller.value);
-                }
-            }
-            else
-            {
-                NK_NET_LOG_ERROR("RPC '{}' : handler null pour id={}", desc->name, rpcId);
-            }
-        }
+			// Exécution du handler avec protection contre les exceptions
+			if (desc->handler) {
+				try {
+					// Appel du handler avec le caller et le reader positionné après l'ID
+					desc->handler(caller, reader);
+				} catch (...) {
+					NK_NET_LOG_ERROR("RPC '{}' : exception depuis {}", desc->name, caller.value);
+				}
+			} else {
+				NK_NET_LOG_ERROR("RPC '{}' : handler null pour id={}", desc->name, rpcId);
+			}
+		}
 
-        // =====================================================================
-        // IMPLÉMENTATION : NkRPCRouter — Intégration ConnectionManager
-        // =====================================================================
+		// =====================================================================
+		// IMPLÉMENTATION : NkRPCRouter — Intégration ConnectionManager
+		// =====================================================================
 
-        void NkRPCRouter::SetConnectionManager(NkConnectionManager* cm) noexcept
-        {
-            mConnMgr = cm;
-        }
+		void NkRPCRouter::SetConnectionManager(NkConnectionManager *cm) noexcept {
+			mConnMgr = cm;
+		}
 
-        // =====================================================================
-        // IMPLÉMENTATION : NkRPCRouter — Helpers de sérialisation
-        // =====================================================================
+		// =====================================================================
+		// IMPLÉMENTATION : NkRPCRouter — Helpers de sérialisation
+		// =====================================================================
 
-        void NkRPCRouter::SerializeArgs(NkBitWriter& w) noexcept
-        {
-            // Cas de base : fin de la récursion — rien à faire
-            (void)w;  // Suppression warning variable unused
-        }
+		void NkRPCRouter::SerializeArgs(NkBitWriter &w) noexcept {
+			// Cas de base : fin de la récursion — rien à faire
+			(void)w; // Suppression warning variable unused
+		}
 
-        void NkRPCRouter::NetWrite(NkBitWriter& w, bool v) noexcept
-        {
-            w.WriteBool(v);
-        }
+		void NkRPCRouter::NetWrite(NkBitWriter &w, bool v) noexcept {
+			w.WriteBool(v);
+		}
 
-        void NkRPCRouter::NetWrite(NkBitWriter& w, uint8 v) noexcept
-        {
-            w.WriteU8(v);
-        }
+		void NkRPCRouter::NetWrite(NkBitWriter &w, uint8 v) noexcept {
+			w.WriteU8(v);
+		}
 
-        void NkRPCRouter::NetWrite(NkBitWriter& w, uint16 v) noexcept
-        {
-            w.WriteU16(v);
-        }
+		void NkRPCRouter::NetWrite(NkBitWriter &w, uint16 v) noexcept {
+			w.WriteU16(v);
+		}
 
-        void NkRPCRouter::NetWrite(NkBitWriter& w, uint32 v) noexcept
-        {
-            w.WriteU32(v);
-        }
+		void NkRPCRouter::NetWrite(NkBitWriter &w, uint32 v) noexcept {
+			w.WriteU32(v);
+		}
 
-        void NkRPCRouter::NetWrite(NkBitWriter& w, int32 v) noexcept
-        {
-            w.WriteI32(v);
-        }
+		void NkRPCRouter::NetWrite(NkBitWriter &w, int32 v) noexcept {
+			w.WriteI32(v);
+		}
 
-        void NkRPCRouter::NetWrite(NkBitWriter& w, float32 v) noexcept
-        {
-            w.WriteF32(v);
-        }
+		void NkRPCRouter::NetWrite(NkBitWriter &w, float32 v) noexcept {
+			w.WriteF32(v);
+		}
 
-        void NkRPCRouter::NetWrite(NkBitWriter& w, const math::NkVec3f& v) noexcept
-        {
-            w.WriteVec3f(v);
-        }
+		void NkRPCRouter::NetWrite(NkBitWriter &w, const math::NkVec3f &v) noexcept {
+			w.WriteVec3f(v);
+		}
 
-        void NkRPCRouter::NetWrite(NkBitWriter& w, const char* s) noexcept
-        {
-            w.WriteString(s);
-        }
+		void NkRPCRouter::NetWrite(NkBitWriter &w, const char *s) noexcept {
+			w.WriteString(s);
+		}
 
-        void NkRPCRouter::NetWrite(NkBitWriter& w, const NkString& s) noexcept
-        {
-            w.WriteString(s.CStr());
-        }
+		void NkRPCRouter::NetWrite(NkBitWriter &w, const NkString &s) noexcept {
+			w.WriteString(s.CStr());
+		}
 
-        // =====================================================================
-        // IMPLÉMENTATION : NkRPCRouter — Utilitaires de hash et lookup
-        // =====================================================================
+		// =====================================================================
+		// IMPLÉMENTATION : NkRPCRouter — Utilitaires de hash et lookup
+		// =====================================================================
 
-        uint32 NkRPCRouter::HashRPCName(const char* name) noexcept
-        {
-            // Algorithme de hash simple et déterministe (FNV-1a variant)
-            // Choisi pour : rapidité, distribution correcte, portabilité
+		uint32 NkRPCRouter::HashRPCName(const char *name) noexcept {
+			// Algorithme de hash simple et déterministe (FNV-1a variant)
+			// Choisi pour : rapidité, distribution correcte, portabilité
 
-            if (name == nullptr)
-            {
-                return 0u;
-            }
+			if (name == nullptr) {
+				return 0u;
+			}
 
-            // Valeur initiale (prime pour bonne distribution)
-            uint32 hash = 2166136261u;
+			// Valeur initiale (prime pour bonne distribution)
+			uint32 hash = 2166136261u;
 
-            // Parcours caractère par caractère
-            for (const char* p = name; *p != '\0'; ++p)
-            {
-                // XOR avec le caractère courant
-                hash ^= static_cast<uint32>(static_cast<unsigned char>(*p));
+			// Parcours caractère par caractère
+			for (const char *p = name; *p != '\0'; ++p) {
+				// XOR avec le caractère courant
+				hash ^= static_cast<uint32>(static_cast<unsigned char>(*p));
 
-                // Multiplication par prime FNV
-                hash *= 16777619u;
-            }
+				// Multiplication par prime FNV
+				hash *= 16777619u;
+			}
 
-            return hash;
-        }
+			return hash;
+		}
 
-        const NkRPCDescriptor* NkRPCRouter::FindDescriptor(uint32 id) const noexcept
-        {
-            // Recherche linéaire dans la table — O(n) avec n ≤ 256
-            // Acceptable car : table petite, recherche rare (à la réception)
+		const NkRPCDescriptor *NkRPCRouter::FindDescriptor(uint32 id) const noexcept {
+			// Recherche linéaire dans la table — O(n) avec n ≤ 256
+			// Acceptable car : table petite, recherche rare (à la réception)
 
-            for (uint32 i = 0u; i < mCount; ++i)
-            {
-                if (mDescriptors[i].id == id)
-                {
-                    return &mDescriptors[i];
-                }
-            }
+			for (uint32 i = 0u; i < mCount; ++i) {
+				if (mDescriptors[i].id == id) {
+					return &mDescriptors[i];
+				}
+			}
 
-            // Non trouvé
-            return nullptr;
-        }
+			// Non trouvé
+			return nullptr;
+		}
 
-        NkRPCDescriptor* NkRPCRouter::FindDescriptor(uint32 id) noexcept
-        {
-            // Version mutable — délègue à la version const pour éviter la duplication
-            return const_cast<NkRPCDescriptor*>(
-                static_cast<const NkRPCRouter*>(this)->FindDescriptor(id)
-            );
-        }
+		NkRPCDescriptor *NkRPCRouter::FindDescriptor(uint32 id) noexcept {
+			// Version mutable — délègue à la version const pour éviter la duplication
+			return const_cast<NkRPCDescriptor *>(static_cast<const NkRPCRouter *>(this)->FindDescriptor(id));
+		}
 
-    } // namespace net
+	} // namespace net
 
 } // namespace nkentseu
 
@@ -318,54 +276,54 @@ namespace nkentseu {
 // NOTES D'IMPLÉMENTATION ET OPTIMISATIONS
 // =============================================================================
 /*
-    Algorithme de hash (HashRPCName) :
-    ---------------------------------
-    - FNV-1a variant : rapide, non-cryptographique, distribution correcte
-    - 32-bit output : compromis entre taille réseau et risque de collision
-    - Déterministe : même entrée → même sortie sur toutes les plateformes
-    - Pour un usage critique, envisager un hash 64-bit ou une table de mapping
+	Algorithme de hash (HashRPCName) :
+	---------------------------------
+	- FNV-1a variant : rapide, non-cryptographique, distribution correcte
+	- 32-bit output : compromis entre taille réseau et risque de collision
+	- Déterministe : même entrée → même sortie sur toutes les plateformes
+	- Pour un usage critique, envisager un hash 64-bit ou une table de mapping
 
-    Gestion des collisions de hash :
-    -------------------------------
-    - Probabilité faible avec 256 RPC max et espace 2^32
-    - Stratégie actuelle : accepter la collision (dernier enregistré gagne)
-    - Alternative : refuser l'enregistrement ou utiliser une table de hachage avec chaînage
+	Gestion des collisions de hash :
+	-------------------------------
+	- Probabilité faible avec 256 RPC max et espace 2^32
+	- Stratégie actuelle : accepter la collision (dernier enregistré gagne)
+	- Alternative : refuser l'enregistrement ou utiliser une table de hachage avec chaînage
 
-    Sérialisation des arguments :
-    ----------------------------
-    - Ordre strict : les arguments sont lus dans l'ordre de déclaration
-    - Type-safe : chaque type a sa propre surcharge NetWrite()
-    - Vérification de débordement : IsOverflowed() après sérialisation complète
-    - Extension : ajouter support pour tableaux, structs via templates spécialisés
+	Sérialisation des arguments :
+	----------------------------
+	- Ordre strict : les arguments sont lus dans l'ordre de déclaration
+	- Type-safe : chaque type a sa propre surcharge NetWrite()
+	- Vérification de débordement : IsOverflowed() après sérialisation complète
+	- Extension : ajouter support pour tableaux, structs via templates spécialisés
 
-    Sécurité des handlers :
-    ----------------------
-    - Try/catch autour de l'appel au handler pour isolation des erreurs
-    - Validation des paramètres dans le handler, pas dans le router
-    - Logging des appels suspects pour détection de triche/abus
-    - Option future : sandboxing ou validation automatique via schema
+	Sécurité des handlers :
+	----------------------
+	- Try/catch autour de l'appel au handler pour isolation des erreurs
+	- Validation des paramètres dans le handler, pas dans le router
+	- Logging des appels suspects pour détection de triche/abus
+	- Option future : sandboxing ou validation automatique via schema
 
-    Performance :
-    ------------
-    - Table statique pré-allouée : aucune allocation heap à l'exécution
-    - Lookup linéaire : O(256) worst-case = ~256 comparaisons = négligeable
-    - Sérialisation inline : pas de copies intermédiaires, écriture directe en buffer
-    - Templates instanciés : pas de virtual dispatch, optimisation par le compilateur
+	Performance :
+	------------
+	- Table statique pré-allouée : aucune allocation heap à l'exécution
+	- Lookup linéaire : O(256) worst-case = ~256 comparaisons = négligeable
+	- Sérialisation inline : pas de copies intermédiaires, écriture directe en buffer
+	- Templates instanciés : pas de virtual dispatch, optimisation par le compilateur
 
-    Thread-safety :
-    --------------
-    - Register() : non thread-safe — protéger avec mutex si appelé depuis plusieurs threads
-    - FindDescriptor() : thread-safe en lecture seule après initialisation complète
-    - OnRPCReceived() : doit être appelée depuis le thread réseau unique
-    - Call*() templates : thread-safe si mConnMgr est thread-safe
+	Thread-safety :
+	--------------
+	- Register() : non thread-safe — protéger avec mutex si appelé depuis plusieurs threads
+	- FindDescriptor() : thread-safe en lecture seule après initialisation complète
+	- OnRPCReceived() : doit être appelée depuis le thread réseau unique
+	- Call*() templates : thread-safe si mConnMgr est thread-safe
 
-    Extensions futures :
-    -------------------
-    - Support des RPC asynchrones avec callbacks de résultat
-    - Compression des payloads pour RPC fréquents avec gros arguments
-    - Versioning des RPC pour compatibilité client/serveur différente
-    - Profiling intégré : compteur d'appels, temps d'exécution, bande passante
-    - Génération automatique de code via script pour réduire les erreurs manuelles
+	Extensions futures :
+	-------------------
+	- Support des RPC asynchrones avec callbacks de résultat
+	- Compression des payloads pour RPC fréquents avec gros arguments
+	- Versioning des RPC pour compatibilité client/serveur différente
+	- Profiling intégré : compteur d'appels, temps d'exécution, bande passante
+	- Génération automatique de code via script pour réduire les erreurs manuelles
 */
 
 // ============================================================

@@ -18,7 +18,7 @@
 #if defined(NKENTSEU_PLATFORM_IOS)
 
 #include "NKEvent/NkEventSystem.h"
-#include "NKMemory/NkAllocator.h"   // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
+#include "NKMemory/NkAllocator.h" // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 #include "NKWindow/Platform/UIKit/NkUIKitEventSystem.h"
 #include "NKEvent/NkWindowEvent.h"
 #include "NKEvent/NkTouchEvent.h"
@@ -26,64 +26,68 @@
 #include "NKWindow/Core/NkWindow.h"
 
 namespace nkentseu {
-    using namespace math;
+	using namespace math;
 
-    // =============================================================================
-    // NkEventSystem — méthodes platform-spécifiques UIKit
-    // =============================================================================
+	// =============================================================================
+	// NkEventSystem — méthodes platform-spécifiques UIKit
+	// =============================================================================
 
-    bool NkEventSystem::Init() {
-        if (mReady) return true;
+	bool NkEventSystem::Init() {
+		if (mReady)
+			return true;
 
-        mData = memory::NkGetDefaultAllocator().New<NkEventSystemData>();
-        if (mData == nullptr) return false;
+		mData = memory::NkGetDefaultAllocator().New<NkEventSystemData>();
+		if (mData == nullptr)
+			return false;
 
-        mTotalEventCount = 0;
-        {
-            NkScopedSpinLock lock(mQueueMutex);
-            mEventQueue.Clear();
-        }
-        mPumping = false;
-        mData->mInitialized = true;
-        mReady   = true;
-        return true;
-    }
+		mTotalEventCount = 0;
+		{
+			NkScopedSpinLock lock(mQueueMutex);
+			mEventQueue.Clear();
+		}
+		mPumping = false;
+		mData->mInitialized = true;
+		mReady = true;
+		return true;
+	}
 
-    void NkEventSystem::Shutdown() {
-        memory::NkGetDefaultAllocator().Delete(mData);
-        mData = nullptr;
-    }
+	void NkEventSystem::Shutdown() {
+		memory::NkGetDefaultAllocator().Delete(mData);
+		mData = nullptr;
+	}
 
-    void NkEventSystem::PumpOS() {
-        if (mPumping) return;
-        mPumping = true;
+	void NkEventSystem::PumpOS() {
+		if (mPumping)
+			return;
+		mPumping = true;
 
-        // Sur iOS, pumper la CFRunLoop en mode non-bloquant pour traiter
-        // les callbacks UIKit en attente (timers, sources réseau, etc.)
-        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.0, TRUE);
+		// Sur iOS, pumper la CFRunLoop en mode non-bloquant pour traiter
+		// les callbacks UIKit en attente (timers, sources réseau, etc.)
+		CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.0, TRUE);
 
-        // Vérifier les demandes de fermeture venant de l'AppDelegate
-        uint32 count = NkWESystem::Instance().GetWindowCount();
-        for (uint32 i = 0; i < count; ++i) {
-            NkWindow* w = NkWESystem::Instance().GetWindowAt(i);
-            if (!w) continue;
-            // Pas de wantsClose sur iOS (le système gère le cycle de vie)
-        }
+		// Vérifier les demandes de fermeture venant de l'AppDelegate
+		uint32 count = NkWESystem::Instance().GetWindowCount();
+		for (uint32 i = 0; i < count; ++i) {
+			NkWindow *w = NkWESystem::Instance().GetWindowAt(i);
+			if (!w)
+				continue;
+			// Pas de wantsClose sur iOS (le système gère le cycle de vie)
+		}
 
-        mPumping = false;
-    }
+		mPumping = false;
+	}
 
-    const char* NkEventSystem::GetPlatformName() const noexcept {
-        return "UIKit";
-    }
+	const char *NkEventSystem::GetPlatformName() const noexcept {
+		return "UIKit";
+	}
 
-    // =============================================================================
-    // Enqueue_Public — exposé pour les UIView delegates
-    // =============================================================================
+	// =============================================================================
+	// Enqueue_Public — exposé pour les UIView delegates
+	// =============================================================================
 
-    void NkEventSystem::Enqueue_Public(NkEvent& evt, NkWindowId winId) {
-        Enqueue(evt, winId);
-    }
+	void NkEventSystem::Enqueue_Public(NkEvent &evt, NkWindowId winId) {
+		Enqueue(evt, winId);
+	}
 
 } // namespace nkentseu
 

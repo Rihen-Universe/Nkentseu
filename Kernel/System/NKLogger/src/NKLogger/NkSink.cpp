@@ -3,34 +3,35 @@
 
 namespace nkentseu {
 
-    NkISink::~NkISink() {}
+	NkISink::~NkISink() {
+	}
 
-    void NkISink::SetLevel(NkLogLevel level) {
-        m_Level = level;
-    }
+	void NkISink::SetLevel(NkLogLevel level) {
+		m_Level = level;
+	}
 
-    NkLogLevel NkISink::GetLevel() const {
-        return m_Level;
-    }
+	NkLogLevel NkISink::GetLevel() const {
+		return m_Level;
+	}
 
-    bool NkISink::ShouldLog(NkLogLevel level) const {
-        return m_Enabled && (static_cast<int>(level) >= static_cast<int>(m_Level));
-    }
+	bool NkISink::ShouldLog(NkLogLevel level) const {
+		return m_Enabled && (static_cast<int>(level) >= static_cast<int>(m_Level));
+	}
 
-    void NkISink::SetEnabled(bool enabled) {
-        m_Enabled = enabled;
-    }
+	void NkISink::SetEnabled(bool enabled) {
+		m_Enabled = enabled;
+	}
 
-    bool NkISink::IsEnabled() const {
-        return m_Enabled;
-    }
+	bool NkISink::IsEnabled() const {
+		return m_Enabled;
+	}
 
-    NkString NkISink::GetName() const {
-        return m_Name;
-    }
+	NkString NkISink::GetName() const {
+		return m_Name;
+	}
 
-    void NkISink::SetName(const NkString& name) {
-        m_Name = name;
-    }
+	void NkISink::SetName(const NkString &name) {
+		m_Name = name;
+	}
 
 } // namespace nkentseu

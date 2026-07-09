@@ -25,7 +25,6 @@
 #include "NKLogger/Sinks/NkConsoleSink.h"
 #include "NKLogger/Sinks/NkFileSink.h"
 
-
 // -------------------------------------------------------------------------
 // SECTION 1 : NAMESPACE PRINCIPAL - IMPLÉMENTATIONS
 // -------------------------------------------------------------------------
@@ -34,21 +33,17 @@
 
 namespace nkentseu {
 
-
 	// -------------------------------------------------------------------------
 	// VARIABLE STATIQUE : s_Initialized
 	// DESCRIPTION : Indicateur d'initialisation explicite via Initialize()
 	// -------------------------------------------------------------------------
 	bool NkLog::s_Initialized = false;
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Constructeur privé
 	// DESCRIPTION : Initialisation avec configuration par défaut et sinks
 	// -------------------------------------------------------------------------
-	NkLog::NkLog(const NkString& name)
-		: NkLogger(name) {
-
+	NkLog::NkLog(const NkString &name) : NkLogger(name) {
 		// Configuration par defaut :
 		//   - DEBUG : console + fichier (verbose, dev quotidien)
 		//   - RELEASE : fichier UNIQUEMENT (pas de pollution console pour
@@ -62,10 +57,10 @@ namespace nkentseu {
 #ifndef NDEBUG
 		// Sink console : sortie vers stdout/stderr avec support couleurs
 		// Sur Android : NkConsoleSink route automatiquement vers logcat
-		NkConsoleSink* consoleSinkRaw = new NkConsoleSink();
-		consoleSinkRaw->SetColorEnabled(true);  // Activer les couleurs ANSI si supporté
-		consoleSinkRaw->SetLevel(NkLogLevel::NK_DEBUG);  // Verbose par défaut en console
-        memory::NkSharedPtr<NkISink> consoleSink(consoleSinkRaw);
+		NkConsoleSink *consoleSinkRaw = new NkConsoleSink();
+		consoleSinkRaw->SetColorEnabled(true);			// Activer les couleurs ANSI si supporté
+		consoleSinkRaw->SetLevel(NkLogLevel::NK_DEBUG); // Verbose par défaut en console
+		memory::NkSharedPtr<NkISink> consoleSink(consoleSinkRaw);
 		AddSink(consoleSink);
 #endif
 
@@ -74,15 +69,14 @@ namespace nkentseu {
 		// quand un user testeur rencontre un bug. Le fichier reste
 		// disponible apres crash, contrairement a la console.
 		memory::NkSharedPtr<NkISink> fileSink(new NkFileSink("logs/app.log"));
-		fileSink->SetLevel(NkLogLevel::NK_INFO);  // Moins verbose en fichier pour production
-		fileSink->SetPattern(NkLoggerFormatter::NK_DEFAULT_PATTERN);  // Pattern lisible
+		fileSink->SetLevel(NkLogLevel::NK_INFO);					 // Moins verbose en fichier pour production
+		fileSink->SetPattern(NkLoggerFormatter::NK_DEFAULT_PATTERN); // Pattern lisible
 		AddSink(fileSink);
 
 		// Configuration globale du logger
-		SetLevel(NkLogLevel::NK_INFO);  // Niveau par défaut : info et plus grave
-		SetPattern(NkLoggerFormatter::NK_NKENTSEU_PATTERN);  // Pattern avec support couleurs
+		SetLevel(NkLogLevel::NK_INFO);						// Niveau par défaut : info et plus grave
+		SetPattern(NkLoggerFormatter::NK_NKENTSEU_PATTERN); // Pattern avec support couleurs
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Destructeur privé
@@ -96,30 +90,24 @@ namespace nkentseu {
 		// Pas besoin d'appel explicite ici
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Instance (static)
 	// DESCRIPTION : Retourne l'instance singleton via Meyer's singleton
 	// -------------------------------------------------------------------------
-	NkLog& NkLog::Instance() {
+	NkLog &NkLog::Instance() {
 		// Meyer's singleton : static local, thread-safe en C++11+
 		// L'instance est créée au premier appel, détruite à la fin du programme
 		static NkLog instance;
 		return instance;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Initialize (static)
 	// DESCRIPTION : Configure le logger singleton avec paramètres personnalisés
 	// -------------------------------------------------------------------------
-	void NkLog::Initialize(
-		const NkString& name,
-		const NkString& pattern,
-		NkLogLevel level
-	) {
+	void NkLog::Initialize(const NkString &name, const NkString &pattern, NkLogLevel level) {
 		// Accès à l'instance singleton (création lazy si premier appel)
-		NkLog& instance = Instance();
+		NkLog &instance = Instance();
 
 		// Mise à jour du nom si différent et non vide
 		if (!name.Empty() && instance.GetName() != name) {
@@ -134,14 +122,13 @@ namespace nkentseu {
 		s_Initialized = true;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Shutdown (static)
 	// DESCRIPTION : Flush et cleanup explicite avant terminaison
 	// -------------------------------------------------------------------------
 	void NkLog::Shutdown() {
 		// Accès à l'instance singleton
-		NkLog& instance = Instance();
+		NkLog &instance = Instance();
 
 		// Flush explicite : garantir la persistance des logs en buffer
 		instance.Flush();
@@ -151,53 +138,47 @@ namespace nkentseu {
 		instance.ClearSinks();
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Named (API fluide)
 	// DESCRIPTION : Définit le nom et retourne *this pour chaînage
 	// -------------------------------------------------------------------------
-	NkLog& NkLog::Named(const NkString& name) {
+	NkLog &NkLog::Named(const NkString &name) {
 		// Délégation à SetName() protégé de NkLogger
 		SetName(name);
 		return *this;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Level (API fluide)
 	// DESCRIPTION : Définit le niveau de log et retourne *this pour chaînage
 	// -------------------------------------------------------------------------
-	NkLog& NkLog::Level(NkLogLevel level) {
+	NkLog &NkLog::Level(NkLogLevel level) {
 		// Délégation à SetLevel() de NkLogger
 		SetLevel(level);
 		return *this;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Pattern (API fluide)
 	// DESCRIPTION : Définit le pattern et retourne *this pour chaînage
 	// -------------------------------------------------------------------------
-	NkLog& NkLog::Pattern(const NkString& pattern) {
+	NkLog &NkLog::Pattern(const NkString &pattern) {
 		// Délégation à SetPattern() de NkLogger
 		SetPattern(pattern);
 		return *this;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Source (override fluide)
 	// DESCRIPTION : Configure les métadonnées de source et retourne *this
 	// -------------------------------------------------------------------------
-	NkLog& NkLog::Source(const char* sourceFile, uint32 sourceLine, const char* functionName) {
+	NkLog &NkLog::Source(const char *sourceFile, uint32 sourceLine, const char *functionName) {
 		// Appel à la méthode de base pour configuration des métadonnées
 		NkLogger::Source(sourceFile, sourceLine, functionName);
 		return *this;
 	}
 
-
 } // namespace nkentseu
-
 
 // =============================================================================
 // NOTES D'IMPLÉMENTATION ET BONNES PRATIQUES
@@ -238,7 +219,6 @@ namespace nkentseu {
 	   - NkFileSink utilise fopen/fwrite portable, avec fallback en cas d'erreur
 	   - Les chemins de fichiers : utiliser NKCore/NkPath pour normalisation cross-platform
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

@@ -22,56 +22,61 @@
 // par les consommateurs. Seul le .cpp depend de NKUI (compile si NK_CANVAS_WITH_NKUI=1).
 // =============================================================================
 
-#include "NKCanvas/Renderer/Core/NkRenderer2DTypes.h"   // NkVertex2D
-#include "NKCanvas/Renderer/Resources/NkTexture.h"      // NkTexture
+#include "NKCanvas/Renderer/Core/NkRenderer2DTypes.h" // NkVertex2D
+#include "NKCanvas/Renderer/Resources/NkTexture.h"	  // NkTexture
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace nkui { struct NkUIContext; }               // fwd
+	namespace nkui {
+		struct NkUIContext;
+	} // namespace nkui
 
-    namespace renderer {
+	namespace renderer {
 
-        class NkIRenderer2D;
+		class NkIRenderer2D;
 
-        // Bridge immediate-mode NKUI -> NKCanvas. Possede les textures uploadees
-        // (atlas police / images), indexees par le texId NKUI.
-        class NkUICanvasBackend {
-            public:
-                NkUICanvasBackend() = default;
-                ~NkUICanvasBackend() { Destroy(); }
+		// Bridge immediate-mode NKUI -> NKCanvas. Possede les textures uploadees
+		// (atlas police / images), indexees par le texId NKUI.
+		class NkUICanvasBackend {
+			public:
+				NkUICanvasBackend() = default;
 
-                NkUICanvasBackend(const NkUICanvasBackend&)            = delete;
-                NkUICanvasBackend& operator=(const NkUICanvasBackend&) = delete;
+				~NkUICanvasBackend() {
+					Destroy();
+				}
 
-                // renderer : NkIRenderer2D actif (cf. NkRenderWindow / NkRenderer2D).
-                bool Init(NkIRenderer2D* renderer);
-                void Destroy();
+				NkUICanvasBackend(const NkUICanvasBackend &) = delete;
+				NkUICanvasBackend &operator=(const NkUICanvasBackend &) = delete;
 
-                // Rend toutes les couches du contexte NKUI. A appeler entre
-                // Begin()/End() de la cible. fbW/fbH = taille framebuffer (clip).
-                void Submit(const nkui::NkUIContext& ctx, uint32 fbW, uint32 fbH);
+				// renderer : NkIRenderer2D actif (cf. NkRenderWindow / NkRenderer2D).
+				bool Init(NkIRenderer2D *renderer);
+				void Destroy();
 
-                // Upload / mise a jour d'une texture NKUI (texId != 0).
-                // RGBA8 : data = w*h*4. Gray8 : data = w*h (etendu en RGBA blanc + alpha).
-                bool UploadTextureRGBA8(uint32 texId, const uint8* data, int32 width, int32 height);
-                bool UploadTextureGray8(uint32 texId, const uint8* data, int32 width, int32 height);
-                bool HasTexture(uint32 texId) const noexcept;
+				// Rend toutes les couches du contexte NKUI. A appeler entre
+				// Begin()/End() de la cible. fbW/fbH = taille framebuffer (clip).
+				void Submit(const nkui::NkUIContext &ctx, uint32 fbW, uint32 fbH);
 
-            private:
-                NkIRenderer2D*                    mRenderer = nullptr;
-                NkHashMap<uint32, NkTexture*>     mTextures;       // texId -> texture (owned)
-                NkVector<NkVertex2D>              mScratch;        // conversion par couche
-                NkVector<uint8>                   mExpand;         // gray -> rgba scratch
+				// Upload / mise a jour d'une texture NKUI (texId != 0).
+				// RGBA8 : data = w*h*4. Gray8 : data = w*h (etendu en RGBA blanc + alpha).
+				bool UploadTextureRGBA8(uint32 texId, const uint8 *data, int32 width, int32 height);
+				bool UploadTextureGray8(uint32 texId, const uint8 *data, int32 width, int32 height);
+				bool HasTexture(uint32 texId) const noexcept;
 
-                NkTexture* AcquireTexture(uint32 texId, int32 width, int32 height);
+			private:
+				NkIRenderer2D *mRenderer = nullptr;
+				NkHashMap<uint32, NkTexture *> mTextures; // texId -> texture (owned)
+				NkVector<NkVertex2D> mScratch;			  // conversion par couche
+				NkVector<uint8> mExpand;				  // gray -> rgba scratch
 
-                // Upload automatique des atlas de police "dirty" du contexte (sinon
-                // NkUIFont::RenderChar retombe sur le bitmap fallback -> texte crenele).
-                // Trampoline statique car UploadDirtyAtlases attend un void(*)(...).
-                static NkUICanvasBackend* s_uploadSelf;
-                static void UploadGray8Trampoline(uint32 texId, const uint8* data, int32 w, int32 h);
-        };
+				NkTexture *AcquireTexture(uint32 texId, int32 width, int32 height);
 
-    } // namespace renderer
+				// Upload automatique des atlas de police "dirty" du contexte (sinon
+				// NkUIFont::RenderChar retombe sur le bitmap fallback -> texte crenele).
+				// Trampoline statique car UploadDirtyAtlases attend un void(*)(...).
+				static NkUICanvasBackend *s_uploadSelf;
+				static void UploadGray8Trampoline(uint32 texId, const uint8 *data, int32 w, int32 h);
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

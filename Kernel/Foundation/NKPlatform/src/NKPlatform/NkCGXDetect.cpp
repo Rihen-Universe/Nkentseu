@@ -1,6 +1,4 @@
 #include "pch.h"
 #include "NkCGXDetect.h"
 
-namespace nkentseu {
-    
-}
+namespace nkentseu {}

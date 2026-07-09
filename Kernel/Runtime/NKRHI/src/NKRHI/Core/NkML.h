@@ -36,326 +36,361 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/Associative/NkUnorderedMap.h"
 
-
 namespace nkentseu {
 
-    // =============================================================================
-    // TensorShape — dimensions d'un tenseur
-    // =============================================================================
-    struct NkTensorShape {
-        NkVector<uint32> dims;   // [N, C, H, W] ou [batch, seq, d_model] etc.
+	// =============================================================================
+	// TensorShape — dimensions d'un tenseur
+	// =============================================================================
+	struct NkTensorShape {
+			NkVector<uint32> dims; // [N, C, H, W] ou [batch, seq, d_model] etc.
 
-        NkTensorShape() = default;
-        NkTensorShape(std::initializer_list<uint32> d) : dims(d) {}
-        explicit NkTensorShape(const NkVector<uint32>& d) : dims(d) {}
+			NkTensorShape() = default;
 
-        uint32 NumElements() const {
-            if (dims.IsEmpty()) return 0;
-            uint32 n=1; for (auto d:dims) n*=d; return n;
-        }
-        uint32 NumBytes()    const { return NumElements()*sizeof(float32); }
-        uint32 Rank()        const { return (uint32)dims.Size(); }
-        uint32 operator[](uint32 i) const { return dims[i]; }
+			NkTensorShape(std::initializer_list<uint32> d) : dims(d) {
+			}
 
-        bool operator==(const NkTensorShape& o) const { return dims==o.dims; }
-        bool operator!=(const NkTensorShape& o) const { return dims!=o.dims; }
+			explicit NkTensorShape(const NkVector<uint32> &d) : dims(d) {
+			}
 
-        NkString ToString() const {
-            NkString s="[";
-            for (uint32 i=0;i<dims.Size();i++) {
-                s+=NkFormat("{0}", dims[i]);
-                if (i+1<dims.Size()) s+=",";
-            }
-            return s+"]";
-        }
-    };
+			uint32 NumElements() const {
+				if (dims.IsEmpty())
+					return 0;
+				uint32 n = 1;
+				for (auto d : dims)
+					n *= d;
+				return n;
+			}
 
-    // =============================================================================
-    // NkTensor — tenseur GPU (wrapper autour d'un NkBufferHandle)
-    // =============================================================================
-    struct NkTensor {
-        NkBufferHandle  buffer;
-        NkTensorShape   shape;
-        bool            requiresGrad = false;
-        NkBufferHandle  grad;        // buffer du gradient (si requiresGrad)
-        NkString     name;
+			uint32 NumBytes() const {
+				return NumElements() * sizeof(float32);
+			}
 
-        bool IsValid() const { return buffer.IsValid(); }
-        uint32 NumElements() const { return shape.NumElements(); }
-        uint32 NumBytes()    const { return shape.NumBytes(); }
+			uint32 Rank() const {
+				return (uint32)dims.Size();
+			}
 
-        // Shape helpers
-        uint32 Rows()    const { return shape.Rank()>=2 ? shape[shape.Rank()-2] : 1; }
-        uint32 Cols()    const { return shape.Rank()>=1 ? shape[shape.Rank()-1] : 1; }
-        uint32 Batch()   const { return shape.Rank()>=3 ? shape[0] : 1; }
-    };
+			uint32 operator[](uint32 i) const {
+				return dims[i];
+			}
 
-    // =============================================================================
-    // NkMLContext — contexte ML/compute construit sur NkIDevice
-    // =============================================================================
-    class NkMLContext {
-        public:
-            NkMLContext()  = default;
-            ~NkMLContext() { if (mReady) Shutdown(); }
+			bool operator==(const NkTensorShape &o) const {
+				return dims == o.dims;
+			}
 
-            bool Init   (NkIDevice* device);
-            void Shutdown();
-            bool IsReady() const { return mReady; }
+			bool operator!=(const NkTensorShape &o) const {
+				return dims != o.dims;
+			}
 
-            // =========================================================================
-            // Gestion des tenseurs
-            // =========================================================================
-            NkTensor CreateTensor(const NkTensorShape& shape,
-                                bool requiresGrad=false,
-                                const char* name=nullptr);
+			NkString ToString() const {
+				NkString s = "[";
+				for (uint32 i = 0; i < dims.Size(); i++) {
+					s += NkFormat("{0}", dims[i]);
+					if (i + 1 < dims.Size())
+						s += ",";
+				}
+				return s + "]";
+			}
+	};
 
-            NkTensor CreateTensor(std::initializer_list<uint32> dims,
-                                bool requiresGrad=false,
-                                const char* name=nullptr) {
-                return CreateTensor(NkTensorShape(dims), requiresGrad, name);
-            }
+	// =============================================================================
+	// NkTensor — tenseur GPU (wrapper autour d'un NkBufferHandle)
+	// =============================================================================
+	struct NkTensor {
+			NkBufferHandle buffer;
+			NkTensorShape shape;
+			bool requiresGrad = false;
+			NkBufferHandle grad; // buffer du gradient (si requiresGrad)
+			NkString name;
 
-            void DestroyTensor(NkTensor& t);
+			bool IsValid() const {
+				return buffer.IsValid();
+			}
 
-            // Upload CPU → GPU
-            bool Upload(NkTensor& t, const float32* data, uint32 count=0);
-            // Download GPU → CPU
-            bool Download(const NkTensor& t, float32* out, uint32 count=0);
+			uint32 NumElements() const {
+				return shape.NumElements();
+			}
 
-            // Initialisation des poids
-            void FillZero (NkTensor& t);
-            void FillOnes (NkTensor& t);
-            void FillConst(NkTensor& t, float32 val);
-            // Xavier / He initialization (important pour la convergence)
-            void InitXavier(NkTensor& t);   // √(2/(fan_in+fan_out))
-            void InitHe    (NkTensor& t);   // √(2/fan_in) — pour ReLU
+			uint32 NumBytes() const {
+				return shape.NumBytes();
+			}
 
-            // =========================================================================
-            // Opérations fondamentales (Forward pass)
-            // =========================================================================
+			// Shape helpers
+			uint32 Rows() const {
+				return shape.Rank() >= 2 ? shape[shape.Rank() - 2] : 1;
+			}
 
-            // ── Algèbre linéaire ──────────────────────────────────────────────────────
-            // C = A × B    (A: [M,K], B: [K,N], C: [M,N])
-            void MatMul(const NkTensor& A, const NkTensor& B, NkTensor& C,
-                        bool transposeA=false, bool transposeB=false);
+			uint32 Cols() const {
+				return shape.Rank() >= 1 ? shape[shape.Rank() - 1] : 1;
+			}
 
-            // C = A × B + bias   (bias: [N] — broadcasted)
-            void MatMulAdd(const NkTensor& A, const NkTensor& B,
-                        const NkTensor& bias, NkTensor& C);
+			uint32 Batch() const {
+				return shape.Rank() >= 3 ? shape[0] : 1;
+			}
+	};
 
-            // Batch MatMul  C[b] = A[b] × B[b]   (A,B,C: [batch, M/K, K/N])
-            void BatchMatMul(const NkTensor& A, const NkTensor& B, NkTensor& C,
-                            bool transposeA=false, bool transposeB=false);
+	// =============================================================================
+	// NkMLContext — contexte ML/compute construit sur NkIDevice
+	// =============================================================================
+	class NkMLContext {
+		public:
+			NkMLContext() = default;
 
-            // C = alpha*A + beta*B
-            void Add(const NkTensor& A, const NkTensor& B, NkTensor& C,
-                    float32 alpha=1.f, float32 beta=1.f);
+			~NkMLContext() {
+				if (mReady)
+					Shutdown();
+			}
 
-            // C = A ⊙ B  (element-wise multiply)
-            void Mul(const NkTensor& A, const NkTensor& B, NkTensor& C);
+			bool Init(NkIDevice *device);
+			void Shutdown();
 
-            // Transpose: B = A^T  (A: [M,N] → B: [N,M])
-            void Transpose(const NkTensor& A, NkTensor& B);
+			bool IsReady() const {
+				return mReady;
+			}
 
-            // ── Convolution ───────────────────────────────────────────────────────────
-            struct Conv2DParams {
-                uint32 strideH=1, strideW=1;
-                uint32 padH=0, padW=0;
-                uint32 dilationH=1, dilationW=1;
-                uint32 groups=1;
-                Conv2DParams() : strideH(1),strideW(1),padH(0),padW(0),dilationH(1),dilationW(1),groups(1) {}
-            };
-            // out = Conv2D(input, weight) + bias
-            // input:  [N, C_in,  H,   W]
-            // weight: [C_out, C_in/groups, kH, kW]
-            // bias:   [C_out]
-            // out:    [N, C_out, H_out, W_out]
-            void Conv2D(const NkTensor& input, const NkTensor& weight,
-                        const NkTensor& bias,  NkTensor& output,
-                        const Conv2DParams& p={});
+			// =========================================================================
+			// Gestion des tenseurs
+			// =========================================================================
+			NkTensor CreateTensor(const NkTensorShape &shape, bool requiresGrad = false, const char *name = nullptr);
 
-            // ── Activations ───────────────────────────────────────────────────────────
-            void ReLU    (const NkTensor& in, NkTensor& out);
-            void LeakyReLU(const NkTensor& in, NkTensor& out, float32 alpha=0.01f);
-            void GELU    (const NkTensor& in, NkTensor& out);  // x*Φ(x) exact
-            void Sigmoid (const NkTensor& in, NkTensor& out);
-            void Tanh    (const NkTensor& in, NkTensor& out);
-            void Softmax (const NkTensor& in, NkTensor& out, int32 axis=-1);
-            void LogSoftmax(const NkTensor& in, NkTensor& out, int32 axis=-1);
-            void Swish   (const NkTensor& in, NkTensor& out);  // x*sigmoid(x)
-            void SiLU    (const NkTensor& in, NkTensor& out) { Swish(in,out); }
+			NkTensor CreateTensor(std::initializer_list<uint32> dims, bool requiresGrad = false,
+								  const char *name = nullptr) {
+				return CreateTensor(NkTensorShape(dims), requiresGrad, name);
+			}
 
-            // ── Normalisations ────────────────────────────────────────────────────────
-            // LayerNorm : normalise sur la dernière dimension
-            // out = (in - mean) / sqrt(var + eps) * weight + bias
-            void LayerNorm(const NkTensor& in,
-                        const NkTensor& weight, const NkTensor& bias,
-                        NkTensor& out, float32 eps=1e-5f);
+			void DestroyTensor(NkTensor &t);
 
-            void BatchNorm(const NkTensor& in,
-                        const NkTensor& weight, const NkTensor& bias,
-                        const NkTensor& runningMean, const NkTensor& runningVar,
-                        NkTensor& out, float32 eps=1e-5f, bool training=false);
+			// Upload CPU → GPU
+			bool Upload(NkTensor &t, const float32 *data, uint32 count = 0);
+			// Download GPU → CPU
+			bool Download(const NkTensor &t, float32 *out, uint32 count = 0);
 
-            void RMSNorm(const NkTensor& in, const NkTensor& weight,
-                        NkTensor& out, float32 eps=1e-5f);
+			// Initialisation des poids
+			void FillZero(NkTensor &t);
+			void FillOnes(NkTensor &t);
+			void FillConst(NkTensor &t, float32 val);
+			// Xavier / He initialization (important pour la convergence)
+			void InitXavier(NkTensor &t); // √(2/(fan_in+fan_out))
+			void InitHe(NkTensor &t);	  // √(2/fan_in) — pour ReLU
 
-            // ── Attention (Transformer) ───────────────────────────────────────────────
-            // Scaled Dot-Product Attention:
-            // Attention(Q,K,V) = softmax(Q×K^T / √d_k) × V
-            // Q,K,V : [batch, heads, seq, d_head]
-            // out   : [batch, heads, seq, d_head]
-            void ScaledDotProductAttention(const NkTensor& Q, const NkTensor& K,
-                                            const NkTensor& V, NkTensor& out,
-                                            float32 scale=0.f,
-                                            const NkTensor* mask=nullptr);
+			// =========================================================================
+			// Opérations fondamentales (Forward pass)
+			// =========================================================================
 
-            // ── Embedding ─────────────────────────────────────────────────────────────
-            // Lookup : out[i] = table[indices[i]]
-            // table:   [vocab_size, embed_dim]
-            // indices: [batch, seq] (uint32)
-            void EmbeddingLookup(const NkTensor& table,
-                                const NkTensor& indices,
-                                NkTensor& out);
+			// ── Algèbre linéaire ──────────────────────────────────────────────────────
+			// C = A × B    (A: [M,K], B: [K,N], C: [M,N])
+			void MatMul(const NkTensor &A, const NkTensor &B, NkTensor &C, bool transposeA = false,
+						bool transposeB = false);
 
-            // ── Dropout (inference = no-op) ───────────────────────────────────────────
-            void Dropout(const NkTensor& in, NkTensor& out,
-                        float32 rate=0.1f, bool training=false);
+			// C = A × B + bias   (bias: [N] — broadcasted)
+			void MatMulAdd(const NkTensor &A, const NkTensor &B, const NkTensor &bias, NkTensor &C);
 
-            // ── Pooling ───────────────────────────────────────────────────────────────
-            void MaxPool2D(const NkTensor& in, NkTensor& out,
-                            uint32 kH, uint32 kW, uint32 strideH, uint32 strideW);
-            void AvgPool2D(const NkTensor& in, NkTensor& out,
-                            uint32 kH, uint32 kW, uint32 strideH, uint32 strideW);
-            void GlobalAvgPool(const NkTensor& in, NkTensor& out); // [N,C,H,W]→[N,C]
+			// Batch MatMul  C[b] = A[b] × B[b]   (A,B,C: [batch, M/K, K/N])
+			void BatchMatMul(const NkTensor &A, const NkTensor &B, NkTensor &C, bool transposeA = false,
+							 bool transposeB = false);
 
-            // ─── Reshape / Slice ─────────────────────────────────────────────────────
-            // Reshape ne copie pas — change juste le shape (doit avoir même NumElements)
-            NkTensor Reshape(const NkTensor& t, const NkTensorShape& newShape);
-            void     Copy   (const NkTensor& src, NkTensor& dst);
+			// C = alpha*A + beta*B
+			void Add(const NkTensor &A, const NkTensor &B, NkTensor &C, float32 alpha = 1.f, float32 beta = 1.f);
 
-            // =========================================================================
-            // Fonctions de perte
-            // =========================================================================
-            // Retourne la loss scalaire sur CPU (téléchargement implicite)
-            float32 MSELoss       (const NkTensor& pred, const NkTensor& target);
-            float32 MAELoss       (const NkTensor& pred, const NkTensor& target);
-            float32 CrossEntropy  (const NkTensor& logits, const NkTensor& labels);
-            float32 BCELoss       (const NkTensor& pred, const NkTensor& target);
-            float32 CosineSimilarity(const NkTensor& A, const NkTensor& B);
+			// C = A ⊙ B  (element-wise multiply)
+			void Mul(const NkTensor &A, const NkTensor &B, NkTensor &C);
 
-            // =========================================================================
-            // Backward pass (gradients)
-            // =========================================================================
-            // Gradient de ReLU : dout = din * (out > 0)
-            void ReLUBackward(const NkTensor& out, const NkTensor& gradOut,
-                            NkTensor& gradIn);
+			// Transpose: B = A^T  (A: [M,N] → B: [N,M])
+			void Transpose(const NkTensor &A, NkTensor &B);
 
-            // Gradient de MatMul :
-            //   gradA = gradC × B^T
-            //   gradB = A^T × gradC
-            void MatMulBackward(const NkTensor& A,    const NkTensor& B,
-                                const NkTensor& gradC,
-                                NkTensor& gradA, NkTensor& gradB);
+			// ── Convolution ───────────────────────────────────────────────────────────
+			struct Conv2DParams {
+					uint32 strideH = 1, strideW = 1;
+					uint32 padH = 0, padW = 0;
+					uint32 dilationH = 1, dilationW = 1;
+					uint32 groups = 1;
 
-            // Gradient de LayerNorm
-            void LayerNormBackward(const NkTensor& in, const NkTensor& weight,
-                                    const NkTensor& gradOut, float32 eps,
-                                    NkTensor& gradIn, NkTensor& gradWeight,
-                                    NkTensor& gradBias);
+					Conv2DParams() : strideH(1), strideW(1), padH(0), padW(0), dilationH(1), dilationW(1), groups(1) {
+					}
+			};
 
-            // Gradient de SoftmaxCrossEntropy (fusionné pour la stabilité numérique)
-            // grad[i] = (softmax[i] - label[i]) / batch_size
-            void SoftmaxCrossEntropyBackward(const NkTensor& logits,
-                                            const NkTensor& labels,
-                                            NkTensor& gradLogits);
+			// out = Conv2D(input, weight) + bias
+			// input:  [N, C_in,  H,   W]
+			// weight: [C_out, C_in/groups, kH, kW]
+			// bias:   [C_out]
+			// out:    [N, C_out, H_out, W_out]
+			void Conv2D(const NkTensor &input, const NkTensor &weight, const NkTensor &bias, NkTensor &output,
+						const Conv2DParams &p = {});
 
-            // =========================================================================
-            // Optimiseurs
-            // =========================================================================
-            struct AdamConfig {
-                float32 lr      = 1e-3f;
-                float32 beta1   = 0.9f;
-                float32 beta2   = 0.999f;
-                float32 eps     = 1e-8f;
-                float32 weightDecay = 0.01f; // AdamW weight decay
-            };
+			// ── Activations ───────────────────────────────────────────────────────────
+			void ReLU(const NkTensor &in, NkTensor &out);
+			void LeakyReLU(const NkTensor &in, NkTensor &out, float32 alpha = 0.01f);
+			void GELU(const NkTensor &in, NkTensor &out); // x*Φ(x) exact
+			void Sigmoid(const NkTensor &in, NkTensor &out);
+			void Tanh(const NkTensor &in, NkTensor &out);
+			void Softmax(const NkTensor &in, NkTensor &out, int32 axis = -1);
+			void LogSoftmax(const NkTensor &in, NkTensor &out, int32 axis = -1);
+			void Swish(const NkTensor &in, NkTensor &out); // x*sigmoid(x)
 
-            // État de l'optimiseur (momentum, variance) — un par paramètre
-            struct AdamState {
-                NkTensor m;   // premier moment (momentum)
-                NkTensor v;   // deuxième moment (variance)
-                uint32   t=0; // pas de temps (pour la correction du biais)
-            };
+			void SiLU(const NkTensor &in, NkTensor &out) {
+				Swish(in, out);
+			}
 
-            AdamState CreateAdamState(const NkTensor& param);
-            void      DestroyAdamState(AdamState& state);
+			// ── Normalisations ────────────────────────────────────────────────────────
+			// LayerNorm : normalise sur la dernière dimension
+			// out = (in - mean) / sqrt(var + eps) * weight + bias
+			void LayerNorm(const NkTensor &in, const NkTensor &weight, const NkTensor &bias, NkTensor &out,
+						   float32 eps = 1e-5f);
 
-            // Un step AdamW : met à jour param en place avec son gradient
-            // param -= lr * m_hat / (sqrt(v_hat) + eps) + lr*wd*param
-            void AdamWStep(NkTensor& param, const NkTensor& grad,
-                            AdamState& state, const AdamConfig& cfg);
+			void BatchNorm(const NkTensor &in, const NkTensor &weight, const NkTensor &bias,
+						   const NkTensor &runningMean, const NkTensor &runningVar, NkTensor &out, float32 eps = 1e-5f,
+						   bool training = false);
 
-            // SGD avec momentum
-            struct SGDConfig { float32 lr=0.01f, momentum=0.9f, weightDecay=0.f; };
-            struct SGDState  { NkTensor velocity; };
-            SGDState CreateSGDState(const NkTensor& param);
-            void     SGDStep(NkTensor& param, const NkTensor& grad,
-                            SGDState& state, const SGDConfig& cfg);
+			void RMSNorm(const NkTensor &in, const NkTensor &weight, NkTensor &out, float32 eps = 1e-5f);
 
-            // =========================================================================
-            // Utilitaires
-            // =========================================================================
-            // Synchronise le GPU (attend la fin de tous les compute shaders)
-            void Sync();
+			// ── Attention (Transformer) ───────────────────────────────────────────────
+			// Scaled Dot-Product Attention:
+			// Attention(Q,K,V) = softmax(Q×K^T / √d_k) × V
+			// Q,K,V : [batch, heads, seq, d_head]
+			// out   : [batch, heads, seq, d_head]
+			void ScaledDotProductAttention(const NkTensor &Q, const NkTensor &K, const NkTensor &V, NkTensor &out,
+										   float32 scale = 0.f, const NkTensor *mask = nullptr);
 
-            // Statistiques sur un tenseur (min, max, mean, std)
-            struct TensorStats { float32 min, max, mean, std; };
-            TensorStats ComputeStats(const NkTensor& t);
+			// ── Embedding ─────────────────────────────────────────────────────────────
+			// Lookup : out[i] = table[indices[i]]
+			// table:   [vocab_size, embed_dim]
+			// indices: [batch, seq] (uint32)
+			void EmbeddingLookup(const NkTensor &table, const NkTensor &indices, NkTensor &out);
 
-            // Affiche les premières valeurs d'un tenseur (pour debug)
-            void PrintTensor(const NkTensor& t, uint32 maxElems=16,
-                            const char* prefix="");
+			// ── Dropout (inference = no-op) ───────────────────────────────────────────
+			void Dropout(const NkTensor &in, NkTensor &out, float32 rate = 0.1f, bool training = false);
 
-            // Vérifie que deux tenseurs sont proches (pour les tests unitaires)
-            bool AllClose(const NkTensor& A, const NkTensor& B,
-                        float32 atol=1e-4f, float32 rtol=1e-4f);
+			// ── Pooling ───────────────────────────────────────────────────────────────
+			void MaxPool2D(const NkTensor &in, NkTensor &out, uint32 kH, uint32 kW, uint32 strideH, uint32 strideW);
+			void AvgPool2D(const NkTensor &in, NkTensor &out, uint32 kH, uint32 kW, uint32 strideH, uint32 strideW);
+			void GlobalAvgPool(const NkTensor &in, NkTensor &out); // [N,C,H,W]→[N,C]
 
-            // Make GetOrCompilePipeline accessible for friend functions
-            NkPipelineHandle GetOrCompilePipeline(const char* key, const char* glslSrc);
+			// ─── Reshape / Slice ─────────────────────────────────────────────────────
+			// Reshape ne copie pas — change juste le shape (doit avoir même NumElements)
+			NkTensor Reshape(const NkTensor &t, const NkTensorShape &newShape);
+			void Copy(const NkTensor &src, NkTensor &dst);
 
-        private:
-            // ── Dispatch helper (calcule les groupes depuis le nombre d'éléments) ─────
-            void Dispatch1D(NkICommandBuffer* cmd, NkPipelineHandle pipe,
-                            uint32 n, uint32 groupSize=256);
+			// =========================================================================
+			// Fonctions de perte
+			// =========================================================================
+			// Retourne la loss scalaire sur CPU (téléchargement implicite)
+			float32 MSELoss(const NkTensor &pred, const NkTensor &target);
+			float32 MAELoss(const NkTensor &pred, const NkTensor &target);
+			float32 CrossEntropy(const NkTensor &logits, const NkTensor &labels);
+			float32 BCELoss(const NkTensor &pred, const NkTensor &target);
+			float32 CosineSimilarity(const NkTensor &A, const NkTensor &B);
 
-            // ── Bind un tenseur comme SSBO sur un binding donné ──────────────────────
-            void BindTensor(NkDescSetHandle set, uint32 binding, const NkTensor& t);
+			// =========================================================================
+			// Backward pass (gradients)
+			// =========================================================================
+			// Gradient de ReLU : dout = din * (out > 0)
+			void ReLUBackward(const NkTensor &out, const NkTensor &gradOut, NkTensor &gradIn);
 
-            NkIDevice*  mDevice = nullptr;
-            bool        mReady  = false;
+			// Gradient de MatMul :
+			//   gradA = gradC × B^T
+			//   gradB = A^T × gradC
+			void MatMulBackward(const NkTensor &A, const NkTensor &B, const NkTensor &gradC, NkTensor &gradA,
+								NkTensor &gradB);
 
-            // Cache des pipelines compilés (key=nom de l'opération)
-            struct PipelineCache {
-                NkShaderHandle   shader;
-                NkPipelineHandle pipeline;
-            };
-            NkUnorderedMap<NkString, PipelineCache> mPipelineCache;
+			// Gradient de LayerNorm
+			void LayerNormBackward(const NkTensor &in, const NkTensor &weight, const NkTensor &gradOut, float32 eps,
+								   NkTensor &gradIn, NkTensor &gradWeight, NkTensor &gradBias);
 
-            // Layout des descriptors (2 SSBO input + 1 SSBO output par défaut)
-            NkDescSetHandle mDefaultLayout;
+			// Gradient de SoftmaxCrossEntropy (fusionné pour la stabilité numérique)
+			// grad[i] = (softmax[i] - label[i]) / batch_size
+			void SoftmaxCrossEntropyBackward(const NkTensor &logits, const NkTensor &labels, NkTensor &gradLogits);
 
-            // Buffer scratch pour les réductions (loss, stats)
-            NkTensor mScratch;
-    };
+			// =========================================================================
+			// Optimiseurs
+			// =========================================================================
+			struct AdamConfig {
+					float32 lr = 1e-3f;
+					float32 beta1 = 0.9f;
+					float32 beta2 = 0.999f;
+					float32 eps = 1e-8f;
+					float32 weightDecay = 0.01f; // AdamW weight decay
+			};
 
-    // =============================================================================
-    // Shaders GLSL compute pour chaque opération (dans des namespaces séparés)
-    // =============================================================================
-    namespace NkMLShaders {
+			// État de l'optimiseur (momentum, variance) — un par paramètre
+			struct AdamState {
+					NkTensor m;	  // premier moment (momentum)
+					NkTensor v;	  // deuxième moment (variance)
+					uint32 t = 0; // pas de temps (pour la correction du biais)
+			};
 
-        // ── MatMul (tuile 16×16 pour la localité cache) ───────────────────────────────
-        inline const char* MatMul() { return R"(
+			AdamState CreateAdamState(const NkTensor &param);
+			void DestroyAdamState(AdamState &state);
+
+			// Un step AdamW : met à jour param en place avec son gradient
+			// param -= lr * m_hat / (sqrt(v_hat) + eps) + lr*wd*param
+			void AdamWStep(NkTensor &param, const NkTensor &grad, AdamState &state, const AdamConfig &cfg);
+
+			// SGD avec momentum
+			struct SGDConfig {
+					float32 lr = 0.01f, momentum = 0.9f, weightDecay = 0.f;
+			};
+
+			struct SGDState {
+					NkTensor velocity;
+			};
+
+			SGDState CreateSGDState(const NkTensor &param);
+			void SGDStep(NkTensor &param, const NkTensor &grad, SGDState &state, const SGDConfig &cfg);
+
+			// =========================================================================
+			// Utilitaires
+			// =========================================================================
+			// Synchronise le GPU (attend la fin de tous les compute shaders)
+			void Sync();
+
+			// Statistiques sur un tenseur (min, max, mean, std)
+			struct TensorStats {
+					float32 min, max, mean, std;
+			};
+
+			TensorStats ComputeStats(const NkTensor &t);
+
+			// Affiche les premières valeurs d'un tenseur (pour debug)
+			void PrintTensor(const NkTensor &t, uint32 maxElems = 16, const char *prefix = "");
+
+			// Vérifie que deux tenseurs sont proches (pour les tests unitaires)
+			bool AllClose(const NkTensor &A, const NkTensor &B, float32 atol = 1e-4f, float32 rtol = 1e-4f);
+
+			// Make GetOrCompilePipeline accessible for friend functions
+			NkPipelineHandle GetOrCompilePipeline(const char *key, const char *glslSrc);
+
+		private:
+			// ── Dispatch helper (calcule les groupes depuis le nombre d'éléments) ─────
+			void Dispatch1D(NkICommandBuffer *cmd, NkPipelineHandle pipe, uint32 n, uint32 groupSize = 256);
+
+			// ── Bind un tenseur comme SSBO sur un binding donné ──────────────────────
+			void BindTensor(NkDescSetHandle set, uint32 binding, const NkTensor &t);
+
+			NkIDevice *mDevice = nullptr;
+			bool mReady = false;
+
+			// Cache des pipelines compilés (key=nom de l'opération)
+			struct PipelineCache {
+					NkShaderHandle shader;
+					NkPipelineHandle pipeline;
+			};
+
+			NkUnorderedMap<NkString, PipelineCache> mPipelineCache;
+
+			// Layout des descriptors (2 SSBO input + 1 SSBO output par défaut)
+			NkDescSetHandle mDefaultLayout;
+
+			// Buffer scratch pour les réductions (loss, stats)
+			NkTensor mScratch;
+	};
+
+	// =============================================================================
+	// Shaders GLSL compute pour chaque opération (dans des namespaces séparés)
+	// =============================================================================
+	namespace NkMLShaders {
+
+		// ── MatMul (tuile 16×16 pour la localité cache) ───────────────────────────────
+		inline const char *MatMul() {
+			return R"(
         #version 430
         layout(local_size_x=16, local_size_y=16) in;
 
@@ -395,10 +430,12 @@ namespace nkentseu {
             if (row<uint(M) && col<uint(N))
                 c[row*N+col] = alpha * sum;
         }
-        )"; }
+        )";
+		}
 
-        // ── MatMulAdd (GEMM + bias) ───────────────────────────────────────────────────
-        inline const char* MatMulAdd() { return R"(
+		// ── MatMulAdd (GEMM + bias) ───────────────────────────────────────────────────
+		inline const char *MatMulAdd() {
+			return R"(
         #version 430
         layout(local_size_x=256) in;
         layout(std430,binding=0) readonly  buffer A    { float a[]; };
@@ -422,20 +459,24 @@ namespace nkentseu {
             }
             if(row<uint(M)&&col<uint(N)) c[row*N+col]=sum+(col<uint(N)?bias[col]:0);
         }
-        )"; }
+        )";
+		}
 
-        // ── ReLU ─────────────────────────────────────────────────────────────────────
-        inline const char* ReLU() { return R"(
+		// ── ReLU ─────────────────────────────────────────────────────────────────────
+		inline const char *ReLU() {
+			return R"(
         #version 430
         layout(local_size_x=256) in;
         layout(std430,binding=0) readonly  buffer In  { float x[]; };
         layout(std430,binding=1) writeonly buffer Out { float y[]; };
         uniform uint n;
         void main(){ uint i=gl_GlobalInvocationID.x; if(i<n) y[i]=max(0.0,x[i]); }
-        )"; }
+        )";
+		}
 
-        // ── GELU (exact) ──────────────────────────────────────────────────────────────
-        inline const char* GELU() { return R"(
+		// ── GELU (exact) ──────────────────────────────────────────────────────────────
+		inline const char *GELU() {
+			return R"(
         #version 430
         layout(local_size_x=256) in;
         layout(std430,binding=0) readonly  buffer In  { float x[]; };
@@ -446,20 +487,24 @@ namespace nkentseu {
             uint i=gl_GlobalInvocationID.x;
             if(i<n){ float v=x[i]; y[i]=v*0.5*(1.0+erf(v*0.70710678)); }
         }
-        )"; }
+        )";
+		}
 
-        // ── Sigmoid ───────────────────────────────────────────────────────────────────
-        inline const char* Sigmoid() { return R"(
+		// ── Sigmoid ───────────────────────────────────────────────────────────────────
+		inline const char *Sigmoid() {
+			return R"(
         #version 430
         layout(local_size_x=256) in;
         layout(std430,binding=0) readonly  buffer In  { float x[]; };
         layout(std430,binding=1) writeonly buffer Out { float y[]; };
         uniform uint n;
         void main(){ uint i=gl_GlobalInvocationID.x; if(i<n) y[i]=1.0/(1.0+exp(-x[i])); }
-        )"; }
+        )";
+		}
 
-        // ── Softmax (réduction par ligne) ────────────────────────────────────────────
-        inline const char* Softmax() { return R"(
+		// ── Softmax (réduction par ligne) ────────────────────────────────────────────
+		inline const char *Softmax() {
+			return R"(
         #version 430
         layout(local_size_x=256) in;
         layout(std430,binding=0) readonly  buffer In  { float x[]; };
@@ -486,10 +531,12 @@ namespace nkentseu {
             // Pass 3 : normalise
             for(uint c=gl_LocalInvocationID.x;c<cols;c+=256) y[base+c]=exp(x[base+c]-smax)/ssum;
         }
-        )"; }
+        )";
+		}
 
-        // ── LayerNorm ─────────────────────────────────────────────────────────────────
-        inline const char* LayerNorm() { return R"(
+		// ── LayerNorm ─────────────────────────────────────────────────────────────────
+		inline const char *LayerNorm() {
+			return R"(
         #version 430
         layout(local_size_x=256) in;
         layout(std430,binding=0) readonly  buffer In     { float x[]; };
@@ -516,10 +563,12 @@ namespace nkentseu {
             for(uint c=gl_LocalInvocationID.x;c<cols;c+=256)
                 y[base+c]=(x[base+c]-smean)*invstd*w[c]+b[c];
         }
-        )"; }
+        )";
+		}
 
-        // ── AdamW step ────────────────────────────────────────────────────────────────
-        inline const char* AdamWStep() { return R"(
+		// ── AdamW step ────────────────────────────────────────────────────────────────
+		inline const char *AdamWStep() {
+			return R"(
         #version 430
         layout(local_size_x=256) in;
         layout(std430,binding=0) buffer Param { float param[]; };
@@ -541,10 +590,12 @@ namespace nkentseu {
             float vh=v[i]/(1.0-beta2t);
             param[i]-=lr*mh/(sqrt(vh)+eps);
         }
-        )"; }
+        )";
+		}
 
-        // ── MSE Loss (réduction) ─────────────────────────────────────────────────────
-        inline const char* MSELoss() { return R"(
+		// ── MSE Loss (réduction) ─────────────────────────────────────────────────────
+		inline const char *MSELoss() {
+			return R"(
         #version 430
         layout(local_size_x=256) in;
         layout(std430,binding=0) readonly  buffer Pred   { float pred[]; };
@@ -560,10 +611,12 @@ namespace nkentseu {
             for(uint s=128;s>0;s>>=1){ if(gl_LocalInvocationID.x<s) ssum[gl_LocalInvocationID.x]+=ssum[gl_LocalInvocationID.x+s]; barrier(); }
             if(gl_LocalInvocationID.x==0) atomicAdd(result[0],ssum[0]);
         }
-        )"; }
+        )";
+		}
 
-        // ── SoftmaxCrossEntropy Backward ─────────────────────────────────────────────
-        inline const char* CrossEntropyBackward() { return R"(
+		// ── SoftmaxCrossEntropy Backward ─────────────────────────────────────────────
+		inline const char *CrossEntropyBackward() {
+			return R"(
         #version 430
         layout(local_size_x=256) in;
         layout(std430,binding=0) readonly  buffer Logits { float logits[]; };
@@ -581,8 +634,9 @@ namespace nkentseu {
             float p=exp(logits[i]-mx)/s;
             grad[i]=(p-labels[i])/float(batch_size);
         }
-        )"; }
+        )";
+		}
 
-    } // namespace NkMLShaders
+	} // namespace NkMLShaders
 
 } // namespace nkentseu

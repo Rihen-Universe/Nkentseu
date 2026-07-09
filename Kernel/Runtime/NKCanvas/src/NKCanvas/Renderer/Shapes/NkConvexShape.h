@@ -27,26 +27,36 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        class NkConvexShape : public NkShape {
-            public:
-                NkConvexShape() noexcept = default;
-                explicit NkConvexShape(uint32 pointCount) { mPoints.Resize(pointCount); }
+		class NkConvexShape : public NkShape {
+			public:
+				NkConvexShape() noexcept = default;
 
-                void SetPointCount(uint32 n) { mPoints.Resize(n); }
-                void SetPoint(uint32 index, NkVec2f p) {
-                    if (index < mPoints.Size()) mPoints[index] = p;
-                }
+				explicit NkConvexShape(uint32 pointCount) {
+					mPoints.Resize(pointCount);
+				}
 
-                uint32  GetPointCount() const override { return static_cast<uint32>(mPoints.Size()); }
-                NkVec2f GetPoint(uint32 index) const override {
-                    return (index < mPoints.Size()) ? mPoints[index] : NkVec2f{0.f, 0.f};
-                }
+				void SetPointCount(uint32 n) {
+					mPoints.Resize(n);
+				}
 
-            private:
-                NkVector<NkVec2f> mPoints;
-        };
+				void SetPoint(uint32 index, NkVec2f p) {
+					if (index < mPoints.Size())
+						mPoints[index] = p;
+				}
 
-    } // namespace renderer
+				uint32 GetPointCount() const override {
+					return static_cast<uint32>(mPoints.Size());
+				}
+
+				NkVec2f GetPoint(uint32 index) const override {
+					return (index < mPoints.Size()) ? mPoints[index] : NkVec2f{0.f, 0.f};
+				}
+
+			private:
+				NkVector<NkVec2f> mPoints;
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

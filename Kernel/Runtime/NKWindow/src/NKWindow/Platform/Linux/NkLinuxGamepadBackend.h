@@ -28,385 +28,388 @@
  */
 namespace nkentseu {
 
-// ---------------------------------------------------------------------------
-// Seuil deadzone par dÃƒÆ’Ã‚Â©faut pour les axes (jsDZ)
-// ---------------------------------------------------------------------------
+	// ---------------------------------------------------------------------------
+	// Seuil deadzone par dÃƒÆ’Ã‚Â©faut pour les axes (jsDZ)
+	// ---------------------------------------------------------------------------
 
-static constexpr float NK_JS_DEADZONE = 0.08f;
+	static constexpr float NK_JS_DEADZONE = 0.08f;
 
-// ---------------------------------------------------------------------------
-// NkJsDevice ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â un joystick /dev/input/jsN ouvert
-// ---------------------------------------------------------------------------
+	// ---------------------------------------------------------------------------
+	// NkJsDevice ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â un joystick /dev/input/jsN ouvert
+	// ---------------------------------------------------------------------------
 
-struct NkJsDevice {
-    int fd = -1;             ///< Descripteur du joystick
-    int ffFd = -1;           ///< Descripteur event pour force-feedback
-    int ffEffectId = -1;     ///< ID de l'effet rumble (ou -1)
-    uint32 index = 0;         ///< Indice logique (0 = joueur 1ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦)
-    char path[64] = {};      ///< Ex: "/dev/input/js0"
-    char eventPath[64] = {}; ///< Ex: "/dev/input/event3" (ou vide)
-    bool open = false;
-};
+	struct NkJsDevice {
+			int fd = -1;			 ///< Descripteur du joystick
+			int ffFd = -1;			 ///< Descripteur event pour force-feedback
+			int ffEffectId = -1;	 ///< ID de l'effet rumble (ou -1)
+			uint32 index = 0;		 ///< Indice logique (0 = joueur 1ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦)
+			char path[64] = {};		 ///< Ex: "/dev/input/js0"
+			char eventPath[64] = {}; ///< Ex: "/dev/input/event3" (ou vide)
+			bool open = false;
+	};
 
-// ---------------------------------------------------------------------------
+	// ---------------------------------------------------------------------------
 
-class NkLinuxGamepad final : public NkIGamepad {
-public:
-    NkLinuxGamepad() = default;
-    ~NkLinuxGamepad() override {
-        Shutdown();
-    }
+	class NkLinuxGamepad final : public NkIGamepad {
+		public:
+			NkLinuxGamepad() = default;
 
-    bool Init() override {
-        for (auto &snap : mSnapshots)
-            snap.Clear();
-        for (auto &info : mInfos)
-            info = {};
-        for (auto &d : mDevices) {
-            d.fd = -1;
-            d.ffFd = -1;
-            d.ffEffectId = -1;
-            d.open = false;
-        }
+			~NkLinuxGamepad() override {
+				Shutdown();
+			}
 
-        // Surveillance /dev/input pour hot-plug
-        mInotifyFd = inotify_init1(IN_NONBLOCK);
-        if (mInotifyFd >= 0)
-            inotify_add_watch(mInotifyFd, "/dev/input", IN_CREATE | IN_DELETE | IN_ATTRIB);
+			bool Init() override {
+				for (auto &snap : mSnapshots)
+					snap.Clear();
+				for (auto &info : mInfos)
+					info = {};
+				for (auto &d : mDevices) {
+					d.fd = -1;
+					d.ffFd = -1;
+					d.ffEffectId = -1;
+					d.open = false;
+				}
 
-        ScanDevices();
-        return true;
-    }
+				// Surveillance /dev/input pour hot-plug
+				mInotifyFd = inotify_init1(IN_NONBLOCK);
+				if (mInotifyFd >= 0)
+					inotify_add_watch(mInotifyFd, "/dev/input", IN_CREATE | IN_DELETE | IN_ATTRIB);
 
-    void Shutdown() override {
-        for (auto &d : mDevices)
-            CloseDevice(d);
-        if (mInotifyFd >= 0) {
-            close(mInotifyFd);
-            mInotifyFd = -1;
-        }
-    }
+				ScanDevices();
+				return true;
+			}
 
-    void Poll() override {
-        // Hot-plug
-        if (mInotifyFd >= 0)
-            CheckHotPlug();
+			void Shutdown() override {
+				for (auto &d : mDevices)
+					CloseDevice(d);
+				if (mInotifyFd >= 0) {
+					close(mInotifyFd);
+					mInotifyFd = -1;
+				}
+			}
 
-        // Lecture des ÃƒÆ’Ã‚Â©vÃƒÆ’Ã‚Â©nements bruts
-        for (uint32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
-            NkJsDevice &dev = mDevices[i];
-            if (!dev.open || dev.fd < 0)
-                continue;
+			void Poll() override {
+				// Hot-plug
+				if (mInotifyFd >= 0)
+					CheckHotPlug();
 
-            struct js_event evt{};
-            while (read(dev.fd, &evt, sizeof(evt)) == sizeof(evt)) {
-                // Ignore les ÃƒÆ’Ã‚Â©vÃƒÆ’Ã‚Â©nements d'initialisation (JS_EVENT_INIT flag)
-                uint8 type = evt.type & ~JS_EVENT_INIT;
-                if (type == JS_EVENT_BUTTON) {
-                    if (evt.number < static_cast<uint32>(NkGamepadButton::NK_GAMEPAD_BUTTON_MAX)) {
-                        // Mapping gÃƒÆ’Ã‚Â©nÃƒÆ’Ã‚Â©rique : bouton js ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ NkGamepadButton
-                        NkGamepadButton btn = JsButtonToNk(evt.number);
-                        if (btn != NkGamepadButton::NK_GP_UNKNOWN)
-                            mSnapshots[i].buttons[static_cast<uint32>(btn)] = (evt.value != 0);
-                    }
-                } else if (type == JS_EVENT_AXIS) {
-                    // Axe js [-32767,32767] ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ [-1,1]
-                    float v = static_cast<float>(evt.value) / 32767.f;
-                    if (!math::NkIsFinite(v))
-                        v = 0.f;
-                    if (v > 1.f)
-                        v = 1.f;
-                    else if (v < -1.f)
-                        v = -1.f;
-                    if (math::NkFabs(v) < NK_JS_DEADZONE)
-                        v = 0.f;
-                    NkGamepadAxis ax = JsAxisToNk(evt.number);
-                    if (ax != NkGamepadAxis::NK_GAMEPAD_AXIS_MAX)
-                        mSnapshots[i].axes[static_cast<uint32>(ax)] = v;
-                }
-            }
-        }
-    }
+				// Lecture des ÃƒÆ’Ã‚Â©vÃƒÆ’Ã‚Â©nements bruts
+				for (uint32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
+					NkJsDevice &dev = mDevices[i];
+					if (!dev.open || dev.fd < 0)
+						continue;
 
-    uint32 GetConnectedCount() const override {
-        uint32 count = 0;
-        for (uint32 i = 0; i < NK_MAX_GAMEPADS; ++i)
-            if (mSnapshots[i].connected)
-                ++count;
-        return count;
-    }
+					struct js_event evt{};
+					while (read(dev.fd, &evt, sizeof(evt)) == sizeof(evt)) {
+						// Ignore les ÃƒÆ’Ã‚Â©vÃƒÆ’Ã‚Â©nements d'initialisation (JS_EVENT_INIT flag)
+						uint8 type = evt.type & ~JS_EVENT_INIT;
+						if (type == JS_EVENT_BUTTON) {
+							if (evt.number < static_cast<uint32>(NkGamepadButton::NK_GAMEPAD_BUTTON_MAX)) {
+								// Mapping gÃƒÆ’Ã‚Â©nÃƒÆ’Ã‚Â©rique : bouton js ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ NkGamepadButton
+								NkGamepadButton btn = JsButtonToNk(evt.number);
+								if (btn != NkGamepadButton::NK_GP_UNKNOWN)
+									mSnapshots[i].buttons[static_cast<uint32>(btn)] = (evt.value != 0);
+							}
+						} else if (type == JS_EVENT_AXIS) {
+							// Axe js [-32767,32767] ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ [-1,1]
+							float v = static_cast<float>(evt.value) / 32767.f;
+							if (!math::NkIsFinite(v))
+								v = 0.f;
+							if (v > 1.f)
+								v = 1.f;
+							else if (v < -1.f)
+								v = -1.f;
+							if (math::NkFabs(v) < NK_JS_DEADZONE)
+								v = 0.f;
+							NkGamepadAxis ax = JsAxisToNk(evt.number);
+							if (ax != NkGamepadAxis::NK_GAMEPAD_AXIS_MAX)
+								mSnapshots[i].axes[static_cast<uint32>(ax)] = v;
+						}
+					}
+				}
+			}
 
-    const NkGamepadSnapshot& GetSnapshot(uint32 idx) const override {
-        static NkGamepadSnapshot dummy;
-        return idx < NK_MAX_GAMEPADS ? mSnapshots[idx] : dummy;
-    }
+			uint32 GetConnectedCount() const override {
+				uint32 count = 0;
+				for (uint32 i = 0; i < NK_MAX_GAMEPADS; ++i)
+					if (mSnapshots[i].connected)
+						++count;
+				return count;
+			}
 
-    void Rumble(uint32 idx, float motorLow, float motorHigh, float /*tl*/, float /*tr*/, uint32 durationMs) override {
-        if (idx >= NK_MAX_GAMEPADS)
-            return;
-        NkJsDevice &dev = mDevices[idx];
-        if (dev.ffFd < 0)
-            return;
+			const NkGamepadSnapshot &GetSnapshot(uint32 idx) const override {
+				static NkGamepadSnapshot dummy;
+				return idx < NK_MAX_GAMEPADS ? mSnapshots[idx] : dummy;
+			}
 
-        // ArrÃƒÆ’Ã‚Âªt de l'effet prÃƒÆ’Ã‚Â©cÃƒÆ’Ã‚Â©dent
-        if (dev.ffEffectId >= 0) {
-            ioctl(dev.ffFd, EVIOCRMFF, dev.ffEffectId);
-            dev.ffEffectId = -1;
-        }
+			void Rumble(uint32 idx, float motorLow, float motorHigh, float /*tl*/, float /*tr*/,
+						uint32 durationMs) override {
+				if (idx >= NK_MAX_GAMEPADS)
+					return;
+				NkJsDevice &dev = mDevices[idx];
+				if (dev.ffFd < 0)
+					return;
 
-        if (motorLow <= 0.f && motorHigh <= 0.f)
-            return;
+				// ArrÃƒÆ’Ã‚Âªt de l'effet prÃƒÆ’Ã‚Â©cÃƒÆ’Ã‚Â©dent
+				if (dev.ffEffectId >= 0) {
+					ioctl(dev.ffFd, EVIOCRMFF, dev.ffEffectId);
+					dev.ffEffectId = -1;
+				}
 
-        struct ff_effect eff{};
-        eff.type = FF_RUMBLE;
-        eff.id = -1;
-        eff.u.rumble.strong_magnitude = static_cast<uint16>(math::NkMin(motorLow, 1.f) * 0xFFFF);
-        eff.u.rumble.weak_magnitude = static_cast<uint16>(math::NkMin(motorHigh, 1.f) * 0xFFFF);
-        eff.replay.length = durationMs > 0 ? static_cast<uint16>(math::NkMin<uint32>(durationMs, 0xFFFF)) : 0xFFFF;
-        eff.replay.delay = 0;
+				if (motorLow <= 0.f && motorHigh <= 0.f)
+					return;
 
-        if (ioctl(dev.ffFd, EVIOCSFF, &eff) >= 0) {
-            dev.ffEffectId = eff.id;
-            struct input_event play{};
-            play.type = EV_FF;
-            play.code = static_cast<uint16>(dev.ffEffectId);
-            play.value = 1;
-            write(dev.ffFd, &play, sizeof(play));
-        }
-    }
+				struct ff_effect eff{};
+				eff.type = FF_RUMBLE;
+				eff.id = -1;
+				eff.u.rumble.strong_magnitude = static_cast<uint16>(math::NkMin(motorLow, 1.f) * 0xFFFF);
+				eff.u.rumble.weak_magnitude = static_cast<uint16>(math::NkMin(motorHigh, 1.f) * 0xFFFF);
+				eff.replay.length =
+					durationMs > 0 ? static_cast<uint16>(math::NkMin<uint32>(durationMs, 0xFFFF)) : 0xFFFF;
+				eff.replay.delay = 0;
 
-    void SetLEDColor(uint32 /*idx*/, uint32 /*rgba*/) override {
-        // Non supportÃƒÆ’Ã‚Â©
-    }
+				if (ioctl(dev.ffFd, EVIOCSFF, &eff) >= 0) {
+					dev.ffEffectId = eff.id;
+					struct input_event play{};
+					play.type = EV_FF;
+					play.code = static_cast<uint16>(dev.ffEffectId);
+					play.value = 1;
+					write(dev.ffFd, &play, sizeof(play));
+				}
+			}
 
-    bool HasMotion(uint32 /*idx*/) const noexcept override {
-        return false;
-    }
+			void SetLEDColor(uint32 /*idx*/, uint32 /*rgba*/) override {
+				// Non supportÃƒÆ’Ã‚Â©
+			}
 
-    const char* GetName() const noexcept override {
-        return "evdev";
-    }
+			bool HasMotion(uint32 /*idx*/) const noexcept override {
+				return false;
+			}
 
-private:
-    NkArray<NkGamepadSnapshot, NK_MAX_GAMEPADS> mSnapshots{};
-    NkArray<NkGamepadInfo, NK_MAX_GAMEPADS> mInfos{};
-    NkArray<NkJsDevice, NK_MAX_GAMEPADS> mDevices{};
-    int mInotifyFd = -1;
+			const char *GetName() const noexcept override {
+				return "evdev";
+			}
 
-    // -----------------------------------------------------------------------
-    // Scan /dev/input/jsN
-    // -----------------------------------------------------------------------
+		private:
+			NkArray<NkGamepadSnapshot, NK_MAX_GAMEPADS> mSnapshots{};
+			NkArray<NkGamepadInfo, NK_MAX_GAMEPADS> mInfos{};
+			NkArray<NkJsDevice, NK_MAX_GAMEPADS> mDevices{};
+			int mInotifyFd = -1;
 
-    void ScanDevices() {
-        DIR *dir = opendir("/dev/input");
-        if (!dir)
-            return;
-        struct dirent *ent;
-        while ((ent = readdir(dir)) != nullptr) {
-            if (strncmp(ent->d_name, "js", 2) != 0)
-                continue;
-            char path[64];
-            snprintf(path, sizeof(path), "/dev/input/%s", ent->d_name);
-            TryOpenDevice(path);
-        }
-        closedir(dir);
-    }
+			// -----------------------------------------------------------------------
+			// Scan /dev/input/jsN
+			// -----------------------------------------------------------------------
 
-    void TryOpenDevice(const char *path) {
-        // Trouver un slot libre
-        uint32 slot = NK_MAX_GAMEPADS;
-        for (uint32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
-            if (!mDevices[i].open) {
-                slot = i;
-                break;
-            }
-        }
-        if (slot == NK_MAX_GAMEPADS)
-            return;
+			void ScanDevices() {
+				DIR *dir = opendir("/dev/input");
+				if (!dir)
+					return;
+				struct dirent *ent;
+				while ((ent = readdir(dir)) != nullptr) {
+					if (strncmp(ent->d_name, "js", 2) != 0)
+						continue;
+					char path[64];
+					snprintf(path, sizeof(path), "/dev/input/%s", ent->d_name);
+					TryOpenDevice(path);
+				}
+				closedir(dir);
+			}
 
-        int fd = open(path, O_RDONLY | O_NONBLOCK);
-        if (fd < 0)
-            return;
+			void TryOpenDevice(const char *path) {
+				// Trouver un slot libre
+				uint32 slot = NK_MAX_GAMEPADS;
+				for (uint32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
+					if (!mDevices[i].open) {
+						slot = i;
+						break;
+					}
+				}
+				if (slot == NK_MAX_GAMEPADS)
+					return;
 
-        NkJsDevice &dev = mDevices[slot];
-        dev.fd = fd;
-        dev.index = slot;
-        dev.open = true;
-        strncpy(dev.path, path, sizeof(dev.path) - 1);
+				int fd = open(path, O_RDONLY | O_NONBLOCK);
+				if (fd < 0)
+					return;
 
-        // Remplis les infos
-        NkGamepadInfo &info = mInfos[slot];
-        info.index = slot;
-        info.type = NkGamepadType::NK_GP_TYPE_GENERIC;
+				NkJsDevice &dev = mDevices[slot];
+				dev.fd = fd;
+				dev.index = slot;
+				dev.open = true;
+				strncpy(dev.path, path, sizeof(dev.path) - 1);
 
-        char name[128] = "Unknown Joystick";
-        ioctl(fd, JSIOCGNAME(sizeof(name)), name);
-        strncpy(info.name, name, sizeof(info.name) - 1);
-        snprintf(info.id, sizeof(info.id), "%s", path);
+				// Remplis les infos
+				NkGamepadInfo &info = mInfos[slot];
+				info.index = slot;
+				info.type = NkGamepadType::NK_GP_TYPE_GENERIC;
 
-        uint8 numAxes = 0, numBtns = 0;
-        ioctl(fd, JSIOCGAXES, &numAxes);
-        ioctl(fd, JSIOCGBUTTONS, &numBtns);
-        info.numAxes = numAxes;
-        info.numButtons = numBtns;
+				char name[128] = "Unknown Joystick";
+				ioctl(fd, JSIOCGNAME(sizeof(name)), name);
+				strncpy(info.name, name, sizeof(info.name) - 1);
+				snprintf(info.id, sizeof(info.id), "%s", path);
 
-        // Chercher le event* correspondant (pour rumble)
-        TryOpenForceFeedback(slot, path);
+				uint8 numAxes = 0, numBtns = 0;
+				ioctl(fd, JSIOCGAXES, &numAxes);
+				ioctl(fd, JSIOCGBUTTONS, &numBtns);
+				info.numAxes = numAxes;
+				info.numButtons = numBtns;
 
-        mSnapshots[slot].connected = true;
-        mSnapshots[slot].info = info;
+				// Chercher le event* correspondant (pour rumble)
+				TryOpenForceFeedback(slot, path);
 
-        if (mInfos[slot].hasRumble)
-            info.hasRumble = true;
-    }
+				mSnapshots[slot].connected = true;
+				mSnapshots[slot].info = info;
 
-    void TryOpenForceFeedback(uint32 slot, const char *jsPath) {
-        // Exemple : /dev/input/js0 ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ /dev/input/event3
-        // On recherche dans /sys/class/input/jsN/device/event*/
-        char sysPath[128];
-        const char *jsName = strrchr(jsPath, '/');
-        if (!jsName)
-            return;
-        ++jsName; // "js0"
+				if (mInfos[slot].hasRumble)
+					info.hasRumble = true;
+			}
 
-        snprintf(sysPath, sizeof(sysPath), "/sys/class/input/%s/device", jsName);
-        DIR *dir = opendir(sysPath);
-        if (!dir)
-            return;
-        struct dirent *ent;
-        while ((ent = readdir(dir)) != nullptr) {
-            if (strncmp(ent->d_name, "event", 5) != 0)
-                continue;
-            char evPath[64];
-            snprintf(evPath, sizeof(evPath), "/dev/input/%s", ent->d_name);
-            int fd = open(evPath, O_RDWR | O_NONBLOCK);
-            if (fd < 0)
-                continue;
+			void TryOpenForceFeedback(uint32 slot, const char *jsPath) {
+				// Exemple : /dev/input/js0 ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ /dev/input/event3
+				// On recherche dans /sys/class/input/jsN/device/event*/
+				char sysPath[128];
+				const char *jsName = strrchr(jsPath, '/');
+				if (!jsName)
+					return;
+				++jsName; // "js0"
 
-            // VÃƒÆ’Ã‚Â©rifier FF_RUMBLE supportÃƒÆ’Ã‚Â©
-            unsigned char ffBits[FF_CNT / 8 + 1] = {};
-            if (ioctl(fd, EVIOCGBIT(EV_FF, sizeof(ffBits)), ffBits) >= 0) {
-                bool hasRumble = (ffBits[FF_RUMBLE / 8] >> (FF_RUMBLE % 8)) & 1;
-                if (hasRumble) {
-                    mDevices[slot].ffFd = fd;
-                    strncpy(mDevices[slot].eventPath, evPath, sizeof(mDevices[slot].eventPath) - 1);
-                    mInfos[slot].hasRumble = true;
-                    break;
-                }
-            }
-            close(fd);
-        }
-        closedir(dir);
-    }
+				snprintf(sysPath, sizeof(sysPath), "/sys/class/input/%s/device", jsName);
+				DIR *dir = opendir(sysPath);
+				if (!dir)
+					return;
+				struct dirent *ent;
+				while ((ent = readdir(dir)) != nullptr) {
+					if (strncmp(ent->d_name, "event", 5) != 0)
+						continue;
+					char evPath[64];
+					snprintf(evPath, sizeof(evPath), "/dev/input/%s", ent->d_name);
+					int fd = open(evPath, O_RDWR | O_NONBLOCK);
+					if (fd < 0)
+						continue;
 
-    void CloseDevice(NkJsDevice &dev) {
-        if (!dev.open)
-            return;
-        if (dev.ffFd >= 0) {
-            if (dev.ffEffectId >= 0)
-                ioctl(dev.ffFd, EVIOCRMFF, dev.ffEffectId);
-            close(dev.ffFd);
-            dev.ffFd = -1;
-        }
-        if (dev.fd >= 0) {
-            close(dev.fd);
-            dev.fd = -1;
-        }
-        uint32 i = dev.index;
-        dev = {};
-        mSnapshots[i] = {};
-        mInfos[i] = {};
-    }
+					// VÃƒÆ’Ã‚Â©rifier FF_RUMBLE supportÃƒÆ’Ã‚Â©
+					unsigned char ffBits[FF_CNT / 8 + 1] = {};
+					if (ioctl(fd, EVIOCGBIT(EV_FF, sizeof(ffBits)), ffBits) >= 0) {
+						bool hasRumble = (ffBits[FF_RUMBLE / 8] >> (FF_RUMBLE % 8)) & 1;
+						if (hasRumble) {
+							mDevices[slot].ffFd = fd;
+							strncpy(mDevices[slot].eventPath, evPath, sizeof(mDevices[slot].eventPath) - 1);
+							mInfos[slot].hasRumble = true;
+							break;
+						}
+					}
+					close(fd);
+				}
+				closedir(dir);
+			}
 
-    // -----------------------------------------------------------------------
-    // Hot-plug (inotify)
-    // -----------------------------------------------------------------------
+			void CloseDevice(NkJsDevice &dev) {
+				if (!dev.open)
+					return;
+				if (dev.ffFd >= 0) {
+					if (dev.ffEffectId >= 0)
+						ioctl(dev.ffFd, EVIOCRMFF, dev.ffEffectId);
+					close(dev.ffFd);
+					dev.ffFd = -1;
+				}
+				if (dev.fd >= 0) {
+					close(dev.fd);
+					dev.fd = -1;
+				}
+				uint32 i = dev.index;
+				dev = {};
+				mSnapshots[i] = {};
+				mInfos[i] = {};
+			}
 
-    void CheckHotPlug() {
-        char buf[sizeof(struct inotify_event) + NAME_MAX + 1];
-        ssize_t n;
-        while ((n = read(mInotifyFd, buf, sizeof(buf))) > 0) {
-            struct inotify_event *ev = reinterpret_cast<struct inotify_event *>(buf);
-            if (ev->len > 0 && strncmp(ev->name, "js", 2) == 0) {
-                char path[64];
-                snprintf(path, sizeof(path), "/dev/input/%s", ev->name);
-                if (ev->mask & (IN_CREATE | IN_ATTRIB))
-                    TryOpenDevice(path);
-                else if (ev->mask & IN_DELETE) {
-                    for (auto &d : mDevices)
-                        if (d.open && strcmp(d.path, path) == 0)
-                            CloseDevice(d);
-                }
-            }
-        }
-    }
+			// -----------------------------------------------------------------------
+			// Hot-plug (inotify)
+			// -----------------------------------------------------------------------
 
-    // -----------------------------------------------------------------------
-    // Mapping gÃƒÆ’Ã‚Â©nÃƒÆ’Ã‚Â©rique js ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ NkGamepadButton
-    // -----------------------------------------------------------------------
+			void CheckHotPlug() {
+				char buf[sizeof(struct inotify_event) + NAME_MAX + 1];
+				ssize_t n;
+				while ((n = read(mInotifyFd, buf, sizeof(buf))) > 0) {
+					struct inotify_event *ev = reinterpret_cast<struct inotify_event *>(buf);
+					if (ev->len > 0 && strncmp(ev->name, "js", 2) == 0) {
+						char path[64];
+						snprintf(path, sizeof(path), "/dev/input/%s", ev->name);
+						if (ev->mask & (IN_CREATE | IN_ATTRIB))
+							TryOpenDevice(path);
+						else if (ev->mask & IN_DELETE) {
+							for (auto &d : mDevices)
+								if (d.open && strcmp(d.path, path) == 0)
+									CloseDevice(d);
+						}
+					}
+				}
+			}
 
-    static NkGamepadButton JsButtonToNk(uint8 n) {
-        using B = NkGamepadButton;
-        // Standard linux mapping (Xbox-like)
-        switch (n) {
-            case 0:
-                return B::NK_GP_SOUTH;
-            case 1:
-                return B::NK_GP_EAST;
-            case 2:
-                return B::NK_GP_WEST;
-            case 3:
-                return B::NK_GP_NORTH;
-            case 4:
-                return B::NK_GP_LB;
-            case 5:
-                return B::NK_GP_RB;
-            case 6:
-                return B::NK_GP_BACK;
-            case 7:
-                return B::NK_GP_START;
-            case 8:
-                return B::NK_GP_GUIDE;
-            case 9:
-                return B::NK_GP_LSTICK;
-            case 10:
-                return B::NK_GP_RSTICK;
-            case 11:
-                return B::NK_GP_DPAD_UP;
-            case 12:
-                return B::NK_GP_DPAD_DOWN;
-            case 13:
-                return B::NK_GP_DPAD_LEFT;
-            case 14:
-                return B::NK_GP_DPAD_RIGHT;
-            default:
-                return B::NK_GP_UNKNOWN;
-        }
-    }
+			// -----------------------------------------------------------------------
+			// Mapping gÃƒÆ’Ã‚Â©nÃƒÆ’Ã‚Â©rique js ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ NkGamepadButton
+			// -----------------------------------------------------------------------
 
-    static NkGamepadAxis JsAxisToNk(uint8 n) {
-        using A = NkGamepadAxis;
-        switch (n) {
-            case 0:
-                return A::NK_GP_AXIS_LX;
-            case 1:
-                return A::NK_GP_AXIS_LY;
-            case 2:
-                return A::NK_GP_AXIS_LT;
-            case 3:
-                return A::NK_GP_AXIS_RX;
-            case 4:
-                return A::NK_GP_AXIS_RY;
-            case 5:
-                return A::NK_GP_AXIS_RT;
-            case 6:
-                return A::NK_GP_AXIS_DPAD_X;
-            case 7:
-                return A::NK_GP_AXIS_DPAD_Y;
-            default:
-                return A::NK_GAMEPAD_AXIS_MAX; // invalide
-        }
-    }
-};
+			static NkGamepadButton JsButtonToNk(uint8 n) {
+				using B = NkGamepadButton;
+				// Standard linux mapping (Xbox-like)
+				switch (n) {
+					case 0:
+						return B::NK_GP_SOUTH;
+					case 1:
+						return B::NK_GP_EAST;
+					case 2:
+						return B::NK_GP_WEST;
+					case 3:
+						return B::NK_GP_NORTH;
+					case 4:
+						return B::NK_GP_LB;
+					case 5:
+						return B::NK_GP_RB;
+					case 6:
+						return B::NK_GP_BACK;
+					case 7:
+						return B::NK_GP_START;
+					case 8:
+						return B::NK_GP_GUIDE;
+					case 9:
+						return B::NK_GP_LSTICK;
+					case 10:
+						return B::NK_GP_RSTICK;
+					case 11:
+						return B::NK_GP_DPAD_UP;
+					case 12:
+						return B::NK_GP_DPAD_DOWN;
+					case 13:
+						return B::NK_GP_DPAD_LEFT;
+					case 14:
+						return B::NK_GP_DPAD_RIGHT;
+					default:
+						return B::NK_GP_UNKNOWN;
+				}
+			}
+
+			static NkGamepadAxis JsAxisToNk(uint8 n) {
+				using A = NkGamepadAxis;
+				switch (n) {
+					case 0:
+						return A::NK_GP_AXIS_LX;
+					case 1:
+						return A::NK_GP_AXIS_LY;
+					case 2:
+						return A::NK_GP_AXIS_LT;
+					case 3:
+						return A::NK_GP_AXIS_RX;
+					case 4:
+						return A::NK_GP_AXIS_RY;
+					case 5:
+						return A::NK_GP_AXIS_RT;
+					case 6:
+						return A::NK_GP_AXIS_DPAD_X;
+					case 7:
+						return A::NK_GP_AXIS_DPAD_Y;
+					default:
+						return A::NK_GAMEPAD_AXIS_MAX; // invalide
+				}
+			}
+	};
 
 } // namespace nkentseu

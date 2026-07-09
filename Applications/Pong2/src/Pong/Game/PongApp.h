@@ -19,85 +19,88 @@
 #include "Pong/UI/SceneManager.h"
 #include "NKCore/NkTypes.h"
 
-namespace nkentseu
-{
-    class NkWindow;
-    class NkEvent;
-}
+namespace nkentseu {
+	class NkWindow;
+	class NkEvent;
+} // namespace nkentseu
 
-namespace nkentseu
-{
-    namespace pong
-    {
+namespace nkentseu {
+	namespace pong {
 
-        class PongApp
-        {
-        public:
-            explicit PongApp(NkWindow& window) noexcept : mWindow(window) {}
-            ~PongApp() = default;
+		class PongApp {
+			public:
+				explicit PongApp(NkWindow &window) noexcept : mWindow(window) {
+				}
 
-            // ── Lifecycle ────────────────────────────────────────────────────
-            /// Initialise GL, atlas, scenes (push RihenIntroScene).
-            bool Init();
-            /// Libere toutes les ressources.
-            void Shutdown();
+				~PongApp() = default;
 
-            /// Gere le redimensionnement de la fenetre.
-            void OnResize(uint32 w, uint32 h);
+				// ── Lifecycle ────────────────────────────────────────────────────
+				/// Initialise GL, atlas, scenes (push RihenIntroScene).
+				bool Init();
+				/// Libere toutes les ressources.
+				void Shutdown();
 
-            /// Avance la logique d'un delta-time.
-            void Update(float dt);
-            /// Dessine la scene active.
-            void Render();
-            /// Dispatch d'un event poll-e a la scene active.
-            void OnEvent(NkEvent& ev);
-            /// Lifecycle : informer la scene active.
-            void OnPause();
-            void OnResume();
-            /// Recree la surface GL (apres APP_CMD_INIT_WINDOW Android).
-            bool RecreateSurface();
+				/// Gere le redimensionnement de la fenetre.
+				void OnResize(uint32 w, uint32 h);
 
-            // ── Accesseurs ───────────────────────────────────────────────────
-            bool WantsQuit() const noexcept { return mQuit; }
-            void RequestQuit() noexcept     { mQuit = true; }
+				/// Avance la logique d'un delta-time.
+				void Update(float dt);
+				/// Dessine la scene active.
+				void Render();
+				/// Dispatch d'un event poll-e a la scene active.
+				void OnEvent(NkEvent &ev);
+				/// Lifecycle : informer la scene active.
+				void OnPause();
+				void OnResume();
+				/// Recree la surface GL (apres APP_CMD_INIT_WINDOW Android).
+				bool RecreateSurface();
 
-            /// Etat helper pour Apps.cpp (auto-pause au focus lost).
-            GameState State() const noexcept;
-            void      SetState(GameState s) noexcept;
+				// ── Accesseurs ───────────────────────────────────────────────────
+				bool WantsQuit() const noexcept {
+					return mQuit;
+				}
 
-        private:
-            NkWindow&       mWindow;
-            GLContext       mGL;
-            GLRenderer2D    mRenderer;
-            FontAtlas       mFont;
-            GameSettings    mSettings;
-            SceneManager    mScenes;
-            NetworkSession  mNetwork;
-            // Decouverte LAN (beacon UDP + scan). Ticke chaque frame depuis
-            // Update(). Cf [[pong_multijoueur_internet_strategy]] phase C.
-            NetworkDiscovery mDiscovery;
-            // Gestionnaire audio NKAudio : pre-charge des samples + helpers
-            // PlayPaddle/PlayScore/etc. Init dans PongApp::Init.
-            AudioManager     mAudio;
+				void RequestQuit() noexcept {
+					mQuit = true;
+				}
 
-            bool         mQuit       = false;
-            float        mTime       = 0.0f;
-            uint32       mViewportW  = 0;
-            uint32       mViewportH  = 0;
+				/// Etat helper pour Apps.cpp (auto-pause au focus lost).
+				GameState State() const noexcept;
+				void SetState(GameState s) noexcept;
 
-            // ── Identite reseau Pays/Ville + Code ──────────────────────────
-            // Generee une fois dans Init() via africa::PickRandomCountryCityCode.
-            // Visible dans le NetworkLobbyScene et envoyee aux pairs via le
-            // handshake (PktHello). Constants pour toute la duree de l'app
-            // (l'user peut relancer l'app pour avoir un nouveau pseudo).
-            // Format affichable : "Cameroun/Douala-123456789".
-            char         mMyCountry[32] = { 0 };
-            char         mMyCity[32]    = { 0 };
-            char         mMyCode[16]    = { 0 };   ///< 9 chiffres zero-padded
+			private:
+				NkWindow &mWindow;
+				GLContext mGL;
+				GLRenderer2D mRenderer;
+				FontAtlas mFont;
+				GameSettings mSettings;
+				SceneManager mScenes;
+				NetworkSession mNetwork;
+				// Decouverte LAN (beacon UDP + scan). Ticke chaque frame depuis
+				// Update(). Cf [[pong_multijoueur_internet_strategy]] phase C.
+				NetworkDiscovery mDiscovery;
+				// Gestionnaire audio NKAudio : pre-charge des samples + helpers
+				// PlayPaddle/PlayScore/etc. Init dans PongApp::Init.
+				AudioManager mAudio;
 
-            // Construit un AppContext frais pour le frame courant.
-            AppContext BuildContext();
-        };
+				bool mQuit = false;
+				float mTime = 0.0f;
+				uint32 mViewportW = 0;
+				uint32 mViewportH = 0;
 
-    } // namespace pong
+				// ── Identite reseau Pays/Ville + Code ──────────────────────────
+				// Generee une fois dans Init() via africa::PickRandomCountryCityCode.
+				// Visible dans le NetworkLobbyScene et envoyee aux pairs via le
+				// handshake (PktHello). Constants pour toute la duree de l'app
+				// (l'user peut relancer l'app pour avoir un nouveau pseudo).
+				// Format affichable : "Cameroun/Douala-123456789".
+				char mMyCountry[32] = {0};
+				char mMyCity[32] = {0};
+				char mMyCode[16] = {0}; ///< 9 chiffres zero-padded
+
+				// Construit un AppContext frais pour le frame courant.
+				AppContext BuildContext();
+		};
+
+	} // namespace pong
 } // namespace nkentseu

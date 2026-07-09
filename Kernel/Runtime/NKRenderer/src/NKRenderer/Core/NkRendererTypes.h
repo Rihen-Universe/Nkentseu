@@ -27,509 +27,562 @@
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        using namespace math;
+		using namespace math;
 
-        // =====================================================================
-        // SECTION A — Handles renderer (haut niveau)
-        // =====================================================================
-        template<typename Tag>
-        struct NkRendHandle {
-            uint64 id = 0;
-            constexpr bool IsValid()                         const noexcept { return id != 0; }
-            constexpr bool operator==(const NkRendHandle& o) const noexcept { return id == o.id; }
-            constexpr bool operator!=(const NkRendHandle& o) const noexcept { return id != o.id; }
-            static constexpr NkRendHandle Null()                   noexcept { return {0}; }
-        };
+		// =====================================================================
+		// SECTION A — Handles renderer (haut niveau)
+		// =====================================================================
+		template <typename Tag> struct NkRendHandle {
+				uint64 id = 0;
 
-        struct TagRTexture  {};
-        struct TagRMesh     {};
-        struct TagRShader   {};
-        struct TagRMaterial {};
-        struct TagRMatInst  {};
-        struct TagRFont     {};
-        struct TagRTarget   {};
-        struct TagREnvMap   {};   // env cubemap (HDR -> radiance)
-        struct TagRIBL      {};   // jeu prefiltre (irradiance + specular + BRDF)
-        struct TagRSkeleton {};
-        struct TagRAnimClip {};
+				constexpr bool IsValid() const noexcept {
+					return id != 0;
+				}
 
-        using NkTexHandle      = NkRendHandle<TagRTexture>;
-        using NkMeshHandle     = NkRendHandle<TagRMesh>;
-        using NkShaderHandle   = NkRendHandle<TagRShader>;
-        using NkMatHandle      = NkRendHandle<TagRMaterial>;
-        using NkMatInstHandle  = NkRendHandle<TagRMatInst>;
-        using NkFontHandle     = NkRendHandle<TagRFont>;
-        using NkTargetHandle   = NkRendHandle<TagRTarget>;
-        using NkEnvMapHandle   = NkRendHandle<TagREnvMap>;
-        using NkIBLHandle      = NkRendHandle<TagRIBL>;
-        using NkSkeletonHandle = NkRendHandle<TagRSkeleton>;
-        using NkAnimClipHandle = NkRendHandle<TagRAnimClip>;
+				constexpr bool operator==(const NkRendHandle &o) const noexcept {
+					return id == o.id;
+				}
 
-        // =====================================================================
-        // SECTION B — Blend / Render queue
-        // =====================================================================
-        enum class NkBlendMode : uint8 {
-            NK_OPAQUE    = 0,
-            NK_ALPHA     = 1,    // src.a * src + (1-src.a) * dst
-            NK_ADDITIVE  = 2,    // src + dst
-            NK_MULTIPLY  = 3,    // src * dst
-            NK_PREMULT   = 4,    // src + (1-src.a) * dst
-            NK_SCREEN    = 5,    // 1 - (1-src) * (1-dst)
-        };
+				constexpr bool operator!=(const NkRendHandle &o) const noexcept {
+					return id != o.id;
+				}
 
-        // Render queue — controle le tri et l'ordre de submission.
-        // Utilise par Render3D (tri opaque/transparent), Materials (template),
-        // Culling (filtrage), VFX (overlay).
-        enum class NkRenderQueue : uint8 {
-            NK_BACKGROUND  = 0,     // skybox, env (premier)
-            NK_OPAQUE      = 100,   // PBR opaque (front-to-back)
-            NK_ALPHA_TEST  = 150,   // alpha cutout / foliage
-            NK_TRANSPARENT = 200,   // glass, particles (back-to-front)
-            NK_OVERLAY     = 250,   // UI, debug (dernier)
-        };
+				static constexpr NkRendHandle Null() noexcept {
+					return {0};
+				}
+		};
 
-        // ViewMode — debug renderer (consomme par NkRender3D & overlay).
-        enum class NkViewMode : uint8 {
-            NK_SOLID   = 0,
-            NK_WIREFRAME,
-            NK_NORMALS,
-            NK_UV,
-            NK_DEPTH,
-            NK_AO,
-            NK_UNLIT,
-        };
+		struct TagRTexture {};
 
-        // =====================================================================
-        // SECTION C — Vertex layouts
-        // =====================================================================
-        struct NkVertex2D {
-            NkVec2f  pos;
-            NkVec2f  uv;
-            uint32   color;     // RGBA8 packed
-        };
-        static_assert(sizeof(NkVertex2D) == 20, "NkVertex2D layout");
+		struct TagRMesh {};
 
-        struct NkVertex3D {
-            NkVec3f  pos;
-            NkVec3f  normal;
-            NkVec3f  tangent;   // .w (signe bitangent) en vec4 si besoin
-            NkVec2f  uv;
-            NkVec2f  uv2;
-            uint32   color;
-        };
+		struct TagRShader {};
 
-        // Skinning GPU : 4 influences par vertex. Les indices de bones sont
-        // stockes en float32 (et non uint8) pour rester PORTABLE sur tous les
-        // backends : le format vertex entier x4 (RGBA8_UINT / RGBA16_UINT /
-        // RGBA32_UINT) n'est pas mappe par DX11 (et partiellement ailleurs),
-        // alors que RGBA32_FLOAT l'est partout. Le shader skin lit aBoneIdx en
-        // vec4 et indexe bones[int(aBoneIdx.x + 0.5)]. Stride = 56 + 16 + 16 = 88.
-        struct NkVertexSkinned : NkVertex3D {
-            float32  boneIdx[4]    = {0.f,0.f,0.f,0.f};
-            float32  boneWeight[4] = {1.f,0.f,0.f,0.f};
-        };
+		struct TagRMaterial {};
 
-        struct NkVertexDebug {
-            NkVec3f  pos;
-            uint32   color;
-        };
+		struct TagRMatInst {};
 
-        struct NkVertexParticle {
-            NkVec3f  pos;
-            NkVec2f  uv;
-            uint32   color;
-            float32  size;
-            float32  rotation;
-        };
+		struct TagRFont {};
 
-        // =====================================================================
-        // SECTION D — Geometrie (AABB, sphere, plan, frustum)
-        // =====================================================================
-        struct NkAABB {
-            NkVec3f min = { 1e30f,  1e30f,  1e30f};
-            NkVec3f max = {-1e30f, -1e30f, -1e30f};
+		struct TagRTarget {};
 
-            constexpr NkVec3f Center()  const noexcept { return {(min.x+max.x)*0.5f,(min.y+max.y)*0.5f,(min.z+max.z)*0.5f}; }
-            constexpr NkVec3f Extents() const noexcept { return {(max.x-min.x)*0.5f,(max.y-min.y)*0.5f,(max.z-min.z)*0.5f}; }
-            constexpr NkVec3f Size()    const noexcept { return {(max.x-min.x),     (max.y-min.y),     (max.z-min.z)};     }
+		struct TagREnvMap {}; // env cubemap (HDR -> radiance)
 
-            void Expand(NkVec3f p) noexcept {
-                if(p.x<min.x) min.x=p.x; if(p.y<min.y) min.y=p.y; if(p.z<min.z) min.z=p.z;
-                if(p.x>max.x) max.x=p.x; if(p.y>max.y) max.y=p.y; if(p.z>max.z) max.z=p.z;
-            }
-            void Merge(const NkAABB& o) noexcept { Expand(o.min); Expand(o.max); }
+		struct TagRIBL {}; // jeu prefiltre (irradiance + specular + BRDF)
 
-            bool Contains(NkVec3f p) const noexcept {
-                return p.x>=min.x && p.x<=max.x
-                    && p.y>=min.y && p.y<=max.y
-                    && p.z>=min.z && p.z<=max.z;
-            }
+		struct TagRSkeleton {};
 
-            // Transforme l'AABB par une matrice 4x4 et recalcule un AABB englobant.
-            // Utile pour culling apres world-matrix.
-            NkAABB Transformed(const NkMat4f& m) const noexcept {
-                NkAABB out = NkAABB::Empty();
-                NkVec3f c = Center();
-                NkVec3f e = Extents();
-                // 8 coins -> on prend min/max apres transform
-                for (int i = 0; i < 8; i++) {
-                    NkVec3f corner = {
-                        c.x + ((i & 1) ? e.x : -e.x),
-                        c.y + ((i & 2) ? e.y : -e.y),
-                        c.z + ((i & 4) ? e.z : -e.z)
-                    };
-                    NkVec4f t = m * NkVec4f{corner.x, corner.y, corner.z, 1.f};
-                    out.Expand({t.x, t.y, t.z});
-                }
-                return out;
-            }
+		struct TagRAnimClip {};
 
-            static constexpr NkAABB Empty() noexcept { return {{ 1e30f, 1e30f, 1e30f},{-1e30f,-1e30f,-1e30f}}; }
-            static constexpr NkAABB Unit()  noexcept { return {{-0.5f,-0.5f,-0.5f},{ 0.5f, 0.5f, 0.5f}}; }
-        };
+		using NkTexHandle = NkRendHandle<TagRTexture>;
+		using NkMeshHandle = NkRendHandle<TagRMesh>;
+		using NkShaderHandle = NkRendHandle<TagRShader>;
+		using NkMatHandle = NkRendHandle<TagRMaterial>;
+		using NkMatInstHandle = NkRendHandle<TagRMatInst>;
+		using NkFontHandle = NkRendHandle<TagRFont>;
+		using NkTargetHandle = NkRendHandle<TagRTarget>;
+		using NkEnvMapHandle = NkRendHandle<TagREnvMap>;
+		using NkIBLHandle = NkRendHandle<TagRIBL>;
+		using NkSkeletonHandle = NkRendHandle<TagRSkeleton>;
+		using NkAnimClipHandle = NkRendHandle<TagRAnimClip>;
 
-        struct NkSphere {
-            NkVec3f center = {0,0,0};
-            float32 radius = 0.f;
-        };
+		// =====================================================================
+		// SECTION B — Blend / Render queue
+		// =====================================================================
+		enum class NkBlendMode : uint8 {
+			NK_OPAQUE = 0,
+			NK_ALPHA = 1,	 // src.a * src + (1-src.a) * dst
+			NK_ADDITIVE = 2, // src + dst
+			NK_MULTIPLY = 3, // src * dst
+			NK_PREMULT = 4,	 // src + (1-src.a) * dst
+			NK_SCREEN = 5,	 // 1 - (1-src) * (1-dst)
+		};
 
-        struct NkPlane {
-            NkVec3f normal = {0,1,0};
-            float32 d      = 0.f;        // d = -dot(normal, pointOnPlane)
+		// Render queue — controle le tri et l'ordre de submission.
+		// Utilise par Render3D (tri opaque/transparent), Materials (template),
+		// Culling (filtrage), VFX (overlay).
+		enum class NkRenderQueue : uint8 {
+			NK_BACKGROUND = 0,	  // skybox, env (premier)
+			NK_OPAQUE = 100,	  // PBR opaque (front-to-back)
+			NK_ALPHA_TEST = 150,  // alpha cutout / foliage
+			NK_TRANSPARENT = 200, // glass, particles (back-to-front)
+			NK_OVERLAY = 250,	  // UI, debug (dernier)
+		};
 
-            // Distance signee du point au plan
-            constexpr float32 Distance(NkVec3f p) const noexcept {
-                return normal.x*p.x + normal.y*p.y + normal.z*p.z + d;
-            }
-            // Normalise le plan (a appliquer apres extraction depuis viewProj)
-            void Normalize() noexcept {
-                float32 inv = 1.f / sqrtf(normal.x*normal.x + normal.y*normal.y + normal.z*normal.z);
-                normal.x *= inv; normal.y *= inv; normal.z *= inv; d *= inv;
-            }
-        };
+		// ViewMode — debug renderer (consomme par NkRender3D & overlay).
+		enum class NkViewMode : uint8 {
+			NK_SOLID = 0,
+			NK_WIREFRAME,
+			NK_NORMALS,
+			NK_UV,
+			NK_DEPTH,
+			NK_AO,
+			NK_UNLIT,
+		};
 
-        // =====================================================================
-        // NkFrustum — 6 plans (left, right, bottom, top, near, far)
-        // Plan = NkVec4f { normal.xyz, d }, point inside iff dot(n,p)+d >= 0.
-        // Layout NkVec4f par plan = compatible upload UBO/SSBO direct (shader culling).
-        // =====================================================================
-        struct NkFrustum {
-            NkVec4f planes[6];
+		// =====================================================================
+		// SECTION C — Vertex layouts
+		// =====================================================================
+		struct NkVertex2D {
+				NkVec2f pos;
+				NkVec2f uv;
+				uint32 color; // RGBA8 packed
+		};
 
-            // Extraction Gribb-Hartmann depuis matrice viewProj.
-            static inline NkFrustum FromViewProj(const NkMat4f& m) noexcept {
-                NkFrustum f;
-                f.planes[0] = { m[0][3]+m[0][0], m[1][3]+m[1][0], m[2][3]+m[2][0], m[3][3]+m[3][0] }; // L
-                f.planes[1] = { m[0][3]-m[0][0], m[1][3]-m[1][0], m[2][3]-m[2][0], m[3][3]-m[3][0] }; // R
-                f.planes[2] = { m[0][3]+m[0][1], m[1][3]+m[1][1], m[2][3]+m[2][1], m[3][3]+m[3][1] }; // B
-                f.planes[3] = { m[0][3]-m[0][1], m[1][3]-m[1][1], m[2][3]-m[2][1], m[3][3]-m[3][1] }; // T
-                f.planes[4] = { m[0][3]+m[0][2], m[1][3]+m[1][2], m[2][3]+m[2][2], m[3][3]+m[3][2] }; // N
-                f.planes[5] = { m[0][3]-m[0][2], m[1][3]-m[1][2], m[2][3]-m[2][2], m[3][3]-m[3][2] }; // F
-                for (int i = 0; i < 6; ++i) {
-                    float32 len = sqrtf(f.planes[i].x*f.planes[i].x
-                                      + f.planes[i].y*f.planes[i].y
-                                      + f.planes[i].z*f.planes[i].z);
-                    if (len > 1e-7f) {
-                        f.planes[i].x /= len; f.planes[i].y /= len;
-                        f.planes[i].z /= len; f.planes[i].w /= len;
-                    }
-                }
-                return f;
-            }
+		static_assert(sizeof(NkVertex2D) == 20, "NkVertex2D layout");
 
-            // Test AABB (avec p-vertex, evite faux negatifs)
-            inline bool TestAABB(const NkAABB& b) const noexcept {
-                for (int i = 0; i < 6; ++i) {
-                    const NkVec4f& p = planes[i];
-                    NkVec3f pv = {
-                        p.x >= 0.f ? b.max.x : b.min.x,
-                        p.y >= 0.f ? b.max.y : b.min.y,
-                        p.z >= 0.f ? b.max.z : b.min.z
-                    };
-                    if (p.x*pv.x + p.y*pv.y + p.z*pv.z + p.w < 0.f) return false;
-                }
-                return true;
-            }
-            inline bool TestSphere(NkVec3f c, float32 r) const noexcept {
-                for (int i = 0; i < 6; ++i) {
-                    const NkVec4f& p = planes[i];
-                    if (p.x*c.x + p.y*c.y + p.z*c.z + p.w < -r) return false;
-                }
-                return true;
-            }
-            inline bool TestPoint(NkVec3f pt) const noexcept {
-                for (int i = 0; i < 6; ++i) {
-                    const NkVec4f& p = planes[i];
-                    if (p.x*pt.x + p.y*pt.y + p.z*pt.z + p.w < 0.f) return false;
-                }
-                return true;
-            }
-        };
+		struct NkVertex3D {
+				NkVec3f pos;
+				NkVec3f normal;
+				NkVec3f tangent; // .w (signe bitangent) en vec4 si besoin
+				NkVec2f uv;
+				NkVec2f uv2;
+				uint32 color;
+		};
 
-        // =====================================================================
-        // SECTION E — Lumieres (CPU-side)
-        // =====================================================================
-        enum class NkLightType : uint8 {
-            NK_DIRECTIONAL = 0,
-            NK_POINT       = 1,
-            NK_SPOT        = 2,
-            NK_AREA        = 3,
-        };
+		// Skinning GPU : 4 influences par vertex. Les indices de bones sont
+		// stockes en float32 (et non uint8) pour rester PORTABLE sur tous les
+		// backends : le format vertex entier x4 (RGBA8_UINT / RGBA16_UINT /
+		// RGBA32_UINT) n'est pas mappe par DX11 (et partiellement ailleurs),
+		// alors que RGBA32_FLOAT l'est partout. Le shader skin lit aBoneIdx en
+		// vec4 et indexe bones[int(aBoneIdx.x + 0.5)]. Stride = 56 + 16 + 16 = 88.
+		struct NkVertexSkinned : NkVertex3D {
+				float32 boneIdx[4] = {0.f, 0.f, 0.f, 0.f};
+				float32 boneWeight[4] = {1.f, 0.f, 0.f, 0.f};
+		};
 
-        struct NkLightDesc {
-            NkLightType type        = NkLightType::NK_DIRECTIONAL;
-            NkVec3f     direction   = {0,-1,0};
-            NkVec3f     position    = {0,0,0};
-            NkVec3f     color       = {1,1,1};
-            float32     intensity   = 1.f;
-            float32     range       = 10.f;
-            float32     innerAngle  = 25.f;     // degres (cone interieur — full bright)
-            float32     outerAngle  = 35.f;     // degres (cone exterieur — fade to 0)
-            float32     areaWidth   = 1.f;
-            float32     areaHeight  = 1.f;
-            // Phase E.6 : cookie texture (gobo) — projection 2D dans le repere
-            // local de la lumiere. Surtout utile pour spotlights : motif fenetre,
-            // faisceau anime, lampe-torche pattern. Index dans l'atlas cookies 3D
-            // de NkRender3D (8 slots max). -1 = pas de cookie.
-            int32       cookieIdx   = -1;
-            bool        castShadow  = true;
-            // NkVSM v1 (2026-05-23) : si false, le shadow de cette light est
-            // RE-RENDERE chaque frame (default, safe). Si true, l'engine cache
-            // le shadow tile entre frames tant que la light + ses casters ne
-            // bougent pas (gain perf important pour scenes statiques).
-            // Note : ne pas activer si des casters dans le frustum de la light
-            // bougent — leurs ombres seraient figees a leur ancienne position.
-            // Le runtime detecte les changements de pos/dir/range cote light
-            // automatiquement, mais pas les changements de transform objet.
-            bool        shadowStatic = false;
-        };
+		struct NkVertexDebug {
+				NkVec3f pos;
+				uint32 color;
+		};
 
-        // ── Shadow caster 2D (Phase E.5) ─────────────────────────────────────
-        // Occluder qui bloque la lumiere. Pour la simplicite on ne supporte que
-        // des cercles : suffisant pour la plupart des sprites et formes
-        // organiques, et le test ray-circle est compact dans le shader.
-        // Pour des polygones, l'utilisateur peut approximer avec plusieurs
-        // cercles (type debris) ou attendre une variante AABB plus tard.
-        struct NkShadowCaster2D {
-            NkVec2f position = {0, 0};
-            float32 radius   = 30.f;
-        };
+		struct NkVertexParticle {
+				NkVec3f pos;
+				NkVec2f uv;
+				uint32 color;
+				float32 size;
+				float32 rotation;
+		};
 
-        // AABB caster 2D (Phase E.7) : pour les murs/plateformes/coffres
-        // typiques d'un jeu de plateforme. min < max en coords world.
-        struct NkShadowCasterAABB2D {
-            NkVec2f min = {0, 0};
-            NkVec2f max = {0, 0};
-        };
+		// =====================================================================
+		// SECTION D — Geometrie (AABB, sphere, plan, frustum)
+		// =====================================================================
+		struct NkAABB {
+				NkVec3f min = {1e30f, 1e30f, 1e30f};
+				NkVec3f max = {-1e30f, -1e30f, -1e30f};
 
-        // ── Light 2D (Phase E) ───────────────────────────────────────────────
-        // Light point en 2D : position en pixels (ou unites screen space selon
-        // l'ortho courante de Render2D), falloff radial. radius est la distance
-        // ou la contribution tombe a 0 (smoothstep depuis 0 a radius).
-        // cookieIdx : index dans l'atlas de cookies du Render2D (slot 0..7).
-        //   -1 = pas de cookie (light radiale uniforme classique).
-        // angleDeg / coneInner / coneOuter : direction + cone (degres) — utile
-        //   pour faire des spotlights 2D rotables. coneOuter=360 = light point.
-        struct NkLight2DDesc {
-            NkVec2f position    = {0, 0};
-            NkVec3f color       = {1, 1, 1};
-            float32 intensity   = 1.f;
-            float32 radius      = 200.f;
-            float32 angleDeg    = 0.f;       // direction (cookie + cone)
-            float32 coneInner   = 360.f;     // 360 = omnidirectionnel
-            float32 coneOuter   = 360.f;
-            int32   cookieIdx   = -1;        // -1 = pas de cookie
-            // Layer mask : la light n'affecte que les shapes dont le mask
-            // commun (light.mask & shape.mask) est non-zero. -1 = toutes layers.
-            // Permet de separer foreground/background, world/HUD, etc.
-            int32   layerMask   = -1;
-            bool    enabled     = true;      // false = light skippee (cf SetLights2D)
-            bool    castShadow  = true;      // si false : light traverse les occluders
-        };
+				constexpr NkVec3f Center() const noexcept {
+					return {(min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f, (min.z + max.z) * 0.5f};
+				}
 
-        // =====================================================================
-        // SECTION F — Layout GPU des lumieres (Forward+ clustered)
-        // =====================================================================
-        // std140-aligne, 96 octets par light.
-        struct NkLightGPU {
-            NkVec4f position;     // .xyz = pos, .w = type (cast en uint dans le shader)
-            NkVec4f direction;    // .xyz = dir,  .w = range
-            NkVec4f color;        // .rgb = color * intensity, .a = inverse-square attenuation flag
-            NkVec4f cone;         // .x = cosInner, .y = cosOuter, .z = areaW, .w = areaH
-            NkVec4f shadow;       // .x = shadowMapIndex (-1 si none), .yzw = reserved
-            NkMat4f shadowVP;     // matrice light-space (pour shadow sampling)
-        };
+				constexpr NkVec3f Extents() const noexcept {
+					return {(max.x - min.x) * 0.5f, (max.y - min.y) * 0.5f, (max.z - min.z) * 0.5f};
+				}
 
-        // Structure de cluster (Forward+) — un cluster = sub-frustum
-        struct NkClusterAABB {
-            NkVec4f minBounds;    // .xyz = min view-space, .w = padding
-            NkVec4f maxBounds;
-        };
+				constexpr NkVec3f Size() const noexcept {
+					return {(max.x - min.x), (max.y - min.y), (max.z - min.z)};
+				}
 
-        // Tableau de lights par cluster (compute fillera ce buffer)
-        struct NkClusterLightList {
-            uint32 count;
-            uint32 indices[256];   // doit matcher cluster.maxLightsPerCluster
-        };
+				void Expand(NkVec3f p) noexcept {
+					if (p.x < min.x)
+						min.x = p.x;
+					if (p.y < min.y)
+						min.y = p.y;
+					if (p.z < min.z)
+						min.z = p.z;
+					if (p.x > max.x)
+						max.x = p.x;
+					if (p.y > max.y)
+						max.y = p.y;
+					if (p.z > max.z)
+						max.z = p.z;
+				}
 
-        // =====================================================================
-        // SECTION G — Camera GPU layout (UBO)
-        // =====================================================================
-        // std140-aligne, 256 octets. A jour 1 fois par frame, set=0 binding=0.
-        struct NkCameraUBO {
-            NkMat4f view;
-            NkMat4f proj;
-            NkMat4f viewProj;
-            NkMat4f invView;
-            NkMat4f invProj;
-            NkMat4f invViewProj;
-            NkVec4f position;         // .xyz = world pos, .w = time
-            NkVec4f viewport;         // .xy = w,h ; .zw = invW, invH
-            NkVec4f depthParams;      // .x = near, .y = far, .z = nearLin, .w = farLin
-            NkVec4f frustumPlanes[6]; // pour culling shader-side
-        };
+				void Merge(const NkAABB &o) noexcept {
+					Expand(o.min);
+					Expand(o.max);
+				}
 
-        // =====================================================================
-        // SECTION H — Camera CPU descriptors
-        // =====================================================================
-        struct NkCamera3DData {
-            NkVec3f position  = {0,0,5};
-            NkVec3f target    = {0,0,0};
-            NkVec3f up        = {0,1,0};
-            float32 fovY      = 65.f;       // degres
-            float32 aspect    = 16.f/9.f;
-            float32 nearPlane = 0.1f;
-            float32 farPlane  = 1000.f;
-            bool    ortho     = false;
-            float32 orthoSize = 10.f;
-        };
+				bool Contains(NkVec3f p) const noexcept {
+					return p.x >= min.x && p.x <= max.x && p.y >= min.y && p.y <= max.y && p.z >= min.z && p.z <= max.z;
+				}
 
-        struct NkCamera2DData {
-            NkVec2f center   = {0,0};
-            float32 zoom     = 1.f;
-            float32 rotation = 0.f;         // degres
-            uint32  width    = 1280;
-            uint32  height   = 720;
-        };
+				// Transforme l'AABB par une matrice 4x4 et recalcule un AABB englobant.
+				// Utile pour culling apres world-matrix.
+				NkAABB Transformed(const NkMat4f &m) const noexcept {
+					NkAABB out = NkAABB::Empty();
+					NkVec3f c = Center();
+					NkVec3f e = Extents();
+					// 8 coins -> on prend min/max apres transform
+					for (int i = 0; i < 8; i++) {
+						NkVec3f corner = {c.x + ((i & 1) ? e.x : -e.x), c.y + ((i & 2) ? e.y : -e.y),
+										  c.z + ((i & 4) ? e.z : -e.z)};
+						NkVec4f t = m * NkVec4f{corner.x, corner.y, corner.z, 1.f};
+						out.Expand({t.x, t.y, t.z});
+					}
+					return out;
+				}
 
-        // =====================================================================
-        // SECTION I — Draw calls (3D)
-        // =====================================================================
-        struct NkDrawCall3D {
-            NkMeshHandle    mesh;
-            NkMatInstHandle material;
-            NkMat4f         transform = NkMat4f::Identity();
-            NkVec3f         tint      = {1,1,1};
-            float32         alpha     = 1.f;
-            // PBR override per-drawcall (utilises tant que NkMaterialSystem n'est
-            // pas wire). Permet de controler les sphere/cube/etc sans creer un
-            // material asset. A terme : multiplies par les channels ORM du material.
-            float32         metallic   = 0.f;
-            float32         roughness  = 0.5f;
-            float32         aoStrength = 1.f;
-            NkAABB          aabb;                                  // world-space, pour culling
-            bool            castShadow = true;
-            bool            receiveShadow = true;
-            bool            visible    = true;
-            uint32          subMeshIdx = 0xFFFFFFFFu;              // -1 = all submeshes
-            uint32          sortKey    = 0;                        // material*1000 + meshHash
-            int32           lightLayerMask = -1;                   // -1 = lit by all lights
+				static constexpr NkAABB Empty() noexcept {
+					return {{1e30f, 1e30f, 1e30f}, {-1e30f, -1e30f, -1e30f}};
+				}
 
-            // Phase M.8 — Multi-material par sous-mesh (style Blender material
-            // slots / glTF primitives). Si non-vide, le renderer itere sur les
-            // sous-meshes du mesh et bind materialSlots[submesh.material.id]
-            // (ou materialSlots[i] selon convention NkSubMesh::material).
-            // Le champ `material` ci-dessus reste utilise comme fallback global
-            // (single-material) si `materialSlots` est vide ou pour les
-            // submeshes sans slot assigne.
-            NkVector<NkMatInstHandle> materialSlots;
-        };
+				static constexpr NkAABB Unit() noexcept {
+					return {{-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f}};
+				}
+		};
 
-        struct NkDrawCallInstanced {
-            NkMeshHandle      mesh;
-            NkMatInstHandle   material;
-            NkVector<NkMat4f> transforms;
-            NkVector<NkVec3f> tints;
-            NkAABB            aabb;
-        };
+		struct NkSphere {
+				NkVec3f center = {0, 0, 0};
+				float32 radius = 0.f;
+		};
 
-        // Grille infinie style Blender (plan y=0). Intérieur gris d'opacité réglable
-        // (cellColor.w : 0 = voir à travers, 1 = opaque) avec lignes toujours visibles
-        // (lineColor.w), axes X rouge / Z bleu sur le plan, fondu radial avec la distance.
-        struct NkInfiniteGridParams {
-            NkVec4f lineColor  = {0.45f, 0.45f, 0.45f, 1.0f};  // gris lignes + alpha
-            NkVec4f cellColor  = {0.13f, 0.13f, 0.14f, 0.0f};  // gris intérieur ; .w = opacité
-            NkVec4f axisXColor = {0.86f, 0.22f, 0.24f, 1.0f};  // axe X rouge
-            NkVec4f axisZColor = {0.20f, 0.38f, 0.90f, 1.0f};  // axe Z bleu
-            float32 cellSize   = 1.0f;     // taille d'une cellule (unités monde)
-            float32 majorEvery = 10.0f;    // ligne majeure toutes les N cellules
-            float32 extent     = 250.0f;   // demi-taille du quad (suit la caméra)
-            float32 fadeEnd    = 120.0f;   // distance de disparition (fondu)
-            float32 planeY     = 0.0f;     // hauteur du plan (léger epsilon au-dessus d'un
-                                           // sol coplanaire pour éviter le z-fighting)
-            // Toggles indépendants (activer/désactiver à chaud) :
-            bool    showMinor  = true;     // lignes INTERNES (sous-grille + grille fine)
-            bool    showMajor  = true;     // lignes MAJEURES (décade)
-            bool    showAxes   = true;     // axes X (rouge) / Z (bleu) sur le plan
-        };
+		struct NkPlane {
+				NkVec3f normal = {0, 1, 0};
+				float32 d = 0.f; // d = -dot(normal, pointOnPlane)
 
-        struct NkDrawCallSkinned {
-            NkMeshHandle      mesh;
-            NkMatInstHandle   material;
-            NkMat4f           transform = NkMat4f::Identity();
-            NkVector<NkMat4f> boneMatrices;
-            NkVec3f           tint  = {1,1,1};
-            float32           alpha = 1.f;
-            NkAABB            aabb;
-            bool              castShadow = true;
+				// Distance signee du point au plan
+				constexpr float32 Distance(NkVec3f p) const noexcept {
+					return normal.x * p.x + normal.y * p.y + normal.z * p.z + d;
+				}
 
-            // Phase M.8 (skinne) — Multi-material par sous-mesh, calque sur
-            // NkDrawCall3D::materialSlots. Si non-vide, FlushSkinned itere sur
-            // les sous-meshes du mesh et bind materialSlots[i] (un materiau par
-            // primitive glTF). Le champ `material` ci-dessus reste le fallback
-            // global (mono-draw) quand materialSlots est vide ou un slot invalide.
-            NkVector<NkMatInstHandle> materialSlots;
-        };
+				// Normalise le plan (a appliquer apres extraction depuis viewProj)
+				void Normalize() noexcept {
+					float32 inv = 1.f / sqrtf(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
+					normal.x *= inv;
+					normal.y *= inv;
+					normal.z *= inv;
+					d *= inv;
+				}
+		};
 
-        // Indirect draw command (GPU-driven) — match GL_DRAW_ELEMENTS_INDIRECT_COMMAND
-        struct NkDrawIndirectCmd {
-            uint32 indexCount;
-            uint32 instanceCount;
-            uint32 firstIndex;
-            int32  baseVertex;
-            uint32 baseInstance;
-        };
+		// =====================================================================
+		// NkFrustum — 6 plans (left, right, bottom, top, near, far)
+		// Plan = NkVec4f { normal.xyz, d }, point inside iff dot(n,p)+d >= 0.
+		// Layout NkVec4f par plan = compatible upload UBO/SSBO direct (shader culling).
+		// =====================================================================
+		struct NkFrustum {
+				NkVec4f planes[6];
 
-        // =====================================================================
-        // SECTION J — Stats par frame
-        // =====================================================================
-        struct NkRendererStats {
-            uint32  drawCalls       = 0;
-            uint32  triangles       = 0;
-            uint32  vertices        = 0;
-            uint32  textureBinds    = 0;
-            uint32  shaderSwitches  = 0;
-            uint32  pipelineSwitches= 0;
-            uint32  batchCount      = 0;
-            uint32  culled          = 0;        // mesh culled by frustum
-            uint32  lightsActive    = 0;        // lights affecting visible geometry
-            uint32  shadowCasters   = 0;
-            float32 gpuTimeMs       = 0.f;
-            float32 cpuTimeMs       = 0.f;
-            float32 cullTimeMs      = 0.f;
-            float32 shadowTimeMs    = 0.f;
-            float32 geomTimeMs      = 0.f;
-            float32 postTimeMs      = 0.f;
+				// Extraction Gribb-Hartmann depuis matrice viewProj.
+				static inline NkFrustum FromViewProj(const NkMat4f &m) noexcept {
+					NkFrustum f;
+					f.planes[0] = {m[0][3] + m[0][0], m[1][3] + m[1][0], m[2][3] + m[2][0], m[3][3] + m[3][0]}; // L
+					f.planes[1] = {m[0][3] - m[0][0], m[1][3] - m[1][0], m[2][3] - m[2][0], m[3][3] - m[3][0]}; // R
+					f.planes[2] = {m[0][3] + m[0][1], m[1][3] + m[1][1], m[2][3] + m[2][1], m[3][3] + m[3][1]}; // B
+					f.planes[3] = {m[0][3] - m[0][1], m[1][3] - m[1][1], m[2][3] - m[2][1], m[3][3] - m[3][1]}; // T
+					f.planes[4] = {m[0][3] + m[0][2], m[1][3] + m[1][2], m[2][3] + m[2][2], m[3][3] + m[3][2]}; // N
+					f.planes[5] = {m[0][3] - m[0][2], m[1][3] - m[1][2], m[2][3] - m[2][2], m[3][3] - m[3][2]}; // F
+					for (int i = 0; i < 6; ++i) {
+						float32 len = sqrtf(f.planes[i].x * f.planes[i].x + f.planes[i].y * f.planes[i].y +
+											f.planes[i].z * f.planes[i].z);
+						if (len > 1e-7f) {
+							f.planes[i].x /= len;
+							f.planes[i].y /= len;
+							f.planes[i].z /= len;
+							f.planes[i].w /= len;
+						}
+					}
+					return f;
+				}
 
-            void Reset() noexcept { *this = {}; }
-        };
+				// Test AABB (avec p-vertex, evite faux negatifs)
+				inline bool TestAABB(const NkAABB &b) const noexcept {
+					for (int i = 0; i < 6; ++i) {
+						const NkVec4f &p = planes[i];
+						NkVec3f pv = {p.x >= 0.f ? b.max.x : b.min.x, p.y >= 0.f ? b.max.y : b.min.y,
+									  p.z >= 0.f ? b.max.z : b.min.z};
+						if (p.x * pv.x + p.y * pv.y + p.z * pv.z + p.w < 0.f)
+							return false;
+					}
+					return true;
+				}
 
-        // (NkSceneContext est defini dans Core/NkCamera.h car il contient
-        //  un NkCamera3D par valeur — il aurait introduit une dependance
-        //  circulaire en etant ici. NkCamera.h est sa "place canonique"
-        //  cote types-de-rendu-haut-niveau.)
+				inline bool TestSphere(NkVec3f c, float32 r) const noexcept {
+					for (int i = 0; i < 6; ++i) {
+						const NkVec4f &p = planes[i];
+						if (p.x * c.x + p.y * c.y + p.z * c.z + p.w < -r)
+							return false;
+					}
+					return true;
+				}
 
-    } // namespace renderer
+				inline bool TestPoint(NkVec3f pt) const noexcept {
+					for (int i = 0; i < 6; ++i) {
+						const NkVec4f &p = planes[i];
+						if (p.x * pt.x + p.y * pt.y + p.z * pt.z + p.w < 0.f)
+							return false;
+					}
+					return true;
+				}
+		};
+
+		// =====================================================================
+		// SECTION E — Lumieres (CPU-side)
+		// =====================================================================
+		enum class NkLightType : uint8 {
+			NK_DIRECTIONAL = 0,
+			NK_POINT = 1,
+			NK_SPOT = 2,
+			NK_AREA = 3,
+		};
+
+		struct NkLightDesc {
+				NkLightType type = NkLightType::NK_DIRECTIONAL;
+				NkVec3f direction = {0, -1, 0};
+				NkVec3f position = {0, 0, 0};
+				NkVec3f color = {1, 1, 1};
+				float32 intensity = 1.f;
+				float32 range = 10.f;
+				float32 innerAngle = 25.f; // degres (cone interieur — full bright)
+				float32 outerAngle = 35.f; // degres (cone exterieur — fade to 0)
+				float32 areaWidth = 1.f;
+				float32 areaHeight = 1.f;
+				// Phase E.6 : cookie texture (gobo) — projection 2D dans le repere
+				// local de la lumiere. Surtout utile pour spotlights : motif fenetre,
+				// faisceau anime, lampe-torche pattern. Index dans l'atlas cookies 3D
+				// de NkRender3D (8 slots max). -1 = pas de cookie.
+				int32 cookieIdx = -1;
+				bool castShadow = true;
+				// NkVSM v1 (2026-05-23) : si false, le shadow de cette light est
+				// RE-RENDERE chaque frame (default, safe). Si true, l'engine cache
+				// le shadow tile entre frames tant que la light + ses casters ne
+				// bougent pas (gain perf important pour scenes statiques).
+				// Note : ne pas activer si des casters dans le frustum de la light
+				// bougent — leurs ombres seraient figees a leur ancienne position.
+				// Le runtime detecte les changements de pos/dir/range cote light
+				// automatiquement, mais pas les changements de transform objet.
+				bool shadowStatic = false;
+		};
+
+		// ── Shadow caster 2D (Phase E.5) ─────────────────────────────────────
+		// Occluder qui bloque la lumiere. Pour la simplicite on ne supporte que
+		// des cercles : suffisant pour la plupart des sprites et formes
+		// organiques, et le test ray-circle est compact dans le shader.
+		// Pour des polygones, l'utilisateur peut approximer avec plusieurs
+		// cercles (type debris) ou attendre une variante AABB plus tard.
+		struct NkShadowCaster2D {
+				NkVec2f position = {0, 0};
+				float32 radius = 30.f;
+		};
+
+		// AABB caster 2D (Phase E.7) : pour les murs/plateformes/coffres
+		// typiques d'un jeu de plateforme. min < max en coords world.
+		struct NkShadowCasterAABB2D {
+				NkVec2f min = {0, 0};
+				NkVec2f max = {0, 0};
+		};
+
+		// ── Light 2D (Phase E) ───────────────────────────────────────────────
+		// Light point en 2D : position en pixels (ou unites screen space selon
+		// l'ortho courante de Render2D), falloff radial. radius est la distance
+		// ou la contribution tombe a 0 (smoothstep depuis 0 a radius).
+		// cookieIdx : index dans l'atlas de cookies du Render2D (slot 0..7).
+		//   -1 = pas de cookie (light radiale uniforme classique).
+		// angleDeg / coneInner / coneOuter : direction + cone (degres) — utile
+		//   pour faire des spotlights 2D rotables. coneOuter=360 = light point.
+		struct NkLight2DDesc {
+				NkVec2f position = {0, 0};
+				NkVec3f color = {1, 1, 1};
+				float32 intensity = 1.f;
+				float32 radius = 200.f;
+				float32 angleDeg = 0.f;	   // direction (cookie + cone)
+				float32 coneInner = 360.f; // 360 = omnidirectionnel
+				float32 coneOuter = 360.f;
+				int32 cookieIdx = -1; // -1 = pas de cookie
+				// Layer mask : la light n'affecte que les shapes dont le mask
+				// commun (light.mask & shape.mask) est non-zero. -1 = toutes layers.
+				// Permet de separer foreground/background, world/HUD, etc.
+				int32 layerMask = -1;
+				bool enabled = true;	// false = light skippee (cf SetLights2D)
+				bool castShadow = true; // si false : light traverse les occluders
+		};
+
+		// =====================================================================
+		// SECTION F — Layout GPU des lumieres (Forward+ clustered)
+		// =====================================================================
+		// std140-aligne, 96 octets par light.
+		struct NkLightGPU {
+				NkVec4f position;  // .xyz = pos, .w = type (cast en uint dans le shader)
+				NkVec4f direction; // .xyz = dir,  .w = range
+				NkVec4f color;	   // .rgb = color * intensity, .a = inverse-square attenuation flag
+				NkVec4f cone;	   // .x = cosInner, .y = cosOuter, .z = areaW, .w = areaH
+				NkVec4f shadow;	   // .x = shadowMapIndex (-1 si none), .yzw = reserved
+				NkMat4f shadowVP;  // matrice light-space (pour shadow sampling)
+		};
+
+		// Structure de cluster (Forward+) — un cluster = sub-frustum
+		struct NkClusterAABB {
+				NkVec4f minBounds; // .xyz = min view-space, .w = padding
+				NkVec4f maxBounds;
+		};
+
+		// Tableau de lights par cluster (compute fillera ce buffer)
+		struct NkClusterLightList {
+				uint32 count;
+				uint32 indices[256]; // doit matcher cluster.maxLightsPerCluster
+		};
+
+		// =====================================================================
+		// SECTION G — Camera GPU layout (UBO)
+		// =====================================================================
+		// std140-aligne, 256 octets. A jour 1 fois par frame, set=0 binding=0.
+		struct NkCameraUBO {
+				NkMat4f view;
+				NkMat4f proj;
+				NkMat4f viewProj;
+				NkMat4f invView;
+				NkMat4f invProj;
+				NkMat4f invViewProj;
+				NkVec4f position;		  // .xyz = world pos, .w = time
+				NkVec4f viewport;		  // .xy = w,h ; .zw = invW, invH
+				NkVec4f depthParams;	  // .x = near, .y = far, .z = nearLin, .w = farLin
+				NkVec4f frustumPlanes[6]; // pour culling shader-side
+		};
+
+		// =====================================================================
+		// SECTION H — Camera CPU descriptors
+		// =====================================================================
+		struct NkCamera3DData {
+				NkVec3f position = {0, 0, 5};
+				NkVec3f target = {0, 0, 0};
+				NkVec3f up = {0, 1, 0};
+				float32 fovY = 65.f; // degres
+				float32 aspect = 16.f / 9.f;
+				float32 nearPlane = 0.1f;
+				float32 farPlane = 1000.f;
+				bool ortho = false;
+				float32 orthoSize = 10.f;
+		};
+
+		struct NkCamera2DData {
+				NkVec2f center = {0, 0};
+				float32 zoom = 1.f;
+				float32 rotation = 0.f; // degres
+				uint32 width = 1280;
+				uint32 height = 720;
+		};
+
+		// =====================================================================
+		// SECTION I — Draw calls (3D)
+		// =====================================================================
+		struct NkDrawCall3D {
+				NkMeshHandle mesh;
+				NkMatInstHandle material;
+				NkMat4f transform = NkMat4f::Identity();
+				NkVec3f tint = {1, 1, 1};
+				float32 alpha = 1.f;
+				// PBR override per-drawcall (utilises tant que NkMaterialSystem n'est
+				// pas wire). Permet de controler les sphere/cube/etc sans creer un
+				// material asset. A terme : multiplies par les channels ORM du material.
+				float32 metallic = 0.f;
+				float32 roughness = 0.5f;
+				float32 aoStrength = 1.f;
+				NkAABB aabb; // world-space, pour culling
+				bool castShadow = true;
+				bool receiveShadow = true;
+				bool visible = true;
+				uint32 subMeshIdx = 0xFFFFFFFFu; // -1 = all submeshes
+				uint32 sortKey = 0;				 // material*1000 + meshHash
+				int32 lightLayerMask = -1;		 // -1 = lit by all lights
+
+				// Phase M.8 — Multi-material par sous-mesh (style Blender material
+				// slots / glTF primitives). Si non-vide, le renderer itere sur les
+				// sous-meshes du mesh et bind materialSlots[submesh.material.id]
+				// (ou materialSlots[i] selon convention NkSubMesh::material).
+				// Le champ `material` ci-dessus reste utilise comme fallback global
+				// (single-material) si `materialSlots` est vide ou pour les
+				// submeshes sans slot assigne.
+				NkVector<NkMatInstHandle> materialSlots;
+		};
+
+		struct NkDrawCallInstanced {
+				NkMeshHandle mesh;
+				NkMatInstHandle material;
+				NkVector<NkMat4f> transforms;
+				NkVector<NkVec3f> tints;
+				NkAABB aabb;
+		};
+
+		// Grille infinie style Blender (plan y=0). Intérieur gris d'opacité réglable
+		// (cellColor.w : 0 = voir à travers, 1 = opaque) avec lignes toujours visibles
+		// (lineColor.w), axes X rouge / Z bleu sur le plan, fondu radial avec la distance.
+		struct NkInfiniteGridParams {
+				NkVec4f lineColor = {0.45f, 0.45f, 0.45f, 1.0f};  // gris lignes + alpha
+				NkVec4f cellColor = {0.13f, 0.13f, 0.14f, 0.0f};  // gris intérieur ; .w = opacité
+				NkVec4f axisXColor = {0.86f, 0.22f, 0.24f, 1.0f}; // axe X rouge
+				NkVec4f axisZColor = {0.20f, 0.38f, 0.90f, 1.0f}; // axe Z bleu
+				float32 cellSize = 1.0f;						  // taille d'une cellule (unités monde)
+				float32 majorEvery = 10.0f;						  // ligne majeure toutes les N cellules
+				float32 extent = 250.0f;						  // demi-taille du quad (suit la caméra)
+				float32 fadeEnd = 120.0f;						  // distance de disparition (fondu)
+				float32 planeY = 0.0f;							  // hauteur du plan (léger epsilon au-dessus d'un
+																  // sol coplanaire pour éviter le z-fighting)
+				// Toggles indépendants (activer/désactiver à chaud) :
+				bool showMinor = true; // lignes INTERNES (sous-grille + grille fine)
+				bool showMajor = true; // lignes MAJEURES (décade)
+				bool showAxes = true;  // axes X (rouge) / Z (bleu) sur le plan
+		};
+
+		struct NkDrawCallSkinned {
+				NkMeshHandle mesh;
+				NkMatInstHandle material;
+				NkMat4f transform = NkMat4f::Identity();
+				NkVector<NkMat4f> boneMatrices;
+				NkVec3f tint = {1, 1, 1};
+				float32 alpha = 1.f;
+				NkAABB aabb;
+				bool castShadow = true;
+
+				// Phase M.8 (skinne) — Multi-material par sous-mesh, calque sur
+				// NkDrawCall3D::materialSlots. Si non-vide, FlushSkinned itere sur
+				// les sous-meshes du mesh et bind materialSlots[i] (un materiau par
+				// primitive glTF). Le champ `material` ci-dessus reste le fallback
+				// global (mono-draw) quand materialSlots est vide ou un slot invalide.
+				NkVector<NkMatInstHandle> materialSlots;
+		};
+
+		// Indirect draw command (GPU-driven) — match GL_DRAW_ELEMENTS_INDIRECT_COMMAND
+		struct NkDrawIndirectCmd {
+				uint32 indexCount;
+				uint32 instanceCount;
+				uint32 firstIndex;
+				int32 baseVertex;
+				uint32 baseInstance;
+		};
+
+		// =====================================================================
+		// SECTION J — Stats par frame
+		// =====================================================================
+		struct NkRendererStats {
+				uint32 drawCalls = 0;
+				uint32 triangles = 0;
+				uint32 vertices = 0;
+				uint32 textureBinds = 0;
+				uint32 shaderSwitches = 0;
+				uint32 pipelineSwitches = 0;
+				uint32 batchCount = 0;
+				uint32 culled = 0;		 // mesh culled by frustum
+				uint32 lightsActive = 0; // lights affecting visible geometry
+				uint32 shadowCasters = 0;
+				float32 gpuTimeMs = 0.f;
+				float32 cpuTimeMs = 0.f;
+				float32 cullTimeMs = 0.f;
+				float32 shadowTimeMs = 0.f;
+				float32 geomTimeMs = 0.f;
+				float32 postTimeMs = 0.f;
+
+				void Reset() noexcept {
+					*this = {};
+				}
+		};
+
+		// (NkSceneContext est defini dans Core/NkCamera.h car il contient
+		//  un NkCamera3D par valeur — il aurait introduit une dependance
+		//  circulaire en etant ici. NkCamera.h est sa "place canonique"
+		//  cote types-de-rendu-haut-niveau.)
+
+	} // namespace renderer
 } // namespace nkentseu

@@ -8,10 +8,10 @@
 #include "NKRHI/Core/NkComputeContext.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        // ── Kernel de brosse (cf. shaders/VK/sculpt_brush.comp.vk.glsl) ───────────
-        static const char* kSculptBrushGLSL = R"GLSL(#version 450
+		// ── Kernel de brosse (cf. shaders/VK/sculpt_brush.comp.vk.glsl) ───────────
+		static const char *kSculptBrushGLSL = R"GLSL(#version 450
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 layout(set=0, binding=0, r32f)    uniform image2D uPixolDepth;
 layout(set=0, binding=1, rgba16f) uniform image2D uPixolNormal;
@@ -50,8 +50,8 @@ void main(){
 }
 )GLSL";
 
-        // ── Kernel de resolve (cf. shaders/VK/pixol_resolve.comp.vk.glsl) ─────────
-        static const char* kSculptResolveGLSL = R"GLSL(#version 450
+		// ── Kernel de resolve (cf. shaders/VK/pixol_resolve.comp.vk.glsl) ─────────
+		static const char *kSculptResolveGLSL = R"GLSL(#version 450
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 layout(set=0, binding=0, r32f)    uniform image2D uPixolDepth;
 layout(set=0, binding=1, rgba16f) uniform image2D uPixolNormal;
@@ -69,22 +69,26 @@ void main(){
 }
 )GLSL";
 
-        bool NkSculptPipelines::Init(NkComputeContext* ctx) noexcept {
-            mCtx = ctx;
-            return mCtx != nullptr;
-        }
+		bool NkSculptPipelines::Init(NkComputeContext *ctx) noexcept {
+			mCtx = ctx;
+			return mCtx != nullptr;
+		}
 
-        void NkSculptPipelines::Shutdown() noexcept { mCtx = nullptr; }
+		void NkSculptPipelines::Shutdown() noexcept {
+			mCtx = nullptr;
+		}
 
-        NkPipelineHandle NkSculptPipelines::Brush() noexcept {
-            if (!mCtx) return NkPipelineHandle{};
-            return mCtx->GetOrCompileGLSL("nkpixol_brush", kSculptBrushGLSL, "PixolSculpt_Brush");
-        }
+		NkPipelineHandle NkSculptPipelines::Brush() noexcept {
+			if (!mCtx)
+				return NkPipelineHandle{};
+			return mCtx->GetOrCompileGLSL("nkpixol_brush", kSculptBrushGLSL, "PixolSculpt_Brush");
+		}
 
-        NkPipelineHandle NkSculptPipelines::Resolve() noexcept {
-            if (!mCtx) return NkPipelineHandle{};
-            return mCtx->GetOrCompileGLSL("nkpixol_resolve", kSculptResolveGLSL, "PixolSculpt_Resolve");
-        }
+		NkPipelineHandle NkSculptPipelines::Resolve() noexcept {
+			if (!mCtx)
+				return NkPipelineHandle{};
+			return mCtx->GetOrCompileGLSL("nkpixol_resolve", kSculptResolveGLSL, "PixolSculpt_Resolve");
+		}
 
-    } // namespace renderer
+	} // namespace renderer
 } // namespace nkentseu

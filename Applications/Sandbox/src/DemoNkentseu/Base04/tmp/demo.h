@@ -3,7 +3,7 @@ NkGrid3D mGrid3D;
 
 // Initialisation
 if (!mGrid3D.Init(device)) {
-    PushLog("Erreur grille 3D");
+	PushLog("Erreur grille 3D");
 }
 
 // Configuration

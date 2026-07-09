@@ -21,24 +21,24 @@
 #include "NKCore/NkTypes.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        struct NkRenderTextureBackend {
-            uint32 (*Create)(uint32 width, uint32 height)                  = nullptr;
-            void   (*Destroy)(uint32 handle)                               = nullptr;
-            void   (*Bind)(uint32 handle)                                  = nullptr;
-            void   (*Unbind)()                                             = nullptr;
-            uint32 (*GetColorTextureGPUId)(uint32 handle)                  = nullptr;
-        };
+		struct NkRenderTextureBackend {
+				uint32 (*Create)(uint32 width, uint32 height) = nullptr;
+				void (*Destroy)(uint32 handle) = nullptr;
+				void (*Bind)(uint32 handle) = nullptr;
+				void (*Unbind)() = nullptr;
+				uint32 (*GetColorTextureGPUId)(uint32 handle) = nullptr;
+		};
 
-        /// Enregistre la table de dispatch active pour les render textures.
-        /// Appele par chaque backend renderer en fin d'Initialize.
-        void NkRenderTextureSetBackend(const NkRenderTextureBackend& backend);
+		/// Enregistre la table de dispatch active pour les render textures.
+		/// Appele par chaque backend renderer en fin d'Initialize.
+		void NkRenderTextureSetBackend(const NkRenderTextureBackend &backend);
 
-        /// Helper stub pour les renderers sans support FBO encore implemente
-        /// (Software/Vulkan/DX11/DX12 au 2026-05-30). Create retourne 0 ;
-        /// NkRenderTexture::Create renverra false.
-        void NkRenderTextureInstallUnsupportedBackend(const char* backendName);
+		/// Helper stub pour les renderers sans support FBO encore implemente
+		/// (Software/Vulkan/DX11/DX12 au 2026-05-30). Create retourne 0 ;
+		/// NkRenderTexture::Create renverra false.
+		void NkRenderTextureInstallUnsupportedBackend(const char *backendName);
 
-    } // namespace renderer
+	} // namespace renderer
 } // namespace nkentseu

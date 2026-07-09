@@ -38,92 +38,90 @@
 #include "NKCanvas/Renderer/Core/NkDrawable.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        class NkIRenderer2D;
-        class NkIDrawable2D;
-        class NkVertexArray;
-        class NkRenderer2D;
+		class NkIRenderer2D;
+		class NkIDrawable2D;
+		class NkVertexArray;
+		class NkRenderer2D;
 
-        class NkRenderTarget {
-            public:
-                virtual ~NkRenderTarget() noexcept = default;
+		class NkRenderTarget {
+			public:
+				virtual ~NkRenderTarget() noexcept = default;
 
-                // ── Frame lifecycle ────────────────────────────────────────────
+				// ── Frame lifecycle ────────────────────────────────────────────
 
-                /// Vide le framebuffer avec la couleur indiquee.
-                virtual void Clear(const NkColor2D& color = NkColor2D::Black) = 0;
+				/// Vide le framebuffer avec la couleur indiquee.
+				virtual void Clear(const NkColor2D &color = NkColor2D::Black) = 0;
 
-                /// Presente le rendu (swap buffers pour RenderWindow, finalise
-                /// pour RenderTexture). A appeler en fin de frame.
-                virtual void Display() = 0;
+				/// Presente le rendu (swap buffers pour RenderWindow, finalise
+				/// pour RenderTexture). A appeler en fin de frame.
+				virtual void Display() = 0;
 
-                // ── Camera (view) ──────────────────────────────────────────────
+				// ── Camera (view) ──────────────────────────────────────────────
 
-                virtual void     SetView(const NkView2D& view) = 0;
-                virtual NkView2D GetView()       const = 0;
-                virtual NkView2D GetDefaultView() const = 0;
+				virtual void SetView(const NkView2D &view) = 0;
+				virtual NkView2D GetView() const = 0;
+				virtual NkView2D GetDefaultView() const = 0;
 
-                // ── Viewport (sous-region pixel ou est rendu le view) ──────────
+				// ── Viewport (sous-region pixel ou est rendu le view) ──────────
 
-                virtual void     SetViewport(NkRect2i viewport) = 0;
-                virtual NkRect2i GetViewport() const = 0;
+				virtual void SetViewport(NkRect2i viewport) = 0;
+				virtual NkRect2i GetViewport() const = 0;
 
-                // ── Dimensions du target en pixels ─────────────────────────────
+				// ── Dimensions du target en pixels ─────────────────────────────
 
-                virtual math::NkVec2u GetSize() const = 0;
+				virtual math::NkVec2u GetSize() const = 0;
 
-                // ── API Draw — nouvelle interface NkDrawable ───────────────────
+				// ── API Draw — nouvelle interface NkDrawable ───────────────────
 
-                /// Dessine un NkDrawable avec un etat compose donne. Le drawable
-                /// est responsable de l'appel a target.Draw(vertices, …).
-                void Draw(const NkDrawable& drawable,
-                          const NkRenderStates& states = NkRenderStates::Default()) {
-                    drawable.Draw(*this, states);
-                }
+				/// Dessine un NkDrawable avec un etat compose donne. Le drawable
+				/// est responsable de l'appel a target.Draw(vertices, …).
+				void Draw(const NkDrawable &drawable, const NkRenderStates &states = NkRenderStates::Default()) {
+					drawable.Draw(*this, states);
+				}
 
-                /// Dessine un NkVertexArray (raccourci : delegue au submit raw vertices).
-                void Draw(const NkVertexArray& va,
-                          const NkRenderStates& states = NkRenderStates::Default());
+				/// Dessine un NkVertexArray (raccourci : delegue au submit raw vertices).
+				void Draw(const NkVertexArray &va, const NkRenderStates &states = NkRenderStates::Default());
 
-                /// Submit raw : envoie un tableau de vertices au backend, en
-                /// appliquant le primitive + l'etat indique. C'est le point
-                /// d'entree bas niveau qu'utilisent NkDrawable::Draw().
-                virtual void Draw(const NkVertex* vertices,
-                                  uint32 count,
-                                  NkPrimitiveType primitive,
-                                  const NkRenderStates& states = NkRenderStates::Default()) = 0;
+				/// Submit raw : envoie un tableau de vertices au backend, en
+				/// appliquant le primitive + l'etat indique. C'est le point
+				/// d'entree bas niveau qu'utilisent NkDrawable::Draw().
+				virtual void Draw(const NkVertex *vertices, uint32 count, NkPrimitiveType primitive,
+								  const NkRenderStates &states = NkRenderStates::Default()) = 0;
 
-                // ── API Draw — compat ancienne interface NkIDrawable2D ─────────
+				// ── API Draw — compat ancienne interface NkIDrawable2D ─────────
 
-                /// Compat : un drawable ancien style (NkIDrawable2D::Draw(NkIRenderer2D&)).
-                /// Delegue au renderer interne. Sera retire quand NkSprite/NkText
-                /// auront migre vers NkDrawable (etape A.8).
-                void Draw(const NkIDrawable2D& drawable);
+				/// Compat : un drawable ancien style (NkIDrawable2D::Draw(NkIRenderer2D&)).
+				/// Delegue au renderer interne. Sera retire quand NkSprite/NkText
+				/// auront migre vers NkDrawable (etape A.8).
+				void Draw(const NkIDrawable2D &drawable);
 
-                // ── Mapping pixel <-> coords monde ─────────────────────────────
+				// ── Mapping pixel <-> coords monde ─────────────────────────────
 
-                virtual NkVec2f MapPixelToCoords(NkVec2i pixel) const = 0;
-                virtual NkVec2i MapCoordsToPixel(NkVec2f point) const = 0;
+				virtual NkVec2f MapPixelToCoords(NkVec2i pixel) const = 0;
+				virtual NkVec2i MapCoordsToPixel(NkVec2f point) const = 0;
 
-                // ── Acces au renderer bas niveau (avance / interop backends) ───
+				// ── Acces au renderer bas niveau (avance / interop backends) ───
 
-                virtual NkIRenderer2D*       GetRenderer()       noexcept = 0;
-                virtual const NkIRenderer2D* GetRenderer() const noexcept = 0;
+				virtual NkIRenderer2D *GetRenderer() noexcept = 0;
+				virtual const NkIRenderer2D *GetRenderer() const noexcept = 0;
 
-                /// Acces a la facade user-facing NkRenderer2D (api SFML-friendly,
-                /// inclut Draw(NkDrawable&) avec dispatch correct vers *this).
-                virtual NkRenderer2D&        GetRenderer2D()       noexcept = 0;
-                virtual const NkRenderer2D&  GetRenderer2D() const noexcept = 0;
+				/// Acces a la facade user-facing NkRenderer2D (api SFML-friendly,
+				/// inclut Draw(NkDrawable&) avec dispatch correct vers *this).
+				virtual NkRenderer2D &GetRenderer2D() noexcept = 0;
+				virtual const NkRenderer2D &GetRenderer2D() const noexcept = 0;
 
-                // ── Capture d'ecran (readback GPU -> fichier image) ─────────────
-                /// Lit le contenu rendu de la cible et l'enregistre dans `path`. Le
-                /// format est deduit de l'extension (.png/.jpg/.bmp/.tga/... via
-                /// NkImage). A appeler APRES Display() (la frame doit etre presentee).
-                /// Defaut : non supporte (false) ; surcharge par cible/backend.
-                /// Sert au debug par capture et a l'export d'image cote utilisateur.
-                virtual bool Capture(const char* path) const { return false; }
-        };
+				// ── Capture d'ecran (readback GPU -> fichier image) ─────────────
+				/// Lit le contenu rendu de la cible et l'enregistre dans `path`. Le
+				/// format est deduit de l'extension (.png/.jpg/.bmp/.tga/... via
+				/// NkImage). A appeler APRES Display() (la frame doit etre presentee).
+				/// Defaut : non supporte (false) ; surcharge par cible/backend.
+				/// Sert au debug par capture et a l'export d'image cote utilisateur.
+				virtual bool Capture(const char *path) const {
+					return false;
+				}
+		};
 
-    } // namespace renderer
+	} // namespace renderer
 } // namespace nkentseu

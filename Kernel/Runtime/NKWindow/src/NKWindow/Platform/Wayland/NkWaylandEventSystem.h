@@ -12,21 +12,21 @@ struct wl_seat;
 
 namespace nkentseu {
 
-    class NkEventSystem;
+	class NkEventSystem;
 
-    struct NkEventSystemData {
-        ::wl_display* mDisplay = nullptr;
-    };
+	struct NkEventSystemData {
+			::wl_display *mDisplay = nullptr;
+	};
 
-    // Attache le listener wl_seat dès que le seat est disponible.
-    // Appelé tôt dans la création de fenêtre pour ne pas rater l'event
-    // initial "capabilities" (clavier/pointeur).
-    void NkWaylandAttachSeatListener(NkEventSystem* eventSystem, ::wl_seat* seat);
-    void NkWaylandNotifySeatDestroy(::wl_seat* seat);
+	// Attache le listener wl_seat dès que le seat est disponible.
+	// Appelé tôt dans la création de fenêtre pour ne pas rater l'event
+	// initial "capabilities" (clavier/pointeur).
+	void NkWaylandAttachSeatListener(NkEventSystem *eventSystem, ::wl_seat *seat);
+	void NkWaylandNotifySeatDestroy(::wl_seat *seat);
 
-    // Serial du dernier evenement d'entree pointeur (bouton/enter). Requis par
-    // xdg_toplevel_move / xdg_toplevel_resize (grab implicite cote compositeur).
-    unsigned int NkWaylandLastInputSerial();
+	// Serial du dernier evenement d'entree pointeur (bouton/enter). Requis par
+	// xdg_toplevel_move / xdg_toplevel_resize (grab implicite cote compositeur).
+	unsigned int NkWaylandLastInputSerial();
 
 } // namespace nkentseu
 

@@ -22,52 +22,50 @@
 #include "Pong/Game/GameTypes.h"
 #include "NKCore/NkTypes.h"
 
-namespace nkentseu
-{
-    namespace pong
-    {
+namespace nkentseu {
+	namespace pong {
 
-        class AIController
-        {
-        public:
-            AIController() = default;
-            explicit AIController(AIDifficulty d) { SetDifficulty(d); }
+		class AIController {
+			public:
+				AIController() = default;
 
-            /// Reconfigure les parametres selon le niveau choisi.
-            void SetDifficulty(AIDifficulty d);
+				explicit AIController(AIDifficulty d) {
+					SetDifficulty(d);
+				}
 
-            /// Calcule le deplacement vertical (en pixels) a appliquer au
-            /// paddle ce frame. Le signe = direction (negatif = vers le haut).
-            /// @param dt              delta-time du frame (secondes)
-            /// @param ballX/Y         position courante de la balle
-            /// @param ballVX/Y        vitesse courante balle (px/frame@60fps,
-            ///                        meme convention que GameplayScene)
-            /// @param paddleX         X du paddle (utilise pour predire le temps
-            ///                        de collision)
-            /// @param paddleY         Y courant du paddle (haut-gauche)
-            /// @param paddleH         hauteur du paddle
-            /// @param arenaW/H        dimensions de l'arene
-            /// @param maxPaddleSpd    vitesse max paddle (px/frame@60fps)
-            /// @return delta Y a ajouter a paddleY ce frame (px).
-            float Update(float dt,
-                         float ballX, float ballY,
-                         float ballVX, float ballVY,
-                         float paddleX, float paddleY, float paddleH,
-                         float arenaW, float arenaH,
-                         float maxPaddleSpd);
+				/// Reconfigure les parametres selon le niveau choisi.
+				void SetDifficulty(AIDifficulty d);
 
-            AIDifficulty GetDifficulty() const noexcept { return mDifficulty; }
+				/// Calcule le deplacement vertical (en pixels) a appliquer au
+				/// paddle ce frame. Le signe = direction (negatif = vers le haut).
+				/// @param dt              delta-time du frame (secondes)
+				/// @param ballX/Y         position courante de la balle
+				/// @param ballVX/Y        vitesse courante balle (px/frame@60fps,
+				///                        meme convention que GameplayScene)
+				/// @param paddleX         X du paddle (utilise pour predire le temps
+				///                        de collision)
+				/// @param paddleY         Y courant du paddle (haut-gauche)
+				/// @param paddleH         hauteur du paddle
+				/// @param arenaW/H        dimensions de l'arene
+				/// @param maxPaddleSpd    vitesse max paddle (px/frame@60fps)
+				/// @return delta Y a ajouter a paddleY ce frame (px).
+				float Update(float dt, float ballX, float ballY, float ballVX, float ballVY, float paddleX,
+							 float paddleY, float paddleH, float arenaW, float arenaH, float maxPaddleSpd);
 
-        private:
-            AIDifficulty mDifficulty   = AIDifficulty::Competitor;
-            float        mSpeed        = 0.65f;  // 0..1
-            float        mPrecision    = 0.78f;  // 0..1
-            int          mAnticipation = 1;      // 0, 1 ou 2
+				AIDifficulty GetDifficulty() const noexcept {
+					return mDifficulty;
+				}
 
-            // Etat interne pour le mode Chaos (decisions aleatoires periodiques)
-            float        mChaosTimer   = 0.0f;
-            float        mChaosTargetY = 0.0f;
-        };
+			private:
+				AIDifficulty mDifficulty = AIDifficulty::Competitor;
+				float mSpeed = 0.65f;	  // 0..1
+				float mPrecision = 0.78f; // 0..1
+				int mAnticipation = 1;	  // 0, 1 ou 2
 
-    } // namespace pong
+				// Etat interne pour le mode Chaos (decisions aleatoires periodiques)
+				float mChaosTimer = 0.0f;
+				float mChaosTargetY = 0.0f;
+		};
+
+	} // namespace pong
 } // namespace nkentseu

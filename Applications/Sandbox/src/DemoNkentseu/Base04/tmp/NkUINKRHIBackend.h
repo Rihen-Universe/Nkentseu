@@ -14,70 +14,70 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace nkui {
+	namespace nkui {
 
-        class NkUINKRHIBackend {
-            public:
-                bool Init(NkIDevice* device, NkRenderPassHandle renderPass, NkGraphicsApi api);
-                void Destroy();
+		class NkUINKRHIBackend {
+			public:
+				bool Init(NkIDevice *device, NkRenderPassHandle renderPass, NkGraphicsApi api);
+				void Destroy();
 
-                void Submit(NkICommandBuffer* cmd, const NkUIContext& ctx, uint32 fbW, uint32 fbH);
+				void Submit(NkICommandBuffer *cmd, const NkUIContext &ctx, uint32 fbW, uint32 fbH);
 
-                bool UploadTextureRGBA8(uint32 texId, const uint8* data, int32 width, int32 height);
-                bool UploadTextureGray8(uint32 texId, const uint8* data, int32 width, int32 height);
-                bool HasTexture(uint32 texId) const noexcept;
+				bool UploadTextureRGBA8(uint32 texId, const uint8 *data, int32 width, int32 height);
+				bool UploadTextureGray8(uint32 texId, const uint8 *data, int32 width, int32 height);
+				bool HasTexture(uint32 texId) const noexcept;
 
-            private:
-                static constexpr uint64 kMinVBOCap = 1ull * 1024ull * 1024ull;
-                static constexpr uint64 kMinIBOCap = 512ull * 1024ull;
-                static constexpr uint32 kShrinkDelayFrames = 240u;
+			private:
+				static constexpr uint64 kMinVBOCap = 1ull * 1024ull * 1024ull;
+				static constexpr uint64 kMinIBOCap = 512ull * 1024ull;
+				static constexpr uint32 kShrinkDelayFrames = 240u;
 
-                NkIDevice*         mDevice = nullptr;
-                NkGraphicsApi      mApi = NkGraphicsApi::NK_GFX_API_OPENGL;
-                NkRenderPassHandle mRenderPass;
-                NkShaderHandle     mShader;
-                NkPipelineHandle   mPipeline;
-                NkBufferHandle     mVBO;
-                NkBufferHandle     mIBO;
-                NkBufferHandle     mUBO;
-                uint64             mVBOCap = 0;
-                uint64             mIBOCap = 0;
-                uint32             mLowUsageFrames = 0;
-                NkTextureHandle    mWhiteTex;
-                NkSamplerHandle    mSampler;
-                NkDescSetHandle    mLayout;
-                NkDescSetHandle    mWhiteDescSet;
-                NkVector<NkUIVertex> mScratchVtx;
-                NkVector<uint32>     mScratchIdx;
+				NkIDevice *mDevice = nullptr;
+				NkGraphicsApi mApi = NkGraphicsApi::NK_GFX_API_OPENGL;
+				NkRenderPassHandle mRenderPass;
+				NkShaderHandle mShader;
+				NkPipelineHandle mPipeline;
+				NkBufferHandle mVBO;
+				NkBufferHandle mIBO;
+				NkBufferHandle mUBO;
+				uint64 mVBOCap = 0;
+				uint64 mIBOCap = 0;
+				uint32 mLowUsageFrames = 0;
+				NkTextureHandle mWhiteTex;
+				NkSamplerHandle mSampler;
+				NkDescSetHandle mLayout;
+				NkDescSetHandle mWhiteDescSet;
+				NkVector<NkUIVertex> mScratchVtx;
+				NkVector<uint32> mScratchIdx;
 
-                struct TextureEntry {
-                    NkTextureHandle texture;
-                    NkDescSetHandle descSet;
-                    int32 width = 0;
-                    int32 height = 0;
-                };
+				struct TextureEntry {
+						NkTextureHandle texture;
+						NkDescSetHandle descSet;
+						int32 width = 0;
+						int32 height = 0;
+				};
 
-                struct RetiredTextureEntry {
-                    TextureEntry entry;
-                    uint64 retireFrame = 0;
-                };
+				struct RetiredTextureEntry {
+						TextureEntry entry;
+						uint64 retireFrame = 0;
+				};
 
-                NkHashMap<uint32, TextureEntry> mTextures;
-                NkVector<RetiredTextureEntry> mRetiredTextures;
-                uint32 mBoundTexId = 0xFFFFFFFFu;
-                uint64 mFrameIndex = 0;
-                static constexpr uint64 kRetireDelayFrames = 8ull;
+				NkHashMap<uint32, TextureEntry> mTextures;
+				NkVector<RetiredTextureEntry> mRetiredTextures;
+				uint32 mBoundTexId = 0xFFFFFFFFu;
+				uint64 mFrameIndex = 0;
+				static constexpr uint64 kRetireDelayFrames = 8ull;
 
-                bool CreatePipeline();
-                bool CreateResources();
-                bool UploadTextureInternal(uint32 texId, const uint8* data, int32 width, int32 height, bool rgba8);
-                bool EnsureGeometryBuffers(uint64 requiredVtxBytes, uint64 requiredIdxBytes, bool allowShrink);
-                bool CreateDescriptorSetForTexture(NkTextureHandle texture, NkDescSetHandle& outSet);
-                void RetireTextureEntry(const TextureEntry& entry);
-                void CollectRetiredTextures();
+				bool CreatePipeline();
+				bool CreateResources();
+				bool UploadTextureInternal(uint32 texId, const uint8 *data, int32 width, int32 height, bool rgba8);
+				bool EnsureGeometryBuffers(uint64 requiredVtxBytes, uint64 requiredIdxBytes, bool allowShrink);
+				bool CreateDescriptorSetForTexture(NkTextureHandle texture, NkDescSetHandle &outSet);
+				void RetireTextureEntry(const TextureEntry &entry);
+				void CollectRetiredTextures();
 
-                void BindTexture(NkICommandBuffer* cmd, uint32 texId);
-        };
+				void BindTexture(NkICommandBuffer *cmd, uint32 texId);
+		};
 
-    }
-}
+	} // namespace nkui
+} // namespace nkentseu

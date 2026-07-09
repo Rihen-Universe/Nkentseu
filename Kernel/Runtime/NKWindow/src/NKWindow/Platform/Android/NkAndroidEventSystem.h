@@ -11,9 +11,9 @@ struct android_app;
 
 namespace nkentseu {
 
-    struct NkEventSystemData {
-        struct android_app* mAndroidApp = nullptr;
-    };
+	struct NkEventSystemData {
+			struct android_app *mAndroidApp = nullptr;
+	};
 
 } // namespace nkentseu
 

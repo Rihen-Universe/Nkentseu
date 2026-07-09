@@ -44,102 +44,102 @@
 
 namespace nkentseu {
 
-    // ====================================================================
-    // VARIABLE STATIQUE INTERNE : STOCKAGE DU CALLBACK
-    // ====================================================================
-    // Initialisée au callback par défaut : comportement safe sans configuration
+	// ====================================================================
+	// VARIABLE STATIQUE INTERNE : STOCKAGE DU CALLBACK
+	// ====================================================================
+	// Initialisée au callback par défaut : comportement safe sans configuration
 
-    /**
-     * @brief Variable statique stockant le callback courant d'assertions
-     * @internal
-     * @note
-     *   - Initialisée à &NkAssertHandler::DefaultCallback pour sécurité
-     *   - Modifiable via NkAssertHandler::SetCallback()
-     *   - Accès non protégé : appeler SetCallback() depuis un contexte single-thread
-     */
-    static NkAssertCallback sAssertCallback = &NkAssertHandler::DefaultCallback;
+	/**
+	 * @brief Variable statique stockant le callback courant d'assertions
+	 * @internal
+	 * @note
+	 *   - Initialisée à &NkAssertHandler::DefaultCallback pour sécurité
+	 *   - Modifiable via NkAssertHandler::SetCallback()
+	 *   - Accès non protégé : appeler SetCallback() depuis un contexte single-thread
+	 */
+	static NkAssertCallback sAssertCallback = &NkAssertHandler::DefaultCallback;
 
-    // ====================================================================
-    // IMPLÉMENTATION DES MÉTHODES DE NKASSERTHANDLER
-    // ====================================================================
+	// ====================================================================
+	// IMPLÉMENTATION DES MÉTHODES DE NKASSERTHANDLER
+	// ====================================================================
 
-    /**
-     * @brief Récupère le callback actuellement enregistré
-     * @return Pointeur vers la fonction callback courante
-     * @note Thread-safe en lecture seule (pas de modification de sAssertCallback)
-     */
-    NkAssertCallback NkAssertHandler::GetCallback() {
-        return sAssertCallback;
-    }
+	/**
+	 * @brief Récupère le callback actuellement enregistré
+	 * @return Pointeur vers la fonction callback courante
+	 * @note Thread-safe en lecture seule (pas de modification de sAssertCallback)
+	 */
+	NkAssertCallback NkAssertHandler::GetCallback() {
+		return sAssertCallback;
+	}
 
-    /**
-     * @brief Définit un callback personnalisé pour gestion d'assertions
-     * @param callback Pointeur vers la fonction handler à installer
-     * @note
-     *   - Passer nullptr restaure le callback par défaut
-     *   - Non thread-safe : protéger l'appel si utilisé depuis plusieurs threads
-     *   - Le nouveau callback prend effet immédiatement pour les assertions suivantes
-     */
-    void NkAssertHandler::SetCallback(NkAssertCallback callback) {
-        sAssertCallback = callback ? callback : &DefaultCallback;
-    }
+	/**
+	 * @brief Définit un callback personnalisé pour gestion d'assertions
+	 * @param callback Pointeur vers la fonction handler à installer
+	 * @note
+	 *   - Passer nullptr restaure le callback par défaut
+	 *   - Non thread-safe : protéger l'appel si utilisé depuis plusieurs threads
+	 *   - Le nouveau callback prend effet immédiatement pour les assertions suivantes
+	 */
+	void NkAssertHandler::SetCallback(NkAssertCallback callback) {
+		sAssertCallback = callback ? callback : &DefaultCallback;
+	}
 
-    /**
-     * @brief Callback par défaut avec comportement adaptatif debug/release
-     * @param info Référence const vers les informations de l'assertion échouée
-     * @return NK_BREAK en debug, NK_ABORT en release
-     *
-     * @note
-     *   - Affiche les détails de l'assertion sur stderr pour diagnostic
-     *   - Format de sortie lisible et parseable pour outils externes
-     *   - Le comportement exact dépend de la définition de NK_DEBUG
-     *
-     * @warning
-     *   En mode release, retourne NK_ABORT qui mènera à ::abort() :
-     *   assurer que les ressources critiques sont libérées via RAII
-     *   avant que les assertions ne puissent échouer.
-     */
-    NkAssertAction NkAssertHandler::DefaultCallback(const NkAssertionInfo& info) {
-        // Formatage structuré pour lisibilité et parsing automatique
-        std::fprintf(stderr, "\n=== ASSERTION FAILED ===\n");
-        std::fprintf(stderr, "Expression: %s\n", info.expression);
+	/**
+	 * @brief Callback par défaut avec comportement adaptatif debug/release
+	 * @param info Référence const vers les informations de l'assertion échouée
+	 * @return NK_BREAK en debug, NK_ABORT en release
+	 *
+	 * @note
+	 *   - Affiche les détails de l'assertion sur stderr pour diagnostic
+	 *   - Format de sortie lisible et parseable pour outils externes
+	 *   - Le comportement exact dépend de la définition de NK_DEBUG
+	 *
+	 * @warning
+	 *   En mode release, retourne NK_ABORT qui mènera à ::abort() :
+	 *   assurer que les ressources critiques sont libérées via RAII
+	 *   avant que les assertions ne puissent échouer.
+	 */
+	NkAssertAction NkAssertHandler::DefaultCallback(const NkAssertionInfo &info) {
+		// Formatage structuré pour lisibilité et parsing automatique
+		std::fprintf(stderr, "\n=== ASSERTION FAILED ===\n");
+		std::fprintf(stderr, "Expression: %s\n", info.expression);
 
-        // Message personnalisé optionnel
-        if (info.message && info.message[0] != '\0') {
-            std::fprintf(stderr, "Message: %s\n", info.message);
-        }
+		// Message personnalisé optionnel
+		if (info.message && info.message[0] != '\0') {
+			std::fprintf(stderr, "Message: %s\n", info.message);
+		}
 
-        // Contexte source pour localisation rapide dans l'IDE
-        std::fprintf(stderr, "File: %s:%d\n", info.file, info.line);
-        std::fprintf(stderr, "Function: %s\n", info.function);
-        std::fprintf(stderr, "========================\n\n");
+		// Contexte source pour localisation rapide dans l'IDE
+		std::fprintf(stderr, "File: %s:%d\n", info.file, info.line);
+		std::fprintf(stderr, "Function: %s\n", info.function);
+		std::fprintf(stderr, "========================\n\n");
 
-        // Flush pour garantir l'affichage avant break/abort
-        std::fflush(stderr);
+		// Flush pour garantir l'affichage avant break/abort
+		std::fflush(stderr);
 
-        // Décision selon le mode de build
-        #if defined(NK_DEBUG)
-            // Mode debug : breakpoint pour inspection interactive au debugger
-            return NkAssertAction::NK_BREAK;
-        #else
-            // Mode release : abort pour éviter propagation d'état corrompu
-            return NkAssertAction::NK_ABORT;
-        #endif
-    }
+// Décision selon le mode de build
+#if defined(NK_DEBUG)
+		// Mode debug : breakpoint pour inspection interactive au debugger
+		return NkAssertAction::NK_BREAK;
+#else
+		// Mode release : abort pour éviter propagation d'état corrompu
+		return NkAssertAction::NK_ABORT;
+#endif
+	}
 
-    /**
-     * @brief Point d'entrée principal pour gestion d'une assertion échouée
-     * @param info Référence const vers les informations de l'assertion
-     * @return Action résultante après traitement par le callback enregistré
-     *
-     * @note
-     *   - Délègue simplement au callback courant (sAssertCallback)
-     *   - Permet l'override du comportement via SetCallback()
-     *   - Thread-safe si le callback lui-même est thread-safe
-     */
-    NkAssertAction NkAssertHandler::HandleAssertion(const NkAssertionInfo& info) {
-        return sAssertCallback(info);
-    }
+	/**
+	 * @brief Point d'entrée principal pour gestion d'une assertion échouée
+	 * @param info Référence const vers les informations de l'assertion
+	 * @return Action résultante après traitement par le callback enregistré
+	 *
+	 * @note
+	 *   - Délègue simplement au callback courant (sAssertCallback)
+	 *   - Permet l'override du comportement via SetCallback()
+	 *   - Thread-safe si le callback lui-même est thread-safe
+	 */
+	NkAssertAction NkAssertHandler::HandleAssertion(const NkAssertionInfo &info) {
+		return sAssertCallback(info);
+	}
 
 } // namespace nkentseu
 

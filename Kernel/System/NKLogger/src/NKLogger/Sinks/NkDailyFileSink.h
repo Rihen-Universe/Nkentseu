@@ -23,99 +23,92 @@
 #ifndef NKENTSEU_NKDAILYFILESINK_H
 #define NKENTSEU_NKDAILYFILESINK_H
 
+// -------------------------------------------------------------------------
+// SECTION 1 : EN-TÊTES ET DÉPENDANCES
+// -------------------------------------------------------------------------
+// Inclusions standards pour la gestion du temps et des fichiers.
+// Dépendances projet pour le sink fichier de base et les utilitaires.
 
-	// -------------------------------------------------------------------------
-	// SECTION 1 : EN-TÊTES ET DÉPENDANCES
-	// -------------------------------------------------------------------------
-	// Inclusions standards pour la gestion du temps et des fichiers.
-	// Dépendances projet pour le sink fichier de base et les utilitaires.
+#include <ctime>
 
-	#include <ctime>
+#include "NKCore/NkTypes.h"
+#include "NKContainers/String/NkString.h"
+#include "NKLogger/Sinks/NkFileSink.h"
+#include "NKLogger/NkLogMessage.h"
+#include "NKLogger/NkLogLevel.h"
+#include "NKLogger/NkLoggerApi.h"
 
-	#include "NKCore/NkTypes.h"
-	#include "NKContainers/String/NkString.h"
-	#include "NKLogger/Sinks/NkFileSink.h"
-	#include "NKLogger/NkLogMessage.h"
-	#include "NKLogger/NkLogLevel.h"
-	#include "NKLogger/NkLoggerApi.h"
+// -------------------------------------------------------------------------
+// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
+// -------------------------------------------------------------------------
+// Tous les symboles du module logger sont dans le namespace nkentseu.
+// Pas de sous-namespace pour simplifier l'usage et l'intégration.
 
+namespace nkentseu {
 
-	// -------------------------------------------------------------------------
-	// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
-	// -------------------------------------------------------------------------
-	// Tous les symboles du module logger sont dans le namespace nkentseu.
-	// Pas de sous-namespace pour simplifier l'usage et l'intégration.
-
-	namespace nkentseu {
-
-
-		// ---------------------------------------------------------------------
-		// CLASSE : NkDailyFileSink
-		// DESCRIPTION : Sink fichier avec rotation automatique par date
-		// ---------------------------------------------------------------------
-		/**
-		 * @class NkDailyFileSink
-		 * @brief Sink pour écriture persistante avec rotation automatique quotidienne
-		 * @ingroup LoggerSinks
-		 *
-		 * NkDailyFileSink étend NkFileSink avec une stratégie de rotation temporelle :
-		 *  - Rotation déclenchée quand la date système change ET l'heure de rotation est atteinte
-		 *  - Fichiers renommés avec suffixe date : app.log → app.log.20240115
-		 *  - Conservation configurable : suppression automatique des backups > m_MaxDays
-		 *  - Rotation thread-safe via mutex hérité de NkFileSink
-		 *
-		 * Architecture :
-		 *  - Hérite de NkFileSink : réutilisation complète de l'infrastructure fichier
-		 *  - Override de CheckRotation() : point d'extension pour logique de rotation
-		 *  - Cache de date m_CurrentDate : évite les recalculs fréquents de localtime
-		 *  - Timestamp m_LastCheck : limite la vérification à une fois par minute
-		 *
-		 * Thread-safety :
-		 *  - Toutes les méthodes publiques sont thread-safe via m_Mutex (hérité)
-		 *  - La rotation est atomic : Close() → rename() → Open() protégés par mutex
-		 *  - Safe pour usage depuis multiples threads simultanément
-		 *
-		 * Gestion des erreurs :
-		 *  - Échec rename() : ignoré silencieusement, rotation partielle possible
-		 *  - Échec Open() après rotation : fichier courant perdu, logging suspendu
-		 *  - Pour robustesse : vérifier IsOpen() après Rotate() si critique
-		 *
-		 * @note La rotation est vérifiée après chaque Log() mais exécutée max une fois/minute
-		 * @note Le format de suffixe est fixe : .YYYYMMDD (ex: .20240115)
-		 *
-		 * @example Usage basique
-		 * @code
-		 * // Rotation quotidienne à minuit, conservation de 7 jours
-		 * auto dailySink = nkentseu::memory::MakeShared<nkentseu::NkDailyFileSink>(
-		 *     "logs/app.log",   // Chemin de base
-		 *     0,                // Heure de rotation: 00:00 (minuit)
-		 *     0,                // Minute de rotation
-		 *     7                 // Conserver 7 jours de backups
-		 * );
-		 *
-		 * dailySink->SetLevel(nkentseu::NkLogLevel::NK_INFO);
-		 * dailySink->SetPattern("[%Y-%m-%d %H:%M:%S] [%L] %v");
-		 *
-		 * logger.AddSink(dailySink);
-		 * @endcode
-		 *
-		 * @example Rotation manuelle forcée
-		 * @code
-		 * // Forcer la rotation avant une opération de maintenance
-		 * if (auto* dailySink = dynamic_cast<nkentseu::NkDailyFileSink*>(fileSink.get())) {
-		 *     dailySink->Rotate();  // Rotation immédiate indépendamment de la date
-		 * }
-		 * @endcode
-		 */
-		class NKENTSEU_LOGGER_CLASS_EXPORT NkDailyFileSink : public NkFileSink {
-
-
+	// ---------------------------------------------------------------------
+	// CLASSE : NkDailyFileSink
+	// DESCRIPTION : Sink fichier avec rotation automatique par date
+	// ---------------------------------------------------------------------
+	/**
+	 * @class NkDailyFileSink
+	 * @brief Sink pour écriture persistante avec rotation automatique quotidienne
+	 * @ingroup LoggerSinks
+	 *
+	 * NkDailyFileSink étend NkFileSink avec une stratégie de rotation temporelle :
+	 *  - Rotation déclenchée quand la date système change ET l'heure de rotation est atteinte
+	 *  - Fichiers renommés avec suffixe date : app.log → app.log.20240115
+	 *  - Conservation configurable : suppression automatique des backups > m_MaxDays
+	 *  - Rotation thread-safe via mutex hérité de NkFileSink
+	 *
+	 * Architecture :
+	 *  - Hérite de NkFileSink : réutilisation complète de l'infrastructure fichier
+	 *  - Override de CheckRotation() : point d'extension pour logique de rotation
+	 *  - Cache de date m_CurrentDate : évite les recalculs fréquents de localtime
+	 *  - Timestamp m_LastCheck : limite la vérification à une fois par minute
+	 *
+	 * Thread-safety :
+	 *  - Toutes les méthodes publiques sont thread-safe via m_Mutex (hérité)
+	 *  - La rotation est atomic : Close() → rename() → Open() protégés par mutex
+	 *  - Safe pour usage depuis multiples threads simultanément
+	 *
+	 * Gestion des erreurs :
+	 *  - Échec rename() : ignoré silencieusement, rotation partielle possible
+	 *  - Échec Open() après rotation : fichier courant perdu, logging suspendu
+	 *  - Pour robustesse : vérifier IsOpen() après Rotate() si critique
+	 *
+	 * @note La rotation est vérifiée après chaque Log() mais exécutée max une fois/minute
+	 * @note Le format de suffixe est fixe : .YYYYMMDD (ex: .20240115)
+	 *
+	 * @example Usage basique
+	 * @code
+	 * // Rotation quotidienne à minuit, conservation de 7 jours
+	 * auto dailySink = nkentseu::memory::MakeShared<nkentseu::NkDailyFileSink>(
+	 *     "logs/app.log",   // Chemin de base
+	 *     0,                // Heure de rotation: 00:00 (minuit)
+	 *     0,                // Minute de rotation
+	 *     7                 // Conserver 7 jours de backups
+	 * );
+	 *
+	 * dailySink->SetLevel(nkentseu::NkLogLevel::NK_INFO);
+	 * dailySink->SetPattern("[%Y-%m-%d %H:%M:%S] [%L] %v");
+	 *
+	 * logger.AddSink(dailySink);
+	 * @endcode
+	 *
+	 * @example Rotation manuelle forcée
+	 * @code
+	 * // Forcer la rotation avant une opération de maintenance
+	 * if (auto* dailySink = dynamic_cast<nkentseu::NkDailyFileSink*>(fileSink.get())) {
+	 *     dailySink->Rotate();  // Rotation immédiate indépendamment de la date
+	 * }
+	 * @endcode
+	 */
+	class NKENTSEU_LOGGER_CLASS_EXPORT NkDailyFileSink : public NkFileSink {
 			// -----------------------------------------------------------------
 			// SECTION 3 : MEMBRES PUBLICS
 			// -----------------------------------------------------------------
 		public:
-
-
 			// -----------------------------------------------------------------
 			// CONSTRUCTEURS ET DESTRUCTEUR
 			// -----------------------------------------------------------------
@@ -159,7 +152,7 @@
 			 * );
 			 * @endcode
 			 */
-			NkDailyFileSink(const NkString& filename, int hour = 0, int minute = 0, usize maxDays = 0);
+			NkDailyFileSink(const NkString &filename, int hour = 0, int minute = 0, usize maxDays = 0);
 
 			/**
 			 * @brief Destructeur : cleanup via NkFileSink
@@ -169,7 +162,6 @@
 			 * @note Aucune logique supplémentaire : rotation gérée uniquement dans Log()
 			 */
 			~NkDailyFileSink() override;
-
 
 			// -----------------------------------------------------------------
 			// IMPLÉMENTATION DE L'INTERFACE NKISINK
@@ -202,8 +194,7 @@
 			 * dailySink.Log(msg);  // Écriture + vérification rotation automatique
 			 * @endcode
 			 */
-			void Log(const NkLogMessage& message) override;
-
+			void Log(const NkLogMessage &message) override;
 
 			// -----------------------------------------------------------------
 			// CONFIGURATION DE LA ROTATION QUOTIDIENNE
@@ -327,13 +318,10 @@
 			 */
 			bool Rotate();
 
-
 			// -----------------------------------------------------------------
 			// SECTION 4 : MEMBRES PRIVÉS (IMPLÉMENTATION INTERNE)
 			// -----------------------------------------------------------------
 		private:
-
-
 			// -----------------------------------------------------------------
 			// MÉTHODES PRIVÉES D'IMPLÉMENTATION
 			// -----------------------------------------------------------------
@@ -404,7 +392,7 @@
 			 * GetFilenameForDate(date) → "logs/app.log.20240115"
 			 * @endcode
 			 */
-			NkString GetFilenameForDate(const tm& date) const;
+			NkString GetFilenameForDate(const tm &date) const;
 
 			/**
 			 * @brief Extrait la date d'un nom de fichier de backup
@@ -426,7 +414,7 @@
 			 * ExtractDateFromFilename("app.log.invalid") → tm{tm_year=-1, ...}
 			 * @endcode
 			 */
-			tm ExtractDateFromFilename(const NkString& filename) const;
+			tm ExtractDateFromFilename(const NkString &filename) const;
 
 			/**
 			 * @brief Vérifie si une date est plus ancienne que le seuil de conservation
@@ -446,8 +434,7 @@
 			 * IsDateTooOld(2024-01-07) → true (à supprimer)
 			 * @endcode
 			 */
-			bool IsDateTooOld(const tm& date) const;
-
+			bool IsDateTooOld(const tm &date) const;
 
 			// -----------------------------------------------------------------
 			// VARIABLES MEMBRES PRIVÉES (ÉTAT DE ROTATION QUOTIDIENNE)
@@ -487,15 +474,11 @@
 			/// @note Mis à jour à chaque appel de CheckRotation()
 			uint64 m_LastCheck;
 
+	}; // class NkDailyFileSink
 
-		}; // class NkDailyFileSink
-
-
-	} // namespace nkentseu
-
+} // namespace nkentseu
 
 #endif // NKENTSEU_NKDAILYFILESINK_H
-
 
 // =============================================================================
 // EXEMPLES D'UTILISATION DE NKDAILYFILESINK.H
@@ -530,7 +513,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 2 : Rotation manuelle avant opération critique
 // -----------------------------------------------------------------------------
@@ -554,7 +536,6 @@
 		}
 	}
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 3 : Configuration dynamique via fichier de config
@@ -591,7 +572,6 @@
 	// logger.AddSink(dailySink);
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 4 : Monitoring de l'état de rotation
 // -----------------------------------------------------------------------------
@@ -615,7 +595,6 @@
 			maxDays == 0 ? "unlimited" : NkString::Format("%zu", maxDays));
 	}
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 5 : Testing de la rotation avec manipulation de date
@@ -651,7 +630,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 6 : Rotation avec heure personnalisée pour fenêtre de maintenance
 // -----------------------------------------------------------------------------
@@ -676,7 +654,6 @@
 	}
 */
 
-
 // =============================================================================
 // NOTES DE MAINTENANCE ET BONNES PRATIQUES
 // =============================================================================
@@ -690,7 +667,7 @@
 	2. ATOMICITÉ DE PerformRotation() :
 	   - Séquence Close() → rename() → Open() doit être exécutée atomiquement
 	   - Garantit par le fait que cette méthode est appelée uniquement depuis
-	     Log() ou Rotate() qui acquièrent déjà m_Mutex
+		 Log() ou Rotate() qui acquièrent déjà m_Mutex
 	   - Risk : crash pendant rotation → fichier backup potentiellement partiel
 	   - Mitigation : rotation déclenchée uniquement après écriture complète du message
 
@@ -734,7 +711,6 @@
 	   - Valider le thread-safety avec tests concurrents (TSan, helgrind, etc.)
 	   - Pour tester la rotation automatique : mock de localtime() ou manipulation d'horloge
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

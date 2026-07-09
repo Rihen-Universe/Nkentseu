@@ -30,15 +30,14 @@
 #include <cstring>
 
 #if !defined(_WIN32)
-	#include <time.h>
-	#include <dirent.h>
+#include <time.h>
+#include <dirent.h>
 #else
-	#ifndef WIN32_LEAN_AND_MEAN
-		#define WIN32_LEAN_AND_MEAN
-	#endif
-	#include <windows.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #endif
-
+#include <windows.h>
+#endif
 
 // -------------------------------------------------------------------------
 // SECTION 1 : NAMESPACE ANONYME - UTILITAIRES INTERNES
@@ -47,7 +46,6 @@
 // Non exposées dans l'API publique pour encapsulation et optimisation.
 
 namespace {
-
 
 	// -------------------------------------------------------------------------
 	// FONCTION : NkIsDigit
@@ -60,7 +58,6 @@ namespace {
 		return ch >= '0' && ch <= '9';
 	}
 
-
 	// -------------------------------------------------------------------------
 	// FONCTION : NkHasPrefix
 	// DESCRIPTION : Vérifie si une chaîne commence par un préfixe donné
@@ -69,7 +66,7 @@ namespace {
 	// RETURN : true si value commence par prefix, false sinon
 	// NOTE : Comparaison caractère par caractère, portable sans dépendance externe
 	// -------------------------------------------------------------------------
-	bool NkHasPrefix(const nkentseu::NkString& value, const nkentseu::NkString& prefix) {
+	bool NkHasPrefix(const nkentseu::NkString &value, const nkentseu::NkString &prefix) {
 		// Préfixe plus long que la valeur : impossible
 		if (value.Length() < prefix.Length()) {
 			return false;
@@ -86,7 +83,6 @@ namespace {
 		return true;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// FONCTION : NkIsPathSeparator
 	// DESCRIPTION : Vérifie si un caractère est un séparateur de chemin
@@ -98,7 +94,6 @@ namespace {
 		return ch == '/' || ch == '\\';
 	}
 
-
 	// -------------------------------------------------------------------------
 	// FONCTION : NkJoinPath
 	// DESCRIPTION : Concatène un répertoire et un nom de fichier avec séparateur
@@ -107,10 +102,7 @@ namespace {
 	// RETURN : Chaîne NkString contenant le chemin complet joint
 	// NOTE : Ajoute automatiquement le séparateur si manquant, gère les cas edge
 	// -------------------------------------------------------------------------
-	nkentseu::NkString NkJoinPath(
-		const nkentseu::NkString& directory,
-		const nkentseu::NkString& filename
-	) {
+	nkentseu::NkString NkJoinPath(const nkentseu::NkString &directory, const nkentseu::NkString &filename) {
 		// Cas directory vide ou courant : retourne filename seul
 		if (directory.Empty() || directory == ".") {
 			if (directory == ".") {
@@ -131,7 +123,6 @@ namespace {
 		return path;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// FONCTION : NkParseYmd8
 	// DESCRIPTION : Parse une chaîne de 8 chiffres YYYYMMDD en structure tm
@@ -140,7 +131,7 @@ namespace {
 	// RETURN : true si parsing réussi et date valide, false sinon
 	// NOTE : Valide année >= 1900, mois 1-12, jour 1-31 via mktime()
 	// -------------------------------------------------------------------------
-	bool NkParseYmd8(const char* digits, tm& outDate) {
+	bool NkParseYmd8(const char *digits, tm &outDate) {
 		// Validation du pointeur d'entrée
 		if (digits == nullptr) {
 			return false;
@@ -154,10 +145,8 @@ namespace {
 		}
 
 		// Extraction des composantes de date
-		const int year = (digits[0] - '0') * 1000
-		               + (digits[1] - '0') * 100
-		               + (digits[2] - '0') * 10
-		               + (digits[3] - '0');
+		const int year =
+			(digits[0] - '0') * 1000 + (digits[1] - '0') * 100 + (digits[2] - '0') * 10 + (digits[3] - '0');
 		const int month = (digits[4] - '0') * 10 + (digits[5] - '0');
 		const int day = (digits[6] - '0') * 10 + (digits[7] - '0');
 
@@ -168,13 +157,13 @@ namespace {
 
 		// Construction de la structure tm candidate
 		tm candidate{};
-		candidate.tm_year = year - 1900;  // tm_year est offset depuis 1900
-		candidate.tm_mon = month - 1;      // tm_mon est 0-based (0 = janvier)
+		candidate.tm_year = year - 1900; // tm_year est offset depuis 1900
+		candidate.tm_mon = month - 1;	 // tm_mon est 0-based (0 = janvier)
 		candidate.tm_mday = day;
 		candidate.tm_hour = 0;
 		candidate.tm_min = 0;
 		candidate.tm_sec = 0;
-		candidate.tm_isdst = -1;  // Laisser mktime() déterminer DST
+		candidate.tm_isdst = -1; // Laisser mktime() déterminer DST
 
 		// Validation finale via mktime() : détecte les dates invalides (ex: 31 février)
 		if (::mktime(&candidate) == static_cast<time_t>(-1)) {
@@ -186,7 +175,6 @@ namespace {
 		return true;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// FONCTION : NkExtractRotatedDate
 	// DESCRIPTION : Extrait la date d'un nom de fichier de backup rotationné
@@ -196,11 +184,7 @@ namespace {
 	// RETURN : true si extraction réussie, false si format invalide
 	// NOTE : Format attendu : {baseName}.YYYYMMDD (exactement 8 chiffres après le point)
 	// -------------------------------------------------------------------------
-	bool NkExtractRotatedDate(
-		const nkentseu::NkString& entryName,
-		const nkentseu::NkString& baseName,
-		tm& outDate
-	) {
+	bool NkExtractRotatedDate(const nkentseu::NkString &entryName, const nkentseu::NkString &baseName, tm &outDate) {
 		// Vérification de la taille attendue : base + "." + 8 chiffres
 		const nkentseu::usize requiredSize = baseName.Length() + 1 + 8;
 		if (entryName.Length() != requiredSize) {
@@ -219,7 +203,7 @@ namespace {
 		}
 
 		// Extraction des 8 chiffres de date
-		char digits[9];  // 8 chiffres + null terminator
+		char digits[9]; // 8 chiffres + null terminator
 		for (int i = 0; i < 8; ++i) {
 			digits[i] = entryName[dotPos + 1 + static_cast<nkentseu::usize>(i)];
 		}
@@ -229,7 +213,6 @@ namespace {
 		return NkParseYmd8(digits, outDate);
 	}
 
-
 	// -------------------------------------------------------------------------
 	// FONCTION : NkNowNs
 	// DESCRIPTION : Obtient le timestamp courant en nanosecondes depuis Unix epoch
@@ -237,43 +220,40 @@ namespace {
 	// NOTE : Implémentation multiplateforme avec fallback sécurisé
 	// -------------------------------------------------------------------------
 	nkentseu::uint64 NkNowNs() {
-		#if defined(_WIN32)
-			// Windows : utilisation de GetSystemTimeAsFileTime (précision ~100ns)
-			FILETIME fileTime{};
-			::GetSystemTimeAsFileTime(&fileTime);
+#if defined(_WIN32)
+		// Windows : utilisation de GetSystemTimeAsFileTime (précision ~100ns)
+		FILETIME fileTime{};
+		::GetSystemTimeAsFileTime(&fileTime);
 
-			// Conversion FILETIME (100-nanosecond intervals since 1601) → Unix epoch
-			ULARGE_INTEGER ticks{};
-			ticks.LowPart = fileTime.dwLowDateTime;
-			ticks.HighPart = fileTime.dwHighDateTime;
+		// Conversion FILETIME (100-nanosecond intervals since 1601) → Unix epoch
+		ULARGE_INTEGER ticks{};
+		ticks.LowPart = fileTime.dwLowDateTime;
+		ticks.HighPart = fileTime.dwHighDateTime;
 
-			// Offset entre Windows epoch (1601) et Unix epoch (1970) en nanosecondes
-			constexpr nkentseu::uint64 kWinToUnixEpochOffsetNs = 11644473600ULL * 1000000000ULL;
+		// Offset entre Windows epoch (1601) et Unix epoch (1970) en nanosecondes
+		constexpr nkentseu::uint64 kWinToUnixEpochOffsetNs = 11644473600ULL * 1000000000ULL;
 
-			// Conversion : FILETIME est en unités de 100ns → multiplication par 100
-			const nkentseu::uint64 nowNs = static_cast<nkentseu::uint64>(ticks.QuadPart) * 100ULL;
+		// Conversion : FILETIME est en unités de 100ns → multiplication par 100
+		const nkentseu::uint64 nowNs = static_cast<nkentseu::uint64>(ticks.QuadPart) * 100ULL;
 
-			// Soustraction de l'offset avec protection contre underflow
-			return (nowNs >= kWinToUnixEpochOffsetNs)
-				? (nowNs - kWinToUnixEpochOffsetNs)
-				: 0ULL;
+		// Soustraction de l'offset avec protection contre underflow
+		return (nowNs >= kWinToUnixEpochOffsetNs) ? (nowNs - kWinToUnixEpochOffsetNs) : 0ULL;
 
-		#else
-			// POSIX : utilisation de clock_gettime avec CLOCK_REALTIME
-			timespec ts{};
+#else
+		// POSIX : utilisation de clock_gettime avec CLOCK_REALTIME
+		timespec ts{};
 
-			// Appel système : retourne 0 en cas de succès, -1 en cas d'erreur
-			if (clock_gettime(CLOCK_REALTIME, &ts) == 0) {
-				// Combinaison secondes + nanosecondes en uint64 unique
-				return (static_cast<nkentseu::uint64>(ts.tv_sec) * 1000000000ULL)
-					+ static_cast<nkentseu::uint64>(ts.tv_nsec);
-			}
+		// Appel système : retourne 0 en cas de succès, -1 en cas d'erreur
+		if (clock_gettime(CLOCK_REALTIME, &ts) == 0) {
+			// Combinaison secondes + nanosecondes en uint64 unique
+			return (static_cast<nkentseu::uint64>(ts.tv_sec) * 1000000000ULL) +
+				   static_cast<nkentseu::uint64>(ts.tv_nsec);
+		}
 
-			// Fallback en cas d'erreur système : retourne 0 (timestamp invalide)
-			return 0;
-		#endif
+		// Fallback en cas d'erreur système : retourne 0 (timestamp invalide)
+		return 0;
+#endif
 	}
-
 
 	// -------------------------------------------------------------------------
 	// FONCTION : NkFileExists
@@ -282,7 +262,7 @@ namespace {
 	// RETURN : true si le fichier existe et est accessible, false sinon
 	// NOTE : Utilise stat() portable, retourne false pour chemins vides
 	// -------------------------------------------------------------------------
-	bool NkFileExists(const nkentseu::NkString& path) {
+	bool NkFileExists(const nkentseu::NkString &path) {
 		if (path.Empty()) {
 			return false;
 		}
@@ -291,9 +271,7 @@ namespace {
 		return ::stat(path.CStr(), &fileInfo) == 0;
 	}
 
-
-} // namespace anonymous
-
+} // namespace
 
 // -------------------------------------------------------------------------
 // SECTION 2 : NAMESPACE PRINCIPAL - IMPLÉMENTATIONS DES MÉTHODES
@@ -303,37 +281,28 @@ namespace {
 
 namespace nkentseu {
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Constructeur
 	// DESCRIPTION : Initialise avec paramètres de rotation et date courante
 	// -------------------------------------------------------------------------
-	NkDailyFileSink::NkDailyFileSink(
-		const NkString& filename,
-		int hour,
-		int minute,
-		usize maxDays
-	) : NkFileSink(filename, false)  // Append mode par défaut pour rotation
-		, m_RotationHour(hour)
-		, m_RotationMinute(minute)
-		, m_MaxDays(maxDays)
-		, m_LastCheck(0) {
-
+	NkDailyFileSink::NkDailyFileSink(const NkString &filename, int hour, int minute, usize maxDays)
+		: NkFileSink(filename, false) // Append mode par défaut pour rotation
+		  ,
+		  m_RotationHour(hour), m_RotationMinute(minute), m_MaxDays(maxDays), m_LastCheck(0) {
 		// Initialisation de m_CurrentDate avec la date système courante
 		const time_t now = ::time(nullptr);
 
-		#ifdef _WIN32
-			// Windows : version thread-safe de localtime
-			localtime_s(&m_CurrentDate, &now);
-		#else
-			// POSIX : version thread-safe de localtime
-			localtime_r(&now, &m_CurrentDate);
-		#endif
+#ifdef _WIN32
+		// Windows : version thread-safe de localtime
+		localtime_s(&m_CurrentDate, &now);
+#else
+		// POSIX : version thread-safe de localtime
+		localtime_r(&now, &m_CurrentDate);
+#endif
 
 		// Initialisation de m_LastCheck pour permettre vérification immédiate
 		m_LastCheck = NkNowNs();
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Destructeur
@@ -346,17 +315,15 @@ namespace nkentseu {
 		// Aucune logique supplémentaire nécessaire
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Log
 	// DESCRIPTION : Écriture avec vérification de rotation quotidienne
 	// -------------------------------------------------------------------------
-	void NkDailyFileSink::Log(const NkLogMessage& message) {
+	void NkDailyFileSink::Log(const NkLogMessage &message) {
 		// Appel de la méthode parente pour écriture normale thread-safe
 		// Note : NkFileSink::Log() appelle CheckRotation() en fin de méthode
 		NkFileSink::Log(message);
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetRotationTime
@@ -371,7 +338,6 @@ namespace nkentseu {
 		m_RotationMinute = minute;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetRotationHour
 	// DESCRIPTION : Retourne l'heure de rotation configurée (lecture thread-safe)
@@ -383,7 +349,6 @@ namespace nkentseu {
 		// Retour de la valeur configurée
 		return m_RotationHour;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetRotationMinute
@@ -397,7 +362,6 @@ namespace nkentseu {
 		return m_RotationMinute;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetMaxDays
 	// DESCRIPTION : Définit le nombre de jours de conservation avec synchronisation
@@ -410,7 +374,6 @@ namespace nkentseu {
 		m_MaxDays = maxDays;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetMaxDays
 	// DESCRIPTION : Retourne le nombre de jours configuré (lecture thread-safe)
@@ -422,7 +385,6 @@ namespace nkentseu {
 		// Retour de la valeur configurée
 		return m_MaxDays;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Rotate
@@ -440,7 +402,6 @@ namespace nkentseu {
 		return true;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : CheckRotation (override protégé)
 	// DESCRIPTION : Vérifie la condition de rotation quotidienne et déclenche si nécessaire
@@ -454,8 +415,7 @@ namespace nkentseu {
 
 		// Limitation de fréquence : vérifier max une fois par minute
 		// 60000000000ULL = 60 secondes * 1e9 ns/s
-		if (m_LastCheck > 0 && nowNs > m_LastCheck
-			&& (nowNs - m_LastCheck) < 60000000000ULL) {
+		if (m_LastCheck > 0 && nowNs > m_LastCheck && (nowNs - m_LastCheck) < 60000000000ULL) {
 			return;
 		}
 
@@ -467,22 +427,20 @@ namespace nkentseu {
 
 		// Obtention de la date/heure locale courante
 		tm nowDate{};
-		#ifdef _WIN32
-			localtime_s(&nowDate, &nowTime);
-		#else
-			localtime_r(&nowTime, &nowDate);
-		#endif
+#ifdef _WIN32
+		localtime_s(&nowDate, &nowTime);
+#else
+		localtime_r(&nowTime, &nowDate);
+#endif
 
 		// Vérification de changement de date (année/mois/jour)
-		const bool dateChanged = (nowDate.tm_year != m_CurrentDate.tm_year)
-			|| (nowDate.tm_mon != m_CurrentDate.tm_mon)
-			|| (nowDate.tm_mday != m_CurrentDate.tm_mday);
+		const bool dateChanged = (nowDate.tm_year != m_CurrentDate.tm_year) ||
+								 (nowDate.tm_mon != m_CurrentDate.tm_mon) || (nowDate.tm_mday != m_CurrentDate.tm_mday);
 
 		if (dateChanged) {
 			// Vérification de l'heure de rotation configurée
-			const bool isAtRotationTime =
-				(nowDate.tm_hour > m_RotationHour)
-				|| (nowDate.tm_hour == m_RotationHour && nowDate.tm_min >= m_RotationMinute);
+			const bool isAtRotationTime = (nowDate.tm_hour > m_RotationHour) ||
+										  (nowDate.tm_hour == m_RotationHour && nowDate.tm_min >= m_RotationMinute);
 
 			if (isAtRotationTime) {
 				// Condition remplie : exécuter la rotation
@@ -493,7 +451,6 @@ namespace nkentseu {
 			}
 		}
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : PerformRotation (privée)
@@ -525,7 +482,6 @@ namespace nkentseu {
 		(void)OpenUnlocked();
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : CleanOldFiles (privée)
 	// DESCRIPTION : Supprime les fichiers de backup plus anciens que m_MaxDays
@@ -542,119 +498,112 @@ namespace nkentseu {
 		const NkString currentFile = GetFilenameUnlocked();
 		const nkentseu::usize slashPos = currentFile.FindLastOf("/\\");
 
-		const NkString directory = (slashPos == nkentseu::NkString::npos)
-			? NkString(".")
-			: currentFile.SubStr(0, slashPos);
+		const NkString directory =
+			(slashPos == nkentseu::NkString::npos) ? NkString(".") : currentFile.SubStr(0, slashPos);
 
-		const NkString baseName = (slashPos == nkentseu::NkString::npos)
-			? currentFile
-			: currentFile.SubStr(slashPos + 1);
+		const NkString baseName =
+			(slashPos == nkentseu::NkString::npos) ? currentFile : currentFile.SubStr(slashPos + 1);
 
 		// Validation : nom de base non vide requis
 		if (baseName.Empty()) {
 			return;
 		}
 
-		#if defined(_WIN32)
-			// Windows : utilisation de FindFirstFile/FindNextFile pour parcours
-			NkString pattern = directory;
-			if (!pattern.Empty() && !NkIsPathSeparator(pattern[pattern.Length() - 1])) {
-				pattern.PushBack('\\');
-			}
-			pattern.Append("*");  // Pattern pour tous les fichiers du répertoire
+#if defined(_WIN32)
+		// Windows : utilisation de FindFirstFile/FindNextFile pour parcours
+		NkString pattern = directory;
+		if (!pattern.Empty() && !NkIsPathSeparator(pattern[pattern.Length() - 1])) {
+			pattern.PushBack('\\');
+		}
+		pattern.Append("*"); // Pattern pour tous les fichiers du répertoire
 
-			WIN32_FIND_DATAA findData{};
-			HANDLE handle = ::FindFirstFileA(pattern.CStr(), &findData);
-			if (handle == INVALID_HANDLE_VALUE) {
-				return;
-			}
+		WIN32_FIND_DATAA findData{};
+		HANDLE handle = ::FindFirstFileA(pattern.CStr(), &findData);
+		if (handle == INVALID_HANDLE_VALUE) {
+			return;
+		}
 
-			// Parcours de tous les fichiers correspondant au pattern
-			do {
-				// Ignorer les répertoires
-				if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
-					continue;
-				}
-
-				const NkString entryName(findData.cFileName);
-				tm entryDate{};
-
-				// Extraction et validation de la date depuis le nom de fichier
-				if (!NkExtractRotatedDate(entryName, baseName, entryDate)) {
-					continue;
-				}
-
-				// Vérification si la date est trop ancienne
-				if (!IsDateTooOld(entryDate)) {
-					continue;
-				}
-
-				// Suppression du fichier trop ancien
-				const NkString fullPath = NkJoinPath(directory, entryName);
-				(void)::remove(fullPath.CStr());
-
-			} while (::FindNextFileA(handle, &findData) != 0);
-
-			// Nettoyage du handle de recherche
-			(void)::FindClose(handle);
-
-		#else
-			// POSIX : utilisation de opendir/readdir pour parcours
-			DIR* dir = ::opendir(directory.CStr());
-			if (dir == nullptr) {
-				return;
+		// Parcours de tous les fichiers correspondant au pattern
+		do {
+			// Ignorer les répertoires
+			if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+				continue;
 			}
 
-			// Parcours de toutes les entries du répertoire
-			for (dirent* entry = ::readdir(dir); entry != nullptr; entry = ::readdir(dir)) {
-				// Ignorer les entries vides
-				if (entry->d_name[0] == '\0') {
-					continue;
-				}
+			const NkString entryName(findData.cFileName);
+			tm entryDate{};
 
-				const NkString entryName(entry->d_name);
-				tm entryDate{};
-
-				// Extraction et validation de la date depuis le nom de fichier
-				if (!NkExtractRotatedDate(entryName, baseName, entryDate)) {
-					continue;
-				}
-
-				// Vérification si la date est trop ancienne
-				if (!IsDateTooOld(entryDate)) {
-					continue;
-				}
-
-				// Suppression du fichier trop ancien
-				const NkString fullPath = NkJoinPath(directory, entryName);
-				(void)::remove(fullPath.CStr());
+			// Extraction et validation de la date depuis le nom de fichier
+			if (!NkExtractRotatedDate(entryName, baseName, entryDate)) {
+				continue;
 			}
 
-			// Fermeture du descripteur de répertoire
-			(void)::closedir(dir);
-		#endif
+			// Vérification si la date est trop ancienne
+			if (!IsDateTooOld(entryDate)) {
+				continue;
+			}
+
+			// Suppression du fichier trop ancien
+			const NkString fullPath = NkJoinPath(directory, entryName);
+			(void)::remove(fullPath.CStr());
+
+		} while (::FindNextFileA(handle, &findData) != 0);
+
+		// Nettoyage du handle de recherche
+		(void)::FindClose(handle);
+
+#else
+		// POSIX : utilisation de opendir/readdir pour parcours
+		DIR *dir = ::opendir(directory.CStr());
+		if (dir == nullptr) {
+			return;
+		}
+
+		// Parcours de toutes les entries du répertoire
+		for (dirent *entry = ::readdir(dir); entry != nullptr; entry = ::readdir(dir)) {
+			// Ignorer les entries vides
+			if (entry->d_name[0] == '\0') {
+				continue;
+			}
+
+			const NkString entryName(entry->d_name);
+			tm entryDate{};
+
+			// Extraction et validation de la date depuis le nom de fichier
+			if (!NkExtractRotatedDate(entryName, baseName, entryDate)) {
+				continue;
+			}
+
+			// Vérification si la date est trop ancienne
+			if (!IsDateTooOld(entryDate)) {
+				continue;
+			}
+
+			// Suppression du fichier trop ancien
+			const NkString fullPath = NkJoinPath(directory, entryName);
+			(void)::remove(fullPath.CStr());
+		}
+
+		// Fermeture du descripteur de répertoire
+		(void)::closedir(dir);
+#endif
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetFilenameForDate (privée)
 	// DESCRIPTION : Génère le chemin de fichier de backup pour une date donnée
 	// -------------------------------------------------------------------------
-	NkString NkDailyFileSink::GetFilenameForDate(const tm& date) const {
+	NkString NkDailyFileSink::GetFilenameForDate(const tm &date) const {
 		// Note : appelée avec m_Mutex déjà acquis, lecture safe de m_Filename
 
 		// Buffer pour le suffixe de date : ".YYYYMMDD"
 		char suffixBuffer[32];
 
 		// Formatage sûr de la date en suffixe décimal
-		const int written = ::snprintf(
-			suffixBuffer,
-			sizeof(suffixBuffer),
-			".%04d%02d%02d",
-			date.tm_year + 1900,  // tm_year est offset depuis 1900
-			date.tm_mon + 1,       // tm_mon est 0-based (0 = janvier)
-			date.tm_mday
-		);
+		const int written = ::snprintf(suffixBuffer, sizeof(suffixBuffer), ".%04d%02d%02d",
+									   date.tm_year + 1900, // tm_year est offset depuis 1900
+									   date.tm_mon + 1,		// tm_mon est 0-based (0 = janvier)
+									   date.tm_mday);
 
 		// Récupération du chemin de base via méthode unlocked (mutex déjà acquis)
 		NkString result = GetFilenameUnlocked();
@@ -667,15 +616,14 @@ namespace nkentseu {
 		return result;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : ExtractDateFromFilename (privée)
 	// DESCRIPTION : Extrait la date d'un nom de fichier de backup
 	// -------------------------------------------------------------------------
-	tm NkDailyFileSink::ExtractDateFromFilename(const NkString& filename) const {
+	tm NkDailyFileSink::ExtractDateFromFilename(const NkString &filename) const {
 		// Initialisation d'une date invalide par défaut
 		tm date{};
-		date.tm_year = -1;  // Marqueur d'invalidité
+		date.tm_year = -1; // Marqueur d'invalidité
 		date.tm_mon = 0;
 		date.tm_mday = 0;
 		date.tm_hour = 0;
@@ -695,7 +643,7 @@ namespace nkentseu {
 		}
 
 		// Extraction des 8 chiffres de date
-		char digits[9];  // 8 chiffres + null terminator
+		char digits[9]; // 8 chiffres + null terminator
 		for (int i = 0; i < 8; ++i) {
 			digits[i] = filename[dotPos + 1 + static_cast<nkentseu::usize>(i)];
 		}
@@ -711,12 +659,11 @@ namespace nkentseu {
 		return date;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : IsDateTooOld (privée)
 	// DESCRIPTION : Vérifie si une date est plus ancienne que le seuil de conservation
 	// -------------------------------------------------------------------------
-	bool NkDailyFileSink::IsDateTooOld(const tm& date) const {
+	bool NkDailyFileSink::IsDateTooOld(const tm &date) const {
 		// Cas spéciaux : conservation illimitée ou date invalide
 		if (m_MaxDays == 0 || date.tm_year < 0) {
 			return false;
@@ -725,11 +672,11 @@ namespace nkentseu {
 		// Obtention de la date système courante
 		const time_t now = ::time(nullptr);
 		tm nowDate{};
-		#ifdef _WIN32
-			localtime_s(&nowDate, &now);
-		#else
-			localtime_r(&now, &nowDate);
-		#endif
+#ifdef _WIN32
+		localtime_s(&nowDate, &now);
+#else
+		localtime_r(&now, &nowDate);
+#endif
 
 		// Normalisation de nowDate à minuit pour comparaison jour-par-jour
 		nowDate.tm_hour = 0;
@@ -763,9 +710,7 @@ namespace nkentseu {
 		return candidateTime < threshold;
 	}
 
-
 } // namespace nkentseu
-
 
 // =============================================================================
 // NOTES D'IMPLÉMENTATION ET BONNES PRATIQUES
@@ -780,7 +725,7 @@ namespace nkentseu {
 	2. ATOMICITÉ DE PerformRotation() :
 	   - Séquence Close() → rename() → Open() doit être exécutée atomiquement
 	   - Garantit par le fait que cette méthode est appelée uniquement depuis
-	     Log() ou Rotate() qui acquièrent déjà m_Mutex
+		 Log() ou Rotate() qui acquièrent déjà m_Mutex
 	   - Risk : crash pendant rotation → fichier backup potentiellement partiel
 	   - Mitigation : rotation déclenchée uniquement après écriture complète du message
 
@@ -824,7 +769,6 @@ namespace nkentseu {
 	   - Valider le thread-safety avec tests concurrents (TSan, helgrind, etc.)
 	   - Pour tester la rotation automatique : mock de localtime() ou manipulation d'horloge
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

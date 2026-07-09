@@ -27,47 +27,53 @@
 
 namespace nkentseu {
 
-    // -------------------------------------------------------------------------
-    // NkHarmonyGamepad — backend stub conforme NkIGamepad
-    // -------------------------------------------------------------------------
+	// -------------------------------------------------------------------------
+	// NkHarmonyGamepad — backend stub conforme NkIGamepad
+	// -------------------------------------------------------------------------
 
-    class NkHarmonyGamepad final : public NkIGamepad {
-        public:
-            NkHarmonyGamepad()           = default;
-            ~NkHarmonyGamepad() override = default;
+	class NkHarmonyGamepad final : public NkIGamepad {
+		public:
+			NkHarmonyGamepad() = default;
+			~NkHarmonyGamepad() override = default;
 
-            // --- Cycle de vie ---
-            bool Init()     override { return true; }
-            void Shutdown() override {}
+			// --- Cycle de vie ---
+			bool Init() override {
+				return true;
+			}
 
-            // --- Polling (no-op stub) ---
-            void Poll()     override {}
+			void Shutdown() override {
+			}
 
-            // --- État courant ---
-            uint32 GetConnectedCount() const override { return 0; }
+			// --- Polling (no-op stub) ---
+			void Poll() override {
+			}
 
-            /// Retourne TOUJOURS le snapshot vide (connected=false) — aucun
-            /// gamepad n'est détecté tant que OH_Input n'est pas câblé.
-            const NkGamepadSnapshot& GetSnapshot(uint32 /*idx*/) const override {
-                return mEmptySnapshot;
-            }
+			// --- État courant ---
+			uint32 GetConnectedCount() const override {
+				return 0;
+			}
 
-            // --- Vibration (no-op) ---
-            void Rumble(uint32 /*idx*/,
-                        float32 /*motorLow*/,  float32 /*motorHigh*/,
-                        float32 /*trigLeft*/,  float32 /*trigRight*/,
-                        uint32  /*durationMs*/) override {}
+			/// Retourne TOUJOURS le snapshot vide (connected=false) — aucun
+			/// gamepad n'est détecté tant que OH_Input n'est pas câblé.
+			const NkGamepadSnapshot &GetSnapshot(uint32 /*idx*/) const override {
+				return mEmptySnapshot;
+			}
 
-            // --- Diagnostic ---
-            const char* GetName() const noexcept override {
-                return "HarmonyOS-Stub";
-            }
+			// --- Vibration (no-op) ---
+			void Rumble(uint32 /*idx*/, float32 /*motorLow*/, float32 /*motorHigh*/, float32 /*trigLeft*/,
+						float32 /*trigRight*/, uint32 /*durationMs*/) override {
+			}
 
-        private:
-            // Snapshot vide partagé (Clear() au construction par les valeurs
-            // par défaut du POD — connected=false, axes=0, buttons=0).
-            NkGamepadSnapshot mEmptySnapshot{};
-    };
+			// --- Diagnostic ---
+			const char *GetName() const noexcept override {
+				return "HarmonyOS-Stub";
+			}
+
+		private:
+			// Snapshot vide partagé (Clear() au construction par les valeurs
+			// par défaut du POD — connected=false, axes=0, buttons=0).
+			NkGamepadSnapshot mEmptySnapshot{};
+	};
 
 } // namespace nkentseu
 

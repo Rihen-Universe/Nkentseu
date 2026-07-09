@@ -30,20 +30,20 @@
 #include "NKAudio/NKAudio.h"
 
 namespace nkentseu {
-    namespace audio {
+	namespace audio {
 
-        class NKENTSEU_AUDIO_API NkFLACCodec {
-            public:
-                /// Decode un buffer FLAC complet en AudioSample (float32 interleaved).
-                /// @param data       Pointeur vers le debut du fichier FLAC (magic "fLaC").
-                /// @param size       Taille du buffer en octets.
-                /// @param allocator  Allocateur a utiliser pour le buffer sortie
-                ///                   (nullptr = allocateur global par defaut).
-                /// @return  AudioSample valide si decode OK, AudioSample vide sinon.
-                ///          Le caller libere via AudioLoader::Free() ou sample.Free().
-                static AudioSample Decode(const uint8* data, usize size,
-                                          memory::NkAllocator* allocator = nullptr) noexcept;
-        };
+		class NKENTSEU_AUDIO_API NkFLACCodec {
+			public:
+				/// Decode un buffer FLAC complet en AudioSample (float32 interleaved).
+				/// @param data       Pointeur vers le debut du fichier FLAC (magic "fLaC").
+				/// @param size       Taille du buffer en octets.
+				/// @param allocator  Allocateur a utiliser pour le buffer sortie
+				///                   (nullptr = allocateur global par defaut).
+				/// @return  AudioSample valide si decode OK, AudioSample vide sinon.
+				///          Le caller libere via AudioLoader::Free() ou sample.Free().
+				static AudioSample Decode(const uint8 *data, usize size,
+										  memory::NkAllocator *allocator = nullptr) noexcept;
+		};
 
-    } // namespace audio
+	} // namespace audio
 } // namespace nkentseu

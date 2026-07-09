@@ -14,306 +14,342 @@
 #include <cmath>
 
 namespace nkentseu {
-    namespace nkui {
+	namespace nkui {
 
-        static bool LayoutWindowCanInteract(const NkUIContext& ctx, NkUIID widgetId) noexcept {
-            if (!ctx.wm || ctx.currentWindowId == NKUI_ID_NONE) {
-                return true;
-            }
-            if (ctx.wm->movingId != NKUI_ID_NONE) {
-                return ctx.wm->movingId == ctx.currentWindowId;
-            }
-            if (ctx.wm->resizingId != NKUI_ID_NONE) {
-                return ctx.wm->resizingId == ctx.currentWindowId;
-            }
-            if (ctx.wm->hoveredId != NKUI_ID_NONE && ctx.wm->hoveredId != ctx.currentWindowId) {
-                return widgetId != NKUI_ID_NONE && ctx.IsActive(widgetId);
-            }
-            return true;
-        }
+		static bool LayoutWindowCanInteract(const NkUIContext &ctx, NkUIID widgetId) noexcept {
+			if (!ctx.wm || ctx.currentWindowId == NKUI_ID_NONE) {
+				return true;
+			}
+			if (ctx.wm->movingId != NKUI_ID_NONE) {
+				return ctx.wm->movingId == ctx.currentWindowId;
+			}
+			if (ctx.wm->resizingId != NKUI_ID_NONE) {
+				return ctx.wm->resizingId == ctx.currentWindowId;
+			}
+			if (ctx.wm->hoveredId != NKUI_ID_NONE && ctx.wm->hoveredId != ctx.currentWindowId) {
+				return widgetId != NKUI_ID_NONE && ctx.IsActive(widgetId);
+			}
+			return true;
+		}
 
-        // ─────────────────────────────────────────────────────────────────────────────
-        //  ResolveWidth / ResolveHeight
-        // ─────────────────────────────────────────────────────────────────────────────
+		// ─────────────────────────────────────────────────────────────────────────────
+		//  ResolveWidth / ResolveHeight
+		// ─────────────────────────────────────────────────────────────────────────────
 
-        float32 NkUILayout::ResolveWidth(const NkUILayoutNode& node,
-                                        const NkUIConstraint& c,float32 want) noexcept
-        {
-            float32 v=want;
-            switch(c.type){
-                case NkUIConstraint::NK_FIXED:   v=c.value; break;
-                case NkUIConstraint::NK_PERCENT: v=node.bounds.w*c.value; break;
-                case NkUIConstraint::NK_GROW:    v=node.bounds.w; break;
-                default: v=want; break;
-            }
-            if(v<c.minSize) v=c.minSize;
-            if(v>c.maxSize) v=c.maxSize;
-            return v;
-        }
+		float32 NkUILayout::ResolveWidth(const NkUILayoutNode &node, const NkUIConstraint &c, float32 want) noexcept {
+			float32 v = want;
+			switch (c.type) {
+				case NkUIConstraint::NK_FIXED:
+					v = c.value;
+					break;
+				case NkUIConstraint::NK_PERCENT:
+					v = node.bounds.w * c.value;
+					break;
+				case NkUIConstraint::NK_GROW:
+					v = node.bounds.w;
+					break;
+				default:
+					v = want;
+					break;
+			}
+			if (v < c.minSize)
+				v = c.minSize;
+			if (v > c.maxSize)
+				v = c.maxSize;
+			return v;
+		}
 
-        float32 NkUILayout::ResolveHeight(const NkUILayoutNode& node,
-                                            const NkUIConstraint& c,float32 want) noexcept
-        {
-            float32 v=want;
-            switch(c.type){
-                case NkUIConstraint::NK_FIXED:   v=c.value; break;
-                case NkUIConstraint::NK_PERCENT: v=node.bounds.h*c.value; break;
-                case NkUIConstraint::NK_GROW:    v=node.bounds.h; break;
-                default: v=want; break;
-            }
-            if(v<c.minSize) v=c.minSize;
-            if(v>c.maxSize) v=c.maxSize;
-            return v;
-        }
+		float32 NkUILayout::ResolveHeight(const NkUILayoutNode &node, const NkUIConstraint &c, float32 want) noexcept {
+			float32 v = want;
+			switch (c.type) {
+				case NkUIConstraint::NK_FIXED:
+					v = c.value;
+					break;
+				case NkUIConstraint::NK_PERCENT:
+					v = node.bounds.h * c.value;
+					break;
+				case NkUIConstraint::NK_GROW:
+					v = node.bounds.h;
+					break;
+				default:
+					v = want;
+					break;
+			}
+			if (v < c.minSize)
+				v = c.minSize;
+			if (v > c.maxSize)
+				v = c.maxSize;
+			return v;
+		}
 
-        // ─────────────────────────────────────────────────────────────────────────────
-        //  NextItemRect — calcule où placer le prochain widget
-        // ─────────────────────────────────────────────────────────────────────────────
+		// ─────────────────────────────────────────────────────────────────────────────
+		//  NextItemRect — calcule où placer le prochain widget
+		// ─────────────────────────────────────────────────────────────────────────────
 
-        NkRect NkUILayout::NextItemRect(NkUIContext& ctx,
-                                        NkUILayoutStack& stack,
-                                        float32 wantW,float32 wantH) noexcept
-        {
-            NkUILayoutNode* node=stack.Top();
-            if(!node){
-                // Pas de layout actif — utilise le curseur du contexte
-                return {ctx.cursor.x,ctx.cursor.y,wantW,wantH};
-            }
+		NkRect NkUILayout::NextItemRect(NkUIContext &ctx, NkUILayoutStack &stack, float32 wantW,
+										float32 wantH) noexcept {
+			NkUILayoutNode *node = stack.Top();
+			if (!node) {
+				// Pas de layout actif — utilise le curseur du contexte
+				return {ctx.cursor.x, ctx.cursor.y, wantW, wantH};
+			}
 
-            float32 x=node->cursor.x-node->scrollX;
-            float32 y=node->cursor.y-node->scrollY;
-            float32 w=ResolveWidth(*node,node->nextW,wantW);
-            float32 h=ResolveHeight(*node,node->nextH,wantH);
+			float32 x = node->cursor.x - node->scrollX;
+			float32 y = node->cursor.y - node->scrollY;
+			float32 w = ResolveWidth(*node, node->nextW, wantW);
+			float32 h = ResolveHeight(*node, node->nextH, wantH);
 
-            // Reset les contraintes one-shot
-            node->nextW={NkUIConstraint::NK_AUTO};
-            node->nextH={NkUIConstraint::NK_AUTO};
+			// Reset les contraintes one-shot
+			node->nextW = {NkUIConstraint::NK_AUTO};
+			node->nextH = {NkUIConstraint::NK_AUTO};
 
-            switch(node->type){
-                case NkUILayoutType::NK_ROW:
-                    // Horizontal : la largeur est résolue, la hauteur = max de la ligne
-                    w=ResolveWidth(*node,{NkUIConstraint::NK_AUTO},wantW);
-                    h=wantH;
-                    // Limite à l'espace restant
-                    {const float32 rem=node->bounds.x+node->bounds.w-x;
-                    if(w>rem) w=rem;}
-                    break;
-                case NkUILayoutType::NK_COLUMN:
-                    // Vertical : pleine largeur par défaut
-                    {
-                        float32 availW = node->bounds.x + node->bounds.w - x;
-                        if (availW < 1.f) availW = 1.f;
-                        w = (node->nextW.type == NkUIConstraint::NK_AUTO) ? availW : w;
-                    }
-                    h=wantH;
-                    break;
-                case NkUILayoutType::NK_GRID:
-                    w=node->gridCellW;
-                    h=wantH;
-                    x=node->bounds.x+node->gridCol*node->gridCellW-node->scrollX;
-                    y=node->cursor.y-node->scrollY;
-                    break;
-                case NkUILayoutType::NK_SCROLL:
-                    x = node->cursor.x - node->scrollX;
-                    y = node->cursor.y - node->scrollY;
-                    {
-                        float32 availW = node->bounds.x + node->bounds.w - x;
-                        if (availW < 1.f) availW = 1.f;
-                        w = (node->nextW.type == NkUIConstraint::NK_AUTO) ? availW : w;
-                    }
-                    h = wantH;
-                    break;
-                default:
-                    break;
-            }
+			switch (node->type) {
+				case NkUILayoutType::NK_ROW:
+					// Horizontal : la largeur est résolue, la hauteur = max de la ligne
+					w = ResolveWidth(*node, {NkUIConstraint::NK_AUTO}, wantW);
+					h = wantH;
+					// Limite à l'espace restant
+					{
+						const float32 rem = node->bounds.x + node->bounds.w - x;
+						if (w > rem)
+							w = rem;
+					}
+					break;
+				case NkUILayoutType::NK_COLUMN:
+					// Vertical : pleine largeur par défaut
+					{
+						float32 availW = node->bounds.x + node->bounds.w - x;
+						if (availW < 1.f)
+							availW = 1.f;
+						w = (node->nextW.type == NkUIConstraint::NK_AUTO) ? availW : w;
+					}
+					h = wantH;
+					break;
+				case NkUILayoutType::NK_GRID:
+					w = node->gridCellW;
+					h = wantH;
+					x = node->bounds.x + node->gridCol * node->gridCellW - node->scrollX;
+					y = node->cursor.y - node->scrollY;
+					break;
+				case NkUILayoutType::NK_SCROLL:
+					x = node->cursor.x - node->scrollX;
+					y = node->cursor.y - node->scrollY;
+					{
+						float32 availW = node->bounds.x + node->bounds.w - x;
+						if (availW < 1.f)
+							availW = 1.f;
+						w = (node->nextW.type == NkUIConstraint::NK_AUTO) ? availW : w;
+					}
+					h = wantH;
+					break;
+				default:
+					break;
+			}
 
-            return {x,y,w>0?w:wantW,h>0?h:wantH};
-        }
+			return {x, y, w > 0 ? w : wantW, h > 0 ? h : wantH};
+		}
 
-        // ─────────────────────────────────────────────────────────────────────────────
-        //  AdvanceItem — avance le curseur après placement d'un item
-        // ─────────────────────────────────────────────────────────────────────────────
+		// ─────────────────────────────────────────────────────────────────────────────
+		//  AdvanceItem — avance le curseur après placement d'un item
+		// ─────────────────────────────────────────────────────────────────────────────
 
-        void NkUILayout::AdvanceItem(NkUIContext& ctx,
-                                    NkUILayoutStack& stack,
-                                    NkRect placed) noexcept
-        {
-            NkUILayoutNode* node=stack.Top();
-            const float32 sp=ctx.theme.metrics.itemSpacing;
+		void NkUILayout::AdvanceItem(NkUIContext &ctx, NkUILayoutStack &stack, NkRect placed) noexcept {
+			NkUILayoutNode *node = stack.Top();
+			const float32 sp = ctx.theme.metrics.itemSpacing;
 
-            if(!node){
-                ctx.AdvanceCursor({placed.w,placed.h});
-                return;
-            }
+			if (!node) {
+				ctx.AdvanceCursor({placed.w, placed.h});
+				return;
+			}
 
-            ++node->itemCount;
+			++node->itemCount;
 
-            // Met à jour la taille du contenu pour le scroll
-            const float32 bx=placed.x+placed.w+node->scrollX;
-            const float32 by=placed.y+placed.h+node->scrollY;
-            if(bx-node->bounds.x>node->contentSize.x) node->contentSize.x=bx-node->bounds.x;
-            if(by-node->bounds.y>node->contentSize.y) node->contentSize.y=by-node->bounds.y;
+			// Met à jour la taille du contenu pour le scroll
+			const float32 bx = placed.x + placed.w + node->scrollX;
+			const float32 by = placed.y + placed.h + node->scrollY;
+			if (bx - node->bounds.x > node->contentSize.x)
+				node->contentSize.x = bx - node->bounds.x;
+			if (by - node->bounds.y > node->contentSize.y)
+				node->contentSize.y = by - node->bounds.y;
 
-            switch(node->type){
-                case NkUILayoutType::NK_ROW:
-                    node->cursor.x+=placed.w+sp;
-                    if(placed.h>node->lineH) node->lineH=placed.h;
-                    break;
-                case NkUILayoutType::NK_COLUMN:
-                case NkUILayoutType::NK_SCROLL:
-                    // node->cursor.y+=placed.h+sp;
-                    // if(placed.w>node->colW) node->colW=placed.w;
-                    node->cursor.y += placed.h + sp;
-                    // contentSize = distance parcourue depuis le début, sans le scroll
-                    {
-                        const float32 absY = node->cursor.y - node->bounds.y;
-                        if (absY > node->contentSize.y) node->contentSize.y = absY;
-                    }
-                    break;
-                case NkUILayoutType::NK_GRID:
-                    ++node->gridCol;
-                    if(node->gridCol>=node->gridCols){
-                        node->gridCol=0;
-                        node->cursor.y+=placed.h+sp;
-                    }
-                    break;
-                default:
-                    // Free : avance verticalement
-                    node->cursor.y+=placed.h+sp;
-                    break;
-            }
-        }
+			switch (node->type) {
+				case NkUILayoutType::NK_ROW:
+					node->cursor.x += placed.w + sp;
+					if (placed.h > node->lineH)
+						node->lineH = placed.h;
+					break;
+				case NkUILayoutType::NK_COLUMN:
+				case NkUILayoutType::NK_SCROLL:
+					// node->cursor.y+=placed.h+sp;
+					// if(placed.w>node->colW) node->colW=placed.w;
+					node->cursor.y += placed.h + sp;
+					// contentSize = distance parcourue depuis le début, sans le scroll
+					{
+						const float32 absY = node->cursor.y - node->bounds.y;
+						if (absY > node->contentSize.y)
+							node->contentSize.y = absY;
+					}
+					break;
+				case NkUILayoutType::NK_GRID:
+					++node->gridCol;
+					if (node->gridCol >= node->gridCols) {
+						node->gridCol = 0;
+						node->cursor.y += placed.h + sp;
+					}
+					break;
+				default:
+					// Free : avance verticalement
+					node->cursor.y += placed.h + sp;
+					break;
+			}
+		}
 
-        // ─────────────────────────────────────────────────────────────────────────────
-        //  DrawScrollbar
-        // ─────────────────────────────────────────────────────────────────────────────
+		// ─────────────────────────────────────────────────────────────────────────────
+		//  DrawScrollbar
+		// ─────────────────────────────────────────────────────────────────────────────
 
-        bool NkUILayout::DrawScrollbar(NkUIContext& ctx,
-                                        NkUIDrawList& dl,
-                                        bool vertical,
-                                        NkRect track,
-                                        float32 contentSize,
-                                        float32 viewSize,
-                                        float32& scroll,
-                                        NkUIID id) noexcept
-        {
-            if(contentSize<=viewSize) return false; // pas besoin de scroll
+		bool NkUILayout::DrawScrollbar(NkUIContext &ctx, NkUIDrawList &dl, bool vertical, NkRect track,
+									   float32 contentSize, float32 viewSize, float32 &scroll, NkUIID id) noexcept {
+			if (contentSize <= viewSize)
+				return false; // pas besoin de scroll
 
-            const auto& c=ctx.theme.colors;
-            const auto& m=ctx.theme.metrics;
-            const float32 ratio=viewSize/contentSize;
-            const float32 thumbLen=(vertical?track.h:track.w)*ratio;
-            const float32 thumbMin=m.scrollbarMinLen;
-            const float32 tl=thumbLen<thumbMin?thumbMin:thumbLen;
-            const float32 maxScroll=contentSize-viewSize;
-            const float32 scrollFrac=maxScroll>0?scroll/maxScroll:0.f;
-            const float32 trackLen=(vertical?track.h:track.w)-tl;
+			const auto &c = ctx.theme.colors;
+			const auto &m = ctx.theme.metrics;
+			const float32 ratio = viewSize / contentSize;
+			const float32 thumbLen = (vertical ? track.h : track.w) * ratio;
+			const float32 thumbMin = m.scrollbarMinLen;
+			const float32 tl = thumbLen < thumbMin ? thumbMin : thumbLen;
+			const float32 maxScroll = contentSize - viewSize;
+			const float32 scrollFrac = maxScroll > 0 ? scroll / maxScroll : 0.f;
+			const float32 trackLen = (vertical ? track.h : track.w) - tl;
 
-            // Rect du thumb
-            NkRect thumb=track;
-            if(vertical){ thumb.y+=trackLen*scrollFrac; thumb.h=tl; thumb.w-=2; thumb.x+=1; }
-            else         { thumb.x+=trackLen*scrollFrac; thumb.w=tl; thumb.h-=2; thumb.y+=1; }
+			// Rect du thumb
+			NkRect thumb = track;
+			if (vertical) {
+				thumb.y += trackLen * scrollFrac;
+				thumb.h = tl;
+				thumb.w -= 2;
+				thumb.x += 1;
+			} else {
+				thumb.x += trackLen * scrollFrac;
+				thumb.w = tl;
+				thumb.h -= 2;
+				thumb.y += 1;
+			}
 
-            // Dessin
-            dl.AddRectFilled(track,c.scrollBg,m.cornerRadiusSm);
-            const bool canInteract = LayoutWindowCanInteract(ctx, id);
-            const bool hov=canInteract && ctx.IsHovered(thumb);
-            const bool act=ctx.IsActive(id);
-            dl.AddRectFilled(thumb,act||hov?c.scrollThumbHov:c.scrollThumb,m.cornerRadiusSm);
+			// Dessin
+			dl.AddRectFilled(track, c.scrollBg, m.cornerRadiusSm);
+			const bool canInteract = LayoutWindowCanInteract(ctx, id);
+			const bool hov = canInteract && ctx.IsHovered(thumb);
+			const bool act = ctx.IsActive(id);
+			dl.AddRectFilled(thumb, act || hov ? c.scrollThumbHov : c.scrollThumb, m.cornerRadiusSm);
 
-            // Interaction drag
-            if(hov&&ctx.ConsumeMouseClick(0)){
-                ctx.SetActive(id);
-            }
-            if(act){
-                const float32 delta=(vertical?ctx.input.mouseDelta.y:ctx.input.mouseDelta.x);
-                if(delta!=0){
-                    scroll+=delta*(contentSize/viewSize);
-                    if(scroll<0) scroll=0;
-                    if(scroll>maxScroll) scroll=maxScroll;
-                }
-                if(!ctx.input.mouseDown[0]) ctx.ClearActive();
-            }
+			// Interaction drag
+			if (hov && ctx.ConsumeMouseClick(0)) {
+				ctx.SetActive(id);
+			}
+			if (act) {
+				const float32 delta = (vertical ? ctx.input.mouseDelta.y : ctx.input.mouseDelta.x);
+				if (delta != 0) {
+					scroll += delta * (contentSize / viewSize);
+					if (scroll < 0)
+						scroll = 0;
+					if (scroll > maxScroll)
+						scroll = maxScroll;
+				}
+				if (!ctx.input.mouseDown[0])
+					ctx.ClearActive();
+			}
 
-            // Molette souris
-            const float32 wheelDelta = vertical ? ctx.input.mouseWheel : ctx.input.mouseWheelH;
-            const bool wheelAvailable = vertical ? (!ctx.wheelConsumed) : (!ctx.wheelHConsumed);
-            if(canInteract&&ctx.IsHovered(track)&&wheelAvailable&&wheelDelta!=0){
-                scroll-=wheelDelta*m.itemHeight*3;
-                if(scroll<0) scroll=0;
-                if(scroll>maxScroll) scroll=maxScroll;
-                if (vertical) ctx.wheelConsumed = true;
-                else          ctx.wheelHConsumed = true;
-            }
+			// Molette souris
+			const float32 wheelDelta = vertical ? ctx.input.mouseWheel : ctx.input.mouseWheelH;
+			const bool wheelAvailable = vertical ? (!ctx.wheelConsumed) : (!ctx.wheelHConsumed);
+			if (canInteract && ctx.IsHovered(track) && wheelAvailable && wheelDelta != 0) {
+				scroll -= wheelDelta * m.itemHeight * 3;
+				if (scroll < 0)
+					scroll = 0;
+				if (scroll > maxScroll)
+					scroll = maxScroll;
+				if (vertical)
+					ctx.wheelConsumed = true;
+				else
+					ctx.wheelHConsumed = true;
+			}
 
-            return act;
-        }
+			return act;
+		}
 
-        // ─────────────────────────────────────────────────────────────────────────────
-        //  DrawSplitter
-        // ─────────────────────────────────────────────────────────────────────────────
+		// ─────────────────────────────────────────────────────────────────────────────
+		//  DrawSplitter
+		// ─────────────────────────────────────────────────────────────────────────────
 
-        bool NkUILayout::DrawSplitter(NkUIContext& ctx,
-                                        NkUIDrawList& dl,
-                                        NkRect rect,
-                                        bool vertical,
-                                        float32& ratio,
-                                        NkUIID id) noexcept
-        {
-            const auto& c=ctx.theme.colors;
-            const auto& m=ctx.theme.metrics;
-            const float32 hw=m.dockSplitW*0.5f;
-            // Zone VISUELLE (fine) vs zone de PRÉHENSION (large) : il faut pouvoir
-            // attraper le séparateur facilement, sinon on attrape la barre d'onglets
-            // par erreur (et ça déclenche un undock au lieu d'un redimensionnement).
-            const float32 grabHw=(m.dockSplitW<12.f?12.f:m.dockSplitW)*0.5f;
-            NkRect splitter=rect;   // visuel
-            NkRect hit=rect;        // interaction (préhension élargie)
-            if(vertical){
-                splitter.x=rect.x+rect.w*ratio-hw;  splitter.w=m.dockSplitW;
-                hit.x=rect.x+rect.w*ratio-grabHw;   hit.w=grabHw*2.f;
-            } else {
-                splitter.y=rect.y+rect.h*ratio-hw;  splitter.h=m.dockSplitW;
-                hit.y=rect.y+rect.h*ratio-grabHw;   hit.h=grabHw*2.f;
-            }
+		bool NkUILayout::DrawSplitter(NkUIContext &ctx, NkUIDrawList &dl, NkRect rect, bool vertical, float32 &ratio,
+									  NkUIID id) noexcept {
+			const auto &c = ctx.theme.colors;
+			const auto &m = ctx.theme.metrics;
+			const float32 hw = m.dockSplitW * 0.5f;
+			// Zone VISUELLE (fine) vs zone de PRÉHENSION (large) : il faut pouvoir
+			// attraper le séparateur facilement, sinon on attrape la barre d'onglets
+			// par erreur (et ça déclenche un undock au lieu d'un redimensionnement).
+			const float32 grabHw = (m.dockSplitW < 12.f ? 12.f : m.dockSplitW) * 0.5f;
+			NkRect splitter = rect; // visuel
+			NkRect hit = rect;		// interaction (préhension élargie)
+			if (vertical) {
+				splitter.x = rect.x + rect.w * ratio - hw;
+				splitter.w = m.dockSplitW;
+				hit.x = rect.x + rect.w * ratio - grabHw;
+				hit.w = grabHw * 2.f;
+			} else {
+				splitter.y = rect.y + rect.h * ratio - hw;
+				splitter.h = m.dockSplitW;
+				hit.y = rect.y + rect.h * ratio - grabHw;
+				hit.h = grabHw * 2.f;
+			}
 
-            const bool canInteract = LayoutWindowCanInteract(ctx, id);
-            const bool hov=canInteract && ctx.IsHovered(hit);
-            const bool act=ctx.IsActive(id);
+			const bool canInteract = LayoutWindowCanInteract(ctx, id);
+			const bool hov = canInteract && ctx.IsHovered(hit);
+			const bool act = ctx.IsActive(id);
 
-            // Survol/actif : élargir le visuel (6px accent) pour une affordance nette.
-            if(hov||act){
-                NkRect vis=splitter;
-                if(vertical){ vis.x=rect.x+rect.w*ratio-3.f; vis.w=6.f; }
-                else        { vis.y=rect.y+rect.h*ratio-3.f; vis.h=6.f; }
-                dl.AddRectFilled(vis,c.accentHover);
-            } else {
-                dl.AddRectFilled(splitter,c.separator);
-            }
-            const NkVec2 center={splitter.x+splitter.w*0.5f,splitter.y+splitter.h*0.5f};
-            const NkColor handleCol=(hov||act)?c.textOnAccent:c.textSecondary;
-            const float32 arrowSize=vertical?6.f:5.f;
-            if(vertical){
-                dl.AddArrow({center.x-3.f,center.y},arrowSize,2,handleCol);
-                dl.AddArrow({center.x+3.f,center.y},arrowSize,0,handleCol);
-            } else {
-                dl.AddArrow({center.x,center.y-3.f},arrowSize,3,handleCol);
-                dl.AddArrow({center.x,center.y+3.f},arrowSize,1,handleCol);
-            }
-            if(hov||act){
-                ctx.SetMouseCursor(vertical?NkUIMouseCursor::NK_RESIZE_WE:NkUIMouseCursor::NK_RESIZE_NS);
-            }
+			// Survol/actif : élargir le visuel (6px accent) pour une affordance nette.
+			if (hov || act) {
+				NkRect vis = splitter;
+				if (vertical) {
+					vis.x = rect.x + rect.w * ratio - 3.f;
+					vis.w = 6.f;
+				} else {
+					vis.y = rect.y + rect.h * ratio - 3.f;
+					vis.h = 6.f;
+				}
+				dl.AddRectFilled(vis, c.accentHover);
+			} else {
+				dl.AddRectFilled(splitter, c.separator);
+			}
+			const NkVec2 center = {splitter.x + splitter.w * 0.5f, splitter.y + splitter.h * 0.5f};
+			const NkColor handleCol = (hov || act) ? c.textOnAccent : c.textSecondary;
+			const float32 arrowSize = vertical ? 6.f : 5.f;
+			if (vertical) {
+				dl.AddArrow({center.x - 3.f, center.y}, arrowSize, 2, handleCol);
+				dl.AddArrow({center.x + 3.f, center.y}, arrowSize, 0, handleCol);
+			} else {
+				dl.AddArrow({center.x, center.y - 3.f}, arrowSize, 3, handleCol);
+				dl.AddArrow({center.x, center.y + 3.f}, arrowSize, 1, handleCol);
+			}
+			if (hov || act) {
+				ctx.SetMouseCursor(vertical ? NkUIMouseCursor::NK_RESIZE_WE : NkUIMouseCursor::NK_RESIZE_NS);
+			}
 
-            if(hov&&ctx.ConsumeMouseClick(0)) ctx.SetActive(id);
-            if(act){
-                const float32 d=vertical
-                    ?(ctx.input.mousePos.x-rect.x)/rect.w
-                    :(ctx.input.mousePos.y-rect.y)/rect.h;
-                if(d>0.05f&&d<0.95f) ratio=d;
-                if(!ctx.input.mouseDown[0]) ctx.ClearActive();
-                return true;
-            }
-            return false;
-        }
-    }
+			if (hov && ctx.ConsumeMouseClick(0))
+				ctx.SetActive(id);
+			if (act) {
+				const float32 d =
+					vertical ? (ctx.input.mousePos.x - rect.x) / rect.w : (ctx.input.mousePos.y - rect.y) / rect.h;
+				if (d > 0.05f && d < 0.95f)
+					ratio = d;
+				if (!ctx.input.mouseDown[0])
+					ctx.ClearActive();
+				return true;
+			}
+			return false;
+		}
+	} // namespace nkui
 } // namespace nkentseu

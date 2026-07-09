@@ -12,44 +12,44 @@
 #include "NKMath/NkQuat.h"
 
 namespace nkentseu {
-    namespace physics {
+	namespace physics {
 
-        using NkQuatf = nkentseu::math::NkQuatf;
+		using NkQuatf = nkentseu::math::NkQuatf;
 
-        using NkJointId = uint32;
-        static constexpr NkJointId NK_INVALID_JOINT = 0u;
+		using NkJointId = uint32;
+		static constexpr NkJointId NK_INVALID_JOINT = 0u;
 
-        enum class NkJointType : uint8 {
-            DISTANCE = 0,   // garde 2 ancres à une distance cible (corde, entretoise)
-            BALL,           // point-à-point : les 2 ancres coïncident (épaule, hanche)
-            REVOLUTE,       // [M7+] pivot 1 DOF (coude, genou, roue) + limites
-            PRISMATIC,      // [M7+] glissière 1 DOF (piston, ascenseur) + limites
-            WELD            // [M7+] soudure rigide (position + orientation)
-        };
+		enum class NkJointType : uint8 {
+			DISTANCE = 0, // garde 2 ancres à une distance cible (corde, entretoise)
+			BALL,		  // point-à-point : les 2 ancres coïncident (épaule, hanche)
+			REVOLUTE,	  // [M7+] pivot 1 DOF (coude, genou, roue) + limites
+			PRISMATIC,	  // [M7+] glissière 1 DOF (piston, ascenseur) + limites
+			WELD		  // [M7+] soudure rigide (position + orientation)
+		};
 
-        // Articulation entre les corps `a` et `b` (tous deux réels ; pour un point fixe,
-        // utiliser un corps STATIC comme ancre). Ancres en repère LOCAL (relatif au COM).
-        struct NkJoint {
-            NkJointType type = NkJointType::BALL;
-            NkBodyId    a = NK_INVALID_BODY, b = NK_INVALID_BODY;
-            NkVec3f     localAnchorA{};      // ancre dans le repère local de A
-            NkVec3f     localAnchorB{};      // ancre dans le repère local de B
-            NkVec3f     localAxisA{ 0,0,1 }; // REVOLUTE : axe de charnière (repère local A)
-            NkVec3f     localAxisB{ 0,0,1 }; // REVOLUTE : axe de charnière (repère local B)
-            float32     restLength = 0.f;    // DISTANCE : longueur cible
-            NkQuatf     refRotation{};       // WELD/REVOLUTE : orientation relative de référence (qA⁻¹·qB)
-            NkVec3f     impulse{};           // warm-start linéaire (ball/point-à-point : 3 axes ; distance : .x)
-            NkVec3f     angImpulse{};        // warm-start angulaire (weld : 3 axes monde)
-            // ── M8 : moteur (drive PD vers un angle) + limites — autour de l'axe de charnière ──
-            bool        motorEnabled = false;
-            float32     targetAngle = 0.f;   // angle cible (rad)
-            float32     motorKp = 10.f;      // gain proportionnel : vitesse désirée = kp·(cible−θ)
-            float32     maxMotorTorque = 1e30f;
-            float32     motorImpulse = 0.f;  // accumulateur moteur (clamp ±maxTorque·dt)
-            bool        limitEnabled = false;
-            float32     lowerAngle = 0.f, upperAngle = 0.f;  // bornes d'angle (rad)
-            bool        enabled = true;
-        };
+		// Articulation entre les corps `a` et `b` (tous deux réels ; pour un point fixe,
+		// utiliser un corps STATIC comme ancre). Ancres en repère LOCAL (relatif au COM).
+		struct NkJoint {
+				NkJointType type = NkJointType::BALL;
+				NkBodyId a = NK_INVALID_BODY, b = NK_INVALID_BODY;
+				NkVec3f localAnchorA{};		 // ancre dans le repère local de A
+				NkVec3f localAnchorB{};		 // ancre dans le repère local de B
+				NkVec3f localAxisA{0, 0, 1}; // REVOLUTE : axe de charnière (repère local A)
+				NkVec3f localAxisB{0, 0, 1}; // REVOLUTE : axe de charnière (repère local B)
+				float32 restLength = 0.f;	 // DISTANCE : longueur cible
+				NkQuatf refRotation{};		 // WELD/REVOLUTE : orientation relative de référence (qA⁻¹·qB)
+				NkVec3f impulse{};			 // warm-start linéaire (ball/point-à-point : 3 axes ; distance : .x)
+				NkVec3f angImpulse{};		 // warm-start angulaire (weld : 3 axes monde)
+				// ── M8 : moteur (drive PD vers un angle) + limites — autour de l'axe de charnière ──
+				bool motorEnabled = false;
+				float32 targetAngle = 0.f; // angle cible (rad)
+				float32 motorKp = 10.f;	   // gain proportionnel : vitesse désirée = kp·(cible−θ)
+				float32 maxMotorTorque = 1e30f;
+				float32 motorImpulse = 0.f; // accumulateur moteur (clamp ±maxTorque·dt)
+				bool limitEnabled = false;
+				float32 lowerAngle = 0.f, upperAngle = 0.f; // bornes d'angle (rad)
+				bool enabled = true;
+		};
 
-    } // namespace physics
+	} // namespace physics
 } // namespace nkentseu

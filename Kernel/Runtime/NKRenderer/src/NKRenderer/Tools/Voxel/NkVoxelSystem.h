@@ -28,70 +28,81 @@
 
 namespace nkentseu {
 
-    class NkIDevice;        // NKRHI
-    class NkICommandBuffer; // NKRHI
+	class NkIDevice;		// NKRHI
+	class NkICommandBuffer; // NKRHI
 
-    namespace renderer {
+	namespace renderer {
 
-        class NkRenderGraph;
-        class NkTextureLibrary;
-        class NkShaderLibrary;
+		class NkRenderGraph;
+		class NkTextureLibrary;
+		class NkShaderLibrary;
 
-        class NkVoxelSystem {
-            public:
-                NkVoxelSystem() noexcept = default;
-                ~NkVoxelSystem() noexcept;
+		class NkVoxelSystem {
+			public:
+				NkVoxelSystem() noexcept = default;
+				~NkVoxelSystem() noexcept;
 
-                bool Init(NkIDevice* device, NkRenderGraph* graph,
-                          NkTextureLibrary* texLib, NkShaderLibrary* shaderLib,
-                          const NkVoxelConfig& cfg = {}) noexcept;
-                void Shutdown() noexcept;
-                [[nodiscard]] bool IsValid() const noexcept { return mReady; }
+				bool Init(NkIDevice *device, NkRenderGraph *graph, NkTextureLibrary *texLib, NkShaderLibrary *shaderLib,
+						  const NkVoxelConfig &cfg = {}) noexcept;
+				void Shutdown() noexcept;
 
-                // Enregistre les passes (Edit compute + Raymarch) dans le graph.
-                void RegisterToRenderGraph() noexcept;
+				[[nodiscard]] bool IsValid() const noexcept {
+					return mReady;
+				}
 
-                // Camera (pour le raymarch) : matrice inverse view-proj + position.
-                void SetCamera(const NkMat4f& invViewProj, const NkVec3f& camPosWorld) noexcept;
+				// Enregistre les passes (Edit compute + Raymarch) dans le graph.
+				void RegisterToRenderGraph() noexcept;
 
-                // ── API d'edition (monde -> voxel converti en interne) ───────────
-                void SetBrush(const NkVoxelBrush& brush) noexcept;
-                [[nodiscard]] const NkVoxelBrush& GetBrush() const noexcept { return mBrush; }
-                void BeginStrokeWorld(const NkVec3f& posWorld, float32 pressure = 1.f) noexcept;
-                void AddStrokeSampleWorld(const NkVec3f& posWorld, float32 pressure = 1.f) noexcept;
-                void EndStroke() noexcept;
-                void ClearVolume() noexcept;
+				// Camera (pour le raymarch) : matrice inverse view-proj + position.
+				void SetCamera(const NkMat4f &invViewProj, const NkVec3f &camPosWorld) noexcept;
 
-                // Conversion monde <-> voxel (selon origin + voxelSize de la config).
-                [[nodiscard]] NkVec3f WorldToVoxel(const NkVec3f& w) const noexcept;
-                [[nodiscard]] NkVec3f VoxelToWorld(const NkVec3f& v) const noexcept;
+				// ── API d'edition (monde -> voxel converti en interne) ───────────
+				void SetBrush(const NkVoxelBrush &brush) noexcept;
 
-                [[nodiscard]] NkVoxelVolume&      Volume()       noexcept { return mVolume; }
-                [[nodiscard]] const NkVoxelStats& Stats() const  noexcept { return mStats; }
+				[[nodiscard]] const NkVoxelBrush &GetBrush() const noexcept {
+					return mBrush;
+				}
 
-            private:
-                void RecordEditPass(NkICommandBuffer* cmd) noexcept;
-                void RecordRaymarchPass(NkICommandBuffer* cmd) noexcept;
+				void BeginStrokeWorld(const NkVec3f &posWorld, float32 pressure = 1.f) noexcept;
+				void AddStrokeSampleWorld(const NkVec3f &posWorld, float32 pressure = 1.f) noexcept;
+				void EndStroke() noexcept;
+				void ClearVolume() noexcept;
 
-                NkIDevice*        mDevice  = nullptr;
-                NkRenderGraph*    mGraph   = nullptr;
-                NkTextureLibrary* mTexLib  = nullptr;
-                NkShaderLibrary*  mShaders = nullptr;
-                NkVoxelConfig     mCfg;
-                bool              mReady = false;
+				// Conversion monde <-> voxel (selon origin + voxelSize de la config).
+				[[nodiscard]] NkVec3f WorldToVoxel(const NkVec3f &w) const noexcept;
+				[[nodiscard]] NkVec3f VoxelToWorld(const NkVec3f &v) const noexcept;
 
-                // mCompute declare AVANT mPipelines : il possede le cache de
-                // pipelines, donc il doit etre detruit APRES (ordre inverse de decl).
-                NkComputeContext  mCompute;
-                NkVoxelVolume     mVolume;
-                NkVoxelStroke     mStroke;
-                NkVoxelPipelines  mPipelines;
-                NkVoxelBrush      mBrush;
-                NkVoxelStats      mStats;
+				[[nodiscard]] NkVoxelVolume &Volume() noexcept {
+					return mVolume;
+				}
 
-                NkMat4f           mInvViewProj = NkMat4f::Identity();
-                NkVec3f           mCamPos      = {0, 0, 0};
-        };
+				[[nodiscard]] const NkVoxelStats &Stats() const noexcept {
+					return mStats;
+				}
 
-    } // namespace renderer
+			private:
+				void RecordEditPass(NkICommandBuffer *cmd) noexcept;
+				void RecordRaymarchPass(NkICommandBuffer *cmd) noexcept;
+
+				NkIDevice *mDevice = nullptr;
+				NkRenderGraph *mGraph = nullptr;
+				NkTextureLibrary *mTexLib = nullptr;
+				NkShaderLibrary *mShaders = nullptr;
+				NkVoxelConfig mCfg;
+				bool mReady = false;
+
+				// mCompute declare AVANT mPipelines : il possede le cache de
+				// pipelines, donc il doit etre detruit APRES (ordre inverse de decl).
+				NkComputeContext mCompute;
+				NkVoxelVolume mVolume;
+				NkVoxelStroke mStroke;
+				NkVoxelPipelines mPipelines;
+				NkVoxelBrush mBrush;
+				NkVoxelStats mStats;
+
+				NkMat4f mInvViewProj = NkMat4f::Identity();
+				NkVec3f mCamPos = {0, 0, 0};
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

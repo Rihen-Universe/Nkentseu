@@ -40,89 +40,96 @@ namespace nkentseu {
 	// ---------------------------------------------------------------------------
 
 	struct NkEntryState {
-		// --- Arguments communs Ã  toutes les plateformes ---
-		NkString appName;
-		NkVector<NkString> args;
+			// --- Arguments communs Ã  toutes les plateformes ---
+			NkString appName;
+			NkVector<NkString> args;
 
-		// --- Handles natifs optionnels (nullptr / 0 sur les autres plateformes) ---
+			// --- Handles natifs optionnels (nullptr / 0 sur les autres plateformes) ---
 
-	#if defined(NKENTSEU_PLATFORM_UWP)
-		// UWP : CoreWindow est fourni par le runtime (entrypoint UWP).
-		void *uwpCoreWindow = nullptr;
+#if defined(NKENTSEU_PLATFORM_UWP)
+			// UWP : CoreWindow est fourni par le runtime (entrypoint UWP).
+			void *uwpCoreWindow = nullptr;
 
-		NkEntryState() = default;
-		explicit NkEntryState(const NkVector<NkString> &a, void *coreWindow = nullptr)
-			: args(traits::NkMove(a)), uwpCoreWindow(coreWindow) {
-		}
+			NkEntryState() = default;
 
-	#elif defined(NKENTSEU_PLATFORM_XBOX)
-		void *xboxNativeWindow = nullptr;
-		HINSTANCE hInstance = nullptr;
-		HINSTANCE hPrevInstance = nullptr;
-		LPSTR lpCmdLine = nullptr;
-		int nCmdShow = 1;
+			explicit NkEntryState(const NkVector<NkString> &a, void *coreWindow = nullptr)
+				: args(traits::NkMove(a)), uwpCoreWindow(coreWindow) {
+			}
 
-		NkEntryState(HINSTANCE hi, HINSTANCE hpi, LPSTR cmd, int ncmd, const NkVector<NkString> &a,
-					 void *nativeWindow = nullptr)
-			: xboxNativeWindow(nativeWindow), hInstance(hi), hPrevInstance(hpi), lpCmdLine(cmd), nCmdShow(ncmd), args(traits::NkMove(a)) {
-		}
+#elif defined(NKENTSEU_PLATFORM_XBOX)
+			void *xboxNativeWindow = nullptr;
+			HINSTANCE hInstance = nullptr;
+			HINSTANCE hPrevInstance = nullptr;
+			LPSTR lpCmdLine = nullptr;
+			int nCmdShow = 1;
 
-	#elif defined(NKENTSEU_PLATFORM_WINDOWS)
-		HINSTANCE hInstance = nullptr;
-		HINSTANCE hPrevInstance = nullptr;
-		LPSTR lpCmdLine = nullptr;
-		int nCmdShow = 1;
+			NkEntryState(HINSTANCE hi, HINSTANCE hpi, LPSTR cmd, int ncmd, const NkVector<NkString> &a,
+						 void *nativeWindow = nullptr)
+				: xboxNativeWindow(nativeWindow), hInstance(hi), hPrevInstance(hpi), lpCmdLine(cmd), nCmdShow(ncmd),
+				  args(traits::NkMove(a)) {
+			}
 
-		NkEntryState(HINSTANCE hi, HINSTANCE hpi, LPSTR cmd, int ncmd, const NkVector<NkString> &a)
-			: hInstance(hi), hPrevInstance(hpi), lpCmdLine(cmd), nCmdShow(ncmd), args(traits::NkMove(a)) {
-		}
+#elif defined(NKENTSEU_PLATFORM_WINDOWS)
+			HINSTANCE hInstance = nullptr;
+			HINSTANCE hPrevInstance = nullptr;
+			LPSTR lpCmdLine = nullptr;
+			int nCmdShow = 1;
 
-	#elif defined(NKENTSEU_WINDOWING_WAYLAND)
-		// Wayland : wl_display est créé par fenêtre dans NkWaylandWindow::Create()
-		// — aucun handle global à transmettre ici.
-		NkEntryState() = default;
-		explicit NkEntryState(const NkVector<NkString> &a) : args(traits::NkMove(a)) {
-		}
+			NkEntryState(HINSTANCE hi, HINSTANCE hpi, LPSTR cmd, int ncmd, const NkVector<NkString> &a)
+				: hInstance(hi), hPrevInstance(hpi), lpCmdLine(cmd), nCmdShow(ncmd), args(traits::NkMove(a)) {
+			}
 
-	#elif defined(NKENTSEU_WINDOWING_XCB)
-		xcb_connection_t *connection = nullptr;
-		xcb_screen_t *screen = nullptr;
+#elif defined(NKENTSEU_WINDOWING_WAYLAND)
+			// Wayland : wl_display est créé par fenêtre dans NkWaylandWindow::Create()
+			// — aucun handle global à transmettre ici.
+			NkEntryState() = default;
 
-		NkEntryState(xcb_connection_t *c, xcb_screen_t *s, const NkVector<NkString> &a)
-			: connection(c), screen(s), args(traits::NkMove(a)) {
-		}
+			explicit NkEntryState(const NkVector<NkString> &a) : args(traits::NkMove(a)) {
+			}
 
-	#elif defined(NKENTSEU_WINDOWING_XLIB)
-		Display *display = nullptr;
+#elif defined(NKENTSEU_WINDOWING_XCB)
+			xcb_connection_t *connection = nullptr;
+			xcb_screen_t *screen = nullptr;
 
-		explicit NkEntryState(Display *d, const NkVector<NkString> &a) : display(d), args(traits::NkMove(a)) {
-		}
+			NkEntryState(xcb_connection_t *c, xcb_screen_t *s, const NkVector<NkString> &a)
+				: connection(c), screen(s), args(traits::NkMove(a)) {
+			}
 
-	#elif defined(NKENTSEU_PLATFORM_ANDROID)
-		android_app *androidApp = nullptr;
+#elif defined(NKENTSEU_WINDOWING_XLIB)
+			Display *display = nullptr;
 
-		explicit NkEntryState(android_app *app, NkVector<NkString> a) : androidApp(app), args(traits::NkMove(a)) {
-		}
+			explicit NkEntryState(Display *d, const NkVector<NkString> &a) : display(d), args(traits::NkMove(a)) {
+			}
 
-	#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
-		// HarmonyOS : pas de handle global nécessaire.
-		// La surface arrive via OH_NativeXComponent_Callback.
-		NkEntryState() = default;
-		explicit NkEntryState(const NkVector<NkString>& a) : args(traits::NkMove(a)) {}
+#elif defined(NKENTSEU_PLATFORM_ANDROID)
+			android_app *androidApp = nullptr;
 
-	#else
-		NkEntryState() = default;
-		explicit NkEntryState(const NkVector<NkString> &a) : args(traits::NkMove(a)) {
-		}
-	#endif
+			explicit NkEntryState(android_app *app, NkVector<NkString> a) : androidApp(app), args(traits::NkMove(a)) {
+			}
 
-		// Accesseurs gÃ©nÃ©riques
-		const NkVector<NkString> &GetArgs() const {
-			return args;
-		}
-		const NkString &GetAppName() const {
-			return appName;
-		}
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+			// HarmonyOS : pas de handle global nécessaire.
+			// La surface arrive via OH_NativeXComponent_Callback.
+			NkEntryState() = default;
+
+			explicit NkEntryState(const NkVector<NkString> &a) : args(traits::NkMove(a)) {
+			}
+
+#else
+			NkEntryState() = default;
+
+			explicit NkEntryState(const NkVector<NkString> &a) : args(traits::NkMove(a)) {
+			}
+#endif
+
+			// Accesseurs gÃ©nÃ©riques
+			const NkVector<NkString> &GetArgs() const {
+				return args;
+			}
+
+			const NkString &GetAppName() const {
+				return appName;
+			}
 	};
 
 	// ---------------------------------------------------------------------------
@@ -135,7 +142,7 @@ namespace nkentseu {
 	// Runtime lifecycle helpers pour les entrypoints
 	// -----------------------------------------------------------------------
 
-	using NkEntryAppDataUpdater = void (*)(NkAppData&);
+	using NkEntryAppDataUpdater = void (*)(NkAppData &);
 	inline void NkSetEntryAppDataUpdater(NkEntryAppDataUpdater updater);
 
 	/**
@@ -147,27 +154,27 @@ namespace nkentseu {
 	 *   NK_REGISTER_ENTRY_APPDATA_UPDATER(Configure);
 	 */
 	struct NkEntryAppDataAutoRegister {
-		explicit NkEntryAppDataAutoRegister(NkEntryAppDataUpdater updater) {
-			NkSetEntryAppDataUpdater(updater);
-		}
+			explicit NkEntryAppDataAutoRegister(NkEntryAppDataUpdater updater) {
+				NkSetEntryAppDataUpdater(updater);
+			}
 	};
 
-	inline NkEntryAppDataUpdater& NkEntryAppDataUpdaterSlot() {
+	inline NkEntryAppDataUpdater &NkEntryAppDataUpdaterSlot() {
 		static NkEntryAppDataUpdater sUpdater = nullptr;
 		return sUpdater;
 	}
 
-	inline NkAppData& NkEntryAppDataOverrideSlot() {
+	inline NkAppData &NkEntryAppDataOverrideSlot() {
 		static NkAppData sData{};
 		return sData;
 	}
 
-	inline nk_bool& NkEntryHasAppDataOverrideSlot() {
+	inline nk_bool &NkEntryHasAppDataOverrideSlot() {
 		static nk_bool sHasOverride = false;
 		return sHasOverride;
 	}
 
-	inline NkAppData& NkEntryRuntimeAppDataSlot() {
+	inline NkAppData &NkEntryRuntimeAppDataSlot() {
 		static NkAppData sRuntimeAppData{};
 		return sRuntimeAppData;
 	}
@@ -180,7 +187,7 @@ namespace nkentseu {
 		NkSetEntryAppDataUpdater(updater);
 	}
 
-	inline void NkSetEntryAppData(const NkAppData& data) {
+	inline void NkSetEntryAppData(const NkAppData &data) {
 		NkEntryAppDataOverrideSlot() = data;
 		NkEntryHasAppDataOverrideSlot() = true;
 	}
@@ -189,7 +196,7 @@ namespace nkentseu {
 		NkEntryHasAppDataOverrideSlot() = false;
 	}
 
-	inline NkAppData NkBuildEntryAppData(const char* defaultAppName = nullptr) {
+	inline NkAppData NkBuildEntryAppData(const char *defaultAppName = nullptr) {
 		const nk_bool hasOverride = NkEntryHasAppDataOverrideSlot();
 		NkAppData data = hasOverride ? NkEntryAppDataOverrideSlot() : NkAppData{};
 		if ((!hasOverride || data.appName.Empty()) && defaultAppName && defaultAppName[0] != '\0') {
@@ -203,12 +210,12 @@ namespace nkentseu {
 		return data;
 	}
 
-	inline const NkAppData& NkGetEntryRuntimeAppData() {
+	inline const NkAppData &NkGetEntryRuntimeAppData() {
 		return NkEntryRuntimeAppDataSlot();
 	}
 
-	inline void NkApplyEntryAppName(NkEntryState& state, const char* fallbackAppName = nullptr) {
-		const NkString& runtimeAppName = NkGetEntryRuntimeAppData().appName;
+	inline void NkApplyEntryAppName(NkEntryState &state, const char *fallbackAppName = nullptr) {
+		const NkString &runtimeAppName = NkGetEntryRuntimeAppData().appName;
 		if (!runtimeAppName.Empty()) {
 			state.appName = runtimeAppName;
 			return;
@@ -219,7 +226,7 @@ namespace nkentseu {
 		}
 	}
 
-	inline nk_bool NkEntryRuntimeInit(const char* defaultAppName = nullptr) {
+	inline nk_bool NkEntryRuntimeInit(const char *defaultAppName = nullptr) {
 		memory::NkMemorySystem::Instance().Initialize(nullptr);
 
 		const NkAppData appData = NkBuildEntryAppData(defaultAppName);
@@ -240,21 +247,21 @@ namespace nkentseu {
 		NkEntryRuntimeAppDataSlot() = NkAppData{};
 	}
 
-	#if defined(NKENTSEU_PLATFORM_UWP)
+#if defined(NKENTSEU_PLATFORM_UWP)
 	// API runtime exposÃ©e par l'entrypoint UWP (NkUWP.h) et utilisÃ©e
 	// par le backend UWP dans NkUWPWindow/NkUWPEventSystem.
-	bool  NkUWPIsCoreWindowReady();
+	bool NkUWPIsCoreWindowReady();
 	void *NkUWPGetCoreWindowHandle();
-	void  NkUWPPumpSystemEvents();
-	#endif
+	void NkUWPPumpSystemEvents();
+#endif
 
-	#if defined(NKENTSEU_PLATFORM_XBOX)
+#if defined(NKENTSEU_PLATFORM_XBOX)
 	// API runtime exposée par l'entrypoint Xbox (NkXbox.h) et utilisée
 	// par le backend Xbox dans NkXboxWindow/NkXboxEventSystem.
-	bool  NkXboxIsNativeWindowReady();
+	bool NkXboxIsNativeWindowReady();
 	void *NkXboxGetNativeWindowHandle();
-	void  NkXboxPumpSystemEvents();
-	#endif
+	void NkXboxPumpSystemEvents();
+#endif
 
 } // namespace nkentseu
 
@@ -273,10 +280,10 @@ namespace nkentseu {
  *   static void ConfigureAppData(nkentseu::NkAppData& d) { ... }
  *   NK_REGISTER_ENTRY_APPDATA_UPDATER(ConfigureAppData)
  */
-#define NK_REGISTER_ENTRY_APPDATA_UPDATER(fn)                                                    \
-	namespace {                                                                                   \
-		const nkentseu::NkEntryAppDataAutoRegister                                                \
-			NKENTSEU_INTERNAL_CONCAT_(gNkEntryAppDataAutoRegister_, __LINE__)(fn);               \
+#define NK_REGISTER_ENTRY_APPDATA_UPDATER(fn)                                                                          \
+	namespace {                                                                                                        \
+		const nkentseu::NkEntryAppDataAutoRegister NKENTSEU_INTERNAL_CONCAT_(gNkEntryAppDataAutoRegister_,             \
+																			 __LINE__)(fn);                            \
 	}
 
 /**
@@ -288,15 +295,14 @@ namespace nkentseu {
  *   appData.enableEventLogging = true;
  *   NKENTSEU_DEFINE_APP_DATA(appData);
  */
-#define NKENTSEU_DEFINE_APP_DATA(appData)                                                        \
-	static void NKENTSEU_INTERNAL_CONCAT_(NkConfigureAppData_, __LINE__)(nkentseu::NkAppData& d) { \
-		d = appData;                                                                              \
-	}                                                                                             \
+#define NKENTSEU_DEFINE_APP_DATA(appData)                                                                              \
+	static void NKENTSEU_INTERNAL_CONCAT_(NkConfigureAppData_, __LINE__)(nkentseu::NkAppData & d) {                    \
+		d = appData;                                                                                                   \
+	}                                                                                                                  \
 	NK_REGISTER_ENTRY_APPDATA_UPDATER(NKENTSEU_INTERNAL_CONCAT_(NkConfigureAppData_, __LINE__))
 
 // Alias lisible (1 seul paramètre).
 #define NKENTSEU_APP_DATA_DEFINED(appData) NKENTSEU_DEFINE_APP_DATA(appData)
-
 
 // ---------------------------------------------------------------------------
 // Prototype de la fonction utilisateur Ã  implÃ©menter

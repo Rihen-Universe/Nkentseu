@@ -18,17 +18,17 @@
 
 namespace nkentseu {
 
-    // -------------------------------------------------------------------------
-    // NkEventSystemData — données opaques portées par NkEventSystem::mData
-    // -------------------------------------------------------------------------
+	// -------------------------------------------------------------------------
+	// NkEventSystemData — données opaques portées par NkEventSystem::mData
+	// -------------------------------------------------------------------------
 
-    struct NkEventSystemData {
-        // XComponent courant (registré via NkHarmonyOnSurfaceCreated)
-        OH_NativeXComponent* mXComponent = nullptr;
+	struct NkEventSystemData {
+			// XComponent courant (registré via NkHarmonyOnSurfaceCreated)
+			OH_NativeXComponent *mXComponent = nullptr;
 
-        // true après Init(), false après Shutdown()
-        bool                 mInitialized = false;
-    };
+			// true après Init(), false après Shutdown()
+			bool mInitialized = false;
+	};
 
 } // namespace nkentseu
 

@@ -13,11 +13,11 @@
 
 namespace nkentseu {
 
-    class NkSLVM {
-    public:
-        // Exécute `prog` avec `env`. Les sorties sont écrites dans env.outputs.
-        // Retourne false si le fragment a été rejeté (OP_DISCARD), true sinon.
-        static bool Execute(const NkSLByteProgram& prog, NkSLVMEnv& env);
-    };
+	class NkSLVM {
+		public:
+			// Exécute `prog` avec `env`. Les sorties sont écrites dans env.outputs.
+			// Retourne false si le fragment a été rejeté (OP_DISCARD), true sinon.
+			static bool Execute(const NkSLByteProgram &prog, NkSLVMEnv &env);
+	};
 
 } // namespace nkentseu

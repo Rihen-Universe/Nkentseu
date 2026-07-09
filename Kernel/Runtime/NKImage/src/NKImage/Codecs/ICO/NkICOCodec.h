@@ -11,13 +11,13 @@
 
 namespace nkentseu {
 
-    class NKENTSEU_IMAGE_API NkICOCodec {
-    public:
-        /**
-         * @Brief Décode un buffer ICO/CUR. Sélectionne automatiquement
-         *        l'entrée de plus grande résolution. Supporte PNG et BMP DIB.
-         */
-        static NkImage* Decode(const uint8* data, usize size) noexcept;
-    };
+	class NKENTSEU_IMAGE_API NkICOCodec {
+		public:
+			/**
+			 * @Brief Décode un buffer ICO/CUR. Sélectionne automatiquement
+			 *        l'entrée de plus grande résolution. Supporte PNG et BMP DIB.
+			 */
+			static NkImage *Decode(const uint8 *data, usize size) noexcept;
+	};
 
 } // namespace nkentseu

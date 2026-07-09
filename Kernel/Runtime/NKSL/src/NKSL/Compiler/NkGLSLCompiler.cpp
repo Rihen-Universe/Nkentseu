@@ -22,151 +22,157 @@
 
 namespace nkentseu {
 
-    // ── helpers ───────────────────────────────────────────────────────────────
+	// ── helpers ───────────────────────────────────────────────────────────────
 
-    static EShLanguage ToEShLanguage(NkSLStage stage) {
-        switch (stage) {
-            case NkSLStage::NK_VERTEX:    return EShLangVertex;
-            case NkSLStage::NK_FRAGMENT:  return EShLangFragment;
-            case NkSLStage::NK_GEOMETRY:  return EShLangGeometry;
-            case NkSLStage::NK_TESS_CTRL: return EShLangTessControl;
-            case NkSLStage::NK_TESS_EVAL: return EShLangTessEvaluation;
-            case NkSLStage::NK_COMPUTE:   return EShLangCompute;
-            default:                          return EShLangVertex;
-        }
-    }
+	static EShLanguage ToEShLanguage(NkSLStage stage) {
+		switch (stage) {
+			case NkSLStage::NK_VERTEX:
+				return EShLangVertex;
+			case NkSLStage::NK_FRAGMENT:
+				return EShLangFragment;
+			case NkSLStage::NK_GEOMETRY:
+				return EShLangGeometry;
+			case NkSLStage::NK_TESS_CTRL:
+				return EShLangTessControl;
+			case NkSLStage::NK_TESS_EVAL:
+				return EShLangTessEvaluation;
+			case NkSLStage::NK_COMPUTE:
+				return EShLangCompute;
+			default:
+				return EShLangVertex;
+		}
+	}
 
-    // Buffer statique pour les messages d'erreur (évite l'allocation dynamique)
-    static char s_errorBuf[4096];
+	// Buffer statique pour les messages d'erreur (évite l'allocation dynamique)
+	static char s_errorBuf[4096];
 
-    // ── API publique ──────────────────────────────────────────────────────────
+	// ── API publique ──────────────────────────────────────────────────────────
 
-    void NkGLSLCompilerInit() {
-        glslang::InitializeProcess();
-    }
+	void NkGLSLCompilerInit() {
+		glslang::InitializeProcess();
+	}
 
-    void NkGLSLCompilerShutdown() {
-        glslang::FinalizeProcess();
-    }
+	void NkGLSLCompilerShutdown() {
+		glslang::FinalizeProcess();
+	}
 
-    NkGLSLCompileResult NkGLSLToSPIRV(NkSLStage stage,
-                                       const char*   glslSrc,
-                                       const char*   entry) {
-        NkGLSLCompileResult result;
+	NkGLSLCompileResult NkGLSLToSPIRV(NkSLStage stage, const char *glslSrc, const char *entry) {
+		NkGLSLCompileResult result;
 
-        // glslang EXIGE InitializeProcess() une fois par process avant tout
-        // usage (TShader::parse / GlslangToSpv). Sans ça, les pools internes ne
-        // sont pas alloués -> corruption pile -> crash 0xC0000409. Le call_once
-        // "officiel" vit dans GLSLtoSPIRV_glslang() qui est compilé out
-        // (NKSL_HAS_GLSLANG jamais défini) : on garantit l'init ICI, sur le vrai
-        // chemin. Static local = thread-safe et exécuté une seule fois (C++11).
-        static const bool s_glslangReady = []() {
-            glslang::InitializeProcess();
-            return true;
-        }();
-        (void)s_glslangReady;
+		// glslang EXIGE InitializeProcess() une fois par process avant tout
+		// usage (TShader::parse / GlslangToSpv). Sans ça, les pools internes ne
+		// sont pas alloués -> corruption pile -> crash 0xC0000409. Le call_once
+		// "officiel" vit dans GLSLtoSPIRV_glslang() qui est compilé out
+		// (NKSL_HAS_GLSLANG jamais défini) : on garantit l'init ICI, sur le vrai
+		// chemin. Static local = thread-safe et exécuté une seule fois (C++11).
+		static const bool s_glslangReady = []() {
+			glslang::InitializeProcess();
+			return true;
+		}();
+		(void)s_glslangReady;
 
-        if (!glslSrc || !*glslSrc) {
-            result.errorLog = "NkGLSLToSPIRV: source GLSL vide";
-            return result;
-        }
+		if (!glslSrc || !*glslSrc) {
+			result.errorLog = "NkGLSLToSPIRV: source GLSL vide";
+			return result;
+		}
 
-        EShLanguage lang = ToEShLanguage(stage);
-        glslang::TShader shader(lang);
+		EShLanguage lang = ToEShLanguage(stage);
+		glslang::TShader shader(lang);
 
-        // Configuration Vulkan 1.0 / GLSL 450
-        shader.setEnvInput(glslang::EShSourceGlsl, lang,
-                           glslang::EShClientVulkan, 100);
-        shader.setEnvClient(glslang::EShClientVulkan,
-                            glslang::EShTargetVulkan_1_0);
-        shader.setEnvTarget(glslang::EShTargetSpv,
-                            glslang::EShTargetSpv_1_0);
-        shader.setEntryPoint(entry ? entry : "main");
+		// Configuration Vulkan 1.0 / GLSL 450
+		shader.setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 100);
+		shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_0);
+		shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_0);
+		shader.setEntryPoint(entry ? entry : "main");
 
-        const char* srcs[] = { glslSrc };
-        shader.setStrings(srcs, 1);
+		const char *srcs[] = {glslSrc};
+		shader.setStrings(srcs, 1);
 
-        // Limites par défaut fournies par glslang-default-resource-limits
-        const TBuiltInResource* limits = GetDefaultResources();
+		// Limites par défaut fournies par glslang-default-resource-limits
+		const TBuiltInResource *limits = GetDefaultResources();
 
-        EShMessages msgs = (EShMessages)(EShMsgSpvRules | EShMsgVulkanRules);
-        if (!shader.parse(limits, 450, false, msgs)) {
-            const char* log = shader.getInfoLog();
-            int n = (int)(sizeof(s_errorBuf) - 1);
-            int len = 0;
-            while (log && log[len] && len < n) len++;
-            for (int i = 0; i < len; i++) s_errorBuf[i] = log[i];
-            s_errorBuf[len] = '\0';
-            result.errorLog = s_errorBuf;
-            NKENTSEU_ERRORF("NkGLSLToSPIRV parse error:\n%s\n", s_errorBuf);
-            return result;
-        }
+		EShMessages msgs = (EShMessages)(EShMsgSpvRules | EShMsgVulkanRules);
+		if (!shader.parse(limits, 450, false, msgs)) {
+			const char *log = shader.getInfoLog();
+			int n = (int)(sizeof(s_errorBuf) - 1);
+			int len = 0;
+			while (log && log[len] && len < n)
+				len++;
+			for (int i = 0; i < len; i++)
+				s_errorBuf[i] = log[i];
+			s_errorBuf[len] = '\0';
+			result.errorLog = s_errorBuf;
+			NKENTSEU_ERRORF("NkGLSLToSPIRV parse error:\n%s\n", s_errorBuf);
+			return result;
+		}
 
-        glslang::TProgram program;
-        program.addShader(&shader);
-        if (!program.link(msgs)) {
-            const char* log = program.getInfoLog();
-            int n = (int)(sizeof(s_errorBuf) - 1);
-            int len = 0;
-            while (log && log[len] && len < n) len++;
-            for (int i = 0; i < len; i++) s_errorBuf[i] = log[i];
-            s_errorBuf[len] = '\0';
-            result.errorLog = s_errorBuf;
-            NKENTSEU_ERRORF("NkGLSLToSPIRV link error:\n%s\n", s_errorBuf);
-            return result;
-        }
+		glslang::TProgram program;
+		program.addShader(&shader);
+		if (!program.link(msgs)) {
+			const char *log = program.getInfoLog();
+			int n = (int)(sizeof(s_errorBuf) - 1);
+			int len = 0;
+			while (log && log[len] && len < n)
+				len++;
+			for (int i = 0; i < len; i++)
+				s_errorBuf[i] = log[i];
+			s_errorBuf[len] = '\0';
+			result.errorLog = s_errorBuf;
+			NKENTSEU_ERRORF("NkGLSLToSPIRV link error:\n%s\n", s_errorBuf);
+			return result;
+		}
 
-        // Génération du SPIR-V dans un std::vector temporaire puis copie
-        std::vector<uint32_t> spirvStd;
-        spv::SpvBuildLogger spvLog;
-        glslang::SpvOptions spvOpts;
-        spvOpts.disableOptimizer = true;
-        spvOpts.validate         = false;
+		// Génération du SPIR-V dans un std::vector temporaire puis copie
+		std::vector<uint32_t> spirvStd;
+		spv::SpvBuildLogger spvLog;
+		glslang::SpvOptions spvOpts;
+		spvOpts.disableOptimizer = true;
+		spvOpts.validate = false;
 
-        glslang::GlslangToSpv(*program.getIntermediate(lang),
-                              spirvStd, &spvLog, &spvOpts);
+		glslang::GlslangToSpv(*program.getIntermediate(lang), spirvStd, &spvLog, &spvOpts);
 
-        const std::string& spvMsg = spvLog.getAllMessages();
-        if (!spvMsg.empty()) {
-            NKENTSEU_WARNF("NkGLSLToSPIRV spv log: %s\n", spvMsg.c_str());
-        }
+		const std::string &spvMsg = spvLog.getAllMessages();
+		if (!spvMsg.empty()) {
+			NKENTSEU_WARNF("NkGLSLToSPIRV spv log: %s\n", spvMsg.c_str());
+		}
 
-        if (spirvStd.empty()) {
-            result.errorLog = "NkGLSLToSPIRV: GlslangToSpv a produit 0 mots";
-            NKENTSEU_ERRORF("%s\n", result.errorLog);
-            return result;
-        }
+		if (spirvStd.empty()) {
+			result.errorLog = "NkGLSLToSPIRV: GlslangToSpv a produit 0 mots";
+			NKENTSEU_ERRORF("%s\n", result.errorLog);
+			return result;
+		}
 
-        // Copie dans notre NkVector<uint32> (sans STL en dehors de ce .cpp)
-        result.spirv.Reserve((uint32)spirvStd.size());
-        for (uint32_t w : spirvStd)
-            result.spirv.PushBack(w);
+		// Copie dans notre NkVector<uint32> (sans STL en dehors de ce .cpp)
+		result.spirv.Reserve((uint32)spirvStd.size());
+		for (uint32_t w : spirvStd)
+			result.spirv.PushBack(w);
 
-        result.success = true;
-        return result;
-    }
+		result.success = true;
+		return result;
+	}
 
 } // namespace nkentseu
 
-#else  // glslang absent
+#else // glslang absent
 
 // Stubs : NKGLSlang desactive a la compilation. Le header declare toujours
 // NkGLSLToSPIRV/NkGLSLCompileResult : on fournit le symbole pour eviter un
 // linker error et on retourne errorLog clair.
 namespace nkentseu {
 
-    void NkGLSLCompilerInit()     {}
-    void NkGLSLCompilerShutdown() {}
+	void NkGLSLCompilerInit() {
+	}
 
-    NkGLSLCompileResult NkGLSLToSPIRV(NkSLStage /*stage*/,
-                                       const char*   /*glslSrc*/,
-                                       const char*   /*entry*/) {
-        NkGLSLCompileResult r;
-        r.errorLog = "NkGLSLToSPIRV: NKGLSlang desactive a la compilation "
-                     "(rebuild avec NK_ENABLE_GLSLANG=1)";
-        return r;
-    }
+	void NkGLSLCompilerShutdown() {
+	}
 
-}
+	NkGLSLCompileResult NkGLSLToSPIRV(NkSLStage /*stage*/, const char * /*glslSrc*/, const char * /*entry*/) {
+		NkGLSLCompileResult r;
+		r.errorLog = "NkGLSLToSPIRV: NKGLSlang desactive a la compilation "
+					 "(rebuild avec NK_ENABLE_GLSLANG=1)";
+		return r;
+	}
+
+} // namespace nkentseu
 
 #endif // NK_RHI_GLSLANG_ENABLED

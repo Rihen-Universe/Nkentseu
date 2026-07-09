@@ -41,46 +41,40 @@
 // En-têtes système pour détection d'erreur et gestion socket
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 
-    // Headers Winsock2 déjà inclus via NkSocket.h — ré-inclusion guardée par pragma once
-    // Fonctions utilitaires pour gestion d'erreur Windows
+// Headers Winsock2 déjà inclus via NkSocket.h — ré-inclusion guardée par pragma once
+// Fonctions utilitaires pour gestion d'erreur Windows
 
-    static int NkGetLastSocketError() noexcept
-    {
-        return ::WSAGetLastError();
-    }
+static int NkGetLastSocketError() noexcept {
+	return ::WSAGetLastError();
+}
 
-    static bool NkIsWouldBlockError(int errorCode) noexcept
-    {
-        return errorCode == WSAEWOULDBLOCK;
-    }
+static bool NkIsWouldBlockError(int errorCode) noexcept {
+	return errorCode == WSAEWOULDBLOCK;
+}
 
 #elif defined(NKENTSEU_PLATFORM_POSIX)
 
-    // Headers POSIX déjà inclus via NkSocket.h
-    // Fonctions utilitaires pour gestion d'erreur POSIX
+// Headers POSIX déjà inclus via NkSocket.h
+// Fonctions utilitaires pour gestion d'erreur POSIX
 
-    static int NkGetLastSocketError() noexcept
-    {
-        return errno;
-    }
+static int NkGetLastSocketError() noexcept {
+	return errno;
+}
 
-    static bool NkIsWouldBlockError(int errorCode) noexcept
-    {
-        return errorCode == EAGAIN || errorCode == EWOULDBLOCK;
-    }
+static bool NkIsWouldBlockError(int errorCode) noexcept {
+	return errorCode == EAGAIN || errorCode == EWOULDBLOCK;
+}
 
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 
-    // WebAssembly — gestion d'erreur simplifiée
-    static int NkGetLastSocketError() noexcept
-    {
-        return -1;  // Pas de code d'erreur standardisé pour Emscripten WebSocket
-    }
+// WebAssembly — gestion d'erreur simplifiée
+static int NkGetLastSocketError() noexcept {
+	return -1; // Pas de code d'erreur standardisé pour Emscripten WebSocket
+}
 
-    static bool NkIsWouldBlockError(int) noexcept
-    {
-        return false;  // Modèle async Emscripten — pas de concept "would block"
-    }
+static bool NkIsWouldBlockError(int) noexcept {
+	return false; // Modèle async Emscripten — pas de concept "would block"
+}
 
 #endif // Fin de la détection de plateforme
 
@@ -91,1317 +85,1059 @@
 
 namespace nkentseu {
 
-    namespace net {
-
-        // =====================================================================
-        // IMPLÉMENTATION : NkAddress — Constructeurs
-        // =====================================================================
-
-        NkAddress::NkAddress(const char* host, uint16 port) noexcept
-            : mPort(port)
-            , mFamily(Family::NK_IP_V4)
-            , mValid(false)
-        {
-            // Validation du paramètre d'entrée
-            if (host == nullptr)
-            {
-                return;
-            }
-
-            const NkStringView hostView(host);
-
-            // Cas 1 : Adresse "any" — écoute sur toutes les interfaces
-            if (hostView == "0.0.0.0" || hostView == "any")
-            {
-                mIP.ipv4[0] = 0;
-                mIP.ipv4[1] = 0;
-                mIP.ipv4[2] = 0;
-                mIP.ipv4[3] = 0;
-                mFamily = Family::NK_IP_V4;
-                mValid = true;
-                return;
-            }
-
-            // Cas 2 : Loopback localhost
-            if (hostView == "localhost" || hostView == "127.0.0.1")
-            {
-                mIP.ipv4[0] = 127;
-                mIP.ipv4[1] = 0;
-                mIP.ipv4[2] = 0;
-                mIP.ipv4[3] = 1;
-                mFamily = Family::NK_IP_V4;
-                mValid = true;
-                return;
-            }
-
-            // Cas 3 : Adresse IPv4 en notation dotted-decimal (a.b.c.d)
-            // Parsing manuel strict (sans sscanf) : 4 octets 0-255 séparés par des points
-            uint32 octets[4] = { 0, 0, 0, 0 };
-            usize pos = 0;
-            bool parsedOk = true;
-
-            for (int octet = 0; octet < 4 && parsedOk; ++octet)
-            {
-                if (!string::NkIsDigit(host[pos]))
-                {
-                    parsedOk = false;
-                    break;
-                }
-
-                uint32 value = 0;
-                while (string::NkIsDigit(host[pos]))
-                {
-                    value = value * 10u + static_cast<uint32>(host[pos] - '0');
-                    if (value > 255u)
-                    {
-                        parsedOk = false;
-                        break;
-                    }
-                    ++pos;
-                }
-                octets[octet] = value;
-
-                // Séparateur '.' attendu entre les octets (pas après le dernier)
-                if (parsedOk && octet < 3)
-                {
-                    if (host[pos] != '.')
-                    {
-                        parsedOk = false;
-                        break;
-                    }
-                    ++pos;
-                }
-            }
-
-            if (parsedOk && host[pos] == '\0')
-            {
-                mIP.ipv4[0] = static_cast<uint8>(octets[0]);
-                mIP.ipv4[1] = static_cast<uint8>(octets[1]);
-                mIP.ipv4[2] = static_cast<uint8>(octets[2]);
-                mIP.ipv4[3] = static_cast<uint8>(octets[3]);
-                mFamily = Family::NK_IP_V4;
-                mValid = true;
-                return;
-            }
-
-            // Cas 4 : IPv6 — TODO : implémentation future avec inet_pton
-            // Pour l'instant, marquer comme invalide si non reconnu
-
-            // Échec de parsing — adresse invalide
-            mValid = false;
-        }
-
-        NkAddress::NkAddress(uint8 a, uint8 b, uint8 c, uint8 d, uint16 port) noexcept
-            : mPort(port)
-            , mFamily(Family::NK_IP_V4)
-            , mValid(true)
-        {
-            mIP.ipv4[0] = a;
-            mIP.ipv4[1] = b;
-            mIP.ipv4[2] = c;
-            mIP.ipv4[3] = d;
-        }
-
-        // =====================================================================
-        // IMPLÉMENTATION : NkAddress — Constructeurs plateforme-specific
-        // =====================================================================
-        #if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(NKENTSEU_PLATFORM_POSIX)
-
-            NkAddress::NkAddress(const sockaddr_in& addr) noexcept
-                : mFamily(Family::NK_IP_V4)
-                , mValid(true)
-            {
-                // Extraction du port (conversion network → host byte order)
-                mPort = ntohs(addr.sin_port);
-
-                // Extraction de l'adresse IPv4 (4 octets)
-                const uint8* ipBytes = reinterpret_cast<const uint8*>(&addr.sin_addr.s_addr);
-                mIP.ipv4[0] = ipBytes[0];
-                mIP.ipv4[1] = ipBytes[1];
-                mIP.ipv4[2] = ipBytes[2];
-                mIP.ipv4[3] = ipBytes[3];
-            }
-
-            NkAddress::NkAddress(const sockaddr_in6& addr) noexcept
-                : mFamily(Family::NK_IP_V6)
-                , mValid(true)
-            {
-                // Extraction du port (conversion network → host byte order)
-                mPort = ntohs(addr.sin6_port);
-
-                // Copie des 16 octets de l'adresse IPv6
-                memory::NkCopy(mIP.ipv6, addr.sin6_addr.s6_addr, 16);
-            }
-
-            void NkAddress::ToSockAddr(sockaddr_storage& out, socklen_t& len) const noexcept
-            {
-                // Initialisation à zéro pour éviter les données non-initialisées
-                memory::NkZero(&out, sizeof(sockaddr_storage));
-
-                if (mFamily == Family::NK_IP_V4)
-                {
-                    // Cast vers sockaddr_in pour remplissage IPv4
-                    auto* ipv4Struct = reinterpret_cast<sockaddr_in*>(&out);
-
-                    ipv4Struct->sin_family = AF_INET;
-                    ipv4Struct->sin_port = htons(mPort);
-
-                    memory::NkCopy(&ipv4Struct->sin_addr.s_addr, mIP.ipv4, 4);
-
-                    len = sizeof(sockaddr_in);
-                }
-                else if (mFamily == Family::NK_IP_V6)
-                {
-                    // Cast vers sockaddr_in6 pour remplissage IPv6
-                    auto* ipv6Struct = reinterpret_cast<sockaddr_in6*>(&out);
-
-                    ipv6Struct->sin6_family = AF_INET6;
-                    ipv6Struct->sin6_port = htons(mPort);
-
-                    memory::NkCopy(ipv6Struct->sin6_addr.s6_addr, mIP.ipv6, 16);
-
-                    len = sizeof(sockaddr_in6);
-                }
-                else
-                {
-                    // Famille inconnue — retourner structure vide
-                    len = 0;
-                }
-            }
-
-        #endif // NKENTSEU_PLATFORM_WINDOWS || NKENTSEU_PLATFORM_POSIX
-
-        // =====================================================================
-        // IMPLÉMENTATION : NkAddress — Méthodes factory statiques
-        // =====================================================================
-
-        NkAddress NkAddress::Loopback(uint16 port, Family f) noexcept
-        {
-            if (f == Family::NK_IP_V4)
-            {
-                return NkAddress(127, 0, 0, 1, port);
-            }
-            else
-            {
-                // IPv6 loopback ::1 — construction manuelle des 16 octets
-                NkAddress addr;
-                addr.mPort = port;
-                addr.mFamily = Family::NK_IP_V6;
-                addr.mValid = true;
-
-                // ::1 = 15 octets à 0, dernier octet à 1
-                memory::NkZero(addr.mIP.ipv6, 16);
-                addr.mIP.ipv6[15] = 1;
-
-                return addr;
-            }
-        }
-
-        NkAddress NkAddress::Any(uint16 port, Family f) noexcept
-        {
-            if (f == Family::NK_IP_V4)
-            {
-                return NkAddress(0, 0, 0, 0, port);
-            }
-            else
-            {
-                // IPv6 any :: — tous les octets à 0
-                NkAddress addr;
-                addr.mPort = port;
-                addr.mFamily = Family::NK_IP_V6;
-                addr.mValid = true;
-
-                memory::NkZero(addr.mIP.ipv6, 16);
-
-                return addr;
-            }
-        }
-
-        NkAddress NkAddress::Broadcast(uint16 port) noexcept
-        {
-            // Broadcast IPv4 : 255.255.255.255
-            return NkAddress(255, 255, 255, 255, port);
-        }
-
-        NkVector<NkAddress> NkAddress::Resolve(
-            const char* host,
-            uint16 port,
-            Family preferred
-        ) noexcept
-        {
-            NkVector<NkAddress> results;
-
-            // Validation des paramètres
-            if (host == nullptr)
-            {
-                return results;
-            }
-
-            // Optimisation : si host est déjà une adresse IP, pas besoin de résolution
-            NkAddress direct(host, port);
-            if (direct.IsValid())
-            {
-                results.PushBack(direct);
-                return results;
-            }
-
-            // Résolution DNS via getaddrinfo (POSIX/Windows moderne)
-            #if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(NKENTSEU_PLATFORM_POSIX)
-
-                addrinfo hints = {};
-                hints.ai_family = (preferred == Family::NK_IP_V4) ? AF_INET : AF_INET6;
-                hints.ai_socktype = SOCK_DGRAM;  // UDP par défaut
-                hints.ai_protocol = IPPROTO_UDP;
-
-                addrinfo* resultInfo = nullptr;
-                const int status = getaddrinfo(host, nullptr, &hints, &resultInfo);
-
-                if (status == 0 && resultInfo != nullptr)
-                {
-                    // Parcours de la liste chaînée des résultats
-                    for (addrinfo* ptr = resultInfo; ptr != nullptr; ptr = ptr->ai_next)
-                    {
-                        if (ptr->ai_family == AF_INET && ptr->ai_addr != nullptr)
-                        {
-                            // Conversion sockaddr_in → NkAddress
-                            const auto* ipv4Addr = reinterpret_cast<const sockaddr_in*>(ptr->ai_addr);
-                            NkAddress addr(*ipv4Addr);
-                            addr.mPort = port;  // Appliquer le port demandé
-                            results.PushBack(addr);
-                        }
-                        else if (ptr->ai_family == AF_INET6 && ptr->ai_addr != nullptr)
-                        {
-                            // Conversion sockaddr_in6 → NkAddress
-                            const auto* ipv6Addr = reinterpret_cast<const sockaddr_in6*>(ptr->ai_addr);
-                            NkAddress addr(*ipv6Addr);
-                            addr.mPort = port;  // Appliquer le port demandé
-                            results.PushBack(addr);
-                        }
-                    }
-
-                    freeaddrinfo(resultInfo);
-                }
-
-            #endif // NKENTSEU_PLATFORM_WINDOWS || NKENTSEU_PLATFORM_POSIX
-
-            // Fallback : si aucune résolution, retourner vecteur vide
-            return results;
-        }
-
-        // =====================================================================
-        // IMPLÉMENTATION : NkAddress — Accesseurs
-        // =====================================================================
-
-        uint16 NkAddress::Port() const noexcept
-        {
-            return mPort;
-        }
-
-        NkAddress::Family NkAddress::GetFamily() const noexcept
-        {
-            return mFamily;
-        }
-
-        bool NkAddress::IsIPv4() const noexcept
-        {
-            return mFamily == Family::NK_IP_V4;
-        }
-
-        bool NkAddress::IsIPv6() const noexcept
-        {
-            return mFamily == Family::NK_IP_V6;
-        }
-
-        bool NkAddress::IsValid() const noexcept
-        {
-            return mPort != 0 && mValid;
-        }
-
-        bool NkAddress::IsLoopback() const noexcept
-        {
-            if (!mValid)
-            {
-                return false;
-            }
-
-            if (mFamily == Family::NK_IP_V4)
-            {
-                // 127.0.0.0/8 est réservé pour loopback en IPv4
-                return mIP.ipv4[0] == 127;
-            }
-            else
-            {
-                // ::1 est le loopback IPv6
-                // Les 15 premiers octets doivent être 0, le dernier 1
-                for (int i = 0; i < 15; ++i)
-                {
-                    if (mIP.ipv6[i] != 0)
-                    {
-                        return false;
-                    }
-                }
-                return mIP.ipv6[15] == 1;
-            }
-        }
-
-        bool NkAddress::IsBroadcast() const noexcept
-        {
-            if (!mValid || mFamily != Family::NK_IP_V4)
-            {
-                return false;
-            }
-
-            // Broadcast IPv4 : tous les octets à 255
-            return mIP.ipv4[0] == 255 &&
-                   mIP.ipv4[1] == 255 &&
-                   mIP.ipv4[2] == 255 &&
-                   mIP.ipv4[3] == 255;
-        }
-
-        bool NkAddress::IsMulticast() const noexcept
-        {
-            if (!mValid)
-            {
-                return false;
-            }
-
-            if (mFamily == Family::NK_IP_V4)
-            {
-                // IPv4 multicast : 224.0.0.0 à 239.255.255.255
-                return mIP.ipv4[0] >= 224 && mIP.ipv4[0] <= 239;
-            }
-            else
-            {
-                // IPv6 multicast : préfixe ff00::/8
-                return mIP.ipv6[0] == 0xFF;
-            }
-        }
-
-        NkString NkAddress::ToString() const noexcept
-        {
-            if (mFamily == Family::NK_IP_V4)
-            {
-                return NkFormat("{}.{}.{}.{}:{}",
-                    static_cast<uint32>(mIP.ipv4[0]),
-                    static_cast<uint32>(mIP.ipv4[1]),
-                    static_cast<uint32>(mIP.ipv4[2]),
-                    static_cast<uint32>(mIP.ipv4[3]),
-                    static_cast<uint32>(mPort));
-            }
-
-            // Format IPv6 : [::1]:port pour éviter ambiguïté avec le séparateur de port
-            // TODO : Implémenter conversion réelle IPv6 → chaîne avec inet_ntop
-            return NkFormat("[ipv6]:{}", static_cast<uint32>(mPort));
-        }
-
-        NkString NkAddress::HostString() const noexcept
-        {
-            if (mFamily == Family::NK_IP_V4)
-            {
-                return NkFormat("{}.{}.{}.{}",
-                    static_cast<uint32>(mIP.ipv4[0]),
-                    static_cast<uint32>(mIP.ipv4[1]),
-                    static_cast<uint32>(mIP.ipv4[2]),
-                    static_cast<uint32>(mIP.ipv4[3]));
-            }
-
-            // TODO : Implémenter conversion réelle IPv6 → chaîne
-            return NkString("ipv6");
-        }
-
-        bool NkAddress::operator==(const NkAddress& other) const noexcept
-        {
-            // Comparaison rapide des champs scalaires
-            if (mFamily != other.mFamily)
-            {
-                return false;
-            }
-
-            if (mPort != other.mPort)
-            {
-                return false;
-            }
-
-            // Comparaison des données IP selon la famille
-            if (mFamily == Family::NK_IP_V4)
-            {
-                return memory::NkCompare(mIP.ipv4, other.mIP.ipv4, 4) == 0;
-            }
-            else
-            {
-                return memory::NkCompare(mIP.ipv6, other.mIP.ipv6, 16) == 0;
-            }
-        }
-
-        bool NkAddress::operator!=(const NkAddress& other) const noexcept
-        {
-            return !(*this == other);
-        }
-
-        bool NkAddress::operator<(const NkAddress& other) const noexcept
-        {
-            // Ordre lexicographique : famille → IP → port
-
-            if (mFamily != other.mFamily)
-            {
-                return static_cast<uint8>(mFamily) < static_cast<uint8>(other.mFamily);
-            }
-
-            if (mFamily == Family::NK_IP_V4)
-            {
-                const int ipCmp = memory::NkCompare(mIP.ipv4, other.mIP.ipv4, 4);
-                if (ipCmp != 0)
-                {
-                    return ipCmp < 0;
-                }
-            }
-            else
-            {
-                const int ipCmp = memory::NkCompare(mIP.ipv6, other.mIP.ipv6, 16);
-                if (ipCmp != 0)
-                {
-                    return ipCmp < 0;
-                }
-            }
-
-            return mPort < other.mPort;
-        }
-
-        // =====================================================================
-        // IMPLÉMENTATION : NkPacket — Méthodes utilitaires
-        // =====================================================================
-
-        bool NkPacket::IsEmpty() const noexcept
-        {
-            return size == 0;
-        }
-
-        void NkPacket::Clear() noexcept
-        {
-            size = 0;
-            seqNum = 0;
-            ackMask = 0;
-            // Note : on ne zero-remplit pas data[] pour performance
-            // Le contenu sera écrasé au prochain remplissage
-        }
-
-        // =====================================================================
-        // IMPLÉMENTATION : NkSocket — Constructeurs/Destructeur
-        // =====================================================================
-
-        NkSocket::~NkSocket() noexcept
-        {
-            // RAII : fermeture automatique si socket encore ouvert
-            Close();
-        }
-
-        NkSocket::NkSocket(NkSocket&& other) noexcept
-            : mHandle(other.mHandle)
-            , mType(other.mType)
-            , mLocalAddr(other.mLocalAddr)
-            , mNonBlocking(other.mNonBlocking)
-        {
-            // Transfert de propriété : invalider la source
-            other.mHandle = kNkNativeInvalidSocket;
-        }
-
-        NkSocket& NkSocket::operator=(NkSocket&& other) noexcept
-        {
-            // Protection contre auto-affectation
-            if (this != &other)
-            {
-                // Libération des ressources actuelles
-                Close();
-
-                // Transfert des membres
-                mHandle = other.mHandle;
-                mType = other.mType;
-                mLocalAddr = other.mLocalAddr;
-                mNonBlocking = other.mNonBlocking;
-
-                // Invalidation de la source
-                other.mHandle = kNkNativeInvalidSocket;
-            }
-
-            return *this;
-        }
-
-        // =====================================================================
-        // IMPLÉMENTATION : NkSocket — Cycle de vie
-        // =====================================================================
-
-        NkNetResult NkSocket::Create(const NkAddress& localAddr, Type type) noexcept
-        {
-            // Fermeture d'un socket précédemment ouvert (idempotent)
-            Close();
-
-            // Mémorisation des paramètres de création
-            mType = type;
-            mLocalAddr = localAddr;
-
-            // Sélection des paramètres socket selon la famille d'adresse
-            const int addressFamily = AF_INET;  // IPv4 uniquement pour l'instant
-            const int socketType = (type == Type::NK_UDP) ? SOCK_DGRAM : SOCK_STREAM;
-            const int protocol = (type == Type::NK_UDP) ? IPPROTO_UDP : IPPROTO_TCP;
-
-            // Création du socket natif
-            mHandle = ::socket(addressFamily, socketType, protocol);
-
-            if (mHandle == kNkNativeInvalidSocket)
-            {
-                const int errorCode = NkGetLastSocketError();
-                NK_NET_LOG_ERROR("socket() failed: code %d", errorCode);
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
+	namespace net {
+
+		// =====================================================================
+		// IMPLÉMENTATION : NkAddress — Constructeurs
+		// =====================================================================
+
+		NkAddress::NkAddress(const char *host, uint16 port) noexcept
+			: mPort(port), mFamily(Family::NK_IP_V4), mValid(false) {
+			// Validation du paramètre d'entrée
+			if (host == nullptr) {
+				return;
+			}
+
+			const NkStringView hostView(host);
+
+			// Cas 1 : Adresse "any" — écoute sur toutes les interfaces
+			if (hostView == "0.0.0.0" || hostView == "any") {
+				mIP.ipv4[0] = 0;
+				mIP.ipv4[1] = 0;
+				mIP.ipv4[2] = 0;
+				mIP.ipv4[3] = 0;
+				mFamily = Family::NK_IP_V4;
+				mValid = true;
+				return;
+			}
+
+			// Cas 2 : Loopback localhost
+			if (hostView == "localhost" || hostView == "127.0.0.1") {
+				mIP.ipv4[0] = 127;
+				mIP.ipv4[1] = 0;
+				mIP.ipv4[2] = 0;
+				mIP.ipv4[3] = 1;
+				mFamily = Family::NK_IP_V4;
+				mValid = true;
+				return;
+			}
+
+			// Cas 3 : Adresse IPv4 en notation dotted-decimal (a.b.c.d)
+			// Parsing manuel strict (sans sscanf) : 4 octets 0-255 séparés par des points
+			uint32 octets[4] = {0, 0, 0, 0};
+			usize pos = 0;
+			bool parsedOk = true;
+
+			for (int octet = 0; octet < 4 && parsedOk; ++octet) {
+				if (!string::NkIsDigit(host[pos])) {
+					parsedOk = false;
+					break;
+				}
+
+				uint32 value = 0;
+				while (string::NkIsDigit(host[pos])) {
+					value = value * 10u + static_cast<uint32>(host[pos] - '0');
+					if (value > 255u) {
+						parsedOk = false;
+						break;
+					}
+					++pos;
+				}
+				octets[octet] = value;
+
+				// Séparateur '.' attendu entre les octets (pas après le dernier)
+				if (parsedOk && octet < 3) {
+					if (host[pos] != '.') {
+						parsedOk = false;
+						break;
+					}
+					++pos;
+				}
+			}
+
+			if (parsedOk && host[pos] == '\0') {
+				mIP.ipv4[0] = static_cast<uint8>(octets[0]);
+				mIP.ipv4[1] = static_cast<uint8>(octets[1]);
+				mIP.ipv4[2] = static_cast<uint8>(octets[2]);
+				mIP.ipv4[3] = static_cast<uint8>(octets[3]);
+				mFamily = Family::NK_IP_V4;
+				mValid = true;
+				return;
+			}
+
+			// Cas 4 : IPv6 — TODO : implémentation future avec inet_pton
+			// Pour l'instant, marquer comme invalide si non reconnu
+
+			// Échec de parsing — adresse invalide
+			mValid = false;
+		}
+
+		NkAddress::NkAddress(uint8 a, uint8 b, uint8 c, uint8 d, uint16 port) noexcept
+			: mPort(port), mFamily(Family::NK_IP_V4), mValid(true) {
+			mIP.ipv4[0] = a;
+			mIP.ipv4[1] = b;
+			mIP.ipv4[2] = c;
+			mIP.ipv4[3] = d;
+		}
+
+// =====================================================================
+// IMPLÉMENTATION : NkAddress — Constructeurs plateforme-specific
+// =====================================================================
+#if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(NKENTSEU_PLATFORM_POSIX)
+
+		NkAddress::NkAddress(const sockaddr_in &addr) noexcept : mFamily(Family::NK_IP_V4), mValid(true) {
+			// Extraction du port (conversion network → host byte order)
+			mPort = ntohs(addr.sin_port);
+
+			// Extraction de l'adresse IPv4 (4 octets)
+			const uint8 *ipBytes = reinterpret_cast<const uint8 *>(&addr.sin_addr.s_addr);
+			mIP.ipv4[0] = ipBytes[0];
+			mIP.ipv4[1] = ipBytes[1];
+			mIP.ipv4[2] = ipBytes[2];
+			mIP.ipv4[3] = ipBytes[3];
+		}
+
+		NkAddress::NkAddress(const sockaddr_in6 &addr) noexcept : mFamily(Family::NK_IP_V6), mValid(true) {
+			// Extraction du port (conversion network → host byte order)
+			mPort = ntohs(addr.sin6_port);
+
+			// Copie des 16 octets de l'adresse IPv6
+			memory::NkCopy(mIP.ipv6, addr.sin6_addr.s6_addr, 16);
+		}
+
+		void NkAddress::ToSockAddr(sockaddr_storage &out, socklen_t &len) const noexcept {
+			// Initialisation à zéro pour éviter les données non-initialisées
+			memory::NkZero(&out, sizeof(sockaddr_storage));
+
+			if (mFamily == Family::NK_IP_V4) {
+				// Cast vers sockaddr_in pour remplissage IPv4
+				auto *ipv4Struct = reinterpret_cast<sockaddr_in *>(&out);
+
+				ipv4Struct->sin_family = AF_INET;
+				ipv4Struct->sin_port = htons(mPort);
+
+				memory::NkCopy(&ipv4Struct->sin_addr.s_addr, mIP.ipv4, 4);
+
+				len = sizeof(sockaddr_in);
+			} else if (mFamily == Family::NK_IP_V6) {
+				// Cast vers sockaddr_in6 pour remplissage IPv6
+				auto *ipv6Struct = reinterpret_cast<sockaddr_in6 *>(&out);
+
+				ipv6Struct->sin6_family = AF_INET6;
+				ipv6Struct->sin6_port = htons(mPort);
+
+				memory::NkCopy(ipv6Struct->sin6_addr.s6_addr, mIP.ipv6, 16);
+
+				len = sizeof(sockaddr_in6);
+			} else {
+				// Famille inconnue — retourner structure vide
+				len = 0;
+			}
+		}
+
+#endif // NKENTSEU_PLATFORM_WINDOWS || NKENTSEU_PLATFORM_POSIX
+
+		// =====================================================================
+		// IMPLÉMENTATION : NkAddress — Méthodes factory statiques
+		// =====================================================================
+
+		NkAddress NkAddress::Loopback(uint16 port, Family f) noexcept {
+			if (f == Family::NK_IP_V4) {
+				return NkAddress(127, 0, 0, 1, port);
+			} else {
+				// IPv6 loopback ::1 — construction manuelle des 16 octets
+				NkAddress addr;
+				addr.mPort = port;
+				addr.mFamily = Family::NK_IP_V6;
+				addr.mValid = true;
+
+				// ::1 = 15 octets à 0, dernier octet à 1
+				memory::NkZero(addr.mIP.ipv6, 16);
+				addr.mIP.ipv6[15] = 1;
+
+				return addr;
+			}
+		}
+
+		NkAddress NkAddress::Any(uint16 port, Family f) noexcept {
+			if (f == Family::NK_IP_V4) {
+				return NkAddress(0, 0, 0, 0, port);
+			} else {
+				// IPv6 any :: — tous les octets à 0
+				NkAddress addr;
+				addr.mPort = port;
+				addr.mFamily = Family::NK_IP_V6;
+				addr.mValid = true;
+
+				memory::NkZero(addr.mIP.ipv6, 16);
+
+				return addr;
+			}
+		}
+
+		NkAddress NkAddress::Broadcast(uint16 port) noexcept {
+			// Broadcast IPv4 : 255.255.255.255
+			return NkAddress(255, 255, 255, 255, port);
+		}
+
+		NkVector<NkAddress> NkAddress::Resolve(const char *host, uint16 port, Family preferred) noexcept {
+			NkVector<NkAddress> results;
+
+			// Validation des paramètres
+			if (host == nullptr) {
+				return results;
+			}
+
+			// Optimisation : si host est déjà une adresse IP, pas besoin de résolution
+			NkAddress direct(host, port);
+			if (direct.IsValid()) {
+				results.PushBack(direct);
+				return results;
+			}
+
+// Résolution DNS via getaddrinfo (POSIX/Windows moderne)
+#if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(NKENTSEU_PLATFORM_POSIX)
+
+			addrinfo hints = {};
+			hints.ai_family = (preferred == Family::NK_IP_V4) ? AF_INET : AF_INET6;
+			hints.ai_socktype = SOCK_DGRAM; // UDP par défaut
+			hints.ai_protocol = IPPROTO_UDP;
+
+			addrinfo *resultInfo = nullptr;
+			const int status = getaddrinfo(host, nullptr, &hints, &resultInfo);
+
+			if (status == 0 && resultInfo != nullptr) {
+				// Parcours de la liste chaînée des résultats
+				for (addrinfo *ptr = resultInfo; ptr != nullptr; ptr = ptr->ai_next) {
+					if (ptr->ai_family == AF_INET && ptr->ai_addr != nullptr) {
+						// Conversion sockaddr_in → NkAddress
+						const auto *ipv4Addr = reinterpret_cast<const sockaddr_in *>(ptr->ai_addr);
+						NkAddress addr(*ipv4Addr);
+						addr.mPort = port; // Appliquer le port demandé
+						results.PushBack(addr);
+					} else if (ptr->ai_family == AF_INET6 && ptr->ai_addr != nullptr) {
+						// Conversion sockaddr_in6 → NkAddress
+						const auto *ipv6Addr = reinterpret_cast<const sockaddr_in6 *>(ptr->ai_addr);
+						NkAddress addr(*ipv6Addr);
+						addr.mPort = port; // Appliquer le port demandé
+						results.PushBack(addr);
+					}
+				}
+
+				freeaddrinfo(resultInfo);
+			}
+
+#endif // NKENTSEU_PLATFORM_WINDOWS || NKENTSEU_PLATFORM_POSIX
+
+			// Fallback : si aucune résolution, retourner vecteur vide
+			return results;
+		}
+
+		// =====================================================================
+		// IMPLÉMENTATION : NkAddress — Accesseurs
+		// =====================================================================
+
+		uint16 NkAddress::Port() const noexcept {
+			return mPort;
+		}
+
+		NkAddress::Family NkAddress::GetFamily() const noexcept {
+			return mFamily;
+		}
+
+		bool NkAddress::IsIPv4() const noexcept {
+			return mFamily == Family::NK_IP_V4;
+		}
+
+		bool NkAddress::IsIPv6() const noexcept {
+			return mFamily == Family::NK_IP_V6;
+		}
+
+		bool NkAddress::IsValid() const noexcept {
+			return mPort != 0 && mValid;
+		}
+
+		bool NkAddress::IsLoopback() const noexcept {
+			if (!mValid) {
+				return false;
+			}
+
+			if (mFamily == Family::NK_IP_V4) {
+				// 127.0.0.0/8 est réservé pour loopback en IPv4
+				return mIP.ipv4[0] == 127;
+			} else {
+				// ::1 est le loopback IPv6
+				// Les 15 premiers octets doivent être 0, le dernier 1
+				for (int i = 0; i < 15; ++i) {
+					if (mIP.ipv6[i] != 0) {
+						return false;
+					}
+				}
+				return mIP.ipv6[15] == 1;
+			}
+		}
+
+		bool NkAddress::IsBroadcast() const noexcept {
+			if (!mValid || mFamily != Family::NK_IP_V4) {
+				return false;
+			}
+
+			// Broadcast IPv4 : tous les octets à 255
+			return mIP.ipv4[0] == 255 && mIP.ipv4[1] == 255 && mIP.ipv4[2] == 255 && mIP.ipv4[3] == 255;
+		}
+
+		bool NkAddress::IsMulticast() const noexcept {
+			if (!mValid) {
+				return false;
+			}
+
+			if (mFamily == Family::NK_IP_V4) {
+				// IPv4 multicast : 224.0.0.0 à 239.255.255.255
+				return mIP.ipv4[0] >= 224 && mIP.ipv4[0] <= 239;
+			} else {
+				// IPv6 multicast : préfixe ff00::/8
+				return mIP.ipv6[0] == 0xFF;
+			}
+		}
+
+		NkString NkAddress::ToString() const noexcept {
+			if (mFamily == Family::NK_IP_V4) {
+				return NkFormat("{}.{}.{}.{}:{}", static_cast<uint32>(mIP.ipv4[0]), static_cast<uint32>(mIP.ipv4[1]),
+								static_cast<uint32>(mIP.ipv4[2]), static_cast<uint32>(mIP.ipv4[3]),
+								static_cast<uint32>(mPort));
+			}
+
+			// Format IPv6 : [::1]:port pour éviter ambiguïté avec le séparateur de port
+			// TODO : Implémenter conversion réelle IPv6 → chaîne avec inet_ntop
+			return NkFormat("[ipv6]:{}", static_cast<uint32>(mPort));
+		}
+
+		NkString NkAddress::HostString() const noexcept {
+			if (mFamily == Family::NK_IP_V4) {
+				return NkFormat("{}.{}.{}.{}", static_cast<uint32>(mIP.ipv4[0]), static_cast<uint32>(mIP.ipv4[1]),
+								static_cast<uint32>(mIP.ipv4[2]), static_cast<uint32>(mIP.ipv4[3]));
+			}
+
+			// TODO : Implémenter conversion réelle IPv6 → chaîne
+			return NkString("ipv6");
+		}
+
+		bool NkAddress::operator==(const NkAddress &other) const noexcept {
+			// Comparaison rapide des champs scalaires
+			if (mFamily != other.mFamily) {
+				return false;
+			}
+
+			if (mPort != other.mPort) {
+				return false;
+			}
+
+			// Comparaison des données IP selon la famille
+			if (mFamily == Family::NK_IP_V4) {
+				return memory::NkCompare(mIP.ipv4, other.mIP.ipv4, 4) == 0;
+			} else {
+				return memory::NkCompare(mIP.ipv6, other.mIP.ipv6, 16) == 0;
+			}
+		}
+
+		bool NkAddress::operator!=(const NkAddress &other) const noexcept {
+			return !(*this == other);
+		}
+
+		bool NkAddress::operator<(const NkAddress &other) const noexcept {
+			// Ordre lexicographique : famille → IP → port
+
+			if (mFamily != other.mFamily) {
+				return static_cast<uint8>(mFamily) < static_cast<uint8>(other.mFamily);
+			}
+
+			if (mFamily == Family::NK_IP_V4) {
+				const int ipCmp = memory::NkCompare(mIP.ipv4, other.mIP.ipv4, 4);
+				if (ipCmp != 0) {
+					return ipCmp < 0;
+				}
+			} else {
+				const int ipCmp = memory::NkCompare(mIP.ipv6, other.mIP.ipv6, 16);
+				if (ipCmp != 0) {
+					return ipCmp < 0;
+				}
+			}
+
+			return mPort < other.mPort;
+		}
+
+		// =====================================================================
+		// IMPLÉMENTATION : NkPacket — Méthodes utilitaires
+		// =====================================================================
+
+		bool NkPacket::IsEmpty() const noexcept {
+			return size == 0;
+		}
+
+		void NkPacket::Clear() noexcept {
+			size = 0;
+			seqNum = 0;
+			ackMask = 0;
+			// Note : on ne zero-remplit pas data[] pour performance
+			// Le contenu sera écrasé au prochain remplissage
+		}
+
+		// =====================================================================
+		// IMPLÉMENTATION : NkSocket — Constructeurs/Destructeur
+		// =====================================================================
+
+		NkSocket::~NkSocket() noexcept {
+			// RAII : fermeture automatique si socket encore ouvert
+			Close();
+		}
+
+		NkSocket::NkSocket(NkSocket &&other) noexcept
+			: mHandle(other.mHandle), mType(other.mType), mLocalAddr(other.mLocalAddr),
+			  mNonBlocking(other.mNonBlocking) {
+			// Transfert de propriété : invalider la source
+			other.mHandle = kNkNativeInvalidSocket;
+		}
+
+		NkSocket &NkSocket::operator=(NkSocket &&other) noexcept {
+			// Protection contre auto-affectation
+			if (this != &other) {
+				// Libération des ressources actuelles
+				Close();
+
+				// Transfert des membres
+				mHandle = other.mHandle;
+				mType = other.mType;
+				mLocalAddr = other.mLocalAddr;
+				mNonBlocking = other.mNonBlocking;
+
+				// Invalidation de la source
+				other.mHandle = kNkNativeInvalidSocket;
+			}
+
+			return *this;
+		}
+
+		// =====================================================================
+		// IMPLÉMENTATION : NkSocket — Cycle de vie
+		// =====================================================================
+
+		NkNetResult NkSocket::Create(const NkAddress &localAddr, Type type) noexcept {
+			// Fermeture d'un socket précédemment ouvert (idempotent)
+			Close();
+
+			// Mémorisation des paramètres de création
+			mType = type;
+			mLocalAddr = localAddr;
+
+			// Sélection des paramètres socket selon la famille d'adresse
+			const int addressFamily = AF_INET; // IPv4 uniquement pour l'instant
+			const int socketType = (type == Type::NK_UDP) ? SOCK_DGRAM : SOCK_STREAM;
+			const int protocol = (type == Type::NK_UDP) ? IPPROTO_UDP : IPPROTO_TCP;
+
+			// Création du socket natif
+			mHandle = ::socket(addressFamily, socketType, protocol);
+
+			if (mHandle == kNkNativeInvalidSocket) {
+				const int errorCode = NkGetLastSocketError();
+				NK_NET_LOG_ERROR("socket() failed: code %d", errorCode);
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
 
 #if defined(__APPLE__)
-            // Apple ne fournit pas MSG_NOSIGNAL : sans SO_NOSIGPIPE, un send() sur
-            // une socket dont le pair a ferme leve SIGPIPE et tue le process.
-            {
-                int nosigpipe = 1;
-                ::setsockopt(mHandle, SOL_SOCKET, SO_NOSIGPIPE,
-                             &nosigpipe, sizeof(nosigpipe));
-            }
+			// Apple ne fournit pas MSG_NOSIGNAL : sans SO_NOSIGPIPE, un send() sur
+			// une socket dont le pair a ferme leve SIGPIPE et tue le process.
+			{
+				int nosigpipe = 1;
+				::setsockopt(mHandle, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, sizeof(nosigpipe));
+			}
 #endif
 
-            // Préparation de l'adresse pour bind()
-            sockaddr_storage addressStorage = {};
-            socklen_t addressLength = 0;
-            localAddr.ToSockAddr(addressStorage, addressLength);
+			// Préparation de l'adresse pour bind()
+			sockaddr_storage addressStorage = {};
+			socklen_t addressLength = 0;
+			localAddr.ToSockAddr(addressStorage, addressLength);
 
-            // Liaison du socket à l'adresse locale
-            const int bindResult = ::bind(
-                mHandle,
-                reinterpret_cast<sockaddr*>(&addressStorage),
-                addressLength
-            );
+			// Liaison du socket à l'adresse locale
+			const int bindResult = ::bind(mHandle, reinterpret_cast<sockaddr *>(&addressStorage), addressLength);
 
-            if (bindResult != 0)
-            {
-                const int errorCode = NkGetLastSocketError();
-                NK_NET_LOG_ERROR("bind() failed: code %d", errorCode);
-                Close();  // Nettoyage en cas d'échec
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
+			if (bindResult != 0) {
+				const int errorCode = NkGetLastSocketError();
+				NK_NET_LOG_ERROR("bind() failed: code %d", errorCode);
+				Close(); // Nettoyage en cas d'échec
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
 
-            // Configuration par défaut des buffers pour performance
-            SetSendBufferSize(kNkSendBufferSize);
-            SetRecvBufferSize(kNkRecvBufferSize);
+			// Configuration par défaut des buffers pour performance
+			SetSendBufferSize(kNkSendBufferSize);
+			SetRecvBufferSize(kNkRecvBufferSize);
 
-            return NkNetResult::NK_NET_OK;
-        }
+			return NkNetResult::NK_NET_OK;
+		}
 
-        void NkSocket::Close() noexcept
-        {
-            if (mHandle != kNkNativeInvalidSocket)
-            {
-                // Fermeture plateforme-specific via macro
-                NK_NET_CLOSE_SOCKET_IMPL(mHandle);
-                mHandle = kNkNativeInvalidSocket;
-            }
-        }
+		void NkSocket::Close() noexcept {
+			if (mHandle != kNkNativeInvalidSocket) {
+				// Fermeture plateforme-specific via macro
+				NK_NET_CLOSE_SOCKET_IMPL(mHandle);
+				mHandle = kNkNativeInvalidSocket;
+			}
+		}
 
-        // =====================================================================
-        // IMPLÉMENTATION : NkSocket — Configuration
-        // =====================================================================
+		// =====================================================================
+		// IMPLÉMENTATION : NkSocket — Configuration
+		// =====================================================================
 
-        NkNetResult NkSocket::SetNonBlocking(bool enabled) noexcept
-        {
-            if (!IsValid())
-            {
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
+		NkNetResult NkSocket::SetNonBlocking(bool enabled) noexcept {
+			if (!IsValid()) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
 
-            #if defined(NKENTSEU_PLATFORM_WINDOWS)
-
-                u_long mode = enabled ? 1 : 0;
-                const int result = ::ioctlsocket(mHandle, FIONBIO, &mode);
-                if (result != 0)
-                {
-                    return NkNetResult::NK_NET_SOCKET_ERROR;
-                }
-
-            #elif defined(NKENTSEU_PLATFORM_POSIX)
-
-                int flags = ::fcntl(mHandle, F_GETFL, 0);
-                if (flags < 0)
-                {
-                    return NkNetResult::NK_NET_SOCKET_ERROR;
-                }
-
-                if (enabled)
-                {
-                    flags |= O_NONBLOCK;
-                }
-                else
-                {
-                    flags &= ~O_NONBLOCK;
-                }
-
-                if (::fcntl(mHandle, F_SETFL, flags) < 0)
-                {
-                    return NkNetResult::NK_NET_SOCKET_ERROR;
-                }
-
-            #endif // Plateforme
-
-            mNonBlocking = enabled;
-            return NkNetResult::NK_NET_OK;
-        }
-
-        NkNetResult NkSocket::SetBroadcast(bool enabled) noexcept
-        {
-            if (!IsValid())
-            {
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
-
-            int optionValue = enabled ? 1 : 0;
-            const int result = ::setsockopt(
-                mHandle,
-                SOL_SOCKET,
-                SO_BROADCAST,
-                reinterpret_cast<const char*>(&optionValue),
-                sizeof(optionValue)
-            );
-
-            if (result != 0)
-            {
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
-
-            return NkNetResult::NK_NET_OK;
-        }
-
-        NkNetResult NkSocket::SetNoDelay(bool enabled) noexcept
-        {
-            if (!IsValid() || mType != Type::NK_TCP)
-            {
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
-
-            int optionValue = enabled ? 1 : 0;
-            const int result = ::setsockopt(
-                mHandle,
-                IPPROTO_TCP,
-                TCP_NODELAY,
-                reinterpret_cast<const char*>(&optionValue),
-                sizeof(optionValue)
-            );
-
-            if (result != 0)
-            {
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
-
-            return NkNetResult::NK_NET_OK;
-        }
-
-        NkNetResult NkSocket::SetReuseAddr(bool enabled) noexcept
-        {
-            if (!IsValid())
-            {
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
-
-            int optionValue = enabled ? 1 : 0;
-            const int result = ::setsockopt(
-                mHandle,
-                SOL_SOCKET,
-                SO_REUSEADDR,
-                reinterpret_cast<const char*>(&optionValue),
-                sizeof(optionValue)
-            );
-
-            if (result != 0)
-            {
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
-
-            return NkNetResult::NK_NET_OK;
-        }
-
-        NkNetResult NkSocket::SetSendBufferSize(uint32 bytes) noexcept
-        {
-            if (!IsValid())
-            {
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
-
-            int bufferSize = static_cast<int>(bytes);
-            ::setsockopt(
-                mHandle,
-                SOL_SOCKET,
-                SO_SNDBUF,
-                reinterpret_cast<const char*>(&bufferSize),
-                sizeof(bufferSize)
-            );
-            // Note : on ignore l'échec — l'OS ajuste selon ses limites
-
-            return NkNetResult::NK_NET_OK;
-        }
-
-        NkNetResult NkSocket::SetRecvBufferSize(uint32 bytes) noexcept
-        {
-            if (!IsValid())
-            {
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
-
-            int bufferSize = static_cast<int>(bytes);
-            ::setsockopt(
-                mHandle,
-                SOL_SOCKET,
-                SO_RCVBUF,
-                reinterpret_cast<const char*>(&bufferSize),
-                sizeof(bufferSize)
-            );
-            // Note : on ignore l'échec — l'OS ajuste selon ses limites
-
-            return NkNetResult::NK_NET_OK;
-        }
-
-        // =====================================================================
-        // IMPLÉMENTATION : NkSocket — Opérations UDP
-        // =====================================================================
-
-        NkNetResult NkSocket::SendTo(
-            const void* data,
-            uint32 size,
-            const NkAddress& target
-        ) noexcept
-        {
-            // ── DIAGNOSTIC : log d'ENTREE (tous les premiers appels). Permet
-            // de verifier que la fonction est bien appelee depuis le thread
-            // reseau, independamment du resultat de sendto().
-            {
-                static NkAtomic<uint32> sEnterCounter{0};
-                const uint32 idx = sEnterCounter.FetchAdd(1);
-                if (idx < 8)
-                {
-                    NK_NET_LOG_INFO("[NET-DIAG] SendTo enter #{} target={} size={} valid={}",
-                                    idx, target.ToString().CStr(),
-                                    size, IsValid() ? 1 : 0);
-                }
-            }
-            // Validation des paramètres
-            if (!IsValid() || data == nullptr || size == 0)
-            {
-                return NkNetResult::NK_NET_INVALID_ARG;
-            }
-
-            // Vérification de la taille maximale MTU-safe
-            if (size > kNkMaxPacketSize)
-            {
-                return NkNetResult::NK_NET_PACKET_TOO_LARGE;
-            }
-
-            // Préparation de l'adresse de destination
-            sockaddr_storage addressStorage = {};
-            socklen_t addressLength = 0;
-            target.ToSockAddr(addressStorage, addressLength);
-
-            // Envoi du datagramme
-            const int sentBytes = ::sendto(
-                mHandle,
-                reinterpret_cast<const char*>(data),
-                static_cast<int>(size),
-                0,  // Flags
-                reinterpret_cast<sockaddr*>(&addressStorage),
-                addressLength
-            );
-
-            if (sentBytes == NK_NET_SOCKET_ERROR_CODE)
-            {
-                const int errorCode = NkGetLastSocketError();
-
-                // Gestion du cas "would block" en mode non-bloquant
-                if (mNonBlocking && NkIsWouldBlockError(errorCode))
-                {
-                    return NkNetResult::NK_NET_BUFFER_FULL;
-                }
-
-                NK_NET_LOG_ERROR("sendto() failed: code %d", errorCode);
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
-
-            // ── DIAGNOSTIC : log les 5 premiers envois (cible + taille) pour
-            // verifier que les paquets sortent bien sur la bonne destination.
-            {
-                static NkAtomic<uint32> sSendCounter{0};
-                const uint32 idx = sSendCounter.FetchAdd(1);
-                if (idx < 5)
-                {
-                    NK_NET_LOG_INFO("[NET-DIAG] sendto #{} -> {} ({} bytes OK)",
-                                    idx, target.ToString().CStr(), size);
-                }
-            }
-
-            return NkNetResult::NK_NET_OK;
-        }
-
-        NkNetResult NkSocket::RecvFrom(
-            void* buffer,
-            uint32 bufferSize,
-            uint32& outSize,
-            NkAddress& outFrom
-        ) noexcept
-        {
-            // ── DIAGNOSTIC : log d'ENTREE (tous les premiers appels). Confirme
-            // que la fonction est appelee depuis le thread reseau.
-            {
-                static NkAtomic<uint32> sEnterCounter{0};
-                const uint32 idx = sEnterCounter.FetchAdd(1);
-                if (idx < 8)
-                {
-                    NK_NET_LOG_INFO("[NET-DIAG] RecvFrom enter #{} bufSize={} valid={}",
-                                    idx, bufferSize, IsValid() ? 1 : 0);
-                }
-            }
-            // Validation des paramètres
-            if (!IsValid() || buffer == nullptr)
-            {
-                return NkNetResult::NK_NET_INVALID_ARG;
-            }
-
-            // Préparation pour réception de l'adresse source
-            sockaddr_storage addressStorage = {};
-            socklen_t addressLength = sizeof(sockaddr_storage);
-
-            // Réception du datagramme
-            const int receivedBytes = ::recvfrom(
-                mHandle,
-                reinterpret_cast<char*>(buffer),
-                static_cast<int>(bufferSize),
-                0,  // Flags
-                reinterpret_cast<sockaddr*>(&addressStorage),
-                &addressLength
-            );
-
-            if (receivedBytes == NK_NET_SOCKET_ERROR_CODE)
-            {
-                const int errorCode = NkGetLastSocketError();
-
-                // En mode non-bloquant, "rien à lire" n'est pas une erreur
-                if (mNonBlocking && NkIsWouldBlockError(errorCode))
-                {
-                    outSize = 0;
-                    return NkNetResult::NK_NET_OK;
-                }
-
-                // UDP : WSAECONNRESET (10054) sur Windows est ICMP "port
-                // unreachable" recu d'un peer qui a ferme son socket. C'est
-                // un comportement normal en UDP (pas une vraie erreur de
-                // notre socket) et ne doit pas spammer les logs ni couper
-                // la reception. On retourne OK avec outSize=0 = "rien recu
-                // cette iteration", la prochaine recvfrom reprendra.
-                // Equivalent POSIX : ECONNREFUSED (111) ou ECONNRESET (104).
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-                if (errorCode == 10054 /* WSAECONNRESET */)
+
+			u_long mode = enabled ? 1 : 0;
+			const int result = ::ioctlsocket(mHandle, FIONBIO, &mode);
+			if (result != 0) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
+
+#elif defined(NKENTSEU_PLATFORM_POSIX)
+
+			int flags = ::fcntl(mHandle, F_GETFL, 0);
+			if (flags < 0) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
+
+			if (enabled) {
+				flags |= O_NONBLOCK;
+			} else {
+				flags &= ~O_NONBLOCK;
+			}
+
+			if (::fcntl(mHandle, F_SETFL, flags) < 0) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
+
+#endif // Plateforme
+
+			mNonBlocking = enabled;
+			return NkNetResult::NK_NET_OK;
+		}
+
+		NkNetResult NkSocket::SetBroadcast(bool enabled) noexcept {
+			if (!IsValid()) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
+
+			int optionValue = enabled ? 1 : 0;
+			const int result = ::setsockopt(mHandle, SOL_SOCKET, SO_BROADCAST,
+											reinterpret_cast<const char *>(&optionValue), sizeof(optionValue));
+
+			if (result != 0) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
+
+			return NkNetResult::NK_NET_OK;
+		}
+
+		NkNetResult NkSocket::SetNoDelay(bool enabled) noexcept {
+			if (!IsValid() || mType != Type::NK_TCP) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
+
+			int optionValue = enabled ? 1 : 0;
+			const int result = ::setsockopt(mHandle, IPPROTO_TCP, TCP_NODELAY,
+											reinterpret_cast<const char *>(&optionValue), sizeof(optionValue));
+
+			if (result != 0) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
+
+			return NkNetResult::NK_NET_OK;
+		}
+
+		NkNetResult NkSocket::SetReuseAddr(bool enabled) noexcept {
+			if (!IsValid()) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
+
+			int optionValue = enabled ? 1 : 0;
+			const int result = ::setsockopt(mHandle, SOL_SOCKET, SO_REUSEADDR,
+											reinterpret_cast<const char *>(&optionValue), sizeof(optionValue));
+
+			if (result != 0) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
+
+			return NkNetResult::NK_NET_OK;
+		}
+
+		NkNetResult NkSocket::SetSendBufferSize(uint32 bytes) noexcept {
+			if (!IsValid()) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
+
+			int bufferSize = static_cast<int>(bytes);
+			::setsockopt(mHandle, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const char *>(&bufferSize),
+						 sizeof(bufferSize));
+			// Note : on ignore l'échec — l'OS ajuste selon ses limites
+
+			return NkNetResult::NK_NET_OK;
+		}
+
+		NkNetResult NkSocket::SetRecvBufferSize(uint32 bytes) noexcept {
+			if (!IsValid()) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
+
+			int bufferSize = static_cast<int>(bytes);
+			::setsockopt(mHandle, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char *>(&bufferSize),
+						 sizeof(bufferSize));
+			// Note : on ignore l'échec — l'OS ajuste selon ses limites
+
+			return NkNetResult::NK_NET_OK;
+		}
+
+		// =====================================================================
+		// IMPLÉMENTATION : NkSocket — Opérations UDP
+		// =====================================================================
+
+		NkNetResult NkSocket::SendTo(const void *data, uint32 size, const NkAddress &target) noexcept {
+			// ── DIAGNOSTIC : log d'ENTREE (tous les premiers appels). Permet
+			// de verifier que la fonction est bien appelee depuis le thread
+			// reseau, independamment du resultat de sendto().
+			{
+				static NkAtomic<uint32> sEnterCounter{0};
+				const uint32 idx = sEnterCounter.FetchAdd(1);
+				if (idx < 8) {
+					NK_NET_LOG_INFO("[NET-DIAG] SendTo enter #{} target={} size={} valid={}", idx,
+									target.ToString().CStr(), size, IsValid() ? 1 : 0);
+				}
+			}
+			// Validation des paramètres
+			if (!IsValid() || data == nullptr || size == 0) {
+				return NkNetResult::NK_NET_INVALID_ARG;
+			}
+
+			// Vérification de la taille maximale MTU-safe
+			if (size > kNkMaxPacketSize) {
+				return NkNetResult::NK_NET_PACKET_TOO_LARGE;
+			}
+
+			// Préparation de l'adresse de destination
+			sockaddr_storage addressStorage = {};
+			socklen_t addressLength = 0;
+			target.ToSockAddr(addressStorage, addressLength);
+
+			// Envoi du datagramme
+			const int sentBytes = ::sendto(mHandle, reinterpret_cast<const char *>(data), static_cast<int>(size),
+										   0, // Flags
+										   reinterpret_cast<sockaddr *>(&addressStorage), addressLength);
+
+			if (sentBytes == NK_NET_SOCKET_ERROR_CODE) {
+				const int errorCode = NkGetLastSocketError();
+
+				// Gestion du cas "would block" en mode non-bloquant
+				if (mNonBlocking && NkIsWouldBlockError(errorCode)) {
+					return NkNetResult::NK_NET_BUFFER_FULL;
+				}
+
+				NK_NET_LOG_ERROR("sendto() failed: code %d", errorCode);
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
+
+			// ── DIAGNOSTIC : log les 5 premiers envois (cible + taille) pour
+			// verifier que les paquets sortent bien sur la bonne destination.
+			{
+				static NkAtomic<uint32> sSendCounter{0};
+				const uint32 idx = sSendCounter.FetchAdd(1);
+				if (idx < 5) {
+					NK_NET_LOG_INFO("[NET-DIAG] sendto #{} -> {} ({} bytes OK)", idx, target.ToString().CStr(), size);
+				}
+			}
+
+			return NkNetResult::NK_NET_OK;
+		}
+
+		NkNetResult NkSocket::RecvFrom(void *buffer, uint32 bufferSize, uint32 &outSize, NkAddress &outFrom) noexcept {
+			// ── DIAGNOSTIC : log d'ENTREE (tous les premiers appels). Confirme
+			// que la fonction est appelee depuis le thread reseau.
+			{
+				static NkAtomic<uint32> sEnterCounter{0};
+				const uint32 idx = sEnterCounter.FetchAdd(1);
+				if (idx < 8) {
+					NK_NET_LOG_INFO("[NET-DIAG] RecvFrom enter #{} bufSize={} valid={}", idx, bufferSize,
+									IsValid() ? 1 : 0);
+				}
+			}
+			// Validation des paramètres
+			if (!IsValid() || buffer == nullptr) {
+				return NkNetResult::NK_NET_INVALID_ARG;
+			}
+
+			// Préparation pour réception de l'adresse source
+			sockaddr_storage addressStorage = {};
+			socklen_t addressLength = sizeof(sockaddr_storage);
+
+			// Réception du datagramme
+			const int receivedBytes =
+				::recvfrom(mHandle, reinterpret_cast<char *>(buffer), static_cast<int>(bufferSize),
+						   0, // Flags
+						   reinterpret_cast<sockaddr *>(&addressStorage), &addressLength);
+
+			if (receivedBytes == NK_NET_SOCKET_ERROR_CODE) {
+				const int errorCode = NkGetLastSocketError();
+
+				// En mode non-bloquant, "rien à lire" n'est pas une erreur
+				if (mNonBlocking && NkIsWouldBlockError(errorCode)) {
+					outSize = 0;
+					return NkNetResult::NK_NET_OK;
+				}
+
+				// UDP : WSAECONNRESET (10054) sur Windows est ICMP "port
+				// unreachable" recu d'un peer qui a ferme son socket. C'est
+				// un comportement normal en UDP (pas une vraie erreur de
+				// notre socket) et ne doit pas spammer les logs ni couper
+				// la reception. On retourne OK avec outSize=0 = "rien recu
+				// cette iteration", la prochaine recvfrom reprendra.
+				// Equivalent POSIX : ECONNREFUSED (111) ou ECONNRESET (104).
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+				if (errorCode == 10054 /* WSAECONNRESET */)
 #else
-                if (errorCode == 104 /* ECONNRESET */ ||
-                    errorCode == 111 /* ECONNREFUSED */)
+				if (errorCode == 104 /* ECONNRESET */ || errorCode == 111 /* ECONNREFUSED */)
 #endif
-                {
-                    outSize = 0;
-                    return NkNetResult::NK_NET_OK;
-                }
+				{
+					outSize = 0;
+					return NkNetResult::NK_NET_OK;
+				}
 
-                NK_NET_LOG_ERROR("recvfrom() failed: code {0}", errorCode);
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
+				NK_NET_LOG_ERROR("recvfrom() failed: code {0}", errorCode);
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
 
-            // Remplissage des paramètres de sortie
-            outSize = static_cast<uint32>(receivedBytes);
+			// Remplissage des paramètres de sortie
+			outSize = static_cast<uint32>(receivedBytes);
 
-            // Extraction de l'adresse source si disponible
-            if (addressStorage.ss_family == AF_INET && addressLength >= sizeof(sockaddr_in))
-            {
-                const auto& ipv4Addr = reinterpret_cast<const sockaddr_in&>(addressStorage);
-                outFrom = NkAddress(ipv4Addr);
-            }
-            else if (addressStorage.ss_family == AF_INET6 && addressLength >= sizeof(sockaddr_in6))
-            {
-                const auto& ipv6Addr = reinterpret_cast<const sockaddr_in6&>(addressStorage);
-                outFrom = NkAddress(ipv6Addr);
-            }
+			// Extraction de l'adresse source si disponible
+			if (addressStorage.ss_family == AF_INET && addressLength >= sizeof(sockaddr_in)) {
+				const auto &ipv4Addr = reinterpret_cast<const sockaddr_in &>(addressStorage);
+				outFrom = NkAddress(ipv4Addr);
+			} else if (addressStorage.ss_family == AF_INET6 && addressLength >= sizeof(sockaddr_in6)) {
+				const auto &ipv6Addr = reinterpret_cast<const sockaddr_in6 &>(addressStorage);
+				outFrom = NkAddress(ipv6Addr);
+			}
 
-            // ── DIAGNOSTIC : log les 5 premieres receptions (source + taille).
-            {
-                static NkAtomic<uint32> sRecvCounter{0};
-                const uint32 idx = sRecvCounter.FetchAdd(1);
-                if (idx < 5)
-                {
-                    NK_NET_LOG_INFO("[NET-DIAG] recvfrom #{} <- {} ({} bytes)",
-                                    idx, outFrom.ToString().CStr(),
-                                    static_cast<unsigned>(outSize));
-                }
-            }
+			// ── DIAGNOSTIC : log les 5 premieres receptions (source + taille).
+			{
+				static NkAtomic<uint32> sRecvCounter{0};
+				const uint32 idx = sRecvCounter.FetchAdd(1);
+				if (idx < 5) {
+					NK_NET_LOG_INFO("[NET-DIAG] recvfrom #{} <- {} ({} bytes)", idx, outFrom.ToString().CStr(),
+									static_cast<unsigned>(outSize));
+				}
+			}
 
-            return NkNetResult::NK_NET_OK;
-        }
+			return NkNetResult::NK_NET_OK;
+		}
 
-        // =====================================================================
-        // IMPLÉMENTATION : NkSocket — Opérations TCP
-        // =====================================================================
+		// =====================================================================
+		// IMPLÉMENTATION : NkSocket — Opérations TCP
+		// =====================================================================
 
-        NkNetResult NkSocket::Listen(uint32 backlog) noexcept
-        {
-            if (!IsValid() || mType != Type::NK_TCP)
-            {
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
+		NkNetResult NkSocket::Listen(uint32 backlog) noexcept {
+			if (!IsValid() || mType != Type::NK_TCP) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
 
-            const int result = ::listen(mHandle, static_cast<int>(backlog));
-            if (result != 0)
-            {
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
+			const int result = ::listen(mHandle, static_cast<int>(backlog));
+			if (result != 0) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
 
-            return NkNetResult::NK_NET_OK;
-        }
+			return NkNetResult::NK_NET_OK;
+		}
 
-        NkNetResult NkSocket::Connect(const NkAddress& remote) noexcept
-        {
-            if (!IsValid())
-            {
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
+		NkNetResult NkSocket::Connect(const NkAddress &remote) noexcept {
+			if (!IsValid()) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
 
-            sockaddr_storage addressStorage = {};
-            socklen_t addressLength = 0;
-            remote.ToSockAddr(addressStorage, addressLength);
+			sockaddr_storage addressStorage = {};
+			socklen_t addressLength = 0;
+			remote.ToSockAddr(addressStorage, addressLength);
 
-            const int result = ::connect(
-                mHandle,
-                reinterpret_cast<sockaddr*>(&addressStorage),
-                addressLength
-            );
+			const int result = ::connect(mHandle, reinterpret_cast<sockaddr *>(&addressStorage), addressLength);
 
-            if (result != 0)
-            {
-                const int errorCode = NkGetLastSocketError();
+			if (result != 0) {
+				const int errorCode = NkGetLastSocketError();
 
-                // En mode non-bloquant, EINPROGRESS/WSAEWOULDBLOCK est attendu
-                #if defined(NKENTSEU_PLATFORM_WINDOWS)
-                    if (errorCode != WSAEWOULDBLOCK)
-                #else
-                    if (errorCode != EINPROGRESS)
-                #endif
-                {
-                    return NkNetResult::NK_NET_SOCKET_ERROR;
-                }
-            }
+// En mode non-bloquant, EINPROGRESS/WSAEWOULDBLOCK est attendu
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+				if (errorCode != WSAEWOULDBLOCK)
+#else
+				if (errorCode != EINPROGRESS)
+#endif
+				{
+					return NkNetResult::NK_NET_SOCKET_ERROR;
+				}
+			}
 
-            return NkNetResult::NK_NET_OK;
-        }
+			return NkNetResult::NK_NET_OK;
+		}
 
-        NkNetResult NkSocket::Accept(NkSocket& outClient, NkAddress& outAddr) noexcept
-        {
-            if (!IsValid() || mType != Type::NK_TCP)
-            {
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
+		NkNetResult NkSocket::Accept(NkSocket &outClient, NkAddress &outAddr) noexcept {
+			if (!IsValid() || mType != Type::NK_TCP) {
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
 
-            sockaddr_storage addressStorage = {};
-            socklen_t addressLength = sizeof(sockaddr_storage);
+			sockaddr_storage addressStorage = {};
+			socklen_t addressLength = sizeof(sockaddr_storage);
 
-            const NkNativeSocketHandle clientHandle = ::accept(
-                mHandle,
-                reinterpret_cast<sockaddr*>(&addressStorage),
-                &addressLength
-            );
+			const NkNativeSocketHandle clientHandle =
+				::accept(mHandle, reinterpret_cast<sockaddr *>(&addressStorage), &addressLength);
 
-            if (clientHandle == kNkNativeInvalidSocket)
-            {
-                const int errorCode = NkGetLastSocketError();
+			if (clientHandle == kNkNativeInvalidSocket) {
+				const int errorCode = NkGetLastSocketError();
 
-                // En mode non-bloquant, aucune connexion en attente n'est normal
-                if (mNonBlocking && NkIsWouldBlockError(errorCode))
-                {
-                    return NkNetResult::NK_NET_OK;
-                }
+				// En mode non-bloquant, aucune connexion en attente n'est normal
+				if (mNonBlocking && NkIsWouldBlockError(errorCode)) {
+					return NkNetResult::NK_NET_OK;
+				}
 
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
 
 #if defined(__APPLE__)
-            // Meme protection SIGPIPE que pour les sockets crees (cf Bind).
-            {
-                int nosigpipe = 1;
-                ::setsockopt(clientHandle, SOL_SOCKET, SO_NOSIGPIPE,
-                             &nosigpipe, sizeof(nosigpipe));
-            }
+			// Meme protection SIGPIPE que pour les sockets crees (cf Bind).
+			{
+				int nosigpipe = 1;
+				::setsockopt(clientHandle, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, sizeof(nosigpipe));
+			}
 #endif
 
-            // Transfert du handle vers le socket client
-            outClient.Close();  // Nettoyage préventif
-            outClient.mHandle = clientHandle;
-            outClient.mType = Type::NK_TCP;
-            outClient.mNonBlocking = mNonBlocking;  // Hériter du mode
+			// Transfert du handle vers le socket client
+			outClient.Close(); // Nettoyage préventif
+			outClient.mHandle = clientHandle;
+			outClient.mType = Type::NK_TCP;
+			outClient.mNonBlocking = mNonBlocking; // Hériter du mode
 
-            // Extraction de l'adresse du client
-            if (addressStorage.ss_family == AF_INET)
-            {
-                const auto& ipv4Addr = reinterpret_cast<const sockaddr_in&>(addressStorage);
-                outAddr = NkAddress(ipv4Addr);
-            }
-            else if (addressStorage.ss_family == AF_INET6)
-            {
-                const auto& ipv6Addr = reinterpret_cast<const sockaddr_in6&>(addressStorage);
-                outAddr = NkAddress(ipv6Addr);
-            }
+			// Extraction de l'adresse du client
+			if (addressStorage.ss_family == AF_INET) {
+				const auto &ipv4Addr = reinterpret_cast<const sockaddr_in &>(addressStorage);
+				outAddr = NkAddress(ipv4Addr);
+			} else if (addressStorage.ss_family == AF_INET6) {
+				const auto &ipv6Addr = reinterpret_cast<const sockaddr_in6 &>(addressStorage);
+				outAddr = NkAddress(ipv6Addr);
+			}
 
-            return NkNetResult::NK_NET_OK;
-        }
+			return NkNetResult::NK_NET_OK;
+		}
 
-        NkNetResult NkSocket::Send(const void* data, uint32 size) noexcept
-        {
-            if (!IsValid() || data == nullptr || size == 0)
-            {
-                return NkNetResult::NK_NET_INVALID_ARG;
-            }
+		NkNetResult NkSocket::Send(const void *data, uint32 size) noexcept {
+			if (!IsValid() || data == nullptr || size == 0) {
+				return NkNetResult::NK_NET_INVALID_ARG;
+			}
 
-            const int sentBytes = ::send(
-                mHandle,
-                reinterpret_cast<const char*>(data),
-                static_cast<int>(size),
-                0  // Flags
-            );
+			const int sentBytes = ::send(mHandle, reinterpret_cast<const char *>(data), static_cast<int>(size),
+										 0 // Flags
+			);
 
-            if (sentBytes == NK_NET_SOCKET_ERROR_CODE)
-            {
-                const int errorCode = NkGetLastSocketError();
+			if (sentBytes == NK_NET_SOCKET_ERROR_CODE) {
+				const int errorCode = NkGetLastSocketError();
 
-                if (mNonBlocking && NkIsWouldBlockError(errorCode))
-                {
-                    return NkNetResult::NK_NET_BUFFER_FULL;
-                }
+				if (mNonBlocking && NkIsWouldBlockError(errorCode)) {
+					return NkNetResult::NK_NET_BUFFER_FULL;
+				}
 
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
 
-            return NkNetResult::NK_NET_OK;
-        }
+			return NkNetResult::NK_NET_OK;
+		}
 
-        NkNetResult NkSocket::Recv(void* buffer, uint32 bufferSize, uint32& outSize) noexcept
-        {
-            if (!IsValid() || buffer == nullptr)
-            {
-                return NkNetResult::NK_NET_INVALID_ARG;
-            }
+		NkNetResult NkSocket::Recv(void *buffer, uint32 bufferSize, uint32 &outSize) noexcept {
+			if (!IsValid() || buffer == nullptr) {
+				return NkNetResult::NK_NET_INVALID_ARG;
+			}
 
-            const int receivedBytes = ::recv(
-                mHandle,
-                reinterpret_cast<char*>(buffer),
-                static_cast<int>(bufferSize),
-                0  // Flags
-            );
+			const int receivedBytes = ::recv(mHandle, reinterpret_cast<char *>(buffer), static_cast<int>(bufferSize),
+											 0 // Flags
+			);
 
-            if (receivedBytes == NK_NET_SOCKET_ERROR_CODE)
-            {
-                const int errorCode = NkGetLastSocketError();
+			if (receivedBytes == NK_NET_SOCKET_ERROR_CODE) {
+				const int errorCode = NkGetLastSocketError();
 
-                if (mNonBlocking && NkIsWouldBlockError(errorCode))
-                {
-                    outSize = 0;
-                    return NkNetResult::NK_NET_OK;
-                }
+				if (mNonBlocking && NkIsWouldBlockError(errorCode)) {
+					outSize = 0;
+					return NkNetResult::NK_NET_OK;
+				}
 
-                return NkNetResult::NK_NET_SOCKET_ERROR;
-            }
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
 
-            outSize = static_cast<uint32>(receivedBytes);
-            return NkNetResult::NK_NET_OK;
-        }
+			outSize = static_cast<uint32>(receivedBytes);
+			return NkNetResult::NK_NET_OK;
+		}
 
-        // =====================================================================
-        // IMPLÉMENTATION : NkSocket — Inspection
-        // =====================================================================
+		// =====================================================================
+		// IMPLÉMENTATION : NkSocket — Inspection
+		// =====================================================================
 
-        bool NkSocket::IsValid() const noexcept
-        {
-            return mHandle != kNkNativeInvalidSocket;
-        }
+		bool NkSocket::IsValid() const noexcept {
+			return mHandle != kNkNativeInvalidSocket;
+		}
 
-        NkSocket::Type NkSocket::GetType() const noexcept
-        {
-            return mType;
-        }
+		NkSocket::Type NkSocket::GetType() const noexcept {
+			return mType;
+		}
 
-        const NkAddress& NkSocket::GetLocalAddr() const noexcept
-        {
-            return mLocalAddr;
-        }
+		const NkAddress &NkSocket::GetLocalAddr() const noexcept {
+			return mLocalAddr;
+		}
 
-        int32 NkSocket::GetLastError() const noexcept
-        {
-            return static_cast<int32>(NkGetLastSocketError());
-        }
+		int32 NkSocket::GetLastError() const noexcept {
+			return static_cast<int32>(NkGetLastSocketError());
+		}
 
-        // =====================================================================
-        // IMPLÉMENTATION : NkSocket — Utilitaires statiques
-        // =====================================================================
+		// =====================================================================
+		// IMPLÉMENTATION : NkSocket — Utilitaires statiques
+		// =====================================================================
 
-        NkNetResult NkSocket::PlatformInit() noexcept
-        {
-            #if defined(NKENTSEU_PLATFORM_WINDOWS)
+		NkNetResult NkSocket::PlatformInit() noexcept {
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
 
-                WSADATA wsaData = {};
-                const int result = ::WSAStartup(MAKEWORD(2, 2), &wsaData);
+			WSADATA wsaData = {};
+			const int result = ::WSAStartup(MAKEWORD(2, 2), &wsaData);
 
-                if (result != 0)
-                {
-                    NK_NET_LOG_ERROR("WSAStartup failed: code {0}", result);
-                    return NkNetResult::NK_NET_SOCKET_ERROR;
-                }
+			if (result != 0) {
+				NK_NET_LOG_ERROR("WSAStartup failed: code {0}", result);
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
 
-                // Vérification de la version Winsock demandée
-                if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2)
-                {
-                    NK_NET_LOG_ERROR("Winsock 2.2 not supported");
-                    ::WSACleanup();
-                    return NkNetResult::NK_NET_PLATFORM_UNSUPPORTED;
-                }
+			// Vérification de la version Winsock demandée
+			if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2) {
+				NK_NET_LOG_ERROR("Winsock 2.2 not supported");
+				::WSACleanup();
+				return NkNetResult::NK_NET_PLATFORM_UNSUPPORTED;
+			}
 
-            #endif // NKENTSEU_PLATFORM_WINDOWS
+#endif // NKENTSEU_PLATFORM_WINDOWS
 
-            // POSIX et Emscripten : pas d'initialisation requise
-            return NkNetResult::NK_NET_OK;
-        }
+			// POSIX et Emscripten : pas d'initialisation requise
+			return NkNetResult::NK_NET_OK;
+		}
 
-        void NkSocket::PlatformShutdown() noexcept
-        {
-            #if defined(NKENTSEU_PLATFORM_WINDOWS)
+		void NkSocket::PlatformShutdown() noexcept {
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
 
-                ::WSACleanup();
+			::WSACleanup();
 
-            #endif // NKENTSEU_PLATFORM_WINDOWS
+#endif // NKENTSEU_PLATFORM_WINDOWS
 
-            // POSIX et Emscripten : pas de nettoyage requis
-        }
+			// POSIX et Emscripten : pas de nettoyage requis
+		}
 
-        NkNetResult NkSocket::Select(
-            NkSpan<NkSocket*> socketsToWatch,
-            uint32 timeoutMs,
-            NkVector<uint32>& outReady
-        ) noexcept
-        {
-            // Validation des paramètres
-            if (socketsToWatch.Empty())
-            {
-                return NkNetResult::NK_NET_INVALID_ARG;
-            }
+		NkNetResult NkSocket::Select(NkSpan<NkSocket *> socketsToWatch, uint32 timeoutMs,
+									 NkVector<uint32> &outReady) noexcept {
+			// Validation des paramètres
+			if (socketsToWatch.Empty()) {
+				return NkNetResult::NK_NET_INVALID_ARG;
+			}
 
-            #if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(NKENTSEU_PLATFORM_POSIX)
+#if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(NKENTSEU_PLATFORM_POSIX)
 
-                // Préparation du fd_set pour select()
-                fd_set readSet = {};
-                FD_ZERO(&readSet);
+			// Préparation du fd_set pour select()
+			fd_set readSet = {};
+			FD_ZERO(&readSet);
 
-                // Mapping indice → handle pour reconstruction du résultat
-                NkVector<NkNativeSocketHandle> handleMap;
-                handleMap.Reserve(socketsToWatch.Size());
+			// Mapping indice → handle pour reconstruction du résultat
+			NkVector<NkNativeSocketHandle> handleMap;
+			handleMap.Reserve(socketsToWatch.Size());
 
-                NkNativeSocketHandle maxHandle = 0;
+			NkNativeSocketHandle maxHandle = 0;
 
-                for (uint32 i = 0; i < socketsToWatch.Size(); ++i)
-                {
-                    NkSocket* sock = socketsToWatch[i];
-                    if (sock != nullptr && sock->IsValid())
-                    {
-                        FD_SET(sock->mHandle, &readSet);
-                        handleMap.PushBack(sock->mHandle);
+			for (uint32 i = 0; i < socketsToWatch.Size(); ++i) {
+				NkSocket *sock = socketsToWatch[i];
+				if (sock != nullptr && sock->IsValid()) {
+					FD_SET(sock->mHandle, &readSet);
+					handleMap.PushBack(sock->mHandle);
 
-                        #if defined(NKENTSEU_PLATFORM_WINDOWS)
-                            // Windows : maxHandle non requis pour select()
-                        #else
-                            // POSIX : select() nécessite le max descriptor + 1
-                            if (sock->mHandle > maxHandle)
-                            {
-                                maxHandle = sock->mHandle;
-                            }
-                        #endif
-                    }
-                }
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+					// Windows : maxHandle non requis pour select()
+#else
+					// POSIX : select() nécessite le max descriptor + 1
+					if (sock->mHandle > maxHandle) {
+						maxHandle = sock->mHandle;
+					}
+#endif
+				}
+			}
 
-                if (handleMap.IsEmpty())
-                {
-                    return NkNetResult::NK_NET_INVALID_ARG;
-                }
+			if (handleMap.IsEmpty()) {
+				return NkNetResult::NK_NET_INVALID_ARG;
+			}
 
-                // Configuration du timeout
-                timeval timeout = {};
-                timeval* timeoutPtr = nullptr;
+			// Configuration du timeout
+			timeval timeout = {};
+			timeval *timeoutPtr = nullptr;
 
-                if (timeoutMs == UINT32_MAX)
-                {
-                    // Timeout infini : nullptr pour bloquer indéfiniment
-                    timeoutPtr = nullptr;
-                }
-                else
-                {
-                    timeout.tv_sec = static_cast<long>(timeoutMs / 1000);
-                    timeout.tv_usec = static_cast<long>((timeoutMs % 1000) * 1000);
-                    timeoutPtr = &timeout;
-                }
+			if (timeoutMs == UINT32_MAX) {
+				// Timeout infini : nullptr pour bloquer indéfiniment
+				timeoutPtr = nullptr;
+			} else {
+				timeout.tv_sec = static_cast<long>(timeoutMs / 1000);
+				timeout.tv_usec = static_cast<long>((timeoutMs % 1000) * 1000);
+				timeoutPtr = &timeout;
+			}
 
-                // Appel à select()
-                const int result = ::select(
-                    #if defined(NKENTSEU_PLATFORM_WINDOWS)
-                        0,  // Premier paramètre ignoré sous Windows
-                    #else
-                        static_cast<int>(maxHandle + 1),
-                    #endif
-                    &readSet,
-                    nullptr,  // writeSet non utilisé
-                    nullptr,  // exceptSet non utilisé
-                    timeoutPtr
-                );
+			// Appel à select()
+			const int result = ::select(
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+				0, // Premier paramètre ignoré sous Windows
+#else
+				static_cast<int>(maxHandle + 1),
+#endif
+				&readSet,
+				nullptr, // writeSet non utilisé
+				nullptr, // exceptSet non utilisé
+				timeoutPtr);
 
-                if (result < 0)
-                {
-                    const int errorCode = NkGetLastSocketError();
-                    NK_NET_LOG_ERROR("select() failed: code %d", errorCode);
-                    return NkNetResult::NK_NET_SOCKET_ERROR;
-                }
+			if (result < 0) {
+				const int errorCode = NkGetLastSocketError();
+				NK_NET_LOG_ERROR("select() failed: code %d", errorCode);
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
 
-                if (result == 0)
-                {
-                    // Timeout écoulé sans activité
-                    return NkNetResult::NK_NET_TIMEOUT;
-                }
+			if (result == 0) {
+				// Timeout écoulé sans activité
+				return NkNetResult::NK_NET_TIMEOUT;
+			}
 
-                // Collecte des sockets prêts
-                outReady.Clear();
-                outReady.Reserve(static_cast<size_t>(result));
+			// Collecte des sockets prêts
+			outReady.Clear();
+			outReady.Reserve(static_cast<size_t>(result));
 
-                for (uint32 i = 0; i < handleMap.Size(); ++i)
-                {
-                    if (FD_ISSET(handleMap[i], &readSet))
-                    {
-                        outReady.PushBack(i);
-                    }
-                }
+			for (uint32 i = 0; i < handleMap.Size(); ++i) {
+				if (FD_ISSET(handleMap[i], &readSet)) {
+					outReady.PushBack(i);
+				}
+			}
 
-                return NkNetResult::NK_NET_OK;
+			return NkNetResult::NK_NET_OK;
 
-            #else
+#else
 
-                // Emscripten : select() non disponible pour WebSocket
-                // Fallback : polling simple (non-optimal)
-                outReady.Clear();
-                for (uint32 i = 0; i < socketsToWatch.Size(); ++i)
-                {
-                    // TODO : Implémenter détection d'activité Emscripten-specific
-                    // Pour l'instant, retourner vide
-                }
-                return NkNetResult::NK_NET_OK;
+			// Emscripten : select() non disponible pour WebSocket
+			// Fallback : polling simple (non-optimal)
+			outReady.Clear();
+			for (uint32 i = 0; i < socketsToWatch.Size(); ++i) {
+				// TODO : Implémenter détection d'activité Emscripten-specific
+				// Pour l'instant, retourner vide
+			}
+			return NkNetResult::NK_NET_OK;
 
-            #endif // Plateforme
-        }
+#endif // Plateforme
+		}
 
-    } // namespace net
+	} // namespace net
 
 } // namespace nkentseu
 
@@ -1409,49 +1145,49 @@ namespace nkentseu {
 // NOTES D'IMPLÉMENTATION ET BONNES PRATIQUES
 // =============================================================================
 /*
-    Gestion des erreurs plateforme :
-    -------------------------------
-    - Windows utilise WSAGetLastError(), POSIX utilise errno
-    - Les macros NkGetLastSocketError() et NkIsWouldBlockError() unifient la gestion
-    - Toujours logger les erreurs avec le code pour diagnostic facilité
+	Gestion des erreurs plateforme :
+	-------------------------------
+	- Windows utilise WSAGetLastError(), POSIX utilise errno
+	- Les macros NkGetLastSocketError() et NkIsWouldBlockError() unifient la gestion
+	- Toujours logger les erreurs avec le code pour diagnostic facilité
 
-    Mode non-bloquant :
-    ------------------
-    - En mode non-bloquant, "aucune donnée disponible" n'est pas une erreur
-    - Recv/RecvFrom retournent OK avec outSize=0 dans ce cas
-    - Le code appelant doit gérer ce cas explicitement
+	Mode non-bloquant :
+	------------------
+	- En mode non-bloquant, "aucune donnée disponible" n'est pas une erreur
+	- Recv/RecvFrom retournent OK avec outSize=0 dans ce cas
+	- Le code appelant doit gérer ce cas explicitement
 
-    Gestion des buffers :
-    --------------------
-    - Les buffers système (SO_SNDBUF/SO_RCVBUF) sont indicatifs
-    - L'OS peut ajuster les valeurs selon ses limites et politiques
-    - Toujours vérifier la taille réelle via getsockopt() si critique
+	Gestion des buffers :
+	--------------------
+	- Les buffers système (SO_SNDBUF/SO_RCVBUF) sont indicatifs
+	- L'OS peut ajuster les valeurs selon ses limites et politiques
+	- Toujours vérifier la taille réelle via getsockopt() si critique
 
-    Performance :
-    ------------
-    - Éviter les allocations heap dans les chemins critiques (Send/Recv)
-    - Utiliser des buffers stack ou pré-alloués pour les opérations fréquentes
-    - Désactiver Nagle (TCP_NODELAY) pour les applications temps réel
+	Performance :
+	------------
+	- Éviter les allocations heap dans les chemins critiques (Send/Recv)
+	- Utiliser des buffers stack ou pré-alloués pour les opérations fréquentes
+	- Désactiver Nagle (TCP_NODELAY) pour les applications temps réel
 
-    Thread-safety :
-    --------------
-    - Les sockets ne sont PAS thread-safe par conception
-    - Si un socket est partagé entre threads, protéger avec NkMutex
-    - Alternative préférée : un thread par socket avec communication via queues
+	Thread-safety :
+	--------------
+	- Les sockets ne sont PAS thread-safe par conception
+	- Si un socket est partagé entre threads, protéger avec NkMutex
+	- Alternative préférée : un thread par socket avec communication via queues
 
-    Extensions futures :
-    -------------------
-    - Support complet IPv6 (inet_pton, inet_ntop pour conversion chaîne)
-    - Options socket avancées : keepalive, linger, tcp_keepidle, etc.
-    - Support SSL/TLS via wrapper NkSecureSocket
-    - Intégration avec I/O completions ports (Windows) / epoll (Linux) pour scaling
+	Extensions futures :
+	-------------------
+	- Support complet IPv6 (inet_pton, inet_ntop pour conversion chaîne)
+	- Options socket avancées : keepalive, linger, tcp_keepidle, etc.
+	- Support SSL/TLS via wrapper NkSecureSocket
+	- Intégration avec I/O completions ports (Windows) / epoll (Linux) pour scaling
 
-    Compatibilité Emscripten :
-    -------------------------
-    - WebSocket API ≠ sockets POSIX — limitations importantes
-    - UDP natif non disponible dans les navigateurs
-    - Modèle async Emscripten incompatible avec select() bloquant
-    - Envisager une abstraction Web-specific pour le WebAssembly
+	Compatibilité Emscripten :
+	-------------------------
+	- WebSocket API ≠ sockets POSIX — limitations importantes
+	- UDP natif non disponible dans les navigateurs
+	- Modèle async Emscripten incompatible avec select() bloquant
+	- Envisager une abstraction Web-specific pour le WebAssembly
 */
 
 // ============================================================

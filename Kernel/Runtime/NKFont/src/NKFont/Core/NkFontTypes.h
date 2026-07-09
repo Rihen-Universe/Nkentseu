@@ -17,8 +17,8 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include <string.h>   // memcpy, memset
-#include <math.h>     // floorf, ceilf
+#include <string.h> // memcpy, memset
+#include <math.h>	// floorf, ceilf
 
 #include "NKCore/NkTypes.h"
 #include "NKMath/NKMath.h"
@@ -28,18 +28,18 @@
 // Les types publics utilisent les alias nkentseu directement.
 // ============================================================
 
-using nkft_uint8   = nkentseu::uint8;
-using nkft_uint16  = nkentseu::uint16;
-using nkft_uint32  = nkentseu::uint32;
-using nkft_uint64  = nkentseu::uint64;
-using nkft_int8    = nkentseu::int8;
-using nkft_int16   = nkentseu::int16;
-using nkft_int32   = nkentseu::int32;
-using nkft_int64   = nkentseu::int64;
+using nkft_uint8 = nkentseu::uint8;
+using nkft_uint16 = nkentseu::uint16;
+using nkft_uint32 = nkentseu::uint32;
+using nkft_uint64 = nkentseu::uint64;
+using nkft_int8 = nkentseu::int8;
+using nkft_int16 = nkentseu::int16;
+using nkft_int32 = nkentseu::int32;
+using nkft_int64 = nkentseu::int64;
 using nkft_float32 = nkentseu::float32;
 using nkft_float64 = nkentseu::float64;
-using nkft_bool    = nkentseu::nk_bool;
-using nkft_size    = nkentseu::usize;
+using nkft_bool = nkentseu::nk_bool;
+using nkft_size = nkentseu::usize;
 
 /**
  * @brief Codepoint Unicode (valeur entière d'un caractère Unicode).
@@ -69,26 +69,26 @@ static constexpr NkFontCodepoint NKFONT_CODEPOINT_MAX = 0x0010FFFFu;
 // ============================================================
 
 #ifndef NK_FONT_UNUSED
-    /// Masque le warning "variable non utilisée".
-    #define NK_FONT_UNUSED(x) (void)(x)
+/// Masque le warning "variable non utilisée".
+#define NK_FONT_UNUSED(x) (void)(x)
 #endif
 
 #ifndef NK_FONT_ASSERT
-    #include <assert.h>
-    /// Assertion personnalisée pour le module NKFont.
-    #define NK_FONT_ASSERT(x) assert(x)
+#include <assert.h>
+/// Assertion personnalisée pour le module NKFont.
+#define NK_FONT_ASSERT(x) assert(x)
 #endif
 
 #ifndef NK_FONT_LIKELY
-    #if defined(__GNUC__) || defined(__clang__)
-        /// Indique au compilateur qu'une condition est probablement vraie.
-        #define NK_FONT_LIKELY(x)   __builtin_expect(!!(x), 1)
-        /// Indique au compilateur qu'une condition est probablement fausse.
-        #define NK_FONT_UNLIKELY(x) __builtin_expect(!!(x), 0)
-    #else
-        #define NK_FONT_LIKELY(x)   (x)
-        #define NK_FONT_UNLIKELY(x) (x)
-    #endif
+#if defined(__GNUC__) || defined(__clang__)
+/// Indique au compilateur qu'une condition est probablement vraie.
+#define NK_FONT_LIKELY(x) __builtin_expect(!!(x), 1)
+/// Indique au compilateur qu'une condition est probablement fausse.
+#define NK_FONT_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#else
+#define NK_FONT_LIKELY(x) (x)
+#define NK_FONT_UNLIKELY(x) (x)
+#endif
 #endif
 
 // ============================================================
@@ -97,11 +97,11 @@ static constexpr NkFontCodepoint NKFONT_CODEPOINT_MAX = 0x0010FFFFu;
 
 namespace nkentseu {
 
-    /// Rectangle entier.
-    using NkRecti = math::NkIntRect;
+	/// Rectangle entier.
+	using NkRecti = math::NkIntRect;
 
-    /// Rectangle flottant.
-    using NkRectf = math::NkFloatRect;
+	/// Rectangle flottant.
+	using NkRectf = math::NkFloatRect;
 
 } // namespace nkentseu
 

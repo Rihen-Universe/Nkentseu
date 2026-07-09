@@ -16,59 +16,60 @@
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKCore/NkTypes.h"
 
-namespace nkentseu
-{
-    // Forward declarations pour eviter d'inclure les lourds headers ici.
-    class NkWindow;
-    class NkIGraphicsContext;
-}
+namespace nkentseu {
+	// Forward declarations pour eviter d'inclure les lourds headers ici.
+	class NkWindow;
+	class NkIGraphicsContext;
+} // namespace nkentseu
 
-namespace nkentseu
-{
-    namespace pong
-    {
+namespace nkentseu {
+	namespace pong {
 
-        // ─────────────────────────────────────────────────────────────────────
-        // GLContext — encapsule la creation du contexte OpenGL et le chargement
-        // des points d'entree GL via glad. Apres Init() reussi, on peut appeler
-        // directement glClear / glDrawArrays / glBindBuffer / etc.
-        // ─────────────────────────────────────────────────────────────────────
-        class GLContext
-        {
-        public:
-            GLContext()  = default;
-            ~GLContext();
+		// ─────────────────────────────────────────────────────────────────────
+		// GLContext — encapsule la creation du contexte OpenGL et le chargement
+		// des points d'entree GL via glad. Apres Init() reussi, on peut appeler
+		// directement glClear / glDrawArrays / glBindBuffer / etc.
+		// ─────────────────────────────────────────────────────────────────────
+		class GLContext {
+			public:
+				GLContext() = default;
+				~GLContext();
 
-            // ── Lifecycle ────────────────────────────────────────────────────
-            /// Cree le contexte OpenGL sur la surface native de @p window puis
-            /// charge les fonctions GL via glad. Retourne false sur echec.
-            bool Init(NkWindow& window);
-            /// Detruit le contexte et libere les ressources.
-            void Shutdown();
+				// ── Lifecycle ────────────────────────────────────────────────────
+				/// Cree le contexte OpenGL sur la surface native de @p window puis
+				/// charge les fonctions GL via glad. Retourne false sur echec.
+				bool Init(NkWindow &window);
+				/// Detruit le contexte et libere les ressources.
+				void Shutdown();
 
-            // ── Frame ────────────────────────────────────────────────────────
-            /// Doit etre appele AVANT toute commande GL d'un frame.
-            bool BeginFrame();
-            /// Marque la fin du rendu (avant Present).
-            void EndFrame();
-            /// Echange les buffers (swap chain).
-            void Present();
-            /// A appeler quand la fenetre est redimensionnee.
-            bool OnResize(uint32 w, uint32 h);
+				// ── Frame ────────────────────────────────────────────────────────
+				/// Doit etre appele AVANT toute commande GL d'un frame.
+				bool BeginFrame();
+				/// Marque la fin du rendu (avant Present).
+				void EndFrame();
+				/// Echange les buffers (swap chain).
+				void Present();
+				/// A appeler quand la fenetre est redimensionnee.
+				bool OnResize(uint32 w, uint32 h);
 
-            /// A appeler quand la surface OS a ete recreee (Android, retour
-            /// foreground apres APP_CMD_INIT_WINDOW). Recree l'eglSurface
-            /// sans toucher au contexte GL ; sur PC c'est un no-op.
-            bool RecreateSurface(NkWindow& window);
+				/// A appeler quand la surface OS a ete recreee (Android, retour
+				/// foreground apres APP_CMD_INIT_WINDOW). Recree l'eglSurface
+				/// sans toucher au contexte GL ; sur PC c'est un no-op.
+				bool RecreateSurface(NkWindow &window);
 
-            // ── Accesseurs ───────────────────────────────────────────────────
-            bool                IsValid() const noexcept { return mContext != nullptr; }
-            NkIGraphicsContext* Raw()             noexcept { return mContext; }
+				// ── Accesseurs ───────────────────────────────────────────────────
+				bool IsValid() const noexcept {
+					return mContext != nullptr;
+				}
 
-        private:
-            NkIGraphicsContext* mContext     = nullptr;  ///< Possede par GLContext
-            bool                mGladLoaded  = false;    ///< true apres gladLoadGL(ES)
-        };
+				NkIGraphicsContext *Raw() noexcept {
+					return mContext;
+				}
 
-    } // namespace pong
+			private:
+				NkIGraphicsContext *mContext = nullptr; ///< Possede par GLContext
+				bool mGladLoaded = false;				///< true apres gladLoadGL(ES)
+		};
+
+	} // namespace pong
 } // namespace nkentseu

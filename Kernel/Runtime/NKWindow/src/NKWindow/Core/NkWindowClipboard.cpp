@@ -14,19 +14,19 @@
 
 namespace nkentseu {
 
-    // Presse-papiers interne (process-global) — partage par toutes les fenetres.
-    static NkString& NkInternalClipboard() {
-        static NkString s_clip;
-        return s_clip;
-    }
+	// Presse-papiers interne (process-global) — partage par toutes les fenetres.
+	static NkString &NkInternalClipboard() {
+		static NkString s_clip;
+		return s_clip;
+	}
 
-    void NkWindow::SetClipboardText(const NkString& text) {
-        NkInternalClipboard() = text;
-    }
+	void NkWindow::SetClipboardText(const NkString &text) {
+		NkInternalClipboard() = text;
+	}
 
-    NkString NkWindow::GetClipboardText() const {
-        return NkInternalClipboard();
-    }
+	NkString NkWindow::GetClipboardText() const {
+		return NkInternalClipboard();
+	}
 
 } // namespace nkentseu
 

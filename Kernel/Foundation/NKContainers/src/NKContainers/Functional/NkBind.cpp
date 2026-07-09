@@ -2,7 +2,4 @@
 
 #include "NkBind.h"
 
-namespace nkentseu
-{
-    
-} // namespace nkentseu
+namespace nkentseu {} // namespace nkentseu

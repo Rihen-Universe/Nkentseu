@@ -22,116 +22,109 @@
 #ifndef NKENTSEU_NKDISTRIBUTINGSINK_H
 #define NKENTSEU_NKDISTRIBUTINGSINK_H
 
+// -------------------------------------------------------------------------
+// SECTION 1 : EN-TÊTES ET DÉPENDANCES
+// -------------------------------------------------------------------------
+// Inclusions standards pour les conteneurs et la synchronisation.
+// Dépendances projet pour l'interface de sink, le formatage et les smart pointers.
 
-	// -------------------------------------------------------------------------
-	// SECTION 1 : EN-TÊTES ET DÉPENDANCES
-	// -------------------------------------------------------------------------
-	// Inclusions standards pour les conteneurs et la synchronisation.
-	// Dépendances projet pour l'interface de sink, le formatage et les smart pointers.
+#include "NKCore/NkTypes.h"
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKMemory/NkSharedPtr.h"
+#include "NKMemory/NkUniquePtr.h"
+#include "NKThreading/NkMutex.h"
+#include "NKLogger/NkSink.h"
+#include "NKLogger/NkLogLevel.h"
+#include "NKLogger/NkLogMessage.h"
+#include "NKLogger/NkLoggerFormatter.h"
+#include "NKLogger/NkLoggerApi.h"
 
-	#include "NKCore/NkTypes.h"
-	#include "NKContainers/String/NkString.h"
-	#include "NKContainers/Sequential/NkVector.h"
-	#include "NKMemory/NkSharedPtr.h"
-	#include "NKMemory/NkUniquePtr.h"
-	#include "NKThreading/NkMutex.h"
-	#include "NKLogger/NkSink.h"
-	#include "NKLogger/NkLogLevel.h"
-	#include "NKLogger/NkLogMessage.h"
-	#include "NKLogger/NkLoggerFormatter.h"
-	#include "NKLogger/NkLoggerApi.h"
+// -------------------------------------------------------------------------
+// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
+// -------------------------------------------------------------------------
+// Tous les symboles du module logger sont dans le namespace nkentseu.
+// Pas de sous-namespace pour simplifier l'usage et l'intégration.
 
+namespace nkentseu {
 
-	// -------------------------------------------------------------------------
-	// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
-	// -------------------------------------------------------------------------
-	// Tous les symboles du module logger sont dans le namespace nkentseu.
-	// Pas de sous-namespace pour simplifier l'usage et l'intégration.
-
-	namespace nkentseu {
-
-
-		// ---------------------------------------------------------------------
-		// CLASSE : NkDistributingSink
-		// DESCRIPTION : Composite de sinks pour diffusion broadcast des messages
-		// ---------------------------------------------------------------------
-		/**
-		 * @class NkDistributingSink
-		 * @brief Sink composite qui distribue les messages à plusieurs sous-sinks
-		 * @ingroup LoggerSinks
-		 *
-		 * NkDistributingSink implémente le pattern Composite pour le logging :
-		 *  - Agrège plusieurs NkISink dans une collection interne
-		 *  - Log() diffuse le message à tous les sous-sinks valides
-		 *  - Flush() propage l'appel à tous les sous-sinks pour persistance garantie
-		 *  - SetPattern/SetFormatter appliqués uniformément à tous les sous-sinks
-		 *  - Gestion dynamique : ajout/suppression de sinks à runtime thread-safe
-		 *
-		 * Architecture :
-		 *  - Hérite de NkISink : compatible avec l'API de logging existante
-		 *  - Contient NkVector<NkSharedPtr<NkISink>> : collection de sous-sinks
-		 *  - Mutex interne : protection des modifications de la collection
-		 *  - Filtrage hérité : ShouldLog/IsEnabled appliqués avant distribution
-		 *
-		 * Thread-safety :
-		 *  - Toutes les méthodes publiques sont thread-safe via m_Mutex
-		 *  - Log() acquiert le mutex pour itération safe sur la collection
-		 *  - Les sous-sinks partagés doivent être thread-safe individuellement
-		 *
-		 * Cas d'usage principaux :
-		 *  @b Logging multi-destination :
-		 *  Envoyer simultanément vers console + fichier + réseau sans duplication de code.
-		 *
-		 *  @b Configuration hiérarchique :
-		 *  Appliquer un pattern global via SetPattern() qui se propage à tous les sinks.
-		 *
-		 *  @b Gestion dynamique :
-		 *  Ajouter/retirer des destinations de log à runtime sans redémarrage.
-		 *
-		 * @note Le filtrage par niveau (ShouldLog) est appliqué au niveau du distributing sink
-		 *       avant distribution. Les sous-sinks peuvent avoir leurs propres filtres additionnels.
-		 *
-		 * @example Configuration basique multi-destination
-		 * @code
-		 * // Création du sink distributeur
-		 * auto distributor = nkentseu::memory::MakeShared<nkentseu::NkDistributingSink>();
-		 *
-		 * // Ajout de destinations multiples
-		 * distributor->AddSink(nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>());
-		 * distributor->AddSink(nkentseu::memory::MakeShared<nkentseu::NkFileSink>("app.log"));
-		 * distributor->AddSink(nkentseu::memory::MakeShared<nkentseu::NkRotatingFileSink>(
-		 *     "archive.log", 100*1024*1024, 5));
-		 *
-		 * // Configuration globale propagée à tous les sous-sinks
-		 * distributor->SetPattern("[%Y-%m-%d %H:%M:%S] [%L] %v");
-		 * distributor->SetLevel(nkentseu::NkLogLevel::NK_INFO);
-		 *
-		 * // Ajout au logger global
-		 * nkentseu::NkLog::Instance().AddSink(distributor);
-		 * @endcode
-		 *
-		 * @example Gestion dynamique à runtime
-		 * @code
-		 * // Ajout d'un sink de debug temporairement
-		 * auto debugSink = nkentseu::memory::MakeShared<nkentseu::NkFileSink>("debug.log");
-		 * debugSink->SetLevel(nkentseu::NkLogLevel::NK_TRACE);
-		 * distributor->AddSink(debugSink);
-		 *
-		 * // ... période de debugging ...
-		 *
-		 * // Retrait du sink de debug après investigation
-		 * distributor->RemoveSink(debugSink);
-		 * @endcode
-		 */
-		class NKENTSEU_LOGGER_CLASS_EXPORT NkDistributingSink : public NkISink {
-
-
+	// ---------------------------------------------------------------------
+	// CLASSE : NkDistributingSink
+	// DESCRIPTION : Composite de sinks pour diffusion broadcast des messages
+	// ---------------------------------------------------------------------
+	/**
+	 * @class NkDistributingSink
+	 * @brief Sink composite qui distribue les messages à plusieurs sous-sinks
+	 * @ingroup LoggerSinks
+	 *
+	 * NkDistributingSink implémente le pattern Composite pour le logging :
+	 *  - Agrège plusieurs NkISink dans une collection interne
+	 *  - Log() diffuse le message à tous les sous-sinks valides
+	 *  - Flush() propage l'appel à tous les sous-sinks pour persistance garantie
+	 *  - SetPattern/SetFormatter appliqués uniformément à tous les sous-sinks
+	 *  - Gestion dynamique : ajout/suppression de sinks à runtime thread-safe
+	 *
+	 * Architecture :
+	 *  - Hérite de NkISink : compatible avec l'API de logging existante
+	 *  - Contient NkVector<NkSharedPtr<NkISink>> : collection de sous-sinks
+	 *  - Mutex interne : protection des modifications de la collection
+	 *  - Filtrage hérité : ShouldLog/IsEnabled appliqués avant distribution
+	 *
+	 * Thread-safety :
+	 *  - Toutes les méthodes publiques sont thread-safe via m_Mutex
+	 *  - Log() acquiert le mutex pour itération safe sur la collection
+	 *  - Les sous-sinks partagés doivent être thread-safe individuellement
+	 *
+	 * Cas d'usage principaux :
+	 *  @b Logging multi-destination :
+	 *  Envoyer simultanément vers console + fichier + réseau sans duplication de code.
+	 *
+	 *  @b Configuration hiérarchique :
+	 *  Appliquer un pattern global via SetPattern() qui se propage à tous les sinks.
+	 *
+	 *  @b Gestion dynamique :
+	 *  Ajouter/retirer des destinations de log à runtime sans redémarrage.
+	 *
+	 * @note Le filtrage par niveau (ShouldLog) est appliqué au niveau du distributing sink
+	 *       avant distribution. Les sous-sinks peuvent avoir leurs propres filtres additionnels.
+	 *
+	 * @example Configuration basique multi-destination
+	 * @code
+	 * // Création du sink distributeur
+	 * auto distributor = nkentseu::memory::MakeShared<nkentseu::NkDistributingSink>();
+	 *
+	 * // Ajout de destinations multiples
+	 * distributor->AddSink(nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>());
+	 * distributor->AddSink(nkentseu::memory::MakeShared<nkentseu::NkFileSink>("app.log"));
+	 * distributor->AddSink(nkentseu::memory::MakeShared<nkentseu::NkRotatingFileSink>(
+	 *     "archive.log", 100*1024*1024, 5));
+	 *
+	 * // Configuration globale propagée à tous les sous-sinks
+	 * distributor->SetPattern("[%Y-%m-%d %H:%M:%S] [%L] %v");
+	 * distributor->SetLevel(nkentseu::NkLogLevel::NK_INFO);
+	 *
+	 * // Ajout au logger global
+	 * nkentseu::NkLog::Instance().AddSink(distributor);
+	 * @endcode
+	 *
+	 * @example Gestion dynamique à runtime
+	 * @code
+	 * // Ajout d'un sink de debug temporairement
+	 * auto debugSink = nkentseu::memory::MakeShared<nkentseu::NkFileSink>("debug.log");
+	 * debugSink->SetLevel(nkentseu::NkLogLevel::NK_TRACE);
+	 * distributor->AddSink(debugSink);
+	 *
+	 * // ... période de debugging ...
+	 *
+	 * // Retrait du sink de debug après investigation
+	 * distributor->RemoveSink(debugSink);
+	 * @endcode
+	 */
+	class NKENTSEU_LOGGER_CLASS_EXPORT NkDistributingSink : public NkISink {
 			// -----------------------------------------------------------------
 			// SECTION 3 : MEMBRES PUBLICS
 			// -----------------------------------------------------------------
 		public:
-
-
 			// -----------------------------------------------------------------
 			// CONSTRUCTEURS ET DESTRUCTEUR
 			// -----------------------------------------------------------------
@@ -177,7 +170,7 @@
 			 * auto distributor = nkentseu::memory::MakeShared<nkentseu::NkDistributingSink>(initialSinks);
 			 * @endcode
 			 */
-			explicit NkDistributingSink(const NkVector<memory::NkSharedPtr<NkISink>>& sinks);
+			explicit NkDistributingSink(const NkVector<memory::NkSharedPtr<NkISink>> &sinks);
 
 			/**
 			 * @brief Destructeur : libération des références partagées
@@ -188,7 +181,6 @@
 			 * @note noexcept implicite : destruction safe dans tous les contextes
 			 */
 			~NkDistributingSink() override;
-
 
 			// -----------------------------------------------------------------
 			// IMPLÉMENTATION DE L'INTERFACE NKISINK
@@ -222,7 +214,7 @@
 			 * distributor.Log(msg);  // Diffusé à console + fichier + réseau simultanément
 			 * @endcode
 			 */
-			void Log(const NkLogMessage& message) override;
+			void Log(const NkLogMessage &message) override;
 
 			/**
 			 * @brief Force le flush de tous les sous-sinks pour persistance garantie
@@ -292,7 +284,7 @@
 			 * distributor.SetPattern("[%Y-%m-%d %H:%M:%S.%e] [%L] [%n] [%s:%#] %v");
 			 * @endcode
 			 */
-			void SetPattern(const NkString& pattern) override;
+			void SetPattern(const NkString &pattern) override;
 
 			/**
 			 * @brief Obtient le formatter du premier sous-sink non-null (si disponible)
@@ -313,7 +305,7 @@
 			 * }
 			 * @endcode
 			 */
-			NkLoggerFormatter* GetFormatter() const override;
+			NkLoggerFormatter *GetFormatter() const override;
 
 			/**
 			 * @brief Obtient le pattern du premier sous-sink non-null (si disponible)
@@ -333,7 +325,6 @@
 			 * @endcode
 			 */
 			NkString GetPattern() const override;
-
 
 			// -----------------------------------------------------------------
 			// GESTION DYNAMIQUE DES SOUS-SINKS
@@ -477,13 +468,10 @@
 			 */
 			bool ContainsSink(memory::NkSharedPtr<NkISink> sink) const;
 
-
 			// -----------------------------------------------------------------
 			// SECTION 4 : MEMBRES PRIVÉS (IMPLÉMENTATION INTERNE)
 			// -----------------------------------------------------------------
 		private:
-
-
 			// -----------------------------------------------------------------
 			// VARIABLES MEMBRES PRIVÉES (ÉTAT INTERNE)
 			// -----------------------------------------------------------------
@@ -504,15 +492,11 @@
 			/// @note Protège l'itération et la modification de la collection
 			mutable threading::NkMutex m_Mutex;
 
+	}; // class NkDistributingSink
 
-		}; // class NkDistributingSink
-
-
-	} // namespace nkentseu
-
+} // namespace nkentseu
 
 #endif // NKENTSEU_NKDISTRIBUTINGSINK_H
-
 
 // =============================================================================
 // EXEMPLES D'UTILISATION DE NKDISTRIBUTINGSINK.H
@@ -568,7 +552,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 2 : Gestion dynamique à runtime pour debugging temporaire
 // -----------------------------------------------------------------------------
@@ -614,7 +597,6 @@
 	// DebugSession::Stop(distributor);
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 3 : Configuration hiérarchique avec overrides locaux
 // -----------------------------------------------------------------------------
@@ -647,7 +629,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 4 : Inspection et monitoring de la configuration
 // -----------------------------------------------------------------------------
@@ -677,7 +658,6 @@
 		}
 	}
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 5 : Testing avec vérification de distribution
@@ -725,7 +705,6 @@
 		EXPECT_EQ(sink3->GetCount(), 1u);
 	}
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 6 : Configuration via fichier avec fallback robuste
@@ -775,7 +754,6 @@
 		return distributor;
 	}
 */
-
 
 // =============================================================================
 // NOTES DE MAINTENANCE ET BONNES PRATIQUES
@@ -829,7 +807,6 @@
 	   - Valider le thread-safety avec tests concurrents (TSan, helgrind, etc.)
 	   - Benchmarking : mesurer l'overhead de distribution vs sink unique
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

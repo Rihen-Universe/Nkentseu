@@ -18,98 +18,105 @@
 #include "NKContainers/Associative/NkHashMap.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        // =========================================================================
-        // Résultat de visibilité pour un draw call
-        // =========================================================================
-        enum class NkCullResult : uint8 {
-            NK_VISIBLE   = 0,
-            NK_CULLED_FRUSTUM,
-            NK_CULLED_OCCLUSION,
-            NK_CULLED_DISTANCE,
-            NK_CULLED_BACKFACE,
-        };
+		// =========================================================================
+		// Résultat de visibilité pour un draw call
+		// =========================================================================
+		enum class NkCullResult : uint8 {
+			NK_VISIBLE = 0,
+			NK_CULLED_FRUSTUM,
+			NK_CULLED_OCCLUSION,
+			NK_CULLED_DISTANCE,
+			NK_CULLED_BACKFACE,
+		};
 
-        // =========================================================================
-        // Objet enregistré dans le système de culling
-        // =========================================================================
-        struct NkCullable {
-            uint64  id          = 0;
-            NkAABB  aabb;
-            float32 maxDrawDist = 1000.f;
-            float32 minDrawDist = 0.f;
-            bool    alwaysVisible = false;
-        };
+		// =========================================================================
+		// Objet enregistré dans le système de culling
+		// =========================================================================
+		struct NkCullable {
+				uint64 id = 0;
+				NkAABB aabb;
+				float32 maxDrawDist = 1000.f;
+				float32 minDrawDist = 0.f;
+				bool alwaysVisible = false;
+		};
 
-        // (NkFrustum est defini dans Core/NkRendererTypes.h —
-        //  on le consomme directement ici.)
+		// (NkFrustum est defini dans Core/NkRendererTypes.h —
+		//  on le consomme directement ici.)
 
-        // =========================================================================
-        // Configuration du culling
-        // =========================================================================
-        struct NkCullingConfig {
-            bool    frustumCulling   = true;
-            bool    occlusionCulling = false;  // HZB — nécessite passe depth
-            bool    distanceCulling  = true;
-            float32 maxDistance      = 1000.f;
-            float32 lodDistances[4]  = { 0.f, 50.f, 150.f, 400.f };
-            float32 worldX = -5000.f, worldY = -500.f, worldZ = -5000.f;
-            float32 worldW = 10000.f, worldH = 1000.f, worldD = 10000.f;
-        };
+		// =========================================================================
+		// Configuration du culling
+		// =========================================================================
+		struct NkCullingConfig {
+				bool frustumCulling = true;
+				bool occlusionCulling = false; // HZB — nécessite passe depth
+				bool distanceCulling = true;
+				float32 maxDistance = 1000.f;
+				float32 lodDistances[4] = {0.f, 50.f, 150.f, 400.f};
+				float32 worldX = -5000.f, worldY = -500.f, worldZ = -5000.f;
+				float32 worldW = 10000.f, worldH = 1000.f, worldD = 10000.f;
+		};
 
-        // =========================================================================
-        // NkCullingSystem
-        // =========================================================================
-        class NkCullingSystem {
-            public:
-                NkCullingSystem() = default;
-                ~NkCullingSystem();
+		// =========================================================================
+		// NkCullingSystem
+		// =========================================================================
+		class NkCullingSystem {
+			public:
+				NkCullingSystem() = default;
+				~NkCullingSystem();
 
-                bool Init(const NkCullingConfig& cfg = {});
-                void Shutdown();
+				bool Init(const NkCullingConfig &cfg = {});
+				void Shutdown();
 
-                // ── Enregistrement objets ─────────────────────────────────────────────
-                void Register  (uint64 id, const NkAABB& aabb,
-                                float32 maxDist = 1000.f, bool alwaysVisible = false);
-                void Unregister(uint64 id);
-                void UpdateAABB(uint64 id, const NkAABB& newAABB);
+				// ── Enregistrement objets ─────────────────────────────────────────────
+				void Register(uint64 id, const NkAABB &aabb, float32 maxDist = 1000.f, bool alwaysVisible = false);
+				void Unregister(uint64 id);
+				void UpdateAABB(uint64 id, const NkAABB &newAABB);
 
-                // ── Calcul de visibilité ──────────────────────────────────────────────
-                void BeginFrame(const NkCamera3D& cam, const NkMat4f& viewProj);
+				// ── Calcul de visibilité ──────────────────────────────────────────────
+				void BeginFrame(const NkCamera3D &cam, const NkMat4f &viewProj);
 
-                NkCullResult TestDrawCall(uint64 id, int32* outLOD = nullptr) const;
+				NkCullResult TestDrawCall(uint64 id, int32 *outLOD = nullptr) const;
 
-                void   QueryVisible  (NkVector<uint64>& outIds) const;
-                uint32 FilterDrawCalls(NkDrawCall3D* dcs, uint32 count) const;
+				void QueryVisible(NkVector<uint64> &outIds) const;
+				uint32 FilterDrawCalls(NkDrawCall3D *dcs, uint32 count) const;
 
-                // ── Stats ─────────────────────────────────────────────────────────────
-                uint32 GetLastFrameTotal()   const { return mStatTotal; }
-                uint32 GetLastFrameVisible() const { return mStatVisible; }
-                uint32 GetLastFrameCulled()  const { return mStatCulled; }
+				// ── Stats ─────────────────────────────────────────────────────────────
+				uint32 GetLastFrameTotal() const {
+					return mStatTotal;
+				}
 
-                void DrawDebugOctree(class NkOverlayRenderer* overlay) const;
+				uint32 GetLastFrameVisible() const {
+					return mStatVisible;
+				}
 
-            private:
-                using OctreeType = NkOctree<NkCullable>;
+				uint32 GetLastFrameCulled() const {
+					return mStatCulled;
+				}
 
-                NkCullingConfig                  mCfg;
-                OctreeType*                      mOctree  = nullptr;
-                NkFrustum                        mFrustum;
-                NkVec3f                          mCamPos  = {};
-                bool                             mReady   = false;
+				void DrawDebugOctree(class NkOverlayRenderer *overlay) const;
 
-                NkHashMap<uint64, NkCullResult>  mResults;
-                NkHashMap<uint64, int32>         mLODs;
-                NkHashMap<uint64, NkCullable>    mRegistry;
+			private:
+				using OctreeType = NkOctree<NkCullable>;
 
-                mutable uint32 mStatTotal   = 0;
-                mutable uint32 mStatVisible = 0;
-                mutable uint32 mStatCulled  = 0;
+				NkCullingConfig mCfg;
+				OctreeType *mOctree = nullptr;
+				NkFrustum mFrustum;
+				NkVec3f mCamPos = {};
+				bool mReady = false;
 
-                NkCullResult EvaluateOne(const NkCullable& obj) const;
-                int32        ComputeLOD (float32 dist)           const;
-        };
+				NkHashMap<uint64, NkCullResult> mResults;
+				NkHashMap<uint64, int32> mLODs;
+				NkHashMap<uint64, NkCullable> mRegistry;
 
-    } // namespace renderer
+				mutable uint32 mStatTotal = 0;
+				mutable uint32 mStatVisible = 0;
+				mutable uint32 mStatCulled = 0;
+
+				NkCullResult EvaluateOne(const NkCullable &obj) const;
+				int32 ComputeLOD(float32 dist) const;
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

@@ -1,7 +1,5 @@
 #include "NkMat.h"
 
 namespace nkentseu {
-    namespace math {
-        
-    }
-}
+	namespace math {}
+} // namespace nkentseu

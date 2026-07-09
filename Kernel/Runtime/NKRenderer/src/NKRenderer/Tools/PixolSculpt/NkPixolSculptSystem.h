@@ -23,74 +23,82 @@
 
 namespace nkentseu {
 
-    class NkIDevice;        // NKRHI
-    class NkICommandBuffer; // NKRHI
+	class NkIDevice;		// NKRHI
+	class NkICommandBuffer; // NKRHI
 
-    namespace renderer {
+	namespace renderer {
 
-        class NkRenderGraph;     // Core/NkRenderGraph.h
-        class NkTextureLibrary;  // Core/NkTextureLibrary.h
-        class NkShaderLibrary;   // Shader/NkShaderLibrary.h
+		class NkRenderGraph;	// Core/NkRenderGraph.h
+		class NkTextureLibrary; // Core/NkTextureLibrary.h
+		class NkShaderLibrary;	// Shader/NkShaderLibrary.h
 
-        class NkPixolSculptSystem {
-            public:
-                NkPixolSculptSystem() noexcept = default;
-                ~NkPixolSculptSystem() noexcept;
+		class NkPixolSculptSystem {
+			public:
+				NkPixolSculptSystem() noexcept = default;
+				~NkPixolSculptSystem() noexcept;
 
-                bool Init(NkIDevice* device, NkRenderGraph* graph,
-                          NkTextureLibrary* texLib, NkShaderLibrary* shaderLib,
-                          uint32 width, uint32 height,
-                          const NkPixolSculptConfig& cfg = {}) noexcept;
-                void Shutdown() noexcept;
-                bool Resize(uint32 width, uint32 height) noexcept;
+				bool Init(NkIDevice *device, NkRenderGraph *graph, NkTextureLibrary *texLib, NkShaderLibrary *shaderLib,
+						  uint32 width, uint32 height, const NkPixolSculptConfig &cfg = {}) noexcept;
+				void Shutdown() noexcept;
+				bool Resize(uint32 width, uint32 height) noexcept;
 
-                [[nodiscard]] bool IsValid() const noexcept { return mReady; }
+				[[nodiscard]] bool IsValid() const noexcept {
+					return mReady;
+				}
 
-                // Enregistre les passes compute (Brush + Resolve) dans le graph.
-                // A appeler dans BuildDefaultRenderGraph(), AVANT la passe de
-                // lighting deferred qui consommera le G-buffer resolu.
-                void RegisterToRenderGraph() noexcept;
+				// Enregistre les passes compute (Brush + Resolve) dans le graph.
+				// A appeler dans BuildDefaultRenderGraph(), AVANT la passe de
+				// lighting deferred qui consommera le G-buffer resolu.
+				void RegisterToRenderGraph() noexcept;
 
-                // ── API de trace (appelee par l'app / l'outil d'edition) ─────
-                void SetBrush(const NkSculptBrush& brush) noexcept;
-                [[nodiscard]] const NkSculptBrush& GetBrush() const noexcept { return mBrush; }
+				// ── API de trace (appelee par l'app / l'outil d'edition) ─────
+				void SetBrush(const NkSculptBrush &brush) noexcept;
 
-                void BeginStroke(const NkVec2f& screenPos, float32 pressure = 1.f) noexcept;
-                void AddStrokeSample(const NkVec2f& screenPos, float32 pressure = 1.f) noexcept;
-                void EndStroke() noexcept;
-                void ClearCanvas() noexcept;
+				[[nodiscard]] const NkSculptBrush &GetBrush() const noexcept {
+					return mBrush;
+				}
 
-                [[nodiscard]] NkPixolBuffer&       PixolBuffer()       noexcept { return mPixol; }
-                [[nodiscard]] const NkSculptStats& Stats() const       noexcept { return mStats; }
+				void BeginStroke(const NkVec2f &screenPos, float32 pressure = 1.f) noexcept;
+				void AddStrokeSample(const NkVec2f &screenPos, float32 pressure = 1.f) noexcept;
+				void EndStroke() noexcept;
+				void ClearCanvas() noexcept;
 
-            private:
-                // Callbacks enregistres dans le graph (executes au moment du
-                // NkRenderGraph::Execute). C'est ici que se fait le compute.
-                void RecordBrushPass(NkICommandBuffer* cmd) noexcept;
-                void RecordResolvePass(NkICommandBuffer* cmd) noexcept;
+				[[nodiscard]] NkPixolBuffer &PixolBuffer() noexcept {
+					return mPixol;
+				}
 
-                NkIDevice*        mDevice  = nullptr;
-                NkRenderGraph*    mGraph   = nullptr;
-                NkTextureLibrary* mTexLib  = nullptr;
-                NkShaderLibrary*  mShaders = nullptr;
+				[[nodiscard]] const NkSculptStats &Stats() const noexcept {
+					return mStats;
+				}
 
-                NkPixolSculptConfig mCfg;
-                uint32              mWidth = 0, mHeight = 0;
-                bool                mReady = false;
+			private:
+				// Callbacks enregistres dans le graph (executes au moment du
+				// NkRenderGraph::Execute). C'est ici que se fait le compute.
+				void RecordBrushPass(NkICommandBuffer *cmd) noexcept;
+				void RecordResolvePass(NkICommandBuffer *cmd) noexcept;
 
-                // mCompute declare AVANT mPipelines (proprietaire du cache de
-                // pipelines) -> detruit APRES (ordre inverse de declaration).
-                NkComputeContext  mCompute;
-                NkPixolBuffer     mPixol;
-                NkSculptStroke    mStroke;
-                NkSculptPipelines mPipelines;
-                NkSculptBrush     mBrush;
-                NkSculptStats     mStats;
+				NkIDevice *mDevice = nullptr;
+				NkRenderGraph *mGraph = nullptr;
+				NkTextureLibrary *mTexLib = nullptr;
+				NkShaderLibrary *mShaders = nullptr;
 
-                // SSBO contenant les NkSculptBrushGPU des dabs en attente (mode
-                // batch) — alternative aux push constants si beaucoup de dabs.
-                NkBufferHandle    mDabBuffer;
-        };
+				NkPixolSculptConfig mCfg;
+				uint32 mWidth = 0, mHeight = 0;
+				bool mReady = false;
 
-    } // namespace renderer
+				// mCompute declare AVANT mPipelines (proprietaire du cache de
+				// pipelines) -> detruit APRES (ordre inverse de declaration).
+				NkComputeContext mCompute;
+				NkPixolBuffer mPixol;
+				NkSculptStroke mStroke;
+				NkSculptPipelines mPipelines;
+				NkSculptBrush mBrush;
+				NkSculptStats mStats;
+
+				// SSBO contenant les NkSculptBrushGPU des dabs en attente (mode
+				// batch) — alternative aux push constants si beaucoup de dabs.
+				NkBufferHandle mDabBuffer;
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

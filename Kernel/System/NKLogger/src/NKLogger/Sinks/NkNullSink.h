@@ -21,105 +21,98 @@
 #ifndef NKENTSEU_NKNULLSINK_H
 #define NKENTSEU_NKNULLSINK_H
 
+// -------------------------------------------------------------------------
+// SECTION 1 : EN-TÊTES ET DÉPENDANCES
+// -------------------------------------------------------------------------
+// Inclusions standards minimales : ce sink n'a aucune dépendance externe.
+// Dépendances projet uniquement pour l'interface de base NkISink.
 
-	// -------------------------------------------------------------------------
-	// SECTION 1 : EN-TÊTES ET DÉPENDANCES
-	// -------------------------------------------------------------------------
-	// Inclusions standards minimales : ce sink n'a aucune dépendance externe.
-	// Dépendances projet uniquement pour l'interface de base NkISink.
+#include "NKCore/NkTypes.h"
+#include "NKMemory/NkUniquePtr.h"
+#include "NKLogger/NkSink.h"
+#include "NKLogger/NkLogLevel.h"
+#include "NKLogger/NkLogMessage.h"
+#include "NKLogger/NkLoggerFormatter.h"
+#include "NKLogger/NkLoggerApi.h"
 
-	#include "NKCore/NkTypes.h"
-	#include "NKMemory/NkUniquePtr.h"
-	#include "NKLogger/NkSink.h"
-	#include "NKLogger/NkLogLevel.h"
-	#include "NKLogger/NkLogMessage.h"
-	#include "NKLogger/NkLoggerFormatter.h"
-	#include "NKLogger/NkLoggerApi.h"
+// -------------------------------------------------------------------------
+// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
+// -------------------------------------------------------------------------
+// Tous les symboles du module logger sont dans le namespace nkentseu.
+// Pas de sous-namespace pour simplifier l'usage et l'intégration.
 
+namespace nkentseu {
 
-	// -------------------------------------------------------------------------
-	// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
-	// -------------------------------------------------------------------------
-	// Tous les symboles du module logger sont dans le namespace nkentseu.
-	// Pas de sous-namespace pour simplifier l'usage et l'intégration.
-
-	namespace nkentseu {
-
-
-		// ---------------------------------------------------------------------
-		// CLASSE : NkNullSink
-		// DESCRIPTION : Implémentation no-op de NkISink pour désactivation/logging test
-		// ---------------------------------------------------------------------
-		/**
-		 * @class NkNullSink
-		 * @brief Sink nul qui ignore silencieusement tous les messages de log
-		 * @ingroup LoggerSinks
-		 *
-		 * NkNullSink fournit une implémentation "null object" de l'interface NkISink :
-		 *  - Log() : ignore le message sans traitement ni allocation
-		 *  - Flush() : no-op immédiat
-		 *  - SetFormatter/SetPattern : ignore les paramètres sans effet
-		 *  - GetFormatter/GetPattern : retourne nullptr/chaîne vide
-		 *
-		 * Cas d'usage principaux :
-		 *  @b Désactivation du logging en production :
-		 *  Remplacer un sink coûteux (fichier, réseau) par NkNullSink pour désactiver
-		 *  la sortie sans modifier le code appelant ni les configurations.
-		 *
-		 *  @b Testing sans effets de bord :
-		 *  Utiliser NkNullSink dans les tests unitaires pour éviter l'écriture
-		 *  dans des fichiers ou la pollution de la console pendant l'exécution des tests.
-		 *
-		 *  @b Benchmarking et profiling :
-		 *  Éliminer l'overhead du logging pour mesurer les performances brutes
-		 *  du code métier sans interférence des appels Log().
-		 *
-		 * Architecture :
-		 *  - Hérite de NkISink : compatibilité totale avec l'API de logging
-		 *  - Aucun membre mutable : état constant, thread-safe par conception
-		 *  - Méthodes inline potentielles : compilateur peut optimiser les appels
-		 *
-		 * Thread-safety :
-		 *  - Toutes les méthodes sont thread-safe sans synchronisation
-		 *  - Aucun état partagé : safe pour appel concurrent depuis multiples threads
-		 *  - Aucun mutex requis : overhead minimal garanti
-		 *
-		 * @note Cette classe est conçue pour être instanciée directement ou via shared_ptr
-		 *       et ajoutée à un logger comme n'importe quel autre sink.
-		 *
-		 * @example Désactivation conditionnelle du logging
-		 * @code
-		 * #ifdef NKENTSEU_ENABLE_LOGGING
-		 *     auto sink = nkentseu::memory::MakeShared<nkentseu::NkFileSink>("app.log");
-		 * #else
-		 *     auto sink = nkentseu::memory::MakeShared<nkentseu::NkNullSink>();
-		 * #endif
-		 *     logger.AddSink(sink);  // Même API, comportement différent
-		 * @endcode
-		 *
-		 * @example Testing sans effets de bord
-		 * @code
-		 * TEST(MyComponentTest, DoesNotCrash) {
-		 *     // Utiliser NkNullSink pour éviter l'écriture dans les logs pendant les tests
-		 *     auto nullSink = nkentseu::memory::MakeShared<nkentseu::NkNullSink>();
-		 *     testLogger.AddSink(nullSink);
-		 *
-		 *     // Exécuter le code qui logge : aucun effet observable
-		 *     componentUnderTest.Process();
-		 *
-		 *     // Le test passe sans créer de fichiers de log
-		 * }
-		 * @endcode
-		 */
-		class NKENTSEU_LOGGER_CLASS_EXPORT NkNullSink : public NkISink {
-
-
+	// ---------------------------------------------------------------------
+	// CLASSE : NkNullSink
+	// DESCRIPTION : Implémentation no-op de NkISink pour désactivation/logging test
+	// ---------------------------------------------------------------------
+	/**
+	 * @class NkNullSink
+	 * @brief Sink nul qui ignore silencieusement tous les messages de log
+	 * @ingroup LoggerSinks
+	 *
+	 * NkNullSink fournit une implémentation "null object" de l'interface NkISink :
+	 *  - Log() : ignore le message sans traitement ni allocation
+	 *  - Flush() : no-op immédiat
+	 *  - SetFormatter/SetPattern : ignore les paramètres sans effet
+	 *  - GetFormatter/GetPattern : retourne nullptr/chaîne vide
+	 *
+	 * Cas d'usage principaux :
+	 *  @b Désactivation du logging en production :
+	 *  Remplacer un sink coûteux (fichier, réseau) par NkNullSink pour désactiver
+	 *  la sortie sans modifier le code appelant ni les configurations.
+	 *
+	 *  @b Testing sans effets de bord :
+	 *  Utiliser NkNullSink dans les tests unitaires pour éviter l'écriture
+	 *  dans des fichiers ou la pollution de la console pendant l'exécution des tests.
+	 *
+	 *  @b Benchmarking et profiling :
+	 *  Éliminer l'overhead du logging pour mesurer les performances brutes
+	 *  du code métier sans interférence des appels Log().
+	 *
+	 * Architecture :
+	 *  - Hérite de NkISink : compatibilité totale avec l'API de logging
+	 *  - Aucun membre mutable : état constant, thread-safe par conception
+	 *  - Méthodes inline potentielles : compilateur peut optimiser les appels
+	 *
+	 * Thread-safety :
+	 *  - Toutes les méthodes sont thread-safe sans synchronisation
+	 *  - Aucun état partagé : safe pour appel concurrent depuis multiples threads
+	 *  - Aucun mutex requis : overhead minimal garanti
+	 *
+	 * @note Cette classe est conçue pour être instanciée directement ou via shared_ptr
+	 *       et ajoutée à un logger comme n'importe quel autre sink.
+	 *
+	 * @example Désactivation conditionnelle du logging
+	 * @code
+	 * #ifdef NKENTSEU_ENABLE_LOGGING
+	 *     auto sink = nkentseu::memory::MakeShared<nkentseu::NkFileSink>("app.log");
+	 * #else
+	 *     auto sink = nkentseu::memory::MakeShared<nkentseu::NkNullSink>();
+	 * #endif
+	 *     logger.AddSink(sink);  // Même API, comportement différent
+	 * @endcode
+	 *
+	 * @example Testing sans effets de bord
+	 * @code
+	 * TEST(MyComponentTest, DoesNotCrash) {
+	 *     // Utiliser NkNullSink pour éviter l'écriture dans les logs pendant les tests
+	 *     auto nullSink = nkentseu::memory::MakeShared<nkentseu::NkNullSink>();
+	 *     testLogger.AddSink(nullSink);
+	 *
+	 *     // Exécuter le code qui logge : aucun effet observable
+	 *     componentUnderTest.Process();
+	 *
+	 *     // Le test passe sans créer de fichiers de log
+	 * }
+	 * @endcode
+	 */
+	class NKENTSEU_LOGGER_CLASS_EXPORT NkNullSink : public NkISink {
 			// -----------------------------------------------------------------
 			// SECTION 3 : MEMBRES PUBLICS
 			// -----------------------------------------------------------------
 		public:
-
-
 			// -----------------------------------------------------------------
 			// CONSTRUCTEURS ET DESTRUCTEUR
 			// -----------------------------------------------------------------
@@ -158,7 +151,6 @@
 			 */
 			~NkNullSink() override;
 
-
 			// -----------------------------------------------------------------
 			// IMPLÉMENTATION DE L'INTERFACE NKISINK (NO-OP)
 			// -----------------------------------------------------------------
@@ -186,7 +178,7 @@
 			 * nullSink.Log(msg);  // Aucun effet, retour immédiat
 			 * @endcode
 			 */
-			void Log(const NkLogMessage& message) override;
+			void Log(const NkLogMessage &message) override;
 
 			/**
 			 * @brief No-op : aucun buffer à flush pour ce sink
@@ -236,7 +228,7 @@
 			 * nullSink.SetPattern("[%Y-%m-%d] %v");  // Aucun effet
 			 * @endcode
 			 */
-			void SetPattern(const NkString& pattern) override;
+			void SetPattern(const NkString &pattern) override;
 
 			/**
 			 * @brief Retourne nullptr : aucun formatter associé à ce sink
@@ -256,7 +248,7 @@
 			 * }
 			 * @endcode
 			 */
-			NkLoggerFormatter* GetFormatter() const override;
+			NkLoggerFormatter *GetFormatter() const override;
 
 			/**
 			 * @brief Retourne une chaîne vide : aucun pattern associé à ce sink
@@ -277,15 +269,11 @@
 			 */
 			NkString GetPattern() const override;
 
+	}; // class NkNullSink
 
-		}; // class NkNullSink
-
-
-	} // namespace nkentseu
-
+} // namespace nkentseu
 
 #endif // NKENTSEU_NKNULLSINK_H
-
 
 // =============================================================================
 // EXEMPLES D'UTILISATION DE NKNULLSINK.H
@@ -321,7 +309,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 2 : Testing unitaire sans effets de bord
 // -----------------------------------------------------------------------------
@@ -355,7 +342,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 3 : Benchmarking sans overhead de logging
 // -----------------------------------------------------------------------------
@@ -387,7 +373,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 4 : Substitution de sink à runtime pour debugging
 // -----------------------------------------------------------------------------
@@ -414,7 +399,6 @@
 	// DebugToggle::DisableLogging();  // Mode silencieux
 	// DebugToggle::EnableLogging();   // Mode verbose pour debugging
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 5 : Configuration via fichier avec fallback null
@@ -450,7 +434,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 6 : Vérification que NkNullSink est bien un no-op (test interne)
 // -----------------------------------------------------------------------------
@@ -483,7 +466,6 @@
 		printf("NkNullSink::Log() average: %.2f ns/call\n", avgNs);
 	}
 */
-
 
 // =============================================================================
 // NOTES DE MAINTENANCE ET BONNES PRATIQUES
@@ -524,7 +506,6 @@
 	   - NkFileSink/NkConsoleSink : overhead modéré, flexibilité maximale (filtrage, formatage)
 	   - Choisir selon le cas d'usage : production silencieuse vs debugging riche
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

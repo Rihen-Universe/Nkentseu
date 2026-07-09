@@ -18,49 +18,50 @@
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKCore/NkTypes.h"
 
-namespace nkentseu
-{
-    class NkWindow;
-    class NkIGraphicsContext;
-}
+namespace nkentseu {
+	class NkWindow;
+	class NkIGraphicsContext;
+} // namespace nkentseu
 
-namespace nkentseu
-{
-    namespace cameradem
-    {
+namespace nkentseu {
+	namespace cameradem {
 
-        // ─────────────────────────────────────────────────────────────────────
-        // GLContext — encapsule la creation du contexte OpenGL et le chargement
-        // des points d'entree GL via glad. Apres Init() reussi, on peut appeler
-        // directement glClear / glDrawArrays / glBindBuffer / etc.
-        // ─────────────────────────────────────────────────────────────────────
-        class GLContext
-        {
-        public:
-            GLContext()  = default;
-            ~GLContext();
+		// ─────────────────────────────────────────────────────────────────────
+		// GLContext — encapsule la creation du contexte OpenGL et le chargement
+		// des points d'entree GL via glad. Apres Init() reussi, on peut appeler
+		// directement glClear / glDrawArrays / glBindBuffer / etc.
+		// ─────────────────────────────────────────────────────────────────────
+		class GLContext {
+			public:
+				GLContext() = default;
+				~GLContext();
 
-            // Lifecycle
-            bool Init(NkWindow& window);
-            void Shutdown();
+				// Lifecycle
+				bool Init(NkWindow &window);
+				void Shutdown();
 
-            // Frame
-            bool BeginFrame();
-            void EndFrame();
-            void Present();
-            bool OnResize(uint32 w, uint32 h);
+				// Frame
+				bool BeginFrame();
+				void EndFrame();
+				void Present();
+				bool OnResize(uint32 w, uint32 h);
 
-            // Recreation de surface (Android lifecycle)
-            bool RecreateSurface(NkWindow& window);
+				// Recreation de surface (Android lifecycle)
+				bool RecreateSurface(NkWindow &window);
 
-            // Accesseurs
-            bool                IsValid() const noexcept { return mContext != nullptr; }
-            NkIGraphicsContext* Raw()             noexcept { return mContext; }
+				// Accesseurs
+				bool IsValid() const noexcept {
+					return mContext != nullptr;
+				}
 
-        private:
-            NkIGraphicsContext* mContext     = nullptr;
-            bool                mGladLoaded  = false;
-        };
+				NkIGraphicsContext *Raw() noexcept {
+					return mContext;
+				}
 
-    } // namespace cameradem
+			private:
+				NkIGraphicsContext *mContext = nullptr;
+				bool mGladLoaded = false;
+		};
+
+	} // namespace cameradem
 } // namespace nkentseu

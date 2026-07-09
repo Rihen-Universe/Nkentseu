@@ -25,244 +25,271 @@
 #include "NKRHI/Commands/NkICommandBuffer.h"
 
 namespace nkentseu {
-    namespace renderer {
-        class NkMeshSystem;
-        class NkMaterialSystem;
-        class NkRender3D;
+	namespace renderer {
+		class NkMeshSystem;
+		class NkMaterialSystem;
+		class NkRender3D;
 
-        // Modes PCF/PCSS, identique a NkPCFMode dans NkShadowSystem.
-        enum class NkVSMShadowQuality : uint8 {
-            NONE   = 0,
-            PCF3x3 = 1,
-            PCF5x5 = 2,
-            POISSON= 3,
-            PCSS   = 4,
-        };
+		// Modes PCF/PCSS, identique a NkPCFMode dans NkShadowSystem.
+		enum class NkVSMShadowQuality : uint8 {
+			NONE = 0,
+			PCF3x3 = 1,
+			PCF5x5 = 2,
+			POISSON = 3,
+			PCSS = 4,
+		};
 
-        // Type de slot, doit matcher l'enum cote shader.
-        enum class NkVSMSlotType : int32 {
-            DIR_CASCADE = 0,
-            SPOT        = 1,
-            POINT_FACE  = 2,
-        };
+		// Type de slot, doit matcher l'enum cote shader.
+		enum class NkVSMSlotType : int32 {
+			DIR_CASCADE = 0,
+			SPOT = 1,
+			POINT_FACE = 2,
+		};
 
-        // Limite hard codee, doit matcher kMaxShadowSlots cote shader.
-        constexpr uint32 kMaxShadowSlots   = 256;
-        constexpr uint32 kMaxLightsShadow  = 32;   // doit matcher uLights array
-        constexpr uint32 kMaxCascades      = 4;
-        constexpr uint32 kInvalidSlotIdx   = 0xFFFFFFFFu;
+		// Limite hard codee, doit matcher kMaxShadowSlots cote shader.
+		constexpr uint32 kMaxShadowSlots = 256;
+		constexpr uint32 kMaxLightsShadow = 32; // doit matcher uLights array
+		constexpr uint32 kMaxCascades = 4;
+		constexpr uint32 kInvalidSlotIdx = 0xFFFFFFFFu;
 
-        struct NkVirtualShadowMapsConfig {
-            // Taille atlas (carre, D32_FLOAT). 4096 par defaut = 64 MB VRAM.
-            // Reduire a 2048 pour econome en VRAM, augmenter a 8192 pour qualite.
-            uint32   atlasSize       = 4096;
-            // Nb de cascades pour les directional. Max kMaxCascades.
-            uint32   numCascades     = 4;
-            // PCF mode pour tout le sampling.
-            NkVSMShadowQuality quality = NkVSMShadowQuality::PCF5x5;
-            // Cascade splits log+uniform blend factor (CSM Practical Cascaded Shadow).
-            float32  cascadeLambda   = 0.75f;
-            float32  cascadeNear     = 0.1f;
-            float32  cascadeFar      = 200.f;
-            // Bias depth en NDC space (apres mapping [0,1]). Scale par 1/(N.L)
-            // cote shader (slope bias). NkVSM v1 : reduit a 0.0005 car le
-            // normal bias en world units (normalBias ci-dessous) couvre la
-            // majorite des cas. Depth bias = anti-acne fin uniquement.
-            float32  shadowBias      = 0.0005f;
-            // Normal bias en WORLD UNITS : pousse worldPos le long de N avant
-            // la projection shadow. Anti peter-panning (decollement ombre au
-            // pied du caster). 0.05 = 5cm, marche pour la plupart des scenes.
-            // Pour les casters tres petits/larges, scale en consequence.
-            float32  normalBias      = 0.05f;
-            // Softness UV space pour PCF/PCSS.
-            float32  softness        = 0.003f;
-            // Stratification tile size pour cascades : tile[i] = baseTile / (1 << i).
-            uint32   cascadeBaseTile = 1024;
-            // Tile size pour spot (constant V0, pourra etre adaptatif distance V1).
-            uint32   spotTile        = 512;
-            // Tile size pour 1 face de cubemap point (6 tiles par point caster).
-            uint32   pointFaceTile   = 256;
-            // Stable shadows : snap au texel pour eviter shadow swimming.
-            bool     stable          = true;
-            // Mode FIXE radius par cascade (V0 stable, anti-flickering total).
-            // Si true : radius par cascade = cascadeFixedRadius[i] (en world units).
-            // Si false : sphere-fit du sub-frustum camera (qualite adaptive mais
-            // potentiel shadow swimming si la cam bouge).
-            bool     useFixedCascadeRadius = true;
-            // Radius fixes par cascade (8/16/32/64 par defaut, croissant en
-            // distance pour couvrir near a far autour de la cam). Ignores si
-            // useFixedCascadeRadius=false.
-            float32  cascadeFixedRadius[kMaxCascades] = {8.f, 16.f, 32.f, 64.f};
-            // Center monde FIXE pour les cascades (anti shadow swimming total).
-            // Par defaut false : le centre de chaque cascade suit la position de
-            // la camera (les texels suivent le joueur -> bon pour de grands mondes
-            // ouverts, mais l'ombre d'un caster fixe glisse par marches de texel
-            // quand la camera translate). Si true : le centre est ancre a
-            // cascadeWorldCenter (monde), peu importe la camera. A utiliser quand
-            // UNE cascade de grand radius couvre toute une scene close (ex : arene
-            // FPS) : l'ombre reste alors parfaitement ancree au sol. N'a de sens
-            // qu'avec useFixedCascadeRadius=true (radius constant requis pour que
-            // le centre fixe couvre toujours la meme region).
-            bool     useFixedCascadeCenter = false;
-            NkVec3f  cascadeWorldCenter     = {0.f, 0.f, 0.f};
+		struct NkVirtualShadowMapsConfig {
+				// Taille atlas (carre, D32_FLOAT). 4096 par defaut = 64 MB VRAM.
+				// Reduire a 2048 pour econome en VRAM, augmenter a 8192 pour qualite.
+				uint32 atlasSize = 4096;
+				// Nb de cascades pour les directional. Max kMaxCascades.
+				uint32 numCascades = 4;
+				// PCF mode pour tout le sampling.
+				NkVSMShadowQuality quality = NkVSMShadowQuality::PCF5x5;
+				// Cascade splits log+uniform blend factor (CSM Practical Cascaded Shadow).
+				float32 cascadeLambda = 0.75f;
+				float32 cascadeNear = 0.1f;
+				float32 cascadeFar = 200.f;
+				// Bias depth en NDC space (apres mapping [0,1]). Scale par 1/(N.L)
+				// cote shader (slope bias). NkVSM v1 : reduit a 0.0005 car le
+				// normal bias en world units (normalBias ci-dessous) couvre la
+				// majorite des cas. Depth bias = anti-acne fin uniquement.
+				float32 shadowBias = 0.0005f;
+				// Normal bias en WORLD UNITS : pousse worldPos le long de N avant
+				// la projection shadow. Anti peter-panning (decollement ombre au
+				// pied du caster). 0.05 = 5cm, marche pour la plupart des scenes.
+				// Pour les casters tres petits/larges, scale en consequence.
+				float32 normalBias = 0.05f;
+				// Softness UV space pour PCF/PCSS.
+				float32 softness = 0.003f;
+				// Stratification tile size pour cascades : tile[i] = baseTile / (1 << i).
+				uint32 cascadeBaseTile = 1024;
+				// Tile size pour spot (constant V0, pourra etre adaptatif distance V1).
+				uint32 spotTile = 512;
+				// Tile size pour 1 face de cubemap point (6 tiles par point caster).
+				uint32 pointFaceTile = 256;
+				// Stable shadows : snap au texel pour eviter shadow swimming.
+				bool stable = true;
+				// Mode FIXE radius par cascade (V0 stable, anti-flickering total).
+				// Si true : radius par cascade = cascadeFixedRadius[i] (en world units).
+				// Si false : sphere-fit du sub-frustum camera (qualite adaptive mais
+				// potentiel shadow swimming si la cam bouge).
+				bool useFixedCascadeRadius = true;
+				// Radius fixes par cascade (8/16/32/64 par defaut, croissant en
+				// distance pour couvrir near a far autour de la cam). Ignores si
+				// useFixedCascadeRadius=false.
+				float32 cascadeFixedRadius[kMaxCascades] = {8.f, 16.f, 32.f, 64.f};
+				// Center monde FIXE pour les cascades (anti shadow swimming total).
+				// Par defaut false : le centre de chaque cascade suit la position de
+				// la camera (les texels suivent le joueur -> bon pour de grands mondes
+				// ouverts, mais l'ombre d'un caster fixe glisse par marches de texel
+				// quand la camera translate). Si true : le centre est ancre a
+				// cascadeWorldCenter (monde), peu importe la camera. A utiliser quand
+				// UNE cascade de grand radius couvre toute une scene close (ex : arene
+				// FPS) : l'ombre reste alors parfaitement ancree au sol. N'a de sens
+				// qu'avec useFixedCascadeRadius=true (radius constant requis pour que
+				// le centre fixe couvre toujours la meme region).
+				bool useFixedCascadeCenter = false;
+				NkVec3f cascadeWorldCenter = {0.f, 0.f, 0.f};
 
-            // AUTO-FIT directionnel (scene close) : si true, la cascade est ajustee
-            // CHAQUE frame aux bornes reelles des casters (NkRender3D::GetShadowCasterBounds).
-            // Centre = centre des bornes (ancre monde -> pas de swimming), rayon = demi-
-            // diagonale (couverture complete -> pas de clipping), au plus serre (resolution
-            // OPTIMALE, contrairement a un rayon fixe trop grand qui perd les petites ombres).
-            // Prioritaire sur useFixedCascadeCenter/useFixedCascadeRadius quand actif.
-            // A laisser false pour les grands mondes ouverts (cascade qui suit la camera).
-            bool     autoFitDirectional     = false;
-        };
+				// AUTO-FIT directionnel (scene close) : si true, la cascade est ajustee
+				// CHAQUE frame aux bornes reelles des casters (NkRender3D::GetShadowCasterBounds).
+				// Centre = centre des bornes (ancre monde -> pas de swimming), rayon = demi-
+				// diagonale (couverture complete -> pas de clipping), au plus serre (resolution
+				// OPTIMALE, contrairement a un rayon fixe trop grand qui perd les petites ombres).
+				// Prioritaire sur useFixedCascadeCenter/useFixedCascadeRadius quand actif.
+				// A laisser false pour les grands mondes ouverts (cascade qui suit la camera).
+				bool autoFitDirectional = false;
+		};
 
-        // Slot CPU (info de quoi rendre et ou).
-        struct NkShadowSlot {
-            NkMat4f         shadowMatrix  = NkMat4f::Identity();  // T * lightProj * lightView
-            NkMat4f         renderMatrix  = NkMat4f::Identity();  // lightProj * lightView (pour render)
-            NkShadowTileRect tileRect;                            // pixel rect dans l'atlas
-            NkVec4f         tileUV        = {0,0,0,0};            // version UV [0,1]
-            NkVec4f         lightPosOrDir = {0,0,0,0};            // pos (POINT/SPOT) ou dir (DIR), .w = range/split
-            uint32          lightIdx      = 0;                    // index dans uLights
-            NkVSMSlotType   slotType      = NkVSMSlotType::DIR_CASCADE;
-            uint32          subIdx        = 0;                    // cascade idx (DIR) ou face idx (POINT)
-            uint32          tileSize      = 0;                    // pixels (viewport/scissor)
-            // NkVSM v1 caching : si true, le tile est deja a jour dans l'atlas
-            // (rendu lors d'une frame precedente) et on peut skip son re-render
-            // pendant la passe Shadow. Set par AllocSlotsForLights en comparant
-            // l'etat de la light vs le cache mLightCache.
-            bool            cached        = false;
-        };
+		// Slot CPU (info de quoi rendre et ou).
+		struct NkShadowSlot {
+				NkMat4f shadowMatrix = NkMat4f::Identity(); // T * lightProj * lightView
+				NkMat4f renderMatrix = NkMat4f::Identity(); // lightProj * lightView (pour render)
+				NkShadowTileRect tileRect;					// pixel rect dans l'atlas
+				NkVec4f tileUV = {0, 0, 0, 0};				// version UV [0,1]
+				NkVec4f lightPosOrDir = {0, 0, 0, 0};		// pos (POINT/SPOT) ou dir (DIR), .w = range/split
+				uint32 lightIdx = 0;						// index dans uLights
+				NkVSMSlotType slotType = NkVSMSlotType::DIR_CASCADE;
+				uint32 subIdx = 0;	 // cascade idx (DIR) ou face idx (POINT)
+				uint32 tileSize = 0; // pixels (viewport/scissor)
+				// NkVSM v1 caching : si true, le tile est deja a jour dans l'atlas
+				// (rendu lors d'une frame precedente) et on peut skip son re-render
+				// pendant la passe Shadow. Set par AllocSlotsForLights en comparant
+				// l'etat de la light vs le cache mLightCache.
+				bool cached = false;
+		};
 
-        // NkVSM v1 caching : etat persistant per-light (survit BeginFrame).
-        // Compare avec l'etat actuel pour detecter les changements pos/dir/range.
-        struct NkLightShadowCache {
-            NkVec3f         lastPosition  = {0, 0, 0};
-            NkVec3f         lastDirection = {0, 0, 0};
-            float32         lastRange     = 0.f;
-            bool            renderedOnce  = false;
-            bool            wasStatic     = false;
-        };
+		// NkVSM v1 caching : etat persistant per-light (survit BeginFrame).
+		// Compare avec l'etat actuel pour detecter les changements pos/dir/range.
+		struct NkLightShadowCache {
+				NkVec3f lastPosition = {0, 0, 0};
+				NkVec3f lastDirection = {0, 0, 0};
+				float32 lastRange = 0.f;
+				bool renderedOnce = false;
+				bool wasStatic = false;
+		};
 
-        class NkVirtualShadowMaps {
-        public:
-            bool Init(NkIDevice* d, NkMeshSystem* m, NkMaterialSystem* mat,
-                      const NkVirtualShadowMapsConfig& cfg = {},
-                      uint32 framesInFlight = 3);
-            void Shutdown();
+		class NkVirtualShadowMaps {
+			public:
+				bool Init(NkIDevice *d, NkMeshSystem *m, NkMaterialSystem *mat,
+						  const NkVirtualShadowMapsConfig &cfg = {}, uint32 framesInFlight = 3);
+				void Shutdown();
 
-            // Setter config (live tweakable sauf atlasSize qui necessite re-init).
-            void                                    SetConfig(const NkVirtualShadowMapsConfig& c) { mCfg = c; }
-            NkVirtualShadowMapsConfig&              GetConfig()       noexcept { return mCfg; }
-            const NkVirtualShadowMapsConfig&        GetConfig() const noexcept { return mCfg; }
+				// Setter config (live tweakable sauf atlasSize qui necessite re-init).
+				void SetConfig(const NkVirtualShadowMapsConfig &c) {
+					mCfg = c;
+				}
 
-            // RenderAllShadows : entry-point unique par frame. Lit le scene
-            // context via mRender3D, alloue les slots, upload UBO, rend tous
-            // les tiles. Appele par la passe 'Shadows' du RenderGraph.
-            void RenderAllShadows(NkICommandBuffer* cmd);
+				NkVirtualShadowMapsConfig &GetConfig() noexcept {
+					return mCfg;
+				}
 
-            // Wirage avec NkRender3D pour iterer les drawcalls opaques.
-            void SetRenderer3D(NkRender3D* r) noexcept { mRender3D = r; }
+				const NkVirtualShadowMapsConfig &GetConfig() const noexcept {
+					return mCfg;
+				}
 
-            // Accesseurs RHI pour le binding par NkRender3D :
-            NkTextureHandle    GetAtlasTexture()      const { return mAtlasRhi; }
-            NkSamplerHandle    GetAtlasSampler()      const { return mShadowSampler; }     // compare-mode
-            NkSamplerHandle    GetAtlasRawSampler()   const { return mShadowRawSampler; }  // PCSS blocker
-            // Buffer du slot courant pour le bind. NkRender3D::preBindGlobalSet
-            // bind chaque slot du ring sur son descriptor set respectif (cf.
-            // SetMultiFrameBuffers ci-dessous).
-            NkBufferHandle     GetShadowSlotsUBO()    const {
-                return (mCurFrameSlot < mUBOSlotsRing.Size())
-                       ? mUBOSlotsRing[mCurFrameSlot] : NkBufferHandle{};
-            }
-            // Accesseurs pour le pre-bind ring (NkRender3D bind chaque buffer
-            // du ring sur le descriptor set correspondant).
-            uint32 GetRingSize() const { return (uint32)mUBOSlotsRing.Size(); }
-            NkBufferHandle GetRingBuffer(uint32 i) const {
-                return (i < mUBOSlotsRing.Size()) ? mUBOSlotsRing[i] : NkBufferHandle{};
-            }
-            NkRenderPassHandle GetShadowRenderPass()  const { return mShadowRP; }
+				// RenderAllShadows : entry-point unique par frame. Lit le scene
+				// context via mRender3D, alloue les slots, upload UBO, rend tous
+				// les tiles. Appele par la passe 'Shadows' du RenderGraph.
+				void RenderAllShadows(NkICommandBuffer *cmd);
 
-            // Diagnostics.
-            uint32 GetActiveSlotCount() const { return mActiveSlotCount; }
-            uint32 GetAtlasSize()       const { return mCfg.atlasSize; }
+				// Wirage avec NkRender3D pour iterer les drawcalls opaques.
+				void SetRenderer3D(NkRender3D *r) noexcept {
+					mRender3D = r;
+				}
 
-        private:
-            // Allocation slots pour chaque light castShadow=true.
-            void   AllocSlotsForLights(const NkCamera3D& mainCam,
-                                       const NkVector<NkLightDesc>& lights);
-            void   AllocSlotsDirectional(const NkCamera3D& mainCam,
-                                         const NkLightDesc& light,
-                                         uint32 lightIdx);
-            void   AllocSlotsSpot       (const NkLightDesc& light, uint32 lightIdx);
-            void   AllocSlotsPoint      (const NkLightDesc& light, uint32 lightIdx);
+				// Accesseurs RHI pour le binding par NkRender3D :
+				NkTextureHandle GetAtlasTexture() const {
+					return mAtlasRhi;
+				}
 
-            // Helper : calcule splits CSM log+uniform blend.
-            void   ComputeCascadeSplits(float32 nearP, float32 farP,
-                                        float32 lambda, uint32 numCascades,
-                                        float32 outSplits[kMaxCascades]) const;
+				NkSamplerHandle GetAtlasSampler() const {
+					return mShadowSampler;
+				} // compare-mode
 
-            // Helper : compute light view+proj pour CSM cascade [c].
-            // Reprend le pattern de NkShadowSystem (sphere-fit + texel snap).
-            void   ComputeDirectionalCascade(const NkCamera3D& mainCam,
-                                              const NkLightDesc& light,
-                                              uint32 cascadeIdx,
-                                              float32 splitNear, float32 splitFar,
-                                              uint32 tilePx,
-                                              NkMat4f& outView, NkMat4f& outProj) const;
+				NkSamplerHandle GetAtlasRawSampler() const {
+					return mShadowRawSampler;
+				} // PCSS blocker
 
-            // Upload du UBO ShadowSlots (apres BeginFrame).
-            void   UploadSlotsUBO();
+				// Buffer du slot courant pour le bind. NkRender3D::preBindGlobalSet
+				// bind chaque slot du ring sur son descriptor set respectif (cf.
+				// SetMultiFrameBuffers ci-dessous).
+				NkBufferHandle GetShadowSlotsUBO() const {
+					return (mCurFrameSlot < mUBOSlotsRing.Size()) ? mUBOSlotsRing[mCurFrameSlot] : NkBufferHandle{};
+				}
 
-            // Bug ombres DX12 : NkMat4f::Orthogonal/Perspective produisent un Z NDC en
-            // [-1,1] (convention OpenGL). Sur VK/DX11/DX12 le rasterizer attend [0,1] :
-            // sans correction, la moitie proche des casters est clippee (Z<0) -> atlas
-            // d'ombre vide -> SampleCmp retourne « tout en ombre » -> scene noire. On
-            // compose donc clipZ01 (z->0.5z+0.5) dans renderMatrix pour VK/DX11/DX12,
-            // EXACTEMENT comme la projection camera principale (cf. NkRender3D.cpp:811).
-            // Quand cette correction est appliquee, le shader ne doit PAS refaire le
-            // remap *0.5+0.5 sur p.z -> on signale via globalCfg.z (0=deja [0,1], 1=GL).
-            void   ApplyDepthClipCorrection(NkMat4f& m) const;
-            bool   DepthIsZeroToOne() const; // true sur VK/DX11/DX12
+				// Accesseurs pour le pre-bind ring (NkRender3D bind chaque buffer
+				// du ring sur le descriptor set correspondant).
+				uint32 GetRingSize() const {
+					return (uint32)mUBOSlotsRing.Size();
+				}
 
-            // ----- members -----
-            NkIDevice*               mDevice    = nullptr;
-            NkMeshSystem*            mMesh      = nullptr;
-            NkMaterialSystem*        mMat       = nullptr;
-            NkRender3D*              mRender3D  = nullptr;
-            NkVirtualShadowMapsConfig mCfg;
+				NkBufferHandle GetRingBuffer(uint32 i) const {
+					return (i < mUBOSlotsRing.Size()) ? mUBOSlotsRing[i] : NkBufferHandle{};
+				}
 
-            NkTextureHandle          mAtlasRhi;
-            NkSamplerHandle          mShadowSampler;       // compare-mode pour PCF
-            NkSamplerHandle          mShadowRawSampler;    // sans compare, pour PCSS blocker
-            // ShadowSlotsUBO en RING multi-frame (sinon data hazard sur 3 frames
-            // in flight : CPU ecrase l'UBO pendant que GPU lit encore -> flickering).
-            NkVector<NkBufferHandle> mUBOSlotsRing;
-            uint32                   mFramesInFlight = 3;
-            uint32                   mCurFrameSlot   = 0;
-            NkFramebufferHandle      mShadowFB;            // FBO depth-only avec mAtlasRhi
-            NkRenderPassHandle       mShadowRP;            // RP auto-cree par CreateFramebuffer (VK)
-            NkPipelineHandle         mPipeline;            // shadow depth-only pipeline (shared)
+				NkRenderPassHandle GetShadowRenderPass() const {
+					return mShadowRP;
+				}
 
-            NkShadowAtlasPacker      mPacker;
-            NkShadowSlot             mSlots[kMaxShadowSlots];
-            uint32                   mActiveSlotCount = 0;
-            int32                    mFirstSlotPerLight[kMaxLightsShadow];  // -1 si pas de shadow
-            int32                    mSlotCountPerLight[kMaxLightsShadow];
+				// Diagnostics.
+				uint32 GetActiveSlotCount() const {
+					return mActiveSlotCount;
+				}
 
-            // NkVSM v1 : cache d'etat per-light pour shadowStatic=true.
-            // Persiste a travers BeginFrame (pas reset).
-            NkLightShadowCache       mLightCache[kMaxLightsShadow];
-            // Diagnostics : nb de slots rendered vs cached cette frame.
-            uint32                   mRenderedSlotsCount = 0;
-            uint32                   mCachedSlotsCount   = 0;
+				uint32 GetAtlasSize() const {
+					return mCfg.atlasSize;
+				}
 
-        public:
-            // Diag : nb de slots qui ont reellement rendered cette frame
-            // (les autres ont ete cached). Indique l'efficacite du caching.
-            uint32 GetRenderedSlotsCount() const { return mRenderedSlotsCount; }
-            uint32 GetCachedSlotsCount()   const { return mCachedSlotsCount;   }
-        };
+			private:
+				// Allocation slots pour chaque light castShadow=true.
+				void AllocSlotsForLights(const NkCamera3D &mainCam, const NkVector<NkLightDesc> &lights);
+				void AllocSlotsDirectional(const NkCamera3D &mainCam, const NkLightDesc &light, uint32 lightIdx);
+				void AllocSlotsSpot(const NkLightDesc &light, uint32 lightIdx);
+				void AllocSlotsPoint(const NkLightDesc &light, uint32 lightIdx);
 
-    } // namespace renderer
+				// Helper : calcule splits CSM log+uniform blend.
+				void ComputeCascadeSplits(float32 nearP, float32 farP, float32 lambda, uint32 numCascades,
+										  float32 outSplits[kMaxCascades]) const;
+
+				// Helper : compute light view+proj pour CSM cascade [c].
+				// Reprend le pattern de NkShadowSystem (sphere-fit + texel snap).
+				void ComputeDirectionalCascade(const NkCamera3D &mainCam, const NkLightDesc &light, uint32 cascadeIdx,
+											   float32 splitNear, float32 splitFar, uint32 tilePx, NkMat4f &outView,
+											   NkMat4f &outProj) const;
+
+				// Upload du UBO ShadowSlots (apres BeginFrame).
+				void UploadSlotsUBO();
+
+				// Bug ombres DX12 : NkMat4f::Orthogonal/Perspective produisent un Z NDC en
+				// [-1,1] (convention OpenGL). Sur VK/DX11/DX12 le rasterizer attend [0,1] :
+				// sans correction, la moitie proche des casters est clippee (Z<0) -> atlas
+				// d'ombre vide -> SampleCmp retourne « tout en ombre » -> scene noire. On
+				// compose donc clipZ01 (z->0.5z+0.5) dans renderMatrix pour VK/DX11/DX12,
+				// EXACTEMENT comme la projection camera principale (cf. NkRender3D.cpp:811).
+				// Quand cette correction est appliquee, le shader ne doit PAS refaire le
+				// remap *0.5+0.5 sur p.z -> on signale via globalCfg.z (0=deja [0,1], 1=GL).
+				void ApplyDepthClipCorrection(NkMat4f &m) const;
+				bool DepthIsZeroToOne() const; // true sur VK/DX11/DX12
+
+				// ----- members -----
+				NkIDevice *mDevice = nullptr;
+				NkMeshSystem *mMesh = nullptr;
+				NkMaterialSystem *mMat = nullptr;
+				NkRender3D *mRender3D = nullptr;
+				NkVirtualShadowMapsConfig mCfg;
+
+				NkTextureHandle mAtlasRhi;
+				NkSamplerHandle mShadowSampler;	   // compare-mode pour PCF
+				NkSamplerHandle mShadowRawSampler; // sans compare, pour PCSS blocker
+				// ShadowSlotsUBO en RING multi-frame (sinon data hazard sur 3 frames
+				// in flight : CPU ecrase l'UBO pendant que GPU lit encore -> flickering).
+				NkVector<NkBufferHandle> mUBOSlotsRing;
+				uint32 mFramesInFlight = 3;
+				uint32 mCurFrameSlot = 0;
+				NkFramebufferHandle mShadowFB; // FBO depth-only avec mAtlasRhi
+				NkRenderPassHandle mShadowRP;  // RP auto-cree par CreateFramebuffer (VK)
+				NkPipelineHandle mPipeline;	   // shadow depth-only pipeline (shared)
+
+				NkShadowAtlasPacker mPacker;
+				NkShadowSlot mSlots[kMaxShadowSlots];
+				uint32 mActiveSlotCount = 0;
+				int32 mFirstSlotPerLight[kMaxLightsShadow]; // -1 si pas de shadow
+				int32 mSlotCountPerLight[kMaxLightsShadow];
+
+				// NkVSM v1 : cache d'etat per-light pour shadowStatic=true.
+				// Persiste a travers BeginFrame (pas reset).
+				NkLightShadowCache mLightCache[kMaxLightsShadow];
+				// Diagnostics : nb de slots rendered vs cached cette frame.
+				uint32 mRenderedSlotsCount = 0;
+				uint32 mCachedSlotsCount = 0;
+
+			public:
+				// Diag : nb de slots qui ont reellement rendered cette frame
+				// (les autres ont ete cached). Indique l'efficacite du caching.
+				uint32 GetRenderedSlotsCount() const {
+					return mRenderedSlotsCount;
+				}
+
+				uint32 GetCachedSlotsCount() const {
+					return mCachedSlotsCount;
+				}
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

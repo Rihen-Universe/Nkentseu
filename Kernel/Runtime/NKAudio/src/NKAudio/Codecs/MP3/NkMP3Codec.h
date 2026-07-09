@@ -32,18 +32,18 @@
 #include "NKAudio/NKAudio.h"
 
 namespace nkentseu {
-    namespace audio {
+	namespace audio {
 
-        class NKENTSEU_AUDIO_API NkMP3Codec {
-            public:
-                /// Decode un buffer MP3 complet en AudioSample (float32 interleaved).
-                /// @param data       Pointeur vers le buffer MP3 (peut commencer par ID3v2).
-                /// @param size       Taille du buffer en octets.
-                /// @param allocator  Allocateur a utiliser pour la sortie.
-                /// @return  AudioSample valide si OK, vide sinon.
-                static AudioSample Decode(const uint8* data, usize size,
-                                          memory::NkAllocator* allocator = nullptr) noexcept;
-        };
+		class NKENTSEU_AUDIO_API NkMP3Codec {
+			public:
+				/// Decode un buffer MP3 complet en AudioSample (float32 interleaved).
+				/// @param data       Pointeur vers le buffer MP3 (peut commencer par ID3v2).
+				/// @param size       Taille du buffer en octets.
+				/// @param allocator  Allocateur a utiliser pour la sortie.
+				/// @return  AudioSample valide si OK, vide sinon.
+				static AudioSample Decode(const uint8 *data, usize size,
+										  memory::NkAllocator *allocator = nullptr) noexcept;
+		};
 
-    } // namespace audio
+	} // namespace audio
 } // namespace nkentseu

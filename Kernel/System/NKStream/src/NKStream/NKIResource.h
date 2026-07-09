@@ -25,32 +25,44 @@
 
 namespace nkentseu {
 
-    class NkStream; // NKStream/NkStream.h — flux binaire/fichier/mémoire
+	class NkStream; // NKStream/NkStream.h — flux binaire/fichier/mémoire
 
-    // -------------------------------------------------------------------------
-    // NKIResource — ressource média chargeable/sauvegardable (CPU)
-    // -------------------------------------------------------------------------
-    class NKIResource {
-        public:
-            virtual ~NKIResource() = default;
+	// -------------------------------------------------------------------------
+	// NKIResource — ressource média chargeable/sauvegardable (CPU)
+	// -------------------------------------------------------------------------
+	class NKIResource {
+		public:
+			virtual ~NKIResource() = default;
 
-            // ── Chargement (obligatoire) ─────────────────────────────────────
-            virtual bool LoadFromFile  (const char* path)             = 0;
-            virtual bool LoadFromMemory(const void* data, usize size) = 0;
-            virtual bool LoadFromStream(NkStream& stream)             = 0;
+			// ── Chargement (obligatoire) ─────────────────────────────────────
+			virtual bool LoadFromFile(const char *path) = 0;
+			virtual bool LoadFromMemory(const void *data, usize size) = 0;
+			virtual bool LoadFromStream(NkStream &stream) = 0;
 
-            // ── Sauvegarde (optionnelle : retourne false si le codec ne sait
-            //    pas écrire ce format). SaveToMemory alloue `out` via
-            //    nkentseu::memory::NkAlloc : libérer avec
-            //    nkentseu::memory::NkFree (JAMAIS std::free / delete[] —
-            //    heap corruption Windows c0000374 sinon).
-            virtual bool SaveToFile  (const char* path)         const { (void)path; return false; }
-            virtual bool SaveToMemory(uint8*& out, usize& size) const { (void)out; (void)size; return false; }
-            virtual bool SaveToStream(NkStream& stream)         const { (void)stream; return false; }
+			// ── Sauvegarde (optionnelle : retourne false si le codec ne sait
+			//    pas écrire ce format). SaveToMemory alloue `out` via
+			//    nkentseu::memory::NkAlloc : libérer avec
+			//    nkentseu::memory::NkFree (JAMAIS std::free / delete[] —
+			//    heap corruption Windows c0000374 sinon).
+			virtual bool SaveToFile(const char *path) const {
+				(void)path;
+				return false;
+			}
 
-            // ── État ──────────────────────────────────────────────────────────
-            virtual bool IsValid() const = 0;
-            virtual void Unload()        = 0;
-    };
+			virtual bool SaveToMemory(uint8 *&out, usize &size) const {
+				(void)out;
+				(void)size;
+				return false;
+			}
+
+			virtual bool SaveToStream(NkStream &stream) const {
+				(void)stream;
+				return false;
+			}
+
+			// ── État ──────────────────────────────────────────────────────────
+			virtual bool IsValid() const = 0;
+			virtual void Unload() = 0;
+	};
 
 } // namespace nkentseu

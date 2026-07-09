@@ -16,101 +16,118 @@
 
 #include "NKStream/NkStream.h"
 
-
 namespace nkentseu {
 
-    class NKSTREAM_API NkBinaryStream : public NkStream {
-        public:
-            NkBinaryStream(void* data = nullptr, usize capacity = 0)
-                : mBuffer(static_cast<uint8*>(data)),
-                  mCapacity(capacity),
-                  mSize(0),
-                  mPosition(0),
-                  mOwned(false) {}
+	class NKSTREAM_API NkBinaryStream : public NkStream {
+		public:
+			NkBinaryStream(void *data = nullptr, usize capacity = 0)
+				: mBuffer(static_cast<uint8 *>(data)), mCapacity(capacity), mSize(0), mPosition(0), mOwned(false) {
+			}
 
-            NkBinaryStream(usize capacity)
-                : mBuffer(new uint8[capacity]),
-                  mCapacity(capacity),
-                  mSize(0),
-                  mPosition(0),
-                  mOwned(true) {}
+			NkBinaryStream(usize capacity)
+				: mBuffer(new uint8[capacity]), mCapacity(capacity), mSize(0), mPosition(0), mOwned(true) {
+			}
 
-            ~NkBinaryStream() override {
-                if(mOwned) delete[] mBuffer;
-            }
+			~NkBinaryStream() override {
+				if (mOwned)
+					delete[] mBuffer;
+			}
 
-            bool Open(const char*, uint32) override { return true; }
-            void Close() override { /* Ne libère pas la mémoire */ }
-            bool IsOpen() const override { return true; }
+			bool Open(const char *, uint32) override {
+				return true;
+			}
 
-            usize ReadRaw(void* buffer, usize byteCount) override {
-                const usize available = mSize - mPosition;
-                const usize toRead = (byteCount > available) ? available : byteCount;
+			void Close() override { /* Ne libère pas la mémoire */
+			}
 
-                ::memcpy(buffer, mBuffer + mPosition, toRead);
-                mPosition += toRead;
-                return toRead;
-            }
+			bool IsOpen() const override {
+				return true;
+			}
 
-            usize WriteRaw(const void* data, usize byteCount) override {
-                EnsureCapacity(mPosition + byteCount);
+			usize ReadRaw(void *buffer, usize byteCount) override {
+				const usize available = mSize - mPosition;
+				const usize toRead = (byteCount > available) ? available : byteCount;
 
-                ::memcpy(mBuffer + mPosition, data, byteCount);
-                mPosition += byteCount;
-                if(mPosition > mSize) mSize = mPosition;
-                return byteCount;
-            }
+				::memcpy(buffer, mBuffer + mPosition, toRead);
+				mPosition += toRead;
+				return toRead;
+			}
 
-            bool Seek(usize position) override {
-                if(position > mSize) return false;
-                mPosition = position;
-                return true;
-            }
+			usize WriteRaw(const void *data, usize byteCount) override {
+				EnsureCapacity(mPosition + byteCount);
 
-            usize Tell() const override { return mPosition; }
-            usize Size() const override { return mSize; }
-            bool IsEOF() const override { return mPosition >= mSize; }
+				::memcpy(mBuffer + mPosition, data, byteCount);
+				mPosition += byteCount;
+				if (mPosition > mSize)
+					mSize = mPosition;
+				return byteCount;
+			}
 
-            void Resize(usize newSize) {
-                EnsureCapacity(newSize);
-                mSize = newSize;
-            }
+			bool Seek(usize position) override {
+				if (position > mSize)
+					return false;
+				mPosition = position;
+				return true;
+			}
 
-            void Reserve(usize newCapacity) {
-                if(newCapacity > mCapacity) {
-                    Reallocate(newCapacity);
-                }
-            }
+			usize Tell() const override {
+				return mPosition;
+			}
 
-            const uint8* Data() const { return mBuffer; }
-            uint8* Data() { return mBuffer; }
+			usize Size() const override {
+				return mSize;
+			}
 
-        private:
-            void EnsureCapacity(usize required) {
-                if(required > mCapacity) {
-                    usize newCapacity = mCapacity * 2;
-                    if(newCapacity < required) newCapacity = required;
-                    Reallocate(newCapacity);
-                }
-            }
+			bool IsEOF() const override {
+				return mPosition >= mSize;
+			}
 
-            void Reallocate(usize newCapacity) {
-                uint8* newBuffer = new uint8[newCapacity];
-                if (mBuffer && mSize > 0) {
-                    ::memcpy(newBuffer, mBuffer, mSize);
-                }
-                if(mOwned) delete[] mBuffer;
-                mBuffer = newBuffer;
-                mCapacity = newCapacity;
-                mOwned = true;
-            }
+			void Resize(usize newSize) {
+				EnsureCapacity(newSize);
+				mSize = newSize;
+			}
 
-            uint8* mBuffer;
-            usize mCapacity;
-            usize mSize;
-            usize mPosition;
-            bool mOwned;
-        };
+			void Reserve(usize newCapacity) {
+				if (newCapacity > mCapacity) {
+					Reallocate(newCapacity);
+				}
+			}
 
+			const uint8 *Data() const {
+				return mBuffer;
+			}
+
+			uint8 *Data() {
+				return mBuffer;
+			}
+
+		private:
+			void EnsureCapacity(usize required) {
+				if (required > mCapacity) {
+					usize newCapacity = mCapacity * 2;
+					if (newCapacity < required)
+						newCapacity = required;
+					Reallocate(newCapacity);
+				}
+			}
+
+			void Reallocate(usize newCapacity) {
+				uint8 *newBuffer = new uint8[newCapacity];
+				if (mBuffer && mSize > 0) {
+					::memcpy(newBuffer, mBuffer, mSize);
+				}
+				if (mOwned)
+					delete[] mBuffer;
+				mBuffer = newBuffer;
+				mCapacity = newCapacity;
+				mOwned = true;
+			}
+
+			uint8 *mBuffer;
+			usize mCapacity;
+			usize mSize;
+			usize mPosition;
+			bool mOwned;
+	};
 
 } // namespace nkentseu

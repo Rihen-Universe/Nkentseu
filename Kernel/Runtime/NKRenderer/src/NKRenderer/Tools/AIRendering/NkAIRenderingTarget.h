@@ -32,163 +32,176 @@
 #include "NKContainers/Functional/NkFunction.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        // =========================================================================
-        // Canaux de données capturés
-        // =========================================================================
-        enum class NkAIChannel : uint32 {
-            NK_AI_NONE        = 0,
-            NK_AI_COLOR       = 1 << 0,  // RGBA rendu
-            NK_AI_DEPTH       = 1 << 1,  // profondeur linéarisée
-            NK_AI_NORMAL      = 1 << 2,  // normales world-space
-            NK_AI_ALBEDO      = 1 << 3,  // albedo G-buffer
-            NK_AI_MOTION      = 1 << 4,  // motion vectors
-            NK_AI_INSTANCE_ID = 1 << 5,  // ID instance (segmentation)
-            NK_AI_CUSTOM      = 1 << 6,  // texture user-définie
-        };
-        inline NkAIChannel operator|(NkAIChannel a, NkAIChannel b)
-            { return (NkAIChannel)((uint32)a | (uint32)b); }
-        inline bool NkAIHas(NkAIChannel mask, NkAIChannel flag)
-            { return ((uint32)mask & (uint32)flag) != 0; }
+		// =========================================================================
+		// Canaux de données capturés
+		// =========================================================================
+		enum class NkAIChannel : uint32 {
+			NK_AI_NONE = 0,
+			NK_AI_COLOR = 1 << 0,		// RGBA rendu
+			NK_AI_DEPTH = 1 << 1,		// profondeur linéarisée
+			NK_AI_NORMAL = 1 << 2,		// normales world-space
+			NK_AI_ALBEDO = 1 << 3,		// albedo G-buffer
+			NK_AI_MOTION = 1 << 4,		// motion vectors
+			NK_AI_INSTANCE_ID = 1 << 5, // ID instance (segmentation)
+			NK_AI_CUSTOM = 1 << 6,		// texture user-définie
+		};
 
-        // =========================================================================
-        // Format des données CPU après readback
-        // =========================================================================
-        enum class NkAIDataFormat : uint8 {
-            NK_AI_UINT8   = 0,  // [0,255] normalisé — inference légère
-            NK_AI_FP16    = 1,  // float16 — inférence GPU (ONNX, TensorRT)
-            NK_AI_FP32    = 2,  // float32 — précision maximale / OIDN
-        };
+		inline NkAIChannel operator|(NkAIChannel a, NkAIChannel b) {
+			return (NkAIChannel)((uint32)a | (uint32)b);
+		}
 
-        // =========================================================================
-        // Frame de données prête pour l'inférence
-        // =========================================================================
-        struct NkAIFrame {
-            uint64      frameIndex  = 0;
-            uint32      width       = 0;
-            uint32      height      = 0;
-            NkAIChannel channels    = NkAIChannel::NK_AI_NONE;
-            NkAIDataFormat format   = NkAIDataFormat::NK_AI_FP32;
-            float32     timestamp   = 0.f;
+		inline bool NkAIHas(NkAIChannel mask, NkAIChannel flag) {
+			return ((uint32)mask & (uint32)flag) != 0;
+		}
 
-            // Pointeurs vers les buffers CPU (durée de vie limitée au callback)
-            const void* colorData     = nullptr;
-            const void* depthData     = nullptr;
-            const void* normalData    = nullptr;
-            const void* albedoData    = nullptr;
-            const void* motionData    = nullptr;
-            const void* instanceIdData= nullptr;
-            const void* customData    = nullptr;
+		// =========================================================================
+		// Format des données CPU après readback
+		// =========================================================================
+		enum class NkAIDataFormat : uint8 {
+			NK_AI_UINT8 = 0, // [0,255] normalisé — inference légère
+			NK_AI_FP16 = 1,	 // float16 — inférence GPU (ONNX, TensorRT)
+			NK_AI_FP32 = 2,	 // float32 — précision maximale / OIDN
+		};
 
-            uint32 strideBytes = 0; // stride par ligne en bytes
-        };
+		// =========================================================================
+		// Frame de données prête pour l'inférence
+		// =========================================================================
+		struct NkAIFrame {
+				uint64 frameIndex = 0;
+				uint32 width = 0;
+				uint32 height = 0;
+				NkAIChannel channels = NkAIChannel::NK_AI_NONE;
+				NkAIDataFormat format = NkAIDataFormat::NK_AI_FP32;
+				float32 timestamp = 0.f;
 
-        // =========================================================================
-        // Callback déclenché quand une frame est prête côté CPU
-        // =========================================================================
-        using NkAIFrameCallback = NkFunction<void(const NkAIFrame&)>;
+				// Pointeurs vers les buffers CPU (durée de vie limitée au callback)
+				const void *colorData = nullptr;
+				const void *depthData = nullptr;
+				const void *normalData = nullptr;
+				const void *albedoData = nullptr;
+				const void *motionData = nullptr;
+				const void *instanceIdData = nullptr;
+				const void *customData = nullptr;
 
-        // =========================================================================
-        // Descripteur de création
-        // =========================================================================
-        struct NkAITargetDesc {
-            uint32          width    = 1920;
-            uint32          height   = 1080;
-            NkAIChannel     channels = NkAIChannel::NK_AI_COLOR;
-            NkAIDataFormat  format   = NkAIDataFormat::NK_AI_FP32;
-            uint32          ringSize = 3;         // frames en vol simultanément
-            bool            sync     = false;     // bloquant (mode debug/offline)
-            NkAIFrameCallback callback;
-            NkString         name;
-            NkTexHandle      customTex;           // si NK_AI_CUSTOM
-        };
+				uint32 strideBytes = 0; // stride par ligne en bytes
+		};
 
-        // =========================================================================
-        // NkAIRenderingTarget — une cible unique
-        // =========================================================================
-        class NkAIRenderingTarget {
-            public:
-                explicit NkAIRenderingTarget(const NkAITargetDesc& desc);
-                ~NkAIRenderingTarget();
+		// =========================================================================
+		// Callback déclenché quand une frame est prête côté CPU
+		// =========================================================================
+		using NkAIFrameCallback = NkFunction<void(const NkAIFrame &)>;
 
-                // ── Capture (appelé chaque frame voulue) ─────────────────────────────
-                void Capture(NkICommandBuffer* cmd,
-                            NkTexHandle colorTex,
-                            NkTexHandle depthTex     = NkTexHandle::Null(),
-                            NkTexHandle normalTex    = NkTexHandle::Null(),
-                            NkTexHandle albedoTex    = NkTexHandle::Null(),
-                            NkTexHandle motionTex    = NkTexHandle::Null(),
-                            NkTexHandle instanceTex  = NkTexHandle::Null());
+		// =========================================================================
+		// Descripteur de création
+		// =========================================================================
+		struct NkAITargetDesc {
+				uint32 width = 1920;
+				uint32 height = 1080;
+				NkAIChannel channels = NkAIChannel::NK_AI_COLOR;
+				NkAIDataFormat format = NkAIDataFormat::NK_AI_FP32;
+				uint32 ringSize = 3; // frames en vol simultanément
+				bool sync = false;	 // bloquant (mode debug/offline)
+				NkAIFrameCallback callback;
+				NkString name;
+				NkTexHandle customTex; // si NK_AI_CUSTOM
+		};
 
-                // Flush les readbacks prêts et déclenche les callbacks
-                void Flush();
+		// =========================================================================
+		// NkAIRenderingTarget — une cible unique
+		// =========================================================================
+		class NkAIRenderingTarget {
+			public:
+				explicit NkAIRenderingTarget(const NkAITargetDesc &desc);
+				~NkAIRenderingTarget();
 
-                // Attendre que tous les readbacks soient terminés (sync)
-                void WaitAll();
+				// ── Capture (appelé chaque frame voulue) ─────────────────────────────
+				void Capture(NkICommandBuffer *cmd, NkTexHandle colorTex, NkTexHandle depthTex = NkTexHandle::Null(),
+							 NkTexHandle normalTex = NkTexHandle::Null(), NkTexHandle albedoTex = NkTexHandle::Null(),
+							 NkTexHandle motionTex = NkTexHandle::Null(),
+							 NkTexHandle instanceTex = NkTexHandle::Null());
 
-                // ── Config dynamique ──────────────────────────────────────────────────
-                void SetCallback(NkAIFrameCallback cb);
-                void Enable (bool e);
-                bool IsEnabled() const { return mEnabled; }
+				// Flush les readbacks prêts et déclenche les callbacks
+				void Flush();
 
-                // ── Accès ─────────────────────────────────────────────────────────────
-                const NkAITargetDesc& GetDesc()       const { return mDesc; }
-                uint64                GetFrameCount() const { return mCaptureCount; }
+				// Attendre que tous les readbacks soient terminés (sync)
+				void WaitAll();
 
-            private:
-                friend class NkAIRenderingSystem;
+				// ── Config dynamique ──────────────────────────────────────────────────
+				void SetCallback(NkAIFrameCallback cb);
+				void Enable(bool e);
 
-                NkAITargetDesc mDesc;
-                bool           mEnabled      = true;
-                uint64         mCaptureCount = 0;
+				bool IsEnabled() const {
+					return mEnabled;
+				}
 
-                struct RingSlot {
-                    NkBufferHandle stagingBuf;  // buffer readback CPU-visible
-                    uint64         frameIdx  = 0;
-                    bool           pending   = false;
-                    float32        timestamp = 0.f;
-                    // mapped pointers par canal
-                    void* ptrs[7] = {};
-                };
+				// ── Accès ─────────────────────────────────────────────────────────────
+				const NkAITargetDesc &GetDesc() const {
+					return mDesc;
+				}
 
-                NkVector<RingSlot> mRing;
-                uint32             mWriteSlot = 0;
-                uint32             mReadSlot  = 0;
+				uint64 GetFrameCount() const {
+					return mCaptureCount;
+				}
 
-                void IssueCopy(NkICommandBuffer* cmd, NkTexHandle src,
-                                RingSlot& slot, uint32 chanIdx);
-                void TriggerCallback(const RingSlot& slot);
-        };
+			private:
+				friend class NkAIRenderingSystem;
 
-        // =========================================================================
-        // NkAIRenderingSystem — gestionnaire de toutes les cibles IA
-        // =========================================================================
-        class NkAIRenderingSystem {
-            public:
-                NkAIRenderingSystem()  = default;
-                ~NkAIRenderingSystem();
+				NkAITargetDesc mDesc;
+				bool mEnabled = true;
+				uint64 mCaptureCount = 0;
 
-                bool Init(NkIDevice* device);
-                void Shutdown();
+				struct RingSlot {
+						NkBufferHandle stagingBuf; // buffer readback CPU-visible
+						uint64 frameIdx = 0;
+						bool pending = false;
+						float32 timestamp = 0.f;
+						// mapped pointers par canal
+						void *ptrs[7] = {};
+				};
 
-                // ── Gestion des cibles ────────────────────────────────────────────────
-                NkAIRenderingTarget* Create (const NkAITargetDesc& desc);
-                void                 Destroy(NkAIRenderingTarget*& target);
+				NkVector<RingSlot> mRing;
+				uint32 mWriteSlot = 0;
+				uint32 mReadSlot = 0;
 
-                // ── Flush global (appeler en fin de frame, après Submit) ───────────────
-                void FlushReadbacks();
+				void IssueCopy(NkICommandBuffer *cmd, NkTexHandle src, RingSlot &slot, uint32 chanIdx);
+				void TriggerCallback(const RingSlot &slot);
+		};
 
-                // ── Capacités ─────────────────────────────────────────────────────────
-                bool IsAsyncReadbackSupported() const { return mAsyncSupported; }
-                uint32 GetTargetCount() const { return (uint32)mTargets.Size(); }
+		// =========================================================================
+		// NkAIRenderingSystem — gestionnaire de toutes les cibles IA
+		// =========================================================================
+		class NkAIRenderingSystem {
+			public:
+				NkAIRenderingSystem() = default;
+				~NkAIRenderingSystem();
 
-            private:
-                NkIDevice*                       mDevice        = nullptr;
-                bool                             mAsyncSupported= false;
-                bool                             mReady         = false;
-                NkVector<NkAIRenderingTarget*>   mTargets;
-        };
+				bool Init(NkIDevice *device);
+				void Shutdown();
 
-    } // namespace renderer
+				// ── Gestion des cibles ────────────────────────────────────────────────
+				NkAIRenderingTarget *Create(const NkAITargetDesc &desc);
+				void Destroy(NkAIRenderingTarget *&target);
+
+				// ── Flush global (appeler en fin de frame, après Submit) ───────────────
+				void FlushReadbacks();
+
+				// ── Capacités ─────────────────────────────────────────────────────────
+				bool IsAsyncReadbackSupported() const {
+					return mAsyncSupported;
+				}
+
+				uint32 GetTargetCount() const {
+					return (uint32)mTargets.Size();
+				}
+
+			private:
+				NkIDevice *mDevice = nullptr;
+				bool mAsyncSupported = false;
+				bool mReady = false;
+				NkVector<NkAIRenderingTarget *> mTargets;
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

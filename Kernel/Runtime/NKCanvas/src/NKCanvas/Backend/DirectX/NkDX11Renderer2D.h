@@ -19,74 +19,80 @@
 using Microsoft::WRL::ComPtr;
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        class NkDX11Renderer2D final : public NkBatchRenderer2D {
-            public:
-                NkDX11Renderer2D()  = default;
-                ~NkDX11Renderer2D() override { if (IsValid()) Shutdown(); }
+		class NkDX11Renderer2D final : public NkBatchRenderer2D {
+			public:
+				NkDX11Renderer2D() = default;
 
-                bool Initialize(NkIGraphicsContext* ctx) override;
-                void Shutdown()                          override;
-                bool IsValid()                   const   override { return mIsValid; }
-                void Clear(const NkColor2D& col)         override;
+				~NkDX11Renderer2D() override {
+					if (IsValid())
+						Shutdown();
+				}
 
-            protected:
-                void BeginBackend()  override;
-                void EndBackend()    override;
-                void SubmitBatches(const NkBatchGroup* groups, uint32 groupCount,
-                                const NkVertex2D* verts, uint32 vCount,
-                                const uint32*     idx,   uint32 iCount) override;
-                void UploadProjection(const float32 proj[16]) override;
+				bool Initialize(NkIGraphicsContext *ctx) override;
+				void Shutdown() override;
 
-                // ── Dispatch NkTexture (cf. NkTextureBackend.h) ──────────────────
-                // Callbacks statiques utilises par NkTexture::Create/Update/...
-                // pour gerer la ressource GPU cote backend DX11. Les 3 COM
-                // pointers (texture/SRV/sampler) sont stockes dans une registry
-                // globale indexee par l'ID 1-based retourne par Create.
-                static uint32 CreateDX11Texture(uint32 w, uint32 h, const uint8* rgba);
-                static void   UpdateDX11Texture(uint32 id, uint32 x, uint32 y,
-                                                uint32 w, uint32 h, const uint8* rgba);
-                static void   DeleteDX11Texture(uint32 id);
-                static void   SetDX11TextureFilter(uint32 id, NkTextureFilter f);
-                static void   SetDX11TextureWrap  (uint32 id, NkTextureWrap   w);
+				bool IsValid() const override {
+					return mIsValid;
+				}
 
-            private:
-                bool CreateShaders();
-                bool CreateBuffers();
-                bool CreateStates();
-                bool CreateWhiteTexture();
-                void ApplyBlendMode(NkBlendMode mode);
+				void Clear(const NkColor2D &col) override;
 
-                NkIGraphicsContext*       mCtx     = nullptr;
-                bool                      mIsValid = false;
+			protected:
+				void BeginBackend() override;
+				void EndBackend() override;
+				void SubmitBatches(const NkBatchGroup *groups, uint32 groupCount, const NkVertex2D *verts,
+								   uint32 vCount, const uint32 *idx, uint32 iCount) override;
+				void UploadProjection(const float32 proj[16]) override;
 
-                ComPtr<ID3D11Device1>        mDevice;
-                ComPtr<ID3D11DeviceContext1>  mDevCtx;
+				// ── Dispatch NkTexture (cf. NkTextureBackend.h) ──────────────────
+				// Callbacks statiques utilises par NkTexture::Create/Update/...
+				// pour gerer la ressource GPU cote backend DX11. Les 3 COM
+				// pointers (texture/SRV/sampler) sont stockes dans une registry
+				// globale indexee par l'ID 1-based retourne par Create.
+				static uint32 CreateDX11Texture(uint32 w, uint32 h, const uint8 *rgba);
+				static void UpdateDX11Texture(uint32 id, uint32 x, uint32 y, uint32 w, uint32 h, const uint8 *rgba);
+				static void DeleteDX11Texture(uint32 id);
+				static void SetDX11TextureFilter(uint32 id, NkTextureFilter f);
+				static void SetDX11TextureWrap(uint32 id, NkTextureWrap w);
 
-                ComPtr<ID3D11VertexShader>   mVS;
-                ComPtr<ID3D11PixelShader>    mPS;
-                ComPtr<ID3D11InputLayout>    mInputLayout;
+			private:
+				bool CreateShaders();
+				bool CreateBuffers();
+				bool CreateStates();
+				bool CreateWhiteTexture();
+				void ApplyBlendMode(NkBlendMode mode);
 
-                ComPtr<ID3D11Buffer>         mVB;          // vertex buffer (dynamic)
-                ComPtr<ID3D11Buffer>         mIB;          // index buffer (dynamic)
-                ComPtr<ID3D11Buffer>         mCBProj;      // constant buffer: projection
+				NkIGraphicsContext *mCtx = nullptr;
+				bool mIsValid = false;
 
-                ComPtr<ID3D11BlendState>     mBlendAlpha;
-                ComPtr<ID3D11BlendState>     mBlendAdd;
-                ComPtr<ID3D11BlendState>     mBlendMul;
-                ComPtr<ID3D11BlendState>     mBlendNone;
-                ComPtr<ID3D11RasterizerState> mRasterState;
-                ComPtr<ID3D11DepthStencilState> mDSSState;
-                ComPtr<ID3D11SamplerState>   mSamplerLinear;
-                ComPtr<ID3D11SamplerState>   mSamplerNearest;
+				ComPtr<ID3D11Device1> mDevice;
+				ComPtr<ID3D11DeviceContext1> mDevCtx;
 
-                ComPtr<ID3D11Texture2D>          mWhiteTex;
-                ComPtr<ID3D11ShaderResourceView> mWhiteSRV;
+				ComPtr<ID3D11VertexShader> mVS;
+				ComPtr<ID3D11PixelShader> mPS;
+				ComPtr<ID3D11InputLayout> mInputLayout;
 
-                NkBlendMode mLastBlend = NkBlendMode::NK_NONE;
-        };
+				ComPtr<ID3D11Buffer> mVB;	  // vertex buffer (dynamic)
+				ComPtr<ID3D11Buffer> mIB;	  // index buffer (dynamic)
+				ComPtr<ID3D11Buffer> mCBProj; // constant buffer: projection
 
-    } // namespace renderer
+				ComPtr<ID3D11BlendState> mBlendAlpha;
+				ComPtr<ID3D11BlendState> mBlendAdd;
+				ComPtr<ID3D11BlendState> mBlendMul;
+				ComPtr<ID3D11BlendState> mBlendNone;
+				ComPtr<ID3D11RasterizerState> mRasterState;
+				ComPtr<ID3D11DepthStencilState> mDSSState;
+				ComPtr<ID3D11SamplerState> mSamplerLinear;
+				ComPtr<ID3D11SamplerState> mSamplerNearest;
+
+				ComPtr<ID3D11Texture2D> mWhiteTex;
+				ComPtr<ID3D11ShaderResourceView> mWhiteSRV;
+
+				NkBlendMode mLastBlend = NkBlendMode::NK_NONE;
+		};
+
+	} // namespace renderer
 } // namespace nkentseu
 #endif // WINDOWS

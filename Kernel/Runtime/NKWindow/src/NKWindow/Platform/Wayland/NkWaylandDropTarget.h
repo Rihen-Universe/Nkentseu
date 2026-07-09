@@ -25,381 +25,407 @@
 
 namespace nkentseu {
 
-    class NkWaylandDropTarget {
-        public:
-            using DropFileCallback  = NkFunction<void(const NkDropFileEvent&)>;
-            using DropTextCallback  = NkFunction<void(const NkDropTextEvent&)>;
-            using DropEnterCallback = NkFunction<void(const NkDropEnterEvent&)>;
-            using DropLeaveCallback = NkFunction<void(const NkDropLeaveEvent&)>;
+	class NkWaylandDropTarget {
+		public:
+			using DropFileCallback = NkFunction<void(const NkDropFileEvent &)>;
+			using DropTextCallback = NkFunction<void(const NkDropTextEvent &)>;
+			using DropEnterCallback = NkFunction<void(const NkDropEnterEvent &)>;
+			using DropLeaveCallback = NkFunction<void(const NkDropLeaveEvent &)>;
 
-            // Legacy compatibility callbacks (data-only API)
-            using DropFilesDataCallback = NkFunction<void(const NkDropFileData&)>;
-            using DropTextDataCallback  = NkFunction<void(const NkDropTextData&)>;
-            using DropEnterDataCallback = NkFunction<void(const NkDropEnterData&)>;
-            using DropLeaveDataCallback = NkFunction<void()>;
+			// Legacy compatibility callbacks (data-only API)
+			using DropFilesDataCallback = NkFunction<void(const NkDropFileData &)>;
+			using DropTextDataCallback = NkFunction<void(const NkDropTextData &)>;
+			using DropEnterDataCallback = NkFunction<void(const NkDropEnterData &)>;
+			using DropLeaveDataCallback = NkFunction<void()>;
 
-            NkWaylandDropTarget(wl_display* display, wl_seat* seat, wl_surface* surface) : mDisplay(display), mSeat(seat), mSurface(surface) {}
+			NkWaylandDropTarget(wl_display *display, wl_seat *seat, wl_surface *surface)
+				: mDisplay(display), mSeat(seat), mSurface(surface) {
+			}
 
-            ~NkWaylandDropTarget() {
-                if (mOffer) {
-                    wl_data_offer_destroy(mOffer);
-                    mOffer = nullptr;
-                }
-                if (mDataDevice) {
-                    wl_data_device_destroy(mDataDevice);
-                    mDataDevice = nullptr;
-                }
-            }
+			~NkWaylandDropTarget() {
+				if (mOffer) {
+					wl_data_offer_destroy(mOffer);
+					mOffer = nullptr;
+				}
+				if (mDataDevice) {
+					wl_data_device_destroy(mDataDevice);
+					mDataDevice = nullptr;
+				}
+			}
 
-            void SetDataDeviceManager(wl_data_device_manager* manager) {
-                if (!manager || !mSeat) {
-                    return;
-                }
+			void SetDataDeviceManager(wl_data_device_manager *manager) {
+				if (!manager || !mSeat) {
+					return;
+				}
 
-                if (mDataDevice) {
-                    wl_data_device_destroy(mDataDevice);
-                    mDataDevice = nullptr;
-                }
+				if (mDataDevice) {
+					wl_data_device_destroy(mDataDevice);
+					mDataDevice = nullptr;
+				}
 
-                mDataDevice = wl_data_device_manager_get_data_device(manager, mSeat);
-                if (mDataDevice) {
-                    wl_data_device_add_listener(mDataDevice, &kDataDeviceListener, this);
-                }
-            }
+				mDataDevice = wl_data_device_manager_get_data_device(manager, mSeat);
+				if (mDataDevice) {
+					wl_data_device_add_listener(mDataDevice, &kDataDeviceListener, this);
+				}
+			}
 
-            // Event-oriented API
-            void SetDropFileCallback(DropFileCallback cb)   { mDropFile = traits::NkMove(cb); }
-            void SetDropTextCallback(DropTextCallback cb)   { mDropText = traits::NkMove(cb); }
-            void SetDropEnterCallback(DropEnterCallback cb) { mDropEnter = traits::NkMove(cb); }
-            void SetDropLeaveCallback(DropLeaveCallback cb) { mDropLeave = traits::NkMove(cb); }
+			// Event-oriented API
+			void SetDropFileCallback(DropFileCallback cb) {
+				mDropFile = traits::NkMove(cb);
+			}
 
-            // Legacy API compatibility
-            void SetDropFilesCallback(DropFilesDataCallback cb) { mDropFilesData = traits::NkMove(cb); }
-            void SetDropTextCallback(DropTextDataCallback cb)   { mDropTextData = traits::NkMove(cb); }
-            void SetDropEnterCallback(DropEnterDataCallback cb) { mDropEnterData = traits::NkMove(cb); }
-            void SetDropLeaveCallback(DropLeaveDataCallback cb) { mDropLeaveData = traits::NkMove(cb); }
+			void SetDropTextCallback(DropTextCallback cb) {
+				mDropText = traits::NkMove(cb);
+			}
 
-        private:
-            wl_display*     mDisplay    = nullptr;
-            wl_seat*        mSeat       = nullptr;
-            wl_surface*     mSurface    = nullptr;
-            wl_data_device* mDataDevice = nullptr;
-            wl_data_offer*  mOffer      = nullptr;
+			void SetDropEnterCallback(DropEnterCallback cb) {
+				mDropEnter = traits::NkMove(cb);
+			}
 
-            NkVector<NkString> mMimeTypes;
-            float32 mDragX = 0.f;
-            float32 mDragY = 0.f;
-            bool mDragOnTargetSurface = false;
+			void SetDropLeaveCallback(DropLeaveCallback cb) {
+				mDropLeave = traits::NkMove(cb);
+			}
 
-            DropFileCallback  mDropFile;
-            DropTextCallback  mDropText;
-            DropEnterCallback mDropEnter;
-            DropLeaveCallback mDropLeave;
+			// Legacy API compatibility
+			void SetDropFilesCallback(DropFilesDataCallback cb) {
+				mDropFilesData = traits::NkMove(cb);
+			}
 
-            DropFilesDataCallback mDropFilesData;
-            DropTextDataCallback  mDropTextData;
-            DropEnterDataCallback mDropEnterData;
-            DropLeaveDataCallback mDropLeaveData;
+			void SetDropTextCallback(DropTextDataCallback cb) {
+				mDropTextData = traits::NkMove(cb);
+			}
 
-            static bool HasMime(const NkVector<NkString>& mimeTypes, const char* mime) {
-                for (uint32 i = 0; i < mimeTypes.Size(); ++i) {
-                    if (::strcmp(mimeTypes[i].CStr(), mime) == 0) {
-                        return true;
-                    }
-                }
-                return false;
-            }
+			void SetDropEnterCallback(DropEnterDataCallback cb) {
+				mDropEnterData = traits::NkMove(cb);
+			}
 
-            static int HexNibble(char c) {
-                if (c >= '0' && c <= '9') return c - '0';
-                if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
-                if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
-                return -1;
-            }
+			void SetDropLeaveCallback(DropLeaveDataCallback cb) {
+				mDropLeaveData = traits::NkMove(cb);
+			}
 
-            static NkVector<NkString> ParseUriList(const NkString& raw) {
-                NkVector<NkString> paths;
-                uint32 start = 0;
-                const uint32 rawSize = raw.Size();
+		private:
+			wl_display *mDisplay = nullptr;
+			wl_seat *mSeat = nullptr;
+			wl_surface *mSurface = nullptr;
+			wl_data_device *mDataDevice = nullptr;
+			wl_data_offer *mOffer = nullptr;
 
-                while (start < rawSize) {
-                    // Find '\n'
-                    uint32 end = rawSize;
-                    for (uint32 k = start; k < rawSize; ++k) {
-                        if (raw[k] == '\n') { end = k; break; }
-                    }
+			NkVector<NkString> mMimeTypes;
+			float32 mDragX = 0.f;
+			float32 mDragY = 0.f;
+			bool mDragOnTargetSurface = false;
 
-                    NkString line = raw.SubStr(start, end - start);
-                    if (!line.Empty() && line.Back() == '\r') {
-                        line.PopBack();
-                    }
+			DropFileCallback mDropFile;
+			DropTextCallback mDropText;
+			DropEnterCallback mDropEnter;
+			DropLeaveCallback mDropLeave;
 
-                    if (!line.Empty() && line[0] != '#' && line.StartsWith("file://")) {
-                        NkString encoded = line.SubStr(7);
-                        NkString decoded;
-                        decoded.Reserve(encoded.Size());
+			DropFilesDataCallback mDropFilesData;
+			DropTextDataCallback mDropTextData;
+			DropEnterDataCallback mDropEnterData;
+			DropLeaveDataCallback mDropLeaveData;
 
-                        for (uint32 i = 0; i < encoded.Size(); ++i) {
-                            if (encoded[i] == '%' && i + 2 < encoded.Size()) {
-                                const int hi = HexNibble(encoded[i + 1]);
-                                const int lo = HexNibble(encoded[i + 2]);
-                                if (hi >= 0 && lo >= 0) {
-                                    decoded.PushBack(static_cast<char>((hi << 4) | lo));
-                                    i += 2;
-                                    continue;
-                                }
-                            }
-                            decoded.PushBack(encoded[i]);
-                        }
+			static bool HasMime(const NkVector<NkString> &mimeTypes, const char *mime) {
+				for (uint32 i = 0; i < mimeTypes.Size(); ++i) {
+					if (::strcmp(mimeTypes[i].CStr(), mime) == 0) {
+						return true;
+					}
+				}
+				return false;
+			}
 
-                        paths.PushBack(traits::NkMove(decoded));
-                    }
+			static int HexNibble(char c) {
+				if (c >= '0' && c <= '9')
+					return c - '0';
+				if (c >= 'a' && c <= 'f')
+					return 10 + (c - 'a');
+				if (c >= 'A' && c <= 'F')
+					return 10 + (c - 'A');
+				return -1;
+			}
 
-                    start = end + 1;
-                }
+			static NkVector<NkString> ParseUriList(const NkString &raw) {
+				NkVector<NkString> paths;
+				uint32 start = 0;
+				const uint32 rawSize = raw.Size();
 
-                return paths;
-            }
+				while (start < rawSize) {
+					// Find '\n'
+					uint32 end = rawSize;
+					for (uint32 k = start; k < rawSize; ++k) {
+						if (raw[k] == '\n') {
+							end = k;
+							break;
+						}
+					}
 
-            NkString ReadOfferData(wl_data_offer* offer, const NkString& mime) const {
-                if (!offer || !mDisplay) {
-                    return {};
-                }
+					NkString line = raw.SubStr(start, end - start);
+					if (!line.Empty() && line.Back() == '\r') {
+						line.PopBack();
+					}
 
-                int pipefd[2] = {-1, -1};
-                if (pipe(pipefd) < 0) {
-                    return {};
-                }
+					if (!line.Empty() && line[0] != '#' && line.StartsWith("file://")) {
+						NkString encoded = line.SubStr(7);
+						NkString decoded;
+						decoded.Reserve(encoded.Size());
 
-                wl_data_offer_receive(offer, mime.CStr(), pipefd[1]);
-                close(pipefd[1]);
-                wl_display_flush(mDisplay);
+						for (uint32 i = 0; i < encoded.Size(); ++i) {
+							if (encoded[i] == '%' && i + 2 < encoded.Size()) {
+								const int hi = HexNibble(encoded[i + 1]);
+								const int lo = HexNibble(encoded[i + 2]);
+								if (hi >= 0 && lo >= 0) {
+									decoded.PushBack(static_cast<char>((hi << 4) | lo));
+									i += 2;
+									continue;
+								}
+							}
+							decoded.PushBack(encoded[i]);
+						}
 
-                NkString out;
-                char buffer[4096];
-                ssize_t n = 0;
-                while ((n = read(pipefd[0], buffer, sizeof(buffer))) > 0) {
-                    for (ssize_t i = 0; i < n; ++i) {
-                        out.PushBack(buffer[i]);
-                    }
-                }
-                close(pipefd[0]);
+						paths.PushBack(traits::NkMove(decoded));
+					}
 
-                return out;
-            }
+					start = end + 1;
+				}
 
-            void EmitDropEnter(const NkDropEnterData& data) {
-                if (mDropEnter) {
-                    mDropEnter(NkDropEnterEvent(data));
-                }
-                if (mDropEnterData) {
-                    mDropEnterData(data);
-                }
-            }
+				return paths;
+			}
 
-            void EmitDropLeave() {
-                if (mDropLeave) {
-                    mDropLeave(NkDropLeaveEvent());
-                }
-                if (mDropLeaveData) {
-                    mDropLeaveData();
-                }
-            }
+			NkString ReadOfferData(wl_data_offer *offer, const NkString &mime) const {
+				if (!offer || !mDisplay) {
+					return {};
+				}
 
-            void EmitDropFiles(const NkDropFileData& data) {
-                if (mDropFile) {
-                    mDropFile(NkDropFileEvent(data));
-                }
-                if (mDropFilesData) {
-                    mDropFilesData(data);
-                }
-            }
+				int pipefd[2] = {-1, -1};
+				if (pipe(pipefd) < 0) {
+					return {};
+				}
 
-            void EmitDropText(const NkDropTextData& data) {
-                if (mDropText) {
-                    mDropText(NkDropTextEvent(data));
-                }
-                if (mDropTextData) {
-                    mDropTextData(data);
-                }
-            }
+				wl_data_offer_receive(offer, mime.CStr(), pipefd[1]);
+				close(pipefd[1]);
+				wl_display_flush(mDisplay);
 
-            static void OnOfferOffer(void* data, wl_data_offer*, const char* mimeType) {
-                auto* self = static_cast<NkWaylandDropTarget*>(data);
-                if (!mimeType) {
-                    return;
-                }
-                self->mMimeTypes.PushBack(NkString(mimeType));
-            }
+				NkString out;
+				char buffer[4096];
+				ssize_t n = 0;
+				while ((n = read(pipefd[0], buffer, sizeof(buffer))) > 0) {
+					for (ssize_t i = 0; i < n; ++i) {
+						out.PushBack(buffer[i]);
+					}
+				}
+				close(pipefd[0]);
 
-            static void OnOfferSourceActions(void*, wl_data_offer*, uint32_t) {}
-            static void OnOfferAction(void*, wl_data_offer*, uint32_t) {}
+				return out;
+			}
 
-            static constexpr wl_data_offer_listener kOfferListener = {
-                .offer = OnOfferOffer,
-                .source_actions = OnOfferSourceActions,
-                .action = OnOfferAction,
-            };
+			void EmitDropEnter(const NkDropEnterData &data) {
+				if (mDropEnter) {
+					mDropEnter(NkDropEnterEvent(data));
+				}
+				if (mDropEnterData) {
+					mDropEnterData(data);
+				}
+			}
 
-            static void OnDataDeviceDataOffer(void* data, wl_data_device*, wl_data_offer* offer) {
-                auto* self = static_cast<NkWaylandDropTarget*>(data);
-                if (!self) {
-                    return;
-                }
+			void EmitDropLeave() {
+				if (mDropLeave) {
+					mDropLeave(NkDropLeaveEvent());
+				}
+				if (mDropLeaveData) {
+					mDropLeaveData();
+				}
+			}
 
-                if (self->mOffer && self->mOffer != offer) {
-                    wl_data_offer_destroy(self->mOffer);
-                }
+			void EmitDropFiles(const NkDropFileData &data) {
+				if (mDropFile) {
+					mDropFile(NkDropFileEvent(data));
+				}
+				if (mDropFilesData) {
+					mDropFilesData(data);
+				}
+			}
 
-                self->mOffer = offer;
-                self->mMimeTypes.Clear();
+			void EmitDropText(const NkDropTextData &data) {
+				if (mDropText) {
+					mDropText(NkDropTextEvent(data));
+				}
+				if (mDropTextData) {
+					mDropTextData(data);
+				}
+			}
 
-                if (offer) {
-                    wl_data_offer_add_listener(offer, &kOfferListener, self);
-                }
-            }
+			static void OnOfferOffer(void *data, wl_data_offer *, const char *mimeType) {
+				auto *self = static_cast<NkWaylandDropTarget *>(data);
+				if (!mimeType) {
+					return;
+				}
+				self->mMimeTypes.PushBack(NkString(mimeType));
+			}
 
-            static void OnDataDeviceEnter(void* data,
-                                        wl_data_device*,
-                                        uint32_t,
-                                        wl_surface* surface,
-                                        wl_fixed_t x,
-                                        wl_fixed_t y,
-                                        wl_data_offer* offer) {
-                auto* self = static_cast<NkWaylandDropTarget*>(data);
-                if (!self) {
-                    return;
-                }
-                if (surface != self->mSurface) {
-                    self->mDragOnTargetSurface = false;
-                    return;
-                }
+			static void OnOfferSourceActions(void *, wl_data_offer *, uint32_t) {
+			}
 
-                self->mDragOnTargetSurface = true;
-                self->mDragX = static_cast<float32>(wl_fixed_to_double(x));
-                self->mDragY = static_cast<float32>(wl_fixed_to_double(y));
-                self->mOffer = offer;
+			static void OnOfferAction(void *, wl_data_offer *, uint32_t) {
+			}
 
-                NkDropEnterData enterData{};
-                enterData.x = static_cast<int32>(self->mDragX);
-                enterData.y = static_cast<int32>(self->mDragY);
-                enterData.numFiles = 0;
-                enterData.hasText = HasMime(self->mMimeTypes, "text/plain;charset=utf-8") ||
-                                    HasMime(self->mMimeTypes, "text/plain");
-                enterData.hasImage = false;
-                self->EmitDropEnter(enterData);
+			static constexpr wl_data_offer_listener kOfferListener = {
+				.offer = OnOfferOffer,
+				.source_actions = OnOfferSourceActions,
+				.action = OnOfferAction,
+			};
 
-                if (offer) {
-                    wl_data_offer_set_actions(
-                        offer,
-                        WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY,
-                        WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY);
+			static void OnDataDeviceDataOffer(void *data, wl_data_device *, wl_data_offer *offer) {
+				auto *self = static_cast<NkWaylandDropTarget *>(data);
+				if (!self) {
+					return;
+				}
 
-                    const char* acceptMime = nullptr;
-                    if (HasMime(self->mMimeTypes, "text/uri-list")) {
-                        acceptMime = "text/uri-list";
-                    } else if (HasMime(self->mMimeTypes, "text/plain;charset=utf-8")) {
-                        acceptMime = "text/plain;charset=utf-8";
-                    } else if (HasMime(self->mMimeTypes, "text/plain")) {
-                        acceptMime = "text/plain";
-                    }
-                    wl_data_offer_accept(offer, 0, acceptMime);
-                }
-            }
+				if (self->mOffer && self->mOffer != offer) {
+					wl_data_offer_destroy(self->mOffer);
+				}
 
-            static void OnDataDeviceLeave(void* data, wl_data_device*) {
-                auto* self = static_cast<NkWaylandDropTarget*>(data);
-                if (!self) {
-                    return;
-                }
-                if (!self->mDragOnTargetSurface) {
-                    return;
-                }
+				self->mOffer = offer;
+				self->mMimeTypes.Clear();
 
-                self->EmitDropLeave();
-                self->mDragOnTargetSurface = false;
+				if (offer) {
+					wl_data_offer_add_listener(offer, &kOfferListener, self);
+				}
+			}
 
-                if (self->mOffer) {
-                    wl_data_offer_destroy(self->mOffer);
-                    self->mOffer = nullptr;
-                }
-                self->mMimeTypes.Clear();
-            }
+			static void OnDataDeviceEnter(void *data, wl_data_device *, uint32_t, wl_surface *surface, wl_fixed_t x,
+										  wl_fixed_t y, wl_data_offer *offer) {
+				auto *self = static_cast<NkWaylandDropTarget *>(data);
+				if (!self) {
+					return;
+				}
+				if (surface != self->mSurface) {
+					self->mDragOnTargetSurface = false;
+					return;
+				}
 
-            static void OnDataDeviceMotion(void* data, wl_data_device*, uint32_t, wl_fixed_t x, wl_fixed_t y) {
-                auto* self = static_cast<NkWaylandDropTarget*>(data);
-                if (!self) {
-                    return;
-                }
-                if (!self->mDragOnTargetSurface) {
-                    return;
-                }
+				self->mDragOnTargetSurface = true;
+				self->mDragX = static_cast<float32>(wl_fixed_to_double(x));
+				self->mDragY = static_cast<float32>(wl_fixed_to_double(y));
+				self->mOffer = offer;
 
-                self->mDragX = static_cast<float32>(wl_fixed_to_double(x));
-                self->mDragY = static_cast<float32>(wl_fixed_to_double(y));
-            }
+				NkDropEnterData enterData{};
+				enterData.x = static_cast<int32>(self->mDragX);
+				enterData.y = static_cast<int32>(self->mDragY);
+				enterData.numFiles = 0;
+				enterData.hasText =
+					HasMime(self->mMimeTypes, "text/plain;charset=utf-8") || HasMime(self->mMimeTypes, "text/plain");
+				enterData.hasImage = false;
+				self->EmitDropEnter(enterData);
 
-            static void OnDataDeviceDrop(void* data, wl_data_device*) {
-                auto* self = static_cast<NkWaylandDropTarget*>(data);
-                if (!self || !self->mDragOnTargetSurface || !self->mOffer) {
-                    return;
-                }
+				if (offer) {
+					wl_data_offer_set_actions(offer, WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY,
+											  WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY);
 
-                const bool hasUri = HasMime(self->mMimeTypes, "text/uri-list");
-                const bool hasUtf8Text = HasMime(self->mMimeTypes, "text/plain;charset=utf-8");
-                const bool hasPlainText = HasMime(self->mMimeTypes, "text/plain");
+					const char *acceptMime = nullptr;
+					if (HasMime(self->mMimeTypes, "text/uri-list")) {
+						acceptMime = "text/uri-list";
+					} else if (HasMime(self->mMimeTypes, "text/plain;charset=utf-8")) {
+						acceptMime = "text/plain;charset=utf-8";
+					} else if (HasMime(self->mMimeTypes, "text/plain")) {
+						acceptMime = "text/plain";
+					}
+					wl_data_offer_accept(offer, 0, acceptMime);
+				}
+			}
 
-                if (hasUri) {
-                    NkString raw = self->ReadOfferData(self->mOffer, "text/uri-list");
-                    NkVector<NkString> paths = ParseUriList(raw);
-                    if (!paths.Empty()) {
-                        NkDropFileData fileData{};
-                        fileData.x = static_cast<int32>(self->mDragX);
-                        fileData.y = static_cast<int32>(self->mDragY);
-                        fileData.paths = traits::NkMove(paths);
-                        self->EmitDropFiles(fileData);
-                    }
-                } else if (hasUtf8Text || hasPlainText) {
-                    const char* mime = hasUtf8Text ? "text/plain;charset=utf-8" : "text/plain";
-                    NkString text = self->ReadOfferData(self->mOffer, mime);
+			static void OnDataDeviceLeave(void *data, wl_data_device *) {
+				auto *self = static_cast<NkWaylandDropTarget *>(data);
+				if (!self) {
+					return;
+				}
+				if (!self->mDragOnTargetSurface) {
+					return;
+				}
 
-                    NkDropTextData textData{};
-                    textData.x = static_cast<int32>(self->mDragX);
-                    textData.y = static_cast<int32>(self->mDragY);
-                    textData.text = traits::NkMove(text);
-                    textData.mimeType = mime;
-                    self->EmitDropText(textData);
-                }
+				self->EmitDropLeave();
+				self->mDragOnTargetSurface = false;
 
-                wl_data_offer_finish(self->mOffer);
-                wl_data_offer_destroy(self->mOffer);
-                self->mOffer = nullptr;
-                self->mMimeTypes.Clear();
-                self->mDragOnTargetSurface = false;
-            }
+				if (self->mOffer) {
+					wl_data_offer_destroy(self->mOffer);
+					self->mOffer = nullptr;
+				}
+				self->mMimeTypes.Clear();
+			}
 
-            static void OnDataDeviceSelection(void* data, wl_data_device*, wl_data_offer* offer) {
-                auto* self = static_cast<NkWaylandDropTarget*>(data);
-                if (!self) {
-                    return;
-                }
-                if (offer && offer != self->mOffer) {
-                    wl_data_offer_destroy(offer);
-                }
-            }
+			static void OnDataDeviceMotion(void *data, wl_data_device *, uint32_t, wl_fixed_t x, wl_fixed_t y) {
+				auto *self = static_cast<NkWaylandDropTarget *>(data);
+				if (!self) {
+					return;
+				}
+				if (!self->mDragOnTargetSurface) {
+					return;
+				}
 
-            static constexpr wl_data_device_listener kDataDeviceListener = {
-                .data_offer = OnDataDeviceDataOffer,
-                .enter = OnDataDeviceEnter,
-                .leave = OnDataDeviceLeave,
-                .motion = OnDataDeviceMotion,
-                .drop = OnDataDeviceDrop,
-                .selection = OnDataDeviceSelection,
-            };
-    };
+				self->mDragX = static_cast<float32>(wl_fixed_to_double(x));
+				self->mDragY = static_cast<float32>(wl_fixed_to_double(y));
+			}
 
-    // Backward-compatible alias (legacy name kept for old includes)
-    using NkWaylandDropImpl = NkWaylandDropTarget;
+			static void OnDataDeviceDrop(void *data, wl_data_device *) {
+				auto *self = static_cast<NkWaylandDropTarget *>(data);
+				if (!self || !self->mDragOnTargetSurface || !self->mOffer) {
+					return;
+				}
+
+				const bool hasUri = HasMime(self->mMimeTypes, "text/uri-list");
+				const bool hasUtf8Text = HasMime(self->mMimeTypes, "text/plain;charset=utf-8");
+				const bool hasPlainText = HasMime(self->mMimeTypes, "text/plain");
+
+				if (hasUri) {
+					NkString raw = self->ReadOfferData(self->mOffer, "text/uri-list");
+					NkVector<NkString> paths = ParseUriList(raw);
+					if (!paths.Empty()) {
+						NkDropFileData fileData{};
+						fileData.x = static_cast<int32>(self->mDragX);
+						fileData.y = static_cast<int32>(self->mDragY);
+						fileData.paths = traits::NkMove(paths);
+						self->EmitDropFiles(fileData);
+					}
+				} else if (hasUtf8Text || hasPlainText) {
+					const char *mime = hasUtf8Text ? "text/plain;charset=utf-8" : "text/plain";
+					NkString text = self->ReadOfferData(self->mOffer, mime);
+
+					NkDropTextData textData{};
+					textData.x = static_cast<int32>(self->mDragX);
+					textData.y = static_cast<int32>(self->mDragY);
+					textData.text = traits::NkMove(text);
+					textData.mimeType = mime;
+					self->EmitDropText(textData);
+				}
+
+				wl_data_offer_finish(self->mOffer);
+				wl_data_offer_destroy(self->mOffer);
+				self->mOffer = nullptr;
+				self->mMimeTypes.Clear();
+				self->mDragOnTargetSurface = false;
+			}
+
+			static void OnDataDeviceSelection(void *data, wl_data_device *, wl_data_offer *offer) {
+				auto *self = static_cast<NkWaylandDropTarget *>(data);
+				if (!self) {
+					return;
+				}
+				if (offer && offer != self->mOffer) {
+					wl_data_offer_destroy(offer);
+				}
+			}
+
+			static constexpr wl_data_device_listener kDataDeviceListener = {
+				.data_offer = OnDataDeviceDataOffer,
+				.enter = OnDataDeviceEnter,
+				.leave = OnDataDeviceLeave,
+				.motion = OnDataDeviceMotion,
+				.drop = OnDataDeviceDrop,
+				.selection = OnDataDeviceSelection,
+			};
+	};
+
+	// Backward-compatible alias (legacy name kept for old includes)
+	using NkWaylandDropImpl = NkWaylandDropTarget;
 
 } // namespace nkentseu
 

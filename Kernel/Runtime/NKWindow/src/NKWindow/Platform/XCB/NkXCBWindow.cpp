@@ -19,8 +19,8 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
-#include "NKWindow/Platform/Common/NkSystemMemory.h"   // NkXcbFree (wrappe le free() libc des replies libxcb)
-#include "NKMemory/NkAllocator.h"                        // NkGetDefaultAllocator().New/Delete
+#include "NKWindow/Platform/Common/NkSystemMemory.h" // NkXcbFree (wrappe le free() libc des replies libxcb)
+#include "NKMemory/NkAllocator.h"					 // NkGetDefaultAllocator().New/Delete
 #include "NKCore/NkAtomic.h"
 
 #include <xcb/xcb.h>
@@ -33,1102 +33,1143 @@
 #include <string>
 
 namespace nkentseu {
-    using namespace math;
-
-    // =============================================================================
-    // Globals partagés
-    // =============================================================================
-
-    static xcb_connection_t* sConnection    = nullptr;
-    static xcb_screen_t*     sDefaultScreen = nullptr;
-    static bool              sConnectionOwned = false;
-    static int               sWindowCount   = 0;
-    static NkSpinLock        sConnectionMutex;
-
-    // Atoms partagés
-    static xcb_atom_t sAtomWmDeleteWindow = XCB_ATOM_NONE;
-    static xcb_atom_t sAtomWmProtocols    = XCB_ATOM_NONE;
-    static xcb_atom_t sAtomNetWmName      = XCB_ATOM_NONE;
-    static xcb_atom_t sAtomUtf8String     = XCB_ATOM_NONE;
-
-    // Function-local static avoids static init order fiasco with NkAllocator.
-    static NkUnorderedMap<xcb_window_t, NkWindow*>& XCBWindowMap() {
-        static NkUnorderedMap<xcb_window_t, NkWindow*> sMap;
-        if (sMap.BucketCount() == 0) {
-            sMap.Rehash(32);
-        }
-        return sMap;
-    }
-
-    // =============================================================================
-    // Registre accessor functions (déclarées dans NkXCBWindow.h)
-    // =============================================================================
-
-    NkWindow* NkXCBFindWindow(xcb_window_t xid) {
-        auto* win = XCBWindowMap().Find(xid);
-        return win ? *win : nullptr;
-    }
-
-    void NkXCBRegisterWindow(xcb_window_t xid, NkWindow* win) {
-        XCBWindowMap()[xid] = win;
-    }
-
-    void NkXCBUnregisterWindow(xcb_window_t xid) {
-        XCBWindowMap().Erase(xid);
-    }
-
-    NkWindow* NkXCBGetAnyWindow() {
-        NkWindow* first = nullptr;
-        XCBWindowMap().ForEach([&](xcb_window_t, NkWindow* v) {
-            if (!first) first = v;
-        });
-        return first;
-    }
-
-    // Accesseur connexion pour NkXCBEventSystem.cpp
-    xcb_connection_t* NkXCBGetConnection() { return sConnection; }
-    xcb_screen_t*     NkXCBGetScreen()     { return sDefaultScreen; }
-    xcb_atom_t NkXCBGetWmDeleteWindowAtom() { return sAtomWmDeleteWindow; }
-    xcb_atom_t NkXCBGetWmProtocolsAtom()    { return sAtomWmProtocols; }
-
-    // =============================================================================
-    // Helper : intern atom
-    // =============================================================================
-
-    static xcb_atom_t NkXCBInternAtom(xcb_connection_t* c, const char* name, bool onlyIfExists = false) {
-        xcb_intern_atom_cookie_t cookie = xcb_intern_atom(c, onlyIfExists ? 1 : 0,
-                                                        static_cast<uint16_t>(strlen(name)), name);
-        xcb_intern_atom_reply_t* reply  = xcb_intern_atom_reply(c, cookie, nullptr);
-        xcb_atom_t atom = reply ? reply->atom : XCB_ATOM_NONE;
-        platform::NkXcbFree(reply);
-        return atom;
-    }
-
-    // =============================================================================
-    // Fonctions de synchronisation mData ↔ mConfig
-    // =============================================================================
-
-    static void SyncConfigFromWindow(xcb_connection_t* conn, xcb_window_t window, 
-                                     NkWindowConfig& config, const NkWindowData& data) {
-        if (!conn || !window) return;
-
-        // Récupérer la géométrie (position et taille)
-        xcb_get_geometry_cookie_t geomCookie = xcb_get_geometry(conn, window);
-        xcb_get_geometry_reply_t* geomReply = xcb_get_geometry_reply(conn, geomCookie, nullptr);
-        if (geomReply) {
-            config.width = geomReply->width;
-            config.height = geomReply->height;
-            platform::NkXcbFree(geomReply);
-        }
-
-        // Récupérer la position relative à la racine
-        xcb_translate_coordinates_cookie_t transCookie = 
-            xcb_translate_coordinates(conn, window, sDefaultScreen->root, 0, 0);
-        xcb_translate_coordinates_reply_t* transReply = 
-            xcb_translate_coordinates_reply(conn, transCookie, nullptr);
-        if (transReply) {
-            config.x = transReply->dst_x;
-            config.y = transReply->dst_y;
-            platform::NkXcbFree(transReply);
-        }
-
-        // Récupérer le titre (WM_NAME) via xcb_get_property (xcb core) — l'ancienne API
-        // xcb_icccm_get_wm_name a été retirée des libxcb-icccm récents.
-        {
-            xcb_get_property_cookie_t nameCookie =
-                xcb_get_property(conn, 0, window, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 0, 1024);
-            xcb_get_property_reply_t* nameReply = xcb_get_property_reply(conn, nameCookie, nullptr);
-            if (nameReply) {
-                int nameLen = xcb_get_property_value_length(nameReply);
-                if (nameLen > 0)
-                    config.title = NkString((const char*)xcb_get_property_value(nameReply), (usize)nameLen);
-                platform::NkXcbFree(nameReply);
-            }
-        }
-
-        // Récupérer l'état de visibilité (mapped)
-        xcb_get_window_attributes_cookie_t attrCookie = xcb_get_window_attributes(conn, window);
-        xcb_get_window_attributes_reply_t* attrReply = 
-            xcb_get_window_attributes_reply(conn, attrCookie, nullptr);
-        if (attrReply) {
-            config.visible = (attrReply->map_state == XCB_MAP_STATE_VIEWABLE);
-            platform::NkXcbFree(attrReply);
-        }
-
-        // Récupérer l'état plein écran via _NET_WM_STATE
-        xcb_atom_t wmStateAtom = NkXCBInternAtom(conn, "_NET_WM_STATE", true);
-        if (wmStateAtom != XCB_ATOM_NONE) {
-            xcb_get_property_cookie_t propCookie = xcb_get_property(conn, 0, window, wmStateAtom,
-                                                                   XCB_ATOM_ATOM, 0, 1024);
-            xcb_get_property_reply_t* propReply = xcb_get_property_reply(conn, propCookie, nullptr);
-            if (propReply && propReply->type == XCB_ATOM_ATOM && propReply->format == 32) {
-                xcb_atom_t* atoms = (xcb_atom_t*)xcb_get_property_value(propReply);
-                xcb_atom_t wmFsAtom = NkXCBInternAtom(conn, "_NET_WM_STATE_FULLSCREEN", true);
-                config.fullscreen = false;
-                if (wmFsAtom != XCB_ATOM_NONE) {
-                    int numAtoms = propReply->length / (propReply->format / 8);
-                    for (int i = 0; i < numAtoms; ++i) {
-                        if (atoms[i] == wmFsAtom) {
-                            config.fullscreen = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            platform::NkXcbFree(propReply);
-        }
-    }
-
-    static void SyncWindowFromConfig(xcb_connection_t* conn, xcb_window_t window, 
-                                     const NkWindowConfig& config) {
-        if (!conn || !window) return;
-
-        // Titre
-        xcb_change_property(conn, XCB_PROP_MODE_REPLACE, window, XCB_ATOM_WM_NAME,
-                            XCB_ATOM_STRING, 8,
-                            static_cast<uint32_t>(config.title.Size()), config.title.CStr());
-        xcb_change_property(conn, XCB_PROP_MODE_REPLACE, window, sAtomNetWmName,
-                            sAtomUtf8String, 8,
-                            static_cast<uint32_t>(config.title.Size()), config.title.CStr());
-
-        // Taille
-        xcb_get_geometry_cookie_t geomCookie = xcb_get_geometry(conn, window);
-        xcb_get_geometry_reply_t* geomReply = xcb_get_geometry_reply(conn, geomCookie, nullptr);
-        if (geomReply) {
-            if (geomReply->width != config.width || geomReply->height != config.height) {
-                uint32_t values[] = { config.width, config.height };
-                xcb_configure_window(conn, window,
-                                    XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
-                                    values);
-            }
-            platform::NkXcbFree(geomReply);
-        }
-
-        // Position
-        xcb_translate_coordinates_cookie_t transCookie = 
-            xcb_translate_coordinates(conn, window, sDefaultScreen->root, 0, 0);
-        xcb_translate_coordinates_reply_t* transReply = 
-            xcb_translate_coordinates_reply(conn, transCookie, nullptr);
-        if (transReply) {
-            if (transReply->dst_x != config.x || transReply->dst_y != config.y) {
-                uint32_t values[] = { (uint32_t)config.x, (uint32_t)config.y };
-                xcb_configure_window(conn, window,
-                                    XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y,
-                                    values);
-            }
-            platform::NkXcbFree(transReply);
-        }
-
-        // Visibilité
-        xcb_get_window_attributes_cookie_t attrCookie = xcb_get_window_attributes(conn, window);
-        xcb_get_window_attributes_reply_t* attrReply = 
-            xcb_get_window_attributes_reply(conn, attrCookie, nullptr);
-        if (attrReply) {
-            bool isVisible = (attrReply->map_state == XCB_MAP_STATE_VIEWABLE);
-            if (isVisible != config.visible) {
-                if (config.visible) {
-                    xcb_map_window(conn, window);
-                } else {
-                    xcb_unmap_window(conn, window);
-                }
-            }
-            platform::NkXcbFree(attrReply);
-        }
-
-        xcb_flush(conn);
-    }
-
-    // =============================================================================
-    // Constructeurs / Destructeur
-    // =============================================================================
-
-    NkWindow::NkWindow()                        = default;
-    NkWindow::NkWindow(const NkWindowConfig& c) { Create(c); }
-    NkWindow::~NkWindow()                       { if (mIsOpen) Close(); }
-
-    // =============================================================================
-    // Create
-    // =============================================================================
-
-    bool NkWindow::Create(const NkWindowConfig& config) {
-        mConfig = config;
-
-        NkScopedSpinLock lock(sConnectionMutex);
-
-        // Ouvrir la connexion xcb si nécessaire
-        if (!sConnection) {
-            if (config.native.externalDisplayHandle != 0) {
-                sConnection = reinterpret_cast<xcb_connection_t*>(config.native.externalDisplayHandle);
-                sConnectionOwned = false;
-                if (!sConnection || xcb_connection_has_error(sConnection)) {
-                    mLastError = NkError(1, "Invalid external xcb_connection_t.");
-                    sConnection = nullptr;
-                    return false;
-                }
-                const xcb_setup_t* setup = xcb_get_setup(sConnection);
-                xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
-                sDefaultScreen = iter.data;
-            } else {
-                int screenNum = 0;
-                sConnection = xcb_connect(nullptr, &screenNum);
-                sConnectionOwned = true;
-                if (!sConnection || xcb_connection_has_error(sConnection)) {
-                    mLastError = NkError(1, "xcb_connect failed");
-                    sConnection = nullptr;
-                    sConnectionOwned = false;
-                    return false;
-                }
-
-                const xcb_setup_t* setup = xcb_get_setup(sConnection);
-                xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
-                for (int i = 0; i < screenNum; ++i)
-                    xcb_screen_next(&iter);
-                sDefaultScreen = iter.data;
-            }
-
-            // Intern atoms utiles
-            sAtomWmDeleteWindow = NkXCBInternAtom(sConnection, "WM_DELETE_WINDOW");
-            sAtomWmProtocols    = NkXCBInternAtom(sConnection, "WM_PROTOCOLS");
-            sAtomNetWmName      = NkXCBInternAtom(sConnection, "_NET_WM_NAME");
-            sAtomUtf8String     = NkXCBInternAtom(sConnection, "UTF8_STRING");
-        }
-        ++sWindowCount;
-
-        mData.mConnection = sConnection;
-        mData.mScreen     = sDefaultScreen;
-        mData.mAppliedHints = config.surfaceHints;
-        mData.mParentWindow = static_cast<xcb_window_t>(config.native.parentWindowHandle);
-
-        const bool useExternal = config.native.useExternalWindow &&
-                                 config.native.externalWindowHandle != 0;
-        if (useExternal) {
-            mData.mWindow = static_cast<xcb_window_t>(config.native.externalWindowHandle);
-            mData.mExternal = true;
-
-            xcb_get_geometry_cookie_t c = xcb_get_geometry(mData.mConnection, mData.mWindow);
-            xcb_generic_error_t* err = nullptr;
-            xcb_get_geometry_reply_t* r = xcb_get_geometry_reply(mData.mConnection, c, &err);
-            if (!r || err) {
-                platform::NkXcbFree(r);
-                platform::NkXcbFree(err);
-                --sWindowCount;
-                if (sWindowCount <= 0) {
-                    if (sConnectionOwned) xcb_disconnect(sConnection);
-                    sConnection = nullptr;
-                    sConnectionOwned = false;
-                    sDefaultScreen = nullptr;
-                    sWindowCount = 0;
-                }
-                mLastError = NkError(2, "Invalid external XCB window.");
-                return false;
-            }
-            platform::NkXcbFree(r);
-
-            NkXCBRegisterWindow(mData.mWindow, this);
-            mId = NkWESystem::Instance().RegisterWindow(this);
-
-            // Synchroniser mConfig depuis l'état réel de la fenêtre externe
-            SyncConfigFromWindow(sConnection, mData.mWindow, mConfig, mData);
-
-            mIsOpen = true;
-            return true;
-        }
-
-        // --- Position ---
-        int x = config.centered
-            ? ((int)sDefaultScreen->width_in_pixels  - (int)config.width)  / 2
-            : config.x;
-        int y = config.centered
-            ? ((int)sDefaultScreen->height_in_pixels - (int)config.height) / 2
-            : config.y;
-
-        // Mettre à jour mConfig avec les coordonnées calculées si centré
-        if (config.centered) {
-            mConfig.x = x;
-            mConfig.y = y;
-        }
-
-        // --- Créer le colormap ---
-        mData.mColormap = xcb_generate_id(sConnection);
-        xcb_create_colormap(sConnection, XCB_COLORMAP_ALLOC_NONE,
-                            mData.mColormap,
-                            sDefaultScreen->root,
-                            sDefaultScreen->root_visual);
-
-        // --- Créer la fenêtre ---
-        mData.mWindow = xcb_generate_id(sConnection);
-
-        uint32_t eventMask =
-            XCB_EVENT_MASK_EXPOSURE              |
-            XCB_EVENT_MASK_STRUCTURE_NOTIFY      |
-            XCB_EVENT_MASK_KEY_PRESS             |
-            XCB_EVENT_MASK_KEY_RELEASE           |
-            XCB_EVENT_MASK_BUTTON_PRESS          |
-            XCB_EVENT_MASK_BUTTON_RELEASE        |
-            XCB_EVENT_MASK_POINTER_MOTION        |
-            XCB_EVENT_MASK_FOCUS_CHANGE          |
-            XCB_EVENT_MASK_ENTER_WINDOW          |
-            XCB_EVENT_MASK_LEAVE_WINDOW;
-
-        uint32_t valueList[]  = { sDefaultScreen->black_pixel, eventMask, mData.mColormap };
-        uint32_t valueMask    = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP;
-
-        xcb_create_window(
-            sConnection,
-            XCB_COPY_FROM_PARENT,
-            mData.mWindow,
-            mData.mParentWindow ? mData.mParentWindow : sDefaultScreen->root,
-            static_cast<int16_t>(x), static_cast<int16_t>(y),
-            static_cast<uint16_t>(config.width),
-            static_cast<uint16_t>(config.height),
-            0,
-            XCB_WINDOW_CLASS_INPUT_OUTPUT,
-            sDefaultScreen->root_visual,
-            valueMask, valueList);
-
-        // --- WM_DELETE_WINDOW ---
-        xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE,
-                            mData.mWindow, sAtomWmProtocols,
-                            XCB_ATOM_ATOM, 32,
-                            1, &sAtomWmDeleteWindow);
-
-        // --- Titre ---
-        xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE,
-                            mData.mWindow, XCB_ATOM_WM_NAME,
-                            XCB_ATOM_STRING, 8,
-                            static_cast<uint32_t>(config.title.Size()),
-                            config.title.CStr());
-        xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE,
-                            mData.mWindow, sAtomNetWmName,
-                            sAtomUtf8String, 8,
-                            static_cast<uint32_t>(config.title.Size()),
-                            config.title.CStr());
-
-        if (config.native.utilityWindow) {
-            const xcb_atom_t wmType = NkXCBInternAtom(sConnection, "_NET_WM_WINDOW_TYPE");
-            const xcb_atom_t wmTypeUtility = NkXCBInternAtom(sConnection, "_NET_WM_WINDOW_TYPE_UTILITY");
-            xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE,
-                                mData.mWindow, wmType, XCB_ATOM_ATOM, 32,
-                                1, &wmTypeUtility);
-        }
-
-        if (config.transparent) {
-            const xcb_atom_t opacityAtom = NkXCBInternAtom(sConnection, "_NET_WM_WINDOW_OPACITY");
-            uint32_t alpha = config.bgColor & 0xFFu;
-            if (alpha == 0xFFu) alpha = 230u;
-            const uint32_t opacity = static_cast<uint32_t>((static_cast<uint64_t>(alpha) * 0xFFFFFFFFull) / 255ull);
-            xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE,
-                                mData.mWindow, opacityAtom, XCB_ATOM_CARDINAL, 32,
-                                1, &opacity);
-        }
-
-        // --- WM size hints : non-resizable -> taille fixe ; resizable -> taille MINI ---
-        {
-            xcb_size_hints_t hints{};
-            if (!config.resizable) {
-                xcb_icccm_size_hints_set_min_size(&hints, (int)config.width, (int)config.height);
-                xcb_icccm_size_hints_set_max_size(&hints, (int)config.width, (int)config.height);
-            } else {
-                xcb_icccm_size_hints_set_min_size(&hints, (int)config.minWidth, (int)config.minHeight);
-            }
-            xcb_icccm_set_wm_normal_hints(sConnection, mData.mWindow, &hints);
-        }
-
-        NkXCBRegisterWindow(mData.mWindow, this);
-        mId = NkWESystem::Instance().RegisterWindow(this);
-
-        // XDND drop target integration (events forwarded to NkEventSystem queue).
-        mData.mDropTarget = memory::NkGetDefaultAllocator().New<NkXCBDropTarget>(mData.mConnection, mData.mWindow);
-        if (mData.mDropTarget) {
-            mData.mDropTarget->SetDropEnterCallback(NkXCBDropTarget::DropEnterCallback([this](const NkDropEnterEvent& ev) {
-                NkDropEnterEvent copy(ev);
-                NkWESystem::Events().Enqueue_Public(copy, mId);
-            }));
-            mData.mDropTarget->SetDropLeaveCallback(NkXCBDropTarget::DropLeaveCallback([this](const NkDropLeaveEvent& ev) {
-                NkDropLeaveEvent copy(ev);
-                NkWESystem::Events().Enqueue_Public(copy, mId);
-            }));
-            mData.mDropTarget->SetDropFileCallback(NkXCBDropTarget::DropFileCallback([this](const NkDropFileEvent& ev) {
-                NkDropFileEvent copy(ev);
-                NkWESystem::Events().Enqueue_Public(copy, mId);
-            }));
-            mData.mDropTarget->SetDropTextCallback(NkXCBDropTarget::DropTextCallback([this](const NkDropTextEvent& ev) {
-                NkDropTextEvent copy(ev);
-                NkWESystem::Events().Enqueue_Public(copy, mId);
-            }));
-        }
-
-        if (config.visible) {
-            xcb_map_window(sConnection, mData.mWindow);
-            xcb_flush(sConnection);
-        }
-
-        // Synchronisation initiale : mConfig reflète l'état réel
-        SyncConfigFromWindow(sConnection, mData.mWindow, mConfig, mData);
-
-        mIsOpen = true;
-        return true;
-    }
-
-    // =============================================================================
-    // Close
-    // =============================================================================
-
-    void NkWindow::Close() {
-        if (!mIsOpen) return;
-        mIsOpen = false;
-
-        NkXCBUnregisterWindow(mData.mWindow);
-        NkWESystem::Instance().UnregisterWindow(mId);
-        mId = NK_INVALID_WINDOW_ID;
-
-        if (mData.mDropTarget) {
-            memory::NkGetDefaultAllocator().Delete(mData.mDropTarget);
-            mData.mDropTarget = nullptr;
-        }
-
-        if (mData.mWindow && mData.mConnection) {
-            if (!mData.mExternal) {
-                xcb_destroy_window(mData.mConnection, mData.mWindow);
-                xcb_flush(mData.mConnection);
-            }
-            mData.mWindow = 0;
-        }
-        if (mData.mColormap && mData.mConnection) {
-            xcb_free_colormap(mData.mConnection, mData.mColormap);
-            mData.mColormap = 0;
-        }
-
-        {
-            NkScopedSpinLock lock(sConnectionMutex);
-            --sWindowCount;
-            if (sWindowCount <= 0 && sConnection) {
-                if (sConnectionOwned) xcb_disconnect(sConnection);
-                sConnection    = nullptr;
-                sConnectionOwned = false;
-                sDefaultScreen = nullptr;
-                sWindowCount   = 0;
-            }
-        }
-        mData.mConnection = nullptr;
-        mData.mScreen     = nullptr;
-        mData.mExternal   = false;
-    }
-
-    // =============================================================================
-    // Queries
-    // =============================================================================
-
-    bool NkWindow::IsOpen()  const { return mIsOpen; }
-    bool NkWindow::IsValid() const { return mIsOpen && mData.mWindow != 0; }
-
-    NkError        NkWindow::GetLastError() const { return mLastError; }
-
-    NkWindowConfig NkWindow::GetConfig()    const { 
-        // Synchroniser avant de retourner
-        if (mIsOpen && mData.mConnection && mData.mWindow) {
-            // Appel à la fonction libre, pas à une méthode de classe
-            SyncConfigFromWindow(mData.mConnection, mData.mWindow, 
-                                 const_cast<NkWindow*>(this)->mConfig, mData);
-        }
-        return mConfig; 
-    }
-
-    NkString NkWindow::GetTitle() const {
-        if (!mData.mConnection || !mData.mWindow) {
-            return mConfig.title;
-        }
-        
-        // WM_NAME via xcb_get_property (xcb core) — l'ancienne API xcb_icccm_get_wm_name
-        // n'existe plus dans les libxcb-icccm récents.
-        xcb_get_property_cookie_t nameCookie =
-            xcb_get_property(mData.mConnection, 0, mData.mWindow, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 0, 1024);
-        xcb_get_property_reply_t* nameReply = xcb_get_property_reply(mData.mConnection, nameCookie, nullptr);
-        if (nameReply) {
-            int nameLen = xcb_get_property_value_length(nameReply);
-            if (nameLen > 0) {
-                NkString title = NkString((const char*)xcb_get_property_value(nameReply), (usize)nameLen);
-                platform::NkXcbFree(nameReply);
-                const_cast<NkWindow*>(this)->mConfig.title = title;
-                return title;
-            }
-            platform::NkXcbFree(nameReply);
-        }
-        return mConfig.title;
-    }
-
-    NkVec2u NkWindow::GetSize() const {
-        if (!mData.mConnection || !mData.mWindow)
-            return { mConfig.width, mConfig.height };
-            
-        xcb_get_geometry_cookie_t c = xcb_get_geometry(mData.mConnection, mData.mWindow);
-        xcb_get_geometry_reply_t* r = xcb_get_geometry_reply(mData.mConnection, c, nullptr);
-        if (!r) return { mConfig.width, mConfig.height };
-        
-        NkVec2u sz = { (uint32)r->width, (uint32)r->height };
-        platform::NkXcbFree(r);
-        
-        // Synchroniser mConfig
-        const_cast<NkWindow*>(this)->mConfig.width = sz.x;
-        const_cast<NkWindow*>(this)->mConfig.height = sz.y;
-        
-        return sz;
-    }
-
-    NkVec2u NkWindow::GetPosition() const {
-        if (!mData.mConnection || !mData.mWindow)
-            return { (uint32)mConfig.x, (uint32)mConfig.y };
-            
-        xcb_translate_coordinates_cookie_t c =
-            xcb_translate_coordinates(mData.mConnection, mData.mWindow,
-                                    sDefaultScreen->root, 0, 0);
-        xcb_translate_coordinates_reply_t* r =
-            xcb_translate_coordinates_reply(mData.mConnection, c, nullptr);
-        if (!r) return { (uint32)mConfig.x, (uint32)mConfig.y };
-        
-        NkVec2u pos = { (uint32)r->dst_x, (uint32)r->dst_y };
-        platform::NkXcbFree(r);
-        
-        // Synchroniser mConfig
-        const_cast<NkWindow*>(this)->mConfig.x = pos.x;
-        const_cast<NkWindow*>(this)->mConfig.y = pos.y;
-        
-        return pos;
-    }
-
-    // =============================================================================
-    // Moniteurs / Display (XCB RandR + DPI runtime)
-    // =============================================================================
-
-    // Fallback link-safe : un seul moniteur derive de l'ecran XCB par defaut.
-    static NkDisplayInfo XCBFallbackDisplayInfo(xcb_screen_t* screen) {
-        NkDisplayInfo info;
-        info.index = 0;
-        if (screen) {
-            info.width  = info.physWidth  = (uint32)screen->width_in_pixels;
-            info.height = info.physHeight = (uint32)screen->height_in_pixels;
-            float32 dpiX = 96.f, dpiY = 96.f;
-            if (screen->width_in_millimeters > 0)
-                dpiX = (float32)screen->width_in_pixels  * 25.4f /
-                       (float32)screen->width_in_millimeters;
-            if (screen->height_in_millimeters > 0)
-                dpiY = (float32)screen->height_in_pixels * 25.4f /
-                       (float32)screen->height_in_millimeters;
-            info.dpiX     = dpiX;
-            info.dpiY     = dpiY;
-            info.dpiScale = dpiX / 96.f;
-            if (info.dpiScale < 0.5f) info.dpiScale = 1.f;
-        } else {
-            info.width = info.physWidth = 1920;
-            info.height = info.physHeight = 1080;
-        }
-        info.isPrimary = true;
-        std::strncpy(info.name, "DISPLAY1", sizeof(info.name) - 1);
-        return info;
-    }
-
-    // Remplit un NkDisplayInfo depuis un CRTC RandR actif. DPI calcule depuis la
-    // taille physique (mm) du premier output relie, refresh depuis le mode.
-    static bool XCBFillDisplayInfoFromCrtc(xcb_connection_t* conn,
-                                           xcb_randr_get_screen_resources_current_reply_t* res,
-                                           xcb_randr_crtc_t crtc,
-                                           xcb_randr_output_t primaryOutput,
-                                           uint32 index,
-                                           NkDisplayInfo& info) {
-        xcb_randr_get_crtc_info_cookie_t ck =
-            xcb_randr_get_crtc_info(conn, crtc, XCB_CURRENT_TIME);
-        xcb_randr_get_crtc_info_reply_t* ci =
-            xcb_randr_get_crtc_info_reply(conn, ck, nullptr);
-        if (!ci) return false;
-
-        // CRTC inactif (pas de mode ou pas d'output) : ignore.
-        int noutput = xcb_randr_get_crtc_info_outputs_length(ci);
-        if (ci->mode == XCB_NONE || noutput <= 0) {
-            platform::NkXcbFree(ci);
-            return false;
-        }
-
-        info.index  = index;
-        info.posX   = (int32)ci->x;
-        info.posY   = (int32)ci->y;
-        info.width  = (uint32)ci->width;
-        info.height = (uint32)ci->height;
-        info.physWidth  = (uint32)ci->width;
-        info.physHeight = (uint32)ci->height;
-
-        // Refresh rate : retrouver le mode courant dans les modes de la ressource.
-        xcb_randr_mode_info_iterator_t mit =
-            xcb_randr_get_screen_resources_current_modes_iterator(res);
-        for (; mit.rem; xcb_randr_mode_info_next(&mit)) {
-            xcb_randr_mode_info_t* mi = mit.data;
-            if (mi->id == ci->mode) {
-                if (mi->htotal != 0 && mi->vtotal != 0) {
-                    double vrefresh = (double)mi->dot_clock /
-                                      ((double)mi->htotal * (double)mi->vtotal);
-                    info.refreshRate = (uint32)(vrefresh + 0.5);
-                }
-                break;
-            }
-        }
-
-        // Premier output relie : nom + taille physique (mm) + primaire.
-        xcb_randr_output_t* outs = xcb_randr_get_crtc_info_outputs(ci);
-        xcb_randr_output_t out = outs[0];
-
-        xcb_randr_get_output_info_cookie_t ock =
-            xcb_randr_get_output_info(conn, out, XCB_CURRENT_TIME);
-        xcb_randr_get_output_info_reply_t* oi =
-            xcb_randr_get_output_info_reply(conn, ock, nullptr);
-        if (oi) {
-            int nameLen = xcb_randr_get_output_info_name_length(oi);
-            uint8_t* nameStr = xcb_randr_get_output_info_name(oi);
-            if (nameStr && nameLen > 0) {
-                usize n = (usize)nameLen;
-                if (n > sizeof(info.name) - 1) n = sizeof(info.name) - 1;
-                for (usize i = 0; i < n; ++i) info.name[i] = (char)nameStr[i];
-                info.name[n] = '\0';
-            }
-
-            float32 dpiX = 96.f, dpiY = 96.f;
-            if (oi->mm_width > 0)
-                dpiX = (float32)info.width  * 25.4f / (float32)oi->mm_width;
-            if (oi->mm_height > 0)
-                dpiY = (float32)info.height * 25.4f / (float32)oi->mm_height;
-            info.dpiX     = dpiX;
-            info.dpiY     = dpiY;
-            info.dpiScale = dpiX / 96.f;
-            if (info.dpiScale < 0.5f) info.dpiScale = 1.f;
-
-            platform::NkXcbFree(oi);
-        }
-
-        info.isPrimary = (primaryOutput != XCB_NONE && out == primaryOutput);
-
-        platform::NkXcbFree(ci);
-        return true;
-    }
-
-    NkVector<NkDisplayInfo> NkWindow::EnumerateMonitors() const {
-        NkVector<NkDisplayInfo> out;
-        xcb_connection_t* conn = mData.mConnection ? mData.mConnection : sConnection;
-        xcb_screen_t* screen = mData.mScreen ? mData.mScreen : sDefaultScreen;
-        if (!conn || !screen) {
-            out.PushBack(XCBFallbackDisplayInfo(screen));
-            return out;
-        }
-
-        // Verifier la presence de l'extension RandR.
-        const xcb_query_extension_reply_t* ext =
-            xcb_get_extension_data(conn, &xcb_randr_id);
-        if (!ext || !ext->present) {
-            out.PushBack(XCBFallbackDisplayInfo(screen));
-            return out;
-        }
-
-        xcb_randr_get_screen_resources_current_cookie_t resCk =
-            xcb_randr_get_screen_resources_current(conn, screen->root);
-        xcb_randr_get_screen_resources_current_reply_t* res =
-            xcb_randr_get_screen_resources_current_reply(conn, resCk, nullptr);
-        if (!res) {
-            out.PushBack(XCBFallbackDisplayInfo(screen));
-            return out;
-        }
-
-        // Moniteur primaire.
-        xcb_randr_output_t primary = XCB_NONE;
-        xcb_randr_get_output_primary_cookie_t pck =
-            xcb_randr_get_output_primary(conn, screen->root);
-        xcb_randr_get_output_primary_reply_t* pr =
-            xcb_randr_get_output_primary_reply(conn, pck, nullptr);
-        if (pr) {
-            primary = pr->output;
-            platform::NkXcbFree(pr);
-        }
-
-        int ncrtc = xcb_randr_get_screen_resources_current_crtcs_length(res);
-        xcb_randr_crtc_t* crtcs =
-            xcb_randr_get_screen_resources_current_crtcs(res);
-
-        uint32 idx = 0;
-        for (int i = 0; i < ncrtc; ++i) {
-            NkDisplayInfo info;
-            if (XCBFillDisplayInfoFromCrtc(conn, res, crtcs[i], primary, idx, info)) {
-                out.PushBack(info);
-                ++idx;
-            }
-        }
-
-        platform::NkXcbFree(res);
-
-        if (out.Size() == 0) {
-            out.PushBack(XCBFallbackDisplayInfo(screen));
-        }
-        return out;
-    }
-
-    NkDisplayInfo NkWindow::GetCurrentMonitor() const {
-        NkVector<NkDisplayInfo> mons = EnumerateMonitors();
-        if (mons.Size() == 0) {
-            return XCBFallbackDisplayInfo(mData.mScreen ? mData.mScreen : sDefaultScreen);
-        }
-
-        // Centre de la fenetre dans l'espace ecran virtuel.
-        xcb_connection_t* conn = mData.mConnection ? mData.mConnection : sConnection;
-        xcb_screen_t* screen = mData.mScreen ? mData.mScreen : sDefaultScreen;
-        int cx = 0, cy = 0;
-        bool haveWin = false;
-        if (conn && screen && mData.mWindow) {
-            xcb_translate_coordinates_cookie_t tck =
-                xcb_translate_coordinates(conn, mData.mWindow, screen->root, 0, 0);
-            xcb_translate_coordinates_reply_t* tr =
-                xcb_translate_coordinates_reply(conn, tck, nullptr);
-            xcb_get_geometry_cookie_t gck = xcb_get_geometry(conn, mData.mWindow);
-            xcb_get_geometry_reply_t* gr = xcb_get_geometry_reply(conn, gck, nullptr);
-            if (tr && gr) {
-                cx = tr->dst_x + gr->width / 2;
-                cy = tr->dst_y + gr->height / 2;
-                haveWin = true;
-            }
-            if (tr) platform::NkXcbFree(tr);
-            if (gr) platform::NkXcbFree(gr);
-        }
-
-        if (haveWin) {
-            for (usize i = 0; i < mons.Size(); ++i) {
-                const NkDisplayInfo& d = mons[i];
-                if (cx >= d.posX && cx < d.posX + (int32)d.width &&
-                    cy >= d.posY && cy < d.posY + (int32)d.height) {
-                    return d;
-                }
-            }
-        }
-
-        for (usize i = 0; i < mons.Size(); ++i) {
-            if (mons[i].isPrimary) return mons[i];
-        }
-        return mons[0];
-    }
-
-    uint32 NkWindow::GetMonitorCount() const {
-        return (uint32)EnumerateMonitors().Size();
-    }
-
-    float   NkWindow::GetDpiScale()        const {
-        NkDisplayInfo cur = GetCurrentMonitor();
-        float scale = cur.dpiScale;
-        return (scale > 0.f) ? scale : 1.f;
-    }
-
-    NkVec2u NkWindow::GetDisplaySize()     const {
-        if (!sDefaultScreen) return { 1920, 1080 };
-        return { (uint32)sDefaultScreen->width_in_pixels,
-                (uint32)sDefaultScreen->height_in_pixels };
-    }
-    
-    NkVec2u NkWindow::GetDisplayPosition() const { return { 0, 0 }; }
-
-    // =============================================================================
-    // Setters
-    // =============================================================================
-
-    void NkWindow::SetTitle(const NkString& title) {
-        mConfig.title = title;
-        if (!mData.mConnection || !mData.mWindow) return;
-        
-        xcb_change_property(mData.mConnection, XCB_PROP_MODE_REPLACE,
-                            mData.mWindow, XCB_ATOM_WM_NAME,
-                            XCB_ATOM_STRING, 8,
-                            static_cast<uint32_t>(title.Size()), title.CStr());
-        xcb_change_property(mData.mConnection, XCB_PROP_MODE_REPLACE,
-                            mData.mWindow, sAtomNetWmName,
-                            sAtomUtf8String, 8,
-                            static_cast<uint32_t>(title.Size()), title.CStr());
-        xcb_flush(mData.mConnection);
-    }
-
-    void NkWindow::SetSize(uint32 w, uint32 h) {
-        mConfig.width = w; 
-        mConfig.height = h;
-        if (!mData.mConnection || !mData.mWindow) return;
-        
-        uint32_t values[] = { w, h };
-        xcb_configure_window(mData.mConnection, mData.mWindow,
-                            XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
-                            values);
-        xcb_flush(mData.mConnection);
-    }
-
-    void NkWindow::SetPosition(int32 x, int32 y) {
-        mConfig.x = x; 
-        mConfig.y = y;
-        if (!mData.mConnection || !mData.mWindow) return;
-        
-        uint32_t values[] = { (uint32_t)x, (uint32_t)y };
-        xcb_configure_window(mData.mConnection, mData.mWindow,
-                            XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y,
-                            values);
-        xcb_flush(mData.mConnection);
-    }
-
-    void NkWindow::SetVisible(bool visible) {
-        mConfig.visible = visible;
-        if (!mData.mConnection || !mData.mWindow) return;
-        
-        if (visible) 
-            xcb_map_window  (mData.mConnection, mData.mWindow);
-        else 
-            xcb_unmap_window(mData.mConnection, mData.mWindow);
-        xcb_flush(mData.mConnection);
-    }
-
-    void NkWindow::Minimize() {
-        // XCB n'expose pas iconify directement — envoyer WM_CHANGE_STATE
-        if (!mData.mConnection || !mData.mWindow || !sDefaultScreen) return;
-        
-        xcb_client_message_event_t ev{};
-        ev.response_type  = XCB_CLIENT_MESSAGE;
-        ev.format         = 32;
-        ev.window         = mData.mWindow;
-        ev.type           = NkXCBInternAtom(mData.mConnection, "WM_CHANGE_STATE");
-        ev.data.data32[0] = 3; // IconicState
-        
-        xcb_send_event(mData.mConnection, 0, sDefaultScreen->root,
-                    XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
-                    (const char*)&ev);
-        xcb_flush(mData.mConnection);
-        
-        // L'état de visibilité change
-        mConfig.visible = false;
-    }
-
-    void NkWindow::Maximize() {
-        if (!mData.mConnection || !mData.mWindow || !sDefaultScreen) return;
-        
-        xcb_atom_t wmState   = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE");
-        xcb_atom_t maxH      = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE_MAXIMIZED_HORZ");
-        xcb_atom_t maxV      = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE_MAXIMIZED_VERT");
-        
-        xcb_client_message_event_t ev{};
-        ev.response_type  = XCB_CLIENT_MESSAGE;
-        ev.format         = 32;
-        ev.window         = mData.mWindow;
-        ev.type           = wmState;
-        ev.data.data32[0] = 1; // _NET_WM_STATE_ADD
-        ev.data.data32[1] = maxH;
-        ev.data.data32[2] = maxV;
-        
-        xcb_send_event(mData.mConnection, 0, sDefaultScreen->root,
-                    XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
-                    (const char*)&ev);
-        xcb_flush(mData.mConnection);
-        
-        // Mettre à jour la taille après maximisation
-        xcb_get_geometry_cookie_t c = xcb_get_geometry(mData.mConnection, mData.mWindow);
-        xcb_get_geometry_reply_t* r = xcb_get_geometry_reply(mData.mConnection, c, nullptr);
-        if (r) {
-            mConfig.width = r->width;
-            mConfig.height = r->height;
-            platform::NkXcbFree(r);
-        }
-        mConfig.visible = true;
-    }
-
-    bool NkWindow::IsMaximized() const { return false; }
-
-    // Hand-off natif via _NET_WM_MOVERESIZE (le WM gere le drag jusqu'au relachement).
-    static void NkXcbMoveResize(xcb_connection_t* conn, xcb_window_t win, int direction) {
-        if (!conn || !win || !sDefaultScreen) return;
-        const xcb_window_t root = sDefaultScreen->root;
-        int rx = 0, ry = 0;
-        xcb_query_pointer_reply_t* qp = xcb_query_pointer_reply(conn, xcb_query_pointer(conn, win), nullptr);
-        if (qp) { rx = qp->root_x; ry = qp->root_y; platform::NkXcbFree(qp); }
-        xcb_ungrab_pointer(conn, XCB_CURRENT_TIME);
-        xcb_client_message_event_t ev = {};
-        ev.response_type = XCB_CLIENT_MESSAGE;
-        ev.window  = win;
-        ev.type    = NkXCBInternAtom(conn, "_NET_WM_MOVERESIZE");
-        ev.format  = 32;
-        ev.data.data32[0] = static_cast<uint32_t>(rx);
-        ev.data.data32[1] = static_cast<uint32_t>(ry);
-        ev.data.data32[2] = static_cast<uint32_t>(direction);
-        ev.data.data32[3] = XCB_BUTTON_INDEX_1;
-        ev.data.data32[4] = 1;
-        xcb_send_event(conn, 0, root,
-                       XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
-                       reinterpret_cast<const char*>(&ev));
-        xcb_flush(conn);
-    }
-    void NkWindow::BeginDragMove() { NkXcbMoveResize(mData.mConnection, mData.mWindow, 8 /*MOVE*/); }
-    void NkWindow::BeginResize(NkResizeEdge edge) {
-        int dir = 8;
-        switch (edge) {   // EWMH _NET_WM_MOVERESIZE_SIZE_*
-            case NkResizeEdge::TopLeft:     dir = 0; break;
-            case NkResizeEdge::Top:         dir = 1; break;
-            case NkResizeEdge::TopRight:    dir = 2; break;
-            case NkResizeEdge::Right:       dir = 3; break;
-            case NkResizeEdge::BottomRight: dir = 4; break;
-            case NkResizeEdge::Bottom:      dir = 5; break;
-            case NkResizeEdge::BottomLeft:  dir = 6; break;
-            case NkResizeEdge::Left:        dir = 7; break;
-        }
-        NkXcbMoveResize(mData.mConnection, mData.mWindow, dir);
-    }
-
-    void NkWindow::Restore() {
-        if (!mData.mConnection || !mData.mWindow) return;
-        
-        xcb_map_window(mData.mConnection, mData.mWindow);
-        xcb_flush(mData.mConnection);
-        
-        // Mettre à jour après restauration
-        xcb_get_geometry_cookie_t c = xcb_get_geometry(mData.mConnection, mData.mWindow);
-        xcb_get_geometry_reply_t* r = xcb_get_geometry_reply(mData.mConnection, c, nullptr);
-        if (r) {
-            mConfig.width = r->width;
-            mConfig.height = r->height;
-            platform::NkXcbFree(r);
-        }
-        mConfig.visible = true;
-    }
-
-    void NkWindow::SetFullscreen(bool fullscreen) {
-        if (!mData.mConnection || !mData.mWindow || !sDefaultScreen) return;
-        
-        mConfig.fullscreen = fullscreen;
-        
-        xcb_atom_t wmState = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE");
-        xcb_atom_t wmFs    = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE_FULLSCREEN");
-        
-        xcb_client_message_event_t ev{};
-        ev.response_type  = XCB_CLIENT_MESSAGE;
-        ev.format         = 32;
-        ev.window         = mData.mWindow;
-        ev.type           = wmState;
-        ev.data.data32[0] = fullscreen ? 1 : 0;
-        ev.data.data32[1] = wmFs;
-        
-        xcb_send_event(mData.mConnection, 0, sDefaultScreen->root,
-                    XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
-                    (const char*)&ev);
-        xcb_flush(mData.mConnection);
-        
-        // Mettre à jour la taille
-        if (fullscreen) {
-            mConfig.width = sDefaultScreen->width_in_pixels;
-            mConfig.height = sDefaultScreen->height_in_pixels;
-        } else {
-            xcb_get_geometry_cookie_t c = xcb_get_geometry(mData.mConnection, mData.mWindow);
-            xcb_get_geometry_reply_t* r = xcb_get_geometry_reply(mData.mConnection, c, nullptr);
-            if (r) {
-                mConfig.width = r->width;
-                mConfig.height = r->height;
-                platform::NkXcbFree(r);
-            }
-        }
-    }
-
-    // =============================================================================
-    // Orientation (desktop — no-op)
-    // =============================================================================
-
-    bool NkWindow::SupportsOrientationControl() const { return false; }
-    void NkWindow::SetScreenOrientation(NkScreenOrientation) {}
-    NkScreenOrientation NkWindow::GetScreenOrientation() const {
-        return NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE;
-    }
-    void NkWindow::SetAutoRotateEnabled(bool) {}
-    bool NkWindow::IsAutoRotateEnabled() const { return false; }
-    void NkWindow::SetHideSystemUI(bool) {}
-    bool NkWindow::GetHideSystemUI() const { return false; }
-    void NkWindow::SetLockOrientation(bool) {}
-    bool NkWindow::GetLockOrientation() const { return false; }
-
-    // =============================================================================
-    // Mouse
-    // =============================================================================
-
-    void NkWindow::SetMousePosition(uint32 x, uint32 y) {
-        if (mData.mConnection && mData.mWindow)
-            xcb_warp_pointer(mData.mConnection, XCB_NONE, mData.mWindow,
-                            0, 0, 0, 0, (int16_t)x, (int16_t)y);
-    }
-
-    void NkWindow::ShowMouse(bool show) {
-        if (!mData.mConnection || !mData.mWindow) return;
-        
-        if (show) {
-            uint32_t cursor = XCB_CURSOR_NONE;
-            xcb_change_window_attributes(mData.mConnection, mData.mWindow,
-                                        XCB_CW_CURSOR, &cursor);
-        } else {
-            // Créer un curseur invisible si pas encore fait
-            if (!mData.mHiddenCursor) {
-                xcb_pixmap_t pix = xcb_generate_id(mData.mConnection);
-                xcb_create_pixmap(mData.mConnection, 1, pix, mData.mWindow, 1, 1);
-                mData.mHiddenCursor = xcb_generate_id(mData.mConnection);
-                xcb_create_cursor(mData.mConnection, mData.mHiddenCursor,
-                                pix, pix, 0, 0, 0, 0, 0, 0, 0, 0);
-                xcb_free_pixmap(mData.mConnection, pix);
-            }
-            xcb_change_window_attributes(mData.mConnection, mData.mWindow,
-                                        XCB_CW_CURSOR, &mData.mHiddenCursor);
-        }
-        xcb_flush(mData.mConnection);
-    }
-
-    void NkWindow::CaptureMouse(bool) {} // XCB grab nécessite xcb_grab_pointer — laissé en no-op
-
-    void NkWindow::ClipMouseToClient(bool clip) {
-        if (!mData.mConnection || !mData.mWindow) return;
-        if (clip) {
-            // xcb_grab_pointer avec confine_to = fenetre client.
-            xcb_grab_pointer_cookie_t ck = xcb_grab_pointer(
-                mData.mConnection,
-                /*owner_events=*/1,
-                mData.mWindow,
-                XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE
-                  | XCB_EVENT_MASK_POINTER_MOTION,
-                XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
-                mData.mWindow,        // confine_to
-                XCB_NONE,             // cursor
-                XCB_CURRENT_TIME);
-            xcb_grab_pointer_reply_t* r = xcb_grab_pointer_reply(mData.mConnection, ck, nullptr);
-            if (r) platform::NkXcbFree(r);
-        } else {
-            xcb_ungrab_pointer(mData.mConnection, XCB_CURRENT_TIME);
-        }
-        xcb_flush(mData.mConnection);
-    }
-
-    // =============================================================================
-    // Web / extras (no-op on desktop)
-    // =============================================================================
-
-    void NkWindow::SetWebInputOptions(const NkWebInputOptions&) {}
-    NkWebInputOptions NkWindow::GetWebInputOptions() const { return {}; }
-    void NkWindow::SetProgress(float) {}
-    // Desktop X11 : clavier physique, pas de clavier logiciel. No-op.
-    void NkWindow::ShowSoftKeyboard(const NkSoftKeyboardConfig&) {}
-    void NkWindow::HideSoftKeyboard() {}
-    bool NkWindow::IsSoftKeyboardVisible() const { return false; }
-    NkSafeAreaInsets NkWindow::GetSafeAreaInsets() const { return {}; }
-
-    // =============================================================================
-    // Surface
-    // =============================================================================
-
-    NkSurfaceDesc NkWindow::GetSurfaceDesc() const {
-        NkSurfaceDesc sd;
-        auto sz        = GetSize();  // GetSize synchronise déjà mConfig
-        sd.width       = sz.x;
-        sd.height      = sz.y;
-        sd.dpi         = GetDpiScale();
-        sd.connection  = mData.mConnection;
-        sd.window      = mData.mWindow;
-        sd.screen      = mData.mScreen;
-        sd.appliedHints = mData.mAppliedHints;
-        return sd;
-    }
+	using namespace math;
+
+	// =============================================================================
+	// Globals partagés
+	// =============================================================================
+
+	static xcb_connection_t *sConnection = nullptr;
+	static xcb_screen_t *sDefaultScreen = nullptr;
+	static bool sConnectionOwned = false;
+	static int sWindowCount = 0;
+	static NkSpinLock sConnectionMutex;
+
+	// Atoms partagés
+	static xcb_atom_t sAtomWmDeleteWindow = XCB_ATOM_NONE;
+	static xcb_atom_t sAtomWmProtocols = XCB_ATOM_NONE;
+	static xcb_atom_t sAtomNetWmName = XCB_ATOM_NONE;
+	static xcb_atom_t sAtomUtf8String = XCB_ATOM_NONE;
+
+	// Function-local static avoids static init order fiasco with NkAllocator.
+	static NkUnorderedMap<xcb_window_t, NkWindow *> &XCBWindowMap() {
+		static NkUnorderedMap<xcb_window_t, NkWindow *> sMap;
+		if (sMap.BucketCount() == 0) {
+			sMap.Rehash(32);
+		}
+		return sMap;
+	}
+
+	// =============================================================================
+	// Registre accessor functions (déclarées dans NkXCBWindow.h)
+	// =============================================================================
+
+	NkWindow *NkXCBFindWindow(xcb_window_t xid) {
+		auto *win = XCBWindowMap().Find(xid);
+		return win ? *win : nullptr;
+	}
+
+	void NkXCBRegisterWindow(xcb_window_t xid, NkWindow *win) {
+		XCBWindowMap()[xid] = win;
+	}
+
+	void NkXCBUnregisterWindow(xcb_window_t xid) {
+		XCBWindowMap().Erase(xid);
+	}
+
+	NkWindow *NkXCBGetAnyWindow() {
+		NkWindow *first = nullptr;
+		XCBWindowMap().ForEach([&](xcb_window_t, NkWindow *v) {
+			if (!first)
+				first = v;
+		});
+		return first;
+	}
+
+	// Accesseur connexion pour NkXCBEventSystem.cpp
+	xcb_connection_t *NkXCBGetConnection() {
+		return sConnection;
+	}
+
+	xcb_screen_t *NkXCBGetScreen() {
+		return sDefaultScreen;
+	}
+
+	xcb_atom_t NkXCBGetWmDeleteWindowAtom() {
+		return sAtomWmDeleteWindow;
+	}
+
+	xcb_atom_t NkXCBGetWmProtocolsAtom() {
+		return sAtomWmProtocols;
+	}
+
+	// =============================================================================
+	// Helper : intern atom
+	// =============================================================================
+
+	static xcb_atom_t NkXCBInternAtom(xcb_connection_t *c, const char *name, bool onlyIfExists = false) {
+		xcb_intern_atom_cookie_t cookie =
+			xcb_intern_atom(c, onlyIfExists ? 1 : 0, static_cast<uint16_t>(strlen(name)), name);
+		xcb_intern_atom_reply_t *reply = xcb_intern_atom_reply(c, cookie, nullptr);
+		xcb_atom_t atom = reply ? reply->atom : XCB_ATOM_NONE;
+		platform::NkXcbFree(reply);
+		return atom;
+	}
+
+	// =============================================================================
+	// Fonctions de synchronisation mData ↔ mConfig
+	// =============================================================================
+
+	static void SyncConfigFromWindow(xcb_connection_t *conn, xcb_window_t window, NkWindowConfig &config,
+									 const NkWindowData &data) {
+		if (!conn || !window)
+			return;
+
+		// Récupérer la géométrie (position et taille)
+		xcb_get_geometry_cookie_t geomCookie = xcb_get_geometry(conn, window);
+		xcb_get_geometry_reply_t *geomReply = xcb_get_geometry_reply(conn, geomCookie, nullptr);
+		if (geomReply) {
+			config.width = geomReply->width;
+			config.height = geomReply->height;
+			platform::NkXcbFree(geomReply);
+		}
+
+		// Récupérer la position relative à la racine
+		xcb_translate_coordinates_cookie_t transCookie =
+			xcb_translate_coordinates(conn, window, sDefaultScreen->root, 0, 0);
+		xcb_translate_coordinates_reply_t *transReply = xcb_translate_coordinates_reply(conn, transCookie, nullptr);
+		if (transReply) {
+			config.x = transReply->dst_x;
+			config.y = transReply->dst_y;
+			platform::NkXcbFree(transReply);
+		}
+
+		// Récupérer le titre (WM_NAME) via xcb_get_property (xcb core) — l'ancienne API
+		// xcb_icccm_get_wm_name a été retirée des libxcb-icccm récents.
+		{
+			xcb_get_property_cookie_t nameCookie =
+				xcb_get_property(conn, 0, window, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 0, 1024);
+			xcb_get_property_reply_t *nameReply = xcb_get_property_reply(conn, nameCookie, nullptr);
+			if (nameReply) {
+				int nameLen = xcb_get_property_value_length(nameReply);
+				if (nameLen > 0)
+					config.title = NkString((const char *)xcb_get_property_value(nameReply), (usize)nameLen);
+				platform::NkXcbFree(nameReply);
+			}
+		}
+
+		// Récupérer l'état de visibilité (mapped)
+		xcb_get_window_attributes_cookie_t attrCookie = xcb_get_window_attributes(conn, window);
+		xcb_get_window_attributes_reply_t *attrReply = xcb_get_window_attributes_reply(conn, attrCookie, nullptr);
+		if (attrReply) {
+			config.visible = (attrReply->map_state == XCB_MAP_STATE_VIEWABLE);
+			platform::NkXcbFree(attrReply);
+		}
+
+		// Récupérer l'état plein écran via _NET_WM_STATE
+		xcb_atom_t wmStateAtom = NkXCBInternAtom(conn, "_NET_WM_STATE", true);
+		if (wmStateAtom != XCB_ATOM_NONE) {
+			xcb_get_property_cookie_t propCookie =
+				xcb_get_property(conn, 0, window, wmStateAtom, XCB_ATOM_ATOM, 0, 1024);
+			xcb_get_property_reply_t *propReply = xcb_get_property_reply(conn, propCookie, nullptr);
+			if (propReply && propReply->type == XCB_ATOM_ATOM && propReply->format == 32) {
+				xcb_atom_t *atoms = (xcb_atom_t *)xcb_get_property_value(propReply);
+				xcb_atom_t wmFsAtom = NkXCBInternAtom(conn, "_NET_WM_STATE_FULLSCREEN", true);
+				config.fullscreen = false;
+				if (wmFsAtom != XCB_ATOM_NONE) {
+					int numAtoms = propReply->length / (propReply->format / 8);
+					for (int i = 0; i < numAtoms; ++i) {
+						if (atoms[i] == wmFsAtom) {
+							config.fullscreen = true;
+							break;
+						}
+					}
+				}
+			}
+			platform::NkXcbFree(propReply);
+		}
+	}
+
+	static void SyncWindowFromConfig(xcb_connection_t *conn, xcb_window_t window, const NkWindowConfig &config) {
+		if (!conn || !window)
+			return;
+
+		// Titre
+		xcb_change_property(conn, XCB_PROP_MODE_REPLACE, window, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 8,
+							static_cast<uint32_t>(config.title.Size()), config.title.CStr());
+		xcb_change_property(conn, XCB_PROP_MODE_REPLACE, window, sAtomNetWmName, sAtomUtf8String, 8,
+							static_cast<uint32_t>(config.title.Size()), config.title.CStr());
+
+		// Taille
+		xcb_get_geometry_cookie_t geomCookie = xcb_get_geometry(conn, window);
+		xcb_get_geometry_reply_t *geomReply = xcb_get_geometry_reply(conn, geomCookie, nullptr);
+		if (geomReply) {
+			if (geomReply->width != config.width || geomReply->height != config.height) {
+				uint32_t values[] = {config.width, config.height};
+				xcb_configure_window(conn, window, XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, values);
+			}
+			platform::NkXcbFree(geomReply);
+		}
+
+		// Position
+		xcb_translate_coordinates_cookie_t transCookie =
+			xcb_translate_coordinates(conn, window, sDefaultScreen->root, 0, 0);
+		xcb_translate_coordinates_reply_t *transReply = xcb_translate_coordinates_reply(conn, transCookie, nullptr);
+		if (transReply) {
+			if (transReply->dst_x != config.x || transReply->dst_y != config.y) {
+				uint32_t values[] = {(uint32_t)config.x, (uint32_t)config.y};
+				xcb_configure_window(conn, window, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y, values);
+			}
+			platform::NkXcbFree(transReply);
+		}
+
+		// Visibilité
+		xcb_get_window_attributes_cookie_t attrCookie = xcb_get_window_attributes(conn, window);
+		xcb_get_window_attributes_reply_t *attrReply = xcb_get_window_attributes_reply(conn, attrCookie, nullptr);
+		if (attrReply) {
+			bool isVisible = (attrReply->map_state == XCB_MAP_STATE_VIEWABLE);
+			if (isVisible != config.visible) {
+				if (config.visible) {
+					xcb_map_window(conn, window);
+				} else {
+					xcb_unmap_window(conn, window);
+				}
+			}
+			platform::NkXcbFree(attrReply);
+		}
+
+		xcb_flush(conn);
+	}
+
+	// =============================================================================
+	// Constructeurs / Destructeur
+	// =============================================================================
+
+	NkWindow::NkWindow() = default;
+
+	NkWindow::NkWindow(const NkWindowConfig &c) {
+		Create(c);
+	}
+
+	NkWindow::~NkWindow() {
+		if (mIsOpen)
+			Close();
+	}
+
+	// =============================================================================
+	// Create
+	// =============================================================================
+
+	bool NkWindow::Create(const NkWindowConfig &config) {
+		mConfig = config;
+
+		NkScopedSpinLock lock(sConnectionMutex);
+
+		// Ouvrir la connexion xcb si nécessaire
+		if (!sConnection) {
+			if (config.native.externalDisplayHandle != 0) {
+				sConnection = reinterpret_cast<xcb_connection_t *>(config.native.externalDisplayHandle);
+				sConnectionOwned = false;
+				if (!sConnection || xcb_connection_has_error(sConnection)) {
+					mLastError = NkError(1, "Invalid external xcb_connection_t.");
+					sConnection = nullptr;
+					return false;
+				}
+				const xcb_setup_t *setup = xcb_get_setup(sConnection);
+				xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
+				sDefaultScreen = iter.data;
+			} else {
+				int screenNum = 0;
+				sConnection = xcb_connect(nullptr, &screenNum);
+				sConnectionOwned = true;
+				if (!sConnection || xcb_connection_has_error(sConnection)) {
+					mLastError = NkError(1, "xcb_connect failed");
+					sConnection = nullptr;
+					sConnectionOwned = false;
+					return false;
+				}
+
+				const xcb_setup_t *setup = xcb_get_setup(sConnection);
+				xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
+				for (int i = 0; i < screenNum; ++i)
+					xcb_screen_next(&iter);
+				sDefaultScreen = iter.data;
+			}
+
+			// Intern atoms utiles
+			sAtomWmDeleteWindow = NkXCBInternAtom(sConnection, "WM_DELETE_WINDOW");
+			sAtomWmProtocols = NkXCBInternAtom(sConnection, "WM_PROTOCOLS");
+			sAtomNetWmName = NkXCBInternAtom(sConnection, "_NET_WM_NAME");
+			sAtomUtf8String = NkXCBInternAtom(sConnection, "UTF8_STRING");
+		}
+		++sWindowCount;
+
+		mData.mConnection = sConnection;
+		mData.mScreen = sDefaultScreen;
+		mData.mAppliedHints = config.surfaceHints;
+		mData.mParentWindow = static_cast<xcb_window_t>(config.native.parentWindowHandle);
+
+		const bool useExternal = config.native.useExternalWindow && config.native.externalWindowHandle != 0;
+		if (useExternal) {
+			mData.mWindow = static_cast<xcb_window_t>(config.native.externalWindowHandle);
+			mData.mExternal = true;
+
+			xcb_get_geometry_cookie_t c = xcb_get_geometry(mData.mConnection, mData.mWindow);
+			xcb_generic_error_t *err = nullptr;
+			xcb_get_geometry_reply_t *r = xcb_get_geometry_reply(mData.mConnection, c, &err);
+			if (!r || err) {
+				platform::NkXcbFree(r);
+				platform::NkXcbFree(err);
+				--sWindowCount;
+				if (sWindowCount <= 0) {
+					if (sConnectionOwned)
+						xcb_disconnect(sConnection);
+					sConnection = nullptr;
+					sConnectionOwned = false;
+					sDefaultScreen = nullptr;
+					sWindowCount = 0;
+				}
+				mLastError = NkError(2, "Invalid external XCB window.");
+				return false;
+			}
+			platform::NkXcbFree(r);
+
+			NkXCBRegisterWindow(mData.mWindow, this);
+			mId = NkWESystem::Instance().RegisterWindow(this);
+
+			// Synchroniser mConfig depuis l'état réel de la fenêtre externe
+			SyncConfigFromWindow(sConnection, mData.mWindow, mConfig, mData);
+
+			mIsOpen = true;
+			return true;
+		}
+
+		// --- Position ---
+		int x = config.centered ? ((int)sDefaultScreen->width_in_pixels - (int)config.width) / 2 : config.x;
+		int y = config.centered ? ((int)sDefaultScreen->height_in_pixels - (int)config.height) / 2 : config.y;
+
+		// Mettre à jour mConfig avec les coordonnées calculées si centré
+		if (config.centered) {
+			mConfig.x = x;
+			mConfig.y = y;
+		}
+
+		// --- Créer le colormap ---
+		mData.mColormap = xcb_generate_id(sConnection);
+		xcb_create_colormap(sConnection, XCB_COLORMAP_ALLOC_NONE, mData.mColormap, sDefaultScreen->root,
+							sDefaultScreen->root_visual);
+
+		// --- Créer la fenêtre ---
+		mData.mWindow = xcb_generate_id(sConnection);
+
+		uint32_t eventMask = XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_STRUCTURE_NOTIFY | XCB_EVENT_MASK_KEY_PRESS |
+							 XCB_EVENT_MASK_KEY_RELEASE | XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE |
+							 XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_FOCUS_CHANGE | XCB_EVENT_MASK_ENTER_WINDOW |
+							 XCB_EVENT_MASK_LEAVE_WINDOW;
+
+		uint32_t valueList[] = {sDefaultScreen->black_pixel, eventMask, mData.mColormap};
+		uint32_t valueMask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP;
+
+		xcb_create_window(sConnection, XCB_COPY_FROM_PARENT, mData.mWindow,
+						  mData.mParentWindow ? mData.mParentWindow : sDefaultScreen->root, static_cast<int16_t>(x),
+						  static_cast<int16_t>(y), static_cast<uint16_t>(config.width),
+						  static_cast<uint16_t>(config.height), 0, XCB_WINDOW_CLASS_INPUT_OUTPUT,
+						  sDefaultScreen->root_visual, valueMask, valueList);
+
+		// --- WM_DELETE_WINDOW ---
+		xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE, mData.mWindow, sAtomWmProtocols, XCB_ATOM_ATOM, 32, 1,
+							&sAtomWmDeleteWindow);
+
+		// --- Titre ---
+		xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE, mData.mWindow, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 8,
+							static_cast<uint32_t>(config.title.Size()), config.title.CStr());
+		xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE, mData.mWindow, sAtomNetWmName, sAtomUtf8String, 8,
+							static_cast<uint32_t>(config.title.Size()), config.title.CStr());
+
+		if (config.native.utilityWindow) {
+			const xcb_atom_t wmType = NkXCBInternAtom(sConnection, "_NET_WM_WINDOW_TYPE");
+			const xcb_atom_t wmTypeUtility = NkXCBInternAtom(sConnection, "_NET_WM_WINDOW_TYPE_UTILITY");
+			xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE, mData.mWindow, wmType, XCB_ATOM_ATOM, 32, 1,
+								&wmTypeUtility);
+		}
+
+		if (config.transparent) {
+			const xcb_atom_t opacityAtom = NkXCBInternAtom(sConnection, "_NET_WM_WINDOW_OPACITY");
+			uint32_t alpha = config.bgColor & 0xFFu;
+			if (alpha == 0xFFu)
+				alpha = 230u;
+			const uint32_t opacity = static_cast<uint32_t>((static_cast<uint64_t>(alpha) * 0xFFFFFFFFull) / 255ull);
+			xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE, mData.mWindow, opacityAtom, XCB_ATOM_CARDINAL, 32,
+								1, &opacity);
+		}
+
+		// --- WM size hints : non-resizable -> taille fixe ; resizable -> taille MINI ---
+		{
+			xcb_size_hints_t hints{};
+			if (!config.resizable) {
+				xcb_icccm_size_hints_set_min_size(&hints, (int)config.width, (int)config.height);
+				xcb_icccm_size_hints_set_max_size(&hints, (int)config.width, (int)config.height);
+			} else {
+				xcb_icccm_size_hints_set_min_size(&hints, (int)config.minWidth, (int)config.minHeight);
+			}
+			xcb_icccm_set_wm_normal_hints(sConnection, mData.mWindow, &hints);
+		}
+
+		NkXCBRegisterWindow(mData.mWindow, this);
+		mId = NkWESystem::Instance().RegisterWindow(this);
+
+		// XDND drop target integration (events forwarded to NkEventSystem queue).
+		mData.mDropTarget = memory::NkGetDefaultAllocator().New<NkXCBDropTarget>(mData.mConnection, mData.mWindow);
+		if (mData.mDropTarget) {
+			mData.mDropTarget->SetDropEnterCallback(
+				NkXCBDropTarget::DropEnterCallback([this](const NkDropEnterEvent &ev) {
+					NkDropEnterEvent copy(ev);
+					NkWESystem::Events().Enqueue_Public(copy, mId);
+				}));
+			mData.mDropTarget->SetDropLeaveCallback(
+				NkXCBDropTarget::DropLeaveCallback([this](const NkDropLeaveEvent &ev) {
+					NkDropLeaveEvent copy(ev);
+					NkWESystem::Events().Enqueue_Public(copy, mId);
+				}));
+			mData.mDropTarget->SetDropFileCallback(NkXCBDropTarget::DropFileCallback([this](const NkDropFileEvent &ev) {
+				NkDropFileEvent copy(ev);
+				NkWESystem::Events().Enqueue_Public(copy, mId);
+			}));
+			mData.mDropTarget->SetDropTextCallback(NkXCBDropTarget::DropTextCallback([this](const NkDropTextEvent &ev) {
+				NkDropTextEvent copy(ev);
+				NkWESystem::Events().Enqueue_Public(copy, mId);
+			}));
+		}
+
+		if (config.visible) {
+			xcb_map_window(sConnection, mData.mWindow);
+			xcb_flush(sConnection);
+		}
+
+		// Synchronisation initiale : mConfig reflète l'état réel
+		SyncConfigFromWindow(sConnection, mData.mWindow, mConfig, mData);
+
+		mIsOpen = true;
+		return true;
+	}
+
+	// =============================================================================
+	// Close
+	// =============================================================================
+
+	void NkWindow::Close() {
+		if (!mIsOpen)
+			return;
+		mIsOpen = false;
+
+		NkXCBUnregisterWindow(mData.mWindow);
+		NkWESystem::Instance().UnregisterWindow(mId);
+		mId = NK_INVALID_WINDOW_ID;
+
+		if (mData.mDropTarget) {
+			memory::NkGetDefaultAllocator().Delete(mData.mDropTarget);
+			mData.mDropTarget = nullptr;
+		}
+
+		if (mData.mWindow && mData.mConnection) {
+			if (!mData.mExternal) {
+				xcb_destroy_window(mData.mConnection, mData.mWindow);
+				xcb_flush(mData.mConnection);
+			}
+			mData.mWindow = 0;
+		}
+		if (mData.mColormap && mData.mConnection) {
+			xcb_free_colormap(mData.mConnection, mData.mColormap);
+			mData.mColormap = 0;
+		}
+
+		{
+			NkScopedSpinLock lock(sConnectionMutex);
+			--sWindowCount;
+			if (sWindowCount <= 0 && sConnection) {
+				if (sConnectionOwned)
+					xcb_disconnect(sConnection);
+				sConnection = nullptr;
+				sConnectionOwned = false;
+				sDefaultScreen = nullptr;
+				sWindowCount = 0;
+			}
+		}
+		mData.mConnection = nullptr;
+		mData.mScreen = nullptr;
+		mData.mExternal = false;
+	}
+
+	// =============================================================================
+	// Queries
+	// =============================================================================
+
+	bool NkWindow::IsOpen() const {
+		return mIsOpen;
+	}
+
+	bool NkWindow::IsValid() const {
+		return mIsOpen && mData.mWindow != 0;
+	}
+
+	NkError NkWindow::GetLastError() const {
+		return mLastError;
+	}
+
+	NkWindowConfig NkWindow::GetConfig() const {
+		// Synchroniser avant de retourner
+		if (mIsOpen && mData.mConnection && mData.mWindow) {
+			// Appel à la fonction libre, pas à une méthode de classe
+			SyncConfigFromWindow(mData.mConnection, mData.mWindow, const_cast<NkWindow *>(this)->mConfig, mData);
+		}
+		return mConfig;
+	}
+
+	NkString NkWindow::GetTitle() const {
+		if (!mData.mConnection || !mData.mWindow) {
+			return mConfig.title;
+		}
+
+		// WM_NAME via xcb_get_property (xcb core) — l'ancienne API xcb_icccm_get_wm_name
+		// n'existe plus dans les libxcb-icccm récents.
+		xcb_get_property_cookie_t nameCookie =
+			xcb_get_property(mData.mConnection, 0, mData.mWindow, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 0, 1024);
+		xcb_get_property_reply_t *nameReply = xcb_get_property_reply(mData.mConnection, nameCookie, nullptr);
+		if (nameReply) {
+			int nameLen = xcb_get_property_value_length(nameReply);
+			if (nameLen > 0) {
+				NkString title = NkString((const char *)xcb_get_property_value(nameReply), (usize)nameLen);
+				platform::NkXcbFree(nameReply);
+				const_cast<NkWindow *>(this)->mConfig.title = title;
+				return title;
+			}
+			platform::NkXcbFree(nameReply);
+		}
+		return mConfig.title;
+	}
+
+	NkVec2u NkWindow::GetSize() const {
+		if (!mData.mConnection || !mData.mWindow)
+			return {mConfig.width, mConfig.height};
+
+		xcb_get_geometry_cookie_t c = xcb_get_geometry(mData.mConnection, mData.mWindow);
+		xcb_get_geometry_reply_t *r = xcb_get_geometry_reply(mData.mConnection, c, nullptr);
+		if (!r)
+			return {mConfig.width, mConfig.height};
+
+		NkVec2u sz = {(uint32)r->width, (uint32)r->height};
+		platform::NkXcbFree(r);
+
+		// Synchroniser mConfig
+		const_cast<NkWindow *>(this)->mConfig.width = sz.x;
+		const_cast<NkWindow *>(this)->mConfig.height = sz.y;
+
+		return sz;
+	}
+
+	NkVec2u NkWindow::GetPosition() const {
+		if (!mData.mConnection || !mData.mWindow)
+			return {(uint32)mConfig.x, (uint32)mConfig.y};
+
+		xcb_translate_coordinates_cookie_t c =
+			xcb_translate_coordinates(mData.mConnection, mData.mWindow, sDefaultScreen->root, 0, 0);
+		xcb_translate_coordinates_reply_t *r = xcb_translate_coordinates_reply(mData.mConnection, c, nullptr);
+		if (!r)
+			return {(uint32)mConfig.x, (uint32)mConfig.y};
+
+		NkVec2u pos = {(uint32)r->dst_x, (uint32)r->dst_y};
+		platform::NkXcbFree(r);
+
+		// Synchroniser mConfig
+		const_cast<NkWindow *>(this)->mConfig.x = pos.x;
+		const_cast<NkWindow *>(this)->mConfig.y = pos.y;
+
+		return pos;
+	}
+
+	// =============================================================================
+	// Moniteurs / Display (XCB RandR + DPI runtime)
+	// =============================================================================
+
+	// Fallback link-safe : un seul moniteur derive de l'ecran XCB par defaut.
+	static NkDisplayInfo XCBFallbackDisplayInfo(xcb_screen_t *screen) {
+		NkDisplayInfo info;
+		info.index = 0;
+		if (screen) {
+			info.width = info.physWidth = (uint32)screen->width_in_pixels;
+			info.height = info.physHeight = (uint32)screen->height_in_pixels;
+			float32 dpiX = 96.f, dpiY = 96.f;
+			if (screen->width_in_millimeters > 0)
+				dpiX = (float32)screen->width_in_pixels * 25.4f / (float32)screen->width_in_millimeters;
+			if (screen->height_in_millimeters > 0)
+				dpiY = (float32)screen->height_in_pixels * 25.4f / (float32)screen->height_in_millimeters;
+			info.dpiX = dpiX;
+			info.dpiY = dpiY;
+			info.dpiScale = dpiX / 96.f;
+			if (info.dpiScale < 0.5f)
+				info.dpiScale = 1.f;
+		} else {
+			info.width = info.physWidth = 1920;
+			info.height = info.physHeight = 1080;
+		}
+		info.isPrimary = true;
+		std::strncpy(info.name, "DISPLAY1", sizeof(info.name) - 1);
+		return info;
+	}
+
+	// Remplit un NkDisplayInfo depuis un CRTC RandR actif. DPI calcule depuis la
+	// taille physique (mm) du premier output relie, refresh depuis le mode.
+	static bool XCBFillDisplayInfoFromCrtc(xcb_connection_t *conn, xcb_randr_get_screen_resources_current_reply_t *res,
+										   xcb_randr_crtc_t crtc, xcb_randr_output_t primaryOutput, uint32 index,
+										   NkDisplayInfo &info) {
+		xcb_randr_get_crtc_info_cookie_t ck = xcb_randr_get_crtc_info(conn, crtc, XCB_CURRENT_TIME);
+		xcb_randr_get_crtc_info_reply_t *ci = xcb_randr_get_crtc_info_reply(conn, ck, nullptr);
+		if (!ci)
+			return false;
+
+		// CRTC inactif (pas de mode ou pas d'output) : ignore.
+		int noutput = xcb_randr_get_crtc_info_outputs_length(ci);
+		if (ci->mode == XCB_NONE || noutput <= 0) {
+			platform::NkXcbFree(ci);
+			return false;
+		}
+
+		info.index = index;
+		info.posX = (int32)ci->x;
+		info.posY = (int32)ci->y;
+		info.width = (uint32)ci->width;
+		info.height = (uint32)ci->height;
+		info.physWidth = (uint32)ci->width;
+		info.physHeight = (uint32)ci->height;
+
+		// Refresh rate : retrouver le mode courant dans les modes de la ressource.
+		xcb_randr_mode_info_iterator_t mit = xcb_randr_get_screen_resources_current_modes_iterator(res);
+		for (; mit.rem; xcb_randr_mode_info_next(&mit)) {
+			xcb_randr_mode_info_t *mi = mit.data;
+			if (mi->id == ci->mode) {
+				if (mi->htotal != 0 && mi->vtotal != 0) {
+					double vrefresh = (double)mi->dot_clock / ((double)mi->htotal * (double)mi->vtotal);
+					info.refreshRate = (uint32)(vrefresh + 0.5);
+				}
+				break;
+			}
+		}
+
+		// Premier output relie : nom + taille physique (mm) + primaire.
+		xcb_randr_output_t *outs = xcb_randr_get_crtc_info_outputs(ci);
+		xcb_randr_output_t out = outs[0];
+
+		xcb_randr_get_output_info_cookie_t ock = xcb_randr_get_output_info(conn, out, XCB_CURRENT_TIME);
+		xcb_randr_get_output_info_reply_t *oi = xcb_randr_get_output_info_reply(conn, ock, nullptr);
+		if (oi) {
+			int nameLen = xcb_randr_get_output_info_name_length(oi);
+			uint8_t *nameStr = xcb_randr_get_output_info_name(oi);
+			if (nameStr && nameLen > 0) {
+				usize n = (usize)nameLen;
+				if (n > sizeof(info.name) - 1)
+					n = sizeof(info.name) - 1;
+				for (usize i = 0; i < n; ++i)
+					info.name[i] = (char)nameStr[i];
+				info.name[n] = '\0';
+			}
+
+			float32 dpiX = 96.f, dpiY = 96.f;
+			if (oi->mm_width > 0)
+				dpiX = (float32)info.width * 25.4f / (float32)oi->mm_width;
+			if (oi->mm_height > 0)
+				dpiY = (float32)info.height * 25.4f / (float32)oi->mm_height;
+			info.dpiX = dpiX;
+			info.dpiY = dpiY;
+			info.dpiScale = dpiX / 96.f;
+			if (info.dpiScale < 0.5f)
+				info.dpiScale = 1.f;
+
+			platform::NkXcbFree(oi);
+		}
+
+		info.isPrimary = (primaryOutput != XCB_NONE && out == primaryOutput);
+
+		platform::NkXcbFree(ci);
+		return true;
+	}
+
+	NkVector<NkDisplayInfo> NkWindow::EnumerateMonitors() const {
+		NkVector<NkDisplayInfo> out;
+		xcb_connection_t *conn = mData.mConnection ? mData.mConnection : sConnection;
+		xcb_screen_t *screen = mData.mScreen ? mData.mScreen : sDefaultScreen;
+		if (!conn || !screen) {
+			out.PushBack(XCBFallbackDisplayInfo(screen));
+			return out;
+		}
+
+		// Verifier la presence de l'extension RandR.
+		const xcb_query_extension_reply_t *ext = xcb_get_extension_data(conn, &xcb_randr_id);
+		if (!ext || !ext->present) {
+			out.PushBack(XCBFallbackDisplayInfo(screen));
+			return out;
+		}
+
+		xcb_randr_get_screen_resources_current_cookie_t resCk =
+			xcb_randr_get_screen_resources_current(conn, screen->root);
+		xcb_randr_get_screen_resources_current_reply_t *res =
+			xcb_randr_get_screen_resources_current_reply(conn, resCk, nullptr);
+		if (!res) {
+			out.PushBack(XCBFallbackDisplayInfo(screen));
+			return out;
+		}
+
+		// Moniteur primaire.
+		xcb_randr_output_t primary = XCB_NONE;
+		xcb_randr_get_output_primary_cookie_t pck = xcb_randr_get_output_primary(conn, screen->root);
+		xcb_randr_get_output_primary_reply_t *pr = xcb_randr_get_output_primary_reply(conn, pck, nullptr);
+		if (pr) {
+			primary = pr->output;
+			platform::NkXcbFree(pr);
+		}
+
+		int ncrtc = xcb_randr_get_screen_resources_current_crtcs_length(res);
+		xcb_randr_crtc_t *crtcs = xcb_randr_get_screen_resources_current_crtcs(res);
+
+		uint32 idx = 0;
+		for (int i = 0; i < ncrtc; ++i) {
+			NkDisplayInfo info;
+			if (XCBFillDisplayInfoFromCrtc(conn, res, crtcs[i], primary, idx, info)) {
+				out.PushBack(info);
+				++idx;
+			}
+		}
+
+		platform::NkXcbFree(res);
+
+		if (out.Size() == 0) {
+			out.PushBack(XCBFallbackDisplayInfo(screen));
+		}
+		return out;
+	}
+
+	NkDisplayInfo NkWindow::GetCurrentMonitor() const {
+		NkVector<NkDisplayInfo> mons = EnumerateMonitors();
+		if (mons.Size() == 0) {
+			return XCBFallbackDisplayInfo(mData.mScreen ? mData.mScreen : sDefaultScreen);
+		}
+
+		// Centre de la fenetre dans l'espace ecran virtuel.
+		xcb_connection_t *conn = mData.mConnection ? mData.mConnection : sConnection;
+		xcb_screen_t *screen = mData.mScreen ? mData.mScreen : sDefaultScreen;
+		int cx = 0, cy = 0;
+		bool haveWin = false;
+		if (conn && screen && mData.mWindow) {
+			xcb_translate_coordinates_cookie_t tck = xcb_translate_coordinates(conn, mData.mWindow, screen->root, 0, 0);
+			xcb_translate_coordinates_reply_t *tr = xcb_translate_coordinates_reply(conn, tck, nullptr);
+			xcb_get_geometry_cookie_t gck = xcb_get_geometry(conn, mData.mWindow);
+			xcb_get_geometry_reply_t *gr = xcb_get_geometry_reply(conn, gck, nullptr);
+			if (tr && gr) {
+				cx = tr->dst_x + gr->width / 2;
+				cy = tr->dst_y + gr->height / 2;
+				haveWin = true;
+			}
+			if (tr)
+				platform::NkXcbFree(tr);
+			if (gr)
+				platform::NkXcbFree(gr);
+		}
+
+		if (haveWin) {
+			for (usize i = 0; i < mons.Size(); ++i) {
+				const NkDisplayInfo &d = mons[i];
+				if (cx >= d.posX && cx < d.posX + (int32)d.width && cy >= d.posY && cy < d.posY + (int32)d.height) {
+					return d;
+				}
+			}
+		}
+
+		for (usize i = 0; i < mons.Size(); ++i) {
+			if (mons[i].isPrimary)
+				return mons[i];
+		}
+		return mons[0];
+	}
+
+	uint32 NkWindow::GetMonitorCount() const {
+		return (uint32)EnumerateMonitors().Size();
+	}
+
+	float NkWindow::GetDpiScale() const {
+		NkDisplayInfo cur = GetCurrentMonitor();
+		float scale = cur.dpiScale;
+		return (scale > 0.f) ? scale : 1.f;
+	}
+
+	NkVec2u NkWindow::GetDisplaySize() const {
+		if (!sDefaultScreen)
+			return {1920, 1080};
+		return {(uint32)sDefaultScreen->width_in_pixels, (uint32)sDefaultScreen->height_in_pixels};
+	}
+
+	NkVec2u NkWindow::GetDisplayPosition() const {
+		return {0, 0};
+	}
+
+	// =============================================================================
+	// Setters
+	// =============================================================================
+
+	void NkWindow::SetTitle(const NkString &title) {
+		mConfig.title = title;
+		if (!mData.mConnection || !mData.mWindow)
+			return;
+
+		xcb_change_property(mData.mConnection, XCB_PROP_MODE_REPLACE, mData.mWindow, XCB_ATOM_WM_NAME, XCB_ATOM_STRING,
+							8, static_cast<uint32_t>(title.Size()), title.CStr());
+		xcb_change_property(mData.mConnection, XCB_PROP_MODE_REPLACE, mData.mWindow, sAtomNetWmName, sAtomUtf8String, 8,
+							static_cast<uint32_t>(title.Size()), title.CStr());
+		xcb_flush(mData.mConnection);
+	}
+
+	void NkWindow::SetSize(uint32 w, uint32 h) {
+		mConfig.width = w;
+		mConfig.height = h;
+		if (!mData.mConnection || !mData.mWindow)
+			return;
+
+		uint32_t values[] = {w, h};
+		xcb_configure_window(mData.mConnection, mData.mWindow, XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
+							 values);
+		xcb_flush(mData.mConnection);
+	}
+
+	void NkWindow::SetPosition(int32 x, int32 y) {
+		mConfig.x = x;
+		mConfig.y = y;
+		if (!mData.mConnection || !mData.mWindow)
+			return;
+
+		uint32_t values[] = {(uint32_t)x, (uint32_t)y};
+		xcb_configure_window(mData.mConnection, mData.mWindow, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y, values);
+		xcb_flush(mData.mConnection);
+	}
+
+	void NkWindow::SetVisible(bool visible) {
+		mConfig.visible = visible;
+		if (!mData.mConnection || !mData.mWindow)
+			return;
+
+		if (visible)
+			xcb_map_window(mData.mConnection, mData.mWindow);
+		else
+			xcb_unmap_window(mData.mConnection, mData.mWindow);
+		xcb_flush(mData.mConnection);
+	}
+
+	void NkWindow::Minimize() {
+		// XCB n'expose pas iconify directement — envoyer WM_CHANGE_STATE
+		if (!mData.mConnection || !mData.mWindow || !sDefaultScreen)
+			return;
+
+		xcb_client_message_event_t ev{};
+		ev.response_type = XCB_CLIENT_MESSAGE;
+		ev.format = 32;
+		ev.window = mData.mWindow;
+		ev.type = NkXCBInternAtom(mData.mConnection, "WM_CHANGE_STATE");
+		ev.data.data32[0] = 3; // IconicState
+
+		xcb_send_event(mData.mConnection, 0, sDefaultScreen->root,
+					   XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY, (const char *)&ev);
+		xcb_flush(mData.mConnection);
+
+		// L'état de visibilité change
+		mConfig.visible = false;
+	}
+
+	void NkWindow::Maximize() {
+		if (!mData.mConnection || !mData.mWindow || !sDefaultScreen)
+			return;
+
+		xcb_atom_t wmState = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE");
+		xcb_atom_t maxH = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE_MAXIMIZED_HORZ");
+		xcb_atom_t maxV = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE_MAXIMIZED_VERT");
+
+		xcb_client_message_event_t ev{};
+		ev.response_type = XCB_CLIENT_MESSAGE;
+		ev.format = 32;
+		ev.window = mData.mWindow;
+		ev.type = wmState;
+		ev.data.data32[0] = 1; // _NET_WM_STATE_ADD
+		ev.data.data32[1] = maxH;
+		ev.data.data32[2] = maxV;
+
+		xcb_send_event(mData.mConnection, 0, sDefaultScreen->root,
+					   XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY, (const char *)&ev);
+		xcb_flush(mData.mConnection);
+
+		// Mettre à jour la taille après maximisation
+		xcb_get_geometry_cookie_t c = xcb_get_geometry(mData.mConnection, mData.mWindow);
+		xcb_get_geometry_reply_t *r = xcb_get_geometry_reply(mData.mConnection, c, nullptr);
+		if (r) {
+			mConfig.width = r->width;
+			mConfig.height = r->height;
+			platform::NkXcbFree(r);
+		}
+		mConfig.visible = true;
+	}
+
+	bool NkWindow::IsMaximized() const {
+		return false;
+	}
+
+	// Hand-off natif via _NET_WM_MOVERESIZE (le WM gere le drag jusqu'au relachement).
+	static void NkXcbMoveResize(xcb_connection_t *conn, xcb_window_t win, int direction) {
+		if (!conn || !win || !sDefaultScreen)
+			return;
+		const xcb_window_t root = sDefaultScreen->root;
+		int rx = 0, ry = 0;
+		xcb_query_pointer_reply_t *qp = xcb_query_pointer_reply(conn, xcb_query_pointer(conn, win), nullptr);
+		if (qp) {
+			rx = qp->root_x;
+			ry = qp->root_y;
+			platform::NkXcbFree(qp);
+		}
+		xcb_ungrab_pointer(conn, XCB_CURRENT_TIME);
+		xcb_client_message_event_t ev = {};
+		ev.response_type = XCB_CLIENT_MESSAGE;
+		ev.window = win;
+		ev.type = NkXCBInternAtom(conn, "_NET_WM_MOVERESIZE");
+		ev.format = 32;
+		ev.data.data32[0] = static_cast<uint32_t>(rx);
+		ev.data.data32[1] = static_cast<uint32_t>(ry);
+		ev.data.data32[2] = static_cast<uint32_t>(direction);
+		ev.data.data32[3] = XCB_BUTTON_INDEX_1;
+		ev.data.data32[4] = 1;
+		xcb_send_event(conn, 0, root, XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
+					   reinterpret_cast<const char *>(&ev));
+		xcb_flush(conn);
+	}
+
+	void NkWindow::BeginDragMove() {
+		NkXcbMoveResize(mData.mConnection, mData.mWindow, 8 /*MOVE*/);
+	}
+
+	void NkWindow::BeginResize(NkResizeEdge edge) {
+		int dir = 8;
+		switch (edge) { // EWMH _NET_WM_MOVERESIZE_SIZE_*
+			case NkResizeEdge::TopLeft:
+				dir = 0;
+				break;
+			case NkResizeEdge::Top:
+				dir = 1;
+				break;
+			case NkResizeEdge::TopRight:
+				dir = 2;
+				break;
+			case NkResizeEdge::Right:
+				dir = 3;
+				break;
+			case NkResizeEdge::BottomRight:
+				dir = 4;
+				break;
+			case NkResizeEdge::Bottom:
+				dir = 5;
+				break;
+			case NkResizeEdge::BottomLeft:
+				dir = 6;
+				break;
+			case NkResizeEdge::Left:
+				dir = 7;
+				break;
+		}
+		NkXcbMoveResize(mData.mConnection, mData.mWindow, dir);
+	}
+
+	void NkWindow::Restore() {
+		if (!mData.mConnection || !mData.mWindow)
+			return;
+
+		xcb_map_window(mData.mConnection, mData.mWindow);
+		xcb_flush(mData.mConnection);
+
+		// Mettre à jour après restauration
+		xcb_get_geometry_cookie_t c = xcb_get_geometry(mData.mConnection, mData.mWindow);
+		xcb_get_geometry_reply_t *r = xcb_get_geometry_reply(mData.mConnection, c, nullptr);
+		if (r) {
+			mConfig.width = r->width;
+			mConfig.height = r->height;
+			platform::NkXcbFree(r);
+		}
+		mConfig.visible = true;
+	}
+
+	void NkWindow::SetFullscreen(bool fullscreen) {
+		if (!mData.mConnection || !mData.mWindow || !sDefaultScreen)
+			return;
+
+		mConfig.fullscreen = fullscreen;
+
+		xcb_atom_t wmState = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE");
+		xcb_atom_t wmFs = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE_FULLSCREEN");
+
+		xcb_client_message_event_t ev{};
+		ev.response_type = XCB_CLIENT_MESSAGE;
+		ev.format = 32;
+		ev.window = mData.mWindow;
+		ev.type = wmState;
+		ev.data.data32[0] = fullscreen ? 1 : 0;
+		ev.data.data32[1] = wmFs;
+
+		xcb_send_event(mData.mConnection, 0, sDefaultScreen->root,
+					   XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY, (const char *)&ev);
+		xcb_flush(mData.mConnection);
+
+		// Mettre à jour la taille
+		if (fullscreen) {
+			mConfig.width = sDefaultScreen->width_in_pixels;
+			mConfig.height = sDefaultScreen->height_in_pixels;
+		} else {
+			xcb_get_geometry_cookie_t c = xcb_get_geometry(mData.mConnection, mData.mWindow);
+			xcb_get_geometry_reply_t *r = xcb_get_geometry_reply(mData.mConnection, c, nullptr);
+			if (r) {
+				mConfig.width = r->width;
+				mConfig.height = r->height;
+				platform::NkXcbFree(r);
+			}
+		}
+	}
+
+	// =============================================================================
+	// Orientation (desktop — no-op)
+	// =============================================================================
+
+	bool NkWindow::SupportsOrientationControl() const {
+		return false;
+	}
+
+	void NkWindow::SetScreenOrientation(NkScreenOrientation) {
+	}
+
+	NkScreenOrientation NkWindow::GetScreenOrientation() const {
+		return NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE;
+	}
+
+	void NkWindow::SetAutoRotateEnabled(bool) {
+	}
+
+	bool NkWindow::IsAutoRotateEnabled() const {
+		return false;
+	}
+
+	void NkWindow::SetHideSystemUI(bool) {
+	}
+
+	bool NkWindow::GetHideSystemUI() const {
+		return false;
+	}
+
+	void NkWindow::SetLockOrientation(bool) {
+	}
+
+	bool NkWindow::GetLockOrientation() const {
+		return false;
+	}
+
+	// =============================================================================
+	// Mouse
+	// =============================================================================
+
+	void NkWindow::SetMousePosition(uint32 x, uint32 y) {
+		if (mData.mConnection && mData.mWindow)
+			xcb_warp_pointer(mData.mConnection, XCB_NONE, mData.mWindow, 0, 0, 0, 0, (int16_t)x, (int16_t)y);
+	}
+
+	void NkWindow::ShowMouse(bool show) {
+		if (!mData.mConnection || !mData.mWindow)
+			return;
+
+		if (show) {
+			uint32_t cursor = XCB_CURSOR_NONE;
+			xcb_change_window_attributes(mData.mConnection, mData.mWindow, XCB_CW_CURSOR, &cursor);
+		} else {
+			// Créer un curseur invisible si pas encore fait
+			if (!mData.mHiddenCursor) {
+				xcb_pixmap_t pix = xcb_generate_id(mData.mConnection);
+				xcb_create_pixmap(mData.mConnection, 1, pix, mData.mWindow, 1, 1);
+				mData.mHiddenCursor = xcb_generate_id(mData.mConnection);
+				xcb_create_cursor(mData.mConnection, mData.mHiddenCursor, pix, pix, 0, 0, 0, 0, 0, 0, 0, 0);
+				xcb_free_pixmap(mData.mConnection, pix);
+			}
+			xcb_change_window_attributes(mData.mConnection, mData.mWindow, XCB_CW_CURSOR, &mData.mHiddenCursor);
+		}
+		xcb_flush(mData.mConnection);
+	}
+
+	void NkWindow::CaptureMouse(bool) {
+	} // XCB grab nécessite xcb_grab_pointer — laissé en no-op
+
+	void NkWindow::ClipMouseToClient(bool clip) {
+		if (!mData.mConnection || !mData.mWindow)
+			return;
+		if (clip) {
+			// xcb_grab_pointer avec confine_to = fenetre client.
+			xcb_grab_pointer_cookie_t ck = xcb_grab_pointer(
+				mData.mConnection,
+				/*owner_events=*/1, mData.mWindow,
+				XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
+				XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
+				mData.mWindow, // confine_to
+				XCB_NONE,	   // cursor
+				XCB_CURRENT_TIME);
+			xcb_grab_pointer_reply_t *r = xcb_grab_pointer_reply(mData.mConnection, ck, nullptr);
+			if (r)
+				platform::NkXcbFree(r);
+		} else {
+			xcb_ungrab_pointer(mData.mConnection, XCB_CURRENT_TIME);
+		}
+		xcb_flush(mData.mConnection);
+	}
+
+	// =============================================================================
+	// Web / extras (no-op on desktop)
+	// =============================================================================
+
+	void NkWindow::SetWebInputOptions(const NkWebInputOptions &) {
+	}
+
+	NkWebInputOptions NkWindow::GetWebInputOptions() const {
+		return {};
+	}
+
+	void NkWindow::SetProgress(float) {
+	}
+
+	// Desktop X11 : clavier physique, pas de clavier logiciel. No-op.
+	void NkWindow::ShowSoftKeyboard(const NkSoftKeyboardConfig &) {
+	}
+
+	void NkWindow::HideSoftKeyboard() {
+	}
+
+	bool NkWindow::IsSoftKeyboardVisible() const {
+		return false;
+	}
+
+	NkSafeAreaInsets NkWindow::GetSafeAreaInsets() const {
+		return {};
+	}
+
+	// =============================================================================
+	// Surface
+	// =============================================================================
+
+	NkSurfaceDesc NkWindow::GetSurfaceDesc() const {
+		NkSurfaceDesc sd;
+		auto sz = GetSize(); // GetSize synchronise déjà mConfig
+		sd.width = sz.x;
+		sd.height = sz.y;
+		sd.dpi = GetDpiScale();
+		sd.connection = mData.mConnection;
+		sd.window = mData.mWindow;
+		sd.screen = mData.mScreen;
+		sd.appliedHints = mData.mAppliedHints;
+		return sd;
+	}
 
 } // namespace nkentseu
 

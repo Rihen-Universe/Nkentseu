@@ -45,14 +45,14 @@
 
 namespace nkentseu {
 
-    class NKENTSEU_IMAGE_API NkEXRCodec {
-    public:
-        /// Decode un buffer EXR en NkImage RGB96F ou RGBA128F.
-        /// @param data  Buffer EXR complet (entete + offset table + chunks).
-        /// @param size  Taille du buffer en octets.
-        /// @return      NkImage* a liberer avec ->Free(), ou nullptr si format
-        ///              invalide / compression non supportee.
-        static NkImage* Decode(const uint8* data, usize size) noexcept;
-    };
+	class NKENTSEU_IMAGE_API NkEXRCodec {
+		public:
+			/// Decode un buffer EXR en NkImage RGB96F ou RGBA128F.
+			/// @param data  Buffer EXR complet (entete + offset table + chunks).
+			/// @param size  Taille du buffer en octets.
+			/// @return      NkImage* a liberer avec ->Free(), ou nullptr si format
+			///              invalide / compression non supportee.
+			static NkImage *Decode(const uint8 *data, usize size) noexcept;
+	};
 
 } // namespace nkentseu

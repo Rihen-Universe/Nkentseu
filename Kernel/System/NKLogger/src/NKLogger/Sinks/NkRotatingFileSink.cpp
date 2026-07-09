@@ -27,7 +27,6 @@
 #include <cstdio>
 #include <sys/stat.h>
 
-
 // -------------------------------------------------------------------------
 // SECTION 1 : NAMESPACE ANONYME - UTILITAIRES INTERNES
 // -------------------------------------------------------------------------
@@ -36,7 +35,6 @@
 
 namespace {
 
-
 	// -------------------------------------------------------------------------
 	// FONCTION : NkFileExists
 	// DESCRIPTION : Vérifie si un fichier existe via interrogation système
@@ -44,18 +42,16 @@ namespace {
 	// RETURN : true si le fichier existe et est accessible, false sinon
 	// NOTE : Utilise stat() portable, retourne false pour chemins vides
 	// -------------------------------------------------------------------------
-	bool NkFileExists(const nkentseu::NkString& path) {
+	bool NkFileExists(const nkentseu::NkString &path) {
 		if (path.Empty()) {
 			return false;
 		}
 
-		struct stat fileInfo {};
+		struct stat fileInfo{};
 		return ::stat(path.CStr(), &fileInfo) == 0;
 	}
 
-
-} // namespace anonymous
-
+} // namespace
 
 // -------------------------------------------------------------------------
 // SECTION 2 : NAMESPACE PRINCIPAL - IMPLÉMENTATIONS DES MÉTHODES
@@ -65,25 +61,18 @@ namespace {
 
 namespace nkentseu {
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Constructeur
 	// DESCRIPTION : Initialise avec paramètres de rotation et ouverture fichier
 	// -------------------------------------------------------------------------
-	NkRotatingFileSink::NkRotatingFileSink(
-		const NkString& filename,
-		usize maxSize,
-		usize maxFiles
-	) : NkFileSink(filename, false)  // Append mode par défaut pour rotation
-		, m_MaxSize(maxSize)
-		, m_MaxFiles(maxFiles)
-		, m_CurrentSize(0) {
-
+	NkRotatingFileSink::NkRotatingFileSink(const NkString &filename, usize maxSize, usize maxFiles)
+		: NkFileSink(filename, false) // Append mode par défaut pour rotation
+		  ,
+		  m_MaxSize(maxSize), m_MaxFiles(maxFiles), m_CurrentSize(0) {
 		// Initialisation de m_CurrentSize via interrogation système
 		// Note : peut être 0 si fichier nouvellement créé
 		m_CurrentSize = GetFileSize();
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Destructeur
@@ -96,12 +85,11 @@ namespace nkentseu {
 		// Aucune logique supplémentaire nécessaire
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Log
 	// DESCRIPTION : Écriture avec mise à jour de taille et vérification rotation
 	// -------------------------------------------------------------------------
-	void NkRotatingFileSink::Log(const NkLogMessage& message) {
+	void NkRotatingFileSink::Log(const NkLogMessage &message) {
 		// Appel de la méthode parente pour écriture normale thread-safe
 		NkFileSink::Log(message);
 
@@ -109,7 +97,6 @@ namespace nkentseu {
 		// Note : GetFileSize() utilise stat() : appel système potentiellement coûteux
 		m_CurrentSize = GetFileSize();
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetMaxSize
@@ -123,7 +110,6 @@ namespace nkentseu {
 		m_MaxSize = maxSize;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetMaxSize
 	// DESCRIPTION : Retourne la limite de taille (lecture thread-safe)
@@ -135,7 +121,6 @@ namespace nkentseu {
 		// Retour de la valeur configurée
 		return m_MaxSize;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetMaxFiles
@@ -149,7 +134,6 @@ namespace nkentseu {
 		m_MaxFiles = maxFiles;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetMaxFiles
 	// DESCRIPTION : Retourne le nombre de backups configuré (lecture thread-safe)
@@ -161,7 +145,6 @@ namespace nkentseu {
 		// Retour de la valeur configurée
 		return m_MaxFiles;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Rotate
@@ -179,7 +162,6 @@ namespace nkentseu {
 		return true;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : CheckRotation (override protégé)
 	// DESCRIPTION : Vérifie la condition de rotation et déclenche si nécessaire
@@ -194,7 +176,6 @@ namespace nkentseu {
 			PerformRotation();
 		}
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : PerformRotation (privée)
@@ -250,7 +231,6 @@ namespace nkentseu {
 		m_CurrentSize = 0;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetFilenameForIndex (privée)
 	// DESCRIPTION : Génère le chemin de fichier pour un index de rotation donné
@@ -262,12 +242,7 @@ namespace nkentseu {
 		char suffixBuffer[32];
 
 		// Formatage sûr de l'index en chaîne décimale
-		const int written = ::snprintf(
-			suffixBuffer,
-			sizeof(suffixBuffer),
-			".%zu",
-			static_cast<size_t>(index)
-		);
+		const int written = ::snprintf(suffixBuffer, sizeof(suffixBuffer), ".%zu", static_cast<size_t>(index));
 
 		// Récupération du chemin de base via méthode unlocked (mutex déjà acquis)
 		NkString result = GetFilenameUnlocked();
@@ -280,9 +255,7 @@ namespace nkentseu {
 		return result;
 	}
 
-
 } // namespace nkentseu
-
 
 // =============================================================================
 // NOTES D'IMPLÉMENTATION ET BONNES PRATIQUES
@@ -291,7 +264,7 @@ namespace nkentseu {
 	1. ATOMICITÉ DE PerformRotation() :
 	   - Séquence Close() → rename() → Open() doit être exécutée atomiquement
 	   - Garantit par le fait que cette méthode est appelée uniquement depuis
-	     Log() ou Rotate() qui acquièrent déjà m_Mutex
+		 Log() ou Rotate() qui acquièrent déjà m_Mutex
 	   - Risk : crash pendant rotation → fichier .0 potentiellement partiel
 	   - Mitigation : rotation déclenchée uniquement après écriture complète
 
@@ -333,7 +306,6 @@ namespace nkentseu {
 	   - Upload cloud : envoyer .N vers S3/autre après rotation pour archivage distant
 	   - Hook personnalisé : callback avant/après rotation pour intégration monitoring
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

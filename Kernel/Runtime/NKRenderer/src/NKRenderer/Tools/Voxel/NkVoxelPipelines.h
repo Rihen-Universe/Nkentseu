@@ -16,28 +16,31 @@
 
 namespace nkentseu {
 
-    class NkComputeContext; // NKRHI/Core/NkComputeContext.h
+	class NkComputeContext; // NKRHI/Core/NkComputeContext.h
 
-    namespace renderer {
+	namespace renderer {
 
-        class NkVoxelPipelines {
-            public:
-                NkVoxelPipelines() noexcept = default;
-                ~NkVoxelPipelines() noexcept = default;
+		class NkVoxelPipelines {
+			public:
+				NkVoxelPipelines() noexcept = default;
+				~NkVoxelPipelines() noexcept = default;
 
-                // ctx : contexte compute du systeme (proprietaire du cache de pipelines).
-                bool Init(NkComputeContext* ctx) noexcept;
-                void Shutdown() noexcept;
-                [[nodiscard]] bool IsValid() const noexcept { return mCtx != nullptr; }
+				// ctx : contexte compute du systeme (proprietaire du cache de pipelines).
+				bool Init(NkComputeContext *ctx) noexcept;
+				void Shutdown() noexcept;
 
-                // Pipeline d'edition (un seul kernel ; le mode est en push-constant).
-                [[nodiscard]] NkPipelineHandle Edit() noexcept;
-                // Pipeline de raymarch (volume -> G-buffer).
-                [[nodiscard]] NkPipelineHandle Raymarch() noexcept;
+				[[nodiscard]] bool IsValid() const noexcept {
+					return mCtx != nullptr;
+				}
 
-            private:
-                NkComputeContext* mCtx = nullptr;
-        };
+				// Pipeline d'edition (un seul kernel ; le mode est en push-constant).
+				[[nodiscard]] NkPipelineHandle Edit() noexcept;
+				// Pipeline de raymarch (volume -> G-buffer).
+				[[nodiscard]] NkPipelineHandle Raymarch() noexcept;
 
-    } // namespace renderer
+			private:
+				NkComputeContext *mCtx = nullptr;
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

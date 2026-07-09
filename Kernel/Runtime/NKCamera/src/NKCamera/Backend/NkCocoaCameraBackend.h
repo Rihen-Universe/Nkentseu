@@ -27,73 +27,95 @@
 
 #endif // __OBJC__
 
-namespace nkentseu
-{
+namespace nkentseu {
 
-class NkCocoaCameraBackend : public NKICameraBackend
-{
-public:
-    NkCocoaCameraBackend();
-    ~NkCocoaCameraBackend() override;
+	class NkCocoaCameraBackend : public NKICameraBackend {
+		public:
+			NkCocoaCameraBackend();
+			~NkCocoaCameraBackend() override;
 
-    bool Init() override;
-    void Shutdown() override;
+			bool Init() override;
+			void Shutdown() override;
 
-    NkVector<NkCameraDevice> EnumerateDevices() override;
-    void SetHotPlugCallback(NkCameraHotPlugCallback cb) override { mHotPlugCb = std::move(cb); }
+			NkVector<NkCameraDevice> EnumerateDevices() override;
 
-    bool StartStreaming(const NkCameraConfig& config) override;
-    void StopStreaming() override;
-    NkCameraState GetState() const override { return mState; }
-    void SetFrameCallback(NkFrameCallback cb) override { mFrameCb = std::move(cb); }
-    bool GetLastFrame(NkCameraFrame& out) override;
+			void SetHotPlugCallback(NkCameraHotPlugCallback cb) override {
+				mHotPlugCb = std::move(cb);
+			}
 
-    bool CapturePhoto(NkPhotoCaptureResult& res) override;
-    bool CapturePhotoToFile(const NkString& path) override;
+			bool StartStreaming(const NkCameraConfig &config) override;
+			void StopStreaming() override;
 
-    bool StartVideoRecord(const NkVideoRecordConfig& config) override;
-    void StopVideoRecord() override;
-    bool IsRecording() const override;
-    float GetRecordingDurationSeconds() const override;
+			NkCameraState GetState() const override {
+				return mState;
+			}
 
-    bool SetAutoFocus(bool e) override;
-    bool SetTorch(bool e) override;
-    bool SetZoom(float z) override;
+			void SetFrameCallback(NkFrameCallback cb) override {
+				mFrameCb = std::move(cb);
+			}
 
-    bool GetOrientation(NkCameraOrientation& out) override;
+			bool GetLastFrame(NkCameraFrame &out) override;
 
-    uint32         GetWidth()     const override { return mWidth;  }
-    uint32         GetHeight()    const override { return mHeight; }
-    uint32         GetFPS()       const override { return mFPS;    }
-    NkPixelFormat GetFormat()    const override { return NkPixelFormat::NK_PIXEL_BGRA8; }
-    NkString   GetLastError() const override { return mLastError; }
+			bool CapturePhoto(NkPhotoCaptureResult &res) override;
+			bool CapturePhotoToFile(const NkString &path) override;
 
-    // Appelé depuis le delegate ObjC
-    void OnSampleBuffer(void* cmSampleBuffer);
+			bool StartVideoRecord(const NkVideoRecordConfig &config) override;
+			void StopVideoRecord() override;
+			bool IsRecording() const override;
+			float GetRecordingDurationSeconds() const override;
 
-private:
-    NkCameraState   mState    = NkCameraState::NK_CAM_STATE_CLOSED;
-    uint32           mWidth    = 0, mHeight = 0, mFPS = 30;
-    uint32           mFrameIdx = 0;
-    NkString     mLastError;
+			bool SetAutoFocus(bool e) override;
+			bool SetTorch(bool e) override;
+			bool SetZoom(float z) override;
 
-    std::mutex     mMutex;
-    NkCameraFrame  mLastFrame;
-    bool           mHasFrame = false;
+			bool GetOrientation(NkCameraOrientation &out) override;
 
-    NkFrameCallback         mFrameCb;
-    NkCameraHotPlugCallback mHotPlugCb;
+			uint32 GetWidth() const override {
+				return mWidth;
+			}
 
-    // ObjC objects (void* pour éviter d'inclure les headers ObjC ici)
-    void* mSession       = nullptr;  // AVCaptureSession*
-    void* mInput         = nullptr;  // AVCaptureDeviceInput*
-    void* mOutput        = nullptr;  // AVCaptureVideoDataOutput*
-    void* mDelegate      = nullptr;  // NkAVDelegate*
-    void* mAssetWriter   = nullptr;  // AVAssetWriter*
-    void* mAssetInput    = nullptr;  // AVAssetWriterInput*
+			uint32 GetHeight() const override {
+				return mHeight;
+			}
 
-    NkElapsedTime mRecordStart;
-    bool mRecording = false;
-};
+			uint32 GetFPS() const override {
+				return mFPS;
+			}
+
+			NkPixelFormat GetFormat() const override {
+				return NkPixelFormat::NK_PIXEL_BGRA8;
+			}
+
+			NkString GetLastError() const override {
+				return mLastError;
+			}
+
+			// Appelé depuis le delegate ObjC
+			void OnSampleBuffer(void *cmSampleBuffer);
+
+		private:
+			NkCameraState mState = NkCameraState::NK_CAM_STATE_CLOSED;
+			uint32 mWidth = 0, mHeight = 0, mFPS = 30;
+			uint32 mFrameIdx = 0;
+			NkString mLastError;
+
+			std::mutex mMutex;
+			NkCameraFrame mLastFrame;
+			bool mHasFrame = false;
+
+			NkFrameCallback mFrameCb;
+			NkCameraHotPlugCallback mHotPlugCb;
+
+			// ObjC objects (void* pour éviter d'inclure les headers ObjC ici)
+			void *mSession = nullptr;	  // AVCaptureSession*
+			void *mInput = nullptr;		  // AVCaptureDeviceInput*
+			void *mOutput = nullptr;	  // AVCaptureVideoDataOutput*
+			void *mDelegate = nullptr;	  // NkAVDelegate*
+			void *mAssetWriter = nullptr; // AVAssetWriter*
+			void *mAssetInput = nullptr;  // AVAssetWriterInput*
+
+			NkElapsedTime mRecordStart;
+			bool mRecording = false;
+	};
 
 } // namespace nkentseu
