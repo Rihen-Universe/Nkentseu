@@ -350,7 +350,43 @@ en conflit avec ce module. Cette couche s'appelle ici **pont directeur** (NkAnim
   français** (vrais mots *le/la/de/vous/qui/que/une*, apostrophes, accents, ponctuation). Preuve que
   toute l'architecture transformer/GPT *from-scratch, sans STL* tourne de bout en bout et génère du texte.
 - Puis (montée en gamme) : plus de pas/données, modèle plus grand, **tokenizer BPE**, contexte plus long ;
-  **corpus trilingue FR + EN + ghɔmáláʼ** (`bbj`, extraction du `DICTIONNAIRE_GHOMALA.pdf`) ; GPU serveurs — Phase 7.
+  **corpus trilingue FR + EN + ghɔmáláʼ** (`bbj`) ; GPU serveurs — Phase 7.
+
+### ✅ MONTÉE EN GAMME RÉALISÉE (2026-07-07 → 09) — GPT trilingue BPE + zéro-STL
+- ✅ **Corpus multi-fichiers équilibré PAR LANGUE** (`LoadCorpusByLang`) : lit tout `Resources/Datasets/`,
+  préfixes `fr_`/`en_`/`bbj_` (langue = préfixe avant `_`), **1/3 par langue**. 6 livres FR + 8 EN
+  (Gutenberg, domaine public) + **bbj**.
+- ✅ **bbj = Ghɔmáláʼ (langue camerounaise)** : le `DICTIONNAIRE_GHOMALA.pdf` est **inextractible**
+  (polices sans table Unicode → mojibake, prouvé `pdffonts`). SOURCE RETENUE = **Nouveau Testament
+  Ghɔmáláʼ** (© 2002 Bible Society of Cameroon, PDF bibliamundi) → `pdftotext -enc UTF-8` = **vrai bbj
+  Unicode propre** → nettoyé → `Resources/Datasets/bbj_ghomala_nt.txt` (~1,05 M car.). ⚖️ **© →
+  gitignored** (`/Resources/Datasets/bbj_*.txt`), usage local seulement, jamais commité.
+- ✅ **Tokenizer BPE from-scratch** (`NK_GPT_MERGES`, défaut 600) : 256 octets + fusions apprises →
+  morceaux de mots → **vrais mots** (fr « idée/homme/était », en « The man and much », bbj lisible avec
+  tons ɔ ə ŋ ʼ). Remplace le char-level.
+- ✅ **Tag de langue** (`NK_GPT_LANG=fr|en|bbj`) : chaque séquence préfixée d'un token-tag de langue →
+  génération **pilotée** (même amorce → langue au choix), tags masqués à l'échantillonnage.
+- ✅ **Checkpoint NKGP v3 autonome** (dims + fusions BPE + langues + poids CPU, `FILE*`) :
+  `NK_GPT_SAVE`/`NK_GPT_LOAD`/`NK_GPT_PROMPT`/`NK_GPT_GENLEN` → **générer sans réentraîner** (~4 s).
+- ✅ **Optim broadcast GPU (~3,8×)** : biais Dense + affine LayerNorm restent sur GPU
+  (kernels `addbcast`/`mulbcast`). 40 pas 134,8 s → 35,6 s, perte identique.
+- ✅ **Résultats** (modèle 2000 pas `Resources/Models/gpt_tri_bpe_long.nkgp`, gitignored, perte
+  7,28 → 3,36) : les 3 langues sortent ; **bbj le plus lisible** (phrases + questions, ex.
+  « Paska m gɑ́ kɑ? »). ⚠️ Honnête : petite échelle, vrais mots mais **pas de grammaire tenue** ;
+  mur = **rareté des données bbj**. Pour un chatbot Q→R : corpus **format dialogue** (à faire).
+- ✅ **`NKGptTrain` 100% ZÉRO-STL** (2026-07-09) : std::string→**NkString**, std::vector→**NkVector**,
+  std::map→**table de hachage int64 maison** (open-addressing sur NkVector ; BPE en tableau plat +
+  séparateurs, sans NkMap/tri), std::ifstream→**FILE*** (comme NKInfer), std::filesystem→
+  **NkDirectory::GetFiles**, std::chrono→**NkChrono**. `NKGptTrain.jenga` : + dép **NKFileSystem**.
+  Build OK, zéro `std::` (le seul restant = commentaire), rétro-compatible v3.
+- ✅ **Tests validation 74/74** : `NKAutogradTest` 27/27, `NKTransformerTest` 3/3, `NkTensorGpuTest` 44/44.
+- **PRs** : #27 corpus trilingue ✅ mergée · #28 tag de langue ✅ mergée · **#30 BPE + guide** 🟢 prête ·
+  **zéro-STL** = commit local `feat/nkai-zerostl` (push différé, coordination autre agent).
+- **Doc/pub** : guide `Applications/NKGptTrain/GUIDE_LLM_AUTONOME.md`, README ; **Publication 13**
+  (`D:\Rihen\Rodolf\Publications\13_2026-07-07_nkai-gpt-trilingue\`, posts + article + scripts vidéo) ;
+  scripts vidéo ajoutés aux publications 07 (MNIST) et 12 (3D).
+- **Reste** : push zéro-STL + PR ; filmer les vidéos-preuves (scripts prêts) ; entraînement plus long/gros ;
+  corpus format dialogue ; plus de données bbj.
 
 ### Où va le code (modules)
 - **NKAutograd** : ops batched-matmul, LayerNorm, softmax-axe+masque, embedding, GELU (fwd+bwd, gradient-checkés dans `NKAutogradTest`).
