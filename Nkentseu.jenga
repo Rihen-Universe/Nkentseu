@@ -897,6 +897,10 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Kernel/AI/NKGpt/NKGpt.jenga"):
+
+        pass
+
 
 
     with include("Applications/NKTensorDemo/NKTensorDemo.jenga"):
