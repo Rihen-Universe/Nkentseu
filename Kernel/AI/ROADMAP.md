@@ -423,8 +423,17 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
   tags correspondent), et **continue** l'entraînement au lieu de seulement générer. Validé (perte repart
   à 5,93 vs 6,38 à froid → continue bien depuis les poids). ⚠️ Limite : l'état Adam n'est pas sauvegardé
   (optimiseur neuf + warmup LR redémarre à la reprise) — les poids, eux, sont préservés.
+- 🟡 **Modularisation NKGptTrain — étape 1/2** (commit `824530f0`) : **module `NKGpt`**
+  (`Kernel/AI/NKGpt`, lib statique, namespace `nkentseu::ai::gpt`) extrait les briques
+  **réutilisables** — tokenizer **BPE** (`Bpe`/`TrainBpe`), **corpus** (`LoadCorpus`/
+  `LoadCorpusByLang`/`LangOf`), **checkpoint** `NKGP` (`SaveCheckpoint`/`LoadCheckpoint*`). Toute
+  app peut désormais les linker. `main.cpp` 649→367 lignes. Build 25/25 OK, comportement identique.
+  ⬜ **Étape 2/2** : classe **`NkGptTrainer`** (config + modèle + boucle Fit + Generate) → `main.cpp`
+  devient un pilote ~40 lignes, et l'ENTRAÎNEMENT complet est réutilisable par n'importe quelle app.
 - ⬜ **Restes** : sauver l'état Adam + le pas courant dans le checkpoint (reprise parfaite du schedule) ;
   cible par indices (au lieu du one-hot dense) ; mixed precision FP16 (Palier 2) ; corpus format dialogue.
+  ⚠️ Ne pas lancer un 2ᵉ entraînement GPU pendant qu'un run tourne (contention Vulkan sur 8 Go → crash
+  du 2ᵉ process ; l'exe isolé du Palier n'est pas affecté).
 
 ### Où va le code (modules)
 - **NKAutograd** : ops batched-matmul, LayerNorm, softmax-axe+masque, embedding, GELU (fwd+bwd, gradient-checkés dans `NKAutogradTest`).
