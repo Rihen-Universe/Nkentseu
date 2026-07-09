@@ -16,6 +16,12 @@
 #include <mmdeviceapi.h>
 #include <audioclient.h>
 #include <mmreg.h>
+#elif defined(NKENTSEU_PLATFORM_LINUX) && !defined(NKENTSEU_PLATFORM_HARMONYOS) && !defined(NKENTSEU_PLATFORM_ANDROID)
+// Capture ALSA (Linux) — miroir du backend de lecture (SND_PCM_STREAM_CAPTURE + snd_pcm_readi).
+#include <alsa/asoundlib.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <cstring>
 #endif
 
 namespace nkentseu {
@@ -97,6 +103,11 @@ namespace nkentseu {
 				bool devFloat = true;  // format périphérique : float32 (sinon int16)
 				HANDLE thread = nullptr;
 				volatile long running = 0;
+#elif defined(NKENTSEU_PLATFORM_LINUX) && !defined(NKENTSEU_PLATFORM_HARMONYOS) && !defined(NKENTSEU_PLATFORM_ANDROID)
+				snd_pcm_t *pcm = nullptr;
+				pthread_t thread = 0;
+				volatile bool running = false;
+				bool threadValid = false;
 #endif
 		};
 
@@ -350,7 +361,130 @@ namespace nkentseu {
 			mImpl->backend = "Null";
 		}
 
-#else // ---- Backend Null (autres plateformes ; ALSA/CoreAudio/AAudio à venir) ----
+#elif defined(NKENTSEU_PLATFORM_LINUX) && !defined(NKENTSEU_PLATFORM_HARMONYOS) && !defined(NKENTSEU_PLATFORM_ANDROID)
+			// =====================================================================
+			//  Backend ALSA capture (Linux) — miroir du backend de lecture.
+			// =====================================================================
+
+			// Thread de capture : lit des frames FLOAT_LE interleaved (cfg.channels) via
+			// snd_pcm_readi, les pousse dans le ring buffer + appelle le callback éventuel.
+			static void *CaptureThreadProcAlsa(void *param) {
+				NkAudioCapture::Impl *im = (NkAudioCapture::Impl *)param;
+				snd_pcm_t *pcm = im->pcm;
+				const int32 ch = im->cfg.channels > 0 ? im->cfg.channels : 1;
+				const snd_pcm_uframes_t period = 1024;
+				const uint64 tmpFloats = (uint64)period * (uint64)ch;
+				float32 *tmp = (float32 *)memory::NkAlloc((size_t)(tmpFloats * sizeof(float32)));
+				if (!tmp)
+					return nullptr;
+
+				while (im->running) {
+					snd_pcm_sframes_t got = snd_pcm_readi(pcm, tmp, period);
+					if (got < 0) {
+						// XRUN (overrun -EPIPE) / suspendu : récupération silencieuse.
+						snd_pcm_recover(pcm, (int)got, 1);
+						continue;
+					}
+					if (got > 0) {
+						const uint64 n = (uint64)got * (uint64)ch;
+						im->ring.Write(tmp, n);
+						if (im->hasCb)
+							im->cb(tmp, (int32)got, ch);
+					}
+				}
+				memory::NkFree(tmp);
+				return nullptr;
+			}
+
+			NkVector<NkCaptureDeviceInfo> NkAudioCapture::EnumerateDevices() {
+				NkVector<NkCaptureDeviceInfo> out;
+				NkCaptureDeviceInfo info;
+				info.name = NkString("default (ALSA)");
+				info.isDefault = true;
+				out.PushBack(info);
+				return out;
+			}
+
+			bool NkAudioCapture::Open(const NkCaptureConfig &config) {
+				Close();
+				mImpl->cfg = config;
+				if (mImpl->cfg.channels <= 0)
+					mImpl->cfg.channels = 1;
+				if (mImpl->cfg.sampleRate <= 0)
+					mImpl->cfg.sampleRate = 48000;
+
+				snd_pcm_t *pcm = nullptr;
+				const char *devName = mImpl->cfg.deviceId.Empty() ? "default" : mImpl->cfg.deviceId.CStr();
+				if (snd_pcm_open(&pcm, devName, SND_PCM_STREAM_CAPTURE, 0) < 0) {
+					logger.Error("[NkAudioCapture] snd_pcm_open (capture) FAILED");
+					return false;
+				}
+
+				snd_pcm_hw_params_t *hw = nullptr;
+				snd_pcm_hw_params_alloca(&hw);
+				snd_pcm_hw_params_any(pcm, hw);
+				snd_pcm_hw_params_set_access(pcm, hw, SND_PCM_ACCESS_RW_INTERLEAVED);
+				snd_pcm_hw_params_set_format(pcm, hw, SND_PCM_FORMAT_FLOAT_LE);
+				unsigned int rate = (unsigned int)mImpl->cfg.sampleRate;
+				snd_pcm_hw_params_set_rate_near(pcm, hw, &rate, 0);
+				snd_pcm_hw_params_set_channels(pcm, hw, (unsigned int)mImpl->cfg.channels);
+				snd_pcm_uframes_t period = 1024;
+				snd_pcm_hw_params_set_period_size_near(pcm, hw, &period, 0);
+				if (snd_pcm_hw_params(pcm, hw) < 0) {
+					logger.Error("[NkAudioCapture] snd_pcm_hw_params (capture) FAILED");
+					snd_pcm_close(pcm);
+					return false;
+				}
+				snd_pcm_prepare(pcm);
+				mImpl->pcm = pcm;
+				mImpl->cfg.sampleRate = (int32)rate; // taux réellement négocié
+
+				const int32 secs = mImpl->cfg.ringSeconds > 0 ? mImpl->cfg.ringSeconds : 4;
+				mImpl->ring.Alloc((uint64)mImpl->cfg.sampleRate * (uint64)mImpl->cfg.channels * (uint64)secs);
+				mImpl->backend = "ALSA";
+				logger.Info("[NkAudioCapture] OK (ALSA capture, {0} Hz, {1} canal(aux))", mImpl->cfg.sampleRate,
+							mImpl->cfg.channels);
+				return true;
+			}
+
+			bool NkAudioCapture::Start() {
+				if (!mImpl->pcm || mImpl->capturing)
+					return false;
+				mImpl->running = true;
+				if (pthread_create(&mImpl->thread, nullptr, CaptureThreadProcAlsa, mImpl) != 0) {
+					mImpl->running = false;
+					return false;
+				}
+				mImpl->threadValid = true;
+				mImpl->capturing = true;
+				return true;
+			}
+
+			void NkAudioCapture::Stop() {
+				if (!mImpl->capturing)
+					return;
+				mImpl->running = false;
+				if (mImpl->threadValid) {
+					pthread_join(mImpl->thread, nullptr);
+					mImpl->threadValid = false;
+				}
+				mImpl->capturing = false;
+			}
+
+			void NkAudioCapture::Close() {
+				if (!mImpl)
+					return;
+				Stop();
+				if (mImpl->pcm) {
+					snd_pcm_drop(mImpl->pcm);
+					snd_pcm_close(mImpl->pcm);
+					mImpl->pcm = nullptr;
+				}
+				mImpl->ring.Free();
+				mImpl->backend = "Null";
+			}
+
+#else // ---- Backend Null (autres plateformes ; CoreAudio/AAudio à venir) ----
 
 		NkVector<NkCaptureDeviceInfo> NkAudioCapture::EnumerateDevices() {
 			return NkVector<NkCaptureDeviceInfo>();

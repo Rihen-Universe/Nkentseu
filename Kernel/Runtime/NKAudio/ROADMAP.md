@@ -148,12 +148,19 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 - État : **🔶 V1 LIVRÉE (2026-07-09)** — `NkAudioCapture` (`NkAudioCapture.{h,cpp}`, namespace `audio`).
   API : `EnumerateDevices()`, `Open(NkCaptureConfig)`, `Start()/Stop()`, **pull** `Read(out, maxFrames)` +
   `Available()` via **ring buffer SPSC lock-free** (NkAtomic), **push** `SetCallback(OnAudioIn)`, format
-  Float32 interleaved (down/up-mix vers le nb de canaux voulu). Backend **WASAPI capture RÉEL** (Windows :
+  Float32 interleaved (down/up-mix vers le nb de canaux voulu). Backends : **WASAPI capture RÉEL** (Windows :
   `IMMDeviceEnumerator`→`eCapture`→`IAudioClient` SHARED→`IAudioCaptureClient`, thread `CreateThread`,
-  conversion f32/i16 + silence) + **Null** (autres plateformes). Validé : build NKAudio 9/9 + **self-test
-  headless du ring buffer OK** (write/read/wrap/overflow, `NkAnimPhysTest`). ⏳ Reste : backends ALSA/
-  CoreAudio/AAudio/getUserMedia/OHAudio (stub Null), `SaveWAV` direct, foot… — validation micro RÉELLE
-  (interactive) à faire par Rihen (non testable headless). Permissions runtime mobile/Web à câbler.
+  conversion f32/i16 + silence) + **ALSA capture RÉEL (2026-07-10)** (Linux : `snd_pcm_open` SND_PCM_STREAM_CAPTURE,
+  FLOAT_LE interleaved, thread pthread `snd_pcm_readi`→ring + callback, `snd_pcm_recover` sur XRUN — miroir du
+  backend de lecture) + **Null** (macOS/Android/Web en attente). Validé : build 12/12 Windows + **self-test
+  headless du ring buffer OK** (write/read/wrap/overflow, `NkAnimPhysTest` 5/5).
+  **Outil de test livré** : `NkMicRecord` (`Applications/NkMicRecord/`) — enregistre N s du micro → **WAV 16-bit PCM**
+  (encodeur WAV inline via `NkFile::WriteAllBytes`) : `NkMicRecord.exe [secondes] [sortie.wav]`.
+  ⏳ Reste : backends **CoreAudio** (macOS/iOS — patron = AudioUnit input, EnableIO bus 1 + AudioUnitRender) et
+  **AAudio** (Android — patron = dlopen `libaaudio.so` + `setDirection(INPUT)`) : **patronnés d'après les backends
+  de lecture existants, à écrire+valider SUR hardware** (non compilables sur cette machine Windows → non shippés
+  pour ne pas casser les builds macOS/Android). getUserMedia (Web) + OHAudio (Harmony) idem. Validation micro
+  RÉELLE (interactive) via `NkMicRecord` à faire par Rihen. Permissions runtime mobile/Web à câbler.
 - (spec initiale ci-dessous, conservée)
 - État initial : **absent** — le moteur ne faisait que de la sortie (output).
 - Nécessaire pour : **enregistrement de la voix**, voice chat, reconnaissance/commande vocale,
