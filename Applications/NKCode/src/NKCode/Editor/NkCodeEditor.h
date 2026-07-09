@@ -751,6 +751,208 @@ namespace nkentseu {
 					RebuildSymbols(lang);
 				}
 
+				// ── Repli de code (folding) : régions { } multi-lignes ──
+				// Modèle : régions pliables détectées depuis les accolades (foldHdr/foldEnd, parallèles).
+				// `foldOn` = en-têtes actuellement REPLIÉS. Le rendu ne mappe plus ligne->y linéairement :
+				// `rowOfLine[i]` = row visuel de la ligne i (-1 si masquée), `visRows[r]` = ligne au row r.
+				NkVector<int32> foldHdr, foldEnd; // régions pliables [hdr, end] (hdr < end)
+				NkVector<int32> foldOn;			  // en-têtes repliés (sous-ensemble de foldHdr)
+				int64 foldSig = -1;				  // signature contenu -> recompute des régions
+				bool foldDirty = true;			  // recompute du mapping lignes visibles
+				NkVector<int32> visRows;		  // row visuel -> ligne doc
+				NkVector<int32> rowOfLine;		  // ligne doc -> row visuel (-1 masquée)
+
+				int32 FoldEndOf(int32 line) const {
+					for (usize k = 0; k < foldHdr.Size(); ++k)
+						if (foldHdr[k] == line)
+							return foldEnd[k];
+					return -1;
+				}
+
+				bool IsFoldHeader(int32 line) const {
+					return FoldEndOf(line) >= 0;
+				}
+
+				bool FoldedAt(int32 line) const {
+					for (usize k = 0; k < foldOn.Size(); ++k)
+						if (foldOn[k] == line)
+							return true;
+					return false;
+				}
+
+				void SetFold(int32 header, bool on) {
+					if (FoldEndOf(header) < 0)
+						return; // pas une en-tête pliable
+					if (on == FoldedAt(header))
+						return;
+					if (on)
+						foldOn.PushBack(header);
+					else
+						for (usize k = 0; k < foldOn.Size(); ++k)
+							if (foldOn[k] == header) {
+								foldOn.Erase(foldOn.Begin() + k);
+								break;
+							}
+					foldDirty = true;
+				}
+
+				void ToggleFold(int32 header) {
+					if (FoldEndOf(header) >= 0)
+						SetFold(header, !FoldedAt(header));
+				}
+
+				// En-tête de la région pliable la plus INTÉRIEURE contenant `line` (hdr <= line <= end).
+				int32 EnclosingFoldHeader(int32 line) const {
+					int32 best = -1;
+					for (usize k = 0; k < foldHdr.Size(); ++k)
+						if (foldHdr[k] <= line && line <= foldEnd[k] && foldHdr[k] > best)
+							best = foldHdr[k];
+					return best;
+				}
+
+				bool LineHidden(int32 line) const {
+					return (line >= 0 && line < static_cast<int32>(rowOfLine.Size())) ? rowOfLine[line] < 0 : false;
+				}
+
+				int32 RowOf(int32 line) const {
+					return (line >= 0 && line < static_cast<int32>(rowOfLine.Size())) ? rowOfLine[line] : line;
+				}
+
+				int32 VisRowCount() const {
+					return static_cast<int32>(visRows.Size());
+				}
+
+				// Ligne doc au row visuel `r` (bornée). Identité si aucun repli.
+				int32 LineAtRow(int32 r) const {
+					if (visRows.Empty())
+						return r < 0 ? 0 : (r >= LineCount() ? LineCount() - 1 : r);
+					if (r < 0)
+						r = 0;
+					if (r >= static_cast<int32>(visRows.Size()))
+						r = static_cast<int32>(visRows.Size()) - 1;
+					return visRows[r];
+				}
+
+				// Première ligne VISIBLE à `line` ou au-dessus (pour ne jamais laisser le caret masqué).
+				int32 NearestVisibleUp(int32 line) const {
+					if (line < 0)
+						return 0;
+					if (line >= LineCount())
+						line = LineCount() - 1;
+					while (line > 0 && LineHidden(line))
+						--line;
+					return line;
+				}
+
+				// Détecte les régions pliables via les accolades (en ignorant chaînes/commentaires).
+				void ComputeFoldRegions(NkLang lang) {
+					foldHdr.Clear();
+					foldEnd.Clear();
+					if (lang != NkLang::C && lang != NkLang::NKSL) { // accolades uniquement (pas Python/MD)
+						for (int32 k = static_cast<int32>(foldOn.Size()) - 1; k >= 0; --k)
+							foldOn.Erase(foldOn.Begin() + k);
+						return;
+					}
+					NkVector<int32> stack;
+					int32 block = 0; // 1 = dans un /* ... */
+					const int32 n = LineCount();
+					for (int32 i = 0; i < n; ++i) {
+						const NkCodeLine &L = lines[i];
+						const char *s = L.Data();
+						const int32 m = static_cast<int32>(L.Size());
+						int32 j = 0;
+						while (j < m) {
+							const char c = s[j];
+							if (block) {
+								if (c == '*' && j + 1 < m && s[j + 1] == '/') {
+									block = 0;
+									j += 2;
+									continue;
+								}
+								++j;
+								continue;
+							}
+							if (c == '/' && j + 1 < m && s[j + 1] == '/')
+								break; // commentaire ligne -> fin de ligne
+							if (c == '/' && j + 1 < m && s[j + 1] == '*') {
+								block = 1;
+								j += 2;
+								continue;
+							}
+							if (c == '"' || c == '\'') { // chaîne / caractère (échappements \)
+								const char q = c;
+								++j;
+								while (j < m) {
+									if (s[j] == '\\') {
+										j += 2;
+										continue;
+									}
+									if (s[j] == q) {
+										++j;
+										break;
+									}
+									++j;
+								}
+								continue;
+							}
+							if (c == '{')
+								stack.PushBack(i);
+							else if (c == '}') {
+								if (!stack.Empty()) {
+									const int32 h = stack.Back();
+									stack.PopBack();
+									if (h < i) { // région multi-lignes uniquement
+										foldHdr.PushBack(h);
+										foldEnd.PushBack(i);
+									}
+								}
+							}
+							++j;
+						}
+					}
+					// Purge les replis dont l'en-tête n'est plus une région valide (édition).
+					for (int32 k = static_cast<int32>(foldOn.Size()) - 1; k >= 0; --k)
+						if (FoldEndOf(foldOn[k]) < 0)
+							foldOn.Erase(foldOn.Begin() + k);
+				}
+
+				// Reconstruit rowOfLine / visRows depuis l'état de repli courant.
+				void RebuildVisRows() {
+					const int32 n = LineCount();
+					rowOfLine.Resize(n, 0);
+					for (int32 i = 0; i < n; ++i)
+						rowOfLine[i] = 0;
+					for (usize k = 0; k < foldOn.Size(); ++k) { // masque (hdr, end] de chaque région repliée
+						const int32 e = FoldEndOf(foldOn[k]);
+						if (e < 0)
+							continue;
+						for (int32 j = foldOn[k] + 1; j <= e && j < n; ++j)
+							rowOfLine[j] = -1;
+					}
+					visRows.Clear();
+					int32 row = 0;
+					for (int32 i = 0; i < n; ++i) {
+						if (rowOfLine[i] < 0)
+							continue; // masquée
+						rowOfLine[i] = row++;
+						visRows.PushBack(i);
+					}
+				}
+
+				// Recalcul paresseux : régions si le contenu a changé, mapping si un repli a bougé.
+				void EnsureFolds(NkLang lang) {
+					const int64 s = SymSig();
+					if (s != foldSig) {
+						foldSig = s;
+						ComputeFoldRegions(lang);
+						foldDirty = true;
+					}
+					if (foldDirty || static_cast<int32>(rowOfLine.Size()) != LineCount()) {
+						RebuildVisRows();
+						foldDirty = false;
+					}
+				}
+
 				static void SortDedup(NkVector<NkString> &v) {
 					for (int32 i = 1; i < (int32)v.Size(); ++i) {
 						NkString key = v[i];
@@ -1585,6 +1787,14 @@ namespace nkentseu {
 			if (!ctx.font || !ctx.font->Face())
 				return false;
 			d.EnsureNonEmpty();
+			// ── Repli de code : mapping lignes visibles À JOUR avant souris/scroll/rendu. ──
+			d.EnsureFolds(lang);
+			if (d.LineHidden(d.curLine)) { // ne jamais laisser le caret sur une ligne masquée
+				d.curLine = d.NearestVisibleUp(d.curLine);
+				d.ClampCursor();
+				d.selLine = d.curLine;
+				d.selCol = d.curCol;
+			}
 
 			// Palette THEME-AWARE (suit le thème NKCode via ctx.theme : Dark Pro/Dark/Midnight/Light).
 			const NkColor kBg = ctx.theme.bgPrimary;
@@ -1615,9 +1825,10 @@ namespace nkentseu {
 			char numbuf[16];
 			std::snprintf(numbuf, sizeof(numbuf), "%d", d.LineCount());
 			const float32 numAreaW = ctx.font->MeasureWidth(numbuf) + pad * 2.f;
-			const float32 bpW = lineH; // colonne breakpoints (carree)
-			const float32 gitW = 3.f;  // bande Git au bord droit de la gouttiere
-			const float32 gutterW = numAreaW + bpW + gitW;
+			const float32 foldW = ctx.S(13.f); // colonne des chevrons de repli (folding)
+			const float32 bpW = lineH;		   // colonne breakpoints (carree)
+			const float32 gitW = 3.f;		   // bande Git au bord droit de la gouttiere
+			const float32 gutterW = numAreaW + foldW + bpW + gitW;
 			// Cadre regle : on RESERVE en permanence les gouttieres de scroll (V a droite,
 			// H en bas) -> zone texte bornee, barres toujours visibles (facon VSCode/VS).
 			const float32 sbW = 14.f;
@@ -1669,7 +1880,7 @@ namespace nkentseu {
 			int32 linkL = -1, linkC0 = -1, linkC1 = -1;
 			bool linkInc = false;
 			if (ctx.input.ctrlDown && overText) {
-				int32 l = static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH);
+				int32 l = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
 				if (l >= 0 && l < d.LineCount()) {
 					const int32 c = ColAtX(ctx, d, l, mouse.x - textLeft + d.scrollX);
 					const NkCodeLine &L = d.lines[l];
@@ -1733,7 +1944,7 @@ namespace nkentseu {
 			}
 			if (!ctrlLink && ctx.input.mouseClicked[0] && overText) {
 				NkCodeFocusId() = id;
-				int32 l = static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH);
+				int32 l = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
 				if (l < 0)
 					l = 0;
 				if (l >= d.LineCount())
@@ -1759,13 +1970,26 @@ namespace nkentseu {
 			}
 			// Glisser : etend la selection.
 			if (ctx.activeId == dragId && ctx.input.mouseDown[0]) {
-				int32 l = static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH);
+				int32 l = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
 				if (l < 0)
 					l = 0;
 				if (l >= d.LineCount())
 					l = d.LineCount() - 1;
 				d.curLine = l;
 				d.curCol = ColAtX(ctx, d, l, mouse.x - textLeft + d.scrollX);
+			}
+			// ── Clic sur un chevron de repli (colonne foldW de la gouttière) : plie/déplie. ──
+			{
+				const float32 foldX = area.x + numAreaW;
+				const bool overFold = ctx.popupDepth == 0 && mouse.x >= foldX && mouse.x < foldX + foldW &&
+									  mouse.y >= textArea.y && mouse.y < textArea.y + viewH;
+				if (overFold && ctx.input.mouseClicked[0]) {
+					const int32 fl = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
+					if (d.IsFoldHeader(fl)) {
+						d.ToggleFold(fl);
+						NkCodeFocusId() = id;
+					}
+				}
 			}
 			// Clic DROIT dans la zone texte : focus + menu contextuel Copier/Couper/Coller.
 			if (ctx.input.mouseClicked[1] && overText) { // clic DROIT (convention [1]=droit)
@@ -1937,7 +2161,10 @@ namespace nkentseu {
 					if (!acEat && !alt && K(NkGuiKey::Up)) {
 						d.ResetEditRun();
 						if (d.curLine > 0) {
-							--d.curLine;
+							int32 t = d.curLine - 1;
+							while (t > 0 && d.LineHidden(t)) // saute un corps replié
+								--t;
+							d.curLine = t;
 							d.ClampCursor();
 						}
 						if (!shift)
@@ -1946,7 +2173,10 @@ namespace nkentseu {
 					if (!acEat && !alt && K(NkGuiKey::Down)) {
 						d.ResetEditRun();
 						if (d.curLine < d.LineCount() - 1) {
-							++d.curLine;
+							int32 t = d.curLine + 1;
+							while (t < d.LineCount() - 1 && d.LineHidden(t)) // saute un corps replié
+								++t;
+							d.curLine = t;
 							d.ClampCursor();
 						}
 						if (!shift)
@@ -2018,7 +2248,7 @@ namespace nkentseu {
 							else
 								d.InsertLineBelow();
 							changed = true;
-						}						  // Ctrl+Entrée / Ctrl+Maj+Entrée
+						} // Ctrl+Entrée / Ctrl+Maj+Entrée
 						if (K(NkGuiKey::Slash)) { // Ctrl+/ = commenter la ligne ; Ctrl+Maj+/ = commentaire BLOC
 							d.Checkpoint(3);
 							if (shift) {
@@ -2031,16 +2261,32 @@ namespace nkentseu {
 								d.ToggleComment(CommentPrefix(lang));
 							changed = true;
 						}
-						if (K(NkGuiKey::RBracket)) {
+						if (!shift && K(NkGuiKey::RBracket)) {
 							d.Checkpoint(3);
 							d.IndentSelection(false);
 							changed = true;
 						} // Ctrl+] = indenter
-						if (K(NkGuiKey::LBracket)) {
+						if (!shift && K(NkGuiKey::LBracket)) {
 							d.Checkpoint(3);
 							d.IndentSelection(true);
 							changed = true;
 						} // Ctrl+[ = désindenter
+						if (shift && K(NkGuiKey::LBracket)) { // Ctrl+Maj+[ = replier la région englobant le caret
+							const int32 h = d.EnclosingFoldHeader(d.curLine);
+							if (h >= 0)
+								d.SetFold(h, true);
+						}
+						if (shift &&
+							K(NkGuiKey::RBracket)) { // Ctrl+Maj+] = déplier la région repliée englobant le caret
+							int32 best = -1;
+							for (usize k = 0; k < d.foldOn.Size(); ++k) {
+								const int32 h = d.foldOn[k], e = d.FoldEndOf(h);
+								if (h <= d.curLine && d.curLine <= e && h > best)
+									best = h;
+							}
+							if (best >= 0)
+								d.SetFold(best, false);
+						}
 					}
 					// Copier / couper / coller / tout-selectionner (presse-papiers).
 					if (ctx.input.wantSelectAll)
@@ -2088,8 +2334,16 @@ namespace nkentseu {
 			}
 			d.ClampCursor();
 
+			// Repli : ré-applique les bascules de repli faites CETTE frame (clic gouttière / Ctrl+Maj+[/]).
+			d.EnsureFolds(lang);
+			if (d.LineHidden(d.curLine)) {
+				d.curLine = d.NearestVisibleUp(d.curLine);
+				d.ClampCursor();
+				d.selLine = d.curLine;
+				d.selCol = d.curCol;
+			}
 			// ── Largeur max GLOBALE (cache) -> barre H stable, independante du scroll ──
-			const float32 contentH = d.LineCount() * lineH + topPad + botPad;
+			const float32 contentH = d.VisRowCount() * lineH + topPad + botPad;
 			if (d.widthDirty) {
 				float32 mw = 0.f;
 				for (usize i = 0; i < d.lines.Size(); ++i) {
@@ -2110,7 +2364,7 @@ namespace nkentseu {
 			const bool ensureCaret = (d.curLine != oldL || d.curCol != oldC || changed || d.wantReveal);
 			if (ensureCaret) {
 				const float32 cX = PrefixW(ctx, d, d.curLine, d.curCol);
-				const float32 cY = topPad + d.curLine * lineH;
+				const float32 cY = topPad + d.RowOf(d.curLine) * lineH; // repli : position VISUELLE du caret
 				if (d.wantReveal) {
 					d.scrollY = cY - viewH * 0.4f;
 					if (d.scrollY < 0.f)
@@ -2144,10 +2398,12 @@ namespace nkentseu {
 			if (firstVis < 0)
 				firstVis = 0;
 			const int32 lastVis = firstVis + static_cast<int32>(viewH / lineH) + 2;
+			// Repli : 1re ligne DOC affichée au row visuel `firstVis` (mapping lignes visibles).
+			const int32 startDoc = d.LineAtRow(firstVis);
 
 			// Surlignage de la ligne courante (toute la zone texte).
 			if (focused) {
-				const float32 y = textTop + d.curLine * lineH - d.scrollY;
+				const float32 y = textTop + d.RowOf(d.curLine) * lineH - d.scrollY;
 				if (y + lineH > textArea.y && y < textArea.y + textArea.h)
 					dl.AddRectFilled({textArea.x, y, textArea.w, lineH}, kCurLine);
 			}
@@ -2162,7 +2418,7 @@ namespace nkentseu {
 							projDefines); // régions préproc inactives (grisées) — après EnsureSymbols (symSig à jour)
 			int32 inBlock = 0;			  // état de bloc multi-lignes (0 aucun, 1 /*..*/ ou ```, 2 py """, 3 py ''')
 			if (lang != NkLang::None)
-				for (int32 i = 0; i < firstVis && i < d.LineCount(); ++i)
+				for (int32 i = 0; i < startDoc && i < d.LineCount(); ++i)
 					inBlock = TokenizeLine(lang, d.lines[i].Data(), static_cast<int32>(d.lines[i].Size()), inBlock, syn,
 										   [](int32, int32, const NkColor &) {});
 
@@ -2245,10 +2501,17 @@ namespace nkentseu {
 			}
 
 			dl.PushClipRect(textArea, true);
-			for (int32 i = firstVis; i <= lastVis && i < d.LineCount(); ++i) {
-				if (i < 0)
+			for (int32 i = startDoc; i < d.LineCount(); ++i) {
+				const int32 vrow = d.RowOf(i);
+				if (vrow < 0) { // ligne repliée (masquée) : garde l'état de bloc-commentaire, ne dessine pas
+					if (lang != NkLang::None)
+						inBlock = TokenizeLine(lang, d.lines[i].Data(), static_cast<int32>(d.lines[i].Size()), inBlock,
+											   syn, [](int32, int32, const NkColor &) {});
 					continue;
-				const float32 y = textTop + i * lineH - d.scrollY;
+				}
+				if (vrow > lastVis)
+					break;
+				const float32 y = textTop + vrow * lineH - d.scrollY;
 				const float32 baseline = y + asc;
 				const NkCodeLine &ln = d.lines[i];
 				const int32 n = static_cast<int32>(ln.Size());
@@ -2305,6 +2568,15 @@ namespace nkentseu {
 										 c); // box-drawing en primitives
 					},
 					&d.symTypes, &d.symFuncs, projTypes, projFuncs); // coloration sémantique (fichier + projet)
+				// Repli : badge « … » en fin de ligne d'en-tête repliée (signale du code masqué).
+				if (d.FoldedAt(i)) {
+					const float32 bx = sx + chW * 0.6f;
+					const NkRect badge = {bx, y + 2.f, chW * 2.6f, lineH - 4.f};
+					dl.AddRectFilled(
+						badge,
+						NkColor{ctx.theme.textDisabled.r, ctx.theme.textDisabled.g, ctx.theme.textDisabled.b, 46}, 3.f);
+					dl.AddText(face, tex, {bx + chW * 0.5f, baseline}, "...", ctx.theme.textDisabled);
+				}
 			}
 			// ── Diagnostics : soulignement ondulé (rouge=erreur / jaune=warning) + message
 			//    inline en fin de ligne (style « Error Lens » de VS Code). ──
@@ -2314,10 +2586,13 @@ namespace nkentseu {
 				};
 				for (usize di = 0; di < d.diags.Size(); ++di) {
 					const NkCodeDoc::Diag &dg = d.diags[di];
-					if (dg.line < firstVis || dg.line > lastVis || dg.line < 0 || dg.line >= d.LineCount())
+					if (dg.line < 0 || dg.line >= d.LineCount() || d.LineHidden(dg.line))
+						continue;
+					const int32 drow = d.RowOf(dg.line);
+					if (drow < firstVis || drow > lastVis)
 						continue;
 					const NkColor col = dg.sev ? NkColor{240, 80, 80, 255} : NkColor{224, 190, 70, 255};
-					const float32 yy = textTop + dg.line * lineH - d.scrollY;
+					const float32 yy = textTop + drow * lineH - d.scrollY;
 					const NkCodeLine &ln = d.lines[dg.line];
 					int32 c0 = dg.col;
 					if (c0 < 0)
@@ -2348,24 +2623,25 @@ namespace nkentseu {
 				}
 			}
 			// Ctrl+survol : souligne le lien navigable (style VSCode) sous la souris.
-			if (ctrlLink && linkL >= firstVis && linkL <= lastVis) {
+			if (ctrlLink && !d.LineHidden(linkL) && d.RowOf(linkL) >= firstVis && d.RowOf(linkL) <= lastVis) {
 				const float32 ux = textLeft + PrefixW(ctx, d, linkL, linkC0) - d.scrollX;
 				const float32 ux2 = textLeft + PrefixW(ctx, d, linkL, linkC1) - d.scrollX;
-				const float32 uy = textTop + linkL * lineH - d.scrollY + lineH - 2.f;
+				const float32 uy = textTop + d.RowOf(linkL) * lineH - d.scrollY + lineH - 2.f;
 				dl.AddLine({ux, uy}, {ux2, uy}, ctx.theme.accent, 1.2f);
 			}
 			// Caret.
 			if (focused) {
 				const float32 cx = textLeft + PrefixW(ctx, d, d.curLine, d.curCol) - d.scrollX;
-				const float32 cy = textTop + d.curLine * lineH - d.scrollY;
+				const float32 cy = textTop + d.RowOf(d.curLine) * lineH - d.scrollY;
 				dl.AddLine({cx, cy + 1.f}, {cx, cy + lineH - 1.f}, kCaret, 1.5f);
 			}
 			// Curseurs SECONDAIRES (multi-curseur Ctrl+D / Alt+clic) : sélection + caret pour chacun.
 			if (focused)
 				for (usize e = 0; e < d.extraCarets.Size(); ++e) {
 					NkCodeDoc::Caret c = d.extraCarets[e];
-					if (c.cl < 0 || c.cl >= d.LineCount())
+					if (c.cl < 0 || c.cl >= d.LineCount() || d.LineHidden(c.cl)) // repli : ignore les masqués
 						continue;
+					const int32 crow = d.RowOf(c.cl);
 					const int32 llen = d.LineLen(c.cl);
 					if (c.cc > llen)
 						c.cc = llen;
@@ -2375,10 +2651,10 @@ namespace nkentseu {
 						const int32 lo = c.sc < c.cc ? c.sc : c.cc, hi = c.sc < c.cc ? c.cc : c.sc;
 						const float32 sx0 = textLeft + PrefixW(ctx, d, c.cl, lo) - d.scrollX;
 						const float32 sx1 = textLeft + PrefixW(ctx, d, c.cl, hi) - d.scrollX;
-						dl.AddRectFilled({sx0, textTop + c.cl * lineH - d.scrollY, sx1 - sx0, lineH}, kSel);
+						dl.AddRectFilled({sx0, textTop + crow * lineH - d.scrollY, sx1 - sx0, lineH}, kSel);
 					}
 					const float32 ecx = textLeft + PrefixW(ctx, d, c.cl, c.cc) - d.scrollX;
-					const float32 ecy = textTop + c.cl * lineH - d.scrollY;
+					const float32 ecy = textTop + crow * lineH - d.scrollY;
 					dl.AddLine({ecx, ecy + 1.f}, {ecx, ecy + lineH - 1.f}, kCaret, 1.5f);
 				}
 			dl.PopClipRect();
@@ -2405,10 +2681,10 @@ namespace nkentseu {
 					pw = 380.f;
 				const float32 rowH = lineH;
 				const float32 px = textLeft + PrefixW(ctx, d, d.curLine, d.acWordCol) - d.scrollX;
-				float32 py = textTop + (d.curLine + 1) * lineH - d.scrollY;
+				float32 py = textTop + (d.RowOf(d.curLine) + 1) * lineH - d.scrollY;
 				const float32 ph = shown * rowH + 4.f;
 				if (py + ph > area.y + area.h)
-					py = textTop + d.curLine * lineH - d.scrollY - ph; // au-dessus si ça déborde
+					py = textTop + d.RowOf(d.curLine) * lineH - d.scrollY - ph; // au-dessus si ça déborde
 				const NkRect box = {px, py, pw, ph};
 				dl.AddRectFilled(box, ctx.theme.header, 5.f);
 				dl.AddRect(box, ctx.theme.accent, 1.f);
@@ -2423,24 +2699,40 @@ namespace nkentseu {
 				}
 			}
 
-			// ── Gouttiere : numeros + colonne breakpoints (clic = toggle, survol = creux) ──
-			const float32 bpX = area.x + numAreaW;
+			// ── Gouttiere : numeros + chevrons repli + colonne breakpoints (clic = toggle, survol = creux) ──
+			const float32 bpX = area.x + numAreaW + foldW;
 			const float32 bpCx = bpX + bpW * 0.5f;
 			const NkColor kBpOn = {229, 74, 68, 255}; // point d'arret actif (#E54A44)
 			const bool overBp = ctx.popupDepth == 0 && mouse.x >= bpX && mouse.x < bpX + bpW && mouse.y >= textArea.y &&
 								mouse.y < textArea.y + viewH;
-			const int32 bpHoverLine = overBp ? static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH) : -1;
+			const int32 bpHoverLine =
+				overBp ? d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH)) : -1;
 			if (overBp && ctx.input.mouseClicked[0] && bpHoverLine >= 0 && bpHoverLine < d.LineCount()) {
 				d.ToggleBreakpoint(bpHoverLine);
 				NkCodeFocusId() = id;
 			}
 			dl.PushClipRect({area.x, area.y, gutterW, area.h}, true);
-			for (int32 i = firstVis; i <= lastVis && i < d.LineCount(); ++i) {
-				if (i < 0)
-					continue;
-				const float32 baseline = textTop + i * lineH - d.scrollY + asc;
-				const float32 cy = textTop + i * lineH - d.scrollY + lineH * 0.5f;
-				const float32 yTop = textTop + i * lineH - d.scrollY;
+			for (int32 i = startDoc; i < d.LineCount(); ++i) {
+				const int32 vrow = d.RowOf(i);
+				if (vrow < 0)
+					continue; // ligne repliée (masquée)
+				if (vrow > lastVis)
+					break;
+				const float32 baseline = textTop + vrow * lineH - d.scrollY + asc;
+				const float32 cy = textTop + vrow * lineH - d.scrollY + lineH * 0.5f;
+				const float32 yTop = textTop + vrow * lineH - d.scrollY;
+				// Chevron de repli (colonne foldW) sur les lignes d'en-tête pliables : ▾ déplié / ▸ replié.
+				if (d.IsFoldHeader(i)) {
+					const float32 fcx = area.x + numAreaW + foldW * 0.5f;
+					const NkColor fcol = (i == d.curLine) ? kLineNoCur : kLineNo;
+					const float32 a = 3.0f;
+					if (d.FoldedAt(i))
+						dl.AddTriangleFilled({fcx - a * 0.5f, cy - a}, {fcx - a * 0.5f, cy + a}, {fcx + a * 0.9f, cy},
+											 fcol);
+					else
+						dl.AddTriangleFilled({fcx - a, cy - a * 0.5f}, {fcx + a, cy - a * 0.5f}, {fcx, cy + a * 0.9f},
+											 fcol);
+				}
 				// Bande Git au bord droit de la gouttière : vert=ajout, bleu=modif, triangle rouge=suppression.
 				const uint8 gs = d.GitAt(i);
 				if (gs)
