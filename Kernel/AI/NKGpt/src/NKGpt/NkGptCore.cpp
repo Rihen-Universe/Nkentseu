@@ -128,6 +128,7 @@ namespace nkentseu {
 				bestKey = -1;
 				bestVal = 0;
 			}
+
 			void I64Map::Reset() {
 				for (int64 i = 0; i <= mask; ++i) {
 					keys[(nk_size)i] = kEmpty;
@@ -136,6 +137,7 @@ namespace nkentseu {
 				bestKey = -1;
 				bestVal = 0;
 			}
+
 			uint64 I64Map::Hash(int64 k) {
 				uint64 h = (uint64)k * 1099511628211ULL;
 				h ^= h >> 29;
@@ -143,6 +145,7 @@ namespace nkentseu {
 				h ^= h >> 32;
 				return h;
 			}
+
 			void I64Map::Add(int64 k, int64 w) {
 				int64 s = (int64)(Hash(k) & (uint64)mask);
 				while (keys[(nk_size)s] != kEmpty && keys[(nk_size)s] != k)
@@ -158,6 +161,7 @@ namespace nkentseu {
 					bestKey = k;
 				}
 			}
+
 			int64 I64Map::Get(int64 k, int64 def) const {
 				int64 s = (int64)(Hash(k) & (uint64)mask);
 				while (keys[(nk_size)s] != kEmpty) {
@@ -236,6 +240,7 @@ namespace nkentseu {
 				for (int64 i = 0; i < (int64)seq.Size(); ++i)
 					out.PushBack(seq[(nk_size)i]);
 			}
+
 			void Bpe::Encode(const NkString &text, NkVector<int32> &out) const {
 				NkVector<NkString> words;
 				PreTok(text, words);

@@ -19,6 +19,7 @@ namespace nkentseu {
 
 			NkGptTrainer::NkGptTrainer(const NkGptConfig &cfg) : mCfg(cfg) {
 			}
+
 			NkGptTrainer::~NkGptTrainer() {
 				delete mGpt;
 			}

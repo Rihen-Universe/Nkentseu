@@ -25,28 +25,32 @@ namespace nkentseu {
 
 			// Config d'un entraînement (remplie par l'app ; défauts = comportement historique).
 			struct NkGptConfig {
-				// Corpus : soit un dossier (équilibré par langue), soit un fichier unique.
-				NkString corpusDir;			// dossier *.txt (si corpusFile vide)
-				NkString corpusFile;		// fichier unique (prioritaire s'il est non vide)
-				nk_size maxChars = 1200000; // budget total de caractères
-				int merges = 600;			// fusions BPE
-				// Modèle.
-				int64 T = 128, d = 256, H = 8, L = 4, B = 16;
-				// Entraînement.
-				int steps = 300;
-				int accum = 1;	   // micro-lots accumulés (batch effectif = B*accum)
-				int warmup = -1;   // <0 -> steps/20 (5%)
-				int saveEvery = 0; // checkpoint tous les N pas (0 = fin seule)
-				float lr = 3e-4f;  // pic de learning-rate (puis cosine, plancher 10%)
-				// Checkpoint / reprise.
-				NkString savePath;	 // sauvegarde (vide = pas de sauvegarde)
-				NkString loadPath;	 // checkpoint à charger (vide = fresh)
-				bool resume = false; // loadPath + resume = continuer l'entraînement
-				// Génération.
-				NkString seed = NkString("Le ");
-				int genLen = 400;
-				NkString genLang;	 // "" = auto (pas de tag)
-				bool verbose = true; // impressions de progression
+					// Corpus : soit un dossier (équilibré par langue), soit un fichier unique.
+					NkString corpusDir;			// dossier *.txt (si corpusFile vide)
+					NkString corpusFile;		// fichier unique (prioritaire s'il est non vide)
+					nk_size maxChars = 1200000; // budget total de caractères
+					int merges = 600;			// fusions BPE
+
+					// Modèle.
+					int64 T = 128, d = 256, H = 8, L = 4, B = 16;
+
+					// Entraînement.
+					int steps = 300;
+					int accum = 1;	   // micro-lots accumulés (batch effectif = B*accum)
+					int warmup = -1;   // <0 -> steps/20 (5%)
+					int saveEvery = 0; // checkpoint tous les N pas (0 = fin seule)
+					float lr = 3e-4f;  // pic de learning-rate (puis cosine, plancher 10%)
+
+					// Checkpoint / reprise.
+					NkString savePath;	 // sauvegarde (vide = pas de sauvegarde)
+					NkString loadPath;	 // checkpoint à charger (vide = fresh)
+					bool resume = false; // loadPath + resume = continuer l'entraînement
+
+					// Génération.
+					NkString seed = NkString("Le ");
+					int genLen = 400;
+					NkString genLang;	 // "" = auto (pas de tag)
+					bool verbose = true; // impressions de progression
 			};
 
 			class NkGptTrainer {
@@ -59,12 +63,16 @@ namespace nkentseu {
 					// Charge corpus/checkpoint, entraîne le BPE (ou le reprend), construit le modèle et
 					// charge les poids si un checkpoint est fourni. Retourne false en cas d'erreur.
 					bool Prepare();
+
 					// Boucle d'entraînement (accumulation, masquage, LR schedule, checkpoint périodique).
 					void Fit();
+
 					// Génération autoregressive depuis une amorce (langIdx>=0 => préfixe le tag de langue).
 					NkString Generate(const NkString &seed, int nToks, double temp, int langIdx);
+
 					// Génération finale : une sortie par langue si multilingue.
 					void GenerateFinal();
+
 					// Sauvegarde le checkpoint (dims + BPE + langues + poids).
 					bool Save(const char *path);
 
@@ -72,18 +80,23 @@ namespace nkentseu {
 					bool IsReady() const {
 						return mGpt != nullptr;
 					}
+
 					bool UseGpu() const {
 						return mUseGpu;
 					}
+
 					double LastEma() const {
 						return mEma;
 					}
+
 					int GenLangIndex() const {
 						return mGenLang;
 					}
+
 					const NkVector<NkString> &Langs() const {
 						return mLangs;
 					}
+
 					const Bpe &Tokenizer() const {
 						return mBpe;
 					}

@@ -33,15 +33,15 @@ namespace nkentseu {
 			// ---- Table de hachage int64->int64 (open addressing, zéro-STL) -------------
 			// Sert au comptage de paires BPE (Add=increment, argmax O(1)) et au rang des fusions (Get).
 			struct I64Map {
-                NkVector<int64> keys;
-                NkVector<int64> vals;
-                int64 mask = 0;
-                int64 bestKey = -1, bestVal = 0;
-                void Init(int64 pow2);
-                void Reset();
-                static uint64 Hash(int64 k);
-                void Add(int64 k, int64 w);
-                int64 Get(int64 k, int64 def) const;
+					NkVector<int64> keys;
+					NkVector<int64> vals;
+					int64 mask = 0;
+					int64 bestKey = -1, bestVal = 0;
+					void Init(int64 pow2);
+					void Reset();
+					static uint64 Hash(int64 k);
+					void Add(int64 k, int64 w);
+					int64 Get(int64 k, int64 def) const;
 			};
 
 			// ---- BPE (Byte-Pair Encoding) from-scratch ---------------------------------
@@ -50,19 +50,22 @@ namespace nkentseu {
 			};
 
 			struct Bpe {
-                NkVector<NkMerge> merges;
-                NkVector<NkString> vocab; // id -> octets (décodage)
-                I64Map rank;			  // (a,b) -> priorité de fusion
-                int Base() const {
-                    return 256 + (int)merges.Size();
-                }
-                void BuildVocabRank();
-                static void PreTok(const NkString &text, NkVector<NkString> &words);
-                void EncodeWord(const NkString &w, NkVector<int32> &out) const;
-                void Encode(const NkString &text, NkVector<int32> &out) const;
-                const NkString &Decode(int id) const {
-                    return vocab[(nk_size)id];
-                }
+					NkVector<NkMerge> merges;
+					NkVector<NkString> vocab; // id -> octets (décodage)
+					I64Map rank;			  // (a,b) -> priorité de fusion
+
+					int Base() const {
+						return 256 + (int)merges.Size();
+					}
+
+					void BuildVocabRank();
+					static void PreTok(const NkString &text, NkVector<NkString> &words);
+					void EncodeWord(const NkString &w, NkVector<int32> &out) const;
+					void Encode(const NkString &text, NkVector<int32> &out) const;
+
+					const NkString &Decode(int id) const {
+						return vocab[(nk_size)id];
+					}
 			};
 
 			// Entraîne le BPE : fusionne itérativement la paire adjacente la plus fréquente.
