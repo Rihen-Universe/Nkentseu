@@ -6,87 +6,93 @@
 #include "PV3DE/Core/NkClinicalState.h"
 
 namespace nkentseu {
-    namespace pv3de {
+	namespace pv3de {
 
-        // =====================================================================
-        // NkSymptomEntry — entrée de la base de données de symptômes
-        // =====================================================================
-        struct NkSymptomEntry {
-            NkSymptomId id;
-            NkString    name;
-            NkString    description;
-            nk_float32  defaultPainContrib;    // contribution au niveau de douleur
-            nk_float32  defaultAnxietyContrib;
-            nk_float32  defaultNauseaContrib;
-            nk_float32  defaultFatigueContrib;
-        };
+		// =====================================================================
+		// NkSymptomEntry — entrée de la base de données de symptômes
+		// =====================================================================
+		struct NkSymptomEntry {
+				NkSymptomId id;
+				NkString name;
+				NkString description;
+				nk_float32 defaultPainContrib; // contribution au niveau de douleur
+				nk_float32 defaultAnxietyContrib;
+				nk_float32 defaultNauseaContrib;
+				nk_float32 defaultFatigueContrib;
+		};
 
-        // =====================================================================
-        // NkDiseaseEntry — entrée de la base de données de pathologies
-        // =====================================================================
-        struct NkDiseaseEntry {
-            NkDiseaseId id;
-            NkString    name;
-            nk_float32  baseSeverity;       // 0–1
-            // Symptômes diagnostiques avec leurs poids
-            struct SymptomCriterion {
-                NkSymptomId id;
-                nk_float32  weight; // contribution au score différentiel
-                bool        required; // symptôme obligatoire
-            };
-            NkVector<SymptomCriterion> criteria;
-        };
+		// =====================================================================
+		// NkDiseaseEntry — entrée de la base de données de pathologies
+		// =====================================================================
+		struct NkDiseaseEntry {
+				NkDiseaseId id;
+				NkString name;
+				nk_float32 baseSeverity; // 0–1
 
-        // =====================================================================
-        // NkDiagnosticEngine
-        // Reçoit les symptômes actifs + constantes vitales,
-        // met à jour NkClinicalState (niveaux + différentiel).
-        // =====================================================================
-        class NkDiagnosticEngine {
-        public:
-            NkDiagnosticEngine()  = default;
-            ~NkDiagnosticEngine() = default;
+				// Symptômes diagnostiques avec leurs poids
+				struct SymptomCriterion {
+						NkSymptomId id;
+						nk_float32 weight; // contribution au score différentiel
+						bool required;	   // symptôme obligatoire
+				};
 
-            // ── Init ──────────────────────────────────────────────────────────
-            void Init();
+				NkVector<SymptomCriterion> criteria;
+		};
 
-            // Chargement depuis fichier JSON (Phase 5+)
-            bool LoadSymptomDatabase(const char* path);
-            bool LoadDiseaseDatabase(const char* path);
+		// =====================================================================
+		// NkDiagnosticEngine
+		// Reçoit les symptômes actifs + constantes vitales,
+		// met à jour NkClinicalState (niveaux + différentiel).
+		// =====================================================================
+		class NkDiagnosticEngine {
+			public:
+				NkDiagnosticEngine() = default;
+				~NkDiagnosticEngine() = default;
 
-            // ── API clinique ──────────────────────────────────────────────────
-            void AddSymptom(NkSymptomId id);
-            void RemoveSymptom(NkSymptomId id);
-            void ClearSymptoms();
+				// ── Init ──────────────────────────────────────────────────────────
+				void Init();
 
-            void SetVitalSigns(nk_float32 heartRate,
-                               nk_float32 temperature,
-                               nk_float32 spo2);
+				// Chargement depuis fichier JSON (Phase 5+)
+				bool LoadSymptomDatabase(const char *path);
+				bool LoadDiseaseDatabase(const char *path);
 
-            // ── Update ────────────────────────────────────────────────────────
-            // Recalcule l'état clinique complet.
-            void Update(NkClinicalState& outState);
+				// ── API clinique ──────────────────────────────────────────────────
+				void AddSymptom(NkSymptomId id);
+				void RemoveSymptom(NkSymptomId id);
+				void ClearSymptoms();
 
-            // ── Accès BDD ─────────────────────────────────────────────────────
-            const NkSymptomEntry* FindSymptom(NkSymptomId id) const;
-            const NkDiseaseEntry* FindDisease(NkDiseaseId id)  const;
-            const NkVector<NkSymptomEntry>& GetSymptoms()  const { return mSymptoms; }
-            const NkVector<NkDiseaseEntry>& GetDiseases()  const { return mDiseases; }
+				void SetVitalSigns(nk_float32 heartRate, nk_float32 temperature, nk_float32 spo2);
 
-        private:
-            void RegisterBuiltinData();
-            void ComputePhysiologicalLevels(NkClinicalState& state) const;
-            void ComputeDifferential(NkClinicalState& state) const;
+				// ── Update ────────────────────────────────────────────────────────
+				// Recalcule l'état clinique complet.
+				void Update(NkClinicalState &outState);
 
-            NkVector<NkSymptomEntry> mSymptoms;
-            NkVector<NkDiseaseEntry> mDiseases;
+				// ── Accès BDD ─────────────────────────────────────────────────────
+				const NkSymptomEntry *FindSymptom(NkSymptomId id) const;
+				const NkDiseaseEntry *FindDisease(NkDiseaseId id) const;
 
-            // État courant des entrées
-            NkVector<NkSymptomId> mActiveSymptoms;
-            nk_float32 mHeartRate    = 72.f;
-            nk_float32 mTemperature  = 37.f;
-            nk_float32 mSpO2         = 98.f;
-        };
+				const NkVector<NkSymptomEntry> &GetSymptoms() const {
+					return mSymptoms;
+				}
 
-    } // namespace pv3de
+				const NkVector<NkDiseaseEntry> &GetDiseases() const {
+					return mDiseases;
+				}
+
+			private:
+				void RegisterBuiltinData();
+				void ComputePhysiologicalLevels(NkClinicalState &state) const;
+				void ComputeDifferential(NkClinicalState &state) const;
+
+				NkVector<NkSymptomEntry> mSymptoms;
+				NkVector<NkDiseaseEntry> mDiseases;
+
+				// État courant des entrées
+				NkVector<NkSymptomId> mActiveSymptoms;
+				nk_float32 mHeartRate = 72.f;
+				nk_float32 mTemperature = 37.f;
+				nk_float32 mSpO2 = 98.f;
+		};
+
+	} // namespace pv3de
 } // namespace nkentseu

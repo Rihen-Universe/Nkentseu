@@ -11,34 +11,34 @@
 #include "Editor/NkEditorCamera.h"
 
 namespace nkentseu {
-    namespace noge {
+	namespace noge {
 
-        class NogeApp : public Application {
-            public:
-                explicit NogeApp(const NogeAppConfig& config);
-                ~NogeApp() override;
+		class NogeApp : public Application {
+			public:
+				explicit NogeApp(const NogeAppConfig &config);
+				~NogeApp() override;
 
-            protected:
-                void OnInit()                        override;
-                void OnStart()                       override;
-                void OnUpdate(float dt)              override;
-                void OnRender()                      override;
-                void OnUIRender()                    override;
-                void OnShutdown()                    override;
-                void OnClose()                       override;
-                void OnResize(nk_uint32 w, nk_uint32 h) override;
+			protected:
+				void OnInit() override;
+				void OnStart() override;
+				void OnUpdate(float dt) override;
+				void OnRender() override;
+				void OnUIRender() override;
+				void OnShutdown() override;
+				void OnClose() override;
+				void OnResize(nk_uint32 w, nk_uint32 h) override;
 
-            private:
-                NogeAppConfig mUkConfig;
+			private:
+				NogeAppConfig mUkConfig;
 
-                // Layers — pointeurs non-owning (ownership dans LayerStack)
-                EditorLayer*    mEditorLayer   = nullptr;
-                ViewportLayer*  mViewportLayer = nullptr;
-                UILayer*        mUILayer       = nullptr;
+				// Layers — pointeurs non-owning (ownership dans LayerStack)
+				EditorLayer *mEditorLayer = nullptr;
+				ViewportLayer *mViewportLayer = nullptr;
+				UILayer *mUILayer = nullptr;
 
-                // Caméra éditeur (owned ici, partagée avec ViewportLayer)
-                NkEditorCamera* mEditorCamera  = nullptr;
-        };
+				// Caméra éditeur (owned ici, partagée avec ViewportLayer)
+				NkEditorCamera *mEditorCamera = nullptr;
+		};
 
-    } // namespace Noge
+	} // namespace noge
 } // namespace nkentseu

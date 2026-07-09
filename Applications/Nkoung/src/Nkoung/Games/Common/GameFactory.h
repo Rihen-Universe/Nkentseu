@@ -13,31 +13,31 @@
 
 namespace nkoung {
 
-    // =========================================================================
-    // GameFactory — crée des instances de jeu
-    // =========================================================================
-    class GameFactory {
-    public:
-        /// Crée une instance du jeu correspondant à l'ID.
-        /// @param id L'ID du jeu à instancier.
-        /// @param allocator L'allocateur à utiliser (nullptr = mémoire système).
-        /// @return NkUniquePtr<NkoungGame> vers le jeu créé, ou nullptr si erreur.
-        static nkentseu::memory::NkUniquePtr<NkoungGame>
-        CreateGame(GameId id, nkentseu::memory::NkAllocator* allocator = nullptr) noexcept;
+	// =========================================================================
+	// GameFactory — crée des instances de jeu
+	// =========================================================================
+	class GameFactory {
+		public:
+			/// Crée une instance du jeu correspondant à l'ID.
+			/// @param id L'ID du jeu à instancier.
+			/// @param allocator L'allocateur à utiliser (nullptr = mémoire système).
+			/// @return NkUniquePtr<NkoungGame> vers le jeu créé, ou nullptr si erreur.
+			static nkentseu::memory::NkUniquePtr<NkoungGame>
+			CreateGame(GameId id, nkentseu::memory::NkAllocator *allocator = nullptr) noexcept;
 
-        /// Retourne les infos du jeu à partir de son ID.
-        /// @param id L'ID du jeu.
-        /// @return const GameInfo* vers les infos, ou nullptr si invalide.
-        static const GameInfo* GetGameInfo(GameId id) noexcept;
+			/// Retourne les infos du jeu à partir de son ID.
+			/// @param id L'ID du jeu.
+			/// @return const GameInfo* vers les infos, ou nullptr si invalide.
+			static const GameInfo *GetGameInfo(GameId id) noexcept;
 
-        /// Retourne le nombre total de jeux.
-        static nkentseu::nk_uint32 GetGameCount() noexcept;
+			/// Retourne le nombre total de jeux.
+			static nkentseu::nk_uint32 GetGameCount() noexcept;
 
-        /// Itère sur tous les jeux.
-        /// @return const GameInfo* vers le tableau des infos (taille = GetGameCount()).
-        static const GameInfo* GetAllGames() noexcept;
-    };
+			/// Itère sur tous les jeux.
+			/// @return const GameInfo* vers le tableau des infos (taille = GetGameCount()).
+			static const GameInfo *GetAllGames() noexcept;
+	};
 
-}  // namespace nkoung
+} // namespace nkoung
 
 #endif // NKOUNG_GAME_FACTORY_H

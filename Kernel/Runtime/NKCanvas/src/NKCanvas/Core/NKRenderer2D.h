@@ -39,4 +39,4 @@
 #include "NKImage/NKImage.h"
 #include "NKCanvas/Renderer/Resources/NkTexture.h"
 #include "NKCanvas/Renderer/Resources/NkFont.h"
-#include "NKCanvas/Renderer/Resources/NkSprite.h"   // also contains NkText
+#include "NKCanvas/Renderer/Resources/NkSprite.h" // also contains NkText

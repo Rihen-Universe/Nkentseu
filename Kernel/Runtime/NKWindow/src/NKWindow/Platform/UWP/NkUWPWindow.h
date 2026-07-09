@@ -10,16 +10,16 @@
 
 namespace nkentseu {
 
-    struct NkWindowData {
-        // CoreWindow or platform equivalent native handle when available.
-        void*       mNativeWindow = nullptr;
-        NkString mTitle;
-        NkSurfaceHints mAppliedHints{};
-        uint32       mWidth        = 0;
-        uint32       mHeight       = 0;
-        bool        mVisible      = false;
-        bool        mFullscreen   = false;
-        bool        mExternal     = false;
-    };
+	struct NkWindowData {
+			// CoreWindow or platform equivalent native handle when available.
+			void *mNativeWindow = nullptr;
+			NkString mTitle;
+			NkSurfaceHints mAppliedHints{};
+			uint32 mWidth = 0;
+			uint32 mHeight = 0;
+			bool mVisible = false;
+			bool mFullscreen = false;
+			bool mExternal = false;
+	};
 
 } // namespace nkentseu

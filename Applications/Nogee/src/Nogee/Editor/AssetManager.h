@@ -27,96 +27,100 @@
 #include "NKRHI/Core/NkTypes.h"
 
 namespace nkentseu {
-    namespace Noge {
+	namespace Noge {
 
-        // =====================================================================
-        // NkAssetType
-        // =====================================================================
-        enum class NkAssetType : nk_uint8 {
-            Unknown = 0,
-            Texture,
-            Mesh,
-            Shader,
-            Font,
-            Audio,
-            Scene,
-            Material,
-        };
+		// =====================================================================
+		// NkAssetType
+		// =====================================================================
+		enum class NkAssetType : nk_uint8 {
+			Unknown = 0,
+			Texture,
+			Mesh,
+			Shader,
+			Font,
+			Audio,
+			Scene,
+			Material,
+		};
 
-        // =====================================================================
-        // NkAssetEntry — entrée dans le cache
-        // =====================================================================
-        struct NkAssetEntry {
-            NkString      path;
-            NkAssetType   type       = NkAssetType::Unknown;
-            nk_uint64     handle     = 0;   // handle opaque (cast selon le type)
-            nk_uint32     refCount   = 0;
-            bool          loaded     = false;
-            bool          dirty      = false;  // hot-reload pending
-        };
+		// =====================================================================
+		// NkAssetEntry — entrée dans le cache
+		// =====================================================================
+		struct NkAssetEntry {
+				NkString path;
+				NkAssetType type = NkAssetType::Unknown;
+				nk_uint64 handle = 0; // handle opaque (cast selon le type)
+				nk_uint32 refCount = 0;
+				bool loaded = false;
+				bool dirty = false; // hot-reload pending
+		};
 
-        // =====================================================================
-        // AssetManager
-        // =====================================================================
-        class AssetManager {
-        public:
-            AssetManager() = default;
-            ~AssetManager() noexcept { Shutdown(); }
+		// =====================================================================
+		// AssetManager
+		// =====================================================================
+		class AssetManager {
+			public:
+				AssetManager() = default;
 
-            void Init(NkIDevice* device, const char* projectDir) noexcept;
-            void Shutdown() noexcept;
+				~AssetManager() noexcept {
+					Shutdown();
+				}
 
-            // ── Textures ──────────────────────────────────────────────────────
-            // Charge et met en cache. Deuxième appel avec le même chemin retourne
-            // le handle déjà chargé. srgb=true pour les albedos, false pour les masks.
-            NkTextureHandle LoadTexture(const char* path, bool srgb = true) noexcept;
-            void            ReleaseTexture(const char* path) noexcept;
+				void Init(NkIDevice *device, const char *projectDir) noexcept;
+				void Shutdown() noexcept;
 
-            // ── Polices ───────────────────────────────────────────────────────
-            // Retourne un identifiant uint32 (index dans NkUIFontManager).
-            nk_uint32 LoadFont(const char* path, float32 sizePx = 16.f) noexcept;
+				// ── Textures ──────────────────────────────────────────────────────
+				// Charge et met en cache. Deuxième appel avec le même chemin retourne
+				// le handle déjà chargé. srgb=true pour les albedos, false pour les masks.
+				NkTextureHandle LoadTexture(const char *path, bool srgb = true) noexcept;
+				void ReleaseTexture(const char *path) noexcept;
 
-            // ── Requêtes ──────────────────────────────────────────────────────
-            [[nodiscard]] bool      IsLoaded(const char* path) const noexcept;
-            [[nodiscard]] NkAssetType TypeOf(const char* path) const noexcept;
+				// ── Polices ───────────────────────────────────────────────────────
+				// Retourne un identifiant uint32 (index dans NkUIFontManager).
+				nk_uint32 LoadFont(const char *path, float32 sizePx = 16.f) noexcept;
 
-            // Liste tous les assets d'un type
-            void ListAssets(NkAssetType type,
-                            NkVector<NkString>& out) const noexcept;
+				// ── Requêtes ──────────────────────────────────────────────────────
+				[[nodiscard]] bool IsLoaded(const char *path) const noexcept;
+				[[nodiscard]] NkAssetType TypeOf(const char *path) const noexcept;
 
-            // ── Type detection ────────────────────────────────────────────────
-            static NkAssetType DetectType(const char* path) noexcept;
+				// Liste tous les assets d'un type
+				void ListAssets(NkAssetType type, NkVector<NkString> &out) const noexcept;
 
-            // ── Hot-reload ────────────────────────────────────────────────────
-            // Appelé depuis EditorLayer::OnUpdate() — recharge les assets dirty.
-            void ProcessHotReload() noexcept;
+				// ── Type detection ────────────────────────────────────────────────
+				static NkAssetType DetectType(const char *path) noexcept;
 
-            // ── Thumbnail ─────────────────────────────────────────────────────
-            // Retourne une texture de preview pour l'AssetBrowser.
-            // Si pas disponible, retourne un handle invalide.
-            NkTextureHandle GetThumbnail(const char* path) noexcept;
+				// ── Hot-reload ────────────────────────────────────────────────────
+				// Appelé depuis EditorLayer::OnUpdate() — recharge les assets dirty.
+				void ProcessHotReload() noexcept;
 
-            // ── Accès brut ────────────────────────────────────────────────────
-            const NkVector<NkAssetEntry>& Entries() const noexcept { return mEntries; }
+				// ── Thumbnail ─────────────────────────────────────────────────────
+				// Retourne une texture de preview pour l'AssetBrowser.
+				// Si pas disponible, retourne un handle invalide.
+				NkTextureHandle GetThumbnail(const char *path) noexcept;
 
-        private:
-            NkIDevice*            mDevice     = nullptr;
-            NkString              mProjectDir;
-            NkVector<NkAssetEntry> mEntries;
+				// ── Accès brut ────────────────────────────────────────────────────
+				const NkVector<NkAssetEntry> &Entries() const noexcept {
+					return mEntries;
+				}
 
-            // Cache chemin → index dans mEntries
-            NkHashMap<NkString, nk_uint32> mIndex;
+			private:
+				NkIDevice *mDevice = nullptr;
+				NkString mProjectDir;
+				NkVector<NkAssetEntry> mEntries;
 
-            // Thumbnails générées (chemin source → NkTextureHandle)
-            NkHashMap<NkString, NkTextureHandle> mThumbnails;
+				// Cache chemin → index dans mEntries
+				NkHashMap<NkString, nk_uint32> mIndex;
 
-            NkAssetEntry* FindOrCreate(const char* path, NkAssetType type) noexcept;
-            NkAssetEntry* Find(const char* path) noexcept;
-            const NkAssetEntry* Find(const char* path) const noexcept;
+				// Thumbnails générées (chemin source → NkTextureHandle)
+				NkHashMap<NkString, NkTextureHandle> mThumbnails;
 
-            bool LoadTextureImpl(NkAssetEntry& e) noexcept;
-            void GenerateThumbnail(const char* path) noexcept;
-        };
+				NkAssetEntry *FindOrCreate(const char *path, NkAssetType type) noexcept;
+				NkAssetEntry *Find(const char *path) noexcept;
+				const NkAssetEntry *Find(const char *path) const noexcept;
 
-    } // namespace Noge
+				bool LoadTextureImpl(NkAssetEntry &e) noexcept;
+				void GenerateThumbnail(const char *path) noexcept;
+		};
+
+	} // namespace Noge
 } // namespace nkentseu

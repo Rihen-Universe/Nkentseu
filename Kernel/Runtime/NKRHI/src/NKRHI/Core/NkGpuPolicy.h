@@ -4,17 +4,16 @@
 
 namespace nkentseu {
 
-    class NkGpuPolicy final {
-    public:
-        // Apply process-level hints before creating the graphics device/context.
-        static void ApplyPreContext(const NkContextDesc& desc);
+	class NkGpuPolicy final {
+		public:
+			// Apply process-level hints before creating the graphics device/context.
+			static void ApplyPreContext(const NkContextDesc &desc);
 
-        // Helper for backend-specific adapter filtering (DXGI/Vulkan PCI IDs).
-        static bool MatchesVendorPciId(uint32 pciVendorId, NkGpuVendor vendor);
+			// Helper for backend-specific adapter filtering (DXGI/Vulkan PCI IDs).
+			static bool MatchesVendorPciId(uint32 pciVendorId, NkGpuVendor vendor);
 
-        static const char* PreferenceName(NkGpuPreference preference);
-        static const char* VendorName(NkGpuVendor vendor);
-    };
+			static const char *PreferenceName(NkGpuPreference preference);
+			static const char *VendorName(NkGpuVendor vendor);
+	};
 
 } // namespace nkentseu
-

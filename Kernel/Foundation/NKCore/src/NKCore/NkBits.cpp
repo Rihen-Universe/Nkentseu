@@ -32,86 +32,86 @@
 
 namespace nkentseu {
 
-    // ====================================================================
-    // IMPLÉMENTATION : NEXT POWER OF TWO - 32-BIT
-    // ====================================================================
+	// ====================================================================
+	// IMPLÉMENTATION : NEXT POWER OF TWO - 32-BIT
+	// ====================================================================
 
-    /**
-     * @brief Calcule la plus petite puissance de 2 >= value (32-bit)
-     * @param value Valeur d'entrée
-     * @return Plus petite puissance de 2 >= value, ou 1 si value == 0
-     *
-     * @note
-     *   Algorithme bit-twiddling classique :
-     *   1. Décrémenter pour gérer le cas "déjà puissance de 2"
-     *   2. Propager le bit de poids fort vers la droite via OR successifs
-     *   3. Incrémenter pour obtenir la puissance de 2 suivante
-     *
-     *   Exemple : value = 1000 (0b1111101000)
-     *   - value-- → 999 (0b1111100111)
-     *   - Propagation : 0b1111111111
-     *   - value++ → 1024 (0b10000000000) ✓
-     *
-     * @warning
-     *   Si value > 0x80000000, le résultat overflow à 0 (comportement défini
-     *   pour nk_uint32 : wraparound modulo 2^32). Vérifier les bornes en amont.
-     */
-    nk_uint32 NkBits::NextPowerOfTwo(nk_uint32 value) {
-        if (value == 0) {
-            return 1;  // Convention : prochaine puissance de 2 après 0 est 1
-        }
-        if (IsPowerOfTwo(value)) {
-            return value;  // Déjà une puissance de 2 : retour inchangé
-        }
+	/**
+	 * @brief Calcule la plus petite puissance de 2 >= value (32-bit)
+	 * @param value Valeur d'entrée
+	 * @return Plus petite puissance de 2 >= value, ou 1 si value == 0
+	 *
+	 * @note
+	 *   Algorithme bit-twiddling classique :
+	 *   1. Décrémenter pour gérer le cas "déjà puissance de 2"
+	 *   2. Propager le bit de poids fort vers la droite via OR successifs
+	 *   3. Incrémenter pour obtenir la puissance de 2 suivante
+	 *
+	 *   Exemple : value = 1000 (0b1111101000)
+	 *   - value-- → 999 (0b1111100111)
+	 *   - Propagation : 0b1111111111
+	 *   - value++ → 1024 (0b10000000000) ✓
+	 *
+	 * @warning
+	 *   Si value > 0x80000000, le résultat overflow à 0 (comportement défini
+	 *   pour nk_uint32 : wraparound modulo 2^32). Vérifier les bornes en amont.
+	 */
+	nk_uint32 NkBits::NextPowerOfTwo(nk_uint32 value) {
+		if (value == 0) {
+			return 1; // Convention : prochaine puissance de 2 après 0 est 1
+		}
+		if (IsPowerOfTwo(value)) {
+			return value; // Déjà une puissance de 2 : retour inchangé
+		}
 
-        // Algorithme de propagation du bit de poids fort
-        value--;
-        value |= value >> 1;
-        value |= value >> 2;
-        value |= value >> 4;
-        value |= value >> 8;
-        value |= value >> 16;
-        value++;
+		// Algorithme de propagation du bit de poids fort
+		value--;
+		value |= value >> 1;
+		value |= value >> 2;
+		value |= value >> 4;
+		value |= value >> 8;
+		value |= value >> 16;
+		value++;
 
-        return value;
-    }
+		return value;
+	}
 
-    // ====================================================================
-    // IMPLÉMENTATION : NEXT POWER OF TWO - 64-BIT
-    // ====================================================================
+	// ====================================================================
+	// IMPLÉMENTATION : NEXT POWER OF TWO - 64-BIT
+	// ====================================================================
 
-    /**
-     * @brief Calcule la plus petite puissance de 2 >= value (64-bit)
-     * @param value Valeur d'entrée
-     * @return Plus petite puissance de 2 >= value, ou 1 si value == 0
-     *
-     * @note
-     *   Même algorithme que la version 32-bit, avec étape supplémentaire
-     *   pour propager sur les 64 bits complets.
-     *
-     * @warning
-     *   Si value > 0x8000000000000000, overflow à 0. Vérifier les bornes.
-     */
-    nk_uint64 NkBits::NextPowerOfTwo(nk_uint64 value) {
-        if (value == 0) {
-            return 1;  // Convention : prochaine puissance de 2 après 0 est 1
-        }
-        if (IsPowerOfTwo(value)) {
-            return value;  // Déjà une puissance de 2 : retour inchangé
-        }
+	/**
+	 * @brief Calcule la plus petite puissance de 2 >= value (64-bit)
+	 * @param value Valeur d'entrée
+	 * @return Plus petite puissance de 2 >= value, ou 1 si value == 0
+	 *
+	 * @note
+	 *   Même algorithme que la version 32-bit, avec étape supplémentaire
+	 *   pour propager sur les 64 bits complets.
+	 *
+	 * @warning
+	 *   Si value > 0x8000000000000000, overflow à 0. Vérifier les bornes.
+	 */
+	nk_uint64 NkBits::NextPowerOfTwo(nk_uint64 value) {
+		if (value == 0) {
+			return 1; // Convention : prochaine puissance de 2 après 0 est 1
+		}
+		if (IsPowerOfTwo(value)) {
+			return value; // Déjà une puissance de 2 : retour inchangé
+		}
 
-        // Algorithme de propagation du bit de poids fort (64-bit)
-        value--;
-        value |= value >> 1;
-        value |= value >> 2;
-        value |= value >> 4;
-        value |= value >> 8;
-        value |= value >> 16;
-        value |= value >> 32;  // Étape supplémentaire pour 64-bit
-        value++;
+		// Algorithme de propagation du bit de poids fort (64-bit)
+		value--;
+		value |= value >> 1;
+		value |= value >> 2;
+		value |= value >> 4;
+		value |= value >> 8;
+		value |= value >> 16;
+		value |= value >> 32; // Étape supplémentaire pour 64-bit
+		value++;
 
-        return value;
-    }
+		return value;
+	}
 
 } // namespace nkentseu
 

@@ -27,256 +27,328 @@
 #include <cmath>
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        // =====================================================================
-        // NkOrbitCameraController3D
-        //
-        // Camera orbit autour d'un point cible. Coordonnees spheriques (yaw,
-        // pitch, distance). Clamp pitch a +-89 deg pour eviter gimbal lock.
-        // =====================================================================
-        class NkOrbitCameraController3D {
-            public:
-                // Reset l'etat complet (center + reset state pour Recenter()).
-                void SetCenter(NkVec3f target, float32 distance,
-                               float32 yaw, float32 pitch) {
-                    mTarget   = target;
-                    mDistance = distance;
-                    mYaw      = yaw;
-                    mPitch    = pitch;
-                    mResetTarget   = target;
-                    mResetDistance = distance;
-                    mResetYaw      = yaw;
-                    mResetPitch    = pitch;
-                }
+		// =====================================================================
+		// NkOrbitCameraController3D
+		//
+		// Camera orbit autour d'un point cible. Coordonnees spheriques (yaw,
+		// pitch, distance). Clamp pitch a +-89 deg pour eviter gimbal lock.
+		// =====================================================================
+		class NkOrbitCameraController3D {
+			public:
+				// Reset l'etat complet (center + reset state pour Recenter()).
+				void SetCenter(NkVec3f target, float32 distance, float32 yaw, float32 pitch) {
+					mTarget = target;
+					mDistance = distance;
+					mYaw = yaw;
+					mPitch = pitch;
+					mResetTarget = target;
+					mResetDistance = distance;
+					mResetYaw = yaw;
+					mResetPitch = pitch;
+				}
 
-                // Reset a la derniere position passee a SetCenter.
-                void Recenter() {
-                    mTarget   = mResetTarget;
-                    mDistance = mResetDistance;
-                    mYaw      = mResetYaw;
-                    mPitch    = mResetPitch;
-                }
+				// Reset a la derniere position passee a SetCenter.
+				void Recenter() {
+					mTarget = mResetTarget;
+					mDistance = mResetDistance;
+					mYaw = mResetYaw;
+					mPitch = mResetPitch;
+				}
 
-                // Rotation : dx en pixels (souris) ou unite arbitraire. Sensibilite
-                // appliquee en interne via mRotateSpeed.
-                void Rotate(float32 dx, float32 dy) {
-                    mYaw   += dx * mRotateSpeed;
-                    mPitch += dy * mRotateSpeed;
-                    ClampPitch();
-                }
+				// Rotation : dx en pixels (souris) ou unite arbitraire. Sensibilite
+				// appliquee en interne via mRotateSpeed.
+				void Rotate(float32 dx, float32 dy) {
+					mYaw += dx * mRotateSpeed;
+					mPitch += dy * mRotateSpeed;
+					ClampPitch();
+				}
 
-                // Pan : translate target dans le plan camera (right * dx + up * dy).
-                // Echelle proportionnelle a la distance (panSpeed * distance).
-                void Pan(float32 dx, float32 dy) {
-                    const NkVec3f f = ForwardDir();
-                    const NkVec3f r = RightDir(f);
-                    const NkVec3f u = CrossSafe(r, f);
-                    const float32 scale = mPanSpeed * mDistance;
-                    mTarget = mTarget - r * (dx * scale) + u * (dy * scale);
-                }
+				// Pan : translate target dans le plan camera (right * dx + up * dy).
+				// Echelle proportionnelle a la distance (panSpeed * distance).
+				void Pan(float32 dx, float32 dy) {
+					const NkVec3f f = ForwardDir();
+					const NkVec3f r = RightDir(f);
+					const NkVec3f u = CrossSafe(r, f);
+					const float32 scale = mPanSpeed * mDistance;
+					mTarget = mTarget - r * (dx * scale) + u * (dy * scale);
+				}
 
-                // Zoom : step positif = zoom-in (distance plus petite). Factor
-                // multiplicatif pow(mZoomStep, step) pour echelle naturelle.
-                void Zoom(float32 step) {
-                    const float32 factor = powf(mZoomStep, step);
-                    mDistance *= factor;
-                    if (mDistance < mMinDistance) mDistance = mMinDistance;
-                    if (mDistance > mMaxDistance) mDistance = mMaxDistance;
-                }
+				// Zoom : step positif = zoom-in (distance plus petite). Factor
+				// multiplicatif pow(mZoomStep, step) pour echelle naturelle.
+				void Zoom(float32 step) {
+					const float32 factor = powf(mZoomStep, step);
+					mDistance *= factor;
+					if (mDistance < mMinDistance)
+						mDistance = mMinDistance;
+					if (mDistance > mMaxDistance)
+						mDistance = mMaxDistance;
+				}
 
-                // Move target : delta en world-space direct (pas de scaling par dt,
-                // l'appelant gere son scaling). Pratique pour pan-en-Y pur.
-                void MoveTarget(NkVec3f delta) {
-                    mTarget = mTarget + delta;
-                }
+				// Move target : delta en world-space direct (pas de scaling par dt,
+				// l'appelant gere son scaling). Pratique pour pan-en-Y pur.
+				void MoveTarget(NkVec3f delta) {
+					mTarget = mTarget + delta;
+				}
 
-                // Move target dans le repere camera-XZ (forward planaire + right).
-                // dx = strafe droite, dz = forward, dy = elevation directe.
-                void MoveCameraRelative(float32 dx, float32 dy, float32 dz) {
-                    NkVec3f f = ForwardDir();
-                    NkVec3f fXZ = f; fXZ.y = 0.f;
-                    const float32 fXZlen = Length(fXZ);
-                    if (fXZlen > 1e-6f) fXZ = fXZ * (1.f / fXZlen);
-                    NkVec3f r = RightDir(f);
-                    NkVec3f move = fXZ * dz + r * dx + NkVec3f{0, dy, 0};
-                    mTarget = mTarget + move;
-                }
+				// Move target dans le repere camera-XZ (forward planaire + right).
+				// dx = strafe droite, dz = forward, dy = elevation directe.
+				void MoveCameraRelative(float32 dx, float32 dy, float32 dz) {
+					NkVec3f f = ForwardDir();
+					NkVec3f fXZ = f;
+					fXZ.y = 0.f;
+					const float32 fXZlen = Length(fXZ);
+					if (fXZlen > 1e-6f)
+						fXZ = fXZ * (1.f / fXZlen);
+					NkVec3f r = RightDir(f);
+					NkVec3f move = fXZ * dz + r * dx + NkVec3f{0, dy, 0};
+					mTarget = mTarget + move;
+				}
 
-                // Tick auto-orbit (continu en yaw). Active via SetAutoOrbit.
-                void Update(float32 dt) {
-                    if (mAutoOrbit) mYaw += mAutoOrbitSpeed * dt;
-                }
+				// Tick auto-orbit (continu en yaw). Active via SetAutoOrbit.
+				void Update(float32 dt) {
+					if (mAutoOrbit)
+						mYaw += mAutoOrbitSpeed * dt;
+				}
 
-                // Applique l'etat orbit (position calculee, target) au NkCamera3D
-                // passe en parametre. Ne touche pas a fov/aspect/near/far.
-                void Apply(NkCamera3D& cam) const {
-                    cam.SetPosition(GetPosition());
-                    cam.SetTarget(mTarget);
-                }
+				// Applique l'etat orbit (position calculee, target) au NkCamera3D
+				// passe en parametre. Ne touche pas a fov/aspect/near/far.
+				void Apply(NkCamera3D &cam) const {
+					cam.SetPosition(GetPosition());
+					cam.SetTarget(mTarget);
+				}
 
-                // Position camera calculee depuis yaw/pitch/distance/target.
-                NkVec3f GetPosition() const {
-                    const float32 cp = cosf(mPitch);
-                    const float32 x  = mDistance * cp * cosf(mYaw);
-                    const float32 y  = mDistance * sinf(mPitch);
-                    const float32 z  = mDistance * cp * sinf(mYaw);
-                    return { mTarget.x + x, mTarget.y + y, mTarget.z + z };
-                }
+				// Position camera calculee depuis yaw/pitch/distance/target.
+				NkVec3f GetPosition() const {
+					const float32 cp = cosf(mPitch);
+					const float32 x = mDistance * cp * cosf(mYaw);
+					const float32 y = mDistance * sinf(mPitch);
+					const float32 z = mDistance * cp * sinf(mYaw);
+					return {mTarget.x + x, mTarget.y + y, mTarget.z + z};
+				}
 
-                // Accessors etat
-                NkVec3f GetTarget()   const { return mTarget;   }
-                float32 GetDistance() const { return mDistance; }
-                float32 GetYaw()      const { return mYaw;      }
-                float32 GetPitch()    const { return mPitch;    }
+				// Accessors etat
+				NkVec3f GetTarget() const {
+					return mTarget;
+				}
 
-                // Configuration sensibilites
-                void SetRotateSpeed(float32 v)    { mRotateSpeed = v; }
-                void SetPanSpeed(float32 v)       { mPanSpeed = v; }
-                void SetZoomStep(float32 v)       { mZoomStep = v; }
-                void SetAutoOrbit(bool on)        { mAutoOrbit = on; }
-                void SetAutoOrbitSpeed(float32 v) { mAutoOrbitSpeed = v; }
-                void SetMinDistance(float32 v)    { mMinDistance = v; }
-                void SetMaxDistance(float32 v)    { mMaxDistance = v; }
+				float32 GetDistance() const {
+					return mDistance;
+				}
 
-                bool IsAutoOrbit() const { return mAutoOrbit; }
+				float32 GetYaw() const {
+					return mYaw;
+				}
 
-            private:
-                void ClampPitch() {
-                    const float32 kLimit = 1.553f; // ~89 deg
-                    if (mPitch >  kLimit) mPitch =  kLimit;
-                    if (mPitch < -kLimit) mPitch = -kLimit;
-                }
-                NkVec3f ForwardDir() const {
-                    const float32 cp = cosf(mPitch);
-                    return { -cp * cosf(mYaw), -sinf(mPitch), -cp * sinf(mYaw) };
-                }
-                NkVec3f RightDir(NkVec3f f) const {
-                    NkVec3f up = {0,1,0};
-                    NkVec3f r  = { f.z*up.y - f.y*up.z,
-                                   f.x*up.z - f.z*up.x,
-                                   f.y*up.x - f.x*up.y };
-                    const float32 len = Length(r);
-                    if (len > 1e-6f) r = r * (1.f / len);
-                    return r;
-                }
-                static NkVec3f CrossSafe(NkVec3f a, NkVec3f b) {
-                    NkVec3f c = { a.y*b.z - a.z*b.y,
-                                  a.z*b.x - a.x*b.z,
-                                  a.x*b.y - a.y*b.x };
-                    const float32 len = Length(c);
-                    if (len > 1e-6f) c = c * (1.f / len);
-                    return c;
-                }
-                static float32 Length(NkVec3f v) {
-                    return sqrtf(v.x*v.x + v.y*v.y + v.z*v.z);
-                }
+				float32 GetPitch() const {
+					return mPitch;
+				}
 
-                // Etat orbit
-                NkVec3f mTarget   = {0, 0.5f, 0};
-                float32 mDistance = 9.f;
-                float32 mYaw      = 0.f;
-                float32 mPitch    = -0.2f;
+				// Configuration sensibilites
+				void SetRotateSpeed(float32 v) {
+					mRotateSpeed = v;
+				}
 
-                // Etat reset (Recenter)
-                NkVec3f mResetTarget   = {0, 0.5f, 0};
-                float32 mResetDistance = 9.f;
-                float32 mResetYaw      = 0.f;
-                float32 mResetPitch    = -0.2f;
+				void SetPanSpeed(float32 v) {
+					mPanSpeed = v;
+				}
 
-                // Mode
-                bool mAutoOrbit = false;
+				void SetZoomStep(float32 v) {
+					mZoomStep = v;
+				}
 
-                // Sensibilites
-                float32 mRotateSpeed    = 0.005f;   // radians par unite de delta
-                float32 mPanSpeed       = 0.0015f;  // unit par delta * distance
-                float32 mZoomStep       = 0.88f;    // multiplicateur par tick
-                float32 mAutoOrbitSpeed = 0.35f;    // radians par seconde
-                float32 mMinDistance    = 0.5f;
-                float32 mMaxDistance    = 200.f;
-        };
+				void SetAutoOrbit(bool on) {
+					mAutoOrbit = on;
+				}
 
-        // =====================================================================
-        // NkFlyCameraController3D
-        //
-        // Caméra LIBRE (fly / FPS) pour jeu / simulation / archviz. Position +
-        // yaw/pitch. Look() tourne le regard, Move() translate dans le repère
-        // local (avant / droite / haut). Apply() écrit position + target
-        // (= position + direction du regard). Indépendant de l'input comme l'orbit.
-        //
-        // Usage :
-        //   NkFlyCameraController3D fly;
-        //   fly.SetPose({0,1.5f,6.f}, -1.57f, 0.f);
-        //   if (rightDrag) fly.Look(dx, dy);
-        //   fly.Move(fwd*spd*dt, right*spd*dt, up*spd*dt);   // WASD/EQ
-        //   fly.Apply(myCam);
-        // =====================================================================
-        class NkFlyCameraController3D {
-            public:
-                void SetPose(NkVec3f position, float32 yaw, float32 pitch) {
-                    mPos = position; mYaw = yaw; mPitch = pitch;
-                }
-                // Regard : dx/dy en pixels souris. Clamp pitch (±89°) anti gimbal-lock.
-                void Look(float32 dx, float32 dy) {
-                    mYaw   += dx * mLookSpeed;
-                    mPitch += dy * mLookSpeed;
-                    ClampPitch();
-                }
-                // Déplacement local : forward/right/up en unités monde (l'appelant
-                // multiplie par vitesse*dt). Si mFlyVertical=false, l'avant reste
-                // horizontal (FPS au sol) ; sinon il suit le pitch (vol libre).
-                void Move(float32 forward, float32 right, float32 up) {
-                    NkVec3f f = ForwardDir();
-                    NkVec3f fMove = f;
-                    if (!mFlyVertical) { fMove.y = 0.f; }
-                    const float32 l = Length(fMove);
-                    if (l > 1e-6f) fMove = fMove * (1.f / l);
-                    NkVec3f r = RightDir(f);
-                    mPos = mPos + fMove * forward + r * right + NkVec3f{0.f, up, 0.f};
-                }
-                void MoveWorld(NkVec3f delta) { mPos = mPos + delta; }
+				void SetAutoOrbitSpeed(float32 v) {
+					mAutoOrbitSpeed = v;
+				}
 
-                void Apply(NkCamera3D& cam) const {
-                    cam.SetPosition(mPos);
-                    cam.SetTarget(mPos + ForwardDir());
-                }
-                NkVec3f GetPosition() const { return mPos; }
-                NkVec3f GetForward()  const { return ForwardDir(); }
-                float32 GetYaw()   const { return mYaw;   }
-                float32 GetPitch() const { return mPitch; }
+				void SetMinDistance(float32 v) {
+					mMinDistance = v;
+				}
 
-                void SetLookSpeed(float32 v)  { mLookSpeed = v; }
-                void SetFlyVertical(bool on)  { mFlyVertical = on; }
+				void SetMaxDistance(float32 v) {
+					mMaxDistance = v;
+				}
 
-            private:
-                void ClampPitch() {
-                    const float32 kLimit = 1.553f; // ~89°
-                    if (mPitch >  kLimit) mPitch =  kLimit;
-                    if (mPitch < -kLimit) mPitch = -kLimit;
-                }
-                NkVec3f ForwardDir() const {
-                    const float32 cp = cosf(mPitch);
-                    return { cp * cosf(mYaw), sinf(mPitch), cp * sinf(mYaw) };
-                }
-                NkVec3f RightDir(NkVec3f f) const {
-                    NkVec3f up = {0,1,0};
-                    NkVec3f r  = { f.z*up.y - f.y*up.z,
-                                   f.x*up.z - f.z*up.x,
-                                   f.y*up.x - f.x*up.y };
-                    const float32 len = Length(r);
-                    if (len > 1e-6f) r = r * (1.f / len);
-                    return r;
-                }
-                static float32 Length(NkVec3f v) {
-                    return sqrtf(v.x*v.x + v.y*v.y + v.z*v.z);
-                }
+				bool IsAutoOrbit() const {
+					return mAutoOrbit;
+				}
 
-                NkVec3f mPos        = {0.f, 1.5f, 6.f};
-                float32 mYaw        = -1.5708f;  // regard vers -Z
-                float32 mPitch      = 0.f;
-                float32 mLookSpeed  = 0.004f;    // radians par pixel
-                bool    mFlyVertical= true;      // true = vol libre ; false = FPS au sol
-        };
+			private:
+				void ClampPitch() {
+					const float32 kLimit = 1.553f; // ~89 deg
+					if (mPitch > kLimit)
+						mPitch = kLimit;
+					if (mPitch < -kLimit)
+						mPitch = -kLimit;
+				}
 
-    } // namespace renderer
+				NkVec3f ForwardDir() const {
+					const float32 cp = cosf(mPitch);
+					return {-cp * cosf(mYaw), -sinf(mPitch), -cp * sinf(mYaw)};
+				}
+
+				NkVec3f RightDir(NkVec3f f) const {
+					NkVec3f up = {0, 1, 0};
+					NkVec3f r = {f.z * up.y - f.y * up.z, f.x * up.z - f.z * up.x, f.y * up.x - f.x * up.y};
+					const float32 len = Length(r);
+					if (len > 1e-6f)
+						r = r * (1.f / len);
+					return r;
+				}
+
+				static NkVec3f CrossSafe(NkVec3f a, NkVec3f b) {
+					NkVec3f c = {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+					const float32 len = Length(c);
+					if (len > 1e-6f)
+						c = c * (1.f / len);
+					return c;
+				}
+
+				static float32 Length(NkVec3f v) {
+					return sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+				}
+
+				// Etat orbit
+				NkVec3f mTarget = {0, 0.5f, 0};
+				float32 mDistance = 9.f;
+				float32 mYaw = 0.f;
+				float32 mPitch = -0.2f;
+
+				// Etat reset (Recenter)
+				NkVec3f mResetTarget = {0, 0.5f, 0};
+				float32 mResetDistance = 9.f;
+				float32 mResetYaw = 0.f;
+				float32 mResetPitch = -0.2f;
+
+				// Mode
+				bool mAutoOrbit = false;
+
+				// Sensibilites
+				float32 mRotateSpeed = 0.005f;	 // radians par unite de delta
+				float32 mPanSpeed = 0.0015f;	 // unit par delta * distance
+				float32 mZoomStep = 0.88f;		 // multiplicateur par tick
+				float32 mAutoOrbitSpeed = 0.35f; // radians par seconde
+				float32 mMinDistance = 0.5f;
+				float32 mMaxDistance = 200.f;
+		};
+
+		// =====================================================================
+		// NkFlyCameraController3D
+		//
+		// Caméra LIBRE (fly / FPS) pour jeu / simulation / archviz. Position +
+		// yaw/pitch. Look() tourne le regard, Move() translate dans le repère
+		// local (avant / droite / haut). Apply() écrit position + target
+		// (= position + direction du regard). Indépendant de l'input comme l'orbit.
+		//
+		// Usage :
+		//   NkFlyCameraController3D fly;
+		//   fly.SetPose({0,1.5f,6.f}, -1.57f, 0.f);
+		//   if (rightDrag) fly.Look(dx, dy);
+		//   fly.Move(fwd*spd*dt, right*spd*dt, up*spd*dt);   // WASD/EQ
+		//   fly.Apply(myCam);
+		// =====================================================================
+		class NkFlyCameraController3D {
+			public:
+				void SetPose(NkVec3f position, float32 yaw, float32 pitch) {
+					mPos = position;
+					mYaw = yaw;
+					mPitch = pitch;
+				}
+
+				// Regard : dx/dy en pixels souris. Clamp pitch (±89°) anti gimbal-lock.
+				void Look(float32 dx, float32 dy) {
+					mYaw += dx * mLookSpeed;
+					mPitch += dy * mLookSpeed;
+					ClampPitch();
+				}
+
+				// Déplacement local : forward/right/up en unités monde (l'appelant
+				// multiplie par vitesse*dt). Si mFlyVertical=false, l'avant reste
+				// horizontal (FPS au sol) ; sinon il suit le pitch (vol libre).
+				void Move(float32 forward, float32 right, float32 up) {
+					NkVec3f f = ForwardDir();
+					NkVec3f fMove = f;
+					if (!mFlyVertical) {
+						fMove.y = 0.f;
+					}
+					const float32 l = Length(fMove);
+					if (l > 1e-6f)
+						fMove = fMove * (1.f / l);
+					NkVec3f r = RightDir(f);
+					mPos = mPos + fMove * forward + r * right + NkVec3f{0.f, up, 0.f};
+				}
+
+				void MoveWorld(NkVec3f delta) {
+					mPos = mPos + delta;
+				}
+
+				void Apply(NkCamera3D &cam) const {
+					cam.SetPosition(mPos);
+					cam.SetTarget(mPos + ForwardDir());
+				}
+
+				NkVec3f GetPosition() const {
+					return mPos;
+				}
+
+				NkVec3f GetForward() const {
+					return ForwardDir();
+				}
+
+				float32 GetYaw() const {
+					return mYaw;
+				}
+
+				float32 GetPitch() const {
+					return mPitch;
+				}
+
+				void SetLookSpeed(float32 v) {
+					mLookSpeed = v;
+				}
+
+				void SetFlyVertical(bool on) {
+					mFlyVertical = on;
+				}
+
+			private:
+				void ClampPitch() {
+					const float32 kLimit = 1.553f; // ~89°
+					if (mPitch > kLimit)
+						mPitch = kLimit;
+					if (mPitch < -kLimit)
+						mPitch = -kLimit;
+				}
+
+				NkVec3f ForwardDir() const {
+					const float32 cp = cosf(mPitch);
+					return {cp * cosf(mYaw), sinf(mPitch), cp * sinf(mYaw)};
+				}
+
+				NkVec3f RightDir(NkVec3f f) const {
+					NkVec3f up = {0, 1, 0};
+					NkVec3f r = {f.z * up.y - f.y * up.z, f.x * up.z - f.z * up.x, f.y * up.x - f.x * up.y};
+					const float32 len = Length(r);
+					if (len > 1e-6f)
+						r = r * (1.f / len);
+					return r;
+				}
+
+				static float32 Length(NkVec3f v) {
+					return sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+				}
+
+				NkVec3f mPos = {0.f, 1.5f, 6.f};
+				float32 mYaw = -1.5708f; // regard vers -Z
+				float32 mPitch = 0.f;
+				float32 mLookSpeed = 0.004f; // radians par pixel
+				bool mFlyVertical = true;	 // true = vol libre ; false = FPS au sol
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

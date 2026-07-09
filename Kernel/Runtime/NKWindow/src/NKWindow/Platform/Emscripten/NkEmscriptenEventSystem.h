@@ -9,9 +9,9 @@
 
 namespace nkentseu {
 
-struct NkEventSystemData {
-    // Emscripten callbacks are registered globally in Init()
-};
+	struct NkEventSystemData {
+			// Emscripten callbacks are registered globally in Init()
+	};
 
 } // namespace nkentseu
 

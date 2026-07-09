@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include "wayland-client.h"
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -135,7 +135,6 @@ extern const struct wl_interface zxdg_toplevel_decoration_v1_interface;
 #define ZXDG_DECORATION_MANAGER_V1_DESTROY 0
 #define ZXDG_DECORATION_MANAGER_V1_GET_TOPLEVEL_DECORATION 1
 
-
 /**
  * @ingroup iface_zxdg_decoration_manager_v1
  */
@@ -147,22 +146,20 @@ extern const struct wl_interface zxdg_toplevel_decoration_v1_interface;
 
 /** @ingroup iface_zxdg_decoration_manager_v1 */
 static inline void
-zxdg_decoration_manager_v1_set_user_data(struct zxdg_decoration_manager_v1 *zxdg_decoration_manager_v1, void *user_data)
-{
-	wl_proxy_set_user_data((struct wl_proxy *) zxdg_decoration_manager_v1, user_data);
+zxdg_decoration_manager_v1_set_user_data(struct zxdg_decoration_manager_v1 *zxdg_decoration_manager_v1,
+										 void *user_data) {
+	wl_proxy_set_user_data((struct wl_proxy *)zxdg_decoration_manager_v1, user_data);
 }
 
 /** @ingroup iface_zxdg_decoration_manager_v1 */
 static inline void *
-zxdg_decoration_manager_v1_get_user_data(struct zxdg_decoration_manager_v1 *zxdg_decoration_manager_v1)
-{
-	return wl_proxy_get_user_data((struct wl_proxy *) zxdg_decoration_manager_v1);
+zxdg_decoration_manager_v1_get_user_data(struct zxdg_decoration_manager_v1 *zxdg_decoration_manager_v1) {
+	return wl_proxy_get_user_data((struct wl_proxy *)zxdg_decoration_manager_v1);
 }
 
 static inline uint32_t
-zxdg_decoration_manager_v1_get_version(struct zxdg_decoration_manager_v1 *zxdg_decoration_manager_v1)
-{
-	return wl_proxy_get_version((struct wl_proxy *) zxdg_decoration_manager_v1);
+zxdg_decoration_manager_v1_get_version(struct zxdg_decoration_manager_v1 *zxdg_decoration_manager_v1) {
+	return wl_proxy_get_version((struct wl_proxy *)zxdg_decoration_manager_v1);
 }
 
 /**
@@ -171,11 +168,10 @@ zxdg_decoration_manager_v1_get_version(struct zxdg_decoration_manager_v1 *zxdg_d
  * Destroy the decoration manager. This doesn't destroy objects created
  * with the manager.
  */
-static inline void
-zxdg_decoration_manager_v1_destroy(struct zxdg_decoration_manager_v1 *zxdg_decoration_manager_v1)
-{
-	wl_proxy_marshal_flags((struct wl_proxy *) zxdg_decoration_manager_v1,
-			 ZXDG_DECORATION_MANAGER_V1_DESTROY, NULL, wl_proxy_get_version((struct wl_proxy *) zxdg_decoration_manager_v1), WL_MARSHAL_FLAG_DESTROY);
+static inline void zxdg_decoration_manager_v1_destroy(struct zxdg_decoration_manager_v1 *zxdg_decoration_manager_v1) {
+	wl_proxy_marshal_flags((struct wl_proxy *)zxdg_decoration_manager_v1, ZXDG_DECORATION_MANAGER_V1_DESTROY, NULL,
+						   wl_proxy_get_version((struct wl_proxy *)zxdg_decoration_manager_v1),
+						   WL_MARSHAL_FLAG_DESTROY);
 }
 
 /**
@@ -190,18 +186,21 @@ zxdg_decoration_manager_v1_destroy(struct zxdg_decoration_manager_v1 *zxdg_decor
  * errors.
  */
 static inline struct zxdg_toplevel_decoration_v1 *
-zxdg_decoration_manager_v1_get_toplevel_decoration(struct zxdg_decoration_manager_v1 *zxdg_decoration_manager_v1, struct xdg_toplevel *toplevel)
-{
+zxdg_decoration_manager_v1_get_toplevel_decoration(struct zxdg_decoration_manager_v1 *zxdg_decoration_manager_v1,
+												   struct xdg_toplevel *toplevel) {
 	struct wl_proxy *id;
 
-	id = wl_proxy_marshal_flags((struct wl_proxy *) zxdg_decoration_manager_v1,
-			 ZXDG_DECORATION_MANAGER_V1_GET_TOPLEVEL_DECORATION, &zxdg_toplevel_decoration_v1_interface, wl_proxy_get_version((struct wl_proxy *) zxdg_decoration_manager_v1), 0, NULL, toplevel);
+	id = wl_proxy_marshal_flags((struct wl_proxy *)zxdg_decoration_manager_v1,
+								ZXDG_DECORATION_MANAGER_V1_GET_TOPLEVEL_DECORATION,
+								&zxdg_toplevel_decoration_v1_interface,
+								wl_proxy_get_version((struct wl_proxy *)zxdg_decoration_manager_v1), 0, NULL, toplevel);
 
-	return (struct zxdg_toplevel_decoration_v1 *) id;
+	return (struct zxdg_toplevel_decoration_v1 *)id;
 }
 
 #ifndef ZXDG_TOPLEVEL_DECORATION_V1_ERROR_ENUM
 #define ZXDG_TOPLEVEL_DECORATION_V1_ERROR_ENUM
+
 enum zxdg_toplevel_decoration_v1_error {
 	/**
 	 * xdg_toplevel has a buffer attached before configure
@@ -220,6 +219,7 @@ enum zxdg_toplevel_decoration_v1_error {
 
 #ifndef ZXDG_TOPLEVEL_DECORATION_V1_MODE_ENUM
 #define ZXDG_TOPLEVEL_DECORATION_V1_MODE_ENUM
+
 /**
  * @ingroup iface_zxdg_toplevel_decoration_v1
  * window decoration modes
@@ -243,22 +243,20 @@ enum zxdg_toplevel_decoration_v1_mode {
  * @struct zxdg_toplevel_decoration_v1_listener
  */
 struct zxdg_toplevel_decoration_v1_listener {
-	/**
-	 * suggest a surface change
-	 *
-	 * The configure event asks the client to change its decoration
-	 * mode. The configured state should not be applied immediately.
-	 * Clients must send an ack_configure in response to this event.
-	 * See xdg_surface.configure and xdg_surface.ack_configure for
-	 * details.
-	 *
-	 * A configure event can be sent at any time. The specified mode
-	 * must be obeyed by the client.
-	 * @param mode the decoration mode
-	 */
-	void (*configure)(void *data,
-			  struct zxdg_toplevel_decoration_v1 *zxdg_toplevel_decoration_v1,
-			  uint32_t mode);
+		/**
+		 * suggest a surface change
+		 *
+		 * The configure event asks the client to change its decoration
+		 * mode. The configured state should not be applied immediately.
+		 * Clients must send an ack_configure in response to this event.
+		 * See xdg_surface.configure and xdg_surface.ack_configure for
+		 * details.
+		 *
+		 * A configure event can be sent at any time. The specified mode
+		 * must be obeyed by the client.
+		 * @param mode the decoration mode
+		 */
+		void (*configure)(void *data, struct zxdg_toplevel_decoration_v1 *zxdg_toplevel_decoration_v1, uint32_t mode);
 };
 
 /**
@@ -266,10 +264,8 @@ struct zxdg_toplevel_decoration_v1_listener {
  */
 static inline int
 zxdg_toplevel_decoration_v1_add_listener(struct zxdg_toplevel_decoration_v1 *zxdg_toplevel_decoration_v1,
-					 const struct zxdg_toplevel_decoration_v1_listener *listener, void *data)
-{
-	return wl_proxy_add_listener((struct wl_proxy *) zxdg_toplevel_decoration_v1,
-				     (void (**)(void)) listener, data);
+										 const struct zxdg_toplevel_decoration_v1_listener *listener, void *data) {
+	return wl_proxy_add_listener((struct wl_proxy *)zxdg_toplevel_decoration_v1, (void (**)(void))listener, data);
 }
 
 #define ZXDG_TOPLEVEL_DECORATION_V1_DESTROY 0
@@ -296,22 +292,20 @@ zxdg_toplevel_decoration_v1_add_listener(struct zxdg_toplevel_decoration_v1 *zxd
 
 /** @ingroup iface_zxdg_toplevel_decoration_v1 */
 static inline void
-zxdg_toplevel_decoration_v1_set_user_data(struct zxdg_toplevel_decoration_v1 *zxdg_toplevel_decoration_v1, void *user_data)
-{
-	wl_proxy_set_user_data((struct wl_proxy *) zxdg_toplevel_decoration_v1, user_data);
+zxdg_toplevel_decoration_v1_set_user_data(struct zxdg_toplevel_decoration_v1 *zxdg_toplevel_decoration_v1,
+										  void *user_data) {
+	wl_proxy_set_user_data((struct wl_proxy *)zxdg_toplevel_decoration_v1, user_data);
 }
 
 /** @ingroup iface_zxdg_toplevel_decoration_v1 */
 static inline void *
-zxdg_toplevel_decoration_v1_get_user_data(struct zxdg_toplevel_decoration_v1 *zxdg_toplevel_decoration_v1)
-{
-	return wl_proxy_get_user_data((struct wl_proxy *) zxdg_toplevel_decoration_v1);
+zxdg_toplevel_decoration_v1_get_user_data(struct zxdg_toplevel_decoration_v1 *zxdg_toplevel_decoration_v1) {
+	return wl_proxy_get_user_data((struct wl_proxy *)zxdg_toplevel_decoration_v1);
 }
 
 static inline uint32_t
-zxdg_toplevel_decoration_v1_get_version(struct zxdg_toplevel_decoration_v1 *zxdg_toplevel_decoration_v1)
-{
-	return wl_proxy_get_version((struct wl_proxy *) zxdg_toplevel_decoration_v1);
+zxdg_toplevel_decoration_v1_get_version(struct zxdg_toplevel_decoration_v1 *zxdg_toplevel_decoration_v1) {
+	return wl_proxy_get_version((struct wl_proxy *)zxdg_toplevel_decoration_v1);
 }
 
 /**
@@ -321,10 +315,10 @@ zxdg_toplevel_decoration_v1_get_version(struct zxdg_toplevel_decoration_v1 *zxdg
  * commit.
  */
 static inline void
-zxdg_toplevel_decoration_v1_destroy(struct zxdg_toplevel_decoration_v1 *zxdg_toplevel_decoration_v1)
-{
-	wl_proxy_marshal_flags((struct wl_proxy *) zxdg_toplevel_decoration_v1,
-			 ZXDG_TOPLEVEL_DECORATION_V1_DESTROY, NULL, wl_proxy_get_version((struct wl_proxy *) zxdg_toplevel_decoration_v1), WL_MARSHAL_FLAG_DESTROY);
+zxdg_toplevel_decoration_v1_destroy(struct zxdg_toplevel_decoration_v1 *zxdg_toplevel_decoration_v1) {
+	wl_proxy_marshal_flags((struct wl_proxy *)zxdg_toplevel_decoration_v1, ZXDG_TOPLEVEL_DECORATION_V1_DESTROY, NULL,
+						   wl_proxy_get_version((struct wl_proxy *)zxdg_toplevel_decoration_v1),
+						   WL_MARSHAL_FLAG_DESTROY);
 }
 
 /**
@@ -349,11 +343,10 @@ zxdg_toplevel_decoration_v1_destroy(struct zxdg_toplevel_decoration_v1 *zxdg_top
  * make sure not to send multiple successive set_mode requests with the
  * same decoration mode.
  */
-static inline void
-zxdg_toplevel_decoration_v1_set_mode(struct zxdg_toplevel_decoration_v1 *zxdg_toplevel_decoration_v1, uint32_t mode)
-{
-	wl_proxy_marshal_flags((struct wl_proxy *) zxdg_toplevel_decoration_v1,
-			 ZXDG_TOPLEVEL_DECORATION_V1_SET_MODE, NULL, wl_proxy_get_version((struct wl_proxy *) zxdg_toplevel_decoration_v1), 0, mode);
+static inline void zxdg_toplevel_decoration_v1_set_mode(struct zxdg_toplevel_decoration_v1 *zxdg_toplevel_decoration_v1,
+														uint32_t mode) {
+	wl_proxy_marshal_flags((struct wl_proxy *)zxdg_toplevel_decoration_v1, ZXDG_TOPLEVEL_DECORATION_V1_SET_MODE, NULL,
+						   wl_proxy_get_version((struct wl_proxy *)zxdg_toplevel_decoration_v1), 0, mode);
 }
 
 /**
@@ -365,13 +358,12 @@ zxdg_toplevel_decoration_v1_set_mode(struct zxdg_toplevel_decoration_v1 *zxdg_to
  * This request has the same semantics as set_mode.
  */
 static inline void
-zxdg_toplevel_decoration_v1_unset_mode(struct zxdg_toplevel_decoration_v1 *zxdg_toplevel_decoration_v1)
-{
-	wl_proxy_marshal_flags((struct wl_proxy *) zxdg_toplevel_decoration_v1,
-			 ZXDG_TOPLEVEL_DECORATION_V1_UNSET_MODE, NULL, wl_proxy_get_version((struct wl_proxy *) zxdg_toplevel_decoration_v1), 0);
+zxdg_toplevel_decoration_v1_unset_mode(struct zxdg_toplevel_decoration_v1 *zxdg_toplevel_decoration_v1) {
+	wl_proxy_marshal_flags((struct wl_proxy *)zxdg_toplevel_decoration_v1, ZXDG_TOPLEVEL_DECORATION_V1_UNSET_MODE, NULL,
+						   wl_proxy_get_version((struct wl_proxy *)zxdg_toplevel_decoration_v1), 0);
 }
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 }
 #endif
 

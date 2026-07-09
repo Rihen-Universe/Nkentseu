@@ -20,340 +20,329 @@
 #ifndef NKENTSEU_CONTAINERS_NKCONTAINERSAPI_H
 #define NKENTSEU_CONTAINERS_NKCONTAINERSAPI_H
 
-    // -------------------------------------------------------------------------
-    // SECTION 1 : EN-TÊTES ET DÉPENDANCES
-    // -------------------------------------------------------------------------
-    // NKContainers dépend de NKPlatform. Nous importons ses macros d'export.
-    // AUCUNE duplication : nous utilisons directement les macros NKPlatform.
+// -------------------------------------------------------------------------
+// SECTION 1 : EN-TÊTES ET DÉPENDANCES
+// -------------------------------------------------------------------------
+// NKContainers dépend de NKPlatform. Nous importons ses macros d'export.
+// AUCUNE duplication : nous utilisons directement les macros NKPlatform.
 
-    #include "NKPlatform/NkPlatformExport.h"
-    #include "NKPlatform/NkPlatformInline.h"
-    #include "NKCore/NkTraits.h"  // uniquement pour std::void_t (si tu n'as pas déjà NkVoidT)
+#include "NKPlatform/NkPlatformExport.h"
+#include "NKPlatform/NkPlatformInline.h"
+#include "NKCore/NkTraits.h" // uniquement pour std::void_t (si tu n'as pas déjà NkVoidT)
 
-    // -------------------------------------------------------------------------
-    // SECTION 2 : CONFIGURATION DU MODE DE BUILD NKCONTAINERS
-    // -------------------------------------------------------------------------
-    /**
-     * @defgroup ContainersBuildConfig Configuration du Build NKContainers
-     * @brief Macros pour contrôler le mode de compilation de NKContainers
-     *
-     * Ces macros sont INDÉPENDANTES de celles de NKPlatform :
-     *  - NKENTSEU_CONTAINERS_BUILD_SHARED_LIB : Compiler NKContainers en bibliothèque partagée
-     *  - NKENTSEU_CONTAINERS_STATIC_LIB : Utiliser NKContainers en mode bibliothèque statique
-     *  - NKENTSEU_CONTAINERS_HEADER_ONLY : Mode header-only (tout inline)
-     *
-     * @note NKContainers et NKPlatform peuvent avoir des modes de build différents.
-     * Exemple valide : NKPlatform en DLL + NKContainers en static.
-     *
-     * @example CMakeLists.txt
-     * @code
-     * # NKContainers en DLL, NKPlatform en static
-     * target_compile_definitions(nkcontainers PRIVATE NKENTSEU_CONTAINERS_BUILD_SHARED_LIB)
-     * target_compile_definitions(nkcontainers PRIVATE NKENTSEU_STATIC_LIB)  # Pour NKPlatform
-     *
-     * # NKContainers en static, NKPlatform en DLL
-     * target_compile_definitions(monapp PRIVATE NKENTSEU_CONTAINERS_STATIC_LIB)
-     * # (NKPlatform en DLL par défaut, pas de define nécessaire)
-     * @endcode
-     */
+// -------------------------------------------------------------------------
+// SECTION 2 : CONFIGURATION DU MODE DE BUILD NKCONTAINERS
+// -------------------------------------------------------------------------
+/**
+ * @defgroup ContainersBuildConfig Configuration du Build NKContainers
+ * @brief Macros pour contrôler le mode de compilation de NKContainers
+ *
+ * Ces macros sont INDÉPENDANTES de celles de NKPlatform :
+ *  - NKENTSEU_CONTAINERS_BUILD_SHARED_LIB : Compiler NKContainers en bibliothèque partagée
+ *  - NKENTSEU_CONTAINERS_STATIC_LIB : Utiliser NKContainers en mode bibliothèque statique
+ *  - NKENTSEU_CONTAINERS_HEADER_ONLY : Mode header-only (tout inline)
+ *
+ * @note NKContainers et NKPlatform peuvent avoir des modes de build différents.
+ * Exemple valide : NKPlatform en DLL + NKContainers en static.
+ *
+ * @example CMakeLists.txt
+ * @code
+ * # NKContainers en DLL, NKPlatform en static
+ * target_compile_definitions(nkcontainers PRIVATE NKENTSEU_CONTAINERS_BUILD_SHARED_LIB)
+ * target_compile_definitions(nkcontainers PRIVATE NKENTSEU_STATIC_LIB)  # Pour NKPlatform
+ *
+ * # NKContainers en static, NKPlatform en DLL
+ * target_compile_definitions(monapp PRIVATE NKENTSEU_CONTAINERS_STATIC_LIB)
+ * # (NKPlatform en DLL par défaut, pas de define nécessaire)
+ * @endcode
+ */
 
-    // -------------------------------------------------------------------------
-    // SECTION 3 : MACRO PRINCIPALE NKENTSEU_CONTAINERS_API
-    // -------------------------------------------------------------------------
-    /**
-     * @brief Macro principale pour l'export/import des symboles NKContainers
-     * @def NKENTSEU_CONTAINERS_API
-     * @ingroup ContainersApiMacros
-     *
-     * Cette macro gère UNIQUEMENT la visibilité des symboles de NKContainers.
-     * Elle est indépendante de NKENTSEU_PLATFORM_API.
-     *
-     * Logique :
-     *  - NKENTSEU_CONTAINERS_BUILD_SHARED_LIB : export (compilation de NKContainers en DLL)
-     *  - NKENTSEU_CONTAINERS_STATIC_LIB ou NKENTSEU_CONTAINERS_HEADER_ONLY : vide (pas d'export)
-     *  - Sinon : import (utilisation de NKContainers en mode DLL)
-     *
-     * @note Cette macro utilise NKENTSEU_PLATFORM_API_EXPORT/IMPORT comme base,
-     * garantissant la compatibilité multiplateforme sans duplication.
-     *
-     * @example
-     * @code
-     * // Dans un header public de NKContainers :
-     * NKENTSEU_CONTAINERS_API void ContainersInitialize();
-     *
-     * // Pour compiler NKContainers en DLL : -DNKENTSEU_CONTAINERS_BUILD_SHARED_LIB
-     * // Pour utiliser NKContainers en DLL : (aucun define, import par défaut)
-     * // Pour utiliser NKContainers en static : -DNKENTSEU_CONTAINERS_STATIC_LIB
-     * @endcode
-     */
-    #if defined(NKENTSEU_CONTAINERS_BUILD_SHARED_LIB)
-        // Compilation de NKContainers en bibliothèque partagée : exporter
-        #define NKENTSEU_CONTAINERS_API NKENTSEU_PLATFORM_API_EXPORT
-    #elif defined(NKENTSEU_CONTAINERS_STATIC_LIB) || defined(NKENTSEU_CONTAINERS_HEADER_ONLY)
-        // Build statique ou header-only : pas de décoration
-        #define NKENTSEU_CONTAINERS_API
-    #elif defined(NKENTSEU_CONTAINERS_USE_SHARED_LIB)
-        // Utilisation de NKContainers en mode DLL : importer
-        #define NKENTSEU_CONTAINERS_API NKENTSEU_PLATFORM_API_IMPORT
-    #else
-        // Defaut : build statique / monolithique -> aucune decoration
-        #define NKENTSEU_CONTAINERS_API
-    #endif
+// -------------------------------------------------------------------------
+// SECTION 3 : MACRO PRINCIPALE NKENTSEU_CONTAINERS_API
+// -------------------------------------------------------------------------
+/**
+ * @brief Macro principale pour l'export/import des symboles NKContainers
+ * @def NKENTSEU_CONTAINERS_API
+ * @ingroup ContainersApiMacros
+ *
+ * Cette macro gère UNIQUEMENT la visibilité des symboles de NKContainers.
+ * Elle est indépendante de NKENTSEU_PLATFORM_API.
+ *
+ * Logique :
+ *  - NKENTSEU_CONTAINERS_BUILD_SHARED_LIB : export (compilation de NKContainers en DLL)
+ *  - NKENTSEU_CONTAINERS_STATIC_LIB ou NKENTSEU_CONTAINERS_HEADER_ONLY : vide (pas d'export)
+ *  - Sinon : import (utilisation de NKContainers en mode DLL)
+ *
+ * @note Cette macro utilise NKENTSEU_PLATFORM_API_EXPORT/IMPORT comme base,
+ * garantissant la compatibilité multiplateforme sans duplication.
+ *
+ * @example
+ * @code
+ * // Dans un header public de NKContainers :
+ * NKENTSEU_CONTAINERS_API void ContainersInitialize();
+ *
+ * // Pour compiler NKContainers en DLL : -DNKENTSEU_CONTAINERS_BUILD_SHARED_LIB
+ * // Pour utiliser NKContainers en DLL : (aucun define, import par défaut)
+ * // Pour utiliser NKContainers en static : -DNKENTSEU_CONTAINERS_STATIC_LIB
+ * @endcode
+ */
+#if defined(NKENTSEU_CONTAINERS_BUILD_SHARED_LIB)
+// Compilation de NKContainers en bibliothèque partagée : exporter
+#define NKENTSEU_CONTAINERS_API NKENTSEU_PLATFORM_API_EXPORT
+#elif defined(NKENTSEU_CONTAINERS_STATIC_LIB) || defined(NKENTSEU_CONTAINERS_HEADER_ONLY)
+// Build statique ou header-only : pas de décoration
+#define NKENTSEU_CONTAINERS_API
+#elif defined(NKENTSEU_CONTAINERS_USE_SHARED_LIB)
+// Utilisation de NKContainers en mode DLL : importer
+#define NKENTSEU_CONTAINERS_API NKENTSEU_PLATFORM_API_IMPORT
+#else
+// Defaut : build statique / monolithique -> aucune decoration
+#define NKENTSEU_CONTAINERS_API
+#endif
 
-    // -------------------------------------------------------------------------
-    // SECTION 4 : MACROS DE CONVENANCE SPÉCIFIQUES À NKCONTAINERS
-    // -------------------------------------------------------------------------
-    // Seules les macros qui ajoutent une valeur spécifique à NKContainers sont définies.
-    // Tout le reste (deprecated, alignement, pragma, etc.) est utilisé directement
-    // depuis NKPlatform via le préfixe NKENTSEU_*.
+// -------------------------------------------------------------------------
+// SECTION 4 : MACROS DE CONVENANCE SPÉCIFIQUES À NKCONTAINERS
+// -------------------------------------------------------------------------
+// Seules les macros qui ajoutent une valeur spécifique à NKContainers sont définies.
+// Tout le reste (deprecated, alignement, pragma, etc.) est utilisé directement
+// depuis NKPlatform via le préfixe NKENTSEU_*.
 
-    /**
-     * @brief Macro pour exporter une classe complète de NKContainers
-     * @def NKENTSEU_CONTAINERS_CLASS_EXPORT
-     * @ingroup ContainersApiMacros
-     *
-     * Alias vers NKENTSEU_CONTAINERS_API pour les déclarations de classe.
-     *
-     * @example
-     * @code
-     * class NKENTSEU_CONTAINERS_CLASS_EXPORT Vector {
-     * public:
-     *     void PushBack(int value);
-     * };
-     * @endcode
-     */
-    #define NKENTSEU_CONTAINERS_CLASS_EXPORT NKENTSEU_CONTAINERS_API
+/**
+ * @brief Macro pour exporter une classe complète de NKContainers
+ * @def NKENTSEU_CONTAINERS_CLASS_EXPORT
+ * @ingroup ContainersApiMacros
+ *
+ * Alias vers NKENTSEU_CONTAINERS_API pour les déclarations de classe.
+ *
+ * @example
+ * @code
+ * class NKENTSEU_CONTAINERS_CLASS_EXPORT Vector {
+ * public:
+ *     void PushBack(int value);
+ * };
+ * @endcode
+ */
+#define NKENTSEU_CONTAINERS_CLASS_EXPORT NKENTSEU_CONTAINERS_API
 
-    /**
-     * @brief Fonction inline exportée pour NKContainers
-     * @def NKENTSEU_CONTAINERS_API_INLINE
-     * @ingroup ContainersApiMacros
-     *
-     * Combinaison de NKENTSEU_CONTAINERS_API et NKENTSEU_INLINE.
-     * En mode header-only, équivaut à NKENTSEU_FORCE_INLINE.
-     */
-    #if defined(NKENTSEU_CONTAINERS_HEADER_ONLY)
-        #define NKENTSEU_CONTAINERS_API_INLINE NKENTSEU_FORCE_INLINE
-    #else
-        #define NKENTSEU_CONTAINERS_API_INLINE NKENTSEU_INLINE
-    #endif
+/**
+ * @brief Fonction inline exportée pour NKContainers
+ * @def NKENTSEU_CONTAINERS_API_INLINE
+ * @ingroup ContainersApiMacros
+ *
+ * Combinaison de NKENTSEU_CONTAINERS_API et NKENTSEU_INLINE.
+ * En mode header-only, équivaut à NKENTSEU_FORCE_INLINE.
+ */
+#if defined(NKENTSEU_CONTAINERS_HEADER_ONLY)
+#define NKENTSEU_CONTAINERS_API_INLINE NKENTSEU_FORCE_INLINE
+#else
+#define NKENTSEU_CONTAINERS_API_INLINE NKENTSEU_INLINE
+#endif
 
-    /**
-     * @brief Fonction force_inline exportée pour NKContainers
-     * @def NKENTSEU_CONTAINERS_API_FORCE_INLINE
-     * @ingroup ContainersApiMacros
-     *
-     * Combinaison de NKENTSEU_CONTAINERS_API et NKENTSEU_FORCE_INLINE.
-     * Pour les fonctions critiques en performance dans l'API publique.
-     * Particulièrement utile pour les conteneurs où l'inlining est essentiel.
-     */
-    #if defined(NKENTSEU_CONTAINERS_HEADER_ONLY)
-        #define NKENTSEU_CONTAINERS_API_FORCE_INLINE NKENTSEU_FORCE_INLINE
-    #else
-        #define NKENTSEU_CONTAINERS_API_FORCE_INLINE NKENTSEU_CONTAINERS_API NKENTSEU_FORCE_INLINE
-    #endif
+/**
+ * @brief Fonction force_inline exportée pour NKContainers
+ * @def NKENTSEU_CONTAINERS_API_FORCE_INLINE
+ * @ingroup ContainersApiMacros
+ *
+ * Combinaison de NKENTSEU_CONTAINERS_API et NKENTSEU_FORCE_INLINE.
+ * Pour les fonctions critiques en performance dans l'API publique.
+ * Particulièrement utile pour les conteneurs où l'inlining est essentiel.
+ */
+#if defined(NKENTSEU_CONTAINERS_HEADER_ONLY)
+#define NKENTSEU_CONTAINERS_API_FORCE_INLINE NKENTSEU_FORCE_INLINE
+#else
+#define NKENTSEU_CONTAINERS_API_FORCE_INLINE NKENTSEU_CONTAINERS_API NKENTSEU_FORCE_INLINE
+#endif
 
-    /**
-     * @brief Fonction no_inline exportée pour NKContainers
-     * @def NKENTSEU_CONTAINERS_API_NO_INLINE
-     * @ingroup ContainersApiMacros
-     *
-     * Combinaison de NKENTSEU_CONTAINERS_API et NKENTSEU_NO_INLINE.
-     * Pour éviter l'explosion de code dans les DLL ou faciliter le debugging.
-     */
-    #define NKENTSEU_CONTAINERS_API_NO_INLINE NKENTSEU_CONTAINERS_API NKENTSEU_NO_INLINE
+/**
+ * @brief Fonction no_inline exportée pour NKContainers
+ * @def NKENTSEU_CONTAINERS_API_NO_INLINE
+ * @ingroup ContainersApiMacros
+ *
+ * Combinaison de NKENTSEU_CONTAINERS_API et NKENTSEU_NO_INLINE.
+ * Pour éviter l'explosion de code dans les DLL ou faciliter le debugging.
+ */
+#define NKENTSEU_CONTAINERS_API_NO_INLINE NKENTSEU_CONTAINERS_API NKENTSEU_NO_INLINE
 
-    // -------------------------------------------------------------------------
-    // SECTION 5 : UTILISATION DIRECTE DES MACROS NKPLATFORM (PAS DE DUPLICATION)
-    // -------------------------------------------------------------------------
-    /**
-     * @defgroup ContainersApiReuse Réutilisation des Macros NKPlatform
-     * @brief Guide d'utilisation des macros NKPlatform dans NKContainers
-     *
-     * Pour éviter la duplication, NKContainers réutilise directement les macros
-     * de NKPlatform. Voici les équivalences :
-     *
-     * | Besoin dans NKContainers | Macro à utiliser | Source |
-     * |-------------------------|-----------------|--------|
-     * | Dépréciation | `NKENTSEU_DEPRECATED` | NKPlatform |
-     * | Dépréciation avec message | `NKENTSEU_DEPRECATED_MESSAGE(msg)` | NKPlatform |
-     * | Alignement cache | `NKENTSEU_ALIGN_CACHE` | NKPlatform |
-     * | Alignement 16/32/64 | `NKENTSEU_ALIGN_16`, etc. | NKPlatform |
-     * | Liaison C | `NKENTSEU_EXTERN_C_BEGIN/END` | NKPlatform |
-     * | Pragmas | `NKENTSEU_PRAGMA(x)` | NKPlatform |
-     * | Gestion warnings | `NKENTSEU_DISABLE_WARNING_*` | NKPlatform |
-     * | Symbole local | `NKENTSEU_API_LOCAL` | NKPlatform |
-     *
-     * @example
-     * @code
-     * // Dépréciation dans NKContainers (pas de NKENTSEU_CONTAINERS_DEPRECATED) :
-     * NKENTSEU_DEPRECATED_MESSAGE("Utiliser Vector::EmplaceBack()")
-     * NKENTSEU_CONTAINERS_API void LegacyPushBack(int value);
-     *
-     * // Alignement dans NKContainers (pas de NKENTSEU_CONTAINERS_ALIGN_32) :
-     * struct NKENTSEU_ALIGN_32 NKENTSEU_CONTAINERS_CLASS_EXPORT SimdVector {
-     *     float data[8];  // 32 bytes, aligné pour SIMD
-     * };
-     * @endcode
-     */
+// -------------------------------------------------------------------------
+// SECTION 5 : UTILISATION DIRECTE DES MACROS NKPLATFORM (PAS DE DUPLICATION)
+// -------------------------------------------------------------------------
+/**
+ * @defgroup ContainersApiReuse Réutilisation des Macros NKPlatform
+ * @brief Guide d'utilisation des macros NKPlatform dans NKContainers
+ *
+ * Pour éviter la duplication, NKContainers réutilise directement les macros
+ * de NKPlatform. Voici les équivalences :
+ *
+ * | Besoin dans NKContainers | Macro à utiliser | Source |
+ * |-------------------------|-----------------|--------|
+ * | Dépréciation | `NKENTSEU_DEPRECATED` | NKPlatform |
+ * | Dépréciation avec message | `NKENTSEU_DEPRECATED_MESSAGE(msg)` | NKPlatform |
+ * | Alignement cache | `NKENTSEU_ALIGN_CACHE` | NKPlatform |
+ * | Alignement 16/32/64 | `NKENTSEU_ALIGN_16`, etc. | NKPlatform |
+ * | Liaison C | `NKENTSEU_EXTERN_C_BEGIN/END` | NKPlatform |
+ * | Pragmas | `NKENTSEU_PRAGMA(x)` | NKPlatform |
+ * | Gestion warnings | `NKENTSEU_DISABLE_WARNING_*` | NKPlatform |
+ * | Symbole local | `NKENTSEU_API_LOCAL` | NKPlatform |
+ *
+ * @example
+ * @code
+ * // Dépréciation dans NKContainers (pas de NKENTSEU_CONTAINERS_DEPRECATED) :
+ * NKENTSEU_DEPRECATED_MESSAGE("Utiliser Vector::EmplaceBack()")
+ * NKENTSEU_CONTAINERS_API void LegacyPushBack(int value);
+ *
+ * // Alignement dans NKContainers (pas de NKENTSEU_CONTAINERS_ALIGN_32) :
+ * struct NKENTSEU_ALIGN_32 NKENTSEU_CONTAINERS_CLASS_EXPORT SimdVector {
+ *     float data[8];  // 32 bytes, aligné pour SIMD
+ * };
+ * @endcode
+ */
 
-    // -------------------------------------------------------------------------
-    // SECTION 6 : VALIDATION DES MACROS DE BUILD NKCONTAINERS
-    // -------------------------------------------------------------------------
-    // Vérifications de cohérence pour les macros spécifiques à NKContainers.
+// -------------------------------------------------------------------------
+// SECTION 6 : VALIDATION DES MACROS DE BUILD NKCONTAINERS
+// -------------------------------------------------------------------------
+// Vérifications de cohérence pour les macros spécifiques à NKContainers.
 
-    #if defined(NKENTSEU_CONTAINERS_BUILD_SHARED_LIB) && defined(NKENTSEU_CONTAINERS_STATIC_LIB)
-        #warning "NKContainers: NKENTSEU_CONTAINERS_BUILD_SHARED_LIB et NKENTSEU_CONTAINERS_STATIC_LIB définis - NKENTSEU_CONTAINERS_STATIC_LIB ignoré"
-        #undef NKENTSEU_CONTAINERS_STATIC_LIB
-    #endif
+#if defined(NKENTSEU_CONTAINERS_BUILD_SHARED_LIB) && defined(NKENTSEU_CONTAINERS_STATIC_LIB)
+#warning                                                                                                               \
+	"NKContainers: NKENTSEU_CONTAINERS_BUILD_SHARED_LIB et NKENTSEU_CONTAINERS_STATIC_LIB définis - NKENTSEU_CONTAINERS_STATIC_LIB ignoré"
+#undef NKENTSEU_CONTAINERS_STATIC_LIB
+#endif
 
-    #if defined(NKENTSEU_CONTAINERS_BUILD_SHARED_LIB) && defined(NKENTSEU_CONTAINERS_HEADER_ONLY)
-        #warning "NKContainers: NKENTSEU_CONTAINERS_BUILD_SHARED_LIB et NKENTSEU_CONTAINERS_HEADER_ONLY définis - NKENTSEU_CONTAINERS_HEADER_ONLY ignoré"
-        #undef NKENTSEU_CONTAINERS_HEADER_ONLY
-    #endif
+#if defined(NKENTSEU_CONTAINERS_BUILD_SHARED_LIB) && defined(NKENTSEU_CONTAINERS_HEADER_ONLY)
+#warning                                                                                                               \
+	"NKContainers: NKENTSEU_CONTAINERS_BUILD_SHARED_LIB et NKENTSEU_CONTAINERS_HEADER_ONLY définis - NKENTSEU_CONTAINERS_HEADER_ONLY ignoré"
+#undef NKENTSEU_CONTAINERS_HEADER_ONLY
+#endif
 
-    #if defined(NKENTSEU_CONTAINERS_STATIC_LIB) && defined(NKENTSEU_CONTAINERS_HEADER_ONLY)
-        #warning "NKContainers: NKENTSEU_CONTAINERS_STATIC_LIB et NKENTSEU_CONTAINERS_HEADER_ONLY définis - NKENTSEU_CONTAINERS_HEADER_ONLY ignoré"
-        #undef NKENTSEU_CONTAINERS_HEADER_ONLY
-    #endif
+#if defined(NKENTSEU_CONTAINERS_STATIC_LIB) && defined(NKENTSEU_CONTAINERS_HEADER_ONLY)
+#warning                                                                                                               \
+	"NKContainers: NKENTSEU_CONTAINERS_STATIC_LIB et NKENTSEU_CONTAINERS_HEADER_ONLY définis - NKENTSEU_CONTAINERS_HEADER_ONLY ignoré"
+#undef NKENTSEU_CONTAINERS_HEADER_ONLY
+#endif
 
-    // -------------------------------------------------------------------------
-    // SECTION 7 : MESSAGES DE DEBUG OPTIONNELS
-    // -------------------------------------------------------------------------
-    #ifdef NKENTSEU_CONTAINERS_DEBUG
-        #pragma message("NKContainers Export Config:")
-        #if defined(NKENTSEU_CONTAINERS_BUILD_SHARED_LIB)
-            #pragma message("  NKContainers mode: Shared (export)")
-        #elif defined(NKENTSEU_CONTAINERS_STATIC_LIB)
-            #pragma message("  NKContainers mode: Static")
-        #elif defined(NKENTSEU_CONTAINERS_HEADER_ONLY)
-            #pragma message("  NKContainers mode: Header-only")
-        #else
-            #pragma message("  NKContainers mode: DLL import (default)")
-        #endif
-        #pragma message("  NKENTSEU_CONTAINERS_API = " NKENTSEU_STRINGIZE(NKENTSEU_CONTAINERS_API))
-    #endif
+// -------------------------------------------------------------------------
+// SECTION 7 : MESSAGES DE DEBUG OPTIONNELS
+// -------------------------------------------------------------------------
+#ifdef NKENTSEU_CONTAINERS_DEBUG
+#pragma message("NKContainers Export Config:")
+#if defined(NKENTSEU_CONTAINERS_BUILD_SHARED_LIB)
+#pragma message("  NKContainers mode: Shared (export)")
+#elif defined(NKENTSEU_CONTAINERS_STATIC_LIB)
+#pragma message("  NKContainers mode: Static")
+#elif defined(NKENTSEU_CONTAINERS_HEADER_ONLY)
+#pragma message("  NKContainers mode: Header-only")
+#else
+#pragma message("  NKContainers mode: DLL import (default)")
+#endif
+#pragma message("  NKENTSEU_CONTAINERS_API = " NKENTSEU_STRINGIZE(NKENTSEU_CONTAINERS_API))
+#endif
 
-    namespace nkentseu {
-        namespace traits {
-            // -------------------------------------------------------------------------
-            // Trait : NkHasBeginEnd<T>
-            // Vérifie si T possède des méthodes Begin() et End() utilisables
-            // (invoquables sur une référence non‑constante de T, retournant des types
-            //  comparables entre eux).
-            // -------------------------------------------------------------------------
-            template<typename T, typename = void>
-            struct NkHasBeginEnd : NkFalseType {};
+namespace nkentseu {
+	namespace traits {
+		// -------------------------------------------------------------------------
+		// Trait : NkHasBeginEnd<T>
+		// Vérifie si T possède des méthodes Begin() et End() utilisables
+		// (invoquables sur une référence non‑constante de T, retournant des types
+		//  comparables entre eux).
+		// -------------------------------------------------------------------------
+		template <typename T, typename = void> struct NkHasBeginEnd : NkFalseType {};
 
-            // template<typename T>
-            // struct NkHasBeginEnd<T, NkVoidT<
-            //     NkDeclType(NkDeclVal<T&>().Begin()),
-            //     NkDeclType(NkDeclVal<T&>().End())
-            // >> : NkTrueType {};
+		// template<typename T>
+		// struct NkHasBeginEnd<T, NkVoidT<
+		//     NkDeclType(NkDeclVal<T&>().Begin()),
+		//     NkDeclType(NkDeclVal<T&>().End())
+		// >> : NkTrueType {};
 
-            template<typename T>
-            struct NkHasBeginEnd<T, NkVoidT<
-                NkDeclType(NkDeclVal<T&>().Begin()),
-                NkDeclType(NkDeclVal<T&>().End()),
-                NkEnableIf_t<NkIsSame_v<
-                    NkDeclType(NkDeclVal<T&>().Begin()),
-                    NkDeclType(NkDeclVal<T&>().End())>
-                >
-            >> : NkTrueType {};
+		template <typename T>
+		struct NkHasBeginEnd<
+			T,
+			NkVoidT<NkDeclType(NkDeclVal<T &>().Begin()), NkDeclType(NkDeclVal<T &>().End()),
+					NkEnableIf_t<NkIsSame_v<NkDeclType(NkDeclVal<T &>().Begin()), NkDeclType(NkDeclVal<T &>().End())>>>>
+			: NkTrueType {};
 
-            /// Version variable template (pour usage constexpr)
-            template<typename T>
-            inline constexpr bool NkHasBeginEnd_v = NkHasBeginEnd<T>::value;
+		/// Version variable template (pour usage constexpr)
+		template <typename T> inline constexpr bool NkHasBeginEnd_v = NkHasBeginEnd<T>::value;
 
-            // -------------------------------------------------------------------------
-            // Trait public : NkIsContainer<T>
-            // Actuellement basé sur la présence de Begin/End.
-            // Tu pourras l'enrichir avec d'autres critères si nécessaire.
-            // -------------------------------------------------------------------------
-            template<typename T>
-            using NkIsContainer = NkHasBeginEnd<T>;
+		// -------------------------------------------------------------------------
+		// Trait public : NkIsContainer<T>
+		// Actuellement basé sur la présence de Begin/End.
+		// Tu pourras l'enrichir avec d'autres critères si nécessaire.
+		// -------------------------------------------------------------------------
+		template <typename T> using NkIsContainer = NkHasBeginEnd<T>;
 
-            /// Version booléenne constexpr pratique
-            template<typename T>
-            inline constexpr bool NkIsContainer_v = NkIsContainer<T>::value;
+		/// Version booléenne constexpr pratique
+		template <typename T> inline constexpr bool NkIsContainer_v = NkIsContainer<T>::value;
 
-            /**
-             * @brief Vérifie si un type T est un conteneur associatif Nkentseu
-             *        (possède KeyType).
-             * @tparam T Type à vérifier
-             * @ingroup ContainerTraits
-             *
-             * Un conteneur est considéré associatif s'il définit un type membre `KeyType`.
-             * Cela couvre les hash maps, arbres binaires, etc.
-             *
-             * @example
-             * @code
-             * static_assert(NkIsAssociativeContainer_v<NkHashMap<int, float>>);
-             * static_assert(!NkIsAssociativeContainer_v<NkList<int>>);
-             * @endcode
-             */
-            template <typename T, typename = void>
-            struct NkIsAssociativeContainer : NkFalseType {};
+		/**
+		 * @brief Vérifie si un type T est un conteneur associatif Nkentseu
+		 *        (possède KeyType).
+		 * @tparam T Type à vérifier
+		 * @ingroup ContainerTraits
+		 *
+		 * Un conteneur est considéré associatif s'il définit un type membre `KeyType`.
+		 * Cela couvre les hash maps, arbres binaires, etc.
+		 *
+		 * @example
+		 * @code
+		 * static_assert(NkIsAssociativeContainer_v<NkHashMap<int, float>>);
+		 * static_assert(!NkIsAssociativeContainer_v<NkList<int>>);
+		 * @endcode
+		 */
+		template <typename T, typename = void> struct NkIsAssociativeContainer : NkFalseType {};
 
-            template <typename T>
-            struct NkIsAssociativeContainer<T, NkVoidT<typename T::KeyType>> : NkTrueType {};
+		template <typename T> struct NkIsAssociativeContainer<T, NkVoidT<typename T::KeyType>> : NkTrueType {};
 
-            /// Variable template pratique
-            template <typename T>
-            inline constexpr bool NkIsAssociativeContainer_v = NkIsAssociativeContainer<T>::value;
+		/// Variable template pratique
+		template <typename T> inline constexpr bool NkIsAssociativeContainer_v = NkIsAssociativeContainer<T>::value;
 
-            // -----------------------------------------------------------------
+		// -----------------------------------------------------------------
 
-            /**
-             * @brief Vérifie si un type T est un conteneur séquentiel Nkentseu
-             *        (Begin/End mais sans KeyType).
-             * @tparam T Type à vérifier
-             * @ingroup ContainerTraits
-             *
-             * Un conteneur est séquentiel s'il satisfait NkHasBeginEnd et n'est pas associatif.
-             *
-             * @example
-             * @code
-             * static_assert(NkIsSequentialContainer_v<NkList<int>>);
-             * static_assert(NkIsSequentialContainer_v<NkVector<float>>);
-             * static_assert(!NkIsSequentialContainer_v<NkHashMap<int, float>>);
-             * @endcode
-             */
-            template <typename T>
-            struct NkIsSequentialContainer : NkBoolConstant<
-                NkHasBeginEnd_v<T> && !NkIsAssociativeContainer_v<T>
-            > {};
+		/**
+		 * @brief Vérifie si un type T est un conteneur séquentiel Nkentseu
+		 *        (Begin/End mais sans KeyType).
+		 * @tparam T Type à vérifier
+		 * @ingroup ContainerTraits
+		 *
+		 * Un conteneur est séquentiel s'il satisfait NkHasBeginEnd et n'est pas associatif.
+		 *
+		 * @example
+		 * @code
+		 * static_assert(NkIsSequentialContainer_v<NkList<int>>);
+		 * static_assert(NkIsSequentialContainer_v<NkVector<float>>);
+		 * static_assert(!NkIsSequentialContainer_v<NkHashMap<int, float>>);
+		 * @endcode
+		 */
+		template <typename T>
+		struct NkIsSequentialContainer : NkBoolConstant<NkHasBeginEnd_v<T> && !NkIsAssociativeContainer_v<T>> {};
 
-            /// Variable template pratique
-            template <typename T>
-            inline constexpr bool NkIsSequentialContainer_v = NkIsSequentialContainer<T>::value;
+		/// Variable template pratique
+		template <typename T> inline constexpr bool NkIsSequentialContainer_v = NkIsSequentialContainer<T>::value;
 
-            // -----------------------------------------------------------------
+		// -----------------------------------------------------------------
 
-            /**
-             * @brief Catégorie de conteneur (tag dispatch).
-             *        Peut être spécialisé pour des conteneurs spécifiques.
-             */
-            struct NkSequentialContainerTag {};
-            struct NkAssociativeContainerTag {};
+		/**
+		 * @brief Catégorie de conteneur (tag dispatch).
+		 *        Peut être spécialisé pour des conteneurs spécifiques.
+		 */
+		struct NkSequentialContainerTag {};
 
-            template <typename T, typename = void>
-            struct NkContainerCategory { using type = void; };
+		struct NkAssociativeContainerTag {};
 
-            template <typename T>
-            struct NkContainerCategory<T, NkEnableIf_t<NkIsSequentialContainer_v<T>>> {
-                using type = NkSequentialContainerTag;
-            };
+		template <typename T, typename = void> struct NkContainerCategory {
+				using type = void;
+		};
 
-            template <typename T>
-            struct NkContainerCategory<T, NkEnableIf_t<NkIsAssociativeContainer_v<T>>> {
-                using type = NkAssociativeContainerTag;
-            };
+		template <typename T> struct NkContainerCategory<T, NkEnableIf_t<NkIsSequentialContainer_v<T>>> {
+				using type = NkSequentialContainerTag;
+		};
 
-            template <typename T>
-            using NkContainerCategory_t = typename NkContainerCategory<T>::type;
-        }
-    }
+		template <typename T> struct NkContainerCategory<T, NkEnableIf_t<NkIsAssociativeContainer_v<T>>> {
+				using type = NkAssociativeContainerTag;
+		};
+
+		template <typename T> using NkContainerCategory_t = typename NkContainerCategory<T>::type;
+	} // namespace traits
+} // namespace nkentseu
 
 #endif // NKENTSEU_CONTAINERS_NKCONTAINERSAPI_H
 
@@ -361,64 +350,64 @@
 // EXEMPLES D'UTILISATION
 // =============================================================================
 /*
-    // Exemple 1 : Déclaration d'une fonction publique NKContainers
-    #include "NKContainers/NkContainersApi.h"
+	// Exemple 1 : Déclaration d'une fonction publique NKContainers
+	#include "NKContainers/NkContainersApi.h"
 
-    NKENTSEU_CONTAINERS_EXTERN_C_BEGIN
-    NKENTSEU_CONTAINERS_API void Containers_Initialize(void);
-    NKENTSEU_CONTAINERS_API void Containers_Shutdown(void);
-    NKENTSEU_CONTAINERS_EXTERN_C_END
+	NKENTSEU_CONTAINERS_EXTERN_C_BEGIN
+	NKENTSEU_CONTAINERS_API void Containers_Initialize(void);
+	NKENTSEU_CONTAINERS_API void Containers_Shutdown(void);
+	NKENTSEU_CONTAINERS_EXTERN_C_END
 
-    // Exemple 2 : Déclaration d'une classe template avec dépréciation (via NKPlatform)
-    #include "NKContainers/NkContainersApi.h"
+	// Exemple 2 : Déclaration d'une classe template avec dépréciation (via NKPlatform)
+	#include "NKContainers/NkContainersApi.h"
 
-    template<typename T>
-    class NKENTSEU_CONTAINERS_CLASS_EXPORT Vector {
-    public:
-        Vector();
-        ~Vector();
+	template<typename T>
+	class NKENTSEU_CONTAINERS_CLASS_EXPORT Vector {
+	public:
+		Vector();
+		~Vector();
 
-        // Dépréciation via macro NKPlatform (pas de duplication)
-        NKENTSEU_DEPRECATED_MESSAGE("Utiliser EmplaceBack(Args&&...)")
-        NKENTSEU_CONTAINERS_API void PushBack(const T& value);
+		// Dépréciation via macro NKPlatform (pas de duplication)
+		NKENTSEU_DEPRECATED_MESSAGE("Utiliser EmplaceBack(Args&&...)")
+		NKENTSEU_CONTAINERS_API void PushBack(const T& value);
 
-        NKENTSEU_CONTAINERS_API_FORCE_INLINE T& operator[](size_t index) {
-            return m_data[index];
-        }
+		NKENTSEU_CONTAINERS_API_FORCE_INLINE T& operator[](size_t index) {
+			return m_data[index];
+		}
 
-        NKENTSEU_CONTAINERS_API_FORCE_INLINE size_t Size() const {
-            return m_size;
-        }
+		NKENTSEU_CONTAINERS_API_FORCE_INLINE size_t Size() const {
+			return m_size;
+		}
 
-    private:
-        T* m_data;
-        size_t m_size;
-        size_t m_capacity;
-    };
+	private:
+		T* m_data;
+		size_t m_size;
+		size_t m_capacity;
+	};
 
-    // Exemple 3 : Alignement via macro NKPlatform (pas de duplication)
-    struct NKENTSEU_ALIGN_64 NKENTSEU_CONTAINERS_CLASS_EXPORT CacheAlignedBuffer {
-        char data[256];  // Aligné pour optimisation cache L1/L2
-    };
+	// Exemple 3 : Alignement via macro NKPlatform (pas de duplication)
+	struct NKENTSEU_ALIGN_64 NKENTSEU_CONTAINERS_CLASS_EXPORT CacheAlignedBuffer {
+		char data[256];  // Aligné pour optimisation cache L1/L2
+	};
 
-    // Exemple 4 : Modes de build indépendants (CMake)
-    // NKPlatform en DLL, NKContainers en static :
-    //   target_compile_definitions(nkcontainers PRIVATE NKENTSEU_CONTAINERS_STATIC_LIB)
-    //   target_compile_definitions(nkcontainers PRIVATE NKENTSEU_BUILD_SHARED_LIB)  # Pour NKPlatform
-    //
-    // NKPlatform en static, NKContainers en DLL :
-    //   target_compile_definitions(nkcontainers PRIVATE NKENTSEU_CONTAINERS_BUILD_SHARED_LIB)
-    //   target_compile_definitions(nkcontainers PRIVATE NKENTSEU_STATIC_LIB)  # Pour NKPlatform
+	// Exemple 4 : Modes de build indépendants (CMake)
+	// NKPlatform en DLL, NKContainers en static :
+	//   target_compile_definitions(nkcontainers PRIVATE NKENTSEU_CONTAINERS_STATIC_LIB)
+	//   target_compile_definitions(nkcontainers PRIVATE NKENTSEU_BUILD_SHARED_LIB)  # Pour NKPlatform
+	//
+	// NKPlatform en static, NKContainers en DLL :
+	//   target_compile_definitions(nkcontainers PRIVATE NKENTSEU_CONTAINERS_BUILD_SHARED_LIB)
+	//   target_compile_definitions(nkcontainers PRIVATE NKENTSEU_STATIC_LIB)  # Pour NKPlatform
 
-    // Exemple 5 : Utilisation dans le code client
-    #include <NKContainers/Vector.h>
+	// Exemple 5 : Utilisation dans le code client
+	#include <NKContainers/Vector.h>
 
-    int main() {
-        nkentseu::containers::Vector<int> vec;
-        vec.PushBack(42);
-        vec.PushBack(1337);
-        return 0;
-    }
+	int main() {
+		nkentseu::containers::Vector<int> vec;
+		vec.PushBack(42);
+		vec.PushBack(1337);
+		return 0;
+	}
 */
 
 // =============================================================================
@@ -431,255 +420,255 @@
 // Exemple 1 : Déclaration d'une fonction C publique NKContainers
 // -----------------------------------------------------------------------------
 /*
-    // Dans nkcontainers_public.h :
-    #include "NKContainers/NkContainersApi.h"
+	// Dans nkcontainers_public.h :
+	#include "NKContainers/NkContainersApi.h"
 
-    NKENTSEU_CONTAINERS_EXTERN_C_BEGIN
+	NKENTSEU_CONTAINERS_EXTERN_C_BEGIN
 
-    // Fonction C publique exportée
-    NKENTSEU_CONTAINERS_API void Containers_Initialize(void);
-    NKENTSEU_CONTAINERS_API void Containers_Shutdown(void);
-    NKENTSEU_CONTAINERS_API int Containers_GetVersion(void);
+	// Fonction C publique exportée
+	NKENTSEU_CONTAINERS_API void Containers_Initialize(void);
+	NKENTSEU_CONTAINERS_API void Containers_Shutdown(void);
+	NKENTSEU_CONTAINERS_API int Containers_GetVersion(void);
 
-    NKENTSEU_CONTAINERS_EXTERN_C_END
+	NKENTSEU_CONTAINERS_EXTERN_C_END
 
-    // Dans nkcontainers.cpp :
-    #include "nkcontainers_public.h"
+	// Dans nkcontainers.cpp :
+	#include "nkcontainers_public.h"
 
-    void Containers_Initialize(void) {
-        // Implémentation...
-    }
+	void Containers_Initialize(void) {
+		// Implémentation...
+	}
 
-    void Containers_Shutdown(void) {
-        // Implémentation...
-    }
+	void Containers_Shutdown(void) {
+		// Implémentation...
+	}
 
-    int Containers_GetVersion(void) {
-        return 0x010200;  // Version 1.2.0
-    }
+	int Containers_GetVersion(void) {
+		return 0x010200;  // Version 1.2.0
+	}
 */
 
 // -----------------------------------------------------------------------------
 // Exemple 2 : Déclaration d'une classe template publique NKContainers
 // -----------------------------------------------------------------------------
 /*
-    // Dans Vector.h :
-    #include "NKContainers/NkContainersApi.h"
+	// Dans Vector.h :
+	#include "NKContainers/NkContainersApi.h"
 
-    template<typename T, typename Allocator = DefaultAllocator>
-    class NKENTSEU_CONTAINERS_CLASS_EXPORT Vector {
-    public:
-        NKENTSEU_CONTAINERS_API Vector();
-        NKENTSEU_CONTAINERS_API explicit Vector(size_t capacity);
-        NKENTSEU_CONTAINERS_API ~Vector();
+	template<typename T, typename Allocator = DefaultAllocator>
+	class NKENTSEU_CONTAINERS_CLASS_EXPORT Vector {
+	public:
+		NKENTSEU_CONTAINERS_API Vector();
+		NKENTSEU_CONTAINERS_API explicit Vector(size_t capacity);
+		NKENTSEU_CONTAINERS_API ~Vector();
 
-        // Copy/Move semantics
-        NKENTSEU_CONTAINERS_API Vector(const Vector& other);
-        NKENTSEU_CONTAINERS_API Vector(Vector&& other) noexcept;
-        NKENTSEU_CONTAINERS_API Vector& operator=(const Vector& other);
-        NKENTSEU_CONTAINERS_API Vector& operator=(Vector&& other) noexcept;
+		// Copy/Move semantics
+		NKENTSEU_CONTAINERS_API Vector(const Vector& other);
+		NKENTSEU_CONTAINERS_API Vector(Vector&& other) noexcept;
+		NKENTSEU_CONTAINERS_API Vector& operator=(const Vector& other);
+		NKENTSEU_CONTAINERS_API Vector& operator=(Vector&& other) noexcept;
 
-        // Element access
-        NKENTSEU_CONTAINERS_API_FORCE_INLINE T& operator[](size_t index) {
-            return m_data[index];
-        }
-        NKENTSEU_CONTAINERS_API_FORCE_INLINE const T& operator[](size_t index) const {
-            return m_data[index];
-        }
+		// Element access
+		NKENTSEU_CONTAINERS_API_FORCE_INLINE T& operator[](size_t index) {
+			return m_data[index];
+		}
+		NKENTSEU_CONTAINERS_API_FORCE_INLINE const T& operator[](size_t index) const {
+			return m_data[index];
+		}
 
-        // Capacity
-        NKENTSEU_CONTAINERS_API_FORCE_INLINE size_t Size() const { return m_size; }
-        NKENTSEU_CONTAINERS_API_FORCE_INLINE size_t Capacity() const { return m_capacity; }
-        NKENTSEU_CONTAINERS_API_FORCE_INLINE bool Empty() const { return m_size == 0; }
+		// Capacity
+		NKENTSEU_CONTAINERS_API_FORCE_INLINE size_t Size() const { return m_size; }
+		NKENTSEU_CONTAINERS_API_FORCE_INLINE size_t Capacity() const { return m_capacity; }
+		NKENTSEU_CONTAINERS_API_FORCE_INLINE bool Empty() const { return m_size == 0; }
 
-        // Modifiers
-        NKENTSEU_CONTAINERS_API void PushBack(const T& value);
-        NKENTSEU_CONTAINERS_API void PushBack(T&& value);
-        NKENTSEU_CONTAINERS_API void PopBack();
-        NKENTSEU_CONTAINERS_API void Clear();
-        NKENTSEU_CONTAINERS_API void Reserve(size_t newCapacity);
+		// Modifiers
+		NKENTSEU_CONTAINERS_API void PushBack(const T& value);
+		NKENTSEU_CONTAINERS_API void PushBack(T&& value);
+		NKENTSEU_CONTAINERS_API void PopBack();
+		NKENTSEU_CONTAINERS_API void Clear();
+		NKENTSEU_CONTAINERS_API void Reserve(size_t newCapacity);
 
-        // Iterators (inline pour performance)
-        NKENTSEU_CONTAINERS_API_FORCE_INLINE T* Begin() { return m_data; }
-        NKENTSEU_CONTAINERS_API_FORCE_INLINE T* End() { return m_data + m_size; }
-        NKENTSEU_CONTAINERS_API_FORCE_INLINE const T* Begin() const { return m_data; }
-        NKENTSEU_CONTAINERS_API_FORCE_INLINE const T* End() const { return m_data + m_size; }
+		// Iterators (inline pour performance)
+		NKENTSEU_CONTAINERS_API_FORCE_INLINE T* Begin() { return m_data; }
+		NKENTSEU_CONTAINERS_API_FORCE_INLINE T* End() { return m_data + m_size; }
+		NKENTSEU_CONTAINERS_API_FORCE_INLINE const T* Begin() const { return m_data; }
+		NKENTSEU_CONTAINERS_API_FORCE_INLINE const T* End() const { return m_data + m_size; }
 
-    private:
-        T* m_data;
-        size_t m_size;
-        size_t m_capacity;
-        Allocator m_allocator;
-    };
+	private:
+		T* m_data;
+		size_t m_size;
+		size_t m_capacity;
+		Allocator m_allocator;
+	};
 
-    // Implémentation dans Vector.inl (si header-only) ou Vector.cpp
+	// Implémentation dans Vector.inl (si header-only) ou Vector.cpp
 */
 
 // -----------------------------------------------------------------------------
 // Exemple 3 : Gestion des modes de build via CMake
 // -----------------------------------------------------------------------------
 /*
-    # CMakeLists.txt pour NKContainers
+	# CMakeLists.txt pour NKContainers
 
-    cmake_minimum_required(VERSION 3.15)
-    project(NKContainers VERSION 1.2.0)
+	cmake_minimum_required(VERSION 3.15)
+	project(NKContainers VERSION 1.2.0)
 
-    # Options de build
-    option(NKCONTAINERS_BUILD_SHARED "Build NKContainers as shared library" ON)
-    option(NKCONTAINERS_HEADER_ONLY "Use NKContainers in header-only mode" OFF)
+	# Options de build
+	option(NKCONTAINERS_BUILD_SHARED "Build NKContainers as shared library" ON)
+	option(NKCONTAINERS_HEADER_ONLY "Use NKContainers in header-only mode" OFF)
 
-    # Configuration des defines
-    if(NKCONTAINERS_HEADER_ONLY)
-        add_definitions(-DNKENTSEU_CONTAINERS_HEADER_ONLY)
-    elseif(NKCONTAINERS_BUILD_SHARED)
-        add_definitions(-DNKENTSEU_CONTAINERS_BUILD_SHARED_LIB)
-        set(NKCONTAINERS_LIBRARY_TYPE SHARED)
-    else()
-        add_definitions(-DNKENTSEU_CONTAINERS_STATIC_LIB)
-        set(NKCONTAINERS_LIBRARY_TYPE STATIC)
-    endif()
+	# Configuration des defines
+	if(NKCONTAINERS_HEADER_ONLY)
+		add_definitions(-DNKENTSEU_CONTAINERS_HEADER_ONLY)
+	elseif(NKCONTAINERS_BUILD_SHARED)
+		add_definitions(-DNKENTSEU_CONTAINERS_BUILD_SHARED_LIB)
+		set(NKCONTAINERS_LIBRARY_TYPE SHARED)
+	else()
+		add_definitions(-DNKENTSEU_CONTAINERS_STATIC_LIB)
+		set(NKCONTAINERS_LIBRARY_TYPE STATIC)
+	endif()
 
-    # Création de la bibliothèque
-    add_library(nkcontainers ${NKCONTAINERS_LIBRARY_TYPE}
-        src/Vector.cpp
-        src/HashMap.cpp
-        src/String.cpp
-        # ... autres fichiers sources
-    )
+	# Création de la bibliothèque
+	add_library(nkcontainers ${NKCONTAINERS_LIBRARY_TYPE}
+		src/Vector.cpp
+		src/HashMap.cpp
+		src/String.cpp
+		# ... autres fichiers sources
+	)
 
-    # Installation des en-têtes publics
-    install(DIRECTORY include/NKContainers DESTINATION include)
+	# Installation des en-têtes publics
+	install(DIRECTORY include/NKContainers DESTINATION include)
 
-    # Pour les consommateurs de NKContainers
-    target_include_directories(nkcontainers PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-    )
+	# Pour les consommateurs de NKContainers
+	target_include_directories(nkcontainers PUBLIC
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+		$<INSTALL_INTERFACE:include>
+	)
 
-    # Link avec NKPlatform (requis)
-    target_link_libraries(nkcontainers PUBLIC NKPlatform::NKPlatform)
+	# Link avec NKPlatform (requis)
+	target_link_libraries(nkcontainers PUBLIC NKPlatform::NKPlatform)
 */
 
 // -----------------------------------------------------------------------------
 // Exemple 4 : Utilisation de NKContainers dans une application cliente
 // -----------------------------------------------------------------------------
 /*
-    // Dans l'application cliente (CMakeLists.txt) :
+	// Dans l'application cliente (CMakeLists.txt) :
 
-    find_package(NKContainers REQUIRED)
+	find_package(NKContainers REQUIRED)
 
-    add_executable(monapp main.cpp)
-    target_link_libraries(monapp PRIVATE NKContainers::NKContainers)
+	add_executable(monapp main.cpp)
+	target_link_libraries(monapp PRIVATE NKContainers::NKContainers)
 
-    # Si NKContainers est en mode DLL, le define d'import est géré par le package
-    # Sinon, définir manuellement si nécessaire :
-    # target_compile_definitions(monapp PRIVATE NKENTSEU_CONTAINERS_STATIC_LIB)
+	# Si NKContainers est en mode DLL, le define d'import est géré par le package
+	# Sinon, définir manuellement si nécessaire :
+	# target_compile_definitions(monapp PRIVATE NKENTSEU_CONTAINERS_STATIC_LIB)
 
-    // Dans main.cpp :
-    #include <NKContainers/Vector.h>
-    #include <NKContainers/HashMap.h>
+	// Dans main.cpp :
+	#include <NKContainers/Vector.h>
+	#include <NKContainers/HashMap.h>
 
-    int main() {
-        nkentseu::containers::Vector<int> numbers;
-        numbers.PushBack(1);
-        numbers.PushBack(2);
-        numbers.PushBack(3);
+	int main() {
+		nkentseu::containers::Vector<int> numbers;
+		numbers.PushBack(1);
+		numbers.PushBack(2);
+		numbers.PushBack(3);
 
-        nkentseu::containers::HashMap<nkentseu::String, int> scores;
-        scores.Insert("player1", 100);
-        scores.Insert("player2", 250);
+		nkentseu::containers::HashMap<nkentseu::String, int> scores;
+		scores.Insert("player1", 100);
+		scores.Insert("player2", 250);
 
-        return 0;
-    }
+		return 0;
+	}
 */
 
 // -----------------------------------------------------------------------------
 // Exemple 5 : Mode header-only pour NKContainers
 // -----------------------------------------------------------------------------
 /*
-    // Pour utiliser NKContainers en mode header-only :
+	// Pour utiliser NKContainers en mode header-only :
 
-    // 1. Définir la macro avant toute inclusion
-    #define NKENTSEU_CONTAINERS_HEADER_ONLY
-    #include <NKContainers/NkContainersApi.h>
-    #include <NKContainers/Vector.h>
-    #include <NKContainers/HashMap.h>
+	// 1. Définir la macro avant toute inclusion
+	#define NKENTSEU_CONTAINERS_HEADER_ONLY
+	#include <NKContainers/NkContainersApi.h>
+	#include <NKContainers/Vector.h>
+	#include <NKContainers/HashMap.h>
 
-    // 2. Toutes les fonctions sont inline, pas de linkage nécessaire
-    // 3. Idéal pour les petits projets ou l'intégration directe
+	// 2. Toutes les fonctions sont inline, pas de linkage nécessaire
+	// 3. Idéal pour les petits projets ou l'intégration directe
 
-    void QuickStart() {
-        nkentseu::containers::Vector<int> vec;  // Tout est inline
-        vec.PushBack(42);
-        // ... utilisation ...
-    }
+	void QuickStart() {
+		nkentseu::containers::Vector<int> vec;  // Tout est inline
+		vec.PushBack(42);
+		// ... utilisation ...
+	}
 
-    // Note : Le mode header-only peut augmenter la taille du binaire
-    // car le code est dupliqué dans chaque unité de traduction.
-    // Pour les templates, c'est souvent le mode recommandé.
+	// Note : Le mode header-only peut augmenter la taille du binaire
+	// car le code est dupliqué dans chaque unité de traduction.
+	// Pour les templates, c'est souvent le mode recommandé.
 */
 
 // -----------------------------------------------------------------------------
 // Exemple 6 : Dépréciation et migration d'API NKContainers
 // -----------------------------------------------------------------------------
 /*
-    #include <NKContainers/NkContainersApi.h>
+	#include <NKContainers/NkContainersApi.h>
 
-    // Ancienne API dépréciée
-    NKENTSEU_DEPRECATED_MESSAGE("Utiliser Vector::EmplaceBack(Args&&...)")
-    NKENTSEU_CONTAINERS_API void LegacyPushBack(int value);
+	// Ancienne API dépréciée
+	NKENTSEU_DEPRECATED_MESSAGE("Utiliser Vector::EmplaceBack(Args&&...)")
+	NKENTSEU_CONTAINERS_API void LegacyPushBack(int value);
 
-    // Nouvelle API recommandée (template)
-    template<typename... Args>
-    NKENTSEU_CONTAINERS_API_FORCE_INLINE void Vector::EmplaceBack(Args&&... args) {
-        // Implémentation optimisée...
-    }
+	// Nouvelle API recommandée (template)
+	template<typename... Args>
+	NKENTSEU_CONTAINERS_API_FORCE_INLINE void Vector::EmplaceBack(Args&&... args) {
+		// Implémentation optimisée...
+	}
 
-    // Dans le code client :
-    void MigrateCode() {
-        nkentseu::containers::Vector<int> vec;
+	// Dans le code client :
+	void MigrateCode() {
+		nkentseu::containers::Vector<int> vec;
 
-        // Ceci génère un warning de dépréciation :
-        // LegacyPushBack(42);
+		// Ceci génère un warning de dépréciation :
+		// LegacyPushBack(42);
 
-        // Utiliser la nouvelle API :
-        vec.EmplaceBack(42);  // Construction in-place, plus efficace
-    }
+		// Utiliser la nouvelle API :
+		vec.EmplaceBack(42);  // Construction in-place, plus efficace
+	}
 */
 
 // -----------------------------------------------------------------------------
 // Exemple 7 : Combinaison avec NKPlatform et NKCore pour code multi-module
 // -----------------------------------------------------------------------------
 /*
-    #include <NKPlatform/NkPlatformDetect.h>      // NKENTSEU_PLATFORM_*
-    #include <NKPlatform/NkPlatformExport.h>      // NKENTSEU_PLATFORM_API
-    #include <NKCore/NkCoreApi.h>                 // NKENTSEU_CORE_API
-    #include <NKContainers/NkContainersApi.h>     // NKENTSEU_CONTAINERS_API
+	#include <NKPlatform/NkPlatformDetect.h>      // NKENTSEU_PLATFORM_*
+	#include <NKPlatform/NkPlatformExport.h>      // NKENTSEU_PLATFORM_API
+	#include <NKCore/NkCoreApi.h>                 // NKENTSEU_CORE_API
+	#include <NKContainers/NkContainersApi.h>     // NKENTSEU_CONTAINERS_API
 
-    // Fonction qui utilise les trois modules
-    NKENTSEU_CONTAINERS_API void MultiModuleInit() {
-        // Logging via NKPlatform
-        NK_FOUNDATION_LOG_INFO("Initializing multi-module containers...");
+	// Fonction qui utilise les trois modules
+	NKENTSEU_CONTAINERS_API void MultiModuleInit() {
+		// Logging via NKPlatform
+		NK_FOUNDATION_LOG_INFO("Initializing multi-module containers...");
 
-        // Configuration via NKCore
-        #if defined(NKENTSEU_CONTAINERS_BUILD_SHARED_LIB)
-            NK_FOUNDATION_LOG_DEBUG("NKContainers mode: Shared DLL");
-        #elif defined(NKENTSEU_CONTAINERS_STATIC_LIB)
-            NK_FOUNDATION_LOG_DEBUG("NKContainers mode: Static library");
-        #endif
+		// Configuration via NKCore
+		#if defined(NKENTSEU_CONTAINERS_BUILD_SHARED_LIB)
+			NK_FOUNDATION_LOG_DEBUG("NKContainers mode: Shared DLL");
+		#elif defined(NKENTSEU_CONTAINERS_STATIC_LIB)
+			NK_FOUNDATION_LOG_DEBUG("NKContainers mode: Static library");
+		#endif
 
-        // Allocation via NKCore + conteneurs NKContainers
-        auto* buffer = nkentseu::core::AllocateAligned(64, 256);
-        nkentseu::containers::Vector<nkentseu::core::Handle> handles;
-        handles.Reserve(16);
+		// Allocation via NKCore + conteneurs NKContainers
+		auto* buffer = nkentseu::core::AllocateAligned(64, 256);
+		nkentseu::containers::Vector<nkentseu::core::Handle> handles;
+		handles.Reserve(16);
 
-        // Code spécifique à la plateforme
-        #ifdef NKENTSEU_PLATFORM_WINDOWS
-            InitializeWindowsContainers();
-        #elif defined(NKENTSEU_PLATFORM_LINUX)
-            InitializeLinuxContainers();
-        #endif
-    }
+		// Code spécifique à la plateforme
+		#ifdef NKENTSEU_PLATFORM_WINDOWS
+			InitializeWindowsContainers();
+		#elif defined(NKENTSEU_PLATFORM_LINUX)
+			InitializeLinuxContainers();
+		#endif
+	}
 */
 
 // ============================================================

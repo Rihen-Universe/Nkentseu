@@ -41,79 +41,79 @@
 #include "Creatures/NkPABird.h"
 
 namespace nkentseu {
-namespace nkpa {
+	namespace nkpa {
 
-class NkPAApp {
-public:
-    NkPAApp()  = default;
-    ~NkPAApp() = default;
+		class NkPAApp {
+			public:
+				NkPAApp() = default;
+				~NkPAApp() = default;
 
-    bool Init(int32 width = 1280, int32 height = 720,
-              NkGraphicsApi api = NkGraphicsApi::NK_GFX_API_SOFTWARE);
-    void Run();
-    void Shutdown();
+				bool Init(int32 width = 1280, int32 height = 720,
+						  NkGraphicsApi api = NkGraphicsApi::NK_GFX_API_SOFTWARE);
+				void Run();
+				void Shutdown();
 
-private:
-    void Update(float32 dt);
-    void Render();
+			private:
+				void Update(float32 dt);
+				void Render();
 
-    // ── Fenêtre & RHI ─────────────────────────────────────────────────────────
-    NkWindow          mWindow;
-    NkIDevice*        mDevice  = nullptr;
-    NkICommandBuffer* mCmd     = nullptr;
-    NkPipelineHandle  mPipeline;
-    NkShaderHandle    mShader;
+				// ── Fenêtre & RHI ─────────────────────────────────────────────────────────
+				NkWindow mWindow;
+				NkIDevice *mDevice = nullptr;
+				NkICommandBuffer *mCmd = nullptr;
+				NkPipelineHandle mPipeline;
+				NkShaderHandle mShader;
 
-    // ── État ─────────────────────────────────────────────────────────────────
-    bool           mRunning = false;
-    int32          mWidth   = 1280;
-    int32          mHeight  = 720;
-    NkGraphicsApi  mApi     = NkGraphicsApi::NK_GFX_API_SOFTWARE;
-    NkChrono       mChrono;
-    NkPAUIState    mUIState;
+				// ── État ─────────────────────────────────────────────────────────────────
+				bool mRunning = false;
+				int32 mWidth = 1280;
+				int32 mHeight = 720;
+				NkGraphicsApi mApi = NkGraphicsApi::NK_GFX_API_SOFTWARE;
+				NkChrono mChrono;
+				NkPAUIState mUIState;
 
-    // ── UI ───────────────────────────────────────────────────────────────────
-    NkPAUI      mUI;
+				// ── UI ───────────────────────────────────────────────────────────────────
+				NkPAUI mUI;
 
-    // ── Environnement ────────────────────────────────────────────────────────
-    Environment mEnv;
+				// ── Environnement ────────────────────────────────────────────────────────
+				Environment mEnv;
 
-    // ── Créatures marines (zone eau) ─────────────────────────────────────────
-    static constexpr int32 NUM_FISH      = 3;
-    static constexpr int32 NUM_SHARK     = 1;
-    static constexpr int32 NUM_EEL       = 2;
-    static constexpr int32 NUM_JELLYFISH = 2;
+				// ── Créatures marines (zone eau) ─────────────────────────────────────────
+				static constexpr int32 NUM_FISH = 3;
+				static constexpr int32 NUM_SHARK = 1;
+				static constexpr int32 NUM_EEL = 2;
+				static constexpr int32 NUM_JELLYFISH = 2;
 
-    Fish       mFish[NUM_FISH];
-    Shark      mSharks[NUM_SHARK];
-    Eel        mEels[NUM_EEL];
-    Jellyfish  mJellyfish[NUM_JELLYFISH];
+				Fish mFish[NUM_FISH];
+				Shark mSharks[NUM_SHARK];
+				Eel mEels[NUM_EEL];
+				Jellyfish mJellyfish[NUM_JELLYFISH];
 
-    // ── Créatures terrestres (zone sol) ──────────────────────────────────────
-    static constexpr int32 NUM_SNAKE      = 1;
-    static constexpr int32 NUM_CATERPILLAR= 2;
-    static constexpr int32 NUM_CENTIPEDE  = 1;
-    static constexpr int32 NUM_WORM       = 2;
+				// ── Créatures terrestres (zone sol) ──────────────────────────────────────
+				static constexpr int32 NUM_SNAKE = 1;
+				static constexpr int32 NUM_CATERPILLAR = 2;
+				static constexpr int32 NUM_CENTIPEDE = 1;
+				static constexpr int32 NUM_WORM = 2;
 
-    Snake        mSnakes[NUM_SNAKE];
-    Caterpillar  mCaterpillars[NUM_CATERPILLAR];
-    Centipede    mCentipedes[NUM_CENTIPEDE];
-    Worm         mWorms[NUM_WORM];
+				Snake mSnakes[NUM_SNAKE];
+				Caterpillar mCaterpillars[NUM_CATERPILLAR];
+				Centipede mCentipedes[NUM_CENTIPEDE];
+				Worm mWorms[NUM_WORM];
 
-    // ── Créatures mixtes / volantes ───────────────────────────────────────────
-    static constexpr int32 NUM_LIZARD  = 1;
-    static constexpr int32 NUM_TURTLE  = 1;
-    static constexpr int32 NUM_CAT     = 1;
-    static constexpr int32 NUM_BIRD    = 2;
+				// ── Créatures mixtes / volantes ───────────────────────────────────────────
+				static constexpr int32 NUM_LIZARD = 1;
+				static constexpr int32 NUM_TURTLE = 1;
+				static constexpr int32 NUM_CAT = 1;
+				static constexpr int32 NUM_BIRD = 2;
 
-    Lizard   mLizards[NUM_LIZARD];
-    Turtle   mTurtles[NUM_TURTLE];
-    Cat      mCats[NUM_CAT];
-    Bird     mBirds[NUM_BIRD];
+				Lizard mLizards[NUM_LIZARD];
+				Turtle mTurtles[NUM_TURTLE];
+				Cat mCats[NUM_CAT];
+				Bird mBirds[NUM_BIRD];
 
-    // ── Mesh ─────────────────────────────────────────────────────────────────
-    MeshBuilder mMesh;
-};
+				// ── Mesh ─────────────────────────────────────────────────────────────────
+				MeshBuilder mMesh;
+		};
 
-} // namespace nkpa
+	} // namespace nkpa
 } // namespace nkentseu

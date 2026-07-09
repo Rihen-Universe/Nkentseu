@@ -50,7 +50,7 @@
 #include "NKSL/NKSL.h"
 
 namespace nkentseu {
-    struct NkEntryState;
+	struct NkEntryState;
 }
 
 // =============================================================================
@@ -84,7 +84,7 @@ namespace nkentseu {
 // void main() {}
 // )GLSL";
 
-static constexpr const char* kGLSL_ShadowVert = R"GLSL(
+static constexpr const char *kGLSL_ShadowVert = R"GLSL(
 #version 460 core
 layout(location = 0) in vec3 aPos;
 
@@ -106,14 +106,14 @@ void main() {
 }
 )GLSL";
 
-static constexpr const char* kGLSL_ShadowFrag = R"GLSL(
+static constexpr const char *kGLSL_ShadowFrag = R"GLSL(
 #version 460 core
 // Passe shadow depth-only : pas de sortie couleur
 void main() {}
 )GLSL";
 
 // ── Passe principale Phong + shadow mapping PCF ───────────────────────────────
-static constexpr const char* kGLSL_Vert = R"GLSL(
+static constexpr const char *kGLSL_Vert = R"GLSL(
 #version 460 core
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aNormal;
@@ -155,7 +155,7 @@ void main() {
 }
 )GLSL";
 
-static constexpr const char* kGLSL_Frag = R"GLSL(
+static constexpr const char *kGLSL_Frag = R"GLSL(
 #version 460 core
 layout(location = 0) in vec3 vWorldPos;
 layout(location = 1) in vec3 vNormal;
@@ -251,7 +251,7 @@ void main() {
 // =============================================================================
 // Shaders HLSL (DX11 / DX12)
 // =============================================================================
-static constexpr const char* kHLSL_VS = R"HLSL(
+static constexpr const char *kHLSL_VS = R"HLSL(
 cbuffer UBO : register(b0) {
     column_major float4x4 model;
     column_major float4x4 view;
@@ -283,7 +283,7 @@ VSOut VSMain(VSIn v) {
 }
 )HLSL";
 
-static constexpr const char* kHLSL_PS = R"HLSL(
+static constexpr const char *kHLSL_PS = R"HLSL(
 cbuffer UBO : register(b0) {
     column_major float4x4 model;
     column_major float4x4 view;
@@ -350,7 +350,7 @@ float4 PSMain(PSIn i) : SV_Target {
 }
 )HLSL";
 
-static constexpr const char* kHLSL_ShadowVert = R"HLSL(
+static constexpr const char *kHLSL_ShadowVert = R"HLSL(
 // NkShadowVert.hlsl
 struct VSInput {
     float3 aPos : POSITION;
@@ -383,7 +383,7 @@ VSOutput main(VSInput input) {
 }
 )HLSL";
 
-static constexpr const char* kHLSL_ShadowFrag = R"HLSL(
+static constexpr const char *kHLSL_ShadowFrag = R"HLSL(
 // NkShadowFrag.hlsl
 struct PSInput {
     float4 position : SV_POSITION;
@@ -401,7 +401,7 @@ void main(PSInput input) {
 // =============================================================================
 // Shaders MSL (Metal)
 // =============================================================================
-static constexpr const char* kMSL_Shaders = R"MSL(
+static constexpr const char *kMSL_Shaders = R"MSL(
 #include <metal_stdlib>
 using namespace metal;
 struct UBO { float4x4 model,view,proj; float4 lightDirW,eyePosW; };
@@ -434,16 +434,16 @@ fragment float4 fmain(VSOut i [[stage_in]], constant UBO& u [[buffer(0)]]) {
 //       + ndcZScale(4) + ndcZOffset(4) + _pad(8) = 304 bytes
 // =============================================================================
 struct alignas(16) UboData {
-    float model[16];
-    float view[16];
-    float proj[16];
-    float lightVP[16];   // matrice VP de la lumière pour le shadow mapping
-    float lightDirW[4];  // direction lumière world space (xyz) + pad
-    float eyePosW[4];    // position caméra world space (xyz) + pad
-    float ndcZScale;     // 0.5 pour OpenGL/SW (z NDC ∈ [-1,1]), 1.0 pour Vulkan/DX/Metal
-    float ndcZOffset;    // 0.5 pour OpenGL/SW, 0.0 pour Vulkan/DX/Metal
-    float shadowYScale;  // +1 (pas de flip) ; -1 pour OpenGL (shadow map échantillonnée Y-inversée)
-    float _pad;
+		float model[16];
+		float view[16];
+		float proj[16];
+		float lightVP[16];	// matrice VP de la lumière pour le shadow mapping
+		float lightDirW[4]; // direction lumière world space (xyz) + pad
+		float eyePosW[4];	// position caméra world space (xyz) + pad
+		float ndcZScale;	// 0.5 pour OpenGL/SW (z NDC ∈ [-1,1]), 1.0 pour Vulkan/DX/Metal
+		float ndcZOffset;	// 0.5 pour OpenGL/SW, 0.0 pour Vulkan/DX/Metal
+		float shadowYScale; // +1 (pas de flip) ; -1 pour OpenGL (shadow map échantillonnée Y-inversée)
+		float _pad;
 };
 
 // =============================================================================
@@ -452,1049 +452,1118 @@ struct alignas(16) UboData {
 using namespace nkentseu;
 using namespace nkentseu::math;
 
-struct Vtx3D { NkVec3f pos; NkVec3f normal; NkVec3f color; };
+struct Vtx3D {
+		NkVec3f pos;
+		NkVec3f normal;
+		NkVec3f color;
+};
 
-static void Mat4ToArray(const NkMat4f& m, float out[16]) {
-    mem::NkCopy(out, m.data, 16 * sizeof(float));
+static void Mat4ToArray(const NkMat4f &m, float out[16]) {
+	mem::NkCopy(out, m.data, 16 * sizeof(float));
 }
 
 // Cube (36 vertices, 6 faces × 2 triangles)
-static NkVector<Vtx3D> MakeCube(float r=1.f, float g=0.45f, float b=0.2f) {
-    static const float P = 0.5f, N = -0.5f;
-    struct Face { float vx[4][3]; float nx,ny,nz; };
-    static const Face faces[6] = {
-        {{{P,N,P},{P,P,P},{N,P,P},{N,N,P}}, 0, 0, 1},   // front  +Z
-        {{{N,N,N},{N,P,N},{P,P,N},{P,N,N}}, 0, 0,-1},   // back   -Z
-        {{{N,N,N},{P,N,N},{P,N,P},{N,N,P}}, 0,-1, 0},   // bottom -Y
-        {{{N,P,P},{P,P,P},{P,P,N},{N,P,N}}, 0, 1, 0},   // top    +Y
-        {{{N,N,N},{N,N,P},{N,P,P},{N,P,N}},-1, 0, 0},   // left   -X
-        {{{P,N,P},{P,N,N},{P,P,N},{P,P,P}}, 1, 0, 0},   // right  +X
-    };
-    static const int idx[6] = {0,1,2, 0,2,3};
-    NkVector<Vtx3D> v;
-    v.Reserve(36);
-    for (const auto& f : faces)
-        for (int i : idx)
-            v.PushBack({NkVec3f(f.vx[i][0],f.vx[i][1],f.vx[i][2]),
-                        NkVec3f(f.nx,f.ny,f.nz),
-                        NkVec3f(r,g,b)});
-    return v;
+static NkVector<Vtx3D> MakeCube(float r = 1.f, float g = 0.45f, float b = 0.2f) {
+	static const float P = 0.5f, N = -0.5f;
+
+	struct Face {
+			float vx[4][3];
+			float nx, ny, nz;
+	};
+
+	static const Face faces[6] = {
+		{{{P, N, P}, {P, P, P}, {N, P, P}, {N, N, P}}, 0, 0, 1},  // front  +Z
+		{{{N, N, N}, {N, P, N}, {P, P, N}, {P, N, N}}, 0, 0, -1}, // back   -Z
+		{{{N, N, N}, {P, N, N}, {P, N, P}, {N, N, P}}, 0, -1, 0}, // bottom -Y
+		{{{N, P, P}, {P, P, P}, {P, P, N}, {N, P, N}}, 0, 1, 0},  // top    +Y
+		{{{N, N, N}, {N, N, P}, {N, P, P}, {N, P, N}}, -1, 0, 0}, // left   -X
+		{{{P, N, P}, {P, N, N}, {P, P, N}, {P, P, P}}, 1, 0, 0},  // right  +X
+	};
+	static const int idx[6] = {0, 1, 2, 0, 2, 3};
+	NkVector<Vtx3D> v;
+	v.Reserve(36);
+	for (const auto &f : faces)
+		for (int i : idx)
+			v.PushBack({NkVec3f(f.vx[i][0], f.vx[i][1], f.vx[i][2]), NkVec3f(f.nx, f.ny, f.nz), NkVec3f(r, g, b)});
+	return v;
 }
 
 // Sphère UV
-static NkVector<Vtx3D> MakeSphere(int stacks=16, int slices=24,
-                                    float r=0.2f, float g=0.55f, float b=0.9f) {
-    NkVector<Vtx3D> v;
-    const float pi = (float)NkPi;
-    for (int i = 0; i < stacks; i++) {
-        float phi0 = (float)i     / stacks * pi;
-        float phi1 = (float)(i+1) / stacks * pi;
-        for (int j = 0; j < slices; j++) {
-            float th0 = (float)j     / slices * 2.f * pi;
-            float th1 = (float)(j+1) / slices * 2.f * pi;
-            auto mk = [&](float phi, float th) -> Vtx3D {
-                float x = NkSin(phi)*NkCos(th);
-                float y = NkCos(phi);
-                float z = NkSin(phi)*NkSin(th);
-                return {NkVec3f(x*.5f,y*.5f,z*.5f), NkVec3f(x,y,z), NkVec3f(r,g,b)};
-            };
-            Vtx3D a=mk(phi0,th0), b2=mk(phi0,th1), c=mk(phi1,th0), d=mk(phi1,th1);
-            v.PushBack(a); v.PushBack(b2); v.PushBack(d);
-            v.PushBack(a); v.PushBack(d);  v.PushBack(c);
-        }
-    }
-    return v;
+static NkVector<Vtx3D> MakeSphere(int stacks = 16, int slices = 24, float r = 0.2f, float g = 0.55f, float b = 0.9f) {
+	NkVector<Vtx3D> v;
+	const float pi = (float)NkPi;
+	for (int i = 0; i < stacks; i++) {
+		float phi0 = (float)i / stacks * pi;
+		float phi1 = (float)(i + 1) / stacks * pi;
+		for (int j = 0; j < slices; j++) {
+			float th0 = (float)j / slices * 2.f * pi;
+			float th1 = (float)(j + 1) / slices * 2.f * pi;
+			auto mk = [&](float phi, float th) -> Vtx3D {
+				float x = NkSin(phi) * NkCos(th);
+				float y = NkCos(phi);
+				float z = NkSin(phi) * NkSin(th);
+				return {NkVec3f(x * .5f, y * .5f, z * .5f), NkVec3f(x, y, z), NkVec3f(r, g, b)};
+			};
+			Vtx3D a = mk(phi0, th0), b2 = mk(phi0, th1), c = mk(phi1, th0), d = mk(phi1, th1);
+			v.PushBack(a);
+			v.PushBack(b2);
+			v.PushBack(d);
+			v.PushBack(a);
+			v.PushBack(d);
+			v.PushBack(c);
+		}
+	}
+	return v;
 }
 
 // Plan sol
-static NkVector<Vtx3D> MakePlane(float sz=3.f,
-                                   float r=0.35f, float g=0.65f, float b=0.35f) {
-    float h = sz * 0.5f;
-    NkVector<Vtx3D> v;
-    v.Reserve(6);
-    // Triangle 1
-    v.PushBack({NkVec3f(-h,0.f, h),NkVec3f(0,1,0),NkVec3f(r,g,b)});
-    v.PushBack({NkVec3f( h,0.f, h),NkVec3f(0,1,0),NkVec3f(r,g,b)});
-    v.PushBack({NkVec3f( h,0.f,-h),NkVec3f(0,1,0),NkVec3f(r,g,b)});
-    // Triangle 2
-    v.PushBack({NkVec3f(-h,0.f, h),NkVec3f(0,1,0),NkVec3f(r,g,b)});
-    v.PushBack({NkVec3f( h,0.f,-h),NkVec3f(0,1,0),NkVec3f(r,g,b)});
-    v.PushBack({NkVec3f(-h,0.f,-h),NkVec3f(0,1,0),NkVec3f(r,g,b)});
-    return v;
+static NkVector<Vtx3D> MakePlane(float sz = 3.f, float r = 0.35f, float g = 0.65f, float b = 0.35f) {
+	float h = sz * 0.5f;
+	NkVector<Vtx3D> v;
+	v.Reserve(6);
+	// Triangle 1
+	v.PushBack({NkVec3f(-h, 0.f, h), NkVec3f(0, 1, 0), NkVec3f(r, g, b)});
+	v.PushBack({NkVec3f(h, 0.f, h), NkVec3f(0, 1, 0), NkVec3f(r, g, b)});
+	v.PushBack({NkVec3f(h, 0.f, -h), NkVec3f(0, 1, 0), NkVec3f(r, g, b)});
+	// Triangle 2
+	v.PushBack({NkVec3f(-h, 0.f, h), NkVec3f(0, 1, 0), NkVec3f(r, g, b)});
+	v.PushBack({NkVec3f(h, 0.f, -h), NkVec3f(0, 1, 0), NkVec3f(r, g, b)});
+	v.PushBack({NkVec3f(-h, 0.f, -h), NkVec3f(0, 1, 0), NkVec3f(r, g, b)});
+	return v;
 }
 
 // =============================================================================
 // Sélection du backend
 // =============================================================================
-static NkGraphicsApi ParseBackend(const nkentseu::NkVector<nkentseu::NkString>& args) {
-    for (size_t i = 1; i < args.Size(); i++) {
-        const nkentseu::NkString& arg = args[i];
-        if (arg == "--backend=vulkan"  || arg == "-bvk")   return NkGraphicsApi::NK_GFX_API_VULKAN;
-        if (arg == "--backend=dx11"    || arg == "-bdx11")  return NkGraphicsApi::NK_GFX_API_DX11;
-        if (arg == "--backend=dx12"    || arg == "-bdx12")  return NkGraphicsApi::NK_GFX_API_DX12;
-        if (arg == "--backend=metal"   || arg == "-bmtl")   return NkGraphicsApi::NK_GFX_API_METAL;
-        if (arg == "--backend=sw"      || arg == "-bsw")    return NkGraphicsApi::NK_GFX_API_SOFTWARE;
-        if (arg == "--backend=opengl"  || arg == "-bgl")    return NkGraphicsApi::NK_GFX_API_OPENGL;
-    }
-    return NkGraphicsApi::NK_GFX_API_OPENGL;
+static NkGraphicsApi ParseBackend(const nkentseu::NkVector<nkentseu::NkString> &args) {
+	for (size_t i = 1; i < args.Size(); i++) {
+		const nkentseu::NkString &arg = args[i];
+		if (arg == "--backend=vulkan" || arg == "-bvk")
+			return NkGraphicsApi::NK_GFX_API_VULKAN;
+		if (arg == "--backend=dx11" || arg == "-bdx11")
+			return NkGraphicsApi::NK_GFX_API_DX11;
+		if (arg == "--backend=dx12" || arg == "-bdx12")
+			return NkGraphicsApi::NK_GFX_API_DX12;
+		if (arg == "--backend=metal" || arg == "-bmtl")
+			return NkGraphicsApi::NK_GFX_API_METAL;
+		if (arg == "--backend=sw" || arg == "-bsw")
+			return NkGraphicsApi::NK_GFX_API_SOFTWARE;
+		if (arg == "--backend=opengl" || arg == "-bgl")
+			return NkGraphicsApi::NK_GFX_API_OPENGL;
+	}
+	return NkGraphicsApi::NK_GFX_API_OPENGL;
 }
 
-static bool HasArg(const nkentseu::NkVector<nkentseu::NkString>& args,
-                   const char* longName,
-                   const char* shortName = nullptr) {
-    for (size_t i = 1; i < args.Size(); ++i) {
-        if (args[i] == longName) return true;
-        if (shortName && args[i] == shortName) return true;
-    }
-    return false;
+static bool HasArg(const nkentseu::NkVector<nkentseu::NkString> &args, const char *longName,
+				   const char *shortName = nullptr) {
+	for (size_t i = 1; i < args.Size(); ++i) {
+		if (args[i] == longName)
+			return true;
+		if (shortName && args[i] == shortName)
+			return true;
+	}
+	return false;
 }
 
 // Essaie de compiler GLSL→SPIRV via NkShaderConverter (avec cache).
 // Si NK_RHI_GLSLANG_ENABLED est absent ou la compilation échoue,
 // retombe sur les mots SPIRV précompilés fournis en fallback.
-static void AddSpirvOrFallback(NkShaderDesc& sd, NkShaderStage stage,
-                               const char* glsl, const char* dbgName,
-                               const uint32* fallbackSpv, uint64 fallbackBytes)
-{
-    if (NkShaderConverter::CanGlslToSpirv()) {
-        NkSLStage sl = (stage == NkShaderStage::NK_VERTEX)
-                     ? NkSLStage::NK_VERTEX : NkSLStage::NK_FRAGMENT;
-        uint64 key = NkShaderCache::ComputeKey(NkString(glsl), sl, "spirv");
-        NkShaderConvertResult res = NkShaderCache::Global().Load(key);
-        if (!res.success)
-            res = NkShaderConverter::GlslToSpirv(NkString(glsl), sl, dbgName);
-        if (res.success) {
-            NkShaderCache::Global().Save(key, res);
-            sd.AddSPIRV(stage, res.SpirvWords(), res.SpirvWordCount() * sizeof(uint32));
-            logger.Info("[ShaderConvert] {0} — SPIRV runtime OK ({1} mots)\n",
-                        dbgName, (unsigned long long)res.SpirvWordCount());
-            return;
-        }
-        logger.Info("[ShaderConvert] {0} — fallback sur .inl\n", dbgName);
-    }
-    sd.AddSPIRV(stage, fallbackSpv, fallbackBytes);
+static void AddSpirvOrFallback(NkShaderDesc &sd, NkShaderStage stage, const char *glsl, const char *dbgName,
+							   const uint32 *fallbackSpv, uint64 fallbackBytes) {
+	if (NkShaderConverter::CanGlslToSpirv()) {
+		NkSLStage sl = (stage == NkShaderStage::NK_VERTEX) ? NkSLStage::NK_VERTEX : NkSLStage::NK_FRAGMENT;
+		uint64 key = NkShaderCache::ComputeKey(NkString(glsl), sl, "spirv");
+		NkShaderConvertResult res = NkShaderCache::Global().Load(key);
+		if (!res.success)
+			res = NkShaderConverter::GlslToSpirv(NkString(glsl), sl, dbgName);
+		if (res.success) {
+			NkShaderCache::Global().Save(key, res);
+			sd.AddSPIRV(stage, res.SpirvWords(), res.SpirvWordCount() * sizeof(uint32));
+			logger.Info("[ShaderConvert] {0} — SPIRV runtime OK ({1} mots)\n", dbgName,
+						(unsigned long long)res.SpirvWordCount());
+			return;
+		}
+		logger.Info("[ShaderConvert] {0} — fallback sur .inl\n", dbgName);
+	}
+	sd.AddSPIRV(stage, fallbackSpv, fallbackBytes);
 }
 
 static NkShaderDesc MakeShaderDesc(NkGraphicsApi api) {
-    NkShaderDesc sd;
-    sd.debugName = "Phong3D";
-    switch (api) {
-        case NkGraphicsApi::NK_GFX_API_DX11:
-        case NkGraphicsApi::NK_GFX_API_DX12:
-            sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_VS, "VSMain");
-            sd.AddHLSL(NkShaderStage::NK_FRAGMENT,  kHLSL_PS, "PSMain");
-            break;
-        case NkGraphicsApi::NK_GFX_API_METAL:
-            sd.AddMSL(NkShaderStage::NK_VERTEX,   kMSL_Shaders, "vmain");
-            sd.AddMSL(NkShaderStage::NK_FRAGMENT,  kMSL_Shaders, "fmain");
-            break;
-        case NkGraphicsApi::NK_GFX_API_VULKAN:
-            // Compilation runtime GLSL→SPIRV via NkShaderConverter (avec cache .nksc).
-            // Fallback automatique sur le SPIRV précompilé si glslang non dispo.
-            AddSpirvOrFallback(sd, NkShaderStage::NK_VERTEX,   kGLSL_Vert, "Phong3D.vert",
-                kVkRHIFullDemoVertSpv, (uint64)kVkRHIFullDemoVertSpvWordCount * sizeof(uint32));
-            AddSpirvOrFallback(sd, NkShaderStage::NK_FRAGMENT, kGLSL_Frag, "Phong3D.frag",
-                kVkRHIFullDemoFragSpv, (uint64)kVkRHIFullDemoFragSpvWordCount * sizeof(uint32));
-            break;
-        default:
-            // OpenGL, Software : GLSL
-            sd.AddGLSL(NkShaderStage::NK_VERTEX,   kGLSL_Vert);
-            sd.AddGLSL(NkShaderStage::NK_FRAGMENT,  kGLSL_Frag);
-            break;
-    }
-    return sd;
+	NkShaderDesc sd;
+	sd.debugName = "Phong3D";
+	switch (api) {
+		case NkGraphicsApi::NK_GFX_API_DX11:
+		case NkGraphicsApi::NK_GFX_API_DX12:
+			sd.AddHLSL(NkShaderStage::NK_VERTEX, kHLSL_VS, "VSMain");
+			sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_PS, "PSMain");
+			break;
+		case NkGraphicsApi::NK_GFX_API_METAL:
+			sd.AddMSL(NkShaderStage::NK_VERTEX, kMSL_Shaders, "vmain");
+			sd.AddMSL(NkShaderStage::NK_FRAGMENT, kMSL_Shaders, "fmain");
+			break;
+		case NkGraphicsApi::NK_GFX_API_VULKAN:
+			// Compilation runtime GLSL→SPIRV via NkShaderConverter (avec cache .nksc).
+			// Fallback automatique sur le SPIRV précompilé si glslang non dispo.
+			AddSpirvOrFallback(sd, NkShaderStage::NK_VERTEX, kGLSL_Vert, "Phong3D.vert", kVkRHIFullDemoVertSpv,
+							   (uint64)kVkRHIFullDemoVertSpvWordCount * sizeof(uint32));
+			AddSpirvOrFallback(sd, NkShaderStage::NK_FRAGMENT, kGLSL_Frag, "Phong3D.frag", kVkRHIFullDemoFragSpv,
+							   (uint64)kVkRHIFullDemoFragSpvWordCount * sizeof(uint32));
+			break;
+		default:
+			// OpenGL, Software : GLSL
+			sd.AddGLSL(NkShaderStage::NK_VERTEX, kGLSL_Vert);
+			sd.AddGLSL(NkShaderStage::NK_FRAGMENT, kGLSL_Frag);
+			break;
+	}
+	return sd;
 }
 
 static NkShaderDesc MakeShadowShaderDesc(NkGraphicsApi api) {
-    NkShaderDesc sd;
-    sd.debugName = "ShadowDepth";
-    switch (api) {
-        case NkGraphicsApi::NK_GFX_API_DX11:
-        case NkGraphicsApi::NK_GFX_API_DX12:
-            sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_ShadowVert);
-            sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_ShadowFrag);
-            break;
-        case NkGraphicsApi::NK_GFX_API_METAL:
-            // Shadow pass MSL non implémenté (Metal sans ombres)
-            break;
-        case NkGraphicsApi::NK_GFX_API_VULKAN:
-            sd.AddSPIRV(NkShaderStage::NK_VERTEX,
-                        kVkShadowVertSpv,
-                        (uint64)kVkShadowVertSpvWordCount * sizeof(uint32));
-            sd.AddSPIRV(NkShaderStage::NK_FRAGMENT,
-                        kVkShadowFragSpv,
-                        (uint64)kVkShadowFragSpvWordCount * sizeof(uint32));
-            break;
-        default:
-            // OpenGL, Software : GLSL
-            sd.AddGLSL(NkShaderStage::NK_VERTEX,   kGLSL_ShadowVert);
-            sd.AddGLSL(NkShaderStage::NK_FRAGMENT,  kGLSL_ShadowFrag);
-            break;
-    }
-    return sd;
+	NkShaderDesc sd;
+	sd.debugName = "ShadowDepth";
+	switch (api) {
+		case NkGraphicsApi::NK_GFX_API_DX11:
+		case NkGraphicsApi::NK_GFX_API_DX12:
+			sd.AddHLSL(NkShaderStage::NK_VERTEX, kHLSL_ShadowVert);
+			sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_ShadowFrag);
+			break;
+		case NkGraphicsApi::NK_GFX_API_METAL:
+			// Shadow pass MSL non implémenté (Metal sans ombres)
+			break;
+		case NkGraphicsApi::NK_GFX_API_VULKAN:
+			sd.AddSPIRV(NkShaderStage::NK_VERTEX, kVkShadowVertSpv, (uint64)kVkShadowVertSpvWordCount * sizeof(uint32));
+			sd.AddSPIRV(NkShaderStage::NK_FRAGMENT, kVkShadowFragSpv,
+						(uint64)kVkShadowFragSpvWordCount * sizeof(uint32));
+			break;
+		default:
+			// OpenGL, Software : GLSL
+			sd.AddGLSL(NkShaderStage::NK_VERTEX, kGLSL_ShadowVert);
+			sd.AddGLSL(NkShaderStage::NK_FRAGMENT, kGLSL_ShadowFrag);
+			break;
+	}
+	return sd;
 }
 
 // =============================================================================
 // nkmain — point d'entrée
 // =============================================================================
-int nkmain(const nkentseu::NkEntryState& state) {
-
-    // ── ShaderCache ───────────────────────────────────────────────────────────
-    NkShaderCache::Global().SetCacheDir("Build/ShaderCache");
-
-    // ── Sélection backend ─────────────────────────────────────────────────────
-    NkGraphicsApi targetApi = ParseBackend(state.GetArgs());
-    const char* apiName = NkGraphicsApiName(targetApi);
-    logger.Info("[RHIFullDemo] Backend cible : {0}\n", apiName);
-
-    // ── Fenêtre ───────────────────────────────────────────────────────────────
-    NkWindowConfig winCfg;
-    winCfg.title     = NkFormat("NkRHI Full Demo — {0}", apiName);
-    winCfg.width     = 1280;
-    winCfg.height    = 720;
-    winCfg.centered  = true;
-    winCfg.resizable = true;
-
-    NkWindow window;
-    if (!window.Create(winCfg)) {
-        logger.Info("[RHIFullDemo] Échec création fenêtre\n");
-        return 1;
-    }
-
-    // ── Surface native + init info device ────────────────────────────────────
-    NkSurfaceDesc surface = window.GetSurfaceDesc();
-    NkDeviceInitInfo deviceInitInfo;
-    deviceInitInfo.api = targetApi;
-    deviceInitInfo.surface = surface;
-    deviceInitInfo.height = window.GetSize().height;
-    deviceInitInfo.width = window.GetSize().width;
-
-    deviceInitInfo.context.vulkan.appName = "NkRHIDemoFull";
-    deviceInitInfo.context.vulkan.engineName = "Noge";
-    // Validation layers Vulkan OFF par défaut : sur certaines machines la DLL de la
-    // couche de validation résout son import msvcp140.dll vers une version
-    // incompatible présente sur le PATH (ex. C:\Program Files\Huawei\DevEco Studio\bin)
-    // -> SIGSEGV dans vkCreateInstance. Opt-in via --vk-validation / -vkval.
-    const bool wantVkValidation = HasArg(state.GetArgs(), "--vk-validation", "-vkval");
-    deviceInitInfo.context.vulkan.validationLayers = wantVkValidation;
-    deviceInitInfo.context.vulkan.debugMessenger   = wantVkValidation;
-    // Cette démo n'applique pas de gestion gamma (le shader écrit directement la
-    // couleur Phong). On demande un swapchain UNORM pour que Vulkan affiche les
-    // couleurs telles quelles, comme OpenGL/DX, au lieu de les ré-encoder en sRGB
-    // (ce qui rendait le rendu délavé/pâle vs les autres backends).
-    deviceInitInfo.context.vulkan.srgbSwapchain = false;
-
-    // ── Device RHI ───────────────────────────────────────────────────────────
-    NkIDevice* device = NkDeviceFactory::Create(deviceInitInfo);
-    if (!device || !device->IsValid()) {
-        logger.Info("[RHIFullDemo] Échec création NkIDevice ({0})\n", apiName);
-        window.Close();
-        return 1;
-    }
-    logger.Info("[RHIFullDemo] Device {0} initialisé. VRAM: {1} Mo\n",
-                apiName, (unsigned long long)(device->GetCaps().vramBytes >> 20));
-
-    // ── Dimensions swapchain ──────────────────────────────────────────────────
-    uint32 W = device->GetSwapchainWidth();
-    uint32 H = device->GetSwapchainHeight();
-
-    // ── Shader principal ──────────────────────────────────────────────────────
-    logger.Info("[RHIFullDemo] Init step: build main shader desc\n");
-    NkShaderDesc shaderDesc = MakeShaderDesc(targetApi);
-    logger.Info("[RHIFullDemo] Init step: create main shader begin\n");
-    NkShaderHandle hShader = device->CreateShader(shaderDesc);
-    logger.Info("[RHIFullDemo] Init step: create main shader done valid={0}\n", hShader.IsValid() ? 1 : 0);
-    if (!hShader.IsValid()) {
-        logger.Info("[RHIFullDemo] Échec compilation shader\n");
-        NkDeviceFactory::Destroy(device);
-        window.Close();
-        return 1;
-    }
-
-    // ── Vertex Layout ─────────────────────────────────────────────────────────
-    NkVertexLayout vtxLayout;
-    vtxLayout
-        .AddAttribute(0, 0, NkGPUFormat::NK_RGB32_FLOAT, 0,               "POSITION", 0)
-        .AddAttribute(1, 0, NkGPUFormat::NK_RGB32_FLOAT, 3*sizeof(float),  "NORMAL",  0)
-        .AddAttribute(2, 0, NkGPUFormat::NK_RGB32_FLOAT, 6*sizeof(float),  "COLOR",   0)
-        .AddBinding(0, sizeof(Vtx3D));
-
-    // ── Render Pass swapchain (récupéré une fois, stable entre les frames) ────
-    logger.Info("[RHIFullDemo] Init step: get swapchain render pass\n");
-    NkRenderPassHandle hRP = device->GetSwapchainRenderPass();
-
-    // ── Shadow map ────────────────────────────────────────────────────────────
-    // shaderNeedsShadowSampler : le shader GPU lit la shadow map via un descriptor (binding 1).
-    // wantsShadowResources : on crée les ressources RHI shadow (inclut Software).
-    const bool shaderNeedsShadowSampler =
-        targetApi == NkGraphicsApi::NK_GFX_API_OPENGL    ||
-        targetApi == NkGraphicsApi::NK_GFX_API_VULKAN    ||
-        targetApi == NkGraphicsApi::NK_GFX_API_DX11 ||
-        targetApi == NkGraphicsApi::NK_GFX_API_DX12;
-    const bool wantsShadowResources =
-        shaderNeedsShadowSampler ||
-        targetApi == NkGraphicsApi::NK_GFX_API_SOFTWARE;
-    const bool forceSafeShadows = HasArg(state.GetArgs(), "--safe-shadows", "--shadow-safe-clear");
-    const bool requestRealShadows = !forceSafeShadows;
-    static constexpr uint32 kShadowSize = 2048;
-
-    NkTextureHandle     hShadowTex;
-    NkSamplerHandle     hShadowSampler;
-    NkRenderPassHandle  hShadowRP;
-    NkFramebufferHandle hShadowFBO;
-    NkShaderHandle      hShadowShader;
-    NkPipelineHandle    hShadowPipe;
-    bool hasShadowMap = false;
-    bool useRealShadowPass = false;
-
-    // Descriptor set layout (binding 0 = UBO, binding 1 = shadow sampler)
-    NkDescriptorSetLayoutDesc layoutDesc;
-    layoutDesc.Add(0, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_ALL_GRAPHICS);
-    if (shaderNeedsShadowSampler)
-        layoutDesc.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, NkShaderStage::NK_FRAGMENT);
-    logger.Info("[RHIFullDemo] Init step: create descriptor set layout begin\n");
-    NkDescSetHandle hLayout = device->CreateDescriptorSetLayout(layoutDesc);
-    logger.Info("[RHIFullDemo] Init step: create descriptor set layout done valid={0}\n", hLayout.IsValid() ? 1 : 0);
-
-    // ── Pipeline principal ────────────────────────────────────────────────────
-    NkGraphicsPipelineDesc pipeDesc;
-    pipeDesc.shader       = hShader;
-    pipeDesc.vertexLayout = vtxLayout;
-    pipeDesc.topology     = NkPrimitiveTopology::NK_TRIANGLE_LIST;
-    pipeDesc.rasterizer   = NkRasterizerDesc::Default();
-    pipeDesc.depthStencil = NkDepthStencilDesc::Default();
-    pipeDesc.blend        = NkBlendDesc::Opaque();
-    pipeDesc.renderPass   = hRP;
-    pipeDesc.debugName    = "PipelinePhong3D";
-    if (hLayout.IsValid())
-        pipeDesc.descriptorSetLayouts.PushBack(hLayout);
-
-    logger.Info("[RHIFullDemo] Init step: create main pipeline begin\n");
-    NkPipelineHandle hPipe = device->CreateGraphicsPipeline(pipeDesc);
-    logger.Info("[RHIFullDemo] Init step: create main pipeline done valid={0}\n", hPipe.IsValid() ? 1 : 0);
-    if (!hPipe.IsValid()) {
-        logger.Info("[RHIFullDemo] Échec création pipeline\n");
-        device->DestroyShader(hShader);
-        NkDeviceFactory::Destroy(device);
-        window.Close();
-        return 1;
-    }
-
-    // ── Géométrie ─────────────────────────────────────────────────────────────
-    auto cubeVerts   = MakeCube();
-    auto sphereVerts = MakeSphere();
-    auto planeVerts  = MakePlane();
-    logger.Info("[RHIFullDemo] Init step: geometry generated cube={0} sphere={1} plane={2}\n",
-                (unsigned long long)cubeVerts.Size(),
-                (unsigned long long)sphereVerts.Size(),
-                (unsigned long long)planeVerts.Size());
-
-    auto uploadVBO = [&](const NkVector<Vtx3D>& verts) -> NkBufferHandle {
-        uint64 sz = verts.Size() * sizeof(Vtx3D);
-        return device->CreateBuffer(NkBufferDesc::Vertex(sz, verts.Begin()));
-    };
-
-    NkBufferHandle hCube   = uploadVBO(cubeVerts);
-    NkBufferHandle hSphere = uploadVBO(sphereVerts);
-    NkBufferHandle hPlane  = uploadVBO(planeVerts);
-    logger.Info("[RHIFullDemo] Init step: VBO created cube={0} sphere={1} plane={2}\n",
-                hCube.IsValid() ? 1 : 0, hSphere.IsValid() ? 1 : 0, hPlane.IsValid() ? 1 : 0);
-
-    // ── Uniform Buffers ───────────────────────────────────────────────────────
-    // 3 UBO : un par objet (cube, sphère, plan)
-    // Séparés pour éviter les conflits d'écriture entre passe shadow et passe principale
-    NkBufferHandle hUBO[3];
-    for (int i = 0; i < 3; i++) {
-        hUBO[i] = device->CreateBuffer(NkBufferDesc::Uniform(sizeof(UboData)));
-        if (!hUBO[i].IsValid())
-            logger.Info("[RHIFullDemo] Échec création UBO[{0}]\n", i);
-    }
-    logger.Info("[RHIFullDemo] Init step: UBO created {0}/{1}/{2}\n",
-                hUBO[0].IsValid() ? 1 : 0, hUBO[1].IsValid() ? 1 : 0, hUBO[2].IsValid() ? 1 : 0);
-
-    // ── Descriptor Sets ───────────────────────────────────────────────────────
-    // 3 descriptor sets : un par objet
-    // Chaque set lie son propre UBO (binding 0) + la shadow texture (binding 1)
-    NkDescSetHandle hDescSet[3];
-    for (int i = 0; i < 3; i++) {
-        logger.Info("[RHIFullDemo] Init step: alloc desc set[{0}] begin\n", i);
-        hDescSet[i] = device->AllocateDescriptorSet(hLayout);
-        logger.Info("[RHIFullDemo] Init step: alloc desc set[{0}] done valid={1}\n", i, hDescSet[i].IsValid() ? 1 : 0);
-        if (hLayout.IsValid() && hDescSet[i].IsValid() && hUBO[i].IsValid()) {
-            NkDescriptorWrite w{};
-            w.set          = hDescSet[i];
-            w.binding      = 0;
-            w.type         = NkDescriptorType::NK_UNIFORM_BUFFER;
-            w.buffer       = hUBO[i];
-            w.bufferOffset = 0;
-            w.bufferRange  = sizeof(UboData);
-            logger.Info("[RHIFullDemo] Init step: update UBO desc set[{0}] begin\n", i);
-            device->UpdateDescriptorSets(&w, 1);
-            logger.Info("[RHIFullDemo] Init step: update UBO desc set[{0}] done\n", i);
-        }
-    }
-
-    // ── Ressources shadow ─────────────────────────────────────────────────────
-    if (wantsShadowResources) {
-        logger.Info("[RHIFullDemo] Shadow init begin ({0})\n", apiName);
-        NkTextureDesc shadowTexDesc = NkTextureDesc::DepthStencil(
-            kShadowSize, kShadowSize,
-            NkGPUFormat::NK_D32_FLOAT,
-            NkSampleCount::NK_S1);
-        shadowTexDesc.bindFlags = NkBindFlags::NK_DEPTH_STENCIL | NkBindFlags::NK_SHADER_RESOURCE;
-        logger.Info("[RHIFullDemo] Shadow create texture begin\n");
-        hShadowTex = device->CreateTexture(shadowTexDesc);
-        logger.Info("[RHIFullDemo] Shadow create texture done valid={0}\n", hShadowTex.IsValid() ? 1 : 0);
-
-        NkSamplerDesc shadowSamplerDesc = NkSamplerDesc::Shadow();
-        shadowSamplerDesc.magFilter = NkFilter::NK_LINEAR;
-        shadowSamplerDesc.minFilter = NkFilter::NK_LINEAR;
-        shadowSamplerDesc.mipFilter = NkMipFilter::NK_NONE;
-        shadowSamplerDesc.minLod = 0.f;
-        shadowSamplerDesc.maxLod = 0.f;
-        logger.Info("[RHIFullDemo] Shadow create sampler begin\n");
-        hShadowSampler = device->CreateSampler(shadowSamplerDesc);
-        logger.Info("[RHIFullDemo] Shadow create sampler done valid={0}\n", hShadowSampler.IsValid() ? 1 : 0);
-
-        logger.Info("[RHIFullDemo] Shadow create renderpass begin\n");
-        hShadowRP = device->CreateRenderPass(NkRenderPassDesc::ShadowMap());
-        logger.Info("[RHIFullDemo] Shadow create renderpass done valid={0}\n", hShadowRP.IsValid() ? 1 : 0);
-
-        NkFramebufferDesc fboD{};
-        fboD.renderPass = hShadowRP;
-        fboD.depthAttachment = hShadowTex;
-        fboD.width = kShadowSize;
-        fboD.height = kShadowSize;
-        fboD.debugName = "ShadowFBO";
-        logger.Info("[RHIFullDemo] Shadow create framebuffer begin\n");
-        hShadowFBO = device->CreateFramebuffer(fboD);
-        logger.Info("[RHIFullDemo] Shadow create framebuffer done valid={0}\n", hShadowFBO.IsValid() ? 1 : 0);
-
-        hasShadowMap = hShadowTex.IsValid() && hShadowSampler.IsValid() && hShadowRP.IsValid() && hShadowFBO.IsValid();
-
-        if (requestRealShadows && hasShadowMap) {
-            NkShaderDesc shadowSd = MakeShadowShaderDesc(targetApi);
-            if (!shadowSd.stages.IsEmpty()) {
-                hShadowShader = device->CreateShader(shadowSd);
-            }
-
-            NkVertexLayout shadowVtxLayout;
-            shadowVtxLayout
-                .AddAttribute(0, 0, NkGPUFormat::NK_RGB32_FLOAT, 0, "POSITION", 0)
-                .AddBinding(0, sizeof(Vtx3D));
-
-            NkGraphicsPipelineDesc shadowPipeDesc{};
-            shadowPipeDesc.shader = hShadowShader;
-            shadowPipeDesc.vertexLayout = shadowVtxLayout;
-            shadowPipeDesc.topology = NkPrimitiveTopology::NK_TRIANGLE_LIST;
-            shadowPipeDesc.rasterizer = NkRasterizerDesc::ShadowMap();
-            shadowPipeDesc.depthStencil = NkDepthStencilDesc::Default();
-            shadowPipeDesc.blend = NkBlendDesc::Opaque();
-            shadowPipeDesc.renderPass = hShadowRP;
-            shadowPipeDesc.debugName = "ShadowPipeline";
-            if (hLayout.IsValid()) {
-                shadowPipeDesc.descriptorSetLayouts.PushBack(hLayout);
-            }
-            hShadowPipe = device->CreateGraphicsPipeline(shadowPipeDesc);
-            useRealShadowPass = hShadowShader.IsValid() && hShadowPipe.IsValid();
-        }
-
-        for (int i = 0; i < 3; i++) {
-            if (hDescSet[i].IsValid() && hShadowTex.IsValid() && hShadowSampler.IsValid()) {
-                NkDescriptorWrite sw{};
-                sw.set = hDescSet[i];
-                sw.binding = 1;
-                sw.type = NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER;
-                sw.texture = hShadowTex;
-                sw.sampler = hShadowSampler;
-                sw.textureLayout = NkResourceState::NK_DEPTH_READ;
-                logger.Info("[RHIFullDemo] Shadow update desc set[{0}] begin\n", i);
-                device->UpdateDescriptorSets(&sw, 1);
-                logger.Info("[RHIFullDemo] Shadow update desc set[{0}] done\n", i);
-            }
-        }
-        logger.Info("[RHIFullDemo] Shadow init end ({0})\n", apiName);
-    }
-
-    if (hasShadowMap) {
-        logger.Info("[RHIFullDemo] Shadow map activee ({0}x{0}) mode={1}\n",
-                    kShadowSize, useRealShadowPass ? "real" : "safe-clear");
-    } else {
-        logger.Info("[RHIFullDemo] Shadow map desactivee pour {0}\n", apiName);
-    }
-
-    // Pour les backends GPU avec sampler descriptor, on ne peut pas continuer sans shadow map valide
-    if (shaderNeedsShadowSampler && !hasShadowMap) {
-        logger.Info("[RHIFullDemo] Impossible de continuer: shader principal attend un shadow sampler valide ({0})\n", apiName);
-        device->DestroyPipeline(hPipe);
-        device->DestroyShader(hShader);
-        NkDeviceFactory::Destroy(device);
-        window.Close();
-        return 1;
-    }
-// ── Callbacks CPU pour le backend Software ────────────────────────────────
-    if (targetApi == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
-        NkSoftwareDevice* swDev = static_cast<NkSoftwareDevice*>(device);
-
-        // ── Shadow shader : depth-only pass ──────────────────────────────
-        if (hShadowShader.IsValid()) {
-            NkSWShader* swSh = swDev->GetShader(hShadowShader.id);
-            if (swSh) {
-                swSh->vertFn = [](const void* vdata, uint32 idx, const void* udata) -> NkVertexSoftware {
-                    const Vtx3D*   v   = static_cast<const Vtx3D*>(vdata) + idx;
-                    const UboData* ubo = static_cast<const UboData*>(udata);
-                    NkVertexSoftware out;
-                    if (!ubo) { out.position = {v->pos.x, v->pos.y, v->pos.z, 1.f}; return out; }
-                    auto mul4 = [](const float m[16], float x, float y, float z, float w) -> NkVec4f {
-                        return NkVec4f(m[0]*x+m[4]*y+m[8]*z+m[12]*w, m[1]*x+m[5]*y+m[9]*z+m[13]*w,
-                                       m[2]*x+m[6]*y+m[10]*z+m[14]*w, m[3]*x+m[7]*y+m[11]*z+m[15]*w);
-                    };
-                    NkVec4f wp  = mul4(ubo->model,   v->pos.x, v->pos.y, v->pos.z, 1.f);
-                    NkVec4f lsp = mul4(ubo->lightVP, wp.x, wp.y, wp.z, wp.w);
-                    out.position = lsp;
-                    return out;
-                };
-                // Pas de fragFn : depth-only (null colorTarget, le depth est écrit par le rasterizer)
-                swSh->fragFn = nullptr;
-            }
-        }
-
-        // ── Main shader : Phong + shadow PCF ─────────────────────────────
-        NkSWShader* sw = swDev->GetShader(hShader.id);
-        // Récupère la texture depth de la shadow map pour la capture lambda
-        NkSWTexture* swShadowTex = hasShadowMap ? swDev->GetTex(hShadowTex.id) : nullptr;
-
-        if (sw) {
-            // Vertex shader CPU
-            static bool s_vertLoggedOnce = false;
-            static uint32 s_fragCallCount = 0;
-            static bool   s_loggedOnce    = false;
-
-            sw->vertFn = [](const void* vdata, uint32 idx, const void* udata) -> NkVertexSoftware
-            {
-                const Vtx3D*   v   = static_cast<const Vtx3D*>(vdata) + idx;
-                const UboData* ubo = static_cast<const UboData*>(udata);
-            
-                NkVertexSoftware out;
-                if (!ubo) {
-                    out.position = {v->pos.x, v->pos.y, v->pos.z, 1.f};
-                    out.normal   = v->normal;
-                    out.color    = {v->color.r, v->color.g, v->color.b, 1.f};
-                    return out;
-                }
-            
-                auto mul4 = [](const float m[16], float x, float y, float z, float w) -> NkVec4f {
-                    return NkVec4f(m[0]*x+m[4]*y+m[8]*z+m[12]*w,
-                                m[1]*x+m[5]*y+m[9]*z+m[13]*w,
-                                m[2]*x+m[6]*y+m[10]*z+m[14]*w,
-                                m[3]*x+m[7]*y+m[11]*z+m[15]*w);
-                };
-            
-                NkVec4f wp  = mul4(ubo->model,   v->pos.x, v->pos.y, v->pos.z, 1.f);
-                NkVec4f vp  = mul4(ubo->view,    wp.x,  wp.y,  wp.z,  wp.w);
-                NkVec4f cp  = mul4(ubo->proj,    vp.x,  vp.y,  vp.z,  vp.w);
-                out.position = cp;
-            
-                float nx = ubo->model[0]*v->normal.x + ubo->model[4]*v->normal.y + ubo->model[8]*v->normal.z;
-                float ny = ubo->model[1]*v->normal.x + ubo->model[5]*v->normal.y + ubo->model[9]*v->normal.z;
-                float nz = ubo->model[2]*v->normal.x + ubo->model[6]*v->normal.y + ubo->model[10]*v->normal.z;
-                float nl = NkSqrt(nx*nx + ny*ny + nz*nz);
-                if (nl > 0.001f) { nx/=nl; ny/=nl; nz/=nl; }
-                out.normal = {nx, ny, nz};
-                out.color  = {v->color.r, v->color.g, v->color.b, 1.f};
-            
-                out.attrs[0] = wp.x; out.attrs[1] = wp.y; out.attrs[2] = wp.z;
-                NkVec4f lsc = mul4(ubo->lightVP, wp.x, wp.y, wp.z, wp.w);
-                out.attrs[3] = lsc.x; out.attrs[4] = lsc.y;
-                out.attrs[5] = lsc.z; out.attrs[6] = lsc.w;
-                out.attrCount = 7;  // ← CRUCIAL : déclarer explicitement le nombre d'attrs
-            
-                if (!s_vertLoggedOnce && idx == 0) {
-                    s_vertLoggedOnce = true;
-                    logger.Infof("[VERT_DIAG] idx=0 pos=%.3f,%.3f,%.3f,%.3f",
-                                cp.x, cp.y, cp.z, cp.w);
-                    logger.Infof("[VERT_DIAG] wp=%.3f,%.3f,%.3f", wp.x, wp.y, wp.z);
-                    logger.Infof("[VERT_DIAG] lsc=%.3f,%.3f,%.3f,%.3f", lsc.x,lsc.y,lsc.z,lsc.w);
-                    logger.Infof("[VERT_DIAG] attrCount=%u", out.attrCount);
-                }
-            
-                return out;
-            };
-
-            // Fragment shader CPU — 1-tap shadow pour limiter le coût CPU
-            sw->fragFn = [swShadowTex](const NkVertexSoftware& frag,
-                            const void* udata, const void* texPtr) -> math::NkVec4f
-            {
-                ++s_fragCallCount;
-            
-                // Log une seule fois pour voir ce qu'on reçoit
-                if (!s_loggedOnce) {
-                    s_loggedOnce = true;
-                    logger.Infof("[FRAG_DIAG] attrCount=%u", frag.attrCount);
-                    logger.Infof("[FRAG_DIAG] attrs[0..6] = %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
-                                frag.attrs[0], frag.attrs[1], frag.attrs[2],
-                                frag.attrs[3], frag.attrs[4], frag.attrs[5], frag.attrs[6]);
-                    logger.Infof("[FRAG_DIAG] normal = %.3f %.3f %.3f",
-                                frag.normal.x, frag.normal.y, frag.normal.z);
-                    logger.Infof("[FRAG_DIAG] color  = %.3f %.3f %.3f",
-                                frag.color.r, frag.color.g, frag.color.b);
-                    logger.Infof("[FRAG_DIAG] udata=%p texPtr=%p swShadowTex=%p",
-                                udata, texPtr, (void*)swShadowTex);
-                    if (swShadowTex) {
-                        logger.Infof("[FRAG_DIAG] shadowTex size=%ux%u format=%d mips=%u",
-                                    swShadowTex->Width(), swShadowTex->Height(),
-                                    (int)swShadowTex->desc.format,
-                                    (uint32)swShadowTex->mips.Size());
-                        // Lire quelques pixels de la shadow map pour voir si elle est remplie
-                        if (!swShadowTex->mips.Empty()) {
-                            float d0 = swShadowTex->Read(1024, 1024).r;
-                            float d1 = swShadowTex->Read(0, 0).r;
-                            float d2 = swShadowTex->Read(2047, 2047).r;
-                            logger.Infof("[FRAG_DIAG] shadowMap samples: center=%.4f corner0=%.4f corner1=%.4f",
-                                        d0, d1, d2);
-                        }
-                    }
-                }
-            
-                // ── Éclairage Phong + ombre (équivalent CPU de kGLSL_Frag) ──────
-                const UboData* ubo = static_cast<const UboData*>(udata);
-
-                // Albedo = couleur par-vertex interpolée
-                math::NkVec3f albedo = { frag.color.r, frag.color.g, frag.color.b };
-                if (!ubo) return { albedo.x, albedo.y, albedo.z, 1.f };
-
-                // Normale monde (renormalisée par sûreté)
-                math::NkVec3f N = { frag.normal.x, frag.normal.y, frag.normal.z };
-                { float nl = NkSqrt(N.x*N.x + N.y*N.y + N.z*N.z);
-                  if (nl > 1e-6f) { N.x/=nl; N.y/=nl; N.z/=nl; } }
-
-                // World position (attrs[0..2]), direction lumière, vue, halfway
-                math::NkVec3f wpos = { frag.attrs[0], frag.attrs[1], frag.attrs[2] };
-                math::NkVec3f L = { -ubo->lightDirW[0], -ubo->lightDirW[1], -ubo->lightDirW[2] };
-                { float ll = NkSqrt(L.x*L.x+L.y*L.y+L.z*L.z);
-                  if (ll > 1e-6f) { L.x/=ll; L.y/=ll; L.z/=ll; } }
-                math::NkVec3f V = { ubo->eyePosW[0]-wpos.x, ubo->eyePosW[1]-wpos.y, ubo->eyePosW[2]-wpos.z };
-                { float vl = NkSqrt(V.x*V.x+V.y*V.y+V.z*V.z);
-                  if (vl > 1e-6f) { V.x/=vl; V.y/=vl; V.z/=vl; } }
-                math::NkVec3f H = { L.x+V.x, L.y+V.y, L.z+V.z };
-                { float hl = NkSqrt(H.x*H.x+H.y*H.y+H.z*H.z);
-                  if (hl > 1e-6f) { H.x/=hl; H.y/=hl; H.z/=hl; } }
-
-                float ndotl = N.x*L.x + N.y*L.y + N.z*L.z; if (ndotl < 0.f) ndotl = 0.f;
-                float ndoth = N.x*H.x + N.y*H.y + N.z*H.z; if (ndoth < 0.f) ndoth = 0.f;
-                // spec = pow(ndoth, 32) via 5 élévations au carré (évite powf)
-                float spec = ndoth; spec*=spec; spec*=spec; spec*=spec; spec*=spec; spec*=spec;
-
-                // ── Ombre 1-tap (shadow map depth en [0,1], cf. rasterizer z*0.5+0.5) ──
-                float shadow = 1.f;
-                if (swShadowTex && !swShadowTex->mips.Empty()) {
-                    float lw = frag.attrs[6];
-                    if (fabsf(lw) > 1e-6f) {
-                        float px = frag.attrs[3] / lw;
-                        float py = frag.attrs[4] / lw;
-                        float pz = frag.attrs[5] / lw;
-                        float u = px * 0.5f + 0.5f;
-                        // Le rasteriseur SW écrit la shadow map avec Y-flip
-                        // (NDCToScreen: screenY = (1-ndcY)*0.5*h), donc on échantillonne
-                        // en (1-py)*0.5 et NON py*0.5+0.5, sinon les ombres sont projetées
-                        // à l'envers verticalement.
-                        float v = (1.f - py) * 0.5f;
-                        float fragDepth = pz * ubo->ndcZScale + ubo->ndcZOffset;
-                        if (u >= 0.f && u <= 1.f && v >= 0.f && v <= 1.f && fragDepth <= 1.f) {
-                            // bias adaptatif identique au GLSL : mix(0.005, 0.0005, cosA)
-                            float bias = 0.005f * (1.f - ndotl) + 0.0005f * ndotl;
-                            uint32 tw = swShadowTex->Width(), th = swShadowTex->Height();
-                            int tx = (int)(u * (float)tw); if (tx < 0) tx = 0; if (tx >= (int)tw) tx = (int)tw - 1;
-                            int ty = (int)(v * (float)th); if (ty < 0) ty = 0; if (ty >= (int)th) ty = (int)th - 1;
-                            float stored = swShadowTex->Read((uint32)tx, (uint32)ty).r;
-                            shadow = (fragDepth - bias <= stored) ? 1.f : 0.f;
-                        }
-                    }
-                }
-                if (shadow < 0.35f) shadow = 0.35f;   // plancher identique au GLSL (max(.,0.35))
-
-                float r = 0.15f*albedo.x + shadow*ndotl*albedo.x + shadow*spec*0.4f;
-                float g = 0.15f*albedo.y + shadow*ndotl*albedo.y + shadow*spec*0.4f;
-                float b = 0.15f*albedo.z + shadow*ndotl*albedo.z + shadow*spec*0.4f;
-                return { r, g, b, 1.f };
-            };
-        }
-    }
-
-    NkVector<Vtx3D> testVerts;
-    testVerts.PushBack({NkVec3f(-0.5f, -0.5f, 0.f), NkVec3f(0,0,1), NkVec3f(1,0,0)});
-    testVerts.PushBack({NkVec3f( 0.5f, -0.5f, 0.f), NkVec3f(0,0,1), NkVec3f(0,1,0)});
-    testVerts.PushBack({NkVec3f( 0.f,   0.5f, 0.f), NkVec3f(0,0,1), NkVec3f(0,0,1)});
-    NkBufferHandle hTest = uploadVBO(testVerts);
-
-    // ── Command Buffer ────────────────────────────────────────────────────────
-    NkICommandBuffer* cmd = device->CreateCommandBuffer(NkCommandBufferType::NK_GRAPHICS);
-    if (!cmd || !cmd->IsValid()) {
-        logger.Info("[RHIFullDemo] Échec création command buffer\n");
-        NkDeviceFactory::Destroy(device);
-        window.Close();
-        return 1;
-    }
-
-    // ── État de la simulation ─────────────────────────────────────────────────
-    bool  running    = true;
-    float rotAngle   = 0.f;
-    float camYaw     = 0.f;
-    float camPitch   = 20.f;
-    float camDist    = 4.f;
-    float lightYaw   = -45.f;
-    float lightPitch = -30.f;
-    bool  keys[512]  = {};
-
-    NkClock clock;
-    NkEventSystem& events = NkEvents();
-
-    // ── Callbacks événements ──────────────────────────────────────────────────
-    events.AddEventCallback<NkWindowCloseEvent>([&](NkWindowCloseEvent*) {
-        running = false;
-    });
-    events.AddEventCallback<NkKeyPressEvent>([&](NkKeyPressEvent* e) {
-        if ((uint32)e->GetKey() < 512) keys[(uint32)e->GetKey()] = true;
-        if (e->GetKey() == NkKey::NK_ESCAPE) running = false;
-    });
-    events.AddEventCallback<NkKeyReleaseEvent>([&](NkKeyReleaseEvent* e) {
-        if ((uint32)e->GetKey() < 512) keys[(uint32)e->GetKey()] = false;
-    });
-    events.AddEventCallback<NkWindowResizeEvent>([&](NkWindowResizeEvent* e) {
-        W = (uint32)e->GetWidth();
-        H = (uint32)e->GetHeight();
-    });
-
-    // ── Constantes de convention NDC selon l'API ──────────────────────────────
-    // depthZeroToOne : Vulkan/DX/Metal clip Z ∈ [0,1], OpenGL/SW clip Z ∈ [-1,1]
-    const bool  depthZeroToOne =
-        targetApi == NkGraphicsApi::NK_GFX_API_VULKAN    ||
-        targetApi == NkGraphicsApi::NK_GFX_API_DX11 ||
-        targetApi == NkGraphicsApi::NK_GFX_API_DX12 ||
-        targetApi == NkGraphicsApi::NK_GFX_API_METAL;
-    const float ndcZScale  = depthZeroToOne ? 1.0f : 0.5f;
-    const float ndcZOffset = depthZeroToOne ? 0.0f : 0.5f;
-
-    logger.Info("[RHIFullDemo] Boucle principale. ESC=quitter, WASD=caméra, Flèches=lumière\n");
-
-    // ── Compteur FPS affiché dans la barre de titre (mise à jour ~2 Hz) ────────
-    float fpsTimer  = 0.f;   // accumulateur de temps depuis la dernière MAJ titre
-    int   fpsFrames = 0;     // frames depuis la dernière MAJ titre
-
-    // =========================================================================
-    // Boucle principale
-    // =========================================================================
-    while (running) {
-        events.PollEvents();
-        if (!running) break;
-
-        if (W == 0 || H == 0) {
-            continue;
-        }
-
-        if (W != device->GetSwapchainWidth() || H != device->GetSwapchainHeight()) { 
-            device->OnResize(W, H);
-        }
-
-        // ── Delta time ────────────────────────────────────────────────────────
-        float dt = clock.Tick().delta;
-        if (dt <= 0.f || dt > 0.25f) dt = 1.f / 60.f;
-
-        // ── FPS dans la barre de titre (rafraîchi 2×/s pour éviter le scintillement) ─
-        fpsTimer += dt;
-        ++fpsFrames;
-        if (fpsTimer >= 0.5f) {
-            const float fps = (float)fpsFrames / fpsTimer;
-            window.SetTitle(NkFormat("NkRHI Full Demo — {0} — {1} FPS ({2} ms)",
-                                     apiName, (int)(fps + 0.5f),
-                                     (int)(1000.f / (fps > 0.f ? fps : 1.f) + 0.5f)));
-            fpsTimer  = 0.f;
-            fpsFrames = 0;
-        }
-
-        // ── Contrôles clavier ─────────────────────────────────────────────────
-        const float camSpd = 60.f, lightSpd = 90.f;
-        if (keys[(uint32)NkKey::NK_A]) camYaw   -= camSpd * dt;
-        if (keys[(uint32)NkKey::NK_D]) camYaw   += camSpd * dt;
-        if (keys[(uint32)NkKey::NK_W]) camPitch += camSpd * dt;
-        if (keys[(uint32)NkKey::NK_S]) camPitch -= camSpd * dt;
-        if (keys[(uint32)NkKey::NK_LEFT])  lightYaw   -= lightSpd * dt;
-        if (keys[(uint32)NkKey::NK_RIGHT]) lightYaw   += lightSpd * dt;
-        if (keys[(uint32)NkKey::NK_UP])    lightPitch += lightSpd * dt;
-        if (keys[(uint32)NkKey::NK_DOWN])  lightPitch -= lightSpd * dt;
-        camPitch = NkClamp(camPitch, -80.f, 80.f);
-
-        rotAngle += 45.f * dt;
-
-        // ── Matrices de transformation ────────────────────────────────────────
-        float aspect = (H > 0) ? (float)W / (float)H : 1.f;
-
-        // Caméra orbitale
-        float eyeX = camDist * NkCos(NkToRadians(camPitch)) * NkSin(NkToRadians(camYaw));
-        float eyeY = camDist * NkSin(NkToRadians(camPitch));
-        float eyeZ = camDist * NkCos(NkToRadians(camPitch)) * NkCos(NkToRadians(camYaw));
-        NkVec3f eye(eyeX, eyeY, eyeZ);
-        NkVec3f center(0.f, 0.f, 0.f);
-        NkVec3f up(0.f, 1.f, 0.f);
-
-        NkMat4f matView = NkMat4f::LookAt(eye, center, up);
-        NkMat4f matProj = NkMat4f::Perspective(NkAngle(60.f), aspect, 0.1f, 100.f);
-
-        // v4 Phase 4 : fournir la caméra au ray-tracer BPR software (actif si NK_SW_RT=1).
-        if (targetApi == NkGraphicsApi::NK_GFX_API_SOFTWARE)
-            static_cast<NkSoftwareDevice*>(device)->SetRtCamera(matView, matProj);
-
-        // Direction lumière
-        float lx = NkCos(NkToRadians(lightPitch)) * NkSin(NkToRadians(lightYaw));
-        float ly = NkSin(NkToRadians(lightPitch));
-        float lz = NkCos(NkToRadians(lightPitch)) * NkCos(NkToRadians(lightYaw));
-        NkVec3f lightDir(lx, ly, lz);
-
-        // Matrice de la lumière (orthogonale, couvre les 3 objets)
-        // La position de la lumière est opposée à sa direction, à distance suffisante
-        NkVec3f lightPos = NkVec3f(-lightDir.x * 10.f,
-                                    -lightDir.y * 10.f,
-                                    -lightDir.z * 10.f);
-
-        // Éviter un up vector colinéaire avec la direction lumière
-        NkVec3f lightUp = (NkFabs(lightDir.y) > 0.9f)
-                          ? NkVec3f(1.f, 0.f, 0.f)
-                          : NkVec3f(0.f, 1.f, 0.f);
-
-        NkMat4f matLightView = NkMat4f::LookAt(lightPos, center, lightUp);
-
-        // Frustum orthogonal assez large pour couvrir toute la scène visible
-        // (-5..5 en X/Y, 1..20 en profondeur)
-        NkMat4f matLightProj = NkMat4f::Orthogonal(
-            NkVec2f(-5.f, -5.f),
-            NkVec2f( 5.f,  5.f),
-            1.f, 20.f,
-            depthZeroToOne);
-
-        NkMat4f matLightVP = matLightProj * matLightView;
-
-        // ── Frame ─────────────────────────────────────────────────────────────
-        NkFrameContext frame;
-        if (!device->BeginFrame(frame)) {
-            continue;
-        }
-
-        W = device->GetSwapchainWidth();
-        H = device->GetSwapchainHeight();
-        if (W == 0 || H == 0) {
-            device->EndFrame(frame);
-            continue;
-        }
-
-        NkRenderPassHandle latestSwapchainRP = device->GetSwapchainRenderPass();
-        if (latestSwapchainRP.IsValid() && latestSwapchainRP.id != hRP.id) {
-            hRP = latestSwapchainRP;
-            pipeDesc.renderPass = hRP;
-            if (hPipe.IsValid()) device->DestroyPipeline(hPipe);
-            hPipe = device->CreateGraphicsPipeline(pipeDesc);
-            if (!hPipe.IsValid()) {
-                logger.Info("[RHIFullDemo] Pipeline principal invalide apres recreate swapchain\n");
-                device->EndFrame(frame);
-                continue;
-            }
-        }
-
-        // Récupérer le framebuffer courant APRÈS BeginFrame (index mis à jour)
-        NkFramebufferHandle hFBO = device->GetSwapchainFramebuffer();
-
-        cmd->Reset();
-        if (!cmd->Begin()) {
-            device->EndFrame(frame);
-            continue;
-        }
-
-        // =====================================================================
-        // Passe 1 : Shadow map (depth-only, POV de la lumière)
-        // =====================================================================
-        if (hasShadowMap && hShadowFBO.IsValid() && hShadowRP.IsValid()) {
-
-            NkRect2D shadowArea{0, 0, (int32)kShadowSize, (int32)kShadowSize};
-            // Arme le clear depth (passe depth-only). Indispensable pour OpenGL, dont
-            // BeginRenderPass ne clear que si SetClearDepth a été appelé en amont
-            // (DX/VK/SW clear de façon inconditionnelle, d'où l'écran noir GL sans ceci).
-            cmd->SetClearDepth(1.f);
-            const bool shadowPassBegan = cmd->BeginRenderPass(hShadowRP, hShadowFBO, shadowArea);
-            if (shadowPassBegan && useRealShadowPass && hShadowPipe.IsValid()) {
-                NkViewport svp{0.f, 0.f, (float)kShadowSize, (float)kShadowSize, 0.f, 1.f};
-                svp.flipY = false; // shadow map depth pass : pas de Y-flip Vulkan
-                cmd->SetViewport(svp);
-                cmd->SetScissor(shadowArea);
-                cmd->BindGraphicsPipeline(hShadowPipe);
-
-                auto fillUboShadow = [&](UboData& su, const NkMat4f& mm) {
-                    NkMat4f identity = NkMat4f::Identity();
-                    Mat4ToArray(mm,         su.model);
-                    Mat4ToArray(matLightVP, su.lightVP);
-                    Mat4ToArray(identity,   su.view);
-                    Mat4ToArray(identity,   su.proj);
-                    su.ndcZScale  = ndcZScale;
-                    su.ndcZOffset = ndcZOffset;
-                };
-
-                // Objet 0 : Cube rotatif
-                {
-                    NkMat4f mm = NkMat4f::RotationY(NkAngle(rotAngle))
-                            * NkMat4f::RotationX(NkAngle(rotAngle * 0.5f));
-                    UboData su{};
-                    fillUboShadow(su, mm);
-                    device->WriteBuffer(hUBO[0], &su, sizeof(su));
-                    if (hDescSet[0].IsValid()) cmd->BindDescriptorSet(hDescSet[0], 0);
-                    cmd->BindVertexBuffer(0, hCube);
-                    cmd->Draw((uint32)cubeVerts.Size());
-                }
-
-                // Objet 1 : Sphere
-                {
-                    NkMat4f mm = NkMat4f::Translation(NkVec3f(2.f, 0.f, 0.f));
-                    UboData su{};
-                    fillUboShadow(su, mm);
-                    device->WriteBuffer(hUBO[1], &su, sizeof(su));
-                    if (hDescSet[1].IsValid()) cmd->BindDescriptorSet(hDescSet[1], 0);
-                    cmd->BindVertexBuffer(0, hSphere);
-                    cmd->Draw((uint32)sphereVerts.Size());
-                }
-
-                // Objet 2 : Plan
-                {
-                    NkMat4f mm = NkMat4f::Translation(NkVec3f(0.f, -1.0f, 0.f));
-                    UboData su{};
-                    fillUboShadow(su, mm);
-                    device->WriteBuffer(hUBO[2], &su, sizeof(su));
-                    if (hDescSet[2].IsValid()) cmd->BindDescriptorSet(hDescSet[2], 0);
-                    cmd->BindVertexBuffer(0, hPlane);
-                    cmd->Draw((uint32)planeVerts.Size());
-                }
-            }
-
-            // En mode safe-clear, cette passe sert juste a clear le depth shadow a 1.0.
-            if (shadowPassBegan) cmd->EndRenderPass();
-
-            // Synchronise l'écriture depth de la shadow map avant lecture en fragment shader.
-            if (shadowPassBegan && hShadowTex.IsValid()) {
-                NkTextureBarrier shadowBarrier{};
-                shadowBarrier.texture     = hShadowTex;
-                shadowBarrier.stateBefore = NkResourceState::NK_DEPTH_WRITE;
-                shadowBarrier.stateAfter  = NkResourceState::NK_DEPTH_READ;
-                shadowBarrier.srcStage    = NkPipelineStage::NK_LATE_FRAGMENT;
-                shadowBarrier.dstStage    = NkPipelineStage::NK_FRAGMENT_SHADER;
-                cmd->Barrier(nullptr, 0, &shadowBarrier, 1);
-            }
-        }
-// =====================================================================
-        // Passe 2 : Rendu principal (Phong + shadow)
-        // =====================================================================
-        NkRect2D area{0, 0, (int32)W, (int32)H};
-        // Arme le clear color+depth de la passe principale. Requis pour OpenGL
-        // (sinon le depth buffer n'est jamais remis à 1.0 → depth test rejette tout
-        // → écran noir). Inoffensif pour DX/VK/SW qui clear déjà inconditionnellement.
-        cmd->SetClearColor(0.f, 0.f, 0.f, 1.f);
-        cmd->SetClearDepth(1.f);
-        if (!cmd->BeginRenderPass(hRP, hFBO, area)) {
-            cmd->End();
-            if (targetApi == NkGraphicsApi::NK_GFX_API_VULKAN && W > 0 && H > 0) {
-                device->OnResize(W, H);
-            }
-            device->EndFrame(frame);
-            continue;
-        }
-
-        NkViewport vp{0.f, 0.f, (float)W, (float)H, 0.f, 1.f};
-        cmd->SetViewport(vp);
-        cmd->SetScissor(area);
-        cmd->BindGraphicsPipeline(hPipe);
-
-        // Remplit un UboData complet pour la passe principale
-        auto fillUboMain = [&](UboData& ubo, const NkMat4f& model) {
-            Mat4ToArray(model,      ubo.model);
-            Mat4ToArray(matView,    ubo.view);
-            Mat4ToArray(matProj,    ubo.proj);
-            Mat4ToArray(matLightVP, ubo.lightVP);
-            ubo.lightDirW[0] = lightDir.x;  ubo.lightDirW[1] = lightDir.y;
-            ubo.lightDirW[2] = lightDir.z;  ubo.lightDirW[3] = 0.f;
-            ubo.eyePosW[0]   = eye.x;        ubo.eyePosW[1]   = eye.y;
-            ubo.eyePosW[2]   = eye.z;        ubo.eyePosW[3]   = 0.f;
-            ubo.ndcZScale    = ndcZScale;
-            ubo.ndcZOffset   = ndcZOffset;
-            // OpenGL et Vulkan partagent le même GLSL et la même convention
-            // d'échantillonnage de la shadow map (NDC y → UV v sans flip) : +1 pour
-            // les deux. Le bug d'ombre GL d'origine venait du depth de la shadow map
-            // non-cleared (corrigé via SetClearDepth), pas d'un flip Y. DX gère son
-            // flip dans le HLSL, Software dans son fragFn.
-            ubo.shadowYScale = 1.f;
-        };
-
-        // Cube rotatif
-        {
-            NkMat4f matModel = NkMat4f::RotationY(NkAngle(rotAngle))
-                             * NkMat4f::RotationX(NkAngle(rotAngle * 0.5f));
-            UboData ubo{};
-            fillUboMain(ubo, matModel);
-            device->WriteBuffer(hUBO[0], &ubo, sizeof(ubo));
-            if (hDescSet[0].IsValid()) cmd->BindDescriptorSet(hDescSet[0], 0);
-            cmd->BindVertexBuffer(0, hCube);
-            cmd->Draw((uint32)cubeVerts.Size());
-        }
-
-        // Sphère
-        {
-            NkMat4f matModel = NkMat4f::Translation(NkVec3f(2.f, 0.f, 0.f));
-            UboData ubo{};
-            fillUboMain(ubo, matModel);
-            device->WriteBuffer(hUBO[1], &ubo, sizeof(ubo));
-            if (hDescSet[1].IsValid()) cmd->BindDescriptorSet(hDescSet[1], 0);
-            cmd->BindVertexBuffer(0, hSphere);
-            cmd->Draw((uint32)sphereVerts.Size());
-        }
-
-        // Plan sol — reçoit les ombres du cube et de la sphère
-        {
-            NkMat4f matModel = NkMat4f::Translation(NkVec3f(0.f, -1.0f, 0.f));
-            UboData ubo{};
-            fillUboMain(ubo, matModel);
-            device->WriteBuffer(hUBO[2], &ubo, sizeof(ubo));
-            if (hDescSet[2].IsValid()) cmd->BindDescriptorSet(hDescSet[2], 0);
-            cmd->BindVertexBuffer(0, hPlane);
-            cmd->Draw((uint32)planeVerts.Size());
-        }
-
-        cmd->EndRenderPass();
-        cmd->End();
-
-        device->SubmitAndPresent(cmd);
-        device->EndFrame(frame);
-    }
-
-    // =========================================================================
-    // Nettoyage
-    // =========================================================================
-    device->WaitIdle();
-
-    device->DestroyCommandBuffer(cmd);
-    for (int i = 0; i < 3; i++)
-        if (hDescSet[i].IsValid()) device->FreeDescriptorSet(hDescSet[i]);
-    if (hLayout.IsValid())       device->DestroyDescriptorSetLayout(hLayout);
-    for (int i = 0; i < 3; i++)
-        if (hUBO[i].IsValid())   device->DestroyBuffer(hUBO[i]);
-    if (hPlane.IsValid())        device->DestroyBuffer(hPlane);
-    if (hSphere.IsValid())       device->DestroyBuffer(hSphere);
-    if (hCube.IsValid())         device->DestroyBuffer(hCube);
-    device->DestroyPipeline(hPipe);
-    device->DestroyShader(hShader);
-    if (hShadowPipe.IsValid())    device->DestroyPipeline(hShadowPipe);
-    if (hShadowShader.IsValid())  device->DestroyShader(hShadowShader);
-    if (hShadowFBO.IsValid())     device->DestroyFramebuffer(hShadowFBO);
-    if (hShadowRP.IsValid())      device->DestroyRenderPass(hShadowRP);
-    if (hShadowSampler.IsValid()) device->DestroySampler(hShadowSampler);
-    if (hShadowTex.IsValid())     device->DestroyTexture(hShadowTex);
-
-    NkDeviceFactory::Destroy(device);
-    window.Close();
-
-    logger.Info("[RHIFullDemo] Terminé proprement.\n");
-    return 0;
+int nkmain(const nkentseu::NkEntryState &state) {
+	// ── ShaderCache ───────────────────────────────────────────────────────────
+	NkShaderCache::Global().SetCacheDir("Build/ShaderCache");
+
+	// ── Sélection backend ─────────────────────────────────────────────────────
+	NkGraphicsApi targetApi = ParseBackend(state.GetArgs());
+	const char *apiName = NkGraphicsApiName(targetApi);
+	logger.Info("[RHIFullDemo] Backend cible : {0}\n", apiName);
+
+	// ── Fenêtre ───────────────────────────────────────────────────────────────
+	NkWindowConfig winCfg;
+	winCfg.title = NkFormat("NkRHI Full Demo — {0}", apiName);
+	winCfg.width = 1280;
+	winCfg.height = 720;
+	winCfg.centered = true;
+	winCfg.resizable = true;
+
+	NkWindow window;
+	if (!window.Create(winCfg)) {
+		logger.Info("[RHIFullDemo] Échec création fenêtre\n");
+		return 1;
+	}
+
+	// ── Surface native + init info device ────────────────────────────────────
+	NkSurfaceDesc surface = window.GetSurfaceDesc();
+	NkDeviceInitInfo deviceInitInfo;
+	deviceInitInfo.api = targetApi;
+	deviceInitInfo.surface = surface;
+	deviceInitInfo.height = window.GetSize().height;
+	deviceInitInfo.width = window.GetSize().width;
+
+	deviceInitInfo.context.vulkan.appName = "NkRHIDemoFull";
+	deviceInitInfo.context.vulkan.engineName = "Noge";
+	// Validation layers Vulkan OFF par défaut : sur certaines machines la DLL de la
+	// couche de validation résout son import msvcp140.dll vers une version
+	// incompatible présente sur le PATH (ex. C:\Program Files\Huawei\DevEco Studio\bin)
+	// -> SIGSEGV dans vkCreateInstance. Opt-in via --vk-validation / -vkval.
+	const bool wantVkValidation = HasArg(state.GetArgs(), "--vk-validation", "-vkval");
+	deviceInitInfo.context.vulkan.validationLayers = wantVkValidation;
+	deviceInitInfo.context.vulkan.debugMessenger = wantVkValidation;
+	// Cette démo n'applique pas de gestion gamma (le shader écrit directement la
+	// couleur Phong). On demande un swapchain UNORM pour que Vulkan affiche les
+	// couleurs telles quelles, comme OpenGL/DX, au lieu de les ré-encoder en sRGB
+	// (ce qui rendait le rendu délavé/pâle vs les autres backends).
+	deviceInitInfo.context.vulkan.srgbSwapchain = false;
+
+	// ── Device RHI ───────────────────────────────────────────────────────────
+	NkIDevice *device = NkDeviceFactory::Create(deviceInitInfo);
+	if (!device || !device->IsValid()) {
+		logger.Info("[RHIFullDemo] Échec création NkIDevice ({0})\n", apiName);
+		window.Close();
+		return 1;
+	}
+	logger.Info("[RHIFullDemo] Device {0} initialisé. VRAM: {1} Mo\n", apiName,
+				(unsigned long long)(device->GetCaps().vramBytes >> 20));
+
+	// ── Dimensions swapchain ──────────────────────────────────────────────────
+	uint32 W = device->GetSwapchainWidth();
+	uint32 H = device->GetSwapchainHeight();
+
+	// ── Shader principal ──────────────────────────────────────────────────────
+	logger.Info("[RHIFullDemo] Init step: build main shader desc\n");
+	NkShaderDesc shaderDesc = MakeShaderDesc(targetApi);
+	logger.Info("[RHIFullDemo] Init step: create main shader begin\n");
+	NkShaderHandle hShader = device->CreateShader(shaderDesc);
+	logger.Info("[RHIFullDemo] Init step: create main shader done valid={0}\n", hShader.IsValid() ? 1 : 0);
+	if (!hShader.IsValid()) {
+		logger.Info("[RHIFullDemo] Échec compilation shader\n");
+		NkDeviceFactory::Destroy(device);
+		window.Close();
+		return 1;
+	}
+
+	// ── Vertex Layout ─────────────────────────────────────────────────────────
+	NkVertexLayout vtxLayout;
+	vtxLayout.AddAttribute(0, 0, NkGPUFormat::NK_RGB32_FLOAT, 0, "POSITION", 0)
+		.AddAttribute(1, 0, NkGPUFormat::NK_RGB32_FLOAT, 3 * sizeof(float), "NORMAL", 0)
+		.AddAttribute(2, 0, NkGPUFormat::NK_RGB32_FLOAT, 6 * sizeof(float), "COLOR", 0)
+		.AddBinding(0, sizeof(Vtx3D));
+
+	// ── Render Pass swapchain (récupéré une fois, stable entre les frames) ────
+	logger.Info("[RHIFullDemo] Init step: get swapchain render pass\n");
+	NkRenderPassHandle hRP = device->GetSwapchainRenderPass();
+
+	// ── Shadow map ────────────────────────────────────────────────────────────
+	// shaderNeedsShadowSampler : le shader GPU lit la shadow map via un descriptor (binding 1).
+	// wantsShadowResources : on crée les ressources RHI shadow (inclut Software).
+	const bool shaderNeedsShadowSampler =
+		targetApi == NkGraphicsApi::NK_GFX_API_OPENGL || targetApi == NkGraphicsApi::NK_GFX_API_VULKAN ||
+		targetApi == NkGraphicsApi::NK_GFX_API_DX11 || targetApi == NkGraphicsApi::NK_GFX_API_DX12;
+	const bool wantsShadowResources = shaderNeedsShadowSampler || targetApi == NkGraphicsApi::NK_GFX_API_SOFTWARE;
+	const bool forceSafeShadows = HasArg(state.GetArgs(), "--safe-shadows", "--shadow-safe-clear");
+	const bool requestRealShadows = !forceSafeShadows;
+	static constexpr uint32 kShadowSize = 2048;
+
+	NkTextureHandle hShadowTex;
+	NkSamplerHandle hShadowSampler;
+	NkRenderPassHandle hShadowRP;
+	NkFramebufferHandle hShadowFBO;
+	NkShaderHandle hShadowShader;
+	NkPipelineHandle hShadowPipe;
+	bool hasShadowMap = false;
+	bool useRealShadowPass = false;
+
+	// Descriptor set layout (binding 0 = UBO, binding 1 = shadow sampler)
+	NkDescriptorSetLayoutDesc layoutDesc;
+	layoutDesc.Add(0, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_ALL_GRAPHICS);
+	if (shaderNeedsShadowSampler)
+		layoutDesc.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, NkShaderStage::NK_FRAGMENT);
+	logger.Info("[RHIFullDemo] Init step: create descriptor set layout begin\n");
+	NkDescSetHandle hLayout = device->CreateDescriptorSetLayout(layoutDesc);
+	logger.Info("[RHIFullDemo] Init step: create descriptor set layout done valid={0}\n", hLayout.IsValid() ? 1 : 0);
+
+	// ── Pipeline principal ────────────────────────────────────────────────────
+	NkGraphicsPipelineDesc pipeDesc;
+	pipeDesc.shader = hShader;
+	pipeDesc.vertexLayout = vtxLayout;
+	pipeDesc.topology = NkPrimitiveTopology::NK_TRIANGLE_LIST;
+	pipeDesc.rasterizer = NkRasterizerDesc::Default();
+	pipeDesc.depthStencil = NkDepthStencilDesc::Default();
+	pipeDesc.blend = NkBlendDesc::Opaque();
+	pipeDesc.renderPass = hRP;
+	pipeDesc.debugName = "PipelinePhong3D";
+	if (hLayout.IsValid())
+		pipeDesc.descriptorSetLayouts.PushBack(hLayout);
+
+	logger.Info("[RHIFullDemo] Init step: create main pipeline begin\n");
+	NkPipelineHandle hPipe = device->CreateGraphicsPipeline(pipeDesc);
+	logger.Info("[RHIFullDemo] Init step: create main pipeline done valid={0}\n", hPipe.IsValid() ? 1 : 0);
+	if (!hPipe.IsValid()) {
+		logger.Info("[RHIFullDemo] Échec création pipeline\n");
+		device->DestroyShader(hShader);
+		NkDeviceFactory::Destroy(device);
+		window.Close();
+		return 1;
+	}
+
+	// ── Géométrie ─────────────────────────────────────────────────────────────
+	auto cubeVerts = MakeCube();
+	auto sphereVerts = MakeSphere();
+	auto planeVerts = MakePlane();
+	logger.Info("[RHIFullDemo] Init step: geometry generated cube={0} sphere={1} plane={2}\n",
+				(unsigned long long)cubeVerts.Size(), (unsigned long long)sphereVerts.Size(),
+				(unsigned long long)planeVerts.Size());
+
+	auto uploadVBO = [&](const NkVector<Vtx3D> &verts) -> NkBufferHandle {
+		uint64 sz = verts.Size() * sizeof(Vtx3D);
+		return device->CreateBuffer(NkBufferDesc::Vertex(sz, verts.Begin()));
+	};
+
+	NkBufferHandle hCube = uploadVBO(cubeVerts);
+	NkBufferHandle hSphere = uploadVBO(sphereVerts);
+	NkBufferHandle hPlane = uploadVBO(planeVerts);
+	logger.Info("[RHIFullDemo] Init step: VBO created cube={0} sphere={1} plane={2}\n", hCube.IsValid() ? 1 : 0,
+				hSphere.IsValid() ? 1 : 0, hPlane.IsValid() ? 1 : 0);
+
+	// ── Uniform Buffers ───────────────────────────────────────────────────────
+	// 3 UBO : un par objet (cube, sphère, plan)
+	// Séparés pour éviter les conflits d'écriture entre passe shadow et passe principale
+	NkBufferHandle hUBO[3];
+	for (int i = 0; i < 3; i++) {
+		hUBO[i] = device->CreateBuffer(NkBufferDesc::Uniform(sizeof(UboData)));
+		if (!hUBO[i].IsValid())
+			logger.Info("[RHIFullDemo] Échec création UBO[{0}]\n", i);
+	}
+	logger.Info("[RHIFullDemo] Init step: UBO created {0}/{1}/{2}\n", hUBO[0].IsValid() ? 1 : 0,
+				hUBO[1].IsValid() ? 1 : 0, hUBO[2].IsValid() ? 1 : 0);
+
+	// ── Descriptor Sets ───────────────────────────────────────────────────────
+	// 3 descriptor sets : un par objet
+	// Chaque set lie son propre UBO (binding 0) + la shadow texture (binding 1)
+	NkDescSetHandle hDescSet[3];
+	for (int i = 0; i < 3; i++) {
+		logger.Info("[RHIFullDemo] Init step: alloc desc set[{0}] begin\n", i);
+		hDescSet[i] = device->AllocateDescriptorSet(hLayout);
+		logger.Info("[RHIFullDemo] Init step: alloc desc set[{0}] done valid={1}\n", i, hDescSet[i].IsValid() ? 1 : 0);
+		if (hLayout.IsValid() && hDescSet[i].IsValid() && hUBO[i].IsValid()) {
+			NkDescriptorWrite w{};
+			w.set = hDescSet[i];
+			w.binding = 0;
+			w.type = NkDescriptorType::NK_UNIFORM_BUFFER;
+			w.buffer = hUBO[i];
+			w.bufferOffset = 0;
+			w.bufferRange = sizeof(UboData);
+			logger.Info("[RHIFullDemo] Init step: update UBO desc set[{0}] begin\n", i);
+			device->UpdateDescriptorSets(&w, 1);
+			logger.Info("[RHIFullDemo] Init step: update UBO desc set[{0}] done\n", i);
+		}
+	}
+
+	// ── Ressources shadow ─────────────────────────────────────────────────────
+	if (wantsShadowResources) {
+		logger.Info("[RHIFullDemo] Shadow init begin ({0})\n", apiName);
+		NkTextureDesc shadowTexDesc =
+			NkTextureDesc::DepthStencil(kShadowSize, kShadowSize, NkGPUFormat::NK_D32_FLOAT, NkSampleCount::NK_S1);
+		shadowTexDesc.bindFlags = NkBindFlags::NK_DEPTH_STENCIL | NkBindFlags::NK_SHADER_RESOURCE;
+		logger.Info("[RHIFullDemo] Shadow create texture begin\n");
+		hShadowTex = device->CreateTexture(shadowTexDesc);
+		logger.Info("[RHIFullDemo] Shadow create texture done valid={0}\n", hShadowTex.IsValid() ? 1 : 0);
+
+		NkSamplerDesc shadowSamplerDesc = NkSamplerDesc::Shadow();
+		shadowSamplerDesc.magFilter = NkFilter::NK_LINEAR;
+		shadowSamplerDesc.minFilter = NkFilter::NK_LINEAR;
+		shadowSamplerDesc.mipFilter = NkMipFilter::NK_NONE;
+		shadowSamplerDesc.minLod = 0.f;
+		shadowSamplerDesc.maxLod = 0.f;
+		logger.Info("[RHIFullDemo] Shadow create sampler begin\n");
+		hShadowSampler = device->CreateSampler(shadowSamplerDesc);
+		logger.Info("[RHIFullDemo] Shadow create sampler done valid={0}\n", hShadowSampler.IsValid() ? 1 : 0);
+
+		logger.Info("[RHIFullDemo] Shadow create renderpass begin\n");
+		hShadowRP = device->CreateRenderPass(NkRenderPassDesc::ShadowMap());
+		logger.Info("[RHIFullDemo] Shadow create renderpass done valid={0}\n", hShadowRP.IsValid() ? 1 : 0);
+
+		NkFramebufferDesc fboD{};
+		fboD.renderPass = hShadowRP;
+		fboD.depthAttachment = hShadowTex;
+		fboD.width = kShadowSize;
+		fboD.height = kShadowSize;
+		fboD.debugName = "ShadowFBO";
+		logger.Info("[RHIFullDemo] Shadow create framebuffer begin\n");
+		hShadowFBO = device->CreateFramebuffer(fboD);
+		logger.Info("[RHIFullDemo] Shadow create framebuffer done valid={0}\n", hShadowFBO.IsValid() ? 1 : 0);
+
+		hasShadowMap = hShadowTex.IsValid() && hShadowSampler.IsValid() && hShadowRP.IsValid() && hShadowFBO.IsValid();
+
+		if (requestRealShadows && hasShadowMap) {
+			NkShaderDesc shadowSd = MakeShadowShaderDesc(targetApi);
+			if (!shadowSd.stages.IsEmpty()) {
+				hShadowShader = device->CreateShader(shadowSd);
+			}
+
+			NkVertexLayout shadowVtxLayout;
+			shadowVtxLayout.AddAttribute(0, 0, NkGPUFormat::NK_RGB32_FLOAT, 0, "POSITION", 0)
+				.AddBinding(0, sizeof(Vtx3D));
+
+			NkGraphicsPipelineDesc shadowPipeDesc{};
+			shadowPipeDesc.shader = hShadowShader;
+			shadowPipeDesc.vertexLayout = shadowVtxLayout;
+			shadowPipeDesc.topology = NkPrimitiveTopology::NK_TRIANGLE_LIST;
+			shadowPipeDesc.rasterizer = NkRasterizerDesc::ShadowMap();
+			shadowPipeDesc.depthStencil = NkDepthStencilDesc::Default();
+			shadowPipeDesc.blend = NkBlendDesc::Opaque();
+			shadowPipeDesc.renderPass = hShadowRP;
+			shadowPipeDesc.debugName = "ShadowPipeline";
+			if (hLayout.IsValid()) {
+				shadowPipeDesc.descriptorSetLayouts.PushBack(hLayout);
+			}
+			hShadowPipe = device->CreateGraphicsPipeline(shadowPipeDesc);
+			useRealShadowPass = hShadowShader.IsValid() && hShadowPipe.IsValid();
+		}
+
+		for (int i = 0; i < 3; i++) {
+			if (hDescSet[i].IsValid() && hShadowTex.IsValid() && hShadowSampler.IsValid()) {
+				NkDescriptorWrite sw{};
+				sw.set = hDescSet[i];
+				sw.binding = 1;
+				sw.type = NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER;
+				sw.texture = hShadowTex;
+				sw.sampler = hShadowSampler;
+				sw.textureLayout = NkResourceState::NK_DEPTH_READ;
+				logger.Info("[RHIFullDemo] Shadow update desc set[{0}] begin\n", i);
+				device->UpdateDescriptorSets(&sw, 1);
+				logger.Info("[RHIFullDemo] Shadow update desc set[{0}] done\n", i);
+			}
+		}
+		logger.Info("[RHIFullDemo] Shadow init end ({0})\n", apiName);
+	}
+
+	if (hasShadowMap) {
+		logger.Info("[RHIFullDemo] Shadow map activee ({0}x{0}) mode={1}\n", kShadowSize,
+					useRealShadowPass ? "real" : "safe-clear");
+	} else {
+		logger.Info("[RHIFullDemo] Shadow map desactivee pour {0}\n", apiName);
+	}
+
+	// Pour les backends GPU avec sampler descriptor, on ne peut pas continuer sans shadow map valide
+	if (shaderNeedsShadowSampler && !hasShadowMap) {
+		logger.Info("[RHIFullDemo] Impossible de continuer: shader principal attend un shadow sampler valide ({0})\n",
+					apiName);
+		device->DestroyPipeline(hPipe);
+		device->DestroyShader(hShader);
+		NkDeviceFactory::Destroy(device);
+		window.Close();
+		return 1;
+	}
+	// ── Callbacks CPU pour le backend Software ────────────────────────────────
+	if (targetApi == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
+		NkSoftwareDevice *swDev = static_cast<NkSoftwareDevice *>(device);
+
+		// ── Shadow shader : depth-only pass ──────────────────────────────
+		if (hShadowShader.IsValid()) {
+			NkSWShader *swSh = swDev->GetShader(hShadowShader.id);
+			if (swSh) {
+				swSh->vertFn = [](const void *vdata, uint32 idx, const void *udata) -> NkVertexSoftware {
+					const Vtx3D *v = static_cast<const Vtx3D *>(vdata) + idx;
+					const UboData *ubo = static_cast<const UboData *>(udata);
+					NkVertexSoftware out;
+					if (!ubo) {
+						out.position = {v->pos.x, v->pos.y, v->pos.z, 1.f};
+						return out;
+					}
+					auto mul4 = [](const float m[16], float x, float y, float z, float w) -> NkVec4f {
+						return NkVec4f(
+							m[0] * x + m[4] * y + m[8] * z + m[12] * w, m[1] * x + m[5] * y + m[9] * z + m[13] * w,
+							m[2] * x + m[6] * y + m[10] * z + m[14] * w, m[3] * x + m[7] * y + m[11] * z + m[15] * w);
+					};
+					NkVec4f wp = mul4(ubo->model, v->pos.x, v->pos.y, v->pos.z, 1.f);
+					NkVec4f lsp = mul4(ubo->lightVP, wp.x, wp.y, wp.z, wp.w);
+					out.position = lsp;
+					return out;
+				};
+				// Pas de fragFn : depth-only (null colorTarget, le depth est écrit par le rasterizer)
+				swSh->fragFn = nullptr;
+			}
+		}
+
+		// ── Main shader : Phong + shadow PCF ─────────────────────────────
+		NkSWShader *sw = swDev->GetShader(hShader.id);
+		// Récupère la texture depth de la shadow map pour la capture lambda
+		NkSWTexture *swShadowTex = hasShadowMap ? swDev->GetTex(hShadowTex.id) : nullptr;
+
+		if (sw) {
+			// Vertex shader CPU
+			static bool s_vertLoggedOnce = false;
+			static uint32 s_fragCallCount = 0;
+			static bool s_loggedOnce = false;
+
+			sw->vertFn = [](const void *vdata, uint32 idx, const void *udata) -> NkVertexSoftware {
+				const Vtx3D *v = static_cast<const Vtx3D *>(vdata) + idx;
+				const UboData *ubo = static_cast<const UboData *>(udata);
+
+				NkVertexSoftware out;
+				if (!ubo) {
+					out.position = {v->pos.x, v->pos.y, v->pos.z, 1.f};
+					out.normal = v->normal;
+					out.color = {v->color.r, v->color.g, v->color.b, 1.f};
+					return out;
+				}
+
+				auto mul4 = [](const float m[16], float x, float y, float z, float w) -> NkVec4f {
+					return NkVec4f(
+						m[0] * x + m[4] * y + m[8] * z + m[12] * w, m[1] * x + m[5] * y + m[9] * z + m[13] * w,
+						m[2] * x + m[6] * y + m[10] * z + m[14] * w, m[3] * x + m[7] * y + m[11] * z + m[15] * w);
+				};
+
+				NkVec4f wp = mul4(ubo->model, v->pos.x, v->pos.y, v->pos.z, 1.f);
+				NkVec4f vp = mul4(ubo->view, wp.x, wp.y, wp.z, wp.w);
+				NkVec4f cp = mul4(ubo->proj, vp.x, vp.y, vp.z, vp.w);
+				out.position = cp;
+
+				float nx = ubo->model[0] * v->normal.x + ubo->model[4] * v->normal.y + ubo->model[8] * v->normal.z;
+				float ny = ubo->model[1] * v->normal.x + ubo->model[5] * v->normal.y + ubo->model[9] * v->normal.z;
+				float nz = ubo->model[2] * v->normal.x + ubo->model[6] * v->normal.y + ubo->model[10] * v->normal.z;
+				float nl = NkSqrt(nx * nx + ny * ny + nz * nz);
+				if (nl > 0.001f) {
+					nx /= nl;
+					ny /= nl;
+					nz /= nl;
+				}
+				out.normal = {nx, ny, nz};
+				out.color = {v->color.r, v->color.g, v->color.b, 1.f};
+
+				out.attrs[0] = wp.x;
+				out.attrs[1] = wp.y;
+				out.attrs[2] = wp.z;
+				NkVec4f lsc = mul4(ubo->lightVP, wp.x, wp.y, wp.z, wp.w);
+				out.attrs[3] = lsc.x;
+				out.attrs[4] = lsc.y;
+				out.attrs[5] = lsc.z;
+				out.attrs[6] = lsc.w;
+				out.attrCount = 7; // ← CRUCIAL : déclarer explicitement le nombre d'attrs
+
+				if (!s_vertLoggedOnce && idx == 0) {
+					s_vertLoggedOnce = true;
+					logger.Infof("[VERT_DIAG] idx=0 pos=%.3f,%.3f,%.3f,%.3f", cp.x, cp.y, cp.z, cp.w);
+					logger.Infof("[VERT_DIAG] wp=%.3f,%.3f,%.3f", wp.x, wp.y, wp.z);
+					logger.Infof("[VERT_DIAG] lsc=%.3f,%.3f,%.3f,%.3f", lsc.x, lsc.y, lsc.z, lsc.w);
+					logger.Infof("[VERT_DIAG] attrCount=%u", out.attrCount);
+				}
+
+				return out;
+			};
+
+			// Fragment shader CPU — 1-tap shadow pour limiter le coût CPU
+			sw->fragFn = [swShadowTex](const NkVertexSoftware &frag, const void *udata,
+									   const void *texPtr) -> math::NkVec4f {
+				++s_fragCallCount;
+
+				// Log une seule fois pour voir ce qu'on reçoit
+				if (!s_loggedOnce) {
+					s_loggedOnce = true;
+					logger.Infof("[FRAG_DIAG] attrCount=%u", frag.attrCount);
+					logger.Infof("[FRAG_DIAG] attrs[0..6] = %.3f %.3f %.3f | %.3f %.3f %.3f %.3f", frag.attrs[0],
+								 frag.attrs[1], frag.attrs[2], frag.attrs[3], frag.attrs[4], frag.attrs[5],
+								 frag.attrs[6]);
+					logger.Infof("[FRAG_DIAG] normal = %.3f %.3f %.3f", frag.normal.x, frag.normal.y, frag.normal.z);
+					logger.Infof("[FRAG_DIAG] color  = %.3f %.3f %.3f", frag.color.r, frag.color.g, frag.color.b);
+					logger.Infof("[FRAG_DIAG] udata=%p texPtr=%p swShadowTex=%p", udata, texPtr, (void *)swShadowTex);
+					if (swShadowTex) {
+						logger.Infof("[FRAG_DIAG] shadowTex size=%ux%u format=%d mips=%u", swShadowTex->Width(),
+									 swShadowTex->Height(), (int)swShadowTex->desc.format,
+									 (uint32)swShadowTex->mips.Size());
+						// Lire quelques pixels de la shadow map pour voir si elle est remplie
+						if (!swShadowTex->mips.Empty()) {
+							float d0 = swShadowTex->Read(1024, 1024).r;
+							float d1 = swShadowTex->Read(0, 0).r;
+							float d2 = swShadowTex->Read(2047, 2047).r;
+							logger.Infof("[FRAG_DIAG] shadowMap samples: center=%.4f corner0=%.4f corner1=%.4f", d0, d1,
+										 d2);
+						}
+					}
+				}
+
+				// ── Éclairage Phong + ombre (équivalent CPU de kGLSL_Frag) ──────
+				const UboData *ubo = static_cast<const UboData *>(udata);
+
+				// Albedo = couleur par-vertex interpolée
+				math::NkVec3f albedo = {frag.color.r, frag.color.g, frag.color.b};
+				if (!ubo)
+					return {albedo.x, albedo.y, albedo.z, 1.f};
+
+				// Normale monde (renormalisée par sûreté)
+				math::NkVec3f N = {frag.normal.x, frag.normal.y, frag.normal.z};
+				{
+					float nl = NkSqrt(N.x * N.x + N.y * N.y + N.z * N.z);
+					if (nl > 1e-6f) {
+						N.x /= nl;
+						N.y /= nl;
+						N.z /= nl;
+					}
+				}
+
+				// World position (attrs[0..2]), direction lumière, vue, halfway
+				math::NkVec3f wpos = {frag.attrs[0], frag.attrs[1], frag.attrs[2]};
+				math::NkVec3f L = {-ubo->lightDirW[0], -ubo->lightDirW[1], -ubo->lightDirW[2]};
+				{
+					float ll = NkSqrt(L.x * L.x + L.y * L.y + L.z * L.z);
+					if (ll > 1e-6f) {
+						L.x /= ll;
+						L.y /= ll;
+						L.z /= ll;
+					}
+				}
+				math::NkVec3f V = {ubo->eyePosW[0] - wpos.x, ubo->eyePosW[1] - wpos.y, ubo->eyePosW[2] - wpos.z};
+				{
+					float vl = NkSqrt(V.x * V.x + V.y * V.y + V.z * V.z);
+					if (vl > 1e-6f) {
+						V.x /= vl;
+						V.y /= vl;
+						V.z /= vl;
+					}
+				}
+				math::NkVec3f H = {L.x + V.x, L.y + V.y, L.z + V.z};
+				{
+					float hl = NkSqrt(H.x * H.x + H.y * H.y + H.z * H.z);
+					if (hl > 1e-6f) {
+						H.x /= hl;
+						H.y /= hl;
+						H.z /= hl;
+					}
+				}
+
+				float ndotl = N.x * L.x + N.y * L.y + N.z * L.z;
+				if (ndotl < 0.f)
+					ndotl = 0.f;
+				float ndoth = N.x * H.x + N.y * H.y + N.z * H.z;
+				if (ndoth < 0.f)
+					ndoth = 0.f;
+				// spec = pow(ndoth, 32) via 5 élévations au carré (évite powf)
+				float spec = ndoth;
+				spec *= spec;
+				spec *= spec;
+				spec *= spec;
+				spec *= spec;
+				spec *= spec;
+
+				// ── Ombre 1-tap (shadow map depth en [0,1], cf. rasterizer z*0.5+0.5) ──
+				float shadow = 1.f;
+				if (swShadowTex && !swShadowTex->mips.Empty()) {
+					float lw = frag.attrs[6];
+					if (fabsf(lw) > 1e-6f) {
+						float px = frag.attrs[3] / lw;
+						float py = frag.attrs[4] / lw;
+						float pz = frag.attrs[5] / lw;
+						float u = px * 0.5f + 0.5f;
+						// Le rasteriseur SW écrit la shadow map avec Y-flip
+						// (NDCToScreen: screenY = (1-ndcY)*0.5*h), donc on échantillonne
+						// en (1-py)*0.5 et NON py*0.5+0.5, sinon les ombres sont projetées
+						// à l'envers verticalement.
+						float v = (1.f - py) * 0.5f;
+						float fragDepth = pz * ubo->ndcZScale + ubo->ndcZOffset;
+						if (u >= 0.f && u <= 1.f && v >= 0.f && v <= 1.f && fragDepth <= 1.f) {
+							// bias adaptatif identique au GLSL : mix(0.005, 0.0005, cosA)
+							float bias = 0.005f * (1.f - ndotl) + 0.0005f * ndotl;
+							uint32 tw = swShadowTex->Width(), th = swShadowTex->Height();
+							int tx = (int)(u * (float)tw);
+							if (tx < 0)
+								tx = 0;
+							if (tx >= (int)tw)
+								tx = (int)tw - 1;
+							int ty = (int)(v * (float)th);
+							if (ty < 0)
+								ty = 0;
+							if (ty >= (int)th)
+								ty = (int)th - 1;
+							float stored = swShadowTex->Read((uint32)tx, (uint32)ty).r;
+							shadow = (fragDepth - bias <= stored) ? 1.f : 0.f;
+						}
+					}
+				}
+				if (shadow < 0.35f)
+					shadow = 0.35f; // plancher identique au GLSL (max(.,0.35))
+
+				float r = 0.15f * albedo.x + shadow * ndotl * albedo.x + shadow * spec * 0.4f;
+				float g = 0.15f * albedo.y + shadow * ndotl * albedo.y + shadow * spec * 0.4f;
+				float b = 0.15f * albedo.z + shadow * ndotl * albedo.z + shadow * spec * 0.4f;
+				return {r, g, b, 1.f};
+			};
+		}
+	}
+
+	NkVector<Vtx3D> testVerts;
+	testVerts.PushBack({NkVec3f(-0.5f, -0.5f, 0.f), NkVec3f(0, 0, 1), NkVec3f(1, 0, 0)});
+	testVerts.PushBack({NkVec3f(0.5f, -0.5f, 0.f), NkVec3f(0, 0, 1), NkVec3f(0, 1, 0)});
+	testVerts.PushBack({NkVec3f(0.f, 0.5f, 0.f), NkVec3f(0, 0, 1), NkVec3f(0, 0, 1)});
+	NkBufferHandle hTest = uploadVBO(testVerts);
+
+	// ── Command Buffer ────────────────────────────────────────────────────────
+	NkICommandBuffer *cmd = device->CreateCommandBuffer(NkCommandBufferType::NK_GRAPHICS);
+	if (!cmd || !cmd->IsValid()) {
+		logger.Info("[RHIFullDemo] Échec création command buffer\n");
+		NkDeviceFactory::Destroy(device);
+		window.Close();
+		return 1;
+	}
+
+	// ── État de la simulation ─────────────────────────────────────────────────
+	bool running = true;
+	float rotAngle = 0.f;
+	float camYaw = 0.f;
+	float camPitch = 20.f;
+	float camDist = 4.f;
+	float lightYaw = -45.f;
+	float lightPitch = -30.f;
+	bool keys[512] = {};
+
+	NkClock clock;
+	NkEventSystem &events = NkEvents();
+
+	// ── Callbacks événements ──────────────────────────────────────────────────
+	events.AddEventCallback<NkWindowCloseEvent>([&](NkWindowCloseEvent *) { running = false; });
+	events.AddEventCallback<NkKeyPressEvent>([&](NkKeyPressEvent *e) {
+		if ((uint32)e->GetKey() < 512)
+			keys[(uint32)e->GetKey()] = true;
+		if (e->GetKey() == NkKey::NK_ESCAPE)
+			running = false;
+	});
+	events.AddEventCallback<NkKeyReleaseEvent>([&](NkKeyReleaseEvent *e) {
+		if ((uint32)e->GetKey() < 512)
+			keys[(uint32)e->GetKey()] = false;
+	});
+	events.AddEventCallback<NkWindowResizeEvent>([&](NkWindowResizeEvent *e) {
+		W = (uint32)e->GetWidth();
+		H = (uint32)e->GetHeight();
+	});
+
+	// ── Constantes de convention NDC selon l'API ──────────────────────────────
+	// depthZeroToOne : Vulkan/DX/Metal clip Z ∈ [0,1], OpenGL/SW clip Z ∈ [-1,1]
+	const bool depthZeroToOne =
+		targetApi == NkGraphicsApi::NK_GFX_API_VULKAN || targetApi == NkGraphicsApi::NK_GFX_API_DX11 ||
+		targetApi == NkGraphicsApi::NK_GFX_API_DX12 || targetApi == NkGraphicsApi::NK_GFX_API_METAL;
+	const float ndcZScale = depthZeroToOne ? 1.0f : 0.5f;
+	const float ndcZOffset = depthZeroToOne ? 0.0f : 0.5f;
+
+	logger.Info("[RHIFullDemo] Boucle principale. ESC=quitter, WASD=caméra, Flèches=lumière\n");
+
+	// ── Compteur FPS affiché dans la barre de titre (mise à jour ~2 Hz) ────────
+	float fpsTimer = 0.f; // accumulateur de temps depuis la dernière MAJ titre
+	int fpsFrames = 0;	  // frames depuis la dernière MAJ titre
+
+	// =========================================================================
+	// Boucle principale
+	// =========================================================================
+	while (running) {
+		events.PollEvents();
+		if (!running)
+			break;
+
+		if (W == 0 || H == 0) {
+			continue;
+		}
+
+		if (W != device->GetSwapchainWidth() || H != device->GetSwapchainHeight()) {
+			device->OnResize(W, H);
+		}
+
+		// ── Delta time ────────────────────────────────────────────────────────
+		float dt = clock.Tick().delta;
+		if (dt <= 0.f || dt > 0.25f)
+			dt = 1.f / 60.f;
+
+		// ── FPS dans la barre de titre (rafraîchi 2×/s pour éviter le scintillement) ─
+		fpsTimer += dt;
+		++fpsFrames;
+		if (fpsTimer >= 0.5f) {
+			const float fps = (float)fpsFrames / fpsTimer;
+			window.SetTitle(NkFormat("NkRHI Full Demo — {0} — {1} FPS ({2} ms)", apiName, (int)(fps + 0.5f),
+									 (int)(1000.f / (fps > 0.f ? fps : 1.f) + 0.5f)));
+			fpsTimer = 0.f;
+			fpsFrames = 0;
+		}
+
+		// ── Contrôles clavier ─────────────────────────────────────────────────
+		const float camSpd = 60.f, lightSpd = 90.f;
+		if (keys[(uint32)NkKey::NK_A])
+			camYaw -= camSpd * dt;
+		if (keys[(uint32)NkKey::NK_D])
+			camYaw += camSpd * dt;
+		if (keys[(uint32)NkKey::NK_W])
+			camPitch += camSpd * dt;
+		if (keys[(uint32)NkKey::NK_S])
+			camPitch -= camSpd * dt;
+		if (keys[(uint32)NkKey::NK_LEFT])
+			lightYaw -= lightSpd * dt;
+		if (keys[(uint32)NkKey::NK_RIGHT])
+			lightYaw += lightSpd * dt;
+		if (keys[(uint32)NkKey::NK_UP])
+			lightPitch += lightSpd * dt;
+		if (keys[(uint32)NkKey::NK_DOWN])
+			lightPitch -= lightSpd * dt;
+		camPitch = NkClamp(camPitch, -80.f, 80.f);
+
+		rotAngle += 45.f * dt;
+
+		// ── Matrices de transformation ────────────────────────────────────────
+		float aspect = (H > 0) ? (float)W / (float)H : 1.f;
+
+		// Caméra orbitale
+		float eyeX = camDist * NkCos(NkToRadians(camPitch)) * NkSin(NkToRadians(camYaw));
+		float eyeY = camDist * NkSin(NkToRadians(camPitch));
+		float eyeZ = camDist * NkCos(NkToRadians(camPitch)) * NkCos(NkToRadians(camYaw));
+		NkVec3f eye(eyeX, eyeY, eyeZ);
+		NkVec3f center(0.f, 0.f, 0.f);
+		NkVec3f up(0.f, 1.f, 0.f);
+
+		NkMat4f matView = NkMat4f::LookAt(eye, center, up);
+		NkMat4f matProj = NkMat4f::Perspective(NkAngle(60.f), aspect, 0.1f, 100.f);
+
+		// v4 Phase 4 : fournir la caméra au ray-tracer BPR software (actif si NK_SW_RT=1).
+		if (targetApi == NkGraphicsApi::NK_GFX_API_SOFTWARE)
+			static_cast<NkSoftwareDevice *>(device)->SetRtCamera(matView, matProj);
+
+		// Direction lumière
+		float lx = NkCos(NkToRadians(lightPitch)) * NkSin(NkToRadians(lightYaw));
+		float ly = NkSin(NkToRadians(lightPitch));
+		float lz = NkCos(NkToRadians(lightPitch)) * NkCos(NkToRadians(lightYaw));
+		NkVec3f lightDir(lx, ly, lz);
+
+		// Matrice de la lumière (orthogonale, couvre les 3 objets)
+		// La position de la lumière est opposée à sa direction, à distance suffisante
+		NkVec3f lightPos = NkVec3f(-lightDir.x * 10.f, -lightDir.y * 10.f, -lightDir.z * 10.f);
+
+		// Éviter un up vector colinéaire avec la direction lumière
+		NkVec3f lightUp = (NkFabs(lightDir.y) > 0.9f) ? NkVec3f(1.f, 0.f, 0.f) : NkVec3f(0.f, 1.f, 0.f);
+
+		NkMat4f matLightView = NkMat4f::LookAt(lightPos, center, lightUp);
+
+		// Frustum orthogonal assez large pour couvrir toute la scène visible
+		// (-5..5 en X/Y, 1..20 en profondeur)
+		NkMat4f matLightProj = NkMat4f::Orthogonal(NkVec2f(-5.f, -5.f), NkVec2f(5.f, 5.f), 1.f, 20.f, depthZeroToOne);
+
+		NkMat4f matLightVP = matLightProj * matLightView;
+
+		// ── Frame ─────────────────────────────────────────────────────────────
+		NkFrameContext frame;
+		if (!device->BeginFrame(frame)) {
+			continue;
+		}
+
+		W = device->GetSwapchainWidth();
+		H = device->GetSwapchainHeight();
+		if (W == 0 || H == 0) {
+			device->EndFrame(frame);
+			continue;
+		}
+
+		NkRenderPassHandle latestSwapchainRP = device->GetSwapchainRenderPass();
+		if (latestSwapchainRP.IsValid() && latestSwapchainRP.id != hRP.id) {
+			hRP = latestSwapchainRP;
+			pipeDesc.renderPass = hRP;
+			if (hPipe.IsValid())
+				device->DestroyPipeline(hPipe);
+			hPipe = device->CreateGraphicsPipeline(pipeDesc);
+			if (!hPipe.IsValid()) {
+				logger.Info("[RHIFullDemo] Pipeline principal invalide apres recreate swapchain\n");
+				device->EndFrame(frame);
+				continue;
+			}
+		}
+
+		// Récupérer le framebuffer courant APRÈS BeginFrame (index mis à jour)
+		NkFramebufferHandle hFBO = device->GetSwapchainFramebuffer();
+
+		cmd->Reset();
+		if (!cmd->Begin()) {
+			device->EndFrame(frame);
+			continue;
+		}
+
+		// =====================================================================
+		// Passe 1 : Shadow map (depth-only, POV de la lumière)
+		// =====================================================================
+		if (hasShadowMap && hShadowFBO.IsValid() && hShadowRP.IsValid()) {
+			NkRect2D shadowArea{0, 0, (int32)kShadowSize, (int32)kShadowSize};
+			// Arme le clear depth (passe depth-only). Indispensable pour OpenGL, dont
+			// BeginRenderPass ne clear que si SetClearDepth a été appelé en amont
+			// (DX/VK/SW clear de façon inconditionnelle, d'où l'écran noir GL sans ceci).
+			cmd->SetClearDepth(1.f);
+			const bool shadowPassBegan = cmd->BeginRenderPass(hShadowRP, hShadowFBO, shadowArea);
+			if (shadowPassBegan && useRealShadowPass && hShadowPipe.IsValid()) {
+				NkViewport svp{0.f, 0.f, (float)kShadowSize, (float)kShadowSize, 0.f, 1.f};
+				svp.flipY = false; // shadow map depth pass : pas de Y-flip Vulkan
+				cmd->SetViewport(svp);
+				cmd->SetScissor(shadowArea);
+				cmd->BindGraphicsPipeline(hShadowPipe);
+
+				auto fillUboShadow = [&](UboData &su, const NkMat4f &mm) {
+					NkMat4f identity = NkMat4f::Identity();
+					Mat4ToArray(mm, su.model);
+					Mat4ToArray(matLightVP, su.lightVP);
+					Mat4ToArray(identity, su.view);
+					Mat4ToArray(identity, su.proj);
+					su.ndcZScale = ndcZScale;
+					su.ndcZOffset = ndcZOffset;
+				};
+
+				// Objet 0 : Cube rotatif
+				{
+					NkMat4f mm = NkMat4f::RotationY(NkAngle(rotAngle)) * NkMat4f::RotationX(NkAngle(rotAngle * 0.5f));
+					UboData su{};
+					fillUboShadow(su, mm);
+					device->WriteBuffer(hUBO[0], &su, sizeof(su));
+					if (hDescSet[0].IsValid())
+						cmd->BindDescriptorSet(hDescSet[0], 0);
+					cmd->BindVertexBuffer(0, hCube);
+					cmd->Draw((uint32)cubeVerts.Size());
+				}
+
+				// Objet 1 : Sphere
+				{
+					NkMat4f mm = NkMat4f::Translation(NkVec3f(2.f, 0.f, 0.f));
+					UboData su{};
+					fillUboShadow(su, mm);
+					device->WriteBuffer(hUBO[1], &su, sizeof(su));
+					if (hDescSet[1].IsValid())
+						cmd->BindDescriptorSet(hDescSet[1], 0);
+					cmd->BindVertexBuffer(0, hSphere);
+					cmd->Draw((uint32)sphereVerts.Size());
+				}
+
+				// Objet 2 : Plan
+				{
+					NkMat4f mm = NkMat4f::Translation(NkVec3f(0.f, -1.0f, 0.f));
+					UboData su{};
+					fillUboShadow(su, mm);
+					device->WriteBuffer(hUBO[2], &su, sizeof(su));
+					if (hDescSet[2].IsValid())
+						cmd->BindDescriptorSet(hDescSet[2], 0);
+					cmd->BindVertexBuffer(0, hPlane);
+					cmd->Draw((uint32)planeVerts.Size());
+				}
+			}
+
+			// En mode safe-clear, cette passe sert juste a clear le depth shadow a 1.0.
+			if (shadowPassBegan)
+				cmd->EndRenderPass();
+
+			// Synchronise l'écriture depth de la shadow map avant lecture en fragment shader.
+			if (shadowPassBegan && hShadowTex.IsValid()) {
+				NkTextureBarrier shadowBarrier{};
+				shadowBarrier.texture = hShadowTex;
+				shadowBarrier.stateBefore = NkResourceState::NK_DEPTH_WRITE;
+				shadowBarrier.stateAfter = NkResourceState::NK_DEPTH_READ;
+				shadowBarrier.srcStage = NkPipelineStage::NK_LATE_FRAGMENT;
+				shadowBarrier.dstStage = NkPipelineStage::NK_FRAGMENT_SHADER;
+				cmd->Barrier(nullptr, 0, &shadowBarrier, 1);
+			}
+		}
+		// =====================================================================
+		// Passe 2 : Rendu principal (Phong + shadow)
+		// =====================================================================
+		NkRect2D area{0, 0, (int32)W, (int32)H};
+		// Arme le clear color+depth de la passe principale. Requis pour OpenGL
+		// (sinon le depth buffer n'est jamais remis à 1.0 → depth test rejette tout
+		// → écran noir). Inoffensif pour DX/VK/SW qui clear déjà inconditionnellement.
+		cmd->SetClearColor(0.f, 0.f, 0.f, 1.f);
+		cmd->SetClearDepth(1.f);
+		if (!cmd->BeginRenderPass(hRP, hFBO, area)) {
+			cmd->End();
+			if (targetApi == NkGraphicsApi::NK_GFX_API_VULKAN && W > 0 && H > 0) {
+				device->OnResize(W, H);
+			}
+			device->EndFrame(frame);
+			continue;
+		}
+
+		NkViewport vp{0.f, 0.f, (float)W, (float)H, 0.f, 1.f};
+		cmd->SetViewport(vp);
+		cmd->SetScissor(area);
+		cmd->BindGraphicsPipeline(hPipe);
+
+		// Remplit un UboData complet pour la passe principale
+		auto fillUboMain = [&](UboData &ubo, const NkMat4f &model) {
+			Mat4ToArray(model, ubo.model);
+			Mat4ToArray(matView, ubo.view);
+			Mat4ToArray(matProj, ubo.proj);
+			Mat4ToArray(matLightVP, ubo.lightVP);
+			ubo.lightDirW[0] = lightDir.x;
+			ubo.lightDirW[1] = lightDir.y;
+			ubo.lightDirW[2] = lightDir.z;
+			ubo.lightDirW[3] = 0.f;
+			ubo.eyePosW[0] = eye.x;
+			ubo.eyePosW[1] = eye.y;
+			ubo.eyePosW[2] = eye.z;
+			ubo.eyePosW[3] = 0.f;
+			ubo.ndcZScale = ndcZScale;
+			ubo.ndcZOffset = ndcZOffset;
+			// OpenGL et Vulkan partagent le même GLSL et la même convention
+			// d'échantillonnage de la shadow map (NDC y → UV v sans flip) : +1 pour
+			// les deux. Le bug d'ombre GL d'origine venait du depth de la shadow map
+			// non-cleared (corrigé via SetClearDepth), pas d'un flip Y. DX gère son
+			// flip dans le HLSL, Software dans son fragFn.
+			ubo.shadowYScale = 1.f;
+		};
+
+		// Cube rotatif
+		{
+			NkMat4f matModel = NkMat4f::RotationY(NkAngle(rotAngle)) * NkMat4f::RotationX(NkAngle(rotAngle * 0.5f));
+			UboData ubo{};
+			fillUboMain(ubo, matModel);
+			device->WriteBuffer(hUBO[0], &ubo, sizeof(ubo));
+			if (hDescSet[0].IsValid())
+				cmd->BindDescriptorSet(hDescSet[0], 0);
+			cmd->BindVertexBuffer(0, hCube);
+			cmd->Draw((uint32)cubeVerts.Size());
+		}
+
+		// Sphère
+		{
+			NkMat4f matModel = NkMat4f::Translation(NkVec3f(2.f, 0.f, 0.f));
+			UboData ubo{};
+			fillUboMain(ubo, matModel);
+			device->WriteBuffer(hUBO[1], &ubo, sizeof(ubo));
+			if (hDescSet[1].IsValid())
+				cmd->BindDescriptorSet(hDescSet[1], 0);
+			cmd->BindVertexBuffer(0, hSphere);
+			cmd->Draw((uint32)sphereVerts.Size());
+		}
+
+		// Plan sol — reçoit les ombres du cube et de la sphère
+		{
+			NkMat4f matModel = NkMat4f::Translation(NkVec3f(0.f, -1.0f, 0.f));
+			UboData ubo{};
+			fillUboMain(ubo, matModel);
+			device->WriteBuffer(hUBO[2], &ubo, sizeof(ubo));
+			if (hDescSet[2].IsValid())
+				cmd->BindDescriptorSet(hDescSet[2], 0);
+			cmd->BindVertexBuffer(0, hPlane);
+			cmd->Draw((uint32)planeVerts.Size());
+		}
+
+		cmd->EndRenderPass();
+		cmd->End();
+
+		device->SubmitAndPresent(cmd);
+		device->EndFrame(frame);
+	}
+
+	// =========================================================================
+	// Nettoyage
+	// =========================================================================
+	device->WaitIdle();
+
+	device->DestroyCommandBuffer(cmd);
+	for (int i = 0; i < 3; i++)
+		if (hDescSet[i].IsValid())
+			device->FreeDescriptorSet(hDescSet[i]);
+	if (hLayout.IsValid())
+		device->DestroyDescriptorSetLayout(hLayout);
+	for (int i = 0; i < 3; i++)
+		if (hUBO[i].IsValid())
+			device->DestroyBuffer(hUBO[i]);
+	if (hPlane.IsValid())
+		device->DestroyBuffer(hPlane);
+	if (hSphere.IsValid())
+		device->DestroyBuffer(hSphere);
+	if (hCube.IsValid())
+		device->DestroyBuffer(hCube);
+	device->DestroyPipeline(hPipe);
+	device->DestroyShader(hShader);
+	if (hShadowPipe.IsValid())
+		device->DestroyPipeline(hShadowPipe);
+	if (hShadowShader.IsValid())
+		device->DestroyShader(hShadowShader);
+	if (hShadowFBO.IsValid())
+		device->DestroyFramebuffer(hShadowFBO);
+	if (hShadowRP.IsValid())
+		device->DestroyRenderPass(hShadowRP);
+	if (hShadowSampler.IsValid())
+		device->DestroySampler(hShadowSampler);
+	if (hShadowTex.IsValid())
+		device->DestroyTexture(hShadowTex);
+
+	NkDeviceFactory::Destroy(device);
+	window.Close();
+
+	logger.Info("[RHIFullDemo] Terminé proprement.\n");
+	return 0;
 }

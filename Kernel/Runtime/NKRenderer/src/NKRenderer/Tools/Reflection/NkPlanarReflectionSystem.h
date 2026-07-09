@@ -30,94 +30,98 @@
 #include "NKMath/NKMath.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        class NkRender3D;
-        class NkMaterialSystem;
-        class NkTextureLibrary;
+		class NkRender3D;
+		class NkMaterialSystem;
+		class NkTextureLibrary;
 
-        // Mode d'affichage des faces du sol miroir (style Blender) :
-        //   FRONT_ONLY = face avant visible avec reflet, face arriere = discard
-        //   BACK_ONLY  = face arriere visible (debug surtout), face avant = discard
-        //   BOTH       = les deux faces visibles, chacune avec son propre RT
-        //                (twoSided force auto -> active la 2eme passe miroir)
-        enum class NkPlanarFaceMode : uint8 {
-            FRONT_ONLY = 0,
-            BACK_ONLY  = 1,
-            BOTH       = 2
-        };
+		// Mode d'affichage des faces du sol miroir (style Blender) :
+		//   FRONT_ONLY = face avant visible avec reflet, face arriere = discard
+		//   BACK_ONLY  = face arriere visible (debug surtout), face avant = discard
+		//   BOTH       = les deux faces visibles, chacune avec son propre RT
+		//                (twoSided force auto -> active la 2eme passe miroir)
+		enum class NkPlanarFaceMode : uint8 { FRONT_ONLY = 0, BACK_ONLY = 1, BOTH = 2 };
 
-        struct NkPlanarReflectionDesc {
-            // Plane equation : N . (P - point) = 0. Normale orientee vers le
-            // "cote actif" (cote dont on capture les objets pour le miroir).
-            NkVec3f normal = {0.f, 1.f, 0.f};
-            NkVec3f point  = {0.f, 0.f, 0.f};
+		struct NkPlanarReflectionDesc {
+				// Plane equation : N . (P - point) = 0. Normale orientee vers le
+				// "cote actif" (cote dont on capture les objets pour le miroir).
+				NkVec3f normal = {0.f, 1.f, 0.f};
+				NkVec3f point = {0.f, 0.f, 0.f};
 
-            // Dimensions du RT (souvent demi-resolution suffit pour un effet
-            // de reflet realiste).
-            uint32 rtWidth  = 512;
-            uint32 rtHeight = 256;
-            bool   hdr      = true;
-            NkString debugName;
+				// Dimensions du RT (souvent demi-resolution suffit pour un effet
+				// de reflet realiste).
+				uint32 rtWidth = 512;
+				uint32 rtHeight = 256;
+				bool hdr = true;
+				NkString debugName;
 
-            // Material cible : recevra le RT (binding "albedo") + le
-            // mirrorViewProj (via UBO Camera). Si invalide, le systeme rend
-            // dans le RT mais ne le bind nulle part — utile pour debug.
-            NkMatInstHandle targetMaterial;
+				// Material cible : recevra le RT (binding "albedo") + le
+				// mirrorViewProj (via UBO Camera). Si invalide, le systeme rend
+				// dans le RT mais ne le bind nulle part — utile pour debug.
+				NkMatInstHandle targetMaterial;
 
-            // Cull mode pour le sol miroir lui-meme (lecture par le shader
-            // via uniform faceMode dans le UBO materiau). Independant du
-            // pipeline cullMode.
-            NkPlanarFaceMode faceMode = NkPlanarFaceMode::FRONT_ONLY;
+				// Cull mode pour le sol miroir lui-meme (lecture par le shader
+				// via uniform faceMode dans le UBO materiau). Independant du
+				// pipeline cullMode.
+				NkPlanarFaceMode faceMode = NkPlanarFaceMode::FRONT_ONLY;
 
-            // Si true : alloue un 2eme RT pour la face arriere (objets cote -N)
-            // et fait une passe miroir supplementaire avec clip plane inverse.
-            // Le shader ReflFloor sample le bon RT selon le cote vu. Force
-            // automatiquement si faceMode == BOTH.
-            bool twoSided = false;
-        };
+				// Si true : alloue un 2eme RT pour la face arriere (objets cote -N)
+				// et fait une passe miroir supplementaire avec clip plane inverse.
+				// Le shader ReflFloor sample le bon RT selon le cote vu. Force
+				// automatiquement si faceMode == BOTH.
+				bool twoSided = false;
+		};
 
-        struct NkPlanarReflectionHandle {
-            uint32 idx = ~0u;
-            bool IsValid() const { return idx != ~0u; }
-        };
+		struct NkPlanarReflectionHandle {
+				uint32 idx = ~0u;
 
-        class NkPlanarReflectionSystem {
-            public:
-                NkPlanarReflectionSystem() = default;
-                ~NkPlanarReflectionSystem() { Shutdown(); }
+				bool IsValid() const {
+					return idx != ~0u;
+				}
+		};
 
-                bool Init(NkIDevice* dev, NkTextureLibrary* texLib, NkMaterialSystem* matSys);
-                void Shutdown();
+		class NkPlanarReflectionSystem {
+			public:
+				NkPlanarReflectionSystem() = default;
 
-                NkPlanarReflectionHandle Register(const NkPlanarReflectionDesc& desc);
-                void Unregister(NkPlanarReflectionHandle handle);
-                void Clear();
+				~NkPlanarReflectionSystem() {
+					Shutdown();
+				}
 
-                // Appele par NkRendererImpl entre EndScene et le Flush principal :
-                // pour chaque plane reg, calcule la cam miroir, fait flush la queue
-                // de drawcalls dans le RT, met a jour le target material.
-                // Si r3d->IsInScene() est false, no-op.
-                void RenderReflections(NkICommandBuffer* cmd, NkRender3D* r3d);
+				bool Init(NkIDevice *dev, NkTextureLibrary *texLib, NkMaterialSystem *matSys);
+				void Shutdown();
 
-                // Accessors
-                uint32 Size() const { return (uint32)mPlanes.Size(); }
+				NkPlanarReflectionHandle Register(const NkPlanarReflectionDesc &desc);
+				void Unregister(NkPlanarReflectionHandle handle);
+				void Clear();
 
-            private:
-                struct Plane {
-                    NkPlanarReflectionDesc desc;
-                    NkRenderTarget         rtPos;    // cote +N (face avant)
-                    NkRenderTarget         rtNeg;    // cote -N (face arriere, si twoSided)
-                    bool                   active   = false;
-                };
+				// Appele par NkRendererImpl entre EndScene et le Flush principal :
+				// pour chaque plane reg, calcule la cam miroir, fait flush la queue
+				// de drawcalls dans le RT, met a jour le target material.
+				// Si r3d->IsInScene() est false, no-op.
+				void RenderReflections(NkICommandBuffer *cmd, NkRender3D *r3d);
 
-                NkIDevice*        mDevice  = nullptr;
-                NkTextureLibrary* mTexLib  = nullptr;
-                NkMaterialSystem* mMatSys  = nullptr;
-                NkVector<Plane>   mPlanes;
+				// Accessors
+				uint32 Size() const {
+					return (uint32)mPlanes.Size();
+				}
 
-                bool InitPlaneRT(Plane& p);
-        };
+			private:
+				struct Plane {
+						NkPlanarReflectionDesc desc;
+						NkRenderTarget rtPos; // cote +N (face avant)
+						NkRenderTarget rtNeg; // cote -N (face arriere, si twoSided)
+						bool active = false;
+				};
 
-    } // namespace renderer
+				NkIDevice *mDevice = nullptr;
+				NkTextureLibrary *mTexLib = nullptr;
+				NkMaterialSystem *mMatSys = nullptr;
+				NkVector<Plane> mPlanes;
+
+				bool InitPlaneRT(Plane &p);
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

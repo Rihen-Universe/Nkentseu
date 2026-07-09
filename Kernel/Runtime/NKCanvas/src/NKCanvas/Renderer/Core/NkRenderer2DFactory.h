@@ -20,32 +20,32 @@
 
 namespace nkentseu {
 
-    class NkIGraphicsContext;
+	class NkIGraphicsContext;
 
-    namespace renderer {
+	namespace renderer {
 
-        using NkGraphicsApi = graphics::NkGraphicsApi;
+		using NkGraphicsApi = graphics::NkGraphicsApi;
 
-        class NkRenderer2DFactory {
-            public:
-                // Creates and initializes a 2D renderer backed by the given graphics context.
-                // The renderer shares the device/command queue — no new GPU device is created.
-                // Caller owns the returned pointer : le liberer via Destroy() (jamais `delete`)
-                // ou le confier a un NkUniquePtr.
-                // Returns nullptr if the API is not supported or initialization fails.
-                static NkIRenderer2D* Create(NkIGraphicsContext* ctx);
+		class NkRenderer2DFactory {
+			public:
+				// Creates and initializes a 2D renderer backed by the given graphics context.
+				// The renderer shares the device/command queue — no new GPU device is created.
+				// Caller owns the returned pointer : le liberer via Destroy() (jamais `delete`)
+				// ou le confier a un NkUniquePtr.
+				// Returns nullptr if the API is not supported or initialization fails.
+				static NkIRenderer2D *Create(NkIGraphicsContext *ctx);
 
-                // Detruit un renderer cree par Create() : Shutdown() + liberation via
-                // l'allocateur NKMemory (symetrique de Create). No-op si nullptr.
-                // IMPORTANT : ne JAMAIS faire `delete` sur le pointeur (alloue par NKMemory).
-                static void Destroy(NkIRenderer2D* renderer);
+				// Detruit un renderer cree par Create() : Shutdown() + liberation via
+				// l'allocateur NKMemory (symetrique de Create). No-op si nullptr.
+				// IMPORTANT : ne JAMAIS faire `delete` sur le pointeur (alloue par NKMemory).
+				static void Destroy(NkIRenderer2D *renderer);
 
-                // Convenience: create and wrap in a unique pointer.
-                static NkRenderer2DPtr CreateUnique(NkIGraphicsContext* ctx);
+				// Convenience: create and wrap in a unique pointer.
+				static NkRenderer2DPtr CreateUnique(NkIGraphicsContext *ctx);
 
-                // Check if the given API has a 2D renderer implementation.
-                static bool IsApiSupported(NkGraphicsApi api);
-        };
+				// Check if the given API has a 2D renderer implementation.
+				static bool IsApiSupported(NkGraphicsApi api);
+		};
 
-    } // namespace renderer
+	} // namespace renderer
 } // namespace nkentseu

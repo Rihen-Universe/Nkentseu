@@ -24,10 +24,10 @@
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        // Charge un fichier .obj dans `out`. Retourne true si >=1 triangle charge.
-        bool LoadOBJ(const NkString& path, NkGLTFMeshData& out);
+		// Charge un fichier .obj dans `out`. Retourne true si >=1 triangle charge.
+		bool LoadOBJ(const NkString &path, NkGLTFMeshData &out);
 
-    } // namespace renderer
+	} // namespace renderer
 } // namespace nkentseu

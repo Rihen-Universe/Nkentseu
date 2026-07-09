@@ -3,7 +3,7 @@
 // Objectif : confirmer si OUI ou NON les events remontent dans PollEvent()
 // ============================================================================
 #include "NKWindow/Core/NkWindow.h"
-#include "NKWindow/Core/NkEvent.h"        // dAfinit NkEvents() et inclut les AvAnements
+#include "NKWindow/Core/NkEvent.h" // dAfinit NkEvents() et inclut les AvAnements
 #include "NKWindow/Core/NkContext.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKWindow/NKMain.h"
@@ -15,98 +15,95 @@
 
 // AppData pattern #2: named variable initialized by lambda.
 nkentseu::NkAppData appData = [] {
-    nkentseu::NkAppData d{};
-    d.appName = "SandboxDBase";
-    d.appVersion = "1.0.0";
-    d.enableEventLogging = true;
-    return d;
+	nkentseu::NkAppData d{};
+	d.appName = "SandboxDBase";
+	d.appVersion = "1.0.0";
+	d.enableEventLogging = true;
+	return d;
 }();
 NKENTSEU_APP_DATA_DEFINED(appData);
 
+int nkmain(const nkentseu::NkEntryState &) {
+	using namespace nkentseu;
 
-int nkmain(const nkentseu::NkEntryState&)
-{
-    using namespace nkentseu;
+	logger.Info("[1] nkmain start");
 
-    logger.Info("[1] nkmain start");
+	// --- Runtime already initialized by NkMain entrypoint ---
+	logger.Info("[2] Runtime already initialized  platform={0}", NkEvents().GetPlatformName());
 
-    // --- Runtime already initialized by NkMain entrypoint ---
-    logger.Info("[2] Runtime already initialized  platform={0}", NkEvents().GetPlatformName());
+	NkContextInit();
+	NkContextConfig contextConfig{};
+	contextConfig.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
+	contextConfig.vsync = true;
+	contextConfig.debug = false;
+	NkContextSetHints(contextConfig);
+	contextConfig = NkContextGetHints();
 
-    NkContextInit();
-    NkContextConfig contextConfig{};
-    contextConfig.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
-    contextConfig.vsync = true;
-    contextConfig.debug = false;
-    NkContextSetHints(contextConfig);
-    contextConfig = NkContextGetHints();
+	// --- Fenetre ---
+	NkWindowConfig cfg;
+	cfg.title = "Test Events";
+	cfg.width = 800;
+	cfg.height = 600;
+	NkContextApplyWindowHints(cfg);
 
-    // --- Fenetre ---
-    NkWindowConfig cfg;
-    cfg.title  = "Test Events";
-    cfg.width  = 800;
-    cfg.height = 600;
-    NkContextApplyWindowHints(cfg);
+	NkWindow window(cfg);
+	if (!window.IsOpen()) {
+		logger.Error("[FATAL] Window failed: {0}", window.GetLastError().ToString());
+		NkContextShutdown();
+		return -2;
+	}
 
-    NkWindow window(cfg);
-    if (!window.IsOpen()) {
-        logger.Error("[FATAL] Window failed: {0}", window.GetLastError().ToString());
-        NkContextShutdown();
-        return -2;
-    }
+	NkContext context{};
+	if (!NkContextCreate(window, context, &contextConfig)) {
+		logger.Error("[FATAL] Context failed: {0}", context.lastError.ToString());
+		window.Close();
+		NkContextShutdown();
+		return -3;
+	}
+	logger.Info("[3] Window open OK");
 
-    NkContext context{};
-    if (!NkContextCreate(window, context, &contextConfig)) {
-        logger.Error("[FATAL] Context failed: {0}", context.lastError.ToString());
-        window.Close();
-        NkContextShutdown();
-        return -3;
-    }
-    logger.Info("[3] Window open OK");
+	// --- Boucle minimale ---
+	auto &es = NkEvents();
+	int frames = 0;
+	int events = 0;
+	bool running = true;
 
-    // --- Boucle minimale ---
-    auto& es = NkEvents();
-    int frames = 0;
-    int events = 0;
-    bool running = true;
+	logger.Info("[4] Entering loop - close the window to exit");
 
-    logger.Info("[4] Entering loop - close the window to exit");
+	while (running) {
+		NkEvent *ev = nullptr;
+		while ((ev = es.PollEvent()) != nullptr) {
+			++events;
+			logger.Info("[EVENT #{0}] type={1}", events, static_cast<int>(ev->GetType()));
 
-    while (running)
-    {
-        NkEvent* ev = nullptr;
-        while ((ev = es.PollEvent()) != nullptr)
-        {
-            ++events;
-            logger.Info("[EVENT #{0}] type={1}", events, static_cast<int>(ev->GetType()));
+			if (ev->Is<NkWindowCloseEvent>()) {
+				logger.Info("[EVENT] -> WindowClose, quitting");
+				running = false;
+				window.Close();
+				break;
+			}
+			if (auto *k = ev->As<NkKeyPressEvent>()) {
+				logger.Info("[EVENT] -> KeyPress key={0}", static_cast<int>(k->GetKey()));
+				if (k->GetKey() == NkKey::NK_ESCAPE) {
+					running = false;
+					window.Close();
+					break;
+				}
+			}
+		}
 
-            if (ev->Is<NkWindowCloseEvent>()) {
-                logger.Info("[EVENT] -> WindowClose, quitting");
-                running = false;
-                window.Close();
-                break;
-            }
-            if (auto* k = ev->As<NkKeyPressEvent>()) {
-                logger.Info("[EVENT] -> KeyPress key={0}", static_cast<int>(k->GetKey()));
-                if (k->GetKey() == NkKey::NK_ESCAPE) {
-                    running = false;
-                    window.Close();
-                    break;
-                }
-            }
-        }
+		if (!running || !window.IsOpen())
+			break;
 
-        if (!running || !window.IsOpen()) break;
+		++frames;
+		if (frames % 600 == 0)
+			logger.Info("[LOOP] alive frames={0} events={1}", frames, events);
+	}
 
-        ++frames;
-        if (frames % 600 == 0)
-            logger.Info("[LOOP] alive frames={0} events={1}", frames, events);
-    }
-
-    logger.Info("[5] Loop exited frames={0} events={1}", frames, events);
-    logger.Info("[6] Done");
-    NkContextDestroy(context);
-    window.Close();
-    NkContextShutdown();
-    return 0;
+	logger.Info("[5] Loop exited frames={0} events={1}", frames, events);
+	logger.Info("[6] Done");
+	NkContextDestroy(context);
+	window.Close();
+	NkContextShutdown();
+	return 0;
 }

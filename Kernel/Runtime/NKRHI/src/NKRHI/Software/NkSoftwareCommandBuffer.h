@@ -10,125 +10,137 @@
 
 namespace nkentseu {
 
-    class NkSoftwareDevice;
+	class NkSoftwareDevice;
 
-    // Chaque commande est un NkFunction<void(NkSoftwareDevice*)>
-    // enregistrée à l'appel de Begin()/End() et rejouée dans Execute()
-    class NkSoftwareCommandBuffer final : public NkICommandBuffer {
-        public:
-            NkSoftwareCommandBuffer(NkSoftwareDevice* dev, NkCommandBufferType type);
-            ~NkSoftwareCommandBuffer() override = default;
+	// Chaque commande est un NkFunction<void(NkSoftwareDevice*)>
+	// enregistrée à l'appel de Begin()/End() et rejouée dans Execute()
+	class NkSoftwareCommandBuffer final : public NkICommandBuffer {
+		public:
+			NkSoftwareCommandBuffer(NkSoftwareDevice *dev, NkCommandBufferType type);
+			~NkSoftwareCommandBuffer() override = default;
 
-            bool Begin()  override { 
-                mCommands.Clear(); 
-                ResetRecordedState(); 
-                mRecording = true; 
-                return true; 
-            }
+			bool Begin() override {
+				mCommands.Clear();
+				ResetRecordedState();
+				mRecording = true;
+				return true;
+			}
 
-            void End()    override { 
-                mRecording = false; 
-            }
+			void End() override {
+				mRecording = false;
+			}
 
-            void Reset()  override { 
-                mCommands.Clear(); 
-                ResetRecordedState(); 
-                mRecording = false; 
-            }
+			void Reset() override {
+				mCommands.Clear();
+				ResetRecordedState();
+				mRecording = false;
+			}
 
-            bool IsValid()              const override { return true; }
+			bool IsValid() const override {
+				return true;
+			}
 
-            NkCommandBufferType GetType() const override { return mType; }
+			NkCommandBufferType GetType() const override {
+				return mType;
+			}
 
-            // Replay toutes les commandes enregistrées
-            void Execute(NkSoftwareDevice* dev);
+			// Replay toutes les commandes enregistrées
+			void Execute(NkSoftwareDevice *dev);
 
-            bool BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D& area) override;
-            void EndRenderPass() override;
-            void SetViewport (const NkViewport& vp) override;
-            void SetViewports(const NkViewport* vps, uint32 n) override;
-            void SetScissor  (const NkRect2D& r) override;
-            void SetScissors (const NkRect2D* r, uint32 n) override;
+			bool BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D &area) override;
+			void EndRenderPass() override;
+			void SetViewport(const NkViewport &vp) override;
+			void SetViewports(const NkViewport *vps, uint32 n) override;
+			void SetScissor(const NkRect2D &r) override;
+			void SetScissors(const NkRect2D *r, uint32 n) override;
 
-            void SetClearColor(float r, float g, float b, float a = 1.f) override {
-                mClearR=r; 
-                mClearG=g; 
-                mClearB=b; 
-                mClearA=a;
-            }
+			void SetClearColor(float r, float g, float b, float a = 1.f) override {
+				mClearR = r;
+				mClearG = g;
+				mClearB = b;
+				mClearA = a;
+			}
 
-            void SetClearDepth(float depth = 1.f, uint32 stencil = 0) override {
-                mClearDepth=depth; (void)stencil;
-            }
+			void SetClearDepth(float depth = 1.f, uint32 stencil = 0) override {
+				mClearDepth = depth;
+				(void)stencil;
+			}
 
-            void BindGraphicsPipeline(NkPipelineHandle p) override;
-            void BindComputePipeline (NkPipelineHandle p) override;
-            void BindDescriptorSet(NkDescSetHandle set, uint32 idx, uint32* off, uint32 cnt) override;
-            void PushConstants(NkShaderStage stages, uint32 offset, uint32 size, const void* data) override;
-            void UpdateBuffer(NkBufferHandle, uint64, uint64, const void*) override {} // TODO: software buffer write
-            void BindVertexBuffer (uint32 b, NkBufferHandle buf, uint64 off) override;
-            void BindVertexBuffers(uint32 first, const NkBufferHandle* bufs, const uint64* offs, uint32 n) override;
-            void BindIndexBuffer  (NkBufferHandle buf, NkIndexFormat fmt, uint64 off) override;
-            void Draw             (uint32 v, uint32 i, uint32 fv, uint32 fi) override;
-            void DrawIndexed      (uint32 idx, uint32 inst, uint32 fi, int32 vo, uint32 fInst) override;
-            void DrawIndirect     (NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) override;
-            void DrawIndexedIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) override;
-            void Dispatch         (uint32 gx, uint32 gy, uint32 gz) override;
-            void DispatchIndirect (NkBufferHandle buf, uint64 off) override;
-            void CopyBuffer       (NkBufferHandle s, NkBufferHandle d, const NkBufferCopyRegion& r) override;
-            void CopyBufferToTexture(NkBufferHandle, NkTextureHandle, const NkBufferTextureCopyRegion&) override;
-            void CopyTextureToBuffer(NkTextureHandle, NkBufferHandle, const NkBufferTextureCopyRegion&) override;
-            void CopyTexture      (NkTextureHandle s, NkTextureHandle d, const NkTextureCopyRegion& r) override;
-            void BlitTexture      (NkTextureHandle, NkTextureHandle, const NkTextureCopyRegion&, NkFilter) override;
-            void Barrier          (const NkBufferBarrier*, uint32, const NkTextureBarrier*, uint32) override {}
-            void GenerateMipmaps  (NkTextureHandle tex, NkFilter f) override;
-            void BeginDebugGroup  (const char* name, float, float, float) override;
-            void EndDebugGroup    () override;
-            void InsertDebugLabel (const char* name) override;
+			void BindGraphicsPipeline(NkPipelineHandle p) override;
+			void BindComputePipeline(NkPipelineHandle p) override;
+			void BindDescriptorSet(NkDescSetHandle set, uint32 idx, uint32 *off, uint32 cnt) override;
+			void PushConstants(NkShaderStage stages, uint32 offset, uint32 size, const void *data) override;
 
-        private:
-            using Cmd = NkFunction<void(NkSoftwareDevice*)>;
+			void UpdateBuffer(NkBufferHandle, uint64, uint64, const void *) override {
+			} // TODO: software buffer write
 
-            void Push(Cmd&& c) { 
-                if (mRecording) {
-                    mCommands.PushBack(traits::NkMove(c));
-                } 
-            }
+			void BindVertexBuffer(uint32 b, NkBufferHandle buf, uint64 off) override;
+			void BindVertexBuffers(uint32 first, const NkBufferHandle *bufs, const uint64 *offs, uint32 n) override;
+			void BindIndexBuffer(NkBufferHandle buf, NkIndexFormat fmt, uint64 off) override;
+			void Draw(uint32 v, uint32 i, uint32 fv, uint32 fi) override;
+			void DrawIndexed(uint32 idx, uint32 inst, uint32 fi, int32 vo, uint32 fInst) override;
+			void DrawIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) override;
+			void DrawIndexedIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) override;
+			void Dispatch(uint32 gx, uint32 gy, uint32 gz) override;
+			void DispatchIndirect(NkBufferHandle buf, uint64 off) override;
+			void CopyBuffer(NkBufferHandle s, NkBufferHandle d, const NkBufferCopyRegion &r) override;
+			void CopyBufferToTexture(NkBufferHandle, NkTextureHandle, const NkBufferTextureCopyRegion &) override;
+			void CopyTextureToBuffer(NkTextureHandle, NkBufferHandle, const NkBufferTextureCopyRegion &) override;
+			void CopyTexture(NkTextureHandle s, NkTextureHandle d, const NkTextureCopyRegion &r) override;
+			void BlitTexture(NkTextureHandle, NkTextureHandle, const NkTextureCopyRegion &, NkFilter) override;
 
-            void ResetRecordedState() {
-                mCurrentFramebufferId = 0;
-                mBoundPipelineId = 0;
-                for (uint32 i = 0; i < kMaxDescSets; ++i) mBoundDescSets[i] = 0;
-                mBoundIndexBufferId = 0;
-                mBoundIndexOffset = 0;
-                mBoundIndexUint32 = true;
-                mScissorRect = {0, 0, 0, 0};
-                mScissorEnabled = false;
-                for (uint32 i = 0; i < 8; ++i) {
-                    mBoundVertexBufferIds[i] = 0;
-                    mBoundVertexOffsets[i] = 0;
-                }
-            }
+			void Barrier(const NkBufferBarrier *, uint32, const NkTextureBarrier *, uint32) override {
+			}
 
-            NkSoftwareDevice*       mDev;
-            NkCommandBufferType     mType;
-            bool                    mRecording = false;
-            NkVector<Cmd>           mCommands;
+			void GenerateMipmaps(NkTextureHandle tex, NkFilter f) override;
+			void BeginDebugGroup(const char *name, float, float, float) override;
+			void EndDebugGroup() override;
+			void InsertDebugLabel(const char *name) override;
 
-            // Etat capture pendant l'enregistrement; snapshotte au moment des Draw/Dispatch.
-            static constexpr uint32 kMaxDescSets = 4;   // Frame / Object / Material / PostProcess
-            uint64      mCurrentFramebufferId = 0;
-            uint64      mBoundPipelineId = 0;
-            uint64      mBoundDescSets[kMaxDescSets]{};   // par index de set (NKRenderer en bind 3+)
-            uint64      mBoundVertexBufferIds[8]{};
-            uint64      mBoundVertexOffsets[8]{};
-            uint64      mBoundIndexBufferId = 0;
-            uint64      mBoundIndexOffset = 0;
-            bool        mBoundIndexUint32 = true;
-            NkRect2D    mScissorRect = {0, 0, 0, 0};
-            bool        mScissorEnabled = false;
-            float       mClearR = 0.f, mClearG = 0.f, mClearB = 0.f, mClearA = 1.f;
-            float       mClearDepth = 1.f;
-    };
+		private:
+			using Cmd = NkFunction<void(NkSoftwareDevice *)>;
+
+			void Push(Cmd &&c) {
+				if (mRecording) {
+					mCommands.PushBack(traits::NkMove(c));
+				}
+			}
+
+			void ResetRecordedState() {
+				mCurrentFramebufferId = 0;
+				mBoundPipelineId = 0;
+				for (uint32 i = 0; i < kMaxDescSets; ++i)
+					mBoundDescSets[i] = 0;
+				mBoundIndexBufferId = 0;
+				mBoundIndexOffset = 0;
+				mBoundIndexUint32 = true;
+				mScissorRect = {0, 0, 0, 0};
+				mScissorEnabled = false;
+				for (uint32 i = 0; i < 8; ++i) {
+					mBoundVertexBufferIds[i] = 0;
+					mBoundVertexOffsets[i] = 0;
+				}
+			}
+
+			NkSoftwareDevice *mDev;
+			NkCommandBufferType mType;
+			bool mRecording = false;
+			NkVector<Cmd> mCommands;
+
+			// Etat capture pendant l'enregistrement; snapshotte au moment des Draw/Dispatch.
+			static constexpr uint32 kMaxDescSets = 4; // Frame / Object / Material / PostProcess
+			uint64 mCurrentFramebufferId = 0;
+			uint64 mBoundPipelineId = 0;
+			uint64 mBoundDescSets[kMaxDescSets]{}; // par index de set (NKRenderer en bind 3+)
+			uint64 mBoundVertexBufferIds[8]{};
+			uint64 mBoundVertexOffsets[8]{};
+			uint64 mBoundIndexBufferId = 0;
+			uint64 mBoundIndexOffset = 0;
+			bool mBoundIndexUint32 = true;
+			NkRect2D mScissorRect = {0, 0, 0, 0};
+			bool mScissorEnabled = false;
+			float mClearR = 0.f, mClearG = 0.f, mClearB = 0.f, mClearA = 1.f;
+			float mClearDepth = 1.f;
+	};
 
 } // namespace nkentseu

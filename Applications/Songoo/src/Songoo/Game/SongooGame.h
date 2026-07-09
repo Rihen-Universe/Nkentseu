@@ -18,44 +18,56 @@
 #include "Songoo/UI/SceneManager.h"
 #include "NKCore/NkTypes.h"
 
-namespace nkentseu { class NkWindow; class NkEvent; }
+namespace nkentseu {
+	class NkWindow;
+	class NkEvent;
+} // namespace nkentseu
 
-namespace nkentseu { namespace songoo {
+namespace nkentseu {
+	namespace songoo {
 
-    class SongooGame {
-    public:
-        explicit SongooGame(NkWindow& window) noexcept : mWindow(window) {}
-        ~SongooGame() = default;
+		class SongooGame {
+			public:
+				explicit SongooGame(NkWindow &window) noexcept : mWindow(window) {
+				}
 
-        // ── Lifecycle ─────────────────────────────────────────────────────────
-        bool Init();
-        void Shutdown();
-        void OnResize(uint32 w, uint32 h);
-        void Update(float dt);
-        void Render();
-        void OnEvent(NkEvent& ev);
-        void OnPause();
-        void OnResume();
-        bool RecreateSurface();
+				~SongooGame() = default;
 
-        bool WantsQuit() const noexcept { return mQuit; }
-        void RequestQuit() noexcept     { mQuit = true; }
+				// ── Lifecycle ─────────────────────────────────────────────────────────
+				bool Init();
+				void Shutdown();
+				void OnResize(uint32 w, uint32 h);
+				void Update(float dt);
+				void Render();
+				void OnEvent(NkEvent &ev);
+				void OnPause();
+				void OnResume();
+				bool RecreateSurface();
 
-    private:
-        NkWindow&      mWindow;
-        GLContext      mGL;
-        GLRenderer2D   mRenderer;
-        FontAtlas      mFont;
-        GameSettings   mSettings;
-        SceneManager   mScenes;
-        AudioManager   mAudio;
+				bool WantsQuit() const noexcept {
+					return mQuit;
+				}
 
-        bool           mQuit      = false;
-        float          mTime      = 0.0f;
-        uint32         mViewportW = 0;
-        uint32         mViewportH = 0;
+				void RequestQuit() noexcept {
+					mQuit = true;
+				}
 
-        AppContext BuildContext();
-    };
+			private:
+				NkWindow &mWindow;
+				GLContext mGL;
+				GLRenderer2D mRenderer;
+				FontAtlas mFont;
+				GameSettings mSettings;
+				SceneManager mScenes;
+				AudioManager mAudio;
 
-}} // namespace nkentseu::songoo
+				bool mQuit = false;
+				float mTime = 0.0f;
+				uint32 mViewportW = 0;
+				uint32 mViewportH = 0;
+
+				AppContext BuildContext();
+		};
+
+	} // namespace songoo
+} // namespace nkentseu

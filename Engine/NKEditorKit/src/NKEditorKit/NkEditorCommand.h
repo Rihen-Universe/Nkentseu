@@ -15,17 +15,17 @@
 #include "NKEditorKit/NkEditorExport.h"
 
 namespace nkentseu {
-    namespace editorkit {
+	namespace editorkit {
 
-        // Callback d'une commande. `user` = donnee opaque fournie a l'enregistrement.
-        using NkEditorCommandFn = void(*)(void* user);
+		// Callback d'une commande. `user` = donnee opaque fournie a l'enregistrement.
+		using NkEditorCommandFn = void (*)(void *user);
 
-        struct NKEDITORKIT_API NkEditorCommand {
-            char              name[64]     = {};       ///< libelle affiche dans la palette
-            char              shortcut[24] = {};       ///< raccourci affiche (cosmetique)
-            NkEditorCommandFn fn           = nullptr;  ///< action
-            void*             user         = nullptr;  ///< contexte passe a fn
-        };
+		struct NKEDITORKIT_API NkEditorCommand {
+				char name[64] = {};				///< libelle affiche dans la palette
+				char shortcut[24] = {};			///< raccourci affiche (cosmetique)
+				NkEditorCommandFn fn = nullptr; ///< action
+				void *user = nullptr;			///< contexte passe a fn
+		};
 
-    } // namespace editorkit
+	} // namespace editorkit
 } // namespace nkentseu

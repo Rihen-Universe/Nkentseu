@@ -6,10 +6,10 @@
 #include "NKThreading/Synchronization/NkEvent.h"
 
 namespace nkentseu {
-namespace threading {
+	namespace threading {
 
-    // Implementation is header-only with RAII guards
-    // This file is provided for consistency and future extension
+		// Implementation is header-only with RAII guards
+		// This file is provided for consistency and future extension
 
-} // namespace threading
+	} // namespace threading
 } // namespace nkentseu

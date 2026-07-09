@@ -33,117 +33,115 @@
 
 #include "NKECS/World/NkWorld.h"
 #include "Noge/ECS/Scene/NkSceneGraph.h"
-#include "Noge/ECS/NkEcsUtil.h"   // NkStrEqual
-#include "NKSerialization/NkSerializer.h"   // NkArchive, NkSerializationFormat, Serialize/Deserialize
+#include "Noge/ECS/NkEcsUtil.h"			  // NkStrEqual
+#include "NKSerialization/NkSerializer.h" // NkArchive, NkSerializationFormat, Serialize/Deserialize
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
-    namespace ecs {
+	namespace ecs {
 
-        // =====================================================================
-        // NkComponentSerializer — interface de sérialisation d'un composant
-        // =====================================================================
-        // Chaque composant enregistre un sérialiseur via
-        // NkSceneSerializer::RegisterComponentSerializer<T>().
-        // Si non enregistré, le composant est ignoré à la sérialisation.
-        struct NkComponentSerializer {
-            using SerializeFn   = bool(*)(const void* comp, NkArchive& out);
-            using DeserializeFn = bool(*)(void* comp, const NkArchive& in);
-            using AddFn         = void(*)(NkWorld& world, NkEntityId id);
+		// =====================================================================
+		// NkComponentSerializer — interface de sérialisation d'un composant
+		// =====================================================================
+		// Chaque composant enregistre un sérialiseur via
+		// NkSceneSerializer::RegisterComponentSerializer<T>().
+		// Si non enregistré, le composant est ignoré à la sérialisation.
+		struct NkComponentSerializer {
+				using SerializeFn = bool (*)(const void *comp, NkArchive &out);
+				using DeserializeFn = bool (*)(void *comp, const NkArchive &in);
+				using AddFn = void (*)(NkWorld &world, NkEntityId id);
 
-            const char*   typeName     = nullptr;
-            SerializeFn   serialize    = nullptr;
-            DeserializeFn deserialize  = nullptr;
-            AddFn         addDefault   = nullptr; // crée le composant par défaut
-        };
+				const char *typeName = nullptr;
+				SerializeFn serialize = nullptr;
+				DeserializeFn deserialize = nullptr;
+				AddFn addDefault = nullptr; // crée le composant par défaut
+		};
 
-        // =====================================================================
-        // NkSceneSerializer
-        // =====================================================================
-        class NkSceneSerializer {
-        public:
-            NkSceneSerializer() = default;
+		// =====================================================================
+		// NkSceneSerializer
+		// =====================================================================
+		class NkSceneSerializer {
+			public:
+				NkSceneSerializer() = default;
 
-            // ── Enregistrement des types de composants ────────────────────────
-            // À appeler une fois au démarrage pour chaque composant sérialisable.
-            //
-            // Exemple :
-            //   NkSceneSerializer::RegisterComponentSerializer<NkTransformComponent>(
-            //       "NkTransformComponent",
-            //       &SerializeTransform,
-            //       &DeserializeTransform,
-            //       &AddDefaultTransform);
-            static void RegisterComponentSerializer(
-                const NkComponentSerializer& cs) noexcept;
+				// ── Enregistrement des types de composants ────────────────────────
+				// À appeler une fois au démarrage pour chaque composant sérialisable.
+				//
+				// Exemple :
+				//   NkSceneSerializer::RegisterComponentSerializer<NkTransformComponent>(
+				//       "NkTransformComponent",
+				//       &SerializeTransform,
+				//       &DeserializeTransform,
+				//       &AddDefaultTransform);
+				static void RegisterComponentSerializer(const NkComponentSerializer &cs) noexcept;
 
-            // Template helper — auto-enregistrement via NK_SERIALIZE_COMPONENT macro
-            template<typename T>
-            static void RegisterComponentSerializer(
-                const char* name,
-                NkComponentSerializer::SerializeFn   sfn,
-                NkComponentSerializer::DeserializeFn dfn,
-                NkComponentSerializer::AddFn         addFn) noexcept {
-                NkComponentSerializer cs;
-                cs.typeName    = name;
-                cs.serialize   = sfn;
-                cs.deserialize = dfn;
-                cs.addDefault  = addFn;
-                RegisterComponentSerializer(cs);
-            }
+				// Template helper — auto-enregistrement via NK_SERIALIZE_COMPONENT macro
+				template <typename T>
+				static void RegisterComponentSerializer(const char *name, NkComponentSerializer::SerializeFn sfn,
+														NkComponentSerializer::DeserializeFn dfn,
+														NkComponentSerializer::AddFn addFn) noexcept {
+					NkComponentSerializer cs;
+					cs.typeName = name;
+					cs.serialize = sfn;
+					cs.deserialize = dfn;
+					cs.addDefault = addFn;
+					RegisterComponentSerializer(cs);
+				}
 
-            // ── Sauvegarde ────────────────────────────────────────────────────
-            bool Save(const NkSceneGraph& scene, const char* path) const noexcept;
+				// ── Sauvegarde ────────────────────────────────────────────────────
+				bool Save(const NkSceneGraph &scene, const char *path) const noexcept;
 
-            // Version vers archive en mémoire (pour réseau, undo/redo, etc.)
-            bool SaveToArchive(const NkSceneGraph& scene,
-                               NkArchive& outArchive) const noexcept;
+				// Version vers archive en mémoire (pour réseau, undo/redo, etc.)
+				bool SaveToArchive(const NkSceneGraph &scene, NkArchive &outArchive) const noexcept;
 
-            // ── Chargement ────────────────────────────────────────────────────
-            // Reconstruit la scène depuis un fichier .nkscene.
-            // Les entités existantes dans la scène sont préservées.
-            // Utiliser scene.World().FlushDeferred() + recréer la scène vide
-            // si tu veux un chargement propre.
-            bool Load(NkSceneGraph& scene, const char* path) const noexcept;
+				// ── Chargement ────────────────────────────────────────────────────
+				// Reconstruit la scène depuis un fichier .nkscene.
+				// Les entités existantes dans la scène sont préservées.
+				// Utiliser scene.World().FlushDeferred() + recréer la scène vide
+				// si tu veux un chargement propre.
+				bool Load(NkSceneGraph &scene, const char *path) const noexcept;
 
-            bool LoadFromArchive(NkSceneGraph& scene,
-                                 const NkArchive& archive) const noexcept;
+				bool LoadFromArchive(NkSceneGraph &scene, const NkArchive &archive) const noexcept;
 
-            // ── Format de sérialisation (configurable) ────────────────────────
-            // Défaut : NK_NATIVE (binaire propriétaire optimisé). JSON/XML/YAML
-            // disponibles pour debug/interop/versioning lisible.
-            void SetFormat(NkSerializationFormat fmt) noexcept { mFormat = fmt; }
-            [[nodiscard]] NkSerializationFormat GetFormat() const noexcept { return mFormat; }
+				// ── Format de sérialisation (configurable) ────────────────────────
+				// Défaut : NK_NATIVE (binaire propriétaire optimisé). JSON/XML/YAML
+				// disponibles pour debug/interop/versioning lisible.
+				void SetFormat(NkSerializationFormat fmt) noexcept {
+					mFormat = fmt;
+				}
 
-        private:
-            NkSerializationFormat mFormat = NkSerializationFormat::NK_NATIVE;
+				[[nodiscard]] NkSerializationFormat GetFormat() const noexcept {
+					return mFormat;
+				}
 
-            bool SerializeEntity(NkEntityId id,
-                                 const NkWorld& world,
-                                 NkArchive& entityArchive) const noexcept;
+			private:
+				NkSerializationFormat mFormat = NkSerializationFormat::NK_NATIVE;
 
-            bool DeserializeEntity(NkSceneGraph& scene,
-                                   const NkArchive& entityArchive) const noexcept;
+				bool SerializeEntity(NkEntityId id, const NkWorld &world, NkArchive &entityArchive) const noexcept;
 
-            // Registre global (singleton partagé)
-            struct Registry {
-                static constexpr nk_uint32 kMax = 128;
-                NkComponentSerializer entries[kMax] = {};
-                nk_uint32             count         = 0;
+				bool DeserializeEntity(NkSceneGraph &scene, const NkArchive &entityArchive) const noexcept;
 
-                static Registry& Get() noexcept {
-                    static Registry r;
-                    return r;
-                }
+				// Registre global (singleton partagé)
+				struct Registry {
+						static constexpr nk_uint32 kMax = 128;
+						NkComponentSerializer entries[kMax] = {};
+						nk_uint32 count = 0;
 
-                const NkComponentSerializer* Find(const char* name) const noexcept {
-                    for (nk_uint32 i = 0; i < count; ++i)
-                        if (NkStrEqual(entries[i].typeName, name)) return &entries[i];
-                    return nullptr;
-                }
-            };
-        };
+						static Registry &Get() noexcept {
+							static Registry r;
+							return r;
+						}
 
-    } // namespace ecs
+						const NkComponentSerializer *Find(const char *name) const noexcept {
+							for (nk_uint32 i = 0; i < count; ++i)
+								if (NkStrEqual(entries[i].typeName, name))
+									return &entries[i];
+							return nullptr;
+						}
+				};
+		};
+
+	} // namespace ecs
 } // namespace nkentseu
 
 // =============================================================================
@@ -169,10 +167,10 @@ namespace nkentseu {
 //     [](NkWorld& w, NkEntityId id) { w.Add<NkTransformComponent>(id); }
 //   );
 //
-#define NK_SERIALIZE_COMPONENT(Type, SerializeFn, DeserializeFn, AddFn) \
-    static struct _NkSerializeAutoReg_##Type { \
-        _NkSerializeAutoReg_##Type() noexcept { \
-            nkentseu::ecs::NkSceneSerializer::RegisterComponentSerializer<Type>( \
-                #Type, SerializeFn, DeserializeFn, AddFn); \
-        } \
-    } _nk_serialize_autoreg_##Type
+#define NK_SERIALIZE_COMPONENT(Type, SerializeFn, DeserializeFn, AddFn)                                                \
+	static struct _NkSerializeAutoReg_##Type {                                                                         \
+			_NkSerializeAutoReg_##Type() noexcept {                                                                    \
+				nkentseu::ecs::NkSceneSerializer::RegisterComponentSerializer<Type>(#Type, SerializeFn, DeserializeFn, \
+																					AddFn);                            \
+			}                                                                                                          \
+	} _nk_serialize_autoreg_##Type

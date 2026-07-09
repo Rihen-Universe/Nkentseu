@@ -3,20 +3,20 @@
 
 using namespace nkentseu;
 
-int main (int argc, char** argv) {
-    (void)argc; (void)argv;
+int main(int argc, char **argv) {
+	(void)argc;
+	(void)argv;
 
-    int32 filesize;
-    
-    nk_char* data = NkReadFile("Resources/Fonts/ProggyClean.ttf", &filesize);
-    // nk_char* data = NkReadFile("Resources/Fonts/Geist-Bold.otf", &filesize);
+	int32 filesize;
 
-    NkFontDirectory ft;
+	nk_char *data = NkReadFile("Resources/Fonts/ProggyClean.ttf", &filesize);
+	// nk_char* data = NkReadFile("Resources/Fonts/Geist-Bold.otf", &filesize);
 
-    NkReadFontDyrectory(&data, &ft);
+	NkFontDirectory ft;
 
-    
-    NkPrintTableDirectory(ft.tblDir, ft.offSub.numTables);
+	NkReadFontDyrectory(&data, &ft);
 
-    return (0);
+	NkPrintTableDirectory(ft.tblDir, ft.offSub.numTables);
+
+	return (0);
 }

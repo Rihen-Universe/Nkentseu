@@ -24,90 +24,92 @@
 #include "NKContainers/Functional/NkFunction.h"
 
 namespace nkentseu {
-    namespace humanoid {
+	namespace humanoid {
 
-        // Callback appelé depuis le thread de réponse (thread-safe via EventBus)
-        using NkAIResponseCallback =
-            NkFunction<void(const NkString& text, nk_float32 emotionIntensity)>;
+		// Callback appelé depuis le thread de réponse (thread-safe via EventBus)
+		using NkAIResponseCallback = NkFunction<void(const NkString &text, nk_float32 emotionIntensity)>;
 
-        struct NkAIDriverConfig {
-            NkConvBackendType backendType = NkConvBackendType::OllamaLocal;
-            NkString modelName    = "mistral:7b-instruct";
-            NkString endpoint     = "http://localhost:11434";
-            NkString apiKey;              // vide = lire depuis env
+		struct NkAIDriverConfig {
+				NkConvBackendType backendType = NkConvBackendType::OllamaLocal;
+				NkString modelName = "mistral:7b-instruct";
+				NkString endpoint = "http://localhost:11434";
+				NkString apiKey; // vide = lire depuis env
 
-            bool asyncResponse    = true;  // réponse dans un thread séparé
-            bool enableBehavior   = true;  // utiliser NkHumanoidBehavior
-            bool enableConversation = true; // utiliser LLM
-        };
+				bool asyncResponse = true;		// réponse dans un thread séparé
+				bool enableBehavior = true;		// utiliser NkHumanoidBehavior
+				bool enableConversation = true; // utiliser LLM
+		};
 
-        class NkAIDriver {
-        public:
-            NkAIDriver() = default;
-            ~NkAIDriver() noexcept { Shutdown(); }
+		class NkAIDriver {
+			public:
+				NkAIDriver() = default;
 
-            // ── Init ──────────────────────────────────────────────────────────
-            bool Init(const NkAIDriverConfig& config,
-                      const NkPersonality& personality) noexcept;
-            void Shutdown() noexcept;
+				~NkAIDriver() noexcept {
+					Shutdown();
+				}
 
-            // ── Update (appelé chaque frame) ──────────────────────────────────
-            // Remplace le switch EmotionState → ApplyPreset dans PatientLayer
-            void Update(nk_float32 dt,
-                        nk_float32 painLevel,
-                        nk_float32 anxietyLevel,
-                        nk_float32 fatigueLevel) noexcept;
+				// ── Init ──────────────────────────────────────────────────────────
+				bool Init(const NkAIDriverConfig &config, const NkPersonality &personality) noexcept;
+				void Shutdown() noexcept;
 
-            // ── Conversation ──────────────────────────────────────────────────
-            // Lance une question asynchrone vers le LLM.
-            // La réponse arrive via le callback (depuis le thread principal).
-            void AskQuestion(const char* question,
-                             nk_float32 painLevel,
-                             nk_float32 anxietyLevel,
-                             nk_float32 fatigueLevel,
-                             nk_float32 breathDifficulty,
-                             nk_float32 hr, nk_float32 temp, nk_float32 spo2,
-                             NkAIResponseCallback callback) noexcept;
+				// ── Update (appelé chaque frame) ──────────────────────────────────
+				// Remplace le switch EmotionState → ApplyPreset dans PatientLayer
+				void Update(nk_float32 dt, nk_float32 painLevel, nk_float32 anxietyLevel,
+							nk_float32 fatigueLevel) noexcept;
 
-            // Vérifier si une réponse est en cours de génération
-            bool IsThinking() const noexcept { return mThinking; }
+				// ── Conversation ──────────────────────────────────────────────────
+				// Lance une question asynchrone vers le LLM.
+				// La réponse arrive via le callback (depuis le thread principal).
+				void AskQuestion(const char *question, nk_float32 painLevel, nk_float32 anxietyLevel,
+								 nk_float32 fatigueLevel, nk_float32 breathDifficulty, nk_float32 hr, nk_float32 temp,
+								 nk_float32 spo2, NkAIResponseCallback callback) noexcept;
 
-            // Poll : doit être appelé chaque frame pour récupérer la réponse
-            // Retourne true si une réponse est disponible ce tick
-            bool PollResponse() noexcept;
+				// Vérifier si une réponse est en cours de génération
+				bool IsThinking() const noexcept {
+					return mThinking;
+				}
 
-            // Accès aux sous-systèmes
-            NkHumanoidBehavior&     GetBehavior()     noexcept { return mBehavior;     }
-            NkConversationEngine&   GetConversation()  noexcept { return mConversation; }
+				// Poll : doit être appelé chaque frame pour récupérer la réponse
+				// Retourne true si une réponse est disponible ce tick
+				bool PollResponse() noexcept;
 
-            // Réinitialiser la mémoire de conversation (nouvelle consultation)
-            void ResetConversation() noexcept;
+				// Accès aux sous-systèmes
+				NkHumanoidBehavior &GetBehavior() noexcept {
+					return mBehavior;
+				}
 
-            // Configurer le callback de réponse par défaut
-            void SetResponseCallback(NkAIResponseCallback cb) noexcept {
-                mDefaultCallback = cb;
-            }
+				NkConversationEngine &GetConversation() noexcept {
+					return mConversation;
+				}
 
-        private:
-            void ProcessPendingResponse() noexcept;
+				// Réinitialiser la mémoire de conversation (nouvelle consultation)
+				void ResetConversation() noexcept;
 
-            NkHumanoidBehavior   mBehavior;
-            NkConversationEngine mConversation;
-            NkAIDriverConfig     mConfig;
+				// Configurer le callback de réponse par défaut
+				void SetResponseCallback(NkAIResponseCallback cb) noexcept {
+					mDefaultCallback = cb;
+				}
 
-            // Thread de réponse LLM
-            NkFunction<void()>   mWorkerTask;
-            bool                 mThinking = false;
+			private:
+				void ProcessPendingResponse() noexcept;
 
-            // Réponse en attente (produite dans le thread LLM)
-            struct PendingResponse {
-                NkConvResponse response;
-                NkAIResponseCallback callback;
-                bool ready = false;
-            } mPending;
+				NkHumanoidBehavior mBehavior;
+				NkConversationEngine mConversation;
+				NkAIDriverConfig mConfig;
 
-            NkAIResponseCallback mDefaultCallback;
-        };
+				// Thread de réponse LLM
+				NkFunction<void()> mWorkerTask;
+				bool mThinking = false;
 
-    } // namespace humanoid
+				// Réponse en attente (produite dans le thread LLM)
+				struct PendingResponse {
+						NkConvResponse response;
+						NkAIResponseCallback callback;
+						bool ready = false;
+				} mPending;
+
+				NkAIResponseCallback mDefaultCallback;
+		};
+
+	} // namespace humanoid
 } // namespace nkentseu

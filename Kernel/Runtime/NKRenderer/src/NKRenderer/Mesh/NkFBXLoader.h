@@ -24,7 +24,7 @@
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
-    namespace renderer {
-        bool LoadFBX(const NkString& path, NkGLTFMeshData& out);
-    }
-}
+	namespace renderer {
+		bool LoadFBX(const NkString &path, NkGLTFMeshData &out);
+	}
+} // namespace nkentseu

@@ -9,13 +9,21 @@
 #include "NKAutograd/NkVar.h"
 
 namespace nkentseu {
-    namespace ai {
-        namespace nn {
+	namespace ai {
+		namespace nn {
 
-            inline NkVar Relu   (const NkVar& x) { return autograd::Relu(x); }
-            inline NkVar Sigmoid(const NkVar& x) { return autograd::Sigmoid(x); }
-            inline NkVar Tanh   (const NkVar& x) { return autograd::Tanh(x); }
+			inline NkVar Relu(const NkVar &x) {
+				return autograd::Relu(x);
+			}
 
-        } // namespace nn
-    } // namespace ai
+			inline NkVar Sigmoid(const NkVar &x) {
+				return autograd::Sigmoid(x);
+			}
+
+			inline NkVar Tanh(const NkVar &x) {
+				return autograd::Tanh(x);
+			}
+
+		} // namespace nn
+	} // namespace ai
 } // namespace nkentseu

@@ -16,14 +16,14 @@
 
 namespace nkentseu {
 
-    // Sérialise `prog` en blob binaire (alloué dans `out`). true si OK.
-    bool NkSLByteCodeSerialize(const NkSLByteProgram& prog, NkVector<uint8>& out);
+	// Sérialise `prog` en blob binaire (alloué dans `out`). true si OK.
+	bool NkSLByteCodeSerialize(const NkSLByteProgram &prog, NkVector<uint8> &out);
 
-    // Désérialise un blob (data,size) vers `prog`. false si magic/version invalide.
-    bool NkSLByteCodeDeserialize(const uint8* data, usize size, NkSLByteProgram& prog);
+	// Désérialise un blob (data,size) vers `prog`. false si magic/version invalide.
+	bool NkSLByteCodeDeserialize(const uint8 *data, usize size, NkSLByteProgram &prog);
 
-    // Raccourcis fichier (via NKFileSystem). Retournent false en cas d'échec I/O.
-    bool NkSLByteCodeSaveFile(const NkSLByteProgram& prog, const char* path);
-    bool NkSLByteCodeLoadFile(const char* path, NkSLByteProgram& prog);
+	// Raccourcis fichier (via NKFileSystem). Retournent false en cas d'échec I/O.
+	bool NkSLByteCodeSaveFile(const NkSLByteProgram &prog, const char *path);
+	bool NkSLByteCodeLoadFile(const char *path, NkSLByteProgram &prog);
 
 } // namespace nkentseu

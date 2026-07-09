@@ -15,12 +15,12 @@
 
 namespace nkentseu {
 
-    struct NkEventSystemData {
-        ::Display* mDisplay    = nullptr;
-        int32      mPrevMouseX = 0;
-        int32      mPrevMouseY = 0;
-        bool       mInitialized = false;
-    };
+	struct NkEventSystemData {
+			::Display *mDisplay = nullptr;
+			int32 mPrevMouseX = 0;
+			int32 mPrevMouseY = 0;
+			bool mInitialized = false;
+	};
 
 } // namespace nkentseu
 

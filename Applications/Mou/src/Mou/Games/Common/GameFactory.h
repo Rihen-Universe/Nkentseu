@@ -13,19 +13,19 @@
 
 namespace mou {
 
-    class MouAssets;
+	class MouAssets;
 
-    class GameFactory {
-    public:
-        static nkentseu::memory::NkUniquePtr<MouGame>
-        CreateGame(GameId id, nkentseu::memory::NkAllocator* allocator = nullptr,
-                   MouAssets* assets = nullptr) noexcept;
+	class GameFactory {
+		public:
+			static nkentseu::memory::NkUniquePtr<MouGame> CreateGame(GameId id,
+																	 nkentseu::memory::NkAllocator *allocator = nullptr,
+																	 MouAssets *assets = nullptr) noexcept;
 
-        static const GameInfo* GetGameInfo(GameId id) noexcept;
-        static nkentseu::nk_uint32 GetGameCount() noexcept;
-        static const GameInfo* GetAllGames() noexcept;
-    };
+			static const GameInfo *GetGameInfo(GameId id) noexcept;
+			static nkentseu::nk_uint32 GetGameCount() noexcept;
+			static const GameInfo *GetAllGames() noexcept;
+	};
 
-}  // namespace mou
+} // namespace mou
 
 #endif // MOU_GAME_FACTORY_H

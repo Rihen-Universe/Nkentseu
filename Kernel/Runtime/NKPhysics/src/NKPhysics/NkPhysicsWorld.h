@@ -22,101 +22,145 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace physics {
+	namespace physics {
 
-        // Événement de zone de détection : `trigger` (le corps trigger) chevauche `other`.
-        struct NkTriggerEvent { NkBodyId trigger = NK_INVALID_BODY; NkBodyId other = NK_INVALID_BODY; };
+		// Événement de zone de détection : `trigger` (le corps trigger) chevauche `other`.
+		struct NkTriggerEvent {
+				NkBodyId trigger = NK_INVALID_BODY;
+				NkBodyId other = NK_INVALID_BODY;
+		};
 
-        class NkPhysicsWorld {
-            public:
-                explicit NkPhysicsWorld(const NkPhysicsConfig& cfg = {}) noexcept;
+		class NkPhysicsWorld {
+			public:
+				explicit NkPhysicsWorld(const NkPhysicsConfig &cfg = {}) noexcept;
 
-                // Crée un corps (def + forme de collision) ; renvoie son id. [spec M0]
-                NkBodyId CreateBody(const NkBodyDef& def, const collision::NkShape& shape);
-                void     DestroyBody(NkBodyId id);
-                NkRigidBody*       GetBody(NkBodyId id) noexcept;
-                const NkRigidBody* GetBody(NkBodyId id) const noexcept;
+				// Crée un corps (def + forme de collision) ; renvoie son id. [spec M0]
+				NkBodyId CreateBody(const NkBodyDef &def, const collision::NkShape &shape);
+				void DestroyBody(NkBodyId id);
+				NkRigidBody *GetBody(NkBodyId id) noexcept;
+				const NkRigidBody *GetBody(NkBodyId id) const noexcept;
 
-                // Avance la simulation de `dt` (découpé en `config.subSteps` sous-pas internes).
-                void Step(float32 dt);
-                // Avance à PAS FIXE (déterministe) : accumule `realDt` et exécute des Step de
-                // `config.fixedTimeStep` (au plus `maxSubSteps`). Renvoie le nb de pas exécutés.
-                int32 Advance(float32 realDt);
+				// Avance la simulation de `dt` (découpé en `config.subSteps` sous-pas internes).
+				void Step(float32 dt);
+				// Avance à PAS FIXE (déterministe) : accumule `realDt` et exécute des Step de
+				// `config.fixedTimeStep` (au plus `maxSubSteps`). Renvoie le nb de pas exécutés.
+				int32 Advance(float32 realDt);
 
-                // ── Articulations (M7) ───────────────────────────────────────
-                // Joint à distance : garde les 2 ancres (monde) à leur distance courante.
-                NkJointId CreateDistanceJoint(NkBodyId a, NkBodyId b, const NkVec3f& anchorAWorld, const NkVec3f& anchorBWorld);
-                // Joint ball (point-à-point) : les 2 corps partagent le pivot (monde).
-                NkJointId CreateBallJoint(NkBodyId a, NkBodyId b, const NkVec3f& pivotWorld);
-                // Joint revolute (charnière 1 DOF) : pivot + axe de rotation (monde) — coude, genou, trappe.
-                NkJointId CreateRevoluteJoint(NkBodyId a, NkBodyId b, const NkVec3f& pivotWorld, const NkVec3f& axisWorld);
-                // Joint weld (soudure rigide) : verrouille position ET orientation relatives.
-                NkJointId CreateWeldJoint(NkBodyId a, NkBodyId b, const NkVec3f& pivotWorld);
-                // M8 : moteur/drive PD vers un angle cible (ragdoll actif) + limites d'angle, sur un REVOLUTE.
-                void SetRevoluteMotor(NkJointId id, float32 targetAngle, float32 kp, float32 maxTorque);
-                void SetRevoluteLimit(NkJointId id, float32 lower, float32 upper);
-                void      DestroyJoint(NkJointId id);
-                NkVector<NkJoint>&       Joints() noexcept { return mJoints; }
-                const NkVector<NkJoint>& Joints() const noexcept { return mJoints; }
+				// ── Articulations (M7) ───────────────────────────────────────
+				// Joint à distance : garde les 2 ancres (monde) à leur distance courante.
+				NkJointId CreateDistanceJoint(NkBodyId a, NkBodyId b, const NkVec3f &anchorAWorld,
+											  const NkVec3f &anchorBWorld);
+				// Joint ball (point-à-point) : les 2 corps partagent le pivot (monde).
+				NkJointId CreateBallJoint(NkBodyId a, NkBodyId b, const NkVec3f &pivotWorld);
+				// Joint revolute (charnière 1 DOF) : pivot + axe de rotation (monde) — coude, genou, trappe.
+				NkJointId CreateRevoluteJoint(NkBodyId a, NkBodyId b, const NkVec3f &pivotWorld,
+											  const NkVec3f &axisWorld);
+				// Joint weld (soudure rigide) : verrouille position ET orientation relatives.
+				NkJointId CreateWeldJoint(NkBodyId a, NkBodyId b, const NkVec3f &pivotWorld);
+				// M8 : moteur/drive PD vers un angle cible (ragdoll actif) + limites d'angle, sur un REVOLUTE.
+				void SetRevoluteMotor(NkJointId id, float32 targetAngle, float32 kp, float32 maxTorque);
+				void SetRevoluteLimit(NkJointId id, float32 lower, float32 upper);
+				void DestroyJoint(NkJointId id);
 
-                // Pilotage (utile pour les corps KINEMATIC : plateformes, ascenseurs…).
-                void SetLinearVelocity(NkBodyId id, const NkVec3f& v) noexcept { if (NkRigidBody* b = GetBody(id)) b->linearVelocity = v; }
-                void SetAngularVelocity(NkBodyId id, const NkVec3f& w) noexcept { if (NkRigidBody* b = GetBody(id)) b->angularVelocity = w; }
+				NkVector<NkJoint> &Joints() noexcept {
+					return mJoints;
+				}
 
-                // ── Requêtes physiques (M13) : renvoient des NkBodyId ────────
-                // Raycast : remplit `outBody` (corps touché) + `hit`. Filtre par layer.
-                bool   Raycast(const collision::NkRay3D& ray, NkBodyId& outBody, collision::NkRayHit3D& hit, uint32 layerMask = 0xFFFFFFFFu) const;
-                // Tous les corps chevauchant la forme `s` -> ids physiques.
-                uint32 OverlapShape(const collision::NkShape& s, NkVector<NkBodyId>& out, uint32 layerMask = 0xFFFFFFFFu) const;
-                // Événements de trigger (zones) calculés par Step (corps flag NK_BODY_TRIGGER).
-                const NkVector<NkTriggerEvent>& TriggerEnter() const noexcept { return mTrigEnter; }
-                const NkVector<NkTriggerEvent>& TriggerStay()  const noexcept { return mTrigStay; }
-                const NkVector<NkTriggerEvent>& TriggerExit()  const noexcept { return mTrigExit; }
+				const NkVector<NkJoint> &Joints() const noexcept {
+					return mJoints;
+				}
 
-                // ── Validation « physiquement correct » (M10) ────────────────
-                // Requêtes sur les corps DYNAMIQUES filtrés par `layerMask` (passer le `group`
-                // d'un ragdoll pour ne mesurer que lui). Base de la validation type Cascadeur.
-                float32 TotalMass(uint32 layerMask = 0xFFFFFFFFu) const;
-                NkVec3f CenterOfMass(uint32 layerMask = 0xFFFFFFFFu) const;          // somme(m·p)/somme(m)
-                NkVec3f LinearMomentum(uint32 layerMask = 0xFFFFFFFFu) const;        // somme(m·v)
-                NkVec3f CenterOfMassVelocity(uint32 layerMask = 0xFFFFFFFFu) const;  // P/M
-                NkVec3f AngularMomentum(const NkVec3f& about, uint32 layerMask = 0xFFFFFFFFu) const; // somme(r×m·v + I·ω)
+				// Pilotage (utile pour les corps KINEMATIC : plateformes, ascenseurs…).
+				void SetLinearVelocity(NkBodyId id, const NkVec3f &v) noexcept {
+					if (NkRigidBody *b = GetBody(id))
+						b->linearVelocity = v;
+				}
 
-                // Réglages.
-                void SetGravity(const NkVec3f& g) noexcept { mConfig.gravity = g; }
-                const NkPhysicsConfig& Config() const noexcept { return mConfig; }
-                NkVector<NkRigidBody>&       Bodies() noexcept { return mBodies; }
-                const NkVector<NkRigidBody>& Bodies() const noexcept { return mBodies; }
+				void SetAngularVelocity(NkBodyId id, const NkVec3f &w) noexcept {
+					if (NkRigidBody *b = GetBody(id))
+						b->angularVelocity = w;
+				}
 
-                // Requêtes (déléguées à NKCollision, résultat -> NkBodyId). [spec M10]
-                // bool Raycast(const collision::NkRay3D& r, NkBodyId& hitBody, ...);
-                // uint32 OverlapShape(const collision::NkShape& s, NkVector<NkBodyId>& out, ...);
+				// ── Requêtes physiques (M13) : renvoient des NkBodyId ────────
+				// Raycast : remplit `outBody` (corps touché) + `hit`. Filtre par layer.
+				bool Raycast(const collision::NkRay3D &ray, NkBodyId &outBody, collision::NkRayHit3D &hit,
+							 uint32 layerMask = 0xFFFFFFFFu) const;
+				// Tous les corps chevauchant la forme `s` -> ids physiques.
+				uint32 OverlapShape(const collision::NkShape &s, NkVector<NkBodyId> &out,
+									uint32 layerMask = 0xFFFFFFFFu) const;
 
-            private:
-                // Impulse accumulée d'un point de contact, conservée pour le warm-start
-                // (clé = paire de corps + feature-id NKCollision).
-                struct NkWarmEntry { uint32 a = 0, b = 0, id = 0; float32 n = 0.f, t1 = 0.f, t2 = 0.f; };
+				// Événements de trigger (zones) calculés par Step (corps flag NK_BODY_TRIGGER).
+				const NkVector<NkTriggerEvent> &TriggerEnter() const noexcept {
+					return mTrigEnter;
+				}
 
-                NkRigidBody* FindByCollisionId(uint32 cid) noexcept;
-                void         SolveContacts(float32 dt);     // M1..M3 : impulses séquentielles + warm-start
-                void         CorrectPositions();            // M4 : split-impulse (projection positionnelle)
-                void         WakeContacts();                // M6 : réveiller les corps touchés par un perturbateur
-                void         UpdateSleep(float32 dt);       // M6 : endormir les corps immobiles
-                void         SolveJoints(float32 dt);       // M7 : contraintes d'articulation
-                void         Substep(float32 h);            // M12 : un pas de simulation atomique
-                void         ProcessTriggers();             // M13 : mappe les events collision -> triggers
+				const NkVector<NkTriggerEvent> &TriggerStay() const noexcept {
+					return mTrigStay;
+				}
 
-                NkPhysicsConfig          mConfig;
-                collision::NkWorld       mCollision;   // détection (DBVH, manifolds)
-                NkVector<NkRigidBody>    mBodies;
-                NkContactSolver          mSolver;
-                NkVector<NkWarmEntry>    mWarm;         // cache d'impulses (frame précédente)
-                NkVector<NkJoint>        mJoints;       // articulations (M7)
-                NkVector<NkTriggerEvent> mTrigEnter, mTrigStay, mTrigExit; // M13
-                float32                  mAccumulator = 0.f; // pas fixe (M12)
-                NkBodyId                 mNextId = 1u;
-                NkJointId                mNextJointId = 1u;
-        };
+				const NkVector<NkTriggerEvent> &TriggerExit() const noexcept {
+					return mTrigExit;
+				}
 
-    } // namespace physics
+				// ── Validation « physiquement correct » (M10) ────────────────
+				// Requêtes sur les corps DYNAMIQUES filtrés par `layerMask` (passer le `group`
+				// d'un ragdoll pour ne mesurer que lui). Base de la validation type Cascadeur.
+				float32 TotalMass(uint32 layerMask = 0xFFFFFFFFu) const;
+				NkVec3f CenterOfMass(uint32 layerMask = 0xFFFFFFFFu) const;			// somme(m·p)/somme(m)
+				NkVec3f LinearMomentum(uint32 layerMask = 0xFFFFFFFFu) const;		// somme(m·v)
+				NkVec3f CenterOfMassVelocity(uint32 layerMask = 0xFFFFFFFFu) const; // P/M
+				NkVec3f AngularMomentum(const NkVec3f &about,
+										uint32 layerMask = 0xFFFFFFFFu) const; // somme(r×m·v + I·ω)
+
+				// Réglages.
+				void SetGravity(const NkVec3f &g) noexcept {
+					mConfig.gravity = g;
+				}
+
+				const NkPhysicsConfig &Config() const noexcept {
+					return mConfig;
+				}
+
+				NkVector<NkRigidBody> &Bodies() noexcept {
+					return mBodies;
+				}
+
+				const NkVector<NkRigidBody> &Bodies() const noexcept {
+					return mBodies;
+				}
+
+				// Requêtes (déléguées à NKCollision, résultat -> NkBodyId). [spec M10]
+				// bool Raycast(const collision::NkRay3D& r, NkBodyId& hitBody, ...);
+				// uint32 OverlapShape(const collision::NkShape& s, NkVector<NkBodyId>& out, ...);
+
+			private:
+				// Impulse accumulée d'un point de contact, conservée pour le warm-start
+				// (clé = paire de corps + feature-id NKCollision).
+				struct NkWarmEntry {
+						uint32 a = 0, b = 0, id = 0;
+						float32 n = 0.f, t1 = 0.f, t2 = 0.f;
+				};
+
+				NkRigidBody *FindByCollisionId(uint32 cid) noexcept;
+				void SolveContacts(float32 dt); // M1..M3 : impulses séquentielles + warm-start
+				void CorrectPositions();		// M4 : split-impulse (projection positionnelle)
+				void WakeContacts();			// M6 : réveiller les corps touchés par un perturbateur
+				void UpdateSleep(float32 dt);	// M6 : endormir les corps immobiles
+				void SolveJoints(float32 dt);	// M7 : contraintes d'articulation
+				void Substep(float32 h);		// M12 : un pas de simulation atomique
+				void ProcessTriggers();			// M13 : mappe les events collision -> triggers
+
+				NkPhysicsConfig mConfig;
+				collision::NkWorld mCollision; // détection (DBVH, manifolds)
+				NkVector<NkRigidBody> mBodies;
+				NkContactSolver mSolver;
+				NkVector<NkWarmEntry> mWarm;							   // cache d'impulses (frame précédente)
+				NkVector<NkJoint> mJoints;								   // articulations (M7)
+				NkVector<NkTriggerEvent> mTrigEnter, mTrigStay, mTrigExit; // M13
+				float32 mAccumulator = 0.f;								   // pas fixe (M12)
+				NkBodyId mNextId = 1u;
+				NkJointId mNextJointId = 1u;
+		};
+
+	} // namespace physics
 } // namespace nkentseu

@@ -15,7 +15,7 @@
  * @brief Namespace nkentseu.
  */
 namespace nkentseu {
-NkEntryState *gState = nullptr;
+	NkEntryState *gState = nullptr;
 }
 
 int main(int argc, char *argv[]) {

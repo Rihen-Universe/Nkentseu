@@ -53,134 +53,175 @@
 #include "NKRenderer/Core/NkRendererConfig.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        // =========================================================================
-        // Étape de shader
-        // =========================================================================
-        enum class NkShaderStage : uint8 {
-            NK_VERTEX    = 0,
-            NK_FRAGMENT  = 1,
-            NK_GEOMETRY  = 2,
-            NK_COMPUTE   = 3,
-            NK_TESS_CTRL = 4,
-            NK_TESS_EVAL = 5,
-            NK_MESH      = 6,   // DX12/Vulkan mesh shaders
-            NK_TASK      = 7,
-        };
+		// =========================================================================
+		// Étape de shader
+		// =========================================================================
+		enum class NkShaderStage : uint8 {
+			NK_VERTEX = 0,
+			NK_FRAGMENT = 1,
+			NK_GEOMETRY = 2,
+			NK_COMPUTE = 3,
+			NK_TESS_CTRL = 4,
+			NK_TESS_EVAL = 5,
+			NK_MESH = 6, // DX12/Vulkan mesh shaders
+			NK_TASK = 7,
+		};
 
-        // =========================================================================
-        // Résultat de compilation
-        // =========================================================================
-        struct NkShaderCompileResult {
-            bool            success  = false;
-            NkString        errors;
-            NkVector<uint8> bytecode;   // SPIR-V (VK) ou DXBC/DXIL (DX11/12) ou source (GL/MSL)
-            NkString        preprocessed; // pour debug
-        };
+		// =========================================================================
+		// Résultat de compilation
+		// =========================================================================
+		struct NkShaderCompileResult {
+				bool success = false;
+				NkString errors;
+				NkVector<uint8> bytecode; // SPIR-V (VK) ou DXBC/DXIL (DX11/12) ou source (GL/MSL)
+				NkString preprocessed;	  // pour debug
+		};
 
-        // =========================================================================
-        // Options de compilation
-        // =========================================================================
-        struct NkShaderCompileOptions {
-            NkString         entryPoint  = "main";
-            NkString         defines;       // "DEFINE1=1;DEFINE2;..."
-            bool             debug        = false;
-            bool             optimize     = true;
-            bool             generateSPIRV= false;  // pour VK depuis GLSL
-            uint32           smMajor      = 5;
-            uint32           smMinor      = 0;
-        };
+		// =========================================================================
+		// Options de compilation
+		// =========================================================================
+		struct NkShaderCompileOptions {
+				NkString entryPoint = "main";
+				NkString defines; // "DEFINE1=1;DEFINE2;..."
+				bool debug = false;
+				bool optimize = true;
+				bool generateSPIRV = false; // pour VK depuis GLSL
+				uint32 smMajor = 5;
+				uint32 smMinor = 0;
+		};
 
-        // =========================================================================
-        // NkShaderBackend — interface compilateur
-        // =========================================================================
-        class NkShaderBackend {
-            public:
-                virtual ~NkShaderBackend() = default;
+		// =========================================================================
+		// NkShaderBackend — interface compilateur
+		// =========================================================================
+		class NkShaderBackend {
+			public:
+				virtual ~NkShaderBackend() = default;
 
-                virtual NkShaderCompileResult Compile(const NkString& source, NkShaderStage stage, const NkShaderCompileOptions& opts = {}) = 0;
+				virtual NkShaderCompileResult Compile(const NkString &source, NkShaderStage stage,
+													  const NkShaderCompileOptions &opts = {}) = 0;
 
-                virtual bool SupportsHotReload()  const = 0;
-                virtual NkString GetBackendName() const = 0;
-        };
+				virtual bool SupportsHotReload() const = 0;
+				virtual NkString GetBackendName() const = 0;
+		};
 
-        // =========================================================================
-        // Backends concrets
-        // =========================================================================
-        class NkShaderBackendGL final : public NkShaderBackend {
-            public:
-                NkShaderCompileResult Compile(const NkString& src, NkShaderStage stage, const NkShaderCompileOptions& opts = {}) override;
-                bool     SupportsHotReload() const override { return true; }
-                NkString GetBackendName()    const override { return "OpenGL GLSL 4.60"; }
-        };
+		// =========================================================================
+		// Backends concrets
+		// =========================================================================
+		class NkShaderBackendGL final : public NkShaderBackend {
+			public:
+				NkShaderCompileResult Compile(const NkString &src, NkShaderStage stage,
+											  const NkShaderCompileOptions &opts = {}) override;
 
-        class NkShaderBackendVK final : public NkShaderBackend {
-            public:
-                NkShaderCompileResult Compile(const NkString& src, NkShaderStage stage, const NkShaderCompileOptions& opts = {}) override;
-                bool     SupportsHotReload() const override { return false; }
-                NkString GetBackendName()    const override { return "Vulkan GLSL → SPIR-V"; }
-        };
+				bool SupportsHotReload() const override {
+					return true;
+				}
 
-        class NkShaderBackendDX11 final : public NkShaderBackend {
-            public:
-                NkShaderCompileResult Compile(const NkString& src, NkShaderStage stage,
-                                            const NkShaderCompileOptions& opts = {}) override;
-                bool     SupportsHotReload() const override { return true; }
-                NkString GetBackendName()    const override { return "HLSL DX11 SM5"; }
-        };
+				NkString GetBackendName() const override {
+					return "OpenGL GLSL 4.60";
+				}
+		};
 
-        class NkShaderBackendDX12 final : public NkShaderBackend {
-            public:
-                NkShaderCompileResult Compile(const NkString& src, NkShaderStage stage, const NkShaderCompileOptions& opts = {}) override;
-                bool     SupportsHotReload() const override { return false; }
-                NkString GetBackendName()    const override { return "HLSL DX12 SM6 (DXC)"; }
-        };
+		class NkShaderBackendVK final : public NkShaderBackend {
+			public:
+				NkShaderCompileResult Compile(const NkString &src, NkShaderStage stage,
+											  const NkShaderCompileOptions &opts = {}) override;
 
-        class NkShaderBackendMSL final : public NkShaderBackend {
-            public:
-                NkShaderCompileResult Compile(const NkString& src, NkShaderStage stage, const NkShaderCompileOptions& opts = {}) override;
-                bool     SupportsHotReload() const override { return false; }
-                NkString GetBackendName()    const override { return "Metal MSL 2.x"; }
-        };
+				bool SupportsHotReload() const override {
+					return false;
+				}
 
-        // =========================================================================
-        // NkShaderBackendNkSL — NkSL → backend cible
-        // NkSL est un GLSL-like avec extensions :
-        //   @vertex / @fragment / @compute — déclaration d'étapes
-        //   @uniform Block { ... }         — uniform buffer
-        //   @push { ... }                  — push constants (Vulkan) / cbuffer (DX)
-        //   @in / @out                     — in/out avec location automatique
-        //   @texture(N)                    — sampler unifié
-        //   @target GL | VK | DX11 | DX12 | MSL — bloc conditionnel
-        // =========================================================================
-        class NkShaderBackendNkSL final : public NkShaderBackend {
-            public:
-                explicit NkShaderBackendNkSL(NkGraphicsApi targetApi);
+				NkString GetBackendName() const override {
+					return "Vulkan GLSL → SPIR-V";
+				}
+		};
 
-                NkShaderCompileResult Compile(const NkString& src, NkShaderStage stage, const NkShaderCompileOptions& opts = {}) override;
+		class NkShaderBackendDX11 final : public NkShaderBackend {
+			public:
+				NkShaderCompileResult Compile(const NkString &src, NkShaderStage stage,
+											  const NkShaderCompileOptions &opts = {}) override;
 
-                // Transpile NkSL vers code source du backend cible
-                NkString Transpile(const NkString& nkslSource, NkGraphicsApi target) const;
+				bool SupportsHotReload() const override {
+					return true;
+				}
 
-                bool     SupportsHotReload() const override { return true; }
-                NkString GetBackendName()    const override { return "NkSL (transpiler)"; }
+				NkString GetBackendName() const override {
+					return "HLSL DX11 SM5";
+				}
+		};
 
-            private:
-                NkGraphicsApi       mTarget;
-                NkShaderBackend*    mDelegate = nullptr; // backend cible instancié
+		class NkShaderBackendDX12 final : public NkShaderBackend {
+			public:
+				NkShaderCompileResult Compile(const NkString &src, NkShaderStage stage,
+											  const NkShaderCompileOptions &opts = {}) override;
 
-                NkString TranspileToGL  (const NkString& src) const;
-                NkString TranspileToVK  (const NkString& src) const;
-                NkString TranspileToDX11(const NkString& src) const;
-                NkString TranspileToDX12(const NkString& src) const;
-                NkString TranspileToMSL (const NkString& src) const;
-        };
+				bool SupportsHotReload() const override {
+					return false;
+				}
 
-        // =========================================================================
-        // Fabrique
-        // =========================================================================
-        NkShaderBackend* NkCreateShaderBackend(NkGraphicsApi api, bool useNkSL = false);
+				NkString GetBackendName() const override {
+					return "HLSL DX12 SM6 (DXC)";
+				}
+		};
 
-    } // namespace renderer
+		class NkShaderBackendMSL final : public NkShaderBackend {
+			public:
+				NkShaderCompileResult Compile(const NkString &src, NkShaderStage stage,
+											  const NkShaderCompileOptions &opts = {}) override;
+
+				bool SupportsHotReload() const override {
+					return false;
+				}
+
+				NkString GetBackendName() const override {
+					return "Metal MSL 2.x";
+				}
+		};
+
+		// =========================================================================
+		// NkShaderBackendNkSL — NkSL → backend cible
+		// NkSL est un GLSL-like avec extensions :
+		//   @vertex / @fragment / @compute — déclaration d'étapes
+		//   @uniform Block { ... }         — uniform buffer
+		//   @push { ... }                  — push constants (Vulkan) / cbuffer (DX)
+		//   @in / @out                     — in/out avec location automatique
+		//   @texture(N)                    — sampler unifié
+		//   @target GL | VK | DX11 | DX12 | MSL — bloc conditionnel
+		// =========================================================================
+		class NkShaderBackendNkSL final : public NkShaderBackend {
+			public:
+				explicit NkShaderBackendNkSL(NkGraphicsApi targetApi);
+
+				NkShaderCompileResult Compile(const NkString &src, NkShaderStage stage,
+											  const NkShaderCompileOptions &opts = {}) override;
+
+				// Transpile NkSL vers code source du backend cible
+				NkString Transpile(const NkString &nkslSource, NkGraphicsApi target) const;
+
+				bool SupportsHotReload() const override {
+					return true;
+				}
+
+				NkString GetBackendName() const override {
+					return "NkSL (transpiler)";
+				}
+
+			private:
+				NkGraphicsApi mTarget;
+				NkShaderBackend *mDelegate = nullptr; // backend cible instancié
+
+				NkString TranspileToGL(const NkString &src) const;
+				NkString TranspileToVK(const NkString &src) const;
+				NkString TranspileToDX11(const NkString &src) const;
+				NkString TranspileToDX12(const NkString &src) const;
+				NkString TranspileToMSL(const NkString &src) const;
+		};
+
+		// =========================================================================
+		// Fabrique
+		// =========================================================================
+		NkShaderBackend *NkCreateShaderBackend(NkGraphicsApi api, bool useNkSL = false);
+
+	} // namespace renderer
 } // namespace nkentseu

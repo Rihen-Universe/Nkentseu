@@ -38,111 +38,115 @@
 #ifndef NKECS_SERIALIZATION_NKJSONSERIALIZATION_H
 #define NKECS_SERIALIZATION_NKJSONSERIALIZATION_H
 
-    // -------------------------------------------------------------------------
-    // SECTION 1 : DEPENDANCES (zero-STL, zero-Noge)
-    // -------------------------------------------------------------------------
+// -------------------------------------------------------------------------
+// SECTION 1 : DEPENDANCES (zero-STL, zero-Noge)
+// -------------------------------------------------------------------------
 
-    #include "NKECS/NkECSDefines.h"
-    #include "NKECS/Core/NkTypeRegistry.h"
-    #include "NKECS/Reflect/NkReflectBridge.h"   // pont P4 (NkClass genere + hooks)
+#include "NKECS/NkECSDefines.h"
+#include "NKECS/Core/NkTypeRegistry.h"
+#include "NKECS/Reflect/NkReflectBridge.h" // pont P4 (NkClass genere + hooks)
 
-    #include "NKSerialization/NkArchive.h"
-    #include "NKSerialization/Reflection/NkReflectSerializer.h"
+#include "NKSerialization/NkArchive.h"
+#include "NKSerialization/Reflection/NkReflectSerializer.h"
 
-    namespace nkentseu { namespace ecs { namespace serialization {
+namespace nkentseu {
+	namespace ecs {
+		namespace serialization {
 
-        // =====================================================================
-        // 1. SERIALISATION D'UN COMPOSANT — API TYPE-SAFE (par type T)
-        // =====================================================================
-        /**
-         * @brief Sérialise une instance de composant T vers une archive.
-         * @tparam T Type de composant réfléchi (déclaré via NK_REFLECT_BEGIN/END
-         *           et enregistré via NkRegisterComponentReflection<T>()).
-         * @param comp Instance source.
-         * @param ar   Archive de destination (clés = noms de propriétés).
-         * @return true si la réflexion du composant est disponible et le parcours
-         *         s'est déroulé, false sinon.
-         *
-         * @note Idempotent : enregistre la réflexion du composant si elle ne l'a
-         *       pas encore été (premier appel).
-         */
-        template<typename T>
-        NKECS_INLINE nk_bool SerializeComponent(const T& comp, ::nkentseu::NkArchive& ar) noexcept {
-            const ::nkentseu::reflection::NkClass* cls =
-                ::nkentseu::ecs::reflect::NkRegisterComponentReflection<T>();
-            if (!cls) {
-                return false;
-            }
-            return ::nkentseu::NkReflectSerializer::SerializeReflected(cls, &comp, ar);
-        }
+			// =====================================================================
+			// 1. SERIALISATION D'UN COMPOSANT — API TYPE-SAFE (par type T)
+			// =====================================================================
+			/**
+			 * @brief Sérialise une instance de composant T vers une archive.
+			 * @tparam T Type de composant réfléchi (déclaré via NK_REFLECT_BEGIN/END
+			 *           et enregistré via NkRegisterComponentReflection<T>()).
+			 * @param comp Instance source.
+			 * @param ar   Archive de destination (clés = noms de propriétés).
+			 * @return true si la réflexion du composant est disponible et le parcours
+			 *         s'est déroulé, false sinon.
+			 *
+			 * @note Idempotent : enregistre la réflexion du composant si elle ne l'a
+			 *       pas encore été (premier appel).
+			 */
+			template <typename T>
+			NKECS_INLINE nk_bool SerializeComponent(const T &comp, ::nkentseu::NkArchive &ar) noexcept {
+				const ::nkentseu::reflection::NkClass *cls =
+					::nkentseu::ecs::reflect::NkRegisterComponentReflection<T>();
+				if (!cls) {
+					return false;
+				}
+				return ::nkentseu::NkReflectSerializer::SerializeReflected(cls, &comp, ar);
+			}
 
-        /**
-         * @brief Désérialise une archive vers une instance de composant T.
-         * @tparam T Type de composant réfléchi (voir SerializeComponent).
-         * @param comp Instance à remplir.
-         * @param ar   Archive source.
-         * @return true si la réflexion est disponible, false sinon.
-         */
-        template<typename T>
-        NKECS_INLINE nk_bool DeserializeComponent(T& comp, const ::nkentseu::NkArchive& ar) noexcept {
-            const ::nkentseu::reflection::NkClass* cls =
-                ::nkentseu::ecs::reflect::NkRegisterComponentReflection<T>();
-            if (!cls) {
-                return false;
-            }
-            return ::nkentseu::NkReflectSerializer::DeserializeReflected(cls, &comp, ar);
-        }
+			/**
+			 * @brief Désérialise une archive vers une instance de composant T.
+			 * @tparam T Type de composant réfléchi (voir SerializeComponent).
+			 * @param comp Instance à remplir.
+			 * @param ar   Archive source.
+			 * @return true si la réflexion est disponible, false sinon.
+			 */
+			template <typename T>
+			NKECS_INLINE nk_bool DeserializeComponent(T &comp, const ::nkentseu::NkArchive &ar) noexcept {
+				const ::nkentseu::reflection::NkClass *cls =
+					::nkentseu::ecs::reflect::NkRegisterComponentReflection<T>();
+				if (!cls) {
+					return false;
+				}
+				return ::nkentseu::NkReflectSerializer::DeserializeReflected(cls, &comp, ar);
+			}
 
-        // =====================================================================
-        // 2. SERIALISATION D'UN COMPOSANT — API TYPE-ERASED (par ComponentMeta)
-        // =====================================================================
-        // Utile pour la sérialisation d'une ENTITÉ : on parcourt le masque de
-        // composants, on récupère le ComponentMeta de chaque ComponentId et on
-        // appelle ses hooks sans connaître T à la compilation. Les hooks sont
-        // remplis par NkRegisterComponentReflection<T>() (pont P4).
+			// =====================================================================
+			// 2. SERIALISATION D'UN COMPOSANT — API TYPE-ERASED (par ComponentMeta)
+			// =====================================================================
+			// Utile pour la sérialisation d'une ENTITÉ : on parcourt le masque de
+			// composants, on récupère le ComponentMeta de chaque ComponentId et on
+			// appelle ses hooks sans connaître T à la compilation. Les hooks sont
+			// remplis par NkRegisterComponentReflection<T>() (pont P4).
 
-        /**
-         * @brief Sérialise un composant via son ComponentMeta (type-erased).
-         * @param meta Métadonnées du composant (doit porter le hook serialize).
-         * @param comp Adresse de l'instance de composant.
-         * @param ar   Archive de destination.
-         * @return true si le hook est branché et a été appelé, false sinon.
-         */
-        NKECS_INLINE nk_bool SerializeComponentMeta(
-            const ComponentMeta* meta, const void* comp, ::nkentseu::NkArchive& ar) noexcept {
-            if (!meta || !meta->serialize || !comp) {
-                return false;
-            }
-            meta->serialize(comp, ar);
-            return true;
-        }
+			/**
+			 * @brief Sérialise un composant via son ComponentMeta (type-erased).
+			 * @param meta Métadonnées du composant (doit porter le hook serialize).
+			 * @param comp Adresse de l'instance de composant.
+			 * @param ar   Archive de destination.
+			 * @return true si le hook est branché et a été appelé, false sinon.
+			 */
+			NKECS_INLINE nk_bool SerializeComponentMeta(const ComponentMeta *meta, const void *comp,
+														::nkentseu::NkArchive &ar) noexcept {
+				if (!meta || !meta->serialize || !comp) {
+					return false;
+				}
+				meta->serialize(comp, ar);
+				return true;
+			}
 
-        /**
-         * @brief Désérialise un composant via son ComponentMeta (type-erased).
-         * @param meta Métadonnées du composant (doit porter le hook deserialize).
-         * @param comp Adresse de l'instance de composant à remplir.
-         * @param ar   Archive source.
-         * @return true si le hook est branché et a été appelé, false sinon.
-         */
-        NKECS_INLINE nk_bool DeserializeComponentMeta(
-            const ComponentMeta* meta, void* comp, const ::nkentseu::NkArchive& ar) noexcept {
-            if (!meta || !meta->deserialize || !comp) {
-                return false;
-            }
-            meta->deserialize(comp, ar);
-            return true;
-        }
+			/**
+			 * @brief Désérialise un composant via son ComponentMeta (type-erased).
+			 * @param meta Métadonnées du composant (doit porter le hook deserialize).
+			 * @param comp Adresse de l'instance de composant à remplir.
+			 * @param ar   Archive source.
+			 * @return true si le hook est branché et a été appelé, false sinon.
+			 */
+			NKECS_INLINE nk_bool DeserializeComponentMeta(const ComponentMeta *meta, void *comp,
+														  const ::nkentseu::NkArchive &ar) noexcept {
+				if (!meta || !meta->deserialize || !comp) {
+					return false;
+				}
+				meta->deserialize(comp, ar);
+				return true;
+			}
 
-        /**
-         * @brief Vrai si le composant identifié par `id` expose la (de)sérialisation
-         *        réfléchie (hooks branchés via NkRegisterComponentReflection).
-         */
-        NKECS_INLINE nk_bool ComponentHasReflection(NkComponentId id) noexcept {
-            const ComponentMeta* meta = NkTypeRegistry::Global().Get(id);
-            return meta && meta->reflectClass && meta->serialize && meta->deserialize;
-        }
+			/**
+			 * @brief Vrai si le composant identifié par `id` expose la (de)sérialisation
+			 *        réfléchie (hooks branchés via NkRegisterComponentReflection).
+			 */
+			NKECS_INLINE nk_bool ComponentHasReflection(NkComponentId id) noexcept {
+				const ComponentMeta *meta = NkTypeRegistry::Global().Get(id);
+				return meta && meta->reflectClass && meta->serialize && meta->deserialize;
+			}
 
-    }}} // namespace nkentseu::ecs::serialization
+		} // namespace serialization
+	} // namespace ecs
+} // namespace nkentseu
 
 #endif // NKECS_SERIALIZATION_NKJSONSERIALIZATION_H
 

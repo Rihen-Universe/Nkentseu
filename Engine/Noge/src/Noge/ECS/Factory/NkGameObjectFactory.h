@@ -28,76 +28,63 @@
 
 namespace nkentseu {
 
-    // Forward declarations
-    class NkPrefab;
-    class NkPrefabRegistry;
+	// Forward declarations
+	class NkPrefab;
+	class NkPrefabRegistry;
 
-    // =========================================================================
-    // NkGameObjectFactory
-    // =========================================================================
-    class NkGameObjectFactory {
-        public:
-            NkGameObjectFactory() = delete;  // Classe utilitaire stateless
+	// =========================================================================
+	// NkGameObjectFactory
+	// =========================================================================
+	class NkGameObjectFactory {
+		public:
+			NkGameObjectFactory() = delete; // Classe utilitaire stateless
 
-            // ── Création d'un GameObject unique ────────────────────────────
-            /**
-             * @brief Crée un NkGameObject avec les composants ECS invariants.
-             *
-             * Composants ajoutés automatiquement :
-             *   NkTransform, NkName, NkTag, NkParent, NkChildren, NkBehaviourHost
-             */
-            template<typename T = ecs::NkGameObject, typename... Args>
-            [[nodiscard]] static T Create(ecs::NkWorld& world,
-                                          const char* name,
-                                          Args&&... args) noexcept
-            {
-                static_assert(std::is_base_of_v<ecs::NkGameObject, T>,
-                              "T must derive from NkGameObject");
+			// ── Création d'un GameObject unique ────────────────────────────
+			/**
+			 * @brief Crée un NkGameObject avec les composants ECS invariants.
+			 *
+			 * Composants ajoutés automatiquement :
+			 *   NkTransform, NkName, NkTag, NkParent, NkChildren, NkBehaviourHost
+			 */
+			template <typename T = ecs::NkGameObject, typename... Args>
+			[[nodiscard]] static T Create(ecs::NkWorld &world, const char *name, Args &&...args) noexcept {
+				static_assert(std::is_base_of_v<ecs::NkGameObject, T>, "T must derive from NkGameObject");
 
-                const ecs::NkEntityId id = world.CreateEntity();
+				const ecs::NkEntityId id = world.CreateEntity();
 
-                world.Add<ecs::NkName>(id, ecs::NkName(name));
-                world.Add<ecs::NkTag>(id);
-                world.Add<ecs::NkTransform>(id);
-                world.Add<ecs::NkParent>(id);
-                world.Add<ecs::NkChildren>(id);
-                world.Add<ecs::NkBehaviourHost>(id);
+				world.Add<ecs::NkName>(id, ecs::NkName(name));
+				world.Add<ecs::NkTag>(id);
+				world.Add<ecs::NkTransform>(id);
+				world.Add<ecs::NkParent>(id);
+				world.Add<ecs::NkChildren>(id);
+				world.Add<ecs::NkBehaviourHost>(id);
 
-                return T(id, &world, traits::NkForward<Args>(args)...);
-            }
+				return T(id, &world, traits::NkForward<Args>(args)...);
+			}
 
-            template<typename T = ecs::NkGameObject, typename... Args>
-            [[nodiscard]] static T Create(ecs::NkWorld& world, Args&&... args) noexcept {
-                const char* typeName = ecs::NkTypeRegistry::Global().TypeName<T>();
-                return Create<T>(world, typeName, traits::NkForward<Args>(args)...);
-            }
+			template <typename T = ecs::NkGameObject, typename... Args>
+			[[nodiscard]] static T Create(ecs::NkWorld &world, Args &&...args) noexcept {
+				const char *typeName = ecs::NkTypeRegistry::Global().TypeName<T>();
+				return Create<T>(world, typeName, traits::NkForward<Args>(args)...);
+			}
 
-            // ── Création en masse ──────────────────────────────────────────
-            template<typename T = ecs::NkGameObject>
-            static void CreateBatch(ecs::NkWorld& world,
-                                    const char* baseName,
-                                    uint32 count,
-                                    NkVector<T>& out) noexcept
-            {
-                static_assert(std::is_base_of_v<ecs::NkGameObject, T>,
-                              "T must derive from NkGameObject");
-                for (uint32 i = 0; i < count; ++i) {
-                    NkString nameBuf = NkFormat("{0}_{1}", baseName, i);
-                    out.PushBack(Create<T>(world, nameBuf.CStr()));
-                }
-            }
+			// ── Création en masse ──────────────────────────────────────────
+			template <typename T = ecs::NkGameObject>
+			static void CreateBatch(ecs::NkWorld &world, const char *baseName, uint32 count,
+									NkVector<T> &out) noexcept {
+				static_assert(std::is_base_of_v<ecs::NkGameObject, T>, "T must derive from NkGameObject");
+				for (uint32 i = 0; i < count; ++i) {
+					NkString nameBuf = NkFormat("{0}_{1}", baseName, i);
+					out.PushBack(Create<T>(world, nameBuf.CStr()));
+				}
+			}
 
-            // ── Instanciation de prefab ────────────────────────────────────
-            [[nodiscard]] static ecs::NkGameObject
-            InstantiatePrefab(ecs::NkWorld& world,
-                              const char* prefabPath,
-                              const char* instanceName = nullptr) noexcept;
+			// ── Instanciation de prefab ────────────────────────────────────
+			[[nodiscard]] static ecs::NkGameObject InstantiatePrefab(ecs::NkWorld &world, const char *prefabPath,
+																	 const char *instanceName = nullptr) noexcept;
 
-            static void InstantiatePrefabBatch(
-                ecs::NkWorld& world,
-                const char* prefabPath,
-                uint32 count,
-                NkVector<ecs::NkGameObject>& out) noexcept;
-    };
+			static void InstantiatePrefabBatch(ecs::NkWorld &world, const char *prefabPath, uint32 count,
+											   NkVector<ecs::NkGameObject> &out) noexcept;
+	};
 
 } // namespace nkentseu

@@ -12,28 +12,24 @@
 #include "PV3DE/Core/NkClinicalState.h"
 
 namespace nkentseu {
-    namespace pv3de {
+	namespace pv3de {
 
-        class PatientLayer;
+		class PatientLayer;
 
-        class DiagnosticPanel {
-        public:
-            DiagnosticPanel() = default;
+		class DiagnosticPanel {
+			public:
+				DiagnosticPanel() = default;
 
-            void Render(nkui::NkUIContext& ctx,
-                        nkui::NkUIWindowManager& wm,
-                        nkui::NkUIDrawList& dl,
-                        nkui::NkUIFont& font,
-                        nkui::NkUILayoutStack& ls,
-                        const PatientLayer& patient,
-                        nkui::NkUIRect rect) noexcept;
+				void Render(nkui::NkUIContext &ctx, nkui::NkUIWindowManager &wm, nkui::NkUIDrawList &dl,
+							nkui::NkUIFont &font, nkui::NkUILayoutStack &ls, const PatientLayer &patient,
+							nkui::NkUIRect rect) noexcept;
 
-        private:
-            static nkui::NkColor ProbabilityColor(nk_float32 prob) noexcept;
-            static nkui::NkColor SeverityColor   (nk_float32 sev)  noexcept;
+			private:
+				static nkui::NkColor ProbabilityColor(nk_float32 prob) noexcept;
+				static nkui::NkColor SeverityColor(nk_float32 sev) noexcept;
 
-            bool mShowAll = false;  // afficher toutes ou seulement top-5
-        };
+				bool mShowAll = false; // afficher toutes ou seulement top-5
+		};
 
-    } // namespace pv3de
+	} // namespace pv3de
 } // namespace nkentseu

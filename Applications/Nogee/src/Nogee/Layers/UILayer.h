@@ -38,88 +38,96 @@
 #include "Noge/Layers/ViewportLayer.h"
 
 namespace nkentseu {
-    namespace noge {
+	namespace noge {
 
-        class UILayer : public Overlay {
-        public:
-            UILayer(const NkString& name,
-                    NkIDevice* device,
-                    NkICommandBuffer* cmd,
-                    NkGraphicsApi api) noexcept;
-            ~UILayer() override;
+		class UILayer : public Overlay {
+			public:
+				UILayer(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd, NkGraphicsApi api) noexcept;
+				~UILayer() override;
 
-            void OnAttach()          override;
-            void OnDetach()          override;
-            void OnUpdate(float dt)  override;
-            void OnRender()          override;
-            void OnUIRender()        override;
-            bool OnEvent(NkEvent*)   override;
+				void OnAttach() override;
+				void OnDetach() override;
+				void OnUpdate(float dt) override;
+				void OnRender() override;
+				void OnUIRender() override;
+				bool OnEvent(NkEvent *) override;
 
-            // ── Injections depuis NogeApp ───────────────────────────────────
-            void SetEditorLayer  (EditorLayer*   el) noexcept { mEditorLayer   = el; }
-            void SetViewportLayer(ViewportLayer* vl) noexcept { mViewportLayer = vl; }
-            void SetWorld        (ecs::NkWorld*  w)  noexcept { mWorld         = w;  }
-            void SetScene        (ecs::NkSceneGraph* s) noexcept { mScene      = s;  }
+				// ── Injections depuis NogeApp ───────────────────────────────────
+				void SetEditorLayer(EditorLayer *el) noexcept {
+					mEditorLayer = el;
+				}
 
-        private:
-            // ── Rendu des sections ────────────────────────────────────────────
-            void RenderMenuBar    () noexcept;
-            void RenderViewport   () noexcept;
-            void RenderSceneTree  () noexcept;
-            void RenderInspector  () noexcept;
-            void RenderAssetBrowser() noexcept;
-            void RenderConsole    () noexcept;
+				void SetViewportLayer(ViewportLayer *vl) noexcept {
+					mViewportLayer = vl;
+				}
 
-            // ── Input bridge ──────────────────────────────────────────────────
-            void UpdateInputState(const NkEvent* event) noexcept;
-            nkui::NkUIInputState BuildInputState() const noexcept;
+				void SetWorld(ecs::NkWorld *w) noexcept {
+					mWorld = w;
+				}
 
-            // ── Layout helpers ────────────────────────────────────────────────
-            void ComputeLayout() noexcept;
+				void SetScene(ecs::NkSceneGraph *s) noexcept {
+					mScene = s;
+				}
 
-            NkIDevice*        mDevice = nullptr;
-            NkICommandBuffer* mCmd    = nullptr;
-            NkGraphicsApi     mApi    = NkGraphicsApi::NK_GFX_API_OPENGL;
+			private:
+				// ── Rendu des sections ────────────────────────────────────────────
+				void RenderMenuBar() noexcept;
+				void RenderViewport() noexcept;
+				void RenderSceneTree() noexcept;
+				void RenderInspector() noexcept;
+				void RenderAssetBrowser() noexcept;
+				void RenderConsole() noexcept;
 
-            // NKUI
-            nkui::NkUIContext      mCtx;
-            nkui::NkUIWindowManager mWM;
-            nkui::NkUIDockManager  mDock;
-            nkui::NkUILayoutStack  mLS;
-            nkui::NkUIDrawList     mDL;
+				// ── Input bridge ──────────────────────────────────────────────────
+				void UpdateInputState(const NkEvent *event) noexcept;
+				nkui::NkUIInputState BuildInputState() const noexcept;
 
-            // Panels
-            SceneTreePanel  mSceneTree;
-            InspectorPanel  mInspector;
-            AssetBrowser    mAssetBrowser;
-            ConsolePanel    mConsole;
+				// ── Layout helpers ────────────────────────────────────────────────
+				void ComputeLayout() noexcept;
 
-            // Connexions
-            EditorLayer*     mEditorLayer   = nullptr;
-            ViewportLayer*   mViewportLayer = nullptr;
-            ecs::NkWorld*    mWorld         = nullptr;
-            ecs::NkSceneGraph* mScene       = nullptr;
+				NkIDevice *mDevice = nullptr;
+				NkICommandBuffer *mCmd = nullptr;
+				NkGraphicsApi mApi = NkGraphicsApi::NK_GFX_API_OPENGL;
 
-            // Rects calculés chaque frame
-            struct Layout {
-                nkui::NkUIRect menuBar;
-                nkui::NkUIRect viewport;
-                nkui::NkUIRect sceneTree;
-                nkui::NkUIRect inspector;
-                nkui::NkUIRect assetBrowser;
-                nkui::NkUIRect console;
-            } mLayout;
+				// NKUI
+				nkui::NkUIContext mCtx;
+				nkui::NkUIWindowManager mWM;
+				nkui::NkUIDockManager mDock;
+				nkui::NkUILayoutStack mLS;
+				nkui::NkUIDrawList mDL;
 
-            // Input state accumulé
-            nkui::NkUIInputState mInput;
-            float32 mPrevMouseX = 0.f, mPrevMouseY = 0.f;
+				// Panels
+				SceneTreePanel mSceneTree;
+				InspectorPanel mInspector;
+				AssetBrowser mAssetBrowser;
+				ConsolePanel mConsole;
 
-            // Visibilité des panels
-            bool mShowSceneTree   = true;
-            bool mShowInspector   = true;
-            bool mShowAssetBrowser= true;
-            bool mShowConsole     = true;
-        };
+				// Connexions
+				EditorLayer *mEditorLayer = nullptr;
+				ViewportLayer *mViewportLayer = nullptr;
+				ecs::NkWorld *mWorld = nullptr;
+				ecs::NkSceneGraph *mScene = nullptr;
 
-    } // namespace noge
+				// Rects calculés chaque frame
+				struct Layout {
+						nkui::NkUIRect menuBar;
+						nkui::NkUIRect viewport;
+						nkui::NkUIRect sceneTree;
+						nkui::NkUIRect inspector;
+						nkui::NkUIRect assetBrowser;
+						nkui::NkUIRect console;
+				} mLayout;
+
+				// Input state accumulé
+				nkui::NkUIInputState mInput;
+				float32 mPrevMouseX = 0.f, mPrevMouseY = 0.f;
+
+				// Visibilité des panels
+				bool mShowSceneTree = true;
+				bool mShowInspector = true;
+				bool mShowAssetBrowser = true;
+				bool mShowConsole = true;
+		};
+
+	} // namespace noge
 } // namespace nkentseu

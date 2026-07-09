@@ -31,38 +31,42 @@
 #include "NkRenderer2DTypes.h" // NkBlendMode
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        class NkTexture; // NKCanvas/Renderer/Resources/NkTexture.h
-        class NkShader;  // pas encore implemente dans NKCanvas — placeholder
+		class NkTexture; // NKCanvas/Renderer/Resources/NkTexture.h
+		class NkShader;	 // pas encore implemente dans NKCanvas — placeholder
 
-        struct NkRenderStates {
-            NkTransform        transform;
-            NkBlendMode        blendMode = NkBlendMode::NK_ALPHA;
-            const NkTexture*   texture   = nullptr;
-            const NkShader*    shader    = nullptr;
+		struct NkRenderStates {
+				NkTransform transform;
+				NkBlendMode blendMode = NkBlendMode::NK_ALPHA;
+				const NkTexture *texture = nullptr;
+				const NkShader *shader = nullptr;
 
-            /// Constructeur par defaut : tout aux valeurs neutres.
-            NkRenderStates() noexcept = default;
+				/// Constructeur par defaut : tout aux valeurs neutres.
+				NkRenderStates() noexcept = default;
 
-            /// Construction depuis une transform seule (sucre courant).
-            explicit NkRenderStates(const NkTransform& t) noexcept : transform(t) {}
+				/// Construction depuis une transform seule (sucre courant).
+				explicit NkRenderStates(const NkTransform &t) noexcept : transform(t) {
+				}
 
-            /// Construction depuis une texture seule (cas drawables textures).
-            explicit NkRenderStates(const NkTexture* tex) noexcept : texture(tex) {}
+				/// Construction depuis une texture seule (cas drawables textures).
+				explicit NkRenderStates(const NkTexture *tex) noexcept : texture(tex) {
+				}
 
-            /// Construction depuis un blend mode seul.
-            explicit NkRenderStates(NkBlendMode bm) noexcept : blendMode(bm) {}
+				/// Construction depuis un blend mode seul.
+				explicit NkRenderStates(NkBlendMode bm) noexcept : blendMode(bm) {
+				}
 
-            /// Construction depuis un shader seul.
-            explicit NkRenderStates(const NkShader* sh) noexcept : shader(sh) {}
+				/// Construction depuis un shader seul.
+				explicit NkRenderStates(const NkShader *sh) noexcept : shader(sh) {
+				}
 
-            /// Etat par defaut (factory accessible en const&).
-            static const NkRenderStates& Default() noexcept {
-                static const NkRenderStates kDefault;
-                return kDefault;
-            }
-        };
+				/// Etat par defaut (factory accessible en const&).
+				static const NkRenderStates &Default() noexcept {
+					static const NkRenderStates kDefault;
+					return kDefault;
+				}
+		};
 
-    } // namespace renderer
+	} // namespace renderer
 } // namespace nkentseu

@@ -13,27 +13,30 @@
 
 namespace nkentseu {
 
-    class NkComputeContext; // NKRHI/Core/NkComputeContext.h
+	class NkComputeContext; // NKRHI/Core/NkComputeContext.h
 
-    namespace renderer {
+	namespace renderer {
 
-        class NkSculptPipelines {
-            public:
-                NkSculptPipelines() noexcept = default;
-                ~NkSculptPipelines() noexcept = default;
+		class NkSculptPipelines {
+			public:
+				NkSculptPipelines() noexcept = default;
+				~NkSculptPipelines() noexcept = default;
 
-                bool Init(NkComputeContext* ctx) noexcept;
-                void Shutdown() noexcept;
-                [[nodiscard]] bool IsValid() const noexcept { return mCtx != nullptr; }
+				bool Init(NkComputeContext *ctx) noexcept;
+				void Shutdown() noexcept;
 
-                // Un seul kernel de brosse (mode via push-constant).
-                [[nodiscard]] NkPipelineHandle Brush() noexcept;
-                // Composite pixol -> G-buffer.
-                [[nodiscard]] NkPipelineHandle Resolve() noexcept;
+				[[nodiscard]] bool IsValid() const noexcept {
+					return mCtx != nullptr;
+				}
 
-            private:
-                NkComputeContext* mCtx = nullptr;
-        };
+				// Un seul kernel de brosse (mode via push-constant).
+				[[nodiscard]] NkPipelineHandle Brush() noexcept;
+				// Composite pixol -> G-buffer.
+				[[nodiscard]] NkPipelineHandle Resolve() noexcept;
 
-    } // namespace renderer
+			private:
+				NkComputeContext *mCtx = nullptr;
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

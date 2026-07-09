@@ -14,38 +14,44 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace ai {
-        namespace gen {
+	namespace ai {
+		namespace gen {
 
-            class NkVAE {
-            public:
-                NkVAE() = default;
-                NkVAE(uint32 inDim, uint32 hidden, uint32 latent, uint32 seed = 1u);
+			class NkVAE {
+				public:
+					NkVAE() = default;
+					NkVAE(uint32 inDim, uint32 hidden, uint32 latent, uint32 seed = 1u);
 
-                // Encode -> distribution latente (μ, logσ²), chacun [B, latent].
-                void  Encode(const NkVar& x, NkVar& mu, NkVar& logvar) const;
-                // Reparamétrisation : z = μ + exp(0.5·logσ²) · ε  (ε fourni, ~N(0,1)).
-                NkVar Reparam(const NkVar& mu, const NkVar& logvar, const NkVar& eps) const;
-                // Décode un latent -> LOGITS (avant sigmoid), pour la perte BCE.
-                NkVar DecodeLogits(const NkVar& z) const;
-                // Décode un latent -> reconstruction [B, inDim] dans [0,1] (sigmoid).
-                NkVar Decode(const NkVar& z) const;
+					// Encode -> distribution latente (μ, logσ²), chacun [B, latent].
+					void Encode(const NkVar &x, NkVar &mu, NkVar &logvar) const;
+					// Reparamétrisation : z = μ + exp(0.5·logσ²) · ε  (ε fourni, ~N(0,1)).
+					NkVar Reparam(const NkVar &mu, const NkVar &logvar, const NkVar &eps) const;
+					// Décode un latent -> LOGITS (avant sigmoid), pour la perte BCE.
+					NkVar DecodeLogits(const NkVar &z) const;
+					// Décode un latent -> reconstruction [B, inDim] dans [0,1] (sigmoid).
+					NkVar Decode(const NkVar &z) const;
 
-                void   Parameters(NkVector<NkVar>& out) const;
-                uint32 LatentDim() const { return mLatent; }
-                uint32 InputDim()  const { return mInDim; }
+					void Parameters(NkVector<NkVar> &out) const;
 
-            private:
-                nn::NkDense mEnc1, mEncMu, mEncLogvar;   // encodeur
-                nn::NkDense mDec1, mDec2;                 // décodeur
-                uint32      mInDim  = 0;
-                uint32      mLatent = 0;
-            };
+					uint32 LatentDim() const {
+						return mLatent;
+					}
 
-            // Divergence KL entre N(μ, σ²) et N(0,1), sommée : renvoie un scalaire.
-            //   KL = -0.5 · Σ (1 + logσ² − μ² − exp(logσ²))
-            NkVar KLDivergence(const NkVar& mu, const NkVar& logvar);
+					uint32 InputDim() const {
+						return mInDim;
+					}
 
-        } // namespace gen
-    } // namespace ai
+				private:
+					nn::NkDense mEnc1, mEncMu, mEncLogvar; // encodeur
+					nn::NkDense mDec1, mDec2;			   // décodeur
+					uint32 mInDim = 0;
+					uint32 mLatent = 0;
+			};
+
+			// Divergence KL entre N(μ, σ²) et N(0,1), sommée : renvoie un scalaire.
+			//   KL = -0.5 · Σ (1 + logσ² − μ² − exp(logσ²))
+			NkVar KLDivergence(const NkVar &mu, const NkVar &logvar);
+
+		} // namespace gen
+	} // namespace ai
 } // namespace nkentseu

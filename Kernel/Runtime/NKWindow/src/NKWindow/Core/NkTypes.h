@@ -50,24 +50,27 @@ namespace nkentseu {
 	// ---------------------------------------------------------------------------
 
 	struct NkError {
-		uint32 code = 0;
-		NkString message = "";
+			uint32 code = 0;
+			NkString message = "";
 
-		NkError() = default;
-		NkError(uint32 code, NkString msg) : code(code), message(traits::NkMove(msg)) {
-		}
+			NkError() = default;
 
-		bool IsOk() const {
-			return code == 0;
-		}
-		NkString ToString() const {
-			if (code == 0) return NkString("OK");
-			return NkString::Fmtf("[%u] ", code) + message;
-		}
+			NkError(uint32 code, NkString msg) : code(code), message(traits::NkMove(msg)) {
+			}
 
-		static NkError Ok() {
-			return NkError(0, "OK");
-		}
+			bool IsOk() const {
+				return code == 0;
+			}
+
+			NkString ToString() const {
+				if (code == 0)
+					return NkString("OK");
+				return NkString::Fmtf("[%u] ", code) + message;
+			}
+
+			static NkError Ok() {
+				return NkError(0, "OK");
+			}
 	};
 
 } // namespace nkentseu

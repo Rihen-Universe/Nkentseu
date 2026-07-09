@@ -20,73 +20,93 @@
 #include "Nogee/Editor/NkSelectionManager.h"
 
 namespace nkentseu {
-    namespace noge {
+	namespace noge {
 
-        class ViewportLayer : public Layer {
-            public:
-                ViewportLayer(const NkString& name,
-                            NkIDevice* device,
-                            NkICommandBuffer* cmd) noexcept;
-                ~ViewportLayer() override;
+		class ViewportLayer : public Layer {
+			public:
+				ViewportLayer(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd) noexcept;
+				~ViewportLayer() override;
 
-                void OnAttach() override;
-                void OnDetach() override;
-                void OnUpdate(float dt) override;
-                void OnRender()         override;
+				void OnAttach() override;
+				void OnDetach() override;
+				void OnUpdate(float dt) override;
+				void OnRender() override;
 
-                // ── Connexions (injectées par NogeApp::OnInit) ──────────────────
-                void SetEditorCamera   (NkEditorCamera*    cam)  noexcept { mCamera = cam; }
-                void SetGizmoSystem    (NkGizmoSystem*     gizmo)noexcept { mGizmos = gizmo; }
-                void SetSelectionManager(NkSelectionManager* sel) noexcept { mSel = sel; }
-                void SetWorld          (ecs::NkWorld*      world)noexcept { mWorld = world; }
+				// ── Connexions (injectées par NogeApp::OnInit) ──────────────────
+				void SetEditorCamera(NkEditorCamera *cam) noexcept {
+					mCamera = cam;
+				}
 
-                // ── Texture FBO → UILayer ─────────────────────────────────────────
-                NkTextureHandle GetOutputTexture() const noexcept { return mColorTarget; }
-                nk_uint32 GetViewportWidth()  const noexcept { return mVpWidth; }
-                nk_uint32 GetViewportHeight() const noexcept { return mVpHeight; }
+				void SetGizmoSystem(NkGizmoSystem *gizmo) noexcept {
+					mGizmos = gizmo;
+				}
 
-                // Appelé par UILayer quand le panel viewport change de taille
-                void ResizeFBO(nk_uint32 w, nk_uint32 h) noexcept;
+				void SetSelectionManager(NkSelectionManager *sel) noexcept {
+					mSel = sel;
+				}
 
-                // ── État souris dans le viewport ──────────────────────────────────
-                // UILayer met à jour ces valeurs chaque frame
-                struct MouseState {
-                    float32 x = 0, y = 0;       // position dans le viewport (pixels)
-                    float32 dx = 0, dy = 0;      // delta depuis frame précédente
-                    float32 scroll = 0;
-                    bool    leftDown  = false;
-                    bool    rightDown = false;
-                    bool    altDown   = false;
-                    bool    isHovered = false;   // souris dans le panel viewport
-                };
-                MouseState& GetMouseState() noexcept { return mMouse; }
+				void SetWorld(ecs::NkWorld *world) noexcept {
+					mWorld = world;
+				}
 
-            private:
-                bool CreateFBO(nk_uint32 w, nk_uint32 h) noexcept;
-                void DestroyFBO() noexcept;
-                void RenderScene() noexcept;
-                void RenderGizmos() noexcept;
+				// ── Texture FBO → UILayer ─────────────────────────────────────────
+				NkTextureHandle GetOutputTexture() const noexcept {
+					return mColorTarget;
+				}
 
-                NkIDevice*        mDevice = nullptr;
-                NkICommandBuffer* mCmd    = nullptr;
+				nk_uint32 GetViewportWidth() const noexcept {
+					return mVpWidth;
+				}
 
-                nk_uint32 mVpWidth  = 0;
-                nk_uint32 mVpHeight = 0;
+				nk_uint32 GetViewportHeight() const noexcept {
+					return mVpHeight;
+				}
 
-                NkTextureHandle     mColorTarget;
-                NkTextureHandle     mDepthTarget;
-                NkRenderPassHandle  mRenderPass;
-                NkFramebufferHandle mFramebuffer;
+				// Appelé par UILayer quand le panel viewport change de taille
+				void ResizeFBO(nk_uint32 w, nk_uint32 h) noexcept;
 
-                // Connexions
-                NkEditorCamera*     mCamera = nullptr;
-                NkGizmoSystem*      mGizmos = nullptr;
-                NkSelectionManager* mSel    = nullptr;
-                ecs::NkWorld*       mWorld  = nullptr;
+				// ── État souris dans le viewport ──────────────────────────────────
+				// UILayer met à jour ces valeurs chaque frame
+				struct MouseState {
+						float32 x = 0, y = 0;	// position dans le viewport (pixels)
+						float32 dx = 0, dy = 0; // delta depuis frame précédente
+						float32 scroll = 0;
+						bool leftDown = false;
+						bool rightDown = false;
+						bool altDown = false;
+						bool isHovered = false; // souris dans le panel viewport
+				};
 
-                renderer::NkRenderScene mRenderScene;
-                MouseState              mMouse;
-        };
+				MouseState &GetMouseState() noexcept {
+					return mMouse;
+				}
 
-    } // namespace noge
+			private:
+				bool CreateFBO(nk_uint32 w, nk_uint32 h) noexcept;
+				void DestroyFBO() noexcept;
+				void RenderScene() noexcept;
+				void RenderGizmos() noexcept;
+
+				NkIDevice *mDevice = nullptr;
+				NkICommandBuffer *mCmd = nullptr;
+
+				nk_uint32 mVpWidth = 0;
+				nk_uint32 mVpHeight = 0;
+
+				NkTextureHandle mColorTarget;
+				NkTextureHandle mDepthTarget;
+				NkRenderPassHandle mRenderPass;
+				NkFramebufferHandle mFramebuffer;
+
+				// Connexions
+				NkEditorCamera *mCamera = nullptr;
+				NkGizmoSystem *mGizmos = nullptr;
+				NkSelectionManager *mSel = nullptr;
+				ecs::NkWorld *mWorld = nullptr;
+
+				renderer::NkRenderScene mRenderScene;
+				MouseState mMouse;
+		};
+
+	} // namespace noge
 } // namespace nkentseu

@@ -31,51 +31,60 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace pv3de {
+	namespace pv3de {
 
-        static constexpr nk_uint32 kMaxBlendshapes = 64;
+		static constexpr nk_uint32 kMaxBlendshapes = 64;
 
-        class NkBSDriver {
-        public:
-            NkBSDriver() = default;
-            ~NkBSDriver() noexcept { Shutdown(); }
+		class NkBSDriver {
+			public:
+				NkBSDriver() = default;
 
-            // ── Init / Shutdown ───────────────────────────────────────────────
-            bool Init(NkIDevice* device, nk_uint32 blendshapeCount) noexcept;
-            void Shutdown() noexcept;
+				~NkBSDriver() noexcept {
+					Shutdown();
+				}
 
-            // ── Upload ────────────────────────────────────────────────────────
-            // Copie les poids en CPU et marque dirty.
-            // Le vrai upload GPU se fait dans Flush().
-            void SetWeights(const nk_float32* weights, nk_uint32 count) noexcept;
-            void SetWeights(const NkVector<nk_float32>& weights) noexcept {
-                SetWeights(weights.Data(), (nk_uint32)weights.Size());
-            }
+				// ── Init / Shutdown ───────────────────────────────────────────────
+				bool Init(NkIDevice *device, nk_uint32 blendshapeCount) noexcept;
+				void Shutdown() noexcept;
 
-            // Upload GPU effectif — appelé une fois par frame avant le draw.
-            void Flush(NkICommandBuffer* cmd) noexcept;
+				// ── Upload ────────────────────────────────────────────────────────
+				// Copie les poids en CPU et marque dirty.
+				// Le vrai upload GPU se fait dans Flush().
+				void SetWeights(const nk_float32 *weights, nk_uint32 count) noexcept;
 
-            // ── Bind ──────────────────────────────────────────────────────────
-            // Lie le buffer au slot de binding 3 pour le shader Skin.vert
-            void Bind(NkICommandBuffer* cmd) noexcept;
-            void Unbind(NkICommandBuffer* cmd) noexcept;
+				void SetWeights(const NkVector<nk_float32> &weights) noexcept {
+					SetWeights(weights.Data(), (nk_uint32)weights.Size());
+				}
 
-            // ── Accès ─────────────────────────────────────────────────────────
-            nk_uint32 GetBlendshapeCount() const noexcept { return mCount; }
-            bool      IsDirty()            const noexcept { return mDirty; }
+				// Upload GPU effectif — appelé une fois par frame avant le draw.
+				void Flush(NkICommandBuffer *cmd) noexcept;
 
-        private:
-            NkIDevice*       mDevice  = nullptr;
-            nk_uint32        mCount   = 0;
-            bool             mDirty   = false;
+				// ── Bind ──────────────────────────────────────────────────────────
+				// Lie le buffer au slot de binding 3 pour le shader Skin.vert
+				void Bind(NkICommandBuffer *cmd) noexcept;
+				void Unbind(NkICommandBuffer *cmd) noexcept;
 
-            nk_float32       mWeightsCPU[kMaxBlendshapes] = {};
+				// ── Accès ─────────────────────────────────────────────────────────
+				nk_uint32 GetBlendshapeCount() const noexcept {
+					return mCount;
+				}
 
-            // Handle GPU — buffer contenant les poids (UBO ou SSBO selon le backend)
-            NkBufferHandle   mGPUBuffer;
+				bool IsDirty() const noexcept {
+					return mDirty;
+				}
 
-            static constexpr nk_uint32 kBindingSlot = 3;  // BS_WEIGHTS_BUFFER
-        };
+			private:
+				NkIDevice *mDevice = nullptr;
+				nk_uint32 mCount = 0;
+				bool mDirty = false;
 
-    } // namespace pv3de
+				nk_float32 mWeightsCPU[kMaxBlendshapes] = {};
+
+				// Handle GPU — buffer contenant les poids (UBO ou SSBO selon le backend)
+				NkBufferHandle mGPUBuffer;
+
+				static constexpr nk_uint32 kBindingSlot = 3; // BS_WEIGHTS_BUFFER
+		};
+
+	} // namespace pv3de
 } // namespace nkentseu

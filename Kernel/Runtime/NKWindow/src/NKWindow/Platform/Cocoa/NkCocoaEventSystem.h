@@ -9,11 +9,10 @@
 
 namespace nkentseu {
 
-    struct NkEventSystemData {
-        bool mInitialized = false;
-    };
+	struct NkEventSystemData {
+			bool mInitialized = false;
+	};
 
 } // namespace nkentseu
 
 #endif // NKENTSEU_PLATFORM_MACOS
-

@@ -29,87 +29,105 @@
 using namespace nkentseu::math;
 
 namespace nkentseu {
-    namespace pv3de {
+	namespace pv3de {
 
-        class PatientLayer : public nkentseu::Layer {
-        public:
-            PatientLayer(const NkString& name,
-                         NkIDevice* device,
-                         NkICommandBuffer* cmd) noexcept;
-            ~PatientLayer() override;
+		class PatientLayer : public nkentseu::Layer {
+			public:
+				PatientLayer(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd) noexcept;
+				~PatientLayer() override;
 
-            void OnAttach()                       override;
-            void OnDetach()                       override;
-            void OnUpdate(nk_float32 dt)          override;
-            void OnRender()                       override;
-            bool OnEvent(nkentseu::NkEvent* e)    override;
+				void OnAttach() override;
+				void OnDetach() override;
+				void OnUpdate(nk_float32 dt) override;
+				void OnRender() override;
+				bool OnEvent(nkentseu::NkEvent *e) override;
 
-            // ── API clinique ──────────────────────────────────────────────────
-            void AddSymptom   (NkSymptomId id)   { mDiagnostic.AddSymptom(id);    }
-            void RemoveSymptom(NkSymptomId id)    { mDiagnostic.RemoveSymptom(id); }
-            void ClearSymptoms()                  { mDiagnostic.ClearSymptoms();   }
-            void SetVitalSigns(nk_float32 hr,
-                               nk_float32 temp,
-                               nk_float32 spo2)  { mDiagnostic.SetVitalSigns(hr, temp, spo2); }
-            void ForceEmotion(EmotionState state,
-                              nk_float32 intensity = 1.f) {
-                mEmotionFSM.ForceState(state, intensity);
-            }
+				// ── API clinique ──────────────────────────────────────────────────
+				void AddSymptom(NkSymptomId id) {
+					mDiagnostic.AddSymptom(id);
+				}
 
-            // ── Parole ────────────────────────────────────────────────────────
-            void Speak(const char* text) noexcept;
-            void AnswerQuestion(const char* question) noexcept;
+				void RemoveSymptom(NkSymptomId id) {
+					mDiagnostic.RemoveSymptom(id);
+				}
 
-            // ── Cas cliniques ─────────────────────────────────────────────────
-            bool LoadCase(const char* nkcasePath) noexcept;
-            void StartCase() noexcept;
-            void StopCase()  noexcept;
+				void ClearSymptoms() {
+					mDiagnostic.ClearSymptoms();
+				}
 
-            // ── Renderer ──────────────────────────────────────────────────────
-            void SetCamera(const NkMat4f& viewProj,
-                           const NkMat4f& model,
-                           const NkVec3f& camPos) noexcept;
+				void SetVitalSigns(nk_float32 hr, nk_float32 temp, nk_float32 spo2) {
+					mDiagnostic.SetVitalSigns(hr, temp, spo2);
+				}
 
-            // Texture FBO du patient (pour MedicalUILayer)
-            NkTextureHandle GetPatientFBO() const noexcept { return mPatientFBO; }
+				void ForceEmotion(EmotionState state, nk_float32 intensity = 1.f) {
+					mEmotionFSM.ForceState(state, intensity);
+				}
 
-            // ── Accès état courant ────────────────────────────────────────────
-            const NkClinicalState&  GetClinicalState()    const { return mClinicalState; }
-            const NkEmotionOutput&  GetEmotionOutput()    const { return mEmotionFSM.GetOutput(); }
-            const NkFaceController& GetFaceController()   const { return mFaceController; }
-            const NkDiagnosticEngine& GetDiagnosticEngine() const { return mDiagnostic; }
+				// ── Parole ────────────────────────────────────────────────────────
+				void Speak(const char *text) noexcept;
+				void AnswerQuestion(const char *question) noexcept;
 
-        private:
-            void SetupRenderer() noexcept;
-            void DispatchCaseEvent(const NkCaseEvent& ev) noexcept;
+				// ── Cas cliniques ─────────────────────────────────────────────────
+				bool LoadCase(const char *nkcasePath) noexcept;
+				void StartCase() noexcept;
+				void StopCase() noexcept;
 
-            NkIDevice*        mDevice = nullptr;
-            NkICommandBuffer* mCmd    = nullptr;
+				// ── Renderer ──────────────────────────────────────────────────────
+				void SetCamera(const NkMat4f &viewProj, const NkMat4f &model, const NkVec3f &camPos) noexcept;
 
-            // ── Sous-systèmes ─────────────────────────────────────────────────
-            NkDiagnosticEngine  mDiagnostic;
-            NkClinicalState     mClinicalState;
-            NkEmotionFSM        mEmotionFSM;
-            NkFaceController    mFaceController;
-            NkBodyController    mBodyController;
-            NkBreathController  mBreathController;
-            NkSpeechEngine      mSpeechEngine;
-            NkPatientRenderer   mRenderer;
+				// Texture FBO du patient (pour MedicalUILayer)
+				NkTextureHandle GetPatientFBO() const noexcept {
+					return mPatientFBO;
+				}
 
-            // ── Cas clinique ──────────────────────────────────────────────────
-            NkCaseLoader  mCaseLoader;
-            NkCaseData    mCurrentCase;
-            NkCaseRunner  mCaseRunner;
-            bool          mCaseLoaded = false;
+				// ── Accès état courant ────────────────────────────────────────────
+				const NkClinicalState &GetClinicalState() const {
+					return mClinicalState;
+				}
 
-            // ── Camera ────────────────────────────────────────────────────────
-            NkMat4f mViewProj = NkMat4f::Identity();
-            NkMat4f mModel    = NkMat4f::Identity();
-            NkVec3f mCamPos   = {0.f, 1.f, 3.f};
+				const NkEmotionOutput &GetEmotionOutput() const {
+					return mEmotionFSM.GetOutput();
+				}
 
-            // FBO viewport patient (injecté dans MedicalUILayer)
-            NkTextureHandle mPatientFBO;
-        };
+				const NkFaceController &GetFaceController() const {
+					return mFaceController;
+				}
 
-    } // namespace pv3de
+				const NkDiagnosticEngine &GetDiagnosticEngine() const {
+					return mDiagnostic;
+				}
+
+			private:
+				void SetupRenderer() noexcept;
+				void DispatchCaseEvent(const NkCaseEvent &ev) noexcept;
+
+				NkIDevice *mDevice = nullptr;
+				NkICommandBuffer *mCmd = nullptr;
+
+				// ── Sous-systèmes ─────────────────────────────────────────────────
+				NkDiagnosticEngine mDiagnostic;
+				NkClinicalState mClinicalState;
+				NkEmotionFSM mEmotionFSM;
+				NkFaceController mFaceController;
+				NkBodyController mBodyController;
+				NkBreathController mBreathController;
+				NkSpeechEngine mSpeechEngine;
+				NkPatientRenderer mRenderer;
+
+				// ── Cas clinique ──────────────────────────────────────────────────
+				NkCaseLoader mCaseLoader;
+				NkCaseData mCurrentCase;
+				NkCaseRunner mCaseRunner;
+				bool mCaseLoaded = false;
+
+				// ── Camera ────────────────────────────────────────────────────────
+				NkMat4f mViewProj = NkMat4f::Identity();
+				NkMat4f mModel = NkMat4f::Identity();
+				NkVec3f mCamPos = {0.f, 1.f, 3.f};
+
+				// FBO viewport patient (injecté dans MedicalUILayer)
+				NkTextureHandle mPatientFBO;
+		};
+
+	} // namespace pv3de
 } // namespace nkentseu

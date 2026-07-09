@@ -20,106 +20,129 @@
 
 namespace nkentseu {
 
-    class NkWindow;
+	class NkWindow;
 
-    // ---------------------------------------------------------------------------
-    // NkAppData
-    // ---------------------------------------------------------------------------
+	// ---------------------------------------------------------------------------
+	// NkAppData
+	// ---------------------------------------------------------------------------
 
-    struct NkAppData {
-        bool            enableRendererDebug = false;
-        bool            enableEventLogging  = false;
-        NkString        appName             = "NkApp";
-        NkString        appVersion          = "1.0.0";
-        bool            enableMultiWindow   = true;
-        void*           userData            = nullptr;
-    };
+	struct NkAppData {
+			bool enableRendererDebug = false;
+			bool enableEventLogging = false;
+			NkString appName = "NkApp";
+			NkString appVersion = "1.0.0";
+			bool enableMultiWindow = true;
+			void *userData = nullptr;
+	};
 
-    // ---------------------------------------------------------------------------
-    // NkWESystem â€” cycle de vie global + registre des fenÃªtres
-    // ---------------------------------------------------------------------------
+	// ---------------------------------------------------------------------------
+	// NkWESystem â€” cycle de vie global + registre des fenÃªtres
+	// ---------------------------------------------------------------------------
 
-    class NkWESystem {
-        public:
-            NkWESystem()  = default;
-            ~NkWESystem() = default;
+	class NkWESystem {
+		public:
+			NkWESystem() = default;
+			~NkWESystem() = default;
 
-            NkWESystem(const NkWESystem&)            = delete;
-            NkWESystem& operator=(const NkWESystem&) = delete;
+			NkWESystem(const NkWESystem &) = delete;
+			NkWESystem &operator=(const NkWESystem &) = delete;
 
-            static NkWESystem& Instance();
+			static NkWESystem &Instance();
 
-            // --- Cycle de vie ---
-            // Point 6 : OleInitialize est appelÃ© ici une seule fois pour tout
-            // le processus, avant toute crÃ©ation de fenÃªtre ou de DropTarget.
-            bool Initialise(const NkAppData& data = {});
-            void Close();
+			// --- Cycle de vie ---
+			// Point 6 : OleInitialize est appelÃ© ici une seule fois pour tout
+			// le processus, avant toute crÃ©ation de fenÃªtre ou de DropTarget.
+			bool Initialise(const NkAppData &data = {});
+			void Close();
 
-            bool             IsInitialised() const { return mInitialised; }
-            const NkAppData& GetAppData()    const { return mAppData; }
+			bool IsInitialised() const {
+				return mInitialised;
+			}
 
-            // --- AccÃ¨s Ã  NkEventSystem ---
-            // NkEventSystem n'est plus un singleton autoproclamÃ©.
-            // Tout le code interne et externe passe par ici.
-            NkEventSystem&       GetEventSystem()       { return mEventSystem; }
-            const NkEventSystem& GetEventSystem() const { return mEventSystem; }
+			const NkAppData &GetAppData() const {
+				return mAppData;
+			}
 
-            // Raccourci statique identique Ã  l'ancien NkEvents()
-            static NkEventSystem& Events() { return Instance().GetEventSystem(); }
+			// --- AccÃ¨s Ã  NkEventSystem ---
+			// NkEventSystem n'est plus un singleton autoproclamÃ©.
+			// Tout le code interne et externe passe par ici.
+			NkEventSystem &GetEventSystem() {
+				return mEventSystem;
+			}
 
-            // --- AccÃ¨s Ã  NkGamepadSystem (CORRECTION 1 â€” plus de singleton sÃ©parÃ©) ---
-            NkGamepadSystem&       GetGamepadSystem()       { return mGamepadSystem; }
-            const NkGamepadSystem& GetGamepadSystem() const { return mGamepadSystem; }
-            static NkGamepadSystem& Gamepads() { return Instance().GetGamepadSystem(); }
+			const NkEventSystem &GetEventSystem() const {
+				return mEventSystem;
+			}
 
-            // --- Registre des fenÃªtres ---
-            NkWindowId RegisterWindow(NkWindow* win);
-            void       UnregisterWindow(NkWindowId id);
-            NkWindow*  GetWindow(NkWindowId id) const;
-            uint32      GetWindowCount() const { return static_cast<uint32>(mWindows.Size()); }
-            NkWindow*  GetWindowAt(uint32 index) const;
+			// Raccourci statique identique Ã  l'ancien NkEvents()
+			static NkEventSystem &Events() {
+				return Instance().GetEventSystem();
+			}
 
-        private:
-            bool          mInitialised = false;
-            NkAppData     mAppData;
+			// --- AccÃ¨s Ã  NkGamepadSystem (CORRECTION 1 â€” plus de singleton sÃ©parÃ©) ---
+			NkGamepadSystem &GetGamepadSystem() {
+				return mGamepadSystem;
+			}
 
-            // NkEventSystem possÃ©dÃ© par NkWESystem â€” plus de Meyer's singleton sÃ©parÃ©
-            NkEventSystem    mEventSystem;
+			const NkGamepadSystem &GetGamepadSystem() const {
+				return mGamepadSystem;
+			}
 
-            // NkGamepadSystem possÃ©dÃ© par NkWESystem (CORRECTION 1 â€” plus de singleton)
-            NkGamepadSystem  mGamepadSystem;
+			static NkGamepadSystem &Gamepads() {
+				return Instance().GetGamepadSystem();
+			}
 
-            // Registre des fenÃªtres
-            NkUnorderedMap<NkWindowId, NkWindow*> mWindows;
-            NkWindowId                                 mNextWindowId = 1;
+			// --- Registre des fenÃªtres ---
+			NkWindowId RegisterWindow(NkWindow *win);
+			void UnregisterWindow(NkWindowId id);
+			NkWindow *GetWindow(NkWindowId id) const;
 
-        #if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
-            // Point 6 : flag indiquant si OleInitialize a Ã©tÃ© appelÃ© par NkWESystem
-            bool mOleInitialised = false;
-        #endif
-    };
+			uint32 GetWindowCount() const {
+				return static_cast<uint32>(mWindows.Size());
+			}
 
-    // ---------------------------------------------------------------------------
-    // Fonctions globales de commoditÃ©
-    // ---------------------------------------------------------------------------
+			NkWindow *GetWindowAt(uint32 index) const;
 
-    inline bool NkInitialise(const NkAppData& data = {}) {
-        return NkWESystem::Instance().Initialise(data);
-    }
+		private:
+			bool mInitialised = false;
+			NkAppData mAppData;
 
-    inline void NkClose() {
-        NkWESystem::Instance().Close();
-    }
+			// NkEventSystem possÃ©dÃ© par NkWESystem â€” plus de Meyer's singleton sÃ©parÃ©
+			NkEventSystem mEventSystem;
 
-    // ConservÃ© pour compatibilitÃ© â€” dÃ©lÃ¨gue Ã  NkWESystem::Events()
-    inline NkEventSystem& NkEvents() {
-        return NkWESystem::Events();
-    }
+			// NkGamepadSystem possÃ©dÃ© par NkWESystem (CORRECTION 1 â€” plus de singleton)
+			NkGamepadSystem mGamepadSystem;
 
-    // CORRECTION 1 : NkGamepads() dÃ©lÃ¨gue Ã  NkWESystem::Gamepads() (plus de singleton)
-    inline NkGamepadSystem& NkGamepads() {
-        return NkWESystem::Gamepads();
-    }
+			// Registre des fenÃªtres
+			NkUnorderedMap<NkWindowId, NkWindow *> mWindows;
+			NkWindowId mNextWindowId = 1;
+
+#if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
+			// Point 6 : flag indiquant si OleInitialize a Ã©tÃ© appelÃ© par NkWESystem
+			bool mOleInitialised = false;
+#endif
+	};
+
+	// ---------------------------------------------------------------------------
+	// Fonctions globales de commoditÃ©
+	// ---------------------------------------------------------------------------
+
+	inline bool NkInitialise(const NkAppData &data = {}) {
+		return NkWESystem::Instance().Initialise(data);
+	}
+
+	inline void NkClose() {
+		NkWESystem::Instance().Close();
+	}
+
+	// ConservÃ© pour compatibilitÃ© â€” dÃ©lÃ¨gue Ã  NkWESystem::Events()
+	inline NkEventSystem &NkEvents() {
+		return NkWESystem::Events();
+	}
+
+	// CORRECTION 1 : NkGamepads() dÃ©lÃ¨gue Ã  NkWESystem::Gamepads() (plus de singleton)
+	inline NkGamepadSystem &NkGamepads() {
+		return NkWESystem::Gamepads();
+	}
 
 } // namespace nkentseu
-

@@ -31,98 +31,90 @@
 using namespace nkentseu::math;
 
 namespace nkentseu {
-    namespace pv3de {
+	namespace pv3de {
 
-        struct NkPatientRenderConfig {
-            // Chemins des ressources
-            const char* bodyMeshPath    = "Assets/Meshes/patient_body.nkmesh";
-            const char* eyeMeshPath     = "Assets/Meshes/patient_eyes.nkmesh";
-            const char* albedoPath      = "Assets/Textures/skin_albedo.png";
-            const char* normalMapPath   = "Assets/Textures/skin_normal.png";
-            const char* ormMapPath      = "Assets/Textures/skin_orm.png";
-            const char* sssMapPath      = "Assets/Textures/skin_sss.png";
-            const char* emissivePath    = "Assets/Textures/skin_emissive.png";
-            const char* scleraPath      = "Assets/Textures/eye_sclera.png";
-            const char* irisDetailPath  = "Assets/Textures/eye_iris.png";
+		struct NkPatientRenderConfig {
+				// Chemins des ressources
+				const char *bodyMeshPath = "Assets/Meshes/patient_body.nkmesh";
+				const char *eyeMeshPath = "Assets/Meshes/patient_eyes.nkmesh";
+				const char *albedoPath = "Assets/Textures/skin_albedo.png";
+				const char *normalMapPath = "Assets/Textures/skin_normal.png";
+				const char *ormMapPath = "Assets/Textures/skin_orm.png";
+				const char *sssMapPath = "Assets/Textures/skin_sss.png";
+				const char *emissivePath = "Assets/Textures/skin_emissive.png";
+				const char *scleraPath = "Assets/Textures/eye_sclera.png";
+				const char *irisDetailPath = "Assets/Textures/eye_iris.png";
 
-            nk_uint32 blendshapeCount = 64;
-        };
+				nk_uint32 blendshapeCount = 64;
+		};
 
-        class NkPatientRenderer {
-        public:
-            NkPatientRenderer() = default;
-            ~NkPatientRenderer() noexcept { Shutdown(); }
+		class NkPatientRenderer {
+			public:
+				NkPatientRenderer() = default;
 
-            // ── Init / Shutdown ───────────────────────────────────────────────
-            bool Init(NkIDevice* device,
-                      NkICommandBuffer* cmd,
-                      const NkPatientRenderConfig& config) noexcept;
-            void Shutdown() noexcept;
+				~NkPatientRenderer() noexcept {
+					Shutdown();
+				}
 
-            // ── Update depuis les sous-systèmes PV3DE ─────────────────────────
-            // Appelé depuis PatientLayer::OnRender() avant Draw()
-            void UpdateFromSystems(const NkFaceController& face,
-                                   const NkBodyController& body,
-                                   const NkClinicalState&  clinical) noexcept;
+				// ── Init / Shutdown ───────────────────────────────────────────────
+				bool Init(NkIDevice *device, NkICommandBuffer *cmd, const NkPatientRenderConfig &config) noexcept;
+				void Shutdown() noexcept;
 
-            // ── Rendu ─────────────────────────────────────────────────────────
-            void Draw(NkICommandBuffer* cmd,
-                      const NkMat4f& viewProj,
-                      const NkMat4f& model,
-                      const NkVec3f& cameraPos) noexcept;
+				// ── Update depuis les sous-systèmes PV3DE ─────────────────────────
+				// Appelé depuis PatientLayer::OnRender() avant Draw()
+				void UpdateFromSystems(const NkFaceController &face, const NkBodyController &body,
+									   const NkClinicalState &clinical) noexcept;
 
-            // ── Accesseurs ────────────────────────────────────────────────────
-            bool IsReady() const noexcept { return mReady; }
+				// ── Rendu ─────────────────────────────────────────────────────────
+				void Draw(NkICommandBuffer *cmd, const NkMat4f &viewProj, const NkMat4f &model,
+						  const NkVec3f &cameraPos) noexcept;
 
-        private:
-            void DrawBody(NkICommandBuffer* cmd,
-                          const NkMat4f& viewProj,
-                          const NkMat4f& model,
-                          const NkVec3f& cameraPos) noexcept;
+				// ── Accesseurs ────────────────────────────────────────────────────
+				bool IsReady() const noexcept {
+					return mReady;
+				}
 
-            void DrawEyes(NkICommandBuffer* cmd,
-                          const NkMat4f& viewProj,
-                          const NkMat4f& model,
-                          const NkVec3f& cameraPos) noexcept;
+			private:
+				void DrawBody(NkICommandBuffer *cmd, const NkMat4f &viewProj, const NkMat4f &model,
+							  const NkVec3f &cameraPos) noexcept;
 
-            void UploadSkinUniforms(NkICommandBuffer* cmd,
-                                    const NkMat4f& viewProj,
-                                    const NkMat4f& model,
-                                    const NkVec3f& cameraPos) noexcept;
+				void DrawEyes(NkICommandBuffer *cmd, const NkMat4f &viewProj, const NkMat4f &model,
+							  const NkVec3f &cameraPos) noexcept;
 
-            void UploadEyeUniforms (NkICommandBuffer* cmd,
-                                    const NkMat4f& viewProj,
-                                    const NkMat4f& model,
-                                    const NkVec3f& cameraPos) noexcept;
+				void UploadSkinUniforms(NkICommandBuffer *cmd, const NkMat4f &viewProj, const NkMat4f &model,
+										const NkVec3f &cameraPos) noexcept;
 
-            NkIDevice*        mDevice = nullptr;
-            bool              mReady  = false;
+				void UploadEyeUniforms(NkICommandBuffer *cmd, const NkMat4f &viewProj, const NkMat4f &model,
+									   const NkVec3f &cameraPos) noexcept;
 
-            NkBSDriver        mBSDriver;
+				NkIDevice *mDevice = nullptr;
+				bool mReady = false;
 
-            // GPU resources
-            NkShaderHandle    mSkinShader;
-            NkShaderHandle    mEyeShader;
-            NkMeshHandle      mBodyMesh;
-            NkMeshHandle      mEyeMesh;
-            NkTextureHandle   mAlbedo, mNormal, mORM, mSSS, mEmissive;
-            NkTextureHandle   mSclera, mIrisDetail;
+				NkBSDriver mBSDriver;
 
-            // Paramètres shaders courants (mis à jour depuis UpdateFromSystems)
-            struct SkinParams {
-                NkVec4f skinTint        = {1,1,1,1};
-                float   sssStrength     = 0.35f;
-                float   emissiveStrength= 1.f;
-            } mSkinParams;
+				// GPU resources
+				NkShaderHandle mSkinShader;
+				NkShaderHandle mEyeShader;
+				NkMeshHandle mBodyMesh;
+				NkMeshHandle mEyeMesh;
+				NkTextureHandle mAlbedo, mNormal, mORM, mSSS, mEmissive;
+				NkTextureHandle mSclera, mIrisDetail;
 
-            struct EyeParams {
-                float   pupilDiameter   = 0.35f;
-                float   scleraRedness   = 0.f;
-                float   eyeWetness      = 1.f;
-                float   gazeOffsetX     = 0.f;
-                float   gazeOffsetY     = 0.f;
-            } mEyeParams;
-        };
+				// Paramètres shaders courants (mis à jour depuis UpdateFromSystems)
+				struct SkinParams {
+						NkVec4f skinTint = {1, 1, 1, 1};
+						float sssStrength = 0.35f;
+						float emissiveStrength = 1.f;
+				} mSkinParams;
 
-    } // namespace pv3de
+				struct EyeParams {
+						float pupilDiameter = 0.35f;
+						float scleraRedness = 0.f;
+						float eyeWetness = 1.f;
+						float gazeOffsetX = 0.f;
+						float gazeOffsetY = 0.f;
+				} mEyeParams;
+		};
+
+	} // namespace pv3de
 } // namespace nkentseu

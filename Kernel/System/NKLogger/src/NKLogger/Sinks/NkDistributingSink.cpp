@@ -24,7 +24,6 @@
 #include "NKThreading/NkMutex.h"
 #include "NKThreading/NkScopedLock.h"
 
-
 // -------------------------------------------------------------------------
 // SECTION 1 : NAMESPACE PRINCIPAL - IMPLÉMENTATIONS DES MÉTHODES
 // -------------------------------------------------------------------------
@@ -32,7 +31,6 @@
 // Aucune macro NKENTSEU_LOGGER_API : export hérité de la déclaration de classe.
 
 namespace nkentseu {
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Constructeur par défaut
@@ -44,19 +42,15 @@ namespace nkentseu {
 		// Aucun état supplémentaire requis : objet prêt à l'emploi immédiat
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Constructeur avec liste initiale
 	// DESCRIPTION : Initialisation avec copie des shared_ptr fournis
 	// -------------------------------------------------------------------------
-	NkDistributingSink::NkDistributingSink(
-		const NkVector<memory::NkSharedPtr<NkISink>>& sinks
-	) : m_Sinks(sinks) {
+	NkDistributingSink::NkDistributingSink(const NkVector<memory::NkSharedPtr<NkISink>> &sinks) : m_Sinks(sinks) {
 		// Copie des shared_ptr : incrémentation des refcount des sinks fournis
 		// Ownership partagé : les sinks peuvent être utilisés ailleurs simultanément
 		// Thread-safe : construction sans verrouillage requis (premier accès)
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Destructeur
@@ -68,12 +62,11 @@ namespace nkentseu {
 		// Mutex m_Mutex détruit automatiquement après vidage de m_Sinks
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Log
 	// DESCRIPTION : Distribution broadcast du message à tous les sous-sinks valides
 	// -------------------------------------------------------------------------
-	void NkDistributingSink::Log(const NkLogMessage& message) {
+	void NkDistributingSink::Log(const NkLogMessage &message) {
 		// Filtrage précoce : éviter toute distribution si message ignoré globalement
 		if (!IsEnabled() || !ShouldLog(message.level)) {
 			return;
@@ -83,7 +76,7 @@ namespace nkentseu {
 		threading::NkScopedLock lock(m_Mutex);
 
 		// Distribution à chaque sous-sink non-null individuellement
-		for (auto& sink : m_Sinks) {
+		for (auto &sink : m_Sinks) {
 			// Vérification de validité : ignorer silencieusement les entries null
 			if (sink) {
 				// Appel de Log() sur le sous-sink : filtrage local appliqué si configuré
@@ -91,7 +84,6 @@ namespace nkentseu {
 			}
 		}
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Flush
@@ -102,7 +94,7 @@ namespace nkentseu {
 		threading::NkScopedLock lock(m_Mutex);
 
 		// Propagation à chaque sous-sink non-null individuellement
-		for (auto& sink : m_Sinks) {
+		for (auto &sink : m_Sinks) {
 			// Vérification de validité : ignorer silencieusement les entries null
 			if (sink) {
 				// Appel de Flush() sur le sous-sink : persistance garantie si supporté
@@ -110,7 +102,6 @@ namespace nkentseu {
 			}
 		}
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetFormatter
@@ -121,7 +112,7 @@ namespace nkentseu {
 		threading::NkScopedLock lock(m_Mutex);
 
 		// Propagation via clonage : chaque sink reçoit une copie indépendante
-		for (auto& sink : m_Sinks) {
+		for (auto &sink : m_Sinks) {
 			// Vérification de validité du sink et du formatter source
 			if (sink && formatter) {
 				// Clonage via le pattern : création d'un nouveau formatter avec même configuration
@@ -133,29 +124,27 @@ namespace nkentseu {
 		}
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetPattern
 	// DESCRIPTION : Propagation directe du pattern à tous les sous-sinks
 	// -------------------------------------------------------------------------
-	void NkDistributingSink::SetPattern(const NkString& pattern) {
+	void NkDistributingSink::SetPattern(const NkString &pattern) {
 		// Acquisition du mutex pour itération thread-safe sur m_Sinks
 		threading::NkScopedLock lock(m_Mutex);
 
 		// Propagation directe : appel de SetPattern() sur chaque sous-sink non-null
-		for (auto& sink : m_Sinks) {
+		for (auto &sink : m_Sinks) {
 			if (sink) {
 				sink->SetPattern(pattern);
 			}
 		}
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetFormatter
 	// DESCRIPTION : Retour du formatter du premier sous-sink non-null (convenance)
 	// -------------------------------------------------------------------------
-	NkLoggerFormatter* NkDistributingSink::GetFormatter() const {
+	NkLoggerFormatter *NkDistributingSink::GetFormatter() const {
 		// Acquisition du mutex pour lecture protégée de m_Sinks
 		threading::NkScopedLock lock(m_Mutex);
 
@@ -166,7 +155,6 @@ namespace nkentseu {
 
 		return nullptr;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetPattern
@@ -184,7 +172,6 @@ namespace nkentseu {
 		return NkString{};
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : AddSink
 	// DESCRIPTION : Ajout thread-safe d'un sous-sink à la collection
@@ -201,7 +188,6 @@ namespace nkentseu {
 		// Ajout en fin de collection : ordre d'insertion préservé pour distribution
 		m_Sinks.PushBack(sink);
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : RemoveSink
@@ -222,11 +208,10 @@ namespace nkentseu {
 			if (m_Sinks[index].Get() == sink.Get()) {
 				// Suppression de l'entry : décrémentation automatique du refcount
 				m_Sinks.Erase(m_Sinks.Begin() + static_cast<ptrdiff_t>(index));
-				return;  // Sortie après première occurrence trouvée
+				return; // Sortie après première occurrence trouvée
 			}
 		}
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : ClearSinks
@@ -240,7 +225,6 @@ namespace nkentseu {
 		m_Sinks.Clear();
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetSinks
 	// DESCRIPTION : Retour d'une copie de la collection pour itération hors lock
@@ -253,7 +237,6 @@ namespace nkentseu {
 		return m_Sinks;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetSinkCount
 	// DESCRIPTION : Retour du nombre courant de sous-sinks (lecture thread-safe)
@@ -265,7 +248,6 @@ namespace nkentseu {
 		// Retour de la taille courante de la collection
 		return m_Sinks.Size();
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : ContainsSink
@@ -281,10 +263,10 @@ namespace nkentseu {
 		threading::NkScopedLock lock(m_Mutex);
 
 		// Recherche linéaire par comparaison d'adresse pointeur (Get())
-		for (const auto& currentSink : m_Sinks) {
+		for (const auto &currentSink : m_Sinks) {
 			// Comparaison par adresse : deux shared_ptr vers même objet = égal
 			if (currentSink.Get() == sink.Get()) {
-				return true;  // Trouvé : retour immédiat
+				return true; // Trouvé : retour immédiat
 			}
 		}
 
@@ -292,9 +274,7 @@ namespace nkentseu {
 		return false;
 	}
 
-
 } // namespace nkentseu
-
 
 // =============================================================================
 // NOTES D'IMPLÉMENTATION ET BONNES PRATIQUES
@@ -346,7 +326,6 @@ namespace nkentseu {
 	   - Valider le thread-safety avec tests concurrents (TSan, helgrind, etc.)
 	   - Benchmarking : mesurer l'overhead de distribution vs sink unique pour différents n
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

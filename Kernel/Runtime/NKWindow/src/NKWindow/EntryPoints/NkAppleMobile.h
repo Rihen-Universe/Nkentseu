@@ -22,7 +22,7 @@
  * @brief Namespace nkentseu.
  */
 namespace nkentseu {
-NkEntryState *gState = nullptr;
+	NkEntryState *gState = nullptr;
 }
 
 // Stockage global des args pour la durée de vie de l'app
@@ -33,6 +33,7 @@ static nkentseu::NkVector<nkentseu::NkString> g_apple_mobile_args;
 @end
 
 @implementation NkAppDelegate
+
 - (BOOL)application:(UIApplication *)app didFinishLaunchingWithOptions:(NSDictionary *)options {
 	if (!nkentseu::NkEntryRuntimeInit(NK_APP_NAME)) {
 		return NO;
@@ -49,6 +50,7 @@ static nkentseu::NkVector<nkentseu::NkString> g_apple_mobile_args;
 	(void)application;
 	nkentseu::NkEntryRuntimeShutdown(true);
 }
+
 @end
 
 int main(int argc, char *argv[]) {

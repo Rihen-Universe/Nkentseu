@@ -28,69 +28,84 @@
 #include "NKECS/Scene/NkSceneGraph.h"
 
 namespace nkentseu {
-    namespace noge {
+	namespace noge {
 
-        class EditorLayer : public Layer {
-        public:
-            EditorLayer(const NkString& name,
-                        NkIDevice* device,
-                        NkICommandBuffer* cmd) noexcept;
-            ~EditorLayer() override;
+		class EditorLayer : public Layer {
+			public:
+				EditorLayer(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd) noexcept;
+				~EditorLayer() override;
 
-            void OnAttach()               override;
-            void OnDetach()               override;
-            void OnUpdate(float dt)       override;
-            void OnFixedUpdate(float fdt) override;
-            bool OnEvent(NkEvent* event)  override;
+				void OnAttach() override;
+				void OnDetach() override;
+				void OnUpdate(float dt) override;
+				void OnFixedUpdate(float fdt) override;
+				bool OnEvent(NkEvent *event) override;
 
-            // ── Accesseurs pour UILayer / ViewportLayer ───────────────────────
-            NkSelectionManager& GetSelectionManager() noexcept { return mSel; }
-            CommandHistory&     GetHistory()          noexcept { return mHistory; }
-            ProjectManager&     GetProjectManager()   noexcept { return mProject; }
-            AssetManager&       GetAssetManager()     noexcept { return mAssets; }
-            NkGizmoSystem&      GetGizmoSystem()      noexcept { return mGizmos; }
+				// ── Accesseurs pour UILayer / ViewportLayer ───────────────────────
+				NkSelectionManager &GetSelectionManager() noexcept {
+					return mSel;
+				}
 
-            // ── Connexion à la scène active ───────────────────────────────────
-            void SetScene(ecs::NkWorld* world, ecs::NkSceneGraph* scene) noexcept {
-                mWorld = world;
-                mScene = scene;
-            }
+				CommandHistory &GetHistory() noexcept {
+					return mHistory;
+				}
 
-            // ── Mode play/pause éditeur ───────────────────────────────────────
-            bool IsPlaying()  const noexcept { return mPlaying; }
-            void Play()  noexcept;
-            void Stop()  noexcept;
-            void Pause() noexcept;
+				ProjectManager &GetProjectManager() noexcept {
+					return mProject;
+				}
 
-            // ── Raccourcis clavier ────────────────────────────────────────────
-            // W/E/R → mode gizmo Translate/Rotate/Scale
-            // Ctrl+Z → Undo, Ctrl+Y → Redo
-            // Ctrl+S → Save projet
-            // F5     → Play/Stop
-            // Delete → Supprimer l'entité sélectionnée
+				AssetManager &GetAssetManager() noexcept {
+					return mAssets;
+				}
 
-        private:
-            void HandleShortcuts(const NkKeyPressEvent* kp) noexcept;
-            void DeleteSelectedEntity() noexcept;
+				NkGizmoSystem &GetGizmoSystem() noexcept {
+					return mGizmos;
+				}
 
-            NkIDevice*        mDevice = nullptr;
-            NkICommandBuffer* mCmd    = nullptr;
+				// ── Connexion à la scène active ───────────────────────────────────
+				void SetScene(ecs::NkWorld *world, ecs::NkSceneGraph *scene) noexcept {
+					mWorld = world;
+					mScene = scene;
+				}
 
-            NkSelectionManager mSel;
-            CommandHistory     mHistory;
-            ProjectManager     mProject;
-            AssetManager       mAssets;
-            NkGizmoSystem      mGizmos;
+				// ── Mode play/pause éditeur ───────────────────────────────────────
+				bool IsPlaying() const noexcept {
+					return mPlaying;
+				}
 
-            ecs::NkWorld*     mWorld  = nullptr;
-            ecs::NkSceneGraph* mScene = nullptr;
+				void Play() noexcept;
+				void Stop() noexcept;
+				void Pause() noexcept;
 
-            bool mPlaying = false;
-            float mHotReloadTimer = 0.f;
+				// ── Raccourcis clavier ────────────────────────────────────────────
+				// W/E/R → mode gizmo Translate/Rotate/Scale
+				// Ctrl+Z → Undo, Ctrl+Y → Redo
+				// Ctrl+S → Save projet
+				// F5     → Play/Stop
+				// Delete → Supprimer l'entité sélectionnée
 
-            // Souscriptions EventBus
-            NkEventHandlerId mSelChangedId = NK_INVALID_HANDLER_ID;
-        };
+			private:
+				void HandleShortcuts(const NkKeyPressEvent *kp) noexcept;
+				void DeleteSelectedEntity() noexcept;
 
-    } // namespace noge
+				NkIDevice *mDevice = nullptr;
+				NkICommandBuffer *mCmd = nullptr;
+
+				NkSelectionManager mSel;
+				CommandHistory mHistory;
+				ProjectManager mProject;
+				AssetManager mAssets;
+				NkGizmoSystem mGizmos;
+
+				ecs::NkWorld *mWorld = nullptr;
+				ecs::NkSceneGraph *mScene = nullptr;
+
+				bool mPlaying = false;
+				float mHotReloadTimer = 0.f;
+
+				// Souscriptions EventBus
+				NkEventHandlerId mSelChangedId = NK_INVALID_HANDLER_ID;
+		};
+
+	} // namespace noge
 } // namespace nkentseu

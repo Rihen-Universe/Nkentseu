@@ -19,49 +19,47 @@
 #include "Pong/UI/Scene.h"
 #include "Pong/Game/GameTypes.h"
 
-namespace nkentseu
-{
-    namespace pong
-    {
+namespace nkentseu {
+	namespace pong {
 
-        class SelectModeScene : public Scene
-        {
-        public:
-            // 4 modes ordonnes (correspondent aux GameMode). PUBLIC car
-            // referencer depuis tables namespace dans le .cpp.
-            static constexpr int kModeCount = 4;
+		class SelectModeScene : public Scene {
+			public:
+				// 4 modes ordonnes (correspondent aux GameMode). PUBLIC car
+				// referencer depuis tables namespace dans le .cpp.
+				static constexpr int kModeCount = 4;
 
-            SelectModeScene()  = default;
-            ~SelectModeScene() override = default;
+				SelectModeScene() = default;
+				~SelectModeScene() override = default;
 
-            const char* Name() const noexcept override { return "SelectMode"; }
+				const char *Name() const noexcept override {
+					return "SelectMode";
+				}
 
-            void OnEnter (AppContext& ctx) override;
-            void OnUpdate(AppContext& ctx, float dt) override;
-            void OnRender(AppContext& ctx) override;
-            void OnEvent (AppContext& ctx, NkEvent& ev) override;
+				void OnEnter(AppContext &ctx) override;
+				void OnUpdate(AppContext &ctx, float dt) override;
+				void OnRender(AppContext &ctx) override;
+				void OnEvent(AppContext &ctx, NkEvent &ev) override;
 
-        private:
+			private:
+				float mTime = 0.0f;
+				int mFocusIndex = 0; ///< 0..3 (Local/Reseau/vsIA/IAvsIA)
+				float mEnterAnim = 0.0f;
 
-            float mTime       = 0.0f;
-            int   mFocusIndex = 0;     ///< 0..3 (Local/Reseau/vsIA/IAvsIA)
-            float mEnterAnim  = 0.0f;
+				// Geometrie cards (sync chaque frame pour hit-test)
+				float mCardYs[kModeCount] = {0, 0, 0, 0};
+				float mCardXs[kModeCount] = {0, 0, 0, 0};
+				float mCardW = 0.0f;
+				float mCardH = 0.0f;
 
-            // Geometrie cards (sync chaque frame pour hit-test)
-            float mCardYs[kModeCount] = { 0, 0, 0, 0 };
-            float mCardXs[kModeCount] = { 0, 0, 0, 0 };
-            float mCardW = 0.0f;
-            float mCardH = 0.0f;
+				// Bouton RETOUR
+				float mBackX = 0.0f, mBackY = 0.0f;
+				float mBackW = 0.0f, mBackH = 0.0f;
 
-            // Bouton RETOUR
-            float mBackX = 0.0f, mBackY = 0.0f;
-            float mBackW = 0.0f, mBackH = 0.0f;
+				// Actions
+				void ActivateMode(AppContext &ctx, int index);
+				int HitTestCard(float px, float py) const;
+				bool HitTestBack(float px, float py) const;
+		};
 
-            // Actions
-            void ActivateMode(AppContext& ctx, int index);
-            int  HitTestCard(float px, float py) const;
-            bool HitTestBack(float px, float py) const;
-        };
-
-    } // namespace pong
+	} // namespace pong
 } // namespace nkentseu

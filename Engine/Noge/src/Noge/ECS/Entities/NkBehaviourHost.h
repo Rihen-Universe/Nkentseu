@@ -28,85 +28,96 @@
 #include "Noge/ECS/Entities/NkBehaviour.h"
 
 namespace nkentseu {
-    namespace ecs {
+	namespace ecs {
 
-        struct NkBehaviourHost {
-            // Capacité inline (SBO) : 16 scripts par entité — largement suffisant.
-            static constexpr uint32 kCapacity = 16u;
+		struct NkBehaviourHost {
+				// Capacité inline (SBO) : 16 scripts par entité — largement suffisant.
+				static constexpr uint32 kCapacity = 16u;
 
-            // --- État accédé DIRECTEMENT par NkBehaviourSystem (donc public) ---
-            NkBehaviour* behaviours[kCapacity] = {};
-            uint32       count                 = 0u;
-            bool         hasStarted            = false;
+				// --- État accédé DIRECTEMENT par NkBehaviourSystem (donc public) ---
+				NkBehaviour *behaviours[kCapacity] = {};
+				uint32 count = 0u;
+				bool hasStarted = false;
 
-            // -----------------------------------------------------------------
-            NkBehaviourHost() noexcept = default;
+				// -----------------------------------------------------------------
+				NkBehaviourHost() noexcept = default;
 
-            ~NkBehaviourHost() noexcept { Clear(); }
+				~NkBehaviourHost() noexcept {
+					Clear();
+				}
 
-            // MOVE : transfert de propriété (utilisé par la relocalisation ECS).
-            NkBehaviourHost(NkBehaviourHost&& o) noexcept { MoveFrom(o); }
-            NkBehaviourHost& operator=(NkBehaviourHost&& o) noexcept {
-                if (this != &o) { Clear(); MoveFrom(o); }
-                return *this;
-            }
+				// MOVE : transfert de propriété (utilisé par la relocalisation ECS).
+				NkBehaviourHost(NkBehaviourHost &&o) noexcept {
+					MoveFrom(o);
+				}
 
-            // COPY : dégradée en hôte VIDE (voir entête). Requise compilable car
-            // NkTypeRegistry::CopyConstruct prend l'adresse de la copie.
-            NkBehaviourHost(const NkBehaviourHost&) noexcept {}
-            NkBehaviourHost& operator=(const NkBehaviourHost&) noexcept {
-                Clear();
-                return *this;
-            }
+				NkBehaviourHost &operator=(NkBehaviourHost &&o) noexcept {
+					if (this != &o) {
+						Clear();
+						MoveFrom(o);
+					}
+					return *this;
+				}
 
-            // --- API attendue par NkGameObject ------------------------------
-            template<typename T, typename... Args>
-            T* Add(Args&&... args) noexcept {
-                if (count >= kCapacity) return nullptr;
-                void* mem = nkentseu::memory::NkAlloc(sizeof(T), nullptr, alignof(T));
-                if (!mem) return nullptr;
-                T* obj = nkentseu::memory::NkConstruct<T>(
-                    static_cast<T*>(mem), nkentseu::traits::NkForward<Args>(args)...);
-                behaviours[count++] = obj;   // upcast implicite T* -> NkBehaviour*
-                return obj;
-            }
+				// COPY : dégradée en hôte VIDE (voir entête). Requise compilable car
+				// NkTypeRegistry::CopyConstruct prend l'adresse de la copie.
+				NkBehaviourHost(const NkBehaviourHost &) noexcept {
+				}
 
-            template<typename T>
-            T* Get() const noexcept {
-                for (uint32 i = 0; i < count; ++i) {
-                    if (behaviours[i]) {
-                        if (T* p = dynamic_cast<T*>(behaviours[i])) return p;
-                    }
-                }
-                return nullptr;
-            }
+				NkBehaviourHost &operator=(const NkBehaviourHost &) noexcept {
+					Clear();
+					return *this;
+				}
 
-            void Clear() noexcept {
-                for (uint32 i = 0; i < count; ++i) {
-                    NkBehaviour* b = behaviours[i];
-                    if (b) {
-                        b->OnDestroy();
-                        nkentseu::memory::NkDestroy(b);   // ~NkBehaviour virtuel -> dérivé
-                        nkentseu::memory::NkFree(b);
-                        behaviours[i] = nullptr;
-                    }
-                }
-                count      = 0u;
-                hasStarted = false;
-            }
+				// --- API attendue par NkGameObject ------------------------------
+				template <typename T, typename... Args> T *Add(Args &&...args) noexcept {
+					if (count >= kCapacity)
+						return nullptr;
+					void *mem = nkentseu::memory::NkAlloc(sizeof(T), nullptr, alignof(T));
+					if (!mem)
+						return nullptr;
+					T *obj = nkentseu::memory::NkConstruct<T>(static_cast<T *>(mem),
+															  nkentseu::traits::NkForward<Args>(args)...);
+					behaviours[count++] = obj; // upcast implicite T* -> NkBehaviour*
+					return obj;
+				}
 
-        private:
-            void MoveFrom(NkBehaviourHost& o) noexcept {
-                count      = o.count;
-                hasStarted = o.hasStarted;
-                for (uint32 i = 0; i < count; ++i) {
-                    behaviours[i]   = o.behaviours[i];
-                    o.behaviours[i] = nullptr;
-                }
-                o.count      = 0u;
-                o.hasStarted = false;
-            }
-        };
+				template <typename T> T *Get() const noexcept {
+					for (uint32 i = 0; i < count; ++i) {
+						if (behaviours[i]) {
+							if (T *p = dynamic_cast<T *>(behaviours[i]))
+								return p;
+						}
+					}
+					return nullptr;
+				}
 
-    } // namespace ecs
+				void Clear() noexcept {
+					for (uint32 i = 0; i < count; ++i) {
+						NkBehaviour *b = behaviours[i];
+						if (b) {
+							b->OnDestroy();
+							nkentseu::memory::NkDestroy(b); // ~NkBehaviour virtuel -> dérivé
+							nkentseu::memory::NkFree(b);
+							behaviours[i] = nullptr;
+						}
+					}
+					count = 0u;
+					hasStarted = false;
+				}
+
+			private:
+				void MoveFrom(NkBehaviourHost &o) noexcept {
+					count = o.count;
+					hasStarted = o.hasStarted;
+					for (uint32 i = 0; i < count; ++i) {
+						behaviours[i] = o.behaviours[i];
+						o.behaviours[i] = nullptr;
+					}
+					o.count = 0u;
+					o.hasStarted = false;
+				}
+		};
+
+	} // namespace ecs
 } // namespace nkentseu

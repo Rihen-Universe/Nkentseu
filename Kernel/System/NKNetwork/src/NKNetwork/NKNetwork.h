@@ -100,48 +100,48 @@
 
 // ── Alias de commodité ────────────────────────────────────────────────────────
 namespace nkentseu {
-    // Types fondamentaux
-    using NkPeerId     = net::NkPeerId;
-    using NkNetId      = net::NkNetId;
-    using NkNetResult  = net::NkNetResult;
-    using NkNetChannel = net::NkNetChannel;
-    using NkAddress    = net::NkAddress;
+	// Types fondamentaux
+	using NkPeerId = net::NkPeerId;
+	using NkNetId = net::NkNetId;
+	using NkNetResult = net::NkNetResult;
+	using NkNetChannel = net::NkNetChannel;
+	using NkAddress = net::NkAddress;
 
-    // Transport
-    using NkSocket         = net::NkSocket;
-    using NkPacket         = net::NkPacket;
-    using NkReliableUDP    = net::NkReliableUDP;
+	// Transport
+	using NkSocket = net::NkSocket;
+	using NkPacket = net::NkPacket;
+	using NkReliableUDP = net::NkReliableUDP;
 
-    // Protocole
-    using NkBitWriter          = net::NkBitWriter;
-    using NkBitReader          = net::NkBitReader;
-    using NkConnection         = net::NkConnection;
-    using NkConnectionManager  = net::NkConnectionManager;
-    using NkReceiveMsg         = net::NkReceiveMsg;
+	// Protocole
+	using NkBitWriter = net::NkBitWriter;
+	using NkBitReader = net::NkBitReader;
+	using NkConnection = net::NkConnection;
+	using NkConnectionManager = net::NkConnectionManager;
+	using NkReceiveMsg = net::NkReceiveMsg;
 
-    // ECS
-    using NkNetEntity      = net::NkNetEntity;
-    using NkNetInput       = net::NkNetInput;
-    using NkNetAuthority   = net::NkNetAuthority;
-    using NkNetWorld       = net::NkNetWorld;
-    using NkNetSystem      = net::NkNetSystem;
-    using NkNetSnapshot    = net::NkNetSnapshot;
-    using NkNetInterpolator = net::NkNetInterpolator;
+	// ECS
+	using NkNetEntity = net::NkNetEntity;
+	using NkNetInput = net::NkNetInput;
+	using NkNetAuthority = net::NkNetAuthority;
+	using NkNetWorld = net::NkNetWorld;
+	using NkNetSystem = net::NkNetSystem;
+	using NkNetSnapshot = net::NkNetSnapshot;
+	using NkNetInterpolator = net::NkNetInterpolator;
 
-    // RPC
-    using NkRPCRouter  = net::NkRPCRouter;
+	// RPC
+	using NkRPCRouter = net::NkRPCRouter;
 
-    // Lobby
-    using NkSession        = net::NkSession;
-    using NkSessionConfig  = net::NkSessionConfig;
-    using NkLobby          = net::NkLobby;
-    using NkMatchmaker     = net::NkMatchmaker;
-    using NkDiscovery      = net::NkDiscovery;
-    using NkPlayerInfo     = net::NkPlayerInfo;
+	// Lobby
+	using NkSession = net::NkSession;
+	using NkSessionConfig = net::NkSessionConfig;
+	using NkLobby = net::NkLobby;
+	using NkMatchmaker = net::NkMatchmaker;
+	using NkDiscovery = net::NkDiscovery;
+	using NkPlayerInfo = net::NkPlayerInfo;
 
-    // HTTP
-    using NkHTTPClient   = net::NkHTTPClient;
-    using NkHTTPRequest  = net::NkHTTPRequest;
-    using NkHTTPResponse = net::NkHTTPResponse;
-    using NkLeaderboard  = net::NkLeaderboard;
-}
+	// HTTP
+	using NkHTTPClient = net::NkHTTPClient;
+	using NkHTTPRequest = net::NkHTTPRequest;
+	using NkHTTPResponse = net::NkHTTPResponse;
+	using NkLeaderboard = net::NkLeaderboard;
+} // namespace nkentseu

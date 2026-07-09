@@ -8,10 +8,10 @@
 #include "NKRHI/Core/NkComputeContext.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        // ── Kernel d'edition (cf. shaders/VK/voxel_edit.comp.vk.glsl) ─────────────
-        static const char* kVoxelEditGLSL = R"GLSL(#version 450
+		// ── Kernel d'edition (cf. shaders/VK/voxel_edit.comp.vk.glsl) ─────────────
+		static const char *kVoxelEditGLSL = R"GLSL(#version 450
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 layout(set = 0, binding = 0, r16f)  uniform image3D uDensity;
 layout(set = 0, binding = 1, rgba8) uniform image3D uColor;
@@ -47,8 +47,8 @@ void main(){
 }
 )GLSL";
 
-        // ── Kernel de raymarch (squelette ; cf. voxel_raymarch.comp.vk.glsl) ──────
-        static const char* kVoxelRaymarchGLSL = R"GLSL(#version 450
+		// ── Kernel de raymarch (squelette ; cf. voxel_raymarch.comp.vk.glsl) ──────
+		static const char *kVoxelRaymarchGLSL = R"GLSL(#version 450
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0, r16f)  uniform image3D uDensity;
 layout(set = 0, binding = 1, rgba8) uniform image3D uColor;
@@ -62,25 +62,27 @@ void main(){
 }
 )GLSL";
 
-        bool NkVoxelPipelines::Init(NkComputeContext* ctx) noexcept {
-            mCtx = ctx;
-            return mCtx != nullptr;
-        }
+		bool NkVoxelPipelines::Init(NkComputeContext *ctx) noexcept {
+			mCtx = ctx;
+			return mCtx != nullptr;
+		}
 
-        void NkVoxelPipelines::Shutdown() noexcept {
-            // Les pipelines appartiennent au cache du NkComputeContext (libere par lui).
-            mCtx = nullptr;
-        }
+		void NkVoxelPipelines::Shutdown() noexcept {
+			// Les pipelines appartiennent au cache du NkComputeContext (libere par lui).
+			mCtx = nullptr;
+		}
 
-        NkPipelineHandle NkVoxelPipelines::Edit() noexcept {
-            if (!mCtx) return NkPipelineHandle{};
-            return mCtx->GetOrCompileGLSL("nkvoxel_edit", kVoxelEditGLSL, "Voxel_Edit");
-        }
+		NkPipelineHandle NkVoxelPipelines::Edit() noexcept {
+			if (!mCtx)
+				return NkPipelineHandle{};
+			return mCtx->GetOrCompileGLSL("nkvoxel_edit", kVoxelEditGLSL, "Voxel_Edit");
+		}
 
-        NkPipelineHandle NkVoxelPipelines::Raymarch() noexcept {
-            if (!mCtx) return NkPipelineHandle{};
-            return mCtx->GetOrCompileGLSL("nkvoxel_raymarch", kVoxelRaymarchGLSL, "Voxel_Raymarch");
-        }
+		NkPipelineHandle NkVoxelPipelines::Raymarch() noexcept {
+			if (!mCtx)
+				return NkPipelineHandle{};
+			return mCtx->GetOrCompileGLSL("nkvoxel_raymarch", kVoxelRaymarchGLSL, "Voxel_Raymarch");
+		}
 
-    } // namespace renderer
+	} // namespace renderer
 } // namespace nkentseu

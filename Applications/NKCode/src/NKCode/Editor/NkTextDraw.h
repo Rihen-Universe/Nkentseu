@@ -11,279 +11,684 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-namespace nkcode {
+	namespace nkcode {
 
-    using namespace nkentseu;
-    using namespace nkentseu::nkgui;
+		using namespace nkentseu;
+		using namespace nkentseu::nkgui;
 
-    // Decode un codepoint UTF-8 ; avance p. 0xFFFD si invalide.
-    inline uint32 NkDecodeU8(const char*& p, const char* end) {
-        const unsigned char c = static_cast<unsigned char>(*p);
-        if (c < 0x80) { ++p; return c; }
-        if ((c >> 5) == 0x6 && p + 1 < end) { uint32 cp = ((c & 0x1Fu) << 6) | (static_cast<unsigned char>(p[1]) & 0x3Fu); p += 2; return cp; }
-        if ((c >> 4) == 0xE && p + 2 < end) { uint32 cp = ((c & 0x0Fu) << 12) | ((static_cast<unsigned char>(p[1]) & 0x3Fu) << 6) | (static_cast<unsigned char>(p[2]) & 0x3Fu); p += 3; return cp; }
-        if ((c >> 3) == 0x1E && p + 3 < end) { uint32 cp = ((c & 0x07u) << 18) | ((static_cast<unsigned char>(p[1]) & 0x3Fu) << 12) | ((static_cast<unsigned char>(p[2]) & 0x3Fu) << 6) | (static_cast<unsigned char>(p[3]) & 0x3Fu); p += 4; return cp; }
-        ++p; return 0xFFFDu;
-    }
+		// Decode un codepoint UTF-8 ; avance p. 0xFFFD si invalide.
+		inline uint32 NkDecodeU8(const char *&p, const char *end) {
+			const unsigned char c = static_cast<unsigned char>(*p);
+			if (c < 0x80) {
+				++p;
+				return c;
+			}
+			if ((c >> 5) == 0x6 && p + 1 < end) {
+				uint32 cp = ((c & 0x1Fu) << 6) | (static_cast<unsigned char>(p[1]) & 0x3Fu);
+				p += 2;
+				return cp;
+			}
+			if ((c >> 4) == 0xE && p + 2 < end) {
+				uint32 cp = ((c & 0x0Fu) << 12) | ((static_cast<unsigned char>(p[1]) & 0x3Fu) << 6) |
+							(static_cast<unsigned char>(p[2]) & 0x3Fu);
+				p += 3;
+				return cp;
+			}
+			if ((c >> 3) == 0x1E && p + 3 < end) {
+				uint32 cp = ((c & 0x07u) << 18) | ((static_cast<unsigned char>(p[1]) & 0x3Fu) << 12) |
+							((static_cast<unsigned char>(p[2]) & 0x3Fu) << 6) |
+							(static_cast<unsigned char>(p[3]) & 0x3Fu);
+				p += 4;
+				return cp;
+			}
+			++p;
+			return 0xFFFDu;
+		}
 
-    // Bascule ctx.font sur la police de CODE (monospace) le temps d'un scope, puis
-    // restaure la police d'interface. Utilise par l'editeur et le terminal pour que
-    // tout (metriques + rendu via NkDrawTextU) emploie la police monospace.
-    struct NkCodeFontScope {
-        NkGuiContext& c; NkGuiFont* prev;
-        explicit NkCodeFontScope(NkGuiContext& ctx) : c(ctx), prev(ctx.font) {
-            if (ctx.codeFont && ctx.codeFont->Valid()) ctx.font = ctx.codeFont;
-        }
-        // Variante avec police EXPLICITE (ex. terminal -> atlas propre, decouple du zoom
-        // par-onglet de l'editeur). Repli sur ctx.codeFont si f nul/invalide.
-        NkCodeFontScope(NkGuiContext& ctx, NkGuiFont* f) : c(ctx), prev(ctx.font) {
-            if (f && f->Valid()) ctx.font = f;
-            else if (ctx.codeFont && ctx.codeFont->Valid()) ctx.font = ctx.codeFont;
-        }
-        ~NkCodeFontScope() { c.font = prev; }
-    };
+		// Bascule ctx.font sur la police de CODE (monospace) le temps d'un scope, puis
+		// restaure la police d'interface. Utilise par l'editeur et le terminal pour que
+		// tout (metriques + rendu via NkDrawTextU) emploie la police monospace.
+		struct NkCodeFontScope {
+				NkGuiContext &c;
+				NkGuiFont *prev;
 
-    // Encode un codepoint en UTF-8 dans dst (>=4 octets). Retourne le nb d'octets.
-    inline int32 NkEncodeU8(uint32 cp, char* dst) {
-        if (cp < 0x80)      { dst[0] = static_cast<char>(cp); return 1; }
-        if (cp < 0x800)     { dst[0] = static_cast<char>(0xC0 | (cp >> 6)); dst[1] = static_cast<char>(0x80 | (cp & 0x3F)); return 2; }
-        if (cp < 0x10000)   { dst[0] = static_cast<char>(0xE0 | (cp >> 12)); dst[1] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); dst[2] = static_cast<char>(0x80 | (cp & 0x3F)); return 3; }
-        dst[0] = static_cast<char>(0xF0 | (cp >> 18)); dst[1] = static_cast<char>(0x80 | ((cp >> 12) & 0x3F)); dst[2] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); dst[3] = static_cast<char>(0x80 | (cp & 0x3F)); return 4;
-    }
+				explicit NkCodeFontScope(NkGuiContext &ctx) : c(ctx), prev(ctx.font) {
+					if (ctx.codeFont && ctx.codeFont->Valid())
+						ctx.font = ctx.codeFont;
+				}
 
-    // ── Réparation du DOUBLE-ENCODAGE UTF-8 (« mojibake ») ────────────────────
-    // Un fichier UTF-8 relu en CP1252 puis re-sauvé en UTF-8 donne "Ã©" au lieu de "é".
-    // Réparer = décoder l'UTF-8 courant en codepoints, remapper chaque codepoint vers
-    // son OCTET CP1252 d'origine ; le flux d'octets obtenu EST l'UTF-8 correct.
-    // Renvoie l'octet CP1252 d'un codepoint ; ok=false si le codepoint n'en provient pas.
-    inline unsigned char NkCp1252ByteOf(uint32 cp, bool& ok) {
-        ok = true;
-        if (cp < 0x80u)                 return static_cast<unsigned char>(cp);
-        if (cp >= 0xA0u && cp <= 0xFFu) return static_cast<unsigned char>(cp);
-        switch (cp) {   // spécifiques CP1252 (plage 0x80-0x9F)
-            case 0x20ACu: return 0x80; case 0x201Au: return 0x82; case 0x0192u: return 0x83;
-            case 0x201Eu: return 0x84; case 0x2026u: return 0x85; case 0x2020u: return 0x86;
-            case 0x2021u: return 0x87; case 0x02C6u: return 0x88; case 0x2030u: return 0x89;
-            case 0x0160u: return 0x8A; case 0x2039u: return 0x8B; case 0x0152u: return 0x8C;
-            case 0x017Du: return 0x8E; case 0x2018u: return 0x91; case 0x2019u: return 0x92;
-            case 0x201Cu: return 0x93; case 0x201Du: return 0x94; case 0x2022u: return 0x95;
-            case 0x2013u: return 0x96; case 0x2014u: return 0x97; case 0x02DCu: return 0x98;
-            case 0x2122u: return 0x99; case 0x0161u: return 0x9A; case 0x203Au: return 0x9B;
-            case 0x0153u: return 0x9C; case 0x017Eu: return 0x9E; case 0x0178u: return 0x9F;
-        }
-        ok = false; return 0;
-    }
-    // Longueur d'une chaîne C (sans dépendre de <cstring>).
-    inline const char* NkStrEndPtr(const char* s) { const char* e = s; while (*e) ++e; return e; }
+				// Variante avec police EXPLICITE (ex. terminal -> atlas propre, decouple du zoom
+				// par-onglet de l'editeur). Repli sur ctx.codeFont si f nul/invalide.
+				NkCodeFontScope(NkGuiContext &ctx, NkGuiFont *f) : c(ctx), prev(ctx.font) {
+					if (f && f->Valid())
+						ctx.font = f;
+					else if (ctx.codeFont && ctx.codeFont->Valid())
+						ctx.font = ctx.codeFont;
+				}
 
-    // Répare une chaîne double-encodée -> UTF-8 correct. Les codepoints non issus de
-    // CP1252 (contenu déjà bon / CJK réel) sont laissés tels quels (sécurité contenu mixte).
-    inline NkString NkMojibakeRepair(const char* s) {
-        if (!s) return NkString();
-        const char* end = NkStrEndPtr(s);
-        NkVector<char> out;
-        for (const char* p = s; p < end; ) {
-            const char* q = p; const uint32 cp = NkDecodeU8(q, end);
-            bool ok; const unsigned char b = NkCp1252ByteOf(cp, ok);
-            if (ok) out.PushBack(static_cast<char>(b));
-            else    { char t[4]; const int32 n = NkEncodeU8(cp, t); for (int32 i = 0; i < n; ++i) out.PushBack(t[i]); }
-            p = q;
-        }
-        out.PushBack('\0');
-        return NkString(out.Data());
-    }
-    // Détecte un contenu vraisemblablement double-encodé : compte les têtes de mojibake
-    // (Ã U+00C3, Â U+00C2, â U+00E2) suivies d'un codepoint « haut ». Seuil prudent.
-    inline bool NkMojibakeDetect(const char* s) {
-        if (!s) return false;
-        const char* end = NkStrEndPtr(s);
-        int32 hits = 0;
-        for (const char* p = s; p < end; ) {
-            const char* q = p; const uint32 cp = NkDecodeU8(q, end);
-            if (cp == 0x00C3u || cp == 0x00C2u || cp == 0x00E2u) {
-                const char* r = q; if (r < end) { const uint32 nx = NkDecodeU8(r, end); if (nx >= 0x80u && nx <= 0x2122u) ++hits; }
-            }
-            p = q;
-        }
-        return hits >= 4;
-    }
+				~NkCodeFontScope() {
+					c.font = prev;
+				}
+		};
 
-    // ── Menu contextuel (clic droit) Copier/Couper/Coller — reutilise par
-    //    l'editeur et le terminal. Dessine sur la couche overlay (au-dessus). ──
-    struct NkCtxMenu { bool open = false; NkVec2 pos{ 0.f, 0.f }; };
+		// Encode un codepoint en UTF-8 dans dst (>=4 octets). Retourne le nb d'octets.
+		inline int32 NkEncodeU8(uint32 cp, char *dst) {
+			if (cp < 0x80) {
+				dst[0] = static_cast<char>(cp);
+				return 1;
+			}
+			if (cp < 0x800) {
+				dst[0] = static_cast<char>(0xC0 | (cp >> 6));
+				dst[1] = static_cast<char>(0x80 | (cp & 0x3F));
+				return 2;
+			}
+			if (cp < 0x10000) {
+				dst[0] = static_cast<char>(0xE0 | (cp >> 12));
+				dst[1] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+				dst[2] = static_cast<char>(0x80 | (cp & 0x3F));
+				return 3;
+			}
+			dst[0] = static_cast<char>(0xF0 | (cp >> 18));
+			dst[1] = static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+			dst[2] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+			dst[3] = static_cast<char>(0x80 | (cp & 0x3F));
+			return 4;
+		}
 
-    // Retourne l'index de l'item clique (et ferme le menu), -1 sinon. Se ferme au
-    // clic exterieur ou sur Echap. `enabled[i]` grise les items non applicables.
-    inline int32 NkCtxMenuDraw(NkGuiContext& ctx, NkCtxMenu& mn, const char* const* items,
-                               const bool* enabled, int32 count) {
-        if (!mn.open) return -1;
-        NkGuiDrawList& dl = ctx.dlOverlay;
-        const float32 lh   = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
-        const float32 rowH = lh + 8.f, pad = 10.f;
-        NkRect box = { mn.pos.x, mn.pos.y, 168.f, count * rowH + 8.f };
-        if (box.x + box.w > static_cast<float32>(ctx.viewW)) box.x = static_cast<float32>(ctx.viewW) - box.w;
-        if (box.y + box.h > static_cast<float32>(ctx.viewH)) box.y = static_cast<float32>(ctx.viewH) - box.h;
-        dl.AddRectFilled(box, NkColor{ 32, 38, 46, 255 }, 6.f);
-        dl.AddRect(box, NkColor{ 60, 66, 74, 255 }, 1.f);
-        const NkVec2 m = ctx.input.mousePos;
-        int32 clicked = -1; float32 y = box.y + 4.f;
-        for (int32 i = 0; i < count; ++i) {
-            const NkRect r = { box.x + 3.f, y, box.w - 6.f, rowH };
-            const bool hov = m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
-            if (hov && enabled[i]) dl.AddRectFilled(r, NkColor{ 31, 111, 235, 110 }, 4.f);
-            if (ctx.font && ctx.font->Valid())
-                dl.AddText(ctx.font->Face(), ctx.font->TexId(),
-                           { r.x + pad, y + (rowH - lh) * 0.5f + ctx.font->Ascent() }, items[i],
-                           enabled[i] ? NkColor{ 223, 223, 223, 255 } : NkColor{ 110, 118, 129, 255 });
-            if (hov && enabled[i] && ctx.input.mouseClicked[0]) clicked = i;
-            y += rowH;
-        }
-        const bool inBox = m.x >= box.x && m.x < box.x + box.w && m.y >= box.y && m.y < box.y + box.h;
-        if (clicked >= 0) mn.open = false;
-        else if ((ctx.input.mouseClicked[0] || ctx.input.mouseClicked[1]) && !inBox) mn.open = false;
-        if (ctx.input.KeyPressed(NkGuiKey::Escape)) mn.open = false;
-        return clicked;
-    }
+		// ── Réparation du DOUBLE-ENCODAGE UTF-8 (« mojibake ») ────────────────────
+		// Un fichier UTF-8 relu en CP1252 puis re-sauvé en UTF-8 donne "Ã©" au lieu de "é".
+		// Réparer = décoder l'UTF-8 courant en codepoints, remapper chaque codepoint vers
+		// son OCTET CP1252 d'origine ; le flux d'octets obtenu EST l'UTF-8 correct.
+		// Renvoie l'octet CP1252 d'un codepoint ; ok=false si le codepoint n'en provient pas.
+		inline unsigned char NkCp1252ByteOf(uint32 cp, bool &ok) {
+			ok = true;
+			if (cp < 0x80u)
+				return static_cast<unsigned char>(cp);
+			if (cp >= 0xA0u && cp <= 0xFFu)
+				return static_cast<unsigned char>(cp);
+			switch (cp) { // spécifiques CP1252 (plage 0x80-0x9F)
+				case 0x20ACu:
+					return 0x80;
+				case 0x201Au:
+					return 0x82;
+				case 0x0192u:
+					return 0x83;
+				case 0x201Eu:
+					return 0x84;
+				case 0x2026u:
+					return 0x85;
+				case 0x2020u:
+					return 0x86;
+				case 0x2021u:
+					return 0x87;
+				case 0x02C6u:
+					return 0x88;
+				case 0x2030u:
+					return 0x89;
+				case 0x0160u:
+					return 0x8A;
+				case 0x2039u:
+					return 0x8B;
+				case 0x0152u:
+					return 0x8C;
+				case 0x017Du:
+					return 0x8E;
+				case 0x2018u:
+					return 0x91;
+				case 0x2019u:
+					return 0x92;
+				case 0x201Cu:
+					return 0x93;
+				case 0x201Du:
+					return 0x94;
+				case 0x2022u:
+					return 0x95;
+				case 0x2013u:
+					return 0x96;
+				case 0x2014u:
+					return 0x97;
+				case 0x02DCu:
+					return 0x98;
+				case 0x2122u:
+					return 0x99;
+				case 0x0161u:
+					return 0x9A;
+				case 0x203Au:
+					return 0x9B;
+				case 0x0153u:
+					return 0x9C;
+				case 0x017Eu:
+					return 0x9E;
+				case 0x0178u:
+					return 0x9F;
+			}
+			ok = false;
+			return 0;
+		}
 
-    inline bool NkIsDrawable(uint32 cp) {
-        return (cp >= 0x2500u && cp <= 0x25FFu) || (cp >= 0x2190u && cp <= 0x2193u);
-    }
+		// Longueur d'une chaîne C (sans dépendre de <cstring>).
+		inline const char *NkStrEndPtr(const char *s) {
+			const char *e = s;
+			while (*e)
+				++e;
+			return e;
+		}
 
-    // Dessine le glyphe primitif pour `cp` dans la cellule (x, top, w, h).
-    inline void NkDrawGlyphPrim(NkGuiDrawList& dl, uint32 cp, float32 x, float32 top, float32 w, float32 h, const NkColor& col) {
-        const float32 mx = x + w * 0.5f, my = top + h * 0.5f, r = x + w, b = top + h, t = 1.3f;
-        const NkColor a64{ col.r, col.g, col.b, 64 }, a110{ col.r, col.g, col.b, 110 }, a170{ col.r, col.g, col.b, 170 };
-        auto H = [&](float32 x0, float32 x1) { dl.AddLine({ x0, my }, { x1, my }, col, t); };
-        auto V = [&](float32 y0, float32 y1) { dl.AddLine({ mx, y0 }, { mx, y1 }, col, t); };
-        switch (cp) {
-            case 0x2500: H(x, r); break;                         // ─
-            case 0x2502: V(top, b); break;                       // │
-            case 0x250C: H(mx, r); V(my, b); break;              // ┌
-            case 0x2510: H(x, mx); V(my, b); break;              // ┐
-            case 0x2514: H(mx, r); V(top, my); break;            // └
-            case 0x2518: H(x, mx); V(top, my); break;            // ┘
-            case 0x251C: V(top, b); H(mx, r); break;             // ├
-            case 0x2524: V(top, b); H(x, mx); break;             // ┤
-            case 0x252C: H(x, r); V(my, b); break;               // ┬
-            case 0x2534: H(x, r); V(top, my); break;             // ┴
-            case 0x253C: H(x, r); V(top, b); break;              // ┼
-            case 0x2550: dl.AddLine({ x, my - 2 }, { r, my - 2 }, col, t); dl.AddLine({ x, my + 2 }, { r, my + 2 }, col, t); break;          // ═
-            case 0x2551: dl.AddLine({ mx - 2, top }, { mx - 2, b }, col, t); dl.AddLine({ mx + 2, top }, { mx + 2, b }, col, t); break;      // ║
-            case 0x2588: dl.AddRectFilled({ x, top, w, h }, col); break;            // █
-            case 0x2580: dl.AddRectFilled({ x, top, w, h * 0.5f }, col); break;     // ▀
-            case 0x2584: dl.AddRectFilled({ x, my, w, h * 0.5f }, col); break;      // ▄
-            case 0x258C: dl.AddRectFilled({ x, top, w * 0.5f, h }, col); break;     // ▌
-            case 0x2590: dl.AddRectFilled({ mx, top, w * 0.5f, h }, col); break;    // ▐
-            case 0x2591: dl.AddRectFilled({ x, top, w, h }, a64); break;            // ░
-            case 0x2592: dl.AddRectFilled({ x, top, w, h }, a110); break;           // ▒
-            case 0x2593: dl.AddRectFilled({ x, top, w, h }, a170); break;           // ▓
-            case 0x25A0: dl.AddRectFilled({ x + w * 0.2f, top + h * 0.28f, w * 0.6f, h * 0.45f }, col); break;  // ■
-            case 0x25A1: dl.AddRect({ x + w * 0.2f, top + h * 0.28f, w * 0.6f, h * 0.45f }, col, t); break;     // □
-            case 0x25CF: dl.AddCircleFilled({ mx, my }, w * 0.3f, col); break;      // ●
-            case 0x25B2: dl.AddTriangleFilled({ mx, top + h * 0.28f }, { x + w * 0.25f, b - h * 0.28f }, { r - w * 0.25f, b - h * 0.28f }, col); break;  // ▲
-            case 0x25BC: dl.AddTriangleFilled({ x + w * 0.25f, top + h * 0.28f }, { r - w * 0.25f, top + h * 0.28f }, { mx, b - h * 0.28f }, col); break;  // ▼
-            case 0x2190: H(x, r); dl.AddTriangleFilled({ x, my }, { x + w * 0.3f, my - h * 0.16f }, { x + w * 0.3f, my + h * 0.16f }, col); break;  // ←
-            case 0x2192: H(x, r); dl.AddTriangleFilled({ r, my }, { r - w * 0.3f, my - h * 0.16f }, { r - w * 0.3f, my + h * 0.16f }, col); break;  // →
-            case 0x2191: V(top, b); dl.AddTriangleFilled({ mx, top }, { mx - w * 0.16f, top + h * 0.3f }, { mx + w * 0.16f, top + h * 0.3f }, col); break;  // ↑
-            case 0x2193: V(top, b); dl.AddTriangleFilled({ mx, b }, { mx - w * 0.16f, b - h * 0.3f }, { mx + w * 0.16f, b - h * 0.3f }, col); break;        // ↓
-            default:     dl.AddRect({ x + w * 0.22f, top + h * 0.3f, w * 0.56f, h * 0.4f }, col, 1.f); break;   // autres : petit cadre
-        }
-    }
+		// Répare une chaîne double-encodée -> UTF-8 correct. Les codepoints non issus de
+		// CP1252 (contenu déjà bon / CJK réel) sont laissés tels quels (sécurité contenu mixte).
+		inline NkString NkMojibakeRepair(const char *s) {
+			if (!s)
+				return NkString();
+			const char *end = NkStrEndPtr(s);
+			NkVector<char> out;
+			for (const char *p = s; p < end;) {
+				const char *q = p;
+				const uint32 cp = NkDecodeU8(q, end);
+				bool ok;
+				const unsigned char b = NkCp1252ByteOf(cp, ok);
+				if (ok)
+					out.PushBack(static_cast<char>(b));
+				else {
+					char t[4];
+					const int32 n = NkEncodeU8(cp, t);
+					for (int32 i = 0; i < n; ++i)
+						out.PushBack(t[i]);
+				}
+				p = q;
+			}
+			out.PushBack('\0');
+			return NkString(out.Data());
+		}
 
-    // Rend [begin,end) en interceptant les codepoints dessinables (primitives) ;
-    // le reste via la police. Retourne le x final. (cellTop, cellH) = la ligne.
-    inline float32 NkDrawTextU(NkGuiContext& ctx, float32 x, float32 baseline, float32 cellTop, float32 cellH,
-                               const char* begin, const char* end, const NkColor& col) {
-        if (!ctx.font || !ctx.font->Valid()) return x;
-        const NkFont* face = ctx.font->Face(); const uint32 tex = ctx.font->TexId();
-        const char* run = begin; const char* p = begin;
-        auto flush = [&](const char* e) { if (e > run) { ctx.DL().AddTextRange(face, tex, { x, baseline }, run, e, col); x += face->CalcTextSizeX(run, e); } };
-        while (p < end) {
-            const char* q = p;
-            const uint32 cp = NkDecodeU8(q, end);
-            // Primitive UNIQUEMENT si la police n'a pas le glyphe (DejaVu a le
-            // box-drawing -> on le laisse rendre ; DroidSans non -> on dessine).
-            if (NkIsDrawable(cp) && !face->FindGlyphNoFallback(cp)) {
-                flush(p);
-                const float32 w = face->CalcTextSizeX(p, q);     // avance (glyphe de repli)
-                NkDrawGlyphPrim(ctx.DL(), cp, x, cellTop, w, cellH, col);
-                x += w; run = q;
-            }
-            p = q;
-        }
-        flush(p);
-        return x;
-    }
+		// Détecte un contenu vraisemblablement double-encodé : compte les têtes de mojibake
+		// (Ã U+00C3, Â U+00C2, â U+00E2) suivies d'un codepoint « haut ». Seuil prudent.
+		inline bool NkMojibakeDetect(const char *s) {
+			if (!s)
+				return false;
+			const char *end = NkStrEndPtr(s);
+			int32 hits = 0;
+			for (const char *p = s; p < end;) {
+				const char *q = p;
+				const uint32 cp = NkDecodeU8(q, end);
+				if (cp == 0x00C3u || cp == 0x00C2u || cp == 0x00E2u) {
+					const char *r = q;
+					if (r < end) {
+						const uint32 nx = NkDecodeU8(r, end);
+						if (nx >= 0x80u && nx <= 0x2122u)
+							++hits;
+					}
+				}
+				p = q;
+			}
+			return hits >= 4;
+		}
 
-    // ── Champ de saisie mono-ligne minimal pour l'overlay (positionne en absolu) ──
-    // Edite `buf` quand `focused` ; renvoie via les codepoints tapes + Backspace.
-    inline void NkOverlayTextField(NkGuiContext& ctx, NkGuiDrawList& dl, const NkGuiFont* f,
-                                   const NkRect& r, char* buf, int32 cap, bool focused) {
-        const float32 asc = f ? f->Ascent() : 0.f, lh = f ? f->LineHeight() : 0.f;
-        dl.AddRectFilled(r, NkColor{ 22, 27, 34, 255 }, 4.f);
-        dl.AddRect(r, focused ? NkColor{ 88, 166, 255, 255 } : NkColor{ 48, 54, 61, 255 }, 1.f);
-        // Edition complete (caret, SELECTION, copier/couper/coller, double-clic, clic-position).
-        // Etat statique associe au buffer focus (un seul champ edite a la fois).
-        static const void* s_owner = nullptr; static int32 s_caret = 0, s_anchor = -1; static float32 s_blink = 0.f; static bool s_drag = false;
-        const float32 pad = 8.f;
-        int32 len = 0; while (buf[len]) ++len;
-        auto measW = [&](const char* s) -> float32 { return f ? f->MeasureWidth(s) : 0.f; };
-        auto slice = [&](int32 n, char* out) { int32 m = n < 599 ? n : 599; for (int32 k = 0; k < m; ++k) out[k] = buf[k]; out[m] = '\0'; };
-        if (focused) {
-            if (s_owner != buf) { s_owner = buf; s_caret = len; s_anchor = -1; }
-            auto& in = ctx.input; s_blink += in.dt;
-            if (s_caret > len) s_caret = len; if (s_caret < 0) s_caret = 0; if (s_anchor > len) s_anchor = len;
-            const bool shift = in.shiftDown;
-            auto hasSel = [&]() { return s_anchor >= 0 && s_anchor != s_caret; };
-            auto selLo = [&]() { return s_anchor < s_caret ? s_anchor : s_caret; };
-            auto selHi = [&]() { return s_anchor < s_caret ? s_caret : s_anchor; };
-            auto startSel = [&]() { if (s_anchor < 0) s_anchor = s_caret; };
-            auto delSel = [&]() { const int32 lo = selLo(), n = selHi() - lo; for (int32 k = lo; k + n <= len; ++k) buf[k] = buf[k + n]; len -= n; buf[len] = '\0'; s_caret = lo; s_anchor = -1; };
-            auto copySel = [&]() { char t2[600]; int32 lo = selLo(), hi = selHi(), j = 0; for (int32 k = lo; k < hi && j < 599; ++k) t2[j++] = buf[k]; t2[j] = '\0'; ctx.SetClipboard(t2); };
-            const NkVec2 mp = in.mousePos; const bool hit = (mp.x >= r.x && mp.x <= r.x + r.w && mp.y >= r.y && mp.y <= r.y + r.h);
-            auto caretAtMouse = [&]() -> int32 {
-                const float32 availW0 = r.w - pad * 2.f; char tp0[600]; slice(s_caret, tp0); const float32 pw = measW(tp0);
-                const float32 offc = (pw > availW0) ? (pw - availW0) : 0.f; const float32 target = mp.x - (r.x + pad) + offc;
-                int32 best = 0; float32 bestd = 1e9f; char acc[600]; int32 an = 0;
-                for (int32 i = 0; ; ++i) { acc[an] = '\0'; const float32 wv = measW(acc); const float32 d = wv > target ? wv - target : target - wv; if (d < bestd) { bestd = d; best = i; } if (!buf[i] || an >= 599) break; acc[an++] = buf[i]; }
-                return best;
-            };
-            // Double-clic -> tout ; appui -> ancre ; glisser -> etend ; clic simple -> curseur + deselection.
-            if (hit && in.mouseDoubleClicked[0]) { s_anchor = 0; s_caret = len; s_drag = false; s_blink = 0.f; }
-            else if (hit && in.mouseClicked[0]) { const int32 c = caretAtMouse(); s_caret = c; s_anchor = c; s_drag = true; s_blink = 0.f; }
-            else if (s_drag && in.mouseDown[0]) { s_caret = caretAtMouse(); s_blink = 0.f; }
-            if (!in.mouseDown[0]) s_drag = false;
-            if (in.KeyPressedRepeat(NkGuiKey::Left))  { if (shift) { startSel(); if (s_caret > 0) --s_caret; } else { if (hasSel()) s_caret = selLo(); else if (s_caret > 0) --s_caret; s_anchor = -1; } s_blink = 0.f; }
-            if (in.KeyPressedRepeat(NkGuiKey::Right)) { if (shift) { startSel(); if (s_caret < len) ++s_caret; } else { if (hasSel()) s_caret = selHi(); else if (s_caret < len) ++s_caret; s_anchor = -1; } s_blink = 0.f; }
-            if (in.KeyPressed(NkGuiKey::Home)) { if (shift) startSel(); else s_anchor = -1; s_caret = 0;   s_blink = 0.f; }
-            if (in.KeyPressed(NkGuiKey::End))  { if (shift) startSel(); else s_anchor = -1; s_caret = len; s_blink = 0.f; }
-            if (in.wantSelectAll) { s_anchor = 0; s_caret = len; in.wantSelectAll = false; s_blink = 0.f; }
-            if (in.wantCopy)      { if (hasSel()) copySel(); in.wantCopy = false; }
-            if (in.wantCut)       { if (hasSel()) { copySel(); delSel(); } in.wantCut = false; s_blink = 0.f; }
-            if (in.KeyPressedRepeat(NkGuiKey::Backspace)) { if (hasSel()) delSel(); else if (s_caret > 0) { for (int32 k = s_caret - 1; k < len; ++k) buf[k] = buf[k + 1]; --s_caret; --len; } s_blink = 0.f; }
-            if (in.KeyPressedRepeat(NkGuiKey::Delete))    { if (hasSel()) delSel(); else if (s_caret < len) { for (int32 k = s_caret; k < len; ++k) buf[k] = buf[k + 1]; --len; } s_blink = 0.f; }
-            if (in.wantPaste) { if (hasSel()) delSel(); const NkString cb = ctx.GetClipboard(); for (const char* s = cb.CStr(); *s; ++s) { if ((unsigned char)*s < 32 || len + 1 >= cap) continue; for (int32 k = len; k >= s_caret; --k) buf[k + 1] = buf[k]; buf[s_caret] = *s; ++s_caret; ++len; } in.wantPaste = false; s_blink = 0.f; }
-            for (int32 i = 0; i < in.charCount; ++i) { const uint32 cp = in.chars[i]; if (cp < 32 || cp >= 127) continue; if (hasSel()) delSel(); if (len + 1 >= cap) break; for (int32 k = len; k >= s_caret; --k) buf[k + 1] = buf[k]; buf[s_caret] = (char)cp; ++s_caret; ++len; s_blink = 0.f; }
-            if (s_caret > len) s_caret = len; if (s_anchor > len) s_anchor = len;
-        }
-        if (f) {
-            const float32 availW = r.w - pad * 2.f;
-            char tp[600]; slice(focused ? s_caret : 0, tp); const float32 caretW = focused ? measW(tp) : 0.f;
-            const float32 offX = (focused && caretW > availW) ? (caretW - availW) : 0.f;
-            const NkRect clip = { r.x + pad, r.y, r.w - pad * 2.f, r.h };
-            dl.PushClipRect(clip, true);
-            if (focused && s_anchor >= 0 && s_anchor != s_caret) {   // surbrillance selection
-                const int32 lo = s_anchor < s_caret ? s_anchor : s_caret, hi = s_anchor < s_caret ? s_caret : s_anchor;
-                char a[600], b[600]; slice(lo, a); slice(hi, b); const float32 xa = measW(a), xb = measW(b);
-                dl.AddRectFilled({ r.x + pad - offX + xa, r.y + 4.f, xb - xa, r.h - 8.f }, NkColor{ 46, 110, 190, 140 });
-            }
-            dl.AddText(f->Face(), f->TexId(), { r.x + pad - offX, r.y + (r.h - lh) * 0.5f + asc }, buf[0] ? buf : "", NkColor{ 230, 237, 243, 255 });
-            if (focused) {
-                const float32 phase = s_blink - (float32)(int64)s_blink;
-                if (phase < 0.55f) { const float32 caretX = r.x + pad + (caretW - offX) + 1.f; dl.AddRectFilled({ caretX, r.y + 5.f, 1.5f, r.h - 10.f }, NkColor{ 200, 210, 220, 255 }); }
-            }
-            dl.PopClipRect();
-        }
-    }
-} // namespace nkcode
+		// ── Menu contextuel (clic droit) Copier/Couper/Coller — reutilise par
+		//    l'editeur et le terminal. Dessine sur la couche overlay (au-dessus). ──
+		struct NkCtxMenu {
+				bool open = false;
+				NkVec2 pos{0.f, 0.f};
+		};
+
+		// Retourne l'index de l'item clique (et ferme le menu), -1 sinon. Se ferme au
+		// clic exterieur ou sur Echap. `enabled[i]` grise les items non applicables.
+		inline int32 NkCtxMenuDraw(NkGuiContext &ctx, NkCtxMenu &mn, const char *const *items, const bool *enabled,
+								   int32 count) {
+			if (!mn.open)
+				return -1;
+			NkGuiDrawList &dl = ctx.dlOverlay;
+			const float32 lh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
+			const float32 rowH = lh + 8.f, pad = 10.f;
+			NkRect box = {mn.pos.x, mn.pos.y, 168.f, count * rowH + 8.f};
+			if (box.x + box.w > static_cast<float32>(ctx.viewW))
+				box.x = static_cast<float32>(ctx.viewW) - box.w;
+			if (box.y + box.h > static_cast<float32>(ctx.viewH))
+				box.y = static_cast<float32>(ctx.viewH) - box.h;
+			dl.AddRectFilled(box, NkColor{32, 38, 46, 255}, 6.f);
+			dl.AddRect(box, NkColor{60, 66, 74, 255}, 1.f);
+			const NkVec2 m = ctx.input.mousePos;
+			int32 clicked = -1;
+			float32 y = box.y + 4.f;
+			for (int32 i = 0; i < count; ++i) {
+				const NkRect r = {box.x + 3.f, y, box.w - 6.f, rowH};
+				const bool hov = m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
+				if (hov && enabled[i])
+					dl.AddRectFilled(r, NkColor{31, 111, 235, 110}, 4.f);
+				if (ctx.font && ctx.font->Valid())
+					dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+							   {r.x + pad, y + (rowH - lh) * 0.5f + ctx.font->Ascent()}, items[i],
+							   enabled[i] ? NkColor{223, 223, 223, 255} : NkColor{110, 118, 129, 255});
+				if (hov && enabled[i] && ctx.input.mouseClicked[0])
+					clicked = i;
+				y += rowH;
+			}
+			const bool inBox = m.x >= box.x && m.x < box.x + box.w && m.y >= box.y && m.y < box.y + box.h;
+			if (clicked >= 0)
+				mn.open = false;
+			else if ((ctx.input.mouseClicked[0] || ctx.input.mouseClicked[1]) && !inBox)
+				mn.open = false;
+			if (ctx.input.KeyPressed(NkGuiKey::Escape))
+				mn.open = false;
+			return clicked;
+		}
+
+		inline bool NkIsDrawable(uint32 cp) {
+			return (cp >= 0x2500u && cp <= 0x25FFu) || (cp >= 0x2190u && cp <= 0x2193u);
+		}
+
+		// Dessine le glyphe primitif pour `cp` dans la cellule (x, top, w, h).
+		inline void NkDrawGlyphPrim(NkGuiDrawList &dl, uint32 cp, float32 x, float32 top, float32 w, float32 h,
+									const NkColor &col) {
+			const float32 mx = x + w * 0.5f, my = top + h * 0.5f, r = x + w, b = top + h, t = 1.3f;
+			const NkColor a64{col.r, col.g, col.b, 64}, a110{col.r, col.g, col.b, 110}, a170{col.r, col.g, col.b, 170};
+			auto H = [&](float32 x0, float32 x1) { dl.AddLine({x0, my}, {x1, my}, col, t); };
+			auto V = [&](float32 y0, float32 y1) { dl.AddLine({mx, y0}, {mx, y1}, col, t); };
+			switch (cp) {
+				case 0x2500:
+					H(x, r);
+					break; // ─
+				case 0x2502:
+					V(top, b);
+					break; // │
+				case 0x250C:
+					H(mx, r);
+					V(my, b);
+					break; // ┌
+				case 0x2510:
+					H(x, mx);
+					V(my, b);
+					break; // ┐
+				case 0x2514:
+					H(mx, r);
+					V(top, my);
+					break; // └
+				case 0x2518:
+					H(x, mx);
+					V(top, my);
+					break; // ┘
+				case 0x251C:
+					V(top, b);
+					H(mx, r);
+					break; // ├
+				case 0x2524:
+					V(top, b);
+					H(x, mx);
+					break; // ┤
+				case 0x252C:
+					H(x, r);
+					V(my, b);
+					break; // ┬
+				case 0x2534:
+					H(x, r);
+					V(top, my);
+					break; // ┴
+				case 0x253C:
+					H(x, r);
+					V(top, b);
+					break; // ┼
+				case 0x2550:
+					dl.AddLine({x, my - 2}, {r, my - 2}, col, t);
+					dl.AddLine({x, my + 2}, {r, my + 2}, col, t);
+					break; // ═
+				case 0x2551:
+					dl.AddLine({mx - 2, top}, {mx - 2, b}, col, t);
+					dl.AddLine({mx + 2, top}, {mx + 2, b}, col, t);
+					break; // ║
+				case 0x2588:
+					dl.AddRectFilled({x, top, w, h}, col);
+					break; // █
+				case 0x2580:
+					dl.AddRectFilled({x, top, w, h * 0.5f}, col);
+					break; // ▀
+				case 0x2584:
+					dl.AddRectFilled({x, my, w, h * 0.5f}, col);
+					break; // ▄
+				case 0x258C:
+					dl.AddRectFilled({x, top, w * 0.5f, h}, col);
+					break; // ▌
+				case 0x2590:
+					dl.AddRectFilled({mx, top, w * 0.5f, h}, col);
+					break; // ▐
+				case 0x2591:
+					dl.AddRectFilled({x, top, w, h}, a64);
+					break; // ░
+				case 0x2592:
+					dl.AddRectFilled({x, top, w, h}, a110);
+					break; // ▒
+				case 0x2593:
+					dl.AddRectFilled({x, top, w, h}, a170);
+					break; // ▓
+				case 0x25A0:
+					dl.AddRectFilled({x + w * 0.2f, top + h * 0.28f, w * 0.6f, h * 0.45f}, col);
+					break; // ■
+				case 0x25A1:
+					dl.AddRect({x + w * 0.2f, top + h * 0.28f, w * 0.6f, h * 0.45f}, col, t);
+					break; // □
+				case 0x25CF:
+					dl.AddCircleFilled({mx, my}, w * 0.3f, col);
+					break; // ●
+				case 0x25B2:
+					dl.AddTriangleFilled({mx, top + h * 0.28f}, {x + w * 0.25f, b - h * 0.28f},
+										 {r - w * 0.25f, b - h * 0.28f}, col);
+					break; // ▲
+				case 0x25BC:
+					dl.AddTriangleFilled({x + w * 0.25f, top + h * 0.28f}, {r - w * 0.25f, top + h * 0.28f},
+										 {mx, b - h * 0.28f}, col);
+					break; // ▼
+				case 0x2190:
+					H(x, r);
+					dl.AddTriangleFilled({x, my}, {x + w * 0.3f, my - h * 0.16f}, {x + w * 0.3f, my + h * 0.16f}, col);
+					break; // ←
+				case 0x2192:
+					H(x, r);
+					dl.AddTriangleFilled({r, my}, {r - w * 0.3f, my - h * 0.16f}, {r - w * 0.3f, my + h * 0.16f}, col);
+					break; // →
+				case 0x2191:
+					V(top, b);
+					dl.AddTriangleFilled({mx, top}, {mx - w * 0.16f, top + h * 0.3f}, {mx + w * 0.16f, top + h * 0.3f},
+										 col);
+					break; // ↑
+				case 0x2193:
+					V(top, b);
+					dl.AddTriangleFilled({mx, b}, {mx - w * 0.16f, b - h * 0.3f}, {mx + w * 0.16f, b - h * 0.3f}, col);
+					break; // ↓
+				default:
+					dl.AddRect({x + w * 0.22f, top + h * 0.3f, w * 0.56f, h * 0.4f}, col, 1.f);
+					break; // autres : petit cadre
+			}
+		}
+
+		// Rend [begin,end) en interceptant les codepoints dessinables (primitives) ;
+		// le reste via la police. Retourne le x final. (cellTop, cellH) = la ligne.
+		inline float32 NkDrawTextU(NkGuiContext &ctx, float32 x, float32 baseline, float32 cellTop, float32 cellH,
+								   const char *begin, const char *end, const NkColor &col) {
+			if (!ctx.font || !ctx.font->Valid())
+				return x;
+			const NkFont *face = ctx.font->Face();
+			const uint32 tex = ctx.font->TexId();
+			const char *run = begin;
+			const char *p = begin;
+			auto flush = [&](const char *e) {
+				if (e > run) {
+					ctx.DL().AddTextRange(face, tex, {x, baseline}, run, e, col);
+					x += face->CalcTextSizeX(run, e);
+				}
+			};
+			while (p < end) {
+				const char *q = p;
+				const uint32 cp = NkDecodeU8(q, end);
+				// Primitive UNIQUEMENT si la police n'a pas le glyphe (DejaVu a le
+				// box-drawing -> on le laisse rendre ; DroidSans non -> on dessine).
+				if (NkIsDrawable(cp) && !face->FindGlyphNoFallback(cp)) {
+					flush(p);
+					const float32 w = face->CalcTextSizeX(p, q); // avance (glyphe de repli)
+					NkDrawGlyphPrim(ctx.DL(), cp, x, cellTop, w, cellH, col);
+					x += w;
+					run = q;
+				}
+				p = q;
+			}
+			flush(p);
+			return x;
+		}
+
+		// ── Champ de saisie mono-ligne minimal pour l'overlay (positionne en absolu) ──
+		// Edite `buf` quand `focused` ; renvoie via les codepoints tapes + Backspace.
+		inline void NkOverlayTextField(NkGuiContext &ctx, NkGuiDrawList &dl, const NkGuiFont *f, const NkRect &r,
+									   char *buf, int32 cap, bool focused) {
+			const float32 asc = f ? f->Ascent() : 0.f, lh = f ? f->LineHeight() : 0.f;
+			dl.AddRectFilled(r, NkColor{22, 27, 34, 255}, 4.f);
+			dl.AddRect(r, focused ? NkColor{88, 166, 255, 255} : NkColor{48, 54, 61, 255}, 1.f);
+			// Edition complete (caret, SELECTION, copier/couper/coller, double-clic, clic-position).
+			// Etat statique associe au buffer focus (un seul champ edite a la fois).
+			static const void *s_owner = nullptr;
+			static int32 s_caret = 0, s_anchor = -1;
+			static float32 s_blink = 0.f;
+			static bool s_drag = false;
+			const float32 pad = 8.f;
+			int32 len = 0;
+			while (buf[len])
+				++len;
+			auto measW = [&](const char *s) -> float32 { return f ? f->MeasureWidth(s) : 0.f; };
+			auto slice = [&](int32 n, char *out) {
+				int32 m = n < 599 ? n : 599;
+				for (int32 k = 0; k < m; ++k)
+					out[k] = buf[k];
+				out[m] = '\0';
+			};
+			if (focused) {
+				if (s_owner != buf) {
+					s_owner = buf;
+					s_caret = len;
+					s_anchor = -1;
+				}
+				auto &in = ctx.input;
+				s_blink += in.dt;
+				if (s_caret > len)
+					s_caret = len;
+				if (s_caret < 0)
+					s_caret = 0;
+				if (s_anchor > len)
+					s_anchor = len;
+				const bool shift = in.shiftDown;
+				auto hasSel = [&]() { return s_anchor >= 0 && s_anchor != s_caret; };
+				auto selLo = [&]() { return s_anchor < s_caret ? s_anchor : s_caret; };
+				auto selHi = [&]() { return s_anchor < s_caret ? s_caret : s_anchor; };
+				auto startSel = [&]() {
+					if (s_anchor < 0)
+						s_anchor = s_caret;
+				};
+				auto delSel = [&]() {
+					const int32 lo = selLo(), n = selHi() - lo;
+					for (int32 k = lo; k + n <= len; ++k)
+						buf[k] = buf[k + n];
+					len -= n;
+					buf[len] = '\0';
+					s_caret = lo;
+					s_anchor = -1;
+				};
+				auto copySel = [&]() {
+					char t2[600];
+					int32 lo = selLo(), hi = selHi(), j = 0;
+					for (int32 k = lo; k < hi && j < 599; ++k)
+						t2[j++] = buf[k];
+					t2[j] = '\0';
+					ctx.SetClipboard(t2);
+				};
+				const NkVec2 mp = in.mousePos;
+				const bool hit = (mp.x >= r.x && mp.x <= r.x + r.w && mp.y >= r.y && mp.y <= r.y + r.h);
+				auto caretAtMouse = [&]() -> int32 {
+					const float32 availW0 = r.w - pad * 2.f;
+					char tp0[600];
+					slice(s_caret, tp0);
+					const float32 pw = measW(tp0);
+					const float32 offc = (pw > availW0) ? (pw - availW0) : 0.f;
+					const float32 target = mp.x - (r.x + pad) + offc;
+					int32 best = 0;
+					float32 bestd = 1e9f;
+					char acc[600];
+					int32 an = 0;
+					for (int32 i = 0;; ++i) {
+						acc[an] = '\0';
+						const float32 wv = measW(acc);
+						const float32 d = wv > target ? wv - target : target - wv;
+						if (d < bestd) {
+							bestd = d;
+							best = i;
+						}
+						if (!buf[i] || an >= 599)
+							break;
+						acc[an++] = buf[i];
+					}
+					return best;
+				};
+				// Double-clic -> tout ; appui -> ancre ; glisser -> etend ; clic simple -> curseur + deselection.
+				if (hit && in.mouseDoubleClicked[0]) {
+					s_anchor = 0;
+					s_caret = len;
+					s_drag = false;
+					s_blink = 0.f;
+				} else if (hit && in.mouseClicked[0]) {
+					const int32 c = caretAtMouse();
+					s_caret = c;
+					s_anchor = c;
+					s_drag = true;
+					s_blink = 0.f;
+				} else if (s_drag && in.mouseDown[0]) {
+					s_caret = caretAtMouse();
+					s_blink = 0.f;
+				}
+				if (!in.mouseDown[0])
+					s_drag = false;
+				if (in.KeyPressedRepeat(NkGuiKey::Left)) {
+					if (shift) {
+						startSel();
+						if (s_caret > 0)
+							--s_caret;
+					} else {
+						if (hasSel())
+							s_caret = selLo();
+						else if (s_caret > 0)
+							--s_caret;
+						s_anchor = -1;
+					}
+					s_blink = 0.f;
+				}
+				if (in.KeyPressedRepeat(NkGuiKey::Right)) {
+					if (shift) {
+						startSel();
+						if (s_caret < len)
+							++s_caret;
+					} else {
+						if (hasSel())
+							s_caret = selHi();
+						else if (s_caret < len)
+							++s_caret;
+						s_anchor = -1;
+					}
+					s_blink = 0.f;
+				}
+				if (in.KeyPressed(NkGuiKey::Home)) {
+					if (shift)
+						startSel();
+					else
+						s_anchor = -1;
+					s_caret = 0;
+					s_blink = 0.f;
+				}
+				if (in.KeyPressed(NkGuiKey::End)) {
+					if (shift)
+						startSel();
+					else
+						s_anchor = -1;
+					s_caret = len;
+					s_blink = 0.f;
+				}
+				if (in.wantSelectAll) {
+					s_anchor = 0;
+					s_caret = len;
+					in.wantSelectAll = false;
+					s_blink = 0.f;
+				}
+				if (in.wantCopy) {
+					if (hasSel())
+						copySel();
+					in.wantCopy = false;
+				}
+				if (in.wantCut) {
+					if (hasSel()) {
+						copySel();
+						delSel();
+					}
+					in.wantCut = false;
+					s_blink = 0.f;
+				}
+				if (in.KeyPressedRepeat(NkGuiKey::Backspace)) {
+					if (hasSel())
+						delSel();
+					else if (s_caret > 0) {
+						for (int32 k = s_caret - 1; k < len; ++k)
+							buf[k] = buf[k + 1];
+						--s_caret;
+						--len;
+					}
+					s_blink = 0.f;
+				}
+				if (in.KeyPressedRepeat(NkGuiKey::Delete)) {
+					if (hasSel())
+						delSel();
+					else if (s_caret < len) {
+						for (int32 k = s_caret; k < len; ++k)
+							buf[k] = buf[k + 1];
+						--len;
+					}
+					s_blink = 0.f;
+				}
+				if (in.wantPaste) {
+					if (hasSel())
+						delSel();
+					const NkString cb = ctx.GetClipboard();
+					for (const char *s = cb.CStr(); *s; ++s) {
+						if ((unsigned char)*s < 32 || len + 1 >= cap)
+							continue;
+						for (int32 k = len; k >= s_caret; --k)
+							buf[k + 1] = buf[k];
+						buf[s_caret] = *s;
+						++s_caret;
+						++len;
+					}
+					in.wantPaste = false;
+					s_blink = 0.f;
+				}
+				for (int32 i = 0; i < in.charCount; ++i) {
+					const uint32 cp = in.chars[i];
+					if (cp < 32 || cp >= 127)
+						continue;
+					if (hasSel())
+						delSel();
+					if (len + 1 >= cap)
+						break;
+					for (int32 k = len; k >= s_caret; --k)
+						buf[k + 1] = buf[k];
+					buf[s_caret] = (char)cp;
+					++s_caret;
+					++len;
+					s_blink = 0.f;
+				}
+				if (s_caret > len)
+					s_caret = len;
+				if (s_anchor > len)
+					s_anchor = len;
+			}
+			if (f) {
+				const float32 availW = r.w - pad * 2.f;
+				char tp[600];
+				slice(focused ? s_caret : 0, tp);
+				const float32 caretW = focused ? measW(tp) : 0.f;
+				const float32 offX = (focused && caretW > availW) ? (caretW - availW) : 0.f;
+				const NkRect clip = {r.x + pad, r.y, r.w - pad * 2.f, r.h};
+				dl.PushClipRect(clip, true);
+				if (focused && s_anchor >= 0 && s_anchor != s_caret) { // surbrillance selection
+					const int32 lo = s_anchor < s_caret ? s_anchor : s_caret,
+								hi = s_anchor < s_caret ? s_caret : s_anchor;
+					char a[600], b[600];
+					slice(lo, a);
+					slice(hi, b);
+					const float32 xa = measW(a), xb = measW(b);
+					dl.AddRectFilled({r.x + pad - offX + xa, r.y + 4.f, xb - xa, r.h - 8.f},
+									 NkColor{46, 110, 190, 140});
+				}
+				dl.AddText(f->Face(), f->TexId(), {r.x + pad - offX, r.y + (r.h - lh) * 0.5f + asc}, buf[0] ? buf : "",
+						   NkColor{230, 237, 243, 255});
+				if (focused) {
+					const float32 phase = s_blink - (float32)(int64)s_blink;
+					if (phase < 0.55f) {
+						const float32 caretX = r.x + pad + (caretW - offX) + 1.f;
+						dl.AddRectFilled({caretX, r.y + 5.f, 1.5f, r.h - 10.f}, NkColor{200, 210, 220, 255});
+					}
+				}
+				dl.PopClipRect();
+			}
+		}
+	} // namespace nkcode
 } // namespace nkentseu

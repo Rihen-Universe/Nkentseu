@@ -33,40 +33,38 @@
 
 namespace nkentseu {
 
-    using namespace math;
+	using namespace math;
 
-    class NkTransformSystem final : public ecs::NkSystem {
-        public:
-            NkTransformSystem()  noexcept = default;
-            ~NkTransformSystem() noexcept override = default;
+	class NkTransformSystem final : public ecs::NkSystem {
+		public:
+			NkTransformSystem() noexcept = default;
+			~NkTransformSystem() noexcept override = default;
 
-            // ── Descriptor ───────────────────────────────────────────────
-            [[nodiscard]] ecs::NkSystemDesc Describe() const override {
-                return ecs::NkSystemDesc{}
-                    .Reads<ecs::NkParent>()
-                    .Reads<ecs::NkChildren>()
-                    .Writes<ecs::NkTransform>()
-                    .InGroup(ecs::NkSystemGroup::PreUpdate)
-                    .WithPriority(1000.f)    // En premier absolu
-                    .Named("NkTransformSystem");
-            }
+			// ── Descriptor ───────────────────────────────────────────────
+			[[nodiscard]] ecs::NkSystemDesc Describe() const override {
+				return ecs::NkSystemDesc{}
+					.Reads<ecs::NkParent>()
+					.Reads<ecs::NkChildren>()
+					.Writes<ecs::NkTransform>()
+					.InGroup(ecs::NkSystemGroup::PreUpdate)
+					.WithPriority(1000.f) // En premier absolu
+					.Named("NkTransformSystem");
+			}
 
-            // ── Exécution ─────────────────────────────────────────────────
-            void Execute(ecs::NkWorld& world, float32 dt) noexcept override;
+			// ── Exécution ─────────────────────────────────────────────────
+			void Execute(ecs::NkWorld &world, float32 dt) noexcept override;
 
-        private:
-            struct StackEntry {
-                ecs::NkEntityId entity;
-                NkMat4f         parentWorld  = NkMat4f::Identity();
-                bool            parentDirty  = false;
-            };
+		private:
+			struct StackEntry {
+					ecs::NkEntityId entity;
+					NkMat4f parentWorld = NkMat4f::Identity();
+					bool parentDirty = false;
+			};
 
-            NkVector<StackEntry> mStack;  ///< Réutilisé chaque frame (0 allocation)
+			NkVector<StackEntry> mStack; ///< Réutilisé chaque frame (0 allocation)
 
-            void ProcessEntity(ecs::NkWorld& world,
-                               ecs::NkEntityId id,
-                               const NkMat4f& parentWorld,
-                               bool parentDirty) noexcept;
-    };
+			void ProcessEntity(ecs::NkWorld &world, ecs::NkEntityId id, const NkMat4f &parentWorld,
+							   bool parentDirty) noexcept;
+	};
 
 } // namespace nkentseu

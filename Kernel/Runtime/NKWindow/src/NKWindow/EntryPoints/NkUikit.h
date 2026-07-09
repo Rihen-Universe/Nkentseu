@@ -8,18 +8,18 @@
 
 #import <UIKit/UIKit.h>
 #include "NKWindow/Core/NkEntry.h"
-#include "NKMemory/NkAllocator.h"   // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
+#include "NKMemory/NkAllocator.h" // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 
 // ---------------------------------------------------------------------------
 // Arguments iOS globaux
 // ---------------------------------------------------------------------------
 
 struct NkAppleMobileArgs {
-	NkString bundleId;
-	NkString version;
-	NkString build;
-	NkString documentsPath;
-	NkVector<NkString> args;
+		NkString bundleId;
+		NkString version;
+		NkString build;
+		NkString documentsPath;
+		NkVector<NkString> args;
 };
 
 static NkAppleMobileArgs g_ios_args;
@@ -28,7 +28,7 @@ static NkAppleMobileArgs g_ios_args;
  * @brief Namespace nkentseu.
  */
 namespace nkentseu {
-NkEntryState *gState = nullptr;
+	NkEntryState *gState = nullptr;
 }
 
 // ---------------------------------------------------------------------------

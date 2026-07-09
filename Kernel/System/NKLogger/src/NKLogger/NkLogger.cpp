@@ -30,12 +30,11 @@
 #include <ctime>
 
 #if !defined(NKENTSEU_PLATFORM_WINDOWS)
-	#include <pthread.h>
-	#if defined(NKENTSEU_PLATFORM_LINUX) && !defined(__ANDROID__)
-		#include <sys/syscall.h>
-	#endif
+#include <pthread.h>
+#if defined(NKENTSEU_PLATFORM_LINUX) && !defined(__ANDROID__)
+#include <sys/syscall.h>
 #endif
-
+#endif
 
 // -------------------------------------------------------------------------
 // SECTION 1 : NAMESPACE ANONYME - UTILITAIRES INTERNES
@@ -44,7 +43,6 @@
 // Non exposées dans l'API publique pour encapsulation et optimisation.
 
 namespace {
-
 
 	// -------------------------------------------------------------------------
 	// FONCTION : NkMapLatinAccentC3
@@ -55,31 +53,54 @@ namespace {
 	// -------------------------------------------------------------------------
 	char NkMapLatinAccentC3(unsigned char c2) {
 		switch (c2) {
-			case 0x80: case 0x81: case 0x82: case 0x83: case 0x84: case 0x85:
+			case 0x80:
+			case 0x81:
+			case 0x82:
+			case 0x83:
+			case 0x84:
+			case 0x85:
 				return 'A';
 
 			case 0x87:
 				return 'C';
 
-			case 0x88: case 0x89: case 0x8A: case 0x8B:
+			case 0x88:
+			case 0x89:
+			case 0x8A:
+			case 0x8B:
 				return 'E';
 
-			case 0x8C: case 0x8D: case 0x8E: case 0x8F:
+			case 0x8C:
+			case 0x8D:
+			case 0x8E:
+			case 0x8F:
 				return 'I';
 
 			case 0x91:
 				return 'N';
 
-			case 0x92: case 0x93: case 0x94: case 0x95: case 0x96:
+			case 0x92:
+			case 0x93:
+			case 0x94:
+			case 0x95:
+			case 0x96:
 				return 'O';
 
-			case 0x99: case 0x9A: case 0x9B: case 0x9C:
+			case 0x99:
+			case 0x9A:
+			case 0x9B:
+			case 0x9C:
 				return 'U';
 
 			case 0x9D:
 				return 'Y';
 
-			case 0xA0: case 0xA1: case 0xA2: case 0xA3: case 0xA4: case 0xA5:
+			case 0xA0:
+			case 0xA1:
+			case 0xA2:
+			case 0xA3:
+			case 0xA4:
+			case 0xA5:
 				return 'a';
 
 			case 0xA6:
@@ -88,29 +109,42 @@ namespace {
 			case 0xA7:
 				return 'c';
 
-			case 0xA8: case 0xA9: case 0xAA: case 0xAB:
+			case 0xA8:
+			case 0xA9:
+			case 0xAA:
+			case 0xAB:
 				return 'e';
 
-			case 0xAC: case 0xAD: case 0xAE: case 0xAF:
+			case 0xAC:
+			case 0xAD:
+			case 0xAE:
+			case 0xAF:
 				return 'i';
 
 			case 0xB1:
 				return 'n';
 
-			case 0xB2: case 0xB3: case 0xB4: case 0xB5: case 0xB6:
+			case 0xB2:
+			case 0xB3:
+			case 0xB4:
+			case 0xB5:
+			case 0xB6:
 				return 'o';
 
-			case 0xB9: case 0xBA: case 0xBB: case 0xBC:
+			case 0xB9:
+			case 0xBA:
+			case 0xBB:
+			case 0xBC:
 				return 'u';
 
-			case 0xBD: case 0xBF:
+			case 0xBD:
+			case 0xBF:
 				return 'y';
 
 			default:
 				return '\0';
 		}
 	}
-
 
 	// -------------------------------------------------------------------------
 	// FONCTION : NkSanitizeLogText
@@ -119,7 +153,7 @@ namespace {
 	// RETURN : Nouvelle chaîne avec caractères non-safe remplacés par '?' ou équivalents ASCII
 	// NOTE : Préserve les caractères imprimables ASCII, mappe les accents latins, remplace le reste
 	// -------------------------------------------------------------------------
-	nkentseu::NkString NkSanitizeLogText(const nkentseu::NkString& input) {
+	nkentseu::NkString NkSanitizeLogText(const nkentseu::NkString &input) {
 		// Cas vide : retour rapide sans allocation
 		if (input.Empty()) {
 			return nkentseu::NkString{};
@@ -138,8 +172,8 @@ namespace {
 
 			// Cas 1 : Caractère ASCII imprimable ou whitespace autorisé
 			if (currentByte < 0x80) {
-				if ((currentByte >= 0x20 && currentByte <= 0x7E)  // Caractères imprimables
-					|| currentByte == '\n' || currentByte == '\r' || currentByte == '\t') {  // Whitespace autorisé
+				if ((currentByte >= 0x20 && currentByte <= 0x7E)							// Caractères imprimables
+					|| currentByte == '\n' || currentByte == '\r' || currentByte == '\t') { // Whitespace autorisé
 					output.PushBack(static_cast<char>(currentByte));
 				} else {
 					// Caractère de contrôle non autorisé → remplacer par espace
@@ -176,11 +210,11 @@ namespace {
 			if (currentByte == 0xC5 && (index + 1) < length) {
 				const unsigned char secondByte = static_cast<unsigned char>(input[index + 1]);
 				if (secondByte == 0x92) {
-					output.Append("OE");  // Œ → "OE"
+					output.Append("OE"); // Œ → "OE"
 				} else if (secondByte == 0x93) {
-					output.Append("oe");  // œ → "oe"
+					output.Append("oe"); // œ → "oe"
 				} else {
-					output.PushBack('?');  // Autre C5xx → ?
+					output.PushBack('?'); // Autre C5xx → ?
 				}
 				index += 2;
 				continue;
@@ -194,23 +228,23 @@ namespace {
 				if (secondByte == 0x80) {
 					// Mapping des caractères de ponctuation courants
 					switch (thirdByte) {
-						case 0x93:  // En dash U+2013
-						case 0x94:  // Em dash U+2014
-						case 0x95:  // Bullet U+2022
+						case 0x93: // En dash U+2013
+						case 0x94: // Em dash U+2014
+						case 0x95: // Bullet U+2022
 							output.PushBack('-');
 							break;
 
-						case 0x98:  // Left single quote U+2018
-						case 0x99:  // Right single quote U+2019
+						case 0x98: // Left single quote U+2018
+						case 0x99: // Right single quote U+2019
 							output.PushBack('\'');
 							break;
 
-						case 0x9C:  // Left double quote U+201C
-						case 0x9D:  // Right double quote U+201D
+						case 0x9C: // Left double quote U+201C
+						case 0x9D: // Right double quote U+201D
 							output.PushBack('"');
 							break;
 
-						case 0xA6:  // Ellipsis U+2026
+						case 0xA6: // Ellipsis U+2026
 							output.Append("...");
 							break;
 
@@ -219,7 +253,7 @@ namespace {
 							break;
 					}
 				} else {
-					output.PushBack('?');  // E2xx non reconnu
+					output.PushBack('?'); // E2xx non reconnu
 				}
 				index += 3;
 				continue;
@@ -247,7 +281,6 @@ namespace {
 		return output;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// FONCTION : NkSanitizeLogText (surcharge const char*)
 	// DESCRIPTION : Surcharge pour acceptation directe de C-string
@@ -255,13 +288,11 @@ namespace {
 	// RETURN : NkString sanitizé, ou chaîne vide si input est nullptr
 	// NOTE : Délègue à la version NkString& pour implémentation unique
 	// -------------------------------------------------------------------------
-	nkentseu::NkString NkSanitizeLogText(const char* input) {
+	nkentseu::NkString NkSanitizeLogText(const char *input) {
 		return input ? NkSanitizeLogText(nkentseu::NkString(input)) : nkentseu::NkString{};
 	}
 
-
-} // namespace anonymous
-
+} // namespace
 
 // -------------------------------------------------------------------------
 // SECTION 2 : NAMESPACE PRINCIPAL - IMPLÉMENTATIONS DES MÉTHODES
@@ -271,23 +302,17 @@ namespace {
 
 namespace nkentseu {
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Constructeur
 	// DESCRIPTION : Initialise un logger avec nom et configuration par défaut
 	// -------------------------------------------------------------------------
-	NkLogger::NkLogger(const NkString& name)
-		: m_Name(name)
-		, m_Level(NkLogLevel::NK_INFO)
-		, m_Enabled(true)
-		, m_Formatter(memory::NkMakeUnique<NkLoggerFormatter>())
-		, m_SourceLine(0) {
-
+	NkLogger::NkLogger(const NkString &name)
+		: m_Name(name), m_Level(NkLogLevel::NK_INFO), m_Enabled(true),
+		  m_Formatter(memory::NkMakeUnique<NkLoggerFormatter>()), m_SourceLine(0) {
 		// Initialisation des métadonnées de source à vide
 		m_SourceFile.Clear();
 		m_FunctionName.Clear();
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Destructeur
@@ -301,7 +326,6 @@ namespace nkentseu {
 		ClearSinks();
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : AddSink
 	// DESCRIPTION : Ajoute un sink à la liste de destinations thread-safe
@@ -313,7 +337,6 @@ namespace nkentseu {
 		// Ajout en fin de vecteur : ordre d'émission préservé
 		m_Sinks.PushBack(sink);
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : ClearSinks
@@ -327,7 +350,6 @@ namespace nkentseu {
 		m_Sinks.Clear();
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetSinkCount
 	// DESCRIPTION : Retourne le nombre de sinks attachés (lecture thread-safe)
@@ -339,7 +361,6 @@ namespace nkentseu {
 		// Retour de la taille courante du vecteur
 		return m_Sinks.Size();
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetFormatter
@@ -353,12 +374,11 @@ namespace nkentseu {
 		m_Formatter = traits::NkMove(formatter);
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetPattern
 	// DESCRIPTION : Met à jour le pattern via le formatter interne
 	// -------------------------------------------------------------------------
-	void NkLogger::SetPattern(const NkString& pattern) {
+	void NkLogger::SetPattern(const NkString &pattern) {
 		// Acquisition du lock pour modification de m_Formatter
 		threading::NkScopedLockMutex lock(m_Mutex);
 
@@ -367,7 +387,6 @@ namespace nkentseu {
 			m_Formatter->SetPattern(pattern);
 		}
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetLevel
@@ -381,7 +400,6 @@ namespace nkentseu {
 		m_Level = level;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetLevel
 	// DESCRIPTION : Retourne le niveau minimum configuré (lecture thread-safe)
@@ -393,7 +411,6 @@ namespace nkentseu {
 		// Retour de la valeur courante
 		return m_Level;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : ShouldLog
@@ -409,18 +426,12 @@ namespace nkentseu {
 		return level >= m_Level;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : LogInternal (privée)
 	// DESCRIPTION : Point d'entrée unique pour tous les styles de logging
 	// -------------------------------------------------------------------------
-	void NkLogger::LogInternal(
-		NkLogLevel level,
-		const NkString& message,
-		const char* sourceFile,
-		uint32 sourceLine,
-		const char* functionName
-	) {
+	void NkLogger::LogInternal(NkLogLevel level, const NkString &message, const char *sourceFile, uint32 sourceLine,
+							   const char *functionName) {
 		// Filtrage précoce : éviter tout travail si message ignoré
 		if (!m_Enabled || level < m_Level) {
 			return;
@@ -448,22 +459,22 @@ namespace nkentseu {
 			logMessage.functionName = NkSanitizeLogText(functionName);
 		}
 
-		// Nom du thread si disponible (platform-specific)
-		#if defined(__APPLE__) || (defined(__linux__) && !defined(__ANDROID__))
-			char threadNameBuffer[256] = {0};
-			if (pthread_getname_np(pthread_self(), threadNameBuffer, sizeof(threadNameBuffer)) == 0) {
-				logMessage.threadName = NkSanitizeLogText(threadNameBuffer);
-			}
-		#endif
+// Nom du thread si disponible (platform-specific)
+#if defined(__APPLE__) || (defined(__linux__) && !defined(__ANDROID__))
+		char threadNameBuffer[256] = {0};
+		if (pthread_getname_np(pthread_self(), threadNameBuffer, sizeof(threadNameBuffer)) == 0) {
+			logMessage.threadName = NkSanitizeLogText(threadNameBuffer);
+		}
+#endif
 
 		// Acquisition du lock pour émission thread-safe vers les sinks
 		threading::NkScopedLockMutex lock(m_Mutex);
 
 		// Émission à chaque sink configuré
-		for (auto& sink : m_Sinks) {
+		for (auto &sink : m_Sinks) {
 			if (sink) {
 				// Propagation du pattern du logger vers le sink si nécessaire
-				NkLoggerFormatter* siNkLoggerFormatter = sink->GetFormatter();
+				NkLoggerFormatter *siNkLoggerFormatter = sink->GetFormatter();
 				if (siNkLoggerFormatter && m_Formatter) {
 					siNkLoggerFormatter->SetPattern(m_Formatter->GetPattern());
 				}
@@ -478,7 +489,6 @@ namespace nkentseu {
 		m_FunctionName.Clear();
 		m_SourceLine = 0;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Méthodes stream-style (Trace, Debug, etc.)
@@ -540,7 +550,6 @@ namespace nkentseu {
 		LogInternal(NkLogLevel::NK_FATAL, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Méthodes stream-style (Trace, Debug, etc.)
 	// DESCRIPTION : Wrappers vers Log pour messages littéraux sans formatage
@@ -601,7 +610,6 @@ namespace nkentseu {
 		LogInternal(NkLogLevel::NK_FATAL, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Flush
 	// DESCRIPTION : Force l'écriture des buffers de tous les sinks
@@ -611,24 +619,22 @@ namespace nkentseu {
 		threading::NkScopedLockMutex lock(m_Mutex);
 
 		// Appel de Flush() sur chaque sink valide
-		for (auto& sink : m_Sinks) {
+		for (auto &sink : m_Sinks) {
 			if (sink) {
 				sink->Flush();
 			}
 		}
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetName
 	// DESCRIPTION : Retourne le nom du logger (lecture thread-safe)
 	// -------------------------------------------------------------------------
-	const NkString& NkLogger::GetName() const {
+	const NkString &NkLogger::GetName() const {
 		// Lecture protégée via lock (m_Name est mutable via SetName protégé)
 		threading::NkScopedLockMutex lock(m_Mutex);
 		return m_Name;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : IsEnabled
@@ -638,7 +644,6 @@ namespace nkentseu {
 		// Lecture safe : m_Enabled n'est modifié que via SetEnabled (avec lock)
 		return m_Enabled;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetEnabled
@@ -650,12 +655,11 @@ namespace nkentseu {
 		m_Enabled = enabled;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Source
 	// DESCRIPTION : Configure les métadonnées de source temporaires
 	// -------------------------------------------------------------------------
-	NkLogger& NkLogger::Source(const char* sourceFile, uint32 sourceLine, const char* functionName) {
+	NkLogger &NkLogger::Source(const char *sourceFile, uint32 sourceLine, const char *functionName) {
 		// Acquisition du lock pour modification des métadonnées temporaires
 		threading::NkScopedLockMutex lock(m_Mutex);
 
@@ -668,20 +672,17 @@ namespace nkentseu {
 		return *this;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetName (protégée)
 	// DESCRIPTION : Définit le nom du logger pour classes dérivées
 	// -------------------------------------------------------------------------
-	void NkLogger::SetName(const NkString& name) {
+	void NkLogger::SetName(const NkString &name) {
 		// Acquisition du lock pour modification de m_Name
 		threading::NkScopedLockMutex lock(m_Mutex);
 		m_Name = name;
 	}
 
-
 } // namespace nkentseu
-
 
 // =============================================================================
 // NOTES D'IMPLÉMENTATION ET OPTIMISATIONS
@@ -723,7 +724,6 @@ namespace nkentseu {
 	   - NkThread::GetCurrentThreadId() abstrait les différences Windows/POSIX
 	   - Sanitization gère UTF-8 indépendamment de l'encodage système
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

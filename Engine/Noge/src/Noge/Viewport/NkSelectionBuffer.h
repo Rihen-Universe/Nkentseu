@@ -12,51 +12,51 @@
 #include "NKRenderer/NkRenderer.h"
 
 namespace nkentseu {
-    using namespace math;
-    using namespace renderer;
+	using namespace math;
+	using namespace renderer;
 
-    struct NkPickResult {
-        ecs::NkEntityId entity  = ecs::NkEntityId::Invalid();
-        uint32          subIdx  = 0;    // face / vertex / edge index si pertinent
-        float32         depth   = 1.f;  // profondeur normalisée [0..1]
-        NkVec3f         worldPos = {};  // position monde approx (via depth reconstruct)
-    };
+	struct NkPickResult {
+			ecs::NkEntityId entity = ecs::NkEntityId::Invalid();
+			uint32 subIdx = 0;	   // face / vertex / edge index si pertinent
+			float32 depth = 1.f;   // profondeur normalisée [0..1]
+			NkVec3f worldPos = {}; // position monde approx (via depth reconstruct)
+	};
 
-    class NkSelectionBuffer {
-    public:
-        NkSelectionBuffer() noexcept = default;
-        ~NkSelectionBuffer() noexcept { Shutdown(); }
+	class NkSelectionBuffer {
+		public:
+			NkSelectionBuffer() noexcept = default;
 
-        bool Init(NkIDevice* device, uint32 width, uint32 height) noexcept;
-        void Shutdown() noexcept;
-        void Resize(uint32 w, uint32 h) noexcept;
+			~NkSelectionBuffer() noexcept {
+				Shutdown();
+			}
 
-        // Rend les entités avec leur ID couleur (appeler avant le rendu normal)
-        void RenderIDPass(NkICommandBuffer* cmd,
-                          ecs::NkWorld& world,
-                          const NkViewportCamera& cam,
-                          float32 aspect) noexcept;
+			bool Init(NkIDevice *device, uint32 width, uint32 height) noexcept;
+			void Shutdown() noexcept;
+			void Resize(uint32 w, uint32 h) noexcept;
 
-        // Lit le résultat du picking pour un pixel
-        [[nodiscard]] NkPickResult Pick(uint32 pixelX, uint32 pixelY) const noexcept;
+			// Rend les entités avec leur ID couleur (appeler avant le rendu normal)
+			void RenderIDPass(NkICommandBuffer *cmd, ecs::NkWorld &world, const NkViewportCamera &cam,
+							  float32 aspect) noexcept;
 
-        // Box-select : retourne tous les objets dans un rectangle écran
-        void BoxSelect(uint32 x0, uint32 y0, uint32 x1, uint32 y1,
-                       NkVector<ecs::NkEntityId>& out) const noexcept;
+			// Lit le résultat du picking pour un pixel
+			[[nodiscard]] NkPickResult Pick(uint32 pixelX, uint32 pixelY) const noexcept;
 
-        static uint32   EntityToColor(ecs::NkEntityId id) noexcept;
-        static ecs::NkEntityId ColorToEntity(uint32 color) noexcept;
+			// Box-select : retourne tous les objets dans un rectangle écran
+			void BoxSelect(uint32 x0, uint32 y0, uint32 x1, uint32 y1, NkVector<ecs::NkEntityId> &out) const noexcept;
 
-    private:
-        NkIDevice*      mDevice = nullptr;
-        NkRenderTargetHandle mColorRT;   // R8G8B8A8 — ID couleur
-        NkRenderTargetHandle mDepthRT;
-        NkShaderHandle  mIDShader;
-        uint32          mWidth = 0, mHeight = 0;
+			static uint32 EntityToColor(ecs::NkEntityId id) noexcept;
+			static ecs::NkEntityId ColorToEntity(uint32 color) noexcept;
 
-        mutable NkVector<uint8> mReadback; // Buffer CPU pour readback
-        mutable bool            mDirty = true;
+		private:
+			NkIDevice *mDevice = nullptr;
+			NkRenderTargetHandle mColorRT; // R8G8B8A8 — ID couleur
+			NkRenderTargetHandle mDepthRT;
+			NkShaderHandle mIDShader;
+			uint32 mWidth = 0, mHeight = 0;
 
-        void Readback() const noexcept;
-    };
+			mutable NkVector<uint8> mReadback; // Buffer CPU pour readback
+			mutable bool mDirty = true;
+
+			void Readback() const noexcept;
+	};
 } // namespace nkentseu

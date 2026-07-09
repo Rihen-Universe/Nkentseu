@@ -21,80 +21,99 @@
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
-    namespace Noge {
+	namespace Noge {
 
-        // =====================================================================
-        // NkEditorCommand — interface
-        // =====================================================================
-        class NkEditorCommand {
-        public:
-            virtual ~NkEditorCommand() noexcept = default;
-            virtual void Execute() = 0;
-            virtual void Undo()    = 0;
-            virtual const char* Name() const noexcept { return "Command"; }
-            // Si true, cette commande peut fusionner avec la précédente du même type
-            virtual bool CanMergeWith(const NkEditorCommand*) const noexcept { return false; }
-            virtual void MergeWith(NkEditorCommand*) noexcept {}
-        };
+		// =====================================================================
+		// NkEditorCommand — interface
+		// =====================================================================
+		class NkEditorCommand {
+			public:
+				virtual ~NkEditorCommand() noexcept = default;
+				virtual void Execute() = 0;
+				virtual void Undo() = 0;
 
-        // =====================================================================
-        // CommandHistory
-        // =====================================================================
-        class CommandHistory {
-        public:
-            explicit CommandHistory(nk_uint32 maxDepth = 100) noexcept
-                : mMaxDepth(maxDepth) {}
+				virtual const char *Name() const noexcept {
+					return "Command";
+				}
 
-            ~CommandHistory() noexcept { Clear(); }
+				// Si true, cette commande peut fusionner avec la précédente du même type
+				virtual bool CanMergeWith(const NkEditorCommand *) const noexcept {
+					return false;
+				}
 
-            // Non copiable
-            CommandHistory(const CommandHistory&) = delete;
-            CommandHistory& operator=(const CommandHistory&) = delete;
+				virtual void MergeWith(NkEditorCommand *) noexcept {
+				}
+		};
 
-            // ── Exécution ─────────────────────────────────────────────────────
-            // Exécute la commande et l'empile dans l'historique.
-            // Efface le futur (redo stack) si la commande ne peut pas être mergée.
-            void Do(NkEditorCommand* cmd) noexcept;
+		// =====================================================================
+		// CommandHistory
+		// =====================================================================
+		class CommandHistory {
+			public:
+				explicit CommandHistory(nk_uint32 maxDepth = 100) noexcept : mMaxDepth(maxDepth) {
+				}
 
-            // ── Undo / Redo ───────────────────────────────────────────────────
-            bool Undo() noexcept;
-            bool Redo() noexcept;
+				~CommandHistory() noexcept {
+					Clear();
+				}
 
-            // ── État ──────────────────────────────────────────────────────────
-            [[nodiscard]] bool CanUndo() const noexcept {
-                return mCursor > 0;
-            }
-            [[nodiscard]] bool CanRedo() const noexcept {
-                return mCursor < (nk_int32)mCommands.Size();
-            }
+				// Non copiable
+				CommandHistory(const CommandHistory &) = delete;
+				CommandHistory &operator=(const CommandHistory &) = delete;
 
-            [[nodiscard]] NkString UndoName() const noexcept {
-                if (!CanUndo()) return "";
-                return NkString(mCommands[mCursor - 1]->Name());
-            }
-            [[nodiscard]] NkString RedoName() const noexcept {
-                if (!CanRedo()) return "";
-                return NkString(mCommands[mCursor]->Name());
-            }
+				// ── Exécution ─────────────────────────────────────────────────────
+				// Exécute la commande et l'empile dans l'historique.
+				// Efface le futur (redo stack) si la commande ne peut pas être mergée.
+				void Do(NkEditorCommand *cmd) noexcept;
 
-            [[nodiscard]] nk_uint32 HistorySize() const noexcept {
-                return (nk_uint32)mCommands.Size();
-            }
+				// ── Undo / Redo ───────────────────────────────────────────────────
+				bool Undo() noexcept;
+				bool Redo() noexcept;
 
-            void Clear() noexcept;
+				// ── État ──────────────────────────────────────────────────────────
+				[[nodiscard]] bool CanUndo() const noexcept {
+					return mCursor > 0;
+				}
 
-            // Marque l'état courant comme "sauvegardé"
-            void MarkSaved()   noexcept { mSavedCursor = mCursor; }
-            bool IsModified()  const noexcept { return mCursor != mSavedCursor; }
+				[[nodiscard]] bool CanRedo() const noexcept {
+					return mCursor < (nk_int32)mCommands.Size();
+				}
 
-        private:
-            void Trim() noexcept; // élimine l'excédent si > mMaxDepth
+				[[nodiscard]] NkString UndoName() const noexcept {
+					if (!CanUndo())
+						return "";
+					return NkString(mCommands[mCursor - 1]->Name());
+				}
 
-            NkVector<NkEditorCommand*> mCommands;
-            nk_int32                   mCursor      = 0; // index du prochain redo
-            nk_int32                   mSavedCursor = 0;
-            nk_uint32                  mMaxDepth;
-        };
+				[[nodiscard]] NkString RedoName() const noexcept {
+					if (!CanRedo())
+						return "";
+					return NkString(mCommands[mCursor]->Name());
+				}
 
-    } // namespace Noge
+				[[nodiscard]] nk_uint32 HistorySize() const noexcept {
+					return (nk_uint32)mCommands.Size();
+				}
+
+				void Clear() noexcept;
+
+				// Marque l'état courant comme "sauvegardé"
+				void MarkSaved() noexcept {
+					mSavedCursor = mCursor;
+				}
+
+				bool IsModified() const noexcept {
+					return mCursor != mSavedCursor;
+				}
+
+			private:
+				void Trim() noexcept; // élimine l'excédent si > mMaxDepth
+
+				NkVector<NkEditorCommand *> mCommands;
+				nk_int32 mCursor = 0; // index du prochain redo
+				nk_int32 mSavedCursor = 0;
+				nk_uint32 mMaxDepth;
+		};
+
+	} // namespace Noge
 } // namespace nkentseu

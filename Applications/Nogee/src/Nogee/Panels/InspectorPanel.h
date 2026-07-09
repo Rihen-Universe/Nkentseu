@@ -16,58 +16,40 @@
 #include "Nogee/Editor/CommandHistory.h"
 
 namespace nkentseu {
-    namespace noge {
+	namespace noge {
 
-        class InspectorPanel {
-            public:
-                InspectorPanel() = default;
+		class InspectorPanel {
+			public:
+				InspectorPanel() = default;
 
-                void Render(nkui::NkUIContext& ctx,
-                            nkui::NkUIWindowManager& wm,
-                            nkui::NkUIDrawList& dl,
-                            nkui::NkUIFont& font,
-                            nkui::NkUILayoutStack& ls,
-                            ecs::NkWorld& world,
-                            const NkSelectionManager& sel,
-                            CommandHistory* hist,
-                            nkui::NkUIRect rect) noexcept;
+				void Render(nkui::NkUIContext &ctx, nkui::NkUIWindowManager &wm, nkui::NkUIDrawList &dl,
+							nkui::NkUIFont &font, nkui::NkUILayoutStack &ls, ecs::NkWorld &world,
+							const NkSelectionManager &sel, CommandHistory *hist, nkui::NkUIRect rect) noexcept;
 
-            private:
-                // Rendu d'un composant complet (section pliable)
-                void RenderComponent(nkui::NkUIContext& ctx,
-                                    nkui::NkUIDrawList& dl,
-                                    nkui::NkUIFont& font,
-                                    nkui::NkUILayoutStack& ls,
-                                    const ecs::NkComponentMeta& meta,
-                                    void* compPtr,
-                                    ecs::NkEntityId id,
-                                    CommandHistory* hist) noexcept;
+			private:
+				// Rendu d'un composant complet (section pliable)
+				void RenderComponent(nkui::NkUIContext &ctx, nkui::NkUIDrawList &dl, nkui::NkUIFont &font,
+									 nkui::NkUILayoutStack &ls, const ecs::NkComponentMeta &meta, void *compPtr,
+									 ecs::NkEntityId id, CommandHistory *hist) noexcept;
 
-                // Rendu d'un champ individuel selon son type
-                bool RenderField(nkui::NkUIContext& ctx,
-                                nkui::NkUIDrawList& dl,
-                                nkui::NkUIFont& font,
-                                nkui::NkUILayoutStack& ls,
-                                const ecs::NkFieldMeta& field,
-                                void* compPtr) noexcept;
+				// Rendu d'un champ individuel selon son type
+				bool RenderField(nkui::NkUIContext &ctx, nkui::NkUIDrawList &dl, nkui::NkUIFont &font,
+								 nkui::NkUILayoutStack &ls, const ecs::NkFieldMeta &field, void *compPtr) noexcept;
 
-                // Bouton "Add Component"
-                void RenderAddComponentMenu(nkui::NkUIContext& ctx,
-                                            nkui::NkUIDrawList& dl,
-                                            nkui::NkUIFont& font,
-                                            nkui::NkUILayoutStack& ls,
-                                            ecs::NkWorld& world,
-                                            ecs::NkEntityId id) noexcept;
+				// Bouton "Add Component"
+				void RenderAddComponentMenu(nkui::NkUIContext &ctx, nkui::NkUIDrawList &dl, nkui::NkUIFont &font,
+											nkui::NkUILayoutStack &ls, ecs::NkWorld &world,
+											ecs::NkEntityId id) noexcept;
 
-                // Sections ouvertes (per composant par nom)
-                static constexpr nk_uint32 kMaxSections = 32;
-                char     mSectionNames[kMaxSections][64] = {};
-                bool     mSectionOpen[kMaxSections]      = {};
-                nk_uint32 mSectionCount                  = 0;
+				// Sections ouvertes (per composant par nom)
+				static constexpr nk_uint32 kMaxSections = 32;
+				char mSectionNames[kMaxSections][64] = {};
+				bool mSectionOpen[kMaxSections] = {};
+				nk_uint32 mSectionCount = 0;
 
-                bool IsSectionOpen(const char* name) noexcept;
-                void SetSectionOpen(const char* name, bool open) noexcept;
-        };
+				bool IsSectionOpen(const char *name) noexcept;
+				void SetSectionOpen(const char *name, bool open) noexcept;
+		};
 
-    } // namespace noge
+	} // namespace noge
 } // namespace nkentseu

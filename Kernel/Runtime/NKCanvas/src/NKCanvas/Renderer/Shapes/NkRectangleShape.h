@@ -17,31 +17,45 @@
 #include "NkShape.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        class NkRectangleShape : public NkShape {
-            public:
-                NkRectangleShape() noexcept = default;
-                explicit NkRectangleShape(NkVec2f size) noexcept : mSize(size) {}
+		class NkRectangleShape : public NkShape {
+			public:
+				NkRectangleShape() noexcept = default;
 
-                void    SetSize(NkVec2f size) noexcept { mSize = size; }
-                NkVec2f GetSize() const noexcept       { return mSize; }
+				explicit NkRectangleShape(NkVec2f size) noexcept : mSize(size) {
+				}
 
-                uint32 GetPointCount() const override { return 4; }
+				void SetSize(NkVec2f size) noexcept {
+					mSize = size;
+				}
 
-                NkVec2f GetPoint(uint32 index) const override {
-                    switch (index) {
-                        case 0: return {0.f,     0.f};
-                        case 1: return {mSize.x, 0.f};
-                        case 2: return {mSize.x, mSize.y};
-                        case 3: return {0.f,     mSize.y};
-                        default: return {0.f, 0.f};
-                    }
-                }
+				NkVec2f GetSize() const noexcept {
+					return mSize;
+				}
 
-            private:
-                NkVec2f mSize{0.f, 0.f};
-        };
+				uint32 GetPointCount() const override {
+					return 4;
+				}
 
-    } // namespace renderer
+				NkVec2f GetPoint(uint32 index) const override {
+					switch (index) {
+						case 0:
+							return {0.f, 0.f};
+						case 1:
+							return {mSize.x, 0.f};
+						case 2:
+							return {mSize.x, mSize.y};
+						case 3:
+							return {0.f, mSize.y};
+						default:
+							return {0.f, 0.f};
+					}
+				}
+
+			private:
+				NkVec2f mSize{0.f, 0.f};
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

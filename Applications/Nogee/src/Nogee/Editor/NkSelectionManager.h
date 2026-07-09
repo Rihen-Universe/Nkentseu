@@ -13,46 +13,53 @@
 #include "Noge/Core/EventBus.h"
 
 namespace nkentseu {
-    namespace Noge {
+	namespace Noge {
 
-        // Événement émis sur l'EventBus quand la sélection change
-        struct NkSelectionChangedEvent {
-            ecs::NkEntityId primary;   // entité principale (dernière sélectionnée)
-            nk_uint32       count;     // nombre d'entités sélectionnées
-        };
+		// Événement émis sur l'EventBus quand la sélection change
+		struct NkSelectionChangedEvent {
+				ecs::NkEntityId primary; // entité principale (dernière sélectionnée)
+				nk_uint32 count;		 // nombre d'entités sélectionnées
+		};
 
-        class NkSelectionManager {
-        public:
-            NkSelectionManager() = default;
+		class NkSelectionManager {
+			public:
+				NkSelectionManager() = default;
 
-            // ── Sélection ─────────────────────────────────────────────────────
-            void Select(ecs::NkEntityId id) noexcept;          // sélection simple
-            void SelectAdd(ecs::NkEntityId id) noexcept;       // ajoute à la sélection
-            void SelectToggle(ecs::NkEntityId id) noexcept;    // toggle (Ctrl+clic)
-            void Deselect(ecs::NkEntityId id) noexcept;
-            void Clear() noexcept;
+				// ── Sélection ─────────────────────────────────────────────────────
+				void Select(ecs::NkEntityId id) noexcept;		// sélection simple
+				void SelectAdd(ecs::NkEntityId id) noexcept;	// ajoute à la sélection
+				void SelectToggle(ecs::NkEntityId id) noexcept; // toggle (Ctrl+clic)
+				void Deselect(ecs::NkEntityId id) noexcept;
+				void Clear() noexcept;
 
-            // ── Accès ─────────────────────────────────────────────────────────
-            [[nodiscard]] bool             IsSelected(ecs::NkEntityId id) const noexcept;
-            [[nodiscard]] ecs::NkEntityId  Primary()   const noexcept { return mPrimary; }
-            [[nodiscard]] nk_uint32        Count()     const noexcept {
-                return static_cast<nk_uint32>(mSelected.Size());
-            }
-            [[nodiscard]] bool             HasSelection() const noexcept {
-                return !mSelected.IsEmpty();
-            }
+				// ── Accès ─────────────────────────────────────────────────────────
+				[[nodiscard]] bool IsSelected(ecs::NkEntityId id) const noexcept;
 
-            // Itération sur la sélection
-            const NkVector<ecs::NkEntityId>& All() const noexcept { return mSelected; }
+				[[nodiscard]] ecs::NkEntityId Primary() const noexcept {
+					return mPrimary;
+				}
 
-        private:
-            void Notify() noexcept {
-                EventBus::Dispatch(NkSelectionChangedEvent{mPrimary, Count()});
-            }
+				[[nodiscard]] nk_uint32 Count() const noexcept {
+					return static_cast<nk_uint32>(mSelected.Size());
+				}
 
-            NkVector<ecs::NkEntityId> mSelected;
-            ecs::NkEntityId           mPrimary = ecs::NkEntityId::Invalid();
-        };
+				[[nodiscard]] bool HasSelection() const noexcept {
+					return !mSelected.IsEmpty();
+				}
 
-    } // namespace Noge
+				// Itération sur la sélection
+				const NkVector<ecs::NkEntityId> &All() const noexcept {
+					return mSelected;
+				}
+
+			private:
+				void Notify() noexcept {
+					EventBus::Dispatch(NkSelectionChangedEvent{mPrimary, Count()});
+				}
+
+				NkVector<ecs::NkEntityId> mSelected;
+				ecs::NkEntityId mPrimary = ecs::NkEntityId::Invalid();
+		};
+
+	} // namespace Noge
 } // namespace nkentseu

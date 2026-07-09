@@ -29,81 +29,102 @@ using namespace nkentseu::math;
 using namespace nkentseu::humanoid;
 
 namespace nkentseu {
-    namespace pv3de {
+	namespace pv3de {
 
-        class PatientLayerV3 : public nkentseu::Layer {
-        public:
-            PatientLayerV3(const NkString& name,
-                           NkIDevice* device,
-                           NkICommandBuffer* cmd) noexcept;
-            ~PatientLayerV3() override;
+		class PatientLayerV3 : public nkentseu::Layer {
+			public:
+				PatientLayerV3(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd) noexcept;
+				~PatientLayerV3() override;
 
-            void OnAttach() override;
-            void OnDetach() override;
-            void OnUpdate(nk_float32 dt) override;
-            void OnRender() override;
-            bool OnEvent(nkentseu::NkEvent* e) override;
+				void OnAttach() override;
+				void OnDetach() override;
+				void OnUpdate(nk_float32 dt) override;
+				void OnRender() override;
+				bool OnEvent(nkentseu::NkEvent *e) override;
 
-            // ── API clinique ──────────────────────────────────────────────────
-            void AddSymptom   (NkSymptomId id)   { mDiagnostic.AddSymptom(id);    }
-            void RemoveSymptom(NkSymptomId id)    { mDiagnostic.RemoveSymptom(id); }
-            void ClearSymptoms()                  { mDiagnostic.ClearSymptoms();   }
-            void SetVitalSigns(nk_float32 hr,
-                               nk_float32 temp,
-                               nk_float32 spo2)  { mDiagnostic.SetVitalSigns(hr,temp,spo2); }
-            void ForceEmotion (EmotionState state, nk_float32 intensity = 1.f) {
-                mEmotionFSM.ForceState(state, intensity);
-            }
+				// ── API clinique ──────────────────────────────────────────────────
+				void AddSymptom(NkSymptomId id) {
+					mDiagnostic.AddSymptom(id);
+				}
 
-            // ── Question médecin → réponse LLM (async) ───────────────────────
-            // Le callback est appelé quand la réponse LLM est prête (thread principal)
-            void AskQuestion(const char* question,
-                             NkAIResponseCallback callback = nullptr) noexcept;
+				void RemoveSymptom(NkSymptomId id) {
+					mDiagnostic.RemoveSymptom(id);
+				}
 
-            // ── Cas clinique ──────────────────────────────────────────────────
-            bool LoadCase(const char* path) noexcept;
-            void StartCase() noexcept;
-            void StopCase()  noexcept;
+				void ClearSymptoms() {
+					mDiagnostic.ClearSymptoms();
+				}
 
-            // ── Personnalité ──────────────────────────────────────────────────
-            void SetPersonality(const NkPersonality& p) noexcept;
+				void SetVitalSigns(nk_float32 hr, nk_float32 temp, nk_float32 spo2) {
+					mDiagnostic.SetVitalSigns(hr, temp, spo2);
+				}
 
-            // ── Accès ─────────────────────────────────────────────────────────
-            const NkClinicalState&  GetClinicalState()     const { return mClinicalState; }
-            const NkEmotionOutput&  GetEmotionOutput()     const { return mEmotionFSM.GetOutput(); }
-            const NkDiagnosticEngine& GetDiagnosticEngine() const { return mDiagnostic; }
-            NkAIDriver&             GetAIDriver()                 { return mAIDriver; }
-            bool                    IsThinking()           const { return mAIDriver.IsThinking(); }
+				void ForceEmotion(EmotionState state, nk_float32 intensity = 1.f) {
+					mEmotionFSM.ForceState(state, intensity);
+				}
 
-        private:
-            NkIDevice*        mDevice = nullptr;
-            NkICommandBuffer* mCmd    = nullptr;
+				// ── Question médecin → réponse LLM (async) ───────────────────────
+				// Le callback est appelé quand la réponse LLM est prête (thread principal)
+				void AskQuestion(const char *question, NkAIResponseCallback callback = nullptr) noexcept;
 
-            // ── Sous-systèmes ─────────────────────────────────────────────────
-            NkDiagnosticEngine   mDiagnostic;
-            NkClinicalState      mClinicalState;
-            NkEmotionFSM         mEmotionFSM;
-            NkFaceControllerV2   mFaceController;  // ← v2 avec micro-expressions
-            NkBodyController     mBodyController;
-            NkBreathController   mBreathController;
-            NkSpeechEngine       mSpeechEngine;
-            NkPatientRenderer    mRenderer;
+				// ── Cas clinique ──────────────────────────────────────────────────
+				bool LoadCase(const char *path) noexcept;
+				void StartCase() noexcept;
+				void StopCase() noexcept;
 
-            // ── IA ────────────────────────────────────────────────────────────
-            NkAIDriver           mAIDriver;         // ← NOUVEAU
-            NkPersonality        mPersonality;
+				// ── Personnalité ──────────────────────────────────────────────────
+				void SetPersonality(const NkPersonality &p) noexcept;
 
-            // ── Cas clinique ──────────────────────────────────────────────────
-            NkCaseLoader  mCaseLoader;
-            NkCaseData    mCurrentCase;
-            NkCaseRunner  mCaseRunner;
-            bool          mCaseLoaded = false;
+				// ── Accès ─────────────────────────────────────────────────────────
+				const NkClinicalState &GetClinicalState() const {
+					return mClinicalState;
+				}
 
-            // Caméra
-            NkMat4f mViewProj = NkMat4f::Identity();
-            NkMat4f mModel    = NkMat4f::Identity();
-            NkVec3f mCamPos   = {0.f, 1.f, 3.f};
-        };
+				const NkEmotionOutput &GetEmotionOutput() const {
+					return mEmotionFSM.GetOutput();
+				}
 
-    } // namespace pv3de
+				const NkDiagnosticEngine &GetDiagnosticEngine() const {
+					return mDiagnostic;
+				}
+
+				NkAIDriver &GetAIDriver() {
+					return mAIDriver;
+				}
+
+				bool IsThinking() const {
+					return mAIDriver.IsThinking();
+				}
+
+			private:
+				NkIDevice *mDevice = nullptr;
+				NkICommandBuffer *mCmd = nullptr;
+
+				// ── Sous-systèmes ─────────────────────────────────────────────────
+				NkDiagnosticEngine mDiagnostic;
+				NkClinicalState mClinicalState;
+				NkEmotionFSM mEmotionFSM;
+				NkFaceControllerV2 mFaceController; // ← v2 avec micro-expressions
+				NkBodyController mBodyController;
+				NkBreathController mBreathController;
+				NkSpeechEngine mSpeechEngine;
+				NkPatientRenderer mRenderer;
+
+				// ── IA ────────────────────────────────────────────────────────────
+				NkAIDriver mAIDriver; // ← NOUVEAU
+				NkPersonality mPersonality;
+
+				// ── Cas clinique ──────────────────────────────────────────────────
+				NkCaseLoader mCaseLoader;
+				NkCaseData mCurrentCase;
+				NkCaseRunner mCaseRunner;
+				bool mCaseLoaded = false;
+
+				// Caméra
+				NkMat4f mViewProj = NkMat4f::Identity();
+				NkMat4f mModel = NkMat4f::Identity();
+				NkVec3f mCamPos = {0.f, 1.f, 3.f};
+		};
+
+	} // namespace pv3de
 } // namespace nkentseu

@@ -25,6 +25,7 @@ namespace nkentseu {
 
 			// Config d'un entraînement (remplie par l'app ; défauts = comportement historique).
 			struct NkGptConfig {
+				public:
 					// Corpus : soit un dossier (équilibré par langue), soit un fichier unique.
 					NkString corpusDir;			// dossier *.txt (si corpusFile vide)
 					NkString corpusFile;		// fichier unique (prioritaire s'il est non vide)

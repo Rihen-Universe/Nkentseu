@@ -15,41 +15,41 @@
 #endif
 
 namespace nkentseu {
-    using namespace math;
+	using namespace math;
 
-    bool NkEventSystem::Init() {
-        if (mReady) {
-            return true;
-        }
+	bool NkEventSystem::Init() {
+		if (mReady) {
+			return true;
+		}
 
-        mTotalEventCount = 0;
-        {
-            NkScopedSpinLock lock(mQueueMutex);
-            mEventQueue.Clear();
-        }
-        mPumping = false;
-        mReady = true;
-        mData.mInitialized = NkXboxIsNativeWindowReady();
-        return true;
-    }
+		mTotalEventCount = 0;
+		{
+			NkScopedSpinLock lock(mQueueMutex);
+			mEventQueue.Clear();
+		}
+		mPumping = false;
+		mReady = true;
+		mData.mInitialized = NkXboxIsNativeWindowReady();
+		return true;
+	}
 
-    void NkEventSystem::PumpOS() {
-        if (mPumping || !mReady) {
-            return;
-        }
-        mPumping = true;
-        NkXboxPumpSystemEvents();
+	void NkEventSystem::PumpOS() {
+		if (mPumping || !mReady) {
+			return;
+		}
+		mPumping = true;
+		NkXboxPumpSystemEvents();
 
-        mPumping = false;
-    }
+		mPumping = false;
+	}
 
-    const char* NkEventSystem::GetPlatformName() const noexcept {
-        return "Xbox";
-    }
+	const char *NkEventSystem::GetPlatformName() const noexcept {
+		return "Xbox";
+	}
 
-    void NkEventSystem::Enqueue_Public(NkEvent& evt, NkWindowId winId) {
-        Enqueue(evt, winId);
-    }
+	void NkEventSystem::Enqueue_Public(NkEvent &evt, NkWindowId winId) {
+		Enqueue(evt, winId);
+	}
 
 } // namespace nkentseu
 

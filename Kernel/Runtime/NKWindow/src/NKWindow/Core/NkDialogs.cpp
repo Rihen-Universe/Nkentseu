@@ -6,7 +6,8 @@
 // ---------------------------------------------------------------------------
 
 // Inclusions nÃ©cessaires selon la plateforme
-#if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX) // Windows classique
+#if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) &&                                           \
+	!defined(NKENTSEU_PLATFORM_XBOX) // Windows classique
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -19,11 +20,11 @@
 #pragma comment(lib, "ole32.lib")
 #elif defined(NKENTSEU_PLATFORM_UWP) || defined(NKENTSEU_PLATFORM_XBOX)
 // UWP et Xbox n'ont pas de dialogues Win32 classiques ; on utilisera des stubs
-#elif defined(NKENTSEU_PLATFORM_MACOS)									// macOS
+#elif defined(NKENTSEU_PLATFORM_MACOS)									  // macOS
 // Pour macOS, on utilisera des commandes via osascript
 #elif defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB) // Linux
 // Pour Linux, on utilisera Zenity (outil GTK en ligne de commande)
- 
+
 #elif defined(NKENTSEU_PLATFORM_HARMONYOS)
 // HarmonyOS : les dialogues système passent par ArkTS (showDialog, picker).
 // Il n'existe pas d'API NDK C++ directe pour les file pickers ou color pickers.
@@ -51,10 +52,10 @@
  */
 namespace nkentseu {
 
-	// ===========================================================================
-	// Windows (Win32)
-	// ===========================================================================
-	#if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
+// ===========================================================================
+// Windows (Win32)
+// ===========================================================================
+#if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
 
 	// Fonction utilitaire pour convertir un filtre utilisateur (ex: "*.png;*.jpg")
 	// en chaÃ®ne pour OPENFILENAME (double null-terminated avec des paires description|pattern)
@@ -74,12 +75,11 @@ namespace nkentseu {
 		result += userFilter;
 		result += "\0";
 
-		// Remplacer les ';' par des '\0' dans la partie pattern (OPENFILENAME attend des patterns sÃ©parÃ©s par des '\0')
-		// Mais la chaÃ®ne doit avoir des '\0' entre chaque pattern et un double '\0' Ã  la fin.
-		// Pour simplifier, on ne gÃ¨re pas les patterns multiples ; on les laisse tels quels,
-		// l'utilisateur peut passer "*.png;*.jpg" et Ã§a fonctionnera avec l'API Windows?
-		// En rÃ©alitÃ©, OPENFILENAME attend une liste de patterns sÃ©parÃ©s par ';' dans une seule chaÃ®ne, donc "*.png;*.jpg"
-		// est correct. On ajoute juste un double null Ã  la fin.
+		// Remplacer les ';' par des '\0' dans la partie pattern (OPENFILENAME attend des patterns sÃ©parÃ©s par des
+		// '\0') Mais la chaÃ®ne doit avoir des '\0' entre chaque pattern et un double '\0' Ã  la fin. Pour simplifier,
+		// on ne gÃ¨re pas les patterns multiples ; on les laisse tels quels, l'utilisateur peut passer "*.png;*.jpg" et
+		// Ã§a fonctionnera avec l'API Windows? En rÃ©alitÃ©, OPENFILENAME attend une liste de patterns sÃ©parÃ©s par
+		// ';' dans une seule chaÃ®ne, donc "*.png;*.jpg" est correct. On ajoute juste un double null Ã  la fin.
 		result.PushBack('\0'); // dÃ©jÃ  un null de la fin de la chaÃ®ne prÃ©cÃ©dente, mais on en ajoute un pour doubler
 		return result;
 	}
@@ -107,17 +107,22 @@ namespace nkentseu {
 		const HRESULT hrInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 		BROWSEINFOA bi = {};
 		bi.lpszTitle = title.Empty() ? "Selectionner un dossier" : title.CStr();
-		bi.ulFlags   = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_EDITBOX;
+		bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_EDITBOX;
 		LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
 		if (pidl) {
-			if (SHGetPathFromIDListA(pidl, path)) { r.confirmed = true; r.path = path; }
+			if (SHGetPathFromIDListA(pidl, path)) {
+				r.confirmed = true;
+				r.path = path;
+			}
 			CoTaskMemFree(pidl);
 		}
-		if (SUCCEEDED(hrInit)) CoUninitialize();
+		if (SUCCEEDED(hrInit))
+			CoUninitialize();
 		return r;
 	}
 
-	NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title, const NkString &initialDir) {
+	NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title,
+											 const NkString &initialDir) {
 		char buf[MAX_PATH] = {};
 		OPENFILENAMEA ofn = {};
 		ofn.lStructSize = sizeof(ofn);
@@ -166,10 +171,10 @@ namespace nkentseu {
 		return res;
 	}
 
-	// ===========================================================================
-	// Linux (via Zenity)
-	// ===========================================================================
-	#elif defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB)
+// ===========================================================================
+// Linux (via Zenity)
+// ===========================================================================
+#elif defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB)
 
 	static NkString ExecCommand(const char *cmd) {
 		NkString result;
@@ -208,7 +213,8 @@ namespace nkentseu {
 	NkDialogResult NkDialogs::OpenFolderDialog(const NkString &title) {
 		NkDialogResult res;
 		NkString cmd = "zenity --file-selection --directory --title=\"";
-		cmd += title; cmd += "\"";
+		cmd += title;
+		cmd += "\"";
 		NkString path = ExecCommand(cmd.CStr());
 		res.confirmed = !path.Empty();
 		res.path = path;
@@ -273,10 +279,10 @@ namespace nkentseu {
 		return res;
 	}
 
-	// ===========================================================================
-	// macOS (via osascript)
-	// ===========================================================================
-	#elif defined(NKENTSEU_PLATFORM_MACOS)
+// ===========================================================================
+// macOS (via osascript)
+// ===========================================================================
+#elif defined(NKENTSEU_PLATFORM_MACOS)
 
 	static NkString ExecCommand(const char *cmd) {
 		NkString result;
@@ -379,106 +385,118 @@ namespace nkentseu {
 		(void)initial;
 		return {};
 	}
- 
-    // ===========================================================================
-    // HarmonyOS — stubs (dialogues via ArkTS N-API)
-    // ===========================================================================
-    // Les dialogues système HarmonyOS utilisent l'API ArkTS promptAction /
-    // picker. Il n'existe pas d'équivalent NDK C++ direct.
-    //
-    // Pour implémenter, exposer des fonctions N-API depuis NkHarmonyOS.h :
-    //
-    //   // Côté C++ (N-API)
-    //   static napi_value NkShowMessageBox(napi_env env, napi_callback_info info) {
-    //       // Appeler ArkTS via napi_call_function sur un callback stocké
-    //   }
-    //
-    //   // Côté ArkTS (NkHarmonyBridge.ts)
-    //   import promptAction from '@ohos.promptAction';
-    //   nkNative.showMessageBox = async (msg, title, type) => {
-    //       await promptAction.showDialog({
-    //           title: title, message: msg,
-    //           buttons: [{ text: 'OK', color: '#000000' }]
-    //       });
-    //   };
-    //
-    //   // Pour les file pickers :
-    //   import picker from '@ohos.file.picker';
-    //   const docPicker = new picker.DocumentSelectOptions();
-    //   docPicker.selectMode = picker.DocumentSelectMode.FILE;
-    //   new picker.DocumentViewPicker().select(docPicker).then(result => {
-    //       nkNative.onFileSelected?.(result[0]); // callback vers C++
-    //   });
-    //
-    // Documentation officielle :
-    //   https://developer.huawei.com/consumer/en/doc/harmonyos-references/js-apis-promptaction
-    //   https://developer.huawei.com/consumer/en/doc/harmonyos-references/js-apis-file-picker
-    //   https://gitee.com/openharmony/docs/tree/master/zh-cn/application-dev/reference/apis-basic-services-kit
-    #elif defined(NKENTSEU_PLATFORM_HARMONYOS)
- 
-    NkDialogResult NkDialogs::OpenFileDialog(const NkString &, const NkString &) {
-        // Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.file.picker
-        return {};
-    }
-    NkDialogResult NkDialogs::SaveFileDialog(const NkString &, const NkString &) {
-        // Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.file.picker
-        return {};
-    }
-    NkDialogResult NkDialogs::OpenFolderDialog(const NkString &) {
-        // Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.file.picker
-        return {};
-    }
-    void NkDialogs::OpenMessageBox(const NkString &, const NkString &, int) {
-        // Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.promptAction
-    }
-    NkDialogResult NkDialogs::ColorPicker(uint32) {
-        // Non implémenté : pas d'équivalent système HarmonyOS
-        return {};
-    }
 
-	// ===========================================================================
-	// Autres plateformes (UWP, Xbox, Android, iOS, WASM) : stubs
-	// ===========================================================================
-	#else
+// ===========================================================================
+// HarmonyOS — stubs (dialogues via ArkTS N-API)
+// ===========================================================================
+// Les dialogues système HarmonyOS utilisent l'API ArkTS promptAction /
+// picker. Il n'existe pas d'équivalent NDK C++ direct.
+//
+// Pour implémenter, exposer des fonctions N-API depuis NkHarmonyOS.h :
+//
+//   // Côté C++ (N-API)
+//   static napi_value NkShowMessageBox(napi_env env, napi_callback_info info) {
+//       // Appeler ArkTS via napi_call_function sur un callback stocké
+//   }
+//
+//   // Côté ArkTS (NkHarmonyBridge.ts)
+//   import promptAction from '@ohos.promptAction';
+//   nkNative.showMessageBox = async (msg, title, type) => {
+//       await promptAction.showDialog({
+//           title: title, message: msg,
+//           buttons: [{ text: 'OK', color: '#000000' }]
+//       });
+//   };
+//
+//   // Pour les file pickers :
+//   import picker from '@ohos.file.picker';
+//   const docPicker = new picker.DocumentSelectOptions();
+//   docPicker.selectMode = picker.DocumentSelectMode.FILE;
+//   new picker.DocumentViewPicker().select(docPicker).then(result => {
+//       nkNative.onFileSelected?.(result[0]); // callback vers C++
+//   });
+//
+// Documentation officielle :
+//   https://developer.huawei.com/consumer/en/doc/harmonyos-references/js-apis-promptaction
+//   https://developer.huawei.com/consumer/en/doc/harmonyos-references/js-apis-file-picker
+//   https://gitee.com/openharmony/docs/tree/master/zh-cn/application-dev/reference/apis-basic-services-kit
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+
+	NkDialogResult NkDialogs::OpenFileDialog(const NkString &, const NkString &) {
+		// Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.file.picker
+		return {};
+	}
+
+	NkDialogResult NkDialogs::SaveFileDialog(const NkString &, const NkString &) {
+		// Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.file.picker
+		return {};
+	}
+
+	NkDialogResult NkDialogs::OpenFolderDialog(const NkString &) {
+		// Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.file.picker
+		return {};
+	}
+
+	void NkDialogs::OpenMessageBox(const NkString &, const NkString &, int) {
+		// Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.promptAction
+	}
+
+	NkDialogResult NkDialogs::ColorPicker(uint32) {
+		// Non implémenté : pas d'équivalent système HarmonyOS
+		return {};
+	}
+
+// ===========================================================================
+// Autres plateformes (UWP, Xbox, Android, iOS, WASM) : stubs
+// ===========================================================================
+#else
 
 	NkDialogResult NkDialogs::OpenFileDialog(const NkString &, const NkString &) {
 		return {};
 	}
+
 	NkDialogResult NkDialogs::SaveFileDialog(const NkString &, const NkString &) {
 		return {};
 	}
+
 	NkDialogResult NkDialogs::OpenFolderDialog(const NkString &) {
 		return {};
 	}
-	// iOS : OpenMessageBox est implemente en UIKit dans NkDialogs_iOS.mm.
-	#if !defined(NKENTSEU_PLATFORM_IOS)
+
+// iOS : OpenMessageBox est implemente en UIKit dans NkDialogs_iOS.mm.
+#if !defined(NKENTSEU_PLATFORM_IOS)
 	void NkDialogs::OpenMessageBox(const NkString &, const NkString &, int) {
 	}
-	#endif
+#endif
 	NkDialogResult NkDialogs::ColorPicker(uint32) {
 		return {};
 	}
 
-	#endif
+#endif
 
-	// ===========================================================================
-	// Variantes ASYNCHRONES — implementation generique (desktop + stubs).
-	// Sur iOS elles sont implementees en UIKit (NkDialogs_iOS.mm) ; ailleurs on
-	// enveloppe l'API synchrone et on invoque le callback immediatement.
-	// ===========================================================================
-	#if !defined(NKENTSEU_PLATFORM_IOS)
-	void NkDialogs::OpenFileDialogAsync(const Callback& cb, const NkString& filter, const NkString& title) {
+// ===========================================================================
+// Variantes ASYNCHRONES — implementation generique (desktop + stubs).
+// Sur iOS elles sont implementees en UIKit (NkDialogs_iOS.mm) ; ailleurs on
+// enveloppe l'API synchrone et on invoque le callback immediatement.
+// ===========================================================================
+#if !defined(NKENTSEU_PLATFORM_IOS)
+	void NkDialogs::OpenFileDialogAsync(const Callback &cb, const NkString &filter, const NkString &title) {
 		NkDialogResult r = OpenFileDialog(filter, title);
-		if (cb) cb(r);
+		if (cb)
+			cb(r);
 	}
-	void NkDialogs::SaveFileDialogAsync(const Callback& cb, const NkString& defaultExt, const NkString& title) {
+
+	void NkDialogs::SaveFileDialogAsync(const Callback &cb, const NkString &defaultExt, const NkString &title) {
 		NkDialogResult r = SaveFileDialog(defaultExt, title);
-		if (cb) cb(r);
+		if (cb)
+			cb(r);
 	}
-	void NkDialogs::OpenFolderDialogAsync(const Callback& cb, const NkString& title) {
+
+	void NkDialogs::OpenFolderDialogAsync(const Callback &cb, const NkString &title) {
 		NkDialogResult r = OpenFolderDialog(title);
-		if (cb) cb(r);
+		if (cb)
+			cb(r);
 	}
-	#endif
+#endif
 
 } // namespace nkentseu

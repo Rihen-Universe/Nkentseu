@@ -18,27 +18,27 @@ using CAMetalLayer = struct objc_object;
 
 namespace nkentseu {
 
-    struct NkWindowData {
-            UIWindow*      mUIWindow   = nullptr;
-            UIView*        mUIView     = nullptr;
-            CAMetalLayer*  mMetalLayer = nullptr;
-            UIView*        mParentView = nullptr;
+	struct NkWindowData {
+			UIWindow *mUIWindow = nullptr;
+			UIView *mUIView = nullptr;
+			CAMetalLayer *mMetalLayer = nullptr;
+			UIView *mParentView = nullptr;
 #ifdef __OBJC__
-            id             mScreenConnectObserver    = nil; // token UIScreenDidConnect
-            id             mScreenDisconnectObserver = nil; // token UIScreenDidDisconnect
+			id mScreenConnectObserver = nil;	// token UIScreenDidConnect
+			id mScreenDisconnectObserver = nil; // token UIScreenDidDisconnect
 #else
-            void*          mScreenConnectObserver    = nullptr;
-            void*          mScreenDisconnectObserver = nullptr;
+			void *mScreenConnectObserver = nullptr;
+			void *mScreenDisconnectObserver = nullptr;
 #endif
-            NkSurfaceHints mAppliedHints{};
-            uint32 mWidth      = 0;
-            uint32 mHeight     = 0;
-            bool  mVisible    = false;
-            bool  mFullscreen = false;
-            bool  mExternal   = false;
-            bool  mOwnsWindow = true;
-            bool  mOwnsView   = false;
-            bool  mSoftKeyboardVisible = false; ///< clavier logiciel iOS actif
-    };
+			NkSurfaceHints mAppliedHints{};
+			uint32 mWidth = 0;
+			uint32 mHeight = 0;
+			bool mVisible = false;
+			bool mFullscreen = false;
+			bool mExternal = false;
+			bool mOwnsWindow = true;
+			bool mOwnsView = false;
+			bool mSoftKeyboardVisible = false; ///< clavier logiciel iOS actif
+	};
 
 } // namespace nkentseu

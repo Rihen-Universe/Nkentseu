@@ -10,11 +10,11 @@
 
 // Fonction libre (hors namespace pour éviter tout conflit d'ambiguïté avec le
 // namespace nkcode existant de NKCode).
-static inline int NkCodeShellRun(const char* cmd) {
+static inline int NkCodeShellRun(const char *cmd) {
 #if defined(NKENTSEU_PLATFORM_IOS) || defined(NKENTSEU_PLATFORM_TVOS) || defined(NKENTSEU_PLATFORM_WATCHOS)
-    (void)cmd;
-    return -1;  // shell indisponible sur les plateformes Apple mobiles
+	(void)cmd;
+	return -1; // shell indisponible sur les plateformes Apple mobiles
 #else
-    return std::system(cmd);
+	return std::system(cmd);
 #endif
 }

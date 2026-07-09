@@ -14,54 +14,61 @@
 #include "NKECS/System/NkSystem.h"
 #include "NKECS/World/NkWorld.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
-#include "Noge/ECS/Components/Physics/NkPhysics.h"   // NkRigidbody3D, NkCollider3D, NkBodyType
+#include "Noge/ECS/Components/Physics/NkPhysics.h" // NkRigidbody3D, NkCollider3D, NkBodyType
 #include "NKPhysics/NkPhysicsWorld.h"
 #include "NKPhysics/NkRigidBody.h"
 #include "NKCollision/NkColShapes.h"
 
 namespace nkentseu {
 
-    using namespace math;
+	using namespace math;
 
-    class NkPhysicsSystem final : public ecs::NkSystem {
-        public:
-            NkPhysicsSystem() noexcept = default;
+	class NkPhysicsSystem final : public ecs::NkSystem {
+		public:
+			NkPhysicsSystem() noexcept = default;
 
-            [[nodiscard]] ecs::NkSystemDesc Describe() const override {
-                return ecs::NkSystemDesc{}
-                    .Writes<ecs::NkTransform>()
-                    .Writes<ecs::NkRigidbody3D>()
-                    .Writes<ecs::NkCollider3D>()
-                    .InGroup(ecs::NkSystemGroup::FixedUpdate)
-                    .Sequential()
-                    .Named("NkPhysicsSystem");
-            }
+			[[nodiscard]] ecs::NkSystemDesc Describe() const override {
+				return ecs::NkSystemDesc{}
+					.Writes<ecs::NkTransform>()
+					.Writes<ecs::NkRigidbody3D>()
+					.Writes<ecs::NkCollider3D>()
+					.InGroup(ecs::NkSystemGroup::FixedUpdate)
+					.Sequential()
+					.Named("NkPhysicsSystem");
+			}
 
-            void Execute(ecs::NkWorld& world, float32 fixedDt) noexcept override;
+			void Execute(ecs::NkWorld &world, float32 fixedDt) noexcept override;
 
-            // Accès direct au monde physique (raycast, gravité, requêtes...).
-            [[nodiscard]] physics::NkPhysicsWorld&       World()       noexcept { return mWorld; }
-            [[nodiscard]] const physics::NkPhysicsWorld& World() const noexcept { return mWorld; }
+			// Accès direct au monde physique (raycast, gravité, requêtes...).
+			[[nodiscard]] physics::NkPhysicsWorld &World() noexcept {
+				return mWorld;
+			}
 
-        private:
-            // Crée le corps physique d'une entité depuis ses composants.
-            physics::NkBodyId CreateBodyFor(const ecs::NkRigidbody3D& rb,
-                                            const ecs::NkCollider3D&   col,
-                                            const ecs::NkTransform&    tf) noexcept;
+			[[nodiscard]] const physics::NkPhysicsWorld &World() const noexcept {
+				return mWorld;
+			}
 
-            // NkCollider3D -> forme de collision (box/sphère/capsule).
-            [[nodiscard]] static collision::NkShape MakeShape(const ecs::NkCollider3D& col) noexcept;
+		private:
+			// Crée le corps physique d'une entité depuis ses composants.
+			physics::NkBodyId CreateBodyFor(const ecs::NkRigidbody3D &rb, const ecs::NkCollider3D &col,
+											const ecs::NkTransform &tf) noexcept;
 
-            // Enum Noge -> enum NKPhysics.
-            [[nodiscard]] static physics::NkBodyType ConvertBodyType(ecs::NkBodyType t) noexcept {
-                switch (t) {
-                    case ecs::NkBodyType::Static:    return physics::NkBodyType::STATIC;
-                    case ecs::NkBodyType::Kinematic: return physics::NkBodyType::KINEMATIC;
-                    default:                         return physics::NkBodyType::DYNAMIC;
-                }
-            }
+			// NkCollider3D -> forme de collision (box/sphère/capsule).
+			[[nodiscard]] static collision::NkShape MakeShape(const ecs::NkCollider3D &col) noexcept;
 
-            physics::NkPhysicsWorld mWorld;   // monde physique POSSÉDÉ (gravité par défaut)
-    };
+			// Enum Noge -> enum NKPhysics.
+			[[nodiscard]] static physics::NkBodyType ConvertBodyType(ecs::NkBodyType t) noexcept {
+				switch (t) {
+					case ecs::NkBodyType::Static:
+						return physics::NkBodyType::STATIC;
+					case ecs::NkBodyType::Kinematic:
+						return physics::NkBodyType::KINEMATIC;
+					default:
+						return physics::NkBodyType::DYNAMIC;
+				}
+			}
+
+			physics::NkPhysicsWorld mWorld; // monde physique POSSÉDÉ (gravité par défaut)
+	};
 
 } // namespace nkentseu

@@ -31,56 +31,63 @@
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        class NkMaterialCollection {
-            public:
-                static constexpr uint32 kMaxParams = 64;
-                static constexpr uint32 kBinding   = 25;  // set=0 binding=25
+		class NkMaterialCollection {
+			public:
+				static constexpr uint32 kMaxParams = 64;
+				static constexpr uint32 kBinding = 25; // set=0 binding=25
 
-                NkMaterialCollection() = default;
-                ~NkMaterialCollection() { Shutdown(); }
+				NkMaterialCollection() = default;
 
-                bool Init(NkIDevice* device);
-                void Shutdown();
+				~NkMaterialCollection() {
+					Shutdown();
+				}
 
-                // Setters. Toutes les valeurs sont stockees en vec4 (alignement
-                // std140 simplifie). Les float occupent .x, vec3 occupent .xyz,
-                // vec4 occupent les 4 composantes.
-                void SetFloat(const NkString& name, float32 v);
-                void SetVec2 (const NkString& name, NkVec2f v);
-                void SetVec3 (const NkString& name, NkVec3f v);
-                void SetVec4 (const NkString& name, NkVec4f v);
-                void SetColor(const NkString& name, NkVec4f c) { SetVec4(name, c); }
-                void SetInt  (const NkString& name, int32 v);
+				bool Init(NkIDevice *device);
+				void Shutdown();
 
-                // Getters (renvoie zero si nom inconnu).
-                NkVec4f Get(const NkString& name) const;
-                int32   GetSlot(const NkString& name) const;
+				// Setters. Toutes les valeurs sont stockees en vec4 (alignement
+				// std140 simplifie). Les float occupent .x, vec3 occupent .xyz,
+				// vec4 occupent les 4 composantes.
+				void SetFloat(const NkString &name, float32 v);
+				void SetVec2(const NkString &name, NkVec2f v);
+				void SetVec3(const NkString &name, NkVec3f v);
+				void SetVec4(const NkString &name, NkVec4f v);
 
-                // Upload : ecrit le UBO si dirty. Appele automatiquement par
-                // NkRender3D au debut de chaque frame.
-                void Upload();
+				void SetColor(const NkString &name, NkVec4f c) {
+					SetVec4(name, c);
+				}
 
-                NkBufferHandle GetUBO() const { return mUBO; }
+				void SetInt(const NkString &name, int32 v);
 
-            private:
-                // Reserve un slot pour le nom (cree si absent). Retourne -1 si plein.
-                int32 ReserveSlot(const NkString& name);
+				// Getters (renvoie zero si nom inconnu).
+				NkVec4f Get(const NkString &name) const;
+				int32 GetSlot(const NkString &name) const;
 
-                NkIDevice*                    mDevice = nullptr;
-                NkBufferHandle                mUBO;
-                // Hash explicite : NkHashMapDefaultHasher hash les octets bruts
-                // du struct NkString (incluant le ptr heap), pas le contenu ->
-                // 2 NkString avec meme texte = hash differents = Find echoue.
-                // NkHash<NkString> (NkFunctional.h) fait FNV-1a sur le contenu.
-                NkHashMap<NkString, int32,
-                          memory::NkAllocator,
-                          NkHash<NkString>>   mNameToSlot;
-                NkVec4f                       mData[kMaxParams] = {};
-                uint32                        mUsedSlots = 0;
-                bool                          mDirty     = true;
-        };
+				// Upload : ecrit le UBO si dirty. Appele automatiquement par
+				// NkRender3D au debut de chaque frame.
+				void Upload();
 
-    } // namespace renderer
+				NkBufferHandle GetUBO() const {
+					return mUBO;
+				}
+
+			private:
+				// Reserve un slot pour le nom (cree si absent). Retourne -1 si plein.
+				int32 ReserveSlot(const NkString &name);
+
+				NkIDevice *mDevice = nullptr;
+				NkBufferHandle mUBO;
+				// Hash explicite : NkHashMapDefaultHasher hash les octets bruts
+				// du struct NkString (incluant le ptr heap), pas le contenu ->
+				// 2 NkString avec meme texte = hash differents = Find echoue.
+				// NkHash<NkString> (NkFunctional.h) fait FNV-1a sur le contenu.
+				NkHashMap<NkString, int32, memory::NkAllocator, NkHash<NkString>> mNameToSlot;
+				NkVec4f mData[kMaxParams] = {};
+				uint32 mUsedSlots = 0;
+				bool mDirty = true;
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

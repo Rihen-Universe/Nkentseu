@@ -9,8 +9,8 @@
 #include "NKThreading/NkSpinLock.h"
 
 namespace nkentseu {
-namespace memory {
-    // NkSpinLock: Implémentation entièrement dans le header (inline)
-    // Pas de code supplémentaire nécessaire
-} // namespace memory
+	namespace memory {
+		// NkSpinLock: Implémentation entièrement dans le header (inline)
+		// Pas de code supplémentaire nécessaire
+	} // namespace memory
 } // namespace nkentseu

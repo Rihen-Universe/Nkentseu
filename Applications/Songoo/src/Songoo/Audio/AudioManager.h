@@ -9,65 +9,89 @@
 #include "NKAudio/NKAudio.h"
 #include "Songoo/Game/GameTypes.h"
 
-namespace nkentseu { namespace songoo {
+namespace nkentseu {
+	namespace songoo {
 
-    class AudioManager {
-    public:
-        AudioManager()  = default;
-        ~AudioManager() = default;
+		class AudioManager {
+			public:
+				AudioManager() = default;
+				~AudioManager() = default;
 
-        // ── Lifecycle ─────────────────────────────────────────────────────────
-        bool Initialize();
-        void Shutdown();
-        bool IsInitialized() const noexcept { return mInitialized; }
+				// ── Lifecycle ─────────────────────────────────────────────────────────
+				bool Initialize();
+				void Shutdown();
 
-        // ── Sons courts (one-shot) ────────────────────────────────────────────
-        void Play(SoundId id, float volume = 1.0f) noexcept;
+				bool IsInitialized() const noexcept {
+					return mInitialized;
+				}
 
-        void PlayPickup (float v = 1.0f) noexcept { Play(SoundId::Pickup,  v); }
-        void PlayDeposit(float v = 1.0f) noexcept { Play(SoundId::Deposit, v); }
-        void PlayDrum   (float v = 1.0f) noexcept { Play(SoundId::Drum,    v); }
-        void PlayScore  (float v = 1.0f) noexcept { Play(SoundId::Score,   v); }
+				// ── Sons courts (one-shot) ────────────────────────────────────────────
+				void Play(SoundId id, float volume = 1.0f) noexcept;
 
-        // ── Musique de fond (streaming) ───────────────────────────────────────
-        void PlayBgMusic(const char* path, bool loop = true, float volume = 0.1f);
-        void StopBgMusic();
-        void PauseBgMusic();
-        void ResumeBgMusic();
-        bool IsBgMusicPlaying() const noexcept;
+				void PlayPickup(float v = 1.0f) noexcept {
+					Play(SoundId::Pickup, v);
+				}
 
-        void PlayCreditMusic(float volume = 0.1f);
-        void StopCreditMusic();
+				void PlayDeposit(float v = 1.0f) noexcept {
+					Play(SoundId::Deposit, v);
+				}
 
-        // ── Volume ────────────────────────────────────────────────────────────
-        void SetMasterVolume(float v) noexcept;
-        void SetMusicVolume(float v)  noexcept;
-        void SetSfxVolume(float v)    noexcept;
+				void PlayDrum(float v = 1.0f) noexcept {
+					Play(SoundId::Drum, v);
+				}
 
-        float MasterVolume() const noexcept { return mMasterVolume; }
-        float MusicVolume()  const noexcept { return mMusicVolume;  }
-        float SfxVolume()    const noexcept { return mSfxVolume;    }
+				void PlayScore(float v = 1.0f) noexcept {
+					Play(SoundId::Score, v);
+				}
 
-    private:
-        bool  mInitialized  = false;
-        float mMasterVolume = 1.0f;
-        float mMusicVolume  = 0.10f;
-        float mSfxVolume    = 1.00f;
+				// ── Musique de fond (streaming) ───────────────────────────────────────
+				void PlayBgMusic(const char *path, bool loop = true, float volume = 0.1f);
+				void StopBgMusic();
+				void PauseBgMusic();
+				void ResumeBgMusic();
+				bool IsBgMusicPlaying() const noexcept;
 
-        // Sons procéduraux courts
-        audio::AudioSample mSamples[(int)SoundId::COUNT] = {};
+				void PlayCreditMusic(float volume = 0.1f);
+				void StopCreditMusic();
 
-        // Streams musicaux
-        audio::NkAudioStreamPlayer mBgMusic;
-        audio::NkAudioStreamPlayer mCreditMusic;
+				// ── Volume ────────────────────────────────────────────────────────────
+				void SetMasterVolume(float v) noexcept;
+				void SetMusicVolume(float v) noexcept;
+				void SetSfxVolume(float v) noexcept;
 
-        bool LoadSample(SoundId id, const char* path) noexcept;
+				float MasterVolume() const noexcept {
+					return mMasterVolume;
+				}
 
-        // Générer les sons procéduralement (fallback si fichier absent)
-        audio::AudioSample MakePickup()  const;
-        audio::AudioSample MakeDeposit() const;
-        audio::AudioSample MakeDrum()    const;
-        audio::AudioSample MakeScore()   const;
-    };
+				float MusicVolume() const noexcept {
+					return mMusicVolume;
+				}
 
-}} // namespace nkentseu::songoo
+				float SfxVolume() const noexcept {
+					return mSfxVolume;
+				}
+
+			private:
+				bool mInitialized = false;
+				float mMasterVolume = 1.0f;
+				float mMusicVolume = 0.10f;
+				float mSfxVolume = 1.00f;
+
+				// Sons procéduraux courts
+				audio::AudioSample mSamples[(int)SoundId::COUNT] = {};
+
+				// Streams musicaux
+				audio::NkAudioStreamPlayer mBgMusic;
+				audio::NkAudioStreamPlayer mCreditMusic;
+
+				bool LoadSample(SoundId id, const char *path) noexcept;
+
+				// Générer les sons procéduralement (fallback si fichier absent)
+				audio::AudioSample MakePickup() const;
+				audio::AudioSample MakeDeposit() const;
+				audio::AudioSample MakeDrum() const;
+				audio::AudioSample MakeScore() const;
+		};
+
+	} // namespace songoo
+} // namespace nkentseu

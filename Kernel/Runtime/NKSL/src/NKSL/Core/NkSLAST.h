@@ -7,301 +7,330 @@
 
 namespace nkentseu {
 
-// =============================================================================
-// Types de nœuds AST
-// =============================================================================
-enum class NkSLNodeKind : uint32 {
-    // Programme
-    NK_PROGRAM,
-    NK_TRANSLATION_UNIT,
+	// =============================================================================
+	// Types de nœuds AST
+	// =============================================================================
+	enum class NkSLNodeKind : uint32 {
+		// Programme
+		NK_PROGRAM,
+		NK_TRANSLATION_UNIT,
 
-    // Déclarations
-    NK_DECL_FUNCTION,
-    NK_DECL_VAR,
-    NK_DECL_STRUCT,
-    NK_DECL_UNIFORM_BLOCK,   // uniform Block { ... } name;
-    NK_DECL_STORAGE_BLOCK,   // buffer Block { ... } name;
-    NK_DECL_PUSH_CONSTANT,   // layout(push_constant) uniform Block { ... }
-    NK_DECL_INPUT,           // in type name;
-    NK_DECL_OUTPUT,          // out type name;
-    NK_DECL_PARAM,           // paramètre de fonction
+		// Déclarations
+		NK_DECL_FUNCTION,
+		NK_DECL_VAR,
+		NK_DECL_STRUCT,
+		NK_DECL_UNIFORM_BLOCK, // uniform Block { ... } name;
+		NK_DECL_STORAGE_BLOCK, // buffer Block { ... } name;
+		NK_DECL_PUSH_CONSTANT, // layout(push_constant) uniform Block { ... }
+		NK_DECL_INPUT,		   // in type name;
+		NK_DECL_OUTPUT,		   // out type name;
+		NK_DECL_PARAM,		   // paramètre de fonction
 
-    // Types
-    NK_TYPE_BASIC,
-    NK_TYPE_ARRAY,
-    NK_TYPE_STRUCT_REF,
+		// Types
+		NK_TYPE_BASIC,
+		NK_TYPE_ARRAY,
+		NK_TYPE_STRUCT_REF,
 
-    // Expressions
-    NK_EXPR_LITERAL,
-    NK_EXPR_IDENT,
-    NK_EXPR_UNARY,
-    NK_EXPR_BINARY,
-    NK_EXPR_TERNARY,
-    NK_EXPR_CALL,            // foo(a, b)
-    NK_EXPR_INDEX,           // a[i]
-    NK_EXPR_MEMBER,          // a.b
-    NK_EXPR_CAST,            // type(expr)
-    NK_EXPR_ASSIGN,
+		// Expressions
+		NK_EXPR_LITERAL,
+		NK_EXPR_IDENT,
+		NK_EXPR_UNARY,
+		NK_EXPR_BINARY,
+		NK_EXPR_TERNARY,
+		NK_EXPR_CALL,	// foo(a, b)
+		NK_EXPR_INDEX,	// a[i]
+		NK_EXPR_MEMBER, // a.b
+		NK_EXPR_CAST,	// type(expr)
+		NK_EXPR_ASSIGN,
 
-    // Statements
-    NK_STMT_BLOCK,
-    NK_STMT_EXPR,
-    NK_STMT_IF,
-    NK_STMT_FOR,
-    NK_STMT_WHILE,
-    NK_STMT_DO_WHILE,
-    NK_STMT_RETURN,
-    NK_STMT_BREAK,
-    NK_STMT_CONTINUE,
-    NK_STMT_DISCARD,
-    NK_STMT_SWITCH,
-    NK_STMT_CASE,
+		// Statements
+		NK_STMT_BLOCK,
+		NK_STMT_EXPR,
+		NK_STMT_IF,
+		NK_STMT_FOR,
+		NK_STMT_WHILE,
+		NK_STMT_DO_WHILE,
+		NK_STMT_RETURN,
+		NK_STMT_BREAK,
+		NK_STMT_CONTINUE,
+		NK_STMT_DISCARD,
+		NK_STMT_SWITCH,
+		NK_STMT_CASE,
 
-    // Annotations
-    NK_ANNOTATION_BINDING,
-    NK_ANNOTATION_LOCATION,
-    NK_ANNOTATION_BUILTIN,
-    NK_ANNOTATION_STAGE,
-    NK_ANNOTATION_ENTRY,
-};
+		// Annotations
+		NK_ANNOTATION_BINDING,
+		NK_ANNOTATION_LOCATION,
+		NK_ANNOTATION_BUILTIN,
+		NK_ANNOTATION_STAGE,
+		NK_ANNOTATION_ENTRY,
+	};
 
-// =============================================================================
-// Nœud AST de base
-// =============================================================================
-struct NkSLNode {
-    NkSLNodeKind             kind;
-    uint32                   line    = 0;
-    uint32                   column  = 0;
-    NkVector<NkSLNode*>      children;
-    NkSLNode*                parent  = nullptr;
+	// =============================================================================
+	// Nœud AST de base
+	// =============================================================================
+	struct NkSLNode {
+			NkSLNodeKind kind;
+			uint32 line = 0;
+			uint32 column = 0;
+			NkVector<NkSLNode *> children;
+			NkSLNode *parent = nullptr;
 
-    explicit NkSLNode(NkSLNodeKind k, uint32 ln=0, uint32 col=0)
-        : kind(k), line(ln), column(col) {}
-    virtual ~NkSLNode() {
-        for (auto* c : children) delete c;
-    }
+			explicit NkSLNode(NkSLNodeKind k, uint32 ln = 0, uint32 col = 0) : kind(k), line(ln), column(col) {
+			}
 
-    void AddChild(NkSLNode* n) {
-        if (n) { n->parent = this; children.PushBack(n); }
-    }
-};
+			virtual ~NkSLNode() {
+				for (auto *c : children)
+					delete c;
+			}
 
-// =============================================================================
-// Nœuds spécialisés
-// =============================================================================
+			void AddChild(NkSLNode *n) {
+				if (n) {
+					n->parent = this;
+					children.PushBack(n);
+				}
+			}
+	};
 
-// Type (leaf)
-struct NkSLTypeNode : NkSLNode {
-    NkSLBaseType baseType = NkSLBaseType::NK_FLOAT;
-    NkString     typeName;   // nom du struct si STRUCT
-    uint32       arraySize  = 0;  // 0 = pas de tableau, UINT32_MAX = non borné
-    bool         isUnsized  = false;
+	// =============================================================================
+	// Nœuds spécialisés
+	// =============================================================================
 
-    NkSLTypeNode() : NkSLNode(NkSLNodeKind::NK_TYPE_BASIC) {}
-};
+	// Type (leaf)
+	struct NkSLTypeNode : NkSLNode {
+			NkSLBaseType baseType = NkSLBaseType::NK_FLOAT;
+			NkString typeName;	  // nom du struct si STRUCT
+			uint32 arraySize = 0; // 0 = pas de tableau, UINT32_MAX = non borné
+			bool isUnsized = false;
 
-// Annotation
-struct NkSLAnnotationNode : NkSLNode {
-    NkSLBinding binding;
-    NkString    builtinName;
-    NkSLStage   stage = NkSLStage::NK_VERTEX;
-    NkString    entryPoint;
+			NkSLTypeNode() : NkSLNode(NkSLNodeKind::NK_TYPE_BASIC) {
+			}
+	};
 
-    NkSLAnnotationNode(NkSLNodeKind k) : NkSLNode(k) {}
-};
+	// Annotation
+	struct NkSLAnnotationNode : NkSLNode {
+			NkSLBinding binding;
+			NkString builtinName;
+			NkSLStage stage = NkSLStage::NK_VERTEX;
+			NkString entryPoint;
 
-// Déclaration de variable
-struct NkSLVarDeclNode : NkSLNode {
-    NkString            name;
-    NkSLTypeNode*       type        = nullptr;
-    NkSLNode*           initializer = nullptr;
-    NkSLStorageQual     storage     = NkSLStorageQual::NK_NONE;
-    NkSLInterpolation   interp      = NkSLInterpolation::NK_SMOOTH;
-    NkSLPrecision       precision   = NkSLPrecision::NK_NONE;
-    NkSLBinding         binding;
-    bool                isConst     = false;
-    bool                isInvariant = false;
-    bool                isBuiltin   = false;
-    NkString            builtinName;
+			NkSLAnnotationNode(NkSLNodeKind k) : NkSLNode(k) {
+			}
+	};
 
-    NkSLVarDeclNode() : NkSLNode(NkSLNodeKind::NK_DECL_VAR) {}
-};
+	// Déclaration de variable
+	struct NkSLVarDeclNode : NkSLNode {
+			NkString name;
+			NkSLTypeNode *type = nullptr;
+			NkSLNode *initializer = nullptr;
+			NkSLStorageQual storage = NkSLStorageQual::NK_NONE;
+			NkSLInterpolation interp = NkSLInterpolation::NK_SMOOTH;
+			NkSLPrecision precision = NkSLPrecision::NK_NONE;
+			NkSLBinding binding;
+			bool isConst = false;
+			bool isInvariant = false;
+			bool isBuiltin = false;
+			NkString builtinName;
 
-// Block (uniform / storage buffer)
-struct NkSLBlockDeclNode : NkSLNode {
-    NkString             blockName;   // nom du block GLSL
-    NkString             instanceName;// nom de l'instance (peut être vide)
-    NkSLStorageQual      storage      = NkSLStorageQual::NK_UNIFORM;
-    NkSLBinding          binding;
-    NkVector<NkSLVarDeclNode*> members;
+			NkSLVarDeclNode() : NkSLNode(NkSLNodeKind::NK_DECL_VAR) {
+			}
+	};
 
-    NkSLBlockDeclNode() : NkSLNode(NkSLNodeKind::NK_DECL_UNIFORM_BLOCK) {}
-};
+	// Block (uniform / storage buffer)
+	struct NkSLBlockDeclNode : NkSLNode {
+			NkString blockName;	   // nom du block GLSL
+			NkString instanceName; // nom de l'instance (peut être vide)
+			NkSLStorageQual storage = NkSLStorageQual::NK_UNIFORM;
+			NkSLBinding binding;
+			NkVector<NkSLVarDeclNode *> members;
 
-// Struct
-struct NkSLStructDeclNode : NkSLNode {
-    NkString                   name;
-    NkVector<NkSLVarDeclNode*> members;
+			NkSLBlockDeclNode() : NkSLNode(NkSLNodeKind::NK_DECL_UNIFORM_BLOCK) {
+			}
+	};
 
-    NkSLStructDeclNode() : NkSLNode(NkSLNodeKind::NK_DECL_STRUCT) {}
-};
+	// Struct
+	struct NkSLStructDeclNode : NkSLNode {
+			NkString name;
+			NkVector<NkSLVarDeclNode *> members;
 
-// Paramètre de fonction
-struct NkSLParamNode : NkSLNode {
-    NkString          name;
-    NkSLTypeNode*     type    = nullptr;
-    NkSLStorageQual   storage = NkSLStorageQual::NK_NONE;
-    NkSLPrecision     precision = NkSLPrecision::NK_NONE;
+			NkSLStructDeclNode() : NkSLNode(NkSLNodeKind::NK_DECL_STRUCT) {
+			}
+	};
 
-    NkSLParamNode() : NkSLNode(NkSLNodeKind::NK_DECL_PARAM) {}
-};
+	// Paramètre de fonction
+	struct NkSLParamNode : NkSLNode {
+			NkString name;
+			NkSLTypeNode *type = nullptr;
+			NkSLStorageQual storage = NkSLStorageQual::NK_NONE;
+			NkSLPrecision precision = NkSLPrecision::NK_NONE;
 
-// Déclaration de fonction
-struct NkSLFunctionDeclNode : NkSLNode {
-    NkString                  name;
-    NkSLTypeNode*             returnType  = nullptr;
-    NkVector<NkSLParamNode*>  params;
-    NkSLNode*                 body        = nullptr; // STMT_BLOCK ou nullptr si prototype
-    bool                      isEntry     = false;   // @entry
-    NkSLStage                 stage       = NkSLStage::NK_VERTEX;
+			NkSLParamNode() : NkSLNode(NkSLNodeKind::NK_DECL_PARAM) {
+			}
+	};
 
-    NkSLFunctionDeclNode() : NkSLNode(NkSLNodeKind::NK_DECL_FUNCTION) {}
-};
+	// Déclaration de fonction
+	struct NkSLFunctionDeclNode : NkSLNode {
+			NkString name;
+			NkSLTypeNode *returnType = nullptr;
+			NkVector<NkSLParamNode *> params;
+			NkSLNode *body = nullptr; // STMT_BLOCK ou nullptr si prototype
+			bool isEntry = false;	  // @entry
+			NkSLStage stage = NkSLStage::NK_VERTEX;
 
-// Littéral
-struct NkSLLiteralNode : NkSLNode {
-    NkSLBaseType baseType = NkSLBaseType::NK_FLOAT;
-    union {
-        int64  intVal   = 0;
-        uint64 uintVal;
-        double floatVal;
-        bool   boolVal;
-    };
+			NkSLFunctionDeclNode() : NkSLNode(NkSLNodeKind::NK_DECL_FUNCTION) {
+			}
+	};
 
-    NkSLLiteralNode() : NkSLNode(NkSLNodeKind::NK_EXPR_LITERAL) {}
-};
+	// Littéral
+	struct NkSLLiteralNode : NkSLNode {
+			NkSLBaseType baseType = NkSLBaseType::NK_FLOAT;
 
-// Identifiant
-struct NkSLIdentNode : NkSLNode {
-    NkString name;
-    NkSLIdentNode() : NkSLNode(NkSLNodeKind::NK_EXPR_IDENT) {}
-};
+			union {
+					int64 intVal = 0;
+					uint64 uintVal;
+					double floatVal;
+					bool boolVal;
+			};
 
-// Unaire
-struct NkSLUnaryNode : NkSLNode {
-    NkString  op;
-    bool      prefix = true;
-    NkSLNode* operand = nullptr;
+			NkSLLiteralNode() : NkSLNode(NkSLNodeKind::NK_EXPR_LITERAL) {
+			}
+	};
 
-    NkSLUnaryNode() : NkSLNode(NkSLNodeKind::NK_EXPR_UNARY) {}
-};
+	// Identifiant
+	struct NkSLIdentNode : NkSLNode {
+			NkString name;
 
-// Binaire
-struct NkSLBinaryNode : NkSLNode {
-    NkString  op;
-    NkSLNode* left  = nullptr;
-    NkSLNode* right = nullptr;
+			NkSLIdentNode() : NkSLNode(NkSLNodeKind::NK_EXPR_IDENT) {
+			}
+	};
 
-    NkSLBinaryNode() : NkSLNode(NkSLNodeKind::NK_EXPR_BINARY) {}
-};
+	// Unaire
+	struct NkSLUnaryNode : NkSLNode {
+			NkString op;
+			bool prefix = true;
+			NkSLNode *operand = nullptr;
 
-// Appel de fonction / constructeur
-struct NkSLCallNode : NkSLNode {
-    NkString             callee; // nom de la fonction ou du constructeur
-    NkSLNode*            calleeExpr = nullptr; // si méthode
-    NkVector<NkSLNode*>  args;
+			NkSLUnaryNode() : NkSLNode(NkSLNodeKind::NK_EXPR_UNARY) {
+			}
+	};
 
-    NkSLCallNode() : NkSLNode(NkSLNodeKind::NK_EXPR_CALL) {}
-};
+	// Binaire
+	struct NkSLBinaryNode : NkSLNode {
+			NkString op;
+			NkSLNode *left = nullptr;
+			NkSLNode *right = nullptr;
 
-// Accès membre
-struct NkSLMemberNode : NkSLNode {
-    NkSLNode* object = nullptr;
-    NkString  member;
+			NkSLBinaryNode() : NkSLNode(NkSLNodeKind::NK_EXPR_BINARY) {
+			}
+	};
 
-    NkSLMemberNode() : NkSLNode(NkSLNodeKind::NK_EXPR_MEMBER) {}
-};
+	// Appel de fonction / constructeur
+	struct NkSLCallNode : NkSLNode {
+			NkString callee;				// nom de la fonction ou du constructeur
+			NkSLNode *calleeExpr = nullptr; // si méthode
+			NkVector<NkSLNode *> args;
 
-// Index
-struct NkSLIndexNode : NkSLNode {
-    NkSLNode* array = nullptr;
-    NkSLNode* index = nullptr;
+			NkSLCallNode() : NkSLNode(NkSLNodeKind::NK_EXPR_CALL) {
+			}
+	};
 
-    NkSLIndexNode() : NkSLNode(NkSLNodeKind::NK_EXPR_INDEX) {}
-};
+	// Accès membre
+	struct NkSLMemberNode : NkSLNode {
+			NkSLNode *object = nullptr;
+			NkString member;
 
-// Cast
-struct NkSLCastNode : NkSLNode {
-    NkSLTypeNode* targetType = nullptr;
-    NkSLNode*     expr       = nullptr;
+			NkSLMemberNode() : NkSLNode(NkSLNodeKind::NK_EXPR_MEMBER) {
+			}
+	};
 
-    NkSLCastNode() : NkSLNode(NkSLNodeKind::NK_EXPR_CAST) {}
-};
+	// Index
+	struct NkSLIndexNode : NkSLNode {
+			NkSLNode *array = nullptr;
+			NkSLNode *index = nullptr;
 
-// Assignation
-struct NkSLAssignNode : NkSLNode {
-    NkString  op; // "=", "+=", etc.
-    NkSLNode* lhs = nullptr;
-    NkSLNode* rhs = nullptr;
+			NkSLIndexNode() : NkSLNode(NkSLNodeKind::NK_EXPR_INDEX) {
+			}
+	};
 
-    NkSLAssignNode() : NkSLNode(NkSLNodeKind::NK_EXPR_ASSIGN) {}
-};
+	// Cast
+	struct NkSLCastNode : NkSLNode {
+			NkSLTypeNode *targetType = nullptr;
+			NkSLNode *expr = nullptr;
 
-// Bloc de statements
-struct NkSLBlockNode : NkSLNode {
-    // children = liste de statements
+			NkSLCastNode() : NkSLNode(NkSLNodeKind::NK_EXPR_CAST) {
+			}
+	};
 
-    NkSLBlockNode() : NkSLNode(NkSLNodeKind::NK_STMT_BLOCK) {}
-};
+	// Assignation
+	struct NkSLAssignNode : NkSLNode {
+			NkString op; // "=", "+=", etc.
+			NkSLNode *lhs = nullptr;
+			NkSLNode *rhs = nullptr;
 
-// If
-struct NkSLIfNode : NkSLNode {
-    NkSLNode* condition  = nullptr;
-    NkSLNode* thenBranch = nullptr;
-    NkSLNode* elseBranch = nullptr;
+			NkSLAssignNode() : NkSLNode(NkSLNodeKind::NK_EXPR_ASSIGN) {
+			}
+	};
 
-    NkSLIfNode() : NkSLNode(NkSLNodeKind::NK_STMT_IF) {}
-};
+	// Bloc de statements
+	struct NkSLBlockNode : NkSLNode {
+			// children = liste de statements
 
-// For
-struct NkSLForNode : NkSLNode {
-    NkSLNode* init      = nullptr;
-    NkSLNode* condition = nullptr;
-    NkSLNode* increment = nullptr;
-    NkSLNode* body      = nullptr;
+			NkSLBlockNode() : NkSLNode(NkSLNodeKind::NK_STMT_BLOCK) {
+			}
+	};
 
-    NkSLForNode() : NkSLNode(NkSLNodeKind::NK_STMT_FOR) {}
-};
+	// If
+	struct NkSLIfNode : NkSLNode {
+			NkSLNode *condition = nullptr;
+			NkSLNode *thenBranch = nullptr;
+			NkSLNode *elseBranch = nullptr;
 
-// While
-struct NkSLWhileNode : NkSLNode {
-    NkSLNode* condition = nullptr;
-    NkSLNode* body      = nullptr;
+			NkSLIfNode() : NkSLNode(NkSLNodeKind::NK_STMT_IF) {
+			}
+	};
 
-    NkSLWhileNode() : NkSLNode(NkSLNodeKind::NK_STMT_WHILE) {}
-};
+	// For
+	struct NkSLForNode : NkSLNode {
+			NkSLNode *init = nullptr;
+			NkSLNode *condition = nullptr;
+			NkSLNode *increment = nullptr;
+			NkSLNode *body = nullptr;
 
-// Return
-struct NkSLReturnNode : NkSLNode {
-    NkSLNode* value = nullptr;
+			NkSLForNode() : NkSLNode(NkSLNodeKind::NK_STMT_FOR) {
+			}
+	};
 
-    NkSLReturnNode() : NkSLNode(NkSLNodeKind::NK_STMT_RETURN) {}
-};
+	// While
+	struct NkSLWhileNode : NkSLNode {
+			NkSLNode *condition = nullptr;
+			NkSLNode *body = nullptr;
 
-// Programme entier
-struct NkSLProgramNode : NkSLNode {
-    NkString  filename;
-    NkSLStage stage = NkSLStage::NK_VERTEX;
-    // children = déclarations globales dans l'ordre
+			NkSLWhileNode() : NkSLNode(NkSLNodeKind::NK_STMT_WHILE) {
+			}
+	};
 
-    // Compute : taille de workgroup déclarée via
-    //   layout(local_size_x = X, local_size_y = Y, local_size_z = Z) in;
-    // Défaut 1,1,1 (ignoré pour les stages non-compute).
-    uint32 localSizeX = 1;
-    uint32 localSizeY = 1;
-    uint32 localSizeZ = 1;
+	// Return
+	struct NkSLReturnNode : NkSLNode {
+			NkSLNode *value = nullptr;
 
-    NkSLProgramNode() : NkSLNode(NkSLNodeKind::NK_PROGRAM) {}
-};
+			NkSLReturnNode() : NkSLNode(NkSLNodeKind::NK_STMT_RETURN) {
+			}
+	};
+
+	// Programme entier
+	struct NkSLProgramNode : NkSLNode {
+			NkString filename;
+			NkSLStage stage = NkSLStage::NK_VERTEX;
+			// children = déclarations globales dans l'ordre
+
+			// Compute : taille de workgroup déclarée via
+			//   layout(local_size_x = X, local_size_y = Y, local_size_z = Z) in;
+			// Défaut 1,1,1 (ignoré pour les stages non-compute).
+			uint32 localSizeX = 1;
+			uint32 localSizeY = 1;
+			uint32 localSizeZ = 1;
+
+			NkSLProgramNode() : NkSLNode(NkSLNodeKind::NK_PROGRAM) {
+			}
+	};
 
 } // namespace nkentseu

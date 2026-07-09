@@ -12,64 +12,73 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace ai {
-        namespace optim {
+	namespace ai {
+		namespace optim {
 
-            // -----------------------------------------------------------------
-            // SGD — descente de gradient stochastique, avec momentum optionnel.
-            //   sans momentum : p ← p − lr·g
-            //   avec momentum : v ← μ·v + g ; p ← p − lr·v
-            // -----------------------------------------------------------------
-            class NkSGD {
-            public:
-                NkSGD() = default;
-                NkSGD(const NkVector<NkVar>& params, float lr, float momentum = 0.0f);
+			// -----------------------------------------------------------------
+			// SGD — descente de gradient stochastique, avec momentum optionnel.
+			//   sans momentum : p ← p − lr·g
+			//   avec momentum : v ← μ·v + g ; p ← p − lr·v
+			// -----------------------------------------------------------------
+			class NkSGD {
+				public:
+					NkSGD() = default;
+					NkSGD(const NkVector<NkVar> &params, float lr, float momentum = 0.0f);
 
-                void Step();       // applique un pas sur tous les paramètres
-                void ZeroGrad();   // remet à zéro les gradients des paramètres
+					void Step();	 // applique un pas sur tous les paramètres
+					void ZeroGrad(); // remet à zéro les gradients des paramètres
 
-                float LearningRate() const { return mLr; }
-                void  SetLearningRate(float lr) { mLr = lr; }
+					float LearningRate() const {
+						return mLr;
+					}
 
-            private:
-                NkVector<NkVar>  mParams;
-                NkVector<NkTensor> mVelocity; // état momentum (par paramètre)
-                float mLr       = 0.01f;
-                float mMomentum = 0.0f;
-            };
+					void SetLearningRate(float lr) {
+						mLr = lr;
+					}
 
-            // -----------------------------------------------------------------
-            // Adam — moments adaptatifs (Kingma & Ba, 2014).
-            //   m ← β1·m + (1−β1)·g ;  v ← β2·v + (1−β2)·g²
-            //   m̂ = m/(1−β1ᵗ) ;  v̂ = v/(1−β2ᵗ)
-            //   p ← p − lr·m̂ / (√v̂ + ε)
-            // -----------------------------------------------------------------
-            class NkAdam {
-            public:
-                NkAdam() = default;
-                // `weightDecay` > 0 -> AdamW (weight decay découplé).
-                NkAdam(const NkVector<NkVar>& params, float lr = 0.001f,
-                       float beta1 = 0.9f, float beta2 = 0.999f, float eps = 1e-8f,
-                       float weightDecay = 0.0f);
+				private:
+					NkVector<NkVar> mParams;
+					NkVector<NkTensor> mVelocity; // état momentum (par paramètre)
+					float mLr = 0.01f;
+					float mMomentum = 0.0f;
+			};
 
-                void Step();
-                void ZeroGrad();
+			// -----------------------------------------------------------------
+			// Adam — moments adaptatifs (Kingma & Ba, 2014).
+			//   m ← β1·m + (1−β1)·g ;  v ← β2·v + (1−β2)·g²
+			//   m̂ = m/(1−β1ᵗ) ;  v̂ = v/(1−β2ᵗ)
+			//   p ← p − lr·m̂ / (√v̂ + ε)
+			// -----------------------------------------------------------------
+			class NkAdam {
+				public:
+					NkAdam() = default;
+					// `weightDecay` > 0 -> AdamW (weight decay découplé).
+					NkAdam(const NkVector<NkVar> &params, float lr = 0.001f, float beta1 = 0.9f, float beta2 = 0.999f,
+						   float eps = 1e-8f, float weightDecay = 0.0f);
 
-                float LearningRate() const { return mLr; }
-                void  SetLearningRate(float lr) { mLr = lr; }
+					void Step();
+					void ZeroGrad();
 
-            private:
-                NkVector<NkVar>    mParams;
-                NkVector<NkTensor> mM;   // 1er moment (par paramètre)
-                NkVector<NkTensor> mV;   // 2e moment
-                float mLr  = 0.001f;
-                float mB1  = 0.9f;
-                float mB2  = 0.999f;
-                float mEps = 1e-8f;
-                float mWd  = 0.0f;       // weight decay (AdamW si > 0)
-                int64 mT   = 0;          // compteur de pas (pour la correction de biais)
-            };
+					float LearningRate() const {
+						return mLr;
+					}
 
-        } // namespace optim
-    } // namespace ai
+					void SetLearningRate(float lr) {
+						mLr = lr;
+					}
+
+				private:
+					NkVector<NkVar> mParams;
+					NkVector<NkTensor> mM; // 1er moment (par paramètre)
+					NkVector<NkTensor> mV; // 2e moment
+					float mLr = 0.001f;
+					float mB1 = 0.9f;
+					float mB2 = 0.999f;
+					float mEps = 1e-8f;
+					float mWd = 0.0f; // weight decay (AdamW si > 0)
+					int64 mT = 0;	  // compteur de pas (pour la correction de biais)
+			};
+
+		} // namespace optim
+	} // namespace ai
 } // namespace nkentseu

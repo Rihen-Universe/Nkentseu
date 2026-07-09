@@ -17,23 +17,23 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace ai {
-        namespace infer {
+	namespace ai {
+		namespace infer {
 
-            // Sauve les valeurs des paramètres dans `path`. true si OK.
-            bool SaveParams(const char* path, const NkVector<NkVar>& params);
+			// Sauve les valeurs des paramètres dans `path`. true si OK.
+			bool SaveParams(const char *path, const NkVector<NkVar> &params);
 
-            // Recharge les poids depuis `path` DANS des paramètres déjà construits
-            // (mêmes nombre et formes que lors de la sauvegarde) via SetValue.
-            // Renvoie false si le fichier est illisible ou incompatible.
-            bool LoadParams(const char* path, NkVector<NkVar>& params);
+			// Recharge les poids depuis `path` DANS des paramètres déjà construits
+			// (mêmes nombre et formes que lors de la sauvegarde) via SetValue.
+			// Renvoie false si le fichier est illisible ou incompatible.
+			bool LoadParams(const char *path, NkVector<NkVar> &params);
 
-            // Prédiction : argmax par ligne de logits [B,C] -> étiquettes [B].
-            NkVector<int32> Predict(const NkTensor& logits);
+			// Prédiction : argmax par ligne de logits [B,C] -> étiquettes [B].
+			NkVector<int32> Predict(const NkTensor &logits);
 
-            // Étiquette prédite pour un unique vecteur de logits [C] ou [1,C].
-            int32 PredictOne(const NkTensor& logits);
+			// Étiquette prédite pour un unique vecteur de logits [C] ou [1,C].
+			int32 PredictOne(const NkTensor &logits);
 
-        } // namespace infer
-    } // namespace ai
+		} // namespace infer
+	} // namespace ai
 } // namespace nkentseu

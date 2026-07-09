@@ -15,127 +15,159 @@
 
 namespace nkentseu {
 
-    namespace renderer { class NkRenderer; }  // moteur 2D/3D (façade NKRenderer)
+	namespace renderer {
+		class NkRenderer;
+	} // namespace renderer
 
-    // =========================================================================
-    // Application
-    // Classe de base abstraite pour toute application Nkentseu.
-    //
-    // L'utilisateur :
-    //   1. Hérite de cette classe.
-    //   2. Implémente les callbacks virtuels.
-    //   3. Définit CreateApplication(config) qui retourne son instance.
-    //
-    // Le framework se charge de la boucle, de la fenêtre, du device RHI
-    // et du dispatch des événements.
-    //
-    // Cycle de vie :
-    //   Init → OnInit → OnStart → [boucle] → OnStop → OnShutdown → ~dtor
-    // =========================================================================
-    class NkApplication {
-        public:
-            explicit NkApplication(const NkApplicationConfig& config);
-            virtual ~NkApplication();
+	// =========================================================================
+	// Application
+	// Classe de base abstraite pour toute application Nkentseu.
+	//
+	// L'utilisateur :
+	//   1. Hérite de cette classe.
+	//   2. Implémente les callbacks virtuels.
+	//   3. Définit CreateApplication(config) qui retourne son instance.
+	//
+	// Le framework se charge de la boucle, de la fenêtre, du device RHI
+	// et du dispatch des événements.
+	//
+	// Cycle de vie :
+	//   Init → OnInit → OnStart → [boucle] → OnStop → OnShutdown → ~dtor
+	// =========================================================================
+	class NkApplication {
+		public:
+			explicit NkApplication(const NkApplicationConfig &config);
+			virtual ~NkApplication();
 
-            // ── API publique ──────────────────────────────────────────────────────
+			// ── API publique ──────────────────────────────────────────────────────
 
-            // Initialisation
-            bool Init();
+			// Initialisation
+			bool Init();
 
-            // Démarre et bloque jusqu'à la fermeture.
-            void Run();
+			// Démarre et bloque jusqu'à la fermeture.
+			void Run();
 
-            // Demande l'arrêt propre de la boucle.
-            void Quit();
+			// Demande l'arrêt propre de la boucle.
+			void Quit();
 
-            // Gestion des couches.
-            void PushLayer(NkLayer* layer);
-            void PushOverlay(NkOverlay* overlay);
+			// Gestion des couches.
+			void PushLayer(NkLayer *layer);
+			void PushOverlay(NkOverlay *overlay);
 
-            // Accesseurs.
-            NkWindow&         GetWindow()  { return mWindow; }
-            NkICommandBuffer*          GetCmd()     { return mCmd; }
-            NkIDevice*        GetDevice()  { return mDevice; }
-            // Moteur de rendu 2D/3D : les layers/systèmes accèdent à TOUS les
-            // sous-systèmes via GetRenderer()->GetRender2D()/GetRender3D()/...
-            renderer::NkRenderer* GetRenderer() { return mRenderer; }
-            const NkApplicationConfig& GetConfig() const { return mConfig; }
+			// Accesseurs.
+			NkWindow &GetWindow() {
+				return mWindow;
+			}
 
-            // Singleton — accès global à l'application courante.
-            static NkApplication& Get() { return *sInstance; }
-        protected:
-            // ── Callbacks utilisateur ─────────────────────────────────────────────
+			NkICommandBuffer *GetCmd() {
+				return mCmd;
+			}
 
-            // Appelé AVANT la création de la fenêtre et du device.
-            // Surcharger pour modifier mConfig si besoin.
-            virtual void OnPreInit() {}
+			NkIDevice *GetDevice() {
+				return mDevice;
+			}
 
-            // Appelé APRÈS la création de la fenêtre et du device.
-            virtual void OnInit() {}
+			// Moteur de rendu 2D/3D : les layers/systèmes accèdent à TOUS les
+			// sous-systèmes via GetRenderer()->GetRender2D()/GetRender3D()/...
+			renderer::NkRenderer *GetRenderer() {
+				return mRenderer;
+			}
 
-            // Appelé une seule fois avant la première frame.
-            virtual void OnStart() {}
+			const NkApplicationConfig &GetConfig() const {
+				return mConfig;
+			}
 
-            // Appelé chaque frame — logique applicative.
-            virtual void OnUpdate(float dt) { (void)dt; }
+			// Singleton — accès global à l'application courante.
+			static NkApplication &Get() {
+				return *sInstance;
+			}
 
-            // Appelé à intervalle fixe — physique, réseaux.
-            virtual void OnFixedUpdate(float fixedDt) { (void)fixedDt; }
+		protected:
+			// ── Callbacks utilisateur ─────────────────────────────────────────────
 
-            // Appelé après tous les updates — soumission des commandes GPU.
-            virtual void OnRender() {}
+			// Appelé AVANT la création de la fenêtre et du device.
+			// Surcharger pour modifier mConfig si besoin.
+			virtual void OnPreInit() {
+			}
 
-            // Appelé après OnRender() — UI applicative (NKUI / overlay debug).
-            virtual void OnUIRender() {}
+			// Appelé APRÈS la création de la fenêtre et du device.
+			virtual void OnInit() {
+			}
 
-            // Appelé quand la fenêtre demande à être fermée.
-            // Par défaut appelle Quit(). Surcharger pour ajouter une confirmation.
-            virtual void OnClose() { Quit(); }
+			// Appelé une seule fois avant la première frame.
+			virtual void OnStart() {
+			}
 
-            // Appelé à chaque redimensionnement.
-            virtual void OnResize(nk_uint32 width, nk_uint32 height) {
-                (void)width; (void)height;
-            }
+			// Appelé chaque frame — logique applicative.
+			virtual void OnUpdate(float dt) {
+				(void)dt;
+			}
 
-            // Appelé avant la destruction — libération des ressources applicatives.
-            virtual void OnShutdown() {}
+			// Appelé à intervalle fixe — physique, réseaux.
+			virtual void OnFixedUpdate(float fixedDt) {
+				(void)fixedDt;
+			}
 
-            // ── Données membres protégées ─────────────────────────────────────────
-            NkApplicationConfig mConfig;
-            NkWindow            mWindow;
-            NkIDevice*          mDevice   = nullptr;
-            NkICommandBuffer*   mCmd      = nullptr;
-            renderer::NkRenderer* mRenderer = nullptr;  // moteur 2D/3D (sur mDevice)
-            NkLayerStack          mLayerStack;
-            bool                mRunning = false;
+			// Appelé après tous les updates — soumission des commandes GPU.
+			virtual void OnRender() {
+			}
 
-        private:
-            // ── Implémentation interne ────────────────────────────────────────────
+			// Appelé après OnRender() — UI applicative (NKUI / overlay debug).
+			virtual void OnUIRender() {
+			}
 
-            bool InitPlatform();
-            bool InitDevice();
-            void ShutdownDevice();
-            void ShutdownPlatform();
+			// Appelé quand la fenêtre demande à être fermée.
+			// Par défaut appelle Quit(). Surcharger pour ajouter une confirmation.
+			virtual void OnClose() {
+				Quit();
+			}
 
-            // Nettoyage complet et IDEMPOTENT (OnShutdown + device + plateforme).
-            // Appelé par Run() en fin de boucle ET par le destructeur (RAII) : si
-            // Run() n'est jamais atteint, les ressources sont quand même libérées.
-            void Shutdown();
+			// Appelé à chaque redimensionnement.
+			virtual void OnResize(nk_uint32 width, nk_uint32 height) {
+				(void)width;
+				(void)height;
+			}
 
-            // Propage aux layers (droite → gauche, consommation possible).
-            void DispatchToLayers(NkEvent* event);
+			// Appelé avant la destruction — libération des ressources applicatives.
+			virtual void OnShutdown() {
+			}
 
-            // ── Handlers d'événements internes ───────────────────────────────────
-            bool OnWindowClose(NkWindowCloseEvent* e);
-            bool OnWindowResize(NkWindowResizeEvent* e);
+			// ── Données membres protégées ─────────────────────────────────────────
+			NkApplicationConfig mConfig;
+			NkWindow mWindow;
+			NkIDevice *mDevice = nullptr;
+			NkICommandBuffer *mCmd = nullptr;
+			renderer::NkRenderer *mRenderer = nullptr; // moteur 2D/3D (sur mDevice)
+			NkLayerStack mLayerStack;
+			bool mRunning = false;
 
-            // ── État boucle ───────────────────────────────────────────────────────
-            float     mAccumulator  = 0.0f;
-            nk_uint32 mWidth        = 0;
-            nk_uint32 mHeight       = 0;
-            bool      mShutdownDone = false;   // garde idempotente de Shutdown()
+		private:
+			// ── Implémentation interne ────────────────────────────────────────────
 
-            static NkApplication* sInstance;
-    };
+			bool InitPlatform();
+			bool InitDevice();
+			void ShutdownDevice();
+			void ShutdownPlatform();
+
+			// Nettoyage complet et IDEMPOTENT (OnShutdown + device + plateforme).
+			// Appelé par Run() en fin de boucle ET par le destructeur (RAII) : si
+			// Run() n'est jamais atteint, les ressources sont quand même libérées.
+			void Shutdown();
+
+			// Propage aux layers (droite → gauche, consommation possible).
+			void DispatchToLayers(NkEvent *event);
+
+			// ── Handlers d'événements internes ───────────────────────────────────
+			bool OnWindowClose(NkWindowCloseEvent *e);
+			bool OnWindowResize(NkWindowResizeEvent *e);
+
+			// ── État boucle ───────────────────────────────────────────────────────
+			float mAccumulator = 0.0f;
+			nk_uint32 mWidth = 0;
+			nk_uint32 mHeight = 0;
+			bool mShutdownDone = false; // garde idempotente de Shutdown()
+
+			static NkApplication *sInstance;
+	};
 
 } // namespace nkentseu

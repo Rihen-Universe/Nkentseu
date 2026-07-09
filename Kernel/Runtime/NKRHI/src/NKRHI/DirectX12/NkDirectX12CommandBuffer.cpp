@@ -13,715 +13,769 @@
 
 namespace nkentseu {
 
-NkDirectX12CommandBuffer::NkDirectX12CommandBuffer(NkDirectX12Device* dev, NkCommandBufferType type)
-    : mDev(dev), mType(type) {
-    if (!dev || !dev->Dev()) return;
+	NkDirectX12CommandBuffer::NkDirectX12CommandBuffer(NkDirectX12Device *dev, NkCommandBufferType type)
+		: mDev(dev), mType(type) {
+		if (!dev || !dev->Dev())
+			return;
 
-    // On utilise TOUJOURS une liste DIRECT (même pour le compute) : une DIRECT queue
-    // exécute les dispatches compute, et NkDirectX12Device::Submit soumet sur la
-    // DIRECT queue. Une liste COMPUTE soumise à une DIRECT queue -> « command list
-    // type must match queue » -> device removal. (cf compute NkTensor headless.)
-    const D3D12_COMMAND_LIST_TYPE listType = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    (void)type;
+		// On utilise TOUJOURS une liste DIRECT (même pour le compute) : une DIRECT queue
+		// exécute les dispatches compute, et NkDirectX12Device::Submit soumet sur la
+		// DIRECT queue. Une liste COMPUTE soumise à une DIRECT queue -> « command list
+		// type must match queue » -> device removal. (cf compute NkTensor headless.)
+		const D3D12_COMMAND_LIST_TYPE listType = D3D12_COMMAND_LIST_TYPE_DIRECT;
+		(void)type;
 
-    HRESULT hr = dev->Dev()->CreateCommandAllocator(listType, IID_PPV_ARGS(&mAllocator));
-    if (FAILED(hr) || !mAllocator) return;
+		HRESULT hr = dev->Dev()->CreateCommandAllocator(listType, IID_PPV_ARGS(&mAllocator));
+		if (FAILED(hr) || !mAllocator)
+			return;
 
-    hr = dev->Dev()->CreateCommandList(0, listType, mAllocator.Get(), nullptr, IID_PPV_ARGS(&mCmdList));
-    if (FAILED(hr) || !mCmdList) {
-        mAllocator.Reset();
-        return;
-    }
+		hr = dev->Dev()->CreateCommandList(0, listType, mAllocator.Get(), nullptr, IID_PPV_ARGS(&mCmdList));
+		if (FAILED(hr) || !mCmdList) {
+			mAllocator.Reset();
+			return;
+		}
 
-    mCmdList->Close(); // démarre fermé, Begin() rouvre
-}
+		mCmdList->Close(); // démarre fermé, Begin() rouvre
+	}
 
-NkDirectX12CommandBuffer::~NkDirectX12CommandBuffer() {}
+	NkDirectX12CommandBuffer::~NkDirectX12CommandBuffer() {
+	}
 
-bool NkDirectX12CommandBuffer::Begin() {
-    if (!mAllocator || !mCmdList) return false;
-    if (mRecording) {
-        mCmdList->Close();
-        mRecording = false;
-    }
-    if (FAILED(mAllocator->Reset())) return false;
-    if (FAILED(mCmdList->Reset(mAllocator.Get(), nullptr))) return false;
+	bool NkDirectX12CommandBuffer::Begin() {
+		if (!mAllocator || !mCmdList)
+			return false;
+		if (mRecording) {
+			mCmdList->Close();
+			mRecording = false;
+		}
+		if (FAILED(mAllocator->Reset()))
+			return false;
+		if (FAILED(mCmdList->Reset(mAllocator.Get(), nullptr)))
+			return false;
 
-    // Binder les RINGS shader-visible (destinations des copies par draw). CbvSrvUavHeap()/
-    // SamplerHeap() sont désormais du STAGING CPU (sources, non bindables).
-    ID3D12DescriptorHeap* heaps[] = {
-        mDev->CbvSrvUavRing().heap.Get(),
-        mDev->SamplerRing().heap.Get()
-    };
-    if (heaps[0] && heaps[1]) mCmdList->SetDescriptorHeaps(2, heaps);
-    ResetMergedBindings(); // état de binding propre en début d'enregistrement
-    mRecording = true;
-    return true;
-}
+		// Binder les RINGS shader-visible (destinations des copies par draw). CbvSrvUavHeap()/
+		// SamplerHeap() sont désormais du STAGING CPU (sources, non bindables).
+		ID3D12DescriptorHeap *heaps[] = {mDev->CbvSrvUavRing().heap.Get(), mDev->SamplerRing().heap.Get()};
+		if (heaps[0] && heaps[1])
+			mCmdList->SetDescriptorHeaps(2, heaps);
+		ResetMergedBindings(); // état de binding propre en début d'enregistrement
+		mRecording = true;
+		return true;
+	}
 
-void NkDirectX12CommandBuffer::End() {
-    if (!mCmdList || !mRecording) return;
-    mCmdList->Close();
-    mRecording = false;
-}
-void NkDirectX12CommandBuffer::Reset() {
-    // Reset semantics across backends: discard recorded commands.
-    // Begin() performs the actual allocator/list reset for DX12.
-    if (mRecording && mCmdList) {
-        mCmdList->Close();
-    }
-    mRecording = false;
-}
+	void NkDirectX12CommandBuffer::End() {
+		if (!mCmdList || !mRecording)
+			return;
+		mCmdList->Close();
+		mRecording = false;
+	}
 
-// =============================================================================
-// Render Pass (en DX12 = OMSetRenderTargets + Clear + transitions)
-// =============================================================================
-bool NkDirectX12CommandBuffer::BeginRenderPass(NkRenderPassHandle rp,
-                                            NkFramebufferHandle fb,
-                                            const NkRect2D& area) {
-    if (!mCmdList || !fb.IsValid() || area.width <= 0 || area.height <= 0) return false;
-    auto* fbo = mDev->GetFBO(fb.id);
-    if (!fbo) return false;
+	void NkDirectX12CommandBuffer::Reset() {
+		// Reset semantics across backends: discard recorded commands.
+		// Begin() performs the actual allocator/list reset for DX12.
+		if (mRecording && mCmdList) {
+			mCmdList->Close();
+		}
+		mRecording = false;
+	}
 
-    // Nouvelle passe → état de binding fusionné remis à zéro (le renderer re-lie SET 0
-    // au début de chaque passe ; on ne veut pas qu'un descripteur d'une passe précédente
-    // « fuie » dans la suivante).
-    ResetMergedBindings();
+	// =============================================================================
+	// Render Pass (en DX12 = OMSetRenderTargets + Clear + transitions)
+	// =============================================================================
+	bool NkDirectX12CommandBuffer::BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb,
+												   const NkRect2D &area) {
+		if (!mCmdList || !fb.IsValid() || area.width <= 0 || area.height <= 0)
+			return false;
+		auto *fbo = mDev->GetFBO(fb.id);
+		if (!fbo)
+			return false;
 
-    // Fix #613 : RP courant = celui SYNTHÉTISÉ par CreateFramebuffer (formats RTV/DSV
-    // RÉELS des attachments du FB). C'est la source de vérité pour résoudre le PSO au
-    // bind. On retombe sur le rp explicite fourni si le FB n'en porte pas.
-    mActiveRP = fbo->renderPassHandle.IsValid() ? fbo->renderPassHandle : rp;
+		// Nouvelle passe → état de binding fusionné remis à zéro (le renderer re-lie SET 0
+		// au début de chaque passe ; on ne veut pas qu'un descripteur d'une passe précédente
+		// « fuie » dans la suivante).
+		ResetMergedBindings();
 
-    mActiveColorCount = fbo->rtvCount;
-    for (uint32 i = 0; i < mActiveColorCount; i++) {
-        mActiveColorTexIds[i] = fbo->colorTexIds[i];
-        mDev->TransitionTextureState(mCmdList.Get(), mActiveColorTexIds[i],
-                                     D3D12_RESOURCE_STATE_RENDER_TARGET);
-    }
-    mActiveDepthTexId = fbo->depthTexId;
-    if (mActiveDepthTexId != 0) {
-        mDev->TransitionTextureState(mCmdList.Get(), mActiveDepthTexId,
-                                     D3D12_RESOURCE_STATE_DEPTH_WRITE);
-    }
+		// Fix #613 : RP courant = celui SYNTHÉTISÉ par CreateFramebuffer (formats RTV/DSV
+		// RÉELS des attachments du FB). C'est la source de vérité pour résoudre le PSO au
+		// bind. On retombe sur le rp explicite fourni si le FB n'en porte pas.
+		mActiveRP = fbo->renderPassHandle.IsValid() ? fbo->renderPassHandle : rp;
 
-    // Bind render targets
-    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles[8];
-    for (uint32 i = 0; i < fbo->rtvCount; i++)
-        rtvHandles[i] = mDev->GetRTV(fbo->rtvIdxs[i]);
+		mActiveColorCount = fbo->rtvCount;
+		for (uint32 i = 0; i < mActiveColorCount; i++) {
+			mActiveColorTexIds[i] = fbo->colorTexIds[i];
+			mDev->TransitionTextureState(mCmdList.Get(), mActiveColorTexIds[i], D3D12_RESOURCE_STATE_RENDER_TARGET);
+		}
+		mActiveDepthTexId = fbo->depthTexId;
+		if (mActiveDepthTexId != 0) {
+			mDev->TransitionTextureState(mCmdList.Get(), mActiveDepthTexId, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+		}
 
-    D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle{};
-    D3D12_CPU_DESCRIPTOR_HANDLE* pDsv = nullptr;
-    if (fbo->dsvIdx != UINT_MAX) {
-        dsvHandle = mDev->GetDSV(fbo->dsvIdx);
-        pDsv = &dsvHandle;
-    }
+		// Bind render targets
+		D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles[8];
+		for (uint32 i = 0; i < fbo->rtvCount; i++)
+			rtvHandles[i] = mDev->GetRTV(fbo->rtvIdxs[i]);
 
-    mCmdList->OMSetRenderTargets(fbo->rtvCount, rtvHandles, FALSE, pDsv);
+		D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle{};
+		D3D12_CPU_DESCRIPTOR_HANDLE *pDsv = nullptr;
+		if (fbo->dsvIdx != UINT_MAX) {
+			dsvHandle = mDev->GetDSV(fbo->dsvIdx);
+			pDsv = &dsvHandle;
+		}
 
-    // Clear CONDITIONNEL (parité DX11) : on n'efface QUE si la passe l'a demandé via
-    // SetClearColor/SetClearDepth (loadOp=NK_CLEAR). Une passe LOAD (ex. Overlay2D sur le
-    // swapchain) ne doit PAS effacer l'image déjà composée par la passe précédente (FXAA
-    // → swapchain), sinon la 3D composée est remise à noir avant que les quelques quads
-    // d'overlay ne soient dessinés → « écran noir 3D DX12 ».
-    if (mPendingClearColor)
-        for (uint32 i = 0; i < fbo->rtvCount; i++)
-            mCmdList->ClearRenderTargetView(rtvHandles[i], mClearColor, 0, nullptr);
-    if (pDsv && mPendingClearDepth)
-        mCmdList->ClearDepthStencilView(dsvHandle,
-            D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, mClearDepth, (UINT8)mClearStencil, 0, nullptr);
-    mPendingClearColor = false;
-    mPendingClearDepth = false;
+		mCmdList->OMSetRenderTargets(fbo->rtvCount, rtvHandles, FALSE, pDsv);
 
-    // Viewport & scissor par défaut
-    D3D12_VIEWPORT vp{ (float)area.x, (float)area.y,
-                        (float)area.width, (float)area.height, 0.f, 1.f };
-    D3D12_RECT    sc{ area.x, area.y,
-                       (LONG)(area.x + area.width),
-                       (LONG)(area.y + area.height) };
-    mCmdList->RSSetViewports(1, &vp);
-    mCmdList->RSSetScissorRects(1, &sc);
-    return true;
-}
+		// Clear CONDITIONNEL (parité DX11) : on n'efface QUE si la passe l'a demandé via
+		// SetClearColor/SetClearDepth (loadOp=NK_CLEAR). Une passe LOAD (ex. Overlay2D sur le
+		// swapchain) ne doit PAS effacer l'image déjà composée par la passe précédente (FXAA
+		// → swapchain), sinon la 3D composée est remise à noir avant que les quelques quads
+		// d'overlay ne soient dessinés → « écran noir 3D DX12 ».
+		if (mPendingClearColor)
+			for (uint32 i = 0; i < fbo->rtvCount; i++)
+				mCmdList->ClearRenderTargetView(rtvHandles[i], mClearColor, 0, nullptr);
+		if (pDsv && mPendingClearDepth)
+			mCmdList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, mClearDepth,
+											(UINT8)mClearStencil, 0, nullptr);
+		mPendingClearColor = false;
+		mPendingClearDepth = false;
 
-void NkDirectX12CommandBuffer::EndRenderPass() {
-    if (!mCmdList) return;
-    for (uint32 i = 0; i < mActiveColorCount; i++) {
-        if (mDev->IsSwapchainTexture(mActiveColorTexIds[i])) {
-            mDev->TransitionTextureState(mCmdList.Get(), mActiveColorTexIds[i],
-                                         D3D12_RESOURCE_STATE_PRESENT);
-        }
-    }
-    mActiveColorCount = 0;
-    mActiveDepthTexId = 0;
-    mActiveRP = {};   // fix #613 : plus de passe active
-}
+		// Viewport & scissor par défaut
+		D3D12_VIEWPORT vp{(float)area.x, (float)area.y, (float)area.width, (float)area.height, 0.f, 1.f};
+		D3D12_RECT sc{area.x, area.y, (LONG)(area.x + area.width), (LONG)(area.y + area.height)};
+		mCmdList->RSSetViewports(1, &vp);
+		mCmdList->RSSetScissorRects(1, &sc);
+		return true;
+	}
 
-// =============================================================================
-// Viewport & Scissor
-// =============================================================================
-void NkDirectX12CommandBuffer::SetViewport(const NkViewport& vp) {
-    if (!mCmdList) return;
-    D3D12_VIEWPORT v{ vp.x, vp.y, vp.width, vp.height, vp.minDepth, vp.maxDepth };
-    mCmdList->RSSetViewports(1, &v);
-}
+	void NkDirectX12CommandBuffer::EndRenderPass() {
+		if (!mCmdList)
+			return;
+		for (uint32 i = 0; i < mActiveColorCount; i++) {
+			if (mDev->IsSwapchainTexture(mActiveColorTexIds[i])) {
+				mDev->TransitionTextureState(mCmdList.Get(), mActiveColorTexIds[i], D3D12_RESOURCE_STATE_PRESENT);
+			}
+		}
+		mActiveColorCount = 0;
+		mActiveDepthTexId = 0;
+		mActiveRP = {}; // fix #613 : plus de passe active
+	}
 
-void NkDirectX12CommandBuffer::SetViewports(const NkViewport* vps, uint32 n) {
-    if (!mCmdList) return;
-    D3D12_VIEWPORT v[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
-    n = math::NkMin(n, (uint32)D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE);
-    for (uint32 i = 0; i < n; i++)
-        v[i] = { vps[i].x, vps[i].y, vps[i].width, vps[i].height, vps[i].minDepth, vps[i].maxDepth };
-    mCmdList->RSSetViewports(n, v);
-}
+	// =============================================================================
+	// Viewport & Scissor
+	// =============================================================================
+	void NkDirectX12CommandBuffer::SetViewport(const NkViewport &vp) {
+		if (!mCmdList)
+			return;
+		D3D12_VIEWPORT v{vp.x, vp.y, vp.width, vp.height, vp.minDepth, vp.maxDepth};
+		mCmdList->RSSetViewports(1, &v);
+	}
 
-void NkDirectX12CommandBuffer::SetScissor(const NkRect2D& r) {
-    if (!mCmdList) return;
-    D3D12_RECT sc{ r.x, r.y, (LONG)(r.x + r.width), (LONG)(r.y + r.height) };
-    mCmdList->RSSetScissorRects(1, &sc);
-}
+	void NkDirectX12CommandBuffer::SetViewports(const NkViewport *vps, uint32 n) {
+		if (!mCmdList)
+			return;
+		D3D12_VIEWPORT v[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
+		n = math::NkMin(n, (uint32)D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE);
+		for (uint32 i = 0; i < n; i++)
+			v[i] = {vps[i].x, vps[i].y, vps[i].width, vps[i].height, vps[i].minDepth, vps[i].maxDepth};
+		mCmdList->RSSetViewports(n, v);
+	}
 
-void NkDirectX12CommandBuffer::SetScissors(const NkRect2D* rects, uint32 n) {
-    if (!mCmdList) return;
-    D3D12_RECT sc[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
-    n = math::NkMin(n, (uint32)D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE);
-    for (uint32 i = 0; i < n; i++)
-        sc[i] = { rects[i].x, rects[i].y,
-                  (LONG)(rects[i].x + rects[i].width),
-                  (LONG)(rects[i].y + rects[i].height) };
-    mCmdList->RSSetScissorRects(n, sc);
-}
+	void NkDirectX12CommandBuffer::SetScissor(const NkRect2D &r) {
+		if (!mCmdList)
+			return;
+		D3D12_RECT sc{r.x, r.y, (LONG)(r.x + r.width), (LONG)(r.y + r.height)};
+		mCmdList->RSSetScissorRects(1, &sc);
+	}
 
-// =============================================================================
-// Pipeline
-// =============================================================================
-void NkDirectX12CommandBuffer::BindGraphicsPipeline(NkPipelineHandle p) {
-    if (!mCmdList) return;
-    mRootSigBound = false; // nouveau pipeline : invalide tant que la root sig n'est pas posée
-    auto* pipe = mDev->GetPipeline(p.id);
-    if (!pipe || !pipe->pso || !pipe->rootSig) return;
-    mIsCompute = false;
-    // Fix #613 : résout le PSO dont les formats RTV/DSV matchent la passe COURANTE
-    // (le PSO de base est baké pour 1 seul format ; un même pipeline est dessiné dans
-    // des passes de formats différents — HDR R16F vs swapchain BGRA vs LDR RGBA8).
-    // ResolvePipelineForRenderPass réutilise le PSO de base si compatible, sinon
-    // construit/cache une variante. Fallback PSO de base si résolution échoue.
-    ID3D12PipelineState* pso = mDev->ResolvePipelineForRenderPass(p.id, mActiveRP);
-    mCmdList->SetPipelineState(pso ? pso : pipe->pso.Get());
-    mCmdList->SetGraphicsRootSignature(pipe->rootSig.Get());
-    mCmdList->IASetPrimitiveTopology(pipe->topology);
-    for (uint32 i = 0; i < D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT; ++i)
-        mVertexStrides[i] = pipe->vertexStrides[i];
-    mRootSigBound = true;
-}
+	void NkDirectX12CommandBuffer::SetScissors(const NkRect2D *rects, uint32 n) {
+		if (!mCmdList)
+			return;
+		D3D12_RECT sc[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
+		n = math::NkMin(n, (uint32)D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE);
+		for (uint32 i = 0; i < n; i++)
+			sc[i] = {rects[i].x, rects[i].y, (LONG)(rects[i].x + rects[i].width), (LONG)(rects[i].y + rects[i].height)};
+		mCmdList->RSSetScissorRects(n, sc);
+	}
 
-void NkDirectX12CommandBuffer::BindComputePipeline(NkPipelineHandle p) {
-    if (!mCmdList) return;
-    mRootSigBound = false;
-    auto* pipe = mDev->GetPipeline(p.id);
-    if (!pipe || !pipe->pso || !pipe->rootSig) return;
-    mIsCompute = true;
-    mCmdList->SetPipelineState(pipe->pso.Get());
-    mCmdList->SetComputeRootSignature(pipe->rootSig.Get());
-    mRootSigBound = true;
-}
+	// =============================================================================
+	// Pipeline
+	// =============================================================================
+	void NkDirectX12CommandBuffer::BindGraphicsPipeline(NkPipelineHandle p) {
+		if (!mCmdList)
+			return;
+		mRootSigBound = false; // nouveau pipeline : invalide tant que la root sig n'est pas posée
+		auto *pipe = mDev->GetPipeline(p.id);
+		if (!pipe || !pipe->pso || !pipe->rootSig)
+			return;
+		mIsCompute = false;
+		// Fix #613 : résout le PSO dont les formats RTV/DSV matchent la passe COURANTE
+		// (le PSO de base est baké pour 1 seul format ; un même pipeline est dessiné dans
+		// des passes de formats différents — HDR R16F vs swapchain BGRA vs LDR RGBA8).
+		// ResolvePipelineForRenderPass réutilise le PSO de base si compatible, sinon
+		// construit/cache une variante. Fallback PSO de base si résolution échoue.
+		ID3D12PipelineState *pso = mDev->ResolvePipelineForRenderPass(p.id, mActiveRP);
+		mCmdList->SetPipelineState(pso ? pso : pipe->pso.Get());
+		mCmdList->SetGraphicsRootSignature(pipe->rootSig.Get());
+		mCmdList->IASetPrimitiveTopology(pipe->topology);
+		for (uint32 i = 0; i < D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT; ++i)
+			mVertexStrides[i] = pipe->vertexStrides[i];
+		mRootSigBound = true;
+	}
 
-// =============================================================================
-// Descriptor Set
-// =============================================================================
-void NkDirectX12CommandBuffer::ResetMergedBindings() {
-    for (uint32 i = 0; i < kMergedCbv;  ++i) mMergedCbv[i]  = UINT_MAX;
-    for (uint32 i = 0; i < kMergedSrv;  ++i) mMergedSrv[i]  = UINT_MAX;
-    for (uint32 i = 0; i < kMergedUav;  ++i) mMergedUav[i]  = UINT_MAX;
-    for (uint32 i = 0; i < kMergedSamp; ++i) mMergedSamp[i] = UINT_MAX;
-    // Cache de déduplication du bloc sampler (cf. BindDescriptorSet) : invalidé à
-    // chaque nouvelle passe pour ne jamais réutiliser un bloc ring d'une autre passe.
-    mLastSampBase = UINT_MAX; mLastSampCount = 0; mLastSampCopiedBase = UINT_MAX;
-}
+	void NkDirectX12CommandBuffer::BindComputePipeline(NkPipelineHandle p) {
+		if (!mCmdList)
+			return;
+		mRootSigBound = false;
+		auto *pipe = mDev->GetPipeline(p.id);
+		if (!pipe || !pipe->pso || !pipe->rootSig)
+			return;
+		mIsCompute = true;
+		mCmdList->SetPipelineState(pipe->pso.Get());
+		mCmdList->SetComputeRootSignature(pipe->rootSig.Get());
+		mRootSigBound = true;
+	}
 
-void NkDirectX12CommandBuffer::BindDescriptorSet(NkDescSetHandle set,
-                                              uint32 /*rootParamIdx*/,
-                                              uint32* /*dynamicOffsets*/,
-                                              uint32 /*dynOffsetCount*/) {
-    if (!mCmdList || !mRootSigBound) return; // pas de root sig posée → SetRoot* invalide
-    auto* ds = mDev->GetDescSet(set.id);
-    if (!ds) return;
+	// =============================================================================
+	// Descriptor Set
+	// =============================================================================
+	void NkDirectX12CommandBuffer::ResetMergedBindings() {
+		for (uint32 i = 0; i < kMergedCbv; ++i)
+			mMergedCbv[i] = UINT_MAX;
+		for (uint32 i = 0; i < kMergedSrv; ++i)
+			mMergedSrv[i] = UINT_MAX;
+		for (uint32 i = 0; i < kMergedUav; ++i)
+			mMergedUav[i] = UINT_MAX;
+		for (uint32 i = 0; i < kMergedSamp; ++i)
+			mMergedSamp[i] = UINT_MAX;
+		// Cache de déduplication du bloc sampler (cf. BindDescriptorSet) : invalidé à
+		// chaque nouvelle passe pour ne jamais réutiliser un bloc ring d'une autre passe.
+		mLastSampBase = UINT_MAX;
+		mLastSampCount = 0;
+		mLastSampCopiedBase = UINT_MAX;
+	}
 
-    using namespace NkDX12RootLayout;
-    // Register SRV (t#) ou le converter NkSL->HLSL place le storage buffer en
-    // lecture (ByteAddressBuffer). Ce SPIRV-Cross l'assigne toujours a t0.
-    constexpr uint32 kStorageBufferSrvReg = 0;
-    // TABLES LARGES + FUSION MULTI-SET : on ACCUMULE d'abord les descripteurs de CE set dans
-    // l'état fusionné (mMerged*, persistant depuis le dernier BeginRenderPass), puis on alloue
-    // UN bloc de ring frais et on y RECOPIE l'INTÉGRALITÉ de l'état fusionné. Ainsi le set 0
-    // (caméra b0) lié plus tôt survit quand le set 1 (objet) est re-lié → plus de matrice
-    // caméra garbage → géométrie correcte. Les slots vides (UINT_MAX) ne sont pas copiés
-    // (VOLATILE : jamais accédés par le shader).
+	void NkDirectX12CommandBuffer::BindDescriptorSet(NkDescSetHandle set, uint32 /*rootParamIdx*/,
+													 uint32 * /*dynamicOffsets*/, uint32 /*dynOffsetCount*/) {
+		if (!mCmdList || !mRootSigBound)
+			return; // pas de root sig posée → SetRoot* invalide
+		auto *ds = mDev->GetDescSet(set.id);
+		if (!ds)
+			return;
 
-    // 1) Fusionner les bindings de ce set dans l'état persistant (staging index par slot).
-    for (auto& b : ds->bindings) {
-        switch (b.type) {
-            case NkDescriptorType::NK_UNIFORM_BUFFER:
-            case NkDescriptorType::NK_UNIFORM_BUFFER_DYNAMIC:
-                if (b.bufId != 0 && b.slot < kMergedCbv)
-                    mMergedCbv[b.slot] = mDev->GetBufferCbvIndex(b.bufId);
-                break;
-            case NkDescriptorType::NK_SAMPLED_TEXTURE:
-            case NkDescriptorType::NK_INPUT_ATTACHMENT:
-                if (b.texId != 0 && b.slot < kMergedSrv)
-                    mMergedSrv[b.slot] = mDev->GetTextureSrvIndex(b.texId);
-                break;
-            case NkDescriptorType::NK_STORAGE_BUFFER:
-            case NkDescriptorType::NK_STORAGE_BUFFER_DYNAMIC:
-                // Deux cas selon le pipeline :
-                //  • COMPUTE : le converter NkSL->HLSL emet les storage buffers
-                //    read-write comme des RWByteAddressBuffer (UAV) au register
-                //    u<binding> (register=binding, cf fix SPIRV-Cross cls 6). On
-                //    les binde donc en UAV a mMergedUav[b.slot] — exact miroir du
-                //    fix DX11 (CSSetUnorderedAccessViews). Sans ca -> u# nul ->
-                //    dispatch lit/ecrit rien -> resultat 0 (bug compute DX12).
-                //  • GRAPHICS : SPIRV-Cross emet le storage buffer read-only
-                //    (skinning) comme une SRV ByteAddressBuffer TOUJOURS assignee
-                //    au register t0 (compteur SRV propre aux raw buffers). On la
-                //    binde a mMergedSrv[0] — pas a t<binding>. Les router vers UAV
-                //    laissait la SRV nulle -> bones=0 -> skin invisible sur DX12.
-                if (b.bufId != 0) {
-                    if (mIsCompute) {
-                        if (b.slot < kMergedUav)
-                            mMergedUav[b.slot] = mDev->GetBufferUavIndex(b.bufId);
-                    } else {
-                        mMergedSrv[kStorageBufferSrvReg] = mDev->GetBufferSrvIndex(b.bufId);
-                    }
-                }
-                break;
-            case NkDescriptorType::NK_STORAGE_TEXTURE:
-                if (b.texId != 0 && b.slot < kMergedUav)
-                    mMergedUav[b.slot] = mDev->GetTextureUavIndex(b.texId);
-                break;
-            case NkDescriptorType::NK_SAMPLER:
-                if (b.sampId != 0 && b.slot < kMergedSamp)
-                    mMergedSamp[b.slot] = mDev->GetSamplerHeapIndex(b.sampId);
-                break;
-            case NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER:
-                if (b.texId != 0 && b.slot < kMergedSrv)
-                    mMergedSrv[b.slot] = mDev->GetTextureSrvIndex(b.texId);
-                if (b.sampId != 0 && b.slot < kMergedSamp)
-                    mMergedSamp[b.slot] = mDev->GetSamplerHeapIndex(b.sampId);
-                break;
-        }
-    }
+		using namespace NkDX12RootLayout;
+		// Register SRV (t#) ou le converter NkSL->HLSL place le storage buffer en
+		// lecture (ByteAddressBuffer). Ce SPIRV-Cross l'assigne toujours a t0.
+		constexpr uint32 kStorageBufferSrvReg = 0;
+		// TABLES LARGES + FUSION MULTI-SET : on ACCUMULE d'abord les descripteurs de CE set dans
+		// l'état fusionné (mMerged*, persistant depuis le dernier BeginRenderPass), puis on alloue
+		// UN bloc de ring frais et on y RECOPIE l'INTÉGRALITÉ de l'état fusionné. Ainsi le set 0
+		// (caméra b0) lié plus tôt survit quand le set 1 (objet) est re-lié → plus de matrice
+		// caméra garbage → géométrie correcte. Les slots vides (UINT_MAX) ne sont pas copiés
+		// (VOLATILE : jamais accédés par le shader).
 
-    // 2) Allouer un bloc de ring frais et y recopier TOUT l'état fusionné.
-    const UINT csuBase  = mDev->AllocCbvSrvUavRing(BLOCK_CBV_SRV_UAV);
-    // SAMPLER : le heap sampler shader-visible est plafonné à 2048 par D3D12. Allouer
-    // BLOCK_SAMPLER (=32) par draw épuisait le ring après 64 draws (2048/32) → en LIVE
-    // (demo2 = ~327 draws/frame) le ring débordait AVANT le tonemap → sampBase=UINT_MAX
-    // → la sampler table n'était PAS bindée → texture() échantillonnait sans sampler →
-    // sortie CONSTANTE (scène plate grise, le bug live).
-    // FIX en 2 temps :
-    //  (a) n'allouer que le nombre de slots sampler réellement utilisés (plus haut
-    //      slot + 1) au lieu de 32 ;
-    //  (b) DÉDUPLIQUER : si l'état sampler fusionné est IDENTIQUE au dernier bloc
-    //      alloué cette frame (cas ultra-fréquent : tous les draws partagent les mêmes
-    //      samplers), réutiliser le bloc ring précédent au lieu d'en allouer un neuf.
-    //      Cela borne la conso sampler au nombre de COMBINAISONS distinctes (~poignée)
-    //      au lieu du nombre de draws → plus de débordement.
-    UINT sampCount = 0;
-    for (uint32 i = 0; i < kMergedSamp; ++i)
-        if (mMergedSamp[i] != UINT_MAX) sampCount = i + 1;
-    UINT sampBase = UINT_MAX;
-    if (sampCount > 0) {
-        // Signature du bloc sampler courant (slots utilisés + indices heap).
-        bool same = (mLastSampBase != UINT_MAX && mLastSampCount == sampCount);
-        if (same)
-            for (uint32 i = 0; i < sampCount; ++i)
-                if (mMergedSamp[i] != mLastSampVals[i]) { same = false; break; }
-        if (same) {
-            sampBase = mLastSampBase;     // réutilise le bloc identique (pas de réalloc)
-        } else {
-            sampBase = mDev->AllocSamplerRing(sampCount);
-            if (sampBase != UINT_MAX) {
-                mLastSampBase = sampBase; mLastSampCount = sampCount;
-                for (uint32 i = 0; i < sampCount; ++i) mLastSampVals[i] = mMergedSamp[i];
-            }
-        }
-    }
-    const bool sampNeedsCopy = (sampBase != UINT_MAX && sampBase != mLastSampCopiedBase);
+		// 1) Fusionner les bindings de ce set dans l'état persistant (staging index par slot).
+		for (auto &b : ds->bindings) {
+			switch (b.type) {
+				case NkDescriptorType::NK_UNIFORM_BUFFER:
+				case NkDescriptorType::NK_UNIFORM_BUFFER_DYNAMIC:
+					if (b.bufId != 0 && b.slot < kMergedCbv)
+						mMergedCbv[b.slot] = mDev->GetBufferCbvIndex(b.bufId);
+					break;
+				case NkDescriptorType::NK_SAMPLED_TEXTURE:
+				case NkDescriptorType::NK_INPUT_ATTACHMENT:
+					if (b.texId != 0 && b.slot < kMergedSrv)
+						mMergedSrv[b.slot] = mDev->GetTextureSrvIndex(b.texId);
+					break;
+				case NkDescriptorType::NK_STORAGE_BUFFER:
+				case NkDescriptorType::NK_STORAGE_BUFFER_DYNAMIC:
+					// Deux cas selon le pipeline :
+					//  • COMPUTE : le converter NkSL->HLSL emet les storage buffers
+					//    read-write comme des RWByteAddressBuffer (UAV) au register
+					//    u<binding> (register=binding, cf fix SPIRV-Cross cls 6). On
+					//    les binde donc en UAV a mMergedUav[b.slot] — exact miroir du
+					//    fix DX11 (CSSetUnorderedAccessViews). Sans ca -> u# nul ->
+					//    dispatch lit/ecrit rien -> resultat 0 (bug compute DX12).
+					//  • GRAPHICS : SPIRV-Cross emet le storage buffer read-only
+					//    (skinning) comme une SRV ByteAddressBuffer TOUJOURS assignee
+					//    au register t0 (compteur SRV propre aux raw buffers). On la
+					//    binde a mMergedSrv[0] — pas a t<binding>. Les router vers UAV
+					//    laissait la SRV nulle -> bones=0 -> skin invisible sur DX12.
+					if (b.bufId != 0) {
+						if (mIsCompute) {
+							if (b.slot < kMergedUav)
+								mMergedUav[b.slot] = mDev->GetBufferUavIndex(b.bufId);
+						} else {
+							mMergedSrv[kStorageBufferSrvReg] = mDev->GetBufferSrvIndex(b.bufId);
+						}
+					}
+					break;
+				case NkDescriptorType::NK_STORAGE_TEXTURE:
+					if (b.texId != 0 && b.slot < kMergedUav)
+						mMergedUav[b.slot] = mDev->GetTextureUavIndex(b.texId);
+					break;
+				case NkDescriptorType::NK_SAMPLER:
+					if (b.sampId != 0 && b.slot < kMergedSamp)
+						mMergedSamp[b.slot] = mDev->GetSamplerHeapIndex(b.sampId);
+					break;
+				case NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER:
+					if (b.texId != 0 && b.slot < kMergedSrv)
+						mMergedSrv[b.slot] = mDev->GetTextureSrvIndex(b.texId);
+					if (b.sampId != 0 && b.slot < kMergedSamp)
+						mMergedSamp[b.slot] = mDev->GetSamplerHeapIndex(b.sampId);
+					break;
+			}
+		}
 
-    // DIAGNOSTIC (gated) : compteur de draws/frame + détection d'OVERFLOW du ring (csuBase=
-    // UINT_MAX → bloc non alloué → SRV/CBV non bindés → draw « vide »). Le composite + texte
-    // 2D sont en FIN de frame : si le ring déborde avant, ils échouent → gris + texte absent.
-    {
-        static int odbg = -1;
-        static uint32 sDrawInFrame = 0; static uint32 sOverflowCount = 0;
-        static uint64 sLastFrame = (uint64)-1;
-        if (odbg == -1) { const char* v = getenv("NK_DX12_READBACK"); odbg = (v && v[0] && v[0] != '0') ? 1 : 0; }
-        if (odbg) {
-            uint64 fn = mDev->GetFrameNumber();
-            if (fn != sLastFrame) {
-                if (sLastFrame != (uint64)-1 && sLastFrame % 60 == 0)
-                    NK_DX12_CB_LOG("DBG RINGFRAME frame=%llu draws=%u overflowDraws=%u",
-                                   (unsigned long long)sLastFrame, sDrawInFrame, sOverflowCount);
-                sLastFrame = fn; sDrawInFrame = 0; sOverflowCount = 0;
-            }
-            sDrawInFrame++;
-            if (csuBase == UINT_MAX) sOverflowCount++;
-        }
-    }
+		// 2) Allouer un bloc de ring frais et y recopier TOUT l'état fusionné.
+		const UINT csuBase = mDev->AllocCbvSrvUavRing(BLOCK_CBV_SRV_UAV);
+		// SAMPLER : le heap sampler shader-visible est plafonné à 2048 par D3D12. Allouer
+		// BLOCK_SAMPLER (=32) par draw épuisait le ring après 64 draws (2048/32) → en LIVE
+		// (demo2 = ~327 draws/frame) le ring débordait AVANT le tonemap → sampBase=UINT_MAX
+		// → la sampler table n'était PAS bindée → texture() échantillonnait sans sampler →
+		// sortie CONSTANTE (scène plate grise, le bug live).
+		// FIX en 2 temps :
+		//  (a) n'allouer que le nombre de slots sampler réellement utilisés (plus haut
+		//      slot + 1) au lieu de 32 ;
+		//  (b) DÉDUPLIQUER : si l'état sampler fusionné est IDENTIQUE au dernier bloc
+		//      alloué cette frame (cas ultra-fréquent : tous les draws partagent les mêmes
+		//      samplers), réutiliser le bloc ring précédent au lieu d'en allouer un neuf.
+		//      Cela borne la conso sampler au nombre de COMBINAISONS distinctes (~poignée)
+		//      au lieu du nombre de draws → plus de débordement.
+		UINT sampCount = 0;
+		for (uint32 i = 0; i < kMergedSamp; ++i)
+			if (mMergedSamp[i] != UINT_MAX)
+				sampCount = i + 1;
+		UINT sampBase = UINT_MAX;
+		if (sampCount > 0) {
+			// Signature du bloc sampler courant (slots utilisés + indices heap).
+			bool same = (mLastSampBase != UINT_MAX && mLastSampCount == sampCount);
+			if (same)
+				for (uint32 i = 0; i < sampCount; ++i)
+					if (mMergedSamp[i] != mLastSampVals[i]) {
+						same = false;
+						break;
+					}
+			if (same) {
+				sampBase = mLastSampBase; // réutilise le bloc identique (pas de réalloc)
+			} else {
+				sampBase = mDev->AllocSamplerRing(sampCount);
+				if (sampBase != UINT_MAX) {
+					mLastSampBase = sampBase;
+					mLastSampCount = sampCount;
+					for (uint32 i = 0; i < sampCount; ++i)
+						mLastSampVals[i] = mMergedSamp[i];
+				}
+			}
+		}
+		const bool sampNeedsCopy = (sampBase != UINT_MAX && sampBase != mLastSampCopiedBase);
 
-    if (csuBase != UINT_MAX) {
-        for (uint32 i = 0; i < kMergedCbv; ++i)
-            if (mMergedCbv[i] != UINT_MAX) mDev->CopyCbvSrvUavToRing(csuBase + OFF_CBV + i, mMergedCbv[i]);
-        for (uint32 i = 0; i < kMergedSrv; ++i)
-            if (mMergedSrv[i] != UINT_MAX) mDev->CopyCbvSrvUavToRing(csuBase + OFF_SRV + i, mMergedSrv[i]);
-        for (uint32 i = 0; i < kMergedUav; ++i)
-            if (mMergedUav[i] != UINT_MAX) mDev->CopyCbvSrvUavToRing(csuBase + OFF_UAV + i, mMergedUav[i]);
-    }
-    // Ne recopier les descripteurs sampler dans le ring QUE si un bloc NEUF a été
-    // alloué (un bloc réutilisé contient déjà les bons descripteurs).
-    if (sampBase != UINT_MAX && sampNeedsCopy) {
-        for (uint32 i = 0; i < sampCount; ++i)
-            if (mMergedSamp[i] != UINT_MAX) mDev->CopySamplerToRing(sampBase + i, mMergedSamp[i]);
-        mLastSampCopiedBase = sampBase;
-    }
+		// DIAGNOSTIC (gated) : compteur de draws/frame + détection d'OVERFLOW du ring (csuBase=
+		// UINT_MAX → bloc non alloué → SRV/CBV non bindés → draw « vide »). Le composite + texte
+		// 2D sont en FIN de frame : si le ring déborde avant, ils échouent → gris + texte absent.
+		{
+			static int odbg = -1;
+			static uint32 sDrawInFrame = 0;
+			static uint32 sOverflowCount = 0;
+			static uint64 sLastFrame = (uint64)-1;
+			if (odbg == -1) {
+				const char *v = getenv("NK_DX12_READBACK");
+				odbg = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			if (odbg) {
+				uint64 fn = mDev->GetFrameNumber();
+				if (fn != sLastFrame) {
+					if (sLastFrame != (uint64)-1 && sLastFrame % 60 == 0)
+						NK_DX12_CB_LOG("DBG RINGFRAME frame=%llu draws=%u overflowDraws=%u",
+									   (unsigned long long)sLastFrame, sDrawInFrame, sOverflowCount);
+					sLastFrame = fn;
+					sDrawInFrame = 0;
+					sOverflowCount = 0;
+				}
+				sDrawInFrame++;
+				if (csuBase == UINT_MAX)
+					sOverflowCount++;
+			}
+		}
 
-    // DIAGNOSTIC (gated NK_DX12_READBACK) : sur les premiers draws graphics, logge les CBV
-    // bindés (slot/bufId/4 premiers floats de la donnée mappée). Sert à vérifier que la
-    // caméra (b0), les transforms/matériaux et les autres UBO atteignent bien le shader.
-    {
-        static int dbg = -1;
-        static int cnt = 0;
-        if (dbg == -1) { const char* v = getenv("NK_DX12_READBACK"); dbg = (v && v[0] && v[0] != '0') ? 1 : 0; }
-        if (dbg && !mIsCompute && cnt < 60) {
-            for (auto& b : ds->bindings) {
-                if (b.type == NkDescriptorType::NK_UNIFORM_BUFFER ||
-                    b.type == NkDescriptorType::NK_UNIFORM_BUFFER_DYNAMIC) {
-                    float f[4] = {0,0,0,0};
-                    bool got = mDev->PeekBufferFloats(b.bufId, f, 4);
-                    NK_DX12_CB_LOG("DBG CBV draw#%d slot=%u bufId=%llu cbvIdx=%u csuBase=%u f0123=[%.3f %.3f %.3f %.3f] mapped=%d",
-                                   cnt, b.slot, (unsigned long long)b.bufId,
-                                   (unsigned)(b.bufId ? mDev->GetBufferCbvIndex(b.bufId) : 0u),
-                                   (unsigned)csuBase, f[0], f[1], f[2], f[3], (int)got);
-                }
-            }
-            cnt++;
-        }
-    }
+		if (csuBase != UINT_MAX) {
+			for (uint32 i = 0; i < kMergedCbv; ++i)
+				if (mMergedCbv[i] != UINT_MAX)
+					mDev->CopyCbvSrvUavToRing(csuBase + OFF_CBV + i, mMergedCbv[i]);
+			for (uint32 i = 0; i < kMergedSrv; ++i)
+				if (mMergedSrv[i] != UINT_MAX)
+					mDev->CopyCbvSrvUavToRing(csuBase + OFF_SRV + i, mMergedSrv[i]);
+			for (uint32 i = 0; i < kMergedUav; ++i)
+				if (mMergedUav[i] != UINT_MAX)
+					mDev->CopyCbvSrvUavToRing(csuBase + OFF_UAV + i, mMergedUav[i]);
+		}
+		// Ne recopier les descripteurs sampler dans le ring QUE si un bloc NEUF a été
+		// alloué (un bloc réutilisé contient déjà les bons descripteurs).
+		if (sampBase != UINT_MAX && sampNeedsCopy) {
+			for (uint32 i = 0; i < sampCount; ++i)
+				if (mMergedSamp[i] != UINT_MAX)
+					mDev->CopySamplerToRing(sampBase + i, mMergedSamp[i]);
+			mLastSampCopiedBase = sampBase;
+		}
 
-    // DIAGNOSTIC SRV (gated NK_DX12_READBACK) : trace les draws qui ÉCHANTILLONNENT une texture
-    // (texte 2D atlas, composite scène RT). Pour chaque SRV bindé : slot, texId, srvIdx staging,
-    // index ring destination, mMergedSrv[slot], et l'état du ring (csuBase, head) → détecte
-    // (a) srvIdx UINT_MAX/stale, (b) mismatch slot, (c) overflow ring (csuBase=UINT_MAX),
-    // (d) slot non rempli. Logge ~200 draws (couvre toute la frame demo2 : géom+PP+2D).
-    {
-        static int sdbg = -1;
-        static int scnt = 0;
-        if (sdbg == -1) { const char* v = getenv("NK_DX12_READBACK"); sdbg = (v && v[0] && v[0] != '0') ? 1 : 0; }
-        if (sdbg && !mIsCompute && scnt < 400) {
-            bool hasSrv = false;
-            for (auto& b : ds->bindings)
-                if (b.type == NkDescriptorType::NK_SAMPLED_TEXTURE ||
-                    b.type == NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER ||
-                    b.type == NkDescriptorType::NK_INPUT_ATTACHMENT) { hasSrv = true; break; }
-            if (hasSrv) {
-                for (auto& b : ds->bindings) {
-                    if (b.type == NkDescriptorType::NK_SAMPLED_TEXTURE ||
-                        b.type == NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER ||
-                        b.type == NkDescriptorType::NK_INPUT_ATTACHMENT) {
-                        UINT srvIdx = (b.texId ? mDev->GetTextureSrvIndex(b.texId) : UINT_MAX);
-                        UINT mergedV = (b.slot < kMergedSrv) ? mMergedSrv[b.slot] : 0xDEAD;
-                        UINT ringIdx = (csuBase != UINT_MAX && b.slot < kMergedSrv)
-                                     ? (csuBase + OFF_SRV + b.slot) : UINT_MAX;
-                        NK_DX12_CB_LOG("DBG SRV draw#%d slot=%u texId=%llu srvIdxStaging=%u mergedSrv=%u ringIdx=%u sampBase=%u csuBase=%u ringCap=%u",
-                                       scnt, b.slot, (unsigned long long)b.texId,
-                                       (unsigned)srvIdx, (unsigned)mergedV, (unsigned)ringIdx,
-                                       (unsigned)sampBase,
-                                       (unsigned)csuBase, (unsigned)mDev->CbvSrvUavRing().capacity);
-                    }
-                }
-            }
-            scnt++;
-        }
-    }
+		// DIAGNOSTIC (gated NK_DX12_READBACK) : sur les premiers draws graphics, logge les CBV
+		// bindés (slot/bufId/4 premiers floats de la donnée mappée). Sert à vérifier que la
+		// caméra (b0), les transforms/matériaux et les autres UBO atteignent bien le shader.
+		{
+			static int dbg = -1;
+			static int cnt = 0;
+			if (dbg == -1) {
+				const char *v = getenv("NK_DX12_READBACK");
+				dbg = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			if (dbg && !mIsCompute && cnt < 60) {
+				for (auto &b : ds->bindings) {
+					if (b.type == NkDescriptorType::NK_UNIFORM_BUFFER ||
+						b.type == NkDescriptorType::NK_UNIFORM_BUFFER_DYNAMIC) {
+						float f[4] = {0, 0, 0, 0};
+						bool got = mDev->PeekBufferFloats(b.bufId, f, 4);
+						NK_DX12_CB_LOG("DBG CBV draw#%d slot=%u bufId=%llu cbvIdx=%u csuBase=%u f0123=[%.3f %.3f %.3f "
+									   "%.3f] mapped=%d",
+									   cnt, b.slot, (unsigned long long)b.bufId,
+									   (unsigned)(b.bufId ? mDev->GetBufferCbvIndex(b.bufId) : 0u), (unsigned)csuBase,
+									   f[0], f[1], f[2], f[3], (int)got);
+					}
+				}
+				cnt++;
+			}
+		}
 
-    if (csuBase != UINT_MAX) {
-        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->CbvSrvUavRing().GPUFrom(csuBase);
-        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(TABLE_CBV_SRV_UAV, h);
-        else            mCmdList->SetGraphicsRootDescriptorTable(TABLE_CBV_SRV_UAV, h);
-    }
-    if (sampBase != UINT_MAX) {
-        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->SamplerRing().GPUFrom(sampBase);
-        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(TABLE_SAMPLER, h);
-        else            mCmdList->SetGraphicsRootDescriptorTable(TABLE_SAMPLER, h);
-    }
-}
+		// DIAGNOSTIC SRV (gated NK_DX12_READBACK) : trace les draws qui ÉCHANTILLONNENT une texture
+		// (texte 2D atlas, composite scène RT). Pour chaque SRV bindé : slot, texId, srvIdx staging,
+		// index ring destination, mMergedSrv[slot], et l'état du ring (csuBase, head) → détecte
+		// (a) srvIdx UINT_MAX/stale, (b) mismatch slot, (c) overflow ring (csuBase=UINT_MAX),
+		// (d) slot non rempli. Logge ~200 draws (couvre toute la frame demo2 : géom+PP+2D).
+		{
+			static int sdbg = -1;
+			static int scnt = 0;
+			if (sdbg == -1) {
+				const char *v = getenv("NK_DX12_READBACK");
+				sdbg = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			if (sdbg && !mIsCompute && scnt < 400) {
+				bool hasSrv = false;
+				for (auto &b : ds->bindings)
+					if (b.type == NkDescriptorType::NK_SAMPLED_TEXTURE ||
+						b.type == NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER ||
+						b.type == NkDescriptorType::NK_INPUT_ATTACHMENT) {
+						hasSrv = true;
+						break;
+					}
+				if (hasSrv) {
+					for (auto &b : ds->bindings) {
+						if (b.type == NkDescriptorType::NK_SAMPLED_TEXTURE ||
+							b.type == NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER ||
+							b.type == NkDescriptorType::NK_INPUT_ATTACHMENT) {
+							UINT srvIdx = (b.texId ? mDev->GetTextureSrvIndex(b.texId) : UINT_MAX);
+							UINT mergedV = (b.slot < kMergedSrv) ? mMergedSrv[b.slot] : 0xDEAD;
+							UINT ringIdx =
+								(csuBase != UINT_MAX && b.slot < kMergedSrv) ? (csuBase + OFF_SRV + b.slot) : UINT_MAX;
+							NK_DX12_CB_LOG("DBG SRV draw#%d slot=%u texId=%llu srvIdxStaging=%u mergedSrv=%u "
+										   "ringIdx=%u sampBase=%u csuBase=%u ringCap=%u",
+										   scnt, b.slot, (unsigned long long)b.texId, (unsigned)srvIdx,
+										   (unsigned)mergedV, (unsigned)ringIdx, (unsigned)sampBase, (unsigned)csuBase,
+										   (unsigned)mDev->CbvSrvUavRing().capacity);
+						}
+					}
+				}
+				scnt++;
+			}
+		}
 
-// =============================================================================
-// Push Constants (root constants, paramètre 0 de la root signature)
-// =============================================================================
-void NkDirectX12CommandBuffer::PushConstants(NkShaderStage /*stages*/,
-                                          uint32 offset, uint32 size,
-                                          const void* data) {
-    if (!mCmdList || !mRootSigBound) return; // sans root sig, SetRoot32BitConstants plante
-    uint32 numConstants = size / 4;
-    uint32 destOffset   = offset / 4;
-    if (mIsCompute)
-        mCmdList->SetComputeRoot32BitConstants(0, numConstants, data, destOffset);
-    else
-        mCmdList->SetGraphicsRoot32BitConstants(0, numConstants, data, destOffset);
-}
+		if (csuBase != UINT_MAX) {
+			D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->CbvSrvUavRing().GPUFrom(csuBase);
+			if (mIsCompute)
+				mCmdList->SetComputeRootDescriptorTable(TABLE_CBV_SRV_UAV, h);
+			else
+				mCmdList->SetGraphicsRootDescriptorTable(TABLE_CBV_SRV_UAV, h);
+		}
+		if (sampBase != UINT_MAX) {
+			D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->SamplerRing().GPUFrom(sampBase);
+			if (mIsCompute)
+				mCmdList->SetComputeRootDescriptorTable(TABLE_SAMPLER, h);
+			else
+				mCmdList->SetGraphicsRootDescriptorTable(TABLE_SAMPLER, h);
+		}
+	}
 
-// =============================================================================
-// Vertex / Index
-// =============================================================================
-void NkDirectX12CommandBuffer::BindVertexBuffer(uint32 binding,
-                                             NkBufferHandle buf, uint64 offset) {
-    if (!mCmdList) return;
-    ID3D12Resource* res = mDev->GetDX12Buffer(buf.id);
-    if (!res) return;
-    D3D12_VERTEX_BUFFER_VIEW vbv{};
-    vbv.BufferLocation = mDev->GetBufferGPUAddr(buf.id) + offset;
-    vbv.SizeInBytes    = (UINT)(res->GetDesc().Width - offset);
-    vbv.StrideInBytes  = (binding < D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT)
-        ? mVertexStrides[binding]
-        : 0;
-    if (vbv.StrideInBytes == 0) vbv.StrideInBytes = 1;
-    mCmdList->IASetVertexBuffers(binding, 1, &vbv);
-}
+	// =============================================================================
+	// Push Constants (root constants, paramètre 0 de la root signature)
+	// =============================================================================
+	void NkDirectX12CommandBuffer::PushConstants(NkShaderStage /*stages*/, uint32 offset, uint32 size,
+												 const void *data) {
+		if (!mCmdList || !mRootSigBound)
+			return; // sans root sig, SetRoot32BitConstants plante
+		uint32 numConstants = size / 4;
+		uint32 destOffset = offset / 4;
+		if (mIsCompute)
+			mCmdList->SetComputeRoot32BitConstants(0, numConstants, data, destOffset);
+		else
+			mCmdList->SetGraphicsRoot32BitConstants(0, numConstants, data, destOffset);
+	}
 
-void NkDirectX12CommandBuffer::BindVertexBuffers(uint32 first,
-                                              const NkBufferHandle* bufs,
-                                              const uint64* offsets, uint32 n) {
-    if (!mCmdList) return;
-    D3D12_VERTEX_BUFFER_VIEW vbvs[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
-    n = math::NkMin(n, (uint32)D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT);
-    for (uint32 i = 0; i < n; i++) {
-        ID3D12Resource* res = mDev->GetDX12Buffer(bufs[i].id);
-        vbvs[i].BufferLocation = mDev->GetBufferGPUAddr(bufs[i].id) + offsets[i];
-        vbvs[i].SizeInBytes    = res ? (UINT)(res->GetDesc().Width - offsets[i]) : 0;
-        uint32 slot = first + i;
-        vbvs[i].StrideInBytes = (slot < D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT)
-            ? mVertexStrides[slot]
-            : 0;
-        if (vbvs[i].StrideInBytes == 0) vbvs[i].StrideInBytes = 1;
-    }
-    mCmdList->IASetVertexBuffers(first, n, vbvs);
-}
+	// =============================================================================
+	// Vertex / Index
+	// =============================================================================
+	void NkDirectX12CommandBuffer::BindVertexBuffer(uint32 binding, NkBufferHandle buf, uint64 offset) {
+		if (!mCmdList)
+			return;
+		ID3D12Resource *res = mDev->GetDX12Buffer(buf.id);
+		if (!res)
+			return;
+		D3D12_VERTEX_BUFFER_VIEW vbv{};
+		vbv.BufferLocation = mDev->GetBufferGPUAddr(buf.id) + offset;
+		vbv.SizeInBytes = (UINT)(res->GetDesc().Width - offset);
+		vbv.StrideInBytes = (binding < D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT) ? mVertexStrides[binding] : 0;
+		if (vbv.StrideInBytes == 0)
+			vbv.StrideInBytes = 1;
+		mCmdList->IASetVertexBuffers(binding, 1, &vbv);
+	}
 
-void NkDirectX12CommandBuffer::BindIndexBuffer(NkBufferHandle buf,
-                                            NkIndexFormat fmt, uint64 offset) {
-    if (!mCmdList) return;
-    D3D12_INDEX_BUFFER_VIEW ibv{};
-    ID3D12Resource* res = mDev->GetDX12Buffer(buf.id);
-    ibv.BufferLocation = mDev->GetBufferGPUAddr(buf.id) + offset;
-    ibv.SizeInBytes    = res ? (UINT)(res->GetDesc().Width - offset) : 0;
-    ibv.Format         = fmt == NkIndexFormat::NK_UINT16 ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
-    mCmdList->IASetIndexBuffer(&ibv);
-}
+	void NkDirectX12CommandBuffer::BindVertexBuffers(uint32 first, const NkBufferHandle *bufs, const uint64 *offsets,
+													 uint32 n) {
+		if (!mCmdList)
+			return;
+		D3D12_VERTEX_BUFFER_VIEW vbvs[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+		n = math::NkMin(n, (uint32)D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT);
+		for (uint32 i = 0; i < n; i++) {
+			ID3D12Resource *res = mDev->GetDX12Buffer(bufs[i].id);
+			vbvs[i].BufferLocation = mDev->GetBufferGPUAddr(bufs[i].id) + offsets[i];
+			vbvs[i].SizeInBytes = res ? (UINT)(res->GetDesc().Width - offsets[i]) : 0;
+			uint32 slot = first + i;
+			vbvs[i].StrideInBytes = (slot < D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT) ? mVertexStrides[slot] : 0;
+			if (vbvs[i].StrideInBytes == 0)
+				vbvs[i].StrideInBytes = 1;
+		}
+		mCmdList->IASetVertexBuffers(first, n, vbvs);
+	}
 
-// =============================================================================
-// Draw
-// =============================================================================
-void NkDirectX12CommandBuffer::Draw(uint32 vtx, uint32 inst,
-                                 uint32 firstVtx, uint32 firstInst) {
-    if (!mCmdList) return;
-    mCmdList->DrawInstanced(vtx, inst, firstVtx, firstInst);
-}
+	void NkDirectX12CommandBuffer::BindIndexBuffer(NkBufferHandle buf, NkIndexFormat fmt, uint64 offset) {
+		if (!mCmdList)
+			return;
+		D3D12_INDEX_BUFFER_VIEW ibv{};
+		ID3D12Resource *res = mDev->GetDX12Buffer(buf.id);
+		ibv.BufferLocation = mDev->GetBufferGPUAddr(buf.id) + offset;
+		ibv.SizeInBytes = res ? (UINT)(res->GetDesc().Width - offset) : 0;
+		ibv.Format = fmt == NkIndexFormat::NK_UINT16 ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
+		mCmdList->IASetIndexBuffer(&ibv);
+	}
 
-void NkDirectX12CommandBuffer::DrawIndexed(uint32 idx, uint32 inst,
-                                        uint32 firstIdx, int32 vtxOff,
-                                        uint32 firstInst) {
-    if (!mCmdList) return;
-    mCmdList->DrawIndexedInstanced(idx, inst, firstIdx, vtxOff, firstInst);
-}
+	// =============================================================================
+	// Draw
+	// =============================================================================
+	void NkDirectX12CommandBuffer::Draw(uint32 vtx, uint32 inst, uint32 firstVtx, uint32 firstInst) {
+		if (!mCmdList)
+			return;
+		mCmdList->DrawInstanced(vtx, inst, firstVtx, firstInst);
+	}
 
-void NkDirectX12CommandBuffer::DrawIndirect(NkBufferHandle buf, uint64 off,
-                                         uint32 cnt, uint32 /*stride*/) {
-    // Nécessite un ID3D12CommandSignature pré-créé
-    // Simplification : on appelle ExecuteIndirect avec une signature draw standard
-    (void)buf; (void)off; (void)cnt;
-    // TODO: créer et cacher une DrawIndirectSignature dans le device
-}
+	void NkDirectX12CommandBuffer::DrawIndexed(uint32 idx, uint32 inst, uint32 firstIdx, int32 vtxOff,
+											   uint32 firstInst) {
+		if (!mCmdList)
+			return;
+		mCmdList->DrawIndexedInstanced(idx, inst, firstIdx, vtxOff, firstInst);
+	}
 
-void NkDirectX12CommandBuffer::DrawIndexedIndirect(NkBufferHandle buf, uint64 off,
-                                                uint32 cnt, uint32 /*stride*/) {
-    (void)buf; (void)off; (void)cnt;
-    // TODO: signature DrawIndexedIndirect
-}
+	void NkDirectX12CommandBuffer::DrawIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 /*stride*/) {
+		// Nécessite un ID3D12CommandSignature pré-créé
+		// Simplification : on appelle ExecuteIndirect avec une signature draw standard
+		(void)buf;
+		(void)off;
+		(void)cnt;
+		// TODO: créer et cacher une DrawIndirectSignature dans le device
+	}
 
-// =============================================================================
-// Compute
-// =============================================================================
-void NkDirectX12CommandBuffer::Dispatch(uint32 gx, uint32 gy, uint32 gz) {
-    if (!mCmdList) return;
-    mCmdList->Dispatch(gx, gy, gz);
-}
+	void NkDirectX12CommandBuffer::DrawIndexedIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 /*stride*/) {
+		(void)buf;
+		(void)off;
+		(void)cnt;
+		// TODO: signature DrawIndexedIndirect
+	}
 
-void NkDirectX12CommandBuffer::DispatchIndirect(NkBufferHandle buf, uint64 off) {
-    (void)buf; (void)off;
-    // TODO: signature DispatchIndirect
-}
+	// =============================================================================
+	// Compute
+	// =============================================================================
+	void NkDirectX12CommandBuffer::Dispatch(uint32 gx, uint32 gy, uint32 gz) {
+		if (!mCmdList)
+			return;
+		mCmdList->Dispatch(gx, gy, gz);
+	}
 
-// =============================================================================
-// Copies
-// =============================================================================
-void NkDirectX12CommandBuffer::CopyBuffer(NkBufferHandle src, NkBufferHandle dst,
-                                       const NkBufferCopyRegion& r) {
-    if (!mCmdList) return;
-    mCmdList->CopyBufferRegion(
-        mDev->GetDX12Buffer(dst.id), r.dstOffset,
-        mDev->GetDX12Buffer(src.id), r.srcOffset,
-        r.size);
-}
+	void NkDirectX12CommandBuffer::DispatchIndirect(NkBufferHandle buf, uint64 off) {
+		(void)buf;
+		(void)off;
+		// TODO: signature DispatchIndirect
+	}
 
-void NkDirectX12CommandBuffer::CopyBufferToTexture(NkBufferHandle src,
-                                                NkTextureHandle dst,
-                                                const NkBufferTextureCopyRegion& r) {
-    if (!mCmdList) return;
-    D3D12_TEXTURE_COPY_LOCATION dstLoc{};
-    dstLoc.pResource        = mDev->GetDX12Texture(dst.id);
-    dstLoc.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-    dstLoc.SubresourceIndex = r.mipLevel;
+	// =============================================================================
+	// Copies
+	// =============================================================================
+	void NkDirectX12CommandBuffer::CopyBuffer(NkBufferHandle src, NkBufferHandle dst, const NkBufferCopyRegion &r) {
+		if (!mCmdList)
+			return;
+		mCmdList->CopyBufferRegion(mDev->GetDX12Buffer(dst.id), r.dstOffset, mDev->GetDX12Buffer(src.id), r.srcOffset,
+								   r.size);
+	}
 
-    D3D12_TEXTURE_COPY_LOCATION srcLoc{};
-    srcLoc.pResource = mDev->GetDX12Buffer(src.id);
-    srcLoc.Type      = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    srcLoc.PlacedFootprint.Offset = r.bufferOffset;
-    srcLoc.PlacedFootprint.Footprint = {
-        DXGI_FORMAT_R8G8B8A8_UNORM, r.width, r.height,
-        r.depth > 0 ? r.depth : 1,
-        r.bufferRowPitch
-    };
+	void NkDirectX12CommandBuffer::CopyBufferToTexture(NkBufferHandle src, NkTextureHandle dst,
+													   const NkBufferTextureCopyRegion &r) {
+		if (!mCmdList)
+			return;
+		D3D12_TEXTURE_COPY_LOCATION dstLoc{};
+		dstLoc.pResource = mDev->GetDX12Texture(dst.id);
+		dstLoc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+		dstLoc.SubresourceIndex = r.mipLevel;
 
-    mCmdList->CopyTextureRegion(&dstLoc, r.x, r.y, r.z, &srcLoc, nullptr);
-}
+		D3D12_TEXTURE_COPY_LOCATION srcLoc{};
+		srcLoc.pResource = mDev->GetDX12Buffer(src.id);
+		srcLoc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+		srcLoc.PlacedFootprint.Offset = r.bufferOffset;
+		srcLoc.PlacedFootprint.Footprint = {DXGI_FORMAT_R8G8B8A8_UNORM, r.width, r.height, r.depth > 0 ? r.depth : 1,
+											r.bufferRowPitch};
 
-void NkDirectX12CommandBuffer::CopyTextureToBuffer(NkTextureHandle src,
-                                                NkBufferHandle dst,
-                                                const NkBufferTextureCopyRegion& r) {
-    if (!mCmdList) return;
-    D3D12_TEXTURE_COPY_LOCATION srcLoc{};
-    srcLoc.pResource        = mDev->GetDX12Texture(src.id);
-    srcLoc.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-    srcLoc.SubresourceIndex = r.mipLevel;
+		mCmdList->CopyTextureRegion(&dstLoc, r.x, r.y, r.z, &srcLoc, nullptr);
+	}
 
-    D3D12_TEXTURE_COPY_LOCATION dstLoc{};
-    dstLoc.pResource = mDev->GetDX12Buffer(dst.id);
-    dstLoc.Type      = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    dstLoc.PlacedFootprint.Offset = r.bufferOffset;
-    // Le footprint DOIT utiliser le format RÉEL de la texture source : un
-    // hardcode R8G8B8A8_UNORM corrompait toute copie d'un RT non-RGBA8
-    // (ex. HDR RGBA16F → octets mal interprétés / copie invalide).
-    dstLoc.PlacedFootprint.Footprint = {
-        mDev->GetTextureDXGIFormat(src.id), r.width, r.height,
-        r.depth > 0 ? r.depth : 1,
-        r.bufferRowPitch
-    };
+	void NkDirectX12CommandBuffer::CopyTextureToBuffer(NkTextureHandle src, NkBufferHandle dst,
+													   const NkBufferTextureCopyRegion &r) {
+		if (!mCmdList)
+			return;
+		D3D12_TEXTURE_COPY_LOCATION srcLoc{};
+		srcLoc.pResource = mDev->GetDX12Texture(src.id);
+		srcLoc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+		srcLoc.SubresourceIndex = r.mipLevel;
 
-    D3D12_BOX box{ r.x, r.y, r.z, r.x + r.width, r.y + r.height, r.z + (r.depth > 0 ? r.depth : 1) };
-    mCmdList->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, &box);
-}
+		D3D12_TEXTURE_COPY_LOCATION dstLoc{};
+		dstLoc.pResource = mDev->GetDX12Buffer(dst.id);
+		dstLoc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+		dstLoc.PlacedFootprint.Offset = r.bufferOffset;
+		// Le footprint DOIT utiliser le format RÉEL de la texture source : un
+		// hardcode R8G8B8A8_UNORM corrompait toute copie d'un RT non-RGBA8
+		// (ex. HDR RGBA16F → octets mal interprétés / copie invalide).
+		dstLoc.PlacedFootprint.Footprint = {mDev->GetTextureDXGIFormat(src.id), r.width, r.height,
+											r.depth > 0 ? r.depth : 1, r.bufferRowPitch};
 
-void NkDirectX12CommandBuffer::CopyTexture(NkTextureHandle src, NkTextureHandle dst,
-                                        const NkTextureCopyRegion& r) {
-    if (!mCmdList) return;
-    D3D12_TEXTURE_COPY_LOCATION srcLoc{};
-    srcLoc.pResource        = mDev->GetDX12Texture(src.id);
-    srcLoc.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-    srcLoc.SubresourceIndex = r.srcMip;
+		D3D12_BOX box{r.x, r.y, r.z, r.x + r.width, r.y + r.height, r.z + (r.depth > 0 ? r.depth : 1)};
+		mCmdList->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, &box);
+	}
 
-    D3D12_TEXTURE_COPY_LOCATION dstLoc{};
-    dstLoc.pResource        = mDev->GetDX12Texture(dst.id);
-    dstLoc.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-    dstLoc.SubresourceIndex = r.dstMip;
+	void NkDirectX12CommandBuffer::CopyTexture(NkTextureHandle src, NkTextureHandle dst, const NkTextureCopyRegion &r) {
+		if (!mCmdList)
+			return;
+		D3D12_TEXTURE_COPY_LOCATION srcLoc{};
+		srcLoc.pResource = mDev->GetDX12Texture(src.id);
+		srcLoc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+		srcLoc.SubresourceIndex = r.srcMip;
 
-    D3D12_BOX box{ r.srcX, r.srcY, r.srcZ,
-                   r.srcX + r.width, r.srcY + r.height,
-                   r.srcZ + (r.depth > 0 ? r.depth : 1) };
-    mCmdList->CopyTextureRegion(&dstLoc, r.dstX, r.dstY, r.dstZ, &srcLoc, &box);
-}
+		D3D12_TEXTURE_COPY_LOCATION dstLoc{};
+		dstLoc.pResource = mDev->GetDX12Texture(dst.id);
+		dstLoc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+		dstLoc.SubresourceIndex = r.dstMip;
 
-void NkDirectX12CommandBuffer::BlitTexture(NkTextureHandle /*src*/,
-                                        NkTextureHandle /*dst*/,
-                                        const NkTextureCopyRegion& /*r*/,
-                                        NkFilter /*f*/) {
-    // DX12 n'a pas de blit natif — nécessite un compute ou graphics pass de fullscreen
-    // Laissé pour implémentation future dans un BlitHelper
-}
+		D3D12_BOX box{
+			r.srcX, r.srcY, r.srcZ, r.srcX + r.width, r.srcY + r.height, r.srcZ + (r.depth > 0 ? r.depth : 1)};
+		mCmdList->CopyTextureRegion(&dstLoc, r.dstX, r.dstY, r.dstZ, &srcLoc, &box);
+	}
 
-// =============================================================================
-// Barriers
-// =============================================================================
-void NkDirectX12CommandBuffer::Barrier(const NkBufferBarrier* bb, uint32 bc,
-                                    const NkTextureBarrier* tb, uint32 tc) {
-    if (!mCmdList) return;
-    NkVector<D3D12_RESOURCE_BARRIER> barriers;
-    barriers.Reserve(bc + tc);
+	void NkDirectX12CommandBuffer::BlitTexture(NkTextureHandle /*src*/, NkTextureHandle /*dst*/,
+											   const NkTextureCopyRegion & /*r*/, NkFilter /*f*/) {
+		// DX12 n'a pas de blit natif — nécessite un compute ou graphics pass de fullscreen
+		// Laissé pour implémentation future dans un BlitHelper
+	}
 
-    auto toDX12State = [](NkResourceState s) -> D3D12_RESOURCE_STATES {
-        switch (s) {
-            case NkResourceState::NK_COMMON:          return D3D12_RESOURCE_STATE_COMMON;
-            case NkResourceState::NK_VERTEX_BUFFER:    return D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
-            case NkResourceState::NK_INDEX_BUFFER:     return D3D12_RESOURCE_STATE_INDEX_BUFFER;
-            case NkResourceState::NK_UNIFORM_BUFFER:   return D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
-            case NkResourceState::NK_UNORDERED_ACCESS: return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-            case NkResourceState::NK_SHADER_READ:      return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
-                                                          D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-            case NkResourceState::NK_RENDER_TARGET:    return D3D12_RESOURCE_STATE_RENDER_TARGET;
-            case NkResourceState::NK_DEPTH_WRITE:      return D3D12_RESOURCE_STATE_DEPTH_WRITE;
-            case NkResourceState::NK_DEPTH_READ:       return D3D12_RESOURCE_STATE_DEPTH_READ;
-            case NkResourceState::NK_TRANSFER_SRC:     return D3D12_RESOURCE_STATE_COPY_SOURCE;
-            case NkResourceState::NK_TRANSFER_DST:     return D3D12_RESOURCE_STATE_COPY_DEST;
-            case NkResourceState::NK_INDIRECT_ARG:     return D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
-            case NkResourceState::NK_PRESENT:         return D3D12_RESOURCE_STATE_PRESENT;
-            default:                               return D3D12_RESOURCE_STATE_COMMON;
-        }
-    };
+	// =============================================================================
+	// Barriers
+	// =============================================================================
+	void NkDirectX12CommandBuffer::Barrier(const NkBufferBarrier *bb, uint32 bc, const NkTextureBarrier *tb,
+										   uint32 tc) {
+		if (!mCmdList)
+			return;
+		NkVector<D3D12_RESOURCE_BARRIER> barriers;
+		barriers.Reserve(bc + tc);
 
-    for (uint32 i = 0; i < bc; i++) {
-        D3D12_RESOURCE_BARRIER b{};
-        b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        b.Transition.pResource   = mDev->GetDX12Buffer(bb[i].buffer.id);
-        b.Transition.StateBefore = toDX12State(bb[i].stateBefore);
-        b.Transition.StateAfter  = toDX12State(bb[i].stateAfter);
-        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        if (b.Transition.pResource && b.Transition.StateBefore != b.Transition.StateAfter)
-            barriers.PushBack(b);
-    }
+		auto toDX12State = [](NkResourceState s) -> D3D12_RESOURCE_STATES {
+			switch (s) {
+				case NkResourceState::NK_COMMON:
+					return D3D12_RESOURCE_STATE_COMMON;
+				case NkResourceState::NK_VERTEX_BUFFER:
+					return D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
+				case NkResourceState::NK_INDEX_BUFFER:
+					return D3D12_RESOURCE_STATE_INDEX_BUFFER;
+				case NkResourceState::NK_UNIFORM_BUFFER:
+					return D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
+				case NkResourceState::NK_UNORDERED_ACCESS:
+					return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+				case NkResourceState::NK_SHADER_READ:
+					return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+				case NkResourceState::NK_RENDER_TARGET:
+					return D3D12_RESOURCE_STATE_RENDER_TARGET;
+				case NkResourceState::NK_DEPTH_WRITE:
+					return D3D12_RESOURCE_STATE_DEPTH_WRITE;
+				case NkResourceState::NK_DEPTH_READ:
+					return D3D12_RESOURCE_STATE_DEPTH_READ;
+				case NkResourceState::NK_TRANSFER_SRC:
+					return D3D12_RESOURCE_STATE_COPY_SOURCE;
+				case NkResourceState::NK_TRANSFER_DST:
+					return D3D12_RESOURCE_STATE_COPY_DEST;
+				case NkResourceState::NK_INDIRECT_ARG:
+					return D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+				case NkResourceState::NK_PRESENT:
+					return D3D12_RESOURCE_STATE_PRESENT;
+				default:
+					return D3D12_RESOURCE_STATE_COMMON;
+			}
+		};
 
-    if (!barriers.empty())
-        mCmdList->ResourceBarrier((UINT)barriers.Size(), barriers.Data());
+		for (uint32 i = 0; i < bc; i++) {
+			D3D12_RESOURCE_BARRIER b{};
+			b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+			b.Transition.pResource = mDev->GetDX12Buffer(bb[i].buffer.id);
+			b.Transition.StateBefore = toDX12State(bb[i].stateBefore);
+			b.Transition.StateAfter = toDX12State(bb[i].stateAfter);
+			b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+			if (b.Transition.pResource && b.Transition.StateBefore != b.Transition.StateAfter)
+				barriers.PushBack(b);
+		}
 
-    // Textures : on IGNORE le stateBefore fourni par l'appelant (render graph) car il
-    // peut etre desynchronise du vrai etat de la ressource. Cause B (#527/#538) :
-    // BeginRenderPass / les copies transitionnent via NkDX12Texture.state (suivi par le
-    // device), tandis que ce Barrier() utilisait l'etat suivi en parallele par le render
-    // graph -> divergence -> "before state" faux. On route donc TOUTES les transitions de
-    // texture par TransitionTextureState(), qui lit/ecrit l'etat unique du device.
-    for (uint32 i = 0; i < tc; i++) {
-        if (!tb[i].texture.IsValid()) continue;
-        mDev->TransitionTextureState(mCmdList.Get(), tb[i].texture.id,
-                                     toDX12State(tb[i].stateAfter));
-    }
-}
+		if (!barriers.empty())
+			mCmdList->ResourceBarrier((UINT)barriers.Size(), barriers.Data());
 
-// =============================================================================
-// Debug
-// =============================================================================
-void NkDirectX12CommandBuffer::BeginDebugGroup(const char* name, float r, float g, float b) {
-    // PIX events (nécessite WinPixEventRuntime)
-    // PIXBeginEvent(mCmdList.Get(), PIX_COLOR_DEFAULT, name);
-    (void)name; (void)r; (void)g; (void)b;
-}
+		// Textures : on IGNORE le stateBefore fourni par l'appelant (render graph) car il
+		// peut etre desynchronise du vrai etat de la ressource. Cause B (#527/#538) :
+		// BeginRenderPass / les copies transitionnent via NkDX12Texture.state (suivi par le
+		// device), tandis que ce Barrier() utilisait l'etat suivi en parallele par le render
+		// graph -> divergence -> "before state" faux. On route donc TOUTES les transitions de
+		// texture par TransitionTextureState(), qui lit/ecrit l'etat unique du device.
+		for (uint32 i = 0; i < tc; i++) {
+			if (!tb[i].texture.IsValid())
+				continue;
+			mDev->TransitionTextureState(mCmdList.Get(), tb[i].texture.id, toDX12State(tb[i].stateAfter));
+		}
+	}
 
-void NkDirectX12CommandBuffer::EndDebugGroup() {
-    // PIXEndEvent(mCmdList.Get());
-}
+	// =============================================================================
+	// Debug
+	// =============================================================================
+	void NkDirectX12CommandBuffer::BeginDebugGroup(const char *name, float r, float g, float b) {
+		// PIX events (nécessite WinPixEventRuntime)
+		// PIXBeginEvent(mCmdList.Get(), PIX_COLOR_DEFAULT, name);
+		(void)name;
+		(void)r;
+		(void)g;
+		(void)b;
+	}
 
-void NkDirectX12CommandBuffer::InsertDebugLabel(const char* name) {
-    // PIXSetMarker(mCmdList.Get(), PIX_COLOR_DEFAULT, name);
-    (void)name;
-}
+	void NkDirectX12CommandBuffer::EndDebugGroup() {
+		// PIXEndEvent(mCmdList.Get());
+	}
+
+	void NkDirectX12CommandBuffer::InsertDebugLabel(const char *name) {
+		// PIXSetMarker(mCmdList.Get(), PIX_COLOR_DEFAULT, name);
+		(void)name;
+	}
 
 } // namespace nkentseu
 #endif // NK_RHI_DX12_ENABLED

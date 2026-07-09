@@ -30,19 +30,18 @@
 #include <cstdlib>
 
 #if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
-	#include <android/log.h>
+#include <android/log.h>
 #endif
 
 #if defined(_WIN32)
-	#ifndef WIN32_LEAN_AND_MEAN
-		#define WIN32_LEAN_AND_MEAN
-	#endif
-	#include <windows.h>
-#else
-	#include <unistd.h>   // Pour isatty(), fileno()
-	#include <cstring>    // Pour strstr()
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #endif
-
+#include <windows.h>
+#else
+#include <unistd.h> // Pour isatty(), fileno()
+#include <cstring>	// Pour strstr()
+#endif
 
 // -------------------------------------------------------------------------
 // SECTION 1 : NAMESPACE ANONYME - UTILITAIRES INTERNES (ANDROID)
@@ -52,7 +51,6 @@
 
 #if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
 namespace {
-
 
 	// -------------------------------------------------------------------------
 	// FONCTION : NkToAndroidPriority
@@ -88,7 +86,6 @@ namespace {
 		}
 	}
 
-
 	// -------------------------------------------------------------------------
 	// FONCTION : NkMakeAndroidTag
 	// DESCRIPTION : Génère un tag logcat valide depuis un loggerName
@@ -96,7 +93,7 @@ namespace {
 	// RETURN : Chaîne NkString tronquée à 23 caractères max pour compatibilité logcat
 	// NOTE : logcat limite les tags à 23 caractères : tronquer silencieusement si nécessaire
 	// -------------------------------------------------------------------------
-	nkentseu::NkString NkMakeAndroidTag(const nkentseu::NkString& loggerName) {
+	nkentseu::NkString NkMakeAndroidTag(const nkentseu::NkString &loggerName) {
 		// Cas vide : fallback vers tag générique
 		if (loggerName.Empty()) {
 			return "NkConsole";
@@ -111,10 +108,8 @@ namespace {
 		return loggerName;
 	}
 
-
-} // namespace anonymous
-#endif  // Android-specific utilities
-
+} // namespace
+#endif // Android-specific utilities
 
 // -------------------------------------------------------------------------
 // SECTION 2 : NAMESPACE PRINCIPAL - IMPLÉMENTATIONS DES MÉTHODES
@@ -124,38 +119,28 @@ namespace {
 
 namespace nkentseu {
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Constructeur par défaut
 	// DESCRIPTION : Initialisation avec stdout, couleurs activées, pattern couleur
 	// -------------------------------------------------------------------------
 	NkConsoleSink::NkConsoleSink()
-		: m_Stream(NkConsoleStream::NK_STD_OUT)
-		, m_UseColors(true)
-		, m_UseStderrForErrors(true) {
-
+		: m_Stream(NkConsoleStream::NK_STD_OUT), m_UseColors(true), m_UseStderrForErrors(true) {
 		// Configuration du formatter avec pattern supportant les marqueurs de couleur
 		m_Formatter = memory::NkMakeUnique<NkLoggerFormatter>(NkLoggerFormatter::NK_COLOR_PATTERN);
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Constructeur avec flux et couleurs personnalisés
 	// DESCRIPTION : Initialisation avec paramètres explicites
 	// -------------------------------------------------------------------------
 	NkConsoleSink::NkConsoleSink(NkConsoleStream stream, bool useColors)
-		: m_Stream(stream)
-		, m_UseColors(useColors)
-		, m_UseStderrForErrors(true) {
-
+		: m_Stream(stream), m_UseColors(useColors), m_UseStderrForErrors(true) {
 		// Choix du pattern basé sur l'activation des couleurs
-		const char* pattern = useColors
-			? NkLoggerFormatter::NK_COLOR_PATTERN    // Pattern avec marqueurs %^/%$
-			: NkLoggerFormatter::NK_DEFAULT_PATTERN; // Pattern standard sans couleurs
+		const char *pattern = useColors ? NkLoggerFormatter::NK_COLOR_PATTERN	 // Pattern avec marqueurs %^/%$
+										: NkLoggerFormatter::NK_DEFAULT_PATTERN; // Pattern standard sans couleurs
 
 		m_Formatter = memory::NkMakeUnique<NkLoggerFormatter>(pattern);
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Destructeur
@@ -166,12 +151,11 @@ namespace nkentseu {
 		Flush();
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Log
 	// DESCRIPTION : Écriture thread-safe d'un message formaté vers la console
 	// -------------------------------------------------------------------------
-	void NkConsoleSink::Log(const NkLogMessage& message) {
+	void NkConsoleSink::Log(const NkLogMessage &message) {
 		// Filtrage précoce : éviter tout traitement si message ignoré
 		if (!IsEnabled() || !ShouldLog(message.level)) {
 			return;
@@ -184,25 +168,25 @@ namespace nkentseu {
 		const bool applyColors = m_UseColors && SupportsColors();
 		NkString formattedMessage = m_Formatter->Format(message, applyColors);
 
-		#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
-			// Android : redirection vers logcat via __android_log_print
-			// Les codes ANSI sont ignorés par logcat : pas de traitement couleur
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
+		// Android : redirection vers logcat via __android_log_print
+		// Les codes ANSI sont ignorés par logcat : pas de traitement couleur
 
-			// Génération du tag logcat depuis le loggerName (tronqué si nécessaire)
-			const NkString tag = NkMakeAndroidTag(message.loggerName);
+		// Génération du tag logcat depuis le loggerName (tronqué si nécessaire)
+		const NkString tag = NkMakeAndroidTag(message.loggerName);
 
-			// Mapping du niveau NKLogger vers priority android_log
-			const int androidPriority = NkToAndroidPriority(message.level);
+		// Mapping du niveau NKLogger vers priority android_log
+		const int androidPriority = NkToAndroidPriority(message.level);
 
-			// Écriture vers logcat avec formatage appliqué
-			__android_log_print(androidPriority, tag.CStr(), "%s", formattedMessage.CStr());
+		// Écriture vers logcat avec formatage appliqué
+		__android_log_print(androidPriority, tag.CStr(), "%s", formattedMessage.CStr());
 
-			// Retour immédiat : pas d'écriture vers stdout/stderr sur Android
-			return;
-		#endif
+		// Retour immédiat : pas d'écriture vers stdout/stderr sur Android
+		return;
+#endif
 
 		// Sélection du flux C approprié selon niveau et configuration
-		FILE* outputStream = GetStreamForLevel(message.level);
+		FILE *outputStream = GetStreamForLevel(message.level);
 		if (outputStream == nullptr) {
 			// Échec de sélection de flux : retour silencieux pour robustesse
 			return;
@@ -210,12 +194,8 @@ namespace nkentseu {
 
 		// Écriture du message formaté vers le flux sélectionné
 		if (!formattedMessage.Empty()) {
-			(void)::fwrite(
-				formattedMessage.CStr(),
-				sizeof(char),
-				static_cast<size_t>(formattedMessage.Length()),
-				outputStream
-			);
+			(void)::fwrite(formattedMessage.CStr(), sizeof(char), static_cast<size_t>(formattedMessage.Length()),
+						   outputStream);
 		}
 
 		// Newline automatique après chaque message pour lisibilité
@@ -227,7 +207,6 @@ namespace nkentseu {
 		}
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Flush
 	// DESCRIPTION : Force l'écriture des buffers C stdio vers la console
@@ -236,10 +215,10 @@ namespace nkentseu {
 		// Acquisition du mutex pour opération thread-safe
 		threading::NkScopedLock lock(m_Mutex);
 
-		#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
-			// Android : logcat gère son propre buffering, pas de flush requis
-			return;
-		#endif
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
+		// Android : logcat gère son propre buffering, pas de flush requis
+		return;
+#endif
 
 		// Flush de stdout si configuré comme flux principal ou si erreurs routées vers stderr
 		if (m_Stream == NkConsoleStream::NK_STD_OUT) {
@@ -251,7 +230,6 @@ namespace nkentseu {
 			(void)::fflush(stderr);
 		}
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetFormatter
@@ -265,12 +243,11 @@ namespace nkentseu {
 		m_Formatter = traits::NkMove(formatter);
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetPattern
 	// DESCRIPTION : Met à jour le pattern via le formatter interne
 	// -------------------------------------------------------------------------
-	void NkConsoleSink::SetPattern(const NkString& pattern) {
+	void NkConsoleSink::SetPattern(const NkString &pattern) {
 		// Acquisition du mutex pour modification thread-safe
 		threading::NkScopedLock lock(m_Mutex);
 
@@ -280,19 +257,17 @@ namespace nkentseu {
 		}
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetFormatter
 	// DESCRIPTION : Retourne le formatter courant (lecture thread-safe)
 	// -------------------------------------------------------------------------
-	NkLoggerFormatter* NkConsoleSink::GetFormatter() const {
+	NkLoggerFormatter *NkConsoleSink::GetFormatter() const {
 		// Acquisition du mutex pour lecture protégée
 		threading::NkScopedLock lock(m_Mutex);
 
 		// Retour du pointeur brut via get() de NkUniquePtr
 		return m_Formatter.Get();
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetPattern
@@ -311,7 +286,6 @@ namespace nkentseu {
 		return NkString{};
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetColorEnabled
 	// DESCRIPTION : Active/désactive l'usage des couleurs thread-safe
@@ -323,7 +297,6 @@ namespace nkentseu {
 		// Mise à jour du flag de configuration
 		m_UseColors = enable;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : IsColorEnabled
@@ -337,7 +310,6 @@ namespace nkentseu {
 		return m_UseColors;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetStream
 	// DESCRIPTION : Définit le flux de console principal thread-safe
@@ -349,7 +321,6 @@ namespace nkentseu {
 		// Mise à jour du flux configuré
 		m_Stream = stream;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetStream
@@ -363,7 +334,6 @@ namespace nkentseu {
 		return m_Stream;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetUseStderrForErrors
 	// DESCRIPTION : Configure le routage des erreurs vers stderr thread-safe
@@ -375,7 +345,6 @@ namespace nkentseu {
 		// Mise à jour du flag de routage
 		m_UseStderrForErrors = enable;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : IsUsingStderrForErrors
@@ -389,17 +358,14 @@ namespace nkentseu {
 		return m_UseStderrForErrors;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetStreamForLevel (privée)
 	// DESCRIPTION : Sélectionne stdout ou stderr selon niveau et configuration
 	// -------------------------------------------------------------------------
-	FILE* NkConsoleSink::GetStreamForLevel(NkLogLevel level) {
+	FILE *NkConsoleSink::GetStreamForLevel(NkLogLevel level) {
 		// Routage des erreurs vers stderr si configuré
 		if (m_UseStderrForErrors) {
-			if (level == NkLogLevel::NK_ERROR
-				|| level == NkLogLevel::NK_CRITICAL
-				|| level == NkLogLevel::NK_FATAL) {
+			if (level == NkLogLevel::NK_ERROR || level == NkLogLevel::NK_CRITICAL || level == NkLogLevel::NK_FATAL) {
 				return stderr;
 			}
 		}
@@ -408,61 +374,57 @@ namespace nkentseu {
 		return (m_Stream == NkConsoleStream::NK_STD_OUT) ? stdout : stderr;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SupportsColors (privée)
 	// DESCRIPTION : Détecte si la console courante supporte les codes couleur
 	// -------------------------------------------------------------------------
 	bool NkConsoleSink::SupportsColors() const {
-		#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
-			// Android : logcat ne supporte pas les codes ANSI
-			// Les couleurs sont gérées par l'IDE/adb logcat si configuré
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
+		// Android : logcat ne supporte pas les codes ANSI
+		// Les couleurs sont gérées par l'IDE/adb logcat si configuré
+		return false;
+
+#elif defined(_WIN32)
+		// Windows : vérification via GetConsoleMode + ENABLE_VIRTUAL_TERMINAL_PROCESSING
+		HANDLE consoleHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+		if (consoleHandle == INVALID_HANDLE_VALUE) {
 			return false;
+		}
 
-		#elif defined(_WIN32)
-			// Windows : vérification via GetConsoleMode + ENABLE_VIRTUAL_TERMINAL_PROCESSING
-			HANDLE consoleHandle = GetStdHandle(STD_OUTPUT_HANDLE);
-			if (consoleHandle == INVALID_HANDLE_VALUE) {
-				return false;
-			}
+		DWORD consoleMode = 0;
+		if (!GetConsoleMode(consoleHandle, &consoleMode)) {
+			return false;
+		}
 
-			DWORD consoleMode = 0;
-			if (!GetConsoleMode(consoleHandle, &consoleMode)) {
-				return false;
-			}
+		// Support ANSI si ENABLE_VIRTUAL_TERMINAL_PROCESSING est activé
+		return (consoleMode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0;
 
-			// Support ANSI si ENABLE_VIRTUAL_TERMINAL_PROCESSING est activé
-			return (consoleMode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0;
+#else
+		// Unix/Linux/macOS : vérification via isatty() + variable d'environnement TERM
+		// Cache statique pour éviter les vérifications répétées coûteuses
+		static bool checked = false;
+		static bool supports = false;
 
-		#else
-			// Unix/Linux/macOS : vérification via isatty() + variable d'environnement TERM
-			// Cache statique pour éviter les vérifications répétées coûteuses
-			static bool checked = false;
-			static bool supports = false;
-
-			if (!checked) {
-				// Vérification si stdout est un terminal interactif
-				const int fileDescriptor = fileno(stdout);
-				if (fileDescriptor < 0) {
-					supports = false;
-				} else if (isatty(fileDescriptor)) {
-					// Vérification de la variable d'environnement TERM
-					const char* termEnv = getenv("TERM");
-					if (termEnv != nullptr) {
-						// Recherche de terminaux connus pour supporter les couleurs
-						supports = (strstr(termEnv, "xterm") != nullptr)
-							|| (strstr(termEnv, "color") != nullptr)
-							|| (strstr(termEnv, "ansi") != nullptr)
-							|| (strstr(termEnv, "256color") != nullptr);
-					}
+		if (!checked) {
+			// Vérification si stdout est un terminal interactif
+			const int fileDescriptor = fileno(stdout);
+			if (fileDescriptor < 0) {
+				supports = false;
+			} else if (isatty(fileDescriptor)) {
+				// Vérification de la variable d'environnement TERM
+				const char *termEnv = getenv("TERM");
+				if (termEnv != nullptr) {
+					// Recherche de terminaux connus pour supporter les couleurs
+					supports = (strstr(termEnv, "xterm") != nullptr) || (strstr(termEnv, "color") != nullptr) ||
+							   (strstr(termEnv, "ansi") != nullptr) || (strstr(termEnv, "256color") != nullptr);
 				}
-				checked = true;
 			}
+			checked = true;
+		}
 
-			return supports;
-		#endif
+		return supports;
+#endif
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetColorCode (privée)
@@ -473,7 +435,6 @@ namespace nkentseu {
 		return NkLogLevelToANSIColor(level);
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetResetCode (privée)
 	// DESCRIPTION : Retourne le code ANSI de reset des attributs console
@@ -483,57 +444,47 @@ namespace nkentseu {
 		return "\033[0m";
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetWindowsColor (privée)
 	// DESCRIPTION : Configure la couleur de console Windows via Win32 API
 	// -------------------------------------------------------------------------
 	void NkConsoleSink::SetWindowsColor(NkLogLevel level) {
-		#if defined(_WIN32)
-			// Sélection du handle console selon le flux configuré
-			HANDLE consoleHandle = GetStdHandle(
-				(m_Stream == NkConsoleStream::NK_STD_OUT)
-					? STD_OUTPUT_HANDLE
-					: STD_ERROR_HANDLE
-			);
+#if defined(_WIN32)
+		// Sélection du handle console selon le flux configuré
+		HANDLE consoleHandle =
+			GetStdHandle((m_Stream == NkConsoleStream::NK_STD_OUT) ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE);
 
-			// Application de la couleur uniquement si handle valide
-			if (consoleHandle != INVALID_HANDLE_VALUE) {
-				// Mapping du niveau vers code couleur Windows via fonction centralisée
-				const WORD colorCode = NkLogLevelToWindowsColor(level);
-				SetConsoleTextAttribute(consoleHandle, colorCode);
-			}
-		#endif
+		// Application de la couleur uniquement si handle valide
+		if (consoleHandle != INVALID_HANDLE_VALUE) {
+			// Mapping du niveau vers code couleur Windows via fonction centralisée
+			const WORD colorCode = NkLogLevelToWindowsColor(level);
+			SetConsoleTextAttribute(consoleHandle, colorCode);
+		}
+#endif
 		// No-op sur plateformes non-Windows
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : ResetWindowsColor (privée)
 	// DESCRIPTION : Réinitialise la couleur de console Windows aux attributs par défaut
 	// -------------------------------------------------------------------------
 	void NkConsoleSink::ResetWindowsColor() {
-		#if defined(_WIN32)
-			// Sélection du handle console selon le flux configuré
-			HANDLE consoleHandle = GetStdHandle(
-				(m_Stream == NkConsoleStream::NK_STD_OUT)
-					? STD_OUTPUT_HANDLE
-					: STD_ERROR_HANDLE
-			);
+#if defined(_WIN32)
+		// Sélection du handle console selon le flux configuré
+		HANDLE consoleHandle =
+			GetStdHandle((m_Stream == NkConsoleStream::NK_STD_OUT) ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE);
 
-			// Réinitialisation uniquement si handle valide
-			if (consoleHandle != INVALID_HANDLE_VALUE) {
-				// Code 0x07 : foreground gris clair (0x07) sur fond noir (0x00)
-				// Équivalent à FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY
-				SetConsoleTextAttribute(consoleHandle, 0x07);
-			}
-		#endif
+		// Réinitialisation uniquement si handle valide
+		if (consoleHandle != INVALID_HANDLE_VALUE) {
+			// Code 0x07 : foreground gris clair (0x07) sur fond noir (0x00)
+			// Équivalent à FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY
+			SetConsoleTextAttribute(consoleHandle, 0x07);
+		}
+#endif
 		// No-op sur plateformes non-Windows
 	}
 
-
 } // namespace nkentseu
-
 
 // =============================================================================
 // NOTES D'IMPLÉMENTATION ET BONNES PRATIQUES
@@ -581,7 +532,6 @@ namespace nkentseu {
 	   - Pour Android : tester via adb logcat pour vérification de sortie et tag
 	   - Valider le thread-safety avec tests concurrents (TSan, helgrind, etc.)
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

@@ -9,9 +9,9 @@
 
 namespace nkentseu {
 
-    struct NkEventSystemData {
-        bool mInitialized = false;
-    };
+	struct NkEventSystemData {
+			bool mInitialized = false;
+	};
 
 } // namespace nkentseu
 

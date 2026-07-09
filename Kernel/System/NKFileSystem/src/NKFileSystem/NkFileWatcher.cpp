@@ -30,37 +30,37 @@
 
 // En-têtes plateforme pour les APIs de surveillance de fichiers
 #ifdef _WIN32
-    #include <windows.h>
-    #include <process.h>
-    // Undef des macros Windows qui pourraient entrer en conflit
-    #ifdef CreateFile
-        #undef CreateFile
-    #endif
-    #ifdef ReadDirectoryChangesW
-        #undef ReadDirectoryChangesW
-    #endif
+#include <windows.h>
+#include <process.h>
+// Undef des macros Windows qui pourraient entrer en conflit
+#ifdef CreateFile
+#undef CreateFile
+#endif
+#ifdef ReadDirectoryChangesW
+#undef ReadDirectoryChangesW
+#endif
 #elif defined(__APPLE__)
-    // macOS / iOS : surveillance via kqueue (EVFILT_VNODE) + diff de snapshot du
-    // repertoire (inotify n'existe pas sur Darwin ; FSEvents est macOS-only).
-    #include <unistd.h>
-    #include <pthread.h>
-    #include <fcntl.h>
-    #include <dirent.h>
-    #include <sys/event.h>
-    #include <sys/time.h>
-    #include <sys/stat.h>
-    #include <errno.h>
-    #include <map>
-    #include <string>
+// macOS / iOS : surveillance via kqueue (EVFILT_VNODE) + diff de snapshot du
+// repertoire (inotify n'existe pas sur Darwin ; FSEvents est macOS-only).
+#include <unistd.h>
+#include <pthread.h>
+#include <fcntl.h>
+#include <dirent.h>
+#include <sys/event.h>
+#include <sys/time.h>
+#include <sys/stat.h>
+#include <errno.h>
+#include <map>
+#include <string>
 #elif defined(__EMSCRIPTEN__)
-    // WebAssembly : pas d'accès aux API natives de surveillance de fichiers
-    // La surveillance est désactivée sur cette plateforme (fallback silencieux)
+// WebAssembly : pas d'accès aux API natives de surveillance de fichiers
+// La surveillance est désactivée sur cette plateforme (fallback silencieux)
 #else
-    #include <unistd.h>
-    #include <pthread.h>
-    #include <sys/inotify.h>
-    #include <sys/select.h>
-    #include <errno.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <sys/inotify.h>
+#include <sys/select.h>
+#include <errno.h>
 #endif
 
 // -------------------------------------------------------------------------
@@ -70,641 +70,541 @@
 
 namespace nkentseu {
 
-    // =============================================================================
-    //  Implémentation : NkFileChangeEvent
-    // =============================================================================
-    // Constructeurs de la structure d'événement.
-
-    NkFileChangeEvent::NkFileChangeEvent()
-        : Type(NkFileChangeType::NK_MODIFIED)
-        , Path()
-        , OldPath()
-        , Timestamp(0)
-    {
-        // Initialisation par défaut : événement de type MODIFIED avec valeurs neutres
-        // Timestamp à 0 signifie "non initialisé" pour le consommateur
-    }
-
-    NkFileChangeEvent::NkFileChangeEvent(NkFileChangeType type, const char* path)
-        : Type(type)
-        , Path(path ? path : "")
-        , OldPath()
-        , Timestamp(static_cast<nk_int64>(time(nullptr)))
-    {
-        // Construction avec type et chemin fournis
-        // Gestion défensive : si path est null, utiliser chaîne vide
-        // Timestamp capturé au moment de la construction de l'événement
-    }
-
-    // =============================================================================
-    //  Implémentation : Constructeurs / Destructeur de NkFileWatcher
-    // =============================================================================
-    // Initialisation sécurisée des membres avec valeurs par défaut.
-
-    NkFileWatcher::NkFileWatcher()
-        : mHandle(nullptr)
-        , mPath()
-        , mCallback(nullptr)
-        , mIsWatching(false)
-        , mRecursive(false)
-        , mThread(nullptr)
-    {
-        // Constructeur par défaut : tous les membres à l'état neutre
-        // Prêt pour configuration ultérieure via SetPath/SetCallback
-    }
-
-    NkFileWatcher::NkFileWatcher(const char* path, NkFileWatcherCallback* callback, bool recursive)
-        : mHandle(nullptr)
-        , mPath(path ? path : "")
-        , mCallback(callback)
-        , mIsWatching(false)
-        , mRecursive(recursive)
-        , mThread(nullptr)
-    {
-        // Constructeur paramétré avec gestion null défensive pour path
-        // Surveillance non démarrée : appel explicite à Start() requis
-    }
-
-    NkFileWatcher::NkFileWatcher(const NkPath& path, NkFileWatcherCallback* callback, bool recursive)
-        : mHandle(nullptr)
-        , mPath(path.ToString())
-        , mCallback(callback)
-        , mIsWatching(false)
-        , mRecursive(recursive)
-        , mThread(nullptr)
-    {
-        // Constructeur avec NkPath : conversion explicite vers NkString interne
-        // Maintient la cohérence du format de chemin normalisé
-    }
-
-    NkFileWatcher::~NkFileWatcher()
-    {
-        // Destructeur : garantie de libération des ressources
-        // Stop() est idempotent : sûr d'appeler même si déjà arrêté
-        Stop();
-    }
-
-    // =============================================================================
-    //  Implémentation Windows : Thread de surveillance
-    // =============================================================================
-    #ifdef _WIN32
-
-        void* NkFileWatcher::ThreadProc(void* param)
-        {
-            // Fonction d'entrée statique pour compatibilité avec _beginthread
-            // Cast sécurisé vers l'instance et délégation à WatchThread()
-            NkFileWatcher* watcher = static_cast<NkFileWatcher*>(param);
-            watcher->WatchThread();
-            return nullptr;
-        }
-
-        void NkFileWatcher::WatchThread()
-        {
-            // Ouverture du handle sur le répertoire à surveiller
-            // FILE_FLAG_BACKUP_SEMANTICS requis pour ouvrir un répertoire
-            // FILE_FLAG_OVERLAPPED pour opérations asynchrones
-            HANDLE hDir = CreateFileA(
-                mPath.CStr(),
-                FILE_LIST_DIRECTORY,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                NULL,
-                OPEN_EXISTING,
-                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
-                NULL
-            );
-
-            // Gestion d'erreur : retour silencieux si ouverture échoue
-            if (hDir == INVALID_HANDLE_VALUE)
-            {
-                return;
-            }
-
-            // Configuration du buffer pour recevoir les notifications
-            // Taille de 4Ko suffisante pour la majorité des batches d'événements
-            const DWORD BUFFER_SIZE = 4096;
-            char buffer[BUFFER_SIZE];
-            DWORD bytesReturned = 0;
-
-            // Configuration de la structure OVERLAPPED pour I/O asynchrone
-            OVERLAPPED overlapped = {};
-            overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-
-            // Boucle principale de surveillance : tant que mIsWatching est true
-            while (mIsWatching)
-            {
-                // Lancement de la lecture asynchrone des changements
-                BOOL success = ReadDirectoryChangesW(
-                    hDir,
-                    buffer,
-                    BUFFER_SIZE,
-                    mRecursive ? TRUE : FALSE,
-                    FILE_NOTIFY_CHANGE_FILE_NAME |
-                    FILE_NOTIFY_CHANGE_DIR_NAME |
-                    FILE_NOTIFY_CHANGE_ATTRIBUTES |
-                    FILE_NOTIFY_CHANGE_SIZE |
-                    FILE_NOTIFY_CHANGE_LAST_WRITE,
-                    &bytesReturned,
-                    &overlapped,
-                    NULL
-                );
-
-                // Sortie silencieuse en cas d'échec de la requête
-                if (!success)
-                {
-                    break;
-                }
-
-                // Attente du signal de complétion avec timeout de 100 ms.
-                // Permet de verifier mIsWatching frequemment pour un arret rapide
-                // (ancien timeout 1000ms causait ~800ms de delai au shutdown).
-                DWORD waitResult = WaitForSingleObject(overlapped.hEvent, 100);
-                if (waitResult == WAIT_OBJECT_0)
-                {
-                    // Récupération du résultat de l'opération asynchrone
-                    GetOverlappedResult(hDir, &overlapped, &bytesReturned, FALSE);
-
-                    // Traitement des événements si des données sont disponibles
-                    if (bytesReturned > 0 && mCallback)
-                    {
-                        // Parcours de la liste chaînée d'événements FILE_NOTIFY_INFORMATION
-                        FILE_NOTIFY_INFORMATION* info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(buffer);
-
-                        while (true)
-                        {
-                            // Buffer temporaire pour conversion UTF-16 → UTF-8
-                            char filename[MAX_PATH] = {};
-
-                            // Conversion du nom de fichier depuis WCHAR* vers char*
-                            WideCharToMultiByte(
-                                CP_UTF8,
-                                0,
-                                info->FileName,
-                                info->FileNameLength / static_cast<int>(sizeof(WCHAR)),
-                                filename,
-                                MAX_PATH,
-                                NULL,
-                                NULL
-                            );
-
-                            // Construction de l'événement à notifier
-                            NkFileChangeEvent event;
-                            event.Path = (NkPath(mPath.CStr()) / filename).ToString();
-                            event.Timestamp = static_cast<nk_int64>(time(nullptr));
-
-                            // Mapping des actions Windows vers NkFileChangeType
-                            switch (info->Action)
-                            {
-                                case FILE_ACTION_ADDED:
-                                    event.Type = NkFileChangeType::NK_CREATED;
-                                    break;
-                                case FILE_ACTION_REMOVED:
-                                    event.Type = NkFileChangeType::NK_DELETED;
-                                    break;
-                                case FILE_ACTION_MODIFIED:
-                                    event.Type = NkFileChangeType::NK_MODIFIED;
-                                    break;
-                                case FILE_ACTION_RENAMED_OLD_NAME:
-                                case FILE_ACTION_RENAMED_NEW_NAME:
-                                    event.Type = NkFileChangeType::NK_RENAMED;
-                                    break;
-                                default:
-                                    event.Type = NkFileChangeType::NK_MODIFIED;
-                                    break;
-                            }
-
-                            // Notification du callback utilisateur
-                            mCallback->OnFileChanged(event);
-
-                            // Avance vers le prochain événement dans la liste chaînée
-                            if (info->NextEntryOffset == 0)
-                            {
-                                break;
-                            }
-
-                            info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(
-                                reinterpret_cast<char*>(info) + info->NextEntryOffset
-                            );
-                        }
-                    }
-
-                    // Réinitialisation de l'événement pour la prochaine itération
-                    ResetEvent(overlapped.hEvent);
-                }
-            }
-
-            // Nettoyage des ressources Windows : événement et handle de répertoire
-            CloseHandle(overlapped.hEvent);
-            CloseHandle(hDir);
-        }
-
-    #elif defined(__APPLE__)
-
-        // =====================================================================
-        //  Implémentation Apple (macOS/iOS) : kqueue + diff de snapshot
-        // =====================================================================
-
-        void* NkFileWatcher::ThreadProc(void* param)
-        {
-            NkFileWatcher* watcher = static_cast<NkFileWatcher*>(param);
-            watcher->WatchThread();
-            return nullptr;
-        }
-
-        void NkFileWatcher::WatchThread()
-        {
-            // Snapshot initial du repertoire : nom -> mtime (secondes).
-            auto snapshot = [this](std::map<std::string, long>& out) {
-                out.clear();
-                DIR* d = ::opendir(mPath.CStr());
-                if (!d) return;
-                struct dirent* e;
-                while ((e = ::readdir(d)) != nullptr) {
-                    if (e->d_name[0] == '.' &&
-                        (e->d_name[1] == '\0' ||
-                         (e->d_name[1] == '.' && e->d_name[2] == '\0'))) {
-                        continue; // ignorer "." et ".."
-                    }
-                    struct stat st;
-                    NkString full = (NkPath(mPath.CStr()) / e->d_name).ToString();
-                    if (::stat(full.CStr(), &st) == 0) {
-                        out[e->d_name] = static_cast<long>(st.st_mtime);
-                    } else {
-                        out[e->d_name] = 0;
-                    }
-                }
-                ::closedir(d);
-            };
-
-            // Ouvre le repertoire en mode "evenement seul" et l'enregistre.
-            int dirFd = ::open(mPath.CStr(), O_EVTONLY);
-            if (dirFd < 0) return;
-
-            int kq = ::kqueue();
-            if (kq < 0) { ::close(dirFd); return; }
-
-            struct kevent change;
-            EV_SET(&change, dirFd, EVFILT_VNODE, EV_ADD | EV_CLEAR,
-                   NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB, 0, nullptr);
-
-            std::map<std::string, long> prev;
-            snapshot(prev);
-
-            auto emit = [this](const NkString& name, NkFileChangeType type) {
-                if (!mCallback) return;
-                NkFileChangeEvent ev;
-                ev.Path = (NkPath(mPath.CStr()) / name.CStr()).ToString();
-                ev.Timestamp = static_cast<nk_int64>(time(nullptr));
-                ev.Type = type;
-                mCallback->OnFileChanged(ev);
-            };
-
-            while (mIsWatching) {
-                struct timespec tmo; tmo.tv_sec = 0; tmo.tv_nsec = 100 * 1000 * 1000; // 100ms
-                struct kevent event;
-                int n = ::kevent(kq, &change, 1, &event, 1, &tmo);
-                if (n < 0) {
-                    if (errno == EINTR) continue;
-                    break;
-                }
-                if (n == 0) continue; // timeout : re-verifie mIsWatching
-
-                // Le repertoire a change : on diffe le snapshot pour savoir quoi.
-                std::map<std::string, long> cur;
-                snapshot(cur);
-
-                for (auto& kv : cur) {
-                    auto it = prev.find(kv.first);
-                    if (it == prev.end()) {
-                        emit(NkString(kv.first.c_str()), NkFileChangeType::NK_CREATED);
-                    } else if (it->second != kv.second) {
-                        emit(NkString(kv.first.c_str()), NkFileChangeType::NK_MODIFIED);
-                    }
-                }
-                for (auto& kv : prev) {
-                    if (cur.find(kv.first) == cur.end()) {
-                        emit(NkString(kv.first.c_str()), NkFileChangeType::NK_DELETED);
-                    }
-                }
-                prev.swap(cur);
-            }
-
-            ::close(kq);
-            ::close(dirFd);
-        }
-
-    #elif !defined(__EMSCRIPTEN__)
-
-        // =====================================================================
-        //  Implémentation Linux/POSIX : Thread de surveillance avec inotify
-        // =====================================================================
-
-        void* NkFileWatcher::ThreadProc(void* param)
-        {
-            // Fonction d'entrée statique pour compatibilité avec pthread_create
-            // Cast sécurisé vers l'instance et délégation à WatchThread()
-            NkFileWatcher* watcher = static_cast<NkFileWatcher*>(param);
-            watcher->WatchThread();
-            return nullptr;
-        }
-
-        void NkFileWatcher::WatchThread()
-        {
-            // Initialisation du descripteur inotify
-            int fd = inotify_init();
-            if (fd < 0)
-            {
-                // Échec d'initialisation : retour silencieux
-                return;
-            }
-
-            // Masque d'événements à surveiller : création, suppression, modification, etc.
-            const uint32_t mask = IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB;
-
-            // Ajout du watch sur le chemin configuré
-            int wd = inotify_add_watch(fd, mPath.CStr(), mask);
-            if (wd < 0)
-            {
-                // Nettoyage en cas d'échec d'ajout du watch
-                close(fd);
-                return;
-            }
-
-            // Configuration du buffer de réception des événements inotify
-            // Taille calculée pour contenir plusieurs événements batchés
-            const size_t eventSize = sizeof(struct inotify_event);
-            const size_t bufferLen = 1024 * (eventSize + 16);
-            char buffer[1024 * (sizeof(struct inotify_event) + 16)];
-
-            // Boucle principale de surveillance avec polling via select()
-            while (mIsWatching)
-            {
-                // Configuration de fd_set pour select()
-                fd_set fds;
-                FD_ZERO(&fds);
-                FD_SET(fd, &fds);
-
-                // Timeout de 100ms pour verification rapide de mIsWatching
-                // (ancien 1s causait ~800ms de delai au shutdown).
-                struct timeval tv;
-                tv.tv_sec = 0;
-                tv.tv_usec = 100 * 1000;
-
-                // Appel bloquant avec timeout sur le descripteur inotify
-                int ret = select(fd + 1, &fds, NULL, NULL, &tv);
-
-                // Gestion des erreurs de select()
-                if (ret < 0)
-                {
-                    // Interruption par signal : continuer la boucle
-                    if (errno == EINTR)
-                    {
-                        continue;
-                    }
-                    // Autre erreur : sortie de la boucle
-                    break;
-                }
-
-                // Timeout expiré : pas d'événement, continuer la boucle
-                if (ret == 0)
-                {
-                    continue;
-                }
-
-                // Lecture des événements disponibles sur le descripteur
-                ssize_t length = read(fd, buffer, bufferLen);
-                if (length < 0)
-                {
-                    // Erreur de lecture : sortie de la boucle
-                    break;
-                }
-
-                // Vérification de la présence d'un callback avant traitement
-                if (!mCallback)
-                {
-                    continue;
-                }
-
-                // Parcours des événements dans le buffer
-                size_t i = 0;
-                while (i < static_cast<size_t>(length))
-                {
-                    // Accès à la structure inotify_event courante
-                    struct inotify_event* event = reinterpret_cast<struct inotify_event*>(&buffer[i]);
-
-                    // Traitement uniquement si un nom de fichier est présent
-                    if (event->len > 0)
-                    {
-                        // Construction de l'événement à notifier
-                        NkFileChangeEvent changeEvent;
-                        changeEvent.Path = (NkPath(mPath.CStr()) / event->name).ToString();
-                        changeEvent.Timestamp = static_cast<nk_int64>(time(nullptr));
-
-                        // Mapping des masks inotify vers NkFileChangeType
-                        if (event->mask & IN_CREATE)
-                        {
-                            changeEvent.Type = NkFileChangeType::NK_CREATED;
-                        }
-                        else if (event->mask & IN_DELETE)
-                        {
-                            changeEvent.Type = NkFileChangeType::NK_DELETED;
-                        }
-                        else if (event->mask & IN_MODIFY)
-                        {
-                            changeEvent.Type = NkFileChangeType::NK_MODIFIED;
-                        }
-                        else if (event->mask & (IN_MOVED_FROM | IN_MOVED_TO))
-                        {
-                            changeEvent.Type = NkFileChangeType::NK_RENAMED;
-                        }
-                        else if (event->mask & IN_ATTRIB)
-                        {
-                            changeEvent.Type = NkFileChangeType::NK_ATTRIBUTE_CHANGED;
-                        }
-                        else
-                        {
-                            // Fallback pour événements non catégorisés
-                            changeEvent.Type = NkFileChangeType::NK_MODIFIED;
-                        }
-
-                        // Notification du callback utilisateur
-                        mCallback->OnFileChanged(changeEvent);
-                    }
-
-                    // Avance vers le prochain événement dans le buffer
-                    i += eventSize + event->len;
-                }
-            }
-
-            // Nettoyage des ressources POSIX : retrait du watch et fermeture du fd
-            inotify_rm_watch(fd, wd);
-            close(fd);
-        }
-
-    #endif // !defined(__EMSCRIPTEN__) && !defined(_WIN32)
-
-    // =============================================================================
-    //  Implémentation : Méthodes de contrôle du cycle de vie
-    // =============================================================================
-
-    bool NkFileWatcher::Start()
-    {
-        // Guard : retour immédiat si déjà en cours de surveillance
-        if (mIsWatching)
-        {
-            return true;
-        }
-
-        // Validation des prérequis : chemin non vide et callback valide
-        if (mPath.Empty() || !mCallback)
-        {
-            return false;
-        }
-
-        // Mise à jour de l'état avant création du thread
-        mIsWatching = true;
-
-        // Création du thread plateforme-specific
-        #ifdef _WIN32
-            // Windows : utilisation de _beginthread pour gestion CRT correcte
-            mThread = reinterpret_cast<void*>(_beginthread(
-                reinterpret_cast<void(*)(void*)>(ThreadProc),
-                0,
-                this
-            ));
-        #elif defined(__EMSCRIPTEN__)
-            // Web : pas de thread natif, retour de succès simulé
-            mThread = nullptr;
-            return true;
-        #else
-            // POSIX (Linux inotify + Apple kqueue) : création de thread pthread
-            pthread_t* thread = new pthread_t;
-
-            if (pthread_create(thread, NULL, ThreadProc, this) == 0)
-            {
-                // Succès : stockage du handle de thread
-                mThread = thread;
-            }
-            else
-            {
-                // Échec : nettoyage et retour d'erreur
-                delete thread;
-                mIsWatching = false;
-                return false;
-            }
-        #endif
-
-        // Retour du statut de démarrage
-        return true;
-    }
-
-    void NkFileWatcher::Stop()
-    {
-        // Guard : retour immédiat si pas en cours de surveillance
-        if (!mIsWatching)
-        {
-            return;
-        }
-
-        // Mise à jour de l'état pour signaler l'arrêt au thread
-        mIsWatching = false;
-
-        // Guard : rien à faire si pas de thread actif
-        if (!mThread)
-        {
-            return;
-        }
-
-        // Attente et nettoyage du thread plateforme-specific
-        #ifdef _WIN32
-            // Windows : attente de fin puis fermeture du handle
-            WaitForSingleObject(mThread, INFINITE);
-            CloseHandle(mThread);
-        #elif !defined(__EMSCRIPTEN__)
-            // POSIX (Linux + Apple) : join du thread puis libération mémoire
-            pthread_t* thread = static_cast<pthread_t*>(mThread);
-            pthread_join(*thread, NULL);
-            delete thread;
-        #endif
-
-        // Réinitialisation du handle de thread
-        mThread = nullptr;
-    }
-
-    bool NkFileWatcher::IsWatching() const
-    {
-        // Accès en lecture seule à l'état de surveillance
-        return mIsWatching;
-    }
-
-    // =============================================================================
-    //  Implémentation : Méthodes de configuration
-    // =============================================================================
-
-    void NkFileWatcher::SetPath(const char* path)
-    {
-        // Sauvegarde de l'état courant pour restauration si nécessaire
-        const bool wasWatching = mIsWatching;
-
-        // Arrêt temporaire si surveillance active
-        if (wasWatching)
-        {
-            Stop();
-        }
-
-        // Mise à jour du chemin avec gestion null défensive
-        mPath = (path ? path : "");
-
-        // Redémarrage si la surveillance était active
-        if (wasWatching)
-        {
-            Start();
-        }
-    }
-
-    void NkFileWatcher::SetPath(const NkPath& path)
-    {
-        // Délégation à la version C-string pour éviter la duplication de code
-        SetPath(path.CStr());
-    }
-
-    void NkFileWatcher::SetCallback(NkFileWatcherCallback* callback)
-    {
-        // Assignation directe du pointeur de callback
-        mCallback = callback;
-    }
-
-    void NkFileWatcher::SetRecursive(bool recursive)
-    {
-        // Sauvegarde de l'état courant pour restauration si nécessaire
-        const bool wasWatching = mIsWatching;
-
-        // Arrêt temporaire si surveillance active
-        if (wasWatching)
-        {
-            Stop();
-        }
-
-        // Mise à jour du flag de récursivité
-        mRecursive = recursive;
-
-        // Redémarrage si la surveillance était active
-        if (wasWatching)
-        {
-            Start();
-        }
-    }
-
-    const NkString& NkFileWatcher::GetPath() const
-    {
-        // Accès en lecture seule au chemin interne
-        return mPath;
-    }
-
-    bool NkFileWatcher::IsRecursive() const
-    {
-        // Accès en lecture seule au flag de récursivité
-        return mRecursive;
-    }
+	// =============================================================================
+	//  Implémentation : NkFileChangeEvent
+	// =============================================================================
+	// Constructeurs de la structure d'événement.
+
+	NkFileChangeEvent::NkFileChangeEvent() : Type(NkFileChangeType::NK_MODIFIED), Path(), OldPath(), Timestamp(0) {
+		// Initialisation par défaut : événement de type MODIFIED avec valeurs neutres
+		// Timestamp à 0 signifie "non initialisé" pour le consommateur
+	}
+
+	NkFileChangeEvent::NkFileChangeEvent(NkFileChangeType type, const char *path)
+		: Type(type), Path(path ? path : ""), OldPath(), Timestamp(static_cast<nk_int64>(time(nullptr))) {
+		// Construction avec type et chemin fournis
+		// Gestion défensive : si path est null, utiliser chaîne vide
+		// Timestamp capturé au moment de la construction de l'événement
+	}
+
+	// =============================================================================
+	//  Implémentation : Constructeurs / Destructeur de NkFileWatcher
+	// =============================================================================
+	// Initialisation sécurisée des membres avec valeurs par défaut.
+
+	NkFileWatcher::NkFileWatcher()
+		: mHandle(nullptr), mPath(), mCallback(nullptr), mIsWatching(false), mRecursive(false), mThread(nullptr) {
+		// Constructeur par défaut : tous les membres à l'état neutre
+		// Prêt pour configuration ultérieure via SetPath/SetCallback
+	}
+
+	NkFileWatcher::NkFileWatcher(const char *path, NkFileWatcherCallback *callback, bool recursive)
+		: mHandle(nullptr), mPath(path ? path : ""), mCallback(callback), mIsWatching(false), mRecursive(recursive),
+		  mThread(nullptr) {
+		// Constructeur paramétré avec gestion null défensive pour path
+		// Surveillance non démarrée : appel explicite à Start() requis
+	}
+
+	NkFileWatcher::NkFileWatcher(const NkPath &path, NkFileWatcherCallback *callback, bool recursive)
+		: mHandle(nullptr), mPath(path.ToString()), mCallback(callback), mIsWatching(false), mRecursive(recursive),
+		  mThread(nullptr) {
+		// Constructeur avec NkPath : conversion explicite vers NkString interne
+		// Maintient la cohérence du format de chemin normalisé
+	}
+
+	NkFileWatcher::~NkFileWatcher() {
+		// Destructeur : garantie de libération des ressources
+		// Stop() est idempotent : sûr d'appeler même si déjà arrêté
+		Stop();
+	}
+
+// =============================================================================
+//  Implémentation Windows : Thread de surveillance
+// =============================================================================
+#ifdef _WIN32
+
+	void *NkFileWatcher::ThreadProc(void *param) {
+		// Fonction d'entrée statique pour compatibilité avec _beginthread
+		// Cast sécurisé vers l'instance et délégation à WatchThread()
+		NkFileWatcher *watcher = static_cast<NkFileWatcher *>(param);
+		watcher->WatchThread();
+		return nullptr;
+	}
+
+	void NkFileWatcher::WatchThread() {
+		// Ouverture du handle sur le répertoire à surveiller
+		// FILE_FLAG_BACKUP_SEMANTICS requis pour ouvrir un répertoire
+		// FILE_FLAG_OVERLAPPED pour opérations asynchrones
+		HANDLE hDir =
+			CreateFileA(mPath.CStr(), FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+						OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, NULL);
+
+		// Gestion d'erreur : retour silencieux si ouverture échoue
+		if (hDir == INVALID_HANDLE_VALUE) {
+			return;
+		}
+
+		// Configuration du buffer pour recevoir les notifications
+		// Taille de 4Ko suffisante pour la majorité des batches d'événements
+		const DWORD BUFFER_SIZE = 4096;
+		char buffer[BUFFER_SIZE];
+		DWORD bytesReturned = 0;
+
+		// Configuration de la structure OVERLAPPED pour I/O asynchrone
+		OVERLAPPED overlapped = {};
+		overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+
+		// Boucle principale de surveillance : tant que mIsWatching est true
+		while (mIsWatching) {
+			// Lancement de la lecture asynchrone des changements
+			BOOL success = ReadDirectoryChangesW(hDir, buffer, BUFFER_SIZE, mRecursive ? TRUE : FALSE,
+												 FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
+													 FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE |
+													 FILE_NOTIFY_CHANGE_LAST_WRITE,
+												 &bytesReturned, &overlapped, NULL);
+
+			// Sortie silencieuse en cas d'échec de la requête
+			if (!success) {
+				break;
+			}
+
+			// Attente du signal de complétion avec timeout de 100 ms.
+			// Permet de verifier mIsWatching frequemment pour un arret rapide
+			// (ancien timeout 1000ms causait ~800ms de delai au shutdown).
+			DWORD waitResult = WaitForSingleObject(overlapped.hEvent, 100);
+			if (waitResult == WAIT_OBJECT_0) {
+				// Récupération du résultat de l'opération asynchrone
+				GetOverlappedResult(hDir, &overlapped, &bytesReturned, FALSE);
+
+				// Traitement des événements si des données sont disponibles
+				if (bytesReturned > 0 && mCallback) {
+					// Parcours de la liste chaînée d'événements FILE_NOTIFY_INFORMATION
+					FILE_NOTIFY_INFORMATION *info = reinterpret_cast<FILE_NOTIFY_INFORMATION *>(buffer);
+
+					while (true) {
+						// Buffer temporaire pour conversion UTF-16 → UTF-8
+						char filename[MAX_PATH] = {};
+
+						// Conversion du nom de fichier depuis WCHAR* vers char*
+						WideCharToMultiByte(CP_UTF8, 0, info->FileName,
+											info->FileNameLength / static_cast<int>(sizeof(WCHAR)), filename, MAX_PATH,
+											NULL, NULL);
+
+						// Construction de l'événement à notifier
+						NkFileChangeEvent event;
+						event.Path = (NkPath(mPath.CStr()) / filename).ToString();
+						event.Timestamp = static_cast<nk_int64>(time(nullptr));
+
+						// Mapping des actions Windows vers NkFileChangeType
+						switch (info->Action) {
+							case FILE_ACTION_ADDED:
+								event.Type = NkFileChangeType::NK_CREATED;
+								break;
+							case FILE_ACTION_REMOVED:
+								event.Type = NkFileChangeType::NK_DELETED;
+								break;
+							case FILE_ACTION_MODIFIED:
+								event.Type = NkFileChangeType::NK_MODIFIED;
+								break;
+							case FILE_ACTION_RENAMED_OLD_NAME:
+							case FILE_ACTION_RENAMED_NEW_NAME:
+								event.Type = NkFileChangeType::NK_RENAMED;
+								break;
+							default:
+								event.Type = NkFileChangeType::NK_MODIFIED;
+								break;
+						}
+
+						// Notification du callback utilisateur
+						mCallback->OnFileChanged(event);
+
+						// Avance vers le prochain événement dans la liste chaînée
+						if (info->NextEntryOffset == 0) {
+							break;
+						}
+
+						info = reinterpret_cast<FILE_NOTIFY_INFORMATION *>(reinterpret_cast<char *>(info) +
+																		   info->NextEntryOffset);
+					}
+				}
+
+				// Réinitialisation de l'événement pour la prochaine itération
+				ResetEvent(overlapped.hEvent);
+			}
+		}
+
+		// Nettoyage des ressources Windows : événement et handle de répertoire
+		CloseHandle(overlapped.hEvent);
+		CloseHandle(hDir);
+	}
+
+#elif defined(__APPLE__)
+
+	// =====================================================================
+	//  Implémentation Apple (macOS/iOS) : kqueue + diff de snapshot
+	// =====================================================================
+
+	void *NkFileWatcher::ThreadProc(void *param) {
+		NkFileWatcher *watcher = static_cast<NkFileWatcher *>(param);
+		watcher->WatchThread();
+		return nullptr;
+	}
+
+	void NkFileWatcher::WatchThread() {
+		// Snapshot initial du repertoire : nom -> mtime (secondes).
+		auto snapshot = [this](std::map<std::string, long> &out) {
+			out.clear();
+			DIR *d = ::opendir(mPath.CStr());
+			if (!d)
+				return;
+			struct dirent *e;
+			while ((e = ::readdir(d)) != nullptr) {
+				if (e->d_name[0] == '.' && (e->d_name[1] == '\0' || (e->d_name[1] == '.' && e->d_name[2] == '\0'))) {
+					continue; // ignorer "." et ".."
+				}
+				struct stat st;
+				NkString full = (NkPath(mPath.CStr()) / e->d_name).ToString();
+				if (::stat(full.CStr(), &st) == 0) {
+					out[e->d_name] = static_cast<long>(st.st_mtime);
+				} else {
+					out[e->d_name] = 0;
+				}
+			}
+			::closedir(d);
+		};
+
+		// Ouvre le repertoire en mode "evenement seul" et l'enregistre.
+		int dirFd = ::open(mPath.CStr(), O_EVTONLY);
+		if (dirFd < 0)
+			return;
+
+		int kq = ::kqueue();
+		if (kq < 0) {
+			::close(dirFd);
+			return;
+		}
+
+		struct kevent change;
+		EV_SET(&change, dirFd, EVFILT_VNODE, EV_ADD | EV_CLEAR, NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB, 0,
+			   nullptr);
+
+		std::map<std::string, long> prev;
+		snapshot(prev);
+
+		auto emit = [this](const NkString &name, NkFileChangeType type) {
+			if (!mCallback)
+				return;
+			NkFileChangeEvent ev;
+			ev.Path = (NkPath(mPath.CStr()) / name.CStr()).ToString();
+			ev.Timestamp = static_cast<nk_int64>(time(nullptr));
+			ev.Type = type;
+			mCallback->OnFileChanged(ev);
+		};
+
+		while (mIsWatching) {
+			struct timespec tmo;
+			tmo.tv_sec = 0;
+			tmo.tv_nsec = 100 * 1000 * 1000; // 100ms
+			struct kevent event;
+			int n = ::kevent(kq, &change, 1, &event, 1, &tmo);
+			if (n < 0) {
+				if (errno == EINTR)
+					continue;
+				break;
+			}
+			if (n == 0)
+				continue; // timeout : re-verifie mIsWatching
+
+			// Le repertoire a change : on diffe le snapshot pour savoir quoi.
+			std::map<std::string, long> cur;
+			snapshot(cur);
+
+			for (auto &kv : cur) {
+				auto it = prev.find(kv.first);
+				if (it == prev.end()) {
+					emit(NkString(kv.first.c_str()), NkFileChangeType::NK_CREATED);
+				} else if (it->second != kv.second) {
+					emit(NkString(kv.first.c_str()), NkFileChangeType::NK_MODIFIED);
+				}
+			}
+			for (auto &kv : prev) {
+				if (cur.find(kv.first) == cur.end()) {
+					emit(NkString(kv.first.c_str()), NkFileChangeType::NK_DELETED);
+				}
+			}
+			prev.swap(cur);
+		}
+
+		::close(kq);
+		::close(dirFd);
+	}
+
+#elif !defined(__EMSCRIPTEN__)
+
+	// =====================================================================
+	//  Implémentation Linux/POSIX : Thread de surveillance avec inotify
+	// =====================================================================
+
+	void *NkFileWatcher::ThreadProc(void *param) {
+		// Fonction d'entrée statique pour compatibilité avec pthread_create
+		// Cast sécurisé vers l'instance et délégation à WatchThread()
+		NkFileWatcher *watcher = static_cast<NkFileWatcher *>(param);
+		watcher->WatchThread();
+		return nullptr;
+	}
+
+	void NkFileWatcher::WatchThread() {
+		// Initialisation du descripteur inotify
+		int fd = inotify_init();
+		if (fd < 0) {
+			// Échec d'initialisation : retour silencieux
+			return;
+		}
+
+		// Masque d'événements à surveiller : création, suppression, modification, etc.
+		const uint32_t mask = IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB;
+
+		// Ajout du watch sur le chemin configuré
+		int wd = inotify_add_watch(fd, mPath.CStr(), mask);
+		if (wd < 0) {
+			// Nettoyage en cas d'échec d'ajout du watch
+			close(fd);
+			return;
+		}
+
+		// Configuration du buffer de réception des événements inotify
+		// Taille calculée pour contenir plusieurs événements batchés
+		const size_t eventSize = sizeof(struct inotify_event);
+		const size_t bufferLen = 1024 * (eventSize + 16);
+		char buffer[1024 * (sizeof(struct inotify_event) + 16)];
+
+		// Boucle principale de surveillance avec polling via select()
+		while (mIsWatching) {
+			// Configuration de fd_set pour select()
+			fd_set fds;
+			FD_ZERO(&fds);
+			FD_SET(fd, &fds);
+
+			// Timeout de 100ms pour verification rapide de mIsWatching
+			// (ancien 1s causait ~800ms de delai au shutdown).
+			struct timeval tv;
+			tv.tv_sec = 0;
+			tv.tv_usec = 100 * 1000;
+
+			// Appel bloquant avec timeout sur le descripteur inotify
+			int ret = select(fd + 1, &fds, NULL, NULL, &tv);
+
+			// Gestion des erreurs de select()
+			if (ret < 0) {
+				// Interruption par signal : continuer la boucle
+				if (errno == EINTR) {
+					continue;
+				}
+				// Autre erreur : sortie de la boucle
+				break;
+			}
+
+			// Timeout expiré : pas d'événement, continuer la boucle
+			if (ret == 0) {
+				continue;
+			}
+
+			// Lecture des événements disponibles sur le descripteur
+			ssize_t length = read(fd, buffer, bufferLen);
+			if (length < 0) {
+				// Erreur de lecture : sortie de la boucle
+				break;
+			}
+
+			// Vérification de la présence d'un callback avant traitement
+			if (!mCallback) {
+				continue;
+			}
+
+			// Parcours des événements dans le buffer
+			size_t i = 0;
+			while (i < static_cast<size_t>(length)) {
+				// Accès à la structure inotify_event courante
+				struct inotify_event *event = reinterpret_cast<struct inotify_event *>(&buffer[i]);
+
+				// Traitement uniquement si un nom de fichier est présent
+				if (event->len > 0) {
+					// Construction de l'événement à notifier
+					NkFileChangeEvent changeEvent;
+					changeEvent.Path = (NkPath(mPath.CStr()) / event->name).ToString();
+					changeEvent.Timestamp = static_cast<nk_int64>(time(nullptr));
+
+					// Mapping des masks inotify vers NkFileChangeType
+					if (event->mask & IN_CREATE) {
+						changeEvent.Type = NkFileChangeType::NK_CREATED;
+					} else if (event->mask & IN_DELETE) {
+						changeEvent.Type = NkFileChangeType::NK_DELETED;
+					} else if (event->mask & IN_MODIFY) {
+						changeEvent.Type = NkFileChangeType::NK_MODIFIED;
+					} else if (event->mask & (IN_MOVED_FROM | IN_MOVED_TO)) {
+						changeEvent.Type = NkFileChangeType::NK_RENAMED;
+					} else if (event->mask & IN_ATTRIB) {
+						changeEvent.Type = NkFileChangeType::NK_ATTRIBUTE_CHANGED;
+					} else {
+						// Fallback pour événements non catégorisés
+						changeEvent.Type = NkFileChangeType::NK_MODIFIED;
+					}
+
+					// Notification du callback utilisateur
+					mCallback->OnFileChanged(changeEvent);
+				}
+
+				// Avance vers le prochain événement dans le buffer
+				i += eventSize + event->len;
+			}
+		}
+
+		// Nettoyage des ressources POSIX : retrait du watch et fermeture du fd
+		inotify_rm_watch(fd, wd);
+		close(fd);
+	}
+
+#endif // !defined(__EMSCRIPTEN__) && !defined(_WIN32)
+
+	// =============================================================================
+	//  Implémentation : Méthodes de contrôle du cycle de vie
+	// =============================================================================
+
+	bool NkFileWatcher::Start() {
+		// Guard : retour immédiat si déjà en cours de surveillance
+		if (mIsWatching) {
+			return true;
+		}
+
+		// Validation des prérequis : chemin non vide et callback valide
+		if (mPath.Empty() || !mCallback) {
+			return false;
+		}
+
+		// Mise à jour de l'état avant création du thread
+		mIsWatching = true;
+
+// Création du thread plateforme-specific
+#ifdef _WIN32
+		// Windows : utilisation de _beginthread pour gestion CRT correcte
+		mThread = reinterpret_cast<void *>(_beginthread(reinterpret_cast<void (*)(void *)>(ThreadProc), 0, this));
+#elif defined(__EMSCRIPTEN__)
+		// Web : pas de thread natif, retour de succès simulé
+		mThread = nullptr;
+		return true;
+#else
+		// POSIX (Linux inotify + Apple kqueue) : création de thread pthread
+		pthread_t *thread = new pthread_t;
+
+		if (pthread_create(thread, NULL, ThreadProc, this) == 0) {
+			// Succès : stockage du handle de thread
+			mThread = thread;
+		} else {
+			// Échec : nettoyage et retour d'erreur
+			delete thread;
+			mIsWatching = false;
+			return false;
+		}
+#endif
+
+		// Retour du statut de démarrage
+		return true;
+	}
+
+	void NkFileWatcher::Stop() {
+		// Guard : retour immédiat si pas en cours de surveillance
+		if (!mIsWatching) {
+			return;
+		}
+
+		// Mise à jour de l'état pour signaler l'arrêt au thread
+		mIsWatching = false;
+
+		// Guard : rien à faire si pas de thread actif
+		if (!mThread) {
+			return;
+		}
+
+// Attente et nettoyage du thread plateforme-specific
+#ifdef _WIN32
+		// Windows : attente de fin puis fermeture du handle
+		WaitForSingleObject(mThread, INFINITE);
+		CloseHandle(mThread);
+#elif !defined(__EMSCRIPTEN__)
+		// POSIX (Linux + Apple) : join du thread puis libération mémoire
+		pthread_t *thread = static_cast<pthread_t *>(mThread);
+		pthread_join(*thread, NULL);
+		delete thread;
+#endif
+
+		// Réinitialisation du handle de thread
+		mThread = nullptr;
+	}
+
+	bool NkFileWatcher::IsWatching() const {
+		// Accès en lecture seule à l'état de surveillance
+		return mIsWatching;
+	}
+
+	// =============================================================================
+	//  Implémentation : Méthodes de configuration
+	// =============================================================================
+
+	void NkFileWatcher::SetPath(const char *path) {
+		// Sauvegarde de l'état courant pour restauration si nécessaire
+		const bool wasWatching = mIsWatching;
+
+		// Arrêt temporaire si surveillance active
+		if (wasWatching) {
+			Stop();
+		}
+
+		// Mise à jour du chemin avec gestion null défensive
+		mPath = (path ? path : "");
+
+		// Redémarrage si la surveillance était active
+		if (wasWatching) {
+			Start();
+		}
+	}
+
+	void NkFileWatcher::SetPath(const NkPath &path) {
+		// Délégation à la version C-string pour éviter la duplication de code
+		SetPath(path.CStr());
+	}
+
+	void NkFileWatcher::SetCallback(NkFileWatcherCallback *callback) {
+		// Assignation directe du pointeur de callback
+		mCallback = callback;
+	}
+
+	void NkFileWatcher::SetRecursive(bool recursive) {
+		// Sauvegarde de l'état courant pour restauration si nécessaire
+		const bool wasWatching = mIsWatching;
+
+		// Arrêt temporaire si surveillance active
+		if (wasWatching) {
+			Stop();
+		}
+
+		// Mise à jour du flag de récursivité
+		mRecursive = recursive;
+
+		// Redémarrage si la surveillance était active
+		if (wasWatching) {
+			Start();
+		}
+	}
+
+	const NkString &NkFileWatcher::GetPath() const {
+		// Accès en lecture seule au chemin interne
+		return mPath;
+	}
+
+	bool NkFileWatcher::IsRecursive() const {
+		// Accès en lecture seule au flag de récursivité
+		return mRecursive;
+	}
 
 } // namespace nkentseu
 
@@ -712,48 +612,48 @@ namespace nkentseu {
 // NOTES D'IMPLÉMENTATION
 // =============================================================================
 /*
-    Gestion des threads :
-    --------------------
-    - Windows : _beginthread pour gestion correcte du CRT (vs CreateThread)
-    - POSIX : pthread_create avec allocation dynamique du pthread_t
-    - Le thread est joint dans Stop() : appel bloquant mais nécessaire pour cleanup
+	Gestion des threads :
+	--------------------
+	- Windows : _beginthread pour gestion correcte du CRT (vs CreateThread)
+	- POSIX : pthread_create avec allocation dynamique du pthread_t
+	- Le thread est joint dans Stop() : appel bloquant mais nécessaire pour cleanup
 
-    Buffer et performance :
-    ----------------------
-    - Windows : buffer de 4Ko pour ReadDirectoryChangesW, suffisant pour la majorité des cas
-    - Linux : buffer calculé dynamiquement pour contenir plusieurs événements inotify
-    - Les événements sont batchés par l'OS : traitement en boucle dans WatchThread()
+	Buffer et performance :
+	----------------------
+	- Windows : buffer de 4Ko pour ReadDirectoryChangesW, suffisant pour la majorité des cas
+	- Linux : buffer calculé dynamiquement pour contenir plusieurs événements inotify
+	- Les événements sont batchés par l'OS : traitement en boucle dans WatchThread()
 
-    Encodage et chemins :
-    --------------------
-    - Windows : ReadDirectoryChangesW retourne UTF-16, conversion vers UTF-8 via WideCharToMultiByte
-    - Linux : chemins déjà en encodage système (généralement UTF-8), pas de conversion nécessaire
-    - Interne : tous les chemins stockés en UTF-8 via NkString pour cohérence cross-platform
+	Encodage et chemins :
+	--------------------
+	- Windows : ReadDirectoryChangesW retourne UTF-16, conversion vers UTF-8 via WideCharToMultiByte
+	- Linux : chemins déjà en encodage système (généralement UTF-8), pas de conversion nécessaire
+	- Interne : tous les chemins stockés en UTF-8 via NkString pour cohérence cross-platform
 
-    Gestion d'erreurs :
-    ------------------
-    - Échecs d'API natives : retour silencieux depuis WatchThread(), Start() retourne false
-    - Callback null : vérifié avant invocation, évite les crashes
-    - Chemin invalide : vérifié dans Start(), pas de tentative de surveillance
+	Gestion d'erreurs :
+	------------------
+	- Échecs d'API natives : retour silencieux depuis WatchThread(), Start() retourne false
+	- Callback null : vérifié avant invocation, évite les crashes
+	- Chemin invalide : vérifié dans Start(), pas de tentative de surveillance
 
-    Fallback Web/EMSCRIPTEN :
-    ------------------------
-    - Pas d'API native de file watching dans les navigateurs
-    - Start() retourne true mais WatchThread() n'est jamais appelé
-    - Alternative : utiliser des WebSockets ou polling HTTP côté application
+	Fallback Web/EMSCRIPTEN :
+	------------------------
+	- Pas d'API native de file watching dans les navigateurs
+	- Start() retourne true mais WatchThread() n'est jamais appelé
+	- Alternative : utiliser des WebSockets ou polling HTTP côté application
 
-    Thread-safety du callback :
-    --------------------------
-    - OnFileChanged() est appelé depuis le thread de surveillance
-    - L'implémentation utilisateur doit être thread-safe ou utiliser une file de messages
-    - Éviter les allocations dynamiques ou opérations bloquantes dans le callback
+	Thread-safety du callback :
+	--------------------------
+	- OnFileChanged() est appelé depuis le thread de surveillance
+	- L'implémentation utilisateur doit être thread-safe ou utiliser une file de messages
+	- Éviter les allocations dynamiques ou opérations bloquantes dans le callback
 
-    Extensions futures possibles :
-    -----------------------------
-    - Support des chemins UNC Windows (\\server\share)
-    - Filtrage par pattern/glob au niveau du watcher pour réduire le bruit
-    - Priorité d'événements pour traitement différencié (ex: .shader > .txt)
-    - Statistiques de surveillance : nombre d'événements, latence moyenne, etc.
+	Extensions futures possibles :
+	-----------------------------
+	- Support des chemins UNC Windows (\\server\share)
+	- Filtrage par pattern/glob au niveau du watcher pour réduire le bruit
+	- Priorité d'événements pour traitement différencié (ex: .shader > .txt)
+	- Statistiques de surveillance : nombre d'événements, latence moyenne, etc.
 */
 
 // ============================================================

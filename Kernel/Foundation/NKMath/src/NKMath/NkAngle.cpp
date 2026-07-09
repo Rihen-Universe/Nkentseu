@@ -13,9 +13,7 @@
 #include "NKContainers/String/NkFormat.h"
 #include <ostream>
 
-namespace nkentseu {
-
-} // namespace nkentseu
+namespace nkentseu {} // namespace nkentseu
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

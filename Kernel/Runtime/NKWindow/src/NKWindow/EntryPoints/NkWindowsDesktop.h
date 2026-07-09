@@ -23,7 +23,7 @@
  * @brief Namespace nkentseu.
  */
 namespace nkentseu {
-NkEntryState *gState = nullptr;
+	NkEntryState *gState = nullptr;
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {

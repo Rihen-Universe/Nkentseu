@@ -19,7 +19,7 @@
  * @brief Namespace nkentseu.
  */
 namespace nkentseu {
-NkEntryState *gState = nullptr;
+	NkEntryState *gState = nullptr;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,6 +50,7 @@ NkEntryState *gState = nullptr;
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
 	return YES;
 }
+
 @end
 
 // ---------------------------------------------------------------------------
@@ -59,8 +60,8 @@ NkEntryState *gState = nullptr;
 int main(int argc, const char *argv[]) {
 	@autoreleasepool {
 		nkentseu::NkVector<nkentseu::NkString> args;
-	for (int i = 0; i < argc; ++i)
-		args.PushBack(nkentseu::NkString(argv[i]));
+		for (int i = 0; i < argc; ++i)
+			args.PushBack(nkentseu::NkString(argv[i]));
 
 		NSApplication *app = [NSApplication sharedApplication];
 		[app setActivationPolicy:NSApplicationActivationPolicyRegular];

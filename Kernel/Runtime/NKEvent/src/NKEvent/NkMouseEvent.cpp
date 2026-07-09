@@ -9,9 +9,9 @@
 #include "NkMouseEvent.h"
 
 namespace nkentseu {
-    // Toutes les classes d'événements souris sont entièrement définies (inline)
-    // dans NkMouseEvents.h. Ce .cpp existe pour :
-    //   1. Satisfaire les systèmes de build.
-    //   2. Accueillir à l'avenir des implémentations non-inline si nécessaire
-    //      (ex: tables de correspondance lourdes, fonctions utilitaires…).
+	// Toutes les classes d'événements souris sont entièrement définies (inline)
+	// dans NkMouseEvents.h. Ce .cpp existe pour :
+	//   1. Satisfaire les systèmes de build.
+	//   2. Accueillir à l'avenir des implémentations non-inline si nécessaire
+	//      (ex: tables de correspondance lourdes, fonctions utilitaires…).
 } // namespace nkentseu

@@ -23,9 +23,9 @@ namespace nkentseu {
 	// ---------------------------------------------------------------------------
 
 	struct NkDialogResult {
-		bool confirmed = false; ///< true si l'utilisateur a validé
-		NkString path;		///< Chemin sélectionné (file dialogs)
-		uint32 color = 0;		///< Couleur choisie RGBA (color picker)
+			bool confirmed = false; ///< true si l'utilisateur a validé
+			NkString path;			///< Chemin sélectionné (file dialogs)
+			uint32 color = 0;		///< Couleur choisie RGBA (color picker)
 	};
 
 	// ---------------------------------------------------------------------------
@@ -46,7 +46,8 @@ namespace nkentseu {
 			 * @param defaultExt Extension par défaut sans point (ex: "png")
 			 * @param title  Titre de la boîte de dialogue.
 			 */
-			static NkDialogResult SaveFileDialog(const NkString &defaultExt = "", const NkString &title = "Save File", const NkString &initialDir = "");
+			static NkDialogResult SaveFileDialog(const NkString &defaultExt = "", const NkString &title = "Save File",
+												 const NkString &initialDir = "");
 
 			/**
 			 * @brief Ouvre un dialogue de sélection de DOSSIER (façon "Open Folder").
@@ -77,14 +78,13 @@ namespace nkentseu {
 			// runloop et provoquerait un interblocage. Sur desktop, ces variantes
 			// enveloppent simplement l'implémentation synchrone (callback immédiat).
 			// Le callback est invoqué sur le thread principal.
-			using Callback = NkFunction<void(const NkDialogResult&)>;
+			using Callback = NkFunction<void(const NkDialogResult &)>;
 
-			static void OpenFileDialogAsync(const Callback& cb,
-				const NkString& filter = "*.*", const NkString& title = "Open File");
-			static void SaveFileDialogAsync(const Callback& cb,
-				const NkString& defaultExt = "", const NkString& title = "Save File");
-			static void OpenFolderDialogAsync(const Callback& cb,
-				const NkString& title = "Selectionner un dossier");
+			static void OpenFileDialogAsync(const Callback &cb, const NkString &filter = "*.*",
+											const NkString &title = "Open File");
+			static void SaveFileDialogAsync(const Callback &cb, const NkString &defaultExt = "",
+											const NkString &title = "Save File");
+			static void OpenFolderDialogAsync(const Callback &cb, const NkString &title = "Selectionner un dossier");
 	};
 
 } // namespace nkentseu

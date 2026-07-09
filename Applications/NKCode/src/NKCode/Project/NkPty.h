@@ -17,56 +17,64 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-namespace nkcode {
+	namespace nkcode {
 
-    using namespace nkentseu;
+		using namespace nkentseu;
 
-    class NkPty {
-    public:
-        NkPty() = default;
-        ~NkPty();
-        NkPty(const NkPty&)            = delete;
-        NkPty& operator=(const NkPty&) = delete;
+		class NkPty {
+			public:
+				NkPty() = default;
+				~NkPty();
+				NkPty(const NkPty &) = delete;
+				NkPty &operator=(const NkPty &) = delete;
 
-        // Lance `cmdline` (ex. "powershell.exe", "wsl.exe -d Ubuntu-22.04") attache
-        // a un ConPTY de taille cols x rows. false si echec / ConPTY indisponible.
-        bool Start(const NkString& cmdline, int16 cols, int16 rows);
+				// Lance `cmdline` (ex. "powershell.exe", "wsl.exe -d Ubuntu-22.04") attache
+				// a un ConPTY de taille cols x rows. false si echec / ConPTY indisponible.
+				bool Start(const NkString &cmdline, int16 cols, int16 rows);
 
-        // Ecrit des octets bruts (UTF-8) dans l'entree du shell (frappes clavier).
-        void Write(const char* data, usize len);
-        void Write(const char* s);
+				// Ecrit des octets bruts (UTF-8) dans l'entree du shell (frappes clavier).
+				void Write(const char *data, usize len);
+				void Write(const char *s);
 
-        // Redimensionne le pseudo-console (a appeler quand le panneau change de taille).
-        void Resize(int16 cols, int16 rows);
+				// Redimensionne le pseudo-console (a appeler quand le panneau change de taille).
+				void Resize(int16 cols, int16 rows);
 
-        // Recupere (et vide) la sortie accumulee depuis le dernier appel. Thread-safe.
-        void Drain(NkVector<char>& out);
+				// Recupere (et vide) la sortie accumulee depuis le dernier appel. Thread-safe.
+				void Drain(NkVector<char> &out);
 
-        // Arrete le shell + le thread de lecture + libere les handles.
-        void Stop();
+				// Arrete le shell + le thread de lecture + libere les handles.
+				void Stop();
 
-        bool  Running() const { return mRunning; }
-        int16 Cols()    const { return mCols; }
-        int16 Rows()    const { return mRows; }
+				bool Running() const {
+					return mRunning;
+				}
 
-    private:
-        void ReadLoop();   // boucle du thread de lecture (impl. Win32 dans le .cpp)
+				int16 Cols() const {
+					return mCols;
+				}
 
-        // Handles Win32 opaques (void* pour ne pas exposer windows.h ici).
-        void* mInWrite  = nullptr;   // HANDLE : on ecrit dedans
-        void* mOutRead  = nullptr;   // HANDLE : on lit dedans
-        void* mProcess  = nullptr;   // HANDLE process du shell
-        void* mPC       = nullptr;   // HPCON (pseudo-console)
-        void* mResizeFn = nullptr;   // ResizePseudoConsole (charge dynamiquement)
-        void* mCloseFn  = nullptr;   // ClosePseudoConsole
+				int16 Rows() const {
+					return mRows;
+				}
 
-        threading::NkThread mThread;
-        threading::NkMutex  mMutex;
-        NkVector<char>      mBuf;     // sortie brute (protege par mMutex)
-        volatile bool       mRunning = false;
-        int16               mCols = 80;
-        int16               mRows = 24;
-    };
+			private:
+				void ReadLoop(); // boucle du thread de lecture (impl. Win32 dans le .cpp)
 
-} // namespace nkcode
+				// Handles Win32 opaques (void* pour ne pas exposer windows.h ici).
+				void *mInWrite = nullptr;  // HANDLE : on ecrit dedans
+				void *mOutRead = nullptr;  // HANDLE : on lit dedans
+				void *mProcess = nullptr;  // HANDLE process du shell
+				void *mPC = nullptr;	   // HPCON (pseudo-console)
+				void *mResizeFn = nullptr; // ResizePseudoConsole (charge dynamiquement)
+				void *mCloseFn = nullptr;  // ClosePseudoConsole
+
+				threading::NkThread mThread;
+				threading::NkMutex mMutex;
+				NkVector<char> mBuf; // sortie brute (protege par mMutex)
+				volatile bool mRunning = false;
+				int16 mCols = 80;
+				int16 mRows = 24;
+		};
+
+	} // namespace nkcode
 } // namespace nkentseu

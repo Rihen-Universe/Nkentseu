@@ -21,41 +21,39 @@
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
-    namespace humanoid {
+	namespace humanoid {
 
-        class NkOllamaBackend final : public NkIConvBackend {
-        public:
-            NkOllamaBackend()  = default;
-            ~NkOllamaBackend() noexcept override = default;
+		class NkOllamaBackend final : public NkIConvBackend {
+			public:
+				NkOllamaBackend() = default;
+				~NkOllamaBackend() noexcept override = default;
 
-            bool Init(const char* endpoint,
-                      const char* modelName,
-                      const char* apiKey) noexcept override;
+				bool Init(const char *endpoint, const char *modelName, const char *apiKey) noexcept override;
 
-            bool Complete(const NkVector<NkConvMessage>& messages,
-                          nk_float32 temperature,
-                          nk_uint32  maxTokens,
-                          NkConvResponse& out) noexcept override;
+				bool Complete(const NkVector<NkConvMessage> &messages, nk_float32 temperature, nk_uint32 maxTokens,
+							  NkConvResponse &out) noexcept override;
 
-            bool IsAvailable() const noexcept override { return mAvailable; }
-            const char* BackendName() const noexcept override { return "Ollama-Local"; }
+				bool IsAvailable() const noexcept override {
+					return mAvailable;
+				}
 
-        private:
-            NkString BuildRequestJSON(const NkVector<NkConvMessage>& msgs,
-                                       nk_float32 temp,
-                                       nk_uint32  maxTok) const noexcept;
+				const char *BackendName() const noexcept override {
+					return "Ollama-Local";
+				}
 
-            bool ParseResponse(const NkString& json, NkConvResponse& out) const noexcept;
+			private:
+				NkString BuildRequestJSON(const NkVector<NkConvMessage> &msgs, nk_float32 temp,
+										  nk_uint32 maxTok) const noexcept;
 
-            // HTTP POST minimal (utilise NKStream ou socket POSIX)
-            bool HttpPost(const char* url,
-                          const NkString& body,
-                          NkString& responseOut) const noexcept;
+				bool ParseResponse(const NkString &json, NkConvResponse &out) const noexcept;
 
-            NkString mEndpoint  = "http://localhost:11434";
-            NkString mModelName = "mistral:7b-instruct";
-            bool     mAvailable = false;
-        };
+				// HTTP POST minimal (utilise NKStream ou socket POSIX)
+				bool HttpPost(const char *url, const NkString &body, NkString &responseOut) const noexcept;
 
-    } // namespace humanoid
+				NkString mEndpoint = "http://localhost:11434";
+				NkString mModelName = "mistral:7b-instruct";
+				bool mAvailable = false;
+		};
+
+	} // namespace humanoid
 } // namespace nkentseu

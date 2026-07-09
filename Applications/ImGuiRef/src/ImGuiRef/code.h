@@ -4,14 +4,14 @@
 
 namespace nkentseu {
 
-    class code : public Code {
-    public:
-        code();
-        ~code();
+	class code : public Code {
+		public:
+			code();
+			~code();
 
-    private:
-    };
+		private:
+	};
 
-}
+} // namespace nkentseu
 
 #endif // __NKENTSEU_CODE_H__

@@ -24,35 +24,31 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        class NkShaderIncludeResolver {
-            public:
-                // Résout les #include dans `source`. `currentFilePath` est le chemin
-                // du fichier en cours (utilisé pour les includes relatifs au fichier).
-                // Retourne la source avec les inclusions inlinées. Si une inclusion
-                // échoue (fichier introuvable), elle est remplacée par un commentaire
-                // d'erreur et un warning est logué.
-                static NkString Resolve(const NkString& source,
-                                        const NkString& currentFilePath = "");
+		class NkShaderIncludeResolver {
+			public:
+				// Résout les #include dans `source`. `currentFilePath` est le chemin
+				// du fichier en cours (utilisé pour les includes relatifs au fichier).
+				// Retourne la source avec les inclusions inlinées. Si une inclusion
+				// échoue (fichier introuvable), elle est remplacée par un commentaire
+				// d'erreur et un warning est logué.
+				static NkString Resolve(const NkString &source, const NkString &currentFilePath = "");
 
-            private:
-                // Recherche le fichier à inclure parmi les chemins de fallback.
-                // Retourne le chemin résolu (ou string vide si introuvable).
-                static NkString ResolveIncludePath(const NkString& includeArg,
-                                                    const NkString& currentFilePath);
+			private:
+				// Recherche le fichier à inclure parmi les chemins de fallback.
+				// Retourne le chemin résolu (ou string vide si introuvable).
+				static NkString ResolveIncludePath(const NkString &includeArg, const NkString &currentFilePath);
 
-                // Lit le contenu d'un fichier (sans strip d'annotations — les .glsli
-                // ne sont pas censés contenir d'annotations @xxx).
-                static NkString ReadRaw(const NkString& path);
+				// Lit le contenu d'un fichier (sans strip d'annotations — les .glsli
+				// ne sont pas censés contenir d'annotations @xxx).
+				static NkString ReadRaw(const NkString &path);
 
-                // Étape interne récursive avec tracking des fichiers déjà visités
-                // (anti-cycle, pas de double-inclusion).
-                static NkString ResolveRecursive(const NkString& source,
-                                                  const NkString& currentFilePath,
-                                                  NkVector<NkString>& visited,
-                                                  int depth);
-        };
+				// Étape interne récursive avec tracking des fichiers déjà visités
+				// (anti-cycle, pas de double-inclusion).
+				static NkString ResolveRecursive(const NkString &source, const NkString &currentFilePath,
+												 NkVector<NkString> &visited, int depth);
+		};
 
-    } // namespace renderer
+	} // namespace renderer
 } // namespace nkentseu

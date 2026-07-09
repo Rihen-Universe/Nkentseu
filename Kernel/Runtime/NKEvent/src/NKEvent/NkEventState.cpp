@@ -11,7 +11,7 @@
 
 namespace nkentseu {
 
-// Les getters et méthodes de NkEventState sont définis inline dans NkEventState.h
-// Ce fichier est fourni pour une possible expansion future
+	// Les getters et méthodes de NkEventState sont définis inline dans NkEventState.h
+	// Ce fichier est fourni pour une possible expansion future
 
 } // namespace nkentseu

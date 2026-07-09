@@ -33,27 +33,26 @@
 #include "NKCore/NkTypes.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        // Forward decl des enums (definis dans NkTexture.h).
-        enum class NkTextureFilter : uint8;
-        enum class NkTextureWrap   : uint8;
+		// Forward decl des enums (definis dans NkTexture.h).
+		enum class NkTextureFilter : uint8;
+		enum class NkTextureWrap : uint8;
 
-        struct NkTextureBackend {
-            uint32 (*Create)(uint32 w, uint32 h, const uint8* rgba)            = nullptr;
-            void   (*Update)(uint32 id, uint32 x, uint32 y, uint32 w, uint32 h,
-                             const uint8* rgba)                                = nullptr;
-            void   (*Destroy)(uint32 id)                                       = nullptr;
-            void   (*SetFilter)(uint32 id, NkTextureFilter f)                  = nullptr;
-            void   (*SetWrap)  (uint32 id, NkTextureWrap   w)                  = nullptr;
-        };
+		struct NkTextureBackend {
+				uint32 (*Create)(uint32 w, uint32 h, const uint8 *rgba) = nullptr;
+				void (*Update)(uint32 id, uint32 x, uint32 y, uint32 w, uint32 h, const uint8 *rgba) = nullptr;
+				void (*Destroy)(uint32 id) = nullptr;
+				void (*SetFilter)(uint32 id, NkTextureFilter f) = nullptr;
+				void (*SetWrap)(uint32 id, NkTextureWrap w) = nullptr;
+		};
 
-        /// Enregistre la table de dispatch active. Appele par chaque backend
-        /// a la fin de son Initialize() ; remplace les callbacks precedents.
-        /// Un Initialize successif ecrase. Apres Shutdown, idealement on
-        /// re-appelle avec une table vide (callbacks null) ; les Destroy
-        /// ulterieurs sont alors no-op (protection dans NkTexture::Destroy).
-        void NkTextureSetBackend(const NkTextureBackend& backend);
+		/// Enregistre la table de dispatch active. Appele par chaque backend
+		/// a la fin de son Initialize() ; remplace les callbacks precedents.
+		/// Un Initialize successif ecrase. Apres Shutdown, idealement on
+		/// re-appelle avec une table vide (callbacks null) ; les Destroy
+		/// ulterieurs sont alors no-op (protection dans NkTexture::Destroy).
+		void NkTextureSetBackend(const NkTextureBackend &backend);
 
-    } // namespace renderer
+	} // namespace renderer
 } // namespace nkentseu

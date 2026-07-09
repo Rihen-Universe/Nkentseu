@@ -20,61 +20,61 @@
 
 namespace nkentseu {
 
-    // ====================================================================
-    // SECTION 2 : IMPLÉMENTATIONS NK_FLOAT32
-    // ====================================================================
-    // Méthodes non-constexpr pour nk_float32 nécessitant manipulation bit-level.
+	// ====================================================================
+	// SECTION 2 : IMPLÉMENTATIONS NK_FLOAT32
+	// ====================================================================
+	// Méthodes non-constexpr pour nk_float32 nécessitant manipulation bit-level.
 
-    // Union pour interprétation bit-level de nk_float32 (IEEE 754 binary32)
-    // Layout : [1 bit signe][8 bits exposant][23 bits mantisse]
-    union NkFloat32Bits {
-        nk_float32 asFloat;  ///< Représentation flottante
-        nk_uint32 asUInt;    ///< Représentation entière pour manipulation bit-level
-    };
+	// Union pour interprétation bit-level de nk_float32 (IEEE 754 binary32)
+	// Layout : [1 bit signe][8 bits exposant][23 bits mantisse]
+	union NkFloat32Bits {
+			nk_float32 asFloat; ///< Représentation flottante
+			nk_uint32 asUInt;	///< Représentation entière pour manipulation bit-level
+	};
 
-    nk_float32 NkNumericLimits<nk_float32>::infinity() noexcept {
-        // IEEE 754 binary32 : +∞ = signe=0, exposant=0xFF (255), mantisse=0
-        // Représentation hexadécimale : 0x7F800000
-        NkFloat32Bits bits;
-        bits.asUInt = 0x7F800000u;
-        return bits.asFloat;
-    }
+	nk_float32 NkNumericLimits<nk_float32>::infinity() noexcept {
+		// IEEE 754 binary32 : +∞ = signe=0, exposant=0xFF (255), mantisse=0
+		// Représentation hexadécimale : 0x7F800000
+		NkFloat32Bits bits;
+		bits.asUInt = 0x7F800000u;
+		return bits.asFloat;
+	}
 
-    nk_float32 NkNumericLimits<nk_float32>::quiet_NaN() noexcept {
-        // IEEE 754 binary32 : qNaN = signe=0, exposant=0xFF, mantisse!=0, bit MSB=1
-        // Représentation hexadécimale : 0x7FC00000 (bit de silence à 1)
-        NkFloat32Bits bits;
-        bits.asUInt = 0x7FC00000u;
-        return bits.asFloat;
-    }
+	nk_float32 NkNumericLimits<nk_float32>::quiet_NaN() noexcept {
+		// IEEE 754 binary32 : qNaN = signe=0, exposant=0xFF, mantisse!=0, bit MSB=1
+		// Représentation hexadécimale : 0x7FC00000 (bit de silence à 1)
+		NkFloat32Bits bits;
+		bits.asUInt = 0x7FC00000u;
+		return bits.asFloat;
+	}
 
-    // ====================================================================
-    // SECTION 3 : IMPLÉMENTATIONS NK_FLOAT64
-    // ====================================================================
-    // Méthodes non-constexpr pour nk_float64 nécessitant manipulation bit-level.
+	// ====================================================================
+	// SECTION 3 : IMPLÉMENTATIONS NK_FLOAT64
+	// ====================================================================
+	// Méthodes non-constexpr pour nk_float64 nécessitant manipulation bit-level.
 
-    // Union pour interprétation bit-level de nk_float64 (IEEE 754 binary64)
-    // Layout : [1 bit signe][11 bits exposant][52 bits mantisse]
-    union NkFloat64Bits {
-        nk_float64 asFloat;  ///< Représentation flottante
-        nk_uint64 asUInt;    ///< Représentation entière pour manipulation bit-level
-    };
+	// Union pour interprétation bit-level de nk_float64 (IEEE 754 binary64)
+	// Layout : [1 bit signe][11 bits exposant][52 bits mantisse]
+	union NkFloat64Bits {
+			nk_float64 asFloat; ///< Représentation flottante
+			nk_uint64 asUInt;	///< Représentation entière pour manipulation bit-level
+	};
 
-    nk_float64 NkNumericLimits<nk_float64>::infinity() noexcept {
-        // IEEE 754 binary64 : +∞ = signe=0, exposant=0x7FF (2047), mantisse=0
-        // Représentation hexadécimale : 0x7FF0000000000000
-        NkFloat64Bits bits;
-        bits.asUInt = 0x7FF0000000000000ULL;
-        return bits.asFloat;
-    }
+	nk_float64 NkNumericLimits<nk_float64>::infinity() noexcept {
+		// IEEE 754 binary64 : +∞ = signe=0, exposant=0x7FF (2047), mantisse=0
+		// Représentation hexadécimale : 0x7FF0000000000000
+		NkFloat64Bits bits;
+		bits.asUInt = 0x7FF0000000000000ULL;
+		return bits.asFloat;
+	}
 
-    nk_float64 NkNumericLimits<nk_float64>::quiet_NaN() noexcept {
-        // IEEE 754 binary64 : qNaN = signe=0, exposant=0x7FF, mantisse!=0, bit MSB=1
-        // Représentation hexadécimale : 0x7FF8000000000000 (bit de silence à 1)
-        NkFloat64Bits bits;
-        bits.asUInt = 0x7FF8000000000000ULL;
-        return bits.asFloat;
-    }
+	nk_float64 NkNumericLimits<nk_float64>::quiet_NaN() noexcept {
+		// IEEE 754 binary64 : qNaN = signe=0, exposant=0x7FF, mantisse!=0, bit MSB=1
+		// Représentation hexadécimale : 0x7FF8000000000000 (bit de silence à 1)
+		NkFloat64Bits bits;
+		bits.asUInt = 0x7FF8000000000000ULL;
+		return bits.asFloat;
+	}
 
 } // namespace nkentseu
 

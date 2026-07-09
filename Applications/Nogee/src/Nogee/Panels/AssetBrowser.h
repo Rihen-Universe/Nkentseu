@@ -16,60 +16,55 @@
 #include "Nogee/Editor/AssetManager.h"
 
 namespace nkentseu {
-    namespace noge {
+	namespace noge {
 
-        struct NkAssetBrowserEntry {
-            NkString      name;
-            NkString      fullPath;
-            NkString      relativePath;
-            NkAssetType   type;
-            bool          isDirectory;
-            nk_uint64     thumbnailHandle = 0;
-        };
+		struct NkAssetBrowserEntry {
+				NkString name;
+				NkString fullPath;
+				NkString relativePath;
+				NkAssetType type;
+				bool isDirectory;
+				nk_uint64 thumbnailHandle = 0;
+		};
 
-        class AssetBrowser {
-        public:
-            AssetBrowser() = default;
+		class AssetBrowser {
+			public:
+				AssetBrowser() = default;
 
-            void Init(AssetManager* assetMgr,
-                      const char* projectDir) noexcept;
+				void Init(AssetManager *assetMgr, const char *projectDir) noexcept;
 
-            void Render(nkui::NkUIContext& ctx,
-                        nkui::NkUIWindowManager& wm,
-                        nkui::NkUIDrawList& dl,
-                        nkui::NkUIFont& font,
-                        nkui::NkUILayoutStack& ls,
-                        nkui::NkUIRect rect) noexcept;
+				void Render(nkui::NkUIContext &ctx, nkui::NkUIWindowManager &wm, nkui::NkUIDrawList &dl,
+							nkui::NkUIFont &font, nkui::NkUILayoutStack &ls, nkui::NkUIRect rect) noexcept;
 
-            // Chemin sélectionné (pour Import, LoadScene, etc.)
-            const NkString& SelectedPath() const noexcept { return mSelectedPath; }
-            bool            HasSelection() const noexcept { return !mSelectedPath.IsEmpty(); }
+				// Chemin sélectionné (pour Import, LoadScene, etc.)
+				const NkString &SelectedPath() const noexcept {
+					return mSelectedPath;
+				}
 
-        private:
-            void NavigateTo(const char* dir) noexcept;
-            void RefreshEntries() noexcept;
-            void RenderBreadcrumb(nkui::NkUIContext& ctx,
-                                  nkui::NkUIDrawList& dl,
-                                  nkui::NkUIFont& font,
-                                  nkui::NkUILayoutStack& ls) noexcept;
-            void RenderEntry(nkui::NkUIContext& ctx,
-                             nkui::NkUIDrawList& dl,
-                             nkui::NkUIFont& font,
-                             nkui::NkUILayoutStack& ls,
-                             const NkAssetBrowserEntry& entry,
-                             float32 thumbSize) noexcept;
+				bool HasSelection() const noexcept {
+					return !mSelectedPath.IsEmpty();
+				}
 
-            AssetManager*  mAssetMgr    = nullptr;
-            NkString       mProjectDir;
-            NkString       mCurrentDir;
-            NkString       mSelectedPath;
-            float32        mThumbnailSize = 72.f;
+			private:
+				void NavigateTo(const char *dir) noexcept;
+				void RefreshEntries() noexcept;
+				void RenderBreadcrumb(nkui::NkUIContext &ctx, nkui::NkUIDrawList &dl, nkui::NkUIFont &font,
+									  nkui::NkUILayoutStack &ls) noexcept;
+				void RenderEntry(nkui::NkUIContext &ctx, nkui::NkUIDrawList &dl, nkui::NkUIFont &font,
+								 nkui::NkUILayoutStack &ls, const NkAssetBrowserEntry &entry,
+								 float32 thumbSize) noexcept;
 
-            NkVector<NkAssetBrowserEntry> mEntries;
+				AssetManager *mAssetMgr = nullptr;
+				NkString mProjectDir;
+				NkString mCurrentDir;
+				NkString mSelectedPath;
+				float32 mThumbnailSize = 72.f;
 
-            // Filtre de recherche
-            char     mFilterBuf[128] = {};
-        };
+				NkVector<NkAssetBrowserEntry> mEntries;
 
-    } // namespace noge
+				// Filtre de recherche
+				char mFilterBuf[128] = {};
+		};
+
+	} // namespace noge
 } // namespace nkentseu

@@ -16,27 +16,27 @@
 // -----------------------------------------------------------------------------
 
 #if defined(_WIN32) || defined(_WIN64)
-  #if defined(NKEDITORKIT_BUILD_SHARED_LIB)
-    #define NKEDITORKIT_API __declspec(dllexport)
-  #elif defined(NKEDITORKIT_USE_SHARED_LIB)
-    #define NKEDITORKIT_API __declspec(dllimport)
-  #else
-    #define NKEDITORKIT_API
-  #endif
-#elif defined(__GNUC__) || defined(__clang__)
-  #if defined(NKEDITORKIT_BUILD_SHARED_LIB)
-    #define NKEDITORKIT_API __attribute__((visibility("default")))
-  #else
-    #define NKEDITORKIT_API
-  #endif
+#if defined(NKEDITORKIT_BUILD_SHARED_LIB)
+#define NKEDITORKIT_API __declspec(dllexport)
+#elif defined(NKEDITORKIT_USE_SHARED_LIB)
+#define NKEDITORKIT_API __declspec(dllimport)
 #else
-  #define NKEDITORKIT_API
+#define NKEDITORKIT_API
+#endif
+#elif defined(__GNUC__) || defined(__clang__)
+#if defined(NKEDITORKIT_BUILD_SHARED_LIB)
+#define NKEDITORKIT_API __attribute__((visibility("default")))
+#else
+#define NKEDITORKIT_API
+#endif
+#else
+#define NKEDITORKIT_API
 #endif
 
 #if defined(_MSC_VER)
-#  define NKEDITORKIT_INLINE __forceinline
+#define NKEDITORKIT_INLINE __forceinline
 #else
-#  define NKEDITORKIT_INLINE inline __attribute__((always_inline))
+#define NKEDITORKIT_INLINE inline __attribute__((always_inline))
 #endif
 
 #include "NKCore/NkTypes.h"

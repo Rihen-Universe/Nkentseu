@@ -1,4 +1,5 @@
 #pragma once
+
 // =============================================================================
 // NkLauncher.h
 // -----------------------------------------------------------------------------
@@ -29,21 +30,20 @@
 
 namespace nkentseu {
 
-    class NkLauncher
-    {
-    public:
-        /// Ouvre une URL dans le navigateur par defaut du systeme.
-        /// @param url URL https://... ou autre protocole supporte par l'OS.
-        /// @return true si l'invocation systeme a reussi.
-        static bool OpenURL(const char* url) noexcept;
+	class NkLauncher {
+		public:
+			/// Ouvre une URL dans le navigateur par defaut du systeme.
+			/// @param url URL https://... ou autre protocole supporte par l'OS.
+			/// @return true si l'invocation systeme a reussi.
+			static bool OpenURL(const char *url) noexcept;
 
-        /// Ouvre un fichier dans l'application par defaut associee a son
-        /// extension (ex: .pdf -> visionneuse PDF). Retourne true si OK.
-        static bool OpenFile(const char* filePath) noexcept;
+			/// Ouvre un fichier dans l'application par defaut associee a son
+			/// extension (ex: .pdf -> visionneuse PDF). Retourne true si OK.
+			static bool OpenFile(const char *filePath) noexcept;
 
-        /// Ouvre un dossier dans l'explorateur du systeme (Explorer / Finder /
-        /// Nautilus / etc.). Retourne true si OK.
-        static bool OpenFolder(const char* folderPath) noexcept;
-    };
+			/// Ouvre un dossier dans l'explorateur du systeme (Explorer / Finder /
+			/// Nautilus / etc.). Retourne true si OK.
+			static bool OpenFolder(const char *folderPath) noexcept;
+	};
 
 } // namespace nkentseu

@@ -11,7 +11,6 @@
 // #include "NKRHI/Core/NkISwapchain.h"
 #include "NKRHI/Core/NkTypes.h"
 
-
 #include "NKRHI/Commands/NkCommandPool.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 

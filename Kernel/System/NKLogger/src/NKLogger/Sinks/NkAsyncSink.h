@@ -22,156 +22,148 @@
 #ifndef NKENTSEU_NKASYNCLOGGER_H
 #define NKENTSEU_NKASYNCLOGGER_H
 
+// -------------------------------------------------------------------------
+// SECTION 1 : EN-TÊTES ET DÉPENDANCES
+// -------------------------------------------------------------------------
+// Inclusions standards pour le threading et le formatage.
+// Dépendances projet pour le logger de base, les files d'attente et la synchronisation.
 
-	// -------------------------------------------------------------------------
-	// SECTION 1 : EN-TÊTES ET DÉPENDANCES
-	// -------------------------------------------------------------------------
-	// Inclusions standards pour le threading et le formatage.
-	// Dépendances projet pour le logger de base, les files d'attente et la synchronisation.
+#include <cstdarg>
 
-	#include <cstdarg>
+#include "NKCore/NkTypes.h"
+#include "NKCore/NkTraits.h"
+#include "NKCore/NkAtomic.h"
+#include "NKContainers/String/NkFormat.h"
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringView.h"
+#include "NKContainers/Adapters/NkQueue.h"
+#include "NKThreading/NkMutex.h"
+#include "NKThreading/NkConditionVariable.h"
+#include "NKThreading/NkThread.h"
+#include "NKThreading/NkScopedLock.h"
+#include "NKLogger/NkLogger.h"
+#include "NKLogger/NkLogLevel.h"
+#include "NKLogger/NkLogMessage.h"
+#include "NKLogger/NkLoggerApi.h"
 
-	#include "NKCore/NkTypes.h"
-	#include "NKCore/NkTraits.h"
-	#include "NKCore/NkAtomic.h"
-	#include "NKContainers/String/NkFormat.h"
-	#include "NKContainers/String/NkString.h"
-	#include "NKContainers/String/NkStringView.h"
-	#include "NKContainers/Adapters/NkQueue.h"
-	#include "NKThreading/NkMutex.h"
-	#include "NKThreading/NkConditionVariable.h"
-	#include "NKThreading/NkThread.h"
-	#include "NKThreading/NkScopedLock.h"
-	#include "NKLogger/NkLogger.h"
-	#include "NKLogger/NkLogLevel.h"
-	#include "NKLogger/NkLogMessage.h"
-	#include "NKLogger/NkLoggerApi.h"
+// -------------------------------------------------------------------------
+// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
+// -------------------------------------------------------------------------
+// Tous les symboles du module logger sont dans le namespace nkentseu.
+// Pas de sous-namespace pour simplifier l'usage et l'intégration.
 
+namespace nkentseu {
 
-	// -------------------------------------------------------------------------
-	// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
-	// -------------------------------------------------------------------------
-	// Tous les symboles du module logger sont dans le namespace nkentseu.
-	// Pas de sous-namespace pour simplifier l'usage et l'intégration.
+	// ---------------------------------------------------------------------
+	// ÉNUMÉRATION : NkAsyncOverflowPolicy
+	// DESCRIPTION : Stratégies de gestion quand la file d'attente est pleine
+	// ---------------------------------------------------------------------
+	/**
+	 * @enum NkAsyncOverflowPolicy
+	 * @brief Politiques de gestion de débordement de la file d'attente asynchrone
+	 * @ingroup LoggerTypes
+	 *
+	 * Définit le comportement du logger asynchrone lorsque la file d'attente
+	 * atteint sa capacité maximale (m_MaxQueueSize).
+	 *
+	 * @note Le choix de la politique impacte la fiabilité vs la performance :
+	 *   - DropOldest : perte de logs anciens, garantie de traitement des récents
+	 *   - DropNewest : perte de logs récents, préservation du contexte historique
+	 *   - Block : garantie de traitement complet, mais risque de blocage de l'appelant
+	 *
+	 * @example
+	 * @code
+	 * // Pour monitoring haute fréquence : privilégier les logs récents
+	 * asyncLogger.SetOverflowPolicy(nkentseu::NkAsyncOverflowPolicy::NK_DROP_OLDEST);
+	 *
+	 * // Pour audit critique : bloquer plutôt que perdre des logs
+	 * asyncLogger.SetOverflowPolicy(nkentseu::NkAsyncOverflowPolicy::NK_BLOCK);
+	 * @endcode
+	 */
+	enum class NkAsyncOverflowPolicy : uint8 {
+		/// @brief Supprimer le message le plus ancien de la file pour faire de la place
+		NK_DROP_OLDEST = 0,
 
-	namespace nkentseu {
+		/// @brief Supprimer le nouveau message (celui en cours d'ajout) et continuer
+		NK_DROP_NEWEST = 1,
 
+		/// @brief Bloquer l'appelant jusqu'à ce qu'une place se libère dans la file
+		NK_BLOCK = 2
+	};
 
-		// ---------------------------------------------------------------------
-		// ÉNUMÉRATION : NkAsyncOverflowPolicy
-		// DESCRIPTION : Stratégies de gestion quand la file d'attente est pleine
-		// ---------------------------------------------------------------------
-		/**
-		 * @enum NkAsyncOverflowPolicy
-		 * @brief Politiques de gestion de débordement de la file d'attente asynchrone
-		 * @ingroup LoggerTypes
-		 *
-		 * Définit le comportement du logger asynchrone lorsque la file d'attente
-		 * atteint sa capacité maximale (m_MaxQueueSize).
-		 *
-		 * @note Le choix de la politique impacte la fiabilité vs la performance :
-		 *   - DropOldest : perte de logs anciens, garantie de traitement des récents
-		 *   - DropNewest : perte de logs récents, préservation du contexte historique
-		 *   - Block : garantie de traitement complet, mais risque de blocage de l'appelant
-		 *
-		 * @example
-		 * @code
-		 * // Pour monitoring haute fréquence : privilégier les logs récents
-		 * asyncLogger.SetOverflowPolicy(nkentseu::NkAsyncOverflowPolicy::NK_DROP_OLDEST);
-		 *
-		 * // Pour audit critique : bloquer plutôt que perdre des logs
-		 * asyncLogger.SetOverflowPolicy(nkentseu::NkAsyncOverflowPolicy::NK_BLOCK);
-		 * @endcode
-		 */
-		enum class NkAsyncOverflowPolicy : uint8 {
-			/// @brief Supprimer le message le plus ancien de la file pour faire de la place
-			NK_DROP_OLDEST = 0,
-
-			/// @brief Supprimer le nouveau message (celui en cours d'ajout) et continuer
-			NK_DROP_NEWEST = 1,
-
-			/// @brief Bloquer l'appelant jusqu'à ce qu'une place se libère dans la file
-			NK_BLOCK = 2
-		};
-
-
-		// ---------------------------------------------------------------------
-		// CLASSE : NkAsyncLogger
-		// DESCRIPTION : Logger asynchrone avec traitement en arrière-plan
-		// ---------------------------------------------------------------------
-		/**
-		 * @class NkAsyncLogger
-		 * @brief Logger asynchrone avec file d'attente et thread worker dédié
-		 * @ingroup LoggerComponents
-		 *
-		 * NkAsyncLogger fournit un logging haute performance via découplage :
-		 *  - Thread appelant : enqueue rapide du message dans une file lock-free ou mutex-protected
-		 *  - Thread worker : traitement asynchrone des messages vers les sinks configurés
-		 *  - Synchronisation minimale : condition variable pour wake-up efficace du worker
-		 *
-		 * Architecture :
-		 *  - Hérite de NkLogger : réutilisation complète de l'API de logging (Log, Logf, etc.)
-		 *  - File d'attente circulaire ou dynamique : NkQueue<NkLogMessage> avec capacité configurable
-		 *  - Thread worker : boucle de traitement avec sleep/wait pour économie CPU
-		 *  - Flush périodique : garantie de persistance même sans nouveaux messages
-		 *
-		 * Thread-safety :
-		 *  - Enqueue() : thread-safe pour appels concurrents depuis multiples threads producteurs
-		 *  - WorkerThread() : exécution séquentielle dans le thread dédié, pas de concurrence interne
-		 *  - Sinks : doivent être thread-safe individuellement car appelés depuis le worker thread
-		 *
-		 * Gestion de la mémoire :
-		 *  - NkLogMessage copié dans la file : isolation entre producteur et consommateur
-		 *  - Pas d'allocation dans le chemin critique d'enqueue (sauf si file dynamique et croissance)
-		 *  - Flush() force le vidage de la file : garantie de persistance avant shutdown
-		 *
-		 * @note Le logger asynchrone est conçu pour les applications haute fréquence où
-		 *       le logging ne doit pas impacter la latence du thread principal.
-		 *
-		 * @example Usage basique
-		 * @code
-		 * // Création avec file de 8192 messages et flush toutes les 1000ms
-		 * auto asyncLogger = nkentseu::memory::MakeShared<nkentseu::NkAsyncLogger>(
-		 *     "AsyncApp",      // Nom du logger
-		 *     8192,            // Taille max de la file
-		 *     1000             // Intervalle de flush en ms
-		 * );
-		 *
-		 * // Ajout de sinks comme pour un logger normal
-		 * asyncLogger->AddSink(nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>());
-		 * asyncLogger->AddSink(nkentseu::memory::MakeShared<nkentseu::NkFileSink>("app.log"));
-		 *
-		 * // Démarrage du thread worker
-		 * asyncLogger->Start();
-		 *
-		 * // Logging : retour immédiat, traitement en arrière-plan
-		 * asyncLogger->Info("High-frequency event {0}", eventId);
-		 *
-		 * // Arrêt propre : flush et vidage de la file avant destruction
-		 * asyncLogger->Stop();
-		 * @endcode
-		 *
-		 * @example Gestion de débordement pour monitoring haute fréquence
-		 * @code
-		 * // Pour un système de métriques où les logs récents sont plus importants
-		 * asyncLogger->SetOverflowPolicy(nkentseu::NkAsyncOverflowPolicy::NK_DROP_OLDEST);
-		 * asyncLogger->SetMaxQueueSize(16384);  // File plus grande pour absorber les pics
-		 *
-		 * // En cas de pic de trafic : les anciens logs sont supprimés, les récents préservés
-		 * for (int i = 0; i < 100000; ++i) {
-		 *     asyncLogger->Debug("Metric sample {0}", i);  // Enqueue rapide, pas de blocage
-		 * }
-		 * @endcode
-		 */
-		class NKENTSEU_LOGGER_CLASS_EXPORT NkAsyncLogger : public NkLogger {
-
-
+	// ---------------------------------------------------------------------
+	// CLASSE : NkAsyncLogger
+	// DESCRIPTION : Logger asynchrone avec traitement en arrière-plan
+	// ---------------------------------------------------------------------
+	/**
+	 * @class NkAsyncLogger
+	 * @brief Logger asynchrone avec file d'attente et thread worker dédié
+	 * @ingroup LoggerComponents
+	 *
+	 * NkAsyncLogger fournit un logging haute performance via découplage :
+	 *  - Thread appelant : enqueue rapide du message dans une file lock-free ou mutex-protected
+	 *  - Thread worker : traitement asynchrone des messages vers les sinks configurés
+	 *  - Synchronisation minimale : condition variable pour wake-up efficace du worker
+	 *
+	 * Architecture :
+	 *  - Hérite de NkLogger : réutilisation complète de l'API de logging (Log, Logf, etc.)
+	 *  - File d'attente circulaire ou dynamique : NkQueue<NkLogMessage> avec capacité configurable
+	 *  - Thread worker : boucle de traitement avec sleep/wait pour économie CPU
+	 *  - Flush périodique : garantie de persistance même sans nouveaux messages
+	 *
+	 * Thread-safety :
+	 *  - Enqueue() : thread-safe pour appels concurrents depuis multiples threads producteurs
+	 *  - WorkerThread() : exécution séquentielle dans le thread dédié, pas de concurrence interne
+	 *  - Sinks : doivent être thread-safe individuellement car appelés depuis le worker thread
+	 *
+	 * Gestion de la mémoire :
+	 *  - NkLogMessage copié dans la file : isolation entre producteur et consommateur
+	 *  - Pas d'allocation dans le chemin critique d'enqueue (sauf si file dynamique et croissance)
+	 *  - Flush() force le vidage de la file : garantie de persistance avant shutdown
+	 *
+	 * @note Le logger asynchrone est conçu pour les applications haute fréquence où
+	 *       le logging ne doit pas impacter la latence du thread principal.
+	 *
+	 * @example Usage basique
+	 * @code
+	 * // Création avec file de 8192 messages et flush toutes les 1000ms
+	 * auto asyncLogger = nkentseu::memory::MakeShared<nkentseu::NkAsyncLogger>(
+	 *     "AsyncApp",      // Nom du logger
+	 *     8192,            // Taille max de la file
+	 *     1000             // Intervalle de flush en ms
+	 * );
+	 *
+	 * // Ajout de sinks comme pour un logger normal
+	 * asyncLogger->AddSink(nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>());
+	 * asyncLogger->AddSink(nkentseu::memory::MakeShared<nkentseu::NkFileSink>("app.log"));
+	 *
+	 * // Démarrage du thread worker
+	 * asyncLogger->Start();
+	 *
+	 * // Logging : retour immédiat, traitement en arrière-plan
+	 * asyncLogger->Info("High-frequency event {0}", eventId);
+	 *
+	 * // Arrêt propre : flush et vidage de la file avant destruction
+	 * asyncLogger->Stop();
+	 * @endcode
+	 *
+	 * @example Gestion de débordement pour monitoring haute fréquence
+	 * @code
+	 * // Pour un système de métriques où les logs récents sont plus importants
+	 * asyncLogger->SetOverflowPolicy(nkentseu::NkAsyncOverflowPolicy::NK_DROP_OLDEST);
+	 * asyncLogger->SetMaxQueueSize(16384);  // File plus grande pour absorber les pics
+	 *
+	 * // En cas de pic de trafic : les anciens logs sont supprimés, les récents préservés
+	 * for (int i = 0; i < 100000; ++i) {
+	 *     asyncLogger->Debug("Metric sample {0}", i);  // Enqueue rapide, pas de blocage
+	 * }
+	 * @endcode
+	 */
+	class NKENTSEU_LOGGER_CLASS_EXPORT NkAsyncLogger : public NkLogger {
 			// -----------------------------------------------------------------
 			// SECTION 3 : MEMBRES PUBLICS
 			// -----------------------------------------------------------------
 		public:
-
-
 			// -----------------------------------------------------------------
 			// CONSTRUCTEURS ET DESTRUCTEUR
 			// -----------------------------------------------------------------
@@ -205,7 +197,7 @@
 			 * nkentseu::NkAsyncLogger serverLogger("HighFreqServer", 32768, 2000);  // 2s de flush
 			 * @endcode
 			 */
-			NkAsyncLogger(const NkString& name, usize queueSize = 8192, uint32 flushInterval = 1000);
+			NkAsyncLogger(const NkString &name, usize queueSize = 8192, uint32 flushInterval = 1000);
 
 			/**
 			 * @brief Destructeur : arrêt propre du worker et vidage de la file
@@ -240,7 +232,6 @@
 			 * @endcode
 			 */
 			void Flush() override;
-
 
 			// -----------------------------------------------------------------
 			// GESTION DU CYCLE DE VIE ASYNCHRONE
@@ -316,7 +307,6 @@
 			 * @endcode
 			 */
 			bool IsRunning() const;
-
 
 			// -----------------------------------------------------------------
 			// CONFIGURATION DE LA FILE D'ATTENTE
@@ -464,13 +454,10 @@
 			 */
 			NkAsyncOverflowPolicy GetOverflowPolicy() const;
 
-
 			// -----------------------------------------------------------------
 			// SECTION 4 : MEMBRES PRIVÉS (IMPLÉMENTATION INTERNE)
 			// -----------------------------------------------------------------
 		private:
-
-
 			// -----------------------------------------------------------------
 			// MÉTHODES PRIVÉES D'IMPLÉMENTATION
 			// -----------------------------------------------------------------
@@ -522,7 +509,7 @@
 			 *
 			 * @warning Ne pas appeler directement : utilisé uniquement par NkThread
 			 */
-			static void WorkerThreadEntry(void* userData);
+			static void WorkerThreadEntry(void *userData);
 
 			/**
 			 * @brief Ajoute un message à la file d'attente avec gestion de débordement
@@ -544,7 +531,7 @@
 			 *
 			 * @warning En situation de pic prolongé avec NK_DROP_OLDEST : perte potentielle de logs anciens
 			 */
-			bool Enqueue(const NkLogMessage& message);
+			bool Enqueue(const NkLogMessage &message);
 
 			/**
 			 * @brief Traite un message en le distribuant à tous les sinks configurés
@@ -563,7 +550,7 @@
 			 *
 			 * @warning Ne pas appeler directement avec lock de file acquis : risque de deadlock
 			 */
-			void ProcessMessage(const NkLogMessage& message);
+			void ProcessMessage(const NkLogMessage &message);
 
 			/**
 			 * @brief Vide complètement la file d'attente en traitant tous les messages restants
@@ -582,7 +569,6 @@
 			 * @warning En situation de shutdown urgent : FlushQueue() peut prendre du temps si file pleine
 			 */
 			void FlushQueue();
-
 
 			// -----------------------------------------------------------------
 			// VARIABLES MEMBRES PRIVÉES (ÉTAT ASYNCHRONE)
@@ -647,15 +633,11 @@
 			/// @note Lecture/écriture atomique : thread-safe sans mutex supplémentaire
 			NkAtomicBool m_StopRequested;
 
+	}; // class NkAsyncLogger
 
-		}; // class NkAsyncLogger
-
-
-	} // namespace nkentseu
-
+} // namespace nkentseu
 
 #endif // NKENTSEU_NKASYNCLOGGER_H
-
 
 // =============================================================================
 // EXEMPLES D'UTILISATION DE NKASYNCLOGGER.H
@@ -697,7 +679,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 2 : Gestion de débordement pour système de métriques haute fréquence
 // -----------------------------------------------------------------------------
@@ -730,7 +711,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 3 : Arrêt propre avec garantie de persistance
 // -----------------------------------------------------------------------------
@@ -757,7 +737,6 @@
 		nkentseu::memory::NkSharedPtr<nkentseu::NkAsyncLogger> m_Logger;
 	};
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 4 : Monitoring de la file d'attente pour alerting
@@ -792,7 +771,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 5 : Testing avec vérification de traitement asynchrone
 // -----------------------------------------------------------------------------
@@ -825,7 +803,6 @@
 		asyncLogger->Stop();
 	}
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 6 : Configuration dynamique via fichier de config
@@ -864,7 +841,6 @@
 	}
 */
 
-
 // =============================================================================
 // NOTES DE MAINTENANCE ET BONNES PRATIQUES
 // =============================================================================
@@ -885,7 +861,8 @@
 	   - m_QueueMutex protège l'accès à m_MessageQueue : enqueue/dequeue concurrents safe
 	   - m_Condition permet wait/notify efficace : worker sleep quand file vide, wake-up sur nouveau message
 	   - m_Running/m_StopRequested atomiques : lecture/écriture thread-safe sans mutex supplémentaire
-	   - Les sinks doivent être thread-safe : appelés depuis le worker thread, potentiellement en concurrence avec Flush()
+	   - Les sinks doivent être thread-safe : appelés depuis le worker thread, potentiellement en concurrence avec
+   Flush()
 
 	4. FLUSH ET PERSISTANCE :
 	   - Flush() force le vidage immédiat de la file + flush des sinks : garantie de persistance
@@ -903,7 +880,8 @@
 	   - GetQueueSize() : monitoring de la charge de logging en temps réel
 	   - IsRunning() : vérification que le worker est actif pour alerting
 	   - Pour debugging : flushInterval court (100-500ms) pour visibilité immédiate des logs
-	   - Pour production : flushInterval plus long (1000-5000ms) pour performance, avec Flush() explicite aux points critiques
+	   - Pour production : flushInterval plus long (1000-5000ms) pour performance, avec Flush() explicite aux points
+   critiques
 
 	7. EXTENSIBILITÉ FUTURES :
 	   - Priorité de messages : ajouter un champ priority à NkLogMessage et file prioritaire
@@ -917,7 +895,6 @@
 	   - Benchmarking : mesurer l'overhead de Enqueue() vs logging synchrone pour différents volumes
 	   - Pour tests de performance : désactiver flushInterval et mesurer le throughput max
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

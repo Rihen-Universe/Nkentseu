@@ -22,57 +22,65 @@
 #include "NKRenderer/Core/NkRendererTypes.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        // Resultat d'une allocation : rectangle integer dans l'atlas (pixels).
-        struct NkShadowTileRect {
-            uint32  x      = 0;
-            uint32  y      = 0;
-            uint32  w      = 0;
-            uint32  h      = 0;
-            bool    valid  = false;
-        };
+		// Resultat d'une allocation : rectangle integer dans l'atlas (pixels).
+		struct NkShadowTileRect {
+				uint32 x = 0;
+				uint32 y = 0;
+				uint32 w = 0;
+				uint32 h = 0;
+				bool valid = false;
+		};
 
-        class NkShadowAtlasPacker {
-        public:
-            // Init/Reset : redefinit l'atlas a (atlasW, atlasH) et vide la liste.
-            // Appelable a chaque frame pour repartir d'un atlas vierge.
-            void   Reset(uint32 atlasW, uint32 atlasH);
+		class NkShadowAtlasPacker {
+			public:
+				// Init/Reset : redefinit l'atlas a (atlasW, atlasH) et vide la liste.
+				// Appelable a chaque frame pour repartir d'un atlas vierge.
+				void Reset(uint32 atlasW, uint32 atlasH);
 
-            // Allocate : tente d'inserer un rectangle (tileW, tileH).
-            // Retourne true + remplit outRect si succes ; false si plus de place.
-            bool   Allocate(uint32 tileW, uint32 tileH, NkShadowTileRect& outRect);
+				// Allocate : tente d'inserer un rectangle (tileW, tileH).
+				// Retourne true + remplit outRect si succes ; false si plus de place.
+				bool Allocate(uint32 tileW, uint32 tileH, NkShadowTileRect &outRect);
 
-            // Converti un NkShadowTileRect (pixels) en uv vec4 (minU, minV, maxU, maxV)
-            // dans [0, 1] selon la taille courante de l'atlas.
-            NkVec4f ToUV(const NkShadowTileRect& r) const;
+				// Converti un NkShadowTileRect (pixels) en uv vec4 (minU, minV, maxU, maxV)
+				// dans [0, 1] selon la taille courante de l'atlas.
+				NkVec4f ToUV(const NkShadowTileRect &r) const;
 
-            // Diagnostics.
-            uint32 GetAtlasWidth()  const { return mAtlasW; }
-            uint32 GetAtlasHeight() const { return mAtlasH; }
-            uint32 GetAllocCount()  const { return mAllocCount; }
+				// Diagnostics.
+				uint32 GetAtlasWidth() const {
+					return mAtlasW;
+				}
 
-        private:
-            // Segment du profil : (x, y, w) -> de x a x+w en haut a y.
-            struct Segment {
-                uint32 x;
-                uint32 y;
-                uint32 w;
-            };
+				uint32 GetAtlasHeight() const {
+					return mAtlasH;
+				}
 
-            // Trouve y minimum pour inserer tileW pixels depuis le segment startIdx.
-            // Retourne UINT32_MAX si l'insertion ne tient pas dans la largeur dispo.
-            uint32 ComputeFitY(uint32 startIdx, uint32 tileW) const;
+				uint32 GetAllocCount() const {
+					return mAllocCount;
+				}
 
-            // Insere le nouveau segment a (x, y+h, w) en fusionnant les segments
-            // touches a gauche/droite. Met a jour mSegments.
-            void   InsertSegment(uint32 startIdx, uint32 tileW, uint32 tileH, uint32 fitY);
+			private:
+				// Segment du profil : (x, y, w) -> de x a x+w en haut a y.
+				struct Segment {
+						uint32 x;
+						uint32 y;
+						uint32 w;
+				};
 
-            uint32           mAtlasW     = 0;
-            uint32           mAtlasH     = 0;
-            uint32           mAllocCount = 0;
-            NkVector<Segment> mSegments;  // profil skyline ordonne par x
-        };
+				// Trouve y minimum pour inserer tileW pixels depuis le segment startIdx.
+				// Retourne UINT32_MAX si l'insertion ne tient pas dans la largeur dispo.
+				uint32 ComputeFitY(uint32 startIdx, uint32 tileW) const;
 
-    } // namespace renderer
+				// Insere le nouveau segment a (x, y+h, w) en fusionnant les segments
+				// touches a gauche/droite. Met a jour mSegments.
+				void InsertSegment(uint32 startIdx, uint32 tileW, uint32 tileH, uint32 fitY);
+
+				uint32 mAtlasW = 0;
+				uint32 mAtlasH = 0;
+				uint32 mAllocCount = 0;
+				NkVector<Segment> mSegments; // profil skyline ordonne par x
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

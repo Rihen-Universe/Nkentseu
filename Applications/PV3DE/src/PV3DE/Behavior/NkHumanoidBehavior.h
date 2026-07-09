@@ -38,172 +38,172 @@
 #include "NKMath/NKMath.h"
 
 namespace nkentseu {
-    namespace humanoid {
+	namespace humanoid {
 
-        // =====================================================================
-        // NkStimulus — un stimulus entrant
-        // =====================================================================
-        enum class NkStimulusType : nk_uint8 {
-            Pain = 0,           // douleur physique
-            Touch,              // contact physique (exam médical)
-            SuddenNoise,        // bruit soudain → réflexe sursaut
-            Question,           // question posée par l'interlocuteur
-            ProlongedWait,      // attente prolongée → impatience/anxiété
-            PositiveReinforce,  // "vous allez bien vous en sortir"
-            NegativeNews,       // "c'est grave"
-            DoctorApproach,     // approche de quelqu'un
-            ProcedureStart,     // début d'un soin (piqûre, auscultation)
-            EnvironmentChange,  // changement dans l'environnement
-        };
+		// =====================================================================
+		// NkStimulus — un stimulus entrant
+		// =====================================================================
+		enum class NkStimulusType : nk_uint8 {
+			Pain = 0,		   // douleur physique
+			Touch,			   // contact physique (exam médical)
+			SuddenNoise,	   // bruit soudain → réflexe sursaut
+			Question,		   // question posée par l'interlocuteur
+			ProlongedWait,	   // attente prolongée → impatience/anxiété
+			PositiveReinforce, // "vous allez bien vous en sortir"
+			NegativeNews,	   // "c'est grave"
+			DoctorApproach,	   // approche de quelqu'un
+			ProcedureStart,	   // début d'un soin (piqûre, auscultation)
+			EnvironmentChange, // changement dans l'environnement
+		};
 
-        struct NkStimulus {
-            NkStimulusType type;
-            nk_float32     intensity = 0.f;  // 0–1
-            nk_float32     duration  = 0.f;  // secondes (0 = instantané)
-            NkString       content;          // texte de la question, etc.
-            bool           isHandled = false;
-        };
+		struct NkStimulus {
+				NkStimulusType type;
+				nk_float32 intensity = 0.f; // 0–1
+				nk_float32 duration = 0.f;	// secondes (0 = instantané)
+				NkString content;			// texte de la question, etc.
+				bool isHandled = false;
+		};
 
-        // =====================================================================
-        // NkBehaviorIntent — ce que le personnage veut faire
-        // =====================================================================
-        enum class NkIntentType : nk_uint8 {
-            ExpressEmotion = 0, // montrer une émotion (face + corps)
-            Speak,              // parler / répondre
-            MoveBody,           // changer de posture
-            ReachForPain,       // main vers zone douloureuse
-            AvoidEyeContact,    // regard fuyant
-            SeekReassurance,    // chercher du réconfort (regarder le médecin)
-            Wince,              // grimace de douleur réflexe (très court)
-            Microexpression,    // expression fugace involontaire
-            Cry,                // pleurer
-            Guard,              // se protéger avec le bras / bras croisés
-        };
+		// =====================================================================
+		// NkBehaviorIntent — ce que le personnage veut faire
+		// =====================================================================
+		enum class NkIntentType : nk_uint8 {
+			ExpressEmotion = 0, // montrer une émotion (face + corps)
+			Speak,				// parler / répondre
+			MoveBody,			// changer de posture
+			ReachForPain,		// main vers zone douloureuse
+			AvoidEyeContact,	// regard fuyant
+			SeekReassurance,	// chercher du réconfort (regarder le médecin)
+			Wince,				// grimace de douleur réflexe (très court)
+			Microexpression,	// expression fugace involontaire
+			Cry,				// pleurer
+			Guard,				// se protéger avec le bras / bras croisés
+		};
 
-        struct NkBehaviorIntent {
-            NkIntentType type;
-            nk_float32   priority  = 0.f; // 0–1 (1 = urgent/involontaire)
-            nk_float32   intensity = 0.f; // 0–1
-            nk_float32   duration  = 0.f; // secondes
-            NkString     data;            // texte si Speak, etc.
-            bool         isInvoluntary = false; // réflexe = non filtrable par personnalité
-        };
+		struct NkBehaviorIntent {
+				NkIntentType type;
+				nk_float32 priority = 0.f;	// 0–1 (1 = urgent/involontaire)
+				nk_float32 intensity = 0.f; // 0–1
+				nk_float32 duration = 0.f;	// secondes
+				NkString data;				// texte si Speak, etc.
+				bool isInvoluntary = false; // réflexe = non filtrable par personnalité
+		};
 
-        // =====================================================================
-        // NkBehaviorOutput — sortie du système de comportement
-        // =====================================================================
-        struct NkBehaviorOutput {
-            // Expression faciale cible
-            struct FaceTarget {
-                nk_uint8   auId      = 0;
-                nk_float32 intensity = 0.f;
-                nk_float32 duration  = 0.f; // 0 = persistant
-                bool       isFlash   = false; // micro-expression (<300ms)
-            };
-            NkVector<FaceTarget> faceTargets;
+		// =====================================================================
+		// NkBehaviorOutput — sortie du système de comportement
+		// =====================================================================
+		struct NkBehaviorOutput {
+				// Expression faciale cible
+				struct FaceTarget {
+						nk_uint8 auId = 0;
+						nk_float32 intensity = 0.f;
+						nk_float32 duration = 0.f; // 0 = persistant
+						bool isFlash = false;	   // micro-expression (<300ms)
+				};
 
-            // Corps
-            nk_uint8   targetPose    = 0;    // NkBodyPose
-            nk_float32 poseBlendTime = 0.5f;
-            bool       reachForPain  = false;
-            NkVec3f    painSite;             // position 3D du site douloureux
+				NkVector<FaceTarget> faceTargets;
 
-            // Regard
-            nk_float32 gazeYaw   = 0.f;
-            nk_float32 gazePitch = 0.f;
-            bool       avoidEyeContact = false;
+				// Corps
+				nk_uint8 targetPose = 0; // NkBodyPose
+				nk_float32 poseBlendTime = 0.5f;
+				bool reachForPain = false;
+				NkVec3f painSite; // position 3D du site douloureux
 
-            // Parole
-            NkString   speechText;
-            bool       shouldSpeak = false;
+				// Regard
+				nk_float32 gazeYaw = 0.f;
+				nk_float32 gazePitch = 0.f;
+				bool avoidEyeContact = false;
 
-            // Pleurs
-            bool       crying = false;
-            nk_float32 cryIntensity = 0.f;
+				// Parole
+				NkString speechText;
+				bool shouldSpeak = false;
 
-            // Asymétrie faciale (appliquée par NkFaceController)
-            nk_float32 asymmetry = 0.f; // [−1, 1] : gauche vs droite dominant
-        };
+				// Pleurs
+				bool crying = false;
+				nk_float32 cryIntensity = 0.f;
 
-        // =====================================================================
-        // NkHumanoidBehavior — noyau de décision
-        // =====================================================================
-        class NkHumanoidBehavior {
-        public:
-            NkHumanoidBehavior() = default;
+				// Asymétrie faciale (appliquée par NkFaceController)
+				nk_float32 asymmetry = 0.f; // [−1, 1] : gauche vs droite dominant
+		};
 
-            void Init(const NkPersonality& personality) noexcept;
+		// =====================================================================
+		// NkHumanoidBehavior — noyau de décision
+		// =====================================================================
+		class NkHumanoidBehavior {
+			public:
+				NkHumanoidBehavior() = default;
 
-            // ── Stimuli ───────────────────────────────────────────────────────
-            // Ajouter un stimulus (depuis PatientLayer, SceneScript, etc.)
-            void AddStimulus(const NkStimulus& s) noexcept;
+				void Init(const NkPersonality &personality) noexcept;
 
-            // Raccourcis cliniques
-            void OnPain(nk_float32 intensity) noexcept;
-            void OnQuestion(const char* text)  noexcept;
-            void OnTouch(nk_float32 intensity, bool isMedical = true) noexcept;
-            void OnNegativeNews(nk_float32 severity) noexcept;
-            void OnReassurance() noexcept;
+				// ── Stimuli ───────────────────────────────────────────────────────
+				// Ajouter un stimulus (depuis PatientLayer, SceneScript, etc.)
+				void AddStimulus(const NkStimulus &s) noexcept;
 
-            // ── Update ────────────────────────────────────────────────────────
-            // dt : temps depuis la dernière frame
-            // clinicalState : état clinique courant (depuis DiagnosticEngine)
-            void Update(nk_float32 dt,
-                        nk_float32 painLevel,
-                        nk_float32 anxietyLevel,
-                        nk_float32 fatigueLevel) noexcept;
+				// Raccourcis cliniques
+				void OnPain(nk_float32 intensity) noexcept;
+				void OnQuestion(const char *text) noexcept;
+				void OnTouch(nk_float32 intensity, bool isMedical = true) noexcept;
+				void OnNegativeNews(nk_float32 severity) noexcept;
+				void OnReassurance() noexcept;
 
-            // ── Sortie ────────────────────────────────────────────────────────
-            const NkBehaviorOutput& GetOutput() const noexcept { return mOutput; }
+				// ── Update ────────────────────────────────────────────────────────
+				// dt : temps depuis la dernière frame
+				// clinicalState : état clinique courant (depuis DiagnosticEngine)
+				void Update(nk_float32 dt, nk_float32 painLevel, nk_float32 anxietyLevel,
+							nk_float32 fatigueLevel) noexcept;
 
-            // ── Accès mémoire ─────────────────────────────────────────────────
-            // Fait le personnage se souvenir de cet événement
-            void RememberEvent(const char* key, nk_float32 valence) noexcept;
-            nk_float32 RecallEvent(const char* key) const noexcept;
+				// ── Sortie ────────────────────────────────────────────────────────
+				const NkBehaviorOutput &GetOutput() const noexcept {
+					return mOutput;
+				}
 
-        private:
-            // ── Étapes du pipeline de décision ───────────────────────────────
-            void ProcessStimuli() noexcept;
-            void EvaluateIntentions(nk_float32 pain,
-                                    nk_float32 anxiety,
-                                    nk_float32 fatigue) noexcept;
-            void FilterByPersonality() noexcept;
-            void FilterByRole()        noexcept;
-            void EmitBehaviors()       noexcept;
+				// ── Accès mémoire ─────────────────────────────────────────────────
+				// Fait le personnage se souvenir de cet événement
+				void RememberEvent(const char *key, nk_float32 valence) noexcept;
+				nk_float32 RecallEvent(const char *key) const noexcept;
 
-            // ── Générateurs d'intentions ──────────────────────────────────────
-            void GeneratePainResponse    (nk_float32 pain)    noexcept;
-            void GenerateAnxietyResponse (nk_float32 anxiety) noexcept;
-            void GenerateFatigueResponse (nk_float32 fatigue) noexcept;
-            void GenerateMicroexpressions(nk_float32 dt)      noexcept;
-            void GenerateIdleBehaviors   (nk_float32 dt)      noexcept;
+			private:
+				// ── Étapes du pipeline de décision ───────────────────────────────
+				void ProcessStimuli() noexcept;
+				void EvaluateIntentions(nk_float32 pain, nk_float32 anxiety, nk_float32 fatigue) noexcept;
+				void FilterByPersonality() noexcept;
+				void FilterByRole() noexcept;
+				void EmitBehaviors() noexcept;
 
-            // ── État interne ──────────────────────────────────────────────────
-            NkPersonality                mPersonality;
-            NkVector<NkStimulus>         mStimuli;       // file de stimuli
-            NkVector<NkBehaviorIntent>   mIntentions;    // intentions générées
-            NkBehaviorOutput             mOutput;
+				// ── Générateurs d'intentions ──────────────────────────────────────
+				void GeneratePainResponse(nk_float32 pain) noexcept;
+				void GenerateAnxietyResponse(nk_float32 anxiety) noexcept;
+				void GenerateFatigueResponse(nk_float32 fatigue) noexcept;
+				void GenerateMicroexpressions(nk_float32 dt) noexcept;
+				void GenerateIdleBehaviors(nk_float32 dt) noexcept;
 
-            // Timers comportementaux
-            nk_float32 mMicroExprTimer   = 0.f;
-            nk_float32 mIdleTimer        = 0.f;
-            nk_float32 mGazeSaccadeTimer = 0.f;
-            nk_float32 mCryTimer         = 0.f;
+				// ── État interne ──────────────────────────────────────────────────
+				NkPersonality mPersonality;
+				NkVector<NkStimulus> mStimuli;			// file de stimuli
+				NkVector<NkBehaviorIntent> mIntentions; // intentions générées
+				NkBehaviorOutput mOutput;
 
-            // État émotionnel résiduel (pas la FSM, la mémoire courte)
-            nk_float32 mResidualPain     = 0.f; // douleur perçue (lissée)
-            nk_float32 mResidualAnxiety  = 0.f;
+				// Timers comportementaux
+				nk_float32 mMicroExprTimer = 0.f;
+				nk_float32 mIdleTimer = 0.f;
+				nk_float32 mGazeSaccadeTimer = 0.f;
+				nk_float32 mCryTimer = 0.f;
 
-            // Mémoire épisodique simple : key → valence émotionnelle [-1, 1]
-            struct MemoryEntry {
-                char       key[64] = {};
-                nk_float32 valence = 0.f;
-                nk_float32 decay   = 0.f; // vitesse d'oubli
-            };
-            static constexpr nk_uint32 kMaxMemories = 32;
-            MemoryEntry mMemories[kMaxMemories] = {};
-            nk_uint32   mMemoryCount = 0;
-        };
+				// État émotionnel résiduel (pas la FSM, la mémoire courte)
+				nk_float32 mResidualPain = 0.f; // douleur perçue (lissée)
+				nk_float32 mResidualAnxiety = 0.f;
 
-    } // namespace humanoid
+				// Mémoire épisodique simple : key → valence émotionnelle [-1, 1]
+				struct MemoryEntry {
+						char key[64] = {};
+						nk_float32 valence = 0.f;
+						nk_float32 decay = 0.f; // vitesse d'oubli
+				};
+
+				static constexpr nk_uint32 kMaxMemories = 32;
+				MemoryEntry mMemories[kMaxMemories] = {};
+				nk_uint32 mMemoryCount = 0;
+		};
+
+	} // namespace humanoid
 } // namespace nkentseu

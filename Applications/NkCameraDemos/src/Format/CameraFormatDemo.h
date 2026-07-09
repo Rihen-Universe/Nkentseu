@@ -11,9 +11,9 @@
 #include "NKWindow/Core/NkEntry.h"
 
 namespace nkentseu {
-    namespace cameradem {
+	namespace cameradem {
 
-        int RunCameraFormatDemo(const NkEntryState& state);
+		int RunCameraFormatDemo(const NkEntryState &state);
 
-    } // namespace cameradem
+	} // namespace cameradem
 } // namespace nkentseu

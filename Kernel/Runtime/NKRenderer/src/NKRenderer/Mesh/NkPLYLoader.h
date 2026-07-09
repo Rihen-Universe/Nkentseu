@@ -16,7 +16,7 @@
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
-    namespace renderer {
-        bool LoadPLY(const NkString& path, NkGLTFMeshData& out);
-    }
-}
+	namespace renderer {
+		bool LoadPLY(const NkString &path, NkGLTFMeshData &out);
+	}
+} // namespace nkentseu

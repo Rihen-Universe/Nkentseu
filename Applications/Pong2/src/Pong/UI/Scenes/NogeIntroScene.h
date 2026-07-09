@@ -18,32 +18,31 @@
 #include "Pong/UI/Scene.h"
 #include "Pong/Render/Texture2D.h"
 
-namespace nkentseu
-{
-    namespace pong
-    {
+namespace nkentseu {
+	namespace pong {
 
-        class NogeIntroScene : public Scene
-        {
-        public:
-            NogeIntroScene()  = default;
-            ~NogeIntroScene() override = default;
+		class NogeIntroScene : public Scene {
+			public:
+				NogeIntroScene() = default;
+				~NogeIntroScene() override = default;
 
-            const char* Name() const noexcept override { return "NogeIntro"; }
+				const char *Name() const noexcept override {
+					return "NogeIntro";
+				}
 
-            void OnEnter(AppContext& ctx) override;
-            void OnExit(AppContext& ctx) override;
-            void OnUpdate(AppContext& ctx, float dt) override;
-            void OnRender(AppContext& ctx) override;
+				void OnEnter(AppContext &ctx) override;
+				void OnExit(AppContext &ctx) override;
+				void OnUpdate(AppContext &ctx, float dt) override;
+				void OnRender(AppContext &ctx) override;
 
-        private:
-            float     mTime = 0.0f;
-            bool      mDone = false;
-            // Logo Rihen affiche statique en bas de l'ecran (signature
-            // designer). Charge depuis Resources/Pong/Textures/logo.png.
-            Texture2D mRihenLogo;
-            bool      mRihenLogoLoaded = false;
-        };
+			private:
+				float mTime = 0.0f;
+				bool mDone = false;
+				// Logo Rihen affiche statique en bas de l'ecran (signature
+				// designer). Charge depuis Resources/Pong/Textures/logo.png.
+				Texture2D mRihenLogo;
+				bool mRihenLogoLoaded = false;
+		};
 
-    } // namespace pong
+	} // namespace pong
 } // namespace nkentseu

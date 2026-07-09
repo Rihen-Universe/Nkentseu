@@ -12,17 +12,15 @@
 
 namespace nkentseu {
 
-    // Résultat d'une compilation GLSL → SPIR-V
-    struct NkGLSLCompileResult {
-        bool             success  = false;
-        NkVector<uint32> spirv;          // mots SPIR-V (vides si échec)
-        const char*      errorLog = nullptr; // pointeur vers buffer statique interne
-    };
+	// Résultat d'une compilation GLSL → SPIR-V
+	struct NkGLSLCompileResult {
+			bool success = false;
+			NkVector<uint32> spirv;			// mots SPIR-V (vides si échec)
+			const char *errorLog = nullptr; // pointeur vers buffer statique interne
+	};
 
-    NkGLSLCompileResult NkGLSLToSPIRV(NkSLStage stage,
-                                       const char*   glslSrc,
-                                       const char*   entry = "main");
-    void NkGLSLCompilerInit();
-    void NkGLSLCompilerShutdown();
+	NkGLSLCompileResult NkGLSLToSPIRV(NkSLStage stage, const char *glslSrc, const char *entry = "main");
+	void NkGLSLCompilerInit();
+	void NkGLSLCompilerShutdown();
 
 } // namespace nkentseu

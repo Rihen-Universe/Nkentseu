@@ -12,11 +12,11 @@
 #include "NKWindow/Core/NkEntry.h"
 
 namespace nkentseu {
-    namespace cameradem {
+	namespace cameradem {
 
-        // Entree principale de la demo viewer. La signature reproduit nkmain
-        // pour conserver state.args si la demo veut parser des sous-options.
-        int RunCameraViewerDemo(const NkEntryState& state);
+		// Entree principale de la demo viewer. La signature reproduit nkmain
+		// pour conserver state.args si la demo veut parser des sous-options.
+		int RunCameraViewerDemo(const NkEntryState &state);
 
-    } // namespace cameradem
+	} // namespace cameradem
 } // namespace nkentseu

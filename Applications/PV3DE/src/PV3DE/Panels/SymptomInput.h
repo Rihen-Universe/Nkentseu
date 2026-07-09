@@ -17,70 +17,68 @@
 #include "PV3DE/Diagnostic/NkDiagnosticEngine.h"
 
 namespace nkentseu {
-    namespace pv3de {
+	namespace pv3de {
 
-        class PatientLayer; // forward
+		class PatientLayer; // forward
 
-        class SymptomInputPanel {
-        public:
-            SymptomInputPanel() = default;
+		class SymptomInputPanel {
+			public:
+				SymptomInputPanel() = default;
 
-            void Init(const NkDiagnosticEngine* engine) noexcept;
+				void Init(const NkDiagnosticEngine *engine) noexcept;
 
-            void Render(nkui::NkUIContext& ctx,
-                        nkui::NkUIWindowManager& wm,
-                        nkui::NkUIDrawList& dl,
-                        nkui::NkUIFont& font,
-                        nkui::NkUILayoutStack& ls,
-                        PatientLayer& patient,
-                        nkui::NkUIRect rect) noexcept;
+				void Render(nkui::NkUIContext &ctx, nkui::NkUIWindowManager &wm, nkui::NkUIDrawList &dl,
+							nkui::NkUIFont &font, nkui::NkUILayoutStack &ls, PatientLayer &patient,
+							nkui::NkUIRect rect) noexcept;
 
-            // Constantes vitales saisies
-            nk_float32 GetHeartRate()    const noexcept { return mHR;   }
-            nk_float32 GetTemperature()  const noexcept { return mTemp; }
-            nk_float32 GetSpO2()         const noexcept { return mSpO2; }
+				// Constantes vitales saisies
+				nk_float32 GetHeartRate() const noexcept {
+					return mHR;
+				}
 
-        private:
-            void RenderVitalSigns(nkui::NkUIContext& ctx,
-                                   nkui::NkUIDrawList& dl,
-                                   nkui::NkUIFont& font,
-                                   nkui::NkUILayoutStack& ls,
-                                   PatientLayer& patient) noexcept;
+				nk_float32 GetTemperature() const noexcept {
+					return mTemp;
+				}
 
-            void RenderSymptomList(nkui::NkUIContext& ctx,
-                                    nkui::NkUIDrawList& dl,
-                                    nkui::NkUIFont& font,
-                                    nkui::NkUILayoutStack& ls,
-                                    PatientLayer& patient) noexcept;
+				nk_float32 GetSpO2() const noexcept {
+					return mSpO2;
+				}
 
-            struct SymptomEntry {
-                NkSymptomId id;
-                NkString    name;
-                NkString    category;
-                bool        active = false;
-            };
+			private:
+				void RenderVitalSigns(nkui::NkUIContext &ctx, nkui::NkUIDrawList &dl, nkui::NkUIFont &font,
+									  nkui::NkUILayoutStack &ls, PatientLayer &patient) noexcept;
 
-            NkVector<SymptomEntry> mSymptoms;
-            char    mSearchBuf[128] = {};
-            bool    mSearchActive   = false;
+				void RenderSymptomList(nkui::NkUIContext &ctx, nkui::NkUIDrawList &dl, nkui::NkUIFont &font,
+									   nkui::NkUILayoutStack &ls, PatientLayer &patient) noexcept;
 
-            // Constantes vitales
-            nk_float32 mHR    = 72.f;
-            nk_float32 mTemp  = 37.0f;
-            nk_float32 mSpO2  = 98.f;
+				struct SymptomEntry {
+						NkSymptomId id;
+						NkString name;
+						NkString category;
+						bool active = false;
+				};
 
-            // Auto-apply : applique les changements dès le toggle
-            bool mAutoApply = true;
+				NkVector<SymptomEntry> mSymptoms;
+				char mSearchBuf[128] = {};
+				bool mSearchActive = false;
 
-            // Catégories ouvertes
-            static constexpr nk_uint32 kMaxCats = 16;
-            char     mCatNames[kMaxCats][32] = {};
-            bool     mCatOpen[kMaxCats]      = {};
-            nk_uint32 mCatCount              = 0;
+				// Constantes vitales
+				nk_float32 mHR = 72.f;
+				nk_float32 mTemp = 37.0f;
+				nk_float32 mSpO2 = 98.f;
 
-            bool IsCatOpen(const char* cat) noexcept;
-            void SetCatOpen(const char* cat, bool open) noexcept;
-        };
+				// Auto-apply : applique les changements dès le toggle
+				bool mAutoApply = true;
 
-    } // namespace pv3de
+				// Catégories ouvertes
+				static constexpr nk_uint32 kMaxCats = 16;
+				char mCatNames[kMaxCats][32] = {};
+				bool mCatOpen[kMaxCats] = {};
+				nk_uint32 mCatCount = 0;
+
+				bool IsCatOpen(const char *cat) noexcept;
+				void SetCatOpen(const char *cat, bool open) noexcept;
+		};
+
+	} // namespace pv3de
 } // namespace nkentseu

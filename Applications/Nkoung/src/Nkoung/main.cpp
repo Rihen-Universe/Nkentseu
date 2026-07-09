@@ -11,23 +11,23 @@ using namespace nkentseu;
 using namespace nkoung;
 
 NKENTSEU_DEFINE_APP_DATA(([]() {
-    NkAppData d{};
-    d.appName = "Nkoung";
-    d.appVersion = "0.2.0";
-    return d;
+	NkAppData d{};
+	d.appName = "Nkoung";
+	d.appVersion = "0.2.0";
+	return d;
 })());
 
-int nkmain(const NkEntryState& state) {
-    logger.Infof("%s v%s demarrage", globals::PLATFORM_NAME, globals::PLATFORM_VERSION);
+int nkmain(const NkEntryState &state) {
+	logger.Infof("%s v%s demarrage", globals::PLATFORM_NAME, globals::PLATFORM_VERSION);
 
-    NkoungPlatformApp app;
-    if (!app.Initialize(state)) {
-        logger.Error("Impossible d'initialiser la plateforme Nkoung");
-        return -1;
-    }
+	NkoungPlatformApp app;
+	if (!app.Initialize(state)) {
+		logger.Error("Impossible d'initialiser la plateforme Nkoung");
+		return -1;
+	}
 
-    int exitCode = app.Run();
-    logger.Infof("%s execution terminee (code: %d)", globals::PLATFORM_NAME, exitCode);
+	int exitCode = app.Run();
+	logger.Infof("%s execution terminee (code: %d)", globals::PLATFORM_NAME, exitCode);
 
-    return exitCode;
+	return exitCode;
 }

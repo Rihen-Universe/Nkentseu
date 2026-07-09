@@ -8,59 +8,60 @@
 #if defined(NKENTSEU_PLATFORM_UWP)
 
 #include "NKEvent/NkEventSystem.h"
-#include "NKMemory/NkAllocator.h"   // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
+#include "NKMemory/NkAllocator.h" // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 #define NKENTSEU_UWP_RUNTIME_ONLY 1
 #include "NKWindow/EntryPoints/NkUWP.h"
 
 namespace nkentseu {
-    using namespace math;
+	using namespace math;
 
-    bool NkEventSystem::Init() {
-        if (mReady) {
-            return true;
-        }
+	bool NkEventSystem::Init() {
+		if (mReady) {
+			return true;
+		}
 
-        mData = memory::NkGetDefaultAllocator().New<NkEventSystemData>();
-        if (mData == nullptr) return false;
+		mData = memory::NkGetDefaultAllocator().New<NkEventSystemData>();
+		if (mData == nullptr)
+			return false;
 
-        mTotalEventCount = 0;
-        {
-            NkScopedSpinLock lock(mQueueMutex);
-            mEventQueue.Clear();
-        }
+		mTotalEventCount = 0;
+		{
+			NkScopedSpinLock lock(mQueueMutex);
+			mEventQueue.Clear();
+		}
 
-        if (!NkUWPIsCoreWindowReady()) {
-            mData.mInitialized = false;
-            return false;
-        }
+		if (!NkUWPIsCoreWindowReady()) {
+			mData.mInitialized = false;
+			return false;
+		}
 
-        mPumping = false;
-        mReady = true;
-        mData.mInitialized = true;
-        return true;
-    }
+		mPumping = false;
+		mReady = true;
+		mData.mInitialized = true;
+		return true;
+	}
 
-    void NkEventSystem::Shutdown() {
-        memory::NkGetDefaultAllocator().Delete(mData);
-        mData = nullptr;
-    }
+	void NkEventSystem::Shutdown() {
+		memory::NkGetDefaultAllocator().Delete(mData);
+		mData = nullptr;
+	}
 
-    void NkEventSystem::PumpOS() {
-        if (mPumping || !mReady) {
-            return;
-        }
-        mPumping = true;
-        NkUWPPumpSystemEvents();
-        mPumping = false;
-    }
+	void NkEventSystem::PumpOS() {
+		if (mPumping || !mReady) {
+			return;
+		}
+		mPumping = true;
+		NkUWPPumpSystemEvents();
+		mPumping = false;
+	}
 
-    const char* NkEventSystem::GetPlatformName() const noexcept {
-        return "UWP";
-    }
+	const char *NkEventSystem::GetPlatformName() const noexcept {
+		return "UWP";
+	}
 
-    void NkEventSystem::Enqueue_Public(NkEvent& evt, NkWindowId winId) {
-        Enqueue(evt, winId);
-    }
+	void NkEventSystem::Enqueue_Public(NkEvent &evt, NkWindowId winId) {
+		Enqueue(evt, winId);
+	}
 
 } // namespace nkentseu
 

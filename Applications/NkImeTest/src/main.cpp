@@ -21,61 +21,62 @@
 #define IMELOG(...) __android_log_print(ANDROID_LOG_INFO, "NKIME", __VA_ARGS__)
 #else
 #include <cstdio>
-#define IMELOG(...) do { printf("[NKIME] "); printf(__VA_ARGS__); printf("\n"); fflush(stdout); } while (0)
+#define IMELOG(...)                                                                                                    \
+	do {                                                                                                               \
+		printf("[NKIME] ");                                                                                            \
+		printf(__VA_ARGS__);                                                                                           \
+		printf("\n");                                                                                                  \
+		fflush(stdout);                                                                                                \
+	} while (0)
 #endif
 
 using namespace nkentseu;
 
 NKENTSEU_DEFINE_APP_DATA(([]() {
-    NkAppData d{};
-    d.appName = "NkImeTest";
-    d.appVersion = "0.1.0";
-    return d;
+	NkAppData d{};
+	d.appName = "NkImeTest";
+	d.appVersion = "0.1.0";
+	return d;
 })());
 
-int nkmain(const NkEntryState& state) {
-    (void)state;
-    IMELOG("start");
+int nkmain(const NkEntryState &state) {
+	(void)state;
+	IMELOG("start");
 
-    NkWindowConfig cfg;
-    cfg.title = "IME Test";
-    NkWindow window;
-    if (!window.Create(cfg)) {
-        IMELOG("window create FAILED");
-        return -1;
-    }
-    IMELOG("window created id=%llu", (unsigned long long)window.GetId());
+	NkWindowConfig cfg;
+	cfg.title = "IME Test";
+	NkWindow window;
+	if (!window.Create(cfg)) {
+		IMELOG("window create FAILED");
+		return -1;
+	}
+	IMELOG("window created id=%llu", (unsigned long long)window.GetId());
 
-    auto& ev = NkEvents();
+	auto &ev = NkEvents();
 
-    ev.AddEventCallback<NkWindowCloseEvent>([&](NkWindowCloseEvent*) {
-        window.Close();
-    });
+	ev.AddEventCallback<NkWindowCloseEvent>([&](NkWindowCloseEvent *) { window.Close(); });
 
-    // Le cœur du test : caractères Unicode remontés par l'IME.
-    ev.AddEventCallback<NkTextInputEvent>([&](NkTextInputEvent* e) {
-        IMELOG("TEXT U+%04X utf8='%s'", (unsigned)e->GetCodepoint(), e->GetUtf8());
-    });
+	// Le cœur du test : caractères Unicode remontés par l'IME.
+	ev.AddEventCallback<NkTextInputEvent>(
+		[&](NkTextInputEvent *e) { IMELOG("TEXT U+%04X utf8='%s'", (unsigned)e->GetCodepoint(), e->GetUtf8()); });
 
-    // Touches spéciales (Backspace, Enter, Tab...).
-    ev.AddEventCallback<NkKeyPressEvent>([&](NkKeyPressEvent* e) {
-        IMELOG("KEY %s", NkKeyToString(e->GetKey()));
-    });
+	// Touches spéciales (Backspace, Enter, Tab...).
+	ev.AddEventCallback<NkKeyPressEvent>([&](NkKeyPressEvent *e) { IMELOG("KEY %s", NkKeyToString(e->GetKey())); });
 
-    // Toucher l'écran (ré)affiche le clavier.
-    ev.AddEventCallback<NkTouchBeginEvent>([&](NkTouchBeginEvent*) {
-        window.ShowSoftKeyboard(NkWindow::NkSoftKeyboardConfig{});
-        IMELOG("touch -> ShowSoftKeyboard");
-    });
+	// Toucher l'écran (ré)affiche le clavier.
+	ev.AddEventCallback<NkTouchBeginEvent>([&](NkTouchBeginEvent *) {
+		window.ShowSoftKeyboard(NkWindow::NkSoftKeyboardConfig{});
+		IMELOG("touch -> ShowSoftKeyboard");
+	});
 
-    // Affiche le clavier dès le lancement.
-    window.ShowSoftKeyboard(NkWindow::NkSoftKeyboardConfig{});
-    IMELOG("keyboard requested (visible=%d)", (int)window.IsSoftKeyboardVisible());
+	// Affiche le clavier dès le lancement.
+	window.ShowSoftKeyboard(NkWindow::NkSoftKeyboardConfig{});
+	IMELOG("keyboard requested (visible=%d)", (int)window.IsSoftKeyboardVisible());
 
-    while (window.IsOpen()) {
-        ev.PollEvents();
-    }
+	while (window.IsOpen()) {
+		ev.PollEvents();
+	}
 
-    IMELOG("end");
-    return 0;
+	IMELOG("end");
+	return 0;
 }

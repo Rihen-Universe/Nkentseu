@@ -6,16 +6,22 @@
 
 #include "Songoo/UI/Scene.h"
 
-namespace nkentseu { namespace songoo {
+namespace nkentseu {
+	namespace songoo {
 
-    class NogeIntroScene : public Scene {
-    public:
-        const char* Name() const noexcept override { return "NogeIntro"; }
-        void OnUpdate(AppContext& ctx, float dt) override;
-        void OnRender(AppContext& ctx) override;
-    private:
-        float mTime = 0.f;
-        static constexpr float kDuration = 2.0f;
-    };
+		class NogeIntroScene : public Scene {
+			public:
+				const char *Name() const noexcept override {
+					return "NogeIntro";
+				}
 
-}} // namespace nkentseu::songoo
+				void OnUpdate(AppContext &ctx, float dt) override;
+				void OnRender(AppContext &ctx) override;
+
+			private:
+				float mTime = 0.f;
+				static constexpr float kDuration = 2.0f;
+		};
+
+	} // namespace songoo
+} // namespace nkentseu

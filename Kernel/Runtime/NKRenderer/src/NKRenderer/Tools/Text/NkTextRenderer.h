@@ -21,126 +21,121 @@
 #include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NKRHI/Core/NkIDevice.h"
-#include "NKFont/NkFont.h"           // NKFont backend
+#include "NKFont/NkFont.h" // NKFont backend
 // Suppress Win32 GDI macro that maps DrawText → DrawTextW/A
 #ifdef DrawText
-#  undef DrawText
+#undef DrawText
 #endif
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        class NkRender2D;
-        class NkRender3D;
-        class NkMeshSystem;
+		class NkRender2D;
+		class NkRender3D;
+		class NkMeshSystem;
 
-        // =========================================================================
-        // Callbacks pour backend de texte custom (FreeType, DirectWrite, etc.)
-        // =========================================================================
-        using NkTextLoadFn    = bool(*)(const char* path, float32 sizePx, void* user, void** outHandle);
-        using NkTextGlyphFn   = bool(*)(void* handle, uint32 cp, uint8* atlasPx, int32 atlasW,
-                                        int32 ax, int32 ay, int32 gw, int32 gh, void* user,
-                                        float32* outAx, float32* outU0, float32* outV0,
-                                        float32* outU1, float32* outV1,
-                                        float32* outX0, float32* outY0,
-                                        float32* outX1, float32* outY1);
-        using NkTextMetricsFn = void(*)(void* handle, void* user,
-                                        float32* outAscent, float32* outDescent, float32* outLineH);
-        using NkTextDestroyFn = void(*)(void* handle, void* user);
+		// =========================================================================
+		// Callbacks pour backend de texte custom (FreeType, DirectWrite, etc.)
+		// =========================================================================
+		using NkTextLoadFn = bool (*)(const char *path, float32 sizePx, void *user, void **outHandle);
+		using NkTextGlyphFn = bool (*)(void *handle, uint32 cp, uint8 *atlasPx, int32 atlasW, int32 ax, int32 ay,
+									   int32 gw, int32 gh, void *user, float32 *outAx, float32 *outU0, float32 *outV0,
+									   float32 *outU1, float32 *outV1, float32 *outX0, float32 *outY0, float32 *outX1,
+									   float32 *outY1);
+		using NkTextMetricsFn = void (*)(void *handle, void *user, float32 *outAscent, float32 *outDescent,
+										 float32 *outLineH);
+		using NkTextDestroyFn = void (*)(void *handle, void *user);
 
-        struct NkTextFontLoaderDesc {
-            NkTextLoadFn    Load     = nullptr;
-            NkTextGlyphFn   GetGlyph = nullptr;
-            NkTextMetricsFn Metrics  = nullptr;
-            NkTextDestroyFn Destroy  = nullptr;
-            void*           userData = nullptr;
-            bool IsValid() const { return Load && GetGlyph && Metrics && Destroy; }
-        };
+		struct NkTextFontLoaderDesc {
+				NkTextLoadFn Load = nullptr;
+				NkTextGlyphFn GetGlyph = nullptr;
+				NkTextMetricsFn Metrics = nullptr;
+				NkTextDestroyFn Destroy = nullptr;
+				void *userData = nullptr;
 
-        // =========================================================================
-        // NkFontEntry — police chargée (NKFont ou custom)
-        // =========================================================================
-        struct NkFontEntry {
-            NkFontHandle    handle;
-            NkTexHandle     atlasTexture;
-            bool            isSDF    = false;
-            bool            isCustom = false;
-            float32         sizePixels = 16.f;
-            float32         ascent    = 0.f;
-            float32         descent   = 0.f;
-            float32         lineH     = 0.f;
+				bool IsValid() const {
+					return Load && GetGlyph && Metrics && Destroy;
+				}
+		};
 
-            // NKFont backend
-            NkFont*         nkfFont  = nullptr;
-            NkFontAtlas*    nkfAtlas = nullptr;
+		// =========================================================================
+		// NkFontEntry — police chargée (NKFont ou custom)
+		// =========================================================================
+		struct NkFontEntry {
+				NkFontHandle handle;
+				NkTexHandle atlasTexture;
+				bool isSDF = false;
+				bool isCustom = false;
+				float32 sizePixels = 16.f;
+				float32 ascent = 0.f;
+				float32 descent = 0.f;
+				float32 lineH = 0.f;
 
-            // Custom backend
-            void*                mHandle = nullptr;
-            NkTextFontLoaderDesc mCustom;
-        };
+				// NKFont backend
+				NkFont *nkfFont = nullptr;
+				NkFontAtlas *nkfAtlas = nullptr;
 
-        // =========================================================================
-        // NkTextRenderer
-        // =========================================================================
-        class NkTextRenderer {
-        public:
-            NkTextRenderer() = default;
-            ~NkTextRenderer();
+				// Custom backend
+				void *mHandle = nullptr;
+				NkTextFontLoaderDesc mCustom;
+		};
 
-            bool Init(NkIDevice* device, NkTextureLibrary* texLib, NkRender2D* r2d);
-            void Shutdown();
+		// =========================================================================
+		// NkTextRenderer
+		// =========================================================================
+		class NkTextRenderer {
+			public:
+				NkTextRenderer() = default;
+				~NkTextRenderer();
 
-            // ── Chargement de polices ─────────────────────────────────────────────
-            // Backend NKFont (défaut)
-            NkFontHandle LoadFont(const char* path, float32 sizePx, bool sdf = false);
-            NkFontHandle LoadFontFromMemory(const uint8* data, uint32 size,
-                                            float32 sizePx, bool sdf = false);
-            // Police embarquée (NKFont default font)
-            NkFontHandle GetDefaultFont();
+				bool Init(NkIDevice *device, NkTextureLibrary *texLib, NkRender2D *r2d);
+				void Shutdown();
 
-            // Backend custom
-            NkFontHandle LoadFontCustom(const char* path, float32 sizePx,
-                                        const NkTextFontLoaderDesc& desc);
+				// ── Chargement de polices ─────────────────────────────────────────────
+				// Backend NKFont (défaut)
+				NkFontHandle LoadFont(const char *path, float32 sizePx, bool sdf = false);
+				NkFontHandle LoadFontFromMemory(const uint8 *data, uint32 size, float32 sizePx, bool sdf = false);
+				// Police embarquée (NKFont default font)
+				NkFontHandle GetDefaultFont();
 
-            void         UnloadFont(NkFontHandle& handle);
+				// Backend custom
+				NkFontHandle LoadFontCustom(const char *path, float32 sizePx, const NkTextFontLoaderDesc &desc);
 
-            // ── Rendu 2D (délègue à NkRender2D) ──────────────────────────────────
-            void DrawText(NkVec2f pos, const char* text, NkFontHandle font,
-                        float32 size, uint32 colorRGBA = 0xFFFFFFFF);
-            void DrawTextCentered(NkRectF bounds, const char* text, NkFontHandle font,
-                                float32 size, uint32 colorRGBA = 0xFFFFFFFF);
-            void DrawTextWorld(NkVec3f worldPos, const NkMat4f& viewProj,
-                                uint32 vpW, uint32 vpH,
-                                const char* text, NkFontHandle font,
-                                float32 size, uint32 colorRGBA = 0xFFFFFFFF);
+				void UnloadFont(NkFontHandle &handle);
 
-            // ── Mesure ────────────────────────────────────────────────────────────
-            NkVec2f CalcTextSize(const char* text, NkFontHandle font, float32 size) const;
-            float32 CalcTextWidth(const char* text, NkFontHandle font, float32 size) const;
+				// ── Rendu 2D (délègue à NkRender2D) ──────────────────────────────────
+				void DrawText(NkVec2f pos, const char *text, NkFontHandle font, float32 size,
+							  uint32 colorRGBA = 0xFFFFFFFF);
+				void DrawTextCentered(NkRectF bounds, const char *text, NkFontHandle font, float32 size,
+									  uint32 colorRGBA = 0xFFFFFFFF);
+				void DrawTextWorld(NkVec3f worldPos, const NkMat4f &viewProj, uint32 vpW, uint32 vpH, const char *text,
+								   NkFontHandle font, float32 size, uint32 colorRGBA = 0xFFFFFFFF);
 
-            // ── Extrusion 3D (via NKFont) ─────────────────────────────────────────
-            // Retourne un handle de mesh utilisable dans NkRender3D
-            NkMeshHandle ExtrudeText3D(const char* text, NkFontHandle font,
-                                        float32 scale, float32 depth,
-                                        NkMeshSystem* meshSys,
-                                        const NkMat4f& transform = NkMat4f::Identity());
+				// ── Mesure ────────────────────────────────────────────────────────────
+				NkVec2f CalcTextSize(const char *text, NkFontHandle font, float32 size) const;
+				float32 CalcTextWidth(const char *text, NkFontHandle font, float32 size) const;
 
-            // ── Flush (appelé en fin de frame par NkRendererImpl) ─────────────────
-            void FlushPending(NkICommandBuffer* cmd);
+				// ── Extrusion 3D (via NKFont) ─────────────────────────────────────────
+				// Retourne un handle de mesh utilisable dans NkRender3D
+				NkMeshHandle ExtrudeText3D(const char *text, NkFontHandle font, float32 scale, float32 depth,
+										   NkMeshSystem *meshSys, const NkMat4f &transform = NkMat4f::Identity());
 
-        private:
-            NkIDevice*        mDevice  = nullptr;
-            NkTextureLibrary* mTexLib  = nullptr;
-            NkRender2D*       mRender2D= nullptr;
-            uint64            mNextId  = 1;
+				// ── Flush (appelé en fin de frame par NkRendererImpl) ─────────────────
+				void FlushPending(NkICommandBuffer *cmd);
 
-            NkVector<NkFontEntry*> mFonts;
-            NkFontHandle           mDefaultFont;
+			private:
+				NkIDevice *mDevice = nullptr;
+				NkTextureLibrary *mTexLib = nullptr;
+				NkRender2D *mRender2D = nullptr;
+				uint64 mNextId = 1;
 
-            NkFontEntry* FindEntry(NkFontHandle h) const;
-            NkFontHandle AllocHandle();
-            bool         BuildAtlasTexture(NkFontEntry* e);
-        };
+				NkVector<NkFontEntry *> mFonts;
+				NkFontHandle mDefaultFont;
 
-    } // namespace renderer
+				NkFontEntry *FindEntry(NkFontHandle h) const;
+				NkFontHandle AllocHandle();
+				bool BuildAtlasTexture(NkFontEntry *e);
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

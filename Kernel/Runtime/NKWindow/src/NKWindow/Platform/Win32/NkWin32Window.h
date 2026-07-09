@@ -11,7 +11,7 @@
 #if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
 
 #ifndef WIN32_LEAN_AND_MEAN
-#   define WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
 #include <shobjidl.h>
@@ -20,50 +20,50 @@
 
 namespace nkentseu {
 
-    class NkWindow;
-    class NkWin32DropTarget;
+	class NkWindow;
+	class NkWin32DropTarget;
 
-    // -------------------------------------------------------------------------
-    // NkWindowData — données natives Win32 embarquées dans NkWindow (pas de pimpl)
-    // -------------------------------------------------------------------------
-    struct NkWindowData {
-        HWND           mHwnd          = nullptr;
-        HWND           mParentHwnd    = nullptr;
-        HWND           mUtilityOwner  = nullptr;
-        HINSTANCE      mHInstance     = nullptr;
-        DWORD          mDwStyle       = 0;
-        DWORD          mDwExStyle     = 0;
-        DEVMODE        mDmScreen      = {};
-        ITaskbarList3* mTaskbarList   = nullptr;
-        NkWin32DropTarget* mDropTarget = nullptr;
-        HICON          mIconSmall     = nullptr;
-        HICON          mIconBig       = nullptr;
-        WNDPROC        mPrevWndProc   = nullptr;
-        LONG_PTR       mPrevUserData  = 0;
-        bool           mExternal      = false;
-        bool           mBorderless    = false;   // frame=false : zone non-cliente supprimee (WM_NCCALCSIZE)
-        bool           mMouseTracking = false;
-        HCURSOR        mClientCursor  = nullptr;   // curseur courant de la zone client (WM_SETCURSOR)
-        NkSurfaceHints mAppliedHints{};
-    };
+	// -------------------------------------------------------------------------
+	// NkWindowData — données natives Win32 embarquées dans NkWindow (pas de pimpl)
+	// -------------------------------------------------------------------------
+	struct NkWindowData {
+			HWND mHwnd = nullptr;
+			HWND mParentHwnd = nullptr;
+			HWND mUtilityOwner = nullptr;
+			HINSTANCE mHInstance = nullptr;
+			DWORD mDwStyle = 0;
+			DWORD mDwExStyle = 0;
+			DEVMODE mDmScreen = {};
+			ITaskbarList3 *mTaskbarList = nullptr;
+			NkWin32DropTarget *mDropTarget = nullptr;
+			HICON mIconSmall = nullptr;
+			HICON mIconBig = nullptr;
+			WNDPROC mPrevWndProc = nullptr;
+			LONG_PTR mPrevUserData = 0;
+			bool mExternal = false;
+			bool mBorderless = false; // frame=false : zone non-cliente supprimee (WM_NCCALCSIZE)
+			bool mMouseTracking = false;
+			HCURSOR mClientCursor = nullptr; // curseur courant de la zone client (WM_SETCURSOR)
+			NkSurfaceHints mAppliedHints{};
+	};
 
-    // -------------------------------------------------------------------------
-    // Point 2 : registre backend Win32 — accès via fonctions, pas via extern.
-    // Les variables sWin32WindowMap et sWin32LastWindow sont static dans le .cpp
-    // et totalement invisibles depuis l'extérieur.
-    // -------------------------------------------------------------------------
+	// -------------------------------------------------------------------------
+	// Point 2 : registre backend Win32 — accès via fonctions, pas via extern.
+	// Les variables sWin32WindowMap et sWin32LastWindow sont static dans le .cpp
+	// et totalement invisibles depuis l'extérieur.
+	// -------------------------------------------------------------------------
 
-    /// Recherche une NkWindow* par son HWND — O(1) via unordered_map
-    NkWindow* NkWin32FindWindow(HWND hwnd);
+	/// Recherche une NkWindow* par son HWND — O(1) via unordered_map
+	NkWindow *NkWin32FindWindow(HWND hwnd);
 
-    /// Enregistre une association HWND → NkWindow* dans le registre backend
-    void NkWin32RegisterWindow(HWND hwnd, NkWindow* win);
+	/// Enregistre une association HWND → NkWindow* dans le registre backend
+	void NkWin32RegisterWindow(HWND hwnd, NkWindow *win);
 
-    /// Supprime l'association HWND → NkWindow* du registre backend
-    void NkWin32UnregisterWindow(HWND hwnd);
+	/// Supprime l'association HWND → NkWindow* du registre backend
+	void NkWin32UnregisterWindow(HWND hwnd);
 
-    /// Retourne la dernière fenêtre enregistrée (utile pour les messages orphelins)
-    NkWindow* NkWin32GetLastWindow();
+	/// Retourne la dernière fenêtre enregistrée (utile pour les messages orphelins)
+	NkWindow *NkWin32GetLastWindow();
 
 } // namespace nkentseu
 

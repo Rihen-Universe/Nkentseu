@@ -22,111 +22,104 @@
 #ifndef NKENTSEU_NKFILESINK_H
 #define NKENTSEU_NKFILESINK_H
 
+// -------------------------------------------------------------------------
+// SECTION 1 : EN-TÊTES ET DÉPENDANCES
+// -------------------------------------------------------------------------
+// Inclusions standards pour la gestion de fichiers et la synchronisation.
+// Dépendances projet pour l'interface de sink, le formatage et les utilitaires.
 
-	// -------------------------------------------------------------------------
-	// SECTION 1 : EN-TÊTES ET DÉPENDANCES
-	// -------------------------------------------------------------------------
-	// Inclusions standards pour la gestion de fichiers et la synchronisation.
-	// Dépendances projet pour l'interface de sink, le formatage et les utilitaires.
+#include <cstdio>
+#include <sys/stat.h>
 
-	#include <cstdio>
-	#include <sys/stat.h>
+#include "NKCore/NkTypes.h"
+#include "NKContainers/String/NkString.h"
+#include "NKMemory/NkUniquePtr.h"
+#include "NKThreading/NkMutex.h"
+#include "NKLogger/NkSink.h"
+#include "NKLogger/NkLoggerFormatter.h"
+#include "NKLogger/NkLoggerApi.h"
 
-	#include "NKCore/NkTypes.h"
-	#include "NKContainers/String/NkString.h"
-	#include "NKMemory/NkUniquePtr.h"
-	#include "NKThreading/NkMutex.h"
-	#include "NKLogger/NkSink.h"
-	#include "NKLogger/NkLoggerFormatter.h"
-	#include "NKLogger/NkLoggerApi.h"
+// -------------------------------------------------------------------------
+// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
+// -------------------------------------------------------------------------
+// Tous les symboles du module logger sont dans le namespace nkentseu.
+// Pas de sous-namespace pour simplifier l'usage et l'intégration.
 
+namespace nkentseu {
 
-	// -------------------------------------------------------------------------
-	// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
-	// -------------------------------------------------------------------------
-	// Tous les symboles du module logger sont dans le namespace nkentseu.
-	// Pas de sous-namespace pour simplifier l'usage et l'intégration.
-
-	namespace nkentseu {
-
-
-		// ---------------------------------------------------------------------
-		// CLASSE : NkFileSink
-		// DESCRIPTION : Implémentation de sink pour écriture dans un fichier
-		// ---------------------------------------------------------------------
-		/**
-		 * @class NkFileSink
-		 * @brief Sink pour l'écriture persistante des messages de log dans un fichier
-		 * @ingroup LoggerSinks
-		 *
-		 * NkFileSink fournit une destination de log vers un fichier sur disque avec :
-		 *  - Ouverture automatique du fichier à la construction
-		 *  - Création des répertoires parents si inexistants
-		 *  - Écriture thread-safe via mutex interne
-		 *  - Modes truncate/append configurables à runtime
-		 *  - Point d'extension virtuel CheckRotation() pour rotation de logs
-		 *  - Flush explicite ou automatique via buffering contrôlé
-		 *
-		 * Architecture :
-		 *  - Hérite de NkISink : réutilisation du filtrage par niveau et configuration
-		 *  - Utilise NkLoggerFormatter pour formatage des messages avant écriture
-		 *  - Gère le cycle de vie du FILE* avec RAII via constructeur/destructeur
-		 *
-		 * Thread-safety :
-		 *  - Toutes les méthodes publiques sont thread-safe via m_Mutex
-		 *  - Les méthodes Unlocked() sont protégées et appellables uniquement avec lock acquis
-		 *  - Safe pour usage depuis multiples threads simultanément
-		 *
-		 * Gestion des erreurs :
-		 *  - Échec d'ouverture : Log() devient no-op silencieux jusqu'à réouverture
-		 *  - Erreur d'écriture : ignorée silencieusement pour ne pas crasher l'app
-		 *  - Pour robustesse : vérifier IsOpen() après construction si critique
-		 *
-		 * @note Le buffering est désactivé par défaut (_IONBF) pour persistance immédiate
-		 * @note Pour performance : envisager buffering avec Flush() périodique si nécessaire
-		 *
-		 * @example Usage basique
-		 * @code
-		 * // Création avec append (défaut)
-		 * nkentseu::NkFileSink fileSink("logs/app.log");
-		 *
-		 * // Configuration optionnelle
-		 * fileSink.SetLevel(nkentseu::NkLogLevel::NK_INFO);
-		 * fileSink.SetPattern("[%Y-%m-%d %H:%M:%S] [%L] %v");
-		 *
-		 * // Ajout à un logger
-		 * logger.AddSink(nkentseu::memory::MakeShared<nkentseu::NkFileSink>("debug.log"));
-		 * @endcode
-		 *
-		 * @example Rotation de fichier via héritage
-		 * @code
-		 * class RotatingFileSink : public nkentseu::NkFileSink {
-		 * public:
-		 *     RotatingFileSink(const nkentseu::NkString& path, nkentseu::usize maxSize)
-		 *         : nkentseu::NkFileSink(path), m_MaxSize(maxSize) {}
-		 *
-		 * protected:
-		 *     void CheckRotation() override {
-		 *         if (GetFileSize() >= m_MaxSize) {
-		 *             RotateFile();  // Implémentation personnalisée
-		 *         }
-		 *     }
-		 *
-		 * private:
-		 *     nkentseu::usize m_MaxSize;
-		 *     void RotateFile() { /\* ... *\/ }
-		 * };
-		 * @endcode
-		 */
-		class NKENTSEU_LOGGER_CLASS_EXPORT NkFileSink : public NkISink {
-
-
+	// ---------------------------------------------------------------------
+	// CLASSE : NkFileSink
+	// DESCRIPTION : Implémentation de sink pour écriture dans un fichier
+	// ---------------------------------------------------------------------
+	/**
+	 * @class NkFileSink
+	 * @brief Sink pour l'écriture persistante des messages de log dans un fichier
+	 * @ingroup LoggerSinks
+	 *
+	 * NkFileSink fournit une destination de log vers un fichier sur disque avec :
+	 *  - Ouverture automatique du fichier à la construction
+	 *  - Création des répertoires parents si inexistants
+	 *  - Écriture thread-safe via mutex interne
+	 *  - Modes truncate/append configurables à runtime
+	 *  - Point d'extension virtuel CheckRotation() pour rotation de logs
+	 *  - Flush explicite ou automatique via buffering contrôlé
+	 *
+	 * Architecture :
+	 *  - Hérite de NkISink : réutilisation du filtrage par niveau et configuration
+	 *  - Utilise NkLoggerFormatter pour formatage des messages avant écriture
+	 *  - Gère le cycle de vie du FILE* avec RAII via constructeur/destructeur
+	 *
+	 * Thread-safety :
+	 *  - Toutes les méthodes publiques sont thread-safe via m_Mutex
+	 *  - Les méthodes Unlocked() sont protégées et appellables uniquement avec lock acquis
+	 *  - Safe pour usage depuis multiples threads simultanément
+	 *
+	 * Gestion des erreurs :
+	 *  - Échec d'ouverture : Log() devient no-op silencieux jusqu'à réouverture
+	 *  - Erreur d'écriture : ignorée silencieusement pour ne pas crasher l'app
+	 *  - Pour robustesse : vérifier IsOpen() après construction si critique
+	 *
+	 * @note Le buffering est désactivé par défaut (_IONBF) pour persistance immédiate
+	 * @note Pour performance : envisager buffering avec Flush() périodique si nécessaire
+	 *
+	 * @example Usage basique
+	 * @code
+	 * // Création avec append (défaut)
+	 * nkentseu::NkFileSink fileSink("logs/app.log");
+	 *
+	 * // Configuration optionnelle
+	 * fileSink.SetLevel(nkentseu::NkLogLevel::NK_INFO);
+	 * fileSink.SetPattern("[%Y-%m-%d %H:%M:%S] [%L] %v");
+	 *
+	 * // Ajout à un logger
+	 * logger.AddSink(nkentseu::memory::MakeShared<nkentseu::NkFileSink>("debug.log"));
+	 * @endcode
+	 *
+	 * @example Rotation de fichier via héritage
+	 * @code
+	 * class RotatingFileSink : public nkentseu::NkFileSink {
+	 * public:
+	 *     RotatingFileSink(const nkentseu::NkString& path, nkentseu::usize maxSize)
+	 *         : nkentseu::NkFileSink(path), m_MaxSize(maxSize) {}
+	 *
+	 * protected:
+	 *     void CheckRotation() override {
+	 *         if (GetFileSize() >= m_MaxSize) {
+	 *             RotateFile();  // Implémentation personnalisée
+	 *         }
+	 *     }
+	 *
+	 * private:
+	 *     nkentseu::usize m_MaxSize;
+	 *     void RotateFile() { /\* ... *\/ }
+	 * };
+	 * @endcode
+	 */
+	class NKENTSEU_LOGGER_CLASS_EXPORT NkFileSink : public NkISink {
 			// -----------------------------------------------------------------
 			// SECTION 3 : MEMBRES PUBLICS
 			// -----------------------------------------------------------------
 		public:
-
-
 			// -----------------------------------------------------------------
 			// CONSTRUCTEURS ET DESTRUCTEUR
 			// -----------------------------------------------------------------
@@ -158,7 +151,7 @@
 			 * nkentseu::NkFileSink nestedSink("var/log/myapp/debug.log");
 			 * @endcode
 			 */
-			explicit NkFileSink(const NkString& filename, bool truncate = false);
+			explicit NkFileSink(const NkString &filename, bool truncate = false);
 
 			/**
 			 * @brief Destructeur : fermeture garantie du fichier
@@ -169,7 +162,6 @@
 			 * @note Thread-safe : acquisition du mutex avant fermeture
 			 */
 			~NkFileSink() override;
-
 
 			// -----------------------------------------------------------------
 			// IMPLÉMENTATION DE L'INTERFACE NKISINK
@@ -205,7 +197,7 @@
 			 * fileSink.Log(msg);  // Écriture thread-safe avec formatage
 			 * @endcode
 			 */
-			void Log(const NkLogMessage& message) override;
+			void Log(const NkLogMessage &message) override;
 
 			/**
 			 * @brief Force l'écriture immédiate des buffers vers le disque
@@ -261,7 +253,7 @@
 			 * fileSink.SetPattern("%v");
 			 * @endcode
 			 */
-			void SetPattern(const NkString& pattern) override;
+			void SetPattern(const NkString &pattern) override;
 
 			/**
 			 * @brief Obtient le formatter courant utilisé par ce sink
@@ -280,7 +272,7 @@
 			 * }
 			 * @endcode
 			 */
-			NkLoggerFormatter* GetFormatter() const override;
+			NkLoggerFormatter *GetFormatter() const override;
 
 			/**
 			 * @brief Obtient le pattern de formatage courant
@@ -299,7 +291,6 @@
 			 * @endcode
 			 */
 			NkString GetPattern() const override;
-
 
 			// -----------------------------------------------------------------
 			// CONFIGURATION SPÉCIFIQUE AU FICHIER
@@ -405,7 +396,7 @@
 			 * fileSink.SetFilename(nkentseu::NkString::Format("logs/app-%s.log", today.CStr()));
 			 * @endcode
 			 */
-			void SetFilename(const NkString& filename);
+			void SetFilename(const NkString &filename);
 
 			/**
 			 * @brief Obtient la taille actuelle du fichier sur disque
@@ -467,13 +458,10 @@
 			 */
 			bool GetTruncate() const;
 
-
 			// -----------------------------------------------------------------
 			// SECTION 4 : MEMBRES PROTÉGÉS (POUR HÉRITAGE ET EXTENSION)
 			// -----------------------------------------------------------------
 		protected:
-
-
 			// -----------------------------------------------------------------
 			// MÉTHODES PROTÉGÉES UNLOCKED (APPELABLES AVEC LOCK ACQUIS)
 			// -----------------------------------------------------------------
@@ -529,7 +517,6 @@
 			 */
 			NkString GetFilenameUnlocked() const;
 
-
 			// -----------------------------------------------------------------
 			// POINT D'EXTENSION POUR ROTATION DE FICHIER
 			// -----------------------------------------------------------------
@@ -574,7 +561,6 @@
 			 */
 			virtual void CheckRotation();
 
-
 			// -----------------------------------------------------------------
 			// VARIABLES MEMBRES PROTÉGÉES (ÉTAT PARTAGÉ AVEC LES DÉRIVÉES)
 			// -----------------------------------------------------------------
@@ -593,13 +579,10 @@
 			/// @note mutable : permet modification dans les méthodes const (IsOpen, etc.)
 			mutable threading::NkMutex m_Mutex;
 
-
 			// -----------------------------------------------------------------
 			// SECTION 5 : MEMBRES PRIVÉS (IMPLÉMENTATION INTERNE)
 			// -----------------------------------------------------------------
 		private:
-
-
 			// -----------------------------------------------------------------
 			// MÉTHODES PRIVÉES D'IMPLÉMENTATION
 			// -----------------------------------------------------------------
@@ -625,7 +608,6 @@
 			 */
 			bool OpenFile();
 
-
 			// -----------------------------------------------------------------
 			// VARIABLES MEMBRES PRIVÉES (ÉTAT INTERNE)
 			// -----------------------------------------------------------------
@@ -642,7 +624,7 @@
 			/// @brief Handle FILE* pour écriture C stdio vers le fichier
 			/// @ingroup FileSinkMembers
 			/// @note nullptr si fichier fermé ou échec d'ouverture
-			FILE* m_FileStream;
+			FILE *m_FileStream;
 
 			/// @brief Chemin du fichier cible (relatif ou absolu)
 			/// @ingroup FileSinkMembers
@@ -654,15 +636,11 @@
 			/// @note Modifiable via SetTruncate() avec réouverture si nécessaire
 			bool m_Truncate;
 
+	}; // class NkFileSink
 
-		}; // class NkFileSink
-
-
-	} // namespace nkentseu
-
+} // namespace nkentseu
 
 #endif // NKENTSEU_NKFILESINK_H
-
 
 // =============================================================================
 // EXEMPLES D'UTILISATION DE NKFILESINK.H
@@ -693,7 +671,6 @@
 		}
 	}
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 2 : Rotation de fichier par taille via héritage
@@ -761,7 +738,6 @@
 	// logger.AddSink(rotatingSink);
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 3 : Rotation quotidienne par date dans le nom de fichier
 // -----------------------------------------------------------------------------
@@ -802,7 +778,6 @@
 	};
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 4 : Gestion manuelle d'ouverture/fermeture pour maintenance
 // -----------------------------------------------------------------------------
@@ -830,7 +805,6 @@
 		}
 	}
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 5 : Configuration dynamique via fichier de config
@@ -860,7 +834,6 @@
 	// auto fileSink = CreateFileSinkFromConfig("logging.sinks.file");
 	// logger.AddSink(fileSink);
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 6 : Testing avec vérification d'écriture
@@ -896,7 +869,6 @@
 		NkFileDelete(testPath);
 	}
 */
-
 
 // =============================================================================
 // NOTES DE MAINTENANCE ET BONNES PRATIQUES
@@ -937,7 +909,6 @@
 	   - Toujours cleanup les fichiers de test dans les destructeurs de test
 	   - Tester les cas limites : chemin inexistant, permissions refusées, disque plein
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

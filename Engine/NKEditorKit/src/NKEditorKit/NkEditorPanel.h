@@ -17,46 +17,70 @@
 #include "NKEditorKit/NkEditorContext.h"
 
 namespace nkentseu {
-    namespace editorkit {
+	namespace editorkit {
 
-        class NKEDITORKIT_API NkEditorPanel {
-        public:
-            explicit NkEditorPanel(const char* title,
-                                   NkEditorDockSide defaultSide = NkEditorDockSide::NK_CENTER) noexcept;
-            virtual ~NkEditorPanel() = default;
+		class NKEDITORKIT_API NkEditorPanel {
+			public:
+				explicit NkEditorPanel(const char *title,
+									   NkEditorDockSide defaultSide = NkEditorDockSide::NK_CENTER) noexcept;
+				virtual ~NkEditorPanel() = default;
 
-            NkEditorPanel(const NkEditorPanel&)            = delete;
-            NkEditorPanel& operator=(const NkEditorPanel&) = delete;
+				NkEditorPanel(const NkEditorPanel &) = delete;
+				NkEditorPanel &operator=(const NkEditorPanel &) = delete;
 
-            // ── Identite ────────────────────────────────────────────────────────
-            const char* Title() const noexcept { return mTitle; }
+				// ── Identite ────────────────────────────────────────────────────────
+				const char *Title() const noexcept {
+					return mTitle;
+				}
 
-            // ── Etat d'ouverture (pilote le menu « Affichage ») ─────────────────
-            bool* OpenPtr()       noexcept { return &mOpen; }
-            bool  IsOpen()  const noexcept { return mOpen; }
-            void  SetOpen(bool o) noexcept { mOpen = o; }
+				// ── Etat d'ouverture (pilote le menu « Affichage ») ─────────────────
+				bool *OpenPtr() noexcept {
+					return &mOpen;
+				}
 
-            // ── Docking ─────────────────────────────────────────────────────────
-            bool             Dockable()    const noexcept { return mDockable; }
-            void             SetDockable(bool d) noexcept { mDockable = d; }
-            NkEditorDockSide DefaultSide() const noexcept { return mDefaultSide; }
-            void             SetDefaultSide(NkEditorDockSide s) noexcept { mDefaultSide = s; }
+				bool IsOpen() const noexcept {
+					return mOpen;
+				}
 
-            // ── Contenu (implemente par l'application) ──────────────────────────
-            // Appele par le shell entre Begin/End (flottant) ou BeginDocked/EndDocked
-            // (ancre). Dessiner via les helpers de `ec` (ec.Text, ec.Button, ...).
-            virtual void OnUI(NkEditorFrameContext& ec) = 0;
+				void SetOpen(bool o) noexcept {
+					mOpen = o;
+				}
 
-            // Actions du panneau dessinees sur la BARRE D'ONGLETS du dock (a droite),
-            // quand ce panneau est l'onglet ACTIF. Defaut : rien. (Ex. Terminal : +/combo.)
-            virtual void OnTabBarActions(nkgui::NkGuiContext& ctx, const nkgui::NkRect& tabBar) noexcept { (void)ctx; (void)tabBar; }
+				// ── Docking ─────────────────────────────────────────────────────────
+				bool Dockable() const noexcept {
+					return mDockable;
+				}
 
-        protected:
-            char             mTitle[64]   = {};
-            bool             mOpen        = true;
-            bool             mDockable    = true;
-            NkEditorDockSide mDefaultSide = NkEditorDockSide::NK_CENTER;
-        };
+				void SetDockable(bool d) noexcept {
+					mDockable = d;
+				}
 
-    } // namespace editorkit
+				NkEditorDockSide DefaultSide() const noexcept {
+					return mDefaultSide;
+				}
+
+				void SetDefaultSide(NkEditorDockSide s) noexcept {
+					mDefaultSide = s;
+				}
+
+				// ── Contenu (implemente par l'application) ──────────────────────────
+				// Appele par le shell entre Begin/End (flottant) ou BeginDocked/EndDocked
+				// (ancre). Dessiner via les helpers de `ec` (ec.Text, ec.Button, ...).
+				virtual void OnUI(NkEditorFrameContext &ec) = 0;
+
+				// Actions du panneau dessinees sur la BARRE D'ONGLETS du dock (a droite),
+				// quand ce panneau est l'onglet ACTIF. Defaut : rien. (Ex. Terminal : +/combo.)
+				virtual void OnTabBarActions(nkgui::NkGuiContext &ctx, const nkgui::NkRect &tabBar) noexcept {
+					(void)ctx;
+					(void)tabBar;
+				}
+
+			protected:
+				char mTitle[64] = {};
+				bool mOpen = true;
+				bool mDockable = true;
+				NkEditorDockSide mDefaultSide = NkEditorDockSide::NK_CENTER;
+		};
+
+	} // namespace editorkit
 } // namespace nkentseu

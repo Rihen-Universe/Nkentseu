@@ -7,409 +7,621 @@
 #include "NKEditorKit/NkEditorKit.h"
 
 namespace nkentseu {
-namespace nkcode {
+	namespace nkcode {
 
-    using namespace nkentseu;
-    using namespace nkentseu::nkgui;
+		using namespace nkentseu;
+		using namespace nkentseu::nkgui;
 
-    // ── Palette (tokens Banani) ──────────────────────────────────────────────
-    // MUTABLE (pas constexpr) : le thème actif (Paramètres > Thème) réécrit ces
-    // valeurs à chaud via NkApplyTheme(). Tout le dessin lit NkCol::X chaque frame.
-    namespace NkCol {
-        inline NkColor background  { 13, 17, 23, 255 };   // #0d1117
-        inline NkColor foreground  { 230, 237, 243, 255 };// #e6edf3
-        inline NkColor border      { 33, 38, 45, 255 };   // #21262d
-        inline NkColor input       { 22, 27, 34, 255 };   // #161b22
-        inline NkColor surface      { 22, 27, 34, 255 };  // #161b22
-        inline NkColor primary     { 15, 115, 213, 255 }; // #0F73D5
-        inline NkColor primaryFg   { 255, 255, 255, 255 };
-        inline NkColor secondary   { 10, 85, 95, 255 };   // #0A555F
-        inline NkColor secondaryFg { 220, 235, 238, 255 };
-        inline NkColor accent      { 247, 154, 40, 255 }; // #F79A28
-        inline NkColor sidebar     { 1, 4, 9, 255 };      // #010409
-        inline NkColor sidebarFg   { 139, 148, 158, 255 };// #8b949e
-        inline NkColor muted       { 33, 38, 45, 255 };   // #21262d
-        inline NkColor mutedFg     { 110, 118, 129, 255 };// #6e7681
-        inline NkColor success     { 63, 185, 80, 255 };  // #3fb950
-        inline NkColor danger      { 248, 81, 73, 255 };  // #f85149
-        inline NkColor hover       { 28, 33, 40, 255 };   // survol discret
-        inline NkColor selection   { 22, 32, 46, 255 };   // fond d'un element ACTIF/selectionne (nav, onglet)
-    }
+		// ── Palette (tokens Banani) ──────────────────────────────────────────────
+		// MUTABLE (pas constexpr) : le thème actif (Paramètres > Thème) réécrit ces
+		// valeurs à chaud via NkApplyTheme(). Tout le dessin lit NkCol::X chaque frame.
+		namespace NkCol {
+			inline NkColor background{13, 17, 23, 255};	   // #0d1117
+			inline NkColor foreground{230, 237, 243, 255}; // #e6edf3
+			inline NkColor border{33, 38, 45, 255};		   // #21262d
+			inline NkColor input{22, 27, 34, 255};		   // #161b22
+			inline NkColor surface{22, 27, 34, 255};	   // #161b22
+			inline NkColor primary{15, 115, 213, 255};	   // #0F73D5
+			inline NkColor primaryFg{255, 255, 255, 255};
+			inline NkColor secondary{10, 85, 95, 255}; // #0A555F
+			inline NkColor secondaryFg{220, 235, 238, 255};
+			inline NkColor accent{247, 154, 40, 255};	  // #F79A28
+			inline NkColor sidebar{1, 4, 9, 255};		  // #010409
+			inline NkColor sidebarFg{139, 148, 158, 255}; // #8b949e
+			inline NkColor muted{33, 38, 45, 255};		  // #21262d
+			inline NkColor mutedFg{110, 118, 129, 255};	  // #6e7681
+			inline NkColor success{63, 185, 80, 255};	  // #3fb950
+			inline NkColor danger{248, 81, 73, 255};	  // #f85149
+			inline NkColor hover{28, 33, 40, 255};		  // survol discret
+			inline NkColor selection{22, 32, 46, 255};	  // fond d'un element ACTIF/selectionne (nav, onglet)
+		} // namespace NkCol
 
-    // ── Thèmes commutables (Paramètres > Thème) ───────────────────────────────
-    static const int32 NK_THEME_COUNT = 4;
-    inline const char* const* NkThemeNames() { static const char* N[] = { "Dark Pro", "Dark", "Midnight", "Light" }; return N; }
-    struct NkThemePalette {
-        NkColor background, foreground, border, input, surface, primary, primaryFg,
-                secondary, secondaryFg, accent, sidebar, sidebarFg, muted, mutedFg, success, danger, hover, selection;
-    };
-    inline NkThemePalette NkThemePreset(int32 id) {
-        switch (id) {
-            case 1: return { {24,24,27,255},{228,228,231,255},{39,39,42,255},{32,32,36,255},{32,32,36,255},{15,115,213,255},{255,255,255,255},{10,85,95,255},{220,235,238,255},{247,154,40,255},{15,15,17,255},{140,140,150,255},{39,39,42,255},{115,115,125,255},{63,185,80,255},{248,81,73,255},{40,40,44,255},{30,42,58,255} };   // Dark
-            case 2: return { {8,11,20,255},{224,230,245,255},{26,32,52,255},{14,18,32,255},{14,18,32,255},{60,110,240,255},{255,255,255,255},{20,60,110,255},{210,225,245,255},{120,150,255,255},{4,6,14,255},{120,132,160,255},{26,32,52,255},{95,105,140,255},{63,185,80,255},{248,81,73,255},{20,26,44,255},{22,32,60,255} };   // Midnight
-            case 3: return { {255,255,255,255},{31,35,40,255},{216,222,228,255},{255,255,255,255},{246,248,250,255},{9,105,218,255},{255,255,255,255},{221,244,255,255},{5,80,174,255},{154,103,0,255},{243,244,246,255},{87,96,106,255},{234,238,242,255},{101,109,118,255},{26,127,55,255},{207,34,46,255},{234,238,242,255},{221,235,252,255} };   // Light (GitHub Light)
-            default: return { {13,17,23,255},{230,237,243,255},{33,38,45,255},{22,27,34,255},{22,27,34,255},{15,115,213,255},{255,255,255,255},{10,85,95,255},{220,235,238,255},{247,154,40,255},{1,4,9,255},{139,148,158,255},{33,38,45,255},{110,118,129,255},{63,185,80,255},{248,81,73,255},{28,33,40,255},{22,32,46,255} };   // Dark Pro
-        }
-    }
-    // Parse "#RRGGBB" -> NkColor (a=255). Renvoie `fallback` si invalide.
-    inline NkColor NkParseHex(const char* h, NkColor fallback) {
-        if (!h || h[0] != '#') return fallback;
-        auto hx = [](char c) -> int32 { if (c >= '0' && c <= '9') return c - '0'; if (c >= 'a' && c <= 'f') return c - 'a' + 10; if (c >= 'A' && c <= 'F') return c - 'A' + 10; return -1; };
-        int32 v[6]; for (int32 i = 0; i < 6; ++i) { v[i] = hx(h[1 + i]); if (v[i] < 0) return fallback; }
-        return NkColor{ (uint8)(v[0] * 16 + v[1]), (uint8)(v[2] * 16 + v[3]), (uint8)(v[4] * 16 + v[5]), 255 };
-    }
-    // Applique le thème + la couleur d'accent perso (temps réel). A appeler chaque frame.
-    inline void NkApplyTheme(int32 id, const char* accentHex) {
-        const NkThemePalette p = NkThemePreset(id);
-        NkCol::background = p.background; NkCol::foreground = p.foreground; NkCol::border = p.border; NkCol::input = p.input;
-        NkCol::surface = p.surface; NkCol::primary = p.primary; NkCol::primaryFg = p.primaryFg; NkCol::secondary = p.secondary;
-        NkCol::secondaryFg = p.secondaryFg; NkCol::sidebar = p.sidebar; NkCol::sidebarFg = p.sidebarFg;
-        NkCol::muted = p.muted; NkCol::mutedFg = p.mutedFg; NkCol::success = p.success; NkCol::danger = p.danger; NkCol::hover = p.hover;
-        NkCol::selection = p.selection;
-        NkCol::accent = NkParseHex(accentHex, p.accent);   // accent perso, sinon celui du thème
-    }
-    // Applique le thème NKCode au thème de l'ÉDITORKIT (ctx.theme = NkGuiTheme) : tout le chrome de
-    // l'éditeur (barre de titre, activity bar, onglets, dock, status bar, panneaux) suit Dark/Light.
-    // A appeler chaque frame. `rounding`/`framePad*` sont conservés.
-    inline void NkApplyEditorTheme(NkGuiContext& ctx, int32 id, const char* accentHex) {
-        const NkThemePalette p = NkThemePreset(id);
-        NkGuiTheme& t = ctx.theme;
-        t.bgPrimary    = p.background;
-        t.panel        = p.surface;
-        t.header       = p.sidebar;
-        t.button       = p.muted;
-        t.buttonHover  = p.hover;
-        t.buttonActive = p.primary;
-        t.border       = p.border;
-        t.text         = p.foreground;
-        t.textDisabled = p.mutedFg;
-        t.selection    = p.selection;
-        t.accent       = p.primary;                         // éléments actifs (soulignement d'onglet…) en primaire
-        t.track        = p.muted;
-        t.tabBar       = p.sidebar;
-        t.tab          = p.surface;
-        t.tabHover     = p.hover;
-        t.tabActive    = p.background;                       // onglet actif = fond éditeur (façon VS Code)
-        // Coloration syntaxique adaptée : palette CLAIRE (VS Light+) sur thème clair, VS Dark+ sinon.
-        const bool light = ((int32)p.background.r + (int32)p.background.g + (int32)p.background.b) > 384;
-        NkGuiSyntax& s = ctx.syntax;
-        if (light) {
-            s.text    = { 36, 41, 46, 255 };  s.keyword = { 0, 0, 255, 255 };   s.type   = { 38, 127, 153, 255 };
-            s.string  = { 163, 21, 21, 255 }; s.comment = { 0, 128, 0, 255 };   s.number = { 9, 134, 88, 255 };
-            s.preproc = { 175, 0, 219, 255 }; s.heading = { 128, 0, 0, 255 };   s.mdcode = { 163, 21, 21, 255 };
-            s.function = { 121, 94, 38, 255 };  s.constant = { 0, 92, 197, 255 };  s.oper = { 90, 100, 110, 255 };   // VS Light+
-        } else {
-            s.text    = { 212, 212, 212, 255 }; s.keyword = { 86, 156, 214, 255 }; s.type   = { 78, 201, 176, 255 };
-            s.string  = { 206, 145, 120, 255 }; s.comment = { 106, 153, 85, 255 }; s.number = { 181, 206, 168, 255 };
-            s.preproc = { 197, 134, 192, 255 }; s.heading = { 78, 201, 176, 255 }; s.mdcode = { 206, 145, 120, 255 };
-            s.function = { 225, 205, 120, 255 }; s.constant = { 79, 193, 255, 255 }; s.oper = { 200, 200, 200, 255 };  // VS Dark+ (fonction jaune franc)
-        }
-        (void)accentHex;
-    }
-    // Vrai si le thème actif est CLAIR (fond lumineux) — pour adapter les éléments à fond codé (logo…).
-    inline bool NkThemeIsLight() { return ((int32)NkCol::background.r + (int32)NkCol::background.g + (int32)NkCol::background.b) > 384; }
-    // Voile (scrim) de fond THEME-AWARE : dim NOIR sur thème sombre (invisible sur du sombre),
-    // mais dim beaucoup plus LÉGER + teinté sur thème clair (sinon le noir opaque « éteint » toute la page).
-    // `a` = alpha voulu sur thème sombre.
-    inline NkColor NkScrim(uint8 a) {
-        if (NkThemeIsLight()) return NkColor{ 22, 27, 34, (uint8)((int32)a * 42 / 100) };
-        return NkColor{ 0, 0, 0, a };
-    }
-    // ── Scrollbars UNIFORMES + VISIBLES (tout NKCode : launcher + editeur) ─────────
-    // Meme apparence partout. Piste subtile ; pouce nettement contraste (theme-aware).
-    // Versions `C` = light explicite (pour l'editorkit qui lit ctx.theme, pas NkCol).
-    inline NkColor NkScrollTrackC(bool light) { return light ? NkColor{ 0, 0, 0, 20 } : NkColor{ 255, 255, 255, 16 }; }
-    inline NkColor NkScrollThumbC(bool light, bool hover) {
-        if (light) return hover ? NkColor{ 130, 138, 148, 255 } : NkColor{ 168, 176, 185, 255 };
-        return hover ? NkColor{ 120, 130, 142, 255 } : NkColor{ 80, 88, 98, 255 };
-    }
-    inline NkColor NkScrollTrack()            { return NkScrollTrackC(NkThemeIsLight()); }
-    inline NkColor NkScrollThumb(bool hover)  { return NkScrollThumbC(NkThemeIsLight(), hover); }
-    // Variante « survol » d'une couleur, THEME-AWARE : éclaircit sur thème sombre, assombrit sur thème clair.
-    // Remplace les bleus/verts de survol codés en dur (qui ne suivaient pas le thème).
-    inline NkColor NkColHover(const NkColor& c) {
-        if (NkThemeIsLight()) return NkColor{ (uint8)((int32)c.r * 84 / 100), (uint8)((int32)c.g * 84 / 100), (uint8)((int32)c.b * 84 / 100), c.a };
-        auto up = [](uint8 v) -> uint8 { const int32 n = (int32)v + 22; return (uint8)(n > 255 ? 255 : n); };
-        return NkColor{ up(c.r), up(c.g), up(c.b), c.a };
-    }
-    // Rayons (px @1x)
-    namespace NkR { inline constexpr float32 sm = 4.f, md = 6.f, lg = 10.f, xl = 16.f; }
+		// ── Thèmes commutables (Paramètres > Thème) ───────────────────────────────
+		static const int32 NK_THEME_COUNT = 4;
 
-    // ── Contexte de dessin partage (passe aux fonctions d'UI) ─────────────────
-    struct NkUi {
-        NkGuiContext*  ctx = nullptr;
-        NkGuiDrawList* dl  = nullptr;
-        const NkGuiFont* f = nullptr;
-        NkVec2  mp{};
-        bool    click = false, down = false;
-        float32 S = 1.f;
+		inline const char *const *NkThemeNames() {
+			static const char *N[] = {"Dark Pro", "Dark", "Midnight", "Light"};
+			return N;
+		}
 
-        static NkUi From(NkEditorFrameContext& ec, bool overlay = false) {
-            NkUi u; u.ctx = &ec.Ui(); u.f = u.ctx->font;
-            u.dl = overlay ? &u.ctx->dlOverlay : &u.ctx->DL();
-            u.mp = u.ctx->input.mousePos; u.click = u.ctx->input.mouseClicked[0];
-            u.down = u.ctx->input.mouseDown[0]; u.S = u.ctx->S(1.f);
-            return u;
-        }
-        bool Valid() const { return f && f->Valid(); }
-        float32 s(float32 px) const { return px * S; }
-        bool Hit(const NkRect& r) const { return NkGuiRectContains(r, mp); }
-        float32 Asc() const { return f ? f->Ascent() : 0.f; }
-        float32 Lh()  const { return f ? f->LineHeight() : 0.f; }
-        float32 TextW(const char* t) const { return f ? f->MeasureWidth(t) : 0.f; }
+		struct NkThemePalette {
+				NkColor background, foreground, border, input, surface, primary, primaryFg, secondary, secondaryFg,
+					accent, sidebar, sidebarFg, muted, mutedFg, success, danger, hover, selection;
+		};
 
-        void Rect(const NkRect& r, const NkColor& c, float32 round = 0.f) const { dl->AddRectFilled(r, c, round); }
-        void Stroke(const NkRect& r, const NkColor& c, float32 round = 0.f, float32 th = 1.f) const { (void)round; dl->AddRect(r, c, th); }
-        // Panneau a BORD ARRONDI : fond borde (le contour suit le rayon, contrairement
-        // a AddRect qui est carre). border colore -> fond inset par 1px.
-        void Panel(const NkRect& r, const NkColor& fill, const NkColor& border, float32 round, float32 bw = 1.f) const {
-            const float32 b = bw * (S > 1.f ? S : 1.f);
-            dl->AddRectFilled(r, border, round);
-            dl->AddRectFilled({ r.x + b, r.y + b, r.w - 2.f * b, r.h - 2.f * b }, fill, round - b > 0.f ? round - b : 0.f);
-        }
-        void Text(float32 x, float32 y, const char* t, const NkColor& c) const {
-            if (f && t) dl->AddText(f->Face(), f->TexId(), { x, y + Asc() }, t, c);
-        }
-        // Texte centre verticalement dans une hauteur h a partir de y.
-        void TextV(float32 x, float32 y, float32 h, const char* t, const NkColor& c) const {
-            Text(x, y + (h - Lh()) * 0.5f, t, c);
-        }
-        // Texte tronque avec "..." s'il depasse maxW. Renvoie la largeur dessinee.
-        float32 TextEllipsis(float32 x, float32 y, float32 maxW, const char* t, const NkColor& c) const {
-            if (!f || !t || !*t || maxW <= 0.f) return 0.f;
-            const float32 full = f->MeasureWidth(t);
-            if (full <= maxW) { Text(x, y, t, c); return full; }
-            char buf[260]; int32 n = 0;
-            const float32 dots = f->MeasureWidth("...");
-            for (const char* p = t; *p && n < 252; ++p) {
-                buf[n] = *p; buf[n + 1] = '\0';
-                if (f->MeasureWidth(buf) + dots > maxW) { buf[n] = '\0'; break; }
-                ++n;
-            }
-            buf[n] = '.'; buf[n + 1] = '.'; buf[n + 2] = '.'; buf[n + 3] = '\0';
-            Text(x, y, buf, c);
-            return f->MeasureWidth(buf);
-        }
-        // Bouton plein (renvoie true au clic). bg/hover/texte personnalisables.
-        bool Button(const NkRect& r, const char* label, const NkColor& bg, const NkColor& bgH, const NkColor& fg, float32 round) const {
-            const bool h = Hit(r);
-            Rect(r, h ? bgH : bg, round);
-            const float32 tw = TextW(label);
-            TextV(r.x + (r.w - tw) * 0.5f, r.y, r.h, label, fg);
-            return h && click;
-        }
+		inline NkThemePalette NkThemePreset(int32 id) {
+			switch (id) {
+				case 1:
+					return {{24, 24, 27, 255},	  {228, 228, 231, 255}, {39, 39, 42, 255},	  {32, 32, 36, 255},
+							{32, 32, 36, 255},	  {15, 115, 213, 255},	{255, 255, 255, 255}, {10, 85, 95, 255},
+							{220, 235, 238, 255}, {247, 154, 40, 255},	{15, 15, 17, 255},	  {140, 140, 150, 255},
+							{39, 39, 42, 255},	  {115, 115, 125, 255}, {63, 185, 80, 255},	  {248, 81, 73, 255},
+							{40, 40, 44, 255},	  {30, 42, 58, 255}}; // Dark
+				case 2:
+					return {{8, 11, 20, 255},	  {224, 230, 245, 255}, {26, 32, 52, 255},	  {14, 18, 32, 255},
+							{14, 18, 32, 255},	  {60, 110, 240, 255},	{255, 255, 255, 255}, {20, 60, 110, 255},
+							{210, 225, 245, 255}, {120, 150, 255, 255}, {4, 6, 14, 255},	  {120, 132, 160, 255},
+							{26, 32, 52, 255},	  {95, 105, 140, 255},	{63, 185, 80, 255},	  {248, 81, 73, 255},
+							{20, 26, 44, 255},	  {22, 32, 60, 255}}; // Midnight
+				case 3:
+					return {{255, 255, 255, 255}, {31, 35, 40, 255},	{216, 222, 228, 255}, {255, 255, 255, 255},
+							{246, 248, 250, 255}, {9, 105, 218, 255},	{255, 255, 255, 255}, {221, 244, 255, 255},
+							{5, 80, 174, 255},	  {154, 103, 0, 255},	{243, 244, 246, 255}, {87, 96, 106, 255},
+							{234, 238, 242, 255}, {101, 109, 118, 255}, {26, 127, 55, 255},	  {207, 34, 46, 255},
+							{234, 238, 242, 255}, {221, 235, 252, 255}}; // Light (GitHub Light)
+				default:
+					return {{13, 17, 23, 255},	  {230, 237, 243, 255}, {33, 38, 45, 255},	  {22, 27, 34, 255},
+							{22, 27, 34, 255},	  {15, 115, 213, 255},	{255, 255, 255, 255}, {10, 85, 95, 255},
+							{220, 235, 238, 255}, {247, 154, 40, 255},	{1, 4, 9, 255},		  {139, 148, 158, 255},
+							{33, 38, 45, 255},	  {110, 118, 129, 255}, {63, 185, 80, 255},	  {248, 81, 73, 255},
+							{28, 33, 40, 255},	  {22, 32, 46, 255}}; // Dark Pro
+			}
+		}
 
-        // ── Icones (style Lucide, dessinees au trait) dans un carre `r` ────────
-        void Icon(const char* name, const NkRect& box, const NkColor& c) const;
-    };
+		// Parse "#RRGGBB" -> NkColor (a=255). Renvoie `fallback` si invalide.
+		inline NkColor NkParseHex(const char *h, NkColor fallback) {
+			if (!h || h[0] != '#')
+				return fallback;
+			auto hx = [](char c) -> int32 {
+				if (c >= '0' && c <= '9')
+					return c - '0';
+				if (c >= 'a' && c <= 'f')
+					return c - 'a' + 10;
+				if (c >= 'A' && c <= 'F')
+					return c - 'A' + 10;
+				return -1;
+			};
+			int32 v[6];
+			for (int32 i = 0; i < 6; ++i) {
+				v[i] = hx(h[1 + i]);
+				if (v[i] < 0)
+					return fallback;
+			}
+			return NkColor{(uint8)(v[0] * 16 + v[1]), (uint8)(v[2] * 16 + v[3]), (uint8)(v[4] * 16 + v[5]), 255};
+		}
 
-    // Segment au trait (le draw-list NKGui gere l'epaisseur + l'AA).
-    inline void NkLine(const NkUi& u, NkVec2 a, NkVec2 b, const NkColor& c, float32 th) {
-        u.dl->AddLine(a, b, c, th);
-    }
+		// Applique le thème + la couleur d'accent perso (temps réel). A appeler chaque frame.
+		inline void NkApplyTheme(int32 id, const char *accentHex) {
+			const NkThemePalette p = NkThemePreset(id);
+			NkCol::background = p.background;
+			NkCol::foreground = p.foreground;
+			NkCol::border = p.border;
+			NkCol::input = p.input;
+			NkCol::surface = p.surface;
+			NkCol::primary = p.primary;
+			NkCol::primaryFg = p.primaryFg;
+			NkCol::secondary = p.secondary;
+			NkCol::secondaryFg = p.secondaryFg;
+			NkCol::sidebar = p.sidebar;
+			NkCol::sidebarFg = p.sidebarFg;
+			NkCol::muted = p.muted;
+			NkCol::mutedFg = p.mutedFg;
+			NkCol::success = p.success;
+			NkCol::danger = p.danger;
+			NkCol::hover = p.hover;
+			NkCol::selection = p.selection;
+			NkCol::accent = NkParseHex(accentHex, p.accent); // accent perso, sinon celui du thème
+		}
 
-    // Jeu d'icones SVG (data/textures/icon) rasterisees en textures au demarrage.
-    // 0 = non chargee (NkDrawIcon ne dessine rien). Teintees au rendu.
-    struct NkIcons {
-        uint32 accueil = 0, ouvrir = 0, ouvrirDossier = 0, nouveau = 0, cloner = 0,
-               toolchains = 0, platforms = 0, gear = 0, exemple = 0, star = 0, shape = 0,
-               search = 0, workspace = 0;
-        // Navigateur « Ouvrir un Workspace »
-        uint32 back = 0, forward = 0, up = 0, downArrow = 0,
-               bureau = 0, disque = 0, jenga = 0, valide = 0, horloge = 0,
-               fichier = 0, sort = 0;
-        // toggle liste/grille -> icones DESSINEES (pas d'asset adapte) : viewList/viewGrid restent 0
-        uint32 viewList = 0, viewGrid = 0;
-        // Wizard projet : types + actions + validation
-        uint32 kConsole = 0, kWindowed = 0, kStatic = 0, kShared = 0, kTest = 0, kConfig = 0;
-        uint32 valideSimple = 0, editer = 0, dependance = 0, creeProjet = 0, fileCode = 0, plus = 0, corbeille = 0, lock = 0;
-        // Clone Git : telechargement, github, oeil ouvert/ferme, rond info
-        uint32 clonerTel = 0, github = 0, oeilOuvert = 0, oeilFermer = 0, rondI = 0;
-        // ── Vue principale IDE (toolbar, activity bar, panneaux, status bar) ──
-        uint32 hammer = 0, bug = 0, sparkles = 0, zap = 0, chart = 0, puzzle = 0,
-               eraser = 0, rebuild = 0, monitor = 0, flask = 0, layers = 0, pkg = 0,
-               globe = 0, pause = 0, stop = 0, gitPush = 0, gitPull = 0, split = 0,
-               folderOpen = 0, fileText = 0, fileCode2 = 0, filePlus = 0, code = 0,
-               compare = 0, blame = 0, exit = 0, tags = 0, cloud = 0, docker = 0, linux = 0,
-               play = 0;
+		// Applique le thème NKCode au thème de l'ÉDITORKIT (ctx.theme = NkGuiTheme) : tout le chrome de
+		// l'éditeur (barre de titre, activity bar, onglets, dock, status bar, panneaux) suit Dark/Light.
+		// A appeler chaque frame. `rounding`/`framePad*` sont conservés.
+		inline void NkApplyEditorTheme(NkGuiContext &ctx, int32 id, const char *accentHex) {
+			const NkThemePalette p = NkThemePreset(id);
+			NkGuiTheme &t = ctx.theme;
+			t.bgPrimary = p.background;
+			t.panel = p.surface;
+			t.header = p.sidebar;
+			t.button = p.muted;
+			t.buttonHover = p.hover;
+			t.buttonActive = p.primary;
+			t.border = p.border;
+			t.text = p.foreground;
+			t.textDisabled = p.mutedFg;
+			t.selection = p.selection;
+			t.accent = p.primary; // éléments actifs (soulignement d'onglet…) en primaire
+			t.track = p.muted;
+			t.tabBar = p.sidebar;
+			t.tab = p.surface;
+			t.tabHover = p.hover;
+			t.tabActive = p.background; // onglet actif = fond éditeur (façon VS Code)
+			// Coloration syntaxique adaptée : palette CLAIRE (VS Light+) sur thème clair, VS Dark+ sinon.
+			const bool light = ((int32)p.background.r + (int32)p.background.g + (int32)p.background.b) > 384;
+			NkGuiSyntax &s = ctx.syntax;
+			if (light) {
+				s.text = {36, 41, 46, 255};
+				s.keyword = {0, 0, 255, 255};
+				s.type = {38, 127, 153, 255};
+				s.string = {163, 21, 21, 255};
+				s.comment = {0, 128, 0, 255};
+				s.number = {9, 134, 88, 255};
+				s.preproc = {175, 0, 219, 255};
+				s.heading = {128, 0, 0, 255};
+				s.mdcode = {163, 21, 21, 255};
+				s.function = {121, 94, 38, 255};
+				s.constant = {0, 92, 197, 255};
+				s.oper = {90, 100, 110, 255}; // VS Light+
+			} else {
+				s.text = {212, 212, 212, 255};
+				s.keyword = {86, 156, 214, 255};
+				s.type = {78, 201, 176, 255};
+				s.string = {206, 145, 120, 255};
+				s.comment = {106, 153, 85, 255};
+				s.number = {181, 206, 168, 255};
+				s.preproc = {197, 134, 192, 255};
+				s.heading = {78, 201, 176, 255};
+				s.mdcode = {206, 145, 120, 255};
+				s.function = {225, 205, 120, 255};
+				s.constant = {79, 193, 255, 255};
+				s.oper = {200, 200, 200, 255}; // VS Dark+ (fonction jaune franc)
+			}
+			(void)accentHex;
+		}
 
-        // ── Registre d'extensions (data-driven) : ".cpp" (minuscule) -> texture ──
-        // Rempli au demarrage depuis des defauts integres + le manifeste icons.cfg.
-        NkVector<NkString> extKey;
-        NkVector<uint32>   extTex;
-        // Texture associee a l'extension d'un nom de fichier (0 si aucune / non chargee).
-        uint32 ForFile(const char* filename) const {
-            if (!filename) return 0;
-            const char* dot = nullptr; for (const char* p = filename; *p; ++p) if (*p == '.') dot = p;
-            if (!dot || !dot[1]) return 0;
-            char ext[24]; int32 n = 0;
-            for (const char* p = dot; *p && n < 23; ++p) { char c = *p; if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a'); ext[n++] = c; }
-            ext[n] = '\0';
-            for (usize i = 0; i < extKey.Size(); ++i) {
-                const char* a = extKey[i].CStr(); const char* b = ext; bool eq = true;
-                while (*a && *b) { if (*a != *b) { eq = false; break; } ++a; ++b; }
-                if (eq && *a == '\0' && *b == '\0') return extTex[i];
-            }
-            return 0;
-        }
-        // Ajoute / remplace une association extension -> texture.
-        void SetExt(const char* ext, uint32 tex) {
-            char e[24]; int32 n = 0;
-            for (const char* p = ext; *p && n < 23; ++p) { char c = *p; if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a'); e[n++] = c; }
-            e[n] = '\0'; if (!e[0]) return;
-            for (usize i = 0; i < extKey.Size(); ++i) {
-                const char* a = extKey[i].CStr(); const char* b = e; bool eq = true;
-                while (*a && *b) { if (*a != *b) { eq = false; break; } ++a; ++b; }
-                if (eq && *a == '\0' && *b == '\0') { extTex[i] = tex; return; }
-            }
-            extKey.PushBack(NkString(e)); extTex.PushBack(tex);
-        }
-    };
-    inline void NkDrawIcon(const NkUi& u, uint32 tex, const NkRect& r, const NkColor& tint) {
-        if (tex) u.dl->AddImage(tex, r, { 0,0 }, { 1,1 }, tint);
-    }
+		// Vrai si le thème actif est CLAIR (fond lumineux) — pour adapter les éléments à fond codé (logo…).
+		inline bool NkThemeIsLight() {
+			return ((int32)NkCol::background.r + (int32)NkCol::background.g + (int32)NkCol::background.b) > 384;
+		}
 
-    inline void NkUi::Icon(const char* name, const NkRect& r, const NkColor& c) const {
-        const float32 x = r.x, y = r.y, w = r.w, h = r.h;
-        const float32 th = w * 0.10f < 1.4f ? 1.4f : w * 0.10f;
-        auto rectS = [&](float32 rx, float32 ry, float32 rw, float32 rh) { dl->AddRectFilled({ rx, ry, rw, rh }, c, 1.f); };
-        auto strokeBox = [&](float32 rx, float32 ry, float32 rw, float32 rh, float32 rad) { (void)rad; dl->AddRect({ rx, ry, rw, rh }, c, th); };
-        auto cmp = [&](const char* a, const char* b) { while (*a && *b) { if (*a != *b) return false; ++a; ++b; } return *a == *b; };
+		// Voile (scrim) de fond THEME-AWARE : dim NOIR sur thème sombre (invisible sur du sombre),
+		// mais dim beaucoup plus LÉGER + teinté sur thème clair (sinon le noir opaque « éteint » toute la page).
+		// `a` = alpha voulu sur thème sombre.
+		inline NkColor NkScrim(uint8 a) {
+			if (NkThemeIsLight())
+				return NkColor{22, 27, 34, (uint8)((int32)a * 42 / 100)};
+			return NkColor{0, 0, 0, a};
+		}
 
-        if (cmp(name, "house") || cmp(name, "home")) {
-            NkLine(*this, { x + w*0.5f, y + h*0.12f }, { x + w*0.08f, y + h*0.5f }, c, th);
-            NkLine(*this, { x + w*0.5f, y + h*0.12f }, { x + w*0.92f, y + h*0.5f }, c, th);
-            strokeBox(x + w*0.18f, y + h*0.5f, w*0.64f, h*0.38f, 1.f);
-        } else if (cmp(name, "folder-open") || cmp(name, "folder")) {
-            strokeBox(x + w*0.08f, y + h*0.3f, w*0.84f, h*0.46f, 2.f);
-            rectS(x + w*0.08f, y + h*0.22f, w*0.4f, h*0.12f);
-        } else if (cmp(name, "plus-circle") || cmp(name, "plus")) {
-            strokeBox(x + w*0.12f, y + h*0.12f, w*0.76f, h*0.76f, w*0.38f);
-            rectS(x + w*0.46f, y + h*0.28f, th, h*0.44f);
-            rectS(x + w*0.28f, y + h*0.46f, w*0.44f, th);
-        } else if (cmp(name, "git-branch")) {
-            rectS(x + w*0.26f, y + h*0.15f, th, h*0.7f);                 // branche gauche
-            strokeBox(x + w*0.18f, y + h*0.06f, w*0.16f, w*0.16f, w*0.08f);
-            strokeBox(x + w*0.18f, y + h*0.78f, w*0.16f, w*0.16f, w*0.08f);
-            strokeBox(x + w*0.62f, y + h*0.30f, w*0.16f, w*0.16f, w*0.08f);
-            NkLine(*this, { x + w*0.30f, y + h*0.4f }, { x + w*0.66f, y + h*0.4f }, c, th);
-        } else if (cmp(name, "wrench")) {
-            NkLine(*this, { x + w*0.25f, y + h*0.75f }, { x + w*0.7f, y + h*0.3f }, c, th*1.4f);
-            strokeBox(x + w*0.55f, y + h*0.1f, w*0.32f, w*0.32f, w*0.16f);
-        } else if (cmp(name, "cpu")) {
-            strokeBox(x + w*0.22f, y + h*0.22f, w*0.56f, h*0.56f, 2.f);
-            rectS(x + w*0.36f, y + h*0.36f, w*0.28f, h*0.28f);
-            for (int i = 0; i < 3; ++i) { const float32 o = 0.3f + i*0.2f;
-                rectS(x + w*o, y + h*0.1f, th, h*0.12f); rectS(x + w*o, y + h*0.78f, th, h*0.12f);
-                rectS(x + w*0.1f, y + h*o, w*0.12f, th); rectS(x + w*0.78f, y + h*o, w*0.12f, th); }
-        } else if (cmp(name, "settings")) {
-            strokeBox(x + w*0.3f, y + h*0.3f, w*0.4f, h*0.4f, w*0.2f);   // moyeu
-            // 8 dents (offsets precalcules, sans trigo)
-            static const float32 ox[8] = { 0.f, 0.30f, 0.42f, 0.30f, 0.f, -0.30f, -0.42f, -0.30f };
-            static const float32 oy[8] = { -0.42f, -0.30f, 0.f, 0.30f, 0.42f, 0.30f, 0.f, -0.30f };
-            for (int i = 0; i < 8; ++i) {
-                const float32 cxp = x + w*0.5f + ox[i]*w, cyp = y + h*0.5f + oy[i]*h;
-                rectS(cxp - th*0.8f, cyp - th*0.8f, th*1.6f, th*1.6f);
-            }
-        } else if (cmp(name, "search")) {
-            strokeBox(x + w*0.15f, y + h*0.15f, w*0.5f, h*0.5f, w*0.25f);
-            NkLine(*this, { x + w*0.58f, y + h*0.58f }, { x + w*0.85f, y + h*0.85f }, c, th);
-        } else if (cmp(name, "chevron-down")) {
-            NkLine(*this, { x + w*0.25f, y + h*0.4f }, { x + w*0.5f, y + h*0.62f }, c, th);
-            NkLine(*this, { x + w*0.75f, y + h*0.4f }, { x + w*0.5f, y + h*0.62f }, c, th);
-        } else if (cmp(name, "chevron-right")) {
-            NkLine(*this, { x + w*0.4f, y + h*0.25f }, { x + w*0.62f, y + h*0.5f }, c, th);
-            NkLine(*this, { x + w*0.4f, y + h*0.75f }, { x + w*0.62f, y + h*0.5f }, c, th);
-        } else if (cmp(name, "book-open")) {
-            strokeBox(x + w*0.1f, y + h*0.2f, w*0.8f, h*0.6f, 1.f);
-            rectS(x + w*0.5f - th*0.5f, y + h*0.2f, th, h*0.6f);
-        } else if (cmp(name, "minus")) {
-            rectS(x + w*0.2f, y + h*0.5f - th*0.5f, w*0.6f, th);
-        } else if (cmp(name, "square")) {
-            strokeBox(x + w*0.22f, y + h*0.22f, w*0.56f, h*0.56f, 2.f);
-        } else if (cmp(name, "x")) {
-            NkLine(*this, { x + w*0.25f, y + h*0.25f }, { x + w*0.75f, y + h*0.75f }, c, th);
-            NkLine(*this, { x + w*0.75f, y + h*0.25f }, { x + w*0.25f, y + h*0.75f }, c, th);
-        } else if (cmp(name, "arrow-left")) {
-            NkLine(*this, { x + w*0.2f, y + h*0.5f }, { x + w*0.85f, y + h*0.5f }, c, th);
-            NkLine(*this, { x + w*0.2f, y + h*0.5f }, { x + w*0.45f, y + h*0.28f }, c, th);
-            NkLine(*this, { x + w*0.2f, y + h*0.5f }, { x + w*0.45f, y + h*0.72f }, c, th);
-        } else if (cmp(name, "arrow-right")) {
-            NkLine(*this, { x + w*0.15f, y + h*0.5f }, { x + w*0.8f, y + h*0.5f }, c, th);
-            NkLine(*this, { x + w*0.8f, y + h*0.5f }, { x + w*0.55f, y + h*0.28f }, c, th);
-            NkLine(*this, { x + w*0.8f, y + h*0.5f }, { x + w*0.55f, y + h*0.72f }, c, th);
-        } else if (cmp(name, "arrow-up")) {
-            NkLine(*this, { x + w*0.5f, y + h*0.18f }, { x + w*0.5f, y + h*0.82f }, c, th);
-            NkLine(*this, { x + w*0.5f, y + h*0.18f }, { x + w*0.28f, y + h*0.42f }, c, th);
-            NkLine(*this, { x + w*0.5f, y + h*0.18f }, { x + w*0.72f, y + h*0.42f }, c, th);
-        } else if (cmp(name, "list")) {
-            rectS(x + w*0.2f, y + h*0.28f, w*0.6f, th);
-            rectS(x + w*0.2f, y + h*0.5f - th*0.5f, w*0.6f, th);
-            rectS(x + w*0.2f, y + h*0.72f - th, w*0.6f, th);
-        } else if (cmp(name, "grid") || cmp(name, "layout-grid")) {
-            strokeBox(x + w*0.18f, y + h*0.18f, w*0.28f, h*0.28f, 1.f);
-            strokeBox(x + w*0.54f, y + h*0.18f, w*0.28f, h*0.28f, 1.f);
-            strokeBox(x + w*0.18f, y + h*0.54f, w*0.28f, h*0.28f, 1.f);
-            strokeBox(x + w*0.54f, y + h*0.54f, w*0.28f, h*0.28f, 1.f);
-        } else if (cmp(name, "file")) {
-            strokeBox(x + w*0.25f, y + h*0.12f, w*0.5f, h*0.76f, 1.f);
-            NkLine(*this, { x + w*0.58f, y + h*0.12f }, { x + w*0.58f, y + h*0.28f }, c, th);
-            NkLine(*this, { x + w*0.58f, y + h*0.28f }, { x + w*0.75f, y + h*0.28f }, c, th);
-        } else if (cmp(name, "clock")) {
-            strokeBox(x + w*0.15f, y + h*0.15f, w*0.7f, h*0.7f, w*0.35f);
-            NkLine(*this, { x + w*0.5f, y + h*0.5f }, { x + w*0.5f, y + h*0.28f }, c, th);
-            NkLine(*this, { x + w*0.5f, y + h*0.5f }, { x + w*0.66f, y + h*0.58f }, c, th);
-        } else if (cmp(name, "monitor")) {
-            strokeBox(x + w*0.12f, y + h*0.18f, w*0.76f, h*0.48f, 2.f);
-            rectS(x + w*0.34f, y + h*0.74f, w*0.32f, th);
-            rectS(x + w*0.5f - th*0.5f, y + h*0.66f, th, h*0.08f);
-        } else if (cmp(name, "hard-drive")) {
-            strokeBox(x + w*0.12f, y + h*0.32f, w*0.76f, h*0.36f, 2.f);
-            rectS(x + w*0.66f, y + h*0.46f, w*0.09f, h*0.09f);
-        } else if (cmp(name, "check-circle")) {
-            strokeBox(x + w*0.12f, y + h*0.12f, w*0.76f, h*0.76f, w*0.38f);
-            NkLine(*this, { x + w*0.3f, y + h*0.52f }, { x + w*0.45f, y + h*0.67f }, c, th);
-            NkLine(*this, { x + w*0.45f, y + h*0.67f }, { x + w*0.72f, y + h*0.35f }, c, th);
-        } else if (cmp(name, "alert-triangle") || cmp(name, "alert-circle")) {
-            NkLine(*this, { x + w*0.5f, y + h*0.14f }, { x + w*0.9f, y + h*0.84f }, c, th);
-            NkLine(*this, { x + w*0.9f, y + h*0.84f }, { x + w*0.1f, y + h*0.84f }, c, th);
-            NkLine(*this, { x + w*0.1f, y + h*0.84f }, { x + w*0.5f, y + h*0.14f }, c, th);
-            rectS(x + w*0.5f - th*0.5f, y + h*0.4f, th, h*0.2f);
-            rectS(x + w*0.5f - th*0.5f, y + h*0.68f, th, th);
-        } else {
-            strokeBox(x + w*0.2f, y + h*0.2f, w*0.6f, h*0.6f, 2.f);   // fallback
-        }
-    }
+		// ── Scrollbars UNIFORMES + VISIBLES (tout NKCode : launcher + editeur) ─────────
+		// Meme apparence partout. Piste subtile ; pouce nettement contraste (theme-aware).
+		// Versions `C` = light explicite (pour l'editorkit qui lit ctx.theme, pas NkCol).
+		inline NkColor NkScrollTrackC(bool light) {
+			return light ? NkColor{0, 0, 0, 20} : NkColor{255, 255, 255, 16};
+		}
 
-    // ── Icone de marque NKCode : accolades { } encadrant un arbre/reseau ───────
-    inline void NkBrandMark(const NkUi& u, const NkRect& r, const NkColor& c) {
-        const float32 x = r.x, y = r.y, w = r.w, h = r.h;
-        const float32 th = u.s(1.6f);
-        // accolade gauche
-        NkLine(u, { x + w*0.22f, y + h*0.1f }, { x + w*0.12f, y + h*0.2f }, c, th);
-        NkLine(u, { x + w*0.12f, y + h*0.2f }, { x + w*0.12f, y + h*0.42f }, c, th);
-        NkLine(u, { x + w*0.12f, y + h*0.42f }, { x + w*0.04f, y + h*0.5f }, c, th);
-        NkLine(u, { x + w*0.04f, y + h*0.5f }, { x + w*0.12f, y + h*0.58f }, c, th);
-        NkLine(u, { x + w*0.12f, y + h*0.58f }, { x + w*0.12f, y + h*0.8f }, c, th);
-        NkLine(u, { x + w*0.12f, y + h*0.8f }, { x + w*0.22f, y + h*0.9f }, c, th);
-        // accolade droite
-        NkLine(u, { x + w*0.78f, y + h*0.1f }, { x + w*0.88f, y + h*0.2f }, c, th);
-        NkLine(u, { x + w*0.88f, y + h*0.2f }, { x + w*0.88f, y + h*0.42f }, c, th);
-        NkLine(u, { x + w*0.88f, y + h*0.42f }, { x + w*0.96f, y + h*0.5f }, c, th);
-        NkLine(u, { x + w*0.96f, y + h*0.5f }, { x + w*0.88f, y + h*0.58f }, c, th);
-        NkLine(u, { x + w*0.88f, y + h*0.58f }, { x + w*0.88f, y + h*0.8f }, c, th);
-        NkLine(u, { x + w*0.88f, y + h*0.8f }, { x + w*0.78f, y + h*0.9f }, c, th);
-        // arbre central : tronc + branches + noeuds
-        NkLine(u, { x + w*0.5f, y + h*0.2f }, { x + w*0.5f, y + h*0.82f }, c, th);
-        NkLine(u, { x + w*0.5f, y + h*0.32f }, { x + w*0.32f, y + h*0.22f }, c, th);
-        NkLine(u, { x + w*0.5f, y + h*0.32f }, { x + w*0.68f, y + h*0.22f }, c, th);
-        NkLine(u, { x + w*0.5f, y + h*0.5f }, { x + w*0.34f, y + h*0.42f }, c, th);
-        NkLine(u, { x + w*0.5f, y + h*0.5f }, { x + w*0.66f, y + h*0.42f }, c, th);
-        NkLine(u, { x + w*0.5f, y + h*0.82f }, { x + w*0.38f, y + h*0.9f }, c, th);
-        NkLine(u, { x + w*0.5f, y + h*0.82f }, { x + w*0.62f, y + h*0.9f }, c, th);
-        auto node = [&](float32 nx, float32 ny) { u.dl->AddRectFilled({ x + w*nx - u.s(1.8f), y + h*ny - u.s(1.8f), u.s(3.6f), u.s(3.6f) }, c, u.s(1.f)); };
-        node(0.5f, 0.2f); node(0.32f, 0.22f); node(0.68f, 0.22f); node(0.34f, 0.42f); node(0.66f, 0.42f);
-    }
+		inline NkColor NkScrollThumbC(bool light, bool hover) {
+			if (light)
+				return hover ? NkColor{130, 138, 148, 255} : NkColor{168, 176, 185, 255};
+			return hover ? NkColor{120, 130, 142, 255} : NkColor{80, 88, 98, 255};
+		}
 
-} // namespace nkcode
+		inline NkColor NkScrollTrack() {
+			return NkScrollTrackC(NkThemeIsLight());
+		}
+
+		inline NkColor NkScrollThumb(bool hover) {
+			return NkScrollThumbC(NkThemeIsLight(), hover);
+		}
+
+		// Variante « survol » d'une couleur, THEME-AWARE : éclaircit sur thème sombre, assombrit sur thème clair.
+		// Remplace les bleus/verts de survol codés en dur (qui ne suivaient pas le thème).
+		inline NkColor NkColHover(const NkColor &c) {
+			if (NkThemeIsLight())
+				return NkColor{(uint8)((int32)c.r * 84 / 100), (uint8)((int32)c.g * 84 / 100),
+							   (uint8)((int32)c.b * 84 / 100), c.a};
+			auto up = [](uint8 v) -> uint8 {
+				const int32 n = (int32)v + 22;
+				return (uint8)(n > 255 ? 255 : n);
+			};
+			return NkColor{up(c.r), up(c.g), up(c.b), c.a};
+		}
+
+		// Rayons (px @1x)
+		namespace NkR {
+			inline constexpr float32 sm = 4.f, md = 6.f, lg = 10.f, xl = 16.f;
+		}
+
+		// ── Contexte de dessin partage (passe aux fonctions d'UI) ─────────────────
+		struct NkUi {
+				NkGuiContext *ctx = nullptr;
+				NkGuiDrawList *dl = nullptr;
+				const NkGuiFont *f = nullptr;
+				NkVec2 mp{};
+				bool click = false, down = false;
+				float32 S = 1.f;
+
+				static NkUi From(NkEditorFrameContext &ec, bool overlay = false) {
+					NkUi u;
+					u.ctx = &ec.Ui();
+					u.f = u.ctx->font;
+					u.dl = overlay ? &u.ctx->dlOverlay : &u.ctx->DL();
+					u.mp = u.ctx->input.mousePos;
+					u.click = u.ctx->input.mouseClicked[0];
+					u.down = u.ctx->input.mouseDown[0];
+					u.S = u.ctx->S(1.f);
+					return u;
+				}
+
+				bool Valid() const {
+					return f && f->Valid();
+				}
+
+				float32 s(float32 px) const {
+					return px * S;
+				}
+
+				bool Hit(const NkRect &r) const {
+					return NkGuiRectContains(r, mp);
+				}
+
+				float32 Asc() const {
+					return f ? f->Ascent() : 0.f;
+				}
+
+				float32 Lh() const {
+					return f ? f->LineHeight() : 0.f;
+				}
+
+				float32 TextW(const char *t) const {
+					return f ? f->MeasureWidth(t) : 0.f;
+				}
+
+				void Rect(const NkRect &r, const NkColor &c, float32 round = 0.f) const {
+					dl->AddRectFilled(r, c, round);
+				}
+
+				void Stroke(const NkRect &r, const NkColor &c, float32 round = 0.f, float32 th = 1.f) const {
+					(void)round;
+					dl->AddRect(r, c, th);
+				}
+
+				// Panneau a BORD ARRONDI : fond borde (le contour suit le rayon, contrairement
+				// a AddRect qui est carre). border colore -> fond inset par 1px.
+				void Panel(const NkRect &r, const NkColor &fill, const NkColor &border, float32 round,
+						   float32 bw = 1.f) const {
+					const float32 b = bw * (S > 1.f ? S : 1.f);
+					dl->AddRectFilled(r, border, round);
+					dl->AddRectFilled({r.x + b, r.y + b, r.w - 2.f * b, r.h - 2.f * b}, fill,
+									  round - b > 0.f ? round - b : 0.f);
+				}
+
+				void Text(float32 x, float32 y, const char *t, const NkColor &c) const {
+					if (f && t)
+						dl->AddText(f->Face(), f->TexId(), {x, y + Asc()}, t, c);
+				}
+
+				// Texte centre verticalement dans une hauteur h a partir de y.
+				void TextV(float32 x, float32 y, float32 h, const char *t, const NkColor &c) const {
+					Text(x, y + (h - Lh()) * 0.5f, t, c);
+				}
+
+				// Texte tronque avec "..." s'il depasse maxW. Renvoie la largeur dessinee.
+				float32 TextEllipsis(float32 x, float32 y, float32 maxW, const char *t, const NkColor &c) const {
+					if (!f || !t || !*t || maxW <= 0.f)
+						return 0.f;
+					const float32 full = f->MeasureWidth(t);
+					if (full <= maxW) {
+						Text(x, y, t, c);
+						return full;
+					}
+					char buf[260];
+					int32 n = 0;
+					const float32 dots = f->MeasureWidth("...");
+					for (const char *p = t; *p && n < 252; ++p) {
+						buf[n] = *p;
+						buf[n + 1] = '\0';
+						if (f->MeasureWidth(buf) + dots > maxW) {
+							buf[n] = '\0';
+							break;
+						}
+						++n;
+					}
+					buf[n] = '.';
+					buf[n + 1] = '.';
+					buf[n + 2] = '.';
+					buf[n + 3] = '\0';
+					Text(x, y, buf, c);
+					return f->MeasureWidth(buf);
+				}
+
+				// Bouton plein (renvoie true au clic). bg/hover/texte personnalisables.
+				bool Button(const NkRect &r, const char *label, const NkColor &bg, const NkColor &bgH,
+							const NkColor &fg, float32 round) const {
+					const bool h = Hit(r);
+					Rect(r, h ? bgH : bg, round);
+					const float32 tw = TextW(label);
+					TextV(r.x + (r.w - tw) * 0.5f, r.y, r.h, label, fg);
+					return h && click;
+				}
+
+				// ── Icones (style Lucide, dessinees au trait) dans un carre `r` ────────
+				void Icon(const char *name, const NkRect &box, const NkColor &c) const;
+		};
+
+		// Segment au trait (le draw-list NKGui gere l'epaisseur + l'AA).
+		inline void NkLine(const NkUi &u, NkVec2 a, NkVec2 b, const NkColor &c, float32 th) {
+			u.dl->AddLine(a, b, c, th);
+		}
+
+		// Jeu d'icones SVG (data/textures/icon) rasterisees en textures au demarrage.
+		// 0 = non chargee (NkDrawIcon ne dessine rien). Teintees au rendu.
+		struct NkIcons {
+				uint32 accueil = 0, ouvrir = 0, ouvrirDossier = 0, nouveau = 0, cloner = 0, toolchains = 0,
+					   platforms = 0, gear = 0, exemple = 0, star = 0, shape = 0, search = 0, workspace = 0;
+				// Navigateur « Ouvrir un Workspace »
+				uint32 back = 0, forward = 0, up = 0, downArrow = 0, bureau = 0, disque = 0, jenga = 0, valide = 0,
+					   horloge = 0, fichier = 0, sort = 0;
+				// toggle liste/grille -> icones DESSINEES (pas d'asset adapte) : viewList/viewGrid restent 0
+				uint32 viewList = 0, viewGrid = 0;
+				// Wizard projet : types + actions + validation
+				uint32 kConsole = 0, kWindowed = 0, kStatic = 0, kShared = 0, kTest = 0, kConfig = 0;
+				uint32 valideSimple = 0, editer = 0, dependance = 0, creeProjet = 0, fileCode = 0, plus = 0,
+					   corbeille = 0, lock = 0;
+				// Clone Git : telechargement, github, oeil ouvert/ferme, rond info
+				uint32 clonerTel = 0, github = 0, oeilOuvert = 0, oeilFermer = 0, rondI = 0;
+				// ── Vue principale IDE (toolbar, activity bar, panneaux, status bar) ──
+				uint32 hammer = 0, bug = 0, sparkles = 0, zap = 0, chart = 0, puzzle = 0, eraser = 0, rebuild = 0,
+					   monitor = 0, flask = 0, layers = 0, pkg = 0, globe = 0, pause = 0, stop = 0, gitPush = 0,
+					   gitPull = 0, split = 0, folderOpen = 0, fileText = 0, fileCode2 = 0, filePlus = 0, code = 0,
+					   compare = 0, blame = 0, exit = 0, tags = 0, cloud = 0, docker = 0, linux = 0, play = 0;
+
+				// ── Registre d'extensions (data-driven) : ".cpp" (minuscule) -> texture ──
+				// Rempli au demarrage depuis des defauts integres + le manifeste icons.cfg.
+				NkVector<NkString> extKey;
+				NkVector<uint32> extTex;
+
+				// Texture associee a l'extension d'un nom de fichier (0 si aucune / non chargee).
+				uint32 ForFile(const char *filename) const {
+					if (!filename)
+						return 0;
+					const char *dot = nullptr;
+					for (const char *p = filename; *p; ++p)
+						if (*p == '.')
+							dot = p;
+					if (!dot || !dot[1])
+						return 0;
+					char ext[24];
+					int32 n = 0;
+					for (const char *p = dot; *p && n < 23; ++p) {
+						char c = *p;
+						if (c >= 'A' && c <= 'Z')
+							c = char(c - 'A' + 'a');
+						ext[n++] = c;
+					}
+					ext[n] = '\0';
+					for (usize i = 0; i < extKey.Size(); ++i) {
+						const char *a = extKey[i].CStr();
+						const char *b = ext;
+						bool eq = true;
+						while (*a && *b) {
+							if (*a != *b) {
+								eq = false;
+								break;
+							}
+							++a;
+							++b;
+						}
+						if (eq && *a == '\0' && *b == '\0')
+							return extTex[i];
+					}
+					return 0;
+				}
+
+				// Ajoute / remplace une association extension -> texture.
+				void SetExt(const char *ext, uint32 tex) {
+					char e[24];
+					int32 n = 0;
+					for (const char *p = ext; *p && n < 23; ++p) {
+						char c = *p;
+						if (c >= 'A' && c <= 'Z')
+							c = char(c - 'A' + 'a');
+						e[n++] = c;
+					}
+					e[n] = '\0';
+					if (!e[0])
+						return;
+					for (usize i = 0; i < extKey.Size(); ++i) {
+						const char *a = extKey[i].CStr();
+						const char *b = e;
+						bool eq = true;
+						while (*a && *b) {
+							if (*a != *b) {
+								eq = false;
+								break;
+							}
+							++a;
+							++b;
+						}
+						if (eq && *a == '\0' && *b == '\0') {
+							extTex[i] = tex;
+							return;
+						}
+					}
+					extKey.PushBack(NkString(e));
+					extTex.PushBack(tex);
+				}
+		};
+
+		inline void NkDrawIcon(const NkUi &u, uint32 tex, const NkRect &r, const NkColor &tint) {
+			if (tex)
+				u.dl->AddImage(tex, r, {0, 0}, {1, 1}, tint);
+		}
+
+		inline void NkUi::Icon(const char *name, const NkRect &r, const NkColor &c) const {
+			const float32 x = r.x, y = r.y, w = r.w, h = r.h;
+			const float32 th = w * 0.10f < 1.4f ? 1.4f : w * 0.10f;
+			auto rectS = [&](float32 rx, float32 ry, float32 rw, float32 rh) {
+				dl->AddRectFilled({rx, ry, rw, rh}, c, 1.f);
+			};
+			auto strokeBox = [&](float32 rx, float32 ry, float32 rw, float32 rh, float32 rad) {
+				(void)rad;
+				dl->AddRect({rx, ry, rw, rh}, c, th);
+			};
+			auto cmp = [&](const char *a, const char *b) {
+				while (*a && *b) {
+					if (*a != *b)
+						return false;
+					++a;
+					++b;
+				}
+				return *a == *b;
+			};
+
+			if (cmp(name, "house") || cmp(name, "home")) {
+				NkLine(*this, {x + w * 0.5f, y + h * 0.12f}, {x + w * 0.08f, y + h * 0.5f}, c, th);
+				NkLine(*this, {x + w * 0.5f, y + h * 0.12f}, {x + w * 0.92f, y + h * 0.5f}, c, th);
+				strokeBox(x + w * 0.18f, y + h * 0.5f, w * 0.64f, h * 0.38f, 1.f);
+			} else if (cmp(name, "folder-open") || cmp(name, "folder")) {
+				strokeBox(x + w * 0.08f, y + h * 0.3f, w * 0.84f, h * 0.46f, 2.f);
+				rectS(x + w * 0.08f, y + h * 0.22f, w * 0.4f, h * 0.12f);
+			} else if (cmp(name, "plus-circle") || cmp(name, "plus")) {
+				strokeBox(x + w * 0.12f, y + h * 0.12f, w * 0.76f, h * 0.76f, w * 0.38f);
+				rectS(x + w * 0.46f, y + h * 0.28f, th, h * 0.44f);
+				rectS(x + w * 0.28f, y + h * 0.46f, w * 0.44f, th);
+			} else if (cmp(name, "git-branch")) {
+				rectS(x + w * 0.26f, y + h * 0.15f, th, h * 0.7f); // branche gauche
+				strokeBox(x + w * 0.18f, y + h * 0.06f, w * 0.16f, w * 0.16f, w * 0.08f);
+				strokeBox(x + w * 0.18f, y + h * 0.78f, w * 0.16f, w * 0.16f, w * 0.08f);
+				strokeBox(x + w * 0.62f, y + h * 0.30f, w * 0.16f, w * 0.16f, w * 0.08f);
+				NkLine(*this, {x + w * 0.30f, y + h * 0.4f}, {x + w * 0.66f, y + h * 0.4f}, c, th);
+			} else if (cmp(name, "wrench")) {
+				NkLine(*this, {x + w * 0.25f, y + h * 0.75f}, {x + w * 0.7f, y + h * 0.3f}, c, th * 1.4f);
+				strokeBox(x + w * 0.55f, y + h * 0.1f, w * 0.32f, w * 0.32f, w * 0.16f);
+			} else if (cmp(name, "cpu")) {
+				strokeBox(x + w * 0.22f, y + h * 0.22f, w * 0.56f, h * 0.56f, 2.f);
+				rectS(x + w * 0.36f, y + h * 0.36f, w * 0.28f, h * 0.28f);
+				for (int i = 0; i < 3; ++i) {
+					const float32 o = 0.3f + i * 0.2f;
+					rectS(x + w * o, y + h * 0.1f, th, h * 0.12f);
+					rectS(x + w * o, y + h * 0.78f, th, h * 0.12f);
+					rectS(x + w * 0.1f, y + h * o, w * 0.12f, th);
+					rectS(x + w * 0.78f, y + h * o, w * 0.12f, th);
+				}
+			} else if (cmp(name, "settings")) {
+				strokeBox(x + w * 0.3f, y + h * 0.3f, w * 0.4f, h * 0.4f, w * 0.2f); // moyeu
+				// 8 dents (offsets precalcules, sans trigo)
+				static const float32 ox[8] = {0.f, 0.30f, 0.42f, 0.30f, 0.f, -0.30f, -0.42f, -0.30f};
+				static const float32 oy[8] = {-0.42f, -0.30f, 0.f, 0.30f, 0.42f, 0.30f, 0.f, -0.30f};
+				for (int i = 0; i < 8; ++i) {
+					const float32 cxp = x + w * 0.5f + ox[i] * w, cyp = y + h * 0.5f + oy[i] * h;
+					rectS(cxp - th * 0.8f, cyp - th * 0.8f, th * 1.6f, th * 1.6f);
+				}
+			} else if (cmp(name, "search")) {
+				strokeBox(x + w * 0.15f, y + h * 0.15f, w * 0.5f, h * 0.5f, w * 0.25f);
+				NkLine(*this, {x + w * 0.58f, y + h * 0.58f}, {x + w * 0.85f, y + h * 0.85f}, c, th);
+			} else if (cmp(name, "chevron-down")) {
+				NkLine(*this, {x + w * 0.25f, y + h * 0.4f}, {x + w * 0.5f, y + h * 0.62f}, c, th);
+				NkLine(*this, {x + w * 0.75f, y + h * 0.4f}, {x + w * 0.5f, y + h * 0.62f}, c, th);
+			} else if (cmp(name, "chevron-right")) {
+				NkLine(*this, {x + w * 0.4f, y + h * 0.25f}, {x + w * 0.62f, y + h * 0.5f}, c, th);
+				NkLine(*this, {x + w * 0.4f, y + h * 0.75f}, {x + w * 0.62f, y + h * 0.5f}, c, th);
+			} else if (cmp(name, "book-open")) {
+				strokeBox(x + w * 0.1f, y + h * 0.2f, w * 0.8f, h * 0.6f, 1.f);
+				rectS(x + w * 0.5f - th * 0.5f, y + h * 0.2f, th, h * 0.6f);
+			} else if (cmp(name, "minus")) {
+				rectS(x + w * 0.2f, y + h * 0.5f - th * 0.5f, w * 0.6f, th);
+			} else if (cmp(name, "square")) {
+				strokeBox(x + w * 0.22f, y + h * 0.22f, w * 0.56f, h * 0.56f, 2.f);
+			} else if (cmp(name, "x")) {
+				NkLine(*this, {x + w * 0.25f, y + h * 0.25f}, {x + w * 0.75f, y + h * 0.75f}, c, th);
+				NkLine(*this, {x + w * 0.75f, y + h * 0.25f}, {x + w * 0.25f, y + h * 0.75f}, c, th);
+			} else if (cmp(name, "arrow-left")) {
+				NkLine(*this, {x + w * 0.2f, y + h * 0.5f}, {x + w * 0.85f, y + h * 0.5f}, c, th);
+				NkLine(*this, {x + w * 0.2f, y + h * 0.5f}, {x + w * 0.45f, y + h * 0.28f}, c, th);
+				NkLine(*this, {x + w * 0.2f, y + h * 0.5f}, {x + w * 0.45f, y + h * 0.72f}, c, th);
+			} else if (cmp(name, "arrow-right")) {
+				NkLine(*this, {x + w * 0.15f, y + h * 0.5f}, {x + w * 0.8f, y + h * 0.5f}, c, th);
+				NkLine(*this, {x + w * 0.8f, y + h * 0.5f}, {x + w * 0.55f, y + h * 0.28f}, c, th);
+				NkLine(*this, {x + w * 0.8f, y + h * 0.5f}, {x + w * 0.55f, y + h * 0.72f}, c, th);
+			} else if (cmp(name, "arrow-up")) {
+				NkLine(*this, {x + w * 0.5f, y + h * 0.18f}, {x + w * 0.5f, y + h * 0.82f}, c, th);
+				NkLine(*this, {x + w * 0.5f, y + h * 0.18f}, {x + w * 0.28f, y + h * 0.42f}, c, th);
+				NkLine(*this, {x + w * 0.5f, y + h * 0.18f}, {x + w * 0.72f, y + h * 0.42f}, c, th);
+			} else if (cmp(name, "list")) {
+				rectS(x + w * 0.2f, y + h * 0.28f, w * 0.6f, th);
+				rectS(x + w * 0.2f, y + h * 0.5f - th * 0.5f, w * 0.6f, th);
+				rectS(x + w * 0.2f, y + h * 0.72f - th, w * 0.6f, th);
+			} else if (cmp(name, "grid") || cmp(name, "layout-grid")) {
+				strokeBox(x + w * 0.18f, y + h * 0.18f, w * 0.28f, h * 0.28f, 1.f);
+				strokeBox(x + w * 0.54f, y + h * 0.18f, w * 0.28f, h * 0.28f, 1.f);
+				strokeBox(x + w * 0.18f, y + h * 0.54f, w * 0.28f, h * 0.28f, 1.f);
+				strokeBox(x + w * 0.54f, y + h * 0.54f, w * 0.28f, h * 0.28f, 1.f);
+			} else if (cmp(name, "file")) {
+				strokeBox(x + w * 0.25f, y + h * 0.12f, w * 0.5f, h * 0.76f, 1.f);
+				NkLine(*this, {x + w * 0.58f, y + h * 0.12f}, {x + w * 0.58f, y + h * 0.28f}, c, th);
+				NkLine(*this, {x + w * 0.58f, y + h * 0.28f}, {x + w * 0.75f, y + h * 0.28f}, c, th);
+			} else if (cmp(name, "clock")) {
+				strokeBox(x + w * 0.15f, y + h * 0.15f, w * 0.7f, h * 0.7f, w * 0.35f);
+				NkLine(*this, {x + w * 0.5f, y + h * 0.5f}, {x + w * 0.5f, y + h * 0.28f}, c, th);
+				NkLine(*this, {x + w * 0.5f, y + h * 0.5f}, {x + w * 0.66f, y + h * 0.58f}, c, th);
+			} else if (cmp(name, "monitor")) {
+				strokeBox(x + w * 0.12f, y + h * 0.18f, w * 0.76f, h * 0.48f, 2.f);
+				rectS(x + w * 0.34f, y + h * 0.74f, w * 0.32f, th);
+				rectS(x + w * 0.5f - th * 0.5f, y + h * 0.66f, th, h * 0.08f);
+			} else if (cmp(name, "hard-drive")) {
+				strokeBox(x + w * 0.12f, y + h * 0.32f, w * 0.76f, h * 0.36f, 2.f);
+				rectS(x + w * 0.66f, y + h * 0.46f, w * 0.09f, h * 0.09f);
+			} else if (cmp(name, "check-circle")) {
+				strokeBox(x + w * 0.12f, y + h * 0.12f, w * 0.76f, h * 0.76f, w * 0.38f);
+				NkLine(*this, {x + w * 0.3f, y + h * 0.52f}, {x + w * 0.45f, y + h * 0.67f}, c, th);
+				NkLine(*this, {x + w * 0.45f, y + h * 0.67f}, {x + w * 0.72f, y + h * 0.35f}, c, th);
+			} else if (cmp(name, "alert-triangle") || cmp(name, "alert-circle")) {
+				NkLine(*this, {x + w * 0.5f, y + h * 0.14f}, {x + w * 0.9f, y + h * 0.84f}, c, th);
+				NkLine(*this, {x + w * 0.9f, y + h * 0.84f}, {x + w * 0.1f, y + h * 0.84f}, c, th);
+				NkLine(*this, {x + w * 0.1f, y + h * 0.84f}, {x + w * 0.5f, y + h * 0.14f}, c, th);
+				rectS(x + w * 0.5f - th * 0.5f, y + h * 0.4f, th, h * 0.2f);
+				rectS(x + w * 0.5f - th * 0.5f, y + h * 0.68f, th, th);
+			} else {
+				strokeBox(x + w * 0.2f, y + h * 0.2f, w * 0.6f, h * 0.6f, 2.f); // fallback
+			}
+		}
+
+		// ── Icone de marque NKCode : accolades { } encadrant un arbre/reseau ───────
+		inline void NkBrandMark(const NkUi &u, const NkRect &r, const NkColor &c) {
+			const float32 x = r.x, y = r.y, w = r.w, h = r.h;
+			const float32 th = u.s(1.6f);
+			// accolade gauche
+			NkLine(u, {x + w * 0.22f, y + h * 0.1f}, {x + w * 0.12f, y + h * 0.2f}, c, th);
+			NkLine(u, {x + w * 0.12f, y + h * 0.2f}, {x + w * 0.12f, y + h * 0.42f}, c, th);
+			NkLine(u, {x + w * 0.12f, y + h * 0.42f}, {x + w * 0.04f, y + h * 0.5f}, c, th);
+			NkLine(u, {x + w * 0.04f, y + h * 0.5f}, {x + w * 0.12f, y + h * 0.58f}, c, th);
+			NkLine(u, {x + w * 0.12f, y + h * 0.58f}, {x + w * 0.12f, y + h * 0.8f}, c, th);
+			NkLine(u, {x + w * 0.12f, y + h * 0.8f}, {x + w * 0.22f, y + h * 0.9f}, c, th);
+			// accolade droite
+			NkLine(u, {x + w * 0.78f, y + h * 0.1f}, {x + w * 0.88f, y + h * 0.2f}, c, th);
+			NkLine(u, {x + w * 0.88f, y + h * 0.2f}, {x + w * 0.88f, y + h * 0.42f}, c, th);
+			NkLine(u, {x + w * 0.88f, y + h * 0.42f}, {x + w * 0.96f, y + h * 0.5f}, c, th);
+			NkLine(u, {x + w * 0.96f, y + h * 0.5f}, {x + w * 0.88f, y + h * 0.58f}, c, th);
+			NkLine(u, {x + w * 0.88f, y + h * 0.58f}, {x + w * 0.88f, y + h * 0.8f}, c, th);
+			NkLine(u, {x + w * 0.88f, y + h * 0.8f}, {x + w * 0.78f, y + h * 0.9f}, c, th);
+			// arbre central : tronc + branches + noeuds
+			NkLine(u, {x + w * 0.5f, y + h * 0.2f}, {x + w * 0.5f, y + h * 0.82f}, c, th);
+			NkLine(u, {x + w * 0.5f, y + h * 0.32f}, {x + w * 0.32f, y + h * 0.22f}, c, th);
+			NkLine(u, {x + w * 0.5f, y + h * 0.32f}, {x + w * 0.68f, y + h * 0.22f}, c, th);
+			NkLine(u, {x + w * 0.5f, y + h * 0.5f}, {x + w * 0.34f, y + h * 0.42f}, c, th);
+			NkLine(u, {x + w * 0.5f, y + h * 0.5f}, {x + w * 0.66f, y + h * 0.42f}, c, th);
+			NkLine(u, {x + w * 0.5f, y + h * 0.82f}, {x + w * 0.38f, y + h * 0.9f}, c, th);
+			NkLine(u, {x + w * 0.5f, y + h * 0.82f}, {x + w * 0.62f, y + h * 0.9f}, c, th);
+			auto node = [&](float32 nx, float32 ny) {
+				u.dl->AddRectFilled({x + w * nx - u.s(1.8f), y + h * ny - u.s(1.8f), u.s(3.6f), u.s(3.6f)}, c,
+									u.s(1.f));
+			};
+			node(0.5f, 0.2f);
+			node(0.32f, 0.22f);
+			node(0.68f, 0.22f);
+			node(0.34f, 0.42f);
+			node(0.66f, 0.42f);
+		}
+
+	} // namespace nkcode
 } // namespace nkentseu

@@ -11,7 +11,7 @@
 using namespace nkentseu;
 
 // VS instancié — copie EXACTE de instanced.vert.nksl (set=1 binding=2 instances).
-static const char* kInstancedVS = R"NKSL(
+static const char *kInstancedVS = R"NKSL(
 @binding(set=0, binding=0)
 uniform CameraUBO {
     mat4 view; mat4 proj; mat4 viewProj; mat4 invViewProj;
@@ -53,7 +53,7 @@ void main() {
 )NKSL";
 
 // FS instancié — copie EXACTE de instanced.frag.nksl (autonome, tint+éclairage).
-static const char* kInstancedFS = R"NKSL(
+static const char *kInstancedFS = R"NKSL(
 @location(0) in vec3 vWorldPos;
 @location(1) in vec3 vNormal;
 @location(3) in vec2 vUV;
@@ -74,57 +74,62 @@ void main() {
 }
 )NKSL";
 
-static void Check(NkSLCompiler& c, NkSLTarget t, NkSLStage stage,
-                  const char* src, const char* name) {
-    NkSLCompileResult r = c.Compile(NkString(src), stage, t);
-    printf("\n========================= %s : success=%d =========================\n",
-           name, r.success ? 1 : 0);
-    if (!r.success) {
-        for (const auto& e : r.errors)
-            printf("  ERREUR ligne %u: %s\n", e.line, e.message.CStr());
-        return;
-    }
-    printf("%s\n", r.source.CStr());
+static void Check(NkSLCompiler &c, NkSLTarget t, NkSLStage stage, const char *src, const char *name) {
+	NkSLCompileResult r = c.Compile(NkString(src), stage, t);
+	printf("\n========================= %s : success=%d =========================\n", name, r.success ? 1 : 0);
+	if (!r.success) {
+		for (const auto &e : r.errors)
+			printf("  ERREUR ligne %u: %s\n", e.line, e.message.CStr());
+		return;
+	}
+	printf("%s\n", r.source.CStr());
 }
 
-static NkString ReadAll(const char* path) {
-    FILE* f = fopen(path, "rb");
-    if (!f) { printf("  [!] introuvable: %s\n", path); return NkString(""); }
-    fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
-    NkString s; s.Resize((uint32)sz);
-    fread(s.Data(), 1, (size_t)sz, f); fclose(f);
-    return s;
+static NkString ReadAll(const char *path) {
+	FILE *f = fopen(path, "rb");
+	if (!f) {
+		printf("  [!] introuvable: %s\n", path);
+		return NkString("");
+	}
+	fseek(f, 0, SEEK_END);
+	long sz = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	NkString s;
+	s.Resize((uint32)sz);
+	fread(s.Data(), 1, (size_t)sz, f);
+	fclose(f);
+	return s;
 }
 
 int main() {
-    NkSLCompiler c;
+	NkSLCompiler c;
 
-    // Diagnostic ciblé : compare l'émission d'entrée d'un shader QUI MARCHE (PBR,
-    // nommé main) vs le shader instancié, en HLSL-DX12. Cherche 'main(' vs 'vertmain'.
-    printf("=== DIAGNOSTIC : PBR fragment — lumières GL vs VK ===\n");
-    {
-        NkString pbrFS = ReadAll("Resources/NKRenderer/Shaders/PBR/NkSL/pbr.frag.nksl");
-        if (!pbrFS.Empty()) {
-            NkSLCompileResult gl = c.Compile(pbrFS, NkSLStage::NK_FRAGMENT, NkSLTarget::NK_GLSL);
-            NkSLCompileResult vk = c.Compile(pbrFS, NkSLStage::NK_FRAGMENT, NkSLTarget::NK_GLSL_VULKAN);
-            printf("\n----- PBR FS GLSL-OpenGL (success=%d, %u octets) -----\n%s\n",
-                   gl.success?1:0, (unsigned)gl.source.Size(), gl.source.CStr());
-            printf("\n----- PBR FS GLSL-Vulkan (success=%d, %u octets) -----\n%s\n",
-                   vk.success?1:0, (unsigned)vk.source.Size(), vk.source.CStr());
-        }
-    }
-    printf("\n\n");
-    printf("=== NkSL -> backends : VERTEX instancié ===\n");
-    Check(c, NkSLTarget::NK_GLSL,        NkSLStage::NK_VERTEX, kInstancedVS, "VS GLSL-OpenGL");
-    Check(c, NkSLTarget::NK_GLSL_VULKAN, NkSLStage::NK_VERTEX, kInstancedVS, "VS GLSL-Vulkan");
-    Check(c, NkSLTarget::NK_HLSL_DX11,   NkSLStage::NK_VERTEX, kInstancedVS, "VS HLSL-DX11");
-    Check(c, NkSLTarget::NK_HLSL_DX12,   NkSLStage::NK_VERTEX, kInstancedVS, "VS HLSL-DX12");
+	// Diagnostic ciblé : compare l'émission d'entrée d'un shader QUI MARCHE (PBR,
+	// nommé main) vs le shader instancié, en HLSL-DX12. Cherche 'main(' vs 'vertmain'.
+	printf("=== DIAGNOSTIC : PBR fragment — lumières GL vs VK ===\n");
+	{
+		NkString pbrFS = ReadAll("Resources/NKRenderer/Shaders/PBR/NkSL/pbr.frag.nksl");
+		if (!pbrFS.Empty()) {
+			NkSLCompileResult gl = c.Compile(pbrFS, NkSLStage::NK_FRAGMENT, NkSLTarget::NK_GLSL);
+			NkSLCompileResult vk = c.Compile(pbrFS, NkSLStage::NK_FRAGMENT, NkSLTarget::NK_GLSL_VULKAN);
+			printf("\n----- PBR FS GLSL-OpenGL (success=%d, %u octets) -----\n%s\n", gl.success ? 1 : 0,
+				   (unsigned)gl.source.Size(), gl.source.CStr());
+			printf("\n----- PBR FS GLSL-Vulkan (success=%d, %u octets) -----\n%s\n", vk.success ? 1 : 0,
+				   (unsigned)vk.source.Size(), vk.source.CStr());
+		}
+	}
+	printf("\n\n");
+	printf("=== NkSL -> backends : VERTEX instancié ===\n");
+	Check(c, NkSLTarget::NK_GLSL, NkSLStage::NK_VERTEX, kInstancedVS, "VS GLSL-OpenGL");
+	Check(c, NkSLTarget::NK_GLSL_VULKAN, NkSLStage::NK_VERTEX, kInstancedVS, "VS GLSL-Vulkan");
+	Check(c, NkSLTarget::NK_HLSL_DX11, NkSLStage::NK_VERTEX, kInstancedVS, "VS HLSL-DX11");
+	Check(c, NkSLTarget::NK_HLSL_DX12, NkSLStage::NK_VERTEX, kInstancedVS, "VS HLSL-DX12");
 
-    printf("\n\n=== NkSL -> backends : FRAGMENT éclairé ===\n");
-    Check(c, NkSLTarget::NK_GLSL,        NkSLStage::NK_FRAGMENT, kInstancedFS, "FS GLSL-OpenGL");
-    Check(c, NkSLTarget::NK_GLSL_VULKAN, NkSLStage::NK_FRAGMENT, kInstancedFS, "FS GLSL-Vulkan");
-    Check(c, NkSLTarget::NK_HLSL_DX11,   NkSLStage::NK_FRAGMENT, kInstancedFS, "FS HLSL-DX11");
-    Check(c, NkSLTarget::NK_HLSL_DX12,   NkSLStage::NK_FRAGMENT, kInstancedFS, "FS HLSL-DX12");
-    printf("\n=== FIN ===\n");
-    return 0;
+	printf("\n\n=== NkSL -> backends : FRAGMENT éclairé ===\n");
+	Check(c, NkSLTarget::NK_GLSL, NkSLStage::NK_FRAGMENT, kInstancedFS, "FS GLSL-OpenGL");
+	Check(c, NkSLTarget::NK_GLSL_VULKAN, NkSLStage::NK_FRAGMENT, kInstancedFS, "FS GLSL-Vulkan");
+	Check(c, NkSLTarget::NK_HLSL_DX11, NkSLStage::NK_FRAGMENT, kInstancedFS, "FS HLSL-DX11");
+	Check(c, NkSLTarget::NK_HLSL_DX12, NkSLStage::NK_FRAGMENT, kInstancedFS, "FS HLSL-DX12");
+	printf("\n=== FIN ===\n");
+	return 0;
 }

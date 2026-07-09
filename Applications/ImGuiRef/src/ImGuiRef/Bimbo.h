@@ -7,14 +7,14 @@
 
 namespace nkentseu {
 
-    class Bimbo : public NkWindow, public NkEvent {
-        public:
-            Bimbo();
-            ~Bimbo();
+	class Bimbo : public NkWindow, public NkEvent {
+		public:
+			Bimbo();
+			~Bimbo();
 
-        private:
-    };
+		private:
+	};
 
-}
+} // namespace nkentseu
 
 #endif // __NKENTSEU_BIMBO_H__

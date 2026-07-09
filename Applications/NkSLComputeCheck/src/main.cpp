@@ -14,7 +14,7 @@ using namespace nkentseu;
 
 // --- Shader compute NkSL : addition vectorielle C[i] = A[i] + B[i] -----------
 // Storage buffers (SSBO), push constant (count), workgroup 64, builtin invocation.
-static const char* kVecAdd = R"NKSL(
+static const char *kVecAdd = R"NKSL(
 @binding(set=0, binding=0) buffer BufA { float data[]; } A;
 @binding(set=0, binding=1) buffer BufB { float data[]; } B;
 @binding(set=0, binding=2) buffer BufC { float data[]; } C;
@@ -35,7 +35,7 @@ void main() {
 )NKSL";
 
 // --- Shader compute NkSL : matmul naïf (le kernel qui servira à NKTensor) -----
-static const char* kMatmul = R"NKSL(
+static const char *kMatmul = R"NKSL(
 @binding(set=0, binding=0) buffer BufA { float data[]; } A;
 @binding(set=0, binding=1) buffer BufB { float data[]; } B;
 @binding(set=0, binding=2) buffer BufC { float data[]; } C;
@@ -61,7 +61,7 @@ void main() {
 )NKSL";
 
 // --- Vertex shader NkSL minimal ---------------------------------------------
-static const char* kVS = R"NKSL(
+static const char *kVS = R"NKSL(
 @location(0) in vec3 aPos;
 @location(1) in vec3 aNormal;
 @location(0) out vec3 vNormal;
@@ -75,7 +75,7 @@ void main() {
 )NKSL";
 
 // --- Fragment shader NkSL minimal -------------------------------------------
-static const char* kFS = R"NKSL(
+static const char *kFS = R"NKSL(
 @location(0) in vec3 vNormal;
 @location(0) out vec4 fragColor;
 
@@ -90,77 +90,85 @@ void main() {
 
 static int g_ok = 0, g_fail = 0;
 
-static void Convert(NkSLCompiler& c, const char* shaderName, const char* src,
-                    NkSLStage stage, NkSLTarget t, bool showSnippet) {
-    (void)showSnippet;
-    const char* tn = NkSLTargetName(t);
-    printf("  ... %-14s %-16s : ", shaderName, tn); fflush(stdout);
-    NkSLCompileResult r = c.Compile(NkString(src), stage, t);
-    if (r.success) {
-        ++g_ok;
-        if (t == NkSLTarget::NK_SPIRV) {
-            const unsigned bin = (unsigned)r.bytecode.Size();
-            printf("OK (SPIR-V binaire : %u mots)\n", bin / 4);
-        } else {
-            printf("OK (%u octets de code généré)\n", (unsigned)r.source.Size());
-        }
-        fflush(stdout);
-    } else {
-        ++g_fail;
-        printf("FAIL\n");
-        for (uint32 i = 0; i < r.errors.Size() && i < 3; i++)
-            printf("         ligne %u: %s\n", r.errors[i].line, r.errors[i].message.CStr());
-        fflush(stdout);
-    }
+static void Convert(NkSLCompiler &c, const char *shaderName, const char *src, NkSLStage stage, NkSLTarget t,
+					bool showSnippet) {
+	(void)showSnippet;
+	const char *tn = NkSLTargetName(t);
+	printf("  ... %-14s %-16s : ", shaderName, tn);
+	fflush(stdout);
+	NkSLCompileResult r = c.Compile(NkString(src), stage, t);
+	if (r.success) {
+		++g_ok;
+		if (t == NkSLTarget::NK_SPIRV) {
+			const unsigned bin = (unsigned)r.bytecode.Size();
+			printf("OK (SPIR-V binaire : %u mots)\n", bin / 4);
+		} else {
+			printf("OK (%u octets de code généré)\n", (unsigned)r.source.Size());
+		}
+		fflush(stdout);
+	} else {
+		++g_fail;
+		printf("FAIL\n");
+		for (uint32 i = 0; i < r.errors.Size() && i < 3; i++)
+			printf("         ligne %u: %s\n", r.errors[i].line, r.errors[i].message.CStr());
+		fflush(stdout);
+	}
 }
 
-int main(int argc, char** argv) {
-    const NkSLTarget targets[] = {
-        NkSLTarget::NK_GLSL,           // 0 OpenGL compute
-        NkSLTarget::NK_GLSL_VULKAN,    // 1 Vulkan compute (GLSL)
-        NkSLTarget::NK_SPIRV,          // 2 Vulkan compute (SPIR-V binaire)
-        NkSLTarget::NK_HLSL_DX11,      // 3 DX11 compute (CS 5.0)
-        NkSLTarget::NK_HLSL_DX12,      // 4 DX12 compute (SM6+)
-        NkSLTarget::NK_MSL,            // 5 Metal compute (kernel, natif)
-        NkSLTarget::NK_MSL_SPIRV_CROSS // 6 Metal compute (via SPIRV-Cross)
-    };
-    const int NT = (int)(sizeof(targets) / sizeof(targets[0]));
+int main(int argc, char **argv) {
+	const NkSLTarget targets[] = {
+		NkSLTarget::NK_GLSL,		   // 0 OpenGL compute
+		NkSLTarget::NK_GLSL_VULKAN,	   // 1 Vulkan compute (GLSL)
+		NkSLTarget::NK_SPIRV,		   // 2 Vulkan compute (SPIR-V binaire)
+		NkSLTarget::NK_HLSL_DX11,	   // 3 DX11 compute (CS 5.0)
+		NkSLTarget::NK_HLSL_DX12,	   // 4 DX12 compute (SM6+)
+		NkSLTarget::NK_MSL,			   // 5 Metal compute (kernel, natif)
+		NkSLTarget::NK_MSL_SPIRV_CROSS // 6 Metal compute (via SPIRV-Cross)
+	};
+	const int NT = (int)(sizeof(targets) / sizeof(targets[0]));
 
-    NkSLCompiler c;
+	NkSLCompiler c;
 
-    // Mode dump : argv[1]="dump" -> affiche le MSL généré du VS et du FS (preuve).
-    if (argc > 1 && NkString(argv[1]) == NkString("dump")) {
-        NkSLCompileResult vs = c.Compile(NkString(kVS), NkSLStage::NK_VERTEX,   NkSLTarget::NK_MSL);
-        NkSLCompileResult fs = c.Compile(NkString(kFS), NkSLStage::NK_FRAGMENT, NkSLTarget::NK_MSL);
-        NkSLCompileResult cs = c.Compile(NkString(kMatmul), NkSLStage::NK_COMPUTE, NkSLTarget::NK_MSL);
-        printf("===== VS -> MSL (Metal) =====\n%s\n", vs.success ? vs.source.CStr() : "ECHEC");
-        printf("\n===== FS -> MSL (Metal) =====\n%s\n", fs.success ? fs.source.CStr() : "ECHEC");
-        printf("\n===== Matmul (compute) -> MSL (Metal) =====\n%s\n", cs.success ? cs.source.CStr() : "ECHEC");
-        return (vs.success && fs.success && cs.success) ? 0 : 1;
-    }
+	// Mode dump : argv[1]="dump" -> affiche le MSL généré du VS et du FS (preuve).
+	if (argc > 1 && NkString(argv[1]) == NkString("dump")) {
+		NkSLCompileResult vs = c.Compile(NkString(kVS), NkSLStage::NK_VERTEX, NkSLTarget::NK_MSL);
+		NkSLCompileResult fs = c.Compile(NkString(kFS), NkSLStage::NK_FRAGMENT, NkSLTarget::NK_MSL);
+		NkSLCompileResult cs = c.Compile(NkString(kMatmul), NkSLStage::NK_COMPUTE, NkSLTarget::NK_MSL);
+		printf("===== VS -> MSL (Metal) =====\n%s\n", vs.success ? vs.source.CStr() : "ECHEC");
+		printf("\n===== FS -> MSL (Metal) =====\n%s\n", fs.success ? fs.source.CStr() : "ECHEC");
+		printf("\n===== Matmul (compute) -> MSL (Metal) =====\n%s\n", cs.success ? cs.source.CStr() : "ECHEC");
+		return (vs.success && fs.success && cs.success) ? 0 : 1;
+	}
 
-    // Mode isolé : argv[1] = index de cible (un process par cible).
-    if (argc > 1) {
-        int idx = atoi(argv[1]);
-        if (idx < 0 || idx >= NT) { printf("index invalide\n"); return 2; }
-        NkSLTarget t = targets[idx];
-        printf("[cible %d = %s]\n", idx, NkSLTargetName(t));
-        Convert(c, "VecAdd(cs)", kVecAdd, NkSLStage::NK_COMPUTE,  t, false);
-        Convert(c, "Matmul(cs)", kMatmul, NkSLStage::NK_COMPUTE,  t, false);
-        Convert(c, "VS(vertex)", kVS,     NkSLStage::NK_VERTEX,   t, false);
-        Convert(c, "FS(frag)",   kFS,     NkSLStage::NK_FRAGMENT, t, false);
-        return g_fail;
-    }
+	// Mode isolé : argv[1] = index de cible (un process par cible).
+	if (argc > 1) {
+		int idx = atoi(argv[1]);
+		if (idx < 0 || idx >= NT) {
+			printf("index invalide\n");
+			return 2;
+		}
+		NkSLTarget t = targets[idx];
+		printf("[cible %d = %s]\n", idx, NkSLTargetName(t));
+		Convert(c, "VecAdd(cs)", kVecAdd, NkSLStage::NK_COMPUTE, t, false);
+		Convert(c, "Matmul(cs)", kMatmul, NkSLStage::NK_COMPUTE, t, false);
+		Convert(c, "VS(vertex)", kVS, NkSLStage::NK_VERTEX, t, false);
+		Convert(c, "FS(frag)", kFS, NkSLStage::NK_FRAGMENT, t, false);
+		return g_fail;
+	}
 
-    printf("=== NkSLComputeCheck — conversion NkSL (compute + VS + FS) vers tous backends ===\n\n");
-    printf("[COMPUTE] VecAdd\n");
-    for (NkSLTarget t : targets) Convert(c, "VecAdd(cs)", kVecAdd, NkSLStage::NK_COMPUTE, t, false);
-    printf("\n[COMPUTE] Matmul\n");
-    for (NkSLTarget t : targets) Convert(c, "Matmul(cs)", kMatmul, NkSLStage::NK_COMPUTE, t, false);
-    printf("\n[VERTEX] VS\n");
-    for (NkSLTarget t : targets) Convert(c, "VS(vertex)", kVS, NkSLStage::NK_VERTEX, t, false);
-    printf("\n[FRAGMENT] FS\n");
-    for (NkSLTarget t : targets) Convert(c, "FS(frag)", kFS, NkSLStage::NK_FRAGMENT, t, false);
-    printf("\n=== Résultat : %d OK, %d échec(s) ===\n", g_ok, g_fail);
-    return g_fail;
+	printf("=== NkSLComputeCheck — conversion NkSL (compute + VS + FS) vers tous backends ===\n\n");
+	printf("[COMPUTE] VecAdd\n");
+	for (NkSLTarget t : targets)
+		Convert(c, "VecAdd(cs)", kVecAdd, NkSLStage::NK_COMPUTE, t, false);
+	printf("\n[COMPUTE] Matmul\n");
+	for (NkSLTarget t : targets)
+		Convert(c, "Matmul(cs)", kMatmul, NkSLStage::NK_COMPUTE, t, false);
+	printf("\n[VERTEX] VS\n");
+	for (NkSLTarget t : targets)
+		Convert(c, "VS(vertex)", kVS, NkSLStage::NK_VERTEX, t, false);
+	printf("\n[FRAGMENT] FS\n");
+	for (NkSLTarget t : targets)
+		Convert(c, "FS(frag)", kFS, NkSLStage::NK_FRAGMENT, t, false);
+	printf("\n=== Résultat : %d OK, %d échec(s) ===\n", g_ok, g_fail);
+	return g_fail;
 }

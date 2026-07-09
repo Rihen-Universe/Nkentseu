@@ -18,36 +18,41 @@
 #include "NKGui/NKGui.h"
 
 namespace nkentseu {
-    namespace editorkit {
+	namespace editorkit {
 
-        // Cote de docking par defaut d'un panneau dans le shell.
-        enum class NkEditorDockSide : uint8 {
-            NK_LEFT = 0,
-            NK_RIGHT,
-            NK_TOP,
-            NK_BOTTOM,
-            NK_CENTER
-        };
+		// Cote de docking par defaut d'un panneau dans le shell.
+		enum class NkEditorDockSide : uint8 { NK_LEFT = 0, NK_RIGHT, NK_TOP, NK_BOTTOM, NK_CENTER };
 
-        struct NKEDITORKIT_API NkEditorFrameContext {
-            nkgui::NkGuiContext* ui = nullptr;  ///< contexte NKGui courant
-            float32              dt = 0.f;       ///< delta time de la frame
+		struct NKEDITORKIT_API NkEditorFrameContext {
+				nkgui::NkGuiContext *ui = nullptr; ///< contexte NKGui courant
+				float32 dt = 0.f;				   ///< delta time de la frame
 
-            // ── Acces direct (widgets NKGui non wrappes) ────────────────────────
-            nkgui::NkGuiContext& Ui() const noexcept { return *ui; }
+				// ── Acces direct (widgets NKGui non wrappes) ────────────────────────
+				nkgui::NkGuiContext &Ui() const noexcept {
+					return *ui;
+				}
 
-            // ── Helpers widgets (wrappers minces sur nkgui::) ───────────────────
-            void Text(const char* s) const noexcept { nkgui::Text(*ui, s); }
-            void Separator()         const noexcept { nkgui::Separator(*ui); }
-            bool Button(const char* label) const noexcept { return nkgui::Button(*ui, label); }
-            bool Checkbox(const char* label, bool& value) const noexcept {
-                return nkgui::Checkbox(*ui, label, value);
-            }
-            bool SliderFloat(const char* label, float32& value,
-                             float32 vmin, float32 vmax) const noexcept {
-                return nkgui::SliderFloat(*ui, label, value, vmin, vmax);
-            }
-        };
+				// ── Helpers widgets (wrappers minces sur nkgui::) ───────────────────
+				void Text(const char *s) const noexcept {
+					nkgui::Text(*ui, s);
+				}
 
-    } // namespace editorkit
+				void Separator() const noexcept {
+					nkgui::Separator(*ui);
+				}
+
+				bool Button(const char *label) const noexcept {
+					return nkgui::Button(*ui, label);
+				}
+
+				bool Checkbox(const char *label, bool &value) const noexcept {
+					return nkgui::Checkbox(*ui, label, value);
+				}
+
+				bool SliderFloat(const char *label, float32 &value, float32 vmin, float32 vmax) const noexcept {
+					return nkgui::SliderFloat(*ui, label, value, vmin, vmax);
+				}
+		};
+
+	} // namespace editorkit
 } // namespace nkentseu

@@ -16,37 +16,51 @@
 #include "NKMath/NKMath.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        class NkCircleShape : public NkShape {
-            public:
-                NkCircleShape() noexcept = default;
-                explicit NkCircleShape(float32 radius, uint32 segments = 32) noexcept
-                    : mRadius(radius), mSegments(segments) {}
+		class NkCircleShape : public NkShape {
+			public:
+				NkCircleShape() noexcept = default;
 
-                void    SetRadius(float32 r) noexcept { mRadius = r; }
-                float32 GetRadius() const noexcept    { return mRadius; }
+				explicit NkCircleShape(float32 radius, uint32 segments = 32) noexcept
+					: mRadius(radius), mSegments(segments) {
+				}
 
-                /// Nombre de segments (vertices du polygone). 30+ pour visuellement
-                /// lisse a taille moyenne ; 64 pour grand cercle.
-                void   SetPointCount(uint32 n) noexcept { mSegments = n; }
-                uint32 GetPointCount() const override   { return mSegments; }
+				void SetRadius(float32 r) noexcept {
+					mRadius = r;
+				}
 
-                NkVec2f GetPoint(uint32 index) const override {
-                    if (mSegments == 0) return {0.f, 0.f};
-                    const float32 angle = (2.f * math::NK_PI_F * static_cast<float32>(index)) / static_cast<float32>(mSegments);
-                    const float32 c = math::NkCos(angle);
-                    const float32 s = math::NkSin(angle);
-                    // Centre du cercle a (radius, radius) pour que la bbox locale
-                    // commence a (0,0) — coherent avec NkRectangleShape (origin
-                    // facile a regler avec SetOrigin({r, r}) pour centrer).
-                    return {mRadius + mRadius * c, mRadius + mRadius * s};
-                }
+				float32 GetRadius() const noexcept {
+					return mRadius;
+				}
 
-            private:
-                float32 mRadius{0.f};
-                uint32  mSegments{32};
-        };
+				/// Nombre de segments (vertices du polygone). 30+ pour visuellement
+				/// lisse a taille moyenne ; 64 pour grand cercle.
+				void SetPointCount(uint32 n) noexcept {
+					mSegments = n;
+				}
 
-    } // namespace renderer
+				uint32 GetPointCount() const override {
+					return mSegments;
+				}
+
+				NkVec2f GetPoint(uint32 index) const override {
+					if (mSegments == 0)
+						return {0.f, 0.f};
+					const float32 angle =
+						(2.f * math::NK_PI_F * static_cast<float32>(index)) / static_cast<float32>(mSegments);
+					const float32 c = math::NkCos(angle);
+					const float32 s = math::NkSin(angle);
+					// Centre du cercle a (radius, radius) pour que la bbox locale
+					// commence a (0,0) — coherent avec NkRectangleShape (origin
+					// facile a regler avec SetOrigin({r, r}) pour centrer).
+					return {mRadius + mRadius * c, mRadius + mRadius * s};
+				}
+
+			private:
+				float32 mRadius{0.f};
+				uint32 mSegments{32};
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

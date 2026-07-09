@@ -25,78 +25,111 @@
 //   Draw() qui delegue au backend via target.
 // =============================================================================
 
-#include "NkRenderer2DTypes.h"        // NkVertex, NkPrimitiveType, NkRect2f
+#include "NkRenderer2DTypes.h" // NkVertex, NkPrimitiveType, NkRect2f
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        class NkVertexArray {
-            public:
-                // ── Construction ────────────────────────────────────────────────
-                /// Tableau vide, primitive = TRIANGLES par defaut.
-                NkVertexArray() noexcept = default;
+		class NkVertexArray {
+			public:
+				// ── Construction ────────────────────────────────────────────────
+				/// Tableau vide, primitive = TRIANGLES par defaut.
+				NkVertexArray() noexcept = default;
 
-                /// Tableau avec primitive specifiee et capacite/taille initiale.
-                explicit NkVertexArray(NkPrimitiveType type, uint32 count = 0) noexcept
-                    : mPrimitive(type) {
-                    if (count > 0) mVertices.Resize(count);
-                }
+				/// Tableau avec primitive specifiee et capacite/taille initiale.
+				explicit NkVertexArray(NkPrimitiveType type, uint32 count = 0) noexcept : mPrimitive(type) {
+					if (count > 0)
+						mVertices.Resize(count);
+				}
 
-                // ── Type de primitive ───────────────────────────────────────────
-                void              SetPrimitiveType(NkPrimitiveType type) noexcept { mPrimitive = type; }
-                NkPrimitiveType   GetPrimitiveType() const noexcept              { return mPrimitive; }
+				// ── Type de primitive ───────────────────────────────────────────
+				void SetPrimitiveType(NkPrimitiveType type) noexcept {
+					mPrimitive = type;
+				}
 
-                // ── Taille / capacite ───────────────────────────────────────────
-                uint32 GetVertexCount() const noexcept { return static_cast<uint32>(mVertices.Size()); }
-                bool   IsEmpty()        const noexcept { return mVertices.Size() == 0; }
+				NkPrimitiveType GetPrimitiveType() const noexcept {
+					return mPrimitive;
+				}
 
-                /// Vide tous les vertices (conserve la capacite et le primitive type).
-                void Clear() noexcept { mVertices.Clear(); }
+				// ── Taille / capacite ───────────────────────────────────────────
+				uint32 GetVertexCount() const noexcept {
+					return static_cast<uint32>(mVertices.Size());
+				}
 
-                /// Redimensionne le tableau a `count` vertices. Les nouveaux
-                /// elements sont laisses non initialises (NkVertex est un POD).
-                void Resize(uint32 count) { mVertices.Resize(count); }
+				bool IsEmpty() const noexcept {
+					return mVertices.Size() == 0;
+				}
 
-                /// Reserve de la capacite sans changer la taille (pour eviter les
-                /// re-allocations sur un Append() en boucle).
-                void Reserve(uint32 capacity) { mVertices.Reserve(capacity); }
+				/// Vide tous les vertices (conserve la capacite et le primitive type).
+				void Clear() noexcept {
+					mVertices.Clear();
+				}
 
-                /// Ajoute un vertex en fin (O(amorti) constant).
-                void Append(const NkVertex& v) { mVertices.PushBack(v); }
+				/// Redimensionne le tableau a `count` vertices. Les nouveaux
+				/// elements sont laisses non initialises (NkVertex est un POD).
+				void Resize(uint32 count) {
+					mVertices.Resize(count);
+				}
 
-                // ── Acces ───────────────────────────────────────────────────────
-                NkVertex&       operator[](uint32 index)       noexcept { return mVertices[index]; }
-                const NkVertex& operator[](uint32 index) const noexcept { return mVertices[index]; }
+				/// Reserve de la capacite sans changer la taille (pour eviter les
+				/// re-allocations sur un Append() en boucle).
+				void Reserve(uint32 capacity) {
+					mVertices.Reserve(capacity);
+				}
 
-                /// Pointeur sur le buffer contigu (pour upload backend).
-                NkVertex*       Data()       noexcept { return mVertices.Data(); }
-                const NkVertex* Data() const noexcept { return mVertices.Data(); }
+				/// Ajoute un vertex en fin (O(amorti) constant).
+				void Append(const NkVertex &v) {
+					mVertices.PushBack(v);
+				}
 
-                // ── Bounding box ────────────────────────────────────────────────
+				// ── Acces ───────────────────────────────────────────────────────
+				NkVertex &operator[](uint32 index) noexcept {
+					return mVertices[index];
+				}
 
-                /// Calcule l'AABB englobante des positions de tous les vertices.
-                /// Retourne un rectangle vide (0,0,0,0) si le tableau est vide.
-                NkRect2f GetBounds() const noexcept {
-                    const uint32 n = GetVertexCount();
-                    if (n == 0) return NkRect2f(0.f, 0.f, 0.f, 0.f);
-                    float32 minX = mVertices[0].x, maxX = mVertices[0].x;
-                    float32 minY = mVertices[0].y, maxY = mVertices[0].y;
-                    for (uint32 i = 1; i < n; ++i) {
-                        const float32 x = mVertices[i].x;
-                        const float32 y = mVertices[i].y;
-                        if      (x < minX) minX = x;
-                        else if (x > maxX) maxX = x;
-                        if      (y < minY) minY = y;
-                        else if (y > maxY) maxY = y;
-                    }
-                    return NkRect2f(minX, minY, maxX - minX, maxY - minY);
-                }
+				const NkVertex &operator[](uint32 index) const noexcept {
+					return mVertices[index];
+				}
 
-            private:
-                NkVector<NkVertex> mVertices;
-                NkPrimitiveType    mPrimitive{NkPrimitiveType::NK_TRIANGLES};
-        };
+				/// Pointeur sur le buffer contigu (pour upload backend).
+				NkVertex *Data() noexcept {
+					return mVertices.Data();
+				}
 
-    } // namespace renderer
+				const NkVertex *Data() const noexcept {
+					return mVertices.Data();
+				}
+
+				// ── Bounding box ────────────────────────────────────────────────
+
+				/// Calcule l'AABB englobante des positions de tous les vertices.
+				/// Retourne un rectangle vide (0,0,0,0) si le tableau est vide.
+				NkRect2f GetBounds() const noexcept {
+					const uint32 n = GetVertexCount();
+					if (n == 0)
+						return NkRect2f(0.f, 0.f, 0.f, 0.f);
+					float32 minX = mVertices[0].x, maxX = mVertices[0].x;
+					float32 minY = mVertices[0].y, maxY = mVertices[0].y;
+					for (uint32 i = 1; i < n; ++i) {
+						const float32 x = mVertices[i].x;
+						const float32 y = mVertices[i].y;
+						if (x < minX)
+							minX = x;
+						else if (x > maxX)
+							maxX = x;
+						if (y < minY)
+							minY = y;
+						else if (y > maxY)
+							maxY = y;
+					}
+					return NkRect2f(minX, minY, maxX - minX, maxY - minY);
+				}
+
+			private:
+				NkVector<NkVertex> mVertices;
+				NkPrimitiveType mPrimitive{NkPrimitiveType::NK_TRIANGLES};
+		};
+
+	} // namespace renderer
 } // namespace nkentseu

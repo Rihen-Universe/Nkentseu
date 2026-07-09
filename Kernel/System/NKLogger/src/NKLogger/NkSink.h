@@ -22,88 +22,81 @@
 #ifndef NKENTSEU_NKSINK_H
 #define NKENTSEU_NKSINK_H
 
+// -------------------------------------------------------------------------
+// SECTION 1 : EN-TÊTES ET DÉPENDANCES
+// -------------------------------------------------------------------------
+// Inclusions standards pour la gestion mémoire et les chaînes.
+// Dépendances projet pour les types de log, le formatage et les smart pointers.
 
-	// -------------------------------------------------------------------------
-	// SECTION 1 : EN-TÊTES ET DÉPENDANCES
-	// -------------------------------------------------------------------------
-	// Inclusions standards pour la gestion mémoire et les chaînes.
-	// Dépendances projet pour les types de log, le formatage et les smart pointers.
+#include "NKCore/NkTypes.h"
+#include "NKContainers/String/NkString.h"
+#include "NKMemory/NkUniquePtr.h"
+#include "NKMemory/NkSharedPtr.h"
+#include "NKLogger/NkLogLevel.h"
+#include "NKLogger/NkLogMessage.h"
+#include "NKLogger/NkLoggerFormatter.h"
+#include "NKLogger/NkLoggerApi.h"
+#include "NKThreading/NkMutex.h"
 
-	#include "NKCore/NkTypes.h"
-	#include "NKContainers/String/NkString.h"
-	#include "NKMemory/NkUniquePtr.h"
-	#include "NKMemory/NkSharedPtr.h"
-	#include "NKLogger/NkLogLevel.h"
-	#include "NKLogger/NkLogMessage.h"
-	#include "NKLogger/NkLoggerFormatter.h"
-	#include "NKLogger/NkLoggerApi.h"
-    #include "NKThreading/NkMutex.h"
+// -------------------------------------------------------------------------
+// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
+// -------------------------------------------------------------------------
+// Tous les symboles du module logger sont dans le namespace nkentseu.
+// Pas de sous-namespace pour simplifier l'usage et l'intégration.
 
+namespace nkentseu {
 
-	// -------------------------------------------------------------------------
-	// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
-	// -------------------------------------------------------------------------
-	// Tous les symboles du module logger sont dans le namespace nkentseu.
-	// Pas de sous-namespace pour simplifier l'usage et l'intégration.
-
-	namespace nkentseu {
-
-
-		// ---------------------------------------------------------------------
-		// CLASSE : NkISink
-		// DESCRIPTION : Interface abstraite pour toutes les destinations de log
-		// ---------------------------------------------------------------------
-		/**
-		 * @class NkISink
-		 * @brief Interface de base pour tous les sinks (destinations) de logging
-		 * @ingroup LoggerComponents
-		 *
-		 * Un "sink" représente une destination de sortie pour les messages de log :
-		 *  - Console (stdout/stderr avec couleurs)
-		 *  - Fichier texte ou binaire
-		 *  - Socket réseau (TCP/UDP, syslog)
-		 *  - Base de données ou système de métriques
-		 *  - Buffer mémoire pour tests ou agrégation
-		 *
-		 * Architecture :
-		 *  - Pattern Strategy : chaque implémentation définit son comportement d'écriture
-		 *  - Filtrage intégré : chaque sink peut avoir son propre niveau minimum
-		 *  - Formatage configurable : formatter indépendant par sink
-		 *  - Thread-safety : à garantir par chaque implémentation concrète
-		 *
-		 * Cycle de vie :
-		 *  - Construction : configuration initiale (nom, niveau, pattern)
-		 *  - Log() : appelé pour chaque message passant le filtre
-		 *  - Flush() : appelé pour forcer l'écriture des buffers (optionnel)
-		 *  - Destruction : cleanup des ressources (fichiers, sockets, etc.)
-		 *
-		 * @note Cette classe est conçue pour être héritée, pas instanciée directement.
-		 * @note Les implémentations concrètes doivent être thread-safe si utilisées
-		 *       depuis multiples threads (cas typique des loggers asynchrones).
-		 *
-		 * @example Pattern d'implémentation minimal
-		 * @code
-		 * class ConsoleSink : public nkentseu::NkISink {
-		 * public:
-		 *     void Log(const nkentseu::NkLogMessage& message) override {
-		 *         if (!ShouldLog(message.level)) return;
-		 *         auto formatted = GetFormatter()->Format(message);
-		 *         fprintf(stderr, "%s\n", formatted.CStr());
-		 *     }
-		 *     void Flush() override { fflush(stderr); }
-		 *     // ... autres overrides requis ...
-		 * };
-		 * @endcode
-		 */
-		class NKENTSEU_LOGGER_CLASS_EXPORT NkISink {
-
-
+	// ---------------------------------------------------------------------
+	// CLASSE : NkISink
+	// DESCRIPTION : Interface abstraite pour toutes les destinations de log
+	// ---------------------------------------------------------------------
+	/**
+	 * @class NkISink
+	 * @brief Interface de base pour tous les sinks (destinations) de logging
+	 * @ingroup LoggerComponents
+	 *
+	 * Un "sink" représente une destination de sortie pour les messages de log :
+	 *  - Console (stdout/stderr avec couleurs)
+	 *  - Fichier texte ou binaire
+	 *  - Socket réseau (TCP/UDP, syslog)
+	 *  - Base de données ou système de métriques
+	 *  - Buffer mémoire pour tests ou agrégation
+	 *
+	 * Architecture :
+	 *  - Pattern Strategy : chaque implémentation définit son comportement d'écriture
+	 *  - Filtrage intégré : chaque sink peut avoir son propre niveau minimum
+	 *  - Formatage configurable : formatter indépendant par sink
+	 *  - Thread-safety : à garantir par chaque implémentation concrète
+	 *
+	 * Cycle de vie :
+	 *  - Construction : configuration initiale (nom, niveau, pattern)
+	 *  - Log() : appelé pour chaque message passant le filtre
+	 *  - Flush() : appelé pour forcer l'écriture des buffers (optionnel)
+	 *  - Destruction : cleanup des ressources (fichiers, sockets, etc.)
+	 *
+	 * @note Cette classe est conçue pour être héritée, pas instanciée directement.
+	 * @note Les implémentations concrètes doivent être thread-safe si utilisées
+	 *       depuis multiples threads (cas typique des loggers asynchrones).
+	 *
+	 * @example Pattern d'implémentation minimal
+	 * @code
+	 * class ConsoleSink : public nkentseu::NkISink {
+	 * public:
+	 *     void Log(const nkentseu::NkLogMessage& message) override {
+	 *         if (!ShouldLog(message.level)) return;
+	 *         auto formatted = GetFormatter()->Format(message);
+	 *         fprintf(stderr, "%s\n", formatted.CStr());
+	 *     }
+	 *     void Flush() override { fflush(stderr); }
+	 *     // ... autres overrides requis ...
+	 * };
+	 * @endcode
+	 */
+	class NKENTSEU_LOGGER_CLASS_EXPORT NkISink {
 			// -----------------------------------------------------------------
 			// SECTION 3 : MEMBRES PUBLICS
 			// -----------------------------------------------------------------
 		public:
-
-
 			// -----------------------------------------------------------------
 			// DESTRUCTEUR VIRTUEL
 			// -----------------------------------------------------------------
@@ -127,7 +120,6 @@
 			 * @endcode
 			 */
 			virtual ~NkISink();
-
 
 			// -----------------------------------------------------------------
 			// MÉTHODES VIRTUELLES PURES (OBLIGATOIRES)
@@ -175,7 +167,7 @@
 			 * }
 			 * @endcode
 			 */
-			virtual void Log(const NkLogMessage& message) = 0;
+			virtual void Log(const NkLogMessage &message) = 0;
 
 			/**
 			 * @brief Force l'écriture immédiate des données en buffer
@@ -250,7 +242,7 @@
 			 * sink->SetPattern("[%^%L%$] %v");
 			 * @endcode
 			 */
-			virtual void SetPattern(const NkString& pattern) = 0;
+			virtual void SetPattern(const NkString &pattern) = 0;
 
 			/**
 			 * @brief Obtient le formatter courant utilisé par ce sink
@@ -270,7 +262,7 @@
 			 * }
 			 * @endcode
 			 */
-			virtual NkLoggerFormatter* GetFormatter() const = 0;
+			virtual NkLoggerFormatter *GetFormatter() const = 0;
 
 			/**
 			 * @brief Obtient le pattern de formatage courant
@@ -289,7 +281,6 @@
 			 * @endcode
 			 */
 			virtual NkString GetPattern() const = 0;
-
 
 			// -----------------------------------------------------------------
 			// MÉTHODES VIRTUELLES AVEC IMPLÉMENTATION PAR DÉFAUT (OPTIONNELLES)
@@ -465,15 +456,12 @@
 			 *     Logger::GetSinkCount());
 			 * @endcode
 			 */
-			virtual void SetName(const NkString& name);
-
+			virtual void SetName(const NkString &name);
 
 			// -----------------------------------------------------------------
 			// SECTION 4 : MEMBRES PROTÉGÉS (POUR HÉRITAGE)
 			// -----------------------------------------------------------------
 		protected:
-
-
 			// -----------------------------------------------------------------
 			// VARIABLES MEMBRES PROTÉGÉES (ÉTAT PARTAGÉ AVEC LES DÉRIVÉES)
 			// -----------------------------------------------------------------
@@ -508,73 +496,68 @@
 			/// @note Recommandé : définir un nom explicite dans le constructeur dérivé
 			NkString m_Name = NkString();
 
+	}; // class NkISink
 
-		}; // class NkISink
+	// ---------------------------------------------------------------------
+	// TYPE ALIAS POUR GESTION DE MÉMOIRE DES SINKS
+	// ---------------------------------------------------------------------
+	/**
+	 * @typedef NkSinkPtr
+	 * @brief Pointeur partagé vers NkISink pour ownership multiple
+	 * @ingroup LoggerTypes
+	 *
+	 * Alias vers memory::NkSharedPtr<NkISink> pour :
+	 *  - Partage de sink entre plusieurs loggers ou composants
+	 *  - Durée de vie gérée par comptage de références
+	 *  - Compatibilité avec le système d'allocateur du projet
+	 *
+	 * @note Thread-safety : NkSharedPtr doit être thread-safe pour inc/dec refcount
+	 * @note Usage typique : stockage dans un vector de sinks du logger principal
+	 *
+	 * @example
+	 * @code
+	 * // Création d'un sink partagé entre plusieurs loggers
+	 * auto sharedFileSink = memory::MakeShared<NkFileSink>("app.log");
+	 *
+	 * // Ajout à plusieurs loggers (module A et module B)
+	 * loggerA.AddSink(sharedFileSink);
+	 * loggerB.AddSink(sharedFileSink);
+	 *
+	 * // Le sink reste valide tant qu'au moins un logger l'utilise
+	 * @endcode
+	 */
+	using NkSinkPtr = memory::NkSharedPtr<NkISink>;
 
+	/**
+	 * @typedef NkSinkUniquePtr
+	 * @brief Pointeur unique vers NkISink pour ownership exclusif
+	 * @ingroup LoggerTypes
+	 *
+	 * Alias vers memory::NkUniquePtr<NkISink> pour :
+	 *  - Ownership exclusif d'un sink par un seul logger
+	 *  - Transfert de propriété via move semantics
+	 *  - Libération automatique à la destruction du propriétaire
+	 *
+	 * @note Thread-safety : le pointeur lui-même n'est pas thread-safe,
+	 *       mais l'objet pointé peut être utilisé depuis multiples threads
+	 *       si l'implémentation du sink est thread-safe.
+	 *
+	 * @example
+	 * @code
+	 * // Création d'un sink avec ownership exclusif
+	 * NkSinkUniquePtr consoleSink = memory::MakeUnique<NkConsoleSink>();
+	 *
+	 * // Transfert au logger : le logger prend possession
+	 * logger.AddSink(std::move(consoleSink));
+	 *
+	 * // consoleSink est maintenant nullptr, le logger gère la durée de vie
+	 * @endcode
+	 */
+	using NkSinkUniquePtr = memory::NkUniquePtr<NkISink>;
 
-		// ---------------------------------------------------------------------
-		// TYPE ALIAS POUR GESTION DE MÉMOIRE DES SINKS
-		// ---------------------------------------------------------------------
-		/**
-		 * @typedef NkSinkPtr
-		 * @brief Pointeur partagé vers NkISink pour ownership multiple
-		 * @ingroup LoggerTypes
-		 *
-		 * Alias vers memory::NkSharedPtr<NkISink> pour :
-		 *  - Partage de sink entre plusieurs loggers ou composants
-		 *  - Durée de vie gérée par comptage de références
-		 *  - Compatibilité avec le système d'allocateur du projet
-		 *
-		 * @note Thread-safety : NkSharedPtr doit être thread-safe pour inc/dec refcount
-		 * @note Usage typique : stockage dans un vector de sinks du logger principal
-		 *
-		 * @example
-		 * @code
-		 * // Création d'un sink partagé entre plusieurs loggers
-		 * auto sharedFileSink = memory::MakeShared<NkFileSink>("app.log");
-		 *
-		 * // Ajout à plusieurs loggers (module A et module B)
-		 * loggerA.AddSink(sharedFileSink);
-		 * loggerB.AddSink(sharedFileSink);
-		 *
-		 * // Le sink reste valide tant qu'au moins un logger l'utilise
-		 * @endcode
-		 */
-		using NkSinkPtr = memory::NkSharedPtr<NkISink>;
-
-		/**
-		 * @typedef NkSinkUniquePtr
-		 * @brief Pointeur unique vers NkISink pour ownership exclusif
-		 * @ingroup LoggerTypes
-		 *
-		 * Alias vers memory::NkUniquePtr<NkISink> pour :
-		 *  - Ownership exclusif d'un sink par un seul logger
-		 *  - Transfert de propriété via move semantics
-		 *  - Libération automatique à la destruction du propriétaire
-		 *
-		 * @note Thread-safety : le pointeur lui-même n'est pas thread-safe,
-		 *       mais l'objet pointé peut être utilisé depuis multiples threads
-		 *       si l'implémentation du sink est thread-safe.
-		 *
-		 * @example
-		 * @code
-		 * // Création d'un sink avec ownership exclusif
-		 * NkSinkUniquePtr consoleSink = memory::MakeUnique<NkConsoleSink>();
-		 *
-		 * // Transfert au logger : le logger prend possession
-		 * logger.AddSink(std::move(consoleSink));
-		 *
-		 * // consoleSink est maintenant nullptr, le logger gère la durée de vie
-		 * @endcode
-		 */
-		using NkSinkUniquePtr = memory::NkUniquePtr<NkISink>;
-
-
-	} // namespace nkentseu
-
+} // namespace nkentseu
 
 #endif // NKENTSEU_NKSINK_H
-
 
 // =============================================================================
 // EXEMPLES D'UTILISATION DE NKSINK.H
@@ -646,7 +629,6 @@
 	// sink->SetPattern("[%^%L%$] %v");  // Pattern avec couleurs
 	// logger.AddSink(sink);
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 2 : Implémentation d'un sink fichier avec buffering
@@ -725,7 +707,6 @@
 	};
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 3 : Sink mémoire pour tests unitaires
 // -----------------------------------------------------------------------------
@@ -777,7 +758,6 @@
 	// }
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 4 : Configuration dynamique des sinks via fichier de config
 // -----------------------------------------------------------------------------
@@ -824,7 +804,6 @@
 	// Logger::AddSink(sink1);
 	// Logger::AddSink(sink2);
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 5 : Filtrage avancé avec ShouldLog personnalisé
@@ -884,7 +863,6 @@
 	};
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 6 : Composition de sinks avec décorateur
 // -----------------------------------------------------------------------------
@@ -933,7 +911,6 @@
 	// logger.AddSink(prefixed);
 */
 
-
 // =============================================================================
 // NOTES DE MAINTENANCE ET BONNES PRATIQUES
 // =============================================================================
@@ -968,7 +945,6 @@
 	   - Tester les cas limites : fichier plein, socket fermée, permissions refusées
 	   - Valider le thread-safety avec tests concurrents (TSan, helgrind, etc.)
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

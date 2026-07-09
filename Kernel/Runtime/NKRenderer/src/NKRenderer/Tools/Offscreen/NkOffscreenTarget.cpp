@@ -3,165 +3,176 @@
 // =============================================================================
 #include "NkOffscreenTarget.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
-#include "NKImage/Core/NkImage.h"   // Capture -> NkImage::Save (multi-format)
+#include "NKImage/Core/NkImage.h" // Capture -> NkImage::Save (multi-format)
 #include <cstring>
 
 namespace nkentseu {
-    namespace renderer {
+	namespace renderer {
 
-        bool NkOffscreenTarget::Init(NkIDevice* d, NkTextureLibrary* t, const NkOffscreenDesc& desc) {
-            mDevice = d; mTexLib = t; mDesc = desc;
+		bool NkOffscreenTarget::Init(NkIDevice *d, NkTextureLibrary *t, const NkOffscreenDesc &desc) {
+			mDevice = d;
+			mTexLib = t;
+			mDesc = desc;
 
-            NkGPUFormat colorFmt = desc.hdr ? NkGPUFormat::NK_RGBA16_FLOAT : desc.colorFmt;
+			NkGPUFormat colorFmt = desc.hdr ? NkGPUFormat::NK_RGBA16_FLOAT : desc.colorFmt;
 
-            // Créer color target
-            mColor = mTexLib->CreateRenderTarget(desc.width, desc.height,
-                                                colorFmt, false, desc.readable,
-                                                desc.name + "_Color");
-            if (!mColor.IsValid()) return false;
+			// Créer color target
+			mColor = mTexLib->CreateRenderTarget(desc.width, desc.height, colorFmt, false, desc.readable,
+												 desc.name + "_Color");
+			if (!mColor.IsValid())
+				return false;
 
-            // Créer depth target si nécessaire
-            if (desc.hasDepth) {
-                mDepth = mTexLib->CreateRenderTarget(desc.width, desc.height,
-                                                    desc.depthFmt, true, desc.readable,
-                                                    desc.name + "_Depth");
-            }
+			// Créer depth target si nécessaire
+			if (desc.hasDepth) {
+				mDepth = mTexLib->CreateRenderTarget(desc.width, desc.height, desc.depthFmt, true, desc.readable,
+													 desc.name + "_Depth");
+			}
 
-            // Render pass
-            NkRenderPassDesc rpd;
-            rpd.AddColor(NkAttachmentDesc::Color(colorFmt));
-            if (desc.hasDepth)
-                rpd.SetDepth(NkAttachmentDesc::Depth(desc.depthFmt));
-            mRP = mDevice->CreateRenderPass(rpd);
+			// Render pass
+			NkRenderPassDesc rpd;
+			rpd.AddColor(NkAttachmentDesc::Color(colorFmt));
+			if (desc.hasDepth)
+				rpd.SetDepth(NkAttachmentDesc::Depth(desc.depthFmt));
+			mRP = mDevice->CreateRenderPass(rpd);
 
-            // Framebuffer
-            NkFramebufferDesc fbd;
-            fbd.width         = desc.width;
-            fbd.height        = desc.height;
-            fbd.renderPass    = mRP;
-            fbd.colorAttachments.PushBack(mTexLib->GetRHIHandle(mColor));
-            if (desc.hasDepth)
-                fbd.depthAttachment = mTexLib->GetRHIHandle(mDepth);
-            fbd.debugName = desc.name.CStr();
-            mFBO = mDevice->CreateFramebuffer(fbd);
+			// Framebuffer
+			NkFramebufferDesc fbd;
+			fbd.width = desc.width;
+			fbd.height = desc.height;
+			fbd.renderPass = mRP;
+			fbd.colorAttachments.PushBack(mTexLib->GetRHIHandle(mColor));
+			if (desc.hasDepth)
+				fbd.depthAttachment = mTexLib->GetRHIHandle(mDepth);
+			fbd.debugName = desc.name.CStr();
+			mFBO = mDevice->CreateFramebuffer(fbd);
 
-            // Readback buffer (staging CPU) si demandé
-            if (desc.readback) {
-                NkBufferDesc bd;
-                bd.sizeBytes = desc.width * desc.height * 4; // RGBA8
-                bd.type  = NkBufferType::NK_STAGING;
-                bd.usage = NkResourceUsage::NK_READBACK;
-                mReadBuf = mDevice->CreateBuffer(bd);
-            }
+			// Readback buffer (staging CPU) si demandé
+			if (desc.readback) {
+				NkBufferDesc bd;
+				bd.sizeBytes = desc.width * desc.height * 4; // RGBA8
+				bd.type = NkBufferType::NK_STAGING;
+				bd.usage = NkResourceUsage::NK_READBACK;
+				mReadBuf = mDevice->CreateBuffer(bd);
+			}
 
-            mValid = true;
-            return true;
-        }
+			mValid = true;
+			return true;
+		}
 
-        void NkOffscreenTarget::Shutdown() {
-            if (!mValid) return;
-            if (mFBO.IsValid())     mDevice->DestroyFramebuffer(mFBO);
-            if (mRP.IsValid())      mDevice->DestroyRenderPass(mRP);
-            if (mReadBuf.IsValid()) mDevice->DestroyBuffer(mReadBuf);
-            if (mColor.IsValid())   mTexLib->Release(mColor);
-            if (mDepth.IsValid())   mTexLib->Release(mDepth);
-            mValid = false;
-        }
+		void NkOffscreenTarget::Shutdown() {
+			if (!mValid)
+				return;
+			if (mFBO.IsValid())
+				mDevice->DestroyFramebuffer(mFBO);
+			if (mRP.IsValid())
+				mDevice->DestroyRenderPass(mRP);
+			if (mReadBuf.IsValid())
+				mDevice->DestroyBuffer(mReadBuf);
+			if (mColor.IsValid())
+				mTexLib->Release(mColor);
+			if (mDepth.IsValid())
+				mTexLib->Release(mDepth);
+			mValid = false;
+		}
 
-        void NkOffscreenTarget::BeginCapture(NkICommandBuffer* cmd,
-                                            bool clearColor, NkVec4f cc, bool clearDepth) {
-            if (!mValid || mCapturing) return;
+		void NkOffscreenTarget::BeginCapture(NkICommandBuffer *cmd, bool clearColor, NkVec4f cc, bool clearDepth) {
+			if (!mValid || mCapturing)
+				return;
 
-            // Transition UNDEFINED → RENDER_TARGET (oldLayout invariant) : a la 1re
-            // frame l'image vient d'etre creee en UNDEFINED, et a partir de la 2e
-            // frame elle est en SHADER_READ — utiliser UNDEFINED ici fait que le
-            // driver discard le contenu (recreer via clearColor du BeginRenderPass
-            // qui suit, OK). Si on utilisait SHADER_READ comme oldLayout, la
-            // 1re frame echouait silencieusement et le tracker validation gardait
-            // l'image en COLOR_ATTACHMENT au Submit (-> "expects SHADER_READ_ONLY").
-            cmd->TextureBarrier(mTexLib->GetRHIHandle(mColor),
-                                NkResourceState::NK_UNDEFINED,
-                                NkResourceState::NK_RENDER_TARGET);
+			// Transition UNDEFINED → RENDER_TARGET (oldLayout invariant) : a la 1re
+			// frame l'image vient d'etre creee en UNDEFINED, et a partir de la 2e
+			// frame elle est en SHADER_READ — utiliser UNDEFINED ici fait que le
+			// driver discard le contenu (recreer via clearColor du BeginRenderPass
+			// qui suit, OK). Si on utilisait SHADER_READ comme oldLayout, la
+			// 1re frame echouait silencieusement et le tracker validation gardait
+			// l'image en COLOR_ATTACHMENT au Submit (-> "expects SHADER_READ_ONLY").
+			cmd->TextureBarrier(mTexLib->GetRHIHandle(mColor), NkResourceState::NK_UNDEFINED,
+								NkResourceState::NK_RENDER_TARGET);
 
-            if (clearColor) cmd->SetClearColor(cc.x, cc.y, cc.z, cc.w);
-            if (clearDepth) cmd->SetClearDepth(1.0f);
-            cmd->BeginRenderPass(mRP, mFBO,
-                NkRect2D(0, 0, (int32)mDesc.width, (int32)mDesc.height));
+			if (clearColor)
+				cmd->SetClearColor(cc.x, cc.y, cc.z, cc.w);
+			if (clearDepth)
+				cmd->SetClearDepth(1.0f);
+			cmd->BeginRenderPass(mRP, mFBO, NkRect2D(0, 0, (int32)mDesc.width, (int32)mDesc.height));
 
-            cmd->SetViewport(NkViewport(0.f, 0.f, (float32)mDesc.width, (float32)mDesc.height));
-            cmd->SetScissor(NkRect2D(0, 0, (int32)mDesc.width, (int32)mDesc.height));
+			cmd->SetViewport(NkViewport(0.f, 0.f, (float32)mDesc.width, (float32)mDesc.height));
+			cmd->SetScissor(NkRect2D(0, 0, (int32)mDesc.width, (int32)mDesc.height));
 
-            mCapturing = true;
-        }
+			mCapturing = true;
+		}
 
-        void NkOffscreenTarget::EndCapture(NkICommandBuffer* cmd) {
-            if (!mCapturing) return;
-            cmd->EndRenderPass();
+		void NkOffscreenTarget::EndCapture(NkICommandBuffer *cmd) {
+			if (!mCapturing)
+				return;
+			cmd->EndRenderPass();
 
-            // Transition color → SHADER_READ (pour l'utiliser comme texture)
-            cmd->TextureBarrier(mTexLib->GetRHIHandle(mColor),
-                                NkResourceState::NK_RENDER_TARGET,
-                                NkResourceState::NK_SHADER_READ);
-            mCapturing = false;
-        }
+			// Transition color → SHADER_READ (pour l'utiliser comme texture)
+			cmd->TextureBarrier(mTexLib->GetRHIHandle(mColor), NkResourceState::NK_RENDER_TARGET,
+								NkResourceState::NK_SHADER_READ);
+			mCapturing = false;
+		}
 
-        bool NkOffscreenTarget::ReadbackPixels(uint8* dst, uint32 rowPitch) {
-            if (!mValid || !mReadBuf.IsValid() || !dst) return false;
+		bool NkOffscreenTarget::ReadbackPixels(uint8 *dst, uint32 rowPitch) {
+			if (!mValid || !mReadBuf.IsValid() || !dst)
+				return false;
 
-            // Copie GPU : texture couleur -> staging buffer (readback) via une commande
-            // transitoire. SANS ça le staging reste vide (le CopyTextureToBuffer manquait
-            // -> Capture lisait du vide). Backends avec vraie impl : Vulkan, DX12, OpenGL.
-            // (DX11 stub le CopyTextureToBuffer : capture via un autre chemin, à part.)
-            NkTextureHandle colorRHI = mTexLib->GetRHIHandle(mColor);
-            NkICommandBuffer* cmd = mDevice->CreateCommandBuffer();
-            if (cmd && cmd->Begin()) {
-                cmd->TextureBarrier(colorRHI, NkResourceState::NK_SHADER_READ,
-                                    NkResourceState::NK_TRANSFER_SRC);
-                NkBufferTextureCopyRegion region{};
-                region.width  = mDesc.width;
-                region.height = mDesc.height;
-                region.depth  = 1;
-                region.bufferRowPitch = 0; // tight packed (width*4)
-                cmd->CopyTextureToBuffer(colorRHI, mReadBuf, region);
-                cmd->TextureBarrier(colorRHI, NkResourceState::NK_TRANSFER_SRC,
-                                    NkResourceState::NK_SHADER_READ);
-                cmd->End();
-                mDevice->Submit(&cmd, 1);
-            }
+			// Copie GPU : texture couleur -> staging buffer (readback) via une commande
+			// transitoire. SANS ça le staging reste vide (le CopyTextureToBuffer manquait
+			// -> Capture lisait du vide). Backends avec vraie impl : Vulkan, DX12, OpenGL.
+			// (DX11 stub le CopyTextureToBuffer : capture via un autre chemin, à part.)
+			NkTextureHandle colorRHI = mTexLib->GetRHIHandle(mColor);
+			NkICommandBuffer *cmd = mDevice->CreateCommandBuffer();
+			if (cmd && cmd->Begin()) {
+				cmd->TextureBarrier(colorRHI, NkResourceState::NK_SHADER_READ, NkResourceState::NK_TRANSFER_SRC);
+				NkBufferTextureCopyRegion region{};
+				region.width = mDesc.width;
+				region.height = mDesc.height;
+				region.depth = 1;
+				region.bufferRowPitch = 0; // tight packed (width*4)
+				cmd->CopyTextureToBuffer(colorRHI, mReadBuf, region);
+				cmd->TextureBarrier(colorRHI, NkResourceState::NK_TRANSFER_SRC, NkResourceState::NK_SHADER_READ);
+				cmd->End();
+				mDevice->Submit(&cmd, 1);
+			}
 
-            mDevice->WaitIdle();
+			mDevice->WaitIdle();
 
-            // Map staging buffer → copier vers dst
-            uint32 rp = (rowPitch > 0) ? rowPitch : mDesc.width * 4;
-            NkMappedMemory mapped = mDevice->MapBuffer(mReadBuf);
-            if (!mapped.IsValid()) return false;
-            for (uint32 row = 0; row < mDesc.height; row++)
-                memcpy(dst + row * rp,
-                    (uint8*)mapped.ptr + row * mDesc.width * 4,
-                    mDesc.width * 4);
-            mDevice->UnmapBuffer(mReadBuf);
-            return true;
-        }
+			// Map staging buffer → copier vers dst
+			uint32 rp = (rowPitch > 0) ? rowPitch : mDesc.width * 4;
+			NkMappedMemory mapped = mDevice->MapBuffer(mReadBuf);
+			if (!mapped.IsValid())
+				return false;
+			for (uint32 row = 0; row < mDesc.height; row++)
+				memcpy(dst + row * rp, (uint8 *)mapped.ptr + row * mDesc.width * 4, mDesc.width * 4);
+			mDevice->UnmapBuffer(mReadBuf);
+			return true;
+		}
 
-        bool NkOffscreenTarget::Resize(uint32 w, uint32 h) {
-            if (w == mDesc.width && h == mDesc.height) return true;
-            NkOffscreenDesc d = mDesc;
-            d.width = w; d.height = h;
-            Shutdown();
-            return Init(mDevice, mTexLib, d);
-        }
+		bool NkOffscreenTarget::Resize(uint32 w, uint32 h) {
+			if (w == mDesc.width && h == mDesc.height)
+				return true;
+			NkOffscreenDesc d = mDesc;
+			d.width = w;
+			d.height = h;
+			Shutdown();
+			return Init(mDevice, mTexLib, d);
+		}
 
-        // Capture NKRHI : readback du color attachment -> NkImage -> fichier.
-        // Pendant de NkRenderTarget::Capture (NKCanvas). Exige readback=true + LDR.
-        bool NkOffscreenTarget::Capture(const char* path) {
-            if (!mValid || !path || !*path) return false;
-            if (!mDesc.readback || mDesc.hdr) return false;   // besoin d'un readback LDR RGBA8
-            const uint32 w = mDesc.width, h = mDesc.height;
-            NkImage img;
-            if (!img.Create(w, h, math::NkColor(0, 0, 0, 255), 4)) return false;
-            if (!ReadbackPixels(img.Pixels(), w * 4u)) return false;  // RGBA8 jointif
-            return img.Save(path);
-        }
+		// Capture NKRHI : readback du color attachment -> NkImage -> fichier.
+		// Pendant de NkRenderTarget::Capture (NKCanvas). Exige readback=true + LDR.
+		bool NkOffscreenTarget::Capture(const char *path) {
+			if (!mValid || !path || !*path)
+				return false;
+			if (!mDesc.readback || mDesc.hdr)
+				return false; // besoin d'un readback LDR RGBA8
+			const uint32 w = mDesc.width, h = mDesc.height;
+			NkImage img;
+			if (!img.Create(w, h, math::NkColor(0, 0, 0, 255), 4))
+				return false;
+			if (!ReadbackPixels(img.Pixels(), w * 4u))
+				return false; // RGBA8 jointif
+			return img.Save(path);
+		}
 
-    } // namespace renderer
+	} // namespace renderer
 } // namespace nkentseu

@@ -36,75 +36,87 @@
 #include <condition_variable>
 
 namespace nkentseu {
-    namespace audio {
+	namespace audio {
 
-        class NKENTSEU_AUDIO_API AudioStreamPlayer {
-            public:
-                AudioStreamPlayer() = default;
-                ~AudioStreamPlayer();
+		class NKENTSEU_AUDIO_API AudioStreamPlayer {
+			public:
+				AudioStreamPlayer() = default;
+				~AudioStreamPlayer();
 
-                /// Initialise le player avec la config sortie.
-                /// @param sampleRate      Sample rate cible (= celui du backend audio).
-                /// @param channels        Canaux sortie (1 ou 2).
-                /// @param ringBufferFrames  Taille du ring buffer en frames (typiquement 88200 pour ~2s).
-                bool Init(int32 sampleRate, int32 channels, int32 ringBufferFrames = 88200) noexcept;
+				/// Initialise le player avec la config sortie.
+				/// @param sampleRate      Sample rate cible (= celui du backend audio).
+				/// @param channels        Canaux sortie (1 ou 2).
+				/// @param ringBufferFrames  Taille du ring buffer en frames (typiquement 88200 pour ~2s).
+				bool Init(int32 sampleRate, int32 channels, int32 ringBufferFrames = 88200) noexcept;
 
-                /// Stop, join le thread worker, libere les ressources.
-                void Shutdown() noexcept;
+				/// Stop, join le thread worker, libere les ressources.
+				void Shutdown() noexcept;
 
-                /// Demarre la lecture du stream donne. Le player prend possession du
-                /// stream (le supprime via delete a Stop()/Shutdown()).
-                /// Si un stream est deja en cours, il est arrete et remplace.
-                /// @param loop  true = boucle infinie (seek(0) a la fin)
-                bool Play(IAudioStream* stream, bool loop = false) noexcept;
+				/// Demarre la lecture du stream donne. Le player prend possession du
+				/// stream (le supprime via delete a Stop()/Shutdown()).
+				/// Si un stream est deja en cours, il est arrete et remplace.
+				/// @param loop  true = boucle infinie (seek(0) a la fin)
+				bool Play(IAudioStream *stream, bool loop = false) noexcept;
 
-                /// Arrete la lecture, libere le stream actuel.
-                void Stop() noexcept;
+				/// Arrete la lecture, libere le stream actuel.
+				void Stop() noexcept;
 
-                /// Pause / resume (le thread worker tourne toujours mais ne decode plus).
-                void Pause()  noexcept { mPaused = true;  }
-                void Resume() noexcept { mPaused = false; }
+				/// Pause / resume (le thread worker tourne toujours mais ne decode plus).
+				void Pause() noexcept {
+					mPaused = true;
+				}
 
-                /// Lit jusqu'a maxFrames frames depuis le ring buffer.
-                /// Appel attendu depuis le thread audio - lock-free en lecture.
-                /// Retourne le nombre de frames effectivement ecrites.
-                int32 ReadFrames(float32* outBuf, int32 maxFrames) noexcept;
+				void Resume() noexcept {
+					mPaused = false;
+				}
 
-                /// True si stream actif et pas EOF + en lecture (non-pause).
-                bool IsPlaying() const noexcept { return mActive && !mPaused; }
+				/// Lit jusqu'a maxFrames frames depuis le ring buffer.
+				/// Appel attendu depuis le thread audio - lock-free en lecture.
+				/// Retourne le nombre de frames effectivement ecrites.
+				int32 ReadFrames(float32 *outBuf, int32 maxFrames) noexcept;
 
-                /// Volume scalaire applique a la sortie (1.0 = neutre).
-                void  SetVolume(float32 v) noexcept { mVolume = v; }
-                float32 GetVolume() const noexcept  { return mVolume; }
+				/// True si stream actif et pas EOF + en lecture (non-pause).
+				bool IsPlaying() const noexcept {
+					return mActive && !mPaused;
+				}
 
-            private:
-                void DecoderThreadProc();
+				/// Volume scalaire applique a la sortie (1.0 = neutre).
+				void SetVolume(float32 v) noexcept {
+					mVolume = v;
+				}
 
-                // Sortie config
-                int32 mSampleRate = 0;
-                int32 mChannels   = 0;
+				float32 GetVolume() const noexcept {
+					return mVolume;
+				}
 
-                // Ring buffer SPSC
-                float32* mRingBuf      = nullptr;
-                int32    mRingFrames   = 0;     ///< Capacite en frames
-                std::atomic<int32> mWritePos{0}; ///< Index frame producteur
-                std::atomic<int32> mReadPos{0};  ///< Index frame consommateur
+			private:
+				void DecoderThreadProc();
 
-                // Thread worker
-                std::thread             mThread;
-                std::atomic<bool>       mRunning{false};
-                std::mutex              mStreamMutex; ///< Protege mStream/mLoop changes
-                std::condition_variable mCV;          ///< Notifie quand le buffer a de la place
+				// Sortie config
+				int32 mSampleRate = 0;
+				int32 mChannels = 0;
 
-                // Stream actif
-                IAudioStream* mStream = nullptr;
-                bool          mLoop   = false;
-                std::atomic<bool> mActive{false};
-                std::atomic<bool> mPaused{false};
+				// Ring buffer SPSC
+				float32 *mRingBuf = nullptr;
+				int32 mRingFrames = 0;			 ///< Capacite en frames
+				std::atomic<int32> mWritePos{0}; ///< Index frame producteur
+				std::atomic<int32> mReadPos{0};	 ///< Index frame consommateur
 
-                // Volume
-                std::atomic<float32> mVolume{1.0f};
-        };
+				// Thread worker
+				std::thread mThread;
+				std::atomic<bool> mRunning{false};
+				std::mutex mStreamMutex;	 ///< Protege mStream/mLoop changes
+				std::condition_variable mCV; ///< Notifie quand le buffer a de la place
 
-    } // namespace audio
+				// Stream actif
+				IAudioStream *mStream = nullptr;
+				bool mLoop = false;
+				std::atomic<bool> mActive{false};
+				std::atomic<bool> mPaused{false};
+
+				// Volume
+				std::atomic<float32> mVolume{1.0f};
+		};
+
+	} // namespace audio
 } // namespace nkentseu

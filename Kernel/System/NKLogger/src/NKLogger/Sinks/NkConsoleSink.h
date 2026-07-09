@@ -22,142 +22,134 @@
 #ifndef NKENTSEU_NKCONSOLESINK_H
 #define NKENTSEU_NKCONSOLESINK_H
 
+// -------------------------------------------------------------------------
+// SECTION 1 : EN-TÊTES ET DÉPENDANCES
+// -------------------------------------------------------------------------
+// Inclusions standards pour la gestion de la console et du formatage.
+// Dépendances projet pour l'interface de sink, le formatage et la synchronisation.
 
-	// -------------------------------------------------------------------------
-	// SECTION 1 : EN-TÊTES ET DÉPENDANCES
-	// -------------------------------------------------------------------------
-	// Inclusions standards pour la gestion de la console et du formatage.
-	// Dépendances projet pour l'interface de sink, le formatage et la synchronisation.
+#include <cstdio>
 
-	#include <cstdio>
+#include "NKCore/NkTypes.h"
+#include "NKContainers/String/NkString.h"
+#include "NKMemory/NkUniquePtr.h"
+#include "NKThreading/NkMutex.h"
+#include "NKLogger/NkSink.h"
+#include "NKLogger/NkLogLevel.h"
+#include "NKLogger/NkLogMessage.h"
+#include "NKLogger/NkLoggerFormatter.h"
+#include "NKLogger/NkLoggerApi.h"
 
-	#include "NKCore/NkTypes.h"
-	#include "NKContainers/String/NkString.h"
-	#include "NKMemory/NkUniquePtr.h"
-	#include "NKThreading/NkMutex.h"
-	#include "NKLogger/NkSink.h"
-	#include "NKLogger/NkLogLevel.h"
-	#include "NKLogger/NkLogMessage.h"
-	#include "NKLogger/NkLoggerFormatter.h"
-	#include "NKLogger/NkLoggerApi.h"
+// -------------------------------------------------------------------------
+// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
+// -------------------------------------------------------------------------
+// Tous les symboles du module logger sont dans le namespace nkentseu.
+// Pas de sous-namespace pour simplifier l'usage et l'intégration.
 
+namespace nkentseu {
 
-	// -------------------------------------------------------------------------
-	// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
-	// -------------------------------------------------------------------------
-	// Tous les symboles du module logger sont dans le namespace nkentseu.
-	// Pas de sous-namespace pour simplifier l'usage et l'intégration.
+	// ---------------------------------------------------------------------
+	// ÉNUMÉRATION : NkConsoleStream
+	// DESCRIPTION : Flux de console disponibles pour la sortie des logs
+	// ---------------------------------------------------------------------
+	/**
+	 * @enum NkConsoleStream
+	 * @brief Flux de sortie console supportés par NkConsoleSink
+	 * @ingroup LoggerTypes
+	 *
+	 * Cette énumération définit les destinations de sortie possibles
+	 * pour les messages de log vers la console.
+	 *
+	 * @note Le choix du flux affecte le buffering et la visibilité :
+	 *   - stdout : buffering ligne par défaut, sortie normale
+	 *   - stderr : buffering non-buffered par défaut, sortie d'erreur
+	 *
+	 * @example
+	 * @code
+	 * // Sortie normale vers stdout
+	 * nkentseu::NkConsoleSink infoSink(nkentseu::NkConsoleStream::NK_STD_OUT);
+	 *
+	 * // Sortie d'erreur vers stderr (visible même si stdout redirigé)
+	 * nkentseu::NkConsoleSink errorSink(nkentseu::NkConsoleStream::NK_STD_ERR);
+	 * @endcode
+	 */
+	enum class NkConsoleStream : uint8 {
+		/// @brief Sortie standard (stdout) : pour logs informatifs normaux
+		NK_STD_OUT = 0,
 
-	namespace nkentseu {
+		/// @brief Erreur standard (stderr) : pour logs d'erreur et diagnostics
+		NK_STD_ERR = 1
+	};
 
-
-		// ---------------------------------------------------------------------
-		// ÉNUMÉRATION : NkConsoleStream
-		// DESCRIPTION : Flux de console disponibles pour la sortie des logs
-		// ---------------------------------------------------------------------
-		/**
-		 * @enum NkConsoleStream
-		 * @brief Flux de sortie console supportés par NkConsoleSink
-		 * @ingroup LoggerTypes
-		 *
-		 * Cette énumération définit les destinations de sortie possibles
-		 * pour les messages de log vers la console.
-		 *
-		 * @note Le choix du flux affecte le buffering et la visibilité :
-		 *   - stdout : buffering ligne par défaut, sortie normale
-		 *   - stderr : buffering non-buffered par défaut, sortie d'erreur
-		 *
-		 * @example
-		 * @code
-		 * // Sortie normale vers stdout
-		 * nkentseu::NkConsoleSink infoSink(nkentseu::NkConsoleStream::NK_STD_OUT);
-		 *
-		 * // Sortie d'erreur vers stderr (visible même si stdout redirigé)
-		 * nkentseu::NkConsoleSink errorSink(nkentseu::NkConsoleStream::NK_STD_ERR);
-		 * @endcode
-		 */
-		enum class NkConsoleStream : uint8 {
-			/// @brief Sortie standard (stdout) : pour logs informatifs normaux
-			NK_STD_OUT = 0,
-
-			/// @brief Erreur standard (stderr) : pour logs d'erreur et diagnostics
-			NK_STD_ERR = 1
-		};
-
-
-		// ---------------------------------------------------------------------
-		// CLASSE : NkConsoleSink
-		// DESCRIPTION : Sink pour sortie console avec support couleur multiplateforme
-		// ---------------------------------------------------------------------
-		/**
-		 * @class NkConsoleSink
-		 * @brief Sink pour l'écriture des messages de log vers la console avec couleurs
-		 * @ingroup LoggerSinks
-		 *
-		 * NkConsoleSink fournit une destination de log vers la console avec :
-		 *  - Support multiplateforme : ANSI (Unix) / Win32 API (Windows) / logcat (Android)
-		 *  - Détection automatique du support couleur via isatty()/GetConsoleMode()
-		 *  - Routage configurable : stdout pour info, stderr pour erreurs (optionnel)
-		 *  - Formatage via NkLoggerFormatter avec support des marqueurs de couleur %^/%$
-		 *  - Thread-safe : synchronisation via mutex interne pour écritures concurrentes
-		 *
-		 * Architecture :
-		 *  - Hérite de NkISink : compatibilité avec l'API de logging existante
-		 *  - Utilise NkLoggerFormatter pour formatage des messages avant écriture
-		 *  - Gère les couleurs via NkLogLevelToANSIColor/WindowsColor centralisés
-		 *  - Routage Android : redirection transparente vers __android_log_print
-		 *
-		 * Thread-safety :
-		 *  - Toutes les méthodes publiques sont thread-safe via m_Mutex
-		 *  - Les écritures console sont atomic vis-à-vis des autres threads
-		 *  - Safe pour usage depuis multiples threads simultanément
-		 *
-		 * Gestion des couleurs :
-		 *  - Détection automatique : isatty() + TERM sur Unix, GetConsoleMode sur Windows
-		 *  - Désactivation sur Android : logcat ne supporte pas les codes ANSI
-		 *  - Override manuel : SetColorEnabled() pour forcer activer/désactiver
-		 *
-		 * @note Sur Windows, ENABLE_VIRTUAL_TERMINAL_PROCESSING doit être activé
-		 *       pour le support des codes ANSI. Sinon, fallback vers Win32 API.
-		 *
-		 * @example Usage basique avec couleurs
-		 * @code
-		 * // Sink console avec couleurs activées (détection automatique)
-		 * auto consoleSink = nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>();
-		 * consoleSink->SetPattern("[%^%L%$] %v");  // Pattern avec marqueurs couleur
-		 *
-		 * // Ajout au logger global
-		 * nkentseu::NkLog::Instance().AddSink(consoleSink);
-		 *
-		 * // Logging : couleurs appliquées si terminal supporté
-		 * logger.Info("Information message");    // Vert
-		 * logger.Warn("Warning message");        // Jaune
-		 * logger.Error("Error message");         // Rouge
-		 * @endcode
-		 *
-		 * @example Routage stderr pour erreurs
-		 * @code
-		 * // Séparer flux normaux et erreurs pour scripting/shell
-		 * auto consoleSink = nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>(
-		 *     nkentseu::NkConsoleStream::NK_STD_OUT,  // Flux principal : stdout
-		 *     true                                     // Couleurs activées
-		 * );
-		 * consoleSink->SetUseStderrForErrors(true);   // Erreurs vers stderr
-		 *
-		 * // Usage shell :
-		 * // ./app > output.log 2> errors.log
-		 * // → Logs normaux dans output.log, erreurs dans errors.log
-		 * @endcode
-		 */
-		class NKENTSEU_LOGGER_CLASS_EXPORT NkConsoleSink : public NkISink {
-
-
+	// ---------------------------------------------------------------------
+	// CLASSE : NkConsoleSink
+	// DESCRIPTION : Sink pour sortie console avec support couleur multiplateforme
+	// ---------------------------------------------------------------------
+	/**
+	 * @class NkConsoleSink
+	 * @brief Sink pour l'écriture des messages de log vers la console avec couleurs
+	 * @ingroup LoggerSinks
+	 *
+	 * NkConsoleSink fournit une destination de log vers la console avec :
+	 *  - Support multiplateforme : ANSI (Unix) / Win32 API (Windows) / logcat (Android)
+	 *  - Détection automatique du support couleur via isatty()/GetConsoleMode()
+	 *  - Routage configurable : stdout pour info, stderr pour erreurs (optionnel)
+	 *  - Formatage via NkLoggerFormatter avec support des marqueurs de couleur %^/%$
+	 *  - Thread-safe : synchronisation via mutex interne pour écritures concurrentes
+	 *
+	 * Architecture :
+	 *  - Hérite de NkISink : compatibilité avec l'API de logging existante
+	 *  - Utilise NkLoggerFormatter pour formatage des messages avant écriture
+	 *  - Gère les couleurs via NkLogLevelToANSIColor/WindowsColor centralisés
+	 *  - Routage Android : redirection transparente vers __android_log_print
+	 *
+	 * Thread-safety :
+	 *  - Toutes les méthodes publiques sont thread-safe via m_Mutex
+	 *  - Les écritures console sont atomic vis-à-vis des autres threads
+	 *  - Safe pour usage depuis multiples threads simultanément
+	 *
+	 * Gestion des couleurs :
+	 *  - Détection automatique : isatty() + TERM sur Unix, GetConsoleMode sur Windows
+	 *  - Désactivation sur Android : logcat ne supporte pas les codes ANSI
+	 *  - Override manuel : SetColorEnabled() pour forcer activer/désactiver
+	 *
+	 * @note Sur Windows, ENABLE_VIRTUAL_TERMINAL_PROCESSING doit être activé
+	 *       pour le support des codes ANSI. Sinon, fallback vers Win32 API.
+	 *
+	 * @example Usage basique avec couleurs
+	 * @code
+	 * // Sink console avec couleurs activées (détection automatique)
+	 * auto consoleSink = nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>();
+	 * consoleSink->SetPattern("[%^%L%$] %v");  // Pattern avec marqueurs couleur
+	 *
+	 * // Ajout au logger global
+	 * nkentseu::NkLog::Instance().AddSink(consoleSink);
+	 *
+	 * // Logging : couleurs appliquées si terminal supporté
+	 * logger.Info("Information message");    // Vert
+	 * logger.Warn("Warning message");        // Jaune
+	 * logger.Error("Error message");         // Rouge
+	 * @endcode
+	 *
+	 * @example Routage stderr pour erreurs
+	 * @code
+	 * // Séparer flux normaux et erreurs pour scripting/shell
+	 * auto consoleSink = nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>(
+	 *     nkentseu::NkConsoleStream::NK_STD_OUT,  // Flux principal : stdout
+	 *     true                                     // Couleurs activées
+	 * );
+	 * consoleSink->SetUseStderrForErrors(true);   // Erreurs vers stderr
+	 *
+	 * // Usage shell :
+	 * // ./app > output.log 2> errors.log
+	 * // → Logs normaux dans output.log, erreurs dans errors.log
+	 * @endcode
+	 */
+	class NKENTSEU_LOGGER_CLASS_EXPORT NkConsoleSink : public NkISink {
 			// -----------------------------------------------------------------
 			// SECTION 3 : MEMBRES PUBLICS
 			// -----------------------------------------------------------------
 		public:
-
-
 			// -----------------------------------------------------------------
 			// CONSTRUCTEURS ET DESTRUCTEUR
 			// -----------------------------------------------------------------
@@ -215,7 +207,6 @@
 			 */
 			~NkConsoleSink() override;
 
-
 			// -----------------------------------------------------------------
 			// IMPLÉMENTATION DE L'INTERFACE NKISINK
 			// -----------------------------------------------------------------
@@ -250,7 +241,7 @@
 			 * consoleSink.Log(msg);  // Écriture thread-safe avec formatage
 			 * @endcode
 			 */
-			void Log(const NkLogMessage& message) override;
+			void Log(const NkLogMessage &message) override;
 
 			/**
 			 * @brief Force l'écriture immédiate des buffers console
@@ -306,7 +297,7 @@
 			 * consoleSink.SetPattern("%L: %v");
 			 * @endcode
 			 */
-			void SetPattern(const NkString& pattern) override;
+			void SetPattern(const NkString &pattern) override;
 
 			/**
 			 * @brief Obtient le formatter courant utilisé par ce sink
@@ -325,7 +316,7 @@
 			 * }
 			 * @endcode
 			 */
-			NkLoggerFormatter* GetFormatter() const override;
+			NkLoggerFormatter *GetFormatter() const override;
 
 			/**
 			 * @brief Obtient le pattern de formatage courant
@@ -344,7 +335,6 @@
 			 * @endcode
 			 */
 			NkString GetPattern() const override;
-
 
 			// -----------------------------------------------------------------
 			// CONFIGURATION SPÉCIFIQUE À LA CONSOLE
@@ -463,13 +453,10 @@
 			 */
 			bool IsUsingStderrForErrors() const;
 
-
 			// -----------------------------------------------------------------
 			// SECTION 4 : MEMBRES PRIVÉS (IMPLÉMENTATION INTERNE)
 			// -----------------------------------------------------------------
 		private:
-
-
 			// -----------------------------------------------------------------
 			// MÉTHODES PRIVÉES D'IMPLÉMENTATION
 			// -----------------------------------------------------------------
@@ -497,7 +484,7 @@
 			 * GetStreamForLevel(NK_ERROR)  → stderr
 			 * @endcode
 			 */
-			FILE* GetStreamForLevel(NkLogLevel level);
+			FILE *GetStreamForLevel(NkLogLevel level);
 
 			/**
 			 * @brief Vérifie si la console courante supporte les codes couleur
@@ -602,7 +589,6 @@
 			 */
 			void ResetWindowsColor();
 
-
 			// -----------------------------------------------------------------
 			// VARIABLES MEMBRES PRIVÉES (ÉTAT INTERNE)
 			// -----------------------------------------------------------------
@@ -639,15 +625,11 @@
 			/// @note Protège l'accès aux membres et les écritures console concurrentes
 			mutable threading::NkMutex m_Mutex;
 
+	}; // class NkConsoleSink
 
-		}; // class NkConsoleSink
-
-
-	} // namespace nkentseu
-
+} // namespace nkentseu
 
 #endif // NKENTSEU_NKCONSOLESINK_H
-
 
 // =============================================================================
 // EXEMPLES D'UTILISATION DE NKCONSOLESINK.H
@@ -678,7 +660,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 2 : Routage stderr pour séparation des flux shell
 // -----------------------------------------------------------------------------
@@ -708,7 +689,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 3 : Désactivation des couleurs pour logs parsables
 // -----------------------------------------------------------------------------
@@ -733,7 +713,6 @@
 		// Facile à parser avec grep, awk, etc.
 	}
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 4 : Configuration dynamique via environnement
@@ -760,7 +739,6 @@
 		NkLog::Instance().AddSink(consoleSink);
 	}
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 5 : Testing avec vérification de sortie console
@@ -794,7 +772,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 6 : Détection et logging du support couleur
 // -----------------------------------------------------------------------------
@@ -819,7 +796,6 @@
 		}
 	}
 */
-
 
 // =============================================================================
 // NOTES DE MAINTENANCE ET BONNES PRATIQUES
@@ -868,7 +844,6 @@
 	   - Pour Android : tester via adb logcat pour vérification de sortie
 	   - Valider le thread-safety avec tests concurrents (TSan, helgrind, etc.)
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

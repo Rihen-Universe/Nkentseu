@@ -23,39 +23,41 @@
 #include "PV3DE/Core/NkClinicalState.h"
 
 namespace nkentseu {
-    namespace pv3de {
+	namespace pv3de {
 
-        struct NkPatientInfo {
-            NkString lastName;
-            NkString firstName;
-            nk_uint32 ageYears = 0;
-            NkString  gender;    // "M" | "F" | "O"
-            NkString  id;        // identifiant dossier (généré si vide)
-        };
+		struct NkPatientInfo {
+				NkString lastName;
+				NkString firstName;
+				nk_uint32 ageYears = 0;
+				NkString gender; // "M" | "F" | "O"
+				NkString id;	 // identifiant dossier (généré si vide)
+		};
 
-        class NkFHIRExport {
-        public:
-            NkFHIRExport() = default;
+		class NkFHIRExport {
+			public:
+				NkFHIRExport() = default;
 
-            void SetPatientInfo(const NkPatientInfo& info) { mPatient = info; }
+				void SetPatientInfo(const NkPatientInfo &info) {
+					mPatient = info;
+				}
 
-            // Génère le bundle FHIR complet en JSON.
-            NkString GenerateReport(const NkClinicalState& state) const;
+				// Génère le bundle FHIR complet en JSON.
+				NkString GenerateReport(const NkClinicalState &state) const;
 
-            // Génère un résumé textuel court (pour ReportPanel).
-            NkString GenerateSummary(const NkClinicalState& state) const;
+				// Génère un résumé textuel court (pour ReportPanel).
+				NkString GenerateSummary(const NkClinicalState &state) const;
 
-        private:
-            NkString BuildPatientResource()     const;
-            NkString BuildObservations(const NkClinicalState& s) const;
-            NkString BuildConditions(const NkClinicalState& s)   const;
-            NkString BuildDiagnosticReport(const NkClinicalState& s) const;
+			private:
+				NkString BuildPatientResource() const;
+				NkString BuildObservations(const NkClinicalState &s) const;
+				NkString BuildConditions(const NkClinicalState &s) const;
+				NkString BuildDiagnosticReport(const NkClinicalState &s) const;
 
-            static NkString EscapeJson(const NkString& s);
-            static NkString FloatToStr(nk_float32 v, int decimals = 1);
+				static NkString EscapeJson(const NkString &s);
+				static NkString FloatToStr(nk_float32 v, int decimals = 1);
 
-            NkPatientInfo mPatient;
-        };
+				NkPatientInfo mPatient;
+		};
 
-    } // namespace pv3de
+	} // namespace pv3de
 } // namespace nkentseu

@@ -30,9 +30,8 @@
 #include <sys/stat.h>
 
 #if defined(_WIN32)
-	#include <direct.h>
+#include <direct.h>
 #endif
-
 
 // -------------------------------------------------------------------------
 // SECTION 1 : NAMESPACE ANONYME - UTILITAIRES INTERNES
@@ -42,7 +41,6 @@
 
 namespace {
 
-
 	// -------------------------------------------------------------------------
 	// FONCTION : NkPathExists
 	// DESCRIPTION : Vérifie si un chemin de fichier/répertoire existe
@@ -50,15 +48,14 @@ namespace {
 	// RETURN : true si le chemin existe et est accessible, false sinon
 	// NOTE : Utilise stat() portable, gère les chemins vides
 	// -------------------------------------------------------------------------
-	bool NkPathExists(const nkentseu::NkString& path) {
+	bool NkPathExists(const nkentseu::NkString &path) {
 		if (path.Empty()) {
 			return false;
 		}
 
-		struct stat fileInfo {};
+		struct stat fileInfo{};
 		return ::stat(path.CStr(), &fileInfo) == 0;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// FONCTION : NkGetPathFileSize
@@ -67,8 +64,8 @@ namespace {
 	// RETURN : Taille en octets, ou 0 si fichier inexistant/inaccessible
 	// NOTE : Utilise stat().st_size, retourne 0 en cas d'erreur
 	// -------------------------------------------------------------------------
-	nkentseu::usize NkGetPathFileSize(const nkentseu::NkString& path) {
-		struct stat fileInfo {};
+	nkentseu::usize NkGetPathFileSize(const nkentseu::NkString &path) {
+		struct stat fileInfo{};
 
 		if (::stat(path.CStr(), &fileInfo) != 0) {
 			return 0;
@@ -77,7 +74,6 @@ namespace {
 		return static_cast<nkentseu::usize>(fileInfo.st_size);
 	}
 
-
 	// -------------------------------------------------------------------------
 	// FONCTION : NkCreateDirectory
 	// DESCRIPTION : Crée un répertoire unique (pas récursif)
@@ -85,19 +81,18 @@ namespace {
 	// RETURN : true si créé ou déjà existant, false en cas d'échec
 	// NOTE : Windows : _mkdir(), POSIX : mkdir() avec permissions 0755
 	// -------------------------------------------------------------------------
-	bool NkCreateDirectory(const char* path) {
-		#if defined(_WIN32)
-			// Windows : _mkdir() retourne 0 en cas de succès
-			const int result = ::_mkdir(path);
-		#else
-			// POSIX : mkdir() avec permissions rwxr-xr-x (0755)
-			const int result = ::mkdir(path, 0755);
-		#endif
+	bool NkCreateDirectory(const char *path) {
+#if defined(_WIN32)
+		// Windows : _mkdir() retourne 0 en cas de succès
+		const int result = ::_mkdir(path);
+#else
+		// POSIX : mkdir() avec permissions rwxr-xr-x (0755)
+		const int result = ::mkdir(path, 0755);
+#endif
 
 		// Succès si créé (0) ou déjà existant (EEXIST)
 		return (result == 0 || errno == EEXIST);
 	}
-
 
 	// -------------------------------------------------------------------------
 	// FONCTION : NkCreateDirectories
@@ -106,7 +101,7 @@ namespace {
 	// RETURN : true si tous créés ou déjà existants, false en cas d'échec
 	// NOTE : Parcours caractère par caractère, crée à chaque séparateur / ou \
 	// -------------------------------------------------------------------------
-	bool NkCreateDirectories(const nkentseu::NkString& directory) {
+	bool NkCreateDirectories(const nkentseu::NkString &directory) {
 		// Cas vide : rien à faire, considéré comme succès
 		if (directory.Empty()) {
 			return true;
@@ -145,14 +140,13 @@ namespace {
 		return NkCreateDirectory(directory.CStr());
 	}
 
-
 	// -------------------------------------------------------------------------
 	// FONCTION : NkEnsureParentDirectory
 	// DESCRIPTION : Crée le répertoire parent d'un chemin de fichier si nécessaire
 	// PARAMS : filename - Chemin complet du fichier (pour extraire le parent)
 	// NOTE : Extrait le chemin jusqu'au dernier / ou \, puis crée récursivement
 	// -------------------------------------------------------------------------
-	void NkEnsureParentDirectory(const nkentseu::NkString& filename) {
+	void NkEnsureParentDirectory(const nkentseu::NkString &filename) {
 		// Recherche du dernier séparateur de chemin
 		const nkentseu::usize lastSeparatorPos = filename.FindLastOf("/\\");
 
@@ -168,9 +162,7 @@ namespace {
 		(void)NkCreateDirectories(parentDirectory);
 	}
 
-
-} // namespace anonymous
-
+} // namespace
 
 // -------------------------------------------------------------------------
 // SECTION 2 : NAMESPACE PRINCIPAL - IMPLÉMENTATIONS DES MÉTHODES
@@ -180,24 +172,19 @@ namespace {
 
 namespace nkentseu {
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Constructeur
 	// DESCRIPTION : Initialise avec chemin, mode, et ouverture automatique
 	// -------------------------------------------------------------------------
-	NkFileSink::NkFileSink(const NkString& filename, bool truncate)
-		: m_Formatter(memory::NkMakeUnique<NkLoggerFormatter>(NkLoggerFormatter::NK_DEFAULT_PATTERN))
-		, m_FileStream(nullptr)
-		, m_Filename(filename)
-		, m_Truncate(truncate) {
-
+	NkFileSink::NkFileSink(const NkString &filename, bool truncate)
+		: m_Formatter(memory::NkMakeUnique<NkLoggerFormatter>(NkLoggerFormatter::NK_DEFAULT_PATTERN)),
+		  m_FileStream(nullptr), m_Filename(filename), m_Truncate(truncate) {
 		// Création du répertoire parent si inexistant
 		NkEnsureParentDirectory(filename);
 
 		// Tentative d'ouverture immédiate du fichier
 		Open();
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Destructeur
@@ -208,12 +195,11 @@ namespace nkentseu {
 		Close();
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Log
 	// DESCRIPTION : Écriture thread-safe d'un message formaté dans le fichier
 	// -------------------------------------------------------------------------
-	void NkFileSink::Log(const NkLogMessage& message) {
+	void NkFileSink::Log(const NkLogMessage &message) {
 		// Filtrage précoce : éviter tout traitement si message ignoré
 		if (!IsEnabled() || !ShouldLog(message.level)) {
 			return;
@@ -243,12 +229,8 @@ namespace nkentseu {
 		// Écriture du message formaté dans le fichier
 		if (!formattedMessage.Empty()) {
 			// fwrite pour le contenu principal
-			(void)::fwrite(
-				formattedMessage.CStr(),
-				sizeof(char),
-				static_cast<size_t>(formattedMessage.Length()),
-				m_FileStream
-			);
+			(void)::fwrite(formattedMessage.CStr(), sizeof(char), static_cast<size_t>(formattedMessage.Length()),
+						   m_FileStream);
 		}
 
 		// Newline automatique après chaque message pour lisibilité
@@ -257,7 +239,6 @@ namespace nkentseu {
 		// Vérification de rotation après écriture (extension point)
 		CheckRotation();
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Flush
@@ -273,7 +254,6 @@ namespace nkentseu {
 		}
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetFormatter
 	// DESCRIPTION : Définit le formatter avec transfert de propriété thread-safe
@@ -286,12 +266,11 @@ namespace nkentseu {
 		m_Formatter = traits::NkMove(formatter);
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetPattern
 	// DESCRIPTION : Met à jour le pattern via le formatter interne
 	// -------------------------------------------------------------------------
-	void NkFileSink::SetPattern(const NkString& pattern) {
+	void NkFileSink::SetPattern(const NkString &pattern) {
 		// Acquisition du mutex pour modification thread-safe
 		threading::NkScopedLock lock(m_Mutex);
 
@@ -301,19 +280,17 @@ namespace nkentseu {
 		}
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetFormatter
 	// DESCRIPTION : Retourne le formatter courant (lecture thread-safe)
 	// -------------------------------------------------------------------------
-	NkLoggerFormatter* NkFileSink::GetFormatter() const {
+	NkLoggerFormatter *NkFileSink::GetFormatter() const {
 		// Acquisition du mutex pour lecture protégée
 		threading::NkScopedLock lock(m_Mutex);
 
 		// Retour du pointeur brut via get() de NkUniquePtr
 		return m_Formatter.Get();
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetPattern
@@ -332,7 +309,6 @@ namespace nkentseu {
 		return NkString{};
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Open
 	// DESCRIPTION : Ouvre le fichier avec acquisition de mutex
@@ -344,7 +320,6 @@ namespace nkentseu {
 		// Délégation à la version unlocked car mutex déjà acquis
 		return OpenUnlocked();
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : Close
@@ -358,7 +333,6 @@ namespace nkentseu {
 		CloseUnlocked();
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : IsOpen
 	// DESCRIPTION : Vérifie l'état d'ouverture du fichier (lecture thread-safe)
@@ -370,7 +344,6 @@ namespace nkentseu {
 		// Retour de l'état du FILE*
 		return m_FileStream != nullptr;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetFilename
@@ -384,12 +357,11 @@ namespace nkentseu {
 		return GetFilenameUnlocked();
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetFilename
 	// DESCRIPTION : Change le fichier cible avec réouverture automatique
 	// -------------------------------------------------------------------------
-	void NkFileSink::SetFilename(const NkString& filename) {
+	void NkFileSink::SetFilename(const NkString &filename) {
 		// Acquisition du mutex pour modification thread-safe
 		threading::NkScopedLock lock(m_Mutex);
 
@@ -409,7 +381,6 @@ namespace nkentseu {
 		}
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetFileSize
 	// DESCRIPTION : Retourne la taille du fichier sur disque (lecture thread-safe)
@@ -421,7 +392,6 @@ namespace nkentseu {
 		// Délégation à l'utilitaire stat()-based
 		return NkGetPathFileSize(m_Filename);
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : SetTruncate
@@ -444,7 +414,6 @@ namespace nkentseu {
 		}
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetTruncate
 	// DESCRIPTION : Retourne le mode d'ouverture courant (lecture thread-safe)
@@ -456,7 +425,6 @@ namespace nkentseu {
 		// Retour de la valeur du flag
 		return m_Truncate;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : OpenFile (privée)
@@ -472,7 +440,7 @@ namespace nkentseu {
 		NkEnsureParentDirectory(m_Filename);
 
 		// Détermination du mode d'ouverture basé sur m_Truncate
-		const char* openMode = m_Truncate ? "wb" : "ab";
+		const char *openMode = m_Truncate ? "wb" : "ab";
 
 		// Première tentative d'ouverture
 		m_FileStream = ::fopen(m_Filename.CStr(), openMode);
@@ -496,7 +464,6 @@ namespace nkentseu {
 		return true;
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : OpenUnlocked (protégée)
 	// DESCRIPTION : Wrapper vers OpenFile() pour usage avec lock déjà acquis
@@ -505,7 +472,6 @@ namespace nkentseu {
 		// Délégation directe à la méthode privée d'ouverture
 		return OpenFile();
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : CloseUnlocked (protégée)
@@ -523,7 +489,6 @@ namespace nkentseu {
 		}
 	}
 
-
 	// -------------------------------------------------------------------------
 	// MÉTHODE : GetFilenameUnlocked (protégée)
 	// DESCRIPTION : Retour du chemin sans acquisition de mutex
@@ -532,7 +497,6 @@ namespace nkentseu {
 		// Retour par copie de la chaîne interne
 		return m_Filename;
 	}
-
 
 	// -------------------------------------------------------------------------
 	// MÉTHODE : CheckRotation (protégée virtuelle)
@@ -543,9 +507,7 @@ namespace nkentseu {
 		// Les classes dérivées peuvent override pour implémenter une stratégie
 	}
 
-
 } // namespace nkentseu
-
 
 // =============================================================================
 // NOTES D'IMPLÉMENTATION ET BONNES PRATIQUES
@@ -586,7 +548,6 @@ namespace nkentseu {
 	   - NkString utilise SSO : petites chaînes sans allocation heap
 	   - Pour très haute fréquence : envisager buffering avec Flush() périodique
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

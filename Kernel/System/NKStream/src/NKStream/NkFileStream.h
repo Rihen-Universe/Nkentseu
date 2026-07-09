@@ -25,128 +25,136 @@
 
 namespace nkentseu {
 
-    ///////////////////////////////////////////////////////////////////////////////
-    //  NkFileStream : flux fichier construit au-dessus de NkFile
-    ///////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
+	//  NkFileStream : flux fichier construit au-dessus de NkFile
+	///////////////////////////////////////////////////////////////////////////////
 
-    class NKSTREAM_API NkFileStream : public NkStream {
-        public:
-            NkFileStream() = default;
-            ~NkFileStream() override { Close(); }
+	class NKSTREAM_API NkFileStream : public NkStream {
+		public:
+			NkFileStream() = default;
 
-            // ── Mapping NkStream mode -> NkFileMode ──────────────────────────
-            // NK_READ_MODE   (0x01) -> NK_READ
-            // NK_WRITE_MODE  (0x02) -> NK_WRITE  (+ NK_TRUNCATE par defaut sauf append)
-            // NK_APPEND_MODE        -> NK_APPEND
-            // On force NK_BINARY pour usage stream (pas de conversion newline).
-            // ─────────────────────────────────────────────────────────────────
-            bool Open(const char* path, uint32 mode) override {
-                mOpenMode = mode;
+			~NkFileStream() override {
+				Close();
+			}
 
-                NkFileMode fmode = NkFileMode::NK_BINARY;
-                const bool wantRead   = (mode & NK_READ_MODE)   != 0;
-                const bool wantWrite  = (mode & NK_WRITE_MODE)  != 0;
-                const bool wantAppend = (mode & NK_APPEND_MODE) != 0;
+			// ── Mapping NkStream mode -> NkFileMode ──────────────────────────
+			// NK_READ_MODE   (0x01) -> NK_READ
+			// NK_WRITE_MODE  (0x02) -> NK_WRITE  (+ NK_TRUNCATE par defaut sauf append)
+			// NK_APPEND_MODE        -> NK_APPEND
+			// On force NK_BINARY pour usage stream (pas de conversion newline).
+			// ─────────────────────────────────────────────────────────────────
+			bool Open(const char *path, uint32 mode) override {
+				mOpenMode = mode;
 
-                if (wantRead && wantWrite) {
-                    fmode = wantAppend
-                        ? (NkFileMode::NK_READ | NkFileMode::NK_APPEND | NkFileMode::NK_BINARY)
-                        : NkFileMode::NK_READ_WRITE_BINARY;
-                } else if (wantRead) {
-                    fmode = NkFileMode::NK_READ_BINARY;
-                } else if (wantWrite) {
-                    fmode = wantAppend ? NkFileMode::NK_APPEND_BINARY
-                                       : NkFileMode::NK_WRITE_BINARY;
-                }
+				NkFileMode fmode = NkFileMode::NK_BINARY;
+				const bool wantRead = (mode & NK_READ_MODE) != 0;
+				const bool wantWrite = (mode & NK_WRITE_MODE) != 0;
+				const bool wantAppend = (mode & NK_APPEND_MODE) != 0;
 
-                return mFile.Open(path, fmode);
-            }
+				if (wantRead && wantWrite) {
+					fmode = wantAppend ? (NkFileMode::NK_READ | NkFileMode::NK_APPEND | NkFileMode::NK_BINARY)
+									   : NkFileMode::NK_READ_WRITE_BINARY;
+				} else if (wantRead) {
+					fmode = NkFileMode::NK_READ_BINARY;
+				} else if (wantWrite) {
+					fmode = wantAppend ? NkFileMode::NK_APPEND_BINARY : NkFileMode::NK_WRITE_BINARY;
+				}
 
-            void Close() override {
-                if (mFile.IsOpen()) mFile.Close();
-            }
+				return mFile.Open(path, fmode);
+			}
 
-            bool IsOpen() const override {
-                return mFile.IsOpen();
-            }
+			void Close() override {
+				if (mFile.IsOpen())
+					mFile.Close();
+			}
 
-            // ── Lecture / ecriture raw octet ─────────────────────────────────
-            usize ReadRaw(void* buffer, usize byteCount) override {
-                return mFile.Read(buffer, byteCount);
-            }
+			bool IsOpen() const override {
+				return mFile.IsOpen();
+			}
 
-            usize WriteRaw(const void* data, usize byteCount) override {
-                return mFile.Write(data, byteCount);
-            }
+			// ── Lecture / ecriture raw octet ─────────────────────────────────
+			usize ReadRaw(void *buffer, usize byteCount) override {
+				return mFile.Read(buffer, byteCount);
+			}
 
-            // ── Positionnement ───────────────────────────────────────────────
-            bool Seek(usize position) override {
-                return mFile.Seek(static_cast<nk_int64>(position), NkSeekOrigin::NK_BEGIN);
-            }
+			usize WriteRaw(const void *data, usize byteCount) override {
+				return mFile.Write(data, byteCount);
+			}
 
-            usize Tell() const override {
-                return static_cast<usize>(mFile.Tell());
-            }
+			// ── Positionnement ───────────────────────────────────────────────
+			bool Seek(usize position) override {
+				return mFile.Seek(static_cast<nk_int64>(position), NkSeekOrigin::NK_BEGIN);
+			}
 
-            usize Size() const override {
-                return static_cast<usize>(mFile.GetSize());
-            }
+			usize Tell() const override {
+				return static_cast<usize>(mFile.Tell());
+			}
 
-            bool IsEOF() const override {
-                return mFile.IsOpen() ? Tell() >= Size() : true;
-            }
+			usize Size() const override {
+				return static_cast<usize>(mFile.GetSize());
+			}
 
-            // ── Flush (sur ecriture seulement) ───────────────────────────────
-            void Flush() {
-                // NkFile gere son propre flush en interne ; l'appel ici est un
-                // no-op silencieux. Si necessaire, on pourra ajouter une methode
-                // Flush() explicite a NkFile.
-            }
+			bool IsEOF() const override {
+				return mFile.IsOpen() ? Tell() >= Size() : true;
+			}
 
-            // ── Encodage : reste a la charge de NkFileStream ─────────────────
-            // NkFile ne gere pas l'encodage ; on garde la gestion BOM ici pour
-            // ne pas casser l'API existante.
-            bool SetEncoding(Encoding encoding) override {
-            #if defined(NKENTSEU_PLATFORM_WINDOWS)
-                constexpr uint16 UTF16_BOM = 0xFEFF;
-                constexpr uint8 UTF8_BOM[] = {0xEF, 0xBB, 0xBF};
+			// ── Flush (sur ecriture seulement) ───────────────────────────────
+			void Flush() {
+				// NkFile gere son propre flush en interne ; l'appel ici est un
+				// no-op silencieux. Si necessaire, on pourra ajouter une methode
+				// Flush() explicite a NkFile.
+			}
 
-                switch (encoding) {
-                    case Encoding::NK_UTF16_LE:
-                        if (IsWriteMode()) WriteRaw(&UTF16_BOM, sizeof(UTF16_BOM));
-                        mEncoding = encoding;
-                        return true;
-                    case Encoding::NK_UTF8:
-                        if (IsWriteMode()) WriteRaw(UTF8_BOM, sizeof(UTF8_BOM));
-                        mEncoding = encoding;
-                        return true;
-                    default:
-                        mEncoding = Encoding::NK_SYSTEM_DEFAULT;
-                        return false;
-                }
-            #else
-                mEncoding = (encoding == Encoding::NK_SYSTEM_DEFAULT)
-                            ? Encoding::NK_UTF8 : encoding;
-                return true;
-            #endif
-            }
+			// ── Encodage : reste a la charge de NkFileStream ─────────────────
+			// NkFile ne gere pas l'encodage ; on garde la gestion BOM ici pour
+			// ne pas casser l'API existante.
+			bool SetEncoding(Encoding encoding) override {
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+				constexpr uint16 UTF16_BOM = 0xFEFF;
+				constexpr uint8 UTF8_BOM[] = {0xEF, 0xBB, 0xBF};
 
-            Encoding GetEncoding() const override {
-                return mEncoding;
-            }
+				switch (encoding) {
+					case Encoding::NK_UTF16_LE:
+						if (IsWriteMode())
+							WriteRaw(&UTF16_BOM, sizeof(UTF16_BOM));
+						mEncoding = encoding;
+						return true;
+					case Encoding::NK_UTF8:
+						if (IsWriteMode())
+							WriteRaw(UTF8_BOM, sizeof(UTF8_BOM));
+						mEncoding = encoding;
+						return true;
+					default:
+						mEncoding = Encoding::NK_SYSTEM_DEFAULT;
+						return false;
+				}
+#else
+				mEncoding = (encoding == Encoding::NK_SYSTEM_DEFAULT) ? Encoding::NK_UTF8 : encoding;
+				return true;
+#endif
+			}
 
-            // ── Accesseur direct au NkFile sous-jacent (interop optionnelle) ─
-            NkFile& GetFile()             noexcept { return mFile; }
-            const NkFile& GetFile() const noexcept { return mFile; }
+			Encoding GetEncoding() const override {
+				return mEncoding;
+			}
 
-        private:
-            bool IsWriteMode() const {
-                return (mOpenMode & (NK_WRITE_MODE | NK_APPEND_MODE)) != 0;
-            }
+			// ── Accesseur direct au NkFile sous-jacent (interop optionnelle) ─
+			NkFile &GetFile() noexcept {
+				return mFile;
+			}
 
-            NkFile   mFile;                                       ///< Backing file (gere AAsset Android)
-            Encoding mEncoding  = Encoding::NK_SYSTEM_DEFAULT;
-            uint32   mOpenMode  = 0;
-    };
+			const NkFile &GetFile() const noexcept {
+				return mFile;
+			}
+
+		private:
+			bool IsWriteMode() const {
+				return (mOpenMode & (NK_WRITE_MODE | NK_APPEND_MODE)) != 0;
+			}
+
+			NkFile mFile; ///< Backing file (gere AAsset Android)
+			Encoding mEncoding = Encoding::NK_SYSTEM_DEFAULT;
+			uint32 mOpenMode = 0;
+	};
 
 } // namespace nkentseu

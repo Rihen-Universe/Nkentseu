@@ -23,36 +23,36 @@
 
 namespace nkentseu {
 
-    class NkWindow;
-    class NkXCBDropTarget;
+	class NkWindow;
+	class NkXCBDropTarget;
 
-    struct NkWindowData {
-        xcb_connection_t* mConnection   = nullptr;
-        xcb_screen_t*     mScreen       = nullptr;
-        xcb_window_t      mWindow       = 0;
-        xcb_window_t      mParentWindow = 0;
-        NkSurfaceHints    mAppliedHints{};
-        xcb_colormap_t    mColormap     = 0;
-        xcb_cursor_t      mHiddenCursor = 0;
-        bool              mExternal     = false;
-        NkXCBDropTarget*  mDropTarget   = nullptr;
+	struct NkWindowData {
+			xcb_connection_t *mConnection = nullptr;
+			xcb_screen_t *mScreen = nullptr;
+			xcb_window_t mWindow = 0;
+			xcb_window_t mParentWindow = 0;
+			NkSurfaceHints mAppliedHints{};
+			xcb_colormap_t mColormap = 0;
+			xcb_cursor_t mHiddenCursor = 0;
+			bool mExternal = false;
+			NkXCBDropTarget *mDropTarget = nullptr;
 
-        // Pour le suivi des événements
-        bool              mIsMapped      = false;
-        bool              mMouseInWindow = false;
-        bool              mRawMouseMotion = false;
-        // etc.
-    };
+			// Pour le suivi des événements
+			bool mIsMapped = false;
+			bool mMouseInWindow = false;
+			bool mRawMouseMotion = false;
+			// etc.
+	};
 
-    // Registre backend XCB — accès via fonctions, la map est static dans le .cpp
-    NkWindow* NkXCBFindWindow(xcb_window_t xid);
-    void      NkXCBRegisterWindow(xcb_window_t xid, NkWindow* win);
-    void      NkXCBUnregisterWindow(xcb_window_t xid);
-    NkWindow* NkXCBGetAnyWindow();   // une fenetre quelconque (events globaux : display, etc.)
-    xcb_connection_t* NkXCBGetConnection();
-    xcb_screen_t*     NkXCBGetScreen();
-    xcb_atom_t        NkXCBGetWmDeleteWindowAtom();
-    xcb_atom_t        NkXCBGetWmProtocolsAtom();
+	// Registre backend XCB — accès via fonctions, la map est static dans le .cpp
+	NkWindow *NkXCBFindWindow(xcb_window_t xid);
+	void NkXCBRegisterWindow(xcb_window_t xid, NkWindow *win);
+	void NkXCBUnregisterWindow(xcb_window_t xid);
+	NkWindow *NkXCBGetAnyWindow(); // une fenetre quelconque (events globaux : display, etc.)
+	xcb_connection_t *NkXCBGetConnection();
+	xcb_screen_t *NkXCBGetScreen();
+	xcb_atom_t NkXCBGetWmDeleteWindowAtom();
+	xcb_atom_t NkXCBGetWmProtocolsAtom();
 
 } // namespace nkentseu
 

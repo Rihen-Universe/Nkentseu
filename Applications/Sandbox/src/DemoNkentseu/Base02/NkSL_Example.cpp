@@ -14,11 +14,11 @@
 
 namespace nkentseu {
 
-// =============================================================================
-// Shader Phong + shadow mapping en NkSL
-// Un seul source couvre tous les backends.
-// =============================================================================
-static constexpr const char* kPhongShader = R"NKSL(
+	// =============================================================================
+	// Shader Phong + shadow mapping en NkSL
+	// Un seul source couvre tous les backends.
+	// =============================================================================
+	static constexpr const char *kPhongShader = R"NKSL(
 // ============================================================================
 // Phong shader avec shadow mapping — source NkSL unique
 // Compilé vers GLSL / SPIR-V / HLSL / MSL / C++ selon la cible
@@ -116,10 +116,10 @@ void fragMain() {
 }
 )NKSL";
 
-// =============================================================================
-// Shader shadow pass (depth-only)
-// =============================================================================
-static constexpr const char* kShadowShader = R"NKSL(
+	// =============================================================================
+	// Shader shadow pass (depth-only)
+	// =============================================================================
+	static constexpr const char *kShadowShader = R"NKSL(
 @binding(set=0, binding=0)
 uniform ShadowUBO {
     mat4 model;
@@ -145,10 +145,10 @@ void fragMain() {
 }
 )NKSL";
 
-// =============================================================================
-// Shader compute example (tonemapping)
-// =============================================================================
-static constexpr const char* kTonemapCompute = R"NKSL(
+	// =============================================================================
+	// Shader compute example (tonemapping)
+	// =============================================================================
+	static constexpr const char *kTonemapCompute = R"NKSL(
 @binding(set=0, binding=0)
 uniform TonemapParams {
     float exposure;
@@ -187,82 +187,64 @@ void computeMain() {
 }
 )NKSL";
 
-// =============================================================================
-// Démonstration de l'utilisation dans NkRHIDemo
-// =============================================================================
-static NkShaderHandle CreatePhongShader(NkIDevice* device) {
-    // Une seule ligne remplace tous les switch(api) { case VULKAN: ... case OPENGL: ... }
-    return NkSL::CreateShaderFromSource(
-        device,
-        kPhongShader,
-        { NkSLStage::VERTEX, NkSLStage::FRAGMENT },
-        "PhongShadow"
-    );
-}
+	// =============================================================================
+	// Démonstration de l'utilisation dans NkRHIDemo
+	// =============================================================================
+	static NkShaderHandle CreatePhongShader(NkIDevice *device) {
+		// Une seule ligne remplace tous les switch(api) { case VULKAN: ... case OPENGL: ... }
+		return NkSL::CreateShaderFromSource(device, kPhongShader, {NkSLStage::VERTEX, NkSLStage::FRAGMENT},
+											"PhongShadow");
+	}
 
-static NkShaderHandle CreateShadowShader(NkIDevice* device) {
-    return NkSL::CreateShaderFromSource(
-        device,
-        kShadowShader,
-        { NkSLStage::VERTEX, NkSLStage::FRAGMENT },
-        "ShadowDepth"
-    );
-}
+	static NkShaderHandle CreateShadowShader(NkIDevice *device) {
+		return NkSL::CreateShaderFromSource(device, kShadowShader, {NkSLStage::VERTEX, NkSLStage::FRAGMENT},
+											"ShadowDepth");
+	}
 
-static NkShaderHandle CreateTonemapShader(NkIDevice* device) {
-    return NkSL::CreateShaderFromSource(
-        device,
-        kTonemapCompute,
-        { NkSLStage::COMPUTE },
-        "Tonemap"
-    );
-}
+	static NkShaderHandle CreateTonemapShader(NkIDevice *device) {
+		return NkSL::CreateShaderFromSource(device, kTonemapCompute, {NkSLStage::COMPUTE}, "Tonemap");
+	}
 
-// =============================================================================
-// Démonstration de BuildShaderDesc pour multi-API offline
-// =============================================================================
-static void DemoOfflineCompile() {
-    NkSL::InitCompiler("./shader_cache");
+	// =============================================================================
+	// Démonstration de BuildShaderDesc pour multi-API offline
+	// =============================================================================
+	static void DemoOfflineCompile() {
+		NkSL::InitCompiler("./shader_cache");
 
-    // Compiler le même shader vers toutes les APIs en une passe
-    NkVector<NkSLTarget> targets = {
-        NkSLTarget::GLSL,
-        NkSLTarget::SPIRV,
-        NkSLTarget::HLSL,
-        NkSLTarget::MSL,
-    };
+		// Compiler le même shader vers toutes les APIs en une passe
+		NkVector<NkSLTarget> targets = {
+			NkSLTarget::GLSL,
+			NkSLTarget::SPIRV,
+			NkSLTarget::HLSL,
+			NkSLTarget::MSL,
+		};
 
-    NkSLCompiler& compiler = NkSL::GetCompiler();
+		NkSLCompiler &compiler = NkSL::GetCompiler();
 
-    for (auto target : targets) {
-        for (auto stage : {NkSLStage::VERTEX, NkSLStage::FRAGMENT}) {
-            NkSLCompileResult res = compiler.Compile(
-                kPhongShader, stage, target, {}, "PhongShadow");
+		for (auto target : targets) {
+			for (auto stage : {NkSLStage::VERTEX, NkSLStage::FRAGMENT}) {
+				NkSLCompileResult res = compiler.Compile(kPhongShader, stage, target, {}, "PhongShadow");
 
-            if (res.success) {
-                printf("[NkSL] %s %s: OK (%zu bytes)\n",
-                       NkSLTargetName(target),
-                       NkSLStageName(stage),
-                       (size_t)res.bytecode.Size());
-            } else {
-                printf("[NkSL] %s %s: FAILED\n",
-                       NkSLTargetName(target),
-                       NkSLStageName(stage));
-                for (auto& e : res.errors)
-                    printf("  line %u: %s\n", e.line, e.message.CStr());
-            }
-        }
-    }
+				if (res.success) {
+					printf("[NkSL] %s %s: OK (%zu bytes)\n", NkSLTargetName(target), NkSLStageName(stage),
+						   (size_t)res.bytecode.Size());
+				} else {
+					printf("[NkSL] %s %s: FAILED\n", NkSLTargetName(target), NkSLStageName(stage));
+					for (auto &e : res.errors)
+						printf("  line %u: %s\n", e.line, e.message.CStr());
+				}
+			}
+		}
 
-    // Persister le cache sur disque
-    compiler.GetCache().Flush();
-}
+		// Persister le cache sur disque
+		compiler.GetCache().Flush();
+	}
 
-// =============================================================================
-// Démonstration de la validation
-// =============================================================================
-static void DemoValidation() {
-    static constexpr const char* kBrokenShader = R"NKSL(
+	// =============================================================================
+	// Démonstration de la validation
+	// =============================================================================
+	static void DemoValidation() {
+		static constexpr const char *kBrokenShader = R"NKSL(
         @stage(vertex)
         void main() {
             vec4 pos = vec4(1.0, 2.0, 3.0   // manque la parenthèse fermante
@@ -270,49 +252,45 @@ static void DemoValidation() {
         }
     )NKSL";
 
-    auto errors = NkSL::Validate(kBrokenShader, "broken.nksl");
-    printf("[NkSL] Validation: %u error(s)\n", (unsigned)errors.Size());
-    for (auto& e : errors)
-        printf("  line %u: %s\n", e.line, e.message.CStr());
-}
+		auto errors = NkSL::Validate(kBrokenShader, "broken.nksl");
+		printf("[NkSL] Validation: %u error(s)\n", (unsigned)errors.Size());
+		for (auto &e : errors)
+			printf("  line %u: %s\n", e.line, e.message.CStr());
+	}
 
-// =============================================================================
-// Démonstration du hot-reload
-// =============================================================================
-static void DemoHotReload(NkIDevice* device) {
-    NkSL::InitCompiler("./shader_cache");
+	// =============================================================================
+	// Démonstration du hot-reload
+	// =============================================================================
+	static void DemoHotReload(NkIDevice *device) {
+		NkSL::InitCompiler("./shader_cache");
 
-    NkSLShaderLibrary lib(&NkSL::GetCompiler(), "./shaders");
+		NkSLShaderLibrary lib(&NkSL::GetCompiler(), "./shaders");
 
-    // Enregistrer des shaders
-    lib.Register("phong",   "phong.nksl",
-                 { NkSLStage::VERTEX, NkSLStage::FRAGMENT });
-    lib.Register("tonemap", "tonemap.nksl",
-                 { NkSLStage::COMPUTE });
+		// Enregistrer des shaders
+		lib.Register("phong", "phong.nksl", {NkSLStage::VERTEX, NkSLStage::FRAGMENT});
+		lib.Register("tonemap", "tonemap.nksl", {NkSLStage::COMPUTE});
 
-    NkSLTarget target = NkSL::ApiToTarget(device->GetApi());
-    lib.CompileAll(target);
+		NkSLTarget target = NkSL::ApiToTarget(device->GetApi());
+		lib.CompileAll(target);
 
-    // Dans la boucle principale (appeler périodiquement) :
-    // uint32 reloaded = lib.HotReload(target);
-    // if (reloaded > 0) { /* re-créer les pipelines impactés */ }
+		// Dans la boucle principale (appeler périodiquement) :
+		// uint32 reloaded = lib.HotReload(target);
+		// if (reloaded > 0) { /* re-créer les pipelines impactés */ }
 
-    // Obtenir un NkShaderDesc
-    NkShaderDesc desc;
-    lib.FillShaderDesc("phong", target, desc);
-    NkShaderHandle h = device->CreateShader(desc);
-    (void)h;
-}
+		// Obtenir un NkShaderDesc
+		NkShaderDesc desc;
+		lib.FillShaderDesc("phong", target, desc);
+		NkShaderHandle h = device->CreateShader(desc);
+		(void)h;
+	}
 
-// =============================================================================
-// Inspection du code généré (debug)
-// =============================================================================
-static void DemoInspectGenerated(NkGraphicsApi api) {
-    printf("\n=== Generated %s (vertex) ===\n",
-           NkSLTargetName(NkSL::ApiToTarget(api)));
-    NkString generated = NkSL::GetGeneratedSource(
-        api, kPhongShader, NkSLStage::VERTEX);
-    printf("%s\n", generated.CStr());
-}
+	// =============================================================================
+	// Inspection du code généré (debug)
+	// =============================================================================
+	static void DemoInspectGenerated(NkGraphicsApi api) {
+		printf("\n=== Generated %s (vertex) ===\n", NkSLTargetName(NkSL::ApiToTarget(api)));
+		NkString generated = NkSL::GetGeneratedSource(api, kPhongShader, NkSLStage::VERTEX);
+		printf("%s\n", generated.CStr());
+	}
 
 } // namespace nkentseu

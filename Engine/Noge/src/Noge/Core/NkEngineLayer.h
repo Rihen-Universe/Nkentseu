@@ -34,87 +34,94 @@
 
 namespace nkentseu {
 
-    class NkEngineLayer : public Layer {
-    public:
-        NkEngineLayer() noexcept
-            : Layer("NkEngineLayer")
-            , mSceneMgr(mWorld) {}
+	class NkEngineLayer : public Layer {
+		public:
+			NkEngineLayer() noexcept : Layer("NkEngineLayer"), mSceneMgr(mWorld) {
+			}
 
-        ~NkEngineLayer() override = default;
+			~NkEngineLayer() override = default;
 
-        // ── Layer lifecycle ───────────────────────────────────────────────────
-        void OnAttach() override {
-            sInstance = this;
+			// ── Layer lifecycle ───────────────────────────────────────────────────
+			void OnAttach() override {
+				sInstance = this;
 
-            // Systèmes de base
-            mScheduler.AddSystem(new ecs::NkTransformSystem());
+				// Systèmes de base
+				mScheduler.AddSystem(new ecs::NkTransformSystem());
 
-            // Lifecycle de scène — délègue à la scène courante du manager
-            // Les systèmes lifecycle sont ajoutés après le premier LoadScene()
-            // via RegisterSceneLifecycle().
+				// Lifecycle de scène — délègue à la scène courante du manager
+				// Les systèmes lifecycle sont ajoutés après le premier LoadScene()
+				// via RegisterSceneLifecycle().
 
-            mScheduler.Init(mWorld);
-            logger.Infof("[NkEngineLayer] Initialisé\n");
-        }
+				mScheduler.Init(mWorld);
+				logger.Infof("[NkEngineLayer] Initialisé\n");
+			}
 
-        void OnDetach() override {
-            sInstance = nullptr;
-        }
+			void OnDetach() override {
+				sInstance = nullptr;
+			}
 
-        void OnUpdate(float dt) override {
-            mScheduler.Run(mWorld, dt);
-            mSceneMgr.Update(dt);
-        }
+			void OnUpdate(float dt) override {
+				mScheduler.Run(mWorld, dt);
+				mSceneMgr.Update(dt);
+			}
 
-        void OnFixedUpdate(float fixedDt) override {
-            (void)fixedDt;
-            // NkPhysicsSystem + fixed scheduler ici (Phase 3)
-        }
+			void OnFixedUpdate(float fixedDt) override {
+				(void)fixedDt;
+				// NkPhysicsSystem + fixed scheduler ici (Phase 3)
+			}
 
-        bool OnEvent(NkEvent* event) override {
-            (void)event;
-            return false;
-        }
+			bool OnEvent(NkEvent *event) override {
+				(void)event;
+				return false;
+			}
 
-        // ── Accès ─────────────────────────────────────────────────────────────
-        [[nodiscard]] ecs::NkWorld&        GetWorld()         noexcept { return mWorld; }
-        [[nodiscard]] ecs::NkSceneManager& GetSceneManager()  noexcept { return mSceneMgr; }
-        [[nodiscard]] ecs::NkScheduler&    GetScheduler()     noexcept { return mScheduler; }
+			// ── Accès ─────────────────────────────────────────────────────────────
+			[[nodiscard]] ecs::NkWorld &GetWorld() noexcept {
+				return mWorld;
+			}
 
-        static NkEngineLayer& Get() {
-            NKENTSEU_ASSERT_MSG(sInstance, "NkEngineLayer non initialisé");
-            return *sInstance;
-        }
+			[[nodiscard]] ecs::NkSceneManager &GetSceneManager() noexcept {
+				return mSceneMgr;
+			}
 
-        static bool IsReady() noexcept { return sInstance != nullptr; }
+			[[nodiscard]] ecs::NkScheduler &GetScheduler() noexcept {
+				return mScheduler;
+			}
 
-        // ── Raccourcis pratiques ──────────────────────────────────────────────
+			static NkEngineLayer &Get() {
+				NKENTSEU_ASSERT_MSG(sInstance, "NkEngineLayer non initialisé");
+				return *sInstance;
+			}
 
-        // Charge une scène + enregistre son lifecycle dans le scheduler
-        bool LoadScene(const NkString& name,
-                       const ecs::NkSceneTransition& t =
-                           ecs::NkSceneTransition::Instant()) noexcept {
-            bool ok = mSceneMgr.LoadScene(name, t);
-            if (ok && mSceneMgr.GetCurrent()) {
-                ecs::RegisterSceneLifecycle(mScheduler, mSceneMgr.GetCurrent());
-            }
-            return ok;
-        }
+			static bool IsReady() noexcept {
+				return sInstance != nullptr;
+			}
 
-        // Enregistre une factory de scène
-        void RegisterScene(const NkString& name,
-                           ecs::NkSceneFactory factory) noexcept {
-            mSceneMgr.Register(name, static_cast<ecs::NkSceneFactory&&>(factory));
-        }
+			// ── Raccourcis pratiques ──────────────────────────────────────────────
 
-    private:
-        ecs::NkWorld        mWorld;
-        ecs::NkSceneManager mSceneMgr;
-        ecs::NkScheduler    mScheduler;
+			// Charge une scène + enregistre son lifecycle dans le scheduler
+			bool LoadScene(const NkString &name,
+						   const ecs::NkSceneTransition &t = ecs::NkSceneTransition::Instant()) noexcept {
+				bool ok = mSceneMgr.LoadScene(name, t);
+				if (ok && mSceneMgr.GetCurrent()) {
+					ecs::RegisterSceneLifecycle(mScheduler, mSceneMgr.GetCurrent());
+				}
+				return ok;
+			}
 
-        static NkEngineLayer* sInstance;
-    };
+			// Enregistre une factory de scène
+			void RegisterScene(const NkString &name, ecs::NkSceneFactory factory) noexcept {
+				mSceneMgr.Register(name, static_cast<ecs::NkSceneFactory &&>(factory));
+			}
 
-    inline NkEngineLayer* NkEngineLayer::sInstance = nullptr;
+		private:
+			ecs::NkWorld mWorld;
+			ecs::NkSceneManager mSceneMgr;
+			ecs::NkScheduler mScheduler;
+
+			static NkEngineLayer *sInstance;
+	};
+
+	inline NkEngineLayer *NkEngineLayer::sInstance = nullptr;
 
 } // namespace nkentseu

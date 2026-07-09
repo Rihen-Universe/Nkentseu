@@ -7,36 +7,41 @@
 #include "Songoo/UI/Scene.h"
 #include "Songoo/Render/Texture2D.h"
 
-namespace nkentseu { namespace songoo {
+namespace nkentseu {
+	namespace songoo {
 
-    class StoryScene : public Scene {
-    public:
-        static constexpr int kFrameCount = 6;
+		class StoryScene : public Scene {
+			public:
+				static constexpr int kFrameCount = 6;
 
-        const char* Name() const noexcept override { return "Story"; }
-        void OnEnter (AppContext& ctx) override;
-        void OnUpdate(AppContext& ctx, float dt) override;
-        void OnRender(AppContext& ctx) override;
-        void OnExit  (AppContext& ctx) override;
-        void OnEvent (AppContext& ctx, NkEvent& ev) override;
+				const char *Name() const noexcept override {
+					return "Story";
+				}
 
-    private:
-        struct StoryFrame {
-            const char* path;
-            float displayTime;
-            float fadeIn;
-            float fadeOut;
-            const char* subtitle;
-        };
+				void OnEnter(AppContext &ctx) override;
+				void OnUpdate(AppContext &ctx, float dt) override;
+				void OnRender(AppContext &ctx) override;
+				void OnExit(AppContext &ctx) override;
+				void OnEvent(AppContext &ctx, NkEvent &ev) override;
 
-        static const StoryFrame kFrames[kFrameCount];
+			private:
+				struct StoryFrame {
+						const char *path;
+						float displayTime;
+						float fadeIn;
+						float fadeOut;
+						const char *subtitle;
+				};
 
-        Texture2D mTextures[kFrameCount];
-        int   mCurrentFrame = 0;
-        float mFrameTimer   = 0.f;
-        bool  mDone         = false;
+				static const StoryFrame kFrames[kFrameCount];
 
-        float ComputeAlpha(int frameIdx, float elapsed) const;
-    };
+				Texture2D mTextures[kFrameCount];
+				int mCurrentFrame = 0;
+				float mFrameTimer = 0.f;
+				bool mDone = false;
 
-}} // namespace nkentseu::songoo
+				float ComputeAlpha(int frameIdx, float elapsed) const;
+		};
+
+	} // namespace songoo
+} // namespace nkentseu

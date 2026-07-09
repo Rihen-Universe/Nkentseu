@@ -22,94 +22,87 @@
 #ifndef NKENTSEU_NKROTATINGFILESINK_H
 #define NKENTSEU_NKROTATINGFILESINK_H
 
+// -------------------------------------------------------------------------
+// SECTION 1 : EN-TÊTES ET DÉPENDANCES
+// -------------------------------------------------------------------------
+// Inclusions standards pour la gestion de fichiers et la synchronisation.
+// Dépendances projet pour le sink fichier de base et les utilitaires.
 
-	// -------------------------------------------------------------------------
-	// SECTION 1 : EN-TÊTES ET DÉPENDANCES
-	// -------------------------------------------------------------------------
-	// Inclusions standards pour la gestion de fichiers et la synchronisation.
-	// Dépendances projet pour le sink fichier de base et les utilitaires.
+#include "NKCore/NkTypes.h"
+#include "NKContainers/String/NkString.h"
+#include "NKLogger/Sinks/NkFileSink.h"
+#include "NKLogger/NkLogMessage.h"
+#include "NKLogger/NkLoggerApi.h"
 
-	#include "NKCore/NkTypes.h"
-	#include "NKContainers/String/NkString.h"
-	#include "NKLogger/Sinks/NkFileSink.h"
-	#include "NKLogger/NkLogMessage.h"
-	#include "NKLogger/NkLoggerApi.h"
+// -------------------------------------------------------------------------
+// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
+// -------------------------------------------------------------------------
+// Tous les symboles du module logger sont dans le namespace nkentseu.
+// Pas de sous-namespace pour simplifier l'usage et l'intégration.
 
+namespace nkentseu {
 
-	// -------------------------------------------------------------------------
-	// SECTION 2 : DÉCLARATION DU NAMESPACE PRINCIPAL
-	// -------------------------------------------------------------------------
-	// Tous les symboles du module logger sont dans le namespace nkentseu.
-	// Pas de sous-namespace pour simplifier l'usage et l'intégration.
-
-	namespace nkentseu {
-
-
-		// ---------------------------------------------------------------------
-		// CLASSE : NkRotatingFileSink
-		// DESCRIPTION : Sink fichier avec rotation automatique par taille
-		// ---------------------------------------------------------------------
-		/**
-		 * @class NkRotatingFileSink
-		 * @brief Sink pour écriture persistante avec rotation automatique basée sur la taille
-		 * @ingroup LoggerSinks
-		 *
-		 * NkRotatingFileSink étend NkFileSink avec une stratégie de rotation :
-		 *  - Rotation déclenchée quand la taille du fichier atteint m_MaxSize
-		 *  - Fichiers renommés : app.log → app.log.0 → app.log.1 → ... → app.log.N
-		 *  - Conservation de m_MaxFiles fichiers historiques (le plus ancien est supprimé)
-		 *  - Rotation thread-safe via mutex hérité de NkFileSink
-		 *
-		 * Architecture :
-		 *  - Hérite de NkFileSink : réutilisation complète de l'infrastructure fichier
-		 *  - Override de CheckRotation() : point d'extension pour logique de rotation
-		 *  - Cache de taille m_CurrentSize : évite les appels stat() fréquents
-		 *
-		 * Thread-safety :
-		 *  - Toutes les méthodes publiques sont thread-safe via m_Mutex (hérité)
-		 *  - La rotation est atomic : Close() → rename() → Open() protégés par mutex
-		 *  - Safe pour usage depuis multiples threads simultanément
-		 *
-		 * Gestion des erreurs :
-		 *  - Échec rename() : ignoré silencieusement, rotation partielle possible
-		 *  - Échec Open() après rotation : fichier courant perdu, logging suspendu
-		 *  - Pour robustesse : vérifier IsOpen() après Rotate() si critique
-		 *
-		 * @note La rotation est déclenchée après chaque Log() si m_CurrentSize >= m_MaxSize
-		 * @note m_CurrentSize est mis à jour via GetFileSize() : peut être légèrement obsolète
-		 *
-		 * @example Usage basique
-		 * @code
-		 * // Rotation à 50 MB, conservation de 5 fichiers historiques
-		 * auto rotatingSink = nkentseu::memory::MakeShared<nkentseu::NkRotatingFileSink>(
-		 *     "logs/app.log",      // Chemin de base
-		 *     50 * 1024 * 1024,    // 50 MB max par fichier
-		 *     5                    // Conserver app.log.0 à app.log.4
-		 * );
-		 *
-		 * rotatingSink->SetLevel(nkentseu::NkLogLevel::NK_INFO);
-		 * rotatingSink->SetPattern("[%Y-%m-%d %H:%M:%S] [%L] %v");
-		 *
-		 * logger.AddSink(rotatingSink);
-		 * @endcode
-		 *
-		 * @example Rotation manuelle forcée
-		 * @code
-		 * // Forcer la rotation avant une opération de maintenance
-		 * if (auto* rotSink = dynamic_cast<nkentseu::NkRotatingFileSink*>(fileSink.get())) {
-		 *     rotSink->Rotate();  // Rotation immédiate indépendamment de la taille
-		 * }
-		 * @endcode
-		 */
-		class NKENTSEU_LOGGER_CLASS_EXPORT NkRotatingFileSink : public NkFileSink {
-
-
+	// ---------------------------------------------------------------------
+	// CLASSE : NkRotatingFileSink
+	// DESCRIPTION : Sink fichier avec rotation automatique par taille
+	// ---------------------------------------------------------------------
+	/**
+	 * @class NkRotatingFileSink
+	 * @brief Sink pour écriture persistante avec rotation automatique basée sur la taille
+	 * @ingroup LoggerSinks
+	 *
+	 * NkRotatingFileSink étend NkFileSink avec une stratégie de rotation :
+	 *  - Rotation déclenchée quand la taille du fichier atteint m_MaxSize
+	 *  - Fichiers renommés : app.log → app.log.0 → app.log.1 → ... → app.log.N
+	 *  - Conservation de m_MaxFiles fichiers historiques (le plus ancien est supprimé)
+	 *  - Rotation thread-safe via mutex hérité de NkFileSink
+	 *
+	 * Architecture :
+	 *  - Hérite de NkFileSink : réutilisation complète de l'infrastructure fichier
+	 *  - Override de CheckRotation() : point d'extension pour logique de rotation
+	 *  - Cache de taille m_CurrentSize : évite les appels stat() fréquents
+	 *
+	 * Thread-safety :
+	 *  - Toutes les méthodes publiques sont thread-safe via m_Mutex (hérité)
+	 *  - La rotation est atomic : Close() → rename() → Open() protégés par mutex
+	 *  - Safe pour usage depuis multiples threads simultanément
+	 *
+	 * Gestion des erreurs :
+	 *  - Échec rename() : ignoré silencieusement, rotation partielle possible
+	 *  - Échec Open() après rotation : fichier courant perdu, logging suspendu
+	 *  - Pour robustesse : vérifier IsOpen() après Rotate() si critique
+	 *
+	 * @note La rotation est déclenchée après chaque Log() si m_CurrentSize >= m_MaxSize
+	 * @note m_CurrentSize est mis à jour via GetFileSize() : peut être légèrement obsolète
+	 *
+	 * @example Usage basique
+	 * @code
+	 * // Rotation à 50 MB, conservation de 5 fichiers historiques
+	 * auto rotatingSink = nkentseu::memory::MakeShared<nkentseu::NkRotatingFileSink>(
+	 *     "logs/app.log",      // Chemin de base
+	 *     50 * 1024 * 1024,    // 50 MB max par fichier
+	 *     5                    // Conserver app.log.0 à app.log.4
+	 * );
+	 *
+	 * rotatingSink->SetLevel(nkentseu::NkLogLevel::NK_INFO);
+	 * rotatingSink->SetPattern("[%Y-%m-%d %H:%M:%S] [%L] %v");
+	 *
+	 * logger.AddSink(rotatingSink);
+	 * @endcode
+	 *
+	 * @example Rotation manuelle forcée
+	 * @code
+	 * // Forcer la rotation avant une opération de maintenance
+	 * if (auto* rotSink = dynamic_cast<nkentseu::NkRotatingFileSink*>(fileSink.get())) {
+	 *     rotSink->Rotate();  // Rotation immédiate indépendamment de la taille
+	 * }
+	 * @endcode
+	 */
+	class NKENTSEU_LOGGER_CLASS_EXPORT NkRotatingFileSink : public NkFileSink {
 			// -----------------------------------------------------------------
 			// SECTION 3 : MEMBRES PUBLICS
 			// -----------------------------------------------------------------
 		public:
-
-
 			// -----------------------------------------------------------------
 			// CONSTRUCTEURS ET DESTRUCTEUR
 			// -----------------------------------------------------------------
@@ -148,7 +141,7 @@
 			 * );
 			 * @endcode
 			 */
-			NkRotatingFileSink(const NkString& filename, usize maxSize, usize maxFiles);
+			NkRotatingFileSink(const NkString &filename, usize maxSize, usize maxFiles);
 
 			/**
 			 * @brief Destructeur : cleanup via NkFileSink
@@ -158,7 +151,6 @@
 			 * @note Aucune logique supplémentaire : rotation gérée uniquement dans Log()
 			 */
 			~NkRotatingFileSink() override;
-
 
 			// -----------------------------------------------------------------
 			// IMPLÉMENTATION DE L'INTERFACE NKISINK
@@ -192,8 +184,7 @@
 			 * rotatingSink.Log(msg);  // Écriture + vérification rotation automatique
 			 * @endcode
 			 */
-			void Log(const NkLogMessage& message) override;
-
+			void Log(const NkLogMessage &message) override;
 
 			// -----------------------------------------------------------------
 			// CONFIGURATION DE LA ROTATION
@@ -297,13 +288,10 @@
 			 */
 			bool Rotate();
 
-
 			// -----------------------------------------------------------------
 			// SECTION 4 : MEMBRES PRIVÉS (IMPLÉMENTATION INTERNE)
 			// -----------------------------------------------------------------
 		private:
-
-
 			// -----------------------------------------------------------------
 			// MÉTHODES PRIVÉES D'IMPLÉMENTATION
 			// -----------------------------------------------------------------
@@ -362,7 +350,6 @@
 			 */
 			NkString GetFilenameForIndex(usize index) const;
 
-
 			// -----------------------------------------------------------------
 			// VARIABLES MEMBRES PRIVÉES (ÉTAT DE ROTATION)
 			// -----------------------------------------------------------------
@@ -388,15 +375,11 @@
 			/// @note Peut être légèrement obsolète : utilisé pour décision de rotation uniquement
 			usize m_CurrentSize;
 
+	}; // class NkRotatingFileSink
 
-		}; // class NkRotatingFileSink
-
-
-	} // namespace nkentseu
-
+} // namespace nkentseu
 
 #endif // NKENTSEU_NKROTATINGFILESINK_H
-
 
 // =============================================================================
 // EXEMPLES D'UTILISATION DE NKROTATINGFILESINK.H
@@ -430,7 +413,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 2 : Rotation manuelle avant opération critique
 // -----------------------------------------------------------------------------
@@ -454,7 +436,6 @@
 		}
 	}
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 3 : Configuration dynamique via fichier de config
@@ -486,7 +467,6 @@
 	// logger.AddSink(rotatingSink);
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 4 : Monitoring de l'état de rotation
 // -----------------------------------------------------------------------------
@@ -509,16 +489,11 @@
 		usize estimatedMaxSpace = maxSize * maxFiles;
 
 		// Logging de statut
-		logger.Info("Rotating sink status: file={0}, size={1:.2}MB/{2:.2}MB ({3:.1}%), history={4} files, maxSpace={5:.2}GB",
-			filename,
-			currentSize / (1024.0 * 1024.0),
-			maxSize / (1024.0 * 1024.0),
-			usagePercent,
-			maxFiles,
+		logger.Info("Rotating sink status: file={0}, size={1:.2}MB/{2:.2}MB ({3:.1}%), history={4} files,
+   maxSpace={5:.2}GB", filename, currentSize / (1024.0 * 1024.0), maxSize / (1024.0 * 1024.0), usagePercent, maxFiles,
 			estimatedMaxSpace / (1024.0 * 1024.0 * 1024.0));
 	}
 */
-
 
 // -----------------------------------------------------------------------------
 // Exemple 5 : Testing de la rotation avec génération de logs
@@ -560,7 +535,6 @@
 	}
 */
 
-
 // -----------------------------------------------------------------------------
 // Exemple 6 : Rotation avec estimation de taille incrémentale (optimisation)
 // -----------------------------------------------------------------------------
@@ -596,7 +570,6 @@
 		}
 	};
 */
-
 
 // =============================================================================
 // NOTES DE MAINTENANCE ET BONNES PRATIQUES
@@ -644,7 +617,6 @@
 	   - Tester les cas limites : maxSize = 0, maxFiles = 0, chemin inexistant, permissions refusées
 	   - Valider le thread-safety avec tests concurrents (TSan, helgrind, etc.)
 */
-
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

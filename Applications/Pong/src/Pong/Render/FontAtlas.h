@@ -24,111 +24,93 @@
 #include "NKCore/NkTypes.h"
 #include "NKMath/NkColor.h"
 
-namespace nkentseu
-{
-    // Forward declarations
-    struct NkFontAtlas;
-    struct NkFont;
-    namespace renderer { class NkRenderer2D; class NkTexture; }
-}
+namespace nkentseu {
+	// Forward declarations
+	struct NkFontAtlas;
+	struct NkFont;
 
-namespace nkentseu
-{
-    namespace pong
-    {
+	namespace renderer {
+		class NkRenderer2D;
+		class NkTexture;
+	} // namespace renderer
+} // namespace nkentseu
 
-        class FontAtlas
-        {
-        public:
-            // ── Slots de tailles ─────────────────────────────────────────────
-            enum SizeSlot
-            {
-                SmallSlot     = 0,   // 14 px
-                BodySlot      = 1,   // 18 px
-                SubtitleSlot  = 2,   // 28 px
-                HeadlineSlot  = 3,   // 48 px
-                DisplaySlot   = 4,   // 72 px
-                SlotCount     = 5
-            };
+namespace nkentseu {
+	namespace pong {
 
-            FontAtlas()  = default;
-            ~FontAtlas();
+		class FontAtlas {
+			public:
+				// ── Slots de tailles ─────────────────────────────────────────────
+				enum SizeSlot {
+					SmallSlot = 0,	  // 14 px
+					BodySlot = 1,	  // 18 px
+					SubtitleSlot = 2, // 28 px
+					HeadlineSlot = 3, // 48 px
+					DisplaySlot = 4,  // 72 px
+					SlotCount = 5
+				};
 
-            // ── Lifecycle ────────────────────────────────────────────────────
-            /// Charge la meilleure police embarquee dispo, rasterise les
-            /// 5 tailles et upload l'atlas en NkTexture (NKCanvas). Retourne
-            /// false sur echec (NKFont indisponible ou renderer invalide).
-            /// @p renderer sert a creer la texture GPU de l'atlas.
-            bool Init(renderer::NkRenderer2D& renderer);
-            /// Libere la texture GPU et detruit l'atlas CPU.
-            void Shutdown();
+				FontAtlas() = default;
+				~FontAtlas();
 
-            // ── Mesures ──────────────────────────────────────────────────────
-            /// Largeur en pixels d'une chaine ASCII pour le slot @p s.
-            float MeasureWidth(SizeSlot s, const char* text) const;
-            /// Variante avec scale lineaire applique a la taille du glyphe.
-            float MeasureWidthScaled(SizeSlot s, float scale, const char* text) const;
-            /// Hauteur de ligne approximative (sizePx * 1.2).
-            float LineHeight(SizeSlot s) const;
+				// ── Lifecycle ────────────────────────────────────────────────────
+				/// Charge la meilleure police embarquee dispo, rasterise les
+				/// 5 tailles et upload l'atlas en NkTexture (NKCanvas). Retourne
+				/// false sur echec (NKFont indisponible ou renderer invalide).
+				/// @p renderer sert a creer la texture GPU de l'atlas.
+				bool Init(renderer::NkRenderer2D &renderer);
+				/// Libere la texture GPU et detruit l'atlas CPU.
+				void Shutdown();
 
-            // ── Trace ────────────────────────────────────────────────────────
-            /// Trace une chaine LTR. Coordonnees (x, y) = top-left.
-            /// Retourne la largeur tracee (en pixels).
-            float DrawString(renderer::NkRenderer2D& r, SizeSlot s,
-                           float x, float y,
-                           const char* text,
-                           math::NkColor color);
-            /// Idem, centre horizontalement autour de @p cx.
-            float DrawStringCentered(renderer::NkRenderer2D& r, SizeSlot s,
-                                   float cx, float y,
-                                   const char* text,
-                                   math::NkColor color);
+				// ── Mesures ──────────────────────────────────────────────────────
+				/// Largeur en pixels d'une chaine ASCII pour le slot @p s.
+				float MeasureWidth(SizeSlot s, const char *text) const;
+				/// Variante avec scale lineaire applique a la taille du glyphe.
+				float MeasureWidthScaled(SizeSlot s, float scale, const char *text) const;
+				/// Hauteur de ligne approximative (sizePx * 1.2).
+				float LineHeight(SizeSlot s) const;
 
-            // ── Variantes scalees (taille de glyphe multipliee par scale) ────
-            // Le slot reste rasterise a sa taille de base, mais les quads sont
-            // emis en taille (px_base * scale) — donne un upsampling bilineaire
-            // GL (texture filter LINEAR). Acceptable visuellement jusqu'a
-            // scale ~3x ; au dela il vaut mieux ajouter un slot plus grand.
-            float DrawStringScaled(renderer::NkRenderer2D& r, SizeSlot s, float scale,
-                                 float x, float y, const char* text,
-                                 math::NkColor color);
-            float DrawStringCenteredScaled(renderer::NkRenderer2D& r, SizeSlot s, float scale,
-                                         float cx, float y, const char* text,
-                                         math::NkColor color);
-            void DrawStringShadowScaled(renderer::NkRenderer2D& r, SizeSlot s, float scale,
-                                      float x, float y, const char* text,
-                                      math::NkColor textColor,
-                                      math::NkColor shadowColor,
-                                      int blurPixels = 2);
-            void DrawStringShadowCenteredScaled(renderer::NkRenderer2D& r, SizeSlot s, float scale,
-                                              float cx, float y, const char* text,
-                                              math::NkColor textColor,
-                                              math::NkColor shadowColor,
-                                              int blurPixels = 2);
+				// ── Trace ────────────────────────────────────────────────────────
+				/// Trace une chaine LTR. Coordonnees (x, y) = top-left.
+				/// Retourne la largeur tracee (en pixels).
+				float DrawString(renderer::NkRenderer2D &r, SizeSlot s, float x, float y, const char *text,
+								 math::NkColor color);
+				/// Idem, centre horizontalement autour de @p cx.
+				float DrawStringCentered(renderer::NkRenderer2D &r, SizeSlot s, float cx, float y, const char *text,
+										 math::NkColor color);
 
-            // ── Text-shadow CSS-like ─────────────────────────────────────────
-            /// Trace 8 directions avec alpha decroissant + le texte principal.
-            /// Simule l'effet `text-shadow` CSS (halo neon autour des lettres).
-            void DrawStringShadow(renderer::NkRenderer2D& r, SizeSlot s,
-                                float x, float y,
-                                const char* text,
-                                math::NkColor textColor,
-                                math::NkColor shadowColor,
-                                int blurPixels = 2);
-            void DrawStringShadowCentered(renderer::NkRenderer2D& r, SizeSlot s,
-                                        float cx, float y,
-                                        const char* text,
-                                        math::NkColor textColor,
-                                        math::NkColor shadowColor,
-                                        int blurPixels = 2);
+				// ── Variantes scalees (taille de glyphe multipliee par scale) ────
+				// Le slot reste rasterise a sa taille de base, mais les quads sont
+				// emis en taille (px_base * scale) — donne un upsampling bilineaire
+				// GL (texture filter LINEAR). Acceptable visuellement jusqu'a
+				// scale ~3x ; au dela il vaut mieux ajouter un slot plus grand.
+				float DrawStringScaled(renderer::NkRenderer2D &r, SizeSlot s, float scale, float x, float y,
+									   const char *text, math::NkColor color);
+				float DrawStringCenteredScaled(renderer::NkRenderer2D &r, SizeSlot s, float scale, float cx, float y,
+											   const char *text, math::NkColor color);
+				void DrawStringShadowScaled(renderer::NkRenderer2D &r, SizeSlot s, float scale, float x, float y,
+											const char *text, math::NkColor textColor, math::NkColor shadowColor,
+											int blurPixels = 2);
+				void DrawStringShadowCenteredScaled(renderer::NkRenderer2D &r, SizeSlot s, float scale, float cx,
+													float y, const char *text, math::NkColor textColor,
+													math::NkColor shadowColor, int blurPixels = 2);
 
-        private:
-            NkFontAtlas* mAtlas             = nullptr;  ///< Possede ; libere par Shutdown
-            NkFont*      mFonts[SlotCount]  = { nullptr, nullptr, nullptr, nullptr, nullptr };
-            renderer::NkTexture* mTexture   = nullptr;  ///< Texture GPU de l'atlas (NKCanvas)
-            int          mAtlasW            = 0;
-            int          mAtlasH            = 0;
-        };
+				// ── Text-shadow CSS-like ─────────────────────────────────────────
+				/// Trace 8 directions avec alpha decroissant + le texte principal.
+				/// Simule l'effet `text-shadow` CSS (halo neon autour des lettres).
+				void DrawStringShadow(renderer::NkRenderer2D &r, SizeSlot s, float x, float y, const char *text,
+									  math::NkColor textColor, math::NkColor shadowColor, int blurPixels = 2);
+				void DrawStringShadowCentered(renderer::NkRenderer2D &r, SizeSlot s, float cx, float y,
+											  const char *text, math::NkColor textColor, math::NkColor shadowColor,
+											  int blurPixels = 2);
 
-    } // namespace pong
+			private:
+				NkFontAtlas *mAtlas = nullptr; ///< Possede ; libere par Shutdown
+				NkFont *mFonts[SlotCount] = {nullptr, nullptr, nullptr, nullptr, nullptr};
+				renderer::NkTexture *mTexture = nullptr; ///< Texture GPU de l'atlas (NKCanvas)
+				int mAtlasW = 0;
+				int mAtlasH = 0;
+		};
+
+	} // namespace pong
 } // namespace nkentseu

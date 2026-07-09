@@ -20,213 +20,214 @@
  * @brief Namespace nkentseu.
  */
 namespace nkentseu {
-        
-    /**
-     * @brief Constructeur avec configuration
-     */
-    NkAsyncLogger::NkAsyncLogger(const NkString &name, usize queueSize, uint32 flushInterval)
-        : NkLogger(name), m_MaxQueueSize(queueSize), m_FlushInterval(flushInterval), m_Running(false), m_StopRequested(false) {
-    }
 
-    /**
-     * @brief Destructeur
-     */
-    NkAsyncLogger::~NkAsyncLogger() {
-        Stop();
-    }
+	/**
+	 * @brief Constructeur avec configuration
+	 */
+	NkAsyncLogger::NkAsyncLogger(const NkString &name, usize queueSize, uint32 flushInterval)
+		: NkLogger(name), m_MaxQueueSize(queueSize), m_FlushInterval(flushInterval), m_Running(false),
+		  m_StopRequested(false) {
+	}
 
-    /**
-     * @brief Force le flush des messages en attente
-     */
-    void NkAsyncLogger::Flush() {
-        FlushQueue();
-        NkLogger::Flush();
-    }
+	/**
+	 * @brief Destructeur
+	 */
+	NkAsyncLogger::~NkAsyncLogger() {
+		Stop();
+	}
 
-    /**
-     * @brief Démarre le thread de traitement
-     */
-    void NkAsyncLogger::Start() {
-        if (m_Running.Load())
-            return;
+	/**
+	 * @brief Force le flush des messages en attente
+	 */
+	void NkAsyncLogger::Flush() {
+		FlushQueue();
+		NkLogger::Flush();
+	}
 
-        m_Running.Store(true);
-        m_StopRequested.Store(false);
+	/**
+	 * @brief Démarre le thread de traitement
+	 */
+	void NkAsyncLogger::Start() {
+		if (m_Running.Load())
+			return;
 
-        // WorkerThreadEntry est une fonction libre/statique : void(*)(void*)
-        // NkFunction<void(void*)> accepte directement un pointeur de fonction
-        m_WorkerThread.Start(nkentseu::NkBindThreadFunc(&NkAsyncLogger::WorkerThreadEntry));
+		m_Running.Store(true);
+		m_StopRequested.Store(false);
 
-        // Start est void — on teste le succès via Joinable()
-        if (!m_WorkerThread.Joinable()) {
-            m_Running.Store(false);
-            m_StopRequested.Store(true);
-        }
-    }
+		// WorkerThreadEntry est une fonction libre/statique : void(*)(void*)
+		// NkFunction<void(void*)> accepte directement un pointeur de fonction
+		m_WorkerThread.Start(nkentseu::NkBindThreadFunc(&NkAsyncLogger::WorkerThreadEntry));
 
-    /**
-     * @brief Arrête le thread de traitement
-     */
-    void NkAsyncLogger::Stop() {
-        if (!m_Running.Load())
-            return;
+		// Start est void — on teste le succès via Joinable()
+		if (!m_WorkerThread.Joinable()) {
+			m_Running.Store(false);
+			m_StopRequested.Store(true);
+		}
+	}
 
-        m_StopRequested.Store(true);
-        m_Condition.NotifyOne();
+	/**
+	 * @brief Arrête le thread de traitement
+	 */
+	void NkAsyncLogger::Stop() {
+		if (!m_Running.Load())
+			return;
 
-        if (m_WorkerThread.Joinable()) {
-            m_WorkerThread.Join();
-        }
+		m_StopRequested.Store(true);
+		m_Condition.NotifyOne();
 
-        m_Running.Store(false);
-        FlushQueue();
-    }
+		if (m_WorkerThread.Joinable()) {
+			m_WorkerThread.Join();
+		}
 
-    /**
-     * @brief Vérifie si le logger est en cours d'exécution
-     */
-    bool NkAsyncLogger::IsRunning() const {
-        return m_Running.Load();
-    }
+		m_Running.Store(false);
+		FlushQueue();
+	}
 
-    /**
-     * @brief Obtient la taille actuelle de la file
-     */
-    usize NkAsyncLogger::GetQueueSize() const {
-        threading::NkScopedLockMutex lock(m_QueueMutex);
-        return m_MessageQueue.Size();
-    }
+	/**
+	 * @brief Vérifie si le logger est en cours d'exécution
+	 */
+	bool NkAsyncLogger::IsRunning() const {
+		return m_Running.Load();
+	}
 
-    /**
-     * @brief Définit la taille maximum de la file
-     */
-    void NkAsyncLogger::SetMaxQueueSize(usize size) {
-        threading::NkScopedLockMutex lock(m_QueueMutex);
-        m_MaxQueueSize = size;
-    }
+	/**
+	 * @brief Obtient la taille actuelle de la file
+	 */
+	usize NkAsyncLogger::GetQueueSize() const {
+		threading::NkScopedLockMutex lock(m_QueueMutex);
+		return m_MessageQueue.Size();
+	}
 
-    /**
-     * @brief Obtient la taille maximum de la file
-     */
-    usize NkAsyncLogger::GetMaxQueueSize() const {
-        threading::NkScopedLockMutex lock(m_QueueMutex);
-        return m_MaxQueueSize;
-    }
+	/**
+	 * @brief Définit la taille maximum de la file
+	 */
+	void NkAsyncLogger::SetMaxQueueSize(usize size) {
+		threading::NkScopedLockMutex lock(m_QueueMutex);
+		m_MaxQueueSize = size;
+	}
 
-    /**
-     * @brief Définit l'intervalle de flush
-     */
-    void NkAsyncLogger::SetFlushInterval(uint32 ms) {
-        threading::NkScopedLockMutex lock(m_QueueMutex);
-        m_FlushInterval = ms;
-    }
+	/**
+	 * @brief Obtient la taille maximum de la file
+	 */
+	usize NkAsyncLogger::GetMaxQueueSize() const {
+		threading::NkScopedLockMutex lock(m_QueueMutex);
+		return m_MaxQueueSize;
+	}
 
-    /**
-     * @brief Obtient l'intervalle de flush
-     */
-    uint32 NkAsyncLogger::GetFlushInterval() const {
-        threading::NkScopedLockMutex lock(m_QueueMutex);
-        return m_FlushInterval;
-    }
+	/**
+	 * @brief Définit l'intervalle de flush
+	 */
+	void NkAsyncLogger::SetFlushInterval(uint32 ms) {
+		threading::NkScopedLockMutex lock(m_QueueMutex);
+		m_FlushInterval = ms;
+	}
 
-    /**
-     * @brief Fonction du thread de traitement
-     */
-    void NkAsyncLogger::WorkerThread() {
-        while (!m_StopRequested.Load()) {
-            NkLogMessage msg;
-            bool hasMessage = false;
+	/**
+	 * @brief Obtient l'intervalle de flush
+	 */
+	uint32 NkAsyncLogger::GetFlushInterval() const {
+		threading::NkScopedLockMutex lock(m_QueueMutex);
+		return m_FlushInterval;
+	}
 
-            {
-                threading::NkScopedLockMutex lock(m_QueueMutex);
+	/**
+	 * @brief Fonction du thread de traitement
+	 */
+	void NkAsyncLogger::WorkerThread() {
+		while (!m_StopRequested.Load()) {
+			NkLogMessage msg;
+			bool hasMessage = false;
 
-                while (m_MessageQueue.Empty() && !m_StopRequested.Load()) {
-                    if (m_FlushInterval == 0) {
-                        m_Condition.Wait(lock);
-                    } else {
-                        (void)m_Condition.WaitFor(lock, m_FlushInterval);
-                    }
+			{
+				threading::NkScopedLockMutex lock(m_QueueMutex);
 
-                    if (m_MessageQueue.Empty() && m_StopRequested.Load()) {
-                        break;
-                    }
-                    if (m_MessageQueue.Empty()) {
-                        // Timeout périodique pour permettre un flush régulier.
-                        break;
-                    }
-                }
+				while (m_MessageQueue.Empty() && !m_StopRequested.Load()) {
+					if (m_FlushInterval == 0) {
+						m_Condition.Wait(lock);
+					} else {
+						(void)m_Condition.WaitFor(lock, m_FlushInterval);
+					}
 
-                if (!m_MessageQueue.Empty()) {
-                    msg = m_MessageQueue.Front();
-                    m_MessageQueue.Pop();
-                    hasMessage = true;
-                }
-            }
+					if (m_MessageQueue.Empty() && m_StopRequested.Load()) {
+						break;
+					}
+					if (m_MessageQueue.Empty()) {
+						// Timeout périodique pour permettre un flush régulier.
+						break;
+					}
+				}
 
-            if (hasMessage) {
-                ProcessMessage(msg);
-            }
-        }
-    }
+				if (!m_MessageQueue.Empty()) {
+					msg = m_MessageQueue.Front();
+					m_MessageQueue.Pop();
+					hasMessage = true;
+				}
+			}
 
-    void NkAsyncLogger::WorkerThreadEntry(void* userData) {
-        NkAsyncLogger* self = static_cast<NkAsyncLogger*>(userData);
-        if (self != nullptr) {
-            self->WorkerThread();
-        }
-    }
+			if (hasMessage) {
+				ProcessMessage(msg);
+			}
+		}
+	}
 
-    /**
-     * @brief Ajoute un message à la file
-     */
-    bool NkAsyncLogger::Enqueue(const NkLogMessage &message) {
-        threading::NkScopedLockMutex lock(m_QueueMutex);
+	void NkAsyncLogger::WorkerThreadEntry(void *userData) {
+		NkAsyncLogger *self = static_cast<NkAsyncLogger *>(userData);
+		if (self != nullptr) {
+			self->WorkerThread();
+		}
+	}
 
-        if (m_MessageQueue.Size() >= m_MaxQueueSize) {
-            return false; // File pleine
-        }
+	/**
+	 * @brief Ajoute un message à la file
+	 */
+	bool NkAsyncLogger::Enqueue(const NkLogMessage &message) {
+		threading::NkScopedLockMutex lock(m_QueueMutex);
 
-        m_MessageQueue.Push(message);
-        m_Condition.NotifyOne();
-        return true;
-    }
+		if (m_MessageQueue.Size() >= m_MaxQueueSize) {
+			return false; // File pleine
+		}
 
-    /**
-     * @brief Traite un message de la file
-     */
-    void NkAsyncLogger::ProcessMessage(const NkLogMessage &message) {
-        threading::NkScopedLockMutex lock(m_Mutex);
+		m_MessageQueue.Push(message);
+		m_Condition.NotifyOne();
+		return true;
+	}
 
-        for (auto &sink : m_Sinks) {
-            if (sink) {
-                sink->Log(message);
-            }
-        }
-    }
+	/**
+	 * @brief Traite un message de la file
+	 */
+	void NkAsyncLogger::ProcessMessage(const NkLogMessage &message) {
+		threading::NkScopedLockMutex lock(m_Mutex);
 
-    /**
-     * @brief Vide toute la file d'attente
-     */
-    void NkAsyncLogger::FlushQueue() {
-        for (;;) {
-            NkLogMessage msg;
-            bool hasMessage = false;
+		for (auto &sink : m_Sinks) {
+			if (sink) {
+				sink->Log(message);
+			}
+		}
+	}
 
-            {
-                threading::NkScopedLockMutex lock(m_QueueMutex);
-                if (!m_MessageQueue.Empty()) {
-                    msg = m_MessageQueue.Front();
-                    m_MessageQueue.Pop();
-                    hasMessage = true;
-                }
-            }
+	/**
+	 * @brief Vide toute la file d'attente
+	 */
+	void NkAsyncLogger::FlushQueue() {
+		for (;;) {
+			NkLogMessage msg;
+			bool hasMessage = false;
 
-            if (!hasMessage) {
-                break;
-            }
+			{
+				threading::NkScopedLockMutex lock(m_QueueMutex);
+				if (!m_MessageQueue.Empty()) {
+					msg = m_MessageQueue.Front();
+					m_MessageQueue.Pop();
+					hasMessage = true;
+				}
+			}
 
-            ProcessMessage(msg);
-        }
-    }
+			if (!hasMessage) {
+				break;
+			}
+
+			ProcessMessage(msg);
+		}
+	}
 
 } // namespace nkentseu

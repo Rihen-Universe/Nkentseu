@@ -42,110 +42,121 @@
 
 namespace nkentseu {
 
-    // =========================================================================
-    // NkEngineLayer
-    // =========================================================================
-    class NkEngineLayer : public NkLayer {
-        public:
-            // ── Constructeur/Destructeur ──────────────────────────────────
-            explicit NkEngineLayer() noexcept
-                : NkLayer("NkEngineLayer")
-                , mSceneMgr(mWorld)
-            {}
+	// =========================================================================
+	// NkEngineLayer
+	// =========================================================================
+	class NkEngineLayer : public NkLayer {
+		public:
+			// ── Constructeur/Destructeur ──────────────────────────────────
+			explicit NkEngineLayer() noexcept : NkLayer("NkEngineLayer"), mSceneMgr(mWorld) {
+			}
 
-            ~NkEngineLayer() noexcept override = default;
+			~NkEngineLayer() noexcept override = default;
 
-            // ── NkLayer lifecycle ─────────────────────────────────────────
-            void OnAttach() override;
-            void OnDetach() override;
-            void OnUpdate(float dt) override;
-            void OnFixedUpdate(float fixedDt) override;
-            void OnRender() override;
-            bool OnEvent(NkEvent* event) override;
+			// ── NkLayer lifecycle ─────────────────────────────────────────
+			void OnAttach() override;
+			void OnDetach() override;
+			void OnUpdate(float dt) override;
+			void OnFixedUpdate(float fixedDt) override;
+			void OnRender() override;
+			bool OnEvent(NkEvent *event) override;
 
-            // ── Accès global singleton ────────────────────────────────────
-            [[nodiscard]] static NkEngineLayer& Get() noexcept {
-                NKECS_ASSERT(sInstance && "NkEngineLayer not attached");
-                return *sInstance;
-            }
-            [[nodiscard]] static bool IsReady() noexcept {
-                return sInstance != nullptr;
-            }
+			// ── Accès global singleton ────────────────────────────────────
+			[[nodiscard]] static NkEngineLayer &Get() noexcept {
+				NKECS_ASSERT(sInstance && "NkEngineLayer not attached");
+				return *sInstance;
+			}
 
-            // ── Accès aux sous-systèmes ────────────────────────────────────
-            [[nodiscard]] ecs::NkWorld&            GetWorld()        noexcept { return mWorld; }
-            [[nodiscard]] ecs::NkScheduler&        GetScheduler()    noexcept { return mScheduler; }
-            [[nodiscard]] ecs::NkSceneManager&     GetSceneManager() noexcept { return mSceneMgr; }
-            [[nodiscard]] NkRenderSystem&          GetRenderSystem() noexcept { return mRenderSystem; }
-            [[nodiscard]] renderer::NkRenderer*    GetRenderer()     noexcept { return mRenderer; }
+			[[nodiscard]] static bool IsReady() noexcept {
+				return sInstance != nullptr;
+			}
 
-            // ── Raccourcis scène ──────────────────────────────────────────
-            /**
-             * @brief Enregistre une factory de scène.
-             */
-            void RegisterScene(const NkString& name,
-                               ecs::NkSceneFactory factory) noexcept {
-                mSceneMgr.Register(name, static_cast<ecs::NkSceneFactory&&>(factory));
-            }
+			// ── Accès aux sous-systèmes ────────────────────────────────────
+			[[nodiscard]] ecs::NkWorld &GetWorld() noexcept {
+				return mWorld;
+			}
 
-            /**
-             * @brief Charge une scène et enregistre son lifecycle dans le scheduler.
-             * @return true si le chargement a réussi.
-             */
-            bool LoadScene(const NkString& name,
-                           const ecs::NkSceneTransition& t =
-                               ecs::NkSceneTransition::Instant()) noexcept {
-                bool ok = mSceneMgr.LoadScene(name, t);
-                if (ok) {
-                    auto* scene = mSceneMgr.GetCurrent();
-                    if (scene) {
-                        ecs::RegisterSceneLifecycle(mScheduler, scene);
-                        scene->BeginPlay();
-                    }
-                }
-                return ok;
-            }
+			[[nodiscard]] ecs::NkScheduler &GetScheduler() noexcept {
+				return mScheduler;
+			}
 
-            /**
-             * @brief Accès direct à la scène courante.
-             */
-            [[nodiscard]] ecs::NkSceneGraph* GetCurrentScene() noexcept {
-                return mSceneMgr.GetCurrent();
-            }
+			[[nodiscard]] ecs::NkSceneManager &GetSceneManager() noexcept {
+				return mSceneMgr;
+			}
 
-            // ── Utilitaires ───────────────────────────────────────────────
-            /**
-             * @brief Redimensionne le renderer (appel depuis OnResize de l'app).
-             */
-            void Resize(nk_uint32 w, nk_uint32 h) noexcept {
-                // Le resize du renderer est piloté par NkApplication (propriétaire).
-                // On mémorise juste la taille pour les systèmes ECS.
-                mResizeW = w;
-                mResizeH = h;
-            }
+			[[nodiscard]] NkRenderSystem &GetRenderSystem() noexcept {
+				return mRenderSystem;
+			}
 
-        private:
-            // ── Init helpers ──────────────────────────────────────────────
-            void InitRenderer() noexcept;
-            void RegisterCoreSystems() noexcept;
-            void ShutdownRenderer() noexcept;
+			[[nodiscard]] renderer::NkRenderer *GetRenderer() noexcept {
+				return mRenderer;
+			}
 
-            // ── État ──────────────────────────────────────────────────────
-            ecs::NkWorld          mWorld;
-            ecs::NkScheduler      mScheduler;
-            ecs::NkSceneManager   mSceneMgr;
+			// ── Raccourcis scène ──────────────────────────────────────────
+			/**
+			 * @brief Enregistre une factory de scène.
+			 */
+			void RegisterScene(const NkString &name, ecs::NkSceneFactory factory) noexcept {
+				mSceneMgr.Register(name, static_cast<ecs::NkSceneFactory &&>(factory));
+			}
 
-            renderer::NkRenderer* mRenderer = nullptr;  // EMPRUNTÉ à NkApplication (non possédé)
-            NkRenderSystem        mRenderSystem;
+			/**
+			 * @brief Charge une scène et enregistre son lifecycle dans le scheduler.
+			 * @return true si le chargement a réussi.
+			 */
+			bool LoadScene(const NkString &name,
+						   const ecs::NkSceneTransition &t = ecs::NkSceneTransition::Instant()) noexcept {
+				bool ok = mSceneMgr.LoadScene(name, t);
+				if (ok) {
+					auto *scene = mSceneMgr.GetCurrent();
+					if (scene) {
+						ecs::RegisterSceneLifecycle(mScheduler, scene);
+						scene->BeginPlay();
+					}
+				}
+				return ok;
+			}
 
-            bool                  mRendererInitialized = false;
-            nk_uint32             mResizeW = 1280;
-            nk_uint32             mResizeH = 720;
+			/**
+			 * @brief Accès direct à la scène courante.
+			 */
+			[[nodiscard]] ecs::NkSceneGraph *GetCurrentScene() noexcept {
+				return mSceneMgr.GetCurrent();
+			}
 
-            static NkEngineLayer* sInstance;
-    };
+			// ── Utilitaires ───────────────────────────────────────────────
+			/**
+			 * @brief Redimensionne le renderer (appel depuis OnResize de l'app).
+			 */
+			void Resize(nk_uint32 w, nk_uint32 h) noexcept {
+				// Le resize du renderer est piloté par NkApplication (propriétaire).
+				// On mémorise juste la taille pour les systèmes ECS.
+				mResizeW = w;
+				mResizeH = h;
+			}
 
-    // Définition du singleton (dans le .cpp)
-    // inline NkEngineLayer* NkEngineLayer::sInstance = nullptr;
+		private:
+			// ── Init helpers ──────────────────────────────────────────────
+			void InitRenderer() noexcept;
+			void RegisterCoreSystems() noexcept;
+			void ShutdownRenderer() noexcept;
+
+			// ── État ──────────────────────────────────────────────────────
+			ecs::NkWorld mWorld;
+			ecs::NkScheduler mScheduler;
+			ecs::NkSceneManager mSceneMgr;
+
+			renderer::NkRenderer *mRenderer = nullptr; // EMPRUNTÉ à NkApplication (non possédé)
+			NkRenderSystem mRenderSystem;
+
+			bool mRendererInitialized = false;
+			nk_uint32 mResizeW = 1280;
+			nk_uint32 mResizeH = 720;
+
+			static NkEngineLayer *sInstance;
+	};
+
+	// Définition du singleton (dans le .cpp)
+	// inline NkEngineLayer* NkEngineLayer::sInstance = nullptr;
 
 } // namespace nkentseu

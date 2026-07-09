@@ -10,25 +10,25 @@
 #include "NKCore/NkTypes.h"
 
 namespace nkentseu {
-    namespace ai {
-        namespace rl {
+	namespace ai {
+		namespace rl {
 
-            class NkEnvironment {
-            public:
-                virtual ~NkEnvironment() {}
+			class NkEnvironment {
+				public:
+					virtual ~NkEnvironment() {
+					}
 
-                virtual uint32 NumStates()  const = 0;   // taille de l'espace d'états
-                virtual uint32 NumActions() const = 0;   // taille de l'espace d'actions
+					virtual uint32 NumStates() const = 0;  // taille de l'espace d'états
+					virtual uint32 NumActions() const = 0; // taille de l'espace d'actions
 
-                // Réinitialise l'épisode et renvoie l'état initial.
-                virtual uint32 Reset() = 0;
+					// Réinitialise l'épisode et renvoie l'état initial.
+					virtual uint32 Reset() = 0;
 
-                // Applique `action` : renvoie l'état suivant, la récompense et si
-                // l'épisode est terminé.
-                virtual void Step(uint32 action, uint32& nextState,
-                                  float& reward, bool& done) = 0;
-            };
+					// Applique `action` : renvoie l'état suivant, la récompense et si
+					// l'épisode est terminé.
+					virtual void Step(uint32 action, uint32 &nextState, float &reward, bool &done) = 0;
+			};
 
-        } // namespace rl
-    } // namespace ai
+		} // namespace rl
+	} // namespace ai
 } // namespace nkentseu

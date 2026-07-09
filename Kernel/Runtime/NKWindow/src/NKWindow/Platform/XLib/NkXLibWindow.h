@@ -16,26 +16,26 @@
 
 namespace nkentseu {
 
-    class NkWindow;
-    class NkXLibDropTarget;
+	class NkWindow;
+	class NkXLibDropTarget;
 
-    struct NkWindowData {
-        ::Display* mDisplay        = nullptr;
-        ::Window   mXid            = 0;
-        ::Atom     mWmDeleteWindow = 0;
-        ::Window   mParentXid      = 0;
-        int        mScreen         = 0;
-        bool       mExternal       = false;
-        NkXLibDropTarget* mDropTarget = nullptr;
-        NkSurfaceHints mAppliedHints;  // ← ajout
-    };
+	struct NkWindowData {
+			::Display *mDisplay = nullptr;
+			::Window mXid = 0;
+			::Atom mWmDeleteWindow = 0;
+			::Window mParentXid = 0;
+			int mScreen = 0;
+			bool mExternal = false;
+			NkXLibDropTarget *mDropTarget = nullptr;
+			NkSurfaceHints mAppliedHints; // ← ajout
+	};
 
-    // Backend registry accessors (map lives as static in NkXLibWindow.cpp)
-    NkWindow*  NkXLibFindWindow(::Window xid);
-    void       NkXLibRegisterWindow(::Window xid, NkWindow* win);
-    void       NkXLibUnregisterWindow(::Window xid);
-    NkWindow*  NkXLibGetLastWindow();
-    ::Display* NkXLibGetDisplay();
+	// Backend registry accessors (map lives as static in NkXLibWindow.cpp)
+	NkWindow *NkXLibFindWindow(::Window xid);
+	void NkXLibRegisterWindow(::Window xid, NkWindow *win);
+	void NkXLibUnregisterWindow(::Window xid);
+	NkWindow *NkXLibGetLastWindow();
+	::Display *NkXLibGetDisplay();
 
 } // namespace nkentseu
 

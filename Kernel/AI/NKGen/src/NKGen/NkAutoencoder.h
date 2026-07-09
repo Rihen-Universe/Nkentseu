@@ -18,29 +18,38 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace ai {
-        namespace gen {
+	namespace ai {
+		namespace gen {
 
-            class NkAutoencoder {
-            public:
-                NkAutoencoder() = default;
-                NkAutoencoder(uint32 inDim, uint32 hidden, uint32 latent, uint32 seed = 1u);
+			class NkAutoencoder {
+				public:
+					NkAutoencoder() = default;
+					NkAutoencoder(uint32 inDim, uint32 hidden, uint32 latent, uint32 seed = 1u);
 
-                NkVar Encode(const NkVar& x) const;                 // -> latent [B,L]
-                NkVar Decode(const NkVar& z) const;                 // -> reconstruction [B,D]
-                NkVar Forward(const NkVar& x) const { return Decode(Encode(x)); }
+					NkVar Encode(const NkVar &x) const; // -> latent [B,L]
+					NkVar Decode(const NkVar &z) const; // -> reconstruction [B,D]
 
-                void   Parameters(NkVector<NkVar>& out) const;      // enc + dec
-                uint32 LatentDim() const { return mLatent; }
-                uint32 InputDim()  const { return mInDim; }
+					NkVar Forward(const NkVar &x) const {
+						return Decode(Encode(x));
+					}
 
-            private:
-                nn::NkDense mEnc1, mEnc2;   // encodeur
-                nn::NkDense mDec1, mDec2;   // décodeur
-                uint32      mInDim  = 0;
-                uint32      mLatent = 0;
-            };
+					void Parameters(NkVector<NkVar> &out) const; // enc + dec
 
-        } // namespace gen
-    } // namespace ai
+					uint32 LatentDim() const {
+						return mLatent;
+					}
+
+					uint32 InputDim() const {
+						return mInDim;
+					}
+
+				private:
+					nn::NkDense mEnc1, mEnc2; // encodeur
+					nn::NkDense mDec1, mDec2; // décodeur
+					uint32 mInDim = 0;
+					uint32 mLatent = 0;
+			};
+
+		} // namespace gen
+	} // namespace ai
 } // namespace nkentseu

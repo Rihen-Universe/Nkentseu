@@ -16,229 +16,209 @@
 #include "NKContainers/Associative/NkUnorderedMap.h"
 #include "NKThreading/NkMutex.h"
 
-
 // Alias local pour le lock — évite l'ambiguïté NkScopedLock/NkScopedMutex
 using NkSLMutexLock = nkentseu::threading::NkScopedLockMutex;
 
 namespace nkentseu {
 
-    // =============================================================================
-    // Entrée de cache
-    // =============================================================================
-    struct NkSLCacheEntry {
-        uint64          sourceHash = 0;
-        NkSLTarget      target     = NkSLTarget::NK_GLSL;
-        NkSLStage       stage      = NkSLStage::NK_VERTEX;
-        NkVector<uint8> bytecode;
-        NkString        source;
-        uint64          timestamp  = 0;
-        bool            isSpirv    = false;
-    };
+	// =============================================================================
+	// Entrée de cache
+	// =============================================================================
+	struct NkSLCacheEntry {
+			uint64 sourceHash = 0;
+			NkSLTarget target = NkSLTarget::NK_GLSL;
+			NkSLStage stage = NkSLStage::NK_VERTEX;
+			NkVector<uint8> bytecode;
+			NkString source;
+			uint64 timestamp = 0;
+			bool isSpirv = false;
+	};
 
-    // =============================================================================
-    // NkSLCache — O(1) via NkUnorderedMap
-    // =============================================================================
-    class NkSLCache {
-    public:
-        explicit NkSLCache(const NkString& cacheDir = "");
+	// =============================================================================
+	// NkSLCache — O(1) via NkUnorderedMap
+	// =============================================================================
+	class NkSLCache {
+		public:
+			explicit NkSLCache(const NkString &cacheDir = "");
 
-        void SetDirectory(const NkString& dir) {
-            NkSLMutexLock lock(mMutex);
-            mCacheDir = dir;
-        }
+			void SetDirectory(const NkString &dir) {
+				NkSLMutexLock lock(mMutex);
+				mCacheDir = dir;
+			}
 
-        bool   Has(uint64 hash, NkSLTarget t, NkSLStage s) const;
-        bool   Get(uint64 hash, NkSLTarget t, NkSLStage s, NkSLCacheEntry& out) const;
-        void   Put(uint64 hash, NkSLTarget t, NkSLStage s, const NkSLCompileResult& r);
-        void   Clear();
-        void   Flush();
-        void   Load();
-        uint32 Size() const {
-            NkSLMutexLock lock(mMutex);
-            return (uint32)mEntries.Size();
-        }
+			bool Has(uint64 hash, NkSLTarget t, NkSLStage s) const;
+			bool Get(uint64 hash, NkSLTarget t, NkSLStage s, NkSLCacheEntry &out) const;
+			void Put(uint64 hash, NkSLTarget t, NkSLStage s, const NkSLCompileResult &r);
+			void Clear();
+			void Flush();
+			void Load();
 
-    private:
-        uint64 MakeKey(uint64 hash, NkSLTarget t, NkSLStage s) const;
+			uint32 Size() const {
+				NkSLMutexLock lock(mMutex);
+				return (uint32)mEntries.Size();
+			}
 
-        NkString                                   mCacheDir;
-        NkUnorderedMap<uint64, NkSLCacheEntry>     mEntries; // O(1) lookup
-        mutable threading::NkMutex                 mMutex;
-    };
+		private:
+			uint64 MakeKey(uint64 hash, NkSLTarget t, NkSLStage s) const;
 
-    // =============================================================================
-    // Résultat avec reflection
-    // =============================================================================
-    struct NkSLCompileResultWithReflection {
-        NkSLCompileResult result;
-        NkSLReflection    reflection;
-        bool              hasReflection = false;
-    };
+			NkString mCacheDir;
+			NkUnorderedMap<uint64, NkSLCacheEntry> mEntries; // O(1) lookup
+			mutable threading::NkMutex mMutex;
+	};
 
-    // =============================================================================
-    // NkSLCompiler — v4.0
-    // =============================================================================
-    class NkSLCompiler {
-    public:
-        explicit NkSLCompiler(const NkString& cacheDir = "");
-        ~NkSLCompiler() = default;
+	// =============================================================================
+	// Résultat avec reflection
+	// =============================================================================
+	struct NkSLCompileResultWithReflection {
+			NkSLCompileResult result;
+			NkSLReflection reflection;
+			bool hasReflection = false;
+	};
 
-        // ── Compilation simple ────────────────────────────────────────────────────
-        NkSLCompileResult Compile(
-            const NkString&           source,
-            NkSLStage                 stage,
-            NkSLTarget                target,
-            const NkSLCompileOptions& opts     = {},
-            const NkString&           filename = "shader"
-        );
+	// =============================================================================
+	// NkSLCompiler — v4.0
+	// =============================================================================
+	class NkSLCompiler {
+		public:
+			explicit NkSLCompiler(const NkString &cacheDir = "");
+			~NkSLCompiler() = default;
 
-        // ── Compilation + reflection en une passe ─────────────────────────────────
-        NkSLCompileResultWithReflection CompileWithReflection(
-            const NkString&           source,
-            NkSLStage                 stage,
-            NkSLTarget                target,
-            const NkSLCompileOptions& opts     = {},
-            const NkString&           filename = "shader"
-        );
+			// ── Compilation simple ────────────────────────────────────────────────────
+			NkSLCompileResult Compile(const NkString &source, NkSLStage stage, NkSLTarget target,
+									  const NkSLCompileOptions &opts = {}, const NkString &filename = "shader");
 
-        // ── Reflection seule (sans compilation) ──────────────────────────────────
-        NkSLReflection Reflect(
-            const NkString& source,
-            NkSLStage       stage,
-            const NkString& filename = "shader"
-        );
+			// ── Compilation + reflection en une passe ─────────────────────────────────
+			NkSLCompileResultWithReflection CompileWithReflection(const NkString &source, NkSLStage stage,
+																  NkSLTarget target,
+																  const NkSLCompileOptions &opts = {},
+																  const NkString &filename = "shader");
 
-        // ── Compilation multi-targets ─────────────────────────────────────────────
-        struct MultiTargetResult {
-            NkVector<NkSLCompileResult> results;
-            NkSLReflection              reflection;
-            bool allSucceeded() const {
-                for (auto& r : results) if (!r.success) return false;
-                return true;
-            }
-        };
+			// ── Reflection seule (sans compilation) ──────────────────────────────────
+			NkSLReflection Reflect(const NkString &source, NkSLStage stage, const NkString &filename = "shader");
 
-        MultiTargetResult CompileAllTargets(
-            const NkString&            source,
-            NkSLStage                  stage,
-            const NkVector<NkSLTarget>& targets,
-            const NkSLCompileOptions&  opts     = {},
-            const NkString&            filename = "shader"
-        );
+			// ── Compilation multi-targets ─────────────────────────────────────────────
+			struct MultiTargetResult {
+					NkVector<NkSLCompileResult> results;
+					NkSLReflection reflection;
 
-        // ── SPIR-V ────────────────────────────────────────────────────────────────
-        NkSLCompileResult CompileToSPIRV(
-            const NkString&           glslSource,
-            NkSLStage                 stage,
-            const NkSLCompileOptions& opts = {}
-        );
+					bool allSucceeded() const {
+						for (auto &r : results)
+							if (!r.success)
+								return false;
+						return true;
+					}
+			};
 
-        // ── MSL via SPIRV-Cross ───────────────────────────────────────────────────
-        NkSLCompileResult CompileToMSL_SpirvCross(
-            const NkString&           source,
-            NkSLStage                 stage,
-            const NkSLCompileOptions& opts     = {},
-            const NkString&           filename = "shader"
-        );
+			MultiTargetResult CompileAllTargets(const NkString &source, NkSLStage stage,
+												const NkVector<NkSLTarget> &targets,
+												const NkSLCompileOptions &opts = {},
+												const NkString &filename = "shader");
 
-        // NOTE : FillShaderDesc / FillShaderDescWithReflection (produisant un
-        // NkShaderDesc, type NKRHI) ont été déplacés dans NkSLIntegration (côté
-        // NKRHI). NKSL ne dépend PAS de NKRHI (inversion de dépendance) : le
-        // compilateur ne produit que des sorties NkSL natives (source/bytecode/
-        // réflexion). La conversion vers NkShaderDesc est l'affaire de l'intégration.
+			// ── SPIR-V ────────────────────────────────────────────────────────────────
+			NkSLCompileResult CompileToSPIRV(const NkString &glslSource, NkSLStage stage,
+											 const NkSLCompileOptions &opts = {});
 
-        // ── Validation ────────────────────────────────────────────────────────────
-        NkVector<NkSLCompileError> Validate(const NkString& source,
-                                             const NkString& filename = "shader");
+			// ── MSL via SPIRV-Cross ───────────────────────────────────────────────────
+			NkSLCompileResult CompileToMSL_SpirvCross(const NkString &source, NkSLStage stage,
+													  const NkSLCompileOptions &opts = {},
+													  const NkString &filename = "shader");
 
-        // ── Prétraitement (avec garde #pragma once) ───────────────────────────────
-        NkString Preprocess(const NkString& source,
-                            const NkString& baseDir  = "",
-                            NkVector<NkSLCompileError>* errors = nullptr,
-                            NkVector<NkString>* includedFiles  = nullptr);
+			// NOTE : FillShaderDesc / FillShaderDescWithReflection (produisant un
+			// NkShaderDesc, type NKRHI) ont été déplacés dans NkSLIntegration (côté
+			// NKRHI). NKSL ne dépend PAS de NKRHI (inversion de dépendance) : le
+			// compilateur ne produit que des sorties NkSL natives (source/bytecode/
+			// réflexion). La conversion vers NkShaderDesc est l'affaire de l'intégration.
 
-        // ── Compilation avec analyse sémantique ──────────────────────────────────
-        NkSLCompileResult CompileWithSemantic(
-            const NkString&           source,
-            NkSLStage                 stage,
-            NkSLTarget                target,
-            const NkSLCompileOptions& opts     = {},
-            const NkString&           filename = "shader"
-        );
+			// ── Validation ────────────────────────────────────────────────────────────
+			NkVector<NkSLCompileError> Validate(const NkString &source, const NkString &filename = "shader");
 
-        // ── Configuration ─────────────────────────────────────────────────────────
-        void SetCacheDir    (const NkString& dir);
-        void SetGlslangPath (const NkString& path) { mGlslangPath = path; }
-        void EnableCache    (bool v)  { mCacheEnabled = v; }
-        void EnableDebug    (bool v)  { mDebugMode    = v; }
+			// ── Prétraitement (avec garde #pragma once) ───────────────────────────────
+			NkString Preprocess(const NkString &source, const NkString &baseDir = "",
+								NkVector<NkSLCompileError> *errors = nullptr,
+								NkVector<NkString> *includedFiles = nullptr);
 
-        NkSLCache& GetCache() { return mCache; }
+			// ── Compilation avec analyse sémantique ──────────────────────────────────
+			NkSLCompileResult CompileWithSemantic(const NkString &source, NkSLStage stage, NkSLTarget target,
+												  const NkSLCompileOptions &opts = {},
+												  const NkString &filename = "shader");
 
-    private:
-        uint64 HashSource(const NkString& src, NkSLStage stage, NkSLTarget target,
-                          const NkSLCompileOptions& opts) const;
+			// ── Configuration ─────────────────────────────────────────────────────────
+			void SetCacheDir(const NkString &dir);
 
-        bool GLSLtoSPIRV_glslang(const NkString& glsl, NkSLStage stage,
-                                  const NkSLCompileOptions& opts,
-                                  NkVector<uint8>& spirvOut,
-                                  NkVector<NkSLCompileError>& errors);
+			void SetGlslangPath(const NkString &path) {
+				mGlslangPath = path;
+			}
 
-        bool GLSLtoSPIRV_shaderc(const NkString& glsl, NkSLStage stage,
-                                  const NkSLCompileOptions& opts,
-                                  NkVector<uint8>& spirvOut,
-                                  NkVector<NkSLCompileError>& errors);
+			void EnableCache(bool v) {
+				mCacheEnabled = v;
+			}
 
-        NkSLCache  mCache;
-        NkString   mGlslangPath;
-        NkString   filename;   // utilisé dans Preprocess pour les directives #line
-        bool       mCacheEnabled = true;
-        bool       mDebugMode    = false;
-    };
+			void EnableDebug(bool v) {
+				mDebugMode = v;
+			}
 
-    // =============================================================================
-    // NkSLShaderLibrary — bibliothèque avec hot-reload, thread-safe
-    // =============================================================================
-    class NkSLShaderLibrary {
-    public:
-        struct ShaderEntry {
-            NkString                    name;
-            NkString                    sourcePath;
-            NkString                    source;
-            NkVector<NkSLStage>         stages;
-            NkVector<NkSLCompileResult> compiled;
-            NkSLReflection              reflection;
-            bool                        dirty = true;
-        };
+			NkSLCache &GetCache() {
+				return mCache;
+			}
 
-        explicit NkSLShaderLibrary(NkSLCompiler* compiler,
-                                    const NkString& baseDir = "");
+		private:
+			uint64 HashSource(const NkString &src, NkSLStage stage, NkSLTarget target,
+							  const NkSLCompileOptions &opts) const;
 
-        bool Register(const NkString& name, const NkString& filePath,
-                      const NkVector<NkSLStage>& stages);
+			bool GLSLtoSPIRV_glslang(const NkString &glsl, NkSLStage stage, const NkSLCompileOptions &opts,
+									 NkVector<uint8> &spirvOut, NkVector<NkSLCompileError> &errors);
 
-        bool RegisterInline(const NkString& name, const NkString& source,
-                            const NkVector<NkSLStage>& stages);
+			bool GLSLtoSPIRV_shaderc(const NkString &glsl, NkSLStage stage, const NkSLCompileOptions &opts,
+									 NkVector<uint8> &spirvOut, NkVector<NkSLCompileError> &errors);
 
-        bool   CompileAll(NkSLTarget target, const NkSLCompileOptions& opts = {});
+			NkSLCache mCache;
+			NkString mGlslangPath;
+			NkString filename; // utilisé dans Preprocess pour les directives #line
+			bool mCacheEnabled = true;
+			bool mDebugMode = false;
+	};
 
-        // Accès thread-safe (mutex interne)
-        const NkSLCompileResult* Get(const NkString& name, NkSLStage stage,
-                                     NkSLTarget target) const;
-        const NkSLReflection*    GetReflection(const NkString& name) const;
+	// =============================================================================
+	// NkSLShaderLibrary — bibliothèque avec hot-reload, thread-safe
+	// =============================================================================
+	class NkSLShaderLibrary {
+		public:
+			struct ShaderEntry {
+					NkString name;
+					NkString sourcePath;
+					NkString source;
+					NkVector<NkSLStage> stages;
+					NkVector<NkSLCompileResult> compiled;
+					NkSLReflection reflection;
+					bool dirty = true;
+			};
 
-        // FillShaderDesc* (NkShaderDesc = type NKRHI) déplacés dans NkSLIntegration.
+			explicit NkSLShaderLibrary(NkSLCompiler *compiler, const NkString &baseDir = "");
 
-        uint32 HotReload(NkSLTarget target, const NkSLCompileOptions& opts = {});
-        uint32 Count() const {
-            NkSLMutexLock lock(mMutex);
-            return (uint32)mEntries.Size();
-        }
+			bool Register(const NkString &name, const NkString &filePath, const NkVector<NkSLStage> &stages);
 
-    private:
-        NkSLCompiler*         mCompiler = nullptr;
-        NkString              mBaseDir;
-        NkVector<ShaderEntry> mEntries;
-        mutable threading::NkMutex mMutex; // protège mEntries
-    };
+			bool RegisterInline(const NkString &name, const NkString &source, const NkVector<NkSLStage> &stages);
+
+			bool CompileAll(NkSLTarget target, const NkSLCompileOptions &opts = {});
+
+			// Accès thread-safe (mutex interne)
+			const NkSLCompileResult *Get(const NkString &name, NkSLStage stage, NkSLTarget target) const;
+			const NkSLReflection *GetReflection(const NkString &name) const;
+
+			// FillShaderDesc* (NkShaderDesc = type NKRHI) déplacés dans NkSLIntegration.
+
+			uint32 HotReload(NkSLTarget target, const NkSLCompileOptions &opts = {});
+
+			uint32 Count() const {
+				NkSLMutexLock lock(mMutex);
+				return (uint32)mEntries.Size();
+			}
+
+		private:
+			NkSLCompiler *mCompiler = nullptr;
+			NkString mBaseDir;
+			NkVector<ShaderEntry> mEntries;
+			mutable threading::NkMutex mMutex; // protège mEntries
+	};
 
 } // namespace nkentseu

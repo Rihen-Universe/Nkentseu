@@ -35,297 +35,349 @@
 #include "NKCore/NkTraits.h"
 
 namespace nkentseu {
-    namespace ecs {
+	namespace ecs {
 
-        class NkSceneGraph;
-        // NkBehaviourHost : type complet via "NkBehaviourHost.h" (inclus ci-dessus).
+		class NkSceneGraph;
 
-        // =====================================================================
-        // NkComponentBag<T> — Stockage multi-instances (SBO 8 éléments)
-        // =====================================================================
-        template<typename T>
-        struct NkComponentBag {
-            static constexpr uint32 kSBOCapacity = 8u;
-            NkComponentBag() noexcept = default;
-            ~NkComponentBag() noexcept {
-                if (mIsHeap) { delete heapVec; }
-                else if constexpr (!traits::NkIsTriviallyDestructible<T>) {
-                    for (uint32 i = 0; i < mCount; ++i)
-                        reinterpret_cast<T*>(inlineBuf)[i].~T();
-                }
-            }
-            NkComponentBag(const NkComponentBag&) = delete;
-            NkComponentBag& operator=(const NkComponentBag&) = delete;
+		// NkBehaviourHost : type complet via "NkBehaviourHost.h" (inclus ci-dessus).
 
-            T*              Add(const T& value = T{}) noexcept;
-            T*              Get(uint32 idx) noexcept;
-            const T*        Get(uint32 idx) const noexcept;
-            NkSpan<T>       GetAll() noexcept;
-            NkSpan<const T> GetAll() const noexcept;
-            [[nodiscard]] uint32 Count() const noexcept { return mCount; }
+		// =====================================================================
+		// NkComponentBag<T> — Stockage multi-instances (SBO 8 éléments)
+		// =====================================================================
+		template <typename T> struct NkComponentBag {
+				static constexpr uint32 kSBOCapacity = 8u;
+				NkComponentBag() noexcept = default;
 
-        private:
-            alignas(T) uint8 inlineBuf[sizeof(T) * kSBOCapacity] = {};
-            NkVector<T>*     heapVec = nullptr;
-            uint32           mCount  = 0;
-            bool             mIsHeap = false;
-        };
+				~NkComponentBag() noexcept {
+					if (mIsHeap) {
+						delete heapVec;
+					} else if constexpr (!traits::NkIsTriviallyDestructible<T>) {
+						for (uint32 i = 0; i < mCount; ++i)
+							reinterpret_cast<T *>(inlineBuf)[i].~T();
+					}
+				}
 
-        // =====================================================================
-        // NkGameObject — Handle léger (NkEntityId + NkWorld* = 16 bytes)
-        // =====================================================================
-        class NkGameObject {
-            public:
-                NkGameObject() noexcept = default;
-                explicit NkGameObject(NkEntityId id, NkWorld* world) noexcept
-                    : mId(id), mWorld(world) {}
+				NkComponentBag(const NkComponentBag &) = delete;
+				NkComponentBag &operator=(const NkComponentBag &) = delete;
 
-                // ── Identité ──────────────────────────────────────────────
-                [[nodiscard]] NkEntityId  Id()      const noexcept { return mId; }
-                [[nodiscard]] bool        IsValid()  const noexcept;
-                [[nodiscard]] NkWorld&    World()    const noexcept;
-                [[nodiscard]] const char* Name()     const noexcept;
-                void SetName(const char* name) noexcept;
-                explicit operator bool() const noexcept { return IsValid(); }
-                bool operator==(const NkGameObject& o) const noexcept {
-                    return mId == o.mId && mWorld == o.mWorld;
-                }
-                bool operator!=(const NkGameObject& o) const noexcept {
-                    return !(*this == o);
-                }
+				T *Add(const T &value = T{}) noexcept;
+				T *Get(uint32 idx) noexcept;
+				const T *Get(uint32 idx) const noexcept;
+				NkSpan<T> GetAll() noexcept;
+				NkSpan<const T> GetAll() const noexcept;
 
-                // ── Accès rapide aux invariants ────────────────────────────
-                [[nodiscard]] NkRequiredComponent<NkTransform> Transform() const noexcept {
-                    return {mWorld, mId};
-                }
-                [[nodiscard]] NkRequiredComponent<NkTag> Tags() const noexcept {
-                    return {mWorld, mId};
-                }
+				[[nodiscard]] uint32 Count() const noexcept {
+					return mCount;
+				}
 
-                // ── Raccourcis Transform (style Unity) ─────────────────────
-                void SetPosition(const NkVec3f& p) noexcept {
-                    if (auto* t = Resolve<NkTransform>()) t->SetLocalPosition(p);
-                }
-                void SetPosition(float32 x, float32 y, float32 z) noexcept {
-                    if (auto* t = Resolve<NkTransform>()) t->SetLocalPosition(x, y, z);
-                }
-                void SetRotation(const NkQuatf& q) noexcept {
-                    if (auto* t = Resolve<NkTransform>()) t->SetLocalRotation(q);
-                }
-                void SetScale(const NkVec3f& s) noexcept {
-                    if (auto* t = Resolve<NkTransform>()) t->SetLocalScale(s);
-                }
-                [[nodiscard]] NkVec3f GetPosition() const noexcept {
-                    if (const auto* t = ResolveConst<NkTransform>()) return t->localPosition;
-                    return {};
-                }
-                [[nodiscard]] NkVec3f GetWorldPosition() const noexcept {
-                    if (const auto* t = ResolveConst<NkTransform>()) return t->GetWorldPosition();
-                    return {};
-                }
+			private:
+				alignas(T) uint8 inlineBuf[sizeof(T) * kSBOCapacity] = {};
+				NkVector<T> *heapVec = nullptr;
+				uint32 mCount = 0;
+				bool mIsHeap = false;
+		};
 
-                // ── API Composants — NkComponentHandle ─────────────────────
-                /**
-                 * @brief Handle résolvable vers T (nullable, pattern safe).
-                 * @code
-                 * if (auto hp = go.GetComponent<NkHealth>()) hp->value -= 10;
-                 * @endcode
-                 */
-                template<typename T>
-                [[nodiscard]] NkComponentHandle<T> GetComponent() const noexcept {
-                    return NkComponentHandle<T>(mWorld, mId);
-                }
+		// =====================================================================
+		// NkGameObject — Handle léger (NkEntityId + NkWorld* = 16 bytes)
+		// =====================================================================
+		class NkGameObject {
+			public:
+				NkGameObject() noexcept = default;
 
-                /**
-                 * @brief Handle vers composant garanti (asserte si absent).
-                 * Réservé aux composants invariants (NkTransform, NkName...).
-                 */
-                template<typename T>
-                [[nodiscard]] NkRequiredComponent<T> RequireComponent() const noexcept {
-                    return NkRequiredComponent<T>(mWorld, mId);
-                }
+				explicit NkGameObject(NkEntityId id, NkWorld *world) noexcept : mId(id), mWorld(world) {
+				}
 
-                /**
-                 * @brief Handle optionnel : retourne un dummy si absent (never-crash).
-                 */
-                template<typename T>
-                [[nodiscard]] NkOptionalComponent<T> Optional() const noexcept {
-                    return NkOptionalComponent<T>(mWorld, mId);
-                }
+				// ── Identité ──────────────────────────────────────────────
+				[[nodiscard]] NkEntityId Id() const noexcept {
+					return mId;
+				}
 
-                /**
-                 * @brief Ajoute T et retourne NkComponentHandle.
-                 */
-                template<typename T, typename... Args>
-                NkComponentHandle<T> AddComponent(Args&&... args) noexcept {
-                    if (!IsValid()) return {};
-                    mWorld->Add<T>(mId, T{traits::NkForward<Args>(args)...});
-                    return NkComponentHandle<T>(mWorld, mId);
-                }
+				[[nodiscard]] bool IsValid() const noexcept;
+				[[nodiscard]] NkWorld &World() const noexcept;
+				[[nodiscard]] const char *Name() const noexcept;
+				void SetName(const char *name) noexcept;
 
-                /**
-                 * @brief Ajoute une instance supplémentaire de T (multi-instances).
-                 */
-                template<typename T, typename... Args>
-                T* AddMultiple(Args&&... args) noexcept {
-                    if (!IsValid()) return nullptr;
-                    auto* bag = mWorld->Get<NkComponentBag<T>>(mId);
-                    if (!bag) bag = &mWorld->Add<NkComponentBag<T>>(mId);
-                    return bag->Add(T{traits::NkForward<Args>(args)...});
-                }
+				explicit operator bool() const noexcept {
+					return IsValid();
+				}
 
-                /**
-                 * @brief Toutes les instances de T (via NkComponentBag ou singleton).
-                 */
-                template<typename T>
-                [[nodiscard]] NkSpan<T> GetAllComponents() noexcept {
-                    if (!IsValid()) return {};
-                    if (auto* bag = mWorld->Get<NkComponentBag<T>>(mId))
-                        return bag->GetAll();
-                    if (T* c = mWorld->Get<T>(mId)) return {c, 1};
-                    return {};
-                }
+				bool operator==(const NkGameObject &o) const noexcept {
+					return mId == o.mId && mWorld == o.mWorld;
+				}
 
-                template<typename T> void RemoveComponent() noexcept {
-                    if (IsValid()) mWorld->Remove<T>(mId);
-                }
-                template<typename T> void RemoveComponentDeferred() noexcept {
-                    if (IsValid()) mWorld->RemoveDeferred<T>(mId);
-                }
-                template<typename T>
-                [[nodiscard]] bool HasComponent() const noexcept {
-                    return IsValid() && mWorld->Has<T>(mId);
-                }
+				bool operator!=(const NkGameObject &o) const noexcept {
+					return !(*this == o);
+				}
 
-                // ── Compatibilité descendante ──────────────────────────────
-                template<typename T, typename... Args>
-                T* Add(Args&&... args) noexcept {
-                    return AddComponent<T>(traits::NkForward<Args>(args)...).Get();
-                }
-                template<typename T>
-                [[nodiscard]] T* Get() noexcept { return Resolve<T>(); }
-                template<typename T>
-                [[nodiscard]] const T* Get() const noexcept { return ResolveConst<T>(); }
-                template<typename T>
-                [[nodiscard]] bool Has() const noexcept { return HasComponent<T>(); }
-                template<typename T>
-                void Remove() noexcept { RemoveComponent<T>(); }
-                template<typename T>
-                [[nodiscard]] NkSpan<T> GetAll() noexcept { return GetAllComponents<T>(); }
+				// ── Accès rapide aux invariants ────────────────────────────
+				[[nodiscard]] NkRequiredComponent<NkTransform> Transform() const noexcept {
+					return {mWorld, mId};
+				}
 
-                // ── Hiérarchie ─────────────────────────────────────────────
-                void SetParent(const NkGameObject& parent) noexcept;
-                [[nodiscard]] NkGameObject GetParent() const noexcept;
-                void AddChild(const NkGameObject& child) noexcept;
-                void GetChildren(NkVector<NkGameObject>& out) const noexcept;
-                [[nodiscard]] NkVector<NkGameObject> GetChildrenV() const noexcept;
+				[[nodiscard]] NkRequiredComponent<NkTag> Tags() const noexcept {
+					return {mWorld, mId};
+				}
 
-                // ── Behaviours ─────────────────────────────────────────────
-                template<typename T, typename... Args>
-                T* AddBehaviour(Args&&... args) noexcept;
-                template<typename T>
-                [[nodiscard]] T* GetBehaviour() const noexcept;
+				// ── Raccourcis Transform (style Unity) ─────────────────────
+				void SetPosition(const NkVec3f &p) noexcept {
+					if (auto *t = Resolve<NkTransform>())
+						t->SetLocalPosition(p);
+				}
 
-                // ── Activation & Cycle de vie ──────────────────────────────
-                void SetActive(bool active) noexcept;
-                [[nodiscard]] bool IsActive() const noexcept;
-                void DestroyDeferred() noexcept;
-                void Destroy() noexcept { DestroyDeferred(); }
+				void SetPosition(float32 x, float32 y, float32 z) noexcept {
+					if (auto *t = Resolve<NkTransform>())
+						t->SetLocalPosition(x, y, z);
+				}
 
-            protected:
-                NkEntityId mId    = NkEntityId::Invalid();
-                NkWorld*   mWorld = nullptr;
+				void SetRotation(const NkQuatf &q) noexcept {
+					if (auto *t = Resolve<NkTransform>())
+						t->SetLocalRotation(q);
+				}
 
-            private:
-                template<typename T> T* Resolve() noexcept {
-                    return (mWorld && mId.IsValid()) ? mWorld->Get<T>(mId) : nullptr;
-                }
-                template<typename T> const T* ResolveConst() const noexcept {
-                    return (mWorld && mId.IsValid()) ? mWorld->Get<T>(mId) : nullptr;
-                }
+				void SetScale(const NkVec3f &s) noexcept {
+					if (auto *t = Resolve<NkTransform>())
+						t->SetLocalScale(s);
+				}
 
-                friend class NkSceneGraph;
-        };
+				[[nodiscard]] NkVec3f GetPosition() const noexcept {
+					if (const auto *t = ResolveConst<NkTransform>())
+						return t->localPosition;
+					return {};
+				}
 
-        // =====================================================================
-        // Implémentations inline NkComponentBag
-        // =====================================================================
-        template<typename T>
-        T* NkComponentBag<T>::Add(const T& value) noexcept {
-            if (mIsHeap) {
-                heapVec->PushBack(value);
-                return &(*heapVec)[heapVec->Size() - 1];
-            }
-            if (mCount >= kSBOCapacity) {
-                heapVec = new NkVector<T>();
-                heapVec->Reserve(kSBOCapacity + 8);
-                T* buf = reinterpret_cast<T*>(inlineBuf);
-                for (uint32 i = 0; i < mCount; ++i)
-                    heapVec->PushBack(static_cast<T&&>(buf[i]));
-                heapVec->PushBack(value);
-                mIsHeap = true;
-                return &(*heapVec)[heapVec->Size() - 1];
-            }
-            T* slot = reinterpret_cast<T*>(inlineBuf) + mCount++;
-            new (slot) T(value);
-            return slot;
-        }
-        template<typename T>
-        T* NkComponentBag<T>::Get(uint32 idx) noexcept {
-            if (idx >= mCount) return nullptr;
-            return mIsHeap ? &(*heapVec)[idx] : reinterpret_cast<T*>(inlineBuf) + idx;
-        }
-        template<typename T>
-        const T* NkComponentBag<T>::Get(uint32 idx) const noexcept {
-            if (idx >= mCount) return nullptr;
-            return mIsHeap ? &(*heapVec)[idx] : reinterpret_cast<const T*>(inlineBuf) + idx;
-        }
-        template<typename T>
-        NkSpan<T> NkComponentBag<T>::GetAll() noexcept {
-            return mIsHeap ? NkSpan<T>(heapVec->Data(), heapVec->Size())
-                           : NkSpan<T>(reinterpret_cast<T*>(inlineBuf), mCount);
-        }
-        template<typename T>
-        NkSpan<const T> NkComponentBag<T>::GetAll() const noexcept {
-            return mIsHeap ? NkSpan<const T>(heapVec->Data(), heapVec->Size())
-                           : NkSpan<const T>(reinterpret_cast<const T*>(inlineBuf), mCount);
-        }
+				[[nodiscard]] NkVec3f GetWorldPosition() const noexcept {
+					if (const auto *t = ResolveConst<NkTransform>())
+						return t->GetWorldPosition();
+					return {};
+				}
 
-        // =====================================================================
-        // Implémentations inline NkGameObject
-        // =====================================================================
-        inline bool NkGameObject::IsValid() const noexcept {
-            return mWorld && mId.IsValid() && mWorld->IsAlive(mId);
-        }
-        inline NkWorld& NkGameObject::World() const noexcept {
-            NKECS_ASSERT(mWorld);
-            return *mWorld;
-        }
-        inline const char* NkGameObject::Name() const noexcept {
-            if (!IsValid()) return "InvalidGO";
-            const auto* n = mWorld->Get<NkName>(mId);
-            return n ? n->Get() : "UnnamedGO";
-        }
-        inline void NkGameObject::SetName(const char* name) noexcept {
-            if (!IsValid() || !name) return;
-            if (auto* n = mWorld->Get<NkName>(mId)) n->Set(name);
-            else mWorld->Add<NkName>(mId, NkName(name));
-        }
-        template<typename T, typename... Args>
-        T* NkGameObject::AddBehaviour(Args&&... args) noexcept {
-            if (!IsValid()) return nullptr;
-            auto* host = mWorld->Get<NkBehaviourHost>(mId);
-            if (!host) host = &mWorld->Add<NkBehaviourHost>(mId);
-            T* raw = host->Add<T>(traits::NkForward<Args>(args)...);
-            if (raw) raw->SetGameObject(this);
-            return raw;
-        }
-        template<typename T>
-        T* NkGameObject::GetBehaviour() const noexcept {
-            if (!IsValid()) return nullptr;
-            auto* host = mWorld->Get<NkBehaviourHost>(mId);
-            return host ? host->Get<T>() : nullptr;
-        }
+				// ── API Composants — NkComponentHandle ─────────────────────
+				/**
+				 * @brief Handle résolvable vers T (nullable, pattern safe).
+				 * @code
+				 * if (auto hp = go.GetComponent<NkHealth>()) hp->value -= 10;
+				 * @endcode
+				 */
+				template <typename T> [[nodiscard]] NkComponentHandle<T> GetComponent() const noexcept {
+					return NkComponentHandle<T>(mWorld, mId);
+				}
 
-    } // namespace ecs
+				/**
+				 * @brief Handle vers composant garanti (asserte si absent).
+				 * Réservé aux composants invariants (NkTransform, NkName...).
+				 */
+				template <typename T> [[nodiscard]] NkRequiredComponent<T> RequireComponent() const noexcept {
+					return NkRequiredComponent<T>(mWorld, mId);
+				}
+
+				/**
+				 * @brief Handle optionnel : retourne un dummy si absent (never-crash).
+				 */
+				template <typename T> [[nodiscard]] NkOptionalComponent<T> Optional() const noexcept {
+					return NkOptionalComponent<T>(mWorld, mId);
+				}
+
+				/**
+				 * @brief Ajoute T et retourne NkComponentHandle.
+				 */
+				template <typename T, typename... Args> NkComponentHandle<T> AddComponent(Args &&...args) noexcept {
+					if (!IsValid())
+						return {};
+					mWorld->Add<T>(mId, T{traits::NkForward<Args>(args)...});
+					return NkComponentHandle<T>(mWorld, mId);
+				}
+
+				/**
+				 * @brief Ajoute une instance supplémentaire de T (multi-instances).
+				 */
+				template <typename T, typename... Args> T *AddMultiple(Args &&...args) noexcept {
+					if (!IsValid())
+						return nullptr;
+					auto *bag = mWorld->Get<NkComponentBag<T>>(mId);
+					if (!bag)
+						bag = &mWorld->Add<NkComponentBag<T>>(mId);
+					return bag->Add(T{traits::NkForward<Args>(args)...});
+				}
+
+				/**
+				 * @brief Toutes les instances de T (via NkComponentBag ou singleton).
+				 */
+				template <typename T> [[nodiscard]] NkSpan<T> GetAllComponents() noexcept {
+					if (!IsValid())
+						return {};
+					if (auto *bag = mWorld->Get<NkComponentBag<T>>(mId))
+						return bag->GetAll();
+					if (T *c = mWorld->Get<T>(mId))
+						return {c, 1};
+					return {};
+				}
+
+				template <typename T> void RemoveComponent() noexcept {
+					if (IsValid())
+						mWorld->Remove<T>(mId);
+				}
+
+				template <typename T> void RemoveComponentDeferred() noexcept {
+					if (IsValid())
+						mWorld->RemoveDeferred<T>(mId);
+				}
+
+				template <typename T> [[nodiscard]] bool HasComponent() const noexcept {
+					return IsValid() && mWorld->Has<T>(mId);
+				}
+
+				// ── Compatibilité descendante ──────────────────────────────
+				template <typename T, typename... Args> T *Add(Args &&...args) noexcept {
+					return AddComponent<T>(traits::NkForward<Args>(args)...).Get();
+				}
+
+				template <typename T> [[nodiscard]] T *Get() noexcept {
+					return Resolve<T>();
+				}
+
+				template <typename T> [[nodiscard]] const T *Get() const noexcept {
+					return ResolveConst<T>();
+				}
+
+				template <typename T> [[nodiscard]] bool Has() const noexcept {
+					return HasComponent<T>();
+				}
+
+				template <typename T> void Remove() noexcept {
+					RemoveComponent<T>();
+				}
+
+				template <typename T> [[nodiscard]] NkSpan<T> GetAll() noexcept {
+					return GetAllComponents<T>();
+				}
+
+				// ── Hiérarchie ─────────────────────────────────────────────
+				void SetParent(const NkGameObject &parent) noexcept;
+				[[nodiscard]] NkGameObject GetParent() const noexcept;
+				void AddChild(const NkGameObject &child) noexcept;
+				void GetChildren(NkVector<NkGameObject> &out) const noexcept;
+				[[nodiscard]] NkVector<NkGameObject> GetChildrenV() const noexcept;
+
+				// ── Behaviours ─────────────────────────────────────────────
+				template <typename T, typename... Args> T *AddBehaviour(Args &&...args) noexcept;
+				template <typename T> [[nodiscard]] T *GetBehaviour() const noexcept;
+
+				// ── Activation & Cycle de vie ──────────────────────────────
+				void SetActive(bool active) noexcept;
+				[[nodiscard]] bool IsActive() const noexcept;
+				void DestroyDeferred() noexcept;
+
+				void Destroy() noexcept {
+					DestroyDeferred();
+				}
+
+			protected:
+				NkEntityId mId = NkEntityId::Invalid();
+				NkWorld *mWorld = nullptr;
+
+			private:
+				template <typename T> T *Resolve() noexcept {
+					return (mWorld && mId.IsValid()) ? mWorld->Get<T>(mId) : nullptr;
+				}
+
+				template <typename T> const T *ResolveConst() const noexcept {
+					return (mWorld && mId.IsValid()) ? mWorld->Get<T>(mId) : nullptr;
+				}
+
+				friend class NkSceneGraph;
+		};
+
+		// =====================================================================
+		// Implémentations inline NkComponentBag
+		// =====================================================================
+		template <typename T> T *NkComponentBag<T>::Add(const T &value) noexcept {
+			if (mIsHeap) {
+				heapVec->PushBack(value);
+				return &(*heapVec)[heapVec->Size() - 1];
+			}
+			if (mCount >= kSBOCapacity) {
+				heapVec = new NkVector<T>();
+				heapVec->Reserve(kSBOCapacity + 8);
+				T *buf = reinterpret_cast<T *>(inlineBuf);
+				for (uint32 i = 0; i < mCount; ++i)
+					heapVec->PushBack(static_cast<T &&>(buf[i]));
+				heapVec->PushBack(value);
+				mIsHeap = true;
+				return &(*heapVec)[heapVec->Size() - 1];
+			}
+			T *slot = reinterpret_cast<T *>(inlineBuf) + mCount++;
+			new (slot) T(value);
+			return slot;
+		}
+
+		template <typename T> T *NkComponentBag<T>::Get(uint32 idx) noexcept {
+			if (idx >= mCount)
+				return nullptr;
+			return mIsHeap ? &(*heapVec)[idx] : reinterpret_cast<T *>(inlineBuf) + idx;
+		}
+
+		template <typename T> const T *NkComponentBag<T>::Get(uint32 idx) const noexcept {
+			if (idx >= mCount)
+				return nullptr;
+			return mIsHeap ? &(*heapVec)[idx] : reinterpret_cast<const T *>(inlineBuf) + idx;
+		}
+
+		template <typename T> NkSpan<T> NkComponentBag<T>::GetAll() noexcept {
+			return mIsHeap ? NkSpan<T>(heapVec->Data(), heapVec->Size())
+						   : NkSpan<T>(reinterpret_cast<T *>(inlineBuf), mCount);
+		}
+
+		template <typename T> NkSpan<const T> NkComponentBag<T>::GetAll() const noexcept {
+			return mIsHeap ? NkSpan<const T>(heapVec->Data(), heapVec->Size())
+						   : NkSpan<const T>(reinterpret_cast<const T *>(inlineBuf), mCount);
+		}
+
+		// =====================================================================
+		// Implémentations inline NkGameObject
+		// =====================================================================
+		inline bool NkGameObject::IsValid() const noexcept {
+			return mWorld && mId.IsValid() && mWorld->IsAlive(mId);
+		}
+
+		inline NkWorld &NkGameObject::World() const noexcept {
+			NKECS_ASSERT(mWorld);
+			return *mWorld;
+		}
+
+		inline const char *NkGameObject::Name() const noexcept {
+			if (!IsValid())
+				return "InvalidGO";
+			const auto *n = mWorld->Get<NkName>(mId);
+			return n ? n->Get() : "UnnamedGO";
+		}
+
+		inline void NkGameObject::SetName(const char *name) noexcept {
+			if (!IsValid() || !name)
+				return;
+			if (auto *n = mWorld->Get<NkName>(mId))
+				n->Set(name);
+			else
+				mWorld->Add<NkName>(mId, NkName(name));
+		}
+
+		template <typename T, typename... Args> T *NkGameObject::AddBehaviour(Args &&...args) noexcept {
+			if (!IsValid())
+				return nullptr;
+			auto *host = mWorld->Get<NkBehaviourHost>(mId);
+			if (!host)
+				host = &mWorld->Add<NkBehaviourHost>(mId);
+			T *raw = host->Add<T>(traits::NkForward<Args>(args)...);
+			if (raw)
+				raw->SetGameObject(this);
+			return raw;
+		}
+
+		template <typename T> T *NkGameObject::GetBehaviour() const noexcept {
+			if (!IsValid())
+				return nullptr;
+			auto *host = mWorld->Get<NkBehaviourHost>(mId);
+			return host ? host->Get<T>() : nullptr;
+		}
+
+	} // namespace ecs
 } // namespace nkentseu

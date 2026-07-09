@@ -11,64 +11,89 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace Noge {
+	namespace Noge {
 
-        struct NkProjectConfig {
-            NkString name            = "NewProject";
-            NkString version         = "0.1.0";
-            NkString assetsDir       = "Assets";
-            NkString buildsDir       = "Build";
-            NkString startupScene    = "";     // chemin relatif .nkscene
-            NkString defaultBackend  = "opengl";
+		struct NkProjectConfig {
+				NkString name = "NewProject";
+				NkString version = "0.1.0";
+				NkString assetsDir = "Assets";
+				NkString buildsDir = "Build";
+				NkString startupScene = ""; // chemin relatif .nkscene
+				NkString defaultBackend = "opengl";
 
-            // Scènes enregistrées dans le projet
-            NkVector<NkString> scenes;
+				// Scènes enregistrées dans le projet
+				NkVector<NkString> scenes;
 
-            // Scripts de scènes C++ à compiler (hot-reload Phase 5+)
-            NkVector<NkString> scriptModules;
-        };
+				// Scripts de scènes C++ à compiler (hot-reload Phase 5+)
+				NkVector<NkString> scriptModules;
+		};
 
-        class ProjectManager {
-        public:
-            ProjectManager() = default;
+		class ProjectManager {
+			public:
+				ProjectManager() = default;
 
-            // ── Nouveau projet ────────────────────────────────────────────────
-            void NewProject(const char* name, const char* rootDir) noexcept;
+				// ── Nouveau projet ────────────────────────────────────────────────
+				void NewProject(const char *name, const char *rootDir) noexcept;
 
-            // ── Save / Load ───────────────────────────────────────────────────
-            bool Save(const char* path = nullptr) noexcept; // null = mProjectPath
-            bool Load(const char* path) noexcept;
+				// ── Save / Load ───────────────────────────────────────────────────
+				bool Save(const char *path = nullptr) noexcept; // null = mProjectPath
+				bool Load(const char *path) noexcept;
 
-            // ── Accès ─────────────────────────────────────────────────────────
-            [[nodiscard]] bool IsOpen() const noexcept { return mOpen; }
-            [[nodiscard]] const NkString& ProjectPath()  const noexcept { return mProjectPath; }
-            [[nodiscard]] const NkString& ProjectDir()   const noexcept { return mProjectDir; }
-            [[nodiscard]] const NkString& AssetsDir()    const noexcept { return mAssetsDir; }
-            [[nodiscard]] NkProjectConfig& Config() noexcept { return mConfig; }
-            [[nodiscard]] const NkProjectConfig& Config() const noexcept { return mConfig; }
+				// ── Accès ─────────────────────────────────────────────────────────
+				[[nodiscard]] bool IsOpen() const noexcept {
+					return mOpen;
+				}
 
-            // Chemin absolu depuis un chemin relatif au projet
-            NkString AbsPath(const char* relPath) const noexcept;
+				[[nodiscard]] const NkString &ProjectPath() const noexcept {
+					return mProjectPath;
+				}
 
-            // Chemin relatif depuis un chemin absolu
-            NkString RelPath(const char* absPath) const noexcept;
+				[[nodiscard]] const NkString &ProjectDir() const noexcept {
+					return mProjectDir;
+				}
 
-            // Enregistre une scène dans la liste du projet
-            void AddScene(const NkString& scenePath) noexcept;
-            void RemoveScene(const NkString& scenePath) noexcept;
+				[[nodiscard]] const NkString &AssetsDir() const noexcept {
+					return mAssetsDir;
+				}
 
-            bool IsModified() const noexcept { return mModified; }
-            void MarkModified() noexcept { mModified = true; }
-            void ClearModified() noexcept { mModified = false; }
+				[[nodiscard]] NkProjectConfig &Config() noexcept {
+					return mConfig;
+				}
 
-        private:
-            NkProjectConfig mConfig;
-            NkString        mProjectPath;   // chemin vers le .nkproj
-            NkString        mProjectDir;    // dossier racine du projet
-            NkString        mAssetsDir;     // chemin absolu vers Assets/
-            bool            mOpen     = false;
-            bool            mModified = false;
-        };
+				[[nodiscard]] const NkProjectConfig &Config() const noexcept {
+					return mConfig;
+				}
 
-    } // namespace Noge
+				// Chemin absolu depuis un chemin relatif au projet
+				NkString AbsPath(const char *relPath) const noexcept;
+
+				// Chemin relatif depuis un chemin absolu
+				NkString RelPath(const char *absPath) const noexcept;
+
+				// Enregistre une scène dans la liste du projet
+				void AddScene(const NkString &scenePath) noexcept;
+				void RemoveScene(const NkString &scenePath) noexcept;
+
+				bool IsModified() const noexcept {
+					return mModified;
+				}
+
+				void MarkModified() noexcept {
+					mModified = true;
+				}
+
+				void ClearModified() noexcept {
+					mModified = false;
+				}
+
+			private:
+				NkProjectConfig mConfig;
+				NkString mProjectPath; // chemin vers le .nkproj
+				NkString mProjectDir;  // dossier racine du projet
+				NkString mAssetsDir;   // chemin absolu vers Assets/
+				bool mOpen = false;
+				bool mModified = false;
+		};
+
+	} // namespace Noge
 } // namespace nkentseu

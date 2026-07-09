@@ -22,33 +22,34 @@
 #include "NkConversationEngine.h"
 
 namespace nkentseu {
-    namespace humanoid {
+	namespace humanoid {
 
-        class NkClaudeBackend final : public NkIConvBackend {
-        public:
-            bool Init(const char* endpoint,
-                      const char* modelName,
-                      const char* apiKey) noexcept override;
+		class NkClaudeBackend final : public NkIConvBackend {
+			public:
+				bool Init(const char *endpoint, const char *modelName, const char *apiKey) noexcept override;
 
-            bool Complete(const NkVector<NkConvMessage>& messages,
-                          nk_float32 temperature,
-                          nk_uint32  maxTokens,
-                          NkConvResponse& out) noexcept override;
+				bool Complete(const NkVector<NkConvMessage> &messages, nk_float32 temperature, nk_uint32 maxTokens,
+							  NkConvResponse &out) noexcept override;
 
-            bool IsAvailable() const noexcept override { return mApiKeySet; }
-            const char* BackendName() const noexcept override { return "Claude-API"; }
+				bool IsAvailable() const noexcept override {
+					return mApiKeySet;
+				}
 
-        private:
-            NkString BuildRequestJSON(const NkVector<NkConvMessage>& msgs,
-                                       nk_float32 temp, nk_uint32 maxTok) const noexcept;
-            bool ParseResponse(const NkString& json, NkConvResponse& out) const noexcept;
-            bool HttpsPost(const NkString& body, NkString& out) const noexcept;
+				const char *BackendName() const noexcept override {
+					return "Claude-API";
+				}
 
-            NkString mApiKey;
-            NkString mModel    = "claude-3-5-haiku-20241022";
-            NkString mEndpoint = "https://api.anthropic.com";
-            bool     mApiKeySet= false;
-        };
+			private:
+				NkString BuildRequestJSON(const NkVector<NkConvMessage> &msgs, nk_float32 temp,
+										  nk_uint32 maxTok) const noexcept;
+				bool ParseResponse(const NkString &json, NkConvResponse &out) const noexcept;
+				bool HttpsPost(const NkString &body, NkString &out) const noexcept;
 
-    } // namespace humanoid
+				NkString mApiKey;
+				NkString mModel = "claude-3-5-haiku-20241022";
+				NkString mEndpoint = "https://api.anthropic.com";
+				bool mApiKeySet = false;
+		};
+
+	} // namespace humanoid
 } // namespace nkentseu

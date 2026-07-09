@@ -16,25 +16,27 @@
 
 namespace nkentseu {
 
-    class NkParticleSystem final : public ecs::NkSystem {
-        public:
-            NkParticleSystem() noexcept = default;
+	class NkParticleSystem final : public ecs::NkSystem {
+		public:
+			NkParticleSystem() noexcept = default;
 
-            void Init(renderer::NkRenderer* r) noexcept { mRenderer = r; }
+			void Init(renderer::NkRenderer *r) noexcept {
+				mRenderer = r;
+			}
 
-            [[nodiscard]] ecs::NkSystemDesc Describe() const override {
-                return ecs::NkSystemDesc{}
-                    .Writes<ecs::NkParticleEmitter>()
-                    .Reads<ecs::NkTransform>()
-                    .InGroup(ecs::NkSystemGroup::PostUpdate)
-                    .Sequential()
-                    .Named("NkParticleSystem");
-            }
+			[[nodiscard]] ecs::NkSystemDesc Describe() const override {
+				return ecs::NkSystemDesc{}
+					.Writes<ecs::NkParticleEmitter>()
+					.Reads<ecs::NkTransform>()
+					.InGroup(ecs::NkSystemGroup::PostUpdate)
+					.Sequential()
+					.Named("NkParticleSystem");
+			}
 
-            void Execute(ecs::NkWorld& world, float32 dt) noexcept override;
+			void Execute(ecs::NkWorld &world, float32 dt) noexcept override;
 
-        private:
-            renderer::NkRenderer* mRenderer = nullptr;  // EMPRUNTÉ à NkApplication
-    };
+		private:
+			renderer::NkRenderer *mRenderer = nullptr; // EMPRUNTÉ à NkApplication
+	};
 
 } // namespace nkentseu

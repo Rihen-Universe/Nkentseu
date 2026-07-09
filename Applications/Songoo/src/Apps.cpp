@@ -19,125 +19,129 @@
 using namespace nkentseu;
 using nkentseu::songoo::SongooGame;
 
-int nkmain(const NkEntryState& state) {
-    (void)state;
+int nkmain(const NkEntryState &state) {
+	(void)state;
 
-    // ── Fenêtre paysage 1600×900 ─────────────────────────────────────────────
-    NkWindowConfig cfg;
-    cfg.title       = "Songo'o";
-    cfg.width       = 1600;
-    cfg.height      = 900;
-    cfg.centered    = true;
-    cfg.resizable   = true;
-    cfg.dropEnabled = false;
-
-#if defined(NKENTSEU_PLATFORM_ANDROID)
-    cfg.fullscreen        = true;
-    cfg.hideSystemUI      = true;
-    cfg.screenOrientation = NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE;
-    cfg.lockOrientation   = true;
-#endif
-
-    NkWindow window(cfg);
-    if (!window.IsOpen()) {
-        logger.Error("[Songo'o] Window creation failed");
-        return -1;
-    }
+	// ── Fenêtre paysage 1600×900 ─────────────────────────────────────────────
+	NkWindowConfig cfg;
+	cfg.title = "Songo'o";
+	cfg.width = 1600;
+	cfg.height = 900;
+	cfg.centered = true;
+	cfg.resizable = true;
+	cfg.dropEnabled = false;
 
 #if defined(NKENTSEU_PLATFORM_ANDROID)
-    window.SetScreenOrientation(NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE);
-    window.SetLockOrientation(true);
-    window.SetFullscreen(true);
-    window.SetHideSystemUI(true);
+	cfg.fullscreen = true;
+	cfg.hideSystemUI = true;
+	cfg.screenOrientation = NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE;
+	cfg.lockOrientation = true;
 #endif
 
-    SongooGame app(window);
-    if (!app.Init()) {
-        logger.Error("[Songo'o] SongooGame::Init failed");
-        window.Close();
-        return -2;
-    }
+	NkWindow window(cfg);
+	if (!window.IsOpen()) {
+		logger.Error("[Songo'o] Window creation failed");
+		return -1;
+	}
 
-    auto& events = NkEvents();
-    NkChrono chrono;
-    NkElapsedTime elapsed;
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+	window.SetScreenOrientation(NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE);
+	window.SetLockOrientation(true);
+	window.SetFullscreen(true);
+	window.SetHideSystemUI(true);
+#endif
 
-    bool surfaceReady = true;
-    bool needResize   = false;
-    bool appResumed   = true;
-    math::NkVec2u pendingSize = window.GetSize();
+	SongooGame app(window);
+	if (!app.Init()) {
+		logger.Error("[Songo'o] SongooGame::Init failed");
+		window.Close();
+		return -2;
+	}
 
-    while (window.IsOpen()) {
-        elapsed = chrono.Reset();
-        float dt = static_cast<float>(elapsed.seconds);
-        if (dt <= 0.f || dt > 0.25f) dt = 1.0f / 60.0f;
+	auto &events = NkEvents();
+	NkChrono chrono;
+	NkElapsedTime elapsed;
 
-        while (NkEvent* ev = events.PollEvent()) {
-            if (ev->Is<NkWindowCloseEvent>()) {
-                window.Close();
-                break;
-            }
-            if (auto* wr = ev->As<NkWindowResizeEvent>()) {
-                pendingSize.width  = wr->GetWidth();
-                pendingSize.height = wr->GetHeight();
-                needResize = true;
-            }
-            if (ev->Is<NkWindowShownEvent>()) {
-                if (!app.RecreateSurface())
-                    logger.Warn("[Songo'o] RecreateSurface returned false");
-                auto sz = window.GetSize();
-                if (sz.x > 0 && sz.y > 0)
-                    app.OnResize(sz.x, sz.y);
-                surfaceReady = true;
-                appResumed   = true;
-                app.OnResume();
-            }
-            if (ev->Is<NkWindowHiddenEvent>()) {
-                surfaceReady = false;
-                app.OnPause();
-            }
-            if (ev->Is<NkWindowFocusGainedEvent>())
-                appResumed = true;
-            if (ev->Is<NkWindowFocusLostEvent>())
-                app.OnPause();
+	bool surfaceReady = true;
+	bool needResize = false;
+	bool appResumed = true;
+	math::NkVec2u pendingSize = window.GetSize();
 
-            app.OnEvent(*ev);
-        }
-        if (!window.IsOpen()) break;
+	while (window.IsOpen()) {
+		elapsed = chrono.Reset();
+		float dt = static_cast<float>(elapsed.seconds);
+		if (dt <= 0.f || dt > 0.25f)
+			dt = 1.0f / 60.0f;
 
-        if (!surfaceReady) {
-            NkChrono::Sleep(16.0f);
-            continue;
-        }
-        if (pendingSize.width == 0 || pendingSize.height == 0)
-            continue;
+		while (NkEvent *ev = events.PollEvent()) {
+			if (ev->Is<NkWindowCloseEvent>()) {
+				window.Close();
+				break;
+			}
+			if (auto *wr = ev->As<NkWindowResizeEvent>()) {
+				pendingSize.width = wr->GetWidth();
+				pendingSize.height = wr->GetHeight();
+				needResize = true;
+			}
+			if (ev->Is<NkWindowShownEvent>()) {
+				if (!app.RecreateSurface())
+					logger.Warn("[Songo'o] RecreateSurface returned false");
+				auto sz = window.GetSize();
+				if (sz.x > 0 && sz.y > 0)
+					app.OnResize(sz.x, sz.y);
+				surfaceReady = true;
+				appResumed = true;
+				app.OnResume();
+			}
+			if (ev->Is<NkWindowHiddenEvent>()) {
+				surfaceReady = false;
+				app.OnPause();
+			}
+			if (ev->Is<NkWindowFocusGainedEvent>())
+				appResumed = true;
+			if (ev->Is<NkWindowFocusLostEvent>())
+				app.OnPause();
 
-        if (needResize) {
-            app.OnResize(pendingSize.width, pendingSize.height);
-            needResize = false;
-        }
+			app.OnEvent(*ev);
+		}
+		if (!window.IsOpen())
+			break;
 
-        app.Update(dt);
+		if (!surfaceReady) {
+			NkChrono::Sleep(16.0f);
+			continue;
+		}
+		if (pendingSize.width == 0 || pendingSize.height == 0)
+			continue;
 
-        if (appResumed) {
-            app.Render();
-            app.Render();
-            appResumed = false;
-        } else {
-            app.Render();
-        }
+		if (needResize) {
+			app.OnResize(pendingSize.width, pendingSize.height);
+			needResize = false;
+		}
 
-        if (app.WantsQuit()) {
-            window.Close();
-            break;
-        }
+		app.Update(dt);
 
-        elapsed = chrono.Elapsed();
-        if (elapsed.milliseconds < 16) NkChrono::Sleep(16 - elapsed.milliseconds);
-        else                            NkChrono::YieldThread();
-    }
+		if (appResumed) {
+			app.Render();
+			app.Render();
+			appResumed = false;
+		} else {
+			app.Render();
+		}
 
-    app.Shutdown();
-    window.Close();
-    return 0;
+		if (app.WantsQuit()) {
+			window.Close();
+			break;
+		}
+
+		elapsed = chrono.Elapsed();
+		if (elapsed.milliseconds < 16)
+			NkChrono::Sleep(16 - elapsed.milliseconds);
+		else
+			NkChrono::YieldThread();
+	}
+
+	app.Shutdown();
+	window.Close();
+	return 0;
 }

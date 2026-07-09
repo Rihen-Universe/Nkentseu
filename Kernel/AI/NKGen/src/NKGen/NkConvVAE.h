@@ -16,31 +16,34 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace ai {
-        namespace gen {
+	namespace ai {
+		namespace gen {
 
-            class NkConvVAE {
-            public:
-                NkConvVAE() = default;
-                // imgW = côté image (carrée, 1 canal), channels = canaux conv, latent = dim latente.
-                NkConvVAE(uint32 imgW, uint32 channels, uint32 latent, uint32 seed = 1u);
+			class NkConvVAE {
+				public:
+					NkConvVAE() = default;
+					// imgW = côté image (carrée, 1 canal), channels = canaux conv, latent = dim latente.
+					NkConvVAE(uint32 imgW, uint32 channels, uint32 latent, uint32 seed = 1u);
 
-                void  Encode(const NkVar& x, NkVar& mu, NkVar& logvar) const; // x [B,1,W,W]
-                NkVar Reparam(const NkVar& mu, const NkVar& logvar, const NkVar& eps) const;
-                NkVar DecodeLogits(const NkVar& z) const;                     // avant sigmoid (BCE)
-                NkVar Decode(const NkVar& z) const;                           // -> [B,1,W,W] dans [0,1]
+					void Encode(const NkVar &x, NkVar &mu, NkVar &logvar) const; // x [B,1,W,W]
+					NkVar Reparam(const NkVar &mu, const NkVar &logvar, const NkVar &eps) const;
+					NkVar DecodeLogits(const NkVar &z) const; // avant sigmoid (BCE)
+					NkVar Decode(const NkVar &z) const;		  // -> [B,1,W,W] dans [0,1]
 
-                void   Parameters(NkVector<NkVar>& out) const;
-                uint32 LatentDim() const { return mLatent; }
+					void Parameters(NkVector<NkVar> &out) const;
 
-            private:
-                nn::NkConv2D  mEncConv;             // encodeur conv
-                nn::NkDense   mEncMu, mEncLogvar;
-                nn::NkDense   mDecFc;               // latent -> features spatiales
-                nn::NkConv2D  mDecConv;             // resize-conv : Upsample2x puis Conv (sans artefacts)
-                uint32 mImgW = 0, mChannels = 0, mLatent = 0, mPooled = 0; // mPooled = W/2
-            };
+					uint32 LatentDim() const {
+						return mLatent;
+					}
 
-        } // namespace gen
-    } // namespace ai
+				private:
+					nn::NkConv2D mEncConv; // encodeur conv
+					nn::NkDense mEncMu, mEncLogvar;
+					nn::NkDense mDecFc;	   // latent -> features spatiales
+					nn::NkConv2D mDecConv; // resize-conv : Upsample2x puis Conv (sans artefacts)
+					uint32 mImgW = 0, mChannels = 0, mLatent = 0, mPooled = 0; // mPooled = W/2
+			};
+
+		} // namespace gen
+	} // namespace ai
 } // namespace nkentseu

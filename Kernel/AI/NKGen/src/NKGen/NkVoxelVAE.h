@@ -16,29 +16,32 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace ai {
-        namespace gen {
+	namespace ai {
+		namespace gen {
 
-            class NkVoxelVAE {
-            public:
-                NkVoxelVAE() = default;
-                NkVoxelVAE(uint32 gridW, uint32 channels, uint32 latent, uint32 seed = 1u);
+			class NkVoxelVAE {
+				public:
+					NkVoxelVAE() = default;
+					NkVoxelVAE(uint32 gridW, uint32 channels, uint32 latent, uint32 seed = 1u);
 
-                void  Encode(const NkVar& x, NkVar& mu, NkVar& logvar) const;  // x [B,1,W,W,W]
-                NkVar Reparam(const NkVar& mu, const NkVar& logvar, const NkVar& eps) const;
-                NkVar Decode(const NkVar& z) const;                            // -> [B,1,W,W,W]
+					void Encode(const NkVar &x, NkVar &mu, NkVar &logvar) const; // x [B,1,W,W,W]
+					NkVar Reparam(const NkVar &mu, const NkVar &logvar, const NkVar &eps) const;
+					NkVar Decode(const NkVar &z) const; // -> [B,1,W,W,W]
 
-                void   Parameters(NkVector<NkVar>& out) const;
-                uint32 LatentDim() const { return mLatent; }
+					void Parameters(NkVector<NkVar> &out) const;
 
-            private:
-                nn::NkConv3D          mEncConv;
-                nn::NkDense           mEncMu, mEncLogvar;
-                nn::NkDense           mDecFc;
-                nn::NkConvTranspose3D mDecDeconv;
-                uint32 mGridW = 0, mChannels = 0, mLatent = 0, mPooled = 0;
-            };
+					uint32 LatentDim() const {
+						return mLatent;
+					}
 
-        } // namespace gen
-    } // namespace ai
+				private:
+					nn::NkConv3D mEncConv;
+					nn::NkDense mEncMu, mEncLogvar;
+					nn::NkDense mDecFc;
+					nn::NkConvTranspose3D mDecDeconv;
+					uint32 mGridW = 0, mChannels = 0, mLatent = 0, mPooled = 0;
+			};
+
+		} // namespace gen
+	} // namespace ai
 } // namespace nkentseu

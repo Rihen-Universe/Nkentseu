@@ -57,246 +57,250 @@
 
 namespace nkentseu {
 
-    using namespace math;
+	using namespace math;
 
-    // =========================================================================
-    // NkGLTFMaterialData — données matériau importé
-    // =========================================================================
-    struct NkGLTFMaterialData {
-        NkString name;
+	// =========================================================================
+	// NkGLTFMaterialData — données matériau importé
+	// =========================================================================
+	struct NkGLTFMaterialData {
+			NkString name;
 
-        // PBR Metallic-Roughness
-        NkVec4f  baseColorFactor    = {1, 1, 1, 1};
-        NkString baseColorTexture;
-        float32  metallicFactor     = 0.f;
-        float32  roughnessFactor    = 1.f;
-        NkString metallicRoughnessTexture;
+			// PBR Metallic-Roughness
+			NkVec4f baseColorFactor = {1, 1, 1, 1};
+			NkString baseColorTexture;
+			float32 metallicFactor = 0.f;
+			float32 roughnessFactor = 1.f;
+			NkString metallicRoughnessTexture;
 
-        // Normales
-        NkString normalTexture;
-        float32  normalScale        = 1.f;
+			// Normales
+			NkString normalTexture;
+			float32 normalScale = 1.f;
 
-        // Occlusion
-        NkString occlusionTexture;
-        float32  occlusionStrength  = 1.f;
+			// Occlusion
+			NkString occlusionTexture;
+			float32 occlusionStrength = 1.f;
 
-        // Émission
-        NkVec3f  emissiveFactor     = {};
-        NkString emissiveTexture;
+			// Émission
+			NkVec3f emissiveFactor = {};
+			NkString emissiveTexture;
 
-        // Mode alpha
-        enum class AlphaMode : uint8 { Opaque, Mask, Blend };
-        AlphaMode alphaMode         = AlphaMode::Opaque;
-        float32   alphaCutoff       = 0.5f;
-        bool      doubleSided       = false;
-    };
+			// Mode alpha
+			enum class AlphaMode : uint8 { Opaque, Mask, Blend };
+			AlphaMode alphaMode = AlphaMode::Opaque;
+			float32 alphaCutoff = 0.5f;
+			bool doubleSided = false;
+	};
 
-    // =========================================================================
-    // NkGLTFMeshData — données mesh importé
-    // =========================================================================
-    struct NkGLTFMeshData {
-        NkString name;
-        NkEditableMesh mesh;            ///< Données CPU
-        uint32 materialIndex = 0;       ///< Index dans les matériaux de la scène
+	// =========================================================================
+	// NkGLTFMeshData — données mesh importé
+	// =========================================================================
+	struct NkGLTFMeshData {
+			NkString name;
+			NkEditableMesh mesh;	  ///< Données CPU
+			uint32 materialIndex = 0; ///< Index dans les matériaux de la scène
 
-        // Blend shapes (morph targets)
-        struct MorphTarget {
-            NkString name;
-            NkVector<NkVec3f> positionDeltas;
-            NkVector<NkVec3f> normalDeltas;
-        };
-        NkVector<MorphTarget> morphTargets;
+			// Blend shapes (morph targets)
+			struct MorphTarget {
+					NkString name;
+					NkVector<NkVec3f> positionDeltas;
+					NkVector<NkVec3f> normalDeltas;
+			};
 
-        // Skinning
-        struct SkinData {
-            NkVector<uint32>   boneIndices;  ///< 4 indices par vertex
-            NkVector<NkVec4f>  boneWeights;  ///< 4 poids par vertex
-        };
-        SkinData skin;
-        bool hasSkinning = false;
-    };
+			NkVector<MorphTarget> morphTargets;
 
-    // =========================================================================
-    // NkGLTFNodeData — nœud de scène importé
-    // =========================================================================
-    struct NkGLTFNodeData {
-        NkString name;
-        NkMat4f  localTransform = NkMat4f::Identity();
-        NkVec3f  translation    = {};
-        NkQuatf  rotation       = NkQuatf::Identity();
-        NkVec3f  scale          = {1, 1, 1};
+			// Skinning
+			struct SkinData {
+					NkVector<uint32> boneIndices;  ///< 4 indices par vertex
+					NkVector<NkVec4f> boneWeights; ///< 4 poids par vertex
+			};
 
-        int32    meshIndex      = -1;   ///< -1 = pas de mesh
-        int32    cameraIndex    = -1;
-        int32    skinIndex      = -1;
-        int32    parentIndex    = -1;
+			SkinData skin;
+			bool hasSkinning = false;
+	};
 
-        NkVector<uint32> children;
-    };
+	// =========================================================================
+	// NkGLTFNodeData — nœud de scène importé
+	// =========================================================================
+	struct NkGLTFNodeData {
+			NkString name;
+			NkMat4f localTransform = NkMat4f::Identity();
+			NkVec3f translation = {};
+			NkQuatf rotation = NkQuatf::Identity();
+			NkVec3f scale = {1, 1, 1};
 
-    // =========================================================================
-    // NkGLTFAnimationData — animation importée
-    // =========================================================================
-    struct NkGLTFAnimationData {
-        NkString name;
-        float32  duration = 0.f;
+			int32 meshIndex = -1; ///< -1 = pas de mesh
+			int32 cameraIndex = -1;
+			int32 skinIndex = -1;
+			int32 parentIndex = -1;
 
-        struct Channel {
-            uint32 targetNode = 0;
-            enum class Path : uint8 { Translation, Rotation, Scale, MorphWeights } path;
-            NkVector<float32> times;
-            NkVector<NkVec4f> values;  ///< Vec3 pour TRS, Vec4 pour quaternions
-            enum class Interpolation : uint8 { Linear, Step, CubicSpline } interp;
-        };
-        NkVector<Channel> channels;
-    };
+			NkVector<uint32> children;
+	};
 
-    // =========================================================================
-    // NkGLTFScene — scène complète importée
-    // =========================================================================
-    struct NkGLTFScene {
-        NkString name;
-        bool     valid = false;
+	// =========================================================================
+	// NkGLTFAnimationData — animation importée
+	// =========================================================================
+	struct NkGLTFAnimationData {
+			NkString name;
+			float32 duration = 0.f;
 
-        NkVector<NkGLTFMeshData>      meshes;
-        NkVector<NkGLTFMaterialData>  materials;
-        NkVector<NkGLTFNodeData>      nodes;
-        NkVector<NkGLTFAnimationData> animations;
-        NkVector<ecs::NkSkeleton>     skeletons;
+			struct Channel {
+					uint32 targetNode = 0;
+					enum class Path : uint8 { Translation, Rotation, Scale, MorphWeights } path;
+					NkVector<float32> times;
+					NkVector<NkVec4f> values; ///< Vec3 pour TRS, Vec4 pour quaternions
+					enum class Interpolation : uint8 { Linear, Step, CubicSpline } interp;
+			};
 
-        // Nœuds racines de la scène
-        NkVector<uint32> rootNodes;
+			NkVector<Channel> channels;
+	};
 
-        [[nodiscard]] bool IsValid() const noexcept { return valid; }
+	// =========================================================================
+	// NkGLTFScene — scène complète importée
+	// =========================================================================
+	struct NkGLTFScene {
+			NkString name;
+			bool valid = false;
 
-        /**
-         * @brief Instancie toute la scène dans un NkWorld ECS.
-         * @param world   Monde ECS cible.
-         * @param factory Factory pour créer les GameObjects.
-         * @param out     Optionnel : liste des entités créées.
-         */
-        void SpawnIntoWorld(ecs::NkWorld& world,
-                             NkVector<ecs::NkEntityId>* out = nullptr) const noexcept;
+			NkVector<NkGLTFMeshData> meshes;
+			NkVector<NkGLTFMaterialData> materials;
+			NkVector<NkGLTFNodeData> nodes;
+			NkVector<NkGLTFAnimationData> animations;
+			NkVector<ecs::NkSkeleton> skeletons;
 
-        /**
-         * @brief Retourne tous les NkEditableMesh fusionnés (pour import mesh seul).
-         */
-        [[nodiscard]] NkEditableMesh MergeAllMeshes() const noexcept;
-    };
+			// Nœuds racines de la scène
+			NkVector<uint32> rootNodes;
 
-    // =========================================================================
-    // NkGLTFImporter
-    // =========================================================================
-    struct NkGLTFImportOptions {
-        bool importMeshes       = true;
-        bool importMaterials    = true;
-        bool importSkeletons    = true;
-        bool importAnimations   = true;
-        bool importCameras      = true;
-        bool importLights       = true;
-        bool importBlendShapes  = true;
+			[[nodiscard]] bool IsValid() const noexcept {
+				return valid;
+			}
 
-        float32 scaleFactor     = 1.f;      ///< Facteur d'échelle global
-        bool    flipY           = false;    ///< Retourner Y (pour conventions différentes)
-        bool    flipWinding     = false;    ///< Inverser le sens des faces
+			/**
+			 * @brief Instancie toute la scène dans un NkWorld ECS.
+			 * @param world   Monde ECS cible.
+			 * @param factory Factory pour créer les GameObjects.
+			 * @param out     Optionnel : liste des entités créées.
+			 */
+			void SpawnIntoWorld(ecs::NkWorld &world, NkVector<ecs::NkEntityId> *out = nullptr) const noexcept;
 
-        // Résolution des textures
-        NkString textureBasePath;           ///< Dossier de base pour les textures externes
-    };
+			/**
+			 * @brief Retourne tous les NkEditableMesh fusionnés (pour import mesh seul).
+			 */
+			[[nodiscard]] NkEditableMesh MergeAllMeshes() const noexcept;
+	};
 
-    class NkGLTFImporter {
-        public:
-            NkGLTFImporter()  noexcept = default;
-            ~NkGLTFImporter() noexcept = default;
+	// =========================================================================
+	// NkGLTFImporter
+	// =========================================================================
+	struct NkGLTFImportOptions {
+			bool importMeshes = true;
+			bool importMaterials = true;
+			bool importSkeletons = true;
+			bool importAnimations = true;
+			bool importCameras = true;
+			bool importLights = true;
+			bool importBlendShapes = true;
 
-            /**
-             * @brief Importe un fichier glTF 2.0 ou GLB.
-             * @param path Chemin vers le fichier (.gltf ou .glb).
-             * @param opts Options d'import.
-             * @return NkGLTFScene contenant toutes les données importées.
-             */
-            [[nodiscard]] NkGLTFScene Import(
-                const char* path,
-                const NkGLTFImportOptions& opts = {}) noexcept;
+			float32 scaleFactor = 1.f; ///< Facteur d'échelle global
+			bool flipY = false;		   ///< Retourner Y (pour conventions différentes)
+			bool flipWinding = false;  ///< Inverser le sens des faces
 
-            /**
-             * @brief Importe depuis un buffer mémoire (GLB uniquement).
-             */
-            [[nodiscard]] NkGLTFScene ImportFromMemory(
-                const uint8* data,
-                nk_usize size,
-                const NkGLTFImportOptions& opts = {}) noexcept;
+			// Résolution des textures
+			NkString textureBasePath; ///< Dossier de base pour les textures externes
+	};
 
-            [[nodiscard]] const NkString& GetLastError() const noexcept { return mLastError; }
+	class NkGLTFImporter {
+		public:
+			NkGLTFImporter() noexcept = default;
+			~NkGLTFImporter() noexcept = default;
 
-        private:
-            NkString mLastError;
+			/**
+			 * @brief Importe un fichier glTF 2.0 ou GLB.
+			 * @param path Chemin vers le fichier (.gltf ou .glb).
+			 * @param opts Options d'import.
+			 * @return NkGLTFScene contenant toutes les données importées.
+			 */
+			[[nodiscard]] NkGLTFScene Import(const char *path, const NkGLTFImportOptions &opts = {}) noexcept;
 
-            bool ParseGLB (const uint8* data, nk_usize size) noexcept;
-            bool ParseGLTF(const char* json) noexcept;
+			/**
+			 * @brief Importe depuis un buffer mémoire (GLB uniquement).
+			 */
+			[[nodiscard]] NkGLTFScene ImportFromMemory(const uint8 *data, nk_usize size,
+													   const NkGLTFImportOptions &opts = {}) noexcept;
 
-            void LoadMeshes    (NkGLTFScene& scene) noexcept;
-            void LoadMaterials (NkGLTFScene& scene) noexcept;
-            void LoadNodes     (NkGLTFScene& scene) noexcept;
-            void LoadAnimations(NkGLTFScene& scene) noexcept;
-            void LoadSkeletons (NkGLTFScene& scene) noexcept;
+			[[nodiscard]] const NkString &GetLastError() const noexcept {
+				return mLastError;
+			}
 
-            // Buffer JSON et BIN internes
-            NkVector<uint8>  mJsonData;
-            NkVector<uint8>  mBinData;
-            NkGLTFImportOptions mOpts;
-    };
+		private:
+			NkString mLastError;
 
-    // =========================================================================
-    // NkGLTFExporter
-    // =========================================================================
-    struct NkGLTFExportOptions {
-        enum class Format : uint8 { GLTF, GLB };
-        Format  format          = Format::GLB;
-        bool    embedTextures   = true;     ///< Embed textures dans le GLB/GLTF
-        bool    exportNormals   = true;
-        bool    exportUVs       = true;
-        bool    exportColors    = false;
-        bool    exportTangents  = true;
-        bool    exportSkinning  = true;
-        bool    exportAnimation = true;
-        float32 scaleFactor     = 1.f;
-    };
+			bool ParseGLB(const uint8 *data, nk_usize size) noexcept;
+			bool ParseGLTF(const char *json) noexcept;
 
-    class NkGLTFExporter {
-        public:
-            NkGLTFExporter()  noexcept = default;
-            ~NkGLTFExporter() noexcept = default;
+			void LoadMeshes(NkGLTFScene &scene) noexcept;
+			void LoadMaterials(NkGLTFScene &scene) noexcept;
+			void LoadNodes(NkGLTFScene &scene) noexcept;
+			void LoadAnimations(NkGLTFScene &scene) noexcept;
+			void LoadSkeletons(NkGLTFScene &scene) noexcept;
 
-            void SetOptions(const NkGLTFExportOptions& opts) noexcept { mOpts = opts; }
+			// Buffer JSON et BIN internes
+			NkVector<uint8> mJsonData;
+			NkVector<uint8> mBinData;
+			NkGLTFImportOptions mOpts;
+	};
 
-            void AddMesh(const NkEditableMesh& mesh,
-                         const NkGLTFMaterialData& mat = {},
-                         const char* name = nullptr) noexcept;
+	// =========================================================================
+	// NkGLTFExporter
+	// =========================================================================
+	struct NkGLTFExportOptions {
+			enum class Format : uint8 { GLTF, GLB };
+			Format format = Format::GLB;
+			bool embedTextures = true; ///< Embed textures dans le GLB/GLTF
+			bool exportNormals = true;
+			bool exportUVs = true;
+			bool exportColors = false;
+			bool exportTangents = true;
+			bool exportSkinning = true;
+			bool exportAnimation = true;
+			float32 scaleFactor = 1.f;
+	};
 
-            void AddSkeleton(const ecs::NkSkeleton& skeleton) noexcept;
+	class NkGLTFExporter {
+		public:
+			NkGLTFExporter() noexcept = default;
+			~NkGLTFExporter() noexcept = default;
 
-            void AddAnimation(const ecs::NkAnimationClip& clip,
-                              const ecs::NkSkeleton& skeleton) noexcept;
+			void SetOptions(const NkGLTFExportOptions &opts) noexcept {
+				mOpts = opts;
+			}
 
-            /**
-             * @brief Exporte la scène vers un fichier.
-             * @return true si succès.
-             */
-            [[nodiscard]] bool Export(const char* path) noexcept;
+			void AddMesh(const NkEditableMesh &mesh, const NkGLTFMaterialData &mat = {},
+						 const char *name = nullptr) noexcept;
 
-            /**
-             * @brief Exporte vers un buffer mémoire (GLB).
-             */
-            [[nodiscard]] bool ExportToMemory(NkVector<uint8>& out) noexcept;
+			void AddSkeleton(const ecs::NkSkeleton &skeleton) noexcept;
 
-            [[nodiscard]] const NkString& GetLastError() const noexcept { return mLastError; }
+			void AddAnimation(const ecs::NkAnimationClip &clip, const ecs::NkSkeleton &skeleton) noexcept;
 
-        private:
-            NkGLTFExportOptions     mOpts;
-            NkVector<NkEditableMesh> mMeshes;
-            NkVector<NkGLTFMaterialData> mMaterials;
-            NkString mLastError;
-    };
+			/**
+			 * @brief Exporte la scène vers un fichier.
+			 * @return true si succès.
+			 */
+			[[nodiscard]] bool Export(const char *path) noexcept;
+
+			/**
+			 * @brief Exporte vers un buffer mémoire (GLB).
+			 */
+			[[nodiscard]] bool ExportToMemory(NkVector<uint8> &out) noexcept;
+
+			[[nodiscard]] const NkString &GetLastError() const noexcept {
+				return mLastError;
+			}
+
+		private:
+			NkGLTFExportOptions mOpts;
+			NkVector<NkEditableMesh> mMeshes;
+			NkVector<NkGLTFMaterialData> mMaterials;
+			NkString mLastError;
+	};
 
 } // namespace nkentseu

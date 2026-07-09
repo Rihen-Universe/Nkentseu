@@ -1,4 +1,5 @@
 #pragma once
+
 // =============================================================================
 // NkCamera2D.h — Caméra 2D minimale pour le mapping IMU de NkCameraSystem
 //
@@ -7,31 +8,35 @@
 // NkCameraSystem::UpdateVirtualCamera().
 // =============================================================================
 
-namespace nkentseu
-{
+namespace nkentseu {
 
-    class NkCamera2D
-    {
-        public:
-            void SetPosition(float x, float y)
-            {
-                mX = x;
-                mY = y;
-            }
+	class NkCamera2D {
+		public:
+			void SetPosition(float x, float y) {
+				mX = x;
+				mY = y;
+			}
 
-            void SetRotation(float degrees)
-            {
-                mRotationDeg = degrees;
-            }
+			void SetRotation(float degrees) {
+				mRotationDeg = degrees;
+			}
 
-            float GetX() const { return mX; }
-            float GetY() const { return mY; }
-            float GetRotation() const { return mRotationDeg; }
+			float GetX() const {
+				return mX;
+			}
 
-        private:
-            float mX = 0.f;
-            float mY = 0.f;
-            float mRotationDeg = 0.f;
-    };
+			float GetY() const {
+				return mY;
+			}
+
+			float GetRotation() const {
+				return mRotationDeg;
+			}
+
+		private:
+			float mX = 0.f;
+			float mY = 0.f;
+			float mRotationDeg = 0.f;
+	};
 
 } // namespace nkentseu

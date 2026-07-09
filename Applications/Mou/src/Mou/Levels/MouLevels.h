@@ -22,22 +22,25 @@
 
 namespace mou {
 
-    class MouLevels {
-    public:
-        /// Charge assets/levels/<name> (ex. "couleurs.json"). @return nb de niveaux (0 si échec).
-        nkentseu::int32 Load(const char* name) noexcept;
-        nkentseu::int32 Count() const noexcept { return static_cast<nkentseu::int32>(mRecs.Size()); }
+	class MouLevels {
+		public:
+			/// Charge assets/levels/<name> (ex. "couleurs.json"). @return nb de niveaux (0 si échec).
+			nkentseu::int32 Load(const char *name) noexcept;
 
-        /// Entier nommé du niveau, ou @p def si absent/hors-bornes.
-        nkentseu::int32 GetInt(nkentseu::int32 level, const char* key, nkentseu::int32 def) const noexcept;
-        /// Chaîne nommée -> out (taille cap). @return false si absente.
-        bool GetStr(nkentseu::int32 level, const char* key, char* out, nkentseu::usize cap) const noexcept;
+			nkentseu::int32 Count() const noexcept {
+				return static_cast<nkentseu::int32>(mRecs.Size());
+			}
 
-    private:
-        nkentseu::NkVector<nkentseu::NkArchive> mRecs;
-        nkentseu::int32 Clamp(nkentseu::int32 i) const noexcept;
-    };
+			/// Entier nommé du niveau, ou @p def si absent/hors-bornes.
+			nkentseu::int32 GetInt(nkentseu::int32 level, const char *key, nkentseu::int32 def) const noexcept;
+			/// Chaîne nommée -> out (taille cap). @return false si absente.
+			bool GetStr(nkentseu::int32 level, const char *key, char *out, nkentseu::usize cap) const noexcept;
 
-}  // namespace mou
+		private:
+			nkentseu::NkVector<nkentseu::NkArchive> mRecs;
+			nkentseu::int32 Clamp(nkentseu::int32 i) const noexcept;
+	};
+
+} // namespace mou
 
 #endif // MOU_LEVELS_H

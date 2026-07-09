@@ -12,20 +12,20 @@
 
 #include "NkTypes.h"
 #include "NKEvent/NkSafeArea.h"
-#include "NkSurfaceHint.h"   // ← seul ajout d'include
+#include "NkSurfaceHint.h" // ← seul ajout d'include
 
 namespace nkentseu {
 
 	struct NkWebInputOptions {
-		bool captureKeyboard        = true;
-		bool allowBrowserShortcuts  = true;
-		bool captureMouseMove       = true;
-		bool captureMouseLeft       = true;
-		bool captureMouseMiddle     = true;
-		bool captureMouseRight      = false;
-		bool captureMouseWheel      = true;
-		bool captureTouch           = true;
-		bool preventContextMenu     = false;
+			bool captureKeyboard = true;
+			bool allowBrowserShortcuts = true;
+			bool captureMouseMove = true;
+			bool captureMouseLeft = true;
+			bool captureMouseMiddle = true;
+			bool captureMouseRight = false;
+			bool captureMouseWheel = true;
+			bool captureTouch = true;
+			bool preventContextMenu = false;
 	};
 
 	// -------------------------------------------------------------------------
@@ -53,73 +53,73 @@ namespace nkentseu {
 	//   - Web : const char* (canvas selector alternatif)
 	// -------------------------------------------------------------------------
 	struct NkNativeWindowOptions {
-		bool    useExternalWindow = false;
-		uintptr externalWindowHandle = 0;
-		uintptr externalDisplayHandle = 0;
+			bool useExternalWindow = false;
+			uintptr externalWindowHandle = 0;
+			uintptr externalDisplayHandle = 0;
 
-		uintptr parentWindowHandle = 0;
-		bool    utilityWindow = false;
+			uintptr parentWindowHandle = 0;
+			bool utilityWindow = false;
 
-		// Win32 only: copy pixel format from this HWND before WGL context creation.
-		uintptr win32PixelFormatShareWindowHandle = 0;
+			// Win32 only: copy pixel format from this HWND before WGL context creation.
+			uintptr win32PixelFormatShareWindowHandle = 0;
 	};
 
 	struct NkWindowConfig {
-		// --- Position et taille ---
-		int32 x         = 100;
-		int32 y         = 100;
-		uint32 width     = 1280;
-		uint32 height    = 720;
-		uint32 minWidth  = 160;
-		uint32 minHeight = 90;
-		uint32 maxWidth  = 0xFFFF;
-		uint32 maxHeight = 0xFFFF;
+			// --- Position et taille ---
+			int32 x = 100;
+			int32 y = 100;
+			uint32 width = 1280;
+			uint32 height = 720;
+			uint32 minWidth = 160;
+			uint32 minHeight = 90;
+			uint32 maxWidth = 0xFFFF;
+			uint32 maxHeight = 0xFFFF;
 
-		// --- Comportement ---
-		bool centered       = true;
-		bool resizable      = true;
-		bool movable        = true;
-		bool closable       = true;
-		bool minimizable    = true;
-		bool maximizable    = true;
-		bool canFullscreen  = true;
-		bool fullscreen     = false;
-		bool modal          = false;
-		bool vsync          = true;
-		bool dropEnabled    = false;
-		NkScreenOrientation screenOrientation = NkScreenOrientation::NK_SCREEN_ORIENTATION_AUTO;
+			// --- Comportement ---
+			bool centered = true;
+			bool resizable = true;
+			bool movable = true;
+			bool closable = true;
+			bool minimizable = true;
+			bool maximizable = true;
+			bool canFullscreen = true;
+			bool fullscreen = false;
+			bool modal = false;
+			bool vsync = true;
+			bool dropEnabled = false;
+			NkScreenOrientation screenOrientation = NkScreenOrientation::NK_SCREEN_ORIENTATION_AUTO;
 
-		// --- Apparence ---
-		bool   frame       = true;
-		bool   hasShadow   = true;
-		bool   transparent = false;
-		bool   visible     = true;
-		uint32  bgColor     = 0x141414FF;
+			// --- Apparence ---
+			bool frame = true;
+			bool hasShadow = true;
+			bool transparent = false;
+			bool visible = true;
+			uint32 bgColor = 0x141414FF;
 
-		// --- Identité ---
-		NkString title    = "NkWindow";
-		NkString name     = "NkApp";
-		NkString iconPath;
-		NkNativeWindowOptions native;
+			// --- Identité ---
+			NkString title = "NkWindow";
+			NkString name = "NkApp";
+			NkString iconPath;
+			NkNativeWindowOptions native;
 
-		// --- Mobile / Safe Area ---
-		bool respectSafeArea = true;
+			// --- Mobile / Safe Area ---
+			bool respectSafeArea = true;
 
-		// --- Android specifics ---
-		bool hideSystemUI = false;    // Masquer status bar + navigation bar
-		bool lockOrientation = false; // Empêcher la rotation
+			// --- Android specifics ---
+			bool hideSystemUI = false;	  // Masquer status bar + navigation bar
+			bool lockOrientation = false; // Empêcher la rotation
 
-		// --- Web / WASM ---
-		NkWebInputOptions webInput;
+			// --- Web / WASM ---
+			NkWebInputOptions webInput;
 
-		// ── Hints de surface ────────────────────────────────────────────────────
-		// Remplis par NkGraphicsContextFactory::PrepareWindowConfig() AVANT Create().
-		// NkWindow transmet ces hints au backend platform (XLib, XCB…)
-		// sans les interpréter.
-		// Pour la grande majorité des cas (Vulkan, Metal, DirectX, Software,
-		// OpenGL/WGL, OpenGL/EGL) : laisser vide, ne rien faire.
-		// Pour OpenGL/GLX sur Linux uniquement : appeler PrepareWindowConfig().
-		NkSurfaceHints surfaceHints;   // ← seul ajout dans ce struct
+			// ── Hints de surface ────────────────────────────────────────────────────
+			// Remplis par NkGraphicsContextFactory::PrepareWindowConfig() AVANT Create().
+			// NkWindow transmet ces hints au backend platform (XLib, XCB…)
+			// sans les interpréter.
+			// Pour la grande majorité des cas (Vulkan, Metal, DirectX, Software,
+			// OpenGL/WGL, OpenGL/EGL) : laisser vide, ne rien faire.
+			// Pour OpenGL/GLX sur Linux uniquement : appeler PrepareWindowConfig().
+			NkSurfaceHints surfaceHints; // ← seul ajout dans ce struct
 	};
 
 } // namespace nkentseu
