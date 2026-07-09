@@ -476,15 +476,30 @@ int main() {
     optim::NkAdam adam(params, 3e-4f, 0.9f, 0.999f, 1e-8f, /*weightDecay=AdamW*/ 0.01f);
     const char* envs = getenv("NK_GPT_STEPS");
     const int STEPS = envs ? atoi(envs) : 300;
+    // Accumulation de gradient : ACCUM micro-lots -> batch EFFECTIF = B*ACCUM, avec la
+    // mémoire d'activations d'UN SEUL micro-lot (B). Levier n°1 pour tenir un gros modèle
+    // sur une VRAM limitée sans réduire la qualité de gradient. NK_GPT_ACCUM (défaut 1).
+    const int ACCUM = (int)envI("NK_GPT_ACCUM", 1);
     printf("-- Entraînement (%d pas) --\n", STEPS);
+    if (ACCUM > 1)
+        printf("   Accumulation de gradient : %d micro-lots -> batch effectif = %lld\n",
+               ACCUM, (long long)(B * ACCUM));
     double ema = 0;
     NkChrono chrono;
     for (int s = 1; s <= STEPS; ++s) {
-        NkTensor x, oneHot; makeBatch(x, oneHot);
-        NkVar logits = gpt.Forward(useGpu ? x.ToGPU() : x);
-        NkVar loss = autograd::SoftmaxCrossEntropy(logits, NkVar::Leaf(useGpu ? oneHot.ToGPU() : oneHot, false));
-        loss.Backward(); adam.Step(); adam.ZeroGrad();
-        double lv = loss.Value().ToCPU().GetItem(NkShape{ (int64)0 });
+        adam.ZeroGrad();                 // on ouvre la fenêtre d'accumulation
+        double lv = 0.0;
+        for (int m = 0; m < ACCUM; ++m) {
+            NkTensor x, oneHot; makeBatch(x, oneHot);
+            NkVar logits = gpt.Forward(useGpu ? x.ToGPU() : x);
+            NkVar loss = autograd::SoftmaxCrossEntropy(logits, NkVar::Leaf(useGpu ? oneHot.ToGPU() : oneHot, false));
+            // On divise la loss par ACCUM : les gradients accumulés (AccumGrad = somme)
+            // donnent alors la MOYENNE sur les micro-lots, pas la somme.
+            NkVar scaled = (ACCUM > 1) ? autograd::MulScalar(loss, 1.0 / (double)ACCUM) : loss;
+            scaled.Backward();           // accumule dans params.grad (pas de ZeroGrad ici)
+            lv += loss.Value().ToCPU().GetItem(NkShape{ (int64)0 }) / (double)ACCUM;
+        }
+        adam.Step();                     // un seul pas d'optimiseur par fenêtre
         ema = (s == 1) ? lv : 0.98 * ema + 0.02 * lv;
         if (s % 25 == 0 || s == 1) printf("  pas %4d : perte = %.4f  (moy. %.4f)\n", s, lv, ema);
         if (s % 100 == 0) {
