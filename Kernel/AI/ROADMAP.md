@@ -388,6 +388,39 @@ en conflit avec ce module. Cette couche s'appelle ici **pont directeur** (NkAnim
 - **Reste** : push zéro-STL + PR ; filmer les vidéos-preuves (scripts prêts) ; entraînement plus long/gros ;
   corpus format dialogue ; plus de données bbj.
 
+### ✅ MOTEUR D'ENTRAÎNEMENT — accumulation, instruction-tuning, LR schedule, checkpoint, corpus complet (2026-07-09, suite)
+
+Continuation de la montée en gamme : rendre l'entraînement **plus gros, plus stable, plus sûr** sur
+la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code, maths, QA).
+
+- ✅ **Accumulation de gradient** (`NK_GPT_ACCUM`, commit `9911e6f8`) : ACCUM micro-lots →
+  **batch effectif = B×ACCUM** avec la mémoire d'activations d'UN micro-lot. Loss divisée par ACCUM
+  (`AccumGrad`=somme → moyenne). Levier n°1 pour tenir un gros modèle sur 8 Go. Validé GPU (perte 6,57→5,68).
+- ✅ **Masquage de loss / instruction-tuning** (commit `de106298`) : `SoftmaxCrossEntropy` normalise
+  par les **lignes ACTIVES** (cible non tout-zéro) + **gradient nul** sur les lignes masquées ; le
+  **chemin GPU rapide est préservé** quand aucun masque (flag dans `iparam`). `NKGptTrain` détecte les
+  blocs `Question:/Réponse:` et **masque la question** → le modèle apprend à *répondre/raisonner*, pas à
+  mémoriser la question. C'est le levier « raisonnement » (Chain-of-Thought) : garder les étapes dans les
+  réponses (gsm8k) + masquer la question. Validé GPU sur squad (perte 6,55→5,47).
+- ✅ **LR schedule warmup + cosine** (`NK_GPT_LR`/`NK_GPT_WARMUP`, commit `a1dc1a73`) : warmup linéaire
+  puis décroissance cosine (plancher 10 %). Stabilise les longs runs.
+- ✅ **Checkpoint périodique** (`NK_GPT_SAVEEVERY`, commit `a1dc1a73`) : sauvegarde tous les N pas → un
+  plantage ne perd au plus que N pas. Indispensable aux runs de plusieurs heures.
+- ✅ **Corpus complet 5,8 Go, 9 tags** (`Resources/Datasets/`) : `fr` (Wikipedia+C4 ~3 Go), `en` (~1,8 Go),
+  `py` (codeparrot 585 Mo), `trans` (fr↔en↔bbj **bidirectionnel**, 458 Mo), **`nkentseu`** (moteur C++ 32 Mo),
+  **`jenga`** (build system 11 Mo), `qa` (squad), `math` (gsm8k), **`bbj`** (Ghomala pur lafand-mt/MAFAND,
+  licence permissive — complémentaire à la source NT © de l'autre agent). Collecteur consolidé :
+  `D:\Projets\Camrail\AI\collect_datasets.py` (bidirectionnel, code local, robuste ; contourne
+  `datasets 5.0` qui refuse les datasets « à script » → bbj lu depuis un clone local de `lafand-mt`).
+- 🟡 **Run « Palier 1 » en cours** (2026-07-09) : ~13 M params (D=384/L=5/H=6/T=128/B=6/ACCUM=3), 7 tags dont
+  Ghomala, 4000 pas (~6 h), LR schedule + checkpoint/250 pas. **Exe ISOLÉ** (`D:\Projets\Camrail\AI\palier_run\`)
+  → les recompilations ne le touchent pas. Doc réglages par palier : `D:\Projets\Camrail\AI\STRATEGIE_ENTRAINEMENT.md`.
+- ⚠️ **Constat d'échelle honnête** : à 3 M params / 250 pas, la sortie reste « token-soup » (apprend le
+  **format** Question:/Réponse: + les distributions de caractères par langue, **pas le sens**). La cohérence
+  émerge avec taille+pas+données. Le Palier 1 (13 M, 4000 pas) doit donner des phrases qui tiennent mieux.
+- ⬜ **Prochaine brique proposée** : **reprise d'entraînement depuis un checkpoint** (aujourd'hui
+  `NK_GPT_LOAD` = génération seule ; ajouter la reprise pour continuer un long run après plantage/pause).
+
 ### Où va le code (modules)
 - **NKAutograd** : ops batched-matmul, LayerNorm, softmax-axe+masque, embedding, GELU (fwd+bwd, gradient-checkés dans `NKAutogradTest`).
 - **NKNN** : couches `NkLayerNorm`, `NkEmbedding`, `NkMultiHeadAttention`, `NkTransformerBlock`, `NkGPT`.
