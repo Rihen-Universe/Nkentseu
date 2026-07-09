@@ -4,6 +4,7 @@
 // =============================================================================
 #include "NKRenderer/Tools/Animation/NkPoseMass.h"
 #include "NKRenderer/Tools/Animation/NkBalance.h"
+#include "NKRenderer/Tools/Animation/NkContactDetector.h"
 #include "NKLogger/NkLog.h"
 
 using namespace nkentseu;
@@ -29,6 +30,16 @@ int main() {
 		++nbTotal;
 		const bool ok = renderer::NkBalance::SelfTest();
 		logger.Info("[{0}] M3.2 NkBalance::SelfTest (dedans/dehors/bord, 2 pieds segment, direction de bascule)",
+					ok ? " OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+
+	// M3.3 — solveur de contacts (+ intégration M3.1+M3.2+M3.3 : debout=équilibré, penché=non).
+	{
+		++nbTotal;
+		const bool ok = renderer::NkContactDetector::SelfTest();
+		logger.Info("[{0}] M3.3 NkContactDetector::SelfTest (contact sol, points de support, INTEGRATION debout/penche)",
 					ok ? " OK " : "FAIL");
 		if (ok)
 			++nbOk;

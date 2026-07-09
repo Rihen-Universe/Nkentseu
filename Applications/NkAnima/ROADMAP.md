@@ -324,9 +324,14 @@ Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociabl
    = segment, direction de bascule). ⏳ Reste : déséquilibre dynamique complet (accélération COM),
    viz debug (polygone + point COM), câblage éditeur. ⚠️ Appuis ponctuels (2 pieds = segment) → fournir
    les COINS des appuis (≥3 pts) pour une vraie aire d'équilibre latéral.
-3. ❌ **Solveur de contacts** — détection par extrémité (raycast, réutilise le
-   foot-locking IK), résolution multi-points (quadrupède, escalade), transitions
-   de contact sans rupture visuelle, surfaces non planes (pentes, escaliers).
+3. ✅ **Solveur de contacts (2026-07-09)** — module `NKRenderer/Tools/Animation/NkContactDetector.{h,cpp}`
+   (pur Foundation, AUCUN GPU). `DetectPlane(foot, planePoint, planeNormal, threshold)` : contact si
+   distance signée au sol ≤ seuil, point = extrémité projetée, pénétration signée. `DetectSupportPoints`
+   collecte les extrémités EN CONTACT → **alimente directement NkBalance (M3.2)**. Ferme la boucle
+   **pose → COM (M3.1) + contacts (M3.3) → équilibre (M3.2)**. Testé HEADLESS avec un **test d'INTÉGRATION**
+   des 3 briques (`NkAnimPhysTest` → **M3.3 3/3 OK** : figure debout = équilibrée, penchée +1 m = déséquilibrée).
+   V1 = sol PLAN. ⏳ Reste : raycast heightfield/collision (pentes, escaliers), foot-locking temporel
+   (anti-glissement, stateful), multi-points quadrupède/escalade.
 4. ❌ **Optimiseur de pose sous contrainte** (le cœur) — ajuste une pose proposée
    (clip ou IA) pour respecter l'équilibre : correction itérative tronc/bassin,
    respect des limites d'angle articulaires (NkIKSystem), **pondération
