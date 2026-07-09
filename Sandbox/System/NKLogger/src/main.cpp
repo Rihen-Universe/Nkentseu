@@ -8,28 +8,27 @@
 #include "NKLogger/NkLog.h"
 #include "NKLogger/NkLogLevel.h"
 
-#include <cstdio>
-
 using namespace nkentseu;
 
 int main() {
-    NkLog::Initialize(
-        "sandbox-logger",
-        NkFormatter::NK_DETAILED_PATTERN,
-        NkLogLevel::NK_DEBUG
-    );
+	NkLog::Initialize(
+		"sandbox-logger",
+		NkLoggerFormatter::NK_DETAILED_PATTERN,
+		NkLogLevel::NK_DEBUG
+	);
 
-    logger.Info("SandboxNKLogger start");
-    logger.Warn("value=%d", 42);
+	logger.Info("SandboxNKLogger start");
+	logger.Warn("value={0}", 42);
 
-    memory::NkSharedPtr<NkLogger> core = CreateLogger("core-sandbox");
-    if (core) {
-        core->Info("Core logger ready");
-    }
+	memory::NkSharedPtr<NkLogger> core = CreateLogger("core-sandbox");
 
-    const char* lvlText = NkLogLevelToString(NkLogLevel::NK_INFO);
-    std::printf("[SandboxNKLogger] level=%s\n", lvlText);
+	if (core) {
+		core->Info("Core logger ready");
+	}
 
-    NkLog::Shutdown();
-    return 0;
+	const char* lvlText = NkLogLevelToString(NkLogLevel::NK_INFO);
+	logger.Info("[SandboxNKLogger] level={0}", lvlText);
+
+	NkLog::Shutdown();
+	return 0;
 }
