@@ -16,10 +16,28 @@ jenga build --target NKGptTrain --config Release
 l'UTF-8 (accents, Ghomala) dans un log : `cmd /c '"...NKGptTrain.exe" > log 2>&1'` **ou**
 `Start-Process -RedirectStandardOutput` (le `*>` de PowerShell casse l'UTF-8 → `�`).
 
-## Variables d'environnement (pilotage sans recompiler)
+## Configuration (pilotage sans recompiler)
+
+Deux sources combinées, **toutes facultatives** (défauts partout) : un **fichier de config**
+`NK_GPT_CONFIG=chemin.cfg` (lignes `CLE=valeur`, `#` = commentaire) **et** les variables
+d'environnement. **Résolution : variable d'env réelle > fichier config > défaut** — donc le `.cfg`
+définit un palier réutilisable/versionnable, et une variable d'env permet un ajustement ponctuel
+sans éditer le fichier. Exemple de `.cfg` :
+
+```
+# palier1.cfg
+NK_GPT_DIR   = D:/Projets/Camrail/AI/Palier1Data
+NK_GPT_STEPS = 4000
+NK_GPT_D     = 384
+NK_GPT_L     = 5
+NK_GPT_VALFRAC = 0.02
+```
+Puis : `NK_GPT_CONFIG=palier1.cfg NKGptTrain.exe` (ou `NK_GPT_STEPS=6000 NK_GPT_CONFIG=palier1.cfg …`
+pour surcharger le nombre de pas). Lecture d'env via le système maison `nkentseu::env::GetEnvVar`.
 
 | Var | Rôle | Défaut |
 |---|---|---|
+| `NK_GPT_CONFIG` | fichier `CLE=valeur` chargé comme base (les variables d'env restent prioritaires) | — |
 | `NK_GPT_DIR` | dossier de corpus (équilibré par langue, tag = préfixe avant `_`) | `Resources/Datasets` |
 | `NK_GPT_FILE` | corpus fichier unique (au lieu de `DIR`) | — |
 | `NK_GPT_CHARS` | budget total de caractères (divisé à parts égales par tag) | 1,2 M |
