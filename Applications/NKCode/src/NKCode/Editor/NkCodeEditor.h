@@ -1814,6 +1814,7 @@ namespace nkentseu {
 			const NkGuiId dragId = ctx.GetId((NkString(idStr) + "#drag").CStr());
 			const NkGuiId vbarId = ctx.GetId((NkString(idStr) + "#vbar").CStr());
 			const NkGuiId hbarId = ctx.GetId((NkString(idStr) + "#hbar").CStr());
+			const NkGuiId mmId = ctx.GetId((NkString(idStr) + "#mm").CStr()); // drag minimap
 			const bool focused = (NkCodeFocusId() == id);
 
 			const float32 lineGap = ctx.S(5.f);						 // espace entre les lignes (interligne)
@@ -1832,7 +1833,10 @@ namespace nkentseu {
 			// Cadre regle : on RESERVE en permanence les gouttieres de scroll (V a droite,
 			// H en bas) -> zone texte bornee, barres toujours visibles (facon VSCode/VS).
 			const float32 sbW = 14.f;
-			const NkRect textArea = {area.x + gutterW, area.y, area.w - gutterW - sbW, area.h - sbW};
+			// Minimap (aperçu miniature à droite, façon VSCode) : TOUJOURS présente.
+			const bool showMinimap = true;
+			const float32 mmW = ctx.S(140.f); // largeur minimap (un peu plus large que VSCode)
+			const NkRect textArea = {area.x + gutterW, area.y, area.w - gutterW - sbW - mmW, area.h - sbW};
 			const float32 textLeft = textArea.x + pad;
 			const float32 topPad = lineH, botPad = lineH; // ligne vierge haut + bas (non editable)
 			const float32 textTop = textArea.y + topPad;  // 1re ligne decalee d'une ligne vierge
@@ -2853,6 +2857,133 @@ namespace nkentseu {
 				d.scrollX = 0.f;
 			if (d.scrollX > maxScrollX)
 				d.scrollX = maxScrollX;
+
+			// ── Minimap : aperçu miniature du fichier (colonne droite) + viewport cliquable. ──
+			if (showMinimap && d.VisRowCount() > 0) {
+				const int32 total = d.VisRowCount();
+				const NkRect mmArea = {area.x + area.w - sbW - mmW, area.y, mmW, area.h - sbW};
+				// Façon VSCode : échelle FIXE -> le fichier entier ne tient pas forcément dans la
+				// miniature ; elle DÉFILE proportionnellement au document. Fond = celui de
+				// l'éditeur (déjà peint en dessous), donc transparent : rien à dessiner ici.
+				const float32 rowPx = ctx.S(3.f);				   // hauteur fixe d'une ligne minimap
+				const float32 barH = rowPx - ctx.S(0.7f);		   // hauteur des glyphes
+				const float32 mmChar = (mmW - ctx.S(4.f)) / 100.f; // ~100 colonnes projetées sur la largeur
+				const float32 mmContentH = total * rowPx;		   // hauteur totale du contenu minimap
+				const float32 mmScrollMax = mmContentH > mmArea.h ? mmContentH - mmArea.h : 0.f;
+				const float32 mmFrac = maxScrollY > 0.f ? d.scrollY / maxScrollY : 0.f;
+				const float32 mmScroll = mmFrac * mmScrollMax; // défilement de la minimap (suit le doc)
+				const int32 rFirst = static_cast<int32>(mmScroll / rowPx);
+				int32 rLast = rFirst + static_cast<int32>(mmArea.h / rowPx) + 1;
+				if (rLast >= total)
+					rLast = total - 1;
+				const float32 xMax = mmArea.x + mmW - ctx.S(1.f);
+				const float32 mmLeft = mmArea.x + ctx.S(3.f); // marge gauche (bande Git)
+				const int32 tabW = 4;
+				int32 mmBudget = 24000; // garde-fou : nb max de rectangles-glyphes par frame
+				dl.PushClipRect(mmArea, true);
+				int32 mmBlk = 0; // état bloc-commentaire (approx : repart de 0 en haut de fenêtre)
+				for (int32 r = rFirst; r <= rLast; ++r) {
+					const int32 L = d.visRows[r];
+					if (L < 0 || L >= d.LineCount())
+						continue;
+					const NkCodeLine &ln = d.lines[L];
+					const int32 nn = static_cast<int32>(ln.Size());
+					const float32 y = mmArea.y + r * rowPx - mmScroll;
+					const char *dta = ln.Data();
+					// Bande Git à gauche (vert=ajout, bleu=modif) — aperçu façon VSCode.
+					const uint8 gs = d.GitAt(L);
+					if (gs)
+						dl.AddRectFilled({mmArea.x, y, ctx.S(2.f), barH < 1.f ? 1.f : barH},
+										 gs == 1 ? NkColor{63, 185, 80, 220} : NkColor{84, 174, 255, 220});
+					// « Texte flou » façon VSCode : UN micro-rectangle PAR CARACTÈRE, couleur syntaxe,
+					// avec la SILHOUETTE du caractère (pleine hauteur pour A-Z/0-9/ascendantes,
+					// hauteur d'x pour aceo…, jambage pour gjpqy, point bas pour la ponctuation).
+					// L'interstice entre caractères + le sous-pixel donnent l'impression de texte.
+					int32 pc = 0, pcol = 0; // curseur d'expansion des tabs (O(n) par ligne)
+					mmBlk = TokenizeLine(
+						lang, dta, nn, mmBlk, syn,
+						[&](int32 a, int32 b, const NkColor &tc) {
+							while (pc < a) { // rattrape les zones non couvertes (blancs entre tokens)
+								pcol += (dta[pc] == '\t') ? tabW : 1;
+								++pc;
+							}
+							const NkColor cc = {tc.r, tc.g, tc.b, 200};
+							for (int32 k = a; k < b; ++k) {
+								const char ch = dta[k];
+								if (ch == ' ' || ch == '\t') {
+									pcol += (ch == '\t') ? tabW : 1;
+									++pc;
+									continue;
+								}
+								const float32 xs = mmLeft + pcol * mmChar;
+								++pcol;
+								++pc;
+								if (xs >= xMax)
+									continue;					  // au-delà de la largeur de la minimap
+								float32 xe = xs + mmChar * 0.78f; // interstice -> texture de texte
+								if (xe > xMax)
+									xe = xMax;
+								// Silhouette verticale du caractère.
+								float32 y0 = y, h = barH;
+								if (ch >= 'a' && ch <= 'z') {
+									if (ch == 'g' || ch == 'j' || ch == 'p' || ch == 'q' || ch == 'y') {
+										y0 = y + barH * 0.25f; // jambage descendant
+										h = barH * 0.75f;
+									} else if (!(ch == 'b' || ch == 'd' || ch == 'f' || ch == 'h' || ch == 'k' ||
+												 ch == 'l' || ch == 't')) {
+										y0 = y + barH * 0.30f; // hauteur d'x
+										h = barH * 0.70f;
+									}
+								} else if (ch == '.' || ch == ',' || ch == '\'' || ch == '`' || ch == '-' ||
+										   ch == '_' || ch == '=' || ch == '~' || ch == ':' || ch == ';') {
+									y0 = y + barH * 0.5f; // ponctuation basse
+									h = barH * 0.5f;
+								}
+								if (--mmBudget < 0)
+									return; // garde-fou anti-surcharge (fichiers/lignes énormes)
+								dl.AddRectFilled({xs, y0, xe - xs, h}, cc);
+							}
+						},
+						&d.symTypes, &d.symFuncs, projTypes, projFuncs);
+				}
+				// Marqueurs de diagnostics (erreurs/avertissements) façon VSCode : tick droit + bande légère.
+				for (usize di = 0; di < d.diags.Size(); ++di) {
+					const NkCodeDoc::Diag &dg = d.diags[di];
+					if (dg.line < 0 || dg.line >= d.LineCount() || d.LineHidden(dg.line))
+						continue;
+					const float32 y = mmArea.y + d.RowOf(dg.line) * rowPx - mmScroll;
+					const float32 h = rowPx < 2.f ? 2.f : rowPx;
+					if (y + h < mmArea.y || y > mmArea.y + mmArea.h)
+						continue; // hors de la fenêtre minimap
+					const NkColor c = dg.sev ? NkColor{240, 80, 80, 240} : NkColor{224, 190, 70, 240};
+					dl.AddRectFilled({mmArea.x, y, mmW, h},
+									 NkColor{c.r, c.g, c.b, 40}); // bande pleine largeur atténuée
+					dl.AddRectFilled({mmArea.x + mmW - ctx.S(6.f), y, ctx.S(5.f), h}, c); // tick vif à droite
+				}
+				// Curseur de viewport (plage visible), translucide façon VSCode, suit le défilement minimap.
+				int32 lv = lastVis > total ? total : lastVis;
+				const float32 vy0 = mmArea.y + firstVis * rowPx - mmScroll;
+				float32 vh = (lv - firstVis) * rowPx;
+				if (vh < 2.f)
+					vh = 2.f;
+				const bool mmLight =
+					((int32)ctx.theme.bgPrimary.r + ctx.theme.bgPrimary.g + ctx.theme.bgPrimary.b) > 384;
+				const NkColor vpFill = mmLight ? NkColor{0, 0, 0, 26} : NkColor{255, 255, 255, 22};
+				dl.AddRectFilled({mmArea.x, vy0, mmW, vh}, vpFill);
+				dl.PopClipRect();
+				// Interaction : clic / glisser -> centre le défilement sur la position pointée.
+				const bool overMm = ctx.popupDepth == 0 && InRect(mmArea, mouse);
+				if (overMm && ctx.input.mouseClicked[0])
+					ctx.activeId = mmId;
+				if (ctx.activeId == mmId && ctx.input.mouseDown[0]) {
+					const float32 rowAt = (mouse.y - mmArea.y + mmScroll) / rowPx; // row visuel visé
+					d.scrollY = topPad + rowAt * lineH - viewH * 0.5f;			   // centre la ligne visée
+					if (d.scrollY < 0.f)
+						d.scrollY = 0.f;
+					if (d.scrollY > maxScrollY)
+						d.scrollY = maxScrollY;
+				}
+			}
 
 			// Cadre de l'editeur (bordure permanente) + accent si focus.
 			dl.AddRect(area, focused ? kBorder : NkColor{33, 39, 48, 255}, 1.f);
