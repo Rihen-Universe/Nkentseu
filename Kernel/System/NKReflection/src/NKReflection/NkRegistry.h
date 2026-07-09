@@ -4,7 +4,7 @@
 // AUTEUR   : Rihen
 // DATE     : 2026-02-07
 // VERSION  : 1.1.0
-// LICENCE  : Proprietaire - libre d'utilisation et de modification
+// LICENCE  : Proprietaire - usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 // DESCRIPTION :
 //   Registre global des types/classes runtime + macros de declaration et

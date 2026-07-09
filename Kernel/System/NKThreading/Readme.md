@@ -1287,7 +1287,7 @@ Les contributeurs significatifs sont listés dans [CONTRIBUTORS.md](CONTRIBUTORS
 ```
 Copyright © 2024-2026 Rihen. Tous droits réservés.
 
-Licence Propriétaire - Libre d'utilisation et de modification
+Licence Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
 
 Ce module est fourni "tel quel", sans garantie d'aucune sorte, expresse ou implicite.
 L'auteur ne peut être tenu responsable des dommages résultant de l'utilisation de ce logiciel.
