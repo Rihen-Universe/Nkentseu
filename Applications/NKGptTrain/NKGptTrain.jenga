@@ -34,7 +34,7 @@ with project("NKGptTrain"):
 
     nkentseudependson(
         ["NKTrain", "NKNN", "NKData", "NKOptim", "NKAutograd", "NKTensor", "NKRHI", "NKSL",
-         "NKWindow", "NKGlad", "NKMath", "NKTime", "NKStream",
+         "NKWindow", "NKGlad", "NKMath", "NKTime", "NKStream", "NKFileSystem",
          "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
          "NKThreading", "NKGLSlang", "NKSPIRVCross"],
         extra_includes=["src", "%{NKGlad.location}/include"]
