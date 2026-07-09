@@ -152,8 +152,15 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
   `IMMDeviceEnumerator`→`eCapture`→`IAudioClient` SHARED→`IAudioCaptureClient`, thread `CreateThread`,
   conversion f32/i16 + silence) + **ALSA capture RÉEL (2026-07-10)** (Linux : `snd_pcm_open` SND_PCM_STREAM_CAPTURE,
   FLOAT_LE interleaved, thread pthread `snd_pcm_readi`→ring + callback, `snd_pcm_recover` sur XRUN — miroir du
-  backend de lecture) + **Null** (macOS/Android/Web en attente). Validé : build 12/12 Windows + **self-test
-  headless du ring buffer OK** (write/read/wrap/overflow, `NkAnimPhysTest` 5/5).
+  backend de lecture)
+  + **AAudio capture RÉEL (Android, 2026-07-10)** (dlopen `libaaudio.so`, `setDirection(INPUT)`, data callback →
+  ring — miroir du backend de lecture ; **cross-compilé `--platform android` OK**)
+  + **getUserMedia capture RÉEL (Web, 2026-07-10)** (EM_JS : `navigator.mediaDevices.getUserMedia` +
+  `ScriptProcessorNode.onaudioprocess` → `NkWebMicPush` C → ring ; **cross-compilé `--platform web` OK**)
+  + **OHAudio capture RÉEL (HarmonyOS, 2026-07-10)** (`OH_AudioCapturer`, format F32LE,
+  `SetCapturerReadDataCallback` → ring ; link `libohaudio` ; **cross-compilé `--platform harmonyos` OK**)
+  + **Null** (macOS/iOS uniquement). Validé : build 12/12 Windows + cross-compile Android/Web/HarmonyOS +
+  **self-test headless du ring buffer OK** (write/read/wrap/overflow, `NkAnimPhysTest` 6/6).
   **Outil de test livré** : `NkMicRecord` (`Applications/NkMicRecord/`) — enregistre N s du micro → **WAV 16-bit PCM**
   (encodeur WAV inline via `NkFile::WriteAllBytes`) : `NkMicRecord.exe [secondes] [sortie.wav] [--raw]`. Applique
   par défaut le **débruitage + normalisation** (voir ci-dessous) et affiche la crête avant/après (dBFS).
@@ -166,11 +173,9 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
   (`NkAnimPhysTest` → **NkDenoiser OK** : round-trip STFT identité exact, plancher de bruit ↓, sinus préservé,
   auto-gain remonte un signal faible). ⏳ Reste (V2) : mode temps réel (par blocs, latence bornée), VAD, AGC
   dynamique, dé-réverbération.
-  ⏳ Reste : backends **CoreAudio** (macOS/iOS — patron = AudioUnit input, EnableIO bus 1 + AudioUnitRender) et
-  **AAudio** (Android — patron = dlopen `libaaudio.so` + `setDirection(INPUT)`) : **patronnés d'après les backends
-  de lecture existants, à écrire+valider SUR hardware** (non compilables sur cette machine Windows → non shippés
-  pour ne pas casser les builds macOS/Android). getUserMedia (Web) + OHAudio (Harmony) idem. Validation micro
-  RÉELLE (interactive) via `NkMicRecord` à faire par Rihen. Permissions runtime mobile/Web à câbler.
+  ⏳ Reste : **CoreAudio** (macOS/iOS — patron = AudioUnit input, EnableIO bus 1 + AudioUnitRender) : seul backend
+  non livré (pas de toolchain Apple sur cette machine). Validation micro RÉELLE (Android/Web/Harmony sur device,
+  desktop via `NkMicRecord`) à faire par Rihen. Permissions runtime mobile (micro) / Web (getUserMedia) à câbler.
 - (spec initiale ci-dessous, conservée)
 - État initial : **absent** — le moteur ne faisait que de la sortie (output).
 - Nécessaire pour : **enregistrement de la voix**, voice chat, reconnaissance/commande vocale,

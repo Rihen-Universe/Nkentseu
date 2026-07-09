@@ -102,8 +102,8 @@ with project("NKAudio"):
         pchsource("")
         usetoolchain("ohos-ndk")
         # Backend audio OHOS via #ifdef. dl pour dlopen/dlsym.
-        # OpenSLES retire (specifique Android).
-        links(["dl"])
+        # ohaudio = capture micro (OH_AudioCapturer). OpenSLES retire (specifique Android).
+        links(["dl", "ohaudio"])
 
     with filter("system:Linux"):
         usetoolchain("clang-native")
