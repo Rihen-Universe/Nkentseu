@@ -33,7 +33,7 @@ with project("NKGptTrain"):
     files(["src/main.cpp"])
 
     nkentseudependson(
-        ["NKTrain", "NKNN", "NKData", "NKOptim", "NKAutograd", "NKTensor", "NKRHI", "NKSL",
+        ["NKGpt", "NKTrain", "NKNN", "NKData", "NKOptim", "NKAutograd", "NKTensor", "NKRHI", "NKSL",
          "NKWindow", "NKGlad", "NKMath", "NKTime", "NKStream", "NKFileSystem",
          "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
          "NKThreading", "NKGLSlang", "NKSPIRVCross"],
