@@ -16,7 +16,22 @@
 #include <mmdeviceapi.h>
 #include <audioclient.h>
 #include <mmreg.h>
-#elif defined(NKENTSEU_PLATFORM_LINUX) && !defined(NKENTSEU_PLATFORM_HARMONYOS) && !defined(NKENTSEU_PLATFORM_ANDROID)
+#elif defined(NKENTSEU_PLATFORM_ANDROID)
+// Capture AAudio (Android 26+) — dlopen libaaudio.so, setDirection(INPUT), data callback -> ring.
+#include <dlfcn.h>
+#include <android/api-level.h>
+#include <cstring>
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+// Capture getUserMedia (Web) — EM_JS : getUserMedia + ScriptProcessorNode -> ring.
+#include <emscripten/emscripten.h>
+#include <emscripten/em_js.h>
+#include <cstring>
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+// Capture OHAudio (HarmonyOS) — OH_AudioCapturer (F32LE), read-data callback -> ring.
+#include <ohaudio/native_audiostreambuilder.h>
+#include <ohaudio/native_audiocapturer.h>
+#include <cstring>
+#elif defined(NKENTSEU_PLATFORM_LINUX) && !defined(NKENTSEU_PLATFORM_HARMONYOS)
 // Capture ALSA (Linux) — miroir du backend de lecture (SND_PCM_STREAM_CAPTURE + snd_pcm_readi).
 #include <alsa/asoundlib.h>
 #include <pthread.h>
@@ -103,7 +118,14 @@ namespace nkentseu {
 				bool devFloat = true;  // format périphérique : float32 (sinon int16)
 				HANDLE thread = nullptr;
 				volatile long running = 0;
-#elif defined(NKENTSEU_PLATFORM_LINUX) && !defined(NKENTSEU_PLATFORM_HARMONYOS) && !defined(NKENTSEU_PLATFORM_ANDROID)
+#elif defined(NKENTSEU_PLATFORM_ANDROID)
+				void *stream = nullptr; // AAudioStream*
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+				bool webStarted = false;
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+				void *capturer = nullptr; // OH_AudioCapturer*
+				void *builder = nullptr;  // OH_AudioStreamBuilder*
+#elif defined(NKENTSEU_PLATFORM_LINUX) && !defined(NKENTSEU_PLATFORM_HARMONYOS)
 				snd_pcm_t *pcm = nullptr;
 				pthread_t thread = 0;
 				volatile bool running = false;
@@ -361,7 +383,398 @@ namespace nkentseu {
 			mImpl->backend = "Null";
 		}
 
-#elif defined(NKENTSEU_PLATFORM_LINUX) && !defined(NKENTSEU_PLATFORM_HARMONYOS) && !defined(NKENTSEU_PLATFORM_ANDROID)
+#elif defined(NKENTSEU_PLATFORM_ANDROID)
+			// =====================================================================
+			//  Backend AAudio capture (Android 26+) — dlopen libaaudio.so (comme la
+			//  lecture) + setDirection(INPUT). Data callback -> ring buffer + callback.
+			// =====================================================================
+			extern "C" {
+			typedef struct AAudioStreamBuilderStruct AAudioStreamBuilder;
+			typedef struct AAudioStreamStruct AAudioStream;
+			typedef int32 aaudio_result_t;
+			typedef int32 aaudio_data_callback_result_t;
+			typedef aaudio_data_callback_result_t (*AAudioStream_dataCallback)(AAudioStream *, void *, void *, int32);
+			}
+			static constexpr aaudio_result_t AAUDIO_OK_ = 0;
+			static constexpr int32 AAUDIO_FORMAT_PCM_FLOAT_ = 2;
+			static constexpr int32 AAUDIO_DIRECTION_INPUT_ = 1;
+			static constexpr int32 AAUDIO_PERFORMANCE_LOW_LAT_ = 12;
+			static constexpr int32 AAUDIO_SHARING_SHARED_ = 1;
+			static constexpr aaudio_data_callback_result_t AAUDIO_CALLBACK_CONTINUE_ = 0;
+
+			namespace {
+				using PFN_createBuilder = aaudio_result_t (*)(AAudioStreamBuilder **);
+				using PFN_setSampleRate = void (*)(AAudioStreamBuilder *, int32);
+				using PFN_setChannelCount = void (*)(AAudioStreamBuilder *, int32);
+				using PFN_setFormat = void (*)(AAudioStreamBuilder *, int32);
+				using PFN_setDirection = void (*)(AAudioStreamBuilder *, int32);
+				using PFN_setPerformance = void (*)(AAudioStreamBuilder *, int32);
+				using PFN_setSharing = void (*)(AAudioStreamBuilder *, int32);
+				using PFN_setDataCallback = void (*)(AAudioStreamBuilder *, AAudioStream_dataCallback, void *);
+				using PFN_openStream = aaudio_result_t (*)(AAudioStreamBuilder *, AAudioStream **);
+				using PFN_builderDelete = aaudio_result_t (*)(AAudioStreamBuilder *);
+				using PFN_streamClose = aaudio_result_t (*)(AAudioStream *);
+				using PFN_streamStart = aaudio_result_t (*)(AAudioStream *);
+				using PFN_streamStop = aaudio_result_t (*)(AAudioStream *);
+				using PFN_getSampleRate = int32 (*)(AAudioStream *);
+				using PFN_getChannelCount = int32 (*)(AAudioStream *);
+
+				struct CapAAudioFns {
+						void *lib = nullptr;
+						PFN_createBuilder createBuilder = nullptr;
+						PFN_setSampleRate setSampleRate = nullptr;
+						PFN_setChannelCount setChannelCount = nullptr;
+						PFN_setFormat setFormat = nullptr;
+						PFN_setDirection setDirection = nullptr;
+						PFN_setPerformance setPerformance = nullptr;
+						PFN_setSharing setSharing = nullptr;
+						PFN_setDataCallback setDataCallback = nullptr;
+						PFN_openStream openStream = nullptr;
+						PFN_builderDelete builderDelete = nullptr;
+						PFN_streamClose streamClose = nullptr;
+						PFN_streamStart streamStart = nullptr;
+						PFN_streamStop streamStop = nullptr;
+						PFN_getSampleRate getSampleRate = nullptr;
+						PFN_getChannelCount getChannelCount = nullptr;
+						bool available = false;
+				};
+				static CapAAudioFns gCapAAudio;
+
+				bool LoadCapAAudio() {
+					if (gCapAAudio.lib)
+						return gCapAAudio.available;
+					if (android_get_device_api_level() < 26)
+						return false;
+					gCapAAudio.lib = dlopen("libaaudio.so", RTLD_NOW | RTLD_LOCAL);
+					if (!gCapAAudio.lib)
+						return false;
+#define LOADC(name, sym) gCapAAudio.name = (PFN_##name)dlsym(gCapAAudio.lib, sym)
+					LOADC(createBuilder, "AAudio_createStreamBuilder");
+					LOADC(setSampleRate, "AAudioStreamBuilder_setSampleRate");
+					LOADC(setChannelCount, "AAudioStreamBuilder_setChannelCount");
+					LOADC(setFormat, "AAudioStreamBuilder_setFormat");
+					LOADC(setDirection, "AAudioStreamBuilder_setDirection");
+					LOADC(setPerformance, "AAudioStreamBuilder_setPerformanceMode");
+					LOADC(setSharing, "AAudioStreamBuilder_setSharingMode");
+					LOADC(setDataCallback, "AAudioStreamBuilder_setDataCallback");
+					LOADC(openStream, "AAudioStreamBuilder_openStream");
+					LOADC(builderDelete, "AAudioStreamBuilder_delete");
+					LOADC(streamClose, "AAudioStream_close");
+					LOADC(streamStart, "AAudioStream_requestStart");
+					LOADC(streamStop, "AAudioStream_requestStop");
+					LOADC(getSampleRate, "AAudioStream_getSampleRate");
+					LOADC(getChannelCount, "AAudioStream_getChannelCount");
+#undef LOADC
+					gCapAAudio.available = (gCapAAudio.createBuilder && gCapAAudio.openStream &&
+											gCapAAudio.streamStart && gCapAAudio.streamClose && gCapAAudio.setDirection);
+					return gCapAAudio.available;
+				}
+			} // namespace
+
+			// Data callback : audioData contient les frames CAPTUREES -> ring + callback.
+			static aaudio_data_callback_result_t CaptureDataCbAAudio(AAudioStream *, void *userData, void *audioData,
+																	 int32 numFrames) {
+				NkAudioCapture::Impl *im = (NkAudioCapture::Impl *)userData;
+				const int32 ch = im->cfg.channels > 0 ? im->cfg.channels : 1;
+				im->ring.Write((const float32 *)audioData, (uint64)numFrames * (uint64)ch);
+				if (im->hasCb)
+					im->cb((const float32 *)audioData, numFrames, ch);
+				return AAUDIO_CALLBACK_CONTINUE_;
+			}
+
+			NkVector<NkCaptureDeviceInfo> NkAudioCapture::EnumerateDevices() {
+				NkVector<NkCaptureDeviceInfo> out;
+				NkCaptureDeviceInfo info;
+				info.name = NkString("default (AAudio)");
+				info.isDefault = true;
+				out.PushBack(info);
+				return out;
+			}
+
+			bool NkAudioCapture::Open(const NkCaptureConfig &config) {
+				Close();
+				mImpl->cfg = config;
+				if (mImpl->cfg.channels <= 0)
+					mImpl->cfg.channels = 1;
+				if (mImpl->cfg.sampleRate <= 0)
+					mImpl->cfg.sampleRate = 48000;
+				if (!LoadCapAAudio()) {
+					logger.Warn("[NkAudioCapture] AAudio indisponible (API<26) -> Null");
+					mImpl->backend = "Null";
+					return false;
+				}
+				AAudioStreamBuilder *b = nullptr;
+				if (gCapAAudio.createBuilder(&b) != AAUDIO_OK_)
+					return false;
+				gCapAAudio.setSampleRate(b, mImpl->cfg.sampleRate);
+				gCapAAudio.setChannelCount(b, mImpl->cfg.channels);
+				gCapAAudio.setFormat(b, AAUDIO_FORMAT_PCM_FLOAT_);
+				gCapAAudio.setDirection(b, AAUDIO_DIRECTION_INPUT_); // CAPTURE
+				gCapAAudio.setPerformance(b, AAUDIO_PERFORMANCE_LOW_LAT_);
+				gCapAAudio.setSharing(b, AAUDIO_SHARING_SHARED_);
+				gCapAAudio.setDataCallback(b, CaptureDataCbAAudio, mImpl);
+				AAudioStream *s = nullptr;
+				aaudio_result_t r = gCapAAudio.openStream(b, &s);
+				gCapAAudio.builderDelete(b);
+				if (r != AAUDIO_OK_ || !s) {
+					logger.Error("[NkAudioCapture] AAudio openStream (INPUT) FAILED");
+					return false;
+				}
+				mImpl->stream = s;
+				mImpl->cfg.sampleRate = gCapAAudio.getSampleRate(s);
+				mImpl->cfg.channels = gCapAAudio.getChannelCount(s);
+				const int32 secs = mImpl->cfg.ringSeconds > 0 ? mImpl->cfg.ringSeconds : 4;
+				mImpl->ring.Alloc((uint64)mImpl->cfg.sampleRate * (uint64)mImpl->cfg.channels * (uint64)secs);
+				mImpl->backend = "AAudio";
+				logger.Info("[NkAudioCapture] OK (AAudio capture, {0} Hz, {1} canal(aux))", mImpl->cfg.sampleRate,
+							mImpl->cfg.channels);
+				return true;
+			}
+
+			bool NkAudioCapture::Start() {
+				if (!mImpl->stream || mImpl->capturing)
+					return false;
+				if (gCapAAudio.streamStart((AAudioStream *)mImpl->stream) != AAUDIO_OK_)
+					return false;
+				mImpl->capturing = true;
+				return true;
+			}
+
+			void NkAudioCapture::Stop() {
+				if (!mImpl->capturing)
+					return;
+				if (mImpl->stream)
+					gCapAAudio.streamStop((AAudioStream *)mImpl->stream);
+				mImpl->capturing = false;
+			}
+
+			void NkAudioCapture::Close() {
+				if (!mImpl)
+					return;
+				Stop();
+				if (mImpl->stream) {
+					gCapAAudio.streamClose((AAudioStream *)mImpl->stream);
+					mImpl->stream = nullptr;
+				}
+				mImpl->ring.Free();
+				mImpl->backend = "Null";
+			}
+
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+			// =====================================================================
+			//  Backend getUserMedia capture (Web) — EM_JS : getUserMedia + Script-
+			//  ProcessorNode.onaudioprocess -> C -> ring buffer. Un seul flux actif.
+			// =====================================================================
+			static NkAudioCapture::Impl *gWebCapActive = nullptr;
+
+			// Appelé depuis JS avec un bloc mono capturé -> ring + callback.
+			extern "C" EMSCRIPTEN_KEEPALIVE void NkWebMicPush(int frames, float *data) {
+				if (!gWebCapActive || frames <= 0)
+					return;
+				const int32 ch = gWebCapActive->cfg.channels > 0 ? gWebCapActive->cfg.channels : 1;
+				// Le JS fournit du mono ; on réplique sur ch canaux si besoin.
+				if (ch == 1) {
+					gWebCapActive->ring.Write(data, (uint64)frames);
+					if (gWebCapActive->hasCb)
+						gWebCapActive->cb(data, frames, 1);
+				} else {
+					for (int i = 0; i < frames; ++i) {
+						float32 s = data[i];
+						for (int32 c = 0; c < ch; ++c)
+							gWebCapActive->ring.Write(&s, 1);
+					}
+				}
+			}
+
+			EM_JS(int, NkWebMic_JSInit, (int sampleRate, int bufferSize), {
+				if (typeof navigator === 'undefined' || !navigator.mediaDevices)
+					return 0;
+				try {
+					if (!Module._nkMicCtx)
+						Module._nkMicCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate : sampleRate});
+					var ctx = Module._nkMicCtx;
+					navigator.mediaDevices.getUserMedia({audio : true, video : false}).then(function(stream) {
+						var src = ctx.createMediaStreamSource(stream);
+						var node = ctx.createScriptProcessor(bufferSize, 1, 1);
+						node.onaudioprocess = function(e) {
+							var input = e.inputBuffer.getChannelData(0);
+							var n = input.length;
+							var ptr = Module._malloc(n * 4);
+							Module.HEAPF32.set(input, ptr >> 2);
+							Module._NkWebMicPush(n, ptr);
+							Module._free(ptr);
+						};
+						src.connect(node);
+						node.connect(ctx.destination);
+						Module._nkMicStream = stream;
+						Module._nkMicNode = node;
+					})["catch"](function(err) { console.error('getUserMedia refuse:', err); });
+					return ctx.sampleRate | 0;
+				} catch (e) {
+					return 0;
+				}
+			});
+
+			EM_JS(void, NkWebMic_JSStop, (), {
+				if (Module._nkMicNode) {
+					Module._nkMicNode.disconnect();
+					Module._nkMicNode = null;
+				}
+				if (Module._nkMicStream) {
+					Module._nkMicStream.getTracks().forEach(function(t) { t.stop(); });
+					Module._nkMicStream = null;
+				}
+			});
+
+			NkVector<NkCaptureDeviceInfo> NkAudioCapture::EnumerateDevices() {
+				NkVector<NkCaptureDeviceInfo> out;
+				NkCaptureDeviceInfo info;
+				info.name = NkString("default (getUserMedia)");
+				info.isDefault = true;
+				out.PushBack(info);
+				return out;
+			}
+
+			bool NkAudioCapture::Open(const NkCaptureConfig &config) {
+				Close();
+				mImpl->cfg = config;
+				if (mImpl->cfg.channels <= 0)
+					mImpl->cfg.channels = 1;
+				if (mImpl->cfg.sampleRate <= 0)
+					mImpl->cfg.sampleRate = 48000;
+				const int actualSr = NkWebMic_JSInit(mImpl->cfg.sampleRate, 4096);
+				if (actualSr <= 0) {
+					logger.Warn("[NkAudioCapture] getUserMedia indisponible -> Null");
+					mImpl->backend = "Null";
+					return false;
+				}
+				mImpl->cfg.sampleRate = actualSr;
+				const int32 secs = mImpl->cfg.ringSeconds > 0 ? mImpl->cfg.ringSeconds : 4;
+				mImpl->ring.Alloc((uint64)mImpl->cfg.sampleRate * (uint64)mImpl->cfg.channels * (uint64)secs);
+				gWebCapActive = mImpl;
+				mImpl->backend = "getUserMedia";
+				logger.Info("[NkAudioCapture] OK (getUserMedia, {0} Hz)", mImpl->cfg.sampleRate);
+				return true;
+			}
+
+			bool NkAudioCapture::Start() {
+				if (mImpl->capturing)
+					return false;
+				mImpl->capturing = true; // le flux JS pousse déjà dès l'autorisation
+				return true;
+			}
+
+			void NkAudioCapture::Stop() {
+				mImpl->capturing = false;
+			}
+
+			void NkAudioCapture::Close() {
+				if (!mImpl)
+					return;
+				NkWebMic_JSStop();
+				if (gWebCapActive == mImpl)
+					gWebCapActive = nullptr;
+				mImpl->capturing = false;
+				mImpl->ring.Free();
+				mImpl->backend = "Null";
+			}
+
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+			// =====================================================================
+			//  Backend OHAudio capture (HarmonyOS) — OH_AudioCapturer, format F32LE,
+			//  read-data callback -> ring buffer + callback.
+			// =====================================================================
+
+			// Read-data callback : audioData = frames capturées, audioDataSize en OCTETS.
+			static void CaptureReadDataOH(OH_AudioCapturer *, void *userData, void *audioData, int32_t audioDataSize) {
+				NkAudioCapture::Impl *im = (NkAudioCapture::Impl *)userData;
+				const uint64 floats = (uint64)audioDataSize / sizeof(float32);
+				im->ring.Write((const float32 *)audioData, floats);
+				if (im->hasCb) {
+					const int32 ch = im->cfg.channels > 0 ? im->cfg.channels : 1;
+					im->cb((const float32 *)audioData, (int32)(floats / (uint64)ch), ch);
+				}
+			}
+
+			NkVector<NkCaptureDeviceInfo> NkAudioCapture::EnumerateDevices() {
+				NkVector<NkCaptureDeviceInfo> out;
+				NkCaptureDeviceInfo info;
+				info.name = NkString("default (OHAudio)");
+				info.isDefault = true;
+				out.PushBack(info);
+				return out;
+			}
+
+			bool NkAudioCapture::Open(const NkCaptureConfig &config) {
+				Close();
+				mImpl->cfg = config;
+				if (mImpl->cfg.channels <= 0)
+					mImpl->cfg.channels = 1;
+				if (mImpl->cfg.sampleRate <= 0)
+					mImpl->cfg.sampleRate = 48000;
+
+				OH_AudioStreamBuilder *b = nullptr;
+				if (OH_AudioStreamBuilder_Create(&b, AUDIOSTREAM_TYPE_CAPTURER) != AUDIOSTREAM_SUCCESS || !b) {
+					logger.Error("[NkAudioCapture] OH_AudioStreamBuilder_Create FAILED");
+					return false;
+				}
+				OH_AudioStreamBuilder_SetSamplingRate(b, mImpl->cfg.sampleRate);
+				OH_AudioStreamBuilder_SetChannelCount(b, mImpl->cfg.channels);
+				OH_AudioStreamBuilder_SetSampleFormat(b, AUDIOSTREAM_SAMPLE_F32LE);
+				OH_AudioStreamBuilder_SetCapturerInfo(b, AUDIOSTREAM_SOURCE_TYPE_MIC);
+				OH_AudioStreamBuilder_SetCapturerReadDataCallback(b, CaptureReadDataOH, mImpl);
+
+				OH_AudioCapturer *cap = nullptr;
+				if (OH_AudioStreamBuilder_GenerateCapturer(b, &cap) != AUDIOSTREAM_SUCCESS || !cap) {
+					logger.Error("[NkAudioCapture] OH_AudioStreamBuilder_GenerateCapturer FAILED");
+					OH_AudioStreamBuilder_Destroy(b);
+					return false;
+				}
+				mImpl->builder = b;
+				mImpl->capturer = cap;
+
+				const int32 secs = mImpl->cfg.ringSeconds > 0 ? mImpl->cfg.ringSeconds : 4;
+				mImpl->ring.Alloc((uint64)mImpl->cfg.sampleRate * (uint64)mImpl->cfg.channels * (uint64)secs);
+				mImpl->backend = "OHAudio";
+				logger.Info("[NkAudioCapture] OK (OHAudio capture, {0} Hz, {1} canal(aux))", mImpl->cfg.sampleRate,
+							mImpl->cfg.channels);
+				return true;
+			}
+
+			bool NkAudioCapture::Start() {
+				if (!mImpl->capturer || mImpl->capturing)
+					return false;
+				if (OH_AudioCapturer_Start((OH_AudioCapturer *)mImpl->capturer) != AUDIOSTREAM_SUCCESS)
+					return false;
+				mImpl->capturing = true;
+				return true;
+			}
+
+			void NkAudioCapture::Stop() {
+				if (!mImpl->capturing)
+					return;
+				if (mImpl->capturer)
+					OH_AudioCapturer_Stop((OH_AudioCapturer *)mImpl->capturer);
+				mImpl->capturing = false;
+			}
+
+			void NkAudioCapture::Close() {
+				if (!mImpl)
+					return;
+				Stop();
+				if (mImpl->capturer) {
+					OH_AudioCapturer_Release((OH_AudioCapturer *)mImpl->capturer);
+					mImpl->capturer = nullptr;
+				}
+				if (mImpl->builder) {
+					OH_AudioStreamBuilder_Destroy((OH_AudioStreamBuilder *)mImpl->builder);
+					mImpl->builder = nullptr;
+				}
+				mImpl->ring.Free();
+				mImpl->backend = "Null";
+			}
+
+#elif defined(NKENTSEU_PLATFORM_LINUX) && !defined(NKENTSEU_PLATFORM_HARMONYOS)
 			// =====================================================================
 			//  Backend ALSA capture (Linux) — miroir du backend de lecture.
 			// =====================================================================
