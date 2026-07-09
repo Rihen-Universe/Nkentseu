@@ -3,6 +3,7 @@
 // AUCUN device GPU : pur CPU, sûr à lancer même pendant un entraînement GPU.
 // =============================================================================
 #include "NKRenderer/Tools/Animation/NkPoseMass.h"
+#include "NKRenderer/Tools/Animation/NkBalance.h"
 #include "NKLogger/NkLog.h"
 
 using namespace nkentseu;
@@ -18,6 +19,16 @@ int main() {
 		++nbTotal;
 		const bool ok = renderer::NkPoseMass::SelfTest();
 		logger.Info("[{0}] M3.1 NkPoseMass::SelfTest (barycentre, pondere, monotonie, anthropometrie, gardes)",
+					ok ? " OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+
+	// M3.2 — solveur d'équilibre (polygone de support + COM dedans ? + marge).
+	{
+		++nbTotal;
+		const bool ok = renderer::NkBalance::SelfTest();
+		logger.Info("[{0}] M3.2 NkBalance::SelfTest (dedans/dehors/bord, 2 pieds segment, direction de bascule)",
 					ok ? " OK " : "FAIL");
 		if (ok)
 			++nbOk;
