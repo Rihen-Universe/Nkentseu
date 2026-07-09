@@ -1,0 +1,30 @@
+"""NkMicRecord — outil d'enregistrement micro -> WAV (test reel de NkAudioCapture).
+
+Console pure (AUCUN device GPU) : ouvre le micro par defaut (backend WASAPI sous
+Windows), enregistre N secondes, ecrit un WAV 16-bit PCM. A lancer a la main pour
+valider la capture end-to-end. Linke NKAudio + NKFileSystem + NKTime + noyau."""
+from Jenga import *
+from jengaconfig import *
+
+
+with project("NkMicRecord"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        ["NKAudio", "NKFileSystem", "NKTime", "NKStream", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKMath"],
+        extra_includes=["src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        # WASAPI capture : ole32 (CoCreateInstance) + uuid (GUID) + winmm.
+        links(["ole32", "uuid", "winmm", "user32"])
