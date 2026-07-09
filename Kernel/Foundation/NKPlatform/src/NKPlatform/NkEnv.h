@@ -652,6 +652,27 @@ namespace nkentseu {
 		NKENTSEU_API_INLINE NkEnvString NkGet(const NkEnvString &name, NkEnvString &result) noexcept;
 
 		/**
+		 * @brief Alias simple et LIABLE (header-only) pour lire une variable d'environnement
+		 * @param name Nom de la variable (peut être nullptr -> retourne nullptr)
+		 * @return Pointeur vers la valeur (buffer géré par le CRT), ou nullptr si absente
+		 * @ingroup EnvAPI
+		 *
+		 * @note Contrairement à NkGet (défini dans NkEnv.cpp, donc NON liable depuis une autre
+		 *       unité de traduction), cette fonction est définie inline DANS le header : elle est
+		 *       utilisable depuis n'importe quelle application. Elle enveloppe getenv (C standard,
+		 *       cross-plateforme Windows/POSIX) pour offrir un point d'accès dans le namespace maison.
+		 *
+		 * @example
+		 * @code
+		 * const char* steps = nkentseu::env::GetEnvVar("NK_GPT_STEPS");
+		 * if (steps) { ... }
+		 * @endcode
+		 */
+		NKENTSEU_FORCE_INLINE const char *GetEnvVar(const char *name) noexcept {
+			return name ? std::getenv(name) : nullptr;
+		}
+
+		/**
 		 * @brief Définir une variable d'environnement
 		 * @param name Nom de la variable
 		 * @param value Nouvelle valeur à assigner
