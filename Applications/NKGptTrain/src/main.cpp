@@ -516,20 +516,48 @@ int main() {
     }
 
     // ---- Entraînement ----
-    optim::NkAdam adam(params, 3e-4f, 0.9f, 0.999f, 1e-8f, /*weightDecay=AdamW*/ 0.01f);
     const char* envs = getenv("NK_GPT_STEPS");
     const int STEPS = envs ? atoi(envs) : 300;
     // Accumulation de gradient : ACCUM micro-lots -> batch EFFECTIF = B*ACCUM, avec la
     // mémoire d'activations d'UN SEUL micro-lot (B). Levier n°1 pour tenir un gros modèle
     // sur une VRAM limitée sans réduire la qualité de gradient. NK_GPT_ACCUM (défaut 1).
     const int ACCUM = (int)envI("NK_GPT_ACCUM", 1);
+    // LR schedule : warmup linéaire (NK_GPT_WARMUP, défaut 5% des pas) puis décroissance
+    // cosine jusqu'à 10% du pic. Stabilise et accélère la convergence sur les longs runs.
+    const char* envlr = getenv("NK_GPT_LR");
+    const float peakLr = envlr ? (float)atof(envlr) : 3e-4f;
+    const int WARMUP = (int)envI("NK_GPT_WARMUP", STEPS / 20);
+    const double kPi = 3.14159265358979323846;
+    const float minLrRatio = 0.1f;
+    // Checkpoint périodique : sauvegarde tous les NK_GPT_SAVEEVERY pas (0 = seulement à la
+    // fin). Indispensable sur un run long : un plantage ne perd au plus que N pas.
+    const int SAVEEVERY = (int)envI("NK_GPT_SAVEEVERY", 0);
+
+    optim::NkAdam adam(params, peakLr, 0.9f, 0.999f, 1e-8f, /*weightDecay=AdamW*/ 0.01f);
+    auto saveCkpt = [&](const char* path) -> bool {
+        GptMeta meta; meta.V = V; meta.d = (int32)d; meta.H = (int32)H; meta.L = (int32)L; meta.T = (int32)T; meta.langs = langs;
+        for (int64 i = 0; i < (int64)bpe.merges.Size(); ++i) meta.merges.PushBack(bpe.merges[(nk_size)i]);
+        return SaveCheckpoint(path, meta, params);
+    };
+
     printf("-- Entraînement (%d pas) --\n", STEPS);
     if (ACCUM > 1)
         printf("   Accumulation de gradient : %d micro-lots -> batch effectif = %lld\n",
                ACCUM, (long long)(B * ACCUM));
+    printf("   LR schedule : warmup %d pas -> pic %.2e -> cosine (plancher %.0f%%) ; checkpoint tous les %d pas\n",
+           WARMUP, (double)peakLr, (double)(minLrRatio * 100), SAVEEVERY);
     double ema = 0;
     NkChrono chrono;
     for (int s = 1; s <= STEPS; ++s) {
+        // LR courant : warmup linéaire puis décroissance cosine jusqu'au plancher.
+        float lr;
+        if (WARMUP > 0 && s <= WARMUP) lr = peakLr * (float)s / (float)WARMUP;
+        else {
+            const double prog = (STEPS > WARMUP) ? (double)(s - WARMUP) / (double)(STEPS - WARMUP) : 1.0;
+            const double cosv = 0.5 * (1.0 + cos(kPi * prog));
+            lr = (float)(peakLr * (minLrRatio + (1.0 - minLrRatio) * cosv));
+        }
+        adam.SetLearningRate(lr);
         adam.ZeroGrad();                 // on ouvre la fenêtre d'accumulation
         double lv = 0.0;
         for (int m = 0; m < ACCUM; ++m) {
@@ -544,12 +572,16 @@ int main() {
         }
         adam.Step();                     // un seul pas d'optimiseur par fenêtre
         ema = (s == 1) ? lv : 0.98 * ema + 0.02 * lv;
-        if (s % 25 == 0 || s == 1) printf("  pas %4d : perte = %.4f  (moy. %.4f)\n", s, lv, ema);
+        if (s % 25 == 0 || s == 1) printf("  pas %4d : perte = %.4f  (moy. %.4f)  lr=%.2e\n", s, lv, ema, (double)lr);
         if (s % 100 == 0) {
             printf("    --- échantillons (pas %d) ---\n", s);
             if (langs.Size() == 0) printf("    %s\n", generate(seed, 100, 0.8, -1).CStr());
             else for (int li = 0; li < (int)langs.Size(); ++li) printf("    [%s] %s\n", langs[(nk_size)li].CStr(), generate(seed, 80, 0.8, li).CStr());
             printf("    ---------------------------\n");
+        }
+        // Checkpoint périodique (sécurité run long).
+        if (SAVEEVERY > 0 && envSave && s % SAVEEVERY == 0) {
+            if (saveCkpt(envSave)) printf("  [checkpoint pas %d -> %s]\n", s, envSave);
         }
     }
     printf("Entraînement terminé en %.1f s (%s).\n", chrono.Elapsed().seconds, useGpu ? "GPU-résident" : "CPU");
