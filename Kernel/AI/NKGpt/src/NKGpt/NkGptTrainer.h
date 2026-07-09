@@ -42,6 +42,10 @@ namespace nkentseu {
 					int saveEvery = 0; // checkpoint tous les N pas (0 = fin seule)
 					float lr = 3e-4f;  // pic de learning-rate (puis cosine, plancher 10%)
 
+					// Validation (held-out) : mesure la généralisation (≠ mémorisation).
+					float valFrac = 0.f; // fraction de queue de CHAQUE langue réservée au val (0 = désactivé)
+					int valEvery = 0;	 // évalue le val tous les N pas (0 = seulement à la fin si valFrac>0)
+
 					// Checkpoint / reprise.
 					NkString savePath;	 // sauvegarde (vide = pas de sauvegarde)
 					NkString loadPath;	 // checkpoint à charger (vide = fresh)
@@ -104,15 +108,20 @@ namespace nkentseu {
 
 				private:
 					nk_size EncodeCorpus(const NkVector<NkString> &texts); // texts -> mLangData/mLangMask (masque QA)
-					void MakeBatch(NkTensor &x, NkTensor &oneHot);		   // lot x[B,T] + cible one-hot masquée
-					double NextRand();									   // LCG déterministe [0,1)
-					void FillMeta(GptMeta &meta) const;					   // dims + BPE + langues (pour la sauvegarde)
+					void MakeBatch(NkTensor &x, NkTensor &oneHot);		   // lot d'entraînement (depuis mLangData)
+					// Fabrique un lot x[B,T] + cible one-hot masquée depuis une source (train ou val).
+					void MakeBatchFrom(const NkVector<NkVector<float>> &data, const NkVector<NkVector<float>> &mask,
+									   NkTensor &x, NkTensor &oneHot);
+					double EvaluateVal(int nBatches); // perte moyenne sur le held-out (forward seul) ; -1 si pas de val
+					double NextRand();				  // LCG déterministe [0,1)
+					void FillMeta(GptMeta &meta) const; // dims + BPE + langues (pour la sauvegarde)
 
 					NkGptConfig mCfg;
 					bool mUseGpu = false;
 					Bpe mBpe;
 					NkVector<NkString> mLangs;
-					NkVector<NkVector<float>> mLangData, mLangMask;
+					NkVector<NkVector<float>> mLangData, mLangMask; // entraînement (par langue)
+					NkVector<NkVector<float>> mValData, mValMask;	// held-out validation (queue de chaque langue)
 					int mV = 0, mNByte = 0;
 					int64 mT = 0, mD = 0, mH = 0, mL = 0, mB = 0;
 					nn::NkGPT *mGpt = nullptr; // tas (dims connues après Prepare)

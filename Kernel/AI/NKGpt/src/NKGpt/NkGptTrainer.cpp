@@ -85,11 +85,47 @@ namespace nkentseu {
 					}
 					totalTok += mLangData[(nk_size)li].Size();
 				}
+
+				// Split held-out : réserve la QUEUE de chaque langue au val (jamais vue à l'entraînement).
+				mValData.Clear();
+				mValMask.Clear();
+				if (mCfg.valFrac > 0.f && mCfg.valFrac < 0.9f) {
+					mValData.Resize((nk_size)texts.Size());
+					mValMask.Resize((nk_size)texts.Size());
+					for (int64 li = 0; li < (int64)texts.Size(); ++li) {
+						NkVector<float> &dd = mLangData[(nk_size)li];
+						NkVector<float> &mm = mLangMask[(nk_size)li];
+						const int64 N = (int64)dd.Size();
+						const int64 nVal = (int64)((double)N * (double)mCfg.valFrac);
+						if (nVal <= mT || N - nVal <= mT)
+							continue; // pas assez de tokens pour découper proprement
+						const int64 cut = N - nVal; // val = queue [cut, N)
+						for (int64 k = cut; k < N; ++k) {
+							mValData[(nk_size)li].PushBack(dd[(nk_size)k]);
+							mValMask[(nk_size)li].PushBack((k < (int64)mm.Size()) ? mm[(nk_size)k] : 1.f);
+						}
+						dd.Resize((nk_size)cut);
+						mm.Resize((nk_size)cut);
+					}
+					nk_size valTok = 0;
+					for (int64 li = 0; li < (int64)mValData.Size(); ++li)
+						valTok += mValData[(nk_size)li].Size();
+					if (mCfg.verbose)
+						logger.Info("Validation held-out : {0} tokens réservés ({1}% de queue par langue, jamais vus "
+									"à l'entraînement).",
+									(unsigned long long)valTok, (double)(mCfg.valFrac * 100.f));
+				}
 				return totalTok;
 			}
 
-			// Lot : x[B,T], cible one-hot [B*T, V]. Séquence préfixée du tag de langue ; round-robin.
+			// Lot d'entraînement (échantillonné depuis mLangData).
 			void NkGptTrainer::MakeBatch(NkTensor &x, NkTensor &oneHot) {
+				MakeBatchFrom(mLangData, mLangMask, x, oneHot);
+			}
+
+			// Lot : x[B,T], cible one-hot [B*T, V] depuis `data`/`mask`. Tag de langue en tête ; round-robin.
+			void NkGptTrainer::MakeBatchFrom(const NkVector<NkVector<float>> &data, const NkVector<NkVector<float>> &mask,
+											 NkTensor &x, NkTensor &oneHot) {
 				NkShape xs;
 				xs.PushBack(mB);
 				xs.PushBack(mT);
@@ -97,25 +133,42 @@ namespace nkentseu {
 				oneHot = NkTensor::Zeros(NkShape{mB * mT, (int64)mV});
 				float *xp = x.DataAs<float>();
 				float *op = oneHot.DataAs<float>();
-				const int nL = (int)mLangData.Size();
+				const int nL = (int)data.Size();
 				for (int64 b = 0; b < mB; ++b) {
 					const int li = nL > 0 ? (int)(b % nL) : 0;
-					const NkVector<float> &dd = mLangData[(nk_size)li];
-					const bool hasMask =
-						((nk_size)li < mLangMask.Size()) && (mLangMask[(nk_size)li].Size() == dd.Size());
+					const NkVector<float> &dd = data[(nk_size)li];
+					const bool hasMask = ((nk_size)li < mask.Size()) && (mask[(nk_size)li].Size() == dd.Size());
 					const int64 N = (int64)dd.Size();
 					if (N <= mT)
 						continue;
 					const int64 off = (int64)(NextRand() * (double)(N - mT));
 					xp[b * mT + 0] = (float)(mNByte + li);
-					if (!hasMask || mLangMask[(nk_size)li][(nk_size)off] != 0.f)
+					if (!hasMask || mask[(nk_size)li][(nk_size)off] != 0.f)
 						op[(b * mT + 0) * mV + (int)dd[(nk_size)off]] = 1.f;
 					for (int64 t = 1; t < mT; ++t) {
 						xp[b * mT + t] = dd[(nk_size)(off + t - 1)];
-						if (!hasMask || mLangMask[(nk_size)li][(nk_size)(off + t)] != 0.f)
+						if (!hasMask || mask[(nk_size)li][(nk_size)(off + t)] != 0.f)
 							op[(b * mT + t) * mV + (int)dd[(nk_size)(off + t)]] = 1.f;
 					}
 				}
+			}
+
+			// Perte moyenne sur le held-out (forward seul, aucun gradient). -1 si pas de val.
+			double NkGptTrainer::EvaluateVal(int nBatches) {
+				if (mValData.Size() == 0)
+					return -1.0;
+				double sum = 0.0;
+				int cnt = 0;
+				for (int i = 0; i < nBatches; ++i) {
+					NkTensor x, oneHot;
+					MakeBatchFrom(mValData, mValMask, x, oneHot);
+					NkVar logits = mGpt->Forward(mUseGpu ? x.ToGPU() : x);
+					NkVar loss =
+						autograd::SoftmaxCrossEntropy(logits, NkVar::Leaf(mUseGpu ? oneHot.ToGPU() : oneHot, false));
+					sum += loss.Value().ToCPU().GetItem(NkShape{(int64)0});
+					++cnt;
+				}
+				return cnt > 0 ? sum / (double)cnt : -1.0;
 			}
 
 			bool NkGptTrainer::Prepare() {
@@ -401,6 +454,11 @@ namespace nkentseu {
 					mEma = (s == 1) ? lv : 0.98 * mEma + 0.02 * lv;
 					if (V && (s % 25 == 0 || s == 1))
 						logger.Info("  pas {0} : perte = {1}  (moy. {2})  lr={3}", s, lv, mEma, (double)lr);
+					if (mCfg.valEvery > 0 && mValData.Size() > 0 && s % mCfg.valEvery == 0) {
+						const double vl = EvaluateVal(4);
+						if (V && vl >= 0.0)
+							logger.Info("  [val] pas {0} : perte val = {1}  (train {2})", s, vl, mEma);
+					}
 					if (V && s % 100 == 0) {
 						logger.Info("    --- échantillons (pas {0}) ---", s);
 						if (mLangs.Size() == 0)
@@ -422,6 +480,14 @@ namespace nkentseu {
 				if (V)
 					logger.Info("Entraînement terminé en {0} s ({1}).", chrono.Elapsed().seconds,
 								mUseGpu ? "GPU-résident" : "CPU");
+
+				if (mValData.Size() > 0) {
+					const double vl = EvaluateVal(8);
+					if (V && vl >= 0.0)
+						logger.Info("Perte VALIDATION finale (held-out) : {0}  (train moy. {1}) — écart = "
+									"généralisation vs mémorisation.",
+									vl, mEma);
+				}
 
 				if (hasSave) {
 					const bool sv = SaveCheckpoint(mCfg.savePath.CStr(), saveMeta, mParams, &adam.FirstMoments(),

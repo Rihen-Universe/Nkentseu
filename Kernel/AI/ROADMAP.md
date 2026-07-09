@@ -445,6 +445,12 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
     (⚠️ `.clang-format` corrigé : `NamespaceIndentation: All` + `IndentAccessModifiers: true` — il
     était désynchronisé du style maison ; le reste du repo reste à reformater un jour pour cohérence).
     Cf. mémoire `feedback_code_conventions_formatting`.
+- ✅ **Boucle de validation (held-out)** : `NK_GPT_VALFRAC` (0..0.9) réserve la **queue de chaque langue**
+  au val (jamais vue à l'entraînement), `NK_GPT_VALEVERY` évalue la **perte val** (forward seul, aucun
+  gradient) tous les N pas + une **perte val finale**. Signal clé pour la stratégie multi-Paliers (savoir
+  quand un Palier plafonne / mémorise vs généralise). `NkGptConfig::valFrac/valEvery`, `MakeBatchFrom`
+  (source paramétrable train/val), `EvaluateVal`. Validé : split « 2940 tokens réservés (15%) », val
+  suit l'entraînement (5,26→4,84) + val finale rapportée.
 - ⬜ **Restes** : cible par indices (au lieu du one-hot dense) ; mixed precision FP16 (Palier 2) ;
   corpus format dialogue.
   ⚠️ Ne pas lancer un 2ᵉ entraînement GPU pendant qu'un run tourne (contention Vulkan sur 8 Go → crash

@@ -9,6 +9,7 @@
 //   Corpus  : NK_GPT_DIR (dossier) ou NK_GPT_FILE (fichier) ; NK_GPT_CHARS (budget).
 //   Modèle  : NK_GPT_T/D/H/L/B, NK_GPT_MERGES.
 //   Train   : NK_GPT_STEPS, NK_GPT_ACCUM, NK_GPT_LR, NK_GPT_WARMUP, NK_GPT_SAVEEVERY.
+//   Valid.  : NK_GPT_VALFRAC (0..0.9 queue held-out par langue), NK_GPT_VALEVERY (éval /N pas).
 //   Ckpt    : NK_GPT_SAVE, NK_GPT_LOAD, NK_GPT_RESUME=1 (reprendre l'entraînement).
 //   Gen     : NK_GPT_PROMPT, NK_GPT_GENLEN, NK_GPT_LANG=fr|en|bbj.
 // =============================================================================
@@ -59,6 +60,11 @@ int main() {
 		cfg.lr = e ? (float)atof(e) : 3e-4f;
 	}
 	cfg.saveEvery = (int)envI("NK_GPT_SAVEEVERY", 0);
+	{
+		const char *e = getenv("NK_GPT_VALFRAC");
+		cfg.valFrac = e ? (float)atof(e) : 0.f;
+	}
+	cfg.valEvery = (int)envI("NK_GPT_VALEVERY", 0);
 	cfg.savePath = envS("NK_GPT_SAVE");
 	cfg.loadPath = envS("NK_GPT_LOAD");
 	cfg.resume = !cfg.loadPath.Empty() && (envI("NK_GPT_RESUME", 0) != 0);

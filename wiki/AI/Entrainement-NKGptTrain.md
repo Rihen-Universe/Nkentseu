@@ -29,8 +29,9 @@ l'UTF-8 (accents, Ghomala) dans un log : `cmd /c '"...NKGptTrain.exe" > log 2>&1
 | `NK_GPT_ACCUM` | micro-lots accumulés → batch effectif = B×ACCUM (tenir un gros modèle sur 8 Go) | 1 |
 | `NK_GPT_LR`/`NK_GPT_WARMUP` | pic de learning-rate / pas de warmup (puis cosine, plancher 10%) | 3e-4 / 5% |
 | `NK_GPT_STEPS` | nombre de pas | 300 |
+| `NK_GPT_VALFRAC`/`NK_GPT_VALEVERY` | fraction de queue held-out par langue (0..0.9) / éval perte val tous les N pas | 0 / 0 |
 | `NK_GPT_SAVE`/`NK_GPT_SAVEEVERY` | fichier checkpoint / sauver tous les N pas (0 = fin seule) | — / 0 |
-| `NK_GPT_LOAD`/`NK_GPT_RESUME` | checkpoint à charger / `1` = **reprendre l'entraînement** (sinon génération) | — / 0 |
+| `NK_GPT_LOAD`/`NK_GPT_RESUME` | checkpoint à charger / `1` = **reprendre l'entraînement** (checkpoint v4 → reprise PARFAITE : état Adam + pas restaurés, pas de warmup ni pic de perte) | — / 0 |
 | `NK_GPT_LANG`/`NK_GPT_PROMPT`/`NK_GPT_GENLEN` | langue de génération / amorce / longueur | auto / — / 400 |
 
 ## Reprendre le Palier après un arrêt (reprise d'entraînement)
