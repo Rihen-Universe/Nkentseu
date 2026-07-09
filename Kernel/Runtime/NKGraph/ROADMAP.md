@@ -38,9 +38,11 @@ les types » ; chaque domaine fournit « ses nodes et ce qu'il en fait ».
    des type-ids (NKReflection). Un `if (nodeType == ...)` métier dans le cœur =
    architecture morte.
 2. **Règle des deux consommateurs** : le cœur se construit AVEC son premier
-   client réel (recommandé : **graphe de matériaux** — périmètre fermé, backend
-   NkSL existant, résultat visible), et c'est le **deuxième** client (Blueprint
-   ou VFX) qui force la généralisation de l'API. Pas d'abstraction dans le vide.
+   client réel, et c'est le **deuxième** client qui force la généralisation de
+   l'API. Pas d'abstraction dans le vide. Premier client = **celui qui démarre
+   en premier** : la Phase 4 « Graph » de NKCode est marquée « PROCHAIN » chez
+   l'agent NKCode (note de coordination posée dans son ROADMAP le 2026-07-09) —
+   sinon le graphe de matériaux (périmètre fermé, backend NkSL existant).
 3. **Précédents internes** : même mouvement que NkGizmo3D (extrait de Demo3D →
    NKRenderer/Core) et NKEditorKit (extrait pour NKCode → partagé). Précédents
    externes : Unreal (EdGraph unique pour Blueprint/matériaux/anim), Blender
@@ -55,8 +57,8 @@ les types » ; chaque domaine fournit « ses nodes et ce qu'il en fait ».
 | P2 — Évaluation (tri topologique, sous-graphes, plan aplati) | ❌ | ordre d'évaluation exposé, pas d'exécution métier |
 | P3 — Sérialisation `.nkgraph` + undo/redo | ❌ | NKSerialization ; commandes inversibles (modèle NkAnimationEditor) |
 | P4 — Widget canvas (NKEditorKit) | ❌ | pan/zoom, fils, recherche, groupes, preview |
-| P5 — 1er consommateur : graphe de matériaux | ❌ | NKRenderer Phase T.2 (compile → NkSL) |
-| P6 — 2e consommateur : Blueprint OU VFX | ❌ | force la généralisation de l'API |
+| P5 — 1er consommateur : NKCode Phase 4 (Blueprint) OU matériaux T.2 | ❌ | le premier qui démarre construit AVEC le cœur |
+| P6 — 2e consommateur (l'autre des deux, ou VFX) | ❌ | force la généralisation de l'API |
 
 Légende : ✅ Livré · 🔶 Partiel · ⏳ En cours · ❌ TODO · 🚫 Abandonné
 
