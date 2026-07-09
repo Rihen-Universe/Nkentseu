@@ -384,8 +384,12 @@ optionnelle.
 - ❌ Compilation multi-backend via la chaîne shader existante (NkSL → GL/VK/DX)
 - ❌ Presets génériques + presets signature (métal patiné doré, motifs Bamiléké,
   « tech-organique ») partagés entre projets
-- ⚠️ Le substrat de graphe de nodes doit être PARTAGÉ avec NKCode (Blueprint) et
-  le graphe VFX (Noge) — une seule implémentation, trois consommateurs
+- ⚠️ Substrat de graphe = **NKGraph** (`Kernel/Runtime/NKGraph/ROADMAP.md`,
+  décision 2026-07-09) : cœur agnostique partagé avec Blueprint (NKCode), VFX
+  (Noge), procédural (AI), anim graphs (NkAnima) ; canvas d'édition dans
+  NKEditorKit. Le graphe de matériaux est le **1er consommateur désigné**
+  (P5 NKGraph) : il se construit AVEC le cœur, et compile vers NkSL (aucune
+  évaluation de graphe au runtime)
 
 ### T.3 — Peinture de textures 3D (contrepoids manuel indispensable)
 - ❌ Projection écran→UV temps réel, calques non destructifs
