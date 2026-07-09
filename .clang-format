@@ -15,6 +15,13 @@ IndentCaseLabels: true
 NamespaceIndentation: All
 IndentAccessModifiers: true
 
+# Lisibilité : une ligne vide entre chaque DÉFINITION (fonction, struct, classe, union),
+# qu'elles soient du même groupe ou non. Les lignes vides manuelles (groupement des
+# prototypes) sont préservées (MaxEmptyLinesToKeep: 1) sans jamais en empiler deux.
+SeparateDefinitionBlocks: Always
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: false
+
 ReflowComments: true
 AlignTrailingComments: true
 SortIncludes: Never
