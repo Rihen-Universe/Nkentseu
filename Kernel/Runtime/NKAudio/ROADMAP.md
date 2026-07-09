@@ -145,7 +145,17 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 ## En cours / TODO immédiat
 
 ### Capture vocale / entrée micro — MULTIPLATEFORME (priorité)
-- État : **absent** — le moteur ne fait que de la sortie (output). Aucune API d'entrée audio.
+- État : **🔶 V1 LIVRÉE (2026-07-09)** — `NkAudioCapture` (`NkAudioCapture.{h,cpp}`, namespace `audio`).
+  API : `EnumerateDevices()`, `Open(NkCaptureConfig)`, `Start()/Stop()`, **pull** `Read(out, maxFrames)` +
+  `Available()` via **ring buffer SPSC lock-free** (NkAtomic), **push** `SetCallback(OnAudioIn)`, format
+  Float32 interleaved (down/up-mix vers le nb de canaux voulu). Backend **WASAPI capture RÉEL** (Windows :
+  `IMMDeviceEnumerator`→`eCapture`→`IAudioClient` SHARED→`IAudioCaptureClient`, thread `CreateThread`,
+  conversion f32/i16 + silence) + **Null** (autres plateformes). Validé : build NKAudio 9/9 + **self-test
+  headless du ring buffer OK** (write/read/wrap/overflow, `NkAnimPhysTest`). ⏳ Reste : backends ALSA/
+  CoreAudio/AAudio/getUserMedia/OHAudio (stub Null), `SaveWAV` direct, foot… — validation micro RÉELLE
+  (interactive) à faire par Rihen (non testable headless). Permissions runtime mobile/Web à câbler.
+- (spec initiale ci-dessous, conservée)
+- État initial : **absent** — le moteur ne faisait que de la sortie (output).
 - Nécessaire pour : **enregistrement de la voix**, voice chat, reconnaissance/commande vocale,
   analyse temps réel, échantillonneur, et (lien IA) **capture de corpus audio pour NKAI** (dataset
   voix, futur TTS/ASR from-scratch).

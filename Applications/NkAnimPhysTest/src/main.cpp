@@ -5,6 +5,7 @@
 #include "NKRenderer/Tools/Animation/NkPoseMass.h"
 #include "NKRenderer/Tools/Animation/NkBalance.h"
 #include "NKRenderer/Tools/Animation/NkContactDetector.h"
+#include "NKAudio/NkAudioCapture.h"
 #include "NKLogger/NkLog.h"
 
 using namespace nkentseu;
@@ -40,6 +41,16 @@ int main() {
 		++nbTotal;
 		const bool ok = renderer::NkContactDetector::SelfTest();
 		logger.Info("[{0}] M3.3 NkContactDetector::SelfTest (contact sol, points de support, INTEGRATION debout/penche)",
+					ok ? " OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+
+	// NKAudio — enregistrement : ring buffer SPSC de la capture (headless, sans micro).
+	{
+		++nbTotal;
+		const bool ok = audio::NkAudioCapture::SelfTest();
+		logger.Info("[{0}] NKAudio NkAudioCapture::SelfTest (ring buffer SPSC : write/read/wrap/overflow)",
 					ok ? " OK " : "FAIL");
 		if (ok)
 			++nbOk;
