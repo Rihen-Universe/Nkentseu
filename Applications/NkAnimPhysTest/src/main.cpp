@@ -5,6 +5,7 @@
 #include "NKRenderer/Tools/Animation/NkPoseMass.h"
 #include "NKRenderer/Tools/Animation/NkBalance.h"
 #include "NKRenderer/Tools/Animation/NkContactDetector.h"
+#include "NKRenderer/Tools/Animation/NkPoseBalancer.h"
 #include "NKAudio/NkAudioCapture.h"
 #include "NKLogger/NkLog.h"
 
@@ -41,6 +42,16 @@ int main() {
 		++nbTotal;
 		const bool ok = renderer::NkContactDetector::SelfTest();
 		logger.Info("[{0}] M3.3 NkContactDetector::SelfTest (contact sol, points de support, INTEGRATION debout/penche)",
+					ok ? " OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+
+	// M3.4 — optimiseur de pose sous contrainte (ajuste une pose pour respecter l'équilibre).
+	{
+		++nbTotal;
+		const bool ok = renderer::NkPoseBalancer::SelfTest();
+		logger.Info("[{0}] M3.4 NkPoseBalancer::SelfTest (deseq->equilibre, strength 0/0.5/1, pose deja equilibree)",
 					ok ? " OK " : "FAIL");
 		if (ok)
 			++nbOk;

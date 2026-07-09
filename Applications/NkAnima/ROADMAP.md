@@ -332,11 +332,18 @@ Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociabl
    des 3 briques (`NkAnimPhysTest` → **M3.3 3/3 OK** : figure debout = équilibrée, penchée +1 m = déséquilibrée).
    V1 = sol PLAN. ⏳ Reste : raycast heightfield/collision (pentes, escaliers), foot-locking temporel
    (anti-glissement, stateful), multi-points quadrupède/escalade.
-4. ❌ **Optimiseur de pose sous contrainte** (le cœur) — ajuste une pose proposée
-   (clip ou IA) pour respecter l'équilibre : correction itérative tronc/bassin,
-   respect des limites d'angle articulaires (NkIKSystem), **pondération
-   configurable** (curseur réalisme vs intention artistique), lissage multi-frame
-   (pas d'à-coups).
+4. 🔶 **Optimiseur de pose sous contrainte (V1 — 2026-07-09)** (le cœur) — module
+   `NKRenderer/Tools/Animation/NkPoseBalancer.{h,cpp}` (pur Foundation, AUCUN GPU).
+   `BalanceByShift(jointWorld, count, mass, supportPts, supportCount, strength, groundNormal)` :
+   ramène le **COM (M3.1)** au-dessus du **polygone de support (M3.2/M3.3)** par correction
+   horizontale vers le centroïde des appuis, **pondérée par `strength` ∈ [0,1]** = le curseur
+   **réalisme ↔ intention artistique** (0 = pose intacte, 1 = COM sur le centroïde). Renvoie
+   l'état avant/après (`wasBalanced`/`nowBalanced`) + la marge avant/après + le décalage appliqué.
+   Testé HEADLESS (`NkAnimPhysTest` → **M3.4 OK** : pose déséquilibrée → équilibrée à strength 1,
+   correction monotone 0<0.5<1, pose déjà équilibrée préservée). **Boucle M3 fermée bout-en-bout**
+   (pose → COM+contacts → équilibre → **correction**). ⏳ Reste (V2) : correction CIBLÉE tronc/bassin
+   pieds plantés (via hiérarchie du squelette), **limites d'angle articulaires (NkIKSystem)**,
+   lissage multi-frame (anti-à-coups temporel), correction du moment dynamique (pas seulement statique).
 5. ❌ **Auto-posing** — poses intermédiaires physiquement plausibles entre deux
    clés : interpolation passant par l'optimiseur, transferts de poids (bascule
    pied à pied), plusieurs variantes proposées → choix humain.
