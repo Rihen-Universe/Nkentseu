@@ -341,6 +341,57 @@ int main() {
     int V = 0, nByte = 0;
     int64 T = 0, d = 0, H = 0, L = 0, B = envI("NK_GPT_B", 16);
 
+    // Reprise d'entraînement : NK_GPT_LOAD (checkpoint) + NK_GPT_RESUME=1 -> on recharge les
+    // poids ET on continue à entraîner (au lieu de seulement générer). L'état Adam n'est PAS
+    // sauvegardé (optimiseur neuf à la reprise) ; les POIDS, eux, sont préservés.
+    const bool resume = envLoad && (envI("NK_GPT_RESUME", 0) != 0);
+
+    // Encodage d'un corpus (texts par langue) -> langData/langMask, avec le BPE courant
+    // (celui du checkpoint en reprise, celui fraîchement entraîné sinon). Masque la question
+    // des blocs Question:/Réponse: (instruction-tuning). Réutilisé fresh ET resume.
+    const NkStringView marker("Réponse: ");
+    auto encodeCorpus = [&](const NkVector<NkString>& texts) -> nk_size {
+        langData.Resize((nk_size)texts.Size());
+        langMask.Resize((nk_size)texts.Size());
+        nk_size totalTok = 0;
+        for (int64 li = 0; li < (int64)texts.Size(); ++li) {
+            const NkString& txt = texts[(nk_size)li];
+            const bool isQa = txt.Find(marker) != NkString::npos;
+            if (!isQa) {
+                NkVector<int32> ids; bpe.Encode(txt, ids);
+                for (int64 k = 0; k < (int64)ids.Size(); ++k) {
+                    langData[(nk_size)li].PushBack((float)ids[(nk_size)k]);
+                    langMask[(nk_size)li].PushBack(1.f);
+                }
+            } else {
+                const nk_size sz = txt.Size();
+                nk_size pos = 0;
+                while (pos < sz) {
+                    const nk_size be = txt.Find("\n\n", pos);
+                    const nk_size blen = (be == NkString::npos) ? (sz - pos) : (be - pos);
+                    NkString block = txt.SubStr(pos, blen);
+                    pos = (be == NkString::npos) ? sz : be + 2;
+                    if (block.Size() == 0) continue;
+                    const nk_size mp = block.Find(marker);
+                    NkString qPart = (mp == NkString::npos) ? block : block.SubStr(0, mp + marker.Size());
+                    NkVector<int32> qIds; bpe.Encode(qPart, qIds);
+                    for (int64 k = 0; k < (int64)qIds.Size(); ++k) { langData[(nk_size)li].PushBack((float)qIds[(nk_size)k]); langMask[(nk_size)li].PushBack(0.f); }
+                    if (mp != NkString::npos) {
+                        NkString aPart = block.SubStr(mp + marker.Size());
+                        if (aPart.Size() > 0) {
+                            NkVector<int32> aIds; bpe.Encode(aPart, aIds);
+                            for (int64 k = 0; k < (int64)aIds.Size(); ++k) { langData[(nk_size)li].PushBack((float)aIds[(nk_size)k]); langMask[(nk_size)li].PushBack(1.f); }
+                        }
+                    }
+                    NkVector<int32> sepIds; bpe.Encode(NkString("\n\n"), sepIds);
+                    for (int64 k = 0; k < (int64)sepIds.Size(); ++k) { langData[(nk_size)li].PushBack((float)sepIds[(nk_size)k]); langMask[(nk_size)li].PushBack(0.f); }
+                }
+            }
+            totalTok += langData[(nk_size)li].Size();
+        }
+        return totalTok;
+    };
+
     if (envLoad) {
         GptMeta meta;
         if (!LoadCheckpointMeta(envLoad, meta)) { printf("Checkpoint illisible ou format obsolète (attendu BPE v3) : %s\n", envLoad); return 2; }
@@ -375,50 +426,7 @@ int main() {
         TrainBpe(texts, nMerges, bpe);
         nByte = bpe.Base();
         V = nByte + (int)langs.Size();
-        langData.Resize((nk_size)texts.Size());
-        langMask.Resize((nk_size)texts.Size());
-        nk_size totalTok = 0;
-        const NkStringView marker("Réponse: ");
-        for (int64 li = 0; li < (int64)texts.Size(); ++li) {
-            const NkString& txt = texts[(nk_size)li];
-            // Masquage de loss : un tag contenant des blocs "Question:/Réponse:" est traité
-            // en instruction-tuning — la QUESTION est masquée (loss=0), seule la RÉPONSE compte.
-            const bool isQa = txt.Find(marker) != NkString::npos;
-            if (!isQa) {
-                NkVector<int32> ids; bpe.Encode(txt, ids);
-                for (int64 k = 0; k < (int64)ids.Size(); ++k) {
-                    langData[(nk_size)li].PushBack((float)ids[(nk_size)k]);
-                    langMask[(nk_size)li].PushBack(1.f);   // prose/code : tout compte (comportement d'origine)
-                }
-            } else {
-                const nk_size sz = txt.Size();
-                nk_size pos = 0;
-                while (pos < sz) {
-                    const nk_size be = txt.Find("\n\n", pos);
-                    const nk_size blen = (be == NkString::npos) ? (sz - pos) : (be - pos);
-                    NkString block = txt.SubStr(pos, blen);
-                    pos = (be == NkString::npos) ? sz : be + 2;
-                    if (block.Size() == 0) continue;
-                    const nk_size mp = block.Find(marker);
-                    // Partie question (jusqu'à "Réponse: " inclus) -> masque 0.
-                    NkString qPart = (mp == NkString::npos) ? block : block.SubStr(0, mp + marker.Size());
-                    NkVector<int32> qIds; bpe.Encode(qPart, qIds);
-                    for (int64 k = 0; k < (int64)qIds.Size(); ++k) { langData[(nk_size)li].PushBack((float)qIds[(nk_size)k]); langMask[(nk_size)li].PushBack(0.f); }
-                    // Partie réponse -> masque 1 (seule à compter dans la loss).
-                    if (mp != NkString::npos) {
-                        NkString aPart = block.SubStr(mp + marker.Size());
-                        if (aPart.Size() > 0) {
-                            NkVector<int32> aIds; bpe.Encode(aPart, aIds);
-                            for (int64 k = 0; k < (int64)aIds.Size(); ++k) { langData[(nk_size)li].PushBack((float)aIds[(nk_size)k]); langMask[(nk_size)li].PushBack(1.f); }
-                        }
-                    }
-                    // Séparateur \n\n entre blocs -> masqué.
-                    NkVector<int32> sepIds; bpe.Encode(NkString("\n\n"), sepIds);
-                    for (int64 k = 0; k < (int64)sepIds.Size(); ++k) { langData[(nk_size)li].PushBack((float)sepIds[(nk_size)k]); langMask[(nk_size)li].PushBack(0.f); }
-                }
-            }
-            totalTok += langData[(nk_size)li].Size();
-        }
+        const nk_size totalTok = encodeCorpus(texts);
         printf("Corpus : %llu car. -> %llu tokens BPE ; %d tokens (256 + %llu fusions) + %d tags = vocab %d.\n",
                (unsigned long long)totalChars, (unsigned long long)totalTok, nByte, (unsigned long long)bpe.merges.Size(), (int)langs.Size(), V);
         T = envI("NK_GPT_T", 128); d = envI("NK_GPT_D", 256);
@@ -426,6 +434,39 @@ int main() {
         printf("Modèle GPT : T=%lld, d=%lld, têtes=%lld, couches=%lld, batch=%lld  (AdamW, GPU-résident)\n\n",
                (long long)T,(long long)d,(long long)H,(long long)L,(long long)B);
     }
+
+    // ---- REPRISE D'ENTRAÎNEMENT : charger le corpus avec le BPE du checkpoint ----
+    // (les dims + langues + fusions BPE viennent du checkpoint ; on ré-encode le corpus
+    //  et on continuera à entraîner. Le corpus DOIT exposer les mêmes tags dans le même
+    //  ordre que le checkpoint, sinon les tokens-tag de langue ne correspondraient plus.)
+    if (resume) {
+        const char* envf = getenv("NK_GPT_FILE");
+        const char* envd = getenv("NK_GPT_DIR");
+        const char* envc = getenv("NK_GPT_CHARS");
+        const NkString datasetsDir = envd ? NkString(envd) : NkString("D:/Projets/2026/Nkentseu/Nkentseu/Resources/Datasets");
+        NkVector<NkString> texts;
+        NkVector<NkString> langs2;
+        if (envf) {
+            langs2.PushBack(LangOf(NkString(envf)));
+            texts.PushBack(LoadCorpus(envf, envc ? (nk_size)atol(envc) : 150000));
+        } else {
+            LoadCorpusByLang(datasetsDir, envc ? (nk_size)atol(envc) : 1200000, langs2, texts);
+        }
+        // Les langues du corpus doivent correspondre EXACTEMENT à celles du checkpoint.
+        bool langsOk = (langs2.Size() == langs.Size());
+        for (int64 i = 0; langsOk && i < (int64)langs.Size(); ++i)
+            if (!(langs2[(nk_size)i] == langs[(nk_size)i])) langsOk = false;
+        if (!langsOk) {
+            printf("Reprise IMPOSSIBLE : les tags du corpus ne correspondent pas au checkpoint "
+                   "(mêmes fichiers/tags, même ordre requis).\n");
+            gpu.Shutdown();
+            return 2;
+        }
+        const nk_size totalTok = encodeCorpus(texts);
+        printf("Reprise : corpus ré-encodé avec le BPE du checkpoint (%llu tokens BPE, %d tags).\n",
+               (unsigned long long)totalTok, (int)langs.Size());
+    }
+
     // Langue de génération demandée (NK_GPT_LANG=fr/en/bbj) — -1 = auto (pas de tag).
     const char* envLang = getenv("NK_GPT_LANG");
     int genLang = -1;
@@ -505,8 +546,8 @@ int main() {
 
     const int GENLEN = (int)envI("NK_GPT_GENLEN", 400);
 
-    // ---- Mode CHARGEMENT : on génère et on sort (aucun entraînement) ----
-    if (envLoad) {
+    // ---- Mode CHARGEMENT : on génère et on sort (SAUF si reprise d'entraînement) ----
+    if (envLoad && !resume) {
         printf("\n=== TEXTE GÉNÉRÉ (langue %s, amorce « %s », %d tokens) ===\n",
                genLang >= 0 ? langs[(nk_size)genLang].CStr() : "auto", seed.CStr(), GENLEN);
         printf("%s\n", generate(seed, GENLEN, 0.8, genLang).CStr());
