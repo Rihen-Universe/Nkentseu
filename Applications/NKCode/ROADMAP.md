@@ -83,10 +83,30 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 - ✅ 🎯 **Jalon visible** : éditer, **builder et lancer** un projet depuis NKCode.
 
 ## Phase 4 — Le moteur de graphe (Graph) ⬜  ← PROCHAIN
-- ⬜ Modèle **nœud / broche / lien** + undo/redo.
-- ⬜ **Canvas** : pan/zoom, sélection, **tirer un lien** entre broches, déplacer des nœuds.
-- ⬜ **Sérialisation** des graphes (NKSerialization / NKReflection).
-- ⬜ 🎯 **Jalon** : poser des nœuds, les relier, sauver/recharger le graphe.
+
+> ### ⚠️ COORDINATION INTER-AGENTS — DÉCISION VALIDÉE PAR RIHEN (2026-07-09), À LIRE AVANT DE CODER LA PHASE 4
+> Le substrat de graphe de nodes est désormais **UNIQUE et partagé** dans tout l'écosystème :
+> spec de référence → **`Kernel/Runtime/NKGraph/ROADMAP.md`** (architecture 3 couches).
+> Consommateurs prévus : NKCode (Blueprint/Blocks/Agents), graphe de **matériaux** (NKRenderer
+> Phase T.2), graphe **VFX** (Noge), **procédural** (Kernel/AI), **anim graphs** (NkAnima M2).
+> Concrètement pour cette Phase 4 — **ne PAS construire le substrat dans `src/NKCode/Graph/`** :
+> 1. Le **modèle** (nœud/broche typée/lien, tri topologique, sérialisation `.nkgraph`,
+>    undo/redo) s'implémente dans **`Kernel/Runtime/NKGraph`** (deps : Foundation +
+>    NKSerialization/NKReflection SEULEMENT, zéro type métier dans le cœur).
+> 2. Le **canvas** (pan/zoom, fils, sélection, recherche) s'implémente comme **widget
+>    réutilisable dans NKEditorKit** (NKCode en est déjà client).
+> 3. NKCode garde chez lui ce qui lui est propre : **bibliothèques de nœuds** Blueprint/Blocks,
+>    palette auto-générée NKReflection (Phase 5), **codegen/VM** (Phase 6), Agents (nœuds).
+> Bénéfice direct : les jalons Phase 4/5 restent identiques, mais le travail sert aussi les
+> 4 autres consommateurs (et l'API sera généralisée par le 2e consommateur — règle des deux).
+> En cas de doute ou de friction d'API : en parler à Rihen AVANT de diverger.
+
+- ⬜ Modèle **nœud / broche / lien** + undo/redo → **dans `Kernel/Runtime/NKGraph`** (cf. note).
+- ⬜ **Canvas** : pan/zoom, sélection, **tirer un lien** entre broches, déplacer des nœuds
+      → **widget NKEditorKit** (cf. note).
+- ⬜ **Sérialisation** des graphes (NKSerialization / NKReflection) → format **`.nkgraph`** (NKGraph).
+- ⬜ 🎯 **Jalon** : poser des nœuds, les relier, sauver/recharger le graphe (inchangé — mais le
+      moteur vit dans NKGraph/NKEditorKit, NKCode est son 1er client).
 
 ## Phase 5 — Blueprint (nœuds typés) ⬜
 - ⬜ **Broches typées** + règles de connexion ; **flux d'exécution** (exec) + **flux de données**.
