@@ -34,9 +34,9 @@
 #include "NKNetwork/RPC/NkRPC.h"
 #include "NKCore/NkTraits.h"
 
-// En-têtes standards C/C++ pour opérations bas-niveau
-#include <cstring>
-#include <cstdint>
+// Opérations mémoire/chaînes via les modules Nkentseu (zero-STL)
+#include "NKMemory/NkFunction.h"
+#include "NKContainers/String/NkStringView.h"
 
 // -------------------------------------------------------------------------
 // SECTION 2 : NAMESPACE PRINCIPAL
@@ -87,9 +87,9 @@ namespace nkentseu {
             NkRPCDescriptor& desc = mDescriptors[mCount];
 
             // Copie sécurisée du nom avec terminateur nul
-            const size_t nameLen = std::strlen(name);
-            const size_t copyLen = (nameLen < NkRPCDescriptor::kMaxNameLen - 1) ? nameLen : (NkRPCDescriptor::kMaxNameLen - 1);
-            std::memcpy(desc.name, name, copyLen);
+            const usize nameLen = NkStringView(name).Size();
+            const usize copyLen = (nameLen < NkRPCDescriptor::kMaxNameLen - 1) ? nameLen : (NkRPCDescriptor::kMaxNameLen - 1);
+            memory::NkCopy(desc.name, name, copyLen);
             desc.name[copyLen] = '\0';  // Terminaison explicite
 
             // Initialisation des métadonnées
@@ -180,13 +180,9 @@ namespace nkentseu {
                     // Appel du handler avec le caller et le reader positionné après l'ID
                     desc->handler(caller, reader);
                 }
-                catch (const std::exception& e)
-                {
-                    NK_NET_LOG_ERROR("RPC '{}' : exception depuis {}: {}", desc->name, caller.value, e.what());
-                }
                 catch (...)
                 {
-                    NK_NET_LOG_ERROR("RPC '{}' : exception inconnue depuis {}", desc->name, caller.value);
+                    NK_NET_LOG_ERROR("RPC '{}' : exception depuis {}", desc->name, caller.value);
                 }
             }
             else

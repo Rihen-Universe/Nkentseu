@@ -33,13 +33,8 @@
 #include "pch.h"
 #include "NKNetwork/Transport/NkReliableUDP.h"
 
-// En-têtes standards C/C++ pour opérations bas-niveau
-#include <cstring>
-#include <algorithm>
-
-// En-têtes pour opérations temporelles et aléatoires
-#include <chrono>
-#include <random>
+// Opérations mémoire via NKMemory (zero-STL)
+#include "NKMemory/NkFunction.h"
 
 // -------------------------------------------------------------------------
 // SECTION 2 : NAMESPACE PRINCIPAL
@@ -72,19 +67,19 @@ namespace nkentseu {
 
             // Conversion et écriture de dataSize (16-bit, network byte order)
             const uint16 dataSizeNet = NkHToN16(dataSize);
-            std::memcpy(buf + 6, &dataSizeNet, sizeof(uint16));
+            nkentseu::memory::NkCopy(buf + 6, &dataSizeNet, sizeof(uint16));
 
             // Conversion et écriture de seqNum (32-bit, network byte order)
             const uint32 seqNumNet = NkHToN32(seqNum);
-            std::memcpy(buf + 8, &seqNumNet, sizeof(uint32));
+            nkentseu::memory::NkCopy(buf + 8, &seqNumNet, sizeof(uint32));
 
             // Conversion et écriture de ackNum (32-bit, network byte order)
             const uint32 ackNumNet = NkHToN32(ackNum);
-            std::memcpy(buf + 12, &ackNumNet, sizeof(uint32));
+            nkentseu::memory::NkCopy(buf + 12, &ackNumNet, sizeof(uint32));
 
             // Conversion et écriture de ackMask (32-bit, network byte order)
             const uint32 ackMaskNet = NkHToN32(ackMask);
-            std::memcpy(buf + 16, &ackMaskNet, sizeof(uint32));
+            nkentseu::memory::NkCopy(buf + 16, &ackMaskNet, sizeof(uint32));
         }
 
         bool NkRUDPHeader::Deserialize(const uint8* buf, uint32 bufSize) noexcept
@@ -111,22 +106,22 @@ namespace nkentseu {
 
             // Lecture et conversion de dataSize (16-bit, network → host order)
             uint16 dataSizeNet = 0;
-            std::memcpy(&dataSizeNet, buf + 6, sizeof(uint16));
+            nkentseu::memory::NkCopy(&dataSizeNet, buf + 6, sizeof(uint16));
             dataSize = NkNToH16(dataSizeNet);
 
             // Lecture et conversion de seqNum (32-bit, network → host order)
             uint32 seqNumNet = 0;
-            std::memcpy(&seqNumNet, buf + 8, sizeof(uint32));
+            nkentseu::memory::NkCopy(&seqNumNet, buf + 8, sizeof(uint32));
             seqNum = NkNToH32(seqNumNet);
 
             // Lecture et conversion de ackNum (32-bit, network → host order)
             uint32 ackNumNet = 0;
-            std::memcpy(&ackNumNet, buf + 12, sizeof(uint32));
+            nkentseu::memory::NkCopy(&ackNumNet, buf + 12, sizeof(uint32));
             ackNum = NkNToH32(ackNumNet);
 
             // Lecture et conversion de ackMask (32-bit, network → host order)
             uint32 ackMaskNet = 0;
-            std::memcpy(&ackMaskNet, buf + 16, sizeof(uint32));
+            nkentseu::memory::NkCopy(&ackMaskNet, buf + 16, sizeof(uint32));
             ackMask = NkNToH32(ackMaskNet);
 
             // Validation de cohérence basique
@@ -213,7 +208,7 @@ namespace nkentseu {
 
             // Remplissage de l'entrée dans la fenêtre d'envoi
             NkSendEntry& entry = mSendWindow[mSendHead];
-            std::memcpy(entry.data, data, size);
+            nkentseu::memory::NkCopy(entry.data, data, size);
             entry.size = size;
             entry.seqNum = assignedSeq;
             entry.sentAt = NkNetNowMs();
@@ -384,7 +379,7 @@ namespace nkentseu {
             }
 
             // Copie des données dans l'entrée
-            std::memcpy(entry.data, data, size);
+            nkentseu::memory::NkCopy(entry.data, data, size);
             entry.size = size;
             entry.seqNum = seqNum;
             entry.valid = true;
@@ -554,7 +549,7 @@ namespace nkentseu {
                     // Buffer d'envoi : en-tête + payload
                     uint8 buffer[kNkMaxPacketSize];
                     header.Serialize(buffer);
-                    std::memcpy(buffer + NkRUDPHeader::kSize, entry->data, entry->size);
+                    nkentseu::memory::NkCopy(buffer + NkRUDPHeader::kSize, entry->data, entry->size);
 
                     // Envoi via socket
                     mSocket->SendTo(buffer, NkRUDPHeader::kSize + entry->size, mRemote);
@@ -582,7 +577,7 @@ namespace nkentseu {
 
                     uint8 buffer[kNkMaxPacketSize];
                     header.Serialize(buffer);
-                    std::memcpy(buffer + NkRUDPHeader::kSize, entry->data, entry->size);
+                    nkentseu::memory::NkCopy(buffer + NkRUDPHeader::kSize, entry->data, entry->size);
 
                     mSocket->SendTo(buffer, NkRUDPHeader::kSize + entry->size, mRemote);
                 }
@@ -679,7 +674,7 @@ namespace nkentseu {
 
                         uint8 buffer[kNkMaxPacketSize];
                         header.Serialize(buffer);
-                        std::memcpy(buffer + NkRUDPHeader::kSize, data, size);
+                        nkentseu::memory::NkCopy(buffer + NkRUDPHeader::kSize, data, size);
 
                         return static_cast<NkNetResult>(mSocket->SendTo(
                             buffer,
@@ -844,7 +839,7 @@ namespace nkentseu {
                     {
                         // Livraison immédiate pour canaux non-fiables
                         NkRecvEntry entry;
-                        std::memcpy(entry.data, payload, payloadSize);
+                        nkentseu::memory::NkCopy(entry.data, payload, payloadSize);
                         entry.size = payloadSize;
                         entry.seqNum = header.seqNum;
                         entry.valid = true;
@@ -952,7 +947,7 @@ namespace nkentseu {
                 // Buffer d'envoi
                 uint8 buffer[kNkMaxPacketSize];
                 header.Serialize(buffer);
-                std::memcpy(buffer + NkRUDPHeader::kSize, fragData, fragSize);
+                nkentseu::memory::NkCopy(buffer + NkRUDPHeader::kSize, fragData, fragSize);
 
                 // Envoi du fragment
                 const auto result = mSocket->SendTo(buffer, NkRUDPHeader::kSize + fragSize, mRemote);
@@ -986,7 +981,7 @@ namespace nkentseu {
                 mFragBuffer.total = fragCount;
                 mFragBuffer.count = 0;
                 mFragBuffer.seqBase = seqBase;
-                std::memset(mFragBuffer.received, 0, sizeof(mFragBuffer.received));
+                nkentseu::memory::NkZero(mFragBuffer.received, sizeof(mFragBuffer.received));
             }
 
             // Vérification de cohérence avec le message en cours de réassemblage
@@ -1004,7 +999,7 @@ namespace nkentseu {
 
             // Copie du fragment dans le buffer de réassemblage
             const uint32 offset = fragIdx * kNkMaxPayloadSize;
-            std::memcpy(mFragBuffer.data + offset, data, size);
+            nkentseu::memory::NkCopy(mFragBuffer.data + offset, data, size);
             mFragBuffer.received[fragIdx] = 1;
             ++mFragBuffer.count;
 
@@ -1035,7 +1030,7 @@ namespace nkentseu {
                 // Livraison du message réassemblé via le canal approprié
                 // Note : dans une implémentation complète, on routerait vers le bon canal
                 NkRecvEntry entry;
-                std::memcpy(entry.data, mFragBuffer.data, totalSize);
+                nkentseu::memory::NkCopy(entry.data, mFragBuffer.data, totalSize);
                 entry.size = totalSize;
                 entry.seqNum = seqBase;
                 entry.valid = true;

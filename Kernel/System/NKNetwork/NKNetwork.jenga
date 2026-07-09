@@ -24,7 +24,7 @@ import os
 _TLS_OPT = os.getenv("NK_ENABLE_TLS", "").strip().lower()
 _WANT_MBEDTLS = _TLS_OPT in ("1", "true", "on", "yes", "mbedtls")
 
-_NET_DEPS = ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKLogger", "NKThreading", "NKMath"]
+_NET_DEPS = ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKLogger", "NKThreading", "NKMath", "NKTime", "NKFileSystem"]
 _NET_INCLUDES = ["src", "pch"]
 _NET_DEFINES = []
 if _WANT_MBEDTLS:

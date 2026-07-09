@@ -32,9 +32,11 @@
 #include "pch.h"
 #include "NKNetwork/Transport/NkSocket.h"
 
-// En-têtes standards C/C++ pour opérations bas-niveau
-#include <cstring>
-#include <cstdio>
+// Opérations mémoire/chaînes via les modules Nkentseu (zero-STL)
+#include "NKMemory/NkFunction.h"
+#include "NKContainers/String/NkStringView.h"
+#include "NKContainers/String/NkStringUtils.h"
+#include "NKContainers/String/NkFormat.h"
 
 // En-têtes système pour détection d'erreur et gestion socket
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
@@ -106,8 +108,10 @@ namespace nkentseu {
                 return;
             }
 
+            const NkStringView hostView(host);
+
             // Cas 1 : Adresse "any" — écoute sur toutes les interfaces
-            if (std::strcmp(host, "0.0.0.0") == 0 || std::strcmp(host, "any") == 0)
+            if (hostView == "0.0.0.0" || hostView == "any")
             {
                 mIP.ipv4[0] = 0;
                 mIP.ipv4[1] = 0;
@@ -119,7 +123,7 @@ namespace nkentseu {
             }
 
             // Cas 2 : Loopback localhost
-            if (std::strcmp(host, "localhost") == 0 || std::strcmp(host, "127.0.0.1") == 0)
+            if (hostView == "localhost" || hostView == "127.0.0.1")
             {
                 mIP.ipv4[0] = 127;
                 mIP.ipv4[1] = 0;
@@ -131,25 +135,53 @@ namespace nkentseu {
             }
 
             // Cas 3 : Adresse IPv4 en notation dotted-decimal (a.b.c.d)
-            uint32 a = 0;
-            uint32 b = 0;
-            uint32 c = 0;
-            uint32 d = 0;
-            const int parsed = std::sscanf(host, "%u.%u.%u.%u", &a, &b, &c, &d);
+            // Parsing manuel strict (sans sscanf) : 4 octets 0-255 séparés par des points
+            uint32 octets[4] = { 0, 0, 0, 0 };
+            usize pos = 0;
+            bool parsedOk = true;
 
-            if (parsed == 4)
+            for (int octet = 0; octet < 4 && parsedOk; ++octet)
             {
-                // Validation des plages d'octets (0-255)
-                if (a <= 255 && b <= 255 && c <= 255 && d <= 255)
+                if (!string::NkIsDigit(host[pos]))
                 {
-                    mIP.ipv4[0] = static_cast<uint8>(a);
-                    mIP.ipv4[1] = static_cast<uint8>(b);
-                    mIP.ipv4[2] = static_cast<uint8>(c);
-                    mIP.ipv4[3] = static_cast<uint8>(d);
-                    mFamily = Family::NK_IP_V4;
-                    mValid = true;
-                    return;
+                    parsedOk = false;
+                    break;
                 }
+
+                uint32 value = 0;
+                while (string::NkIsDigit(host[pos]))
+                {
+                    value = value * 10u + static_cast<uint32>(host[pos] - '0');
+                    if (value > 255u)
+                    {
+                        parsedOk = false;
+                        break;
+                    }
+                    ++pos;
+                }
+                octets[octet] = value;
+
+                // Séparateur '.' attendu entre les octets (pas après le dernier)
+                if (parsedOk && octet < 3)
+                {
+                    if (host[pos] != '.')
+                    {
+                        parsedOk = false;
+                        break;
+                    }
+                    ++pos;
+                }
+            }
+
+            if (parsedOk && host[pos] == '\0')
+            {
+                mIP.ipv4[0] = static_cast<uint8>(octets[0]);
+                mIP.ipv4[1] = static_cast<uint8>(octets[1]);
+                mIP.ipv4[2] = static_cast<uint8>(octets[2]);
+                mIP.ipv4[3] = static_cast<uint8>(octets[3]);
+                mFamily = Family::NK_IP_V4;
+                mValid = true;
+                return;
             }
 
             // Cas 4 : IPv6 — TODO : implémentation future avec inet_pton
@@ -198,13 +230,13 @@ namespace nkentseu {
                 mPort = ntohs(addr.sin6_port);
 
                 // Copie des 16 octets de l'adresse IPv6
-                std::memcpy(mIP.ipv6, addr.sin6_addr.s6_addr, 16);
+                memory::NkCopy(mIP.ipv6, addr.sin6_addr.s6_addr, 16);
             }
 
             void NkAddress::ToSockAddr(sockaddr_storage& out, socklen_t& len) const noexcept
             {
                 // Initialisation à zéro pour éviter les données non-initialisées
-                std::memset(&out, 0, sizeof(sockaddr_storage));
+                memory::NkZero(&out, sizeof(sockaddr_storage));
 
                 if (mFamily == Family::NK_IP_V4)
                 {
@@ -214,7 +246,7 @@ namespace nkentseu {
                     ipv4Struct->sin_family = AF_INET;
                     ipv4Struct->sin_port = htons(mPort);
 
-                    std::memcpy(&ipv4Struct->sin_addr.s_addr, mIP.ipv4, 4);
+                    memory::NkCopy(&ipv4Struct->sin_addr.s_addr, mIP.ipv4, 4);
 
                     len = sizeof(sockaddr_in);
                 }
@@ -226,7 +258,7 @@ namespace nkentseu {
                     ipv6Struct->sin6_family = AF_INET6;
                     ipv6Struct->sin6_port = htons(mPort);
 
-                    std::memcpy(ipv6Struct->sin6_addr.s6_addr, mIP.ipv6, 16);
+                    memory::NkCopy(ipv6Struct->sin6_addr.s6_addr, mIP.ipv6, 16);
 
                     len = sizeof(sockaddr_in6);
                 }
@@ -258,7 +290,7 @@ namespace nkentseu {
                 addr.mValid = true;
 
                 // ::1 = 15 octets à 0, dernier octet à 1
-                std::memset(addr.mIP.ipv6, 0, 16);
+                memory::NkZero(addr.mIP.ipv6, 16);
                 addr.mIP.ipv6[15] = 1;
 
                 return addr;
@@ -279,7 +311,7 @@ namespace nkentseu {
                 addr.mFamily = Family::NK_IP_V6;
                 addr.mValid = true;
 
-                std::memset(addr.mIP.ipv6, 0, 16);
+                memory::NkZero(addr.mIP.ipv6, 16);
 
                 return addr;
             }
@@ -447,54 +479,34 @@ namespace nkentseu {
 
         NkString NkAddress::ToString() const noexcept
         {
-            char buffer[64] = {};
-
             if (mFamily == Family::NK_IP_V4)
             {
-                std::snprintf(
-                    buffer,
-                    sizeof(buffer),
-                    "%u.%u.%u.%u:%u",
-                    mIP.ipv4[0],
-                    mIP.ipv4[1],
-                    mIP.ipv4[2],
-                    mIP.ipv4[3],
-                    mPort
-                );
-            }
-            else
-            {
-                // Format IPv6 : [::1]:port pour éviter ambiguïté avec le séparateur de port
-                std::snprintf(buffer, sizeof(buffer), "[ipv6]:%u", mPort);
-                // TODO : Implémenter conversion réelle IPv6 → chaîne avec inet_ntop
+                return NkFormat("{}.{}.{}.{}:{}",
+                    static_cast<uint32>(mIP.ipv4[0]),
+                    static_cast<uint32>(mIP.ipv4[1]),
+                    static_cast<uint32>(mIP.ipv4[2]),
+                    static_cast<uint32>(mIP.ipv4[3]),
+                    static_cast<uint32>(mPort));
             }
 
-            return NkString(buffer);
+            // Format IPv6 : [::1]:port pour éviter ambiguïté avec le séparateur de port
+            // TODO : Implémenter conversion réelle IPv6 → chaîne avec inet_ntop
+            return NkFormat("[ipv6]:{}", static_cast<uint32>(mPort));
         }
 
         NkString NkAddress::HostString() const noexcept
         {
-            char buffer[64] = {};
-
             if (mFamily == Family::NK_IP_V4)
             {
-                std::snprintf(
-                    buffer,
-                    sizeof(buffer),
-                    "%u.%u.%u.%u",
-                    mIP.ipv4[0],
-                    mIP.ipv4[1],
-                    mIP.ipv4[2],
-                    mIP.ipv4[3]
-                );
-            }
-            else
-            {
-                std::snprintf(buffer, sizeof(buffer), "ipv6");
-                // TODO : Implémenter conversion réelle IPv6 → chaîne
+                return NkFormat("{}.{}.{}.{}",
+                    static_cast<uint32>(mIP.ipv4[0]),
+                    static_cast<uint32>(mIP.ipv4[1]),
+                    static_cast<uint32>(mIP.ipv4[2]),
+                    static_cast<uint32>(mIP.ipv4[3]));
             }
 
-            return NkString(buffer);
+            // TODO : Implémenter conversion réelle IPv6 → chaîne
+            return NkString("ipv6");
         }
 
         bool NkAddress::operator==(const NkAddress& other) const noexcept
@@ -513,11 +525,11 @@ namespace nkentseu {
             // Comparaison des données IP selon la famille
             if (mFamily == Family::NK_IP_V4)
             {
-                return std::memcmp(mIP.ipv4, other.mIP.ipv4, 4) == 0;
+                return memory::NkCompare(mIP.ipv4, other.mIP.ipv4, 4) == 0;
             }
             else
             {
-                return std::memcmp(mIP.ipv6, other.mIP.ipv6, 16) == 0;
+                return memory::NkCompare(mIP.ipv6, other.mIP.ipv6, 16) == 0;
             }
         }
 
@@ -537,7 +549,7 @@ namespace nkentseu {
 
             if (mFamily == Family::NK_IP_V4)
             {
-                const int ipCmp = std::memcmp(mIP.ipv4, other.mIP.ipv4, 4);
+                const int ipCmp = memory::NkCompare(mIP.ipv4, other.mIP.ipv4, 4);
                 if (ipCmp != 0)
                 {
                     return ipCmp < 0;
@@ -545,7 +557,7 @@ namespace nkentseu {
             }
             else
             {
-                const int ipCmp = std::memcmp(mIP.ipv6, other.mIP.ipv6, 16);
+                const int ipCmp = memory::NkCompare(mIP.ipv6, other.mIP.ipv6, 16);
                 if (ipCmp != 0)
                 {
                     return ipCmp < 0;
