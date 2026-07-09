@@ -476,6 +476,38 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
 - ⬜ Robotique réelle / objets intelligents sur **Kernel/Bare**.
 - ⬜ Modèles génératifs 3D / animation.
 
+## Phase 8 — Parole : reconnaissance (ASR) + synthèse (TTS) — 🟡 SCAFFOLD (2026-07-10)
+
+> Demandé par Rihen (2026-07-10) : **transcription audio→texte (ASR)** et **synthèse texte→audio (TTS)**,
+> from-scratch zero-STL comme le reste de NKAI. S'appuie sur la **capture micro** (NKAudio `NkAudioCapture`,
+> backends WASAPI/ALSA/AAudio/getUserMedia/OHAudio livrés 2026-07-10) et le **débruitage** (`NkDenoiser`).
+> **Enjeu langues locales** : viser le **multilingue camerounais**, dont le **ghomala' (bbj)** déjà présent
+> comme tag du corpus GPT — corpus texte/voix à enrichir (cf. scraping `lamba-africa.com`). Petite échelle,
+> pédagogique (jamais « niveau Whisper/Tacotron »).
+
+**Module** : `Kernel/AI/NKSpeech/` (namespace `nkentseu::ai`), deps Foundation + NKAudio (+ NKAutograd/NKNN
+pour les modèles). Scaffold posé (spec headers) ; impl staged ci-dessous.
+
+### Briques (ordre, 1 résultat testable par étape)
+1. ⬜ **Features audio** (`NkAudioFeatures`) — pré-emphase → fenêtrage → **FFT** (réutilise la FFT radix-2 de
+   `NkDenoiser`) → **banc de filtres Mel** → log → **DCT = MFCC** (+ deltas). Testable headless : un sinus pur
+   tombe dans le bon canal Mel ; MFCC déterministes. **Fondation partagée ASR + TTS.**
+2. ⬜ **ASR acoustique** (`NkASR`) — petit réseau (Conv/GRU from-scratch NKNN) features→phonèmes/caractères,
+   perte **CTC** (à ajouter à NKAutograd), **décodage glouton** puis beam. Entraîné sur un mini-corpus voix→texte.
+   Résultat : transcrire des mots isolés d'un petit vocabulaire.
+3. ⬜ **Lexique/décodage** — dictionnaire + modèle de langue n-gram (réutilise le GPT/BPE) pour re-scorer.
+4. ⬜ **TTS front-end** (`NkTTS`) — normalisation texte (nombres, ponctuation) → **G2P** (texte→phonèmes,
+   table par langue : fr/en/**bbj**) → durées.
+5. ⬜ **TTS acoustique + vocodeur** — phonèmes→mel (petit modèle) → **vocodeur** (d'abord Griffin-Lim from-scratch
+   sur la mel, puis vocodeur neuronal léger). Résultat : prononcer une phrase courte, audible via NKAudio.
+6. ⬜ **Boucle voix** — micro (NkAudioCapture) → débruitage (NkDenoiser) → ASR → (logique) → TTS → sortie NKAudio :
+   commande vocale + lecture. Brancher les **permissions micro** mobile/Web.
+7. ⬜ **Corpus langues locales** — pipeline de collecte texte/voix (dont **ghomala'**) : scraping sources
+   publiques, alignement, nettoyage → dataset réutilisable ASR/TTS/GPT.
+
+⚠️ Dépendances à ajouter : **CTC loss** + **GRU/LSTM** dans NKAutograd/NKNN ; **Griffin-Lim** (iFFT + itérations
+de phase) dans NKSpeech. Chaque étape = publication + article (règle §Communication).
+
 ## 📣 Communication & diffusion — **À FAIRE À CHAQUE ÉVOLUTION** (récurrent)
 
 > **Règle permanente** : chaque évolution notable du sous-système IA doit produire, en
