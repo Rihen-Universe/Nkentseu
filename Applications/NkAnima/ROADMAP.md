@@ -314,9 +314,16 @@ Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociabl
    cas pondéré 1.5, monotonie, tête>main & bassin>tête, garde-fous count incohérent). Affichage debug du
    COM (sphère/croix via `DrawDebugSphere`) = côté démo/éditeur (module reste pur, réutilisable jeu+app).
    ⏳ Reste : ajustement par morphologie (créature/stylisé), câblage dans NkAnimaEditor.
-2. ❌ **Solveur d'équilibre** — polygone de support (points de contact au sol :
-   pieds, mains si quadrupède), test statique (COM projeté ∈ polygone ?), puis
-   déséquilibre dynamique (vélocité/accélération du COM), visualisation debug.
+2. ✅ **Solveur d'équilibre (2026-07-09)** — module `NKRenderer/Tools/Animation/NkBalance.{h,cpp}`
+   (pur Foundation, AUCUN GPU). `EvaluateStatic(com, supportPts, count, groundNormal)` : projette
+   COM + appuis sur le plan du sol, construit le **polygone de support** (enveloppe convexe, Andrew
+   monotone chain), teste **proj(COM) ∈ polygone** et calcule une **marge signée** (distance
+   COM→bord ; >0 dedans, <0 dehors) = mesure de stabilité. Gère 0/1/2 (segment)/≥3 points.
+   `TipDirection(comVelocity)` = début du déséquilibre dynamique (sens de bascule). Testé HEADLESS
+   (`NkAnimPhysTest` → **M3.2 2/2 OK** : dedans marge~1, dehors marge~-1, sur le bord marge~0, 2 pieds
+   = segment, direction de bascule). ⏳ Reste : déséquilibre dynamique complet (accélération COM),
+   viz debug (polygone + point COM), câblage éditeur. ⚠️ Appuis ponctuels (2 pieds = segment) → fournir
+   les COINS des appuis (≥3 pts) pour une vraie aire d'équilibre latéral.
 3. ❌ **Solveur de contacts** — détection par extrémité (raycast, réutilise le
    foot-locking IK), résolution multi-points (quadrupède, escalade), transitions
    de contact sans rupture visuelle, surfaces non planes (pentes, escaliers).
