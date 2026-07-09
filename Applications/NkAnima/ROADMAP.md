@@ -322,8 +322,14 @@ Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociabl
    `TipDirection(comVelocity)` = début du déséquilibre dynamique (sens de bascule). Testé HEADLESS
    (`NkAnimPhysTest` → **M3.2 2/2 OK** : dedans marge~1, dehors marge~-1, sur le bord marge~0, 2 pieds
    = segment, direction de bascule). ⏳ Reste : déséquilibre dynamique complet (accélération COM),
-   viz debug (polygone + point COM), câblage éditeur. ⚠️ Appuis ponctuels (2 pieds = segment) → fournir
+   câblage éditeur. ⚠️ Appuis ponctuels (2 pieds = segment) → fournir
    les COINS des appuis (≥3 pts) pour une vraie aire d'équilibre latéral.
+   • **Viz debug (2026-07-10)** — helper réutilisable `NKRenderer/Tools/Animation/NkPoseDebugDraw.{h,cpp}`
+     (`NkPoseDebugDraw::Draw(r3d, jointWorld, count, mass, supportPts, supportCount, ...)`) : dessine via les
+     primitives `NkRender3D::DrawDebug*` le **COM** (sphère VERT/ROUGE selon l'équilibre), le **polygone de
+     support** (arêtes + coins), la **projection au sol** (fil d'aplomb + cercle) et la **direction de bascule**
+     (flèche option). Le calcul (NkPoseMass/NkBalance) reste pur ; seul ce helper touche au rendu. Compile OK ;
+     **validation VISUELLE à faire par Rihen** (câblage dans une démo/éditeur, quand le GPU se libère).
 3. ✅ **Solveur de contacts (2026-07-09)** — module `NKRenderer/Tools/Animation/NkContactDetector.{h,cpp}`
    (pur Foundation, AUCUN GPU). `DetectPlane(foot, planePoint, planeNormal, threshold)` : contact si
    distance signée au sol ≤ seuil, point = extrémité projetée, pénétration signée. `DetectSupportPoints`
