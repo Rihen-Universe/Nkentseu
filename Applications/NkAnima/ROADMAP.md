@@ -306,10 +306,14 @@ mince au-dessus**, pas une réécriture.
 
 Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociable :
 équilibre statique → contacts → optimisation → auto-posing) :
-1. ❌ **Distribution de masse** — masse par segment corporel (approximations
-   anthropométriques : tête ~8%, tronc ~50%, membres proportionnés), centre de
-   masse global depuis la pose courante (réutilise le COM NKPhysics), ajustement
-   par morphologie (humain/créature/stylisé), affichage debug du COM dans l'éditeur.
+1. ✅ **Distribution de masse + COM (2026-07-09)** — module `NKRenderer/Tools/Animation/NkPoseMass.{h,cpp}`
+   (pur Foundation, AUCUN GPU). Masse relative par joint : `SetUniform` (barycentre) OU `SetAnthropometric`
+   (fractions type Dempster déduites du NOM des joints — head/spine/hip/arm/leg... mots-clés, fallback
+   résiduel). `ComputeCOM(jointWorld, count)` = Σ masse·position / Σ masse (position = colonne translation
+   monde). Testé HEADLESS : app console `NkAnimPhysTest` → `NkPoseMass::SelfTest` **1/1 OK** (barycentre,
+   cas pondéré 1.5, monotonie, tête>main & bassin>tête, garde-fous count incohérent). Affichage debug du
+   COM (sphère/croix via `DrawDebugSphere`) = côté démo/éditeur (module reste pur, réutilisable jeu+app).
+   ⏳ Reste : ajustement par morphologie (créature/stylisé), câblage dans NkAnimaEditor.
 2. ❌ **Solveur d'équilibre** — polygone de support (points de contact au sol :
    pieds, mains si quadrupède), test statique (COM projeté ∈ polygone ?), puis
    déséquilibre dynamique (vélocité/accélération du COM), visualisation debug.
