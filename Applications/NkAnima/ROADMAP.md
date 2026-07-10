@@ -347,9 +347,14 @@ Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociabl
    l'état avant/après (`wasBalanced`/`nowBalanced`) + la marge avant/après + le décalage appliqué.
    Testé HEADLESS (`NkAnimPhysTest` → **M3.4 OK** : pose déséquilibrée → équilibrée à strength 1,
    correction monotone 0<0.5<1, pose déjà équilibrée préservée). **Boucle M3 fermée bout-en-bout**
-   (pose → COM+contacts → équilibre → **correction**). ⏳ Reste (V2) : correction CIBLÉE tronc/bassin
-   pieds plantés (via hiérarchie du squelette), **limites d'angle articulaires (NkIKSystem)**,
-   lissage multi-frame (anti-à-coups temporel), correction du moment dynamique (pas seulement statique).
+   (pose → COM+contacts → équilibre → **correction**).
+   • **V2 (2026-07-10)** — `BalanceByUpperShift(jointWorld, count, mass, plantedMask, supportPts, …, maxIters)` :
+     correction **« pieds plantés »** = ne déplace QUE les joints NON plantés (haut du corps), itérativement,
+     pour amener le COM au-dessus du support **sans bouger les appuis** (réaliste : on balance bassin/tronc,
+     pieds au sol). Convergence quasi-linéaire (gain = masse totale / masse mobile). + **`NkBalanceSmoother`**
+     = lissage MULTI-FRAME (borne la vitesse de variation du décalage → anti-à-coups). Testés HEADLESS
+     (pieds inchangés, haut du corps déplacé, équilibre atteint ; lissage borné). ⏳ Reste : **limites d'angle
+     articulaires (NkIKSystem)**, correction du moment DYNAMIQUE (pas seulement statique).
 5. ❌ **Auto-posing** — poses intermédiaires physiquement plausibles entre deux
    clés : interpolation passant par l'optimiseur, transferts de poids (bascule
    pied à pied), plusieurs variantes proposées → choix humain.
