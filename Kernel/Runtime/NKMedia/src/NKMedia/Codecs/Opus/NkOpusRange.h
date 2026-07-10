@@ -40,6 +40,7 @@ namespace nkentseu {
 				uint32 DecodeBits(uint32 bits);			  // bits bruts (depuis la fin du buffer)
 				uint32 DecodeUint(uint32 ft);			  // entier uniforme [0, ft)
 				int32 Tell() const;						  // bits consommés (ec_tell) = nbits_total - ilog(rng)
+				uint32 TellFrac() const;				  // bits consommés en 1/8 de bit (ec_tell_frac, BITRES=3)
 		};
 
 		// Encodeur entropique (range encoder) — pour les tests d'aller-retour.

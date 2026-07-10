@@ -65,8 +65,12 @@
     energy → tf → spread → dynalloc → compute_allocation (avec split pulses/énergie fine + skip flags) →
     **`quant_all_bands`** (boucle bandes : split récursif/stéréo/folding + AlgUnquant) → **IMDCT CELT + overlap-add**
     → deemphasis → PCM. **anti-collapse LIVRÉ** (`NkCeltAntiCollapse` : LCG + renormalise + bruit calibré ;
-    testé). ⚠️ `quant_all_bands` = la SEULE pièce restante non isolable (récursion) : à porter+câbler+valider
-    end-to-end vs ffmpeg. Puis SILK + hybride.
+    testé). ⚠️ `quant_all_bands` = la pièce restante (récursion). **Prérequis testables posés** (`NkCeltSplit` :
+    `haar1` orthonormale+involutive, `compute_qn` ; + `TellFrac` sur le range decoder). Reste la **colle
+    récursive** `quant_partition`/`quant_band` (décode l'angle θ de split → coupe la bande en 2 via haar1 →
+    récursion → `AlgUnquant` aux feuilles → folding) + wiring dans `NkCeltDecoder` + IMDCT CELT.
+    **Harnais de validation prêt** (`NKOpusRef` : NKMedia vs ffmpeg 48 kHz ; front-end validé, alignement
+    échantillon exact). Puis SILK + hybride.
   ⏳ Puis **SILK** (LPC, LTP) → mode hybride → PCM float32.
 
 ## En cours / À venir
