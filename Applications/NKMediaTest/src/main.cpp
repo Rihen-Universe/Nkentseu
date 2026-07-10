@@ -19,6 +19,7 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDeemphasis.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDecoder.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltAntiCollapse.h"
+#include "NKMedia/Codecs/Opus/Celt/NkCeltSplit.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -206,6 +207,34 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkCeltAntiCollapse::SelfTest();
 		printf("[ %s ] NkCeltAntiCollapse : LCG + renormalise + bande effondree->bruit calibre, non-effondree intacte\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		bool ok = media::NkCeltSplit::SelfTest();
+		// TellFrac : sanity vs Tell (prerequis budget par bande).
+		{
+			uint8 b[64];
+			media::NkOpusRangeEncoder e;
+			e.Init(b, 64);
+			for (int i = 0; i < 20; ++i)
+				e.Encode((uint32)(i % 7), (uint32)(i % 7) + 1, 8);
+			e.Done();
+			media::NkOpusRangeDecoder d;
+			d.Init(b, 64);
+			for (int i = 0; i < 5; ++i) {
+				const uint32 fs = d.Decode(8);
+				d.Update(fs, fs + 1, 8);
+			}
+			const int32 tell = d.Tell();
+			const uint32 tf = d.TellFrac();
+			// TellFrac en 1/8 bit ≈ Tell*8 (à moins d'un bit près).
+			if ((int32)(tf >> 3) < tell - 1 || (int32)(tf >> 3) > tell + 1)
+				ok = false;
+		}
+		printf("[ %s ] NkCeltSplit : haar1 (orthonormale+involutive) + compute_qn + TellFrac (prereq quant_all_bands)\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;

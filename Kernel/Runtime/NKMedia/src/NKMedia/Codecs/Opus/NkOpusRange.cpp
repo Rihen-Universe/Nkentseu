@@ -152,6 +152,21 @@ namespace nkentseu {
 			return nbits_total - Ilog(rng);
 		}
 
+		uint32 NkOpusRangeDecoder::TellFrac() const {
+			// ec_tell_frac (entcode.c) : tell en 1/8 de bit (BITRES=3).
+			const int32 BITRES = 3;
+			uint32 nbits = (uint32)nbits_total << BITRES;
+			int32 l = Ilog(rng);
+			uint32 r = rng >> (l - 16);
+			for (int32 i = BITRES; i-- > 0;) {
+				r = (uint32)(((uint64)r * r) >> 15);
+				const int32 b = (int32)(r >> 16);
+				l = (l << 1) | b;
+				r >>= b;
+			}
+			return nbits - (uint32)l;
+		}
+
 		// ======================================================================
 		//  ENCODEUR
 		// ======================================================================
