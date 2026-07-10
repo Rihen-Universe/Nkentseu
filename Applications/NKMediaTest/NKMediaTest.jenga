@@ -1,0 +1,24 @@
+"""NKMediaTest — self-test du probe NKMedia + demux d'en-tete d'un fichier reel."""
+from Jenga import *
+from jengaconfig import *
+
+with project("NKMediaTest"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        ["NKMedia", "NKStream", "NKFileSystem", "NKMath", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links(["user32"])

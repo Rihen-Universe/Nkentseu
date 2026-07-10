@@ -631,6 +631,10 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Kernel/Runtime/NKMedia/NKMedia.jenga"):
+
+        pass
+
 
 
     with include("Kernel/System/NKTime/NKTime.jenga"):
@@ -1030,6 +1034,10 @@ with workspace("Nkentseu", location="."):
         pass
 
     with include("Applications/NKSpeechFeatureDemo/NKSpeechFeatureDemo.jenga"):
+
+        pass
+
+    with include("Applications/NKMediaTest/NKMediaTest.jenga"):
 
         pass
 
