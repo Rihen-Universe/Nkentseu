@@ -52,6 +52,10 @@ static void CmdFormat(void *) { // Formater le document actif (C/C++)
 		g_state.files[g_state.active].doc.FormatCpp();
 }
 
+static void CmdToggleMinimap(void *) { // Affichage: minimap on/off (aussi Ctrl+Maj+AntiSlash dans l editeur)
+	nkcode::NkCodeMinimapOn() = !nkcode::NkCodeMinimapOn();
+}
+
 static void CmdQuit(void *user) {
 	if (user)
 		static_cast<NkEditorShell *>(user)->RequestClose();
@@ -606,6 +610,7 @@ int nkmain(const NkEntryState &state) {
 	shell->RegisterCommand("Edition: Formater le document", &CmdFormat, nullptr,
 						   "Ctrl+Shift+I"); // Ctrl+L libéré pour « sélectionner la ligne » (éditeur)
 	shell->RegisterCommand("Disposition: Reinitialiser", &CmdResetLayout, shell.Get());
+	shell->RegisterCommand("Affichage: Minimap (afficher/masquer)", &CmdToggleMinimap, nullptr);
 	shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
 
 	const int rc = shell->Run();
