@@ -29,6 +29,13 @@ namespace nkentseu {
 				static void QuantCoarseSimple(NkOpusRangeEncoder &enc, const float32 *targetE, float32 *oldEBands,
 											  int32 nbBands, int32 start, int32 end, bool intra, int32 C, int32 LM);
 
+				// ÉNERGIE FINE : raffine chaque bande avec `fineQuant[i]` bits bruts (unquant_fine_energy).
+				static void UnquantFine(NkOpusRangeDecoder &dec, float32 *oldEBands, int32 nbBands,
+										const int32 *fineQuant, int32 start, int32 end, int32 C);
+				// Encodeur d'énergie fine (pour tests) : encode `residual` (dB, à raffiner) → oldEBands.
+				static void QuantFineSimple(NkOpusRangeEncoder &enc, float32 *oldEBands, const float32 *residual,
+											int32 nbBands, const int32 *fineQuant, int32 start, int32 end, int32 C);
+
 				static bool SelfTest();
 		};
 

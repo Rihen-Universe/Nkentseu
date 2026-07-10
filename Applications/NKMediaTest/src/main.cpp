@@ -133,7 +133,7 @@ int main(int argc, char **argv) {
 	{
 		++nbTotal;
 		const bool ok = media::NkCeltEnergy::SelfTest();
-		printf("[ %s ] NkCeltEnergy : energie grossiere (prediction 2D + Laplace) aller-retour, LM 0-3 intra/inter\n",
+		printf("[ %s ] NkCeltEnergy : energie grossiere (Laplace) + fine (bits bruts) aller-retour, LM 0-3 intra/inter\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;

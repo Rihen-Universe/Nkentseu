@@ -44,8 +44,9 @@
     **`NkCeltLaplace`** (coder de Laplace, aller-retour prouvé — base énergie grossière) ; **`NkCeltBands`**
     (table `eband5ms`, 21 bandes → bins MDCT selon LM) ; **`NkCeltMdct`** (MDCT/IMDCT directe + fenêtre sinus,
     **reconstruction TDAC parfaite** < 1e-3) ; **`NkCeltEnergy`** (énergie grossière : prédiction 2D + Laplace,
-    tables `e_prob_model`/`pred_coef`/`beta_coef` ; **aller-retour prouvé** LM 0-3 × intra/inter). ⏳ Reste CELT
-    (assemblage) : énergie fine → allocation de bits → **PVQ/CWRS** (forme spectrale) → anti-collapse →
+    tables `e_prob_model`/`pred_coef`/`beta_coef` ; **aller-retour prouvé** LM 0-3 × intra/inter) + **énergie
+    fine** (raffinement par bits bruts par bande, `UnquantFine` ; aller-retour prouvé, coexiste avec le range
+    coder). ⏳ Reste CELT (assemblage) : allocation de bits → **PVQ/CWRS** (forme spectrale) → anti-collapse →
     denormalise → IMDCT + **overlap-add** → orchestration trame CELT.
   ⏳ Puis **SILK** (LPC, LTP) → mode hybride → PCM float32.
 
