@@ -134,7 +134,11 @@ namespace nkentseu {
 				// ── QoL : barre « aller a la ligne » (Ctrl+G), chord Ctrl+K, references ──
 				bool gotoOpen = false;
 				char gotoBuf[12] = {};
-				int32 blinkTick = 0; // clignotement du caret : rallume a chaque frappe/deplacement
+				bool renOpen = false; // barre « Renommer » (F2) : identifiant -> workspace
+				char renBuf[64] = {}; // nouveau nom saisi
+				NkString renWord;	  // identifiant d'origine (mot sous le caret au F2)
+				bool renGo = false;	  // Entrée : demande consommée par le panneau/Toolbar
+				int32 blinkTick = 0;  // clignotement du caret : rallume a chaque frappe/deplacement
 				int32 blinkL = -1, blinkC = -1;
 				// Quick fix (Ctrl+.) : actions deduites des diagnostics de la ligne du caret.
 				NkVector<NkString> qfLabels; // libelles du menu
@@ -1914,6 +1918,14 @@ namespace nkentseu {
 
 		// ── Focus clavier global (un seul editeur actif a la fois) ────────────────
 		// Minimap ON/OFF globale (raccourci + commande de palette).
+		inline bool StrEqLocal(const char *a, const char *b) {
+			while (*a && *a == *b) {
+				++a;
+				++b;
+			}
+			return *a == *b;
+		}
+
 		inline bool &NkCodeMinimapOn() {
 			static bool v = true;
 			return v;
@@ -2618,7 +2630,30 @@ namespace nkentseu {
 				}
 				// Capture AVANT traitement : l'Entree/Echap qui FERME une barre ne doit pas fuir
 				// vers l'edition la meme frame (inserait une ligne apres Ctrl+G -> caret +1).
-				const bool barWasOpen = d.findOpen || d.gotoOpen;
+				const bool barWasOpen = d.findOpen || d.gotoOpen || d.renOpen;
+				if (d.renOpen) { // barre « Renommer » (F2) : identifiant + Entree/Echap
+					int32 gl = 0;
+					while (d.renBuf[gl])
+						++gl;
+					for (int32 i = 0; i < ctx.input.charCount; ++i) {
+						const uint32 cp = ctx.input.chars[i];
+						const bool idc = (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z') ||
+										 (cp >= '0' && cp <= '9') || cp == '_';
+						if (idc && gl < 63) {
+							d.renBuf[gl++] = static_cast<char>(cp);
+							d.renBuf[gl] = 0;
+						}
+					}
+					if (ctx.input.KeyPressedRepeat(NkGuiKey::Backspace) && gl > 0)
+						d.renBuf[--gl] = 0;
+					if (ctx.input.KeyPressed(NkGuiKey::Escape))
+						d.renOpen = false;
+					if (ctx.input.KeyPressed(NkGuiKey::Enter)) {
+						if (gl > 0 && !d.renWord.Empty() && !StrEqLocal(d.renBuf, d.renWord.CStr()))
+							d.renGo = true; // consommé par le poll (mutation multi-fichiers hors rendu)
+						d.renOpen = false;
+					}
+				}
 				if (d.gotoOpen) { // barre « Aller a la ligne » (Ctrl+G) : chiffres + Entree/Echap
 					int32 gl = 0;
 					while (d.gotoBuf[gl])
@@ -2918,6 +2953,27 @@ namespace nkentseu {
 						if (!shift)
 							d.Collapse();
 					} // Ctrl+End = fin du fichier
+					// F2 : RENOMMER l'identifiant sous le caret dans tout le WORKSPACE (textuel,
+					// frontiere de mot, casse stricte ; les buffers ouverts gardent un undo).
+					if (!ctrl && !shift && ctx.input.KeyPressed(NkGuiKey::F2) && d.curLine < d.LineCount()) {
+						const NkCodeLine &L2 = d.lines[d.curLine];
+						int32 ws2 = d.curCol, we2 = d.curCol;
+						while (ws2 > 0 && NkCodeDoc::IsWChar(L2[ws2 - 1]))
+							--ws2;
+						while (we2 < static_cast<int32>(L2.Size()) && NkCodeDoc::IsWChar(L2[we2]))
+							++we2;
+						if (we2 > ws2) {
+							NkString w2;
+							for (int32 k = ws2; k < we2; ++k)
+								w2 += L2[k];
+							d.renWord = w2;
+							int32 i2 = 0;
+							for (const char *q2 = w2.CStr(); *q2 && i2 < 63; ++q2)
+								d.renBuf[i2++] = *q2;
+							d.renBuf[i2] = 0;
+							d.renOpen = true;
+						}
+					}
 					// F8 / Maj+F8 : erreur/avertissement SUIVANT / PRECEDENT (avec bouclage).
 					if (!ctrl && K(NkGuiKey::F8) && !d.diags.Empty()) {
 						int32 bestL = -1, bestC = -1;
@@ -3820,6 +3876,24 @@ namespace nkentseu {
 				d.acRect = {0.f, 0.f, 0.f, 0.f};
 
 			// ── Barre « Aller a la ligne » (Ctrl+G) : boite compacte en haut a droite. ──
+			// ── Barre « Renommer » (F2) : boîte flottante haut-droite, comme la barre Ctrl+G ──
+			if (d.renOpen && ctx.font && ctx.font->Valid()) {
+				const float32 fh2 = ctx.font->LineHeight();
+				char cap2[160];
+				std::snprintf(cap2, sizeof(cap2), "Renommer '%s' en : %s", d.renWord.CStr(), d.renBuf);
+				const float32 tw2 = ctx.font->MeasureWidth(cap2) + 26.f;
+				const NkRect bx2 = {area.x + area.w - tw2 - 18.f, area.y + 44.f, tw2, fh2 + 14.f};
+				dl.AddRectFilled({bx2.x + 3.f, bx2.y + 4.f, bx2.w, bx2.h}, NkColor{0, 0, 0, 70}, 7.f);
+				dl.AddRectFilled(bx2, NkColor{37, 43, 51, 255}, 7.f);
+				dl.AddRect(bx2, ctx.theme.accent, 1.f);
+				dl.AddText(ctx.font->Face(), ctx.font->TexId(), {bx2.x + 10.f, bx2.y + 7.f + ctx.font->Ascent()}, cap2,
+						   ctx.theme.text);
+				if ((d.tick / 30) % 2 == 0) { // caret clignotant en fin de saisie
+					const float32 cx2 = bx2.x + 10.f + ctx.font->MeasureWidth(cap2);
+					dl.AddLine({cx2 + 1.f, bx2.y + 6.f}, {cx2 + 1.f, bx2.y + bx2.h - 6.f}, ctx.theme.text, 1.2f);
+				}
+			}
+
 			if (d.gotoOpen && ctx.font && ctx.font->Valid()) {
 				const float32 gh = ctx.font->LineHeight() + ctx.S(12.f);
 				const NkRect gb = {area.x + area.w - ctx.S(240.f) - ctx.S(18.f), area.y + ctx.S(8.f), ctx.S(240.f),
