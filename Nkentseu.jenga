@@ -901,6 +901,10 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Kernel/AI/NKSpeech/NKSpeech.jenga"):
+
+        pass
+
 
 
     with include("Applications/NKTensorDemo/NKTensorDemo.jenga"):
@@ -1018,6 +1022,10 @@ with workspace("Nkentseu", location="."):
         pass
 
     with include("Applications/NkMicRecord/NkMicRecord.jenga"):
+
+        pass
+
+    with include("Applications/NKSpeechTest/NKSpeechTest.jenga"):
 
         pass
 
