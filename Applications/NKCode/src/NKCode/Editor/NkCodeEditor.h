@@ -136,6 +136,11 @@ namespace nkentseu {
 				char gotoBuf[12] = {};
 				int32 blinkTick = 0; // clignotement du caret : rallume a chaque frappe/deplacement
 				int32 blinkL = -1, blinkC = -1;
+				// Quick fix (Ctrl+.) : actions deduites des diagnostics de la ligne du caret.
+				NkVector<NkString> qfLabels; // libelles du menu
+				NkVector<int32> qfL, qfC;	 // position d'application
+				NkVector<uint8> qfKind;		 // 0 = inserer ';' ; 1 = remplacer le mot par qfPay
+				NkVector<NkString> qfPay;
 				int32 chordK = -100000;				   // tick du dernier Ctrl+K (chords Ctrl+K 0/J/I)
 				NkString refsTarget;				   // symbole dont on veut les REFERENCES (consomme par l etat)
 				NkString hovSym;					   // symbole demande
@@ -1929,6 +1934,12 @@ namespace nkentseu {
 				return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h;
 			}
 
+			// Menu du QUICK FIX (Ctrl+.) — un seul ouvert a la fois, position = caret.
+			inline NkCtxMenu &NkCodeQfMenu() {
+				static NkCtxMenu m;
+				return m;
+			}
+
 			// Largeur en px du prefixe [0, col) de la ligne `l`.
 			inline float32 PrefixW(NkGuiContext &ctx, const NkCodeDoc &d, int32 l, int32 col) {
 				if (col <= 0 || l < 0 || l >= d.LineCount())
@@ -3028,6 +3039,42 @@ namespace nkentseu {
 						if (K(NkGuiKey::G)) { // Ctrl+G = aller a la ligne
 							d.gotoOpen = true;
 							d.gotoBuf[0] = 0;
+						}
+						if (K(NkGuiKey::Period)) { // Ctrl+. = QUICK FIX : actions sur les diags de la ligne
+							d.qfLabels.Clear();
+							d.qfL.Clear();
+							d.qfC.Clear();
+							d.qfKind.Clear();
+							d.qfPay.Clear();
+							for (usize i = 0; i < d.diags.Size() && d.qfLabels.Size() < 6; ++i) {
+								if (d.diags[i].line != d.curLine)
+									continue;
+								const char *m = d.diags[i].msg.CStr();
+								const char *dy = NkFindSub(m, "did you mean '");
+								if (NkFindSub(m, "expected ';'")) {
+									d.qfLabels.PushBack(NkString("Inserer « ; »"));
+									d.qfL.PushBack(d.diags[i].line);
+									d.qfC.PushBack(d.diags[i].col);
+									d.qfKind.PushBack(0);
+									d.qfPay.PushBack(NkString());
+								} else if (dy) { // clang propose une correction : « did you mean 'Y' »
+									NkString y;
+									for (const char *q2 = dy + 14; *q2 && *q2 != 0x27; ++q2)
+										y += *q2;
+									if (!y.Empty()) {
+										d.qfLabels.PushBack(NkString("Remplacer par « ") + y.CStr() + " »");
+										d.qfL.PushBack(d.diags[i].line);
+										d.qfC.PushBack(d.diags[i].col);
+										d.qfKind.PushBack(1);
+										d.qfPay.PushBack(y);
+									}
+								}
+							}
+							if (!d.qfLabels.Empty()) {
+								NkCodeQfMenu().open = true;
+								NkCodeQfMenu().pos = {textLeft + PrefixW(ctx, d, d.curLine, d.curCol) - d.scrollX,
+													  textTop + (d.RowOf(d.curLine) + 1) * lineH - d.scrollY};
+							}
 						}
 						if (!shift && K(NkGuiKey::K))
 							d.chordK = d.tick; // amorce des chords Ctrl+K (fenetre traitee AVANT la saisie, plus haut)
@@ -4259,6 +4306,46 @@ namespace nkentseu {
 						d.InsertText(clip.CStr());
 						changed = true;
 					}
+				}
+			}
+
+			// ── Menu QUICK FIX (Ctrl+.) : applique l'action choisie sur le document ──
+			if (focused && NkCodeQfMenu().open && !d.qfLabels.Empty()) {
+				const char *items[6];
+				bool en[6];
+				const int32 n = d.qfLabels.Size() < 6 ? static_cast<int32>(d.qfLabels.Size()) : 6;
+				for (int32 i = 0; i < n; ++i) {
+					items[i] = d.qfLabels[static_cast<usize>(i)].CStr();
+					en[i] = true;
+				}
+				const int32 act = NkCtxMenuDraw(ctx, NkCodeQfMenu(), items, en, n);
+				if (act >= 0 && act < n && d.qfL[static_cast<usize>(act)] >= 0 &&
+					d.qfL[static_cast<usize>(act)] < d.LineCount()) {
+					const int32 ln = d.qfL[static_cast<usize>(act)], co = d.qfC[static_cast<usize>(act)];
+					d.Checkpoint(3);
+					d.ResetEditRun();
+					if (d.qfKind[static_cast<usize>(act)] == 0) { // inserer ';' a la position exacte
+						d.curLine = ln;
+						d.curCol = co < d.LineLen(ln) ? co : d.LineLen(ln);
+						d.selLine = d.curLine;
+						d.selCol = d.curCol;
+						d.InsertChar(';');
+					} else { // remplacer le MOT sous (ln, co) par la proposition du compilateur
+						const NkCodeLine &L = d.lines[ln];
+						int32 ws = co, we = co;
+						while (ws > 0 && NkCodeDoc::IsWChar(L[ws - 1]))
+							--ws;
+						while (we < static_cast<int32>(L.Size()) && NkCodeDoc::IsWChar(L[we]))
+							++we;
+						if (we > ws) {
+							d.selLine = ln;
+							d.selCol = ws;
+							d.curLine = ln;
+							d.curCol = we;
+							d.InsertText(d.qfPay[static_cast<usize>(act)].CStr());
+						}
+					}
+					changed = true;
 				}
 			}
 
