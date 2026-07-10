@@ -538,8 +538,12 @@ namespace nkentseu {
 							cmd += " ";
 						}
 						// Rapporter TOUTES les erreurs en une passe (pas de plafond) -> on marque tout d'un coup.
-						cmd += NkFindSub(cdb.compiler.CStr(), "clang") ? "-ferror-limit=0 -fno-caret-diagnostics "
-																	   : "-fmax-errors=0 -fno-diagnostics-show-caret ";
+						cmd +=
+							NkFindSub(cdb.compiler.CStr(), "clang")
+								? "-ferror-limit=0 -fno-caret-diagnostics "
+								  "-Wno-pragma-once-outside-header " // le buffer est compile comme fichier PRINCIPAL :
+																	 // un header ouvert declencherait ce faux warning
+								: "-fmax-errors=0 -fno-diagnostics-show-caret ";
 					}
 					for (usize i = 0; i < pf->includes.Size(); ++i) {
 						cmd += cdb.msvc ? "/I\"" : "-I\"";
