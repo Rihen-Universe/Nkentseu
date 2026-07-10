@@ -160,7 +160,7 @@ int main(int argc, char **argv) {
 	{
 		++nbTotal;
 		const bool ok = media::NkCeltAlloc::SelfTest();
-		printf("[ %s ] NkCeltAlloc : band_allocation + bissection qualite (budget monotone) + tilt trim\n",
+		printf("[ %s ] NkCeltAlloc : band_allocation + bissection qualite + interp fine (bits/bande, budget monotone)\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;

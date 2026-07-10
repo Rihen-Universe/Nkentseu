@@ -51,9 +51,10 @@
     `PulsesToBits`/`BitsToPulses`, cœur de l'allocation ; monotonie + aller-retour + budget prouvés ;
     ⚠️ approx log2 flottant, cache bit-exact rate.c à raffiner) + **allocation, cœur** (`NkCeltAlloc` : table
     `band_allocation` 11×21 + **bissection sur la qualité** → ligne tenant dans le budget + `bits1`/`bits2`/`thresh`/
-    tilt `trim` ; budget monotone + trim prouvés). ⏳ Reste CELT (assemblage) : **`interp_bits2pulses`** (interp
-    fine ALLOC_STEPS + skip/intensity + split pulses/énergie fine) → décodage bandes (PVQ) → anti-collapse →
-    denormalise → IMDCT + **overlap-add** → orchestration trame → PCM.
+    tilt `trim` ; + **`InterpFine`** = bissection fine ALLOC_STEPS=6 → **bits/bande** (budget cohérent+monotone
+    prouvés)). ⏳ Reste CELT (assemblage) : drapeaux ec **skip/intensity/dual_stereo** + **split pulses/énergie
+    fine** (fine_priority) → décodage bandes (PVQ + folding/rotation/stéréo/split) → anti-collapse → denormalise →
+    IMDCT + **overlap-add** → orchestration trame `celt_decode` → PCM. Puis SILK + hybride.
   ⏳ Puis **SILK** (LPC, LTP) → mode hybride → PCM float32.
 
 ## En cours / À venir
