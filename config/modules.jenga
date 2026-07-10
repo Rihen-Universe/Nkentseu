@@ -71,6 +71,7 @@ _REGISTRY: dict = {
     "NKRL"           : _m("NKENTSEU_RL",            ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor"]),
     "NKGen"          : _m("NKENTSEU_GEN",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN"]),
     "NKGpt"          : _m("NKENTSEU_GPT",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN", "NKOptim", "NKFileSystem", "NKTime"]),
+    "NKSpeech"       : _m("NKENTSEU_SPEECH",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger"]),
 
     # ---- System --------------------------------------------------------------
     "NKThreading"    : _m("NKENTSEU_THREADING",    ["NKPlatform", "NKCore", "NKMemory", "NKContainers"]),

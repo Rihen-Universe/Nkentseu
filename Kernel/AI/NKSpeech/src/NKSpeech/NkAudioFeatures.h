@@ -46,9 +46,12 @@ namespace nkentseu {
 														 const NkAudioFeatureConfig &cfg = NkAudioFeatureConfig{});
 
 				// MFCC (frames × mfccCount, +deltas si activés) — DCT-II du log-mel.
-				// ⬜ impl staged (Phase 8, brique 1).
 				static NkFeatureMatrix MFCC(const float32 *mono, int32 samples,
 											const NkAudioFeatureConfig &cfg = NkAudioFeatureConfig{});
+
+				// Auto-test headless (aucun GPU) : un sinus pur tombe dans le bon canal Mel,
+				// MFCC déterministes et de bonne dimension.
+				static bool SelfTest();
 		};
 
 	} // namespace ai

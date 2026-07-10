@@ -5,8 +5,8 @@ from-scratch, zero-STL, `namespace nkentseu::ai`. Petite échelle, pédagogique 
 Whisper/Tacotron ». S'appuie sur la **capture micro** (`NKAudio::NkAudioCapture`) et le **débruitage**
 (`NKAudio::NkDenoiser`), et sur **NKAutograd/NKNN** pour les modèles.
 
-> ⚠️ **État : SCAFFOLD (2026-07-10)** — seules les *interfaces* (spec headers) sont posées.
-> L'implémentation est planifiée par étapes dans **`Kernel/AI/ROADMAP.md` → Phase 8 — Parole**.
+> **État (2026-07-10)** : brique 1 **`NkAudioFeatures` (MFCC / log-Mel) LIVRÉE + testée** (`NKSpeechTest` 1/1).
+> `NkASR` / `NkTTS` = scaffold (spec). Suite planifiée dans **`Kernel/AI/ROADMAP.md` → Phase 8 — Parole**.
 
 ## Enjeu : langues locales (dont le ghomala')
 Objectif fort : **multilingue camerounais**, dont le **ghomala' (`bbj`)** — déjà un tag du corpus GPT.

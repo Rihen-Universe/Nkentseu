@@ -489,9 +489,12 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
 pour les modèles). Scaffold posé (spec headers) ; impl staged ci-dessous.
 
 ### Briques (ordre, 1 résultat testable par étape)
-1. ⬜ **Features audio** (`NkAudioFeatures`) — pré-emphase → fenêtrage → **FFT** (réutilise la FFT radix-2 de
-   `NkDenoiser`) → **banc de filtres Mel** → log → **DCT = MFCC** (+ deltas). Testable headless : un sinus pur
-   tombe dans le bon canal Mel ; MFCC déterministes. **Fondation partagée ASR + TTS.**
+1. ✅ **Features audio** (`NkAudioFeatures`, 2026-07-10) — module **NKSpeech** livré (`Kernel/AI/NKSpeech/`,
+   from-scratch zero-STL). Pré-emphase → trames Hann → **FFT radix-2 maison** → spectre de puissance →
+   **banc de filtres Mel** (triangulaire, échelle Mel) → log → **DCT-II = MFCC** (+ **deltas** ΔΔ).
+   `LogMelSpectrogram()` + `MFCC()`. Testé HEADLESS (`NKSpeechTest` → **1/1 OK** : un **sinus 1 kHz tombe dans
+   le bon canal Mel**, MFCC déterministes et de bonne dimension (13×3), silence → sortie finie). **Fondation
+   partagée ASR + TTS**, prête à tourner sur le corpus lamba (Bassa/Bulu/ghomala').
 2. ⬜ **ASR acoustique** (`NkASR`) — petit réseau (Conv/GRU from-scratch NKNN) features→phonèmes/caractères,
    perte **CTC** (à ajouter à NKAutograd), **décodage glouton** puis beam. Entraîné sur un mini-corpus voix→texte.
    Résultat : transcrire des mots isolés d'un petit vocabulaire.
