@@ -4,6 +4,8 @@
 //   NKMediaTest.exe <fichier>  → démux d'en-tête : conteneur + pistes + codecs
 // =============================================================================
 #include "NKMedia/NkMediaProbe.h"
+#include "NKMedia/NkMediaDemux.h"
+#include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
 
@@ -39,12 +41,43 @@ int main(int argc, char **argv) {
 				printf(" %dx%d", t.width, t.height);
 			printf("\n");
 		}
+		// Extraction des paquets audio.
+		NkVector<nk_uint8> bytes;
+		media::NkMediaInfo info2;
+		NkVector<media::NkMediaPacket> packets;
+		if (media::NkMediaDemux::ExtractAudioPacketsFile(argv[1], bytes, info2, packets)) {
+			usize total = 0;
+			for (uint64 i = 0; i < packets.Size(); ++i)
+				total += packets[i].size;
+			printf("Paquets audio : %d (total %d octets)\n", (int)packets.Size(), (int)total);
+			if (packets.Size() > 0) {
+				printf("  1er paquet  : offset=%d size=%d ts=%lldms\n", (int)packets[0].offset,
+					   (int)packets[0].size, (long long)packets[0].timestampMs);
+				const media::NkMediaPacket &last = packets[packets.Size() - 1];
+				printf("  dernier     : ts=%lldms\n", (long long)last.timestampMs);
+			}
+		} else {
+			printf("Paquets audio : extraction non supportee pour ce conteneur.\n");
+		}
 		return 0;
 	}
 
-	printf("=== NKMediaTest — probe conteneurs (headless) ===\n\n");
-	const bool ok = media::NkMediaProbe::SelfTest();
-	printf("[ %s ] NkMediaProbe : detection MP4/WebM/WAV/OGG/FLAC/MP3 + vint EBML\n", ok ? "OK " : "FAIL");
-	printf("\n=== Resultat : %d/1 suites OK ===\n", ok ? 1 : 0);
-	return ok ? 0 : 1;
+	printf("=== NKMediaTest — probe + demux conteneurs (headless) ===\n\n");
+	int nbOk = 0, nbTotal = 0;
+	{
+		++nbTotal;
+		const bool ok = media::NkMediaProbe::SelfTest();
+		printf("[ %s ] NkMediaProbe : detection MP4/WebM/WAV/OGG/FLAC/MP3 + vint EBML\n", ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkMediaDemux::SelfTest();
+		printf("[ %s ] NkMediaDemux : vint EBML + lecture big-endian\n", ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	printf("\n=== Resultat : %d/%d suites OK ===\n", nbOk, nbTotal);
+	return (nbOk == nbTotal) ? 0 : 1;
 }
