@@ -40,10 +40,12 @@
     (libopus entdec/entenc) — décodeur (`Decode/Update`, `DecodeBitLogp`, `DecodeIcdf`, `DecodeBits`, `DecodeUint`)
     + encodeur (pour le test). **Aller-retour PROUVÉ** (encode→decode = identité : icdf, bits bruts, uint, cdf).
     C'est l'épine dorsale de tout le décodage Opus.
-  - **Étape 3 — CELT (en cours, 2026-07-10)** — `Codecs/Opus/Celt/` : **`NkCeltLaplace`** (coder de Laplace,
-    libopus laplace.c — base de l'énergie grossière ; **aller-retour prouvé**) + **`NkCeltBands`** (table
-    `eband5ms`, 21 bandes, bornes → bins MDCT selon LM ; testé). ⏳ Reste CELT : énergie grossière (prédiction 2D)
-    → énergie fine → allocation de bits → **PVQ/CWRS** (forme spectrale) → anti-collapse → **IMDCT + overlap-add**.
+  - **Étape 3 — CELT (en cours, 2026-07-10)** — `Codecs/Opus/Celt/`. Primitives posées + **vérifiées** :
+    **`NkCeltLaplace`** (coder de Laplace, aller-retour prouvé — base énergie grossière) ; **`NkCeltBands`**
+    (table `eband5ms`, 21 bandes → bins MDCT selon LM) ; **`NkCeltMdct`** (MDCT/IMDCT directe + fenêtre sinus,
+    **reconstruction TDAC parfaite** < 1e-3). ⏳ Reste CELT (assemblage) : énergie grossière (prédiction 2D) →
+    énergie fine → allocation de bits → **PVQ/CWRS** (forme spectrale) → anti-collapse → denormalise →
+    IMDCT + **overlap-add** → orchestration trame CELT.
   ⏳ Puis **SILK** (LPC, LTP) → mode hybride → PCM float32.
 
 ## En cours / À venir

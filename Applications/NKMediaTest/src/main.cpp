@@ -9,6 +9,7 @@
 #include "NKMedia/Codecs/Opus/NkOpusRange.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltLaplace.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltBands.h"
+#include "NKMedia/Codecs/Opus/Celt/NkCeltMdct.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -118,6 +119,13 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkCeltBands::SelfTest();
 		printf("[ %s ] NkCeltBands : 21 bandes CELT, bornes croissantes, echelle LM\n", ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkCeltMdct::SelfTest();
+		printf("[ %s ] NkCeltMdct : MDCT/IMDCT + fenetre sinus, reconstruction TDAC parfaite\n", ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
 	}
