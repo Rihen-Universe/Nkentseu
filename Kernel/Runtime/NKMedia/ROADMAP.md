@@ -52,9 +52,11 @@
     ⚠️ approx log2 flottant, cache bit-exact rate.c à raffiner) + **allocation, cœur** (`NkCeltAlloc` : table
     `band_allocation` 11×21 + **bissection sur la qualité** → ligne tenant dans le budget + `bits1`/`bits2`/`thresh`/
     tilt `trim` ; + **`InterpFine`** = bissection fine ALLOC_STEPS=6 → **bits/bande** (budget cohérent+monotone
-    prouvés)). ⏳ Reste CELT (assemblage) : drapeaux ec **skip/intensity/dual_stereo** + **split pulses/énergie
-    fine** (fine_priority) → décodage bandes (PVQ + folding/rotation/stéréo/split) → anti-collapse → denormalise →
-    IMDCT + **overlap-add** → orchestration trame `celt_decode` → PCM. Puis SILK + hybride.
+    prouvés)) + **forme de bande** (`NkCeltVq::AlgUnquant` : pulses → **normalise** (norme unité×gain) →
+    **exp_rotation** spreading → masque collapse ; **norme conservée** prouvée, cœur de `quant_all_bands`).
+    ⏳ Reste CELT (orchestration) : drapeaux ec **skip/intensity/dual_stereo** + **split pulses/énergie fine** →
+    `quant_all_bands` (folding/stéréo/split récursif des bandes) → anti-collapse → **denormalise** (forme×énergie)
+    → IMDCT + **overlap-add** → `celt_decode` (flags transient/spread/tf) → PCM. Puis SILK + hybride.
   ⏳ Puis **SILK** (LPC, LTP) → mode hybride → PCM float32.
 
 ## En cours / À venir
