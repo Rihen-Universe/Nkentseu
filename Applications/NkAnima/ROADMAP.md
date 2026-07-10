@@ -379,9 +379,20 @@ Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociabl
    lerp brut à t=0.7 = déséquilibré → BlendBalanced = équilibré, pieds inchangés, bornes t=0→A / t=1→B).
    ⏳ Reste : transferts de poids (bascule pied à pied), plusieurs variantes proposées → choix humain,
    interpolation en ROTATIONS (slerp) quand on aura le squelette hiérarchique.
-6. ❌ **Pont vers l'anim existante** — correction physique en post-traitement
-   non destructif du blend (M2), toggle par personnage/scène (coût non
-   négligeable), export des poses corrigées en clips éditables (M1.c).
+6. 🔶 **Pont vers l'anim existante (V1 — 2026-07-10)** — `NKRenderer/Tools/Animation/NkPhysAnimBridge.{h,cpp}`
+   (pur Foundation, AUCUN GPU). `Correct(posesIn, frameCount, jointCount, mass, plantedMask, supportPts, …,
+   strength, smoothMaxDeltaPerFrame, posesOut)` : applique la correction d'équilibre (M3.4) en **post-traitement
+   NON DESTRUCTIF** sur une SÉQUENCE de poses (clip) — chaque frame ramenée en équilibre, **lissage temporel**
+   (`NkBalanceSmoother`) pour éviter les à-coups, pieds plantés respectés. L'entrée n'est pas modifiée (toggle
+   par personnage/scène). Renvoie le nb de frames équilibrées. Testé HEADLESS (`NkAnimPhysTest` → **M3.6 OK** :
+   clip qui bascule progressivement → sans lissage 6/6 frames équilibrées, pieds fixes ; avec lissage serré la
+   variation du décalage par frame est bornée). ⏳ Reste : brancher sur le blend M2 réel + export en clips
+   `.nkanim` éditables (M1.c), coût/perf par personnage.
+
+> **✅ MILESTONE M3 (physique d'animation, signature Cascadeur) — BOUCLE COMPLÈTE (2026-07-10)** : masse/COM (M3.1)
+> → équilibre (M3.2) → contacts (M3.3) → **optimiseur de pose V1+V2 pieds plantés** (M3.4) → **auto-posing** (M3.5)
+> → **pont anim non destructif** (M3.6), le tout **from-scratch, zero-STL, GPU-free, 9/9 tests headless**
+> (`NkAnimPhysTest`). Prochaine grande étape : M4 (IA auto-pose) et câblage éditeur (viz + gizmos de courbe).
 
 ### M4 — IA auto-pose
 Petit modèle qui **prédit des poses plausibles** (pose→pose / physics-aware) =
