@@ -50,6 +50,7 @@ namespace nkentseu {
 			s->ProcessCompletionRequest(); // complétion CONTEXTUELLE ('.', '->', '::') compile-first
 			s->ProcessHover();			   // hover documentation (survol ~0,5 s -> carte signature + doc)
 			s->PollCompletion();		   // récupère les membres renvoyés par le compilateur -> popup
+			s->TickMru();				   // MRU des onglets (Ctrl+Tab) : enregistre l'onglet actif
 			s->ProcessNavigation();
 			s->PollNav();
 			s->ProcessNavPick();   // Ctrl+clic : include / go-to-def (thread) / choix liste (différé hors rendu)

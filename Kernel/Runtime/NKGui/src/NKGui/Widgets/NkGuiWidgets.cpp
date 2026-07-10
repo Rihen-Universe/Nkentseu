@@ -203,7 +203,7 @@ namespace nkentseu {
 					lineBegin = p;
 					lastFit = p;
 					continue;
-				}					// espaces de début
+				} // espaces de début
 				const char *ws = p; // début de mot
 				while (p < end && *p != ' ' && *p != '\n')
 					++p; // mot [ws, p)
@@ -2998,8 +2998,29 @@ namespace nkentseu {
 			if (t && t->dockNode >= 0) {
 				DockWindow(ctx, wid, t->dockNode, 0);
 				return;
-			}									  // onglet dans la cible
+			} // onglet dans la cible
 			DockBuilderDock(ctx, windowTitle, 4); // cible non ancrée -> dock bas
+		}
+
+		bool DockFocusWindow(NkGuiContext &ctx, const char *windowTitle) noexcept {
+			const NkGuiId wid = ctx.GetId(windowTitle);
+			int32 mi;
+			NkGuiWindowMeta *m = WinFind(ctx, wid, mi);
+			if (!m || m->dockNode < 0 || m->dockNode >= static_cast<int32>(ctx.dockNodes.Size()))
+				return false;
+			NkGuiDockNode &L = ctx.dockNodes[m->dockNode];
+			for (int32 i = 0; i < L.winCount; ++i)
+				if (L.windows[i] == wid) {
+					L.activeTab = i;
+					for (int32 k = 0; k < L.winCount; ++k) { // maj des drapeaux « onglet actif »
+						int32 wi;
+						NkGuiWindowMeta *w = WinFind(ctx, L.windows[k], wi);
+						if (w)
+							w->dockActiveTab = (k == i);
+					}
+					return true;
+				}
+			return false;
 		}
 
 		void DockWindowIntoWindow(NkGuiContext &ctx, const char *hostTitle, const char *winTitle) noexcept {

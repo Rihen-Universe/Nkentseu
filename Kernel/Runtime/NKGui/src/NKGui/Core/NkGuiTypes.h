@@ -92,6 +92,7 @@ namespace nkentseu {
 			H,
 			L,
 			N,
+			Num0,
 			Num1,
 			Num2,
 			// Raccourcis éditeur (Phase 4) : G, K, /, [, ], Z/Y (undo/redo).
@@ -109,6 +110,16 @@ namespace nkentseu {
 			F,
 			// Autocompletion manuelle (Ctrl+Espace).
 			Space,
+			// QoL editeur : F8 erreurs, F12 references, chords Ctrl+K (J/I/0), onglets (W/T),
+			// Ctrl+Maj+O structure, Ctrl+Maj+\ minimap.
+			F8,
+			F12,
+			J,
+			W,
+			T,
+			I,
+			O,
+			Backslash,
 			Count
 		};
 
