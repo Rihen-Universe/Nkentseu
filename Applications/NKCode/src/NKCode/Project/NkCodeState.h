@@ -577,6 +577,11 @@ namespace nkentseu {
 										  "avertissement(s) au total (headers inclus)",
 										  f.Name().CStr(), static_cast<int32>(f.doc.diags.Size()), rawE, rawW);
 							GlobalLogBuffer().Push(NkString(lb));
+							if (rawE > 0)
+								GlobalLogBuffer().Push(
+									NkString("[diag] note : apres une erreur de syntaxe le compilateur peut en MASQUER "
+											 "d'autres (recuperation) - corrige la premiere, la passe suivante (~0,6 "
+											 "s) revele la suite."));
 						}
 					}
 					if (!diagTempPath.Empty()) {
