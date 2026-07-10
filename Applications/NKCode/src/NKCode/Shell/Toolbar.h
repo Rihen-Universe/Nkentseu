@@ -53,6 +53,8 @@ namespace nkentseu {
 			s->TickMru();				   // MRU des onglets (Ctrl+Tab) : enregistre l'onglet actif
 			s->ProcessNavigation();
 			s->PollNav();
+			s->PollWsFind(); // recherche workspace (Ctrl+Maj+F)
+			s->ProcessWsOpen();
 			s->ProcessNavPick();   // Ctrl+clic : include / go-to-def (thread) / choix liste (différé hors rendu)
 			s->TickSession(ec.dt); // persistance session : onglets + contenu non sauvegardé (hot-exit / reprise crash)
 			s->TickFileWatch(ec.dt); // détecte suppression / modification EXTERNE des fichiers ouverts
