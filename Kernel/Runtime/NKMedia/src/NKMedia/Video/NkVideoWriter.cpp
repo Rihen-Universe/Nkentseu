@@ -53,6 +53,17 @@ namespace nkentseu {
 				return false;
 			mCfg = cfg;
 
+			if (cfg.container == NkVideoContainer::MOV) {
+				// MOV/MP4 : MJPEG uniquement (pas de RAW dans ce conteneur pour l'instant).
+				if (cfg.codec != NkVideoCodec::MJPEG)
+					return false;
+				if (!mMov.Open(path, cfg.width, cfg.height, cfg.fpsNum, cfg.fpsDen))
+					return false;
+				mOpen = true;
+				return true;
+			}
+
+			// --- AVI ---
 			uint32 fourcc = 0, compression = 0;
 			int32 bitCount = 24;
 			if (cfg.codec == NkVideoCodec::MJPEG) {
@@ -62,12 +73,16 @@ namespace nkentseu {
 				fourcc = 0;
 				compression = kAviCompressionRGB;
 			}
-
-			// (Un seul conteneur pour l'instant : AVI.)
 			if (!mAvi.Open(path, cfg.width, cfg.height, cfg.fpsNum, cfg.fpsDen, fourcc, compression, bitCount))
 				return false;
 			mOpen = true;
 			return true;
+		}
+
+		bool NkVideoWriter::WriteEncoded(const uint8 *data, uint32 size, uint32 /*chunkKind*/) {
+			if (mCfg.container == NkVideoContainer::MOV)
+				return mMov.WriteFrame(data, size, true);
+			return mAvi.WriteFrame(data, size, true);
 		}
 
 		bool NkVideoWriter::WriteFrameRaw(const uint8 *pixels, NkVideoInputFormat fmt) {
@@ -94,7 +109,7 @@ namespace nkentseu {
 				for (int32 p = rowBytes; p < padRow; ++p)
 					dst[p] = 0;
 			}
-			return mAvi.WriteFrame(mScratch, (uint32)frameSize, true);
+			return WriteEncoded(mScratch, (uint32)frameSize, 0);
 		}
 
 		bool NkVideoWriter::WriteFrameMjpeg(const uint8 *pixels, NkVideoInputFormat fmt) {
@@ -127,7 +142,7 @@ namespace nkentseu {
 					memory::NkFree(jpg);
 				return false;
 			}
-			const bool okWrite = mAvi.WriteFrame(jpg, (uint32)jsz, true);
+			const bool okWrite = WriteEncoded(jpg, (uint32)jsz, 0);
 			memory::NkFree(jpg);
 			return okWrite;
 		}
@@ -143,7 +158,7 @@ namespace nkentseu {
 		bool NkVideoWriter::Close() {
 			if (!mOpen)
 				return false;
-			const bool ok = mAvi.Close();
+			const bool ok = (mCfg.container == NkVideoContainer::MOV) ? mMov.Close() : mAvi.Close();
 			if (mScratch) {
 				memory::NkFree(mScratch);
 				mScratch = nullptr;
