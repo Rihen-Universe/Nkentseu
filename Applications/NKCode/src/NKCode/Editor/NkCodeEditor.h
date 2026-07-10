@@ -121,6 +121,7 @@ namespace nkentseu {
 				int32 hovKind = 0;							// pastille : 1 fonction/membre, 2 type, 3 variable, 4 macro
 				NkRect hovActRect = {0.f, 0.f, 0.f, 0.f};	// action [Aller a la definition]
 				NkRect hovCopyRect = {0.f, 0.f, 0.f, 0.f};	// bouton [Copier]
+				NkRect hovRefsRect = {0.f, 0.f, 0.f, 0.f};	// bouton [References]
 				float32 hovXOff = 0.f;						// defilement horizontal du PROTOTYPE (long)
 				NkRect hovTitleRect = {0.f, 0.f, 0.f, 0.f}; // zone du prototype (glisser = defiler)
 				float32 hovDragX = 0.f, hovDragOff = 0.f;	// ancrage du glisser horizontal
@@ -128,6 +129,11 @@ namespace nkentseu {
 				NkRect hovBodyRect = {0.f, 0.f, 0.f, 0.f};	 // zone doc (molette / glisser 2 axes)
 				int32 hovDragMode = 0;						 // 1 = prototype (X), 2 = doc (X+Y)
 				float32 hovDragY = 0.f, hovDragOffY = 0.f;
+				// ── QoL : barre « aller a la ligne » (Ctrl+G), chord Ctrl+K, references ──
+				bool gotoOpen = false;
+				char gotoBuf[12] = {};
+				int32 chordK = -100000;				   // tick du dernier Ctrl+K (chords Ctrl+K 0/J/I)
+				NkString refsTarget;				   // symbole dont on veut les REFERENCES (consomme par l etat)
 				NkString hovSym;					   // symbole demande
 				int32 hovLine = -1, hovCol = -1;	   // position du mot (resolution contextuelle)
 				bool hovShow = false;				   // carte visible
@@ -662,6 +668,50 @@ namespace nkentseu {
 
 				// Ctrl+D : 1er appui = sélectionne le mot sous le curseur ; suivants = ajoute la
 				// prochaine occurrence du texte sélectionné (MONO-ligne) comme curseur additionnel.
+				// Ctrl+Maj+L : selectionne TOUTES les occurrences du mot sous le caret
+				// (multi-curseur) — le caret principal reste sur l occurrence courante.
+				void SelectAllOccurrences() {
+					if (curLine >= LineCount())
+						return;
+					const NkCodeLine &L0 = lines[curLine];
+					int32 ws = curCol, we = curCol;
+					while (ws > 0 && IsWChar(L0[ws - 1]))
+						--ws;
+					while (we < static_cast<int32>(L0.Size()) && IsWChar(L0[we]))
+						++we;
+					if (we <= ws)
+						return;
+					char w[96];
+					int32 wn = 0;
+					for (int32 k = ws; k < we && wn < 95; ++k)
+						w[wn++] = L0[k];
+					w[wn] = 0;
+					extraCarets.Clear();
+					selLine = curLine;
+					selCol = ws;
+					curCol = we;
+					for (int32 l = 0; l < LineCount(); ++l) {
+						const NkCodeLine &L = lines[l];
+						const int32 n = static_cast<int32>(L.Size());
+						for (int32 i = 0; i + wn <= n; ++i) {
+							if (i > 0 && IsWChar(L[i - 1]))
+								continue;
+							int32 k = 0;
+							while (k < wn && L[i + k] == w[k])
+								++k;
+							if (k != wn || (i + wn < n && IsWChar(L[i + wn])))
+								continue;
+							if (l == curLine && i == ws) {
+								i += wn - 1;
+								continue; // le principal
+							}
+							if (extraCarets.Size() < 256)
+								extraCarets.PushBack({l, i, l, i + wn});
+							i += wn - 1;
+						}
+					}
+				}
+
 				void SelectWordOrAddNext() {
 					if (!HasSel()) {
 						const NkCodeLine &L = lines[curLine];
@@ -840,6 +890,18 @@ namespace nkentseu {
 								foldOn.Erase(foldOn.Begin() + k);
 								break;
 							}
+					foldDirty = true;
+				}
+
+				void FoldAll() { // replie TOUTES les regions (Ctrl+K Ctrl+0)
+					foldOn.Clear();
+					for (usize k = 0; k < foldHdr.Size(); ++k)
+						foldOn.PushBack(foldHdr[k]);
+					foldDirty = true;
+				}
+
+				void UnfoldAll() { // deplie tout (Ctrl+K Ctrl+J)
+					foldOn.Clear();
 					foldDirty = true;
 				}
 
@@ -2030,7 +2092,8 @@ namespace nkentseu {
 			// H en bas) -> zone texte bornee, barres toujours visibles (facon VSCode/VS).
 			const float32 sbW = 14.f;
 			// Minimap (aperçu miniature à droite, façon VSCode) : TOUJOURS présente.
-			const bool showMinimap = true;
+			static bool sMinimapOn = true; // Ctrl+Maj+\ : afficher/masquer (session)
+			const bool showMinimap = sMinimapOn;
 			const float32 mmW = ctx.S(140.f); // largeur minimap (un peu plus large que VSCode)
 			const NkRect textArea = {area.x + gutterW, area.y, area.w - gutterW - sbW - mmW, area.h - sbW};
 			const float32 textLeft = textArea.x + pad;
@@ -2334,6 +2397,12 @@ namespace nkentseu {
 					d.hovRect = {0.f, 0.f, 0.f, 0.f};
 					NkCodeFocusId() = id;
 				}
+				if (InRect(d.hovRefsRect, mouse) && !d.hovSym.Empty()) { // [References] -> liste workspace
+					d.refsTarget = d.hovSym;
+					d.hovShow = false;
+					d.hovRect = {0.f, 0.f, 0.f, 0.f};
+					NkCodeFocusId() = id;
+				}
 				if (InRect(d.hovCopyRect, mouse)) { // [Copier] : titre + doc dans le presse-papiers
 					NkString all = d.hovTitle;
 					for (usize bi = 0; bi < d.hovBody.Size(); ++bi) {
@@ -2523,6 +2592,36 @@ namespace nkentseu {
 						d.FindRecompute();
 					}
 				}
+				if (d.gotoOpen) { // barre « Aller a la ligne » (Ctrl+G) : chiffres + Entree/Echap
+					int32 gl = 0;
+					while (d.gotoBuf[gl])
+						++gl;
+					for (int32 i = 0; i < ctx.input.charCount; ++i) {
+						const uint32 cp = ctx.input.chars[i];
+						if (cp >= '0' && cp <= '9' && gl < 9) {
+							d.gotoBuf[gl++] = static_cast<char>(cp);
+							d.gotoBuf[gl] = 0;
+						}
+					}
+					if (ctx.input.KeyPressedRepeat(NkGuiKey::Backspace) && gl > 0)
+						d.gotoBuf[--gl] = 0;
+					if (ctx.input.KeyPressed(NkGuiKey::Escape))
+						d.gotoOpen = false;
+					if (ctx.input.KeyPressed(NkGuiKey::Enter)) {
+						int32 tgt = 0;
+						for (int32 i = 0; d.gotoBuf[i]; ++i)
+							tgt = tgt * 10 + (d.gotoBuf[i] - '0');
+						if (tgt > 0) {
+							d.ResetEditRun();
+							d.curLine = tgt - 1;
+							d.ClampCursor();
+							d.curCol = 0;
+							d.Collapse();
+							d.wantReveal = true;
+						}
+						d.gotoOpen = false;
+					}
+				}
 				if (d.findOpen) { // la barre gèle le document ; l'ÉDITION des champs est faite par NkOverlayTextField
 								  // (rendu, plus bas)
 					if (ctx.input.KeyPressed(NkGuiKey::Escape))
@@ -2552,7 +2651,7 @@ namespace nkentseu {
 				// ── Autocomplétion ouverte : capte ↑↓ (navigue), Tab/Entrée (accepte), Échap
 				//    (ferme) AVANT l'édition normale. `acEat` = touche consommée cette frame. ──
 				bool acEat = false, acTyped = false;
-				if (!d.findOpen) { // la saisie du DOCUMENT est gelée tant que la barre est ouverte
+				if (!d.findOpen && !d.gotoOpen) { // saisie du DOCUMENT gelée tant qu une barre est ouverte
 					if (d.acOpen && !d.acItems.Empty()) {
 						const int32 acN = static_cast<int32>(d.acItems.Size());
 						if (ctx.input.KeyPressedRepeat(NkGuiKey::Up)) {
@@ -2747,6 +2846,77 @@ namespace nkentseu {
 						if (!shift)
 							d.Collapse();
 					} // Ctrl+End = fin du fichier
+					// F8 / Maj+F8 : erreur/avertissement SUIVANT / PRECEDENT (avec bouclage).
+					if (!ctrl && K(NkGuiKey::F8) && !d.diags.Empty()) {
+						int32 bestL = -1, bestC = -1;
+						if (!shift) { // suivant : plus petit (l,c) strictement apres le caret, sinon le 1er
+							for (usize i = 0; i < d.diags.Size(); ++i) {
+								const int32 l2 = d.diags[i].line, c2 = d.diags[i].col < 0 ? 0 : d.diags[i].col;
+								const bool after = l2 > d.curLine || (l2 == d.curLine && c2 > d.curCol);
+								if (!after)
+									continue;
+								if (bestL < 0 || l2 < bestL || (l2 == bestL && c2 < bestC)) {
+									bestL = l2;
+									bestC = c2;
+								}
+							}
+							if (bestL < 0)
+								for (usize i = 0; i < d.diags.Size(); ++i) {
+									const int32 l2 = d.diags[i].line, c2 = d.diags[i].col < 0 ? 0 : d.diags[i].col;
+									if (bestL < 0 || l2 < bestL || (l2 == bestL && c2 < bestC)) {
+										bestL = l2;
+										bestC = c2;
+									}
+								}
+						} else { // precedent : plus grand (l,c) strictement avant, sinon le dernier
+							for (usize i = 0; i < d.diags.Size(); ++i) {
+								const int32 l2 = d.diags[i].line, c2 = d.diags[i].col < 0 ? 0 : d.diags[i].col;
+								const bool before = l2 < d.curLine || (l2 == d.curLine && c2 < d.curCol);
+								if (!before)
+									continue;
+								if (bestL < 0 || l2 > bestL || (l2 == bestL && c2 > bestC)) {
+									bestL = l2;
+									bestC = c2;
+								}
+							}
+							if (bestL < 0)
+								for (usize i = 0; i < d.diags.Size(); ++i) {
+									const int32 l2 = d.diags[i].line, c2 = d.diags[i].col < 0 ? 0 : d.diags[i].col;
+									if (bestL < 0 || l2 > bestL || (l2 == bestL && c2 > bestC)) {
+										bestL = l2;
+										bestC = c2;
+									}
+								}
+						}
+						if (bestL >= 0) {
+							d.ResetEditRun();
+							d.curLine = bestL;
+							d.ClampCursor();
+							d.curCol = bestC < d.LineLen(d.curLine) ? bestC : d.LineLen(d.curLine);
+							d.Collapse();
+							d.wantReveal = true;
+						}
+					}
+					// F12 : aller a la definition du mot sous le caret ; Maj+F12 : REFERENCES.
+					if (!ctrl && K(NkGuiKey::F12) && d.curLine < d.LineCount()) {
+						const NkCodeLine &L = d.lines[d.curLine];
+						int32 ws = d.curCol, we = d.curCol;
+						while (ws > 0 && NkCodeDoc::IsWChar(L[ws - 1]))
+							--ws;
+						while (we < static_cast<int32>(L.Size()) && NkCodeDoc::IsWChar(L[we]))
+							++we;
+						if (we > ws) {
+							NkString sym;
+							for (int32 k = ws; k < we; ++k)
+								sym += L[k];
+							if (shift)
+								d.refsTarget = sym; // consomme par l etat -> liste des references
+							else {
+								d.linkTarget = sym; // pipeline go-to-def existant (Ctrl+clic)
+								d.linkIsInclude = false;
+							}
+						}
+					}
 					// ── Raccourcis d'édition (Phase 4) ── (ctrl/alt définis en haut du bloc)
 					if (alt && !ctrl) {
 						if (K(NkGuiKey::Up)) {
@@ -2790,6 +2960,94 @@ namespace nkentseu {
 						if (!shift && K(NkGuiKey::L)) {
 							d.SelectCurrentLine();
 						} // Ctrl+L = sélectionner ligne (étend au répété)
+						if (shift && K(NkGuiKey::L)) {
+							d.SelectAllOccurrences();
+							changed = true;
+						} // Ctrl+Maj+L = toutes les occurrences (multi-curseur)
+						if (K(NkGuiKey::G)) { // Ctrl+G = aller a la ligne
+							d.gotoOpen = true;
+							d.gotoBuf[0] = 0;
+						}
+						if (!shift && K(NkGuiKey::K))
+							d.chordK = d.tick;		   // amorce des chords Ctrl+K …
+						if (d.tick - d.chordK <= 90) { // fenetre ~1,5 s
+							if (K(NkGuiKey::Num0)) {   // Ctrl+K Ctrl+0 = TOUT replier
+								d.FoldAll();
+								d.chordK = -100000;
+							}
+							if (K(NkGuiKey::J)) { // Ctrl+K Ctrl+J = TOUT deplier
+								d.UnfoldAll();
+								d.chordK = -100000;
+							}
+							if (K(NkGuiKey::I) && d.curLine < d.LineCount()) { // Ctrl+K Ctrl+I = hover au caret
+								const NkCodeLine &L = d.lines[d.curLine];
+								int32 ws = d.curCol, we = d.curCol;
+								while (ws > 0 && NkCodeDoc::IsWChar(L[ws - 1]))
+									--ws;
+								while (we < static_cast<int32>(L.Size()) && NkCodeDoc::IsWChar(L[we]))
+									++we;
+								if (we > ws) {
+									NkString sym;
+									for (int32 k = ws; k < we; ++k)
+										sym += L[k];
+									d.hovSym = sym;
+									d.hovLine = d.curLine;
+									d.hovCol = ws;
+									d.hovX = textLeft + PrefixW(ctx, d, d.curLine, ws) - d.scrollX;
+									d.hovY = textTop + d.RowOf(d.curLine) * lineH - d.scrollY;
+									d.hovXOff = 0.f;
+									d.hovBodyOff = 0.f;
+									d.hovBodyXOff = 0.f;
+									d.hovShow = false;
+									d.hovDone = false;
+									d.hovReq = true;
+								}
+								d.chordK = -100000;
+							}
+						}
+						if (shift && K(NkGuiKey::Backslash)) { // Ctrl+Maj+\ = minimap on/off
+							sMinimapOn = !sMinimapOn;
+						}
+						if (shift && K(NkGuiKey::Space) && d.curLine < d.LineCount()) {
+							// Ctrl+Maj+Espace : AIDE AUX PARAMETRES — prototype de l appel englobant.
+							const NkCodeLine &L = d.lines[d.curLine];
+							int32 q2 = d.curCol, dep = 0;
+							int32 callee = -1;
+							while (q2 > 0) { // '(' non appariee la plus proche a gauche
+								const char c2 = L[q2 - 1];
+								if (c2 == ')')
+									++dep;
+								else if (c2 == '(') {
+									if (dep == 0) {
+										callee = q2 - 1;
+										break;
+									}
+									--dep;
+								}
+								--q2;
+							}
+							if (callee > 0) {
+								int32 we2 = callee, ws2 = callee;
+								while (ws2 > 0 && NkCodeDoc::IsWChar(L[ws2 - 1]))
+									--ws2;
+								if (we2 > ws2) {
+									NkString sym;
+									for (int32 k = ws2; k < we2; ++k)
+										sym += L[k];
+									d.hovSym = sym;
+									d.hovLine = d.curLine;
+									d.hovCol = ws2;
+									d.hovX = textLeft + PrefixW(ctx, d, d.curLine, d.curCol) - d.scrollX;
+									d.hovY = textTop + d.RowOf(d.curLine) * lineH - d.scrollY;
+									d.hovXOff = 0.f;
+									d.hovBodyOff = 0.f;
+									d.hovBodyXOff = 0.f;
+									d.hovShow = false;
+									d.hovDone = false;
+									d.hovReq = true; // ProcessHover affiche le prototype (carte)
+								}
+							}
+						}
 						if (K(NkGuiKey::Space) && d.curLine < d.LineCount()) { // Ctrl+Espace = autocomplétion
 							const NkCodeLine &L = d.lines[d.curLine];
 							int32 s = d.curCol;
@@ -3433,6 +3691,24 @@ namespace nkentseu {
 			} else
 				d.acRect = {0.f, 0.f, 0.f, 0.f};
 
+			// ── Barre « Aller a la ligne » (Ctrl+G) : boite compacte en haut a droite. ──
+			if (d.gotoOpen && ctx.font && ctx.font->Valid()) {
+				const float32 gh = ctx.font->LineHeight() + ctx.S(12.f);
+				const NkRect gb = {area.x + area.w - ctx.S(240.f) - ctx.S(18.f), area.y + ctx.S(8.f), ctx.S(240.f),
+								   gh + ctx.S(6.f)};
+				dl.AddRectFilled({gb.x + 3.f, gb.y + 4.f, gb.w, gb.h}, NkColor{0, 0, 0, 50}, 7.f);
+				dl.AddRectFilled(gb, NkColor{ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 90}, 6.f);
+				dl.AddRectFilled({gb.x + 1.f, gb.y + 1.f, gb.w - 2.f, gb.h - 2.f}, ctx.theme.header, 6.f);
+				const float32 by2 = gb.y + (gb.h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent();
+				dl.AddText(face, tex, {gb.x + ctx.S(10.f), by2}, "Ligne :", ctx.theme.textDisabled);
+				const float32 lx = gb.x + ctx.S(10.f) + ctx.font->MeasureWidth("Ligne :") + ctx.S(8.f);
+				dl.AddText(face, tex, {lx, by2}, d.gotoBuf, ctx.theme.text);
+				// caret clignotant au bout du nombre
+				if ((d.tick / 30) % 2 == 0) {
+					const float32 cx2 = lx + ctx.font->MeasureWidth(d.gotoBuf) + 1.f;
+					dl.AddLine({cx2, by2 - ctx.font->Ascent() + 2.f}, {cx2, by2 + ctx.S(3.f)}, ctx.theme.text, 1.2f);
+				}
+			}
 			// ── Carte HOVER (signature + doc) : au-dessus de la ligne si la place le permet. ──
 			if (d.hovShow && ctx.font && ctx.font->Valid()) {
 				const float32 padX = ctx.S(10.f), padY = ctx.S(6.f);
@@ -3568,7 +3844,8 @@ namespace nkentseu {
 				float32 axx = hb.x + padX;
 				const NkRect defR = chip(axx, "Aller a la definition", true);
 				axx += defR.w + ctx.S(6.f);
-				const NkRect refR = chip(axx, "References", false);
+				const NkRect refR = chip(axx, "References", !d.hovSym.Empty());
+				d.hovRefsRect = refR;
 				axx += refR.w + ctx.S(6.f);
 				const NkRect iaR = chip(axx, "IA : expliquer", false);
 				axx += iaR.w + ctx.S(6.f);
@@ -3648,6 +3925,26 @@ namespace nkentseu {
 			const NkRect vTrack = {area.x + area.w - sbW, area.y, sbW, viewH};
 			const NkRect hTrack = {area.x, area.y + area.h - sbW, area.w - sbW, sbW}; // pleine largeur (- coin V)
 			dl.AddRectFilled(vTrack, kTrack);
+			{ // marques : erreurs/avertissements (droite), occurrences recherche (gauche), breakpoints
+				const float32 tot = static_cast<float32>(d.VisRowCount() > 0 ? d.VisRowCount() : 1);
+				auto markY = [&](int32 line) {
+					return vTrack.y + (static_cast<float32>(d.RowOf(line)) / tot) * vTrack.h;
+				};
+				for (usize i = 0; i < d.diags.Size(); ++i) {
+					if (d.diags[i].line < 0 || d.diags[i].line >= d.LineCount() || d.LineHidden(d.diags[i].line))
+						continue;
+					const NkColor mc = d.diags[i].sev ? NkColor{240, 80, 80, 230} : NkColor{224, 190, 70, 230};
+					dl.AddRectFilled({vTrack.x + sbW * 0.5f, markY(d.diags[i].line), sbW * 0.5f - 1.f, 3.f}, mc);
+				}
+				if (d.findOpen)
+					for (usize i = 0; i < d.findLine.Size(); ++i)
+						dl.AddRectFilled({vTrack.x + 1.f, markY(d.findLine[i]), sbW * 0.5f - 1.f, 3.f},
+										 NkColor{255, 160, 60, 220}); // occurrences (orange)
+				for (usize i = 0; i < d.breakpoints.Size(); ++i)
+					if (d.breakpoints[i] >= 0 && d.breakpoints[i] < d.LineCount())
+						dl.AddRectFilled({vTrack.x + 1.f, markY(d.breakpoints[i]), sbW - 2.f, 2.f},
+										 NkColor{229, 74, 68, 255}); // breakpoints (rouge vif)
+			}
 			dl.AddRectFilled(hTrack, kTrack);
 			dl.AddRectFilled({vTrack.x, hTrack.y, sbW, sbW}, kTrack); // coin bas-droite
 

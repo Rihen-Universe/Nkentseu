@@ -273,6 +273,9 @@ namespace nkentseu {
 		// Ancre `windowTitle` en ONGLET dans le nœud de `targetTitle` (même barre).
 		NKENTSEU_NKGUI_API void DockBuilderDockTab(NkGuiContext &ctx, const char *windowTitle,
 												   const char *targetTitle) noexcept;
+		// Sélectionne l'ONGLET d'une fenêtre ancrée (révéler un panneau par raccourci) :
+		// la feuille qui la contient bascule son `activeTab` dessus. false si non ancrée.
+		NKENTSEU_NKGUI_API bool DockFocusWindow(NkGuiContext &ctx, const char *windowTitle) noexcept;
 		// DockSpace qui remplit TOUT le viewport (responsive : suit la taille de la
 		// fenêtre OS → le dock + les fenêtres ancrées s'agrandissent avec elle).
 		// `topMargin` = hauteur réservée en haut (ex. barre de menus).

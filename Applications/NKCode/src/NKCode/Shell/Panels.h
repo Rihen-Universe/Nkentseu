@@ -723,6 +723,37 @@ namespace nkentseu {
 					const NkVec2 m = ctx.input.mousePos;
 					float32 x = x0;
 					int32 toClose = -1;
+					// ── Raccourcis onglets (façon VSCode) : Ctrl+W ferme, Ctrl+Maj+T rouvre,
+					// Ctrl+Tab / Ctrl+Maj+Tab cycle dans l'ordre MRU (snapshot figé pendant le cycle). ──
+					if (ctx.popupDepth == 0 && ctx.input.ctrlDown) {
+						if (ctx.input.KeyPressed(NkGuiKey::W) && mS->HasActive() && !mS->files[mS->active].pinned)
+							toClose = mS->active;
+						if (ctx.input.shiftDown && ctx.input.KeyPressed(NkGuiKey::T))
+							mS->ReopenClosed();
+						if (ctx.input.shiftDown &&
+							ctx.input.KeyPressed(NkGuiKey::O)) { // Ctrl+Maj+O : panneau Structure
+							if (!DockFocusWindow(ctx, "Structure"))
+								mS->status = NkString("Panneau Structure indisponible");
+						}
+						const bool tabFree = // Tab réservé si la barre de recherche ou la complétion le consomme
+							!(mS->HasActive() &&
+							  (mS->files[mS->active].doc.findOpen || mS->files[mS->active].doc.acOpen));
+						if (tabFree && ctx.input.KeyPressedRepeat(NkGuiKey::Tab)) {
+							if (!mMruCyc) {
+								mMruSnap = mS->MruOrder();
+								mMruPos = 0;
+								mMruCyc = true;
+							}
+							const int32 n = static_cast<int32>(mMruSnap.Size());
+							if (n > 1) {
+								mMruPos = (mMruPos + (ctx.input.shiftDown ? n - 1 : 1)) % n;
+								mS->SyncActiveTo(mMruSnap[static_cast<usize>(mMruPos)]);
+							}
+						}
+					}
+					if (mMruCyc && !ctx.input.ctrlDown)
+						mMruCyc = false;	   // fin de cycle : TickMru enregistre le nouvel actif
+					NkVector<NkRect> tabRects; // frontières de CETTE frame (drag réordonner)
 					for (usize i = 0; i < mS->files.Size(); ++i) {
 						OpenFile &f = mS->files[i];
 						const NkString nm = f.Name();
@@ -762,11 +793,16 @@ namespace nkentseu {
 							dl.AddLine({cx - a, cy - a}, {cx + a, cy + a}, ctx.theme.text, 1.2f);
 							dl.AddLine({cx - a, cy + a}, {cx + a, cy - a}, ctx.theme.text, 1.2f);
 						}
+						tabRects.PushBack(tab);
 						if (ctx.input.mouseClicked[0] && hov) {
 							if (clHov && !f.pinned)
 								toClose = static_cast<int32>(i);
-							else
+							else {
 								mS->active = static_cast<int32>(i);
+								mDragTab = static_cast<int32>(i); // arme le drag (réordonner)
+								mDragX = m.x;
+								mDragMoved = false;
+							}
 						}
 						// Clic-molette (bouton milieu) = fermer (sauf épinglé).
 						if (ctx.input.mouseClicked[2] && hov && !f.pinned)
@@ -779,6 +815,26 @@ namespace nkentseu {
 						}
 						dl.AddRectFilled({tab.x + tabW - 1.f, y0, 1.f, h}, ctx.theme.border);
 						x += tabW;
+					}
+					// ── Drag d'onglet : réordonne en LIVE quand la souris franchit un onglet voisin ──
+					if (mDragTab >= 0) {
+						if (!ctx.input.mouseDown[0] || mDragTab >= static_cast<int32>(tabRects.Size())) {
+							mDragTab = -1;
+						} else {
+							if (!mDragMoved && (m.x - mDragX > 8.f || mDragX - m.x > 8.f))
+								mDragMoved = true;
+							if (mDragMoved) {
+								int32 tgt = mDragTab;
+								for (int32 j = 0; j < static_cast<int32>(tabRects.Size()); ++j)
+									if (m.x >= tabRects[static_cast<usize>(j)].x &&
+										m.x < tabRects[static_cast<usize>(j)].x + tabRects[static_cast<usize>(j)].w)
+										tgt = j;
+								if (tgt != mDragTab) {
+									mS->MoveTab(mDragTab, tgt);
+									mDragTab = tgt;
+								}
+							}
+						}
 					}
 					// Bouton « + » (nouvel onglet vierge).
 					const NkRect plus = {x + 4.f, y0 + (h - 22.f) * 0.5f, 24.f, 22.f};
@@ -904,8 +960,14 @@ namespace nkentseu {
 
 				NkCodeState *mS;
 				NkEditorShell *mShell;
-				NkCtxMenu mTabMenu;			// menu contextuel de la barre d'onglets (clic droit)
-				int32 mTabMenuIdx = -1;		// onglet ciblé par le menu
+				NkCtxMenu mTabMenu;		 // menu contextuel de la barre d'onglets (clic droit)
+				int32 mTabMenuIdx = -1;	 // onglet ciblé par le menu
+				int32 mDragTab = -1;	 // onglet en cours de drag (réordonner)
+				float32 mDragX = 0.f;	 // x souris au press (seuil anti-clic)
+				bool mDragMoved = false; // seuil franchi -> réordonne en live
+				bool mMruCyc = false;	 // cycle Ctrl+Tab en cours (snapshot figé)
+				NkVector<NkString> mMruSnap;
+				int32 mMruPos = 0;
 				int32 mZoomLastActive = -1; // dernier onglet actif (detection changement -> rebuild atlas immediat,
 											// anti « saut » de taille)
 		};
