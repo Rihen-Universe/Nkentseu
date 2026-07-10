@@ -48,6 +48,7 @@ namespace nkentseu {
 			s->PollDiagnostics();
 			s->TickDiagnostics(ec.dt);	   // flags + macros préproc + diagnostics LIVE (squiggles, débounce)
 			s->ProcessCompletionRequest(); // complétion CONTEXTUELLE ('.', '->', '::') compile-first
+			s->ProcessHover();			   // hover documentation (survol ~0,5 s -> carte signature + doc)
 			s->PollCompletion();		   // récupère les membres renvoyés par le compilateur -> popup
 			s->ProcessNavigation();
 			s->PollNav();

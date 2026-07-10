@@ -113,6 +113,28 @@ namespace nkentseu {
 				int32 acTop = 0;					  // 1er element visible (defilement du popup)
 				float32 acXOff = 0.f;				  // defilement horizontal du popup
 				NkRect acRect = {0.f, 0.f, 0.f, 0.f}; // rect du popup (frame precedente) -> routage des clics
+				// ── Hover documentation (survol ~0,5 s d un symbole -> carte signature + doc) ──
+				int32 hovWordL = -1, hovWordS = -1, hovWordE = -1; // mot sous la souris (detection du survol)
+				float32 hovDwell = 0.f;							   // duree d immobilite sur ce mot
+				bool hovReq = false;						// requete posee (consommee par NkCodeState::ProcessHover)
+				bool hovDone = false;						// deja resolu pour CE mot (anti re-requete chaque frame)
+				int32 hovKind = 0;							// pastille : 1 fonction/membre, 2 type, 3 variable, 4 macro
+				NkRect hovActRect = {0.f, 0.f, 0.f, 0.f};	// action [Aller a la definition]
+				NkRect hovCopyRect = {0.f, 0.f, 0.f, 0.f};	// bouton [Copier]
+				float32 hovXOff = 0.f;						// defilement horizontal du PROTOTYPE (long)
+				NkRect hovTitleRect = {0.f, 0.f, 0.f, 0.f}; // zone du prototype (glisser = defiler)
+				float32 hovDragX = 0.f, hovDragOff = 0.f;	// ancrage du glisser horizontal
+				float32 hovBodyOff = 0.f, hovBodyXOff = 0.f; // defilement V/H de la DOC (commentaires)
+				NkRect hovBodyRect = {0.f, 0.f, 0.f, 0.f};	 // zone doc (molette / glisser 2 axes)
+				int32 hovDragMode = 0;						 // 1 = prototype (X), 2 = doc (X+Y)
+				float32 hovDragY = 0.f, hovDragOffY = 0.f;
+				NkString hovSym;					   // symbole demande
+				int32 hovLine = -1, hovCol = -1;	   // position du mot (resolution contextuelle)
+				bool hovShow = false;				   // carte visible
+				NkString hovTitle;					   // signature inferee
+				NkVector<NkString> hovBody;			   // lignes de documentation (commentaires au-dessus de la def)
+				float32 hovX = 0.f, hovY = 0.f;		   // ancre px de la carte (coin bas-gauche du mot)
+				NkRect hovRect = {0.f, 0.f, 0.f, 0.f}; // rect de la carte (la souris peut venir DESSUS)
 				// ── Autocomplétion CONTEXTUELLE (membres après '.', '->', '::') — compile-first :
 				//    l'éditeur POSE la requête (position du point), NkCodeState lance le compilateur
 				//    (`-Xclang -code-completion-at`, flags .jcdb) et remplit acCtxAll ; la frappe
@@ -1987,7 +2009,8 @@ namespace nkentseu {
 			const NkGuiId dragId = ctx.GetId((NkString(idStr) + "#drag").CStr());
 			const NkGuiId vbarId = ctx.GetId((NkString(idStr) + "#vbar").CStr());
 			const NkGuiId hbarId = ctx.GetId((NkString(idStr) + "#hbar").CStr());
-			const NkGuiId mmId = ctx.GetId((NkString(idStr) + "#mm").CStr()); // drag minimap
+			const NkGuiId mmId = ctx.GetId((NkString(idStr) + "#mm").CStr());			// drag minimap
+			const NkGuiId hovDragId = ctx.GetId((NkString(idStr) + "#hovdrag").CStr()); // glisser du prototype
 			const bool focused = (NkCodeFocusId() == id);
 
 			const float32 lineGap = ctx.S(5.f);						 // espace entre les lignes (interligne)
@@ -2119,6 +2142,207 @@ namespace nkentseu {
 				d.linkIsInclude = linkInc;
 				NkCodeFocusId() = id;
 			}
+			// ── Hover documentation : survol IMMOBILE (~0,5 s) d'un mot -> requête (résolue par
+			//    NkCodeState::ProcessHover), carte rendue plus bas. Bouge/clic/molette -> reset. ──
+			// Zone-PONT mot->carte : la carte reste tant que la souris est dans la bbox
+			// (mot + carte) gonflee — on peut la rejoindre sans quelle disparaisse.
+			bool overHovCard = false;
+			// molette sur la carte : defile le prototype horizontalement (consommee)
+			if (d.hovShow) {
+				NkRect br = d.hovRect;
+				const float32 wx0 = d.hovX, wy0 = d.hovY, wy1 = d.hovY + lineH;
+				if (wx0 < br.x) {
+					br.w += br.x - wx0;
+					br.x = wx0;
+				}
+				if (wy0 < br.y) {
+					br.h += br.y - wy0;
+					br.y = wy0;
+				}
+				if (wy1 > br.y + br.h)
+					br.h = wy1 - br.y;
+				br.x -= 8.f;
+				br.y -= 8.f;
+				br.w += 16.f;
+				br.h += 16.f;
+				overHovCard = InRect(br, mouse);
+			}
+			// Glisser en cours sur le prototype -> suit la souris (relache = fin).
+			if (ctx.activeId == hovDragId) {
+				if (ctx.input.mouseDown[0]) {
+					if (d.hovDragMode == 2) { // doc : pan X+Y
+						d.hovBodyXOff = d.hovDragOff - (mouse.x - d.hovDragX);
+						d.hovBodyOff = d.hovDragOffY - (mouse.y - d.hovDragY);
+						if (d.hovBodyXOff < 0.f)
+							d.hovBodyXOff = 0.f;
+						if (d.hovBodyOff < 0.f)
+							d.hovBodyOff = 0.f;
+					} else { // prototype : X seul
+						d.hovXOff = d.hovDragOff - (mouse.x - d.hovDragX);
+						if (d.hovXOff < 0.f)
+							d.hovXOff = 0.f;
+					}
+				} else
+					ctx.activeId = NKGUI_ID_NONE;
+			}
+			if (overHovCard && (ctx.input.wheel != 0.f || ctx.input.wheelH != 0.f)) {
+				if (InRect(d.hovBodyRect, mouse)) { // sur la DOC : molette = V, molette H/Ctrl = H
+					if (ctx.input.wheelH != 0.f || ctx.input.ctrlDown)
+						d.hovBodyXOff += (ctx.input.wheelH != 0.f ? -ctx.input.wheelH : -ctx.input.wheel) * 28.f;
+					else
+						d.hovBodyOff += -ctx.input.wheel * lineH;
+					if (d.hovBodyXOff < 0.f)
+						d.hovBodyXOff = 0.f;
+					if (d.hovBodyOff < 0.f)
+						d.hovBodyOff = 0.f;
+				} else { // ailleurs sur la carte : defile le PROTOTYPE
+					d.hovXOff += (ctx.input.wheelH != 0.f ? -ctx.input.wheelH : -ctx.input.wheel) * 28.f;
+					if (d.hovXOff < 0.f)
+						d.hovXOff = 0.f;
+				}
+				ctx.input.wheel = 0.f;
+				ctx.input.wheelH = 0.f;
+			}
+			if (d.hovShow && ctx.input.KeyPressed(NkGuiKey::Escape)) { // Echap ferme la carte
+				d.hovShow = false;
+				d.hovDwell = 0.f;
+				d.hovRect = {0.f, 0.f, 0.f, 0.f};
+			}
+			if (overHovCard) {
+				// souris SUR la carte : on la garde (lecture / capture d ecran)
+			} else if (overText && !ctx.input.mouseDown[0] && !d.acOpen && !ctx.input.ctrlDown) {
+				const int32 hl = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
+				int32 hs = -1, he = -1;
+				int32 dgi = -1; // diagnostic sous la souris ? -> carte ERREUR/AVERTISSEMENT
+				if (hl >= 0 && hl < d.LineCount()) {
+					const int32 hc = ColAtX(ctx, d, hl, mouse.x - textLeft + d.scrollX);
+					const NkCodeLine &HL = d.lines[hl];
+					const int32 hn = static_cast<int32>(HL.Size());
+					for (usize di2 = 0; di2 < d.diags.Size() && dgi < 0; ++di2) {
+						const NkCodeDoc::Diag &dg = d.diags[di2];
+						if (dg.line != hl)
+							continue;
+						int32 c0 = dg.col < 0 ? 0 : dg.col;
+						if (c0 > hn)
+							c0 = hn;
+						int32 c1 = c0;
+						while (c1 < hn && NkCodeDoc::IsWChar(HL[c1]))
+							++c1;
+						if (c1 <= c0)
+							c1 = c0 + 1;
+						if (hc >= c0 - 1 && hc <= c1) { // sur la zone soulignée
+							dgi = static_cast<int32>(di2);
+							hs = c0;
+							he = c1;
+						}
+					}
+					if (dgi < 0 && hc >= 0 && hc < hn && NkCodeDoc::IsWChar(HL[hc])) {
+						hs = hc;
+						he = hc;
+						while (hs > 0 && NkCodeDoc::IsWChar(HL[hs - 1]))
+							--hs;
+						while (he < hn && NkCodeDoc::IsWChar(HL[he]))
+							++he;
+						if (HL[hs] >= '0' && HL[hs] <= '9')
+							hs = -1; // littéral numérique : pas de carte
+					}
+				}
+				if (hs >= 0 && hl == d.hovWordL && hs == d.hovWordS && he == d.hovWordE) {
+					d.hovDwell += ctx.input.dt;
+					if (d.hovDwell >= 0.5f && !d.hovShow && !d.hovReq && !d.hovDone) {
+						d.hovX = textLeft + PrefixW(ctx, d, hl, hs) - d.scrollX;
+						d.hovY = textTop + d.RowOf(hl) * lineH - d.scrollY; // haut de la ligne du mot
+						d.hovXOff = 0.f;
+						d.hovBodyOff = 0.f;
+						d.hovBodyXOff = 0.f;
+						if (dgi >= 0) { // carte DIAGNOSTIC : remplie directement (pas de requête)
+							const NkCodeDoc::Diag &dg = d.diags[static_cast<usize>(dgi)];
+							d.hovSym = NkString();
+							d.hovTitle = NkString(dg.sev ? "Erreur" : "Avertissement");
+							d.hovKind = dg.sev ? 5 : 6;
+							d.hovBody.Clear();
+							const char *ms = dg.msg.CStr(); // message découpé (~72 colonnes)
+							while (*ms && d.hovBody.Size() < 12) {
+								int32 k2 = 0;
+								while (ms[k2] && k2 < 72)
+									++k2;
+								int32 cut = k2;
+								if (ms[k2]) {
+									while (cut > 40 && ms[cut] != ' ')
+										--cut;
+									if (cut <= 40)
+										cut = k2;
+								}
+								NkString l2;
+								for (int32 t2 = 0; t2 < cut; ++t2)
+									l2 += ms[t2];
+								d.hovBody.PushBack(l2);
+								ms += cut;
+								while (*ms == ' ')
+									++ms;
+							}
+							d.hovShow = true;
+							d.hovDone = true;
+						} else {
+							NkString sym;
+							const NkCodeLine &HL = d.lines[hl];
+							for (int32 k = hs; k < he; ++k)
+								sym += HL[k];
+							d.hovSym = sym;
+							d.hovLine = hl;
+							d.hovCol = hs;
+							d.hovReq = true;
+						}
+					}
+				} else { // mot changé (ou plus de mot sous la souris) -> reset
+					d.hovWordL = hs >= 0 ? hl : -1;
+					d.hovWordS = hs;
+					d.hovWordE = he;
+					d.hovDwell = 0.f;
+					d.hovShow = false;
+					d.hovReq = false;
+					d.hovDone = false;
+					d.hovRect = {0.f, 0.f, 0.f, 0.f};
+				}
+			} else if (d.hovShow || d.hovDwell > 0.f || d.hovReq) { // hors zone / clic / popup ouvert
+				d.hovShow = false;
+				d.hovDwell = 0.f;
+				d.hovWordL = -1;
+				d.hovReq = false;
+				d.hovRect = {0.f, 0.f, 0.f, 0.f};
+			}
+			// Clic sur la CARTE hover : action [Aller a la definition] (reutilise le pipeline Ctrl+clic).
+			if (overHovCard && ctx.input.mouseClicked[0]) {
+				if (InRect(d.hovTitleRect, mouse)) { // prise du PROTOTYPE : glisser gauche/droite = defiler
+					ctx.activeId = hovDragId;
+					d.hovDragX = mouse.x;
+					d.hovDragOff = d.hovXOff;
+					d.hovDragMode = 1;
+				}
+				if (InRect(d.hovBodyRect, mouse)) { // prise de la DOC : pan libre X+Y
+					ctx.activeId = hovDragId;
+					d.hovDragMode = 2;
+					d.hovDragX = mouse.x;
+					d.hovDragY = mouse.y;
+					d.hovDragOff = d.hovBodyXOff;
+					d.hovDragOffY = d.hovBodyOff;
+				}
+				if (InRect(d.hovActRect, mouse) && !d.hovSym.Empty()) {
+					d.linkTarget = d.hovSym;
+					d.linkIsInclude = false;
+					d.hovShow = false;
+					d.hovRect = {0.f, 0.f, 0.f, 0.f};
+					NkCodeFocusId() = id;
+				}
+				if (InRect(d.hovCopyRect, mouse)) { // [Copier] : titre + doc dans le presse-papiers
+					NkString all = d.hovTitle;
+					for (usize bi = 0; bi < d.hovBody.Size(); ++bi) {
+						all += "\n";
+						all += d.hovBody[bi].CStr();
+					}
+					ctx.SetClipboard(all.CStr());
+				}
+			}
 			// Clic DANS le popup d autocompletion (rect de la frame precedente) : selection + insertion.
 			const bool overAc = d.acOpen && InRect(d.acRect, mouse);
 			if (overAc && ctx.input.mouseClicked[0]) {
@@ -2144,7 +2368,8 @@ namespace nkentseu {
 			// Double-clic OS : sous Windows le 2e clic arrive en WM_LBUTTONDBLCLK (PAS un press),
 			// donc jamais dans mouseClicked -> on écoute mouseDoubleClicked. Mot sous la souris ;
 			// un double-clic enchaîné (3e clic rapide) escalade à la LIGNE.
-			if (!ctrlLink && !overAc && overText && ctx.input.mouseDoubleClicked[0] && !ctx.input.altDown) {
+			if (!ctrlLink && !overAc && !overHovCard && overText && ctx.input.mouseDoubleClicked[0] &&
+				!ctx.input.altDown) {
 				NkCodeFocusId() = id;
 				int32 l = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
 				if (l < 0)
@@ -2183,7 +2408,8 @@ namespace nkentseu {
 				d.clkL = l;
 				d.clkC = c;
 			}
-			if (!ctrlLink && !overAc && ctx.input.mouseClicked[0] && overText && !ctx.input.mouseDoubleClicked[0]) {
+			if (!ctrlLink && !overAc && !overHovCard && ctx.input.mouseClicked[0] && overText &&
+				!ctx.input.mouseDoubleClicked[0]) {
 				NkCodeFocusId() = id;
 				int32 l = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
 				if (l < 0)
@@ -3206,6 +3432,151 @@ namespace nkentseu {
 				d.acRect = box; // pour router les clics de la frame suivante (insertion au clic)
 			} else
 				d.acRect = {0.f, 0.f, 0.f, 0.f};
+
+			// ── Carte HOVER (signature + doc) : au-dessus de la ligne si la place le permet. ──
+			if (d.hovShow && ctx.font && ctx.font->Valid()) {
+				const float32 padX = ctx.S(10.f), padY = ctx.S(6.f);
+				float32 w = ctx.font->MeasureWidth(d.hovTitle.CStr());
+				for (usize i = 0; i < d.hovBody.Size(); ++i) {
+					const float32 lw = ctx.font->MeasureWidth(d.hovBody[i].CStr());
+					if (lw > w)
+						w = lw;
+				}
+				w += padX * 2.f;
+				if (w > ctx.S(560.f))
+					w = ctx.S(560.f);
+				if (w < ctx.S(430.f)) // assez large pour les 3 boutons d action
+					w = ctx.S(430.f);
+				const int32 nb = static_cast<int32>(d.hovBody.Size());
+				const int32 shownB = nb > 6 ? 6 : nb; // doc : fenetre de 6 lignes max (scroll V)
+				const float32 hh = padY * 2.f + lineH * static_cast<float32>(2 + shownB) + ctx.S(20.f) +
+								   (nb > 0 ? ctx.S(8.f) : 0.f);		// + rangée d action
+				float32 cx = d.hovX, cy = d.hovY - hh - ctx.S(4.f); // au-dessus du mot
+				if (cy < area.y + 2.f)
+					cy = d.hovY + lineH + ctx.S(4.f); // sinon en dessous
+				if (cx + w > area.x + area.w - sbW)
+					cx = area.x + area.w - sbW - w - 2.f;
+				if (cx < area.x + 2.f)
+					cx = area.x + 2.f;
+				const NkRect hb = {cx, cy, w, hh};
+				dl.AddRectFilled({hb.x + 3.f, hb.y + 4.f, hb.w, hb.h}, NkColor{0, 0, 0, 50}, 7.f); // ombre
+				dl.AddRectFilled(hb, NkColor{ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 80}, 6.f);
+				dl.AddRectFilled({hb.x + 1.f, hb.y + 1.f, hb.w - 2.f, hb.h - 2.f}, ctx.theme.header, 6.f);
+				dl.PushClipRect({hb.x + 2.f, hb.y + 1.f, hb.w - 4.f, hb.h - 2.f}, true);
+				float32 ty = hb.y + padY + asc;
+				// Pastille de TYPE (bleu fonction/membre, vert type, jaune variable, violet macro).
+				const NkColor kdot = d.hovKind == 2	  ? NkColor{63, 185, 80, 255}
+									 : d.hovKind == 3 ? NkColor{224, 190, 70, 255}
+									 : d.hovKind == 4 ? NkColor{178, 132, 235, 255}
+									 : d.hovKind == 5 ? NkColor{240, 80, 80, 255}
+									 : d.hovKind == 6 ? NkColor{224, 190, 70, 255}
+													  : NkColor{88, 166, 255, 255};
+				dl.AddCircleFilled({hb.x + padX + 4.f, ty - asc * 0.35f}, 4.f, kdot);
+				// PROTOTYPE défilable horizontalement (molette sur la carte) + mini-barre.
+				const float32 titX = hb.x + padX + ctx.S(14.f);
+				const float32 titW = hb.w - padX * 2.f - ctx.S(14.f);
+				const float32 fullW = ctx.font->MeasureWidth(d.hovTitle.CStr());
+				const float32 xoMax = fullW > titW ? fullW - titW : 0.f;
+				if (d.hovXOff > xoMax)
+					d.hovXOff = xoMax;
+				dl.PushClipRect({titX, ty - asc, titW, lineH}, true);
+				dl.AddText(face, tex, {titX - d.hovXOff, ty}, d.hovTitle.CStr(),
+						   NkColor{120, 200, 255, 255}); // signature (prototype complet)
+				dl.PopClipRect();
+				d.hovTitleRect = {titX, ty - asc, titW, lineH + ctx.S(8.f)}; // zone de PRISE (glisser g/d)
+				if (xoMax > 0.f) { // barre sous le prototype (plus epaisse ; le glisser se fait sur la prise)
+					const float32 trkY = ty + ctx.S(3.f);
+					dl.AddRectFilled({titX, trkY, titW, 4.f}, NkColor{255, 255, 255, 20}, 2.f);
+					float32 thw = titW * (titW / fullW);
+					if (thw < 24.f)
+						thw = 24.f;
+					dl.AddRectFilled({titX + (titW - thw) * (d.hovXOff / xoMax), trkY, thw, 4.f},
+									 NkColor{150, 158, 170, 220}, 2.f);
+				}
+				if (nb > 0) {
+					dl.AddLine({hb.x + padX, ty + ctx.S(5.f)}, {hb.x + hb.w - padX, ty + ctx.S(5.f)},
+							   NkColor{255, 255, 255, 24}, 1.f);
+					ty += ctx.S(8.f);
+					// DOC scrollable : fenetre de `shownB` lignes — molette = V, molette H/Ctrl = H,
+					// glisser dans la zone = pan libre (X+Y). Barres temoins 4 px.
+					const float32 bodyTop = ty + lineH - asc;
+					const float32 bodyW = hb.w - padX * 2.f - ctx.S(6.f);
+					const float32 bodyH = static_cast<float32>(shownB) * lineH;
+					float32 maxBW = 0.f;
+					for (int32 i = 0; i < nb; ++i) {
+						const float32 lw2 = ctx.font->MeasureWidth(d.hovBody[static_cast<usize>(i)].CStr());
+						if (lw2 > maxBW)
+							maxBW = lw2;
+					}
+					const float32 byMax = static_cast<float32>(nb - shownB) * lineH;
+					const float32 bxMax = maxBW > bodyW ? maxBW - bodyW : 0.f;
+					if (d.hovBodyOff > byMax)
+						d.hovBodyOff = byMax;
+					if (d.hovBodyXOff > bxMax)
+						d.hovBodyXOff = bxMax;
+					d.hovBodyRect = {hb.x + padX, bodyTop, bodyW, bodyH};
+					dl.PushClipRect(d.hovBodyRect, true);
+					for (int32 i = 0; i < nb; ++i) {
+						const float32 ly = bodyTop + static_cast<float32>(i) * lineH - d.hovBodyOff + asc;
+						if (ly < bodyTop - lineH || ly > bodyTop + bodyH + lineH)
+							continue;
+						dl.AddText(face, tex, {hb.x + padX - d.hovBodyXOff, ly},
+								   d.hovBody[static_cast<usize>(i)].CStr(), ctx.theme.textDisabled);
+					}
+					dl.PopClipRect();
+					if (byMax > 0.f) { // barre VERTICALE de la doc
+						const float32 vx = hb.x + hb.w - padX + ctx.S(1.f);
+						dl.AddRectFilled({vx, bodyTop, 4.f, bodyH}, NkColor{255, 255, 255, 20}, 2.f);
+						float32 th2 = bodyH * (bodyH / (bodyH + byMax));
+						if (th2 < 18.f)
+							th2 = 18.f;
+						dl.AddRectFilled({vx, bodyTop + (bodyH - th2) * (d.hovBodyOff / byMax), 4.f, th2},
+										 NkColor{150, 158, 170, 220}, 2.f);
+					}
+					if (bxMax > 0.f) { // barre HORIZONTALE de la doc
+						const float32 hy = bodyTop + bodyH + ctx.S(2.f);
+						dl.AddRectFilled({hb.x + padX, hy, bodyW, 4.f}, NkColor{255, 255, 255, 20}, 2.f);
+						float32 tw2 = bodyW * (bodyW / maxBW);
+						if (tw2 < 24.f)
+							tw2 = 24.f;
+						dl.AddRectFilled({hb.x + padX + (bodyW - tw2) * (d.hovBodyXOff / bxMax), hy, tw2, 4.f},
+										 NkColor{150, 158, 170, 220}, 2.f);
+					}
+					ty = bodyTop + bodyH - lineH + asc; // baseline equivalente pour la suite (boutons)
+				} else
+					d.hovBodyRect = {0.f, 0.f, 0.f, 0.f};
+				// Rangée d'ACTIONS (maquette) : 3 boutons-puces — [Aller à la définition] actif,
+				// [Références] et [IA : expliquer] grisés (branchés aux prochaines vagues).
+				ty += lineH * 0.4f;
+				dl.AddLine({hb.x + padX, ty + ctx.S(5.f)}, {hb.x + hb.w - padX, ty + ctx.S(5.f)},
+						   NkColor{255, 255, 255, 24}, 1.f);
+				const float32 chipH = lineH + ctx.S(2.f);
+				const float32 chipY = ty + ctx.S(9.f);
+				auto chip = [&](float32 x, const char *txt, bool enabled) -> NkRect {
+					const float32 tw = ctx.font->MeasureWidth(txt);
+					const NkRect r = {x, chipY, tw + ctx.S(16.f), chipH};
+					const bool hv = enabled && InRect(r, mouse);
+					const NkColor bg =
+						enabled ? (hv ? NkColor{ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 110}
+									  : NkColor{ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 45})
+								: NkColor{255, 255, 255, 10};
+					dl.AddRectFilled(r, bg, 4.f);
+					dl.AddText(face, tex, {r.x + ctx.S(8.f), r.y + (chipH - lineH) * 0.5f + asc}, txt,
+							   enabled ? ctx.theme.text : ctx.theme.textDisabled);
+					return r;
+				};
+				float32 axx = hb.x + padX;
+				const NkRect defR = chip(axx, "Aller a la definition", true);
+				axx += defR.w + ctx.S(6.f);
+				const NkRect refR = chip(axx, "References", false);
+				axx += refR.w + ctx.S(6.f);
+				const NkRect iaR = chip(axx, "IA : expliquer", false);
+				axx += iaR.w + ctx.S(6.f);
+				d.hovCopyRect = chip(axx, "Copier", true);
+				d.hovActRect = defR;
+				dl.PopClipRect();
+				d.hovRect = hb; // la carte reste tant que la souris est dessus
+			}
 
 			// ── Gouttiere : numeros + chevrons repli + colonne breakpoints (clic = toggle, survol = creux) ──
 			const float32 bpX = area.x + numAreaW + foldW;
