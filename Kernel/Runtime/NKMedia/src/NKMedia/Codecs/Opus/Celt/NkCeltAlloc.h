@@ -34,6 +34,13 @@ namespace nkentseu {
 										 int32 allocTrim, int32 total, int32 C, int32 LM, int32 *bits1, int32 *bits2,
 										 int32 *thresh, int32 *trimOffset);
 
+				// Interpolation FINE (interp_bits2pulses, bissection ALLOC_STEPS=6) : à partir de bits1/bits2 et
+				// du budget `total`, produit le nombre de bits alloué à chaque bande dans `bits` (unités BITRES).
+				// Renvoie la somme allouée (psum ≤ total). C = canaux. (Sans les drapeaux ec skip/intensity :
+				// partie déterministe ; le split pulses/énergie fine + drapeaux = orchestration.)
+				static int32 InterpFine(int32 start, int32 end, const int32 *bits1, const int32 *bits2,
+										const int32 *thresh, const int32 *cap, int32 total, int32 C, int32 *bits);
+
 				static bool SelfTest();
 		};
 
