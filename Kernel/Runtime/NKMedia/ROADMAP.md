@@ -16,9 +16,9 @@
 | 2. Extraction de paquets | ✅ | sort les **paquets audio encodés** + timestamps : MP4 (`stbl` **et fMP4 `moof/traf/trun`**), WebM (SimpleBlock/Cluster) |
 | 3. Décodeur audio **Opus/CELT** | ✅ | CELT mono FONCTIONNEL — reproduit ffmpeg (onde 0.94-0.96, spectrogramme 0.996). Reste SILK + hybride |
 | 4. Décodeur audio AAC-LC | ⬜ | MP4 → PCM (AAC Low Complexity from-scratch) |
-| 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅** ; puis MP4/MOV, WebM, WAV |
+| 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅** ; puis WebM, WAV |
 | 6. Vidéo (décode) | ⬜ | VP8/VP9 puis H.264 (très long) → frames RGBA (→ NKImage/NKRHI) |
-| 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) dans conteneur AVI ; validé lisible par ffmpeg/VLC. Puis MP4, audio A/V |
+| 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage), conteneurs **AVI** et **MOV/MP4** ; validé lisible par ffmpeg/VLC (pixel-parfait en RAW, corr 0.99 en MJPEG). Puis audio A/V (Opus/PCM) + pipeline de conversion |
 
 ## Livré
 - **Brique 1 (2026-07-10)** — `NkMediaProbe` (`NkMediaProbe.{h,cpp}`) : détection de conteneur + parseurs

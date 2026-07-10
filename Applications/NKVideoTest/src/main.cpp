@@ -78,13 +78,15 @@ namespace {
 		return ok && hasIdx;
 	}
 
-	bool MakeVideo(const char *path, media::NkVideoCodec codec, int32 w, int32 h, int32 fps, int32 nframes) {
+	bool MakeVideo(const char *path, media::NkVideoCodec codec, media::NkVideoContainer container, int32 w, int32 h,
+				   int32 fps, int32 nframes) {
 		media::NkVideoConfig cfg;
 		cfg.width = w;
 		cfg.height = h;
 		cfg.fpsNum = fps;
 		cfg.fpsDen = 1;
 		cfg.codec = codec;
+		cfg.container = container;
 		cfg.quality = 88;
 
 		media::NkVideoWriter vw;
@@ -112,33 +114,67 @@ int main(int argc, char **argv) {
 	const char *outDir = (argc > 1) ? argv[1] : ".";
 	const int32 W = 320, H = 240, FPS = 25, N = 50; // 2 s
 
-	char pathMjpeg[1024], pathRaw[1024];
+	char pathMjpeg[1024], pathRaw[1024], pathMov[1024];
 	::snprintf(pathMjpeg, sizeof(pathMjpeg), "%s/nkvideo_mjpeg.avi", outDir);
 	::snprintf(pathRaw, sizeof(pathRaw), "%s/nkvideo_raw.avi", outDir);
+	::snprintf(pathMov, sizeof(pathMov), "%s/nkvideo_mjpeg.mov", outDir);
 
 	::printf("=== NKVideoTest — creation video from-scratch (sans ffmpeg) ===\n\n");
 	::printf("Rendu de %d trames %dx%d @ %d fps...\n\n", N, W, H, FPS);
 
 	int nbOk = 0, nbTotal = 0;
 
-	// --- MJPEG ---
+	// --- AVI MJPEG ---
 	{
 		++nbTotal;
-		const bool made = MakeVideo(pathMjpeg, media::NkVideoCodec::MJPEG, W, H, FPS, N);
+		const bool made = MakeVideo(pathMjpeg, media::NkVideoCodec::MJPEG, media::NkVideoContainer::AVI, W, H, FPS, N);
 		int32 frames = 0;
 		const bool verified = made && VerifyAvi(pathMjpeg, frames);
-		::printf("[ %s ] MJPEG  -> %s  (%d trames)\n", verified && frames == N ? "OK " : "FAIL", pathMjpeg, frames);
+		::printf("[ %s ] AVI MJPEG -> %s  (%d trames)\n", verified && frames == N ? "OK " : "FAIL", pathMjpeg, frames);
 		if (verified && frames == N)
 			++nbOk;
 	}
-	// --- RAW BGR ---
+	// --- AVI RAW BGR ---
 	{
 		++nbTotal;
-		const bool made = MakeVideo(pathRaw, media::NkVideoCodec::RAW_BGR, W, H, FPS, N);
+		const bool made = MakeVideo(pathRaw, media::NkVideoCodec::RAW_BGR, media::NkVideoContainer::AVI, W, H, FPS, N);
 		int32 frames = 0;
 		const bool verified = made && VerifyAvi(pathRaw, frames);
-		::printf("[ %s ] RAW BGR-> %s  (%d trames)\n", verified && frames == N ? "OK " : "FAIL", pathRaw, frames);
+		::printf("[ %s ] AVI RAW   -> %s  (%d trames)\n", verified && frames == N ? "OK " : "FAIL", pathRaw, frames);
 		if (verified && frames == N)
+			++nbOk;
+	}
+	// --- MOV/MP4 MJPEG ---
+	{
+		++nbTotal;
+		const bool made = MakeVideo(pathMov, media::NkVideoCodec::MJPEG, media::NkVideoContainer::MOV, W, H, FPS, N);
+		// Vérif conteneur ISOBMFF : contient 'ftyp' + 'moov' + 'mdat'.
+		bool ok = made;
+		if (ok) {
+			FILE *f = ::fopen(pathMov, "rb");
+			ok = (f != nullptr);
+			if (f) {
+				::fseek(f, 0, SEEK_END);
+				long s = ::ftell(f);
+				::fseek(f, 0, SEEK_SET);
+				uint8 *b = (uint8 *)memory::NkAlloc((usize)s);
+				::fread(b, 1, (usize)s, f);
+				::fclose(f);
+				bool hasFtyp = false, hasMoov = false, hasMdat = false;
+				for (long i = 0; i + 4 <= s; ++i) {
+					if (b[i] == 'f' && b[i + 1] == 't' && b[i + 2] == 'y' && b[i + 3] == 'p')
+						hasFtyp = true;
+					if (b[i] == 'm' && b[i + 1] == 'o' && b[i + 2] == 'o' && b[i + 3] == 'v')
+						hasMoov = true;
+					if (b[i] == 'm' && b[i + 1] == 'd' && b[i + 2] == 'a' && b[i + 3] == 't')
+						hasMdat = true;
+				}
+				ok = hasFtyp && hasMoov && hasMdat;
+				memory::NkFree(b);
+			}
+		}
+		::printf("[ %s ] MOV MJPEG -> %s\n", ok ? "OK " : "FAIL", pathMov);
+		if (ok)
 			++nbOk;
 	}
 
