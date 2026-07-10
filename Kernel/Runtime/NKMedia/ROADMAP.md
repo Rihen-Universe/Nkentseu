@@ -49,9 +49,11 @@
     coder) + **PVQ/CWRS** (`NkCeltPvq` : `V(n,k)` + codage combinatoire vecteur↔index, cwrs.c ; **aller-retour
     EXHAUSTIF prouvé** — tous les index de plusieurs (n,k) + range coder) + **bits↔pulses** (`NkCeltRate` :
     `PulsesToBits`/`BitsToPulses`, cœur de l'allocation ; monotonie + aller-retour + budget prouvés ;
-    ⚠️ approx log2 flottant, cache bit-exact rate.c à raffiner). ⏳ Reste CELT (assemblage) : **compute_allocation
-    complet** (table `band_allocation` + bissection + boost/trim/cap) → répartition pulses/bandes → décodage
-    bandes (PVQ) → anti-collapse → denormalise → IMDCT + **overlap-add** → orchestration trame → PCM.
+    ⚠️ approx log2 flottant, cache bit-exact rate.c à raffiner) + **allocation, cœur** (`NkCeltAlloc` : table
+    `band_allocation` 11×21 + **bissection sur la qualité** → ligne tenant dans le budget + `bits1`/`bits2`/`thresh`/
+    tilt `trim` ; budget monotone + trim prouvés). ⏳ Reste CELT (assemblage) : **`interp_bits2pulses`** (interp
+    fine ALLOC_STEPS + skip/intensity + split pulses/énergie fine) → décodage bandes (PVQ) → anti-collapse →
+    denormalise → IMDCT + **overlap-add** → orchestration trame → PCM.
   ⏳ Puis **SILK** (LPC, LTP) → mode hybride → PCM float32.
 
 ## En cours / À venir
