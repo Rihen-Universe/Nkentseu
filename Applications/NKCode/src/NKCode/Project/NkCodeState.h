@@ -2856,6 +2856,296 @@ namespace nkentseu {
 						OpenAt(NkPath(navResults[i].file), navResults[i].line);
 				}
 
+				// ── Recherche WORKSPACE (Ctrl+Maj+F) : plein texte multi-fichiers sur THREAD, panneau
+				//    « Recherche ». Même hygiène que la navigation : annulable, relance en attente,
+				//    ouverture des résultats DIFFÉRÉE au poll (mutation de `files` interdite au rendu). ──
+				struct WsHit {
+						NkString file;
+						int32 line, col;
+						NkString preview;
+				};
+
+				NkThread wsThread;
+				bool wsBusy = false, wsDone = false, wsCancel = false, wsPending = false;
+				NkString wsQuery, wsPendQuery;
+				bool wsCase = false, wsWord = false, wsPendCase = false, wsPendWord = false;
+				NkVector<NkString> wsOpenP, wsOpenT, wsPendOpenP, wsPendOpenT; // snapshots buffers ouverts
+				NkVector<WsHit> wsResults;
+				int32 wsScanned = 0, wsTotal = 0, wsFileCount = 0;
+				bool wsFocusReq = false; // Ctrl+Maj+F -> le panneau prend le focus du champ
+				NkString wsPrefill;		 // sélection de l'éditeur préremplie dans le champ
+				NkString wsOpenFile;	 // clic sur un résultat : consommé par ProcessWsOpen (poll)
+				int32 wsOpenLine = -1;
+
+				void StartWsFind(const NkString &q, bool cs, bool ww) {
+					if (q.Empty())
+						return;
+					NkVector<NkString> openP, openT;
+					for (usize i = 0; i < files.Size(); ++i) {
+						openP.PushBack(files[i].path.ToString());
+						openT.PushBack(files[i].doc.GetText());
+					}
+					if (wsBusy) { // recherche en cours -> l'annuler, mémoriser la nouvelle
+						wsCancel = true;
+						wsPending = true;
+						wsPendQuery = q;
+						wsPendCase = cs;
+						wsPendWord = ww;
+						wsPendOpenP = openP;
+						wsPendOpenT = openT;
+						return;
+					}
+					WsLaunch(q, cs, ww, openP, openT);
+				}
+
+				void WsLaunch(const NkString &q, bool cs, bool ww, const NkVector<NkString> &openP,
+							  const NkVector<NkString> &openT) {
+					if (wsThread.Joinable())
+						wsThread.Join();
+					wsQuery = q;
+					wsCase = cs;
+					wsWord = ww;
+					wsOpenP = openP;
+					wsOpenT = openT;
+					wsResults.Clear();
+					wsScanned = 0;
+					wsTotal = 0;
+					wsFileCount = 0;
+					wsCancel = false;
+					wsDone = false;
+					wsBusy = true;
+					wsThread = NkThread([this](void *) { WsScan(); });
+				}
+
+				static char WsLow(char c) {
+					return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
+				}
+
+				// Fichiers texte candidats : code + docs + scripts de build.
+				static bool WsSearchable(const char *e) {
+					return IsHdrSrc(e) || StrEqI(e, ".md") || StrEqI(e, ".txt") || StrEqI(e, ".py") ||
+						   StrEqI(e, ".jenga") || StrEqI(e, ".nksl") || StrEqI(e, ".glsl") || StrEqI(e, ".json") ||
+						   StrEqI(e, ".xml") || StrEqI(e, ".cfg") || StrEqI(e, ".ini");
+				}
+
+				// Occurrences de `q` dans `text` (casse/mot selon options) -> pousse des hits (cap par fichier).
+				void WsCollect(const NkString &file, const char *text, usize maxHits) {
+					const char *q = wsQuery.CStr();
+					int32 ql = 0;
+					while (q[ql])
+						++ql;
+					if (ql == 0)
+						return;
+					auto isW = [](char c) {
+						return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+					};
+					int32 line = 0;
+					usize mine = 0;
+					const char *p = text;
+					while (*p && mine < maxHits && wsResults.Size() < 800 && !wsCancel) {
+						const char *ls = p;
+						while (*p && *p != '\n')
+							++p;
+						for (const char *w = ls; w + ql <= p; ++w) {
+							bool m = true;
+							for (int32 t = 0; t < ql && m; ++t)
+								m = wsCase ? (w[t] == q[t]) : (WsLow(w[t]) == WsLow(q[t]));
+							if (!m)
+								continue;
+							if (wsWord) {
+								const char before = (w > ls) ? w[-1] : ' ', after = w[ql];
+								if (isW(before) || isW(after))
+									continue;
+							}
+							// aperçu : la ligne rognée (début à l'indentation près)
+							const char *ps = ls;
+							while (*ps == ' ' || *ps == '\t')
+								++ps;
+							NkString pv;
+							for (const char *z = ps; z < p && pv.Size() < 160; ++z)
+								pv += *z;
+							wsResults.PushBack(WsHit{file, line, static_cast<int32>(w - ls), pv});
+							++mine;
+							if (mine >= maxHits)
+								break;
+							w += ql - 1;
+						}
+						if (*p == '\n')
+							++p;
+						++line;
+					}
+				}
+
+				// Marche annulable de l'arbre du WORKSPACE (racine `root`), même hygiène que NavWalk.
+				void WsWalk(const NkPath &dir, NkVector<NkPath> &out, int32 &budget, int32 depth) {
+					if (wsCancel || budget <= 0 || depth > 24)
+						return;
+					NkVector<NkDirectoryEntry> es =
+						NkDirectory::GetEntries(dir, "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+					for (usize k = 0; k < es.Size(); ++k) {
+						if (wsCancel || budget <= 0)
+							return;
+						--budget;
+						if (es[k].IsDirectory) {
+							const NkString nm = es[k].FullPath.GetFileName();
+							if (StrEq(nm.CStr(), ".git") || StrEq(nm.CStr(), "Build") || StrEq(nm.CStr(), ".nkcode"))
+								continue; // dossiers générés/VCS : inutiles et énormes
+							WsWalk(es[k].FullPath, out, budget, depth + 1);
+						} else if (WsSearchable(es[k].FullPath.GetExtension().CStr()))
+							out.PushBack(es[k].FullPath);
+					}
+				}
+
+				void WsScan() { // THREAD : buffers ouverts d'abord (non sauvegardés inclus), puis l'arbre
+					const usize kMaxReads = 3000, kPerFile = 50;
+					for (usize i = 0; i < wsOpenP.Size() && !wsCancel; ++i)
+						WsCollect(wsOpenP[i], wsOpenT[i].CStr(), kPerFile);
+					NkVector<NkPath> order;
+					int32 budget = 60000;
+					WsWalk(root, order, budget, 0);
+					wsTotal = static_cast<int32>(order.Size());
+					auto opened = [&](const NkString &f2) {
+						for (usize i = 0; i < wsOpenP.Size(); ++i)
+							if (StrEq(wsOpenP[i].CStr(), f2.CStr()))
+								return true;
+						return false;
+					};
+					for (usize i = 0; i < order.Size() && wsResults.Size() < 800 && !wsCancel && i < kMaxReads; ++i) {
+						wsScanned = static_cast<int32>(i) + 1;
+						const NkString f2 = order[i].ToString();
+						if (opened(f2))
+							continue; // déjà couvert par le snapshot buffer (version la plus fraîche)
+						const NkString txt = NkFile::ReadAllText(order[i]);
+						WsCollect(f2, txt.CStr(), kPerFile);
+					}
+					if (!wsCancel)
+						wsScanned = wsTotal;
+					{ // fichiers distincts
+						int32 n = 0;
+						for (usize i = 0; i < wsResults.Size(); ++i) {
+							bool seen = false;
+							for (usize j = 0; j < i && !seen; ++j)
+								seen = StrEq(wsResults[j].file.CStr(), wsResults[i].file.CStr());
+							if (!seen)
+								++n;
+						}
+						wsFileCount = n;
+					}
+					wsDone = true;
+				}
+
+				void PollWsFind() { // UI : rejoint le thread fini ; relance si une recherche attend
+					if (!wsBusy || !wsDone)
+						return;
+					if (wsThread.Joinable())
+						wsThread.Join();
+					wsBusy = false;
+					if (wsPending) {
+						wsPending = false;
+						WsLaunch(wsPendQuery, wsPendCase, wsPendWord, wsPendOpenP, wsPendOpenT);
+					}
+				}
+
+				void ProcessWsOpen() { // ouverture SÛRE d'un résultat (jamais depuis le rendu)
+					if (wsOpenLine < 0 || wsOpenFile.Empty())
+						return;
+					const NkString f2 = wsOpenFile;
+					const int32 l2 = wsOpenLine;
+					wsOpenFile = NkString();
+					wsOpenLine = -1;
+					OpenAt(NkPath(f2), l2);
+				}
+
+				// Remplace `q` par `rep` dans `text` (mêmes critères que la recherche). Retourne le compte.
+				int32 WsReplaceInText(const NkString &text, const NkString &q, const NkString &rep, NkString &out) {
+					const char *tp = text.CStr();
+					const char *qs = q.CStr();
+					int32 ql = 0;
+					while (qs[ql])
+						++ql;
+					auto isW = [](char c) {
+						return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+					};
+					int32 count = 0;
+					usize i = 0;
+					const usize n = text.Size();
+					while (i < n) {
+						bool m = (i + static_cast<usize>(ql) <= n);
+						for (int32 t = 0; t < ql && m; ++t)
+							m = wsCase ? (tp[i + t] == qs[t]) : (WsLow(tp[i + t]) == WsLow(qs[t]));
+						if (m && wsWord) {
+							const char before = (i > 0) ? tp[i - 1] : ' ';
+							const char after = tp[i + ql];
+							if (isW(before) || isW(after))
+								m = false;
+						}
+						if (m && tp[i] == '\n')
+							m = false; // (garde théorique)
+						if (m) {
+							out += rep.CStr();
+							i += static_cast<usize>(ql);
+							++count;
+						} else {
+							out += tp[i];
+							++i;
+						}
+					}
+					return count;
+				}
+
+				// « Tout remplacer » : buffers OUVERTS en place (undo par fichier) ; fichiers fermés sur DISQUE.
+				int32 WsReplaceAll(const NkString &q, const NkString &rep) {
+					if (wsBusy || q.Empty() || wsResults.Empty())
+						return 0;
+					int32 total = 0, nfiles = 0;
+					for (usize i = 0; i < wsResults.Size(); ++i) {
+						const NkString &f2 = wsResults[i].file;
+						bool seen = false;
+						for (usize j = 0; j < i && !seen; ++j)
+							seen = StrEq(wsResults[j].file.CStr(), f2.CStr());
+						if (seen)
+							continue;
+						int32 fi = -1;
+						for (usize k = 0; k < files.Size(); ++k)
+							if (StrEq(files[k].path.ToString().CStr(), f2.CStr())) {
+								fi = static_cast<int32>(k);
+								break;
+							}
+						if (fi >= 0) { // ouvert : remplace le BUFFER (checkpoint -> Ctrl+Z possible)
+							NkCodeDoc &doc2 = files[static_cast<usize>(fi)].doc;
+							NkString nu;
+							const int32 c2 = WsReplaceInText(doc2.GetText(), q, rep, nu);
+							if (c2 > 0) {
+								doc2.Checkpoint(3);
+								const float32 sx = doc2.scrollX, sy = doc2.scrollY;
+								doc2.SetText(nu.CStr());
+								doc2.scrollX = sx;
+								doc2.scrollY = sy;
+								doc2.ClampCursor();
+								doc2.dirty = (doc2.SymSig() != doc2.savedSig);
+								total += c2;
+								++nfiles;
+							}
+						} else { // fermé : remplace sur DISQUE
+							const NkString txt = NkFile::ReadAllText(NkPath(f2));
+							if (txt.Empty())
+								continue;
+							NkString nu;
+							const int32 c2 = WsReplaceInText(txt, q, rep, nu);
+							if (c2 > 0 && NkFile::WriteAllText(NkPath(f2), nu)) {
+								total += c2;
+								++nfiles;
+							}
+						}
+					}
+					char lb[128];
+					std::snprintf(lb, sizeof(lb), "%d remplacement(s) dans %d fichier(s)", total, nfiles);
+					status = NkString(lb);
+					wsResults.Clear(); // la liste est périmée après remplacement
+					wsFileCount = 0;
+					return total;
+				}
+
 				// ── Session : persiste les onglets + le contenu NON SAUVEGARDÉ (hot-exit VSCode /
 				//    reprise après crash). `.nkcode/session.nk` (liste) + `.nkcode/bak<k>.txt` (buffers). ──
 				bool mSessionLoaded = false;

@@ -2592,7 +2592,7 @@ namespace nkentseu {
 				const bool ctrl = ctx.input.ctrlDown, alt = ctx.input.altDown;
 				// ── Barre de recherche/remplacement (Ctrl+F / Ctrl+H) ── ouverture + capture d'input.
 				if (ctrl && !alt) {
-					if (ctx.input.KeyPressed(NkGuiKey::F)) {
+					if (!shift && ctx.input.KeyPressed(NkGuiKey::F)) { // Maj -> recherche WORKSPACE (panneau)
 						d.findReplace = false;
 						d.findFocus = 0;
 						if (!d.findOpen && d.HasSel()) {
@@ -2609,7 +2609,7 @@ namespace nkentseu {
 						d.findOpen = true;
 						d.FindRecompute();
 					}
-					if (ctx.input.KeyPressed(NkGuiKey::H)) {
+					if (!shift && ctx.input.KeyPressed(NkGuiKey::H)) {
 						d.findOpen = true;
 						d.findReplace = true;
 						d.findFocus = 0;

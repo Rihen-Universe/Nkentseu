@@ -364,6 +364,142 @@ namespace nkentseu {
 		};
 
 		// ── Editeur : onglets des fichiers ouverts + saisie multi-ligne du fichier actif. ──
+		// ── Panneau « Recherche » : plein texte WORKSPACE (Ctrl+Maj+F), résultats groupés par
+		//    fichier, remplacement multi-fichiers. Remplace la maquette (structure conservée). ──
+		class SearchPanel : public NkEditorPanel {
+			public:
+				explicit SearchPanel(NkCodeState *s) : NkEditorPanel("Recherche", NkEditorDockSide::NK_LEFT), mS(s) {
+				}
+
+				void OnUI(NkEditorFrameContext &ec) override {
+					auto &ctx = ec.Ui();
+					auto &dl = ctx.DL();
+					const float32 w = ctx.ContentWidth();
+					const float32 rowH = ctx.ItemHeight() + ctx.S(6.f);
+					float32 x0 = ctx.layout.cursor.x, y = ctx.layout.cursor.y;
+					// Ctrl+Maj+F : focus + préremplissage depuis la sélection de l'éditeur.
+					if (mS->wsFocusReq) {
+						mS->wsFocusReq = false;
+						mFocus = 1;
+						if (!mS->wsPrefill.Empty()) {
+							int32 i = 0;
+							for (const char *q = mS->wsPrefill.CStr(); *q && i < 255; ++q)
+								mQuery[i++] = *q;
+							mQuery[i] = 0;
+							mS->wsPrefill = NkString();
+						}
+					}
+					// ── Champ « Rechercher » ──
+					const NkRect qr = {x0, y, w, rowH};
+					if (ctx.input.mouseClicked[0])
+						mFocus = detail::InRect(qr, ctx.input.mousePos) ? 1 : mFocus;
+					NkOverlayTextField(ctx, dl, ctx.font, qr, mQuery, sizeof(mQuery), mFocus == 1);
+					y += rowH + ctx.S(4.f);
+					// ── Champ « Remplacer » ──
+					const NkRect rr = {x0, y, w, rowH};
+					if (ctx.input.mouseClicked[0] && detail::InRect(rr, ctx.input.mousePos))
+						mFocus = 2;
+					NkOverlayTextField(ctx, dl, ctx.font, rr, mRepl, sizeof(mRepl), mFocus == 2);
+					y += rowH + ctx.S(4.f);
+					// ── Options + actions : [Aa] [mot] [Rechercher] [Tout remplacer] ──
+					auto tog = [&](float32 &bx, const char *lbl, bool on, bool enabled) {
+						const float32 bw =
+							(ctx.font && ctx.font->Valid() ? ctx.font->MeasureWidth(lbl) : 24.f) + ctx.S(14.f);
+						const NkRect b = {bx, y, bw, rowH};
+						const bool hov = detail::InRect(b, ctx.input.mousePos);
+						dl.AddRectFilled(b, on ? ctx.theme.accent : (hov ? ctx.theme.buttonHover : ctx.theme.button),
+										 4.f);
+						if (ctx.font && ctx.font->Valid())
+							dl.AddText(
+								ctx.font->Face(), ctx.font->TexId(),
+								{b.x + ctx.S(7.f), y + (rowH - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()},
+								lbl, enabled ? ctx.theme.text : ctx.theme.textDisabled);
+						bx += bw + ctx.S(5.f);
+						return enabled && hov && ctx.input.mouseClicked[0] && ctx.popupDepth == 0;
+					};
+					float32 bx = x0;
+					if (tog(bx, "Aa", mCase, true))
+						mCase = !mCase;
+					if (tog(bx, NkT("search.word"), mWord, true))
+						mWord = !mWord;
+					if (tog(bx, NkT("search.go"), false, mQuery[0] != 0))
+						mS->StartWsFind(NkString(mQuery), mCase, mWord);
+					if (tog(bx, NkT("search.replall"), false, !mS->wsBusy && !mS->wsResults.Empty()))
+						mS->WsReplaceAll(NkString(mQuery), NkString(mRepl));
+					y += rowH + ctx.S(6.f);
+					// Entrée dans le champ recherche -> lance ; Échap -> défocus.
+					if (mFocus == 1 && ctx.input.KeyPressed(NkGuiKey::Enter) && mQuery[0])
+						mS->StartWsFind(NkString(mQuery), mCase, mWord);
+					if (ctx.input.KeyPressed(NkGuiKey::Escape))
+						mFocus = 0;
+					// ── Statut ──
+					char st[128];
+					if (mS->wsBusy)
+						std::snprintf(st, sizeof(st), "%s %d/%d", NkT("search.busy"), mS->wsScanned, mS->wsTotal);
+					else
+						std::snprintf(st, sizeof(st), "%d %s / %d %s", static_cast<int32>(mS->wsResults.Size()),
+									  NkT("search.results"), mS->wsFileCount, NkT("search.files"));
+					// Avance le layout du shell : la LISTE en dessous profite du scroll de la fenêtre.
+					ctx.layout.cursor.x = x0;
+					ctx.layout.cursor.y = y;
+					ctx.layout.lineStartX = x0;
+					ctx.layout.curLineH = 0.f;
+					ec.Text(st);
+					ec.Separator();
+					// ── Résultats groupés par fichier (en-tête repliable + hits cliquables) ──
+					NkString cur;
+					bool folded = false;
+					for (usize i = 0; i < mS->wsResults.Size(); ++i) {
+						const NkCodeState::WsHit &h = mS->wsResults[i];
+						if (!StrEq(cur.CStr(), h.file.CStr())) {
+							cur = h.file;
+							int32 nf = 0;
+							for (usize j = i;
+								 j < mS->wsResults.Size() && StrEq(mS->wsResults[j].file.CStr(), cur.CStr()); ++j)
+								++nf;
+							folded = IsFolded(cur);
+							char hd[300];
+							std::snprintf(hd, sizeof(hd), "%s %s  (%d)", folded ? ">" : "v",
+										  NkPath(cur).GetFileName().CStr(), nf);
+							if (Selectable(ctx, hd, false))
+								ToggleFold(cur);
+						}
+						if (folded)
+							continue;
+						char row[360];
+						std::snprintf(row, sizeof(row), "   L%d : %s", h.line + 1, h.preview.CStr());
+						if (Selectable(ctx, row, false)) { // ouverture DIFFÉRÉE (poll) : jamais OpenPath au rendu
+							mS->wsOpenFile = h.file;
+							mS->wsOpenLine = h.line;
+						}
+					}
+				}
+
+			private:
+				NkCodeState *mS;
+				char mQuery[256] = {};
+				char mRepl[256] = {};
+				int32 mFocus = 0; // 1 = rechercher, 2 = remplacer
+				bool mCase = false, mWord = false;
+				NkVector<NkString> mFolded; // fichiers repliés dans la liste
+
+				bool IsFolded(const NkString &f) const {
+					for (usize i = 0; i < mFolded.Size(); ++i)
+						if (StrEq(mFolded[i].CStr(), f.CStr()))
+							return true;
+					return false;
+				}
+
+				void ToggleFold(const NkString &f) {
+					for (usize i = 0; i < mFolded.Size(); ++i)
+						if (StrEq(mFolded[i].CStr(), f.CStr())) {
+							mFolded.Erase(mFolded.Begin() + i);
+							return;
+						}
+					mFolded.PushBack(f);
+				}
+		};
+
 		class EditorPanel : public NkEditorPanel {
 			public:
 				EditorPanel(NkCodeState *s, NkEditorShell *shell)
@@ -760,6 +896,13 @@ namespace nkentseu {
 							toClose = mS->active;
 						if (ctx.input.shiftDown && ctx.input.KeyPressed(NkGuiKey::T))
 							mS->ReopenClosed();
+						if (ctx.input.shiftDown &&
+							ctx.input.KeyPressed(NkGuiKey::F)) { // Ctrl+Maj+F : recherche workspace
+							DockFocusWindow(ctx, "Recherche");
+							mS->wsFocusReq = true;
+							if (mS->HasActive() && mS->files[mS->active].doc.HasSel())
+								mS->wsPrefill = mS->files[mS->active].doc.GetSelectedText();
+						}
 						if (ctx.input.shiftDown &&
 							ctx.input.KeyPressed(NkGuiKey::O)) { // Ctrl+Maj+O : panneau Structure
 							mS->status = DockFocusWindow(ctx, "Structure") ? NkString("Panneau Structure affiché")
