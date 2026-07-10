@@ -14,7 +14,7 @@
 |---|---|---|
 | 1. Probe / démux conteneurs | ✅ | détecte le conteneur (MP4/WebM/WAV/OGG/MP3/FLAC), liste **pistes + codecs + params** (parseurs ISOBMFF + EBML) |
 | 2. Extraction de paquets | ✅ | sort les **paquets audio encodés** + timestamps : MP4 (`stbl` **et fMP4 `moof/traf/trun`**), WebM (SimpleBlock/Cluster) |
-| 3. Décodeur audio **Opus** (par étapes) | 🔶 EN COURS | RFC 6716 : **étape 1 = parsing paquet/trames ✅** ; puis range decoder, CELT, SILK → PCM |
+| 3. Décodeur audio **Opus** (par étapes) | 🔶 EN COURS | RFC 6716 : **étape 1 paquet/trames ✅**, **étape 2 range coder ✅ (aller-retour prouvé)** ; puis CELT, SILK → PCM |
 | 4. Décodeur audio AAC-LC | ⬜ | MP4 → PCM (AAC Low Complexity from-scratch) |
 | 5. Muxers (écriture) | ⬜ | écrire WAV puis WebM/MP4 (conteneur) |
 | 6. Vidéo (décode) | ⬜ | VP8/VP9 puis H.264 (très long) → frames RGBA (→ NKImage/NKRHI) |
@@ -36,7 +36,11 @@
   l'octet **TOC** (mode SILK/Hybrid/CELT, bande passante, durée, mono/stéréo) + **découpage en trames** (codes
   0-3, VBR/CBR, padding). Testé HEADLESS (table de config + 4 découpages) **et sur le corpus** : 1er paquet
   ghomala' = **config 31 (CELT fullband 20 ms), mono, 3 trames** → 60 ms/paquet × 41 = 2.46 s (cohérent).
-  ⏳ Étapes suivantes : **range decoder** (entropie, §4.1) → **CELT** (MDCT, PVQ) → **SILK** (LPC) → PCM float32.
+  - **Étape 2 — range coder (2026-07-10)** — `Codecs/Opus/NkOpusRange` : port fidèle du codeur entropique
+    (libopus entdec/entenc) — décodeur (`Decode/Update`, `DecodeBitLogp`, `DecodeIcdf`, `DecodeBits`, `DecodeUint`)
+    + encodeur (pour le test). **Aller-retour PROUVÉ** (encode→decode = identité : icdf, bits bruts, uint, cdf).
+    C'est l'épine dorsale de tout le décodage Opus.
+  ⏳ Étapes suivantes : **CELT** (MDCT + PVQ, bandes) → **SILK** (LPC, LTP) → mode hybride → PCM float32.
 
 ## En cours / À venir
 - Poursuivre Opus (range decoder → CELT → SILK), puis **AAC-LC** (corpus Bassa). Branchés comme codecs
