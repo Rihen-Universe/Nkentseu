@@ -106,6 +106,41 @@ namespace nkentseu {
 			}
 		}
 
+		void NkCeltEnergy::UnquantFine(NkOpusRangeDecoder &dec, float32 *oldEBands, int32 nbBands,
+									   const int32 *fineQuant, int32 start, int32 end, int32 C) {
+			for (int32 i = start; i < end; ++i) {
+				if (fineQuant[i] <= 0)
+					continue;
+				for (int32 c = 0; c < C; ++c) {
+					const uint32 q2 = dec.DecodeBits((uint32)fineQuant[i]);
+					// offset = (q2 + 0.5) / 2^fineQuant - 0.5   (en dB).
+					const float32 frac = (float32)(1 << fineQuant[i]);
+					const float32 offset = ((float32)q2 + 0.5f) / frac - 0.5f;
+					oldEBands[i + c * nbBands] += offset;
+				}
+			}
+		}
+
+		void NkCeltEnergy::QuantFineSimple(NkOpusRangeEncoder &enc, float32 *oldEBands, const float32 *residual,
+										   int32 nbBands, const int32 *fineQuant, int32 start, int32 end, int32 C) {
+			for (int32 i = start; i < end; ++i) {
+				if (fineQuant[i] <= 0)
+					continue;
+				for (int32 c = 0; c < C; ++c) {
+					const int32 frac = 1 << fineQuant[i];
+					// q2 = floor((residual + 0.5) * frac), clampé à [0, frac-1].
+					int32 q2 = (int32)((residual[i + c * nbBands] + 0.5f) * (float32)frac);
+					if (q2 < 0)
+						q2 = 0;
+					if (q2 > frac - 1)
+						q2 = frac - 1;
+					enc.EncodeBits((uint32)q2, (uint32)fineQuant[i]);
+					const float32 offset = ((float32)q2 + 0.5f) / (float32)frac - 0.5f;
+					oldEBands[i + c * nbBands] += offset;
+				}
+			}
+		}
+
 		bool NkCeltEnergy::SelfTest() {
 			bool ok = true;
 			const int32 nb = NkCeltBands::kNumBands;
@@ -125,20 +160,30 @@ namespace nkentseu {
 					float32 encE[21];
 					for (int32 i = 0; i < nb; ++i)
 						encE[i] = 0.0f;
+					// Paramètres d'énergie fine : quelques bits par bande + résidus déterministes.
+					int32 fineQuant[21];
+					float32 residual[21];
+					for (int32 i = 0; i < nb; ++i) {
+						fineQuant[i] = (i % 4); // 0..3 bits
+						residual[i] = (float32)((i * 3) % 7) / 7.0f - 0.5f; // -0.5..~0.5
+					}
+
 					NkOpusRangeEncoder enc;
 					enc.Init(buffer, CAP);
 					NkCeltEnergy::QuantCoarseSimple(enc, target, encE, nb, 0, nb, intra != 0, C, lm);
+					NkCeltEnergy::QuantFineSimple(enc, encE, residual, nb, fineQuant, 0, nb, C);
 					enc.Done();
 					if (enc.error != 0)
 						ok = false;
-					// decode.
+					// decode : coarse puis fine, dans le même flux.
 					float32 decE[21];
 					for (int32 i = 0; i < nb; ++i)
 						decE[i] = 0.0f;
 					NkOpusRangeDecoder dec;
 					dec.Init(buffer, CAP);
 					NkCeltEnergy::UnquantCoarse(dec, decE, nb, 0, nb, intra != 0, C, lm);
-					// L'énergie reconstruite doit être identique côté encodeur et décodeur.
+					NkCeltEnergy::UnquantFine(dec, decE, nb, fineQuant, 0, nb, C);
+					// L'énergie reconstruite (grossière + fine) doit être identique enc/dec.
 					for (int32 i = 0; i < nb; ++i) {
 						const float32 d = decE[i] - encE[i];
 						if (d > 1e-3f || d < -1e-3f)
