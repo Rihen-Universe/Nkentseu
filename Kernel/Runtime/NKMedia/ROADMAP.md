@@ -63,8 +63,10 @@
     lecture des **flags dans l'ordre ec exact** (silence, post-filtre+params, transient, intra) + **chemin
     SILENCE → PCM zéro correct** (testé) + câblage deemphasis. ⏳ Reste le **chemin non-silence** : unquant_coarse
     energy → tf → spread → dynalloc → compute_allocation (avec split pulses/énergie fine + skip flags) →
-    `quant_all_bands` (boucle bandes : split récursif/stéréo/folding + AlgUnquant) → anti-collapse → denorm →
-    **IMDCT CELT + overlap-add** → deemphasis → PCM. Validé **end-to-end** vs ffmpeg. Puis SILK + hybride.
+    **`quant_all_bands`** (boucle bandes : split récursif/stéréo/folding + AlgUnquant) → **IMDCT CELT + overlap-add**
+    → deemphasis → PCM. **anti-collapse LIVRÉ** (`NkCeltAntiCollapse` : LCG + renormalise + bruit calibré ;
+    testé). ⚠️ `quant_all_bands` = la SEULE pièce restante non isolable (récursion) : à porter+câbler+valider
+    end-to-end vs ffmpeg. Puis SILK + hybride.
   ⏳ Puis **SILK** (LPC, LTP) → mode hybride → PCM float32.
 
 ## En cours / À venir
