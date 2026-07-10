@@ -791,6 +791,8 @@ namespace nkentseu {
 				return NkKey::NK_RBRACKET;
 			case NkScancode::NK_SC_BACKSLASH:
 				return NkKey::NK_BACKSLASH;
+			case NkScancode::NK_SC_NONUS_BACKSLASH: // claviers ISO (touche pres d'Entree / a gauche du Z) :
+				return NkKey::NK_BACKSLASH;			// meme role que l'antislash ANSI pour les raccourcis
 			case NkScancode::NK_SC_SEMICOLON:
 				return NkKey::NK_SEMICOLON;
 			case NkScancode::NK_SC_APOSTROPHE:
@@ -1095,7 +1097,7 @@ namespace nkentseu {
 			NkScancode::NK_SC_NONUS_BACKSLASH, // 0x56 — ISO backslash
 			NkScancode::NK_SC_F11,			   // 0x57
 			NkScancode::NK_SC_F12,			   // 0x58
-			// 0x59–0x7F : Non définis → NK_SC_UNKNOWN (remplissage automatique)
+											   // 0x59–0x7F : Non définis → NK_SC_UNKNOWN (remplissage automatique)
 		};
 
 		// -------------------------------------------------------------
