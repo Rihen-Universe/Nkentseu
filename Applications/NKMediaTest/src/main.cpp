@@ -15,6 +15,7 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltRate.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltAlloc.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltVq.h"
+#include "NKMedia/Codecs/Opus/Celt/NkCeltDenorm.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -170,6 +171,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkCeltVq::SelfTest();
 		printf("[ %s ] NkCeltVq : forme de bande (pulses->normalise->rotation), norme conservee\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkCeltDenorm::SelfTest();
+		printf("[ %s ] NkCeltDenorm : denormalisation bandes (forme x energie), norme = 2^(E+eMean)\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;

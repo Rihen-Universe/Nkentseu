@@ -54,9 +54,11 @@
     tilt `trim` ; + **`InterpFine`** = bissection fine ALLOC_STEPS=6 → **bits/bande** (budget cohérent+monotone
     prouvés)) + **forme de bande** (`NkCeltVq::AlgUnquant` : pulses → **normalise** (norme unité×gain) →
     **exp_rotation** spreading → masque collapse ; **norme conservée** prouvée, cœur de `quant_all_bands`).
-    ⏳ Reste CELT (orchestration) : drapeaux ec **skip/intensity/dual_stereo** + **split pulses/énergie fine** →
-    `quant_all_bands` (folding/stéréo/split récursif des bandes) → anti-collapse → **denormalise** (forme×énergie)
-    → IMDCT + **overlap-add** → `celt_decode` (flags transient/spread/tf) → PCM. Puis SILK + hybride.
+    + **denormalise** (`NkCeltDenorm` : forme×2^(E+eMean) → spectre ; table `eMeans` ; ‖bande‖=2^(E+eMean)
+    prouvé). **Chemin signal DSP complet** : shape → denorm → IMDCT. ⏳ Reste CELT (orchestration pure) :
+    drapeaux ec skip/intensity + split pulses/énergie fine → `quant_all_bands` (boucle bandes, folding/stéréo/
+    split) → anti-collapse → **deemphasis** (filtre sortie) → `celt_decode` (flags transient/spread/tf) → PCM.
+    Puis SILK + hybride.
   ⏳ Puis **SILK** (LPC, LTP) → mode hybride → PCM float32.
 
 ## En cours / À venir
