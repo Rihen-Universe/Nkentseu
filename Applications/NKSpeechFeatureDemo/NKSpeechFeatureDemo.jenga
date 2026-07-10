@@ -1,0 +1,27 @@
+"""NKSpeechFeatureDemo — MFCC sur un vrai fichier audio (mp3/wav/ogg/flac).
+
+Console : decode via NKAudio (AudioLoader) -> NkAudioFeatures::MFCC. Valide la chaine
+parole reelle -> features sur le corpus. Linke NKSpeech + NKAudio + noyau."""
+from Jenga import *
+from jengaconfig import *
+
+with project("NKSpeechFeatureDemo"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        ["NKSpeech", "NKAudio", "NKFileSystem", "NKStream", "NKMath", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links(["ole32", "winmm", "user32"])

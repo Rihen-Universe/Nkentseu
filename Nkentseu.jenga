@@ -1029,6 +1029,10 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Applications/NKSpeechFeatureDemo/NKSpeechFeatureDemo.jenga"):
+
+        pass
+
 
 
     with include("Applications/NKInferTest/NKInferTest.jenga"):
