@@ -355,9 +355,14 @@ Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociabl
      = lissage MULTI-FRAME (borne la vitesse de variation du décalage → anti-à-coups). Testés HEADLESS
      (pieds inchangés, haut du corps déplacé, équilibre atteint ; lissage borné). ⏳ Reste : **limites d'angle
      articulaires (NkIKSystem)**, correction du moment DYNAMIQUE (pas seulement statique).
-5. ❌ **Auto-posing** — poses intermédiaires physiquement plausibles entre deux
-   clés : interpolation passant par l'optimiseur, transferts de poids (bascule
-   pied à pied), plusieurs variantes proposées → choix humain.
+5. 🔶 **Auto-posing (V1 — 2026-07-10)** — `NKRenderer/Tools/Animation/NkAutoPose.{h,cpp}`
+   (pur Foundation, AUCUN GPU). `BlendBalanced(poseA, poseB, count, t, mass, plantedMask, supportPts, …,
+   balanceStrength, out)` : interpole (lerp) entre deux clés PUIS passe par le correcteur d'équilibre (M3.4)
+   → l'entre-deux reste **physiquement plausible** (ne bascule pas). Curseur `balanceStrength` (0 = lerp brut,
+   1 = COM ramené sur le support), pieds plantés optionnels. Testé HEADLESS (`NkAnimPhysTest` → **M3.5 OK** :
+   lerp brut à t=0.7 = déséquilibré → BlendBalanced = équilibré, pieds inchangés, bornes t=0→A / t=1→B).
+   ⏳ Reste : transferts de poids (bascule pied à pied), plusieurs variantes proposées → choix humain,
+   interpolation en ROTATIONS (slerp) quand on aura le squelette hiérarchique.
 6. ❌ **Pont vers l'anim existante** — correction physique en post-traitement
    non destructif du blend (M2), toggle par personnage/scène (coût non
    négligeable), export des poses corrigées en clips éditables (M1.c).
