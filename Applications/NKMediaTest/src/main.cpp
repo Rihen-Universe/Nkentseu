@@ -7,6 +7,8 @@
 #include "NKMedia/NkMediaDemux.h"
 #include "NKMedia/Codecs/Opus/NkOpusPacket.h"
 #include "NKMedia/Codecs/Opus/NkOpusRange.h"
+#include "NKMedia/Codecs/Opus/Celt/NkCeltLaplace.h"
+#include "NKMedia/Codecs/Opus/Celt/NkCeltBands.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -102,6 +104,20 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkOpusRange::SelfTest();
 		printf("[ %s ] NkOpusRange : range coder aller-retour (icdf, bits bruts, uint, cdf)\n", ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkCeltLaplace::SelfTest();
+		printf("[ %s ] NkCeltLaplace : coder de Laplace CELT aller-retour (energie grossiere)\n", ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkCeltBands::SelfTest();
+		printf("[ %s ] NkCeltBands : 21 bandes CELT, bornes croissantes, echelle LM\n", ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
 	}
