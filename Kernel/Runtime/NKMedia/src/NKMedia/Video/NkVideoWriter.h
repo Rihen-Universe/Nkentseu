@@ -16,6 +16,7 @@
 #include "NKCore/NkTypes.h"
 #include "NKMedia/Video/Containers/NkAviWriter.h"
 #include "NKMedia/Video/Containers/NkMovWriter.h"
+#include "NKMedia/Codecs/Video/Mpeg1/NkMpeg1Encoder.h"
 
 namespace nkentseu {
 	namespace media {
@@ -24,12 +25,14 @@ namespace nkentseu {
 		enum class NkVideoCodec {
 			RAW_BGR, // non compressé (DIB) — gros fichiers, qualité parfaite
 			MJPEG,	 // Motion-JPEG (chaque trame = JPEG, via NKImage) — compressé, universel
+			MPEG1,	 // MPEG-1 Video (vrai codec DCT, I-frames) → flux élémentaire .m1v
 		};
 
 		// Conteneur de sortie.
 		enum class NkVideoContainer {
-			AVI, // RIFF — implémenté (RAW + MJPEG)
-			MOV, // QuickTime/MP4 (ISOBMFF) — implémenté (MJPEG)
+			AVI,		// RIFF — implémenté (RAW + MJPEG)
+			MOV,		// QuickTime/MP4 (ISOBMFF) — implémenté (MJPEG)
+			ELEMENTARY, // flux élémentaire brut (MPEG-1 → .m1v)
 		};
 
 		// Format des pixels d'ENTRÉE fournis à WriteFrame.
@@ -64,12 +67,15 @@ namespace nkentseu {
 					return mOpen;
 				}
 				int32 FrameCount() const {
+					if (mCfg.codec == NkVideoCodec::MPEG1)
+						return mMpeg1.FrameCount();
 					return (mCfg.container == NkVideoContainer::MOV) ? mMov.FrameCount() : mAvi.FrameCount();
 				}
 
 			private:
 				NkAviWriter mAvi;
 				NkMovWriter mMov;
+				NkMpeg1Encoder mMpeg1;
 				NkVideoConfig mCfg;
 				bool mOpen = false;
 

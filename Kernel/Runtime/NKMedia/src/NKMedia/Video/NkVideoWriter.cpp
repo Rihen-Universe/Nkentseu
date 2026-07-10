@@ -53,6 +53,19 @@ namespace nkentseu {
 				return false;
 			mCfg = cfg;
 
+			if (cfg.codec == NkVideoCodec::MPEG1) {
+				// MPEG-1 : flux élémentaire (.m1v). `quality` 1..100 → qscale 1..31 (inversé).
+				int32 qscale = 32 - (cfg.quality * 31) / 100;
+				if (qscale < 1)
+					qscale = 1;
+				if (qscale > 31)
+					qscale = 31;
+				if (!mMpeg1.Open(path, cfg.width, cfg.height, cfg.fpsNum, cfg.fpsDen, qscale))
+					return false;
+				mOpen = true;
+				return true;
+			}
+
 			if (cfg.container == NkVideoContainer::MOV) {
 				// MOV/MP4 : MJPEG uniquement (pas de RAW dans ce conteneur pour l'instant).
 				if (cfg.codec != NkVideoCodec::MJPEG)
@@ -150,6 +163,8 @@ namespace nkentseu {
 		bool NkVideoWriter::WriteFrame(const uint8 *pixels, NkVideoInputFormat fmt) {
 			if (!mOpen || pixels == nullptr)
 				return false;
+			if (mCfg.codec == NkVideoCodec::MPEG1)
+				return mMpeg1.WriteFrame(pixels, fmt);
 			if (mCfg.codec == NkVideoCodec::MJPEG)
 				return WriteFrameMjpeg(pixels, fmt);
 			return WriteFrameRaw(pixels, fmt);
@@ -158,7 +173,11 @@ namespace nkentseu {
 		bool NkVideoWriter::Close() {
 			if (!mOpen)
 				return false;
-			const bool ok = (mCfg.container == NkVideoContainer::MOV) ? mMov.Close() : mAvi.Close();
+			bool ok;
+			if (mCfg.codec == NkVideoCodec::MPEG1)
+				ok = mMpeg1.Close();
+			else
+				ok = (mCfg.container == NkVideoContainer::MOV) ? mMov.Close() : mAvi.Close();
 			if (mScratch) {
 				memory::NkFree(mScratch);
 				mScratch = nullptr;
