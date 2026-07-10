@@ -751,7 +751,7 @@ namespace nkentseu {
 											 NkCodeState::Contains(txt.CStr(), "workspace(");
 							r.workspace =
 								NkCodeState::WorkspaceName(txt, NkPath(d.Name.CStr()).GetFileNameWithoutExtension());
-							NkCodeState::CollectProjects(txt.CStr(), &r.projCount);
+							NkCodeState::CollectProjects(txt.CStr(), d.FullPath.GetParent(), &r.projCount);
 							// Nature du fichier .jenga : workspace > projet > config > vide.
 							const bool hasProj = r.projCount > 0 || NkCodeState::Contains(txt.CStr(), "project(");
 							const bool hasCfg = NkCodeState::Contains(txt.CStr(), "config") ||

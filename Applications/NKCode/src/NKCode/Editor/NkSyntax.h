@@ -30,19 +30,44 @@ namespace nkentseu {
 			return (int32)(unsigned char)*a - (int32)(unsigned char)*b;
 		}
 
+		// Tri FUSION sur INDICES (O(n log n), stable, une seule copie des chaînes) +
+		// dédoublonnage en UNE passe. L'ancien tri par insertion O(n²) + Erase répétés
+		// explosait sur l'index du workspace entier (dizaines de milliers d'entrées).
 		inline void NkSymSortDedup(NkVector<NkString> &v) {
-			for (int32 i = 1; i < (int32)v.Size(); ++i) {
-				NkString key = v[i];
-				int32 j = i - 1;
-				while (j >= 0 && NkSymStrCmp(v[j].CStr(), key.CStr()) > 0) {
-					v[j + 1] = v[j];
-					--j;
+			const int32 n = static_cast<int32>(v.Size());
+			if (n < 2)
+				return;
+			NkVector<int32> idx, tmp;
+			idx.Resize(n);
+			tmp.Resize(n);
+			for (int32 i = 0; i < n; ++i)
+				idx[i] = i;
+			for (int32 w = 1; w < n; w <<= 1) {
+				for (int32 lo = 0; lo < n; lo += (w << 1)) {
+					int32 mid = lo + w;
+					if (mid > n)
+						mid = n;
+					int32 hi = lo + (w << 1);
+					if (hi > n)
+						hi = n;
+					int32 a = lo, b = mid, o = lo;
+					while (a < mid && b < hi)
+						tmp[o++] = (NkSymStrCmp(v[idx[a]].CStr(), v[idx[b]].CStr()) <= 0) ? idx[a++] : idx[b++];
+					while (a < mid)
+						tmp[o++] = idx[a++];
+					while (b < hi)
+						tmp[o++] = idx[b++];
 				}
-				v[j + 1] = key;
+				for (int32 i = 0; i < n; ++i)
+					idx[i] = tmp[i];
 			}
-			for (int32 i = (int32)v.Size() - 1; i > 0; --i)
-				if (NkSymStrCmp(v[i].CStr(), v[i - 1].CStr()) == 0)
-					v.Erase(v.Begin() + i);
+			NkVector<NkString> out; // une seule copie de chaque chaîne retenue
+			for (int32 i = 0; i < n; ++i) {
+				if (i > 0 && NkSymStrCmp(v[idx[i]].CStr(), v[idx[i - 1]].CStr()) == 0)
+					continue; // doublon
+				out.PushBack(v[idx[i]]);
+			}
+			v = out;
 		}
 
 		// Extrait les TYPES/FONCTIONS DÉFINIS sur une ligne (heuristique) -> append (non triés).
@@ -158,6 +183,367 @@ namespace nkentseu {
 				while (*p == '\n' || *p == '\r')
 					++p;
 				NkExtractSymsLine(buf, m, isC, types, funcs);
+			}
+		}
+
+		// ── Table Type -> MEMBRES (heuristique v2) : scanne les corps `struct|class|union X { … }`
+		//    et moissonne, PAR MEMBRE : son nom + son TYPE (type du champ / type de RETOUR de la
+		//    méthode) -> résolution des chaînes `a.b().c.`. Capture aussi l'HÉRITAGE
+		//    (`struct X : public A, B` -> paires inhType/inhBase), les MÉTHODES HORS-CLASSE
+		//    (`Ret Cls::Meth(...)`) et les fonctions LIBRES avec leur retour (gfnName/gfnRet,
+		//    pour `foo().`). Sert la complétion contextuelle INSTANTANÉE après '.', '->', '::'
+		//    (le compilateur affine ensuite). Arrays parallèles ; accolades suivies hors
+		//    chaînes/commentaires. ──
+		inline void NkScanTextMembers(const char *text, NkVector<NkString> &owner, NkVector<NkString> &name,
+									  NkVector<NkString> &mtype, NkVector<NkString> &inhType,
+									  NkVector<NkString> &inhBase, NkVector<NkString> &gfnName,
+									  NkVector<NkString> &gfnRet) {
+			auto isW = [](char c) {
+				return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+			};
+			auto isKw = [](const char *s) {
+				static const char *kw[] = {"if",		"for",		"while",	 "switch", "return",  "sizeof",
+										   "public",	"private",	"protected", "using",  "typedef", "friend",
+										   "static",	"template", "operator",	 "else",   "do",	  "new",
+										   "delete",	"const",	"struct",	 "class",  "union",	  "enum",
+										   "namespace", "case",		"goto",		 nullptr};
+				for (int32 k = 0; kw[k]; ++k) {
+					int32 m = 0;
+					while (kw[k][m] && s[m] == kw[k][m])
+						++m;
+					if (!kw[k][m] && !s[m])
+						return true;
+				}
+				return false;
+			};
+			// Type/retour AVANT `nameStart` : saute blancs, *,&, args template, et les
+			// qualificatifs (const/static/unsigned…) pour atteindre l'identifiant du type.
+			auto typeBefore = [&isW, &isKw](const char *cl, int32 limS, int32 nameStart, char *out) {
+				out[0] = 0;
+				int32 q = nameStart;
+				for (int32 pass = 0; pass < 3; ++pass) {
+					while (q > limS && (cl[q - 1] == ' ' || cl[q - 1] == '\t'))
+						--q;
+					while (q > limS && (cl[q - 1] == '*' || cl[q - 1] == '&'))
+						--q;
+					while (q > limS && (cl[q - 1] == ' ' || cl[q - 1] == '\t'))
+						--q;
+					if (q > limS && cl[q - 1] == '>') { // args template `NkVector<...>`
+						int32 dep = 1;
+						--q;
+						while (q > limS && dep > 0) {
+							--q;
+							if (cl[q] == '>')
+								++dep;
+							else if (cl[q] == '<')
+								--dep;
+						}
+						while (q > limS && (cl[q - 1] == ' ' || cl[q - 1] == '\t'))
+							--q;
+					}
+					int32 e = q;
+					while (q > limS && isW(cl[q - 1]))
+						--q;
+					if (e <= q || (cl[q] >= '0' && cl[q] <= '9'))
+						return;
+					char tmp[96];
+					int32 k = 0;
+					for (int32 t = q; t < e && k < 95; ++t)
+						tmp[k++] = cl[t];
+					tmp[k] = 0;
+					static const char *quals[] = {"const",	  "static",	  "inline", "virtual", "constexpr",
+												  "mutable",  "unsigned", "signed", "long",	   "short",
+												  "typename", "explicit", nullptr};
+					bool qual = false;
+					for (int32 s2 = 0; quals[s2]; ++s2)
+						if (NkSymStrCmp(tmp, quals[s2]) == 0) {
+							qual = true;
+							break;
+						}
+					if (!qual) {
+						if (!isKw(tmp)) {
+							int32 k2 = 0;
+							while (tmp[k2]) {
+								out[k2] = tmp[k2];
+								++k2;
+							}
+							out[k2] = 0;
+						}
+						return;
+					}
+					// qualificatif : provisoire (unsigned/long seuls = type), continue à remonter
+					int32 k2 = 0;
+					while (tmp[k2]) {
+						out[k2] = tmp[k2];
+						++k2;
+					}
+					out[k2] = 0;
+				}
+			};
+
+			struct Scope {
+					char nm[96];
+					int32 depth;
+			};
+
+			Scope stack[24];
+			int32 sn = 0;
+			char pending[96];
+			pending[0] = 0;			  // type vu, en attente de son '{'
+			int32 basesOn = 0;		  // dans la liste d'héritage `: A, B` (jusqu'au '{')
+			int32 depth = 0, blk = 0; // profondeur d'accolades / bloc-commentaire
+			const char *p = text;
+			char line[1024];
+			while (*p && owner.Size() < 30000) {
+				int32 m = 0;
+				while (*p && *p != '\n' && *p != '\r' && m < 1020)
+					line[m++] = *p++;
+				line[m] = 0;
+				while (*p == '\n' || *p == '\r')
+					++p;
+				const int32 depthAtStart = depth;
+				// Passe A : nettoie la ligne (chaînes/commentaires retirés), met à jour l'état bloc.
+				char cl[1024];
+				int32 cn = 0;
+				for (int32 i = 0; i < m;) {
+					const char c = line[i];
+					if (blk) {
+						if (c == '*' && i + 1 < m && line[i + 1] == '/') {
+							blk = 0;
+							i += 2;
+							continue;
+						}
+						++i;
+						continue;
+					}
+					if (c == '/' && i + 1 < m && line[i + 1] == '/')
+						break;
+					if (c == '/' && i + 1 < m && line[i + 1] == '*') {
+						blk = 1;
+						i += 2;
+						continue;
+					}
+					if (c == '"' || c == '\'') {
+						const char q = c;
+						++i;
+						while (i < m) {
+							if (line[i] == '\\') {
+								i += 2;
+								continue;
+							}
+							if (line[i] == q) {
+								++i;
+								break;
+							}
+							++i;
+						}
+						cl[cn++] = q; // marqueur neutre
+						continue;
+					}
+					cl[cn++] = c;
+					++i;
+				}
+				cl[cn] = 0;
+				// Passe B : accolades / ';' / ':' héritage / `struct|class|union NAME`, DANS L'ORDRE.
+				for (int32 i = 0; i < cn; ++i) {
+					const char c = cl[i];
+					if (c == '{') {
+						++depth;
+						if (pending[0] && sn < 24) { // le corps du type vu s'ouvre ici
+							Scope &sc = stack[sn++];
+							int32 k = 0;
+							while (pending[k] && k < 95) {
+								sc.nm[k] = pending[k];
+								++k;
+							}
+							sc.nm[k] = 0;
+							sc.depth = depth;
+						}
+						pending[0] = 0;
+						basesOn = 0;
+					} else if (c == '}') {
+						if (sn > 0 && stack[sn - 1].depth == depth)
+							--sn; // fin du corps du type
+						if (depth > 0)
+							--depth;
+					} else if (c == ';') {
+						pending[0] = 0; // forward declaration -> annule
+						basesOn = 0;
+					} else if (c == ':') {
+						if (i + 1 < cn && cl[i + 1] == ':') { // '::' -> qualification, pas héritage
+							++i;
+							continue;
+						}
+						if (pending[0] && !basesOn)
+							basesOn = 1; // début de la liste de bases `: public A, B`
+					} else if (basesOn && isW(c) && !(c >= '0' && c <= '9') && (i == 0 || !isW(cl[i - 1]))) {
+						int32 e = i;
+						while (e < cn && isW(cl[e]))
+							++e;
+						char nm[96];
+						int32 k = 0;
+						for (int32 t = i; t < e && k < 95; ++t)
+							nm[k++] = cl[t];
+						nm[k] = 0;
+						const bool ns = (e + 1 < cn && cl[e] == ':' && cl[e + 1] == ':'); // espace de noms
+						const bool acc = NkSymStrCmp(nm, "public") == 0 || NkSymStrCmp(nm, "private") == 0 ||
+										 NkSymStrCmp(nm, "protected") == 0 || NkSymStrCmp(nm, "virtual") == 0 ||
+										 NkSymStrCmp(nm, "final") == 0;
+						if (!ns && !acc && pending[0]) {
+							inhType.PushBack(NkString(pending));
+							inhBase.PushBack(NkString(nm));
+						}
+						i = e - 1;
+					} else if (!basesOn && (c == 's' || c == 'c' || c == 'u') && (i == 0 || !isW(cl[i - 1]))) {
+						int32 adv = 0;
+						if (i + 6 <= cn && cl[i] == 's' && cl[i + 1] == 't' && cl[i + 2] == 'r' && cl[i + 3] == 'u' &&
+							cl[i + 4] == 'c' && cl[i + 5] == 't' && !isW(cl[i + 6]))
+							adv = 6;
+						else if (i + 5 <= cn && cl[i] == 'c' && cl[i + 1] == 'l' && cl[i + 2] == 'a' &&
+								 cl[i + 3] == 's' && cl[i + 4] == 's' && !isW(cl[i + 5]))
+							adv = 5;
+						else if (i + 5 <= cn && cl[i] == 'u' && cl[i + 1] == 'n' && cl[i + 2] == 'i' &&
+								 cl[i + 3] == 'o' && cl[i + 4] == 'n' && !isW(cl[i + 5]))
+							adv = 5;
+						if (!adv)
+							continue;
+						int32 s = i + adv;
+						while (s < cn && (cl[s] == ' ' || cl[s] == '\t'))
+							++s;
+						int32 e = s;
+						while (e < cn && isW(cl[e]))
+							++e;
+						if (e > s && !(cl[s] >= '0' && cl[s] <= '9')) {
+							int32 k = 0;
+							for (int32 t = s; t < e && k < 95; ++t)
+								pending[k++] = cl[t];
+							pending[k] = 0;
+						}
+						i = e - 1; // reprend après le nom
+					}
+				}
+				// Moisson des MEMBRES : ligne au niveau DIRECT du corps du type courant.
+				if (sn > 0 && depthAtStart == stack[sn - 1].depth && cn > 0) {
+					int32 s = 0;
+					while (s < cn && (cl[s] == ' ' || cl[s] == '\t'))
+						++s;
+					if (s < cn && cl[s] != '#') {
+						// saute accès/using/typedef/friend/template (pas des membres nommés ici)
+						bool skip = false;
+						const char *skips[] = {"public",  "private", "protected", "using",
+											   "typedef", "friend",	 "template",  nullptr};
+						for (int32 k = 0; skips[k]; ++k) {
+							int32 t = 0;
+							while (skips[k][t] && s + t < cn && cl[s + t] == skips[k][t])
+								++t;
+							if (!skips[k][t] && (s + t >= cn || !isW(cl[s + t]))) {
+								skip = true;
+								break;
+							}
+						}
+						if (!skip) {
+							// méthode : identifiant juste avant la 1re '(' ; champ : avant '=' sinon ';'.
+							int32 par = -1, eq = -1, sc = -1;
+							for (int32 i = s; i < cn; ++i) {
+								if (cl[i] == '(' && par < 0)
+									par = i;
+								else if (cl[i] == '=' && eq < 0)
+									eq = i;
+								else if (cl[i] == ';' && sc < 0)
+									sc = i;
+							}
+							int32 anchor = (par >= 0) ? par : (eq >= 0 ? eq : sc);
+							if (anchor > s) {
+								int32 e2 = anchor;
+								while (e2 > s && (cl[e2 - 1] == ' ' || cl[e2 - 1] == '\t'))
+									--e2;
+								if (e2 > s && cl[e2 - 1] == ']') { // tableau : saute [n]
+									while (e2 > s && cl[e2 - 1] != '[')
+										--e2;
+									if (e2 > s)
+										--e2;
+									while (e2 > s && (cl[e2 - 1] == ' ' || cl[e2 - 1] == '\t'))
+										--e2;
+								}
+								int32 s2 = e2;
+								while (s2 > s && isW(cl[s2 - 1]))
+									--s2;
+								if (e2 > s2 && !(cl[s2] >= '0' && cl[s2] <= '9')) {
+									char nm[96];
+									int32 k = 0;
+									for (int32 t = s2; t < e2 && k < 95; ++t)
+										nm[k++] = cl[t];
+									nm[k] = 0;
+									if (!isKw(nm) && NkSymStrCmp(nm, stack[sn - 1].nm) != 0) { // pas le constructeur
+										char rt[96];
+										typeBefore(cl, s, s2, rt);
+										owner.PushBack(NkString(stack[sn - 1].nm));
+										name.PushBack(NkString(nm));
+										mtype.PushBack(NkString(rt)); // "" si type introuvable
+									}
+								}
+							}
+						}
+					}
+				} else if (sn == 0 && cn > 0 && owner.Size() < 30000) {
+					// HORS corps de type : signatures de fonctions -> retour (pour `foo().`) et
+					// méthodes hors-classe `Ret Cls::Meth(...)` -> membre de Cls avec son retour.
+					int32 s = 0;
+					while (s < cn && (cl[s] == ' ' || cl[s] == '\t'))
+						++s;
+					if (s < cn && cl[s] != '#') {
+						int32 par = -1;
+						for (int32 i2 = s; i2 < cn; ++i2) {
+							if (cl[i2] == '(') {
+								par = i2;
+								break;
+							}
+							if (cl[i2] == '=')
+								break; // affectation -> pas une signature
+						}
+						if (par > s) {
+							int32 e2 = par;
+							while (e2 > s && (cl[e2 - 1] == ' ' || cl[e2 - 1] == '\t'))
+								--e2;
+							int32 s2 = e2;
+							while (s2 > s && isW(cl[s2 - 1]))
+								--s2;
+							if (e2 > s2 && !(cl[s2] >= '0' && cl[s2] <= '9')) {
+								char nm[96];
+								int32 k = 0;
+								for (int32 t = s2; t < e2 && k < 95; ++t)
+									nm[k++] = cl[t];
+								nm[k] = 0;
+								if (!isKw(nm)) {
+									if (s2 >= s + 2 && cl[s2 - 1] == ':' && cl[s2 - 2] == ':') {
+										int32 ce = s2 - 2, cs = ce;
+										while (cs > s && isW(cl[cs - 1]))
+											--cs;
+										if (ce > cs && !(cl[cs] >= '0' && cl[cs] <= '9')) {
+											char cls[96];
+											int32 k2 = 0;
+											for (int32 t = cs; t < ce && k2 < 95; ++t)
+												cls[k2++] = cl[t];
+											cls[k2] = 0;
+											char rt[96];
+											typeBefore(cl, s, cs, rt);
+											owner.PushBack(NkString(cls));
+											name.PushBack(NkString(nm));
+											mtype.PushBack(NkString(rt));
+										}
+									} else {
+										char rt[96];
+										typeBefore(cl, s, s2, rt);
+										if (rt[0] && !isKw(rt) && gfnName.Size() < 20000) {
+											gfnName.PushBack(NkString(nm));
+											gfnRet.PushBack(NkString(rt));
+										}
+									}
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 
@@ -350,7 +736,7 @@ namespace nkentseu {
 				if (s < n && L[s] == '#') {
 					emit(0, n, C.heading);
 					return 0;
-				}							// titre #
+				} // titre #
 				for (int32 i = 0; i < n;) { // code inline `...`
 					if (L[i] == '`') {
 						int32 j = i + 1;
@@ -447,7 +833,7 @@ namespace nkentseu {
 					span(i, n, C.comment);
 					i = n;
 					break;
-				}					   // Python : commentaire
+				} // Python : commentaire
 				if (isC && c == '#') { // C : preprocesseur
 					bool firstTok = true;
 					for (int32 j = 0; j < i; ++j)

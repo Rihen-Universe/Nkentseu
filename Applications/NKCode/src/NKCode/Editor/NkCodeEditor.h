@@ -17,7 +17,8 @@
 #include "NKContainers/String/NkString.h"
 #include "NKCode/Editor/NkSyntax.h"
 #include "NKCode/Editor/NkTextDraw.h"
-#include "NKCode/Project/NkText.h" // NkPPEvalActive / NkDefineValue (régions préproc inactives)
+#include "NKCode/Project/NkText.h"	  // NkPPEvalActive / NkDefineValue (régions préproc inactives)
+#include "NKCode/Project/NkLogSink.h" // GlobalLogBuffer : traces [ac] (panneau OUTPUT)
 
 #include <cstdio> // snprintf (numeros de ligne)
 
@@ -37,6 +38,9 @@ namespace nkentseu {
 				int32 curLine = 0, curCol = 0; // curseur (col = index caractere)
 				int32 selLine = 0, selCol = 0; // ancre de selection (== curseur si vide)
 				int32 lineSelAnchor = -1;	   // ancre de la sélection-ligne Ctrl+L (pour étendre au répété)
+				// ── Multi-clic (double = MOT, triple et + = LIGNE) ──
+				int32 clkN = 0, clkTick = -1000, clkL = -1, clkC = -1;
+				int32 tick = 0; // compteur de frames (fenêtre de détection du multi-clic)
 				float32 scrollX = 0.f, scrollY = 0.f;
 				bool dirty = false;
 				bool wantReveal = false; // demande de révélation du curseur (clic Outline -> défile vers la ligne)
@@ -99,12 +103,24 @@ namespace nkentseu {
 				int64 findSig = -1;				   // signature (contenu+query+casse) -> invalide le cache
 				// ── Index de symboles du fichier (coloration SÉMANTIQUE fiable) ──
 				NkVector<NkString> symTypes, symFuncs; // triés -> recherche binaire (NkSymHas)
-				int64 symSig = -1;					   // signature du contenu (rebuild seulement si changé)
+				NkVector<NkString> symWords; // TOUS les identifiants du document (complétion par mots façon VSCode)
+				int64 symSig = -1;			 // signature du contenu (rebuild seulement si changé)
 				// ── Autocomplétion (popup façon VSCode) ──
-				bool acOpen = false;		// popup affiché
-				NkVector<NkString> acItems; // candidats filtrés (préfixe courant)
-				int32 acSel = 0;			// item sélectionné
-				int32 acWordCol = 0;		// colonne de début du mot en cours (pour le remplacer)
+				bool acOpen = false;				  // popup affiché
+				NkVector<NkString> acItems;			  // candidats filtrés (préfixe courant)
+				int32 acSel = 0;					  // item sélectionné
+				int32 acWordCol = 0;				  // colonne de début du mot en cours (pour le remplacer)
+				int32 acTop = 0;					  // 1er element visible (defilement du popup)
+				float32 acXOff = 0.f;				  // defilement horizontal du popup
+				NkRect acRect = {0.f, 0.f, 0.f, 0.f}; // rect du popup (frame precedente) -> routage des clics
+				// ── Autocomplétion CONTEXTUELLE (membres après '.', '->', '::') — compile-first :
+				//    l'éditeur POSE la requête (position du point), NkCodeState lance le compilateur
+				//    (`-Xclang -code-completion-at`, flags .jcdb) et remplit acCtxAll ; la frappe
+				//    re-filtre EN LIVE depuis cette liste (pas de nouvel appel compilo par lettre). ──
+				bool acCtxReq = false; // demande posée (consommée par NkCodeState::ProcessCompletionRequest)
+				int32 acCtxLine = -1;  // position du point de complétion (juste après le déclencheur)
+				int32 acCtxCol = -1;
+				NkVector<NkString> acCtxAll; // résultats COMPLETS du compilateur (re-filtrés à la frappe)
 
 				// Remplace le mot [acWordCol, curCol) par l'item choisi (réutilise Backspace/InsertChar).
 				void AcceptAutocomplete() {
@@ -118,6 +134,9 @@ namespace nkentseu {
 					for (int32 k = 0; k < static_cast<int32>(item.Size()); ++k)
 						InsertChar(item.CStr()[k]);
 					acOpen = false;
+					acCtxAll.Clear(); // fin du mode contextuel (membre inséré)
+					acTop = 0;
+					acXOff = 0.f;
 				}
 
 				// ── Diagnostics (erreurs/avertissements du compilateur) ──
@@ -400,7 +419,10 @@ namespace nkentseu {
 					redoU.PushBack({GetText(), curLine, curCol});
 					const UndoState s = undoU[undoU.Size() - 1];
 					undoU.Erase(undoU.End() - 1);
+					const float32 sx = scrollX, sy = scrollY; // SetText remet le scroll à 0 -> on le garde
 					SetText(s.text.CStr());
+					scrollX = sx;
+					scrollY = sy;
 					curLine = s.cl;
 					curCol = s.cc;
 					ClampCursor();
@@ -416,7 +438,10 @@ namespace nkentseu {
 					undoU.PushBack({GetText(), curLine, curCol});
 					const UndoState s = redoU[redoU.Size() - 1];
 					redoU.Erase(redoU.End() - 1);
+					const float32 sx = scrollX, sy = scrollY; // SetText remet le scroll à 0 -> on le garde
 					SetText(s.text.CStr());
+					scrollX = sx;
+					scrollY = sy;
 					curLine = s.cl;
 					curCol = s.cc;
 					ClampCursor();
@@ -971,12 +996,41 @@ namespace nkentseu {
 				void RebuildSymbols(NkLang lang) {
 					symTypes.Clear();
 					symFuncs.Clear();
+					symWords.Clear();
 					if (lang == NkLang::None || lang == NkLang::Markdown)
 						return;
 					const bool isC = (lang == NkLang::C || lang == NkLang::NKSL);
 					NkScanTextSymbols(GetText().CStr(), isC, symTypes, symFuncs);
 					NkSymSortDedup(symTypes);
 					NkSymSortDedup(symFuncs);
+					// ── TOUS les identifiants du document (variables locales, paramètres, membres…) :
+					//    la complétion par mots doit proposer ce qui existe DANS le fichier, même sans
+					//    définition reconnue (façon « word-based suggestions » de VSCode). ──
+					for (int32 l = 0; l < LineCount() && symWords.Size() < 2500; ++l) {
+						const NkCodeLine &L = lines[l];
+						const int32 n = static_cast<int32>(L.Size());
+						int32 i = 0;
+						while (i < n) {
+							const char c = L[i];
+							if (!IsWChar(c) || (c >= '0' && c <= '9')) { // un mot commence par lettre/_
+								++i;
+								continue;
+							}
+							int32 e = i;
+							while (e < n && IsWChar(L[e]))
+								++e;
+							if (e - i >= 3) { // ignore les mots trop courts (bruit)
+								char nm[128];
+								int32 k = 0;
+								for (int32 t = i; t < e && k < 127; ++t)
+									nm[k++] = L[t];
+								nm[k] = 0;
+								symWords.PushBack(NkString(nm));
+							}
+							i = e;
+						}
+					}
+					NkSymSortDedup(symWords);
 				}
 
 				void ExtractSyms(const char *p, int32 n, bool isC, NkLang lang) {
@@ -1227,13 +1281,104 @@ namespace nkentseu {
 				void InsertNewline() {
 					EraseSelection();
 					NkCodeLine &C = lines[curLine];
+					// Auto-indentation (façon VSCode) : la nouvelle ligne reprend les blancs de tête
+					// de la ligne courante, + un niveau si elle se termine par '{' avant le caret.
 					NkCodeLine tail;
+					const int32 lim = curCol < static_cast<int32>(C.Size()) ? curCol : static_cast<int32>(C.Size());
+					int32 ind = 0;
+					while (ind < lim && (C[ind] == ' ' || C[ind] == '\t'))
+						++ind;
+					int32 last = lim;
+					while (last > 0 && (C[last - 1] == ' ' || C[last - 1] == '\t'))
+						--last;
+					const bool open = last > 0 && C[last - 1] == '{';
+					// ── Commentaires de bloc : continuation automatique de la documentation. ──
+					// `/*|*/` (ou `/**|*/`) -> ligne du milieu ` * ` (caret) + fermante ` */` alignée ;
+					// à l'intérieur d'un bloc (ligne `/*…` non fermée ou ligne `* …`) -> la nouvelle
+					// ligne est préfixée `* ` automatiquement (style doc).
+					{
+						int32 t0 = 0;
+						while (t0 < lim && (C[t0] == ' ' || C[t0] == '\t'))
+							++t0;
+						const bool begBlock = (t0 + 1 < lim && C[t0] == '/' && C[t0 + 1] == '*');
+						const bool contStar =
+							(t0 < lim && C[t0] == '*' && !(t0 + 1 < static_cast<int32>(C.Size()) && C[t0 + 1] == '/'));
+						bool closedBefore = false;
+						for (int32 k2 = t0; k2 + 1 < lim; ++k2)
+							if (C[k2] == '*' && C[k2 + 1] == '/') {
+								closedBefore = true;
+								break;
+							}
+						if ((begBlock || contStar) && !closedBefore) {
+							const bool closeAfter =
+								(curCol + 1 < static_cast<int32>(C.Size()) && C[curCol] == '*' && C[curCol + 1] == '/');
+							NkCodeLine mid;
+							for (int32 k2 = 0; k2 < t0; ++k2)
+								mid.PushBack(C[k2]);
+							if (begBlock)
+								mid.PushBack(' ');
+							mid.PushBack('*');
+							mid.PushBack(' ');
+							const int32 caretCol = static_cast<int32>(mid.Size());
+							if (closeAfter) { // `/*|*/` -> ligne du milieu + fermante alignée dessous
+								NkCodeLine closeL;
+								for (int32 k2 = 0; k2 < t0; ++k2)
+									closeL.PushBack(C[k2]);
+								if (begBlock)
+									closeL.PushBack(' ');
+								for (usize j = static_cast<usize>(curCol); j < C.Size(); ++j)
+									closeL.PushBack(C[j]);
+								C.Erase(C.Begin() + curCol, C.End());
+								lines.Insert(lines.Begin() + (curLine + 1), mid);
+								lines.Insert(lines.Begin() + (curLine + 2), closeL);
+							} else { // à l'intérieur du bloc : nouvelle ligne `* ` (+ texte déplacé)
+								for (usize j = static_cast<usize>(curCol); j < C.Size(); ++j)
+									mid.PushBack(C[j]);
+								C.Erase(C.Begin() + curCol, C.End());
+								lines.Insert(lines.Begin() + (curLine + 1), mid);
+							}
+							++curLine;
+							curCol = caretCol;
+							Collapse();
+							dirty = true;
+							widthDirty = true;
+							return;
+						}
+					}
+					// `{|}` : Entrée crée une ligne VIDE indentée (+1 niveau) pour le caret et
+					// renvoie la fermante sur sa PROPRE ligne, alignée sur l'indentation d'origine.
+					if (open && curCol < static_cast<int32>(C.Size()) && C[curCol] == '}') {
+						NkCodeLine mid, closeL;
+						for (int32 k = 0; k < ind; ++k) {
+							mid.PushBack(C[k]);
+							closeL.PushBack(C[k]);
+						}
+						for (int32 k = 0; k < 4; ++k)
+							mid.PushBack(' ');
+						for (usize j = static_cast<usize>(curCol); j < C.Size(); ++j)
+							closeL.PushBack(C[j]);
+						C.Erase(C.Begin() + curCol, C.End());
+						lines.Insert(lines.Begin() + (curLine + 1), mid);
+						lines.Insert(lines.Begin() + (curLine + 2), closeL);
+						++curLine;
+						curCol = static_cast<int32>(mid.Size());
+						Collapse();
+						dirty = true;
+						widthDirty = true;
+						return;
+					}
+					for (int32 k = 0; k < ind; ++k)
+						tail.PushBack(C[k]);
+					if (open)
+						for (int32 k = 0; k < 4; ++k)
+							tail.PushBack(' ');
+					const int32 newCol = static_cast<int32>(tail.Size());
 					for (usize j = static_cast<usize>(curCol); j < C.Size(); ++j)
 						tail.PushBack(C[j]);
 					C.Erase(C.Begin() + curCol, C.End());
 					lines.Insert(lines.Begin() + (curLine + 1), tail);
 					++curLine;
-					curCol = 0;
+					curCol = newCol;
 					Collapse();
 					dirty = true;
 					widthDirty = true;
@@ -1245,6 +1390,30 @@ namespace nkentseu {
 						return;
 					}
 					if (curCol > 0) {
+						// Paire vide `(|)` `[|]` `{|}` : Backspace supprime l'ouvrante ET la fermante.
+						{
+							const char pb = lines[curLine][curCol - 1];
+							const char pa = curCol < LineLen(curLine) ? lines[curLine][curCol] : 0;
+							if ((pb == '(' && pa == ')') || (pb == '[' && pa == ']') || (pb == '{' && pa == '}'))
+								lines[curLine].Erase(lines[curLine].Begin() + curCol); // la fermante d'abord
+						}
+						// Indentation intelligente : dans les BLANCS DE TÊTE, efface d'un coup
+						// jusqu'au multiple de 4 précédent (une « tabulation » de 4 espaces).
+						const NkCodeLine &L0 = lines[curLine];
+						bool leading = true;
+						for (int32 k = 0; k < curCol && leading; ++k)
+							leading = (L0[k] == ' ' || L0[k] == '\t');
+						if (leading && L0[curCol - 1] == ' ') {
+							int32 del = ((curCol - 1) % 4) + 1;
+							while (del-- > 0 && curCol > 0 && lines[curLine][curCol - 1] == ' ') {
+								lines[curLine].Erase(lines[curLine].Begin() + (curCol - 1));
+								--curCol;
+							}
+							Collapse();
+							dirty = true;
+							widthDirty = true;
+							return;
+						}
 						lines[curLine].Erase(lines[curLine].Begin() + (curCol - 1));
 						--curCol;
 					} else if (curLine > 0) {
@@ -1749,15 +1918,16 @@ namespace nkentseu {
 
 		// Candidats commençant par `prefix` (symboles fichier + projet + mots-clés), dédup, cap 40.
 		inline void NkBuildCompletions(const char *prefix, NkLang lang, const NkVector<NkString> *fileT,
-									   const NkVector<NkString> *fileF, const NkVector<NkString> *projT,
-									   const NkVector<NkString> *projF, NkVector<NkString> &out) {
+									   const NkVector<NkString> *fileF, const NkVector<NkString> *fileW,
+									   const NkVector<NkString> *projT, const NkVector<NkString> *projF,
+									   NkVector<NkString> &out) {
 			out.Clear();
-			if (!prefix || !*prefix)
+			if (!prefix)
 				return;
 			auto add = [&](const char *s) {
-				if (!NkStartsWithI(s, prefix))
+				if (*prefix && !NkStartsWithI(s, prefix))
 					return;
-				if (NkCodeDoc::SymCmp(s, prefix) == 0)
+				if (*prefix && NkCodeDoc::SymCmp(s, prefix) == 0)
 					return; // pas le mot exact
 				for (usize i = 0; i < out.Size(); ++i)
 					if (NkCodeDoc::SymCmp(out[i].CStr(), s) == 0)
@@ -1765,8 +1935,10 @@ namespace nkentseu {
 				if (out.Size() < 40)
 					out.PushBack(NkString(s));
 			};
-			const NkVector<NkString> *lists[] = {fileT, fileF, projT, projF};
-			for (int32 li = 0; li < 4; ++li)
+			// Ordre de priorité : symboles du fichier, puis TOUS les mots du fichier (variables
+			// locales, paramètres…), puis l'index projet, puis les mots-clés du langage.
+			const NkVector<NkString> *lists[] = {fileT, fileF, fileW, projT, projF};
+			for (int32 li = 0; li < 5; ++li)
 				if (lists[li])
 					for (usize i = 0; i < lists[li]->Size(); ++i)
 						add((*lists[li])[i].CStr());
@@ -1787,6 +1959,7 @@ namespace nkentseu {
 			if (!ctx.font || !ctx.font->Face())
 				return false;
 			d.EnsureNonEmpty();
+			++d.tick; // horloge en frames (fenêtre du multi-clic)
 			// ── Repli de code : mapping lignes visibles À JOUR avant souris/scroll/rendu. ──
 			d.EnsureFolds(lang);
 			if (d.LineHidden(d.curLine)) { // ne jamais laisser le caret sur une ligne masquée
@@ -1946,7 +2119,71 @@ namespace nkentseu {
 				d.linkIsInclude = linkInc;
 				NkCodeFocusId() = id;
 			}
-			if (!ctrlLink && ctx.input.mouseClicked[0] && overText) {
+			// Clic DANS le popup d autocompletion (rect de la frame precedente) : selection + insertion.
+			const bool overAc = d.acOpen && InRect(d.acRect, mouse);
+			if (overAc && ctx.input.mouseClicked[0]) {
+				const float32 rowsY0 = d.acRect.y + ctx.S(4.f);
+				const float32 rowH0 = lineH + ctx.S(2.f);
+				const int32 vi = static_cast<int32>((mouse.y - rowsY0) / rowH0);
+				const int32 n0 = static_cast<int32>(d.acItems.Size());
+				const int32 shown0 = n0 < 9 ? n0 : 9;
+				if (vi >= 0 && vi < shown0 && d.acTop + vi < n0 &&
+					mouse.x < d.acRect.x + d.acRect.w - ctx.S(10.f)) { // hors barre verticale
+					d.acSel = d.acTop + vi;
+					d.Checkpoint(3);
+					d.AcceptAutocomplete();
+				}
+			}
+			// Un clic (n'importe où : vide, autre ligne, autre caractère) FERME l'autocomplétion.
+			if (!overAc &&
+				(ctx.input.mouseClicked[0] || ctx.input.mouseClicked[1] || ctx.input.mouseDoubleClicked[0]) &&
+				d.acOpen) {
+				d.acOpen = false;
+				d.acCtxAll.Clear();
+			}
+			// Double-clic OS : sous Windows le 2e clic arrive en WM_LBUTTONDBLCLK (PAS un press),
+			// donc jamais dans mouseClicked -> on écoute mouseDoubleClicked. Mot sous la souris ;
+			// un double-clic enchaîné (3e clic rapide) escalade à la LIGNE.
+			if (!ctrlLink && !overAc && overText && ctx.input.mouseDoubleClicked[0] && !ctx.input.altDown) {
+				NkCodeFocusId() = id;
+				int32 l = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
+				if (l < 0)
+					l = 0;
+				if (l >= d.LineCount())
+					l = d.LineCount() - 1;
+				const int32 c = ColAtX(ctx, d, l, mouse.x - textLeft + d.scrollX);
+				d.extraCarets.Clear();
+				d.curLine = l;
+				d.lineSelAnchor = -1;
+				ctx.activeId = NKGUI_ID_NONE; // pas de glisser pendant la sélection mot/ligne
+				const bool chain3 =
+					(d.tick - d.clkTick <= 30) && l == d.clkL && (c - d.clkC <= 1) && (d.clkC - c <= 1) && d.clkN >= 2;
+				if (chain3) { // double-clic répété très vite -> ligne
+					d.curCol = c;
+					d.SelectCurrentLine();
+					d.clkN = 3;
+				} else {
+					const NkCodeLine &L = d.lines[l];
+					int32 ws = c, we = c;
+					while (ws > 0 && NkCodeDoc::IsWChar(L[ws - 1]))
+						--ws;
+					while (we < static_cast<int32>(L.Size()) && NkCodeDoc::IsWChar(L[we]))
+						++we;
+					if (we > ws) { // sélectionne le MOT
+						d.selLine = l;
+						d.selCol = ws;
+						d.curCol = we;
+					} else {
+						d.curCol = c;
+						d.Collapse();
+					}
+					d.clkN = 2;
+				}
+				d.clkTick = d.tick;
+				d.clkL = l;
+				d.clkC = c;
+			}
+			if (!ctrlLink && !overAc && ctx.input.mouseClicked[0] && overText && !ctx.input.mouseDoubleClicked[0]) {
 				NkCodeFocusId() = id;
 				int32 l = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
 				if (l < 0)
@@ -1963,13 +2200,37 @@ namespace nkentseu {
 					d.Collapse();
 					d.lineSelAnchor = -1;
 				} else {
-					ctx.activeId = dragId;
 					d.extraCarets.Clear(); // clic simple -> un seul curseur
 					d.curLine = l;
 					d.curCol = c;
 					d.lineSelAnchor = -1; // clic -> réinitialise la sélection-ligne Ctrl+L
-					if (!ctx.input.shiftDown)
-						d.Collapse();
+					// Multi-clic (façon VSCode) : double-clic = MOT sous le curseur, triple = LIGNE.
+					const bool chain =
+						(d.tick - d.clkTick <= 24) && l == d.clkL && (c - d.clkC <= 1) && (d.clkC - c <= 1);
+					d.clkN = chain ? d.clkN + 1 : 1;
+					d.clkTick = d.tick;
+					d.clkL = l;
+					d.clkC = c;
+					if (d.clkN == 2 && l < d.LineCount()) { // double : sélectionne le mot
+						const NkCodeLine &L = d.lines[l];
+						int32 ws = c, we = c;
+						while (ws > 0 && NkCodeDoc::IsWChar(L[ws - 1]))
+							--ws;
+						while (we < static_cast<int32>(L.Size()) && NkCodeDoc::IsWChar(L[we]))
+							++we;
+						if (we > ws) {
+							d.selLine = l;
+							d.selCol = ws;
+							d.curCol = we;
+						} else if (!ctx.input.shiftDown)
+							d.Collapse();
+					} else if (d.clkN >= 3) { // triple (et +) : la ligne entière
+						d.SelectCurrentLine();
+					} else {
+						ctx.activeId = dragId; // simple clic : amorce le glisser-sélection
+						if (!ctx.input.shiftDown)
+							d.Collapse();
+					}
 				}
 			}
 			// Glisser : etend la selection.
@@ -2006,6 +2267,7 @@ namespace nkentseu {
 				NkCodeFocusId() = NKGUI_ID_NONE;
 
 			bool changed = false;
+			bool noAutoReveal = false; // Ctrl+A : selection totale SANS defiler jusqu au caret
 			if (focused) {
 				const bool shift = ctx.input.shiftDown;
 				const bool ctrl = ctx.input.ctrlDown, alt = ctx.input.altDown;
@@ -2097,13 +2359,70 @@ namespace nkentseu {
 						for (int32 i = 0; i < ctx.input.charCount; ++i) {
 							const uint32 cp = ctx.input.chars[i];
 							if (cp >= 32 && cp < 127) {
+								const char tc0 = static_cast<char>(cp);
+								// Type-over : taper ')' ']' '}' quand le MÊME caractère suit -> on
+								// passe dessus au lieu de doubler (complément de l'auto-fermeture).
+								if (!d.McActive() && !d.HasSel() && (tc0 == ')' || tc0 == ']' || tc0 == '}') &&
+									d.curCol < d.LineLen(d.curLine) && d.lines[d.curLine][d.curCol] == tc0) {
+									++d.curCol;
+									d.Collapse();
+									continue;
+								}
 								if (!typed) {
 									d.Checkpoint(1);
 									typed = true;
 								}
-								d.McType(static_cast<char>(cp));
+								d.McType(tc0);
 								changed = true;
 								acTyped = true;
+								// Auto-fermeture des paires : '(' '[' '{' insèrent leur fermante si le
+								// caractère suivant ne s'y oppose pas (fin de ligne, blanc, fermante, , ;).
+								if (!d.McActive() && (tc0 == '(' || tc0 == '[' || tc0 == '{')) {
+									const int32 ll = d.LineLen(d.curLine);
+									const char af = d.curCol < ll ? d.lines[d.curLine][d.curCol] : 0;
+									const bool okc = !af || af == ' ' || af == '\t' || af == ')' || af == ']' ||
+													 af == '}' || af == ',' || af == ';';
+									if (okc) {
+										d.InsertChar(tc0 == '(' ? ')' : (tc0 == '[' ? ']' : '}'));
+										--d.curCol;
+										d.Collapse();
+									}
+								}
+								// Auto-fermeture des blocs commentaire : taper `/*` insere `*/`.
+								if (!d.McActive() && tc0 == 0x2A && d.curCol >= 2 && d.curLine < d.LineCount() &&
+									d.lines[d.curLine][d.curCol - 2] == 0x2F) {
+									const int32 ll2 = d.LineLen(d.curLine);
+									const char af2 = d.curCol < ll2 ? d.lines[d.curLine][d.curCol] : 0;
+									if (!af2 || af2 == 0x20 || af2 == 0x09) { // rien de significatif apres
+										d.InsertChar(0x2A);
+										d.InsertChar(0x2F);
+										d.curCol -= 2;
+										d.Collapse();
+									}
+								}
+								// Déclencheur de complétion CONTEXTUELLE : '.', '->' ou '::' (C/NKSL,
+								// mono-curseur). La requête est consommée par NkCodeState (compile-first).
+								if ((lang == NkLang::C || lang == NkLang::NKSL) && !d.McActive() &&
+									d.curLine < d.LineCount()) {
+									const char tc = static_cast<char>(cp);
+									const NkCodeLine &CL = d.lines[d.curLine];
+									const char pv = (d.curCol >= 2) ? CL[d.curCol - 2] : 0;
+									bool trig = (tc == '>' && pv == '-') || (tc == ':' && pv == ':');
+									if (tc == '.') { // '.' sauf littéral numérique (3.14) : que des chiffres avant
+										int32 q = d.curCol - 2;
+										while (q >= 0 && CL[q] >= '0' && CL[q] <= '9')
+											--q;
+										const bool numLit = (q < d.curCol - 2) && (q < 0 || !NkCodeDoc::IsWChar(CL[q]));
+										trig = !numLit;
+									}
+									if (trig) {
+										d.acCtxReq = true;
+										d.acCtxLine = d.curLine;
+										d.acCtxCol = d.curCol;
+										d.acCtxAll.Clear();
+										d.acOpen = false;
+									}
+								}
 							}
 						}
 					}
@@ -2245,6 +2564,45 @@ namespace nkentseu {
 						if (!shift && K(NkGuiKey::L)) {
 							d.SelectCurrentLine();
 						} // Ctrl+L = sélectionner ligne (étend au répété)
+						if (K(NkGuiKey::Space) && d.curLine < d.LineCount()) { // Ctrl+Espace = autocomplétion
+							const NkCodeLine &L = d.lines[d.curLine];
+							int32 s = d.curCol;
+							while (s > 0 && NkCodeDoc::IsWChar(L[s - 1]))
+								--s;
+							// Contexte MEMBRE ? ('.', '->' ou '::' juste avant le mot en cours)
+							bool ctxTrig = false;
+							if (s >= 1 && L[s - 1] == '.') {
+								int32 q2 = s - 2; // pas un littéral numérique (3.14)
+								while (q2 >= 0 && L[q2] >= '0' && L[q2] <= '9')
+									--q2;
+								ctxTrig = !((q2 < s - 2) && (q2 < 0 || !NkCodeDoc::IsWChar(L[q2])));
+							} else if (s >= 2 &&
+									   ((L[s - 2] == '-' && L[s - 1] == '>') || (L[s - 2] == ':' && L[s - 1] == ':')))
+								ctxTrig = true;
+							if (ctxTrig && (lang == NkLang::C || lang == NkLang::NKSL) && !d.McActive()) {
+								d.acCtxReq = true; // heuristique + compilateur (frame suivante)
+								d.acCtxLine = d.curLine;
+								d.acCtxCol = s;
+								d.acCtxAll.Clear();
+								d.acOpen = false;
+							} else { // complétion par MOTS : préfixe courant, ou TOUT si préfixe vide
+								char pre[128];
+								int32 pn = 0;
+								for (int32 k2 = s; k2 < d.curCol && pn < 127; ++k2)
+									pre[pn++] = L[k2];
+								pre[pn] = 0;
+								d.EnsureSymbols(lang);
+								NkBuildCompletions(pre, lang, &d.symTypes, &d.symFuncs, &d.symWords, projTypes,
+												   projFuncs, d.acItems);
+								d.acOpen = !d.acItems.Empty();
+								d.acSel = 0;
+								d.acTop = 0;
+								d.acXOff = 0.f;
+								d.acWordCol = s;
+							}
+							GlobalLogBuffer().Push(
+								NkString(ctxTrig ? "[ac] Ctrl+Espace: contexte membre" : "[ac] Ctrl+Espace: mots"));
+						}
 						if (K(NkGuiKey::Enter)) {
 							d.Checkpoint(3);
 							if (shift)
@@ -2293,8 +2651,10 @@ namespace nkentseu {
 						}
 					}
 					// Copier / couper / coller / tout-selectionner (presse-papiers).
-					if (ctx.input.wantSelectAll)
+					if (ctx.input.wantSelectAll) {
 						d.SelectAll();
+						noAutoReveal = true;
+					}
 					if ((ctx.input.wantCopy || ctx.input.wantCut) && d.HasSel()) {
 						ctx.SetClipboard(d.GetSelectedText().CStr());
 						if (ctx.input.wantCut) {
@@ -2311,8 +2671,40 @@ namespace nkentseu {
 							changed = true;
 						}
 					}
-					// ── Recalcule l'autocomplétion après une frappe/effacement réel (identifiant) ──
-					if (acTyped && lang != NkLang::None && d.curLine < d.LineCount()) {
+					// ── Recalcule l'autocomplétion après une frappe/effacement réel ──
+					// Mode CONTEXTUEL d'abord : si le compilateur a fourni des membres pour ce point
+					// ('.', '->', '::'), on re-filtre CETTE liste avec le préfixe tapé (aucun nouvel
+					// appel compilo par lettre) ; sinon complétion par mots (types/fonctions connus).
+					if (acTyped && !d.acCtxAll.Empty() && d.curLine == d.acCtxLine && d.curCol >= d.acCtxCol) {
+						const NkCodeLine &L = d.lines[d.curLine];
+						bool word = true;
+						for (int32 k = d.acCtxCol; k < d.curCol && word; ++k)
+							word = NkCodeDoc::IsWChar(L[k]);
+						if (word) {
+							char pre[128];
+							int32 pn = 0;
+							for (int32 k = d.acCtxCol; k < d.curCol && pn < 127; ++k)
+								pre[pn++] = L[k];
+							pre[pn] = 0;
+							d.acItems.Clear();
+							for (usize ii = 0; ii < d.acCtxAll.Size(); ++ii) {
+								const char *nm = d.acCtxAll[ii].CStr();
+								int32 m = 0;
+								while (pre[m] && nm[m] && (nm[m] | 32) == (pre[m] | 32))
+									++m;
+								if (!pre[m])
+									d.acItems.PushBack(d.acCtxAll[ii]);
+							}
+							d.acOpen = !d.acItems.Empty();
+							d.acSel = 0;
+							d.acWordCol = d.acCtxCol;
+						} else {
+							d.acCtxAll.Clear(); // le préfixe n'est plus un identifiant -> fin du mode membre
+							d.acOpen = false;
+						}
+					} else if (acTyped && lang != NkLang::None && d.curLine < d.LineCount()) {
+						if (!d.acCtxAll.Empty())
+							d.acCtxAll.Clear(); // caret sorti du contexte membre
 						const NkCodeLine &L = d.lines[d.curLine];
 						int32 s = d.curCol;
 						while (s > 0 && NkCodeDoc::IsWChar(L[s - 1]))
@@ -2327,7 +2719,8 @@ namespace nkentseu {
 								pre[pn++] = L[k];
 							pre[pn] = 0;
 							d.EnsureSymbols(lang); // symboles du fichier à jour
-							NkBuildCompletions(pre, lang, &d.symTypes, &d.symFuncs, projTypes, projFuncs, d.acItems);
+							NkBuildCompletions(pre, lang, &d.symTypes, &d.symFuncs, &d.symWords, projTypes, projFuncs,
+											   d.acItems);
 							d.acOpen = !d.acItems.Empty();
 							d.acSel = 0;
 							d.acWordCol = s;
@@ -2365,7 +2758,8 @@ namespace nkentseu {
 
 			// Auto-scroll : garde le caret dans la vue UNIQUEMENT s'il vient de bouger
 			// (clic/clavier/edition) -> ne combat pas le scroll molette/barre.
-			const bool ensureCaret = (d.curLine != oldL || d.curCol != oldC || changed || d.wantReveal);
+			const bool ensureCaret =
+				!noAutoReveal && (d.curLine != oldL || d.curCol != oldC || changed || d.wantReveal);
 			if (ensureCaret) {
 				const float32 cX = PrefixW(ctx, d, d.curLine, d.curCol);
 				const float32 cY = topPad + d.RowOf(d.curLine) * lineH; // repli : position VISUELLE du caret
@@ -2617,11 +3011,35 @@ namespace nkentseu {
 						dl.AddLine({x, wy}, {x + 2.f, wy - 2.f}, col, 1.1f);
 						dl.AddLine({x + 2.f, wy - 2.f}, {x + 4.f, wy}, col, 1.1f);
 					}
-					// message inline (aprÃ¨s la fin du texte de la ligne), attÃ©nuÃ©.
-					if (ctx.font && ctx.font->Valid()) {
+					// Message inline « Error Lens » : UNE seule annotation par ligne (la plus sévère,
+					// sinon la première) + tronquée — plusieurs diagnostics ne s'écrasent plus.
+					bool best = true;
+					for (usize dj = 0; dj < d.diags.Size() && best; ++dj) {
+						if (dj == di)
+							continue;
+						const NkCodeDoc::Diag &og = d.diags[dj];
+						if (og.line != dg.line)
+							continue;
+						if (og.sev > dg.sev || (og.sev == dg.sev && dj < di))
+							best = false;
+					}
+					if (best && ctx.font && ctx.font->Valid()) {
+						char mb[144];
+						int32 mk = 0;
+						const char *ms = dg.msg.CStr();
+						while (ms[mk] && mk < 137) {
+							mb[mk] = ms[mk];
+							++mk;
+						}
+						if (ms[mk]) {
+							mb[mk++] = '.';
+							mb[mk++] = '.';
+							mb[mk++] = '.';
+						}
+						mb[mk] = 0;
 						const float32 endX =
 							textLeft + PrefixW(ctx, d, dg.line, (int32)ln.Size()) - d.scrollX + chW * 2.f;
-						dl.AddText(ctx.font->Face(), ctx.font->TexId(), {endX, yy + asc}, dg.msg.CStr(),
+						dl.AddText(ctx.font->Face(), ctx.font->TexId(), {endX, yy + asc}, mb,
 								   NkColor{col.r, col.g, col.b, 165});
 					}
 				}
@@ -2663,45 +3081,131 @@ namespace nkentseu {
 				}
 			dl.PopClipRect();
 
-			// ── Popup d'autocomplétion (façon VSCode) : liste sous le mot, pilotée au clavier
-			//    (↑↓ naviguer · Tab/Entrée accepter · Échap fermer). Dessiné hors clip. ──
+			// ── Popup d'autocomplétion (façon VSCode) : liste sous le mot. Clavier (↑↓ · Tab/
+			//    Entrée accepter · Échap fermer) ET souris (clic = insérer, molette = défiler,
+			//    barres V/H). Son rect est mémorisé (d.acRect) pour router les clics de la frame
+			//    suivante : un clic DANS le popup ne le ferme pas et n'atteint pas l'éditeur. ──
 			if (focused && d.acOpen && !d.acItems.Empty() && ctx.font && ctx.font->Valid()) {
 				const int32 n = static_cast<int32>(d.acItems.Size());
-				const int32 shown = n < 8 ? n : 8;
-				int32 top = 0;
-				if (d.acSel >= shown)
-					top = d.acSel - shown + 1;
-				if (top > n - shown)
-					top = n - shown;
-				if (top < 0)
-					top = 0;
-				float32 pw = 140.f;
+				const int32 shown = n < 9 ? n : 9;
+				if (d.acSel < 0)
+					d.acSel = 0;
+				if (d.acSel >= n)
+					d.acSel = n - 1;
+				if (d.acSel < d.acTop)
+					d.acTop = d.acSel;
+				if (d.acSel >= d.acTop + shown)
+					d.acTop = d.acSel - shown + 1;
+				if (d.acTop > n - shown)
+					d.acTop = n - shown;
+				if (d.acTop < 0)
+					d.acTop = 0;
+				float32 maxW = 0.f;
 				for (int32 i = 0; i < n; ++i) {
-					const float32 w = ctx.font->MeasureWidth(d.acItems[static_cast<usize>(i)].CStr()) + 26.f;
-					if (w > pw)
-						pw = w;
+					const float32 w = ctx.font->MeasureWidth(d.acItems[static_cast<usize>(i)].CStr());
+					if (w > maxW)
+						maxW = w;
 				}
-				if (pw > 380.f)
-					pw = 380.f;
-				const float32 rowH = lineH;
+				const float32 padX = ctx.S(10.f);
+				const float32 sbT = ctx.S(7.f); // épaisseur des barres de défilement du popup
+				float32 pw = maxW + padX * 2.f + sbT + ctx.S(10.f);
+				if (pw < ctx.S(200.f))
+					pw = ctx.S(200.f);
+				if (pw > ctx.S(480.f))
+					pw = ctx.S(480.f);
+				const float32 rowH = lineH + ctx.S(2.f);
+				const float32 innerW = pw - padX * 2.f - sbT;
+				const bool hBar = maxW > innerW;
+				const float32 ph = shown * rowH + ctx.S(8.f) + (hBar ? sbT + ctx.S(2.f) : 0.f);
 				const float32 px = textLeft + PrefixW(ctx, d, d.curLine, d.acWordCol) - d.scrollX;
 				float32 py = textTop + (d.RowOf(d.curLine) + 1) * lineH - d.scrollY;
-				const float32 ph = shown * rowH + 4.f;
 				if (py + ph > area.y + area.h)
 					py = textTop + d.RowOf(d.curLine) * lineH - d.scrollY - ph; // au-dessus si ça déborde
 				const NkRect box = {px, py, pw, ph};
-				dl.AddRectFilled(box, ctx.theme.header, 5.f);
-				dl.AddRect(box, ctx.theme.accent, 1.f);
-				const NkColor selC = {ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 80};
+				// Ombre portée (2 couches) + panneau arrondi + liseré accent discret.
+				dl.AddRectFilled({box.x + 4.f, box.y + 5.f, box.w, box.h}, NkColor{0, 0, 0, 46}, 8.f);
+				dl.AddRectFilled({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkColor{0, 0, 0, 60}, 7.f);
+				dl.AddRectFilled(box, NkColor{ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 90}, 6.f);
+				dl.AddRectFilled({box.x + 1.f, box.y + 1.f, box.w - 2.f, box.h - 2.f}, ctx.theme.header, 6.f);
+				const float32 rowsY = box.y + ctx.S(4.f);
+				const float32 rowsW = pw - ctx.S(4.f) - sbT;
+				const NkColor selBg = {ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 80};
+				const NkColor hovBg = {ctx.theme.text.r, ctx.theme.text.g, ctx.theme.text.b, 14};
+				// Molette au-dessus du popup : défile la liste (V) / le texte (H). Consommée.
+				const bool overPopup = InRect(box, mouse);
+				if (overPopup && ctx.input.wheel != 0.f) {
+					d.acTop -= static_cast<int32>(ctx.input.wheel);
+					if (d.acTop > n - shown)
+						d.acTop = n - shown;
+					if (d.acTop < 0)
+						d.acTop = 0;
+					ctx.input.wheel = 0.f;
+				}
+				if (overPopup && ctx.input.wheelH != 0.f) {
+					d.acXOff -= ctx.input.wheelH * 24.f;
+					ctx.input.wheelH = 0.f;
+				}
+				const float32 xMaxOff = maxW > innerW ? maxW - innerW : 0.f;
+				if (d.acXOff < 0.f)
+					d.acXOff = 0.f;
+				if (d.acXOff > xMaxOff)
+					d.acXOff = xMaxOff;
+				dl.PushClipRect({box.x + 2.f, rowsY, rowsW, shown * rowH}, true);
 				for (int32 vi = 0; vi < shown; ++vi) {
-					const int32 i = top + vi;
-					const NkRect row = {box.x + 2.f, box.y + 2.f + vi * rowH, pw - 4.f, rowH};
-					if (i == d.acSel)
-						dl.AddRectFilled(row, selC, 3.f);
-					dl.AddText(ctx.font->Face(), ctx.font->TexId(), {row.x + 8.f, row.y + asc},
+					const int32 i = d.acTop + vi;
+					if (i >= n)
+						break;
+					const NkRect row = {box.x + 2.f, rowsY + vi * rowH, rowsW, rowH};
+					const bool hov = InRect(row, mouse);
+					if (i == d.acSel) {
+						dl.AddRectFilled(row, selBg, 3.f);
+						dl.AddRectFilled({row.x, row.y, 3.f, row.h}, ctx.theme.accent); // barre accent
+					} else if (hov)
+						dl.AddRectFilled(row, hovBg, 3.f);
+					dl.AddText(ctx.font->Face(), ctx.font->TexId(), {row.x + padX - d.acXOff, row.y + asc + 1.f},
 							   d.acItems[static_cast<usize>(i)].CStr(), ctx.theme.text);
 				}
-			}
+				dl.PopClipRect();
+				// Barre VERTICALE (liste plus longue que la fenêtre du popup).
+				if (n > shown) {
+					const NkRect vtr = {box.x + pw - sbT - 2.f, rowsY, sbT, shown * rowH};
+					dl.AddRectFilled(vtr, NkColor{255, 255, 255, 14}, 3.f);
+					float32 thH = vtr.h * (static_cast<float32>(shown) / static_cast<float32>(n));
+					if (thH < ctx.S(18.f))
+						thH = ctx.S(18.f);
+					const float32 thY =
+						vtr.y + (vtr.h - thH) * (n - shown > 0 ? static_cast<float32>(d.acTop) / (n - shown) : 0.f);
+					dl.AddRectFilled({vtr.x + 1.f, thY, sbT - 2.f, thH}, NkColor{150, 158, 170, 200}, 3.f);
+					if (InRect(vtr, mouse) && ctx.input.mouseDown[0]) { // clic/glisser -> position
+						float32 fr = (mouse.y - vtr.y - thH * 0.5f) / (vtr.h - thH > 1.f ? vtr.h - thH : 1.f);
+						if (fr < 0.f)
+							fr = 0.f;
+						if (fr > 1.f)
+							fr = 1.f;
+						d.acTop = static_cast<int32>(fr * (n - shown) + 0.5f);
+					}
+				}
+				// Barre HORIZONTALE (élément plus large que la fenêtre du popup).
+				if (hBar) {
+					const NkRect htr = {box.x + 2.f, box.y + ph - sbT - 2.f, rowsW, sbT};
+					dl.AddRectFilled(htr, NkColor{255, 255, 255, 14}, 3.f);
+					float32 thW = htr.w * (innerW / maxW);
+					if (thW < ctx.S(22.f))
+						thW = ctx.S(22.f);
+					const float32 thX = htr.x + (htr.w - thW) * (xMaxOff > 0.f ? d.acXOff / xMaxOff : 0.f);
+					dl.AddRectFilled({thX, htr.y + 1.f, thW, sbT - 2.f}, NkColor{150, 158, 170, 200}, 3.f);
+					if (InRect(htr, mouse) && ctx.input.mouseDown[0]) {
+						float32 fr = (mouse.x - htr.x - thW * 0.5f) / (htr.w - thW > 1.f ? htr.w - thW : 1.f);
+						if (fr < 0.f)
+							fr = 0.f;
+						if (fr > 1.f)
+							fr = 1.f;
+						d.acXOff = fr * xMaxOff;
+					}
+				}
+				d.acRect = box; // pour router les clics de la frame suivante (insertion au clic)
+			} else
+				d.acRect = {0.f, 0.f, 0.f, 0.f};
 
 			// ── Gouttiere : numeros + chevrons repli + colonne breakpoints (clic = toggle, survol = creux) ──
 			const float32 bpX = area.x + numAreaW + foldW;

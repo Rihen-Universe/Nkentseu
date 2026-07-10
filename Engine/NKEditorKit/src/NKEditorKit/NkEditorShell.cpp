@@ -190,7 +190,17 @@ namespace nkentseu {
 				auto *self = static_cast<NkEditorShell *>(u);
 				for (int32 i = 0; i < self->mNumPanels; ++i)
 					if (c.GetId(self->mPanels[i]->Title()) == win) {
-						self->mPanels[i]->OnTabBarActions(c, bar);
+						// Le masquage anti clic-a-travers (souris sur un popup) vise les corps en
+						// hit-test brut ; les ACTIONS de barre d onglets (vrais widgets NKGui, dont
+						// le combo de shells et SON popup) recoivent l input REEL, sinon le menu
+						// deroulant ouvert par le panneau est injouable a la souris.
+						if (self->mPopupMasked) {
+							const nkgui::NkGuiInput masked = c.input;
+							c.input = self->mRealInput;
+							self->mPanels[i]->OnTabBarActions(c, bar);
+							c.input = masked;
+						} else
+							self->mPanels[i]->OnTabBarActions(c, bar);
 						break;
 					}
 			};
@@ -374,6 +384,9 @@ namespace nkentseu {
 				case NkKey::NK_F:
 					mUI.input.SetKey(NkGuiKey::F, down);
 					break; // Ctrl+F recherche
+				case NkKey::NK_SPACE:
+					mUI.input.SetKey(NkGuiKey::Space, down);
+					break; // Ctrl+Espace autocompletion
 				case NkKey::NK_H:
 					mUI.input.SetKey(NkGuiKey::H, down);
 					break;
@@ -581,6 +594,8 @@ namespace nkentseu {
 			nkgui::NkGuiInput savedInput;
 			if (modal) {
 				savedInput = mUI.input;
+				mPopupMasked = overPopup && !mShowPrefs && !mUI.appModal; // cf. dockHeaderFn
+				mRealInput = savedInput;
 				mUI.input.mousePos = {-100000.f, -100000.f};
 				for (int32 i = 0; i < 3; ++i) {
 					mUI.input.mouseClicked[i] = false;
@@ -606,6 +621,7 @@ namespace nkentseu {
 
 			if (modal)
 				mUI.input = savedInput; // restaure pour le popup
+			mPopupMasked = false;
 			DrawCommandPalette(ec);
 			DrawPreferences(ec); // fenetre Preferences (menu dedie)
 			if (mOverlayFn)

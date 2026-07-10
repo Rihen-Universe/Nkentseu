@@ -216,6 +216,7 @@ int nkmain(const NkEntryState &state) {
 	g_zoomCtx = {&g_state, shell.Get()};
 	shell->SetZoomHandler(&ZoomHandler, &g_zoomCtx); // zoom Ctrl+molette/±/0 -> onglet actif
 	terminal.mShell = shell.Get();					 // police propre du terminal (non zoomee)
+	terminal.mState = &g_state;						 // terminal demarre dans la racine du workspace
 	g_dialogs.st = &g_state;
 	g_dialogs.shell = shell.Get();
 	g_state.LoadRecents();							// workspaces recents (ecran de demarrage)
