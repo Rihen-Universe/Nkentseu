@@ -24,6 +24,11 @@ namespace nkentseu {
 				// Nombre de niveaux de quantification de l'angle de split (bands.c compute_qn).
 				static int32 ComputeQn(int32 N, int32 b, int32 offset, int32 pulseCap, int32 stereo);
 
+				// Helpers virgule fixe de l'angle θ (RFC 6716, réécrits Nkentseu).
+				static int32 BitexactCos(int32 x);				  // cos approx Q15
+				static int32 BitexactLog2Tan(int32 isin, int32 icos);
+				static uint32 Isqrt32(uint32 val);				  // racine entière
+
 				static bool SelfTest();
 		};
 
