@@ -170,6 +170,22 @@ transpilé partout — vérifier comme pour les autres).
 ### M1 — Pose & timeline *(EN COURS)*
 Éditer des poses-clés, timeline, interpolation, save/load `.nkanim`.
 
+**✅ M1.d — ANIMATION PAR TRAÇAGE DE COURBE (2026-07-10)** — module
+`NKRenderer/Tools/Animation/NkMotionPath.{h,cpp}` (pur Foundation, AUCUN GPU). On trace une **courbe**
+dans la scène (points de contrôle) et une cible la suit :
+- `NkMotionCurve` — spline **Catmull-Rom** (passe par les points), `SamplePosition/SampleTangent(t)`,
+  `Length`, **reparamétrage par longueur d'arc** (`SampleByDistance`/`DistanceToT` = vitesse constante),
+  ouverte ou fermée.
+- `NkPathFollow` — playhead : `Advance(dt)` à `speed`, modes **loop/once/ping-pong**. Renvoie un
+  **TRANSFORM COMPLET** : **translation** (courbe) + **rotation** (`NkQuatf::LookAt(tangente, up)`, orientée
+  sur le chemin) + **échelle** (profil `scaleProfile` le long de la courbe × `baseScale`). Modes cible :
+  `NK_GLOBAL_ROOT` (rig entier), `NK_SINGLE_BONE` (un os), `NK_IK_EFFECTOR` (but d'effecteur → **NkIKSystem
+  fait suivre la chaîne d'os naturellement**).
+Testé HEADLESS (`NkAnimPhysTest` → **NkMotionPath OK** : la spline passe par les points, longueur/tangente
+d'une droite exactes, path-follow loop/once/finished, **échelle interpolée + rotation valide/constante**).
+⏳ Reste : câblage éditeur (tracer/éditer la courbe au gizmo + rendu debug de la spline), rotation par
+`NkAnimationTrack` (clés T/R/S), banking/roll sur la courbe.
+
 **Audit (2026-06-27)** : le système d'anim `Tools/Animation/NkAnimationSystem` est
 DÉJÀ riche — `NkAnimationClip` (boneTracks `NkAnimationTrack<NkMat4f>` par os +
 morph/UV/material/transform/caméra/lumière/PP), sampling avec 9 modes d'easing,
