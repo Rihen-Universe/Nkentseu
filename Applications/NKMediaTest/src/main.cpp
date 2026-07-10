@@ -20,6 +20,7 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDecoder.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltAntiCollapse.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltSplit.h"
+#include "NKMedia/Codecs/Opus/Celt/NkCeltQuantBands.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -235,6 +236,14 @@ int main(int argc, char **argv) {
 				ok = false;
 		}
 		printf("[ %s ] NkCeltSplit : haar1 (orthonormale+involutive) + compute_qn + TellFrac (prereq quant_all_bands)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkCeltQuantBands::SelfTest();
+		printf("[ %s ] NkCeltQuantBands : decodage des bandes (compute_theta+quant_partition+folding), spectre fini\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
