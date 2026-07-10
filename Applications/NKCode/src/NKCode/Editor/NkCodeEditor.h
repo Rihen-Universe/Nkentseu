@@ -4366,8 +4366,10 @@ namespace nkentseu {
 				}
 			}
 
+			// « Modifie » = le texte DIFFERE de l'etat sauvegarde (hash) — forcer true ici
+			// ecrasait le calcul fait par Undo()/Redo() et le point ne s'eteignait jamais.
 			if (changed)
-				d.dirty = true;
+				d.dirty = (d.SymSig() != d.savedSig);
 			return changed;
 		}
 
