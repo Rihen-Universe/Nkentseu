@@ -120,6 +120,7 @@ namespace nkentseu {
 			I,
 			O,
 			Backslash,
+			Period, // Ctrl+. : quick fix
 			Count
 		};
 

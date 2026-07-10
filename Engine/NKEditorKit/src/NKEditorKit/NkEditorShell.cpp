@@ -411,6 +411,9 @@ namespace nkentseu {
 				case NkKey::NK_BACKSLASH:
 					mUI.input.SetKey(NkGuiKey::Backslash, down);
 					break;
+				case NkKey::NK_PERIOD:
+					mUI.input.SetKey(NkGuiKey::Period, down);
+					break;
 				case NkKey::NK_H:
 					mUI.input.SetKey(NkGuiKey::H, down);
 					break;
