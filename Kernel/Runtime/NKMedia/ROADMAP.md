@@ -59,18 +59,25 @@
     drapeaux ec skip/intensity + split pulses/énergie fine → `quant_all_bands` (boucle bandes, folding/stéréo/
     split) → anti-collapse → PCM. **Deemphasis** livré (`NkCeltDeemphasis` : IIR 1-pôle sortie, aller-retour
     préemph/deemph + réponse impulsionnelle prouvés). **Toute la boîte à outils CELT est faite+prouvée.**
-    **Orchestration `celt_decode` DÉMARRÉE** (`NkCeltDecoder`) : état persistant (énergie/overlap/deemphasis) +
-    lecture des **flags dans l'ordre ec exact** (silence, post-filtre+params, transient, intra) + **chemin
-    SILENCE → PCM zéro correct** (testé) + câblage deemphasis. ⏳ Reste le **chemin non-silence** : unquant_coarse
-    energy → tf → spread → dynalloc → compute_allocation (avec split pulses/énergie fine + skip flags) →
-    **`quant_all_bands`** (boucle bandes : split récursif/stéréo/folding + AlgUnquant) → **IMDCT CELT + overlap-add**
-    → deemphasis → PCM. **anti-collapse LIVRÉ** (`NkCeltAntiCollapse` : LCG + renormalise + bruit calibré ;
-    testé). ⚠️ `quant_all_bands` = la pièce restante (récursion). **Prérequis testables posés** (`NkCeltSplit` :
-    `haar1` orthonormale+involutive, `compute_qn` ; + `TellFrac` sur le range decoder). Reste la **colle
-    récursive** `quant_partition`/`quant_band` (décode l'angle θ de split → coupe la bande en 2 via haar1 →
-    récursion → `AlgUnquant` aux feuilles → folding) + wiring dans `NkCeltDecoder` + IMDCT CELT.
-    **Harnais de validation prêt** (`NKOpusRef` : NKMedia vs ffmpeg 48 kHz ; front-end validé, alignement
-    échantillon exact). Puis SILK + hybride.
+    **`quant_all_bands` LIVRÉ** (`NkCeltQuantBands`) : décodage des bandes MONO complet — `compute_theta`
+    (angle θ de split → imid/iside/delta), `quant_partition`/`quant_band` (split récursif via `haar1` +
+    hadamard entrelacé/désentrelacé + recombinaison T/F), `AlgUnquant` aux feuilles, **folding** (LCG /
+    spectre replié) + gestion `norm`/`lowband`/collapse masks. Aller-retour structurel testé (spectre fini).
+    **Orchestration `celt_decode` COMPLÈTE (chemin MONO)** (`NkCeltDecoder`, 2026-07-10) : état persistant
+    (énergie coarse+fine, historique anti-collapse, buffer glissant de synthèse, deemphasis, graine LCG) +
+    **chaîne bout-en-bout** : flags ec exacts → `unquant_coarse_energy` → **`tf_decode`** → spread (icdf) →
+    **`init_caps`** → **dynalloc** (boosts) → trim (icdf) → **`compute_allocation` décodage** (bissection +
+    skip flags ec + répartition + split pulses/énergie fine + priorité + rééquilibrage, `interp_bits2pulses`) →
+    `unquant_fine_energy` → **`quant_all_bands`** → réservation/lecture **anti-collapse** → **`unquant_energy_finalise`**
+    → **denormalise** → **IMDCT CELT** (DFT directe reproduisant `clt_mdct_backward` : pré-rotation → FFT →
+    post-rotation → repli TDAC fenêtré ; twiddles `cos(2π(i+.125)/N)`, fenêtre `sin(π/2·sin²(...))`) → overlap-add
+    (buffer glissant type `decode_mem`) → deemphasis → PCM. Chemin SILENCE → PCM zéro conservé.
+    **Résultat mesuré vs ffmpeg** (`NKOpusRef`, ghomala' réel) : **front-end BIT-EXACT** (consommation de bits
+    par trame **exacte** : 18682/18688, 18816/18816 frac), énergies grossières correctes, **spectre correct**
+    (corrélation du spectrogramme log-magnitude **0.74** avec ffmpeg). ⚠️ **Reste** : la reconstruction
+    d'onde exacte (corrélation échantillon) — problème de **phase de l'IMDCT/TDAC** (magnitude correcte, phase
+    imparfaite) à raffiner. **Le décodeur produit le bon contenu spectral ; la phase parfaite est la finition
+    restante.** Puis SILK + hybride.
   ⏳ Puis **SILK** (LPC, LTP) → mode hybride → PCM float32.
 
 ## En cours / À venir

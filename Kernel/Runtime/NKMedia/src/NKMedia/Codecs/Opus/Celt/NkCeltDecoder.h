@@ -3,11 +3,13 @@
 // -----------------------------------------------------------------------------
 // Décodeur Opus/CELT — ORCHESTRATION (celt_decoder.c celt_decode_with_ec). Assemble
 // toutes les briques CELT en un décodeur de trame → PCM. État persistant entre
-// trames (énergie précédente `oldEBands`, mémoire d'overlap, deemphasis).
+// trames (énergie précédente `oldEBands`, historique anti-collapse, buffer d'overlap
+// de synthèse, mémoire deemphasis, graine LCG).
 //
-// ⚠️ EN COURS D'ASSEMBLAGE : les FLAGS (silence/transient/intra) + le chemin SILENCE
-// (→ PCM zéro) sont câblés et testés ; le chemin non-silence (quant_all_bands +
-// IMDCT CELT overlap-add) est en cours. Zero-STL, nkentseu::media.
+// Chemin complet MONO câblé : silence + coarse/fine energy + tf_decode + spread +
+// caps + dynalloc + compute_allocation (décodage) + quant_all_bands + anti_collapse
+// + finalise + denormalise + IMDCT CELT (DFT directe) + overlap-add + deemphasis.
+// Algorithmes RFC 6716 réécrits à la sauce Nkentseu. Zero-STL, nkentseu::media.
 //
 // AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
@@ -25,6 +27,7 @@ namespace nkentseu {
 				static constexpr int32 kShortMdctSize = 120; // à 48 kHz
 				static constexpr int32 kOverlap = 120;
 				static constexpr int32 kMaxChannels = 2;
+				static constexpr int32 kDecBufSize = 2048; // tampon de synthèse par canal (overlap-add MDCT)
 
 				// Résultat du décodage d'une trame.
 				struct NkFrameFlags {
@@ -44,9 +47,12 @@ namespace nkentseu {
 
 			private:
 				int32 mC = 1;
-				float32 mOldEBands[kNumBands * kMaxChannels];
-				float32 mPreemphMem[kMaxChannels];
-				float32 mOverlapMem[kOverlap * kMaxChannels];
+				float32 mOldEBands[kNumBands * kMaxChannels];				// énergie (coarse+fine) trame précédente
+				float32 mOldLogE[kNumBands * kMaxChannels];					// historique énergie (anti-collapse)
+				float32 mOldLogE2[kNumBands * kMaxChannels];				// historique énergie -2 (anti-collapse)
+				float32 mPreemphMem[kMaxChannels];							// état deemphasis
+				float32 mDecodeMem[(kDecBufSize + kOverlap) * kMaxChannels]; // buffer glissant de synthèse
+				uint32 mRng = 0;											// graine LCG (folding + anti-collapse)
 				bool mInit = false;
 		};
 
