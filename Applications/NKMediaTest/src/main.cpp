@@ -14,6 +14,7 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltPvq.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltRate.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltAlloc.h"
+#include "NKMedia/Codecs/Opus/Celt/NkCeltVq.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -161,6 +162,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkCeltAlloc::SelfTest();
 		printf("[ %s ] NkCeltAlloc : band_allocation + bissection qualite + interp fine (bits/bande, budget monotone)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkCeltVq::SelfTest();
+		printf("[ %s ] NkCeltVq : forme de bande (pulses->normalise->rotation), norme conservee\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
