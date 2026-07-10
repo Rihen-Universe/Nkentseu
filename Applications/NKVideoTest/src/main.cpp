@@ -6,6 +6,7 @@
 // Vérifie ensuite que les fichiers sont bien formés (RIFF/AVI + trames).
 // =============================================================================
 #include "NKMedia/Video/NkVideoWriter.h"
+#include "NKMedia/Video/NkImageSequenceWriter.h"
 #include "NKMemory/NKMemory.h"
 
 #include <cstdio>
@@ -178,7 +179,27 @@ int main(int argc, char **argv) {
 			++nbOk;
 	}
 
+	// --- Séquence d'images PNG (workflow Blender) ---
+	{
+		++nbTotal;
+		media::NkImageSequenceWriter seq;
+		bool ok = seq.Open(outDir, "nkframe", W, H, media::NkImageSeqFormat::PNG, 4, 90);
+		if (ok) {
+			uint8 *rgb = (uint8 *)memory::NkAlloc((usize)W * H * 3);
+			for (int32 fr = 0; fr < 5 && ok; ++fr) { // 5 images d'exemple
+				RenderFrame(rgb, W, H, fr, N);
+				ok = seq.WriteFrame(rgb, media::NkVideoInputFormat::RGB24);
+			}
+			memory::NkFree(rgb);
+			seq.Close();
+		}
+		::printf("[ %s ] SEQ PNG   -> %s/nkframe_0001.png .. (%d images)\n", ok ? "OK " : "FAIL", outDir,
+				 ok ? seq.FrameCount() : 0);
+		if (ok)
+			++nbOk;
+	}
+
 	::printf("\n=== Resultat : %d/%d OK ===\n", nbOk, nbTotal);
-	::printf("(Ouvre les .avi dans VLC / un navigateur pour verifier le rendu.)\n");
+	::printf("(Ouvre les .avi/.mov dans VLC / un navigateur, les .png dans un visionneur.)\n");
 	return (nbOk == nbTotal) ? 0 : 1;
 }
