@@ -3034,12 +3034,21 @@ namespace nkentseu {
 					wsDone = true;
 				}
 
+				NkString wsRenameTo; // F2 : le scan fini enchaîne sur WsReplaceAll(wsQuery -> wsRenameTo)
+				bool wsRenamePending = false;
+
 				void PollWsFind() { // UI : rejoint le thread fini ; relance si une recherche attend
 					if (!wsBusy || !wsDone)
 						return;
 					if (wsThread.Joinable())
 						wsThread.Join();
 					wsBusy = false;
+					if (wsRenamePending && !wsPending) { // F2 : remplacement en chaîne (mêmes critères que le scan)
+						wsRenamePending = false;
+						WsReplaceAll(wsQuery, wsRenameTo);
+						wsRenameTo = NkString();
+						return;
+					}
 					if (wsPending) {
 						wsPending = false;
 						WsLaunch(wsPendQuery, wsPendCase, wsPendWord, wsPendOpenP, wsPendOpenT);
