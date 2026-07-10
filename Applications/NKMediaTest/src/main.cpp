@@ -18,6 +18,7 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDenorm.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDeemphasis.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDecoder.h"
+#include "NKMedia/Codecs/Opus/Celt/NkCeltAntiCollapse.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -197,6 +198,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkCeltDecoder::SelfTest();
 		printf("[ %s ] NkCeltDecoder : orchestration (flags ec) + trame silence -> PCM zero (assemblage en cours)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkCeltAntiCollapse::SelfTest();
+		printf("[ %s ] NkCeltAntiCollapse : LCG + renormalise + bande effondree->bruit calibre, non-effondree intacte\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
