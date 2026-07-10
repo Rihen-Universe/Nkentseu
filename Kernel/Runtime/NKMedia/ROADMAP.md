@@ -12,8 +12,8 @@
 
 | Brique | Statut | Contenu |
 |---|---|---|
-| 1. Probe / démux conteneurs | 🔶 EN COURS | détecte le conteneur (MP4/WebM/WAV/OGG/MP3/FLAC), liste **pistes + codecs + params** (parseurs ISOBMFF + EBML) |
-| 2. Extraction de paquets | ⬜ | sortir les **paquets encodés** par piste (échantillons audio, NAL units vidéo) + timestamps |
+| 1. Probe / démux conteneurs | ✅ | détecte le conteneur (MP4/WebM/WAV/OGG/MP3/FLAC), liste **pistes + codecs + params** (parseurs ISOBMFF + EBML) |
+| 2. Extraction de paquets | ✅ | sort les **paquets audio encodés** + timestamps : MP4 (`stbl` **et fMP4 `moof/traf/trun`**), WebM (SimpleBlock/Cluster) |
 | 3. Décodeur audio AAC-LC | ⬜ | MP4 → PCM (AAC Low Complexity from-scratch) |
 | 4. Décodeur audio Opus / Vorbis | ⬜ | WebM → PCM (Opus, puis Vorbis) |
 | 5. Muxers (écriture) | ⬜ | écrire WAV puis WebM/MP4 (conteneur) |
@@ -27,9 +27,14 @@
   `Video` PixelWidth/Height). Renvoie `NkMediaInfo { container, tracks[] }`. Testé HEADLESS (détection des
   magies + varints EBML) **et sur le corpus réel** (Bassa `.mp3` → **MP4/AAC**, ghomala' `.mp3` → **WebM/Opus**).
 
+- **Brique 2 (2026-07-10)** — `NkMediaDemux` : extraction des **paquets audio encodés**. MP4 : tables `stbl`
+  (stsz/stco/co64/stsc/stts+mdhd) **ET fMP4 fragmenté** (`moof/traf/tfhd/trun`, cas MediaRecorder navigateur) ;
+  WebM : `SimpleBlock`/`Block` des Clusters + horodatage. Validé sur le corpus : ghomala' WebM/Opus **41 paquets
+  (0→2399 ms)**, Bassa fMP4/AAC **359 paquets (0→7637 ms)**. `NKMediaTest <fichier>` affiche pistes + paquets.
+
 ## En cours / À venir
-- Brique 2 : extraction des paquets encodés (offsets `stco/stsz/stsc` MP4 ; blocs SimpleBlock WebM).
-- Puis décodeurs audio (AAC, Opus) → PCM float32 (branché comme codec supplémentaire de NKAudio).
+- Puis décodeurs audio (**Opus** d'abord — corpus ghomala' ; puis **AAC-LC** — corpus Bassa) → PCM float32,
+  branchés comme codecs supplémentaires de NKAudio (l'engine lira alors le corpus SANS ffmpeg).
 - Vidéo bien plus tard (frames → NKImage/NKRHI). Repli ffmpeg documenté pour la prépa dataset entre-temps.
 
 ## Dépendances
