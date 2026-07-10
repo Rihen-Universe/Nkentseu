@@ -5,6 +5,7 @@
 // =============================================================================
 #include "NKMedia/NkMediaProbe.h"
 #include "NKMedia/NkMediaDemux.h"
+#include "NKMedia/Codecs/Opus/NkOpusPacket.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -56,6 +57,17 @@ int main(int argc, char **argv) {
 				const media::NkMediaPacket &last = packets[packets.Size() - 1];
 				printf("  dernier     : ts=%lldms\n", (long long)last.timestampMs);
 			}
+			// Si Opus : parse le TOC du 1er paquet (étape 1 du décodeur Opus).
+			const media::NkMediaTrack *au = info2.FirstAudio();
+			if (au && au->codec == NkString("opus") && packets.Size() > 0) {
+				media::NkOpusPacketInfo op;
+				if (media::NkOpusPacket::Parse(bytes.Data() + packets[0].offset, packets[0].size, op)) {
+					const char *modeName = op.mode == media::NkOpusMode::NK_SILK_ONLY ? "SILK"
+										   : op.mode == media::NkOpusMode::NK_HYBRID ? "Hybrid" : "CELT";
+					printf("  Opus TOC    : config=%d mode=%s %.1fms %s frames=%d\n", op.config, modeName,
+						   op.frameSizeMs, op.stereo ? "stereo" : "mono", op.frameCount);
+				}
+			}
 		} else {
 			printf("Paquets audio : extraction non supportee pour ce conteneur.\n");
 		}
@@ -75,6 +87,13 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkMediaDemux::SelfTest();
 		printf("[ %s ] NkMediaDemux : vint EBML + lecture big-endian\n", ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkOpusPacket::SelfTest();
+		printf("[ %s ] NkOpusPacket : table config + decoupage trames codes 0-3\n", ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
 	}

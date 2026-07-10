@@ -14,8 +14,8 @@
 |---|---|---|
 | 1. Probe / démux conteneurs | ✅ | détecte le conteneur (MP4/WebM/WAV/OGG/MP3/FLAC), liste **pistes + codecs + params** (parseurs ISOBMFF + EBML) |
 | 2. Extraction de paquets | ✅ | sort les **paquets audio encodés** + timestamps : MP4 (`stbl` **et fMP4 `moof/traf/trun`**), WebM (SimpleBlock/Cluster) |
-| 3. Décodeur audio AAC-LC | ⬜ | MP4 → PCM (AAC Low Complexity from-scratch) |
-| 4. Décodeur audio Opus / Vorbis | ⬜ | WebM → PCM (Opus, puis Vorbis) |
+| 3. Décodeur audio **Opus** (par étapes) | 🔶 EN COURS | RFC 6716 : **étape 1 = parsing paquet/trames ✅** ; puis range decoder, CELT, SILK → PCM |
+| 4. Décodeur audio AAC-LC | ⬜ | MP4 → PCM (AAC Low Complexity from-scratch) |
 | 5. Muxers (écriture) | ⬜ | écrire WAV puis WebM/MP4 (conteneur) |
 | 6. Vidéo (décode) | ⬜ | VP8/VP9 puis H.264 (très long) → frames RGBA (→ NKImage/NKRHI) |
 | 7. Vidéo (encode) + AV sync | ⬜ | enregistrement, mux A/V, horloge de présentation |
@@ -32,9 +32,15 @@
   WebM : `SimpleBlock`/`Block` des Clusters + horodatage. Validé sur le corpus : ghomala' WebM/Opus **41 paquets
   (0→2399 ms)**, Bassa fMP4/AAC **359 paquets (0→7637 ms)**. `NKMediaTest <fichier>` affiche pistes + paquets.
 
+- **Brique 3 — décodeur Opus (RFC 6716), étape 1 (2026-07-10)** — `Codecs/Opus/NkOpusPacket` : analyse de
+  l'octet **TOC** (mode SILK/Hybrid/CELT, bande passante, durée, mono/stéréo) + **découpage en trames** (codes
+  0-3, VBR/CBR, padding). Testé HEADLESS (table de config + 4 découpages) **et sur le corpus** : 1er paquet
+  ghomala' = **config 31 (CELT fullband 20 ms), mono, 3 trames** → 60 ms/paquet × 41 = 2.46 s (cohérent).
+  ⏳ Étapes suivantes : **range decoder** (entropie, §4.1) → **CELT** (MDCT, PVQ) → **SILK** (LPC) → PCM float32.
+
 ## En cours / À venir
-- Puis décodeurs audio (**Opus** d'abord — corpus ghomala' ; puis **AAC-LC** — corpus Bassa) → PCM float32,
-  branchés comme codecs supplémentaires de NKAudio (l'engine lira alors le corpus SANS ffmpeg).
+- Poursuivre Opus (range decoder → CELT → SILK), puis **AAC-LC** (corpus Bassa). Branchés comme codecs
+  supplémentaires de NKAudio (l'engine lira alors le corpus SANS ffmpeg).
 - Vidéo bien plus tard (frames → NKImage/NKRHI). Repli ffmpeg documenté pour la prépa dataset entre-temps.
 
 ## Dépendances
