@@ -1,28 +1,60 @@
 // =============================================================================
 // NKMedia/Codecs/Opus/Celt/NkCeltRate.cpp — bits<->pulses (cœur allocation CELT).
+// Coût = log2(V(N,K)) en 1/8 de bit, calculé en VIRGULE FIXE BIT-EXACT (algorithme
+// RFC 6716) — nécessaire à l'interop. Réécriture Nkentseu (pas de code importé).
 // =============================================================================
 #include "NKMedia/Codecs/Opus/Celt/NkCeltRate.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltPvq.h"
 
-#include <cmath> // log2f — math C
-
 namespace nkentseu {
 	namespace media {
 
+		namespace {
+			// Position du bit de poids fort (1-indexé) : Ilog(0)=0, Ilog(1)=1, Ilog(2)=2...
+			int32 Ilog(uint32 v) {
+				int32 r = 0;
+				while (v) {
+					++r;
+					v >>= 1;
+				}
+				return r;
+			}
+
+			// log2 en virgule fixe : renvoie floor(log2(val)·2^frac) arrondi (RFC 6716).
+			// Méthode : normalisation en 16.16 puis extraction des bits fractionnaires par
+			// carrés successifs en Q15. Réécriture Nkentseu de l'algorithme du format.
+			int32 Log2Frac(uint32 val, int32 frac) {
+				if (val == 0)
+					return 0;
+				const int32 l = Ilog(val);
+				// Puissance de 2 exacte : pas d'arrondi.
+				if ((val & (val - 1)) == 0)
+					return (l - 1) << frac;
+				// Normalise val autour de 2^16 (arrondi vers le haut, anti-débordement).
+				if (l > 16)
+					val = ((val - 1) >> (l - 16)) + 1;
+				else
+					val <<= (16 - l);
+				int32 acc = (l - 1) << frac;
+				// Au moins une itération (l'arrondi ci-dessus peut décaler la partie entière).
+				int32 f = frac;
+				do {
+					const int32 b = (int32)(val >> 16);
+					acc += b << f;
+					val = (val + (uint32)b) >> b;
+					val = (val * val + 0x7FFFu) >> 15; // carré en Q15, arrondi
+				} while (f-- > 0);
+				return acc + (val > 0x8000u ? 1 : 0);
+			}
+		} // namespace
+
 		int32 NkCeltRate::PulsesToBits(int32 N, int32 K) {
-			if (K <= 0)
-				return 0;
-			if (N < 1)
+			if (K <= 0 || N < 1)
 				return 0;
 			const uint32 v = NkCeltPvq::V(N, K);
 			if (v <= 1u)
 				return 0;
-			// coût ≈ log2(V) bits → en unités BITRES (×8), arrondi.
-			const float32 bits = ::log2f((float32)v);
-			int32 q = (int32)(bits * (float32)(1 << kBitRes) + 0.5f);
-			if (q < 0)
-				q = 0;
-			return q;
+			return Log2Frac(v, kBitRes); // coût en 1/8 de bit, bit-exact
 		}
 
 		int32 NkCeltRate::BitsToPulses(int32 N, int32 budget) {
