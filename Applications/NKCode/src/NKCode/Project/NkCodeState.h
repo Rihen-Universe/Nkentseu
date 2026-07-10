@@ -552,6 +552,15 @@ namespace nkentseu {
 						f.doc.diags.Clear();
 						for (usize li = 0; li < diagAcc.Size(); ++li)
 							ParseDiagLine(diagAcc[li].CStr(), diagTempPath.CStr(), f.doc);
+						{ // trace : compte TOUT ce qui est marque (visible dans OUTPUT, meme hors viewport)
+							int32 ne = 0, nw = 0;
+							for (usize di = 0; di < f.doc.diags.Size(); ++di)
+								(f.doc.diags[di].sev ? ne : nw) += 1;
+							char lb[160];
+							std::snprintf(lb, sizeof(lb), "[diag] %s : %d erreur(s), %d avertissement(s)",
+										  f.Name().CStr(), ne, nw);
+							GlobalLogBuffer().Push(NkString(lb));
+						}
 					}
 					if (!diagTempPath.Empty()) {
 						NkFile::Delete(NkPath(diagTempPath));
@@ -2532,8 +2541,8 @@ namespace nkentseu {
 					return o;
 				}
 
-				// Lignes (0-based) contenant `sym` en FRONTIÈRE DE MOT (mode références) — au plus
-				// `cap` lignes par fichier, une entrée par ligne même si plusieurs occurrences.
+				// Lignes (0-based) contenant `sym` en FRONTIÈRE DE MOT (mode références), HORS
+				// commentaires (// et /* */) et chaînes/caractères — au plus `cap` lignes par fichier.
 				static void RefLinesOf(const char *text, const char *sym, NkVector<int32> &out, int32 cap) {
 					int32 sl = 0;
 					while (sym[sl])
@@ -2544,29 +2553,62 @@ namespace nkentseu {
 						return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
 					};
 					int32 line = 0;
+					bool inBlock = false, lineHit = false;
 					const char *p = text;
 					while (*p && static_cast<int32>(out.Size()) < cap) {
-						const char *ls = p;
-						while (*p && *p != '\n')
+						const char c = *p;
+						if (c == '\n') { // fin de ligne : reset des etats LIGNE (chaines non multi-lignes)
+							++line;
+							lineHit = false;
 							++p;
-						for (const char *q = ls; q + sl <= p; ++q) {
+							continue;
+						}
+						if (inBlock) { // dans /* ... */
+							if (c == '*' && p[1] == '/') {
+								inBlock = false;
+								++p;
+							}
+							++p;
+							continue;
+						}
+						if (c == '/' && p[1] == '/') { // commentaire ligne : saute jusqu'a la fin de ligne
+							while (*p && *p != '\n')
+								++p;
+							continue;
+						}
+						if (c == '/' && p[1] == '*') {
+							inBlock = true;
+							p += 2;
+							continue;
+						}
+						if (c == '"' || c == '\'') { // chaine / caractere : saute (gere \\ et \")
+							const char q = c;
+							++p;
+							while (*p && *p != '\n' && *p != q) {
+								if (*p == '\\' && p[1])
+									++p;
+								++p;
+							}
+							if (*p == q)
+								++p;
+							continue;
+						}
+						if (!lineHit && *p == sym[0]) { // candidat : compare + frontieres de mot
 							bool m = true;
 							for (int32 t = 0; t < sl; ++t)
-								if (q[t] != sym[t]) {
+								if (p[t] != sym[t]) {
 									m = false;
 									break;
 								}
-							if (!m)
-								continue;
-							const char before = (q > ls) ? q[-1] : ' ', after = q[sl];
-							if (isW(before) || isW(after))
-								continue;
-							out.PushBack(line);
-							break; // une entrée par ligne suffit
+							if (m) {
+								const char before = (p > text) ? p[-1] : ' ';
+								if (!isW(before) && !isW(p[sl])) {
+									out.PushBack(line);
+									lineHit = true; // une entree par ligne suffit
+								}
+							}
 						}
-						if (*p == '\n')
-							++p;
-						++line;
+						++p;
 					}
 				}
 

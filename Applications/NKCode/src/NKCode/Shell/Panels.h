@@ -617,8 +617,11 @@ namespace nkentseu {
 
 					// Footer VSCode : nom du fichier (gauche) + Ln/Col + langage (droite).
 					if (mShell) {
-						char rbuf[160];
-						std::snprintf(rbuf, sizeof(rbuf), "Ln %d, Col %d     Espaces : 4     UTF-8     %s",
+						char rbuf[200];
+						// Chord Ctrl+K arme -> guide visible (facon VSCode « (Ctrl+K) en attente... »).
+						const bool chordArmed = (f.doc.tick - f.doc.chordK <= 90);
+						std::snprintf(rbuf, sizeof(rbuf), "%sLn %d, Col %d     Espaces : 4     UTF-8     %s",
+									  chordArmed ? "(Ctrl+K)  0 = replier   J = deplier   I = info      " : "",
 									  f.doc.curLine + 1, f.doc.curCol + 1, LangOf(f.path));
 						NkString left = f.Name();
 						if (f.doc.dirty)
@@ -732,8 +735,8 @@ namespace nkentseu {
 							mS->ReopenClosed();
 						if (ctx.input.shiftDown &&
 							ctx.input.KeyPressed(NkGuiKey::O)) { // Ctrl+Maj+O : panneau Structure
-							if (!DockFocusWindow(ctx, "Structure"))
-								mS->status = NkString("Panneau Structure indisponible");
+							mS->status = DockFocusWindow(ctx, "Structure") ? NkString("Panneau Structure affiché")
+																		   : NkString("Panneau Structure indisponible");
 						}
 						const bool tabFree = // Tab réservé si la barre de recherche ou la complétion le consomme
 							!(mS->HasActive() &&
