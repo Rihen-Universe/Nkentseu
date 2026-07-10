@@ -12,6 +12,14 @@ Whisper/Tacotron ». S'appuie sur la **capture micro** (`NKAudio::NkAudioCapture
 Objectif fort : **multilingue camerounais**, dont le **ghomala' (`bbj`)** — déjà un tag du corpus GPT.
 Le corpus texte/voix reste à enrichir (collecte de sources publiques, alignement, nettoyage).
 
+### Validation MFCC sur parole réelle (2026-07-10)
+`NKSpeechFeatureDemo <fichier>` décode (NKAudio) → mono → MFCC. **Prouvé sur le corpus** :
+Bassa 7.66 s → 764×39 MFCC, ghomala' 2.46 s → 244×39 MFCC (features non triviales).
+⚠️ **Format du corpus lamba** : les clips (extension `.mp3`) sont en réalité du **WebM (ghomala') / MP4-AAC
+(Bassa)** — enregistrements navigateur (getUserMedia). NKAudio décode WAV/MP3/OGG/FLAC mais **pas** WebM/AAC →
+**transcoder en WAV 16 kHz mono** (ffmpeg) avant l'entraînement (étape de préparation du dataset). Un décodeur
+AAC/Opus from-scratch dans NKAudio = travail futur.
+
 ## Fichiers
 - `src/NKSpeech/NkAudioFeatures.h` — features (Mel-spectrogramme, MFCC). **Fondation partagée ASR + TTS.**
 - `src/NKSpeech/NkASR.h` — audio → texte (modèle acoustique + décodage CTC + lexique/LM).
