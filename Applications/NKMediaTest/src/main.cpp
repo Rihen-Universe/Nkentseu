@@ -22,6 +22,7 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltSplit.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltQuantBands.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Transform.h"
+#include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -253,6 +254,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkH264Transform::SelfTest();
 		printf("[ %s ] NkH264Transform : transformee 4x4 entiere + Hadamard + quant/dequant QP (round-trip)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkH264Cavlc::SelfTest();
+		printf("[ %s ] NkH264Cavlc : codage entropique residus (coeff_token/levels/total_zeros/run_before)\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
