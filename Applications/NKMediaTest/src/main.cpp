@@ -6,6 +6,7 @@
 #include "NKMedia/NkMediaProbe.h"
 #include "NKMedia/NkMediaDemux.h"
 #include "NKMedia/Codecs/Opus/NkOpusPacket.h"
+#include "NKMedia/Codecs/Opus/NkOpusRange.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -94,6 +95,13 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkOpusPacket::SelfTest();
 		printf("[ %s ] NkOpusPacket : table config + decoupage trames codes 0-3\n", ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkOpusRange::SelfTest();
+		printf("[ %s ] NkOpusRange : range coder aller-retour (icdf, bits bruts, uint, cdf)\n", ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
 	}
