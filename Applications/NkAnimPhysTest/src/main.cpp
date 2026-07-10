@@ -7,6 +7,7 @@
 #include "NKRenderer/Tools/Animation/NkBalance.h"
 #include "NKRenderer/Tools/Animation/NkContactDetector.h"
 #include "NKRenderer/Tools/Animation/NkPoseBalancer.h"
+#include "NKRenderer/Tools/Animation/NkAutoPose.h"
 #include "NKAudio/NkAudioCapture.h"
 #include "NKAudio/NkDenoiser.h"
 
@@ -44,6 +45,10 @@ int main() {
 	// M3.4 — optimiseur de pose sous contrainte (ajuste une pose pour respecter l'équilibre).
 	Report("M3.4 NkPoseBalancer", "deseq->equilibre, strength 0/0.5/1, pose deja equilibree",
 		   renderer::NkPoseBalancer::SelfTest(), nbOk, nbTotal);
+
+	// M3.5 — auto-posing (poses intermediaires equilibrees entre deux cles).
+	Report("M3.5 NkAutoPose", "lerp brut deseq -> BlendBalanced equilibre, pieds plantes, bornes t=0/1",
+		   renderer::NkAutoPose::SelfTest(), nbOk, nbTotal);
 
 	// NKAudio — enregistrement : ring buffer SPSC de la capture (headless, sans micro).
 	Report("NKAudio NkAudioCapture", "ring buffer SPSC : write/read/wrap/overflow",
