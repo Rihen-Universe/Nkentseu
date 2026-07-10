@@ -620,7 +620,10 @@ namespace nkentseu {
 						char rbuf[200];
 						// Chord Ctrl+K arme -> guide visible (facon VSCode « (Ctrl+K) en attente... »).
 						const bool chordArmed = (f.doc.tick - f.doc.chordK <= 90);
-						std::snprintf(rbuf, sizeof(rbuf), "%sLn %d, Col %d     Espaces : 4     UTF-8     %s",
+						// Statut d'action (ex. « Panneau Structure affiché ») : VISIBLE ici, pas seulement
+						// dans l'en-tete du panneau Sortie.
+						std::snprintf(rbuf, sizeof(rbuf), "%s%s%sLn %d, Col %d     Espaces : 4     UTF-8     %s",
+									  mS->status.Empty() ? "" : mS->status.CStr(), mS->status.Empty() ? "" : "      ",
 									  chordArmed ? "(Ctrl+K)  0 = replier   J = deplier   I = info      " : "",
 									  f.doc.curLine + 1, f.doc.curCol + 1, LangOf(f.path));
 						NkString left = f.Name();
