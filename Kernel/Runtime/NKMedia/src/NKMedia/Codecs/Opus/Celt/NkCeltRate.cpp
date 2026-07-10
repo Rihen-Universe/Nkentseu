@@ -57,6 +57,69 @@ namespace nkentseu {
 			return Log2Frac(v, kBitRes); // coût en 1/8 de bit, bit-exact
 		}
 
+		int32 NkCeltRate::GetPulses(int32 q) {
+			return q < 8 ? q : (8 + (q & 7)) << ((q >> 3) - 1);
+		}
+
+		bool NkCeltRate::FitsIn32(int32 n, int32 k) {
+			// Tables du format (RFC 6716) : V(N,K) tient-il dans un uint32 ?
+			static const int32 maxN[15] = {32767, 32767, 32767, 1476, 283, 109, 60, 40,
+										   29,    24,    20,    18,   16,  14,  13};
+			static const int32 maxK[15] = {32767, 32767, 32767, 32767, 1172, 238, 95, 53,
+										   36,    27,    22,    18,    16,   15,  13};
+			if (n >= 14) {
+				if (k >= 14)
+					return false;
+				return n <= maxN[k];
+			}
+			return k <= maxK[n];
+		}
+
+		namespace {
+			constexpr int32 kLogMaxPseudo = 6; // itérations de la dichotomie
+			constexpr int32 kMaxPseudo = 40;   // MAX_PSEUDO (RFC 6716) : index de cache max
+
+			// Construit le cache d'une bande de taille N : cache[0] = nb d'entrées (K_max index),
+			// cache[q] = Log2Frac(V(N,get_pulses(q)),3) - 1 pour q=1..K_max. Renvoie K_max.
+			int32 BuildCache(int32 N, uint8 *cache) {
+				int32 kmax = 0;
+				while (kmax < kMaxPseudo && NkCeltRate::FitsIn32(N, NkCeltRate::GetPulses(kmax + 1)))
+					++kmax;
+				cache[0] = (uint8)kmax;
+				for (int32 q = 1; q <= kmax; ++q) {
+					const int32 bits = NkCeltRate::PulsesToBits(N, NkCeltRate::GetPulses(q));
+					cache[q] = (uint8)(bits - 1);
+				}
+				return kmax;
+			}
+		} // namespace
+
+		int32 NkCeltRate::Bits2Pulses(int32 N, int32 bits) {
+			uint8 cache[kMaxPseudo + 1];
+			BuildCache(N, cache);
+			int32 lo = 0;
+			int32 hi = cache[0];
+			bits--;
+			for (int32 i = 0; i < kLogMaxPseudo; ++i) {
+				const int32 mid = (lo + hi + 1) >> 1;
+				if ((int32)cache[mid] >= bits)
+					hi = mid;
+				else
+					lo = mid;
+			}
+			if (bits - (lo == 0 ? -1 : (int32)cache[lo]) <= (int32)cache[hi] - bits)
+				return lo;
+			return hi;
+		}
+
+		int32 NkCeltRate::Pulses2Bits(int32 N, int32 q) {
+			if (q == 0)
+				return 0;
+			uint8 cache[kMaxPseudo + 1];
+			BuildCache(N, cache);
+			return (int32)cache[q] + 1;
+		}
+
 		int32 NkCeltRate::BitsToPulses(int32 N, int32 budget) {
 			if (budget <= 0 || N < 1)
 				return 0;
@@ -126,6 +189,26 @@ namespace nkentseu {
 						ok = false;
 					if (K < kmax && NkCeltRate::PulsesToBits(N, K + 1) <= budget)
 						ok = false;
+				}
+			}
+
+			// 4) Cache (structure index get_pulses) : get_pulses, fits_in32, monotonie pulses2bits.
+			{
+				if (NkCeltRate::GetPulses(7) != 7 || NkCeltRate::GetPulses(8) != 8 ||
+					NkCeltRate::GetPulses(9) != 9 || NkCeltRate::GetPulses(16) != 16 ||
+					NkCeltRate::GetPulses(24) != 32)
+					ok = false;
+				if (!NkCeltRate::FitsIn32(1476, 3) || NkCeltRate::FitsIn32(1477, 3) || !NkCeltRate::FitsIn32(2, 1))
+					ok = false;
+				for (int32 N = 2; N <= 176; N += 43) {
+					const int32 qmax = NkCeltRate::Bits2Pulses(N, 1000000); // = nb d'entrées du cache
+					int32 prevB = -1;
+					for (int32 q = 0; q <= qmax; ++q) {
+						const int32 bq = NkCeltRate::Pulses2Bits(N, q);
+						if (bq < prevB)
+							ok = false; // coût croissant avec l'index (dans les bornes du cache)
+						prevB = bq;
+					}
 				}
 			}
 

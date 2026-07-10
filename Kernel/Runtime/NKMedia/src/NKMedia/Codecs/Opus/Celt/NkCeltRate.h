@@ -23,10 +23,20 @@ namespace nkentseu {
 			public:
 				static constexpr int32 kBitRes = 3; // résolution : 1 bit = 8 unités (1<<3)
 
-				// Coût (en unités BITRES) pour coder K pulses sur N dimensions ≈ 8·log2(V(N,K)).
+				// Coût (unités BITRES) pour coder K pulses sur N dimensions = Log2Frac(V(N,K)).
 				static int32 PulsesToBits(int32 N, int32 K);
 				// Nombre max de pulses K tel que PulsesToBits(N,K) ≤ budget (unités BITRES).
 				static int32 BitsToPulses(int32 N, int32 budget);
+
+				// --- Cache de pulses (structure d'index get_pulses, RFC 6716) ---
+				// V(N,K) tient-il dans 32 bits ? (tables maxN/maxK du format).
+				static bool FitsIn32(int32 N, int32 K);
+				// Mapping index→pulses réels : get_pulses(q).
+				static int32 GetPulses(int32 q);
+				// Index de cache `q` (0..count) dont le coût tient dans `bits` (recherche dichotomique).
+				static int32 Bits2Pulses(int32 N, int32 bits);
+				// Coût (unités BITRES) de l'index de cache `q`.
+				static int32 Pulses2Bits(int32 N, int32 q);
 
 				static bool SelfTest();
 		};
