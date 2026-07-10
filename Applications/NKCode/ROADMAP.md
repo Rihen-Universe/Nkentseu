@@ -38,6 +38,20 @@ Reste (par phases ci-dessous) : undo/redo, recherche/remplacement, créer un pro
 puis **Graph → Blueprint → Codegen → UIBuilder → Blocks → Extensions → Agents**.
 Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.md`.
 
+> ### 🧭 ORDRE VALIDÉ PAR RIHEN (2026-07-11) — éditeur puis systèmes
+> 1. **Lot final éditeur (sans dépendance)** : word wrap (Alt+Z), **recherche workspace**
+>    (Ctrl+Maj+F, panneau résultats + remplacement multi-fichiers), **quick fix** (Ctrl+.)
+>    sur les diagnostics nommés (« expected ';' », include manquant) ; option : split éditeur,
+>    F2 renommage textuel (aperçu avant application).
+> 2. **Système LSP clangd** (JSON-RPC + processus + synchro buffers) → retour éditeur :
+>    références/renommage SÉMANTIQUES, refactorings, hover/complétion exacts (templates).
+>    Le compile-first actuel reste le REPLI sans clangd.
+> 3. **Système débogueur** (gdb/lldb, MI ou DAP) → retour éditeur : breakpoints FONCTIONNELS,
+>    ligne d'exécution, valeurs inline, pas-à-pas (la commande `jenga gdb/debug` existe).
+> 4. **Service IA de complétion** (étendre NkAi : async/stream) → ghost text + [IA : expliquer].
+> 5. **Runner de tests Unitest** (découverte/exécution/parse) → gouttière ▶ + panneau résultats.
+> 6. **Terminal** : shell par défaut configurable + profils (système PTY).
+
 ---
 
 ## Phase 0 — Mise en place ✅
@@ -53,10 +67,10 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 - ✅ 🎯 **Jalon** : fenêtre IDE avec panneaux dockables et palette de commandes.
 
 ## Phase 2 — L'éditeur de texte (Editor) 🟡
-- 🟡 Tampon de texte (lignes, insertion/suppression **fait** ; **undo/redo** à faire).
+- ✅ Tampon de texte + **undo/redo PAR FICHIER** (snapshots coalescés, Ctrl+Z / Ctrl+Maj+Z / Ctrl+Y).
 - ✅ Rendu + gouttière (numéros de ligne) + curseur/sélection + interligne (police proportionnelle,
       pas encore monospace).
-- 🟡 **Coloration syntaxique** (C/C++, Python, NKSL, Markdown) **faite** ; **recherche/remplacement** à faire.
+- ✅ **Coloration syntaxique** (C/C++, Python, NKSL, Markdown) + **recherche/remplacement** (Ctrl+F/H).
 - ✅ **Coloration sémantique** (types/fonctions) niveau **fichier + projet** (index async).
 - ✅ **Diagnostics C/C++ temps réel** (juil. 2026) — **compile-first, sans clangd** : compile le buffer
       via le **compilateur cible** (`-fsyntax-only`, fichier temp frère, débounce ~0,6 s, sans save),
@@ -68,11 +82,25 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 - ✅ **Ctrl+clic navigation** : ouvrir un `#include` (sync) / **aller à la définition** (sur un **thread**,
       **barre de progression** + **liste de toutes les occurrences** façon VSCode ; scan borné anti-freeze).
 - ✅ **Autocomplétion** (popup façon VSCode) : symboles fichier + projet + mots-clés du langage, filtrés
-      par préfixe ; ↑↓ naviguer, Tab/Entrée accepter, Échap fermer. ⬜ Contextuelle (`.`/`::`) via clangd plus tard.
+      par préfixe ; ↑↓ naviguer, Tab/Entrée accepter, Échap fermer. ✅ **Contextuelle** (`.`/`->`/`::`)
+      en 2 temps : heuristique instantanée (tables workspace) + **compilateur réel** (`-code-completion-at`
+      + préambule **PCH** façon clangd) quand il répond.
 - ✅ **Zoom éditeur** : Ctrl+molette / Ctrl+= / Ctrl+- **par onglet** (taille propre à chaque fichier,
       persistée en session) + **terminal** (zoom au survol, atlas séparé) + **cache d'atlas par taille**
       (revenir sur un onglet zoomé = instantané, plus de « saut » de taille).
 - ✅ Ouvrir/sauver des fichiers (NKFileSystem) ; **onglets** custom (point modifié, fermeture).
+- ✅ **Éditeur avancé (PRs #31→#35, juil. 2026)** : repli de code (fold) · **minimap** (sliding-window,
+      par-caractère) · **hover documentation** (prototypes complets, macros AVEC expansion des arguments,
+      genres réels struct/class/union/enum/namespace, cartes erreurs/warnings, scroll/glisser, boutons
+      [Aller à la définition][Copier][Références], **Ctrl+K Ctrl+I au clavier**) · **F8/Maj+F8** diag
+      suivant/précédent · **Ctrl+G** aller à la ligne · **F12 / Maj+F12 références** (occurrences hors
+      commentaires/chaînes) · **multi-carets** (Ctrl+D, Ctrl+Maj+L toutes occurrences) · aide aux
+      paramètres (Ctrl+Maj+Espace) · chords **Ctrl+K** (0/J/I, guide au footer) · onglets **MRU**
+      (Ctrl+Tab), Ctrl+W, **Ctrl+Maj+T rouvrir**, drag réordonner · marques scrollbar (diags/recherche/
+      breakpoints) · caret clignotant · surbrillance des occurrences de la sélection · **diagnostics
+      MULTI-PASSES** (« expected ';' » → relance sur copie patchée : 1 erreur avant, 16 révélées sur le
+      cas réel) · point « modifié » fidèle à l'undo (hash vs état sauvegardé) · antislash ISO ·
+      Ctrl+Maj+O panneau Structure (DockFocusWindow NkGui) · session/hot-exit · git gutter · zoom.
 - ✅ 🎯 **Jalon** : éditer et sauver un fichier `.cpp`/`.md` avec coloration.
 
 ## Phase 3 — Intégration Jenga (Project) 🟡
@@ -133,11 +161,11 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 - ⬜ 🎯 **Jalon** : un programme par blocs qui tourne.
 
 ## Phase 9 — Polissage & au-delà 🟡
-- 🟡 Multi-curseurs, repli de code, **minimap** (à faire) ; thèmes (**VSCode Dark+ fait**).
+- ✅ Multi-curseurs, repli de code, minimap (PRs #31-35) ; thèmes (**VSCode Dark+ fait**).
 - ⬜ **Zoom global de l'UI** (explorateur, panneaux, chrome) au survol des zones **non-code** — met à
       l'échelle la police d'interface (le zoom code/terminal au survol est déjà fait, cf. Phase 2).
-- ⬜ **Complétion / LSP**, diagnostics, go-to-définition.
-- ⬜ **Débogueur** (points d'arrêt) intégré.
+- 🟡 **LSP clangd** = système n°2 de l'ORDRE VALIDÉ (cf. encart) ; complétion/diagnostics/go-to-def compile-first FAITS.
+- ⬜ **Débogueur** (points d'arrêt) intégré = système n°3 de l'ORDRE VALIDÉ (gdb/lldb, MI/DAP).
 - ⬜ Système d'**extensions** ; sens inverse **texte → graphe** (parsing).
 - ⬜ Portage tactile/web (le moteur le permet).
 - 🟡 **Internationalisation (i18n)** : document de traductions multi-langue (démarré
