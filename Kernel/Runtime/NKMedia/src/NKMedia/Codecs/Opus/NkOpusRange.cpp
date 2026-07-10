@@ -148,6 +148,10 @@ namespace nkentseu {
 			return s;
 		}
 
+		int32 NkOpusRangeDecoder::Tell() const {
+			return nbits_total - Ilog(rng);
+		}
+
 		// ======================================================================
 		//  ENCODEUR
 		// ======================================================================

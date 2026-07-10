@@ -10,6 +10,7 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltLaplace.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltBands.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltMdct.h"
+#include "NKMedia/Codecs/Opus/Celt/NkCeltEnergy.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -126,6 +127,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkCeltMdct::SelfTest();
 		printf("[ %s ] NkCeltMdct : MDCT/IMDCT + fenetre sinus, reconstruction TDAC parfaite\n", ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkCeltEnergy::SelfTest();
+		printf("[ %s ] NkCeltEnergy : energie grossiere (prediction 2D + Laplace) aller-retour, LM 0-3 intra/inter\n",
+			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
 	}
