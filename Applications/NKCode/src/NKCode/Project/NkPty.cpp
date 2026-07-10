@@ -33,7 +33,7 @@ namespace nkentseu {
 			Stop();
 		}
 
-		bool NkPty::Start(const NkString &cmdline, int16 cols, int16 rows) {
+		bool NkPty::Start(const NkString &cmdline, int16 cols, int16 rows, const NkString &cwd) {
 #if defined(_WIN32)
 			if (mRunning)
 				return false;
@@ -111,10 +111,22 @@ namespace nkentseu {
 			if (MultiByteToWideChar(CP_UTF8, 0, cmdline.CStr(), -1, wcmd.Data(), wn) <= 0)
 				wcmd[0] = 0;
 
+			// Repertoire de demarrage du shell : la RACINE DU WORKSPACE quand fournie
+			// (sinon heritage du CWD de l exe, comportement d avant).
+			nkentseu::NkVector<wchar_t> wcwd;
+			if (!cwd.Empty()) {
+				const int cn = MultiByteToWideChar(CP_UTF8, 0, cwd.CStr(), -1, NULL, 0);
+				if (cn > 0) {
+					wcwd.Resize(static_cast<usize>(cn));
+					if (MultiByteToWideChar(CP_UTF8, 0, cwd.CStr(), -1, wcwd.Data(), cn) <= 0)
+						wcwd.Clear();
+				}
+			}
+
 			PROCESS_INFORMATION pi;
 			ZeroMemory(&pi, sizeof(pi));
-			BOOL ok = CreateProcessW(NULL, wcmd.Data(), NULL, NULL, FALSE, EXTENDED_STARTUPINFO_PRESENT, NULL, NULL,
-									 &si.StartupInfo, &pi);
+			BOOL ok = CreateProcessW(NULL, wcmd.Data(), NULL, NULL, FALSE, EXTENDED_STARTUPINFO_PRESENT, NULL,
+									 wcwd.Empty() ? NULL : wcwd.Data(), &si.StartupInfo, &pi);
 			DeleteProcThreadAttributeList(si.lpAttributeList);
 			HeapFree(GetProcessHeap(), 0, si.lpAttributeList);
 			if (!ok) {

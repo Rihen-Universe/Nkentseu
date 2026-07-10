@@ -11,7 +11,8 @@
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKCode/Project/NkProcess.h"
-#include "NKCode/Project/NkText.h" // NkAtoi / NkFindSub / NkJsonStr / NkJsonArray / NkPathSuffixMatch
+#include "NKCode/Project/NkText.h"
+#include "NKCode/Project/NkLogSink.h" // GlobalLogBuffer : traces [ac] de la completion (panneau OUTPUT)
 #include "NKCode/Editor/NkCodeEditor.h"
 #include "NKCode/Shell/NkI18n.h" // NkT() : ages relatifs traduits
 #include <cstdio>
@@ -250,7 +251,14 @@ namespace nkentseu {
 				//    l'arbre du workspace, headers moteur inclus). Construit UNE fois en tâche
 				//    de fond (ne gèle pas l'UI) ; lecture seule ensuite (gate `projReady`). ──
 				NkVector<NkString> projTypes, projFuncs;
+				// Table Type -> MEMBRE (heuristique, workspace entier) : nom + TYPE du membre
+				// (retour pour une méthode -> résout les chaînes `a.b().c.`) ; HÉRITAGE
+				// (inhOwner -> inhBase) ; fonctions LIBRES avec retour (gfnName/gfnRet, `foo().`).
+				NkVector<NkString> memOwner, memName, memType;
+				NkVector<NkString> inhOwner, inhBase;
+				NkVector<NkString> gfnName, gfnRet;
 				volatile bool projReady = false;
+				bool projLoggedReady = false; // log one-shot quand l index est pret
 				bool projStarted = false;
 				threading::NkThread projThread;
 
@@ -262,16 +270,26 @@ namespace nkentseu {
 				}
 
 				void BuildProjectIndex() {
-					NkVector<NkString> t, f;
-					ScanDirSymbols(root, t, f, 0);
+					NkVector<NkString> t, f, mo, mn, mt, io, ib, gf, gr;
+					ScanDirSymbols(root, t, f, mo, mn, mt, io, ib, gf, gr, 0);
 					NkSymSortDedup(t);
 					NkSymSortDedup(f);
 					projTypes = t;
 					projFuncs = f; // écrit une fois puis lecture seule
+					memOwner = mo;
+					memName = mn;
+					memType = mt;
+					inhOwner = io;
+					inhBase = ib;
+					gfnName = gf;
+					gfnRet = gr;
 					projReady = true;
 				}
 
-				void ScanDirSymbols(const NkPath &dir, NkVector<NkString> &t, NkVector<NkString> &f, int32 depth) {
+				void ScanDirSymbols(const NkPath &dir, NkVector<NkString> &t, NkVector<NkString> &f,
+									NkVector<NkString> &mo, NkVector<NkString> &mn, NkVector<NkString> &mt,
+									NkVector<NkString> &io, NkVector<NkString> &ib, NkVector<NkString> &gf,
+									NkVector<NkString> &gr, int32 depth) {
 					if (depth > 16)
 						return;
 					NkVector<NkDirectoryEntry> entries =
@@ -284,7 +302,7 @@ namespace nkentseu {
 								StrEq(nm, "node_modules") || StrEq(nm, "Captures") || StrEq(nm, "bin") ||
 								StrEq(nm, "obj") || StrEq(nm, "out"))
 								continue; // dossiers lourds/inutiles
-							ScanDirSymbols(e.FullPath, t, f, depth + 1);
+							ScanDirSymbols(e.FullPath, t, f, mo, mn, mt, io, ib, gf, gr, depth + 1);
 						} else {
 							const NkLang lg = NkLangFromExt(e.FullPath.GetExtension().CStr());
 							if (lg == NkLang::None || lg == NkLang::Markdown)
@@ -292,7 +310,10 @@ namespace nkentseu {
 							const NkString txt = NkFile::ReadAllText(e.FullPath);
 							if (txt.Size() > 500000)
 								continue; // ignore les très gros fichiers
-							NkScanTextSymbols(txt.CStr(), (lg == NkLang::C || lg == NkLang::NKSL), t, f);
+							const bool isC = (lg == NkLang::C || lg == NkLang::NKSL);
+							NkScanTextSymbols(txt.CStr(), isC, t, f);
+							if (isC && mo.Size() < 30000)
+								NkScanTextMembers(txt.CStr(), mo, mn, mt, io, ib, gf, gr); // membres/héritage/retours
 						}
 					}
 				}
@@ -546,6 +567,888 @@ namespace nkentseu {
 						NkFile::Delete(NkPath(diagTempPath));
 						diagTempPath = NkString();
 					}
+				}
+
+				// ── Complétion CONTEXTUELLE (membres après '.', '->', '::'), en DEUX temps :
+				//    1) INSTANTANÉ  : heuristique — type de l'objet inféré en remontant sa
+				//       déclaration, membres lus dans la table workspace (memOwner/memName) et le
+				//       buffer courant. Marche partout (MSVC/gcc compris), zéro latence.
+				//    2) AFFINÉ      : le VRAI compilateur (famille clang, flags .jcdb) via
+				//       `-Xclang -code-completion-at`, accéléré par un PCH DE PRÉAMBULE (le bloc
+				//       d'#include compilé une fois en .pch, façon clangd) -> il remplace la liste
+				//       heuristique QUAND il répond (jamais s'il échoue). ──
+				NkProcess acProc;
+				NkVector<NkString> acAcc;
+				int32 acTarget = -1;
+				NkString acTempPath;
+				int32 acReqLine = -1, acReqCol = -1; // point demandé (0-based)
+				bool acUsedPch = false;				 // la requête en vol utilisait le PCH
+				NkString acFile;					 // fichier de la requête en vol
+
+				// Cache PCH de préambule (un par fichier ; hash = préambule + flags).
+				struct AcPch {
+						NkString file; // fichier source
+						NkString pch;  // chemin du .pch
+						int64 hash = -1;
+						bool ready = false;
+				};
+
+				NkVector<AcPch> acPchs;
+				NkProcess pchProc;
+				NkVector<NkString> pchAcc;
+				int32 pchBuild = -1; // index acPchs en cours de build (-1 aucun)
+				NkString pchHdrTemp; // header temporaire du préambule (supprimé après build)
+
+				static int64 NkFnv(const char *s, int64 h = static_cast<int64>(1469598103934665603ULL)) {
+					while (*s)
+						h = (h ^ (unsigned char)*s++) * 1099511628211LL;
+					return h;
+				}
+
+				// Nb de lignes de PRÉAMBULE (commentaires / vides / directives # en tête) + texte.
+				// Renvoie 0 s'il n'y a aucun #include (un PCH n'apporterait rien).
+				static int32 PreambleLines(const NkCodeDoc &doc, NkString &outText) {
+					int32 l = 0, nInc = 0;
+					bool blk = false, cont = false;
+					for (; l < doc.LineCount(); ++l) {
+						const NkCodeLine &L = doc.lines[l];
+						const int32 n = static_cast<int32>(L.Size());
+						bool pass = false;
+						if (cont) {
+							pass = true; // suite d'une directive terminée par '\'
+							cont = n > 0 && L[n - 1] == '\\';
+						} else if (blk) {
+							pass = true;
+							for (int32 i = 0; i + 1 < n; ++i)
+								if (L[i] == '*' && L[i + 1] == '/') {
+									blk = false;
+									break;
+								}
+						} else {
+							int32 s = 0;
+							while (s < n && (L[s] == ' ' || L[s] == '\t'))
+								++s;
+							if (s >= n)
+								pass = true; // ligne vide
+							else if (L[s] == '/' && s + 1 < n && L[s + 1] == '/')
+								pass = true;
+							else if (L[s] == '/' && s + 1 < n && L[s + 1] == '*') {
+								pass = true;
+								blk = true;
+								for (int32 i = s + 2; i + 1 < n; ++i)
+									if (L[i] == '*' && L[i + 1] == '/') {
+										blk = false;
+										break;
+									}
+							} else if (L[s] == '#') {
+								pass = true;
+								cont = n > 0 && L[n - 1] == '\\';
+								int32 k = s + 1;
+								while (k < n && (L[k] == ' ' || L[k] == '\t'))
+									++k;
+								const char *w = "include";
+								int32 t = 0;
+								while (w[t] && k + t < n && L[k + t] == w[t])
+									++t;
+								if (!w[t])
+									++nInc;
+							}
+						}
+						if (!pass)
+							break;
+						for (int32 i = 0; i < n; ++i)
+							outText += L[i];
+						outText += '\n';
+					}
+					return nInc > 0 ? l : 0;
+				}
+
+				// Applique le préfixe tapé depuis (fromLine, fromCol) sur doc.acCtxAll -> popup.
+				static void ApplyCtxFilter(NkCodeDoc &doc, int32 fromLine, int32 fromCol) {
+					if (doc.curLine != fromLine || doc.curCol < fromCol)
+						return;
+					char pre[128];
+					int32 pn = 0;
+					if (doc.curLine < doc.LineCount()) {
+						const NkCodeLine &L = doc.lines[doc.curLine];
+						for (int32 k = fromCol; k < doc.curCol && pn < 127; ++k) {
+							if (!NkCodeDoc::IsWChar(L[k])) {
+								pn = -1;
+								break;
+							}
+							pre[pn++] = L[k];
+						}
+					}
+					if (pn < 0) {
+						doc.acCtxAll.Clear();
+						doc.acOpen = false;
+						return; // le préfixe n'est plus un identifiant (ex. `)` tapé)
+					}
+					pre[pn] = 0;
+					doc.acItems.Clear();
+					for (usize ii = 0; ii < doc.acCtxAll.Size(); ++ii) {
+						const char *nm = doc.acCtxAll[ii].CStr();
+						int32 m2 = 0;
+						while (pre[m2] && nm[m2] && (nm[m2] | 32) == (pre[m2] | 32))
+							++m2;
+						if (!pre[m2])
+							doc.acItems.PushBack(doc.acCtxAll[ii]);
+					}
+					doc.acWordCol = fromCol;
+					doc.acSel = 0;
+					doc.acTop = 0;
+					doc.acXOff = 0.f;
+					doc.acOpen = !doc.acItems.Empty();
+				}
+
+				// ── Heuristique INSTANTANÉE (v2) : membres du type de l'expression avant '.', '->'
+				//    ou '::'. Gère : variable déclarée (remontée), `this->` (classe englobante),
+				//    `auto x = Type(...)`, chaînes `a.b().c.` (via le TYPE des membres/retours) et
+				//    l'HÉRITAGE (membres des classes de base). Le compilateur AFFINE ensuite. ──
+
+				// Classe dont le CORPS contient `line` : `class X { … }` englobant, ou corps d'une
+				// méthode hors-classe `Ret X::Meth(...) { … }`. out="" si hors de tout type.
+				void EnclosingTypeAt(const NkCodeDoc &doc, int32 line, char *out) {
+					out[0] = 0;
+
+					struct Sc {
+							char nm[96];
+							int32 depth;
+					};
+
+					Sc st[24];
+					int32 sn = 0, depth = 0;
+					bool blk = false;
+					char pendT[96], pendO[96];
+					pendT[0] = pendO[0] = 0;
+					auto isW = [](char c) {
+						return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+					};
+					const int32 end = line < doc.LineCount() ? line : doc.LineCount() - 1;
+					for (int32 l = 0; l <= end; ++l) {
+						const NkCodeLine &L = doc.lines[l];
+						const int32 n = static_cast<int32>(L.Size());
+						char cl[1024];
+						int32 cn = 0;
+						for (int32 i = 0; i < n && cn < 1020;) { // nettoie (chaînes/commentaires)
+							const char c = L[i];
+							if (blk) {
+								if (c == '*' && i + 1 < n && L[i + 1] == '/') {
+									blk = false;
+									i += 2;
+									continue;
+								}
+								++i;
+								continue;
+							}
+							if (c == '/' && i + 1 < n && L[i + 1] == '/')
+								break;
+							if (c == '/' && i + 1 < n && L[i + 1] == '*') {
+								blk = true;
+								i += 2;
+								continue;
+							}
+							if (c == '"' || c == '\'') {
+								const char q = c;
+								++i;
+								while (i < n) {
+									if (L[i] == '\\') {
+										i += 2;
+										continue;
+									}
+									if (L[i] == q) {
+										++i;
+										break;
+									}
+									++i;
+								}
+								cl[cn++] = q;
+								continue;
+							}
+							cl[cn++] = c;
+							++i;
+						}
+						cl[cn] = 0;
+						for (int32 i = 0; i < cn; ++i) {
+							const char c = cl[i];
+							if (c == '{') {
+								++depth;
+								if ((pendT[0] || pendO[0]) && sn < 24) {
+									Sc &sc = st[sn++];
+									const char *src = pendT[0] ? pendT : pendO;
+									int32 k = 0;
+									while (src[k] && k < 95) {
+										sc.nm[k] = src[k];
+										++k;
+									}
+									sc.nm[k] = 0;
+									sc.depth = depth;
+								}
+								pendT[0] = pendO[0] = 0;
+							} else if (c == '}') {
+								if (sn > 0 && st[sn - 1].depth == depth)
+									--sn;
+								if (depth > 0)
+									--depth;
+							} else if (c == ';') {
+								pendT[0] = pendO[0] = 0;
+							} else if (c == '(') {
+								// `X::meth(` hors type -> le corps qui suit appartient à X
+								if (sn == 0 && !pendO[0]) {
+									int32 e2 = i;
+									while (e2 > 0 && (cl[e2 - 1] == ' ' || cl[e2 - 1] == '\t'))
+										--e2;
+									int32 s2 = e2;
+									while (s2 > 0 && isW(cl[s2 - 1]))
+										--s2;
+									if (e2 > s2 && s2 >= 2 && cl[s2 - 1] == ':' && cl[s2 - 2] == ':') {
+										int32 ce = s2 - 2, cs = ce;
+										while (cs > 0 && isW(cl[cs - 1]))
+											--cs;
+										if (ce > cs) {
+											int32 k = 0;
+											for (int32 t2 = cs; t2 < ce && k < 95; ++t2)
+												pendO[k++] = cl[t2];
+											pendO[k] = 0;
+										}
+									}
+								}
+							} else if ((c == 's' || c == 'c' || c == 'u') && (i == 0 || !isW(cl[i - 1]))) {
+								int32 adv = 0;
+								if (i + 6 <= cn && c == 's' && cl[i + 1] == 't' && cl[i + 2] == 'r' &&
+									cl[i + 3] == 'u' && cl[i + 4] == 'c' && cl[i + 5] == 't' && !isW(cl[i + 6]))
+									adv = 6;
+								else if (i + 5 <= cn && c == 'c' && cl[i + 1] == 'l' && cl[i + 2] == 'a' &&
+										 cl[i + 3] == 's' && cl[i + 4] == 's' && !isW(cl[i + 5]))
+									adv = 5;
+								else if (i + 5 <= cn && c == 'u' && cl[i + 1] == 'n' && cl[i + 2] == 'i' &&
+										 cl[i + 3] == 'o' && cl[i + 4] == 'n' && !isW(cl[i + 5]))
+									adv = 5;
+								if (!adv)
+									continue;
+								int32 s = i + adv;
+								while (s < cn && (cl[s] == ' ' || cl[s] == '\t'))
+									++s;
+								int32 e = s;
+								while (e < cn && isW(cl[e]))
+									++e;
+								if (e > s && !(cl[s] >= '0' && cl[s] <= '9')) {
+									int32 k = 0;
+									for (int32 t2 = s; t2 < e && k < 95; ++t2)
+										pendT[k++] = cl[t2];
+									pendT[k] = 0;
+								}
+								i = e - 1;
+							}
+						}
+					}
+					if (sn > 0) {
+						int32 k = 0;
+						while (st[sn - 1].nm[k]) {
+							out[k] = st[sn - 1].nm[k];
+							++k;
+						}
+						out[k] = 0;
+					}
+				}
+
+				// Déclaration remontée de `var` -> type. Gère `auto x = Type(...)` / `= new Type`.
+				void VarDeclType(const NkCodeDoc &doc, const char *obj, char *out) {
+					out[0] = 0;
+					int32 on = 0;
+					while (obj[on])
+						++on;
+					if (!on)
+						return;
+					const int32 from = doc.acCtxLine;
+					for (int32 l = from; l >= 0 && l > from - 500 && !out[0]; --l) {
+						const NkCodeLine &DL = doc.lines[l];
+						const int32 dn = static_cast<int32>(DL.Size());
+						for (int32 i = 0; i + on <= dn; ++i) {
+							if (i > 0 && NkCodeDoc::IsWChar(DL[i - 1]))
+								continue;
+							int32 k = 0;
+							while (k < on && DL[i + k] == obj[k])
+								++k;
+							if (k != on || (i + on < dn && NkCodeDoc::IsWChar(DL[i + on])))
+								continue; // pas le mot entier
+							if (l == from && i + on > doc.acCtxCol)
+								break; // ne considère que ce qui précède le déclencheur
+							int32 q = i;
+							while (q > 0 && (DL[q - 1] == ' ' || DL[q - 1] == '\t'))
+								--q;
+							while (q > 0 && (DL[q - 1] == '*' || DL[q - 1] == '&'))
+								--q;
+							while (q > 0 && (DL[q - 1] == ' ' || DL[q - 1] == '\t'))
+								--q;
+							if (q > 0 && DL[q - 1] == '>') { // args template `NkVector<...>`
+								int32 dep = 1;
+								--q;
+								while (q > 0 && dep > 0) {
+									--q;
+									if (DL[q] == '>')
+										++dep;
+									else if (DL[q] == '<')
+										--dep;
+								}
+							}
+							while (q > 0 && (DL[q - 1] == ' ' || DL[q - 1] == '\t'))
+								--q;
+							int32 e2 = q;
+							while (q > 0 && NkCodeDoc::IsWChar(DL[q - 1]))
+								--q;
+							if (e2 <= q || (DL[q] >= '0' && DL[q] <= '9'))
+								continue;
+							char cand[96];
+							int32 c2 = 0;
+							for (int32 t = q; t < e2 && c2 < 95; ++t)
+								cand[c2++] = DL[t];
+							cand[c2] = 0;
+							if (StrEq(cand, "return") || StrEq(cand, "else") || StrEq(cand, "new") ||
+								StrEq(cand, "const") || StrEq(cand, "case") || StrEq(cand, "delete") ||
+								StrEq(cand, "if") || StrEq(cand, "while"))
+								continue;
+							if (StrEq(cand, "auto")) { // `auto x = Type(...)` / `= new Type` / `= Type{`
+								int32 p2 = i + on;
+								while (p2 < dn && DL[p2] == ' ')
+									++p2;
+								if (p2 < dn && (DL[p2] == '*' || DL[p2] == '&'))
+									++p2;
+								while (p2 < dn && DL[p2] == ' ')
+									++p2;
+								if (p2 >= dn || DL[p2] != '=')
+									continue;
+								++p2;
+								while (p2 < dn && DL[p2] == ' ')
+									++p2;
+								if (p2 + 3 <= dn && DL[p2] == 'n' && DL[p2 + 1] == 'e' && DL[p2 + 2] == 'w' &&
+									(p2 + 3 >= dn || !NkCodeDoc::IsWChar(DL[p2 + 3]))) { // saute `new`
+									p2 += 3;
+									while (p2 < dn && DL[p2] == ' ')
+										++p2;
+								}
+								int32 e3 = p2;
+								while (e3 < dn && NkCodeDoc::IsWChar(DL[e3]))
+									++e3;
+								if (e3 > p2 && !(DL[p2] >= '0' && DL[p2] <= '9') &&
+									(e3 >= dn || DL[e3] == '(' || DL[e3] == '{' || DL[e3] == '<' || DL[e3] == ';')) {
+									int32 k2 = 0;
+									for (int32 t = p2; t < e3 && k2 < 95; ++t)
+										out[k2++] = DL[t];
+									out[k2] = 0;
+								}
+								continue; // si pas résolu : continue à remonter
+							}
+							int32 k2 = 0;
+							while (cand[k2] && k2 < 95) {
+								out[k2] = cand[k2];
+								++k2;
+							}
+							out[k2] = 0;
+							break;
+						}
+					}
+				}
+
+				// Membres de `T` + de ses BASES (héritage), tables BUFFER + WORKSPACE, anti-cycles.
+				void CollectMembersOf(const char *T, const NkVector<NkString> &dmo, const NkVector<NkString> &dmn,
+									  const NkVector<NkString> &dio, const NkVector<NkString> &dib,
+									  NkVector<NkString> &out, char seen[8][96], int32 &nSeen) {
+					if (!T[0] || nSeen >= 8)
+						return;
+					for (int32 i = 0; i < nSeen; ++i)
+						if (StrEq(seen[i], T))
+							return; // déjà visité (anti-cycle)
+					{
+						int32 k = 0;
+						while (T[k] && k < 95) {
+							seen[nSeen][k] = T[k];
+							++k;
+						}
+						seen[nSeen][k] = 0;
+						++nSeen;
+					}
+					for (usize i = 0; i < dmo.Size(); ++i)
+						if (StrEq(dmo[i].CStr(), T))
+							out.PushBack(dmn[i]);
+					if (projReady)
+						for (usize i = 0; i < memOwner.Size(); ++i)
+							if (StrEq(memOwner[i].CStr(), T))
+								out.PushBack(memName[i]);
+					for (usize i = 0; i < dio.Size(); ++i)
+						if (StrEq(dio[i].CStr(), T))
+							CollectMembersOf(dib[i].CStr(), dmo, dmn, dio, dib, out, seen, nSeen);
+					if (projReady)
+						for (usize i = 0; i < inhOwner.Size(); ++i)
+							if (StrEq(inhOwner[i].CStr(), T))
+								CollectMembersOf(inhBase[i].CStr(), dmo, dmn, dio, dib, out, seen, nSeen);
+				}
+
+				void HeuristicMembers(NkCodeDoc &doc, NkVector<NkString> &out) {
+					out.Clear();
+					if (doc.acCtxLine < 0 || doc.acCtxLine >= doc.LineCount())
+						return;
+					const NkCodeLine &L = doc.lines[doc.acCtxLine];
+					const int32 n = static_cast<int32>(L.Size());
+					const int32 trigEnd = doc.acCtxCol > n ? n : doc.acCtxCol;
+					bool scope = false;
+					int32 pos = -1; // position juste AVANT le déclencheur
+					if (trigEnd >= 1 && L[trigEnd - 1] == '.')
+						pos = trigEnd - 1;
+					else if (trigEnd >= 2 && L[trigEnd - 2] == '-' && L[trigEnd - 1] == '>')
+						pos = trigEnd - 2;
+					else if (trigEnd >= 2 && L[trigEnd - 2] == ':' && L[trigEnd - 1] == ':') {
+						pos = trigEnd - 2;
+						scope = true;
+					}
+					if (pos <= 0)
+						return;
+					// ── Tables LOCALES du buffer courant (types en cours d'édition, non sauvés). ──
+					NkVector<NkString> dmo, dmn, dmt, dio, dib, dgf, dgr;
+					NkScanTextMembers(doc.GetText().CStr(), dmo, dmn, dmt, dio, dib, dgf, dgr);
+					auto memberType = [&](const char *T, const char *mem, char *o) {
+						o[0] = 0;
+						for (usize i = 0; i < dmo.Size(); ++i)
+							if (StrEq(dmo[i].CStr(), T) && StrEq(dmn[i].CStr(), mem) && !dmt[i].Empty()) {
+								const char *s = dmt[i].CStr();
+								int32 k = 0;
+								while (s[k] && k < 95) {
+									o[k] = s[k];
+									++k;
+								}
+								o[k] = 0;
+								return;
+							}
+						if (projReady)
+							for (usize i = 0; i < memOwner.Size(); ++i)
+								if (StrEq(memOwner[i].CStr(), T) && StrEq(memName[i].CStr(), mem) &&
+									!memType[i].Empty()) {
+									const char *s = memType[i].CStr();
+									int32 k = 0;
+									while (s[k] && k < 95) {
+										o[k] = s[k];
+										++k;
+									}
+									o[k] = 0;
+									return;
+								}
+					};
+					auto globalFnRet = [&](const char *fn, char *o) {
+						o[0] = 0;
+						for (usize i = 0; i < dgf.Size(); ++i)
+							if (StrEq(dgf[i].CStr(), fn)) {
+								const char *s = dgr[i].CStr();
+								int32 k = 0;
+								while (s[k] && k < 95) {
+									o[k] = s[k];
+									++k;
+								}
+								o[k] = 0;
+								return;
+							}
+						if (projReady)
+							for (usize i = 0; i < gfnName.Size(); ++i)
+								if (StrEq(gfnName[i].CStr(), fn)) {
+									const char *s = gfnRet[i].CStr();
+									int32 k = 0;
+									while (s[k] && k < 95) {
+										o[k] = s[k];
+										++k;
+									}
+									o[k] = 0;
+									return;
+								}
+					};
+
+					// ── Chaîne d'accès avant le déclencheur : `a.b().c` -> segments (nom, appel ?). ──
+					struct Seg {
+							char nm[96];
+							bool call;
+					};
+
+					Seg segs[8];
+					int32 ns = 0;
+					bool okChain = true;
+					int32 q = pos;
+					while (ns < 8) {
+						bool call = false;
+						if (q > 0 && L[q - 1] == ')') { // saute les parenthèses équilibrées
+							int32 dep = 1;
+							--q;
+							while (q > 0 && dep > 0) {
+								--q;
+								if (L[q] == ')')
+									++dep;
+								else if (L[q] == '(')
+									--dep;
+							}
+							call = true;
+						}
+						int32 e = q;
+						while (q > 0 && NkCodeDoc::IsWChar(L[q - 1]))
+							--q;
+						if (e <= q) {
+							okChain = false;
+							break;
+						}
+						int32 k = 0;
+						for (int32 t = q; t < e && k < 95; ++t)
+							segs[ns].nm[k++] = L[t];
+						segs[ns].nm[k] = 0;
+						segs[ns].call = call;
+						++ns;
+						if (q >= 2 && L[q - 2] == '-' && L[q - 1] == '>') {
+							q -= 2;
+							continue;
+						}
+						if (q >= 1 && L[q - 1] == '.') {
+							q -= 1;
+							continue;
+						}
+						break; // base de la chaîne atteinte
+					}
+					if (!okChain || ns == 0)
+						return;
+					// ── Résolution : base -> type, puis chaque segment via le TYPE de ses membres. ──
+					char cur[96];
+					cur[0] = 0;
+					char encl[96];
+					encl[0] = 0;
+					Seg &b = segs[ns - 1];
+					if (scope && ns == 1) { // `Type::` -> le mot EST le type
+						int32 k = 0;
+						while (b.nm[k] && k < 95) {
+							cur[k] = b.nm[k];
+							++k;
+						}
+						cur[k] = 0;
+					} else if (StrEq(b.nm, "this")) {
+						EnclosingTypeAt(doc, doc.acCtxLine, cur);
+					} else if (b.call) { // `foo().` -> retour d'une fonction libre ou d'une méthode
+						globalFnRet(b.nm, cur);
+						if (!cur[0]) {
+							EnclosingTypeAt(doc, doc.acCtxLine, encl);
+							if (encl[0])
+								memberType(encl, b.nm, cur);
+						}
+					} else {
+						VarDeclType(doc, b.nm, cur); // déclaration remontée (gère `auto x = Type(...)`)
+						if (!cur[0]) {				 // sinon : champ de la classe englobante ?
+							EnclosingTypeAt(doc, doc.acCtxLine, encl);
+							if (encl[0])
+								memberType(encl, b.nm, cur);
+						}
+					}
+					for (int32 si = ns - 2; si >= 0 && cur[0]; --si) { // remonte la chaîne
+						char nx[96];
+						memberType(cur, segs[si].nm, nx);
+						int32 k = 0;
+						while (nx[k] && k < 95) {
+							cur[k] = nx[k];
+							++k;
+						}
+						cur[k] = 0;
+						if (!nx[0])
+							cur[0] = 0;
+					}
+					if (!cur[0])
+						return;
+					// `cur` peut être un NOM DE FONCTION (ex. `auto &e = NkEvents();` -> l'init a donné
+					// "NkEvents") : si ce n'est pas un type connu mais une fonction, on prend son RETOUR.
+					{
+						bool isType = false;
+						for (usize i = 0; i < dmo.Size() && !isType; ++i)
+							if (StrEq(dmo[i].CStr(), cur))
+								isType = true;
+						if (!isType && projReady)
+							for (usize i = 0; i < memOwner.Size() && !isType; ++i)
+								if (StrEq(memOwner[i].CStr(), cur))
+									isType = true;
+						if (!isType) {
+							char alt[96];
+							globalFnRet(cur, alt);
+							if (alt[0]) {
+								int32 k = 0;
+								while (alt[k] && k < 95) {
+									cur[k] = alt[k];
+									++k;
+								}
+								cur[k] = 0;
+							}
+						}
+					}
+					// ── Membres du type + de ses BASES (héritage, profondeur bornée). ──
+					char seen[8][96];
+					int32 nSeen = 0;
+					CollectMembersOf(cur, dmo, dmn, dio, dib, out, seen, nSeen);
+					NkSymSortDedup(out);
+					if (out.Size() > 400)
+						out.Resize(400);
+				}
+
+				void ProcessCompletionRequest() {
+					if (active < 0 || active >= static_cast<int32>(files.Size()))
+						return;
+					OpenFile &f = files[active];
+					NkCodeDoc &doc = f.doc;
+					if (!doc.acCtxReq)
+						return;
+					doc.acCtxReq = false; // consommée : heuristique tout de suite, compilateur si possible
+					// ── 1) INSTANTANÉ : membres heuristiques -> popup immédiat. ──
+					NkVector<NkString> heur;
+					HeuristicMembers(doc, heur);
+					if (!heur.Empty()) {
+						doc.acCtxAll = heur;
+						ApplyCtxFilter(doc, doc.acCtxLine, doc.acCtxCol);
+					}
+					{
+						char lb[160];
+						std::snprintf(lb, sizeof(lb), "[ac] heuristique: %d membres (index projet: %s)",
+									  static_cast<int32>(heur.Size()), projReady ? "pret" : "en construction");
+						GlobalLogBuffer().Push(NkString(lb));
+					}
+					// ── 2) COMPILATEUR (affine) : famille clang uniquement (NDK/emsdk/OHOS = clang ;
+					//       gcc/MSVC restent sur l'heuristique + mots). ──
+					if (!cdb.ready) {
+						GlobalLogBuffer().Push(NkString("[ac] compilo: .jcdb pas pret (compile-flags en cours)"));
+						return;
+					}
+					if (cdb.msvc) {
+						GlobalLogBuffer().Push(
+							NkString("[ac] compilo: MSVC (pas de completion CLI) -> heuristique seule"));
+						return;
+					}
+					const bool clangish =
+						NkFindSub(cdb.compiler.CStr(), "clang") || NkFindSub(cdb.compiler.CStr(), "zig") ||
+						NkFindSub(cdb.compiler.CStr(), "emcc") || NkFindSub(cdb.compiler.CStr(), "em++");
+					if (!clangish) {
+						GlobalLogBuffer().Push(
+							NkString("[ac] compilo: gcc/inconnu (pas -code-completion-at) -> heuristique seule"));
+						return;
+					}
+					if (acProc.Running())
+						return; // requête précédente en vol : l'heuristique reste affichée
+					const NkString ext = f.path.GetExtension();
+					const ProjFlags *pf = IsCppExt(ext.CStr()) ? FlagsForFile(f.path.ToString()) : nullptr;
+					if (!pf) {
+						GlobalLogBuffer().Push(
+							NkString("[ac] compilo: fichier HORS des projets du .jcdb -> heuristique seule"));
+						return;
+					}
+					const bool isC = StrEqI(ext.CStr(), ".c");
+					// ── PCH de préambule : valide ? sinon (re)build async (une fois). ──
+					NkString preText;
+					const int32 preN = PreambleLines(doc, preText);
+					bool usePch = false;
+					NkString pchPath;
+					if (preN > 0) {
+						const int64 key = NkFnv(preText.CStr(), NkFnv(flagsSig.CStr(), NkFnv(pf->dir.CStr())));
+						int32 idx = -1;
+						for (usize i = 0; i < acPchs.Size(); ++i)
+							if (StrEq(acPchs[i].file.CStr(), f.path.ToString().CStr())) {
+								idx = static_cast<int32>(i);
+								break;
+							}
+						if (idx < 0) {
+							AcPch e0;
+							e0.file = f.path.ToString();
+							acPchs.PushBack(e0);
+							idx = static_cast<int32>(acPchs.Size()) - 1;
+						}
+						AcPch &e = acPchs[idx];
+						const bool valid = e.ready && e.hash == key && NkFile::Exists(NkPath(e.pch));
+						if (valid) {
+							usePch = true;
+							pchPath = e.pch;
+						} else if ((e.hash != key || e.ready) && pchBuild < 0 && !pchProc.Running()) {
+							char hx[24];
+							std::snprintf(hx, sizeof(hx), "%08x",
+										  static_cast<uint32>(NkFnv(e.file.CStr()) & 0xffffffffLL));
+							const NkString hdrName = NkString(".nkcode_ac_") + hx + ".h";
+							const NkString pchName = NkString(".nkcode_ac_") + hx + ".pch";
+							const NkString hdr = (f.path.GetParent() / hdrName.CStr()).ToString();
+							e.pch = (f.path.GetParent() / pchName.CStr()).ToString();
+							if (NkFile::WriteAllText(NkPath(hdr), preText)) {
+								e.hash = key;
+								e.ready = false;
+								NkString c2 = CompilerPathPrefix() + "\"" + cdb.compiler.CStr() + "\" ";
+								c2 += isC ? "-x c-header " : "-x c++-header ";
+								c2 += "-w -Xclang -skip-function-bodies ";
+								if (!pf->std.Empty()) {
+									c2 += "-std=";
+									c2 += pf->std.CStr();
+									c2 += " ";
+								}
+								for (usize i = 0; i < pf->includes.Size(); ++i) {
+									c2 += "-I\"";
+									c2 += pf->includes[i].CStr();
+									c2 += "\" ";
+								}
+								for (usize i = 0; i < pf->defines.Size(); ++i) {
+									c2 += "-D";
+									c2 += pf->defines[i].CStr();
+									c2 += " ";
+								}
+								c2 += "-o \"";
+								c2 += e.pch.CStr();
+								c2 += "\" \"";
+								c2 += hdr.CStr();
+								c2 += "\" 2>&1";
+								pchHdrTemp = hdr;
+								pchAcc.Clear();
+								pchBuild = idx;
+								pchProc.Start(c2);
+							}
+						}
+					}
+					// ── Fichier compilé : buffer complet, ou préambule BLANCHI si PCH (lignes gardées). ──
+					const NkString tmp = (f.path.GetParent() / ".nkcode_ac.nkcheck").ToString();
+					bool wrote = false;
+					if (usePch) {
+						NkString body;
+						for (int32 l2 = 0; l2 < doc.LineCount(); ++l2) {
+							if (l2 >= preN) {
+								const NkCodeLine &L2 = doc.lines[l2];
+								for (usize i2 = 0; i2 < L2.Size(); ++i2)
+									body += L2[i2];
+							}
+							body += '\n';
+						}
+						wrote = NkFile::WriteAllText(NkPath(tmp), body);
+					} else
+						wrote = NkFile::WriteAllText(NkPath(tmp), doc.GetText());
+					if (!wrote)
+						return;
+					acTempPath = tmp;
+					acReqLine = doc.acCtxLine;
+					acReqCol = doc.acCtxCol;
+					acUsedPch = usePch;
+					acFile = f.path.ToString();
+					NkString cmd = CompilerPathPrefix() + "\"" + cdb.compiler.CStr() + "\" -fsyntax-only ";
+					cmd += isC ? "-x c " : "-x c++ ";
+					// Vitesse : saute les CORPS de fonctions (l'astuce de clangd) + zéro warnings.
+					cmd += "-w -fno-caret-diagnostics -Xclang -skip-function-bodies ";
+					if (!pf->std.Empty()) {
+						cmd += "-std=";
+						cmd += pf->std.CStr();
+						cmd += " ";
+					}
+					if (usePch) {
+						cmd += "-include-pch \"";
+						cmd += pchPath.CStr();
+						cmd += "\" ";
+					}
+					char at[64];
+					std::snprintf(at, sizeof(at), ":%d:%d\" ", acReqLine + 1, acReqCol + 1);
+					cmd += "-Xclang -code-completion-at=\"";
+					cmd += tmp.CStr();
+					cmd += at;
+					for (usize i = 0; i < pf->includes.Size(); ++i) {
+						cmd += "-I\"";
+						cmd += pf->includes[i].CStr();
+						cmd += "\" ";
+					}
+					for (usize i = 0; i < pf->defines.Size(); ++i) {
+						cmd += "-D";
+						cmd += pf->defines[i].CStr();
+						cmd += " ";
+					}
+					cmd += "\"";
+					cmd += tmp.CStr();
+					cmd += "\" 2>&1";
+					acAcc.Clear();
+					acTarget = active;
+					acProc.Start(cmd);
+					GlobalLogBuffer().Push(NkString(acUsedPch ? "[ac] compilo lance (PCH preambule: rapide)"
+															  : "[ac] compilo lance (sans PCH: complet)"));
+				}
+
+				void PollCompletion() {
+					if (projReady && !projLoggedReady) { // l heuristique instantanee devient disponible
+						projLoggedReady = true;
+						char lb0[128];
+						std::snprintf(lb0, sizeof(lb0), "[ac] index projet PRET: %d types, %d membres, %d fonctions",
+									  static_cast<int32>(projTypes.Size()), static_cast<int32>(memOwner.Size()),
+									  static_cast<int32>(gfnName.Size()));
+						GlobalLogBuffer().Push(NkString(lb0));
+					}
+					// PCH de préambule en cours ? (indépendant de la requête de complétion)
+					if (pchBuild >= 0 && pchBuild < static_cast<int32>(acPchs.Size())) {
+						pchProc.Drain(pchAcc);
+						if (pchProc.Done()) {
+							AcPch &e = acPchs[pchBuild];
+							e.ready = (pchProc.ExitCode() == 0) && NkFile::Exists(NkPath(e.pch));
+							if (!e.ready)
+								e.hash = -1; // échec -> retentera au prochain déclencheur
+							if (!pchHdrTemp.Empty()) {
+								NkFile::Delete(NkPath(pchHdrTemp));
+								pchHdrTemp = NkString();
+							}
+							pchBuild = -1;
+						}
+					}
+					if (acTarget < 0)
+						return;
+					acProc.Drain(acAcc);
+					if (!acProc.Done())
+						return;
+					const int32 tgt = acTarget;
+					acTarget = -1;
+					if (!acTempPath.Empty()) {
+						NkFile::Delete(NkPath(acTempPath));
+						acTempPath = NkString();
+					}
+					if (tgt < 0 || tgt >= static_cast<int32>(files.Size()))
+						return;
+					NkCodeDoc &doc = files[tgt].doc;
+					// Résultats périmés si le caret a changé de ligne ou est revenu avant le point.
+					if (doc.curLine != acReqLine || doc.curCol < acReqCol)
+						return;
+					NkVector<NkString> got; // parse LOCAL : n'écrase l'heuristique que si non-vide
+					for (usize li = 0; li < acAcc.Size(); ++li) {
+						const char *ln = acAcc[li].CStr();
+						const char *pfx = "COMPLETION: ";
+						int32 m = 0;
+						while (pfx[m] && ln[m] == pfx[m])
+							++m;
+						if (pfx[m])
+							continue; // pas une ligne de complétion
+						const char *nm = ln + m;
+						int32 e = 0;
+						while (nm[e] && nm[e] != ' ' && nm[e] != ':')
+							++e;
+						if (!e || nm[0] == '~')
+							continue; // vide / destructeur
+						NkString name;
+						for (int32 k = 0; k < e; ++k)
+							name += nm[k];
+						if (StrEq(name.CStr(), "Pattern") || NkFindSub(name.CStr(), "operator"))
+							continue; // snippets clang / opérateurs : bruit
+						if (!got.Empty() && StrEq(got.Back().CStr(), name.CStr()))
+							continue; // surcharges adjacentes (clang trie) -> dédoublonne
+						got.PushBack(name);
+						if (got.Size() >= 500)
+							break; // garde-fou
+					}
+					{
+						char lb[96];
+						std::snprintf(lb, sizeof(lb), "[ac] compilo: %d membres%s", static_cast<int32>(got.Size()),
+									  got.Empty() ? " -> heuristique conservee" : "");
+						GlobalLogBuffer().Push(NkString(lb));
+					}
+					if (got.Empty()) {
+						// Échec avec PCH (header modifié -> PCH périmé ?) : invalide pour reconstruire.
+						if (acUsedPch)
+							for (usize i = 0; i < acPchs.Size(); ++i)
+								if (StrEq(acPchs[i].file.CStr(), acFile.CStr())) {
+									acPchs[i].hash = -1;
+									acPchs[i].ready = false;
+									break;
+								}
+						return; // l'heuristique affichée reste en place
+					}
+					doc.acCtxAll = got;
+					ApplyCtxFilter(doc, acReqLine, acReqCol);
 				}
 
 				// Defines EFFECTIFS pour griser les branches préproc du fichier : macros réellement
@@ -2470,10 +3373,10 @@ namespace nkentseu {
 					return NkString("C++");
 				}
 
-				static NkString CollectProjects(const char *txt, int32 *outCount = nullptr) {
+				static NkString CollectProjects(const char *txt, const NkPath &baseDir, int32 *outCount = nullptr) {
 					NkVector<NkString> names;
-					auto collect = [&](const char *pat) {
-						const char *p = txt;
+					auto collect = [&](const char *src, const char *pat) {
+						const char *p = src;
 						while ((p = FindStr(p, pat))) {
 							p += Len(pat);
 							while (*p && *p != '"')
@@ -2494,8 +3397,27 @@ namespace nkentseu {
 							}
 						}
 					};
-					collect("with project(");
-					collect("startproject(");
+					collect(txt, "with project(");
+					collect(txt, "startproject(");
+					// Projets déclarés dans les .jenga INCLUS (`with include("x/y.jenga")`) : la
+					// racine (ex. Nkentseu) n'a souvent qu'un startproject, chaque module vivant
+					// dans son propre fichier -> sans ça la carte affichait « 1 projet ».
+					{
+						const char *p = txt;
+						int32 nInc = 0;
+						while ((p = FindStr(p, "include(\"")) && nInc < 200) {
+							p += Len("include(\"");
+							NkString rel;
+							while (*p && *p != '"')
+								rel += *p++;
+							++nInc;
+							if (rel.Empty())
+								continue;
+							const NkString sub = NkFile::ReadAllText(baseDir / rel.CStr());
+							if (!sub.Empty())
+								collect(sub.CStr(), "with project(");
+						}
+					}
 					if (outCount)
 						*outCount = (int32)names.Size();
 					NkString out; // noms (jusqu'a 6) ; le total "(N)" est affiche a part
@@ -2562,7 +3484,7 @@ namespace nkentseu {
 							m.jengaVer = t;
 						}
 					}
-					m.projects = CollectProjects(txt.CStr(), &m.projCount);
+					m.projects = CollectProjects(txt.CStr(), NkPath(path).GetParent(), &m.projCount);
 					m.activity = ActivityTime(NkPath(path).GetParent().ToString().CStr()); // derniere activite reelle
 					if (m.activity == 0)
 						m.activity = MTimeOf(path); // repli : mtime du .jenga

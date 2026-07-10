@@ -1392,22 +1392,52 @@ namespace nkentseu {
 				};
 
 				TerminalPanel() : NkEditorPanel("TERMINAL", NkEditorDockSide::NK_BOTTOM) {
-					mTerm[0].alive = true; // un terminal PowerShell par defaut
-					mTerm[0].label = "powershell";
+					// Le terminal par defaut est cree quand le WORKSPACE est connu (bon repertoire,
+					// pas de persistance de session ; l historique = celui du shell, ex. PSReadLine).
 				}
 
 				NkEditorShell *mShell = nullptr; // pour la police propre du terminal (TermCodeFont)
+				NkCodeState *mState = nullptr;	 // racine du workspace -> repertoire de demarrage des shells
 				float32 mZoom = 0.f;			 // taille PROPRE du terminal (0 = globale), zoom au survol
 
 				void OnUI(NkEditorFrameContext &ec) override {
 					auto &ctx = ec.Ui();
 					auto &dl = ctx.DL();
+					const NkRect clip = dl.CurrentClip();
+					dl.AddRectFilled(clip, ctx.theme.bgPrimary); // fond terminal #0D1117
+					// Changement de WORKSPACE : recycle les terminaux JAMAIS utilises (touched=false)
+					// pour que le defaut redemarre dans la NOUVELLE racine (celle du boot peut etre
+					// un faux workspace : le CWD de l exe). Ceux ou l on a tape restent en vie.
+					const bool wsReady = mState && mState->HasWorkspace() && !mState->root.ToString().Empty();
+					const NkString wsRoot = wsReady ? mState->root.ToString() : NkString();
+					if (wsReady && !StrEq(mSpawnedRoot.CStr(), wsRoot.CStr())) {
+						for (int32 i = 0; i < 8; ++i)
+							if (mTerm[i].alive && !mTerm[i].touched) {
+								mTerm[i].pty.Stop();
+								mTerm[i].alive = false;
+								mTerm[i].started = false;
+							}
+						mSpawnedRoot = wsRoot;
+						if (!mTerm[mActive].alive)
+							mActive = FirstAlive();
+					}
+					// Terminal PAR DEFAUT : cree seulement quand la racine du workspace est connue
+					// -> le shell demarre au bon endroit, avec le TYPE choisi par l utilisateur.
+					if (AliveCount() == 0) {
+						const bool rootReady = wsReady;
+						if (!rootReady) {
+							if (ctx.font && ctx.font->Valid())
+								dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+										   {clip.x + ctx.S(12.f), clip.y + ctx.S(20.f)},
+										   "Ouvre un workspace pour demarrer le terminal...", ctx.theme.textDisabled);
+							return;
+						}
+						EnsurePrefs();
+						AddTermKind(mDefShell, mDefDistro); // shell par defaut (preference persistee)
+					}
 					if (!mTerm[mActive].alive)
 						mActive = FirstAlive();
 					Term &t = mTerm[mActive];
-
-					const NkRect clip = dl.CurrentClip();
-					dl.AddRectFilled(clip, ctx.theme.bgPrimary); // fond terminal #0D1117
 
 					// Disposition VSCode : terminal a GAUCHE, LISTE des terminaux a DROITE.
 					const float32 listW = ctx.S(190.f);
@@ -1508,6 +1538,29 @@ namespace nkentseu {
 					}
 					// Combobox de shell (a gauche du "+").
 					const float32 cw = ctx.S(118.f);
+					// Etoile « definir par defaut » : le shell du combo devient le TERMINAL PAR DEFAUT
+					// (persiste). Pleine (accent) quand le combo == defaut courant.
+					{
+						EnsurePrefs();
+						EnsureBaseShells();
+						if (mNewShell < 0 || mNewShell >= static_cast<int32>(mShells.Size()))
+							mNewShell = 0;
+						const NkRect stR = {addR.x - cw - 4.f - h, bar.y + 1.f, h, h - 2.f};
+						const bool hov = inR(stR);
+						const ShellDef &cur = mShells[mNewShell];
+						const bool isDef = (cur.kind == mDefShell) && StrEq(cur.distro.CStr(), mDefDistro.CStr());
+						if (hov)
+							dl.AddRectFilled(stR, ctx.theme.buttonHover);
+						const float32 scx = stR.x + h * 0.5f, scy = stR.y + (h - 2.f) * 0.5f;
+						const NkColor sc = isDef ? ctx.theme.accent : ctx.theme.textDisabled;
+						dl.AddTriangleFilled({scx, scy - 5.f}, {scx - 4.5f, scy + 3.5f}, {scx + 4.5f, scy + 3.5f}, sc);
+						dl.AddTriangleFilled({scx, scy + 5.f}, {scx - 4.5f, scy - 3.5f}, {scx + 4.5f, scy - 3.5f}, sc);
+						if (hov && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) {
+							mDefShell = cur.kind;
+							mDefDistro = cur.distro;
+							SavePrefs();
+						}
+					}
 					const float32 savedW = ctx.layout.region.w;
 					ctx.layout.cursor = {addR.x - cw - 4.f, bar.y + 1.f};
 					ctx.layout.lineStartX = ctx.layout.cursor.x;
@@ -1523,6 +1576,7 @@ namespace nkentseu {
 							if (Selectable(ctx, mShells[i].label.CStr(), i == ctx.comboNav) ||
 								(i == ctx.comboNav && ctx.comboEnter)) {
 								mNewShell = i;
+								AddTerm(i); // choisir un shell CREE le terminal (facon VSCode)
 								ctx.ClosePopup();
 							}
 						EndCombo(ctx);
@@ -1540,6 +1594,7 @@ namespace nkentseu {
 						NkString label = "powershell"; // libelle affiche (onglet/liste)
 						bool alive = false;
 						bool started = false; // pty deja lance ?
+						bool touched = false; // l utilisateur y a TAPE (ne pas recycler au changement de workspace)
 						float32 scrollX = 0.f, scrollY = 0.f;
 						bool follow = true; // colle au bas (desactive au scroll manuel)
 						// Selection en cellules : ancre (A) + curseur (B), en (ligne ABSOLUE, colonne).
@@ -1556,7 +1611,13 @@ namespace nkentseu {
 					if (t.started)
 						return;
 					t.started = true;
-					t.pty.Start(PtyCommand(t.shell, t.distro), t.screen.Cols(), t.screen.Rows());
+					GlobalLogBuffer().Push(NkString("[term] demarre dans: ") + ((mState && mState->HasWorkspace())
+																					? mState->root.ToString()
+																					: NkString("(cwd exe)")));
+					t.pty.Start(PtyCommand(t.shell, t.distro), t.screen.Cols(), t.screen.Rows(),
+								(mState && mState->HasWorkspace() && !mState->root.ToString().Empty())
+									? mState->root.ToString()
+									: NkString());
 				}
 
 				// Programme reel a lancer pour chaque type de shell.
@@ -1857,6 +1918,7 @@ namespace nkentseu {
 						t.scrollY = 1.0e9f;
 						t.follow = true;
 						t.pty.Write(seq.Data(), seq.Size());
+						t.touched = true;
 					}
 				}
 
@@ -1902,6 +1964,7 @@ namespace nkentseu {
 					const NkString clip = ctx.GetClipboard();
 					if (!clip.Empty())
 						t.pty.Write(clip.CStr(), clip.Size());
+					t.touched = true;
 				}
 
 				void SelectAll(Term &t) {
@@ -2002,8 +2065,77 @@ namespace nkentseu {
 							mTerm[i].sAL = mTerm[i].sAC = mTerm[i].sBL = mTerm[i].sBC = 0;
 							mTerm[i].dragging = false;
 							mActive = i;
+							GlobalLogBuffer().Push(NkString("[term] nouveau terminal: ") + sd.label);
 							return;
 						}
+				}
+
+				// ── Préférence GLOBALE « shell par défaut » (persistée %APPDATA%/NKCode/terminal.cfg,
+				//    format `shell=N` + `distro=S`). L'HISTORIQUE des commandes n'est PAS géré ici :
+				//    c'est celui du shell lui-même (PSReadLine, .bash_history…), déjà persistant. ──
+				static NkString PrefPath() {
+					const char *base = std::getenv("APPDATA");
+					if (!base)
+						base = std::getenv("HOME");
+					if (!base)
+						return NkString();
+					NkString dir = NkString(base) + "/NKCode";
+					NkDirectory::Create(dir.CStr());
+					return dir + "/terminal.cfg";
+				}
+
+				void EnsurePrefs() {
+					if (mPrefLoaded)
+						return;
+					mPrefLoaded = true;
+					const NkString p = PrefPath();
+					if (p.Empty() || !NkFile::Exists(NkPath(p)))
+						return;
+					const NkString txt = NkFile::ReadAllText(NkPath(p));
+					const char *s = txt.CStr();
+					while (*s) {
+						const char *e = s;
+						while (*e && *e != '\n' && *e != '\r')
+							++e;
+						if (e - s > 6 && s[0] == 's' && s[1] == 'h' && s[2] == 'e' && s[3] == 'l' && s[4] == 'l' &&
+							s[5] == '=')
+							mDefShell = NkAtoi(s + 6);
+						else if (e - s > 7 && s[0] == 'd' && s[1] == 'i' && s[2] == 's' && s[3] == 't' && s[4] == 'r' &&
+								 s[5] == 'o' && s[6] == '=') {
+							NkString d;
+							for (const char *q = s + 7; q < e; ++q)
+								d += *q;
+							mDefDistro = d;
+						}
+						while (*e == '\n' || *e == '\r')
+							++e;
+						s = e;
+					}
+					if (mDefShell < 0 || mDefShell >= SH_COUNT)
+						mDefShell = SH_PWSH;
+				}
+
+				void SavePrefs() {
+					const NkString p = PrefPath();
+					if (p.Empty())
+						return;
+					char buf[192];
+					std::snprintf(buf, sizeof(buf), "shell=%d\ndistro=%s\n", mDefShell, mDefDistro.CStr());
+					NkFile::WriteAllText(NkPath(p), NkString(buf));
+				}
+
+				// Crée un terminal d'un TYPE donné (sert au terminal par défaut) : libellé/distro
+				// récupérés dans mShells ; le combo du « + » reflète ce choix.
+				void AddTermKind(int32 kind, const NkString &distro) {
+					EnsureBaseShells();
+					int32 idx = 0;
+					for (int32 i = 0; i < static_cast<int32>(mShells.Size()); ++i)
+						if (mShells[i].kind == kind && StrEq(mShells[i].distro.CStr(), distro.CStr())) {
+							idx = i;
+							break;
+						}
+					mNewShell = idx;
+					AddTerm(idx);
 				}
 
 				void CloseTerm(int32 i) {
@@ -2092,7 +2224,11 @@ namespace nkentseu {
 
 				Term mTerm[8];
 				int32 mActive = 0;
-				int32 mNewShell = 0;		// index dans mShells (0 = powershell)
+				int32 mNewShell = 0;	   // index dans mShells (0 = powershell)
+				int32 mDefShell = SH_PWSH; // TYPE du terminal par defaut (preference persistee)
+				NkString mDefDistro;	   // distro WSL du defaut (si SH_WSL)
+				NkString mSpawnedRoot;	   // racine au moment du spawn (recycle si le workspace change)
+				bool mPrefLoaded = false;
 				NkVector<ShellDef> mShells; // selecteur de shells (base + distros WSL)
 				bool mShellsBuilt = false;
 				bool mWslDetected = false;

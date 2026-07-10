@@ -30,7 +30,7 @@ namespace nkentseu {
 
 				// Lance `cmdline` (ex. "powershell.exe", "wsl.exe -d Ubuntu-22.04") attache
 				// a un ConPTY de taille cols x rows. false si echec / ConPTY indisponible.
-				bool Start(const NkString &cmdline, int16 cols, int16 rows);
+				bool Start(const NkString &cmdline, int16 cols, int16 rows, const NkString &cwd = NkString());
 
 				// Ecrit des octets bruts (UTF-8) dans l'entree du shell (frappes clavier).
 				void Write(const char *data, usize len);
