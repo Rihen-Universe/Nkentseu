@@ -47,9 +47,11 @@
     tables `e_prob_model`/`pred_coef`/`beta_coef` ; **aller-retour prouvé** LM 0-3 × intra/inter) + **énergie
     fine** (raffinement par bits bruts par bande, `UnquantFine` ; aller-retour prouvé, coexiste avec le range
     coder) + **PVQ/CWRS** (`NkCeltPvq` : `V(n,k)` + codage combinatoire vecteur↔index, cwrs.c ; **aller-retour
-    EXHAUSTIF prouvé** — tous les index de plusieurs (n,k) + range coder). ⏳ Reste CELT (assemblage) :
-    **allocation de bits** (rate.c, l'autre pièce touffue) → répartition pulses/bandes → anti-collapse →
-    denormalise → IMDCT + **overlap-add** → orchestration trame CELT.
+    EXHAUSTIF prouvé** — tous les index de plusieurs (n,k) + range coder) + **bits↔pulses** (`NkCeltRate` :
+    `PulsesToBits`/`BitsToPulses`, cœur de l'allocation ; monotonie + aller-retour + budget prouvés ;
+    ⚠️ approx log2 flottant, cache bit-exact rate.c à raffiner). ⏳ Reste CELT (assemblage) : **compute_allocation
+    complet** (table `band_allocation` + bissection + boost/trim/cap) → répartition pulses/bandes → décodage
+    bandes (PVQ) → anti-collapse → denormalise → IMDCT + **overlap-add** → orchestration trame → PCM.
   ⏳ Puis **SILK** (LPC, LTP) → mode hybride → PCM float32.
 
 ## En cours / À venir

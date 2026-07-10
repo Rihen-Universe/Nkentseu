@@ -12,6 +12,7 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltMdct.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltEnergy.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltPvq.h"
+#include "NKMedia/Codecs/Opus/Celt/NkCeltRate.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -143,6 +144,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkCeltPvq::SelfTest();
 		printf("[ %s ] NkCeltPvq : V(n,k), CWRS vecteur<->index exhaustif, aller-retour range coder\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkCeltRate::SelfTest();
+		printf("[ %s ] NkCeltRate : bits<->pulses (coeur allocation), monotonie + aller-retour + budget\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
