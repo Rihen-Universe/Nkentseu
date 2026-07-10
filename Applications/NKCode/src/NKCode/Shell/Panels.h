@@ -728,6 +728,30 @@ namespace nkentseu {
 					int32 toClose = -1;
 					// ── Raccourcis onglets (façon VSCode) : Ctrl+W ferme, Ctrl+Maj+T rouvre,
 					// Ctrl+Tab / Ctrl+Maj+Tab cycle dans l'ordre MRU (snapshot figé pendant le cycle). ──
+					// Trace de DIAGNOSTIC clavier : chaque Ctrl+<touche QoL> recue est loguee dans
+					// OUTPUT ([keys]) -> permet de voir si une touche n'arrive pas jusqu'a NKGui.
+					if (ctx.input.ctrlDown) {
+						auto trace = [&](NkGuiKey k, const char *nm) {
+							if (ctx.input.KeyPressed(k)) {
+								char b[64];
+								std::snprintf(b, sizeof(b), "[keys] Ctrl%s+%s", ctx.input.shiftDown ? "+Maj" : "", nm);
+								GlobalLogBuffer().Push(NkString(b));
+							}
+						};
+						trace(NkGuiKey::K, "K");
+						trace(NkGuiKey::J, "J");
+						trace(NkGuiKey::I, "I");
+						trace(NkGuiKey::O, "O");
+						trace(NkGuiKey::W, "W");
+						trace(NkGuiKey::T, "T");
+						trace(NkGuiKey::Num0, "0");
+						trace(NkGuiKey::Backslash, "AntiSlash");
+						trace(NkGuiKey::Space, "Espace");
+					}
+					if (ctx.input.KeyPressed(NkGuiKey::F8))
+						GlobalLogBuffer().Push(NkString("[keys] F8"));
+					if (ctx.input.KeyPressed(NkGuiKey::F12))
+						GlobalLogBuffer().Push(NkString("[keys] F12"));
 					if (ctx.popupDepth == 0 && ctx.input.ctrlDown) {
 						if (ctx.input.KeyPressed(NkGuiKey::W) && mS->HasActive() && !mS->files[mS->active].pinned)
 							toClose = mS->active;

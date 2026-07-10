@@ -116,15 +116,16 @@ namespace nkentseu {
 				// ── Hover documentation (survol ~0,5 s d un symbole -> carte signature + doc) ──
 				int32 hovWordL = -1, hovWordS = -1, hovWordE = -1; // mot sous la souris (detection du survol)
 				float32 hovDwell = 0.f;							   // duree d immobilite sur ce mot
-				bool hovReq = false;						// requete posee (consommee par NkCodeState::ProcessHover)
-				bool hovDone = false;						// deja resolu pour CE mot (anti re-requete chaque frame)
-				int32 hovKind = 0;							// pastille : 1 fonction/membre, 2 type, 3 variable, 4 macro
-				NkRect hovActRect = {0.f, 0.f, 0.f, 0.f};	// action [Aller a la definition]
-				NkRect hovCopyRect = {0.f, 0.f, 0.f, 0.f};	// bouton [Copier]
-				NkRect hovRefsRect = {0.f, 0.f, 0.f, 0.f};	// bouton [References]
-				float32 hovXOff = 0.f;						// defilement horizontal du PROTOTYPE (long)
-				NkRect hovTitleRect = {0.f, 0.f, 0.f, 0.f}; // zone du prototype (glisser = defiler)
-				float32 hovDragX = 0.f, hovDragOff = 0.f;	// ancrage du glisser horizontal
+				bool hovReq = false;					  // requete posee (consommee par NkCodeState::ProcessHover)
+				bool hovDone = false;					  // deja resolu pour CE mot (anti re-requete chaque frame)
+				bool hovKb = false;						  // requete posee au CLAVIER (Ctrl+K I) : resets souris ignores
+				int32 hovKind = 0;						  // pastille : 1 fonction/membre, 2 type, 3 variable, 4 macro
+				NkRect hovActRect = {0.f, 0.f, 0.f, 0.f}; // action [Aller a la definition]
+				NkRect hovCopyRect = {0.f, 0.f, 0.f, 0.f};	 // bouton [Copier]
+				NkRect hovRefsRect = {0.f, 0.f, 0.f, 0.f};	 // bouton [References]
+				float32 hovXOff = 0.f;						 // defilement horizontal du PROTOTYPE (long)
+				NkRect hovTitleRect = {0.f, 0.f, 0.f, 0.f};	 // zone du prototype (glisser = defiler)
+				float32 hovDragX = 0.f, hovDragOff = 0.f;	 // ancrage du glisser horizontal
 				float32 hovBodyOff = 0.f, hovBodyXOff = 0.f; // defilement V/H de la DOC (commentaires)
 				NkRect hovBodyRect = {0.f, 0.f, 0.f, 0.f};	 // zone doc (molette / glisser 2 axes)
 				int32 hovDragMode = 0;						 // 1 = prototype (X), 2 = doc (X+Y)
@@ -132,6 +133,8 @@ namespace nkentseu {
 				// ── QoL : barre « aller a la ligne » (Ctrl+G), chord Ctrl+K, references ──
 				bool gotoOpen = false;
 				char gotoBuf[12] = {};
+				int32 blinkTick = 0; // clignotement du caret : rallume a chaque frappe/deplacement
+				int32 blinkL = -1, blinkC = -1;
 				int32 chordK = -100000;				   // tick du dernier Ctrl+K (chords Ctrl+K 0/J/I)
 				NkString refsTarget;				   // symbole dont on veut les REFERENCES (consomme par l etat)
 				NkString hovSym;					   // symbole demande
@@ -2214,6 +2217,8 @@ namespace nkentseu {
 			//    NkCodeState::ProcessHover), carte rendue plus bas. Bouge/clic/molette -> reset. ──
 			// Zone-PONT mot->carte : la carte reste tant que la souris est dans la bbox
 			// (mot + carte) gonflee — on peut la rejoindre sans quelle disparaisse.
+			if (!d.hovShow && !d.hovReq)
+				d.hovKb = false; // fin de vie de la requete clavier -> les resets souris reprennent
 			bool overHovCard = false;
 			// molette sur la carte : defile le prototype horizontalement (consommee)
 			if (d.hovShow) {
@@ -2362,7 +2367,8 @@ namespace nkentseu {
 							d.hovReq = true;
 						}
 					}
-				} else { // mot changé (ou plus de mot sous la souris) -> reset
+				} else if (!d.hovKb || ctx.input.mouseClicked[0] || ctx.input.charCount > 0) {
+					// mot change / plus de mot sous la souris -> reset (mode CLAVIER : seuls clic/frappe ferment)
 					d.hovWordL = hs >= 0 ? hl : -1;
 					d.hovWordS = hs;
 					d.hovWordE = he;
@@ -2372,7 +2378,8 @@ namespace nkentseu {
 					d.hovDone = false;
 					d.hovRect = {0.f, 0.f, 0.f, 0.f};
 				}
-			} else if (d.hovShow || d.hovDwell > 0.f || d.hovReq) { // hors zone / clic / popup ouvert
+			} else if ((!d.hovKb || ctx.input.mouseClicked[0] || ctx.input.charCount > 0) &&
+					   (d.hovShow || d.hovDwell > 0.f || d.hovReq)) { // hors zone / clic (mode clavier : clic/frappe)
 				d.hovShow = false;
 				d.hovDwell = 0.f;
 				d.hovWordL = -1;
@@ -2693,6 +2700,7 @@ namespace nkentseu {
 							d.hovBodyXOff = 0.f;
 							d.hovShow = false;
 							d.hovDone = false;
+							d.hovKb = true;
 							d.hovReq = true;
 						}
 						d.chordK = -100000;
@@ -3061,6 +3069,7 @@ namespace nkentseu {
 									d.hovBodyXOff = 0.f;
 									d.hovShow = false;
 									d.hovDone = false;
+									d.hovKb = true;	 // requete CLAVIER : ne pas fermer sur mouvement souris
 									d.hovReq = true; // ProcessHover affiche le prototype (carte)
 								}
 							}
@@ -3599,8 +3608,14 @@ namespace nkentseu {
 				const float32 uy = textTop + d.RowOf(linkL) * lineH - d.scrollY + lineH - 2.f;
 				dl.AddLine({ux, uy}, {ux2, uy}, ctx.theme.accent, 1.2f);
 			}
-			// Caret.
-			if (focused) {
+			// Caret : clignote (~0,5 s) ; frappe ou deplacement le RALLUME (facon VSCode).
+			if (d.curLine != d.blinkL || d.curCol != d.blinkC || changed) {
+				d.blinkL = d.curLine;
+				d.blinkC = d.curCol;
+				d.blinkTick = d.tick;
+			}
+			const bool caretOn = (((d.tick - d.blinkTick) / 32) % 2) == 0;
+			if (focused && caretOn) {
 				const float32 cx = textLeft + PrefixW(ctx, d, d.curLine, d.curCol) - d.scrollX;
 				const float32 cy = textTop + d.RowOf(d.curLine) * lineH - d.scrollY;
 				dl.AddLine({cx, cy + 1.f}, {cx, cy + lineH - 1.f}, kCaret, 1.5f);
@@ -3625,7 +3640,8 @@ namespace nkentseu {
 					}
 					const float32 ecx = textLeft + PrefixW(ctx, d, c.cl, c.cc) - d.scrollX;
 					const float32 ecy = textTop + crow * lineH - d.scrollY;
-					dl.AddLine({ecx, ecy + 1.f}, {ecx, ecy + lineH - 1.f}, kCaret, 1.5f);
+					if (caretOn)
+						dl.AddLine({ecx, ecy + 1.f}, {ecx, ecy + lineH - 1.f}, kCaret, 1.5f);
 				}
 			dl.PopClipRect();
 
