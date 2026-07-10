@@ -14,6 +14,7 @@
 #pragma once
 
 #include "NKCore/NkTypes.h"
+#include "NKMedia/Video/NkVideoTypes.h"
 #include "NKMedia/Video/Containers/NkAviWriter.h"
 #include "NKMedia/Video/Containers/NkMovWriter.h"
 #include "NKMedia/Codecs/Video/Mpeg1/NkMpeg1Encoder.h"
@@ -35,12 +36,7 @@ namespace nkentseu {
 			ELEMENTARY, // flux élémentaire brut (MPEG-1 → .m1v)
 		};
 
-		// Format des pixels d'ENTRÉE fournis à WriteFrame.
-		enum class NkVideoInputFormat {
-			RGB24,	// 3 octets/pixel R,G,B, haut-en-bas
-			RGBA32, // 4 octets/pixel R,G,B,A, haut-en-bas
-			BGR24,	// 3 octets/pixel B,G,R, haut-en-bas
-		};
+		// (NkVideoInputFormat est défini dans NkVideoTypes.h.)
 
 		struct NkVideoConfig {
 				int32 width = 0;
