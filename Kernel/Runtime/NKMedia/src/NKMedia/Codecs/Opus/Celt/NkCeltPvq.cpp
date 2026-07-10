@@ -15,7 +15,8 @@ namespace nkentseu {
 
 			// U(n,k) : récurrence U(n,k)=U(n-1,k)+U(n,k-1)+U(n-1,k-1),
 			// bases U(0,0)=1, U(0,k>0)=0, U(n>0,0)=0. Symétrique U(n,k)=U(k,n).
-			// (calcule une table (n+1)×(k+1) — n,k petits en pratique après split).
+			// Table (k+1) itérée sur n → gère les grandes bandes (n jusqu'à ~1408) avec k petit.
+			// (Débordement uint32 possible si V(n,k)≥2^32 — filtré en amont par FitsIn32.)
 			uint32 PvqU(int32 n, int32 k) {
 				if (n < 0 || k < 0)
 					return 0;
@@ -23,12 +24,11 @@ namespace nkentseu {
 					return k == 0 ? 1u : 0u;
 				if (k == 0)
 					return 0u;
-				// Table dynamique sur la pile (bornée : usage test/petites bandes).
-				static const int32 MAXD = 64;
-				if (n > MAXD || k > MAXD)
-					return 0; // hors périmètre de cette étape (bandes larges = split, à venir)
-				uint32 row[MAXD + 1];
-				uint32 prev[MAXD + 1];
+				static const int32 MAXK = 200; // couvre get_pulses(MAX_PSEUDO=40)=128 + marge (V(2,128) → k=129)
+				if (k > MAXK)
+					return 0;
+				uint32 row[MAXK + 1];
+				uint32 prev[MAXK + 1];
 				for (int32 j = 0; j <= k; ++j)
 					prev[j] = (j == 0) ? 1u : 0u; // ligne n=0
 				for (int32 i = 1; i <= n; ++i) {
