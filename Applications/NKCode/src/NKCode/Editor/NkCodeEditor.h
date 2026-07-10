@@ -43,6 +43,7 @@ namespace nkentseu {
 				int32 tick = 0; // compteur de frames (fenêtre de détection du multi-clic)
 				float32 scrollX = 0.f, scrollY = 0.f;
 				bool dirty = false;
+				int64 savedSig = 0;		 // hash du texte au dernier enregistrement : undo/redo eteignent le point
 				bool wantReveal = false; // demande de révélation du curseur (clic Outline -> défile vers la ligne)
 				// ── Ctrl+clic (navigation façon VSCode) : rempli par l'éditeur, consommé par NkCodeState ──
 				NkString linkTarget;		 // symbole (go-to-def) ou chemin d'include à ouvrir ; vidé après traitement
@@ -459,7 +460,7 @@ namespace nkentseu {
 					ClampCursor();
 					Collapse();
 					lastEdit = 0;
-					dirty = true;
+					dirty = (SymSig() != savedSig); // revenu a l'etat sauvegarde -> le point s'eteint
 					widthDirty = true;
 				}
 
@@ -478,7 +479,7 @@ namespace nkentseu {
 					ClampCursor();
 					Collapse();
 					lastEdit = 0;
-					dirty = true;
+					dirty = (SymSig() != savedSig); // revenu a l'etat sauvegarde -> le point s'eteint
 					widthDirty = true;
 				}
 

@@ -107,6 +107,7 @@ namespace nkentseu {
 					OpenFile f;
 					f.path = p;
 					f.doc.SetText(content.CStr());
+					f.doc.savedSig = f.doc.SymSig();			// etat propre de reference (undo -> point eteint)
 					f.diskMtime = MTimeOf(p.ToString().CStr()); // référence pour la détection de changement externe
 					files.PushBack(f);
 					active = static_cast<int32>(files.Size()) - 1;
@@ -483,21 +484,40 @@ namespace nkentseu {
 				// Vérif syntaxe LIVE : écrit le BUFFER dans un fichier temp SIBLING (même dossier
 				// -> `#include "x.h"` relatifs OK), sans exiger de sauvegarde. Le fichier temp a
 				// l'extension `.nkcheck` (non compilée par les globs du build) + `-x` force le langage.
+				NkString diagSent;				  // texte envoyé au compilateur (passes 1+ : ';' virtuels insérés)
+				int32 diagPass = 0;				  // n° de passe (0 = buffer réel)
+				int32 diagRawE = 0, diagRawW = 0; // compte BRUT cumulé (headers inclus)
+				NkVector<NkString> diagShown;	  // lignes déjà tracées dans OUTPUT (dédup entre passes)
+
+				// Point d'entrée : NOUVELLE analyse (frappe / save) -> passe 0 sur le buffer réel.
 				void RunDiagnostics(int32 fileIdx) {
+					diagPass = 0;
+					diagRawE = 0;
+					diagRawW = 0;
+					diagShown.Clear();
+					RunDiagPass(fileIdx);
+				}
+
+				// Une passe compilateur. Passe 0 = buffer réel ; passes 1+ = `diagSent` PATCHÉ (des ';'
+				// virtuels insérés là où clang a dit « expected ';' ») -> révèle les erreurs que la
+				// récupération du parseur MASQUAIT, sans jamais toucher le buffer de l'utilisateur.
+				bool RunDiagPass(int32 fileIdx) {
 					if (!cdb.ready || fileIdx < 0 || fileIdx >= static_cast<int32>(files.Size()))
-						return;
+						return false;
 					if (diagProc.Running())
-						return;
+						return false;
 					OpenFile &f = files[fileIdx];
 					const NkString ext = f.path.GetExtension();
 					if (!IsCppExt(ext.CStr()))
-						return;
+						return false;
 					const ProjFlags *pf = FlagsForFile(f.path.ToString()); // flags du PROJET du fichier
 					if (!pf)
-						return;
+						return false;
+					if (diagPass == 0)
+						diagSent = f.doc.GetText();
 					const NkString tmp = (f.path.GetParent() / ".nkcode_diag.nkcheck").ToString();
-					if (!NkFile::WriteAllText(NkPath(tmp), f.doc.GetText()))
-						return;
+					if (!NkFile::WriteAllText(NkPath(tmp), diagSent))
+						return false;
 					diagTempPath = tmp;
 					const bool isC = StrEqI(ext.CStr(), ".c");
 					NkString cmd = CompilerPathPrefix() + "\"" + cdb.compiler.CStr() + "\" ";
@@ -537,6 +557,30 @@ namespace nkentseu {
 					diagAcc.Clear();
 					diagTarget = fileIdx;
 					diagProc.Start(cmd);
+					return true;
+				}
+
+				// Insère ';' dans `diagSent` à (ligne, col) 0-based — passes de continuation UNIQUEMENT.
+				void DiagInsertSemi(int32 line0, int32 col0) {
+					const char *base = diagSent.CStr();
+					usize off = 0;
+					int32 l = 0;
+					while (base[off] && l < line0) {
+						if (base[off] == '\n')
+							++l;
+						++off;
+					}
+					usize len = 0;
+					while (base[off + len] && base[off + len] != '\n' && base[off + len] != '\r')
+						++len;
+					const usize ins =
+						off + (col0 < 0 ? 0 : (static_cast<usize>(col0) > len ? len : static_cast<usize>(col0)));
+					NkString nu;
+					for (usize k = 0; k < ins; ++k)
+						nu += base[k];
+					nu += ';';
+					nu += (base + ins);
+					diagSent = nu;
 				}
 
 				void PollDiagnostics() {
@@ -547,44 +591,91 @@ namespace nkentseu {
 						return;
 					const int32 tgt = diagTarget;
 					diagTarget = -1;
+					bool chained = false;
+					bool atLimit = false;
 					if (tgt < static_cast<int32>(files.Size())) {
 						OpenFile &f = files[tgt];
-						f.doc.diags.Clear();
+						if (diagPass == 0)
+							f.doc.diags.Clear();
+						const usize before = f.doc.diags.Size();
 						for (usize li = 0; li < diagAcc.Size(); ++li)
 							ParseDiagLine(diagAcc[li].CStr(), diagTempPath.CStr(), f.doc);
-						{ // trace OUTPUT : CHAQUE erreur/avertissement du compilateur (fichier:ligne:col + message),
-						  // y compris ceux des AUTRES fichiers (headers inclus) que l'editeur ne marque pas.
-							int32 rawE = 0, rawW = 0;
-							for (usize li = 0; li < diagAcc.Size(); ++li) {
-								const char *ln = diagAcc[li].CStr();
-								const char *pe = NkFindSub(ln, "error:");
-								const char *pw = pe ? nullptr : NkFindSub(ln, "warning:");
-								if (!pe && !pw)
-									continue;
-								(pe ? rawE : rawW) += 1;
-								NkString show;
-								const char *tmp = NkFindSub(ln, ".nkcode_diag.nkcheck");
-								if (tmp) { // remplace le fichier TEMP par le nom de l'onglet
-									show = f.Name();
-									show += (tmp + 20); // strlen(".nkcode_diag.nkcheck")
-								} else
-									show = ln;
-								GlobalLogBuffer().Push(NkString("[diag] ") + show.CStr());
+						// Dédup : une passe de continuation re-rapporte ce que la précédente montrait déjà.
+						for (usize i = f.doc.diags.Size(); i > before;) {
+							--i;
+							bool dup = false;
+							for (usize j = 0; j < before && !dup; ++j)
+								dup = f.doc.diags[j].line == f.doc.diags[i].line &&
+									  f.doc.diags[j].col == f.doc.diags[i].col &&
+									  StrEq(f.doc.diags[j].msg.CStr(), f.doc.diags[i].msg.CStr());
+							if (dup)
+								f.doc.diags.Erase(f.doc.diags.Begin() + i);
+						}
+						// Trace OUTPUT (dédupliquée entre passes) : fichier:ligne:col + message, headers inclus.
+						for (usize li = 0; li < diagAcc.Size(); ++li) {
+							const char *ln = diagAcc[li].CStr();
+							const char *pe = NkFindSub(ln, "error:");
+							const char *pw = pe ? nullptr : NkFindSub(ln, "warning:");
+							if (!pe && !pw)
+								continue;
+							NkString show;
+							const char *tp = NkFindSub(ln, ".nkcode_diag.nkcheck");
+							if (tp) { // remplace le fichier TEMP par le nom de l'onglet
+								show = f.Name();
+								show += (tp + 20); // strlen(".nkcode_diag.nkcheck")
+							} else
+								show = ln;
+							bool seen = false;
+							for (usize k = 0; k < diagShown.Size() && !seen; ++k)
+								seen = StrEq(diagShown[k].CStr(), show.CStr());
+							if (seen)
+								continue;
+							diagShown.PushBack(show);
+							(pe ? diagRawE : diagRawW) += 1;
+							GlobalLogBuffer().Push(NkString("[diag] ") + show.CStr());
+						}
+						// « expected ';' » dans les NOUVEAUX diags -> passe de CONTINUATION sur texte patché
+						// (façon IDE : le vrai compilateur re-analyse, les erreurs masquées apparaissent).
+						NkVector<int32> semiL, semiC;
+						for (usize i = before; i < f.doc.diags.Size(); ++i)
+							if (f.doc.diags[i].sev == 1 && NkFindSub(f.doc.diags[i].msg.CStr(), "expected ';'")) {
+								semiL.PushBack(f.doc.diags[i].line);
+								semiC.PushBack(f.doc.diags[i].col);
 							}
-							char lb[200];
+						atLimit = !semiL.Empty() && diagPass >= 4;
+						if (!semiL.Empty() && diagPass < 4) {
+							for (usize a = 0; a < semiL.Size();
+								 ++a) // tri (ligne, col) DÉCROISSANT : insertions bas -> haut
+								for (usize b = a + 1; b < semiL.Size(); ++b)
+									if (semiL[b] > semiL[a] || (semiL[b] == semiL[a] && semiC[b] > semiC[a])) {
+										int32 t1 = semiL[a];
+										semiL[a] = semiL[b];
+										semiL[b] = t1;
+										t1 = semiC[a];
+										semiC[a] = semiC[b];
+										semiC[b] = t1;
+									}
+							for (usize a = 0; a < semiL.Size(); ++a)
+								DiagInsertSemi(semiL[a], semiC[a]);
+							++diagPass;
+							chained = RunDiagPass(tgt);
+						}
+						if (!chained) { // fin de chaîne -> résumé
+							char lb[220];
 							std::snprintf(lb, sizeof(lb),
 										  "[diag] %s : %d marque(s) dans l'editeur ; compilateur : %d erreur(s), %d "
-										  "avertissement(s) au total (headers inclus)",
-										  f.Name().CStr(), static_cast<int32>(f.doc.diags.Size()), rawE, rawW);
+										  "avertissement(s) au total (headers inclus, %d passe%s)",
+										  f.Name().CStr(), static_cast<int32>(f.doc.diags.Size()), diagRawE, diagRawW,
+										  diagPass + 1, diagPass > 0 ? "s" : "");
 							GlobalLogBuffer().Push(NkString(lb));
-							if (rawE > 0)
+							if (atLimit)
 								GlobalLogBuffer().Push(
-									NkString("[diag] note : apres une erreur de syntaxe le compilateur peut en MASQUER "
-											 "d'autres (recuperation) - corrige la premiere, la passe suivante (~0,6 "
-											 "s) revele la suite."));
+									NkString("[diag] note : limite de passes atteinte - d'autres erreurs "
+											 "peuvent rester masquees ; corrige celles-ci, la passe suivante "
+											 "(~0,6 s) revelera la suite."));
 						}
 					}
-					if (!diagTempPath.Empty()) {
+					if (!chained && !diagTempPath.Empty()) {
 						NkFile::Delete(NkPath(diagTempPath));
 						diagTempPath = NkString();
 					}
@@ -2947,6 +3038,7 @@ namespace nkentseu {
 							if (!f.doc.dirty) {
 								f.doc.SetText(NkFile::ReadAllText(f.path).CStr());
 								f.doc.dirty = false;
+								f.doc.savedSig = f.doc.SymSig();
 								f.changedOnDisk = false;
 							} // pas de modif locale -> recharge
 							else
@@ -3258,6 +3350,7 @@ namespace nkentseu {
 					OpenFile &f = files[active];
 					if (NkFile::WriteAllText(f.path, f.doc.GetText())) {
 						f.doc.dirty = false;
+						f.doc.savedSig = f.doc.SymSig();
 						f.untitled = false;
 						f.deletedOnDisk = false;
 						f.changedOnDisk = false;
@@ -3290,6 +3383,7 @@ namespace nkentseu {
 					OpenFile &f = files[active];
 					f.doc.SetText(NkFile::ReadAllText(f.path).CStr());
 					f.doc.dirty = false;
+					f.doc.savedSig = f.doc.SymSig();
 					f.changedOnDisk = false;
 					f.deletedOnDisk = false;
 					f.diskMtime = MTimeOf(f.path.ToString().CStr());
