@@ -321,6 +321,8 @@ namespace nkentseu {
 				NkClock mClock;
 				bool mRunning = true;
 				bool mDockBootstrap = true;
+				bool mPopupMasked = false;	  ///< input du corps masque (souris sur un popup) - cf. dockHeaderFn
+				nkgui::NkGuiInput mRealInput; ///< input REEL pendant le masquage (barres d onglets)
 				NkEditorGfxApi mGraphicsApi = NkEditorGfxApi::Auto;
 				uint32 mLastWidth = 0;
 				uint32 mLastHeight = 0;

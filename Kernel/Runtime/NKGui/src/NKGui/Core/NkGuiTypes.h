@@ -107,6 +107,8 @@ namespace nkentseu {
 			Equal,
 			// Recherche/remplacement : F (Ctrl+F). H existe déjà (Ctrl+H).
 			F,
+			// Autocompletion manuelle (Ctrl+Espace).
+			Space,
 			Count
 		};
 
