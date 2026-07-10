@@ -39,6 +39,7 @@ namespace nkentseu {
 				int32 DecodeIcdf(const uint8 *icdf, uint32 ftb);
 				uint32 DecodeBits(uint32 bits);			  // bits bruts (depuis la fin du buffer)
 				uint32 DecodeUint(uint32 ft);			  // entier uniforme [0, ft)
+				int32 Tell() const;						  // bits consommés (ec_tell) = nbits_total - ilog(rng)
 		};
 
 		// Encodeur entropique (range encoder) — pour les tests d'aller-retour.
