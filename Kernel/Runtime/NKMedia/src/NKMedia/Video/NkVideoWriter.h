@@ -15,6 +15,7 @@
 
 #include "NKCore/NkTypes.h"
 #include "NKMedia/Video/Containers/NkAviWriter.h"
+#include "NKMedia/Video/Containers/NkMovWriter.h"
 
 namespace nkentseu {
 	namespace media {
@@ -27,7 +28,8 @@ namespace nkentseu {
 
 		// Conteneur de sortie.
 		enum class NkVideoContainer {
-			AVI, // RIFF — implémenté
+			AVI, // RIFF — implémenté (RAW + MJPEG)
+			MOV, // QuickTime/MP4 (ISOBMFF) — implémenté (MJPEG)
 		};
 
 		// Format des pixels d'ENTRÉE fournis à WriteFrame.
@@ -62,13 +64,17 @@ namespace nkentseu {
 					return mOpen;
 				}
 				int32 FrameCount() const {
-					return mAvi.FrameCount();
+					return (mCfg.container == NkVideoContainer::MOV) ? mMov.FrameCount() : mAvi.FrameCount();
 				}
 
 			private:
 				NkAviWriter mAvi;
+				NkMovWriter mMov;
 				NkVideoConfig mCfg;
 				bool mOpen = false;
+
+				// Écrit une trame déjà encodée vers le conteneur actif.
+				bool WriteEncoded(const uint8 *data, uint32 size, uint32 chunkKind);
 
 				// Buffers de travail réutilisés entre trames (évite les alloc par frame).
 				uint8 *mScratch = nullptr; // conversion BGR / bottom-up
