@@ -17,6 +17,7 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltVq.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDenorm.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDeemphasis.h"
+#include "NKMedia/Codecs/Opus/Celt/NkCeltDecoder.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -188,6 +189,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkCeltDeemphasis::SelfTest();
 		printf("[ %s ] NkCeltDeemphasis : filtre sortie, aller-retour preemph/deemph + reponse impulsionnelle\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkCeltDecoder::SelfTest();
+		printf("[ %s ] NkCeltDecoder : orchestration (flags ec) + trame silence -> PCM zero (assemblage en cours)\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
