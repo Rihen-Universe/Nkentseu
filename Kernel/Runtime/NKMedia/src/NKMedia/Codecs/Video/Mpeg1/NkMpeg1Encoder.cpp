@@ -344,29 +344,77 @@ namespace nkentseu {
 				return sad;
 			}
 
-			// Copie un bloc 8×8 prédit depuis la référence (full-pel, clampé aux bords).
-			void PredBlock(const uint8 *ref, int32 w, int32 h, int32 x0, int32 y0, int32 mvx, int32 mvy,
-						   float32 *pred) {
-				for (int32 y = 0; y < 8; ++y) {
-					const int32 ry = Clamp(y0 + mvy + y, 0, h - 1);
-					for (int32 x = 0; x < 8; ++x) {
-						const int32 rx = Clamp(x0 + mvx + x, 0, w - 1);
-						pred[y * 8 + x] = (float32)ref[(usize)ry * w + rx];
+			// Prédiction half-pel bilinéaire d'une région dstW×dstH depuis `ref`. MV en demi-pel.
+			void InterpRegion(const uint8 *ref, int32 w, int32 h, int32 x0, int32 y0, int32 mvxHp, int32 mvyHp,
+							  int32 dstW, int32 dstH, float32 *out) {
+				const int32 ix = mvxHp >> 1, iy = mvyHp >> 1; // partie entière (floor)
+				const int32 fx = mvxHp & 1, fy = mvyHp & 1;	  // demi-pel
+				for (int32 y = 0; y < dstH; ++y) {
+					const int32 ry = Clamp(y0 + iy + y, 0, h - 1);
+					const int32 ry1 = Clamp(y0 + iy + y + 1, 0, h - 1);
+					for (int32 x = 0; x < dstW; ++x) {
+						const int32 rx = Clamp(x0 + ix + x, 0, w - 1);
+						const int32 rx1 = Clamp(x0 + ix + x + 1, 0, w - 1);
+						const int32 a = ref[(usize)ry * w + rx];
+						int32 v;
+						if (fx == 0 && fy == 0)
+							v = a;
+						else if (fx == 1 && fy == 0)
+							v = (a + ref[(usize)ry * w + rx1] + 1) >> 1;
+						else if (fx == 0 && fy == 1)
+							v = (a + ref[(usize)ry1 * w + rx] + 1) >> 1;
+						else
+							v = (a + ref[(usize)ry * w + rx1] + ref[(usize)ry1 * w + rx] + ref[(usize)ry1 * w + rx1] +
+								 2) >>
+								2;
+						out[y * dstW + x] = (float32)v;
 					}
 				}
 			}
 
-			// Encode une composante de vecteur de mouvement (full-pel, f_code=1, plage [-16,15]).
-			void EncodeMotionComp(NkBitWriter &bw, int32 dmv) {
-				while (dmv < -16)
-					dmv += 32;
-				while (dmv > 15)
-					dmv -= 32;
+			// SAD 16×16 luma à un MV demi-pel (interpolé).
+			int32 Sad16Hp(const uint8 *src, int32 sw, int32 sx, int32 sy, const uint8 *ref, int32 w, int32 h,
+						  int32 mvxHp, int32 mvyHp) {
+				float32 pred[256];
+				InterpRegion(ref, w, h, sx, sy, mvxHp, mvyHp, 16, 16, pred);
+				int32 sad = 0;
+				for (int32 y = 0; y < 16; ++y)
+					for (int32 x = 0; x < 16; ++x) {
+						const int32 d = (int32)src[(usize)(sy + y) * sw + (sx + x)] - (int32)pred[y * 16 + x];
+						sad += d < 0 ? -d : d;
+					}
+				return sad;
+			}
+
+			// Encode une composante de MV (demi-pel) avec f_code (sign_extend + résidu), algo ISO 11172-2.
+			void EncodeMotionComp(NkBitWriter &bw, int32 val, int32 fCode) {
+				if (val == 0) {
+					bw.PutBits(0x1, 1);
+					return;
+				}
+				const int32 bitSize = fCode - 1;
+				const int32 range = 1 << bitSize;
+				const int32 n = 5 + bitSize;
+				int32 v = val & ((1 << n) - 1);
+				if (v & (1 << (n - 1)))
+					v -= (1 << n);
+				int32 code, bits, sign;
+				if (v >= 0) {
+					const int32 t = v - 1;
+					code = (t >> bitSize) + 1;
+					bits = t & (range - 1);
+					sign = 0;
+				} else {
+					const int32 t = -v - 1;
+					code = (t >> bitSize) + 1;
+					bits = t & (range - 1);
+					sign = 1;
+				}
 				const uint8(*mv)[2] = NkMpeg1Tables::MotionVlc();
-				const int32 a = dmv < 0 ? -dmv : dmv;
-				bw.PutBits(mv[a][0], mv[a][1]);
-				if (a != 0)
-					bw.PutBits(dmv < 0 ? 1u : 0u, 1);
+				bw.PutBits(mv[code][0], mv[code][1]);
+				bw.PutBits((uint32)sign, 1);
+				if (bitSize > 0)
+					bw.PutBits((uint32)bits, bitSize);
 			}
 		} // namespace
 
@@ -375,9 +423,10 @@ namespace nkentseu {
 			bw.PutBits((uint32)(temporalRef & 0x3FF), 10);
 			bw.PutBits(2, 3);		// P
 			bw.PutBits(0xFFFF, 16); // vbv_delay
-			bw.PutBits(1, 1);		// full_pel_forward_vector
-			bw.PutBits(1, 3);		// forward_f_code = 1
+			bw.PutBits(0, 1);		// full_pel_forward_vector = 0 (half-pel)
+			bw.PutBits(2, 3);		// forward_f_code = 2 (plage ±31 demi-pel)
 			bw.PutBits(0, 1);		// extra_bit_picture
+			const int32 kFCode = 2;
 
 			const uint16(*acEob)[2] = NkMpeg1Tables::AcVlc();
 			const uint8(*cbpVlc)[2] = NkMpeg1Tables::CbpVlc();
@@ -396,14 +445,15 @@ namespace nkentseu {
 					// Le biais vers MV=0 évite les vecteurs parasites sur les fonds lisses
 					// (un dégradé décalé « matche » par hasard) → sinon dérive/artefacts.
 					const int32 lambda = 2 * mQScale;
-					int32 bestSad = Sad16(mY, mRefY, mLumaW, mLumaH, lx, ly, 0, 0);
-					int32 bestCost = bestSad;
-					int32 mvx = 0, mvy = 0;
-					// Bornes : le bloc prédit DOIT rester dans la trame (MPEG-1 n'étend pas les bords).
+					// Bornes entières : bloc 16×16 DANS la trame (MPEG-1 n'étend pas les bords).
 					const int32 dxMin = (-SR > -lx) ? -SR : -lx;
 					const int32 dxMax = (SR < mLumaW - 16 - lx) ? SR : mLumaW - 16 - lx;
 					const int32 dyMin = (-SR > -ly) ? -SR : -ly;
 					const int32 dyMax = (SR < mLumaH - 16 - ly) ? SR : mLumaH - 16 - ly;
+					// 1) recherche entière (full-pel).
+					int32 bestSad = Sad16(mY, mRefY, mLumaW, mLumaH, lx, ly, 0, 0);
+					int32 bestCost = bestSad;
+					int32 idx = 0, idy = 0;
 					for (int32 dy = dyMin; dy <= dyMax; ++dy)
 						for (int32 dx = dxMin; dx <= dxMax; ++dx) {
 							if (dx == 0 && dy == 0)
@@ -413,10 +463,36 @@ namespace nkentseu {
 							if (cost < bestCost) {
 								bestCost = cost;
 								bestSad = sad;
-								mvx = dx;
-								mvy = dy;
+								idx = dx;
+								idy = dy;
 							}
 						}
+					// 2) raffinement demi-pel autour du meilleur entier (MV final en demi-pel).
+					int32 mvx = idx * 2, mvy = idy * 2; // demi-pel
+					{
+						const int32 baseHx = idx * 2, baseHy = idy * 2;
+						int32 refCost = bestSad + lambda * ((idx < 0 ? -idx : idx) + (idy < 0 ? -idy : idy)) * 2;
+						for (int32 hy = -1; hy <= 1; ++hy)
+							for (int32 hx = -1; hx <= 1; ++hx) {
+								if (hx == 0 && hy == 0)
+									continue;
+								const int32 mhx = baseHx + hx, mhy = baseHy + hy;
+								// Le demi-pel lit +1 px : ne garder que les positions DANS la trame.
+								const int32 ix = mhx >> 1, iy = mhy >> 1, fxp = mhx & 1, fyp = mhy & 1;
+								if (lx + ix < 0 || ly + iy < 0 || lx + ix + 15 + fxp > mLumaW - 1 ||
+									ly + iy + 15 + fyp > mLumaH - 1)
+									continue;
+								const int32 sad = Sad16Hp(mY, mLumaW, lx, ly, mRefY, mLumaW, mLumaH, mhx, mhy);
+								const int32 cost =
+									sad + lambda * ((mhx < 0 ? -mhx : mhx) + (mhy < 0 ? -mhy : mhy));
+								if (cost < refCost) {
+									refCost = cost;
+									bestSad = sad;
+									mvx = mhx;
+									mvy = mhy;
+								}
+							}
+					}
 
 					// --- coût intra (SAD vs moyenne) pour décider intra/inter ---
 					int32 mean = 0;
@@ -455,10 +531,9 @@ namespace nkentseu {
 					dcCr = 128;
 
 					// --- INTER : résidu, quantification non-intra, CBP ---
-					const int32 cmvx = mvx / 2 == 0 ? mvx : mvx; // full-pel : chroma MV = luma/2 (arrondi)
-					const int32 chmvx = (mvx >= 0 ? mvx : mvx - 1) / 2;
-					const int32 chmvy = (mvy >= 0 ? mvy : mvy - 1) / 2;
-					(void)cmvx;
+					// Chroma : MV demi-pel = MV luma demi-pel / 2 (chroma en demi-résolution).
+					const int32 chmvx = mvx >> 1;
+					const int32 chmvy = mvy >> 1;
 
 					// Prépare les 6 blocs : (plane, ref, planeW/H, x0, y0, mvx, mvy, recPlane).
 					struct BlkRef {
@@ -481,8 +556,8 @@ namespace nkentseu {
 					int32 cbp = 0;
 					for (int32 bi = 0; bi < 6; ++bi) {
 						float32 pred[64], resid[64], coef[64];
-						PredBlock(blk[bi].ref, blk[bi].w, blk[bi].h, blk[bi].x0, blk[bi].y0, blk[bi].mvx, blk[bi].mvy,
-								  pred);
+						InterpRegion(blk[bi].ref, blk[bi].w, blk[bi].h, blk[bi].x0, blk[bi].y0, blk[bi].mvx,
+									 blk[bi].mvy, 8, 8, pred);
 						for (int32 k = 0; k < 64; ++k) {
 							const int32 py = blk[bi].y0 + k / 8, px = blk[bi].x0 + k % 8;
 							resid[k] = (float32)blk[bi].src[(usize)py * blk[bi].w + px] - pred[k];
@@ -516,8 +591,8 @@ namespace nkentseu {
 					// --- vecteur de mouvement (types avec motion_forward : MC Coded, MC not-coded) ---
 					const bool codeMv = (hasMv && cbp) || (!cbp);
 					if (codeMv) {
-						EncodeMotionComp(bw, mvx - pmvx);
-						EncodeMotionComp(bw, mvy - pmvy);
+						EncodeMotionComp(bw, mvx - pmvx, kFCode);
+						EncodeMotionComp(bw, mvy - pmvy, kFCode);
 						pmvx = mvx;
 						pmvy = mvy;
 					} else {
