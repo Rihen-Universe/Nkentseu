@@ -16,6 +16,7 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltAlloc.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltVq.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDenorm.h"
+#include "NKMedia/Codecs/Opus/Celt/NkCeltDeemphasis.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -179,6 +180,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkCeltDenorm::SelfTest();
 		printf("[ %s ] NkCeltDenorm : denormalisation bandes (forme x energie), norme = 2^(E+eMean)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkCeltDeemphasis::SelfTest();
+		printf("[ %s ] NkCeltDeemphasis : filtre sortie, aller-retour preemph/deemph + reponse impulsionnelle\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;

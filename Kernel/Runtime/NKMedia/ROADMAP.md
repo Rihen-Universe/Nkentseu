@@ -57,8 +57,12 @@
     + **denormalise** (`NkCeltDenorm` : forme×2^(E+eMean) → spectre ; table `eMeans` ; ‖bande‖=2^(E+eMean)
     prouvé). **Chemin signal DSP complet** : shape → denorm → IMDCT. ⏳ Reste CELT (orchestration pure) :
     drapeaux ec skip/intensity + split pulses/énergie fine → `quant_all_bands` (boucle bandes, folding/stéréo/
-    split) → anti-collapse → **deemphasis** (filtre sortie) → `celt_decode` (flags transient/spread/tf) → PCM.
-    Puis SILK + hybride.
+    split) → anti-collapse → PCM. **Deemphasis** livré (`NkCeltDeemphasis` : IIR 1-pôle sortie, aller-retour
+    préemph/deemph + réponse impulsionnelle prouvés). **Toute la boîte à outils CELT est faite+prouvée.**
+    ⏳ Ne reste QUE l'**orchestration `celt_decode`** (colle) : lire les flags (silence/transient/intra/spread/tf/
+    dynalloc) dans l'ordre ec exact → `quant_all_bands` (boucle bandes : split récursif/stéréo/folding + AlgUnquant)
+    → anti-collapse → denorm → IMDCT+overlap-add → deemphasis → PCM. Validé **end-to-end** vs ffmpeg (sensible
+    au bit-exact). Puis SILK + hybride.
   ⏳ Puis **SILK** (LPC, LTP) → mode hybride → PCM float32.
 
 ## En cours / À venir
