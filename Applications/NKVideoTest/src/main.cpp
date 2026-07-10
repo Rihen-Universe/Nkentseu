@@ -7,6 +7,7 @@
 // =============================================================================
 #include "NKMedia/Video/NkVideoWriter.h"
 #include "NKMedia/Video/NkImageSequenceWriter.h"
+#include "NKMedia/Codecs/Video/Mpeg1/NkMpeg1Encoder.h"
 #include "NKMemory/NKMemory.h"
 
 #include <cstdio>
@@ -199,7 +200,29 @@ int main(int argc, char **argv) {
 			++nbOk;
 	}
 
+	// --- MPEG-1 Video (vrai codec compresse DCT, I-frames) ---
+	{
+		++nbTotal;
+		char pathM1v[1024];
+		::snprintf(pathM1v, sizeof(pathM1v), "%s/nkvideo_mpeg1.m1v", outDir);
+		media::NkMpeg1Encoder enc;
+		bool ok = enc.Open(pathM1v, W, H, FPS, 1, 6);
+		if (ok) {
+			uint8 *rgb = (uint8 *)memory::NkAlloc((usize)W * H * 3);
+			for (int32 fr = 0; fr < N && ok; ++fr) {
+				RenderFrame(rgb, W, H, fr, N);
+				ok = enc.WriteFrame(rgb, media::NkVideoInputFormat::RGB24);
+			}
+			memory::NkFree(rgb);
+			enc.Close();
+		}
+		::printf("[ %s ] MPEG-1 -> %s/nkvideo_mpeg1.m1v  (%d trames)\n", ok ? "OK " : "FAIL", outDir,
+				 ok ? enc.FrameCount() : 0);
+		if (ok)
+			++nbOk;
+	}
+
 	::printf("\n=== Resultat : %d/%d OK ===\n", nbOk, nbTotal);
-	::printf("(Ouvre les .avi/.mov dans VLC / un navigateur, les .png dans un visionneur.)\n");
+	::printf("(Ouvre les .avi/.mov/.m1v dans VLC / ffmpeg, les .png dans un visionneur.)\n");
 	return (nbOk == nbTotal) ? 0 : 1;
 }
