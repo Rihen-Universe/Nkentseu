@@ -251,12 +251,9 @@ namespace nkentseu {
 				//    l'arbre du workspace, headers moteur inclus). Construit UNE fois en tâche
 				//    de fond (ne gèle pas l'UI) ; lecture seule ensuite (gate `projReady`). ──
 				NkVector<NkString> projTypes, projFuncs;
-				// Table Type -> MEMBRE (heuristique, workspace entier) : nom + TYPE du membre
-				// (retour pour une méthode -> résout les chaînes `a.b().c.`) ; HÉRITAGE
-				// (inhOwner -> inhBase) ; fonctions LIBRES avec retour (gfnName/gfnRet, `foo().`).
-				NkVector<NkString> memOwner, memName, memType;
-				NkVector<NkString> inhOwner, inhBase;
-				NkVector<NkString> gfnName, gfnRet;
+				// Tables de symboles du WORKSPACE (thread) : membres+types+SIGNATURES, heritage,
+				// fonctions libres (retour+prototype), MACROS — voir NkSymTables (NkSyntax.h).
+				NkSymTables wsTab;
 				volatile bool projReady = false;
 				bool projLoggedReady = false; // log one-shot quand l index est pret
 				bool projStarted = false;
@@ -270,26 +267,19 @@ namespace nkentseu {
 				}
 
 				void BuildProjectIndex() {
-					NkVector<NkString> t, f, mo, mn, mt, io, ib, gf, gr;
-					ScanDirSymbols(root, t, f, mo, mn, mt, io, ib, gf, gr, 0);
+					NkVector<NkString> t, f;
+					NkSymTables tt;
+					ScanDirSymbols(root, t, f, tt, 0);
 					NkSymSortDedup(t);
 					NkSymSortDedup(f);
 					projTypes = t;
-					projFuncs = f; // écrit une fois puis lecture seule
-					memOwner = mo;
-					memName = mn;
-					memType = mt;
-					inhOwner = io;
-					inhBase = ib;
-					gfnName = gf;
-					gfnRet = gr;
+					projFuncs = f; // ecrit une fois puis lecture seule
+					wsTab = tt;
 					projReady = true;
 				}
 
-				void ScanDirSymbols(const NkPath &dir, NkVector<NkString> &t, NkVector<NkString> &f,
-									NkVector<NkString> &mo, NkVector<NkString> &mn, NkVector<NkString> &mt,
-									NkVector<NkString> &io, NkVector<NkString> &ib, NkVector<NkString> &gf,
-									NkVector<NkString> &gr, int32 depth) {
+				void ScanDirSymbols(const NkPath &dir, NkVector<NkString> &t, NkVector<NkString> &f, NkSymTables &tt,
+									int32 depth) {
 					if (depth > 16)
 						return;
 					NkVector<NkDirectoryEntry> entries =
@@ -302,7 +292,7 @@ namespace nkentseu {
 								StrEq(nm, "node_modules") || StrEq(nm, "Captures") || StrEq(nm, "bin") ||
 								StrEq(nm, "obj") || StrEq(nm, "out"))
 								continue; // dossiers lourds/inutiles
-							ScanDirSymbols(e.FullPath, t, f, mo, mn, mt, io, ib, gf, gr, depth + 1);
+							ScanDirSymbols(e.FullPath, t, f, tt, depth + 1);
 						} else {
 							const NkLang lg = NkLangFromExt(e.FullPath.GetExtension().CStr());
 							if (lg == NkLang::None || lg == NkLang::Markdown)
@@ -312,8 +302,8 @@ namespace nkentseu {
 								continue; // ignore les très gros fichiers
 							const bool isC = (lg == NkLang::C || lg == NkLang::NKSL);
 							NkScanTextSymbols(txt.CStr(), isC, t, f);
-							if (isC && mo.Size() < 30000)
-								NkScanTextMembers(txt.CStr(), mo, mn, mt, io, ib, gf, gr); // membres/héritage/retours
+							if (isC && tt.memOwner.Size() < 120000)
+								NkScanTextMembers(txt.CStr(), tt); // membres/heritage/retours/macros/signatures
 						}
 					}
 				}
@@ -852,7 +842,10 @@ namespace nkentseu {
 					}
 				}
 
-				// Déclaration remontée de `var` -> type. Gère `auto x = Type(...)` / `= new Type`.
+				// Déclaration remontée de `var` -> type. Gère `auto x = Type(...)` / `= new T` /
+				// init LAMBDA. Les COMMENTAIRES (`//`, `/*…*/` mono-ligne) et CHAÎNES sont ignorés
+				// (une phrase de doc « via NkX » ne doit pas devenir un type). Init par APPEL ->
+				// suffixe "()" : le résolveur force alors le type de RETOUR de la fonction.
 				void VarDeclType(const NkCodeDoc &doc, const char *obj, char *out) {
 					out[0] = 0;
 					int32 on = 0;
@@ -861,83 +854,127 @@ namespace nkentseu {
 					if (!on)
 						return;
 					const int32 from = doc.acCtxLine;
+					char DL2[1024];
 					for (int32 l = from; l >= 0 && l > from - 500 && !out[0]; --l) {
-						const NkCodeLine &DL = doc.lines[l];
-						const int32 dn = static_cast<int32>(DL.Size());
-						for (int32 i = 0; i + on <= dn; ++i) {
-							if (i > 0 && NkCodeDoc::IsWChar(DL[i - 1]))
+						const NkCodeLine &RAW = doc.lines[l];
+						int32 dn = static_cast<int32>(RAW.Size());
+						if (dn > 1020)
+							dn = 1020;
+						int32 cn2 = 0; // copie NETTOYÉE de la ligne
+						for (int32 i = 0; i < dn;) {
+							const char c = RAW[i];
+							if (c == '/' && i + 1 < dn && RAW[i + 1] == '/')
+								break;
+							if (c == '/' && i + 1 < dn && RAW[i + 1] == '*') {
+								i += 2;
+								while (i + 1 < dn && !(RAW[i] == '*' && RAW[i + 1] == '/'))
+									++i;
+								i = (i + 1 < dn) ? i + 2 : dn;
+								DL2[cn2++] = ' ';
+								continue;
+							}
+							if (c == '"' || c == '\'') {
+								const char q0 = c;
+								++i;
+								while (i < dn) {
+									if (RAW[i] == '\\') {
+										i += 2;
+										continue;
+									}
+									if (RAW[i] == q0) {
+										++i;
+										break;
+									}
+									++i;
+								}
+								DL2[cn2++] = ' ';
+								continue;
+							}
+							DL2[cn2++] = c;
+							++i;
+						}
+						const int32 n2 = cn2;
+						for (int32 i = 0; i + on <= n2; ++i) {
+							if (i > 0 && NkCodeDoc::IsWChar(DL2[i - 1]))
 								continue;
 							int32 k = 0;
-							while (k < on && DL[i + k] == obj[k])
+							while (k < on && DL2[i + k] == obj[k])
 								++k;
-							if (k != on || (i + on < dn && NkCodeDoc::IsWChar(DL[i + on])))
-								continue; // pas le mot entier
-							if (l == from && i + on > doc.acCtxCol)
-								break; // ne considère que ce qui précède le déclencheur
+							if (k != on || (i + on < n2 && NkCodeDoc::IsWChar(DL2[i + on])))
+								continue;
+							if (l == from && i > doc.acCtxCol)
+								break; // la déclaration peut ÊTRE le mot survolé (i <= col)
 							int32 q = i;
-							while (q > 0 && (DL[q - 1] == ' ' || DL[q - 1] == '\t'))
+							while (q > 0 && (DL2[q - 1] == ' ' || DL2[q - 1] == '\t'))
 								--q;
-							while (q > 0 && (DL[q - 1] == '*' || DL[q - 1] == '&'))
+							while (q > 0 && (DL2[q - 1] == '*' || DL2[q - 1] == '&'))
 								--q;
-							while (q > 0 && (DL[q - 1] == ' ' || DL[q - 1] == '\t'))
+							while (q > 0 && (DL2[q - 1] == ' ' || DL2[q - 1] == '\t'))
 								--q;
-							if (q > 0 && DL[q - 1] == '>') { // args template `NkVector<...>`
+							if (q > 0 && DL2[q - 1] == '>') { // args template `NkVector<...>`
 								int32 dep = 1;
 								--q;
 								while (q > 0 && dep > 0) {
 									--q;
-									if (DL[q] == '>')
+									if (DL2[q] == '>')
 										++dep;
-									else if (DL[q] == '<')
+									else if (DL2[q] == '<')
 										--dep;
 								}
 							}
-							while (q > 0 && (DL[q - 1] == ' ' || DL[q - 1] == '\t'))
+							while (q > 0 && (DL2[q - 1] == ' ' || DL2[q - 1] == '\t'))
 								--q;
 							int32 e2 = q;
-							while (q > 0 && NkCodeDoc::IsWChar(DL[q - 1]))
+							while (q > 0 && NkCodeDoc::IsWChar(DL2[q - 1]))
 								--q;
-							if (e2 <= q || (DL[q] >= '0' && DL[q] <= '9'))
+							if (e2 <= q || (DL2[q] >= '0' && DL2[q] <= '9'))
 								continue;
 							char cand[96];
 							int32 c2 = 0;
 							for (int32 t = q; t < e2 && c2 < 95; ++t)
-								cand[c2++] = DL[t];
+								cand[c2++] = DL2[t];
 							cand[c2] = 0;
 							if (StrEq(cand, "return") || StrEq(cand, "else") || StrEq(cand, "new") ||
 								StrEq(cand, "const") || StrEq(cand, "case") || StrEq(cand, "delete") ||
 								StrEq(cand, "if") || StrEq(cand, "while"))
 								continue;
-							if (StrEq(cand, "auto")) { // `auto x = Type(...)` / `= new Type` / `= Type{`
+							if (StrEq(cand, "auto")) { // `auto x = ...`
 								int32 p2 = i + on;
-								while (p2 < dn && DL[p2] == ' ')
+								while (p2 < n2 && DL2[p2] == ' ')
 									++p2;
-								if (p2 < dn && (DL[p2] == '*' || DL[p2] == '&'))
+								if (p2 < n2 && (DL2[p2] == '*' || DL2[p2] == '&'))
 									++p2;
-								while (p2 < dn && DL[p2] == ' ')
+								while (p2 < n2 && DL2[p2] == ' ')
 									++p2;
-								if (p2 >= dn || DL[p2] != '=')
+								if (p2 >= n2 || DL2[p2] != '=')
 									continue;
 								++p2;
-								while (p2 < dn && DL[p2] == ' ')
+								while (p2 < n2 && DL2[p2] == ' ')
 									++p2;
-								if (p2 + 3 <= dn && DL[p2] == 'n' && DL[p2 + 1] == 'e' && DL[p2 + 2] == 'w' &&
-									(p2 + 3 >= dn || !NkCodeDoc::IsWChar(DL[p2 + 3]))) { // saute `new`
+								if (p2 + 3 <= n2 && DL2[p2] == 'n' && DL2[p2 + 1] == 'e' && DL2[p2 + 2] == 'w' &&
+									(p2 + 3 >= n2 || !NkCodeDoc::IsWChar(DL2[p2 + 3]))) { // saute `new`
 									p2 += 3;
-									while (p2 < dn && DL[p2] == ' ')
+									while (p2 < n2 && DL2[p2] == ' ')
 										++p2;
 								}
+								if (p2 < n2 && DL2[p2] == '[') { // init LAMBDA `= [&](...)`
+									CopyCap(out, "(lambda)", 95);
+									continue;
+								}
 								int32 e3 = p2;
-								while (e3 < dn && NkCodeDoc::IsWChar(DL[e3]))
+								while (e3 < n2 && NkCodeDoc::IsWChar(DL2[e3]))
 									++e3;
-								if (e3 > p2 && !(DL[p2] >= '0' && DL[p2] <= '9') &&
-									(e3 >= dn || DL[e3] == '(' || DL[e3] == '{' || DL[e3] == '<' || DL[e3] == ';')) {
+								if (e3 > p2 && !(DL2[p2] >= '0' && DL2[p2] <= '9')) {
 									int32 k2 = 0;
-									for (int32 t = p2; t < e3 && k2 < 95; ++t)
-										out[k2++] = DL[t];
+									for (int32 t = p2; t < e3 && k2 < 93; ++t)
+										out[k2++] = DL2[t];
+									if (e3 < n2 && DL2[e3] == '(') { // init par APPEL -> marqueur "()"
+										out[k2++] = '(';
+										out[k2++] = ')';
+									}
 									out[k2] = 0;
 								}
-								continue; // si pas résolu : continue à remonter
+								continue;
 							}
 							int32 k2 = 0;
 							while (cand[k2] && k2 < 95) {
@@ -951,9 +988,8 @@ namespace nkentseu {
 				}
 
 				// Membres de `T` + de ses BASES (héritage), tables BUFFER + WORKSPACE, anti-cycles.
-				void CollectMembersOf(const char *T, const NkVector<NkString> &dmo, const NkVector<NkString> &dmn,
-									  const NkVector<NkString> &dio, const NkVector<NkString> &dib,
-									  NkVector<NkString> &out, char seen[8][96], int32 &nSeen) {
+				void CollectMembersOf(const char *T, const NkSymTables &dt, NkVector<NkString> &out, char seen[8][96],
+									  int32 &nSeen) {
 					if (!T[0] || nSeen >= 8)
 						return;
 					for (int32 i = 0; i < nSeen; ++i)
@@ -968,20 +1004,214 @@ namespace nkentseu {
 						seen[nSeen][k] = 0;
 						++nSeen;
 					}
-					for (usize i = 0; i < dmo.Size(); ++i)
-						if (StrEq(dmo[i].CStr(), T))
-							out.PushBack(dmn[i]);
+					for (usize i = 0; i < dt.memOwner.Size(); ++i)
+						if (StrEq(dt.memOwner[i].CStr(), T))
+							out.PushBack(dt.memName[i]);
 					if (projReady)
-						for (usize i = 0; i < memOwner.Size(); ++i)
-							if (StrEq(memOwner[i].CStr(), T))
-								out.PushBack(memName[i]);
-					for (usize i = 0; i < dio.Size(); ++i)
-						if (StrEq(dio[i].CStr(), T))
-							CollectMembersOf(dib[i].CStr(), dmo, dmn, dio, dib, out, seen, nSeen);
+						for (usize i = 0; i < wsTab.memOwner.Size(); ++i)
+							if (StrEq(wsTab.memOwner[i].CStr(), T))
+								out.PushBack(wsTab.memName[i]);
+					for (usize i = 0; i < dt.inhOwner.Size(); ++i)
+						if (StrEq(dt.inhOwner[i].CStr(), T))
+							CollectMembersOf(dt.inhBase[i].CStr(), dt, out, seen, nSeen);
 					if (projReady)
-						for (usize i = 0; i < inhOwner.Size(); ++i)
-							if (StrEq(inhOwner[i].CStr(), T))
-								CollectMembersOf(inhBase[i].CStr(), dmo, dmn, dio, dib, out, seen, nSeen);
+						for (usize i = 0; i < wsTab.inhOwner.Size(); ++i)
+							if (StrEq(wsTab.inhOwner[i].CStr(), T))
+								CollectMembersOf(wsTab.inhBase[i].CStr(), dt, out, seen, nSeen);
+				}
+
+				// Type/retour d'un membre : tables du BUFFER d'abord, WORKSPACE ensuite.
+				bool MemberTypeOf(const NkSymTables &dt, const char *T, const char *mem, char *o, char *sig = nullptr) {
+					o[0] = 0;
+					if (sig)
+						sig[0] = 0;
+					for (usize i = 0; i < dt.memOwner.Size(); ++i)
+						if (StrEq(dt.memOwner[i].CStr(), T) && StrEq(dt.memName[i].CStr(), mem)) {
+							CopyCap(o, dt.memType[i].CStr(), 95);
+							if (sig)
+								CopyCap(sig, dt.memSig[i].CStr(), 198);
+							return true;
+						}
+					if (projReady)
+						for (usize i = 0; i < wsTab.memOwner.Size(); ++i)
+							if (StrEq(wsTab.memOwner[i].CStr(), T) && StrEq(wsTab.memName[i].CStr(), mem)) {
+								CopyCap(o, wsTab.memType[i].CStr(), 95);
+								if (sig)
+									CopyCap(sig, wsTab.memSig[i].CStr(), 198);
+								return true;
+							}
+					return false;
+				}
+
+				// Retour (+ prototype) d'une fonction LIBRE.
+				bool GlobalFnOf(const NkSymTables &dt, const char *fn, char *rt, char *sig = nullptr) {
+					rt[0] = 0;
+					if (sig)
+						sig[0] = 0;
+					for (usize i = 0; i < dt.gfnName.Size(); ++i)
+						if (StrEq(dt.gfnName[i].CStr(), fn)) {
+							CopyCap(rt, dt.gfnRet[i].CStr(), 95);
+							if (sig)
+								CopyCap(sig, dt.gfnSig[i].CStr(), 198);
+							return true;
+						}
+					if (projReady)
+						for (usize i = 0; i < wsTab.gfnName.Size(); ++i)
+							if (StrEq(wsTab.gfnName[i].CStr(), fn)) {
+								CopyCap(rt, wsTab.gfnRet[i].CStr(), 95);
+								if (sig)
+									CopyCap(sig, wsTab.gfnSig[i].CStr(), 198);
+								return true;
+							}
+					return false;
+				}
+
+				// MACRO `#define` : nom -> (args, corps). Buffer puis workspace.
+				bool MacroOf(const NkSymTables &dt, const char *nm, NkString &args, NkString &body) {
+					for (usize i = 0; i < dt.mcrName.Size(); ++i)
+						if (StrEq(dt.mcrName[i].CStr(), nm)) {
+							args = dt.mcrArgs[i];
+							body = dt.mcrBody[i];
+							return true;
+						}
+					if (projReady)
+						for (usize i = 0; i < wsTab.mcrName.Size(); ++i)
+							if (StrEq(wsTab.mcrName[i].CStr(), nm)) {
+								args = wsTab.mcrArgs[i];
+								body = wsTab.mcrBody[i];
+								return true;
+							}
+					return false;
+				}
+
+				static void CopyCap(char *dst, const char *src, int32 cap) {
+					int32 k = 0;
+					while (src && src[k] && k < cap) {
+						dst[k] = src[k];
+						++k;
+					}
+					dst[k] = 0;
+				}
+
+				// Résout le PROPRIÉTAIRE de l'expression finissant juste avant `trigEnd` sur la
+				// ligne `line` : chaîne `a.b().c` -> type final (déclaration remontée / this /
+				// retour de fonction / membres). "" si non résolu. Partagé hover + complétion.
+				void ResolveOwnerBefore(NkCodeDoc &doc, const NkSymTables &dt, int32 line, int32 trigEnd, bool scope2,
+										char *owner) {
+					owner[0] = 0;
+					if (line < 0 || line >= doc.LineCount())
+						return;
+					const NkCodeLine &L = doc.lines[line];
+
+					struct Seg {
+							char nm[96];
+							bool call;
+					};
+
+					Seg segs[8];
+					int32 ns = 0;
+					int32 q = trigEnd;
+					while (ns < 8) {
+						bool call = false;
+						if (q > 0 && L[q - 1] == ')') {
+							int32 dep = 1;
+							--q;
+							while (q > 0 && dep > 0) {
+								--q;
+								if (L[q] == ')')
+									++dep;
+								else if (L[q] == '(')
+									--dep;
+							}
+							call = true;
+						}
+						int32 e = q;
+						while (q > 0 && NkCodeDoc::IsWChar(L[q - 1]))
+							--q;
+						if (e <= q)
+							return; // pas d'identifiant -> non résolu
+						int32 k = 0;
+						for (int32 t = q; t < e && k < 95; ++t)
+							segs[ns].nm[k++] = L[t];
+						segs[ns].nm[k] = 0;
+						segs[ns].call = call;
+						++ns;
+						if (q >= 2 && L[q - 2] == '-' && L[q - 1] == '>') {
+							q -= 2;
+							continue;
+						}
+						if (q >= 1 && L[q - 1] == '.') {
+							q -= 1;
+							continue;
+						}
+						break;
+					}
+					if (ns == 0)
+						return;
+					char cur[96];
+					cur[0] = 0;
+					Seg &b = segs[ns - 1];
+					if (scope2 && ns == 1) { // `Type::`
+						CopyCap(cur, b.nm, 95);
+					} else if (StrEq(b.nm, "this")) {
+						EnclosingTypeAt(doc, line, cur);
+					} else if (b.call) {
+						char sig0[200];
+						GlobalFnOf(dt, b.nm, cur, sig0);
+						if (!cur[0]) {
+							char encl[96];
+							EnclosingTypeAt(doc, line, encl);
+							if (encl[0])
+								MemberTypeOf(dt, encl, b.nm, cur);
+						}
+					} else {
+						const int32 sl = doc.acCtxLine, sc = doc.acCtxCol;
+						doc.acCtxLine = line;
+						doc.acCtxCol = trigEnd;
+						VarDeclType(doc, b.nm, cur);
+						doc.acCtxLine = sl;
+						doc.acCtxCol = sc;
+						{ // init par APPEL (suffixe "()") -> type de RETOUR force
+							int32 L0 = 0;
+							while (cur[L0])
+								++L0;
+							if (L0 > 2 && cur[L0 - 2] == 0x28 && cur[L0 - 1] == 0x29) {
+								cur[L0 - 2] = 0;
+								char alt0[96];
+								if (GlobalFnOf(dt, cur, alt0) && alt0[0])
+									CopyCap(cur, alt0, 95);
+							}
+						}
+						if (!cur[0]) {
+							char encl[96];
+							EnclosingTypeAt(doc, line, encl);
+							if (encl[0])
+								MemberTypeOf(dt, encl, b.nm, cur);
+						}
+					}
+					// base = NOM DE FONCTION (auto &e = NkEvents();) ? -> son type de RETOUR
+					if (cur[0]) {
+						bool isTy = false;
+						for (usize i = 0; i < dt.memOwner.Size() && !isTy; ++i)
+							if (StrEq(dt.memOwner[i].CStr(), cur))
+								isTy = true;
+						if (!isTy && projReady)
+							for (usize i = 0; i < wsTab.memOwner.Size() && !isTy; ++i)
+								if (StrEq(wsTab.memOwner[i].CStr(), cur))
+									isTy = true;
+						if (!isTy) {
+							char alt0[96];
+							if (GlobalFnOf(dt, cur, alt0) && alt0[0])
+								CopyCap(cur, alt0, 95);
+						}
+					}
+					for (int32 si = ns - 2; si >= 0 && cur[0]; --si) {
+						char nx[96];
+						if (!MemberTypeOf(dt, cur, segs[si].nm, nx))
+							nx[0] = 0;
+						CopyCap(cur, nx, 95);
+					}
+					CopyCap(owner, cur, 95);
 				}
 
 				void HeuristicMembers(NkCodeDoc &doc, NkVector<NkString> &out) {
@@ -1004,186 +1234,578 @@ namespace nkentseu {
 					if (pos <= 0)
 						return;
 					// ── Tables LOCALES du buffer courant (types en cours d'édition, non sauvés). ──
-					NkVector<NkString> dmo, dmn, dmt, dio, dib, dgf, dgr;
-					NkScanTextMembers(doc.GetText().CStr(), dmo, dmn, dmt, dio, dib, dgf, dgr);
-					auto memberType = [&](const char *T, const char *mem, char *o) {
-						o[0] = 0;
-						for (usize i = 0; i < dmo.Size(); ++i)
-							if (StrEq(dmo[i].CStr(), T) && StrEq(dmn[i].CStr(), mem) && !dmt[i].Empty()) {
-								const char *s = dmt[i].CStr();
-								int32 k = 0;
-								while (s[k] && k < 95) {
-									o[k] = s[k];
-									++k;
-								}
-								o[k] = 0;
-								return;
-							}
-						if (projReady)
-							for (usize i = 0; i < memOwner.Size(); ++i)
-								if (StrEq(memOwner[i].CStr(), T) && StrEq(memName[i].CStr(), mem) &&
-									!memType[i].Empty()) {
-									const char *s = memType[i].CStr();
-									int32 k = 0;
-									while (s[k] && k < 95) {
-										o[k] = s[k];
-										++k;
-									}
-									o[k] = 0;
-									return;
-								}
-					};
-					auto globalFnRet = [&](const char *fn, char *o) {
-						o[0] = 0;
-						for (usize i = 0; i < dgf.Size(); ++i)
-							if (StrEq(dgf[i].CStr(), fn)) {
-								const char *s = dgr[i].CStr();
-								int32 k = 0;
-								while (s[k] && k < 95) {
-									o[k] = s[k];
-									++k;
-								}
-								o[k] = 0;
-								return;
-							}
-						if (projReady)
-							for (usize i = 0; i < gfnName.Size(); ++i)
-								if (StrEq(gfnName[i].CStr(), fn)) {
-									const char *s = gfnRet[i].CStr();
-									int32 k = 0;
-									while (s[k] && k < 95) {
-										o[k] = s[k];
-										++k;
-									}
-									o[k] = 0;
-									return;
-								}
-					};
-
-					// ── Chaîne d'accès avant le déclencheur : `a.b().c` -> segments (nom, appel ?). ──
-					struct Seg {
-							char nm[96];
-							bool call;
-					};
-
-					Seg segs[8];
-					int32 ns = 0;
-					bool okChain = true;
-					int32 q = pos;
-					while (ns < 8) {
-						bool call = false;
-						if (q > 0 && L[q - 1] == ')') { // saute les parenthèses équilibrées
-							int32 dep = 1;
-							--q;
-							while (q > 0 && dep > 0) {
-								--q;
-								if (L[q] == ')')
-									++dep;
-								else if (L[q] == '(')
-									--dep;
-							}
-							call = true;
-						}
-						int32 e = q;
-						while (q > 0 && NkCodeDoc::IsWChar(L[q - 1]))
-							--q;
-						if (e <= q) {
-							okChain = false;
-							break;
-						}
-						int32 k = 0;
-						for (int32 t = q; t < e && k < 95; ++t)
-							segs[ns].nm[k++] = L[t];
-						segs[ns].nm[k] = 0;
-						segs[ns].call = call;
-						++ns;
-						if (q >= 2 && L[q - 2] == '-' && L[q - 1] == '>') {
-							q -= 2;
-							continue;
-						}
-						if (q >= 1 && L[q - 1] == '.') {
-							q -= 1;
-							continue;
-						}
-						break; // base de la chaîne atteinte
-					}
-					if (!okChain || ns == 0)
-						return;
-					// ── Résolution : base -> type, puis chaque segment via le TYPE de ses membres. ──
+					NkSymTables dt;
+					NkScanTextMembers(doc.GetText().CStr(), dt);
 					char cur[96];
-					cur[0] = 0;
-					char encl[96];
-					encl[0] = 0;
-					Seg &b = segs[ns - 1];
-					if (scope && ns == 1) { // `Type::` -> le mot EST le type
-						int32 k = 0;
-						while (b.nm[k] && k < 95) {
-							cur[k] = b.nm[k];
-							++k;
-						}
-						cur[k] = 0;
-					} else if (StrEq(b.nm, "this")) {
-						EnclosingTypeAt(doc, doc.acCtxLine, cur);
-					} else if (b.call) { // `foo().` -> retour d'une fonction libre ou d'une méthode
-						globalFnRet(b.nm, cur);
-						if (!cur[0]) {
-							EnclosingTypeAt(doc, doc.acCtxLine, encl);
-							if (encl[0])
-								memberType(encl, b.nm, cur);
-						}
-					} else {
-						VarDeclType(doc, b.nm, cur); // déclaration remontée (gère `auto x = Type(...)`)
-						if (!cur[0]) {				 // sinon : champ de la classe englobante ?
-							EnclosingTypeAt(doc, doc.acCtxLine, encl);
-							if (encl[0])
-								memberType(encl, b.nm, cur);
-						}
-					}
-					for (int32 si = ns - 2; si >= 0 && cur[0]; --si) { // remonte la chaîne
-						char nx[96];
-						memberType(cur, segs[si].nm, nx);
-						int32 k = 0;
-						while (nx[k] && k < 95) {
-							cur[k] = nx[k];
-							++k;
-						}
-						cur[k] = 0;
-						if (!nx[0])
-							cur[0] = 0;
-					}
+					ResolveOwnerBefore(doc, dt, doc.acCtxLine, pos, scope, cur);
 					if (!cur[0])
 						return;
-					// `cur` peut être un NOM DE FONCTION (ex. `auto &e = NkEvents();` -> l'init a donné
-					// "NkEvents") : si ce n'est pas un type connu mais une fonction, on prend son RETOUR.
+					// `cur` peut être un NOM DE FONCTION (ex. `auto &e = NkEvents();` -> l'init a
+					// donné "NkEvents") : si ce n'est pas un type connu mais une fonction, son RETOUR.
 					{
 						bool isType = false;
-						for (usize i = 0; i < dmo.Size() && !isType; ++i)
-							if (StrEq(dmo[i].CStr(), cur))
+						for (usize i = 0; i < dt.memOwner.Size() && !isType; ++i)
+							if (StrEq(dt.memOwner[i].CStr(), cur))
 								isType = true;
 						if (!isType && projReady)
-							for (usize i = 0; i < memOwner.Size() && !isType; ++i)
-								if (StrEq(memOwner[i].CStr(), cur))
+							for (usize i = 0; i < wsTab.memOwner.Size() && !isType; ++i)
+								if (StrEq(wsTab.memOwner[i].CStr(), cur))
 									isType = true;
 						if (!isType) {
 							char alt[96];
-							globalFnRet(cur, alt);
-							if (alt[0]) {
-								int32 k = 0;
-								while (alt[k] && k < 95) {
-									cur[k] = alt[k];
-									++k;
-								}
-								cur[k] = 0;
-							}
+							if (GlobalFnOf(dt, cur, alt) && alt[0])
+								CopyCap(cur, alt, 95);
 						}
 					}
 					// ── Membres du type + de ses BASES (héritage, profondeur bornée). ──
 					char seen[8][96];
 					int32 nSeen = 0;
-					CollectMembersOf(cur, dmo, dmn, dio, dib, out, seen, nSeen);
+					CollectMembersOf(cur, dt, out, seen, nSeen);
 					NkSymSortDedup(out);
 					if (out.Size() > 400)
 						out.Resize(400);
+				}
+
+				// ── Hover documentation (v3) : signature COMPLÈTE (prototype capturé au scan) et
+				//    MACROS avec expansion des arguments du site d'appel. Ordre : macro > contexte
+				//    membre (propriétaire par la chaîne) > variable locale > membre de la classe
+				//    englobante > type > fonction libre > membre par nom (~ dernier recours). ──
+				void ProcessHover() {
+					if (active < 0 || active >= static_cast<int32>(files.Size()))
+						return;
+					NkCodeDoc &doc = files[active].doc;
+					if (!doc.hovReq)
+						return;
+					doc.hovReq = false;
+					doc.hovDone = true; // une seule resolution par mot survole
+					const char *sym = doc.hovSym.CStr();
+					if (!*sym || doc.hovLine < 0 || doc.hovLine >= doc.LineCount())
+						return;
+					// Mots-cles / primitifs / litteraux : pas de carte (bruit).
+					{
+						static const char *kws2[] = {
+							"if",		"for",		 "while",	"switch",	"return",	"break",	"continue",
+							"do",		"else",		 "case",	"goto",		"new",		"delete",	"sizeof",
+							"true",		"false",	 "nullptr", "void",		"int",		"float",	"double",
+							"char",		"bool",		 "auto",	"const",	"static",	"inline",	"constexpr",
+							"unsigned", "signed",	 "long",	"short",	"class",	"struct",	"union",
+							"enum",		"namespace", "using",	"typedef",	"template", "typename", "public",
+							"private",	"protected", "virtual", "override", "final",	"operator", "this",
+							nullptr};
+						for (int32 k = 0; kws2[k]; ++k)
+							if (StrEq(sym, kws2[k])) {
+								char lb[96];
+								std::snprintf(lb, sizeof(lb), "[hover] '%s' -> (mot-cle)", sym);
+								GlobalLogBuffer().Push(NkString(lb));
+								return;
+							}
+					}
+					NkSymTables dt;
+					NkScanTextMembers(doc.GetText().CStr(), dt);
+					const NkCodeLine &HL = doc.lines[doc.hovLine];
+					const int32 hn = static_cast<int32>(HL.Size());
+					const int32 wordEnd = doc.hovCol + static_cast<int32>(doc.hovSym.Size());
+					const bool callish = (wordEnd < hn && HL[wordEnd] == '(');
+					// ── Pas de carte DANS un commentaire ou une chaîne (mots de prose -> bruit). ──
+					{
+						bool blk = false;
+						for (int32 l = 0; l < doc.hovLine; ++l) { // état bloc /* */ au début de la ligne
+							const NkCodeLine &L = doc.lines[l];
+							const int32 n2 = static_cast<int32>(L.Size());
+							for (int32 i = 0; i < n2;) {
+								if (blk) {
+									if (L[i] == 0x2A && i + 1 < n2 && L[i + 1] == 0x2F) {
+										blk = false;
+										i += 2;
+										continue;
+									}
+									++i;
+									continue;
+								}
+								if (L[i] == 0x2F && i + 1 < n2 && L[i + 1] == 0x2F)
+									break;
+								if (L[i] == 0x2F && i + 1 < n2 && L[i + 1] == 0x2A) {
+									blk = true;
+									i += 2;
+									continue;
+								}
+								if (L[i] == 0x22 || L[i] == 0x27) {
+									const char qq = L[i];
+									++i;
+									while (i < n2) {
+										if (L[i] == 0x5C) {
+											i += 2;
+											continue;
+										}
+										if (L[i] == qq) {
+											++i;
+											break;
+										}
+										++i;
+									}
+									continue;
+								}
+								++i;
+							}
+						}
+						bool inside = false, inStr = false;
+						for (int32 i = 0; i < doc.hovCol && i < hn;) {
+							if (blk) {
+								if (HL[i] == 0x2A && i + 1 < hn && HL[i + 1] == 0x2F) {
+									blk = false;
+									i += 2;
+									continue;
+								}
+								++i;
+								continue;
+							}
+							if (HL[i] == 0x2F && i + 1 < hn && HL[i + 1] == 0x2F) {
+								inside = true;
+								break;
+							}
+							if (HL[i] == 0x2F && i + 1 < hn && HL[i + 1] == 0x2A) {
+								blk = true;
+								i += 2;
+								continue;
+							}
+							if (HL[i] == 0x22 || HL[i] == 0x27) {
+								const char qq = HL[i];
+								inStr = true;
+								++i;
+								while (i < hn) {
+									if (HL[i] == 0x5C) {
+										i += 2;
+										continue;
+									}
+									if (HL[i] == qq) {
+										inStr = false;
+										++i;
+										break;
+									}
+									++i;
+								}
+								continue;
+							}
+							++i;
+						}
+						if (inside || blk || inStr) {
+							char lb[128];
+							std::snprintf(lb, sizeof(lb), "[hover] '%s' -> (commentaire/chaine)", sym);
+							GlobalLogBuffer().Push(NkString(lb));
+							return;
+						}
+					}
+					char title[256];
+					title[0] = 0;
+					doc.hovBody.Clear();
+					NkVector<NkString> docAnchors; // lignes-ancres pour retrouver la VRAIE definition (doc)
+					doc.hovKind = 1;			   // defaut : fonction/membre (bleu)
+					// ── (0) MACRO `#define` : corps + EXPANSION avec les arguments du site d'appel. ──
+					{
+						NkString margs, mbody;
+						if (MacroOf(dt, sym, margs, mbody)) {
+							std::snprintf(title, sizeof(title), "#define %s%s", sym, margs.CStr());
+							doc.hovKind = 4;
+							docAnchors.PushBack(NkString("#define ") + sym);
+							if (!mbody.Empty())
+								doc.hovBody.PushBack(mbody);
+							if (callish && !margs.Empty() && !mbody.Empty()) {
+								// paramètres de la macro
+								NkVector<NkString> pn;
+								{
+									const char *a = margs.CStr();
+									NkString curp;
+									for (++a; *a; ++a) { // saute '('
+										if (*a == ',' || *a == ')') {
+											// rogne
+											while (!curp.Empty() && (curp.CStr()[0] == ' '))
+												curp = NkString(curp.CStr() + 1);
+											if (!curp.Empty())
+												pn.PushBack(curp);
+											curp = NkString();
+											if (*a == ')')
+												break;
+										} else
+											curp += *a;
+									}
+								}
+								// arguments réels du site d'appel (virgules de niveau 0)
+								NkVector<NkString> av;
+								{
+									int32 i2 = wordEnd + 1, dep = 1;
+									NkString curp;
+									while (i2 < hn && dep > 0) {
+										const char c2 = HL[i2];
+										if (c2 == '(')
+											++dep;
+										else if (c2 == ')') {
+											--dep;
+											if (dep == 0)
+												break;
+										}
+										if (c2 == ',' && dep == 1) {
+											av.PushBack(curp);
+											curp = NkString();
+										} else
+											curp += c2;
+										++i2;
+									}
+									if (!curp.Empty() || !av.Empty())
+										av.PushBack(curp);
+								}
+								// substitution NAÏVE (frontière de mot) param -> argument
+								NkString exp = mbody;
+								for (usize pi = 0; pi < pn.Size() && pi < av.Size(); ++pi) {
+									const char *P = pn[pi].CStr();
+									const int32 pl = static_cast<int32>(pn[pi].Size());
+									NkString outS;
+									const char *b2 = exp.CStr();
+									const int32 bl = static_cast<int32>(exp.Size());
+									for (int32 i3 = 0; i3 < bl;) {
+										const bool lb = (i3 == 0) || !NkCodeDoc::IsWChar(b2[i3 - 1]);
+										int32 k3 = 0;
+										while (k3 < pl && i3 + k3 < bl && b2[i3 + k3] == P[k3])
+											++k3;
+										const bool rb = (i3 + pl >= bl) || !NkCodeDoc::IsWChar(b2[i3 + pl]);
+										if (k3 == pl && lb && rb) {
+											outS += av[pi];
+											i3 += pl;
+										} else {
+											outS += b2[i3];
+											++i3;
+										}
+									}
+									exp = outS;
+								}
+								NkString ln2 = NkString("=> ") + exp;
+								doc.hovBody.PushBack(ln2);
+							}
+						}
+					}
+					// ── (1) CONTEXTE MEMBRE : './->/::' avant le mot -> propriétaire par la chaîne. ──
+					if (!title[0]) {
+						int32 pos = -1;
+						bool scope2 = false;
+						const int32 q0 = doc.hovCol;
+						if (q0 >= 1 && HL[q0 - 1] == '.')
+							pos = q0 - 1;
+						else if (q0 >= 2 && HL[q0 - 2] == '-' && HL[q0 - 1] == '>')
+							pos = q0 - 2;
+						else if (q0 >= 2 && HL[q0 - 2] == ':' && HL[q0 - 1] == ':') {
+							pos = q0 - 2;
+							scope2 = true;
+						}
+						if (pos > 0) {
+							char owner[96];
+							ResolveOwnerBefore(doc, dt, doc.hovLine, pos, scope2, owner);
+							if (owner[0]) {
+								char mty[96], sig[200];
+								const bool known = MemberTypeOf(dt, owner, sym, mty, sig);
+								if (known && sig[0]) {
+									docAnchors.PushBack(NkString(sig));
+									std::snprintf(title, sizeof(title), "%s", sig);
+									NkString ctx2 = NkString("membre de ") + owner;
+									doc.hovBody.PushBack(ctx2);
+								} else if (known && mty[0])
+									std::snprintf(title, sizeof(title), "%s %s::%s%s", mty, owner, sym,
+												  callish ? "(...)" : "");
+								else
+									std::snprintf(title, sizeof(title), "%s::%s%s", owner, sym, callish ? "(...)" : "");
+								if (known && !sig[0]) { // diagnostic : entrée appariée SANS prototype
+									char lb2[128];
+									std::snprintf(lb2, sizeof(lb2), "[hover] (sig vide) %s::%s", owner, sym);
+									GlobalLogBuffer().Push(NkString(lb2));
+								} else if (!known) {
+									char lb2[128];
+									std::snprintf(lb2, sizeof(lb2), "[hover] (membre inconnu) %s::%s", owner, sym);
+									GlobalLogBuffer().Push(NkString(lb2));
+								}
+							}
+						}
+					}
+					// ── (2) VARIABLE locale/paramètre : déclaration remontée depuis le survol. ──
+					if (!title[0] && !callish) {
+						const int32 sl = doc.acCtxLine, sc = doc.acCtxCol;
+						doc.acCtxLine = doc.hovLine;
+						doc.acCtxCol = doc.hovCol;
+						char vt[96];
+						VarDeclType(doc, sym, vt);
+						doc.acCtxLine = sl;
+						doc.acCtxCol = sc;
+						{ // init par APPEL (suffixe "()") -> type de RETOUR force
+							int32 L0 = 0;
+							while (vt[L0])
+								++L0;
+							if (L0 > 2 && vt[L0 - 2] == 0x28 && vt[L0 - 1] == 0x29) {
+								vt[L0 - 2] = 0;
+								char alt0[96];
+								if (GlobalFnOf(dt, vt, alt0) && alt0[0])
+									CopyCap(vt, alt0, 95);
+							}
+						}
+						if (vt[0]) { // init par une FONCTION (auto &e = NkEvents();) -> type de RETOUR
+							bool isTy = false;
+							for (usize i = 0; i < dt.memOwner.Size() && !isTy; ++i)
+								if (StrEq(dt.memOwner[i].CStr(), vt))
+									isTy = true;
+							if (!isTy && projReady)
+								for (usize i = 0; i < wsTab.memOwner.Size() && !isTy; ++i)
+									if (StrEq(wsTab.memOwner[i].CStr(), vt))
+										isTy = true;
+							if (!isTy) {
+								char alt[96];
+								if (GlobalFnOf(dt, vt, alt) && alt[0])
+									CopyCap(vt, alt, 95);
+							}
+							doc.hovKind = 3; // variable (jaune)
+							std::snprintf(title, sizeof(title), "%s %s", vt, sym);
+						}
+					}
+					// ── (3) Membre de la CLASSE ENGLOBANTE (accès implicite via this). ──
+					if (!title[0]) {
+						char encl[96];
+						EnclosingTypeAt(doc, doc.hovLine, encl);
+						if (encl[0]) {
+							char mty[96], sig[200];
+							if (MemberTypeOf(dt, encl, sym, mty, sig)) {
+								if (sig[0]) {
+									docAnchors.PushBack(NkString(sig));
+									std::snprintf(title, sizeof(title), "%s", sig);
+									NkString ctx2 = NkString("membre de ") + encl;
+									doc.hovBody.PushBack(ctx2);
+								} else if (mty[0])
+									std::snprintf(title, sizeof(title), "%s %s::%s%s", mty, encl, sym,
+												  callish ? "(...)" : "");
+								else
+									std::snprintf(title, sizeof(title), "%s::%s%s", encl, sym, callish ? "(...)" : "");
+							}
+						}
+					}
+					// ── (4) TYPE connu -> compte des membres. ──
+					if (!title[0]) {
+						bool isType = false;
+						int32 nMem = 0;
+						for (usize i = 0; i < dt.memOwner.Size(); ++i)
+							if (StrEq(dt.memOwner[i].CStr(), sym)) {
+								isType = true;
+								++nMem;
+							}
+						if (projReady)
+							for (usize i = 0; i < wsTab.memOwner.Size(); ++i)
+								if (StrEq(wsTab.memOwner[i].CStr(), sym)) {
+									isType = true;
+									++nMem;
+								}
+						if (!isType && NkSymHas(&doc.symTypes, sym, static_cast<int32>(doc.hovSym.Size())))
+							isType = true;
+						if (!isType && projReady && NkSymHas(&projTypes, sym, static_cast<int32>(doc.hovSym.Size())))
+							isType = true;
+						if (isType)
+							doc.hovKind = 2;
+						if (isType) {
+							// GENRE réel depuis le registre (struct/class/union/enum/namespace).
+							const char *kindW = nullptr;
+							for (usize i = 0; i < dt.tyName.Size() && !kindW; ++i)
+								if (StrEq(dt.tyName[i].CStr(), sym))
+									kindW = dt.tyKind[i].CStr();
+							if (!kindW && projReady)
+								for (usize i = 0; i < wsTab.tyName.Size() && !kindW; ++i)
+									if (StrEq(wsTab.tyName[i].CStr(), sym))
+										kindW = wsTab.tyKind[i].CStr();
+							if (!kindW)
+								kindW = "type";
+							NkVector<NkString> mm; // compte DEDUPLIQUE (heritage inclus, buffer+workspace)
+							char seen2[8][96];
+							int32 nSeen2 = 0;
+							CollectMembersOf(sym, dt, mm, seen2, nSeen2);
+							NkSymSortDedup(mm);
+							const int32 nMem2 = static_cast<int32>(mm.Size());
+							if (StrEq(kindW, "namespace"))
+								std::snprintf(title, sizeof(title), "namespace %s", sym);
+							else if (nMem2 > 0)
+								std::snprintf(title, sizeof(title), "%s %s — %d %s", kindW, sym, nMem2,
+											  StrEq(kindW, "enum") ? "valeur(s)" : "membre(s)");
+							else
+								std::snprintf(title, sizeof(title), "%s %s", kindW, sym);
+							docAnchors.PushBack(NkString(kindW) + " " + sym);
+							docAnchors.PushBack(NkString("struct ") + sym);
+							docAnchors.PushBack(NkString("class ") + sym);
+							docAnchors.PushBack(NkString("union ") + sym);
+							docAnchors.PushBack(NkString("enum ") + sym);
+						}
+					}
+					// ── (5) FONCTION libre -> prototype complet (sinon retour reconstruit). ──
+					if (!title[0]) {
+						char rt[96], sig[200];
+						if (GlobalFnOf(dt, sym, rt, sig)) {
+							if (sig[0]) {
+								std::snprintf(title, sizeof(title), "%s", sig);
+								docAnchors.PushBack(NkString(sig));
+							} else if (rt[0])
+								std::snprintf(title, sizeof(title), "%s %s(...)", rt, sym);
+						}
+					}
+					// ── (6) Dernier recours : membre par NOM (ambigu -> préfixe '~'). ──
+					if (!title[0]) {
+						const char *own = nullptr;
+						const char *sg = nullptr;
+						const char *mty = nullptr;
+						for (usize i = 0; i < dt.memName.Size() && !own; ++i)
+							if (StrEq(dt.memName[i].CStr(), sym)) {
+								own = dt.memOwner[i].CStr();
+								mty = dt.memType[i].CStr();
+								sg = dt.memSig[i].CStr();
+							}
+						if (!own && projReady)
+							for (usize i = 0; i < wsTab.memName.Size() && !own; ++i)
+								if (StrEq(wsTab.memName[i].CStr(), sym)) {
+									own = wsTab.memOwner[i].CStr();
+									mty = wsTab.memType[i].CStr();
+									sg = wsTab.memSig[i].CStr();
+								}
+						if (own) {
+							if (sg && *sg) {
+								std::snprintf(title, sizeof(title), "~ %s", sg);
+								docAnchors.PushBack(NkString(sg));
+							} else if (mty && *mty)
+								std::snprintf(title, sizeof(title), "~ %s %s::%s%s", mty, own, sym,
+											  callish ? "(...)" : "");
+							else
+								std::snprintf(title, sizeof(title), "~ %s::%s%s", own, sym, callish ? "(...)" : "");
+							NkString ctx2 = NkString("membre de ") + own + " (par nom, peut-etre ambigu)";
+							doc.hovBody.PushBack(ctx2);
+						}
+					}
+					{
+						char lb[192];
+						std::snprintf(lb, sizeof(lb), "[hover] '%s' L%d:C%d -> %s", sym, doc.hovLine + 1, doc.hovCol,
+									  title[0] ? title : "(rien)");
+						GlobalLogBuffer().Push(NkString(lb));
+					}
+					if (!title[0]) {
+						doc.hovBody.Clear();
+						return; // rien d'utile -> pas de carte
+					}
+					doc.hovTitle = NkString(title);
+					// ── Documentation : commentaires CONTIGUS au-dessus de la définition (buffer). ──
+					{
+						int32 defLine = -1;
+						// Ligne de la VRAIE définition = celle qui contient l'ANCRE (prototype capturé,
+						// `struct sym`, `#define sym`) — un site d'appel ne matche plus (fini les
+						// commentaires piochés au-dessus d'un appel).
+						for (usize ai = 0; ai < docAnchors.Size() && defLine < 0; ++ai) {
+							const char *anc = docAnchors[ai].CStr();
+							int32 al = static_cast<int32>(docAnchors[ai].Size());
+							if (al > 60)
+								al = 60; // le début du prototype suffit à l'identifier
+							if (al < 4)
+								continue;
+							for (int32 l = 0; l < doc.LineCount() && defLine < 0; ++l) {
+								const NkCodeLine &L = doc.lines[l];
+								const int32 n = static_cast<int32>(L.Size());
+								for (int32 i = 0; i + al <= n; ++i) {
+									int32 k = 0;
+									while (k < al && L[i + k] == anc[k])
+										++k;
+									if (k == al) {
+										defLine = l;
+										break;
+									}
+								}
+							}
+						}
+						// Prototype MULTI-LIGNES (clang-format coupe à 120 col) : quand la définition
+						// est dans le buffer, rejoint les lignes jusqu'à la ')' équilibrée -> le titre
+						// montre la signature COMPLÈTE (pas la 1re ligne tronquée).
+						if (defLine >= 0 && title[0] && title[0] != 't' && title[0] != '#') { // pas type/#define
+							char joined[224];
+							int32 jk = 0;
+							int32 depP = 0;
+							bool started = false, done = false;
+							const bool tilde = (title[0] == '~');
+							if (tilde && jk < 220) {
+								joined[jk++] = '~';
+								joined[jk++] = ' ';
+							}
+							for (int32 l = defLine; l <= defLine + 3 && l < doc.LineCount() && !done; ++l) {
+								const NkCodeLine &L = doc.lines[l];
+								const int32 n = static_cast<int32>(L.Size());
+								int32 s2 = 0;
+								while (s2 < n && (L[s2] == ' ' || L[s2] == '\t'))
+									++s2;
+								if (l > defLine && jk < 220)
+									joined[jk++] = ' ';
+								for (int32 i = s2; i < n && jk < 220; ++i) {
+									const char c2 = L[i];
+									if (c2 == '(') {
+										++depP;
+										started = true;
+									} else if (c2 == ')') {
+										--depP;
+									}
+									joined[jk++] = c2;
+									if (started && depP == 0) {
+										done = true;
+										break;
+									}
+								}
+							}
+							while (jk > 0 && (joined[jk - 1] == ' ' || joined[jk - 1] == '\t' || joined[jk - 1] == '{'))
+								--jk;
+							joined[jk] = 0;
+							if (started && done && jk > 4) {
+								// garde seulement si le symbole y figure (sécurité anti-mismatch)
+								bool hasSym = false;
+								const int32 sl2 = static_cast<int32>(doc.hovSym.Size());
+								for (int32 i = 0; i + sl2 <= jk && !hasSym; ++i) {
+									int32 k = 0;
+									while (k < sl2 && joined[i + k] == sym[k])
+										++k;
+									hasSym = (k == sl2);
+								}
+								if (hasSym)
+									CopyCap(title, joined, 250);
+							}
+						}
+						if (defLine > 0) { // remonte les commentaires contigus (max 10 lignes)
+							int32 top = defLine;
+							while (top > 0) {
+								const NkCodeLine &L = doc.lines[top - 1];
+								int32 s2 = 0;
+								const int32 n = static_cast<int32>(L.Size());
+								while (s2 < n && (L[s2] == ' ' || L[s2] == '\t'))
+									++s2;
+								const bool cmt =
+									(s2 + 1 < n && L[s2] == '/' && (L[s2 + 1] == '/' || L[s2 + 1] == '*')) ||
+									(s2 < n && L[s2] == '*');
+								if (!cmt || defLine - top >= 24)
+									break;
+								--top;
+							}
+							for (int32 l = top; l < defLine && static_cast<int32>(doc.hovBody.Size()) < 24; ++l) {
+								const NkCodeLine &L = doc.lines[l];
+								int32 s2 = 0;
+								const int32 n = static_cast<int32>(L.Size());
+								while (s2 < n && (L[s2] == ' ' || L[s2] == '\t'))
+									++s2;
+								if (s2 + 1 < n && L[s2] == '/' && (L[s2 + 1] == '/' || L[s2 + 1] == '*'))
+									s2 += 2;
+								else if (s2 < n && L[s2] == '*')
+									s2 += 1;
+								while (s2 < n && (L[s2] == ' ' || L[s2] == '\t'))
+									++s2;
+								int32 e2 = n;
+								if (e2 >= 2 && L[e2 - 2] == '*' && L[e2 - 1] == '/')
+									e2 -= 2;
+								NkString line;
+								for (int32 k = s2; k < e2; ++k)
+									line += L[k];
+								if (!line.Empty())
+									doc.hovBody.PushBack(line);
+							}
+						}
+					}
+					doc.hovShow = true;
 				}
 
 				void ProcessCompletionRequest() {
@@ -1368,8 +1990,8 @@ namespace nkentseu {
 						projLoggedReady = true;
 						char lb0[128];
 						std::snprintf(lb0, sizeof(lb0), "[ac] index projet PRET: %d types, %d membres, %d fonctions",
-									  static_cast<int32>(projTypes.Size()), static_cast<int32>(memOwner.Size()),
-									  static_cast<int32>(gfnName.Size()));
+									  static_cast<int32>(projTypes.Size()), static_cast<int32>(wsTab.memName.Size()),
+									  static_cast<int32>(wsTab.gfnName.Size()));
 						GlobalLogBuffer().Push(NkString(lb0));
 					}
 					// PCH de préambule en cours ? (indépendant de la requête de complétion)
@@ -1634,7 +2256,8 @@ namespace nkentseu {
 										return line;
 								}
 							}
-							// Membre d'ÉNUMÉRATION : symbole = 1er token de la ligne, suivi de ',' / '}' / '=' (sans
+							// Membre d'ÉNUMÉRATION : symbole = 1er token de la ligne, suivi de ',' / '}' / '='
+							// (sans
 							// ';', sinon c'est une affectation).
 							{
 								const char *h2 = ls;
@@ -1685,8 +2308,8 @@ namespace nkentseu {
 								const char *a2 = q + sl;
 								while (*a2 == ' ' || *a2 == '\t')
 									++a2;
-								if (!member && *a2 == '(') { // fonction/méthode : DÉFINITION seulement si TYPE devant
-															 // (chaîne A::B:: remontée)
+								if (!member && *a2 == '(') { // fonction/méthode : DÉFINITION seulement si TYPE
+															 // devant (chaîne A::B:: remontée)
 									const char *c = pbk;
 									while (c - 1 > ls && c[-1] == ':' && c[-2] == ':') {
 										c -= 2;
@@ -1834,7 +2457,8 @@ namespace nkentseu {
 						openP.PushBack(files[i].path.ToString());
 						openT.PushBack(files[i].doc.GetText());
 					}
-					if (navBusy) { // recherche en cours -> l'ANNULER et mémoriser la nouvelle (relancée dès l'arrêt)
+					if (navBusy) { // recherche en cours -> l'ANNULER et mémoriser la nouvelle (relancée dès
+								   // l'arrêt)
 						navCancel = true;
 						navPending = true;
 						navPendSym = sym;
@@ -1895,8 +2519,8 @@ namespace nkentseu {
 					for (usize k = 0; k < es.Size(); ++k) {
 						if (navCancel || budget <= 0)
 							return;
-						--budget; // CHAQUE entrée (fichier OU dossier) consomme du budget -> les jonctions/cycles
-								  // s'arrêtent
+						--budget; // CHAQUE entrée (fichier OU dossier) consomme du budget -> les
+								  // jonctions/cycles s'arrêtent
 						if (es[k].IsDirectory)
 							NavWalk(es[k].FullPath, named, others, budget, depth + 1);
 						else if (IsHdrSrc(es[k].FullPath.GetExtension().CStr())) {
@@ -2125,7 +2749,8 @@ namespace nkentseu {
 						Ent &e = ents[k];
 						// Robustesse : une entree dont le fichier n'existe PAS sur disque et qui n'a
 						// pas de contenu non-sauvegarde (bak) est ignoree -> evite les onglets VIDES
-						// issus d'une session empoisonnee (chemins corrompus). Auto-nettoyage au prochain SaveSession.
+						// issus d'une session empoisonnee (chemins corrompus). Auto-nettoyage au prochain
+						// SaveSession.
 						if (!e.dy && !NkFile::Exists(NkPath(e.path)))
 							continue;
 						OpenPath(NkPath(e.path));
@@ -3373,12 +3998,23 @@ namespace nkentseu {
 					return NkString("C++");
 				}
 
+				// Compte/liste les projets d'un workspace : `project("Nom")` (frontière de mot,
+				// couvre `with project(`) + `startproject(`) dans le .jenga racine ET dans tous
+				// les fichiers atteints par `include("…")`, RÉCURSIVEMENT (BFS, anti-cycles,
+				// plafond 300 fichiers) — même règle pour toutes les cartes du launcher.
 				static NkString CollectProjects(const char *txt, const NkPath &baseDir, int32 *outCount = nullptr) {
 					NkVector<NkString> names;
-					auto collect = [&](const char *src, const char *pat) {
+					auto isW2 = [](char c) {
+						return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+					};
+					auto collect = [&](const char *src, const char *pat, bool boundary) {
+						const char *base = src;
 						const char *p = src;
 						while ((p = FindStr(p, pat))) {
+							const char *hit = p;
 							p += Len(pat);
+							if (boundary && hit > base && isW2(hit[-1]))
+								continue; // « startproject( » ne doit pas matcher « project( »
 							while (*p && *p != '"')
 								++p;
 							if (*p == '"') {
@@ -3397,25 +4033,40 @@ namespace nkentseu {
 							}
 						}
 					};
-					collect(txt, "with project(");
-					collect(txt, "startproject(");
-					// Projets déclarés dans les .jenga INCLUS (`with include("x/y.jenga")`) : la
-					// racine (ex. Nkentseu) n'a souvent qu'un startproject, chaque module vivant
-					// dans son propre fichier -> sans ça la carte affichait « 1 projet ».
-					{
-						const char *p = txt;
-						int32 nInc = 0;
-						while ((p = FindStr(p, "include(\"")) && nInc < 200) {
+					// BFS sur les fichiers : (texte, dossier de base) — la racine puis chaque include.
+					NkVector<NkString> qTxt, qDir, seen;
+					qTxt.PushBack(NkString(txt));
+					qDir.PushBack(baseDir.ToString());
+					for (usize qi = 0; qi < qTxt.Size() && qTxt.Size() <= 300; ++qi) {
+						const char *src = qTxt[qi].CStr();
+						collect(src, "project(", true); // couvre `with project(`
+						collect(src, "startproject(", true);
+						const char *p = src;
+						while ((p = FindStr(p, "include(\""))) {
+							const char *hit = p;
 							p += Len("include(\"");
+							if (hit > src && isW2(hit[-1]))
+								continue; // pas `xinclude(`
 							NkString rel;
 							while (*p && *p != '"')
 								rel += *p++;
-							++nInc;
 							if (rel.Empty())
 								continue;
-							const NkString sub = NkFile::ReadAllText(baseDir / rel.CStr());
-							if (!sub.Empty())
-								collect(sub.CStr(), "with project(");
+							const NkString full = (NkPath(qDir[qi].CStr()) / rel.CStr()).ToString();
+							bool vis = false;
+							for (usize i = 0; i < seen.Size(); ++i)
+								if (StrEq(seen[i].CStr(), full.CStr())) {
+									vis = true;
+									break;
+								}
+							if (vis || qTxt.Size() > 300)
+								continue;
+							seen.PushBack(full);
+							const NkString sub = NkFile::ReadAllText(NkPath(full.CStr()));
+							if (!sub.Empty()) {
+								qTxt.PushBack(sub);
+								qDir.PushBack(NkPath(full.CStr()).GetParent().ToString());
+							}
 						}
 					}
 					if (outCount)
@@ -3703,8 +4354,8 @@ namespace nkentseu {
 					mWsScanned = false;	  // re-scan des .jenga racine
 					mInfoStarted = false; // force le rechargement de jenga info
 					mInfoWsIdx = -1;
-					flagsStale =
-						true; // un .jenga a (peut-être) changé -> régénère le .jcdb (includes/defines par projet)
+					flagsStale = true; // un .jenga a (peut-être) changé -> régénère le .jcdb (includes/defines
+									   // par projet)
 				}
 
 				// Auto-detection (sur timer) : si un .jenga de la racine a change de date de
