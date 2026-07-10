@@ -11,6 +11,7 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltBands.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltMdct.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltEnergy.h"
+#include "NKMedia/Codecs/Opus/Celt/NkCeltPvq.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -134,6 +135,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkCeltEnergy::SelfTest();
 		printf("[ %s ] NkCeltEnergy : energie grossiere (Laplace) + fine (bits bruts) aller-retour, LM 0-3 intra/inter\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkCeltPvq::SelfTest();
+		printf("[ %s ] NkCeltPvq : V(n,k), CWRS vecteur<->index exhaustif, aller-retour range coder\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;

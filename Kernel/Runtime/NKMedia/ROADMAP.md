@@ -46,7 +46,9 @@
     **reconstruction TDAC parfaite** < 1e-3) ; **`NkCeltEnergy`** (énergie grossière : prédiction 2D + Laplace,
     tables `e_prob_model`/`pred_coef`/`beta_coef` ; **aller-retour prouvé** LM 0-3 × intra/inter) + **énergie
     fine** (raffinement par bits bruts par bande, `UnquantFine` ; aller-retour prouvé, coexiste avec le range
-    coder). ⏳ Reste CELT (assemblage) : allocation de bits → **PVQ/CWRS** (forme spectrale) → anti-collapse →
+    coder) + **PVQ/CWRS** (`NkCeltPvq` : `V(n,k)` + codage combinatoire vecteur↔index, cwrs.c ; **aller-retour
+    EXHAUSTIF prouvé** — tous les index de plusieurs (n,k) + range coder). ⏳ Reste CELT (assemblage) :
+    **allocation de bits** (rate.c, l'autre pièce touffue) → répartition pulses/bandes → anti-collapse →
     denormalise → IMDCT + **overlap-add** → orchestration trame CELT.
   ⏳ Puis **SILK** (LPC, LTP) → mode hybride → PCM float32.
 
