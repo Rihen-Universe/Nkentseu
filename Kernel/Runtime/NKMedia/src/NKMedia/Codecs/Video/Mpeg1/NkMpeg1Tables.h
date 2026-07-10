@@ -33,6 +33,10 @@ namespace nkentseu {
 
 				// Cherche l'index VLC d'un couple (run, |level|), ou -1 si absent (→ escape).
 				static int32 FindAc(int32 run, int32 absLevel);
+
+				// --- P-frames ---
+				static const uint8 (*MotionVlc())[2]; // [17][2] : {code, bits}, index = |mv_code| 0..16
+				static const uint8 (*CbpVlc())[2];	  // [64][2] : {code, bits}, index = coded_block_pattern 1..63
 		};
 
 	} // namespace media

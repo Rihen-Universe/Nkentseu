@@ -222,6 +222,44 @@ int main(int argc, char **argv) {
 			++nbOk;
 	}
 
+	// --- MPEG-1 sur contenu 'ecran' (fond statique + disque) = ideal inter-frame ---
+	{
+		++nbTotal;
+		char pathM1v2[1024];
+		::snprintf(pathM1v2, sizeof(pathM1v2), "%s/nkvideo_mpeg1_screen.m1v", outDir);
+		media::NkMpeg1Encoder enc;
+		bool ok = enc.Open(pathM1v2, W, H, FPS, 1, 4, 12);
+		if (ok) {
+			uint8 *rgb = (uint8 *)memory::NkAlloc((usize)W * H * 3);
+			for (int32 fr = 0; fr < N && ok; ++fr) {
+				// Fond statique (degrade fixe) + disque jaune qui bouge.
+				const float t = (float)fr / (float)N;
+				const float px = (0.5f + 0.35f * ::sinf(t * 6.2831853f)) * W;
+				const float py = (0.5f + 0.35f * ::sinf(t * 6.2831853f * 1.3f)) * H;
+				const float r2 = (0.1f * (W < H ? W : H)) * (0.1f * (W < H ? W : H));
+				for (int32 y = 0; y < H; ++y)
+					for (int32 x = 0; x < W; ++x) {
+						uint8 *p = rgb + ((usize)y * W + x) * 3;
+						p[0] = (uint8)(60 + 120 * x / W);
+						p[1] = (uint8)(80 + 100 * y / H);
+						p[2] = (uint8)140;
+						const float dx = x - px, dy = y - py;
+						if (dx * dx + dy * dy < r2) {
+							p[0] = 255;
+							p[1] = 240;
+							p[2] = 40;
+						}
+					}
+				ok = enc.WriteFrame(rgb, media::NkVideoInputFormat::RGB24);
+			}
+			memory::NkFree(rgb);
+			enc.Close();
+		}
+		::printf("[ %s ] MPEG-1 screen (fond statique) -> nkvideo_mpeg1_screen.m1v\n", ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+
 	::printf("\n=== Resultat : %d/%d OK ===\n", nbOk, nbTotal);
 	::printf("(Ouvre les .avi/.mov/.m1v dans VLC / ffmpeg, les .png dans un visionneur.)\n");
 	return (nbOk == nbTotal) ? 0 : 1;

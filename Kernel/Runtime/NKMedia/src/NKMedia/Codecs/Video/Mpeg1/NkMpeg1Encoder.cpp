@@ -1,11 +1,14 @@
 // =============================================================================
-// NKMedia/Codecs/Video/Mpeg1/NkMpeg1Encoder.cpp — encodeur MPEG-1 Video I-picture.
+// NKMedia/Codecs/Video/Mpeg1/NkMpeg1Encoder.cpp — encodeur MPEG-1 Video.
+// I-pictures (intra) + P-pictures (compensation de mouvement full-pel) → vraie
+// compression inter-frame. Reconstruction (dequant + IDCT) pour la trame de
+// référence. Algorithme réécrit à la sauce Nkentseu.
 // =============================================================================
 #include "NKMedia/Codecs/Video/Mpeg1/NkMpeg1Encoder.h"
 #include "NKMedia/Codecs/Video/Mpeg1/NkMpeg1Tables.h"
 #include "NKMemory/NKMemory.h"
 
-#include <cmath> // cos
+#include <cmath> // cos, floor
 
 namespace nkentseu {
 	namespace media {
@@ -17,8 +20,10 @@ namespace nkentseu {
 			inline int32 Clamp(int32 v, int32 lo, int32 hi) {
 				return v < lo ? lo : (v > hi ? hi : v);
 			}
+			inline int32 Sign(int32 v) {
+				return v > 0 ? 1 : (v < 0 ? -1 : 0);
+			}
 
-			// DCT 8×8 directe (séparable, O(N^3)) — précalcule la table de cosinus.
 			struct DctCos {
 					float32 c[8][8];
 					DctCos() {
@@ -32,35 +37,56 @@ namespace nkentseu {
 				return d;
 			}
 
-			// Forward DCT sur un bloc 8×8 (valeurs 0..255) → coefficients (raster).
+			// DCT 8×8 directe (orthonormale : facteur 0.5·C).
 			void Fdct8x8(const float32 *in, float32 *out) {
 				const DctCos &T = Cos();
 				float32 tmp[64];
-				// lignes
-				for (int32 y = 0; y < 8; ++y) {
+				for (int32 y = 0; y < 8; ++y)
 					for (int32 u = 0; u < 8; ++u) {
 						float32 s = 0.0f;
 						for (int32 x = 0; x < 8; ++x)
 							s += in[y * 8 + x] * T.c[u][x];
-						const float32 cu = (u == 0) ? 0.70710678f : 1.0f;
-						tmp[y * 8 + u] = 0.5f * cu * s;
+						tmp[y * 8 + u] = 0.5f * ((u == 0) ? 0.70710678f : 1.0f) * s;
 					}
-				}
-				// colonnes
-				for (int32 x = 0; x < 8; ++x) {
+				for (int32 x = 0; x < 8; ++x)
 					for (int32 v = 0; v < 8; ++v) {
 						float32 s = 0.0f;
 						for (int32 y = 0; y < 8; ++y)
 							s += tmp[y * 8 + x] * T.c[v][y];
-						const float32 cv = (v == 0) ? 0.70710678f : 1.0f;
-						out[v * 8 + x] = 0.5f * cv * s;
+						out[v * 8 + x] = 0.5f * ((v == 0) ? 0.70710678f : 1.0f) * s;
 					}
-				}
+			}
+
+			// IDCT 8×8 (inverse orthonormale).
+			void Idct8x8(const float32 *in, float32 *out) {
+				const DctCos &T = Cos();
+				float32 mid[64];
+				for (int32 x = 0; x < 8; ++x)
+					for (int32 y = 0; y < 8; ++y) {
+						float32 s = 0.0f;
+						for (int32 v = 0; v < 8; ++v)
+							s += in[v * 8 + x] * (0.5f * ((v == 0) ? 0.70710678f : 1.0f)) * T.c[v][y];
+						mid[y * 8 + x] = s;
+					}
+				for (int32 y = 0; y < 8; ++y)
+					for (int32 x = 0; x < 8; ++x) {
+						float32 s = 0.0f;
+						for (int32 u = 0; u < 8; ++u)
+							s += mid[y * 8 + u] * (0.5f * ((u == 0) ? 0.70710678f : 1.0f)) * T.c[u][x];
+						out[y * 8 + x] = s;
+					}
+			}
+
+			// Oddification MPEG-1 (mismatch) : force chaque coefficient non nul à être impair.
+			inline int32 Oddify(int32 v) {
+				if (v != 0 && (v & 1) == 0)
+					v -= Sign(v);
+				return v;
 			}
 		} // namespace
 
 		bool NkMpeg1Encoder::Open(const char *path, int32 width, int32 height, int32 fpsNum, int32 fpsDen,
-								  int32 qscale) {
+								  int32 qscale, int32 gop) {
 			if (width <= 0 || height <= 0 || fpsDen <= 0 || fpsNum <= 0)
 				return false;
 			mWidth = width;
@@ -68,6 +94,7 @@ namespace nkentseu {
 			mFpsNum = fpsNum;
 			mFpsDen = fpsDen;
 			mQScale = Clamp(qscale, 1, 31);
+			mGop = gop < 1 ? 1 : gop;
 			mMbW = (width + 15) / 16;
 			mMbH = (height + 15) / 16;
 			mLumaW = mMbW * 16;
@@ -77,10 +104,17 @@ namespace nkentseu {
 			mFrame = 0;
 			mWroteSeq = false;
 
-			mY = (uint8 *)memory::NkAlloc((usize)mLumaW * mLumaH);
-			mCb = (uint8 *)memory::NkAlloc((usize)mChromaW * mChromaH);
-			mCr = (uint8 *)memory::NkAlloc((usize)mChromaW * mChromaH);
-			if (!mY || !mCb || !mCr)
+			const usize lumaN = (usize)mLumaW * mLumaH, chromaN = (usize)mChromaW * mChromaH;
+			mY = (uint8 *)memory::NkAlloc(lumaN);
+			mCb = (uint8 *)memory::NkAlloc(chromaN);
+			mCr = (uint8 *)memory::NkAlloc(chromaN);
+			mRecY = (uint8 *)memory::NkAlloc(lumaN);
+			mRecCb = (uint8 *)memory::NkAlloc(chromaN);
+			mRecCr = (uint8 *)memory::NkAlloc(chromaN);
+			mRefY = (uint8 *)memory::NkAlloc(lumaN);
+			mRefCb = (uint8 *)memory::NkAlloc(chromaN);
+			mRefCr = (uint8 *)memory::NkAlloc(chromaN);
+			if (!mY || !mCb || !mCr || !mRecY || !mRecCb || !mRecCr || !mRefY || !mRefCb || !mRefCr)
 				return false;
 
 			const uint32 mode =
@@ -93,7 +127,6 @@ namespace nkentseu {
 
 		void NkMpeg1Encoder::ConvertToYuv(const uint8 *pixels, NkVideoInputFormat fmt) {
 			const int32 ibpp = (fmt == NkVideoInputFormat::RGBA32) ? 4 : 3;
-			// Luma plein + accumulateurs chroma (4:2:0).
 			for (int32 y = 0; y < mLumaH; ++y) {
 				const int32 sy = Clamp(y, 0, mHeight - 1);
 				for (int32 x = 0; x < mLumaW; ++x) {
@@ -109,12 +142,10 @@ namespace nkentseu {
 						g = p[1];
 						b = p[2];
 					}
-					const int32 Y = (77 * r + 150 * g + 29 * b) >> 8; // 0.299/0.587/0.114
-					mY[(usize)y * mLumaW + x] = ClampU8(Y);
+					mY[(usize)y * mLumaW + x] = ClampU8((77 * r + 150 * g + 29 * b) >> 8);
 				}
 			}
-			// Chroma : sous-échantillonnage 2×2 (moyenne).
-			for (int32 cy = 0; cy < mChromaH; ++cy) {
+			for (int32 cy = 0; cy < mChromaH; ++cy)
 				for (int32 cx = 0; cx < mChromaW; ++cx) {
 					int32 sr = 0, sg = 0, sb = 0;
 					for (int32 dy = 0; dy < 2; ++dy)
@@ -133,21 +164,17 @@ namespace nkentseu {
 							}
 						}
 					const int32 r = sr / 4, g = sg / 4, b = sb / 4;
-					const int32 Cb = 128 + ((-43 * r - 85 * g + 128 * b) >> 8);
-					const int32 Cr = 128 + ((128 * r - 107 * g - 21 * b) >> 8);
-					mCb[(usize)cy * mChromaW + cx] = ClampU8(Cb);
-					mCr[(usize)cy * mChromaW + cx] = ClampU8(Cr);
+					mCb[(usize)cy * mChromaW + cx] = ClampU8(128 + ((-43 * r - 85 * g + 128 * b) >> 8));
+					mCr[(usize)cy * mChromaW + cx] = ClampU8(128 + ((128 * r - 107 * g - 21 * b) >> 8));
 				}
-			}
 		}
 
 		void NkMpeg1Encoder::WriteSequenceHeader(NkBitWriter &bw) {
 			bw.PutStartCode(0xB3);
 			bw.PutBits((uint32)mWidth, 12);
 			bw.PutBits((uint32)mHeight, 12);
-			bw.PutBits(1, 4); // aspect_ratio (1 = 1:1)
-			// frame_rate_code
-			uint32 frc = 5; // 30
+			bw.PutBits(1, 4);
+			uint32 frc = 5;
 			const double fps = (double)mFpsNum / (double)mFpsDen;
 			if (fps > 23.5 && fps < 24.5)
 				frc = 2;
@@ -162,137 +189,389 @@ namespace nkentseu {
 			else if (fps >= 59.0 && fps < 60.5)
 				frc = 8;
 			bw.PutBits(frc, 4);
-			bw.PutBits(0x3FFFF, 18); // bit_rate (variable)
-			bw.PutBits(1, 1);		 // marker
-			bw.PutBits(112, 10);	 // vbv_buffer_size
-			bw.PutBits(0, 1);		 // constrained_parameters_flag
-			bw.PutBits(0, 1);		 // load_intra_quantizer_matrix (défaut)
-			bw.PutBits(0, 1);		 // load_non_intra_quantizer_matrix (défaut)
+			bw.PutBits(0x3FFFF, 18);
+			bw.PutBits(1, 1);
+			bw.PutBits(112, 10);
+			bw.PutBits(0, 1);
+			bw.PutBits(0, 1);
+			bw.PutBits(0, 1);
 		}
 
 		void NkMpeg1Encoder::WriteGopHeader(NkBitWriter &bw) {
 			bw.PutStartCode(0xB8);
-			// time_code : drop(1)+h(5)+m(6)+marker(1)+s(6)+f(6) = 25 bits.
-			const int32 totalFrames = mFrame;
 			const int32 fpsI = (mFpsNum + mFpsDen / 2) / mFpsDen;
-			const int32 f = fpsI > 0 ? totalFrames % fpsI : 0;
-			const int32 s = fpsI > 0 ? (totalFrames / fpsI) % 60 : 0;
-			const int32 m = fpsI > 0 ? (totalFrames / fpsI / 60) % 60 : 0;
-			const int32 h = fpsI > 0 ? (totalFrames / fpsI / 3600) % 24 : 0;
-			bw.PutBits(0, 1);			  // drop_frame
+			const int32 tf = mFrame;
+			const int32 f = fpsI > 0 ? tf % fpsI : 0, s = fpsI > 0 ? (tf / fpsI) % 60 : 0;
+			const int32 m = fpsI > 0 ? (tf / fpsI / 60) % 60 : 0, h = fpsI > 0 ? (tf / fpsI / 3600) % 24 : 0;
+			bw.PutBits(0, 1);
 			bw.PutBits((uint32)h, 5);
 			bw.PutBits((uint32)m, 6);
-			bw.PutBits(1, 1);			  // marker
+			bw.PutBits(1, 1);
 			bw.PutBits((uint32)s, 6);
 			bw.PutBits((uint32)f, 6);
-			bw.PutBits(1, 1); // closed_gop
-			bw.PutBits(0, 1); // broken_link
+			bw.PutBits(1, 1);
+			bw.PutBits(0, 1);
+		}
+
+		// Encode le DC d'un bloc intra.
+		static void EncodeDc(NkBitWriter &bw, int32 diff, bool luma) {
+			const int32 absd = diff < 0 ? -diff : diff;
+			int32 size = 0;
+			while ((1 << size) <= absd)
+				++size;
+			const uint16 *code = luma ? NkMpeg1Tables::DcLumCode() : NkMpeg1Tables::DcChromaCode();
+			const uint8 *bits = luma ? NkMpeg1Tables::DcLumBits() : NkMpeg1Tables::DcChromaBits();
+			bw.PutBits(code[size], bits[size]);
+			if (size > 0)
+				bw.PutBits((diff >= 0) ? (uint32)diff : (uint32)(diff + (1 << size) - 1), size);
+		}
+
+		// Encode un couple (run, level) AC ou l'escape.
+		static void EncodeAcCoef(NkBitWriter &bw, int32 run, int32 level) {
+			const uint16(*ac)[2] = NkMpeg1Tables::AcVlc();
+			const int32 absLevel = level < 0 ? -level : level;
+			const int32 idx = NkMpeg1Tables::FindAc(run, absLevel);
+			if (idx >= 0) {
+				bw.PutBits((ac[idx][0] << 1) | (level < 0 ? 1u : 0u), ac[idx][1] + 1);
+			} else {
+				bw.PutBits((0x1 << 6) | (uint32)run, 12); // escape(6) + run(6)
+				if (absLevel < 128)
+					bw.PutBits((uint32)(level & 0xFF), 8);
+				else if (level >= 128)
+					bw.PutBits((uint32)level, 16);
+				else
+					bw.PutBits((uint32)(0x8001 + level + 255) & 0xFFFF, 16);
+			}
 		}
 
 		void NkMpeg1Encoder::EncodeIntraBlock(NkBitWriter &bw, const uint8 *plane, int32 planeW, int32 x0, int32 y0,
-											  bool luma, int32 &dcPred) {
-			// Charge le bloc 8×8.
-			float32 in[64];
+											  bool luma, int32 &dcPred, uint8 *rec) {
+			float32 in[64], coef[64];
 			for (int32 y = 0; y < 8; ++y)
 				for (int32 x = 0; x < 8; ++x)
 					in[y * 8 + x] = (float32)plane[(usize)(y0 + y) * planeW + (x0 + x)];
-			float32 coef[64];
 			Fdct8x8(in, coef);
 
 			const uint16 *W = NkMpeg1Tables::IntraMatrix();
 			const uint8 *zz = NkMpeg1Tables::ZigZag();
 
-			// --- DC ---
-			int32 dc = (int32)::floor(coef[0] / 8.0f + 0.5f); // quant DC (intra_dc_precision 8)
-			dc = Clamp(dc, 0, 255);
-			int32 diff = dc - dcPred;
-			dcPred = dc;
-			// taille = nombre de bits pour |diff|
-			int32 absd = diff < 0 ? -diff : diff;
-			int32 size = 0;
-			while ((1 << size) <= absd)
-				++size;
-			const uint16 *dcCode = luma ? NkMpeg1Tables::DcLumCode() : NkMpeg1Tables::DcChromaCode();
-			const uint8 *dcBits = luma ? NkMpeg1Tables::DcLumBits() : NkMpeg1Tables::DcChromaBits();
-			bw.PutBits(dcCode[size], dcBits[size]);
-			if (size > 0) {
-				uint32 val = (diff >= 0) ? (uint32)diff : (uint32)(diff + (1 << size) - 1);
-				bw.PutBits(val, size);
-			}
-
-			// --- AC ---
-			int32 quant[64];
+			int32 q[64];
+			int32 dc = Clamp((int32)::floor(coef[0] / 8.0f + 0.5f), 0, 255);
+			q[0] = dc;
+			for (int32 i = 1; i < 64; ++i)
+				q[i] = 0;
 			for (int32 i = 1; i < 64; ++i) {
-				const int32 pos = zz[i]; // position raster du i-ème coeff en zig-zag
-				const float32 q = coef[pos] * 8.0f / (float32)(mQScale * W[pos]);
-				int32 lv = (int32)(q < 0 ? ::ceil(q - 0.5f) : ::floor(q + 0.5f));
-				quant[i] = Clamp(lv, -255, 255);
+				const int32 pos = zz[i];
+				const float32 v = coef[pos] * 8.0f / (float32)(mQScale * W[pos]);
+				q[pos] = Clamp((int32)(v < 0 ? ::ceil(v - 0.5f) : ::floor(v + 0.5f)), -255, 255);
 			}
 
-			const uint16(*ac)[2] = NkMpeg1Tables::AcVlc();
+			// --- bitstream : DC diff + AC (scan zig-zag) + EOB ---
+			EncodeDc(bw, dc - dcPred, luma);
+			dcPred = dc;
 			int32 run = 0;
 			for (int32 i = 1; i < 64; ++i) {
-				const int32 lv = quant[i];
+				const int32 lv = q[zz[i]];
 				if (lv == 0) {
 					++run;
 					continue;
 				}
-				const int32 absLevel = lv < 0 ? -lv : lv;
-				const int32 idx = NkMpeg1Tables::FindAc(run, absLevel);
-				if (idx >= 0) {
-					bw.PutBits(ac[idx][0], ac[idx][1]);
-					bw.PutBits(lv < 0 ? 1u : 0u, 1); // signe
-				} else {
-					// escape : 000001 + run(6) + level.
-					bw.PutBits(ac[NkMpeg1Tables::kAcEscape][0], ac[NkMpeg1Tables::kAcEscape][1]);
-					bw.PutBits((uint32)run, 6);
-					if (lv >= 1 && lv <= 127)
-						bw.PutBits((uint32)lv, 8);
-					else if (lv >= -127 && lv <= -1)
-						bw.PutBits((uint32)(lv & 0xFF), 8);
-					else if (lv >= 128 && lv <= 255) {
-						bw.PutBits(0x00, 8);
-						bw.PutBits((uint32)lv, 8);
-					} else { // -255..-128
-						bw.PutBits(0x80, 8);
-						bw.PutBits((uint32)((lv + 256) & 0xFF), 8);
-					}
-				}
+				EncodeAcCoef(bw, run, lv);
 				run = 0;
 			}
-			// EOB
-			bw.PutBits(ac[NkMpeg1Tables::kAcEob][0], ac[NkMpeg1Tables::kAcEob][1]);
+			bw.PutBits(NkMpeg1Tables::AcVlc()[NkMpeg1Tables::kAcEob][0],
+					   NkMpeg1Tables::AcVlc()[NkMpeg1Tables::kAcEob][1]);
+
+			// --- reconstruction : dequant intra + IDCT ---
+			float32 dq[64];
+			dq[0] = (float32)(q[0] * 8);
+			for (int32 i = 1; i < 64; ++i) {
+				const int32 pos = zz[i];
+				const int32 lv = q[pos];
+				int32 r = (lv == 0) ? 0 : Sign(lv) * ((2 * (lv < 0 ? -lv : lv) * mQScale * (int32)W[pos]) / 16);
+				r = Oddify(Clamp(r, -2048, 2047));
+				dq[pos] = (float32)r;
+			}
+			float32 out[64];
+			Idct8x8(dq, out);
+			for (int32 y = 0; y < 8; ++y)
+				for (int32 x = 0; x < 8; ++x)
+					rec[(usize)(y0 + y) * planeW + (x0 + x)] = ClampU8((int32)::floor(out[y * 8 + x] + 0.5f));
 		}
 
-		void NkMpeg1Encoder::EncodePicture(NkBitWriter &bw, int32 temporalRef) {
-			// --- picture header ---
+		void NkMpeg1Encoder::EncodePictureI(NkBitWriter &bw, int32 temporalRef) {
 			bw.PutStartCode(0x00);
 			bw.PutBits((uint32)(temporalRef & 0x3FF), 10);
-			bw.PutBits(1, 3);	   // picture_coding_type = I
-			bw.PutBits(0xFFFF, 16); // vbv_delay
-			bw.PutBits(0, 1);	   // extra_bit_picture
+			bw.PutBits(1, 3); // I
+			bw.PutBits(0xFFFF, 16);
+			bw.PutBits(0, 1);
 
-			// --- slices : une par rangée de macroblocs ---
 			for (int32 mbRow = 0; mbRow < mMbH; ++mbRow) {
-				bw.PutStartCode((uint8)(mbRow + 1)); // slice_vertical_position
-				bw.PutBits((uint32)mQScale, 5);		 // quantizer_scale_code
-				bw.PutBits(0, 1);					 // extra_bit_slice
-
-				int32 dcY = 128, dcCb = 128, dcCr = 128; // prédicteurs DC (reset par slice)
+				bw.PutStartCode((uint8)(mbRow + 1));
+				bw.PutBits((uint32)mQScale, 5);
+				bw.PutBits(0, 1);
+				int32 dcY = 128, dcCb = 128, dcCr = 128;
 				for (int32 mbCol = 0; mbCol < mMbW; ++mbCol) {
-					bw.PutBits(1, 1); // macroblock_address_increment = 1
-					bw.PutBits(1, 1); // macroblock_type = intra (I-picture)
+					bw.PutBits(1, 1); // addr increment
+					bw.PutBits(1, 1); // type intra
+					const int32 lx = mbCol * 16, ly = mbRow * 16, cx = mbCol * 8, cy = mbRow * 8;
+					EncodeIntraBlock(bw, mY, mLumaW, lx, ly, true, dcY, mRecY);
+					EncodeIntraBlock(bw, mY, mLumaW, lx + 8, ly, true, dcY, mRecY);
+					EncodeIntraBlock(bw, mY, mLumaW, lx, ly + 8, true, dcY, mRecY);
+					EncodeIntraBlock(bw, mY, mLumaW, lx + 8, ly + 8, true, dcY, mRecY);
+					EncodeIntraBlock(bw, mCb, mChromaW, cx, cy, false, dcCb, mRecCb);
+					EncodeIntraBlock(bw, mCr, mChromaW, cx, cy, false, dcCr, mRecCr);
+				}
+			}
+		}
 
-					const int32 lx = mbCol * 16, ly = mbRow * 16;
-					// 4 blocs Y
-					EncodeIntraBlock(bw, mY, mLumaW, lx + 0, ly + 0, true, dcY);
-					EncodeIntraBlock(bw, mY, mLumaW, lx + 8, ly + 0, true, dcY);
-					EncodeIntraBlock(bw, mY, mLumaW, lx + 0, ly + 8, true, dcY);
-					EncodeIntraBlock(bw, mY, mLumaW, lx + 8, ly + 8, true, dcY);
-					// Cb, Cr (8×8, position moitié)
-					const int32 cx = mbCol * 8, cy = mbRow * 8;
-					EncodeIntraBlock(bw, mCb, mChromaW, cx, cy, false, dcCb);
-					EncodeIntraBlock(bw, mCr, mChromaW, cx, cy, false, dcCr);
+		// --- P-picture ---
+		namespace {
+			// SAD 16×16 luma entre source (à sx,sy) et référence (à sx+dx, sy+dy), clampé.
+			int32 Sad16(const uint8 *src, const uint8 *ref, int32 w, int32 h, int32 sx, int32 sy, int32 dx,
+						int32 dy) {
+				int32 sad = 0;
+				for (int32 y = 0; y < 16; ++y) {
+					const int32 ry = Clamp(sy + dy + y, 0, h - 1);
+					const int32 syy = sy + y;
+					for (int32 x = 0; x < 16; ++x) {
+						const int32 rx = Clamp(sx + dx + x, 0, w - 1);
+						const int32 a = src[(usize)syy * w + (sx + x)];
+						const int32 b = ref[(usize)ry * w + rx];
+						sad += a > b ? a - b : b - a;
+					}
+				}
+				return sad;
+			}
+
+			// Copie un bloc 8×8 prédit depuis la référence (full-pel, clampé aux bords).
+			void PredBlock(const uint8 *ref, int32 w, int32 h, int32 x0, int32 y0, int32 mvx, int32 mvy,
+						   float32 *pred) {
+				for (int32 y = 0; y < 8; ++y) {
+					const int32 ry = Clamp(y0 + mvy + y, 0, h - 1);
+					for (int32 x = 0; x < 8; ++x) {
+						const int32 rx = Clamp(x0 + mvx + x, 0, w - 1);
+						pred[y * 8 + x] = (float32)ref[(usize)ry * w + rx];
+					}
+				}
+			}
+
+			// Encode une composante de vecteur de mouvement (full-pel, f_code=1, plage [-16,15]).
+			void EncodeMotionComp(NkBitWriter &bw, int32 dmv) {
+				while (dmv < -16)
+					dmv += 32;
+				while (dmv > 15)
+					dmv -= 32;
+				const uint8(*mv)[2] = NkMpeg1Tables::MotionVlc();
+				const int32 a = dmv < 0 ? -dmv : dmv;
+				bw.PutBits(mv[a][0], mv[a][1]);
+				if (a != 0)
+					bw.PutBits(dmv < 0 ? 1u : 0u, 1);
+			}
+		} // namespace
+
+		void NkMpeg1Encoder::EncodePictureP(NkBitWriter &bw, int32 temporalRef) {
+			bw.PutStartCode(0x00);
+			bw.PutBits((uint32)(temporalRef & 0x3FF), 10);
+			bw.PutBits(2, 3);		// P
+			bw.PutBits(0xFFFF, 16); // vbv_delay
+			bw.PutBits(1, 1);		// full_pel_forward_vector
+			bw.PutBits(1, 3);		// forward_f_code = 1
+			bw.PutBits(0, 1);		// extra_bit_picture
+
+			const uint16(*acEob)[2] = NkMpeg1Tables::AcVlc();
+			const uint8(*cbpVlc)[2] = NkMpeg1Tables::CbpVlc();
+			const int32 SR = 15; // rayon de recherche full-pel
+
+			for (int32 mbRow = 0; mbRow < mMbH; ++mbRow) {
+				bw.PutStartCode((uint8)(mbRow + 1));
+				bw.PutBits((uint32)mQScale, 5);
+				bw.PutBits(0, 1);
+				int32 pmvx = 0, pmvy = 0;			 // prédicteur MV (reset slice)
+				int32 dcY = 128, dcCb = 128, dcCr = 128;
+				for (int32 mbCol = 0; mbCol < mMbW; ++mbCol) {
+					const int32 lx = mbCol * 16, ly = mbRow * 16, cx = mbCol * 8, cy = mbRow * 8;
+
+					// --- estimation de mouvement (SAD + coût lagrangien du MV) ---
+					// Le biais vers MV=0 évite les vecteurs parasites sur les fonds lisses
+					// (un dégradé décalé « matche » par hasard) → sinon dérive/artefacts.
+					const int32 lambda = 2 * mQScale;
+					int32 bestSad = Sad16(mY, mRefY, mLumaW, mLumaH, lx, ly, 0, 0);
+					int32 bestCost = bestSad;
+					int32 mvx = 0, mvy = 0;
+					// Bornes : le bloc prédit DOIT rester dans la trame (MPEG-1 n'étend pas les bords).
+					const int32 dxMin = (-SR > -lx) ? -SR : -lx;
+					const int32 dxMax = (SR < mLumaW - 16 - lx) ? SR : mLumaW - 16 - lx;
+					const int32 dyMin = (-SR > -ly) ? -SR : -ly;
+					const int32 dyMax = (SR < mLumaH - 16 - ly) ? SR : mLumaH - 16 - ly;
+					for (int32 dy = dyMin; dy <= dyMax; ++dy)
+						for (int32 dx = dxMin; dx <= dxMax; ++dx) {
+							if (dx == 0 && dy == 0)
+								continue;
+							const int32 sad = Sad16(mY, mRefY, mLumaW, mLumaH, lx, ly, dx, dy);
+							const int32 cost = sad + lambda * ((dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy));
+							if (cost < bestCost) {
+								bestCost = cost;
+								bestSad = sad;
+								mvx = dx;
+								mvy = dy;
+							}
+						}
+
+					// --- coût intra (SAD vs moyenne) pour décider intra/inter ---
+					int32 mean = 0;
+					for (int32 y = 0; y < 16; ++y)
+						for (int32 x = 0; x < 16; ++x)
+							mean += mY[(usize)(ly + y) * mLumaW + (lx + x)];
+					mean /= 256;
+					int32 intraSad = 0;
+					for (int32 y = 0; y < 16; ++y)
+						for (int32 x = 0; x < 16; ++x) {
+							const int32 d = (int32)mY[(usize)(ly + y) * mLumaW + (lx + x)] - mean;
+							intraSad += d < 0 ? -d : d;
+						}
+
+					const bool useIntra = (intraSad + 256 < bestSad);
+
+					bw.PutBits(1, 1); // macroblock_address_increment = 1
+
+					if (useIntra) {
+						bw.PutBits(0x3, 5); // macroblock_type = Intra ('00011')
+						EncodeIntraBlock(bw, mY, mLumaW, lx, ly, true, dcY, mRecY);
+						EncodeIntraBlock(bw, mY, mLumaW, lx + 8, ly, true, dcY, mRecY);
+						EncodeIntraBlock(bw, mY, mLumaW, lx, ly + 8, true, dcY, mRecY);
+						EncodeIntraBlock(bw, mY, mLumaW, lx + 8, ly + 8, true, dcY, mRecY);
+						EncodeIntraBlock(bw, mCb, mChromaW, cx, cy, false, dcCb, mRecCb);
+						EncodeIntraBlock(bw, mCr, mChromaW, cx, cy, false, dcCr, mRecCr);
+						pmvx = 0;
+						pmvy = 0;
+						continue;
+					}
+
+					// INTER : le prédicteur DC intra est réinitialisé à chaque macrobloc non-intra
+					// (comme le fait le décodeur) → sinon un futur MB intra prédit son DC de travers.
+					dcY = 128;
+					dcCb = 128;
+					dcCr = 128;
+
+					// --- INTER : résidu, quantification non-intra, CBP ---
+					const int32 cmvx = mvx / 2 == 0 ? mvx : mvx; // full-pel : chroma MV = luma/2 (arrondi)
+					const int32 chmvx = (mvx >= 0 ? mvx : mvx - 1) / 2;
+					const int32 chmvy = (mvy >= 0 ? mvy : mvy - 1) / 2;
+					(void)cmvx;
+
+					// Prépare les 6 blocs : (plane, ref, planeW/H, x0, y0, mvx, mvy, recPlane).
+					struct BlkRef {
+							const uint8 *src;
+							const uint8 *ref;
+							uint8 *rec;
+							int32 w, h, x0, y0, mvx, mvy;
+					};
+					BlkRef blk[6] = {
+						{mY, mRefY, mRecY, mLumaW, mLumaH, lx, ly, mvx, mvy},
+						{mY, mRefY, mRecY, mLumaW, mLumaH, lx + 8, ly, mvx, mvy},
+						{mY, mRefY, mRecY, mLumaW, mLumaH, lx, ly + 8, mvx, mvy},
+						{mY, mRefY, mRecY, mLumaW, mLumaH, lx + 8, ly + 8, mvx, mvy},
+						{mCb, mRefCb, mRecCb, mChromaW, mChromaH, cx, cy, chmvx, chmvy},
+						{mCr, mRefCr, mRecCr, mChromaW, mChromaH, cx, cy, chmvx, chmvy},
+					};
+
+					int32 qcoef[6][64];
+					float32 predAll[6][64];
+					int32 cbp = 0;
+					for (int32 bi = 0; bi < 6; ++bi) {
+						float32 pred[64], resid[64], coef[64];
+						PredBlock(blk[bi].ref, blk[bi].w, blk[bi].h, blk[bi].x0, blk[bi].y0, blk[bi].mvx, blk[bi].mvy,
+								  pred);
+						for (int32 k = 0; k < 64; ++k) {
+							const int32 py = blk[bi].y0 + k / 8, px = blk[bi].x0 + k % 8;
+							resid[k] = (float32)blk[bi].src[(usize)py * blk[bi].w + px] - pred[k];
+							predAll[bi][k] = pred[k];
+						}
+						Fdct8x8(resid, coef);
+						bool nz = false;
+						for (int32 k = 0; k < 64; ++k) {
+							// quant non-intra (W=16, dead-zone par troncature) : level = coef/(2*q)
+							const float32 v = coef[k] / (float32)(2 * mQScale);
+							int32 lv = (int32)(v); // troncature vers zéro
+							lv = Clamp(lv, -255, 255);
+							qcoef[bi][k] = lv;
+							if (lv != 0)
+								nz = true;
+						}
+						if (nz)
+							cbp |= (1 << (5 - bi));
+					}
+
+					// --- type de macrobloc ---
+					const bool hasMv = (mvx != 0 || mvy != 0);
+					if (hasMv && cbp) {
+						bw.PutBits(1, 1); // MC, Coded
+					} else if (!hasMv && cbp) {
+						bw.PutBits(1, 2); // No-MC, Coded ('01')
+					} else {			  // pas de résidu → MC not-coded ('001'), MV éventuellement nul
+						bw.PutBits(1, 3);
+					}
+
+					// --- vecteur de mouvement (types avec motion_forward : MC Coded, MC not-coded) ---
+					const bool codeMv = (hasMv && cbp) || (!cbp);
+					if (codeMv) {
+						EncodeMotionComp(bw, mvx - pmvx);
+						EncodeMotionComp(bw, mvy - pmvy);
+						pmvx = mvx;
+						pmvy = mvy;
+					} else {
+						pmvx = 0;
+						pmvy = 0; // No-MC : predicteur reset
+					}
+
+					// --- CBP + blocs codés (non-intra) ---
+					if (cbp) {
+						bw.PutBits(cbpVlc[cbp][0], cbpVlc[cbp][1]);
+						for (int32 bi = 0; bi < 6; ++bi) {
+							if (!(cbp & (1 << (5 - bi))))
+								continue;
+							// premier coefficient : cas spécial |level|==1 → '1s'
+							int32 last = -1;
+							for (int32 i = 63; i >= 0; --i)
+								if (qcoef[bi][i] != 0) {
+									last = i;
+									break;
+								}
+							int32 i = 0;
+							if (qcoef[bi][0] != 0 && (qcoef[bi][0] == 1 || qcoef[bi][0] == -1)) {
+								bw.PutBits((qcoef[bi][0] < 0) ? 0x3u : 0x2u, 2); // '1'+sign
+								i = 1;
+							}
+							int32 lastNz = i - 1;
+							for (; i <= last; ++i) {
+								const int32 lv = qcoef[bi][i];
+								if (lv == 0)
+									continue;
+								EncodeAcCoef(bw, i - lastNz - 1, lv);
+								lastNz = i;
+							}
+							bw.PutBits(acEob[NkMpeg1Tables::kAcEob][0], acEob[NkMpeg1Tables::kAcEob][1]);
+						}
+					}
+
+					// --- reconstruction inter : pred + IDCT(dequant non-intra(residu)) ---
+					for (int32 bi = 0; bi < 6; ++bi) {
+						float32 dq[64], out[64];
+						for (int32 k = 0; k < 64; ++k) {
+							const int32 lv = qcoef[bi][k];
+							int32 r = (lv == 0) ? 0 : ((2 * lv + Sign(lv)) * mQScale);
+							r = Oddify(Clamp(r, -2048, 2047));
+							dq[k] = (float32)r;
+						}
+						Idct8x8(dq, out);
+						for (int32 y = 0; y < 8; ++y)
+							for (int32 x = 0; x < 8; ++x) {
+								const int32 py = blk[bi].y0 + y, px = blk[bi].x0 + x;
+								const int32 val = (int32)::floor(predAll[bi][y * 8 + x] + out[y * 8 + x] + 0.5f);
+								blk[bi].rec[(usize)py * blk[bi].w + px] = ClampU8(val);
+							}
+					}
 				}
 			}
 		}
@@ -314,12 +593,24 @@ namespace nkentseu {
 				WriteSequenceHeader(bw);
 				mWroteSeq = true;
 			}
-			// Un GOP toutes les 12 images (tout-I : chaque image est sa propre référence).
-			int32 temporalRef = mFrame % 12;
+			const bool isI = (mFrame % mGop) == 0;
+			const int32 temporalRef = mFrame % mGop;
 			if (temporalRef == 0)
 				WriteGopHeader(bw);
-			EncodePicture(bw, temporalRef);
+			if (isI)
+				EncodePictureI(bw, temporalRef);
+			else
+				EncodePictureP(bw, temporalRef);
 			Flush(bw);
+
+			// La reconstruction devient la référence de la trame suivante.
+			uint8 *tY = mRefY, *tCb = mRefCb, *tCr = mRefCr;
+			mRefY = mRecY;
+			mRefCb = mRecCb;
+			mRefCr = mRecCr;
+			mRecY = tY;
+			mRecCb = tCb;
+			mRecCr = tCr;
 
 			mFrame++;
 			return true;
@@ -328,18 +619,15 @@ namespace nkentseu {
 		bool NkMpeg1Encoder::Close() {
 			if (!mOpen)
 				return false;
-			// sequence_end_code
 			NkBitWriter bw;
 			bw.PutStartCode(0xB7);
 			Flush(bw);
 			mFile.Close();
-			if (mY)
-				memory::NkFree(mY);
-			if (mCb)
-				memory::NkFree(mCb);
-			if (mCr)
-				memory::NkFree(mCr);
-			mY = mCb = mCr = nullptr;
+			uint8 *bufs[9] = {mY, mCb, mCr, mRecY, mRecCb, mRecCr, mRefY, mRefCb, mRefCr};
+			for (int32 i = 0; i < 9; ++i)
+				if (bufs[i])
+					memory::NkFree(bufs[i]);
+			mY = mCb = mCr = mRecY = mRecCb = mRecCr = mRefY = mRefCb = mRefCr = nullptr;
 			mOpen = false;
 			return true;
 		}
