@@ -40,7 +40,11 @@
     (libopus entdec/entenc) — décodeur (`Decode/Update`, `DecodeBitLogp`, `DecodeIcdf`, `DecodeBits`, `DecodeUint`)
     + encodeur (pour le test). **Aller-retour PROUVÉ** (encode→decode = identité : icdf, bits bruts, uint, cdf).
     C'est l'épine dorsale de tout le décodage Opus.
-  ⏳ Étapes suivantes : **CELT** (MDCT + PVQ, bandes) → **SILK** (LPC, LTP) → mode hybride → PCM float32.
+  - **Étape 3 — CELT (en cours, 2026-07-10)** — `Codecs/Opus/Celt/` : **`NkCeltLaplace`** (coder de Laplace,
+    libopus laplace.c — base de l'énergie grossière ; **aller-retour prouvé**) + **`NkCeltBands`** (table
+    `eband5ms`, 21 bandes, bornes → bins MDCT selon LM ; testé). ⏳ Reste CELT : énergie grossière (prédiction 2D)
+    → énergie fine → allocation de bits → **PVQ/CWRS** (forme spectrale) → anti-collapse → **IMDCT + overlap-add**.
+  ⏳ Puis **SILK** (LPC, LTP) → mode hybride → PCM float32.
 
 ## En cours / À venir
 - Poursuivre Opus (range decoder → CELT → SILK), puis **AAC-LC** (corpus Bassa). Branchés comme codecs
