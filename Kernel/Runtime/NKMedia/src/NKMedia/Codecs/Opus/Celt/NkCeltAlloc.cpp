@@ -104,6 +104,50 @@ namespace nkentseu {
 			return lo;
 		}
 
+		int32 NkCeltAlloc::InterpFine(int32 start, int32 end, const int32 *bits1, const int32 *bits2,
+									  const int32 *thresh, const int32 *cap, int32 total, int32 C, int32 *bits) {
+			const int32 ALLOC_STEPS = 6;
+			const int32 allocFloor = C << BITRES;
+
+			// Bissection sur le coefficient d'interpolation lo/hi ∈ [0, 1<<ALLOC_STEPS].
+			int32 lo = 0;
+			int32 hi = 1 << ALLOC_STEPS;
+			for (int32 i = 0; i < ALLOC_STEPS; ++i) {
+				const int32 mid = (lo + hi) >> 1;
+				int64 psum = 0;
+				int32 done = 0;
+				for (int32 j = end; j-- > start;) {
+					const int32 tmp = bits1[j] + (int32)(((int64)mid * bits2[j]) >> ALLOC_STEPS);
+					if (tmp >= thresh[j] || done) {
+						done = 1;
+						psum += IMin(tmp, cap[j]);
+					} else if (tmp >= allocFloor) {
+						psum += allocFloor;
+					}
+				}
+				if (psum > total)
+					hi = mid;
+				else
+					lo = mid;
+			}
+
+			// Budget final par bande au coefficient `lo`.
+			int64 psum = 0;
+			int32 done = 0;
+			for (int32 j = end; j-- > start;) {
+				int32 tmp = bits1[j] + (int32)(((int64)lo * bits2[j]) >> ALLOC_STEPS);
+				if (tmp < thresh[j] && !done) {
+					tmp = (tmp >= allocFloor) ? allocFloor : 0;
+				} else {
+					done = 1;
+				}
+				tmp = IMin(tmp, cap[j]);
+				bits[j] = tmp;
+				psum += tmp;
+			}
+			return (int32)psum;
+		}
+
 		bool NkCeltAlloc::SelfTest() {
 			bool ok = true;
 			const int32 start = 0, end = kNumBands, C = 1, LM = 3;
@@ -137,6 +181,26 @@ namespace nkentseu {
 				// trimOffset de la 1re bande doit être plus grand avec trim=10 qu'avec trim=0.
 				if (!(trB[0] > trA[0]))
 					ok = false;
+			}
+
+			// 3) InterpFine : budget par bande cohérent (somme ≤ total) et monotone avec le budget.
+			{
+				int32 prevSum = -1;
+				const int32 budgets2[5] = {200, 800, 2000, 6000, 20000};
+				for (int32 bi = 0; bi < 5; ++bi) {
+					const int32 total = budgets2[bi];
+					NkCeltAlloc::BuildInterp(start, end, nullptr, cap, 5, total, C, LM, bits1, bits2, thresh, trim);
+					int32 perBand[21];
+					const int32 sum = NkCeltAlloc::InterpFine(start, end, bits1, bits2, thresh, cap, total, C, perBand);
+					if (sum > total)
+						ok = false; // ne doit pas dépasser le budget
+					if (sum < prevSum)
+						ok = false; // plus de budget → au moins autant alloué
+					prevSum = sum;
+					for (int32 j = start; j < end; ++j)
+						if (perBand[j] < 0)
+							ok = false;
+				}
 			}
 
 			return ok;
