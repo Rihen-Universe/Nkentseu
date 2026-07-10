@@ -444,6 +444,9 @@ namespace nkentseu {
 				case NkKey::NK_NUM0:
 					mUI.input.SetKey(NkGuiKey::Num0, down);
 					break;
+				case NkKey::NK_NUMPAD_0: // pavé numérique (AZERTY : le 0 du haut = Maj+À)
+					mUI.input.SetKey(NkGuiKey::Num0, down);
+					break;
 				case NkKey::NK_NUM1:
 					mUI.input.SetKey(NkGuiKey::Num1, down);
 					break;
