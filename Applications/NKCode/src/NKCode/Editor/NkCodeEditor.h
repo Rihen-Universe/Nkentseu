@@ -1904,6 +1904,12 @@ namespace nkentseu {
 		};
 
 		// ── Focus clavier global (un seul editeur actif a la fois) ────────────────
+		// Minimap ON/OFF globale (raccourci + commande de palette).
+		inline bool &NkCodeMinimapOn() {
+			static bool v = true;
+			return v;
+		}
+
 		inline NkGuiId &NkCodeFocusId() {
 			static NkGuiId id = NKGUI_ID_NONE;
 			return id;
@@ -2092,9 +2098,8 @@ namespace nkentseu {
 			// H en bas) -> zone texte bornee, barres toujours visibles (facon VSCode/VS).
 			const float32 sbW = 14.f;
 			// Minimap (aperçu miniature à droite, façon VSCode) : TOUJOURS présente.
-			static bool sMinimapOn = true; // Ctrl+Maj+\ : afficher/masquer (session)
-			const bool showMinimap = sMinimapOn;
-			const float32 mmW = ctx.S(140.f); // largeur minimap (un peu plus large que VSCode)
+			const bool showMinimap = NkCodeMinimapOn(); // Ctrl+Maj+\ / palette : afficher/masquer
+			const float32 mmW = ctx.S(140.f);			// largeur minimap (un peu plus large que VSCode)
 			const NkRect textArea = {area.x + gutterW, area.y, area.w - gutterW - sbW - mmW, area.h - sbW};
 			const float32 textLeft = textArea.x + pad;
 			const float32 topPad = lineH, botPad = lineH; // ligne vierge haut + bas (non editable)
@@ -2592,6 +2597,9 @@ namespace nkentseu {
 						d.FindRecompute();
 					}
 				}
+				// Capture AVANT traitement : l'Entree/Echap qui FERME une barre ne doit pas fuir
+				// vers l'edition la meme frame (inserait une ligne apres Ctrl+G -> caret +1).
+				const bool barWasOpen = d.findOpen || d.gotoOpen;
 				if (d.gotoOpen) { // barre « Aller a la ligne » (Ctrl+G) : chiffres + Entree/Echap
 					int32 gl = 0;
 					while (d.gotoBuf[gl])
@@ -2650,8 +2658,52 @@ namespace nkentseu {
 				}
 				// ── Autocomplétion ouverte : capte ↑↓ (navigue), Tab/Entrée (accepte), Échap
 				//    (ferme) AVANT l'édition normale. `acEat` = touche consommée cette frame. ──
+				// ── Fenetre de chord Ctrl+K (~1,5 s) : la 2e touche agit, MODIFICATEURS LIBRES
+				//    (AZERTY : « 0 » = Maj+À ; Ctrl maintenu ou pas). Toute autre frappe desarme
+				//    la fenetre SANS s'inserer (facon VSCode).
+				bool chordEat = false;
+				if (d.tick - d.chordK <= 90) {
+					if (ctx.input.KeyPressed(NkGuiKey::Num0)) { // Ctrl+K (Ctrl+)0 = TOUT replier
+						d.FoldAll();
+						d.chordK = -100000;
+						chordEat = true;
+					} else if (ctx.input.KeyPressed(NkGuiKey::J)) { // Ctrl+K (Ctrl+)J = TOUT deplier
+						d.UnfoldAll();
+						d.chordK = -100000;
+						chordEat = true;
+					} else if (ctx.input.KeyPressed(NkGuiKey::I) && d.curLine < d.LineCount()) {
+						// Ctrl+K (Ctrl+)I = carte hover au caret
+						const NkCodeLine &L = d.lines[d.curLine];
+						int32 ws = d.curCol, we = d.curCol;
+						while (ws > 0 && NkCodeDoc::IsWChar(L[ws - 1]))
+							--ws;
+						while (we < static_cast<int32>(L.Size()) && NkCodeDoc::IsWChar(L[we]))
+							++we;
+						if (we > ws) {
+							NkString sym;
+							for (int32 k = ws; k < we; ++k)
+								sym += L[k];
+							d.hovSym = sym;
+							d.hovLine = d.curLine;
+							d.hovCol = ws;
+							d.hovX = textLeft + PrefixW(ctx, d, d.curLine, ws) - d.scrollX;
+							d.hovY = textTop + d.RowOf(d.curLine) * lineH - d.scrollY;
+							d.hovXOff = 0.f;
+							d.hovBodyOff = 0.f;
+							d.hovBodyXOff = 0.f;
+							d.hovShow = false;
+							d.hovDone = false;
+							d.hovReq = true;
+						}
+						d.chordK = -100000;
+						chordEat = true;
+					} else if (ctx.input.charCount > 0 && !ctrl) { // touche inconnue -> desarme, n'insere pas
+						d.chordK = -100000;
+						chordEat = true;
+					}
+				}
 				bool acEat = false, acTyped = false;
-				if (!d.findOpen && !d.gotoOpen) { // saisie du DOCUMENT gelée tant qu une barre est ouverte
+				if (!barWasOpen) { // saisie du DOCUMENT gelée tant qu'une barre est ouverte (etat de DEBUT de frame)
 					if (d.acOpen && !d.acItems.Empty()) {
 						const int32 acN = static_cast<int32>(d.acItems.Size());
 						if (ctx.input.KeyPressedRepeat(NkGuiKey::Up)) {
@@ -2679,7 +2731,7 @@ namespace nkentseu {
 						acEat = true;
 					}
 					// Saisie texte.
-					if (!ctx.input.ctrlDown) {
+					if (!ctx.input.ctrlDown && !chordEat) {
 						bool typed = false;
 						for (int32 i = 0; i < ctx.input.charCount; ++i) {
 							const uint32 cp = ctx.input.chars[i];
@@ -2969,44 +3021,9 @@ namespace nkentseu {
 							d.gotoBuf[0] = 0;
 						}
 						if (!shift && K(NkGuiKey::K))
-							d.chordK = d.tick;		   // amorce des chords Ctrl+K …
-						if (d.tick - d.chordK <= 90) { // fenetre ~1,5 s
-							if (K(NkGuiKey::Num0)) {   // Ctrl+K Ctrl+0 = TOUT replier
-								d.FoldAll();
-								d.chordK = -100000;
-							}
-							if (K(NkGuiKey::J)) { // Ctrl+K Ctrl+J = TOUT deplier
-								d.UnfoldAll();
-								d.chordK = -100000;
-							}
-							if (K(NkGuiKey::I) && d.curLine < d.LineCount()) { // Ctrl+K Ctrl+I = hover au caret
-								const NkCodeLine &L = d.lines[d.curLine];
-								int32 ws = d.curCol, we = d.curCol;
-								while (ws > 0 && NkCodeDoc::IsWChar(L[ws - 1]))
-									--ws;
-								while (we < static_cast<int32>(L.Size()) && NkCodeDoc::IsWChar(L[we]))
-									++we;
-								if (we > ws) {
-									NkString sym;
-									for (int32 k = ws; k < we; ++k)
-										sym += L[k];
-									d.hovSym = sym;
-									d.hovLine = d.curLine;
-									d.hovCol = ws;
-									d.hovX = textLeft + PrefixW(ctx, d, d.curLine, ws) - d.scrollX;
-									d.hovY = textTop + d.RowOf(d.curLine) * lineH - d.scrollY;
-									d.hovXOff = 0.f;
-									d.hovBodyOff = 0.f;
-									d.hovBodyXOff = 0.f;
-									d.hovShow = false;
-									d.hovDone = false;
-									d.hovReq = true;
-								}
-								d.chordK = -100000;
-							}
-						}
+							d.chordK = d.tick; // amorce des chords Ctrl+K (fenetre traitee AVANT la saisie, plus haut)
 						if (shift && K(NkGuiKey::Backslash)) { // Ctrl+Maj+\ = minimap on/off
-							sMinimapOn = !sMinimapOn;
+							NkCodeMinimapOn() = !NkCodeMinimapOn();
 						}
 						if (shift && K(NkGuiKey::Space) && d.curLine < d.LineCount()) {
 							// Ctrl+Maj+Espace : AIDE AUX PARAMETRES — prototype de l appel englobant.
@@ -3382,6 +3399,30 @@ namespace nkentseu {
 				}
 			}
 
+			// ── Occurrences de la SELECTION (facon VSCode) : selection MONO-LIGNE non vide ->
+			//    chaque correspondance exacte recoit un fond discret (plus fin que la selection). ──
+			char selTxt[65];
+			int32 selTxtLen = 0, selOccLine = -1, selOccCol = -1;
+			{
+				int32 sA, sB, sC, sD;
+				d.SelRange(sA, sB, sC, sD);
+				if (d.HasSel() && sA == sC && sD > sB && sD - sB <= 64) {
+					const NkCodeLine &SL = d.lines[sA];
+					bool onlySpace = true;
+					for (int32 c = sB; c < sD; ++c) {
+						selTxt[selTxtLen++] = SL[c];
+						if (SL[c] != ' ' && SL[c] != '	')
+							onlySpace = false;
+					}
+					if (onlySpace)
+						selTxtLen = 0;
+					else {
+						selOccLine = sA;
+						selOccCol = sB;
+					}
+				}
+				selTxt[selTxtLen] = 0;
+			}
 			dl.PushClipRect(textArea, true);
 			for (int32 i = startDoc; i < d.LineCount(); ++i) {
 				const int32 vrow = d.RowOf(i);
@@ -3422,6 +3463,29 @@ namespace nkentseu {
 				if (i == bl2 && bc2 >= 0)
 					dl.AddRectFilled({textLeft + PrefixW(ctx, d, i, bc2) - d.scrollX, y, chW, lineH}, kBracket, 2.f);
 
+				// Occurrences de la selection : fond FIN sous le texte (la vraie selection reste pleine).
+				if (selTxtLen > 0 && n >= selTxtLen) {
+					const char *dd2 = ln.Data();
+					for (int32 c = 0; c + selTxtLen <= n; ++c) {
+						bool m2 = true;
+						for (int32 t = 0; t < selTxtLen; ++t)
+							if (dd2[c + t] != selTxt[t]) {
+								m2 = false;
+								break;
+							}
+						if (!m2)
+							continue;
+						if (i == selOccLine && c == selOccCol) { // la selection elle-meme
+							c += selTxtLen - 1;
+							continue;
+						}
+						const float32 ox0 = textLeft + PrefixW(ctx, d, i, c) - d.scrollX;
+						const float32 ox1 = textLeft + PrefixW(ctx, d, i, c + selTxtLen) - d.scrollX;
+						dl.AddRectFilled({ox0, y, ox1 - ox0, lineH},
+										 NkColor{ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 34}, 2.f);
+						c += selTxtLen - 1;
+					}
+				}
 				// Selection sur cette ligne.
 				if (d.HasSel() && i >= aL && i <= bL) {
 					const int32 c0 = (i == aL) ? aC : 0;
@@ -3925,26 +3989,6 @@ namespace nkentseu {
 			const NkRect vTrack = {area.x + area.w - sbW, area.y, sbW, viewH};
 			const NkRect hTrack = {area.x, area.y + area.h - sbW, area.w - sbW, sbW}; // pleine largeur (- coin V)
 			dl.AddRectFilled(vTrack, kTrack);
-			{ // marques : erreurs/avertissements (droite), occurrences recherche (gauche), breakpoints
-				const float32 tot = static_cast<float32>(d.VisRowCount() > 0 ? d.VisRowCount() : 1);
-				auto markY = [&](int32 line) {
-					return vTrack.y + (static_cast<float32>(d.RowOf(line)) / tot) * vTrack.h;
-				};
-				for (usize i = 0; i < d.diags.Size(); ++i) {
-					if (d.diags[i].line < 0 || d.diags[i].line >= d.LineCount() || d.LineHidden(d.diags[i].line))
-						continue;
-					const NkColor mc = d.diags[i].sev ? NkColor{240, 80, 80, 230} : NkColor{224, 190, 70, 230};
-					dl.AddRectFilled({vTrack.x + sbW * 0.5f, markY(d.diags[i].line), sbW * 0.5f - 1.f, 3.f}, mc);
-				}
-				if (d.findOpen)
-					for (usize i = 0; i < d.findLine.Size(); ++i)
-						dl.AddRectFilled({vTrack.x + 1.f, markY(d.findLine[i]), sbW * 0.5f - 1.f, 3.f},
-										 NkColor{255, 160, 60, 220}); // occurrences (orange)
-				for (usize i = 0; i < d.breakpoints.Size(); ++i)
-					if (d.breakpoints[i] >= 0 && d.breakpoints[i] < d.LineCount())
-						dl.AddRectFilled({vTrack.x + 1.f, markY(d.breakpoints[i]), sbW - 2.f, 2.f},
-										 NkColor{229, 74, 68, 255}); // breakpoints (rouge vif)
-			}
 			dl.AddRectFilled(hTrack, kTrack);
 			dl.AddRectFilled({vTrack.x, hTrack.y, sbW, sbW}, kTrack); // coin bas-droite
 
@@ -3992,6 +4036,27 @@ namespace nkentseu {
 					}
 					dl.AddRectFilled(thumb, (act || InRect(inner, mouse)) ? kThumbH : kThumb, 3.f);
 				}
+			}
+			{ // marques (dessinees APRES le pouce, sinon il les recouvre) : erreurs/avertissements (droite),
+			  // occurrences recherche (gauche), breakpoints
+				const float32 tot = static_cast<float32>(d.VisRowCount() > 0 ? d.VisRowCount() : 1);
+				auto markY = [&](int32 line) {
+					return vTrack.y + (static_cast<float32>(d.RowOf(line)) / tot) * vTrack.h;
+				};
+				for (usize i = 0; i < d.diags.Size(); ++i) {
+					if (d.diags[i].line < 0 || d.diags[i].line >= d.LineCount() || d.LineHidden(d.diags[i].line))
+						continue;
+					const NkColor mc = d.diags[i].sev ? NkColor{240, 80, 80, 230} : NkColor{224, 190, 70, 230};
+					dl.AddRectFilled({vTrack.x + sbW * 0.5f, markY(d.diags[i].line), sbW * 0.5f - 1.f, 3.f}, mc);
+				}
+				if (d.findOpen)
+					for (usize i = 0; i < d.findLine.Size(); ++i)
+						dl.AddRectFilled({vTrack.x + 1.f, markY(d.findLine[i]), sbW * 0.5f - 1.f, 3.f},
+										 NkColor{255, 160, 60, 220}); // occurrences (orange)
+				for (usize i = 0; i < d.breakpoints.Size(); ++i)
+					if (d.breakpoints[i] >= 0 && d.breakpoints[i] < d.LineCount())
+						dl.AddRectFilled({vTrack.x + 1.f, markY(d.breakpoints[i]), sbW - 2.f, 2.f},
+										 NkColor{229, 74, 68, 255}); // breakpoints (rouge vif)
 			}
 			// ── Barre HORIZONTALE : fleche gauche + piste (pouce) + fleche droite ──
 			{
