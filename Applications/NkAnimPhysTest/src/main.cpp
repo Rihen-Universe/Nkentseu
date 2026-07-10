@@ -8,6 +8,7 @@
 #include "NKRenderer/Tools/Animation/NkContactDetector.h"
 #include "NKRenderer/Tools/Animation/NkPoseBalancer.h"
 #include "NKRenderer/Tools/Animation/NkAutoPose.h"
+#include "NKRenderer/Tools/Animation/NkMotionPath.h"
 #include "NKAudio/NkAudioCapture.h"
 #include "NKAudio/NkDenoiser.h"
 
@@ -49,6 +50,10 @@ int main() {
 	// M3.5 — auto-posing (poses intermediaires equilibrees entre deux cles).
 	Report("M3.5 NkAutoPose", "lerp brut deseq -> BlendBalanced equilibre, pieds plantes, bornes t=0/1",
 		   renderer::NkAutoPose::SelfTest(), nbOk, nbTotal);
+
+	// Animation par courbe : spline Catmull-Rom + path-follow (os/effecteur IK suit la courbe).
+	Report("NkMotionPath", "spline passe par les points, longueur/tangente droite, path-follow loop/once",
+		   renderer::NkMotionCurve::SelfTest(), nbOk, nbTotal);
 
 	// NKAudio — enregistrement : ring buffer SPSC de la capture (headless, sans micro).
 	Report("NKAudio NkAudioCapture", "ring buffer SPSC : write/read/wrap/overflow",
