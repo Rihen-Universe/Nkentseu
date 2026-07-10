@@ -72,12 +72,16 @@
     → **denormalise** → **IMDCT CELT** (DFT directe reproduisant `clt_mdct_backward` : pré-rotation → FFT →
     post-rotation → repli TDAC fenêtré ; twiddles `cos(2π(i+.125)/N)`, fenêtre `sin(π/2·sin²(...))`) → overlap-add
     (buffer glissant type `decode_mem`) → deemphasis → PCM. Chemin SILENCE → PCM zéro conservé.
-    **Résultat mesuré vs ffmpeg** (`NKOpusRef`, ghomala' réel) : **front-end BIT-EXACT** (consommation de bits
-    par trame **exacte** : 18682/18688, 18816/18816 frac), énergies grossières correctes, **spectre correct**
-    (corrélation du spectrogramme log-magnitude **0.74** avec ffmpeg). ⚠️ **Reste** : la reconstruction
-    d'onde exacte (corrélation échantillon) — problème de **phase de l'IMDCT/TDAC** (magnitude correcte, phase
-    imparfaite) à raffiner. **Le décodeur produit le bon contenu spectral ; la phase parfaite est la finition
-    restante.** Puis SILK + hybride.
+    **Résultat mesuré vs ffmpeg** (`NKOpusRef`, ghomala' réel + tone synthétique 4 fréquences) : **le décodeur
+    reproduit fidèlement la sortie de ffmpeg** — corrélation d'onde **0.94** (ghomala') / **0.96** (tone),
+    spectrogramme log-magnitude **0.996**. **✅ DÉCODEUR CELT MONO FONCTIONNEL.** Deux bugs de tables corrigés
+    (2026-07-10, trouvés via test tone contrôlé encodé par ffmpeg) : (1) `e_prob_model[LM=3]` (modèle de
+    proba Laplace de l'énergie grossière, trames 20 ms) était faux → énergies aplaties ; (2) `band_allocation`
+    lignes 6-10 (qualité) fausses → allocation de pulses fausse → forme spectrale X fausse. Piège : la
+    **consommation de bits reste exacte même avec ces bugs** (`quant_all_bands` lit jusqu'à la fin de trame),
+    donc la synchro ec ne les révèle pas — il faut comparer le **contenu décodé** vs une référence. Reste
+    (finition) : le petit écart 0.94→1.0 (précision DFT directe vs kiss_fft, trames transitoires). Puis
+    SILK + hybride.
   ⏳ Puis **SILK** (LPC, LTP) → mode hybride → PCM float32.
 
 ## En cours / À venir
