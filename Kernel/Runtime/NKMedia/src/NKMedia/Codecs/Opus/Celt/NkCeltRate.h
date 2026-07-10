@@ -7,9 +7,8 @@
 // (coût, en 1/8 de bit = « BITRES ») et `BitsToPulses` (K max tenant dans un budget).
 // S'appuie sur `NkCeltPvq::V`. Testé : monotonie + aller-retour.
 //
-// ⚠️ Approximation du cache libopus (log2 flottant) — le raffinement bit-exact
-// (cache entier de rate.c) sera nécessaire pour un décodage bit-exact final.
-// Zero-STL, nkentseu::media.
+// Coût calculé en VIRGULE FIXE BIT-EXACT (log2 par carrés successifs, algorithme du
+// format RFC 6716, réécrit à la sauce Nkentseu) → compatible interop. Zero-STL.
 //
 // AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
