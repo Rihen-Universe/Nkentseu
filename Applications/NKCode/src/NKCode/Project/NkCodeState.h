@@ -552,13 +552,30 @@ namespace nkentseu {
 						f.doc.diags.Clear();
 						for (usize li = 0; li < diagAcc.Size(); ++li)
 							ParseDiagLine(diagAcc[li].CStr(), diagTempPath.CStr(), f.doc);
-						{ // trace : compte TOUT ce qui est marque (visible dans OUTPUT, meme hors viewport)
-							int32 ne = 0, nw = 0;
-							for (usize di = 0; di < f.doc.diags.Size(); ++di)
-								(f.doc.diags[di].sev ? ne : nw) += 1;
-							char lb[160];
-							std::snprintf(lb, sizeof(lb), "[diag] %s : %d erreur(s), %d avertissement(s)",
-										  f.Name().CStr(), ne, nw);
+						{ // trace OUTPUT : CHAQUE erreur/avertissement du compilateur (fichier:ligne:col + message),
+						  // y compris ceux des AUTRES fichiers (headers inclus) que l'editeur ne marque pas.
+							int32 rawE = 0, rawW = 0;
+							for (usize li = 0; li < diagAcc.Size(); ++li) {
+								const char *ln = diagAcc[li].CStr();
+								const char *pe = NkFindSub(ln, "error:");
+								const char *pw = pe ? nullptr : NkFindSub(ln, "warning:");
+								if (!pe && !pw)
+									continue;
+								(pe ? rawE : rawW) += 1;
+								NkString show;
+								const char *tmp = NkFindSub(ln, ".nkcode_diag.nkcheck");
+								if (tmp) { // remplace le fichier TEMP par le nom de l'onglet
+									show = f.Name();
+									show += (tmp + 20); // strlen(".nkcode_diag.nkcheck")
+								} else
+									show = ln;
+								GlobalLogBuffer().Push(NkString("[diag] ") + show.CStr());
+							}
+							char lb[200];
+							std::snprintf(lb, sizeof(lb),
+										  "[diag] %s : %d marque(s) dans l'editeur ; compilateur : %d erreur(s), %d "
+										  "avertissement(s) au total (headers inclus)",
+										  f.Name().CStr(), static_cast<int32>(f.doc.diags.Size()), rawE, rawW);
 							GlobalLogBuffer().Push(NkString(lb));
 						}
 					}
