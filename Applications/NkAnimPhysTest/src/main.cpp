@@ -9,6 +9,7 @@
 #include "NKRenderer/Tools/Animation/NkPoseBalancer.h"
 #include "NKRenderer/Tools/Animation/NkAutoPose.h"
 #include "NKRenderer/Tools/Animation/NkMotionPath.h"
+#include "NKRenderer/Tools/Animation/NkPhysAnimBridge.h"
 #include "NKAudio/NkAudioCapture.h"
 #include "NKAudio/NkDenoiser.h"
 
@@ -54,6 +55,10 @@ int main() {
 	// Animation par courbe : spline Catmull-Rom + path-follow (os/effecteur IK suit la courbe).
 	Report("NkMotionPath", "spline passe par les points, longueur/tangente droite, path-follow loop/once",
 		   renderer::NkMotionCurve::SelfTest(), nbOk, nbTotal);
+
+	// M3.6 — pont vers l'anim existante : correction physique non destructive d'un clip + lissage.
+	Report("M3.6 NkPhysAnimBridge", "clip qui bascule -> corrige frame par frame (equilibre), pieds fixes, lissage borne",
+		   renderer::NkPhysAnimBridge::SelfTest(), nbOk, nbTotal);
 
 	// NKAudio — enregistrement : ring buffer SPSC de la capture (headless, sans micro).
 	Report("NKAudio NkAudioCapture", "ring buffer SPSC : write/read/wrap/overflow",
