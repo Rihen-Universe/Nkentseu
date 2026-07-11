@@ -31,6 +31,11 @@ namespace nkentseu {
 				// `sync` = image clé (IDR) → listée dans stss.
 				bool WriteSample(const uint8 *data, uint32 size, bool sync);
 
+				// Piste audio PCM optionnelle (LPCM 16 bits little-endian, entrée 'sowt').
+				void SetAudio(int32 sampleRate, int32 channels);
+				// Ajoute des trames PCM entrelacées (int16 par canal). Bufferisé, écrit dans mdat à Close().
+				void AppendAudioPcm(const int16 *interleaved, uint32 frames);
+
 				bool Close();
 
 				bool IsOpen() const {
@@ -52,6 +57,9 @@ namespace nkentseu {
 				int32 mWidth = 0, mHeight = 0, mFpsNum = 30, mFpsDen = 1;
 				nk_int64 mMdatSizePos = 0;
 				nk_int64 mMdatStart = 0;
+				// piste audio PCM (0 canal = pas d'audio).
+				int32 mAudioRate = 0, mAudioChannels = 0;
+				NkVector<uint8> mAudioPcm; // octets PCM little-endian (bufferisés)
 		};
 
 	} // namespace media

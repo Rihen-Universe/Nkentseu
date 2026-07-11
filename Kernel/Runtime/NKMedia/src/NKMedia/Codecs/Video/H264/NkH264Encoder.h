@@ -46,6 +46,11 @@ namespace nkentseu {
 					return mFrame;
 				}
 
+				// Piste audio PCM (mode .mp4/.mov uniquement) : LPCM 16 bits. À appeler avant les WriteAudioPcm.
+				void SetAudioTrack(int32 sampleRate, int32 channels);
+				// Ajoute des trames PCM entrelacées (int16 par canal) à la piste audio du MP4.
+				void WriteAudioPcm(const int16 *interleaved, uint32 frames);
+
 				// Debug/validation : dumpe la reconstruction (YUV420 planar, recadrée) de chaque trame
 				// dans `path`, pour comparaison bit-à-bit avec la sortie d'un décodeur de référence.
 				bool EnableReconDump(const char *path);
