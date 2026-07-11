@@ -50,6 +50,11 @@ namespace nkentseu {
 									  const char *want) {
 			if (!sh)
 				return;
+			// Panneau FERMÉ mais encore ancré quelque part (il avait été déplacé puis
+			// fermé) : rouvrir via l'icône le ramène TOUJOURS à son côté par défaut —
+			// le déplacement ne vaut que tant que le panneau reste ouvert (indépendant).
+			if (!sh->IsPanelOpen(want) && sh->PanelDockNode(want) >= 0)
+				sh->DetachPanel(want);
 			sh->FocusPanel(want); // ouvre + ancre au côté par défaut (no-op si déjà placé)
 			const int32 node = sh->PanelDockNode(want);
 			for (int32 i = 0; i < n; ++i) {

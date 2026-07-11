@@ -1305,6 +1305,22 @@ namespace nkentseu {
 					mPanels[i]->SetOpen(false);
 
 			NkString line;
+			bool dockRestored = false;
+			// Meta de fenêtre par id — créée au besoin (titre copié : les onglets du dock
+			// l'affichent avant le premier Begin de la fenêtre).
+			auto ensureMeta = [&](NkGuiId wid, const char *tt) -> NkGuiWindowMeta * {
+				for (uint32 i = 0; i < mUI.windowMeta.Size(); ++i)
+					if (mUI.windowMeta[i].id == wid)
+						return &mUI.windowMeta[i];
+				NkGuiWindowMeta nm;
+				nm.id = wid;
+				int32 k = 0;
+				for (; tt[k] && k < 47; ++k)
+					nm.title[k] = tt[k];
+				nm.title[k] = 0;
+				mUI.windowMeta.PushBack(nm);
+				return &mUI.windowMeta[mUI.windowMeta.Size() - 1];
+			};
 			auto apply = [&](const NkString &ln) {
 				const char *s = ln.CStr();
 				if (StartsWith(s, "maximized=")) {
@@ -1319,6 +1335,58 @@ namespace nkentseu {
 							mPanels[i]->SetOpen(true);
 							break;
 						}
+				} else if (StartsWith(s, "dockroot=")) {
+					// Disposition sérialisée -> RESET du dock courant (l'arbre du fichier
+					// fait foi) ; les nœuds arrivent ensuite dans l'ordre 0..n-1 (DFS).
+					mUI.dockNodes.Clear();
+					mUI.dockRoot = -1;
+					for (uint32 i = 0; i < mUI.windowMeta.Size(); ++i) {
+						mUI.windowMeta[i].dockNode = -1;
+						mUI.windowMeta[i].hostRoot = -1;
+						mUI.windowMeta[i].dockHost = NKGUI_ID_NONE;
+						mUI.windowMeta[i].dockActiveTab = false;
+					}
+					dockRestored = true;
+				} else if (dockRestored && StartsWith(s, "node=")) {
+					int32 idx = 0, kind = 0, vert = 0, c0 = -1, c1 = -1, at = 0;
+					float32 ratio = 0.5f;
+					if (std::sscanf(s + 5, "%d|%d|%d|%f|%d|%d|%d", &idx, &kind, &vert, &ratio, &c0, &c1, &at) == 7) {
+						NkGuiDockNode nd;
+						nd.kind = static_cast<uint8>(kind);
+						nd.vertical = vert != 0;
+						nd.ratio = ratio;
+						nd.child0 = c0;
+						nd.child1 = c1;
+						nd.activeTab = at;
+						mUI.dockNodes.PushBack(nd);
+					}
+				} else if (dockRestored && StartsWith(s, "nwin=")) {
+					const char *b = s + 5;
+					int32 idx = 0;
+					while (*b >= '0' && *b <= '9')
+						idx = idx * 10 + (*b++ - '0');
+					if (*b == '|' && b[1] && idx >= 0 && idx < static_cast<int32>(mUI.dockNodes.Size())) {
+						NkGuiDockNode &L = mUI.dockNodes[idx];
+						if (L.kind == 2 && L.winCount < 8) {
+							const NkGuiId wid = mUI.GetId(b + 1);
+							L.windows[L.winCount++] = wid;
+							ensureMeta(wid, b + 1)->dockNode = idx;
+						}
+					}
+				} else if (dockRestored && StartsWith(s, "float=")) {
+					float32 x = 0.f, y = 0.f, w = 0.f, h = 0.f;
+					if (std::sscanf(s + 6, "%f|%f|%f|%f", &x, &y, &w, &h) == 4) {
+						const char *b = s + 6;
+						for (int32 bars = 0; *b && bars < 4; ++b) // titre = après le 4e '|'
+							if (*b == '|')
+								++bars;
+						if (*b && w > 40.f && h > 40.f) {
+							NkGuiWindowMeta *wm = ensureMeta(mUI.GetId(b), b);
+							wm->rect = {x, y, w, h};
+							wm->floatRect = wm->rect;
+							wm->init = true;
+						}
+					}
 				}
 			};
 			for (const char *c = p;; ++c) {
@@ -1331,6 +1399,52 @@ namespace nkentseu {
 						break;
 				} else
 					line += *c;
+			}
+			// ── Finalisation de la disposition restaurée : parents, drapeaux, filets. ──
+			if (dockRestored && mUI.dockNodes.Size() > 0) {
+				const int32 n = static_cast<int32>(mUI.dockNodes.Size());
+				for (int32 i = 0; i < n; ++i) {
+					NkGuiDockNode &d = mUI.dockNodes[i];
+					if (d.kind == 1) {
+						if (d.child0 < 0 || d.child0 >= n || d.child1 < 0 || d.child1 >= n) {
+							d.kind = 2; // arbre corrompu -> feuille vide (robustesse)
+							d.child0 = d.child1 = -1;
+						} else {
+							mUI.dockNodes[d.child0].parent = i;
+							mUI.dockNodes[d.child1].parent = i;
+						}
+					}
+					if (d.kind == 2 && d.activeTab >= d.winCount)
+						d.activeTab = d.winCount > 0 ? d.winCount - 1 : 0;
+				}
+				mUI.dockNodes[0].parent = -1;
+				mUI.dockRoot = 0;
+				for (int32 i = 0; i < n; ++i) { // drapeau « onglet actif » des metas
+					const NkGuiDockNode &d = mUI.dockNodes[i];
+					if (d.kind != 2)
+						continue;
+					for (int32 w = 0; w < d.winCount; ++w)
+						for (uint32 m2 = 0; m2 < mUI.windowMeta.Size(); ++m2)
+							if (mUI.windowMeta[m2].id == d.windows[w]) {
+								mUI.windowMeta[m2].dockActiveTab = (w == d.activeTab);
+								break;
+							}
+				}
+				mDockBootstrap = false; // la disposition restaurée fait foi
+				// Filet : panneau OUVERT dockable jamais mentionné dans le fichier (ex.
+				// panneau ajouté depuis) -> ancré à son côté par défaut, pas flottant.
+				for (int32 i = 0; i < mNumPanels; ++i) {
+					NkEditorPanel *pl = mPanels[i];
+					if (!pl->IsOpen() || !pl->Dockable())
+						continue;
+					const NkGuiId wid = mUI.GetId(pl->Title());
+					bool has = false;
+					for (uint32 m2 = 0; m2 < mUI.windowMeta.Size() && !has; ++m2)
+						if (mUI.windowMeta[m2].id == wid)
+							has = true;
+					if (!has)
+						DockBuilderDock(mUI, pl->Title(), SideToZone(pl->DefaultSide()));
+				}
 			}
 		}
 
@@ -1349,6 +1463,65 @@ namespace nkentseu {
 					out += mPanels[i]->Title();
 					out += "\n";
 				}
+			// ── Disposition du dock : arbre CENTRAL sérialisé en DFS (indices remappés
+			//    0..n-1, racine = 0) + position des fenêtres flottantes des panneaux.
+			//    Les hôtes de dock flottants (arbres secondaires) ne sont pas sérialisés :
+			//    leurs fenêtres redeviennent flottantes simples à la restauration. ──
+			if (mUI.dockRoot >= 0 && mUI.dockRoot < static_cast<int32>(mUI.dockNodes.Size())) {
+				int32 map[256], order[256], n = 0;
+				for (int32 i = 0; i < 256; ++i)
+					map[i] = -1;
+				int32 stack[256], top = 0;
+				stack[top++] = mUI.dockRoot;
+				while (top > 0 && n < 256) {
+					const int32 cur = stack[--top];
+					if (cur < 0 || cur >= static_cast<int32>(mUI.dockNodes.Size()) || cur >= 256 || map[cur] >= 0)
+						continue;
+					map[cur] = n;
+					order[n++] = cur;
+					const NkGuiDockNode &d = mUI.dockNodes[cur];
+					if (d.kind == 1 && top < 254) {
+						stack[top++] = d.child1;
+						stack[top++] = d.child0;
+					}
+				}
+				out += "dockroot=0\n";
+				char buf[192];
+				for (int32 k = 0; k < n; ++k) {
+					const NkGuiDockNode &d = mUI.dockNodes[order[k]];
+					const int32 c0 = (d.kind == 1 && d.child0 >= 0 && d.child0 < 256) ? map[d.child0] : -1;
+					const int32 c1 = (d.kind == 1 && d.child1 >= 0 && d.child1 < 256) ? map[d.child1] : -1;
+					std::snprintf(buf, sizeof(buf), "node=%d|%d|%d|%.4f|%d|%d|%d\n", k, static_cast<int32>(d.kind),
+								  d.vertical ? 1 : 0, static_cast<double>(d.ratio), c0, c1, d.activeTab);
+					out += buf;
+					if (d.kind == 2)
+						for (int32 w = 0; w < d.winCount; ++w)
+							for (uint32 m2 = 0; m2 < mUI.windowMeta.Size(); ++m2)
+								if (mUI.windowMeta[m2].id == d.windows[w]) {
+									if (mUI.windowMeta[m2].title[0]) {
+										std::snprintf(buf, sizeof(buf), "nwin=%d|%s\n", k, mUI.windowMeta[m2].title);
+										out += buf;
+									}
+									break;
+								}
+				}
+				for (int32 i = 0; i < mNumPanels; ++i) {
+					const NkGuiId wid = mUI.GetId(mPanels[i]->Title());
+					for (uint32 m2 = 0; m2 < mUI.windowMeta.Size(); ++m2) {
+						const NkGuiWindowMeta &wm = mUI.windowMeta[m2];
+						if (wm.id != wid)
+							continue;
+						if (wm.dockNode < 0 && wm.hostRoot < 0 && wm.init) {
+							std::snprintf(buf, sizeof(buf), "float=%.1f|%.1f|%.1f|%.1f|%s\n",
+										  static_cast<double>(wm.rect.x), static_cast<double>(wm.rect.y),
+										  static_cast<double>(wm.rect.w), static_cast<double>(wm.rect.h),
+										  mPanels[i]->Title());
+							out += buf;
+						}
+						break;
+					}
+				}
+			}
 			NkFile::WriteAllText(p, out);
 		}
 
