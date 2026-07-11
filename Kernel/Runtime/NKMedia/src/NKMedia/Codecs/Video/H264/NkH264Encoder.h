@@ -66,10 +66,25 @@ namespace nkentseu {
 				int32 *mLumaNz = nullptr;
 				// idem chroma par composante (Cb,Cr), grille (mMbW*2) × (mMbH*2).
 				int32 *mChromaNz[2] = {nullptr, nullptr};
+				// mode Intra_4×4 de chaque bloc luma 4×4 (2=DC par défaut / pour non-I4×4), pour la
+				// prédiction du mode des voisins. Grille (mMbW*4) × (mMbH*4).
+				int32 *mI4Mode = nullptr;
 
 				void ConvertToYuv(const uint8 *pixels, NkVideoInputFormat fmt);
 				void EncodeFrame(NkVector<uint8> &out);
-				void EncodeMacroblock(NkH264BitWriter &bs, int32 mbX, int32 mbY);
+				// État chroma d'un macrobloc (niveaux + CBP), partagé entre I_16×16 et I_4×4.
+				struct ChromaMb {
+						int32 lvl[2][4][16]; // niveaux quantifiés (AC en positions 1..15) par composante/bloc
+						int32 dcLvl[2][4];	 // niveaux DC chroma (Hadamard 2×2 + quant)
+						int32 cbp;			 // 0=aucun, 1=DC, 2=DC+AC
+				};
+
+				void EncodeMacroblock(NkH264BitWriter &bs, int32 mbX, int32 mbY); // I_16×16
+				void EncodeMbIntra4x4(NkH264BitWriter &bs, int32 mbX, int32 mbY); // I_4×4
+				// Prédit + résidu + reconstruit le chroma (DC 2×2 + AC), remplit `c`.
+				void ComputeChroma(int32 mbX, int32 mbY, bool availTop, bool availLeft, ChromaMb &c);
+				// Écrit le résidu chroma (DC puis AC) en CAVLC + met à jour la grille nC chroma.
+				void WriteChromaResidual(NkH264BitWriter &bs, int32 mbX, int32 mbY, const ChromaMb &c);
 				void Free();
 		};
 
