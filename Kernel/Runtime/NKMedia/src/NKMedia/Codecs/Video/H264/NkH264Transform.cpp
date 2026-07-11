@@ -140,8 +140,10 @@ namespace nkentseu {
 		}
 
 		void NkH264Transform::DequantDC(const int32 lvl[16], int32 dc[16], int32 n, int32 qp) {
+			// Entrée = coefficients APRÈS Hadamard inverse (les niveaux ont déjà traversé A·(·)·A).
+			// LevelScale = weightScale(16) × normAdjust(kV) → facteur ×16 (spec 8.5.10.2).
 			const int32 m = qp % 6;
-			const int32 v = kV[m][0];
+			const int32 v = 16 * kV[m][0];
 			if (qp >= 36) {
 				const int32 shift = qp / 6 - 6;
 				for (int32 i = 0; i < n; ++i)
@@ -152,6 +154,45 @@ namespace nkentseu {
 				for (int32 i = 0; i < n; ++i)
 					dc[i] = (lvl[i] * v + add) >> shift;
 			}
+		}
+
+		void NkH264Transform::Hadamard2x2(const int32 in[4], int32 out[4]) {
+			// 2×2 Hadamard (in raster [TL,TR,BL,BR]) ; directe = inverse (à un facteur 4 près,
+			// absorbé par la paire quant/dequant).
+			out[0] = in[0] + in[1] + in[2] + in[3];
+			out[1] = in[0] - in[1] + in[2] - in[3];
+			out[2] = in[0] + in[1] - in[2] - in[3];
+			out[3] = in[0] - in[1] - in[2] + in[3];
+		}
+
+		void NkH264Transform::QuantChromaDC(const int32 f[4], int32 lvl[4], int32 qp, bool intra) {
+			const int32 qbits = 15 + qp / 6;
+			const int32 m = qp % 6;
+			const int32 mf = kMF[m][0];
+			const int32 off = (1 << (qbits + 1)) / (intra ? 3 : 6);
+			for (int32 i = 0; i < 4; ++i) {
+				const int32 a = f[i] < 0 ? -f[i] : f[i];
+				lvl[i] = Sign(f[i]) * (int32)(((int64)a * mf + off) >> (qbits + 1));
+			}
+		}
+
+		void NkH264Transform::DequantChromaDC(const int32 g[4], int32 dc[4], int32 qp) {
+			// Entrée = niveaux APRÈS Hadamard inverse 2×2. Spec 8.5.11.2 : dcC = (g·LevelScale)<<(qP/6) >>5.
+			const int32 m = qp % 6;
+			const int32 v = 16 * kV[m][0];
+			const int32 sh = qp / 6;
+			for (int32 i = 0; i < 4; ++i)
+				dc[i] = ((g[i] * v) << sh) >> 5;
+		}
+
+		int32 NkH264Transform::ChromaQp(int32 lumaQp) {
+			// qPi = Clip3(0,51,QPy) → QPc (table 8-15). Identité < 30, puis compression.
+			static const int32 kMap[52] = {0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12,
+										   13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+										   26, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 34, 35,
+										   35, 36, 36, 37, 37, 37, 38, 38, 38, 39, 39, 39, 39};
+			const int32 qpi = lumaQp < 0 ? 0 : (lumaQp > 51 ? 51 : lumaQp);
+			return kMap[qpi];
 		}
 
 		bool NkH264Transform::SelfTest() {

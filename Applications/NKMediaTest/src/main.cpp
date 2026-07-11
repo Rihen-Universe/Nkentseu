@@ -23,6 +23,7 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltQuantBands.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Transform.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
+#include "NKMedia/Codecs/Video/H264/NkH264Encoder.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>
@@ -265,6 +266,39 @@ int main(int argc, char **argv) {
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkH264Encoder::SelfTest();
+		printf("[ %s ] NkH264Encoder : flux Annex-B SPS/PPS/IDR + macroblocs I_16x16 CAVLC (structurel)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	// Écrit un vrai flux .h264 (dégradé animé) pour validation externe par ffmpeg.
+	{
+		const char *path = (argc >= 3) ? argv[2] : "h264_test.h264";
+		media::NkH264Encoder enc;
+		if (enc.Open(path, 128, 96, 25, 1, 26)) {
+			const int32 W = 128, H = 96;
+			NkVector<uint8> frame;
+			frame.Resize((uint64)W * H * 3);
+			for (int32 f = 0; f < 12; ++f) {
+				for (int32 y = 0; y < H; ++y)
+					for (int32 x = 0; x < W; ++x) {
+						uint8 *p = frame.Data() + ((uint64)y * W + x) * 3;
+						p[0] = (uint8)((x * 2) & 0xFF);		  // R : dégradé horizontal
+						p[1] = (uint8)((y * 2) & 0xFF);		  // G : dégradé vertical
+						p[2] = (uint8)((128 + f * 6) & 0xFF); // B : niveau animé
+					}
+				enc.WriteFrame(frame.Data(), media::NkVideoInputFormat::RGB24);
+			}
+			enc.Close();
+			printf("[i] Flux H.264 ecrit : %s (12 trames 128x96, QP26) — a valider : ffmpeg -i %s out.png\n", path,
+				   path);
+		} else {
+			printf("[!] Ouverture %s impossible (ecriture flux H.264 sautee)\n", path);
+		}
 	}
 	printf("\n=== Resultat : %d/%d suites OK ===\n", nbOk, nbTotal);
 	return (nbOk == nbTotal) ? 0 : 1;
