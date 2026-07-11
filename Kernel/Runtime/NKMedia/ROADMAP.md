@@ -99,8 +99,17 @@
     à QP26 — ce qui prouve le CAVLC **bit-exact**). Bug clé corrigé : échelle DC (facteur `weightScale ×16`
     manquant en déquant + ordre Hadamard-inverse-puis-échelle) qui faisait dériver la prédiction (effondrement
     à 0). `NKMediaTest` écrit un `h264_test.h264` de démonstration.
-  - ⏳ Reste (brique 3) : Intra_4×4 (9 modes) + P-slices (quart-pel, MV median) + filtre de déblocage ;
-    puis muxing dans MP4 (avcC + NAL longueur-préfixée) pour un `.mp4` H.264 lisible partout.
+  - **Brique 3a (2026-07-11) — Intra_4×4 (9 modes)** — `NkH264Encoder::EncodeMbIntra4x4` : macroblocs
+    **I_4×4** avec les **9 modes de prédiction** (Vertical, Horizontal, DC, Diagonal-Down-Left/Right,
+    Vertical-Right, Horizontal-Down, Vertical-Left, Horizontal-Up ; §8.3.1.2, formules entières exactes),
+    disponibilité des échantillons haut-droite par bloc (Z-scan), **prédiction du mode** voisin
+    (prev_intra4x4_pred_mode_flag / rem, min des modes gauche+haut), `coded_block_pattern` Intra (table 9-4),
+    résidu LumaLevel4x4 CAVLC (contexte nC partagé avec I_16×16), reconstruction en cascade (chaque bloc
+    prédit depuis les voisins reconstruits). **Choix par macrobloc I_16×16/I_4×4** selon l'activité (zone
+    plate → I_16×16 compact ; texture → I_4×4). **Validé ffmpeg** : flux mixte I_16×16 + I_4×4 décodé sans
+    erreur (dégradé lisse + damier fin reconstruits, PSNR ~28 dB à QP26).
+  - ⏳ Reste (brique 3b/3c) : P-slices (compensation mouvement quart-pel + MV median), filtre de déblocage
+    en boucle ; puis muxing dans MP4 (avcC + NAL longueur-préfixée) pour un `.mp4` H.264 lisible partout.
 
 ## En cours / À venir
 - Poursuivre Opus (range decoder → CELT → SILK), puis **AAC-LC** (corpus Bassa). Branchés comme codecs

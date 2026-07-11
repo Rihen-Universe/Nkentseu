@@ -287,9 +287,16 @@ int main(int argc, char **argv) {
 				for (int32 y = 0; y < H; ++y)
 					for (int32 x = 0; x < W; ++x) {
 						uint8 *p = frame.Data() + ((uint64)y * W + x) * 3;
-						p[0] = (uint8)((x * 2) & 0xFF);		  // R : dégradé horizontal
+						p[0] = (uint8)((x * 2) & 0xFF);		  // R : dégradé horizontal (zone plate → I_16x16)
 						p[1] = (uint8)((y * 2) & 0xFF);		  // G : dégradé vertical
 						p[2] = (uint8)((128 + f * 6) & 0xFF); // B : niveau animé
+						// zone texturée (damier fin) en bas-droite → force le chemin I_4x4
+						if (x >= W / 2 && y >= H / 2) {
+							const uint8 tex = (uint8)((((x + f) ^ y) & 1) ? 40 : 210);
+							p[0] = tex;
+							p[1] = tex;
+							p[2] = tex;
+						}
 					}
 				enc.WriteFrame(frame.Data(), media::NkVideoInputFormat::RGB24);
 			}
