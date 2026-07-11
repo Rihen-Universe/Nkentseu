@@ -386,6 +386,8 @@ namespace nkentseu {
 				uint32 collapseAll = 0, newFile2 = 0, newFolder = 0, filter = 0; // toolbar explorateur
 				// Activity bars (textures codicon remplaçant les dessins au trait)
 				uint32 files = 0, sourceControl = 0, liveShare = 0, codeC = 0, warning = 0;
+				// Plateformes cibles (toolbar) + logos de marques
+				uint32 android = 0, apple = 0, windowsLogo = 0, claude = 0;
 				NkVector<NkString> dirKey;
 				NkVector<uint32> dirTexC, dirTexO;
 
