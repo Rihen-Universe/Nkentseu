@@ -171,9 +171,28 @@ static void EnforceExclusiveSides(editorkit::NkEditorShell *sh) {
 	}
 }
 
+// Icônes marquées des activity bars = l'état RÉEL des panneaux (l'index cliqué ne
+// suffit pas : une disposition restaurée ouvre des panneaux sans passer par un clic).
+static void SyncActivityMarkers(editorkit::NkEditorShell *sh) {
+	if (!sh)
+		return;
+	static const char *kLeft[7] = {"Explorateur", "Recherche",	"Controle de version", "Debogueur",
+								   "Live Collab", "Extensions", "Profiler"};
+	static const char *kAi[3] = {"Claude Code", "Codex", "Assistant IA"};
+	int32 left = -1, right = -1;
+	for (int32 i = 0; i < 7 && left < 0; ++i)
+		if (sh->IsPanelOpen(kLeft[i]))
+			left = i;
+	for (int32 i = 0; i < 3 && right < 0; ++i)
+		if (sh->IsPanelOpen(kAi[i]))
+			right = 100 + i;
+	sh->SetActivityActive(left, right);
+}
+
 static void AppFlagsThunk(NkEditorFrameContext &ec, void *u) {
 	nkcode::DrawAppFlags(ec, static_cast<nkcode::NkCodeDialogs *>(u));
 	EnforceExclusiveSides(static_cast<nkcode::NkCodeDialogs *>(u)->shell); // sidebars exclusives
+	SyncActivityMarkers(static_cast<nkcode::NkCodeDialogs *>(u)->shell);   // marqueurs = état réel
 	if (!g_home.settings.loaded)
 		g_home.settings.Load();
 	nkcode::NkApplyEditorTheme(ec.Ui(), g_home.settings.theme, g_home.settings.accent);
