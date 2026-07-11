@@ -129,16 +129,20 @@ namespace nkentseu {
 				float32 hovDragX = 0.f, hovDragOff = 0.f;	 // ancrage du glisser horizontal
 				float32 hovBodyOff = 0.f, hovBodyXOff = 0.f; // defilement V/H de la DOC (commentaires)
 				NkRect hovBodyRect = {0.f, 0.f, 0.f, 0.f};	 // zone doc (molette / glisser 2 axes)
+				NkRect hovVTrack = {0.f, 0.f, 0.f, 0.f};	 // barre V de la doc (clic/glisser)
+				NkRect hovHTrack = {0.f, 0.f, 0.f, 0.f};	 // barre H de la doc (clic/glisser)
+				float32 hovByMax = 0.f, hovBxMax = 0.f;		 // debattements des barres
 				int32 hovDragMode = 0;						 // 1 = prototype (X), 2 = doc (X+Y)
 				float32 hovDragY = 0.f, hovDragOffY = 0.f;
 				// ── QoL : barre « aller a la ligne » (Ctrl+G), chord Ctrl+K, references ──
 				bool gotoOpen = false;
 				char gotoBuf[12] = {};
-				bool renOpen = false; // barre « Renommer » (F2) : identifiant -> workspace
-				char renBuf[64] = {}; // nouveau nom saisi
-				NkString renWord;	  // identifiant d'origine (mot sous le caret au F2)
-				bool renGo = false;	  // Entrée : demande consommée par le panneau/Toolbar
-				int32 blinkTick = 0;  // clignotement du caret : rallume a chaque frappe/deplacement
+				bool renOpen = false;			 // barre « Renommer » (F2) : identifiant -> workspace
+				char renBuf[64] = {};			 // nouveau nom saisi
+				NkString renWord;				 // identifiant d'origine (mot sous le caret au F2)
+				int32 renLine = -1, renCol = -1; // position du symbole au F2 (requete LSP rename)
+				bool renGo = false;				 // Entrée : demande consommée par le panneau/Toolbar
+				int32 blinkTick = 0;			 // clignotement du caret : rallume a chaque frappe/deplacement
 				int32 blinkL = -1, blinkC = -1;
 				// Quick fix (Ctrl+.) : actions deduites des diagnostics de la ligne du caret.
 				NkVector<NkString> qfLabels; // libelles du menu
@@ -147,6 +151,8 @@ namespace nkentseu {
 				NkVector<NkString> qfPay;
 				int32 qfEmptyTick = -100000;		   // Ctrl+. sans action -> message au footer (~2 s)
 				int32 chordK = -100000;				   // tick du dernier Ctrl+K (chords Ctrl+K 0/J/I)
+				int32 linkLine = -1, linkCol = -1;	   // position de la cible F12/Ctrl+clic (requete LSP)
+				int32 refsLine = -1, refsCol = -1;	   // position de la cible Maj+F12
 				NkString refsTarget;				   // symbole dont on veut les REFERENCES (consomme par l etat)
 				NkString hovSym;					   // symbole demande
 				int32 hovLine = -1, hovCol = -1;	   // position du mot (resolution contextuelle)
@@ -2234,8 +2240,9 @@ namespace nkentseu {
 			const bool hover = InRect(area, mouse);
 			const int32 oldL = d.curLine, oldC = d.curCol; // pour detecter un mouvement du curseur
 
-			// Molette (consommee pour ne pas scroller la fenetre dessous).
-			if (hover) {
+			// Molette (consommee pour ne pas scroller la fenetre dessous). La CARTE hover est
+			// au-dessus : quand la souris est dessus, la molette lui revient (bloc plus bas).
+			if (hover && !(d.hovShow && InRect(d.hovRect, mouse))) {
 				if (ctx.input.wheel != 0.f) {
 					if (ctx.input.shiftDown)
 						d.scrollX -= ctx.input.wheel * 40.f;
@@ -2325,6 +2332,8 @@ namespace nkentseu {
 				for (int32 k = linkC0; k < linkC1; ++k)
 					tgt += L[k];
 				d.linkTarget = tgt;
+				d.linkLine = linkL;
+				d.linkCol = linkC0;
 				d.linkIsInclude = linkInc;
 				NkCodeFocusId() = id;
 			}
@@ -2334,6 +2343,10 @@ namespace nkentseu {
 			// (mot + carte) gonflee — on peut la rejoindre sans quelle disparaisse.
 			if (!d.hovShow && !d.hovReq)
 				d.hovKb = false; // fin de vie de la requete clavier -> les resets souris reprennent
+			// Souris sur un menu OUVERT de l'editeur (contextuel / quick fix) : le caret ne doit
+			// pas bouger a travers (menus rendus en fin de frame -> garde par rect precedent).
+			const bool overCtxMenus = (NkCodeCtxMenu().open && InRect(NkCodeCtxMenu().rect, mouse)) ||
+									  (NkCodeQfMenu().open && InRect(NkCodeQfMenu().rect, mouse));
 			bool overHovCard = false;
 			// molette sur la carte : defile le prototype horizontalement (consommee)
 			if (d.hovShow) {
@@ -2365,6 +2378,20 @@ namespace nkentseu {
 							d.hovBodyXOff = 0.f;
 						if (d.hovBodyOff < 0.f)
 							d.hovBodyOff = 0.f;
+					} else if (d.hovDragMode == 3) { // barre VERTICALE de la doc : position proportionnelle
+						const float32 h2 = d.hovVTrack.h;
+						float32 th2 = h2 * (h2 / (h2 + d.hovByMax));
+						if (th2 < 18.f)
+							th2 = 18.f;
+						const float32 t = (mouse.y - d.hovVTrack.y - th2 * 0.5f) / (h2 - th2 > 1.f ? h2 - th2 : 1.f);
+						d.hovBodyOff = (t < 0.f ? 0.f : t > 1.f ? 1.f : t) * d.hovByMax;
+					} else if (d.hovDragMode == 4) { // barre HORIZONTALE de la doc
+						const float32 w2 = d.hovHTrack.w;
+						float32 tw2 = w2 * (w2 / (w2 + d.hovBxMax));
+						if (tw2 < 24.f)
+							tw2 = 24.f;
+						const float32 t = (mouse.x - d.hovHTrack.x - tw2 * 0.5f) / (w2 - tw2 > 1.f ? w2 - tw2 : 1.f);
+						d.hovBodyXOff = (t < 0.f ? 0.f : t > 1.f ? 1.f : t) * d.hovBxMax;
 					} else { // prototype : X seul
 						d.hovXOff = d.hovDragOff - (mouse.x - d.hovDragX);
 						if (d.hovXOff < 0.f)
@@ -2503,7 +2530,13 @@ namespace nkentseu {
 			}
 			// Clic sur la CARTE hover : action [Aller a la definition] (reutilise le pipeline Ctrl+clic).
 			if (overHovCard && ctx.input.mouseClicked[0]) {
-				if (InRect(d.hovTitleRect, mouse)) { // prise du PROTOTYPE : glisser gauche/droite = defiler
+				if (InRect(d.hovVTrack, mouse) && d.hovByMax > 0.f) { // barre V : clic/glisser
+					ctx.activeId = hovDragId;
+					d.hovDragMode = 3;
+				} else if (InRect(d.hovHTrack, mouse) && d.hovBxMax > 0.f) { // barre H : clic/glisser
+					ctx.activeId = hovDragId;
+					d.hovDragMode = 4;
+				} else if (InRect(d.hovTitleRect, mouse)) { // prise du PROTOTYPE : glisser g/d = defiler
 					ctx.activeId = hovDragId;
 					d.hovDragX = mouse.x;
 					d.hovDragOff = d.hovXOff;
@@ -2519,6 +2552,8 @@ namespace nkentseu {
 				}
 				if (InRect(d.hovActRect, mouse) && !d.hovSym.Empty()) {
 					d.linkTarget = d.hovSym;
+					d.linkLine = d.hovLine;
+					d.linkCol = d.hovCol;
 					d.linkIsInclude = false;
 					d.hovShow = false;
 					d.hovRect = {0.f, 0.f, 0.f, 0.f};
@@ -2526,6 +2561,8 @@ namespace nkentseu {
 				}
 				if (InRect(d.hovRefsRect, mouse) && !d.hovSym.Empty()) { // [References] -> liste workspace
 					d.refsTarget = d.hovSym;
+					d.refsLine = d.hovLine;
+					d.refsCol = d.hovCol;
 					d.hovShow = false;
 					d.hovRect = {0.f, 0.f, 0.f, 0.f};
 					NkCodeFocusId() = id;
@@ -2564,7 +2601,7 @@ namespace nkentseu {
 			// Double-clic OS : sous Windows le 2e clic arrive en WM_LBUTTONDBLCLK (PAS un press),
 			// donc jamais dans mouseClicked -> on écoute mouseDoubleClicked. Mot sous la souris ;
 			// un double-clic enchaîné (3e clic rapide) escalade à la LIGNE.
-			if (!ctrlLink && !overAc && !overHovCard && overText && ctx.input.mouseDoubleClicked[0] &&
+			if (!ctrlLink && !overAc && !overHovCard && !overCtxMenus && overText && ctx.input.mouseDoubleClicked[0] &&
 				!ctx.input.altDown) {
 				NkCodeFocusId() = id;
 				int32 l = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
@@ -2604,7 +2641,7 @@ namespace nkentseu {
 				d.clkL = l;
 				d.clkC = c;
 			}
-			if (!ctrlLink && !overAc && !overHovCard && ctx.input.mouseClicked[0] && overText &&
+			if (!ctrlLink && !overAc && !overHovCard && !overCtxMenus && ctx.input.mouseClicked[0] && overText &&
 				!ctx.input.mouseDoubleClicked[0]) {
 				NkCodeFocusId() = id;
 				int32 l = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
@@ -3064,6 +3101,8 @@ namespace nkentseu {
 							for (int32 k = ws2; k < we2; ++k)
 								w2 += L2[k];
 							d.renWord = w2;
+							d.renLine = d.curLine;
+							d.renCol = ws2;
 							int32 i2 = 0;
 							for (const char *q2 = w2.CStr(); *q2 && i2 < 63; ++q2)
 								d.renBuf[i2++] = *q2;
@@ -3134,10 +3173,14 @@ namespace nkentseu {
 							NkString sym;
 							for (int32 k = ws; k < we; ++k)
 								sym += L[k];
-							if (shift)
+							if (shift) {
 								d.refsTarget = sym; // consomme par l etat -> liste des references
-							else {
+								d.refsLine = d.curLine;
+								d.refsCol = ws;
+							} else {
 								d.linkTarget = sym; // pipeline go-to-def existant (Ctrl+clic)
+								d.linkLine = d.curLine;
+								d.linkCol = ws;
 								d.linkIsInclude = false;
 							}
 						}
@@ -3208,10 +3251,11 @@ namespace nkentseu {
 										continue;
 									const char *m = d.diags[i].msg.CStr();
 									const char *dy = NkFindSub(m, "did you mean '");
-									const char *ex = NkFindSub(m, "expected '");
+									const char *ex =
+										NkFindSub(m, "xpected '"); // clang « expected » / clangd « Expected »
 									char tok[3] = {0, 0, 0};
 									if (ex) { // token attendu (1-2 caracteres de PONCTUATION uniquement : ; } ) , ...)
-										const char *q3 = ex + 10;
+										const char *q3 = ex + 9; // apres « xpected ' »
 										int32 tn = 0;
 										while (*q3 && *q3 != 0x27 && tn < 2)
 											tok[tn++] = *q3++;
@@ -4211,8 +4255,13 @@ namespace nkentseu {
 								   d.hovBody[static_cast<usize>(i)].CStr(), ctx.theme.textDisabled);
 					}
 					dl.PopClipRect();
+					d.hovVTrack = {0.f, 0.f, 0.f, 0.f};
+					d.hovHTrack = {0.f, 0.f, 0.f, 0.f};
+					d.hovByMax = byMax > 0.f ? byMax : 0.f;
+					d.hovBxMax = bxMax > 0.f ? bxMax : 0.f;
 					if (byMax > 0.f) { // barre VERTICALE de la doc
 						const float32 vx = hb.x + hb.w - padX + ctx.S(1.f);
+						d.hovVTrack = {vx - 4.f, bodyTop, 12.f, bodyH}; // prehension elargie
 						dl.AddRectFilled({vx, bodyTop, 4.f, bodyH}, NkColor{255, 255, 255, 20}, 2.f);
 						float32 th2 = bodyH * (bodyH / (bodyH + byMax));
 						if (th2 < 18.f)
@@ -4222,6 +4271,7 @@ namespace nkentseu {
 					}
 					if (bxMax > 0.f) { // barre HORIZONTALE de la doc
 						const float32 hy = bodyTop + bodyH + ctx.S(2.f);
+						d.hovHTrack = {hb.x + padX, hy - 4.f, bodyW, 12.f};
 						dl.AddRectFilled({hb.x + padX, hy, bodyW, 4.f}, NkColor{255, 255, 255, 20}, 2.f);
 						float32 tw2 = bodyW * (bodyW / maxBW);
 						if (tw2 < 24.f)

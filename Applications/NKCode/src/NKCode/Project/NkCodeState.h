@@ -14,6 +14,7 @@
 #include "NKCode/Project/NkText.h"
 #include "NKCode/Project/NkLogSink.h" // GlobalLogBuffer : traces [ac] de la completion (panneau OUTPUT)
 #include "NKCode/Editor/NkCodeEditor.h"
+#include "NKCode/Project/NkLsp.h"
 #include "NKCode/Shell/NkI18n.h" // NkT() : ages relatifs traduits
 #include <cstdio>
 #include <cstdlib>
@@ -491,6 +492,8 @@ namespace nkentseu {
 
 				// Point d'entrée : NOUVELLE analyse (frappe / save) -> passe 0 sur le buffer réel.
 				void RunDiagnostics(int32 fileIdx) {
+					if (lspState == 1 && lsp.Ready())
+						return; // clangd actif : il fournit les squiggles (repli auto s'il meurt)
 					diagPass = 0;
 					diagRawE = 0;
 					diagRawW = 0;
@@ -1396,7 +1399,27 @@ namespace nkentseu {
 				//    MACROS avec expansion des arguments du site d'appel. Ordre : macro > contexte
 				//    membre (propriétaire par la chaîne) > variable locale > membre de la classe
 				//    englobante > type > fonction libre > membre par nom (~ dernier recours). ──
+				// Routage : clangd PRET -> hover SEMANTIQUE (reponse consommee dans TickLsp) ;
+				// sinon (ou reponse vide) -> resolution heuristique locale (tables + buffer).
+				NkString lspHovPath; // fichier de la requete hover en vol
+
 				void ProcessHover() {
+					if (active < 0 || active >= static_cast<int32>(files.Size()))
+						return;
+					NkCodeDoc &doc = files[active].doc;
+					if (!doc.hovReq)
+						return;
+					if (lspState == 1 && lsp.Ready() && !doc.hovSym.Empty() && doc.hovLine >= 0) {
+						doc.hovReq = false;
+						doc.hovDone = true;
+						lspHovPath = files[active].path.ToString();
+						lsp.ReqHover(lspHovPath, doc.hovLine, doc.hovCol);
+						return;
+					}
+					ProcessHoverLocal();
+				}
+
+				void ProcessHoverLocal() {
 					if (active < 0 || active >= static_cast<int32>(files.Size()))
 						return;
 					NkCodeDoc &doc = files[active].doc;
@@ -2503,6 +2526,12 @@ namespace nkentseu {
 						const NkString sym = f.doc.refsTarget;
 						f.doc.refsTarget = NkString(); // consomme (une seule action)
 						if (!navPickerOpen && navPickChoice < 0) {
+							if (lspState == 1 && lsp.Ready() && f.doc.refsLine >= 0) { // SÉMANTIQUE (clangd)
+								lsp.ReqReferences(f.path.ToString(), f.doc.refsLine, f.doc.refsCol);
+								f.doc.refsLine = -1;
+								status = NkString("Références (clangd)…");
+								return;
+							}
 							const ProjFlags *pf = FlagsForFile(f.path.ToString());
 							if (pf)
 								StartRefs(sym, pf);
@@ -2537,6 +2566,13 @@ namespace nkentseu {
 								}
 							}
 						status = NkString("Include introuvable : ") + tgt.CStr();
+						return;
+					}
+					// ── LSP actif : go-to-definition SÉMANTIQUE (clangd) — sinon chemins heuristiques. ──
+					if (lspState == 1 && lsp.Ready() && f.doc.linkLine >= 0) {
+						lsp.ReqDefinition(f.path.ToString(), f.doc.linkLine, f.doc.linkCol);
+						f.doc.linkLine = -1;
+						status = NkString("Définition (clangd)…");
 						return;
 					}
 					// ── Symbole : 1) définition dans le FICHIER ACTIF -> saut IMMÉDIAT (variable locale,
@@ -2856,6 +2892,376 @@ namespace nkentseu {
 						OpenAt(NkPath(navResults[i].file), navResults[i].line);
 				}
 
+				// ── LSP clangd (étape A) : process long-vivant + compile_commands.json généré depuis
+				//    le .jcdb. Diagnostics clangd TRACÉS dans OUTPUT ([lsp]) en parallèle du compile-first
+				//    (comparaison côte à côte avant bascule). clangd absent -> repli silencieux. ──
+				NkLspClient lsp;
+				int32 lspState = 0; // 0 = pas tenté, 1 = actif, 2 = indisponible
+				NkString lspActive; // fichier suivi (didOpen envoyé)
+				int64 lspSig = 0;
+				float32 lspTimer = 0.f;
+
+				// clangd vit généralement à côté du compilateur (msys2/LLVM) ; sinon PATH.
+				static NkString DeriveClangd(const NkString &compiler) {
+					const char *s2 = compiler.CStr();
+					int32 cut = -1;
+					for (int32 i = 0; s2[i]; ++i)
+						if (s2[i] == '\\' || s2[i] == '/')
+							cut = i;
+					if (cut < 0)
+						return NkString("clangd");
+					NkString d2;
+					for (int32 i = 0; i <= cut; ++i)
+						d2 += s2[i];
+					d2 += "clangd.exe";
+					return NkFile::Exists(NkPath(d2)) ? d2 : NkString("clangd");
+				}
+
+				// Sources d'un projet (arbre borné, dossiers générés exclus) pour compile_commands.json.
+				void CcWalk(const NkPath &dir, NkVector<NkPath> &out, int32 &budget, int32 depth) {
+					if (budget <= 0 || depth > 24)
+						return;
+					NkVector<NkDirectoryEntry> es =
+						NkDirectory::GetEntries(dir, "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+					for (usize k = 0; k < es.Size(); ++k) {
+						if (budget <= 0)
+							return;
+						--budget;
+						if (es[k].IsDirectory) {
+							const NkString nm = es[k].FullPath.GetFileName();
+							if (StrEq(nm.CStr(), ".git") || StrEq(nm.CStr(), "Build") || StrEq(nm.CStr(), ".nkcode"))
+								continue;
+							CcWalk(es[k].FullPath, out, budget, depth + 1);
+						} else {
+							const NkString e2 = es[k].FullPath.GetExtension();
+							if (StrEqI(e2.CStr(), ".cpp") || StrEqI(e2.CStr(), ".cc") || StrEqI(e2.CStr(), ".cxx") ||
+								StrEqI(e2.CStr(), ".c"))
+								out.PushBack(es[k].FullPath);
+						}
+					}
+				}
+
+				// compile_commands.json (format clang) depuis le .jcdb : UNE entrée par source de chaque
+				// projet, flags identiques à ceux des diagnostics compile-first. Écrit dans .nkcode/.
+				void GenCompileCommands() {
+					auto esc = [](const NkString &in) {
+						NkString o;
+						for (const char *q = in.CStr(); *q; ++q) {
+							if (*q == '\\' || *q == '"')
+								o += '\\';
+							o += *q;
+						}
+						return o;
+					};
+					NkString js("[\n");
+					int32 budget = 60000, wrote = 0;
+					for (usize pi = 0; pi < cdb.projects.Size(); ++pi) {
+						const ProjFlags &pf = cdb.projects[pi];
+						if (pf.dir.Empty())
+							continue;
+						NkString base = NkString("\\\"") + esc(cdb.compiler).CStr() + "\\\"";
+						if (!pf.std.Empty()) {
+							base += " -std=";
+							base += pf.std.CStr();
+						}
+						for (usize i2 = 0; i2 < pf.includes.Size(); ++i2) {
+							base += " -I\\\"";
+							base += esc(pf.includes[i2]).CStr();
+							base += "\\\"";
+						}
+						for (usize i2 = 0; i2 < pf.defines.Size(); ++i2) {
+							base += " -D";
+							base += pf.defines[i2].CStr();
+						}
+						NkVector<NkPath> srcs;
+						CcWalk(NkPath(pf.dir), srcs, budget, 0);
+						for (usize i2 = 0; i2 < srcs.Size(); ++i2) {
+							const NkString f2 = srcs[i2].ToString();
+							if (wrote)
+								js += ",\n";
+							js += "  {\"directory\": \"";
+							js += esc(pf.dir).CStr();
+							js += "\", \"command\": \"";
+							js += base.CStr();
+							js += " -c \\\"";
+							js += esc(f2).CStr();
+							js += "\\\"\", \"file\": \"";
+							js += esc(f2).CStr();
+							js += "\"}";
+							++wrote;
+						}
+					}
+					js += "\n]\n";
+					NkFile::WriteAllText(root / ".nkcode" / "compile_commands.json", js);
+					char lb[96];
+					std::snprintf(lb, sizeof(lb), "[lsp] compile_commands.json : %d entree(s)", wrote);
+					GlobalLogBuffer().Push(NkString(lb));
+				}
+
+				// Chemins venant d'URI clangd : lettre de lecteur en minuscule, séparateurs variables
+				// -> comparaison INSENSIBLE (casse + / vs \), sinon les diagnostics ne matchent jamais.
+				static bool PathEqI(const char *a, const char *b) {
+					while (*a && *b) {
+						char ca = *a, cb = *b;
+						if (ca >= 'A' && ca <= 'Z')
+							ca += 32;
+						if (cb >= 'A' && cb <= 'Z')
+							cb += 32;
+						if (ca == '/')
+							ca = 92; // backslash
+						if (cb == '/')
+							cb = 92;
+						if (ca != cb)
+							return false;
+						++a;
+						++b;
+					}
+					return *a == *b;
+				}
+
+				// Applique des NkLspEdit (TRIEES ligne/col DECROISSANTES) sur un texte : offsets stables.
+				static NkString ApplyLspEdits(const NkString &text, const NkVector<const NkLspEdit *> &eds) {
+					NkString out = text;
+					for (usize i = 0; i < eds.Size(); ++i) {
+						const NkLspEdit &e2 = *eds[i];
+						const char *base = out.CStr();
+						usize off = 0;
+						int32 l2 = 0;
+						while (base[off] && l2 < e2.line) {
+							if (base[off] == '\n')
+								++l2;
+							++off;
+						}
+						usize len2 = 0;
+						while (base[off + len2] && base[off + len2] != '\n' && base[off + len2] != '\r')
+							++len2;
+						const usize a2 =
+							off +
+							(e2.colStart < 0
+								 ? 0
+								 : (static_cast<usize>(e2.colStart) > len2 ? len2 : static_cast<usize>(e2.colStart)));
+						const usize b2 =
+							off + (e2.colEnd < 0
+									   ? 0
+									   : (static_cast<usize>(e2.colEnd) > len2 ? len2 : static_cast<usize>(e2.colEnd)));
+						NkString nu;
+						for (usize k = 0; k < a2; ++k)
+							nu += base[k];
+						nu += e2.text.CStr();
+						nu += (base + b2);
+						out = nu;
+					}
+					return out;
+				}
+
+				// Reponse RENAME (WorkspaceEdit) : buffers ouverts en place (undo), fichiers fermes sur disque.
+				void ApplyLspRename() {
+					int32 nfiles = 0;
+					const int32 total = static_cast<int32>(lsp.resEdits.Size());
+					for (usize i = 0; i < lsp.resEdits.Size(); ++i) {
+						const NkString &ph = lsp.resEdits[i].path;
+						bool seen = false;
+						for (usize j = 0; j < i && !seen; ++j)
+							seen = PathEqI(lsp.resEdits[j].path.CStr(), ph.CStr());
+						if (seen)
+							continue;
+						// editions de CE fichier, triees (ligne, col) DECROISSANTES
+						NkVector<const NkLspEdit *> eds;
+						for (usize j = 0; j < lsp.resEdits.Size(); ++j)
+							if (PathEqI(lsp.resEdits[j].path.CStr(), ph.CStr()))
+								eds.PushBack(&lsp.resEdits[j]);
+						for (usize a2 = 0; a2 < eds.Size(); ++a2)
+							for (usize b2 = a2 + 1; b2 < eds.Size(); ++b2)
+								if (eds[b2]->line > eds[a2]->line ||
+									(eds[b2]->line == eds[a2]->line && eds[b2]->colStart > eds[a2]->colStart)) {
+									const NkLspEdit *t2 = eds[a2];
+									eds[a2] = eds[b2];
+									eds[b2] = t2;
+								}
+						int32 fi = -1;
+						for (usize k = 0; k < files.Size(); ++k)
+							if (PathEqI(files[k].path.ToString().CStr(), ph.CStr())) {
+								fi = static_cast<int32>(k);
+								break;
+							}
+						if (fi >= 0) { // ouvert : en place, avec undo
+							NkCodeDoc &doc2 = files[static_cast<usize>(fi)].doc;
+							doc2.Checkpoint(3);
+							const float32 sx = doc2.scrollX, sy = doc2.scrollY;
+							doc2.SetText(ApplyLspEdits(doc2.GetText(), eds).CStr());
+							doc2.scrollX = sx;
+							doc2.scrollY = sy;
+							doc2.ClampCursor();
+							doc2.dirty = (doc2.SymSig() != doc2.savedSig);
+						} else { // ferme : reecrit le disque
+							const NkString txt = NkFile::ReadAllText(NkPath(ph));
+							if (txt.Empty())
+								continue;
+							NkFile::WriteAllText(NkPath(ph), ApplyLspEdits(txt, eds));
+						}
+						++nfiles;
+					}
+					char lb[128];
+					std::snprintf(lb, sizeof(lb), "Renomme : %d edition(s) dans %d fichier(s) (clangd)", total, nfiles);
+					status = NkString(lb);
+				}
+
+				void TickLsp(float32 dt) {
+					if (lspState == 0) {
+						if (!cdb.ready || root.ToString().Empty())
+							return;
+						lspState = 2;
+						if (!cdb.msvc && NkFindSub(cdb.compiler.CStr(), "clang")) {
+							GenCompileCommands();
+							const NkString ccDir = (root / ".nkcode").ToString();
+							if (lsp.Start(DeriveClangd(cdb.compiler), root.ToString(), ccDir))
+								lspState = 1;
+						}
+						if (lspState == 2)
+							GlobalLogBuffer().Push(NkString("[lsp] clangd indisponible - repli compile-first seul"));
+						return;
+					}
+					if (lspState != 1)
+						return;
+					if (!lsp.Running()) { // clangd mort en route -> repli
+						lspState = 2;
+						GlobalLogBuffer().Push(NkString("[lsp] clangd s'est arrete - repli compile-first seul"));
+						return;
+					}
+					lsp.Poll();
+					for (usize i = 0; i < lsp.log.Size(); ++i)
+						GlobalLogBuffer().Push(lsp.log[i]);
+					lsp.log.Clear();
+					if (lsp.diagsFresh) { // ÉTAPE B : les diagnostics clangd ALIMENTENT les squiggles
+						lsp.diagsFresh = false;
+						for (usize i = 0; i < files.Size(); ++i)
+							if (PathEqI(files[i].path.ToString().CStr(), lsp.diagPath.CStr())) {
+								files[i].doc.diags.Clear();
+								for (usize k = 0; k < lsp.diags.Size(); ++k)
+									files[i].doc.diags.PushBack({lsp.diags[k].line, lsp.diags[k].col, lsp.diags[k].col,
+																 lsp.diags[k].sev, lsp.diags[k].msg});
+								break;
+							}
+					}
+					if (lsp.resKind == 3) { // HOVER sémantique -> carte (repli heuristique si réponse vide)
+						lsp.resKind = 0;
+						if (HasActive() && PathEqI(files[active].path.ToString().CStr(), lspHovPath.CStr())) {
+							NkCodeDoc &doc = files[active].doc;
+							if (lsp.resHover.Empty()) { // clangd ne sait pas -> tables heuristiques
+								doc.hovReq = true;
+								doc.hovDone = false;
+								ProcessHoverLocal();
+							} else {
+								// markdown clangd -> titre (1re ligne du bloc ```) + corps (nettoyé, ~72 col)
+								doc.hovBody.Clear();
+								doc.hovTitle = NkString();
+								doc.hovKind = 1;
+								const char *h2 = lsp.resHover.CStr();
+								if (NkFindSub(h2, "class") || NkFindSub(h2, "struct") || NkFindSub(h2, "enum") ||
+									NkFindSub(h2, "union") || NkFindSub(h2, "namespace"))
+									doc.hovKind = 2;
+								else if (NkFindSub(h2, "variable") || NkFindSub(h2, "field") || NkFindSub(h2, "param"))
+									doc.hovKind = 3;
+								else if (NkFindSub(h2, "macro"))
+									doc.hovKind = 4;
+								bool inCode = false;
+								NkString line2;
+								auto flush = [&]() {
+									if (line2.Empty())
+										return;
+									if (doc.hovTitle.Empty() && inCode)
+										doc.hovTitle = line2;
+									else if (doc.hovBody.Size() < 24)
+										doc.hovBody.PushBack(line2);
+									line2 = NkString();
+								};
+								for (const char *q2 = h2; *q2; ++q2) {
+									if (*q2 == '\n') {
+										const char *l3 = line2.CStr();
+										if (l3[0] == '`' && l3[1] == '`' && l3[2] == '`') { // fence : bascule code
+											inCode = !inCode;
+											line2 = NkString();
+											continue;
+										}
+										if (l3[0] == '-' && l3[1] == '-' && l3[2] == '-') { // séparateur markdown
+											line2 = NkString();
+											continue;
+										}
+										flush();
+										continue;
+									}
+									if (*q2 != '\r')
+										line2 += *q2;
+								}
+								flush();
+								if (doc.hovTitle.Empty() && !doc.hovBody.Empty()) {
+									doc.hovTitle = doc.hovBody[0];
+									doc.hovBody.Erase(doc.hovBody.Begin());
+								}
+								if (!doc.hovTitle.Empty()) {
+									doc.hovShow = true;
+									doc.hovDone = true;
+								}
+							}
+						}
+					}
+					if (lsp.resKind == 4) { // RENAME sémantique -> applique le WorkspaceEdit
+						lsp.resKind = 0;
+						if (lsp.resEdits.Empty())
+							status = NkString("Renommage impossible ici (clangd)");
+						else
+							ApplyLspRename();
+					}
+					if (lsp.resKind) { // réponse definition/references -> navigation (poll = mutations SÛRES)
+						const int32 rk = lsp.resKind;
+						lsp.resKind = 0;
+						if (lsp.resLocs.Empty())
+							status =
+								NkString(rk == 1 ? "Définition introuvable (clangd)" : "Aucune référence (clangd)");
+						else if (rk == 1 && lsp.resLocs.Size() == 1) {
+							OpenAt(NkPath(lsp.resLocs[0].path), lsp.resLocs[0].line);
+							status = NkString();
+						} else { // plusieurs (ou références) -> picker existant, aperçu lu avec un cache fichier
+							navResults.Clear();
+							NkString lastF, lastTxt;
+							for (usize i = 0; i < lsp.resLocs.Size() && navResults.Size() < 200; ++i) {
+								const NkLspLoc &L2 = lsp.resLocs[i];
+								if (!StrEq(lastF.CStr(), L2.path.CStr())) {
+									lastF = L2.path;
+									lastTxt = NkFile::ReadAllText(NkPath(L2.path));
+								}
+								navResults.PushBack(NavHit{L2.path, L2.line, LineTextOf(lastTxt.CStr(), L2.line)});
+							}
+							navPickerOpen = true;
+							navPickerSel = 0;
+							status = NkString();
+						}
+					}
+					if (!lsp.Ready() || !HasActive())
+						return;
+					OpenFile &f = files[active];
+					if (!IsCppExt(f.path.GetExtension().CStr()))
+						return;
+					const NkString p2 = f.path.ToString();
+					const int64 sig = f.doc.SymSig();
+					if (!StrEq(p2.CStr(), lspActive.CStr())) { // nouvel onglet actif -> didOpen
+						lspActive = p2;
+						lspSig = sig;
+						lspTimer = 0.f;
+						lsp.DidOpen(p2, f.doc.GetText());
+						return;
+					}
+					if (sig != lspSig) { // frappe -> didChange (débounce 0,5 s, texte FULL)
+						lspTimer += dt;
+						if (lspTimer >= 0.5f) {
+							lspSig = sig;
+							lspTimer = 0.f;
+							lsp.DidChange(p2, f.doc.GetText());
+						}
+					} else
+						lspTimer = 0.f;
+				}
+
 				// ── Recherche WORKSPACE (Ctrl+Maj+F) : plein texte multi-fichiers sur THREAD, panneau
 				//    « Recherche ». Même hygiène que la navigation : annulable, relance en attente,
 				//    ouverture des résultats DIFFÉRÉE au poll (mutation de `files` interdite au rendu). ──
@@ -2872,9 +3278,11 @@ namespace nkentseu {
 				NkVector<NkString> wsOpenP, wsOpenT, wsPendOpenP, wsPendOpenT; // snapshots buffers ouverts
 				NkVector<WsHit> wsResults;
 				int32 wsScanned = 0, wsTotal = 0, wsFileCount = 0;
-				bool wsFocusReq = false; // Ctrl+Maj+F -> le panneau prend le focus du champ
-				NkString wsPrefill;		 // sélection de l'éditeur préremplie dans le champ
-				NkString wsOpenFile;	 // clic sur un résultat : consommé par ProcessWsOpen (poll)
+				bool wsFocusReq = false;
+				int32 wsFocusField = 1; // 1 = champ Rechercher (Ctrl+Maj+F), 2 = champ Remplacer (Ctrl+Maj+H) //
+										// Ctrl+Maj+F -> le panneau prend le focus du champ
+				NkString wsPrefill;		// sélection de l'éditeur préremplie dans le champ
+				NkString wsOpenFile;	// clic sur un résultat : consommé par ProcessWsOpen (poll)
 				int32 wsOpenLine = -1;
 
 				void StartWsFind(const NkString &q, bool cs, bool ww) {

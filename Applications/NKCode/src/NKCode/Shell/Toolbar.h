@@ -46,19 +46,27 @@ namespace nkentseu {
 			s->PollFlags();
 			s->PollMacros();
 			s->PollDiagnostics();
-			s->TickDiagnostics(ec.dt);	   // flags + macros préproc + diagnostics LIVE (squiggles, débounce)
+			s->TickDiagnostics(ec.dt);
+			s->TickLsp(ec.dt); // clangd (étape A : traces [lsp] dans OUTPUT)	   // flags + macros préproc +
+							   // diagnostics LIVE (squiggles, débounce)
 			s->ProcessCompletionRequest(); // complétion CONTEXTUELLE ('.', '->', '::') compile-first
 			s->ProcessHover();			   // hover documentation (survol ~0,5 s -> carte signature + doc)
 			s->PollCompletion();		   // récupère les membres renvoyés par le compilateur -> popup
 			s->TickMru();				   // MRU des onglets (Ctrl+Tab) : enregistre l'onglet actif
 			s->ProcessNavigation();
 			s->PollNav();
-			if (s->HasActive() && s->files[s->active].doc.renGo) { // F2 : scan puis remplacement en chaine
+			if (s->HasActive() && s->files[s->active].doc.renGo) { // F2 : rename (clangd si pret, sinon textuel)
 				NkCodeDoc &rd = s->files[s->active].doc;
 				rd.renGo = false;
-				s->wsRenameTo = NkString(rd.renBuf);
-				s->wsRenamePending = true;
-				s->StartWsFind(rd.renWord, true, true); // casse stricte + mot entier
+				if (s->lspState == 1 && s->lsp.Ready() && rd.renLine >= 0) { // SEMANTIQUE (WorkspaceEdit)
+					s->lsp.ReqRename(s->files[s->active].path.ToString(), rd.renLine, rd.renCol, NkString(rd.renBuf));
+					rd.renLine = -1;
+					s->status = NkString("Renommage (clangd)…");
+				} else {
+					s->wsRenameTo = NkString(rd.renBuf);
+					s->wsRenamePending = true;
+					s->StartWsFind(rd.renWord, true, true); // casse stricte + mot entier (textuel)
+				}
 			}
 			s->PollWsFind(); // recherche workspace (Ctrl+Maj+F)
 			s->ProcessWsOpen();
