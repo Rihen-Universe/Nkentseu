@@ -261,6 +261,40 @@ namespace nkentseu {
 					}
 				}
 
+				// Un DOSSIER contient-il des modifications git ? (préfixe "rel/" d'un
+				// chemin touché -> le dossier ET ses parents sont marqués, façon VSCode.)
+				bool GitDirTouched(const NkString &dirFull) const {
+					const usize rootLen = mRootStr.Length();
+					if (dirFull.Length() <= rootLen || mGitPath.Empty())
+						return false;
+					char rel[1024];
+					int32 n = 0;
+					const char *f = dirFull.CStr();
+					for (const char *q = f + rootLen; *q && n < 1022; ++q) {
+						if (n == 0 && (*q == '/' || *q == '\\'))
+							continue;
+						rel[n++] = (*q == '\\') ? '/' : *q;
+					}
+					rel[n++] = '/';
+					rel[n] = 0;
+					for (usize i = 0; i < mGitPath.Size(); ++i) {
+						const char *a = mGitPath[i].CStr();
+						const char *b = rel;
+						bool pref = true;
+						while (*b) {
+							if (*a != *b) {
+								pref = false;
+								break;
+							}
+							++a;
+							++b;
+						}
+						if (pref)
+							return true;
+					}
+					return false;
+				}
+
 				// Code Git d'un chemin (relatif à la racine, séparateurs '/').
 				char GitCodeFor(const NkString &fullPath) const {
 					const usize rootLen = mRootStr.Length();
@@ -283,6 +317,8 @@ namespace nkentseu {
 
 				static NkColor GitColor(char code) {
 					switch (code) {
+						case '*':
+							return {230, 160, 60, 255}; // dossier contenant des modifs
 						case 'M':
 							return {230, 160, 60, 255}; // orange
 						case 'A':
@@ -342,6 +378,7 @@ namespace nkentseu {
 							r.dir = e.IsDirectory;
 							if (e.IsDirectory) {
 								r.open = IsExpanded(r.path);
+								r.git = GitDirTouched(r.path) ? '*' : 0;
 								mRows.PushBack(r);
 								if (r.open)
 									AppendDir(e.FullPath, depth + 1);
@@ -704,15 +741,19 @@ namespace nkentseu {
 						x += iadv + 4.f;
 						// Nom (racine en circonflexe visuel : couleur pleine).
 						if (ctx.font && ctx.font->Valid()) {
-							NkColor nc = ctx.theme.text;
+							// Modifié/ajouté/non-tracké : le NOM prend la couleur git
+							// (dossiers contenant des modifs compris), façon VSCode.
+							NkColor nc = r.git ? GitColor(r.git) : ctx.theme.text;
 							if (r.git == 'D')
 								nc.a = 120;
 							dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 									   {x, row.y + (rowH - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()},
 									   r.name.CStr(), nc, row.x + fullW - x - 16.f);
 						}
-						// Badge Git coloré à droite.
-						if (r.git && ctx.font && ctx.font->Valid()) {
+						// Badge Git coloré à droite (lettre ; les dossiers touchés : un point).
+						if (r.git == '*') {
+							dl.AddCircleFilled({row.x + fullW - 10.f, cy}, 2.5f, GitColor('*'));
+						} else if (r.git && ctx.font && ctx.font->Valid()) {
 							const char b[2] = {r.git, 0};
 							dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 									   {row.x + fullW - 12.f,

@@ -231,7 +231,37 @@ namespace nkentseu {
 				std::snprintf(testBadge, sizeof(testBadge), "%d", nTestVis);
 			C(0, wSol, 90, false, NkT("tb.solution"), wsPrev, TEX(ic ? ic->jenga : 0), "git-branch", true);
 			C(1, wProj, 40, false, NkT("tb.projet"), projPrev, TEX(ic ? ic->pkg : 0), "package", false);
-			C(2, wPlat, 85, true, NkT("tb.plateforme"), SY.name, TEX(ic ? ic->monitor : 0), "monitor", false);
+			// Icône de la PLATEFORME cible : logo dédié (Android, Apple, Tux, Windows,
+			// Web) selon le nom sélectionné ; générique (écran) sinon.
+			uint32 platTex = ic ? ic->monitor : 0;
+			if (ic && SY.name) {
+				auto has = [&](const char *k) {
+					auto low = [](char ch) { return (ch >= 'A' && ch <= 'Z') ? char(ch + 32) : ch; };
+					for (const char *h = SY.name; *h; ++h) {
+						const char *a = h;
+						const char *b = k;
+						while (*a && *b && low(*a) == low(*b)) {
+							++a;
+							++b;
+						}
+						if (!*b)
+							return true;
+					}
+					return false;
+				};
+				if (has("android"))
+					platTex = ic->android;
+				else if (has("ios") || has("macos") || has("tvos") || has("watchos") || has("visionos") ||
+						 has("apple"))
+					platTex = ic->apple;
+				else if (has("linux"))
+					platTex = ic->linux;
+				else if (has("web") || has("emscripten") || has("wasm"))
+					platTex = ic->globe;
+				else if (has("windows") || has("win"))
+					platTex = ic->windowsLogo;
+			}
+			C(2, wPlat, 85, true, NkT("tb.plateforme"), SY.name, TEX(platTex), "monitor", false);
 			C(3, wCfg, 70, false, NkT("tb.config"), kCfg[cfgI], TEX(ic ? ic->kConfig : 0), "settings", false);
 			C(4, wArch, 35, false, NkT("tb.archi"), archPrev, TEX(ic ? ic->platforms : 0), "cpu", false);
 			if (hasCompiler)

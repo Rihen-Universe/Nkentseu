@@ -580,6 +580,10 @@ int nkmain(const NkEntryState &state) {
 				{&ic.hammer, "icon/Hammer"}, // build (marteau Lucide)
 				// Activity bars (textures)
 				{&ic.files, "icon/Files"},
+				{&ic.android, "icon/Android"},
+				{&ic.apple, "icon/Apple"},
+				{&ic.windowsLogo, "icon/WindowsLogo"},
+				{&ic.claude, "icon/Claude"},
 				{&ic.sourceControl, "icon/SourceControl"},
 				{&ic.liveShare, "icon/LiveShare"},
 				{&ic.codeC, "icon/CodeC"},
@@ -657,7 +661,7 @@ int nkmain(const NkEntryState &state) {
 		{ // Activity bars : textures codicon (remplacent les dessins au trait du shell)
 			const uint32 L[7] = {ic.files, ic.search,	 ic.sourceControl, ic.bug,
 								 ic.liveShare, ic.puzzle, ic.chart}; // vues gauche 0..6
-			const uint32 R[3] = {ic.sparkles, ic.codeC, ic.accueil};  // 100 Claude, 101 Codex, 102 Maison
+			const uint32 R[3] = {ic.claude, ic.codeC, ic.accueil}; // 100 Claude (vrai logo), 101 Codex, 102 Maison
 			shell->SetActivityIcons(L, 7, ic.gear, R, 3);
 		}
 		// toggle liste/grille : pas d'asset adapte (`<>` et `↕` ne conviennent pas) -> dessine.
