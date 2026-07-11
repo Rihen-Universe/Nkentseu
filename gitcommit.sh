@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 #
-# gitcommit.sh — Commit PROPRE pour le depot Nkentseu, AUCUNE mention Claude.
+# gitcommit.sh — Commit PROPRE pour le depot Nkentseu.
 # -----------------------------------------------------------------------------
-# Le message de commit est EXACTEMENT celui passe (jamais de trailer
-# Co-Authored-By Claude, jamais de "Generated with Claude Code"). L'identite
+# Le message de commit est EXACTEMENT celui passe. L'identite
 # auteur/committer est celle configuree pour CE depot (par defaut LeTeguis, via
 # la config git locale/globale) ; on peut la forcer en remplissant GIT_NAME /
 # GIT_EMAIL ci-dessous, ou via les variables d'environnement du meme nom.
@@ -50,5 +49,5 @@ ID_OPTS=()
 git "${ID_OPTS[@]}" commit -m "$MSG" \
   || { echo "[gitcommit] git commit a echoue" >&2; exit 1; }
 
-echo "[gitcommit] OK — commit cree (zero mention Claude)."
+echo "[gitcommit] OK — commit cree."
 git --no-pager log -1 --format='   %h  A:%an <%ae>  C:%cn <%ce>'

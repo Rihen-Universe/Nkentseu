@@ -3,8 +3,7 @@
 # gitpr.sh — Cree (ou met a jour) une Pull Request PROPRE via gh, pour Nkentseu.
 # -----------------------------------------------------------------------------
 # - La PR est ouverte par le compte gh authentifie.
-# - Le corps de la PR est EXACTEMENT celui fourni : AUCUNE mention Claude / aucun
-#   "Generated with Claude Code".
+# - Le corps de la PR est EXACTEMENT celui fourni
 # - Branche source = HEAD courant ; branche cible (base) = 'main' par defaut
 #   (branche par defaut du depot RihenUniverse/Nkentseu).
 #

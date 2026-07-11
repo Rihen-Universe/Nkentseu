@@ -2,7 +2,7 @@
 #
 # gitpush.sh — add + commit + push du depot Nkentseu (RihenUniverse/Nkentseu).
 # -----------------------------------------------------------------------------
-# Commit PROPRE (aucune mention Claude) puis push de la branche indiquee. Option
+# Commit PROPRE puis push de la branche indiquee. Option
 # --release pour creer et pousser un tag de version.
 #
 # NOTE : Nkentseu n'a pas (encore) de workflow GitHub Actions. Le push ne

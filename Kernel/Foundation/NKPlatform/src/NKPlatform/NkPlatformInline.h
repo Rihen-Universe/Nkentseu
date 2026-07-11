@@ -132,7 +132,7 @@
 
 // GCC/Clang/Intel : utilise l'attribut noinline
 #elif defined(NKENTSEU_INLINE_COMPILER_GCC) || defined(NKENTSEU_INLINE_COMPILER_CLANG) ||                              \
-	defined(NKENTSEU_INLINE_COMPILER_INTEL)
+    defined(NKENTSEU_INLINE_COMPILER_INTEL)
 #define NKENTSEU_NO_INLINE __attribute__((noinline))
 
 // ARMCC/IAR : attributs spécifiques
@@ -386,170 +386,170 @@
 // Exemple 1 : Fonction inline standard dans un en-tête
 // -----------------------------------------------------------------------------
 /*
-	// math_utils.h
-	#include "NkPlatformInline.h"
+    // math_utils.h
+    #include "NkPlatformInline.h"
 
-	NKENTSEU_INLINE float Clamp(float value, float min, float max) {
-		if (value < min) return min;
-		if (value > max) return max;
-		return value;
-	}
+    NKENTSEU_INLINE float Clamp(float value, float min, float max) {
+        if (value < min) return min;
+        if (value > max) return max;
+        return value;
+    }
 
-	// Utilisation : la fonction peut être inlinée à chaque site d'appel
-	float result = Clamp(userInput, 0.0f, 1.0f);
+    // Utilisation : la fonction peut être inlinée à chaque site d'appel
+    float result = Clamp(userInput, 0.0f, 1.0f);
 */
 
 // -----------------------------------------------------------------------------
 // Exemple 2 : Fonction critique avec force_inline
 // -----------------------------------------------------------------------------
 /*
-	// performance_critical.h
-	#include "NkPlatformInline.h"
+    // performance_critical.h
+    #include "NkPlatformInline.h"
 
-	// Fonction appelée des millions de fois par frame : forcer l'inlining
-	NKENTSEU_FORCE_INLINE float FastNormalize(float x, float y) {
-		// Approximation rapide de 1/sqrt pour éviter la division
-		float invSq = 1.0f / (x * x + y * y + 1e-8f);
-		return __builtin_sqrtf(invSq);
-	}
+    // Fonction appelée des millions de fois par frame : forcer l'inlining
+    NKENTSEU_FORCE_INLINE float FastNormalize(float x, float y) {
+        // Approximation rapide de 1/sqrt pour éviter la division
+        float invSq = 1.0f / (x * x + y * y + 1e-8f);
+        return __builtin_sqrtf(invSq);
+    }
 
-	// Dans la boucle de rendu :
-	for (int i = 0; i < particleCount; ++i) {
-		float norm = FastNormalize(particles[i].vx, particles[i].vy);
-		// ... utilisation de norm
-	}
+    // Dans la boucle de rendu :
+    for (int i = 0; i < particleCount; ++i) {
+        float norm = FastNormalize(particles[i].vx, particles[i].vy);
+        // ... utilisation de norm
+    }
 */
 
 // -----------------------------------------------------------------------------
 // Exemple 3 : Fonction de gestion d'erreur avec no_inline
 // -----------------------------------------------------------------------------
 /*
-	// error_handling.h
-	#include "NkPlatformInline.h"
+    // error_handling.h
+    #include "NkPlatformInline.h"
 
-	// Fonction rarement appelée : éviter d'encombrer le cache d'instructions
-	NKENTSEU_NO_INLINE void LogAndAbort(const char* file, int line, const char* msg) {
-		fprintf(stderr, "[%s:%d] FATAL: %s\n", file, line, msg);
-		abort();
-	}
+    // Fonction rarement appelée : éviter d'encombrer le cache d'instructions
+    NKENTSEU_NO_INLINE void LogAndAbort(const char* file, int line, const char* msg) {
+        fprintf(stderr, "[%s:%d] FATAL: %s\n", file, line, msg);
+        abort();
+    }
 
-	// Macro utilitaire pour les assertions
-	#define NK_ASSERT(cond) \
-		do { \
-			if (NKENTSEU_UNLIKELY(!(cond))) { \
-				LogAndAbort(__FILE__, __LINE__, #cond); \
-			} \
-		} while(0)
+    // Macro utilitaire pour les assertions
+    #define NK_ASSERT(cond) \
+        do { \
+            if (NKENTSEU_UNLIKELY(!(cond))) { \
+                LogAndAbort(__FILE__, __LINE__, #cond); \
+            } \
+        } while(0)
 */
 
 // -----------------------------------------------------------------------------
 // Exemple 4 : Combinaison avec NKENTSEU_PLATFORM_API pour DLL
 // -----------------------------------------------------------------------------
 /*
-	// public_api.h
-	#include "NkPlatformExport.h"
-	#include "NkPlatformInline.h"
+    // public_api.h
+    #include "NkPlatformExport.h"
+    #include "NkPlatformInline.h"
 
-	// Fonction publique inline : exportée mais potentiellement inlinée
-	NKENTSEU_API_INLINE int GetLibraryVersion() {
-		return 0x010203; // Version 1.2.3 encodée en hex
-	}
+    // Fonction publique inline : exportée mais potentiellement inlinée
+    NKENTSEU_API_INLINE int GetLibraryVersion() {
+        return 0x010203; // Version 1.2.3 encodée en hex
+    }
 
-	// Fonction publique force_inline : pour les getters critiques
-	NKENTSEU_API_FORCE_INLINE float* GetVertexData(NkMesh* mesh) {
-		return mesh->vertices;
-	}
+    // Fonction publique force_inline : pour les getters critiques
+    NKENTSEU_API_FORCE_INLINE float* GetVertexData(NkMesh* mesh) {
+        return mesh->vertices;
+    }
 
-	// Fonction publique no_inline : pour le debugging symbolique
-	NKENTSEU_API_NO_INLINE void DebugPrintState(NkContext* ctx);
+    // Fonction publique no_inline : pour le debugging symbolique
+    NKENTSEU_API_NO_INLINE void DebugPrintState(NkContext* ctx);
 */
 
 // -----------------------------------------------------------------------------
 // Exemple 5 : Optimisation de branche avec LIKELY/UNLIKELY
 // -----------------------------------------------------------------------------
 /*
-	#include "NkPlatformInline.h"
+    #include "NkPlatformInline.h"
 
-	NKENTSEU_FORCE_INLINE void ProcessPacket(Packet* pkt) {
-		// Le header valide est le cas normal : optimiser pour ce chemin
-		if (NKENTSEU_LIKELY(pkt->header.magic == PACKET_MAGIC)) {
-			DecodePayload(pkt);
-			DispatchToHandler(pkt);
-		} else {
-			// Chemin d'erreur rare : placé loin du hot path
-			NKENTSEU_UNLIKELY(pkt->header.magic == PACKET_MAGIC_LEGACY);
-			HandleLegacyPacket(pkt);
-		}
-	}
+    NKENTSEU_FORCE_INLINE void ProcessPacket(Packet* pkt) {
+        // Le header valide est le cas normal : optimiser pour ce chemin
+        if (NKENTSEU_LIKELY(pkt->header.magic == PACKET_MAGIC)) {
+            DecodePayload(pkt);
+            DispatchToHandler(pkt);
+        } else {
+            // Chemin d'erreur rare : placé loin du hot path
+            NKENTSEU_UNLIKELY(pkt->header.magic == PACKET_MAGIC_LEGACY);
+            HandleLegacyPacket(pkt);
+        }
+    }
 */
 
 // -----------------------------------------------------------------------------
 // Exemple 6 : Fonctions pures/const pour optimisation du compilateur
 // -----------------------------------------------------------------------------
 /*
-	#include "NkPlatformInline.h"
+    #include "NkPlatformInline.h"
 
-	// Fonction pure : peut être éliminée si le résultat n'est pas utilisé
-	NKENTSEU_PURE_FUNCTION NKENTSEU_INLINE int ComputeChecksum(const void* data, size_t len) {
-		const uint8_t* bytes = (const uint8_t*)data;
-		uint32_t sum = 0;
-		for (size_t i = 0; i < len; ++i) {
-			sum += bytes[i];
-		}
-		return (int)(sum & 0xFFFF);
-	}
+    // Fonction pure : peut être éliminée si le résultat n'est pas utilisé
+    NKENTSEU_PURE_FUNCTION NKENTSEU_INLINE int ComputeChecksum(const void* data, size_t len) {
+        const uint8_t* bytes = (const uint8_t*)data;
+        uint32_t sum = 0;
+        for (size_t i = 0; i < len; ++i) {
+            sum += bytes[i];
+        }
+        return (int)(sum & 0xFFFF);
+    }
 
-	// Fonction const : dépend uniquement des paramètres, pas d'état global
-	NKENTSEU_CONST_FUNCTION NKENTSEU_INLINE float Lerp(float a, float b, float t) {
-		return a + t * (b - a);
-	}
+    // Fonction const : dépend uniquement des paramètres, pas d'état global
+    NKENTSEU_CONST_FUNCTION NKENTSEU_INLINE float Lerp(float a, float b, float t) {
+        return a + t * (b - a);
+    }
 
-	// Le compilateur peut optimiser :
-	// - Appels redondants éliminés (CSE)
-	// - Réordonnancement agressif des instructions
-	// - Vectorisation automatique si possible
+    // Le compilateur peut optimiser :
+    // - Appels redondants éliminés (CSE)
+    // - Réordonnancement agressif des instructions
+    // - Vectorisation automatique si possible
 */
 
 // -----------------------------------------------------------------------------
 // Exemple 7 : Combinaison complète dans une classe publique
 // -----------------------------------------------------------------------------
 /*
-	// vector3.h
-	#include "NkPlatformExport.h"
-	#include "NkPlatformInline.h"
+    // vector3.h
+    #include "NkPlatformExport.h"
+    #include "NkPlatformInline.h"
 
-	NKENTSEU_EXTERN_C_BEGIN
+    NKENTSEU_EXTERN_C_BEGIN
 
-	struct NKENTSEU_ALIGN(16) NKENTSEU_CLASS_EXPORT Vector3 {
-		float x, y, z, w;
+    struct NKENTSEU_ALIGN(16) NKENTSEU_CLASS_EXPORT Vector3 {
+        float x, y, z, w;
 
-		// Constructeur inline pour performance
-		NKENTSEU_FORCE_INLINE Vector3(float x_, float y_, float z_)
-			: x(x_), y(y_), z(z_), w(0.0f) {}
+        // Constructeur inline pour performance
+        NKENTSEU_FORCE_INLINE Vector3(float x_, float y_, float z_)
+            : x(x_), y(y_), z(z_), w(0.0f) {}
 
-		// Getter force_inline : accès fréquent, pas de surcoût d'appel
-		NKENTSEU_FORCE_INLINE float LengthSquared() const {
-			return x * x + y * y + z * z;
-		}
+        // Getter force_inline : accès fréquent, pas de surcoût d'appel
+        NKENTSEU_FORCE_INLINE float LengthSquared() const {
+            return x * x + y * y + z * z;
+        }
 
-		// Méthode publique exportée mais pas inlinée : debugging facilité
-		NKENTSEU_API_NO_INLINE void Normalize();
+        // Méthode publique exportée mais pas inlinée : debugging facilité
+        NKENTSEU_API_NO_INLINE void Normalize();
 
-		// Opérateur avec hint de branche
-		NKENTSEU_FORCE_INLINE bool IsNearlyZero(float epsilon) const {
-			return NKENTSEU_LIKELY(LengthSquared() < epsilon * epsilon);
-		}
-	};
+        // Opérateur avec hint de branche
+        NKENTSEU_FORCE_INLINE bool IsNearlyZero(float epsilon) const {
+            return NKENTSEU_LIKELY(LengthSquared() < epsilon * epsilon);
+        }
+    };
 
-	// Fonction utilitaire pure pour optimisation
-	NKENTSEU_PURE_FUNCTION NKENTSEU_INLINE float Dot(
-		const Vector3& a,
-		const Vector3& b
-	) {
-		return a.x * b.x + a.y * b.y + a.z * b.z;
-	}
+    // Fonction utilitaire pure pour optimisation
+    NKENTSEU_PURE_FUNCTION NKENTSEU_INLINE float Dot(
+        const Vector3& a,
+        const Vector3& b
+    ) {
+        return a.x * b.x + a.y * b.y + a.z * b.z;
+    }
 
-	NKENTSEU_EXTERN_C_END
+    NKENTSEU_EXTERN_C_END
 */
 
 // ============================================================

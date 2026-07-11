@@ -571,13 +571,17 @@ int nkmain(const NkEntryState &state) {
 	//     { { 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f } }, // sommet droit  → vert
 	//     { {-0.5f, -0.5f }, { 0.0f, 0.0f, 1.0f } }  // sommet gauche → bleu
 	// };
+	// Un carré = 2 triangles (6 sommets, TRIANGLE_LIST). Chaque coin porte une
+	// couleur différente → dégradé interpolé sur toute la surface.
 	Vertex vertices[] = {
-		{{0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}},	  // sommet haut   → rouge
-		{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},  // sommet droit  → vert
-		{{-0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}}, // sommet gauche → bleu
-		{{-0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}}, // sommet gauche → bleu
-		{{-0.5f, 0.5f}, {0.0f, 0.0f, 0.0f}},  // sommet droit  → vert
-		{{0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}},	  // sommet haut   → rouge
+		// Triangle 1 : haut-droit, bas-droit, bas-gauche
+		{{0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}},	  // haut-droit  → rouge
+		{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},  // bas-droit   → vert
+		{{-0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}}, // bas-gauche  → bleu
+		// Triangle 2 : bas-gauche, haut-gauche, haut-droit
+		{{-0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}}, // bas-gauche  → bleu
+		{{-0.5f, 0.5f}, {1.0f, 1.0f, 0.0f}},  // haut-gauche → jaune
+		{{0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}},	  // haut-droit  → rouge
 	};
 
 	// NkBufferDesc::Vertex crée un descriptor pour un vertex buffer avec upload
@@ -794,8 +798,8 @@ int nkmain(const NkEntryState &state) {
 		//
 		// TODO (étudiant) : changez cette couleur (ex: 0.1f, 0.3f, 0.6f pour du bleu)
 		//                   ou calculez-la depuis le temps pour un fond animé.
-		cmd->SetClearColor(math::NkRand.NextColor()); // fond gris-bleuté
-		cmd->SetClearDepth(1.0f);					  // depth buffer remis à 1.0 (plan lointain)
+		cmd->SetClearColor(0.10f, 0.12f, 0.15f, 1.0f); // fond gris-bleuté stable
+		cmd->SetClearDepth(1.0f);					   // depth buffer remis à 1.0 (plan lointain)
 
 		// ── 11.8 : Ouverture du render pass ──────────────────────────────────
 		// BeginRenderPass définit la zone de rendu (area) et exécute les
@@ -845,7 +849,7 @@ int nkmain(const NkEntryState &state) {
 		//     et appelez DrawIndexed() à la place de Draw().
 		cmd->BindGraphicsPipeline(graphicsPipeline);
 		cmd->BindVertexBuffer(0, vertexBuffer, 0);
-		cmd->Draw(6, 2, 0, 0); // 3 vertices, 1 instance
+		cmd->Draw(6, 1, 0, 0); // 6 vertices (quad = 2 triangles), 1 instance
 
 		cmd->EndRenderPass();
 		cmd->End();
