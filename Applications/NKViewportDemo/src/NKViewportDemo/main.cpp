@@ -16,6 +16,12 @@
 #include "NKMemory/NkUniquePtr.h"
 #include "NKGui/NKGui.h"
 #include "NKMath/NKMath.h"
+#include "NKMath/NkFunctions.h"				 // NkSin (tonalité audio de démo)
+#include "NKImage/Core/NkImage.h"			 // capture mémoire
+#include "NKMedia/Video/NkVideoRecorder.h"	 // enregistrement A/V
+#include "NKContainers/Sequential/NkVector.h"
+#include <cstdlib> // getenv (mode enregistrement opt-in)
+#include <cstdio>  // progression de l'enregistrement
 
 using namespace nkentseu;
 using namespace nkentseu::nkgui;
@@ -240,6 +246,17 @@ int nkmain(const NkEntryState &state) {
 	events.AddEventCallback<NkMouseWheelVerticalEvent>(
 		[&](NkMouseWheelVerticalEvent *e) { ctx.input.wheel += static_cast<float32>(e->GetDeltaY()); });
 
+	// ── Mode ENREGISTREMENT (opt-in via NK_RECORD) : capture le rendu DX11 → viewport_capture.mp4
+	//    (vidéo H.264 + audio + sous-titre), ~4 s à 30 fps, caméra auto-rotative. ────────────────
+	const bool record = (getenv("NK_RECORD") != nullptr);
+	media::NkVideoRecorder rec;
+	int32 recAudio = -1, recFrames = 0;
+	const int32 kRecTotal = 120, kRate = 48000, kAudioPerFrame = kRate / 30;
+	NkVector<int16> recTone;
+	recTone.Resize((uint64)kAudioPerFrame);
+	NkImage capImg;
+	int64 recPhase = 0;
+
 	NkClock clock;
 	uint32 lastW = 0, lastH = 0;
 	while (running && window.IsOpen()) {
@@ -295,6 +312,9 @@ int nkmain(const NkEntryState &state) {
 			ctx.input.wheel = 0.f;
 		}
 
+		if (record)
+			yaw += dt * 0.6f; // caméra auto-rotative pendant l'enregistrement
+
 		DrawScene3D(ctx, {0.f, 0.f, W, H}, yaw, pitch, dist);
 
 		ctx.EndFrame();
@@ -303,6 +323,34 @@ int nkmain(const NkEntryState &state) {
 		backend.Submit(ctx.dl, sz.x, sz.y);
 		backend.Submit(ctx.dlOverlay, sz.x, sz.y);
 		target->Display();
+
+		// ── Capture du backbuffer présenté → enregistrement A/V (mode NK_RECORD) ────────────
+		if (record && target->CaptureToImage(capImg) && capImg.IsValid()) {
+			if (!rec.IsRecording()) {
+				if (rec.Begin("viewport_capture.mp4", capImg.Width(), capImg.Height(), 30, 1, 24)) {
+					recAudio = rec.AddAudio(kRate, 1, "fre");
+					const int32 st = rec.AddSubtitleTrack("fre");
+					rec.AddSubtitle(st, "Capture live NKCanvas (DX11) - Nkentseu", 0, 4000);
+					printf("[REC] Enregistrement %dx%d, %d trames (encodage H.264 CPU, patiente)...\n",
+						   capImg.Width(), capImg.Height(), kRecTotal);
+				}
+			}
+			if (rec.IsRecording()) {
+				rec.PushVideo(capImg.Pixels(), media::NkVideoInputFormat::RGBA32);
+				for (int32 i = 0; i < kAudioPerFrame; ++i, ++recPhase) {
+					const double t = (double)recPhase / kRate;
+					recTone[(uint64)i] = (int16)(7000.0 * math::NkSin((float32)(6.2831853 * 440.0 * t)));
+				}
+				rec.PushAudio(recAudio, recTone.Data(), (uint32)kAudioPerFrame);
+				if ((++recFrames % 15) == 0)
+					printf("[REC] %d / %d trames\n", recFrames, kRecTotal);
+				if (recFrames >= kRecTotal) {
+					rec.End();
+					printf("[REC] Termine -> viewport_capture.mp4 (video H.264 + audio + sous-titre)\n");
+					running = false; // enregistrement terminé → on quitte
+				}
+			}
+		}
 	}
 	return 0;
 }
