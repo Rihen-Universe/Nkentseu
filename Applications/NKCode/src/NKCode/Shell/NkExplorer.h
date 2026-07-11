@@ -571,13 +571,19 @@ namespace nkentseu {
 									dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 											   {ir.x + 2.f, cy - ctx.font->LineHeight() * 0.5f + ctx.font->Ascent()},
 											   "NK", {200, 216, 196, 255}, ir.w - 3.f);
-							} else if (IsShaderExt(e)) { // shader : pastille violette + éclair
+							} else if (IsShaderExt(e)) { // shader : pastille violette + éclair (Eclaire.png)
 								dl.AddRectFilled(ir, {70, 45, 110, 255}, 3.f);
-								const float32 mx = ir.x + ir.w * 0.5f;
-								dl.AddLine({mx + 2.f, ir.y + 2.f}, {mx - 2.f, cy + 1.f}, {230, 200, 90, 255}, 1.6f);
-								dl.AddLine({mx - 2.f, cy + 1.f}, {mx + 1.f, cy + 1.f}, {230, 200, 90, 255}, 1.6f);
-								dl.AddLine({mx + 1.f, cy + 1.f}, {mx - 2.f, ir.y + ir.h - 2.f}, {230, 200, 90, 255},
-										   1.6f);
+								if (mS->icons && mS->icons->zap)
+									dl.AddImage(mS->icons->zap, {ir.x + 1.f, ir.y + 1.f, ir.w - 2.f, ir.h - 2.f},
+												{0.f, 0.f}, {1.f, 1.f}, {230, 200, 90, 255});
+								else {
+									const float32 mx = ir.x + ir.w * 0.5f;
+									dl.AddLine({mx + 2.f, ir.y + 2.f}, {mx - 2.f, cy + 1.f}, {230, 200, 90, 255},
+											   1.6f);
+									dl.AddLine({mx - 2.f, cy + 1.f}, {mx + 1.f, cy + 1.f}, {230, 200, 90, 255}, 1.6f);
+									dl.AddLine({mx + 1.f, cy + 1.f}, {mx - 2.f, ir.y + ir.h - 2.f},
+											   {230, 200, 90, 255}, 1.6f);
+								}
 							} else if (LangBadge(e, lab, bc)) { // pastille lettres + couleur
 								// Largeur ADAPTATIVE : « C++ » s'affiche en entier, la pastille
 								// s'élargit plutôt que de tronquer le libellé.
@@ -594,7 +600,9 @@ namespace nkentseu {
 											   {ir.x + (bw - lw) * 0.5f,
 												cy - ctx.font->LineHeight() * 0.5f + ctx.font->Ascent()},
 											   lab, bc);
-							} else { // inconnu : feuille de document au trait
+							} else if (mS->icons && mS->icons->fileText) { // inconnu : fichier générique grisé
+								dl.AddImage(mS->icons->fileText, ir, {0.f, 0.f}, {1.f, 1.f}, {150, 150, 150, 255});
+							} else { // repli au trait
 								dl.AddRect({ir.x + 2.f, ir.y + 1.f, ir.w - 5.f, ir.h - 2.f}, bc, 1.3f);
 								dl.AddLine({ir.x + 4.f, ir.y + 5.f}, {ir.x + ir.w - 6.f, ir.y + 5.f}, bc, 1.f);
 								dl.AddLine({ir.x + 4.f, ir.y + 8.f}, {ir.x + ir.w - 6.f, ir.y + 8.f}, bc, 1.f);
