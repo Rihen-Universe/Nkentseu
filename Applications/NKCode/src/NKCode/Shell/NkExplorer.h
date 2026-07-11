@@ -57,7 +57,8 @@ namespace nkentseu {
 					DrawHeader(ctx, vclip);
 					if (mFilterOn)
 						DrawFilterBar(ctx, vclip);
-					DrawCtxMenu(ctx); // overlay : par-dessus tout
+					DrawCtxMenu(ctx);	 // overlay : par-dessus tout
+					DrawConfirmDel(ctx); // confirmation de suppression
 				}
 
 			private:
@@ -500,7 +501,34 @@ namespace nkentseu {
 					return o;
 				}
 
-				// Supprimer = envoyer à la CORBEILLE (récupérable, pas de confirmation).
+				// Demande de suppression : ouvre la CONFIRMATION (menu à la souris).
+				void RequestDelete(NkGuiContext &ctx, const NkString &path, bool dir) {
+					if (path.Length() == 0 || SameStr(path.CStr(), mRootStr.CStr()))
+						return;
+					mDelPath = path;
+					mDelIsDir = dir;
+					const NkString name = NkPath(path).GetFileName();
+					std::snprintf(mDelLabel, sizeof(mDelLabel), "%s \xC2\xAB %s \xC2\xBB", NkT("exp.ctx.delete"),
+								  name.CStr());
+					mDelMenu.open = true;
+					mDelMenu.pos = ctx.input.mousePos;
+				}
+
+				// Confirmation de suppression (2 items : confirmer / annuler).
+				void DrawConfirmDel(NkGuiContext &ctx) {
+					if (!mDelMenu.open)
+						return;
+					const char *items[2] = {mDelLabel, NkT("exp.del.cancel")};
+					bool en[2] = {true, true};
+					const int32 act = NkCtxMenuDraw(ctx, mDelMenu, items, en, 2);
+					if (act == 0) {
+						TrashAsync(mDelPath, mDelIsDir);
+						mDelPath.Clear();
+					} else if (act == 1 || !mDelMenu.open)
+						mDelPath.Clear();
+				}
+
+				// Supprimer = envoyer à la CORBEILLE (récupérable).
 				void TrashAsync(const NkString &path, bool dir) {
 					if (mOps.Running())
 						return;
@@ -950,8 +978,12 @@ namespace nkentseu {
 						// ouverture ; RE-clic LENT sur un fichier déjà sélectionné = renommer.
 						if (hov && ctx.input.mouseClicked[0] && !editing) {
 							rowHit = true;
-							if (!r.dir && sel && mTick - mSelTick > 30)
-								toRename = static_cast<int32>(i); // clic-lent façon VSCode
+							// DOUBLE-CLIC SUBTIL façon VSCode : un 2e clic sur l'élément déjà
+							// sélectionné, espacé de ~0,5 à 2,5 s, ouvre le RENOMMAGE (fichiers
+							// ET dossiers). Plus rapide = ouverture/toggle ; plus tard = resél.
+							const uint32 dt = mTick - mSelTick;
+							if (sel && !r.root && dt > 30 && dt < 150)
+								toRename = static_cast<int32>(i);
 							else {
 								mSelPath = r.path;
 								mSelTick = mTick;
@@ -1021,7 +1053,7 @@ namespace nkentseu {
 						if (ctx.input.KeyPressed(NkGuiKey::F2) && mSelPath.Length() > 0)
 							StartRename(mSelPath);
 						if (ctx.input.KeyPressed(NkGuiKey::Delete) && mSelPath.Length() > 0)
-							TrashAsync(mSelPath, SelIsDir());
+							RequestDelete(ctx, mSelPath, SelIsDir()); // confirmation avant corbeille
 						if (ctx.input.ctrlDown && ctx.input.KeyPressed(NkGuiKey::D) && mSelPath.Length() > 0)
 							DuplicateOf(mSelPath);
 						if (ctx.input.wantCopy && mSelPath.Length() > 0) { // Ctrl+C : copie interne
@@ -1076,7 +1108,7 @@ namespace nkentseu {
 							StartRename(p);
 							break;
 						case 3:
-							TrashAsync(p, dir);
+							RequestDelete(ctx, p, dir); // confirmation avant la corbeille
 							break;
 						case 4:
 							DuplicateOf(p);
@@ -1131,6 +1163,10 @@ namespace nkentseu {
 				uint32 mSelTick = 0;	///< frame de la dernière sélection (clic-lent = renommer)
 				NkProcess mOps;			///< opérations fichiers async (corbeille, copie)
 				bool mOpsPending = false;
+				NkCtxMenu mDelMenu;		///< confirmation de suppression
+				NkString mDelPath;
+				bool mDelIsDir = false;
+				char mDelLabel[192] = {};
 		};
 
 	} // namespace nkcode

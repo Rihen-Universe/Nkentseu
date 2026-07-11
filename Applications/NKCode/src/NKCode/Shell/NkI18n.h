@@ -488,6 +488,8 @@ namespace nkentseu {
 				{"exp.ctx.term",
 				 {"Ouvrir dans le terminal", "Open in terminal", "Abrir en terminal", "Abrir no terminal",
 				  "Im Terminal öffnen", "Apri nel terminale", "Открыть в терминале", "Ouvrir dans le terminal"}},
+				{"exp.del.cancel",
+				 {"Annuler", "Cancel", "Cancelar", "Cancelar", "Abbrechen", "Annulla", "Отмена", "Annuler"}},
 				{"exp.ctx.gitignore",
 				 {"Ajouter au .gitignore", "Add to .gitignore", "Añadir a .gitignore", "Adicionar ao .gitignore",
 				  "Zu .gitignore hinzufügen", "Aggiungi a .gitignore", "Добавить в .gitignore",
