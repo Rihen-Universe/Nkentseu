@@ -21,6 +21,16 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltAntiCollapse.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltSplit.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltQuantBands.h"
+#include "NKMedia/Codecs/Opus/Silk/NkSilkGains.h"
+#include "NKMedia/Codecs/Opus/Silk/NkSilkLpc.h"
+#include "NKMedia/Codecs/Opus/Silk/NkSilkNlsf.h"
+#include "NKMedia/Codecs/Opus/Silk/NkSilkLtp.h"
+#include "NKMedia/Codecs/Opus/Silk/NkSilkExcitation.h"
+#include "NKMedia/Codecs/Opus/Silk/NkSilkFrameType.h"
+#include "NKMedia/Codecs/Opus/Silk/NkSilkSynthesis.h"
+#include "NKMedia/Codecs/Opus/Silk/NkSilkIndices.h"
+#include "NKMedia/Codecs/Opus/Silk/NkSilkDecoder.h"
+#include "NKMedia/Codecs/Opus/Silk/NkSilkTop.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Transform.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Encoder.h"
@@ -47,6 +57,81 @@ static const char *TrackTypeName(media::NkMediaTrackType t) {
 }
 
 int main(int argc, char **argv) {
+	// Mode validation SILK : --silk <flux.webm> <sortie.pcm> (PCM s16le débit interne).
+	if (argc >= 4 && NkString(argv[1]) == NkString("--silk")) {
+		NkVector<nk_uint8> bytes;
+		media::NkMediaInfo info;
+		NkVector<media::NkMediaPacket> packets;
+		if (!media::NkMediaDemux::ExtractAudioPacketsFile(argv[2], bytes, info, packets)) {
+			printf("[ERREUR] demux %s\n", argv[2]);
+			return 1;
+		}
+		// Config depuis le TOC du 1er paquet (SILK-only : config 0..11).
+		const nk_uint8 toc = bytes[packets[0].offset];
+		const int cfg = toc >> 3, bw = cfg / 4, fsz = cfg % 4;
+		const int fs_kHz = (bw == 0) ? 8 : (bw == 1) ? 12 : 16;
+		int nb_subfr = 4, nFrames = 1;
+		if (fsz == 0) {
+			nb_subfr = 2;
+			nFrames = 1;
+		} else if (fsz == 1) {
+			nb_subfr = 4;
+			nFrames = 1;
+		} else if (fsz == 2) {
+			nb_subfr = 4;
+			nFrames = 2;
+		} else {
+			nb_subfr = 4;
+			nFrames = 3;
+		}
+		media::NkSilkTop top;
+		top.Init(fs_kHz, nb_subfr);
+		NkVector<nk_int16> pcm;
+		nk_int16 frameOut[960];
+		for (uint64 p = 0; p < packets.Size(); ++p) {
+			const nk_uint8 *pl = bytes.Data() + packets[p].offset;
+			const uint32 sz = (uint32)packets[p].size;
+			if (sz < 2)
+				continue;
+			// Framing Opus correct (codes 0-3) : chaque trame Opus a son offset/taille.
+			media::NkOpusPacketInfo op;
+			if (!media::NkOpusPacket::Parse(pl, sz, op))
+				continue;
+			int32 n = 0;
+			for (int32 fr = 0; fr < op.frameCount; ++fr) {
+				media::NkOpusRangeDecoder rd;
+				rd.Init(pl + op.frames[fr].offset, (uint32)op.frames[fr].size);
+				n += top.DecodePacket(rd, nFrames, frameOut + n);
+			}
+			for (int32 i = 0; i < n; ++i)
+				pcm.PushBack(frameOut[i]);
+		}
+		FILE *f = fopen(argv[3], "wb");
+		if (f) {
+			fwrite(pcm.Data(), sizeof(nk_int16), pcm.Size(), f);
+			fclose(f);
+		}
+		printf("[SILK] %d paquets -> %d echantillons @ %d kHz -> %s\n", (int)packets.Size(), (int)pcm.Size(),
+			   fs_kHz, argv[3]);
+		return 0;
+	}
+	// Dump des paquets Opus bruts : --dumppkts <flux.webm> <out.pkts> ([u32 len][octets]*).
+	if (argc >= 4 && NkString(argv[1]) == NkString("--dumppkts")) {
+		NkVector<nk_uint8> bytes;
+		media::NkMediaInfo info;
+		NkVector<media::NkMediaPacket> packets;
+		if (!media::NkMediaDemux::ExtractAudioPacketsFile(argv[2], bytes, info, packets))
+			return 1;
+		FILE *f = fopen(argv[3], "wb");
+		for (uint64 p = 0; p < packets.Size(); ++p) {
+			nk_uint32 len = (nk_uint32)packets[p].size;
+			fwrite(&len, 4, 1, f);
+			fwrite(bytes.Data() + packets[p].offset, 1, len, f);
+		}
+		fclose(f);
+		printf("[DUMP] %d paquets -> %s\n", (int)packets.Size(), argv[3]);
+		return 0;
+	}
 	if (argc >= 2) {
 		media::NkMediaInfo info;
 		if (!media::NkMediaProbe::ProbeFile(argv[1], info)) {
@@ -252,6 +337,86 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkCeltQuantBands::SelfTest();
 		printf("[ %s ] NkCeltQuantBands : decodage des bandes (compute_theta+quant_partition+folding), spectre fini\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkSilkGains::SelfTest();
+		printf("[ %s ] NkSilkGains : gains SILK (index indep/cond/delta) aller-retour + log2lin + dequant monotone\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkSilkLpc::SelfTest();
+		printf("[ %s ] NkSilkLpc : NLSF2A (cos LSF + convolution + LPC_fit) + inverse_pred_gain (stabilite)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkSilkNlsf::SelfTest();
+		printf("[ %s ] NkSilkNlsf : codebook NB/MB+WB (index aller-retour) + reconstruction NLSF ordonnee -> LPC stable\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkSilkLtp::SelfTest();
+		printf("[ %s ] NkSilkLtp : pitch lags (contour CB) bornes + gains LTP Q14 (VQ 8/16/32) + echelle\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkSilkExcitation::SelfTest();
+		printf("[ %s ] NkSilkExcitation : shell-code pulses (rate/counts/shell/signes) aller-retour bit-exact\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkSilkFrameType::SelfTest();
+		printf("[ %s ] NkSilkFrameType : type de trame (VAD/non-VAD) + interp NLSF + seed, aller-retour\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkSilkSynthesis::SelfTest();
+		printf("[ %s ] NkSilkSynthesis : coeur DSP (excitation LCG + LTP + filtre LPC + gain) exact + deterministe\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkSilkIndices::SelfTest();
+		printf("[ %s ] NkSilkIndices : assemblage decode_indices (type+gains+NLSF+pitch/LTP+seed) aller-retour\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkSilkDecoder::SelfTest();
+		printf("[ %s ] NkSilkDecoder : decode_parameters (gains/LPC/pitch) + decode_frame (flux->PCM) deterministe\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkSilkTop::SelfTest();
+		printf("[ %s ] NkSilkTop : top-level paquet (en-tete VAD/LBRR + boucle trames) -> PCM interne\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
