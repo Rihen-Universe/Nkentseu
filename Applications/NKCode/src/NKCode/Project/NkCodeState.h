@@ -492,6 +492,8 @@ namespace nkentseu {
 
 				// Point d'entrée : NOUVELLE analyse (frappe / save) -> passe 0 sur le buffer réel.
 				void RunDiagnostics(int32 fileIdx) {
+					if (lspState == 1 && lsp.Ready())
+						return; // clangd actif : il fournit les squiggles (repli auto s'il meurt)
 					diagPass = 0;
 					diagRawE = 0;
 					diagRawW = 0;
@@ -2504,6 +2506,12 @@ namespace nkentseu {
 						const NkString sym = f.doc.refsTarget;
 						f.doc.refsTarget = NkString(); // consomme (une seule action)
 						if (!navPickerOpen && navPickChoice < 0) {
+							if (lspState == 1 && lsp.Ready() && f.doc.refsLine >= 0) { // SÉMANTIQUE (clangd)
+								lsp.ReqReferences(f.path.ToString(), f.doc.refsLine, f.doc.refsCol);
+								f.doc.refsLine = -1;
+								status = NkString("Références (clangd)…");
+								return;
+							}
 							const ProjFlags *pf = FlagsForFile(f.path.ToString());
 							if (pf)
 								StartRefs(sym, pf);
@@ -2538,6 +2546,13 @@ namespace nkentseu {
 								}
 							}
 						status = NkString("Include introuvable : ") + tgt.CStr();
+						return;
+					}
+					// ── LSP actif : go-to-definition SÉMANTIQUE (clangd) — sinon chemins heuristiques. ──
+					if (lspState == 1 && lsp.Ready() && f.doc.linkLine >= 0) {
+						lsp.ReqDefinition(f.path.ToString(), f.doc.linkLine, f.doc.linkCol);
+						f.doc.linkLine = -1;
+						status = NkString("Définition (clangd)…");
 						return;
 					}
 					// ── Symbole : 1) définition dans le FICHIER ACTIF -> saut IMMÉDIAT (variable locale,
@@ -2989,8 +3004,42 @@ namespace nkentseu {
 					for (usize i = 0; i < lsp.log.Size(); ++i)
 						GlobalLogBuffer().Push(lsp.log[i]);
 					lsp.log.Clear();
-					if (lsp.diagsFresh)
-						lsp.diagsFresh = false; // étape A : trace OUTPUT uniquement (bascule des squiggles = étape B)
+					if (lsp.diagsFresh) { // ÉTAPE B : les diagnostics clangd ALIMENTENT les squiggles
+						lsp.diagsFresh = false;
+						for (usize i = 0; i < files.Size(); ++i)
+							if (StrEq(files[i].path.ToString().CStr(), lsp.diagPath.CStr())) {
+								files[i].doc.diags.Clear();
+								for (usize k = 0; k < lsp.diags.Size(); ++k)
+									files[i].doc.diags.PushBack({lsp.diags[k].line, lsp.diags[k].col, lsp.diags[k].col,
+																 lsp.diags[k].sev, lsp.diags[k].msg});
+								break;
+							}
+					}
+					if (lsp.resKind) { // réponse definition/references -> navigation (poll = mutations SÛRES)
+						const int32 rk = lsp.resKind;
+						lsp.resKind = 0;
+						if (lsp.resLocs.Empty())
+							status =
+								NkString(rk == 1 ? "Définition introuvable (clangd)" : "Aucune référence (clangd)");
+						else if (rk == 1 && lsp.resLocs.Size() == 1) {
+							OpenAt(NkPath(lsp.resLocs[0].path), lsp.resLocs[0].line);
+							status = NkString();
+						} else { // plusieurs (ou références) -> picker existant, aperçu lu avec un cache fichier
+							navResults.Clear();
+							NkString lastF, lastTxt;
+							for (usize i = 0; i < lsp.resLocs.Size() && navResults.Size() < 200; ++i) {
+								const NkLspLoc &L2 = lsp.resLocs[i];
+								if (!StrEq(lastF.CStr(), L2.path.CStr())) {
+									lastF = L2.path;
+									lastTxt = NkFile::ReadAllText(NkPath(L2.path));
+								}
+								navResults.PushBack(NavHit{L2.path, L2.line, LineTextOf(lastTxt.CStr(), L2.line)});
+							}
+							navPickerOpen = true;
+							navPickerSel = 0;
+							status = NkString();
+						}
+					}
 					if (!lsp.Ready() || !HasActive())
 						return;
 					OpenFile &f = files[active];

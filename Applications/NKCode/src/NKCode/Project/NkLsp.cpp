@@ -468,6 +468,27 @@ namespace nkentseu {
 			Send(body);
 		}
 
+		void NkLspClient::ReqAt(const char *method, const NkString &path, int32 line, int32 col, int32 kind) {
+			const int32 id = ++mNextId;
+			mPendId = id;
+			mPendKind = kind;
+			char body[640];
+			std::snprintf(body, sizeof(body),
+						  "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"textDocument/%s\",\"params\":{"
+						  "\"textDocument\":{\"uri\":\"%s\"},\"position\":{\"line\":%d,\"character\":%d}%s}}",
+						  id, method, UriOf(path).CStr(), line, col,
+						  kind == 2 ? ",\"context\":{\"includeDeclaration\":true}" : "");
+			Send(NkString(body));
+		}
+
+		void NkLspClient::ReqDefinition(const NkString &path, int32 line, int32 col) {
+			ReqAt("definition", path, line, col, 1);
+		}
+
+		void NkLspClient::ReqReferences(const NkString &path, int32 line, int32 col) {
+			ReqAt("references", path, line, col, 2);
+		}
+
 		void NkLspClient::Poll() {
 			char tmp[8192];
 			for (;;) {
@@ -527,11 +548,53 @@ namespace nkentseu {
 			const NkJsonVal *root = doc.Root();
 			const NkJsonVal *method = doc.Member(root, "method");
 			const NkJsonVal *id = doc.Member(root, "id");
-			if (id && !method && !mReady) { // reponse a initialize (id 1)
-				if (static_cast<int32>(id->num) == 1) {
+			if (id && !method) { // REPONSE a une de nos requetes
+				const int32 idn = static_cast<int32>(id->num);
+				if (!mReady && idn == 1) { // initialize
 					Send(NkString("{\"jsonrpc\":\"2.0\",\"method\":\"initialized\",\"params\":{}}"));
 					mReady = true;
 					log.PushBack(NkString("[lsp] clangd PRET (initialise)"));
+					return;
+				}
+				if (idn == mPendId && mPendKind) { // definition / references
+					const NkJsonVal *res = doc.Member(root, "result");
+					resLocs.Clear();
+					resKind = mPendKind;
+					mPendId = 0;
+					mPendKind = 0;
+					auto pushLoc = [&](const NkJsonVal *loc) {
+						if (!loc)
+							return;
+						const NkJsonVal *uri = doc.Member(loc, "uri");
+						const NkJsonVal *range = doc.Member(loc, "range");
+						if (!uri) { // LocationLink
+							uri = doc.Member(loc, "targetUri");
+							range = doc.Member(loc, "targetSelectionRange");
+						}
+						const NkJsonVal *st = doc.Member(range, "start");
+						if (!uri || !st)
+							return;
+						NkLspLoc L2;
+						L2.path = PathOfUri(uri->str);
+						const NkJsonVal *ln2 = doc.Member(st, "line");
+						const NkJsonVal *cl2 = doc.Member(st, "character");
+						L2.line = ln2 ? static_cast<int32>(ln2->num) : 0;
+						L2.col = cl2 ? static_cast<int32>(cl2->num) : 0;
+						resLocs.PushBack(L2);
+					};
+					if (res && res->kind == 4) {
+						for (int32 i = 0;; ++i) {
+							const NkJsonVal *L3 = doc.At(res, i);
+							if (!L3)
+								break;
+							pushLoc(L3);
+						}
+					} else if (res && res->kind == 5)
+						pushLoc(res);
+					char lb[96];
+					std::snprintf(lb, sizeof(lb), "[lsp] %s : %d emplacement(s)",
+								  resKind == 1 ? "definition" : "references", static_cast<int32>(resLocs.Size()));
+					log.PushBack(NkString(lb));
 				}
 				return;
 			}

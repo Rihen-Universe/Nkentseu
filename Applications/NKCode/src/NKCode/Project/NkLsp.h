@@ -68,6 +68,12 @@ namespace nkentseu {
 				NkString msg;
 		};
 
+		// Emplacement (reponse definition/references) — chemin natif + position 0-based.
+		struct NkLspLoc {
+				NkString path;
+				int32 line = 0, col = 0;
+		};
+
 		class NkLspClient {
 			public:
 				// `clangdCmd` = chemin/commande clangd ; `ccDir` = dossier du compile_commands.json.
@@ -84,6 +90,12 @@ namespace nkentseu {
 				void DidOpen(const NkString &path, const NkString &text);
 				void DidChange(const NkString &path, const NkString &text);
 
+				// Requetes SEMANTIQUES (une a la fois) : reponse dans resKind/resLocs (consommee par l'etat).
+				void ReqDefinition(const NkString &path, int32 line, int32 col);
+				void ReqReferences(const NkString &path, int32 line, int32 col);
+				int32 resKind = 0;			// 0 = rien, 1 = definition, 2 = references (reponse fraiche)
+				NkVector<NkLspLoc> resLocs; // emplacements de la reponse
+
 				// Derniers diagnostics recus (un fichier a la fois : celui qui vient d'etre publie).
 				NkString diagPath;
 				NkVector<NkLspDiag> diags;
@@ -99,6 +111,8 @@ namespace nkentseu {
 				NkVector<NkString> mOpen;  // chemins ouverts (didOpen deja envoye)
 				NkVector<int32> mVersions; // version de chaque document ouvert
 
+				int32 mPendId = 0, mPendKind = 0; // requete en vol (id -> type)
+				void ReqAt(const char *method, const NkString &path, int32 line, int32 col, int32 kind);
 				void Send(const NkString &body);
 				void HandleMessage(const char *json, int32 len);
 				static NkString UriOf(const NkString &path);
