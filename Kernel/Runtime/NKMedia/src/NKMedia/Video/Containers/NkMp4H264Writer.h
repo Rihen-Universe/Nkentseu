@@ -56,23 +56,23 @@ namespace nkentseu {
 				}
 
 			private:
-				static const int32 kMaxAudio = 8;
-				static const int32 kMaxSubs = 8;
 				// Piste audio PCM : format + langue + buffer d'échantillons (rempli en cours d'écriture).
 				struct AudioTrk {
 						int32 rate = 0, channels = 0;
-						uint16 lang = 0x55C4; // 'und'
+						uint16 lang = 0x55C4;  // code compact mdhd (best-effort ISO-639-2)
+						char langStr[24] = {}; // tag BCP-47 complet (elng) — sans restriction
 						NkVector<uint8> pcm;
 						uint32 offset = 0, frames = 0; // remplis à Close()
 				};
 				// Piste sous-titres 'tx3g' : échantillons texte (avec trous vides) construits à la volée.
 				struct SubTrk {
 						uint16 lang = 0x55C4;
-						NkVector<uint8> data;	   // concat des échantillons [u16 len][texte]
-						NkVector<uint32> sizes;	   // taille de chaque échantillon
-						NkVector<uint32> durs;	   // durée (ms) de chaque échantillon
-						uint32 offset = 0;		   // offset du bloc dans mdat (à Close)
-						uint32 lastEndMs = 0;	   // fin du dernier sous-titre placé
+						char langStr[24] = {};
+						NkVector<uint8> data;	// concat des échantillons [u16 len][texte]
+						NkVector<uint32> sizes; // taille de chaque échantillon
+						NkVector<uint32> durs;	// durée (ms) de chaque échantillon
+						uint32 offset = 0;		// offset du bloc dans mdat (à Close)
+						uint32 lastEndMs = 0;	// fin du dernier sous-titre placé
 				};
 
 				NkFile mFile;
@@ -83,10 +83,8 @@ namespace nkentseu {
 				int32 mWidth = 0, mHeight = 0, mFpsNum = 30, mFpsDen = 1;
 				nk_int64 mMdatSizePos = 0;
 				nk_int64 mMdatStart = 0;
-				AudioTrk mAudio[kMaxAudio];
-				int32 mNumAudio = 0;
-				SubTrk mSubs[kMaxSubs];
-				int32 mNumSubs = 0;
+				NkVector<AudioTrk> mAudio; // pistes audio (langues) — nombre illimité
+				NkVector<SubTrk> mSubs;	   // pistes sous-titres (langues) — nombre illimité
 		};
 
 	} // namespace media
