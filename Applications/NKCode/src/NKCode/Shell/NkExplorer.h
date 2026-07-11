@@ -12,7 +12,9 @@
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Project/NkProcess.h"
 #include "NKCode/Shell/NkI18n.h"
-#include "NKCode/Shell/NkUi.h" // NkIcons (registre extension -> texture)
+#include "NKCode/Shell/NkUi.h"		// NkIcons (registre extension -> texture)
+#include "NKCode/Shell/NkShell.h"	// NkCodeShellRun (révéler dans l'OS)
+#include "NKCode/Editor/NkTextDraw.h" // NkCtxMenu (menu contextuel modal scrollable)
 #include <cstdio>
 
 namespace nkentseu {
@@ -50,10 +52,12 @@ namespace nkentseu {
 					const NkRect vclip = ctx.DL().CurrentClip();
 					const float32 headH = ctx.ItemHeight() * (mFilterOn ? 2.f : 1.f);
 					ctx.NextItemRect(ctx.ContentWidth(), headH); // réserve du flux
+					TickOps(); // opérations fichiers async (corbeille, copie) terminées ?
 					DrawRows(ctx, vclip.y + headH);
 					DrawHeader(ctx, vclip);
 					if (mFilterOn)
 						DrawFilterBar(ctx, vclip);
+					DrawCtxMenu(ctx); // overlay : par-dessus tout
 				}
 
 			private:
@@ -65,7 +69,8 @@ namespace nkentseu {
 						bool dir = false;
 						bool open = false;
 						bool root = false;
-						char git = 0; ///< 0 = aucun, sinon M/A/U/D/C/R
+						bool editNew = false; ///< row VIRTUELLE : champ de création inline
+						char git = 0;		  ///< 0 = aucun, sinon M/A/U/D/C/R ('*' = dossier touché)
 				};
 
 				static bool SameStr(const char *a, const char *b) {
@@ -354,13 +359,27 @@ namespace nkentseu {
 					r.open = mRootOpen;
 					r.root = true;
 					mRows.PushBack(r);
-					if (mRootOpen)
+					if (mRootOpen) {
+						if (mEditParent.Length() > 0 && SameStr(mEditParent.CStr(), mRootStr.CStr()))
+							PushEditRow(1);
 						AppendDir(mS->root, 1);
+					}
+				}
+
+				// Row VIRTUELLE du champ de création inline (en tête du dossier parent).
+				void PushEditRow(int32 depth) {
+					Row r;
+					r.depth = depth;
+					r.dir = mEditCreateDir;
+					r.editNew = true;
+					mRows.PushBack(r);
 				}
 
 				void AppendDir(const NkPath &dir, int32 depth) {
 					if (depth > 24)
 						return; // garde-fou
+					if (mEditParent.Length() > 0 && SameStr(mEditParent.CStr(), dir.ToString().CStr()))
+						PushEditRow(depth); // champ de création en tête du dossier cible
 					NkVector<NkDirectoryEntry> entries =
 						NkDirectory::GetEntries(dir, "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
 					for (int32 pass = 0; pass < 2; ++pass) { // dossiers d'abord, puis fichiers
@@ -428,52 +447,197 @@ namespace nkentseu {
 					mExpanded.PushBack(p);
 				}
 
-				// Crée « Nouveau.txt » / « NouveauDossier » dans le dossier de la sélection
-				// (ou la racine) avec un nom unique. Renommage inline : tranche suivante.
-				void CreateEntry(bool dir) {
-					NkString base = mRootStr;
-					for (usize i = 0; i < mRows.Size(); ++i)
-						if (SameStr(mRows[i].path.CStr(), mSelPath.CStr())) {
-							if (mRows[i].dir)
-								base = mRows[i].path;
-							else {
-								const char *p = mRows[i].path.CStr();
-								int32 cut = -1;
-								for (int32 j = 0; p[j]; ++j)
-									if (p[j] == '/' || p[j] == '\\')
-										cut = j;
-								if (cut > 0)
-									base = mRows[i].path.SubStr(0, cut);
-							}
-							break;
+				// ── Chemins ──
+				static NkString ParentOf(const NkString &p) {
+					const char *s = p.CStr();
+					int32 cut = -1;
+					for (int32 j = 0; s[j]; ++j)
+						if (s[j] == '/' || s[j] == '\\')
+							cut = j;
+					return cut > 0 ? p.SubStr(0, cut) : p;
+				}
+
+				// Chemin relatif à la racine (séparateurs '/').
+				void RelOf(const NkString &full, char *out, int32 cap) const {
+					const usize rootLen = mRootStr.Length();
+					int32 n = 0;
+					if (full.Length() > rootLen)
+						for (const char *q = full.CStr() + rootLen; *q && n < cap - 1; ++q) {
+							if (n == 0 && (*q == '/' || *q == '\\'))
+								continue;
+							out[n++] = (*q == '\\') ? '/' : *q;
 						}
-					if (base.Length() == 0)
+					out[n] = 0;
+				}
+
+				// Dossier CIBLE des créations/collages : la sélection si c'est un dossier,
+				// sinon son parent, sinon la racine.
+				NkString TargetDir() const {
+					if (mSelPath.Length() == 0)
+						return mRootStr;
+					for (usize i = 0; i < mRows.Size(); ++i)
+						if (SameStr(mRows[i].path.CStr(), mSelPath.CStr()))
+							return mRows[i].dir ? mRows[i].path : ParentOf(mRows[i].path);
+					return mRootStr;
+				}
+
+				bool SelIsDir() const {
+					for (usize i = 0; i < mRows.Size(); ++i)
+						if (SameStr(mRows[i].path.CStr(), mSelPath.CStr()))
+							return mRows[i].dir;
+					return false;
+				}
+
+				// ── Opérations fichiers ASYNCHRONES (PowerShell : corbeille, copie) ──
+				static NkString PsQuote(const NkString &p) { // single-quote PS (' doublée)
+					NkString o = "'";
+					for (const char *q = p.CStr(); *q; ++q) {
+						o += *q;
+						if (*q == '\'')
+							o += '\'';
+					}
+					o += "'";
+					return o;
+				}
+
+				// Supprimer = envoyer à la CORBEILLE (récupérable, pas de confirmation).
+				void TrashAsync(const NkString &path, bool dir) {
+					if (mOps.Running())
 						return;
-					char name[64];
-					for (int32 n = 0; n < 100; ++n) {
-						if (n == 0)
-							std::snprintf(name, sizeof(name), "%s", dir ? "NouveauDossier" : "Nouveau.txt");
-						else if (dir)
-							std::snprintf(name, sizeof(name), "NouveauDossier%d", n);
-						else
-							std::snprintf(name, sizeof(name), "Nouveau%d.txt", n);
-						NkString full = base;
-						full += "/";
-						full += name;
-						if (NkFile::Exists(full.CStr()))
-							continue;
-						if (dir)
-							NkDirectory::CreateRecursive(NkPath(full));
-						else
-							NkFile::WriteAllText(NkPath(full), "");
-						if (!IsExpanded(base) && !SameStr(base.CStr(), mRootStr.CStr()))
-							ToggleExpanded(base); // révèle le dossier de destination
-						mSelPath = full;
+					NkString cmd = "powershell -NoProfile -Command \"Add-Type -AssemblyName Microsoft.VisualBasic; "
+								   "[Microsoft.VisualBasic.FileIO.FileSystem]::";
+					cmd += dir ? "DeleteDirectory(" : "DeleteFile(";
+					cmd += PsQuote(path);
+					cmd += dir ? ",'OnlyErrorDialogs','SendToRecycleBin')\"" : ",'OnlyErrorDialogs','SendToRecycleBin')\"";
+					if (mOps.Start(cmd))
+						mOpsPending = true;
+				}
+
+				void CopyAsync(const NkString &src, const NkString &dst, bool move) {
+					if (mOps.Running())
+						return;
+					NkString cmd = "powershell -NoProfile -Command \"";
+					cmd += move ? "Move-Item -Force " : "Copy-Item -Recurse -Force ";
+					cmd += PsQuote(src);
+					cmd += " ";
+					cmd += PsQuote(dst);
+					cmd += "\"";
+					if (mOps.Start(cmd))
+						mOpsPending = true;
+				}
+
+				// « Nom - copie.ext » à côté de l'original.
+				void DuplicateOf(const NkString &p) {
+					const NkString name = NkPath(p).GetFileName();
+					const char *s = name.CStr();
+					int32 dot = -1;
+					for (int32 j = 0; s[j]; ++j)
+						if (s[j] == '.')
+							dot = j;
+					NkString base = (dot > 0) ? name.SubStr(0, dot) : name;
+					NkString ext = (dot > 0) ? name.SubStr(dot, name.Length() - dot) : NkString("");
+					NkString dst = ParentOf(p);
+					dst += "/";
+					dst += base;
+					dst += " - copie";
+					dst += ext;
+					CopyAsync(p, dst, false);
+				}
+
+				void TickOps() {
+					if (mOpsPending && mOps.Done()) {
+						mOpsPending = false;
 						mRowsDirty = true;
-						if (!dir)
-							mS->OpenPath(NkPath(full));
+						mGitNext = mTick; // re-scan git après l'opération
+					}
+				}
+
+				void RevealInOS(const NkString &p) {
+					NkString cmd = "explorer /select,\"";
+					cmd += p;
+					cmd += "\"";
+					NkCodeShellRun(cmd.CStr());
+				}
+
+				void AddToGitignore(const NkString &p) {
+					char rel[1024];
+					RelOf(p, rel, sizeof(rel));
+					if (!rel[0])
+						return;
+					NkString gi = mRootStr;
+					gi += "/.gitignore";
+					NkString txt = NkFile::Exists(gi.CStr()) ? NkFile::ReadAllText(NkPath(gi)) : NkString("");
+					if (txt.Length() > 0 && txt.CStr()[txt.Length() - 1] != '\n')
+						txt += "\n";
+					txt += rel;
+					txt += "\n";
+					NkFile::WriteAllText(NkPath(gi), txt);
+					mGitNext = mTick;
+					mRowsDirty = true;
+				}
+
+				// ── Édition INLINE : renommage (F2 / clic-lent / menu) + création. ──
+				void StartRename(const NkString &p) {
+					if (p.Length() == 0)
+						return;
+					mEditPath = p;
+					mEditParent.Clear();
+					const NkString name = NkPath(p).GetFileName();
+					int32 n = 0;
+					for (const char *q = name.CStr(); *q && n < 127; ++q)
+						mEditBuf[n++] = *q;
+					mEditBuf[n] = 0;
+					mFocus = true;
+				}
+
+				void StartCreate(const NkString &parent, bool dir) {
+					mEditParent = parent.Length() ? parent : mRootStr;
+					mEditPath.Clear();
+					mEditCreateDir = dir;
+					mEditBuf[0] = 0;
+					if (!IsExpanded(mEditParent) && !SameStr(mEditParent.CStr(), mRootStr.CStr()))
+						ToggleExpanded(mEditParent);
+					mRootOpen = true;
+					mFocus = true;
+					mRowsDirty = true; // insère la row virtuelle
+				}
+
+				void CancelEdit() {
+					mEditPath.Clear();
+					mEditParent.Clear();
+					mEditBuf[0] = 0;
+					mRowsDirty = true;
+				}
+
+				void CommitEdit() {
+					if (!mEditBuf[0]) {
+						CancelEdit();
 						return;
 					}
+					if (mEditParent.Length() > 0) { // CRÉATION
+						NkString full = mEditParent;
+						full += "/";
+						full += mEditBuf;
+						if (!NkFile::Exists(full.CStr())) {
+							if (mEditCreateDir)
+								NkDirectory::CreateRecursive(NkPath(full));
+							else {
+								NkFile::WriteAllText(NkPath(full), "");
+								mS->OpenPath(NkPath(full));
+							}
+							mSelPath = full;
+						}
+					} else if (mEditPath.Length() > 0) { // RENOMMAGE
+						NkString dst = ParentOf(mEditPath);
+						dst += "/";
+						dst += mEditBuf;
+						if (!SameStr(dst.CStr(), mEditPath.CStr()) && !NkFile::Exists(dst.CStr())) {
+							if (std::rename(mEditPath.CStr(), dst.CStr()) == 0)
+								mSelPath = dst;
+						}
+					}
+					CancelEdit();
+					mGitNext = mTick;
 				}
 
 				// ── En-tête FIXE : "EXPLORATEUR" + toolbar (fichier, dossier, actualiser,
@@ -529,10 +693,10 @@ namespace nkentseu {
 						}
 						if (hov && ctx.input.mouseClicked[0]) {
 							mFocus = true;
-							if (b == 1) // nouveau fichier (rename inline : tranche suivante)
-								CreateEntry(false);
+							if (b == 1) // nouveau fichier : champ inline dans le dossier cible
+								StartCreate(TargetDir(), false);
 							else if (b == 2) // nouveau dossier
-								CreateEntry(true);
+								StartCreate(TargetDir(), true);
 							else if (b == 3) { // actualiser : disque + git
 								mGitNext = mTick;
 								mRowsDirty = true;
@@ -589,7 +753,8 @@ namespace nkentseu {
 					}
 					// Saisie clavier : filtre OUVERT = saisie ACTIVE (l'exigence de focus-clic
 					// rendait le champ muet ; Échap ou X referment, comme VSCode).
-					{
+					// Une ÉDITION INLINE en cours a la priorité sur la saisie du filtre.
+					if (mEditPath.Length() == 0 && mEditParent.Length() == 0) {
 						int32 len = 0;
 						while (mFilter[len])
 							++len;
@@ -628,14 +793,18 @@ namespace nkentseu {
 					// Focus-clic du panneau : un clic DANS la zone le prend, ailleurs le rend.
 					if (ctx.input.mouseClicked[0])
 						mFocus = inClip;
-					int32 toToggle = -1, toOpen = -1;
+					const bool editing = mEditPath.Length() > 0 || mEditParent.Length() > 0;
+					int32 toToggle = -1, toOpen = -1, toRename = -1;
+					bool rowHit = false;
 					for (usize i = 0; i < mRows.Size(); ++i) {
 						const Row &r = mRows[i];
 						const NkRect row = ctx.NextItemRect(fullW, rowH);
 						if (row.y + rowH < clip.y || row.y > clip.y + clip.h)
 							continue; // hors vue : la place est réservée, pas de dessin
 						const bool hov = inClip && NkGuiRectContains(row, m);
-						const bool sel = SameStr(mSelPath.CStr(), r.path.CStr());
+						const bool sel = SameStr(mSelPath.CStr(), r.path.CStr()) && !r.editNew;
+						const bool inEdit = r.editNew || (mEditPath.Length() > 0 && !r.editNew &&
+														  SameStr(mEditPath.CStr(), r.path.CStr()));
 						if (sel) {
 							dl.AddRectFilled(row, ctx.theme.selection);
 							dl.AddRectFilled({row.x, row.y, 2.f, rowH}, ctx.theme.accent);
@@ -739,6 +908,23 @@ namespace nkentseu {
 							}
 						}
 						x += iadv + 4.f;
+						// ── Champ d'ÉDITION INLINE (renommage / création) à la place du nom ──
+						if (inEdit) {
+							const NkRect er = {x, row.y + 1.f, row.x + fullW - x - 6.f, rowH - 2.f};
+							dl.AddRectFilled(er, ctx.theme.bgPrimary, 2.f);
+							dl.AddRect(er, ctx.theme.accent, 2.f);
+							if (ctx.font && ctx.font->Valid()) {
+								dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+										   {er.x + 3.f, row.y + (rowH - ctx.font->LineHeight()) * 0.5f +
+															ctx.font->Ascent()},
+										   mEditBuf, ctx.theme.text, er.w - 6.f);
+								if ((mTick / 30) % 2 == 0)
+									dl.AddRectFilled({er.x + 3.f + ctx.font->MeasureWidth(mEditBuf) + 1.f,
+													  er.y + 2.f, 1.5f, er.h - 4.f},
+													 ctx.theme.accent);
+							}
+							continue; // pas de badge/clic sur la ligne en édition
+						}
 						// Nom (racine en circonflexe visuel : couleur pleine).
 						if (ctx.font && ctx.font->Valid()) {
 							// Modifié/ajouté/non-tracké : le NOM prend la couleur git
@@ -760,14 +946,38 @@ namespace nkentseu {
 										row.y + (rowH - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()},
 									   b, GitColor(r.git));
 						}
-						// Clic : dossier = plier/déplier ; fichier = sélection + ouverture.
-						if (hov && ctx.input.mouseClicked[0]) {
-							mSelPath = r.path;
-							if (r.dir)
-								toToggle = static_cast<int32>(i);
-							else
-								toOpen = static_cast<int32>(i);
+						// Clic gauche : dossier = plier/déplier ; fichier = sélection +
+						// ouverture ; RE-clic LENT sur un fichier déjà sélectionné = renommer.
+						if (hov && ctx.input.mouseClicked[0] && !editing) {
+							rowHit = true;
+							if (!r.dir && sel && mTick - mSelTick > 30)
+								toRename = static_cast<int32>(i); // clic-lent façon VSCode
+							else {
+								mSelPath = r.path;
+								mSelTick = mTick;
+								if (r.dir)
+									toToggle = static_cast<int32>(i);
+								else
+									toOpen = static_cast<int32>(i);
+							}
 						}
+						// Clic DROIT : sélection + menu contextuel.
+						if (hov && ctx.input.mouseClicked[1] && !editing) {
+							rowHit = true;
+							mSelPath = r.path;
+							mSelTick = mTick;
+							mCtx.open = true;
+							mCtx.pos = m;
+							mCtxPath = r.path;
+							mCtxIsDir = r.dir;
+						}
+					}
+					// Clic droit dans le VIDE : menu sur la racine (création à la racine).
+					if (inClip && ctx.input.mouseClicked[1] && !rowHit && !editing && mRootStr.Length() > 0) {
+						mCtx.open = true;
+						mCtx.pos = m;
+						mCtxPath = mRootStr;
+						mCtxIsDir = true;
 					}
 					// Mutations APRÈS la boucle (mRows est reconstruit par BuildRows).
 					if (toToggle >= 0) {
@@ -779,13 +989,119 @@ namespace nkentseu {
 						mRowsDirty = true;
 					} else if (toOpen >= 0)
 						mS->OpenPath(NkPath(mRows[toOpen].path));
-					// Entrée : ouvre la sélection (fichier).
-					if (mFocus && ctx.input.KeyPressed(NkGuiKey::Enter) && mSelPath.Length() > 0)
-						for (usize i = 0; i < mRows.Size(); ++i)
-							if (!mRows[i].dir && SameStr(mRows[i].path.CStr(), mSelPath.CStr())) {
-								mS->OpenPath(NkPath(mRows[i].path));
-								break;
-							}
+					else if (toRename >= 0)
+						StartRename(mRows[toRename].path);
+					// ── Saisie de l'ÉDITION INLINE (prioritaire sur tout le reste) ──
+					if (editing) {
+						int32 len = 0;
+						while (mEditBuf[len])
+							++len;
+						for (int32 i = 0; i < ctx.input.charCount; ++i) {
+							const uint32 cp = ctx.input.chars[i];
+							// caractères interdits dans un nom de fichier
+							if (cp >= 32 && cp < 127 && len < 126 && cp != '/' && cp != '\\' && cp != ':' &&
+								cp != '*' && cp != '?' && cp != '"' && cp != '<' && cp != '>' && cp != '|')
+								mEditBuf[len++] = static_cast<char>(cp);
+						}
+						if (ctx.input.KeyPressed(NkGuiKey::Backspace) && len > 0)
+							--len;
+						mEditBuf[len] = 0;
+						if (ctx.input.KeyPressed(NkGuiKey::Enter))
+							CommitEdit();
+						else if (ctx.input.KeyPressed(NkGuiKey::Escape))
+							CancelEdit();
+						else if (ctx.input.mouseClicked[0] && !inClip)
+							CancelEdit(); // clic hors du panneau = annule
+						return;			  // pas de raccourcis pendant l'édition
+					}
+					// ── Raccourcis (focus-clic dans l'explorateur, hors filtre actif) ──
+					if (mFocus && !mFilterOn) {
+						if (ctx.input.KeyPressed(NkGuiKey::Enter) && mSelPath.Length() > 0 && !SelIsDir())
+							mS->OpenPath(NkPath(mSelPath));
+						if (ctx.input.KeyPressed(NkGuiKey::F2) && mSelPath.Length() > 0)
+							StartRename(mSelPath);
+						if (ctx.input.KeyPressed(NkGuiKey::Delete) && mSelPath.Length() > 0)
+							TrashAsync(mSelPath, SelIsDir());
+						if (ctx.input.ctrlDown && ctx.input.KeyPressed(NkGuiKey::D) && mSelPath.Length() > 0)
+							DuplicateOf(mSelPath);
+						if (ctx.input.wantCopy && mSelPath.Length() > 0) { // Ctrl+C : copie interne
+							mClipPath = mSelPath;
+							mClipCut = false;
+						}
+						if (ctx.input.wantCut && mSelPath.Length() > 0) { // Ctrl+X
+							mClipPath = mSelPath;
+							mClipCut = true;
+						}
+						if (ctx.input.wantPaste && mClipPath.Length() > 0) { // Ctrl+V
+							NkString dst = TargetDir();
+							dst += "/";
+							dst += NkPath(mClipPath).GetFileName();
+							if (!SameStr(dst.CStr(), mClipPath.CStr()))
+								CopyAsync(mClipPath, dst, mClipCut);
+							if (mClipCut)
+								mClipPath.Clear();
+						}
+					}
+				}
+
+				// ── Menu contextuel (clic droit) : actions sur la cible. ──
+				void DrawCtxMenu(NkGuiContext &ctx) {
+					if (!mCtx.open)
+						return;
+					const char *items[10] = {NkT("exp.ctx.newfile"),  NkT("exp.ctx.newfolder"),
+											 NkT("exp.ctx.rename"),	  NkT("exp.ctx.delete"),
+											 NkT("exp.ctx.dup"),	  NkT("exp.ctx.copypath"),
+											 NkT("exp.ctx.copyrel"),  NkT("exp.ctx.reveal"),
+											 NkT("exp.ctx.term"),	  NkT("exp.ctx.gitignore")};
+					bool en[10];
+					for (int32 i = 0; i < 10; ++i)
+						en[i] = true;
+					const bool isRoot = SameStr(mCtxPath.CStr(), mRootStr.CStr());
+					if (isRoot) // pas de rename/suppression/duplication/gitignore de la racine
+						en[2] = en[3] = en[4] = en[9] = false;
+					const int32 act = NkCtxMenuDraw(ctx, mCtx, items, en, 10);
+					if (act < 0)
+						return;
+					const NkString p = mCtxPath;
+					const bool dir = mCtxIsDir;
+					const NkString parent = dir ? p : ParentOf(p);
+					switch (act) {
+						case 0:
+							StartCreate(parent, false);
+							break;
+						case 1:
+							StartCreate(parent, true);
+							break;
+						case 2:
+							StartRename(p);
+							break;
+						case 3:
+							TrashAsync(p, dir);
+							break;
+						case 4:
+							DuplicateOf(p);
+							break;
+						case 5:
+							ctx.SetClipboard(p.CStr());
+							break;
+						case 6: {
+							char rel[1024];
+							RelOf(p, rel, sizeof(rel));
+							ctx.SetClipboard(rel);
+						} break;
+						case 7:
+							RevealInOS(p);
+							break;
+						case 8: // terminal intégré dans ce dossier (shell par défaut)
+							mS->termOpenAt = parent;
+							mS->termOpenKind = -1;
+							break;
+						case 9:
+							AddToGitignore(p);
+							break;
+						default:
+							break;
+					}
 				}
 
 				NkCodeState *mS = nullptr;
@@ -802,6 +1118,19 @@ namespace nkentseu {
 				NkVector<char> mGitCode;
 				uint32 mGitNext = 0;
 				bool mGitParsed = true; ///< résultat du run courant déjà consommé ?
+				// ── Tranche 2 : menu contextuel + édition inline + opérations fichiers ──
+				NkCtxMenu mCtx;			///< menu clic droit
+				NkString mCtxPath;		///< cible du menu
+				bool mCtxIsDir = false;
+				NkString mEditPath;		///< row en RENOMMAGE inline (vide = aucun)
+				NkString mEditParent;	///< création inline : dossier parent (vide = aucune)
+				bool mEditCreateDir = false;
+				char mEditBuf[128] = {};
+				NkString mClipPath;		///< copier/couper interne (Ctrl+C/X/V)
+				bool mClipCut = false;
+				uint32 mSelTick = 0;	///< frame de la dernière sélection (clic-lent = renommer)
+				NkProcess mOps;			///< opérations fichiers async (corbeille, copie)
+				bool mOpsPending = false;
 		};
 
 	} // namespace nkcode
