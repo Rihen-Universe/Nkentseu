@@ -174,8 +174,12 @@
   (**DX12/OpenGL/Vulkan/Metal/Software**), et via la voie **native DX11** (`NkRenderWindow::CaptureToImage`,
   vérifiée pixel-perfect) car le `CopyTextureToBuffer` DX11 est un stub. → `ReadbackPixels(buf)` /
   `CaptureToImage(img)` → `recorder.PushVideo(...)`, quel que soit le backend.
-  ⏳ Reste (unification) : implémenter le `CopyTextureToBuffer` DX11 (même voie NKRHI pour tous) ; tap audio
-  direct dans NKAudio ; démo GPU live enregistrée.
+  **Unification DX11 (2026-07-11)** — `CopyTextureToBuffer` DX11 **implémenté** (émulé : copie texture→staging
+  texture sur le deferred context, puis transfert des pixels dans le buffer readback au `Execute` ; MapBuffer
+  passe en `MAP_READ` pour les buffers `NK_READBACK`, borné à ce cas → upload/rendu inchangés). Désormais les
+  **6 backends** capturent par la MÊME voie NKRHI (`NkOffscreenTarget::ReadbackPixels`) → `recorder.PushVideo`.
+  Compile OK ; à valider sur GPU réel (code non testable en headless). ⏳ Reste : tap audio direct dans
+  NKAudio ; démo GPU live enregistrée.
 
 ## En cours / À venir
 - Poursuivre Opus (range decoder → CELT → SILK), puis **AAC-LC** (corpus Bassa). Branchés comme codecs

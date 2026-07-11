@@ -118,8 +118,8 @@ namespace nkentseu {
 
 			// Copie GPU : texture couleur -> staging buffer (readback) via une commande
 			// transitoire. SANS ça le staging reste vide (le CopyTextureToBuffer manquait
-			// -> Capture lisait du vide). Backends avec vraie impl : Vulkan, DX12, OpenGL.
-			// (DX11 stub le CopyTextureToBuffer : capture via un autre chemin, à part.)
+			// -> Capture lisait du vide). Implémenté sur TOUS les backends : Vulkan, DX12,
+			// OpenGL, Metal, Software, et DX11 (émulé via staging texture + transfert au Execute).
 			NkTextureHandle colorRHI = mTexLib->GetRHIHandle(mColor);
 			NkICommandBuffer *cmd = mDevice->CreateCommandBuffer();
 			if (cmd && cmd->Begin()) {
