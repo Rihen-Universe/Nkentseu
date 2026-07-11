@@ -44,6 +44,10 @@ namespace nkentseu {
 					return mFrame;
 				}
 
+				// Debug/validation : dumpe la reconstruction (YUV420 planar, recadrée) de chaque trame
+				// dans `path`, pour comparaison bit-à-bit avec la sortie d'un décodeur de référence.
+				bool EnableReconDump(const char *path);
+
 				// Auto-test : encode un dégradé en mémoire, vérifie que le flux commence par SPS/PPS/IDR
 				// et que le round-trip prédiction+résidu reconstruit l'image à un PSNR élevé.
 				static bool SelfTest();
@@ -57,6 +61,9 @@ namespace nkentseu {
 				int32 mQp = 26;
 				int32 mFrame = 0;
 				bool mOpen = false;
+				bool mDeblock = true; // filtre de déblocage en boucle actif
+				NkFile mReconFile;	  // dump de reconstruction (validation)
+				bool mReconDump = false;
 
 				// Plans source (padding au multiple de 16 luma / 8 chroma).
 				uint8 *mY = nullptr, *mCb = nullptr, *mCr = nullptr;
@@ -85,6 +92,8 @@ namespace nkentseu {
 				void ComputeChroma(int32 mbX, int32 mbY, bool availTop, bool availLeft, ChromaMb &c);
 				// Écrit le résidu chroma (DC puis AC) en CAVLC + met à jour la grille nC chroma.
 				void WriteChromaResidual(NkH264BitWriter &bs, int32 mbX, int32 mbY, const ChromaMb &c);
+				// Filtre de déblocage en boucle (§8.7) appliqué à la reconstruction (luma + chroma).
+				void DeblockFrame();
 				void Free();
 		};
 

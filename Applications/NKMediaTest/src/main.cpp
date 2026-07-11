@@ -280,6 +280,7 @@ int main(int argc, char **argv) {
 		const char *path = (argc >= 3) ? argv[2] : "h264_test.h264";
 		media::NkH264Encoder enc;
 		if (enc.Open(path, 128, 96, 25, 1, 26)) {
+			enc.EnableReconDump("h264_recon.yuv"); // validation déblocage vs ffmpeg
 			const int32 W = 128, H = 96;
 			NkVector<uint8> frame;
 			frame.Resize((uint64)W * H * 3);
