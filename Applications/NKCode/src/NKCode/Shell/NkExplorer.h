@@ -521,7 +521,7 @@ namespace nkentseu {
 					if (ctx.font && ctx.font->Valid()) {
 						dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 								   {tx, bar.y + (h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()}, shown, col);
-						if (mFocus && (mTick / 30) % 2 == 0 && mFilter[0]) // caret clignotant
+						if ((mTick / 30) % 2 == 0 && mFilter[0]) // caret clignotant
 							dl.AddRectFilled({tx + ctx.font->MeasureWidth(mFilter) + 1.f, bar.y + 3.f, 1.5f, h - 6.f},
 											 ctx.theme.accent);
 					}
@@ -537,8 +537,9 @@ namespace nkentseu {
 						mFilter[0] = 0;
 						mRowsDirty = true;
 					}
-					// Saisie clavier (si le panneau a le focus-clic).
-					if (mFocus) {
+					// Saisie clavier : filtre OUVERT = saisie ACTIVE (l'exigence de focus-clic
+					// rendait le champ muet ; Échap ou X referment, comme VSCode).
+					{
 						int32 len = 0;
 						while (mFilter[len])
 							++len;
