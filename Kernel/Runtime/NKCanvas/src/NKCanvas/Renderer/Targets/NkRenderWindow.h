@@ -40,6 +40,7 @@ namespace nkentseu {
 
 	class NkWindow;
 	class NkIGraphicsContext;
+	class NkImage; // capture mémoire (readback backbuffer → pixels), défini dans NKImage
 
 	namespace renderer {
 
@@ -116,6 +117,10 @@ namespace nkentseu {
 				/// via NkImage). Readback specifique au backend (DX11 ; autres a venir).
 				/// A appeler apres Display(). Cf. NkRenderWindowCapture.cpp.
 				bool Capture(const char *path) const override;
+
+				/// Capture le backbuffer présenté DANS `out` (RGBA32, en mémoire) au lieu d'un fichier —
+				/// pour enregistrer une vidéo du rendu (cf. NKMedia NkVideoRecorder). DX11 pour l'instant.
+				bool CaptureToImage(NkImage &out) const;
 
 				// ── Acces avance ───────────────────────────────────────────────
 				NkIGraphicsContext *GetContext() noexcept {
