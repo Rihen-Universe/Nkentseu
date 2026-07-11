@@ -83,8 +83,10 @@ namespace nkentseu {
 			void CopyBufferToTexture(NkBufferHandle, NkTextureHandle, const NkBufferTextureCopyRegion &) override {
 			}
 
-			void CopyTextureToBuffer(NkTextureHandle, NkBufferHandle, const NkBufferTextureCopyRegion &) override {
-			}
+			// DX11 n'a pas de copie GPU texture→buffer : on copie la texture vers une staging texture
+			// (deferred), puis on transfère les pixels dans le buffer readback au moment du Execute.
+			void CopyTextureToBuffer(NkTextureHandle src, NkBufferHandle dst,
+									 const NkBufferTextureCopyRegion &r) override;
 
 			void CopyTexture(NkTextureHandle s, NkTextureHandle d, const NkTextureCopyRegion &r) override;
 
@@ -104,6 +106,13 @@ namespace nkentseu {
 			ID3D11DeviceContext1 *mDeferred = nullptr;
 			ID3D11CommandList *mCmdList = nullptr;
 			NkCommandBufferType mType;
+			// Readbacks texture→buffer en attente (traités à Execute, après ExecuteCommandList).
+			struct NkPendingReadback {
+					ID3D11Texture2D *staging = nullptr;
+					uint64 bufId = 0;
+					uint32 width = 0, height = 0;
+			};
+			std::vector<NkPendingReadback> mPendingReadbacks;
 			// Un pipeline COMPUTE est-il lié ? -> un storage buffer se binde en UAV
 			// (compute) et NON en SRV (graphics). Éviter le double-bind SRV+UAV d'une
 			// même ressource (interdit en D3D11 -> débind intermittent = résultats flaky).

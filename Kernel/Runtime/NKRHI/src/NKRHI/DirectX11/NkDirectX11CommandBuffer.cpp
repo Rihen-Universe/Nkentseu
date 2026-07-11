@@ -57,6 +57,29 @@ namespace nkentseu {
 	void NkDirectX11CommandBuffer::Execute(NkDirectX11Device *dev) {
 		if (mCmdList) {
 			dev->Ctx()->ExecuteCommandList(mCmdList, FALSE);
+			// Transfère les readbacks texture→buffer : la staging texture contient désormais les pixels
+			// (CopyResource exécuté par ExecuteCommandList) → on les copie dans le buffer readback (RGBA8).
+			if (!mPendingReadbacks.empty()) {
+				ID3D11DeviceContext1 *ctx = dev->Ctx();
+				for (auto &pr : mPendingReadbacks) {
+					ID3D11Buffer *dstBuf = dev->GetDXBuffer(pr.bufId);
+					D3D11_MAPPED_SUBRESOURCE msTex{}, msBuf{};
+					if (dstBuf && SUCCEEDED(ctx->Map(pr.staging, 0, D3D11_MAP_READ, 0, &msTex))) {
+						if (SUCCEEDED(ctx->Map(dstBuf, 0, D3D11_MAP_WRITE, 0, &msBuf))) {
+							const uint8 *s = static_cast<const uint8 *>(msTex.pData);
+							uint8 *d = static_cast<uint8 *>(msBuf.pData);
+							for (uint32 y = 0; y < pr.height; ++y)
+								memcpy(d + (size_t)y * pr.width * 4, s + (size_t)y * msTex.RowPitch,
+									   (size_t)pr.width * 4);
+							ctx->Unmap(dstBuf, 0);
+						}
+						ctx->Unmap(pr.staging, 0);
+					}
+					if (pr.staging)
+						pr.staging->Release();
+				}
+				mPendingReadbacks.clear();
+			}
 			// Relâcher le command list DÈS l'exécution (au lieu d'attendre le Reset de la
 			// frame suivante). Sinon il garde des références sur les ressources qu'il
 			// référence — dont le RTV du back-buffer (via BeginRenderPass) — jusqu'à la
@@ -371,6 +394,34 @@ namespace nkentseu {
 		D3D11_BOX box{(UINT)r.srcOffset, 0, 0, (UINT)(r.srcOffset + r.size), 1, 1};
 		mDeferred->CopySubresourceRegion(mDev->GetDXBuffer(dst.id), 0, (UINT)r.dstOffset, 0, 0,
 										 mDev->GetDXBuffer(src.id), 0, &box);
+	}
+
+	void NkDirectX11CommandBuffer::CopyTextureToBuffer(NkTextureHandle src, NkBufferHandle dst,
+													  const NkBufferTextureCopyRegion &r) {
+		// DX11 : pas de copie GPU texture→buffer. On copie la texture source vers une staging texture
+		// (sur le deferred context), puis Execute() transférera les pixels dans le buffer readback.
+		ID3D11Texture2D *srcTex = mDev->GetDXTexture(src.id);
+		if (!srcTex)
+			return;
+		D3D11_TEXTURE2D_DESC td{};
+		srcTex->GetDesc(&td);
+		if (td.SampleDesc.Count > 1)
+			return; // MSAA : resolve requis (non géré ici)
+
+		D3D11_TEXTURE2D_DESC sd = td;
+		sd.Usage = D3D11_USAGE_STAGING;
+		sd.BindFlags = 0;
+		sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+		sd.MiscFlags = 0;
+		ID3D11Texture2D *staging = nullptr;
+		if (FAILED(mDev->D3D()->CreateTexture2D(&sd, nullptr, &staging)) || !staging)
+			return;
+
+		mDeferred->CopyResource(staging, srcTex);
+
+		const uint32 w = r.width ? r.width : td.Width;
+		const uint32 h = r.height ? r.height : td.Height;
+		mPendingReadbacks.push_back({staging, dst.id, w, h});
 	}
 
 	void NkDirectX11CommandBuffer::CopyTexture(NkTextureHandle src, NkTextureHandle dst, const NkTextureCopyRegion &r) {
