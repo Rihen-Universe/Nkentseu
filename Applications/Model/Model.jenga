@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-NKPA — Nkentseu Procedural Animation
-=====================================
-Application de démonstration d'animation procédurale :
-  • Poissons, serpents, lézards animés par IK chaîne de segments
-  • Rendu software via NKRHI (triangle lists, couleurs par sommet)
-  • Mouvement autonome (seek + ondulation sinusoïdale)
+Model — Démo pédagogique RHI (triangle / quad coloré)
+=====================================================
+Application-support de TP : dessine un carré coloré (2 triangles, couleur
+interpolée par sommet) via la couche RHI Nkentseu, multi-backend.
+  • Backends : OpenGL, Vulkan, DX11, DX12, Software (--backend=xxx)
+  • Chargement des shaders par API (GLSL / SPIR-V / HLSL / NkSL software)
+  • Pipeline complet : device → shaders → vertex buffer → pipeline → boucle
+
+NB : la vraie démo d'animation procédurale (poissons/serpents/lézards IK)
+     est l'application NKPA (Applications/NKPA/).
 """
 
 from Jenga import *
