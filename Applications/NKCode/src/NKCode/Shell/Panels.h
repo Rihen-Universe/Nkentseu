@@ -986,6 +986,10 @@ namespace nkentseu {
 						mTabScroll = 0.f;
 					if (mTabScroll > tabMaxScroll)
 						mTabScroll = tabMaxScroll;
+					// Souris sur un menu OUVERT (rect de la frame precedente) -> les onglets/boutons,
+					// rendus AVANT le menu, ne doivent ni survoler ni recevoir de clic a travers.
+					const bool overTabMenus = (mTabMenu.open && detail::InRect(mTabMenu.rect, m)) ||
+											  (mTabList.open && detail::InRect(mTabList.rect, m));
 					int32 hovNow = -1;
 					dl.PushClipRect({x0, y0, viewTabsW, h}, true);
 					x = x0 - mTabScroll;
@@ -999,7 +1003,7 @@ namespace nkentseu {
 						const NkRect tab = {x, y0, tabW, h};
 						const bool active = (static_cast<int32>(i) == mS->active);
 						const bool hov = m.x >= tab.x && m.x < tab.x + tab.w && m.y >= tab.y && m.y < tab.y + tab.h &&
-										 m.x < x0 + viewTabsW; // zone visible seulement (boutons fixes à droite)
+										 m.x < x0 + viewTabsW && !overTabMenus; // zone visible + pas sous un menu
 						if (hov)
 							hovNow = static_cast<int32>(i);
 						dl.AddRectFilled(tab,
@@ -1077,7 +1081,8 @@ namespace nkentseu {
 					// ── Bouton ▾ (façon Visual Studio) : liste déroulante de TOUS les fichiers ouverts. ──
 					const NkRect ddB = {x0 + viewTabsW + 2.f, y0 + (h - 22.f) * 0.5f, 24.f, 22.f};
 					{
-						const bool dHov = m.x >= ddB.x && m.x < ddB.x + ddB.w && m.y >= ddB.y && m.y < ddB.y + ddB.h;
+						const bool dHov =
+							m.x >= ddB.x && m.x < ddB.x + ddB.w && m.y >= ddB.y && m.y < ddB.y + ddB.h && !overTabMenus;
 						if (dHov)
 							dl.AddRectFilled(ddB, ctx.theme.buttonHover, ctx.theme.rounding);
 						const float32 cx = ddB.x + ddB.w * 0.5f, cy = ddB.y + ddB.h * 0.5f, a = 4.f;
@@ -1139,7 +1144,8 @@ namespace nkentseu {
 					}
 					// Bouton « + » (nouvel onglet vierge) — FIXE à droite, après le ▾.
 					const NkRect plus = {x0 + viewTabsW + 30.f, y0 + (h - 22.f) * 0.5f, 24.f, 22.f};
-					const bool pHov = m.x >= plus.x && m.x < plus.x + plus.w && m.y >= plus.y && m.y < plus.y + plus.h;
+					const bool pHov = m.x >= plus.x && m.x < plus.x + plus.w && m.y >= plus.y &&
+									  m.y < plus.y + plus.h && !overTabMenus;
 					if (pHov)
 						dl.AddRectFilled(plus, ctx.theme.buttonHover, ctx.theme.rounding);
 					{
