@@ -2343,6 +2343,10 @@ namespace nkentseu {
 			// (mot + carte) gonflee — on peut la rejoindre sans quelle disparaisse.
 			if (!d.hovShow && !d.hovReq)
 				d.hovKb = false; // fin de vie de la requete clavier -> les resets souris reprennent
+			// Souris sur un menu OUVERT de l'editeur (contextuel / quick fix) : le caret ne doit
+			// pas bouger a travers (menus rendus en fin de frame -> garde par rect precedent).
+			const bool overCtxMenus = (NkCodeCtxMenu().open && InRect(NkCodeCtxMenu().rect, mouse)) ||
+									  (NkCodeQfMenu().open && InRect(NkCodeQfMenu().rect, mouse));
 			bool overHovCard = false;
 			// molette sur la carte : defile le prototype horizontalement (consommee)
 			if (d.hovShow) {
@@ -2597,7 +2601,7 @@ namespace nkentseu {
 			// Double-clic OS : sous Windows le 2e clic arrive en WM_LBUTTONDBLCLK (PAS un press),
 			// donc jamais dans mouseClicked -> on écoute mouseDoubleClicked. Mot sous la souris ;
 			// un double-clic enchaîné (3e clic rapide) escalade à la LIGNE.
-			if (!ctrlLink && !overAc && !overHovCard && overText && ctx.input.mouseDoubleClicked[0] &&
+			if (!ctrlLink && !overAc && !overHovCard && !overCtxMenus && overText && ctx.input.mouseDoubleClicked[0] &&
 				!ctx.input.altDown) {
 				NkCodeFocusId() = id;
 				int32 l = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
@@ -2637,7 +2641,7 @@ namespace nkentseu {
 				d.clkL = l;
 				d.clkC = c;
 			}
-			if (!ctrlLink && !overAc && !overHovCard && ctx.input.mouseClicked[0] && overText &&
+			if (!ctrlLink && !overAc && !overHovCard && !overCtxMenus && ctx.input.mouseClicked[0] && overText &&
 				!ctx.input.mouseDoubleClicked[0]) {
 				NkCodeFocusId() = id;
 				int32 l = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
