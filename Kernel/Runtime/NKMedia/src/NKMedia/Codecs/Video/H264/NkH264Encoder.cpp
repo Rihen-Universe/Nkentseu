@@ -50,6 +50,11 @@ namespace nkentseu {
 										 16, 3,	 5,	 10, 12, 19, 21, 26, 28, 35, 37, 42, 44, 1,	 2,	 4,
 										 8,	 17, 18, 20, 24, 6,	 9,	 22, 25, 32, 33, 34, 36, 40, 38, 41};
 
+			// coded_block_pattern Inter (Table 9-4, ChromaArrayType 1/2) : codeNum → CBP.
+			const int32 kCbpInter[48] = {0,	 16, 1,	 2,	 4,	 8,	 32, 3,	 5,	 10, 12, 15, 47, 7,	 11, 13,
+										 14, 6,	 9,	 31, 35, 37, 42, 44, 33, 34, 36, 40, 39, 43, 45, 46,
+										 17, 18, 20, 24, 19, 21, 26, 28, 23, 27, 29, 30, 22, 25, 38, 41};
+
 			// Prédiction Intra_4×4 (§8.3.1.2), mode 0..8. t[0..7] = haut + haut-droite, l[0..3] = gauche,
 			// tl = coin. avt/avl = disponibilité haut/gauche (pour DC). Sort pred[16] (raster y*4+x).
 			void Predict4x4(int32 mode, const int32 t[8], const int32 l[4], int32 tl, bool avt, bool avl,
@@ -230,7 +235,8 @@ namespace nkentseu {
 		} // namespace
 
 		// --------------------------------------------------------------------------
-		bool NkH264Encoder::Open(const char *path, int32 width, int32 height, int32 fpsNum, int32 fpsDen, int32 qp) {
+		bool NkH264Encoder::Open(const char *path, int32 width, int32 height, int32 fpsNum, int32 fpsDen, int32 qp,
+								 int32 gop) {
 			if (width <= 0 || height <= 0 || fpsNum <= 0 || fpsDen <= 0)
 				return false;
 			mWidth = width;
@@ -238,6 +244,7 @@ namespace nkentseu {
 			mFpsNum = fpsNum;
 			mFpsDen = fpsDen;
 			mQp = Clamp(qp, 0, 51);
+			mGop = gop < 1 ? 1 : gop;
 			mMbW = (width + 15) / 16;
 			mMbH = (height + 15) / 16;
 			mLumaW = mMbW * 16;
@@ -257,8 +264,14 @@ namespace nkentseu {
 			mChromaNz[0] = (int32 *)memory::NkAlloc((usize)mMbW * 2 * mMbH * 2 * sizeof(int32));
 			mChromaNz[1] = (int32 *)memory::NkAlloc((usize)mMbW * 2 * mMbH * 2 * sizeof(int32));
 			mI4Mode = (int32 *)memory::NkAlloc((usize)mMbW * 4 * mMbH * 4 * sizeof(int32));
+			mRefY = (uint8 *)memory::NkAlloc(lumaN);
+			mRefCb = (uint8 *)memory::NkAlloc(chromaN);
+			mRefCr = (uint8 *)memory::NkAlloc(chromaN);
+			mMvX = (int32 *)memory::NkAlloc((usize)mMbW * mMbH * sizeof(int32));
+			mMvY = (int32 *)memory::NkAlloc((usize)mMbW * mMbH * sizeof(int32));
+			mMbInter = (int32 *)memory::NkAlloc((usize)mMbW * mMbH * sizeof(int32));
 			if (!mY || !mCb || !mCr || !mRecY || !mRecCb || !mRecCr || !mLumaNz || !mChromaNz[0] || !mChromaNz[1] ||
-				!mI4Mode) {
+				!mI4Mode || !mRefY || !mRefCb || !mRefCr || !mMvX || !mMvY || !mMbInter) {
 				Free();
 				return false;
 			}
@@ -285,10 +298,20 @@ namespace nkentseu {
 					memory::NkFree(mChromaNz[c]);
 			if (mI4Mode)
 				memory::NkFree(mI4Mode);
+			uint8 *rb[3] = {mRefY, mRefCb, mRefCr};
+			for (int32 i = 0; i < 3; ++i)
+				if (rb[i])
+					memory::NkFree(rb[i]);
+			int32 *mb[3] = {mMvX, mMvY, mMbInter};
+			for (int32 i = 0; i < 3; ++i)
+				if (mb[i])
+					memory::NkFree(mb[i]);
 			mY = mCb = mCr = mRecY = mRecCb = mRecCr = nullptr;
 			mLumaNz = nullptr;
 			mChromaNz[0] = mChromaNz[1] = nullptr;
 			mI4Mode = nullptr;
+			mRefY = mRefCb = mRefCr = nullptr;
+			mMvX = mMvY = mMbInter = nullptr;
 		}
 
 		// --------------------------------------------------------------------------
@@ -515,13 +538,10 @@ namespace nkentseu {
 		}
 
 		// --------------------------------------------------------------------------
-		// Chroma partagé : prédiction DC 4 quadrants + résidu (DC 2×2 + AC) + reconstruction.
+		// Chroma intra : construit la prédiction DC 4 quadrants puis délègue au résidu commun.
 		void NkH264Encoder::ComputeChroma(int32 mbX, int32 mbY, bool availTop, bool availLeft, ChromaMb &c) {
-			const int32 qpC = NkH264Transform::ChromaQp(mQp);
-			int32 cDcRec[2][4];
 			uint8 cPred[2][64];
 			for (int32 comp = 0; comp < 2; ++comp) {
-				const uint8 *csrc = comp == 0 ? mCb : mCr;
 				const uint8 *rec = comp == 0 ? mRecCb : mRecCr;
 				const int32 cpx = mbX * 8, cpy = mbY * 8;
 				int32 ct[8], cl[8];
@@ -545,7 +565,17 @@ namespace nkentseu {
 				for (int32 j = 0; j < 8; ++j)
 					for (int32 i = 0; i < 8; ++i)
 						cPred[comp][j * 8 + i] = ClampU8(q[(i < 4 ? 0 : 1) + (j < 4 ? 0 : 2)]);
+			}
+			ComputeChromaFromPred(mbX, mbY, cPred, c);
+		}
 
+		// Résidu + reconstruction chroma pour une prédiction donnée (intra DC ou compensée en mouvement).
+		void NkH264Encoder::ComputeChromaFromPred(int32 mbX, int32 mbY, const uint8 cPred[2][64], ChromaMb &c) {
+			const int32 qpC = NkH264Transform::ChromaQp(mQp);
+			int32 cDcRec[2][4];
+			for (int32 comp = 0; comp < 2; ++comp) {
+				const uint8 *csrc = comp == 0 ? mCb : mCr;
+				const int32 cpx = mbX * 8, cpy = mbY * 8;
 				int32 cdc4[4];
 				for (int32 blk = 0; blk < 4; ++blk) {
 					const int32 bx4 = (blk & 1) * 4, by4 = (blk >> 1) * 4;
@@ -709,11 +739,17 @@ namespace nkentseu {
 					for (int32 c = 0; c < 4; ++c)
 						mRecY[(usize)(Y + r) * mLumaW + X + c] = ClampU8(predBest[r * 4 + c] + resRec[r * 4 + c]);
 
-				// prédiction du mode (min des modes voisins) → prev_flag / rem.
+				// prédiction du mode (§8.3.1.1) : si un voisin 4×4 est indisponible (bord de trame),
+				// dcPredModePredictedFlag force les DEUX à DC(2) → predMode = 2 ; sinon min des deux.
 				const int32 bx = mbX * 4 + x4 / 4, by = mbY * 4 + y4 / 4;
-				const int32 intraA = (bx > 0) ? mI4Mode[by * nzW + (bx - 1)] : 2;
-				const int32 intraB = (by > 0) ? mI4Mode[(by - 1) * nzW + bx] : 2;
-				const int32 predMode = intraA < intraB ? intraA : intraB;
+				int32 predMode;
+				if (bx == 0 || by == 0) {
+					predMode = 2;
+				} else {
+					const int32 intraA = mI4Mode[by * nzW + (bx - 1)];
+					const int32 intraB = mI4Mode[(by - 1) * nzW + bx];
+					predMode = intraA < intraB ? intraA : intraB;
+				}
 				if (bestMode == predMode) {
 					prevFlag[blk] = 1;
 					remMode[blk] = 0;
@@ -785,8 +821,9 @@ namespace nkentseu {
 		}
 
 		// --------------------------------------------------------------------------
-		// Déblocage en boucle (§8.7). Toutes les MB étant intra, bS = 4 (bord de MB) ou 3 (interne).
-		// Ordre standard : par MB en raster, bords verticaux (gauche→droite) puis horizontaux (haut→bas).
+		// Déblocage en boucle (§8.7) avec force de bord (bS) par segment 4×4 : intra → 4 (bord MB) / 3
+		// (interne) ; inter → 2 (résidu codé) / 1 (Δmv ≥ 1 pel ou réf ≠) / 0 (rien). Ordre standard :
+		// par MB en raster, bords verticaux (gauche→droite) puis horizontaux (haut→bas).
 		void NkH264Encoder::DeblockFrame() {
 			if (!mDeblock)
 				return;
@@ -794,55 +831,538 @@ namespace nkentseu {
 			const int32 alpha = kAlpha[idx], beta = kBeta[idx];
 			const int32 idxC = NkH264Transform::ChromaQp(mQp);
 			const int32 alphaC = kAlpha[idxC], betaC = kBeta[idxC];
+			const int32 nzW = mMbW * 4;
+
+			// bS d'un bord vertical (edge e = 0..3) : bS[br] pour chaque segment 4×4 (br lignes).
+			auto vertBs = [&](int32 mbX, int32 mbY, int32 e, int32 bS[4]) {
+				const int32 qMB = mbY * mMbW + mbX;
+				const bool qInter = mMbInter[qMB] != 0;
+				for (int32 br = 0; br < 4; ++br) {
+					int32 pMB, pbx;
+					if (e == 0) {
+						pMB = mbY * mMbW + (mbX - 1);
+						pbx = (mbX - 1) * 4 + 3;
+					} else {
+						pMB = qMB;
+						pbx = mbX * 4 + (e - 1);
+					}
+					if (!qInter || mMbInter[pMB] == 0) {
+						bS[br] = (e == 0) ? 4 : 3;
+						continue;
+					}
+					const bool qNz = mLumaNz[(mbY * 4 + br) * nzW + (mbX * 4 + e)] > 0;
+					const bool pNz = mLumaNz[(mbY * 4 + br) * nzW + pbx] > 0;
+					if (pNz || qNz) {
+						bS[br] = 2;
+						continue;
+					}
+					const int32 dx = mMvX[qMB] - mMvX[pMB], dy = mMvY[qMB] - mMvY[pMB];
+					bS[br] = ((dx < 0 ? -dx : dx) >= 4 || (dy < 0 ? -dy : dy) >= 4) ? 1 : 0;
+				}
+			};
+			auto horizBs = [&](int32 mbX, int32 mbY, int32 e, int32 bS[4]) {
+				const int32 qMB = mbY * mMbW + mbX;
+				const bool qInter = mMbInter[qMB] != 0;
+				for (int32 bc = 0; bc < 4; ++bc) {
+					int32 pMB, pby;
+					if (e == 0) {
+						pMB = (mbY - 1) * mMbW + mbX;
+						pby = (mbY - 1) * 4 + 3;
+					} else {
+						pMB = qMB;
+						pby = mbY * 4 + (e - 1);
+					}
+					if (!qInter || mMbInter[pMB] == 0) {
+						bS[bc] = (e == 0) ? 4 : 3;
+						continue;
+					}
+					const bool qNz = mLumaNz[(mbY * 4 + e) * nzW + (mbX * 4 + bc)] > 0;
+					const bool pNz = mLumaNz[pby * nzW + (mbX * 4 + bc)] > 0;
+					if (pNz || qNz) {
+						bS[bc] = 2;
+						continue;
+					}
+					const int32 dx = mMvX[qMB] - mMvX[pMB], dy = mMvY[qMB] - mMvY[pMB];
+					bS[bc] = ((dx < 0 ? -dx : dx) >= 4 || (dy < 0 ? -dy : dy) >= 4) ? 1 : 0;
+				}
+			};
 
 			for (int32 mbY = 0; mbY < mMbH; ++mbY)
 				for (int32 mbX = 0; mbX < mMbW; ++mbX) {
-					// --- luma : 4 bords verticaux puis 4 horizontaux ---
+					int32 bS[4];
+					// --- luma : bords verticaux (par segment de 4 lignes) ---
 					for (int32 e = 0; e < 4; ++e) {
 						if (e == 0 && mbX == 0)
-							continue; // bord gauche de l'image
-						const int32 bS = (e == 0) ? 4 : 3;
-						const int32 tc0 = (bS < 4) ? kTc0[idx][bS - 1] : 0;
+							continue;
+						vertBs(mbX, mbY, e, bS);
 						const int32 x = mbX * 16 + e * 4;
-						for (int32 r = 0; r < 16; ++r)
-							FiltLuma(&mRecY[(usize)(mbY * 16 + r) * mLumaW + x], 1, alpha, beta, bS, tc0);
+						for (int32 br = 0; br < 4; ++br) {
+							if (bS[br] == 0)
+								continue;
+							const int32 tc0 = (bS[br] < 4) ? kTc0[idx][bS[br] - 1] : 0;
+							for (int32 r = 0; r < 4; ++r)
+								FiltLuma(&mRecY[(usize)(mbY * 16 + br * 4 + r) * mLumaW + x], 1, alpha, beta, bS[br], tc0);
+						}
 					}
+					// --- luma : bords horizontaux ---
 					for (int32 e = 0; e < 4; ++e) {
 						if (e == 0 && mbY == 0)
-							continue; // bord haut de l'image
-						const int32 bS = (e == 0) ? 4 : 3;
-						const int32 tc0 = (bS < 4) ? kTc0[idx][bS - 1] : 0;
+							continue;
+						horizBs(mbX, mbY, e, bS);
 						const int32 y = mbY * 16 + e * 4;
-						for (int32 c = 0; c < 16; ++c)
-							FiltLuma(&mRecY[(usize)y * mLumaW + mbX * 16 + c], mLumaW, alpha, beta, bS, tc0);
+						for (int32 bc = 0; bc < 4; ++bc) {
+							if (bS[bc] == 0)
+								continue;
+							const int32 tc0 = (bS[bc] < 4) ? kTc0[idx][bS[bc] - 1] : 0;
+							for (int32 c = 0; c < 4; ++c)
+								FiltLuma(&mRecY[(usize)y * mLumaW + mbX * 16 + bc * 4 + c], mLumaW, alpha, beta, bS[bc],
+										 tc0);
+						}
 					}
-					// --- chroma (4:2:0) : bords x=0/4 puis y=0/4, sur Cb et Cr ---
+					// --- chroma (4:2:0) : bords cx=0/4 (↔ luma e=0/2), bS repris du luma (ligne cr → segment cr/2) ---
 					for (int32 comp = 0; comp < 2; ++comp) {
 						uint8 *rec = comp == 0 ? mRecCb : mRecCr;
-						for (int32 e = 0; e < 2; ++e) {
-							if (e == 0 && mbX == 0)
+						for (int32 ec = 0; ec < 2; ++ec) {
+							if (ec == 0 && mbX == 0)
 								continue;
-							const int32 bS = (e == 0) ? 4 : 3;
-							const int32 tc0 = (bS < 4) ? kTc0[idxC][bS - 1] : 0;
-							const int32 cx = mbX * 8 + e * 4;
-							for (int32 r = 0; r < 8; ++r)
-								FiltChroma(&rec[(usize)(mbY * 8 + r) * mChromaW + cx], 1, alphaC, betaC, bS, tc0);
+							vertBs(mbX, mbY, ec * 2, bS);
+							const int32 cx = mbX * 8 + ec * 4;
+							for (int32 cr = 0; cr < 8; ++cr) {
+								const int32 b = bS[cr / 2];
+								if (b == 0)
+									continue;
+								const int32 tc0 = (b < 4) ? kTc0[idxC][b - 1] : 0;
+								FiltChroma(&rec[(usize)(mbY * 8 + cr) * mChromaW + cx], 1, alphaC, betaC, b, tc0);
+							}
 						}
-						for (int32 e = 0; e < 2; ++e) {
-							if (e == 0 && mbY == 0)
+						for (int32 ec = 0; ec < 2; ++ec) {
+							if (ec == 0 && mbY == 0)
 								continue;
-							const int32 bS = (e == 0) ? 4 : 3;
-							const int32 tc0 = (bS < 4) ? kTc0[idxC][bS - 1] : 0;
-							const int32 cy = mbY * 8 + e * 4;
-							for (int32 c = 0; c < 8; ++c)
-								FiltChroma(&rec[(usize)cy * mChromaW + mbX * 8 + c], mChromaW, alphaC, betaC, bS, tc0);
+							horizBs(mbX, mbY, ec * 2, bS);
+							const int32 cy = mbY * 8 + ec * 4;
+							for (int32 cc = 0; cc < 8; ++cc) {
+								const int32 b = bS[cc / 2];
+								if (b == 0)
+									continue;
+								const int32 tc0 = (b < 4) ? kTc0[idxC][b - 1] : 0;
+								FiltChroma(&rec[(usize)cy * mChromaW + mbX * 8 + cc], mChromaW, alphaC, betaC, b, tc0);
+							}
 						}
 					}
 				}
 		}
 
 		// --------------------------------------------------------------------------
+		// Compensation de mouvement luma quart-pel (§8.4.2.2.1) : 6-tap demi-pel + moyenne quart-pel.
+		void NkH264Encoder::McLuma(int32 px, int32 py, int32 mvx, int32 mvy, uint8 out[256]) {
+			const int32 W = mLumaW, H = mLumaH;
+			const uint8 *ref = mRefY;
+			auto R = [&](int32 x, int32 y) -> int32 {
+				x = x < 0 ? 0 : (x >= W ? W - 1 : x);
+				y = y < 0 ? 0 : (y >= H ? H - 1 : y);
+				return ref[(usize)y * W + x];
+			};
+			auto Hor = [&](int32 x, int32 y) -> int32 {
+				return R(x - 2, y) - 5 * R(x - 1, y) + 20 * R(x, y) + 20 * R(x + 1, y) - 5 * R(x + 2, y) + R(x + 3, y);
+			};
+			auto Ver = [&](int32 x, int32 y) -> int32 {
+				return R(x, y - 2) - 5 * R(x, y - 1) + 20 * R(x, y) + 20 * R(x, y + 1) - 5 * R(x, y + 2) + R(x, y + 3);
+			};
+			auto B = [&](int32 x, int32 y) -> int32 { return ClampU8((Hor(x, y) + 16) >> 5); };	// demi-pel horiz.
+			auto Hh = [&](int32 x, int32 y) -> int32 { return ClampU8((Ver(x, y) + 16) >> 5); }; // demi-pel vert.
+			auto J = [&](int32 x, int32 y) -> int32 {
+				const int32 j1 = Hor(x, y - 2) - 5 * Hor(x, y - 1) + 20 * Hor(x, y) + 20 * Hor(x, y + 1) -
+								 5 * Hor(x, y + 2) + Hor(x, y + 3);
+				return ClampU8((j1 + 512) >> 10);
+			};
+			const int32 fx = mvx & 3, fy = mvy & 3;
+			const int32 bx = px + (mvx >> 2), by = py + (mvy >> 2);
+			for (int32 y = 0; y < 16; ++y)
+				for (int32 x = 0; x < 16; ++x) {
+					const int32 ix = bx + x, iy = by + y;
+					int32 v;
+					switch (fy * 4 + fx) {
+						case 0: v = R(ix, iy); break;
+						case 1: v = (R(ix, iy) + B(ix, iy) + 1) >> 1; break;
+						case 2: v = B(ix, iy); break;
+						case 3: v = (B(ix, iy) + R(ix + 1, iy) + 1) >> 1; break;
+						case 4: v = (R(ix, iy) + Hh(ix, iy) + 1) >> 1; break;
+						case 5: v = (B(ix, iy) + Hh(ix, iy) + 1) >> 1; break;
+						case 6: v = (B(ix, iy) + J(ix, iy) + 1) >> 1; break;
+						case 7: v = (B(ix, iy) + Hh(ix + 1, iy) + 1) >> 1; break;
+						case 8: v = Hh(ix, iy); break;
+						case 9: v = (Hh(ix, iy) + J(ix, iy) + 1) >> 1; break;
+						case 10: v = J(ix, iy); break;
+						case 11: v = (J(ix, iy) + Hh(ix + 1, iy) + 1) >> 1; break;
+						case 12: v = (Hh(ix, iy) + R(ix, iy + 1) + 1) >> 1; break;
+						case 13: v = (Hh(ix, iy) + B(ix, iy + 1) + 1) >> 1; break;
+						case 14: v = (J(ix, iy) + B(ix, iy + 1) + 1) >> 1; break;
+						default: v = (Hh(ix + 1, iy) + B(ix, iy + 1) + 1) >> 1; break; // 15
+					}
+					out[y * 16 + x] = (uint8)v;
+				}
+		}
+
+		// Compensation chroma 1/8-pel bilinéaire (§8.4.2.2.2).
+		void NkH264Encoder::McChroma(int32 comp, int32 cpx, int32 cpy, int32 mvx, int32 mvy, uint8 out[64]) {
+			const uint8 *ref = comp == 0 ? mRefCb : mRefCr;
+			const int32 W = mChromaW, H = mChromaH;
+			const int32 fx = mvx & 7, fy = mvy & 7, ox = mvx >> 3, oy = mvy >> 3;
+			auto C = [&](int32 x, int32 y) -> int32 {
+				x = x < 0 ? 0 : (x >= W ? W - 1 : x);
+				y = y < 0 ? 0 : (y >= H ? H - 1 : y);
+				return ref[(usize)y * W + x];
+			};
+			for (int32 y = 0; y < 8; ++y)
+				for (int32 x = 0; x < 8; ++x) {
+					const int32 rx = cpx + x + ox, ry = cpy + y + oy;
+					const int32 A = C(rx, ry), Bb = C(rx + 1, ry), Cc = C(rx, ry + 1), D = C(rx + 1, ry + 1);
+					out[y * 8 + x] = (uint8)(((8 - fx) * (8 - fy) * A + fx * (8 - fy) * Bb + (8 - fx) * fy * Cc +
+											 fx * fy * D + 32) >>
+											6);
+				}
+		}
+
+		// Prédicteur médian de MV (§8.4.1.3) pour une partition 16×16.
+		void NkH264Encoder::PredictMv(int32 mbX, int32 mbY, int32 &pmx, int32 &pmy) {
+			auto NB = [&](int32 nx, int32 ny, bool &av, int32 &rf, int32 &mx, int32 &my) {
+				if (nx < 0 || ny < 0 || nx >= mMbW || ny >= mMbH) {
+					av = false;
+					rf = -1;
+					mx = my = 0;
+					return;
+				}
+				av = true;
+				const int32 id = ny * mMbW + nx;
+				if (mMbInter[id]) {
+					rf = 0;
+					mx = mMvX[id];
+					my = mMvY[id];
+				} else {
+					rf = -1;
+					mx = my = 0;
+				}
+			};
+			bool aA, aB, aC;
+			int32 rA, rB, rC, ax, ay, bx, by, cx, cy;
+			NB(mbX - 1, mbY, aA, rA, ax, ay);
+			NB(mbX, mbY - 1, aB, rB, bx, by);
+			NB(mbX + 1, mbY - 1, aC, rC, cx, cy);
+			if (!aC)
+				NB(mbX - 1, mbY - 1, aC, rC, cx, cy); // repli sur le coin haut-gauche
+			if (!aB && !aC && aA) {
+				pmx = ax;
+				pmy = ay;
+				return;
+			}
+			const bool eA = aA && rA == 0, eB = aB && rB == 0, eC = aC && rC == 0;
+			if (eA && !eB && !eC) {
+				pmx = ax;
+				pmy = ay;
+				return;
+			}
+			if (!eA && eB && !eC) {
+				pmx = bx;
+				pmy = by;
+				return;
+			}
+			if (!eA && !eB && eC) {
+				pmx = cx;
+				pmy = cy;
+				return;
+			}
+			auto med = [](int32 a, int32 b, int32 c) -> int32 {
+				const int32 mn = a < b ? (a < c ? a : c) : (b < c ? b : c);
+				const int32 mx = a > b ? (a > c ? a : c) : (b > c ? b : c);
+				return a + b + c - mn - mx;
+			};
+			pmx = med(ax, bx, cx);
+			pmy = med(ay, by, cy);
+		}
+
+		// Prédicteur P_Skip (§8.4.1.1) : 0 si un voisin manque ou est inter à MV nul, sinon médian.
+		void NkH264Encoder::SkipMv(int32 mbX, int32 mbY, int32 &smx, int32 &smy) {
+			bool zero = (mbX == 0) || (mbY == 0);
+			if (!zero) {
+				const int32 idA = mbY * mMbW + (mbX - 1), idB = (mbY - 1) * mMbW + mbX;
+				if (mMbInter[idA] && mMvX[idA] == 0 && mMvY[idA] == 0)
+					zero = true;
+				if (mMbInter[idB] && mMvX[idB] == 0 && mMvY[idB] == 0)
+					zero = true;
+			}
+			if (zero) {
+				smx = smy = 0;
+				return;
+			}
+			PredictMv(mbX, mbY, smx, smy);
+		}
+
+		// Tente P_Skip : compense au MV de skip, teste le résidu ; si nul, commit (recon = prédiction).
+		bool NkH264Encoder::TryInterSkip(int32 mbX, int32 mbY) {
+			const int32 px = mbX * 16, py = mbY * 16, cpx = mbX * 8, cpy = mbY * 8;
+			int32 smx, smy;
+			SkipMv(mbX, mbY, smx, smy);
+			uint8 predY[256], cPred[2][64];
+			McLuma(px, py, smx, smy, predY);
+			int32 lvlBlk[16][16];
+			for (int32 blk = 0; blk < 16; ++blk) {
+				int32 x4, y4;
+				LumaBlk(blk, x4, y4);
+				int32 res[16], coef[16];
+				for (int32 r = 0; r < 4; ++r)
+					for (int32 c = 0; c < 4; ++c)
+						res[r * 4 + c] = (int32)mY[(usize)(py + y4 + r) * mLumaW + px + x4 + c] - predY[(y4 + r) * 16 + (x4 + c)];
+				NkH264Transform::Forward4x4(res, coef);
+				NkH264Transform::Quant4x4(coef, lvlBlk[blk], mQp, false);
+			}
+			int32 lumaCbp = 0;
+			for (int32 k = 0; k < 4; ++k) {
+				bool cd = false;
+				for (int32 b = 0; b < 4 && !cd; ++b)
+					for (int32 i = 0; i < 16; ++i)
+						if (lvlBlk[k * 4 + b][i]) {
+							cd = true;
+							break;
+						}
+				if (cd)
+					lumaCbp |= (1 << k);
+			}
+			McChroma(0, cpx, cpy, smx, smy, cPred[0]);
+			McChroma(1, cpx, cpy, smx, smy, cPred[1]);
+			ChromaMb cmb;
+			ComputeChromaFromPred(mbX, mbY, cPred, cmb);
+			if (lumaCbp != 0 || cmb.cbp != 0)
+				return false;
+			// P_Skip : reconstruction luma = prédiction (résidu nul), chroma déjà = prédiction.
+			for (int32 y = 0; y < 16; ++y)
+				for (int32 x = 0; x < 16; ++x)
+					mRecY[(usize)(py + y) * mLumaW + px + x] = predY[y * 16 + x];
+			const int32 id = mbY * mMbW + mbX;
+			mMvX[id] = smx;
+			mMvY[id] = smy;
+			mMbInter[id] = 1;
+			return true;
+		}
+
+		// Macrobloc P_L0_16×16 codé : estimation de mouvement (entier→demi→quart), MVD, résidu, reconstruction.
+		void NkH264Encoder::EncodeMbInter(NkH264BitWriter &bs, int32 mbX, int32 mbY) {
+			const int32 px = mbX * 16, py = mbY * 16, cpx = mbX * 8, cpy = mbY * 8, nzW = mMbW * 4;
+			int32 pmx, pmy;
+			PredictMv(mbX, mbY, pmx, pmy);
+
+			auto SadAt = [&](int32 mvx, int32 mvy) -> int64 {
+				uint8 pr[256];
+				McLuma(px, py, mvx, mvy, pr);
+				int64 s = 0;
+				for (int32 y = 0; y < 16; ++y)
+					for (int32 x = 0; x < 16; ++x) {
+						const int32 d = (int32)mY[(usize)(py + y) * mLumaW + px + x] - pr[y * 16 + x];
+						s += d < 0 ? -d : d;
+					}
+				return s;
+			};
+			auto SadInt = [&](int32 ix, int32 iy) -> int64 {
+				int64 s = 0;
+				for (int32 y = 0; y < 16; ++y)
+					for (int32 x = 0; x < 16; ++x) {
+						int32 rx = px + x + ix, ry = py + y + iy;
+						rx = rx < 0 ? 0 : (rx >= mLumaW ? mLumaW - 1 : rx);
+						ry = ry < 0 ? 0 : (ry >= mLumaH ? mLumaH - 1 : ry);
+						const int32 d = (int32)mY[(usize)(py + y) * mLumaW + px + x] - mRefY[(usize)ry * mLumaW + rx];
+						s += d < 0 ? -d : d;
+					}
+				return s;
+			};
+			// recherche entière autour du prédicteur (biais léger vers le prédicteur pour limiter le MVD).
+			const int32 cix = pmx >> 2, ciy = pmy >> 2, Rng = 16;
+			int32 bix = cix, biy = ciy;
+			int64 best = -1;
+			for (int32 dy = -Rng; dy <= Rng; ++dy)
+				for (int32 dx = -Rng; dx <= Rng; ++dx) {
+					const int32 ix = cix + dx, iy = ciy + dy;
+					const int32 cxq = ix * 4 - pmx, cyq = iy * 4 - pmy;
+					const int64 s = SadInt(ix, iy) + 2 * ((cxq < 0 ? -cxq : cxq) + (cyq < 0 ? -cyq : cyq));
+					if (best < 0 || s < best) {
+						best = s;
+						bix = ix;
+						biy = iy;
+					}
+				}
+			int32 bmx = bix * 4, bmy = biy * 4;
+			// affinage demi-pel puis quart-pel.
+			for (int32 step = 2; step >= 1; --step) {
+				int64 b2 = SadAt(bmx, bmy);
+				int32 nx = bmx, ny = bmy;
+				for (int32 dy = -step; dy <= step; dy += step)
+					for (int32 dx = -step; dx <= step; dx += step) {
+						if (!dx && !dy)
+							continue;
+						const int64 s = SadAt(bmx + dx, bmy + dy);
+						if (s < b2) {
+							b2 = s;
+							nx = bmx + dx;
+							ny = bmy + dy;
+						}
+					}
+				bmx = nx;
+				bmy = ny;
+			}
+
+			uint8 predY[256], cPred[2][64];
+			McLuma(px, py, bmx, bmy, predY);
+			McChroma(0, cpx, cpy, bmx, bmy, cPred[0]);
+			McChroma(1, cpx, cpy, bmx, bmy, cPred[1]);
+			int32 lvlBlk[16][16];
+			for (int32 blk = 0; blk < 16; ++blk) {
+				int32 x4, y4;
+				LumaBlk(blk, x4, y4);
+				int32 res[16], coef[16];
+				for (int32 r = 0; r < 4; ++r)
+					for (int32 c = 0; c < 4; ++c)
+						res[r * 4 + c] = (int32)mY[(usize)(py + y4 + r) * mLumaW + px + x4 + c] - predY[(y4 + r) * 16 + (x4 + c)];
+				NkH264Transform::Forward4x4(res, coef);
+				NkH264Transform::Quant4x4(coef, lvlBlk[blk], mQp, false);
+			}
+			int32 lumaCbp = 0;
+			for (int32 k = 0; k < 4; ++k) {
+				bool cd = false;
+				for (int32 b = 0; b < 4 && !cd; ++b)
+					for (int32 i = 0; i < 16; ++i)
+						if (lvlBlk[k * 4 + b][i]) {
+							cd = true;
+							break;
+						}
+				if (cd)
+					lumaCbp |= (1 << k);
+			}
+			ChromaMb cmb;
+			ComputeChromaFromPred(mbX, mbY, cPred, cmb);
+			const int32 cbp = lumaCbp + 16 * cmb.cbp;
+			int32 codeNum = 0;
+			for (int32 n = 0; n < 48; ++n)
+				if (kCbpInter[n] == cbp) {
+					codeNum = n;
+					break;
+				}
+
+			bs.Ue(0);				  // mb_type = P_L0_16×16
+			bs.Se(bmx - pmx);		  // mvd_l0 x
+			bs.Se(bmy - pmy);		  // mvd_l0 y
+			bs.Ue((uint32)codeNum);	  // coded_block_pattern (Inter)
+			if (cbp > 0)
+				bs.Se(0); // mb_qp_delta
+
+			const int32 bx0 = mbX * 4, by0 = mbY * 4;
+			for (int32 k = 0; k < 4; ++k) {
+				if (!(lumaCbp & (1 << k))) {
+					for (int32 b = 0; b < 4; ++b) {
+						int32 x4, y4;
+						LumaBlk(k * 4 + b, x4, y4);
+						mLumaNz[(by0 + y4 / 4) * nzW + bx0 + x4 / 4] = 0;
+					}
+					continue;
+				}
+				for (int32 b = 0; b < 4; ++b) {
+					const int32 blk = k * 4 + b;
+					int32 x4, y4;
+					LumaBlk(blk, x4, y4);
+					const int32 bx = bx0 + x4 / 4, by = by0 + y4 / 4;
+					const int32 nA = (bx > 0) ? mLumaNz[by * nzW + (bx - 1)] : -1;
+					const int32 nB = (by > 0) ? mLumaNz[(by - 1) * nzW + bx] : -1;
+					const int32 nC = PredictNc(nA, nB);
+					int32 scan[16];
+					for (int32 i = 0; i < 16; ++i)
+						scan[i] = lvlBlk[blk][kZigZag[i]];
+					mLumaNz[by * nzW + bx] = NkH264Cavlc::EncodeResidual(bs, scan, 16, nC);
+				}
+			}
+
+			// reconstruction luma (prédiction + résidu déquantifié, résidu nul si 8×8 non codé).
+			for (int32 blk = 0; blk < 16; ++blk) {
+				int32 x4, y4;
+				LumaBlk(blk, x4, y4);
+				int32 deq[16], resRec[16];
+				if (lumaCbp & (1 << (blk >> 2)))
+					NkH264Transform::Dequant4x4(lvlBlk[blk], deq, mQp);
+				else
+					for (int32 i = 0; i < 16; ++i)
+						deq[i] = 0;
+				NkH264Transform::Inverse4x4(deq, resRec);
+				for (int32 r = 0; r < 4; ++r)
+					for (int32 c = 0; c < 4; ++c)
+						mRecY[(usize)(py + y4 + r) * mLumaW + px + x4 + c] =
+							ClampU8(predY[(y4 + r) * 16 + (x4 + c)] + resRec[r * 4 + c]);
+			}
+
+			WriteChromaResidual(bs, mbX, mbY, cmb);
+			const int32 id = mbY * mMbW + mbX;
+			mMvX[id] = bmx;
+			mMvY[id] = bmy;
+			mMbInter[id] = 1;
+		}
+
+		// Trame P complète : en-tête de tranche P + données (mb_skip_run + P_L0_16×16) + déblocage.
+		void NkH264Encoder::EncodePFrame(NkVector<uint8> &out) {
+			NkH264BitWriter bs;
+			bs.Clear();
+			bs.Ue(0);						  // first_mb_in_slice
+			bs.Ue(0);						  // slice_type = P
+			bs.Ue(0);						  // pic_parameter_set_id
+			bs.PutBits((uint32)mFrameNum, 8); // frame_num
+			bs.PutBits((uint32)mPoc, 8);	  // pic_order_cnt_lsb
+			bs.PutFlag(0);					  // num_ref_idx_active_override_flag
+			bs.PutFlag(0);					  // ref_pic_list_modification_flag_l0
+			bs.PutFlag(0);					  // adaptive_ref_pic_marking_mode_flag
+			bs.Se(0);						  // slice_qp_delta
+			bs.Ue(mDeblock ? 0u : 1u);		  // disable_deblocking_filter_idc
+			if (mDeblock) {
+				bs.Se(0);
+				bs.Se(0);
+			}
+
+			for (int32 i = 0; i < mMbW * 4 * mMbH * 4; ++i) {
+				mLumaNz[i] = 0;
+				mI4Mode[i] = 2;
+			}
+			for (int32 i = 0; i < mMbW * 2 * mMbH * 2; ++i)
+				mChromaNz[0][i] = mChromaNz[1][i] = 0;
+			for (int32 i = 0; i < mMbW * mMbH; ++i) {
+				mMvX[i] = mMvY[i] = 0;
+				mMbInter[i] = 0;
+			}
+
+			const int32 total = mMbW * mMbH;
+			int32 mbAddr = 0;
+			while (mbAddr < total) {
+				int32 skipRun = 0;
+				while (mbAddr < total && TryInterSkip(mbAddr % mMbW, mbAddr / mMbW)) {
+					++skipRun;
+					++mbAddr;
+				}
+				bs.Ue((uint32)skipRun);
+				if (mbAddr < total) {
+					EncodeMbInter(bs, mbAddr % mMbW, mbAddr / mMbW);
+					++mbAddr;
+				}
+			}
+
+			bs.TrailingBits();
+			bs.EmitNal(out, 2, 1); // nal_ref_idc=2, nal_unit_type=1 (tranche non-IDR)
+			DeblockFrame();
+		}
+
+		// --------------------------------------------------------------------------
 		void NkH264Encoder::EncodeFrame(NkVector<uint8> &out) {
+			// Type de trame : IDR périodique (intra) sinon P (inter). La 1re trame est toujours IDR.
+			const bool idr = (mFrame % mGop == 0);
+			if (idr) {
+				mFrameNum = 0;
+				mPoc = 0;
+			} else {
+				EncodePFrame(out);
+				return;
+			}
+
 			NkH264BitWriter bs;
 
 			// SPS (nal_unit_type 7, ref_idc 3).
@@ -851,9 +1371,9 @@ namespace nkentseu {
 			bs.PutBits(0x80, 8); // constraint_set0_flag=1 + reserved
 			bs.PutBits(51, 8);	 // level_idc = 5.1 (large, jamais rejeté)
 			bs.Ue(0);			 // seq_parameter_set_id
-			bs.Ue(0);			 // log2_max_frame_num_minus4 → frame_num sur 4 bits
+			bs.Ue(4);			 // log2_max_frame_num_minus4 → frame_num sur 8 bits
 			bs.Ue(0);			 // pic_order_cnt_type = 0
-			bs.Ue(0);			 // log2_max_pic_order_cnt_lsb_minus4 → poc sur 4 bits
+			bs.Ue(4);			 // log2_max_pic_order_cnt_lsb_minus4 → poc sur 8 bits
 			bs.Ue(1);			 // max_num_ref_frames
 			bs.PutBits(0, 1);	 // gaps_in_frame_num_value_allowed_flag
 			bs.Ue((uint32)(mMbW - 1));
@@ -897,9 +1417,9 @@ namespace nkentseu {
 			bs.Ue(0);					  // first_mb_in_slice
 			bs.Ue(2);					  // slice_type = I
 			bs.Ue(0);					  // pic_parameter_set_id
-			bs.PutBits(0, 4);			  // frame_num (IDR = 0)
+			bs.PutBits(0, 8);			  // frame_num (IDR = 0)
 			bs.Ue((uint32)(mFrame & 1));  // idr_pic_id (alterne)
-			bs.PutBits(0, 4);			  // pic_order_cnt_lsb (IDR = 0)
+			bs.PutBits(0, 8);			  // pic_order_cnt_lsb (IDR = 0)
 			bs.PutBits(0, 1);			  // no_output_of_prior_pics_flag
 			bs.PutBits(0, 1);			  // long_term_reference_flag
 			bs.Se(0);					  // slice_qp_delta (SliceQPY = pic_init_qp)
@@ -917,6 +1437,11 @@ namespace nkentseu {
 			}
 			for (int32 i = 0; i < mMbW * 2 * mMbH * 2; ++i)
 				mChromaNz[0][i] = mChromaNz[1][i] = 0;
+			if (mMbInter)
+				for (int32 i = 0; i < mMbW * mMbH; ++i) {
+					mMbInter[i] = 0; // IDR = tout intra (pour la force de bord du déblocage)
+					mMvX[i] = mMvY[i] = 0;
+				}
 			for (int32 mbY = 0; mbY < mMbH; ++mbY)
 				for (int32 mbX = 0; mbX < mMbW; ++mbX) {
 					// Choix I_16×16 / I_4×4 par activité (détail fin des blocs 4×4). Heuristique simple :
@@ -976,6 +1501,17 @@ namespace nkentseu {
 				for (int32 y = 0; y < ch; ++y)
 					mReconFile.Write(&mRecCr[(usize)y * mChromaW], (usize)cw);
 			}
+
+			// la reconstruction déblocquée devient la référence de la trame suivante (P).
+			const usize lumaN = (usize)mLumaW * mLumaH, chromaN = (usize)mChromaW * mChromaH;
+			for (usize i = 0; i < lumaN; ++i)
+				mRefY[i] = mRecY[i];
+			for (usize i = 0; i < chromaN; ++i) {
+				mRefCb[i] = mRecCb[i];
+				mRefCr[i] = mRecCr[i];
+			}
+			mFrameNum = (mFrameNum + 1) & 0xFF;
+			mPoc = (mPoc + 2) & 0xFF;
 			++mFrame;
 			return true;
 		}
@@ -1014,7 +1550,11 @@ namespace nkentseu {
 			enc.mChromaNz[0] = (int32 *)memory::NkAlloc((usize)4 * 4 * sizeof(int32));
 			enc.mChromaNz[1] = (int32 *)memory::NkAlloc((usize)4 * 4 * sizeof(int32));
 			enc.mI4Mode = (int32 *)memory::NkAlloc((usize)8 * 8 * sizeof(int32));
-			if (!enc.mY || !enc.mLumaNz || !enc.mChromaNz[0] || !enc.mChromaNz[1] || !enc.mI4Mode) {
+			enc.mMvX = (int32 *)memory::NkAlloc((usize)2 * 2 * sizeof(int32));
+			enc.mMvY = (int32 *)memory::NkAlloc((usize)2 * 2 * sizeof(int32));
+			enc.mMbInter = (int32 *)memory::NkAlloc((usize)2 * 2 * sizeof(int32));
+			if (!enc.mY || !enc.mLumaNz || !enc.mChromaNz[0] || !enc.mChromaNz[1] || !enc.mI4Mode || !enc.mMvX ||
+				!enc.mMvY || !enc.mMbInter) {
 				enc.Free();
 				return false;
 			}

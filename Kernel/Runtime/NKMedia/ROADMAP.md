@@ -115,8 +115,20 @@
     **Validé BIT-À-BIT** : la reconstruction déblocquée de l'encodeur est **identique (PSNR = ∞ sur Y/U/V)**
     à la sortie décodée par ffmpeg → reconstruction intra ET filtre exacts au bit près (prérequis des
     références P correctes). Hook `EnableReconDump` pour la comparaison.
-  - ⏳ Reste (brique 3b) : P-slices (compensation mouvement quart-pel + MV median, mb_skip, références) ;
-    puis muxing dans MP4 (avcC + NAL longueur-préfixée) pour un `.mp4` H.264 lisible partout.
+  - **Brique 3b (2026-07-11) — P-slices (inter-frame), BIT-À-BIT** — trames **P** (`EncodePFrame`) :
+    compensation de mouvement **quart-pel luma** (6-tap demi-pel + moyenne quart-pel, §8.4.2.2.1) et
+    **1/8-pel chroma bilinéaire**, **prédiction MV médiane** (§8.4.1.3), **P_Skip** (§8.4.1.1) via `mb_skip_run`,
+    macrobloc **P_L0_16×16** (MVD, `coded_block_pattern` Inter, résidu LumaLevel4x4), **référence = trame
+    précédente déblocquée**, estimation de mouvement entière→demi→quart-pel. Déblocage étendu aux **forces de
+    bord inter** (bS 0/1/2 selon coeffs/Δmv, par segment 4×4). **Validé BIT-À-BIT** : reconstruction de
+    l'encodeur = sortie ffmpeg (**PSNR = ∞ sur Y/U/V**, flux I + 11 P). Compression réelle : **P ~10× plus
+    petites que l'I** (74-147 o vs 1277 o). ffmpeg reconnaît `I` puis `P`.
+    - **Bugs clés corrigés** (via comparaison bit-à-bit `EnableReconDump`) : (1) prédiction du mode Intra_4×4
+      — un voisin indisponible force `dcPredModePredictedFlag` → predMode=2 (je faisais `min(voisin, 2)`) ;
+      (2) déblocage — les bords inter demandent bS 0/1/2, pas 3/4 (méthode isole : ∞ déblocage OFF).
+  - **H.264 baseline INTRA+INTER complet et bit-exact** (I_16×16, I_4×4, P_16×16, P_Skip, CAVLC, déblocage).
+  - ⏳ Reste : partitions inter fines (16×8/8×16/8×8), intra-en-P (rafraîchissement) ; puis muxing MP4
+    (avcC + NAL longueur-préfixée) pour un `.mp4` H.264 lisible partout.
 
 ## En cours / À venir
 - Poursuivre Opus (range decoder → CELT → SILK), puis **AAC-LC** (corpus Bassa). Branchés comme codecs
