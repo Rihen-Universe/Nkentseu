@@ -174,6 +174,8 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 - ⬜ **Débogueur** (points d'arrêt) intégré = système n°3 de l'ORDRE VALIDÉ (gdb/lldb, MI/DAP).
 - ⬜ Système d'**extensions** ; sens inverse **texte → graphe** (parsing).
 - ⬜ Portage tactile/web (le moteur le permet).
+- ⬜ **Onglets sur PLUSIEURS RANGÉES** (option de préférences, façon Visual Studio) — le
+      débordement scroll+▾ est fait (12 juil.) ; le mode multi-rangées reste à offrir en option.
 - 🟡 **Internationalisation (i18n)** : document de traductions multi-langue (démarré
   côté Paramètres › Général) ; 5 langues majeures + Ghomala' (bamiléké).
 

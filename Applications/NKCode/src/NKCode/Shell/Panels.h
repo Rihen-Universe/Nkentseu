@@ -944,17 +944,64 @@ namespace nkentseu {
 					if (mMruCyc && !ctx.input.ctrlDown)
 						mMruCyc = false;	   // fin de cycle : TickMru enregistre le nouvel actif
 					NkVector<NkRect> tabRects; // frontières de CETTE frame (drag réordonner)
+					// ── Débordement (façon VSCode/VS) : largeurs précalculées, molette = défilement H,
+					//    onglet actif auto-révélé, boutons ▾ et « + » FIXES à droite. ──
+					const float32 rightW = 58.f;
+					const float32 viewTabsW = fullW - rightW;
+					NkVector<float32> tabWs;
+					NkVector<uint8> dup;
+					float32 totalW = 0.f;
+					for (usize i = 0; i < mS->files.Size(); ++i) {
+						const NkString nm2 = mS->files[i].Name();
+						uint8 d2 = 0;
+						for (usize j = 0; j < mS->files.Size() && !d2; ++j)
+							if (j != i && StrEq(mS->files[j].Name().CStr(), nm2.CStr()))
+								d2 = 1;
+						dup.PushBack(d2);
+					}
+					for (usize i = 0; i < mS->files.Size(); ++i) {
+						const NkString lb2 = TabLabel(i, dup[i] != 0);
+						const float32 nw2 = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(lb2.CStr()) : 40.f;
+						tabWs.PushBack((mS->files[i].pinned ? 13.f : 0.f) + nw2 + 14.f + 16.f + 6.f);
+						totalW += tabWs[i];
+					}
+					if (m.y >= y0 && m.y < y0 + h && m.x >= x0 && m.x < x0 + viewTabsW && ctx.input.wheel != 0.f) {
+						mTabScroll -= ctx.input.wheel * 48.f; // molette sur la barre = défilement (consommée)
+						ctx.input.wheel = 0.f;
+					}
+					if (mS->active != mTabLastActive && mS->active >= 0 &&
+						mS->active < static_cast<int32>(tabWs.Size())) {
+						mTabLastActive = mS->active; // révèle l'onglet actif quand il change
+						float32 ax = 0.f;
+						for (int32 j = 0; j < mS->active; ++j)
+							ax += tabWs[static_cast<usize>(j)];
+						const float32 aw = tabWs[static_cast<usize>(mS->active)];
+						if (ax < mTabScroll)
+							mTabScroll = ax;
+						if (ax + aw > mTabScroll + viewTabsW)
+							mTabScroll = ax + aw - viewTabsW;
+					}
+					const float32 tabMaxScroll = totalW > viewTabsW ? totalW - viewTabsW : 0.f;
+					if (mTabScroll < 0.f)
+						mTabScroll = 0.f;
+					if (mTabScroll > tabMaxScroll)
+						mTabScroll = tabMaxScroll;
+					int32 hovNow = -1;
+					dl.PushClipRect({x0, y0, viewTabsW, h}, true);
+					x = x0 - mTabScroll;
 					for (usize i = 0; i < mS->files.Size(); ++i) {
 						OpenFile &f = mS->files[i];
-						const NkString nm = f.Name();
-						const float32 nameW =
-							(ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(nm.CStr()) : 40.f;
+						const NkString nm = TabLabel(i, dup[i] != 0);
 						const float32 dotW = 16.f;
 						const float32 pinW = f.pinned ? 13.f : 0.f; // icône épingle en tête
-						const float32 tabW = pinW + nameW + 14.f + dotW + 6.f;
+						const float32 tabW = tabWs[i];
+						const float32 nameW = tabW - pinW - 14.f - dotW - 6.f;
 						const NkRect tab = {x, y0, tabW, h};
 						const bool active = (static_cast<int32>(i) == mS->active);
-						const bool hov = m.x >= tab.x && m.x < tab.x + tab.w && m.y >= tab.y && m.y < tab.y + tab.h;
+						const bool hov = m.x >= tab.x && m.x < tab.x + tab.w && m.y >= tab.y && m.y < tab.y + tab.h &&
+										 m.x < x0 + viewTabsW; // zone visible seulement (boutons fixes à droite)
+						if (hov)
+							hovNow = static_cast<int32>(i);
 						dl.AddRectFilled(tab,
 										 active ? ctx.theme.tabActive : (hov ? ctx.theme.tabHover : ctx.theme.tab));
 						if (active)
@@ -1026,8 +1073,69 @@ namespace nkentseu {
 							}
 						}
 					}
-					// Bouton « + » (nouvel onglet vierge).
-					const NkRect plus = {x + 4.f, y0 + (h - 22.f) * 0.5f, 24.f, 22.f};
+					dl.PopClipRect();
+					// ── Bouton ▾ (façon Visual Studio) : liste déroulante de TOUS les fichiers ouverts. ──
+					const NkRect ddB = {x0 + viewTabsW + 2.f, y0 + (h - 22.f) * 0.5f, 24.f, 22.f};
+					{
+						const bool dHov = m.x >= ddB.x && m.x < ddB.x + ddB.w && m.y >= ddB.y && m.y < ddB.y + ddB.h;
+						if (dHov)
+							dl.AddRectFilled(ddB, ctx.theme.buttonHover, ctx.theme.rounding);
+						const float32 cx = ddB.x + ddB.w * 0.5f, cy = ddB.y + ddB.h * 0.5f, a = 4.f;
+						dl.AddTriangleFilled({cx - a, cy - a * 0.5f}, {cx + a, cy - a * 0.5f}, {cx, cy + a * 0.9f},
+											 ctx.theme.textDisabled);
+						if (totalW > viewTabsW) // témoin discret : des onglets débordent
+							dl.AddCircleFilled({ddB.x + ddB.w - 4.f, ddB.y + 4.f}, 2.f, ctx.theme.accent);
+						if (dHov && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) {
+							mTabListLabels.Clear();
+							for (usize i = 0; i < mS->files.Size(); ++i) {
+								NkString lb2 = TabLabel(i, dup[i] != 0);
+								if (mS->files[i].doc.dirty)
+									lb2 += " \xE2\x97\x8F"; // point « modifié »
+								mTabListLabels.PushBack(lb2);
+							}
+							mTabList.open = true;
+							mTabList.pos = {ddB.x, y0 + h};
+						}
+					}
+					if (mTabList.open && !mTabListLabels.Empty()) { // clic = activer (le menu scrolle V/H au besoin)
+						const char *items2[64];
+						bool en2[64];
+						const int32 n2 = static_cast<int32>(mTabListLabels.Size()) < 64
+											 ? static_cast<int32>(mTabListLabels.Size())
+											 : 64;
+						for (int32 i = 0; i < n2; ++i) {
+							items2[i] = mTabListLabels[static_cast<usize>(i)].CStr();
+							en2[i] = true;
+						}
+						const int32 act2 = NkCtxMenuDraw(ctx, mTabList, items2, en2, n2);
+						if (act2 >= 0 && act2 < static_cast<int32>(mS->files.Size()))
+							mS->active = act2;
+					}
+					// Tooltip : CHEMIN COMPLET après ~0,6 s de survol (désambiguïsation totale).
+					if (hovNow == mTabHovIdx && hovNow >= 0)
+						mTabHovTime += ctx.input.dt;
+					else {
+						mTabHovIdx = hovNow;
+						mTabHovTime = 0.f;
+					}
+					if (mTabHovIdx >= 0 && mTabHovIdx < static_cast<int32>(mS->files.Size()) && mTabHovTime > 0.6f &&
+						!mTabMenu.open && !mTabList.open && ctx.font && ctx.font->Valid()) {
+						const NkString full = mS->files[static_cast<usize>(mTabHovIdx)].path.ToString();
+						if (!full.Empty()) {
+							const float32 tw2 = ctx.font->MeasureWidth(full.CStr()) + 16.f;
+							float32 tx2 = m.x + 10.f;
+							if (tx2 + tw2 > static_cast<float32>(ctx.viewW))
+								tx2 = static_cast<float32>(ctx.viewW) - tw2;
+							const NkRect tt = {tx2, y0 + h + 3.f, tw2, ctx.font->LineHeight() + 8.f};
+							ctx.dlOverlay.AddRectFilled(tt, NkColor{32, 38, 46, 250}, 4.f);
+							ctx.dlOverlay.AddRect(tt, NkColor{60, 66, 74, 255}, 1.f);
+							ctx.dlOverlay.AddText(ctx.font->Face(), ctx.font->TexId(),
+												  {tt.x + 8.f, tt.y + 4.f + ctx.font->Ascent()}, full.CStr(),
+												  NkColor{223, 223, 223, 255});
+						}
+					}
+					// Bouton « + » (nouvel onglet vierge) — FIXE à droite, après le ▾.
+					const NkRect plus = {x0 + viewTabsW + 30.f, y0 + (h - 22.f) * 0.5f, 24.f, 22.f};
 					const bool pHov = m.x >= plus.x && m.x < plus.x + plus.w && m.y >= plus.y && m.y < plus.y + plus.h;
 					if (pHov)
 						dl.AddRectFilled(plus, ctx.theme.buttonHover, ctx.theme.rounding);
@@ -1097,6 +1205,20 @@ namespace nkentseu {
 					dl.AddLine({c.x + 2.f, c.y - 2.f}, {c.x - 2.f, c.y + 4.f}, col, 1.4f);
 				}
 
+				// Libellé d'onglet : nom + « · dossier parent » quand un AUTRE onglet porte le même nom
+				// (désambiguïsation projet/module, façon VSCode).
+				NkString TabLabel(usize i, bool dup) const {
+					NkString lb = mS->files[i].Name();
+					if (dup) {
+						const NkString par = mS->files[i].path.GetParent().GetFileName();
+						if (!par.Empty()) {
+							lb += " \xC2\xB7 ";
+							lb += par.CStr();
+						}
+					}
+					return lb;
+				}
+
 				// Révèle un FICHIER dans le gestionnaire de fichiers (le sélectionne).
 				static void RevealInExplorer(const NkString &path) {
 #ifdef _WIN32
@@ -1158,6 +1280,12 @@ namespace nkentseu {
 				bool mMruCyc = false;	 // cycle Ctrl+Tab en cours (snapshot figé)
 				NkVector<NkString> mMruSnap;
 				int32 mMruPos = 0;
+				float32 mTabScroll = 0.f;  // défilement horizontal de la barre d'onglets
+				int32 mTabLastActive = -1; // auto-révélation de l'onglet actif
+				NkCtxMenu mTabList;		   // bouton ▾ : liste déroulante des fichiers ouverts
+				NkVector<NkString> mTabListLabels;
+				int32 mTabHovIdx = -1; // tooltip chemin complet (survol prolongé)
+				float32 mTabHovTime = 0.f;
 				int32 mZoomLastActive = -1; // dernier onglet actif (detection changement -> rebuild atlas immediat,
 											// anti « saut » de taille)
 		};
