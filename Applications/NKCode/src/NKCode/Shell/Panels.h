@@ -380,7 +380,7 @@ namespace nkentseu {
 					// Ctrl+Maj+F : focus + préremplissage depuis la sélection de l'éditeur.
 					if (mS->wsFocusReq) {
 						mS->wsFocusReq = false;
-						mFocus = 1;
+						mFocus = mS->wsFocusField;
 						if (!mS->wsPrefill.Empty()) {
 							int32 i = 0;
 							for (const char *q = mS->wsPrefill.CStr(); *q && i < 255; ++q)
@@ -900,8 +900,20 @@ namespace nkentseu {
 							mS->ReopenClosed();
 						if (ctx.input.shiftDown &&
 							ctx.input.KeyPressed(NkGuiKey::F)) { // Ctrl+Maj+F : recherche workspace
+							mS->wsFocusField = 1;
 							if (mShell)
 								mShell->FocusPanel("Recherche"); // OUVRE le panneau (etat persiste ferme) puis focus
+							else
+								DockFocusWindow(ctx, "Recherche");
+							mS->wsFocusReq = true;
+							if (mS->HasActive() && mS->files[mS->active].doc.HasSel())
+								mS->wsPrefill = mS->files[mS->active].doc.GetSelectedText();
+						}
+						if (ctx.input.shiftDown &&
+							ctx.input.KeyPressed(NkGuiKey::H)) { // Ctrl+Maj+H : REMPLACER (workspace)
+							mS->wsFocusField = 2;				 // focus direct sur le champ « Remplacer »
+							if (mShell)
+								mShell->FocusPanel("Recherche");
 							else
 								DockFocusWindow(ctx, "Recherche");
 							mS->wsFocusReq = true;

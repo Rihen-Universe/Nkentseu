@@ -2978,6 +2978,27 @@ namespace nkentseu {
 					GlobalLogBuffer().Push(NkString(lb));
 				}
 
+				// Chemins venant d'URI clangd : lettre de lecteur en minuscule, séparateurs variables
+				// -> comparaison INSENSIBLE (casse + / vs \), sinon les diagnostics ne matchent jamais.
+				static bool PathEqI(const char *a, const char *b) {
+					while (*a && *b) {
+						char ca = *a, cb = *b;
+						if (ca >= 'A' && ca <= 'Z')
+							ca += 32;
+						if (cb >= 'A' && cb <= 'Z')
+							cb += 32;
+						if (ca == '/')
+							ca = 92; // backslash
+						if (cb == '/')
+							cb = 92;
+						if (ca != cb)
+							return false;
+						++a;
+						++b;
+					}
+					return *a == *b;
+				}
+
 				void TickLsp(float32 dt) {
 					if (lspState == 0) {
 						if (!cdb.ready || root.ToString().Empty())
@@ -3007,7 +3028,7 @@ namespace nkentseu {
 					if (lsp.diagsFresh) { // ÉTAPE B : les diagnostics clangd ALIMENTENT les squiggles
 						lsp.diagsFresh = false;
 						for (usize i = 0; i < files.Size(); ++i)
-							if (StrEq(files[i].path.ToString().CStr(), lsp.diagPath.CStr())) {
+							if (PathEqI(files[i].path.ToString().CStr(), lsp.diagPath.CStr())) {
 								files[i].doc.diags.Clear();
 								for (usize k = 0; k < lsp.diags.Size(); ++k)
 									files[i].doc.diags.PushBack({lsp.diags[k].line, lsp.diags[k].col, lsp.diags[k].col,
@@ -3081,9 +3102,11 @@ namespace nkentseu {
 				NkVector<NkString> wsOpenP, wsOpenT, wsPendOpenP, wsPendOpenT; // snapshots buffers ouverts
 				NkVector<WsHit> wsResults;
 				int32 wsScanned = 0, wsTotal = 0, wsFileCount = 0;
-				bool wsFocusReq = false; // Ctrl+Maj+F -> le panneau prend le focus du champ
-				NkString wsPrefill;		 // sélection de l'éditeur préremplie dans le champ
-				NkString wsOpenFile;	 // clic sur un résultat : consommé par ProcessWsOpen (poll)
+				bool wsFocusReq = false;
+				int32 wsFocusField = 1; // 1 = champ Rechercher (Ctrl+Maj+F), 2 = champ Remplacer (Ctrl+Maj+H) //
+										// Ctrl+Maj+F -> le panneau prend le focus du champ
+				NkString wsPrefill;		// sélection de l'éditeur préremplie dans le champ
+				NkString wsOpenFile;	// clic sur un résultat : consommé par ProcessWsOpen (poll)
 				int32 wsOpenLine = -1;
 
 				void StartWsFind(const NkString &q, bool cs, bool ww) {
