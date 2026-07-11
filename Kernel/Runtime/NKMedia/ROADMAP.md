@@ -108,8 +108,15 @@
     prédit depuis les voisins reconstruits). **Choix par macrobloc I_16×16/I_4×4** selon l'activité (zone
     plate → I_16×16 compact ; texture → I_4×4). **Validé ffmpeg** : flux mixte I_16×16 + I_4×4 décodé sans
     erreur (dégradé lisse + damier fin reconstruits, PSNR ~28 dB à QP26).
-  - ⏳ Reste (brique 3b/3c) : P-slices (compensation mouvement quart-pel + MV median), filtre de déblocage
-    en boucle ; puis muxing dans MP4 (avcC + NAL longueur-préfixée) pour un `.mp4` H.264 lisible partout.
+  - **Brique 3c (2026-07-11) — filtre de déblocage en boucle (§8.7)** — `NkH264Encoder::DeblockFrame` :
+    tables α/β (8-16) + tC0 (8-17), filtre luma (bS=4 fort / bS<4 normal) et chroma, appliqué par
+    macrobloc (bords verticaux puis horizontaux), signalé par tranche (`deblocking_filter_control_present_flag`
+    + `disable_deblocking_filter_idc`). Comme toutes les MB sont intra, bS = 4 (bord de MB) ou 3 (interne).
+    **Validé BIT-À-BIT** : la reconstruction déblocquée de l'encodeur est **identique (PSNR = ∞ sur Y/U/V)**
+    à la sortie décodée par ffmpeg → reconstruction intra ET filtre exacts au bit près (prérequis des
+    références P correctes). Hook `EnableReconDump` pour la comparaison.
+  - ⏳ Reste (brique 3b) : P-slices (compensation mouvement quart-pel + MV median, mb_skip, références) ;
+    puis muxing dans MP4 (avcC + NAL longueur-préfixée) pour un `.mp4` H.264 lisible partout.
 
 ## En cours / À venir
 - Poursuivre Opus (range decoder → CELT → SILK), puis **AAC-LC** (corpus Bassa). Branchés comme codecs
