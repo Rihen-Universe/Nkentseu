@@ -123,8 +123,8 @@ namespace nkentseu {
 							NkColor c;
 					};
 					static const L k[] = {
-						{"cpp", "C+", {101, 155, 211, 255}},  {"cc", "C+", {101, 155, 211, 255}},
-						{"cxx", "C+", {101, 155, 211, 255}},  {"h", "H", {178, 132, 219, 255}},
+						{"cpp", "C++", {101, 155, 211, 255}}, {"cc", "C++", {101, 155, 211, 255}},
+						{"cxx", "C++", {101, 155, 211, 255}}, {"h", "H", {178, 132, 219, 255}},
 						{"hpp", "H", {178, 132, 219, 255}},	  {"hxx", "H", {178, 132, 219, 255}},
 						{"c", "C", {86, 130, 180, 255}},	  {"py", "PY", {240, 200, 80, 255}},
 						{"rs", "RS", {222, 130, 80, 255}},	  {"zig", "ZG", {247, 164, 66, 255}},
@@ -142,13 +142,47 @@ namespace nkentseu {
 					};
 					for (usize i = 0; i < sizeof(k) / sizeof(k[0]); ++i)
 						if (ExtIs(e, k[i].ext)) {
-							label[0] = k[i].lab[0];
-							label[1] = k[i].lab[1];
-							label[2] = 0;
+							int32 n = 0;
+							for (; k[i].lab[n] && n < 3; ++n)
+								label[n] = k[i].lab[n];
+							label[n] = 0;
 							col = k[i].c;
 							return true;
 						}
 					return false;
+				}
+
+				// Couleur des DOSSIERS : les dossiers « spéciaux » ont leur teinte propre.
+				static NkColor DirTint(const char *name, bool root) {
+					if (root)
+						return {230, 160, 60, 255}; // racine : orange
+					auto is = [&](const char *k) {
+						const char *a = name;
+						const char *b = k;
+						auto low = [](char c) { return (c >= 'A' && c <= 'Z') ? char(c + 32) : c; };
+						while (*a && *b && low(*a) == low(*b)) {
+							++a;
+							++b;
+						}
+						return !*a && !*b;
+					};
+					if (is("src") || is("source") || is("sources"))
+						return {96, 165, 250, 255}; // bleu vif
+					if (is("include") || is("inc") || is("headers"))
+						return {178, 132, 219, 255}; // violet
+					if (is("test") || is("tests") || is("unitest"))
+						return {200, 200, 90, 255}; // jaune
+					if (is("assets") || is("data") || is("media") || is("resources") || is("textures"))
+						return {110, 190, 120, 255}; // vert
+					if (is("shaders") || is("shader"))
+						return {170, 120, 220, 255}; // violet clair
+					if (is("docs") || is("doc") || is("documentation"))
+						return {90, 190, 210, 255}; // cyan
+					if (is("build") || is("bin") || is("obj") || is("out"))
+						return {130, 130, 130, 255}; // gris
+					if (is("exemples") || is("examples") || is("samples"))
+						return {100, 200, 180, 255}; // turquoise
+					return {120, 160, 200, 255}; // défaut : bleu-gris
 				}
 
 				// Dossiers exclus de l'arbre tant que l'œil est fermé (artefacts/outils).
@@ -507,9 +541,10 @@ namespace nkentseu {
 						// Icône : dossier OUVERT/FERMÉ distincts ; fichier = registre ForFile,
 						// sinon shaders/NKSL dédiés, sinon pastille « lettres du langage ».
 						const float32 is = rowH - 6.f;
+						float32 iadv = is; // largeur réellement occupée (pastilles adaptatives)
 						const NkRect ir = {x, cy - is * 0.5f, is, is};
 						if (r.dir) {
-							const NkColor tint = r.root ? NkColor{230, 160, 60, 255} : NkColor{120, 160, 200, 255};
+							const NkColor tint = DirTint(r.name.CStr(), r.root);
 							const uint32 tex =
 								!mS->icons ? 0u : (r.open ? mS->icons->folderOpen : mS->icons->folder);
 							if (tex)
@@ -525,7 +560,7 @@ namespace nkentseu {
 							char e[16];
 							ExtOf(r.name.CStr(), e, sizeof(e));
 							const uint32 tex = mS->icons ? mS->icons->ForFile(r.name.CStr()) : 0u;
-							char lab[3] = {};
+							char lab[4] = {};
 							NkColor bc = {150, 150, 150, 255};
 							if (tex)
 								dl.AddImage(tex, ir, {0.f, 0.f}, {1.f, 1.f}, {255, 255, 255, 255});
@@ -544,25 +579,28 @@ namespace nkentseu {
 								dl.AddLine({mx + 1.f, cy + 1.f}, {mx - 2.f, ir.y + ir.h - 2.f}, {230, 200, 90, 255},
 										   1.6f);
 							} else if (LangBadge(e, lab, bc)) { // pastille lettres + couleur
+								// Largeur ADAPTATIVE : « C++ » s'affiche en entier, la pastille
+								// s'élargit plutôt que de tronquer le libellé.
+								const float32 lw = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(lab) : is;
+								const float32 bw = (lw + 5.f > is) ? lw + 5.f : is;
+								iadv = bw;
 								NkColor bg = bc;
 								bg.r = static_cast<uint8>(bg.r / 4);
 								bg.g = static_cast<uint8>(bg.g / 4);
 								bg.b = static_cast<uint8>(bg.b / 4);
-								dl.AddRectFilled(ir, bg, 3.f);
-								if (ctx.font && ctx.font->Valid()) {
-									const float32 lw = ctx.font->MeasureWidth(lab);
+								dl.AddRectFilled({ir.x, ir.y, bw, ir.h}, bg, 3.f);
+								if (ctx.font && ctx.font->Valid())
 									dl.AddText(ctx.font->Face(), ctx.font->TexId(),
-											   {ir.x + (ir.w - lw) * 0.5f,
+											   {ir.x + (bw - lw) * 0.5f,
 												cy - ctx.font->LineHeight() * 0.5f + ctx.font->Ascent()},
-											   lab, bc, ir.w - 1.f);
-								}
+											   lab, bc);
 							} else { // inconnu : feuille de document au trait
 								dl.AddRect({ir.x + 2.f, ir.y + 1.f, ir.w - 5.f, ir.h - 2.f}, bc, 1.3f);
 								dl.AddLine({ir.x + 4.f, ir.y + 5.f}, {ir.x + ir.w - 6.f, ir.y + 5.f}, bc, 1.f);
 								dl.AddLine({ir.x + 4.f, ir.y + 8.f}, {ir.x + ir.w - 6.f, ir.y + 8.f}, bc, 1.f);
 							}
 						}
-						x += is + 4.f;
+						x += iadv + 4.f;
 						// Nom (racine en circonflexe visuel : couleur pleine).
 						if (ctx.font && ctx.font->Valid()) {
 							NkColor nc = ctx.theme.text;
