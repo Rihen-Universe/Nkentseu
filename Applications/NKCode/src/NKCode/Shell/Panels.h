@@ -1163,6 +1163,7 @@ namespace nkentseu {
 							mS->termOpenKind = kMap[act3];
 							mS->termOpenAt = mTermPickDir;
 							mTermPickDir = NkString();
+							mTabMenu.open = false; // choix fait : referme le menu principal aussi
 							if (mShell)
 								mShell->FocusPanel("Terminal");
 						}
@@ -1214,7 +1215,24 @@ namespace nkentseu {
 												NkT("tab.copypath"),   NkT("ctx.reveal"),
 												NkT("ctx.openterm"),   NkT("tab.multirow")};
 						const bool en[8] = {!tf.pinned, true, true, true, true, true, true, true};
-						const int32 act = NkCtxMenuDraw(ctx, mTabMenu, items, en, 8);
+						int32 tabMenuHov = -1;
+						const int32 act = NkCtxMenuDraw(ctx, mTabMenu, items, en, 8, &tabMenuHov);
+						// SOUS-MENU « Ouvrir dans le terminal » : s'ouvre au SURVOL de l'item, à sa droite.
+						if (mTabMenu.open && tabMenuHov == 6 && ctx.font && ctx.font->Valid()) {
+							const float32 rowH2 = ctx.font->LineHeight() + 8.f;
+							mTermPickDir = mS->files[mTabMenuIdx].path.GetParent().ToString();
+							mTermPick.open = true;
+							mTermPick.pos = {mTabMenu.rect.x + mTabMenu.rect.w - 2.f,
+											 mTabMenu.rect.y + 4.f + 6.f * rowH2 - mTabMenu.sy};
+						}
+						// referme le sous-menu si on survole un AUTRE item ou qu'on quitte les deux boîtes
+						if (mTermPick.open) {
+							const bool overPick = detail::InRect({mTermPick.rect.x - 10.f, mTermPick.rect.y - 10.f,
+																  mTermPick.rect.w + 20.f, mTermPick.rect.h + 20.f},
+																 m);
+							if ((tabMenuHov >= 0 && tabMenuHov != 6 && !overPick) || (!mTabMenu.open && !overPick))
+								mTermPick.open = false;
+						}
 						if (act >= 0) {
 							const int32 idx = mTabMenuIdx;
 							const NkString full = mS->files[idx].path.ToString();
@@ -1238,11 +1256,13 @@ namespace nkentseu {
 								case 5:
 									RevealInExplorer(full);
 									break;
-								case 6: // Ouvrir dans le TERMINAL INTÉGRÉ -> choix du SHELL d'abord
-									mTermPickDir = mS->files[idx].path.GetParent().ToString();
-									mTermPick.open = true;
-									mTermPick.pos = m;
-									ctx.input.mouseClicked[0] = false; // le clic de choix ne doit pas fuir
+								case 6: // Ouvrir dans le TERMINAL INTÉGRÉ : le SOUS-MENU (survol) choisit le shell ;
+									// un clic direct = shell PAR DÉFAUT immédiatement.
+									mS->termOpenKind = -1;
+									mS->termOpenAt = mS->files[idx].path.GetParent().ToString();
+									mTermPick.open = false;
+									if (mShell)
+										mShell->FocusPanel("Terminal");
 									break;
 								case 7: // onglets multi-rangées (option, façon Visual Studio)
 									NkCodeTabRowsOn() = !NkCodeTabRowsOn();
@@ -2585,12 +2605,24 @@ namespace nkentseu {
 				// récupérés dans mShells ; le combo du « + » reflète ce choix.
 				void AddTermKind(int32 kind, const NkString &distro) {
 					EnsureBaseShells();
-					int32 idx = 0;
+					if (kind == SH_WSL)
+						DetectWslDistros(); // les entrées WSL n'existent qu'après détection
+					int32 idx = -1;
 					for (int32 i = 0; i < static_cast<int32>(mShells.Size()); ++i)
 						if (mShells[i].kind == kind && StrEq(mShells[i].distro.CStr(), distro.CStr())) {
 							idx = i;
 							break;
 						}
+					if (idx < 0 && distro.Empty()) // distro non précisée : premier shell du même TYPE
+						for (int32 i = 0; i < static_cast<int32>(mShells.Size()); ++i)
+							if (mShells[i].kind == kind) {
+								idx = i;
+								break;
+							}
+					if (idx < 0) { // toujours rien (ex. WSL sans distro détectée) : crée l'entrée demandée
+						mShells.PushBack(ShellDef{kind, kind == SH_WSL ? "wsl" : "shell", distro});
+						idx = static_cast<int32>(mShells.Size()) - 1;
+					}
 					mNewShell = idx;
 					AddTerm(idx);
 				}
