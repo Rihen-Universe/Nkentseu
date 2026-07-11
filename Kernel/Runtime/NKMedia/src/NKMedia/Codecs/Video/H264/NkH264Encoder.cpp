@@ -1496,14 +1496,22 @@ namespace nkentseu {
 		}
 
 		// --------------------------------------------------------------------------
-		void NkH264Encoder::SetAudioTrack(int32 sampleRate, int32 channels) {
-			if (mMp4)
-				mMp4Writer.SetAudio(sampleRate, channels);
+		int32 NkH264Encoder::AddAudioTrack(int32 sampleRate, int32 channels, const char *lang3) {
+			return mMp4 ? mMp4Writer.AddAudioTrack(sampleRate, channels, lang3) : -1;
 		}
 
-		void NkH264Encoder::WriteAudioPcm(const int16 *interleaved, uint32 frames) {
+		void NkH264Encoder::WriteAudioPcm(int32 trackIdx, const int16 *interleaved, uint32 frames) {
 			if (mMp4)
-				mMp4Writer.AppendAudioPcm(interleaved, frames);
+				mMp4Writer.AppendAudioPcm(trackIdx, interleaved, frames);
+		}
+
+		int32 NkH264Encoder::AddSubtitleTrack(const char *lang3) {
+			return mMp4 ? mMp4Writer.AddSubtitleTrack(lang3) : -1;
+		}
+
+		void NkH264Encoder::AddSubtitle(int32 trackIdx, const char *utf8, uint32 startMs, uint32 durMs) {
+			if (mMp4)
+				mMp4Writer.AddSubtitle(trackIdx, utf8, startMs, durMs);
 		}
 
 		bool NkH264Encoder::EnableReconDump(const char *path) {
