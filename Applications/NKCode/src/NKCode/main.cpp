@@ -601,6 +601,8 @@ int nkmain(const NkEntryState &state) {
 				// ── Dossiers Material (colorés, rendus SANS teinte) + toolbar explorateur ──
 				{&ic.folderM, "icon/FolderM"},
 				{&ic.folderMOpen, "icon/FolderMOpen"},
+				{&ic.folderRoot, "icon/FolderRoot"},
+				{&ic.folderRootOpen, "icon/FolderRootOpen"},
 				{&ic.collapseAll, "icon/CollapseAll"},
 				{&ic.newFile2, "icon/NewFile"},
 				{&ic.newFolder, "icon/NewFolder"},

@@ -45,10 +45,15 @@ namespace nkentseu {
 					}
 					if (mRowsDirty)
 						BuildRows();
-					DrawHeader(ctx);
+					// L'EN-TÊTE est FIXE (il ne défile pas) : l'espace est réservé dans le
+					// flux, les rows défilent DESSOUS, le chrome est dessiné PAR-DESSUS.
+					const NkRect vclip = ctx.DL().CurrentClip();
+					const float32 headH = ctx.ItemHeight() * (mFilterOn ? 2.f : 1.f);
+					ctx.NextItemRect(ctx.ContentWidth(), headH); // réserve du flux
+					DrawRows(ctx, vclip.y + headH);
+					DrawHeader(ctx, vclip);
 					if (mFilterOn)
-						DrawFilterBar(ctx);
-					DrawRows(ctx);
+						DrawFilterBar(ctx, vclip);
 				}
 
 			private:
@@ -381,11 +386,62 @@ namespace nkentseu {
 					mExpanded.PushBack(p);
 				}
 
-				// ── En-tête : "EXPLORATEUR" + toolbar d'icônes alignée à droite. ──
-				void DrawHeader(NkGuiContext &ctx) {
+				// Crée « Nouveau.txt » / « NouveauDossier » dans le dossier de la sélection
+				// (ou la racine) avec un nom unique. Renommage inline : tranche suivante.
+				void CreateEntry(bool dir) {
+					NkString base = mRootStr;
+					for (usize i = 0; i < mRows.Size(); ++i)
+						if (SameStr(mRows[i].path.CStr(), mSelPath.CStr())) {
+							if (mRows[i].dir)
+								base = mRows[i].path;
+							else {
+								const char *p = mRows[i].path.CStr();
+								int32 cut = -1;
+								for (int32 j = 0; p[j]; ++j)
+									if (p[j] == '/' || p[j] == '\\')
+										cut = j;
+								if (cut > 0)
+									base = mRows[i].path.SubStr(0, cut);
+							}
+							break;
+						}
+					if (base.Length() == 0)
+						return;
+					char name[64];
+					for (int32 n = 0; n < 100; ++n) {
+						if (n == 0)
+							std::snprintf(name, sizeof(name), "%s", dir ? "NouveauDossier" : "Nouveau.txt");
+						else if (dir)
+							std::snprintf(name, sizeof(name), "NouveauDossier%d", n);
+						else
+							std::snprintf(name, sizeof(name), "Nouveau%d.txt", n);
+						NkString full = base;
+						full += "/";
+						full += name;
+						if (NkFile::Exists(full.CStr()))
+							continue;
+						if (dir)
+							NkDirectory::CreateRecursive(NkPath(full));
+						else
+							NkFile::WriteAllText(NkPath(full), "");
+						if (!IsExpanded(base) && !SameStr(base.CStr(), mRootStr.CStr()))
+							ToggleExpanded(base); // révèle le dossier de destination
+						mSelPath = full;
+						mRowsDirty = true;
+						if (!dir)
+							mS->OpenPath(NkPath(full));
+						return;
+					}
+				}
+
+				// ── En-tête FIXE : "EXPLORATEUR" + toolbar (fichier, dossier, actualiser,
+				//    replier, exclus, filtre) alignée à droite, fond opaque. ──
+				void DrawHeader(NkGuiContext &ctx, const NkRect &clip) {
 					const float32 h = ctx.ItemHeight();
-					const NkRect bar = ctx.NextItemRect(ctx.ContentWidth(), h);
+					const NkRect bar = {clip.x, clip.y, clip.w, h};
 					auto &dl = ctx.DL();
+					dl.AddRectFilled(bar, ctx.theme.panel); // opaque : les rows passent dessous
+					dl.AddRectFilled({bar.x, bar.y + h - 1.f, bar.w, 1.f}, ctx.theme.border);
 					if (ctx.font && ctx.font->Valid())
 						dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 								   {bar.x + 4.f, bar.y + (h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()},
@@ -394,23 +450,26 @@ namespace nkentseu {
 					const bool inClip = NkGuiRectContains(dl.CurrentClip(), m);
 					const float32 bs = h - 4.f;
 					float32 bx = bar.x + bar.w - bs - 2.f;
-					// [4] filtre, [3] œil (exclus), [2] tout replier, [1] rafraîchir.
-					for (int32 b = 4; b >= 1; --b, bx -= bs + 2.f) {
+					// [6] filtre, [5] œil (exclus), [4] replier, [3] actualiser,
+					// [2] nouveau dossier, [1] nouveau fichier — de droite à gauche.
+					for (int32 b = 6; b >= 1; --b, bx -= bs + 2.f) {
 						const NkRect r = {bx, bar.y + 2.f, bs, bs};
 						const bool hov = inClip && NkGuiRectContains(r, m);
 						if (hov)
 							dl.AddRectFilled(r, ctx.theme.tabHover, 2.f);
 						const NkColor c = hov ? ctx.theme.text : ctx.theme.textDisabled;
 						const uint32 tex = !mS->icons ? 0u
-										   : b == 1  ? mS->icons->rebuild
-										   : b == 2  ? mS->icons->collapseAll
-										   : b == 3  ? (mShowExcluded ? mS->icons->oeilOuvert : mS->icons->oeilFermer)
-										   : b == 4  ? (mS->icons->filter ? mS->icons->filter : mS->icons->search)
+										   : b == 1  ? (mS->icons->newFile2 ? mS->icons->newFile2 : mS->icons->filePlus)
+										   : b == 2  ? mS->icons->newFolder
+										   : b == 3  ? (mS->icons->rebuild)
+										   : b == 4  ? mS->icons->collapseAll
+										   : b == 5  ? (mShowExcluded ? mS->icons->oeilOuvert : mS->icons->oeilFermer)
+										   : b == 6  ? (mS->icons->filter ? mS->icons->filter : mS->icons->search)
 												     : 0u;
 						if (tex)
 							dl.AddImage(tex, {r.x + 2.f, r.y + 2.f, r.w - 4.f, r.h - 4.f}, {0.f, 0.f}, {1.f, 1.f},
 										{255, 255, 255, 255});
-						else if (b == 2) { // tout replier : deux chevrons vers le haut (au trait)
+						else if (b == 4) { // tout replier : deux chevrons vers le haut (au trait)
 							const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f, a = r.w * 0.22f;
 							dl.AddLine({cx - a, cy - a * 0.1f}, {cx, cy - a * 1.1f}, c, 1.6f);
 							dl.AddLine({cx, cy - a * 1.1f}, {cx + a, cy - a * 0.1f}, c, 1.6f);
@@ -421,17 +480,21 @@ namespace nkentseu {
 						}
 						if (hov && ctx.input.mouseClicked[0]) {
 							mFocus = true;
-							if (b == 1) { // rafraîchir : disque + git
+							if (b == 1) // nouveau fichier (rename inline : tranche suivante)
+								CreateEntry(false);
+							else if (b == 2) // nouveau dossier
+								CreateEntry(true);
+							else if (b == 3) { // actualiser : disque + git
 								mGitNext = mTick;
 								mRowsDirty = true;
-							} else if (b == 2) { // tout replier
+							} else if (b == 4) { // tout replier
 								mExpanded.Clear();
 								mRootOpen = true;
 								mRowsDirty = true;
-							} else if (b == 3) { // fichiers exclus
+							} else if (b == 5) { // fichiers exclus
 								mShowExcluded = !mShowExcluded;
 								mRowsDirty = true;
-							} else if (b == 4) { // filtre
+							} else if (b == 6) { // filtre
 								mFilterOn = !mFilterOn;
 								if (!mFilterOn)
 									mFilter[0] = 0;
@@ -441,11 +504,12 @@ namespace nkentseu {
 					}
 				}
 
-				// ── Barre de filtre : loupe + saisie + caret + X. Échap ferme. ──
-				void DrawFilterBar(NkGuiContext &ctx) {
+				// ── Barre de filtre FIXE (2e ligne de l'en-tête) : loupe + saisie + X. ──
+				void DrawFilterBar(NkGuiContext &ctx, const NkRect &clip) {
 					const float32 h = ctx.ItemHeight();
-					const NkRect bar = ctx.NextItemRect(ctx.ContentWidth(), h);
+					const NkRect bar = {clip.x, clip.y + h, clip.w, h};
 					auto &dl = ctx.DL();
+					dl.AddRectFilled(bar, ctx.theme.panel); // opaque
 					dl.AddRectFilled({bar.x + 2.f, bar.y + 1.f, bar.w - 4.f, h - 2.f}, ctx.theme.bgPrimary, 2.f);
 					dl.AddRect({bar.x + 2.f, bar.y + 1.f, bar.w - 4.f, h - 2.f}, ctx.theme.border, 2.f);
 					if (mS->icons && mS->icons->search)
@@ -501,14 +565,15 @@ namespace nkentseu {
 					}
 				}
 
-				// ── L'arbre : une ligne par row (chevron + icône + nom + badge git). ──
-				void DrawRows(NkGuiContext &ctx) {
+				// ── L'arbre : une ligne par row (chevron + icône + nom + badge git).
+				//    `topY` = bas de l'en-tête fixe : pas d'interaction au-dessus. ──
+				void DrawRows(NkGuiContext &ctx, float32 topY) {
 					const float32 rowH = ctx.ItemHeight();
 					const float32 fullW = ctx.ContentWidth();
 					auto &dl = ctx.DL();
 					const NkVec2 m = ctx.input.mousePos;
 					const NkRect clip = dl.CurrentClip();
-					const bool inClip = NkGuiRectContains(clip, m);
+					const bool inClip = NkGuiRectContains(clip, m) && m.y >= topY;
 					// Focus-clic du panneau : un clic DANS la zone le prend, ailleurs le rend.
 					if (ctx.input.mouseClicked[0])
 						mFocus = inClip;
@@ -541,15 +606,21 @@ namespace nkentseu {
 						x += 10.f;
 						// Icône : dossier OUVERT/FERMÉ distincts ; fichier = registre ForFile,
 						// sinon shaders/NKSL dédiés, sinon pastille « lettres du langage ».
-						const float32 is = rowH - 6.f;
+						const float32 is = rowH - 9.f; // ~16 px : taille façon VSCode
 						float32 iadv = is; // largeur réellement occupée (pastilles adaptatives)
 						const NkRect ir = {x, cy - is * 0.5f, is, is};
 						if (r.dir) {
 							const NkColor tint = DirTint(r.name.CStr(), r.root);
 							// 1) dossier SPÉCIAL Material (coloré, sans teinte) ; 2) dossier
 							// Material générique ; 3) icône blanche maison teintée ; 4) trait.
-							uint32 mtex = mS->icons ? mS->icons->ForDir(r.name.CStr(), r.open) : 0u;
-							if (!mtex && mS->icons && !r.root)
+							uint32 mtex = 0;
+								if (mS->icons) {
+									if (r.root) // racine du projet : icône DÉDIÉE
+										mtex = r.open ? mS->icons->folderRootOpen : mS->icons->folderRoot;
+									else
+										mtex = mS->icons->ForDir(r.name.CStr(), r.open);
+								}
+							if (!mtex && mS->icons)
 								mtex = r.open ? mS->icons->folderMOpen : mS->icons->folderM;
 							const uint32 tex =
 								mtex ? 0u : (!mS->icons ? 0u : (r.open ? mS->icons->folderOpen : mS->icons->folder));
