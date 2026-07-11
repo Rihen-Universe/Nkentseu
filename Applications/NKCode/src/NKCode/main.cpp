@@ -52,6 +52,10 @@ static void CmdFormat(void *) { // Formater le document actif (C/C++)
 		g_state.files[g_state.active].doc.FormatCpp();
 }
 
+static void CmdToggleTabRows(void *) { // Affichage: onglets multi-rangees (option VS)
+	nkcode::NkCodeTabRowsOn() = !nkcode::NkCodeTabRowsOn();
+}
+
 static void CmdToggleMinimap(void *) { // Affichage: minimap on/off (aussi Ctrl+Maj+AntiSlash dans l editeur)
 	nkcode::NkCodeMinimapOn() = !nkcode::NkCodeMinimapOn();
 }
@@ -611,6 +615,7 @@ int nkmain(const NkEntryState &state) {
 						   "Ctrl+Shift+I"); // Ctrl+L libéré pour « sélectionner la ligne » (éditeur)
 	shell->RegisterCommand("Disposition: Reinitialiser", &CmdResetLayout, shell.Get());
 	shell->RegisterCommand("Affichage: Minimap (afficher/masquer)", &CmdToggleMinimap, nullptr);
+	shell->RegisterCommand("Affichage: Onglets multi-rangees", &CmdToggleTabRows, nullptr);
 	shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
 
 	const int rc = shell->Run();
