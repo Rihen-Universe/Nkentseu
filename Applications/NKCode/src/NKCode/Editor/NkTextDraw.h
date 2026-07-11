@@ -228,6 +228,7 @@ namespace nkentseu {
 		struct NkCtxMenu {
 				bool open = false;
 				NkVec2 pos{0.f, 0.f};
+				float32 sx = 0.f, sy = 0.f; // defilement (reset a la fermeture)
 		};
 
 		// Retourne l'index de l'item clique (et ferme le menu), -1 sinon. Se ferme au
@@ -238,37 +239,120 @@ namespace nkentseu {
 				return -1;
 			NkGuiDrawList &dl = ctx.dlOverlay;
 			const float32 lh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
-			const float32 rowH = lh + 8.f, pad = 10.f;
-			NkRect box = {mn.pos.x, mn.pos.y, 168.f, count * rowH + 8.f};
+			const float32 rowH = lh + 8.f, pad = 10.f, sbT = 9.f;
+			// Taille IDEALE (plus long item) puis bornes : 60 % de la largeur, 50 % de la hauteur ;
+			// au-dela -> defilement V/H (molette = V, Maj+molette ou molette H = H, barres draggables).
+			float32 wIdeal = 168.f;
+			if (ctx.font && ctx.font->Valid())
+				for (int32 i = 0; i < count; ++i) {
+					const float32 tw = ctx.font->MeasureWidth(items[i]) + pad * 2.f + 10.f;
+					if (tw > wIdeal)
+						wIdeal = tw;
+				}
+			const float32 wCap = static_cast<float32>(ctx.viewW) * 0.6f;
+			const float32 hCap = static_cast<float32>(ctx.viewH) * 0.5f;
+			const float32 contentH = count * rowH;
+			const bool hasH = wIdeal > wCap;
+			const float32 w = hasH ? wCap : wIdeal;
+			const bool hasV = contentH + 8.f > hCap;
+			const float32 h = (hasV ? hCap : contentH + 8.f) + (hasH ? sbT : 0.f);
+			NkRect box = {mn.pos.x, mn.pos.y, w, h};
 			if (box.x + box.w > static_cast<float32>(ctx.viewW))
 				box.x = static_cast<float32>(ctx.viewW) - box.w;
 			if (box.y + box.h > static_cast<float32>(ctx.viewH))
 				box.y = static_cast<float32>(ctx.viewH) - box.h;
+			if (box.x < 0.f)
+				box.x = 0.f;
+			if (box.y < 0.f)
+				box.y = 0.f;
+			const NkRect inner = {box.x, box.y, box.w - (hasV ? sbT : 0.f), box.h - (hasH ? sbT : 0.f)};
+			const NkVec2 m = ctx.input.mousePos;
+			const bool inBox = m.x >= box.x && m.x < box.x + box.w && m.y >= box.y && m.y < box.y + box.h;
+			// Molette CONSOMMEE au-dessus du menu (sinon l'editeur en dessous defile aussi).
+			const float32 maxSy = contentH + 8.f - inner.h > 0.f ? contentH + 8.f - inner.h : 0.f;
+			const float32 maxSx = wIdeal - inner.w > 0.f ? wIdeal - inner.w : 0.f;
+			if (inBox && ctx.input.wheel != 0.f) {
+				if (ctx.input.shiftDown)
+					mn.sx -= ctx.input.wheel * 32.f;
+				else
+					mn.sy -= ctx.input.wheel * rowH * 2.f;
+				ctx.input.wheel = 0.f;
+			}
+			if (inBox && ctx.input.wheelH != 0.f) {
+				mn.sx -= ctx.input.wheelH * 32.f;
+				ctx.input.wheelH = 0.f;
+			}
+			if (mn.sy < 0.f)
+				mn.sy = 0.f;
+			if (mn.sy > maxSy)
+				mn.sy = maxSy;
+			if (mn.sx < 0.f)
+				mn.sx = 0.f;
+			if (mn.sx > maxSx)
+				mn.sx = maxSx;
 			dl.AddRectFilled(box, NkColor{32, 38, 46, 255}, 6.f);
 			dl.AddRect(box, NkColor{60, 66, 74, 255}, 1.f);
-			const NkVec2 m = ctx.input.mousePos;
 			int32 clicked = -1;
-			float32 y = box.y + 4.f;
+			dl.PushClipRect(inner, true);
+			float32 y = box.y + 4.f - mn.sy;
 			for (int32 i = 0; i < count; ++i) {
-				const NkRect r = {box.x + 3.f, y, box.w - 6.f, rowH};
-				const bool hov = m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
-				if (hov && enabled[i])
-					dl.AddRectFilled(r, NkColor{31, 111, 235, 110}, 4.f);
-				if (ctx.font && ctx.font->Valid())
-					dl.AddText(ctx.font->Face(), ctx.font->TexId(),
-							   {r.x + pad, y + (rowH - lh) * 0.5f + ctx.font->Ascent()}, items[i],
-							   enabled[i] ? NkColor{223, 223, 223, 255} : NkColor{110, 118, 129, 255});
-				if (hov && enabled[i] && ctx.input.mouseClicked[0])
-					clicked = i;
+				const NkRect r = {box.x + 3.f, y, inner.w - 6.f, rowH};
+				if (y + rowH >= inner.y && y <= inner.y + inner.h) { // row visible
+					const bool hov = m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h && m.y >= inner.y &&
+									 m.y < inner.y + inner.h;
+					if (hov && enabled[i])
+						dl.AddRectFilled(r, NkColor{31, 111, 235, 110}, 4.f);
+					if (ctx.font && ctx.font->Valid())
+						dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+								   {r.x + pad - mn.sx, y + (rowH - lh) * 0.5f + ctx.font->Ascent()}, items[i],
+								   enabled[i] ? NkColor{223, 223, 223, 255} : NkColor{110, 118, 129, 255});
+					if (hov && enabled[i] && ctx.input.mouseClicked[0])
+						clicked = i;
+				}
 				y += rowH;
 			}
-			const bool inBox = m.x >= box.x && m.x < box.x + box.w && m.y >= box.y && m.y < box.y + box.h;
-			if (clicked >= 0)
+			dl.PopClipRect();
+			// Barres de defilement (temoins + clic/glisser pour se positionner).
+			if (hasV) {
+				const NkRect tr = {box.x + box.w - sbT, inner.y, sbT, inner.h};
+				dl.AddRectFilled(tr, NkColor{255, 255, 255, 14}, 3.f);
+				float32 th = inner.h * (inner.h / (contentH + 8.f));
+				if (th < 18.f)
+					th = 18.f;
+				const float32 ty = tr.y + (maxSy > 0.f ? (mn.sy / maxSy) * (tr.h - th) : 0.f);
+				dl.AddRectFilled({tr.x + 1.f, ty, sbT - 2.f, th}, NkColor{150, 158, 170, 210}, 3.f);
+				if (ctx.input.mouseDown[0] && m.x >= tr.x && m.x < tr.x + tr.w && m.y >= tr.y && m.y < tr.y + tr.h) {
+					const float32 t = (m.y - tr.y - th * 0.5f) / (tr.h - th > 1.f ? tr.h - th : 1.f);
+					mn.sy = (t < 0.f ? 0.f : t > 1.f ? 1.f : t) * maxSy;
+				}
+			}
+			if (hasH) {
+				const NkRect tr = {box.x, box.y + box.h - sbT, inner.w, sbT};
+				dl.AddRectFilled(tr, NkColor{255, 255, 255, 14}, 3.f);
+				float32 th = tr.w * (inner.w / wIdeal);
+				if (th < 24.f)
+					th = 24.f;
+				const float32 tx = tr.x + (maxSx > 0.f ? (mn.sx / maxSx) * (tr.w - th) : 0.f);
+				dl.AddRectFilled({tx, tr.y + 1.f, th, sbT - 2.f}, NkColor{150, 158, 170, 210}, 3.f);
+				if (ctx.input.mouseDown[0] && m.x >= tr.x && m.x < tr.x + tr.w && m.y >= tr.y && m.y < tr.y + tr.h) {
+					const float32 t = (m.x - tr.x - th * 0.5f) / (tr.w - th > 1.f ? tr.w - th : 1.f);
+					mn.sx = (t < 0.f ? 0.f : t > 1.f ? 1.f : t) * maxSx;
+				}
+			}
+			if (clicked >= 0) {
 				mn.open = false;
-			else if ((ctx.input.mouseClicked[0] || ctx.input.mouseClicked[1]) && !inBox)
+				mn.sx = 0.f;
+				mn.sy = 0.f;
+			} else if ((ctx.input.mouseClicked[0] || ctx.input.mouseClicked[1]) && !inBox) {
 				mn.open = false;
-			if (ctx.input.KeyPressed(NkGuiKey::Escape))
+				mn.sx = 0.f;
+				mn.sy = 0.f;
+			}
+			if (ctx.input.KeyPressed(NkGuiKey::Escape)) {
 				mn.open = false;
+				mn.sx = 0.f;
+				mn.sy = 0.f;
+			}
 			return clicked;
 		}
 
