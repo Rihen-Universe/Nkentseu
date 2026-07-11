@@ -1063,6 +1063,28 @@ namespace nkentseu {
 			}
 		}
 
+		bool NkEditorShell::FocusPanel(const char *title) noexcept {
+			if (!title)
+				return false;
+			for (int32 i = 0; i < mNumPanels; ++i) {
+				NkEditorPanel *p = mPanels[i];
+				if (!p)
+					continue;
+				const char *a = p->Title();
+				const char *b = title;
+				while (*a && *a == *b) {
+					++a;
+					++b;
+				}
+				if (*a || *b)
+					continue;
+				p->SetOpen(true); // fenetre fermee (etat persiste) -> l'OUVRIR d'abord, sinon rien a focus
+				DockFocusWindow(mUI, title);
+				return true;
+			}
+			return false;
+		}
+
 		void NkEditorShell::SetFooter(const char *left, const char *right) noexcept {
 			CopyStr(mFooterLeft, left ? left : "", sizeof(mFooterLeft));
 			CopyStr(mFooterRight, right ? right : "", sizeof(mFooterRight));
