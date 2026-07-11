@@ -168,7 +168,14 @@
   lieu d'un fichier) → à passer directement à `PushVideo`. **Validé** : capture simulée (framebuffer RGBA +
   son) → `engine_capture.mp4` à **5 pistes** (vidéo H.264 + 2 audio fr/en + 2 sous-titres fr/ghomala'),
   pistes synchronisées. Boucle type : `Display()` → `CaptureToImage` → `PushVideo` ; mix NKAudio → `PushAudio`.
-  ⏳ Reste : readback GL/DX12/VK ; tap audio direct dans NKAudio ; démo GPU live.
+  **Multi-backend** : le recorder est agnostique de la source (prend des pixels CPU). La capture moteur existe
+  déjà **sur les 6 backends** — via `NkOffscreenTarget::ReadbackPixels` / `NkAIRenderingTarget` (NKRenderer)
+  qui passent par les primitives NKRHI unifiées `CopyTextureToBuffer`+`ReadBuffer`
+  (**DX12/OpenGL/Vulkan/Metal/Software**), et via la voie **native DX11** (`NkRenderWindow::CaptureToImage`,
+  vérifiée pixel-perfect) car le `CopyTextureToBuffer` DX11 est un stub. → `ReadbackPixels(buf)` /
+  `CaptureToImage(img)` → `recorder.PushVideo(...)`, quel que soit le backend.
+  ⏳ Reste (unification) : implémenter le `CopyTextureToBuffer` DX11 (même voie NKRHI pour tous) ; tap audio
+  direct dans NKAudio ; démo GPU live enregistrée.
 
 ## En cours / À venir
 - Poursuivre Opus (range decoder → CELT → SILK), puis **AAC-LC** (corpus Bassa). Branchés comme codecs
