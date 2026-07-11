@@ -25,6 +25,7 @@
 #include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Encoder.h"
 #include "NKContainers/Sequential/NkVector.h"
+#include "NKMath/NkFunctions.h"
 
 #include <cstdio>
 
@@ -316,15 +317,27 @@ int main(int argc, char **argv) {
 			printf("[!] Ouverture %s impossible\n", path);
 		}
 
-		// Même contenu, dans un conteneur MP4 cliquable (avc1 + avcC).
+		// Même contenu, dans un conteneur MP4 cliquable (avc1 + avcC) AVEC piste audio (LPCM, bip 440 Hz).
 		media::NkH264Encoder encMp4;
 		if (encMp4.Open("h264_test.mp4", 128, 96, 25, 1, 26)) {
+			const int32 rate = 44100, aPerFrame = rate / 25; // 1764 trames audio par trame vidéo
+			encMp4.SetAudioTrack(rate, 1);					  // mono LPCM
+			NkVector<int16> tone;
+			tone.Resize((uint64)aPerFrame);
+			int64 phase = 0; // échantillon global (évite les discontinuités)
 			for (int32 f = 0; f < 12; ++f) {
 				fillFrame(f);
 				encMp4.WriteFrame(frame.Data(), media::NkVideoInputFormat::RGB24);
+				// bip 440 Hz : s = 8000 * sin(2π·440·t) ; sin approx via NkMath si besoin — ici table simple.
+				for (int32 i = 0; i < aPerFrame; ++i, ++phase) {
+					const double t = (double)phase / rate;
+					const double s = 8000.0 * nkentseu::math::NkSin((float32)(6.2831853 * 440.0 * t));
+					tone[(uint64)i] = (int16)s;
+				}
+				encMp4.WriteAudioPcm(tone.Data(), (uint32)aPerFrame);
 			}
 			encMp4.Close();
-			printf("[i] MP4 ecrit : h264_test.mp4 — cliquable/lisible (VLC, navigateur) ; ffprobe h264_test.mp4\n");
+			printf("[i] MP4 A/V ecrit : h264_test.mp4 — video H.264 + audio LPCM (bip 440Hz) ; ffprobe h264_test.mp4\n");
 		} else {
 			printf("[!] Ouverture h264_test.mp4 impossible\n");
 		}
