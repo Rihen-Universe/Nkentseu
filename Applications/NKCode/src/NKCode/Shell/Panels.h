@@ -364,6 +364,142 @@ namespace nkentseu {
 		};
 
 		// ── Editeur : onglets des fichiers ouverts + saisie multi-ligne du fichier actif. ──
+		// ── Panneau « Recherche » : plein texte WORKSPACE (Ctrl+Maj+F), résultats groupés par
+		//    fichier, remplacement multi-fichiers. Remplace la maquette (structure conservée). ──
+		class SearchPanel : public NkEditorPanel {
+			public:
+				explicit SearchPanel(NkCodeState *s) : NkEditorPanel("Recherche", NkEditorDockSide::NK_LEFT), mS(s) {
+				}
+
+				void OnUI(NkEditorFrameContext &ec) override {
+					auto &ctx = ec.Ui();
+					auto &dl = ctx.DL();
+					const float32 w = ctx.ContentWidth();
+					const float32 rowH = ctx.ItemHeight() + ctx.S(6.f);
+					float32 x0 = ctx.layout.cursor.x, y = ctx.layout.cursor.y;
+					// Ctrl+Maj+F : focus + préremplissage depuis la sélection de l'éditeur.
+					if (mS->wsFocusReq) {
+						mS->wsFocusReq = false;
+						mFocus = 1;
+						if (!mS->wsPrefill.Empty()) {
+							int32 i = 0;
+							for (const char *q = mS->wsPrefill.CStr(); *q && i < 255; ++q)
+								mQuery[i++] = *q;
+							mQuery[i] = 0;
+							mS->wsPrefill = NkString();
+						}
+					}
+					// ── Champ « Rechercher » ──
+					const NkRect qr = {x0, y, w, rowH};
+					if (ctx.input.mouseClicked[0])
+						mFocus = detail::InRect(qr, ctx.input.mousePos) ? 1 : mFocus;
+					NkOverlayTextField(ctx, dl, ctx.font, qr, mQuery, sizeof(mQuery), mFocus == 1);
+					y += rowH + ctx.S(4.f);
+					// ── Champ « Remplacer » ──
+					const NkRect rr = {x0, y, w, rowH};
+					if (ctx.input.mouseClicked[0] && detail::InRect(rr, ctx.input.mousePos))
+						mFocus = 2;
+					NkOverlayTextField(ctx, dl, ctx.font, rr, mRepl, sizeof(mRepl), mFocus == 2);
+					y += rowH + ctx.S(4.f);
+					// ── Options + actions : [Aa] [mot] [Rechercher] [Tout remplacer] ──
+					auto tog = [&](float32 &bx, const char *lbl, bool on, bool enabled) {
+						const float32 bw =
+							(ctx.font && ctx.font->Valid() ? ctx.font->MeasureWidth(lbl) : 24.f) + ctx.S(14.f);
+						const NkRect b = {bx, y, bw, rowH};
+						const bool hov = detail::InRect(b, ctx.input.mousePos);
+						dl.AddRectFilled(b, on ? ctx.theme.accent : (hov ? ctx.theme.buttonHover : ctx.theme.button),
+										 4.f);
+						if (ctx.font && ctx.font->Valid())
+							dl.AddText(
+								ctx.font->Face(), ctx.font->TexId(),
+								{b.x + ctx.S(7.f), y + (rowH - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()},
+								lbl, enabled ? ctx.theme.text : ctx.theme.textDisabled);
+						bx += bw + ctx.S(5.f);
+						return enabled && hov && ctx.input.mouseClicked[0] && ctx.popupDepth == 0;
+					};
+					float32 bx = x0;
+					if (tog(bx, "Aa", mCase, true))
+						mCase = !mCase;
+					if (tog(bx, NkT("search.word"), mWord, true))
+						mWord = !mWord;
+					if (tog(bx, NkT("search.go"), false, mQuery[0] != 0))
+						mS->StartWsFind(NkString(mQuery), mCase, mWord);
+					if (tog(bx, NkT("search.replall"), false, !mS->wsBusy && !mS->wsResults.Empty()))
+						mS->WsReplaceAll(NkString(mQuery), NkString(mRepl));
+					y += rowH + ctx.S(6.f);
+					// Entrée dans le champ recherche -> lance ; Échap -> défocus.
+					if (mFocus == 1 && ctx.input.KeyPressed(NkGuiKey::Enter) && mQuery[0])
+						mS->StartWsFind(NkString(mQuery), mCase, mWord);
+					if (ctx.input.KeyPressed(NkGuiKey::Escape))
+						mFocus = 0;
+					// ── Statut ──
+					char st[128];
+					if (mS->wsBusy)
+						std::snprintf(st, sizeof(st), "%s %d/%d", NkT("search.busy"), mS->wsScanned, mS->wsTotal);
+					else
+						std::snprintf(st, sizeof(st), "%d %s / %d %s", static_cast<int32>(mS->wsResults.Size()),
+									  NkT("search.results"), mS->wsFileCount, NkT("search.files"));
+					// Avance le layout du shell : la LISTE en dessous profite du scroll de la fenêtre.
+					ctx.layout.cursor.x = x0;
+					ctx.layout.cursor.y = y;
+					ctx.layout.lineStartX = x0;
+					ctx.layout.curLineH = 0.f;
+					ec.Text(st);
+					ec.Separator();
+					// ── Résultats groupés par fichier (en-tête repliable + hits cliquables) ──
+					NkString cur;
+					bool folded = false;
+					for (usize i = 0; i < mS->wsResults.Size(); ++i) {
+						const NkCodeState::WsHit &h = mS->wsResults[i];
+						if (!StrEq(cur.CStr(), h.file.CStr())) {
+							cur = h.file;
+							int32 nf = 0;
+							for (usize j = i;
+								 j < mS->wsResults.Size() && StrEq(mS->wsResults[j].file.CStr(), cur.CStr()); ++j)
+								++nf;
+							folded = IsFolded(cur);
+							char hd[300];
+							std::snprintf(hd, sizeof(hd), "%s %s  (%d)", folded ? ">" : "v",
+										  NkPath(cur).GetFileName().CStr(), nf);
+							if (Selectable(ctx, hd, false))
+								ToggleFold(cur);
+						}
+						if (folded)
+							continue;
+						char row[360];
+						std::snprintf(row, sizeof(row), "   L%d : %s", h.line + 1, h.preview.CStr());
+						if (Selectable(ctx, row, false)) { // ouverture DIFFÉRÉE (poll) : jamais OpenPath au rendu
+							mS->wsOpenFile = h.file;
+							mS->wsOpenLine = h.line;
+						}
+					}
+				}
+
+			private:
+				NkCodeState *mS;
+				char mQuery[256] = {};
+				char mRepl[256] = {};
+				int32 mFocus = 0; // 1 = rechercher, 2 = remplacer
+				bool mCase = false, mWord = false;
+				NkVector<NkString> mFolded; // fichiers repliés dans la liste
+
+				bool IsFolded(const NkString &f) const {
+					for (usize i = 0; i < mFolded.Size(); ++i)
+						if (StrEq(mFolded[i].CStr(), f.CStr()))
+							return true;
+					return false;
+				}
+
+				void ToggleFold(const NkString &f) {
+					for (usize i = 0; i < mFolded.Size(); ++i)
+						if (StrEq(mFolded[i].CStr(), f.CStr())) {
+							mFolded.Erase(mFolded.Begin() + i);
+							return;
+						}
+					mFolded.PushBack(f);
+				}
+		};
+
 		class EditorPanel : public NkEditorPanel {
 			public:
 				EditorPanel(NkCodeState *s, NkEditorShell *shell)
@@ -617,8 +753,14 @@ namespace nkentseu {
 
 					// Footer VSCode : nom du fichier (gauche) + Ln/Col + langage (droite).
 					if (mShell) {
-						char rbuf[160];
-						std::snprintf(rbuf, sizeof(rbuf), "Ln %d, Col %d     Espaces : 4     UTF-8     %s",
+						char rbuf[200];
+						// Chord Ctrl+K arme -> guide visible (facon VSCode « (Ctrl+K) en attente... »).
+						const bool chordArmed = (f.doc.tick - f.doc.chordK <= 90);
+						// Statut d'action (ex. « Panneau Structure affiché ») : VISIBLE ici, pas seulement
+						// dans l'en-tete du panneau Sortie.
+						std::snprintf(rbuf, sizeof(rbuf), "%s%s%sLn %d, Col %d     Espaces : 4     UTF-8     %s",
+									  mS->status.Empty() ? "" : mS->status.CStr(), mS->status.Empty() ? "" : "      ",
+									  chordArmed ? "(Ctrl+K)  0 = replier   J = deplier   I = info      " : "",
 									  f.doc.curLine + 1, f.doc.curCol + 1, LangOf(f.path));
 						NkString left = f.Name();
 						if (f.doc.dirty)
@@ -723,6 +865,68 @@ namespace nkentseu {
 					const NkVec2 m = ctx.input.mousePos;
 					float32 x = x0;
 					int32 toClose = -1;
+					// ── Raccourcis onglets (façon VSCode) : Ctrl+W ferme, Ctrl+Maj+T rouvre,
+					// Ctrl+Tab / Ctrl+Maj+Tab cycle dans l'ordre MRU (snapshot figé pendant le cycle). ──
+					// Trace de DIAGNOSTIC clavier : chaque Ctrl+<touche QoL> recue est loguee dans
+					// OUTPUT ([keys]) -> permet de voir si une touche n'arrive pas jusqu'a NKGui.
+					if (ctx.input.ctrlDown) {
+						auto trace = [&](NkGuiKey k, const char *nm) {
+							if (ctx.input.KeyPressed(k)) {
+								char b[64];
+								std::snprintf(b, sizeof(b), "[keys] Ctrl%s+%s", ctx.input.shiftDown ? "+Maj" : "", nm);
+								GlobalLogBuffer().Push(NkString(b));
+							}
+						};
+						trace(NkGuiKey::K, "K");
+						trace(NkGuiKey::J, "J");
+						trace(NkGuiKey::I, "I");
+						trace(NkGuiKey::O, "O");
+						trace(NkGuiKey::W, "W");
+						trace(NkGuiKey::T, "T");
+						trace(NkGuiKey::Num0, "0");
+						trace(NkGuiKey::Backslash, "AntiSlash");
+						trace(NkGuiKey::Space, "Espace");
+					}
+					if (ctx.input.KeyPressed(NkGuiKey::F8))
+						GlobalLogBuffer().Push(NkString("[keys] F8"));
+					if (ctx.input.KeyPressed(NkGuiKey::F12))
+						GlobalLogBuffer().Push(NkString("[keys] F12"));
+					if (ctx.popupDepth == 0 && ctx.input.ctrlDown) {
+						if (ctx.input.KeyPressed(NkGuiKey::W) && mS->HasActive() && !mS->files[mS->active].pinned)
+							toClose = mS->active;
+						if (ctx.input.shiftDown && ctx.input.KeyPressed(NkGuiKey::T))
+							mS->ReopenClosed();
+						if (ctx.input.shiftDown &&
+							ctx.input.KeyPressed(NkGuiKey::F)) { // Ctrl+Maj+F : recherche workspace
+							DockFocusWindow(ctx, "Recherche");
+							mS->wsFocusReq = true;
+							if (mS->HasActive() && mS->files[mS->active].doc.HasSel())
+								mS->wsPrefill = mS->files[mS->active].doc.GetSelectedText();
+						}
+						if (ctx.input.shiftDown &&
+							ctx.input.KeyPressed(NkGuiKey::O)) { // Ctrl+Maj+O : panneau Structure
+							mS->status = DockFocusWindow(ctx, "Structure") ? NkString("Panneau Structure affiché")
+																		   : NkString("Panneau Structure indisponible");
+						}
+						const bool tabFree = // Tab réservé si la barre de recherche ou la complétion le consomme
+							!(mS->HasActive() &&
+							  (mS->files[mS->active].doc.findOpen || mS->files[mS->active].doc.acOpen));
+						if (tabFree && ctx.input.KeyPressedRepeat(NkGuiKey::Tab)) {
+							if (!mMruCyc) {
+								mMruSnap = mS->MruOrder();
+								mMruPos = 0;
+								mMruCyc = true;
+							}
+							const int32 n = static_cast<int32>(mMruSnap.Size());
+							if (n > 1) {
+								mMruPos = (mMruPos + (ctx.input.shiftDown ? n - 1 : 1)) % n;
+								mS->SyncActiveTo(mMruSnap[static_cast<usize>(mMruPos)]);
+							}
+						}
+					}
+					if (mMruCyc && !ctx.input.ctrlDown)
+						mMruCyc = false;	   // fin de cycle : TickMru enregistre le nouvel actif
+					NkVector<NkRect> tabRects; // frontières de CETTE frame (drag réordonner)
 					for (usize i = 0; i < mS->files.Size(); ++i) {
 						OpenFile &f = mS->files[i];
 						const NkString nm = f.Name();
@@ -762,11 +966,16 @@ namespace nkentseu {
 							dl.AddLine({cx - a, cy - a}, {cx + a, cy + a}, ctx.theme.text, 1.2f);
 							dl.AddLine({cx - a, cy + a}, {cx + a, cy - a}, ctx.theme.text, 1.2f);
 						}
+						tabRects.PushBack(tab);
 						if (ctx.input.mouseClicked[0] && hov) {
 							if (clHov && !f.pinned)
 								toClose = static_cast<int32>(i);
-							else
+							else {
 								mS->active = static_cast<int32>(i);
+								mDragTab = static_cast<int32>(i); // arme le drag (réordonner)
+								mDragX = m.x;
+								mDragMoved = false;
+							}
 						}
 						// Clic-molette (bouton milieu) = fermer (sauf épinglé).
 						if (ctx.input.mouseClicked[2] && hov && !f.pinned)
@@ -779,6 +988,26 @@ namespace nkentseu {
 						}
 						dl.AddRectFilled({tab.x + tabW - 1.f, y0, 1.f, h}, ctx.theme.border);
 						x += tabW;
+					}
+					// ── Drag d'onglet : réordonne en LIVE quand la souris franchit un onglet voisin ──
+					if (mDragTab >= 0) {
+						if (!ctx.input.mouseDown[0] || mDragTab >= static_cast<int32>(tabRects.Size())) {
+							mDragTab = -1;
+						} else {
+							if (!mDragMoved && (m.x - mDragX > 8.f || mDragX - m.x > 8.f))
+								mDragMoved = true;
+							if (mDragMoved) {
+								int32 tgt = mDragTab;
+								for (int32 j = 0; j < static_cast<int32>(tabRects.Size()); ++j)
+									if (m.x >= tabRects[static_cast<usize>(j)].x &&
+										m.x < tabRects[static_cast<usize>(j)].x + tabRects[static_cast<usize>(j)].w)
+										tgt = j;
+								if (tgt != mDragTab) {
+									mS->MoveTab(mDragTab, tgt);
+									mDragTab = tgt;
+								}
+							}
+						}
 					}
 					// Bouton « + » (nouvel onglet vierge).
 					const NkRect plus = {x + 4.f, y0 + (h - 22.f) * 0.5f, 24.f, 22.f};
@@ -904,8 +1133,14 @@ namespace nkentseu {
 
 				NkCodeState *mS;
 				NkEditorShell *mShell;
-				NkCtxMenu mTabMenu;			// menu contextuel de la barre d'onglets (clic droit)
-				int32 mTabMenuIdx = -1;		// onglet ciblé par le menu
+				NkCtxMenu mTabMenu;		 // menu contextuel de la barre d'onglets (clic droit)
+				int32 mTabMenuIdx = -1;	 // onglet ciblé par le menu
+				int32 mDragTab = -1;	 // onglet en cours de drag (réordonner)
+				float32 mDragX = 0.f;	 // x souris au press (seuil anti-clic)
+				bool mDragMoved = false; // seuil franchi -> réordonne en live
+				bool mMruCyc = false;	 // cycle Ctrl+Tab en cours (snapshot figé)
+				NkVector<NkString> mMruSnap;
+				int32 mMruPos = 0;
 				int32 mZoomLastActive = -1; // dernier onglet actif (detection changement -> rebuild atlas immediat,
 											// anti « saut » de taille)
 		};

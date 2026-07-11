@@ -387,6 +387,33 @@ namespace nkentseu {
 				case NkKey::NK_SPACE:
 					mUI.input.SetKey(NkGuiKey::Space, down);
 					break; // Ctrl+Espace autocompletion
+				case NkKey::NK_F8:
+					mUI.input.SetKey(NkGuiKey::F8, down);
+					break;
+				case NkKey::NK_F12:
+					mUI.input.SetKey(NkGuiKey::F12, down);
+					break;
+				case NkKey::NK_J:
+					mUI.input.SetKey(NkGuiKey::J, down);
+					break;
+				case NkKey::NK_W:
+					mUI.input.SetKey(NkGuiKey::W, down);
+					break;
+				case NkKey::NK_T:
+					mUI.input.SetKey(NkGuiKey::T, down);
+					break;
+				case NkKey::NK_I:
+					mUI.input.SetKey(NkGuiKey::I, down);
+					break;
+				case NkKey::NK_O:
+					mUI.input.SetKey(NkGuiKey::O, down);
+					break;
+				case NkKey::NK_BACKSLASH:
+					mUI.input.SetKey(NkGuiKey::Backslash, down);
+					break;
+				case NkKey::NK_PERIOD:
+					mUI.input.SetKey(NkGuiKey::Period, down);
+					break;
 				case NkKey::NK_H:
 					mUI.input.SetKey(NkGuiKey::H, down);
 					break;
@@ -416,6 +443,12 @@ namespace nkentseu {
 					break;
 				case NkKey::NK_Y:
 					mUI.input.SetKey(NkGuiKey::Y, down);
+					break;
+				case NkKey::NK_NUM0:
+					mUI.input.SetKey(NkGuiKey::Num0, down);
+					break;
+				case NkKey::NK_NUMPAD_0: // pavé numérique (AZERTY : le 0 du haut = Maj+À)
+					mUI.input.SetKey(NkGuiKey::Num0, down);
 					break;
 				case NkKey::NK_NUM1:
 					mUI.input.SetKey(NkGuiKey::Num1, down);

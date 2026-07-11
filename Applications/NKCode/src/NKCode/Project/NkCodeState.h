@@ -107,6 +107,7 @@ namespace nkentseu {
 					OpenFile f;
 					f.path = p;
 					f.doc.SetText(content.CStr());
+					f.doc.savedSig = f.doc.SymSig();			// etat propre de reference (undo -> point eteint)
 					f.diskMtime = MTimeOf(p.ToString().CStr()); // référence pour la détection de changement externe
 					files.PushBack(f);
 					active = static_cast<int32>(files.Size()) - 1;
@@ -483,21 +484,40 @@ namespace nkentseu {
 				// Vérif syntaxe LIVE : écrit le BUFFER dans un fichier temp SIBLING (même dossier
 				// -> `#include "x.h"` relatifs OK), sans exiger de sauvegarde. Le fichier temp a
 				// l'extension `.nkcheck` (non compilée par les globs du build) + `-x` force le langage.
+				NkString diagSent;				  // texte envoyé au compilateur (passes 1+ : ';' virtuels insérés)
+				int32 diagPass = 0;				  // n° de passe (0 = buffer réel)
+				int32 diagRawE = 0, diagRawW = 0; // compte BRUT cumulé (headers inclus)
+				NkVector<NkString> diagShown;	  // lignes déjà tracées dans OUTPUT (dédup entre passes)
+
+				// Point d'entrée : NOUVELLE analyse (frappe / save) -> passe 0 sur le buffer réel.
 				void RunDiagnostics(int32 fileIdx) {
+					diagPass = 0;
+					diagRawE = 0;
+					diagRawW = 0;
+					diagShown.Clear();
+					RunDiagPass(fileIdx);
+				}
+
+				// Une passe compilateur. Passe 0 = buffer réel ; passes 1+ = `diagSent` PATCHÉ (des ';'
+				// virtuels insérés là où clang a dit « expected ';' ») -> révèle les erreurs que la
+				// récupération du parseur MASQUAIT, sans jamais toucher le buffer de l'utilisateur.
+				bool RunDiagPass(int32 fileIdx) {
 					if (!cdb.ready || fileIdx < 0 || fileIdx >= static_cast<int32>(files.Size()))
-						return;
+						return false;
 					if (diagProc.Running())
-						return;
+						return false;
 					OpenFile &f = files[fileIdx];
 					const NkString ext = f.path.GetExtension();
 					if (!IsCppExt(ext.CStr()))
-						return;
+						return false;
 					const ProjFlags *pf = FlagsForFile(f.path.ToString()); // flags du PROJET du fichier
 					if (!pf)
-						return;
+						return false;
+					if (diagPass == 0)
+						diagSent = f.doc.GetText();
 					const NkString tmp = (f.path.GetParent() / ".nkcode_diag.nkcheck").ToString();
-					if (!NkFile::WriteAllText(NkPath(tmp), f.doc.GetText()))
-						return;
+					if (!NkFile::WriteAllText(NkPath(tmp), diagSent))
+						return false;
 					diagTempPath = tmp;
 					const bool isC = StrEqI(ext.CStr(), ".c");
 					NkString cmd = CompilerPathPrefix() + "\"" + cdb.compiler.CStr() + "\" ";
@@ -518,8 +538,12 @@ namespace nkentseu {
 							cmd += " ";
 						}
 						// Rapporter TOUTES les erreurs en une passe (pas de plafond) -> on marque tout d'un coup.
-						cmd += NkFindSub(cdb.compiler.CStr(), "clang") ? "-ferror-limit=0 -fno-caret-diagnostics "
-																	   : "-fmax-errors=0 -fno-diagnostics-show-caret ";
+						cmd +=
+							NkFindSub(cdb.compiler.CStr(), "clang")
+								? "-ferror-limit=0 -fno-caret-diagnostics "
+								  "-Wno-pragma-once-outside-header " // le buffer est compile comme fichier PRINCIPAL :
+																	 // un header ouvert declencherait ce faux warning
+								: "-fmax-errors=0 -fno-diagnostics-show-caret ";
 					}
 					for (usize i = 0; i < pf->includes.Size(); ++i) {
 						cmd += cdb.msvc ? "/I\"" : "-I\"";
@@ -537,6 +561,30 @@ namespace nkentseu {
 					diagAcc.Clear();
 					diagTarget = fileIdx;
 					diagProc.Start(cmd);
+					return true;
+				}
+
+				// Insère ';' dans `diagSent` à (ligne, col) 0-based — passes de continuation UNIQUEMENT.
+				void DiagInsertSemi(int32 line0, int32 col0) {
+					const char *base = diagSent.CStr();
+					usize off = 0;
+					int32 l = 0;
+					while (base[off] && l < line0) {
+						if (base[off] == '\n')
+							++l;
+						++off;
+					}
+					usize len = 0;
+					while (base[off + len] && base[off + len] != '\n' && base[off + len] != '\r')
+						++len;
+					const usize ins =
+						off + (col0 < 0 ? 0 : (static_cast<usize>(col0) > len ? len : static_cast<usize>(col0)));
+					NkString nu;
+					for (usize k = 0; k < ins; ++k)
+						nu += base[k];
+					nu += ';';
+					nu += (base + ins);
+					diagSent = nu;
 				}
 
 				void PollDiagnostics() {
@@ -547,13 +595,91 @@ namespace nkentseu {
 						return;
 					const int32 tgt = diagTarget;
 					diagTarget = -1;
+					bool chained = false;
+					bool atLimit = false;
 					if (tgt < static_cast<int32>(files.Size())) {
 						OpenFile &f = files[tgt];
-						f.doc.diags.Clear();
+						if (diagPass == 0)
+							f.doc.diags.Clear();
+						const usize before = f.doc.diags.Size();
 						for (usize li = 0; li < diagAcc.Size(); ++li)
 							ParseDiagLine(diagAcc[li].CStr(), diagTempPath.CStr(), f.doc);
+						// Dédup : une passe de continuation re-rapporte ce que la précédente montrait déjà.
+						for (usize i = f.doc.diags.Size(); i > before;) {
+							--i;
+							bool dup = false;
+							for (usize j = 0; j < before && !dup; ++j)
+								dup = f.doc.diags[j].line == f.doc.diags[i].line &&
+									  f.doc.diags[j].col == f.doc.diags[i].col &&
+									  StrEq(f.doc.diags[j].msg.CStr(), f.doc.diags[i].msg.CStr());
+							if (dup)
+								f.doc.diags.Erase(f.doc.diags.Begin() + i);
+						}
+						// Trace OUTPUT (dédupliquée entre passes) : fichier:ligne:col + message, headers inclus.
+						for (usize li = 0; li < diagAcc.Size(); ++li) {
+							const char *ln = diagAcc[li].CStr();
+							const char *pe = NkFindSub(ln, "error:");
+							const char *pw = pe ? nullptr : NkFindSub(ln, "warning:");
+							if (!pe && !pw)
+								continue;
+							NkString show;
+							const char *tp = NkFindSub(ln, ".nkcode_diag.nkcheck");
+							if (tp) { // remplace le fichier TEMP par le nom de l'onglet
+								show = f.Name();
+								show += (tp + 20); // strlen(".nkcode_diag.nkcheck")
+							} else
+								show = ln;
+							bool seen = false;
+							for (usize k = 0; k < diagShown.Size() && !seen; ++k)
+								seen = StrEq(diagShown[k].CStr(), show.CStr());
+							if (seen)
+								continue;
+							diagShown.PushBack(show);
+							(pe ? diagRawE : diagRawW) += 1;
+							GlobalLogBuffer().Push(NkString("[diag] ") + show.CStr());
+						}
+						// « expected ';' » dans les NOUVEAUX diags -> passe de CONTINUATION sur texte patché
+						// (façon IDE : le vrai compilateur re-analyse, les erreurs masquées apparaissent).
+						NkVector<int32> semiL, semiC;
+						for (usize i = before; i < f.doc.diags.Size(); ++i)
+							if (f.doc.diags[i].sev == 1 && NkFindSub(f.doc.diags[i].msg.CStr(), "expected ';'")) {
+								semiL.PushBack(f.doc.diags[i].line);
+								semiC.PushBack(f.doc.diags[i].col);
+							}
+						atLimit = !semiL.Empty() && diagPass >= 4;
+						if (!semiL.Empty() && diagPass < 4) {
+							for (usize a = 0; a < semiL.Size();
+								 ++a) // tri (ligne, col) DÉCROISSANT : insertions bas -> haut
+								for (usize b = a + 1; b < semiL.Size(); ++b)
+									if (semiL[b] > semiL[a] || (semiL[b] == semiL[a] && semiC[b] > semiC[a])) {
+										int32 t1 = semiL[a];
+										semiL[a] = semiL[b];
+										semiL[b] = t1;
+										t1 = semiC[a];
+										semiC[a] = semiC[b];
+										semiC[b] = t1;
+									}
+							for (usize a = 0; a < semiL.Size(); ++a)
+								DiagInsertSemi(semiL[a], semiC[a]);
+							++diagPass;
+							chained = RunDiagPass(tgt);
+						}
+						if (!chained) { // fin de chaîne -> résumé
+							char lb[220];
+							std::snprintf(lb, sizeof(lb),
+										  "[diag] %s : %d marque(s) dans l'editeur ; compilateur : %d erreur(s), %d "
+										  "avertissement(s) au total (headers inclus, %d passe%s)",
+										  f.Name().CStr(), static_cast<int32>(f.doc.diags.Size()), diagRawE, diagRawW,
+										  diagPass + 1, diagPass > 0 ? "s" : "");
+							GlobalLogBuffer().Push(NkString(lb));
+							if (atLimit)
+								GlobalLogBuffer().Push(
+									NkString("[diag] note : limite de passes atteinte - d'autres erreurs "
+											 "peuvent rester masquees ; corrige celles-ci, la passe suivante "
+											 "(~0,6 s) revelera la suite."));
+						}
 					}
-					if (!diagTempPath.Empty()) {
+					if (!chained && !diagTempPath.Empty()) {
 						NkFile::Delete(NkPath(diagTempPath));
 						diagTempPath = NkString();
 					}
@@ -2372,6 +2498,18 @@ namespace nkentseu {
 					if (active < 0 || active >= static_cast<int32>(files.Size()))
 						return;
 					OpenFile &f = files[active];
+					// ── Maj+F12 / bouton [Références] de la carte : consomme d.refsTarget ──
+					if (!f.doc.refsTarget.Empty()) {
+						const NkString sym = f.doc.refsTarget;
+						f.doc.refsTarget = NkString(); // consomme (une seule action)
+						if (!navPickerOpen && navPickChoice < 0) {
+							const ProjFlags *pf = FlagsForFile(f.path.ToString());
+							if (pf)
+								StartRefs(sym, pf);
+							else
+								status = NkString("Références : projet inconnu pour ") + sym.CStr();
+						}
+					}
 					if (f.doc.linkTarget.Empty())
 						return;
 					// Picker ouvert / choix en attente -> l'utilisateur interagit avec la LISTE
@@ -2436,7 +2574,8 @@ namespace nkentseu {
 				bool navBusy = false; // écrit par l'UI, lu simple (comme NkProcess.mRunning)
 				bool navDone = false; // écrit par le thread à la fin
 				NkString navSym;
-				NkVector<NkString> navDirs;					   // entrées : symbole + dossiers d'include
+				int32 navMode = 0;			// 0 = définitions (F12/Ctrl+clic), 1 = références (Maj+F12)
+				NkVector<NkString> navDirs; // entrées : symbole + dossiers d'include
 				NkVector<NkString> navOpenPaths, navOpenTexts; // snapshots des fichiers ouverts (buffers)
 				NkVector<NavHit> navResults;				   // sortie : 1 hit par fichier (déf. trouvée)
 				int32 navScanned = 0, navTotal = 0;			   // progression (thread -> UI)
@@ -2445,9 +2584,10 @@ namespace nkentseu {
 				bool navCancel = false;	 // annulation COOPÉRATIVE (le thread lit ce drapeau)
 				bool navPending = false; // une nouvelle recherche attend l'arrêt de l'actuelle
 				NkString navPendSym;
+				int32 navPendMode = 0;
 				NkVector<NkString> navPendDirs, navPendOpenP, navPendOpenT;
 
-				void StartGotoDef(const NkString &sym, const ProjFlags *pf) {
+				void StartNav(const NkString &sym, const ProjFlags *pf, int32 mode) {
 					// Snapshots des entrées (dossiers d'include + buffers ouverts).
 					NkVector<NkString> dirs;
 					for (usize i = 0; i < pf->includes.Size(); ++i)
@@ -2462,20 +2602,30 @@ namespace nkentseu {
 						navCancel = true;
 						navPending = true;
 						navPendSym = sym;
+						navPendMode = mode;
 						navPendDirs = dirs;
 						navPendOpenP = openP;
 						navPendOpenT = openT;
 						status = NkString("Nouvelle recherche de « ") + sym.CStr() + " »…";
 						return;
 					}
-					NavLaunch(sym, dirs, openP, openT);
+					NavLaunch(sym, dirs, openP, openT, mode);
+				}
+
+				void StartGotoDef(const NkString &sym, const ProjFlags *pf) {
+					StartNav(sym, pf, 0);
+				}
+
+				void StartRefs(const NkString &sym, const ProjFlags *pf) {
+					StartNav(sym, pf, 1);
 				}
 
 				void NavLaunch(const NkString &sym, const NkVector<NkString> &dirs, const NkVector<NkString> &openP,
-							   const NkVector<NkString> &openT) {
+							   const NkVector<NkString> &openT, int32 mode) {
 					if (navThread.Joinable())
 						navThread.Join();
 					navSym = sym;
+					navMode = mode;
 					navDirs = dirs;
 					navOpenPaths = openP;
 					navOpenTexts = openT;
@@ -2487,7 +2637,8 @@ namespace nkentseu {
 					navCancel = false;
 					navDone = false;
 					navBusy = true;
-					status = NkString("Recherche de « ") + sym.CStr() + " »…";
+					status =
+						(mode == 1 ? NkString("Références de « ") : NkString("Recherche de « ")) + sym.CStr() + " »…";
 					navThread = NkThread([this](void *) { NavScan(); });
 				}
 
@@ -2505,6 +2656,77 @@ namespace nkentseu {
 					for (const char *q = p; *q && *q != '\n' && *q != '\r' && (int32)o.Size() < 120; ++q)
 						o += *q;
 					return o;
+				}
+
+				// Lignes (0-based) contenant `sym` en FRONTIÈRE DE MOT (mode références), HORS
+				// commentaires (// et /* */) et chaînes/caractères — au plus `cap` lignes par fichier.
+				static void RefLinesOf(const char *text, const char *sym, NkVector<int32> &out, int32 cap) {
+					int32 sl = 0;
+					while (sym[sl])
+						++sl;
+					if (sl == 0)
+						return;
+					auto isW = [](char c) {
+						return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+					};
+					int32 line = 0;
+					bool inBlock = false, lineHit = false;
+					const char *p = text;
+					while (*p && static_cast<int32>(out.Size()) < cap) {
+						const char c = *p;
+						if (c == '\n') { // fin de ligne : reset des etats LIGNE (chaines non multi-lignes)
+							++line;
+							lineHit = false;
+							++p;
+							continue;
+						}
+						if (inBlock) { // dans /* ... */
+							if (c == '*' && p[1] == '/') {
+								inBlock = false;
+								++p;
+							}
+							++p;
+							continue;
+						}
+						if (c == '/' && p[1] == '/') { // commentaire ligne : saute jusqu'a la fin de ligne
+							while (*p && *p != '\n')
+								++p;
+							continue;
+						}
+						if (c == '/' && p[1] == '*') {
+							inBlock = true;
+							p += 2;
+							continue;
+						}
+						if (c == '"' || c == '\'') { // chaine / caractere : saute (gere \\ et \")
+							const char q = c;
+							++p;
+							while (*p && *p != '\n' && *p != q) {
+								if (*p == '\\' && p[1])
+									++p;
+								++p;
+							}
+							if (*p == q)
+								++p;
+							continue;
+						}
+						if (!lineHit && *p == sym[0]) { // candidat : compare + frontieres de mot
+							bool m = true;
+							for (int32 t = 0; t < sl; ++t)
+								if (p[t] != sym[t]) {
+									m = false;
+									break;
+								}
+							if (m) {
+								const char before = (p > text) ? p[-1] : ' ';
+								if (!isW(before) && !isW(p[sl])) {
+									out.PushBack(line);
+									lineHit = true; // une entree par ligne suffit
+								}
+							}
+						}
+						++p;
+					}
 				}
 
 				// Marche récursive ANNULABLE : liste chaque dossier en TOP-ONLY (rapide) puis récurse,
@@ -2533,19 +2755,31 @@ namespace nkentseu {
 				}
 
 				void NavScan() { // THREAD : lit navSym/navDirs/navOpen* + FS ; écrit navResults/navScanned/navTotal
-					const usize kMaxReads = 700, kMaxHits = 100;
+					const bool refs = (navMode == 1);
+					const usize kMaxReads = 700, kMaxHits = refs ? 200 : 100;
 					auto already = [&](const NkString &f) {
 						for (usize i = 0; i < navResults.Size(); ++i)
 							if (StrEq(navResults[i].file.CStr(), f.CStr()))
 								return true;
 						return false;
 					};
+					// Collecte MODE-AWARE : défs = 1 ligne (DefLineOf) ; réfs = occurrences en frontière
+					// de mot, plafonnées PAR FICHIER pour que la liste reste lisible.
+					auto collect = [&](const NkString &file, const char *txt) {
+						if (!refs) {
+							const int32 ln = DefLineOf(txt, navSym.CStr());
+							if (ln >= 0 && !already(file))
+								navResults.PushBack(NavHit{file, ln, LineTextOf(txt, ln)});
+							return;
+						}
+						NkVector<int32> lines;
+						RefLinesOf(txt, navSym.CStr(), lines, 8);
+						for (usize k = 0; k < lines.Size() && navResults.Size() < kMaxHits; ++k)
+							navResults.PushBack(NavHit{file, lines[k], LineTextOf(txt, lines[k])});
+					};
 					// 1) fichiers ouverts (buffers snapshottés — inclut les non sauvegardés)
-					for (usize i = 0; i < navOpenPaths.Size() && !navCancel; ++i) {
-						const int32 ln = DefLineOf(navOpenTexts[i].CStr(), navSym.CStr());
-						if (ln >= 0 && !already(navOpenPaths[i]))
-							navResults.PushBack(NavHit{navOpenPaths[i], ln, LineTextOf(navOpenTexts[i].CStr(), ln)});
-					}
+					for (usize i = 0; i < navOpenPaths.Size() && !navCancel; ++i)
+						collect(navOpenPaths[i], navOpenTexts[i].CStr());
 					// 2) énumération annulable de l'arbre (homonymes prioritaires)
 					NkVector<NkPath> named, others;
 					int32 budget = 30000; // budget = ENTRÉES (fichiers + dossiers) visitées
@@ -2566,9 +2800,7 @@ namespace nkentseu {
 						if (already(f))
 							continue;
 						const NkString txt = NkFile::ReadAllText(order[i]);
-						const int32 ln = DefLineOf(txt.CStr(), navSym.CStr());
-						if (ln >= 0)
-							navResults.PushBack(NavHit{f, ln, LineTextOf(txt.CStr(), ln)});
+						collect(f, txt.CStr());
 					}
 					if (!navCancel)
 						navScanned = navTotal;
@@ -2583,7 +2815,7 @@ namespace nkentseu {
 					navBusy = false;
 					if (navPending) {
 						navPending = false;
-						NavLaunch(navPendSym, navPendDirs, navPendOpenP, navPendOpenT);
+						NavLaunch(navPendSym, navPendDirs, navPendOpenP, navPendOpenT, navPendMode);
 						return;
 					}
 					if (navCancel) {
@@ -2591,7 +2823,9 @@ namespace nkentseu {
 						return;
 					} // annulée sans nouvelle demande
 					if (navResults.Empty()) {
-						status = NkString("Définition introuvable : ") + navSym.CStr();
+						status =
+							(navMode == 1 ? NkString("Aucune référence : ") : NkString("Définition introuvable : ")) +
+							navSym.CStr();
 						return;
 					}
 					if (navResults.Size() == 1) {
@@ -2620,6 +2854,305 @@ namespace nkentseu {
 					navPickChoice = -1;
 					if (i >= 0 && i < static_cast<int32>(navResults.Size()))
 						OpenAt(NkPath(navResults[i].file), navResults[i].line);
+				}
+
+				// ── Recherche WORKSPACE (Ctrl+Maj+F) : plein texte multi-fichiers sur THREAD, panneau
+				//    « Recherche ». Même hygiène que la navigation : annulable, relance en attente,
+				//    ouverture des résultats DIFFÉRÉE au poll (mutation de `files` interdite au rendu). ──
+				struct WsHit {
+						NkString file;
+						int32 line, col;
+						NkString preview;
+				};
+
+				NkThread wsThread;
+				bool wsBusy = false, wsDone = false, wsCancel = false, wsPending = false;
+				NkString wsQuery, wsPendQuery;
+				bool wsCase = false, wsWord = false, wsPendCase = false, wsPendWord = false;
+				NkVector<NkString> wsOpenP, wsOpenT, wsPendOpenP, wsPendOpenT; // snapshots buffers ouverts
+				NkVector<WsHit> wsResults;
+				int32 wsScanned = 0, wsTotal = 0, wsFileCount = 0;
+				bool wsFocusReq = false; // Ctrl+Maj+F -> le panneau prend le focus du champ
+				NkString wsPrefill;		 // sélection de l'éditeur préremplie dans le champ
+				NkString wsOpenFile;	 // clic sur un résultat : consommé par ProcessWsOpen (poll)
+				int32 wsOpenLine = -1;
+
+				void StartWsFind(const NkString &q, bool cs, bool ww) {
+					if (q.Empty())
+						return;
+					NkVector<NkString> openP, openT;
+					for (usize i = 0; i < files.Size(); ++i) {
+						openP.PushBack(files[i].path.ToString());
+						openT.PushBack(files[i].doc.GetText());
+					}
+					if (wsBusy) { // recherche en cours -> l'annuler, mémoriser la nouvelle
+						wsCancel = true;
+						wsPending = true;
+						wsPendQuery = q;
+						wsPendCase = cs;
+						wsPendWord = ww;
+						wsPendOpenP = openP;
+						wsPendOpenT = openT;
+						return;
+					}
+					WsLaunch(q, cs, ww, openP, openT);
+				}
+
+				void WsLaunch(const NkString &q, bool cs, bool ww, const NkVector<NkString> &openP,
+							  const NkVector<NkString> &openT) {
+					if (wsThread.Joinable())
+						wsThread.Join();
+					wsQuery = q;
+					wsCase = cs;
+					wsWord = ww;
+					wsOpenP = openP;
+					wsOpenT = openT;
+					wsResults.Clear();
+					wsScanned = 0;
+					wsTotal = 0;
+					wsFileCount = 0;
+					wsCancel = false;
+					wsDone = false;
+					wsBusy = true;
+					wsThread = NkThread([this](void *) { WsScan(); });
+				}
+
+				static char WsLow(char c) {
+					return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
+				}
+
+				// Fichiers texte candidats : code + docs + scripts de build.
+				static bool WsSearchable(const char *e) {
+					return IsHdrSrc(e) || StrEqI(e, ".md") || StrEqI(e, ".txt") || StrEqI(e, ".py") ||
+						   StrEqI(e, ".jenga") || StrEqI(e, ".nksl") || StrEqI(e, ".glsl") || StrEqI(e, ".json") ||
+						   StrEqI(e, ".xml") || StrEqI(e, ".cfg") || StrEqI(e, ".ini");
+				}
+
+				// Occurrences de `q` dans `text` (casse/mot selon options) -> pousse des hits (cap par fichier).
+				void WsCollect(const NkString &file, const char *text, usize maxHits) {
+					const char *q = wsQuery.CStr();
+					int32 ql = 0;
+					while (q[ql])
+						++ql;
+					if (ql == 0)
+						return;
+					auto isW = [](char c) {
+						return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+					};
+					int32 line = 0;
+					usize mine = 0;
+					const char *p = text;
+					while (*p && mine < maxHits && wsResults.Size() < 800 && !wsCancel) {
+						const char *ls = p;
+						while (*p && *p != '\n')
+							++p;
+						for (const char *w = ls; w + ql <= p; ++w) {
+							bool m = true;
+							for (int32 t = 0; t < ql && m; ++t)
+								m = wsCase ? (w[t] == q[t]) : (WsLow(w[t]) == WsLow(q[t]));
+							if (!m)
+								continue;
+							if (wsWord) {
+								const char before = (w > ls) ? w[-1] : ' ', after = w[ql];
+								if (isW(before) || isW(after))
+									continue;
+							}
+							// aperçu : la ligne rognée (début à l'indentation près)
+							const char *ps = ls;
+							while (*ps == ' ' || *ps == '\t')
+								++ps;
+							NkString pv;
+							for (const char *z = ps; z < p && pv.Size() < 160; ++z)
+								pv += *z;
+							wsResults.PushBack(WsHit{file, line, static_cast<int32>(w - ls), pv});
+							++mine;
+							if (mine >= maxHits)
+								break;
+							w += ql - 1;
+						}
+						if (*p == '\n')
+							++p;
+						++line;
+					}
+				}
+
+				// Marche annulable de l'arbre du WORKSPACE (racine `root`), même hygiène que NavWalk.
+				void WsWalk(const NkPath &dir, NkVector<NkPath> &out, int32 &budget, int32 depth) {
+					if (wsCancel || budget <= 0 || depth > 24)
+						return;
+					NkVector<NkDirectoryEntry> es =
+						NkDirectory::GetEntries(dir, "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+					for (usize k = 0; k < es.Size(); ++k) {
+						if (wsCancel || budget <= 0)
+							return;
+						--budget;
+						if (es[k].IsDirectory) {
+							const NkString nm = es[k].FullPath.GetFileName();
+							if (StrEq(nm.CStr(), ".git") || StrEq(nm.CStr(), "Build") || StrEq(nm.CStr(), ".nkcode"))
+								continue; // dossiers générés/VCS : inutiles et énormes
+							WsWalk(es[k].FullPath, out, budget, depth + 1);
+						} else if (WsSearchable(es[k].FullPath.GetExtension().CStr()))
+							out.PushBack(es[k].FullPath);
+					}
+				}
+
+				void WsScan() { // THREAD : buffers ouverts d'abord (non sauvegardés inclus), puis l'arbre
+					const usize kMaxReads = 3000, kPerFile = 50;
+					for (usize i = 0; i < wsOpenP.Size() && !wsCancel; ++i)
+						WsCollect(wsOpenP[i], wsOpenT[i].CStr(), kPerFile);
+					NkVector<NkPath> order;
+					int32 budget = 60000;
+					WsWalk(root, order, budget, 0);
+					wsTotal = static_cast<int32>(order.Size());
+					auto opened = [&](const NkString &f2) {
+						for (usize i = 0; i < wsOpenP.Size(); ++i)
+							if (StrEq(wsOpenP[i].CStr(), f2.CStr()))
+								return true;
+						return false;
+					};
+					for (usize i = 0; i < order.Size() && wsResults.Size() < 800 && !wsCancel && i < kMaxReads; ++i) {
+						wsScanned = static_cast<int32>(i) + 1;
+						const NkString f2 = order[i].ToString();
+						if (opened(f2))
+							continue; // déjà couvert par le snapshot buffer (version la plus fraîche)
+						const NkString txt = NkFile::ReadAllText(order[i]);
+						WsCollect(f2, txt.CStr(), kPerFile);
+					}
+					if (!wsCancel)
+						wsScanned = wsTotal;
+					{ // fichiers distincts
+						int32 n = 0;
+						for (usize i = 0; i < wsResults.Size(); ++i) {
+							bool seen = false;
+							for (usize j = 0; j < i && !seen; ++j)
+								seen = StrEq(wsResults[j].file.CStr(), wsResults[i].file.CStr());
+							if (!seen)
+								++n;
+						}
+						wsFileCount = n;
+					}
+					wsDone = true;
+				}
+
+				NkString wsRenameTo; // F2 : le scan fini enchaîne sur WsReplaceAll(wsQuery -> wsRenameTo)
+				bool wsRenamePending = false;
+
+				void PollWsFind() { // UI : rejoint le thread fini ; relance si une recherche attend
+					if (!wsBusy || !wsDone)
+						return;
+					if (wsThread.Joinable())
+						wsThread.Join();
+					wsBusy = false;
+					if (wsRenamePending && !wsPending) { // F2 : remplacement en chaîne (mêmes critères que le scan)
+						wsRenamePending = false;
+						WsReplaceAll(wsQuery, wsRenameTo);
+						wsRenameTo = NkString();
+						return;
+					}
+					if (wsPending) {
+						wsPending = false;
+						WsLaunch(wsPendQuery, wsPendCase, wsPendWord, wsPendOpenP, wsPendOpenT);
+					}
+				}
+
+				void ProcessWsOpen() { // ouverture SÛRE d'un résultat (jamais depuis le rendu)
+					if (wsOpenLine < 0 || wsOpenFile.Empty())
+						return;
+					const NkString f2 = wsOpenFile;
+					const int32 l2 = wsOpenLine;
+					wsOpenFile = NkString();
+					wsOpenLine = -1;
+					OpenAt(NkPath(f2), l2);
+				}
+
+				// Remplace `q` par `rep` dans `text` (mêmes critères que la recherche). Retourne le compte.
+				int32 WsReplaceInText(const NkString &text, const NkString &q, const NkString &rep, NkString &out) {
+					const char *tp = text.CStr();
+					const char *qs = q.CStr();
+					int32 ql = 0;
+					while (qs[ql])
+						++ql;
+					auto isW = [](char c) {
+						return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+					};
+					int32 count = 0;
+					usize i = 0;
+					const usize n = text.Size();
+					while (i < n) {
+						bool m = (i + static_cast<usize>(ql) <= n);
+						for (int32 t = 0; t < ql && m; ++t)
+							m = wsCase ? (tp[i + t] == qs[t]) : (WsLow(tp[i + t]) == WsLow(qs[t]));
+						if (m && wsWord) {
+							const char before = (i > 0) ? tp[i - 1] : ' ';
+							const char after = tp[i + ql];
+							if (isW(before) || isW(after))
+								m = false;
+						}
+						if (m && tp[i] == '\n')
+							m = false; // (garde théorique)
+						if (m) {
+							out += rep.CStr();
+							i += static_cast<usize>(ql);
+							++count;
+						} else {
+							out += tp[i];
+							++i;
+						}
+					}
+					return count;
+				}
+
+				// « Tout remplacer » : buffers OUVERTS en place (undo par fichier) ; fichiers fermés sur DISQUE.
+				int32 WsReplaceAll(const NkString &q, const NkString &rep) {
+					if (wsBusy || q.Empty() || wsResults.Empty())
+						return 0;
+					int32 total = 0, nfiles = 0;
+					for (usize i = 0; i < wsResults.Size(); ++i) {
+						const NkString &f2 = wsResults[i].file;
+						bool seen = false;
+						for (usize j = 0; j < i && !seen; ++j)
+							seen = StrEq(wsResults[j].file.CStr(), f2.CStr());
+						if (seen)
+							continue;
+						int32 fi = -1;
+						for (usize k = 0; k < files.Size(); ++k)
+							if (StrEq(files[k].path.ToString().CStr(), f2.CStr())) {
+								fi = static_cast<int32>(k);
+								break;
+							}
+						if (fi >= 0) { // ouvert : remplace le BUFFER (checkpoint -> Ctrl+Z possible)
+							NkCodeDoc &doc2 = files[static_cast<usize>(fi)].doc;
+							NkString nu;
+							const int32 c2 = WsReplaceInText(doc2.GetText(), q, rep, nu);
+							if (c2 > 0) {
+								doc2.Checkpoint(3);
+								const float32 sx = doc2.scrollX, sy = doc2.scrollY;
+								doc2.SetText(nu.CStr());
+								doc2.scrollX = sx;
+								doc2.scrollY = sy;
+								doc2.ClampCursor();
+								doc2.dirty = (doc2.SymSig() != doc2.savedSig);
+								total += c2;
+								++nfiles;
+							}
+						} else { // fermé : remplace sur DISQUE
+							const NkString txt = NkFile::ReadAllText(NkPath(f2));
+							if (txt.Empty())
+								continue;
+							NkString nu;
+							const int32 c2 = WsReplaceInText(txt, q, rep, nu);
+							if (c2 > 0 && NkFile::WriteAllText(NkPath(f2), nu)) {
+								total += c2;
+								++nfiles;
+							}
+						}
+					}
+					char lb[128];
+					std::snprintf(lb, sizeof(lb), "%d remplacement(s) dans %d fichier(s)", total, nfiles);
+					status = NkString(lb);
+					wsResults.Clear(); // la liste est périmée après remplacement
+					wsFileCount = 0;
+					return total;
 				}
 
 				// ── Session : persiste les onglets + le contenu NON SAUVEGARDÉ (hot-exit VSCode /
@@ -2808,6 +3341,7 @@ namespace nkentseu {
 							if (!f.doc.dirty) {
 								f.doc.SetText(NkFile::ReadAllText(f.path).CStr());
 								f.doc.dirty = false;
+								f.doc.savedSig = f.doc.SymSig();
 								f.changedOnDisk = false;
 							} // pas de modif locale -> recharge
 							else
@@ -2954,10 +3488,111 @@ namespace nkentseu {
 
 				// (NkPathSuffixMatch -> NkText.h)
 
+				// ── MRU des onglets (Ctrl+Tab) + pile des fermés (Ctrl+Maj+T) + réordonner (drag) ──
+				NkVector<NkString> mruPaths;	// ordre d'usage, le plus récent en DERNIER
+				NkVector<NkString> closedPaths; // pile des onglets fermés (rouvrables)
+				NkString mruLastPath;			// dernier actif vu par TickMru
+
+				void TouchMru(const NkString &p) {
+					if (p.Empty())
+						return;
+					for (usize i = 0; i < mruPaths.Size(); ++i)
+						if (StrEq(mruPaths[i].CStr(), p.CStr())) {
+							mruPaths.Erase(mruPaths.Begin() + i);
+							break;
+						}
+					mruPaths.PushBack(p);
+					if (mruPaths.Size() > 64)
+						mruPaths.Erase(mruPaths.Begin());
+				}
+
+				// Appelé chaque frame : enregistre l'onglet actif dans le MRU. Couvre TOUS les chemins
+				// d'activation (clic d'onglet, picker, goto, restauration de session) sans les patcher un à un.
+				void TickMru() {
+					if (!HasActive())
+						return;
+					const NkString p = files[active].path.ToString();
+					if (StrEq(p.CStr(), mruLastPath.CStr()))
+						return;
+					mruLastPath = p;
+					TouchMru(p);
+				}
+
+				// Onglets ouverts triés du PLUS RÉCENT au plus ancien (jamais touchés -> à la fin).
+				NkVector<NkString> MruOrder() const {
+					NkVector<NkString> out;
+					for (int32 i = static_cast<int32>(mruPaths.Size()) - 1; i >= 0; --i)
+						for (usize j = 0; j < files.Size(); ++j)
+							if (StrEq(files[j].path.ToString().CStr(), mruPaths[i].CStr())) {
+								out.PushBack(mruPaths[i]);
+								break;
+							}
+					for (usize j = 0; j < files.Size(); ++j) {
+						const NkString p = files[j].path.ToString();
+						bool seen = false;
+						for (usize k = 0; k < out.Size(); ++k)
+							if (StrEq(out[k].CStr(), p.CStr())) {
+								seen = true;
+								break;
+							}
+						if (!seen)
+							out.PushBack(p);
+					}
+					return out;
+				}
+
+				void PushClosed(const NkString &p) {
+					if (p.Empty())
+						return;
+					for (usize i = 0; i < closedPaths.Size(); ++i)
+						if (StrEq(closedPaths[i].CStr(), p.CStr())) {
+							closedPaths.Erase(closedPaths.Begin() + i);
+							break;
+						}
+					closedPaths.PushBack(p);
+					if (closedPaths.Size() > 10)
+						closedPaths.Erase(closedPaths.Begin());
+				}
+
+				void ReopenClosed() { // Ctrl+Maj+T : rouvre le dernier onglet fermé encore présent sur disque
+					while (!closedPaths.Empty()) {
+						const NkString p = closedPaths.Back();
+						closedPaths.PopBack();
+						if (NkFile::Exists(NkPath(p))) {
+							OpenPath(NkPath(p));
+							return;
+						}
+					}
+					status = NkString("Aucun onglet à rouvrir");
+				}
+
+				// Déplace l'onglet `from` en position `to` (drag de la barre d'onglets), actif préservé.
+				void MoveTab(int32 from, int32 to) {
+					const int32 n = static_cast<int32>(files.Size());
+					if (from < 0 || to < 0 || from >= n || to >= n || from == to)
+						return;
+					const NkString act = HasActive() ? files[active].path.ToString() : NkString();
+					while (from < to) {
+						OpenFile tmp = files[from];
+						files[from] = files[from + 1];
+						files[from + 1] = tmp;
+						++from;
+					}
+					while (from > to) {
+						OpenFile tmp = files[from];
+						files[from] = files[from - 1];
+						files[from - 1] = tmp;
+						--from;
+					}
+					if (!act.Empty())
+						SyncActiveTo(act);
+				}
+
 				// Ferme l'onglet `i` et reajuste l'onglet actif.
 				void CloseFile(int32 i) {
 					if (i < 0 || i >= static_cast<int32>(files.Size()))
 						return;
+					PushClosed(files[i].path.ToString());
 					files.Erase(files.Begin() + i);
 					if (active >= static_cast<int32>(files.Size()))
 						active = static_cast<int32>(files.Size()) - 1;
@@ -2981,6 +3616,7 @@ namespace nkentseu {
 							continue;
 						if (StrEq(files[i].path.ToString().CStr(), keepPath.CStr()))
 							continue;
+						PushClosed(files[i].path.ToString());
 						files.Erase(files.Begin() + i);
 					}
 					SyncActiveTo(keepPath);
@@ -2992,8 +3628,10 @@ namespace nkentseu {
 						return;
 					const NkString keepPath = files[i].path.ToString();
 					for (int32 j = static_cast<int32>(files.Size()) - 1; j > i; --j)
-						if (!files[j].pinned)
+						if (!files[j].pinned) {
+							PushClosed(files[j].path.ToString());
 							files.Erase(files.Begin() + j);
+						}
 					SyncActiveTo(keepPath);
 				}
 
@@ -3015,6 +3653,7 @@ namespace nkentseu {
 					OpenFile &f = files[active];
 					if (NkFile::WriteAllText(f.path, f.doc.GetText())) {
 						f.doc.dirty = false;
+						f.doc.savedSig = f.doc.SymSig();
 						f.untitled = false;
 						f.deletedOnDisk = false;
 						f.changedOnDisk = false;
@@ -3047,6 +3686,7 @@ namespace nkentseu {
 					OpenFile &f = files[active];
 					f.doc.SetText(NkFile::ReadAllText(f.path).CStr());
 					f.doc.dirty = false;
+					f.doc.savedSig = f.doc.SymSig();
 					f.changedOnDisk = false;
 					f.deletedOnDisk = false;
 					f.diskMtime = MTimeOf(f.path.ToString().CStr());
