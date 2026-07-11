@@ -3535,10 +3535,13 @@ namespace nkentseu {
 
 			// Surlignage de la ligne courante (toute la zone texte).
 			if (focused) {
-				const int32 curRow = d.wrapOn ? d.RowOfCol(d.curLine, d.curCol) : d.RowOf(d.curLine);
-				const float32 y = textTop + curRow * lineH - d.scrollY;
-				if (y + lineH > textArea.y && y < textArea.y + textArea.h)
-					dl.AddRectFilled({textArea.x, y, textArea.w, lineH}, kCurLine);
+				const int32 r0 = d.RowOf(d.curLine);
+				const int32 r1 = d.wrapOn ? d.RowOfCol(d.curLine, d.LineLen(d.curLine)) : r0;
+				for (int32 r = r0; r >= 0 && r <= r1; ++r) { // TOUTE la ligne logique (tous ses segments)
+					const float32 y = textTop + r * lineH - d.scrollY;
+					if (y + lineH > textArea.y && y < textArea.y + textArea.h)
+						dl.AddRectFilled({textArea.x, y, textArea.w, lineH}, kCurLine);
+				}
 			}
 
 			// Etat bloc-commentaire (/* .. */) AU DEBUT de la 1re ligne visible :
@@ -4462,7 +4465,8 @@ namespace nkentseu {
 				const int32 tabW = 4;
 				int32 mmBudget = 24000; // garde-fou : nb max de rectangles-glyphes par frame
 				dl.PushClipRect(mmArea, true);
-				int32 mmBlk = 0; // état bloc-commentaire (approx : repart de 0 en haut de fenêtre)
+				int32 mmBlk = 0;	 // état bloc-commentaire (approx : repart de 0 en haut de fenêtre)
+				int32 mmBlkLine = 0; // wrap : état d'ENTRÉE de la ligne (les segments suivants le réutilisent)
 				for (int32 r = rFirst; r <= rLast; ++r) {
 					const int32 L = d.visRows[r];
 					if (L < 0 || L >= d.LineCount())
@@ -4471,6 +4475,14 @@ namespace nkentseu {
 					const int32 nn = static_cast<int32>(ln.Size());
 					const float32 y = mmArea.y + r * rowPx - mmScroll;
 					const char *dta = ln.Data();
+					// WRAP : ce row ne représente que le SEGMENT [segC0, segC1) de la ligne.
+					int32 segC0 = 0, segC1 = nn, pcol0 = 0;
+					if (d.wrapOn) {
+						segC0 = d.RowColStart(r);
+						segC1 = d.RowSegEnd(r);
+						for (int32 k = 0; k < segC0 && k < nn; ++k)
+							pcol0 += (dta[k] == '\t') ? tabW : 1; // colonnes visuelles avant le segment
+					}
 					// Bande Git à gauche (vert=ajout, bleu=modif) — aperçu façon VSCode.
 					const uint8 gs = d.GitAt(L);
 					if (gs)
@@ -4481,7 +4493,12 @@ namespace nkentseu {
 					// hauteur d'x pour aceo…, jambage pour gjpqy, point bas pour la ponctuation).
 					// L'interstice entre caractères + le sous-pixel donnent l'impression de texte.
 					int32 pc = 0, pcol = 0; // curseur d'expansion des tabs (O(n) par ligne)
-					mmBlk = TokenizeLine(
+					int32 blkIn = mmBlk;
+					if (d.wrapOn && segC0 > 0)
+						blkIn = mmBlkLine; // continuation : même état d'entrée que le 1er segment
+					else
+						mmBlkLine = mmBlk;
+					const int32 blkOut = TokenizeLine(
 						lang, dta, nn, mmBlk, syn,
 						[&](int32 a, int32 b, const NkColor &tc) {
 							while (pc < a) { // rattrape les zones non couvertes (blancs entre tokens)
@@ -4491,12 +4508,12 @@ namespace nkentseu {
 							const NkColor cc = {tc.r, tc.g, tc.b, 200};
 							for (int32 k = a; k < b; ++k) {
 								const char ch = dta[k];
-								if (ch == ' ' || ch == '\t') {
-									pcol += (ch == '\t') ? tabW : 1;
+								if (ch == ' ' || ch == '\t' || k < segC0 || k >= segC1) {
+									pcol += (ch == '\t') ? tabW : 1; // compte mais ne dessine pas (hors segment)
 									++pc;
 									continue;
 								}
-								const float32 xs = mmLeft + pcol * mmChar;
+								const float32 xs = mmLeft + (pcol - pcol0) * mmChar;
 								++pcol;
 								++pc;
 								if (xs >= xMax)
@@ -4526,6 +4543,8 @@ namespace nkentseu {
 							}
 						},
 						&d.symTypes, &d.symFuncs, projTypes, projFuncs);
+					if (!(d.wrapOn && segC0 > 0))
+						mmBlk = blkOut; // continuations : mmBlk est déjà l'état de FIN de la ligne
 				}
 				// Marqueurs de diagnostics (erreurs/avertissements) façon VSCode : tick droit + bande légère.
 				for (usize di = 0; di < d.diags.Size(); ++di) {
