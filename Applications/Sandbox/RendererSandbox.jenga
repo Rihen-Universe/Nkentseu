@@ -9,7 +9,7 @@ from Jenga.Core.Api import androidallowrotation
 
 def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False, use_nkui: bool = False, use_nkgen: bool = False):
     with project(project_name):
-        useappdeps("platform", "core", "memory", "containers", "math", "threading", "logger", "time", "event", "window", "image", "font", "ui", "rhi", "stream", "filesystem", "renderer", "serialization", "reflection")
+        useappdeps("platform", "core", "memory", "containers", "math", "threading", "logger", "time", "event", "window", "image", "font", "ui", "rhi", "stream", "filesystem", "renderer", "serialization", "reflection", "NKMedia")
         windowedapp()
         language("C++")
         cppdialect("C++17")
@@ -38,6 +38,7 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             "%{NKRenderer.location}/src",
             "%{NKSerialization.location}/src",
             "%{NKReflection.location}/src",
+            "%{NKMedia.location}/src",
         ]
         if use_nkimage:
             _SANDBOX_INCLUDE_DIRS.append("%{NKImage.location}/src")
@@ -57,6 +58,7 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
         includedirs(_SANDBOX_INCLUDE_DIRS)
 
         _BASE_LINKS = [
+            "NKMedia",  # avant NKImage/NKThreading (le linker mono-passe résout les refs vers l'aval)
             "NKEvent", "NKWindow", "NKGlad", "NKLogger",
             "NKMath", "NKTime", "NKStream", "NKFileSystem",
             "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKRenderer", "NKSL",
