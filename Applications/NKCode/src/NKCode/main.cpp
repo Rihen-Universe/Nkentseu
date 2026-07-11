@@ -577,7 +577,13 @@ int nkmain(const NkEntryState &state) {
 				{&ic.oeilFermer, "icon/EyeClosed"},
 				{&ic.rondI, "icon/Info"},
 				// ── Vue principale IDE : vraies icones (Lucide -> assets reels) ──
-				{&ic.hammer, "icon/Mateau"}, // build
+				{&ic.hammer, "icon/Hammer"}, // build (marteau Lucide)
+				// Activity bars (textures)
+				{&ic.files, "icon/Files"},
+				{&ic.sourceControl, "icon/SourceControl"},
+				{&ic.liveShare, "icon/LiveShare"},
+				{&ic.codeC, "icon/CodeC"},
+				{&ic.warning, "icon/Warning"},
 				{&ic.bug, "icon/DebugAlt"}, // debug
 				{&ic.sparkles, "icon/Sparkle"}, // IA
 				{&ic.zap, "icon/Eclaire"}, // moteur
@@ -648,6 +654,12 @@ int nkmain(const NkEntryState &state) {
 			}
 		}
 		g_state.icons = &g_home.icons; // rend les icones accessibles aux panneaux/toolbar (via l'etat)
+		{ // Activity bars : textures codicon (remplacent les dessins au trait du shell)
+			const uint32 L[7] = {ic.files, ic.search,	 ic.sourceControl, ic.bug,
+								 ic.liveShare, ic.puzzle, ic.chart}; // vues gauche 0..6
+			const uint32 R[3] = {ic.sparkles, ic.codeC, ic.accueil};  // 100 Claude, 101 Codex, 102 Maison
+			shell->SetActivityIcons(L, 7, ic.gear, R, 3);
+		}
 		// toggle liste/grille : pas d'asset adapte (`<>` et `↕` ne conviennent pas) -> dessine.
 
 		// ── Registre d'extensions DATA-DRIVEN (icons.cfg) : .ext -> icone ──

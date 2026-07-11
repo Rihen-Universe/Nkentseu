@@ -708,6 +708,21 @@ namespace nkentseu {
 					dl.AddRectFilled({bar.x, r.y, mUI.S(2.f), cell}, accent); // barre d'accent
 				const float32 cx = bar.x + cell * 0.5f, ic = cy;
 				const float32 s = mUI.S(8.f);
+				// Texture fournie par l'app ? -> icône codicon TEINTÉE, sinon dessin.
+				{
+					const uint32 tex = bottom ? mActTexGear : ((idx >= 0 && idx < 8) ? mActTexL[idx] : 0u);
+					if (tex) {
+						const float32 hs = s * 1.15f;
+						dl.AddImage(tex, {cx - hs, ic - hs, hs * 2.f, hs * 2.f}, {0.f, 0.f}, {1.f, 1.f}, c);
+						if (hovered && mUI.input.mouseClicked[0]) {
+							if (!bottom)
+								mActivityIndex = idx;
+							if (mActivityFn)
+								mActivityFn(mActivityUser, idx);
+						}
+						return;
+					}
+				}
 				switch (idx) {
 					case 0: { // Explorateur : un document + lignes de texte
 						dl.AddRect({cx - s * 0.8f, ic - s, s * 1.6f, s * 2.f}, c, 1.5f);
@@ -817,6 +832,15 @@ namespace nkentseu {
 				const NkColor c = (active || hovered) ? onC : off;
 				if (active) // barre d'accent au bord DROIT (miroir de la barre gauche)
 					dl.AddRectFilled({bar.x + bar.w - mUI.S(2.f), r.y, mUI.S(2.f), cell}, mUI.theme.accent);
+				// Texture fournie par l'app ? -> icône codicon TEINTÉE, sinon dessin.
+				if (idx >= 100 && idx <= 103 && mActTexR[idx - 100]) {
+					const float32 hs = mUI.S(9.f);
+					dl.AddImage(mActTexR[idx - 100], {bar.x + cell * 0.5f - hs, cy - hs, hs * 2.f, hs * 2.f},
+								{0.f, 0.f}, {1.f, 1.f}, c);
+					if (hovered && mUI.input.mouseClicked[0] && mActivityFn)
+						mActivityFn(mActivityUser, idx);
+					return;
+				}
 				const float32 cx = bar.x + cell * 0.5f, ic = cy, s = mUI.S(8.f);
 				switch (idx) {
 					case 100: // Claude Code : asterisque
