@@ -1897,6 +1897,29 @@ namespace nkentseu {
 					widthDirty = true;
 				}
 
+				// Ctrl+D : DUPLIQUE la sélection (copie insérée à sa suite) ; sans
+				// sélection, duplique la LIGNE courante en dessous (insertion directe,
+				// sans auto-indentation — la copie est déjà indentée).
+				void DuplicateSelOrLine() {
+					Checkpoint(6);
+					if (HasSel()) {
+						const NkString s = GetSelectedText();
+						int32 aL, aC, bL, bC;
+						SelRange(aL, aC, bL, bC);
+						Collapse();
+						curLine = bL; // caret à la FIN de la sélection -> la copie suit
+						curCol = bC;
+						InsertText(s.CStr());
+					} else if (curLine >= 0 && curLine < static_cast<int32>(lines.Size())) {
+						const NkCodeLine copy = lines[curLine];
+						lines.Insert(lines.Begin() + curLine + 1, copy);
+						++curLine; // caret sur la ligne dupliquée, même colonne
+						ClampCursor();
+					}
+					dirty = true;
+					widthDirty = true;
+				}
+
 				// Texte selectionne (multi-ligne, lignes jointes par '\n'). Vide si pas de selection.
 				NkString GetSelectedText() const {
 					if (!HasSel())
@@ -3223,9 +3246,13 @@ namespace nkentseu {
 							changed = true;
 						} // Ctrl+Y redo
 						if (!shift && K(NkGuiKey::D)) {
+							d.DuplicateSelOrLine();
+							changed = true;
+						} // Ctrl+D = DUPLIQUE la sélection / la ligne courante
+						if (shift && K(NkGuiKey::D)) {
 							d.SelectWordOrAddNext();
 							changed = true;
-						} // Ctrl+D = mot puis occurrence suivante (multi-curseur)
+						} // Ctrl+Maj+D = mot puis occurrence suivante (multi-curseur)
 						if (shift && K(NkGuiKey::K)) {
 							d.Checkpoint(3);
 							d.DeleteLines();

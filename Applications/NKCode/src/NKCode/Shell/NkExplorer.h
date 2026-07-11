@@ -54,6 +54,7 @@ namespace nkentseu {
 					ctx.NextItemRect(ctx.ContentWidth(), headH); // réserve du flux
 					TickOps(); // opérations fichiers async (corbeille, copie) terminées ?
 					DrawRows(ctx, vclip.y + headH);
+					mS->explorerFocus = mFocus; // publie le focus (l'éditeur coupe son clavier)
 					DrawHeader(ctx, vclip);
 					if (mFilterOn)
 						DrawFilterBar(ctx, vclip);
