@@ -2020,6 +2020,11 @@ namespace nkentseu {
 				return ctx.font->Face()->CalcTextSizeX(ln.Data(), ln.Data() + c);
 			}
 
+			// Colonne au point souris, WRAP-AWARE : en mode wrap, la colonne est celle du SEGMENT
+			// du row cliqué (offset de segment + bornes) ; sinon comportement historique (scrollX).
+			inline int32 ColAtXWrap(NkGuiContext &ctx, const NkCodeDoc &d, int32 l, float32 mx, float32 my,
+									float32 textLeft, float32 textTop, float32 lineH);
+
 			// Colonne dont la position pixel est la plus proche de targetX.
 			inline int32 ColAtX(NkGuiContext &ctx, const NkCodeDoc &d, int32 l, float32 targetX) {
 				const int32 n = d.LineLen(l);
@@ -2034,6 +2039,21 @@ namespace nkentseu {
 					prev = w;
 				}
 				return n;
+			}
+
+			inline int32 ColAtXWrap(NkGuiContext &ctx, const NkCodeDoc &d, int32 l, float32 mx, float32 my,
+									float32 textLeft, float32 textTop, float32 lineH) {
+				if (!d.wrapOn)
+					return ColAtX(ctx, d, l, mx - textLeft + d.scrollX);
+				const int32 row = static_cast<int32>((my - textTop + d.scrollY) / lineH);
+				const int32 c0 = d.RowColStart(row);
+				const int32 c1 = d.RowSegEnd(row);
+				int32 c = ColAtX(ctx, d, l, mx - textLeft + PrefixW(ctx, d, l, c0));
+				if (c < c0)
+					c = c0;
+				if (c > c1)
+					c = c1;
+				return c;
 			}
 		} // namespace detail
 
@@ -2190,6 +2210,20 @@ namespace nkentseu {
 			const float32 textTop = textArea.y + topPad;  // 1re ligne decalee d'une ligne vierge
 			const float32 viewH = textArea.h;
 			const float32 viewW = textArea.w - pad * 2.f;
+			// ── WORD WRAP (Alt+Z) : découpe par colonnes (police mono) selon la largeur réelle ;
+			//    le mapping segments n'est reconstruit que si la largeur change (paresseux). ──
+			{
+				int32 wrapColsNow = 0;
+				if (d.wrapOn) {
+					const float32 cw0 = ctx.font->MeasureWidth("0");
+					wrapColsNow = cw0 > 0.f ? static_cast<int32>(viewW / cw0) - 1 : 0;
+					if (wrapColsNow < 8)
+						wrapColsNow = 8;
+				}
+				d.EnsureFolds(lang, wrapColsNow);
+				if (d.wrapOn)
+					d.scrollX = 0.f; // pas de défilement horizontal en mode wrap
+			}
 
 			// Fond.
 			dl.AddRectFilled(area, kBg);
@@ -2234,7 +2268,7 @@ namespace nkentseu {
 			if (ctx.input.ctrlDown && overText) {
 				int32 l = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
 				if (l >= 0 && l < d.LineCount()) {
-					const int32 c = ColAtX(ctx, d, l, mouse.x - textLeft + d.scrollX);
+					const int32 c = ColAtXWrap(ctx, d, l, mouse.x, mouse.y, textLeft, textTop, lineH);
 					const NkCodeLine &L = d.lines[l];
 					const char *dd = L.Data();
 					const int32 n = static_cast<int32>(L.Size());
@@ -2369,7 +2403,7 @@ namespace nkentseu {
 				int32 hs = -1, he = -1;
 				int32 dgi = -1; // diagnostic sous la souris ? -> carte ERREUR/AVERTISSEMENT
 				if (hl >= 0 && hl < d.LineCount()) {
-					const int32 hc = ColAtX(ctx, d, hl, mouse.x - textLeft + d.scrollX);
+					const int32 hc = ColAtXWrap(ctx, d, hl, mouse.x, mouse.y, textLeft, textTop, lineH);
 					const NkCodeLine &HL = d.lines[hl];
 					const int32 hn = static_cast<int32>(HL.Size());
 					for (usize di2 = 0; di2 < d.diags.Size() && dgi < 0; ++di2) {
@@ -2538,7 +2572,7 @@ namespace nkentseu {
 					l = 0;
 				if (l >= d.LineCount())
 					l = d.LineCount() - 1;
-				const int32 c = ColAtX(ctx, d, l, mouse.x - textLeft + d.scrollX);
+				const int32 c = ColAtXWrap(ctx, d, l, mouse.x, mouse.y, textLeft, textTop, lineH);
 				d.extraCarets.Clear();
 				d.curLine = l;
 				d.lineSelAnchor = -1;
@@ -2578,7 +2612,7 @@ namespace nkentseu {
 					l = 0;
 				if (l >= d.LineCount())
 					l = d.LineCount() - 1;
-				const int32 c = ColAtX(ctx, d, l, mouse.x - textLeft + d.scrollX);
+				const int32 c = ColAtXWrap(ctx, d, l, mouse.x, mouse.y, textLeft, textTop, lineH);
 				if (ctx.input.altDown) {
 					// Alt+clic : AJOUTE un curseur à la position cliquée (multi-curseur).
 					d.extraCarets.PushBack(
@@ -2629,7 +2663,7 @@ namespace nkentseu {
 				if (l >= d.LineCount())
 					l = d.LineCount() - 1;
 				d.curLine = l;
-				d.curCol = ColAtX(ctx, d, l, mouse.x - textLeft + d.scrollX);
+				d.curCol = ColAtXWrap(ctx, d, l, mouse.x, mouse.y, textLeft, textTop, lineH);
 			}
 			// ── Clic sur un chevron de repli (colonne foldW de la gouttière) : plie/déplie. ──
 			{
@@ -3010,6 +3044,12 @@ namespace nkentseu {
 						if (!shift)
 							d.Collapse();
 					} // Ctrl+End = fin du fichier
+					// Alt+Z : retour à la ligne visuel (word wrap), façon VSCode.
+					if (alt && !ctrl && ctx.input.KeyPressed(NkGuiKey::Z)) {
+						d.wrapOn = !d.wrapOn;
+						d.foldDirty = true; // re-mappe les rows au prochain EnsureFolds
+						d.wantReveal = true;
+					}
 					// F2 : RENOMMER l'identifiant sous le caret dans tout le WORKSPACE (textuel,
 					// frontiere de mot, casse stricte ; les buffers ouverts gardent un undo).
 					if (!ctrl && !shift && ctx.input.KeyPressed(NkGuiKey::F2) && d.curLine < d.LineCount()) {
@@ -3451,8 +3491,10 @@ namespace nkentseu {
 			const bool ensureCaret =
 				!noAutoReveal && (d.curLine != oldL || d.curCol != oldC || changed || d.wantReveal);
 			if (ensureCaret) {
-				const float32 cX = PrefixW(ctx, d, d.curLine, d.curCol);
-				const float32 cY = topPad + d.RowOf(d.curLine) * lineH; // repli : position VISUELLE du caret
+				const int32 caretRow = d.wrapOn ? d.RowOfCol(d.curLine, d.curCol) : d.RowOf(d.curLine);
+				const float32 cX = PrefixW(ctx, d, d.curLine, d.curCol) -
+								   (d.wrapOn ? PrefixW(ctx, d, d.curLine, d.RowColStart(caretRow)) : 0.f);
+				const float32 cY = topPad + caretRow * lineH; // repli/wrap : position VISUELLE du caret
 				if (d.wantReveal) {
 					d.scrollY = cY - viewH * 0.4f;
 					if (d.scrollY < 0.f)
@@ -3463,13 +3505,15 @@ namespace nkentseu {
 					d.scrollY = cY;
 				if (cY + lineH > d.scrollY + viewH)
 					d.scrollY = cY + lineH - viewH;
-				if (cX < d.scrollX)
-					d.scrollX = cX;
-				if (cX + 2.f > d.scrollX + viewW)
-					d.scrollX = cX + 2.f - viewW;
+				if (!d.wrapOn) {
+					if (cX < d.scrollX)
+						d.scrollX = cX;
+					if (cX + 2.f > d.scrollX + viewW)
+						d.scrollX = cX + 2.f - viewW;
+				}
 			}
 			const float32 maxScrollY = contentH > viewH ? contentH - viewH : 0.f;
-			const float32 maxScrollX = maxLineW > viewW ? maxLineW - viewW : 0.f;
+			const float32 maxScrollX = d.wrapOn ? 0.f : (maxLineW > viewW ? maxLineW - viewW : 0.f);
 			if (d.scrollY < 0.f)
 				d.scrollY = 0.f;
 			if (d.scrollY > maxScrollY)
@@ -3491,7 +3535,8 @@ namespace nkentseu {
 
 			// Surlignage de la ligne courante (toute la zone texte).
 			if (focused) {
-				const float32 y = textTop + d.RowOf(d.curLine) * lineH - d.scrollY;
+				const int32 curRow = d.wrapOn ? d.RowOfCol(d.curLine, d.curCol) : d.RowOf(d.curLine);
+				const float32 y = textTop + curRow * lineH - d.scrollY;
 				if (y + lineH > textArea.y && y < textArea.y + textArea.h)
 					dl.AddRectFilled({textArea.x, y, textArea.w, lineH}, kCurLine);
 			}
@@ -3623,12 +3668,43 @@ namespace nkentseu {
 				}
 				if (vrow > lastVis)
 					break;
-				const float32 y = textTop + vrow * lineH - d.scrollY;
-				const float32 baseline = y + asc;
 				const NkCodeLine &ln = d.lines[i];
 				const int32 n = static_cast<int32>(ln.Size());
+				// ── WRAP : segments de la ligne (bornes de colonnes + offset X) ; 1 seul hors wrap. ──
+				int32 segN = 1;
+				int32 segA[258];
+				float32 segXo[257];
+				segA[0] = 0;
+				segXo[0] = 0.f;
+				if (d.wrapOn) {
+					segN = 0;
+					int32 r2 = vrow;
+					while (segN < 256) {
+						segA[segN] = d.RowColStart(r2);
+						segXo[segN] = PrefixW(ctx, d, i, segA[segN]);
+						++segN;
+						if (r2 + 1 >= d.VisRowCount() || d.visRows[r2 + 1] != i)
+							break;
+						++r2;
+					}
+				}
+				segA[segN] = n;
+				const float32 offH = d.wrapOn ? 0.f : d.scrollX; // hors wrap : décalage horizontal classique
+				auto segYof = [&](int32 sg) { return textTop + (vrow + sg) * lineH - d.scrollY; };
+				auto segOfCol = [&](int32 c) {
+					int32 sg = segN - 1;
+					while (sg > 0 && c < segA[sg])
+						--sg;
+					return sg;
+				};
+				auto colX = [&](int32 c) { // x écran de la colonne c (dans SON segment)
+					const int32 sg = segOfCol(c);
+					return textLeft + PrefixW(ctx, d, i, c) - segXo[sg] - offH;
+				};
+				const float32 y = segYof(0);
+				const float32 baseline = y + asc;
 
-				// Guides d'indentation : une ligne verticale par niveau d'indentation.
+				// Guides d'indentation : une ligne verticale par niveau (PREMIER segment).
 				{
 					int32 ind = 0;
 					const char *dd = ln.Data();
@@ -3641,18 +3717,18 @@ namespace nkentseu {
 							break;
 					}
 					for (int32 col = 0; col < ind; col += tabSize) {
-						const float32 gx = textLeft + col * chW - d.scrollX;
+						const float32 gx = textLeft + col * chW - offH;
 						if (gx >= textArea.x - 1.f && gx < textArea.x + textArea.w)
 							dl.AddLine({gx, y}, {gx, y + lineH}, kGuide, 1.f);
 					}
 				}
-				// Surlignage bracket matching (les deux extrémités).
+				// Surlignage bracket matching (au SEGMENT du caractère).
 				if (i == bl1 && bc1 >= 0)
-					dl.AddRectFilled({textLeft + PrefixW(ctx, d, i, bc1) - d.scrollX, y, chW, lineH}, kBracket, 2.f);
+					dl.AddRectFilled({colX(bc1), segYof(segOfCol(bc1)), chW, lineH}, kBracket, 2.f);
 				if (i == bl2 && bc2 >= 0)
-					dl.AddRectFilled({textLeft + PrefixW(ctx, d, i, bc2) - d.scrollX, y, chW, lineH}, kBracket, 2.f);
+					dl.AddRectFilled({colX(bc2), segYof(segOfCol(bc2)), chW, lineH}, kBracket, 2.f);
 
-				// Occurrences de la selection : fond FIN sous le texte (la vraie selection reste pleine).
+				// Occurrences de la sélection : fond FIN (rognées à la fin de leur segment).
 				if (selTxtLen > 0 && n >= selTxtLen) {
 					const char *dd2 = ln.Data();
 					for (int32 c = 0; c + selTxtLen <= n; ++c) {
@@ -3664,53 +3740,97 @@ namespace nkentseu {
 							}
 						if (!m2)
 							continue;
-						if (i == selOccLine && c == selOccCol) { // la selection elle-meme
+						if (i == selOccLine && c == selOccCol) { // la sélection elle-même
 							c += selTxtLen - 1;
 							continue;
 						}
-						const float32 ox0 = textLeft + PrefixW(ctx, d, i, c) - d.scrollX;
-						const float32 ox1 = textLeft + PrefixW(ctx, d, i, c + selTxtLen) - d.scrollX;
-						dl.AddRectFilled({ox0, y, ox1 - ox0, lineH},
+						const int32 sg = segOfCol(c);
+						const int32 fin = (c + selTxtLen < segA[sg + 1]) ? c + selTxtLen : segA[sg + 1];
+						const float32 ox0 = colX(c);
+						const float32 ox1 = textLeft + PrefixW(ctx, d, i, fin) - segXo[sg] - offH;
+						dl.AddRectFilled({ox0, segYof(sg), ox1 - ox0, lineH},
 										 NkColor{ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 34}, 2.f);
 						c += selTxtLen - 1;
 					}
 				}
-				// Selection sur cette ligne.
+				// Sélection sur cette ligne : un rect PAR SEGMENT couvert.
 				if (d.HasSel() && i >= aL && i <= bL) {
 					const int32 c0 = (i == aL) ? aC : 0;
 					const int32 c1 = (i == bL) ? bC : n;
-					float32 x0 = textLeft + PrefixW(ctx, d, i, c0) - d.scrollX;
-					float32 x1 = textLeft + PrefixW(ctx, d, i, c1) - d.scrollX;
-					if (i < bL)
-						x1 += 4.f; // marque le saut de ligne
-					dl.AddRectFilled({x0, y, x1 - x0, lineH}, kSel);
+					for (int32 sg = 0; sg < segN; ++sg) {
+						const int32 s0 = c0 > segA[sg] ? c0 : segA[sg];
+						const int32 s1 = c1 < segA[sg + 1] ? c1 : segA[sg + 1];
+						if (s1 < s0 || (s1 == s0 && !(sg == segN - 1 && i < bL)))
+							continue;
+						float32 x0 = textLeft + PrefixW(ctx, d, i, s0) - segXo[sg] - offH;
+						float32 x1 = textLeft + PrefixW(ctx, d, i, s1) - segXo[sg] - offH;
+						if (sg == segN - 1 && i < bL && c1 >= n)
+							x1 += 4.f; // marque le saut de ligne (dernier segment)
+						if (x1 > x0)
+							dl.AddRectFilled({x0, segYof(sg), x1 - x0, lineH}, kSel);
+					}
 				}
-				// Texte COLORE : tokenise la ligne et dessine chaque plage (curseur x
-				// incremental). Appel meme si n==0 pour propager l'etat de bloc.
+				// Texte COLORÉ : hors wrap = chemin historique (x incrémental) ; wrap = chaque plage
+				// de token est RÉPARTIE sur les segments qu'elle traverse.
 				const char *data = ln.Data();
-				float32 sx = textLeft - d.scrollX;
 				const bool dim = d.InactiveAt(i); // branche préproc morte -> texte atténué vers le fond
-				inBlock = TokenizeLine(
-					lang, data, n, inBlock, syn,
-					[&](int32 a, int32 b, const NkColor &col) {
-						NkColor c = col;
-						if (dim) {
-							c.r = static_cast<uint8>((col.r * 42 + bgR * 58) / 100);
-							c.g = static_cast<uint8>((col.g * 42 + bgG * 58) / 100);
-							c.b = static_cast<uint8>((col.b * 42 + bgB * 58) / 100);
-						}
-						sx = NkDrawTextU(ctx, sx, baseline, y, lineH, data + a, data + b,
-										 c); // box-drawing en primitives
-					},
-					&d.symTypes, &d.symFuncs, projTypes, projFuncs); // coloration sémantique (fichier + projet)
-				// Repli : badge « … » en fin de ligne d'en-tête repliée (signale du code masqué).
-				if (d.FoldedAt(i)) {
-					const float32 bx = sx + chW * 0.6f;
-					const NkRect badge = {bx, y + 2.f, chW * 2.6f, lineH - 4.f};
-					dl.AddRectFilled(
-						badge,
-						NkColor{ctx.theme.textDisabled.r, ctx.theme.textDisabled.g, ctx.theme.textDisabled.b, 46}, 3.f);
-					dl.AddText(face, tex, {bx + chW * 0.5f, baseline}, "...", ctx.theme.textDisabled);
+				if (!d.wrapOn) {
+					float32 sx = textLeft - d.scrollX;
+					inBlock = TokenizeLine(
+						lang, data, n, inBlock, syn,
+						[&](int32 a, int32 b, const NkColor &col) {
+							NkColor c = col;
+							if (dim) {
+								c.r = static_cast<uint8>((col.r * 42 + bgR * 58) / 100);
+								c.g = static_cast<uint8>((col.g * 42 + bgG * 58) / 100);
+								c.b = static_cast<uint8>((col.b * 42 + bgB * 58) / 100);
+							}
+							sx = NkDrawTextU(ctx, sx, baseline, y, lineH, data + a, data + b,
+											 c); // box-drawing en primitives
+						},
+						&d.symTypes, &d.symFuncs, projTypes, projFuncs); // coloration sémantique (fichier + projet)
+					// Repli : badge « … » en fin de ligne d'en-tête repliée (signale du code masqué).
+					if (d.FoldedAt(i)) {
+						const float32 bx = sx + chW * 0.6f;
+						const NkRect badge = {bx, y + 2.f, chW * 2.6f, lineH - 4.f};
+						dl.AddRectFilled(
+							badge,
+							NkColor{ctx.theme.textDisabled.r, ctx.theme.textDisabled.g, ctx.theme.textDisabled.b, 46},
+							3.f);
+						dl.AddText(face, tex, {bx + chW * 0.5f, baseline}, "...", ctx.theme.textDisabled);
+					}
+				} else {
+					inBlock = TokenizeLine(
+						lang, data, n, inBlock, syn,
+						[&](int32 a, int32 b, const NkColor &col) {
+							NkColor c = col;
+							if (dim) {
+								c.r = static_cast<uint8>((col.r * 42 + bgR * 58) / 100);
+								c.g = static_cast<uint8>((col.g * 42 + bgG * 58) / 100);
+								c.b = static_cast<uint8>((col.b * 42 + bgB * 58) / 100);
+							}
+							int32 a2 = a;
+							while (a2 < b) {
+								const int32 sg = segOfCol(a2);
+								const int32 b2 = b < segA[sg + 1] ? b : segA[sg + 1];
+								if (b2 <= a2)
+									break;
+								NkDrawTextU(ctx, textLeft + PrefixW(ctx, d, i, a2) - segXo[sg], segYof(sg) + asc,
+											segYof(sg), lineH, data + a2, data + b2, c);
+								a2 = b2;
+							}
+						},
+						&d.symTypes, &d.symFuncs, projTypes, projFuncs);
+					if (d.FoldedAt(i)) { // badge « … » à la fin du DERNIER segment
+						const float32 ex = textLeft + PrefixW(ctx, d, i, n) - segXo[segN - 1];
+						const float32 ey = segYof(segN - 1);
+						const NkRect badge = {ex + chW * 0.6f, ey + 2.f, chW * 2.6f, lineH - 4.f};
+						dl.AddRectFilled(
+							badge,
+							NkColor{ctx.theme.textDisabled.r, ctx.theme.textDisabled.g, ctx.theme.textDisabled.b, 46},
+							3.f);
+						dl.AddText(face, tex, {ex + chW * 1.1f, ey + asc}, "...", ctx.theme.textDisabled);
+					}
 				}
 			}
 			// ── Diagnostics : soulignement ondulé (rouge=erreur / jaune=warning) + message
@@ -3723,7 +3843,7 @@ namespace nkentseu {
 					const NkCodeDoc::Diag &dg = d.diags[di];
 					if (dg.line < 0 || dg.line >= d.LineCount() || d.LineHidden(dg.line))
 						continue;
-					const int32 drow = d.RowOf(dg.line);
+					const int32 drow = d.wrapOn ? d.RowOfCol(dg.line, dg.col < 0 ? 0 : dg.col) : d.RowOf(dg.line);
 					if (drow < firstVis || drow > lastVis)
 						continue;
 					const NkColor col = dg.sev ? NkColor{240, 80, 80, 255} : NkColor{224, 190, 70, 255};
@@ -3739,8 +3859,11 @@ namespace nkentseu {
 						++c1;
 					if (c1 <= c0)
 						c1 = (c0 < (int32)ln.Size()) ? c0 + 1 : c0;
-					float32 x0 = textLeft + PrefixW(ctx, d, dg.line, c0) - d.scrollX;
-					float32 x1 = textLeft + PrefixW(ctx, d, dg.line, c1) - d.scrollX;
+					const float32 dOff = d.wrapOn ? PrefixW(ctx, d, dg.line, d.RowColStart(drow)) : d.scrollX;
+					if (d.wrapOn && c1 > d.RowSegEnd(drow))
+						c1 = d.RowSegEnd(drow); // rogne le souligné à la fin du segment
+					float32 x0 = textLeft + PrefixW(ctx, d, dg.line, c0) - dOff;
+					float32 x1 = textLeft + PrefixW(ctx, d, dg.line, c1) - dOff;
 					if (x1 < x0 + chW)
 						x1 = x0 + chW;
 					const float32 wy = yy + lineH - 2.5f;
@@ -3774,9 +3897,11 @@ namespace nkentseu {
 							mb[mk++] = '.';
 						}
 						mb[mk] = 0;
-						const float32 endX =
-							textLeft + PrefixW(ctx, d, dg.line, (int32)ln.Size()) - d.scrollX + chW * 2.f;
-						dl.AddText(ctx.font->Face(), ctx.font->TexId(), {endX, yy + asc}, mb,
+						const int32 lastRow = d.wrapOn ? d.RowOfCol(dg.line, (int32)ln.Size()) : drow;
+						const float32 lOff = d.wrapOn ? PrefixW(ctx, d, dg.line, d.RowColStart(lastRow)) : d.scrollX;
+						const float32 endX = textLeft + PrefixW(ctx, d, dg.line, (int32)ln.Size()) - lOff + chW * 2.f;
+						const float32 endY = textTop + lastRow * lineH - d.scrollY;
+						dl.AddText(ctx.font->Face(), ctx.font->TexId(), {endX, endY + asc}, mb,
 								   NkColor{col.r, col.g, col.b, 165});
 					}
 				}
@@ -3796,8 +3921,10 @@ namespace nkentseu {
 			}
 			const bool caretOn = (((d.tick - d.blinkTick) / 32) % 2) == 0;
 			if (focused && caretOn) {
-				const float32 cx = textLeft + PrefixW(ctx, d, d.curLine, d.curCol) - d.scrollX;
-				const float32 cy = textTop + d.RowOf(d.curLine) * lineH - d.scrollY;
+				const int32 cRow = d.wrapOn ? d.RowOfCol(d.curLine, d.curCol) : d.RowOf(d.curLine);
+				const float32 cx = textLeft + PrefixW(ctx, d, d.curLine, d.curCol) -
+								   (d.wrapOn ? PrefixW(ctx, d, d.curLine, d.RowColStart(cRow)) : d.scrollX);
+				const float32 cy = textTop + cRow * lineH - d.scrollY;
 				dl.AddLine({cx, cy + 1.f}, {cx, cy + lineH - 1.f}, kCaret, 1.5f);
 			}
 			// Curseurs SECONDAIRES (multi-curseur Ctrl+D / Alt+clic) : sélection + caret pour chacun.
@@ -3806,19 +3933,22 @@ namespace nkentseu {
 					NkCodeDoc::Caret c = d.extraCarets[e];
 					if (c.cl < 0 || c.cl >= d.LineCount() || d.LineHidden(c.cl)) // repli : ignore les masqués
 						continue;
-					const int32 crow = d.RowOf(c.cl);
 					const int32 llen = d.LineLen(c.cl);
 					if (c.cc > llen)
 						c.cc = llen;
 					if (c.sc > llen)
 						c.sc = llen;
-					if (c.sl == c.cl && c.sc != c.cc) { // sélection (mono-ligne)
+					const int32 crow = d.wrapOn ? d.RowOfCol(c.cl, c.cc) : d.RowOf(c.cl);
+					if (c.sl == c.cl && c.sc != c.cc) { // sélection (mono-ligne, au segment de son début)
 						const int32 lo = c.sc < c.cc ? c.sc : c.cc, hi = c.sc < c.cc ? c.cc : c.sc;
-						const float32 sx0 = textLeft + PrefixW(ctx, d, c.cl, lo) - d.scrollX;
-						const float32 sx1 = textLeft + PrefixW(ctx, d, c.cl, hi) - d.scrollX;
-						dl.AddRectFilled({sx0, textTop + crow * lineH - d.scrollY, sx1 - sx0, lineH}, kSel);
+						const int32 sRow = d.wrapOn ? d.RowOfCol(c.cl, lo) : crow;
+						const float32 sOff = d.wrapOn ? PrefixW(ctx, d, c.cl, d.RowColStart(sRow)) : d.scrollX;
+						const float32 sx0 = textLeft + PrefixW(ctx, d, c.cl, lo) - sOff;
+						const float32 sx1 = textLeft + PrefixW(ctx, d, c.cl, hi) - sOff;
+						dl.AddRectFilled({sx0, textTop + sRow * lineH - d.scrollY, sx1 - sx0, lineH}, kSel);
 					}
-					const float32 ecx = textLeft + PrefixW(ctx, d, c.cl, c.cc) - d.scrollX;
+					const float32 eOff = d.wrapOn ? PrefixW(ctx, d, c.cl, d.RowColStart(crow)) : d.scrollX;
+					const float32 ecx = textLeft + PrefixW(ctx, d, c.cl, c.cc) - eOff;
 					const float32 ecy = textTop + crow * lineH - d.scrollY;
 					if (caretOn)
 						dl.AddLine({ecx, ecy + 1.f}, {ecx, ecy + lineH - 1.f}, kCaret, 1.5f);
