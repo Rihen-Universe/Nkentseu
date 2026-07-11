@@ -182,8 +182,15 @@
   **Démo GPU live (2026-07-11)** — `NKViewportDemo` : mode enregistrement **opt-in** (`NK_RECORD=1`) — rend la
   scène 3D (caméra auto-rotative), capture chaque backbuffer présenté via `CaptureToImage`, et enregistre
   ~4 s (120 trames) dans `viewport_capture.mp4` (vidéo H.264 + audio 440 Hz + sous-titre), puis quitte.
-  Compile OK ; à lancer sur GPU réel (`NK_RECORD=1 NKViewportDemo.exe`). ⏳ Reste : tap audio direct dans
-  NKAudio (là c'est une tonalité de démo) ; readback GL/DX12/VK à valider runtime.
+  Compile OK ; à lancer sur GPU réel (`NK_RECORD=1 NKViewportDemo.exe`).
+  **Recorder threadé + démo renderdemo multi-backend (2026-07-11)** : `NkVideoRecorder` encode le H.264 sur
+  un **thread de fond** (file + worker → l'app reste **fluide** pendant la capture ; l'encodage naïf ne bloque
+  plus). `NkRenderWindow::CaptureToImage` (DX11 natif) + `CopyTextureToBuffer` DX11 implémenté → capture
+  unifiée sur **les 6 backends**. Démo : `NK_RECORD=1 renderdemo --demo=2 [--backend=dx11|dx12|opengl|vulkan|
+  sw]` rend dans un offscreen readable (`SetFinalColorTarget`) → `ReadbackPixels` (voie NKRHI unifiée) →
+  encodage threadé → `viewport_capture.mp4`. Compile+link OK ; à valider sur GPU (écran noir pendant la
+  capture car le rendu final est redirigé vers l'offscreen — cosmétique, la vidéo est correcte). ⏳ Reste :
+  tap audio direct dans NKAudio (démo = tonalité) ; re-blit offscreen→swapchain pour un aperçu visible.
 
 ## En cours / À venir
 - Poursuivre Opus (range decoder → CELT → SILK), puis **AAC-LC** (corpus Bassa). Branchés comme codecs
