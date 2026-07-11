@@ -31,10 +31,17 @@ namespace nkentseu {
 				// `sync` = image clé (IDR) → listée dans stss.
 				bool WriteSample(const uint8 *data, uint32 size, bool sync);
 
-				// Piste audio PCM optionnelle (LPCM 16 bits little-endian, entrée 'sowt').
-				void SetAudio(int32 sampleRate, int32 channels);
-				// Ajoute des trames PCM entrelacées (int16 par canal). Bufferisé, écrit dans mdat à Close().
-				void AppendAudioPcm(const int16 *interleaved, uint32 frames);
+				// Ajoute une PISTE AUDIO PCM (LPCM 16 bits LE, 'sowt'). `lang3` = code ISO-639-2
+				// (ex "fre","eng","spa") ; nullptr → "und". Renvoie l'index de piste (ou -1 si plein).
+				// Plusieurs pistes audio = choix de langue (marquées alternate_group commun).
+				int32 AddAudioTrack(int32 sampleRate, int32 channels, const char *lang3);
+				// Ajoute des trames PCM entrelacées à la piste `trackIdx`. Bufferisé, écrit à Close().
+				void AppendAudioPcm(int32 trackIdx, const int16 *interleaved, uint32 frames);
+
+				// Ajoute une PISTE SOUS-TITRES texte 3GPP ('tx3g'). Renvoie l'index (ou -1 si plein).
+				int32 AddSubtitleTrack(const char *lang3);
+				// Ajoute un sous-titre (UTF-8) affiché de `startMs` pendant `durMs` sur la piste `trackIdx`.
+				void AddSubtitle(int32 trackIdx, const char *utf8, uint32 startMs, uint32 durMs);
 
 				bool Close();
 
@@ -49,6 +56,25 @@ namespace nkentseu {
 				}
 
 			private:
+				static const int32 kMaxAudio = 8;
+				static const int32 kMaxSubs = 8;
+				// Piste audio PCM : format + langue + buffer d'échantillons (rempli en cours d'écriture).
+				struct AudioTrk {
+						int32 rate = 0, channels = 0;
+						uint16 lang = 0x55C4; // 'und'
+						NkVector<uint8> pcm;
+						uint32 offset = 0, frames = 0; // remplis à Close()
+				};
+				// Piste sous-titres 'tx3g' : échantillons texte (avec trous vides) construits à la volée.
+				struct SubTrk {
+						uint16 lang = 0x55C4;
+						NkVector<uint8> data;	   // concat des échantillons [u16 len][texte]
+						NkVector<uint32> sizes;	   // taille de chaque échantillon
+						NkVector<uint32> durs;	   // durée (ms) de chaque échantillon
+						uint32 offset = 0;		   // offset du bloc dans mdat (à Close)
+						uint32 lastEndMs = 0;	   // fin du dernier sous-titre placé
+				};
+
 				NkFile mFile;
 				NkVector<uint32> mSizes;   // taille de chaque échantillon
 				NkVector<uint32> mOffsets; // offset absolu de chaque échantillon
@@ -57,9 +83,10 @@ namespace nkentseu {
 				int32 mWidth = 0, mHeight = 0, mFpsNum = 30, mFpsDen = 1;
 				nk_int64 mMdatSizePos = 0;
 				nk_int64 mMdatStart = 0;
-				// piste audio PCM (0 canal = pas d'audio).
-				int32 mAudioRate = 0, mAudioChannels = 0;
-				NkVector<uint8> mAudioPcm; // octets PCM little-endian (bufferisés)
+				AudioTrk mAudio[kMaxAudio];
+				int32 mNumAudio = 0;
+				SubTrk mSubs[kMaxSubs];
+				int32 mNumSubs = 0;
 		};
 
 	} // namespace media

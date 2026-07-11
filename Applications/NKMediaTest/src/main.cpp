@@ -317,27 +317,36 @@ int main(int argc, char **argv) {
 			printf("[!] Ouverture %s impossible\n", path);
 		}
 
-		// Même contenu, dans un conteneur MP4 cliquable (avc1 + avcC) AVEC piste audio (LPCM, bip 440 Hz).
+		// Conteneur MP4 : vidéo H.264 + 2 pistes AUDIO (langues fr/en, bips distincts) + sous-titres.
 		media::NkH264Encoder encMp4;
 		if (encMp4.Open("h264_test.mp4", 128, 96, 25, 1, 26)) {
-			const int32 rate = 44100, aPerFrame = rate / 25; // 1764 trames audio par trame vidéo
-			encMp4.SetAudioTrack(rate, 1);					  // mono LPCM
-			NkVector<int16> tone;
-			tone.Resize((uint64)aPerFrame);
-			int64 phase = 0; // échantillon global (évite les discontinuités)
+			const int32 rate = 44100, aPerFrame = rate / 25; // 1764 trames audio / trame vidéo
+			const int32 aFr = encMp4.AddAudioTrack(rate, 1, "fre");	 // piste FR : bip 440 Hz
+			const int32 aEn = encMp4.AddAudioTrack(rate, 1, "eng");	 // piste EN : bip 660 Hz
+			const int32 sFr = encMp4.AddSubtitleTrack("fre");
+			const int32 sEn = encMp4.AddSubtitleTrack("eng");
+			NkVector<int16> t440, t660;
+			t440.Resize((uint64)aPerFrame);
+			t660.Resize((uint64)aPerFrame);
+			int64 phase = 0;
 			for (int32 f = 0; f < 12; ++f) {
 				fillFrame(f);
 				encMp4.WriteFrame(frame.Data(), media::NkVideoInputFormat::RGB24);
-				// bip 440 Hz : s = 8000 * sin(2π·440·t) ; sin approx via NkMath si besoin — ici table simple.
 				for (int32 i = 0; i < aPerFrame; ++i, ++phase) {
-					const double t = (double)phase / rate;
-					const double s = 8000.0 * nkentseu::math::NkSin((float32)(6.2831853 * 440.0 * t));
-					tone[(uint64)i] = (int16)s;
+					const double tt = (double)phase / rate;
+					t440[(uint64)i] = (int16)(8000.0 * nkentseu::math::NkSin((float32)(6.2831853 * 440.0 * tt)));
+					t660[(uint64)i] = (int16)(8000.0 * nkentseu::math::NkSin((float32)(6.2831853 * 660.0 * tt)));
 				}
-				encMp4.WriteAudioPcm(tone.Data(), (uint32)aPerFrame);
+				encMp4.WriteAudioPcm(aFr, t440.Data(), (uint32)aPerFrame);
+				encMp4.WriteAudioPcm(aEn, t660.Data(), (uint32)aPerFrame);
 			}
+			// sous-titres : 2 répliques (0-240ms, 240-480ms) en FR et EN.
+			encMp4.AddSubtitle(sFr, "Bonjour Nkentseu", 0, 240);
+			encMp4.AddSubtitle(sFr, "Encodeur H.264 maison", 240, 240);
+			encMp4.AddSubtitle(sEn, "Hello Nkentseu", 0, 240);
+			encMp4.AddSubtitle(sEn, "Home-made H.264 encoder", 240, 240);
 			encMp4.Close();
-			printf("[i] MP4 A/V ecrit : h264_test.mp4 — video H.264 + audio LPCM (bip 440Hz) ; ffprobe h264_test.mp4\n");
+			printf("[i] MP4 ecrit : h264_test.mp4 — video + 2 audio (fr/en) + 2 sous-titres (fr/en)\n");
 		} else {
 			printf("[!] Ouverture h264_test.mp4 impossible\n");
 		}
