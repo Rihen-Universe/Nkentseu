@@ -228,7 +228,8 @@ namespace nkentseu {
 		struct NkCtxMenu {
 				bool open = false;
 				NkVec2 pos{0.f, 0.f};
-				float32 sx = 0.f, sy = 0.f; // defilement (reset a la fermeture)
+				float32 sx = 0.f, sy = 0.f;			// defilement (reset a la fermeture)
+				NkRect rect = {0.f, 0.f, 0.f, 0.f}; // boite de la frame courante (garde d'input)
 		};
 
 		// Retourne l'index de l'item clique (et ferme le menu), -1 sinon. Se ferme au
@@ -290,6 +291,7 @@ namespace nkentseu {
 				mn.sx = 0.f;
 			if (mn.sx > maxSx)
 				mn.sx = maxSx;
+			mn.rect = box; // exposee : les zones DERRIERE ignorent la souris quand elle est ici
 			dl.AddRectFilled(box, NkColor{32, 38, 46, 255}, 6.f);
 			dl.AddRect(box, NkColor{60, 66, 74, 255}, 1.f);
 			int32 clicked = -1;
@@ -352,6 +354,10 @@ namespace nkentseu {
 				mn.open = false;
 				mn.sx = 0.f;
 				mn.sy = 0.f;
+			}
+			if (inBox) { // MODAL leger : rien derriere ne doit voir ce clic
+				ctx.input.mouseClicked[0] = false;
+				ctx.input.mouseClicked[1] = false;
 			}
 			return clicked;
 		}

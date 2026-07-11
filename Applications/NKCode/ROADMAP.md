@@ -51,6 +51,12 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 > 4. **Service IA de complétion** (étendre NkAi : async/stream) → ghost text + [IA : expliquer].
 > 5. **Runner de tests Unitest** (découverte/exécution/parse) → gouttière ▶ + panneau résultats.
 > 6. **Terminal** : shell par défaut configurable + profils (système PTY).
+> 7. **Installateur d'outils INTÉGRÉ** (souhait Rihen 2026-07-12) : au premier lancement ou à la
+>    demande, NKCode DÉTECTE ce qui manque (compilateur, clangd, SDK/NDK, emsdk, JDK, débogueur…)
+>    et propose l'installation AUTOMATIQUE **au choix de l'utilisateur**, par cas d'usage
+>    (ex. « C++ desktop » → clang+clangd+gdb ; « Android » → SDK/NDK/JDK). S'appuie sur les
+>    gestionnaires existants (pacman msys2, winget, sdkmanager) + la page wiki Jenga
+>    « Installation des outils ». Précédent concret : clangd installé via pacman pour le LSP.
 
 ---
 
@@ -168,6 +174,8 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 - ⬜ **Débogueur** (points d'arrêt) intégré = système n°3 de l'ORDRE VALIDÉ (gdb/lldb, MI/DAP).
 - ⬜ Système d'**extensions** ; sens inverse **texte → graphe** (parsing).
 - ⬜ Portage tactile/web (le moteur le permet).
+- ⬜ **Onglets sur PLUSIEURS RANGÉES** (option de préférences, façon Visual Studio) — le
+      débordement scroll+▾ est fait (12 juil.) ; le mode multi-rangées reste à offrir en option.
 - 🟡 **Internationalisation (i18n)** : document de traductions multi-langue (démarré
   côté Paramètres › Général) ; 5 langues majeures + Ghomala' (bamiléké).
 
