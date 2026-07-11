@@ -46,10 +46,13 @@ namespace nkentseu {
 					return mFrame;
 				}
 
-				// Piste audio PCM (mode .mp4/.mov uniquement) : LPCM 16 bits. À appeler avant les WriteAudioPcm.
-				void SetAudioTrack(int32 sampleRate, int32 channels);
-				// Ajoute des trames PCM entrelacées (int16 par canal) à la piste audio du MP4.
-				void WriteAudioPcm(const int16 *interleaved, uint32 frames);
+				// Pistes audio PCM (mode .mp4/.mov) : LPCM 16 bits. Plusieurs pistes = choix de langue.
+				// `lang3` = code ISO-639-2 (ex "fre","eng") ou nullptr. Renvoie l'index de piste.
+				int32 AddAudioTrack(int32 sampleRate, int32 channels, const char *lang3 = nullptr);
+				void WriteAudioPcm(int32 trackIdx, const int16 *interleaved, uint32 frames);
+				// Pistes sous-titres (tx3g) : plusieurs = choix de langue.
+				int32 AddSubtitleTrack(const char *lang3 = nullptr);
+				void AddSubtitle(int32 trackIdx, const char *utf8, uint32 startMs, uint32 durMs);
 
 				// Debug/validation : dumpe la reconstruction (YUV420 planar, recadrée) de chaque trame
 				// dans `path`, pour comparaison bit-à-bit avec la sortie d'un décodeur de référence.
