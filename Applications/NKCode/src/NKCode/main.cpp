@@ -146,8 +146,28 @@ static void StartScreenThunk(NkEditorFrameContext &ec, void *u) {
 // Pose appFullScreen/appModal CHAQUE FRAME (barre de menus, inconditionnel).
 // + synchronise le thème de l'ÉDITORKIT sur le thème NKCode : le chrome de l'éditeur
 //   (barre de titre, activity bar, onglets, dock, status bar, panneaux) suit Dark/Light.
+// Garantit « au plus UN panneau ouvert par côté » (une disposition restaurée peut en
+// rouvrir plusieurs) : garde le premier ouvert du groupe, ferme les autres.
+static void EnforceExclusiveSides(editorkit::NkEditorShell *sh) {
+	if (!sh)
+		return;
+	for (int32 side = 0; side < 2; ++side) {
+		int32 n = 0;
+		const char *const *g = side == 0 ? nkcode::SideLeftGroup(n) : nkcode::SideRightGroup(n);
+		bool found = false;
+		for (int32 i = 0; i < n; ++i)
+			if (sh->IsPanelOpen(g[i])) {
+				if (found)
+					sh->ClosePanel(g[i]);
+				else
+					found = true;
+			}
+	}
+}
+
 static void AppFlagsThunk(NkEditorFrameContext &ec, void *u) {
 	nkcode::DrawAppFlags(ec, static_cast<nkcode::NkCodeDialogs *>(u));
+	EnforceExclusiveSides(static_cast<nkcode::NkCodeDialogs *>(u)->shell); // sidebars exclusives
 	if (!g_home.settings.loaded)
 		g_home.settings.Load();
 	nkcode::NkApplyEditorTheme(ec.Ui(), g_home.settings.theme, g_home.settings.accent);
