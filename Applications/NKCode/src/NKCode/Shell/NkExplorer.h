@@ -200,7 +200,11 @@ namespace nkentseu {
 				void TickGit() {
 					if (mGit.Running())
 						return;
-					if (mGit.Done()) { // parse le résultat accumulé
+					// Done() RESTE vrai après la fin : sans ce drapeau le parse tournait à
+					// CHAQUE frame (badges écrasés par un parse vide + BuildRows relisant
+					// tout le disque en boucle -> stress allocateur massif).
+					if (mGit.Done() && !mGitParsed) { // parse le résultat accumulé (1 fois)
+						mGitParsed = true;
 						NkVector<NkString> lines;
 						mGit.Drain(lines);
 						mGitPath.Clear();
@@ -251,7 +255,8 @@ namespace nkentseu {
 						NkString cmd = "git -C \"";
 						cmd += mS->root.ToString();
 						cmd += "\" status --porcelain";
-						mGit.Start(cmd);
+						if (mGit.Start(cmd))
+							mGitParsed = false;
 						mGitNext = mTick + 300; // garde-fou si le lancement échoue
 					}
 				}
@@ -521,8 +526,9 @@ namespace nkentseu {
 					if (ctx.font && ctx.font->Valid()) {
 						dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 								   {tx, bar.y + (h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()}, shown, col);
-						if ((mTick / 30) % 2 == 0 && mFilter[0]) // caret clignotant
-							dl.AddRectFilled({tx + ctx.font->MeasureWidth(mFilter) + 1.f, bar.y + 3.f, 1.5f, h - 6.f},
+						if ((mTick / 30) % 2 == 0) // caret clignotant (aussi champ vide)
+							dl.AddRectFilled({tx + (mFilter[0] ? ctx.font->MeasureWidth(mFilter) : 0.f) + 1.f,
+											  bar.y + 3.f, 1.5f, h - 6.f},
 											 ctx.theme.accent);
 					}
 					// X : ferme le filtre.
@@ -747,6 +753,7 @@ namespace nkentseu {
 				NkVector<NkString> mGitPath;
 				NkVector<char> mGitCode;
 				uint32 mGitNext = 0;
+				bool mGitParsed = true; ///< résultat du run courant déjà consommé ?
 		};
 
 	} // namespace nkcode
