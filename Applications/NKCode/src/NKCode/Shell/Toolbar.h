@@ -50,8 +50,18 @@ namespace nkentseu {
 			s->ProcessCompletionRequest(); // complétion CONTEXTUELLE ('.', '->', '::') compile-first
 			s->ProcessHover();			   // hover documentation (survol ~0,5 s -> carte signature + doc)
 			s->PollCompletion();		   // récupère les membres renvoyés par le compilateur -> popup
+			s->TickMru();				   // MRU des onglets (Ctrl+Tab) : enregistre l'onglet actif
 			s->ProcessNavigation();
 			s->PollNav();
+			if (s->HasActive() && s->files[s->active].doc.renGo) { // F2 : scan puis remplacement en chaine
+				NkCodeDoc &rd = s->files[s->active].doc;
+				rd.renGo = false;
+				s->wsRenameTo = NkString(rd.renBuf);
+				s->wsRenamePending = true;
+				s->StartWsFind(rd.renWord, true, true); // casse stricte + mot entier
+			}
+			s->PollWsFind(); // recherche workspace (Ctrl+Maj+F)
+			s->ProcessWsOpen();
 			s->ProcessNavPick();   // Ctrl+clic : include / go-to-def (thread) / choix liste (différé hors rendu)
 			s->TickSession(ec.dt); // persistance session : onglets + contenu non sauvegardé (hot-exit / reprise crash)
 			s->TickFileWatch(ec.dt); // détecte suppression / modification EXTERNE des fichiers ouverts

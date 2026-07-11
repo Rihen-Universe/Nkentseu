@@ -52,6 +52,10 @@ static void CmdFormat(void *) { // Formater le document actif (C/C++)
 		g_state.files[g_state.active].doc.FormatCpp();
 }
 
+static void CmdToggleMinimap(void *) { // Affichage: minimap on/off (aussi Ctrl+Maj+AntiSlash dans l editeur)
+	nkcode::NkCodeMinimapOn() = !nkcode::NkCodeMinimapOn();
+}
+
 static void CmdQuit(void *user) {
 	if (user)
 		static_cast<NkEditorShell *>(user)->RequestClose();
@@ -193,7 +197,7 @@ int nkmain(const NkEntryState &state) {
 	// fonctionnel ensuite (roadmap #2-#20). Fermees par defaut -> menu Affichage.
 	using nkcode::ScaffoldPanel;
 	namespace sc = nkcode::scaffold;
-	static ScaffoldPanel pSearch("Recherche", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #7", sc::kSearch, 1);
+	static nkcode::SearchPanel pSearch(&g_state); // Recherche workspace FONCTIONNELLE (remplace la maquette #7)
 	static ScaffoldPanel pProblem("Problemes", NkEditorDockSide::NK_BOTTOM, "Maquette - roadmap #8", sc::kProblems, 1);
 	static ScaffoldPanel pGit("Controle de version", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #9", sc::kGit, 3);
 	static ScaffoldPanel pDebug("Debogueur", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #10", sc::kDebug, 2);
@@ -606,6 +610,7 @@ int nkmain(const NkEntryState &state) {
 	shell->RegisterCommand("Edition: Formater le document", &CmdFormat, nullptr,
 						   "Ctrl+Shift+I"); // Ctrl+L libéré pour « sélectionner la ligne » (éditeur)
 	shell->RegisterCommand("Disposition: Reinitialiser", &CmdResetLayout, shell.Get());
+	shell->RegisterCommand("Affichage: Minimap (afficher/masquer)", &CmdToggleMinimap, nullptr);
 	shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
 
 	const int rc = shell->Run();
