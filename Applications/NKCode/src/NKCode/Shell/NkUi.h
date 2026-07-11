@@ -380,6 +380,38 @@ namespace nkentseu {
 				// Rempli au demarrage depuis des defauts integres + le manifeste icons.cfg.
 				NkVector<NkString> extKey;
 				NkVector<uint32> extTex;
+				// ── Dossiers SPECIAUX (Material) : nom de dossier -> paire fermee/ouverte ──
+				uint32 folderM = 0, folderMOpen = 0; // dossier generique Material (ferme/ouvert)
+				uint32 collapseAll = 0, newFile2 = 0, newFolder = 0, filter = 0; // toolbar explorateur
+				NkVector<NkString> dirKey;
+				NkVector<uint32> dirTexC, dirTexO;
+
+				void SetDir(const char *name, uint32 texClosed, uint32 texOpen) {
+					dirKey.PushBack(NkString(name));
+					dirTexC.PushBack(texClosed);
+					dirTexO.PushBack(texOpen);
+				}
+
+				// Paire d'icônes d'un dossier « spécial » (0 si pas de correspondance).
+				uint32 ForDir(const char *name, bool open) const {
+					auto low = [](char c) { return (c >= 'A' && c <= 'Z') ? char(c + 32) : c; };
+					for (usize i = 0; i < dirKey.Size(); ++i) {
+						const char *a = dirKey[i].CStr();
+						const char *b = name;
+						bool eq = true;
+						while (*a && *b) {
+							if (low(*a) != low(*b)) {
+								eq = false;
+								break;
+							}
+							++a;
+							++b;
+						}
+						if (eq && !*a && !*b)
+							return open ? dirTexO[i] : dirTexC[i];
+					}
+					return 0;
+				}
 
 				// Texture associee a l'extension d'un nom de fichier (0 si aucune / non chargee).
 				uint32 ForFile(const char *filename) const {

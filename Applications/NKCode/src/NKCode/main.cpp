@@ -523,83 +523,128 @@ int nkmain(const NkEntryState &state) {
 		if (IS < 24)
 			IS = 24; // source 128px -> downscale progressif net
 		nkcode::NkIcons &ic = g_home.icons;
-		ic.accueil = loadTex("icon/Accueil", IS, IS);
-		ic.ouvrir = loadTex("icon/Ouvrir", IS, IS);
-		ic.ouvrirDossier = loadTex("icon/OuvrirUnDossier", IS, IS);
-		ic.nouveau = loadTex("icon/Nouveau", IS, IS);
-		ic.cloner = loadTex("icon/Cloner", IS, IS);
-		ic.toolchains = loadTex("icon/Toolchains", IS, IS);
-		ic.platforms = loadTex("icon/Platforms", IS, IS);
-		ic.gear = loadTex("icon/Gear", IS, IS);
-		ic.exemple = loadTex("icon/Exemple", IS, IS);
-		ic.star = loadTex("icon/Star", IS, IS);
-		ic.search = loadTex("icon/Search", IS, IS);
-		ic.workspace = loadTex("logo/workspace", IS, IS); // workspace.png est dans logo/
-		// Navigateur « Ouvrir un Workspace »
-		ic.back = loadTex("icon/LeftArrow", IS, IS);
-		ic.forward = loadTex("icon/RightArrow", IS, IS);
-		ic.up = loadTex("icon/UpArrow", IS, IS);
-		ic.downArrow = loadTex("icon/DownArrow", IS, IS);
-		ic.bureau = loadTex("icon/Bureau", IS, IS);
-		ic.disque = loadTex("icon/Disque", IS, IS);
-		ic.jenga = loadTex("icon/Jenga", IS, IS);
-		ic.valide = loadTex("icon/Valide", IS, IS);
-		ic.horloge = loadTex("icon/Horloge", IS, IS);
-		ic.fichier = loadTex("icon/Fichier", IS, IS);
-		ic.sort = loadTex("icon/Sort", IS, IS);
-		// Wizard projet : types + actions + validation
-		ic.kConsole = loadTex("icon/consoleapp", IS, IS);
-		ic.kWindowed = loadTex("icon/windowedapp", IS, IS);
-		ic.kStatic = loadTex("icon/staticlib", IS, IS);
-		ic.kShared = loadTex("icon/sharedlib", IS, IS);
-		ic.kTest = loadTex("icon/test", IS, IS);
-		ic.kConfig = loadTex("icon/config", IS, IS);
-		ic.valideSimple = loadTex("icon/ValideSimple", IS, IS);
-		ic.editer = loadTex("icon/editer", IS, IS);
-		ic.dependance = loadTex("icon/Dependance", IS, IS);
-		ic.creeProjet = loadTex("icon/CreeProjet", IS, IS);
-		ic.fileCode = loadTex("icon/FileCode", IS, IS);
-		ic.plus = loadTex("icon/Plus", IS, IS);
-		ic.corbeille = loadTex("icon/Corbeil", IS, IS);
-		ic.lock = loadTex("icon/Lock", IS, IS);
-		ic.clonerTel = loadTex("icon/ClonerTelecharger", IS, IS);
-		ic.github = loadTex("icon/Github", IS, IS);
-		ic.oeilOuvert = loadTex("icon/OeilOuvert", IS, IS);
-		ic.oeilFermer = loadTex("icon/OeilFermer", IS, IS);
-		ic.rondI = loadTex("icon/RondI", IS, IS);
-		// ── Vue principale IDE : vraies icones (Lucide -> assets reels) ──
-		ic.hammer = loadTex("icon/Mateau", IS, IS);			 // build
-		ic.bug = loadTex("icon/cocsinelle", IS, IS);		 // debug
-		ic.sparkles = loadTex("icon/EtoileEtoile", IS, IS);	 // IA
-		ic.zap = loadTex("icon/Eclaire", IS, IS);			 // moteur
-		ic.chart = loadTex("icon/gRAPH", IS, IS);			 // profiler
-		ic.puzzle = loadTex("icon/stack", IS, IS);			 // extensions
-		ic.eraser = loadTex("icon/Gomme", IS, IS);			 // nettoyer
-		ic.rebuild = loadTex("icon/circletwoarrow", IS, IS); // rebuild
-		ic.play = loadTex("icon/Play", IS, IS);				 // executer
-		ic.monitor = loadTex("icon/Ordinateur", IS, IS);	 // plateforme
-		ic.flask = loadTex("icon/test", IS, IS);			 // tests
-		ic.layers = loadTex("icon/Piles", IS, IS);			 // solution
-		ic.pkg = loadTex("icon/stack", IS, IS);				 // projet
-		ic.globe = loadTex("icon/Globe", IS, IS);			 // web
-		ic.pause = loadTex("icon/Pause", IS, IS);
-		ic.stop = loadTex("icon/Stop", IS, IS);
-		ic.gitPush = loadTex("icon/Push", IS, IS);
-		ic.gitPull = loadTex("icon/Pull", IS, IS);
-		ic.split = loadTex("icon/Split", IS, IS);
-		ic.folderOpen = loadTex("icon/FolderOpen", IS, IS);
-		ic.folder = loadTex("icon/Folder", IS, IS); // dossier FERMÉ (0 si absent -> dessin au trait)
-		ic.fileText = loadTex("icon/FileText", IS, IS);
-		ic.fileCode2 = loadTex("icon/FileCode2", IS, IS);
-		ic.filePlus = loadTex("icon/FilePlus", IS, IS);
-		ic.code = loadTex("icon/Code", IS, IS);
-		ic.compare = loadTex("icon/Compare", IS, IS);
-		ic.blame = loadTex("icon/Blame", IS, IS);
-		ic.exit = loadTex("icon/Exit", IS, IS);
-		ic.tags = loadTex("icon/Tags", IS, IS);
-		ic.cloud = loadTex("icon/Cloud", IS, IS);
-		ic.docker = loadTex("icon/docker", IS, IS);
-		ic.linux = loadTex("icon/Linux", IS, IS);
+		// ═══ TABLE UNIQUE des icônes de l'application ═══════════════════════
+		// TOUTES les icônes nommées se déclarent ICI (champ <- data/textures/…)
+		// et nulle part ailleurs : une ligne par icône, chargée par la boucle.
+		{
+			struct IconDef {
+					uint32 *slot;
+					const char *path;
+			};
+			const IconDef kAppIcons[] = {
+				{&ic.accueil, "icon/Accueil"},
+				{&ic.ouvrir, "icon/Ouvrir"},
+				{&ic.ouvrirDossier, "icon/OuvrirUnDossier"},
+				{&ic.nouveau, "icon/Nouveau"},
+				{&ic.cloner, "icon/Cloner"},
+				{&ic.toolchains, "icon/Toolchains"},
+				{&ic.platforms, "icon/Platforms"},
+				{&ic.gear, "icon/Gear"},
+				{&ic.exemple, "icon/Exemple"},
+				{&ic.star, "icon/Star"},
+				{&ic.search, "icon/Search"},
+				{&ic.workspace, "logo/workspace"}, // workspace.png est dans logo/
+				// Navigateur « Ouvrir un Workspace »
+				{&ic.back, "icon/LeftArrow"},
+				{&ic.forward, "icon/RightArrow"},
+				{&ic.up, "icon/UpArrow"},
+				{&ic.downArrow, "icon/DownArrow"},
+				{&ic.bureau, "icon/Bureau"},
+				{&ic.disque, "icon/Disque"},
+				{&ic.jenga, "icon/Jenga"},
+				{&ic.valide, "icon/Valide"},
+				{&ic.horloge, "icon/Horloge"},
+				{&ic.fichier, "icon/Fichier"},
+				{&ic.sort, "icon/Sort"},
+				// Wizard projet : types + actions + validation
+				{&ic.kConsole, "icon/consoleapp"},
+				{&ic.kWindowed, "icon/windowedapp"},
+				{&ic.kStatic, "icon/staticlib"},
+				{&ic.kShared, "icon/sharedlib"},
+				{&ic.kTest, "icon/test"},
+				{&ic.kConfig, "icon/config"},
+				{&ic.valideSimple, "icon/ValideSimple"},
+				{&ic.editer, "icon/editer"},
+				{&ic.dependance, "icon/Dependance"},
+				{&ic.creeProjet, "icon/CreeProjet"},
+				{&ic.fileCode, "icon/FileCode"},
+				{&ic.plus, "icon/Plus"},
+				{&ic.corbeille, "icon/Corbeil"},
+				{&ic.lock, "icon/Lock"},
+				{&ic.clonerTel, "icon/ClonerTelecharger"},
+				{&ic.github, "icon/Github"},
+				{&ic.oeilOuvert, "icon/OeilOuvert"},
+				{&ic.oeilFermer, "icon/OeilFermer"},
+				{&ic.rondI, "icon/RondI"},
+				// ── Vue principale IDE : vraies icones (Lucide -> assets reels) ──
+				{&ic.hammer, "icon/Mateau"}, // build
+				{&ic.bug, "icon/cocsinelle"}, // debug
+				{&ic.sparkles, "icon/EtoileEtoile"}, // IA
+				{&ic.zap, "icon/Eclaire"}, // moteur
+				{&ic.chart, "icon/gRAPH"}, // profiler
+				{&ic.puzzle, "icon/stack"}, // extensions
+				{&ic.eraser, "icon/Gomme"}, // nettoyer
+				{&ic.rebuild, "icon/circletwoarrow"}, // rebuild
+				{&ic.play, "icon/Play"}, // executer
+				{&ic.monitor, "icon/Ordinateur"}, // plateforme
+				{&ic.flask, "icon/test"}, // tests
+				{&ic.layers, "icon/Piles"}, // solution
+				{&ic.pkg, "icon/stack"}, // projet
+				{&ic.globe, "icon/Globe"}, // web
+				{&ic.pause, "icon/Pause"},
+				{&ic.stop, "icon/Stop"},
+				{&ic.gitPush, "icon/Push"},
+				{&ic.gitPull, "icon/Pull"},
+				{&ic.split, "icon/Split"},
+				{&ic.folderOpen, "icon/FolderOpen"},
+				{&ic.folder, "icon/Folder"}, // dossier FERMÉ (0 si absent -> dessin au trait)
+				// ── Dossiers Material (colorés, rendus SANS teinte) + toolbar explorateur ──
+				{&ic.folderM, "icon/FolderM"},
+				{&ic.folderMOpen, "icon/FolderMOpen"},
+				{&ic.collapseAll, "icon/CollapseAll"},
+				{&ic.newFile2, "icon/NewFile"},
+				{&ic.newFolder, "icon/NewFolder"},
+				{&ic.filter, "icon/Filter"},
+				{&ic.fileText, "icon/FileText"},
+				{&ic.fileCode2, "icon/FileCode2"},
+				{&ic.filePlus, "icon/FilePlus"},
+				{&ic.code, "icon/Code"},
+				{&ic.compare, "icon/Compare"},
+				{&ic.blame, "icon/Blame"},
+				{&ic.exit, "icon/Exit"},
+				{&ic.tags, "icon/Tags"},
+				{&ic.cloud, "icon/Cloud"},
+				{&ic.docker, "icon/docker"},
+				{&ic.linux, "icon/Linux"},
+			};
+			for (const IconDef &d : kAppIcons)
+				*d.slot = loadTex(d.path, IS, IS);
+		}
+		{ // dossiers SPÉCIAUX : nom -> paire fermée/ouverte (insensible à la casse)
+			struct DPair {
+					const char *stem;
+					const char *names[6];
+			};
+			static const DPair kDirs[] = {
+				{"FolderSrc", {"src", "source", "sources", nullptr}},
+				{"FolderTest", {"test", "tests", "unitest", nullptr}},
+				{"FolderInclude", {"include", "inc", "headers", nullptr}},
+				{"FolderDocs", {"docs", "doc", "documentation", nullptr}},
+				{"FolderResource", {"assets", "data", "media", "resources", "textures", nullptr}},
+				{"FolderShader", {"shaders", "shader", nullptr}},
+				{"FolderConfig", {"config", ".config", "settings", nullptr}},
+				{"FolderGit", {".git", nullptr}},
+				{"FolderScripts", {"scripts", "tools", nullptr}},
+				{"FolderDist", {"build", "bin", "dist", "out", "obj", nullptr}},
+			};
+			for (const DPair &d : kDirs) {
+				const uint32 tc = loadTex((NkString("icon/") + d.stem).CStr(), IS, IS);
+				const uint32 to = loadTex((NkString("icon/") + d.stem + "Open").CStr(), IS, IS);
+				if (tc || to)
+					for (int32 j = 0; d.names[j]; ++j)
+						ic.SetDir(d.names[j], tc ? tc : to, to ? to : tc);
+			}
+		}
 		g_state.icons = &g_home.icons; // rend les icones accessibles aux panneaux/toolbar (via l'etat)
 		// toggle liste/grille : pas d'asset adapte (`<>` et `↕` ne conviennent pas) -> dessine.
 

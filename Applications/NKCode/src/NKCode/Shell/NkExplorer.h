@@ -403,8 +403,9 @@ namespace nkentseu {
 						const NkColor c = hov ? ctx.theme.text : ctx.theme.textDisabled;
 						const uint32 tex = !mS->icons ? 0u
 										   : b == 1  ? mS->icons->rebuild
+										   : b == 2  ? mS->icons->collapseAll
 										   : b == 3  ? (mShowExcluded ? mS->icons->oeilOuvert : mS->icons->oeilFermer)
-										   : b == 4  ? mS->icons->search
+										   : b == 4  ? (mS->icons->filter ? mS->icons->filter : mS->icons->search)
 												     : 0u;
 						if (tex)
 							dl.AddImage(tex, {r.x + 2.f, r.y + 2.f, r.w - 4.f, r.h - 4.f}, {0.f, 0.f}, {1.f, 1.f},
@@ -545,9 +546,16 @@ namespace nkentseu {
 						const NkRect ir = {x, cy - is * 0.5f, is, is};
 						if (r.dir) {
 							const NkColor tint = DirTint(r.name.CStr(), r.root);
+							// 1) dossier SPÉCIAL Material (coloré, sans teinte) ; 2) dossier
+							// Material générique ; 3) icône blanche maison teintée ; 4) trait.
+							uint32 mtex = mS->icons ? mS->icons->ForDir(r.name.CStr(), r.open) : 0u;
+							if (!mtex && mS->icons && !r.root)
+								mtex = r.open ? mS->icons->folderMOpen : mS->icons->folderM;
 							const uint32 tex =
-								!mS->icons ? 0u : (r.open ? mS->icons->folderOpen : mS->icons->folder);
-							if (tex)
+								mtex ? 0u : (!mS->icons ? 0u : (r.open ? mS->icons->folderOpen : mS->icons->folder));
+							if (mtex)
+								dl.AddImage(mtex, ir, {0.f, 0.f}, {1.f, 1.f}, {255, 255, 255, 255});
+							else if (tex)
 								dl.AddImage(tex, ir, {0.f, 0.f}, {1.f, 1.f}, tint);
 							else if (r.open) { // repli au trait : dossier ouvert (rabat incliné)
 								dl.AddRect({ir.x, ir.y + 2.f, ir.w - 2.f, ir.h - 4.f}, tint, 1.4f);
