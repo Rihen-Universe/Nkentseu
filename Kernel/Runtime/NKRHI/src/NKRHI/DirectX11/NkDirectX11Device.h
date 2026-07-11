@@ -239,6 +239,7 @@ namespace nkentseu {
 			}
 
 			ID3D11Buffer *GetDXBuffer(uint64 id) const;
+			ID3D11Texture2D *GetDXTexture(uint64 id) const; // texture native (pour readback CopyTextureToBuffer)
 			ID3D11ShaderResourceView *GetSRV(uint64 id) const;
 			ID3D11UnorderedAccessView *GetUAV(uint64 id) const;
 

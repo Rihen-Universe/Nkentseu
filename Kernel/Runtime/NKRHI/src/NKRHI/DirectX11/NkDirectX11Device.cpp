@@ -590,7 +590,9 @@ namespace nkentseu {
 				break;
 			case NkResourceUsage::NK_READBACK:
 				bd.Usage = D3D11_USAGE_STAGING;
-				bd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+				// READ (le consommateur mappe le résultat) + WRITE (CopyTextureToBuffer y écrit les pixels
+				// de la staging texture, DX11 n'ayant pas de copie GPU texture→buffer).
+				bd.CPUAccessFlags = D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE;
 				break;
 			case NkResourceUsage::NK_IMMUTABLE:
 				bd.Usage = D3D11_USAGE_IMMUTABLE;
@@ -740,8 +742,11 @@ namespace nkentseu {
 		auto it = mBuffers.Find(buf.id);
 		if (!it)
 			return {};
+		// Readback (staging) : lecture ; sinon buffer dynamique d'upload : WRITE_DISCARD.
+		const D3D11_MAP mode =
+			(it->desc.usage == NkResourceUsage::NK_READBACK) ? D3D11_MAP_READ : D3D11_MAP_WRITE_DISCARD;
 		D3D11_MAPPED_SUBRESOURCE ms{};
-		mContext->Map(it->buf, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+		mContext->Map(it->buf, 0, mode, 0, &ms);
 		uint64 mapSz = sz > 0 ? sz : it->desc.sizeBytes - off;
 		return {(uint8 *)ms.pData + off, mapSz};
 	}
@@ -1651,6 +1656,11 @@ namespace nkentseu {
 	ID3D11Buffer *NkDirectX11Device::GetDXBuffer(uint64 id) const {
 		auto it = mBuffers.Find(id);
 		return it ? it->buf : nullptr;
+	}
+
+	ID3D11Texture2D *NkDirectX11Device::GetDXTexture(uint64 id) const {
+		auto it = mTextures.Find(id);
+		return it ? it->tex : nullptr;
 	}
 
 	ID3D11ShaderResourceView *NkDirectX11Device::GetSRV(uint64 id) const {
