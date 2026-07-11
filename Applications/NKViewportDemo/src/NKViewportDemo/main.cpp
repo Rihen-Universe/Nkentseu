@@ -183,13 +183,17 @@ static void DrawScene3D(NkGuiContext &ctx, const NkRect &area, float32 yaw, floa
 int nkmain(const NkEntryState &state) {
 	(void)state;
 
+	// Mode enregistrement (opt-in NK_RECORD) : fenêtre plus petite → encodage H.264 bien plus rapide,
+	// et fenêtre NON redimensionnable (taille de capture constante = pas de trames de tailles mêlées).
+	const bool record = (getenv("NK_RECORD") != nullptr);
+
 	NkWindow window;
 	NkWindowConfig cfg;
 	cfg.title = "NKViewportDemo - Viewport 3D";
-	cfg.width = 1000;
-	cfg.height = 720;
+	cfg.width = record ? 480 : 1000;
+	cfg.height = record ? 320 : 720;
 	cfg.centered = true;
-	cfg.resizable = true;
+	cfg.resizable = !record;
 	if (!window.Create(cfg))
 		return -1;
 
@@ -246,9 +250,7 @@ int nkmain(const NkEntryState &state) {
 	events.AddEventCallback<NkMouseWheelVerticalEvent>(
 		[&](NkMouseWheelVerticalEvent *e) { ctx.input.wheel += static_cast<float32>(e->GetDeltaY()); });
 
-	// ── Mode ENREGISTREMENT (opt-in via NK_RECORD) : capture le rendu DX11 → viewport_capture.mp4
-	//    (vidéo H.264 + audio + sous-titre), ~4 s à 30 fps, caméra auto-rotative. ────────────────
-	const bool record = (getenv("NK_RECORD") != nullptr);
+	// ── État ENREGISTREMENT (le flag `record` est lu plus haut, avant la création fenêtre) ───────
 	media::NkVideoRecorder rec;
 	int32 recAudio = -1, recFrames = 0;
 	const int32 kRecTotal = 120, kRate = 48000, kAudioPerFrame = kRate / 30;
@@ -351,6 +353,12 @@ int nkmain(const NkEntryState &state) {
 				}
 			}
 		}
+	}
+	// Robustesse : si la fenêtre est fermée AVANT la fin de l'enregistrement, on finalise quand même
+	// (écrit le moov) → le MP4 reste lisible (sinon "moov atom not found").
+	if (rec.IsRecording()) {
+		rec.End();
+		printf("[REC] Interrompu -> viewport_capture.mp4 finalise (%d trames)\n", recFrames);
 	}
 	return 0;
 }
