@@ -240,7 +240,7 @@ namespace nkentseu {
 				bool click = false, down = false;
 				float32 S = 1.f;
 
-				static NkUi From(NkEditorFrameContext &ec, bool overlay = false) {
+				static NkUi From(editorkit::NkEditorFrameContext &ec, bool overlay = false) {
 					NkUi u;
 					u.ctx = &ec.Ui();
 					u.f = u.ctx->font;

@@ -12,6 +12,7 @@
 #include "NKCode/Editor/NkTextDraw.h"
 #include "NKCode/Shell/NkI18n.h"  // NkT() : bannière mojibake traduite
 #include "NKCode/Shell/NkShell.h" // NkCodeShellRun (révéler dans l'explorateur / terminal)
+#include "NKCode/Shell/NkExplorer.h" // ExplorerPanel (arbre + git + filtre, maquette Banani)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -94,99 +95,6 @@ namespace nkentseu {
 			return kG;
 		}
 
-		class ExplorerPanel : public NkEditorPanel {
-			public:
-				explicit ExplorerPanel(NkCodeState *s)
-					: NkEditorPanel("Explorateur", NkEditorDockSide::NK_LEFT), mS(s) {
-				}
-
-				void OnUI(NkEditorFrameContext &ec) override {
-					auto &ctx = ec.Ui();
-					// En-tete "EXPLORATEUR" + le PROJET comme NOEUD RACINE repliable (tout
-					// l'arbre est imbrique dessous). SCOPE projet : pas de ".." -> jamais hors projet.
-					ec.Text("EXPLORATEUR");
-					ec.Separator();
-					char name[260];
-					ToUpperInto(mS->root.GetFileName().CStr(), name, sizeof(name));
-					char rootLbl[280];
-					std::snprintf(rootLbl, sizeof(rootLbl), "%s %s", mRootOpen ? "v" : ">", name);
-					if (Selectable(ctx, rootLbl, false))
-						mRootOpen = !mRootOpen;
-					if (mRootOpen)
-						DrawTree(ctx, mS->root, 1);
-				}
-
-			private:
-				// Dessine recursivement l'arbre du dossier `dir` a la profondeur `depth`.
-				void DrawTree(NkGuiContext &ctx, const NkPath &dir, int32 depth) {
-					if (depth > 24)
-						return; // garde-fou
-					NkVector<NkDirectoryEntry> entries =
-						NkDirectory::GetEntries(dir, "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
-					for (int pass = 0; pass < 2; ++pass) { // dossiers d'abord, puis fichiers
-						const bool wantDir = (pass == 0);
-						for (usize i = 0; i < entries.Size(); ++i) {
-							const NkDirectoryEntry &e = entries[i];
-							if (e.IsDirectory != wantDir)
-								continue;
-							char lbl[340];
-							int32 n = 0;
-							for (int32 d = 0; d < depth; ++d) {
-								lbl[n++] = ' ';
-								lbl[n++] = ' ';
-							} // indentation
-							if (e.IsDirectory) {
-								const bool exp = IsExpanded(e.FullPath);
-								lbl[n++] = exp ? 'v' : '>';
-								lbl[n++] = ' '; // chevron
-								std::snprintf(lbl + n, sizeof(lbl) - n, "%s", e.Name.CStr());
-								if (Selectable(ctx, lbl, false))
-									ToggleExpanded(e.FullPath);
-								if (IsExpanded(e.FullPath))
-									DrawTree(ctx, e.FullPath, depth + 1);
-							} else {
-								lbl[n++] = ' ';
-								lbl[n++] = ' '; // aligne sous le chevron
-								std::snprintf(lbl + n, sizeof(lbl) - n, "%s", e.Name.CStr());
-								if (Selectable(ctx, lbl, false))
-									mS->OpenPath(e.FullPath);
-							}
-						}
-					}
-				}
-
-				bool IsExpanded(const NkPath &p) const {
-					const NkString s = p.ToString();
-					for (usize i = 0; i < mExpanded.Size(); ++i)
-						if (StrEq(mExpanded[i].CStr(), s.CStr()))
-							return true;
-					return false;
-				}
-
-				void ToggleExpanded(const NkPath &p) {
-					const NkString s = p.ToString();
-					for (usize i = 0; i < mExpanded.Size(); ++i)
-						if (StrEq(mExpanded[i].CStr(), s.CStr())) {
-							mExpanded.Erase(mExpanded.Begin() + i);
-							return;
-						}
-					mExpanded.PushBack(s);
-				}
-
-				static void ToUpperInto(const char *s, char *dst, usize cap) {
-					usize i = 0;
-					if (s)
-						for (; s[i] && i + 1 < cap; ++i) {
-							char c = s[i];
-							dst[i] = (c >= 'a' && c <= 'z') ? static_cast<char>(c - 32) : c;
-						}
-					dst[i] = '\0';
-				}
-
-				NkCodeState *mS;
-				NkVector<NkString> mExpanded; // dossiers deplies (chemins) — etat persistant
-				bool mRootOpen = true;		  // noeud racine (projet) deplie par defaut
-		};
 
 		// ── Panneau STRUCTURE / OUTLINE : symboles du fichier actif (namespaces, classes,
 		//    structs, enums, fonctions ; def/class Python ; titres Markdown). Clic sur un
