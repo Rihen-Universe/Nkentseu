@@ -1399,7 +1399,27 @@ namespace nkentseu {
 				//    MACROS avec expansion des arguments du site d'appel. Ordre : macro > contexte
 				//    membre (propriétaire par la chaîne) > variable locale > membre de la classe
 				//    englobante > type > fonction libre > membre par nom (~ dernier recours). ──
+				// Routage : clangd PRET -> hover SEMANTIQUE (reponse consommee dans TickLsp) ;
+				// sinon (ou reponse vide) -> resolution heuristique locale (tables + buffer).
+				NkString lspHovPath; // fichier de la requete hover en vol
+
 				void ProcessHover() {
+					if (active < 0 || active >= static_cast<int32>(files.Size()))
+						return;
+					NkCodeDoc &doc = files[active].doc;
+					if (!doc.hovReq)
+						return;
+					if (lspState == 1 && lsp.Ready() && !doc.hovSym.Empty() && doc.hovLine >= 0) {
+						doc.hovReq = false;
+						doc.hovDone = true;
+						lspHovPath = files[active].path.ToString();
+						lsp.ReqHover(lspHovPath, doc.hovLine, doc.hovCol);
+						return;
+					}
+					ProcessHoverLocal();
+				}
+
+				void ProcessHoverLocal() {
 					if (active < 0 || active >= static_cast<int32>(files.Size()))
 						return;
 					NkCodeDoc &doc = files[active].doc;
@@ -2999,6 +3019,93 @@ namespace nkentseu {
 					return *a == *b;
 				}
 
+				// Applique des NkLspEdit (TRIEES ligne/col DECROISSANTES) sur un texte : offsets stables.
+				static NkString ApplyLspEdits(const NkString &text, const NkVector<const NkLspEdit *> &eds) {
+					NkString out = text;
+					for (usize i = 0; i < eds.Size(); ++i) {
+						const NkLspEdit &e2 = *eds[i];
+						const char *base = out.CStr();
+						usize off = 0;
+						int32 l2 = 0;
+						while (base[off] && l2 < e2.line) {
+							if (base[off] == '\n')
+								++l2;
+							++off;
+						}
+						usize len2 = 0;
+						while (base[off + len2] && base[off + len2] != '\n' && base[off + len2] != '\r')
+							++len2;
+						const usize a2 =
+							off +
+							(e2.colStart < 0
+								 ? 0
+								 : (static_cast<usize>(e2.colStart) > len2 ? len2 : static_cast<usize>(e2.colStart)));
+						const usize b2 =
+							off + (e2.colEnd < 0
+									   ? 0
+									   : (static_cast<usize>(e2.colEnd) > len2 ? len2 : static_cast<usize>(e2.colEnd)));
+						NkString nu;
+						for (usize k = 0; k < a2; ++k)
+							nu += base[k];
+						nu += e2.text.CStr();
+						nu += (base + b2);
+						out = nu;
+					}
+					return out;
+				}
+
+				// Reponse RENAME (WorkspaceEdit) : buffers ouverts en place (undo), fichiers fermes sur disque.
+				void ApplyLspRename() {
+					int32 nfiles = 0;
+					const int32 total = static_cast<int32>(lsp.resEdits.Size());
+					for (usize i = 0; i < lsp.resEdits.Size(); ++i) {
+						const NkString &ph = lsp.resEdits[i].path;
+						bool seen = false;
+						for (usize j = 0; j < i && !seen; ++j)
+							seen = PathEqI(lsp.resEdits[j].path.CStr(), ph.CStr());
+						if (seen)
+							continue;
+						// editions de CE fichier, triees (ligne, col) DECROISSANTES
+						NkVector<const NkLspEdit *> eds;
+						for (usize j = 0; j < lsp.resEdits.Size(); ++j)
+							if (PathEqI(lsp.resEdits[j].path.CStr(), ph.CStr()))
+								eds.PushBack(&lsp.resEdits[j]);
+						for (usize a2 = 0; a2 < eds.Size(); ++a2)
+							for (usize b2 = a2 + 1; b2 < eds.Size(); ++b2)
+								if (eds[b2]->line > eds[a2]->line ||
+									(eds[b2]->line == eds[a2]->line && eds[b2]->colStart > eds[a2]->colStart)) {
+									const NkLspEdit *t2 = eds[a2];
+									eds[a2] = eds[b2];
+									eds[b2] = t2;
+								}
+						int32 fi = -1;
+						for (usize k = 0; k < files.Size(); ++k)
+							if (PathEqI(files[k].path.ToString().CStr(), ph.CStr())) {
+								fi = static_cast<int32>(k);
+								break;
+							}
+						if (fi >= 0) { // ouvert : en place, avec undo
+							NkCodeDoc &doc2 = files[static_cast<usize>(fi)].doc;
+							doc2.Checkpoint(3);
+							const float32 sx = doc2.scrollX, sy = doc2.scrollY;
+							doc2.SetText(ApplyLspEdits(doc2.GetText(), eds).CStr());
+							doc2.scrollX = sx;
+							doc2.scrollY = sy;
+							doc2.ClampCursor();
+							doc2.dirty = (doc2.SymSig() != doc2.savedSig);
+						} else { // ferme : reecrit le disque
+							const NkString txt = NkFile::ReadAllText(NkPath(ph));
+							if (txt.Empty())
+								continue;
+							NkFile::WriteAllText(NkPath(ph), ApplyLspEdits(txt, eds));
+						}
+						++nfiles;
+					}
+					char lb[128];
+					std::snprintf(lb, sizeof(lb), "Renomme : %d edition(s) dans %d fichier(s) (clangd)", total, nfiles);
+					status = NkString(lb);
+				}
+
 				void TickLsp(float32 dt) {
 					if (lspState == 0) {
 						if (!cdb.ready || root.ToString().Empty())
@@ -3035,6 +3142,75 @@ namespace nkentseu {
 																 lsp.diags[k].sev, lsp.diags[k].msg});
 								break;
 							}
+					}
+					if (lsp.resKind == 3) { // HOVER sémantique -> carte (repli heuristique si réponse vide)
+						lsp.resKind = 0;
+						if (HasActive() && PathEqI(files[active].path.ToString().CStr(), lspHovPath.CStr())) {
+							NkCodeDoc &doc = files[active].doc;
+							if (lsp.resHover.Empty()) { // clangd ne sait pas -> tables heuristiques
+								doc.hovReq = true;
+								doc.hovDone = false;
+								ProcessHoverLocal();
+							} else {
+								// markdown clangd -> titre (1re ligne du bloc ```) + corps (nettoyé, ~72 col)
+								doc.hovBody.Clear();
+								doc.hovTitle = NkString();
+								doc.hovKind = 1;
+								const char *h2 = lsp.resHover.CStr();
+								if (NkFindSub(h2, "class") || NkFindSub(h2, "struct") || NkFindSub(h2, "enum") ||
+									NkFindSub(h2, "union") || NkFindSub(h2, "namespace"))
+									doc.hovKind = 2;
+								else if (NkFindSub(h2, "variable") || NkFindSub(h2, "field") || NkFindSub(h2, "param"))
+									doc.hovKind = 3;
+								else if (NkFindSub(h2, "macro"))
+									doc.hovKind = 4;
+								bool inCode = false;
+								NkString line2;
+								auto flush = [&]() {
+									if (line2.Empty())
+										return;
+									if (doc.hovTitle.Empty() && inCode)
+										doc.hovTitle = line2;
+									else if (doc.hovBody.Size() < 24)
+										doc.hovBody.PushBack(line2);
+									line2 = NkString();
+								};
+								for (const char *q2 = h2; *q2; ++q2) {
+									if (*q2 == '\n') {
+										const char *l3 = line2.CStr();
+										if (l3[0] == '`' && l3[1] == '`' && l3[2] == '`') { // fence : bascule code
+											inCode = !inCode;
+											line2 = NkString();
+											continue;
+										}
+										if (l3[0] == '-' && l3[1] == '-' && l3[2] == '-') { // séparateur markdown
+											line2 = NkString();
+											continue;
+										}
+										flush();
+										continue;
+									}
+									if (*q2 != '\r')
+										line2 += *q2;
+								}
+								flush();
+								if (doc.hovTitle.Empty() && !doc.hovBody.Empty()) {
+									doc.hovTitle = doc.hovBody[0];
+									doc.hovBody.Erase(doc.hovBody.Begin());
+								}
+								if (!doc.hovTitle.Empty()) {
+									doc.hovShow = true;
+									doc.hovDone = true;
+								}
+							}
+						}
+					}
+					if (lsp.resKind == 4) { // RENAME sémantique -> applique le WorkspaceEdit
+						lsp.resKind = 0;
+						if (lsp.resEdits.Empty())
+							status = NkString("Renommage impossible ici (clangd)");
+						else
+							ApplyLspRename();
 					}
 					if (lsp.resKind) { // réponse definition/references -> navigation (poll = mutations SÛRES)
 						const int32 rk = lsp.resKind;

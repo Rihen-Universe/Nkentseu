@@ -183,6 +183,22 @@ namespace nkentseu {
 			return nullptr;
 		}
 
+		int32 NkJsonDoc::Count(const NkJsonVal *v) const {
+			return v ? static_cast<int32>(v->kids.Size()) : 0;
+		}
+
+		const NkString *NkJsonDoc::KeyAt(const NkJsonVal *obj, int32 i) const {
+			if (!obj || obj->kind != 5 || i < 0 || i >= static_cast<int32>(obj->keys.Size()))
+				return nullptr;
+			return &obj->keys[i];
+		}
+
+		const NkJsonVal *NkJsonDoc::ValAt(const NkJsonVal *obj, int32 i) const {
+			if (!obj || obj->kind != 5 || i < 0 || i >= static_cast<int32>(obj->kids.Size()))
+				return nullptr;
+			return &mPool[obj->kids[i]];
+		}
+
 		const NkJsonVal *NkJsonDoc::At(const NkJsonVal *arr, int32 i) const {
 			if (!arr || arr->kind != 4 || i < 0 || i >= static_cast<int32>(arr->kids.Size()))
 				return nullptr;
@@ -485,6 +501,25 @@ namespace nkentseu {
 			ReqAt("definition", path, line, col, 1);
 		}
 
+		void NkLspClient::ReqHover(const NkString &path, int32 line, int32 col) {
+			ReqAt("hover", path, line, col, 3);
+		}
+
+		void NkLspClient::ReqRename(const NkString &path, int32 line, int32 col, const NkString &newName) {
+			const int32 id = ++mNextId;
+			mPendId = id;
+			mPendKind = 4;
+			NkString esc;
+			JsonEscape(newName.CStr(), esc);
+			char body[768];
+			std::snprintf(body, sizeof(body),
+						  "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"textDocument/rename\",\"params\":{"
+						  "\"textDocument\":{\"uri\":\"%s\"},\"position\":{\"line\":%d,\"character\":%d},"
+						  "\"newName\":\"%s\"}}",
+						  id, UriOf(path).CStr(), line, col, esc.CStr());
+			Send(NkString(body));
+		}
+
 		void NkLspClient::ReqReferences(const NkString &path, int32 line, int32 col) {
 			ReqAt("references", path, line, col, 2);
 		}
@@ -556,12 +591,78 @@ namespace nkentseu {
 					log.PushBack(NkString("[lsp] clangd PRET (initialise)"));
 					return;
 				}
-				if (idn == mPendId && mPendKind) { // definition / references
+				if (idn == mPendId && mPendKind) { // definition / references / hover / rename
 					const NkJsonVal *res = doc.Member(root, "result");
 					resLocs.Clear();
 					resKind = mPendKind;
 					mPendId = 0;
 					mPendKind = 0;
+					resHover = NkString();
+					resEdits.Clear();
+					if (resKind == 3) { // hover : contents = string | {kind,value} | [MarkedString]
+						const NkJsonVal *ct = doc.Member(res, "contents");
+						if (ct && ct->kind == 3)
+							resHover = ct->str;
+						else if (ct && ct->kind == 5) {
+							const NkJsonVal *v = doc.Member(ct, "value");
+							if (v && v->kind == 3)
+								resHover = v->str;
+						} else if (ct && ct->kind == 4) {
+							for (int32 i = 0;; ++i) {
+								const NkJsonVal *e2 = doc.At(ct, i);
+								if (!e2)
+									break;
+								if (e2->kind == 3)
+									resHover += e2->str.CStr();
+								else {
+									const NkJsonVal *v = doc.Member(e2, "value");
+									if (v && v->kind == 3)
+										resHover += v->str.CStr();
+								}
+								resHover += '\n';
+							}
+						}
+						return;
+					}
+					if (resKind == 4) { // rename : WorkspaceEdit.changes = { uri : [TextEdit] }
+						const NkJsonVal *chg = doc.Member(res, "changes");
+						for (int32 fi = 0; fi < doc.Count(chg); ++fi) {
+							const NkString *uriK = doc.KeyAt(chg, fi);
+							const NkJsonVal *arr2 = doc.ValAt(chg, fi);
+							if (!uriK || !arr2)
+								continue;
+							const NkString ph = PathOfUri(*uriK);
+							for (int32 i = 0;; ++i) {
+								const NkJsonVal *ed = doc.At(arr2, i);
+								if (!ed)
+									break;
+								const NkJsonVal *rg = doc.Member(ed, "range");
+								const NkJsonVal *st = doc.Member(rg, "start");
+								const NkJsonVal *en2 = doc.Member(rg, "end");
+								const NkJsonVal *nt = doc.Member(ed, "newText");
+								if (!st || !en2)
+									continue;
+								const NkJsonVal *sl = doc.Member(st, "line");
+								const NkJsonVal *sc = doc.Member(st, "character");
+								const NkJsonVal *el = doc.Member(en2, "line");
+								const NkJsonVal *ec = doc.Member(en2, "character");
+								if (!sl || !el || static_cast<int32>(sl->num) != static_cast<int32>(el->num))
+									continue; // rename : plages mono-ligne uniquement
+								NkLspEdit e3;
+								e3.path = ph;
+								e3.line = static_cast<int32>(sl->num);
+								e3.colStart = sc ? static_cast<int32>(sc->num) : 0;
+								e3.colEnd = ec ? static_cast<int32>(ec->num) : 0;
+								e3.text = nt ? nt->str : NkString();
+								resEdits.PushBack(e3);
+							}
+						}
+						char lb2[96];
+						std::snprintf(lb2, sizeof(lb2), "[lsp] rename : %d edition(s)",
+									  static_cast<int32>(resEdits.Size()));
+						log.PushBack(NkString(lb2));
+						return;
+					}
 					auto pushLoc = [&](const NkJsonVal *loc) {
 						if (!loc)
 							return;

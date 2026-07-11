@@ -34,6 +34,9 @@ namespace nkentseu {
 				const NkJsonVal *Root() const;
 				const NkJsonVal *Member(const NkJsonVal *obj, const char *key) const;
 				const NkJsonVal *At(const NkJsonVal *arr, int32 i) const;
+				int32 Count(const NkJsonVal *v) const;						 // enfants (objet/tableau)
+				const NkString *KeyAt(const NkJsonVal *obj, int32 i) const;	 // cle i d'un objet
+				const NkJsonVal *ValAt(const NkJsonVal *obj, int32 i) const; // valeur i d'un objet
 
 			private:
 				NkVector<NkJsonVal> mPool;
@@ -68,6 +71,13 @@ namespace nkentseu {
 				NkString msg;
 		};
 
+		// Edition de texte (reponse rename) : remplace [colStart, colEnd) de `line` par `text`.
+		struct NkLspEdit {
+				NkString path;
+				int32 line = 0, colStart = 0, colEnd = 0;
+				NkString text;
+		};
+
 		// Emplacement (reponse definition/references) — chemin natif + position 0-based.
 		struct NkLspLoc {
 				NkString path;
@@ -93,8 +103,12 @@ namespace nkentseu {
 				// Requetes SEMANTIQUES (une a la fois) : reponse dans resKind/resLocs (consommee par l'etat).
 				void ReqDefinition(const NkString &path, int32 line, int32 col);
 				void ReqReferences(const NkString &path, int32 line, int32 col);
-				int32 resKind = 0;			// 0 = rien, 1 = definition, 2 = references (reponse fraiche)
-				NkVector<NkLspLoc> resLocs; // emplacements de la reponse
+				void ReqHover(const NkString &path, int32 line, int32 col);
+				void ReqRename(const NkString &path, int32 line, int32 col, const NkString &newName);
+				int32 resKind = 0;			  // 0 = rien, 1 = definition, 2 = references, 3 = hover, 4 = rename
+				NkVector<NkLspLoc> resLocs;	  // emplacements de la reponse
+				NkString resHover;			  // markdown de la reponse hover (kind 3)
+				NkVector<NkLspEdit> resEdits; // editions de la reponse rename (kind 4)
 
 				// Derniers diagnostics recus (un fichier a la fois : celui qui vient d'etre publie).
 				NkString diagPath;

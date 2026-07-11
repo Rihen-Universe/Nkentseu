@@ -134,11 +134,12 @@ namespace nkentseu {
 				// ── QoL : barre « aller a la ligne » (Ctrl+G), chord Ctrl+K, references ──
 				bool gotoOpen = false;
 				char gotoBuf[12] = {};
-				bool renOpen = false; // barre « Renommer » (F2) : identifiant -> workspace
-				char renBuf[64] = {}; // nouveau nom saisi
-				NkString renWord;	  // identifiant d'origine (mot sous le caret au F2)
-				bool renGo = false;	  // Entrée : demande consommée par le panneau/Toolbar
-				int32 blinkTick = 0;  // clignotement du caret : rallume a chaque frappe/deplacement
+				bool renOpen = false;			 // barre « Renommer » (F2) : identifiant -> workspace
+				char renBuf[64] = {};			 // nouveau nom saisi
+				NkString renWord;				 // identifiant d'origine (mot sous le caret au F2)
+				int32 renLine = -1, renCol = -1; // position du symbole au F2 (requete LSP rename)
+				bool renGo = false;				 // Entrée : demande consommée par le panneau/Toolbar
+				int32 blinkTick = 0;			 // clignotement du caret : rallume a chaque frappe/deplacement
 				int32 blinkL = -1, blinkC = -1;
 				// Quick fix (Ctrl+.) : actions deduites des diagnostics de la ligne du caret.
 				NkVector<NkString> qfLabels; // libelles du menu
@@ -3072,6 +3073,8 @@ namespace nkentseu {
 							for (int32 k = ws2; k < we2; ++k)
 								w2 += L2[k];
 							d.renWord = w2;
+							d.renLine = d.curLine;
+							d.renCol = ws2;
 							int32 i2 = 0;
 							for (const char *q2 = w2.CStr(); *q2 && i2 < 63; ++q2)
 								d.renBuf[i2++] = *q2;
