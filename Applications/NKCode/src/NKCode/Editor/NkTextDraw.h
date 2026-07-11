@@ -235,7 +235,7 @@ namespace nkentseu {
 		// Retourne l'index de l'item clique (et ferme le menu), -1 sinon. Se ferme au
 		// clic exterieur ou sur Echap. `enabled[i]` grise les items non applicables.
 		inline int32 NkCtxMenuDraw(NkGuiContext &ctx, NkCtxMenu &mn, const char *const *items, const bool *enabled,
-								   int32 count) {
+								   int32 count, int32 *hoveredOut = nullptr) {
 			if (!mn.open)
 				return -1;
 			NkGuiDrawList &dl = ctx.dlOverlay;
@@ -302,6 +302,8 @@ namespace nkentseu {
 				if (y + rowH >= inner.y && y <= inner.y + inner.h) { // row visible
 					const bool hov = m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h && m.y >= inner.y &&
 									 m.y < inner.y + inner.h;
+					if (hov && hoveredOut)
+						*hoveredOut = i; // sous-menus : l'appelant sait quel item est survolé
 					if (hov && enabled[i])
 						dl.AddRectFilled(r, NkColor{31, 111, 235, 110}, 4.f);
 					if (ctx.font && ctx.font->Valid())
