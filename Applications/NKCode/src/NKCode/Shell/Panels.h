@@ -1081,7 +1081,10 @@ namespace nkentseu {
 							mTabMenu.pos = m;
 							mTabMenuIdx = static_cast<int32>(i);
 						}
-						dl.AddRectFilled({tab.x + tabW - 1.f, tab.y, 1.f, h}, ctx.theme.border);
+						// Séparateur NET entre onglets (légèrement en retrait, bien visible).
+						dl.AddRectFilled(
+							{tab.x + tabW - 1.f, tab.y + 4.f, 1.f, h - 8.f},
+							NkColor{ctx.theme.textDisabled.r, ctx.theme.textDisabled.g, ctx.theme.textDisabled.b, 120});
 						x += tabW;
 					}
 					// ── Drag d'onglet : réordonne en LIVE quand la souris franchit un onglet voisin ──
@@ -1147,6 +1150,22 @@ namespace nkentseu {
 						const int32 act2 = NkCtxMenuDraw(ctx, mTabList, items2, en2, n2);
 						if (act2 >= 0 && act2 < static_cast<int32>(mS->files.Size()))
 							mS->active = act2;
+					}
+					// ── « Ouvrir dans le terminal » : choix du SHELL (défaut / PowerShell / CMD / Bash /
+					//    WSL-Ubuntu). WSL démarre dans le dossier demandé (wsl.exe traduit le cwd Windows). ──
+					if (mTermPick.open && !mTermPickDir.Empty()) {
+						const char *items3[5] = {NkT("term.shdefault"), "PowerShell", "CMD", "Bash", "WSL (Ubuntu)"};
+						const bool en3[5] = {true, true, true, true, true};
+						const int32 act3 = NkCtxMenuDraw(ctx, mTermPick, items3, en3, 5);
+						if (act3 >= 0) {
+							static const int32 kMap[5] = {-1, 0, 3, 2,
+														  1}; // -1 défaut, SH_PWSH, SH_CMD, SH_BASH, SH_WSL
+							mS->termOpenKind = kMap[act3];
+							mS->termOpenAt = mTermPickDir;
+							mTermPickDir = NkString();
+							if (mShell)
+								mShell->FocusPanel("Terminal");
+						}
 					}
 					// Tooltip : CHEMIN COMPLET après ~0,6 s de survol (désambiguïsation totale).
 					if (hovNow == mTabHovIdx && hovNow >= 0)
@@ -1219,10 +1238,11 @@ namespace nkentseu {
 								case 5:
 									RevealInExplorer(full);
 									break;
-								case 6: // Ouvrir dans le TERMINAL INTÉGRÉ (nouvel onglet au dossier du fichier)
-									mS->termOpenAt = mS->files[idx].path.GetParent().ToString();
-									if (mShell)
-										mShell->FocusPanel("Terminal");
+								case 6: // Ouvrir dans le TERMINAL INTÉGRÉ -> choix du SHELL d'abord
+									mTermPickDir = mS->files[idx].path.GetParent().ToString();
+									mTermPick.open = true;
+									mTermPick.pos = m;
+									ctx.input.mouseClicked[0] = false; // le clic de choix ne doit pas fuir
 									break;
 								case 7: // onglets multi-rangées (option, façon Visual Studio)
 									NkCodeTabRowsOn() = !NkCodeTabRowsOn();
@@ -1325,7 +1345,9 @@ namespace nkentseu {
 				int32 mMruPos = 0;
 				float32 mTabScroll = 0.f;  // défilement horizontal de la barre d'onglets
 				int32 mTabLastActive = -1; // auto-révélation de l'onglet actif
-				NkCtxMenu mTabList;		   // bouton ▾ : liste déroulante des fichiers ouverts
+				NkCtxMenu mTermPick;	   // « Ouvrir dans le terminal » : choix du shell
+				NkString mTermPickDir;
+				NkCtxMenu mTabList; // bouton ▾ : liste déroulante des fichiers ouverts
 				NkVector<NkString> mTabListLabels;
 				int32 mTabHovIdx = -1; // tooltip chemin complet (survol prolongé)
 				float32 mTabHovTime = 0.f;
@@ -1861,7 +1883,9 @@ namespace nkentseu {
 					// « Ouvrir dans le terminal » : NOUVEL onglet au dossier demandé (façon VSCode).
 					if (mState && !mState->termOpenAt.Empty()) {
 						EnsurePrefs();
-						AddTermKind(mDefShell, mDefDistro);
+						const int32 k2 = mState->termOpenKind >= 0 ? mState->termOpenKind : mDefShell;
+						AddTermKind(k2, k2 == SH_WSL ? mDefDistro : NkString());
+						mState->termOpenKind = -1;
 						mTerm[mActive].cwd = mState->termOpenAt;
 						mState->termOpenAt = NkString();
 					}

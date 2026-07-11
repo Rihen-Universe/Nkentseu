@@ -3279,11 +3279,12 @@ namespace nkentseu {
 				NkVector<WsHit> wsResults;
 				int32 wsScanned = 0, wsTotal = 0, wsFileCount = 0;
 				bool wsFocusReq = false;
-				int32 wsFocusField = 1; // 1 = champ Rechercher (Ctrl+Maj+F), 2 = champ Remplacer (Ctrl+Maj+H) //
-										// Ctrl+Maj+F -> le panneau prend le focus du champ
-				NkString termOpenAt;	// « Ouvrir dans le terminal » : dossier demandé (consommé par TerminalPanel)
-				NkString wsPrefill;		// sélection de l'éditeur préremplie dans le champ
-				NkString wsOpenFile;	// clic sur un résultat : consommé par ProcessWsOpen (poll)
+				int32 wsFocusField = 1;	 // 1 = champ Rechercher (Ctrl+Maj+F), 2 = champ Remplacer (Ctrl+Maj+H) //
+										 // Ctrl+Maj+F -> le panneau prend le focus du champ
+				NkString termOpenAt;	 // « Ouvrir dans le terminal » : dossier demandé (consommé par TerminalPanel)
+				int32 termOpenKind = -1; // shell demandé (-1 = défaut ; 0 pwsh, 1 wsl, 2 bash, 3 cmd)
+				NkString wsPrefill;		 // sélection de l'éditeur préremplie dans le champ
+				NkString wsOpenFile;	 // clic sur un résultat : consommé par ProcessWsOpen (poll)
 				int32 wsOpenLine = -1;
 
 				void StartWsFind(const NkString &q, bool cs, bool ww) {
