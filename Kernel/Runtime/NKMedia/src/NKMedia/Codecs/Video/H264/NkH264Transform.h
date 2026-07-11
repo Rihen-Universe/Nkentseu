@@ -34,6 +34,13 @@ namespace nkentseu {
 				static void QuantDC(const int32 dc[16], int32 lvl[16], int32 n, int32 qp, bool intra);
 				static void DequantDC(const int32 lvl[16], int32 dc[16], int32 n, int32 qp);
 
+				// Chroma 4:2:0 : transformée DC 2×2 (Hadamard, directe = inverse), quant/dequant DC chroma
+				// (échelle spec 8.5.11 : facteur ×16, décalage >>5), et table de QP chroma (qPi → QPc).
+				static void Hadamard2x2(const int32 in[4], int32 out[4]);
+				static void QuantChromaDC(const int32 f[4], int32 lvl[4], int32 qp, bool intra);
+				static void DequantChromaDC(const int32 g[4], int32 dc[4], int32 qp);
+				static int32 ChromaQp(int32 lumaQp);
+
 				static bool SelfTest();
 		};
 
