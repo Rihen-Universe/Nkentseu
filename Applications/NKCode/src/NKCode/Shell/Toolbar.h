@@ -55,12 +55,18 @@ namespace nkentseu {
 			s->TickMru();				   // MRU des onglets (Ctrl+Tab) : enregistre l'onglet actif
 			s->ProcessNavigation();
 			s->PollNav();
-			if (s->HasActive() && s->files[s->active].doc.renGo) { // F2 : scan puis remplacement en chaine
+			if (s->HasActive() && s->files[s->active].doc.renGo) { // F2 : rename (clangd si pret, sinon textuel)
 				NkCodeDoc &rd = s->files[s->active].doc;
 				rd.renGo = false;
-				s->wsRenameTo = NkString(rd.renBuf);
-				s->wsRenamePending = true;
-				s->StartWsFind(rd.renWord, true, true); // casse stricte + mot entier
+				if (s->lspState == 1 && s->lsp.Ready() && rd.renLine >= 0) { // SEMANTIQUE (WorkspaceEdit)
+					s->lsp.ReqRename(s->files[s->active].path.ToString(), rd.renLine, rd.renCol, NkString(rd.renBuf));
+					rd.renLine = -1;
+					s->status = NkString("Renommage (clangd)…");
+				} else {
+					s->wsRenameTo = NkString(rd.renBuf);
+					s->wsRenamePending = true;
+					s->StartWsFind(rd.renWord, true, true); // casse stricte + mot entier (textuel)
+				}
 			}
 			s->PollWsFind(); // recherche workspace (Ctrl+Maj+F)
 			s->ProcessWsOpen();
