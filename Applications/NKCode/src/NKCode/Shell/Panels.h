@@ -476,6 +476,34 @@ namespace nkentseu {
 
 				void OnUI(NkEditorFrameContext &ec) override {
 					auto &ctx = ec.Ui();
+					// FOCUS CLAVIER GLOBAL : quand l'EXPLORATEUR a le focus-clic, l'éditeur
+					// ignore le CLAVIER (sinon Ctrl+D/Suppr/Entrée tireraient des DEUX côtés
+					// à la fois). La souris reste active ; un clic DANS l'éditeur reprend le
+					// clavier. RAII : l'input est restauré à toute sortie de OnUI.
+					struct KbShield {
+							NkGuiContext *c = nullptr;
+							NkGuiInput saved;
+							~KbShield() {
+								if (c)
+									c->input = saved;
+							}
+					} kb;
+					if (mS->explorerFocus) {
+						if (ctx.input.mouseClicked[0] &&
+							NkGuiRectContains(ctx.DL().CurrentClip(), ctx.input.mousePos))
+							mS->explorerFocus = false; // clic dans l'éditeur : reprend le clavier
+						else {
+							kb.c = &ctx;
+							kb.saved = ctx.input;
+							ctx.input.charCount = 0;
+							for (int32 k = 0; k < NkGuiInput::KeyCount; ++k) {
+								ctx.input.keyDown[k] = false;
+								ctx.input.keyInit[k] = false;
+							}
+							ctx.input.wantCopy = ctx.input.wantCut = ctx.input.wantPaste = false;
+							ctx.input.wantSelectAll = false;
+						}
+					}
 					if (mS->files.Empty()) {
 						if (mShell)
 							mShell->SetFooter("NKCode", "Jenga");

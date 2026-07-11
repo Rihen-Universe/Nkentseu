@@ -3284,6 +3284,9 @@ namespace nkentseu {
 				NkString termOpenAt;	 // « Ouvrir dans le terminal » : dossier demandé (consommé par TerminalPanel)
 				NkString termOpenCmd;	 // commande a executer DANS le nouvel onglet (ex. « claude », « codex »)
 				int32 termOpenKind = -1; // shell demandé (-1 = défaut ; 0 pwsh, 1 wsl, 2 bash, 3 cmd)
+				// FOCUS CLAVIER GLOBAL : l'EXPLORATEUR a le focus-clic -> l'éditeur ignore
+				// le clavier (sinon Ctrl+D/Suppr/Entrée tireraient des DEUX côtés).
+				bool explorerFocus = false;
 				NkString wsPrefill;		 // sélection de l'éditeur préremplie dans le champ
 				NkString wsOpenFile;	 // clic sur un résultat : consommé par ProcessWsOpen (poll)
 				int32 wsOpenLine = -1;
