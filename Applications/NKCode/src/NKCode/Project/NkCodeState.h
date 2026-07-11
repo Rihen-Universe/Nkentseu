@@ -3279,10 +3279,12 @@ namespace nkentseu {
 				NkVector<WsHit> wsResults;
 				int32 wsScanned = 0, wsTotal = 0, wsFileCount = 0;
 				bool wsFocusReq = false;
-				int32 wsFocusField = 1; // 1 = champ Rechercher (Ctrl+Maj+F), 2 = champ Remplacer (Ctrl+Maj+H) //
-										// Ctrl+Maj+F -> le panneau prend le focus du champ
-				NkString wsPrefill;		// sélection de l'éditeur préremplie dans le champ
-				NkString wsOpenFile;	// clic sur un résultat : consommé par ProcessWsOpen (poll)
+				int32 wsFocusField = 1;	 // 1 = champ Rechercher (Ctrl+Maj+F), 2 = champ Remplacer (Ctrl+Maj+H) //
+										 // Ctrl+Maj+F -> le panneau prend le focus du champ
+				NkString termOpenAt;	 // « Ouvrir dans le terminal » : dossier demandé (consommé par TerminalPanel)
+				int32 termOpenKind = -1; // shell demandé (-1 = défaut ; 0 pwsh, 1 wsl, 2 bash, 3 cmd)
+				NkString wsPrefill;		 // sélection de l'éditeur préremplie dans le champ
+				NkString wsOpenFile;	 // clic sur un résultat : consommé par ProcessWsOpen (poll)
 				int32 wsOpenLine = -1;
 
 				void StartWsFind(const NkString &q, bool cs, bool ww) {
@@ -3579,6 +3581,8 @@ namespace nkentseu {
 					int64 h = static_cast<int64>(1469598103934665603ULL);
 					auto mix = [&](int64 v) { h = (h ^ static_cast<uint64>(v)) * 1099511628211LL; };
 					mix(active);
+					mix(NkCodeTabRowsOn() ? 3 : 0); // toggles UI -> re-sauve la session
+					mix(NkCodeMinimapOn() ? 5 : 0);
 					mix(static_cast<int64>(files.Size()));
 					for (usize i = 0; i < files.Size(); ++i) {
 						OpenFile &f = files[i];
@@ -3599,6 +3603,11 @@ namespace nkentseu {
 					NkPath dir = root / ".nkcode";
 					NkDirectory::CreateRecursive(dir);
 					NkString s = NkString("nksession/2\nactive ") + IntToStr(active).CStr() + "\n";
+					s += "ui ";
+					s += IntToStr(NkCodeTabRowsOn() ? 1 : 0).CStr(); // préférences UI par workspace
+					s += " ";
+					s += IntToStr(NkCodeMinimapOn() ? 1 : 0).CStr();
+					s += "\n";
 					for (usize i = 0; i < files.Size(); ++i) {
 						OpenFile &f = files[i];
 						const int32 dy = f.doc.dirty ? 1 : 0;
@@ -3670,7 +3679,11 @@ namespace nkentseu {
 								ver = nextField(q);
 							}
 						} // "nksession/N"
-						else if (line[0] == 'a' && line[1] == 'c') {
+						else if (line[0] == 'u' && line[1] == 'i') { // préférences UI (multi-rangées, minimap)
+							const char *q = line + 2;
+							NkCodeTabRowsOn() = nextField(q) != 0;
+							NkCodeMinimapOn() = nextField(q) != 0;
+						} else if (line[0] == 'a' && line[1] == 'c') {
 							const char *q = line + 6;
 							savedActive = nextField(q);
 						} else if (line[0] == 'F' && line[1] == ' ') {
@@ -3718,6 +3731,7 @@ namespace nkentseu {
 					active = (savedActive >= 0 && savedActive < static_cast<int32>(files.Size()))
 								 ? savedActive
 								 : (files.Empty() ? -1 : 0);
+					NormalizePins(); // sessions anciennes : les épinglés rejoignent la tête
 				}
 
 				// ── Surveillance des fichiers OUVERTS : suppression / modification EXTERNE (hors NKCode). ──
@@ -3979,6 +3993,20 @@ namespace nkentseu {
 					const int32 n = static_cast<int32>(files.Size());
 					if (from < 0 || to < 0 || from >= n || to >= n || from == to)
 						return;
+					// VSCode : un épinglé RESTE dans le bloc de tête, un normal n'y entre pas (drag contraint).
+					{
+						int32 nPin = 0;
+						for (usize k = 0; k < files.Size(); ++k)
+							if (files[k].pinned)
+								++nPin;
+						if (files[from].pinned) {
+							if (to >= nPin)
+								to = nPin - 1;
+						} else if (to < nPin)
+							to = nPin;
+						if (to == from)
+							return;
+					}
 					const NkString act = HasActive() ? files[active].path.ToString() : NkString();
 					while (from < to) {
 						OpenFile tmp = files[from];
@@ -4009,9 +4037,37 @@ namespace nkentseu {
 				}
 
 				// ── Actions d'onglets (menu contextuel de la barre d'onglets) ──
+				// VSCode : les onglets ÉPINGLÉS vivent en TÊTE de barre (ordre relatif préservé).
+				void NormalizePins() {
+					const NkString act2 = HasActive() ? files[active].path.ToString() : NkString();
+					for (int32 i = 1; i < static_cast<int32>(files.Size()); ++i) {
+						if (!files[i].pinned)
+							continue;
+						int32 j = i;
+						while (j > 0 && !files[j - 1].pinned) { // remonte l'épinglé jusqu'au bloc de tête
+							OpenFile tmp = files[j];
+							files[j] = files[j - 1];
+							files[j - 1] = tmp;
+							--j;
+						}
+					}
+					if (!act2.Empty())
+						SyncActiveTo(act2);
+				}
+
 				void TogglePin(int32 i) {
-					if (i >= 0 && i < static_cast<int32>(files.Size()))
-						files[i].pinned = !files[i].pinned;
+					if (i < 0 || i >= static_cast<int32>(files.Size()))
+						return;
+					files[i].pinned = !files[i].pinned;
+					if (files[i].pinned)
+						NormalizePins(); // épinglé -> rejoint le bloc de tête
+					else {				 // désépinglé -> se place juste APRÈS le bloc des épinglés
+						int32 nPin = 0;
+						for (usize k = 0; k < files.Size(); ++k)
+							if (files[k].pinned)
+								++nPin;
+						MoveTab(i, nPin);
+					}
 				}
 
 				// Ferme tous les onglets SAUF `keep` (et sauf les epingles). `keep` reste actif.

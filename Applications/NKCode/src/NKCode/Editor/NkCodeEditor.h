@@ -1989,6 +1989,12 @@ namespace nkentseu {
 			return *a == *b;
 		}
 
+		// Onglets sur PLUSIEURS RANGEES (option facon Visual Studio) — menu d'onglet + palette.
+		inline bool &NkCodeTabRowsOn() {
+			static bool v = false;
+			return v;
+		}
+
 		inline bool &NkCodeMinimapOn() {
 			static bool v = true;
 			return v;
@@ -4454,6 +4460,13 @@ namespace nkentseu {
 					if (d.breakpoints[i] >= 0 && d.breakpoints[i] < d.LineCount())
 						dl.AddRectFilled({vTrack.x + 1.f, markY(d.breakpoints[i]), sbW - 2.f, 2.f},
 										 NkColor{229, 74, 68, 255}); // breakpoints (rouge vif)
+			}
+			// (diagnostic) clic sur la bande H -> trace l'état dans OUTPUT (le drag doit suivre).
+			if (ctx.input.mouseClicked[0] && InRect(hTrack, mouse)) {
+				char hb2[96];
+				std::snprintf(hb2, sizeof(hb2), "[ui] barre H : clic (maxScrollX=%.0f, wrap=%d)", maxScrollX,
+							  d.wrapOn ? 1 : 0);
+				GlobalLogBuffer().Push(NkString(hb2));
 			}
 			// ── Barre HORIZONTALE : fleche gauche + piste (pouce) + fleche droite ──
 			{

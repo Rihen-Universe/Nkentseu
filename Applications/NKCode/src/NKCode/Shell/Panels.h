@@ -965,11 +965,35 @@ namespace nkentseu {
 						tabWs.PushBack((mS->files[i].pinned ? 13.f : 0.f) + nw2 + 14.f + 16.f + 6.f);
 						totalW += tabWs[i];
 					}
-					if (m.y >= y0 && m.y < y0 + h && m.x >= x0 && m.x < x0 + viewTabsW && ctx.input.wheel != 0.f) {
+					// ── MULTI-RANGEES (option) : les onglets s'enroulent sur N lignes, pas de scroll. ──
+					const bool multiRow = NkCodeTabRowsOn();
+					NkVector<float32> tabX, tabY;
+					int32 rowsN = 1;
+					if (multiRow) {
+						mTabScroll = 0.f;
+						float32 cx2 = x0, cy2 = y0;
+						for (usize i = 0; i < tabWs.Size(); ++i) {
+							const float32 limit =
+								(cy2 <= y0 + 0.5f) ? x0 + viewTabsW : x0 + fullW; // rangée 1 : boutons
+							if (cx2 + tabWs[i] > limit && cx2 > x0 + 0.5f) {
+								cx2 = x0;
+								cy2 += h;
+							}
+							tabX.PushBack(cx2);
+							tabY.PushBack(cy2);
+							cx2 += tabWs[i];
+						}
+						rowsN = static_cast<int32>((tabY.Empty() ? 0.f : tabY[tabY.Size() - 1] - y0) / h) + 1;
+						if (rowsN > 1) // fond des rangées supplémentaires
+							dl.AddRectFilled({x0, y0 + h, fullW, h * (rowsN - 1)}, ctx.theme.tabBar);
+					}
+					const float32 barH2 = h * rowsN;
+					if (!multiRow && m.y >= y0 && m.y < y0 + h && m.x >= x0 && m.x < x0 + viewTabsW &&
+						ctx.input.wheel != 0.f) {
 						mTabScroll -= ctx.input.wheel * 48.f; // molette sur la barre = défilement (consommée)
 						ctx.input.wheel = 0.f;
 					}
-					if (mS->active != mTabLastActive && mS->active >= 0 &&
+					if (!multiRow && mS->active != mTabLastActive && mS->active >= 0 &&
 						mS->active < static_cast<int32>(tabWs.Size())) {
 						mTabLastActive = mS->active; // révèle l'onglet actif quand il change
 						float32 ax = 0.f;
@@ -991,7 +1015,10 @@ namespace nkentseu {
 					const bool overTabMenus = (mTabMenu.open && detail::InRect(mTabMenu.rect, m)) ||
 											  (mTabList.open && detail::InRect(mTabList.rect, m));
 					int32 hovNow = -1;
-					dl.PushClipRect({x0, y0, viewTabsW, h}, true);
+					if (multiRow)
+						dl.PushClipRect({x0, y0, fullW, barH2}, true);
+					else
+						dl.PushClipRect({x0, y0, viewTabsW, h}, true);
 					x = x0 - mTabScroll;
 					for (usize i = 0; i < mS->files.Size(); ++i) {
 						OpenFile &f = mS->files[i];
@@ -1000,27 +1027,27 @@ namespace nkentseu {
 						const float32 pinW = f.pinned ? 13.f : 0.f; // icône épingle en tête
 						const float32 tabW = tabWs[i];
 						const float32 nameW = tabW - pinW - 14.f - dotW - 6.f;
-						const NkRect tab = {x, y0, tabW, h};
+						const NkRect tab = {multiRow ? tabX[i] : x, multiRow ? tabY[i] : y0, tabW, h};
 						const bool active = (static_cast<int32>(i) == mS->active);
 						const bool hov = m.x >= tab.x && m.x < tab.x + tab.w && m.y >= tab.y && m.y < tab.y + tab.h &&
-										 m.x < x0 + viewTabsW && !overTabMenus; // zone visible + pas sous un menu
+										 (multiRow || m.x < x0 + viewTabsW) && !overTabMenus;
 						if (hov)
 							hovNow = static_cast<int32>(i);
 						dl.AddRectFilled(tab,
 										 active ? ctx.theme.tabActive : (hov ? ctx.theme.tabHover : ctx.theme.tab));
 						if (active)
-							dl.AddRectFilled({tab.x, y0 + h - 2.f, tab.w, 2.f}, ctx.theme.accent);
+							dl.AddRectFilled({tab.x, tab.y + h - 2.f, tab.w, 2.f}, ctx.theme.accent);
 						float32 tx = tab.x + 8.f;
 						if (f.pinned) {
-							DrawPin(dl, {tx, y0 + h * 0.5f}, active ? ctx.theme.accent : ctx.theme.textDisabled);
+							DrawPin(dl, {tx, tab.y + h * 0.5f}, active ? ctx.theme.accent : ctx.theme.textDisabled);
 							tx += pinW;
 						}
 						if (ctx.font && ctx.font->Valid())
 							dl.AddText(ctx.font->Face(), ctx.font->TexId(),
-									   {tx, y0 + (h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()}, nm.CStr(),
-									   active ? ctx.theme.text : ctx.theme.textDisabled, nameW);
+									   {tx, tab.y + (h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()},
+									   nm.CStr(), active ? ctx.theme.text : ctx.theme.textDisabled, nameW);
 						// Zone droite : épingle -> pas de X ; sinon point "modifié" (si dirty non survolé) sinon X.
-						const NkRect cl = {tab.x + tabW - dotW - 5.f, y0 + (h - dotW) * 0.5f, dotW, dotW};
+						const NkRect cl = {tab.x + tabW - dotW - 5.f, tab.y + (h - dotW) * 0.5f, dotW, dotW};
 						const bool clHov = m.x >= cl.x && m.x < cl.x + cl.w && m.y >= cl.y && m.y < cl.y + cl.h;
 						if (f.pinned) {
 							if (f.doc.dirty)
@@ -1054,7 +1081,10 @@ namespace nkentseu {
 							mTabMenu.pos = m;
 							mTabMenuIdx = static_cast<int32>(i);
 						}
-						dl.AddRectFilled({tab.x + tabW - 1.f, y0, 1.f, h}, ctx.theme.border);
+						// Séparateur NET entre onglets (légèrement en retrait, bien visible).
+						dl.AddRectFilled(
+							{tab.x + tabW - 1.f, tab.y + 4.f, 1.f, h - 8.f},
+							NkColor{ctx.theme.textDisabled.r, ctx.theme.textDisabled.g, ctx.theme.textDisabled.b, 120});
 						x += tabW;
 					}
 					// ── Drag d'onglet : réordonne en LIVE quand la souris franchit un onglet voisin ──
@@ -1068,7 +1098,9 @@ namespace nkentseu {
 								int32 tgt = mDragTab;
 								for (int32 j = 0; j < static_cast<int32>(tabRects.Size()); ++j)
 									if (m.x >= tabRects[static_cast<usize>(j)].x &&
-										m.x < tabRects[static_cast<usize>(j)].x + tabRects[static_cast<usize>(j)].w)
+										m.x < tabRects[static_cast<usize>(j)].x + tabRects[static_cast<usize>(j)].w &&
+										m.y >= tabRects[static_cast<usize>(j)].y && // multi-rangées : la BONNE ligne
+										m.y < tabRects[static_cast<usize>(j)].y + tabRects[static_cast<usize>(j)].h)
 										tgt = j;
 								if (tgt != mDragTab) {
 									mS->MoveTab(mDragTab, tgt);
@@ -1119,6 +1151,23 @@ namespace nkentseu {
 						if (act2 >= 0 && act2 < static_cast<int32>(mS->files.Size()))
 							mS->active = act2;
 					}
+					// ── « Ouvrir dans le terminal » : choix du SHELL (défaut / PowerShell / CMD / Bash /
+					//    WSL-Ubuntu). WSL démarre dans le dossier demandé (wsl.exe traduit le cwd Windows). ──
+					if (mTermPick.open && !mTermPickDir.Empty()) {
+						const char *items3[5] = {NkT("term.shdefault"), "PowerShell", "CMD", "Bash", "WSL (Ubuntu)"};
+						const bool en3[5] = {true, true, true, true, true};
+						const int32 act3 = NkCtxMenuDraw(ctx, mTermPick, items3, en3, 5);
+						if (act3 >= 0) {
+							static const int32 kMap[5] = {-1, 0, 3, 2,
+														  1}; // -1 défaut, SH_PWSH, SH_CMD, SH_BASH, SH_WSL
+							mS->termOpenKind = kMap[act3];
+							mS->termOpenAt = mTermPickDir;
+							mTermPickDir = NkString();
+							mTabMenu.open = false; // choix fait : referme le menu principal aussi
+							if (mShell)
+								mShell->FocusPanel("Terminal");
+						}
+					}
 					// Tooltip : CHEMIN COMPLET après ~0,6 s de survol (désambiguïsation totale).
 					if (hovNow == mTabHovIdx && hovNow >= 0)
 						mTabHovTime += ctx.input.dt;
@@ -1134,7 +1183,7 @@ namespace nkentseu {
 							float32 tx2 = m.x + 10.f;
 							if (tx2 + tw2 > static_cast<float32>(ctx.viewW))
 								tx2 = static_cast<float32>(ctx.viewW) - tw2;
-							const NkRect tt = {tx2, y0 + h + 3.f, tw2, ctx.font->LineHeight() + 8.f};
+							const NkRect tt = {tx2, y0 + barH2 + 3.f, tw2, ctx.font->LineHeight() + 8.f};
 							ctx.dlOverlay.AddRectFilled(tt, NkColor{32, 38, 46, 250}, 4.f);
 							ctx.dlOverlay.AddRect(tt, NkColor{60, 66, 74, 255}, 1.f);
 							ctx.dlOverlay.AddText(ctx.font->Face(), ctx.font->TexId(),
@@ -1161,12 +1210,31 @@ namespace nkentseu {
 					// ── Menu contextuel de l'onglet (clic droit) ──
 					if (mTabMenu.open && mTabMenuIdx >= 0 && mTabMenuIdx < static_cast<int32>(mS->files.Size())) {
 						OpenFile &tf = mS->files[mTabMenuIdx];
-						const char *items[7] = {NkT("tab.close"),	   NkT("tab.closeothers"),
+						const char *items[8] = {NkT("tab.close"),	   NkT("tab.closeothers"),
 												NkT("tab.closeright"), tf.pinned ? NkT("tab.unpin") : NkT("tab.pin"),
 												NkT("tab.copypath"),   NkT("ctx.reveal"),
-												NkT("ctx.openterm")};
-						const bool en[7] = {!tf.pinned, true, true, true, true, true, true};
-						const int32 act = NkCtxMenuDraw(ctx, mTabMenu, items, en, 7);
+												NkT("ctx.openterm"),   NkT("tab.multirow")};
+						const bool en[8] = {!tf.pinned, true, true, true, true, true, true, true};
+						int32 tabMenuHov = -1;
+						static const bool kSub[8] = {false, false, false, false,
+													 false, false, true,  false}; // ▸ sur « Ouvrir dans le terminal »
+						const int32 act = NkCtxMenuDraw(ctx, mTabMenu, items, en, 8, &tabMenuHov, kSub);
+						// SOUS-MENU « Ouvrir dans le terminal » : s'ouvre au SURVOL de l'item, à sa droite.
+						if (mTabMenu.open && tabMenuHov == 6 && ctx.font && ctx.font->Valid()) {
+							const float32 rowH2 = ctx.font->LineHeight() + 8.f;
+							mTermPickDir = mS->files[mTabMenuIdx].path.GetParent().ToString();
+							mTermPick.open = true;
+							mTermPick.pos = {mTabMenu.rect.x + mTabMenu.rect.w - 2.f,
+											 mTabMenu.rect.y + 4.f + 6.f * rowH2 - mTabMenu.sy};
+						}
+						// referme le sous-menu si on survole un AUTRE item ou qu'on quitte les deux boîtes
+						if (mTermPick.open) {
+							const bool overPick = detail::InRect({mTermPick.rect.x - 10.f, mTermPick.rect.y - 10.f,
+																  mTermPick.rect.w + 20.f, mTermPick.rect.h + 20.f},
+																 m);
+							if ((tabMenuHov >= 0 && tabMenuHov != 6 && !overPick) || (!mTabMenu.open && !overPick))
+								mTermPick.open = false;
+						}
 						if (act >= 0) {
 							const int32 idx = mTabMenuIdx;
 							const NkString full = mS->files[idx].path.ToString();
@@ -1190,8 +1258,16 @@ namespace nkentseu {
 								case 5:
 									RevealInExplorer(full);
 									break;
-								case 6:
-									NkCodeShellRunTermAt(mS->files[idx].path.GetParent().ToString());
+								case 6: // Ouvrir dans le TERMINAL INTÉGRÉ : le SOUS-MENU (survol) choisit le shell ;
+									// un clic direct = shell PAR DÉFAUT immédiatement.
+									mS->termOpenKind = -1;
+									mS->termOpenAt = mS->files[idx].path.GetParent().ToString();
+									mTermPick.open = false;
+									if (mShell)
+										mShell->FocusPanel("Terminal");
+									break;
+								case 7: // onglets multi-rangées (option, façon Visual Studio)
+									NkCodeTabRowsOn() = !NkCodeTabRowsOn();
 									break;
 							}
 							mTabMenuIdx = -1;
@@ -1201,7 +1277,7 @@ namespace nkentseu {
 
 					// Avance le curseur de layout SOUS le bandeau (l'editeur suit dessous).
 					ctx.layout.cursor.x = x0;
-					ctx.layout.cursor.y = y0 + h;
+					ctx.layout.cursor.y = y0 + barH2;
 					ctx.layout.lineStartX = x0;
 					ctx.layout.curLineH = 0.f;
 					if (toClose >= 0)
@@ -1291,7 +1367,9 @@ namespace nkentseu {
 				int32 mMruPos = 0;
 				float32 mTabScroll = 0.f;  // défilement horizontal de la barre d'onglets
 				int32 mTabLastActive = -1; // auto-révélation de l'onglet actif
-				NkCtxMenu mTabList;		   // bouton ▾ : liste déroulante des fichiers ouverts
+				NkCtxMenu mTermPick;	   // « Ouvrir dans le terminal » : choix du shell
+				NkString mTermPickDir;
+				NkCtxMenu mTabList; // bouton ▾ : liste déroulante des fichiers ouverts
 				NkVector<NkString> mTabListLabels;
 				int32 mTabHovIdx = -1; // tooltip chemin complet (survol prolongé)
 				float32 mTabHovTime = 0.f;
@@ -1824,6 +1902,15 @@ namespace nkentseu {
 						EnsurePrefs();
 						AddTermKind(mDefShell, mDefDistro); // shell par defaut (preference persistee)
 					}
+					// « Ouvrir dans le terminal » : NOUVEL onglet au dossier demandé (façon VSCode).
+					if (mState && !mState->termOpenAt.Empty()) {
+						EnsurePrefs();
+						const int32 k2 = mState->termOpenKind >= 0 ? mState->termOpenKind : mDefShell;
+						AddTermKind(k2, k2 == SH_WSL ? mDefDistro : NkString());
+						mState->termOpenKind = -1;
+						mTerm[mActive].cwd = mState->termOpenAt;
+						mState->termOpenAt = NkString();
+					}
 					if (!mTerm[mActive].alive)
 						mActive = FirstAlive();
 					Term &t = mTerm[mActive];
@@ -1976,6 +2063,7 @@ namespace nkentseu {
 
 			private:
 				struct Term {
+						NkString cwd;  // dossier de démarrage (vide = racine du workspace)
 						NkPty pty;	   // shell interactif (ConPTY)
 						NkTerm screen; // emulateur VT (grille de cellules)
 						int32 shell = SH_PWSH;
@@ -2004,9 +2092,10 @@ namespace nkentseu {
 																					? mState->root.ToString()
 																					: NkString("(cwd exe)")));
 					t.pty.Start(PtyCommand(t.shell, t.distro), t.screen.Cols(), t.screen.Rows(),
-								(mState && mState->HasWorkspace() && !mState->root.ToString().Empty())
-									? mState->root.ToString()
-									: NkString());
+								!t.cwd.Empty() ? t.cwd // « Ouvrir dans le terminal » : dossier demandé
+											   : ((mState && mState->HasWorkspace() && !mState->root.ToString().Empty())
+													  ? mState->root.ToString()
+													  : NkString()));
 				}
 
 				// Programme reel a lancer pour chaque type de shell.
@@ -2451,6 +2540,7 @@ namespace nkentseu {
 							mTerm[i].label = sd.label;
 							mTerm[i].scrollY = 0.f;
 							mTerm[i].follow = true;
+							mTerm[i].cwd = NkString();
 							mTerm[i].sAL = mTerm[i].sAC = mTerm[i].sBL = mTerm[i].sBC = 0;
 							mTerm[i].dragging = false;
 							mActive = i;
@@ -2517,12 +2607,24 @@ namespace nkentseu {
 				// récupérés dans mShells ; le combo du « + » reflète ce choix.
 				void AddTermKind(int32 kind, const NkString &distro) {
 					EnsureBaseShells();
-					int32 idx = 0;
+					if (kind == SH_WSL)
+						DetectWslDistros(); // les entrées WSL n'existent qu'après détection
+					int32 idx = -1;
 					for (int32 i = 0; i < static_cast<int32>(mShells.Size()); ++i)
 						if (mShells[i].kind == kind && StrEq(mShells[i].distro.CStr(), distro.CStr())) {
 							idx = i;
 							break;
 						}
+					if (idx < 0 && distro.Empty()) // distro non précisée : premier shell du même TYPE
+						for (int32 i = 0; i < static_cast<int32>(mShells.Size()); ++i)
+							if (mShells[i].kind == kind) {
+								idx = i;
+								break;
+							}
+					if (idx < 0) { // toujours rien (ex. WSL sans distro détectée) : crée l'entrée demandée
+						mShells.PushBack(ShellDef{kind, kind == SH_WSL ? "wsl" : "shell", distro});
+						idx = static_cast<int32>(mShells.Size()) - 1;
+					}
 					mNewShell = idx;
 					AddTerm(idx);
 				}

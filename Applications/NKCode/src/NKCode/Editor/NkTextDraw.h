@@ -235,7 +235,7 @@ namespace nkentseu {
 		// Retourne l'index de l'item clique (et ferme le menu), -1 sinon. Se ferme au
 		// clic exterieur ou sur Echap. `enabled[i]` grise les items non applicables.
 		inline int32 NkCtxMenuDraw(NkGuiContext &ctx, NkCtxMenu &mn, const char *const *items, const bool *enabled,
-								   int32 count) {
+								   int32 count, int32 *hoveredOut = nullptr, const bool *hasSub = nullptr) {
 			if (!mn.open)
 				return -1;
 			NkGuiDrawList &dl = ctx.dlOverlay;
@@ -246,7 +246,8 @@ namespace nkentseu {
 			float32 wIdeal = 168.f;
 			if (ctx.font && ctx.font->Valid())
 				for (int32 i = 0; i < count; ++i) {
-					const float32 tw = ctx.font->MeasureWidth(items[i]) + pad * 2.f + 10.f;
+					const float32 tw = ctx.font->MeasureWidth(items[i]) + pad * 2.f + 10.f +
+									   ((hasSub && hasSub[i]) ? 16.f : 0.f); // place de la flèche ▸
 					if (tw > wIdeal)
 						wIdeal = tw;
 				}
@@ -302,12 +303,19 @@ namespace nkentseu {
 				if (y + rowH >= inner.y && y <= inner.y + inner.h) { // row visible
 					const bool hov = m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h && m.y >= inner.y &&
 									 m.y < inner.y + inner.h;
+					if (hov && hoveredOut)
+						*hoveredOut = i; // sous-menus : l'appelant sait quel item est survolé
 					if (hov && enabled[i])
 						dl.AddRectFilled(r, NkColor{31, 111, 235, 110}, 4.f);
 					if (ctx.font && ctx.font->Valid())
 						dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 								   {r.x + pad - mn.sx, y + (rowH - lh) * 0.5f + ctx.font->Ascent()}, items[i],
 								   enabled[i] ? NkColor{223, 223, 223, 255} : NkColor{110, 118, 129, 255});
+					if (hasSub && hasSub[i]) { // indicateur de SOUS-MENU : petite flèche ▸ à droite
+						const float32 ax = r.x + r.w - 11.f, ay = y + rowH * 0.5f;
+						dl.AddTriangleFilled({ax - 3.f, ay - 4.f}, {ax - 3.f, ay + 4.f}, {ax + 3.f, ay},
+											 enabled[i] ? NkColor{200, 205, 212, 230} : NkColor{110, 118, 129, 200});
+					}
 					if (hov && enabled[i] && ctx.input.mouseClicked[0])
 						clicked = i;
 				}
