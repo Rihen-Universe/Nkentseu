@@ -1496,6 +1496,16 @@ namespace nkentseu {
 		}
 
 		// --------------------------------------------------------------------------
+		void NkH264Encoder::SetAudioTrack(int32 sampleRate, int32 channels) {
+			if (mMp4)
+				mMp4Writer.SetAudio(sampleRate, channels);
+		}
+
+		void NkH264Encoder::WriteAudioPcm(const int16 *interleaved, uint32 frames) {
+			if (mMp4)
+				mMp4Writer.AppendAudioPcm(interleaved, frames);
+		}
+
 		bool NkH264Encoder::EnableReconDump(const char *path) {
 			const uint32 mode =
 				(uint32)NkFileMode::NK_WRITE | (uint32)NkFileMode::NK_BINARY | (uint32)NkFileMode::NK_TRUNCATE;
