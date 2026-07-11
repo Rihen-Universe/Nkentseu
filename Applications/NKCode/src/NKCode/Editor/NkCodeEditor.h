@@ -147,6 +147,8 @@ namespace nkentseu {
 				NkVector<NkString> qfPay;
 				int32 qfEmptyTick = -100000;		   // Ctrl+. sans action -> message au footer (~2 s)
 				int32 chordK = -100000;				   // tick du dernier Ctrl+K (chords Ctrl+K 0/J/I)
+				int32 linkLine = -1, linkCol = -1;	   // position de la cible F12/Ctrl+clic (requete LSP)
+				int32 refsLine = -1, refsCol = -1;	   // position de la cible Maj+F12
 				NkString refsTarget;				   // symbole dont on veut les REFERENCES (consomme par l etat)
 				NkString hovSym;					   // symbole demande
 				int32 hovLine = -1, hovCol = -1;	   // position du mot (resolution contextuelle)
@@ -2325,6 +2327,8 @@ namespace nkentseu {
 				for (int32 k = linkC0; k < linkC1; ++k)
 					tgt += L[k];
 				d.linkTarget = tgt;
+				d.linkLine = linkL;
+				d.linkCol = linkC0;
 				d.linkIsInclude = linkInc;
 				NkCodeFocusId() = id;
 			}
@@ -2519,6 +2523,8 @@ namespace nkentseu {
 				}
 				if (InRect(d.hovActRect, mouse) && !d.hovSym.Empty()) {
 					d.linkTarget = d.hovSym;
+					d.linkLine = d.hovLine;
+					d.linkCol = d.hovCol;
 					d.linkIsInclude = false;
 					d.hovShow = false;
 					d.hovRect = {0.f, 0.f, 0.f, 0.f};
@@ -2526,6 +2532,8 @@ namespace nkentseu {
 				}
 				if (InRect(d.hovRefsRect, mouse) && !d.hovSym.Empty()) { // [References] -> liste workspace
 					d.refsTarget = d.hovSym;
+					d.refsLine = d.hovLine;
+					d.refsCol = d.hovCol;
 					d.hovShow = false;
 					d.hovRect = {0.f, 0.f, 0.f, 0.f};
 					NkCodeFocusId() = id;
@@ -3134,10 +3142,14 @@ namespace nkentseu {
 							NkString sym;
 							for (int32 k = ws; k < we; ++k)
 								sym += L[k];
-							if (shift)
+							if (shift) {
 								d.refsTarget = sym; // consomme par l etat -> liste des references
-							else {
+								d.refsLine = d.curLine;
+								d.refsCol = ws;
+							} else {
 								d.linkTarget = sym; // pipeline go-to-def existant (Ctrl+clic)
+								d.linkLine = d.curLine;
+								d.linkCol = ws;
 								d.linkIsInclude = false;
 							}
 						}
@@ -3208,10 +3220,11 @@ namespace nkentseu {
 										continue;
 									const char *m = d.diags[i].msg.CStr();
 									const char *dy = NkFindSub(m, "did you mean '");
-									const char *ex = NkFindSub(m, "expected '");
+									const char *ex =
+										NkFindSub(m, "xpected '"); // clang « expected » / clangd « Expected »
 									char tok[3] = {0, 0, 0};
 									if (ex) { // token attendu (1-2 caracteres de PONCTUATION uniquement : ; } ) , ...)
-										const char *q3 = ex + 10;
+										const char *q3 = ex + 9; // apres « xpected ' »
 										int32 tn = 0;
 										while (*q3 && *q3 != 0x27 && tn < 2)
 											tok[tn++] = *q3++;

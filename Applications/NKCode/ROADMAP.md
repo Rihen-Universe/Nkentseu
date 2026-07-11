@@ -51,6 +51,12 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 > 4. **Service IA de complétion** (étendre NkAi : async/stream) → ghost text + [IA : expliquer].
 > 5. **Runner de tests Unitest** (découverte/exécution/parse) → gouttière ▶ + panneau résultats.
 > 6. **Terminal** : shell par défaut configurable + profils (système PTY).
+> 7. **Installateur d'outils INTÉGRÉ** (souhait Rihen 2026-07-12) : au premier lancement ou à la
+>    demande, NKCode DÉTECTE ce qui manque (compilateur, clangd, SDK/NDK, emsdk, JDK, débogueur…)
+>    et propose l'installation AUTOMATIQUE **au choix de l'utilisateur**, par cas d'usage
+>    (ex. « C++ desktop » → clang+clangd+gdb ; « Android » → SDK/NDK/JDK). S'appuie sur les
+>    gestionnaires existants (pacman msys2, winget, sdkmanager) + la page wiki Jenga
+>    « Installation des outils ». Précédent concret : clangd installé via pacman pour le LSP.
 
 ---
 
