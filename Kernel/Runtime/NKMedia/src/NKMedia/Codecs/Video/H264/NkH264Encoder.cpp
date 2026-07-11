@@ -276,11 +276,32 @@ namespace nkentseu {
 				return false;
 			}
 
-			const uint32 mode =
-				(uint32)NkFileMode::NK_WRITE | (uint32)NkFileMode::NK_BINARY | (uint32)NkFileMode::NK_TRUNCATE;
-			if (!mFile.Open(path, (NkFileMode)mode)) {
-				Free();
-				return false;
+			// Détecte l'extension : .mp4/.mov → muxer MP4 (avc1) ; sinon flux élémentaire Annex-B.
+			int32 n = 0;
+			while (path[n])
+				++n;
+			mMp4 = false;
+			if (n >= 4) {
+				const char *e = path + n - 4;
+				auto lc = [](char ch) -> char { return (ch >= 'A' && ch <= 'Z') ? (char)(ch + 32) : ch; };
+				if (lc(e[0]) == '.' && lc(e[1]) == 'm' && lc(e[2]) == 'p' && e[3] == '4')
+					mMp4 = true;
+				if (lc(e[0]) == '.' && lc(e[1]) == 'm' && lc(e[2]) == 'o' && lc(e[3]) == 'v')
+					mMp4 = true;
+			}
+
+			if (mMp4) {
+				if (!mMp4Writer.Open(path, mWidth, mHeight, mFpsNum, mFpsDen)) {
+					Free();
+					return false;
+				}
+			} else {
+				const uint32 mode =
+					(uint32)NkFileMode::NK_WRITE | (uint32)NkFileMode::NK_BINARY | (uint32)NkFileMode::NK_TRUNCATE;
+				if (!mFile.Open(path, (NkFileMode)mode)) {
+					Free();
+					return false;
+				}
 			}
 			mOpen = true;
 			return true;
@@ -1488,8 +1509,53 @@ namespace nkentseu {
 			ConvertToYuv(pixels, fmt);
 			NkVector<uint8> out;
 			EncodeFrame(out);
-			if (out.Size() > 0)
+
+			if (mMp4) {
+				// Découpe le flux Annex-B en NAL ; SPS/PPS → avcC, VCL → échantillon (NAL longueur-préfixée).
+				NkVector<uint8> sample;
+				bool isIdr = false;
+				const uint64 sz = out.Size();
+				uint64 i = 0;
+				while (i + 3 < sz) {
+					// trouve un start code 00 00 01 (précédé éventuellement d'un 00).
+					if (!(out[i] == 0 && out[i + 1] == 0 && out[i + 2] == 1)) {
+						++i;
+						continue;
+					}
+					const uint64 nalStart = i + 3;
+					// fin = prochain start code ou fin du flux.
+					uint64 j = nalStart;
+					uint64 nalEnd = sz;
+					while (j + 3 < sz) {
+						if (out[j] == 0 && out[j + 1] == 0 && out[j + 2] == 1) {
+							nalEnd = (j > nalStart && out[j - 1] == 0) ? j - 1 : j;
+							break;
+						}
+						++j;
+					}
+					const uint8 nalType = out[nalStart] & 0x1F;
+					const uint32 nalLen = (uint32)(nalEnd - nalStart);
+					if (nalType == 7) {
+						mMp4Writer.SetSps(&out[nalStart], nalLen);
+					} else if (nalType == 8) {
+						mMp4Writer.SetPps(&out[nalStart], nalLen);
+					} else if (nalType == 1 || nalType == 5) {
+						if (nalType == 5)
+							isIdr = true;
+						sample.PushBack((uint8)(nalLen >> 24));
+						sample.PushBack((uint8)((nalLen >> 16) & 0xFF));
+						sample.PushBack((uint8)((nalLen >> 8) & 0xFF));
+						sample.PushBack((uint8)(nalLen & 0xFF));
+						for (uint32 k = 0; k < nalLen; ++k)
+							sample.PushBack(out[nalStart + k]);
+					}
+					i = nalEnd;
+				}
+				if (sample.Size() > 0)
+					mMp4Writer.WriteSample(sample.Data(), (uint32)sample.Size(), isIdr);
+			} else if (out.Size() > 0) {
 				mFile.Write(out.Data(), out.Size());
+			}
 
 			// dump de reconstruction (YUV420 planar recadré) pour validation externe.
 			if (mReconDump) {
@@ -1519,7 +1585,10 @@ namespace nkentseu {
 		bool NkH264Encoder::Close() {
 			if (!mOpen)
 				return false;
-			mFile.Close();
+			if (mMp4)
+				mMp4Writer.Close();
+			else
+				mFile.Close();
 			Free();
 			mOpen = false;
 			return true;

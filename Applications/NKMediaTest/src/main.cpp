@@ -275,44 +275,58 @@ int main(int argc, char **argv) {
 		if (ok)
 			++nbOk;
 	}
-	// Écrit un vrai flux .h264 (dégradé animé) pour validation externe par ffmpeg.
+	// Écrit un flux .h264 élémentaire ET un .mp4 cliquable (dégradé + boîte mobile + damier) pour ffmpeg.
 	{
+		const int32 W = 128, H = 96;
+		NkVector<uint8> frame;
+		frame.Resize((uint64)W * H * 3);
+		auto fillFrame = [&](int32 f) {
+			for (int32 y = 0; y < H; ++y)
+				for (int32 x = 0; x < W; ++x) {
+					uint8 *p = frame.Data() + ((uint64)y * W + x) * 3;
+					p[0] = (uint8)((x * 2) & 0xFF); // R : dégradé horizontal (fond statique)
+					p[1] = (uint8)((y * 2) & 0xFF); // G : dégradé vertical
+					p[2] = 100;						// B constant
+					const int32 boxx = 8 + f * 6;	// boîte mobile → mouvement (P-slices)
+					if (x >= boxx && x < boxx + 28 && y >= 34 && y < 66) {
+						p[0] = 240;
+						p[1] = 230;
+						p[2] = 40;
+					}
+					if (x >= W - 28 && y < 28) { // damier fin → intra I_4x4
+						const uint8 tex = (uint8)(((x ^ y) & 1) ? 40 : 210);
+						p[0] = tex;
+						p[1] = tex;
+						p[2] = tex;
+					}
+				}
+		};
+
 		const char *path = (argc >= 3) ? argv[2] : "h264_test.h264";
 		media::NkH264Encoder enc;
 		if (enc.Open(path, 128, 96, 25, 1, 26)) {
 			enc.EnableReconDump("h264_recon.yuv"); // validation déblocage vs ffmpeg
-			const int32 W = 128, H = 96;
-			NkVector<uint8> frame;
-			frame.Resize((uint64)W * H * 3);
 			for (int32 f = 0; f < 12; ++f) {
-				for (int32 y = 0; y < H; ++y)
-					for (int32 x = 0; x < W; ++x) {
-						uint8 *p = frame.Data() + ((uint64)y * W + x) * 3;
-						p[0] = (uint8)((x * 2) & 0xFF); // R : dégradé horizontal (fond statique)
-						p[1] = (uint8)((y * 2) & 0xFF); // G : dégradé vertical
-						p[2] = 100;						// B constant
-						// boîte qui se déplace → mouvement pour les P-slices (MC)
-						const int32 boxx = 8 + f * 6;
-						if (x >= boxx && x < boxx + 28 && y >= 34 && y < 66) {
-							p[0] = 240;
-							p[1] = 230;
-							p[2] = 40;
-						}
-						// damier fin (coin) → force aussi de l'intra I_4x4
-						if (x >= W - 28 && y < 28) {
-							const uint8 tex = (uint8)(((x ^ y) & 1) ? 40 : 210);
-							p[0] = tex;
-							p[1] = tex;
-							p[2] = tex;
-						}
-					}
+				fillFrame(f);
 				enc.WriteFrame(frame.Data(), media::NkVideoInputFormat::RGB24);
 			}
 			enc.Close();
-			printf("[i] Flux H.264 ecrit : %s (12 trames 128x96, QP26) — a valider : ffmpeg -i %s out.png\n", path,
-				   path);
+			printf("[i] Flux H.264 ecrit : %s (12 trames 128x96, QP26)\n", path);
 		} else {
-			printf("[!] Ouverture %s impossible (ecriture flux H.264 sautee)\n", path);
+			printf("[!] Ouverture %s impossible\n", path);
+		}
+
+		// Même contenu, dans un conteneur MP4 cliquable (avc1 + avcC).
+		media::NkH264Encoder encMp4;
+		if (encMp4.Open("h264_test.mp4", 128, 96, 25, 1, 26)) {
+			for (int32 f = 0; f < 12; ++f) {
+				fillFrame(f);
+				encMp4.WriteFrame(frame.Data(), media::NkVideoInputFormat::RGB24);
+			}
+			encMp4.Close();
+			printf("[i] MP4 ecrit : h264_test.mp4 — cliquable/lisible (VLC, navigateur) ; ffprobe h264_test.mp4\n");
+		} else {
+			printf("[!] Ouverture h264_test.mp4 impossible\n");
 		}
 	}
 	printf("\n=== Resultat : %d/%d suites OK ===\n", nbOk, nbTotal);
