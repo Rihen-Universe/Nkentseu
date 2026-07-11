@@ -145,6 +145,10 @@
     `NkH264Encoder::AddAudioTrack(rate,ch,lang)` / `AddSubtitleTrack(lang)` / `AddSubtitle(idx,texte,startMs,
     durMs)`. **Validé ffprobe** : MP4 à **5 pistes** = vidéo + audio `fre`+`eng` + sous-titres `fre`+`eng` ;
     extraction SRT bit-correcte (texte + timing + style). → **menu langues audio/sous-titres** dans VLC.
+  - **Langues illimitées (2026-07-11)** — pistes audio/sous-titres en **nombre illimité** (`NkVector`
+    dynamique, plus de cap) et **toute langue sans restriction** : la box **`elng`** (Extended Language Tag,
+    BCP-47) porte le tag complet en plus du champ compact `mdhd`. **Validé** : MP4 à **7 pistes** avec
+    sous-titres `fre/eng/bbj (ghomala') / bas (bassa)` — langues africaines correctement taggées et extraites.
   - ⏳ Reste : partitions inter fines (16×8/8×16/8×8), intra-en-P ; audio compressé (AAC/Opus) ; HLS/DASH
     (sélection de résolution 360p→4K = segmentation + manifeste, chantier séparé).
 

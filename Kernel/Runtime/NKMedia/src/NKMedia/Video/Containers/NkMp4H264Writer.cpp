@@ -108,26 +108,38 @@ namespace nkentseu {
 		}
 
 		namespace {
-			// Code de langue ISO-639-2 (3 lettres minuscules) → 15 bits (5 bits/lettre, - 0x60).
+			// Code compact mdhd : ISO-639-2 (3 lettres minuscules) → 15 bits ; sinon 'und'.
 			uint16 PackLang(const char *l) {
-				if (!l || !l[0] || !l[1] || !l[2])
-					return 0x55C4; // 'und'
-				return (uint16)((((int32)l[0] - 0x60) << 10) | (((int32)l[1] - 0x60) << 5) | ((int32)l[2] - 0x60));
+				if (!l)
+					return 0x55C4;
+				const char c0 = l[0], c1 = l[0] ? l[1] : 0, c2 = (l[0] && l[1]) ? l[2] : 0;
+				if (c0 < 'a' || c0 > 'z' || c1 < 'a' || c1 > 'z' || c2 < 'a' || c2 > 'z')
+					return 0x55C4; // 'und' (le tag complet part dans la box elng)
+				return (uint16)((((int32)c0 - 0x60) << 10) | (((int32)c1 - 0x60) << 5) | ((int32)c2 - 0x60));
+			}
+			void CopyLang(char *dst, const char *src) {
+				int32 i = 0;
+				if (src)
+					for (; i < 23 && src[i]; ++i)
+						dst[i] = src[i];
+				dst[i] = 0;
 			}
 		} // namespace
 
 		int32 NkMp4H264Writer::AddAudioTrack(int32 sampleRate, int32 channels, const char *lang3) {
-			if (mNumAudio >= kMaxAudio || sampleRate <= 0 || channels <= 0)
+			if (sampleRate <= 0 || channels <= 0)
 				return -1;
-			const int32 idx = mNumAudio++;
-			mAudio[idx].rate = sampleRate;
-			mAudio[idx].channels = channels;
-			mAudio[idx].lang = PackLang(lang3);
-			return idx;
+			AudioTrk a;
+			a.rate = sampleRate;
+			a.channels = channels;
+			a.lang = PackLang(lang3);
+			CopyLang(a.langStr, lang3);
+			mAudio.PushBack(a);
+			return (int32)mAudio.Size() - 1;
 		}
 
 		void NkMp4H264Writer::AppendAudioPcm(int32 trackIdx, const int16 *interleaved, uint32 frames) {
-			if (trackIdx < 0 || trackIdx >= mNumAudio)
+			if (trackIdx < 0 || trackIdx >= (int32)mAudio.Size())
 				return;
 			AudioTrk &a = mAudio[trackIdx];
 			const uint32 n = frames * (uint32)a.channels;
@@ -139,15 +151,15 @@ namespace nkentseu {
 		}
 
 		int32 NkMp4H264Writer::AddSubtitleTrack(const char *lang3) {
-			if (mNumSubs >= kMaxSubs)
-				return -1;
-			const int32 idx = mNumSubs++;
-			mSubs[idx].lang = PackLang(lang3);
-			return idx;
+			SubTrk s;
+			s.lang = PackLang(lang3);
+			CopyLang(s.langStr, lang3);
+			mSubs.PushBack(s);
+			return (int32)mSubs.Size() - 1;
 		}
 
 		void NkMp4H264Writer::AddSubtitle(int32 trackIdx, const char *utf8, uint32 startMs, uint32 durMs) {
-			if (trackIdx < 0 || trackIdx >= mNumSubs || !utf8)
+			if (trackIdx < 0 || trackIdx >= (int32)mSubs.Size() || !utf8)
 				return;
 			SubTrk &s = mSubs[trackIdx];
 			// trou avant le sous-titre → échantillon vide (texte de longueur 0).
@@ -179,14 +191,14 @@ namespace nkentseu {
 			const uint32 movieTs = 1000; // échelle de temps du film (ms)
 
 			// ---- écrit dans mdat (après la vidéo) : blocs PCM audio puis blocs sous-titres ----
-			for (int32 t = 0; t < mNumAudio; ++t) {
+			for (int32 t = 0; t < (int32)mAudio.Size(); ++t) {
 				AudioTrk &a = mAudio[t];
 				a.offset = (uint32)mFile.Tell();
 				if (a.pcm.Size() > 0)
 					mFile.Write(a.pcm.Data(), (usize)a.pcm.Size());
 				a.frames = (uint32)(a.pcm.Size() / (2 * (uint64)a.channels));
 			}
-			for (int32 t = 0; t < mNumSubs; ++t) {
+			for (int32 t = 0; t < (int32)mSubs.Size(); ++t) {
 				SubTrk &s = mSubs[t];
 				s.offset = (uint32)mFile.Tell();
 				if (s.data.Size() > 0)
@@ -206,12 +218,12 @@ namespace nkentseu {
 			const uint32 vDurTrack = nSamples * (uint32)mFpsDen; // en échelle piste vidéo
 			const uint32 vDurMovie = (uint32)((uint64)nSamples * (uint64)mFpsDen * movieTs / (uint64)mFpsNum);
 			uint32 movieDur = vDurMovie;
-			for (int32 t = 0; t < mNumAudio; ++t) {
+			for (int32 t = 0; t < (int32)mAudio.Size(); ++t) {
 				const uint32 d = (uint32)((uint64)mAudio[t].frames * movieTs / (uint64)mAudio[t].rate);
 				if (d > movieDur)
 					movieDur = d;
 			}
-			for (int32 t = 0; t < mNumSubs; ++t) {
+			for (int32 t = 0; t < (int32)mSubs.Size(); ++t) {
 				if (mSubs[t].lastEndMs > movieDur)
 					movieDur = mSubs[t].lastEndMs;
 			}
@@ -384,7 +396,7 @@ namespace nkentseu {
 			ByteBuf extraTraks;
 			int32 trackId = 2;
 
-			for (int32 t = 0; t < mNumAudio; ++t) {
+			for (int32 t = 0; t < (int32)mAudio.Size(); ++t) {
 				const AudioTrk &a = mAudio[t];
 				const uint32 aDurMovie = (uint32)((uint64)a.frames * movieTs / (uint64)a.rate);
 				ByteBuf aud; // sample entry 'sowt' (AudioSampleEntry v0)
@@ -466,6 +478,14 @@ namespace nkentseu {
 				ahdlr.u8v(0);
 				ByteBuf amdia;
 				Box(amdia, 'm', 'd', 'h', 'd', amdhd);
+				if (a.langStr[0]) { // elng : tag de langue complet (BCP-47) — sans restriction
+					ByteBuf elng;
+					elng.u32(0);
+					for (int32 i = 0; a.langStr[i]; ++i)
+						elng.u8v((uint8)a.langStr[i]);
+					elng.u8v(0);
+					Box(amdia, 'e', 'l', 'n', 'g', elng);
+				}
 				Box(amdia, 'h', 'd', 'l', 'r', ahdlr);
 				Box(amdia, 'm', 'i', 'n', 'f', aminf);
 				ByteBuf atkhd;
@@ -491,7 +511,7 @@ namespace nkentseu {
 				Box(extraTraks, 't', 'r', 'a', 'k', atrak);
 			}
 
-			for (int32 t = 0; t < mNumSubs; ++t) {
+			for (int32 t = 0; t < (int32)mSubs.Size(); ++t) {
 				const SubTrk &s = mSubs[t];
 				const uint32 nSub = (uint32)s.sizes.Size();
 				// sample entry 'tx3g' (TextSampleEntry) minimal + ftab.
@@ -600,6 +620,14 @@ namespace nkentseu {
 				shdlr.u8v(0);
 				ByteBuf smdia;
 				Box(smdia, 'm', 'd', 'h', 'd', smdhd);
+				if (s.langStr[0]) { // elng : tag de langue complet (BCP-47) — sans restriction
+					ByteBuf elng;
+					elng.u32(0);
+					for (int32 i = 0; s.langStr[i]; ++i)
+						elng.u8v((uint8)s.langStr[i]);
+					elng.u8v(0);
+					Box(smdia, 'e', 'l', 'n', 'g', elng);
+				}
 				Box(smdia, 'h', 'd', 'l', 'r', shdlr);
 				Box(smdia, 'm', 'i', 'n', 'f', sminf);
 				ByteBuf stkhd;

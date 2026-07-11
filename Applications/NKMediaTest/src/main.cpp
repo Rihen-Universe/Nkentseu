@@ -323,8 +323,11 @@ int main(int argc, char **argv) {
 			const int32 rate = 44100, aPerFrame = rate / 25; // 1764 trames audio / trame vidéo
 			const int32 aFr = encMp4.AddAudioTrack(rate, 1, "fre");	 // piste FR : bip 440 Hz
 			const int32 aEn = encMp4.AddAudioTrack(rate, 1, "eng");	 // piste EN : bip 660 Hz
+			// sous-titres : n'importe quelle langue, sans restriction (fr, en, ghomala' bbj, bassa bas)
 			const int32 sFr = encMp4.AddSubtitleTrack("fre");
 			const int32 sEn = encMp4.AddSubtitleTrack("eng");
+			const int32 sGh = encMp4.AddSubtitleTrack("bbj"); // ghomala'
+			const int32 sBa = encMp4.AddSubtitleTrack("bas"); // bassa
 			NkVector<int16> t440, t660;
 			t440.Resize((uint64)aPerFrame);
 			t660.Resize((uint64)aPerFrame);
@@ -340,13 +343,17 @@ int main(int argc, char **argv) {
 				encMp4.WriteAudioPcm(aFr, t440.Data(), (uint32)aPerFrame);
 				encMp4.WriteAudioPcm(aEn, t660.Data(), (uint32)aPerFrame);
 			}
-			// sous-titres : 2 répliques (0-240ms, 240-480ms) en FR et EN.
+			// sous-titres : 2 répliques (0-240ms, 240-480ms) dans chaque langue.
 			encMp4.AddSubtitle(sFr, "Bonjour Nkentseu", 0, 240);
 			encMp4.AddSubtitle(sFr, "Encodeur H.264 maison", 240, 240);
 			encMp4.AddSubtitle(sEn, "Hello Nkentseu", 0, 240);
 			encMp4.AddSubtitle(sEn, "Home-made H.264 encoder", 240, 240);
+			encMp4.AddSubtitle(sGh, "Wa nkentseu", 0, 240); // ghomala' (exemple)
+			encMp4.AddSubtitle(sGh, "Encodeur H.264", 240, 240);
+			encMp4.AddSubtitle(sBa, "Mbolo Nkentseu", 0, 240); // bassa (exemple)
+			encMp4.AddSubtitle(sBa, "Encodeur H.264", 240, 240);
 			encMp4.Close();
-			printf("[i] MP4 ecrit : h264_test.mp4 — video + 2 audio (fr/en) + 2 sous-titres (fr/en)\n");
+			printf("[i] MP4 ecrit : h264_test.mp4 — video + 2 audio (fr/en) + 4 sous-titres (fr/en/bbj/bas)\n");
 		} else {
 			printf("[!] Ouverture h264_test.mp4 impossible\n");
 		}
