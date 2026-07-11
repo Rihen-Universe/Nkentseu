@@ -588,6 +588,7 @@ int nkmain(const NkEntryState &state) {
 		ic.gitPull = loadTex("icon/Pull", IS, IS);
 		ic.split = loadTex("icon/Split", IS, IS);
 		ic.folderOpen = loadTex("icon/FolderOpen", IS, IS);
+		ic.folder = loadTex("icon/Folder", IS, IS); // dossier FERMÉ (0 si absent -> dessin au trait)
 		ic.fileText = loadTex("icon/FileText", IS, IS);
 		ic.fileCode2 = loadTex("icon/FileCode2", IS, IS);
 		ic.filePlus = loadTex("icon/FilePlus", IS, IS);

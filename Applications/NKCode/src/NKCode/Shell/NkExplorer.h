@@ -89,6 +89,68 @@ namespace nkentseu {
 					return false;
 				}
 
+				// Extension (minuscule, sans point) d'un nom de fichier ; "" si aucune.
+				static void ExtOf(const char *name, char *out, int32 cap) {
+					const char *dot = nullptr;
+					for (const char *p = name; *p; ++p)
+						if (*p == '.')
+							dot = p;
+					int32 n = 0;
+					if (dot)
+						for (const char *p = dot + 1; *p && n < cap - 1; ++p) {
+							char c = *p;
+							out[n++] = (c >= 'A' && c <= 'Z') ? char(c + 32) : c;
+						}
+					out[n] = 0;
+				}
+
+				static bool ExtIs(const char *e, const char *k) {
+					return SameStr(e, k);
+				}
+
+				// Shaders (tout type) : icône dédiée ; NKSL (langage maison) encore plus.
+				static bool IsShaderExt(const char *e) {
+					return ExtIs(e, "vert") || ExtIs(e, "frag") || ExtIs(e, "glsl") || ExtIs(e, "hlsl") ||
+						   ExtIs(e, "comp") || ExtIs(e, "geom") || ExtIs(e, "tesc") || ExtIs(e, "tese") ||
+						   ExtIs(e, "wgsl") || ExtIs(e, "metal") || ExtIs(e, "shader");
+				}
+
+				// FALLBACK sans icône : pastille « lettres du langage » + couleur dédiée.
+				// true si le langage est connu (label 1-2 lettres + couleur posés).
+				static bool LangBadge(const char *e, char *label, NkColor &col) {
+					struct L {
+							const char *ext, *lab;
+							NkColor c;
+					};
+					static const L k[] = {
+						{"cpp", "C+", {101, 155, 211, 255}},  {"cc", "C+", {101, 155, 211, 255}},
+						{"cxx", "C+", {101, 155, 211, 255}},  {"h", "H", {178, 132, 219, 255}},
+						{"hpp", "H", {178, 132, 219, 255}},	  {"hxx", "H", {178, 132, 219, 255}},
+						{"c", "C", {86, 130, 180, 255}},	  {"py", "PY", {240, 200, 80, 255}},
+						{"rs", "RS", {222, 130, 80, 255}},	  {"zig", "ZG", {247, 164, 66, 255}},
+						{"js", "JS", {230, 210, 90, 255}},	  {"ts", "TS", {80, 140, 220, 255}},
+						{"json", "{}", {200, 180, 80, 255}},  {"md", "MD", {110, 170, 230, 255}},
+						{"txt", "T", {160, 160, 160, 255}},	  {"lua", "LU", {90, 120, 220, 255}},
+						{"java", "JV", {220, 120, 70, 255}},  {"cs", "C#", {150, 110, 200, 255}},
+						{"sh", "SH", {120, 200, 120, 255}},	  {"bat", "BT", {120, 200, 120, 255}},
+						{"cmd", "BT", {120, 200, 120, 255}},  {"ps1", "PS", {80, 160, 220, 255}},
+						{"cmake", "CM", {180, 80, 80, 255}},  {"yml", "YM", {200, 100, 150, 255}},
+						{"yaml", "YM", {200, 100, 150, 255}}, {"xml", "XM", {200, 140, 80, 255}},
+						{"html", "<>", {228, 110, 80, 255}},  {"css", "#", {90, 160, 220, 255}},
+						{"toml", "TM", {180, 120, 90, 255}},  {"ini", "IN", {150, 150, 150, 255}},
+						{"cfg", "IN", {150, 150, 150, 255}},  {"jenga", "JG", {247, 154, 40, 255}},
+					};
+					for (usize i = 0; i < sizeof(k) / sizeof(k[0]); ++i)
+						if (ExtIs(e, k[i].ext)) {
+							label[0] = k[i].lab[0];
+							label[1] = k[i].lab[1];
+							label[2] = 0;
+							col = k[i].c;
+							return true;
+						}
+					return false;
+				}
+
 				// Dossiers exclus de l'arbre tant que l'œil est fermé (artefacts/outils).
 				static bool IsExcluded(const char *name) {
 					return SameStr(name, ".git") || SameStr(name, "Build") || SameStr(name, ".nkcode") ||
@@ -442,24 +504,64 @@ namespace nkentseu {
 							}
 						}
 						x += 10.f;
-						// Icône : dossier = folderOpen teinté ; fichier = registre ForFile.
+						// Icône : dossier OUVERT/FERMÉ distincts ; fichier = registre ForFile,
+						// sinon shaders/NKSL dédiés, sinon pastille « lettres du langage ».
 						const float32 is = rowH - 6.f;
-						uint32 tex = 0;
-						NkColor tint = {255, 255, 255, 255};
-						if (mS->icons) {
-							if (r.dir) {
-								tex = mS->icons->folderOpen;
-								tint = r.root ? NkColor{230, 160, 60, 255} : NkColor{120, 160, 200, 255};
-							} else {
-								tex = mS->icons->ForFile(r.name.CStr());
-								if (!tex) {
-									tex = mS->icons->fileText;
-									tint = {150, 150, 150, 255};
+						const NkRect ir = {x, cy - is * 0.5f, is, is};
+						if (r.dir) {
+							const NkColor tint = r.root ? NkColor{230, 160, 60, 255} : NkColor{120, 160, 200, 255};
+							const uint32 tex =
+								!mS->icons ? 0u : (r.open ? mS->icons->folderOpen : mS->icons->folder);
+							if (tex)
+								dl.AddImage(tex, ir, {0.f, 0.f}, {1.f, 1.f}, tint);
+							else if (r.open) { // repli au trait : dossier ouvert (rabat incliné)
+								dl.AddRect({ir.x, ir.y + 2.f, ir.w - 2.f, ir.h - 4.f}, tint, 1.4f);
+								dl.AddLine({ir.x, ir.y + ir.h - 2.f}, {ir.x + 3.f, ir.y + ir.h * 0.45f}, tint, 1.4f);
+							} else { // dossier fermé : corps + languette
+								dl.AddRect({ir.x, ir.y + 3.f, ir.w - 2.f, ir.h - 5.f}, tint, 1.4f);
+								dl.AddLine({ir.x, ir.y + 3.f}, {ir.x + ir.w * 0.4f, ir.y + 1.f}, tint, 1.4f);
+							}
+						} else {
+							char e[16];
+							ExtOf(r.name.CStr(), e, sizeof(e));
+							const uint32 tex = mS->icons ? mS->icons->ForFile(r.name.CStr()) : 0u;
+							char lab[3] = {};
+							NkColor bc = {150, 150, 150, 255};
+							if (tex)
+								dl.AddImage(tex, ir, {0.f, 0.f}, {1.f, 1.f}, {255, 255, 255, 255});
+							else if (ExtIs(e, "nksl")) { // NKSL : pastille brandée (vert Nkentseu)
+								dl.AddRectFilled(ir, {36, 61, 31, 255}, 3.f);
+								dl.AddRect(ir, {120, 200, 120, 255}, 3.f);
+								if (ctx.font && ctx.font->Valid())
+									dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+											   {ir.x + 2.f, cy - ctx.font->LineHeight() * 0.5f + ctx.font->Ascent()},
+											   "NK", {200, 216, 196, 255}, ir.w - 3.f);
+							} else if (IsShaderExt(e)) { // shader : pastille violette + éclair
+								dl.AddRectFilled(ir, {70, 45, 110, 255}, 3.f);
+								const float32 mx = ir.x + ir.w * 0.5f;
+								dl.AddLine({mx + 2.f, ir.y + 2.f}, {mx - 2.f, cy + 1.f}, {230, 200, 90, 255}, 1.6f);
+								dl.AddLine({mx - 2.f, cy + 1.f}, {mx + 1.f, cy + 1.f}, {230, 200, 90, 255}, 1.6f);
+								dl.AddLine({mx + 1.f, cy + 1.f}, {mx - 2.f, ir.y + ir.h - 2.f}, {230, 200, 90, 255},
+										   1.6f);
+							} else if (LangBadge(e, lab, bc)) { // pastille lettres + couleur
+								NkColor bg = bc;
+								bg.r = static_cast<uint8>(bg.r / 4);
+								bg.g = static_cast<uint8>(bg.g / 4);
+								bg.b = static_cast<uint8>(bg.b / 4);
+								dl.AddRectFilled(ir, bg, 3.f);
+								if (ctx.font && ctx.font->Valid()) {
+									const float32 lw = ctx.font->MeasureWidth(lab);
+									dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+											   {ir.x + (ir.w - lw) * 0.5f,
+												cy - ctx.font->LineHeight() * 0.5f + ctx.font->Ascent()},
+											   lab, bc, ir.w - 1.f);
 								}
+							} else { // inconnu : feuille de document au trait
+								dl.AddRect({ir.x + 2.f, ir.y + 1.f, ir.w - 5.f, ir.h - 2.f}, bc, 1.3f);
+								dl.AddLine({ir.x + 4.f, ir.y + 5.f}, {ir.x + ir.w - 6.f, ir.y + 5.f}, bc, 1.f);
+								dl.AddLine({ir.x + 4.f, ir.y + 8.f}, {ir.x + ir.w - 6.f, ir.y + 8.f}, bc, 1.f);
 							}
 						}
-						if (tex)
-							dl.AddImage(tex, {x, cy - is * 0.5f, is, is}, {0.f, 0.f}, {1.f, 1.f}, tint);
 						x += is + 4.f;
 						// Nom (racine en circonflexe visuel : couleur pleine).
 						if (ctx.font && ctx.font->Valid()) {
