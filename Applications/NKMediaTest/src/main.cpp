@@ -32,6 +32,7 @@
 #include "NKMedia/Codecs/Opus/Silk/NkSilkDecoder.h"
 #include "NKMedia/Codecs/Opus/Silk/NkSilkTop.h"
 #include "NKMedia/Codecs/Opus/Silk/NkSilkResampler.h"
+#include "NKMedia/Codecs/Opus/NkOpusDecoder.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Transform.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Encoder.h"
@@ -134,6 +135,30 @@ int main(int argc, char **argv) {
 		}
 		printf("[SILK] %d paquets -> %d echantillons @ %d kHz -> %s\n", (int)packets.Size(), (int)pcm.Size(),
 			   to48 ? 48 : fs_kHz, argv[3]);
+		return 0;
+	}
+	// Décodeur Opus complet (dispatch CELT/SILK) : --opus <flux.webm> <out.pcm> (48 kHz s16le).
+	if (argc >= 4 && NkString(argv[1]) == NkString("--opus")) {
+		NkVector<nk_uint8> bytes;
+		media::NkMediaInfo info;
+		NkVector<media::NkMediaPacket> packets;
+		if (!media::NkMediaDemux::ExtractAudioPacketsFile(argv[2], bytes, info, packets))
+			return 1;
+		media::NkOpusDecoder dec;
+		dec.Init(1);
+		NkVector<nk_int16> pcm;
+		nk_int16 out48[960 * 4];
+		for (uint64 p = 0; p < packets.Size(); ++p) {
+			const int32 n = dec.DecodePacket(bytes.Data() + packets[p].offset, (int32)packets[p].size, out48);
+			for (int32 i = 0; i < n; ++i)
+				pcm.PushBack(out48[i]);
+		}
+		FILE *f = fopen(argv[3], "wb");
+		if (f) {
+			fwrite(pcm.Data(), sizeof(nk_int16), pcm.Size(), f);
+			fclose(f);
+		}
+		printf("[OPUS] %d paquets -> %d echantillons @ 48 kHz -> %s\n", (int)packets.Size(), (int)pcm.Size(), argv[3]);
 		return 0;
 	}
 	// Dump des paquets Opus bruts : --dumppkts <flux.webm> <out.pkts> ([u32 len][octets]*).
@@ -446,6 +471,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkSilkResampler::SelfTest();
 		printf("[ %s ] NkSilkResampler : 16k->48k (up2 HQ + FIR frac), sortie bornee + deterministe\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkOpusDecoder::SelfTest();
+		printf("[ %s ] NkOpusDecoder : dispatch TOC (CELT/SILK) -> 48 kHz (trame CELT silence 20ms=960)\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
