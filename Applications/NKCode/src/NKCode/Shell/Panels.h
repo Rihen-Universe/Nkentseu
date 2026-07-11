@@ -1095,6 +1095,9 @@ namespace nkentseu {
 							}
 							mTabList.open = true;
 							mTabList.pos = {ddB.x, y0 + h};
+							// CONSOMME le clic d'ouverture : le menu s'ouvre SOUS le bouton (souris hors boîte)
+							// et l'interpréterait sinon comme un clic extérieur -> fermeture immédiate.
+							ctx.input.mouseClicked[0] = false;
 						}
 					}
 					if (mTabList.open && !mTabListLabels.Empty()) { // clic = activer (le menu scrolle V/H au besoin)
