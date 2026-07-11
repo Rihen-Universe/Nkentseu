@@ -42,26 +42,36 @@ namespace nkentseu {
 			return *a == *b;
 		}
 
-		// ── SIDEBARS EXCLUSIVES (façon VSCode) : au plus UN panneau ouvert par côté. ──
+		// ── SIDEBARS EXCLUSIVES (façon VSCode) : le panneau REMPLACE celui du côté. ──
+		// Les autres panneaux du groupe partageant la MÊME feuille sont fermés ET
+		// détachés (sinon la feuille accumule des onglets fantômes fermés). Un panneau
+		// déplacé AILLEURS à la main (feuille différente) est indépendant : intact.
 		inline void OpenSideExclusive(editorkit::NkEditorShell *sh, const char *const *titles, int32 n,
 									  const char *want) {
 			if (!sh)
 				return;
-			for (int32 i = 0; i < n; ++i)
-				if (!SideSameStr(titles[i], want))
+			sh->FocusPanel(want); // ouvre + ancre au côté par défaut (no-op si déjà placé)
+			const int32 node = sh->PanelDockNode(want);
+			for (int32 i = 0; i < n; ++i) {
+				if (SideSameStr(titles[i], want))
+					continue;
+				if (node >= 0 && sh->PanelDockNode(titles[i]) == node) {
 					sh->ClosePanel(titles[i]);
-			sh->FocusPanel(want);
+					sh->DetachPanel(titles[i]);
+				}
+			}
 		}
 
 		inline void ToggleSideExclusive(editorkit::NkEditorShell *sh, const char *const *titles, int32 n,
 										const char *want) {
 			if (!sh)
 				return;
-			const bool wasOpen = sh->IsPanelOpen(want);
-			for (int32 i = 0; i < n; ++i)
-				sh->ClosePanel(titles[i]);
-			if (!wasOpen)
-				sh->FocusPanel(want); // déjà ouvert -> le côté se replie
+			if (sh->IsPanelOpen(want)) { // re-clic sur l'icône -> le côté se replie (VSCode)
+				sh->ClosePanel(want);
+				sh->DetachPanel(want); // feuille vidée -> collapse -> la sidebar disparaît
+				return;
+			}
+			OpenSideExclusive(sh, titles, n, want);
 		}
 
 		// Groupes des sidebars (titres) — partagés entre l'activity bar et les raccourcis.

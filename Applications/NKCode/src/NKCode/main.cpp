@@ -146,22 +146,28 @@ static void StartScreenThunk(NkEditorFrameContext &ec, void *u) {
 // Pose appFullScreen/appModal CHAQUE FRAME (barre de menus, inconditionnel).
 // + synchronise le thème de l'ÉDITORKIT sur le thème NKCode : le chrome de l'éditeur
 //   (barre de titre, activity bar, onglets, dock, status bar, panneaux) suit Dark/Light.
-// Garantit « au plus UN panneau ouvert par côté » (une disposition restaurée peut en
-// rouvrir plusieurs) : garde le premier ouvert du groupe, ferme les autres.
+// Garantit « au plus UN panneau du groupe ouvert PAR FEUILLE » (une disposition
+// restaurée peut en rouvrir plusieurs au même endroit) : le premier reste, les
+// surnuméraires sont fermés ET détachés. Un panneau déplacé dans une AUTRE feuille
+// (indépendant) n'est pas touché.
 static void EnforceExclusiveSides(editorkit::NkEditorShell *sh) {
 	if (!sh)
 		return;
 	for (int32 side = 0; side < 2; ++side) {
 		int32 n = 0;
 		const char *const *g = side == 0 ? nkcode::SideLeftGroup(n) : nkcode::SideRightGroup(n);
-		bool found = false;
-		for (int32 i = 0; i < n; ++i)
-			if (sh->IsPanelOpen(g[i])) {
-				if (found)
-					sh->ClosePanel(g[i]);
-				else
-					found = true;
-			}
+		for (int32 i = 0; i < n; ++i) {
+			if (!sh->IsPanelOpen(g[i]))
+				continue;
+			const int32 node = sh->PanelDockNode(g[i]);
+			if (node < 0)
+				continue;
+			for (int32 j = i + 1; j < n; ++j)
+				if (sh->IsPanelOpen(g[j]) && sh->PanelDockNode(g[j]) == node) {
+					sh->ClosePanel(g[j]);
+					sh->DetachPanel(g[j]);
+				}
+		}
 	}
 }
 

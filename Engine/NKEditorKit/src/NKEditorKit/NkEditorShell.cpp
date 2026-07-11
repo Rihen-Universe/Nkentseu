@@ -697,9 +697,11 @@ namespace nkentseu {
 			const NkVec2 m = mUI.input.mousePos;
 
 			// Icones vectorielles (dessinees relativement au centre (cx,cy)).
+			// Souris au-dessus d'une fenêtre flottante -> la barre ne réagit pas (occlusion).
+			const bool ptrOk = (mUI.hoveredWindowId == NKGUI_ID_NONE);
 			auto drawIcon = [&](int32 idx, float32 cy, bool bottom) {
 				const NkRect r = {bar.x, cy - cell * 0.5f, cell, cell};
-				const bool hovered = m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
+				const bool hovered = ptrOk && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
 				const bool active = (mActivityIndex == idx) && !bottom;
 				const NkColor c = active ? on : hovered ? hov : off;
 				if (active)
@@ -806,9 +808,11 @@ namespace nkentseu {
 			dl.AddRectFilled(bar, barBg);
 			const float32 cell = bar.w;
 			const NkVec2 m = mUI.input.mousePos;
+			// Souris au-dessus d'une fenêtre flottante -> la barre ne réagit pas (occlusion).
+			const bool ptrOk = (mUI.hoveredWindowId == NKGUI_ID_NONE);
 			auto icon = [&](int32 idx, float32 cy) {
 				const NkRect r = {bar.x, cy - cell * 0.5f, cell, cell};
-				const bool hovered = m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
+				const bool hovered = ptrOk && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
 				const NkColor c = hovered ? onC : off;
 				const float32 cx = bar.x + cell * 0.5f, ic = cy, s = mUI.S(8.f);
 				switch (idx) {
@@ -1210,6 +1214,14 @@ namespace nkentseu {
 				}
 		}
 
+		int32 NkEditorShell::PanelDockNode(const char *title) noexcept {
+			return DockWindowNode(mUI, title);
+		}
+
+		void NkEditorShell::DetachPanel(const char *title) noexcept {
+			DockDetachWindow(mUI, title);
+		}
+
 		void NkEditorShell::SetFooter(const char *left, const char *right) noexcept {
 			CopyStr(mFooterLeft, left ? left : "", sizeof(mFooterLeft));
 			CopyStr(mFooterRight, right ? right : "", sizeof(mFooterRight));
@@ -1352,7 +1364,26 @@ namespace nkentseu {
 					SetNextWindowSize(mUI, 360.f, 280.f);
 				}
 				if (Begin(mUI, p->Title(), p->OpenPtr())) {
+					// Une fenêtre FLOTTANTE recouvre la souris et ce n'est pas la nôtre ->
+					// souris neutralisée pendant OnUI : le code custom des panneaux (éditeur,
+					// arbres) lit l'input en direct et recevrait sinon clics/molette À TRAVERS
+					// la fenêtre du dessus — et lui volerait son drag de barre de titre.
+					const bool shielded =
+						mUI.hoveredWindowId != NKGUI_ID_NONE && mUI.hoveredWindowId != mUI.curWindowId;
+					nkgui::NkGuiInput saved;
+					if (shielded) {
+						saved = mUI.input;
+						mUI.input.mousePos = {-100000.f, -100000.f};
+						for (int32 b = 0; b < 3; ++b) {
+							mUI.input.mouseClicked[b] = false;
+							mUI.input.mouseDown[b] = false;
+							mUI.input.mouseDoubleClicked[b] = false;
+						}
+						mUI.input.wheel = mUI.input.wheelH = 0.f;
+					}
 					p->OnUI(ec);
+					if (shielded)
+						mUI.input = saved;
 					EndWindow(mUI);
 				}
 			}

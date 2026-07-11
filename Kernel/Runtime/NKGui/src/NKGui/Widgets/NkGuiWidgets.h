@@ -279,6 +279,11 @@ namespace nkentseu {
 		// Vrai si la fenêtre est ANCRÉE dans une feuille de dock (la meta survit à la
 		// fermeture -> une fenêtre fermée puis rouverte retrouve sa place).
 		NKENTSEU_NKGUI_API bool DockIsWindowDocked(NkGuiContext &ctx, const char *windowTitle) noexcept;
+		// Feuille de dock où la fenêtre est ancrée (-1 = flottante / non ancrée).
+		NKENTSEU_NKGUI_API int32 DockWindowNode(NkGuiContext &ctx, const char *windowTitle) noexcept;
+		// Retire la fenêtre de sa feuille SANS drag (meta dockNode = -1) ; une feuille
+		// vidée collapse -> la zone disparaît (fermeture de sidebar façon VSCode).
+		NKENTSEU_NKGUI_API void DockDetachWindow(NkGuiContext &ctx, const char *windowTitle) noexcept;
 		// Marque une fenêtre « barre d'onglets masquée quand elle est SEULE dans sa
 		// feuille » (crée la meta au besoin). Réservé au panneau central (éditeur) :
 		// les autres (Terminal, Sortie, sidebars) gardent TOUJOURS leurs onglets.

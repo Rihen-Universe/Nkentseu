@@ -3037,6 +3037,18 @@ namespace nkentseu {
 			return m && m->dockNode >= 0 && m->dockNode < static_cast<int32>(ctx.dockNodes.Size());
 		}
 
+		int32 DockWindowNode(NkGuiContext &ctx, const char *windowTitle) noexcept {
+			const NkGuiId wid = ctx.GetId(windowTitle);
+			int32 mi;
+			NkGuiWindowMeta *m = WinFind(ctx, wid, mi);
+			return (m && m->dockNode >= 0 && m->dockNode < static_cast<int32>(ctx.dockNodes.Size())) ? m->dockNode
+																									 : -1;
+		}
+
+		void DockDetachWindow(NkGuiContext &ctx, const char *windowTitle) noexcept {
+			DockDetachFromLeaf(ctx, ctx.GetId(windowTitle));
+		}
+
 		void DockWindowHideSingleTab(NkGuiContext &ctx, const char *windowTitle, bool hide) noexcept {
 			const NkGuiId wid = ctx.GetId(windowTitle);
 			int32 mi;
