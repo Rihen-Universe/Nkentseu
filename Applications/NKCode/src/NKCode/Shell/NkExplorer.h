@@ -818,9 +818,11 @@ namespace nkentseu {
 					const NkVec2 m = ctx.input.mousePos;
 					const NkRect clip = dl.CurrentClip();
 					const bool inClip = NkGuiRectContains(clip, m) && m.y >= topY;
-					// Focus-clic du panneau : un clic DANS la zone le prend, ailleurs le rend.
+					// Focus-clic du panneau : un clic DANS le panneau (header compris) le
+					// prend, un clic ailleurs le rend — les raccourcis Ctrl+C/X/V, F2,
+					// Suppr restent actifs après un clic sur la toolbar ou le menu.
 					if (ctx.input.mouseClicked[0])
-						mFocus = inClip;
+						mFocus = NkGuiRectContains(clip, m);
 					const bool editing = mEditPath.Length() > 0 || mEditParent.Length() > 0;
 					int32 toToggle = -1, toOpen = -1, toRename = -1;
 					bool rowHit = false;
@@ -939,6 +941,7 @@ namespace nkentseu {
 						// ── Champ d'ÉDITION INLINE (renommage / création) à la place du nom ──
 						if (inEdit) {
 							const NkRect er = {x, row.y + 1.f, row.x + fullW - x - 6.f, rowH - 2.f};
+							mEditRect = er; // mémorisé : un clic HORS du champ VALIDE l'édition
 							dl.AddRectFilled(er, ctx.theme.bgPrimary, 2.f);
 							dl.AddRect(er, ctx.theme.accent, 2.f);
 							if (ctx.font && ctx.font->Valid()) {
@@ -1042,8 +1045,8 @@ namespace nkentseu {
 							CommitEdit();
 						else if (ctx.input.KeyPressed(NkGuiKey::Escape))
 							CancelEdit();
-						else if (ctx.input.mouseClicked[0] && !inClip)
-							CancelEdit(); // clic hors du panneau = annule
+						else if (ctx.input.mouseClicked[0] && !NkGuiRectContains(mEditRect, m))
+							CommitEdit(); // clic HORS de la zone de saisie = VALIDE (façon VSCode)
 						return;			  // pas de raccourcis pendant l'édition
 					}
 					// ── Raccourcis (focus-clic dans l'explorateur, hors filtre actif) ──
@@ -1065,13 +1068,39 @@ namespace nkentseu {
 							mClipCut = true;
 						}
 						if (ctx.input.wantPaste && mClipPath.Length() > 0) { // Ctrl+V
-							NkString dst = TargetDir();
-							dst += "/";
-							dst += NkPath(mClipPath).GetFileName();
-							if (!SameStr(dst.CStr(), mClipPath.CStr()))
-								CopyAsync(mClipPath, dst, mClipCut);
-							if (mClipCut)
-								mClipPath.Clear();
+							const NkString tgt = TargetDir();
+							// GARDE : jamais coller un dossier dans LUI-MÊME ou sa descendance
+							// (récursion infinie de la copie).
+							bool inside = false;
+							{
+								const char *a = mClipPath.CStr();
+								const char *b = tgt.CStr();
+								bool pref = true;
+								while (*a) {
+									if (*b != *a) {
+										pref = false;
+										break;
+									}
+									++a;
+									++b;
+								}
+								inside = pref && (*b == 0 || *b == '/' || *b == '\\');
+							}
+							if (!inside) {
+								NkString dst = tgt;
+								dst += "/";
+								dst += NkPath(mClipPath).GetFileName();
+								if (SameStr(dst.CStr(), mClipPath.CStr())) {
+									// coller dans le même dossier : « Nom - copie »
+									DuplicateOf(mClipPath);
+								} else {
+									if (NkFile::Exists(dst.CStr()))
+										dst += " - copie"; // ne pas écraser l'existant
+									CopyAsync(mClipPath, dst, mClipCut);
+								}
+								if (mClipCut)
+									mClipPath.Clear();
+							}
 						}
 					}
 				}
@@ -1167,6 +1196,7 @@ namespace nkentseu {
 				NkString mDelPath;
 				bool mDelIsDir = false;
 				char mDelLabel[192] = {};
+				NkRect mEditRect = {0.f, 0.f, 0.f, 0.f}; ///< zone de saisie inline (clic hors = valide)
 		};
 
 	} // namespace nkcode
