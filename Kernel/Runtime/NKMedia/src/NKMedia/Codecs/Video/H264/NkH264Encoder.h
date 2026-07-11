@@ -29,8 +29,9 @@ namespace nkentseu {
 		struct NkH264Encoder {
 			public:
 				// Ouvre `path` (.h264/.264 élémentaire Annex-B). `qp` 0..51 (petit = meilleure qualité).
+				// `gop` = intervalle entre images IDR (les autres sont des P inter-frame). gop=1 → tout IDR.
 				bool Open(const char *path, int32 width, int32 height, int32 fpsNum = 25, int32 fpsDen = 1,
-						  int32 qp = 26);
+						  int32 qp = 26, int32 gop = 30);
 
 				// Encode une trame (pixels haut-en-bas) comme image IDR (I-slice) et l'écrit.
 				bool WriteFrame(const uint8 *pixels, NkVideoInputFormat fmt);
@@ -69,6 +70,11 @@ namespace nkentseu {
 				uint8 *mY = nullptr, *mCb = nullptr, *mCr = nullptr;
 				// Reconstruction de la trame (référence de prédiction intra des voisins).
 				uint8 *mRecY = nullptr, *mRecCb = nullptr, *mRecCr = nullptr;
+				// Référence inter : reconstruction déblocquée de la trame précédente (P-slices).
+				uint8 *mRefY = nullptr, *mRefCb = nullptr, *mRefCr = nullptr;
+				// Par macrobloc : vecteur mouvement (quart-pel) + indicateur inter (P), pour la prédiction de MV.
+				int32 *mMvX = nullptr, *mMvY = nullptr, *mMbInter = nullptr;
+				int32 mGop = 30, mFrameNum = 0, mPoc = 0;
 				// total_coeff des blocs luma 4×4 (contexte nC CAVLC), grille (mMbW*4) × (mMbH*4).
 				int32 *mLumaNz = nullptr;
 				// idem chroma par composante (Cb,Cr), grille (mMbW*2) × (mMbH*2).
@@ -88,8 +94,19 @@ namespace nkentseu {
 
 				void EncodeMacroblock(NkH264BitWriter &bs, int32 mbX, int32 mbY); // I_16×16
 				void EncodeMbIntra4x4(NkH264BitWriter &bs, int32 mbX, int32 mbY); // I_4×4
-				// Prédit + résidu + reconstruit le chroma (DC 2×2 + AC), remplit `c`.
+				// P-slices (inter-frame) : trame P complète, macrobloc P_L0_16×16, détection P_Skip.
+				void EncodePFrame(NkVector<uint8> &out);
+				bool TryInterSkip(int32 mbX, int32 mbY); // vrai + commit si le MB est P_Skip
+				void EncodeMbInter(NkH264BitWriter &bs, int32 mbX, int32 mbY); // P_L0_16×16 codé
+				// Compensation de mouvement depuis la référence (quart-pel luma / 1-8-pel chroma bilinéaire).
+				void McLuma(int32 px, int32 py, int32 mvx, int32 mvy, uint8 out[256]);
+				void McChroma(int32 comp, int32 cpx, int32 cpy, int32 mvx, int32 mvy, uint8 out[64]);
+				void PredictMv(int32 mbX, int32 mbY, int32 &pmx, int32 &pmy); // prédicteur médian (MVD)
+				void SkipMv(int32 mbX, int32 mbY, int32 &smx, int32 &smy);	 // prédicteur P_Skip
+				// Prédit (intra DC) + résidu + reconstruit le chroma (DC 2×2 + AC), remplit `c`.
 				void ComputeChroma(int32 mbX, int32 mbY, bool availTop, bool availLeft, ChromaMb &c);
+				// Résidu + reconstruction chroma à partir d'une prédiction donnée (intra DC ou compensée).
+				void ComputeChromaFromPred(int32 mbX, int32 mbY, const uint8 pred[2][64], ChromaMb &c);
 				// Écrit le résidu chroma (DC puis AC) en CAVLC + met à jour la grille nC chroma.
 				void WriteChromaResidual(NkH264BitWriter &bs, int32 mbX, int32 mbY, const ChromaMb &c);
 				// Filtre de déblocage en boucle (§8.7) appliqué à la reconstruction (luma + chroma).
