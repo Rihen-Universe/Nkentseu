@@ -382,6 +382,7 @@ namespace nkentseu {
 				NkVector<uint32> extTex;
 				// ── Dossiers SPECIAUX (Material) : nom de dossier -> paire fermee/ouverte ──
 				uint32 folderM = 0, folderMOpen = 0; // dossier generique Material (ferme/ouvert)
+				uint32 folderRoot = 0, folderRootOpen = 0; // dossier RACINE du projet
 				uint32 collapseAll = 0, newFile2 = 0, newFolder = 0, filter = 0; // toolbar explorateur
 				NkVector<NkString> dirKey;
 				NkVector<uint32> dirTexC, dirTexO;
