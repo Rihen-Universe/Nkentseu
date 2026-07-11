@@ -29,11 +29,6 @@
 #include "NKLogger/NkLog.h"
 #include "NKRHI/Core/NkDeviceFactory.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
-#include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h" // capture multi-backend (readback)
-#include "NKMedia/Video/NkVideoRecorder.h"				  // enregistrement A/V threadé
-#include "NKMath/NkFunctions.h"							  // NkSin (tonalité de démo)
-#include "NKContainers/Sequential/NkVector.h"
-#include <cstdlib> // getenv (mode enregistrement opt-in)
 
 namespace nkentseu {
 	struct NkEntryState;
@@ -501,38 +496,6 @@ int nkmain(const NkEntryState &state) {
 		return 4;
 	}
 
-	// ── Mode ENREGISTREMENT (opt-in NK_RECORD) : capture MULTI-BACKEND du rendu → viewport_capture.mp4.
-	//    Le rendu est dirigé vers un offscreen readable (SetFinalColorTarget), lu par ReadbackPixels
-	//    (voie NKRHI unifiée : DX11/DX12/GL/VK/Metal/SW), puis encodé en H.264 sur un thread de fond.
-	//    NB : pendant l'enregistrement, la fenêtre affiche du noir (le rendu final est redirigé). ──────
-	const bool record = (getenv("NK_RECORD") != nullptr);
-	NkOffscreenTarget *capOff = nullptr;
-	media::NkVideoRecorder rec;
-	NkVector<uint8> capBuf;
-	NkVector<int16> capTone;
-	int recFrames = 0, recAudio = -1;
-	nk_int64 recPhase = 0;
-	const int kRecTotal = 150, kRate = 48000, kAPerF = kRate / 30;
-	if (record) {
-		NkOffscreenDesc od;
-		od.width = ctx.width;
-		od.height = ctx.height;
-		od.readback = true;
-		od.readable = true;
-		od.hasDepth = true;
-		od.name = NkString("capture");
-		capOff = renderer->CreateOffscreen(od);
-		if (capOff && rec.Begin("viewport_capture.mp4", (int32)ctx.width, (int32)ctx.height, 30, 1, 24)) {
-			capBuf.Resize((uint64)ctx.width * ctx.height * 4);
-			capTone.Resize((uint64)kAPerF);
-			recAudio = rec.AddAudio(kRate, 1, "fre");
-			const int32 st = rec.AddSubtitleTrack("fre");
-			rec.AddSubtitle(st, "Capture renderdemo (multi-backend) - Nkentseu", 0, 5000);
-			logger.Info("[REC] Enregistrement {0}x{1}, {2} trames (thread encodage)...\n", ctx.width, ctx.height,
-						kRecTotal);
-		}
-	}
-
 	// ── Boucle ───────────────────────────────────────────────────────────────
 	bool running = true;
 	NkClock clock;
@@ -608,34 +571,7 @@ int nkmain(const NkEntryState &state) {
 
 		if (ctx.width == 0 || ctx.height == 0)
 			continue;
-		if (record && capOff) {
-			// Rendu dirigé vers l'offscreen readable → readback (multi-backend) → encodage threadé.
-			renderer->SetFinalColorTarget(renderer->GetTextures()->GetRHIHandle(capOff->GetColorResult()));
-			demo.frame(ctx, dt);
-			renderer->SetFinalColorTarget(NkTextureHandle{}); // rétablit le swapchain
-			if (capOff->ReadbackPixels(capBuf.Data(), ctx.width * 4)) {
-				rec.PushVideo(capBuf.Data(), media::NkVideoInputFormat::RGBA32);
-				for (int i = 0; i < kAPerF; ++i, ++recPhase) {
-					const double t = (double)recPhase / kRate;
-					capTone[(uint64)i] = (int16)(7000.0 * math::NkSin((float32)(6.2831853 * 440.0 * t)));
-				}
-				rec.PushAudio(recAudio, capTone.Data(), (uint32)kAPerF);
-				if ((++recFrames % 15) == 0)
-					logger.Info("[REC] {0}/{1} trames\n", recFrames, kRecTotal);
-				if (recFrames >= kRecTotal)
-					running = false;
-			}
-		} else {
-			demo.frame(ctx, dt);
-		}
-	}
-
-	// ── Finalisation enregistrement (draine la file + écrit le moov = MP4 lisible) ──
-	if (record && capOff) {
-		rec.End();
-		renderer->SetFinalColorTarget(NkTextureHandle{});
-		renderer->DestroyOffscreen(capOff);
-		logger.Info("[REC] Termine -> viewport_capture.mp4 ({0} trames)\n", recFrames);
+		demo.frame(ctx, dt);
 	}
 
 	// ── Cleanup ──────────────────────────────────────────────────────────────
