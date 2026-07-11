@@ -145,6 +145,7 @@ namespace nkentseu {
 				NkVector<int32> qfL, qfC;	 // position d'application
 				NkVector<uint8> qfKind;		 // 0 = inserer ';' ; 1 = remplacer le mot par qfPay
 				NkVector<NkString> qfPay;
+				int32 qfEmptyTick = -100000;		   // Ctrl+. sans action -> message au footer (~2 s)
 				int32 chordK = -100000;				   // tick du dernier Ctrl+K (chords Ctrl+K 0/J/I)
 				NkString refsTarget;				   // symbole dont on veut les REFERENCES (consomme par l etat)
 				NkString hovSym;					   // symbole demande
@@ -3163,12 +3164,25 @@ namespace nkentseu {
 									continue;
 								const char *m = d.diags[i].msg.CStr();
 								const char *dy = NkFindSub(m, "did you mean '");
-								if (NkFindSub(m, "expected ';'")) {
-									d.qfLabels.PushBack(NkString("Inserer « ; »"));
+								const char *ex = NkFindSub(m, "expected '");
+								char tok[3] = {0, 0, 0};
+								if (ex) { // token attendu (1-2 caracteres de PONCTUATION uniquement : ; } ) , ...)
+									const char *q3 = ex + 10;
+									int32 tn = 0;
+									while (*q3 && *q3 != 0x27 && tn < 2)
+										tok[tn++] = *q3++;
+									const bool punct =
+										tn > 0 && *q3 == 0x27 &&
+										!((tok[0] >= 'a' && tok[0] <= 'z') || (tok[0] >= 'A' && tok[0] <= 'Z'));
+									if (!punct)
+										tok[0] = 0;
+								}
+								if (tok[0]) {
+									d.qfLabels.PushBack(NkString("Inserer « ") + tok + " »");
 									d.qfL.PushBack(d.diags[i].line);
 									d.qfC.PushBack(d.diags[i].col);
 									d.qfKind.PushBack(0);
-									d.qfPay.PushBack(NkString());
+									d.qfPay.PushBack(NkString(tok));
 								} else if (dy) { // clang propose une correction : « did you mean 'Y' »
 									NkString y;
 									for (const char *q2 = dy + 14; *q2 && *q2 != 0x27; ++q2)
@@ -3182,6 +3196,8 @@ namespace nkentseu {
 									}
 								}
 							}
+							if (d.qfLabels.Empty())
+								d.qfEmptyTick = d.tick; // rien a proposer -> message au footer
 							if (!d.qfLabels.Empty()) {
 								NkCodeQfMenu().open = true;
 								NkCodeQfMenu().pos = {textLeft + PrefixW(ctx, d, d.curLine, d.curCol) - d.scrollX,
@@ -4459,7 +4475,8 @@ namespace nkentseu {
 						d.curCol = co < d.LineLen(ln) ? co : d.LineLen(ln);
 						d.selLine = d.curLine;
 						d.selCol = d.curCol;
-						d.InsertChar(';');
+						const char *tk = d.qfPay[static_cast<usize>(act)].CStr();
+						d.InsertText(*tk ? tk : ";");
 					} else { // remplacer le MOT sous (ln, co) par la proposition du compilateur
 						const NkCodeLine &L = d.lines[ln];
 						int32 ws = co, we = co;

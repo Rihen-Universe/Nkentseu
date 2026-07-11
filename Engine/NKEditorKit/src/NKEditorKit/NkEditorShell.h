@@ -71,6 +71,8 @@ namespace nkentseu {
 
 				// ── Enregistrement (le shell NE POSSEDE PAS les panneaux) ───────────
 				bool AddPanel(NkEditorPanel *panel) noexcept;
+				// Ouvre (si ferme) puis met au premier plan le panneau nomme (onglet de dock).
+				bool FocusPanel(const char *title) noexcept;
 				bool RegisterCommand(const char *name, NkEditorCommandFn fn, void *user = nullptr,
 									 const char *shortcut = "") noexcept;
 
