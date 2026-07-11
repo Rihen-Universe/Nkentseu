@@ -756,11 +756,13 @@ namespace nkentseu {
 						char rbuf[200];
 						// Chord Ctrl+K arme -> guide visible (facon VSCode « (Ctrl+K) en attente... »).
 						const bool chordArmed = (f.doc.tick - f.doc.chordK <= 90);
+						const bool qfEmpty = (f.doc.tick - f.doc.qfEmptyTick <= 120);
 						// Statut d'action (ex. « Panneau Structure affiché ») : VISIBLE ici, pas seulement
 						// dans l'en-tete du panneau Sortie.
-						std::snprintf(rbuf, sizeof(rbuf), "%s%s%sLn %d, Col %d     Espaces : 4     UTF-8     %s",
+						std::snprintf(rbuf, sizeof(rbuf), "%s%s%s%sLn %d, Col %d     Espaces : 4     UTF-8     %s",
 									  mS->status.Empty() ? "" : mS->status.CStr(), mS->status.Empty() ? "" : "      ",
 									  chordArmed ? "(Ctrl+K)  0 = replier   J = deplier   I = info      " : "",
+									  qfEmpty ? "(Ctrl+.)  aucune action rapide sur cette ligne      " : "",
 									  f.doc.curLine + 1, f.doc.curCol + 1, LangOf(f.path));
 						NkString left = f.Name();
 						if (f.doc.dirty)
@@ -898,7 +900,10 @@ namespace nkentseu {
 							mS->ReopenClosed();
 						if (ctx.input.shiftDown &&
 							ctx.input.KeyPressed(NkGuiKey::F)) { // Ctrl+Maj+F : recherche workspace
-							DockFocusWindow(ctx, "Recherche");
+							if (mShell)
+								mShell->FocusPanel("Recherche"); // OUVRE le panneau (etat persiste ferme) puis focus
+							else
+								DockFocusWindow(ctx, "Recherche");
 							mS->wsFocusReq = true;
 							if (mS->HasActive() && mS->files[mS->active].doc.HasSel())
 								mS->wsPrefill = mS->files[mS->active].doc.GetSelectedText();
