@@ -77,8 +77,15 @@ namespace nkentseu {
 				// Applique le clip courant juste avant la soumission : tout le batch
 				// partage ce scissor (un changement de clip a Flush() au prealable).
 				ApplyScissor(mHasClip, mClipRect);
-				SubmitBatches(mGroups.Data(), validCount, mVertices.Data(), mVertices.Size(), mIndices.Data(),
-							  mIndices.Size());
+				// GARDE-FOU : ne JAMAIS soumettre plus que la capacité des buffers GPU
+				// (l'upload écrirait hors buffer -> crash). Troncature (indices en
+				// multiple de 3) : dégradation visuelle plutôt que corruption mémoire.
+				uint32 vSub = mVertices.Size(), iSub = mIndices.Size();
+				if (vSub > kMaxVertices)
+					vSub = kMaxVertices;
+				if (iSub > kMaxIndices)
+					iSub = kMaxIndices - (kMaxIndices % 3);
+				SubmitBatches(mGroups.Data(), validCount, mVertices.Data(), vSub, mIndices.Data(), iSub);
 				mStats.drawCalls += validCount;
 				mStats.vertexCount += mVertices.Size();
 				mStats.indexCount += mIndices.Size();
