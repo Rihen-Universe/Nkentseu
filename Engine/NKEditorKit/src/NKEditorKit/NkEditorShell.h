@@ -73,6 +73,16 @@ namespace nkentseu {
 				bool AddPanel(NkEditorPanel *panel) noexcept;
 				// Ouvre (si ferme) puis met au premier plan le panneau nomme (onglet de dock).
 				bool FocusPanel(const char *title) noexcept;
+				bool IsPanelOpen(const char *title) noexcept; ///< panneau nomme ouvert ?
+				void ClosePanel(const char *title) noexcept;  ///< ferme le panneau nomme
+
+				// Clic sur l'activity bar : l'app recoit l'index (0..6 = vues gauche, 100..102 = IA
+				// droite, 999 = reglages) et decide (sidebar exclusive facon VSCode).
+				void SetActivityHandler(void (*fn)(void *, int32), void *user) noexcept {
+					mActivityFn = fn;
+					mActivityUser = user;
+				}
+
 				bool RegisterCommand(const char *name, NkEditorCommandFn fn, void *user = nullptr,
 									 const char *shortcut = "") noexcept;
 
@@ -317,7 +327,9 @@ namespace nkentseu {
 				char mTitleCenter[200] = {};
 				char mFooterLeft[256] = {};
 				char mFooterRight[128] = {};
-				int32 mActivityIndex = 0; // icone selectionnee dans l'activity bar
+				int32 mActivityIndex = 0;					  // icone selectionnee dans l'activity bar
+				void (*mActivityFn)(void *, int32) = nullptr; // handler app du clic activity bar
+				void *mActivityUser = nullptr;
 
 				// === Etat boucle ===
 				NkClock mClock;
