@@ -1989,6 +1989,12 @@ namespace nkentseu {
 			return *a == *b;
 		}
 
+		// Onglets sur PLUSIEURS RANGEES (option facon Visual Studio) — menu d'onglet + palette.
+		inline bool &NkCodeTabRowsOn() {
+			static bool v = false;
+			return v;
+		}
+
 		inline bool &NkCodeMinimapOn() {
 			static bool v = true;
 			return v;
