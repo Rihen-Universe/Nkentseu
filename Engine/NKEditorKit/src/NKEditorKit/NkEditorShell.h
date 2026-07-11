@@ -92,6 +92,18 @@ namespace nkentseu {
 					mActivityIndexRight = rightIdx;
 				}
 
+				// Icônes TEXTURE des activity bars (teintées au rendu ; 0 = le dessin au
+				// trait par défaut reste). left[0..6] = vues gauche, gear = réglages,
+				// right[0..2] = IA droite.
+				void SetActivityIcons(const uint32 *left, int32 nLeft, uint32 gear, const uint32 *right,
+									  int32 nRight) noexcept {
+					for (int32 i = 0; i < 8 && i < nLeft; ++i)
+						mActTexL[i] = left[i];
+					mActTexGear = gear;
+					for (int32 i = 0; i < 4 && i < nRight; ++i)
+						mActTexR[i] = right[i];
+				}
+
 				bool RegisterCommand(const char *name, NkEditorCommandFn fn, void *user = nullptr,
 									 const char *shortcut = "") noexcept;
 
@@ -339,6 +351,9 @@ namespace nkentseu {
 				char mFooterRight[128] = {};
 				int32 mActivityIndex = 0;					  // icone selectionnee dans l'activity bar
 				int32 mActivityIndexRight = -1;				  // icone marquee de la barre DROITE (IA)
+				uint32 mActTexL[8] = {};					  // textures vues gauche (0 = trait)
+				uint32 mActTexR[4] = {};					  // textures IA droite
+				uint32 mActTexGear = 0;						  // texture reglages
 				void (*mActivityFn)(void *, int32) = nullptr; // handler app du clic activity bar
 				void *mActivityUser = nullptr;
 

@@ -384,6 +384,8 @@ namespace nkentseu {
 				uint32 folderM = 0, folderMOpen = 0; // dossier generique Material (ferme/ouvert)
 				uint32 folderRoot = 0, folderRootOpen = 0; // dossier RACINE du projet
 				uint32 collapseAll = 0, newFile2 = 0, newFolder = 0, filter = 0; // toolbar explorateur
+				// Activity bars (textures codicon remplaçant les dessins au trait)
+				uint32 files = 0, sourceControl = 0, liveShare = 0, codeC = 0, warning = 0;
 				NkVector<NkString> dirKey;
 				NkVector<uint32> dirTexC, dirTexO;
 
