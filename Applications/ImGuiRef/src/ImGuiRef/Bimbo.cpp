@@ -2,10 +2,10 @@
 
 namespace nkentseu {
 
-	Bimbo::Bimbo() {
-	}
+    Bimbo::Bimbo() {
+    }
 
-	Bimbo::~Bimbo() {
-	}
+    Bimbo::~Bimbo() {
+    }
 
-} // namespace nkentseu
+}

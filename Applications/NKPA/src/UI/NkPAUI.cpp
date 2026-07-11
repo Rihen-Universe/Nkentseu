@@ -100,7 +100,7 @@ namespace nkentseu {
 			bool open = state.showUI;
 			nkui::NkUIWindow::SetNextWindowPos({(float32)im.w - 210.f, 10.f});
 			nkui::NkUIWindow::SetNextWindowSize({195.f, 230.f});
-			if (nkui::NkUIWindow::Begin(im.ctx, im.wm, *im.ctx.dl, *font, ls, "NKPA Controls", &open,
+			if (nkui::NkUIWindow::Begin(im.ctx, im.wm, *im.ctx.dl, *font, im.ls, "NKPA Controls", &open,
 										nkui::NkUIWindowFlags::NK_NO_RESIZE | nkui::NkUIWindowFlags::NK_NO_COLLAPSE)) {
 				// Pause / Resume
 				const char *lbl = state.paused ? "Resume" : "Pause";
@@ -123,7 +123,7 @@ namespace nkentseu {
 				// Afficher / masquer UI
 				nkui::NkUI::Checkbox(im.ctx, im.ls, *im.ctx.dl, *font, "Show UI", state.showUI);
 			}
-			nkui::NkUIWindow::End(im.ctx, im.wm, *im.ctx.dl);
+			nkui::NkUIWindow::End(im.ctx, im.wm, *im.ctx.dl, im.ls);
 
 			state.showUI = open;
 

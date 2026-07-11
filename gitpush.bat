@@ -1,7 +1,7 @@
 @echo off
 REM ============================================================================
 REM gitpush.bat - add + commit + push du depot Nkentseu (equivalent gitpush.sh).
-REM   Commit PROPRE (aucune mention Claude) puis push de la branche.
+REM   Commit PROPRE puis push de la branche.
 REM   Option --release vX.Y.Z pour creer et pousser un tag.
 REM
 REM USAGE

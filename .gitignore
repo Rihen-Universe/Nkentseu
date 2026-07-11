@@ -702,3 +702,8 @@ Applications/NKCode/data/fonts/NotoEmoji-Regular.ttf
 /Resources/Datasets/bbj_*.txt
 # Checkpoints GPT (poids appris, volumineux) : locaux uniquement.
 /Resources/Models/
+# Données locales (corpus IA, datasets, audio de test) — hors dépôt (volumineux, générés).
+/AI/
+/Resources/Datasets/*.txt
+/Resources/Datasets/*.wav
+*.wav
