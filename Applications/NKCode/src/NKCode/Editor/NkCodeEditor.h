@@ -129,6 +129,9 @@ namespace nkentseu {
 				float32 hovDragX = 0.f, hovDragOff = 0.f;	 // ancrage du glisser horizontal
 				float32 hovBodyOff = 0.f, hovBodyXOff = 0.f; // defilement V/H de la DOC (commentaires)
 				NkRect hovBodyRect = {0.f, 0.f, 0.f, 0.f};	 // zone doc (molette / glisser 2 axes)
+				NkRect hovVTrack = {0.f, 0.f, 0.f, 0.f};	 // barre V de la doc (clic/glisser)
+				NkRect hovHTrack = {0.f, 0.f, 0.f, 0.f};	 // barre H de la doc (clic/glisser)
+				float32 hovByMax = 0.f, hovBxMax = 0.f;		 // debattements des barres
 				int32 hovDragMode = 0;						 // 1 = prototype (X), 2 = doc (X+Y)
 				float32 hovDragY = 0.f, hovDragOffY = 0.f;
 				// ── QoL : barre « aller a la ligne » (Ctrl+G), chord Ctrl+K, references ──
@@ -2237,8 +2240,9 @@ namespace nkentseu {
 			const bool hover = InRect(area, mouse);
 			const int32 oldL = d.curLine, oldC = d.curCol; // pour detecter un mouvement du curseur
 
-			// Molette (consommee pour ne pas scroller la fenetre dessous).
-			if (hover) {
+			// Molette (consommee pour ne pas scroller la fenetre dessous). La CARTE hover est
+			// au-dessus : quand la souris est dessus, la molette lui revient (bloc plus bas).
+			if (hover && !(d.hovShow && InRect(d.hovRect, mouse))) {
 				if (ctx.input.wheel != 0.f) {
 					if (ctx.input.shiftDown)
 						d.scrollX -= ctx.input.wheel * 40.f;
@@ -2370,6 +2374,20 @@ namespace nkentseu {
 							d.hovBodyXOff = 0.f;
 						if (d.hovBodyOff < 0.f)
 							d.hovBodyOff = 0.f;
+					} else if (d.hovDragMode == 3) { // barre VERTICALE de la doc : position proportionnelle
+						const float32 h2 = d.hovVTrack.h;
+						float32 th2 = h2 * (h2 / (h2 + d.hovByMax));
+						if (th2 < 18.f)
+							th2 = 18.f;
+						const float32 t = (mouse.y - d.hovVTrack.y - th2 * 0.5f) / (h2 - th2 > 1.f ? h2 - th2 : 1.f);
+						d.hovBodyOff = (t < 0.f ? 0.f : t > 1.f ? 1.f : t) * d.hovByMax;
+					} else if (d.hovDragMode == 4) { // barre HORIZONTALE de la doc
+						const float32 w2 = d.hovHTrack.w;
+						float32 tw2 = w2 * (w2 / (w2 + d.hovBxMax));
+						if (tw2 < 24.f)
+							tw2 = 24.f;
+						const float32 t = (mouse.x - d.hovHTrack.x - tw2 * 0.5f) / (w2 - tw2 > 1.f ? w2 - tw2 : 1.f);
+						d.hovBodyXOff = (t < 0.f ? 0.f : t > 1.f ? 1.f : t) * d.hovBxMax;
 					} else { // prototype : X seul
 						d.hovXOff = d.hovDragOff - (mouse.x - d.hovDragX);
 						if (d.hovXOff < 0.f)
@@ -2508,7 +2526,13 @@ namespace nkentseu {
 			}
 			// Clic sur la CARTE hover : action [Aller a la definition] (reutilise le pipeline Ctrl+clic).
 			if (overHovCard && ctx.input.mouseClicked[0]) {
-				if (InRect(d.hovTitleRect, mouse)) { // prise du PROTOTYPE : glisser gauche/droite = defiler
+				if (InRect(d.hovVTrack, mouse) && d.hovByMax > 0.f) { // barre V : clic/glisser
+					ctx.activeId = hovDragId;
+					d.hovDragMode = 3;
+				} else if (InRect(d.hovHTrack, mouse) && d.hovBxMax > 0.f) { // barre H : clic/glisser
+					ctx.activeId = hovDragId;
+					d.hovDragMode = 4;
+				} else if (InRect(d.hovTitleRect, mouse)) { // prise du PROTOTYPE : glisser g/d = defiler
 					ctx.activeId = hovDragId;
 					d.hovDragX = mouse.x;
 					d.hovDragOff = d.hovXOff;
@@ -4227,8 +4251,13 @@ namespace nkentseu {
 								   d.hovBody[static_cast<usize>(i)].CStr(), ctx.theme.textDisabled);
 					}
 					dl.PopClipRect();
+					d.hovVTrack = {0.f, 0.f, 0.f, 0.f};
+					d.hovHTrack = {0.f, 0.f, 0.f, 0.f};
+					d.hovByMax = byMax > 0.f ? byMax : 0.f;
+					d.hovBxMax = bxMax > 0.f ? bxMax : 0.f;
 					if (byMax > 0.f) { // barre VERTICALE de la doc
 						const float32 vx = hb.x + hb.w - padX + ctx.S(1.f);
+						d.hovVTrack = {vx - 4.f, bodyTop, 12.f, bodyH}; // prehension elargie
 						dl.AddRectFilled({vx, bodyTop, 4.f, bodyH}, NkColor{255, 255, 255, 20}, 2.f);
 						float32 th2 = bodyH * (bodyH / (bodyH + byMax));
 						if (th2 < 18.f)
@@ -4238,6 +4267,7 @@ namespace nkentseu {
 					}
 					if (bxMax > 0.f) { // barre HORIZONTALE de la doc
 						const float32 hy = bodyTop + bodyH + ctx.S(2.f);
+						d.hovHTrack = {hb.x + padX, hy - 4.f, bodyW, 12.f};
 						dl.AddRectFilled({hb.x + padX, hy, bodyW, 4.f}, NkColor{255, 255, 255, 20}, 2.f);
 						float32 tw2 = bodyW * (bodyW / maxBW);
 						if (tw2 < 24.f)
