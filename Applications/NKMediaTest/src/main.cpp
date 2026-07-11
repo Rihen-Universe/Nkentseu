@@ -24,6 +24,9 @@
 #include "NKMedia/Codecs/Video/H264/NkH264Transform.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Encoder.h"
+#include "NKMedia/Video/NkVideoConverter.h"
+#include "NKMedia/Video/NkVideoWriter.h"
+#include "NKMedia/Video/NkImageSequenceWriter.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKMath/NkFunctions.h"
 
@@ -358,6 +361,56 @@ int main(int argc, char **argv) {
 			printf("[!] Ouverture h264_test.mp4 impossible\n");
 		}
 	}
+	// Pipeline de conversion : (a) séquence PNG → H.264 MP4 ; (b) transcode MJPEG AVI → H.264 MP4.
+	{
+		const int32 W = 96, H = 64;
+		NkVector<uint8> fr;
+		fr.Resize((uint64)W * H * 3);
+		auto fill = [&](int32 f) {
+			for (int32 y = 0; y < H; ++y)
+				for (int32 x = 0; x < W; ++x) {
+					uint8 *p = fr.Data() + ((uint64)y * W + x) * 3;
+					p[0] = (uint8)((x * 2 + f * 8) & 0xFF);
+					p[1] = (uint8)((y * 3) & 0xFF);
+					p[2] = (uint8)((80 + f * 10) & 0xFF);
+				}
+		};
+		// (a) écrit une séquence PNG puis la convertit en MP4.
+		{
+			media::NkImageSequenceWriter seq;
+			if (seq.Open(".", "cvframe", W, H, media::NkImageSeqFormat::PNG, 3)) {
+				for (int32 f = 0; f < 10; ++f) {
+					fill(f);
+					seq.WriteFrame(fr.Data(), media::NkVideoInputFormat::RGB24);
+				}
+				seq.Close();
+			}
+			const int32 n =
+				media::NkVideoConverter::ImageSequenceToVideo("cvframe_", 3, ".png", 1, 10, "conv_seq.mp4", 25, 1);
+			printf("[i] Conversion sequence PNG -> conv_seq.mp4 : %d trames\n", n);
+		}
+		// (b) écrit un MJPEG AVI puis le transcode en H.264 MP4 (vrai décode→réencode).
+		{
+			media::NkVideoWriter avi;
+			media::NkVideoConfig cfg;
+			cfg.width = W;
+			cfg.height = H;
+			cfg.fpsNum = 25;
+			cfg.fpsDen = 1;
+			cfg.codec = media::NkVideoCodec::MJPEG;
+			cfg.container = media::NkVideoContainer::AVI;
+			if (avi.Open("conv_src.avi", cfg)) {
+				for (int32 f = 0; f < 10; ++f) {
+					fill(f);
+					avi.WriteFrame(fr.Data(), media::NkVideoInputFormat::RGB24);
+				}
+				avi.Close();
+			}
+			const int32 n = media::NkVideoConverter::MjpegAviToVideo("conv_src.avi", "conv_trans.mp4");
+			printf("[i] Transcode MJPEG AVI -> H.264 conv_trans.mp4 : %d trames\n", n);
+		}
+	}
+
 	printf("\n=== Resultat : %d/%d suites OK ===\n", nbOk, nbTotal);
 	return (nbOk == nbTotal) ? 0 : 1;
 }

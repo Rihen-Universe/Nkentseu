@@ -10,7 +10,7 @@ with project("NKMediaTest"):
     files(["src/main.cpp"])
 
     nkentseudependson(
-        ["NKMedia", "NKStream", "NKFileSystem", "NKMath", "NKLogger",
+        ["NKMedia", "NKImage", "NKStream", "NKFileSystem", "NKMath", "NKLogger",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src"],
     )
