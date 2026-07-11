@@ -4461,6 +4461,13 @@ namespace nkentseu {
 						dl.AddRectFilled({vTrack.x + 1.f, markY(d.breakpoints[i]), sbW - 2.f, 2.f},
 										 NkColor{229, 74, 68, 255}); // breakpoints (rouge vif)
 			}
+			// (diagnostic) clic sur la bande H -> trace l'état dans OUTPUT (le drag doit suivre).
+			if (ctx.input.mouseClicked[0] && InRect(hTrack, mouse)) {
+				char hb2[96];
+				std::snprintf(hb2, sizeof(hb2), "[ui] barre H : clic (maxScrollX=%.0f, wrap=%d)", maxScrollX,
+							  d.wrapOn ? 1 : 0);
+				GlobalLogBuffer().Push(NkString(hb2));
+			}
 			// ── Barre HORIZONTALE : fleche gauche + piste (pouce) + fleche droite ──
 			{
 				const NkRect lfB = {hTrack.x, hTrack.y, sbW, sbW};
