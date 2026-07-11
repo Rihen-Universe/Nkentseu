@@ -3282,6 +3282,7 @@ namespace nkentseu {
 				int32 wsFocusField = 1;	 // 1 = champ Rechercher (Ctrl+Maj+F), 2 = champ Remplacer (Ctrl+Maj+H) //
 										 // Ctrl+Maj+F -> le panneau prend le focus du champ
 				NkString termOpenAt;	 // « Ouvrir dans le terminal » : dossier demandé (consommé par TerminalPanel)
+				NkString termOpenCmd;	 // commande a executer DANS le nouvel onglet (ex. « claude », « codex »)
 				int32 termOpenKind = -1; // shell demandé (-1 = défaut ; 0 pwsh, 1 wsl, 2 bash, 3 cmd)
 				NkString wsPrefill;		 // sélection de l'éditeur préremplie dans le champ
 				NkString wsOpenFile;	 // clic sur un résultat : consommé par ProcessWsOpen (poll)

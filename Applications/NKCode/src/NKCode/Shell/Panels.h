@@ -34,6 +34,51 @@ namespace nkentseu {
 
 		// ── Explorateur : ARBRE repliable facon VSCode. Les dossiers s'ouvrent/ferment
 		//    en place (chevron + indentation) ; clic fichier = ouvrir dans l'editeur. ──
+		inline bool SideSameStr(const char *a, const char *b) {
+			while (*a && *a == *b) {
+				++a;
+				++b;
+			}
+			return *a == *b;
+		}
+
+		// ── SIDEBARS EXCLUSIVES (façon VSCode) : au plus UN panneau ouvert par côté. ──
+		inline void OpenSideExclusive(editorkit::NkEditorShell *sh, const char *const *titles, int32 n,
+									  const char *want) {
+			if (!sh)
+				return;
+			for (int32 i = 0; i < n; ++i)
+				if (!SideSameStr(titles[i], want))
+					sh->ClosePanel(titles[i]);
+			sh->FocusPanel(want);
+		}
+
+		inline void ToggleSideExclusive(editorkit::NkEditorShell *sh, const char *const *titles, int32 n,
+										const char *want) {
+			if (!sh)
+				return;
+			const bool wasOpen = sh->IsPanelOpen(want);
+			for (int32 i = 0; i < n; ++i)
+				sh->ClosePanel(titles[i]);
+			if (!wasOpen)
+				sh->FocusPanel(want); // déjà ouvert -> le côté se replie
+		}
+
+		// Groupes des sidebars (titres) — partagés entre l'activity bar et les raccourcis.
+		inline const char *const *SideLeftGroup(int32 &n) {
+			static const char *kG[] = {"Explorateur", "Recherche",	 "Controle de version",
+									   "Debogueur",	  "Live Collab", "Extensions",
+									   "Profiler",	  "Structure"};
+			n = 8;
+			return kG;
+		}
+
+		inline const char *const *SideRightGroup(int32 &n) {
+			static const char *kG[] = {"Assistant IA", "Claude Code", "Codex", "Moteur"};
+			n = 4;
+			return kG;
+		}
+
 		class ExplorerPanel : public NkEditorPanel {
 			public:
 				explicit ExplorerPanel(NkCodeState *s)
@@ -901,9 +946,11 @@ namespace nkentseu {
 						if (ctx.input.shiftDown &&
 							ctx.input.KeyPressed(NkGuiKey::F)) { // Ctrl+Maj+F : recherche workspace
 							mS->wsFocusField = 1;
-							if (mShell)
-								mShell->FocusPanel("Recherche"); // OUVRE le panneau (etat persiste ferme) puis focus
-							else
+							if (mShell) { // sidebar exclusive : la Recherche remplace la vue gauche courante
+								int32 gN = 0;
+								const char *const *g = SideLeftGroup(gN);
+								OpenSideExclusive(mShell, g, gN, "Recherche");
+							} else
 								DockFocusWindow(ctx, "Recherche");
 							mS->wsFocusReq = true;
 							if (mS->HasActive() && mS->files[mS->active].doc.HasSel())
@@ -912,9 +959,11 @@ namespace nkentseu {
 						if (ctx.input.shiftDown &&
 							ctx.input.KeyPressed(NkGuiKey::H)) { // Ctrl+Maj+H : REMPLACER (workspace)
 							mS->wsFocusField = 2;				 // focus direct sur le champ « Remplacer »
-							if (mShell)
-								mShell->FocusPanel("Recherche");
-							else
+							if (mShell) {
+								int32 gN = 0;
+								const char *const *g = SideLeftGroup(gN);
+								OpenSideExclusive(mShell, g, gN, "Recherche");
+							} else
 								DockFocusWindow(ctx, "Recherche");
 							mS->wsFocusReq = true;
 							if (mS->HasActive() && mS->files[mS->active].doc.HasSel())
@@ -922,8 +971,15 @@ namespace nkentseu {
 						}
 						if (ctx.input.shiftDown &&
 							ctx.input.KeyPressed(NkGuiKey::O)) { // Ctrl+Maj+O : panneau Structure
-							mS->status = DockFocusWindow(ctx, "Structure") ? NkString("Panneau Structure affiché")
-																		   : NkString("Panneau Structure indisponible");
+							if (mShell) {
+								int32 gN = 0;
+								const char *const *g = SideLeftGroup(gN);
+								OpenSideExclusive(mShell, g, gN, "Structure");
+								mS->status = NkString("Panneau Structure affiché");
+							} else
+								mS->status = DockFocusWindow(ctx, "Structure")
+												 ? NkString("Panneau Structure affiché")
+												 : NkString("Panneau Structure indisponible");
 						}
 						const bool tabFree = // Tab réservé si la barre de recherche ou la complétion le consomme
 							!(mS->HasActive() &&
@@ -1909,6 +1965,11 @@ namespace nkentseu {
 						AddTermKind(k2, k2 == SH_WSL ? mDefDistro : NkString());
 						mState->termOpenKind = -1;
 						mTerm[mActive].cwd = mState->termOpenAt;
+						if (!mState->termOpenCmd.Empty()) { // agent CLI : la commande EST le « shell »
+							mTerm[mActive].cmdOverride = mState->termOpenCmd;
+							mTerm[mActive].label = mState->termOpenCmd;
+							mState->termOpenCmd = NkString();
+						}
 						mState->termOpenAt = NkString();
 					}
 					if (!mTerm[mActive].alive)
@@ -2063,9 +2124,10 @@ namespace nkentseu {
 
 			private:
 				struct Term {
-						NkString cwd;  // dossier de démarrage (vide = racine du workspace)
-						NkPty pty;	   // shell interactif (ConPTY)
-						NkTerm screen; // emulateur VT (grille de cellules)
+						NkString cwd;		  // dossier de démarrage (vide = racine du workspace)
+						NkString cmdOverride; // commande à exécuter à la place du shell (agent CLI)
+						NkPty pty;			  // shell interactif (ConPTY)
+						NkTerm screen;		  // emulateur VT (grille de cellules)
 						int32 shell = SH_PWSH;
 						NkString distro;			   // distro WSL ciblee (si shell == SH_WSL)
 						NkString label = "powershell"; // libelle affiche (onglet/liste)
@@ -2091,7 +2153,8 @@ namespace nkentseu {
 					GlobalLogBuffer().Push(NkString("[term] demarre dans: ") + ((mState && mState->HasWorkspace())
 																					? mState->root.ToString()
 																					: NkString("(cwd exe)")));
-					t.pty.Start(PtyCommand(t.shell, t.distro), t.screen.Cols(), t.screen.Rows(),
+					t.pty.Start(!t.cmdOverride.Empty() ? t.cmdOverride : PtyCommand(t.shell, t.distro), t.screen.Cols(),
+								t.screen.Rows(),
 								!t.cwd.Empty() ? t.cwd // « Ouvrir dans le terminal » : dossier demandé
 											   : ((mState && mState->HasWorkspace() && !mState->root.ToString().Empty())
 													  ? mState->root.ToString()
@@ -2541,6 +2604,7 @@ namespace nkentseu {
 							mTerm[i].scrollY = 0.f;
 							mTerm[i].follow = true;
 							mTerm[i].cwd = NkString();
+							mTerm[i].cmdOverride = NkString();
 							mTerm[i].sAL = mTerm[i].sAC = mTerm[i].sBL = mTerm[i].sBC = 0;
 							mTerm[i].dragging = false;
 							mActive = i;

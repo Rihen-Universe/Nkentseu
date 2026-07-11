@@ -724,14 +724,41 @@ namespace nkentseu {
 					case 3: { // Executer/Deboguer : triangle play
 						dl.AddTriangleFilled({cx - s * 0.6f, ic - s}, {cx - s * 0.6f, ic + s}, {cx + s, ic}, c);
 					} break;
-					case 4: { // Extensions : 4 carres (un detache)
+					case 4: { // Live Collab : deux personnes (tetes + epaules)
+						dl.AddCircleFilled({cx - s * 0.45f, ic - s * 0.45f}, s * 0.38f, c);
+						dl.AddCircleFilled({cx + s * 0.5f, ic - s * 0.25f}, s * 0.32f, c);
+						dl.AddRectFilled({cx - s * 0.95f, ic + s * 0.05f, s * 1.f, s * 0.75f}, c, s * 0.4f);
+						dl.AddRectFilled({cx + s * 0.08f, ic + s * 0.2f, s * 0.85f, s * 0.6f}, c, s * 0.35f);
+					} break;
+					case 5: { // Extensions : 4 carres (un detache)
 						const float32 q = s * 0.6f;
 						dl.AddRectFilled({cx - s, ic - s, q, q}, c);
 						dl.AddRectFilled({cx - s + q + 2.f, ic - s, q, q}, c);
 						dl.AddRectFilled({cx - s, ic - s + q + 2.f, q, q}, c);
 						dl.AddRect({cx + 2.f, ic + 2.f, q, q}, c, 1.5f);
 					} break;
-					case 5: { // Reglages : roue dentee (anneau + centre)
+					case 6: { // Profiler : histogramme (3 barres)
+						dl.AddRectFilled({cx - s, ic - s * 0.1f, s * 0.5f, s * 1.1f}, c);
+						dl.AddRectFilled({cx - s * 0.25f, ic - s, s * 0.5f, s * 2.f}, c);
+						dl.AddRectFilled({cx + s * 0.5f, ic - s * 0.5f, s * 0.5f, s * 1.5f}, c);
+					} break;
+					case 100: { // Claude Code : asterisque (6 branches)
+						dl.AddLine({cx, ic - s}, {cx, ic + s}, c, 2.f);
+						dl.AddLine({cx - s * 0.87f, ic - s * 0.5f}, {cx + s * 0.87f, ic + s * 0.5f}, c, 2.f);
+						dl.AddLine({cx - s * 0.87f, ic + s * 0.5f}, {cx + s * 0.87f, ic - s * 0.5f}, c, 2.f);
+					} break;
+					case 101: { // Codex : chevrons < >
+						dl.AddLine({cx - s * 0.2f, ic - s}, {cx - s, ic}, c, 2.f);
+						dl.AddLine({cx - s, ic}, {cx - s * 0.2f, ic + s}, c, 2.f);
+						dl.AddLine({cx + s * 0.2f, ic - s}, {cx + s, ic}, c, 2.f);
+						dl.AddLine({cx + s, ic}, {cx + s * 0.2f, ic + s}, c, 2.f);
+					} break;
+					case 102: { // IA Maison : maison (toit + corps)
+						dl.AddTriangleFilled({cx, ic - s}, {cx - s, ic - s * 0.1f}, {cx + s, ic - s * 0.1f}, c);
+						dl.AddRectFilled({cx - s * 0.65f, ic - s * 0.05f, s * 1.3f, s * 1.f}, c);
+						dl.AddRectFilled({cx - s * 0.18f, ic + s * 0.35f, s * 0.36f, s * 0.6f}, barBg);
+					} break;
+					case 999: { // Reglages : roue dentee (anneau + centre)
 						dl.AddCircleFilled({cx, ic}, s * 0.9f, c);
 						dl.AddCircleFilled({cx, ic}, s * 0.5f, barBg);
 						dl.AddCircleFilled({cx, ic}, s * 0.2f, c);
@@ -739,11 +766,14 @@ namespace nkentseu {
 					default:
 						break;
 				}
-				// Clic : icone 0 = bascule la sidebar (1er panneau cote LEFT).
+				// Clic : l'APP decide (sidebar exclusive facon VSCode) via SetActivityHandler ;
+				// sans handler : comportement historique (icone 0 = bascule le 1er panneau gauche).
 				if (hovered && mUI.input.mouseClicked[0]) {
 					if (!bottom)
 						mActivityIndex = idx;
-					if (idx == 0) {
+					if (mActivityFn)
+						mActivityFn(mActivityUser, idx);
+					else if (idx == 0) {
 						for (int32 p = 0; p < mNumPanels; ++p)
 							if (mPanels[p]->DefaultSide() == NkEditorDockSide::NK_LEFT) {
 								mPanels[p]->SetOpen(!mPanels[p]->IsOpen());
@@ -754,9 +784,12 @@ namespace nkentseu {
 			};
 
 			const float32 top = bar.y + cell * 0.5f;
-			for (int32 i = 0; i < 5; ++i)
-				drawIcon(i, top + i * cell, false);
-			drawIcon(5, bar.y + bar.h - cell * 0.5f, true); // Reglages en bas
+			for (int32 i = 0; i < 7; ++i)			// vues GAUCHE : explorateur, recherche, git, debug, collab,
+				drawIcon(i, top + i * cell, false); // extensions, profiler
+			drawIcon(100, bar.y + bar.h - cell * 3.5f, true); // IA (panneau DROIT) : Claude Code
+			drawIcon(101, bar.y + bar.h - cell * 2.5f, true); // Codex
+			drawIcon(102, bar.y + bar.h - cell * 1.5f, true); // IA Maison
+			drawIcon(999, bar.y + bar.h - cell * 0.5f, true); // Reglages en bas
 		}
 
 		// ── Barre de titre custom (UNE ligne : logo + menus | infos | controles) ──
@@ -1083,6 +1116,31 @@ namespace nkentseu {
 				return true;
 			}
 			return false;
+		}
+
+		static bool SameTitle(const char *a, const char *b) {
+			if (!a || !b)
+				return false;
+			while (*a && *a == *b) {
+				++a;
+				++b;
+			}
+			return *a == *b;
+		}
+
+		bool NkEditorShell::IsPanelOpen(const char *title) noexcept {
+			for (int32 i = 0; i < mNumPanels; ++i)
+				if (mPanels[i] && SameTitle(mPanels[i]->Title(), title))
+					return mPanels[i]->IsOpen();
+			return false;
+		}
+
+		void NkEditorShell::ClosePanel(const char *title) noexcept {
+			for (int32 i = 0; i < mNumPanels; ++i)
+				if (mPanels[i] && SameTitle(mPanels[i]->Title(), title)) {
+					mPanels[i]->SetOpen(false);
+					return;
+				}
 		}
 
 		void NkEditorShell::SetFooter(const char *left, const char *right) noexcept {

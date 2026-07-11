@@ -52,6 +52,24 @@ static void CmdFormat(void *) { // Formater le document actif (C/C++)
 		g_state.files[g_state.active].doc.FormatCpp();
 }
 
+// ── Activity bar -> SIDEBARS EXCLUSIVES (facon VSCode) : 0..6 = vues gauche,
+//    100..102 = IA (panneau droit), 999 = Preferences. ──
+static void ActivityThunk(void *user, int32 idx) {
+	auto *sh = static_cast<editorkit::NkEditorShell *>(user);
+	int32 gN = 0;
+	if (idx >= 0 && idx < 7) {
+		static const char *kByIdx[7] = {"Explorateur", "Recherche", "Controle de version", "Debogueur", "Live Collab",
+										"Extensions",  "Profiler"};
+		const char *const *g = nkcode::SideLeftGroup(gN);
+		nkcode::ToggleSideExclusive(sh, g, gN, kByIdx[idx]);
+	} else if (idx >= 100 && idx <= 102) {
+		static const char *kAi[3] = {"Claude Code", "Codex", "Assistant IA"};
+		const char *const *g = nkcode::SideRightGroup(gN);
+		nkcode::ToggleSideExclusive(sh, g, gN, kAi[idx - 100]);
+	} else if (idx == 999)
+		sh->OpenPreferences();
+}
+
 static void CmdToggleTabRows(void *) { // Affichage: onglets multi-rangees (option VS)
 	nkcode::NkCodeTabRowsOn() = !nkcode::NkCodeTabRowsOn();
 }
@@ -206,8 +224,12 @@ int nkmain(const NkEntryState &state) {
 	static ScaffoldPanel pGit("Controle de version", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #9", sc::kGit, 3);
 	static ScaffoldPanel pDebug("Debogueur", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #10", sc::kDebug, 2);
 	static ScaffoldPanel pBuild("Build & Taches", NkEditorDockSide::NK_BOTTOM, "Maquette - roadmap #14", sc::kBuild, 1);
-	static ScaffoldPanel pProf("Profiler", NkEditorDockSide::NK_BOTTOM, "Maquette - roadmap #19", sc::kProfiler, 1);
+	static ScaffoldPanel pProf("Profiler", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #19", sc::kProfiler, 1);
+	static ScaffoldPanel pCollab("Live Collab", NkEditorDockSide::NK_LEFT, "Maquette - collaboration", sc::kCollab, 2);
 	static nkcode::AiPanel aiPanel(&g_state); // Assistant IA FONCTIONNEL (remplace la maquette)
+	static nkcode::AgentCliPanel claudePanel("Claude Code", "claude", "npm install -g @anthropic-ai/claude-code",
+											 &g_state, shell.Get());
+	static nkcode::AgentCliPanel codexPanel("Codex", "codex", "npm install -g @openai/codex", &g_state, shell.Get());
 	static ScaffoldPanel pEngine("Moteur", NkEditorDockSide::NK_RIGHT, "Maquette - roadmap #17", sc::kEngine, 1);
 	static ScaffoldPanel pExt("Extensions", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #12", sc::kExtensions, 1);
 	shell->AddPanel(&pSearch);
@@ -217,10 +239,14 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&pBuild);
 	shell->AddPanel(&pProf);
 	shell->AddPanel(&aiPanel);
+	shell->AddPanel(&claudePanel);
+	shell->AddPanel(&codexPanel);
+	shell->AddPanel(&pCollab);
 	shell->AddPanel(&pEngine);
 	shell->AddPanel(&pExt);
 
-	shell->SetToolbar(&ToolbarThunk, &g_state); // barre d'outils Visual Studio
+	shell->SetActivityHandler(&ActivityThunk, shell.Get()); // sidebars exclusives (activity bar)
+	shell->SetToolbar(&ToolbarThunk, &g_state);				// barre d'outils Visual Studio
 	g_zoomCtx = {&g_state, shell.Get()};
 	shell->SetZoomHandler(&ZoomHandler, &g_zoomCtx); // zoom Ctrl+molette/±/0 -> onglet actif
 	terminal.mShell = shell.Get();					 // police propre du terminal (non zoomee)

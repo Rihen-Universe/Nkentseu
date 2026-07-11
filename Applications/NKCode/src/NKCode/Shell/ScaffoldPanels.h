@@ -68,6 +68,20 @@ namespace nkentseu {
 			};
 			inline const ScaffoldSection kSearch[] = {{"RECHERCHE & REMPLACEMENT", kSearchRows, 6}};
 
+			// Live Collab (maquette) : session partagee + participants.
+			inline const char *const kCollabSession[] = {
+				"[ Demarrer une session ]   [ Rejoindre... ]",
+				"Lien d'invitation : (aucune session active)",
+			};
+			inline const char *const kCollabPeers[] = {
+				"(o) Vous  -  hote",
+				"( ) En attente de participants...",
+			};
+			inline const ScaffoldSection kCollab[] = {
+				{"LIVE COLLAB  -  session", kCollabSession, 2},
+				{"Participants", kCollabPeers, 2},
+			};
+
 			// §12 Problemes & diagnostics
 			inline const char *const kProblemRows[] = {
 				"x  renderer.cpp:145  fuite memoire potentielle (vertexBuffer)",

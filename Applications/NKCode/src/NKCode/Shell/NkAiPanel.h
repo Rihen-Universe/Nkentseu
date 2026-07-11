@@ -23,6 +23,75 @@ namespace nkentseu {
 		using namespace nkentseu::editorkit;
 		using namespace nkentseu::nkgui;
 
+		// ── Agent IA en ligne de commande (Claude Code, Codex...) : panneau lateral DROIT qui
+		//    DETECTE le CLI et le LANCE dans un nouvel onglet du terminal integre (workspace). ──
+		class AgentCliPanel : public NkEditorPanel {
+			public:
+				AgentCliPanel(const char *title, const char *exe, const char *installHint, NkCodeState *s,
+							  NkEditorShell *shell)
+					: NkEditorPanel(title, NkEditorDockSide::NK_RIGHT), mExe(exe), mHint(installHint), mS(s),
+					  mShell(shell) {
+					SetOpen(false); // sidebar exclusive : ouvert via l'activity bar
+				}
+
+				void OnUI(NkEditorFrameContext &ec) override {
+					auto &ctx = ec.Ui();
+					Detect();
+					ec.Text(Title());
+					ec.Separator();
+					if (mFoundPath.Empty()) {
+						ec.Text(NkT("agent.missing"));
+						ec.Text(mHint.CStr());
+						return;
+					}
+					ec.Text(NkT("agent.found"));
+					ec.Text(mFoundPath.CStr());
+					ec.Separator();
+					if (Selectable(ctx, NkT("agent.launch"), false) && mS) {
+						mS->termOpenCmd = mExe; // la commande EST l'agent (nouvel onglet du terminal)
+						mS->termOpenKind = -1;
+						mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
+						if (mShell)
+							mShell->FocusPanel("TERMINAL");
+					}
+				}
+
+			private:
+				NkString mExe;	// executable du CLI (claude / codex)
+				NkString mHint; // commande d'installation affichee si absent
+				NkCodeState *mS;
+				NkEditorShell *mShell;
+				bool mDetected = false;
+				NkString mFoundPath;
+
+				void Detect() { // `where` UNE fois (léger, au premier affichage du panneau)
+					if (mDetected)
+						return;
+					mDetected = true;
+#ifdef _WIN32
+					const NkString cmd = NkString("where ") + mExe.CStr() + " 2>nul";
+					FILE *pipe = _popen(cmd.CStr(), "r");
+#else
+					const NkString cmd = NkString("which ") + mExe.CStr() + " 2>/dev/null";
+					FILE *pipe = popen(cmd.CStr(), "r");
+#endif
+					if (!pipe)
+						return;
+					char line[512];
+					if (std::fgets(line, sizeof(line), pipe)) {
+						for (char *q = line; *q; ++q)
+							if (*q == '\n' || *q == '\r')
+								*q = 0;
+						mFoundPath = NkString(line);
+					}
+#ifdef _WIN32
+					_pclose(pipe);
+#else
+					pclose(pipe);
+#endif
+				}
+		};
+
 		class AiPanel : public NkEditorPanel {
 			public:
 				explicit AiPanel(NkCodeState *s) : NkEditorPanel("Assistant IA", NkEditorDockSide::NK_RIGHT), mS(s) {
@@ -36,7 +105,7 @@ namespace nkentseu {
 					if (!mGreeted) {
 						mMsgs.PushBack({2, NkString(NkT("ai.hello"))});
 						mGreeted = true;
-					}		// locale correcte (posée après construction)
+					} // locale correcte (posée après construction)
 					Poll(); // draine la réponse en cours
 
 					const float32 pad = ctx.S(8.f);
