@@ -18,9 +18,9 @@ namespace nkentseu {
 	namespace renderer {
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-		// Readback DX11 : copie le backbuffer vers une texture STAGING lisible CPU,
-		// la mappe, convertit en RGBA32, puis enregistre via NkImage.
-		static bool NkCaptureDX11(NkIGraphicsContext *ctx, const char *path) noexcept {
+		// Readback DX11 : copie le backbuffer vers une texture STAGING lisible CPU, la mappe et
+		// remplit `out` (RGBA32). Base commune de Capture(fichier) et CaptureToImage(mémoire).
+		static bool NkReadbackDX11(NkIGraphicsContext *ctx, NkImage &out) noexcept {
 			ID3D11Device1 *dev = NkNativeContext::GetDX11Device(ctx);
 			ID3D11DeviceContext1 *dc = NkNativeContext::GetDX11Context(ctx);
 			IDXGISwapChain1 *sc = NkNativeContext::GetDX11Swapchain(ctx);
@@ -64,12 +64,11 @@ namespace nkentseu {
 			// Les swapchains DX11 sont le plus souvent en B8G8R8A8 (BGRA) -> swap R/B.
 			const bool bgra = (d.Format == DXGI_FORMAT_B8G8R8A8_UNORM || d.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB);
 
-			NkImage img;
-			bool ok = img.Create(w, h, math::NkColor(0, 0, 0, 255), 4);
+			bool ok = out.Create(w, h, math::NkColor(0, 0, 0, 255), 4);
 			if (ok) {
 				for (uint32 y = 0; y < h; ++y) {
 					const uint8 *src = static_cast<const uint8 *>(m.pData) + static_cast<usize>(y) * m.RowPitch;
-					uint8 *dst = img.RowPtr(static_cast<int32>(y));
+					uint8 *dst = out.RowPtr(static_cast<int32>(y));
 					for (uint32 x = 0; x < w; ++x) {
 						const uint8 *s = src + static_cast<usize>(x) * 4u;
 						uint8 *o = dst + static_cast<usize>(x) * 4u;
@@ -91,21 +90,32 @@ namespace nkentseu {
 			dc->Unmap(staging, 0);
 			staging->Release();
 			back->Release();
-			return ok && img.Save(path);
+			return ok;
 		}
 #endif // NKENTSEU_PLATFORM_WINDOWS
 
 		bool NkRenderWindow::Capture(const char *path) const {
 			if (!path || !*path || !mContext)
 				return false;
-			switch (mContext->GetApi()) {
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-				case NkGraphicsApi::NK_GFX_API_DX11:
-					return NkCaptureDX11(mContext, path);
-#endif
-				default:
-					return false; // autres backends (GL/DX12/Vulkan/Metal/Software) : a venir
+			if (mContext->GetApi() == NkGraphicsApi::NK_GFX_API_DX11) {
+				NkImage img;
+				return NkReadbackDX11(mContext, img) && img.Save(path);
 			}
+#endif
+			return false; // autres backends (GL/DX12/Vulkan/Metal/Software) : a venir
+		}
+
+		bool NkRenderWindow::CaptureToImage(NkImage &out) const {
+			if (!mContext)
+				return false;
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+			if (mContext->GetApi() == NkGraphicsApi::NK_GFX_API_DX11)
+				return NkReadbackDX11(mContext, out);
+#else
+			(void)out;
+#endif
+			return false;
 		}
 
 	} // namespace renderer

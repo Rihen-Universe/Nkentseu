@@ -25,6 +25,7 @@
 #include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Encoder.h"
 #include "NKMedia/Video/NkVideoConverter.h"
+#include "NKMedia/Video/NkVideoRecorder.h"
 #include "NKMedia/Video/NkVideoWriter.h"
 #include "NKMedia/Video/NkImageSequenceWriter.h"
 #include "NKContainers/Sequential/NkVector.h"
@@ -408,6 +409,55 @@ int main(int argc, char **argv) {
 			}
 			const int32 n = media::NkVideoConverter::MjpegAviToVideo("conv_src.avi", "conv_trans.mp4");
 			printf("[i] Transcode MJPEG AVI -> H.264 conv_trans.mp4 : %d trames\n", n);
+		}
+	}
+
+	// Capture moteur → vidéo+audio : simule un framebuffer RGBA rendu + son + langues + sous-titres.
+	{
+		const int32 W = 128, H = 96, fps = 30, rate = 48000, aPerFrame = rate / fps;
+		media::NkVideoRecorder rec;
+		if (rec.Begin("engine_capture.mp4", W, H, fps, 1, 22)) {
+			const int32 aFr = rec.AddAudio(rate, 1, "fre"); // 2 langues audio
+			const int32 aEn = rec.AddAudio(rate, 1, "eng");
+			const int32 sFr = rec.AddSubtitleTrack("fre"); // 2 langues sous-titres (dont ghomala')
+			const int32 sGh = rec.AddSubtitleTrack("bbj");
+			NkVector<uint8> fb;
+			fb.Resize((uint64)W * H * 4); // framebuffer RGBA (comme une capture DX11)
+			NkVector<int16> af, ae;
+			af.Resize((uint64)aPerFrame);
+			ae.Resize((uint64)aPerFrame);
+			int64 ph = 0;
+			for (int32 f = 0; f < 30; ++f) { // 1 seconde
+				// "rendu" : dégradé animé + carré mobile (simule NKRenderer/NKCanvas)
+				for (int32 y = 0; y < H; ++y)
+					for (int32 x = 0; x < W; ++x) {
+						uint8 *p = fb.Data() + ((uint64)y * W + x) * 4;
+						p[0] = (uint8)((x * 2) & 0xFF);
+						p[1] = (uint8)((y * 2 + f * 4) & 0xFF);
+						p[2] = (uint8)((100 + f * 5) & 0xFF);
+						p[3] = 255;
+						const int32 bx = 4 + f * 4;
+						if (x >= bx && x < bx + 20 && y >= 40 && y < 60) {
+							p[0] = 255;
+							p[1] = 220;
+							p[2] = 0;
+						}
+					}
+				rec.PushVideo(fb.Data(), media::NkVideoInputFormat::RGBA32); // trame capturée
+				for (int32 i = 0; i < aPerFrame; ++i, ++ph) {
+					const double t = (double)ph / rate;
+					af[(uint64)i] = (int16)(8000.0 * nkentseu::math::NkSin((float32)(6.2831853 * 440.0 * t)));
+					ae[(uint64)i] = (int16)(8000.0 * nkentseu::math::NkSin((float32)(6.2831853 * 660.0 * t)));
+				}
+				rec.PushAudio(aFr, af.Data(), (uint32)aPerFrame);
+				rec.PushAudio(aEn, ae.Data(), (uint32)aPerFrame);
+			}
+			rec.AddSubtitle(sFr, "Rendu du moteur Nkentseu", 0, 500);
+			rec.AddSubtitle(sFr, "Capture video + audio", 500, 500);
+			rec.AddSubtitle(sGh, "Wa Nkentseu", 0, 500);
+			rec.End();
+			printf("[i] Capture moteur -> engine_capture.mp4 : %d trames (video+2 audio fr/en+2 sous-titres)\n",
+				   rec.FrameCount());
 		}
 	}
 
