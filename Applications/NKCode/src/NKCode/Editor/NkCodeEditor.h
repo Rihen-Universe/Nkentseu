@@ -3159,43 +3159,47 @@ namespace nkentseu {
 							d.qfC.Clear();
 							d.qfKind.Clear();
 							d.qfPay.Clear();
-							for (usize i = 0; i < d.diags.Size() && d.qfLabels.Size() < 6; ++i) {
-								if (d.diags[i].line != d.curLine)
-									continue;
-								const char *m = d.diags[i].msg.CStr();
-								const char *dy = NkFindSub(m, "did you mean '");
-								const char *ex = NkFindSub(m, "expected '");
-								char tok[3] = {0, 0, 0};
-								if (ex) { // token attendu (1-2 caracteres de PONCTUATION uniquement : ; } ) , ...)
-									const char *q3 = ex + 10;
-									int32 tn = 0;
-									while (*q3 && *q3 != 0x27 && tn < 2)
-										tok[tn++] = *q3++;
-									const bool punct =
-										tn > 0 && *q3 == 0x27 &&
-										!((tok[0] >= 'a' && tok[0] <= 'z') || (tok[0] >= 'A' && tok[0] <= 'Z'));
-									if (!punct)
-										tok[0] = 0;
-								}
-								if (tok[0]) {
-									d.qfLabels.PushBack(NkString("Inserer « ") + tok + " »");
-									d.qfL.PushBack(d.diags[i].line);
-									d.qfC.PushBack(d.diags[i].col);
-									d.qfKind.PushBack(0);
-									d.qfPay.PushBack(NkString(tok));
-								} else if (dy) { // clang propose une correction : « did you mean 'Y' »
-									NkString y;
-									for (const char *q2 = dy + 14; *q2 && *q2 != 0x27; ++q2)
-										y += *q2;
-									if (!y.Empty()) {
-										d.qfLabels.PushBack(NkString("Remplacer par « ") + y.CStr() + " »");
+							// Passe 0 : la ligne EXACTE du caret ; passe 1 (si rien) : lignes voisines (+/-1),
+							// car le compilateur localise souvent l'erreur une ligne plus loin que l'edition.
+							for (int32 pass2 = 0; pass2 < 2 && d.qfLabels.Empty(); ++pass2)
+								for (usize i = 0; i < d.diags.Size() && d.qfLabels.Size() < 6; ++i) {
+									const int32 dlt = d.diags[i].line - d.curLine;
+									if (pass2 == 0 ? (dlt != 0) : (dlt < -1 || dlt > 1 || dlt == 0))
+										continue;
+									const char *m = d.diags[i].msg.CStr();
+									const char *dy = NkFindSub(m, "did you mean '");
+									const char *ex = NkFindSub(m, "expected '");
+									char tok[3] = {0, 0, 0};
+									if (ex) { // token attendu (1-2 caracteres de PONCTUATION uniquement : ; } ) , ...)
+										const char *q3 = ex + 10;
+										int32 tn = 0;
+										while (*q3 && *q3 != 0x27 && tn < 2)
+											tok[tn++] = *q3++;
+										const bool punct =
+											tn > 0 && *q3 == 0x27 &&
+											!((tok[0] >= 'a' && tok[0] <= 'z') || (tok[0] >= 'A' && tok[0] <= 'Z'));
+										if (!punct)
+											tok[0] = 0;
+									}
+									if (tok[0]) {
+										d.qfLabels.PushBack(NkString("Inserer « ") + tok + " »");
 										d.qfL.PushBack(d.diags[i].line);
 										d.qfC.PushBack(d.diags[i].col);
-										d.qfKind.PushBack(1);
-										d.qfPay.PushBack(y);
+										d.qfKind.PushBack(0);
+										d.qfPay.PushBack(NkString(tok));
+									} else if (dy) { // clang propose une correction : « did you mean 'Y' »
+										NkString y;
+										for (const char *q2 = dy + 14; *q2 && *q2 != 0x27; ++q2)
+											y += *q2;
+										if (!y.Empty()) {
+											d.qfLabels.PushBack(NkString("Remplacer par « ") + y.CStr() + " »");
+											d.qfL.PushBack(d.diags[i].line);
+											d.qfC.PushBack(d.diags[i].col);
+											d.qfKind.PushBack(1);
+											d.qfPay.PushBack(y);
+										}
 									}
 								}
-							}
 							if (d.qfLabels.Empty())
 								d.qfEmptyTick = d.tick; // rien a proposer -> message au footer
 							if (!d.qfLabels.Empty()) {

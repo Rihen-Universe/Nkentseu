@@ -239,7 +239,19 @@ namespace nkentseu {
 			NkGuiDrawList &dl = ctx.dlOverlay;
 			const float32 lh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
 			const float32 rowH = lh + 8.f, pad = 10.f;
-			NkRect box = {mn.pos.x, mn.pos.y, 168.f, count * rowH + 8.f};
+			// Largeur ADAPTATIVE : le plus long item, bornee (168 px .. 60 % de la fenetre) ;
+			// le texte est CLIPPE a la boite (les libelles tres longs ne debordent plus).
+			float32 wMax = 168.f;
+			if (ctx.font && ctx.font->Valid())
+				for (int32 i = 0; i < count; ++i) {
+					const float32 tw = ctx.font->MeasureWidth(items[i]) + pad * 2.f + 8.f;
+					if (tw > wMax)
+						wMax = tw;
+				}
+			const float32 wCap = static_cast<float32>(ctx.viewW) * 0.6f;
+			if (wMax > wCap)
+				wMax = wCap;
+			NkRect box = {mn.pos.x, mn.pos.y, wMax, count * rowH + 8.f};
 			if (box.x + box.w > static_cast<float32>(ctx.viewW))
 				box.x = static_cast<float32>(ctx.viewW) - box.w;
 			if (box.y + box.h > static_cast<float32>(ctx.viewH))
@@ -257,7 +269,8 @@ namespace nkentseu {
 				if (ctx.font && ctx.font->Valid())
 					dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 							   {r.x + pad, y + (rowH - lh) * 0.5f + ctx.font->Ascent()}, items[i],
-							   enabled[i] ? NkColor{223, 223, 223, 255} : NkColor{110, 118, 129, 255});
+							   enabled[i] ? NkColor{223, 223, 223, 255} : NkColor{110, 118, 129, 255},
+							   box.w - pad * 2.f); // clip a la boite
 				if (hov && enabled[i] && ctx.input.mouseClicked[0])
 					clicked = i;
 				y += rowH;
