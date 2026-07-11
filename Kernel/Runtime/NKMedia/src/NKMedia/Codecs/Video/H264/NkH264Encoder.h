@@ -21,6 +21,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKMedia/Video/NkVideoTypes.h" // NkVideoInputFormat
 #include "NKMedia/Codecs/Video/H264/NkH264BitWriter.h"
+#include "NKMedia/Video/Containers/NkMp4H264Writer.h"
 #include "NKFileSystem/NkFile.h"
 
 namespace nkentseu {
@@ -55,6 +56,8 @@ namespace nkentseu {
 
 			private:
 				NkFile mFile;
+				NkMp4H264Writer mMp4Writer; // muxer MP4 si le chemin est .mp4/.mov
+				bool mMp4 = false;
 				int32 mWidth = 0, mHeight = 0;
 				int32 mMbW = 0, mMbH = 0;
 				int32 mLumaW = 0, mLumaH = 0, mChromaW = 0, mChromaH = 0;
