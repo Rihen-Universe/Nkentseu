@@ -588,8 +588,8 @@ namespace nkentseu {
 			// pose appFullScreen = showStart) ne tournait plus une fois dans le launcher ->
 			// appFullScreen restait bloque a true et l'editeur n'etait JAMAIS atteint apres
 			// showStart=false. On resynchronise donc les flags AVANT de decider du plein-ecran.
-			if (mUI.appFullScreen && mAppMenuFn)
-				mAppMenuFn(ec, mAppMenuUser);
+			if (mAppMenuFn)					  // TOUJOURS avant la décision plein-écran : sinon la 1re frame rend
+				mAppMenuFn(ec, mAppMenuUser); // l'IDE avant le launcher (flash au démarrage)
 
 			// Ecran de demarrage (launcher) : occupe tout le corps, sans barre
 			// d'outils / panneaux / barre d'etat (façon « page de demarrage » VS).
@@ -645,7 +645,8 @@ namespace nkentseu {
 				mStartScreenFn(ec, mStartScreenUser);
 			} else {
 				DrawActivityBar({0.f, bodyTop, activityW, bodyH});
-				DockSpace(mUI, "##EditorDock", {activityW, bodyTop, W - activityW, bodyH});
+				DrawActivityBarRight({W - activityW, bodyTop, activityW, bodyH}); // IA (panneau droit)
+				DockSpace(mUI, "##EditorDock", {activityW, bodyTop, W - activityW * 2.f, bodyH});
 				BootstrapDocking();
 				DrawPanels(ec);
 				DrawStatusBar(footerH);
@@ -786,10 +787,50 @@ namespace nkentseu {
 			const float32 top = bar.y + cell * 0.5f;
 			for (int32 i = 0; i < 7; ++i)			// vues GAUCHE : explorateur, recherche, git, debug, collab,
 				drawIcon(i, top + i * cell, false); // extensions, profiler
-			drawIcon(100, bar.y + bar.h - cell * 3.5f, true); // IA (panneau DROIT) : Claude Code
-			drawIcon(101, bar.y + bar.h - cell * 2.5f, true); // Codex
-			drawIcon(102, bar.y + bar.h - cell * 1.5f, true); // IA Maison
 			drawIcon(999, bar.y + bar.h - cell * 0.5f, true); // Reglages en bas
+		}
+
+		// ── Activity bar DROITE : les systèmes d'IA (panneau latéral droit exclusif). ──
+		void NkEditorShell::DrawActivityBarRight(const NkRect &bar) noexcept {
+			auto &dl = mUI.dl;
+			const NkColor barBg = mUI.theme.header;
+			const NkColor off = mUI.theme.textDisabled;
+			const NkColor onC = mUI.theme.text;
+			dl.AddRectFilled(bar, barBg);
+			const float32 cell = bar.w;
+			const NkVec2 m = mUI.input.mousePos;
+			auto icon = [&](int32 idx, float32 cy) {
+				const NkRect r = {bar.x, cy - cell * 0.5f, cell, cell};
+				const bool hovered = m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
+				const NkColor c = hovered ? onC : off;
+				const float32 cx = bar.x + cell * 0.5f, ic = cy, s = mUI.S(8.f);
+				switch (idx) {
+					case 100: // Claude Code : asterisque
+						dl.AddLine({cx, ic - s}, {cx, ic + s}, c, 2.f);
+						dl.AddLine({cx - s * 0.87f, ic - s * 0.5f}, {cx + s * 0.87f, ic + s * 0.5f}, c, 2.f);
+						dl.AddLine({cx - s * 0.87f, ic + s * 0.5f}, {cx + s * 0.87f, ic - s * 0.5f}, c, 2.f);
+						break;
+					case 101: // Codex : chevrons < >
+						dl.AddLine({cx - s * 0.2f, ic - s}, {cx - s, ic}, c, 2.f);
+						dl.AddLine({cx - s, ic}, {cx - s * 0.2f, ic + s}, c, 2.f);
+						dl.AddLine({cx + s * 0.2f, ic - s}, {cx + s, ic}, c, 2.f);
+						dl.AddLine({cx + s, ic}, {cx + s * 0.2f, ic + s}, c, 2.f);
+						break;
+					case 102: // IA Maison : maison
+						dl.AddTriangleFilled({cx, ic - s}, {cx - s, ic - s * 0.1f}, {cx + s, ic - s * 0.1f}, c);
+						dl.AddRectFilled({cx - s * 0.65f, ic - s * 0.05f, s * 1.3f, s * 1.f}, c);
+						dl.AddRectFilled({cx - s * 0.18f, ic + s * 0.35f, s * 0.36f, s * 0.6f}, barBg);
+						break;
+					default:
+						break;
+				}
+				if (hovered && mUI.input.mouseClicked[0] && mActivityFn)
+					mActivityFn(mActivityUser, idx);
+			};
+			const float32 top = bar.y + cell * 0.5f;
+			icon(100, top);			   // Claude Code
+			icon(101, top + cell);	   // Codex
+			icon(102, top + cell * 2); // IA Maison
 		}
 
 		// ── Barre de titre custom (UNE ligne : logo + menus | infos | controles) ──

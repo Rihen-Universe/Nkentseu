@@ -244,6 +244,7 @@ namespace nkentseu {
 				void MapEditKey(NkKey k, bool down) noexcept;
 				void TryRunShortcut(NkKey k, bool shift) noexcept;
 				void DrawActivityBar(const nkgui::NkRect &bar) noexcept;
+				void DrawActivityBarRight(const nkgui::NkRect &bar) noexcept; ///< barre IA (cote droit)
 				void DrawStatusBar(float32 footerH) noexcept;
 
 				// === Redimensionnement / deplacement : hand-off NATIF (BeginResize/BeginDragMove).
