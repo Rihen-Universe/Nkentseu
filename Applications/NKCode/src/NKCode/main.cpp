@@ -532,70 +532,70 @@ int nkmain(const NkEntryState &state) {
 					const char *path;
 			};
 			const IconDef kAppIcons[] = {
-				{&ic.accueil, "icon/Accueil"},
-				{&ic.ouvrir, "icon/Ouvrir"},
-				{&ic.ouvrirDossier, "icon/OuvrirUnDossier"},
-				{&ic.nouveau, "icon/Nouveau"},
-				{&ic.cloner, "icon/Cloner"},
-				{&ic.toolchains, "icon/Toolchains"},
-				{&ic.platforms, "icon/Platforms"},
-				{&ic.gear, "icon/Gear"},
-				{&ic.exemple, "icon/Exemple"},
-				{&ic.star, "icon/Star"},
-				{&ic.search, "icon/Search"},
+				{&ic.accueil, "icon/Home"},
+				{&ic.ouvrir, "icon/FolderOpened"},
+				{&ic.ouvrirDossier, "icon/FolderOpened"},
+				{&ic.nouveau, "icon/NewFile"},
+				{&ic.cloner, "icon/RepoClone"},
+				{&ic.toolchains, "icon/Tools"},
+				{&ic.platforms, "icon/Vm"},
+				{&ic.gear, "icon/SettingsGear"},
+				{&ic.exemple, "icon/Book"},
+				{&ic.star, "icon/StarFull"},
+				{&ic.search, "icon/SearchC"},
 				{&ic.workspace, "logo/workspace"}, // workspace.png est dans logo/
 				// Navigateur « Ouvrir un Workspace »
-				{&ic.back, "icon/LeftArrow"},
-				{&ic.forward, "icon/RightArrow"},
-				{&ic.up, "icon/UpArrow"},
-				{&ic.downArrow, "icon/DownArrow"},
+				{&ic.back, "icon/ArrowLeft"},
+				{&ic.forward, "icon/ArrowRight"},
+				{&ic.up, "icon/ArrowUp"},
+				{&ic.downArrow, "icon/ArrowDown"},
 				{&ic.bureau, "icon/Bureau"},
 				{&ic.disque, "icon/Disque"},
 				{&ic.jenga, "icon/Jenga"},
-				{&ic.valide, "icon/Valide"},
-				{&ic.horloge, "icon/Horloge"},
-				{&ic.fichier, "icon/Fichier"},
+				{&ic.valide, "icon/CheckAll"},
+				{&ic.horloge, "icon/History"},
+				{&ic.fichier, "icon/FileC"},
 				{&ic.sort, "icon/Sort"},
 				// Wizard projet : types + actions + validation
-				{&ic.kConsole, "icon/consoleapp"},
-				{&ic.kWindowed, "icon/windowedapp"},
-				{&ic.kStatic, "icon/staticlib"},
-				{&ic.kShared, "icon/sharedlib"},
-				{&ic.kTest, "icon/test"},
-				{&ic.kConfig, "icon/config"},
-				{&ic.valideSimple, "icon/ValideSimple"},
-				{&ic.editer, "icon/editer"},
+				{&ic.kConsole, "icon/TerminalC"},
+				{&ic.kWindowed, "icon/EmptyWindow"},
+				{&ic.kStatic, "icon/ArchiveC"},
+				{&ic.kShared, "icon/Link"},
+				{&ic.kTest, "icon/Beaker"},
+				{&ic.kConfig, "icon/Settings"},
+				{&ic.valideSimple, "icon/Check"},
+				{&ic.editer, "icon/Edit"},
 				{&ic.dependance, "icon/Dependance"},
-				{&ic.creeProjet, "icon/CreeProjet"},
+				{&ic.creeProjet, "icon/NewFolder"},
 				{&ic.fileCode, "icon/FileCode"},
-				{&ic.plus, "icon/Plus"},
-				{&ic.corbeille, "icon/Corbeil"},
+				{&ic.plus, "icon/Add"},
+				{&ic.corbeille, "icon/Trash"},
 				{&ic.lock, "icon/Lock"},
-				{&ic.clonerTel, "icon/ClonerTelecharger"},
+				{&ic.clonerTel, "icon/CloudDownload"},
 				{&ic.github, "icon/Github"},
-				{&ic.oeilOuvert, "icon/OeilOuvert"},
-				{&ic.oeilFermer, "icon/OeilFermer"},
-				{&ic.rondI, "icon/RondI"},
+				{&ic.oeilOuvert, "icon/Eye"},
+				{&ic.oeilFermer, "icon/EyeClosed"},
+				{&ic.rondI, "icon/Info"},
 				// ── Vue principale IDE : vraies icones (Lucide -> assets reels) ──
 				{&ic.hammer, "icon/Mateau"}, // build
-				{&ic.bug, "icon/cocsinelle"}, // debug
-				{&ic.sparkles, "icon/EtoileEtoile"}, // IA
+				{&ic.bug, "icon/DebugAlt"}, // debug
+				{&ic.sparkles, "icon/Sparkle"}, // IA
 				{&ic.zap, "icon/Eclaire"}, // moteur
-				{&ic.chart, "icon/gRAPH"}, // profiler
-				{&ic.puzzle, "icon/stack"}, // extensions
-				{&ic.eraser, "icon/Gomme"}, // nettoyer
-				{&ic.rebuild, "icon/circletwoarrow"}, // rebuild
-				{&ic.play, "icon/Play"}, // executer
-				{&ic.monitor, "icon/Ordinateur"}, // plateforme
-				{&ic.flask, "icon/test"}, // tests
-				{&ic.layers, "icon/Piles"}, // solution
-				{&ic.pkg, "icon/stack"}, // projet
-				{&ic.globe, "icon/Globe"}, // web
-				{&ic.pause, "icon/Pause"},
-				{&ic.stop, "icon/Stop"},
-				{&ic.gitPush, "icon/Push"},
-				{&ic.gitPull, "icon/Pull"},
-				{&ic.split, "icon/Split"},
+				{&ic.chart, "icon/Graph"}, // profiler
+				{&ic.puzzle, "icon/Extensions"}, // extensions
+				{&ic.eraser, "icon/ClearAll"}, // nettoyer
+				{&ic.rebuild, "icon/Sync"}, // rebuild
+				{&ic.play, "icon/PlayC"}, // executer
+				{&ic.monitor, "icon/Vm"}, // plateforme
+				{&ic.flask, "icon/Beaker"}, // tests
+				{&ic.layers, "icon/Layers"}, // solution
+				{&ic.pkg, "icon/Package"}, // projet
+				{&ic.globe, "icon/GlobeC"}, // web
+				{&ic.pause, "icon/DebugPause"},
+				{&ic.stop, "icon/DebugStop"},
+				{&ic.gitPush, "icon/RepoPush"},
+				{&ic.gitPull, "icon/RepoPull"},
+				{&ic.split, "icon/SplitHorizontal"},
 				{&ic.folderOpen, "icon/FolderOpen"},
 				{&ic.folder, "icon/Folder"}, // dossier FERMÉ (0 si absent -> dessin au trait)
 				// ── Dossiers Material (colorés, rendus SANS teinte) + toolbar explorateur ──
@@ -609,15 +609,15 @@ int nkmain(const NkEntryState &state) {
 				{&ic.filter, "icon/Filter"},
 				{&ic.fileText, "icon/FileText"},
 				{&ic.fileCode2, "icon/FileCode2"},
-				{&ic.filePlus, "icon/FilePlus"},
+				{&ic.filePlus, "icon/NewFile"},
 				{&ic.code, "icon/Code"},
-				{&ic.compare, "icon/Compare"},
-				{&ic.blame, "icon/Blame"},
-				{&ic.exit, "icon/Exit"},
-				{&ic.tags, "icon/Tags"},
-				{&ic.cloud, "icon/Cloud"},
-				{&ic.docker, "icon/docker"},
-				{&ic.linux, "icon/Linux"},
+				{&ic.compare, "icon/GitCompare"},
+				{&ic.blame, "icon/Account"},
+				{&ic.exit, "icon/SignOut"},
+				{&ic.tags, "icon/Tag"},
+				{&ic.cloud, "icon/CloudC"},
+				{&ic.docker, "icon/Docker"},
+				{&ic.linux, "icon/TerminalLinux"},
 			};
 			for (const IconDef &d : kAppIcons)
 				*d.slot = loadTex(d.path, IS, IS);
