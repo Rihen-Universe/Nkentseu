@@ -52,7 +52,7 @@ with project("NKViewportDemo"):
 
     nkentseudependson(
         ["NKGui", "NKCanvas", "NKWindow", "NKEvent", "NKGlad", "NKFont",
-         "NKStream", "NKFileSystem", "NKLogger", "NKMath", "NKTime",
+         "NKStream", "NKFileSystem", "NKLogger", "NKMath", "NKTime", "NKImage", "NKMedia",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src", "src/NKViewportDemo", "%{NKGlad.location}/include"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),

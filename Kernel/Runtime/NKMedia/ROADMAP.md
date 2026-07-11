@@ -178,8 +178,12 @@
   texture sur le deferred context, puis transfert des pixels dans le buffer readback au `Execute` ; MapBuffer
   passe en `MAP_READ` pour les buffers `NK_READBACK`, borné à ce cas → upload/rendu inchangés). Désormais les
   **6 backends** capturent par la MÊME voie NKRHI (`NkOffscreenTarget::ReadbackPixels`) → `recorder.PushVideo`.
-  Compile OK ; à valider sur GPU réel (code non testable en headless). ⏳ Reste : tap audio direct dans
-  NKAudio ; démo GPU live enregistrée.
+  Compile OK ; à valider sur GPU réel (code non testable en headless).
+  **Démo GPU live (2026-07-11)** — `NKViewportDemo` : mode enregistrement **opt-in** (`NK_RECORD=1`) — rend la
+  scène 3D (caméra auto-rotative), capture chaque backbuffer présenté via `CaptureToImage`, et enregistre
+  ~4 s (120 trames) dans `viewport_capture.mp4` (vidéo H.264 + audio 440 Hz + sous-titre), puis quitte.
+  Compile OK ; à lancer sur GPU réel (`NK_RECORD=1 NKViewportDemo.exe`). ⏳ Reste : tap audio direct dans
+  NKAudio (là c'est une tonalité de démo) ; readback GL/DX12/VK à valider runtime.
 
 ## En cours / À venir
 - Poursuivre Opus (range decoder → CELT → SILK), puis **AAC-LC** (corpus Bassa). Branchés comme codecs
