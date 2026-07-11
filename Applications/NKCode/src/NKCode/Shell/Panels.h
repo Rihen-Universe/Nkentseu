@@ -965,11 +965,35 @@ namespace nkentseu {
 						tabWs.PushBack((mS->files[i].pinned ? 13.f : 0.f) + nw2 + 14.f + 16.f + 6.f);
 						totalW += tabWs[i];
 					}
-					if (m.y >= y0 && m.y < y0 + h && m.x >= x0 && m.x < x0 + viewTabsW && ctx.input.wheel != 0.f) {
+					// ── MULTI-RANGEES (option) : les onglets s'enroulent sur N lignes, pas de scroll. ──
+					const bool multiRow = NkCodeTabRowsOn();
+					NkVector<float32> tabX, tabY;
+					int32 rowsN = 1;
+					if (multiRow) {
+						mTabScroll = 0.f;
+						float32 cx2 = x0, cy2 = y0;
+						for (usize i = 0; i < tabWs.Size(); ++i) {
+							const float32 limit =
+								(cy2 <= y0 + 0.5f) ? x0 + viewTabsW : x0 + fullW; // rangée 1 : boutons
+							if (cx2 + tabWs[i] > limit && cx2 > x0 + 0.5f) {
+								cx2 = x0;
+								cy2 += h;
+							}
+							tabX.PushBack(cx2);
+							tabY.PushBack(cy2);
+							cx2 += tabWs[i];
+						}
+						rowsN = static_cast<int32>((tabY.Empty() ? 0.f : tabY[tabY.Size() - 1] - y0) / h) + 1;
+						if (rowsN > 1) // fond des rangées supplémentaires
+							dl.AddRectFilled({x0, y0 + h, fullW, h * (rowsN - 1)}, ctx.theme.tabBar);
+					}
+					const float32 barH2 = h * rowsN;
+					if (!multiRow && m.y >= y0 && m.y < y0 + h && m.x >= x0 && m.x < x0 + viewTabsW &&
+						ctx.input.wheel != 0.f) {
 						mTabScroll -= ctx.input.wheel * 48.f; // molette sur la barre = défilement (consommée)
 						ctx.input.wheel = 0.f;
 					}
-					if (mS->active != mTabLastActive && mS->active >= 0 &&
+					if (!multiRow && mS->active != mTabLastActive && mS->active >= 0 &&
 						mS->active < static_cast<int32>(tabWs.Size())) {
 						mTabLastActive = mS->active; // révèle l'onglet actif quand il change
 						float32 ax = 0.f;
@@ -991,7 +1015,10 @@ namespace nkentseu {
 					const bool overTabMenus = (mTabMenu.open && detail::InRect(mTabMenu.rect, m)) ||
 											  (mTabList.open && detail::InRect(mTabList.rect, m));
 					int32 hovNow = -1;
-					dl.PushClipRect({x0, y0, viewTabsW, h}, true);
+					if (multiRow)
+						dl.PushClipRect({x0, y0, fullW, barH2}, true);
+					else
+						dl.PushClipRect({x0, y0, viewTabsW, h}, true);
 					x = x0 - mTabScroll;
 					for (usize i = 0; i < mS->files.Size(); ++i) {
 						OpenFile &f = mS->files[i];
@@ -1000,27 +1027,27 @@ namespace nkentseu {
 						const float32 pinW = f.pinned ? 13.f : 0.f; // icône épingle en tête
 						const float32 tabW = tabWs[i];
 						const float32 nameW = tabW - pinW - 14.f - dotW - 6.f;
-						const NkRect tab = {x, y0, tabW, h};
+						const NkRect tab = {multiRow ? tabX[i] : x, multiRow ? tabY[i] : y0, tabW, h};
 						const bool active = (static_cast<int32>(i) == mS->active);
 						const bool hov = m.x >= tab.x && m.x < tab.x + tab.w && m.y >= tab.y && m.y < tab.y + tab.h &&
-										 m.x < x0 + viewTabsW && !overTabMenus; // zone visible + pas sous un menu
+										 (multiRow || m.x < x0 + viewTabsW) && !overTabMenus;
 						if (hov)
 							hovNow = static_cast<int32>(i);
 						dl.AddRectFilled(tab,
 										 active ? ctx.theme.tabActive : (hov ? ctx.theme.tabHover : ctx.theme.tab));
 						if (active)
-							dl.AddRectFilled({tab.x, y0 + h - 2.f, tab.w, 2.f}, ctx.theme.accent);
+							dl.AddRectFilled({tab.x, tab.y + h - 2.f, tab.w, 2.f}, ctx.theme.accent);
 						float32 tx = tab.x + 8.f;
 						if (f.pinned) {
-							DrawPin(dl, {tx, y0 + h * 0.5f}, active ? ctx.theme.accent : ctx.theme.textDisabled);
+							DrawPin(dl, {tx, tab.y + h * 0.5f}, active ? ctx.theme.accent : ctx.theme.textDisabled);
 							tx += pinW;
 						}
 						if (ctx.font && ctx.font->Valid())
 							dl.AddText(ctx.font->Face(), ctx.font->TexId(),
-									   {tx, y0 + (h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()}, nm.CStr(),
-									   active ? ctx.theme.text : ctx.theme.textDisabled, nameW);
+									   {tx, tab.y + (h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()},
+									   nm.CStr(), active ? ctx.theme.text : ctx.theme.textDisabled, nameW);
 						// Zone droite : épingle -> pas de X ; sinon point "modifié" (si dirty non survolé) sinon X.
-						const NkRect cl = {tab.x + tabW - dotW - 5.f, y0 + (h - dotW) * 0.5f, dotW, dotW};
+						const NkRect cl = {tab.x + tabW - dotW - 5.f, tab.y + (h - dotW) * 0.5f, dotW, dotW};
 						const bool clHov = m.x >= cl.x && m.x < cl.x + cl.w && m.y >= cl.y && m.y < cl.y + cl.h;
 						if (f.pinned) {
 							if (f.doc.dirty)
@@ -1054,7 +1081,7 @@ namespace nkentseu {
 							mTabMenu.pos = m;
 							mTabMenuIdx = static_cast<int32>(i);
 						}
-						dl.AddRectFilled({tab.x + tabW - 1.f, y0, 1.f, h}, ctx.theme.border);
+						dl.AddRectFilled({tab.x + tabW - 1.f, tab.y, 1.f, h}, ctx.theme.border);
 						x += tabW;
 					}
 					// ── Drag d'onglet : réordonne en LIVE quand la souris franchit un onglet voisin ──
@@ -1068,7 +1095,9 @@ namespace nkentseu {
 								int32 tgt = mDragTab;
 								for (int32 j = 0; j < static_cast<int32>(tabRects.Size()); ++j)
 									if (m.x >= tabRects[static_cast<usize>(j)].x &&
-										m.x < tabRects[static_cast<usize>(j)].x + tabRects[static_cast<usize>(j)].w)
+										m.x < tabRects[static_cast<usize>(j)].x + tabRects[static_cast<usize>(j)].w &&
+										m.y >= tabRects[static_cast<usize>(j)].y && // multi-rangées : la BONNE ligne
+										m.y < tabRects[static_cast<usize>(j)].y + tabRects[static_cast<usize>(j)].h)
 										tgt = j;
 								if (tgt != mDragTab) {
 									mS->MoveTab(mDragTab, tgt);
@@ -1134,7 +1163,7 @@ namespace nkentseu {
 							float32 tx2 = m.x + 10.f;
 							if (tx2 + tw2 > static_cast<float32>(ctx.viewW))
 								tx2 = static_cast<float32>(ctx.viewW) - tw2;
-							const NkRect tt = {tx2, y0 + h + 3.f, tw2, ctx.font->LineHeight() + 8.f};
+							const NkRect tt = {tx2, y0 + barH2 + 3.f, tw2, ctx.font->LineHeight() + 8.f};
 							ctx.dlOverlay.AddRectFilled(tt, NkColor{32, 38, 46, 250}, 4.f);
 							ctx.dlOverlay.AddRect(tt, NkColor{60, 66, 74, 255}, 1.f);
 							ctx.dlOverlay.AddText(ctx.font->Face(), ctx.font->TexId(),
@@ -1161,12 +1190,12 @@ namespace nkentseu {
 					// ── Menu contextuel de l'onglet (clic droit) ──
 					if (mTabMenu.open && mTabMenuIdx >= 0 && mTabMenuIdx < static_cast<int32>(mS->files.Size())) {
 						OpenFile &tf = mS->files[mTabMenuIdx];
-						const char *items[7] = {NkT("tab.close"),	   NkT("tab.closeothers"),
+						const char *items[8] = {NkT("tab.close"),	   NkT("tab.closeothers"),
 												NkT("tab.closeright"), tf.pinned ? NkT("tab.unpin") : NkT("tab.pin"),
 												NkT("tab.copypath"),   NkT("ctx.reveal"),
-												NkT("ctx.openterm")};
-						const bool en[7] = {!tf.pinned, true, true, true, true, true, true};
-						const int32 act = NkCtxMenuDraw(ctx, mTabMenu, items, en, 7);
+												NkT("ctx.openterm"),   NkT("tab.multirow")};
+						const bool en[8] = {!tf.pinned, true, true, true, true, true, true, true};
+						const int32 act = NkCtxMenuDraw(ctx, mTabMenu, items, en, 8);
 						if (act >= 0) {
 							const int32 idx = mTabMenuIdx;
 							const NkString full = mS->files[idx].path.ToString();
@@ -1193,6 +1222,9 @@ namespace nkentseu {
 								case 6:
 									NkCodeShellRunTermAt(mS->files[idx].path.GetParent().ToString());
 									break;
+								case 7: // onglets multi-rangées (option, façon Visual Studio)
+									NkCodeTabRowsOn() = !NkCodeTabRowsOn();
+									break;
 							}
 							mTabMenuIdx = -1;
 						}
@@ -1201,7 +1233,7 @@ namespace nkentseu {
 
 					// Avance le curseur de layout SOUS le bandeau (l'editeur suit dessous).
 					ctx.layout.cursor.x = x0;
-					ctx.layout.cursor.y = y0 + h;
+					ctx.layout.cursor.y = y0 + barH2;
 					ctx.layout.lineStartX = x0;
 					ctx.layout.curLineH = 0.f;
 					if (toClose >= 0)
