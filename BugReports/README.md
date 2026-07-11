@@ -84,6 +84,11 @@ Ajoute une ligne dans la table de la catégorie concernée ici.
 |-------|----------|----------|
 | [nkunorderedmap-define-find-rehash.md](Memoire-Heap/nkunorderedmap-define-find-rehash.md) | majeur | SIGSEGV intermittent (deref null après insert+find) |
 
+### [GitHub/](GitHub/) — dépôt, contributeurs, CI
+| Fiche | Sévérité | Symptôme |
+|-------|----------|----------|
+| [claude-contributeur-cache-github.md](GitHub/claude-contributeur-cache-github.md) | mineur (image) | « claude Claude » persiste dans l'encart Contributors alors que la donnée est propre (cache de la sidebar → renommage de branche + recalcul stats) |
+
 ---
 
 > Les sessions de travail détaillées sont aussi historisées dans la mémoire de Claude
