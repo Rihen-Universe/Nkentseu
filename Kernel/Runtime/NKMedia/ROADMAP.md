@@ -152,6 +152,14 @@
   - ⏳ Reste : partitions inter fines (16×8/8×16/8×8), intra-en-P ; audio compressé (AAC/Opus) ; HLS/DASH
     (sélection de résolution 360p→4K = segmentation + manifeste, chantier séparé).
 
+- **Pipeline de conversion vidéo (2026-07-11)** — `NkVideoConverter` (`Video/NkVideoConverter.{h,cpp}`) :
+  architecture **source (décodage) → RGB → sink (réencodage)**, format de sortie déduit de l'extension
+  (`.mp4`/`.mov`→H.264, `.avi`→MJPEG, `.m1v`→MPEG-1). Réutilise **NKImage** (décodage) + **NkVideoWriter** /
+  **NkH264Encoder** (encodage). Deux entrées : **séquence d'images** (`ImageSequenceToVideo`, tout format
+  NKImage) et **vidéo MJPEG AVI** (`MjpegAviToVideo` : parse le RIFF, décode chaque JPEG, réencode). **Validé
+  ffprobe** : séquence PNG → H.264 MP4, et **transcode MJPEG AVI → H.264 MP4** (24 Ko → 3.6 Ko, **~6.7× plus
+  compact**, contenu correct). Extensible : ajouter une source/sink = brancher un décodeur/encodeur.
+
 ## En cours / À venir
 - Poursuivre Opus (range decoder → CELT → SILK), puis **AAC-LC** (corpus Bassa). Branchés comme codecs
   supplémentaires de NKAudio (l'engine lira alors le corpus SANS ffmpeg).
