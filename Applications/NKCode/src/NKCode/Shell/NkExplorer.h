@@ -455,9 +455,16 @@ namespace nkentseu {
 					const bool inClip = NkGuiRectContains(dl.CurrentClip(), m);
 					const float32 bs = h - 4.f;
 					float32 bx = bar.x + bar.w - bs - 2.f;
+					// Fin du titre : les boutons ne CHEVAUCHENT jamais « EXPLORATEUR » —
+					// si le panneau est trop étroit, les boutons de gauche disparaissent.
+					const float32 titleEnd =
+						bar.x + 4.f +
+						((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth("EXPLORATEUR") : 90.f) + 6.f;
 					// [6] filtre, [5] œil (exclus), [4] replier, [3] actualiser,
 					// [2] nouveau dossier, [1] nouveau fichier — de droite à gauche.
 					for (int32 b = 6; b >= 1; --b, bx -= bs + 2.f) {
+						if (bx < titleEnd)
+							break;
 						const NkRect r = {bx, bar.y + 2.f, bs, bs};
 						const bool hov = inClip && NkGuiRectContains(r, m);
 						if (hov)
