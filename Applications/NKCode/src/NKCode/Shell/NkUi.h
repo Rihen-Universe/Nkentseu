@@ -372,7 +372,8 @@ namespace nkentseu {
 				// ── Vue principale IDE (toolbar, activity bar, panneaux, status bar) ──
 				uint32 hammer = 0, bug = 0, sparkles = 0, zap = 0, chart = 0, puzzle = 0, eraser = 0, rebuild = 0,
 					   monitor = 0, flask = 0, layers = 0, pkg = 0, globe = 0, pause = 0, stop = 0, gitPush = 0,
-					   gitPull = 0, split = 0, folderOpen = 0, fileText = 0, fileCode2 = 0, filePlus = 0, code = 0,
+					   gitPull = 0, split = 0, folderOpen = 0, folder = 0, fileText = 0, fileCode2 = 0, filePlus = 0,
+					   code = 0,
 					   compare = 0, blame = 0, exit = 0, tags = 0, cloud = 0, docker = 0, linux = 0, play = 0;
 
 				// ── Registre d'extensions (data-driven) : ".cpp" (minuscule) -> texture ──
