@@ -85,6 +85,13 @@ namespace nkentseu {
 					mActivityUser = user;
 				}
 
+				// Icônes MARQUÉES des activity bars (l'app pousse chaque frame l'état RÉEL
+				// des panneaux : disposition restaurée comprise). -1 = aucune.
+				void SetActivityActive(int32 leftIdx, int32 rightIdx) noexcept {
+					mActivityIndex = leftIdx;
+					mActivityIndexRight = rightIdx;
+				}
+
 				bool RegisterCommand(const char *name, NkEditorCommandFn fn, void *user = nullptr,
 									 const char *shortcut = "") noexcept;
 
@@ -331,6 +338,7 @@ namespace nkentseu {
 				char mFooterLeft[256] = {};
 				char mFooterRight[128] = {};
 				int32 mActivityIndex = 0;					  // icone selectionnee dans l'activity bar
+				int32 mActivityIndexRight = -1;				  // icone marquee de la barre DROITE (IA)
 				void (*mActivityFn)(void *, int32) = nullptr; // handler app du clic activity bar
 				void *mActivityUser = nullptr;
 

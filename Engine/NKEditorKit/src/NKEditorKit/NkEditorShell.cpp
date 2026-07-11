@@ -813,7 +813,10 @@ namespace nkentseu {
 			auto icon = [&](int32 idx, float32 cy) {
 				const NkRect r = {bar.x, cy - cell * 0.5f, cell, cell};
 				const bool hovered = ptrOk && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
-				const NkColor c = hovered ? onC : off;
+				const bool active = (mActivityIndexRight == idx);
+				const NkColor c = (active || hovered) ? onC : off;
+				if (active) // barre d'accent au bord DROIT (miroir de la barre gauche)
+					dl.AddRectFilled({bar.x + bar.w - mUI.S(2.f), r.y, mUI.S(2.f), cell}, mUI.theme.accent);
 				const float32 cx = bar.x + cell * 0.5f, ic = cy, s = mUI.S(8.f);
 				switch (idx) {
 					case 100: // Claude Code : asterisque
@@ -1169,11 +1172,35 @@ namespace nkentseu {
 				// côté déjà ancré si possible, sinon nouvelle zone de bord. No-op si déjà
 				// ancrée -> une place choisie à la main (drag) est conservée.
 				if (p->Dockable() && !DockIsWindowDocked(mUI, title)) {
+					const NkEditorDockSide side = p->DefaultSide();
+					// Une feuille n'accueille le panneau que si elle est vraiment « la
+					// sidebar » du côté : pour gauche/droite elle ne doit contenir QUE des
+					// panneaux de ce côté — un panneau du groupe DÉPLACÉ dans la zone du
+					// terminal est indépendant et ne doit pas aspirer les ouvertures.
+					auto leafOfSide = [&](const char *qt) -> bool {
+						const int32 node = DockWindowNode(mUI, qt);
+						if (node < 0 || node >= static_cast<int32>(mUI.dockNodes.Size()))
+							return false;
+						if (side != NkEditorDockSide::NK_LEFT && side != NkEditorDockSide::NK_RIGHT)
+							return true; // bas/centre : regroupement historique
+						const NkGuiDockNode &L = mUI.dockNodes[node];
+						for (int32 w = 0; w < L.winCount; ++w) {
+							bool ok = false;
+							for (int32 j = 0; j < mNumPanels; ++j)
+								if (mPanels[j] && mUI.GetId(mPanels[j]->Title()) == L.windows[w]) {
+									ok = (mPanels[j]->DefaultSide() == side);
+									break;
+								}
+							if (!ok)
+								return false;
+						}
+						return true;
+					};
 					const char *host = nullptr;
 					for (int32 j = 0; j < mNumPanels; ++j) {
 						NkEditorPanel *q = mPanels[j];
-						if (q && q != p && q->Dockable() && q->DefaultSide() == p->DefaultSide() &&
-							DockIsWindowDocked(mUI, q->Title())) {
+						if (q && q != p && q->Dockable() && q->DefaultSide() == side &&
+							DockIsWindowDocked(mUI, q->Title()) && leafOfSide(q->Title())) {
 							host = q->Title();
 							break;
 						}
@@ -1181,7 +1208,7 @@ namespace nkentseu {
 					if (host)
 						DockBuilderDockTab(mUI, title, host);
 					else
-						DockBuilderDock(mUI, title, SideToZone(p->DefaultSide()));
+						DockBuilderDock(mUI, title, SideToZone(side));
 				}
 				DockFocusWindow(mUI, title);
 				return true;
