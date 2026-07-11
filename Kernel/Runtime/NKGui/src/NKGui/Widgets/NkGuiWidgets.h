@@ -276,6 +276,14 @@ namespace nkentseu {
 		// Sélectionne l'ONGLET d'une fenêtre ancrée (révéler un panneau par raccourci) :
 		// la feuille qui la contient bascule son `activeTab` dessus. false si non ancrée.
 		NKENTSEU_NKGUI_API bool DockFocusWindow(NkGuiContext &ctx, const char *windowTitle) noexcept;
+		// Vrai si la fenêtre est ANCRÉE dans une feuille de dock (la meta survit à la
+		// fermeture -> une fenêtre fermée puis rouverte retrouve sa place).
+		NKENTSEU_NKGUI_API bool DockIsWindowDocked(NkGuiContext &ctx, const char *windowTitle) noexcept;
+		// Marque une fenêtre « barre d'onglets masquée quand elle est SEULE dans sa
+		// feuille » (crée la meta au besoin). Réservé au panneau central (éditeur) :
+		// les autres (Terminal, Sortie, sidebars) gardent TOUJOURS leurs onglets.
+		NKENTSEU_NKGUI_API void DockWindowHideSingleTab(NkGuiContext &ctx, const char *windowTitle,
+														bool hide) noexcept;
 		// DockSpace qui remplit TOUT le viewport (responsive : suit la taille de la
 		// fenêtre OS → le dock + les fenêtres ancrées s'agrandissent avec elle).
 		// `topMargin` = hauteur réservée en haut (ex. barre de menus).

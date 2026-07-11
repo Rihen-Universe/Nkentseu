@@ -647,6 +647,13 @@ namespace nkentseu {
 				DrawActivityBar({0.f, bodyTop, activityW, bodyH});
 				DrawActivityBarRight({W - activityW, bodyTop, activityW, bodyH}); // IA (panneau droit)
 				DockSpace(mUI, "##EditorDock", {activityW, bodyTop, W - activityW * 2.f, bodyH});
+				// Seul le panneau CENTRAL masque la barre d'onglets de sa feuille quand il
+				// est seul (il affiche ses propres onglets de fichiers) ; Terminal/Sortie/
+				// sidebars gardent TOUJOURS leurs onglets, même seuls (façon VSCode).
+				for (int32 i = 0; i < mNumPanels; ++i)
+					if (mPanels[i])
+						DockWindowHideSingleTab(mUI, mPanels[i]->Title(),
+												mPanels[i]->DefaultSide() == NkEditorDockSide::NK_CENTER);
 				BootstrapDocking();
 				DrawPanels(ec);
 				DrawStatusBar(footerH);
@@ -1153,6 +1160,25 @@ namespace nkentseu {
 				if (*a || *b)
 					continue;
 				p->SetOpen(true); // fenetre fermee (etat persiste) -> l'OUVRIR d'abord, sinon rien a focus
+				// JAMAIS ancrée (fermée au moment du bootstrap) -> l'ancrer à son côté PAR
+				// DÉFAUT au lieu d'apparaître flottante : en onglet avec un panneau du même
+				// côté déjà ancré si possible, sinon nouvelle zone de bord. No-op si déjà
+				// ancrée -> une place choisie à la main (drag) est conservée.
+				if (p->Dockable() && !DockIsWindowDocked(mUI, title)) {
+					const char *host = nullptr;
+					for (int32 j = 0; j < mNumPanels; ++j) {
+						NkEditorPanel *q = mPanels[j];
+						if (q && q != p && q->Dockable() && q->DefaultSide() == p->DefaultSide() &&
+							DockIsWindowDocked(mUI, q->Title())) {
+							host = q->Title();
+							break;
+						}
+					}
+					if (host)
+						DockBuilderDockTab(mUI, title, host);
+					else
+						DockBuilderDock(mUI, title, SideToZone(p->DefaultSide()));
+				}
 				DockFocusWindow(mUI, title);
 				return true;
 			}

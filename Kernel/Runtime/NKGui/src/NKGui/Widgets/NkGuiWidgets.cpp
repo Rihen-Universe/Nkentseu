@@ -2579,9 +2579,16 @@ namespace nkentseu {
 				const NkGuiDockNode node = ctx.dockNodes[ni]; // copie (sécurité)
 				if (node.kind == 2) {
 					const NkRect r = node.rect;
-					// Masque la barre d'onglets d'un nœud à 1 seul panneau (opt-in) :
-					// l'éditeur n'affiche alors que ses propres onglets de fichiers.
-					const float32 th = (ctx.dockHideSingleTab && node.winCount <= 1) ? 0.f : ctx.ItemHeight();
+					// Masque la barre d'onglets d'un nœud à 1 seul panneau UNIQUEMENT si sa
+					// fenêtre est marquée (l'éditeur central : il a ses onglets de fichiers).
+					// Terminal/Sortie/sidebars gardent leur barre même seuls (façon VSCode).
+					bool hideBar = false;
+					if (ctx.dockHideSingleTab && node.winCount == 1) {
+						int32 hmi;
+						NkGuiWindowMeta *hw = WinFind(ctx, node.windows[0], hmi);
+						hideBar = hw && hw->hideSingleTab;
+					}
+					const float32 th = hideBar ? 0.f : ctx.ItemHeight();
 					if (node.winCount == 0) {
 						ctx.DL().AddRectFilled(r, ctx.theme.bgPrimary, 0.f);
 						ctx.DL().AddRect(r, ctx.theme.border, 1.f);
@@ -3021,6 +3028,30 @@ namespace nkentseu {
 					return true;
 				}
 			return false;
+		}
+
+		bool DockIsWindowDocked(NkGuiContext &ctx, const char *windowTitle) noexcept {
+			const NkGuiId wid = ctx.GetId(windowTitle);
+			int32 mi;
+			NkGuiWindowMeta *m = WinFind(ctx, wid, mi);
+			return m && m->dockNode >= 0 && m->dockNode < static_cast<int32>(ctx.dockNodes.Size());
+		}
+
+		void DockWindowHideSingleTab(NkGuiContext &ctx, const char *windowTitle, bool hide) noexcept {
+			const NkGuiId wid = ctx.GetId(windowTitle);
+			int32 mi;
+			NkGuiWindowMeta *m = WinFind(ctx, wid, mi);
+			if (!m) {
+				NkGuiWindowMeta nm;
+				nm.id = wid;
+				int32 k = 0;
+				for (; windowTitle[k] && k < 47; ++k)
+					nm.title[k] = windowTitle[k];
+				nm.title[k] = 0;
+				ctx.windowMeta.PushBack(nm);
+				m = &ctx.windowMeta[ctx.windowMeta.Size() - 1];
+			}
+			m->hideSingleTab = hide;
 		}
 
 		void DockWindowIntoWindow(NkGuiContext &ctx, const char *hostTitle, const char *winTitle) noexcept {
