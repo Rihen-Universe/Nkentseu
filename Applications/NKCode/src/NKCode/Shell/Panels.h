@@ -1219,8 +1219,10 @@ namespace nkentseu {
 								case 5:
 									RevealInExplorer(full);
 									break;
-								case 6:
-									NkCodeShellRunTermAt(mS->files[idx].path.GetParent().ToString());
+								case 6: // Ouvrir dans le TERMINAL INTÉGRÉ (nouvel onglet au dossier du fichier)
+									mS->termOpenAt = mS->files[idx].path.GetParent().ToString();
+									if (mShell)
+										mShell->FocusPanel("Terminal");
 									break;
 								case 7: // onglets multi-rangées (option, façon Visual Studio)
 									NkCodeTabRowsOn() = !NkCodeTabRowsOn();
@@ -1856,6 +1858,13 @@ namespace nkentseu {
 						EnsurePrefs();
 						AddTermKind(mDefShell, mDefDistro); // shell par defaut (preference persistee)
 					}
+					// « Ouvrir dans le terminal » : NOUVEL onglet au dossier demandé (façon VSCode).
+					if (mState && !mState->termOpenAt.Empty()) {
+						EnsurePrefs();
+						AddTermKind(mDefShell, mDefDistro);
+						mTerm[mActive].cwd = mState->termOpenAt;
+						mState->termOpenAt = NkString();
+					}
 					if (!mTerm[mActive].alive)
 						mActive = FirstAlive();
 					Term &t = mTerm[mActive];
@@ -2008,6 +2017,7 @@ namespace nkentseu {
 
 			private:
 				struct Term {
+						NkString cwd;  // dossier de démarrage (vide = racine du workspace)
 						NkPty pty;	   // shell interactif (ConPTY)
 						NkTerm screen; // emulateur VT (grille de cellules)
 						int32 shell = SH_PWSH;
@@ -2036,9 +2046,10 @@ namespace nkentseu {
 																					? mState->root.ToString()
 																					: NkString("(cwd exe)")));
 					t.pty.Start(PtyCommand(t.shell, t.distro), t.screen.Cols(), t.screen.Rows(),
-								(mState && mState->HasWorkspace() && !mState->root.ToString().Empty())
-									? mState->root.ToString()
-									: NkString());
+								!t.cwd.Empty() ? t.cwd // « Ouvrir dans le terminal » : dossier demandé
+											   : ((mState && mState->HasWorkspace() && !mState->root.ToString().Empty())
+													  ? mState->root.ToString()
+													  : NkString()));
 				}
 
 				// Programme reel a lancer pour chaque type de shell.
@@ -2483,6 +2494,7 @@ namespace nkentseu {
 							mTerm[i].label = sd.label;
 							mTerm[i].scrollY = 0.f;
 							mTerm[i].follow = true;
+							mTerm[i].cwd = NkString();
 							mTerm[i].sAL = mTerm[i].sAC = mTerm[i].sBL = mTerm[i].sBC = 0;
 							mTerm[i].dragging = false;
 							mActive = i;

@@ -3281,6 +3281,7 @@ namespace nkentseu {
 				bool wsFocusReq = false;
 				int32 wsFocusField = 1; // 1 = champ Rechercher (Ctrl+Maj+F), 2 = champ Remplacer (Ctrl+Maj+H) //
 										// Ctrl+Maj+F -> le panneau prend le focus du champ
+				NkString termOpenAt;	// « Ouvrir dans le terminal » : dossier demandé (consommé par TerminalPanel)
 				NkString wsPrefill;		// sélection de l'éditeur préremplie dans le champ
 				NkString wsOpenFile;	// clic sur un résultat : consommé par ProcessWsOpen (poll)
 				int32 wsOpenLine = -1;
@@ -3579,6 +3580,8 @@ namespace nkentseu {
 					int64 h = static_cast<int64>(1469598103934665603ULL);
 					auto mix = [&](int64 v) { h = (h ^ static_cast<uint64>(v)) * 1099511628211LL; };
 					mix(active);
+					mix(NkCodeTabRowsOn() ? 3 : 0); // toggles UI -> re-sauve la session
+					mix(NkCodeMinimapOn() ? 5 : 0);
 					mix(static_cast<int64>(files.Size()));
 					for (usize i = 0; i < files.Size(); ++i) {
 						OpenFile &f = files[i];
@@ -3599,6 +3602,11 @@ namespace nkentseu {
 					NkPath dir = root / ".nkcode";
 					NkDirectory::CreateRecursive(dir);
 					NkString s = NkString("nksession/2\nactive ") + IntToStr(active).CStr() + "\n";
+					s += "ui ";
+					s += IntToStr(NkCodeTabRowsOn() ? 1 : 0).CStr(); // préférences UI par workspace
+					s += " ";
+					s += IntToStr(NkCodeMinimapOn() ? 1 : 0).CStr();
+					s += "\n";
 					for (usize i = 0; i < files.Size(); ++i) {
 						OpenFile &f = files[i];
 						const int32 dy = f.doc.dirty ? 1 : 0;
@@ -3670,7 +3678,11 @@ namespace nkentseu {
 								ver = nextField(q);
 							}
 						} // "nksession/N"
-						else if (line[0] == 'a' && line[1] == 'c') {
+						else if (line[0] == 'u' && line[1] == 'i') { // préférences UI (multi-rangées, minimap)
+							const char *q = line + 2;
+							NkCodeTabRowsOn() = nextField(q) != 0;
+							NkCodeMinimapOn() = nextField(q) != 0;
+						} else if (line[0] == 'a' && line[1] == 'c') {
 							const char *q = line + 6;
 							savedActive = nextField(q);
 						} else if (line[0] == 'F' && line[1] == ' ') {
