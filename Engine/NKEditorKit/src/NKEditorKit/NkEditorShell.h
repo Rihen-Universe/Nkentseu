@@ -75,6 +75,8 @@ namespace nkentseu {
 				bool FocusPanel(const char *title) noexcept;
 				bool IsPanelOpen(const char *title) noexcept; ///< panneau nomme ouvert ?
 				void ClosePanel(const char *title) noexcept;  ///< ferme le panneau nomme
+				int32 PanelDockNode(const char *title) noexcept; ///< feuille de dock (-1 = non ancre)
+				void DetachPanel(const char *title) noexcept; ///< retire de sa feuille (collapse si vide)
 
 				// Clic sur l'activity bar : l'app recoit l'index (0..6 = vues gauche, 100..102 = IA
 				// droite, 999 = reglages) et decide (sidebar exclusive facon VSCode).
