@@ -105,8 +105,11 @@ namespace nkentseu {
 						(open || accent) ? NkCol::primary : NkCol::border, NkR::sm * u.S);
 				float32 tx = x + u.s(9);
 				if (tex || drawn) {
+					// Le logo JENGA est une icône COLORÉE : rendu tel quel (teinte blanche),
+					// sinon la teinte grise du thème le décolorerait.
+					const bool colored = (ic && tex && tex == ic->jenga);
 					NkOwIco(u, tex, drawn, {tx, ctrlY + (ctrlH - u.s(12)) * 0.5f, u.s(12), u.s(12)},
-							accent ? NkCol::primary : NkCol::mutedFg);
+							colored ? NkColor{255, 255, 255, 255} : (accent ? NkCol::primary : NkCol::mutedFg));
 					tx += u.s(18);
 				}
 				u.TextEllipsis(tx, ctrlY + (ctrlH - u.Lh()) * 0.5f, (x + w) - tx - u.s(16), value,
