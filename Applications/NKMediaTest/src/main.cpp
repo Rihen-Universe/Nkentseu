@@ -31,6 +31,7 @@
 #include "NKMedia/Codecs/Opus/Silk/NkSilkIndices.h"
 #include "NKMedia/Codecs/Opus/Silk/NkSilkDecoder.h"
 #include "NKMedia/Codecs/Opus/Silk/NkSilkTop.h"
+#include "NKMedia/Codecs/Opus/Silk/NkSilkResampler.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Transform.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Encoder.h"
@@ -84,8 +85,14 @@ int main(int argc, char **argv) {
 			nb_subfr = 4;
 			nFrames = 3;
 		}
+		// Option : 4e arg "48" → rééchantillonne vers 48 kHz (sortie Opus standard).
+		const bool to48 = (argc >= 5 && NkString(argv[4]) == NkString("48"));
 		media::NkSilkTop top;
 		top.Init(fs_kHz, nb_subfr);
+		media::NkSilkResampler rs;
+		if (to48)
+			rs.Init(fs_kHz * 1000, 48000);
+		nk_int16 sMid[2] = {0, 0}; // tampon inter-trames (comme silk_Decode)
 		NkVector<nk_int16> pcm;
 		nk_int16 frameOut[960];
 		for (uint64 p = 0; p < packets.Size(); ++p) {
@@ -93,18 +100,32 @@ int main(int argc, char **argv) {
 			const uint32 sz = (uint32)packets[p].size;
 			if (sz < 2)
 				continue;
-			// Framing Opus correct (codes 0-3) : chaque trame Opus a son offset/taille.
 			media::NkOpusPacketInfo op;
 			if (!media::NkOpusPacket::Parse(pl, sz, op))
 				continue;
-			int32 n = 0;
 			for (int32 fr = 0; fr < op.frameCount; ++fr) {
 				media::NkOpusRangeDecoder rd;
 				rd.Init(pl + op.frames[fr].offset, (uint32)op.frames[fr].size);
-				n += top.DecodePacket(rd, nFrames, frameOut + n);
+				const int32 n = top.DecodePacket(rd, nFrames, frameOut);
+				if (!to48) {
+					for (int32 i = 0; i < n; ++i)
+						pcm.PushBack(frameOut[i]);
+				} else {
+					// Prépend 2 échantillons tampon, rééchantillonne, sauve les 2 derniers.
+					nk_int16 tmp[2 + 960];
+					tmp[0] = sMid[0];
+					tmp[1] = sMid[1];
+					for (int32 i = 0; i < n; ++i)
+						tmp[2 + i] = frameOut[i];
+					sMid[0] = frameOut[n - 2];
+					sMid[1] = frameOut[n - 1];
+					nk_int16 out48[960 * 3 + 16];
+					rs.Process(out48, &tmp[1], n);
+					const int32 nOut = n * 48 / fs_kHz;
+					for (int32 i = 0; i < nOut; ++i)
+						pcm.PushBack(out48[i]);
+				}
 			}
-			for (int32 i = 0; i < n; ++i)
-				pcm.PushBack(frameOut[i]);
 		}
 		FILE *f = fopen(argv[3], "wb");
 		if (f) {
@@ -112,7 +133,7 @@ int main(int argc, char **argv) {
 			fclose(f);
 		}
 		printf("[SILK] %d paquets -> %d echantillons @ %d kHz -> %s\n", (int)packets.Size(), (int)pcm.Size(),
-			   fs_kHz, argv[3]);
+			   to48 ? 48 : fs_kHz, argv[3]);
 		return 0;
 	}
 	// Dump des paquets Opus bruts : --dumppkts <flux.webm> <out.pkts> ([u32 len][octets]*).
@@ -417,6 +438,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkSilkTop::SelfTest();
 		printf("[ %s ] NkSilkTop : top-level paquet (en-tete VAD/LBRR + boucle trames) -> PCM interne\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkSilkResampler::SelfTest();
+		printf("[ %s ] NkSilkResampler : 16k->48k (up2 HQ + FIR frac), sortie bornee + deterministe\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
