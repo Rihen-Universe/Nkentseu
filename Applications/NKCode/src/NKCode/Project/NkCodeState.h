@@ -3718,6 +3718,7 @@ namespace nkentseu {
 					active = (savedActive >= 0 && savedActive < static_cast<int32>(files.Size()))
 								 ? savedActive
 								 : (files.Empty() ? -1 : 0);
+					NormalizePins(); // sessions anciennes : les épinglés rejoignent la tête
 				}
 
 				// ── Surveillance des fichiers OUVERTS : suppression / modification EXTERNE (hors NKCode). ──
@@ -3979,6 +3980,20 @@ namespace nkentseu {
 					const int32 n = static_cast<int32>(files.Size());
 					if (from < 0 || to < 0 || from >= n || to >= n || from == to)
 						return;
+					// VSCode : un épinglé RESTE dans le bloc de tête, un normal n'y entre pas (drag contraint).
+					{
+						int32 nPin = 0;
+						for (usize k = 0; k < files.Size(); ++k)
+							if (files[k].pinned)
+								++nPin;
+						if (files[from].pinned) {
+							if (to >= nPin)
+								to = nPin - 1;
+						} else if (to < nPin)
+							to = nPin;
+						if (to == from)
+							return;
+					}
 					const NkString act = HasActive() ? files[active].path.ToString() : NkString();
 					while (from < to) {
 						OpenFile tmp = files[from];
@@ -4009,9 +4024,37 @@ namespace nkentseu {
 				}
 
 				// ── Actions d'onglets (menu contextuel de la barre d'onglets) ──
+				// VSCode : les onglets ÉPINGLÉS vivent en TÊTE de barre (ordre relatif préservé).
+				void NormalizePins() {
+					const NkString act2 = HasActive() ? files[active].path.ToString() : NkString();
+					for (int32 i = 1; i < static_cast<int32>(files.Size()); ++i) {
+						if (!files[i].pinned)
+							continue;
+						int32 j = i;
+						while (j > 0 && !files[j - 1].pinned) { // remonte l'épinglé jusqu'au bloc de tête
+							OpenFile tmp = files[j];
+							files[j] = files[j - 1];
+							files[j - 1] = tmp;
+							--j;
+						}
+					}
+					if (!act2.Empty())
+						SyncActiveTo(act2);
+				}
+
 				void TogglePin(int32 i) {
-					if (i >= 0 && i < static_cast<int32>(files.Size()))
-						files[i].pinned = !files[i].pinned;
+					if (i < 0 || i >= static_cast<int32>(files.Size()))
+						return;
+					files[i].pinned = !files[i].pinned;
+					if (files[i].pinned)
+						NormalizePins(); // épinglé -> rejoint le bloc de tête
+					else {				 // désépinglé -> se place juste APRÈS le bloc des épinglés
+						int32 nPin = 0;
+						for (usize k = 0; k < files.Size(); ++k)
+							if (files[k].pinned)
+								++nPin;
+						MoveTab(i, nPin);
+					}
 				}
 
 				// Ferme tous les onglets SAUF `keep` (et sauf les epingles). `keep` reste actif.
