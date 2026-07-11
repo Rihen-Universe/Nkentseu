@@ -93,7 +93,7 @@ _REGISTRY: dict = {
     "NKRHI"          : _m("NKENTSEU_RHI",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKEvent", "NKWindow", "NKFileSystem", "NKSL"]),
     "NKRenderer"     : _m("NKENTSEU_RENDERER",     ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKTime", "NKThreading", "NKEvent", "NKWindow", "NKRHI", "NKSL", "NKImage", "NKFont", "NKFileSystem", "NKSerialization", "NKReflection"]),
     "NKImage"        : _m("NKENTSEU_IMAGE",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKFileSystem"]),
-    "NKMedia"        : _m("NKENTSEU_MEDIA",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKStream", "NKFileSystem"]),
+    "NKMedia"        : _m("NKENTSEU_MEDIA",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKStream", "NKFileSystem", "NKImage", "NKThreading"]),
     "NKFont"         : _m("NKENTSEU_FONT",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKImage"]),
     "NKECS"          : _m("NKENTSEU_ECS",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKThreading", "NKReflection", "NKSerialization"]),
     "NKCamera"       : _m("NKENTSEU_CAMERA",       ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath"]),
