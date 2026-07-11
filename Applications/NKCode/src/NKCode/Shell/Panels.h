@@ -1216,7 +1216,9 @@ namespace nkentseu {
 												NkT("ctx.openterm"),   NkT("tab.multirow")};
 						const bool en[8] = {!tf.pinned, true, true, true, true, true, true, true};
 						int32 tabMenuHov = -1;
-						const int32 act = NkCtxMenuDraw(ctx, mTabMenu, items, en, 8, &tabMenuHov);
+						static const bool kSub[8] = {false, false, false, false,
+													 false, false, true,  false}; // ▸ sur « Ouvrir dans le terminal »
+						const int32 act = NkCtxMenuDraw(ctx, mTabMenu, items, en, 8, &tabMenuHov, kSub);
 						// SOUS-MENU « Ouvrir dans le terminal » : s'ouvre au SURVOL de l'item, à sa droite.
 						if (mTabMenu.open && tabMenuHov == 6 && ctx.font && ctx.font->Valid()) {
 							const float32 rowH2 = ctx.font->LineHeight() + 8.f;
