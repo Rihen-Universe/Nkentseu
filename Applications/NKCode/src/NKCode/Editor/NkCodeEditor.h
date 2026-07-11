@@ -871,6 +871,12 @@ namespace nkentseu {
 				bool foldDirty = true;			  // recompute du mapping lignes visibles
 				NkVector<int32> visRows;		  // row visuel -> ligne doc
 				NkVector<int32> rowOfLine;		  // ligne doc -> row visuel (-1 masquée)
+				// WORD WRAP (Alt+Z, à venir) : une ligne logique peut occuper PLUSIEURS rows visuels.
+				// `rowCol0[r]` = colonne de DÉBUT du segment au row r (0 si pas de wrap) ;
+				// `rowOfLine[line]` reste le PREMIER row de la ligne (minimap/marques/reveal inchangés).
+				bool wrapOn = false;	 // retour à la ligne visuel (pas encore exposé)
+				NkVector<int32> rowCol0; // row visuel -> col de début de segment
+				int32 wrapCols = 0;		 // largeur de découpe (colonnes visuelles) du dernier rebuild
 
 				int32 FoldEndOf(int32 line) const {
 					for (usize k = 0; k < foldHdr.Size(); ++k)
@@ -953,6 +959,30 @@ namespace nkentseu {
 					if (r >= static_cast<int32>(visRows.Size()))
 						r = static_cast<int32>(visRows.Size()) - 1;
 					return visRows[r];
+				}
+
+				// ── WRAP : helpers segments (identité quand wrapOn est faux) ──
+				int32 RowColStart(int32 r) const { // col de début du segment au row r
+					return (r >= 0 && r < static_cast<int32>(rowCol0.Size())) ? rowCol0[r] : 0;
+				}
+
+				int32 RowSegEnd(int32 r) const { // col de FIN (exclu) du segment au row r
+					if (r < 0 || r >= static_cast<int32>(visRows.Size()))
+						return 0;
+					const int32 line = visRows[r];
+					if (r + 1 < static_cast<int32>(visRows.Size()) && visRows[r + 1] == line)
+						return rowCol0[r + 1];
+					return LineLen(line);
+				}
+
+				int32 RowOfCol(int32 line, int32 col) const { // row visuel du SEGMENT contenant (line, col)
+					int32 r = RowOf(line);
+					if (r < 0)
+						return -1;
+					while (r + 1 < static_cast<int32>(visRows.Size()) && visRows[r + 1] == line &&
+						   col >= rowCol0[r + 1])
+						++r;
+					return r;
 				}
 
 				// Première ligne VISIBLE à `line` ou au-dessus (pour ne jamais laisser le caret masqué).
@@ -1052,17 +1082,43 @@ namespace nkentseu {
 							rowOfLine[j] = -1;
 					}
 					visRows.Clear();
+					rowCol0.Clear();
 					int32 row = 0;
 					for (int32 i = 0; i < n; ++i) {
 						if (rowOfLine[i] < 0)
 							continue; // masquée
-						rowOfLine[i] = row++;
-						visRows.PushBack(i);
+						rowOfLine[i] = row;
+						if (!wrapOn || wrapCols < 8) { // 1 ligne = 1 row (comportement historique)
+							visRows.PushBack(i);
+							rowCol0.PushBack(0);
+							++row;
+							continue;
+						}
+						// Découpe en SEGMENTS par colonnes visuelles (tab -> multiple de 4, police mono).
+						const NkCodeLine &L = lines[i];
+						const int32 len = static_cast<int32>(L.Size());
+						int32 c = 0;
+						do {
+							visRows.PushBack(i);
+							rowCol0.PushBack(c);
+							++row;
+							int32 vis = 0;
+							while (c < len && vis < wrapCols) {
+								vis += (L[c] == '\t') ? (4 - (vis % 4)) : 1;
+								++c;
+							}
+						} while (c < len);
 					}
 				}
 
-				// Recalcul paresseux : régions si le contenu a changé, mapping si un repli a bougé.
-				void EnsureFolds(NkLang lang) {
+				// Recalcul paresseux : régions si le contenu a changé, mapping si un repli a bougé
+				// ou si la largeur de wrap a changé (redimensionnement du panneau).
+				void EnsureFolds(NkLang lang, int32 wrapColsNow = -1) {
+					if (wrapColsNow >= 0 && wrapColsNow != wrapCols) {
+						wrapCols = wrapColsNow;
+						if (wrapOn)
+							foldDirty = true;
+					}
 					const int64 s = SymSig();
 					if (s != foldSig) {
 						foldSig = s;
