@@ -889,6 +889,23 @@ namespace nkentseu {
 				});
 			}
 
+			// ── MirrorPresent : « voir + enregistrer » ─────────────────────────
+			// Quand la cible finale est redirigee (capture/enregistrement) ET que
+			// le miroir ecran est demande, une derniere passe recopie la cible
+			// redirigee vers le VRAI swapchain (fullscreen blit, ~1 draw) : la
+			// fenetre reste vivante pendant l'enregistrement, la capture recoit
+			// exactement la meme image, et le rendu n'est jamais bloque.
+			if (mFinalColorOverride.IsValid() && mMirrorToScreen && mPostProcess.Get()) {
+				NkGraphResId screenId = g.ImportTexture("Screen", NkTextureHandle{}, NkResourceState::NK_PRESENT);
+				auto &mir = g.AddPass("MirrorPresent", NkPassType::NK_POST_PROCESS);
+				mir.Reads(colorId);
+				mir.SetColor(0, screenId, NkLoadOp::NK_CLEAR, {0.f, 0.f, 0.f, 1.f});
+				mir.Execute([this](NkICommandBuffer *cmd) {
+					if (mPostProcess)
+						mPostProcess->ExecuteBlit(cmd, mFinalColorOverride);
+				});
+			}
+
 			g.Compile();
 		}
 
@@ -1063,8 +1080,18 @@ namespace nkentseu {
 			if (mFinalColorOverride.id == target.id)
 				return;
 			mFinalColorOverride = target;
+			mMirrorToScreen = false; // reset : le miroir se demande via ...Mirror()
 			if (mInitialized)
 				RebuildRenderGraph(); // l'import swapchain change de cible
+		}
+
+		void NkRendererImpl::SetFinalColorTargetMirror(NkTextureHandle target, bool mirrorToScreen) {
+			if (mFinalColorOverride.id == target.id && mMirrorToScreen == mirrorToScreen)
+				return;
+			mFinalColorOverride = target;
+			mMirrorToScreen = mirrorToScreen && target.IsValid();
+			if (mInitialized)
+				RebuildRenderGraph();
 		}
 
 	} // namespace renderer

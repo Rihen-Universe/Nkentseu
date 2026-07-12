@@ -90,6 +90,13 @@ namespace nkentseu {
 				// sur le RT courant (swapchain). Appele par RenderGraph FXAA pass.
 				void ExecuteFXAA(NkICommandBuffer *cmd, NkTextureHandle ldrIn);
 
+				// ExecuteBlit : recopie 1:1 de src vers le RT courant (fullscreen
+				// triangle, shader Blit). Utilise par la passe MirrorPresent :
+				// quand la cible finale est redirigee (capture/enregistrement),
+				// cette passe garde la FENETRE vivante en recopiant la cible vers
+				// le swapchain. Cout : 1 draw plein-ecran.
+				void ExecuteBlit(NkICommandBuffer *cmd, NkTextureHandle src);
+
 			private:
 				NkIDevice *mDevice = nullptr;
 				NkTextureLibrary *mTex = nullptr;
@@ -130,11 +137,18 @@ namespace nkentseu {
 				::nkentseu::NkShaderHandle mShaderSSAO;
 				::nkentseu::NkShaderHandle mShaderSSAOBlur;
 				::nkentseu::NkShaderHandle mShaderFXAA; // Phase L : FXAA 3.11-style
+				::nkentseu::NkShaderHandle mShaderBlit; // MirrorPresent : recopie 1:1
+				NkPipelineHandle mPipeBlit;				// pipeline du blit (interface PP_FXAA)
 
 				// Descriptor set layout (1 sampler) + set alloue, refresh par Run*.
 				// Utilise par ssao, fxaa, et l'ancien tonemap mono-input.
 				NkDescSetHandle mInputTexLayout;
 				NkDescSetHandle mInputTexSet;
+				// Set DEDIE au blit MirrorPresent : NE PAS reutiliser mInputTexSet
+				// (les backends a execution differee — GL — appliquent les writes de
+				// descriptor au Submit : un set partage serait ecrase par le dernier
+				// bind et FXAA lirait la cible du blit -> feedback loop, image noire).
+				NkDescSetHandle mBlitTexSet;
 
 				// Phase H.2 : pool de descriptor sets pour les sub-passes bloom.
 				// Vulkan interdit d'updater un descriptor set pendant qu'un draw

@@ -96,6 +96,16 @@ namespace nkentseu {
 				// PIPELINE COMPLET (ombres/eclairage/IBL/tonemap) dans un RT echantillonnable.
 				virtual void SetFinalColorTarget(NkTextureHandle target) = 0;
 
+				// Variante « voir + enregistrer » : redirige la cible finale COMME
+				// SetFinalColorTarget, ET (mirrorToScreen=true) ajoute une passe
+				// MirrorPresent qui recopie la cible vers le swapchain (fullscreen
+				// blit, ~1 draw) — la fenetre reste vivante pendant la capture /
+				// l'enregistrement video, sans bloquer le rendu.
+				virtual void SetFinalColorTargetMirror(NkTextureHandle target, bool mirrorToScreen) {
+					(void)mirrorToScreen;
+					SetFinalColorTarget(target);
+				}
+
 				// ── Planar reflections (auto) ─────────────────────────────────────────
 				// L'utilisateur enregistre un plan reflechissant ; le renderer fait
 				// automatiquement la passe miroir avant la passe Geometry principale,
