@@ -21,6 +21,7 @@
 #include "NKMedia/Codecs/Aac/NkAacIcs.h"
 #include "NKMedia/Codecs/Aac/NkAacDequant.h"
 #include "NKMedia/Codecs/Aac/NkAacFilterbank.h"
+#include "NKMedia/Codecs/Aac/NkAacDecoder.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDenorm.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDeemphasis.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDecoder.h"
@@ -166,6 +167,41 @@ int main(int argc, char **argv) {
 			fclose(f);
 		}
 		printf("[OPUS] %d paquets -> %d echantillons @ 48 kHz -> %s\n", (int)packets.Size(), (int)pcm.Size(), argv[3]);
+		return 0;
+	}
+	// Décodeur AAC-LC : --aac <fichier.m4a/.mp4> <out.pcm> (s16le entrelacé, débit natif).
+	if (argc >= 4 && NkString(argv[1]) == NkString("--aac")) {
+		NkVector<nk_uint8> bytes;
+		media::NkMediaInfo info;
+		NkVector<media::NkMediaPacket> packets;
+		if (!media::NkMediaDemux::ExtractAudioPacketsFile(argv[2], bytes, info, packets))
+			return 1;
+		const media::NkMediaTrack *tr = info.FirstAudio();
+		const int sr = tr ? tr->sampleRate : 44100;
+		const int ch = tr ? tr->channels : 1;
+		media::NkAacDecoder dec;
+		if (!dec.Init(sr, ch)) {
+			printf("[AAC] config non geree (sr=%d ch=%d)\n", sr, ch);
+			return 1;
+		}
+		NkVector<nk_int16> pcm;
+		nk_int16 frame[1024 * 2];
+		int ok = 0;
+		for (uint64 p = 0; p < packets.Size(); ++p) {
+			const int32 n = dec.DecodeFrame(bytes.Data() + packets[p].offset, (int32)packets[p].size, frame);
+			if (n <= 0)
+				continue;
+			++ok;
+			for (int32 i = 0; i < n * ch; ++i)
+				pcm.PushBack(frame[i]);
+		}
+		FILE *f = fopen(argv[3], "wb");
+		if (f) {
+			fwrite(pcm.Data(), sizeof(nk_int16), pcm.Size(), f);
+			fclose(f);
+		}
+		printf("[AAC] %d/%d paquets decodes -> %d echantillons @ %d Hz (%d canal) -> %s\n", ok, (int)packets.Size(),
+			   (int)pcm.Size(), sr, ch, argv[3]);
 		return 0;
 	}
 	// Fichier .opus (Ogg-Opus) complet : --oggopus <in.opus> <out.pcm> (48 kHz s16le mono).
@@ -562,6 +598,13 @@ int main(int argc, char **argv) {
 		const bool ok = media::NkAacFilterbank::SelfTest();
 		printf("[ %s ] NkAacFilterbank : IMDCT + fenetrage + overlap-add (reconstruction TDAC ONLY_LONG)\n",
 			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkAacDecoder::SelfTest();
+		printf("[ %s ] NkAacDecoder : raw_data_block (SCE/FIL/DSE/END) -> PCM (assemblage)\n", ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
 	}
