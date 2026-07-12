@@ -196,6 +196,13 @@ namespace nkentseu {
 					return mRenderer->UploadImageRGBA(id, pixels, w, h) ? id : 0;
 				}
 
+				// Ouvre la palette de commandes (equivalent Ctrl+P) par programme
+				// (ex. clic sur la barre de recherche de la toolbar NKCode).
+				void OpenCommandPalette() noexcept {
+					mPaletteOpen = true;
+					mPaletteSel = 0;
+				}
+
 				// Logo dessine a gauche de la barre de titre (texId via UploadRGBA).
 				// aspect > 0 : LOGO COMPLET (wordmark icone+nom) dessine en preservant son
 				// ratio largeur/hauteur ; "nkcode" n'est alors PAS re-ecrit a cote (deja dans
