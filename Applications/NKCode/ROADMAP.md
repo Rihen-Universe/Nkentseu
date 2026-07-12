@@ -69,12 +69,22 @@ migrer le menu de l'explorateur (corrige la traversée) ; (2) `NkFilePicker` uni
   wsDir / loadDir / pickedFolder), l'assistant de **scaffolding C++** (`newFile`,
   `scafKind`, `DoScaffoldCreate`, `GenCode`) — 100 % NKCode. Logique DÉPLACÉE (pas
   réécrite) → comportement identique. Commit `38b21a6`.
-- **RESTE (phase 2)** : rendre le RENDU générique (design partagé) — sortir
-  l'assistant de scaffolding de `DrawFolderPicker` (dialogue NKCode séparé) puis
-  monter `DrawFolderPicker` (frame modal + arbre + scrollbars + create-folder) dans
-  NKEditorKit avec confirmation par RÉSULTAT (l'app poll le chemin/mode choisi).
-  Ensuite : absorber `NkOpenWsPanel` (couche workspace .jenga restant côté NKCode),
-  factoriser le cadre modal déplaçable, retirer la dette (`NkRootPicker`,
+- **✅ PHASE 2 (2026-07-12, commit `a205f03`)** — le RENDU est monté dans le moteur :
+  `NkDrawFilePicker(ctx, NkFilePickerState&, NkFilePickerStyle&)` dans
+  `NkFilePicker.h`. Frame modal + barre de titre déplaçable + champ chemin + arbre +
+  scrollbars V/H + création de dossier + liste de fichiers + menu contextuel
+  (nouveau/renommer/supprimer) — **tout générique**. Confirmation par **RÉSULTAT**
+  (`fp.pickerConfirmed`/`pickerCancelled` + `pickerResult*`) : l'app poll et route.
+  **`NkFilePickerStyle`** = TOUTES les couleurs → personnalisation = design/couleurs
+  (l'app passe scrollbars theme-aware). Spécialisation NKCode via **surcharges
+  virtuelles** (`NkFilePickerState` est polymorphe) : `PickerWindowHeight`,
+  `PickerBottomReserve`, `PickerExtraHeight`, `DrawPickerExtra` (assistant scaffolding
+  C++ = SEUL morceau NKCode restant, dessiné dans la région app), `PickerConfirmLabel`,
+  `PickerConfirmEnabled`, `PickerClearExtraFocus`. NKCode `DrawFolderPicker` = wrapper
+  ~25 lignes (style + routage `DoLoad`/`DoSaveHere`/`DoScaffoldCreate`/`RoutePickerResult`).
+- **RESTE (phase 3)** : absorber `NkOpenWsPanel` (couche workspace .jenga restant côté
+  NKCode) dans le picker moteur ; factoriser le cadre modal déplaçable (barre de titre
+  + drag, dupliqué) en widget `NkModalFrame` ; retirer la dette (`NkRootPicker`,
   `NkCtxMenuDraw`, `NkOwEdit`).
 
 > ### 📣 RÈGLE PERMANENTE — Communiquer CHAQUE évolution (depuis 2026-07-05)
