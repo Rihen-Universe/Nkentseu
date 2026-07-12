@@ -504,7 +504,7 @@ int nkmain(const NkEntryState &state) {
 	// ── Boucle ───────────────────────────────────────────────────────────────
 	bool running = true;
 	NkClock clock;
-	bool recordTogglePending = false; // F9 (declare avant le callback clavier qui le capture)
+	bool recordTogglePending = false; // INSER (declare avant le callback clavier qui le capture)
 	NkEventSystem &events = NkEvents();
 
 	events.AddEventCallback<NkWindowCloseEvent>([&](NkWindowCloseEvent *) { running = false; });
@@ -513,9 +513,11 @@ int nkmain(const NkEntryState &state) {
 			running = false;
 		// Cap FPS DYNAMIQUE (le pacing est fait par le moteur, cf. NkRenderer::SetFrameRateCap) :
 		//   F1 = on/off (bascule cap courant <-> illimité) ; F2 = cycle 30/60/120/144/illimité.
-		else if (e->GetKey() == NkKey::NK_F9) {
+		else if (e->GetKey() == NkKey::NK_INSERT) {
 			// Toggle enregistrement video (NK_RECORD a chaud) — traite dans la
 			// boucle principale (acces au device/recorder hors du callback).
+			// Touche INSER : les F1-F12 sont toutes prises par les demos
+			// (conflit constate : F9 = softness ombres / modificateur en demo 2).
 			recordTogglePending = true;
 		}
 		else if (e->GetKey() == NkKey::NK_F1 && renderer) {
@@ -596,11 +598,22 @@ int nkmain(const NkEntryState &state) {
 		recordQp = 10;
 	if (recordQp > 40)
 		recordQp = 40;
+	// NK_RECORD_CODEC=mjpeg : encode en MJPEG (intra pur, zero macroblocking
+	// inter-trame, cadences hautes OK) au lieu du H.264 (defaut). Qualite via
+	// NK_RECORD_MJPEG_Q=<1..100> (defaut 90). MJPEG = video seule (pas d'audio).
+	const char *recCodecEnv = getenv("NK_RECORD_CODEC");
+	const bool recordMjpeg = recCodecEnv && (recCodecEnv[0] == 'm' || recCodecEnv[0] == 'M');
+	const char *recMjqEnv = getenv("NK_RECORD_MJPEG_Q");
+	int32 recordMjpegQ = recMjqEnv ? (int32)atoll(recMjqEnv) : 90;
+	if (recordMjpegQ < 1)
+		recordMjpegQ = 1;
+	if (recordMjpegQ > 100)
+		recordMjpegQ = 100;
 	char recordPath[256] = {0};
 	if (recEnv && recEnv[0])
 		snprintf(recordPath, sizeof(recordPath), "%s", recEnv);
 	bool recording = recordPath[0] != 0;
-	uint32 recordSeq = 0;			  // noms auto nk_record_NNN.mp4 (toggle F9)
+	uint32 recordSeq = 0;			  // noms auto nk_record_NNN.mp4 (toggle INSER)
 	renderer::NkOffscreenTarget recordTarget;
 	renderer::NkFrameCapture recordCapture;
 	media::NkVideoRecorder *recorder = nullptr; // alloue au demarrage d'un enregistrement
@@ -638,7 +651,7 @@ int nkmain(const NkEntryState &state) {
 	}
 	NkVector<uint8> recCrop; // scratch du crop (reutilise)
 
-	// Arret PROPRE de l'enregistrement (fin, resize, toggle F9). Draine les
+	// Arret PROPRE de l'enregistrement (fin, resize, toggle INSER). Draine les
 	// captures en vol (borne), finalise le MP4, restaure le swapchain.
 	auto stopRecording = [&]() {
 		if (!recordTarget.IsValid())
@@ -704,7 +717,7 @@ int nkmain(const NkEntryState &state) {
 			continue;
 
 		// ── NK_RECORD : capture async -> NkVideoRecorder (thread encode) ────
-		// Toggle F9 : demarre (nom auto nk_record_NNN.mp4) / arrete a chaud.
+		// Toggle INSER : demarre (nom auto nk_record_NNN.mp4) / arrete a chaud.
 		if (recordTogglePending) {
 			recordTogglePending = false;
 			if (recording) {
@@ -754,7 +767,10 @@ int nkmain(const NkEntryState &state) {
 					recorder = memory::NkGetDefaultAllocator().New<media::NkVideoRecorder>();
 				bool ok = vw >= 16 && vh >= 16 && recordTarget.Init(device, renderer->GetTextures(), od) &&
 						  recordCapture.Init(device, fd) &&
-						  recorder->Begin(recordPath, (int32)vw, (int32)vh, recordFps, 1, recordQp);
+						  recorder->Begin(recordPath, (int32)vw, (int32)vh, recordFps, 1, recordQp,
+										  /*maxQueuedFrames*/ 32,
+										  recordMjpeg ? media::NkRecorderCodec::MJPEG : media::NkRecorderCodec::H264,
+										  recordMjpegQ);
 				if (ok && recOutW)
 					renderer->SetRenderSizeOverride(rw, rh); // rendu interne a la taille d'export
 				if (ok) {
