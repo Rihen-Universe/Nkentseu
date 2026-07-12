@@ -257,6 +257,15 @@ int main(int argc, char **argv) {
 				rec.End();
 			}
 		}
+		// MJPEG via NkVideoRecorder (codec=MJPEG dans Begin) — teste le NOUVEAU chemin recorder.
+		{
+			media::NkVideoRecorder rec;
+			if (rec.Begin("nkq_recmjpeg.mp4", W, H, FR, 1, 20, 32, media::NkRecorderCodec::MJPEG, 92)) {
+				for (int i = 0; i < FR; ++i)
+					rec.PushVideo(px, media::NkVideoInputFormat::RGBA32, false);
+				rec.End();
+			}
+		}
 		// MJPEG q92 (NkVideoWriter, conteneur MOV).
 		{
 			media::NkVideoWriter w;
