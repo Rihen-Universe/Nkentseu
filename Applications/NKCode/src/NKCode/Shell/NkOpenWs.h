@@ -7,7 +7,8 @@
 // Mode PLEIN CADRE du launcher : meme barre de titre + meme sidebar nav (item
 // « Ouvrir » actif) ; le panneau central Home est remplace par ce navigateur.
 //
-// Coeur fonctionnel : listing reel d'un dossier, detection des .jenga + du
+#include "NKEditorKit/NkDirBrowser.h" // NkDirBrowserState : navigation reutilisable
+		// Coeur fonctionnel : listing reel d'un dossier, detection des .jenga + du
 // workspace declare (`with workspace("NOM")`), navigation (fil d'Ariane / parent
 // / historique / double-clic), recherche, ouverture du dossier (DoLoad).
 // Extras de la spec (tooltip apercu, favoris drag, vue grille, saisie libre +
@@ -42,17 +43,12 @@ namespace nkentseu {
 				NkString sizeStr, typeStr; // chaines pretes a afficher (figees au scan)
 		};
 
-		struct NkOpenWsState {
-				char curDir[600] = {};
+		struct NkOpenWsState : public NkDirBrowserState {
 				NkVector<NkOwEntry> entries;
-				int32 selected = -1;
 				char search[64] = {};
 				bool focusSearch = false;
 				int32 viewMode = 0; // 0 liste, 1 grille (grille = TODO)
-				bool scanned = false;
-				NkVector<NkString> history;
-				int32 histPos = -1;
-				float32 scroll = 0.f, scrollMax = 0.f;
+				float32 scrollMax = 0.f;
 				int32 jengaCount = 0, wsCount = 0, firstWsIdx = -1;
 				float32 dblTimer = 0.f;
 				int32 dblIdx = -1; // detection double-clic
@@ -74,7 +70,6 @@ namespace nkentseu {
 				NkString suggParent;		// chemin parent (avec '/' final)
 				int32 suggSel = -1;			// selection clavier dans le dropdown
 				// — renommage inline (double-clic lent / menu) —
-				int32 renameIdx = -1;
 				char renameBuf[256] = {};
 				// — editeur de texte partage (rename + barres de chemin) : caret + clignotement —
 				int32 editCaret = 0;
@@ -104,51 +99,16 @@ namespace nkentseu {
 				float32 slowClk = 0.f;
 				int32 slowIdx = -1; // double-clic lent -> renommer
 				// — menu contextuel (clic droit) : -1 ferme, >=0 sur entree, -2 zone vide —
-				int32 menuIdx = -1;
 				float32 menuX = 0.f, menuY = 0.f;
 				// — confirmation de suppression —
-				int32 confirmDel = -1;
-				NkString status; // message d'operation (erreur)
+				
 
-				static char Upc(char c) {
-					return (c >= 'a' && c <= 'z') ? char(c - 'a' + 'A') : c;
-				}
 
-				static int32 CmpI(const char *a, const char *b) {
-					for (; *a && *b; ++a, ++b) {
-						char ca = Upc(*a), cb = Upc(*b);
-						if (ca != cb)
-							return ca < cb ? -1 : 1;
-					}
-					return *a ? 1 : (*b ? -1 : 0);
-				}
-
-				static NkString Home() {
-					const char *h = env::GetEnvVar("USERPROFILE"); // API maison (NkEnv.h)
-					if (!h || !*h)
-						h = env::GetEnvVar("HOME");
-					return NkString((h && *h) ? h : ".");
-				}
 
 				// Dossier connu : preferer la redirection OneDrive si elle existe (sinon Explorer
 				// montre plus de fichiers que le ~/Desktop local, qui est vide/perime).
-				static NkString KnownFolder(const char *sub) {
-					const char *od = env::GetEnvVar("OneDrive");
-					if (od && *od) {
-						NkString p = (NkPath(od) / sub).ToString();
-						if (NkDirectory::Exists(p.CStr()))
-							return p;
-					}
-					return (NkPath(Home().CStr()) / sub).ToString();
-				}
 
-				static NkString Desktop() {
-					return KnownFolder("Desktop");
-				}
 
-				static NkString Documents() {
-					return KnownFolder("Documents");
-				}
 
 				// Lit une valeur brute (key=value) dans ~/.nkcode/settings.cfg. Vide si absente.
 				// Permet à New Workspace / Clone de respecter les chemins par défaut choisis dans les Paramètres,
@@ -637,57 +597,15 @@ namespace nkentseu {
 					SetDir(start.CStr(), true);
 				}
 
-				void SetDir(const char *dir, bool pushHistory) {
-					int32 n = 0;
-					for (; dir[n] && n + 1 < (int32)sizeof(curDir); ++n)
-						curDir[n] = dir[n];
-					curDir[n] = '\0';
-					scanned = false;
-					selected = -1;
-					scroll = 0.f;
-					status.Clear();
-					renameIdx = -1;
-					menuIdx = -1;
-					confirmDel = -1;
-					if (pushHistory) {
-						while ((int32)history.Size() > histPos + 1)
-							history.PopBack();
-						history.PushBack(NkString(curDir));
-						histPos = (int32)history.Size() - 1;
-					}
-				}
 
 				void NavInto(const NkOwEntry &e) {
 					SetDir((NkPath(curDir) / e.name.CStr()).ToString().CStr(), true);
 				}
 
-				void Up() {
-					NkString parent = NkPath(curDir).GetParent().ToString();
-					if (!parent.Empty() && !StrEq(parent.CStr(), curDir))
-						SetDir(parent.CStr(), true);
-				}
 
-				void Back() {
-					if (histPos > 0) {
-						--histPos;
-						SetDir(history[histPos].CStr(), false);
-					}
-				}
 
-				void Forward() {
-					if (histPos + 1 < (int32)history.Size()) {
-						++histPos;
-						SetDir(history[histPos].CStr(), false);
-					}
-				}
 
-				bool CanBack() const {
-					return histPos > 0;
-				}
 
-				bool CanForward() const {
-					return histPos + 1 < (int32)history.Size();
-				}
 
 				bool HasError() const {
 					return jengaCount == 0 || wsCount == 0;
