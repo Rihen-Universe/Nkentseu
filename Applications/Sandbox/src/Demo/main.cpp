@@ -836,6 +836,15 @@ int nkmain(const NkEntryState &state) {
 	NkDeviceFactory::Destroy(device);
 	window.Close();
 
+	// NK_RECORD : si une finalisation MP4 est encore en cours, l'ATTENDRE avant
+	// de quitter — sinon le processus meurt avec le thread detache et le fichier
+	// reste TRONQUE (l'index MP4 s'ecrit a la fin). La fenetre est deja fermee,
+	// le blocage est invisible pour l'utilisateur.
+	if (recordFinalizeThread.Joinable()) {
+		logger.Info("[main] NK_RECORD : finalisation du MP4 en cours, attente...\n");
+		recordFinalizeThread.Join();
+	}
+
 	logger.Info("[main] Bye\n");
 	return 0;
 }
