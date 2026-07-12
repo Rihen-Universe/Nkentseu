@@ -10,6 +10,7 @@
 #include "NKCode/Project/NkPty.h"
 #include "NKCode/Project/NkTerm.h"
 #include "NKCode/Editor/NkTextDraw.h"
+#include "NKCode/Editor/NkMarkdown.h" // viewer .md (preview rendu)
 #include "NKCode/Shell/NkI18n.h"  // NkT() : bannière mojibake traduite
 #include "NKCode/Shell/NkShell.h" // NkCodeShellRun (révéler dans l'explorateur / terminal)
 #include "NKCode/Shell/NkExplorer.h" // ExplorerPanel (arbre + git + filtre, maquette Banani)
@@ -806,8 +807,29 @@ namespace nkentseu {
 							mS->navPickerOpen = false;
 					}
 
+					// Bascule preview/edition pour les .md (bouton haut-droite).
+					const bool isMd = !f.IsMedia() && NkCodeState::EndsWithI(f.Name().CStr(), ".md");
+					if (isMd) {
+						const float32 lhh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
+						const char *tlab = f.mdPreview ? "</> Editer" : "Apercu";
+						const float32 bw = ((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(tlab) : 60.f) + 22.f;
+						const NkRect tb = {r.x + r.w - bw - 14.f, r.y + 6.f, bw, lhh + 8.f};
+						const NkVec2 mm = ctx.input.mousePos;
+						const bool th = mm.x >= tb.x && mm.x < tb.x + tb.w && mm.y >= tb.y && mm.y < tb.y + tb.h;
+						ctx.DL().AddRectFilled(tb, th ? ctx.theme.buttonHover : ctx.theme.button, 5.f);
+						ctx.DL().AddRect(tb, ctx.theme.border, 1.f);
+						if (ctx.font && ctx.font->Valid())
+							ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
+											 {tb.x + 11.f, tb.y + 4.f + ctx.font->Ascent()}, tlab, ctx.theme.text);
+						if (th && ctx.input.mouseClicked[0]) {
+							f.mdPreview = !f.mdPreview;
+							ctx.input.mouseClicked[0] = false;
+						}
+					}
 					if (f.IsMedia()) { // MEDIA (image/video/audio) -> viewer dedie a la place de l'editeur
 						DrawMediaViewer(ctx, mShell, f, r);
+					} else if (isMd && f.mdPreview) { // MARKDOWN -> preview rendu
+						NkDrawMarkdown(ctx, f.doc.GetText().CStr(), r, f.mdScroll);
 					} else {
 						mS->StartProjectIndex(); // index sémantique niveau projet (async, une fois)
 						const NkVector<NkString> *ppDefs = mS->EffectiveDefines(
