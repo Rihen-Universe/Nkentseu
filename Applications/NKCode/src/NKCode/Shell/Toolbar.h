@@ -479,7 +479,7 @@ namespace nkentseu {
 					maxH = ih + pad;
 				const bool scroll = contentH > maxH;
 				const float32 ddh = scroll ? maxH : contentH;
-				const float32 sbW = scroll ? editorkit::NkScrollbarWidth(u.S) : 0.f; // largeur canonique (= editeur)
+				const float32 sbW = scroll ? editorkit::NkScrollbarWidth() : 0.f; // largeur canonique (= editeur)
 				float32 ddx = a.x;
 				if (ddx + ddw > r.x + r.w - u.s(8))
 					ddx = r.x + r.w - u.s(8) - ddw;

@@ -545,7 +545,7 @@ namespace nkentseu {
 			y += 42.f * S;
 
 			// Arborescence des dossiers : fleche d'expansion sur les dossiers NON VIDES, clic = selectionner.
-			const float32 barW = NkScrollbarWidth(S); // largeur canonique (= editeur)
+			const float32 barW = NkScrollbarWidth(); // largeur canonique (= editeur)
 			const NkRect area = {cx, y, cwid, ph - (y - py) - fp.PickerBottomReserve(S)};
 			const NkRect inner = {area.x, area.y, area.w - barW, area.h - barW}; // zone hors barres
 			dl.AddRectFilled(area, sty.treeBg, 6.f * S);
