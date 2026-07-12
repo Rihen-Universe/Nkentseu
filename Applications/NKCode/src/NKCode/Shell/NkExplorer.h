@@ -47,6 +47,11 @@ namespace nkentseu {
 						LoadRoots(); // racines secondaires du workspace (.nkcode/roots.cfg)
 						mRowsDirty = true;
 					}
+					// Dossier choisi par le sélecteur maison -> nouvelle racine secondaire.
+					if (mS->pickedFolder.Length() > 0) {
+						AddRootPath(mS->pickedFolder);
+						mS->pickedFolder.Clear();
+					}
 					if (mRowsDirty)
 						BuildRows();
 					// L'EN-TÊTE est FIXE (il ne défile pas) : l'espace est réservé dans le
@@ -70,7 +75,9 @@ namespace nkentseu {
 					// de DÉPLACEMENT (jamais re-sondé) -> l'écraser le GÈLE pour toute
 					// l'app à la frame suivante (clic sans bouger = position figée). On
 					// neutralise donc SEULEMENT les clics/molette/frappes.
-					if (mPeekOpen) {
+					// Actif pour le peek ET les menus overlay (clic droit, confirmation) :
+					// sinon le clic « traverse » vers l'éditeur/terminal dessous.
+					if (mPeekOpen || mCtx.open || mDelMenu.open) {
 						for (int32 b = 0; b < 3; ++b) {
 							ctx.input.mouseClicked[b] = false;
 							ctx.input.mouseDown[b] = false;
@@ -438,20 +445,25 @@ namespace nkentseu {
 					NkFile::WriteAllText(NkPath(f), out);
 				}
 
-				// Ctrl+R : sélecteur natif -> ajoute une racine secondaire (dédupliquée).
+				// « Ajouter un dossier » : demande le sélecteur de dossier MAISON (mobile,
+				// NkRootPicker piloté par l'app) ; le résultat revient via pickedFolder.
 				void AddRootFolder() {
-					const auto res = nkentseu::NkDialogs::OpenFolderDialog(NkT("exp.addroot"));
-					if (!res.confirmed || res.path.Length() < 2)
+					mS->reqPickFolder = true;
+				}
+
+				// Intègre un dossier choisi comme racine secondaire (dédupliqué).
+				void AddRootPath(const NkString &raw) {
+					if (raw.Length() < 2 || !NkDirectory::Exists(raw.CStr()))
 						return;
-					NkString np = res.path;
+					NkString np = raw;
 					for (int32 i = 0; i < static_cast<int32>(np.Length()); ++i)
 						if (np.CStr()[i] == '\\')
 							const_cast<char *>(np.CStr())[i] = '/';
 					if (SameStr(np.CStr(), mRootStr.CStr()))
-						return; // déjà la racine principale
+						return;
 					for (usize i = 0; i < mExtraRoots.Size(); ++i)
 						if (SameStr(mExtraRoots[i].CStr(), np.CStr()))
-							return; // déjà présente
+							return;
 					mExtraRoots.PushBack(np);
 					if (!IsExpanded(np))
 						ToggleExpanded(np);
