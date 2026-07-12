@@ -3,9 +3,7 @@
 // =============================================================================
 #include "NKCode/Project/NkLsp.h"
 
-#include <cstdio>
-#include <cstring>
-#include <cstdlib>
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison, ex-<cstdio>/<cstring>/<cstdlib>)
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -150,7 +148,9 @@ namespace nkentseu {
 				buf[k] = 0;
 				if (k == 0)
 					return -1;
-				mPool[self].num = std::atof(buf);
+				float64 numv = 0.0;
+				NkString(buf).ToDouble(numv); // conversion maison (ex-std::atof)
+				mPool[self].num = numv;
 				return self;
 			}
 		}
@@ -388,9 +388,8 @@ namespace nkentseu {
 		}
 
 		void NkLspClient::Send(const NkString &body) {
-			char hdr[64];
-			std::snprintf(hdr, sizeof(hdr), "Content-Length: %d\r\n\r\n", static_cast<int32>(body.Size()));
-			mProc.WriteData(hdr, static_cast<int32>(std::strlen(hdr)));
+			const NkString hdr = NkPrintf("Content-Length: %d\r\n\r\n", static_cast<int32>(body.Size())); // maison
+			mProc.WriteData(hdr.CStr(), static_cast<int32>(hdr.Size()));
 			mProc.WriteData(body.CStr(), static_cast<int32>(body.Size()));
 		}
 
@@ -473,12 +472,10 @@ namespace nkentseu {
 			const int32 v = ++mVersions[static_cast<usize>(idx)];
 			NkString esc;
 			JsonEscape(text.CStr(), esc);
-			char head[512];
-			std::snprintf(head, sizeof(head),
-						  "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didChange\",\"params\":{\"textDocument\":{"
-						  "\"uri\":\"%s\",\"version\":%d},\"contentChanges\":[{\"text\":\"",
-						  UriOf(path).CStr(), v);
-			NkString body(head);
+			NkString body =
+				NkPrintf("{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didChange\",\"params\":{\"textDocument\":{"
+						 "\"uri\":\"%s\",\"version\":%d},\"contentChanges\":[{\"text\":\"",
+						 UriOf(path).CStr(), v); // NkPrintf maison
 			body += esc.CStr();
 			body += "\"}]}}";
 			Send(body);
@@ -488,13 +485,12 @@ namespace nkentseu {
 			const int32 id = ++mNextId;
 			mPendId = id;
 			mPendKind = kind;
-			char body[640];
-			std::snprintf(body, sizeof(body),
-						  "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"textDocument/%s\",\"params\":{"
-						  "\"textDocument\":{\"uri\":\"%s\"},\"position\":{\"line\":%d,\"character\":%d}%s}}",
-						  id, method, UriOf(path).CStr(), line, col,
-						  kind == 2 ? ",\"context\":{\"includeDeclaration\":true}" : "");
-			Send(NkString(body));
+			const NkString body =
+				NkPrintf("{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"textDocument/%s\",\"params\":{"
+						 "\"textDocument\":{\"uri\":\"%s\"},\"position\":{\"line\":%d,\"character\":%d}%s}}",
+						 id, method, UriOf(path).CStr(), line, col,
+						 kind == 2 ? ",\"context\":{\"includeDeclaration\":true}" : ""); // NkPrintf maison
+			Send(body);
 		}
 
 		void NkLspClient::ReqDefinition(const NkString &path, int32 line, int32 col) {
@@ -511,13 +507,12 @@ namespace nkentseu {
 			mPendKind = 4;
 			NkString esc;
 			JsonEscape(newName.CStr(), esc);
-			char body[768];
-			std::snprintf(body, sizeof(body),
-						  "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"textDocument/rename\",\"params\":{"
-						  "\"textDocument\":{\"uri\":\"%s\"},\"position\":{\"line\":%d,\"character\":%d},"
-						  "\"newName\":\"%s\"}}",
-						  id, UriOf(path).CStr(), line, col, esc.CStr());
-			Send(NkString(body));
+			const NkString body =
+				NkPrintf("{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"textDocument/rename\",\"params\":{"
+						 "\"textDocument\":{\"uri\":\"%s\"},\"position\":{\"line\":%d,\"character\":%d},"
+						 "\"newName\":\"%s\"}}",
+						 id, UriOf(path).CStr(), line, col, esc.CStr()); // NkPrintf maison
+			Send(body);
 		}
 
 		void NkLspClient::ReqReferences(const NkString &path, int32 line, int32 col) {
@@ -657,10 +652,8 @@ namespace nkentseu {
 								resEdits.PushBack(e3);
 							}
 						}
-						char lb2[96];
-						std::snprintf(lb2, sizeof(lb2), "[lsp] rename : %d edition(s)",
-									  static_cast<int32>(resEdits.Size()));
-						log.PushBack(NkString(lb2));
+						log.PushBack(
+							NkPrintf("[lsp] rename : %d edition(s)", static_cast<int32>(resEdits.Size()))); // maison
 						return;
 					}
 					auto pushLoc = [&](const NkJsonVal *loc) {
@@ -692,10 +685,8 @@ namespace nkentseu {
 						}
 					} else if (res && res->kind == 5)
 						pushLoc(res);
-					char lb[96];
-					std::snprintf(lb, sizeof(lb), "[lsp] %s : %d emplacement(s)",
-								  resKind == 1 ? "definition" : "references", static_cast<int32>(resLocs.Size()));
-					log.PushBack(NkString(lb));
+					log.PushBack(NkPrintf("[lsp] %s : %d emplacement(s)", resKind == 1 ? "definition" : "references",
+										  static_cast<int32>(resLocs.Size()))); // NkPrintf maison
 				}
 				return;
 			}
@@ -737,10 +728,8 @@ namespace nkentseu {
 					diags.PushBack(d2);
 				}
 				diagsFresh = true;
-				char lb[256];
-				std::snprintf(lb, sizeof(lb), "[lsp] %d diagnostic(s) <- %s", static_cast<int32>(diags.Size()),
-							  diagPath.CStr());
-				log.PushBack(NkString(lb));
+				log.PushBack(NkPrintf("[lsp] %d diagnostic(s) <- %s", static_cast<int32>(diags.Size()),
+									  diagPath.CStr())); // NkPrintf maison
 			}
 		}
 

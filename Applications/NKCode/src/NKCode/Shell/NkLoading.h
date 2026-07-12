@@ -11,6 +11,7 @@
 // =============================================================================
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Shell/NkI18n.h"
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -37,16 +38,10 @@ namespace nkentseu {
 
 				// Libellé affiché d'une étape : « Lecture de <ws>.jenga », « Analyse des projets (N projets) », …
 				NkString StepLabel(int32 i) const {
-					if (i == 0) {
-						char b[176];
-						std::snprintf(b, sizeof(b), NkT("load.s0"), wsName.CStr());
-						return NkString(b);
-					}
-					if (i == 1 && projCount > 0) {
-						char b[80];
-						std::snprintf(b, sizeof(b), "%s (%d %s)", NkT("load.s1"), projCount, NkT("load.projword"));
-						return NkString(b);
-					}
+					if (i == 0)
+						return NkPrintf(NkT("load.s0"), wsName.CStr()); // NkPrintf maison
+					if (i == 1 && projCount > 0)
+						return NkPrintf("%s (%d %s)", NkT("load.s1"), projCount, NkT("load.projword"));
 					return NkString(NkT(StepKey(i)));
 				}
 
@@ -82,6 +77,10 @@ namespace nkentseu {
 											? st->wsPaths[st->wsIdx < (int32)st->wsPaths.Size() ? st->wsIdx : 0]
 											: NkString();
 					wsName = jp.Empty() ? st->root.GetFileName() : NkCodeState::WorkspaceNameOf(jp.CStr());
+					// TOUJOURS mémoriser dans les RÉCENTS : un workspace ouvert par DoLoad
+					// (argument, « Ouvrir », dernier workspace au démarrage) n'y entrait
+					// jamais -> il disparaissait du launcher dès qu'il n'était plus courant.
+					st->AddRecent(jp.Empty() ? f.ToString() : jp);
 					// LoadFolder a déjà relancé `jenga info` (RequestReload). Le poll se fait dans Tick.
 				}
 

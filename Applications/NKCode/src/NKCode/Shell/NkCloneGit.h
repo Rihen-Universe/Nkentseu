@@ -10,7 +10,7 @@
 #include "NKCode/Shell/NkI18n.h"		 // NkT() : traductions multi-langue
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Shell/Dialogs.h"
-#include <cstdio>
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison, ex-<cstdio>)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -64,7 +64,7 @@ namespace nkentseu {
 					(void)st;
 					const NkString base =
 						NkOpenWsState::DefaultProjectDir(); // reglage Parametres > Chemins (projDir), sinon ~/Projects
-					std::snprintf(dest, sizeof(dest), "%s", base.CStr());
+					NkStrCopy(dest, sizeof(dest), base.CStr()); // copie bornée maison (NkText.h)
 					LoadRecents(); // depots reellement clones (vide tant qu'aucun clonage n'a eu lieu)
 				}
 
@@ -410,7 +410,8 @@ namespace nkentseu {
 						hv ? NkCol::foreground : NkCol::mutedFg);
 				u.TextV(rb.x + u.s(20), rb.y, u.s(24), NkT("cg.reclone"), hv ? NkCol::foreground : NkCol::mutedFg);
 				if (hv && u.click) {
-					std::snprintf(g->url, sizeof(g->url), "https://%s.git", g->recents[i].url.CStr());
+					NkStrCopy(g->url, sizeof(g->url),
+							  NkPrintf("https://%s.git", g->recents[i].url.CStr()).CStr()); // maison
 				}
 				ry += u.s(56);
 			}
@@ -428,10 +429,9 @@ namespace nkentseu {
 				u.TextEllipsis(box.x + u.s(32), box.y + u.s(8), rightW - u.s(44), g->url[0] ? g->url : NkT("cg.urlph"),
 							   g->url[0] ? NkCol::foreground : NkCol::mutedFg);
 				u.Icon("git-branch", {box.x + u.s(12), box.y + u.s(34), u.s(12), u.s(12)}, NkCol::mutedFg);
-				char bl[80];
-				std::snprintf(bl, sizeof(bl), "branche: %s",
-							  (g->branch >= 0 && g->branch < nB) ? brs[g->branch] : "main");
-				u.TextEllipsis(box.x + u.s(32), box.y + u.s(32), rightW - u.s(44), bl, NkCol::mutedFg);
+				const NkString bl =
+					NkPrintf("branche: %s", (g->branch >= 0 && g->branch < nB) ? brs[g->branch] : "main");
+				u.TextEllipsis(box.x + u.s(32), box.y + u.s(32), rightW - u.s(44), bl.CStr(), NkCol::mutedFg);
 				NkOwIco(u, ic.ouvrirDossier, "folder", {box.x + u.s(12), box.y + u.s(56), u.s(12), u.s(12)},
 						NkCol::mutedFg);
 				u.TextEllipsis(box.x + u.s(32), box.y + u.s(54), rightW - u.s(44), g->FinalDest().CStr(),

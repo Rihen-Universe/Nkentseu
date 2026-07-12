@@ -588,8 +588,8 @@ namespace nkentseu {
 			// pose appFullScreen = showStart) ne tournait plus une fois dans le launcher ->
 			// appFullScreen restait bloque a true et l'editeur n'etait JAMAIS atteint apres
 			// showStart=false. On resynchronise donc les flags AVANT de decider du plein-ecran.
-			if (mUI.appFullScreen && mAppMenuFn)
-				mAppMenuFn(ec, mAppMenuUser);
+			if (mAppMenuFn)					  // TOUJOURS avant la décision plein-écran : sinon la 1re frame rend
+				mAppMenuFn(ec, mAppMenuUser); // l'IDE avant le launcher (flash au démarrage)
 
 			// Ecran de demarrage (launcher) : occupe tout le corps, sans barre
 			// d'outils / panneaux / barre d'etat (façon « page de demarrage » VS).
@@ -645,7 +645,15 @@ namespace nkentseu {
 				mStartScreenFn(ec, mStartScreenUser);
 			} else {
 				DrawActivityBar({0.f, bodyTop, activityW, bodyH});
-				DockSpace(mUI, "##EditorDock", {activityW, bodyTop, W - activityW, bodyH});
+				DrawActivityBarRight({W - activityW, bodyTop, activityW, bodyH}); // IA (panneau droit)
+				DockSpace(mUI, "##EditorDock", {activityW, bodyTop, W - activityW * 2.f, bodyH});
+				// Seul le panneau CENTRAL masque la barre d'onglets de sa feuille quand il
+				// est seul (il affiche ses propres onglets de fichiers) ; Terminal/Sortie/
+				// sidebars gardent TOUJOURS leurs onglets, même seuls (façon VSCode).
+				for (int32 i = 0; i < mNumPanels; ++i)
+					if (mPanels[i])
+						DockWindowHideSingleTab(mUI, mPanels[i]->Title(),
+												mPanels[i]->DefaultSide() == NkEditorDockSide::NK_CENTER);
 				BootstrapDocking();
 				DrawPanels(ec);
 				DrawStatusBar(footerH);
@@ -689,15 +697,32 @@ namespace nkentseu {
 			const NkVec2 m = mUI.input.mousePos;
 
 			// Icones vectorielles (dessinees relativement au centre (cx,cy)).
+			// Souris au-dessus d'une fenêtre flottante -> la barre ne réagit pas (occlusion).
+			const bool ptrOk = (mUI.hoveredWindowId == NKGUI_ID_NONE);
 			auto drawIcon = [&](int32 idx, float32 cy, bool bottom) {
 				const NkRect r = {bar.x, cy - cell * 0.5f, cell, cell};
-				const bool hovered = m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
+				const bool hovered = ptrOk && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
 				const bool active = (mActivityIndex == idx) && !bottom;
 				const NkColor c = active ? on : hovered ? hov : off;
 				if (active)
 					dl.AddRectFilled({bar.x, r.y, mUI.S(2.f), cell}, accent); // barre d'accent
 				const float32 cx = bar.x + cell * 0.5f, ic = cy;
 				const float32 s = mUI.S(8.f);
+				// Texture fournie par l'app ? -> icône codicon TEINTÉE, sinon dessin.
+				{
+					const uint32 tex = bottom ? mActTexGear : ((idx >= 0 && idx < 8) ? mActTexL[idx] : 0u);
+					if (tex) {
+						const float32 hs = s * 1.15f;
+						dl.AddImage(tex, {cx - hs, ic - hs, hs * 2.f, hs * 2.f}, {0.f, 0.f}, {1.f, 1.f}, c);
+						if (hovered && mUI.input.mouseClicked[0]) {
+							if (!bottom)
+								mActivityIndex = idx;
+							if (mActivityFn)
+								mActivityFn(mActivityUser, idx);
+						}
+						return;
+					}
+				}
 				switch (idx) {
 					case 0: { // Explorateur : un document + lignes de texte
 						dl.AddRect({cx - s * 0.8f, ic - s, s * 1.6f, s * 2.f}, c, 1.5f);
@@ -724,14 +749,41 @@ namespace nkentseu {
 					case 3: { // Executer/Deboguer : triangle play
 						dl.AddTriangleFilled({cx - s * 0.6f, ic - s}, {cx - s * 0.6f, ic + s}, {cx + s, ic}, c);
 					} break;
-					case 4: { // Extensions : 4 carres (un detache)
+					case 4: { // Live Collab : deux personnes (tetes + epaules)
+						dl.AddCircleFilled({cx - s * 0.45f, ic - s * 0.45f}, s * 0.38f, c);
+						dl.AddCircleFilled({cx + s * 0.5f, ic - s * 0.25f}, s * 0.32f, c);
+						dl.AddRectFilled({cx - s * 0.95f, ic + s * 0.05f, s * 1.f, s * 0.75f}, c, s * 0.4f);
+						dl.AddRectFilled({cx + s * 0.08f, ic + s * 0.2f, s * 0.85f, s * 0.6f}, c, s * 0.35f);
+					} break;
+					case 5: { // Extensions : 4 carres (un detache)
 						const float32 q = s * 0.6f;
 						dl.AddRectFilled({cx - s, ic - s, q, q}, c);
 						dl.AddRectFilled({cx - s + q + 2.f, ic - s, q, q}, c);
 						dl.AddRectFilled({cx - s, ic - s + q + 2.f, q, q}, c);
 						dl.AddRect({cx + 2.f, ic + 2.f, q, q}, c, 1.5f);
 					} break;
-					case 5: { // Reglages : roue dentee (anneau + centre)
+					case 6: { // Profiler : histogramme (3 barres)
+						dl.AddRectFilled({cx - s, ic - s * 0.1f, s * 0.5f, s * 1.1f}, c);
+						dl.AddRectFilled({cx - s * 0.25f, ic - s, s * 0.5f, s * 2.f}, c);
+						dl.AddRectFilled({cx + s * 0.5f, ic - s * 0.5f, s * 0.5f, s * 1.5f}, c);
+					} break;
+					case 100: { // Claude Code : asterisque (6 branches)
+						dl.AddLine({cx, ic - s}, {cx, ic + s}, c, 2.f);
+						dl.AddLine({cx - s * 0.87f, ic - s * 0.5f}, {cx + s * 0.87f, ic + s * 0.5f}, c, 2.f);
+						dl.AddLine({cx - s * 0.87f, ic + s * 0.5f}, {cx + s * 0.87f, ic - s * 0.5f}, c, 2.f);
+					} break;
+					case 101: { // Codex : chevrons < >
+						dl.AddLine({cx - s * 0.2f, ic - s}, {cx - s, ic}, c, 2.f);
+						dl.AddLine({cx - s, ic}, {cx - s * 0.2f, ic + s}, c, 2.f);
+						dl.AddLine({cx + s * 0.2f, ic - s}, {cx + s, ic}, c, 2.f);
+						dl.AddLine({cx + s, ic}, {cx + s * 0.2f, ic + s}, c, 2.f);
+					} break;
+					case 102: { // IA Maison : maison (toit + corps)
+						dl.AddTriangleFilled({cx, ic - s}, {cx - s, ic - s * 0.1f}, {cx + s, ic - s * 0.1f}, c);
+						dl.AddRectFilled({cx - s * 0.65f, ic - s * 0.05f, s * 1.3f, s * 1.f}, c);
+						dl.AddRectFilled({cx - s * 0.18f, ic + s * 0.35f, s * 0.36f, s * 0.6f}, barBg);
+					} break;
+					case 999: { // Reglages : roue dentee (anneau + centre)
 						dl.AddCircleFilled({cx, ic}, s * 0.9f, c);
 						dl.AddCircleFilled({cx, ic}, s * 0.5f, barBg);
 						dl.AddCircleFilled({cx, ic}, s * 0.2f, c);
@@ -739,11 +791,14 @@ namespace nkentseu {
 					default:
 						break;
 				}
-				// Clic : icone 0 = bascule la sidebar (1er panneau cote LEFT).
+				// Clic : l'APP decide (sidebar exclusive facon VSCode) via SetActivityHandler ;
+				// sans handler : comportement historique (icone 0 = bascule le 1er panneau gauche).
 				if (hovered && mUI.input.mouseClicked[0]) {
 					if (!bottom)
 						mActivityIndex = idx;
-					if (idx == 0) {
+					if (mActivityFn)
+						mActivityFn(mActivityUser, idx);
+					else if (idx == 0) {
 						for (int32 p = 0; p < mNumPanels; ++p)
 							if (mPanels[p]->DefaultSide() == NkEditorDockSide::NK_LEFT) {
 								mPanels[p]->SetOpen(!mPanels[p]->IsOpen());
@@ -754,9 +809,66 @@ namespace nkentseu {
 			};
 
 			const float32 top = bar.y + cell * 0.5f;
-			for (int32 i = 0; i < 5; ++i)
-				drawIcon(i, top + i * cell, false);
-			drawIcon(5, bar.y + bar.h - cell * 0.5f, true); // Reglages en bas
+			for (int32 i = 0; i < 7; ++i)			// vues GAUCHE : explorateur, recherche, git, debug, collab,
+				drawIcon(i, top + i * cell, false); // extensions, profiler
+			drawIcon(999, bar.y + bar.h - cell * 0.5f, true); // Reglages en bas
+		}
+
+		// ── Activity bar DROITE : les systèmes d'IA (panneau latéral droit exclusif). ──
+		void NkEditorShell::DrawActivityBarRight(const NkRect &bar) noexcept {
+			auto &dl = mUI.dl;
+			const NkColor barBg = mUI.theme.header;
+			const NkColor off = mUI.theme.textDisabled;
+			const NkColor onC = mUI.theme.text;
+			dl.AddRectFilled(bar, barBg);
+			const float32 cell = bar.w;
+			const NkVec2 m = mUI.input.mousePos;
+			// Souris au-dessus d'une fenêtre flottante -> la barre ne réagit pas (occlusion).
+			const bool ptrOk = (mUI.hoveredWindowId == NKGUI_ID_NONE);
+			auto icon = [&](int32 idx, float32 cy) {
+				const NkRect r = {bar.x, cy - cell * 0.5f, cell, cell};
+				const bool hovered = ptrOk && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
+				const bool active = (mActivityIndexRight == idx);
+				const NkColor c = (active || hovered) ? onC : off;
+				if (active) // barre d'accent au bord DROIT (miroir de la barre gauche)
+					dl.AddRectFilled({bar.x + bar.w - mUI.S(2.f), r.y, mUI.S(2.f), cell}, mUI.theme.accent);
+				// Texture fournie par l'app ? -> icône codicon TEINTÉE, sinon dessin.
+				if (idx >= 100 && idx <= 103 && mActTexR[idx - 100]) {
+					const float32 hs = mUI.S(9.f);
+					dl.AddImage(mActTexR[idx - 100], {bar.x + cell * 0.5f - hs, cy - hs, hs * 2.f, hs * 2.f},
+								{0.f, 0.f}, {1.f, 1.f}, c);
+					if (hovered && mUI.input.mouseClicked[0] && mActivityFn)
+						mActivityFn(mActivityUser, idx);
+					return;
+				}
+				const float32 cx = bar.x + cell * 0.5f, ic = cy, s = mUI.S(8.f);
+				switch (idx) {
+					case 100: // Claude Code : asterisque
+						dl.AddLine({cx, ic - s}, {cx, ic + s}, c, 2.f);
+						dl.AddLine({cx - s * 0.87f, ic - s * 0.5f}, {cx + s * 0.87f, ic + s * 0.5f}, c, 2.f);
+						dl.AddLine({cx - s * 0.87f, ic + s * 0.5f}, {cx + s * 0.87f, ic - s * 0.5f}, c, 2.f);
+						break;
+					case 101: // Codex : chevrons < >
+						dl.AddLine({cx - s * 0.2f, ic - s}, {cx - s, ic}, c, 2.f);
+						dl.AddLine({cx - s, ic}, {cx - s * 0.2f, ic + s}, c, 2.f);
+						dl.AddLine({cx + s * 0.2f, ic - s}, {cx + s, ic}, c, 2.f);
+						dl.AddLine({cx + s, ic}, {cx + s * 0.2f, ic + s}, c, 2.f);
+						break;
+					case 102: // IA Maison : maison
+						dl.AddTriangleFilled({cx, ic - s}, {cx - s, ic - s * 0.1f}, {cx + s, ic - s * 0.1f}, c);
+						dl.AddRectFilled({cx - s * 0.65f, ic - s * 0.05f, s * 1.3f, s * 1.f}, c);
+						dl.AddRectFilled({cx - s * 0.18f, ic + s * 0.35f, s * 0.36f, s * 0.6f}, barBg);
+						break;
+					default:
+						break;
+				}
+				if (hovered && mUI.input.mouseClicked[0] && mActivityFn)
+					mActivityFn(mActivityUser, idx);
+			};
+			const float32 top = bar.y + cell * 0.5f;
+			icon(100, top);			   // Claude Code
+			icon(101, top + cell);	   // Codex
+			icon(102, top + cell * 2); // IA Maison
 		}
 
 		// ── Barre de titre custom (UNE ligne : logo + menus | infos | controles) ──
@@ -1079,10 +1191,86 @@ namespace nkentseu {
 				if (*a || *b)
 					continue;
 				p->SetOpen(true); // fenetre fermee (etat persiste) -> l'OUVRIR d'abord, sinon rien a focus
+				// JAMAIS ancrée (fermée au moment du bootstrap) -> l'ancrer à son côté PAR
+				// DÉFAUT au lieu d'apparaître flottante : en onglet avec un panneau du même
+				// côté déjà ancré si possible, sinon nouvelle zone de bord. No-op si déjà
+				// ancrée -> une place choisie à la main (drag) est conservée.
+				if (p->Dockable() && !DockIsWindowDocked(mUI, title)) {
+					const NkEditorDockSide side = p->DefaultSide();
+					// Une feuille n'accueille le panneau que si elle est vraiment « la
+					// sidebar » du côté : pour gauche/droite elle ne doit contenir QUE des
+					// panneaux de ce côté — un panneau du groupe DÉPLACÉ dans la zone du
+					// terminal est indépendant et ne doit pas aspirer les ouvertures.
+					auto leafOfSide = [&](const char *qt) -> bool {
+						const int32 node = DockWindowNode(mUI, qt);
+						if (node < 0 || node >= static_cast<int32>(mUI.dockNodes.Size()))
+							return false;
+						if (side != NkEditorDockSide::NK_LEFT && side != NkEditorDockSide::NK_RIGHT)
+							return true; // bas/centre : regroupement historique
+						const NkGuiDockNode &L = mUI.dockNodes[node];
+						for (int32 w = 0; w < L.winCount; ++w) {
+							bool ok = false;
+							for (int32 j = 0; j < mNumPanels; ++j)
+								if (mPanels[j] && mUI.GetId(mPanels[j]->Title()) == L.windows[w]) {
+									ok = (mPanels[j]->DefaultSide() == side);
+									break;
+								}
+							if (!ok)
+								return false;
+						}
+						return true;
+					};
+					const char *host = nullptr;
+					for (int32 j = 0; j < mNumPanels; ++j) {
+						NkEditorPanel *q = mPanels[j];
+						if (q && q != p && q->Dockable() && q->DefaultSide() == side &&
+							DockIsWindowDocked(mUI, q->Title()) && leafOfSide(q->Title())) {
+							host = q->Title();
+							break;
+						}
+					}
+					if (host)
+						DockBuilderDockTab(mUI, title, host);
+					else
+						DockBuilderDock(mUI, title, SideToZone(side));
+				}
 				DockFocusWindow(mUI, title);
 				return true;
 			}
 			return false;
+		}
+
+		static bool SameTitle(const char *a, const char *b) {
+			if (!a || !b)
+				return false;
+			while (*a && *a == *b) {
+				++a;
+				++b;
+			}
+			return *a == *b;
+		}
+
+		bool NkEditorShell::IsPanelOpen(const char *title) noexcept {
+			for (int32 i = 0; i < mNumPanels; ++i)
+				if (mPanels[i] && SameTitle(mPanels[i]->Title(), title))
+					return mPanels[i]->IsOpen();
+			return false;
+		}
+
+		void NkEditorShell::ClosePanel(const char *title) noexcept {
+			for (int32 i = 0; i < mNumPanels; ++i)
+				if (mPanels[i] && SameTitle(mPanels[i]->Title(), title)) {
+					mPanels[i]->SetOpen(false);
+					return;
+				}
+		}
+
+		int32 NkEditorShell::PanelDockNode(const char *title) noexcept {
+			return DockWindowNode(mUI, title);
+		}
+
+		void NkEditorShell::DetachPanel(const char *title) noexcept {
+			DockDetachWindow(mUI, title);
 		}
 
 		void NkEditorShell::SetFooter(const char *left, const char *right) noexcept {
@@ -1168,6 +1356,22 @@ namespace nkentseu {
 					mPanels[i]->SetOpen(false);
 
 			NkString line;
+			bool dockRestored = false;
+			// Meta de fenêtre par id — créée au besoin (titre copié : les onglets du dock
+			// l'affichent avant le premier Begin de la fenêtre).
+			auto ensureMeta = [&](NkGuiId wid, const char *tt) -> NkGuiWindowMeta * {
+				for (uint32 i = 0; i < mUI.windowMeta.Size(); ++i)
+					if (mUI.windowMeta[i].id == wid)
+						return &mUI.windowMeta[i];
+				NkGuiWindowMeta nm;
+				nm.id = wid;
+				int32 k = 0;
+				for (; tt[k] && k < 47; ++k)
+					nm.title[k] = tt[k];
+				nm.title[k] = 0;
+				mUI.windowMeta.PushBack(nm);
+				return &mUI.windowMeta[mUI.windowMeta.Size() - 1];
+			};
 			auto apply = [&](const NkString &ln) {
 				const char *s = ln.CStr();
 				if (StartsWith(s, "maximized=")) {
@@ -1182,6 +1386,58 @@ namespace nkentseu {
 							mPanels[i]->SetOpen(true);
 							break;
 						}
+				} else if (StartsWith(s, "dockroot=")) {
+					// Disposition sérialisée -> RESET du dock courant (l'arbre du fichier
+					// fait foi) ; les nœuds arrivent ensuite dans l'ordre 0..n-1 (DFS).
+					mUI.dockNodes.Clear();
+					mUI.dockRoot = -1;
+					for (uint32 i = 0; i < mUI.windowMeta.Size(); ++i) {
+						mUI.windowMeta[i].dockNode = -1;
+						mUI.windowMeta[i].hostRoot = -1;
+						mUI.windowMeta[i].dockHost = NKGUI_ID_NONE;
+						mUI.windowMeta[i].dockActiveTab = false;
+					}
+					dockRestored = true;
+				} else if (dockRestored && StartsWith(s, "node=")) {
+					int32 idx = 0, kind = 0, vert = 0, c0 = -1, c1 = -1, at = 0;
+					float32 ratio = 0.5f;
+					if (std::sscanf(s + 5, "%d|%d|%d|%f|%d|%d|%d", &idx, &kind, &vert, &ratio, &c0, &c1, &at) == 7) {
+						NkGuiDockNode nd;
+						nd.kind = static_cast<uint8>(kind);
+						nd.vertical = vert != 0;
+						nd.ratio = ratio;
+						nd.child0 = c0;
+						nd.child1 = c1;
+						nd.activeTab = at;
+						mUI.dockNodes.PushBack(nd);
+					}
+				} else if (dockRestored && StartsWith(s, "nwin=")) {
+					const char *b = s + 5;
+					int32 idx = 0;
+					while (*b >= '0' && *b <= '9')
+						idx = idx * 10 + (*b++ - '0');
+					if (*b == '|' && b[1] && idx >= 0 && idx < static_cast<int32>(mUI.dockNodes.Size())) {
+						NkGuiDockNode &L = mUI.dockNodes[idx];
+						if (L.kind == 2 && L.winCount < 8) {
+							const NkGuiId wid = mUI.GetId(b + 1);
+							L.windows[L.winCount++] = wid;
+							ensureMeta(wid, b + 1)->dockNode = idx;
+						}
+					}
+				} else if (dockRestored && StartsWith(s, "float=")) {
+					float32 x = 0.f, y = 0.f, w = 0.f, h = 0.f;
+					if (std::sscanf(s + 6, "%f|%f|%f|%f", &x, &y, &w, &h) == 4) {
+						const char *b = s + 6;
+						for (int32 bars = 0; *b && bars < 4; ++b) // titre = après le 4e '|'
+							if (*b == '|')
+								++bars;
+						if (*b && w > 40.f && h > 40.f) {
+							NkGuiWindowMeta *wm = ensureMeta(mUI.GetId(b), b);
+							wm->rect = {x, y, w, h};
+							wm->floatRect = wm->rect;
+							wm->init = true;
+						}
+					}
 				}
 			};
 			for (const char *c = p;; ++c) {
@@ -1194,6 +1450,52 @@ namespace nkentseu {
 						break;
 				} else
 					line += *c;
+			}
+			// ── Finalisation de la disposition restaurée : parents, drapeaux, filets. ──
+			if (dockRestored && mUI.dockNodes.Size() > 0) {
+				const int32 n = static_cast<int32>(mUI.dockNodes.Size());
+				for (int32 i = 0; i < n; ++i) {
+					NkGuiDockNode &d = mUI.dockNodes[i];
+					if (d.kind == 1) {
+						if (d.child0 < 0 || d.child0 >= n || d.child1 < 0 || d.child1 >= n) {
+							d.kind = 2; // arbre corrompu -> feuille vide (robustesse)
+							d.child0 = d.child1 = -1;
+						} else {
+							mUI.dockNodes[d.child0].parent = i;
+							mUI.dockNodes[d.child1].parent = i;
+						}
+					}
+					if (d.kind == 2 && d.activeTab >= d.winCount)
+						d.activeTab = d.winCount > 0 ? d.winCount - 1 : 0;
+				}
+				mUI.dockNodes[0].parent = -1;
+				mUI.dockRoot = 0;
+				for (int32 i = 0; i < n; ++i) { // drapeau « onglet actif » des metas
+					const NkGuiDockNode &d = mUI.dockNodes[i];
+					if (d.kind != 2)
+						continue;
+					for (int32 w = 0; w < d.winCount; ++w)
+						for (uint32 m2 = 0; m2 < mUI.windowMeta.Size(); ++m2)
+							if (mUI.windowMeta[m2].id == d.windows[w]) {
+								mUI.windowMeta[m2].dockActiveTab = (w == d.activeTab);
+								break;
+							}
+				}
+				mDockBootstrap = false; // la disposition restaurée fait foi
+				// Filet : panneau OUVERT dockable jamais mentionné dans le fichier (ex.
+				// panneau ajouté depuis) -> ancré à son côté par défaut, pas flottant.
+				for (int32 i = 0; i < mNumPanels; ++i) {
+					NkEditorPanel *pl = mPanels[i];
+					if (!pl->IsOpen() || !pl->Dockable())
+						continue;
+					const NkGuiId wid = mUI.GetId(pl->Title());
+					bool has = false;
+					for (uint32 m2 = 0; m2 < mUI.windowMeta.Size() && !has; ++m2)
+						if (mUI.windowMeta[m2].id == wid)
+							has = true;
+					if (!has)
+						DockBuilderDock(mUI, pl->Title(), SideToZone(pl->DefaultSide()));
+				}
 			}
 		}
 
@@ -1212,6 +1514,65 @@ namespace nkentseu {
 					out += mPanels[i]->Title();
 					out += "\n";
 				}
+			// ── Disposition du dock : arbre CENTRAL sérialisé en DFS (indices remappés
+			//    0..n-1, racine = 0) + position des fenêtres flottantes des panneaux.
+			//    Les hôtes de dock flottants (arbres secondaires) ne sont pas sérialisés :
+			//    leurs fenêtres redeviennent flottantes simples à la restauration. ──
+			if (mUI.dockRoot >= 0 && mUI.dockRoot < static_cast<int32>(mUI.dockNodes.Size())) {
+				int32 map[256], order[256], n = 0;
+				for (int32 i = 0; i < 256; ++i)
+					map[i] = -1;
+				int32 stack[256], top = 0;
+				stack[top++] = mUI.dockRoot;
+				while (top > 0 && n < 256) {
+					const int32 cur = stack[--top];
+					if (cur < 0 || cur >= static_cast<int32>(mUI.dockNodes.Size()) || cur >= 256 || map[cur] >= 0)
+						continue;
+					map[cur] = n;
+					order[n++] = cur;
+					const NkGuiDockNode &d = mUI.dockNodes[cur];
+					if (d.kind == 1 && top < 254) {
+						stack[top++] = d.child1;
+						stack[top++] = d.child0;
+					}
+				}
+				out += "dockroot=0\n";
+				char buf[192];
+				for (int32 k = 0; k < n; ++k) {
+					const NkGuiDockNode &d = mUI.dockNodes[order[k]];
+					const int32 c0 = (d.kind == 1 && d.child0 >= 0 && d.child0 < 256) ? map[d.child0] : -1;
+					const int32 c1 = (d.kind == 1 && d.child1 >= 0 && d.child1 < 256) ? map[d.child1] : -1;
+					std::snprintf(buf, sizeof(buf), "node=%d|%d|%d|%.4f|%d|%d|%d\n", k, static_cast<int32>(d.kind),
+								  d.vertical ? 1 : 0, static_cast<double>(d.ratio), c0, c1, d.activeTab);
+					out += buf;
+					if (d.kind == 2)
+						for (int32 w = 0; w < d.winCount; ++w)
+							for (uint32 m2 = 0; m2 < mUI.windowMeta.Size(); ++m2)
+								if (mUI.windowMeta[m2].id == d.windows[w]) {
+									if (mUI.windowMeta[m2].title[0]) {
+										std::snprintf(buf, sizeof(buf), "nwin=%d|%s\n", k, mUI.windowMeta[m2].title);
+										out += buf;
+									}
+									break;
+								}
+				}
+				for (int32 i = 0; i < mNumPanels; ++i) {
+					const NkGuiId wid = mUI.GetId(mPanels[i]->Title());
+					for (uint32 m2 = 0; m2 < mUI.windowMeta.Size(); ++m2) {
+						const NkGuiWindowMeta &wm = mUI.windowMeta[m2];
+						if (wm.id != wid)
+							continue;
+						if (wm.dockNode < 0 && wm.hostRoot < 0 && wm.init) {
+							std::snprintf(buf, sizeof(buf), "float=%.1f|%.1f|%.1f|%.1f|%s\n",
+										  static_cast<double>(wm.rect.x), static_cast<double>(wm.rect.y),
+										  static_cast<double>(wm.rect.w), static_cast<double>(wm.rect.h),
+										  mPanels[i]->Title());
+							out += buf;
+						}
+						break;
+					}
+				}
+			}
 			NkFile::WriteAllText(p, out);
 		}
 
@@ -1227,7 +1588,26 @@ namespace nkentseu {
 					SetNextWindowSize(mUI, 360.f, 280.f);
 				}
 				if (Begin(mUI, p->Title(), p->OpenPtr())) {
+					// Une fenêtre FLOTTANTE recouvre la souris et ce n'est pas la nôtre ->
+					// souris neutralisée pendant OnUI : le code custom des panneaux (éditeur,
+					// arbres) lit l'input en direct et recevrait sinon clics/molette À TRAVERS
+					// la fenêtre du dessus — et lui volerait son drag de barre de titre.
+					const bool shielded =
+						mUI.hoveredWindowId != NKGUI_ID_NONE && mUI.hoveredWindowId != mUI.curWindowId;
+					nkgui::NkGuiInput saved;
+					if (shielded) {
+						saved = mUI.input;
+						mUI.input.mousePos = {-100000.f, -100000.f};
+						for (int32 b = 0; b < 3; ++b) {
+							mUI.input.mouseClicked[b] = false;
+							mUI.input.mouseDown[b] = false;
+							mUI.input.mouseDoubleClicked[b] = false;
+						}
+						mUI.input.wheel = mUI.input.wheelH = 0.f;
+					}
 					p->OnUI(ec);
+					if (shielded)
+						mUI.input = saved;
 					EndWindow(mUI);
 				}
 			}

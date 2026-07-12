@@ -240,7 +240,7 @@ namespace nkentseu {
 				bool click = false, down = false;
 				float32 S = 1.f;
 
-				static NkUi From(NkEditorFrameContext &ec, bool overlay = false) {
+				static NkUi From(editorkit::NkEditorFrameContext &ec, bool overlay = false) {
 					NkUi u;
 					u.ctx = &ec.Ui();
 					u.f = u.ctx->font;
@@ -372,13 +372,51 @@ namespace nkentseu {
 				// ── Vue principale IDE (toolbar, activity bar, panneaux, status bar) ──
 				uint32 hammer = 0, bug = 0, sparkles = 0, zap = 0, chart = 0, puzzle = 0, eraser = 0, rebuild = 0,
 					   monitor = 0, flask = 0, layers = 0, pkg = 0, globe = 0, pause = 0, stop = 0, gitPush = 0,
-					   gitPull = 0, split = 0, folderOpen = 0, fileText = 0, fileCode2 = 0, filePlus = 0, code = 0,
+					   gitPull = 0, split = 0, folderOpen = 0, folder = 0, fileText = 0, fileCode2 = 0, filePlus = 0,
+					   code = 0,
 					   compare = 0, blame = 0, exit = 0, tags = 0, cloud = 0, docker = 0, linux = 0, play = 0;
 
 				// ── Registre d'extensions (data-driven) : ".cpp" (minuscule) -> texture ──
 				// Rempli au demarrage depuis des defauts integres + le manifeste icons.cfg.
 				NkVector<NkString> extKey;
 				NkVector<uint32> extTex;
+				// ── Dossiers SPECIAUX (Material) : nom de dossier -> paire fermee/ouverte ──
+				uint32 folderM = 0, folderMOpen = 0; // dossier generique Material (ferme/ouvert)
+				uint32 folderRoot = 0, folderRootOpen = 0; // dossier RACINE du projet
+				uint32 collapseAll = 0, newFile2 = 0, newFolder = 0, filter = 0; // toolbar explorateur
+				// Activity bars (textures codicon remplaçant les dessins au trait)
+				uint32 files = 0, sourceControl = 0, liveShare = 0, codeC = 0, warning = 0;
+				// Plateformes cibles (toolbar) + logos de marques
+				uint32 android = 0, apple = 0, windowsLogo = 0, claude = 0;
+				NkVector<NkString> dirKey;
+				NkVector<uint32> dirTexC, dirTexO;
+
+				void SetDir(const char *name, uint32 texClosed, uint32 texOpen) {
+					dirKey.PushBack(NkString(name));
+					dirTexC.PushBack(texClosed);
+					dirTexO.PushBack(texOpen);
+				}
+
+				// Paire d'icônes d'un dossier « spécial » (0 si pas de correspondance).
+				uint32 ForDir(const char *name, bool open) const {
+					auto low = [](char c) { return (c >= 'A' && c <= 'Z') ? char(c + 32) : c; };
+					for (usize i = 0; i < dirKey.Size(); ++i) {
+						const char *a = dirKey[i].CStr();
+						const char *b = name;
+						bool eq = true;
+						while (*a && *b) {
+							if (low(*a) != low(*b)) {
+								eq = false;
+								break;
+							}
+							++a;
+							++b;
+						}
+						if (eq && !*a && !*b)
+							return open ? dirTexO[i] : dirTexC[i];
+					}
+					return 0;
+				}
 
 				// Texture associee a l'extension d'un nom de fichier (0 si aucune / non chargee).
 				uint32 ForFile(const char *filename) const {

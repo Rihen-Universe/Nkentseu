@@ -12,6 +12,7 @@
 #include "NKCode/Shell/NkUi.h"
 #include "NKCode/Shell/NkOpenWs.h" // NkOwIco
 #include "NKCode/Shell/NkI18n.h"   // NkT
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -105,8 +106,11 @@ namespace nkentseu {
 						(open || accent) ? NkCol::primary : NkCol::border, NkR::sm * u.S);
 				float32 tx = x + u.s(9);
 				if (tex || drawn) {
+					// Le logo JENGA est une icône COLORÉE : rendu tel quel (teinte blanche),
+					// sinon la teinte grise du thème le décolorerait.
+					const bool colored = (ic && tex && tex == ic->jenga);
 					NkOwIco(u, tex, drawn, {tx, ctrlY + (ctrlH - u.s(12)) * 0.5f, u.s(12), u.s(12)},
-							accent ? NkCol::primary : NkCol::mutedFg);
+							colored ? NkColor{255, 255, 255, 255} : (accent ? NkCol::primary : NkCol::mutedFg));
 					tx += u.s(18);
 				}
 				u.TextEllipsis(tx, ctrlY + (ctrlH - u.Lh()) * 0.5f, (x + w) - tx - u.s(16), value,
@@ -226,12 +230,42 @@ namespace nkentseu {
 						  int32 variant, const char *badge) {
 				segs.PushBack({1, id, btnW(label), prio, grp, label, nullptr, tex, drawn, false, variant, badge});
 			};
-			char testBadge[8] = "";
+			NkString testBadge; // NkPrintf maison (ex-std::snprintf)
 			if (nTestVis > 0)
-				std::snprintf(testBadge, sizeof(testBadge), "%d", nTestVis);
+				testBadge = NkPrintf("%d", nTestVis);
 			C(0, wSol, 90, false, NkT("tb.solution"), wsPrev, TEX(ic ? ic->jenga : 0), "git-branch", true);
 			C(1, wProj, 40, false, NkT("tb.projet"), projPrev, TEX(ic ? ic->pkg : 0), "package", false);
-			C(2, wPlat, 85, true, NkT("tb.plateforme"), SY.name, TEX(ic ? ic->monitor : 0), "monitor", false);
+			// Icône de la PLATEFORME cible : logo dédié (Android, Apple, Tux, Windows,
+			// Web) selon le nom sélectionné ; générique (écran) sinon.
+			uint32 platTex = ic ? ic->monitor : 0;
+			if (ic && SY.name) {
+				auto has = [&](const char *k) {
+					auto low = [](char ch) { return (ch >= 'A' && ch <= 'Z') ? char(ch + 32) : ch; };
+					for (const char *h = SY.name; *h; ++h) {
+						const char *a = h;
+						const char *b = k;
+						while (*a && *b && low(*a) == low(*b)) {
+							++a;
+							++b;
+						}
+						if (!*b)
+							return true;
+					}
+					return false;
+				};
+				if (has("android"))
+					platTex = ic->android;
+				else if (has("ios") || has("macos") || has("tvos") || has("watchos") || has("visionos") ||
+						 has("apple"))
+					platTex = ic->apple;
+				else if (has("linux"))
+					platTex = ic->linux;
+				else if (has("web") || has("emscripten") || has("wasm"))
+					platTex = ic->globe;
+				else if (has("windows") || has("win"))
+					platTex = ic->windowsLogo;
+			}
+			C(2, wPlat, 85, true, NkT("tb.plateforme"), SY.name, TEX(platTex), "monitor", false);
 			C(3, wCfg, 70, false, NkT("tb.config"), kCfg[cfgI], TEX(ic ? ic->kConfig : 0), "settings", false);
 			C(4, wArch, 35, false, NkT("tb.archi"), archPrev, TEX(ic ? ic->platforms : 0), "cpu", false);
 			if (hasCompiler)
@@ -243,7 +277,7 @@ namespace nkentseu {
 			Bt(2, 50, false, NkT("tb.clean"), TEX(ic ? ic->eraser : 0), "eraser", 0, nullptr);
 			Bt(3, 1000, true, NkT("tb.run"), TEX(ic ? ic->play : 0), "play", 1, nullptr);
 			Bt(4, 45, false, NkT("tb.debug"), TEX(ic ? ic->bug : 0), "bug", 0, nullptr);
-			Bt(5, 65, false, NkT("tb.test"), TEX(ic ? ic->kTest : 0), "flask", 2, hasTests ? testBadge : nullptr);
+			Bt(5, 65, false, NkT("tb.test"), TEX(ic ? ic->kTest : 0), "flask", 2, hasTests ? testBadge.CStr() : nullptr);
 			segs.PushBack({2, -1, wSearch, 10, true, NkT("tb.quicksearch"), nullptr, TEX(ic ? ic->search : 0), "search",
 						   false, 0, nullptr}); // recherche : repliée en 1er, absente du menu
 

@@ -12,6 +12,8 @@
 #include "NKCode/Project/NkCodeGen.h"
 #include "NKCode/Shell/NkLoading.h" // ecran de chargement (section 14)
 #include "NKWindow/Core/NkDialogs.h"
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
+#include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -285,11 +287,11 @@ namespace nkentseu {
 						return;
 					}
 					// ── Raccourcis (facon Windows) : Accueil / Bureau / Documents / Favoris ──
-					const char *home = std::getenv("USERPROFILE");
+					const char *home = env::GetEnvVar("USERPROFILE"); // API maison (NkEnv.h)
 					if (!home || !*home)
-						home = std::getenv("HOME");
+						home = env::GetEnvVar("HOME");
 					auto known = [&](const char *sub) -> NkString {
-						const char *od = std::getenv("OneDrive");
+						const char *od = env::GetEnvVar("OneDrive");
 						if (od && *od) {
 							NkString p = (NkPath(od) / sub).ToString();
 							if (NkDirectory::Exists(p.CStr()))
@@ -846,9 +848,9 @@ namespace nkentseu {
 						return;
 					wsEnvFilled = true;
 					auto envc = [](const char *a, const char *b) -> const char * {
-						const char *v = std::getenv(a);
+						const char *v = env::GetEnvVar(a); // API maison (NkEnv.h)
 						if ((!v || !*v) && b)
-							v = std::getenv(b);
+							v = env::GetEnvVar(b);
 						return (v && *v) ? v : nullptr;
 					};
 					if (const char *v = envc("ANDROID_SDK_ROOT", "ANDROID_HOME"))
@@ -1324,10 +1326,9 @@ namespace nkentseu {
 				}
 				// Toolchains DETECTEES par Jenga (jenga info) — affichage reel.
 				{
-					char hdr[64];
-					std::snprintf(hdr, sizeof(hdr), "Toolchains detectees par Jenga (%d)",
-								  (int)(d->st ? d->st->toolchains.Size() : 0));
-					label(hdr);
+					const NkString hdr = NkPrintf("Toolchains detectees par Jenga (%d)",
+												  (int)(d->st ? d->st->toolchains.Size() : 0)); // NkPrintf maison
+					label(hdr.CStr());
 				}
 				if (d->st && d->st->toolchains.Empty()) {
 					text(mx, y, "(detection en cours...)", cFaint);
@@ -1344,10 +1345,10 @@ namespace nkentseu {
 					}
 					text(mx + 8.f * S, y + (24.f * S - lh) * 0.5f, t.name.CStr(),
 						 rel ? NkColor{255, 255, 255, 255} : cText);
-					char meta[128];
-					std::snprintf(meta, sizeof(meta), "%s  %s/%s %s", t.family.CStr(), t.os.CStr(), t.arch.CStr(),
-								  t.env.CStr());
-					text(mx + mw - f->MeasureWidth(meta) - 8.f * S, y + (24.f * S - lh) * 0.5f, meta, cSub);
+					const NkString meta = NkPrintf("%s  %s/%s %s", t.family.CStr(), t.os.CStr(), t.arch.CStr(),
+												   t.env.CStr()); // NkPrintf maison
+					text(mx + mw - f->MeasureWidth(meta.CStr()) - 8.f * S, y + (24.f * S - lh) * 0.5f, meta.CStr(),
+						 cSub);
 					y += 28.f * S;
 				}
 				if (sbtn({mx, y, 200.f * S, 30.f * S}, "Gerer les toolchains...")) {
@@ -1642,9 +1643,8 @@ namespace nkentseu {
 					dl.AddRectFilled(row, NkColor{30, 34, 40, 255}, 4.f * S);
 				text(area.x + 12.f * S, ly, t.name.CStr(), cText);
 				text(area.x + 180.f * S, ly, t.family.CStr(), cSub);
-				char tgt[64];
-				std::snprintf(tgt, sizeof(tgt), "%s/%s", t.os.CStr(), t.arch.CStr());
-				text(area.x + 290.f * S, ly, tgt, cSub);
+				const NkString tgt = NkPrintf("%s/%s", t.os.CStr(), t.arch.CStr()); // NkPrintf maison
+				text(area.x + 290.f * S, ly, tgt.CStr(), cSub);
 				text(area.x + 440.f * S, ly, t.env.CStr(), cSub);
 				const NkRect bE = {area.x + area.w - 120.f * S, ly - 2.f * S, 56.f * S, 22.f * S};
 				const NkRect bR = {area.x + area.w - 58.f * S, ly - 2.f * S, 50.f * S, 22.f * S};
@@ -2364,10 +2364,9 @@ namespace nkentseu {
 					y += 32.f;
 				}
 				{
-					char ph2[64];
-					std::snprintf(ph2, sizeof(ph2), "Fichiers sources (defaut src/**.%s)",
-								  L[d->langIdx >= 0 && d->langIdx < nl ? d->langIdx : 0].ext);
-					field(ph2, d->projFiles, (int32)sizeof(d->projFiles), 1, false);
+					const NkString ph2 = NkPrintf("Fichiers sources (defaut src/**.%s)",
+												  L[d->langIdx >= 0 && d->langIdx < nl ? d->langIdx : 0].ext);
+					field(ph2.CStr(), d->projFiles, (int32)sizeof(d->projFiles), 1, false);
 				}
 				field("Dossiers d'include (csv)", d->projInc, (int32)sizeof(d->projInc), 2, false);
 				field("Bibliotheques a lier - links (csv)", d->projLinks, (int32)sizeof(d->projLinks), 3, false);

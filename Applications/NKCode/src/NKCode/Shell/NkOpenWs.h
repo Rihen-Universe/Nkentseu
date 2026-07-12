@@ -20,8 +20,8 @@
 #include "NKCode/Shell/NkI18n.h" // NkT() : traductions multi-langue
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Shell/Dialogs.h"
-#include <cstdio>
-#include <cstdlib>
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison, ex-<cstdio>)
+#include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison, ex-<cstdlib>)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -124,16 +124,16 @@ namespace nkentseu {
 				}
 
 				static NkString Home() {
-					const char *h = std::getenv("USERPROFILE");
+					const char *h = env::GetEnvVar("USERPROFILE"); // API maison (NkEnv.h)
 					if (!h || !*h)
-						h = std::getenv("HOME");
+						h = env::GetEnvVar("HOME");
 					return NkString((h && *h) ? h : ".");
 				}
 
 				// Dossier connu : preferer la redirection OneDrive si elle existe (sinon Explorer
 				// montre plus de fichiers que le ~/Desktop local, qui est vide/perime).
 				static NkString KnownFolder(const char *sub) {
-					const char *od = std::getenv("OneDrive");
+					const char *od = env::GetEnvVar("OneDrive");
 					if (od && *od) {
 						NkString p = (NkPath(od) / sub).ToString();
 						if (NkDirectory::Exists(p.CStr()))
@@ -199,9 +199,9 @@ namespace nkentseu {
 				// Dossier de config Jenga (~/.jenga, ou override JENGA_CONFIG_DIR / JENGA_HOME — aligné sur
 				// JengaConfig.py).
 				static NkString JengaConfigDir() {
-					const char *ov = std::getenv("JENGA_CONFIG_DIR");
+					const char *ov = env::GetEnvVar("JENGA_CONFIG_DIR");
 					if (!ov || !*ov)
-						ov = std::getenv("JENGA_HOME");
+						ov = env::GetEnvVar("JENGA_HOME");
 					if (ov && *ov)
 						return NkString(ov);
 					return (NkPath(Home().CStr()) / ".jenga").ToString();
@@ -224,7 +224,7 @@ namespace nkentseu {
 				//  2) Jenga EMBARQUÉ à côté de NKCode : <exe>/tools/jenga/jenga(.exe|.cmd)  (intégration future, zéro
 				//  install Python), 3) sinon "jenga" du PATH (résolu en chemin complet si possible).
 				static NkString DefaultJengaPath() {
-					const char *ov = std::getenv("JENGA_EXE");
+					const char *ov = env::GetEnvVar("JENGA_EXE");
 					if (ov && *ov && NkFile::Exists(ov))
 						return NkString(ov);
 					const NkString ed = ExeDir();
@@ -252,7 +252,7 @@ namespace nkentseu {
 
 				// Petit wrapper (NkNewWsState n'est pas encore visible ici) : cherche "jenga" dans le PATH.
 				static NkString NkNewWsState_TcWhich_jenga() {
-					const char *path = std::getenv("PATH");
+					const char *path = env::GetEnvVar("PATH");
 					if (!path)
 						return NkString();
 #if defined(_WIN32)
@@ -300,12 +300,9 @@ namespace nkentseu {
 						v /= 1024.0;
 						++u;
 					}
-					char buf[32];
 					if (u == 0)
-						std::snprintf(buf, sizeof(buf), "%lld o", (long long)b);
-					else
-						std::snprintf(buf, sizeof(buf), "%.1f %s", v, unit[u]);
-					return NkString(buf);
+						return NkPrintf("%lld o", (long long)b); // NkPrintf maison
+					return NkPrintf("%.1f %s", v, unit[u]);
 				}
 
 				// Extension en MAJUSCULES (sans le point), pour la colonne Type des fichiers.
@@ -492,9 +489,7 @@ namespace nkentseu {
 					NkString name = NkT("ow.st.newfolder");
 					int32 k = 2;
 					while (NkDirectory::Exists((NkPath(curDir) / name.CStr()).ToString().CStr())) {
-						char b[64];
-						std::snprintf(b, sizeof(b), "Nouveau dossier (%d)", k++);
-						name = b;
+						name = NkPrintf("Nouveau dossier (%d)", k++); // NkPrintf maison
 					}
 					if (NkDirectory::CreateRecursive((NkPath(curDir) / name.CStr()).ToString().CStr())) {
 						Rescan();
@@ -1620,10 +1615,9 @@ namespace nkentseu {
 					if (!NkDirectory::Exists(root))
 						continue;
 					const char label[8] = {'D', 'i', 's', 'q', 'u', 'e', ' ', 0}; // base; on ajoute la lettre
-					char lab[16];
-					std::snprintf(lab, sizeof(lab), "Disque %c:", d);
+					const NkString lab = NkPrintf("Disque %c:", d);				  // NkPrintf maison
 					(void)label;
-					if (navItem(ic.disque, "hard-drive", lab, NkCol::mutedFg, StrEq(ow->curDir, root)) == 1)
+					if (navItem(ic.disque, "hard-drive", lab.CStr(), NkCol::mutedFg, StrEq(ow->curDir, root)) == 1)
 						ow->SetDir(root, true);
 					if (++shown >= 12)
 						break;
@@ -1810,9 +1804,8 @@ namespace nkentseu {
 						u.TextEllipsis(xSize, cy, colSize - u.s(8), e.sizeStr.CStr(), subC);
 					// Projets (nombre, .jenga)
 					if (e.isJenga) {
-						char pc[16];
-						std::snprintf(pc, sizeof(pc), "%d", e.projCount);
-						u.Text(xProj, cy, pc, sel ? NkCol::foreground : subC);
+						const NkString pc = NkPrintf("%d", e.projCount); // NkPrintf maison
+						u.Text(xProj, cy, pc.CStr(), sel ? NkCol::foreground : subC);
 					}
 					// Modifie
 					if (e.ageStr.CStr()[0])
@@ -2105,11 +2098,10 @@ namespace nkentseu {
 					NkOwIco(u, ic.valide, "check-circle",
 							{banner.x + u.s(10), banner.y + (banner.h - u.s(13)) * 0.5f, u.s(13), u.s(13)},
 							NkCol::success);
-					char msg[160];
 					const char *wsName = (ow->firstWsIdx >= 0) ? ow->entries[ow->firstWsIdx].workspace.CStr() : "";
-					std::snprintf(msg, sizeof(msg), "%d fichier(s) .jenga detecte(s) — workspace : %s", ow->jengaCount,
-								  wsName);
-					u.TextV(banner.x + u.s(30), banner.y, banner.h, msg, NkCol::mutedFg);
+					const NkString msg = NkPrintf("%d fichier(s) .jenga detecte(s) — workspace : %s", ow->jengaCount,
+												  wsName); // NkPrintf maison
+					u.TextV(banner.x + u.s(30), banner.y, banner.h, msg.CStr(), NkCol::mutedFg);
 				}
 			}
 
@@ -2212,9 +2204,7 @@ namespace nkentseu {
 				if (!e.workspace.Empty())
 					lines.PushBack({"Workspace", NkString("\"") + e.workspace.CStr() + "\""});
 				if (!m.projects.Empty()) {
-					char h[40];
-					std::snprintf(h, sizeof(h), "Projets (%d)", m.projCount);
-					lines.PushBack({"", NkString(h)});
+					lines.PushBack({"", NkPrintf("Projets (%d)", m.projCount)}); // NkPrintf maison
 					lines.PushBack({"", m.projects});
 				}
 				if (!m.configs.Empty())

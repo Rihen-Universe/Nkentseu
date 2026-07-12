@@ -14,10 +14,9 @@
 #include "NKCode/Shell/Dialogs.h"
 #include "NKCode/Shell/NkShell.h" // NkCodeShellRun (ouvrir un dossier)
 #include "NKThreading/NkThread.h"
-#include "NKCore/NkAtomic.h" // NkAtomicBool
-#include <cstdio>
-#include <cstdlib>
-#include <thread>
+#include "NKCore/NkAtomic.h"			  // NkAtomicBool
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
+#include "NKPlatform/NkPlatformConfig.h"  // GetPlatformCapabilities (coeurs CPU maison, ex-std::thread)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -87,11 +86,7 @@ namespace nkentseu {
 						o += v;
 						o += "\n";
 					};
-					auto ki = [&](const char *k, int32 v) {
-						char b[16];
-						std::snprintf(b, sizeof(b), "%d", v);
-						kv(k, NkString(b));
-					};
+					auto ki = [&](const char *k, int32 v) { kv(k, NkPrintf("%d", v)); }; // NkPrintf maison
 					ki("lang", lang);
 					ki("openStartup", openStartup);
 					kv("recentsMax", NkString(recentsMax));
@@ -123,20 +118,20 @@ namespace nkentseu {
 				void EnsureDefaults() {
 					if (projDir[0] == '\0') {
 						const NkString d = (NkPath(NkOpenWsState::Home().CStr()) / "Projects").ToString();
-						std::snprintf(projDir, sizeof(projDir), "%s", d.CStr());
+						NkStrCopy(projDir, sizeof(projDir), d.CStr()); // copie bornée maison (NkText.h)
 					}
 					if (cacheDir[0] == '\0') {
 						const NkString d = NkOpenWsState::JengaCacheDir();
-						std::snprintf(cacheDir, sizeof(cacheDir), "%s", d.CStr());
+						NkStrCopy(cacheDir, sizeof(cacheDir), d.CStr());
 					}
 					if (StrEq(accent, "#00d4ff"))
-						std::snprintf(accent, sizeof(accent), "%s", "#F79A28"); // migre l'ancien accent cyan par defaut
+						NkStrCopy(accent, sizeof(accent), "#F79A28"); // migre l'ancien accent cyan par defaut
 					// jengaPath REEL : resout le vrai binaire (jenga embarque, override JENGA_EXE, sinon PATH)
 					// au lieu du litteral "jenga". Prepare l'integration future (jenga+Python dans tools/).
 					if (jengaPath[0] == '\0' || StrEq(jengaPath, "jenga")) {
 						const NkString real = NkOpenWsState::DefaultJengaPath();
 						if (!real.Empty())
-							std::snprintf(jengaPath, sizeof(jengaPath), "%s", real.CStr());
+							NkStrCopy(jengaPath, sizeof(jengaPath), real.CStr());
 					}
 				}
 
@@ -195,8 +190,10 @@ namespace nkentseu {
 								for (const char *p = eq + 1; *p; ++p)
 									v += *p;
 								auto is = [&](const char *n) { return StrEq(k.CStr(), n); };
-								auto cp = [&](char *dst, int32 cap) { std::snprintf(dst, cap, "%s", v.CStr()); };
-								const int32 iv = std::atoi(v.CStr());
+								auto cp = [&](char *dst, int32 cap) { NkStrCopy(dst, (usize)cap, v.CStr()); };
+								// Conversion maison (NkAtoi ne gère pas le signe : on le traite ici).
+								const int32 iv =
+									(v.CStr()[0] == '-') ? -NkAtoi(v.CStr() + 1) : NkAtoi(v.CStr());
 								if (is("lang"))
 									lang = iv;
 								else if (is("openStartup"))
@@ -252,19 +249,19 @@ namespace nkentseu {
 					NkSettingsState d; // valeurs par defaut
 					lang = d.lang;
 					openStartup = d.openStartup;
-					std::snprintf(recentsMax, sizeof(recentsMax), "%s", d.recentsMax);
+					NkStrCopy(recentsMax, sizeof(recentsMax), d.recentsMax); // copie bornée maison (NkText.h)
 					groupBy = d.groupBy;
 					projDir[0] = '\0';
-					std::snprintf(buildDir, sizeof(buildDir), "%s", d.buildDir);
+					NkStrCopy(buildDir, sizeof(buildDir), d.buildDir);
 					cacheDir[0] = '\0';
-					std::snprintf(jengaPath, sizeof(jengaPath), "%s", d.jengaPath);
-					std::snprintf(gitPath, sizeof(gitPath), "%s", d.gitPath);
+					NkStrCopy(jengaPath, sizeof(jengaPath), d.jengaPath);
+					NkStrCopy(gitPath, sizeof(gitPath), d.gitPath);
 					jobs = d.jobs;
 					regTc = d.regTc;
 					incCache = d.incCache;
 					daemon = d.daemon;
 					theme = d.theme;
-					std::snprintf(accent, sizeof(accent), "%s", d.accent);
+					NkStrCopy(accent, sizeof(accent), d.accent);
 					transparency = d.transparency;
 					anim = d.anim;
 					gitIndicators = d.gitIndicators;
@@ -435,7 +432,8 @@ namespace nkentseu {
 				// A appeler chaque frame : cpu instantane + detection async si besoin.
 				void EnsureDetected() {
 					if (cpuCount < 1) {
-						cpuCount = (int32)std::thread::hardware_concurrency();
+						// API maison (NKPlatform) : ex-std::thread::hardware_concurrency().
+						cpuCount = (int32)platform::GetPlatformCapabilities().logicalProcessorCount;
 						if (cpuCount < 1)
 							cpuCount = 1;
 					}
@@ -817,10 +815,10 @@ namespace nkentseu {
 					static int32 jn = 0;
 					if (jn == 0 || jn != (s->cpuCount < 7 ? s->cpuCount + 1 : 8)) {
 						jn = s->cpuCount < 7 ? s->cpuCount + 1 : 8;
-						std::snprintf(JOB[0], 20, "%s", NkT("set.jobsauto"));
+						NkStrCopy(JOB[0], 20, NkT("set.jobsauto")); // copie bornée maison (NkText.h)
 						JP[0] = JOB[0];
 						for (int32 k = 1; k < jn; ++k) {
-							std::snprintf(JOB[k], 20, "%d", k);
+							NkStrCopy(JOB[k], 20, NkPrintf("%d", k).CStr()); // NkPrintf maison
 							JP[k] = JOB[k];
 						}
 					}

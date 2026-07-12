@@ -13,15 +13,85 @@
 #include "NKCode/Project/NkProcess.h"
 #include "NKCode/Editor/NkTextDraw.h" // NkEncodeU8 (décodage \uXXXX -> UTF-8)
 #include "NKCode/Shell/NkI18n.h"
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
+#include "NKFileSystem/NkFile.h"		  // NkFile::WriteAllText (fichiers maison)
+#include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison)
+#include <cstdio> // _popen/fgets UNIQUEMENT (pipe process, cf. wrapper désigné NkProcess.h)
 
 namespace nkentseu {
 	namespace nkcode {
 
 		using namespace nkentseu::editorkit;
 		using namespace nkentseu::nkgui;
+
+		// ── Agent IA en ligne de commande (Claude Code, Codex...) : panneau lateral DROIT qui
+		//    DETECTE le CLI et le LANCE dans un nouvel onglet du terminal integre (workspace). ──
+		class AgentCliPanel : public NkEditorPanel {
+			public:
+				AgentCliPanel(const char *title, const char *exe, const char *installHint, NkCodeState *s,
+							  NkEditorShell *shell)
+					: NkEditorPanel(title, NkEditorDockSide::NK_RIGHT), mExe(exe), mHint(installHint), mS(s),
+					  mShell(shell) {
+					SetOpen(false); // sidebar exclusive : ouvert via l'activity bar
+				}
+
+				void OnUI(NkEditorFrameContext &ec) override {
+					auto &ctx = ec.Ui();
+					Detect();
+					ec.Text(Title());
+					ec.Separator();
+					if (mFoundPath.Empty()) {
+						ec.Text(NkT("agent.missing"));
+						ec.Text(mHint.CStr());
+						return;
+					}
+					ec.Text(NkT("agent.found"));
+					ec.Text(mFoundPath.CStr());
+					ec.Separator();
+					if (Selectable(ctx, NkT("agent.launch"), false) && mS) {
+						mS->termOpenCmd = mExe; // la commande EST l'agent (nouvel onglet du terminal)
+						mS->termOpenKind = -1;
+						mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
+						if (mShell)
+							mShell->FocusPanel("TERMINAL");
+					}
+				}
+
+			private:
+				NkString mExe;	// executable du CLI (claude / codex)
+				NkString mHint; // commande d'installation affichee si absent
+				NkCodeState *mS;
+				NkEditorShell *mShell;
+				bool mDetected = false;
+				NkString mFoundPath;
+
+				void Detect() { // `where` UNE fois (léger, au premier affichage du panneau)
+					if (mDetected)
+						return;
+					mDetected = true;
+#ifdef _WIN32
+					const NkString cmd = NkString("where ") + mExe.CStr() + " 2>nul";
+					FILE *pipe = _popen(cmd.CStr(), "r");
+#else
+					const NkString cmd = NkString("which ") + mExe.CStr() + " 2>/dev/null";
+					FILE *pipe = popen(cmd.CStr(), "r");
+#endif
+					if (!pipe)
+						return;
+					char line[512]; // fgets sur PIPE process : conservé (cf. wrapper désigné NkProcess.h)
+					if (std::fgets(line, sizeof(line), pipe)) {
+						for (char *q = line; *q; ++q)
+							if (*q == '\n' || *q == '\r')
+								*q = 0;
+						mFoundPath = NkString(line);
+					}
+#ifdef _WIN32
+					_pclose(pipe);
+#else
+					pclose(pipe);
+#endif
+				}
+		};
 
 		class AiPanel : public NkEditorPanel {
 			public:
@@ -36,7 +106,7 @@ namespace nkentseu {
 					if (!mGreeted) {
 						mMsgs.PushBack({2, NkString(NkT("ai.hello"))});
 						mGreeted = true;
-					}		// locale correcte (posée après construction)
+					} // locale correcte (posée après construction)
 					Poll(); // draine la réponse en cours
 
 					const float32 pad = ctx.S(8.f);
@@ -275,9 +345,7 @@ namespace nkentseu {
 								break;
 							default:
 								if (c < 0x20) {
-									char b[8];
-									std::snprintf(b, sizeof(b), "\\u%04x", c);
-									o += b;
+									o += NkPrintf("\\u%04x", c); // NkPrintf maison
 								} else {
 									char b[2] = {(char)c, 0};
 									o += b;
@@ -291,7 +359,7 @@ namespace nkentseu {
 				// ── JSON : extrait la valeur string de la 1re occurrence de "key":"..." après `from`. ──
 				static NkString JsonStr(const char *json, const char *key) {
 					NkString pat = NkString("\"") + key + "\"";
-					const char *k = std::strstr(json, pat.CStr());
+					const char *k = NkFindSub(json, pat.CStr()); // recherche maison (NkText.h)
 					if (!k)
 						return NkString();
 					const char *p = k + pat.Size();
@@ -315,8 +383,16 @@ namespace nkentseu {
 								o += "\t";
 							else if (c == 'r') {
 							} else if (c == 'u' && p[1] && p[2] && p[3] && p[4]) {
-								char h[5] = {p[1], p[2], p[3], p[4], 0};
-								long cp = std::strtol(h, nullptr, 16);
+								// Conversion hex manuelle maison (ex-std::strtol base 16).
+								long cp = 0;
+								for (int32 hi = 1; hi <= 4; ++hi) {
+									const char hc = p[hi];
+									const int32 d = (hc >= '0' && hc <= '9')   ? hc - '0'
+													: (hc >= 'a' && hc <= 'f') ? hc - 'a' + 10
+													: (hc >= 'A' && hc <= 'F') ? hc - 'A' + 10
+																			   : 0;
+									cp = cp * 16 + d;
+								}
 								char u8[5];
 								int32 n = NkEncodeU8((uint32)cp, u8);
 								u8[n] = 0;
@@ -380,13 +456,10 @@ namespace nkentseu {
 					// Corps de requête -> fichier temporaire (évite l'enfer des quotes en ligne de commande).
 					const NkString path = ReqPath();
 					const NkString body = BuildJson();
-					FILE *fp = std::fopen(path.CStr(), "wb");
-					if (!fp) {
+					if (!NkFile::WriteAllText(path.CStr(), body.CStr())) { // écriture maison (NkFile)
 						mMsgs.PushBack({2, NkString(NkT("ai.errtmp"))});
 						return;
 					}
-					std::fwrite(body.CStr(), 1, body.Size(), fp);
-					std::fclose(fp);
 
 					NkString cmd;
 					if (mProvider == 1) {
@@ -394,9 +467,9 @@ namespace nkentseu {
 									   "application/json\" -d @\"") +
 							  path.CStr() + "\"";
 					} else {
-						const char *key = std::getenv("NKCODE_ANTHROPIC_KEY");
+						const char *key = env::GetEnvVar("NKCODE_ANTHROPIC_KEY"); // API maison (NkEnv.h)
 						if (!key || !*key)
-							key = std::getenv("ANTHROPIC_API_KEY");
+							key = env::GetEnvVar("ANTHROPIC_API_KEY");
 						if (!key || !*key) {
 							mMsgs.PushBack({2, NkString(NkT("ai.errkey"))});
 							return;
@@ -431,7 +504,7 @@ namespace nkentseu {
 					}
 					const char *j = raw.CStr();
 					// Erreur API ?
-					if (std::strstr(j, "\"error\"")) {
+					if (NkFindSub(j, "\"error\"")) { // recherche maison (NkText.h)
 						NkString em = JsonStr(j, "message");
 						mMsgs.PushBack({2, (NkString(NkT("ai.errapi")) + " " + (em.Empty() ? raw.CStr() : em.CStr()))});
 						mStick = true;
