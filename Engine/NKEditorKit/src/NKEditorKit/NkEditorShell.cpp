@@ -837,6 +837,13 @@ namespace nkentseu {
 			for (int32 i = 0; i < 7; ++i)			// vues GAUCHE : explorateur, recherche, git, debug, collab,
 				drawIcon(i, top + i * cell, false); // extensions, profiler
 			drawIcon(999, bar.y + bar.h - cell * 0.5f, true); // Reglages en bas
+			// Consomme le clic dans l'activity bar -> il ne FUIT PAS vers les panneaux dessous
+			// (sinon un clic d'icone traverse jusqu'a la barre d'onglets de l'editeur = onglet actif change).
+			if ((mUI.input.mouseClicked[0] || mUI.input.mouseClicked[1]) && m.x >= bar.x && m.x < bar.x + bar.w &&
+				m.y >= bar.y && m.y < bar.y + bar.h) {
+				mUI.input.mouseClicked[0] = false;
+				mUI.input.mouseClicked[1] = false;
+			}
 		}
 
 		// ── Activity bar DROITE : les systèmes d'IA (panneau latéral droit exclusif). ──
