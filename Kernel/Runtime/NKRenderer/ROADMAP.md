@@ -61,9 +61,14 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
   **PixolSculpt** : partiels/stubs, orphelins.
 
 **Reste à faire priorisé (re-vérifié à l'audit 2026-07-12)** :
-1) **Culling frustum à brancher** (le code octree+frustum est réel mais AUCUNE référence hors
-   de son propre .cpp — orphelin confirmé ; attention : les shadow casters hors frustum caméra
-   doivent rester dans la passe d'ombre). 2) **VSM v2 bornés** : shadowOverrides Layered/Toon/
+1) ~~Culling frustum de base~~ **précision d'audit + complément 2026-07-12** : le frustum cull
+   caméra était DÉJÀ actif pour l'opaque (`Submit` → `NkCamera3D::IsAABBVisible`, casters
+   d'ombre collectés AVANT le cull) ; ajouté le **cull par batch des INSTANCIÉS** au Flush
+   (2 chemins GPU/fallback, pas en passe miroir, passe shadow intacte) + **`GetCullStats()`**
+   (opaque soumis/cullés + batchs instanciés cullés). Ce qui reste VRAIMENT orphelin =
+   `NkCullingSystem` (octree/occlusion HZB/distance/LOD — v2, nécessite un mode retained).
+   Limite connue : le miroir reflète la liste cullée par la caméra PRINCIPALE (un objet
+   derrière la caméra manque du reflet). 2) **VSM v2 bornés** : shadowOverrides Layered/Toon/
    Anime (absents des .nksl, vérifié) + alpha-tested shadow. 3) **Finitions Phase L/E petites** :
    API `SetColorGradingLUT` (n'existe PAS — seulement des commentaires, vérifié) + vraie LUT 3D
    sur GL (dummy 1×1 confirmé NkPostProcessStack.cpp:296) + `DrawSpriteGlow` (fallback confirmé).

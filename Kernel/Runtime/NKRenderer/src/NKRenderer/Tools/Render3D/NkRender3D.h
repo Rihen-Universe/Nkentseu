@@ -105,6 +105,21 @@ namespace nkentseu {
 				// si aucun caster.
 				NkAABB GetShadowCasterBounds() const;
 
+				// ── Stats frustum culling (frame en cours de soumission) ────────
+				// Opaque : cull au Submit (les casters d'ombre sont collectes
+				// AVANT le cull). Instancie : cull par batch au Flush (la passe
+				// shadow itere mInstanced complet ; la passe miroir ne cull pas).
+				struct NkCullStats {
+						uint32 opaqueSubmitted = 0;
+						uint32 opaqueCulled = 0;
+						uint32 instancedBatches = 0;
+						uint32 instancedCulled = 0;
+				};
+
+				const NkCullStats &GetCullStats() const noexcept {
+					return mCullStats;
+				}
+
 				// Acces au scene context courant (pour NkShadowSystem qui a besoin
 				// de la light direction + camera frustum pour le fitting).
 				const NkSceneContext &GetSceneContext() const noexcept {
@@ -317,6 +332,7 @@ namespace nkentseu {
 				int32 mViewMode = 0;   // 0=rendered(lit) 1=solid(unlit)
 				int32 mMatcapId = 0;   // preset matcap (mode solid)
 				uint32 mW = 0, mH = 0; // taille courante (mise a jour par OnResize)
+				NkCullStats mCullStats; // stats frustum culling (reset par frame)
 
 				// Fallback material instance : utilise pour les drawcalls sans
 				// material custom. Le shader PBR canonical sample tAlbedo dans
