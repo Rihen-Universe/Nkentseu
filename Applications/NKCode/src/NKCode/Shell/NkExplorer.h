@@ -62,10 +62,13 @@ namespace nkentseu {
 					DrawPeek(ctx);		 // aperçu barre Espace (overlay centré) — lit ctx.input
 					// PEEK OUVERT = MODAL : l'explorateur est le 1er panneau dessiné ; on
 					// neutralise l'input APRÈS le peek -> les panneaux suivants (éditeur,
-					// terminal…) ne reçoivent aucun clic sous l'overlay. Le peek, lui, a
+					// terminal…) ne reçoivent aucun CLIC sous l'overlay. Le peek, lui, a
 					// utilisé l'input RÉEL (même chemin que DrawRows).
+					// ⚠ NE PAS toucher mousePos : il n'est mis à jour QUE sur un événement
+					// de DÉPLACEMENT (jamais re-sondé) -> l'écraser le GÈLE pour toute
+					// l'app à la frame suivante (clic sans bouger = position figée). On
+					// neutralise donc SEULEMENT les clics/molette/frappes.
 					if (mPeekOpen) {
-						ctx.input.mousePos = {-100000.f, -100000.f};
 						for (int32 b = 0; b < 3; ++b) {
 							ctx.input.mouseClicked[b] = false;
 							ctx.input.mouseDown[b] = false;

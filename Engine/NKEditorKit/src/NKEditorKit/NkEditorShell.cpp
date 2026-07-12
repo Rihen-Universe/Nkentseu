@@ -1393,15 +1393,14 @@ namespace nkentseu {
 			auto apply = [&](const NkString &ln) {
 				const char *s = ln.CStr();
 				if (StartsWith(s, "win=")) {
-					int32 x = 0, y = 0, w = 0, h = 0;
-					if (std::sscanf(s + 4, "%d|%d|%d|%d", &x, &y, &w, &h) == 4 && w > 100 && h > 80) {
-						mWindow.Restore(); // sortir d'un éventuel maximisé avant de placer
-						mWindow.SetSize(static_cast<uint32>(w), static_cast<uint32>(h));
-						mWindow.SetPosition(x, y); // coords écran -> bon moniteur
-					}
+					// DÉSACTIVÉ : restaurer taille/position via SetSize/SetPosition
+					// désynchronisait l'échelle UI (moniteur/DPI) -> curseur mal détecté
+					// + crash. On ne restaure QUE l'état maximisé (sûr) pour l'instant.
+					// TODO : refaire avec des positions SIGNÉES + resync DPI au changement
+					// de moniteur côté NKWindow.
 				} else if (StartsWith(s, "maximized=")) {
 					if (s[10] == '1')
-						mWindow.Maximize(); // maximise sur le moniteur placé par win=
+						mWindow.Maximize();
 					else
 						mWindow.Restore();
 				} else if (StartsWith(s, "panel=")) {
@@ -1536,8 +1535,6 @@ namespace nkentseu {
 			NkDirectory::CreateRecursive(p.GetParent());
 			NkString out;
 			const bool gmax = mGeomValid ? mGeomMax : mWindow.IsMaximized();
-			if (!gmax)
-				out += NkPrintf("win=%d|%d|%d|%d\n", mGeomX, mGeomY, mGeomW, mGeomH);
 			out += gmax ? "maximized=1\n" : "maximized=0\n";
 			NkFile::WriteAllText(p, out);
 		}
@@ -1548,14 +1545,8 @@ namespace nkentseu {
 			const NkString txt = NkFile::ReadAllText(NkPath(path));
 			NkString line;
 			auto apply = [&](const char *s) {
-				if (StartsWith(s, "win=")) {
-					int32 x = 0, y = 0, w = 0, h = 0;
-					if (std::sscanf(s + 4, "%d|%d|%d|%d", &x, &y, &w, &h) == 4 && w > 100 && h > 80) {
-						mWindow.Restore();
-						mWindow.SetSize(static_cast<uint32>(w), static_cast<uint32>(h));
-						mWindow.SetPosition(x, y);
-					}
-				} else if (StartsWith(s, "maximized=") && s[10] == '1')
+				// win= (taille/pos) désactivé : désync DPI/moniteur. Maximisé seul.
+				if (StartsWith(s, "maximized=") && s[10] == '1')
 					mWindow.Maximize();
 			};
 			for (const char *c = txt.CStr();; ++c) {
@@ -1578,12 +1569,9 @@ namespace nkentseu {
 			NkPath p(path);
 			NkDirectory::CreateRecursive(p.GetParent()); // cree <ws>/.nkcode/ si besoin
 			NkString out;
-			// Géométrie CACHÉE (dernière frame, fenêtre valide) : ici la fenêtre peut
-			// être détruite (SaveUiState appelé après Run()). Fenêtré d'ABORD (bon
-			// moniteur via coords écran), PUIS maximisé.
+			// État MAXIMISÉ uniquement (cache pris en vol : la fenêtre peut être détruite
+			// après Run()). Taille/position désactivées (désync DPI/moniteur — voir Load).
 			const bool gmax = mGeomValid ? mGeomMax : mWindow.IsMaximized();
-			if (!gmax)
-				out += NkPrintf("win=%d|%d|%d|%d\n", mGeomX, mGeomY, mGeomW, mGeomH);
 			out += gmax ? "maximized=1\n" : "maximized=0\n";
 			for (int32 i = 0; i < mNumPanels; ++i)
 				if (mPanels[i]->IsOpen()) {
