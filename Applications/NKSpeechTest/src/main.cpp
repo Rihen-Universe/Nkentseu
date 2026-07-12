@@ -65,23 +65,40 @@ int main() {
 			++nbOk;
 	}
 
-	// Synthese AUDIBLE : ecrit un WAV "a e i o u" (a ecouter).
+	// Synthese AUDIBLE (a ecouter).
 	{
-		NkVector<ai::NkPhone> seq;
-		const char voyelles[5] = {'a', 'e', 'i', 'o', 'u'};
-		for (int i = 0; i < 5; ++i) {
-			seq.PushBack(ai::NkVoiceSynth::Vowel(voyelles[i], 260.0f));
-			ai::NkPhone sil;
-			sil.gain = 0.0f;
-			sil.durationMs = 60.0f;
-			seq.PushBack(sil); // petite pause entre voyelles
-		}
-		ai::NkVoiceSynthConfig cfg;
-		NkVector<float32> wav = ai::NkVoiceSynth::Synthesize(seq, cfg);
-		if (wav.Size() > 0) {
-			WriteWavPcm16("nkvoice_aeiou.wav", wav.Data(), (int)wav.Size(), cfg.sampleRate);
-			printf("       -> ecrit nkvoice_aeiou.wav (%d echantillons, %d Hz) : a ecouter !\n",
-				   (int)wav.Size(), cfg.sampleRate);
+		// Sequence de voyelles a e i o u (u = /y/ francais) + le "ou" a la fin pour comparer.
+		auto voyelles = []() {
+			NkVector<ai::NkPhone> seq;
+			const char v[6] = {'a', 'e', 'i', 'o', 'u', 'w'}; // 'w' = "ou" /u/
+			for (int i = 0; i < 6; ++i) {
+				seq.PushBack(ai::NkVoiceSynth::Vowel(v[i], 300.0f));
+				ai::NkPhone sil;
+				sil.gain = 0.0f;
+				sil.durationMs = 70.0f;
+				seq.PushBack(sil);
+			}
+			return seq;
+		};
+
+		struct Voix {
+			const char *file;
+			ai::NkVoiceSynthConfig cfg;
+		};
+		Voix voix[4] = {
+			{"nkvoice_homme.wav", ai::NkVoiceSynthConfig::Homme()},
+			{"nkvoice_femme.wav", ai::NkVoiceSynthConfig::Femme()},
+			{"nkvoice_enfant.wav", ai::NkVoiceSynthConfig::Enfant()},
+			{"nkvoice_geant.wav", ai::NkVoiceSynthConfig::Geant()},
+		};
+		NkVector<ai::NkPhone> seq = voyelles();
+		for (int k = 0; k < 4; ++k) {
+			NkVector<float32> wav = ai::NkVoiceSynth::Synthesize(seq, voix[k].cfg);
+			if (wav.Size() > 0) {
+				WriteWavPcm16(voix[k].file, wav.Data(), (int)wav.Size(), voix[k].cfg.sampleRate);
+				printf("       -> %s (%d ech., F0=%.0f Hz) : a e i o u [u=/y/] ou\n", voix[k].file,
+					   (int)wav.Size(), voix[k].cfg.f0);
+			}
 		}
 	}
 

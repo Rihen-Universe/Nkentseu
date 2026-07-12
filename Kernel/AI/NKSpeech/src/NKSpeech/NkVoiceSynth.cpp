@@ -16,32 +16,42 @@ namespace nkentseu {
 			NkPhone p;
 			p.voiced = true;
 			p.durationMs = durationMs;
-			// Formants approximés (voix d'homme). Sources : tables de phonétique acoustique.
+			// Formants approximés (voix d'homme), tables de phonétique acoustique du français.
 			switch (v) {
-				case 'a':
-					p.f1 = 800.0f;
-					p.f2 = 1200.0f;
+				case 'a': // /a/ patte
+					p.f1 = 750.0f;
+					p.f2 = 1300.0f;
 					p.f3 = 2500.0f;
 					break;
-				case 'e':
-					p.f1 = 500.0f;
-					p.f2 = 1800.0f;
+				case 'e': // /ɛ/ è
+					p.f1 = 550.0f;
+					p.f2 = 1750.0f;
 					p.f3 = 2500.0f;
 					break;
-				case 'i':
-					p.f1 = 300.0f;
+				case 'E': // /e/ é (fermé) — utile pour distinguer é/è
+					p.f1 = 400.0f;
+					p.f2 = 2200.0f;
+					p.f3 = 2600.0f;
+					break;
+				case 'i': // /i/ lit
+					p.f1 = 280.0f;
 					p.f2 = 2300.0f;
 					p.f3 = 3000.0f;
 					break;
-				case 'o':
-					p.f1 = 500.0f;
-					p.f2 = 900.0f;
+				case 'o': // /o/ eau
+					p.f1 = 400.0f;
+					p.f2 = 750.0f;
 					p.f3 = 2500.0f;
 					break;
-				case 'u':
-					p.f1 = 320.0f;
+				case 'u': // /y/ « u » FRANÇAIS : antérieure ARRONDIE (F2 haut) — distinct de « ou »
+					p.f1 = 300.0f;
+					p.f2 = 1750.0f;
+					p.f3 = 2200.0f;
+					break;
+				case 'w': // /u/ « ou » : postérieure arrondie (F2 bas)
+					p.f1 = 300.0f;
 					p.f2 = 800.0f;
-					p.f3 = 2500.0f;
+					p.f3 = 2400.0f;
 					break;
 				default: // silence
 					p.f1 = p.f2 = p.f3 = 0.0f;
@@ -49,6 +59,37 @@ namespace nkentseu {
 					break;
 			}
 			return p;
+		}
+
+		NkVoiceSynthConfig NkVoiceSynthConfig::Homme() {
+			NkVoiceSynthConfig c;
+			c.f0 = 110.0f;
+			c.vocalTractScale = 1.0f;
+			c.breathiness = 0.05f;
+			return c;
+		}
+		NkVoiceSynthConfig NkVoiceSynthConfig::Femme() {
+			NkVoiceSynthConfig c;
+			c.f0 = 210.0f;
+			c.vocalTractScale = 1.12f; // conduit un peu plus court → formants plus hauts
+			c.breathiness = 0.09f;
+			return c;
+		}
+		NkVoiceSynthConfig NkVoiceSynthConfig::Enfant() {
+			NkVoiceSynthConfig c;
+			c.f0 = 300.0f;
+			c.vocalTractScale = 1.30f; // conduit court → formants nettement plus hauts
+			c.breathiness = 0.08f;
+			c.rate = 1.1f;
+			return c;
+		}
+		NkVoiceSynthConfig NkVoiceSynthConfig::Geant() {
+			NkVoiceSynthConfig c;
+			c.f0 = 70.0f;
+			c.vocalTractScale = 0.82f; // conduit long → formants plus bas (grave, caverneux)
+			c.breathiness = 0.04f;
+			c.rate = 0.9f;
+			return c;
 		}
 
 		namespace {
@@ -84,51 +125,90 @@ namespace nkentseu {
 			if (phones.Size() == 0 || cfg.sampleRate <= 0)
 				return out;
 			const int32 sr = cfg.sampleRate;
+			const float32 rate = cfg.rate > 0.05f ? cfg.rate : 1.0f;
+			const float32 vts = cfg.vocalTractScale > 0.1f ? cfg.vocalTractScale : 1.0f;
 
-			float32 totalMs = 0.0f;
-			for (uint32 i = 0; i < phones.Size(); ++i)
-				totalMs += phones[i].durationMs;
-			const int32 totalSamples = (int32)(totalMs * 0.001f * (float32)sr);
+			// Durées par phone (débit) + total.
+			NkVector<int32> dur;
+			dur.Resize(phones.Size());
+			int32 totalSamples = 0;
+			for (uint32 i = 0; i < phones.Size(); ++i) {
+				dur[i] = (int32)(phones[i].durationMs * 0.001f * (float32)sr / rate);
+				totalSamples += dur[i];
+			}
 			if (totalSamples <= 0)
 				return out;
 			out.Resize((nk_size)totalSamples);
 
-			// SYNTHÈSE TEMPORELLE source-filtre : une SOURCE (train d'impulsions glottiques à F0
-			// pour les voisés, bruit pour les non-voisés) excite 3 RÉSONATEURS de formants en
-			// parallèle (F1/F2/F3). Le résonateur « sonne » entre deux impulsions → son SOUTENU
-			// (une vraie voyelle), pas un grain isolé.
+			// SYNTHÈSE TEMPORELLE source-filtre. SOURCE : impulsion glottique LISSÉE (dérivée d'une
+			// bosse en cosinus surélevé → bande limitée, moins « buzz » qu'un Dirac) + SOUFFLE (bruit)
+			// + JITTER (micro-variation de période) → plus naturel. FILTRE : 3 résonateurs de formants
+			// (F1/F2/F3) mis à l'échelle du conduit vocal (vocalTractScale) et INTERPOLÉS d'un phone au
+			// suivant (coarticulation). Contour d'intonation : F0 descend légèrement vers la fin.
 			Resonator r1, r2, r3;
 			uint32 rng = 0x1234abcdu;
-			float32 phase = 0.0f; // phase du train d'impulsions (0..1 par période F0)
 			int32 idx = 0;
+			float32 tSince = 1e9f; // échantillons depuis la dernière impulsion glottique
+			float32 period = (float32)sr / cfg.f0;
+			float32 prevG = 0.0f;
+			// Formants « courants » (interpolés) initialisés au 1er phone voisé.
+			float32 cf1 = 0.0f, cf2 = 0.0f, cf3 = 0.0f;
 			for (uint32 pi = 0; pi < phones.Size(); ++pi) {
 				const NkPhone &p = phones[pi];
-				const int32 nS = (int32)(p.durationMs * 0.001f * (float32)sr);
-				if (p.f1 > 0.0f)
-					r1.Set(p.f1, 80.0f, sr);
-				if (p.f2 > 0.0f)
-					r2.Set(p.f2, 100.0f, sr);
-				if (p.f3 > 0.0f)
-					r3.Set(p.f3, 120.0f, sr);
-				const float32 step = cfg.f0 / (float32)sr; // incrément de phase par échantillon
+				const int32 nS = dur[pi];
+				const float32 tf1 = p.f1 * vts, tf2 = p.f2 * vts, tf3 = p.f3 * vts; // cibles (conduit)
+				if (cf1 <= 0.0f && tf1 > 0.0f) { // amorçage au 1er phone voisé
+					cf1 = tf1;
+					cf2 = tf2;
+					cf3 = tf3;
+				}
+				// Formants de DÉPART de ce phone (= formants courants) pour le glissement.
+				const float32 sf1 = cf1, sf2 = cf2, sf3 = cf3;
+				const int32 glide = (int32)(cfg.glideMs * 0.001f * (float32)sr / rate);
 				for (int32 n = 0; n < nS && idx < totalSamples; ++n, ++idx) {
+					// Glissement linéaire des formants départ→cible sur `glide` (coarticulation).
+					if (tf1 > 0.0f) {
+						const float32 a = (glide > 0 && n < glide) ? (float32)n / (float32)glide : 1.0f;
+						cf1 = sf1 + (tf1 - sf1) * a;
+						cf2 = sf2 + (tf2 - sf2) * a;
+						cf3 = sf3 + (tf3 - sf3) * a;
+					}
+					if (cf1 > 0.0f)
+						r1.Set(cf1, 80.0f, sr);
+					if (cf2 > 0.0f)
+						r2.Set(cf2, 100.0f, sr);
+					if (cf3 > 0.0f)
+						r3.Set(cf3, 120.0f, sr);
+
 					float32 src = 0.0f;
 					if (p.gain > 0.0f) {
 						if (p.voiced) {
-							phase += step;
-							if (phase >= 1.0f) { // une impulsion glottique par période F0
-								phase -= 1.0f;
-								src = 1.0f;
+							// Contour d'intonation : F0 descend de f0Drift sur tout l'énoncé.
+							const float32 prog = (float32)idx / (float32)totalSamples;
+							const float32 f0 = cfg.f0 * (1.0f - cfg.f0Drift * prog);
+							tSince += 1.0f;
+							if (tSince >= period) {
+								tSince -= period;
+								const float32 j = 1.0f + cfg.f0Jitter * Lcg(rng); // jitter de période
+								period = (float32)sr / (f0 * (j > 0.5f ? j : 0.5f));
 							}
+							// Bosse glottique (cosinus surélevé) sur la phase ouverte, puis sa DÉRIVÉE.
+							const float32 pw = cfg.openQuotient * period;
+							float32 gflow = 0.0f;
+							if (tSince < pw)
+								gflow = 0.5f * (1.0f - NkCos(2.0f * 3.14159265f * tSince / pw));
+							const float32 deriv = gflow - prevG; // excitation bande-limitée
+							prevG = gflow;
+							src = deriv + cfg.breathiness * Lcg(rng); // + souffle
 						} else {
-							src = 0.3f * Lcg(rng); // fricative : bruit
+							src = 0.5f * Lcg(rng); // fricative : bruit
 						}
 						src *= p.gain;
 					}
-					// Formants en parallèle (F1 dominant), enveloppe d'attaque/relâche douce.
 					float32 y = r1.Step(src) + 0.7f * r2.Step(src) + 0.3f * r3.Step(src);
+					// Enveloppe d'attaque/relâche (évite les clics aux bords de phone).
 					float32 env = 1.0f;
-					const int32 fade = nS / 6 > 0 ? nS / 6 : 1;
+					const int32 fade = nS / 8 > 1 ? nS / 8 : 1;
 					if (n < fade)
 						env = (float32)n / (float32)fade;
 					else if (n > nS - fade)

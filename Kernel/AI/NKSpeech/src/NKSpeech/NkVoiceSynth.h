@@ -31,26 +31,42 @@ namespace nkentseu {
 				float32 gain = 1.0f;  // 0 = silence
 		};
 
+		// Profil de voix d'un PERSONNAGE : hauteur, timbre (longueur du conduit vocal) et
+		// « naturel » (souffle, micro-variations). Deux personnages = deux profils.
 		struct NkVoiceSynthConfig {
 				int32 sampleRate = 16000;
-				float32 f0 = 120.0f;  // fréquence fondamentale (hauteur de voix)
-				int32 fftSize = 1024;
+				float32 f0 = 120.0f;			// fréquence fondamentale (hauteur de voix, Hz)
+				float32 f0Jitter = 0.020f;		// micro-variation aléatoire de F0 (naturel, 0 = mécanique)
+				float32 f0Drift = 0.06f;		// contour d'intonation (chute de hauteur en fin d'énoncé)
+				float32 breathiness = 0.06f;	// souffle mêlé à la source voisée (0..~0.3)
+				float32 vocalTractScale = 1.0f; // multiplicateur des FORMANTS : >1 conduit court (aigu/enfant), <1 grave/géant
+				float32 rate = 1.0f;			// débit (multiplie la vitesse ; >1 = plus rapide)
+				float32 openQuotient = 0.55f;	// largeur de l'impulsion glottique (fraction de période)
+				float32 glideMs = 35.0f;		// durée d'interpolation des formants entre phones (coarticulation)
+				int32 fftSize = 1024;			// (analyse du self-test seulement)
 				int32 hopSize = 256;
-				int32 glIterations = 40;
+
+				// Presets de personnages (timbre + hauteur). À ajuster librement.
+				static NkVoiceSynthConfig Homme();  // voix grave d'homme
+				static NkVoiceSynthConfig Femme();  // voix de femme
+				static NkVoiceSynthConfig Enfant(); // voix d'enfant (conduit court, aigu)
+				static NkVoiceSynthConfig Geant();  // voix de géant (grave, conduit long)
 		};
 
 		class NkVoiceSynth {
 			public:
-				// Voyelle française approximée (male) : 'a','e','i','o','u' → NkPhone (formants).
+				// Voyelle française approximée : 'a','e','i','o','u','é' + 'w'=« ou » /u/ → NkPhone.
+				// (Le 'u' est le /y/ français — antérieur arrondi, F2 haut — distinct de « ou ».)
 				static NkPhone Vowel(char v, float32 durationMs);
 
-				// Synthétise une séquence de phones → forme d'onde mono [-1,1] (via spectrogramme
-				// de magnitude + Griffin-Lim). Renvoie les échantillons.
+				// Synthétise une séquence de phones → forme d'onde mono [-1,1] (synthèse temporelle
+				// source-filtre : impulsion glottique lissée + souffle + jitter → résonateurs de
+				// formants interpolés). Renvoie les échantillons.
 				static NkVector<float32> Synthesize(const NkVector<NkPhone> &phones,
 													const NkVoiceSynthConfig &cfg = NkVoiceSynthConfig{});
 
 				// Auto-test headless : synthétise la voyelle 'a' et vérifie que le spectre du signal
-				// produit présente bien de l'énergie autour de ses formants F1 et F2.
+				// produit présente de l'énergie autour de F1/F2 et que le son est SOUTENU (pas des clics).
 				static bool SelfTest();
 		};
 
