@@ -1398,12 +1398,18 @@ namespace nkentseu {
 					// suit dans la boucle (GetSize).
 					int32 x = 0, y = 0, w = 0, h = 0;
 					if (std::sscanf(s + 4, "%d|%d|%d|%d", &x, &y, &w, &h) == 4 && w > 200 && h > 150 && w < 20000 &&
-						h < 20000)
+						h < 20000) {
+						if (mWindow.IsMaximized())
+							mWindow.Restore(); // sortir de l'état maximisé AVANT de dimensionner
 						mWindow.SetSize(static_cast<uint32>(w), static_cast<uint32>(h));
+					}
 				} else if (StartsWith(s, "maximized=")) {
-					if (s[10] == '1')
-						mWindow.Maximize();
-					else
+					// Maximize()/Restore() du moteur BASCULENT (toggle) -> guarder par
+					// l'état courant, sinon un launcher déjà maximisé serait dé-maximisé.
+					if (s[10] == '1') {
+						if (!mWindow.IsMaximized())
+							mWindow.Maximize();
+					} else if (mWindow.IsMaximized())
 						mWindow.Restore();
 				} else if (StartsWith(s, "panel=")) {
 					const char *name = s + 6;
@@ -1526,7 +1532,8 @@ namespace nkentseu {
 		}
 
 		void NkEditorShell::MaximizeWindow() noexcept {
-			mWindow.Maximize();
+			if (!mWindow.IsMaximized()) // Maximize() bascule -> guarder
+				mWindow.Maximize();
 		}
 
 		// Géométrie GLOBALE (launcher) : mêmes lignes win=/maximized= que l'UiState.
@@ -1547,9 +1554,18 @@ namespace nkentseu {
 			const NkString txt = NkFile::ReadAllText(NkPath(path));
 			NkString line;
 			auto apply = [&](const char *s) {
-				// win= (taille/pos) désactivé : désync DPI/moniteur. Maximisé seul.
-				if (StartsWith(s, "maximized=") && s[10] == '1')
-					mWindow.Maximize();
+				if (StartsWith(s, "win=")) { // taille seule (pas la position)
+					int32 x = 0, y = 0, w = 0, h = 0;
+					if (std::sscanf(s + 4, "%d|%d|%d|%d", &x, &y, &w, &h) == 4 && w > 200 && h > 150 && w < 20000 &&
+						h < 20000) {
+						if (mWindow.IsMaximized())
+							mWindow.Restore();
+						mWindow.SetSize(static_cast<uint32>(w), static_cast<uint32>(h));
+					}
+				} else if (StartsWith(s, "maximized=") && s[10] == '1') {
+					if (!mWindow.IsMaximized()) // toggle -> guarder
+						mWindow.Maximize();
+				}
 			};
 			for (const char *c = txt.CStr();; ++c) {
 				if (*c == '\n' || *c == '\r' || *c == '\0') {
