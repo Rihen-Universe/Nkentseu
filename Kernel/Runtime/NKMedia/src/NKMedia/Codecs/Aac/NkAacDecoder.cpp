@@ -52,6 +52,39 @@ namespace nkentseu {
 				for (int32 i = 0; i < cnt; ++i)
 					br.ReadBits(8);
 			}
+
+			// Décodage M/S (mid/side) : pour les bandes marquées, L=M+S et R=M−S, sur le
+			// spectre déquantifié désentrelacé. Ignore les bandes intensity (cb 14/15 côté
+			// droit) et bruit/PNS (cb 13). `msMask` : 1 = par bande (msUsed), 2 = toutes.
+			void MsDecode(const NkAacIcs &ics, const NkAacIcs &icsr, int32 msMask, const uint8 (*msUsed)[51],
+						  float32 *l, float32 *r) {
+				const int32 nshort = NkAacIcs::kFrameLen / 8;
+				const int32 swbMax = (int32)ics.swbOffset[ics.numSwb];
+				int32 group = 0;
+				for (int32 g = 0; g < ics.numWindowGroups; ++g) {
+					for (int32 b = 0; b < ics.windowGroupLength[g]; ++b) {
+						for (int32 sfb = 0; sfb < ics.maxSfb; ++sfb) {
+							const bool use = (msMask == 2) || (msUsed[g][sfb] != 0);
+							const int32 cbR = (int32)icsr.sfbCb[g][sfb];
+							const int32 cbL = (int32)ics.sfbCb[g][sfb];
+							const bool intensity = (cbR == 14 || cbR == 15);
+							const bool noise = (cbL == 13);
+							if (use && !intensity && !noise) {
+								int32 hi = (int32)ics.swbOffset[sfb + 1];
+								if (hi > swbMax)
+									hi = swbMax;
+								for (int32 i = (int32)ics.swbOffset[sfb]; i < hi; ++i) {
+									const int32 k = group * nshort + i;
+									const float32 tmp = l[k] - r[k];
+									l[k] = l[k] + r[k];
+									r[k] = tmp;
+								}
+							}
+						}
+						++group;
+					}
+				}
+			}
 		} // namespace
 
 		bool NkAacDecoder::Init(int32 sampleRate, int32 channels) {
@@ -88,12 +121,48 @@ namespace nkentseu {
 					mPrevWindowShape[c] = ics.windowShape;
 					chDecoded[c] = true;
 					++nch;
+				} else if (id == ID_CPE) {
+					(void)br.ReadBits(4); // element_instance_tag
+					const int32 commonWindow = (int32)br.ReadBit();
+					NkAacIcs shared;
+					int32 msMask = 0;
+					uint8 msUsed[8][51] = {{0}};
+					if (commonWindow) {
+						if (!shared.ParseIcsInfoPublic(br, mSfIndex))
+							return 0;
+						msMask = (int32)br.ReadBits(2);
+						if (msMask == 3)
+							return 0;
+						if (msMask == 1)
+							for (int32 g = 0; g < shared.numWindowGroups; ++g)
+								for (int32 sfb = 0; sfb < shared.maxSfb; ++sfb)
+									msUsed[g][sfb] = (uint8)br.ReadBit();
+					}
+					NkAacIcs ics1, ics2;
+					if (!ics1.ParseChannel(br, mSfIndex, commonWindow ? &shared : nullptr))
+						return 0;
+					if (!ics2.ParseChannel(br, mSfIndex, commonWindow ? &shared : nullptr))
+						return 0;
+					float32 spec1[1024];
+					float32 spec2[1024];
+					NkAacDequant::Apply(ics1, spec1);
+					NkAacDequant::Apply(ics2, spec2);
+					if (msMask >= 1)
+						MsDecode(ics1, ics2, msMask, msUsed, spec1, spec2);
+					NkAacTns::Apply(ics1, mSfIndex, spec1);
+					NkAacTns::Apply(ics2, mSfIndex, spec2);
+					mFb[0].Process(spec1, ics1.windowSequence, ics1.windowShape, mPrevWindowShape[0], chTime[0]);
+					mFb[1].Process(spec2, ics2.windowSequence, ics2.windowShape, mPrevWindowShape[1], chTime[1]);
+					mPrevWindowShape[0] = ics1.windowShape;
+					mPrevWindowShape[1] = ics2.windowShape;
+					chDecoded[0] = chDecoded[1] = true;
+					nch = 2;
 				} else if (id == ID_FIL) {
 					SkipFil(br);
 				} else if (id == ID_DSE) {
 					SkipDse(br);
-				} else if (id == ID_CPE || id == ID_CCE || id == ID_PCE) {
-					// Stéréo/couplage/config non gérés dans ce chemin mono → arrêt propre.
+				} else if (id == ID_CCE || id == ID_PCE) {
+					// Couplage/config non gérés → arrêt propre.
 					return 0;
 				}
 				if (br.Overrun())

@@ -225,9 +225,32 @@ namespace nkentseu {
 			}
 		}
 
-		bool NkAacIcs::ParseChannel(NkAacBitReader &br, int32 sfIndex) {
+		bool NkAacIcs::ParseIcsInfoPublic(NkAacBitReader &br, int32 sfIndex) {
+			return ParseIcsInfo(br, sfIndex);
+		}
+
+		void NkAacIcs::CopyIcsInfo(const NkAacIcs &src) {
+			windowSequence = src.windowSequence;
+			windowShape = src.windowShape;
+			maxSfb = src.maxSfb;
+			scaleFactorGrouping = src.scaleFactorGrouping;
+			numWindows = src.numWindows;
+			numWindowGroups = src.numWindowGroups;
+			for (int32 i = 0; i < kMaxWindows; ++i)
+				windowGroupLength[i] = src.windowGroupLength[i];
+			numSwb = src.numSwb;
+			for (int32 i = 0; i < 64; ++i)
+				swbOffset[i] = src.swbOffset[i];
+			for (int32 g = 0; g < 8; ++g)
+				for (int32 i = 0; i < 64; ++i)
+					sectSfbOffset[g][i] = src.sectSfbOffset[g][i];
+		}
+
+		bool NkAacIcs::ParseChannel(NkAacBitReader &br, int32 sfIndex, const NkAacIcs *shared) {
 			globalGain = (int32)br.ReadBits(8);
-			if (!ParseIcsInfo(br, sfIndex))
+			if (shared != nullptr)
+				CopyIcsInfo(*shared);
+			else if (!ParseIcsInfo(br, sfIndex))
 				return false;
 			if (!ParseSectionData(br))
 				return false;

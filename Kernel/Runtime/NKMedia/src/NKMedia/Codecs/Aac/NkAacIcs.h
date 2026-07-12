@@ -76,14 +76,21 @@ namespace nkentseu {
 				// --- spectral_data : coefficients quantifiés signés (layout groupé) ---
 				int32 specQuant[kFrameLen] = {0};
 
-				// Parse le flux d'UN canal (SCE ; common_window=false). `sfIndex` =
-				// sampling_frequency_index (0..11). Renvoie false si invalide / non-LC.
-				bool ParseChannel(NkAacBitReader &br, int32 sfIndex);
+				// Parse le flux d'UN canal (individual_channel_stream). `sfIndex` =
+				// sampling_frequency_index (0..11). Si `shared` != nullptr (canal d'un CPE à
+				// fenêtre commune), l'ics_info n'est PAS relu : les champs de fenêtre/regroupement
+				// sont copiés depuis `shared`. Renvoie false si invalide / non-LC.
+				bool ParseChannel(NkAacBitReader &br, int32 sfIndex, const NkAacIcs *shared = nullptr);
+
+				// Parse UNIQUEMENT l'ics_info (fenêtre + regroupement) — pour l'en-tête partagé
+				// d'un channel_pair_element à fenêtre commune.
+				bool ParseIcsInfoPublic(NkAacBitReader &br, int32 sfIndex);
 
 				static bool SelfTest();
 
 			private:
 				bool ParseIcsInfo(NkAacBitReader &br, int32 sfIndex);
+				void CopyIcsInfo(const NkAacIcs &src);
 				void ComputeGrouping(int32 sfIndex);
 				bool ParseSectionData(NkAacBitReader &br);
 				bool ParseScaleFactorData(NkAacBitReader &br);
