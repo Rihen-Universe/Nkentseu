@@ -358,7 +358,11 @@ namespace nkentseu {
 		void NkCeltDecoder::Init(int32 C) {
 			mC = (C < 1) ? 1 : (C > kMaxChannels ? kMaxChannels : C);
 			for (int32 i = 0; i < kNumBands * kMaxChannels; ++i) {
-				mOldEBands[i] = kMinEnergyDb;
+				// libopus : l'état est zéro-initialisé (OPUS_CLEAR) → oldBandE = 0 ; seuls
+				// oldLogE/oldLogE2 sont mis à -28 dB. Le -28 sur oldBandE ne s'applique qu'aux
+				// trames SILENCE (géré séparément). Mettre -28 ici décalait TOUTES les énergies
+				// des trames inter de coef·(-9) (ex. -4.5 dB à LM=3) → sortie ~22× fausse.
+				mOldEBands[i] = 0.0f;
 				mOldLogE[i] = kMinEnergyDb;
 				mOldLogE2[i] = kMinEnergyDb;
 			}
@@ -553,7 +557,7 @@ namespace nkentseu {
 				float32 *pcmC = (float32 *)memory::NkAlloc((size_t)N * sizeof(float32));
 				NkCeltDeemphasis::Apply(outSyn, pcmC, N, NkCeltDeemphasis::kPreemphCoef48k, &mPreemphMem[c]);
 				for (int32 i = 0; i < N; ++i)
-					pcm[i * C + c] = pcmC[i];
+					pcm[i * C + c] = pcmC[i] * (1.0f / 32768.0f); // SCALEOUT libopus float : celt_sig +-32768 -> [-1,1]
 				memory::NkFree(pcmC);
 			}
 
