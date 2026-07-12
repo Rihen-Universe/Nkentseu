@@ -111,6 +111,26 @@ Socle d'un viewport d'édition façon Blender (testbed `renderdemo --demo=2`, fu
 
 ## ✅ Livré
 
+### Capture & enregistrement vidéo ✅ (2026-07-12) — pipeline complet
+- ✅ **Readback GL réparé** (NKRHI `MapBuffer` : PERSISTENT/COHERENT illégaux
+  sur storage mutable → 1282 ; flags par usage READ/WRITE) — capture sur
+  GL **et** DX11 validée (images identiques), flip Y GL dans
+  `NkOffscreenTarget::ReadbackPixels`.
+- ✅ **`NkFrameCapture`** (Tools/Offscreen) : capture ASYNCHRONE — ring de
+  staging buffers + fences (`Submit(signalFence)` + `IsFenceSignaled`),
+  `EnqueueCopy` non bloquant (ring plein = frame sautée, jamais de stall),
+  `Poll` non bloquant livrant RGBA8 top-down (flip GL auto) → consommable
+  par un thread encodeur/tutoriel/réseau. Zéro `WaitIdle` en régime.
+- ✅ **renderdemo `NK_CAPTURE=<frame>`** (PNG one-shot, validation headless
+  des agents) et **`NK_RECORD=<out.mp4>`** (+`NK_RECORD_FPS`, défaut 30) :
+  rendu → NkFrameCapture → `NkVideoRecorder` NKMedia (H.264, encodage
+  threadé). **Prouvé bout-en-bout** : demo3 GL → mp4 h264 1280×720 30 fps
+  6.4 s / 193 trames, lisible ffprobe/ffmpeg, contenu vérifié.
+- ⏳ V2 : **miroir fenêtre + enregistrement simultanés** (nécessite d'exposer
+  le backbuffer swapchain dans NkIDevice pour un `CopyTexture` final — à
+  coordonner, module partagé) ; capture de RÉGION (crop côté consommateur
+  déjà possible) ; audio (NkVideoRecorder::AddAudio prêt côté NKMedia).
+
 ### Fondations (Phase A → D.3d) — toutes livrées
 - PBR forward avec UBO push-constant
 - IBL CPU (Lambert irradiance + GGX prefilter + BRDF LUT)
