@@ -50,6 +50,16 @@ namespace nkentseu {
 				bool deletedOnDisk = false; // le fichier a ete supprime en dehors de NKCode
 				bool changedOnDisk = false; // le fichier a ete modifie en dehors de NKCode
 				float32 codeZoom = 0.f;		// taille police PROPRE a cet onglet (0 = taille globale). Zoom par-fichier.
+				// ── Onglet MEDIA (image / video / audio) : pas de texte, viewer dedie ──
+				int32 mediaKind = 0;		 // 0 aucun (texte), 1 image, 2 video, 3 audio
+				bool mediaLoaded = false;	 // texture GPU chargee (image)
+				uint32 mediaTex = 0;		 // texture backend (image) via UploadRGBA
+				int32 mediaW = 0, mediaH = 0; // dimensions natives (px)
+				float32 mediaZoom = 1.f;	 // facteur de zoom (mediaFit ignore si l'utilisateur zoome)
+				float32 mediaPanX = 0.f, mediaPanY = 0.f; // decalage (glisser)
+				bool mediaFit = true;		 // ajuster a la fenetre (reset au 1er rendu et via touche)
+				int64 mediaSize = 0;		 // taille du fichier (octets, info)
+				bool IsMedia() const { return mediaKind != 0; }
 
 				NkString Name() const {
 					return path.GetFileName();
@@ -92,6 +102,22 @@ namespace nkentseu {
 				} // go-to-def async : évite un thread orphelin à la fermeture
 
 				// Ouvre `p` dans l'editeur (ou le re-selectionne si deja ouvert).
+				// Type de media d'apres l'extension : 0 texte, 1 image, 2 video, 3 audio.
+				static int32 MediaKindOf(const char *name) {
+					if (EndsWithI(name, ".png") || EndsWithI(name, ".jpg") || EndsWithI(name, ".jpeg") ||
+						EndsWithI(name, ".bmp") || EndsWithI(name, ".gif") || EndsWithI(name, ".webp") ||
+						EndsWithI(name, ".tga") || EndsWithI(name, ".ico") || EndsWithI(name, ".ppm"))
+						return 1;
+					if (EndsWithI(name, ".mp4") || EndsWithI(name, ".mkv") || EndsWithI(name, ".avi") ||
+						EndsWithI(name, ".webm") || EndsWithI(name, ".mov") || EndsWithI(name, ".m4v"))
+						return 2;
+					if (EndsWithI(name, ".mp3") || EndsWithI(name, ".wav") || EndsWithI(name, ".ogg") ||
+						EndsWithI(name, ".flac") || EndsWithI(name, ".m4a") || EndsWithI(name, ".aac") ||
+						EndsWithI(name, ".opus"))
+						return 3;
+					return 0;
+				}
+
 				void OpenPath(const NkPath &p) {
 					const NkString ps = p.ToString();
 					for (usize i = 0; i < files.Size(); ++i)
@@ -99,6 +125,20 @@ namespace nkentseu {
 							active = static_cast<int32>(i);
 							return;
 						}
+
+					// MEDIA (image/video/audio) : onglet dedie SANS lecture texte (la texture est
+					// chargee au 1er rendu par l'EditorPanel, qui a l'acces GPU du shell).
+					const int32 mk = MediaKindOf(p.GetFileName().CStr());
+					if (mk != 0) {
+						OpenFile mf;
+						mf.path = p;
+						mf.mediaKind = mk;
+						mf.mediaSize = NkFile::GetFileSize(p);
+						mf.diskMtime = MTimeOf(p.ToString().CStr());
+						files.PushBack(mf);
+						active = static_cast<int32>(files.Size()) - 1;
+						return;
+					}
 
 					const NkString content = NkFile::ReadAllText(p);
 					// GARDE-FOU anti perte de donnees : le fichier existe et est NON VIDE sur disque,

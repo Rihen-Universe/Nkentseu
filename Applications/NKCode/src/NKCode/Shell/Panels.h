@@ -15,6 +15,7 @@
 #include "NKCode/Shell/NkExplorer.h" // ExplorerPanel (arbre + git + filtre, maquette Banani)
 #include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
 #include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison)
+#include "NKImage/NKImage.h"			  // NkImage : viewer media (image)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -22,6 +23,120 @@ namespace nkentseu {
 		using namespace nkentseu;
 		using namespace nkentseu::editorkit;
 		using namespace nkentseu::nkgui;
+
+		// ── Viewer MEDIA (image/video/audio) : dessine dans `r` a la place de l'editeur
+		//    quand l'onglet est un media. Image : fit-fenetre + zoom molette + pan glisser
+		//    (double-clic = re-fit) sur fond DAMIER (transparence). Video/audio : placeholder. ──
+		inline void DrawMediaViewer(NkGuiContext &ctx, editorkit::NkEditorShell *shell, OpenFile &f, const NkRect &r) {
+			NkGuiDrawList &dl = ctx.DL();
+			const NkGuiFont *font = ctx.font;
+			const float32 lh = (font && font->Valid()) ? font->LineHeight() : 16.f;
+			const float32 asc = (font && font->Valid()) ? font->Ascent() : 12.f;
+			dl.PushClipRect(r, true);
+			dl.AddRectFilled(r, NkColor{28, 30, 34, 255}); // fond
+			const float32 cs = 16.f;					   // damier (transparence)
+			for (float32 yy = r.y; yy < r.y + r.h; yy += cs)
+				for (float32 xx = r.x; xx < r.x + r.w; xx += cs)
+					if (((((int32)((xx - r.x) / cs)) + ((int32)((yy - r.y) / cs))) & 1) == 0)
+						dl.AddRectFilled({xx, yy, cs, cs}, NkColor{38, 40, 45, 255});
+
+			auto centered = [&](const char *msg, const NkColor &col) {
+				if (!font || !font->Valid())
+					return;
+				const float32 tw = font->MeasureWidth(msg);
+				dl.AddText(font->Face(), font->TexId(), {r.x + (r.w - tw) * 0.5f, r.y + (r.h - lh) * 0.5f + asc}, msg, col);
+			};
+
+			NkString info;
+			const NkVec2 mp = ctx.input.mousePos;
+			const bool over = NkGuiRectContains(r, mp);
+
+			if (f.mediaKind == 1) { // ── IMAGE ──
+				if (!f.mediaLoaded) {
+					f.mediaLoaded = true;
+					NkImage img;
+					if (img.Load(f.path.ToString().CStr(), 4) && img.IsValid() && shell) {
+						f.mediaW = img.Width();
+						f.mediaH = img.Height();
+						f.mediaTex = shell->UploadRGBA(img.Pixels(), f.mediaW, f.mediaH);
+					}
+				}
+				if (f.mediaTex && f.mediaW > 0 && f.mediaH > 0) {
+					// Zoom molette -> desactive le fit.
+					if (over && ctx.input.wheel != 0.f) {
+						const float32 base = f.mediaFit ? 1.f : f.mediaZoom;
+						float32 z = base * (ctx.input.wheel > 0.f ? 1.15f : 1.f / 1.15f);
+						if (z < 0.05f)
+							z = 0.05f;
+						if (z > 32.f)
+							z = 32.f;
+						// si on etait en fit, part de l'echelle fit courante
+						if (f.mediaFit) {
+							const float32 aw = r.w - 40.f, ah = r.h - 40.f;
+							float32 fit = aw / f.mediaW < ah / f.mediaH ? aw / f.mediaW : ah / f.mediaH;
+							if (fit > 1.f)
+								fit = 1.f;
+							z = fit * (ctx.input.wheel > 0.f ? 1.15f : 1.f / 1.15f);
+						}
+						f.mediaZoom = z;
+						f.mediaFit = false;
+						ctx.input.wheel = 0.f;
+					}
+					// Double-clic -> re-ajuster.
+					if (over && ctx.input.mouseDoubleClicked[0]) {
+						f.mediaFit = true;
+						f.mediaPanX = f.mediaPanY = 0.f;
+					}
+					// Pan par glisser (etat statique par onglet).
+					static const void *s_drag = nullptr;
+					static NkVec2 s_m0;
+					static float32 s_px0, s_py0;
+					if (over && ctx.input.mouseClicked[0] && !ctx.input.mouseDoubleClicked[0]) {
+						s_drag = &f;
+						s_m0 = mp;
+						s_px0 = f.mediaPanX;
+						s_py0 = f.mediaPanY;
+					}
+					if (s_drag == &f) {
+						if (ctx.input.mouseDown[0]) {
+							f.mediaPanX = s_px0 + (mp.x - s_m0.x);
+							f.mediaPanY = s_py0 + (mp.y - s_m0.y);
+						} else
+							s_drag = nullptr;
+					}
+					// Echelle effective.
+					float32 scale;
+					if (f.mediaFit) {
+						const float32 aw = r.w - 40.f, ah = r.h - 40.f;
+						scale = aw / f.mediaW < ah / f.mediaH ? aw / f.mediaW : ah / f.mediaH;
+						if (scale > 1.f)
+							scale = 1.f;
+						f.mediaPanX = f.mediaPanY = 0.f;
+					} else
+						scale = f.mediaZoom;
+					const float32 dw = f.mediaW * scale, dh = f.mediaH * scale;
+					const NkRect disp = {r.x + (r.w - dw) * 0.5f + f.mediaPanX, r.y + (r.h - dh) * 0.5f + f.mediaPanY, dw,
+										 dh};
+					dl.AddImage(f.mediaTex, disp, {0.f, 0.f}, {1.f, 1.f}, NkColor{255, 255, 255, 255});
+					info = NkPrintf("%s      %d x %d      %d Ko      %d%%", f.Name().CStr(), f.mediaW, f.mediaH,
+									(int32)(f.mediaSize / 1024), (int32)(scale * 100.f + 0.5f));
+				} else
+					centered("Impossible de charger l'image", NkColor{240, 120, 110, 255});
+			} else { // ── VIDEO / AUDIO : placeholder ──
+				centered(f.mediaKind == 2 ? "Apercu video - lecture a venir" : "Apercu audio - lecture a venir",
+						 ctx.theme.textDisabled);
+				info = NkPrintf("%s      %d Ko", f.Name().CStr(), (int32)(f.mediaSize / 1024));
+			}
+
+			// Barre d'info en bas.
+			if (!info.Empty() && font && font->Valid()) {
+				const float32 bh = lh + 10.f;
+				const NkRect bar = {r.x, r.y + r.h - bh, r.w, bh};
+				dl.AddRectFilled(bar, NkColor{20, 22, 26, 225});
+				dl.AddText(font->Face(), font->TexId(), {bar.x + 12.f, bar.y + 5.f + asc}, info.CStr(), ctx.theme.text);
+			}
+			dl.PopClipRect();
+		}
 
 		// Texte COLORE sur une ligne : reserve un rect de la LARGEUR DU TEXTE (pas
 		// pleine largeur, sinon un SameLine() suivant pousse l'item hors champ) et
@@ -691,12 +806,16 @@ namespace nkentseu {
 							mS->navPickerOpen = false;
 					}
 
-					mS->StartProjectIndex(); // index sémantique niveau projet (async, une fois)
-					const NkVector<NkString> *ppDefs = mS->EffectiveDefines(
-						f.path.ToString()); // macros effectives (dump compilo) -> grisage préproc exact
-					CodeEditor(ctx, "##code", f.doc, r, NkLangFromExt(f.path.GetExtension().CStr()),
-							   mS->projReady ? &mS->projTypes : nullptr, mS->projReady ? &mS->projFuncs : nullptr,
-							   ppDefs);
+					if (f.IsMedia()) { // MEDIA (image/video/audio) -> viewer dedie a la place de l'editeur
+						DrawMediaViewer(ctx, mShell, f, r);
+					} else {
+						mS->StartProjectIndex(); // index sémantique niveau projet (async, une fois)
+						const NkVector<NkString> *ppDefs = mS->EffectiveDefines(
+							f.path.ToString()); // macros effectives (dump compilo) -> grisage préproc exact
+						CodeEditor(ctx, "##code", f.doc, r, NkLangFromExt(f.path.GetExtension().CStr()),
+								   mS->projReady ? &mS->projTypes : nullptr, mS->projReady ? &mS->projFuncs : nullptr,
+								   ppDefs);
+					}
 
 					// ── Overlay Ctrl+clic : barre de PROGRESSION (recherche) + LISTE de toutes les
 					//    occurrences (façon VSCode « aller à la définition » multi-résultats). ──
