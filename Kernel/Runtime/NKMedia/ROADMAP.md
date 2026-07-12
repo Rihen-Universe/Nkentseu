@@ -102,6 +102,15 @@
     à QP26 — ce qui prouve le CAVLC **bit-exact**). Bug clé corrigé : échelle DC (facteur `weightScale ×16`
     manquant en déquant + ordre Hadamard-inverse-puis-échelle) qui faisait dériver la prédiction (effondrement
     à 0). `NKMediaTest` écrit un `h264_test.h264` de démonstration.
+  - **Qualité vidéo — enquête + fixes (2026-07-12)** : artefacts « comme défectueux » signalés sur les
+    captures NK_RECORD. **Cause racine trouvée** : le SPS n'écrivait **PAS de VUI** → le décodeur supposait
+    **limited-range (16-235)** alors que l'encodeur produit du YUV **pleine plage** → ré-étirement → couleurs
+    délavées/contraste faux. **Fix** : VUI `video_full_range_flag=1` + BT.601 (`ffprobe` confirme
+    `color_range=pc`). + **QP défaut `NkVideoRecorder` 24→20** (moins de macroblocking). Harnais objectif
+    **`NKMediaTest --vidquality`** (motif synthétique → H264 + MJPEG + réf brute pour PSNR). Constats mesurés :
+    H264 (QP20, VUI) = **46-54 dB** RGB sur dégradés/aplats (bon) ; le **MJPEG `NkVideoWriter` a une dérive
+    couleur** (~24 dB sur aplats saturés) + un léger décalage spatial → **pas** le gain facile attendu (sa
+    colorimétrie JPEG est à corriger avant de le brancher dans `NkVideoRecorder`).
   - **Brique 3a (2026-07-11) — Intra_4×4 (9 modes)** — `NkH264Encoder::EncodeMbIntra4x4` : macroblocs
     **I_4×4** avec les **9 modes de prédiction** (Vertical, Horizontal, DC, Diagonal-Down-Left/Right,
     Vertical-Right, Horizontal-Down, Vertical-Left, Horizontal-Up ; §8.3.1.2, formules entières exactes),
