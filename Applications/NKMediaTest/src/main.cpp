@@ -20,6 +20,7 @@
 #include "NKMedia/Codecs/Aac/NkAacHuffman.h"
 #include "NKMedia/Codecs/Aac/NkAacIcs.h"
 #include "NKMedia/Codecs/Aac/NkAacDequant.h"
+#include "NKMedia/Codecs/Aac/NkAacFilterbank.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDenorm.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDeemphasis.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDecoder.h"
@@ -552,6 +553,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkAacDequant::SelfTest();
 		printf("[ %s ] NkAacDequant : iquant x^4/3 + gain 2^((sf-100)/4) + pulses + desentrelacement short\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkAacFilterbank::SelfTest();
+		printf("[ %s ] NkAacFilterbank : IMDCT + fenetrage + overlap-add (reconstruction TDAC ONLY_LONG)\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
