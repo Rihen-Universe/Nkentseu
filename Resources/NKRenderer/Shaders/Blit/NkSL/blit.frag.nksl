@@ -1,0 +1,20 @@
+// blit.frag.nksl — NKRenderer — recopie 1:1 d'une texture (VRAI dialecte NkSL).
+// Passe MirrorPresent : la cible finale redirigée (capture/enregistrement) est
+// recopiée telle quelle vers le swapchain — la fenêtre reste vivante pendant
+// l'enregistrement, coût = 1 draw plein-écran.
+@location(0) in  vec2 vUV;
+@location(0) out vec4 oColor;
+
+@binding(set=0, binding=0) uniform sampler2D uSrc;
+
+layout(push_constant) uniform PC {
+    vec2  invResolution;
+    float yFlipUV;
+    float _pad;
+} pc;
+
+@stage(fragment)
+@entry
+void main() {
+    oColor = vec4(texture(uSrc, vUV).rgb, 1.0);
+}
