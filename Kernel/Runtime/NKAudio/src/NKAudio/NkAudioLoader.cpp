@@ -15,6 +15,7 @@
 #include "NKAudio/Codecs/FLAC/NkFLACCodec.h"
 #include "NKAudio/Codecs/MP3/NkMP3Codec.h"
 #include "NKAudio/Codecs/OGG/NkOGGVorbisCodec.h"
+#include "NKAudio/Codecs/Opus/NkOpusCodec.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKCore/NkMacros.h"
 #include "NKMemory/NkAllocator.h"
@@ -156,8 +157,18 @@ namespace nkentseu {
 				return AudioFormat::MP3;
 			}
 
-			// OGG : capture pattern
+			// OGG : capture pattern. Distinguer Opus (RFC 7845) de Vorbis :
+			// le payload de la première page commence par "OpusHead".
 			if (size >= 4 && data[0] == 'O' && data[1] == 'g' && data[2] == 'g' && data[3] == 'S') {
+				if (size >= 28) {
+					const usize nsegs = data[26];
+					const usize payload = 27 + nsegs;
+					if (payload + 8 <= size && data[payload] == 'O' && data[payload + 1] == 'p' &&
+						data[payload + 2] == 'u' && data[payload + 3] == 's' && data[payload + 4] == 'H' &&
+						data[payload + 5] == 'e' && data[payload + 6] == 'a' && data[payload + 7] == 'd') {
+						return AudioFormat::OPUS;
+					}
+				}
 				return AudioFormat::OGG;
 			}
 
@@ -259,6 +270,8 @@ namespace nkentseu {
 					return LoadOGG(data, size, allocator);
 				case AudioFormat::FLAC:
 					return LoadFLAC(data, size, allocator);
+				case AudioFormat::OPUS:
+					return LoadOPUS(data, size, allocator);
 				default:
 					return invalid;
 			}
@@ -411,6 +424,12 @@ namespace nkentseu {
 		AudioSample AudioLoader::LoadFLAC(const uint8 *data, usize size, memory::NkAllocator *allocator) {
 			// Decodeur FLAC from scratch (NkFLACCodec). Aucun dependance externe.
 			return NkFLACCodec::Decode(data, size, allocator);
+		}
+
+		AudioSample AudioLoader::LoadOPUS(const uint8 *data, usize size, memory::NkAllocator *allocator) {
+			// Decodeur Opus from scratch (NKMedia, via NkOpusCodec).
+			// V1 : mono, SILK-only/CELT-only (hybride refuse proprement).
+			return NkOpusCodec::Decode(data, size, allocator);
 		}
 
 		// ──────────────────────────────────────────────────────────────────────

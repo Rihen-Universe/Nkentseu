@@ -23,7 +23,7 @@ with project("NkAudioDemo"):
     files(["src/**.cpp"])
 
     nkentseudependson(
-        ["NKLogger", "NKAudio", "NKFileSystem", "NKContainers", "NKMemory",
+        ["NKLogger", "NKAudio", "NKMedia", "NKImage", "NKFileSystem", "NKContainers", "NKMemory",
          "NKCore", "NKPlatform", "NKThreading", "NKMath"],
         extra_includes=["src"],
     )

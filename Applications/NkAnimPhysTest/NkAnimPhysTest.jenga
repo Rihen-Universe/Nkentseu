@@ -37,7 +37,7 @@ with project("NkAnimPhysTest"):
     files(["src/main.cpp"])
 
     nkentseudependson(
-        ["NKRenderer", "NKRHI", "NKSL", "NKWindow", "NKEvent", "NKFont", "NKImage", "NKAudio",
+        ["NKRenderer", "NKRHI", "NKSL", "NKWindow", "NKEvent", "NKFont", "NKImage", "NKAudio", "NKMedia",
          "NKFileSystem", "NKSerialization", "NKReflection", "NKGlad", "NKMath", "NKTime",
          "NKStream", "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
          "NKThreading", "NKGLSlang", "NKSPIRVCross"],

@@ -347,10 +347,53 @@ namespace nkentseu {
 					}
 					return true;
 				}
+				case NkMediaContainer::NK_OGG: {
+					// Parcours des pages BOS (début de flux) : identifie les
+					// codecs Opus/Vorbis et leurs paramètres d'en-tête.
+					usize pos = 0;
+					while (pos + 27 <= size) {
+						const uint8 *h = data + pos;
+						if (!Tag4(h, "OggS") || h[4] != 0)
+							break;
+						const uint8 headerType = h[5];
+						const uint8 nsegs = h[26];
+						if (pos + 27 + nsegs > size)
+							break;
+						usize payload = 0;
+						for (uint8 i = 0; i < nsegs; ++i)
+							payload += h[27 + i];
+						const uint8 *pl = h + 27 + nsegs;
+						if (pos + 27 + nsegs + payload > size)
+							break;
+						if ((headerType & 0x02) == 0)
+							break; // fin de la zone BOS
+						if (payload >= 19 && pl[0] == 'O' && pl[1] == 'p' && pl[2] == 'u' && pl[3] == 's' &&
+							pl[4] == 'H' && pl[5] == 'e' && pl[6] == 'a' && pl[7] == 'd') {
+							NkMediaTrack tr;
+							tr.type = NkMediaTrackType::NK_AUDIO;
+							tr.codec = NkString("opus");
+							tr.channels = (int32)pl[9];
+							tr.sampleRate = 48000; // sortie décodeur Opus (le taux
+												   // d'entrée original est pl[12..15])
+							out.tracks.PushBack(tr);
+						} else if (payload >= 30 && pl[0] == 0x01 && pl[1] == 'v' && pl[2] == 'o' && pl[3] == 'r' &&
+								   pl[4] == 'b' && pl[5] == 'i' && pl[6] == 's') {
+							NkMediaTrack tr;
+							tr.type = NkMediaTrackType::NK_AUDIO;
+							tr.codec = NkString("vorbis");
+							tr.channels = (int32)pl[11];
+							tr.sampleRate = (int32)((uint32)pl[12] | ((uint32)pl[13] << 8) | ((uint32)pl[14] << 16) |
+													((uint32)pl[15] << 24));
+							out.tracks.PushBack(tr);
+						}
+						pos += 27 + nsegs + payload;
+					}
+					return true;
+				}
 				case NkMediaContainer::NK_UNKNOWN:
 					return false;
 				default:
-					return true; // conteneur reconnu, démux détaillé à venir (OGG/MP3/FLAC)
+					return true; // conteneur reconnu, démux détaillé à venir (MP3/FLAC)
 			}
 		}
 

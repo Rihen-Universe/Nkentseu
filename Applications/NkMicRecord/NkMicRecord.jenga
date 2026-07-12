@@ -15,7 +15,7 @@ with project("NkMicRecord"):
     files(["src/main.cpp"])
 
     nkentseudependson(
-        ["NKAudio", "NKFileSystem", "NKTime", "NKStream", "NKLogger",
+        ["NKAudio", "NKMedia", "NKImage", "NKFileSystem", "NKTime", "NKStream", "NKLogger",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKMath"],
         extra_includes=["src"],
     )

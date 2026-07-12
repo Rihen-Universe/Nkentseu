@@ -20,7 +20,8 @@
 | Codec MP3 Layer 3 (decode) | Livré | — | — |
 | Codec MP3 Layer 1 / Layer 2 | TODO | M | P3 |
 | Codec MP3 streaming incrémental + seek | TODO | M | P2 |
-| Codec Opus | TODO | L | P2 |
+| Codec Opus (.opus Ogg-Opus, V1 mono via NKMedia, validé vs ffmpeg) | Livré | — | — |
+| Codec Opus : stéréo + mode hybride SILK+CELT | TODO | M | P2 |
 | Codec AIFF | TODO | M | P3 |
 | Resampling LINEAR | Livré | — | — |
 | Resampling SINC_4 / SINC_8 (Kaiser) | Livré | — | — |
@@ -120,6 +121,16 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 - Chorus (délai modulé LFO)
 
 ### Phase 7 — Codecs audio
+- **Opus (.opus / Ogg-Opus, 2026-07-12)** : `NkOpusCodec` (Codecs/Opus/) — fine
+  couche au-dessus du décodeur Opus from-scratch de **NKMedia**
+  (`media::NkOpusFile` : demux Ogg + OpusHead pre-skip/gain + SILK/CELT →
+  PCM int16 48 kHz), converti en AudioSample float32. Auto-détection dans
+  `AudioLoader::DetectFormat` (page Ogg « OpusHead » → OPUS, sinon OGG Vorbis).
+  **Validé vs ffmpeg** : SILK corr 0.999985, CELT corr 0.965 (résidu d'échelle
+  CELT connu côté NKMedia). V1 : mono ; stéréo et mode hybride refusés
+  proprement. Test manuel : `NkMicRecord --decode in.opus out.wav`.
+  NB : NKAudio dépend désormais de NKMedia — les exécutables qui linkent
+  NKAudio doivent linker NKMedia (fait pour les 10 apps du dépôt).
 - WAV : PCM int8/16/24/32, float32/64, mono/stéréo/multi
 - OGG Vorbis : port stb_vorbis (multi-canal jusqu'à 8, VBR, floor type 1, residue 0/1/2)
 - FLAC : décodeur from-scratch complet (CONSTANT/VERBATIM/FIXED/LPC subframes, Rice partitioning, decorrelation stereo joint, CRC8/CRC16)

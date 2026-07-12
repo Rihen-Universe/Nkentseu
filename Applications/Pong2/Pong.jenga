@@ -91,7 +91,7 @@ with project("Pong"):
         "NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
         "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
         "NKFileSystem", "NKNetwork",
-        "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio"
+        "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio", "NKMedia"
     ]
     links(_BASE_DEPS)
     dependson(_BASE_DEPS)

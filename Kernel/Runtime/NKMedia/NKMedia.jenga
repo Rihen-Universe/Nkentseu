@@ -37,3 +37,28 @@ with project("NKMedia"):
         usetoolchain(TC_WINDOWS)
     with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
         usetoolchain("xbox-clang")
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+    with filter("system:iOS"):
+        usetoolchain("clang-native-ios")
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        androidminsdk(24)
+    with filter("system:HarmonyOS"):
+        usetoolchain("ohos-ndk")
+    with filter("system:Linux"):
+        usetoolchain("clang-native")
+        links(["pthread", "m"])
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG", "NKENTSEU_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

@@ -28,7 +28,8 @@ with project("NKAudio"):
     pchsource("pch/pch.cpp")
 
     nkentseudependson(
-        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKThreading", "NKFileSystem", "NKStream"],
+        # NKMedia : decodeur Opus from-scratch (codec .opus via NkOpusCodec).
+        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKThreading", "NKFileSystem", "NKStream", "NKMedia"],
         selfexport="NKAudio",
         extra_includes=["src"],
     )

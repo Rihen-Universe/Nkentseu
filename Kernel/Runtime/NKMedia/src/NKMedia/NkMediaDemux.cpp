@@ -495,6 +495,159 @@ namespace nkentseu {
 				}
 			}
 
+			// ---------------------------------------------------------------
+			// OGG — reconstruction des paquets du premier flux audio.
+			// Une page = "OggS" + version + headerType + granule(le64) +
+			// serial(le32) + seq + crc + nsegs + table de lacing, puis le
+			// payload (segments contigus). Un lacing < 255 termine un paquet.
+			// Les paquets renvoyés incluent les EN-TÊTES du codec (OpusHead/
+			// OpusTags ou headers Vorbis) : le décodeur aval les consomme.
+			// Limite V1 : un paquet à cheval sur deux pages (continuation)
+			// n'est pas contigu dans le buffer source → il est ignoré (rare :
+			// il faudrait un paquet audio > ~64 Ko).
+			// ---------------------------------------------------------------
+
+			inline uint32 OggU32LE(const uint8 *p) {
+				return (uint32)p[0] | ((uint32)p[1] << 8) | ((uint32)p[2] << 16) | ((uint32)p[3] << 24);
+			}
+
+			inline uint64 OggU64LE(const uint8 *p) {
+				return (uint64)OggU32LE(p) | ((uint64)OggU32LE(p + 4) << 32);
+			}
+
+			struct OggPage {
+					uint8 headerType = 0;
+					int64 granule = -1;
+					uint32 serial = 0;
+					usize payloadOffset = 0; // offset absolu du payload dans le buffer
+					usize payloadSize = 0;
+					uint8 nsegs = 0;
+					const uint8 *segTable = nullptr;
+					usize next = 0; // offset absolu de la page suivante
+			};
+
+			// Parse la page à `pos`. Renvoie false si en-tête invalide/tronqué.
+			bool OggParsePage(const uint8 *base, usize size, usize pos, OggPage &pg) {
+				if (pos + 27 > size)
+					return false;
+				const uint8 *h = base + pos;
+				if (h[0] != 'O' || h[1] != 'g' || h[2] != 'g' || h[3] != 'S' || h[4] != 0)
+					return false;
+				pg.headerType = h[5];
+				pg.granule = (int64)OggU64LE(h + 6);
+				pg.serial = OggU32LE(h + 14);
+				pg.nsegs = h[26];
+				if (pos + 27 + pg.nsegs > size)
+					return false;
+				pg.segTable = h + 27;
+				pg.payloadOffset = pos + 27 + pg.nsegs;
+				usize payload = 0;
+				for (uint8 i = 0; i < pg.nsegs; ++i)
+					payload += pg.segTable[i];
+				if (pg.payloadOffset + payload > size)
+					return false;
+				pg.payloadSize = payload;
+				pg.next = pg.payloadOffset + payload;
+				return true;
+			}
+
+			bool DemuxOgg(const uint8 *base, usize size, NkVector<NkMediaPacket> &out) {
+				out.Clear();
+
+				// 1) Choix du flux : premier BOS dont le payload commence par
+				//    "OpusHead" ; à défaut, premier BOS audio-compatible.
+				uint32 serial = 0;
+				bool haveSerial = false;
+				bool haveFallback = false;
+				uint32 fallbackSerial = 0;
+				usize pos = 0;
+				OggPage pg;
+				while (pos < size && OggParsePage(base, size, pos, pg)) {
+					if ((pg.headerType & 0x02) != 0 && pg.payloadSize >= 8) {
+						const uint8 *pl = base + pg.payloadOffset;
+						if (pl[0] == 'O' && pl[1] == 'p' && pl[2] == 'u' && pl[3] == 's' && pl[4] == 'H' &&
+							pl[5] == 'e' && pl[6] == 'a' && pl[7] == 'd') {
+							serial = pg.serial;
+							haveSerial = true;
+							break;
+						}
+						if (!haveFallback) {
+							fallbackSerial = pg.serial;
+							haveFallback = true;
+						}
+					} else if ((pg.headerType & 0x02) == 0) {
+						break; // fin de la zone BOS
+					}
+					pos = pg.next;
+				}
+				if (!haveSerial) {
+					if (!haveFallback)
+						return false;
+					serial = fallbackSerial;
+				}
+
+				// 2) Reconstruction des paquets du flux choisi.
+				usize pktStart = 0;
+				usize pktSize = 0;
+				bool pktOpen = false;
+				bool pktBroken = false; // paquet démarré sur une page précédente (non contigu)
+				pos = 0;
+				while (pos < size && OggParsePage(base, size, pos, pg)) {
+					if (pg.serial != serial) {
+						pos = pg.next;
+						continue;
+					}
+					// Continuation d'un paquet de la page précédente : le
+					// payload n'est pas contigu (en-tête de page au milieu) —
+					// on marque le paquet comme perdu (limite V1 documentée).
+					if (pktOpen && (pg.headerType & 0x01) != 0) {
+						pktBroken = true;
+					} else if (!pktOpen && (pg.headerType & 0x01) != 0) {
+						// Continuation orpheline : sauter les segments jusqu'à
+						// la fin du paquet en cours.
+						pktBroken = true;
+						pktOpen = true;
+						pktStart = pg.payloadOffset;
+						pktSize = 0;
+					}
+
+					usize segPos = pg.payloadOffset;
+					int32 lastCompleteInPage = -1;
+					for (uint8 i = 0; i < pg.nsegs; ++i) {
+						const uint8 lace = pg.segTable[i];
+						if (!pktOpen) {
+							pktOpen = true;
+							pktBroken = false;
+							pktStart = segPos;
+							pktSize = 0;
+						}
+						pktSize += lace;
+						segPos += lace;
+						if (lace < 255) {
+							// Fin de paquet.
+							if (!pktBroken && pktSize > 0) {
+								NkMediaPacket pk;
+								pk.offset = pktStart;
+								pk.size = pktSize;
+								pk.timestampMs = 0;
+								pk.granule = -1;
+								out.PushBack(pk);
+								lastCompleteInPage = (int32)out.Size() - 1;
+							}
+							pktOpen = false;
+							pktBroken = false;
+						}
+					}
+					// granulepos de la page = position (échantillons) de fin du
+					// dernier paquet COMPLET de la page.
+					if (lastCompleteInPage >= 0 && pg.granule >= 0)
+						out[(usize)lastCompleteInPage].granule = pg.granule;
+
+					pos = pg.next;
+				}
+				return out.Size() > 0;
+			}
+
 			bool DemuxWebm(const uint8 *base, usize size, NkVector<NkMediaPacket> &out) {
 				int64 audioNum = -1;
 				int32 t = 0;
@@ -518,8 +671,12 @@ namespace nkentseu {
 					return DemuxMp4(data, size, out);
 				case NkMediaContainer::NK_WEBM:
 					return DemuxWebm(data, size, out);
+				case NkMediaContainer::NK_OGG:
+					// Paquets du premier flux (Opus prioritaire), EN-TÊTES de
+					// codec inclus (OpusHead/OpusTags en paquets 0 et 1).
+					return DemuxOgg(data, size, out);
 				default:
-					return false; // WAV/OGG/MP3/FLAC : lecture via NKAudio existant
+					return false; // WAV/MP3/FLAC : lecture via NKAudio existant
 			}
 		}
 

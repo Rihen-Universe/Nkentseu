@@ -71,7 +71,7 @@ with project("Songo"):
          "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
          "NKFileSystem", "NKNetwork",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform",
-         "NKThreading", "NKAudio"],
+         "NKThreading", "NKAudio", "NKMedia"],
         extra_includes=[
             "src",
             "%{NKGlad.location}/include",
