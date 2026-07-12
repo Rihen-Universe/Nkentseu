@@ -240,18 +240,21 @@ en conflit avec ce module. Cette couche s'appelle ici **pont directeur** (NkAnim
 
 ## Phase 3 — Données, entraînement, inférence — ✅ socle complet (extensions en cours)
 
-> ⚠️ Audit 2026-07-12 : accumulation de gradient + scheduler LR + checkpoints/validation existent
-> dans **NKGpt/NkGptTrainer** mais **pas encore remontés dans la lib générique NKTrain** — chantier
-> de factorisation prioritaire (Option A.1). NKData = MNIST IDX seul ; NKInfer f32 non portable.
+> ✅ Option A.1 livrée (2026-07-12) : accumulation de gradient + scheduler LR (warmup+cosine) +
+> validation forward-only **remontés dans la lib générique NKTrain** (`NkLRSchedule`,
+> `TrainEpochAccum`, `EvalLoss`, `SelfTest`), factorisés depuis NkGptTrainer. `NKTrainTest` **4/4**.
+> Reste : NKData = MNIST IDX seul ; NKInfer f32 non portable.
 
 **Modules : NKData, NKTrain, NKInfer.**
 - ✅ **NKData** : `NkDataset` + `NkDataLoader` (shuffle Fisher-Yates, lots, one-hot) +
   `MakeBlobs` + **chargeur MNIST IDX** (`LoadMnist`). Prouvé (`NKDataTest` 7/7).
-- ✅ **NKTrain** : `TrainEpoch` (forward→CE→backward→step, métriques perte+exactitude)
-  + `Accuracy`. Prouvé (`NKTrainTest`) : Dense+relu+Dense, Adam+CE → **train/test 100%**.
+- ✅ **NKTrain** : `TrainEpoch` + `Accuracy` **+ (Option A.1, 2026-07-12)** `NkLRSchedule`
+  (warmup linéaire → décroissance cosine → plancher), `TrainEpochAccum` (accumulation de
+  gradient + scheduler + loss configurable), `EvalLoss` (validation forward-only), `SelfTest`.
+  Prouvé (`NKTrainTest` **4/4**) : Adam+CE → train/test 100% ; accumulation+scheduler converge.
 - ✅ **NKInfer** : `SaveParams`/`LoadParams` (format NKMD) + `Predict`. Prouvé
   (`NKInferTest`) : round-trip **exact** (A entraîné → sauve → B neuf recharge → 100%).
-- ⬜ Checkpoints d'optimiseur (reprise) + boucle de validation (NKTrain Jalon 2).
+- ⬜ Checkpoints d'optimiseur (reprise) : existe dans NkGptTrainer, à généraliser dans NKTrain.
 - 🎯 ✅ **Pipeline complet données→train→save→load→infer** validé de bout en bout.
 - ✅ **Entraînement sur le VRAI MNIST** (`Datasets/mnist/` téléchargé, `NK_MNIST_DIR`) :
   MLP 784→64→10 (Adam+CE) sur les **60 000 vraies images** → **96.3%** en 3 époques
@@ -347,6 +350,12 @@ en conflit avec ce module. Cette couche s'appelle ici **pont directeur** (NkAnim
 - ✅ **10. Entraînement + génération — `NKGptTrain`** (2026-07-06) : lit un livre réel (Project
   Gutenberg, `Resources/Datasets/`), entraîne `NkGPT` avec **AdamW 100% GPU-résident**,
   **échantillonnage autoregressif à température**.
+- ✅ **11. Inférence rapide — KV-cache + sampling (Option A.3, 2026-07-12)** : décodage **incrémental**
+  (`NkGPT::ForwardStep` + `NkKVCache` par couche, attention/bloc/GPT) **bit-exact vs Forward complet**
+  (err **0.0**) → O(T) par token au lieu de O(T²). **Échantillonnage top-k / top-p (nucleus) / température**
+  réutilisable (`NKGpt/NkSampling.h`, `NkSampleToken`). `NkGptTrainer::Generate` : chemin **KV-cache**
+  quand le contexte tient dans la fenêtre, sinon repli fenêtre glissante ; overload `NkSampleParams`.
+  Validé `NKTransformerTest` **7/7**.
 - ✅ **Optim vitesse — broadcast GPU (2026-07-06)** : biais `Dense` (`[1,C]+[..,C]`) et affine
   `LayerNorm` (γ/β) faisaient un **aller-retour CPU** à chaque appel (broadcast non géré par les
   kernels élémentaires). Ajout de kernels GPU `addbcast`/`mulbcast` (`out[i]=big[i] op vec[i%C]`)
@@ -502,9 +511,13 @@ pour les modèles). Scaffold posé (spec headers) ; impl staged ci-dessous.
    `LogMelSpectrogram()` + `MFCC()`. Testé HEADLESS (`NKSpeechTest` → **1/1 OK** : un **sinus 1 kHz tombe dans
    le bon canal Mel**, MFCC déterministes et de bonne dimension (13×3), silence → sortie finie). **Fondation
    partagée ASR + TTS**, prête à tourner sur le corpus lamba (Bassa/Bulu/ghomala').
-2. ⬜ **ASR acoustique** (`NkASR`) — petit réseau (Conv/GRU from-scratch NKNN) features→phonèmes/caractères,
-   perte **CTC** (à ajouter à NKAutograd), **décodage glouton** puis beam. Entraîné sur un mini-corpus voix→texte.
-   Résultat : transcrire des mots isolés d'un petit vocabulaire.
+   > ✅ **Briques débloquantes livrées (Option A.2, 2026-07-12)** : cellules **GRU/LSTM** from-scratch
+   > (`NkRnn.h/.cpp`, gradient-checkées) + **perte CTC** forward-backward log-space (`autograd::CTCLoss`,
+   > gradient-checkée 5e-5) + op `Concat0`. `NKRnnCtcTest` : GRU+CTC **entraîné bout-en-bout** (perte
+   > 5.46→0.0003, **décodage glouton = cible**). L'ASR acoustique peut maintenant être assemblé.
+2. 🟡 **ASR acoustique** (`NkASR`) — petit réseau (GRU from-scratch NKNN) features→caractères, perte **CTC**
+   ✅ + **décodage glouton** ✅ (briques prêtes) puis beam. Reste : assembler MFCC→BiGRU→CTC + mini-corpus voix→texte.
+   Résultat visé : transcrire des mots isolés d'un petit vocabulaire.
 3. ⬜ **Lexique/décodage** — dictionnaire + modèle de langue n-gram (réutilise le GPT/BPE) pour re-scorer.
 4. ⬜ **TTS front-end** (`NkTTS`) — normalisation texte (nombres, ponctuation) → **G2P** (texte→phonèmes,
    table par langue : fr/en/**bbj**) → durées.
@@ -515,7 +528,7 @@ pour les modèles). Scaffold posé (spec headers) ; impl staged ci-dessous.
 7. ⬜ **Corpus langues locales** — pipeline de collecte texte/voix (dont **ghomala'**) : scraping sources
    publiques, alignement, nettoyage → dataset réutilisable ASR/TTS/GPT.
 
-⚠️ Dépendances à ajouter : **CTC loss** + **GRU/LSTM** dans NKAutograd/NKNN ; **Griffin-Lim** (iFFT + itérations
+⚠️ Dépendances : **CTC loss** ✅ + **GRU/LSTM** ✅ (livrés 2026-07-12, Option A.2) ; reste **Griffin-Lim** (iFFT + itérations
 de phase) dans NKSpeech. Chaque étape = publication + article (règle §Communication).
 
 ## 📣 Communication & diffusion — **À FAIRE À CHAQUE ÉVOLUTION** (récurrent)
