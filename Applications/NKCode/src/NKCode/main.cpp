@@ -16,6 +16,7 @@
 #include "NKCode/Shell/NkHome.h"
 #include "NKCode/Project/NkLogSink.h"
 #include "NKImage/NKImage.h"
+#include "NKPlatform/NkEnv.h" // env::GetEnvVar (variables d'environnement maison)
 
 #include <cstdio>
 #include <cstddef>
@@ -207,22 +208,19 @@ int nkmain(const NkEntryState &state) {
 	// runtime, pas embarque) : tout glyphe absent d'Inter/DejaVu y est cherche.
 	// Roles : broad (large couverture), cjk (ideogrammes, opt-in), emoji.
 	{
-		auto fileOk = [](const char *p) {
-			std::FILE *f = std::fopen(p, "rb");
-			if (f) {
-				std::fclose(f);
-				return true;
-			}
-			return false;
-		};
 		static const char *dirs[] = {"Applications/NKCode/data/fonts/", "data/fonts/", "NKCode/data/fonts/", ""};
-		auto find = [&](const char *const *names, char *out, std::size_t cap) {
+		auto find = [&](const char *const *names, char *out, nk_size cap) {
 			out[0] = '\0';
 			for (const char *const *np = names; *np; ++np)
 				for (const char *const *dp = dirs;; ++dp) {
-					std::snprintf(out, cap, "%s%s", *dp, *np);
-					if (fileOk(out))
+					const NkString p = NkPrintf("%s%s", *dp, *np); // outils maison (pas snprintf/fopen)
+					if (NkFile::Exists(p.CStr())) {
+						usize k = 0;
+						for (const char *q = p.CStr(); *q && k + 1 < cap; ++q)
+							out[k++] = *q;
+						out[k] = '\0';
 						return;
+					}
 					if (!**dp)
 						break;
 				}
@@ -446,22 +444,22 @@ int nkmain(const NkEntryState &state) {
 		};
 		// Dossier d'OVERRIDE utilisateur (icones personnalisees, data-driven) : deposer un
 		// PNG dans <ovrDir>icon/<Nom>.png remplace l'icone livree, sans recompiler.
-		char ovrDir[512] = {};
+		NkString ovrDirS;
 		{
-			const char *ad = std::getenv("APPDATA");
-			const char *hm = std::getenv("HOME");
+			const char *ad = env::GetEnvVar("APPDATA"); // API maison (NKPlatform/NkEnv.h)
+			const char *hm = env::GetEnvVar("HOME");
 			if (ad && *ad)
-				std::snprintf(ovrDir, sizeof(ovrDir), "%s/NKCode/", ad);
+				ovrDirS = NkPrintf("%s/NKCode/", ad);
 			else if (hm && *hm)
-				std::snprintf(ovrDir, sizeof(ovrDir), "%s/.config/nkcode/", hm);
+				ovrDirS = NkPrintf("%s/.config/nkcode/", hm);
 			else
-				std::snprintf(ovrDir, sizeof(ovrDir), "Applications/NKCode/data/textures/");
+				ovrDirS = "Applications/NKCode/data/textures/";
 		}
+		const char *ovrDir = ovrDirS.CStr();
 		auto loadTex = [&](const char *base, int32 tw, int32 th, int32 *outW = nullptr, int32 *outH = nullptr,
 						   bool trim = true, bool box = true) -> uint32 {
 			const char *dirs[] = {ovrDir, "Applications/NKCode/data/textures/", "data/textures/",
 								  "NKCode/data/textures/", ""};
-			char path[512];
 			auto put = [&](NkImage &img) -> uint32 { // rogne (option) puis upload
 				NkImage *t = trim ? trimAlpha(img) : nullptr;
 				uint32 id = upload(t ? *t : img, tw, th, outW, outH, box);
@@ -470,31 +468,24 @@ int nkmain(const NkEntryState &state) {
 				return id;
 			};
 			for (const char *const *d = dirs;; ++d) {
-				std::snprintf(path, sizeof(path), "%s%s.png", *d, base);
-				{
-					std::FILE *fp = std::fopen(path, "rb");
-					if (fp) {
-						std::fclose(fp);
-						NkImage img;
-						if (img.LoadFromFile(path) && img.IsValid())
-							return put(img);
-					}
+				// Outils MAISON : NkPrintf + NkFile::Exists (pas de snprintf/fopen).
+				const NkString png = NkPrintf("%s%s.png", *d, base);
+				if (NkFile::Exists(png.CStr())) {
+					NkImage img;
+					if (img.LoadFromFile(png.CStr()) && img.IsValid())
+						return put(img);
 				}
-				std::snprintf(path, sizeof(path), "%s%s.svg", *d, base);
-				{
-					std::FILE *fp = std::fopen(path, "rb");
-					if (fp) {
-						std::fclose(fp);
-						NkImage *im =
-							NkSVGCodec::DecodeFromFile(path, tw * 2, th * 2); // rasterise large puis reduit = net
-						if (im && im->IsValid()) {
-							uint32 id = put(*im);
-							im->Free();
-							return id;
-						}
-						if (im)
-							im->Free();
+				const NkString svg = NkPrintf("%s%s.svg", *d, base);
+				if (NkFile::Exists(svg.CStr())) {
+					NkImage *im =
+						NkSVGCodec::DecodeFromFile(svg.CStr(), tw * 2, th * 2); // rasterise large puis reduit = net
+					if (im && im->IsValid()) {
+						uint32 id = put(*im);
+						im->Free();
+						return id;
 					}
+					if (im)
+						im->Free();
 				}
 				if (!**d)
 					break;
