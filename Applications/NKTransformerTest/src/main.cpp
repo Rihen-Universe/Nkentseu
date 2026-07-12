@@ -9,6 +9,7 @@
 #include "NKAutograd/NkVar.h"
 #include "NKTensor/NkTensor.h"
 #include "NKTensor/NkTensorGpu.h"
+#include "NKGpt/NkSampling.h" // échantillonnage top-k / top-p (KV-cache brique A.3)
 
 #include <cstdio>
 #include <cmath>
@@ -141,6 +142,58 @@ int main() {
 				printf("    step %3d : perte = %.4f\n", s, lv);
 		}
 		check(lossN < 0.15 && lossN < loss0, "GPT sur-apprend la séquence (perte -> ~0)");
+
+		// (3b) KV-cache : le décodage INCRÉMENTAL (un token à la fois) doit produire
+		//      EXACTEMENT les mêmes logits que Forward sur la séquence complète.
+		{
+			NkVar full = gpt.Forward(tokTensor); // [8,8]
+			NkTensor fc = full.Value().ToCPU().Contiguous();
+			const float *fp = fc.DataAs<float>();
+			nn::NkKVCache cache;
+			cache.Reset(2);
+			double maxErr = 0.0;
+			for (int t = 0; t < 8; ++t) {
+				NkTensor tok = NkTensor::Full(NkShape{(int64)1, (int64)1}, (double)toks[t]);
+				NkVar step = gpt.ForwardStep(tok, cache);
+				NkTensor sc = step.Value().ToCPU().Contiguous();
+				const float *spp = sc.DataAs<float>();
+				for (int v = 0; v < 8; ++v) {
+					double dd = std::fabs((double)spp[v] - (double)fp[t * 8 + v]);
+					if (dd > maxErr)
+						maxErr = dd;
+				}
+			}
+			printf("    KV-cache err max vs Forward complet = %.2e\n", maxErr);
+			check(maxErr < 1e-3, "KV-cache : logits incrémentaux == Forward complet");
+		}
+	}
+
+	// (4) Échantillonnage top-k / top-p (NkSampling.h).
+	{
+		printf("\n-- Échantillonnage (température / top-k / top-p) --\n");
+		float lg[5] = {0.1f, 3.0f, 0.2f, 2.0f, -1.0f}; // argmax = index 1
+		uint64 rng = 12345u;
+		gpt::NkSampleParams pk;
+		pk.temperature = 1.0;
+		pk.topK = 1; // top-k=1 => toujours l'argmax
+		bool allArgmax = true;
+		for (int i = 0; i < 30; ++i)
+			if (gpt::NkSampleToken(lg, 5, pk, rng) != 1)
+				allArgmax = false;
+		check(allArgmax, "top-k=1 = argmax déterministe");
+
+		gpt::NkSampleParams pt;
+		pt.temperature = 0.0; // température nulle => argmax
+		check(gpt::NkSampleToken(lg, 5, pt, rng) == 1, "température 0 = argmax");
+
+		gpt::NkSampleParams pp;
+		pp.temperature = 1.0;
+		pp.topP = 0.9; // nucleus : exclut la longue traîne (index 4, proba minuscule)
+		bool noTail = true;
+		for (int i = 0; i < 300; ++i)
+			if (gpt::NkSampleToken(lg, 5, pp, rng) == 4)
+				noTail = false;
+		check(noTail, "top-p exclut la longue traîne");
 	}
 
 	printf("\n=== Résultat : %d OK, %d échec(s) ===\n", g_ok, g_fail);

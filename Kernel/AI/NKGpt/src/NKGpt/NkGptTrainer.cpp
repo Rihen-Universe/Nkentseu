@@ -337,6 +337,12 @@ namespace nkentseu {
 			}
 
 			NkString NkGptTrainer::Generate(const NkString &sd, int nToks, double temp, int langIdx) {
+				NkSampleParams sp;
+				sp.temperature = temp; // compat : température seule (top-k/top-p désactivés)
+				return Generate(sd, nToks, sp, langIdx);
+			}
+
+			NkString NkGptTrainer::Generate(const NkString &sd, int nToks, const NkSampleParams &sp, int langIdx) {
 				NkVector<int32> ctx;
 				if (langIdx >= 0 && langIdx < (int)mLangs.Size())
 					ctx.PushBack((int32)(mNByte + langIdx));
@@ -347,8 +353,32 @@ namespace nkentseu {
 				if (ctx.Size() == 0)
 					ctx.PushBack(0);
 				NkString out = sd;
-				NkVector<float> logitBuf;
-				logitBuf.Resize((nk_size)mV);
+
+				// Chemin RAPIDE (KV-cache) : possible si tout le décodage tient dans la fenêtre T
+				// (positions absolues valides, math identique à Forward sur le préfixe complet).
+				const bool canCache = !mUseGpu && ((int64)ctx.Size() + (int64)nToks) <= mT;
+				if (canCache) {
+					nn::NkKVCache cache;
+					cache.Reset((uint32)mL);
+					NkVar last;
+					// Amorce : passe chaque token du contexte (le dernier logits sert au 1er tirage).
+					for (nk_size i = 0; i < ctx.Size(); ++i) {
+						NkTensor tok = NkTensor::Full(NkShape{(int64)1, (int64)1}, (double)ctx[i]);
+						last = mGpt->ForwardStep(tok, cache);
+					}
+					for (int i = 0; i < nToks; ++i) {
+						NkTensor lc = last.Value().ToCPU().Contiguous();
+						const int next = NkSampleToken(lc.DataAs<float>(), mNByte, sp, mRng);
+						ctx.PushBack((int32)next);
+						out.Append(mBpe.Decode(next));
+						NkTensor tok = NkTensor::Full(NkShape{(int64)1, (int64)1}, (double)next);
+						last = mGpt->ForwardStep(tok, cache);
+					}
+					return out;
+				}
+
+				// Chemin GÉNÉRIQUE (fenêtre glissante) : recalcule le préfixe (tronqué à T) à chaque
+				// pas. Nécessaire pour GPU ou pour un décodage plus long que la fenêtre.
 				for (int i = 0; i < nToks; ++i) {
 					int64 len = (int64)ctx.Size();
 					if (len > mT)
@@ -360,29 +390,7 @@ namespace nkentseu {
 					NkVar logits = mGpt->Forward(mUseGpu ? tok.ToGPU() : tok);
 					NkTensor lc = logits.Value().ToCPU().Contiguous();
 					const float *lp = lc.DataAs<float>() + (len - 1) * mV;
-					double mx = -1e30;
-					for (int v = 0; v < mNByte; ++v)
-						if (lp[v] > mx)
-							mx = lp[v];
-					double sum = 0;
-					for (int v = 0; v < mV; ++v) {
-						if (v >= mNByte) {
-							logitBuf[(nk_size)v] = 0.f;
-							continue;
-						}
-						const double e = NkExp((lp[v] - mx) / temp);
-						logitBuf[(nk_size)v] = (float)e;
-						sum += e;
-					}
-					double r = NextRand() * sum, acc = 0;
-					int next = 0;
-					for (int v = 0; v < mNByte; ++v) {
-						acc += logitBuf[(nk_size)v];
-						if (acc >= r) {
-							next = v;
-							break;
-						}
-					}
+					const int next = NkSampleToken(lp, mNByte, sp, mRng);
 					ctx.PushBack((int32)next);
 					out.Append(mBpe.Decode(next));
 				}
