@@ -354,23 +354,34 @@ namespace nkentseu {
 					}
 				}
 
+				static bool PathSame(const char *a, const char *b) { return PathIsAncestor(a, b) && PathIsAncestor(b, a); }
+
 				void PickerCreateFolder() {
 					if (!pickerNew[0])
 						return;
-					// Cree sous le dossier SELECTIONNE (sinon le chemin courant), sans reconstruire tout l'arbre.
-					const NkString parent = (pickerSel >= 0 && pickerSel < (int32)pickerTree.Size())
-												? pickerTree[pickerSel].path
-												: NkString(pickerPath);
+					// Cible = dossier SELECTIONNE ; sinon le noeud dont le chemin == chemin courant
+					// (pour que le nouveau dossier APPARAISSE dans l'arbre meme sans selection).
+					int32 target = pickerSel;
+					if (target < 0 || target >= (int32)pickerTree.Size()) {
+						for (int32 i = 0; i < (int32)pickerTree.Size(); ++i)
+							if (PathSame(pickerTree[i].path.CStr(), pickerPath)) {
+								target = i;
+								break;
+							}
+					}
+					const NkString parent =
+						(target >= 0 && target < (int32)pickerTree.Size()) ? pickerTree[target].path : NkString(pickerPath);
 					if (NkDirectory::CreateRecursive(NkPath(parent.CStr()) / pickerNew)) {
-						pickerNew[0] = '\0';
-						if (pickerSel >= 0 && pickerSel < (int32)pickerTree.Size()) {
-							pickerTree[pickerSel].hasKids = true;
-							if (pickerTree[pickerSel].open) {
-								TogglePickerNode(pickerSel);
-								TogglePickerNode(pickerSel);
+						pickerNew[0] = ' ';
+						if (target >= 0 && target < (int32)pickerTree.Size()) {
+							pickerSel = target; // selectionne la cible (visible + creations suivantes)
+							pickerTree[target].hasKids = true;
+							if (pickerTree[target].open) {
+								TogglePickerNode(target);
+								TogglePickerNode(target);
 							} // replie+deplie = rafraichit
 							else
-								TogglePickerNode(pickerSel); // deplie pour montrer le nouveau
+								TogglePickerNode(target); // deplie pour montrer le nouveau
 						}
 					}
 				}
@@ -513,7 +524,6 @@ namespace nkentseu {
 			float32 y = py + 50.f * S;
 			{
 				const NkRect r = {cx, y, cwid - 96.f * S, 30.f * S};
-				NkOverlayTextField(ctx, dl, f, r, fp.pickerPath, (int32)sizeof(fp.pickerPath), fp.pickerEditing);
 				if (hit(r) && click) {
 					fp.pickerEditing = true;
 					fp.pickerNewFocus = false;
@@ -521,6 +531,7 @@ namespace nkentseu {
 					fp.PickerClearExtraFocus();
 					fieldClicked = true;
 				}
+				NkOverlayTextField(ctx, dl, f, r, fp.pickerPath, (int32)sizeof(fp.pickerPath), fp.pickerEditing);
 				if (sbtn({cx + cwid - 84.f * S, y, 84.f * S, 30.f * S}, "Aller")) {
 					if (!fp.PickerAllowed(fp.pickerPath))
 						NkFilePickerState::CopyTo(fp.pickerPath, fp.pickerConfine.CStr(), (int32)sizeof(fp.pickerPath));
@@ -713,7 +724,6 @@ namespace nkentseu {
 			const float32 ny = area.y + area.h + 8.f * S;
 			{
 				const NkRect r = {cx, ny, cwid - 150.f * S, 30.f * S};
-				NkOverlayTextField(ctx, dl, f, r, fp.pickerNew, (int32)sizeof(fp.pickerNew), fp.pickerNewFocus);
 				if (hit(r) && click) {
 					fp.pickerNewFocus = true;
 					fp.pickerEditing = false;
@@ -721,6 +731,7 @@ namespace nkentseu {
 					fp.PickerClearExtraFocus();
 					fieldClicked = true;
 				}
+				NkOverlayTextField(ctx, dl, f, r, fp.pickerNew, (int32)sizeof(fp.pickerNew), fp.pickerNewFocus);
 				if (fp.pickerNew[0] == '\0' && !fp.pickerNewFocus)
 					text(r.x + 10.f * S, r.y + (30.f * S - lh) * 0.5f, "nom du nouveau dossier", sty.sub);
 				if (sbtn({cx + cwid - 140.f * S, ny, 140.f * S, 30.f * S}, "+ Creer dossier"))
@@ -731,7 +742,6 @@ namespace nkentseu {
 				const float32 fy = ny + 56.f * S;
 				text(cx, fy - 18.f * S, "Nom du fichier (avec extension)", sty.sub);
 				const NkRect r = {cx, fy, cwid, 30.f * S};
-				NkOverlayTextField(ctx, dl, f, r, fp.pickerSaveName, (int32)sizeof(fp.pickerSaveName), fp.pickerSaveFocus);
 				if (hit(r) && click) {
 					fp.pickerSaveFocus = true;
 					fp.pickerEditing = false;
@@ -739,6 +749,7 @@ namespace nkentseu {
 					fp.PickerClearExtraFocus();
 					fieldClicked = true;
 				}
+				NkOverlayTextField(ctx, dl, f, r, fp.pickerSaveName, (int32)sizeof(fp.pickerSaveName), fp.pickerSaveFocus);
 				if (fp.pickerSaveName[0] == '\0' && !fp.pickerSaveFocus)
 					text(r.x + 10.f * S, r.y + (30.f * S - lh) * 0.5f, "ex: MonFichier.cpp", sty.sub);
 			}

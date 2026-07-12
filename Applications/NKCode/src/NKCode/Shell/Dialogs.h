@@ -215,12 +215,13 @@ namespace nkentseu {
 					auto field = [&](float32 fx, float32 fyy, float32 fw, char *buf, int32 cap, int32 fid,
 									 const char *ph2) {
 						const NkRect r = {fx, fyy, fw, 26.f * S};
-						NkOverlayTextField(ctx, dl, f, r, buf, cap, scafFocus == fid);
+						// Focus AVANT le dessin (place le curseur au clic, pas de faux double-clic).
 						if (hit(r) && click) {
 							scafFocus = fid;
 							pickerSaveFocus = pickerNewFocus = pickerEditing = false;
 							fieldClicked = true;
 						}
+						NkOverlayTextField(ctx, dl, f, r, buf, cap, scafFocus == fid);
 						if (buf[0] == '\0' && scafFocus != fid && ph2)
 							text(r.x + 10.f * S, r.y + (26.f * S - lh) * 0.5f, ph2, sty.sub);
 					};
