@@ -9,6 +9,7 @@
 // @License Proprietary - Free to use and modify
 // -----------------------------------------------------------------------------
 #include "NKGui/NKGui.h"
+#include "NKEditorKit/NkEditorScrollbar.h" // scrollbar standard
 
 namespace nkentseu {
 	namespace editorkit {
@@ -33,7 +34,7 @@ namespace nkentseu {
 				return -1;
 			NkGuiDrawList &dl = ctx.dlOverlay;
 			const float32 lh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
-			const float32 rowH = lh + 8.f, pad = 10.f, sbT = 9.f;
+			const float32 rowH = lh + 8.f, pad = 10.f, sbT = NkScrollbarWidth(); // scrollbar standard (14)
 			// Taille IDEALE (plus long item) puis bornes : 60 % de la largeur, 50 % de la hauteur ;
 			// au-dela -> defilement V/H (molette = V, Maj+molette ou molette H = H, barres draggables).
 			float32 wIdeal = 168.f;
@@ -123,29 +124,11 @@ namespace nkentseu {
 			// Barres de defilement (temoins + clic/glisser pour se positionner).
 			if (hasV) {
 				const NkRect tr = {box.x + box.w - sbT, inner.y, sbT, inner.h};
-				dl.AddRectFilled(tr, ctx.theme.track, 3.f);
-				float32 th = inner.h * (inner.h / (contentH + 8.f));
-				if (th < 18.f)
-					th = 18.f;
-				const float32 ty = tr.y + (maxSy > 0.f ? (mn.sy / maxSy) * (tr.h - th) : 0.f);
-				dl.AddRectFilled({tr.x + 1.f, ty, sbT - 2.f, th}, ctx.theme.border, 3.f);
-				if (ctx.input.mouseDown[0] && m.x >= tr.x && m.x < tr.x + tr.w && m.y >= tr.y && m.y < tr.y + tr.h) {
-					const float32 t = (m.y - tr.y - th * 0.5f) / (tr.h - th > 1.f ? tr.h - th : 1.f);
-					mn.sy = (t < 0.f ? 0.f : t > 1.f ? 1.f : t) * maxSy;
-				}
+				NkVScrollbar(ctx, dl, tr, mn.sy, contentH + 8.f, inner.h, 0xC71E0001u, rowH);
 			}
 			if (hasH) {
 				const NkRect tr = {box.x, box.y + box.h - sbT, inner.w, sbT};
-				dl.AddRectFilled(tr, ctx.theme.track, 3.f);
-				float32 th = tr.w * (inner.w / wIdeal);
-				if (th < 24.f)
-					th = 24.f;
-				const float32 tx = tr.x + (maxSx > 0.f ? (mn.sx / maxSx) * (tr.w - th) : 0.f);
-				dl.AddRectFilled({tx, tr.y + 1.f, th, sbT - 2.f}, ctx.theme.border, 3.f);
-				if (ctx.input.mouseDown[0] && m.x >= tr.x && m.x < tr.x + tr.w && m.y >= tr.y && m.y < tr.y + tr.h) {
-					const float32 t = (m.x - tr.x - th * 0.5f) / (tr.w - th > 1.f ? tr.w - th : 1.f);
-					mn.sx = (t < 0.f ? 0.f : t > 1.f ? 1.f : t) * maxSx;
-				}
+				NkHScrollbar(ctx, dl, tr, mn.sx, wIdeal, inner.w, 0xC71E0002u, 32.f);
 			}
 			if (clicked >= 0) {
 				mn.open = false;
