@@ -73,6 +73,37 @@ namespace nkentseu {
 				bool AddPanel(NkEditorPanel *panel) noexcept;
 				// Ouvre (si ferme) puis met au premier plan le panneau nomme (onglet de dock).
 				bool FocusPanel(const char *title) noexcept;
+				bool IsPanelOpen(const char *title) noexcept; ///< panneau nomme ouvert ?
+				void ClosePanel(const char *title) noexcept;  ///< ferme le panneau nomme
+				int32 PanelDockNode(const char *title) noexcept; ///< feuille de dock (-1 = non ancre)
+				void DetachPanel(const char *title) noexcept; ///< retire de sa feuille (collapse si vide)
+
+				// Clic sur l'activity bar : l'app recoit l'index (0..6 = vues gauche, 100..102 = IA
+				// droite, 999 = reglages) et decide (sidebar exclusive facon VSCode).
+				void SetActivityHandler(void (*fn)(void *, int32), void *user) noexcept {
+					mActivityFn = fn;
+					mActivityUser = user;
+				}
+
+				// Icônes MARQUÉES des activity bars (l'app pousse chaque frame l'état RÉEL
+				// des panneaux : disposition restaurée comprise). -1 = aucune.
+				void SetActivityActive(int32 leftIdx, int32 rightIdx) noexcept {
+					mActivityIndex = leftIdx;
+					mActivityIndexRight = rightIdx;
+				}
+
+				// Icônes TEXTURE des activity bars (teintées au rendu ; 0 = le dessin au
+				// trait par défaut reste). left[0..6] = vues gauche, gear = réglages,
+				// right[0..2] = IA droite.
+				void SetActivityIcons(const uint32 *left, int32 nLeft, uint32 gear, const uint32 *right,
+									  int32 nRight) noexcept {
+					for (int32 i = 0; i < 8 && i < nLeft; ++i)
+						mActTexL[i] = left[i];
+					mActTexGear = gear;
+					for (int32 i = 0; i < 4 && i < nRight; ++i)
+						mActTexR[i] = right[i];
+				}
+
 				bool RegisterCommand(const char *name, NkEditorCommandFn fn, void *user = nullptr,
 									 const char *shortcut = "") noexcept;
 
@@ -234,6 +265,7 @@ namespace nkentseu {
 				void MapEditKey(NkKey k, bool down) noexcept;
 				void TryRunShortcut(NkKey k, bool shift) noexcept;
 				void DrawActivityBar(const nkgui::NkRect &bar) noexcept;
+				void DrawActivityBarRight(const nkgui::NkRect &bar) noexcept; ///< barre IA (cote droit)
 				void DrawStatusBar(float32 footerH) noexcept;
 
 				// === Redimensionnement / deplacement : hand-off NATIF (BeginResize/BeginDragMove).
@@ -317,7 +349,13 @@ namespace nkentseu {
 				char mTitleCenter[200] = {};
 				char mFooterLeft[256] = {};
 				char mFooterRight[128] = {};
-				int32 mActivityIndex = 0; // icone selectionnee dans l'activity bar
+				int32 mActivityIndex = 0;					  // icone selectionnee dans l'activity bar
+				int32 mActivityIndexRight = -1;				  // icone marquee de la barre DROITE (IA)
+				uint32 mActTexL[8] = {};					  // textures vues gauche (0 = trait)
+				uint32 mActTexR[4] = {};					  // textures IA droite
+				uint32 mActTexGear = 0;						  // texture reglages
+				void (*mActivityFn)(void *, int32) = nullptr; // handler app du clic activity bar
+				void *mActivityUser = nullptr;
 
 				// === Etat boucle ===
 				NkClock mClock;

@@ -14,9 +14,9 @@
 #include "NKCode/Shell/NkToolchains.h"	 // gestionnaire de toolchains
 #include "NKCode/Shell/NkPlatforms.h"	 // gestionnaire de plateformes
 #include "NKCode/Shell/NkSettings.h"	 // parametres du launcher (nav==12)
-#include "NKCode/Shell/NkLoading.h"		 // ecran de chargement (section 14)
-#include <cstdio>
-#include <cmath>
+#include "NKCode/Shell/NkLoading.h"		  // ecran de chargement (section 14)
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison, ex-<cstdio>)
+#include "NKMath/NkFunctions.h"			  // math::NkSin / math::NkCos (maths maison, ex-<cmath>)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -313,14 +313,13 @@ namespace nkentseu {
 				float32 cx = tx;
 				u.Text(cx, y, NkT("card.projects"), NkCol::mutedFg);
 				cx += u.TextW(NkT("card.projects"));
-				char cnt[16];
-				cnt[0] = '\0';
+				NkString cnt; // NkPrintf maison (ex-std::snprintf)
 				if (w.projCount > 0)
-					std::snprintf(cnt, sizeof(cnt), "  (%d)", w.projCount);
-				const float32 cntw = cnt[0] ? u.TextW(cnt) : 0.f;
+					cnt = NkPrintf("  (%d)", w.projCount);
+				const float32 cntw = !cnt.Empty() ? u.TextW(cnt.CStr()) : 0.f;
 				cx += u.TextEllipsis(cx, y, lineRight - cx - cntw, w.projects, NkCol::foreground);
-				if (cnt[0])
-					u.Text(cx, y, cnt, NkCol::mutedFg);
+				if (!cnt.Empty())
+					u.Text(cx, y, cnt.CStr(), NkCol::mutedFg);
 				y += lh + u.s(5);
 			}
 			// Ligne 6 : Dernier build: [statut] Cfg  ·  Modifie: ...
@@ -903,7 +902,7 @@ namespace nkentseu {
 					}
 				// recentsMax : plafonne le nombre de workspaces affiches (0/vide = illimite).
 				{
-					const int32 rmax = std::atoi(H->settings.recentsMax);
+					const int32 rmax = NkAtoi(H->settings.recentsMax); // conversion maison (NkText.h)
 					if (rmax > 0)
 						while ((int32)rows.Size() > rmax)
 							rows.Erase(rows.Begin() + (rows.Size() - 1));
@@ -1075,9 +1074,8 @@ namespace nkentseu {
 			u.Rect({right.x, ry - u.s(8), rcw, 1.f}, NkCol::border);
 			// En-tete + compteur (exemples enumeres via `jenga examples list`).
 			{
-				char hdr[48];
-				std::snprintf(hdr, sizeof(hdr), "%s (%d)", NkT("home.examples"), st ? (int)st->examples.Size() : 0);
-				u.Text(right.x, ry, hdr, NkCol::mutedFg);
+				const NkString hdr = NkPrintf("%s (%d)", NkT("home.examples"), st ? (int)st->examples.Size() : 0);
+				u.Text(right.x, ry, hdr.CStr(), NkCol::mutedFg);
 			}
 			ry += u.s(20);
 			// Recherche d'exemple (champ fixe, hors scroll).
@@ -1162,8 +1160,8 @@ namespace nkentseu {
 				u.dl->AddRectFilled({gx - rad, gy - rad, rad * 2, rad * 2},
 									NkColor{NkCol::primary.r, NkCol::primary.g, NkCol::primary.b, al}, rad);
 			};
-			glow(W * 0.30f, Ht * 0.30f + std::sin(L.anim * 0.6f) * u.s(18), u.s(230), 14);
-			glow(W * 0.72f, Ht * 0.60f + std::cos(L.anim * 0.5f) * u.s(22), u.s(260), 10);
+			glow(W * 0.30f, Ht * 0.30f + math::NkSin(L.anim * 0.6f) * u.s(18), u.s(230), 14);
+			glow(W * 0.72f, Ht * 0.60f + math::NkCos(L.anim * 0.5f) * u.s(22), u.s(260), 10);
 
 			const float32 colW = u.s(460);
 			const float32 cx = (W - colW) * 0.5f;
@@ -1186,15 +1184,13 @@ namespace nkentseu {
 
 			if (!L.error) {
 				{
-					char b[160];
-					std::snprintf(b, sizeof(b), NkT("load.loading"), L.wsName.CStr());
-					center(b, NkCol::foreground, y);
+					const NkString b = NkPrintf(NkT("load.loading"), L.wsName.CStr()); // NkPrintf maison
+					center(b.CStr(), NkCol::foreground, y);
 				}
 				y += u.s(30);
 				{
-					char pc[8];
-					std::snprintf(pc, sizeof(pc), "%d%%", (int32)(L.Progress() * 100.f));
-					u.Text(cx, y, pc, NkCol::mutedFg);
+					const NkString pc = NkPrintf("%d%%", (int32)(L.Progress() * 100.f));
+					u.Text(cx, y, pc.CStr(), NkCol::mutedFg);
 				}
 				y += u.s(18);
 				u.dl->AddRectFilled({cx, y, colW, u.s(6)}, NkCol::muted, u.s(3));
@@ -1204,7 +1200,7 @@ namespace nkentseu {
 					const bool done = i < L.step, cur = (i == L.step);
 					NkColor tint = done ? NkCol::success : (cur ? NkCol::primary : NkCol::mutedFg);
 					if (cur) {
-						const float32 p = 0.5f + 0.5f * std::sin(L.anim * 4.f);
+						const float32 p = 0.5f + 0.5f * math::NkSin(L.anim * 4.f);
 						tint.a = (uint8)(120 + (int32)(135 * p));
 					}
 					u.Icon(done ? "check-circle" : (cur ? "refresh" : "circle"), {cx, y + u.s(1), u.s(14), u.s(14)},
@@ -1248,9 +1244,8 @@ namespace nkentseu {
 				u.Icon("alert-triangle", {box.x + u.s(12), box.y + u.s(12), u.s(15), u.s(15)}, NkCol::danger);
 				u.Text(box.x + u.s(34), box.y + u.s(11), NkT("load.err.title"), NkCol::danger);
 				{
-					char b[220];
-					std::snprintf(b, sizeof(b), NkT("load.err.cannotparse"), L.wsName.CStr());
-					u.TextEllipsis(box.x + u.s(14), box.y + u.s(36), colW - u.s(28), b, NkCol::foreground);
+					const NkString b = NkPrintf(NkT("load.err.cannotparse"), L.wsName.CStr()); // NkPrintf maison
+					u.TextEllipsis(box.x + u.s(14), box.y + u.s(36), colW - u.s(28), b.CStr(), NkCol::foreground);
 				}
 				const NkRect code = {box.x + u.s(14), box.y + u.s(58), colW - u.s(28), u.s(52)};
 				u.Panel(code, NkCol::input, NkCol::border, NkR::sm * u.S);

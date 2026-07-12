@@ -19,7 +19,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkPath.h"
-#include <cstdlib>
+#include "NKPlatform/NkEnv.h" // env::GetEnvVar (variables d'environnement maison)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -423,6 +423,16 @@ namespace nkentseu {
 				{"edit.reload",
 				 {"Recharger", "Reload", "Recargar", "Recarregar", "Neu laden", "Ricarica", "Перезагрузить",
 				  "Recharger"}},
+				{"agent.found",
+				 {"Installé :", "Installed:", "Instalado:", "Instalado:", "Installiert:", "Installato:", "Установлено:",
+				  "Installé :"}},
+				{"agent.missing",
+				 {"Non détecté. Installation :", "Not found. Install with:", "No detectado. Instalar:",
+				  "Não detetado. Instalar:", "Nicht gefunden. Installation:", "Non trovato. Installa:",
+				  "Не найдено. Установка:", "Non détecté. Installation :"}},
+				{"agent.launch",
+				 {"Lancer dans le terminal", "Launch in terminal", "Iniciar en la terminal", "Iniciar no terminal",
+				  "Im Terminal starten", "Avvia nel terminale", "Запустить в терминале", "Lancer dans le terminal"}},
 				{"term.shdefault",
 				 {"Shell par défaut", "Default shell", "Shell predeterminado", "Shell predefinido", "Standard-Shell",
 				  "Shell predefinita", "Оболочка по умолчанию", "Shell par défaut"}},
@@ -446,6 +456,44 @@ namespace nkentseu {
 				  "résultat(s)"}},
 				{"search.files",
 				 {"fichier(s)", "file(s)", "archivo(s)", "ficheiro(s)", "Datei(en)", "file", "файл(ов)", "fichier(s)"}},
+				{"exp.filter",
+				 {"Filtrer les fichiers...", "Filter files...", "Filtrar archivos...", "Filtrar ficheiros...",
+				  "Dateien filtern...", "Filtra i file...", "Фильтр файлов...", "Filtrer les fichiers..."}},
+				{"exp.ctx.newfile",
+				 {"Nouveau fichier", "New file", "Nuevo archivo", "Novo ficheiro", "Neue Datei", "Nuovo file",
+				  "Новый файл", "Nouveau fichier"}},
+				{"exp.ctx.newfolder",
+				 {"Nouveau dossier", "New folder", "Nueva carpeta", "Nova pasta", "Neuer Ordner", "Nuova cartella",
+				  "Новая папка", "Nouveau dossier"}},
+				{"exp.ctx.rename",
+				 {"Renommer", "Rename", "Renombrar", "Renomear", "Umbenennen", "Rinomina", "Переименовать",
+				  "Renommer"}},
+				{"exp.ctx.delete",
+				 {"Supprimer (corbeille)", "Delete (recycle bin)", "Eliminar (papelera)", "Eliminar (reciclagem)",
+				  "Löschen (Papierkorb)", "Elimina (cestino)", "Удалить (корзина)", "Supprimer (corbeille)"}},
+				{"exp.ctx.dup",
+				 {"Dupliquer", "Duplicate", "Duplicar", "Duplicar", "Duplizieren", "Duplica", "Дублировать",
+				  "Dupliquer"}},
+				{"exp.ctx.copypath",
+				 {"Copier le chemin", "Copy path", "Copiar ruta", "Copiar caminho", "Pfad kopieren", "Copia percorso",
+				  "Копировать путь", "Copier le chemin"}},
+				{"exp.ctx.copyrel",
+				 {"Copier le chemin relatif", "Copy relative path", "Copiar ruta relativa", "Copiar caminho relativo",
+				  "Relativen Pfad kopieren", "Copia percorso relativo", "Копировать относительный путь",
+				  "Copier le chemin relatif"}},
+				{"exp.ctx.reveal",
+				 {"Révéler dans l'explorateur", "Reveal in file explorer", "Mostrar en el explorador",
+				  "Mostrar no explorador", "Im Explorer anzeigen", "Mostra in Esplora file", "Показать в проводнике",
+				  "Révéler dans l'explorateur"}},
+				{"exp.ctx.term",
+				 {"Ouvrir dans le terminal", "Open in terminal", "Abrir en terminal", "Abrir no terminal",
+				  "Im Terminal öffnen", "Apri nel terminale", "Открыть в терминале", "Ouvrir dans le terminal"}},
+				{"exp.del.cancel",
+				 {"Annuler", "Cancel", "Cancelar", "Cancelar", "Abbrechen", "Annulla", "Отмена", "Annuler"}},
+				{"exp.ctx.gitignore",
+				 {"Ajouter au .gitignore", "Add to .gitignore", "Añadir a .gitignore", "Adicionar ao .gitignore",
+				  "Zu .gitignore hinzufügen", "Aggiungi a .gitignore", "Добавить в .gitignore",
+				  "Ajouter au .gitignore"}},
 				{"outline.title",
 				 {"STRUCTURE", "OUTLINE", "ESTRUCTURA", "ESTRUTURA", "STRUKTUR", "STRUTTURA", "СТРУКТУРА",
 				  "STRUCTURE"}},
@@ -1949,9 +1997,9 @@ namespace nkentseu {
 			if (NkI18nLoadedFlag())
 				return;
 			NkI18nLoadedFlag() = true;
-			const char *h = std::getenv("USERPROFILE");
+			const char *h = env::GetEnvVar("USERPROFILE"); // API maison (NKPlatform/NkEnv.h)
 			if (!h || !*h)
-				h = std::getenv("HOME");
+				h = env::GetEnvVar("HOME");
 			const NkString home = h ? h : "";
 			for (int32 l = 0; l < NK_I18N_LANGS; ++l) {
 				const NkString f = NkString(NkI18nCode(l)) + ".lang";

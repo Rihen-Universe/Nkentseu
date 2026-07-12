@@ -12,6 +12,9 @@
 #include "NKCode/Editor/NkTextDraw.h"
 #include "NKCode/Shell/NkI18n.h"  // NkT() : bannière mojibake traduite
 #include "NKCode/Shell/NkShell.h" // NkCodeShellRun (révéler dans l'explorateur / terminal)
+#include "NKCode/Shell/NkExplorer.h" // ExplorerPanel (arbre + git + filtre, maquette Banani)
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
+#include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -34,99 +37,66 @@ namespace nkentseu {
 
 		// ── Explorateur : ARBRE repliable facon VSCode. Les dossiers s'ouvrent/ferment
 		//    en place (chevron + indentation) ; clic fichier = ouvrir dans l'editeur. ──
-		class ExplorerPanel : public NkEditorPanel {
-			public:
-				explicit ExplorerPanel(NkCodeState *s)
-					: NkEditorPanel("Explorateur", NkEditorDockSide::NK_LEFT), mS(s) {
-				}
+		inline bool SideSameStr(const char *a, const char *b) {
+			while (*a && *a == *b) {
+				++a;
+				++b;
+			}
+			return *a == *b;
+		}
 
-				void OnUI(NkEditorFrameContext &ec) override {
-					auto &ctx = ec.Ui();
-					// En-tete "EXPLORATEUR" + le PROJET comme NOEUD RACINE repliable (tout
-					// l'arbre est imbrique dessous). SCOPE projet : pas de ".." -> jamais hors projet.
-					ec.Text("EXPLORATEUR");
-					ec.Separator();
-					char name[260];
-					ToUpperInto(mS->root.GetFileName().CStr(), name, sizeof(name));
-					char rootLbl[280];
-					std::snprintf(rootLbl, sizeof(rootLbl), "%s %s", mRootOpen ? "v" : ">", name);
-					if (Selectable(ctx, rootLbl, false))
-						mRootOpen = !mRootOpen;
-					if (mRootOpen)
-						DrawTree(ctx, mS->root, 1);
+		// ── SIDEBARS EXCLUSIVES (façon VSCode) : le panneau REMPLACE celui du côté. ──
+		// Les autres panneaux du groupe partageant la MÊME feuille sont fermés ET
+		// détachés (sinon la feuille accumule des onglets fantômes fermés). Un panneau
+		// déplacé AILLEURS à la main (feuille différente) est indépendant : intact.
+		inline void OpenSideExclusive(editorkit::NkEditorShell *sh, const char *const *titles, int32 n,
+									  const char *want) {
+			if (!sh)
+				return;
+			// Panneau FERMÉ mais encore ancré quelque part (il avait été déplacé puis
+			// fermé) : rouvrir via l'icône le ramène TOUJOURS à son côté par défaut —
+			// le déplacement ne vaut que tant que le panneau reste ouvert (indépendant).
+			if (!sh->IsPanelOpen(want) && sh->PanelDockNode(want) >= 0)
+				sh->DetachPanel(want);
+			sh->FocusPanel(want); // ouvre + ancre au côté par défaut (no-op si déjà placé)
+			const int32 node = sh->PanelDockNode(want);
+			for (int32 i = 0; i < n; ++i) {
+				if (SideSameStr(titles[i], want))
+					continue;
+				if (node >= 0 && sh->PanelDockNode(titles[i]) == node) {
+					sh->ClosePanel(titles[i]);
+					sh->DetachPanel(titles[i]);
 				}
+			}
+		}
 
-			private:
-				// Dessine recursivement l'arbre du dossier `dir` a la profondeur `depth`.
-				void DrawTree(NkGuiContext &ctx, const NkPath &dir, int32 depth) {
-					if (depth > 24)
-						return; // garde-fou
-					NkVector<NkDirectoryEntry> entries =
-						NkDirectory::GetEntries(dir, "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
-					for (int pass = 0; pass < 2; ++pass) { // dossiers d'abord, puis fichiers
-						const bool wantDir = (pass == 0);
-						for (usize i = 0; i < entries.Size(); ++i) {
-							const NkDirectoryEntry &e = entries[i];
-							if (e.IsDirectory != wantDir)
-								continue;
-							char lbl[340];
-							int32 n = 0;
-							for (int32 d = 0; d < depth; ++d) {
-								lbl[n++] = ' ';
-								lbl[n++] = ' ';
-							} // indentation
-							if (e.IsDirectory) {
-								const bool exp = IsExpanded(e.FullPath);
-								lbl[n++] = exp ? 'v' : '>';
-								lbl[n++] = ' '; // chevron
-								std::snprintf(lbl + n, sizeof(lbl) - n, "%s", e.Name.CStr());
-								if (Selectable(ctx, lbl, false))
-									ToggleExpanded(e.FullPath);
-								if (IsExpanded(e.FullPath))
-									DrawTree(ctx, e.FullPath, depth + 1);
-							} else {
-								lbl[n++] = ' ';
-								lbl[n++] = ' '; // aligne sous le chevron
-								std::snprintf(lbl + n, sizeof(lbl) - n, "%s", e.Name.CStr());
-								if (Selectable(ctx, lbl, false))
-									mS->OpenPath(e.FullPath);
-							}
-						}
-					}
-				}
+		inline void ToggleSideExclusive(editorkit::NkEditorShell *sh, const char *const *titles, int32 n,
+										const char *want) {
+			if (!sh)
+				return;
+			if (sh->IsPanelOpen(want)) { // re-clic sur l'icône -> le côté se replie (VSCode)
+				sh->ClosePanel(want);
+				sh->DetachPanel(want); // feuille vidée -> collapse -> la sidebar disparaît
+				return;
+			}
+			OpenSideExclusive(sh, titles, n, want);
+		}
 
-				bool IsExpanded(const NkPath &p) const {
-					const NkString s = p.ToString();
-					for (usize i = 0; i < mExpanded.Size(); ++i)
-						if (StrEq(mExpanded[i].CStr(), s.CStr()))
-							return true;
-					return false;
-				}
+		// Groupes des sidebars (titres) — partagés entre l'activity bar et les raccourcis.
+		inline const char *const *SideLeftGroup(int32 &n) {
+			static const char *kG[] = {"Explorateur", "Recherche",	 "Controle de version",
+									   "Debogueur",	  "Live Collab", "Extensions",
+									   "Profiler",	  "Structure"};
+			n = 8;
+			return kG;
+		}
 
-				void ToggleExpanded(const NkPath &p) {
-					const NkString s = p.ToString();
-					for (usize i = 0; i < mExpanded.Size(); ++i)
-						if (StrEq(mExpanded[i].CStr(), s.CStr())) {
-							mExpanded.Erase(mExpanded.Begin() + i);
-							return;
-						}
-					mExpanded.PushBack(s);
-				}
+		inline const char *const *SideRightGroup(int32 &n) {
+			static const char *kG[] = {"Assistant IA", "Claude Code", "Codex", "Moteur"};
+			n = 4;
+			return kG;
+		}
 
-				static void ToUpperInto(const char *s, char *dst, usize cap) {
-					usize i = 0;
-					if (s)
-						for (; s[i] && i + 1 < cap; ++i) {
-							char c = s[i];
-							dst[i] = (c >= 'a' && c <= 'z') ? static_cast<char>(c - 32) : c;
-						}
-					dst[i] = '\0';
-				}
-
-				NkCodeState *mS;
-				NkVector<NkString> mExpanded; // dossiers deplies (chemins) — etat persistant
-				bool mRootOpen = true;		  // noeud racine (projet) deplie par defaut
-		};
 
 		// ── Panneau STRUCTURE / OUTLINE : symboles du fichier actif (namespaces, classes,
 		//    structs, enums, fonctions ; def/class Python ; titres Markdown). Clic sur un
@@ -162,7 +132,7 @@ namespace nkentseu {
 						}
 						lbl[n++] = kKindGlyph[sy.kind];
 						lbl[n++] = ' ';
-						std::snprintf(lbl + n, sizeof(lbl) - n, "%s", sy.name.CStr());
+						NkStrCopy(lbl + n, sizeof(lbl) - n, sy.name.CStr()); // copie bornée maison (NkText.h)
 						if (Selectable(ctx, lbl, false)) {
 							f.doc.curLine = (sy.line < f.doc.LineCount()) ? sy.line : f.doc.LineCount() - 1;
 							f.doc.curCol = 0;
@@ -432,19 +402,17 @@ namespace nkentseu {
 						mS->StartWsFind(NkString(mQuery), mCase, mWord);
 					if (ctx.input.KeyPressed(NkGuiKey::Escape))
 						mFocus = 0;
-					// ── Statut ──
-					char st[128];
-					if (mS->wsBusy)
-						std::snprintf(st, sizeof(st), "%s %d/%d", NkT("search.busy"), mS->wsScanned, mS->wsTotal);
-					else
-						std::snprintf(st, sizeof(st), "%d %s / %d %s", static_cast<int32>(mS->wsResults.Size()),
-									  NkT("search.results"), mS->wsFileCount, NkT("search.files"));
+					// ── Statut ── (NkPrintf maison)
+					const NkString st =
+						mS->wsBusy ? NkPrintf("%s %d/%d", NkT("search.busy"), mS->wsScanned, mS->wsTotal)
+								   : NkPrintf("%d %s / %d %s", static_cast<int32>(mS->wsResults.Size()),
+											  NkT("search.results"), mS->wsFileCount, NkT("search.files"));
 					// Avance le layout du shell : la LISTE en dessous profite du scroll de la fenêtre.
 					ctx.layout.cursor.x = x0;
 					ctx.layout.cursor.y = y;
 					ctx.layout.lineStartX = x0;
 					ctx.layout.curLineH = 0.f;
-					ec.Text(st);
+					ec.Text(st.CStr());
 					ec.Separator();
 					// ── Résultats groupés par fichier (en-tête repliable + hits cliquables) ──
 					NkString cur;
@@ -458,17 +426,15 @@ namespace nkentseu {
 								 j < mS->wsResults.Size() && StrEq(mS->wsResults[j].file.CStr(), cur.CStr()); ++j)
 								++nf;
 							folded = IsFolded(cur);
-							char hd[300];
-							std::snprintf(hd, sizeof(hd), "%s %s  (%d)", folded ? ">" : "v",
-										  NkPath(cur).GetFileName().CStr(), nf);
-							if (Selectable(ctx, hd, false))
+							const NkString hd = NkPrintf("%s %s  (%d)", folded ? ">" : "v",
+														 NkPath(cur).GetFileName().CStr(), nf); // NkPrintf maison
+							if (Selectable(ctx, hd.CStr(), false))
 								ToggleFold(cur);
 						}
 						if (folded)
 							continue;
-						char row[360];
-						std::snprintf(row, sizeof(row), "   L%d : %s", h.line + 1, h.preview.CStr());
-						if (Selectable(ctx, row, false)) { // ouverture DIFFÉRÉE (poll) : jamais OpenPath au rendu
+						const NkString row = NkPrintf("   L%d : %s", h.line + 1, h.preview.CStr()); // NkPrintf maison
+						if (Selectable(ctx, row.CStr(), false)) { // ouverture DIFFÉRÉE (poll) : jamais OpenPath au rendu
 							mS->wsOpenFile = h.file;
 							mS->wsOpenLine = h.line;
 						}
@@ -508,6 +474,34 @@ namespace nkentseu {
 
 				void OnUI(NkEditorFrameContext &ec) override {
 					auto &ctx = ec.Ui();
+					// FOCUS CLAVIER GLOBAL : quand l'EXPLORATEUR a le focus-clic, l'éditeur
+					// ignore le CLAVIER (sinon Ctrl+D/Suppr/Entrée tireraient des DEUX côtés
+					// à la fois). La souris reste active ; un clic DANS l'éditeur reprend le
+					// clavier. RAII : l'input est restauré à toute sortie de OnUI.
+					struct KbShield {
+							NkGuiContext *c = nullptr;
+							NkGuiInput saved;
+							~KbShield() {
+								if (c)
+									c->input = saved;
+							}
+					} kb;
+					if (mS->explorerFocus) {
+						if (ctx.input.mouseClicked[0] &&
+							NkGuiRectContains(ctx.DL().CurrentClip(), ctx.input.mousePos))
+							mS->explorerFocus = false; // clic dans l'éditeur : reprend le clavier
+						else {
+							kb.c = &ctx;
+							kb.saved = ctx.input;
+							ctx.input.charCount = 0;
+							for (int32 k = 0; k < NkGuiInput::KeyCount; ++k) {
+								ctx.input.keyDown[k] = false;
+								ctx.input.keyInit[k] = false;
+							}
+							ctx.input.wantCopy = ctx.input.wantCut = ctx.input.wantPaste = false;
+							ctx.input.wantSelectAll = false;
+						}
+					}
 					if (mS->files.Empty()) {
 						if (mShell)
 							mShell->SetFooter("NKCode", "Jenga");
@@ -570,15 +564,14 @@ namespace nkentseu {
 						// Bouton « Tout réparer (N) » : répare en une fois TOUS les fichiers ouverts affectés.
 						const int32 nMoji = mS->CountMojibake();
 						if (nMoji > 1 && ctx.font && ctx.font->Valid()) {
-							char alab[64];
-							std::snprintf(alab, sizeof(alab), "%s (%d)", NkT("edit.repairall"), nMoji);
-							const float32 aw = ctx.font->MeasureWidth(alab) + 24.f;
+							const NkString alab = NkPrintf("%s (%d)", NkT("edit.repairall"), nMoji); // NkPrintf maison
+							const float32 aw = ctx.font->MeasureWidth(alab.CStr()) + 24.f;
 							const NkRect abtn = {btn.x - aw - 8.f, bar.y + 5.f, aw, bh - 10.f};
 							const bool ahov =
 								mm.x >= abtn.x && mm.x < abtn.x + abtn.w && mm.y >= abtn.y && mm.y < abtn.y + abtn.h;
 							ctx.DL().AddRectFilled(abtn, ahov ? ctx.theme.buttonHover : ctx.theme.button, 4.f);
 							ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
-											 {abtn.x + 12.f, abtn.y + (abtn.h - lh) * 0.5f + asc}, alab,
+											 {abtn.x + 12.f, abtn.y + (abtn.h - lh) * 0.5f + asc}, alab.CStr(),
 											 ctx.theme.text);
 							if (ahov && ctx.input.mouseClicked[0])
 								mS->RepairAllOpenEncodings();
@@ -720,10 +713,10 @@ namespace nkentseu {
 							const NkRect box = {r.x + (r.w - bw) * 0.5f, r.y + 44.f, bw, bh};
 							ctx.DL().AddRectFilled(box, ctx.theme.header, 8.f);
 							ctx.DL().AddRect(box, ctx.theme.accent, 1.5f);
-							char hb[64];
-							std::snprintf(hb, sizeof(hb), "Aller à la définition — %d résultats  (clic · Échap)", n);
-							ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {box.x + 12.f, box.y + 6.f + asc}, hb,
-											 ctx.theme.textDisabled);
+							const NkString hb =
+								NkPrintf("Aller à la définition — %d résultats  (clic · Échap)", n); // NkPrintf maison
+							ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {box.x + 12.f, box.y + 6.f + asc},
+											 hb.CStr(), ctx.theme.textDisabled);
 							if (ctx.input.KeyPressed(NkGuiKey::Escape))
 								mS->navPickerOpen = false; // souris-primaire : survol + clic
 							const NkColor selC = {ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 70};
@@ -737,11 +730,7 @@ namespace nkentseu {
 								if (i == mS->navPickerSel)
 									ctx.DL().AddRectFilled(row, selC, 4.f);
 								NkString base = NkPath(hit.file).GetFileName();
-								{
-									char c[16];
-									std::snprintf(c, sizeof(c), ":%d", hit.line + 1);
-									base += c;
-								}
+								base += NkPrintf(":%d", hit.line + 1); // NkPrintf maison
 								ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {row.x + 8.f, row.y + 4.f + asc},
 												 base.CStr(), ctx.theme.text);
 								const float32 bx = row.x + 8.f + ctx.font->MeasureWidth(base.CStr()) + 16.f;
@@ -753,27 +742,26 @@ namespace nkentseu {
 
 					// Footer VSCode : nom du fichier (gauche) + Ln/Col + langage (droite).
 					if (mShell) {
-						char rbuf[200];
 						// Chord Ctrl+K arme -> guide visible (facon VSCode « (Ctrl+K) en attente... »).
 						const bool chordArmed = (f.doc.tick - f.doc.chordK <= 90);
 						const bool qfEmpty = (f.doc.tick - f.doc.qfEmptyTick <= 120);
 						// Statut d'action (ex. « Panneau Structure affiché ») : VISIBLE ici, pas seulement
-						// dans l'en-tete du panneau Sortie.
-						std::snprintf(rbuf, sizeof(rbuf), "%s%s%s%sLn %d, Col %d     Espaces : 4     UTF-8     %s",
-									  mS->status.Empty() ? "" : mS->status.CStr(), mS->status.Empty() ? "" : "      ",
-									  chordArmed ? "(Ctrl+K)  0 = replier   J = deplier   I = info      " : "",
-									  qfEmpty ? "(Ctrl+.)  aucune action rapide sur cette ligne      " : "",
-									  f.doc.curLine + 1, f.doc.curCol + 1, LangOf(f.path));
+						// dans l'en-tete du panneau Sortie. (NkPrintf maison)
+						const NkString rbuf =
+							NkPrintf("%s%s%s%sLn %d, Col %d     Espaces : 4     UTF-8     %s",
+									 mS->status.Empty() ? "" : mS->status.CStr(), mS->status.Empty() ? "" : "      ",
+									 chordArmed ? "(Ctrl+K)  0 = replier   J = deplier   I = info      " : "",
+									 qfEmpty ? "(Ctrl+.)  aucune action rapide sur cette ligne      " : "",
+									 f.doc.curLine + 1, f.doc.curCol + 1, LangOf(f.path));
 						NkString left = f.Name();
 						if (f.doc.dirty)
 							left = NkString("* ") + left.CStr();
-						mShell->SetFooter(left.CStr(), rbuf);
+						mShell->SetFooter(left.CStr(), rbuf.CStr());
 
 						// Infos centrees dans la barre de titre : "fichier - NKCode".
-						char center[200];
-						std::snprintf(center, sizeof(center), "%s%s - NKCode", f.doc.dirty ? "* " : "",
-									  f.Name().CStr());
-						mShell->SetTitleInfo(center);
+						const NkString center =
+							NkPrintf("%s%s - NKCode", f.doc.dirty ? "* " : "", f.Name().CStr()); // NkPrintf maison
+						mShell->SetTitleInfo(center.CStr());
 					}
 				}
 
@@ -873,11 +861,9 @@ namespace nkentseu {
 					// OUTPUT ([keys]) -> permet de voir si une touche n'arrive pas jusqu'a NKGui.
 					if (ctx.input.ctrlDown) {
 						auto trace = [&](NkGuiKey k, const char *nm) {
-							if (ctx.input.KeyPressed(k)) {
-								char b[64];
-								std::snprintf(b, sizeof(b), "[keys] Ctrl%s+%s", ctx.input.shiftDown ? "+Maj" : "", nm);
-								GlobalLogBuffer().Push(NkString(b));
-							}
+							if (ctx.input.KeyPressed(k)) // NkPrintf maison
+								GlobalLogBuffer().Push(
+									NkPrintf("[keys] Ctrl%s+%s", ctx.input.shiftDown ? "+Maj" : "", nm));
 						};
 						trace(NkGuiKey::K, "K");
 						trace(NkGuiKey::J, "J");
@@ -901,9 +887,11 @@ namespace nkentseu {
 						if (ctx.input.shiftDown &&
 							ctx.input.KeyPressed(NkGuiKey::F)) { // Ctrl+Maj+F : recherche workspace
 							mS->wsFocusField = 1;
-							if (mShell)
-								mShell->FocusPanel("Recherche"); // OUVRE le panneau (etat persiste ferme) puis focus
-							else
+							if (mShell) { // sidebar exclusive : la Recherche remplace la vue gauche courante
+								int32 gN = 0;
+								const char *const *g = SideLeftGroup(gN);
+								OpenSideExclusive(mShell, g, gN, "Recherche");
+							} else
 								DockFocusWindow(ctx, "Recherche");
 							mS->wsFocusReq = true;
 							if (mS->HasActive() && mS->files[mS->active].doc.HasSel())
@@ -912,9 +900,11 @@ namespace nkentseu {
 						if (ctx.input.shiftDown &&
 							ctx.input.KeyPressed(NkGuiKey::H)) { // Ctrl+Maj+H : REMPLACER (workspace)
 							mS->wsFocusField = 2;				 // focus direct sur le champ « Remplacer »
-							if (mShell)
-								mShell->FocusPanel("Recherche");
-							else
+							if (mShell) {
+								int32 gN = 0;
+								const char *const *g = SideLeftGroup(gN);
+								OpenSideExclusive(mShell, g, gN, "Recherche");
+							} else
 								DockFocusWindow(ctx, "Recherche");
 							mS->wsFocusReq = true;
 							if (mS->HasActive() && mS->files[mS->active].doc.HasSel())
@@ -922,8 +912,15 @@ namespace nkentseu {
 						}
 						if (ctx.input.shiftDown &&
 							ctx.input.KeyPressed(NkGuiKey::O)) { // Ctrl+Maj+O : panneau Structure
-							mS->status = DockFocusWindow(ctx, "Structure") ? NkString("Panneau Structure affiché")
-																		   : NkString("Panneau Structure indisponible");
+							if (mShell) {
+								int32 gN = 0;
+								const char *const *g = SideLeftGroup(gN);
+								OpenSideExclusive(mShell, g, gN, "Structure");
+								mS->status = NkString("Panneau Structure affiché");
+							} else
+								mS->status = DockFocusWindow(ctx, "Structure")
+												 ? NkString("Panneau Structure affiché")
+												 : NkString("Panneau Structure indisponible");
 						}
 						const bool tabFree = // Tab réservé si la barre de recherche ou la complétion le consomme
 							!(mS->HasActive() &&
@@ -1452,11 +1449,10 @@ namespace nkentseu {
 															   : prog),
 										  barH},
 										 ctx.theme.accent, 3.f);
-						char info[64];
-						std::snprintf(info, sizeof(info), "  %d/%d  (%d%%)", mS->buildDone, mS->buildTotal,
-									  (int)(prog * 100.f + 0.5f));
+						const NkString info = NkPrintf("  %d/%d  (%d%%)", mS->buildDone, mS->buildTotal,
+													   (int)(prog * 100.f + 0.5f)); // NkPrintf maison
 						if (ctx.font && ctx.font->Valid())
-							dl.AddText(ctx.font->Face(), ctx.font->TexId(), {bar.x + barW + 4.f, by}, info,
+							dl.AddText(ctx.font->Face(), ctx.font->TexId(), {bar.x + barW + 4.f, by}, info.CStr(),
 									   ctx.theme.text);
 					} else if (ctx.font && ctx.font->Valid()) {
 						dl.AddText(ctx.font->Face(), ctx.font->TexId(), {clip.x + pad, by},
@@ -1909,6 +1905,11 @@ namespace nkentseu {
 						AddTermKind(k2, k2 == SH_WSL ? mDefDistro : NkString());
 						mState->termOpenKind = -1;
 						mTerm[mActive].cwd = mState->termOpenAt;
+						if (!mState->termOpenCmd.Empty()) { // agent CLI : la commande EST le « shell »
+							mTerm[mActive].cmdOverride = mState->termOpenCmd;
+							mTerm[mActive].label = mState->termOpenCmd;
+							mState->termOpenCmd = NkString();
+						}
 						mState->termOpenAt = NkString();
 					}
 					if (!mTerm[mActive].alive)
@@ -2063,9 +2064,10 @@ namespace nkentseu {
 
 			private:
 				struct Term {
-						NkString cwd;  // dossier de démarrage (vide = racine du workspace)
-						NkPty pty;	   // shell interactif (ConPTY)
-						NkTerm screen; // emulateur VT (grille de cellules)
+						NkString cwd;		  // dossier de démarrage (vide = racine du workspace)
+						NkString cmdOverride; // commande à exécuter à la place du shell (agent CLI)
+						NkPty pty;			  // shell interactif (ConPTY)
+						NkTerm screen;		  // emulateur VT (grille de cellules)
 						int32 shell = SH_PWSH;
 						NkString distro;			   // distro WSL ciblee (si shell == SH_WSL)
 						NkString label = "powershell"; // libelle affiche (onglet/liste)
@@ -2091,7 +2093,8 @@ namespace nkentseu {
 					GlobalLogBuffer().Push(NkString("[term] demarre dans: ") + ((mState && mState->HasWorkspace())
 																					? mState->root.ToString()
 																					: NkString("(cwd exe)")));
-					t.pty.Start(PtyCommand(t.shell, t.distro), t.screen.Cols(), t.screen.Rows(),
+					t.pty.Start(!t.cmdOverride.Empty() ? t.cmdOverride : PtyCommand(t.shell, t.distro), t.screen.Cols(),
+								t.screen.Rows(),
 								!t.cwd.Empty() ? t.cwd // « Ouvrir dans le terminal » : dossier demandé
 											   : ((mState && mState->HasWorkspace() && !mState->root.ToString().Empty())
 													  ? mState->root.ToString()
@@ -2489,6 +2492,7 @@ namespace nkentseu {
 						}
 						j = 0;
 					};
+					// fgetc sur PIPE process : conservé (cf. wrapper désigné NkProcess.h).
 					while ((ch = std::fgetc(pipe)) != EOF) {
 						if (ch == 0x00 || ch == '\r' || ch == 0xFF || ch == 0xFE)
 							continue; // nuls UTF-16 + BOM
@@ -2541,6 +2545,7 @@ namespace nkentseu {
 							mTerm[i].scrollY = 0.f;
 							mTerm[i].follow = true;
 							mTerm[i].cwd = NkString();
+							mTerm[i].cmdOverride = NkString();
 							mTerm[i].sAL = mTerm[i].sAC = mTerm[i].sBL = mTerm[i].sBC = 0;
 							mTerm[i].dragging = false;
 							mActive = i;
@@ -2553,9 +2558,9 @@ namespace nkentseu {
 				//    format `shell=N` + `distro=S`). L'HISTORIQUE des commandes n'est PAS géré ici :
 				//    c'est celui du shell lui-même (PSReadLine, .bash_history…), déjà persistant. ──
 				static NkString PrefPath() {
-					const char *base = std::getenv("APPDATA");
+					const char *base = env::GetEnvVar("APPDATA"); // API maison (NkEnv.h)
 					if (!base)
-						base = std::getenv("HOME");
+						base = env::GetEnvVar("HOME");
 					if (!base)
 						return NkString();
 					NkString dir = NkString(base) + "/NKCode";
@@ -2598,9 +2603,8 @@ namespace nkentseu {
 					const NkString p = PrefPath();
 					if (p.Empty())
 						return;
-					char buf[192];
-					std::snprintf(buf, sizeof(buf), "shell=%d\ndistro=%s\n", mDefShell, mDefDistro.CStr());
-					NkFile::WriteAllText(NkPath(p), NkString(buf));
+					NkFile::WriteAllText(NkPath(p),
+										 NkPrintf("shell=%d\ndistro=%s\n", mDefShell, mDefDistro.CStr())); // maison
 				}
 
 				// Crée un terminal d'un TYPE donné (sert au terminal par défaut) : libellé/distro

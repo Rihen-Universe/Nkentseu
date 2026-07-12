@@ -18,8 +18,9 @@
 #include "NKCode/Shell/NkOpenWs.h" // reutilise NkOwEdit (editeur caret) + NkOwIco
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Shell/Dialogs.h"
-#include <cstdio>
-#include <cstdlib> // std::getenv (detection reelle des toolchains)
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison, ex-<cstdio>)
+#include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison, ex-<cstdlib>)
+#include <cstdio> // _popen/fgetc UNIQUEMENT (pipe process, cf. wrapper désigné NkProcess.h)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -378,14 +379,14 @@ namespace nkentseu {
 					for (; base.CStr()[n] && n + 1 < (int32)sizeof(locBase); ++n)
 						locBase[n] = base.CStr()[n];
 					locBase[n] = '\0';
-					std::snprintf(location, sizeof(location), "%s", locBase); // emplacement = PARENT par defaut
+					NkStrCopy(location, sizeof(location), locBase); // emplacement = PARENT par defaut (copie maison)
 					SyncDerived();
 				}
 
 				// jengaFile derive du nom (sauf override manuel). L'emplacement reste le PARENT saisi.
 				void SyncDerived() {
 					if (!jengaManual)
-						std::snprintf(jengaFile, sizeof(jengaFile), "%s.jenga", wsName);
+						NkStrCopy(jengaFile, sizeof(jengaFile), NkPrintf("%s.jenga", wsName).CStr()); // maison
 				}
 
 				// Dossier final = <emplacement>/<NomWorkspace> (toujours append le nom).
@@ -395,12 +396,12 @@ namespace nkentseu {
 
 				// ── Detection REELLE des toolchains (PATH + variables d'environnement + WSL2) ──
 				static NkString TcEnv(const char *n) {
-					const char *v = std::getenv(n);
+					const char *v = env::GetEnvVar(n); // API maison (NkEnv.h)
 					return v ? NkString(v) : NkString();
 				}
 
 				static NkString TcWhich(const char *exe) {
-					const char *path = std::getenv("PATH");
+					const char *path = env::GetEnvVar("PATH"); // API maison (NkEnv.h)
 					if (!path)
 						return NkString();
 #if defined(_WIN32)
@@ -452,6 +453,7 @@ namespace nkentseu {
 						return out;
 					// Lecture OCTET PAR OCTET en ignorant les octets nuls : robuste a l'UTF-16LE
 					// (sortie par defaut de wsl.exe) qui casserait un fgets/strlen au 1er '\0'.
+					// fgetc sur PIPE process : conservé (cf. wrapper désigné NkProcess.h).
 					int ch;
 					while ((ch = std::fgetc(p)) != EOF) {
 						if (ch != 0)
@@ -826,10 +828,8 @@ namespace nkentseu {
 					// Web/Emscripten : memoire initiale.
 					if (osWeb) {
 						static const int32 MEMV[] = {16, 32, 64, 128, 256};
-						char mb[12];
-						std::snprintf(mb, sizeof(mb), "%d", (emInitMem >= 0 && emInitMem < 5) ? MEMV[emInitMem] : 32);
 						s += "    with filter(\"system:Web\"):\n        emscripteninitialmemory(";
-						s += mb;
+						s += NkPrintf("%d", (emInitMem >= 0 && emInitMem < 5) ? MEMV[emInitMem] : 32); // maison
 						s += ")\n";
 					}
 					// Framework de tests : un bloc unitest() est requis des qu'un projet genere des tests.
@@ -975,10 +975,8 @@ namespace nkentseu {
 							any = true;
 						}
 						if (sp == 2) {
-							char mb[12];
-							std::snprintf(mb, sizeof(mb), "%d", (o.webMem >= 0 && o.webMem < 5) ? MEM[o.webMem] : 32);
 							s += "        emscripteninitialmemory(";
-							s += mb;
+							s += NkPrintf("%d", (o.webMem >= 0 && o.webMem < 5) ? MEM[o.webMem] : 32); // maison
 							s += ")\n";
 							any = true;
 						}
@@ -1317,10 +1315,9 @@ namespace nkentseu {
 					else
 						u.Icon("check", ir, NkCol::primaryFg);
 				} else {
-					char num[4];
-					std::snprintf(num, sizeof(num), "%d", i + 1);
-					const float32 tw = u.TextW(num);
-					u.Text(dot.x + (dotD - tw) * 0.5f, dot.y + (dotD - lh) * 0.5f, num,
+					const NkString num = NkPrintf("%d", i + 1); // NkPrintf maison
+					const float32 tw = u.TextW(num.CStr());
+					u.Text(dot.x + (dotD - tw) * 0.5f, dot.y + (dotD - lh) * 0.5f, num.CStr(),
 						   active ? NkCol::primaryFg : NkCol::mutedFg);
 				}
 				const float32 lw = u.TextW(labels[i]);
@@ -1514,9 +1511,8 @@ namespace nkentseu {
 			NkWizField(u, {cx, y, cw, fH}, w->wsName, (int32)sizeof(w->wsName), 1, w, dt, blockBg, u.s(10));
 			y += fH + hintGap;
 			{
-				char hint[220];
-				std::snprintf(hint, sizeof(hint), "Correspond a workspace(\"%s\") dans le .jenga", w->wsName);
-				NkWizHint(u, cx, y, cw, hint);
+				const NkString hint = NkPrintf("Correspond a workspace(\"%s\") dans le .jenga", w->wsName);
+				NkWizHint(u, cx, y, cw, hint.CStr());
 			}
 			y += secGap;
 
@@ -1540,10 +1536,9 @@ namespace nkentseu {
 			}
 			y += fH + hintGap;
 			{
-				char fh[480];
 				const NkString ff = w->FinalFolder();
-				std::snprintf(fh, sizeof(fh), "Dossier final : %s (cree s'il n'existe pas)", ff.CStr());
-				NkWizHint(u, cx, y, cw, fh);
+				const NkString fh = NkPrintf("Dossier final : %s (cree s'il n'existe pas)", ff.CStr());
+				NkWizHint(u, cx, y, cw, fh.CStr());
 			}
 			y += secGap;
 
@@ -1594,9 +1589,8 @@ namespace nkentseu {
 				add(w->cfgRelease, "Release");
 				for (usize i = 0; i < w->customCfgs.Size(); ++i)
 					add(w->customCfgs[i].on, w->customCfgs[i].name.CStr());
-				char hint[280];
-				std::snprintf(hint, sizeof(hint), "Correspond a configurations([\"%s\"]) dans le .jenga", cfgs.CStr());
-				NkWizHint(u, cx, y, cw, hint);
+				const NkString hint = NkPrintf("Correspond a configurations([\"%s\"]) dans le .jenga", cfgs.CStr());
+				NkWizHint(u, cx, y, cw, hint.CStr());
 			}
 			y += secGap;
 
@@ -1860,11 +1854,11 @@ namespace nkentseu {
 								isApp ? NkCol::accent : NkCol::mutedFg);
 						float32 mx = pill.x + pw + u.s(14);
 						const float32 my = card.y + u.s(41);
-						char meta[200];
-						std::snprintf(meta, sizeof(meta), "Langage: %s  ·  Dialecte: %s  ·  Dossier: %s",
-									  (p.lang >= 0 && p.lang < nL) ? langs[p.lang] : "C++",
-									  (p.dialect >= 0 && p.dialect < nD) ? dials[p.dialect] : "C++20", p.location);
-						u.Text(mx, my, meta, NkCol::mutedFg);
+						const NkString meta =
+							NkPrintf("Langage: %s  ·  Dialecte: %s  ·  Dossier: %s",
+									 (p.lang >= 0 && p.lang < nL) ? langs[p.lang] : "C++",
+									 (p.dialect >= 0 && p.dialect < nD) ? dials[p.dialect] : "C++20", p.location);
+						u.Text(mx, my, meta.CStr(), NkCol::mutedFg);
 					}
 					// ligne sources/includes/depend
 					{
@@ -2345,9 +2339,8 @@ namespace nkentseu {
 				if (*s == '\n' || *s == '\0') {
 					if (ly + rowH >= rect.y && ly <= rect.y + rect.h) {
 						if (lineNums) {
-							char num[8];
-							std::snprintf(num, sizeof(num), "%d", ln);
-							u.Text(rect.x + u.s(8), ly, num, NkCol::mutedFg);
+							const NkString num = NkPrintf("%d", ln); // NkPrintf maison (aperçu : peu de lignes)
+							u.Text(rect.x + u.s(8), ly, num.CStr(), NkCol::mutedFg);
 						}
 						NkCodeDrawLine(u, rect.x + gutter - w->codeSX, ly, line);
 					}
@@ -2699,7 +2692,7 @@ namespace nkentseu {
 					const bool lhv = !blockBg && u.Hit(lr);
 					u.TextV(lr.x + u.s(4), lr.y, u.s(16), lk, lhv ? NkCol::primary : NkCol::mutedFg);
 					if (lhv && u.click) {
-						std::snprintf(p.binDir, sizeof(p.binDir), "%s", p.tgtDir);
+						NkStrCopy(p.binDir, sizeof(p.binDir), p.tgtDir); // copie bornée maison (NkText.h)
 						w->focus = -1;
 					}
 				}
@@ -2968,9 +2961,8 @@ namespace nkentseu {
 					const int32 tcOs = NkWizTcOs(cf.toolchain);
 					if (tcOs >= 0 && !NkString(cf.expr).Contains(NkWizOsFilt(tcOs))) {
 						u.Icon("alert-triangle", {box.x + u.s(262), box.y + u.s(84), u.s(13), u.s(13)}, NkCol::accent);
-						char ht[80];
-						std::snprintf(ht, sizeof(ht), "ajoutez %s a l'expression", NkWizOsFilt(tcOs));
-						u.TextEllipsis(box.x + u.s(280), box.y + u.s(84), cw - u.s(300), ht, NkCol::accent);
+						const NkString ht = NkPrintf("ajoutez %s a l'expression", NkWizOsFilt(tcOs)); // maison
+						u.TextEllipsis(box.x + u.s(280), box.y + u.s(84), cw - u.s(300), ht.CStr(), NkCol::accent);
 					}
 				}
 				u.Text(box.x + u.s(14), box.y + u.s(116), "Defines", NkCol::mutedFg);
@@ -3056,9 +3048,8 @@ namespace nkentseu {
 				const NkRect box = {crx, ry, cfgBoxW, boxH};
 				u.Panel(box, NkCol::surface, NkCol::border, NkR::md * u.S);
 				u.Text(box.x + u.s(12), box.y + u.s(10), cf.name.CStr(), NkCol::foreground);
-				char ff[80];
-				std::snprintf(ff, sizeof(ff), "config:%s", cf.name.CStr());
-				u.Text(box.x + u.s(12) + u.TextW(cf.name.CStr()) + u.s(8), box.y + u.s(10), ff, NkCol::mutedFg);
+				const NkString ff = NkPrintf("config:%s", cf.name.CStr()); // NkPrintf maison
+				u.Text(box.x + u.s(12) + u.TextW(cf.name.CStr()) + u.s(8), box.y + u.s(10), ff.CStr(), NkCol::mutedFg);
 				float32 cyy = box.y + u.s(34);
 				u.Text(box.x + u.s(12), cyy, "Defines", NkCol::mutedFg);
 				NkProjPills(u, box.x + u.s(80), cyy - u.s(2), cfgPillsW, cf.defines, 320 + (int32)c * 2, w, dt, blockBg,
@@ -3133,11 +3124,10 @@ namespace nkentseu {
 				}
 				y += u.s(44);
 			}
-			char hdr[120];
-			std::snprintf(hdr, sizeof(hdr), "- %s",
-						  p.separateFile ? "fichier separe (avec imports)" : "insere a la fin du workspace");
+			const NkString hdr = NkPrintf(
+				"- %s", p.separateFile ? "fichier separe (avec imports)" : "insere a la fin du workspace"); // maison
 			NkWizLabel(u, cx, y, NkT("nws.jengaextract"));
-			u.Text(cx + u.TextW(NkT("nws.jengaextract")) + u.s(8), y, hdr, NkCol::mutedFg);
+			u.Text(cx + u.TextW(NkT("nws.jengaextract")) + u.s(8), y, hdr.CStr(), NkCol::mutedFg);
 			// Boutons : Modifier/Terminer + Regenerer (a droite du libelle).
 			{
 				const char *el = w->extractEditing ? "Terminer" : "Modifier";
@@ -3202,21 +3192,11 @@ namespace nkentseu {
 				u.TextV(b.x + u.s(32), b.y, u.s(30), path, NkCol::foreground);
 				ry += u.s(36);
 			};
-			char b1[256];
-			if (p.genMain) {
-				std::snprintf(b1, sizeof(b1), "%ssrc/main.cpp", p.location);
-				created(b1);
-			}
-			{
-				char b2[256];
-				std::snprintf(b2, sizeof(b2), "%sinclude/", p.location);
-				created(b2);
-			}
-			if (p.genReadme) {
-				char b3[256];
-				std::snprintf(b3, sizeof(b3), "%sREADME.md", p.location);
-				created(b3);
-			}
+			if (p.genMain)
+				created(NkPrintf("%ssrc/main.cpp", p.location).CStr()); // NkPrintf maison
+			created(NkPrintf("%sinclude/", p.location).CStr());
+			if (p.genReadme)
+				created(NkPrintf("%sREADME.md", p.location).CStr());
 			ry += u.s(10);
 			NkWizLabel(u, rx, ry, NkT("nws.projsummary"));
 			ry += u.s(22);
@@ -3230,10 +3210,9 @@ namespace nkentseu {
 			int32 nK = 0, nD = 0;
 			const char *const *kinds = NkWizKinds(&nK);
 			const char *const *dials = NkWizDialects(&nD);
-			char c1[120];
-			std::snprintf(c1, sizeof(c1), "%s - %s", (p.kind >= 0 && p.kind < nK) ? kinds[p.kind] : "consoleapp",
-						  (p.dialect >= 0 && p.dialect < nD) ? dials[p.dialect] : "C++20");
-			chip(NkWizKindTex(ic, p.kind), "terminal", c1);
+			const NkString c1 = NkPrintf("%s - %s", (p.kind >= 0 && p.kind < nK) ? kinds[p.kind] : "consoleapp",
+										 (p.dialect >= 0 && p.dialect < nD) ? dials[p.dialect] : "C++20"); // maison
+			chip(NkWizKindTex(ic, p.kind), "terminal", c1.CStr());
 			chip(ic.ouvrirDossier, "folder", p.location);
 			{
 				int32 dc = 0;
@@ -3243,14 +3222,12 @@ namespace nkentseu {
 						++dc;
 				dc += (int32)p.cfgFlt.Size(); // filtres de configuration (Debug/Release/custom) comptent aussi
 				dc += (int32)p.custFlt.Size();
-				char c2[80];
-				std::snprintf(c2, sizeof(c2), "%d filtre(s) actif(s)", dc);
-				chip(ic.platforms, "cpu", c2);
+				const NkString c2 = NkPrintf("%d filtre(s) actif(s)", dc); // NkPrintf maison
+				chip(ic.platforms, "cpu", c2.CStr());
 			}
 			{
-				char c3[80];
-				std::snprintf(c3, sizeof(c3), "%d dependance(s)", (int32)p.dependsOn.Size());
-				chip(ic.dependance, "link", c3);
+				const NkString c3 = NkPrintf("%d dependance(s)", (int32)p.dependsOn.Size()); // NkPrintf maison
+				chip(ic.dependance, "link", c3.CStr());
 			}
 			return ((y > ry ? y : ry) - body.y) + u.s(20);
 		}
@@ -3270,9 +3247,8 @@ namespace nkentseu {
 			u.Text(modal.x + u.s(46), modal.y + u.s(15), w->projEditIdx >= 0 ? NkT("nws.editproj") : NkT("nws.newproj"),
 				   NkCol::foreground);
 			{
-				char st3[20];
-				std::snprintf(st3, sizeof(st3), "Etape %d sur 3", w->projStep + 1);
-				u.Text(modal.x + mw - u.s(22) - u.TextW(st3), modal.y + u.s(15), st3, NkCol::mutedFg);
+				const NkString st3 = NkPrintf("Etape %d sur 3", w->projStep + 1); // NkPrintf maison
+				u.Text(modal.x + mw - u.s(22) - u.TextW(st3.CStr()), modal.y + u.s(15), st3.CStr(), NkCol::mutedFg);
 			}
 			// Barre d'etapes
 			const float32 sbH = u.s(84);
@@ -3396,9 +3372,8 @@ namespace nkentseu {
 			}
 			// TOOLCHAINS DETECTES (reels)
 			{
-				char hdr[80];
-				std::snprintf(hdr, sizeof(hdr), "TOOLCHAINS DETECTES SUR CE SYSTEME (%d)", nTc);
-				NkWizLabel(u, cx, y, hdr);
+				const NkString hdr = NkPrintf("TOOLCHAINS DETECTES SUR CE SYSTEME (%d)", nTc); // NkPrintf maison
+				NkWizLabel(u, cx, y, hdr.CStr());
 			}
 			{
 				const NkRect rr = {cx + cw - u.s(80), y - u.s(4), u.s(80), u.s(22)};
@@ -3805,17 +3780,17 @@ namespace nkentseu {
 					u.dl->PushClipRect(box, true);
 					float32 dy = box.y + u.s(8) - w->tcTestScroll;
 					for (const Chk &c : items) {
-						char ln[200];
 						if (!c.path || !c.path[0]) {
 							NkOwIco(u, 0u, "minus", {box.x + u.s(12), dy, u.s(13), u.s(13)}, NkCol::mutedFg);
-							std::snprintf(ln, sizeof(ln), "%s : non renseigne", c.lab);
-							u.TextEllipsis(box.x + u.s(32), dy - u.s(2), rightW - u.s(46) - sbW, ln, NkCol::mutedFg);
+							const NkString ln = NkPrintf("%s : non renseigne", c.lab); // NkPrintf maison
+							u.TextEllipsis(box.x + u.s(32), dy - u.s(2), rightW - u.s(46) - sbW, ln.CStr(),
+										   NkCol::mutedFg);
 						} else {
 							const bool ok = c.dir ? NkDirectory::Exists(c.path) : NkFile::Exists(c.path);
 							NkOwIco(u, ok ? ic.valideSimple : 0u, ok ? "check-circle" : "x",
 									{box.x + u.s(12), dy, u.s(13), u.s(13)}, ok ? NkCol::success : NkCol::danger);
-							std::snprintf(ln, sizeof(ln), "%s : %s", c.lab, ok ? "trouve" : "introuvable");
-							u.TextEllipsis(box.x + u.s(32), dy - u.s(2), rightW - u.s(46) - sbW, ln,
+							const NkString ln = NkPrintf("%s : %s", c.lab, ok ? "trouve" : "introuvable");
+							u.TextEllipsis(box.x + u.s(32), dy - u.s(2), rightW - u.s(46) - sbW, ln.CStr(),
 										   ok ? NkCol::foreground : NkCol::danger);
 						}
 						dy += rowH;
@@ -3856,13 +3831,11 @@ namespace nkentseu {
 			{
 				const NkRect box = {rx, ry, rightW, u.s(70)};
 				u.Panel(box, NkCol::input, NkCol::border, NkR::md * u.S);
-				char l1[120];
-				std::snprintf(l1, sizeof(l1),
-							  "with filter(\"system:%s\"):", (t.os >= 0 && t.os < nO) ? OSL[t.os] : "Linux");
-				char l2[120];
-				std::snprintf(l2, sizeof(l2), "    usetoolchain(\"%s\")", t.name);
-				NkCodeDrawLine(u, box.x + u.s(10), box.y + u.s(10), NkString(l1));
-				NkCodeDrawLine(u, box.x + u.s(10), box.y + u.s(30), NkString(l2));
+				const NkString l1 =
+					NkPrintf("with filter(\"system:%s\"):", (t.os >= 0 && t.os < nO) ? OSL[t.os] : "Linux"); // maison
+				const NkString l2 = NkPrintf("    usetoolchain(\"%s\")", t.name);
+				NkCodeDrawLine(u, box.x + u.s(10), box.y + u.s(10), l1);
+				NkCodeDrawLine(u, box.x + u.s(10), box.y + u.s(30), l2);
 				ry += u.s(78);
 			}
 			u.dl->PopClipRect();
@@ -4003,9 +3976,8 @@ namespace nkentseu {
 						if (hasTc) {
 							NkOwIco(u, ic.valideSimple, "check-circle",
 									{box.x + cw - u.s(190), by + u.s(7), u.s(12), u.s(12)}, NkCol::success);
-							char st[80];
-							std::snprintf(st, sizeof(st), "Toolchain: %s", w->tcPlatPtrs[o.plat][0]);
-							u.TextEllipsis(box.x + cw - u.s(174), by + u.s(6), u.s(166), st, NkCol::success);
+							const NkString st = NkPrintf("Toolchain: %s", w->tcPlatPtrs[o.plat][0]); // maison
+							u.TextEllipsis(box.x + cw - u.s(174), by + u.s(6), u.s(166), st.CStr(), NkCol::success);
 						} else {
 							NkOwIco(u, o.ri == 2 ? ic.lock : 0u, o.ri == 2 ? "lock" : "alert-triangle",
 									{box.x + cw - u.s(190), by + u.s(7), u.s(12), u.s(12)},
@@ -4172,12 +4144,9 @@ namespace nkentseu {
 			if (nTabs > 1) {
 				float32 tx = cx;
 				for (int32 t = 0; t < nTabs; ++t) {
-					char lab[100];
-					if (t == 0)
-						std::snprintf(lab, sizeof(lab), "%s", w->jengaFile);
-					else
-						std::snprintf(lab, sizeof(lab), "%s.jenga", w->projects[sepProj[t - 1]].name);
-					const float32 tw = u.TextW(lab) + u.s(28);
+					const NkString lab = (t == 0) ? NkString(w->jengaFile)
+												  : NkPrintf("%s.jenga", w->projects[sepProj[t - 1]].name); // maison
+					const float32 tw = u.TextW(lab.CStr()) + u.s(28);
 					const NkRect tr = {tx, y, tw, u.s(28)};
 					const bool act = (w->wsTab == t);
 					const bool hv = !blockBg && u.Hit(tr);
@@ -4185,7 +4154,7 @@ namespace nkentseu {
 							act ? NkCol::primary : NkCol::border, NkR::sm * u.S);
 					NkOwIco(u, t == 0 ? ic.workspace : ic.fileCode, t == 0 ? "package" : "file",
 							{tr.x + u.s(8), tr.y + u.s(8), u.s(12), u.s(12)}, act ? NkCol::primary : NkCol::mutedFg);
-					u.TextEllipsis(tr.x + u.s(24), tr.y + u.s(7), tw - u.s(30), lab,
+					u.TextEllipsis(tr.x + u.s(24), tr.y + u.s(7), tw - u.s(30), lab.CStr(),
 								   act ? NkCol::primary : NkCol::foreground);
 					if (hv && u.click && w->wsTab != t) {
 						w->wsTab = t;
@@ -4312,10 +4281,9 @@ namespace nkentseu {
 					NkCol::primary);
 			u.Text(r.x + u.s(54), r.y + (hH - u.Lh()) * 0.5f, NkT("nws.title"), NkCol::foreground);
 			{
-				char st5[24];
-				std::snprintf(st5, sizeof(st5), "Etape %d sur 5", w->step + 1);
-				const float32 tw = u.TextW(st5);
-				u.Text(r.x + r.w - u.s(28) - tw, r.y + (hH - u.Lh()) * 0.5f, st5, NkCol::mutedFg);
+				const NkString st5 = NkPrintf("Etape %d sur 5", w->step + 1); // NkPrintf maison
+				const float32 tw = u.TextW(st5.CStr());
+				u.Text(r.x + r.w - u.s(28) - tw, r.y + (hH - u.Lh()) * 0.5f, st5.CStr(), NkCol::mutedFg);
 			}
 
 			// ── Barre d'etapes ──

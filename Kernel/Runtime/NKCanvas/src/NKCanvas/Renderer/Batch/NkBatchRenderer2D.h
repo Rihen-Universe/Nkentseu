@@ -30,9 +30,14 @@ namespace nkentseu {
 		// =========================================================================
 		class NkBatchRenderer2D : public NkIRenderer2D {
 			public:
-				// Maximum vertices / indices before an automatic flush
-				static constexpr uint32 kMaxVertices = 65536;
-				static constexpr uint32 kMaxIndices = kMaxVertices * 6 / 4; // ~98304
+				// Maximum vertices / indices before an automatic flush.
+				// 262144 (~5 Mo GPU) : une UI dense (IDE plein écran : arbre + onglets +
+				// icônes) dépasse 65536 sommets ENTRE DEUX CLIPS — la draw-list NkGui
+				// arrive alors en UNE commande plus grosse que l'ancien buffer, et
+				// l'upload écrivait HORS du buffer GPU (crash memcpy). Les 3 backends
+				// (DX11/DX12/GL) créent leurs buffers avec ces constantes.
+				static constexpr uint32 kMaxVertices = 262144;
+				static constexpr uint32 kMaxIndices = kMaxVertices * 6 / 4;
 
 				NkBatchRenderer2D();
 				~NkBatchRenderer2D() override = default;

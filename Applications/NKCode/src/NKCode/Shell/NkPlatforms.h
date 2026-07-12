@@ -10,7 +10,7 @@
 #include "NKCode/Shell/NkToolchains.h"
 #include "NKCode/Shell/NkI18n.h"
 #include "NKCode/Project/NkCodeState.h"
-#include <cstdio>
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -214,9 +214,8 @@ namespace nkentseu {
 				u.TextV(ar.x + u.s(32), ar.y, u.s(32), NkT("as.button"), NkCol::foreground);
 				if (ah && u.click)
 					tc->OpenAssistDialog();
-				char hd[40];
-				std::snprintf(hd, sizeof(hd), NkT("plat.readyof"), count[0], nP);
-				u.Text(ar.x - u.s(14) - u.TextW(hd), r.y + (hH - u.Lh()) * 0.5f, hd, NkCol::success);
+				const NkString hd = NkPrintf(NkT("plat.readyof"), count[0], nP); // NkPrintf maison
+				u.Text(ar.x - u.s(14) - u.TextW(hd.CStr()), r.y + (hH - u.Lh()) * 0.5f, hd.CStr(), NkCol::success);
 			}
 
 			const float32 rightW = (r.w > u.s(860)) ? u.s(280) : u.s(240);
@@ -288,11 +287,11 @@ namespace nkentseu {
 				const NkRect b = {rx, ry, rightW, u.s(30)};
 				u.Panel(b, NkCol::surface, NkCol::border, NkR::sm * u.S);
 				u.TextV(b.x + u.s(12), b.y, u.s(30), lab, NkCol::foreground);
-				char n[8];
-				std::snprintf(n, sizeof(n), "%d", v);
+				const NkString n = NkPrintf("%d", v); // NkPrintf maison
 				const NkRect badge = {b.x + rightW - u.s(38), b.y + u.s(5), u.s(28), u.s(20)};
 				u.dl->AddRectFilled(badge, col, u.s(4));
-				u.TextV(badge.x + (u.s(28) - u.TextW(n)) * 0.5f, badge.y - u.s(3), u.s(20), n, NkCol::primaryFg);
+				u.TextV(badge.x + (u.s(28) - u.TextW(n.CStr())) * 0.5f, badge.y - u.s(3), u.s(20), n.CStr(),
+						NkCol::primaryFg);
 				ry += u.s(36);
 			};
 			sumRow(NkT("plat.sum.ready"), count[0], NkCol::success);
