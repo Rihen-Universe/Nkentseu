@@ -237,6 +237,7 @@ void main() {
 			layout.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			mInputTexLayout = mDevice->CreateDescriptorSetLayout(layout);
 			mInputTexSet = mDevice->AllocateDescriptorSet(mInputTexLayout);
+			mBlitTexSet = mDevice->AllocateDescriptorSet(mInputTexLayout);
 
 			// Phase H.2 : alloue le pool de descriptor sets pour bloom multi-pass.
 			// 11 sub-passes par frame (6 down + 5 up), on alloue 16 pour marge.
@@ -468,6 +469,29 @@ void main() {
 				mPipeFXAA = mDevice->CreateGraphicsPipeline(pd);
 			}
 
+			// ── Pipeline Blit (MirrorPresent : recopie 1:1 vers le swapchain) ──
+			// Meme interface que PP_FXAA (fullscreen triangle, PC 16 octets,
+			// sampler binding 0) pour reutiliser la plomberie a l'identique.
+			// Sert au "voir + enregistrer" : quand la cible finale est redirigee
+			// (capture/record), cette passe garde la fenetre vivante.
+			if (mShaderLib) {
+				auto progBlit = mShaderLib->LoadOrCompileVF("Blit", "", "");
+				if (progBlit.IsValid())
+					mShaderBlit = mShaderLib->GetRHIHandle(progBlit);
+			}
+			if (mShaderBlit.IsValid()) {
+				NkGraphicsPipelineDesc pd;
+				pd.shader = mShaderBlit;
+				pd.depthStencil = NkDepthStencilDesc::NoDepth();
+				pd.rasterizer = NkRasterizerDesc::NoCull();
+				pd.blend = NkBlendDesc::Opaque();
+				pd.debugName = "Blit";
+				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 16);
+				if (mInputTexLayout.IsValid())
+					pd.descriptorSetLayouts.PushBack(mInputTexLayout);
+				mPipeBlit = mDevice->CreateGraphicsPipeline(pd);
+			}
+
 			(void)kFullscreenVS;
 			(void)kTonemapFS;
 			(void)kFXAAFS;
@@ -491,6 +515,8 @@ void main() {
 				mDevice->DestroyPipeline(mPipeTone);
 			if (mPipeFXAA.IsValid())
 				mDevice->DestroyPipeline(mPipeFXAA);
+			if (mPipeBlit.IsValid())
+				mDevice->DestroyPipeline(mPipeBlit);
 			if (mLUTTex.IsValid()) {
 				mDevice->DestroyTexture(mLUTTex);
 				mLUTTex = {};
@@ -785,6 +811,39 @@ void main() {
 			// mais l'output vers swapchain doit etre flippe -> on garde UV direct.
 			// (Convention oppose au tonemap qui ecrit direct au swapchain).
 			const bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
+
+			struct PC {
+					float invResW, invResH, yFlipUV, _pad;
+			} pc;
+
+			pc.invResW = 1.0f / (float)(mW > 0 ? mW : 1);
+			pc.invResH = 1.0f / (float)(mH > 0 ? mH : 1);
+			pc.yFlipUV = isVK ? -1.f : +1.f;
+			pc._pad = 0.f;
+			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+			cmd->Draw(3, 1, 0, 0);
+		}
+
+		void NkPostProcessStack::ExecuteBlit(NkICommandBuffer *cmd, NkTextureHandle src) {
+			if (!cmd || !mPipeBlit.IsValid() || !src.IsValid())
+				return;
+
+			// Bind la texture source au binding=0 sur le set DEDIE (cf. header :
+			// mInputTexSet est ecrase au Submit sur les backends differes).
+			if (mBlitTexSet.IsValid() && mResources) {
+				NkSamplerHandle samp = mResources->GetSamplerLinearClamp();
+				mDevice->BindTextureSampler(mBlitTexSet, 0, src, samp);
+			}
+			cmd->BindGraphicsPipeline(mPipeBlit);
+			if (mBlitTexSet.IsValid())
+				cmd->BindDescriptorSet(mBlitTexSet, 0);
+
+			// Flip UV pour la sortie ECRAN : la source est un RT offscreen ecrit
+			// par le pipeline 3D. Sur DX11/DX12 (RT Y-down, VS HLSL Y-negate) et
+			// VK, l'affichage direct vers le swapchain est inverse -> flip.
+			// Sur GL (origine bas-gauche partout) l'UV directe est correcte.
+			// (Confirme a l'ecran par Rihen : DX11 inverse sans ce flip.)
+			const bool isVK = mDevice && mDevice->GetApi() != NkGraphicsApi::NK_GFX_API_OPENGL;
 
 			struct PC {
 					float invResW, invResH, yFlipUV, _pad;

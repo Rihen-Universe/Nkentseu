@@ -126,10 +126,22 @@ Socle d'un viewport d'édition façon Blender (testbed `renderdemo --demo=2`, fu
   rendu → NkFrameCapture → `NkVideoRecorder` NKMedia (H.264, encodage
   threadé). **Prouvé bout-en-bout** : demo3 GL → mp4 h264 1280×720 30 fps
   6.4 s / 193 trames, lisible ffprobe/ffmpeg, contenu vérifié.
-- ⏳ V2 : **miroir fenêtre + enregistrement simultanés** (nécessite d'exposer
-  le backbuffer swapchain dans NkIDevice pour un `CopyTexture` final — à
-  coordonner, module partagé) ; capture de RÉGION (crop côté consommateur
-  déjà possible) ; audio (NkVideoRecorder::AddAudio prêt côté NKMedia).
+- ✅ **V2 « voir + enregistrer » (2026-07-12)** — finalement SANS toucher
+  NKRHI : passe **MirrorPresent** dans le RenderGraph (blit plein-écran de la
+  cible redirigée vers le vrai swapchain, shader `Blit/NkSL`, ~1 draw) via
+  `SetFinalColorTargetMirror(target, true)`. La fenêtre reste vivante pendant
+  l'enregistrement, rendu à pleine vitesse (HUD 144 FPS mesuré en record).
+  2 pièges corrigés : descriptor set DÉDIÉ au blit (le set partagé avec FXAA
+  était écrasé au Submit sur GL — exécution différée → FXAA lisait sa propre
+  cible = image noire) ; flip Y écran par backend (DX/VK flip, GL direct).
+  Protections : resize pendant record = arrêt propre ; drainage final borné.
+- ⚠️ **PLAFOND ENCODEUR MESURÉ** : le H.264 CPU soutient ~10 fps en 720p
+  (RAM plate) ; à 30 fps la file NON BORNÉE de NkVideoRecorder gonfle de
+  ~100 Mo/s → machine saturée. Défaut NK_RECORD_FPS = 10. **À COORDONNER
+  côté NKMedia** (module autre agent) : file bornée + politique de drop +
+  stats de profondeur ; et/ou encodage MJPEG (moins cher) pour cadence haute.
+- ⏳ V3 : résolution d'enregistrement ≠ fenêtre (`NK_RECORD_W/H`, rendu 4K
+  natif pendant affichage 720p — l'offscreen est déjà indépendant) ; audio.
 
 ### Fondations (Phase A → D.3d) — toutes livrées
 - PBR forward avec UBO push-constant
