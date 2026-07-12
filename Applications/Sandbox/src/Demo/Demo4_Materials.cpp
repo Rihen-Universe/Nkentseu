@@ -79,6 +79,9 @@ namespace nkentseu {
 				NkPlanarReflectionHandle reflHandle;
 				NkMaterial *floorMat = nullptr;
 				bool reflEnabled = true;
+				// Touche P : modele de reflexion du sol (cf. NkPBRParams::reflBlend).
+				// 0=voile plein (historique) 1=voile reduit 2=reflet pur 3=Fresnel physique
+				int32 reflModel = 0;
 
 				// Phase G : sphere #1 (or) chargee depuis un .nkasset au lieu du code.
 				// Si valide, remplace mats[0]->GetInstHandle() au moment du draw call.
@@ -241,6 +244,17 @@ namespace nkentseu {
 				st->floorMat = NkMaterial::Create(matSys, NkMaterialType::NK_REFL_FLOOR);
 				if (st->floorMat && st->floorMat->IsValid()) {
 					st->floorMat->SetAlbedo({0.55f, 0.55f, 0.60f})->SetRoughness(0.05f);
+				// NK_REFL_MODEL=<0-3> : force le modele de reflexion au demarrage
+				// (validation headless ; equivalent de la touche P).
+				if (const char *rm = getenv("NK_REFL_MODEL")) {
+					const float32 kBlendEnv[4] = {1.f, 0.35f, 0.f, -1.f};
+					int32 m = rm[0] - '0';
+					if (m >= 0 && m <= 3) {
+						st->reflModel = m;
+						st->floorMat->SetReflFloorBlend(kBlendEnv[m]);
+						logger.Info("[Demo4] NK_REFL_MODEL={0}\n", m);
+					}
+				}
 				}
 
 				// Enregistre le plan Y=0 dans le systeme : le renderer fera la passe
@@ -413,6 +427,16 @@ namespace nkentseu {
 							st->params[i].outlineW = kOutlineWidths[cur];
 							ApplyParams(st->mats[i], i, st->params[i]);
 						}
+						break;
+					}
+					// Cycle modele de reflexion du sol (voile/physique)
+					case NkKey::NK_P: {
+						st->reflModel = (st->reflModel + 1) % 4;
+						// 0=voile plein 1=voile reduit 2=reflet pur 3=Fresnel physique
+						const float32 kBlend[4] = {1.f, 0.35f, 0.f, -1.f};
+						if (st->floorMat && st->floorMat->IsValid())
+							st->floorMat->SetReflFloorBlend(kBlend[st->reflModel]);
+						logger.Info("[Demo4] Reflexion sol : mode {0} (0=voile plein 1=voile reduit 2=pur 3=physique)\n", st->reflModel);
 						break;
 					}
 					// Toggle planar reflection
@@ -645,7 +669,7 @@ namespace nkentseu {
 				overlay->DrawText({20.f, 55.f}, "%s : %.2f   metallic : %.0f   outline : %.1f px", paramName, paramVal,
 								  p.metallic, p.outlineW);
 				overlay->DrawText({20.f, 75.f}, "couleur #%d   FPS : %.0f", p.colorIdx, dt > 1e-5f ? 1.f / dt : 0.f);
-				overlay->DrawText({20.f, 95.f}, "1-5:sel  +/-:%s  M:metal  C:color  O:outline", paramName);
+				overlay->DrawText({20.f, 95.f}, "1-5:sel  +/-:%s  M:metal  C:color  O:outline  P:reflet(%d)", paramName, st->reflModel);
 
 				overlay->EndOverlay();
 			}
