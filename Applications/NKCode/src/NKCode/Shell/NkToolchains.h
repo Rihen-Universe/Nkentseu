@@ -5,6 +5,7 @@
 // =============================================================================
 #pragma once
 #include "NKCode/Shell/NkShell.h" // nkcode::NkShellRun (std::system gardé iOS)
+#include "NKEditorKit/NkEditorScrollbar.h"
 #include "NKCode/Shell/NkUi.h"
 #include "NKCode/Shell/NkOpenWs.h"
 #include "NKCode/Shell/NkNewWorkspace.h" // NkWizLabel + NkNewWsState::TcWhich/TcEnv
@@ -2376,32 +2377,10 @@ namespace nkentseu {
 			if (t->scroll > t->scrollMax)
 				t->scroll = t->scrollMax;
 			if (t->scrollMax > 0.5f) {
-				const float32 sw = u.s(10);
+				const float32 sw = editorkit::NkScrollbarWidth();
 				const NkRect track = {view.x + view.w - sw - u.s(2), view.y, sw, view.h};
-				u.dl->AddRectFilled(track, NkColor{18, 21, 26, 160}, sw * 0.5f);
-				float32 thh = view.h * (view.h / (view.h + t->scrollMax));
-				if (thh < u.s(28))
-					thh = u.s(28);
-				const float32 ty = view.y + (view.h - thh) * (t->scroll / t->scrollMax);
-				const NkRect thumb = {track.x + u.s(2), ty, sw - u.s(4), thh};
-				const bool hov = u.Hit(thumb);
-				if (t->barDrag) {
-					if (!u.down)
-						t->barDrag = false;
-					else {
-						const float32 tt = (u.mp.y - t->barOff - view.y) / (view.h - thh);
-						t->scroll = tt * t->scrollMax;
-						if (t->scroll < 0.f)
-							t->scroll = 0.f;
-						if (t->scroll > t->scrollMax)
-							t->scroll = t->scrollMax;
-					}
-				} else if (hov && u.click) {
-					t->barDrag = true;
-					t->barOff = u.mp.y - ty;
-				}
-				u.dl->AddRectFilled(thumb, (t->barDrag || hov) ? NkColor{96, 104, 114, 255} : NkColor{56, 63, 72, 255},
-									(sw - u.s(4)) * 0.5f);
+				editorkit::NkVScrollbar(*u.ctx, *u.dl, track, t->scroll, view.h + t->scrollMax, view.h, 0x70C0A001u,
+										u.s(24)); // scrollbar standard
 			}
 			// ── Fiche « Comment installer <toolchain> » (conseil manuel + auto + redirection) ──
 			// ── Modale « Détection assistée » (partagée) ──

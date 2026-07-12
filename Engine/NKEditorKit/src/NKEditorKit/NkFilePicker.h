@@ -373,7 +373,7 @@ namespace nkentseu {
 					const NkString parent =
 						(target >= 0 && target < (int32)pickerTree.Size()) ? pickerTree[target].path : NkString(pickerPath);
 					if (NkDirectory::CreateRecursive(NkPath(parent.CStr()) / pickerNew)) {
-						pickerNew[0] = ' ';
+						pickerNew[0] = '\0';
 						if (target >= 0 && target < (int32)pickerTree.Size()) {
 							pickerSel = target; // selectionne la cible (visible + creations suivantes)
 							pickerTree[target].hasKids = true;

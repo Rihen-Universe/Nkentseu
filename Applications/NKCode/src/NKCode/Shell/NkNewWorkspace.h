@@ -2516,24 +2516,11 @@ namespace nkentseu {
 				sx = maxSX;
 			if (maxSY > 0.5f) {
 				const NkRect track = {rect.x + rect.w - sb - u.s(2), rect.y + u.s(1), sb, rect.h - u.s(2)};
-				u.dl->AddRectFilled(track, NkScrollTrack(), sb * 0.5f);
-				float32 thh = viewH * (viewH / contentH);
-				if (thh < u.s(26))
-					thh = u.s(26);
-				const float32 ty = track.y + (track.h - thh) * (sy / maxSY);
-				const bool thHov = u.Hit({track.x + u.s(2), ty, sb - u.s(4), thh});
-				u.dl->AddRectFilled({track.x + u.s(2), ty, sb - u.s(4), thh}, NkScrollThumb(thHov),
-									(sb - u.s(4)) * 0.5f);
+				editorkit::NkVScrollbar(*u.ctx, *u.dl, track, sy, viewH + maxSY, viewH, 0x0E4B1001u, u.s(24));
 			}
 			if (maxSX > 0.5f) {
 				const NkRect track = {rect.x + u.s(1), rect.y + rect.h - sb - u.s(1), viewW, sb};
-				u.dl->AddRectFilled(track, NkColor{18, 21, 26, 150}, sb * 0.5f);
-				float32 tww = viewW * (viewW / contentW);
-				if (tww < u.s(26))
-					tww = u.s(26);
-				const float32 tx = track.x + (track.w - tww) * (sx / maxSX);
-				u.dl->AddRectFilled({tx, track.y + u.s(2), tww, sb - u.s(4)}, NkColor{70, 76, 84, 255},
-									(sb - u.s(4)) * 0.5f);
+				editorkit::NkHScrollbar(*u.ctx, *u.dl, track, sx, viewW + maxSX, viewW, 0x0E4B1002u, u.s(40));
 			}
 		}
 
@@ -3258,15 +3245,10 @@ namespace nkentseu {
 			if (w->projScroll > w->projScrollMax)
 				w->projScroll = w->projScrollMax;
 			if (w->projScrollMax > 0.5f) {
-				const float32 sw = u.s(10);
+				const float32 sw = editorkit::NkScrollbarWidth();
 				const NkRect track = {view.x + view.w - sw - u.s(4), view.y, sw, view.h};
-				u.dl->AddRectFilled(track, NkColor{18, 21, 26, 160}, sw * 0.5f);
-				float32 thh = view.h * (view.h / (view.h + w->projScrollMax));
-				if (thh < u.s(28))
-					thh = u.s(28);
-				const float32 ty = view.y + (view.h - thh) * (w->projScroll / w->projScrollMax);
-				u.dl->AddRectFilled({track.x + u.s(2), ty, sw - u.s(4), thh}, NkColor{70, 76, 84, 255},
-									(sw - u.s(4)) * 0.5f);
+				editorkit::NkVScrollbar(*u.ctx, *u.dl, track, w->projScroll, view.h + w->projScrollMax, view.h,
+										0x0E4B2001u, u.s(24));
 			}
 			// Pied : Precedent / Annuler / Suivant|Creer
 			const bool valid = p.name[0] && NkNewWsState::ValidName(p.name);
@@ -4302,62 +4284,18 @@ namespace nkentseu {
 				w->scroll = w->scrollMax;
 			// Scrollbar verticale.
 			if (w->scrollMax > 0.5f) {
-				const float32 sw = u.s(10);
+				const float32 sw = editorkit::NkScrollbarWidth();
 				const NkRect track = {view.x + view.w - sw - u.s(2), view.y, sw, view.h};
-				u.dl->AddRectFilled(track, NkColor{18, 21, 26, 160}, sw * 0.5f);
-				float32 thh = view.h * (view.h / (view.h + w->scrollMax));
-				if (thh < u.s(28))
-					thh = u.s(28);
-				const float32 ty = view.y + (view.h - thh) * (w->scroll / w->scrollMax);
-				const NkRect thumb = {track.x + u.s(2), ty, sw - u.s(4), thh};
-				const bool hov = u.Hit(thumb);
-				if (w->barDrag) {
-					if (!u.down)
-						w->barDrag = false;
-					else {
-						const float32 t = (u.mp.y - w->barOff - view.y) / (view.h - thh);
-						w->scroll = t * w->scrollMax;
-						if (w->scroll < 0.f)
-							w->scroll = 0.f;
-						if (w->scroll > w->scrollMax)
-							w->scroll = w->scrollMax;
-					}
-				} else if (hov && u.click && !blockBg) {
-					w->barDrag = true;
-					w->barOff = u.mp.y - ty;
-				}
-				u.dl->AddRectFilled(thumb, (w->barDrag || hov) ? NkColor{96, 104, 114, 255} : NkColor{56, 63, 72, 255},
-									(sw - u.s(4)) * 0.5f);
+				editorkit::NkVScrollbar(*u.ctx, *u.dl, track, w->scroll, view.h + w->scrollMax, view.h, 0x0E4B3001u,
+										u.s(24));
 			}
 			// Scrollbar horizontale (si le contenu depasse en largeur).
 			if (w->hscrollMax > 0.5f) {
-				const float32 sh = u.s(10);
-				const float32 availW = view.w - (w->scrollMax > 0.5f ? u.s(14) : 0.f);
+				const float32 sh = editorkit::NkScrollbarWidth();
+				const float32 availW = view.w - (w->scrollMax > 0.5f ? sh : 0.f);
 				const NkRect track = {view.x, view.y + view.h - sh, availW, sh};
-				u.dl->AddRectFilled(track, NkColor{18, 21, 26, 160}, sh * 0.5f);
-				float32 thw = availW * (view.w / bodyW);
-				if (thw < u.s(28))
-					thw = u.s(28);
-				const float32 tx = track.x + (availW - thw) * (w->hscroll / w->hscrollMax);
-				const NkRect thumb = {tx, track.y + u.s(2), thw, sh - u.s(4)};
-				const bool hov = u.Hit(thumb);
-				if (w->hbarDrag) {
-					if (!u.down)
-						w->hbarDrag = false;
-					else {
-						const float32 t = (u.mp.x - w->hbarOff - track.x) / (availW - thw);
-						w->hscroll = t * w->hscrollMax;
-						if (w->hscroll < 0.f)
-							w->hscroll = 0.f;
-						if (w->hscroll > w->hscrollMax)
-							w->hscroll = w->hscrollMax;
-					}
-				} else if (hov && u.click && !blockBg) {
-					w->hbarDrag = true;
-					w->hbarOff = u.mp.x - tx;
-				}
-				u.dl->AddRectFilled(thumb, (w->hbarDrag || hov) ? NkColor{96, 104, 114, 255} : NkColor{56, 63, 72, 255},
-									(sh - u.s(4)) * 0.5f);
+				editorkit::NkHScrollbar(*u.ctx, *u.dl, track, w->hscroll, view.w + w->hscrollMax, view.w, 0x0E4B3002u,
+										u.s(40));
 			}
 
 			// ── Pied (Suivant grise si etape invalide) ──
