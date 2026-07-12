@@ -502,6 +502,7 @@ int nkmain(const NkEntryState &state) {
 	// ── Boucle ───────────────────────────────────────────────────────────────
 	bool running = true;
 	NkClock clock;
+	bool recordTogglePending = false; // F9 (declare avant le callback clavier qui le capture)
 	NkEventSystem &events = NkEvents();
 
 	events.AddEventCallback<NkWindowCloseEvent>([&](NkWindowCloseEvent *) { running = false; });
@@ -510,6 +511,11 @@ int nkmain(const NkEntryState &state) {
 			running = false;
 		// Cap FPS DYNAMIQUE (le pacing est fait par le moteur, cf. NkRenderer::SetFrameRateCap) :
 		//   F1 = on/off (bascule cap courant <-> illimité) ; F2 = cycle 30/60/120/144/illimité.
+		else if (e->GetKey() == NkKey::NK_F9) {
+			// Toggle enregistrement video (NK_RECORD a chaud) — traite dans la
+			// boucle principale (acces au device/recorder hors du callback).
+			recordTogglePending = true;
+		}
 		else if (e->GetKey() == NkKey::NK_F1 && renderer) {
 			const float32 cur = renderer->GetFrameRateCap();
 			static float32 sLast = 120.f;
@@ -579,12 +585,55 @@ int nkmain(const NkEntryState &state) {
 	const char *recEnv = getenv("NK_RECORD");
 	const char *recFpsEnv = getenv("NK_RECORD_FPS");
 	const int32 recordFps = recFpsEnv ? (int32)atoll(recFpsEnv) : 10;
-	bool recording = recEnv != nullptr && recEnv[0] != 0;
+	char recordPath[256] = {0};
+	if (recEnv && recEnv[0])
+		snprintf(recordPath, sizeof(recordPath), "%s", recEnv);
+	bool recording = recordPath[0] != 0;
+	uint32 recordSeq = 0;			  // noms auto nk_record_NNN.mp4 (toggle F9)
 	renderer::NkOffscreenTarget recordTarget;
 	renderer::NkFrameCapture recordCapture;
 	media::NkVideoRecorder recorder;
 	float64 recordAccum = 0.0;
 	uint64 recordPushed = 0;
+
+	// NK_RECORD_RECT=x,y,w,h : n'enregistre que cette ZONE de l'image (crop
+	// CPU au moment de pousser vers l'encodeur ; w/h alignes a 2 pour H.264,
+	// clampes a la fenetre). La qualite = resolution du rendu source.
+	uint32 recRX = 0, recRY = 0, recRW = 0, recRH = 0;
+	bool recHasRect = false;
+	if (const char *rr = getenv("NK_RECORD_RECT")) {
+		unsigned x = 0, y = 0, w = 0, h = 0;
+		if (sscanf(rr, "%u,%u,%u,%u", &x, &y, &w, &h) == 4 && w >= 16 && h >= 16) {
+			recRX = x;
+			recRY = y;
+			recRW = w & ~1u;
+			recRH = h & ~1u;
+			recHasRect = true;
+		}
+	}
+	NkVector<uint8> recCrop; // scratch du crop (reutilise)
+
+	// Arret PROPRE de l'enregistrement (fin, resize, toggle F9). Draine les
+	// captures en vol (borne), finalise le MP4, restaure le swapchain.
+	auto stopRecording = [&]() {
+		if (!recordTarget.IsValid())
+			return;
+		device->WaitIdle();
+		for (int guard = 0; recordCapture.PendingCount() > 0 && guard < 64; ++guard) {
+			if (!recordCapture.Poll([&](const uint8 *px, uint32 w, uint32 h, uint64) {
+					(void)w;
+					(void)h;
+					recorder.PushVideo(px, media::NkVideoInputFormat::RGBA32);
+				}))
+				break;
+		}
+		recorder.End();
+		renderer->SetFinalColorTarget(NkTextureHandle{});
+		recordCapture.Shutdown();
+		recordTarget.Shutdown();
+		logger.Infof("[main] NK_RECORD termine : %llu trames -> %s\n", (unsigned long long)recordPushed, recordPath);
+		recording = false;
+	};
 
 	// Le cap FPS (garde-fou thermique + anti-jitter) est désormais géré par le MOTEUR
 	// dans NkRenderer::Present() (pacing haute précision). Défaut = NK_FPS_CAP (120),
@@ -608,22 +657,24 @@ int nkmain(const NkEntryState &state) {
 			continue;
 
 		// ── NK_RECORD : capture async -> NkVideoRecorder (thread encode) ────
+		// Toggle F9 : demarre (nom auto nk_record_NNN.mp4) / arrete a chaud.
+		if (recordTogglePending) {
+			recordTogglePending = false;
+			if (recording) {
+				stopRecording();
+			} else {
+				snprintf(recordPath, sizeof(recordPath), "nk_record_%03u.mp4", ++recordSeq);
+				recordPushed = 0;
+				recording = true; // init lazy ci-dessous
+			}
+		}
 		if (recording) {
 			// Resize pendant l'enregistrement : tailles cible/capture/encodeur
 			// incoherentes -> on STOPPE proprement (protege contre les blocages).
 			if (recordTarget.IsValid() &&
 				(recordTarget.GetWidth() != ctx.width || recordTarget.GetHeight() != ctx.height)) {
 				logger.Warnf("[main] NK_RECORD: resize fenetre detecte, arret de l'enregistrement\n");
-				device->WaitIdle();
-				while (recordCapture.PendingCount() > 0 && recordCapture.Poll([&](const uint8 *px, uint32, uint32, uint64) {
-					recorder.PushVideo(px, media::NkVideoInputFormat::RGBA32);
-				})) {
-				}
-				recorder.End();
-				renderer->SetFinalColorTarget(NkTextureHandle{});
-				recordCapture.Shutdown();
-				recordTarget.Shutdown();
-				recording = false;
+				stopRecording();
 			} else if (!recordTarget.IsValid()) {
 				renderer::NkOffscreenDesc od;
 				od.width = ctx.width;
@@ -635,13 +686,27 @@ int nkmain(const NkEntryState &state) {
 				renderer::NkFrameCaptureDesc fd;
 				fd.width = ctx.width;
 				fd.height = ctx.height;
-				const bool ok = recordTarget.Init(device, renderer->GetTextures(), od) &&
+				// Zone : clamp a la fenetre (peut avoir change depuis le parse).
+				uint32 vw = ctx.width, vh = ctx.height;
+				if (recHasRect) {
+					const uint32 rx = recRX < ctx.width ? recRX : 0;
+					const uint32 ry = recRY < ctx.height ? recRY : 0;
+					vw = (rx + recRW <= ctx.width) ? recRW : ((ctx.width - rx) & ~1u);
+					vh = (ry + recRH <= ctx.height) ? recRH : ((ctx.height - ry) & ~1u);
+					recRX = rx;
+					recRY = ry;
+					recRW = vw;
+					recRH = vh;
+					recCrop.Resize((usize)vw * vh * 4u);
+				}
+				const bool ok = vw >= 16 && vh >= 16 && recordTarget.Init(device, renderer->GetTextures(), od) &&
 								recordCapture.Init(device, fd) &&
-								recorder.Begin(recEnv, (int32)ctx.width, (int32)ctx.height, recordFps);
+								recorder.Begin(recordPath, (int32)vw, (int32)vh, recordFps);
 				if (ok) {
 					renderer->SetFinalColorTargetMirror(
 						renderer->GetTextures()->GetRHIHandle(recordTarget.GetColorResult()), /*mirrorToScreen=*/true);
-					logger.Infof("[main] NK_RECORD -> %s (%d fps, %ux%u)\n", recEnv, recordFps, ctx.width, ctx.height);
+					logger.Infof("[main] NK_RECORD -> %s (%d fps, %ux%u%s)\n", recordPath, recordFps, vw, vh,
+								 recHasRect ? " [zone]" : "");
 				} else {
 					logger.Warnf("[main] NK_RECORD: init KO, enregistrement annule\n");
 					recording = false;
@@ -658,9 +723,17 @@ int nkmain(const NkEntryState &state) {
 				}
 				// Draine les captures pretes vers l'encodeur (deja threade).
 				while (recordCapture.Poll([&](const uint8 *rgba, uint32 w, uint32 h, uint64) {
-					(void)w;
 					(void)h;
-					recorder.PushVideo(rgba, media::NkVideoInputFormat::RGBA32);
+					if (recHasRect) {
+						// Crop CPU de la zone -> scratch (lignes contigues).
+						const uint32 rowBytes = recRW * 4u;
+						for (uint32 row = 0; row < recRH; ++row)
+							memcpy(recCrop.Data() + (usize)row * rowBytes,
+								   rgba + ((usize)(recRY + row) * w + recRX) * 4u, rowBytes);
+						recorder.PushVideo(recCrop.Data(), media::NkVideoInputFormat::RGBA32);
+					} else {
+						recorder.PushVideo(rgba, media::NkVideoInputFormat::RGBA32);
+					}
 					recordPushed++;
 				})) {
 				}
@@ -699,21 +772,8 @@ int nkmain(const NkEntryState &state) {
 	}
 
 	// ── NK_RECORD : drainage final + finalisation MP4 ────────────────────────
-	if (recording && recordTarget.IsValid()) {
-		device->WaitIdle(); // seule attente : a la fin de l'enregistrement
-		for (int guard = 0; recordCapture.PendingCount() > 0 && guard < 64; ++guard) {
-			if (!recordCapture.Poll([&](const uint8 *rgba, uint32, uint32, uint64) {
-					recorder.PushVideo(rgba, media::NkVideoInputFormat::RGBA32);
-					recordPushed++;
-				}))
-				break; // fence non signalee apres WaitIdle : on n'attend pas a l'infini
-		}
-		recorder.End();
-		renderer->SetFinalColorTarget(NkTextureHandle{});
-		recordCapture.Shutdown();
-		recordTarget.Shutdown();
-		logger.Infof("[main] NK_RECORD termine : %llu trames -> %s\n", (unsigned long long)recordPushed, recEnv);
-	}
+	if (recording && recordTarget.IsValid())
+		stopRecording();
 
 	// ── Cleanup ──────────────────────────────────────────────────────────────
 	demo.shutdown(ctx);
