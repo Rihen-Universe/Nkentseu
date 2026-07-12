@@ -140,6 +140,13 @@ Socle d'un viewport d'édition façon Blender (testbed `renderdemo --demo=2`, fu
   ~100 Mo/s → machine saturée. Défaut NK_RECORD_FPS = 10. **À COORDONNER
   côté NKMedia** (module autre agent) : file bornée + politique de drop +
   stats de profondeur ; et/ou encodage MJPEG (moins cher) pour cadence haute.
+- ✅ **Toggle à chaud + zone (2026-07-12)** — renderdemo : **touche F9**
+  démarre/arrête l'enregistrement en cours de session (noms auto
+  `nk_record_NNN.mp4`) ; `NK_RECORD_RECT=x,y,w,h` n'enregistre qu'une ZONE
+  (crop CPU au push, w/h alignés 2, clamp fenêtre, arrêt propre au resize).
+  Côté moteur tout est activable/désactivable au runtime
+  (`SetFinalColorTargetMirror` ↔ handle nul). Doc :
+  `wiki/Runtime/NKRenderer/Capture.md` + README racine.
 - ⏳ V3 : résolution d'enregistrement ≠ fenêtre (`NK_RECORD_W/H`, rendu 4K
   natif pendant affichage 720p — l'offscreen est déjà indépendant) ; audio.
 

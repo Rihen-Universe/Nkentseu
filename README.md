@@ -115,7 +115,7 @@ Nkentseu/
 | **NKFont** | Parsing TTF / OTF, atlas (SDF à venir) | ✅ |
 | **NKRHI** | RHI bas niveau 6 backends — validé bout-en-bout sur **5** (Vulkan · OpenGL · DX11 · DX12 · Software) ; compute & cross-compile de shaders | ✅ |
 | **NKCanvas** | Couche 2D SFML-like (sprites, formes, texte, transformations, render textures) — rend sur 5 backends (GL · DX11 · DX12 · SW · Vulkan) ; Metal en stub | 🔶 |
-| **NKRenderer** | Rendu 3D ~80 % d'un MVP UE5-like (PBR, IBL HDR, CSM/Virtual Shadow Maps, Planar Reflection, Bloom, ACES, Voxel AO) ; Vulkan + OpenGL validés, DX11/DX12 en cours | 🔶 |
+| **NKRenderer** | Rendu 3D ~80 % d'un MVP UE5-like (PBR, IBL HDR + convolutions GPU, CSM/Virtual Shadow Maps, Planar Reflection, Bloom, ACES, Voxel AO) ; **4 backends GPU à parité** (Vulkan/OpenGL/DX11/DX12) ; viewport d'édition (gizmos, view modes, edit mode) ; **capture PNG + enregistrement vidéo MP4 asynchrone** (fenêtre vivante, [doc](wiki/Runtime/NKRenderer/Capture.md)) | 🔶 |
 | **NKECS** | ECS bas niveau à archétypes | 🔶 |
 | **NKUI** | UI immediate-mode (docking, thèmes, widgets) | 🔶 |
 | **NKCollision** | Collisions / physique | ⏳ |
