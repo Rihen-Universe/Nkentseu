@@ -38,7 +38,7 @@ namespace nkentseu {
 				// les nouvelles trames sont ABANDONNEES (drop-newest) au lieu de gonfler la memoire
 				// (temps reel : perdre une trame vaut mieux que geler). Abandons comptes (DroppedFrames()).
 				bool Begin(const char *path, int32 width, int32 height, int32 fpsNum = 60, int32 fpsDen = 1,
-						   int32 qp = 24, int32 maxQueuedFrames = 32);
+						   int32 qp = 20, int32 maxQueuedFrames = 32);
 
 				// Pistes audio PCM — plusieurs = choix de LANGUE. À appeler juste après Begin (avant les trames).
 				int32 AddAudio(int32 sampleRate, int32 channels, const char *lang3 = nullptr);
