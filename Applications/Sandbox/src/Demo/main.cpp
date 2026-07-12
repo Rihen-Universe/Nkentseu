@@ -29,6 +29,7 @@
 #include "NKLogger/NkLog.h"
 #include "NKRHI/Core/NkDeviceFactory.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
+#include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h" // NK_CAPTURE (validation headless)
 
 namespace nkentseu {
 	struct NkEntryState;
@@ -551,6 +552,18 @@ int nkmain(const NkEntryState &state) {
 	const char *mfEnv = getenv("NK_MAXFRAMES");
 	const uint64 maxFrames = mfEnv ? (uint64)atoll(mfEnv) : 0;
 
+	// NK_CAPTURE=<frame> : capture du rendu final a la frame donnee vers
+	// NK_CAPTURE_PATH (defaut "nk_capture.png"), via SetFinalColorTarget +
+	// NkOffscreenTarget readback (marche sur les 6 backends). La fenetre est
+	// redirigee 3 frames avant la capture puis restauree. Outil de validation
+	// visuelle headless (agents/CI) — 0 cout si NK_CAPTURE absent.
+	const char *capEnv = getenv("NK_CAPTURE");
+	uint64 captureFrame = capEnv ? (uint64)atoll(capEnv) : 0;
+	const char *capPathEnv = getenv("NK_CAPTURE_PATH");
+	const char *capturePath = capPathEnv ? capPathEnv : "nk_capture.png";
+	renderer::NkOffscreenTarget captureTarget;
+	bool captureArmed = false;
+
 	// Le cap FPS (garde-fou thermique + anti-jitter) est désormais géré par le MOTEUR
 	// dans NkRenderer::Present() (pacing haute précision). Défaut = NK_FPS_CAP (120),
 	// modifiable à chaud via F1/F2 (cf. callback clavier). Plus de limiteur ici.
@@ -571,6 +584,35 @@ int nkmain(const NkEntryState &state) {
 
 		if (ctx.width == 0 || ctx.height == 0)
 			continue;
+
+		// ── NK_CAPTURE : redirection -> readback -> restauration ────────────
+		if (captureFrame > 0) {
+			if (!captureArmed && ctx.frame + 3 >= captureFrame) {
+				renderer::NkOffscreenDesc od;
+				od.width = ctx.width;
+				od.height = ctx.height;
+				od.hasDepth = false;
+				od.colorFmt = ::nkentseu::NkGPUFormat::NK_RGBA8_UNORM;
+				od.readback = true;
+				od.name = "nk_capture";
+				if (captureTarget.Init(device, renderer->GetTextures(), od)) {
+					renderer->SetFinalColorTarget(renderer->GetTextures()->GetRHIHandle(captureTarget.GetColorResult()));
+					captureArmed = true;
+				} else {
+					logger.Warnf("[main] NK_CAPTURE: offscreen init KO, capture annulee\n");
+					captureFrame = 0;
+				}
+			} else if (captureArmed && ctx.frame > captureFrame) {
+				device->WaitIdle();
+				const bool ok = captureTarget.Capture(capturePath);
+				logger.Infof("[main] NK_CAPTURE frame %llu -> %s (%s)\n",
+							 (unsigned long long)ctx.frame, capturePath, ok ? "OK" : "ECHEC");
+				renderer->SetFinalColorTarget(NkTextureHandle{});
+				captureTarget.Shutdown();
+				captureFrame = 0; // one-shot
+			}
+		}
+
 		demo.frame(ctx, dt);
 	}
 
