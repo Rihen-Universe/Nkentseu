@@ -351,10 +351,13 @@ namespace nkentseu {
 						doBtn(sg.id);
 				} else {
 					const NkRect sb = {sx, ctrlY, sg.w, ctrlH};
-					u.Panel(sb, NkCol::input, NkCol::border, NkR::sm * u.S);
+					const bool shov = tb.open < 0 && u.Hit(sb);
+					u.Panel(sb, shov ? NkCol::hover : NkCol::input, shov ? NkCol::primary : NkCol::border, NkR::sm * u.S);
 					NkOwIco(u, sg.tex, "search", {sb.x + u.s(9), ctrlY + (ctrlH - u.s(12)) * 0.5f, u.s(12), u.s(12)},
 							NkCol::mutedFg);
 					u.Text(sb.x + u.s(27), ctrlY + (ctrlH - u.Lh()) * 0.5f, sg.label, NkCol::mutedFg);
+					if (shov && u.click)
+						s->reqPalette = true; // ouvre la palette de commandes (traite dans AppFlagsThunk)
 				}
 			};
 
