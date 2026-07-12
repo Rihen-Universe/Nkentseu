@@ -34,6 +34,21 @@ namespace nkentseu {
 					auto &ctx = ec.Ui();
 					++mTick;
 					TickGit();
+					// PEEK OUVERT = MODAL : l'explorateur est dessiné en PREMIER, donc
+					// neutraliser l'input ici empêche TOUS les panneaux dessinés ensuite
+					// (éditeur, terminal…) de recevoir les clics sous l'overlay. Le peek
+					// lui-même utilise la COPIE réelle (mPeekInput).
+					if (mPeekOpen) {
+						mPeekInput = ctx.input;
+						ctx.input.mousePos = {-100000.f, -100000.f};
+						for (int32 b = 0; b < 3; ++b) {
+							ctx.input.mouseClicked[b] = false;
+							ctx.input.mouseDown[b] = false;
+							ctx.input.mouseDoubleClicked[b] = false;
+						}
+						ctx.input.wheel = ctx.input.wheelH = 0.f;
+						ctx.input.charCount = 0;
+					}
 					// Changement de workspace -> reset complet (expansion, filtre, git).
 					if (!SameStr(mRootStr.CStr(), mS->root.ToString().CStr())) {
 						mRootStr = mS->root.ToString();
@@ -1337,14 +1352,18 @@ namespace nkentseu {
 						return;
 					TickPeek();
 					auto &ov = ctx.dlOverlay;
+					// L'input a été neutralisé pour tous les panneaux (anti-traversée) ;
+					// le peek lit l'input RÉEL sauvegardé en début de frame.
+					const nkgui::NkGuiInput &in = mPeekInput;
 					const float32 W = static_cast<float32>(ctx.viewW), H = static_cast<float32>(ctx.viewH);
 					const NkRect box = {W * 0.18f, H * 0.12f, W * 0.64f, H * 0.72f};
+					ov.AddRectFilled({box.x + 2.f, box.y + 4.f, box.w, box.h}, {0, 0, 0, 70}, 8.f); // ombre douce
 					ov.AddRectFilled(box, ctx.theme.panel, 8.f);
-					ov.AddRect(box, ctx.theme.accent, 8.f);
+					ov.AddRect(box, ctx.theme.border, 8.f); // bordure FINE et discrète (thème)
 					const float32 lh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
 					const float32 asc = (ctx.font && ctx.font->Valid()) ? ctx.font->Ascent() : 12.f;
 					float32 y = box.y + 10.f;
-					const NkVec2 m = ctx.input.mousePos;
+					const NkVec2 m = in.mousePos;
 					if (ctx.font && ctx.font->Valid()) {
 						// En-tête : nom  ·  chemin relatif  ·  taille — bouton Ouvrir.
 						char rel[1024];
@@ -1360,7 +1379,7 @@ namespace nkentseu {
 						const bool obh = NkGuiRectContains(obr, m);
 						ov.AddRectFilled(obr, obh ? ctx.theme.buttonHover : ctx.theme.button, 4.f);
 						ov.AddText(ctx.font->Face(), ctx.font->TexId(), {obr.x + 10.f, y + asc}, ob, ctx.theme.text);
-						if (obh && ctx.input.mouseClicked[0]) {
+						if (obh && in.mouseClicked[0]) {
 							mS->OpenPath(NkPath(mPeekPath));
 							mPeekOpen = false;
 						}
@@ -1412,24 +1431,19 @@ namespace nkentseu {
 							y += lh;
 						}
 					}
-					// Fermeture : Échap, Espace, ou clic EXTÉRIEUR (le clic intérieur est gardé).
+					// Fermeture : Échap, Espace, ou clic EXTÉRIEUR (l'input des autres
+					// panneaux est déjà neutralisé en début de frame -> pas de traversée).
 					const bool spaceAgain = [&] {
-						for (int32 i = 0; i < ctx.input.charCount; ++i)
-							if (ctx.input.chars[i] == 32)
+						for (int32 i = 0; i < in.charCount; ++i)
+							if (in.chars[i] == 32)
 								return true;
 						return false;
 					}();
-					// L'Espace qui vient d'OUVRIR le peek (même frame) ne le referme pas.
-					if (mPeekJustOpened)
+					if (mPeekJustOpened) // l'Espace d'ouverture ne referme pas
 						mPeekJustOpened = false;
-					else if (ctx.input.KeyPressed(NkGuiKey::Escape) || spaceAgain ||
-							 (ctx.input.mouseClicked[0] && !NkGuiRectContains(box, m)))
+					else if (in.KeyPressed(NkGuiKey::Escape) || spaceAgain ||
+							 (in.mouseClicked[0] && !NkGuiRectContains(box, m)))
 						mPeekOpen = false;
-					if (NkGuiRectContains(box, m)) { // garde d'input : rien ne passe dessous
-						ctx.input.mouseClicked[0] = false;
-						ctx.input.mouseClicked[1] = false;
-						ctx.input.wheel = 0.f;
-					}
 				}
 
 				// ── Menu contextuel (clic droit) : actions sur la cible. ──
@@ -1540,6 +1554,7 @@ namespace nkentseu {
 				NkVector<NkString> mPeekDiff; ///< lignes du diff (tronquées)
 				bool mPeekGitPending = false;
 				bool mPeekJustOpened = false; ///< frame d'ouverture : l'Espace ne referme pas
+				nkgui::NkGuiInput mPeekInput; ///< input RÉEL (l'overlay le lit, le reste est masqué)
 				float32 mPeekScroll = 0.f;
 				NkRect mEditRect = {0.f, 0.f, 0.f, 0.f}; ///< zone de saisie inline (clic hors = valide)
 		};
