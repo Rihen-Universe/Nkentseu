@@ -1033,6 +1033,7 @@ namespace nkentseu {
 			mShadowCasters.Clear();
 			mInstanced.Clear();
 			mSkinned.Clear();
+			mCullStats = NkCullStats{}; // stats de culling : nouvelles soumissions
 			// mObjectDrawIdx N'EST PAS reset ici — voir ResetFrame() ci-dessus.
 		}
 
@@ -1056,8 +1057,11 @@ namespace nkentseu {
 				mShadowCasters.PushBack({dc, depth});
 
 			// Culling camera : uniquement pour le rendu visible (mOpaque).
-			if (!mCtx.camera.IsAABBVisible(dc.aabb))
+			mCullStats.opaqueSubmitted++;
+			if (!mCtx.camera.IsAABBVisible(dc.aabb)) {
+				mCullStats.opaqueCulled++;
 				return;
+			}
 			mOpaque.PushBack({dc, depth});
 		}
 
@@ -1907,6 +1911,15 @@ namespace nkentseu {
 					const uint32 total = (uint32)dc.transforms.Size();
 					if (total == 0)
 						continue;
+					// Frustum cull par BATCH — mêmes règles que le chemin
+					// fallback ci-dessous (pas en miroir, shadow non affectée).
+					if (!mPendingMirrorActive) {
+						mCullStats.instancedBatches++;
+						if (!mCtx.camera.IsAABBVisible(dc.aabb)) {
+							mCullStats.instancedCulled++;
+							continue;
+						}
+					}
 
 					NkMaterialInstance *matInst = nullptr;
 					if (dc.material.IsValid() && mMat)
@@ -1983,6 +1996,16 @@ namespace nkentseu {
 				const uint32 n = (uint32)dc.transforms.Size();
 				if (n == 0)
 					continue;
+				// Frustum cull par BATCH (AABB monde fusionné des instances).
+				// Pas en passe miroir (caméra différente) ; la passe shadow
+				// itère mInstanced directement et n'est pas affectée.
+				if (!mPendingMirrorActive) {
+					mCullStats.instancedBatches++;
+					if (!mCtx.camera.IsAABBVisible(dc.aabb)) {
+						mCullStats.instancedCulled++;
+						continue;
+					}
+				}
 
 				// Materiau + pipeline : resolus UNE fois pour tout le drawcall.
 				NkMaterialInstance *matInst = nullptr;
