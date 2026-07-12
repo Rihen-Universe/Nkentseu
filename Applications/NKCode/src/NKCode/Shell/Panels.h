@@ -13,6 +13,8 @@
 #include "NKCode/Shell/NkI18n.h"  // NkT() : bannière mojibake traduite
 #include "NKCode/Shell/NkShell.h" // NkCodeShellRun (révéler dans l'explorateur / terminal)
 #include "NKCode/Shell/NkExplorer.h" // ExplorerPanel (arbre + git + filtre, maquette Banani)
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
+#include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -130,7 +132,7 @@ namespace nkentseu {
 						}
 						lbl[n++] = kKindGlyph[sy.kind];
 						lbl[n++] = ' ';
-						std::snprintf(lbl + n, sizeof(lbl) - n, "%s", sy.name.CStr());
+						NkStrCopy(lbl + n, sizeof(lbl) - n, sy.name.CStr()); // copie bornée maison (NkText.h)
 						if (Selectable(ctx, lbl, false)) {
 							f.doc.curLine = (sy.line < f.doc.LineCount()) ? sy.line : f.doc.LineCount() - 1;
 							f.doc.curCol = 0;
@@ -400,19 +402,17 @@ namespace nkentseu {
 						mS->StartWsFind(NkString(mQuery), mCase, mWord);
 					if (ctx.input.KeyPressed(NkGuiKey::Escape))
 						mFocus = 0;
-					// ── Statut ──
-					char st[128];
-					if (mS->wsBusy)
-						std::snprintf(st, sizeof(st), "%s %d/%d", NkT("search.busy"), mS->wsScanned, mS->wsTotal);
-					else
-						std::snprintf(st, sizeof(st), "%d %s / %d %s", static_cast<int32>(mS->wsResults.Size()),
-									  NkT("search.results"), mS->wsFileCount, NkT("search.files"));
+					// ── Statut ── (NkPrintf maison)
+					const NkString st =
+						mS->wsBusy ? NkPrintf("%s %d/%d", NkT("search.busy"), mS->wsScanned, mS->wsTotal)
+								   : NkPrintf("%d %s / %d %s", static_cast<int32>(mS->wsResults.Size()),
+											  NkT("search.results"), mS->wsFileCount, NkT("search.files"));
 					// Avance le layout du shell : la LISTE en dessous profite du scroll de la fenêtre.
 					ctx.layout.cursor.x = x0;
 					ctx.layout.cursor.y = y;
 					ctx.layout.lineStartX = x0;
 					ctx.layout.curLineH = 0.f;
-					ec.Text(st);
+					ec.Text(st.CStr());
 					ec.Separator();
 					// ── Résultats groupés par fichier (en-tête repliable + hits cliquables) ──
 					NkString cur;
@@ -426,17 +426,15 @@ namespace nkentseu {
 								 j < mS->wsResults.Size() && StrEq(mS->wsResults[j].file.CStr(), cur.CStr()); ++j)
 								++nf;
 							folded = IsFolded(cur);
-							char hd[300];
-							std::snprintf(hd, sizeof(hd), "%s %s  (%d)", folded ? ">" : "v",
-										  NkPath(cur).GetFileName().CStr(), nf);
-							if (Selectable(ctx, hd, false))
+							const NkString hd = NkPrintf("%s %s  (%d)", folded ? ">" : "v",
+														 NkPath(cur).GetFileName().CStr(), nf); // NkPrintf maison
+							if (Selectable(ctx, hd.CStr(), false))
 								ToggleFold(cur);
 						}
 						if (folded)
 							continue;
-						char row[360];
-						std::snprintf(row, sizeof(row), "   L%d : %s", h.line + 1, h.preview.CStr());
-						if (Selectable(ctx, row, false)) { // ouverture DIFFÉRÉE (poll) : jamais OpenPath au rendu
+						const NkString row = NkPrintf("   L%d : %s", h.line + 1, h.preview.CStr()); // NkPrintf maison
+						if (Selectable(ctx, row.CStr(), false)) { // ouverture DIFFÉRÉE (poll) : jamais OpenPath au rendu
 							mS->wsOpenFile = h.file;
 							mS->wsOpenLine = h.line;
 						}
@@ -566,15 +564,14 @@ namespace nkentseu {
 						// Bouton « Tout réparer (N) » : répare en une fois TOUS les fichiers ouverts affectés.
 						const int32 nMoji = mS->CountMojibake();
 						if (nMoji > 1 && ctx.font && ctx.font->Valid()) {
-							char alab[64];
-							std::snprintf(alab, sizeof(alab), "%s (%d)", NkT("edit.repairall"), nMoji);
-							const float32 aw = ctx.font->MeasureWidth(alab) + 24.f;
+							const NkString alab = NkPrintf("%s (%d)", NkT("edit.repairall"), nMoji); // NkPrintf maison
+							const float32 aw = ctx.font->MeasureWidth(alab.CStr()) + 24.f;
 							const NkRect abtn = {btn.x - aw - 8.f, bar.y + 5.f, aw, bh - 10.f};
 							const bool ahov =
 								mm.x >= abtn.x && mm.x < abtn.x + abtn.w && mm.y >= abtn.y && mm.y < abtn.y + abtn.h;
 							ctx.DL().AddRectFilled(abtn, ahov ? ctx.theme.buttonHover : ctx.theme.button, 4.f);
 							ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
-											 {abtn.x + 12.f, abtn.y + (abtn.h - lh) * 0.5f + asc}, alab,
+											 {abtn.x + 12.f, abtn.y + (abtn.h - lh) * 0.5f + asc}, alab.CStr(),
 											 ctx.theme.text);
 							if (ahov && ctx.input.mouseClicked[0])
 								mS->RepairAllOpenEncodings();
@@ -716,10 +713,10 @@ namespace nkentseu {
 							const NkRect box = {r.x + (r.w - bw) * 0.5f, r.y + 44.f, bw, bh};
 							ctx.DL().AddRectFilled(box, ctx.theme.header, 8.f);
 							ctx.DL().AddRect(box, ctx.theme.accent, 1.5f);
-							char hb[64];
-							std::snprintf(hb, sizeof(hb), "Aller à la définition — %d résultats  (clic · Échap)", n);
-							ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {box.x + 12.f, box.y + 6.f + asc}, hb,
-											 ctx.theme.textDisabled);
+							const NkString hb =
+								NkPrintf("Aller à la définition — %d résultats  (clic · Échap)", n); // NkPrintf maison
+							ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {box.x + 12.f, box.y + 6.f + asc},
+											 hb.CStr(), ctx.theme.textDisabled);
 							if (ctx.input.KeyPressed(NkGuiKey::Escape))
 								mS->navPickerOpen = false; // souris-primaire : survol + clic
 							const NkColor selC = {ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 70};
@@ -733,11 +730,7 @@ namespace nkentseu {
 								if (i == mS->navPickerSel)
 									ctx.DL().AddRectFilled(row, selC, 4.f);
 								NkString base = NkPath(hit.file).GetFileName();
-								{
-									char c[16];
-									std::snprintf(c, sizeof(c), ":%d", hit.line + 1);
-									base += c;
-								}
+								base += NkPrintf(":%d", hit.line + 1); // NkPrintf maison
 								ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {row.x + 8.f, row.y + 4.f + asc},
 												 base.CStr(), ctx.theme.text);
 								const float32 bx = row.x + 8.f + ctx.font->MeasureWidth(base.CStr()) + 16.f;
@@ -749,27 +742,26 @@ namespace nkentseu {
 
 					// Footer VSCode : nom du fichier (gauche) + Ln/Col + langage (droite).
 					if (mShell) {
-						char rbuf[200];
 						// Chord Ctrl+K arme -> guide visible (facon VSCode « (Ctrl+K) en attente... »).
 						const bool chordArmed = (f.doc.tick - f.doc.chordK <= 90);
 						const bool qfEmpty = (f.doc.tick - f.doc.qfEmptyTick <= 120);
 						// Statut d'action (ex. « Panneau Structure affiché ») : VISIBLE ici, pas seulement
-						// dans l'en-tete du panneau Sortie.
-						std::snprintf(rbuf, sizeof(rbuf), "%s%s%s%sLn %d, Col %d     Espaces : 4     UTF-8     %s",
-									  mS->status.Empty() ? "" : mS->status.CStr(), mS->status.Empty() ? "" : "      ",
-									  chordArmed ? "(Ctrl+K)  0 = replier   J = deplier   I = info      " : "",
-									  qfEmpty ? "(Ctrl+.)  aucune action rapide sur cette ligne      " : "",
-									  f.doc.curLine + 1, f.doc.curCol + 1, LangOf(f.path));
+						// dans l'en-tete du panneau Sortie. (NkPrintf maison)
+						const NkString rbuf =
+							NkPrintf("%s%s%s%sLn %d, Col %d     Espaces : 4     UTF-8     %s",
+									 mS->status.Empty() ? "" : mS->status.CStr(), mS->status.Empty() ? "" : "      ",
+									 chordArmed ? "(Ctrl+K)  0 = replier   J = deplier   I = info      " : "",
+									 qfEmpty ? "(Ctrl+.)  aucune action rapide sur cette ligne      " : "",
+									 f.doc.curLine + 1, f.doc.curCol + 1, LangOf(f.path));
 						NkString left = f.Name();
 						if (f.doc.dirty)
 							left = NkString("* ") + left.CStr();
-						mShell->SetFooter(left.CStr(), rbuf);
+						mShell->SetFooter(left.CStr(), rbuf.CStr());
 
 						// Infos centrees dans la barre de titre : "fichier - NKCode".
-						char center[200];
-						std::snprintf(center, sizeof(center), "%s%s - NKCode", f.doc.dirty ? "* " : "",
-									  f.Name().CStr());
-						mShell->SetTitleInfo(center);
+						const NkString center =
+							NkPrintf("%s%s - NKCode", f.doc.dirty ? "* " : "", f.Name().CStr()); // NkPrintf maison
+						mShell->SetTitleInfo(center.CStr());
 					}
 				}
 
@@ -869,11 +861,9 @@ namespace nkentseu {
 					// OUTPUT ([keys]) -> permet de voir si une touche n'arrive pas jusqu'a NKGui.
 					if (ctx.input.ctrlDown) {
 						auto trace = [&](NkGuiKey k, const char *nm) {
-							if (ctx.input.KeyPressed(k)) {
-								char b[64];
-								std::snprintf(b, sizeof(b), "[keys] Ctrl%s+%s", ctx.input.shiftDown ? "+Maj" : "", nm);
-								GlobalLogBuffer().Push(NkString(b));
-							}
+							if (ctx.input.KeyPressed(k)) // NkPrintf maison
+								GlobalLogBuffer().Push(
+									NkPrintf("[keys] Ctrl%s+%s", ctx.input.shiftDown ? "+Maj" : "", nm));
 						};
 						trace(NkGuiKey::K, "K");
 						trace(NkGuiKey::J, "J");
@@ -1459,11 +1449,10 @@ namespace nkentseu {
 															   : prog),
 										  barH},
 										 ctx.theme.accent, 3.f);
-						char info[64];
-						std::snprintf(info, sizeof(info), "  %d/%d  (%d%%)", mS->buildDone, mS->buildTotal,
-									  (int)(prog * 100.f + 0.5f));
+						const NkString info = NkPrintf("  %d/%d  (%d%%)", mS->buildDone, mS->buildTotal,
+													   (int)(prog * 100.f + 0.5f)); // NkPrintf maison
 						if (ctx.font && ctx.font->Valid())
-							dl.AddText(ctx.font->Face(), ctx.font->TexId(), {bar.x + barW + 4.f, by}, info,
+							dl.AddText(ctx.font->Face(), ctx.font->TexId(), {bar.x + barW + 4.f, by}, info.CStr(),
 									   ctx.theme.text);
 					} else if (ctx.font && ctx.font->Valid()) {
 						dl.AddText(ctx.font->Face(), ctx.font->TexId(), {clip.x + pad, by},
@@ -2503,6 +2492,7 @@ namespace nkentseu {
 						}
 						j = 0;
 					};
+					// fgetc sur PIPE process : conservé (cf. wrapper désigné NkProcess.h).
 					while ((ch = std::fgetc(pipe)) != EOF) {
 						if (ch == 0x00 || ch == '\r' || ch == 0xFF || ch == 0xFE)
 							continue; // nuls UTF-16 + BOM
@@ -2568,9 +2558,9 @@ namespace nkentseu {
 				//    format `shell=N` + `distro=S`). L'HISTORIQUE des commandes n'est PAS géré ici :
 				//    c'est celui du shell lui-même (PSReadLine, .bash_history…), déjà persistant. ──
 				static NkString PrefPath() {
-					const char *base = std::getenv("APPDATA");
+					const char *base = env::GetEnvVar("APPDATA"); // API maison (NkEnv.h)
 					if (!base)
-						base = std::getenv("HOME");
+						base = env::GetEnvVar("HOME");
 					if (!base)
 						return NkString();
 					NkString dir = NkString(base) + "/NKCode";
@@ -2613,9 +2603,8 @@ namespace nkentseu {
 					const NkString p = PrefPath();
 					if (p.Empty())
 						return;
-					char buf[192];
-					std::snprintf(buf, sizeof(buf), "shell=%d\ndistro=%s\n", mDefShell, mDefDistro.CStr());
-					NkFile::WriteAllText(NkPath(p), NkString(buf));
+					NkFile::WriteAllText(NkPath(p),
+										 NkPrintf("shell=%d\ndistro=%s\n", mDefShell, mDefDistro.CStr())); // maison
 				}
 
 				// Crée un terminal d'un TYPE donné (sert au terminal par défaut) : libellé/distro

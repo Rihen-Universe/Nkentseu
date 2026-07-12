@@ -15,10 +15,11 @@
 #include "NKCode/Project/NkLogSink.h" // GlobalLogBuffer : traces [ac] de la completion (panneau OUTPUT)
 #include "NKCode/Editor/NkCodeEditor.h"
 #include "NKCode/Project/NkLsp.h"
-#include "NKCode/Shell/NkI18n.h" // NkT() : ages relatifs traduits
-#include <cstdio>
-#include <cstdlib>
-#include <ctime>
+#include "NKCode/Shell/NkI18n.h"		  // NkT() : ages relatifs traduits
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison, ex-snprintf)
+#include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison, ex-<cstdlib>)
+#include <cstdio> // _popen/fread UNIQUEMENT (pipe process, cf. wrapper désigné NkProcess.h)
+#include <ctime> // TODO(maison) : std::time (epoch Unix) — pas d'équivalent NKTime (NkDate/NkTime = calendaire)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -134,10 +135,9 @@ namespace nkentseu {
 				int32 untitledSeq = 0;
 
 				void NewUntitled() {
-					char nm[32];
-					std::snprintf(nm, sizeof(nm), "sans-titre-%d.txt", ++untitledSeq);
+					const NkString nm = NkPrintf("sans-titre-%d.txt", ++untitledSeq); // NkPrintf maison
 					OpenFile f;
-					f.path = NkPath(nm);
+					f.path = NkPath(nm.CStr());
 					f.doc.SetText("");
 					f.untitled = true;
 					files.PushBack(f);
@@ -154,7 +154,7 @@ namespace nkentseu {
 #endif
 					if (!p)
 						return out;
-					char buf[1024];
+					char buf[1024]; // fread sur PIPE process : conservé (cf. wrapper désigné NkProcess.h)
 					usize n;
 					while ((n = std::fread(buf, 1, sizeof(buf) - 1, p)) > 0) {
 						buf[n] = '\0';
@@ -667,14 +667,12 @@ namespace nkentseu {
 							++diagPass;
 							chained = RunDiagPass(tgt);
 						}
-						if (!chained) { // fin de chaîne -> résumé
-							char lb[220];
-							std::snprintf(lb, sizeof(lb),
-										  "[diag] %s : %d marque(s) dans l'editeur ; compilateur : %d erreur(s), %d "
-										  "avertissement(s) au total (headers inclus, %d passe%s)",
-										  f.Name().CStr(), static_cast<int32>(f.doc.diags.Size()), diagRawE, diagRawW,
-										  diagPass + 1, diagPass > 0 ? "s" : "");
-							GlobalLogBuffer().Push(NkString(lb));
+						if (!chained) { // fin de chaîne -> résumé (NkPrintf maison)
+							GlobalLogBuffer().Push(
+								NkPrintf("[diag] %s : %d marque(s) dans l'editeur ; compilateur : %d erreur(s), %d "
+										 "avertissement(s) au total (headers inclus, %d passe%s)",
+										 f.Name().CStr(), static_cast<int32>(f.doc.diags.Size()), diagRawE, diagRawW,
+										 diagPass + 1, diagPass > 0 ? "s" : ""));
 							if (atLimit)
 								GlobalLogBuffer().Push(
 									NkString("[diag] note : limite de passes atteinte - d'autres erreurs "
@@ -1443,9 +1441,7 @@ namespace nkentseu {
 							nullptr};
 						for (int32 k = 0; kws2[k]; ++k)
 							if (StrEq(sym, kws2[k])) {
-								char lb[96];
-								std::snprintf(lb, sizeof(lb), "[hover] '%s' -> (mot-cle)", sym);
-								GlobalLogBuffer().Push(NkString(lb));
+								GlobalLogBuffer().Push(NkPrintf("[hover] '%s' -> (mot-cle)", sym)); // maison
 								return;
 							}
 					}
@@ -1538,9 +1534,7 @@ namespace nkentseu {
 							++i;
 						}
 						if (inside || blk || inStr) {
-							char lb[128];
-							std::snprintf(lb, sizeof(lb), "[hover] '%s' -> (commentaire/chaine)", sym);
-							GlobalLogBuffer().Push(NkString(lb));
+							GlobalLogBuffer().Push(NkPrintf("[hover] '%s' -> (commentaire/chaine)", sym)); // maison
 							return;
 						}
 					}
@@ -1553,7 +1547,7 @@ namespace nkentseu {
 					{
 						NkString margs, mbody;
 						if (MacroOf(dt, sym, margs, mbody)) {
-							std::snprintf(title, sizeof(title), "#define %s%s", sym, margs.CStr());
+							NkBufPrintf(title, sizeof(title), "#define %s%s", sym, margs.CStr());
 							doc.hovKind = 4;
 							docAnchors.PushBack(NkString("#define ") + sym);
 							if (!mbody.Empty())
@@ -1652,22 +1646,18 @@ namespace nkentseu {
 								const bool known = MemberTypeOf(dt, owner, sym, mty, sig);
 								if (known && sig[0]) {
 									docAnchors.PushBack(NkString(sig));
-									std::snprintf(title, sizeof(title), "%s", sig);
+									NkBufPrintf(title, sizeof(title), "%s", sig);
 									NkString ctx2 = NkString("membre de ") + owner;
 									doc.hovBody.PushBack(ctx2);
 								} else if (known && mty[0])
-									std::snprintf(title, sizeof(title), "%s %s::%s%s", mty, owner, sym,
+									NkBufPrintf(title, sizeof(title), "%s %s::%s%s", mty, owner, sym,
 												  callish ? "(...)" : "");
 								else
-									std::snprintf(title, sizeof(title), "%s::%s%s", owner, sym, callish ? "(...)" : "");
+									NkBufPrintf(title, sizeof(title), "%s::%s%s", owner, sym, callish ? "(...)" : "");
 								if (known && !sig[0]) { // diagnostic : entrée appariée SANS prototype
-									char lb2[128];
-									std::snprintf(lb2, sizeof(lb2), "[hover] (sig vide) %s::%s", owner, sym);
-									GlobalLogBuffer().Push(NkString(lb2));
+									GlobalLogBuffer().Push(NkPrintf("[hover] (sig vide) %s::%s", owner, sym));
 								} else if (!known) {
-									char lb2[128];
-									std::snprintf(lb2, sizeof(lb2), "[hover] (membre inconnu) %s::%s", owner, sym);
-									GlobalLogBuffer().Push(NkString(lb2));
+									GlobalLogBuffer().Push(NkPrintf("[hover] (membre inconnu) %s::%s", owner, sym));
 								}
 							}
 						}
@@ -1707,7 +1697,7 @@ namespace nkentseu {
 									CopyCap(vt, alt, 95);
 							}
 							doc.hovKind = 3; // variable (jaune)
-							std::snprintf(title, sizeof(title), "%s %s", vt, sym);
+							NkBufPrintf(title, sizeof(title), "%s %s", vt, sym);
 						}
 					}
 					// ── (3) Membre de la CLASSE ENGLOBANTE (accès implicite via this). ──
@@ -1719,14 +1709,14 @@ namespace nkentseu {
 							if (MemberTypeOf(dt, encl, sym, mty, sig)) {
 								if (sig[0]) {
 									docAnchors.PushBack(NkString(sig));
-									std::snprintf(title, sizeof(title), "%s", sig);
+									NkBufPrintf(title, sizeof(title), "%s", sig);
 									NkString ctx2 = NkString("membre de ") + encl;
 									doc.hovBody.PushBack(ctx2);
 								} else if (mty[0])
-									std::snprintf(title, sizeof(title), "%s %s::%s%s", mty, encl, sym,
+									NkBufPrintf(title, sizeof(title), "%s %s::%s%s", mty, encl, sym,
 												  callish ? "(...)" : "");
 								else
-									std::snprintf(title, sizeof(title), "%s::%s%s", encl, sym, callish ? "(...)" : "");
+									NkBufPrintf(title, sizeof(title), "%s::%s%s", encl, sym, callish ? "(...)" : "");
 							}
 						}
 					}
@@ -1770,12 +1760,12 @@ namespace nkentseu {
 							NkSymSortDedup(mm);
 							const int32 nMem2 = static_cast<int32>(mm.Size());
 							if (StrEq(kindW, "namespace"))
-								std::snprintf(title, sizeof(title), "namespace %s", sym);
+								NkBufPrintf(title, sizeof(title), "namespace %s", sym);
 							else if (nMem2 > 0)
-								std::snprintf(title, sizeof(title), "%s %s — %d %s", kindW, sym, nMem2,
+								NkBufPrintf(title, sizeof(title), "%s %s — %d %s", kindW, sym, nMem2,
 											  StrEq(kindW, "enum") ? "valeur(s)" : "membre(s)");
 							else
-								std::snprintf(title, sizeof(title), "%s %s", kindW, sym);
+								NkBufPrintf(title, sizeof(title), "%s %s", kindW, sym);
 							docAnchors.PushBack(NkString(kindW) + " " + sym);
 							docAnchors.PushBack(NkString("struct ") + sym);
 							docAnchors.PushBack(NkString("class ") + sym);
@@ -1788,10 +1778,10 @@ namespace nkentseu {
 						char rt[96], sig[200];
 						if (GlobalFnOf(dt, sym, rt, sig)) {
 							if (sig[0]) {
-								std::snprintf(title, sizeof(title), "%s", sig);
+								NkBufPrintf(title, sizeof(title), "%s", sig);
 								docAnchors.PushBack(NkString(sig));
 							} else if (rt[0])
-								std::snprintf(title, sizeof(title), "%s %s(...)", rt, sym);
+								NkBufPrintf(title, sizeof(title), "%s %s(...)", rt, sym);
 						}
 					}
 					// ── (6) Dernier recours : membre par NOM (ambigu -> préfixe '~'). ──
@@ -1814,23 +1804,19 @@ namespace nkentseu {
 								}
 						if (own) {
 							if (sg && *sg) {
-								std::snprintf(title, sizeof(title), "~ %s", sg);
+								NkBufPrintf(title, sizeof(title), "~ %s", sg);
 								docAnchors.PushBack(NkString(sg));
 							} else if (mty && *mty)
-								std::snprintf(title, sizeof(title), "~ %s %s::%s%s", mty, own, sym,
+								NkBufPrintf(title, sizeof(title), "~ %s %s::%s%s", mty, own, sym,
 											  callish ? "(...)" : "");
 							else
-								std::snprintf(title, sizeof(title), "~ %s::%s%s", own, sym, callish ? "(...)" : "");
+								NkBufPrintf(title, sizeof(title), "~ %s::%s%s", own, sym, callish ? "(...)" : "");
 							NkString ctx2 = NkString("membre de ") + own + " (par nom, peut-etre ambigu)";
 							doc.hovBody.PushBack(ctx2);
 						}
 					}
-					{
-						char lb[192];
-						std::snprintf(lb, sizeof(lb), "[hover] '%s' L%d:C%d -> %s", sym, doc.hovLine + 1, doc.hovCol,
-									  title[0] ? title : "(rien)");
-						GlobalLogBuffer().Push(NkString(lb));
-					}
+					GlobalLogBuffer().Push(NkPrintf("[hover] '%s' L%d:C%d -> %s", sym, doc.hovLine + 1, doc.hovCol,
+													title[0] ? title : "(rien)")); // NkPrintf maison
 					if (!title[0]) {
 						doc.hovBody.Clear();
 						return; // rien d'utile -> pas de carte
@@ -1972,12 +1958,9 @@ namespace nkentseu {
 						doc.acCtxAll = heur;
 						ApplyCtxFilter(doc, doc.acCtxLine, doc.acCtxCol);
 					}
-					{
-						char lb[160];
-						std::snprintf(lb, sizeof(lb), "[ac] heuristique: %d membres (index projet: %s)",
-									  static_cast<int32>(heur.Size()), projReady ? "pret" : "en construction");
-						GlobalLogBuffer().Push(NkString(lb));
-					}
+					GlobalLogBuffer().Push(NkPrintf("[ac] heuristique: %d membres (index projet: %s)",
+													static_cast<int32>(heur.Size()),
+													projReady ? "pret" : "en construction")); // NkPrintf maison
 					// ── 2) COMPILATEUR (affine) : famille clang uniquement (NDK/emsdk/OHOS = clang ;
 					//       gcc/MSVC restent sur l'heuristique + mots). ──
 					if (!cdb.ready) {
@@ -2032,11 +2015,10 @@ namespace nkentseu {
 							usePch = true;
 							pchPath = e.pch;
 						} else if ((e.hash != key || e.ready) && pchBuild < 0 && !pchProc.Running()) {
-							char hx[24];
-							std::snprintf(hx, sizeof(hx), "%08x",
-										  static_cast<uint32>(NkFnv(e.file.CStr()) & 0xffffffffLL));
-							const NkString hdrName = NkString(".nkcode_ac_") + hx + ".h";
-							const NkString pchName = NkString(".nkcode_ac_") + hx + ".pch";
+							const NkString hx =
+								NkPrintf("%08x", static_cast<uint32>(NkFnv(e.file.CStr()) & 0xffffffffLL)); // maison
+							const NkString hdrName = NkString(".nkcode_ac_") + hx.CStr() + ".h";
+							const NkString pchName = NkString(".nkcode_ac_") + hx.CStr() + ".pch";
 							const NkString hdr = (f.path.GetParent() / hdrName.CStr()).ToString();
 							e.pch = (f.path.GetParent() / pchName.CStr()).ToString();
 							if (NkFile::WriteAllText(NkPath(hdr), preText)) {
@@ -2109,11 +2091,10 @@ namespace nkentseu {
 						cmd += pchPath.CStr();
 						cmd += "\" ";
 					}
-					char at[64];
-					std::snprintf(at, sizeof(at), ":%d:%d\" ", acReqLine + 1, acReqCol + 1);
+					const NkString at = NkPrintf(":%d:%d\" ", acReqLine + 1, acReqCol + 1); // NkPrintf maison
 					cmd += "-Xclang -code-completion-at=\"";
 					cmd += tmp.CStr();
-					cmd += at;
+					cmd += at.CStr();
 					for (usize i = 0; i < pf->includes.Size(); ++i) {
 						cmd += "-I\"";
 						cmd += pf->includes[i].CStr();
@@ -2137,11 +2118,10 @@ namespace nkentseu {
 				void PollCompletion() {
 					if (projReady && !projLoggedReady) { // l heuristique instantanee devient disponible
 						projLoggedReady = true;
-						char lb0[128];
-						std::snprintf(lb0, sizeof(lb0), "[ac] index projet PRET: %d types, %d membres, %d fonctions",
-									  static_cast<int32>(projTypes.Size()), static_cast<int32>(wsTab.memName.Size()),
-									  static_cast<int32>(wsTab.gfnName.Size()));
-						GlobalLogBuffer().Push(NkString(lb0));
+						GlobalLogBuffer().Push(
+							NkPrintf("[ac] index projet PRET: %d types, %d membres, %d fonctions",
+									 static_cast<int32>(projTypes.Size()), static_cast<int32>(wsTab.memName.Size()),
+									 static_cast<int32>(wsTab.gfnName.Size()))); // NkPrintf maison
 					}
 					// PCH de préambule en cours ? (indépendant de la requête de complétion)
 					if (pchBuild >= 0 && pchBuild < static_cast<int32>(acPchs.Size())) {
@@ -2201,12 +2181,8 @@ namespace nkentseu {
 						if (got.Size() >= 500)
 							break; // garde-fou
 					}
-					{
-						char lb[96];
-						std::snprintf(lb, sizeof(lb), "[ac] compilo: %d membres%s", static_cast<int32>(got.Size()),
-									  got.Empty() ? " -> heuristique conservee" : "");
-						GlobalLogBuffer().Push(NkString(lb));
-					}
+					GlobalLogBuffer().Push(NkPrintf("[ac] compilo: %d membres%s", static_cast<int32>(got.Size()),
+													got.Empty() ? " -> heuristique conservee" : "")); // maison
 					if (got.Empty()) {
 						// Échec avec PCH (header modifié -> PCH périmé ?) : invalide pour reconstruire.
 						if (acUsedPch)
@@ -2993,9 +2969,7 @@ namespace nkentseu {
 					}
 					js += "\n]\n";
 					NkFile::WriteAllText(root / ".nkcode" / "compile_commands.json", js);
-					char lb[96];
-					std::snprintf(lb, sizeof(lb), "[lsp] compile_commands.json : %d entree(s)", wrote);
-					GlobalLogBuffer().Push(NkString(lb));
+					GlobalLogBuffer().Push(NkPrintf("[lsp] compile_commands.json : %d entree(s)", wrote)); // maison
 				}
 
 				// Chemins venant d'URI clangd : lettre de lecteur en minuscule, séparateurs variables
@@ -3101,9 +3075,7 @@ namespace nkentseu {
 						}
 						++nfiles;
 					}
-					char lb[128];
-					std::snprintf(lb, sizeof(lb), "Renomme : %d edition(s) dans %d fichier(s) (clangd)", total, nfiles);
-					status = NkString(lb);
+					status = NkPrintf("Renomme : %d edition(s) dans %d fichier(s) (clangd)", total, nfiles); // maison
 				}
 
 				void TickLsp(float32 dt) {
@@ -3561,9 +3533,7 @@ namespace nkentseu {
 							}
 						}
 					}
-					char lb[128];
-					std::snprintf(lb, sizeof(lb), "%d remplacement(s) dans %d fichier(s)", total, nfiles);
-					status = NkString(lb);
+					status = NkPrintf("%d remplacement(s) dans %d fichier(s)", total, nfiles); // NkPrintf maison
 					wsResults.Clear(); // la liste est périmée après remplacement
 					wsFileCount = 0;
 					return total;
@@ -3576,9 +3546,7 @@ namespace nkentseu {
 				int64 mSessionSig = 0;
 
 				static NkString IntToStr(int32 v) {
-					char b[16];
-					std::snprintf(b, sizeof(b), "%d", v);
-					return NkString(b);
+					return NkPrintf("%d", v); // NkPrintf maison
 				}
 
 				int64 SessionSig() {
@@ -4192,9 +4160,7 @@ namespace nkentseu {
 							++n;
 					}
 					active = keep;
-					char sb[48];
-					std::snprintf(sb, sizeof(sb), "Tout enregistre (%d fichier(s))", n);
-					status = NkString(sb);
+					status = NkPrintf("Tout enregistre (%d fichier(s))", n); // NkPrintf maison
 					return n;
 				}
 
@@ -4230,9 +4196,9 @@ namespace nkentseu {
 				bool ToolchainAdd(const char *name, const NkString &json) {
 					if (!name || !*name)
 						return false;
-					const char *home = std::getenv("USERPROFILE");
+					const char *home = env::GetEnvVar("USERPROFILE"); // API maison (NkEnv.h)
 					if (!home || !*home)
-						home = std::getenv("HOME");
+						home = env::GetEnvVar("HOME");
 					NkString jp =
 						(home && *home) ? (NkString(home) + "/.nkcode_tc_tmp.json") : NkString("nkcode_tc_tmp.json");
 					if (!NkFile::WriteAllText(NkPath(jp.CStr()), json))
@@ -4658,9 +4624,9 @@ namespace nkentseu {
 				NkVector<NkString> nameOvrPath, nameOvrName;
 
 				static NkString NamesPath() {
-					const char *home = std::getenv("USERPROFILE");
+					const char *home = env::GetEnvVar("USERPROFILE"); // API maison (NkEnv.h)
 					if (!home || !*home)
-						home = std::getenv("HOME");
+						home = env::GetEnvVar("HOME");
 					if (home && *home)
 						return NkString(home) + "/.nkcode_recent_names.cfg";
 					return NkString("nkcode_recent_names.cfg");
@@ -4741,9 +4707,9 @@ namespace nkentseu {
 				}
 
 				static NkString RecentsPath() {
-					const char *home = std::getenv("USERPROFILE");
+					const char *home = env::GetEnvVar("USERPROFILE"); // API maison (NkEnv.h)
 					if (!home || !*home)
-						home = std::getenv("HOME");
+						home = env::GetEnvVar("HOME");
 					if (home && *home)
 						return NkString(home) + "/.nkcode_recent.cfg";
 					return NkString("nkcode_recent.cfg");
@@ -4844,6 +4810,8 @@ namespace nkentseu {
 
 				// ── Dates : groupes AUJOURD'HUI / CETTE SEMAINE + libelle "Modifie il y a X" ──
 				static int64 NowEpoch() {
+					// TODO(maison) : std::time conservé — pas d'horloge epoch Unix dans NKTime
+					// (NkDate/NkTime = calendaire ; NkChrono = compteur de performance).
 					return static_cast<int64>(std::time(nullptr));
 				}
 
@@ -4933,18 +4901,16 @@ namespace nkentseu {
 					int64 d = now - mtime;
 					if (d < 0)
 						d = 0;
-					char b[64];
+					// NkPrintf maison (formats i18n %d)
 					if (d < 60)
-						std::snprintf(b, sizeof(b), "%s", NkT("age.now"));
-					else if (d < 3600)
-						std::snprintf(b, sizeof(b), NkT("age.min"), (int)(d / 60));
-					else if (d < 86400)
-						std::snprintf(b, sizeof(b), NkT("age.h"), (int)(d / 3600));
-					else if (d < 7 * 86400)
-						std::snprintf(b, sizeof(b), NkT("age.j"), (int)(d / 86400));
-					else
-						std::snprintf(b, sizeof(b), NkT("age.sem"), (int)(d / (7 * 86400)));
-					return NkString(b);
+						return NkString(NkT("age.now"));
+					if (d < 3600)
+						return NkPrintf(NkT("age.min"), (int)(d / 60));
+					if (d < 86400)
+						return NkPrintf(NkT("age.h"), (int)(d / 3600));
+					if (d < 7 * 86400)
+						return NkPrintf(NkT("age.j"), (int)(d / 86400));
+					return NkPrintf(NkT("age.sem"), (int)(d / (7 * 86400)));
 				}
 
 				// ── Metadonnees d'un workspace NON ouvert (carte du launcher) ─────────────

@@ -4,6 +4,7 @@
 // superflue) partagés par NKCode. Convention Rihen : PascalCase + préfixe Nk.
 // =============================================================================
 #include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
@@ -19,6 +20,25 @@ namespace nkentseu {
 				++p;
 			}
 			return v;
+		}
+
+		// Copie bornée de `src` vers `dst` (cap octets, toujours terminée par '\0').
+		// Remplaçant MAISON de snprintf(dst, cap, "%s", src) pour les buffers fixes
+		// (champs de saisie à caret) qui ne peuvent pas devenir des NkString.
+		inline void NkStrCopy(char *dst, usize cap, const char *src) {
+			if (!dst || cap == 0)
+				return;
+			usize j = 0;
+			if (src)
+				for (; src[j] && j + 1 < cap; ++j)
+					dst[j] = src[j];
+			dst[j] = '\0';
+		}
+
+		// Formatage maison dans un buffer fixe (remplaçant direct de snprintf(dst, cap, fmt, ...)) :
+		// NkPrintf (NkFormat.h) + copie bornée. Pour les buffers locaux réutilisés par plusieurs branches.
+		template <typename... A> inline void NkBufPrintf(char *dst, usize cap, NkStringView fmt, const A &...args) {
+			NkStrCopy(dst, cap, NkPrintf(fmt, args...).CStr());
 		}
 
 		// Première occurrence de `needle` dans `hay` (sous-chaîne). nullptr sinon.
