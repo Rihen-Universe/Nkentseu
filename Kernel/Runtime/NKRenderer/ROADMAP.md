@@ -159,6 +159,13 @@ Socle d'un viewport d'édition façon Blender (testbed `renderdemo --demo=2`, fu
   l'app au F9-stop. Fix renderdemo : l'affichage est restauré immédiatement,
   puis un `NkThread` dédié prend possession du recorder (heap NKMemory) et
   fait `End()+Delete` en fond. Pattern de référence documenté dans le wiki.
+- ✅ **Qualité vidéo + anti-firefly (2026-07-12)** : `NK_RECORD_QP` (10..40,
+  défaut 24 — plus bas = moins de blocs de compression) ; **Karis average**
+  dans la 1re passe de bloom downsample (poids 1/(1+luma) par quad) — borne
+  les fireflies spéculaires (métal roughness basse → lobe GGX en milliers)
+  qui explosaient en rectangles violets géants dans les mips grossières
+  (constaté en capture lossless DX11 + vidéo VK ; HDR source innocenté,
+  max 22.25). Shaders : `PP_BloomDown/NkSL` + fallback VK synchronisé.
 - ⏳ Reste : audio dans l'enregistrement ; MJPEG (côté NKMedia).
 
 ### Fondations (Phase A → D.3d) — toutes livrées

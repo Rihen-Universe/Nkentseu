@@ -587,6 +587,15 @@ int nkmain(const NkEntryState &state) {
 	const char *recEnv = getenv("NK_RECORD");
 	const char *recFpsEnv = getenv("NK_RECORD_FPS");
 	const int32 recordFps = recFpsEnv ? (int32)atoll(recFpsEnv) : 10;
+	// NK_RECORD_QP=<10..40> : qualite H.264 (quantization parameter). Plus BAS
+	// = plus fin (moins de blocs de compression, fichier plus gros, encodage
+	// plus lent). Defaut 24 (celui de NkVideoRecorder) ; 16-18 = tres propre.
+	const char *recQpEnv = getenv("NK_RECORD_QP");
+	int32 recordQp = recQpEnv ? (int32)atoll(recQpEnv) : 24;
+	if (recordQp < 10)
+		recordQp = 10;
+	if (recordQp > 40)
+		recordQp = 40;
 	char recordPath[256] = {0};
 	if (recEnv && recEnv[0])
 		snprintf(recordPath, sizeof(recordPath), "%s", recEnv);
@@ -745,7 +754,7 @@ int nkmain(const NkEntryState &state) {
 					recorder = memory::NkGetDefaultAllocator().New<media::NkVideoRecorder>();
 				bool ok = vw >= 16 && vh >= 16 && recordTarget.Init(device, renderer->GetTextures(), od) &&
 						  recordCapture.Init(device, fd) &&
-						  recorder->Begin(recordPath, (int32)vw, (int32)vh, recordFps);
+						  recorder->Begin(recordPath, (int32)vw, (int32)vh, recordFps, 1, recordQp);
 				if (ok && recOutW)
 					renderer->SetRenderSizeOverride(rw, rh); // rendu interne a la taille d'export
 				if (ok) {
