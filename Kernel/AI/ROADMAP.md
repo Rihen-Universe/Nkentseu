@@ -515,9 +515,12 @@ pour les modèles). Scaffold posé (spec headers) ; impl staged ci-dessous.
    > (`NkRnn.h/.cpp`, gradient-checkées) + **perte CTC** forward-backward log-space (`autograd::CTCLoss`,
    > gradient-checkée 5e-5) + op `Concat0`. `NKRnnCtcTest` : GRU+CTC **entraîné bout-en-bout** (perte
    > 5.46→0.0003, **décodage glouton = cible**). L'ASR acoustique peut maintenant être assemblé.
-2. 🟡 **ASR acoustique** (`NkASR`) — petit réseau (GRU from-scratch NKNN) features→caractères, perte **CTC**
-   ✅ + **décodage glouton** ✅ (briques prêtes) puis beam. Reste : assembler MFCC→BiGRU→CTC + mini-corpus voix→texte.
-   Résultat visé : transcrire des mots isolés d'un petit vocabulaire.
+2. ✅ **ASR acoustique — modèle assemblé (Option B.1, 2026-07-12)** : `NkASRModel` (`NKSpeech/NkAsrModel.h`,
+   header-only) = **GRU BIDIRECTIONNEL** (avant + arrière) + tête linéaire par trame → logits [T,1,V] →
+   **perte CTC** + **décodage glouton** (`NkCTCGreedyDecode`). Prouvé bout-en-bout `NKASRTest` **3/3** :
+   audio synthétique (3 tons distincts) → **MFCC** (NkAudioFeatures) → BiGRU → CTC → **perte 51,7 → 0,01**,
+   **4/4 mots transcrits correctement** (suites de symboles de longueurs variées, sans alignement fourni ;
+   SGD en ligne par énoncé + scheduler LR A.1). Reste : **beam search** + **corpus voix→texte réel** (mots isolés).
 3. ⬜ **Lexique/décodage** — dictionnaire + modèle de langue n-gram (réutilise le GPT/BPE) pour re-scorer.
 4. ⬜ **TTS front-end** (`NkTTS`) — normalisation texte (nombres, ponctuation) → **G2P** (texte→phonèmes,
    table par langue : fr/en/**bbj**) → durées.
