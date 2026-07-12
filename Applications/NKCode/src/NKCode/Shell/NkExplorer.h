@@ -1366,7 +1366,10 @@ namespace nkentseu {
 					const NkRect box = {W * 0.18f + mPeekOff.x, H * 0.12f + mPeekOff.y, W * 0.64f, H * 0.72f};
 					ov.AddRectFilled({box.x + 2.f, box.y + 4.f, box.w, box.h}, {0, 0, 0, 70}, 8.f); // ombre douce
 					ov.AddRectFilled(box, ctx.theme.panel, 8.f);
-					ov.AddRect(box, ctx.theme.border, 1.f); // bordure FINE (3e arg = épaisseur, pas arrondi !)
+					// Bordure FINE, couleur ACCENT (bleu) : cadre représentatif (3e arg =
+					// épaisseur, pas arrondi). Double trait pour un liseré net.
+					ov.AddRect(box, ctx.theme.accent, 1.5f);
+					ov.AddRectFilled({box.x, box.y, box.w, 3.f}, ctx.theme.accent, 8.f); // bandeau haut accent
 					const float32 lh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
 					const float32 asc = (ctx.font && ctx.font->Valid()) ? ctx.font->Ascent() : 12.f;
 					float32 y = box.y + 10.f;

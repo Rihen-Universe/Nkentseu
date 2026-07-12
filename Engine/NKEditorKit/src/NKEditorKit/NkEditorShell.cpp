@@ -1393,11 +1393,13 @@ namespace nkentseu {
 			auto apply = [&](const NkString &ln) {
 				const char *s = ln.CStr();
 				if (StartsWith(s, "win=")) {
-					// DÉSACTIVÉ : restaurer taille/position via SetSize/SetPosition
-					// désynchronisait l'échelle UI (moniteur/DPI) -> curseur mal détecté
-					// + crash. On ne restaure QUE l'état maximisé (sûr) pour l'instant.
-					// TODO : refaire avec des positions SIGNÉES + resync DPI au changement
-					// de moniteur côté NKWindow.
+					// Restaure la TAILLE seulement (pas la position -> pas de changement de
+					// moniteur/DPI qui désynchroniserait l'échelle). Le resize du renderer
+					// suit dans la boucle (GetSize).
+					int32 x = 0, y = 0, w = 0, h = 0;
+					if (std::sscanf(s + 4, "%d|%d|%d|%d", &x, &y, &w, &h) == 4 && w > 200 && h > 150 && w < 20000 &&
+						h < 20000)
+						mWindow.SetSize(static_cast<uint32>(w), static_cast<uint32>(h));
 				} else if (StartsWith(s, "maximized=")) {
 					if (s[10] == '1')
 						mWindow.Maximize();
@@ -1569,9 +1571,13 @@ namespace nkentseu {
 			NkPath p(path);
 			NkDirectory::CreateRecursive(p.GetParent()); // cree <ws>/.nkcode/ si besoin
 			NkString out;
-			// État MAXIMISÉ uniquement (cache pris en vol : la fenêtre peut être détruite
-			// après Run()). Taille/position désactivées (désync DPI/moniteur — voir Load).
+			// Géométrie CACHÉE en vol (la fenêtre peut être détruite après Run()).
+			// On sauve la TAILLE fenêtrée (restaurée telle quelle sur le même moniteur)
+			// + l'état maximisé. La POSITION n'est PAS restaurée (éviterait un changement
+			// de moniteur/DPI qui désynchronise l'échelle).
 			const bool gmax = mGeomValid ? mGeomMax : mWindow.IsMaximized();
+			if (!gmax)
+				out += NkPrintf("win=%d|%d|%d|%d\n", mGeomX, mGeomY, mGeomW, mGeomH);
 			out += gmax ? "maximized=1\n" : "maximized=0\n";
 			for (int32 i = 0; i < mNumPanels; ++i)
 				if (mPanels[i]->IsOpen()) {
