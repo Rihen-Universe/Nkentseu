@@ -240,7 +240,11 @@ par `NkVirtualShadowMaps` (multi-lights). Style UE5 simplifié.
   switch de PSO — DX12 invalide les root params). Piège résolu : le
   générateur GLSL injectait le flip Y NDC dès inputs+varyings → pragma
   commentaire **`@gl-no-flip-y`** (NkShaderBackend) pour les VS qui rendent
-  dans l'atlas avec des varyings. À VALIDER visuellement (matériau masked).
+  dans l'atlas avec des varyings. **VALIDÉ visuellement (Rihen, 2026-07-12)** :
+  panneau feuillage Demo3D → ombre à points (trous respectés) sur OpenGL.
+  ⚠️ Piège corrigé au passage : `NkMaterial::Create(sys, "PBR")` échoue en
+  silence (le template s'appelle `"Default_PBR"`) — préférer l'overload par
+  TYPE (`NK_PBR_METALLIC`).
 - ⏳ **Page-based VSM réel** UE5 (refactor 16k² atlas virtuel pagination 128²)
 
 ### Phase G — NkMaterialSystem ✅
