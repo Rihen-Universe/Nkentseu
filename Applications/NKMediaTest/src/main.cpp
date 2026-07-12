@@ -17,6 +17,7 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltVq.h"
 #include "NKMedia/Codecs/Aac/NkAacBitReader.h"
 #include "NKMedia/Codecs/Aac/NkAacTables.h"
+#include "NKMedia/Codecs/Aac/NkAacHuffman.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDenorm.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDeemphasis.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDecoder.h"
@@ -525,6 +526,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkAacTables::SelfTest();
 		printf("[ %s ] NkAacTables : sample rates + swb_offset (monotone->1024/128) + fenetres sine/KBD (PR=1)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkAacHuffman::SelfTest();
+		printf("[ %s ] NkAacHuffman : codebooks 1-11 + scalefactor (round-trip toutes entrees + signe + escape)\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
