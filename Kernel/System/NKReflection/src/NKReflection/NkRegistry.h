@@ -565,7 +565,7 @@ public:                                                                         
 	};                                                                                                                 \
 	inline static PropertyName##_NkPropReg s_##PropertyName##_nkPropReg{};                                             \
                                                                                                                        \
-private:
+public:
 
 /**
  * @brief Macro combinant declaration et reflexion d'une propriete
