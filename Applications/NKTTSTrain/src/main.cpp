@@ -289,9 +289,10 @@ static int RunTraining(const char *dir) {
 
 	optim::NkAdam adam(params, lr);
 
-	// ---- Passe avant : clip -> (pred [Tout,BINS], loss) ----
-	auto forwardClip = [&](const NkClip &clip, NkVar &predOut) -> NkVar {
-		const int32 T = (int32)clip.ids.Size();
+	// ---- Passe AVANT (texte -> spectrogramme predit) depuis des char-ids quelconques ----
+	// Sert a la fois a l'entrainement (avec cible) et a l'inference « dis ce texte ».
+	auto forwardIds = [&](const NkVector<int32> &ids) -> NkVar {
+		const int32 T = (int32)ids.Size();
 		const int32 Tout = T * R;
 		NkTensor idsT = NkTensor::Zeros(NkShape{(int64)1, (int64)T});
 		NkTensor posT = NkTensor::Zeros(NkShape{(int64)1, (int64)T});
@@ -299,7 +300,7 @@ static int RunTraining(const char *dir) {
 			float *ip = idsT.DataAs<float>();
 			float *pp = posT.DataAs<float>();
 			for (int32 t = 0; t < T; ++t) {
-				ip[t] = (float)clip.ids[(uint64)t];
+				ip[t] = (float)ids[(uint64)t];
 				pp[t] = (float)t;
 			}
 		}
@@ -318,31 +319,49 @@ static int RunTraining(const char *dir) {
 				upp[i * T + (i / R)] = 1.0f;
 		}
 		NkVar Uv = NkVar::Leaf(U, false);
-		NkVar up = autograd::Matmul(Uv, xf);		   // [Tout,d]
-		NkVar hid = autograd::Gelu(fc1.Forward(up));   // [Tout,d]
-		predOut = fc2.Forward(hid);					   // [Tout,BINS] (log-magnitude)
-		// Cible re-echantillonnee [Tout,BINS].
+		NkVar up = autograd::Matmul(Uv, xf);		 // [Tout,d]
+		NkVar hid = autograd::Gelu(fc1.Forward(up)); // [Tout,d]
+		return fc2.Forward(hid);					 // [Tout,BINS] (log-magnitude predite)
+	};
+
+	// Cible d'un clip re-echantillonnee a [Tout,BINS] (debit fixe).
+	auto targetOf = [&](const NkClip &clip) -> NkVar {
+		const int32 Tout = (int32)clip.ids.Size() * R;
 		NkTensor tgt = NkTensor::Zeros(NkShape{(int64)Tout, (int64)BINS});
-		{
-			float *tp = tgt.DataAs<float>();
-			for (int32 i = 0; i < Tout; ++i) {
-				int32 sf = (int32)((int64)i * clip.frames / (Tout > 0 ? Tout : 1));
-				if (sf >= clip.frames)
-					sf = clip.frames - 1;
-				for (int32 k = 0; k < BINS; ++k)
-					tp[i * BINS + k] = clip.spec[(uint64)sf * clip.bins + k];
-			}
+		float *tp = tgt.DataAs<float>();
+		for (int32 i = 0; i < Tout; ++i) {
+			int32 sf = (int32)((int64)i * clip.frames / (Tout > 0 ? Tout : 1));
+			if (sf >= clip.frames)
+				sf = clip.frames - 1;
+			for (int32 k = 0; k < BINS; ++k)
+				tp[i * BINS + k] = clip.spec[(uint64)sf * clip.bins + k];
 		}
-		NkVar tgtV = NkVar::Leaf(tgt, false);
-		return autograd::MSE(predOut, tgtV);
+		return NkVar::Leaf(tgt, false);
+	};
+
+	// Synthetise depuis des char-ids : forward -> magnitude -> FGLA -> WAV.
+	auto synthToWav = [&](const NkVector<int32> &ids, const char *path) {
+		NkVar pred = forwardIds(ids);
+		NkTensor pcpu = pred.Value().ToCPU();
+		const float *pp = pcpu.DataAs<float>();
+		const int32 Tout = (int32)ids.Size() * R;
+		NkMagSpectrogram pm;
+		pm.frames = Tout;
+		pm.bins = BINS;
+		pm.data.Resize((uint64)Tout * (uint64)BINS);
+		for (uint64 i = 0; i < pm.data.Size(); ++i) {
+			double mg = exp((double)pp[i]) - 1.0;
+			pm.data[i] = (float32)(mg > 0.0 ? mg : 0.0);
+		}
+		ReconNormalizeWrite(pm, gl, 22050, path);
 	};
 
 	// ---- Boucle d'entrainement ----
 	double ema = 0.0;
 	for (int32 step = 0; step < steps; ++step) {
 		const NkClip &clip = clips[(uint64)(step % (int32)clips.Size())];
-		NkVar pred;
-		NkVar loss = forwardClip(clip, pred);
+		NkVar pred = forwardIds(clip.ids);
+		NkVar loss = autograd::MSE(pred, targetOf(clip));
 		adam.ZeroGrad();
 		loss.Backward();
 		adam.Step();
@@ -352,27 +371,43 @@ static int RunTraining(const char *dir) {
 			printf("  step %4d/%d  loss=%.5f  ema=%.5f\n", step, steps, lv, ema);
 	}
 
-	// ---- Inference : reproduit chaque clip d'entrainement (texte -> voix apprise) ----
-	printf("\n  --- Inference (le modele 'recite' les phrases apprises) ---\n");
-	for (int32 c = 0; c < (int32)clips.Size(); ++c) {
+	// ---- Inference : reproduit les clips d'entrainement (texte -> voix apprise) ----
+	printf("\n  --- Inference : les phrases APPRISES (max 4 fichiers) ---\n");
+	int32 nOut = (int32)clips.Size();
+	if (nOut > 4)
+		nOut = 4;
+	for (int32 c = 0; c < nOut; ++c) {
 		const NkClip &clip = clips[(uint64)c];
-		NkVar pred;
-		NkVar loss = forwardClip(clip, pred);
-		NkTensor pcpu = pred.Value().ToCPU();
-		const float *pp = pcpu.DataAs<float>();
-		const int32 Tout = (int32)clip.ids.Size() * R;
-		NkMagSpectrogram pm;
-		pm.frames = Tout;
-		pm.bins = BINS;
-		pm.data.Resize((uint64)Tout * (uint64)BINS);
-		for (uint64 i = 0; i < pm.data.Size(); ++i) {
-			double mg = exp((double)pp[i]) - 1.0;
-			pm.data[i] = (float32)(mg > 0.0 ? mg : 0.0);
-		}
 		char outPath[128];
 		snprintf(outPath, sizeof(outPath), "nktts_learned_%02d.wav", c);
 		printf("  [%s] \"%.50s\"\n", clip.id, clip.text);
-		ReconNormalizeWrite(pm, gl, 22050, outPath);
+		synthToWav(clip.ids, outPath);
+	}
+
+	// ---- Mode « dis ce texte » : NK_TTS_SAY="ta phrase" -> nktts_say.wav ----
+	const char *sayText = getenv("NK_TTS_SAY");
+	if (sayText && sayText[0]) {
+		NkVector<int32> ids;
+		int32 unknown = 0;
+		for (const char *c = sayText; *c; ++c) {
+			unsigned uc = (unsigned char)*c;
+			if (uc >= 128)
+				continue;
+			if (uc >= 'A' && uc <= 'Z')
+				uc = uc - 'A' + 'a';
+			int32 id = (uc < 128) ? vocab.map[uc] : -1; // vocab FIGE (pas de nouveaux ids en inference)
+			if (id >= 0)
+				ids.PushBack(id);
+			else
+				++unknown;
+		}
+		printf("\n  --- « dis ce texte » : \"%.60s\" (%d car connus, %d inconnus ignores) ---\n",
+			   sayText, (int)ids.Size(), unknown);
+		if (ids.Size() >= 2)
+			synthToWav(ids, "nktts_say.wav");
+		else
+			printf("  [KO] trop peu de caracteres connus (le modele n'a vu que %d caracteres a l'entrainement)\n",
+				   vocab.size);
 	}
 
 	gpu.Shutdown();
