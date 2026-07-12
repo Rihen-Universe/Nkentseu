@@ -484,6 +484,47 @@ int nkmain(const NkEntryState &state) {
 		return 3;
 	}
 
+	// ── NK_LUT_TEST=1 : color grading LUT 3D "teal & orange" ────────────────
+	// Valide SetColorGradingLUT + le path sampler3D (notamment OpenGL, ex-dummy).
+	// Effet volontairement marque : ombres poussees vers le teal (cyan-bleu),
+	// hautes lumieres vers l'orange -> visible au premier coup d'oeil.
+	{
+		const char *lutEnv = getenv("NK_LUT_TEST");
+		if (lutEnv && lutEnv[0] && lutEnv[0] != '0' && renderer->GetPostProcess()) {
+			const uint32 N = 16;
+			NkVector<uint8> lut;
+			lut.Resize((usize)N * N * N * 4u);
+			for (uint32 k = 0; k < N; k++)
+				for (uint32 j = 0; j < N; j++)
+					for (uint32 i = 0; i < N; i++) {
+						const float32 r = (float32)i / (float32)(N - 1);
+						const float32 g = (float32)j / (float32)(N - 1);
+						const float32 b = (float32)k / (float32)(N - 1);
+						const float32 lum = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+						// Teal (0.10,0.45,0.55) dans les ombres, orange (1.0,0.62,0.25)
+						// dans les hautes lumieres, pondere par la luminance.
+						const float32 w = lum;
+						float32 orr = r * (0.65f + 0.35f * w) + 0.10f * (1.f - w);
+						float32 og = g * (0.75f + 0.25f * w) + 0.45f * 0.35f * (1.f - w) * (1.f - g);
+						float32 ob = b * (0.85f - 0.45f * w) + 0.55f * 0.30f * (1.f - w) * (1.f - b);
+						orr = orr + 0.30f * w * (1.f - orr);
+						og = og + 0.62f * 0.20f * w * (1.f - og);
+						uint8 *p = &lut[(((usize)k * N + j) * N + i) * 4u];
+						p[0] = (uint8)(math::NkClamp(orr, 0.f, 1.f) * 255.f);
+						p[1] = (uint8)(math::NkClamp(og, 0.f, 1.f) * 255.f);
+						p[2] = (uint8)(math::NkClamp(ob, 0.f, 1.f) * 255.f);
+						p[3] = 255;
+					}
+			const bool ok = renderer->GetPostProcess()->SetColorGradingLUT(lut.Data(), N);
+			NkPostConfig pp = renderer->GetConfig().postProcess;
+			pp.colorGrading = true;
+			pp.lutStrength = 1.f;
+			pp.lutSize = N;
+			renderer->SetPostConfig(pp);
+			logger.Infof("[main] NK_LUT_TEST : LUT teal&orange 16^3 %s\n", ok ? "OK" : "ECHEC upload");
+		}
+	}
+
 	// ── Demo init ────────────────────────────────────────────────────────────
 	DemoCtx ctx;
 	ctx.device = device;

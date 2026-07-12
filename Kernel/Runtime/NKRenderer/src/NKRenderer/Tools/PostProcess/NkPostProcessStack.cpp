@@ -260,18 +260,16 @@ void main() {
 			mToneSet = mDevice->AllocateDescriptorSet(mToneLayout);
 
 			// Phase L : create identity LUT 16^3 par defaut (no color change).
-			// User upload son LUT custom via NkRenderer::SetColorGradingLUT plus tard.
-			// Format : RGBA8 UNORM, sampler linear-clamp (filter trilinear sur le 3D).
-			//
-			// TEMPORAIREMENT skip sur OpenGL backend : probable bug conversion
-			// SPIRV-Cross sampler3D->GL ou binding 3D texture incorrect. Crash
-			// observe 2026-05-23 sur Demo3D --bgl. Fix V1 = audit conversion +
-			// GL backend 3D texture path. Sur Vulkan ca marche.
-			const bool isGL = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_OPENGL;
-			if (!isGL) {
-				mLUTSize = mCfg.lutSize > 0 ? mCfg.lutSize : 16;
-				if (mLUTSize > 64)
-					mLUTSize = 64; // hard cap pour eviter VRAM
+			// User upload son LUT custom via SetColorGradingLUT (accessible par
+			// renderer->GetPostProcess()). Format : RGBA8 UNORM, trilinear.
+			// NB : l'ancien dummy 1x1 OpenGL (crash 2026-05-23) datait du chemin
+			// SPIRV-Cross sampler3D ; le tonemap est depuis genere en GLSL natif
+			// par NkSL et le backend GL a le path TexStorage3D/SubImage3D complet
+			// -> vraie LUT reactivee sur GL (verifie par capture 2026-07-12).
+			mLUTSize = mCfg.lutSize > 0 ? mCfg.lutSize : 16;
+			if (mLUTSize > 64)
+				mLUTSize = 64; // hard cap pour eviter VRAM
+			{
 				auto td = NkTextureDesc::Tex3D(mLUTSize, mLUTSize, mLUTSize, NkGPUFormat::NK_RGBA8_UNORM);
 				td.debugName = "ColorGradingLUT_Identity";
 				mLUTTex = mDevice->CreateTexture(td);
@@ -292,18 +290,6 @@ void main() {
 						}
 				if (mLUTTex.IsValid()) {
 					mDevice->WriteTextureRegion(mLUTTex, data.Data(), 0, 0, 0, N, N, N, 0, 0, 0);
-				}
-			} else {
-				// GL : dummy 1x1x1 3D texture (le shader skip via lutStrength=0
-				// mais le binding doit avoir le target sampler3D pour eviter
-				// undefined behavior si on bind un 2D au slot 3).
-				mLUTSize = 1;
-				auto td = NkTextureDesc::Tex3D(1, 1, 1, NkGPUFormat::NK_RGBA8_UNORM);
-				td.debugName = "ColorGradingLUT_Dummy";
-				mLUTTex = mDevice->CreateTexture(td);
-				if (mLUTTex.IsValid()) {
-					uint8 dummy[4] = {0, 0, 0, 255};
-					mDevice->WriteTextureRegion(mLUTTex, dummy, 0, 0, 0, 1, 1, 1, 0, 0, 0);
 				}
 			}
 
@@ -855,6 +841,33 @@ void main() {
 			pc._pad = 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 			cmd->Draw(3, 1, 0, 0);
+		}
+
+		// Phase L : upload LUT 3D utilisateur (cf. header pour le layout voxel).
+		// Recree la texture si la taille change ; le bind au binding=3 du tonemap
+		// est refait chaque ExecuteRHI -> la nouvelle texture est prise en compte
+		// a la frame suivante sans autre plomberie.
+		bool NkPostProcessStack::SetColorGradingLUT(const uint8 *rgba, uint32 size) {
+			if (!mDevice || !rgba || size < 2 || size > 64)
+				return false;
+			if (mLUTTex.IsValid() && mLUTSize != size) {
+				// La LUT courante peut etre referencee par une frame en vol :
+				// operation de setup rare -> WaitIdle avant destruction.
+				mDevice->WaitIdle();
+				mDevice->DestroyTexture(mLUTTex);
+				mLUTTex = {};
+			}
+			if (!mLUTTex.IsValid()) {
+				auto td = NkTextureDesc::Tex3D(size, size, size, NkGPUFormat::NK_RGBA8_UNORM);
+				td.debugName = "ColorGradingLUT_User";
+				mLUTTex = mDevice->CreateTexture(td);
+				if (!mLUTTex.IsValid())
+					return false;
+			}
+			mLUTSize = size;
+			mCfg.lutSize = size;
+			mDevice->WriteTextureRegion(mLUTTex, rgba, 0, 0, 0, size, size, size, 0, 0, 0);
+			return true;
 		}
 
 		NkTexHandle NkPostProcessStack::RunFXAA(NkICommandBuffer *cmd, NkTexHandle ldr) {
