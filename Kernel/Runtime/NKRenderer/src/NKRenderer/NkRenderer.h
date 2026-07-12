@@ -106,6 +106,14 @@ namespace nkentseu {
 					SetFinalColorTarget(target);
 				}
 
+				// Resolution de RENDU independante de la fenetre (export/enregistrement
+				// haute qualite : rendre en 4K pendant que la fenetre affiche du 720p
+				// via la passe MirrorPresent). (0,0) = suit la fenetre (defaut).
+				virtual void SetRenderSizeOverride(uint32 w, uint32 h) {
+					(void)w;
+					(void)h;
+				}
+
 				// ── Planar reflections (auto) ─────────────────────────────────────────
 				// L'utilisateur enregistre un plan reflechissant ; le renderer fait
 				// automatiquement la passe miroir avant la passe Geometry principale,

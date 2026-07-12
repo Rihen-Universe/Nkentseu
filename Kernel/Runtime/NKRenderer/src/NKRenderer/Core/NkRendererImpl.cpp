@@ -918,10 +918,14 @@ namespace nkentseu {
 			if (!mDevice->BeginFrame(mFrameCtx))
 				return false;
 
-			// Auto-resize
-			uint32 sw = mDevice->GetSwapchainWidth(), sh = mDevice->GetSwapchainHeight();
-			if ((sw != mCfg.width || sh != mCfg.height) && sw > 0 && sh > 0)
-				OnResize(sw, sh);
+			// Auto-resize — PAS en mode SetRenderSizeOverride (le rendu est a une
+			// resolution independante ; la swapchain fenetre vit sa vie, le blit
+			// MirrorPresent fait le pont).
+			if (mRenderOverrideW == 0) {
+				uint32 sw = mDevice->GetSwapchainWidth(), sh = mDevice->GetSwapchainHeight();
+				if ((sw != mCfg.width || sh != mCfg.height) && sw > 0 && sh > 0)
+					OnResize(sw, sh);
+			}
 
 			// FlushCompilations() retire de BeginFrame : il compilait tous les
 			// pipelines avec mCurrentRP={} (avant le 1er Flush qui le set), donc
@@ -1009,12 +1013,33 @@ namespace nkentseu {
 		}
 
 		void NkRendererImpl::OnResize(uint32 w, uint32 h) {
+			ApplyRenderSize(w, h, /*touchDevice=*/true);
+		}
+
+		void NkRendererImpl::SetRenderSizeOverride(uint32 w, uint32 h) {
+			// Rendu a une resolution INDEPENDANTE de la fenetre (ex : export 4K
+			// pendant affichage 720p). Redimensionne cibles/transients/graph SANS
+			// toucher la swapchain (la passe MirrorPresent re-echantillonne vers
+			// l'ecran, le viewport etant pose PAR render pass a sa taille).
+			// (0,0) = retour a la taille de la fenetre (swapchain).
+			if (mRenderOverrideW == w && mRenderOverrideH == h)
+				return;
+			mRenderOverrideW = w;
+			mRenderOverrideH = h;
+			const uint32 tw = w ? w : (mDevice ? mDevice->GetSwapchainWidth() : mCfg.width);
+			const uint32 th = h ? h : (mDevice ? mDevice->GetSwapchainHeight() : mCfg.height);
+			ApplyRenderSize(tw, th, /*touchDevice=*/false);
+		}
+
+		void NkRendererImpl::ApplyRenderSize(uint32 w, uint32 h, bool touchDevice) {
 			if (w == 0 || h == 0)
 				return;
 			mCfg.width = w;
 			mCfg.height = h;
 			// Propage au RHI pour mettre a jour la swapchain virtuelle (viewport / FBO 0).
-			if (mDevice)
+			// PAS en mode override de taille de rendu : la swapchain reste a la
+			// taille de la fenetre (le blit MirrorPresent fait le pont).
+			if (mDevice && touchDevice)
 				mDevice->OnResize(w, h);
 			// Propage a tous les sous-systemes optionnels (selon la config courante).
 			// For2D ne cree pas mPostProcess/mRender3D/mShadow, donc null check avant.
