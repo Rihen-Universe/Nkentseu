@@ -1291,6 +1291,8 @@ namespace nkentseu {
 					mPeekPath = p;
 					mPeekOpen = true;
 					mPeekJustOpened = true; // l'Espace d'OUVERTURE ne doit pas REFERMER (même frame)
+					mPeekOff = {0.f, 0.f};	// recentre à chaque ouverture
+					mPeekDrag = false;
 					mPeekScroll = 0.f;
 					mPeekSize = NkFile::GetFileSize(p.CStr());
 					mPeekLines.Clear();
@@ -1356,7 +1358,8 @@ namespace nkentseu {
 					// le peek lit l'input RÉEL sauvegardé en début de frame.
 					const nkgui::NkGuiInput &in = mPeekInput;
 					const float32 W = static_cast<float32>(ctx.viewW), H = static_cast<float32>(ctx.viewH);
-					const NkRect box = {W * 0.18f, H * 0.12f, W * 0.64f, H * 0.72f};
+					// Position = base centrée + décalage utilisateur (DÉPLAÇABLE par l'en-tête).
+					const NkRect box = {W * 0.18f + mPeekOff.x, H * 0.12f + mPeekOff.y, W * 0.64f, H * 0.72f};
 					ov.AddRectFilled({box.x + 2.f, box.y + 4.f, box.w, box.h}, {0, 0, 0, 70}, 8.f); // ombre douce
 					ov.AddRectFilled(box, ctx.theme.panel, 8.f);
 					ov.AddRect(box, ctx.theme.border, 1.f); // bordure FINE (3e arg = épaisseur, pas arrondi !)
@@ -1431,18 +1434,32 @@ namespace nkentseu {
 							y += lh;
 						}
 					}
-					// Fermeture : Échap, Espace, ou clic EXTÉRIEUR (l'input des autres
-					// panneaux est déjà neutralisé en début de frame -> pas de traversée).
+					// ── DÉPLACEMENT par l'en-tête (bande du haut) : press dedans = glisse. ──
+					const NkRect headerBar = {box.x, box.y, box.w, lh + 12.f};
+					if (in.mouseClicked[0] && NkGuiRectContains(headerBar, m) && !NkGuiRectContains(
+							{box.x + box.w - 120.f, box.y, 120.f, lh + 12.f}, m)) { // pas sur le bouton Ouvrir
+						mPeekDrag = true;
+						mPeekDragOff = {m.x - box.x, m.y - box.y};
+					}
+					if (mPeekDrag && in.mouseDown[0]) {
+						mPeekOff.x = (m.x - mPeekDragOff.x) - W * 0.18f;
+						mPeekOff.y = (m.y - mPeekDragOff.y) - H * 0.12f;
+					}
+					if (!in.mouseDown[0])
+						mPeekDrag = false;
+					// ── Fermeture : Échap, Espace, ou clic dont le PRESS a commencé HORS du
+					//    panneau (clic sur le fond) — un clic/glisser DANS le panneau ne
+					//    ferme jamais. (L'input des autres panneaux est déjà neutralisé.) ──
 					const bool spaceAgain = [&] {
 						for (int32 i = 0; i < in.charCount; ++i)
 							if (in.chars[i] == 32)
 								return true;
 						return false;
 					}();
+					const bool pressedOutside = in.mouseClicked[0] && !NkGuiRectContains(box, m) && !mPeekDrag;
 					if (mPeekJustOpened) // l'Espace d'ouverture ne referme pas
 						mPeekJustOpened = false;
-					else if (in.KeyPressed(NkGuiKey::Escape) || spaceAgain ||
-							 (in.mouseClicked[0] && !NkGuiRectContains(box, m)))
+					else if (in.KeyPressed(NkGuiKey::Escape) || spaceAgain || pressedOutside)
 						mPeekOpen = false;
 				}
 
@@ -1555,6 +1572,9 @@ namespace nkentseu {
 				bool mPeekGitPending = false;
 				bool mPeekJustOpened = false; ///< frame d'ouverture : l'Espace ne referme pas
 				nkgui::NkGuiInput mPeekInput; ///< input RÉEL (l'overlay le lit, le reste est masqué)
+				NkVec2 mPeekOff{0.f, 0.f};	  ///< décalage de position (déplacement par l'en-tête)
+				NkVec2 mPeekDragOff{0.f, 0.f};
+				bool mPeekDrag = false;
 				float32 mPeekScroll = 0.f;
 				NkRect mEditRect = {0.f, 0.f, 0.f, 0.f}; ///< zone de saisie inline (clic hors = valide)
 		};
