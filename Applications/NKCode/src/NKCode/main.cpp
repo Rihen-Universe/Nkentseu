@@ -61,6 +61,14 @@ int nkmain(const NkEntryState &state) {
 	if (!shell || !shell->Init(cfg))
 		return -1;
 
+	// Géométrie du LAUNCHER : mémorisée globalement (taille/pos/moniteur). Par
+	// DÉFAUT (aucun état sauvegardé) -> maximisé. Un workspace ouvert écrasera
+	// ensuite cette géométrie via son ui.cfg (état par workspace).
+	const nkentseu::NkString g_launcherGeom =
+		(NkPath(nkcode::NkOpenWsState::Home().CStr()) / ".nkcode" / "window.cfg").ToString();
+	if (!shell->LoadWindowGeom(g_launcherGeom.CStr()))
+		shell->MaximizeWindow();
+
 	// Ouvre un fichier au demarrage (demo) : le README de NKCode.
 	g_state.OpenPath(g_state.root / "README.md");
 
@@ -175,8 +183,11 @@ int nkmain(const NkEntryState &state) {
 	shell->RegisterCommand("Application: Quitter", &nkcode::CmdQuit, shell.Get(), "Ctrl+Q");
 
 	const int rc = shell->Run();
-	// Sauvegarde l'etat d'interface du projet courant (maximise + panneaux ouverts).
+	// Sauvegarde l'etat d'interface : par WORKSPACE si un projet est ouvert (dock +
+	// geometrie fenetre + moniteur), sinon la geometrie GLOBALE du launcher.
 	if (!g_dialogs.showStart && g_state.HasWorkspace())
 		shell->SaveUiState(g_state.UiConfigPath().CStr());
+	else
+		shell->SaveWindowGeom(g_launcherGeom.CStr());
 	return rc;
 }

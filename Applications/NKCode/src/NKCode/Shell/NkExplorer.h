@@ -1359,7 +1359,7 @@ namespace nkentseu {
 					const NkRect box = {W * 0.18f, H * 0.12f, W * 0.64f, H * 0.72f};
 					ov.AddRectFilled({box.x + 2.f, box.y + 4.f, box.w, box.h}, {0, 0, 0, 70}, 8.f); // ombre douce
 					ov.AddRectFilled(box, ctx.theme.panel, 8.f);
-					ov.AddRect(box, ctx.theme.border, 8.f); // bordure FINE et discrète (thème)
+					ov.AddRect(box, ctx.theme.border, 1.f); // bordure FINE (3e arg = épaisseur, pas arrondi !)
 					const float32 lh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
 					const float32 asc = (ctx.font && ctx.font->Valid()) ? ctx.font->Ascent() : 12.f;
 					float32 y = box.y + 10.f;
