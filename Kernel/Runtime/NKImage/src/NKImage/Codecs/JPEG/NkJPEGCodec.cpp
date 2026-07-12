@@ -1546,67 +1546,48 @@ namespace nkentseu {
 	// devenait magenta, bleu devenait magenta) visibles dans tout viewer
 	// JPEG externe (Windows Photos, etc.).
 	static void FDCT8x8(const uint8 *blk, int32 str, int32 *out, const uint8 *qt) noexcept {
-		// Passe 1 : FDCT sur les lignes → tmp[64] (virgule flottante)
-		float32 tmp[64];
+		// DCT-II 8×8 ORTHONORMÉE, séparable et EXACTE (réécriture 2026-07-12 : l'ancienne
+		// version « rapide » avait une partie IMPAIRE fausse → coefficients aux mauvaises
+		// fréquences → bords/damiers/texte détruits). Matrice M[k][n] = s·C(k)·cos((2n+1)kπ/16),
+		// s=√(2/8), C(0)=1/√2. Vérifiée au coeff près contre la DCT directe (erreur 0).
+		static const float32 M[8][8] = {
+			{0.35355339f, 0.35355339f, 0.35355339f, 0.35355339f, 0.35355339f, 0.35355339f, 0.35355339f, 0.35355339f},
+			{0.49039264f, 0.41573481f, 0.27778512f, 0.09754516f, -0.09754516f, -0.27778512f, -0.41573481f, -0.49039264f},
+			{0.46193977f, 0.19134172f, -0.19134172f, -0.46193977f, -0.46193977f, -0.19134172f, 0.19134172f, 0.46193977f},
+			{0.41573481f, -0.09754516f, -0.49039264f, -0.27778512f, 0.27778512f, 0.49039264f, 0.09754516f, -0.41573481f},
+			{0.35355339f, -0.35355339f, -0.35355339f, 0.35355339f, 0.35355339f, -0.35355339f, -0.35355339f, 0.35355339f},
+			{0.27778512f, -0.49039264f, 0.09754516f, 0.41573481f, -0.41573481f, -0.09754516f, 0.49039264f, -0.27778512f},
+			{0.19134172f, -0.46193977f, 0.46193977f, -0.19134172f, -0.19134172f, 0.46193977f, -0.46193977f, 0.19134172f},
+			{0.09754516f, -0.27778512f, 0.41573481f, -0.49039264f, 0.49039264f, -0.41573481f, 0.27778512f, -0.09754516f},
+		};
+		// Passe 1 (lignes) : tmp[i][u] = Σ_n M[u][n]·(blk[i][n] − 128)  [level shift JPEG].
+		float32 tmp[8][8];
 		for (int32 i = 0; i < 8; ++i) {
 			const uint8 *r = blk + i * str;
-			// Level shift JPEG §5.4 : [0..255] -> [-128..+127]
-			// Variables v0..v7 (PAS r0..r7) car r0..r3 sont reutilises plus
-			// bas dans la passe 1 (ligne ~937, meme scope que ce for body).
-			const float32 v0 = float32(int32(r[0]) - 128);
-			const float32 v1 = float32(int32(r[1]) - 128);
-			const float32 v2 = float32(int32(r[2]) - 128);
-			const float32 v3 = float32(int32(r[3]) - 128);
-			const float32 v4 = float32(int32(r[4]) - 128);
-			const float32 v5 = float32(int32(r[5]) - 128);
-			const float32 v6 = float32(int32(r[6]) - 128);
-			const float32 v7 = float32(int32(r[7]) - 128);
-			float32 s0 = v0 + v7, s1 = v1 + v6, s2 = v2 + v5, s3 = v3 + v4;
-			float32 s4 = v3 - v4, s5 = v2 - v5, s6 = v1 - v6, s7 = v0 - v7;
-			float32 p0 = s0 + s3, p1 = s1 + s2, p2 = s1 - s2, p3 = s0 - s3;
-			tmp[i * 8 + 0] = (p0 + p1) * 0.353553391f;
-			tmp[i * 8 + 4] = (p0 - p1) * 0.353553391f;
-			tmp[i * 8 + 2] = p2 * 0.461939766f + p3 * 0.191341716f;
-			tmp[i * 8 + 6] = p3 * 0.461939766f - p2 * 0.191341716f;
-			float32 q0 = s4 + s7, q1 = s5 + s6, q2 = s5 - s6, q3 = s4 - s7;
-			float32 r0 = (q0 + q1) * 0.353553391f, r1 = (q0 - q1) * 0.353553391f;
-			float32 r2 = q2 * 0.707106781f, r3 = q3 * 0.707106781f;
-			tmp[i * 8 + 1] = r0 * 0.980785280f - r1 * 0.195090322f;
-			tmp[i * 8 + 3] = r0 * 0.831469612f + r1 * 0.555570233f;
-			tmp[i * 8 + 5] = r3 * 0.980785280f + r2 * 0.195090322f;
-			tmp[i * 8 + 7] = r3 * 0.831469612f - r2 * 0.555570233f;
+			float32 d[8];
+			for (int32 n = 0; n < 8; ++n)
+				d[n] = float32(int32(r[n]) - 128);
+			for (int32 u = 0; u < 8; ++u) {
+				float32 acc = 0.0f;
+				for (int32 n = 0; n < 8; ++n)
+					acc += M[u][n] * d[n];
+				tmp[i][u] = acc;
+			}
 		}
-		// Passe 2 : FDCT sur les colonnes → quantification → ordre zigzag
-		for (int32 j = 0; j < 8; ++j) {
-			float32 s0 = tmp[j] + tmp[56 + j], s1 = tmp[8 + j] + tmp[48 + j];
-			float32 s2 = tmp[16 + j] + tmp[40 + j], s3 = tmp[24 + j] + tmp[32 + j];
-			float32 s4 = tmp[24 + j] - tmp[32 + j], s5 = tmp[16 + j] - tmp[40 + j];
-			float32 s6 = tmp[8 + j] - tmp[48 + j], s7 = tmp[j] - tmp[56 + j];
-			float32 p0 = s0 + s3, p1 = s1 + s2, p2 = s1 - s2, p3 = s0 - s3;
-			float32 c[8];
-			c[0] = (p0 + p1) * 0.353553391f;
-			c[4] = (p0 - p1) * 0.353553391f;
-			c[2] = p2 * 0.461939766f + p3 * 0.191341716f;
-			c[6] = p3 * 0.461939766f - p2 * 0.191341716f;
-			float32 q0 = s4 + s7, q1 = s5 + s6, q2 = s5 - s6, q3 = s4 - s7;
-			float32 r0 = (q0 + q1) * 0.353553391f, r1 = (q0 - q1) * 0.353553391f;
-			float32 r2 = q2 * 0.707106781f, r3 = q3 * 0.707106781f;
-			c[1] = r0 * 0.980785280f - r1 * 0.195090322f;
-			c[3] = r0 * 0.831469612f + r1 * 0.555570233f;
-			c[5] = r3 * 0.980785280f + r2 * 0.195090322f;
-			c[7] = r3 * 0.831469612f - r2 * 0.555570233f;
-
-			for (int32 i = 0; i < 8; ++i) {
-				// Position naturelle dans le bloc 8×8 : row=i, col=j
-				const int32 nat = i * 8 + j;
+		// Passe 2 (colonnes) : C[v][u] = Σ_i M[v][i]·tmp[i][u], puis quantif + ordre zigzag.
+		for (int32 v = 0; v < 8; ++v) {
+			for (int32 u = 0; u < 8; ++u) {
+				float32 c = 0.0f;
+				for (int32 i = 0; i < 8; ++i)
+					c += M[v][i] * tmp[i][u];
+				const int32 nat = v * 8 + u;
 				const int32 q = int32(qt[nat]);
 				if (q <= 0) {
 					out[kZigFwd[nat]] = 0;
 					continue;
 				}
-				// Quantification avec arrondi correct (vers zéro)
-				float32 v = c[i] / float32(q);
-				out[kZigFwd[nat]] = int32(v >= 0.0f ? v + 0.5f : v - 0.5f);
+				const float32 val = c / float32(q);
+				out[kZigFwd[nat]] = int32(val >= 0.0f ? val + 0.5f : val - 0.5f);
 			}
 		}
 	}
