@@ -15,7 +15,7 @@
 #include "NKCode/Shell/NkUi.h"		// NkIcons (registre extension -> texture)
 #include "NKCode/Shell/NkShell.h"	// NkCodeShellRun (révéler dans l'OS)
 #include "NKCode/Editor/NkTextDraw.h" // NkCtxMenu (menu contextuel modal scrollable)
-#include <cstdio>
+#include "NKContainers/String/NkFormat.h" // NkPrintf/NkFormat (outils maison, pas snprintf)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -52,7 +52,6 @@ namespace nkentseu {
 					const NkRect vclip = ctx.DL().CurrentClip();
 					const float32 headH = ctx.ItemHeight() * (mFilterOn ? 2.f : 1.f);
 					ctx.NextItemRect(ctx.ContentWidth(), headH); // réserve du flux
-					TickOps(); // opérations fichiers async (corbeille, copie) terminées ?
 					DrawRows(ctx, vclip.y + headH);
 					mS->explorerFocus = mFocus; // publie le focus (l'éditeur coupe son clavier)
 					DrawHeader(ctx, vclip);
@@ -490,16 +489,30 @@ namespace nkentseu {
 					return false;
 				}
 
-				// ── Opérations fichiers ASYNCHRONES (PowerShell : corbeille, copie) ──
-				static NkString PsQuote(const NkString &p) { // single-quote PS (' doublée)
-					NkString o = "'";
-					for (const char *q = p.CStr(); *q; ++q) {
-						o += *q;
-						if (*q == '\'')
-							o += '\'';
+				// ── Opérations fichiers : APIs MAISON NkFile/NkDirectory (jamais la STL
+				//    ni un shell externe — le moteur a déjà tout, CORBEILLE comprise). ──
+
+				// Supprimer = envoyer à la CORBEILLE système (récupérable).
+				void Trash(const NkString &path, bool dir) {
+					const bool ok = dir ? NkDirectory::MoveToTrash(path.CStr()) : NkFile::MoveToTrash(path.CStr());
+					if (ok) {
+						mRowsDirty = true;
+						mGitNext = mTick;
 					}
-					o += "'";
-					return o;
+				}
+
+				void CopyOrMove(const NkString &src, const NkString &dst, bool move) {
+					const bool dir = NkDirectory::Exists(src.CStr());
+					bool ok;
+					if (move)
+						ok = dir ? NkDirectory::Move(src.CStr(), dst.CStr()) : NkFile::Move(src.CStr(), dst.CStr());
+					else
+						ok = dir ? NkDirectory::Copy(src.CStr(), dst.CStr(), /*recursive=*/true)
+								 : NkFile::Copy(src.CStr(), dst.CStr());
+					if (ok) {
+						mRowsDirty = true;
+						mGitNext = mTick;
+					}
 				}
 
 				// Demande de suppression : ouvre la CONFIRMATION (menu à la souris).
@@ -509,8 +522,7 @@ namespace nkentseu {
 					mDelPath = path;
 					mDelIsDir = dir;
 					const NkString name = NkPath(path).GetFileName();
-					std::snprintf(mDelLabel, sizeof(mDelLabel), "%s \xC2\xAB %s \xC2\xBB", NkT("exp.ctx.delete"),
-								  name.CStr());
+					mDelLabel = NkPrintf("%s \xC2\xAB %s \xC2\xBB", NkT("exp.ctx.delete"), name.CStr());
 					mDelMenu.open = true;
 					mDelMenu.pos = ctx.input.mousePos;
 				}
@@ -519,40 +531,14 @@ namespace nkentseu {
 				void DrawConfirmDel(NkGuiContext &ctx) {
 					if (!mDelMenu.open)
 						return;
-					const char *items[2] = {mDelLabel, NkT("exp.del.cancel")};
+					const char *items[2] = {mDelLabel.CStr(), NkT("exp.del.cancel")};
 					bool en[2] = {true, true};
 					const int32 act = NkCtxMenuDraw(ctx, mDelMenu, items, en, 2);
 					if (act == 0) {
-						TrashAsync(mDelPath, mDelIsDir);
+						Trash(mDelPath, mDelIsDir);
 						mDelPath.Clear();
 					} else if (act == 1 || !mDelMenu.open)
 						mDelPath.Clear();
-				}
-
-				// Supprimer = envoyer à la CORBEILLE (récupérable).
-				void TrashAsync(const NkString &path, bool dir) {
-					if (mOps.Running())
-						return;
-					NkString cmd = "powershell -NoProfile -Command \"Add-Type -AssemblyName Microsoft.VisualBasic; "
-								   "[Microsoft.VisualBasic.FileIO.FileSystem]::";
-					cmd += dir ? "DeleteDirectory(" : "DeleteFile(";
-					cmd += PsQuote(path);
-					cmd += dir ? ",'OnlyErrorDialogs','SendToRecycleBin')\"" : ",'OnlyErrorDialogs','SendToRecycleBin')\"";
-					if (mOps.Start(cmd))
-						mOpsPending = true;
-				}
-
-				void CopyAsync(const NkString &src, const NkString &dst, bool move) {
-					if (mOps.Running())
-						return;
-					NkString cmd = "powershell -NoProfile -Command \"";
-					cmd += move ? "Move-Item -Force " : "Copy-Item -Recurse -Force ";
-					cmd += PsQuote(src);
-					cmd += " ";
-					cmd += PsQuote(dst);
-					cmd += "\"";
-					if (mOps.Start(cmd))
-						mOpsPending = true;
 				}
 
 				// « Nom - copie.ext » à côté de l'original.
@@ -570,15 +556,7 @@ namespace nkentseu {
 					dst += base;
 					dst += " - copie";
 					dst += ext;
-					CopyAsync(p, dst, false);
-				}
-
-				void TickOps() {
-					if (mOpsPending && mOps.Done()) {
-						mOpsPending = false;
-						mRowsDirty = true;
-						mGitNext = mTick; // re-scan git après l'opération
-					}
+					CopyOrMove(p, dst, false);
 				}
 
 				void RevealInOS(const NkString &p) {
@@ -656,12 +634,15 @@ namespace nkentseu {
 							}
 							mSelPath = full;
 						}
-					} else if (mEditPath.Length() > 0) { // RENOMMAGE
+					} else if (mEditPath.Length() > 0) { // RENOMMAGE (API maison, pas la STL)
 						NkString dst = ParentOf(mEditPath);
 						dst += "/";
 						dst += mEditBuf;
 						if (!SameStr(dst.CStr(), mEditPath.CStr()) && !NkFile::Exists(dst.CStr())) {
-							if (std::rename(mEditPath.CStr(), dst.CStr()) == 0)
+							const bool dir = NkDirectory::Exists(mEditPath.CStr());
+							const bool ok = dir ? NkDirectory::Move(mEditPath.CStr(), dst.CStr())
+												: NkFile::Move(mEditPath.CStr(), dst.CStr());
+							if (ok)
 								mSelPath = dst;
 						}
 					}
@@ -1097,7 +1078,7 @@ namespace nkentseu {
 								} else {
 									if (NkFile::Exists(dst.CStr()))
 										dst += " - copie"; // ne pas écraser l'existant
-									CopyAsync(mClipPath, dst, mClipCut);
+									CopyOrMove(mClipPath, dst, mClipCut);
 								}
 								if (mClipCut)
 									mClipPath.Clear();
@@ -1191,12 +1172,10 @@ namespace nkentseu {
 				NkString mClipPath;		///< copier/couper interne (Ctrl+C/X/V)
 				bool mClipCut = false;
 				uint32 mSelTick = 0;	///< frame de la dernière sélection (clic-lent = renommer)
-				NkProcess mOps;			///< opérations fichiers async (corbeille, copie)
-				bool mOpsPending = false;
 				NkCtxMenu mDelMenu;		///< confirmation de suppression
 				NkString mDelPath;
 				bool mDelIsDir = false;
-				char mDelLabel[192] = {};
+				NkString mDelLabel;
 				NkRect mEditRect = {0.f, 0.f, 0.f, 0.f}; ///< zone de saisie inline (clic hors = valide)
 		};
 
