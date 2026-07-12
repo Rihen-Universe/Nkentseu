@@ -3269,6 +3269,10 @@ namespace nkentseu {
 				// dont la zone contient (osDropX, osDropY) ; TTL purgé par AppFlagsThunk. ──
 				NkVector<NkString> osDropPaths;
 				int32 osDropX = 0, osDropY = 0, osDropTtl = 0;
+				// ── Sélecteur de dossier MAISON (mobile) : l'explorateur demande, l'app
+				// affiche le picker, et repose le dossier choisi ici. ──
+				bool reqPickFolder = false;
+				NkString pickedFolder;
 				NkString wsPrefill;		 // sélection de l'éditeur préremplie dans le champ
 				NkString wsOpenFile;	 // clic sur un résultat : consommé par ProcessWsOpen (poll)
 				int32 wsOpenLine = -1;
