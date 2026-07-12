@@ -15,6 +15,16 @@ uniform CameraUBO {
     vec4  reflectionFlags;
 } uCam;
 
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model, normalMatrix; vec4 tint;
+    float metallic, roughness, aoStrength, emissiveStrength;
+    float normalStrength, clearcoat, clearcoatRoughness, subsurface;
+    vec4  subsurfaceColor;
+    vec4  shadowOverrides;
+    vec4  triplanarParams;
+} uObj;
+
 @binding(set=0, binding=2)
 uniform LightsUBO {
     vec4  positions[32], colors[32], directions[32], angles[32];
@@ -86,8 +96,9 @@ void main() {
                     : normalize(lPos.xyz - vWorldPos);
         float NdotL = dot(N, L);
 
-        float shadow = (uLights.angles[i].z > 0.5)
-                       ? SampleLightShadow(i, vWorldPos, N, L) : 1.0;
+        // NkVSM v2 : overrides per-material (.x receiveShadow, .z biasMul).
+        float shadow = (uLights.angles[i].z > 0.5 && uObj.shadowOverrides.x > 0.5)
+                       ? SampleLightShadowEx(i, vWorldPos, N, L, uObj.shadowOverrides.z) : 1.0;
 
         float cel   = smoothstep(uToon.shadowThreshold - uToon.shadowSmooth,
                                  uToon.shadowThreshold + uToon.shadowSmooth,

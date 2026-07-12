@@ -545,6 +545,37 @@ namespace nkentseu {
 				mMat->SetSharedContext(mGlobalLayout, mObjectLayout, sharedVL);
 			}
 
+			// ── Shadow ALPHA-TESTED (NkVSM v2) : casters feuillage/masked ─────────
+			// Variante du pipeline Shadow qui passe l'UV et sample l'albedo du
+			// material (discard < 0.5). set=2 = layout UNIVERSEL des instances
+			// (GetInstanceLayout) → on binde matInst->GetDescSet() tel quel dans
+			// RenderShadowPass. Cree ici car depend de mMat (layout) + mShadow (RP).
+			if (mShaderLib && mMat) {
+				auto progHandle = mShaderLib->LoadOrCompileVF("ShadowAlpha", "", "");
+				if (progHandle.IsValid())
+					mShadowAlphaShader = mShaderLib->GetRHIHandle(progHandle);
+			}
+			if (mShadowAlphaShader.IsValid() && mMat) {
+				NkGraphicsPipelineDesc pd;
+				pd.shader = mShadowAlphaShader;
+				pd.depthStencil = NkDepthStencilDesc::Default();
+				if (mShadow)
+					pd.renderPass = mShadow->GetShadowRenderPass();
+				pd.rasterizer = NkRasterizerDesc::NoCull();
+				pd.blend = NkBlendDesc::Opaque();
+				pd.debugName = "Shadow_AlphaTest";
+				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f));
+				pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+				pd.descriptorSetLayouts.PushBack(mObjectLayout);
+				pd.descriptorSetLayouts.PushBack(mMat->GetInstanceLayout());
+				pd.vertexLayout.AddBinding(0, sizeof(NkVertex3D), false)
+					.AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0, "POSITION", 0)
+					.AddAttribute(3, 0, NkVertexFormat::NK_RG32_FLOAT, 36, "TEXCOORD", 0);
+				mShadowAlphaPipeline = mDevice->CreateGraphicsPipeline(pd);
+				logger.Info("[NkRender3D] ShadowAlpha pipeline create: shader_valid={0} pipeline_valid={1}\n",
+							mShadowAlphaShader.IsValid() ? 1 : 0, mShadowAlphaPipeline.IsValid() ? 1 : 0);
+			}
+
 			bool ringValid = !mUBOCameraRing.Empty() && mUBOCameraRing[0].IsValid();
 			logger.Info(
 				"[NkRender3D] Init final: ringValid={0} pbrShader.valid={1} (PBR pipeline: lazy create at 1st flush)\n",
@@ -847,6 +878,10 @@ namespace nkentseu {
 			if (mShadowPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mShadowPipeline);
 				mShadowPipeline = {};
+			}
+			if (mShadowAlphaPipeline.IsValid()) {
+				mDevice->DestroyPipeline(mShadowAlphaPipeline);
+				mShadowAlphaPipeline = {};
 			}
 			if (mShadowInstancePipeline.IsValid()) {
 				mDevice->DestroyPipeline(mShadowInstancePipeline);
@@ -1570,6 +1605,12 @@ namespace nkentseu {
 			// Itere sur mShadowCasters (collecte SANS culling camera) et non
 			// mOpaque : sinon les casters hors champ camera n'auraient pas
 			// d'ombre (cf. Submit). Tous les elements ici ont castShadow=true.
+			// NkVSM v2 : les casters dont le material a mCastShadowAlphaTest
+			// passent par mShadowAlphaPipeline (sample albedo + discard) — on
+			// suit le pipeline courant et on ne re-binde qu'au changement
+			// (re-push du PC obligatoire apres switch : DX12 invalide les
+			// root parameters au changement de PSO).
+			bool usingAlpha = false;
 			for (auto &sdc : mShadowCasters) {
 				auto &dc = sdc.dc;
 				if (mObjectDrawIdx >= mObjectPoolCap) {
@@ -1578,6 +1619,18 @@ namespace nkentseu {
 								  mObjectDrawIdx, mObjectPoolCap);
 					break;
 				}
+				NkMaterialInstance *matInst = nullptr;
+				if (mMat && dc.material.IsValid())
+					matInst = mMat->GetInstance(dc.material);
+				const bool wantAlpha =
+					mShadowAlphaPipeline.IsValid() && matInst && matInst->mCastShadowAlphaTest;
+				if (wantAlpha != usingAlpha) {
+					usingAlpha = wantAlpha;
+					cmd->BindGraphicsPipeline(usingAlpha ? mShadowAlphaPipeline : mShadowPipeline);
+					cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f), &lightVP);
+				}
+				if (usingAlpha && matInst->GetDescSet().IsValid())
+					cmd->BindDescriptorSet(matInst->GetDescSet(), 2);
 				ObjBlock ob{};
 				ob.model = dc.transform;
 				ob.normalMatrix = dc.transform.Inverse().Transpose();
