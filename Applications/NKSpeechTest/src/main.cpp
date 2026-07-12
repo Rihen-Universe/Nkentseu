@@ -100,6 +100,26 @@ int main() {
 					   (int)wav.Size(), voix[k].cfg.f0);
 			}
 		}
+
+		// MOTS (consonnes + voyelles) : "papa", "maman", "salu", "lili".
+		struct Mot {
+			const char *file;
+			const char *phon;
+		};
+		Mot mots[4] = {
+			{"nkmot_papa.wav", "p a p a"},
+			{"nkmot_maman.wav", "m a m a~"},
+			{"nkmot_salu.wav", "s a l u"},
+			{"nkmot_lili.wav", "l i l i"},
+		};
+		ai::NkVoiceSynthConfig cfgH = ai::NkVoiceSynthConfig::Homme();
+		for (int k = 0; k < 4; ++k) {
+			NkVector<float32> wav = ai::NkVoiceSynth::Speak(mots[k].phon, cfgH);
+			if (wav.Size() > 0) {
+				WriteWavPcm16(mots[k].file, wav.Data(), (int)wav.Size(), cfgH.sampleRate);
+				printf("       -> %s (\"%s\")\n", mots[k].file, mots[k].phon);
+			}
+		}
 	}
 
 	printf("\n=== Resultat : %d/%d suites OK ===\n", nbOk, nbTotal);
