@@ -19,7 +19,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkPath.h"
-#include <cstdlib>
+#include "NKPlatform/NkEnv.h" // env::GetEnvVar (variables d'environnement maison)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -1997,9 +1997,9 @@ namespace nkentseu {
 			if (NkI18nLoadedFlag())
 				return;
 			NkI18nLoadedFlag() = true;
-			const char *h = std::getenv("USERPROFILE");
+			const char *h = env::GetEnvVar("USERPROFILE"); // API maison (NKPlatform/NkEnv.h)
 			if (!h || !*h)
-				h = std::getenv("HOME");
+				h = env::GetEnvVar("HOME");
 			const NkString home = h ? h : "";
 			for (int32 l = 0; l < NK_I18N_LANGS; ++l) {
 				const NkString f = NkString(NkI18nCode(l)) + ".lang";

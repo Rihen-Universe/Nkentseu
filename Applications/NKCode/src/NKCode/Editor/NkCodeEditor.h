@@ -20,7 +20,7 @@
 #include "NKCode/Project/NkText.h"	  // NkPPEvalActive / NkDefineValue (régions préproc inactives)
 #include "NKCode/Project/NkLogSink.h" // GlobalLogBuffer : traces [ac] (panneau OUTPUT)
 
-#include <cstdio> // snprintf (numeros de ligne)
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison, ex-<cstdio>)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -2226,9 +2226,9 @@ namespace nkentseu {
 			const float32 pad = 4.f;
 
 			// Gouttiere : [numeros right-alignes | colonne breakpoints | bande Git 3px].
-			char numbuf[16];
-			std::snprintf(numbuf, sizeof(numbuf), "%d", d.LineCount());
-			const float32 numAreaW = ctx.font->MeasureWidth(numbuf) + pad * 2.f;
+			// NkPrintf maison (1x/frame : NkString locale acceptable, logique inchangée).
+			const NkString numbuf = NkPrintf("%d", d.LineCount());
+			const float32 numAreaW = ctx.font->MeasureWidth(numbuf.CStr()) + pad * 2.f;
 			const float32 foldW = ctx.S(13.f); // colonne des chevrons de repli (folding)
 			const float32 bpW = lineH;		   // colonne breakpoints (carree)
 			const float32 gitW = 3.f;		   // bande Git au bord droit de la gouttiere
@@ -4165,17 +4165,16 @@ namespace nkentseu {
 			// ── Barre « Renommer » (F2) : boîte flottante haut-droite, comme la barre Ctrl+G ──
 			if (d.renOpen && ctx.font && ctx.font->Valid()) {
 				const float32 fh2 = ctx.font->LineHeight();
-				char cap2[160];
-				std::snprintf(cap2, sizeof(cap2), "Renommer '%s' en : %s", d.renWord.CStr(), d.renBuf);
-				const float32 tw2 = ctx.font->MeasureWidth(cap2) + 26.f;
+				const NkString cap2 = NkPrintf("Renommer '%s' en : %s", d.renWord.CStr(), d.renBuf); // NkPrintf maison
+				const float32 tw2 = ctx.font->MeasureWidth(cap2.CStr()) + 26.f;
 				const NkRect bx2 = {area.x + area.w - tw2 - 18.f, area.y + 44.f, tw2, fh2 + 14.f};
 				dl.AddRectFilled({bx2.x + 3.f, bx2.y + 4.f, bx2.w, bx2.h}, NkColor{0, 0, 0, 70}, 7.f);
 				dl.AddRectFilled(bx2, NkColor{37, 43, 51, 255}, 7.f);
 				dl.AddRect(bx2, ctx.theme.accent, 1.f);
-				dl.AddText(ctx.font->Face(), ctx.font->TexId(), {bx2.x + 10.f, bx2.y + 7.f + ctx.font->Ascent()}, cap2,
-						   ctx.theme.text);
+				dl.AddText(ctx.font->Face(), ctx.font->TexId(), {bx2.x + 10.f, bx2.y + 7.f + ctx.font->Ascent()},
+						   cap2.CStr(), ctx.theme.text);
 				if ((d.tick / 30) % 2 == 0) { // caret clignotant en fin de saisie
-					const float32 cx2 = bx2.x + 10.f + ctx.font->MeasureWidth(cap2);
+					const float32 cx2 = bx2.x + 10.f + ctx.font->MeasureWidth(cap2.CStr());
 					dl.AddLine({cx2 + 1.f, bx2.y + 6.f}, {cx2 + 1.f, bx2.y + bx2.h - 6.f}, ctx.theme.text, 1.2f);
 				}
 			}
@@ -4396,9 +4395,9 @@ namespace nkentseu {
 					dl.AddCircleFilled({bpCx, cy}, 4.5f, kBpOn);
 				else if (i == bpHoverLine)
 					dl.AddCircleFilled({bpCx, cy}, 4.5f, NkColor{kBpOn.r, kBpOn.g, kBpOn.b, 90});
-				char nb[16];
-				std::snprintf(nb, sizeof(nb), "%d", i + 1);
-				const float32 nw = ctx.font->MeasureWidth(nb);
+				// NkPrintf maison — chemin chaud (1x/ligne visible) : NkString locale simple, logique inchangée.
+				const NkString nb = NkPrintf("%d", i + 1);
+				const float32 nw = ctx.font->MeasureWidth(nb.CStr());
 				// Marqueur d'erreur/avertissement (façon VSCode) : numéro coloré + pastille à gauche.
 				const int32 sev = d.DiagSevOn(i);
 				const NkColor nColor = (sev == 1)		  ? NkColor{240, 80, 80, 255}
@@ -4407,7 +4406,8 @@ namespace nkentseu {
 														  : kLineNo;
 				if (sev >= 0)
 					dl.AddCircleFilled({area.x + 4.f, cy}, 3.f, nColor);
-				dl.AddText(ctx.font->Face(), ctx.font->TexId(), {area.x + numAreaW - pad - nw, baseline}, nb, nColor);
+				dl.AddText(ctx.font->Face(), ctx.font->TexId(), {area.x + numAreaW - pad - nw, baseline}, nb.CStr(),
+						   nColor);
 			}
 			dl.PopClipRect();
 
@@ -4489,11 +4489,9 @@ namespace nkentseu {
 										 NkColor{229, 74, 68, 255}); // breakpoints (rouge vif)
 			}
 			// (diagnostic) clic sur la bande H -> trace l'état dans OUTPUT (le drag doit suivre).
-			if (ctx.input.mouseClicked[0] && InRect(hTrack, mouse)) {
-				char hb2[96];
-				std::snprintf(hb2, sizeof(hb2), "[ui] barre H : clic (maxScrollX=%.0f, wrap=%d)", maxScrollX,
-							  d.wrapOn ? 1 : 0);
-				GlobalLogBuffer().Push(NkString(hb2));
+			if (ctx.input.mouseClicked[0] && InRect(hTrack, mouse)) { // NkPrintf maison
+				GlobalLogBuffer().Push(
+					NkPrintf("[ui] barre H : clic (maxScrollX=%.0f, wrap=%d)", maxScrollX, d.wrapOn ? 1 : 0));
 			}
 			// ── Barre HORIZONTALE : fleche gauche + piste (pouce) + fleche droite ──
 			{
@@ -4794,15 +4792,15 @@ namespace nkentseu {
 					changed = true;
 				}
 				float32 cx2 = rx + queryW + gap;
-				char cnt[32];
+				NkString cnt; // NkPrintf maison (logique inchangée : "" / "0" / "i/n")
 				if (d.FindCount() == 0) {
-					cnt[0] = (d.findQuery[0] == '\0') ? '\0' : '0';
-					cnt[1] = '\0';
+					if (d.findQuery[0] != '\0')
+						cnt = "0";
 				} else
-					std::snprintf(cnt, sizeof(cnt), "%d/%d", d.findCur < 0 ? 0 : d.findCur + 1, d.FindCount());
-				const float32 cntW2 = ctx.font->MeasureWidth(cnt);
+					cnt = NkPrintf("%d/%d", d.findCur < 0 ? 0 : d.findCur + 1, d.FindCount());
+				const float32 cntW2 = ctx.font->MeasureWidth(cnt.CStr());
 				dl.AddText(ctx.font->Face(), ctx.font->TexId(),
-						   {cx2 + (countW - cntW2) * 0.5f, ry + (rowH - gap - fh) * 0.5f + fasc}, cnt,
+						   {cx2 + (countW - cntW2) * 0.5f, ry + (rowH - gap - fh) * 0.5f + fasc}, cnt.CStr(),
 						   ctx.theme.textDisabled);
 				cx2 += countW;
 				if (btn(cx2, ry, btnW, "Aa", d.findCase, "Casse")) {

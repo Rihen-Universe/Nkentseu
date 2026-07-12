@@ -1,6 +1,9 @@
 #pragma once
 // =============================================================================
 // NkProcess.h — Lancement de processus externe ASYNCHRONE avec capture de sortie.
+//   WRAPPER MAISON DÉSIGNÉ pour les PIPES process : les appels _popen/fgets/
+//   fgetc de bas niveau sont volontairement conservés dans cette famille de
+//   wrappers (pas d'équivalent NkFile pour un flux de processus).
 //   Start(cmd) lance la commande sur un THREAD d'arriere-plan (stdout+stderr
 //   fusionnes) ; le thread pousse chaque ligne dans une file THREAD-SAFE ;
 //   l'UI appelle Drain() chaque frame pour recuperer les nouvelles lignes sans

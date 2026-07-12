@@ -12,6 +12,7 @@
 #include "NKCode/Shell/NkUi.h"
 #include "NKCode/Shell/NkOpenWs.h" // NkOwIco
 #include "NKCode/Shell/NkI18n.h"   // NkT
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -229,9 +230,9 @@ namespace nkentseu {
 						  int32 variant, const char *badge) {
 				segs.PushBack({1, id, btnW(label), prio, grp, label, nullptr, tex, drawn, false, variant, badge});
 			};
-			char testBadge[8] = "";
+			NkString testBadge; // NkPrintf maison (ex-std::snprintf)
 			if (nTestVis > 0)
-				std::snprintf(testBadge, sizeof(testBadge), "%d", nTestVis);
+				testBadge = NkPrintf("%d", nTestVis);
 			C(0, wSol, 90, false, NkT("tb.solution"), wsPrev, TEX(ic ? ic->jenga : 0), "git-branch", true);
 			C(1, wProj, 40, false, NkT("tb.projet"), projPrev, TEX(ic ? ic->pkg : 0), "package", false);
 			// Icône de la PLATEFORME cible : logo dédié (Android, Apple, Tux, Windows,
@@ -276,7 +277,7 @@ namespace nkentseu {
 			Bt(2, 50, false, NkT("tb.clean"), TEX(ic ? ic->eraser : 0), "eraser", 0, nullptr);
 			Bt(3, 1000, true, NkT("tb.run"), TEX(ic ? ic->play : 0), "play", 1, nullptr);
 			Bt(4, 45, false, NkT("tb.debug"), TEX(ic ? ic->bug : 0), "bug", 0, nullptr);
-			Bt(5, 65, false, NkT("tb.test"), TEX(ic ? ic->kTest : 0), "flask", 2, hasTests ? testBadge : nullptr);
+			Bt(5, 65, false, NkT("tb.test"), TEX(ic ? ic->kTest : 0), "flask", 2, hasTests ? testBadge.CStr() : nullptr);
 			segs.PushBack({2, -1, wSearch, 10, true, NkT("tb.quicksearch"), nullptr, TEX(ic ? ic->search : 0), "search",
 						   false, 0, nullptr}); // recherche : repliée en 1er, absente du menu
 

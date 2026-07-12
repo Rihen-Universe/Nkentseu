@@ -11,10 +11,10 @@
 #include "NKCode/Shell/NkI18n.h"		 // NkT() : traductions multi-langue
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Shell/Dialogs.h"
-#include "NKThreading/NkThread.h" // NkThread (pas de STL) — cf. NkProcess.h
-#include "NKCore/NkAtomic.h"	  // NkAtomicBool / NkAtomicInt32
-#include <cstdio>
-#include <cstdlib>
+#include "NKThreading/NkThread.h"		  // NkThread (pas de STL) — cf. NkProcess.h
+#include "NKCore/NkAtomic.h"			  // NkAtomicBool / NkAtomicInt32
+#include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison, ex-<cstdio>)
+#include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison, ex-<cstdlib>)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -423,7 +423,8 @@ namespace nkentseu {
 				// Cherche ld.lld.exe (linkeur Mach-O) dans le NDK Android (cf. doc §4).
 				static NkString FindNdkLdLld() {
 					auto env = [](const char *n) -> NkString {
-						const char *v = std::getenv(n);
+						// API maison (qualif. complète : la variable locale `env` masque le namespace).
+						const char *v = nkentseu::env::GetEnvVar(n);
 						return (v && *v) ? NkString(v) : NkString();
 					};
 					auto probe = [](const NkString &base) -> NkString {
@@ -461,7 +462,8 @@ namespace nkentseu {
 				static NkAppleZig DetectAppleZig() {
 					NkAppleZig a;
 					auto env = [](const char *n) -> NkString {
-						const char *v = std::getenv(n);
+						// API maison (qualif. complète : la variable locale `env` masque le namespace).
+						const char *v = nkentseu::env::GetEnvVar(n);
 						return (v && *v) ? NkString(v) : NkString();
 					};
 					auto fileEx = [](const NkString &p) { return !p.Empty() && NkFile::Exists(p.CStr()); };
@@ -548,7 +550,8 @@ namespace nkentseu {
 				// Commande d'installation/réparation de la toolchain Apple (script Jenga). `root` = dossier cible.
 				static NkString AppleSetupCommand(const NkString &root) {
 					auto env = [](const char *n) -> NkString {
-						const char *v = std::getenv(n);
+						// API maison (qualif. complète : la variable locale `env` masque le namespace).
+						const char *v = nkentseu::env::GetEnvVar(n);
 						return (v && *v) ? NkString(v) : NkString();
 					};
 					NkString script = env("JENGA_APPLE_SETUP"); // override explicite (chemin complet du .py)
@@ -603,7 +606,7 @@ namespace nkentseu {
 					for (const char *c = in.CStr(); *c; ++c) {
 						if (*c == '%') {
 							if (inVar) {
-								const char *v = std::getenv(var.CStr());
+								const char *v = env::GetEnvVar(var.CStr()); // API maison (NkEnv.h)
 								if (v)
 									out += v;
 								else {
@@ -676,7 +679,7 @@ namespace nkentseu {
 							full += ";";
 						full += up;
 					}
-					const char *cur = std::getenv("PATH");
+					const char *cur = env::GetEnvVar("PATH"); // API maison (NkEnv.h)
 					if (cur && *cur) {
 						if (!full.Empty())
 							full += ";";
@@ -890,11 +893,11 @@ namespace nkentseu {
 							if (*c == '/' || *c == '\\')
 								base = c + 1;
 						if (assistKind == 1)
-							std::snprintf(t.name, sizeof(t.name), "%s", "zig-manuel");
+							NkStrCopy(t.name, sizeof(t.name), "zig-manuel"); // copie bornée maison (NkText.h)
 						else
-							std::snprintf(t.name, sizeof(t.name), "%s", base);
-						std::snprintf(t.cc, sizeof(t.cc), "%s", assistPath);
-						std::snprintf(t.cxx, sizeof(t.cxx), "%s", assistPath);
+							NkStrCopy(t.name, sizeof(t.name), base);
+						NkStrCopy(t.cc, sizeof(t.cc), assistPath);
+						NkStrCopy(t.cxx, sizeof(t.cxx), assistPath);
 						nw->customTc.PushBack(t);
 						SaveRegistry(nw);
 						LoadRegistry();
@@ -934,9 +937,9 @@ namespace nkentseu {
 										  "OHOS_SDK",		  "JAVA_HOME",		  "ZIG_ROOT"};
 					for (int32 i = 0; i < 6; ++i) {
 						EnvRow rw;
-						std::snprintf(rw.name, sizeof(rw.name), "%s", keys[i]);
+						NkStrCopy(rw.name, sizeof(rw.name), keys[i]); // copie bornée maison (NkText.h)
 						const NkString v = Env(keys[i]);
-						std::snprintf(rw.value, sizeof(rw.value), "%s", v.CStr());
+						NkStrCopy(rw.value, sizeof(rw.value), v.CStr());
 						envRows.PushBack(rw);
 					}
 				}
@@ -955,20 +958,20 @@ namespace nkentseu {
 							return;
 						EnvRow *r = rowByName(nm);
 						if (r && r->value[0] == '\0')
-							std::snprintf(r->value, sizeof(r->value), "%s", val.CStr());
+							NkStrCopy(r->value, sizeof(r->value), val.CStr());
 					};
 					auto parentOf = [](const NkString &file) {
 						return NkPath(file.CStr()).GetParent().ToString();
 					}; // dossier du fichier
-					const char *h = std::getenv("USERPROFILE");
+					const char *h = env::GetEnvVar("USERPROFILE"); // API maison (NkEnv.h)
 					if (!h || !*h)
-						h = std::getenv("HOME");
+						h = env::GetEnvVar("HOME");
 					const NkString home = h ? h : "";
 					// Android SDK
 					NkString sdk;
 #if defined(_WIN32)
 					{
-						const char *la = std::getenv("LOCALAPPDATA");
+						const char *la = env::GetEnvVar("LOCALAPPDATA"); // API maison (NkEnv.h)
 						if (la) {
 							NkString p = la;
 							p += "\\Android\\Sdk";
@@ -1469,7 +1472,7 @@ namespace nkentseu {
 						NkString z = Which("zig");
 #if defined(_WIN32)
 						if (z.Empty()) {
-							const char *la = std::getenv("LOCALAPPDATA");
+							const char *la = env::GetEnvVar("LOCALAPPDATA"); // API maison (NkEnv.h)
 							if (la) {
 								NkString p = la;
 								p += "\\Microsoft\\WinGet\\Links\\zig.exe";
@@ -1930,7 +1933,7 @@ namespace nkentseu {
 						t->assistOk = false;
 						chose = true;
 						if (NkToolchainsState::AssistKindIsApple(k) && t->assistPath[0] == '\0')
-							std::snprintf(t->assistPath, sizeof(t->assistPath), "%s", "C:\\apple-sdks");
+							NkStrCopy(t->assistPath, sizeof(t->assistPath), "C:\\apple-sdks"); // copie maison
 					}
 				}
 				if (chose || (u.click && !u.Hit(dd) && !u.Hit(combo)))
@@ -2026,9 +2029,8 @@ namespace nkentseu {
 				float32 y = r.y + hH + u.s(20);
 				NkWizLabel(u, dcx, y, NkT("tc.progress"));
 				{
-					char pct[8];
-					std::snprintf(pct, sizeof(pct), "%d%%", t->detectStep * 100 / DS);
-					u.Text(dcx + dcw - u.TextW(pct), y, pct, NkCol::mutedFg);
+					const NkString pct = NkPrintf("%d%%", t->detectStep * 100 / DS); // NkPrintf maison
+					u.Text(dcx + dcw - u.TextW(pct.CStr()), y, pct.CStr(), NkCol::mutedFg);
 				}
 				y += u.s(22);
 				{
