@@ -43,10 +43,10 @@ namespace nkentseu {
 					p.f2 = 750.0f;
 					p.f3 = 2500.0f;
 					break;
-				case 'u': // /y/ « u » FRANÇAIS : antérieure ARRONDIE (F2 haut) — distinct de « ou »
-					p.f1 = 300.0f;
-					p.f2 = 1750.0f;
-					p.f3 = 2200.0f;
+				case 'u': // /y/ « u » FRANÇAIS : antérieure ARRONDIE (F2 haut, proche F3) — ≠ « ou »
+					p.f1 = 270.0f;
+					p.f2 = 1900.0f;
+					p.f3 = 2250.0f;
 					break;
 				case 'w': // /u/ « ou » : postérieure arrondie (F2 bas)
 					p.f1 = 300.0f;
@@ -111,6 +111,10 @@ namespace nkentseu {
 						y1 = y;
 						return y;
 					}
+					void Reset() {
+						y1 = 0.0f;
+						y2 = 0.0f;
+					}
 			};
 
 			// LCG déterministe pour le bruit des non-voisés.
@@ -151,63 +155,77 @@ namespace nkentseu {
 			float32 tSince = 1e9f; // échantillons depuis la dernière impulsion glottique
 			float32 period = (float32)sr / cfg.f0;
 			float32 prevG = 0.0f;
-			// Formants « courants » (interpolés) initialisés au 1er phone voisé.
-			float32 cf1 = 0.0f, cf2 = 0.0f, cf3 = 0.0f;
+			float32 cf1 = 0.0f, cf2 = 0.0f, cf3 = 0.0f; // formants courants (pour la coarticulation)
+			bool prevSounding = false;					// le phone précédent produisait-il du son ?
+			const int32 glide = (int32)(cfg.glideMs * 0.001f * (float32)sr / rate);
 			for (uint32 pi = 0; pi < phones.Size(); ++pi) {
 				const NkPhone &p = phones[pi];
 				const int32 nS = dur[pi];
-				const float32 tf1 = p.f1 * vts, tf2 = p.f2 * vts, tf3 = p.f3 * vts; // cibles (conduit)
-				if (cf1 <= 0.0f && tf1 > 0.0f) { // amorçage au 1er phone voisé
+
+				// SILENCE (gain nul) : sortie 0 + RESET des résonateurs → gap PROPRE (pas de
+				// ring-down parasite « bruit après la lettre »), et redémarrage net après.
+				if (p.gain <= 0.0f) {
+					r1.Reset();
+					r2.Reset();
+					r3.Reset();
+					prevG = 0.0f;
+					tSince = 1e9f;
+					for (int32 n = 0; n < nS && idx < totalSamples; ++n, ++idx)
+						out[(nk_size)idx] = 0.0f;
+					prevSounding = false;
+					continue;
+				}
+
+				const float32 tf1 = p.f1 * vts, tf2 = p.f2 * vts, tf3 = p.f3 * vts;
+				// Glissement de formants (coarticulation) UNIQUEMENT entre deux phones sonores
+				// ADJACENTS (pas à travers un silence) : sinon chaque voyelle isolée démarre NETTE.
+				const bool doGlide = prevSounding && cf1 > 0.0f && p.voiced;
+				const float32 sf1 = cf1, sf2 = cf2, sf3 = cf3;
+				if (!doGlide) { // démarrage net sur les formants cibles
 					cf1 = tf1;
 					cf2 = tf2;
 					cf3 = tf3;
 				}
-				// Formants de DÉPART de ce phone (= formants courants) pour le glissement.
-				const float32 sf1 = cf1, sf2 = cf2, sf3 = cf3;
-				const int32 glide = (int32)(cfg.glideMs * 0.001f * (float32)sr / rate);
+				r1.Set(cf1, 80.0f, sr);
+				r2.Set(cf2, 100.0f, sr);
+				r3.Set(cf3, 120.0f, sr);
+
 				for (int32 n = 0; n < nS && idx < totalSamples; ++n, ++idx) {
-					// Glissement linéaire des formants départ→cible sur `glide` (coarticulation).
-					if (tf1 > 0.0f) {
-						const float32 a = (glide > 0 && n < glide) ? (float32)n / (float32)glide : 1.0f;
+					// Reconfigure les filtres SEULEMENT pendant le glissement (évite le zipper noise).
+					if (doGlide && n <= glide && glide > 0) {
+						const float32 a = (float32)n / (float32)glide;
 						cf1 = sf1 + (tf1 - sf1) * a;
 						cf2 = sf2 + (tf2 - sf2) * a;
 						cf3 = sf3 + (tf3 - sf3) * a;
-					}
-					if (cf1 > 0.0f)
 						r1.Set(cf1, 80.0f, sr);
-					if (cf2 > 0.0f)
 						r2.Set(cf2, 100.0f, sr);
-					if (cf3 > 0.0f)
 						r3.Set(cf3, 120.0f, sr);
+					}
 
 					float32 src = 0.0f;
-					if (p.gain > 0.0f) {
-						if (p.voiced) {
-							// Contour d'intonation : F0 descend de f0Drift sur tout l'énoncé.
-							const float32 prog = (float32)idx / (float32)totalSamples;
-							const float32 f0 = cfg.f0 * (1.0f - cfg.f0Drift * prog);
-							tSince += 1.0f;
-							if (tSince >= period) {
-								tSince -= period;
-								const float32 j = 1.0f + cfg.f0Jitter * Lcg(rng); // jitter de période
-								period = (float32)sr / (f0 * (j > 0.5f ? j : 0.5f));
-							}
-							// Bosse glottique (cosinus surélevé) sur la phase ouverte, puis sa DÉRIVÉE.
-							const float32 pw = cfg.openQuotient * period;
-							float32 gflow = 0.0f;
-							if (tSince < pw)
-								gflow = 0.5f * (1.0f - NkCos(2.0f * 3.14159265f * tSince / pw));
-							const float32 deriv = gflow - prevG; // excitation bande-limitée
-							prevG = gflow;
-							src = deriv + cfg.breathiness * Lcg(rng); // + souffle
-						} else {
-							src = 0.5f * Lcg(rng); // fricative : bruit
+					if (p.voiced) {
+						const float32 prog = (float32)idx / (float32)totalSamples;
+						const float32 f0 = cfg.f0 * (1.0f - cfg.f0Drift * prog); // intonation descendante
+						tSince += 1.0f;
+						if (tSince >= period) {
+							tSince -= period;
+							const float32 j = 1.0f + cfg.f0Jitter * Lcg(rng);
+							period = (float32)sr / (f0 * (j > 0.5f ? j : 0.5f));
 						}
-						src *= p.gain;
+						const float32 pw = cfg.openQuotient * period;
+						float32 gflow = 0.0f;
+						if (tSince < pw)
+							gflow = 0.5f * (1.0f - NkCos(2.0f * 3.14159265f * tSince / pw));
+						const float32 deriv = gflow - prevG; // excitation bande-limitée (moins buzz)
+						prevG = gflow;
+						src = deriv + cfg.breathiness * Lcg(rng); // + un peu de souffle
+					} else {
+						src = 0.5f * Lcg(rng); // fricative : bruit
 					}
+					src *= p.gain;
+
 					float32 y = r1.Step(src) + 0.7f * r2.Step(src) + 0.3f * r3.Step(src);
-					// Enveloppe d'attaque/relâche (évite les clics aux bords de phone).
-					float32 env = 1.0f;
+					float32 env = 1.0f; // attaque/relâche douce (anti-clic aux bords)
 					const int32 fade = nS / 8 > 1 ? nS / 8 : 1;
 					if (n < fade)
 						env = (float32)n / (float32)fade;
@@ -215,6 +233,7 @@ namespace nkentseu {
 						env = (float32)(nS - n) / (float32)fade;
 					out[(nk_size)idx] = y * env;
 				}
+				prevSounding = true;
 			}
 
 			// Normalisation à ~0,9 crête.
