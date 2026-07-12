@@ -159,7 +159,7 @@ namespace nkentseu {
 				}
 
 				// ── Selecteur de dossier / fichier CUSTOM (NKGui) ──
-				enum PickFor { PK_None = 0, PK_Open, PK_NewDir, PK_LoadDir, PK_Buf, PK_File, PK_SaveFile };
+				enum PickFor { PK_None = 0, PK_Open, PK_NewDir, PK_LoadDir, PK_Buf, PK_File, PK_SaveFile, PK_PickFolder };
 
 				char pickerSaveName[256] = {}; // mode PK_SaveFile : nom du fichier (avec extension)
 				bool pickerSaveFocus = false;
@@ -484,6 +484,8 @@ namespace nkentseu {
 						ScanLoad();
 					} else if ((purpose == PK_Buf || purpose == PK_File) && buf)
 						CopyTo(buf, chosen.CStr(), cap);
+					else if (purpose == PK_PickFolder && st)
+						st->pickedFolder = chosen; // dossier QUELCONQUE -> l'explorateur le récupère
 				}
 
 				// ── Génération de squelette (scaffolding) selon l'extension ──────────────────

@@ -645,7 +645,7 @@ namespace nkentseu {
 					overPopup = true;
 					break;
 				}
-			const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen || mFpOpen;
+			const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen;
 			nkgui::NkGuiInput savedInput;
 			if (modal) {
 				savedInput = mUI.input;
@@ -686,7 +686,8 @@ namespace nkentseu {
 				mUI.input = savedInput; // restaure pour le popup
 			mPopupMasked = false;
 			DrawContextMenu(); // menu contextuel shell-level (au-dessus des panneaux)
-			DrawFilePicker();  // sélecteur fichier/dossier modal (au-dessus des panneaux)
+			// (DrawFilePicker retiré : add-folder réutilise LE picker de l'app, Dialogs.h.
+			//  Le picker fichier/dossier UNIFIÉ sera extrait dans NKEditorKit — phase 2.)
 			DrawCommandPalette(ec);
 			DrawPreferences(ec); // fenetre Preferences (menu dedie)
 			if (mOverlayFn)
