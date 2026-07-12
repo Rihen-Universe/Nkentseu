@@ -27,12 +27,12 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
   tonemap→`ToneLDR` puis passe `FXAA_Final`→swapchain, flag `cfg.postProcess.fxaa`, shader
   `PP_FXAA/NkSL/pp_fxaa.nksl` FXAA 3.11 ; validé exécutant sur OpenGL 2026-06-25 — la mention
   « non câblé » était périmée). Reste : LUT 3D dégradé en dummy 1×1 sur OpenGL.
-- Animation : tracks/blend réels ; **skinning GPU RÉEL (2026-06-25)** sur GL/VK/DX11 — shader
-  `Skin/VK/skin.vert.vk.glsl` calcule `skinMat = Σ wᵢ·bones[jᵢ]`, SSBO bones (set=1,b=2),
-  `NkRender3D::EnsureSkinPipeline`+`FlushSkinned` bindent le pipeline skin. DX12 bloqué
-  (HLSL SM6 ne cross-compile pas le SSBO → draw sauté sans crash, à régler côté converter).
-  **morph targets = stub** (`ApplyMorphTargets` return base) ; pas de state machine / blend
-  tree / retargeting.
+- Animation : tracks/blend réels ; **skinning GPU RÉEL sur GL/VK/DX11/DX12** —
+  shader `Skin/NkSL/skin.vert.nksl` (source NkSL unique, bones UBO set=1 binding=4
+  depuis le fix collision LightsUBO 2026-07-03), `EnsureSkinPipeline`+`FlushSkinned`.
+  La note « DX12 bloqué SSBO » était PÉRIMÉE : réparé 2026-06-27 (bones→TEXCOORD2/3)
+  puis migration NkSL. **morph targets = stub** (`ApplyMorphTargets` return base,
+  re-vérifié 2026-07-12) ; pas de state machine / blend tree / retargeting.
 - Render2D : **`DrawSpriteGlow` = stub** (fallback DrawSprite).
 - Mesh : **loader glTF 2.0 LIVRÉ** — `NkGLTFLoader.{h,cpp}` from-scratch zero-STL.
   `.gltf` (JSON + .bin externe + data URI base64) et `.glb` (chunks JSON/BIN). Attributs
@@ -60,12 +60,19 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
 - **Denoiser** (OIDN/NRD `return false`), **AIRendering** (IssueCopy vide), **Voxel-sculpt**,
   **PixolSculpt** : partiels/stubs, orphelins.
 
-**Reste à faire priorisé** : 1) Deferred lighting pass + branchement (gros). 2) Streaming réel
-(connecter à TextureLibrary/MeshSystem). 3) IK fonctionnel (lire/écrire bones depuis Animation).
-4) Morph targets (pipeline déjà créé). 5) ~~FXAA wiring~~ ✅ (déjà câblé) + LUT 3D GL (petit).
-6) DrawSpriteGlow. 7) ~~GLTF loader~~ ✅ (géométrie + matériaux PBR + skinning livrés ;
-reste morph/cameras/KHR/DX12-skin — voir ci-dessus). 8) Brancher les orphelins utiles
-(Culling frustum-cull). 9) Animation avancée (state machines/blend trees). 10) Metal + Software.
+**Reste à faire priorisé (re-vérifié à l'audit 2026-07-12)** :
+1) **Culling frustum à brancher** (le code octree+frustum est réel mais AUCUNE référence hors
+   de son propre .cpp — orphelin confirmé ; attention : les shadow casters hors frustum caméra
+   doivent rester dans la passe d'ombre). 2) **VSM v2 bornés** : shadowOverrides Layered/Toon/
+   Anime (absents des .nksl, vérifié) + alpha-tested shadow. 3) **Finitions Phase L/E petites** :
+   API `SetColorGradingLUT` (n'existe PAS — seulement des commentaires, vérifié) + vraie LUT 3D
+   sur GL (dummy 1×1 confirmé NkPostProcessStack.cpp:296) + `DrawSpriteGlow` (fallback confirmé).
+   4) Morph targets (stub confirmé ; nécessite AUSSI l'import morph glTF, différé). 5) Streaming
+   réel (`FinalizeLoad` ne charge rien — « In a real impl » dans le code ; simulateur de budget).
+   6) Deferred lighting pass + branchement (gros ; jamais instancié par le renderer). 7) IK
+   renderer (orphelin — NB : NkAnima a son propre IK validé, celui du renderer est redondant à
+   requalifier/supprimer). 8) Animation avancée (state machines/blend trees). 9) Metal + Software.
+   10) Phase T.1 bake (nouveau chantier) ; T.2 graphe matériaux = ATTEND la coordination NKGraph.
 
 ## 🧭 Éditeur / Viewport (chantier 2026-07, cap « famille d'éditeurs »)
 
@@ -284,10 +291,17 @@ Pour les sols/objets transparents, propagation partielle de l'AO/shadow.
 4 approches techniques notées dans la mémoire.
 
 ### Phase E — Materials 2D + lumière 2D + ombres 2D
-- ⏳ Phase E v0 partielle : `DrawSpriteGlow` API stable mais effet glow non
-  fonctionnel (DrawSprite fallback)
-- À refactor en v1 : pipeline override par batch + conflit bindings
-  Render2D vs Overlay
+*(Audit 2026-07-12 : la ROADMAP sous-vendait — le gros de la 2D éclairée est
+LIVRÉ dans `NkRender2D`, seul le glow reste un stub.)*
+- ✅ **Lumières 2D** : `SetLights2D` (point lights `kMaxLights2D` + ambient,
+  UBO `lights[]` du shader Render2D)
+- ✅ **Ombres 2D** : `SetShadowCasters2D` (cercles, E.5) +
+  `SetShadowCastersAABB2D` (32 AABB murs/plateformes, E.7a)
+- ✅ **Layer masks lumière/shape** (E.7b : `light.layerMask & shape.layerMask`)
+- ✅ **Normal maps 2D** (E.7c : binding 12, relief éclairé)
+- ⏳ `DrawSpriteGlow` : API stable mais effet non fonctionnel (fallback
+  DrawSprite — vérifié 2026-07-12). Refactor v1 : pipeline override par batch
+  + conflit bindings Render2D vs Overlay
 
 ### Phase L — Finition post-process (TODO restants)
 - **FXAA wirage RenderGraph** : pipeline créé, manque split tonemap→mToneTex
@@ -348,11 +362,13 @@ limité, DX12+Metal OK. Plan :
 
 ### Phase H — Texture pipeline
 - ✅ Loader PNG/JPG/TGA/HDR via NkImage (existant)
-- ❌ Loader EXR (OpenEXR)
-- ❌ Mipmap generation auto
+- ✅ **Loader EXR** (audit 2026-07-12 : `NkEXRCodec` livré dans NKImage —
+  la démo materials charge d'ailleurs `piazza_bologni_1k.exr`)
+- ✅ **Mipmap generation** (audit 2026-07-12 : `NkIDevice::GenerateMipmaps`
+  au RHI, utilisé par la chaîne matériaux — cf. fix mips DX12 2026-06-23)
 - ❌ Compression BC1-7 (desktop) + ASTC + ETC2 (mobile)
 - ❌ Texture streaming (LOD-mip selon distance)
-- ❌ Hot-reload des textures
+- ❌ Hot-reload des textures (les matériaux `.nkasset` l'ont, pas les textures)
 - ❌ Atlasing pour batching
 
 ### Phase M — Forward+ / Deferred
