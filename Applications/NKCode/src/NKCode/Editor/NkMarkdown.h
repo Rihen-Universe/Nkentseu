@@ -147,9 +147,16 @@ namespace nkentseu {
 
 			dl.AddRectFilled(area, ctx.theme.bgPrimary);
 			const float32 sbW = editorkit::NkScrollbarWidth();
-			const float32 padX = 30.f * S, padTop = 22.f * S;
-			const float32 x0 = area.x + padX;
-			const float32 contentW = area.w - padX * 2.f - sbW;
+			// ── Page CENTREE (colonne type document, facon rendu PDF) ──
+			const float32 padX = 40.f * S, padTop = 30.f * S;
+			const float32 pageMax = 900.f * S;
+			const float32 usable = area.w - sbW - 24.f * S;
+			const float32 pageW = usable < pageMax ? usable : pageMax;
+			const float32 pageX = area.x + (area.w - sbW - pageW) * 0.5f;
+			// fond "papier" tres subtil (delimite la colonne du document)
+			dl.AddRectFilled({pageX, area.y, pageW, area.h}, NkColor{24, 27, 33, 255});
+			const float32 x0 = pageX + padX;
+			const float32 contentW = pageW - padX * 2.f;
 			float32 y = area.y + padTop - scroll;
 			const NkVec2 mp = ctx.input.mousePos;
 			const bool click = ctx.input.mouseClicked[0];
@@ -328,15 +335,16 @@ namespace nkentseu {
 				while (c[hl] == '#')
 					++hl;
 				if (hl >= 1 && hl <= 6 && c[hl] == ' ') {
-					y += (hl <= 2 ? 14.f : 9.f) * S;
+					y += (hl <= 2 ? 24.f : 14.f) * S;
 					NkVector<NkMdRun> runs;
 					NkMdInline(c + hl + 1, runs);
 					const float32 yTitle = y;
 					drawRuns(runs, x0, contentW, hl <= 3 ? cHead : cAccent);
 					if (hl <= 2) {
-						dl.AddRectFilled({x0, yTitle + lh + 2.f * S, contentW, 1.f}, cBorder);
-						y += 8.f * S;
-					}
+						dl.AddRectFilled({x0, yTitle + lh + 4.f * S, contentW, 1.f}, cBorder);
+						y += 12.f * S;
+					} else
+						y += 4.f * S;
 					continue;
 				}
 
@@ -396,6 +404,7 @@ namespace nkentseu {
 				NkVector<NkMdRun> runs;
 				NkMdInline(c, runs);
 				drawRuns(runs, x0, contentW, cText);
+				y += 6.f * S; // espace entre paragraphes (aere, facon document)
 			}
 
 			dl.PopClipRect();

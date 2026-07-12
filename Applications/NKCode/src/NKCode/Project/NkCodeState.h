@@ -3316,7 +3316,7 @@ namespace nkentseu {
 				// affiche le picker, et repose le dossier choisi ici. ──
 				bool reqPickFolder = false;
 				NkString pickedFolder;
-				bool reqPalette = false; // clic sur la barre de recherche toolbar -> ouvrir la palette de commandes
+				bool reqSearch = false; // clic sur la barre de recherche toolbar -> ouvrir le panneau Recherche
 				NkString wsPrefill;		 // sélection de l'éditeur préremplie dans le champ
 				NkString wsOpenFile;	 // clic sur un résultat : consommé par ProcessWsOpen (poll)
 				int32 wsOpenLine = -1;

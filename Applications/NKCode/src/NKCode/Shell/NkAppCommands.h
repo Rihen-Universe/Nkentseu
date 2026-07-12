@@ -184,11 +184,11 @@ inline void AppFlagsThunk(NkEditorFrameContext &ec, void *u) { // user = NkHomeS
 	if (!home || !home->dlg)
 		return;
 	nkcode::DrawAppFlags(ec, home->dlg);
-		// Barre de recherche toolbar cliquee -> ouvre la palette de commandes.
-		if (home->dlg->st && home->dlg->st->reqPalette) {
-			home->dlg->st->reqPalette = false;
+		// Barre de recherche toolbar cliquee -> ouvre le panneau Recherche (vraie recherche).
+		if (home->dlg->st && home->dlg->st->reqSearch) {
+			home->dlg->st->reqSearch = false;
 			if (home->dlg->shell)
-				home->dlg->shell->OpenCommandPalette();
+				home->dlg->shell->FocusPanel("Recherche");
 		}
 	EnforceExclusiveSides(home->dlg->shell); // sidebars exclusives
 	SyncActivityMarkers(home->dlg->shell);   // marqueurs = état réel

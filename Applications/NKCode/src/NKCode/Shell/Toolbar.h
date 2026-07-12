@@ -357,7 +357,7 @@ namespace nkentseu {
 							NkCol::mutedFg);
 					u.Text(sb.x + u.s(27), ctrlY + (ctrlH - u.Lh()) * 0.5f, sg.label, NkCol::mutedFg);
 					if (shov && u.click)
-						s->reqPalette = true; // ouvre la palette de commandes (traite dans AppFlagsThunk)
+						s->reqSearch = true; // ouvre le panneau Recherche (traite dans AppFlagsThunk)
 				}
 			};
 
