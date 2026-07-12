@@ -67,7 +67,7 @@ int main() {
 	};
 	const Fmt formats[] = {
 		{"ic_out.png", true}, {"ic_out.bmp", true}, {"ic_out.tga", true}, {"ic_out.qoi", true},
-		{"ic_out.ppm", true}, {"ic_out.gif", false}, {"ic_out.hdr", false}, {"ic_out.webp", false},
+		{"ic_out.ppm", true}, {"ic_out.gif", false}, {"ic_out.hdr", false}, {"ic_out.webp", true}, {"ic_out.exr", false},
 	};
 	for (const Fmt &f : formats) {
 		const bool ok = img->Save(f.file, 100);
