@@ -48,6 +48,7 @@ namespace nkentseu {
 					s_owner = buf;
 					s_caret = len;
 					s_anchor = -1;
+					s_drag = false; // pas de drag herite d'un autre champ
 				}
 				auto &in = ctx.input;
 				s_blink += in.dt;
