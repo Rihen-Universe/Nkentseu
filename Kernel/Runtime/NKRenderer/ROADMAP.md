@@ -357,9 +357,22 @@ limité, DX12+Metal OK. Plan :
 - **IBL GPU sur DX11** : convolutions compute désactivées par défaut
   (maxDiff 175/255 sur 0.8 % des texels vs CPU, fxc cs_5_0 — GL/VK/DX12
   propres à 5/255). `NK_IBL_GPU=1` pour reproduire/investiguer.
-- **Reflet plus clair que la scène ?** (rapport Rihen 2026-07-12, demo à
-  préciser) : hypothèse = la passe miroir est rendue SANS SSAO/VoxelAO +
-  composite additif du reflet sur le sol — à investiguer.
+- **« Sous le plan plus clair qu'au-dessus » (demo3, rapport Rihen) —
+  MESURÉ 2026-07-12** (capture DX11 + comparaison pixels, outil NK_CAPTURE) :
+  le reflet n'est PAS plus lumineux (sphère réfléchie lum 174 vs directe 186) ;
+  la vraie différence est un **voile gris désaturant** sur le reflet (canal B
+  de la sphère : 2 direct → 58 reflété) = le mix du shader ReflFloor
+  `color = mix(litBase, reflColor, reflStr)` injecte ~10-40 % de l'éclairage
+  gris du sol par-dessus le reflet, + flou du RT de réflexion. La vue directe
+  (sous le plan) est donc plus nette/saturée → perçue « plus claire ».
+  En cause aussi : `reflStr = (1-roughness)*mix(0.9, 1.0, fresnel)` = miroir
+  ~90 % à TOUT angle (non physique ; un vrai Fresnel diélectrique = 4 % de
+  face → 100 % rasant). Options (décision Rihen) : (a) Fresnel physique
+  (reflets discrets de face, look plus réaliste), (b) garder le look miroir
+  stylisé et réduire le voile (mix litBase pondéré par (1-reflStr)²), (c) rien.
+- **Readback OpenGL de NkOffscreenTarget cassé** (GLAD 1282
+  glMapNamedBufferRange) — la capture NK_CAPTURE ne marche que sur DX11
+  (vérifié pixel-perfect) ; fix côté NKRHI GL à coordonner (module partagé).
 
 ---
 
