@@ -1,14 +1,15 @@
 # NKReflection — Roadmap
 
-État actuel (mai 2026) : Module fondationnel **utilisable mais minimaliste**.
-L'infrastructure runtime existe (`NkType`, `NkProperty`, `NkMethod`, `NkClass`,
-`NkRegistry` singleton) avec gestion type-safe via `NkFunction`
-(constructor/destructor/getter/setter/invoker encapsulés). Les macros
-`NKENTSEU_REFLECT_CLASS`, `NKENTSEU_PROPERTY`, `NKENTSEU_REGISTER_CLASS` sont
-exposées via `NkRegistry.h`. **Stockage des propriétés/méthodes dans un tableau
-statique de capacité fixe 64**. Tests smoke uniquement (categorie + lookup).
-Pas encore intégré au flux `InspectorPanel` de Noge ni câblé pour la
-sérialisation.
+État actuel (2026-07-12) : **CHANTIER PRINCIPAL TERMINÉ (phases P1→P5)**.
+NKReflection est la **source de vérité runtime UNIQUE** de la réflexion
+(décision d'architecture 2026-06 : NKECS/Reflect et NKSerialization/Native
+sont des adaptateurs au-dessus, pas des systèmes concurrents). Le module
+fournit tout ce qu'attendent ses 5 consommateurs (sérialisation auto,
+inspecteur d'éditeur, Editor Kit, Blueprint, NKSerialization) : lire/écrire
+toute propriété **sans connaître son type à la compilation** (NkReflectVariant),
+sérialisation automatique via NkArchive, enums/conteneurs/métadonnées
+d'édition, réflexion auto des composants ECS, invocation de méthodes avec
+arguments. ~220 assertions de test réparties dans les suites P2/P3/P4/P5.
 
 ---
 
@@ -16,24 +17,26 @@ sérialisation.
 
 | Phase / Composant | Statut | Effort | Priorité |
 |-------------------|--------|--------|----------|
-| NkType (NkTypeCategory, GetName, GetSize, typeid) | Livré | — | — |
-| NkProperty (offset direct + getter/setter via NkFunction, flags) | Livré | — | — |
-| NkMethod (invoker via NkFunction<void*(void*, void**)>, flags) | Livré | — | — |
-| NkClass (héritage, ctor/dtor via NkFunction, props + methods) | Livré | — | — |
-| NkRegistry (singleton Meyer, FindClass, FindType, GetClass/Type<T>) | Livré | — | — |
-| Macros `NKENTSEU_REFLECT_CLASS`, `NKENTSEU_PROPERTY`, `NKENTSEU_REGISTER_CLASS` | Livré | — | — |
-| Fonctions utilitaires (Initialize, Shutdown, DumpRegistry, ValidateRegistry) | Livré | — | — |
-| Capacité fixe 64 props/méthodes (pas d'allocation dynamique) | Livré | — | Refacto Moyenne |
-| Tests (TypeCategory, Registry GetType<T>) | Partiel | M | Haute |
-| Enums réflechies (NkEnumDescriptor avec name<→value) | TODO | M | Haute |
-| Containers réflechis (NkVector<T>, NkHashMap<K,V> introspectables) | TODO | L | Haute |
-| Attributes/metadata custom (`[Range(0,100)]`, `[Tooltip("...")]`) | TODO | M | Haute (Inspector) |
-| Thread-safety en écriture (RegisterType/RegisterClass) | TODO | S | Moyenne |
-| Sérialisation via réflexion (NkSerializeReflect<T>) | TODO | L | Haute |
-| InspectorPanel binding (édition live des props via NkProperty) | TODO | L | Haute |
-| Polymorphisme/casting réflexif (Cast<T>, IsKindOf) | Partiel | M | Moyenne |
-| Code generation (clang AST parser → enregistrement auto sans macros) | TODO | XL | Basse |
-| Reflection dans plugins .dll/.so chargés à chaud | TODO | M | Moyenne |
+| Cœur : NkType / NkProperty / NkMethod / NkClass / NkRegistry | Livré | — | — |
+| Macros `NKENTSEU_REFLECT_CLASS` / `NKENTSEU_PROPERTY` (+`_FLAGS`, auto-register) | Livré | — | — |
+| P1 — `NkReflectVariant` (valeur type-erased, SBO 32o) + `Get/SetValueGeneric` | Livré | — | — |
+| P1 — Capacité dynamique props/méthodes (NkVector, fin du fixe-64 silencieux) | Livré | — | — |
+| P2 — `NkReflectSerializer` (NKSerialization) : (dé)sérialisation auto via NkArchive | Livré | — | — |
+| P3 — Métadonnées d'édition (NkReflectMeta 64-bit, range/tooltip/category) | Livré | — | — |
+| P3 — Enums réfléchies (`NkEnumDescriptor`, `NKENTSEU_REFLECT_ENUM`, nom symbolique sérialisé) | Livré | — | — |
+| P3 — Conteneurs (`NkContainerTrait` NkVector<T> + SetArray/GetArray) | Livré | — | — |
+| P4 — Pont NKECS (`NkReflectBridge`, `NkRegisterComponentReflection<T>`) | Livré | — | — |
+| P4/P5 — Sérialisation ENTITÉ/MONDE (`NkEntitySerialization` : masque → composants) | Livré | — | — |
+| P5 — API inspecteur (`NkInspector` : EnumerateEditableProperties, Set/GetPropertyByName) | Livré | — | — |
+| P5 — `NkMethod` invocation 0-4 args type-erased (`InvokeVariant`) | Livré | — | — |
+| P5 — Réflexion math opt-in (`NkMathReflect` : ~29 types Vec/Quat/Mat/Color/Rect) | Livré | — | — |
+| Conteneurs d'OBJETS réfléchis (SetObjectArray/GetObjectArray) | Livré | — | — |
+| Thread-safety écriture registre (NkMutex interne, lectures lock-free) | Livré | — | — |
+| Tests (P2 20 + P3 45 + P4 42 + P5 117 assertions + smoke + sandbox) | Livré | — | — |
+| NkProperty mode getter/setter indirect SANS instance capturée | TODO | M | Moyenne |
+| Identité de type portable (typeid().name() est mangled/compilo-dépendant) | TODO | M | Basse |
+| Reflection plugins .dll/.so (UnregisterAllFromModule au dlclose) | TODO | M | Basse |
+| Code generation (clang AST → enregistrement auto sans macros) | TODO | XL | Basse |
 
 Légende : Livré · Partiel · En cours · TODO · Abandonné
 
@@ -41,179 +44,100 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 
 ## Livré
 
-### Cœur
-- [NkType](src/NKReflection/NkType.h) :
-  - `NkTypeCategory` énuméré (NK_VOID, NK_BOOL, NK_INT8..NK_INT64,
-    NK_UINT8..NK_UINT64, NK_FLOAT32/64, NK_STRING, NK_CLASS, NK_ENUM, ...).
-  - `GetName()`, `GetSize()`, `GetCategory()`, comparaison via typeid.
-  - Template `NkTypeOf<T>()` pour accès direct à la metadata d'un type C++.
-  - Pas de dépendance STL hors `<typeinfo>`.
+### Cœur (inchangé depuis mai 2026, consolidé par P1)
+- [NkType](src/NKReflection/NkType.h) : `NkTypeCategory` (NK_VOID…NK_STRING,
+  NK_CLASS, NK_ENUM), `GetName/GetSize/GetCategory`, `NkTypeOf<T>()`.
+- [NkProperty](src/NKReflection/NkProperty.h) : offset direct ou getter/setter
+  `NkFunction`, flags (`NK_READ_ONLY`, `NK_TRANSIENT`…), `MakeFromMember()`.
+- [NkMethod](src/NKReflection/NkMethod.h) : invocation indirecte type-erased.
+- [NkClass](src/NKReflection/NkClass.h) : héritage, ctor/dtor, props+méthodes
+  **en NkVector** (capacité dynamique, dédup par nom — fini le fixe-64).
+- [NkRegistry](src/NKReflection/NkRegistry.h) : singleton, Find/GetType/Class,
+  **écritures protégées par NkMutex interne**, lectures lock-free.
 
-- [NkProperty](src/NKReflection/NkProperty.h) :
-  - Représente une propriété d'instance avec nom, type, offset ou
-    getter/setter via `NkFunction<void*(void*)>`.
-  - Flags : `NK_READ_ONLY`, `NK_WRITE_ONLY`, `NK_STATIC`, `NK_PCONST`,
-    `NK_TRANSIENT` (skip serialization).
-  - `MakeFromMember()` helper template pour binding automatique via `NkBind`.
+### P1 — valeur type-erased
+- `NkReflectVariant` : SBO 32 octets + heap NkAlloc + chemin NkString ;
+  coercions numériques (`ToInt64/ToFloat64/ToBool`), enums.
+- `NkProperty::GetValueGeneric/SetValueGeneric` : lecture/écriture SANS
+  template, dispatch par NkTypeCategory — le goulot des 5 consommateurs.
+- Macro `NKENTSEU_PROPERTY` auto-register (registrar inline static, sûr
+  multi-TU). Fix bug préexistant NKENTSEU_REGISTER_CLASS (NK_CONCAT).
 
-- [NkMethod](src/NKReflection/NkMethod.h) :
-  - Signature : nom, type de retour, liste paramètres, flags
-    (`NK_STATIC`, `NK_CONST`, `NK_VIRTUAL`, `NK_NOEXCEPT`).
-  - Invocation indirecte via `NkFunction<void*(void*, void**)>` (this +
-    args packed).
-  - `MakeFromCallable()` helper via `NkBind`/`NkPartial`.
+### P2 — sérialisation automatique
+- `NkReflectSerializer` (dans NKSerialization) : `SerializeReflected/
+  DeserializeReflected(cls, instance, NkArchive&)` + `SerializeObject<T>`.
+  Itère l'héritage, primitifs/NkString/objets imbriqués récursifs, exclut
+  NK_TRANSIENT, ne désérialise pas NK_READ_ONLY/NK_STATIC. → save/load
+  automatique `.nkscene`/`.nkproj` sans Serialize() manuel. Tests 20/20.
 
-- [NkClass](src/NKReflection/NkClass.h) :
-  - Méta : nom, taille, classe de base, vecteurs statiques de props +
-    methods (capacité 64 chacun).
-  - Ctor/dtor via `NkFunction<void*(void)>` / `NkFunction<void(void*)>`.
-  - `HasConstructor`, `CreateInstance`, `HasDestructor`, `DestroyInstance`.
-  - `GetPropertyAt(i)`, `GetProperty(name)`, idem pour methods.
-  - `MakeFromClassType<T>()` factory template.
+### P3 — enums, conteneurs, méta d'édition
+- `NkReflectMeta.h` : drapeaux 64-bit portés de NKECS/Reflect (Range/Tooltip/
+  HideInEditor/Serialize/BlueprintReadWrite/ColorPicker…) + NkEditMeta.
+- `NkEnumDescriptor.h` + `NKENTSEU_REFLECT_ENUM` (sérialise le nom symbolique).
+- `NkContainerTrait.h` : NkVector<T> réfléchi + SetArray/GetArray ; puis
+  **conteneurs d'objets réfléchis** (SetObjectArray, test dédié).
+- Auto-link `NkTypeOf<T>().SetClass` dans NKENTSEU_REFLECT_CLASS. Tests 45/45.
 
-- [NkRegistry](src/NKReflection/NkRegistry.h) :
-  - Singleton Meyer thread-safe en init.
-  - `RegisterType`, `RegisterClass`, `FindType(name)`, `FindClass(name)`,
-    `GetType<T>()` (création lazy), `GetClass<T>()`.
-  - Callback `OnRegisterCallback(name, isClass)`.
+### P4 — pont NKECS
+- `NkReflectBridge.h` (NKECS) : `NkRegisterComponentReflection<T>()` génère un
+  NkClass depuis les NkFieldInfo du composant (metaFlags 1:1) ; hooks
+  serialize/deserialize de ComponentMeta branchés sur P2.
+- `NkJsonSerialization.h` réparé (includes Noge/nlohmann orphelins retirés).
+- Puis **`NkEntitySerialization.h`** : SerializeEntity/DeserializeEntity
+  (parcours du NkComponentMask de l'archétype, ajout type-erased par
+  ComponentId) + SerializeWorld/DeserializeWorld — base des sauvegardes de
+  scène. Deps NKECS→NKReflection/NKSerialization reportées dans
+  `config/modules.jenga`. Tests 42/42.
 
-### Macros publiques
-- `NKENTSEU_REFLECT_CLASS(ClassName)` — déclare la méta dans la classe.
-- `NKENTSEU_PROPERTY(Type, name)` — déclare et expose un champ.
-- `NKENTSEU_REGISTER_CLASS(ClassName)` — enregistrement statique au startup
-  (dans `.cpp`).
+### P5 — inspecteur, méthodes, math
+- `NkInspector.h/.cpp` : NkEditableProperty + EnumerateEditableProperties +
+  Set/GetPropertyByName (live-edit type-erased, respecte readOnly/hidden).
+- `NkMethod` : `MakeFromMember` 0-4 args + `InvokeVariant` type-erased
+  (base de l'appel Blueprint) + GetParameterCount/Type/IsConst.
+- `NkMathReflect.h` (opt-in) : Vec2/3/4 (f/d/i/u), Quat, Mat2/3/4, Color,
+  Rect2, NkAngle, NkEulerAngle → sérialisés comme sous-objets (round-trip
+  JSON profond). Tests 117 assertions.
 
-### Fonctions utilitaires de haut niveau
-[NkReflection.h](src/NKReflection/NkReflection.h) :
-- `Initialize()` / `Shutdown()` optionnels.
-- `CreateInstance<T>()` / `CreateInstanceByName(name)`.
-- `DestroyInstance<T>(ptr)` / `DestroyInstanceByName(name, ptr)`.
-- `GetRegisteredClassCount()`, `GetRegisteredTypeCount()`.
-- `DumpRegistry()`, `ValidateRegistry()`.
-- Alias namespace `nkentseu::refl = nkentseu::reflection`.
-
-### Tests
-- [test_smoke.cpp](tests/test_smoke.cpp) :
-  - `NkTypeOf<nk_int32>().GetCategory() == NK_INT32`, idem float32.
-  - `GetSize()` matches `sizeof`.
-  - `NkRegistry::Get().GetType<nk_uint64>()` non null.
-
----
-
-## En cours / TODO immédiat
-
-### Tests à étendre — Haute priorité
-Le test_smoke ne couvre que `NkType`. Il manque :
-- Enregistrement d'une classe complète avec props + méthodes via macros, puis
-  lookup et invocation.
-- `CreateInstance<T>` puis `DestroyInstance<T>` cycle.
-- Lecture/écriture d'une propriété via `NkProperty::GetValue<T>(instance)` et
-  `SetValue<T>(instance, value)`.
-- Invocation d'une méthode avec arguments packed.
-- Validation de l'héritage (base class lookup).
-- Thread-safety lecture/écriture (test concurrentiel).
-
-### Polymorphisme et casting
-Aujourd'hui `NkClass::GetBaseClass()` existe mais pas d'utilitaire
-`Cast<T>(NkClass*, void*)` pour caster un `void*` vers un type dérivé en
-validant la chaîne d'héritage. Indispensable pour InspectorPanel quand
-l'utilisateur sélectionne une entité.
-
-### Capacité fixe 64
-Limite codée en dur dans `NkClass`. Cela bloquera dès qu'une classe a > 64
-propriétés (cas réaliste pour un component complexe). Options :
-1. Augmenter à 128/256 statiques.
-2. Passer à `NkVector<NkProperty>` (allocation dynamique, mais cohérent avec
-   le reste de NKContainers).
-3. Hybride : SBO 16 + heap fallback (style `NkSmallVector`).
+### Qualité de vie
+- 2026-07-12 : `NKENTSEU_PROPERTY`/`_FLAGS` se terminent en `public:` (elles
+  commençaient par `public:` mais retombaient en `private:` — les membres
+  déclarés après la macro devenaient privés silencieusement).
 
 ---
 
-## À venir / À ajouter (futur proche)
+## En cours / TODO
 
-### Enums réflechies — pivot InspectorPanel
-Aujourd'hui pas de support natif des enums :
-- `NkEnumDescriptor` listant les paires `(name, value)`.
-- Macro `NKENTSEU_REFLECT_ENUM(EnumType, V1, V2, V3)`.
-- API `NkEnumToString(value)` / `NkEnumFromString(name)`.
-- Usage InspectorPanel : combo-box des valeurs autorisées au lieu d'un champ
-  numérique brut.
+*(Le chantier principal est bouclé — le travail continue chez les
+consommateurs : Editor Kit / inspecteur, Blueprint. Reste ici, par ordre
+d'utilité :)*
 
-### Attributes / metadata custom
-Pour piloter l'InspectorPanel :
-- `[Range(0.f, 1.f)]` → slider.
-- `[Tooltip("...")]` → infobulle.
-- `[Hidden]` → ne pas afficher.
-- `[Category("Transform")]` → group dans l'inspecteur.
-- `[Serialize(false)]` → équivalent NK_TRANSIENT.
-- API runtime : `NkProperty::GetAttribute<T>()`, `HasAttribute<T>()`.
-
-### Containers réflechis
-Le système actuel ne sait pas itérer dynamiquement sur un `NkVector<T>` ou
-`NkHashMap<K, V>` membre. Cas critique pour sérialisation et UI :
-- `NkContainerTrait<T>` ou polymorphisme implicite via `NkType`
-  (`IsContainer()`, `GetElementType()`, `GetCount(instance)`,
-  `GetAt(instance, i)`, `PushBack(instance, value)`).
-
-### Sérialisation via réflexion
-Intégration avec NKSerialization (priorité haute pour PV3DE et Noge) :
-- `NkSerializeReflect<T>(writer, instance)` itère sur les `NkProperty` et
-  appelle le sérialiseur générique selon `NkTypeCategory`.
-- `NkDeserializeReflect<T>(reader, instance)` symétrique.
-- Skip `NK_TRANSIENT`.
-- Format JSON `.nkscene` / `.nkproj` automatiquement piloté par les classes
-  réfléchies.
-
-### InspectorPanel binding — pilier Noge
-Cf. `ARCHITECTURE.md §4.2 InspectorPanel` : la réflexion est la clé.
-- Itération `NkClass::GetPropertyAt(i)` sur le component sélectionné.
-- Widget UI dérivé du `NkTypeCategory` + attributes (cf. ci-dessus).
-- Édition live : `NkProperty::SetValue<T>(...)` met à jour l'entité ECS.
-- Undo/redo via `CommandHistory` (cf. ARCHITECTURE.md §4.3) → chaque mutation
-  réflexive devient une command.
-
-### Thread-safety en écriture
-Aujourd'hui : "synchronisation externe requise" pour
-`RegisterType`/`RegisterClass`. À durcir avec un mutex interne, ou par
-construction garantir que tous les enregistrements ont lieu avant le
-`OnInit()` de l'application.
-
-### Plugin reflection
-Quand `PluginSystem` chargera des `.dll`/`.so` (cf. ARCHITECTURE.md §4.3), le
-NkRegistry devra :
-- Recevoir les classes du plugin lors du `dlopen`.
-- Les retirer proprement au `dlclose` (sans dangling pointers vers du code
-  unloaded).
-- API `NkRegistry::UnregisterAllFromModule(handle)`.
-
-### Code generation (long terme)
-Aujourd'hui les macros sont intrusives. Alternative :
-- Parser clang AST → générer automatiquement `Register_XXX.cpp` au build.
-- Évite l'oubli des macros et permet d'annoter via commentaires/attributs C++
-  standard (`[[nk::reflect]]`).
+- **NkProperty getter/setter indirect** : le mode indirect capture une
+  instance concrète (cassé pour la réflexion de type) — à re-concevoir
+  (paire de NkFunction prenant `void* instance`).
+- **Identité de type portable** : `typeid().name()` est mangled et dépend du
+  compilateur — gêne la sérialisation cross-toolchain ; passer à un nom
+  canonique (macro ou hash stable).
+- **Plugins** : retirer proprement les classes d'un module déchargé
+  (`NkRegistry::UnregisterAllFromModule`).
+- **Codegen clang** (long terme) : enregistrement auto sans macros.
 
 ---
 
 ## Bugs / quirks connus
-- Capacité 64 props/méthodes par classe : limite implicite, pas de message
-  d'erreur si dépassement (silencieusement ignoré ou crash).
-- `Initialize()` est documenté optionnel mais `Shutdown()` doit être appelé
-  avant arrêt de tous threads — non vérifié en runtime.
-- L'alias `nkentseu::refl = reflection` est défini, mais le code utilise
-  largement `nkentseu::reflection::` directement.
+- `typeid().name()` mangled (voir TODO identité portable).
+- `Initialize()` optionnel mais `Shutdown()` doit précéder l'arrêt des
+  threads — non vérifié au runtime.
+- ~~Capacité fixe 64 props/méthodes (débordement silencieux)~~ corrigé P1.
+- ~~Macro NKENTSEU_PROPERTY finit en `private:`~~ corrigé 2026-07-12.
 
 ---
 
 ## Dépendances
-- **Couches en dessous (utilisées)** : NKCore (Types, Traits, Builtin,
-  Assert), NKContainers (NkFunction, NkBind, NkPartial).
+- **Couches en dessous** : NKCore (Types, Traits, Assert), NKContainers
+  (NkFunction, NkVector, NkString), NKThreading (NkMutex du registre).
 - **Modules au-dessus qui en dépendent** :
-  - **NKSerialization** (priorité 1) : besoin de la réflexion pour itérer sur
-    les fields et sérialiser/désérialiser automatiquement
-    (cf. `Native/NkReflect.h` qui est probablement le pont).
-  - **Noge / InspectorPanel** (cf. ARCHITECTURE.md §4.2) : édition live des
-    composants via les `NkProperty`.
-  - **NKScene** (ECS) : enregistrement des components → introspection
-    automatique sans plumbing manuel.
-  - **NKScript** (futur) : binding C++ ↔ Lua via les métadonnées.
-  - **PluginSystem** Noge : chargement de classes additionnelles à chaud.
+  - **NKSerialization** : `NkReflectSerializer` (P2) — livré.
+  - **NKECS** : `NkReflectBridge` + `NkEntitySerialization` (P4) — livré.
+  - **Editor Kit / Nogee InspectorPanel** : `NkInspector` (P5) — API prête,
+    câblage UI côté éditeur.
+  - **Blueprint/NKCode** : `NkMethod::InvokeVariant` — API prête.
