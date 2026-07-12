@@ -141,7 +141,7 @@ Socle d'un viewport d'édition façon Blender (testbed `renderdemo --demo=2`, fu
   `QueueDepth()/DroppedFrames()/EncodeFps()` — plus de saturation RAM
   possible ; renderdemo auto-régule (saute l'échantillon si file ≥ 24) et
   logue les stats à l'arrêt. Reste (NKMedia) : mode MJPEG pour cadence haute.
-- ✅ **Toggle à chaud + zone (2026-07-12)** — renderdemo : **touche F9**
+- ✅ **Toggle à chaud + zone (2026-07-12)** — renderdemo : **touche INSER** (ex-F9, conflit demo 2)
   démarre/arrête l'enregistrement en cours de session (noms auto
   `nk_record_NNN.mp4`) ; `NK_RECORD_RECT=x,y,w,h` n'enregistre qu'une ZONE
   (crop CPU au push, w/h alignés 2, clamp fenêtre, arrêt propre au resize).
@@ -166,7 +166,13 @@ Socle d'un viewport d'édition façon Blender (testbed `renderdemo --demo=2`, fu
   qui explosaient en rectangles violets géants dans les mips grossières
   (constaté en capture lossless DX11 + vidéo VK ; HDR source innocenté,
   max 22.25). Shaders : `PP_BloomDown/NkSL` + fallback VK synchronisé.
-- ⏳ Reste : audio dans l'enregistrement ; MJPEG (côté NKMedia).
+- ✅ **MJPEG + touche INSER (2026-07-12)** : `NK_RECORD_CODEC=mjpeg` +
+  `NK_RECORD_MJPEG_Q` câblés sur l'API NKMedia 8c926507 (intra pur, 30-60 fps
+  sans scintillement de blocs) ; toggle d'enregistrement déplacé **F9 → INSER**
+  (F1-F12 toutes prises par les démos). Demo3D : panneau « feuillage »
+  alpha-testé ajouté (disques troués, `SetCastShadowAlphaTest`) pour valider
+  visuellement l'ombre trouée du pipeline Shadow_AlphaTest.
+- ⏳ Reste : audio dans l'enregistrement.
 
 ### Fondations (Phase A → D.3d) — toutes livrées
 - PBR forward avec UBO push-constant
