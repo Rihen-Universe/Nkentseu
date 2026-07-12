@@ -521,8 +521,15 @@ namespace nkentseu {
 						return;
 					mDelPath = path;
 					mDelIsDir = dir;
-					const NkString name = NkPath(path).GetFileName();
-					mDelLabel = NkPrintf("%s \xC2\xAB %s \xC2\xBB", NkT("exp.ctx.delete"), name.CStr());
+					// SÉLECTION MULTIPLE : si la cible fait partie d'un groupe, la
+					// confirmation (et la suppression) portent sur TOUT le groupe.
+					mDelGroup = (mSelSet.Size() > 1 && IsSelected(path));
+					if (mDelGroup)
+						mDelLabel = NkPrintf("%s (%d)", NkT("exp.ctx.delete"), static_cast<int32>(mSelSet.Size()));
+					else {
+						const NkString name = NkPath(path).GetFileName();
+						mDelLabel = NkPrintf("%s \xC2\xAB %s \xC2\xBB", NkT("exp.ctx.delete"), name.CStr());
+					}
 					mDelMenu.open = true;
 					mDelMenu.pos = ctx.input.mousePos;
 				}
@@ -535,7 +542,15 @@ namespace nkentseu {
 					bool en[2] = {true, true};
 					const int32 act = NkCtxMenuDraw(ctx, mDelMenu, items, en, 2);
 					if (act == 0) {
-						Trash(mDelPath, mDelIsDir);
+						if (mDelGroup) { // corbeille pour TOUTE la sélection
+							const NkVector<NkString> grp = mSelSet;
+							for (usize i = 0; i < grp.Size(); ++i)
+								if (!SameStr(grp[i].CStr(), mRootStr.CStr()))
+									Trash(grp[i], NkDirectory::Exists(grp[i].CStr()));
+							mSelSet.Clear();
+							mSelPath.Clear();
+						} else
+							Trash(mDelPath, mDelIsDir);
 						mDelPath.Clear();
 					} else if (act == 1 || !mDelMenu.open)
 						mDelPath.Clear();
@@ -648,6 +663,50 @@ namespace nkentseu {
 					}
 					CancelEdit();
 					mGitNext = mTick;
+				}
+
+				// ── Sélection multiple : helpers. ──
+				bool IsSelected(const NkString &p) const {
+					for (usize i = 0; i < mSelSet.Size(); ++i)
+						if (SameStr(mSelSet[i].CStr(), p.CStr()))
+							return true;
+					return false;
+				}
+
+				void SelectOnly(const NkString &p, int32 row) {
+					mSelSet.Clear();
+					mSelSet.PushBack(p);
+					mSelPath = p;
+					mSelAnchor = row;
+				}
+
+				void SelectToggle(const NkString &p, int32 row) { // Ctrl+clic
+					for (usize i = 0; i < mSelSet.Size(); ++i)
+						if (SameStr(mSelSet[i].CStr(), p.CStr())) {
+							mSelSet.Erase(mSelSet.Begin() + i);
+							if (SameStr(mSelPath.CStr(), p.CStr()))
+								mSelPath = mSelSet.Empty() ? NkString() : mSelSet.Back();
+							return;
+						}
+					mSelSet.PushBack(p);
+					mSelPath = p;
+					mSelAnchor = row;
+				}
+
+				void SelectRange(int32 a, int32 b) { // Maj+clic (plage de rows visibles)
+					if (a < 0 || b < 0)
+						return;
+					if (a > b) {
+						const int32 t = a;
+						a = b;
+						b = t;
+					}
+					mSelSet.Clear();
+					for (int32 i = a; i <= b && i < static_cast<int32>(mRows.Size()); ++i)
+						if (!mRows[i].editNew)
+							mSelSet.PushBack(mRows[i].path);
+					if (!mSelSet.Empty())
+						mSelPath = mSelSet.Back();
 				}
 
 				// ── En-tête FIXE : "EXPLORATEUR" + toolbar (fichier, dossier, actualiser,
@@ -808,13 +867,21 @@ namespace nkentseu {
 					const bool editing = mEditPath.Length() > 0 || mEditParent.Length() > 0;
 					int32 toToggle = -1, toOpen = -1, toRename = -1;
 					bool rowHit = false;
+					if (mDragging)
+						mDragOverDir.Clear(); // re-posée par la row dossier survolée ce frame
+					// Fin de drag GLOBAL : une frame APRÈS le release (toutes les cibles —
+					// éditeur, terminal… — ont pu consommer le release avant).
+					if (mS->dragActive && !ctx.input.mouseDown[0] && !ctx.input.mouseReleased[0]) {
+						mS->dragActive = false;
+						mS->dragPaths.Clear();
+					}
 					for (usize i = 0; i < mRows.Size(); ++i) {
 						const Row &r = mRows[i];
 						const NkRect row = ctx.NextItemRect(fullW, rowH);
 						if (row.y + rowH < clip.y || row.y > clip.y + clip.h)
 							continue; // hors vue : la place est réservée, pas de dessin
 						const bool hov = inClip && NkGuiRectContains(row, m);
-						const bool sel = SameStr(mSelPath.CStr(), r.path.CStr()) && !r.editNew;
+						const bool sel = !r.editNew && IsSelected(r.path);
 						const bool inEdit = r.editNew || (mEditPath.Length() > 0 && !r.editNew &&
 														  SameStr(mEditPath.CStr(), r.path.CStr()));
 						if (sel) {
@@ -959,29 +1026,47 @@ namespace nkentseu {
 										row.y + (rowH - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()},
 									   b, GitColor(r.git));
 						}
-						// Clic gauche : dossier = plier/déplier ; fichier = sélection +
-						// ouverture ; RE-clic LENT sur un fichier déjà sélectionné = renommer.
+						// Cible du DRAG & DROP : pendant un glissement, le dossier survolé
+						// s'illumine et devient la destination.
+						if (mDragging && r.dir && hov && !IsSelected(r.path)) {
+							dl.AddRect(row, ctx.theme.accent, 1.5f);
+							mDragOverDir = r.path;
+						}
+						// Clic gauche : Ctrl = sélection multiple, Maj = plage ; sinon
+						// dossier = plier/déplier, fichier = ouverture, RE-clic LENT sur
+						// l'élément (seul) sélectionné = renommer. Le press ARME le drag.
 						if (hov && ctx.input.mouseClicked[0] && !editing) {
 							rowHit = true;
-							// DOUBLE-CLIC SUBTIL façon VSCode : un 2e clic sur l'élément déjà
-							// sélectionné, espacé de ~0,5 à 2,5 s, ouvre le RENOMMAGE (fichiers
-							// ET dossiers). Plus rapide = ouverture/toggle ; plus tard = resél.
-							const uint32 dt = mTick - mSelTick;
-							if (sel && !r.root && dt > 30 && dt < 150)
-								toRename = static_cast<int32>(i);
-							else {
-								mSelPath = r.path;
+							mDragArmed = !r.editNew && !r.root;
+							mDragging = false;
+							mDragStart = m;
+							if (ctx.input.ctrlDown) { // Ctrl+clic : bascule dans la sélection
+								SelectToggle(r.path, static_cast<int32>(i));
 								mSelTick = mTick;
-								if (r.dir)
-									toToggle = static_cast<int32>(i);
-								else
-									toOpen = static_cast<int32>(i);
+							} else if (ctx.input.shiftDown && mSelAnchor >= 0) { // Maj+clic : plage
+								SelectRange(mSelAnchor, static_cast<int32>(i));
+								mSelTick = mTick;
+							} else {
+								const uint32 dt = mTick - mSelTick;
+								const bool wasSolo = sel && mSelSet.Size() == 1;
+								if (wasSolo && !r.root && dt > 30 && dt < 150)
+									toRename = static_cast<int32>(i); // double-clic subtil
+								else {
+									SelectOnly(r.path, static_cast<int32>(i));
+									mSelTick = mTick;
+									if (r.dir)
+										toToggle = static_cast<int32>(i);
+									else
+										toOpen = static_cast<int32>(i);
+								}
 							}
 						}
-						// Clic DROIT : sélection + menu contextuel.
+						// Clic DROIT : garde la sélection multiple si la cible en fait
+						// partie (le menu agit alors sur le groupe), sinon sélection simple.
 						if (hov && ctx.input.mouseClicked[1] && !editing) {
 							rowHit = true;
-							mSelPath = r.path;
+							if (!IsSelected(r.path))
+								SelectOnly(r.path, static_cast<int32>(i));
 							mSelTick = mTick;
 							mCtx.open = true;
 							mCtx.pos = m;
@@ -995,6 +1080,64 @@ namespace nkentseu {
 						mCtx.pos = m;
 						mCtxPath = mRootStr;
 						mCtxIsDir = true;
+					}
+					// ── DRAG & DROP : seuil de départ, fantôme, dépôt, annulation. ──
+					if (mDragArmed && !mDragging && ctx.input.mouseDown[0]) {
+						const float32 dx = m.x - mDragStart.x, dy = m.y - mDragStart.y;
+						if (dx * dx + dy * dy > 25.f) {
+							mDragging = true; // ~5 px : on glisse vraiment
+							mS->dragActive = true; // drag GLOBAL : l'éditeur/terminal peuvent recevoir
+							mS->dragPaths = mSelSet;
+						}
+					}
+					if (mDragging) {
+						if (ctx.input.KeyPressed(NkGuiKey::Escape)) { // Échap = annule
+							mDragArmed = mDragging = false;
+							mDragOverDir.Clear();
+						} else { // fantôme « N élément(s) » près de la souris (overlay)
+							const NkString gh = NkPrintf("%d", static_cast<int32>(mSelSet.Size()));
+							auto &ov = ctx.dlOverlay;
+							const NkRect gr = {m.x + 12.f, m.y + 8.f, 22.f, 18.f};
+							ov.AddRectFilled(gr, ctx.theme.accent, 4.f);
+							if (ctx.font && ctx.font->Valid())
+								ov.AddText(ctx.font->Face(), ctx.font->TexId(),
+										   {gr.x + 7.f, gr.y + 1.f + ctx.font->Ascent()}, gh.CStr(),
+										   {255, 255, 255, 255});
+						}
+					}
+					if (!ctx.input.mouseDown[0]) { // relâchement : dépôt éventuel
+						if (mDragging && mDragOverDir.Length() > 0) {
+							for (usize si = 0; si < mSelSet.Size(); ++si) {
+								const NkString &src = mSelSet[si];
+								// gardes : jamais dans soi-même/sa descendance, ni sur place
+								bool inside = false;
+								{
+									const char *a = src.CStr();
+									const char *b = mDragOverDir.CStr();
+									bool pref = true;
+									while (*a) {
+										if (*b != *a) {
+											pref = false;
+											break;
+										}
+										++a;
+										++b;
+									}
+									inside = pref && (*b == 0 || *b == '/' || *b == '\\');
+								}
+								if (inside || SameStr(ParentOf(src).CStr(), mDragOverDir.CStr()))
+									continue;
+								NkString dst = mDragOverDir;
+								dst += "/";
+								dst += NkPath(src).GetFileName();
+								if (!NkFile::Exists(dst.CStr()))
+									CopyOrMove(src, dst, /*move=*/true);
+							}
+							mSelSet.Clear();
+							mSelPath.Clear();
+						}
+						mDragArmed = mDragging = false;
+						mDragOverDir.Clear();
 					}
 					// Mutations APRÈS la boucle (mRows est reconstruit par BuildRows).
 					if (toToggle >= 0) {
@@ -1037,52 +1180,57 @@ namespace nkentseu {
 							mS->OpenPath(NkPath(mSelPath));
 						if (ctx.input.KeyPressed(NkGuiKey::F2) && mSelPath.Length() > 0)
 							StartRename(mSelPath);
-						if (ctx.input.KeyPressed(NkGuiKey::Delete) && mSelPath.Length() > 0)
-							RequestDelete(ctx, mSelPath, SelIsDir()); // confirmation avant corbeille
-						if (ctx.input.ctrlDown && ctx.input.KeyPressed(NkGuiKey::D) && mSelPath.Length() > 0)
-							DuplicateOf(mSelPath);
-						if (ctx.input.wantCopy && mSelPath.Length() > 0) { // Ctrl+C : copie interne
-							mClipPath = mSelPath;
+						if (ctx.input.KeyPressed(NkGuiKey::Delete) && !mSelSet.Empty())
+							RequestDelete(ctx, mSelPath, SelIsDir()); // confirmation (groupe si multi)
+						if (ctx.input.ctrlDown && ctx.input.KeyPressed(NkGuiKey::D) && !mSelSet.Empty()) {
+							const NkVector<NkString> dup = mSelSet; // Ctrl+D : duplique TOUT le groupe
+							for (usize si = 0; si < dup.Size(); ++si)
+								if (!SameStr(dup[si].CStr(), mRootStr.CStr()))
+									DuplicateOf(dup[si]);
+						}
+						if (ctx.input.wantCopy && !mSelSet.Empty()) { // Ctrl+C : copie interne (groupe)
+							mClipPaths = mSelSet;
 							mClipCut = false;
 						}
-						if (ctx.input.wantCut && mSelPath.Length() > 0) { // Ctrl+X
-							mClipPath = mSelPath;
+						if (ctx.input.wantCut && !mSelSet.Empty()) { // Ctrl+X
+							mClipPaths = mSelSet;
 							mClipCut = true;
 						}
-						if (ctx.input.wantPaste && mClipPath.Length() > 0) { // Ctrl+V
+						if (ctx.input.wantPaste && !mClipPaths.Empty()) { // Ctrl+V : colle le groupe
 							const NkString tgt = TargetDir();
-							// GARDE : jamais coller un dossier dans LUI-MÊME ou sa descendance
-							// (récursion infinie de la copie).
-							bool inside = false;
-							{
-								const char *a = mClipPath.CStr();
-								const char *b = tgt.CStr();
-								bool pref = true;
-								while (*a) {
-									if (*b != *a) {
-										pref = false;
-										break;
+							for (usize ci = 0; ci < mClipPaths.Size(); ++ci) {
+								const NkString &cp = mClipPaths[ci];
+								// GARDE : jamais coller un dossier dans LUI-MÊME/sa descendance.
+								bool inside = false;
+								{
+									const char *a = cp.CStr();
+									const char *b = tgt.CStr();
+									bool pref = true;
+									while (*a) {
+										if (*b != *a) {
+											pref = false;
+											break;
+										}
+										++a;
+										++b;
 									}
-									++a;
-									++b;
+									inside = pref && (*b == 0 || *b == '/' || *b == '\\');
 								}
-								inside = pref && (*b == 0 || *b == '/' || *b == '\\');
-							}
-							if (!inside) {
+								if (inside)
+									continue;
 								NkString dst = tgt;
 								dst += "/";
-								dst += NkPath(mClipPath).GetFileName();
-								if (SameStr(dst.CStr(), mClipPath.CStr())) {
-									// coller dans le même dossier : « Nom - copie »
-									DuplicateOf(mClipPath);
-								} else {
+								dst += NkPath(cp).GetFileName();
+								if (SameStr(dst.CStr(), cp.CStr()))
+									DuplicateOf(cp); // même dossier : « Nom - copie »
+								else {
 									if (NkFile::Exists(dst.CStr()))
 										dst += " - copie"; // ne pas écraser l'existant
-									CopyOrMove(mClipPath, dst, mClipCut);
+									CopyOrMove(cp, dst, mClipCut);
 								}
-								if (mClipCut)
-									mClipPath.Clear();
 							}
+							if (mClipCut)
+								mClipPaths.Clear();
 						}
 					}
 				}
@@ -1151,6 +1299,14 @@ namespace nkentseu {
 				NkVector<Row> mRows;
 				NkVector<NkString> mExpanded;
 				NkString mRootStr, mSelPath;
+				// ── Sélection MULTIPLE (mSelPath = élément principal/dernier cliqué) ──
+				NkVector<NkString> mSelSet;
+				int32 mSelAnchor = -1; ///< row de l'ancre (Maj+clic = plage)
+				// ── Drag & drop interne (déplacer la sélection sur un dossier) ──
+				bool mDragArmed = false, mDragging = false;
+				NkVec2 mDragStart{0.f, 0.f};
+				NkString mDragOverDir;
+				bool mDelGroup = false; ///< la confirmation vise toute la sélection
 				bool mRowsDirty = true, mRootOpen = true;
 				bool mFilterOn = false, mShowExcluded = false, mFocus = false;
 				char mFilter[64] = {};
@@ -1169,7 +1325,7 @@ namespace nkentseu {
 				NkString mEditParent;	///< création inline : dossier parent (vide = aucune)
 				bool mEditCreateDir = false;
 				char mEditBuf[128] = {};
-				NkString mClipPath;		///< copier/couper interne (Ctrl+C/X/V)
+				NkVector<NkString> mClipPaths; ///< copier/couper interne (Ctrl+C/X/V, groupe)
 				bool mClipCut = false;
 				uint32 mSelTick = 0;	///< frame de la dernière sélection (clic-lent = renommer)
 				NkCtxMenu mDelMenu;		///< confirmation de suppression
