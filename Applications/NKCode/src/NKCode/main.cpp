@@ -20,6 +20,7 @@
 #include "NKCode/Project/NkLogSink.h"
 #include "NKImage/NKImage.h"
 #include "NKPlatform/NkEnv.h" // env::GetEnvVar (variables d'environnement maison)
+#include "NKCode/Editor/NkSyntaxLangs.h" // coloration data-driven (CSS, JS, Lua…)
 
 #include <cstdio>
 #include <cstddef>
@@ -49,7 +50,8 @@ int nkmain(const NkEntryState &state) {
 
 	nkcode::InstallLogSink(); // capture les logs NKLogger -> panneau OUTPUT
 
-	nkcode::NkLoadFallbackFonts(); // polices de repli (broad/CJK/emoji)
+	nkcode::NkSynInitDefaultLangs(); // coloration data-driven (CSS, JS, Lua, Rust…)
+	nkcode::NkLoadFallbackFonts();	 // polices de repli (broad/CJK/emoji)
 
 	auto shell = memory::NkMakeUnique<NkEditorShell>();
 	NkEditorShellConfig cfg;
