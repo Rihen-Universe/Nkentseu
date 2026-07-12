@@ -184,11 +184,21 @@ inline void AppFlagsThunk(NkEditorFrameContext &ec, void *u) { // user = NkHomeS
 	if (!home || !home->dlg)
 		return;
 	nkcode::DrawAppFlags(ec, home->dlg);
-		// Barre de recherche toolbar cliquee -> ouvre le panneau Recherche (vraie recherche).
+		// Entree dans la barre « Recherche rapide » (toolbar) -> ouvre le panneau
+		// Recherche, y recopie la requete (wsPrefill deja pose par la toolbar) et
+		// LANCE la recherche projet. Le champ du panneau prend le focus (Ctrl+Maj+F-like).
 		if (home->dlg->st && home->dlg->st->reqSearch) {
-			home->dlg->st->reqSearch = false;
+			auto *st = home->dlg->st;
+			st->reqSearch = false;
 			if (home->dlg->shell)
 				home->dlg->shell->FocusPanel("Recherche");
+			// Si aucune requete fournie (cas clic sans texte), reprend la selection editeur.
+			if (st->wsPrefill.Empty() && st->HasActive() && st->files[st->active].doc.HasSel())
+				st->wsPrefill = st->files[st->active].doc.GetSelectedText();
+			st->wsFocusField = 1;
+			st->wsFocusReq = true;
+			if (!st->wsPrefill.Empty())
+				st->StartWsFind(st->wsPrefill, false, false); // resultats immediats
 		}
 	EnforceExclusiveSides(home->dlg->shell); // sidebars exclusives
 	SyncActivityMarkers(home->dlg->shell);   // marqueurs = état réel

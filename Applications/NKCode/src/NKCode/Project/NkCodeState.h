@@ -323,6 +323,122 @@ namespace nkentseu {
 					projReady = true;
 				}
 
+				// QUICK-OPEN (barre « Recherche rapide » toolbar, facon VSCode) : index PLAT des
+				// fichiers du projet (chemins relatifs), construit en tache de fond. Fuzzy match =
+				// sous-sequence + bonus (debut de mot / consecutif / match sur le NOM de fichier).
+				NkVector<NkString> qoRel; // chemins relatifs a `root` (affichage + match)
+				NkVector<NkString> qoAbs; // chemins absolus (ouverture)
+				volatile bool qoReady = false;
+				bool qoStarted = false;
+				threading::NkThread qoThread;
+				NkVector<int32> tbQoHits; // indices (dans qoRel/qoAbs) des meilleurs resultats
+				int32 tbQoSel = 0;        // ligne selectionnee dans la liste deroulante
+				NkString tbQoLast;        // derniere requete calculee (cache anti-recalcul par frame)
+					float32 tbQoScrollX = 0.f, tbQoScrollY = 0.f; // defilement de la liste deroulante
+					float32 tbQoContentW = 0.f;                   // largeur max des lignes (scroll H)
+
+				void StartFileIndex() {
+					if (qoStarted || root.ToString().Empty())
+						return;
+					qoStarted = true;
+					qoThread = threading::NkThread([this](void *) { BuildFileIndex(); });
+				}
+				void BuildFileIndex() {
+					NkVector<NkString> rel, abs;
+					QoWalk(root, rel, abs, 0);
+					qoRel = rel;
+					qoAbs = abs;
+					qoReady = true;
+				}
+				void QoWalk(const NkPath &dir, NkVector<NkString> &rel, NkVector<NkString> &abs, int32 depth) {
+					if (depth > 18 || abs.Size() > 20000)
+						return;
+					const NkString rootS = root.ToString();
+					NkVector<NkDirectoryEntry> es =
+						NkDirectory::GetEntries(dir, "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+					for (usize i = 0; i < es.Size(); ++i) {
+						const char *nm = es[i].Name.CStr();
+						if (es[i].IsDirectory) {
+							if (nm[0] == '.' || StrEq(nm, "Build") || StrEq(nm, "build") || StrEq(nm, "dist") ||
+								StrEq(nm, "node_modules") || StrEq(nm, "Captures") || StrEq(nm, "bin") ||
+								StrEq(nm, "obj") || StrEq(nm, "out"))
+								continue; // dossiers lourds/generes
+							QoWalk(es[i].FullPath, rel, abs, depth + 1);
+						} else {
+							const NkString full = es[i].FullPath.ToString();
+							const char *fp = full.CStr();
+							usize skip = rootS.Size();
+							if (skip < full.Size() && (fp[skip] == '/' || fp[skip] == '\\'))
+								++skip;
+							rel.PushBack(skip < full.Size() ? NkString(fp + skip) : es[i].Name);
+							abs.PushBack(full);
+						}
+					}
+				}
+				static const char *QoFileName(const char *s) { // dernier composant (apres / ou \)
+					const char *r = s;
+					for (const char *p = s; *p; ++p)
+						if (*p == '/' || *p == '\\')
+							r = p + 1;
+					return r;
+				}
+				// Sous-sequence fuzzy (insensible a la casse) : score >= 0, ou -1 si pas de match.
+				static int32 QoFuzzy(const char *q, const char *s) {
+					int32 score = 0, streak = 0;
+					char prev = 0;
+					while (*q && *s) {
+						const char cq = (*q >= 'A' && *q <= 'Z') ? char(*q + 32) : *q;
+						const char cs = (*s >= 'A' && *s <= 'Z') ? char(*s + 32) : *s;
+						if (cq == cs) {
+							score += 1 + streak * 3; // bonus consecutif
+							const bool boundary = prev == 0 || prev == '/' || prev == '\\' || prev == '_' ||
+								prev == '-' || prev == '.' || prev == ' ' ||
+								(prev >= 'a' && prev <= 'z' && *s >= 'A' && *s <= 'Z');
+							if (boundary)
+								score += 10; // bonus debut de mot
+							++streak;
+							++q;
+						} else
+							streak = 0;
+						prev = *s;
+						++s;
+					}
+					return *q == 0 ? score : -1; // toute la requete consommee ?
+				}
+				// (Re)calcule les meilleurs resultats pour `filter` (top 12, tri decroissant).
+				void QoRefresh(const char *filter) {
+					tbQoHits.Clear();
+					tbQoSel = 0;
+					if (!filter || !filter[0])
+						return;
+					const int32 K = 40;
+					int32 bi[40] = {}, bs[40] = {}, nb = 0;
+					for (usize i = 0; i < qoRel.Size(); ++i) {
+						const char *rel = qoRel[i].CStr();
+						const int32 sf = QoFuzzy(filter, QoFileName(rel));
+						const int32 sp = QoFuzzy(filter, rel);
+						const int32 sc = sf >= 0 ? sf + 30 : sp; // priorite au match sur le NOM
+						if (sc < 0)
+							continue;
+						int32 pos = nb < K ? nb : K - 1;
+						while (pos > 0 && bs[pos - 1] < sc)
+							--pos;
+						if (pos >= K)
+							continue; // moins bon que les K deja retenus
+						const int32 last = nb < K ? nb : K - 1;
+						for (int32 k = last; k > pos; --k) {
+							bs[k] = bs[k - 1];
+							bi[k] = bi[k - 1];
+						}
+						bs[pos] = sc;
+						bi[pos] = (int32)i;
+						if (nb < K)
+							++nb;
+					}
+					for (int32 k = 0; k < nb; ++k)
+						tbQoHits.PushBack(bi[k]);
+				}
+
 				void ScanDirSymbols(const NkPath &dir, NkVector<NkString> &t, NkVector<NkString> &f, NkSymTables &tt,
 									int32 depth) {
 					if (depth > 16)
@@ -3316,7 +3432,9 @@ namespace nkentseu {
 				// affiche le picker, et repose le dossier choisi ici. ──
 				bool reqPickFolder = false;
 				NkString pickedFolder;
-				bool reqSearch = false; // clic sur la barre de recherche toolbar -> ouvrir le panneau Recherche
+				bool reqSearch = false;		// Entree dans la barre recherche toolbar -> ouvrir le panneau resultats
+				char tbSearch[256] = {};	// texte du champ « Recherche rapide » (toolbar, editable en place)
+				bool tbSearchFocus = false; // le champ recherche toolbar a le focus (saisie)
 				NkString wsPrefill;		 // sélection de l'éditeur préremplie dans le champ
 				NkString wsOpenFile;	 // clic sur un résultat : consommé par ProcessWsOpen (poll)
 				int32 wsOpenLine = -1;
