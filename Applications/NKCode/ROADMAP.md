@@ -53,6 +53,30 @@ migrer le menu de l'explorateur (corrige la traversée) ; (2) `NkFilePicker` uni
 (remplace NkRootPicker + les 2 pickers) ; (3) champs texte → `InputText*` ;
 (4) retrait de la dette (`NkCtxMenuDraw`, `NkOwEdit`).
 
+### ✅ AVANCEMENT (2026-07-12) — briques posées dans NKEditorKit :
+- **`Engine/NKEditorKit/src/NKEditorKit/NkEditorTextField.h`** — `NkOverlayTextField`
+  (champ mono-ligne complet : caret, sélection, copier/couper/coller, double-clic)
+  DÉPLACÉ de l'app → widget moteur réutilisable. NkTextDraw.h le ré-exporte pour
+  les 23 appelants historiques. Commit `3b6cd29`.
+- **`Engine/NKEditorKit/src/NKEditorKit/NkFilePicker.h`** — `NkFilePickerState` =
+  **cœur RÉUTILISABLE du picker** (extraction phase 1) : ÉTAT (arborescence, chemin,
+  scroll, fenêtre déplaçable, menu/renommage) + NAVIGATION filesystem (BuildPickerTree,
+  TogglePickerNode, PickerCreateFolder, PickBeginRename/Commit, PickDelete,
+  OpenPickerBase, ScanPickerFiles, PickerGoto/Up/Enter/Cancel). **Zéro dépendance
+  NkCodeState** (comparaison de chemins `PathIsAncestor` inlinée). `NkCodeDialogs`
+  en **dérive** (`: public NkFilePickerState`) et SPÉCIALISE : le RENDU
+  (`DrawFolderPicker`), les ACTIONS de confirmation (`PickerConfirm` → DoLoad /
+  wsDir / loadDir / pickedFolder), l'assistant de **scaffolding C++** (`newFile`,
+  `scafKind`, `DoScaffoldCreate`, `GenCode`) — 100 % NKCode. Logique DÉPLACÉE (pas
+  réécrite) → comportement identique. Commit `38b21a6`.
+- **RESTE (phase 2)** : rendre le RENDU générique (design partagé) — sortir
+  l'assistant de scaffolding de `DrawFolderPicker` (dialogue NKCode séparé) puis
+  monter `DrawFolderPicker` (frame modal + arbre + scrollbars + create-folder) dans
+  NKEditorKit avec confirmation par RÉSULTAT (l'app poll le chemin/mode choisi).
+  Ensuite : absorber `NkOpenWsPanel` (couche workspace .jenga restant côté NKCode),
+  factoriser le cadre modal déplaçable, retirer la dette (`NkRootPicker`,
+  `NkCtxMenuDraw`, `NkOwEdit`).
+
 > ### 📣 RÈGLE PERMANENTE — Communiquer CHAQUE évolution (depuis 2026-07-05)
 > Toute évolution notable de NKCode (feature livrée, jalon, fix visible) doit produire,
 > **en plus du code** : (1) des **publications réseaux** (LinkedIn FR+EN, X, Facebook,
