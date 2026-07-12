@@ -20,6 +20,7 @@
 #include "NKMedia/Codecs/Aac/NkAacHuffman.h"
 #include "NKMedia/Codecs/Aac/NkAacIcs.h"
 #include "NKMedia/Codecs/Aac/NkAacDequant.h"
+#include "NKMedia/Codecs/Aac/NkAacTns.h"
 #include "NKMedia/Codecs/Aac/NkAacFilterbank.h"
 #include "NKMedia/Codecs/Aac/NkAacDecoder.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDenorm.h"
@@ -589,6 +590,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkAacDequant::SelfTest();
 		printf("[ %s ] NkAacDequant : iquant x^4/3 + gain 2^((sf-100)/4) + pulses + desentrelacement short\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkAacTns::SelfTest();
+		printf("[ %s ] NkAacTns : filtre tout-pole (coef->LPC + AR filter, reponse impulsionnelle)\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;

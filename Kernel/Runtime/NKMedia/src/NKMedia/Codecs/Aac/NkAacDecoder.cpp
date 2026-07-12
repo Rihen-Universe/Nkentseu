@@ -5,6 +5,7 @@
 #include "NKMedia/Codecs/Aac/NkAacBitReader.h"
 #include "NKMedia/Codecs/Aac/NkAacIcs.h"
 #include "NKMedia/Codecs/Aac/NkAacDequant.h"
+#include "NKMedia/Codecs/Aac/NkAacTns.h"
 #include "NKMedia/Codecs/Aac/NkAacTables.h"
 
 namespace nkentseu {
@@ -81,7 +82,7 @@ namespace nkentseu {
 						return 0;
 					float32 spec[1024];
 					NkAacDequant::Apply(ics, spec);
-					// (TNS s'appliquerait ici — brique à venir.)
+					NkAacTns::Apply(ics, mSfIndex, spec);
 					const int32 c = (nch < 2) ? nch : 0;
 					mFb[c].Process(spec, ics.windowSequence, ics.windowShape, mPrevWindowShape[c], chTime[c]);
 					mPrevWindowShape[c] = ics.windowShape;
