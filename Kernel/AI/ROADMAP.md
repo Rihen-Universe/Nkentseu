@@ -524,8 +524,15 @@ pour les modèles). Scaffold posé (spec headers) ; impl staged ci-dessous.
 3. ⬜ **Lexique/décodage** — dictionnaire + modèle de langue n-gram (réutilise le GPT/BPE) pour re-scorer.
 4. ⬜ **TTS front-end** (`NkTTS`) — normalisation texte (nombres, ponctuation) → **G2P** (texte→phonèmes,
    table par langue : fr/en/**bbj**) → durées.
-5. ⬜ **TTS acoustique + vocodeur** — phonèmes→mel (petit modèle) → **vocodeur** (d'abord Griffin-Lim from-scratch
-   sur la mel, puis vocodeur neuronal léger). Résultat : prononcer une phrase courte, audible via NKAudio.
+5. 🟡 **TTS acoustique + vocodeur** — **✅ vocodeur Griffin-Lim livré** (Option B.2 brique 1, 2026-07-12) :
+   `NkGriffinLim` (`NKSpeech/NkGriffinLim.h/.cpp`) = STFT/iSTFT overlap-add (FFT radix-2 avant/arrière, Hann,
+   normalisation COLA) + **reconstruction de phase itérative** → spectrogramme magnitude → onde, SANS donnée ni
+   modèle appris. Validé `NKSpeechTest` 2/2 (round-trip : erreur magnitude **2,4 %**, énergie préservée **0,9999**).
+   **✅ synthèse par formants livrée** (brique 2, 2026-07-12) : `NkVoiceSynth` (modèle source-filtre : peigne
+   d'harmoniques F0 pour les voisés / bruit pour les non-voisés, mis en forme par un filtre de formants F1/F2/F3)
+   → spectrogramme magnitude → Griffin-Lim → **onde AUDIBLE**. `NKSpeechTest` **3/3** (voyelle 'a' → énergie
+   autour de F1/F2) + écrit un **WAV `a e i o u`** (`nkvoice_aeiou.wav`, 1,6 s) à écouter. **Le moteur PARLE**
+   des voyelles reconnaissables. Reste : G2P (texte→phonèmes) réel pour prononcer des mots/phrases + consonnes.
 6. ⬜ **Boucle voix** — micro (NkAudioCapture) → débruitage (NkDenoiser) → ASR → (logique) → TTS → sortie NKAudio :
    commande vocale + lecture. Brancher les **permissions micro** mobile/Web.
 7. ⬜ **Corpus langues locales** — pipeline de collecte texte/voix (dont **ghomala'**) : scraping sources
