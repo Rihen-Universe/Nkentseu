@@ -1025,10 +1025,16 @@ namespace nkentseu {
 				conv->Free();
 			return false;
 		}
-		for (int32 i = 0; i < total; ++i) {
-			const uint8 *p = src->Pixels() + i * ch;
-			pixels[i] = (static_cast<uint32>(p[0]) << 16) | (static_cast<uint32>(ch > 1 ? p[1] : p[0]) << 8) |
-						(ch > 2 ? p[2] : p[0]);
+		// Lecture ligne par ligne via le STRIDE (les images peuvent avoir du padding en fin
+		// de ligne : lire linéairement i*ch décalerait toutes les lignes après la première).
+		const int32 stride = src->Stride();
+		for (int32 y = 0; y < h; ++y) {
+			const uint8 *row = src->Pixels() + (usize)y * stride;
+			for (int32 x = 0; x < w; ++x) {
+				const uint8 *p = row + x * ch;
+				pixels[y * w + x] = (static_cast<uint32>(p[0]) << 16) |
+									(static_cast<uint32>(ch > 1 ? p[1] : p[0]) << 8) | (ch > 2 ? p[2] : p[0]);
+			}
 		}
 
 		// Quantification médiane coupure
