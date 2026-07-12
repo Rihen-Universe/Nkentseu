@@ -16,7 +16,57 @@ namespace nkentseu {
 		using namespace nkentseu;
 		using namespace nkentseu::nkgui;
 
-		enum class NkLang { None, C, Python, NKSL, Markdown };
+		enum class NkLang { None, C, Python, NKSL, Markdown, Generic };
+
+		// ═══ Langages GÉNÉRIQUES data-driven (CSS, JS, Lua, Rust…) ══════════════
+		// Un NkLangSpec décrit un langage par ses éléments lexicaux ; le chemin
+		// Generic de TokenizeLine s'en sert. Les listes de mots-clés peuvent être
+		// importées des projets libres (grammaires TextMate/Kate/highlight.js).
+		struct NkLangSpec {
+				NkString name;
+				NkVector<NkString> exts;		///< ".css", ".scss"… (minuscules, avec point)
+				NkString lineComment;			///< "//", "#", "--", ";" ("" = aucun)
+				NkString blockOpen, blockClose; ///< "/*","*/" ou "<!--","-->" ("" = aucun)
+				NkString strChars;				///< délimiteurs de chaînes, ex. "\"'`"
+				NkVector<NkString> keywords;	///< triés (NkSymSortDedup) -> NkSymHas
+				NkVector<NkString> types;		///< triés
+		};
+
+		inline NkVector<NkLangSpec> &NkSynSpecs() {
+			static NkVector<NkLangSpec> s;
+			return s;
+		}
+
+		// Spec ACTIVE pour le rendu en cours (posée par NkLangFromExt sur le thread
+		// UI ; le thread d'index de symboles n'appelle jamais TokenizeLine(Generic)).
+		inline const NkLangSpec *&NkSynCurSpec() {
+			static const NkLangSpec *p = nullptr;
+			return p;
+		}
+
+		inline int32 NkSynSpecFromExt(const char *ext) {
+			if (!ext || !*ext)
+				return -1;
+			auto low = [](char c) { return (c >= 'A' && c <= 'Z') ? char(c + 32) : c; };
+			NkVector<NkLangSpec> &sp = NkSynSpecs();
+			for (usize i = 0; i < sp.Size(); ++i)
+				for (usize e = 0; e < sp[i].exts.Size(); ++e) {
+					const char *a = ext;
+					const char *b = sp[i].exts[e].CStr();
+					bool eq = true;
+					while (*a && *b) {
+						if (low(*a) != low(*b)) {
+							eq = false;
+							break;
+						}
+						++a;
+						++b;
+					}
+					if (eq && !*a && !*b)
+						return static_cast<int32>(i);
+				}
+			return -1;
+		}
 
 		inline bool NkSymW(char c) {
 			return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
@@ -920,6 +970,12 @@ namespace nkentseu {
 				return NkLang::NKSL;
 			if (eq(".md") || eq(".markdown"))
 				return NkLang::Markdown;
+			// Langages GÉNÉRIQUES data-driven (CSS, JS, Lua…) : pose la spec active.
+			const int32 gi = NkSynSpecFromExt(ext);
+			if (gi >= 0) {
+				NkSynCurSpec() = &NkSynSpecs()[static_cast<usize>(gi)];
+				return NkLang::Generic;
+			}
 			return NkLang::None;
 		}
 
@@ -984,6 +1040,110 @@ namespace nkentseu {
 					++i;
 				}
 				flush(n);
+				return 0;
+			}
+
+			// ── GÉNÉRIQUE data-driven : commentaires/chaînes/nombres/mots-clés
+			//    décrits par la spec active (CSS, JS, Lua, Rust, YAML…). ──
+			if (lang == NkLang::Generic) {
+				const NkLangSpec *sp = NkSynCurSpec();
+				if (!sp) {
+					if (n > 0)
+						emit(0, n, C.text);
+					return 0;
+				}
+				int32 lastG = 0;
+				auto flushG = [&](int32 upTo) {
+					if (upTo > lastG)
+						emit(lastG, upTo, C.text);
+				};
+				auto spanG = [&](int32 a, int32 b, const NkColor &col) {
+					flushG(a);
+					emit(a, b, col);
+					lastG = b;
+				};
+				auto startsAt = [&](int32 k, const NkString &s) {
+					const char *q = s.CStr();
+					for (int32 j = 0; q[j]; ++j)
+						if (k + j >= n || L[k + j] != q[j])
+							return false;
+					return s.Length() > 0;
+				};
+				int32 i = 0;
+				if (st == 1 && sp->blockClose.Length() > 0) { // bloc entamé à la ligne d'avant
+					int32 k = 0;
+					while (k < n && !startsAt(k, sp->blockClose))
+						++k;
+					if (k < n) {
+						spanG(0, k + static_cast<int32>(sp->blockClose.Length()), C.comment);
+						i = lastG;
+						st = 0;
+					} else {
+						if (n > 0)
+							emit(0, n, C.comment);
+						return 1;
+					}
+				}
+				while (i < n) {
+					const char c = L[i];
+					if (sp->lineComment.Length() > 0 && startsAt(i, sp->lineComment)) {
+						spanG(i, n, C.comment);
+						i = n;
+						break;
+					}
+					if (sp->blockOpen.Length() > 0 && startsAt(i, sp->blockOpen)) {
+						int32 k = i + static_cast<int32>(sp->blockOpen.Length());
+						while (k < n && !startsAt(k, sp->blockClose))
+							++k;
+						if (k < n) {
+							spanG(i, k + static_cast<int32>(sp->blockClose.Length()), C.comment);
+							i = lastG;
+							continue;
+						}
+						spanG(i, n, C.comment);
+						flushG(n);
+						return 1; // bloc ouvert -> continue à la ligne suivante
+					}
+					bool isStr = false;
+					for (const char *q = sp->strChars.CStr(); *q; ++q)
+						if (c == *q) {
+							isStr = true;
+							break;
+						}
+					if (isStr) { // chaîne délimitée (échappement '\')
+						int32 k = i + 1;
+						while (k < n && L[k] != c) {
+							if (L[k] == '\\' && k + 1 < n)
+								++k;
+							++k;
+						}
+						k = (k < n) ? k + 1 : n;
+						spanG(i, k, C.string);
+						i = k;
+						continue;
+					}
+					if (c >= '0' && c <= '9') { // nombre (entier/hex/float simple)
+						int32 k = i + 1;
+						while (k < n && (NkSymW(L[k]) || L[k] == '.'))
+							++k;
+						spanG(i, k, C.number);
+						i = k;
+						continue;
+					}
+					if (NkSymW(c) && !(c >= '0' && c <= '9')) { // mot -> keyword/type ?
+						int32 k = i + 1;
+						while (k < n && NkSymW(L[k]))
+							++k;
+						if (NkSymHas(&sp->keywords, L + i, k - i))
+							spanG(i, k, C.keyword);
+						else if (NkSymHas(&sp->types, L + i, k - i))
+							spanG(i, k, C.type);
+						i = k;
+						continue;
+					}
+					++i;
+				}
+				flushG(n);
 				return 0;
 			}
 
