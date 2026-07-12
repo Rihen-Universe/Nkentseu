@@ -16,6 +16,7 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltAlloc.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltVq.h"
 #include "NKMedia/Codecs/Aac/NkAacBitReader.h"
+#include "NKMedia/Codecs/Aac/NkAacTables.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDenorm.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDeemphasis.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDecoder.h"
@@ -516,6 +517,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkAacBitReader::SelfTest();
 		printf("[ %s ] NkAacBitReader : lecteur de bits MSB-first (round-trip + peek + align + overrun)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkAacTables::SelfTest();
+		printf("[ %s ] NkAacTables : sample rates + swb_offset (monotone->1024/128) + fenetres sine/KBD (PR=1)\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
