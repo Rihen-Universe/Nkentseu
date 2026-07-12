@@ -5,7 +5,7 @@
 // route chaque trame Opus vers le bon décodeur :
 //   - CELT-only (config 16-31) → NkCeltDecoder (48 kHz natif) ;
 //   - SILK-only (config 0-11)  → NkSilkTop + NkSilkResampler (interne → 48 kHz) ;
-//   - Hybride (config 12-15)   → SILK bande basse + CELT bande haute (À VENIR).
+//   - Hybride (config 12-15)   → SILK bande basse + CELT bande haute (même range decoder).
 // Sortie PCM int16 à 48 kHz. Mono (extension stéréo ultérieure). Zero-STL.
 //
 // AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
@@ -29,6 +29,7 @@ namespace nkentseu {
 				int32 mSilkFsKHz = 0; // 0 = SILK pas encore configuré
 				int32 mSilkNbSubfr = 0;
 				int32 mChannels = 1;
+				int32 mPrevMode = -1; // mode de la trame précédente (reset CELT au changement)
 
 				void Init(int32 channels);
 
