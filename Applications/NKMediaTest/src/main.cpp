@@ -205,6 +205,80 @@ int main(int argc, char **argv) {
 			   (int)pcm.Size(), sr, ch, argv[3]);
 		return 0;
 	}
+	// Qualité vidéo : --vidquality  → encode un motif synthétique connu (dégradés, damier fin,
+	// barres de couleur saturées, « texte » contrasté) via H.264 (NkVideoRecorder) ET MJPEG
+	// (NkVideoWriter), + sauve la RÉFÉRENCE brute RGBA → PSNR/SSIM mesurable avec ffmpeg.
+	if (argc >= 2 && NkString(argv[1]) == NkString("--vidquality")) {
+		const int W = 1280, H = 720, FR = 12;
+		NkVector<nk_uint8> frame;
+		frame.Resize((nk_size)W * H * 4);
+		nk_uint8 *px = frame.Data();
+		for (int y = 0; y < H; ++y) {
+			for (int x = 0; x < W; ++x) {
+				nk_uint8 r = 0, g = 0, b = 0;
+				if (y < 180) { // dégradé de gris (test smearing)
+					const nk_uint8 v = (nk_uint8)(x * 255 / W);
+					r = g = b = v;
+				} else if (y < 360) { // damier fin 4 px (test macroblocking)
+					const nk_uint8 v = (((x / 4) + (y / 4)) & 1) ? 255 : 0;
+					r = g = b = v;
+				} else if (y < 540) { // barres de couleur saturées (test chroma/fringes)
+					const int bar = x * 8 / W;
+					const nk_uint8 C[8][3] = {{255, 0, 0},   {0, 255, 0},	{0, 0, 255},   {255, 255, 0},
+											  {0, 255, 255}, {255, 0, 255}, {255, 255, 255}, {0, 0, 0}};
+					r = C[bar][0];
+					g = C[bar][1];
+					b = C[bar][2];
+				} else { // « texte » : lignes blanches fines sur fond bleu foncé (test fringes)
+					const bool ink = (x % 6) < 2;
+					r = ink ? 255 : 10;
+					g = ink ? 255 : 20;
+					b = ink ? 255 : 60;
+				}
+				nk_uint8 *p = px + ((nk_size)y * W + x) * 4;
+				p[0] = r;
+				p[1] = g;
+				p[2] = b;
+				p[3] = 255;
+			}
+		}
+		// Référence brute (frame 0) pour ffmpeg (-f rawvideo -pix_fmt rgba).
+		FILE *rf = fopen("nkq_ref.rgba", "wb");
+		if (rf) {
+			fwrite(px, 1, (size_t)W * H * 4, rf);
+			fclose(rf);
+		}
+		// H.264 (NkVideoRecorder, QP défaut).
+		{
+			media::NkVideoRecorder rec;
+			if (rec.Begin("nkq_h264.mp4", W, H, FR, 1)) {
+				for (int i = 0; i < FR; ++i)
+					rec.PushVideo(px, media::NkVideoInputFormat::RGBA32, false);
+				rec.End();
+			}
+		}
+		// MJPEG q92 (NkVideoWriter, conteneur MOV).
+		{
+			media::NkVideoWriter w;
+			media::NkVideoConfig cfg;
+			cfg.width = W;
+			cfg.height = H;
+			cfg.fpsNum = FR;
+			cfg.codec = media::NkVideoCodec::MJPEG;
+			cfg.container = media::NkVideoContainer::MOV;
+			cfg.quality = 92;
+			if (w.Open("nkq_mjpeg.mov", cfg)) {
+				for (int i = 0; i < FR; ++i)
+					w.WriteFrame(px, media::NkVideoInputFormat::RGBA32);
+				w.Close();
+			}
+		}
+		printf("[VIDQUALITY] ecrit nkq_ref.rgba (%dx%d rgba), nkq_h264.mp4, nkq_mjpeg.mov (%d trames)\n", W, H, FR);
+		printf("             PSNR : ffmpeg -f rawvideo -pix_fmt rgba -s %dx%d -i nkq_ref.rgba -i <sortie> -lavfi psnr -f null -\n",
+			   W, H);
+		return 0;
+	}
+
 	// Fichier .opus (Ogg-Opus) complet : --oggopus <in.opus> <out.pcm> (48 kHz s16le mono).
 	if (argc >= 4 && NkString(argv[1]) == NkString("--oggopus")) {
 		NkVector<nk_int16> pcm;
