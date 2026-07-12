@@ -32,6 +32,8 @@ namespace nkentseu {
 				int32 mSfIndex = 3;
 				int32 mChannels = 1;
 				int32 mPrevWindowShape[2] = {0, 0};
+				uint32 mR1 = 1; // état du générateur pseudo-aléatoire (PNS), persistant
+				uint32 mR2 = 1;
 				NkAacFilterbank mFb[2];
 		};
 
