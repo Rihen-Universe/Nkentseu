@@ -89,6 +89,7 @@ le rendu n'est jamais ralenti par la capture.
 | `NK_RECORD_FPS=n` | cadence d'échantillonnage (défaut **10**, voir plafond) |
 | `NK_RECORD_RECT=x,y,w,h` | n'enregistre que cette **zone** (crop, w/h alignés à 2) |
 | `NK_RECORD_W=..` + `NK_RECORD_H=..` | **résolution d'export indépendante** de la fenêtre (ex. 4K natif pendant affichage 720p) — les deux requis, alignés à 2 |
+| `NK_RECORD_QP=<10..40>` | **qualité H.264** : plus bas = moins de blocs de compression, fichier plus gros (défaut 24 ; 16-18 = très propre) |
 | `NK_CAPTURE=<frame>` | PNG one-shot à la frame donnée |
 
 L'arrêt (F9 ou fin de session) restaure l'affichage **immédiatement** et finalise
