@@ -3259,6 +3259,12 @@ namespace nkentseu {
 				// FOCUS CLAVIER GLOBAL : l'EXPLORATEUR a le focus-clic -> l'éditeur ignore
 				// le clavier (sinon Ctrl+D/Suppr/Entrée tireraient des DEUX côtés).
 				bool explorerFocus = false;
+				// ── DRAG & DROP GLOBAL : source = explorateur (sélection glissée) ; les
+				// CIBLES (dossiers de l'arbre, éditeur = ouvrir, terminal = coller le
+				// chemin, champs texte/IA plus tard) consomment au RELEASE dans leur zone.
+				// La source éteint dragActive UNE frame après le release. ──
+				NkVector<NkString> dragPaths;
+				bool dragActive = false;
 				NkString wsPrefill;		 // sélection de l'éditeur préremplie dans le champ
 				NkString wsOpenFile;	 // clic sur un résultat : consommé par ProcessWsOpen (poll)
 				int32 wsOpenLine = -1;
