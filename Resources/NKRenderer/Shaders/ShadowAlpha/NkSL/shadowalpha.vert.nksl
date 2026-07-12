@@ -1,0 +1,45 @@
+// shadowalpha.vert.nksl — NKRenderer — Shadow depth-only ALPHA-TESTED VS (VRAI dialecte NkSL)
+// NkVSM v2 : variante du shader Shadow qui passe l'UV au FS pour l'alpha-test
+// (feuillage/masked : SetCastShadowAlphaTest(true) sur le material).
+//
+// @gl-no-flip-y — IMPORTANT : ce VS a un varying (vUV) mais rend dans le
+// SHADOW ATLAS, pas a l'ecran. Le generateur GLSL injecte normalement le flip
+// Y NDC des qu'un VS a inputs+varyings ; ici il doit garder la convention du
+// shader Shadow (PAS de flip), sinon la profondeur des casters alpha-testes
+// serait inversee dans l'atlas vs les casters opaques.
+
+@location(0) in vec3 aPos;
+@location(3) in vec2 aUV;
+
+// set=1 (Object) pour matcher la convention NkRender3D (set=0=global, set=1=object).
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model;
+    mat4  normalMatrix;
+    vec4  tint;
+    float metallic;
+    float roughness;
+    float aoStrength;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRoughness;
+    float subsurface;
+    vec4  subsurfaceColor;
+    vec4  shadowOverrides;
+    vec4  triplanarParams;
+} uObj;
+
+layout(push_constant) uniform PC {
+    mat4 lightVP;
+} pc;
+
+@location(0) out vec2 vUV;
+
+@stage(vertex)
+@entry
+void main() {
+    vUV = aUV;
+    // Correction Z clip-space bakee dans lightVP cote C++ (cf. shadow.vert).
+    gl_Position = pc.lightVP * uObj.model * vec4(aPos, 1.0);
+}

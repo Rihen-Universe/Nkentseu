@@ -220,8 +220,21 @@ par `NkVirtualShadowMaps` (multi-lights). Style UE5 simplifié.
 - ⏳ **ClearRect API au RHI** : caching per-tile (au lieu de all-or-nothing)
 - ⏳ **Dynamic offsets UBO** : scale à 10k+ draws sans descriptor sets
 - ⏳ **LOD tile size** adaptatif (distance light/cam)
-- ⏳ **Shadow override Layered/Toon/Anime** : ObjectUBO étendu
-- ⏳ **Alpha-tested shadow** (foliage) : shader Shadow alpha-aware
+- ✅ **Shadow override Layered/Toon/Anime** (2026-07-12) : ObjectUBO étendu
+  (+shadowOverrides/+triplanarParams, identique dans les DEUX stages — le
+  linker GL exige des déclarations de bloc identiques) dans toon/anime/
+  layered .vert+.frag ; `SampleLightShadowEx(..., biasMul)` + garde
+  receiveShadow (.x) câblés dans les 3 frags. LayeredV1 hors scope (ne
+  sample pas d'ombres). C++ inchangé (ObjBlock déjà rempli pour tous).
+- ✅ **Alpha-tested shadow** (foliage) (2026-07-12) : shaders
+  `ShadowAlpha/NkSL` (VS pos+UV → FS sample tAlbedo, discard < 0.5) +
+  pipeline `Shadow_AlphaTest` (layouts [global, object, GetInstanceLayout]
+  → binde `matInst->GetDescSet()` tel quel) ; sélection par-caster dans
+  RenderShadowPass quand `SetCastShadowAlphaTest(true)` (re-push PC après
+  switch de PSO — DX12 invalide les root params). Piège résolu : le
+  générateur GLSL injectait le flip Y NDC dès inputs+varyings → pragma
+  commentaire **`@gl-no-flip-y`** (NkShaderBackend) pour les VS qui rendent
+  dans l'atlas avec des varyings. À VALIDER visuellement (matériau masked).
 - ⏳ **Page-based VSM réel** UE5 (refactor 16k² atlas virtuel pagination 128²)
 
 ### Phase G — NkMaterialSystem ✅

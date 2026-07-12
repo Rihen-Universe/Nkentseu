@@ -15,6 +15,8 @@ uniform CameraUBO{
     mat4 mirrorViewProj;
     vec4 reflectionFlags;
 }uCam;
+@binding(set=1, binding=1)
+uniform ObjectUBO{mat4 model,normalMatrix;vec4 tint;float metallic,roughness,aoStr,emissStr,normStr,clearcoat,ccRough,sss;vec4 sssColor;vec4 shadowOverrides;vec4 triplanarParams;}uObj;
 @binding(set=0, binding=2)
 uniform LightsUBO{vec4 positions[32],colors[32],directions[32],angles[32];int count;int _pad[3];}uLights;
 
@@ -53,8 +55,9 @@ void main(){
     vec3 total=vec3(0.);
     for(int i=0;i<uLights.count&&i<32;i++){
         vec3 L=(int(uLights.positions[i].w)==0)?normalize(-uLights.directions[i].xyz):normalize(uLights.positions[i].xyz-vWorldPos);
-        float shadow = (uLights.angles[i].z > 0.5)
-                       ? SampleLightShadow(i, vWorldPos, N, L) : 1.0;
+        // NkVSM v2 : overrides per-material (.x receiveShadow, .z biasMul).
+        float shadow = (uLights.angles[i].z > 0.5 && uObj.shadowOverrides.x > 0.5)
+                       ? SampleLightShadowEx(i, vWorldPos, N, L, uObj.shadowOverrides.z) : 1.0;
         float NdL=dot(N,L)*0.5+0.5;
         float rampU=texture(tShadowRamp,vec2(NdL,0.5)).r;
         vec3 lit=mix(uToon.shadowColor.rgb*albedo,albedo,rampU)*uLights.colors[i].rgb*uLights.colors[i].w*shadow;

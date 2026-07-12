@@ -442,6 +442,13 @@ namespace nkentseu {
 				::nkentseu::NkShaderHandle mShadowShader;
 				NkPipelineHandle mShadowPipeline;
 
+				// NkVSM v2 : shadow ALPHA-TESTED (feuillage/masked). Variante du
+				// pipeline Shadow qui sample l'albedo du material (set=2 = layout
+				// universel NkMaterialSystem) et discard sous cutoff 0.5. Selectionne
+				// par-caster dans RenderShadowPass quand matInst->mCastShadowAlphaTest.
+				::nkentseu::NkShaderHandle mShadowAlphaShader;
+				NkPipelineHandle mShadowAlphaPipeline;
+
 				// Shadow INSTANCIÉ : projette les instances (mInstanced) dans l'atlas
 				// d'ombre en 1 draw/batch (InstanceUBO set=1 binding=4 + lightVP push
 				// constant), au lieu d'un slot d'ObjectUBO par instance (qui débordait
