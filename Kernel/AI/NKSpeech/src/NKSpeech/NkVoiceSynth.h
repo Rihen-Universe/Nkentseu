@@ -38,7 +38,7 @@ namespace nkentseu {
 				float32 f0 = 120.0f;			// fréquence fondamentale (hauteur de voix, Hz)
 				float32 f0Jitter = 0.020f;		// micro-variation aléatoire de F0 (naturel, 0 = mécanique)
 				float32 f0Drift = 0.06f;		// contour d'intonation (chute de hauteur en fin d'énoncé)
-				float32 breathiness = 0.06f;	// souffle mêlé à la source voisée (0..~0.3)
+				float32 breathiness = 0.03f;	// souffle mêlé à la source voisée (0..~0.3)
 				float32 vocalTractScale = 1.0f; // multiplicateur des FORMANTS : >1 conduit court (aigu/enfant), <1 grave/géant
 				float32 rate = 1.0f;			// débit (multiplie la vitesse ; >1 = plus rapide)
 				float32 openQuotient = 0.55f;	// largeur de l'impulsion glottique (fraction de période)
@@ -58,6 +58,18 @@ namespace nkentseu {
 				// Voyelle française approximée : 'a','e','i','o','u','é' + 'w'=« ou » /u/ → NkPhone.
 				// (Le 'u' est le /y/ français — antérieur arrondi, F2 haut — distinct de « ou ».)
 				static NkPhone Vowel(char v, float32 durationMs);
+
+				// Un PHONÈME (voyelle OU consonne) depuis un symbole ASCII (voir table dans le .cpp) :
+				// voyelles a e i o u w(ou) E(é) · fricatives s f S(ch) v z Z(j) · nasales m n ·
+				// liquides l r · plosives p t k b d g · silence '_'. Renvoie le NkPhone (formants,
+				// voisement, gain). Les plosives sont approximées (brève occlusion + salve).
+				static NkPhone Phoneme(const char *sym, float32 durationMs = 120.0f);
+
+				// « Parle » une suite de phonèmes séparés par des espaces (ex. "p a p a", "s a l u",
+				// "b o~ n j u r") → forme d'onde. Chaque token = un symbole de Phoneme(). Utilise
+				// des durées par défaut (consonnes courtes, voyelles longues). Pas de vrai G2P
+				// orthographique ici : on fournit les phonèmes (le G2P texte→phonèmes viendra).
+				static NkVector<float32> Speak(const char *phonemes, const NkVoiceSynthConfig &cfg = NkVoiceSynthConfig{});
 
 				// Synthétise une séquence de phones → forme d'onde mono [-1,1] (synthèse temporelle
 				// source-filtre : impulsion glottique lissée + souffle + jitter → résonateurs de

@@ -61,6 +61,100 @@ namespace nkentseu {
 			return p;
 		}
 
+		NkPhone NkVoiceSynth::Phoneme(const char *sym, float32 durationMs) {
+			NkPhone p;
+			p.durationMs = durationMs;
+			if (!sym || !sym[0]) {
+				p.gain = 0.0f;
+				return p;
+			}
+			const char c = sym[0];
+			const bool nasalV = sym[1] == '~'; // voyelle nasale (a~ o~ e~) — approximée
+			// Voyelles (réutilise la table) + nasalisation légère (F1 abaissé).
+			if (c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u' || c == 'w' || c == 'E') {
+				p = Vowel(c, durationMs);
+				if (nasalV)
+					p.f1 *= 0.85f; // nasalisation approximée
+				return p;
+			}
+			p.voiced = false;
+			p.gain = 0.75f;
+			switch (c) {
+				// Fricatives non-voisées (bruit mis en forme par les « formants »).
+				case 's': p.f1 = 4000; p.f2 = 6000; p.f3 = 7000; break;           // sifflante
+				case 'f': p.f1 = 1200; p.f2 = 2400; p.f3 = 4000; p.gain = 0.5f; break; // diffuse
+				case 'S': p.f1 = 2000; p.f2 = 2600; p.f3 = 3500; break;           // « ch »
+				// Fricatives voisées (approximées : bruit + un peu de voix).
+				case 'v': p.f1 = 1000; p.f2 = 2200; p.f3 = 3500; p.voiced = false; p.gain = 0.5f; break;
+				case 'z': p.f1 = 3800; p.f2 = 5500; p.f3 = 6500; p.voiced = false; break;
+				case 'Z': p.f1 = 1800; p.f2 = 2400; p.f3 = 3400; p.voiced = false; break; // « j »
+				// Nasales (murmure voisé, F1 bas).
+				case 'm': p.f1 = 250; p.f2 = 1000; p.f3 = 2200; p.voiced = true; break;
+				case 'n': p.f1 = 250; p.f2 = 1700; p.f3 = 2600; p.voiced = true; break;
+				// Liquides (voisées).
+				case 'l': p.f1 = 350; p.f2 = 1200; p.f3 = 2600; p.voiced = true; break;
+				case 'r': p.f1 = 400; p.f2 = 1300; p.f3 = 2500; p.voiced = true; break;
+				// Plosives : SALVE brève (l'occlusion = un court silence inséré par Speak()).
+				case 'p': p.f1 = 800; p.f2 = 1000; p.f3 = 2200; break;
+				case 't': p.f1 = 3000; p.f2 = 4000; p.f3 = 5000; break;
+				case 'k': p.f1 = 1500; p.f2 = 2200; p.f3 = 3000; break;
+				case 'b': p.f1 = 800; p.f2 = 1000; p.f3 = 2200; p.voiced = true; break;
+				case 'd': p.f1 = 2600; p.f2 = 3200; p.f3 = 4000; p.voiced = true; break;
+				case 'g': p.f1 = 1500; p.f2 = 2000; p.f3 = 2800; p.voiced = true; break;
+				default: p.gain = 0.0f; break; // inconnu / silence
+			}
+			return p;
+		}
+
+		namespace {
+			bool IsPlosive(char c) {
+				return c == 'p' || c == 't' || c == 'k' || c == 'b' || c == 'd' || c == 'g';
+			}
+			bool IsVowelSym(char c) {
+				return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u' || c == 'w' || c == 'E';
+			}
+		} // namespace
+
+		NkVector<float32> NkVoiceSynth::Speak(const char *phonemes, const NkVoiceSynthConfig &cfg) {
+			NkVector<NkPhone> seq;
+			if (!phonemes)
+				return NkVector<float32>();
+			// Tokenise sur les espaces ; chaque token = un symbole de phonème.
+			char tok[8];
+			int32 tl = 0;
+			auto flush = [&]() {
+				if (tl == 0)
+					return;
+				tok[tl] = '\0';
+				// Durées par défaut : voyelle longue, consonne courte, salve plosive très courte.
+				float32 d = IsVowelSym(tok[0]) ? 200.0f : 110.0f;
+				if (IsPlosive(tok[0])) {
+					// Occlusion (silence) + salve courte.
+					NkPhone clo;
+					clo.gain = 0.0f;
+					clo.durationMs = 45.0f;
+					seq.PushBack(clo);
+					d = 22.0f;
+				}
+				seq.PushBack(Phoneme(tok, d));
+				tl = 0;
+			};
+			for (const char *s = phonemes; *s; ++s) {
+				if (*s == ' ') {
+					flush();
+				} else if (tl < 6) {
+					tok[tl++] = *s;
+				}
+			}
+			flush();
+			// Petite marge de silence en fin (relâche propre).
+			NkPhone end;
+			end.gain = 0.0f;
+			end.durationMs = 60.0f;
+			seq.PushBack(end);
+			return Synthesize(seq, cfg);
+		}
+
 		NkVoiceSynthConfig NkVoiceSynthConfig::Homme() {
 			NkVoiceSynthConfig c;
 			c.f0 = 110.0f;

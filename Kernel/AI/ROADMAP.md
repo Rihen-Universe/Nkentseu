@@ -532,7 +532,12 @@ pour les modèles). Scaffold posé (spec headers) ; impl staged ci-dessous.
    d'harmoniques F0 pour les voisés / bruit pour les non-voisés, mis en forme par un filtre de formants F1/F2/F3)
    → spectrogramme magnitude → Griffin-Lim → **onde AUDIBLE**. `NKSpeechTest` **3/3** (voyelle 'a' → énergie
    autour de F1/F2) + écrit un **WAV `a e i o u`** (`nkvoice_aeiou.wav`, 1,6 s) à écouter. **Le moteur PARLE**
-   des voyelles reconnaissables. Reste : G2P (texte→phonèmes) réel pour prononcer des mots/phrases + consonnes.
+   des voyelles reconnaissables. **✅ consonnes + parole de mots** (brique 3, 2026-07-12) : jeu de
+   consonnes (fricatives s/f/ch, nasales m/n, liquides l/r, plosives p/t/k/b/d/g approximées) +
+   `NkVoiceSynth::Speak("p a p a")` (suite de phonèmes → onde) → dit **papa / maman / salu / lili**.
+   ⚠️ Limite honnête : synthèse par formants (2-3 résonances) — voix robotique, /y/ imparfait ; le vrai
+   naturel viendra d'un **modèle appris sur données de voix** (dataset LJSpeech en cours de récupération).
+   Reste : G2P texte→phonèmes orthographique réel (fr/en/bbj) + pipeline TTS appris.
 6. ⬜ **Boucle voix** — micro (NkAudioCapture) → débruitage (NkDenoiser) → ASR → (logique) → TTS → sortie NKAudio :
    commande vocale + lecture. Brancher les **permissions micro** mobile/Web.
 7. ⬜ **Corpus langues locales** — pipeline de collecte texte/voix (dont **ghomala'**) : scraping sources
