@@ -13,6 +13,7 @@
 //   lignes visibles. Coloration syntaxique = phase suivante.
 // =============================================================================
 #include "NKGui/NKGui.h"
+#include "NKEditorKit/NkEditorScrollbar.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKCode/Editor/NkSyntax.h"
@@ -4416,62 +4417,14 @@ namespace nkentseu {
 			}
 			dl.PopClipRect();
 
-			// ── Barres de defilement : gouttieres TOUJOURS visibles (theme-aware) ──
-			const bool sbLight = ((int32)ctx.theme.bgPrimary.r + ctx.theme.bgPrimary.g + ctx.theme.bgPrimary.b) > 384;
-			const NkColor kTrack = sbLight ? NkColor{0, 0, 0, 20} : NkColor{255, 255, 255, 16};
-			const NkColor kThumb = sbLight ? NkColor{168, 176, 185, 255} : NkColor{80, 88, 98, 255};
-			const NkColor kThumbH = sbLight ? NkColor{130, 138, 148, 255} : NkColor{120, 130, 142, 255};
+			// ── Barres de defilement : widget GENERAL reutilisable (NKEditorKit). L'editeur
+			//    est CLIENT du meme scrollbar que tout le reste de l'UI (aspect uniforme). ──
 			const NkRect vTrack = {area.x + area.w - sbW, area.y, sbW, viewH};
 			const NkRect hTrack = {area.x, area.y + area.h - sbW, area.w - sbW, sbW}; // pleine largeur (- coin V)
-			dl.AddRectFilled(vTrack, kTrack);
-			dl.AddRectFilled(hTrack, kTrack);
-			dl.AddRectFilled({vTrack.x, hTrack.y, sbW, sbW}, kTrack); // coin bas-droite
-
-			// Bouton fleche (dir : 0=haut 1=bas 2=gauche 3=droite). Retourne MAINTENU.
-			auto arrowBtn = [&](const NkRect &r, int32 dir) -> bool {
-				const bool h = InRect(r, mouse);
-				if (h)
-					dl.AddRectFilled(r, NkColor{33, 39, 48, 255});
-				const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f, a = 3.2f;
-				const NkColor ac = h ? kThumbH : kThumb;
-				if (dir == 0)
-					dl.AddTriangleFilled({cx, cy - a}, {cx - a, cy + a}, {cx + a, cy + a}, ac);
-				else if (dir == 1)
-					dl.AddTriangleFilled({cx - a, cy - a}, {cx + a, cy - a}, {cx, cy + a}, ac);
-				else if (dir == 2)
-					dl.AddTriangleFilled({cx - a, cy}, {cx + a, cy - a}, {cx + a, cy + a}, ac);
-				else
-					dl.AddTriangleFilled({cx - a, cy - a}, {cx + a, cy}, {cx - a, cy + a}, ac);
-				return h && ctx.input.mouseDown[0];
-			};
-
-			// ── Barre VERTICALE : fleche haut + piste (pouce) + fleche bas ──
-			{
-				const NkRect upB = {vTrack.x, vTrack.y, sbW, sbW};
-				const NkRect dnB = {vTrack.x, vTrack.y + viewH - sbW, sbW, sbW};
-				const NkRect inner = {vTrack.x, vTrack.y + sbW, sbW, viewH - 2.f * sbW};
-				if (arrowBtn(upB, 0))
-					d.scrollY -= lineH * 0.8f;
-				if (arrowBtn(dnB, 1))
-					d.scrollY += lineH * 0.8f;
-				if (maxScrollY > 0.f && inner.h > 8.f) {
-					float32 th = inner.h * (viewH / contentH);
-					if (th < 24.f)
-						th = 24.f;
-					if (th > inner.h)
-						th = inner.h;
-					const float32 ty = inner.y + (d.scrollY / maxScrollY) * (inner.h - th);
-					const NkRect thumb = {inner.x + 3.f, ty, sbW - 6.f, th};
-					if (ctx.input.mouseClicked[0] && InRect(inner, mouse))
-						ctx.activeId = vbarId;
-					const bool act = (ctx.activeId == vbarId);
-					if (act && ctx.input.mouseDown[0]) {
-						const float32 t = (mouse.y - inner.y - th * 0.5f) / (inner.h - th);
-						d.scrollY = (t < 0.f ? 0.f : t > 1.f ? 1.f : t) * maxScrollY;
-					}
-					dl.AddRectFilled(thumb, (act || InRect(inner, mouse)) ? kThumbH : kThumb, 3.f);
-				}
-			}
+			dl.AddRectFilled({vTrack.x, hTrack.y, sbW, sbW},
+							 editorkit::NkScrollbarThemeColors(ctx.theme).track); // coin bas-droite
+			// Barre VERTICALE (gouttiere + fleches + pouce). Les MARQUES sont dessinees APRES.
+			editorkit::NkVScrollbar(ctx, dl, vTrack, d.scrollY, contentH, viewH, vbarId, lineH * 0.8f);
 			{ // marques (dessinees APRES le pouce, sinon il les recouvre) : erreurs/avertissements (droite),
 			  // occurrences recherche (gauche), breakpoints
 				const float32 tot = static_cast<float32>(d.VisRowCount() > 0 ? d.VisRowCount() : 1);
@@ -4498,33 +4451,8 @@ namespace nkentseu {
 				GlobalLogBuffer().Push(
 					NkPrintf("[ui] barre H : clic (maxScrollX=%.0f, wrap=%d)", maxScrollX, d.wrapOn ? 1 : 0));
 			}
-			// ── Barre HORIZONTALE : fleche gauche + piste (pouce) + fleche droite ──
-			{
-				const NkRect lfB = {hTrack.x, hTrack.y, sbW, sbW};
-				const NkRect rtB = {hTrack.x + hTrack.w - sbW, hTrack.y, sbW, sbW};
-				const NkRect inner = {hTrack.x + sbW, hTrack.y, hTrack.w - 2.f * sbW, sbW};
-				if (arrowBtn(lfB, 2))
-					d.scrollX -= 18.f;
-				if (arrowBtn(rtB, 3))
-					d.scrollX += 18.f;
-				if (maxScrollX > 0.f && inner.w > 8.f) {
-					float32 tw = inner.w * (viewW / maxLineW);
-					if (tw < 24.f)
-						tw = 24.f;
-					if (tw > inner.w)
-						tw = inner.w;
-					const float32 tx = inner.x + (d.scrollX / maxScrollX) * (inner.w - tw);
-					const NkRect thumb = {tx, hTrack.y + 3.f, tw, sbW - 6.f};
-					if (ctx.input.mouseClicked[0] && InRect(inner, mouse))
-						ctx.activeId = hbarId;
-					const bool act = (ctx.activeId == hbarId);
-					if (act && ctx.input.mouseDown[0]) {
-						const float32 t = (mouse.x - inner.x - tw * 0.5f) / (inner.w - tw);
-						d.scrollX = (t < 0.f ? 0.f : t > 1.f ? 1.f : t) * maxScrollX;
-					}
-					dl.AddRectFilled(thumb, (act || InRect(inner, mouse)) ? kThumbH : kThumb, 3.f);
-				}
-			}
+			// ── Barre HORIZONTALE (widget general). ──
+			editorkit::NkHScrollbar(ctx, dl, hTrack, d.scrollX, viewW + maxScrollX, viewW, hbarId, 18.f);
 			// Re-borne apres defilement par les fleches (l'auto-scroll plus haut est passe).
 			if (d.scrollY < 0.f)
 				d.scrollY = 0.f;
