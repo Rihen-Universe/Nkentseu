@@ -1,14 +1,12 @@
 # NKNetwork — Roadmap
 
-État actuel (mai 2026) : Module en construction avec **architecture posée et
-couches basses implémentées**, mais plusieurs couches hautes annoncées dans
-l'umbrella header sont absentes du dépôt. Le pitch (`NKNetwork.h`) décrit cinq
-couches : système, transport, protocole, ECS replication, application. Sont
-réellement présents : Core (NkNetDefines), Transport (NkSocket + NkReliableUDP),
-Protocol (NkBitStream + NkConnection), RPC (NkRPC), Lobby (NkLobby) et HTTP
-(NkHTTPClient). **La couche Replication ECS (NkNetWorld) est référencée par
-`NKNetwork.h` mais n'existe pas sur disque** — include cassé. **Aucun test ni
-benchmark**.
+État actuel (2026-07-12) : **les cinq couches annoncées par l'umbrella existent
+et compilent**. Core (NkNetDefines), Transport (NkSocket UDP/TCP + NkReliableUDP),
+Protocol (NkBitStream + NkConnection), **Replication (NkNetWorld — agnostique
+ECS, V1 livrée)**, RPC (NkRPC), Lobby (NkLobby) et HTTP/**HTTPS** (NkHTTPClient +
+backend TLS mbedTLS opt-in, GET https réel validé status 200). Zero-STL depuis
+2026-07-09. **Tests exécutables** : `SandboxNKNetwork` (67 checks verts, dont un
+bout-en-bout loopback 127.0.0.1 : handshake + snapshots + delta + despawn).
 
 ---
 
@@ -24,10 +22,12 @@ benchmark**.
 | RPC — NkRPCRouter (ServerRPC/ClientRPC/MulticastRPC, garanties) | Livré (déclaratif) | — | — |
 | Lobby — NkSession / NkLobby / NkMatchmaker / NkDiscovery (LAN broadcast) | Livré | — | — |
 | HTTP — NkHTTPClient (GET/POST, sync/async, TLS mbedTLS/OpenSSL) | Livré | — | — |
-| Replication ECS — NkNetWorld / NkNetSystem / NkNetSnapshot / NkNetInterpolator | TODO (include cassé) | XL | Haute |
-| Replication — NkNetEntity / NkNetInput / NkNetAuthority | TODO | L | Haute |
-| Tests unitaires (aucun dossier `tests/`) | TODO | M | Haute |
-| TLS réel câblé (mbedTLS ou OpenSSL) | Partiel | L | Haute |
+| Replication — NkNetWorld / NkNetSystem / NkNetSnapshot / NkNetInterpolator | Livré (V1, agnostique ECS) | — | — |
+| Replication — NkNetEntity / NkNetInput / NkNetAuthority | Livré (V1) | — | — |
+| Tests exécutables (`Sandbox/System/NKNetwork`, 67 checks + loopback réel) | Livré | — | — |
+| TLS réel câblé (mbedTLS, opt-in `NK_ENABLE_TLS=1`, HTTPS validé 200) | Livré | — | — |
+| Replication — prédiction client + réconciliation serveur | TODO | L | Moyenne |
+| Replication — relais des entités client-authoritative | TODO | M | Moyenne |
 | WebAssembly — emscripten_fetch pour HTTP | Partiel | M | Moyenne |
 | WebSocket / WebRTC pour transport browser | TODO | XL | Basse |
 | Compression LZ4/Zstd pour snapshots | TODO | M | Moyenne |
@@ -97,6 +97,46 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 - `NkLeaderboard` exposé comme alias (couche au-dessus de NkHTTPClient pour
   classements en ligne).
 
+### Réplication (2026-07-12) — AGNOSTIQUE du système d'entités
+- [NkNetWorld](src/NKNetwork/Replication/NkNetWorld.h) : NKNetwork (couche
+  System) ne connaît pas NKECS (couche Runtime) — la réplication fonctionne par
+  **enregistrement d'objets** (`NkNetEntity` = NkNetId + prefabId + owner +
+  autorité + callbacks `writeState`/`readState` sur NkBitStream), le pont ECS se
+  fera dans Noge (même modèle que NKPhysics).
+- Serveur : `Update(dt)` → snapshots **delta** à tickRate Hz (état re-sérialisé,
+  comparé octet-à-octet à la baseline, seuls les changements partent) +
+  **keyframes** périodiques (rattrapage pertes / late-joiners, `ForceKeyframe()`).
+  Snapshot trop gros → scindé en messages auto-suffisants (même tick).
+- Client : l'app draine `DrainAll` et route via `HandleMessage(msg)` (true =
+  consommé) ; entité inconnue → callback `onEntitySpawn` (l'app crée + enregistre,
+  l'état est appliqué dans la foulée) ; `DESPAWN` fiable → `onEntityDespawn`.
+- Inputs : `SendInput()` (client, séquence croissante) → `DrainInputs(peer)`
+  (serveur, déduplication par séquence).
+- `NkNetInterpolator` : buffer d'états horodatés + `Sample(renderTime)` →
+  paire (A, B) + alpha ; le lerp reste applicatif (sémantique d'état inconnue
+  du module). `NkNetSystem` : hooks OnBeforeSnapshot/OnSnapshotApplied/…
+- Protocole filaire : magic `0x52 'R'` (distinct transport 0x4E / lobby 0x4C),
+  messages SNAPSHOT (canal SEQUENCED) / DESPAWN (RELIABLE_ORDERED) / INPUT.
+
+### HTTPS / TLS (2026-07-12)
+- `SendOverTLS` **implémenté** avec mbedTLS (Externals/Libs/NKMbedTLS) :
+  RNG CTR-DRBG, connexion, SNI + vérif hostname, handshake, envoi/réception
+  avec timeout, erreurs `mbedtls_strerror` lisibles.
+- **Opt-in** : `NK_ENABLE_TLS=1 jenga build …` (défaut = HTTP seul, zéro dep).
+- Vérification certificat : `Config::verifySSL` + `Config::caCertPath` (bundle
+  PEM) → `VERIFY_REQUIRED` ; sans bundle → `VERIFY_NONE` (mbedTLS n'a pas accès
+  aux CA système — fournir un bundle en production).
+- Validé au runtime : `SandboxNKNetwork --https https://example.com/` → 200.
+
+### Tests (2026-07-12)
+- `Sandbox/System/NKNetwork` (cible `SandboxNKNetwork`) : **67 checks verts** —
+  NkBitStream round-trip + overflow, NkNetId Pack/Unpack, NkNetInterpolator,
+  réplication client/serveur sur messages forgés, **bout-en-bout loopback réel**
+  (StartServer + Connect 127.0.0.1, handshake, snapshot → spawn → delta →
+  despawn). Mode manuel `--https <url>` pour valider TLS.
+  (`jenga test` restant bloqué par la policy workspace `disableunittestexecution`,
+  le sandbox est le runner officiel du module.)
+
 ### Aliases pratiques
 L'umbrella [NKNetwork.h](src/NKNetwork/NKNetwork.h) expose les types principaux
 sous `nkentseu::Nk*` (sans le namespace `net::`).
@@ -105,55 +145,30 @@ sous `nkentseu::Nk*` (sans le namespace `net::`).
 
 ## En cours / TODO immédiat
 
-### Bloquant — Include cassé Replication
-`NKNetwork.h` inclut `"Replication/NkNetWorld.h"` mais aucun dossier
-`Replication/` n'existe sous `src/NKNetwork/`. Les aliases exposent
-`NkNetEntity`, `NkNetInput`, `NkNetAuthority`, `NkNetWorld`, `NkNetSystem`,
-`NkNetSnapshot`, `NkNetInterpolator` mais leurs déclarations sont absentes.
-**Compilation actuelle de l'umbrella = échec garanti**.
+*(Rien de bloquant — l'include Replication est réparé, les tests existent, le
+TLS est câblé. Prochaines briques par ordre d'utilité :)*
 
-Actions immédiates au choix :
-1. Stub minimal `Replication/NkNetWorld.h` avec forward decls vides
-   pour débloquer.
-2. Implémenter pour de bon (effort XL, cf. ci-dessous).
-3. Retirer temporairement l'include et les aliases jusqu'à implémentation.
-
-### Tests
-Aucun dossier `tests/` n'existe (contrairement aux autres modules System).
-Manque urgent :
-- Smoke socket (open/bind/sendto/recvfrom loopback).
-- Smoke BitStream (write/read symétrique, overflow detection).
-- Smoke handshake (client/server local, ESTABLISHED des deux côtés).
-- Smoke HTTP GET sur `httpbin.org/get` ou serveur local (CI).
-
-### TLS réel
-La doc mentionne mbedTLS / OpenSSL, mais le `.cpp` HTTPClient inclut
-`<chrono>` / `<thread>` et `winsock2.h` sans backend TLS visible. Choisir un
-fournisseur (mbedTLS recommandé pour la portabilité PV3DE) et le câbler. Si
-HTTPS n'est pas requis pour le MVP, documenter HTTP-only.
+### Réplication V2
+- Prédiction côté client + réconciliation serveur (rejouer les inputs > dernier
+  tick acquitté) — les inputs séquencés et `NkNetInterpolator` posent la base.
+- Relais des entités `NK_NET_AUTHORITY_CLIENT` (état du pawn propriétaire
+  remonté puis rediffusé par le serveur après validation).
+- Baseline delta PAR PAIR (aujourd'hui : baseline globale, un late-joiner
+  attend la keyframe suivante — ≤ keyframeInterval ticks).
 
 ---
 
 ## À venir / À ajouter (futur proche)
 
-### Replication ECS — couche prioritaire
-Pilier annoncé du module pour PV3DE/Noge et tout jeu multijoueur :
-- **NkNetEntity** : composant marquant qu'une entité est répliquée + son
-  `NkNetId` global.
-- **NkNetAuthority** : flag client-authoritative / server-authoritative /
-  shared.
-- **NkNetWorld** : système ECS qui parcourt les `NkNetEntity` et émet
-  snapshots (delta-compression entre frames).
-- **NkNetSystem** : interface pour les systèmes répliquants (Transform,
-  Animation, Health, ...).
-- **NkNetSnapshot** : structure de snapshot avec tick + données compressées.
-- **NkNetInterpolator** : interpolation côté client (entity smoothing,
-  extrapolation pendant les pertes paquets).
-- **NkNetInput** : capture des inputs locaux côté client, send au server pour
-  authoritative simulation.
-
-Architecture cible : tick rate configurable (20-60 Hz), client-side prediction,
-server reconciliation, lag compensation (rewind/replay).
+### Pont ECS de la réplication (dans Noge, pas ici)
+La couche Replication V1 est **livrée côté NKNetwork** (voir « Livré ») en mode
+agnostique. Reste à construire, dans **Noge** (couche Engine, qui voit NKECS) :
+- un composant `NetEntity` ECS + un système qui enregistre automatiquement les
+  entités marquées dans `NkNetWorld` (writeState/readState générés — idéalement
+  via NKReflection, catégories → NkBitStream) ;
+- lag compensation (rewind/replay) au niveau gameplay.
+Architecture cible inchangée : tick rate 20-60 Hz, client-side prediction,
+server reconciliation (cf. « Réplication V2 » ci-dessus).
 
 ### Sécurité et fiabilité
 - DTLS / handshake chiffré sur RUDP (échange clé Diffie-Hellman ou Ed25519).
@@ -187,14 +202,19 @@ server reconciliation, lag compensation (rewind/replay).
 ---
 
 ## Bugs / quirks connus
-- **`NKNetwork.h` ne compile pas tel quel** : include `Replication/NkNetWorld.h`
-  pointe vers un fichier inexistant. Bloque toute inclusion depuis un autre
-  module.
-- Aliases sous `nkentseu::Nk*` dépendent du namespace `net::` (`using NkPeerId
-  = net::NkPeerId`), à vérifier que ce namespace est bien défini dans
-  `NkNetDefines.h` (la doc dit "net::" mais la convention projet utilise
-  `nkentseu::`).
-- Aucun test : régressions silencieuses lors des refactors.
+- ~~`NKNetwork.h` ne compile pas (include Replication manquant)~~ **CORRIGÉ
+  2026-07-12** : `Replication/NkNetWorld.{h,cpp}` implémentés, umbrella compilé
+  par le sandbox.
+- ~~`NkLobbyMessageHeader::kSize = 12` alors que l'en-tête sérialisé fait 16
+  octets~~ **CORRIGÉ 2026-07-12** : le payload écrasait `payloadSize` sur le
+  fil (kSize → 16). NB : `Deserialize` n'est encore appelé nulle part (la
+  réception lobby reste à câbler).
+- La réception des messages lobby (dispatch `NkLobbyMessageHeader::Deserialize`
+  → callbacks) n'est pas branchée côté client.
+- HTTPS sans `Config::caCertPath` = pas de vérification du certificat
+  (VERIFY_NONE) — fournir un bundle CA en production.
+- État répliqué limité à `kNkNetMaxEntityStateSize` (256 octets) par entité ;
+  entité au-delà = ignorée silencieusement du snapshot (à logger ?).
 
 ---
 
