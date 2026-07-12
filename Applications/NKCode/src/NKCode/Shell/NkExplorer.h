@@ -16,6 +16,7 @@
 #include "NKCode/Shell/NkShell.h"	// NkCodeShellRun (révéler dans l'OS)
 #include "NKCode/Editor/NkTextDraw.h" // NkCtxMenu (menu contextuel modal scrollable)
 #include "NKContainers/String/NkFormat.h" // NkPrintf/NkFormat (outils maison, pas snprintf)
+#include "NKWindow/Core/NkDialogs.h"		  // OpenFolderDialog (ajouter une racine)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -43,6 +44,7 @@ namespace nkentseu {
 						mGitPath.Clear();
 						mGitCode.Clear();
 						mGitNext = 0;
+						LoadRoots(); // racines secondaires du workspace (.nkcode/roots.cfg)
 						mRowsDirty = true;
 					}
 					if (mRowsDirty)
@@ -88,8 +90,9 @@ namespace nkentseu {
 						bool dir = false;
 						bool open = false;
 						bool root = false;
-						bool editNew = false; ///< row VIRTUELLE : champ de création inline
-						char git = 0;		  ///< 0 = aucun, sinon M/A/U/D/C/R ('*' = dossier touché)
+						bool extraRoot = false; ///< racine SECONDAIRE (retirable du workspace)
+						bool editNew = false;	///< row VIRTUELLE : champ de création inline
+						char git = 0;			///< 0 = aucun, sinon M/A/U/D/C/R ('*' = dossier touché)
 				};
 
 				static bool SameStr(const char *a, const char *b) {
@@ -383,6 +386,87 @@ namespace nkentseu {
 							PushEditRow(1);
 						AppendDir(mS->root, 1);
 					}
+					// ── RACINES SECONDAIRES (multi-racines, façon VSCode) ──
+					for (usize e = 0; e < mExtraRoots.Size(); ++e) {
+						const NkString &er = mExtraRoots[e];
+						Row rr;
+						rr.path = er;
+						rr.name = NkPath(er).GetFileName();
+						rr.depth = 0;
+						rr.dir = true;
+						rr.open = IsExpanded(er);
+						rr.root = true;
+						rr.extraRoot = true;
+						mRows.PushBack(rr);
+						if (rr.open)
+							AppendDir(NkPath(er), 1);
+					}
+				}
+
+				// ── Multi-racines : persistance dans <ws>/.nkcode/roots.cfg. ──
+				NkString RootsPath() const {
+					return (NkPath(mRootStr.CStr()) / ".nkcode" / "roots.cfg").ToString();
+				}
+
+				void LoadRoots() {
+					mExtraRoots.Clear();
+					const NkString f = RootsPath();
+					if (!NkFile::Exists(f.CStr()))
+						return;
+					const NkString txt = NkFile::ReadAllText(NkPath(f));
+					NkString line;
+					for (const char *p = txt.CStr();; ++p) {
+						if (*p == '\n' || *p == '\r' || *p == '\0') {
+							if (line.Length() > 2 && NkDirectory::Exists(line.CStr()))
+								mExtraRoots.PushBack(line);
+							line.Clear();
+							if (*p == '\0')
+								break;
+						} else
+							line += *p;
+					}
+				}
+
+				void SaveRoots() {
+					NkString out;
+					for (usize i = 0; i < mExtraRoots.Size(); ++i) {
+						out += mExtraRoots[i];
+						out += "\n";
+					}
+					const NkString f = RootsPath();
+					NkDirectory::CreateRecursive(NkPath(f).GetParent());
+					NkFile::WriteAllText(NkPath(f), out);
+				}
+
+				// Ctrl+R : sélecteur natif -> ajoute une racine secondaire (dédupliquée).
+				void AddRootFolder() {
+					const auto res = nkentseu::NkDialogs::OpenFolderDialog(NkT("exp.addroot"));
+					if (!res.confirmed || res.path.Length() < 2)
+						return;
+					NkString np = res.path;
+					for (int32 i = 0; i < static_cast<int32>(np.Length()); ++i)
+						if (np.CStr()[i] == '\\')
+							const_cast<char *>(np.CStr())[i] = '/';
+					if (SameStr(np.CStr(), mRootStr.CStr()))
+						return; // déjà la racine principale
+					for (usize i = 0; i < mExtraRoots.Size(); ++i)
+						if (SameStr(mExtraRoots[i].CStr(), np.CStr()))
+							return; // déjà présente
+					mExtraRoots.PushBack(np);
+					if (!IsExpanded(np))
+						ToggleExpanded(np);
+					SaveRoots();
+					mRowsDirty = true;
+				}
+
+				void RemoveRootFolder(const NkString &p) {
+					for (usize i = 0; i < mExtraRoots.Size(); ++i)
+						if (SameStr(mExtraRoots[i].CStr(), p.CStr())) {
+							mExtraRoots.Erase(mExtraRoots.Begin() + i);
+							SaveRoots();
+							mRowsDirty = true;
+							return;
+						}
 				}
 
 				// Row VIRTUELLE du champ de création inline (en tête du dossier parent).
@@ -1096,6 +1180,7 @@ namespace nkentseu {
 							mCtx.pos = m;
 							mCtxPath = r.path;
 							mCtxIsDir = r.dir;
+							mCtxIsExtraRoot = r.extraRoot;
 						}
 					}
 					// Clic droit dans le VIDE : menu sur la racine (création à la racine).
@@ -1104,6 +1189,7 @@ namespace nkentseu {
 						mCtx.pos = m;
 						mCtxPath = mRootStr;
 						mCtxIsDir = true;
+						mCtxIsExtraRoot = false;
 					}
 					// ── Drop de fichiers depuis l'OS : COPIE dans le dossier sous la
 					// position (posé par la boucle ci-dessus), sinon à la racine. ──
@@ -1225,6 +1311,8 @@ namespace nkentseu {
 							mS->OpenPath(NkPath(mSelPath));
 						if (ctx.input.KeyPressed(NkGuiKey::F2) && mSelPath.Length() > 0)
 							StartRename(mSelPath);
+						// (Ajouter/retirer un dossier racine = menu contextuel : Ctrl+R est
+						//  déjà la commande globale « jenga run ».)
 						// Barre ESPACE : aperçu (peek) du fichier sélectionné.
 						if (!mPeekOpen && mSelPath.Length() > 0 && !SelIsDir())
 							for (int32 ci = 0; ci < ctx.input.charCount; ++ci)
@@ -1488,23 +1576,29 @@ namespace nkentseu {
 						return;
 					// Fichiers/dossiers (0-9) + GIT & IA (10-15) : ces derniers sont des
 					// PLACEHOLDERS — présents dans le menu, comportement défini plus tard.
-					const char *items[16] = {NkT("exp.ctx.newfile"),  NkT("exp.ctx.newfolder"),
+					const char *items[18] = {NkT("exp.ctx.newfile"),  NkT("exp.ctx.newfolder"),
 											 NkT("exp.ctx.rename"),	  NkT("exp.ctx.delete"),
 											 NkT("exp.ctx.dup"),	  NkT("exp.ctx.copypath"),
 											 NkT("exp.ctx.copyrel"),  NkT("exp.ctx.reveal"),
 											 NkT("exp.ctx.term"),	  NkT("exp.ctx.gitignore"),
 											 NkT("exp.ctx.compare"),  NkT("exp.ctx.blame"),
 											 NkT("exp.ctx.discard"),  NkT("exp.ctx.aigen"),
-											 NkT("exp.ctx.aitest"),	  NkT("exp.ctx.props")};
-					bool en[16];
-					for (int32 i = 0; i < 16; ++i)
+											 NkT("exp.ctx.aitest"),	  NkT("exp.ctx.props"),
+											 NkT("exp.addroot"),	  NkT("exp.removeroot")};
+					bool en[18];
+					for (int32 i = 0; i < 18; ++i)
 						en[i] = true;
-					const bool isRoot = SameStr(mCtxPath.CStr(), mRootStr.CStr());
-					if (isRoot) // pas de rename/suppression/duplication/gitignore de la racine
+					const bool isMainRoot = SameStr(mCtxPath.CStr(), mRootStr.CStr());
+					const bool isExtraRoot = mCtxIsExtraRoot;
+					if (isMainRoot || isExtraRoot) // pas de rename/suppr/dup/gitignore d'une racine
 						en[2] = en[3] = en[4] = en[9] = false;
 					if (mCtxIsDir) // git compare/blame/discard + IA = fichiers uniquement
 						en[10] = en[11] = en[12] = en[13] = en[14] = false;
-					const int32 act = NkCtxMenuDraw(ctx, mCtx, items, en, 16);
+					en[16] = isMainRoot || isExtraRoot; // « Ajouter un dossier » : sur une racine
+					en[17] = isExtraRoot;				// « Retirer du workspace » : racine secondaire
+					// Cache les 2 derniers si non pertinents (les met en fin, désactivés).
+					const int32 nItems = (isMainRoot || isExtraRoot) ? 18 : 16;
+					const int32 act = NkCtxMenuDraw(ctx, mCtx, items, en, nItems);
 					if (act < 0)
 						return;
 					const NkString p = mCtxPath;
@@ -1556,6 +1650,12 @@ namespace nkentseu {
 							mS->status = NkPrintf("%s \xE2\x80\x94 %d o", NkPath(p).GetFileName().CStr(),
 												  static_cast<int32>(sz));
 						} break;
+						case 16: // Ajouter un dossier au workspace (racine secondaire)
+							AddRootFolder();
+							break;
+						case 17: // Retirer du workspace (racine secondaire)
+							RemoveRootFolder(p);
+							break;
 						default:
 							break;
 					}
@@ -1564,6 +1664,8 @@ namespace nkentseu {
 				NkCodeState *mS = nullptr;
 				NkVector<Row> mRows;
 				NkVector<NkString> mExpanded;
+				NkVector<NkString> mExtraRoots; ///< racines secondaires (multi-racines)
+				bool mCtxIsExtraRoot = false;  ///< la cible du menu est une racine secondaire
 				NkString mRootStr, mSelPath;
 				// ── Sélection MULTIPLE (mSelPath = élément principal/dernier cliqué) ──
 				NkVector<NkString> mSelSet;
