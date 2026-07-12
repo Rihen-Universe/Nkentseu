@@ -1379,9 +1379,16 @@ namespace nkentseu {
 			};
 			auto apply = [&](const NkString &ln) {
 				const char *s = ln.CStr();
-				if (StartsWith(s, "maximized=")) {
+				if (StartsWith(s, "win=")) {
+					int32 x = 0, y = 0, w = 0, h = 0;
+					if (std::sscanf(s + 4, "%d|%d|%d|%d", &x, &y, &w, &h) == 4 && w > 100 && h > 80) {
+						mWindow.Restore(); // sortir d'un éventuel maximisé avant de placer
+						mWindow.SetSize(static_cast<uint32>(w), static_cast<uint32>(h));
+						mWindow.SetPosition(x, y); // coords écran -> bon moniteur
+					}
+				} else if (StartsWith(s, "maximized=")) {
 					if (s[10] == '1')
-						mWindow.Maximize();
+						mWindow.Maximize(); // maximise sur le moniteur placé par win=
 					else
 						mWindow.Restore();
 				} else if (StartsWith(s, "panel=")) {
@@ -1504,12 +1511,73 @@ namespace nkentseu {
 			}
 		}
 
+		void NkEditorShell::MaximizeWindow() noexcept {
+			mWindow.Maximize();
+		}
+
+		// Géométrie GLOBALE (launcher) : mêmes lignes win=/maximized= que l'UiState.
+		void NkEditorShell::SaveWindowGeom(const char *path) noexcept {
+			if (!path || !*path)
+				return;
+			NkPath p(path);
+			NkDirectory::CreateRecursive(p.GetParent());
+			NkString out;
+			if (!mWindow.IsMaximized()) {
+				const math::NkVec2u sz = mWindow.GetSize();
+				const math::NkVec2u ps = mWindow.GetPosition();
+				out += NkPrintf("win=%d|%d|%d|%d\n", static_cast<int32>(ps.x), static_cast<int32>(ps.y),
+								static_cast<int32>(sz.x), static_cast<int32>(sz.y));
+			}
+			out += mWindow.IsMaximized() ? "maximized=1\n" : "maximized=0\n";
+			NkFile::WriteAllText(p, out);
+		}
+
+		bool NkEditorShell::LoadWindowGeom(const char *path) noexcept {
+			if (!path || !*path || !NkFile::Exists(path))
+				return false;
+			const NkString txt = NkFile::ReadAllText(NkPath(path));
+			NkString line;
+			auto apply = [&](const char *s) {
+				if (StartsWith(s, "win=")) {
+					int32 x = 0, y = 0, w = 0, h = 0;
+					if (std::sscanf(s + 4, "%d|%d|%d|%d", &x, &y, &w, &h) == 4 && w > 100 && h > 80) {
+						mWindow.Restore();
+						mWindow.SetSize(static_cast<uint32>(w), static_cast<uint32>(h));
+						mWindow.SetPosition(x, y);
+					}
+				} else if (StartsWith(s, "maximized=") && s[10] == '1')
+					mWindow.Maximize();
+			};
+			for (const char *c = txt.CStr();; ++c) {
+				if (*c == '\n' || *c == '\r' || *c == '\0') {
+					if (!line.Empty()) {
+						apply(line.CStr());
+						line.Clear();
+					}
+					if (*c == '\0')
+						break;
+				} else
+					line += *c;
+			}
+			return true;
+		}
+
 		void NkEditorShell::SaveUiState(const char *path) noexcept {
 			if (!path || !*path)
 				return;
 			NkPath p(path);
 			NkDirectory::CreateRecursive(p.GetParent()); // cree <ws>/.nkcode/ si besoin
 			NkString out;
+			// Géométrie fenêtrée D'ABORD (place la fenêtre sur le bon MONITEUR via les
+			// coordonnées écran absolues), PUIS l'état maximisé -> maximise sur ce
+			// moniteur. Non sauvée si maximisée (coords = plein écran, pas la taille
+			// fenêtrée à restaurer). Cast unsigned->int : récupère une position négative.
+			if (!mWindow.IsMaximized()) {
+				const math::NkVec2u sz = mWindow.GetSize();
+				const math::NkVec2u ps = mWindow.GetPosition();
+				out += NkPrintf("win=%d|%d|%d|%d\n", static_cast<int32>(ps.x), static_cast<int32>(ps.y),
+								static_cast<int32>(sz.x), static_cast<int32>(sz.y));
+			}
 			out += "maximized=";
 			out += mWindow.IsMaximized() ? "1" : "0";
 			out += "\n";

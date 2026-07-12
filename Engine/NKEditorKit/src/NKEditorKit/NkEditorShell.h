@@ -78,6 +78,11 @@ namespace nkentseu {
 				int32 PanelDockNode(const char *title) noexcept; ///< feuille de dock (-1 = non ancre)
 				void DetachPanel(const char *title) noexcept; ///< retire de sa feuille (collapse si vide)
 
+				// ── Géométrie de fenêtre (launcher) : fichier global taille/pos/maximisé ──
+				void MaximizeWindow() noexcept;
+				void SaveWindowGeom(const char *path) noexcept;	 ///< écrit win=/maximized= (position écran)
+				bool LoadWindowGeom(const char *path) noexcept;	 ///< applique si le fichier existe ; false sinon
+
 				// Clic sur l'activity bar : l'app recoit l'index (0..6 = vues gauche, 100..102 = IA
 				// droite, 999 = reglages) et decide (sidebar exclusive facon VSCode).
 				void SetActivityHandler(void (*fn)(void *, int32), void *user) noexcept {
