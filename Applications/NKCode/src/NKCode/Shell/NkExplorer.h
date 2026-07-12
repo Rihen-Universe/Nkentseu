@@ -59,6 +59,7 @@ namespace nkentseu {
 						DrawFilterBar(ctx, vclip);
 					DrawCtxMenu(ctx);	 // overlay : par-dessus tout
 					DrawConfirmDel(ctx); // confirmation de suppression
+					DrawPeek(ctx);		 // aperçu barre Espace (overlay centré)
 				}
 
 			private:
@@ -1206,6 +1207,13 @@ namespace nkentseu {
 							mS->OpenPath(NkPath(mSelPath));
 						if (ctx.input.KeyPressed(NkGuiKey::F2) && mSelPath.Length() > 0)
 							StartRename(mSelPath);
+						// Barre ESPACE : aperçu (peek) du fichier sélectionné.
+						if (!mPeekOpen && mSelPath.Length() > 0 && !SelIsDir())
+							for (int32 ci = 0; ci < ctx.input.charCount; ++ci)
+								if (ctx.input.chars[ci] == 32) {
+									OpenPeek(mSelPath);
+									break;
+								}
 						if (ctx.input.KeyPressed(NkGuiKey::Delete) && !mSelSet.Empty())
 							RequestDelete(ctx, mSelPath, SelIsDir()); // confirmation (groupe si multi)
 						if (ctx.input.ctrlDown && ctx.input.KeyPressed(NkGuiKey::D) && !mSelSet.Empty()) {
@@ -1258,6 +1266,165 @@ namespace nkentseu {
 							if (mClipCut)
 								mClipPaths.Clear();
 						}
+					}
+				}
+
+				// ── PEEK (barre Espace, façon VSCode/maquette) : ouvre l'aperçu. ──
+				void OpenPeek(const NkString &p) {
+					if (p.Length() == 0 || NkDirectory::Exists(p.CStr()))
+						return;
+					mPeekPath = p;
+					mPeekOpen = true;
+					mPeekScroll = 0.f;
+					mPeekSize = NkFile::GetFileSize(p.CStr());
+					mPeekLines.Clear();
+					const NkString txt = NkFile::ReadAllText(NkPath(p));
+					NkString cur;
+					int32 cnt = 0;
+					for (const char *q = txt.CStr(); *q && cnt < 40; ++q) {
+						if (*q == '\n') {
+							mPeekLines.PushBack(cur);
+							cur.Clear();
+							++cnt;
+						} else if (*q != '\r' && *q != '\t')
+							cur += *q;
+						else if (*q == '\t')
+							cur += "    ";
+					}
+					if (!cur.Empty() && cnt < 40)
+						mPeekLines.PushBack(cur);
+					// Git : dernier commit + diff vs HEAD (une commande, async).
+					mPeekCommit.Clear();
+					mPeekDiff.Clear();
+					char rel[1024];
+					RelOf(p, rel, sizeof(rel));
+					if (!mPeekGit.Running() && rel[0]) {
+						NkString cmd = "git -C \"";
+						cmd += mRootStr;
+						cmd += "\" log -1 --format=@C%an ";
+						cmd += "\xE2\x80\x94 %ar \xE2\x80\x94 %s -- \"";
+						cmd += rel;
+						cmd += "\" & git -C \"";
+						cmd += mRootStr;
+						cmd += "\" diff HEAD -- \"";
+						cmd += rel;
+						cmd += "\"";
+						if (mPeekGit.Start(cmd))
+							mPeekGitPending = true;
+					}
+				}
+
+				void TickPeek() {
+					if (mPeekGitPending && mPeekGit.Done()) {
+						mPeekGitPending = false;
+						NkVector<NkString> lines;
+						mPeekGit.Drain(lines);
+						for (usize i = 0; i < lines.Size(); ++i) {
+							const char *l = lines[i].CStr();
+							if (l[0] == '@' && l[1] == 'C')
+								mPeekCommit = NkString(l + 2);
+							else if (mPeekDiff.Size() < 60)
+								mPeekDiff.PushBack(lines[i]);
+						}
+					}
+				}
+
+				// Aperçu : overlay centré — en-tête (nom/badge/chemin/taille + Ouvrir),
+				// code COLORÉ (TokenizeLine), dernier commit, diff (+vert/-rouge).
+				void DrawPeek(NkGuiContext &ctx) {
+					if (!mPeekOpen)
+						return;
+					TickPeek();
+					auto &ov = ctx.dlOverlay;
+					const float32 W = static_cast<float32>(ctx.viewW), H = static_cast<float32>(ctx.viewH);
+					const NkRect box = {W * 0.18f, H * 0.12f, W * 0.64f, H * 0.72f};
+					ov.AddRectFilled(box, ctx.theme.panel, 8.f);
+					ov.AddRect(box, ctx.theme.accent, 8.f);
+					const float32 lh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
+					const float32 asc = (ctx.font && ctx.font->Valid()) ? ctx.font->Ascent() : 12.f;
+					float32 y = box.y + 10.f;
+					const NkVec2 m = ctx.input.mousePos;
+					if (ctx.font && ctx.font->Valid()) {
+						// En-tête : nom  ·  chemin relatif  ·  taille — bouton Ouvrir.
+						char rel[1024];
+						RelOf(mPeekPath, rel, sizeof(rel));
+						const NkString head = NkPrintf("%s   \xC2\xB7   %s   \xC2\xB7   %d o",
+													   NkPath(mPeekPath).GetFileName().CStr(), rel,
+													   static_cast<int32>(mPeekSize));
+						ov.AddText(ctx.font->Face(), ctx.font->TexId(), {box.x + 14.f, y + asc}, head.CStr(),
+								   ctx.theme.text, box.w - 120.f);
+						const char *ob = NkT("peek.open");
+						const float32 obw = ctx.font->MeasureWidth(ob) + 20.f;
+						const NkRect obr = {box.x + box.w - obw - 12.f, y - 3.f, obw, lh + 8.f};
+						const bool obh = NkGuiRectContains(obr, m);
+						ov.AddRectFilled(obr, obh ? ctx.theme.buttonHover : ctx.theme.button, 4.f);
+						ov.AddText(ctx.font->Face(), ctx.font->TexId(), {obr.x + 10.f, y + asc}, ob, ctx.theme.text);
+						if (obh && ctx.input.mouseClicked[0]) {
+							mS->OpenPath(NkPath(mPeekPath));
+							mPeekOpen = false;
+						}
+						y += lh + 10.f;
+						ov.AddRectFilled({box.x + 1.f, y, box.w - 2.f, 1.f}, ctx.theme.border);
+						y += 6.f;
+						// Code COLORÉ (mêmes couleurs que l'éditeur).
+						const NkLang lg = NkLangFromExt(NkPath(mPeekPath).GetExtension().CStr());
+						int32 blk = 0;
+						const float32 codeBottom = box.y + box.h * 0.55f;
+						for (usize i = 0; i < mPeekLines.Size() && y + lh < codeBottom; ++i) {
+							const char *L = mPeekLines[i].CStr();
+							const int32 n = static_cast<int32>(mPeekLines[i].Length());
+							float32 x = box.x + 16.f;
+							blk = TokenizeLine(lg, L, n, blk, ctx.syntax,
+											   [&](int32 a, int32 b, const NkColor &col) {
+												   char seg[512];
+												   int32 sl = 0;
+												   for (int32 k = a; k < b && sl < 511; ++k)
+													   seg[sl++] = L[k];
+												   seg[sl] = 0;
+												   ov.AddText(ctx.font->Face(), ctx.font->TexId(), {x, y + asc}, seg,
+															  col, box.x + box.w - 14.f - x);
+												   x += ctx.font->MeasureWidth(seg);
+											   });
+							y += lh;
+						}
+						y = codeBottom + 4.f;
+						ov.AddRectFilled({box.x + 1.f, y, box.w - 2.f, 1.f}, ctx.theme.border);
+						y += 6.f;
+						// Dernier commit.
+						if (mPeekCommit.Length() > 0) {
+							ov.AddText(ctx.font->Face(), ctx.font->TexId(), {box.x + 14.f, y + asc},
+									   mPeekCommit.CStr(), ctx.theme.textDisabled, box.w - 28.f);
+							y += lh + 4.f;
+						}
+						// Diff vs HEAD (tronqué) : + vert, - rouge, @@ accent.
+						for (usize i = 0; i < mPeekDiff.Size() && y + lh < box.y + box.h - 8.f; ++i) {
+							const char *L = mPeekDiff[i].CStr();
+							NkColor col = ctx.theme.textDisabled;
+							if (L[0] == '+')
+								col = {63, 185, 80, 255};
+							else if (L[0] == '-')
+								col = {248, 81, 73, 255};
+							else if (L[0] == '@')
+								col = ctx.theme.accent;
+							ov.AddText(ctx.font->Face(), ctx.font->TexId(), {box.x + 14.f, y + asc}, L, col,
+									   box.w - 28.f);
+							y += lh;
+						}
+					}
+					// Fermeture : Échap, Espace, ou clic EXTÉRIEUR (le clic intérieur est gardé).
+					const bool spaceAgain = [&] {
+						for (int32 i = 0; i < ctx.input.charCount; ++i)
+							if (ctx.input.chars[i] == 32)
+								return true;
+						return false;
+					}();
+					if (ctx.input.KeyPressed(NkGuiKey::Escape) || spaceAgain ||
+						(ctx.input.mouseClicked[0] && !NkGuiRectContains(box, m)))
+						mPeekOpen = false;
+					if (NkGuiRectContains(box, m)) { // garde d'input : rien ne passe dessous
+						ctx.input.mouseClicked[0] = false;
+						ctx.input.mouseClicked[1] = false;
+						ctx.input.wheel = 0.f;
 					}
 				}
 
@@ -1359,6 +1526,16 @@ namespace nkentseu {
 				NkString mDelPath;
 				bool mDelIsDir = false;
 				NkString mDelLabel;
+				// ── PEEK (barre Espace) : aperçu coloré + métadonnées + diff vs HEAD ──
+				bool mPeekOpen = false;
+				NkString mPeekPath;
+				NkVector<NkString> mPeekLines; ///< premières lignes du fichier
+				int64 mPeekSize = 0;
+				NkProcess mPeekGit;			  ///< log -1 + diff HEAD (async)
+				NkString mPeekCommit;		  ///< « auteur — date — sujet »
+				NkVector<NkString> mPeekDiff; ///< lignes du diff (tronquées)
+				bool mPeekGitPending = false;
+				float32 mPeekScroll = 0.f;
 				NkRect mEditRect = {0.f, 0.f, 0.f, 0.f}; ///< zone de saisie inline (clic hors = valide)
 		};
 
