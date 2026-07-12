@@ -7,6 +7,14 @@
 #include "NKSpeech/NkAudioFeatures.h"
 #include "NKSpeech/NkGriffinLim.h"
 
+// --- Etape 3b : modele acoustique appris (Transformer texte -> spectrogramme) ---
+#include "NKTensor/NkTensor.h"
+#include "NKTensor/NkTensorGpu.h"
+#include "NKAutograd/NkVar.h"
+#include "NKNN/NkDense.h"
+#include "NKNN/NkTransformer.h"
+#include "NKOptim/NkOptim.h"
+
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -100,10 +108,294 @@ static bool WriteWavMono(const char *path, const float32 *mono, int32 samples, i
 	return true;
 }
 
+// Reconstruit une onde depuis une magnitude (FGLA), la rend ECOUTABLE (RMS + soft-clip tanh)
+// et l'ecrit en WAV. Facteur commun etape 2 / inference etape 3b.
+static void ReconNormalizeWrite(const NkMagSpectrogram &mag, const NkGriffinLimConfig &gl, int32 sr,
+								const char *path) {
+	NkVector<float32> recon = NkGriffinLim::Reconstruct(mag, gl);
+	double rms = 0.0;
+	for (uint64 i = 0; i < recon.Size(); ++i)
+		rms += (double)recon[i] * recon[i];
+	rms = (recon.Size() > 0) ? sqrt(rms / (double)recon.Size()) : 0.0;
+	double gain = (rms > 1e-9) ? (0.20 / rms) : 1.0;
+	for (uint64 i = 0; i < recon.Size(); ++i)
+		recon[i] = (float32)tanh((double)recon[i] * gain);
+	bool w = WriteWavMono(path, recon.Data(), (int32)recon.Size(), sr);
+	printf("  ecrit : %s (%s, %.2fs)\n", path, w ? "OK" : "KO", (double)recon.Size() / (double)sr);
+}
+
+// =============================================================================
+// ETAPE 3b — MODELE ACOUSTIQUE APPRIS (Transformer texte -> spectrogramme magnitude).
+//   Embedding caracteres + positions -> blocs Transformer (encodeur texte) -> upsampling
+//   a debit fixe (matmul par matrice de repetition) -> tete magnitude. Cible = log(1+|STFT|)
+//   du vrai clip (re-echantillonnee a T_texte*R). Perte MSE, optimiseur Adam. Inference :
+//   magnitude predite -> FGLA (etape 2) -> WAV = la voix de la locutrice.
+//   ⚠️ Debit FIXE (pas d'alignement appris) : le RYTHME sera approximatif ; c'est le 1er
+//   modele appris (petite echelle), on prouve la chaine texte->onde et on entend la voix.
+// =============================================================================
+namespace {
+
+// Vocabulaire caractere->id construit a la volee (ASCII minuscule).
+struct NkCharVocab {
+		int32 map[128];
+		char inv[128];
+		int32 size = 0;
+		NkCharVocab() {
+			for (int32 i = 0; i < 128; ++i) {
+				map[i] = -1;
+				inv[i] = 0;
+			}
+		}
+		int32 Get(char c) {
+			unsigned uc = (unsigned char)c;
+			if (uc >= 128)
+				return -1;
+			if (uc >= 'A' && uc <= 'Z')
+				uc = uc - 'A' + 'a';
+			if (map[uc] < 0) {
+				map[uc] = size;
+				inv[size] = (char)uc;
+				++size;
+			}
+			return map[uc];
+		}
+};
+
+struct NkClip {
+		NkVector<int32> ids;	// sequence de char-ids
+		NkVector<float32> spec; // log(1+|STFT|), frames*bins row-major
+		int32 frames = 0, bins = 0;
+		char id[32] = {0};
+		char text[256] = {0};
+};
+
+static int32 EnvI(const char *k, int32 def) {
+	const char *e = getenv(k);
+	return e ? atoi(e) : def;
+}
+static float32 EnvF(const char *k, float32 def) {
+	const char *e = getenv(k);
+	return e ? (float32)atof(e) : def;
+}
+
+} // namespace
+
+static int RunTraining(const char *dir) {
+	using namespace nkentseu::ai;
+	NkTensorGpu &gpu = NkTensorGpu::Get();
+	printf("=== NKTTSTrain — ETAPE 3b : modele acoustique appris (texte -> voix) ===\n");
+	printf("  GPU compute : %s (%s)\n", gpu.IsAvailable() ? "OUI" : "NON", gpu.BackendName());
+
+	// ---- Hyperparametres (env) ----
+	const int32 N = EnvI("NK_TTS_N", 1);		 // nb de clips (1 = surajuste 1 phrase)
+	const int32 steps = EnvI("NK_TTS_STEPS", 600);
+	const int32 d = EnvI("NK_TTS_D", 128);
+	const int32 H = EnvI("NK_TTS_H", 4);
+	const int32 L = EnvI("NK_TTS_L", 3);
+	const int32 R = EnvI("NK_TTS_R", 8);		 // trames de spectro par caractere (debit fixe)
+	const float32 lr = EnvF("NK_TTS_LR", 3e-4f);
+
+	NkGriffinLimConfig gl;
+	gl.fftSize = 1024;
+	gl.hopSize = 256;
+	gl.iterations = 150;
+	const int32 BINS = gl.fftSize / 2 + 1; // 513
+
+	// ---- Chargement des clips (texte -> ids, audio -> log-magnitude) ----
+	char metaPath[1024];
+	snprintf(metaPath, sizeof(metaPath), "%s/metadata.csv", dir);
+	FILE *meta = fopen(metaPath, "r");
+	if (!meta) {
+		printf("[ERREUR] metadata.csv introuvable : %s\n", metaPath);
+		return 1;
+	}
+	NkCharVocab vocab;
+	NkVector<NkClip> clips;
+	int32 maxT = 8;
+	char line[8192];
+	while (fgets(line, sizeof(line), meta) && (int32)clips.Size() < N) {
+		char *p1 = strchr(line, '|');
+		if (!p1)
+			continue;
+		*p1 = '\0';
+		const char *cid = line;
+		char *p2 = strchr(p1 + 1, '|');
+		const char *text = (p2 ? p2 + 1 : p1 + 1);
+		char textBuf[256];
+		snprintf(textBuf, sizeof(textBuf), "%s", text);
+		for (char *c = textBuf; *c; ++c)
+			if (*c == '\n' || *c == '\r') {
+				*c = '\0';
+				break;
+			}
+		char wavPath[1200];
+		snprintf(wavPath, sizeof(wavPath), "%s/wavs/%s.wav", dir, cid);
+		NkVector<float32> audio;
+		int32 sr = 0;
+		if (!ReadWavMono(wavPath, audio, sr))
+			continue;
+
+		NkClip clip;
+		snprintf(clip.id, sizeof(clip.id), "%s", cid);
+		snprintf(clip.text, sizeof(clip.text), "%s", textBuf);
+		for (const char *c = textBuf; *c; ++c) {
+			int32 id = vocab.Get(*c);
+			if (id >= 0)
+				clip.ids.PushBack(id);
+		}
+		if ((int32)clip.ids.Size() < 2 || (int32)clip.ids.Size() > 220)
+			continue;
+		if ((int32)clip.ids.Size() > maxT)
+			maxT = (int32)clip.ids.Size();
+
+		NkMagSpectrogram m = NkGriffinLim::Magnitude(audio.Data(), (int32)audio.Size(), gl);
+		clip.frames = m.frames;
+		clip.bins = m.bins;
+		clip.spec.Resize((uint64)m.frames * (uint64)m.bins);
+		for (uint64 i = 0; i < clip.spec.Size(); ++i)
+			clip.spec[i] = (float32)log(1.0 + (double)m.data[i]);
+		clips.PushBack(clip);
+		printf("  clip[%d] %s : %d car -> %d trames | \"%.50s\"\n", (int)clips.Size() - 1, clip.id,
+			   (int)clip.ids.Size(), clip.frames, clip.text);
+	}
+	fclose(meta);
+	if (clips.Size() == 0) {
+		printf("[ERREUR] aucun clip charge.\n");
+		return 1;
+	}
+	printf("  vocab = %d caracteres, %d clips, maxT=%d, d=%d L=%d H=%d R=%d\n", vocab.size,
+		   (int)clips.Size(), maxT, d, L, H, R);
+
+	// ---- Construction du modele ----
+	const uint32 V = (uint32)vocab.size;
+	NkVar tokEmb = NkVar::Leaf(nn::RandnTensor(NkShape{(int64)V, (int64)d}, 0.02, 11u), true);
+	NkVar posEmb = NkVar::Leaf(nn::RandnTensor(NkShape{(int64)(maxT + 1), (int64)d}, 0.02, 12u), true);
+	NkVector<nn::NkTransformerBlock> blocks;
+	for (int32 l = 0; l < L; ++l)
+		blocks.PushBack(nn::NkTransformerBlock((uint32)d, (uint32)H, 100u + (uint32)l * 17u));
+	nn::NkLayerNorm lnf((uint32)d);
+	nn::NkDense fc1((uint32)d, (uint32)d, 201u);
+	nn::NkDense fc2((uint32)d, (uint32)BINS, 202u); // tete magnitude (log)
+
+	NkVector<NkVar> params;
+	params.PushBack(tokEmb);
+	params.PushBack(posEmb);
+	for (uint32 l = 0; l < blocks.Size(); ++l)
+		blocks[l].Parameters(params);
+	lnf.Parameters(params);
+	fc1.Parameters(params);
+	fc2.Parameters(params);
+	printf("  %d tenseurs de parametres.\n", (int)params.Size());
+
+	optim::NkAdam adam(params, lr);
+
+	// ---- Passe avant : clip -> (pred [Tout,BINS], loss) ----
+	auto forwardClip = [&](const NkClip &clip, NkVar &predOut) -> NkVar {
+		const int32 T = (int32)clip.ids.Size();
+		const int32 Tout = T * R;
+		NkTensor idsT = NkTensor::Zeros(NkShape{(int64)1, (int64)T});
+		NkTensor posT = NkTensor::Zeros(NkShape{(int64)1, (int64)T});
+		{
+			float *ip = idsT.DataAs<float>();
+			float *pp = posT.DataAs<float>();
+			for (int32 t = 0; t < T; ++t) {
+				ip[t] = (float)clip.ids[(uint64)t];
+				pp[t] = (float)t;
+			}
+		}
+		NkVar te = autograd::Embedding(tokEmb, idsT);
+		NkVar pe = autograd::Embedding(posEmb, posT);
+		NkVar x = autograd::Add(te, pe); // [1,T,d]
+		for (uint32 l = 0; l < blocks.Size(); ++l)
+			x = blocks[l].Forward(x);
+		x = lnf.Forward(x);
+		NkVar xf = autograd::Reshape(x, NkShape{(int64)T, (int64)d});
+		// Matrice d'upsampling a debit fixe U [Tout,T] : U[i, i/R] = 1.
+		NkTensor U = NkTensor::Zeros(NkShape{(int64)Tout, (int64)T});
+		{
+			float *upp = U.DataAs<float>();
+			for (int32 i = 0; i < Tout; ++i)
+				upp[i * T + (i / R)] = 1.0f;
+		}
+		NkVar Uv = NkVar::Leaf(U, false);
+		NkVar up = autograd::Matmul(Uv, xf);		   // [Tout,d]
+		NkVar hid = autograd::Gelu(fc1.Forward(up));   // [Tout,d]
+		predOut = fc2.Forward(hid);					   // [Tout,BINS] (log-magnitude)
+		// Cible re-echantillonnee [Tout,BINS].
+		NkTensor tgt = NkTensor::Zeros(NkShape{(int64)Tout, (int64)BINS});
+		{
+			float *tp = tgt.DataAs<float>();
+			for (int32 i = 0; i < Tout; ++i) {
+				int32 sf = (int32)((int64)i * clip.frames / (Tout > 0 ? Tout : 1));
+				if (sf >= clip.frames)
+					sf = clip.frames - 1;
+				for (int32 k = 0; k < BINS; ++k)
+					tp[i * BINS + k] = clip.spec[(uint64)sf * clip.bins + k];
+			}
+		}
+		NkVar tgtV = NkVar::Leaf(tgt, false);
+		return autograd::MSE(predOut, tgtV);
+	};
+
+	// ---- Boucle d'entrainement ----
+	double ema = 0.0;
+	for (int32 step = 0; step < steps; ++step) {
+		const NkClip &clip = clips[(uint64)(step % (int32)clips.Size())];
+		NkVar pred;
+		NkVar loss = forwardClip(clip, pred);
+		adam.ZeroGrad();
+		loss.Backward();
+		adam.Step();
+		double lv = loss.Value().ToCPU().GetItem(NkShape{(int64)0});
+		ema = (step == 0) ? lv : (0.98 * ema + 0.02 * lv);
+		if (step % 50 == 0 || step == steps - 1)
+			printf("  step %4d/%d  loss=%.5f  ema=%.5f\n", step, steps, lv, ema);
+	}
+
+	// ---- Inference : reproduit chaque clip d'entrainement (texte -> voix apprise) ----
+	printf("\n  --- Inference (le modele 'recite' les phrases apprises) ---\n");
+	for (int32 c = 0; c < (int32)clips.Size(); ++c) {
+		const NkClip &clip = clips[(uint64)c];
+		NkVar pred;
+		NkVar loss = forwardClip(clip, pred);
+		NkTensor pcpu = pred.Value().ToCPU();
+		const float *pp = pcpu.DataAs<float>();
+		const int32 Tout = (int32)clip.ids.Size() * R;
+		NkMagSpectrogram pm;
+		pm.frames = Tout;
+		pm.bins = BINS;
+		pm.data.Resize((uint64)Tout * (uint64)BINS);
+		for (uint64 i = 0; i < pm.data.Size(); ++i) {
+			double mg = exp((double)pp[i]) - 1.0;
+			pm.data[i] = (float32)(mg > 0.0 ? mg : 0.0);
+		}
+		char outPath[128];
+		snprintf(outPath, sizeof(outPath), "nktts_learned_%02d.wav", c);
+		printf("  [%s] \"%.50s\"\n", clip.id, clip.text);
+		ReconNormalizeWrite(pm, gl, 22050, outPath);
+	}
+
+	gpu.Shutdown();
+	printf("\n=== Modele acoustique appris : entraine (ema=%.5f), voix ecrite ===\n", ema);
+	return 0;
+}
+
 int main(int argc, char **argv) {
+	// Mode entrainement (etape 3b) : NKTTSTrain.exe --train [<dir>]
+	bool train = false;
+	const char *dirArg = "D:/Projets/2026/Nkentseu/VoiceDatasets/LJSpeech/LJSpeech-1.1";
+	for (int i = 1; i < argc; ++i) {
+		if (strcmp(argv[i], "--train") == 0)
+			train = true;
+		else
+			dirArg = argv[i];
+	}
+	if (train)
+		return RunTraining(dirArg);
+
 	printf("=== NKTTSTrain — chargeur LJSpeech (etape 1 : pipeline de donnees) ===\n\n");
 
-	const char *dir = (argc >= 2) ? argv[1] : "D:/Projets/2026/Nkentseu/VoiceDatasets/LJSpeech/LJSpeech-1.1";
+	const char *dir = dirArg;
 	char metaPath[1024];
 	snprintf(metaPath, sizeof(metaPath), "%s/metadata.csv", dir);
 	FILE *meta = fopen(metaPath, "r");
