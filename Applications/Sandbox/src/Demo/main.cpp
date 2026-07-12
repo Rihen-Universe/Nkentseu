@@ -31,7 +31,9 @@
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h" // NK_CAPTURE (validation headless)
 #include "NKRenderer/Tools/Offscreen/NkFrameCapture.h"	  // NK_RECORD (capture async -> video)
-#include "NKMedia/Video/NkVideoRecorder.h"				  // NK_RECORD (encodage MP4/H.264 threade)
+#include "NKMedia/Video/NkVideoRecorder.h"
+#include "NKThreading/NkThread.h" // NK_RECORD : finalisation MP4 asynchrone (fix freeze F9)
+#include "NKMemory/NkAllocator.h" // NK_RECORD : recorder alloue (possede par le thread de finalisation)				  // NK_RECORD (encodage MP4/H.264 threade)
 
 namespace nkentseu {
 	struct NkEntryState;
@@ -592,7 +594,21 @@ int nkmain(const NkEntryState &state) {
 	uint32 recordSeq = 0;			  // noms auto nk_record_NNN.mp4 (toggle F9)
 	renderer::NkOffscreenTarget recordTarget;
 	renderer::NkFrameCapture recordCapture;
-	media::NkVideoRecorder recorder;
+	media::NkVideoRecorder *recorder = nullptr; // alloue au demarrage d'un enregistrement
+	threading::NkThread recordFinalizeThread;	// End() draine la file d'encodage -> HORS du thread de rendu
+
+	// NK_RECORD_W/H : resolution d'ENREGISTREMENT independante de la fenetre
+	// (ex: 3840x2160 pendant un affichage 720p). Le moteur rend a cette taille
+	// (SetRenderSizeOverride) et la passe MirrorPresent re-echantillonne vers
+	// l'ecran. Qualite NATIVE (pas d'upscale). Defaut 0 = taille fenetre.
+	const char *recWEnv = getenv("NK_RECORD_W");
+	const char *recHEnv = getenv("NK_RECORD_H");
+	uint32 recOutW = recWEnv ? ((uint32)atoll(recWEnv) & ~1u) : 0;
+	uint32 recOutH = recHEnv ? ((uint32)atoll(recHEnv) & ~1u) : 0;
+	if ((recOutW == 0) != (recOutH == 0)) {
+		recOutW = 0;
+		recOutH = 0; // les DEUX ou aucun
+	}
 	float64 recordAccum = 0.0;
 	uint64 recordPushed = 0;
 
@@ -623,15 +639,37 @@ int nkmain(const NkEntryState &state) {
 			if (!recordCapture.Poll([&](const uint8 *px, uint32 w, uint32 h, uint64) {
 					(void)w;
 					(void)h;
-					recorder.PushVideo(px, media::NkVideoInputFormat::RGBA32);
+					if (recorder)
+						recorder->PushVideo(px, media::NkVideoInputFormat::RGBA32);
 				}))
 				break;
 		}
-		recorder.End();
+		// Restaure l'affichage IMMEDIATEMENT (le rendu continue sans a-coup)...
 		renderer->SetFinalColorTarget(NkTextureHandle{});
+		if (recOutW)
+			renderer->SetRenderSizeOverride(0, 0);
 		recordCapture.Shutdown();
 		recordTarget.Shutdown();
-		logger.Infof("[main] NK_RECORD termine : %llu trames -> %s\n", (unsigned long long)recordPushed, recordPath);
+		if (recorder)
+			logger.Infof("[main] NK_RECORD stats : file=%d, droppees=%llu, encodage=%.1f fps\n",
+						 recorder->QueueDepth(), (unsigned long long)recorder->DroppedFrames(),
+						 recorder->EncodeFps());
+		// ... et FINALISE le MP4 sur un THREAD DEDIE : recorder->End() draine
+		// toute la file d'encodage (potentiellement des secondes) — sur le
+		// thread de rendu ca FIGEAIT l'application (bug F9 constate par Rihen).
+		// Le thread prend possession du recorder et le libere.
+		if (recorder) {
+			if (recordFinalizeThread.Joinable())
+				recordFinalizeThread.Join(); // une finalisation precedente encore en cours
+			media::NkVideoRecorder *toEnd = recorder;
+			recorder = nullptr;
+			recordFinalizeThread.Start([toEnd](void *) {
+				toEnd->End();
+				memory::NkGetDefaultAllocator().Delete(toEnd);
+			});
+		}
+		logger.Infof("[main] NK_RECORD arrete : %llu trames -> %s (finalisation en fond)\n",
+					 (unsigned long long)recordPushed, recordPath);
 		recording = false;
 	};
 
@@ -671,37 +709,45 @@ int nkmain(const NkEntryState &state) {
 		if (recording) {
 			// Resize pendant l'enregistrement : tailles cible/capture/encodeur
 			// incoherentes -> on STOPPE proprement (protege contre les blocages).
-			if (recordTarget.IsValid() &&
+			if (recordTarget.IsValid() && recOutW == 0 &&
 				(recordTarget.GetWidth() != ctx.width || recordTarget.GetHeight() != ctx.height)) {
 				logger.Warnf("[main] NK_RECORD: resize fenetre detecte, arret de l'enregistrement\n");
 				stopRecording();
 			} else if (!recordTarget.IsValid()) {
+				// Resolution d'ENREGISTREMENT : NK_RECORD_W/H (qualite native,
+				// independante de la fenetre) sinon taille de la fenetre.
+				const uint32 rw = recOutW ? recOutW : ctx.width;
+				const uint32 rh = recOutH ? recOutH : ctx.height;
 				renderer::NkOffscreenDesc od;
-				od.width = ctx.width;
-				od.height = ctx.height;
+				od.width = rw;
+				od.height = rh;
 				od.hasDepth = false;
 				od.colorFmt = ::nkentseu::NkGPUFormat::NK_RGBA8_UNORM;
 				od.readback = false; // le readback passe par NkFrameCapture
 				od.name = "nk_record";
 				renderer::NkFrameCaptureDesc fd;
-				fd.width = ctx.width;
-				fd.height = ctx.height;
-				// Zone : clamp a la fenetre (peut avoir change depuis le parse).
-				uint32 vw = ctx.width, vh = ctx.height;
+				fd.width = rw;
+				fd.height = rh;
+				// Zone : clamp a l'image RENDUE (rw x rh).
+				uint32 vw = rw, vh = rh;
 				if (recHasRect) {
-					const uint32 rx = recRX < ctx.width ? recRX : 0;
-					const uint32 ry = recRY < ctx.height ? recRY : 0;
-					vw = (rx + recRW <= ctx.width) ? recRW : ((ctx.width - rx) & ~1u);
-					vh = (ry + recRH <= ctx.height) ? recRH : ((ctx.height - ry) & ~1u);
+					const uint32 rx = recRX < rw ? recRX : 0;
+					const uint32 ry = recRY < rh ? recRY : 0;
+					vw = (rx + recRW <= rw) ? recRW : ((rw - rx) & ~1u);
+					vh = (ry + recRH <= rh) ? recRH : ((rh - ry) & ~1u);
 					recRX = rx;
 					recRY = ry;
 					recRW = vw;
 					recRH = vh;
 					recCrop.Resize((usize)vw * vh * 4u);
 				}
-				const bool ok = vw >= 16 && vh >= 16 && recordTarget.Init(device, renderer->GetTextures(), od) &&
-								recordCapture.Init(device, fd) &&
-								recorder.Begin(recordPath, (int32)vw, (int32)vh, recordFps);
+				if (!recorder)
+					recorder = memory::NkGetDefaultAllocator().New<media::NkVideoRecorder>();
+				bool ok = vw >= 16 && vh >= 16 && recordTarget.Init(device, renderer->GetTextures(), od) &&
+						  recordCapture.Init(device, fd) &&
+						  recorder->Begin(recordPath, (int32)vw, (int32)vh, recordFps);
+				if (ok && recOutW)
+					renderer->SetRenderSizeOverride(rw, rh); // rendu interne a la taille d'export
 				if (ok) {
 					renderer->SetFinalColorTargetMirror(
 						renderer->GetTextures()->GetRHIHandle(recordTarget.GetColorResult()), /*mirrorToScreen=*/true);
@@ -718,8 +764,14 @@ int nkmain(const NkEntryState &state) {
 				const float64 interval = 1.0 / (float64)recordFps;
 				if (recordAccum >= interval) {
 					recordAccum -= interval;
-					(void)recordCapture.EnqueueCopy(
-						renderer->GetTextures()->GetRHIHandle(recordTarget.GetColorResult()), ctx.frame);
+					// AUTO-REGULATION (stats NKMedia 0bbaabcb) : si la file
+					// d'encodage approche son cap, on saute l'echantillon ICI
+					// (economise copie GPU + readback + memcpy d'une trame que
+					// le recorder dropperait de toute facon).
+					const bool encoderBusy = recorder && recorder->QueueDepth() >= 24;
+					if (!encoderBusy)
+						(void)recordCapture.EnqueueCopy(
+							renderer->GetTextures()->GetRHIHandle(recordTarget.GetColorResult()), ctx.frame);
 				}
 				// Draine les captures pretes vers l'encodeur (deja threade).
 				while (recordCapture.Poll([&](const uint8 *rgba, uint32 w, uint32 h, uint64) {
@@ -730,9 +782,11 @@ int nkmain(const NkEntryState &state) {
 						for (uint32 row = 0; row < recRH; ++row)
 							memcpy(recCrop.Data() + (usize)row * rowBytes,
 								   rgba + ((usize)(recRY + row) * w + recRX) * 4u, rowBytes);
-						recorder.PushVideo(recCrop.Data(), media::NkVideoInputFormat::RGBA32);
+						if (recorder)
+							recorder->PushVideo(recCrop.Data(), media::NkVideoInputFormat::RGBA32);
 					} else {
-						recorder.PushVideo(rgba, media::NkVideoInputFormat::RGBA32);
+						if (recorder)
+							recorder->PushVideo(rgba, media::NkVideoInputFormat::RGBA32);
 					}
 					recordPushed++;
 				})) {

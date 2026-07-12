@@ -63,11 +63,17 @@ while (capture.Poll([&](const uint8 *rgba, uint32 w, uint32 h, uint64 tag) {
     recorder.PushVideo(rgba, media::NkVideoInputFormat::RGBA32);
 })) {}
 
-// 4. Fin : drainer puis finaliser
+// 4. Fin : drainer, restaurer l'affichage, puis finaliser SUR UN AUTRE THREAD.
+//    recorder->End() draine toute la file d'encodage (potentiellement des
+//    secondes) : sur le thread de rendu ça FIGE l'application. Pattern :
 device->WaitIdle();
 while (capture.PendingCount() > 0 && capture.Poll(...)) {}
-recorder.End(); // MP4 toujours lisible
-renderer->SetFinalColorTarget(NkTextureHandle{});
+renderer->SetFinalColorTarget(NkTextureHandle{}); // la fenêtre revit tout de suite
+media::NkVideoRecorder *toEnd = recorder; recorder = nullptr;
+finalizeThread.Start([toEnd](void *) {
+    toEnd->End(); // MP4 finalisé en fond, toujours lisible
+    memory::NkGetDefaultAllocator().Delete(toEnd);
+});
 ```
 
 `Poll` peut aussi être appelé depuis un **thread consommateur dédié** (un seul thread
@@ -82,7 +88,14 @@ le rendu n'est jamais ralenti par la capture.
 | **touche F9** | démarre/arrête à chaud (noms auto `nk_record_NNN.mp4`) |
 | `NK_RECORD_FPS=n` | cadence d'échantillonnage (défaut **10**, voir plafond) |
 | `NK_RECORD_RECT=x,y,w,h` | n'enregistre que cette **zone** (crop, w/h alignés à 2) |
+| `NK_RECORD_W=..` + `NK_RECORD_H=..` | **résolution d'export indépendante** de la fenêtre (ex. 4K natif pendant affichage 720p) — les deux requis, alignés à 2 |
 | `NK_CAPTURE=<frame>` | PNG one-shot à la frame donnée |
+
+L'arrêt (F9 ou fin de session) restaure l'affichage **immédiatement** et finalise
+le MP4 sur un **thread dédié** — aucun freeze. Les stats NKMedia
+(`QueueDepth`/`DroppedFrames`/`EncodeFps`) sont loguées à l'arrêt, et la demo
+**auto-régule** : si la file d'encodage approche son cap, l'échantillon est sauté
+en amont (économise même le readback GPU).
 
 ## Multi-backend, qualité, limites
 
@@ -91,13 +104,14 @@ le rendu n'est jamais ralenti par la capture.
   Vulkan/DX12 : mêmes chemins, à confirmer visuellement. Le flip Y écran/readback est
   géré par backend.
 - **Zone et qualité** : le crop découpe des pixels **existants** — la qualité d'une zone
-  = la résolution du rendu source. Pour du 4K/2K natif : rendre la cible d'enregistrement
-  à cette résolution (l'offscreen est indépendant de la fenêtre) — câblage `NK_RECORD_W/H`
-  prévu (V3).
-- ⚠️ **Plafond encodeur (mesuré 2026-07-12)** : le H.264 CPU de NKMedia soutient
-  **~10 fps en 720p** ; au-delà, sa file d'encodage **non bornée** gonfle (~100 Mo/s à
-  30 fps) jusqu'à saturer la machine. En attente côté NKMedia : file bornée + politique
-  de drop + stats (et/ou mode MJPEG pour les cadences hautes).
+  = la résolution du rendu source. Pour du 4K/2K natif : `NK_RECORD_W/H` (V3) rend toute
+  la scène à la résolution d'export via `NkRenderer::SetRenderSizeOverride(w, h)` — le
+  swapchain de la fenêtre n'est pas touché, la passe MirrorPresent fait le pont.
+- **Plafond encodeur (mesuré 2026-07-12)** : le H.264 CPU de NKMedia soutient
+  **~10 fps en 720p**. La file d'encodage est désormais **bornée** côté NKMedia
+  (`maxQueuedFrames`, drop-newest) avec stats `QueueDepth()/DroppedFrames()/EncodeFps()`
+  — plus de saturation mémoire possible ; à cadence trop haute des trames sont droppées
+  (comptées). Mode MJPEG (cadences hautes) à venir côté NKMedia.
 - Le resize de la fenêtre pendant un enregistrement **arrête proprement** la vidéo
   (fichier finalisé lisible).
 
