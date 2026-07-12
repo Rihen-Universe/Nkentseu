@@ -97,6 +97,16 @@ namespace nkentseu {
 				// le swapchain. Cout : 1 draw plein-ecran.
 				void ExecuteBlit(NkICommandBuffer *cmd, NkTextureHandle src);
 
+				// Phase L : upload une LUT 3D de color grading utilisateur.
+				// rgba = size^3 voxels RGBA8, voxel (i,j,k) a l'index
+				// ((k*size + j)*size + i)*4 (i=rouge, j=vert, k=bleu — meme
+				// layout que la LUT identite). size dans [2..64]. L'effet
+				// s'active via la config renderer : colorGrading=true +
+				// lutStrength>0 (SetPostConfig). Operation de setup (WaitIdle
+				// interne si recreation) — PAS un appel par-frame. Accessible
+				// par renderer->GetPostProcess()->SetColorGradingLUT(...).
+				bool SetColorGradingLUT(const uint8 *rgba, uint32 size);
+
 			private:
 				NkIDevice *mDevice = nullptr;
 				NkTextureLibrary *mTex = nullptr;
