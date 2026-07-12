@@ -135,11 +135,12 @@ Socle d'un viewport d'édition façon Blender (testbed `renderdemo --demo=2`, fu
   était écrasé au Submit sur GL — exécution différée → FXAA lisait sa propre
   cible = image noire) ; flip Y écran par backend (DX/VK flip, GL direct).
   Protections : resize pendant record = arrêt propre ; drainage final borné.
-- ⚠️ **PLAFOND ENCODEUR MESURÉ** : le H.264 CPU soutient ~10 fps en 720p
-  (RAM plate) ; à 30 fps la file NON BORNÉE de NkVideoRecorder gonfle de
-  ~100 Mo/s → machine saturée. Défaut NK_RECORD_FPS = 10. **À COORDONNER
-  côté NKMedia** (module autre agent) : file bornée + politique de drop +
-  stats de profondeur ; et/ou encodage MJPEG (moins cher) pour cadence haute.
+- ⚠️ **PLAFOND ENCODEUR MESURÉ** : le H.264 CPU soutient ~10 fps en 720p.
+  Défaut NK_RECORD_FPS = 10. ✅ Côté NKMedia (commit 0bbaabcb) : file
+  **bornée** (maxQueuedFrames=32, drop-newest) + stats
+  `QueueDepth()/DroppedFrames()/EncodeFps()` — plus de saturation RAM
+  possible ; renderdemo auto-régule (saute l'échantillon si file ≥ 24) et
+  logue les stats à l'arrêt. Reste (NKMedia) : mode MJPEG pour cadence haute.
 - ✅ **Toggle à chaud + zone (2026-07-12)** — renderdemo : **touche F9**
   démarre/arrête l'enregistrement en cours de session (noms auto
   `nk_record_NNN.mp4`) ; `NK_RECORD_RECT=x,y,w,h` n'enregistre qu'une ZONE
@@ -147,8 +148,18 @@ Socle d'un viewport d'édition façon Blender (testbed `renderdemo --demo=2`, fu
   Côté moteur tout est activable/désactivable au runtime
   (`SetFinalColorTargetMirror` ↔ handle nul). Doc :
   `wiki/Runtime/NKRenderer/Capture.md` + README racine.
-- ⏳ V3 : résolution d'enregistrement ≠ fenêtre (`NK_RECORD_W/H`, rendu 4K
-  natif pendant affichage 720p — l'offscreen est déjà indépendant) ; audio.
+- ✅ **V3 résolution d'export indépendante (2026-07-12)** : côté moteur
+  `NkRenderer::SetRenderSizeOverride(w, h)` — rend TOUTE la 3D à la
+  résolution demandée (RenderGraph/post-process/offscreen) SANS toucher le
+  swapchain de la fenêtre (`ApplyRenderSize(touchDevice=false)`), la passe
+  MirrorPresent fait le pont (viewport par-pass). renderdemo :
+  `NK_RECORD_W/H` (ex. 3840×2160 natif pendant affichage 720p, alignés 2).
+- ✅ **Finalisation MP4 asynchrone (2026-07-12)** : `recorder->End()` draine
+  la file d'encodage (des secondes) — sur le thread de rendu ça FIGEAIT
+  l'app au F9-stop. Fix renderdemo : l'affichage est restauré immédiatement,
+  puis un `NkThread` dédié prend possession du recorder (heap NKMemory) et
+  fait `End()+Delete` en fond. Pattern de référence documenté dans le wiki.
+- ⏳ Reste : audio dans l'enregistrement ; MJPEG (côté NKMedia).
 
 ### Fondations (Phase A → D.3d) — toutes livrées
 - PBR forward avec UBO push-constant
