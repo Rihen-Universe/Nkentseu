@@ -375,21 +375,25 @@ namespace nkentseu {
 		}
 
 		bool NkCeltDecoder::DecodeFrame(const uint8 *data, int32 len, int32 LM, float32 *pcm, NkFrameFlags *outFlags) {
+			if (data == nullptr || len <= 0)
+				return false;
+			NkOpusRangeDecoder dec;
+			dec.Init(data, (uint32)len);
+			return DecodeShared(dec, len, LM, 0, kNumBands, pcm, false, outFlags);
+		}
+
+		bool NkCeltDecoder::DecodeShared(NkOpusRangeDecoder &dec, int32 len, int32 LM, int32 start, int32 end,
+										 float32 *pcm, bool accum, NkFrameFlags *outFlags) {
 			if (!mInit)
 				Init(mC);
-			if (data == nullptr || len <= 0 || pcm == nullptr || LM < 0 || LM > 3)
+			if (pcm == nullptr || LM < 0 || LM > 3)
 				return false;
 
 			const int32 C = mC;
-			const int32 start = 0;
-			const int32 end = kNumBands;
 			const int32 M = 1 << LM;
 			const int32 N = M * kShortMdctSize; // = shortMdctSize<<LM
 			const int32 totalBitsRaw = len * 8;
 			const int16 *eBands = NkCeltBands::Eband5ms();
-
-			NkOpusRangeDecoder dec;
-			dec.Init(data, (uint32)len);
 
 			// --- SILENCE ---
 			bool silence;
@@ -405,8 +409,9 @@ namespace nkentseu {
 			bool intra = false;
 
 			if (!silence) {
-				// Post-filtre (lu et ignoré pour ne pas désynchroniser l'ec).
-				if (dec.Tell() + 16 <= totalBitsRaw) {
+				// Post-filtre (lu et ignoré pour ne pas désynchroniser l'ec). Uniquement
+				// en CELT-only (start==0) ; en hybride le post-filtre n'est pas transmis.
+				if (start == 0 && dec.Tell() + 16 <= totalBitsRaw) {
 					if (dec.DecodeBitLogp(1)) {
 						const uint32 octave = dec.DecodeUint(6);
 						(void)((16u << octave) + dec.DecodeBits(4 + (uint32)octave) - 1u);
@@ -557,7 +562,7 @@ namespace nkentseu {
 				float32 *pcmC = (float32 *)memory::NkAlloc((size_t)N * sizeof(float32));
 				NkCeltDeemphasis::Apply(outSyn, pcmC, N, NkCeltDeemphasis::kPreemphCoef48k, &mPreemphMem[c]);
 				for (int32 i = 0; i < N; ++i)
-					pcm[i * C + c] = pcmC[i] * (1.0f / 32768.0f); // SCALEOUT libopus float : celt_sig +-32768 -> [-1,1]
+					if (accum) pcm[i * C + c] += pcmC[i] * (1.0f / 32768.0f); else pcm[i * C + c] = pcmC[i] * (1.0f / 32768.0f); // SCALEOUT + accum (hybride)
 				memory::NkFree(pcmC);
 			}
 
