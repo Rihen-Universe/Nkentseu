@@ -8,6 +8,8 @@
 #include "NKMedia/Codecs/Aac/NkAacTns.h"
 #include "NKMedia/Codecs/Aac/NkAacTables.h"
 
+#include <cmath> // powf (intensity stereo)
+
 namespace nkentseu {
 	namespace media {
 
@@ -85,6 +87,39 @@ namespace nkentseu {
 					}
 				}
 			}
+
+			// Décodage intensity stereo : pour les bandes marquées intensity (cb 14/15 côté
+			// droit), reconstruit le canal droit à partir du gauche : R = L·2^(−0.25·is_pos),
+			// avec un signe combiné à l'info M/S (cf. is_decode/invert_intensity). Après M/S.
+			void IsDecode(const NkAacIcs &ics, const NkAacIcs &icsr, int32 msMask, const uint8 (*msUsed)[51],
+						  float32 *l, float32 *r) {
+				const int32 nshort = NkAacIcs::kFrameLen / 8;
+				const int32 swbMax = (int32)ics.swbOffset[ics.numSwb];
+				int32 group = 0;
+				for (int32 g = 0; g < icsr.numWindowGroups; ++g) {
+					for (int32 b = 0; b < icsr.windowGroupLength[g]; ++b) {
+						for (int32 sfb = 0; sfb < icsr.maxSfb; ++sfb) {
+							const int32 cb = (int32)icsr.sfbCb[g][sfb];
+							const int32 isInt = (cb == 15) ? 1 : (cb == 14) ? -1 : 0;
+							if (isInt != 0) {
+								const int32 isPos = (int32)icsr.scaleFactors[g][sfb];
+								float32 scale = ::powf(0.5f, 0.25f * (float32)isPos);
+								const int32 invert = (msMask == 1) ? (1 - 2 * (int32)msUsed[g][sfb]) : 1;
+								if (isInt != invert)
+									scale = -scale;
+								int32 hi = (int32)icsr.swbOffset[sfb + 1];
+								if (hi > swbMax)
+									hi = swbMax;
+								for (int32 i = (int32)icsr.swbOffset[sfb]; i < hi; ++i) {
+									const int32 k = group * nshort + i;
+									r[k] = l[k] * scale;
+								}
+							}
+						}
+						++group;
+					}
+				}
+			}
 		} // namespace
 
 		bool NkAacDecoder::Init(int32 sampleRate, int32 channels) {
@@ -149,6 +184,7 @@ namespace nkentseu {
 					NkAacDequant::Apply(ics2, spec2);
 					if (msMask >= 1)
 						MsDecode(ics1, ics2, msMask, msUsed, spec1, spec2);
+					IsDecode(ics1, ics2, msMask, msUsed, spec1, spec2);
 					NkAacTns::Apply(ics1, mSfIndex, spec1);
 					NkAacTns::Apply(ics2, mSfIndex, spec2);
 					mFb[0].Process(spec1, ics1.windowSequence, ics1.windowShape, mPrevWindowShape[0], chTime[0]);
