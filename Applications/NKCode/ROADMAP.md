@@ -53,6 +53,20 @@ migrer le menu de l'explorateur (corrige la traversée) ; (2) `NkFilePicker` uni
 (remplace NkRootPicker + les 2 pickers) ; (3) champs texte → `InputText*` ;
 (4) retrait de la dette (`NkCtxMenuDraw`, `NkOwEdit`).
 
+### ✅ Dette traitée (2026-07-12) :
+- **`NkCtxMenu` + `NkCtxMenuDraw` → `Engine/NKEditorKit/src/NKEditorKit/NkEditorContextMenu.h`**
+  (commit `4657771`). Widget moteur réutilisable (scroll V/H, sous-menus, thème,
+  **occlusion « modal léger »** : consomme le clic quand la souris est dedans — la
+  « traversée d'événements » était déjà réglée). 8 appelants NKCode ré-exportés.
+- **`NkDirBrowserState` → `NkDirBrowser.h`** (commit `2c06612`) : cœur de navigation
+  du launcher (curDir + historique + dossiers connus) ; `NkOpenWsState` en dérive.
+- **Retrait dette morte** (commit `c651b9b`) : picker dormant du shell + `NkRootPicker.h`.
+- **⏳ `NkOwEdit` — À FUSIONNER (tâche dédiée)** : champ PLUS riche que
+  `NkOverlayTextField` (masquage mot de passe, `leftPad` icône, caret par-champ, menu
+  contextuel clic-droit `NkTxtMenu` intégré) et couplé à `NkUi`. Le remplacer
+  régresserait des features → il faut FUSIONNER les deux en un seul champ moteur
+  (porter hors `NkUi`, absorber masked/leftPad + menu). Mini-projet à part, non fait.
+
 ### ✅ AVANCEMENT (2026-07-12) — briques posées dans NKEditorKit :
 - **`Engine/NKEditorKit/src/NKEditorKit/NkEditorTextField.h`** — `NkOverlayTextField`
   (champ mono-ligne complet : caret, sélection, copier/couper/coller, double-clic)
