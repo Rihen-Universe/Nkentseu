@@ -809,23 +809,6 @@ namespace nkentseu {
 
 					// Bascule preview/edition pour les .md (bouton haut-droite).
 					const bool isMd = !f.IsMedia() && NkCodeState::EndsWithI(f.Name().CStr(), ".md");
-					if (isMd) {
-						const float32 lhh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
-						const char *tlab = f.mdPreview ? "</> Editer" : "Apercu";
-						const float32 bw = ((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(tlab) : 60.f) + 22.f;
-						const NkRect tb = {r.x + r.w - bw - 14.f, r.y + 6.f, bw, lhh + 8.f};
-						const NkVec2 mm = ctx.input.mousePos;
-						const bool th = mm.x >= tb.x && mm.x < tb.x + tb.w && mm.y >= tb.y && mm.y < tb.y + tb.h;
-						ctx.DL().AddRectFilled(tb, th ? ctx.theme.buttonHover : ctx.theme.button, 5.f);
-						ctx.DL().AddRect(tb, ctx.theme.border, 1.f);
-						if (ctx.font && ctx.font->Valid())
-							ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
-											 {tb.x + 11.f, tb.y + 4.f + ctx.font->Ascent()}, tlab, ctx.theme.text);
-						if (th && ctx.input.mouseClicked[0]) {
-							f.mdPreview = !f.mdPreview;
-							ctx.input.mouseClicked[0] = false;
-						}
-					}
 					if (f.IsMedia()) { // MEDIA (image/video/audio) -> viewer dedie a la place de l'editeur
 						DrawMediaViewer(ctx, mShell, f, r);
 					} else if (isMd && f.mdPreview) { // MARKDOWN -> preview rendu
@@ -837,6 +820,24 @@ namespace nkentseu {
 						CodeEditor(ctx, "##code", f.doc, r, NkLangFromExt(f.path.GetExtension().CStr()),
 								   mS->projReady ? &mS->projTypes : nullptr, mS->projReady ? &mS->projFuncs : nullptr,
 								   ppDefs);
+					}
+					// Bascule Apercu/Editer pour les .md — dessinee AU-DESSUS du contenu (sinon la preview la recouvre).
+					if (isMd) {
+						const float32 lhh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
+						const char *tlab = f.mdPreview ? "</>  Editer" : "ð  Apercu";
+						const float32 bw = ((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(tlab) : 60.f) + 22.f;
+						const NkRect tbb = {r.x + r.w - bw - 16.f, r.y + 8.f, bw, lhh + 10.f};
+						const NkVec2 mm = ctx.input.mousePos;
+						const bool th = mm.x >= tbb.x && mm.x < tbb.x + tbb.w && mm.y >= tbb.y && mm.y < tbb.y + tbb.h;
+						ctx.DL().AddRectFilled(tbb, th ? ctx.theme.buttonHover : ctx.theme.button, 6.f);
+						ctx.DL().AddRect(tbb, th ? ctx.theme.accent : ctx.theme.border, 1.f);
+						if (ctx.font && ctx.font->Valid())
+							ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
+											 {tbb.x + 11.f, tbb.y + 5.f + ctx.font->Ascent()}, tlab, ctx.theme.text);
+						if (th && ctx.input.mouseClicked[0]) {
+							f.mdPreview = !f.mdPreview;
+							ctx.input.mouseClicked[0] = false;
+						}
 					}
 
 					// ── Overlay Ctrl+clic : barre de PROGRESSION (recherche) + LISTE de toutes les
