@@ -15,6 +15,7 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltRate.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltAlloc.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltVq.h"
+#include "NKMedia/Codecs/Aac/NkAacBitReader.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDenorm.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDeemphasis.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDecoder.h"
@@ -507,6 +508,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkOpusFile::SelfTest();
 		printf("[ %s ] NkOpusFile : Ogg-Opus forge (OpusHead/Tags/EOS) -> demux + decode + pre-skip + trim\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkAacBitReader::SelfTest();
+		printf("[ %s ] NkAacBitReader : lecteur de bits MSB-first (round-trip + peek + align + overrun)\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
