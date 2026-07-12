@@ -142,15 +142,19 @@ namespace nkentseu {
 						isPosition += NkAacHuffman::DecodeScaleFactor(br) - 60;
 						scaleFactors[g][sfb] = (int16)isPosition;
 					} else if (cb == NOISE_HCB) {
+						// Énergie de bruit (PNS), convention ffmpeg : 1re bande = 9 bits − 256
+						// (NOISE_PRE), suivantes = facteur différentiel − 60 ; accumulateur non
+						// clampé, valeur stockée = clip(accumulateur, −100, 155).
 						int32 t;
 						if (noisePcmFlag) {
 							noisePcmFlag = false;
-							t = (int32)br.ReadBits(9);
+							t = (int32)br.ReadBits(9) - 256;
 						} else {
 							t = NkAacHuffman::DecodeScaleFactor(br) - 60;
 						}
 						noiseEnergy += t;
-						scaleFactors[g][sfb] = (int16)noiseEnergy;
+						const int32 clipped = noiseEnergy < -100 ? -100 : (noiseEnergy > 155 ? 155 : noiseEnergy);
+						scaleFactors[g][sfb] = (int16)clipped;
 					} else {
 						scaleFactor += NkAacHuffman::DecodeScaleFactor(br) - 60;
 						if (scaleFactor < 0 || scaleFactor > 255)

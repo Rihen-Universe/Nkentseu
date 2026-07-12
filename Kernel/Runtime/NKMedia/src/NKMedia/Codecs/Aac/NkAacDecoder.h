@@ -32,8 +32,7 @@ namespace nkentseu {
 				int32 mSfIndex = 3;
 				int32 mChannels = 1;
 				int32 mPrevWindowShape[2] = {0, 0};
-				uint32 mR1 = 1; // état du générateur pseudo-aléatoire (PNS), persistant
-				uint32 mR2 = 1;
+				uint32 mRandomState = 0x1f2e3d4c; // état RNG PNS (LCG ffmpeg), persistant / trames+canaux
 				NkAacFilterbank mFb[2];
 		};
 
