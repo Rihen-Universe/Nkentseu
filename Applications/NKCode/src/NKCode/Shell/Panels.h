@@ -502,6 +502,14 @@ namespace nkentseu {
 							ctx.input.wantSelectAll = false;
 						}
 					}
+					// ── CIBLE de DRAG & DROP global : déposer des fichiers de l'explorateur
+					// sur l'éditeur les OUVRE (les dossiers sont ignorés). ──
+					if (mS->dragActive && ctx.input.mouseReleased[0] &&
+						NkGuiRectContains(ctx.DL().CurrentClip(), ctx.input.mousePos)) {
+						for (usize di = 0; di < mS->dragPaths.Size(); ++di)
+							if (!NkDirectory::Exists(mS->dragPaths[di].CStr()))
+								mS->OpenPath(NkPath(mS->dragPaths[di]));
+					}
 					if (mS->files.Empty()) {
 						if (mShell)
 							mShell->SetFooter("NKCode", "Jenga");
@@ -1868,6 +1876,20 @@ namespace nkentseu {
 					auto &dl = ctx.DL();
 					const NkRect clip = dl.CurrentClip();
 					dl.AddRectFilled(clip, ctx.theme.bgPrimary); // fond terminal #0D1117
+					// ── CIBLE de DRAG & DROP global : déposer des fichiers/dossiers de
+					// l'explorateur COLLE leurs chemins (quotés) dans le shell actif. ──
+					if (mState && mState->dragActive && ctx.input.mouseReleased[0] &&
+						NkGuiRectContains(clip, ctx.input.mousePos) && mActive >= 0 && mActive < 8 &&
+						mTerm[mActive].alive) {
+						Term &dt = mTerm[mActive];
+						for (usize di = 0; di < mState->dragPaths.Size(); ++di) {
+							NkString q = "\"";
+							q += mState->dragPaths[di];
+							q += "\" ";
+							dt.pty.Write(q.CStr(), q.Size());
+						}
+						dt.touched = true;
+					}
 					// Changement de WORKSPACE : recycle les terminaux JAMAIS utilises (touched=false)
 					// pour que le defaut redemarre dans la NOUVELLE racine (celle du boot peut etre
 					// un faux workspace : le CWD de l exe). Ceux ou l on a tape restent en vie.
