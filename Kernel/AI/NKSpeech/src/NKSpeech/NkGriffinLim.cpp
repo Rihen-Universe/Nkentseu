@@ -166,7 +166,17 @@ namespace nkentseu {
 					outSig[(nk_size)i] /= den[(nk_size)i];
 			};
 
-			// Itérations Griffin-Lim : iSTFT -> STFT -> réimpose la magnitude cible, garde la phase.
+			// Fast Griffin-Lim (FGLA, Perraudin 2013) : a chaque tour on PROJETTE sur la magnitude
+			// cible (phase gardee) puis on EXTRAPOLE avec un momentum -> convergence bien plus
+			// rapide vers une phase coherente (moins de buzz, moins d'energie parasite).
+			NkVector<float32> tRe, tIm; // projection precedente (pour le momentum)
+			tRe.Resize((nk_size)frames * (nk_size)N);
+			tIm.Resize((nk_size)frames * (nk_size)N);
+			for (nk_size i = 0; i < tRe.Size(); ++i) {
+				tRe[i] = re[i];
+				tIm[i] = im[i];
+			}
+			const float32 mom = cfg.momentum;
 			for (int32 it = 0; it < cfg.iterations; ++it) {
 				iSTFT();
 				for (int32 f = 0; f < frames; ++f) {
@@ -180,17 +190,30 @@ namespace nkentseu {
 						const float32 cr = fr[(nk_size)k], ci = fi[(nk_size)k];
 						const float32 m = NkSqrt(cr * cr + ci * ci) + 1e-9f;
 						const float32 scale = mag.data[(nk_size)f * (nk_size)bins + (nk_size)k] / m;
-						const float32 nr = cr * scale, ni = ci * scale;
-						re[(nk_size)f * (nk_size)N + (nk_size)k] = nr;
-						im[(nk_size)f * (nk_size)N + (nk_size)k] = ni;
-						if (k > 0 && k < N - bins + 1) { // miroir hermitien (conjugué)
-							re[(nk_size)f * (nk_size)N + (nk_size)(N - k)] = nr;
-							im[(nk_size)f * (nk_size)N + (nk_size)(N - k)] = -ni;
+						const float32 pr = cr * scale, pi = ci * scale; // projection sur la magnitude
+						const nk_size idx = (nk_size)f * (nk_size)N + (nk_size)k;
+						const float32 sr = pr + mom * (pr - tRe[idx]); // extrapolation momentum
+						const float32 si = pi + mom * (pi - tIm[idx]);
+						re[idx] = sr;
+						im[idx] = si;
+						tRe[idx] = pr; // memorise la projection pure pour le prochain tour
+						tIm[idx] = pi;
+						if (k > 0 && k < N - bins + 1) { // miroir hermitien (conjugue)
+							const nk_size ridx = (nk_size)f * (nk_size)N + (nk_size)(N - k);
+							re[ridx] = sr;
+							im[ridx] = -si;
+							tRe[ridx] = pr;
+							tIm[ridx] = -pi;
 						}
 					}
 				}
 			}
-			iSTFT(); // synthèse finale
+			// Synthese finale depuis la projection PURE (sans overshoot du momentum).
+			for (nk_size i = 0; i < re.Size(); ++i) {
+				re[i] = tRe[i];
+				im[i] = tIm[i];
+			}
+			iSTFT(); // synthese finale
 			return outSig;
 		}
 
