@@ -58,6 +58,51 @@ int main() {
 	printf("  [ %s ] généralisation test (>=90%%)\n", testOk ? "OK" : "KO");
 
 	// ------------------------------------------------------------------
+	// Utilitaires réutilisables (Option A.1) : planificateur LR + époque
+	// avec accumulation de gradient + validation forward-only.
+	// ------------------------------------------------------------------
+	printf("\n-- Utilitaires réutilisables (scheduler LR, accumulation, validation) --\n");
+
+	// (a) Auto-test analytique du planificateur LR (warmup, pic, plancher, monotonie).
+	const bool schedOk = train::SelfTest();
+	(schedOk ? pass : fail)++;
+	printf("  [ %s ] planificateur LR (warmup linéaire + cosine + plancher)\n", schedOk ? "OK" : "KO");
+
+	// (b) Entraînement d'un modèle NEUF via TrainEpochAccum (accum=2) piloté par un
+	//     scheduler LR global (warmup court + décroissance cosine). Doit converger.
+	nn::NkDense a1(2, 32, 4321u);
+	nn::NkDense a2(32, NC, 8765u);
+	auto afwd = [&](const NkVar &x) { return a2.Forward(nn::Relu(a1.Forward(x))); };
+	NkVector<NkVar> aparams;
+	a1.Parameters(aparams);
+	a2.Parameters(aparams);
+	optim::NkAdam aopt(aparams, /*lr*/ 0.01f);
+
+	const int ACC_EPOCHS = 60;
+	train::NkLRSchedule sched;
+	sched.peakLr = 0.01f;
+	sched.warmupSteps = trainLoader.NumBatches() * 3; // ~3 époques de warmup
+	sched.totalSteps = trainLoader.NumBatches() * ACC_EPOCHS;
+	sched.minLrRatio = 0.1;
+	int64 gstep = 0;
+
+	train::EpochStats ast;
+	double valLoss = 0.0;
+	for (int e = 1; e <= ACC_EPOCHS; ++e) {
+		ast = train::TrainEpochAccum(afwd, aopt, trainLoader, /*accum*/ 2, &sched, &gstep);
+		if (e % 15 == 0 || e == 1) {
+			valLoss = train::EvalLoss(afwd, testLoader);
+			printf("  époque %3d : perte train = %.5f  exactitude = %.1f%%  perte val = %.5f  lr = %.5f\n",
+				   e, ast.loss, ast.acc * 100.0, valLoss, (double)sched.LrAt(gstep));
+		}
+	}
+	const double accTestAcc = train::Accuracy(afwd, testLoader);
+	const bool accOk = ast.acc >= 0.95 && accTestAcc >= 0.85;
+	(accOk ? pass : fail)++;
+	printf("  [ %s ] convergence avec accumulation+scheduler (train %.1f%% / test %.1f%%)\n",
+		   accOk ? "OK" : "KO", ast.acc * 100.0, accTestAcc * 100.0);
+
+	// ------------------------------------------------------------------
 	// MNIST (optionnel) : entraînement réel si NK_MNIST_DIR est défini.
 	// ------------------------------------------------------------------
 	printf("\n-- MNIST (optionnel) --\n");
