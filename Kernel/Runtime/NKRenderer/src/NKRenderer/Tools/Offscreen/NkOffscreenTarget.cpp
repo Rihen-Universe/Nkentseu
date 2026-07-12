@@ -137,13 +137,19 @@ namespace nkentseu {
 
 			mDevice->WaitIdle();
 
-			// Map staging buffer → copier vers dst
+			// Map staging buffer → copier vers dst.
+			// OpenGL : origine framebuffer en BAS-gauche → le readback livre les
+			// lignes bottom-up ; on les inverse pour une image top-down (comme
+			// les autres backends et les formats de fichier image).
+			const bool flipY = mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
 			uint32 rp = (rowPitch > 0) ? rowPitch : mDesc.width * 4;
 			NkMappedMemory mapped = mDevice->MapBuffer(mReadBuf);
 			if (!mapped.IsValid())
 				return false;
-			for (uint32 row = 0; row < mDesc.height; row++)
-				memcpy(dst + row * rp, (uint8 *)mapped.ptr + row * mDesc.width * 4, mDesc.width * 4);
+			for (uint32 row = 0; row < mDesc.height; row++) {
+				const uint32 srcRow = flipY ? (mDesc.height - 1 - row) : row;
+				memcpy(dst + row * rp, (uint8 *)mapped.ptr + srcRow * mDesc.width * 4, mDesc.width * 4);
+			}
 			mDevice->UnmapBuffer(mReadBuf);
 			return true;
 		}
