@@ -246,8 +246,11 @@ namespace nkentseu {
 			Resonator r1, r2, r3;
 			uint32 rng = 0x1234abcdu;
 			int32 idx = 0;
-			float32 tSince = 1e9f; // échantillons depuis la dernière impulsion glottique
 			float32 period = (float32)sr / cfg.f0;
+			// Compteur d'échantillons depuis la dernière impulsion glottique. IMPORTANT : rester
+			// BORNÉ (< 2·période) — le déclencheur fait `tSince -= period` (une seule soustraction).
+			// L'initialiser à `period` fait sonner une impulsion dès le 1er échantillon voisé.
+			float32 tSince = period;
 			float32 prevG = 0.0f;
 			float32 cf1 = 0.0f, cf2 = 0.0f, cf3 = 0.0f; // formants courants (pour la coarticulation)
 			bool prevSounding = false;					// le phone précédent produisait-il du son ?
@@ -263,7 +266,7 @@ namespace nkentseu {
 					r2.Reset();
 					r3.Reset();
 					prevG = 0.0f;
-					tSince = 1e9f;
+					tSince = period; // borné → impulsion dès la reprise du voisement
 					for (int32 n = 0; n < nS && idx < totalSamples; ++n, ++idx)
 						out[(nk_size)idx] = 0.0f;
 					prevSounding = false;
@@ -370,6 +373,27 @@ namespace nkentseu {
 			const double sustained = (double)loud / (double)wav.Size();
 			if (sustained < 0.30)
 				return false; // signal soutenu attendu (voyelle tenue), pas des impulsions
+
+			// (0bis) PÉRIODIQUE à ~F0 (voisement réel, pas du bruit). Autocorrélation normalisée
+			//        au lag = période attendue (sr/F0). Un signal non voisé (bug des impulsions
+			//        glottiques) donnerait une corrélation faible → échec.
+			{
+				const int32 lag = (int32)((float32)cfg.sampleRate / cfg.f0 + 0.5f);
+				const int32 c0 = (int32)wav.Size() / 4;
+				const int32 M = 3000;
+				if (c0 + M + lag < (int32)wav.Size()) {
+					double num = 0.0, d1 = 0.0, d2 = 0.0;
+					for (int32 i = 0; i < M; ++i) {
+						const double x0 = wav[(nk_size)(c0 + i)], x1 = wav[(nk_size)(c0 + i + lag)];
+						num += x0 * x1;
+						d1 += x0 * x0;
+						d2 += x1 * x1;
+					}
+					const double corr = num / (NkSqrt((float32)(d1 * d2)) + 1e-9);
+					if (corr < 0.20)
+						return false; // pas assez périodique -> pas de vraie voix (bug voisement)
+				}
+			}
 
 			NkGriffinLimConfig gl;
 			gl.fftSize = cfg.fftSize;
