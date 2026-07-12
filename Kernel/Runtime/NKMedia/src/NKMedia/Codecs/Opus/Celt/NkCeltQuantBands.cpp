@@ -363,7 +363,17 @@ namespace nkentseu {
 				if ((M * (int32)eBands[i] - N >= M * (int32)eBands[start] || i == start + 1) &&
 					(updateLowband || lowbandOffset == 0))
 					lowbandOffset = i;
-				// special_hybrid_folding : no-op en CELT pur (start=0)
+
+				// special_hybrid_folding (bands.c) : à la 2e bande codée (i==start+1), duplique une
+				// partie des données de repli de la 1re bande pour que la 2e puisse se replier —
+				// sinon norm[n1..n2) est non-initialisé et le repli produit du NaN (bug hybride).
+				// En CELT pur (start=0) les 3 premières bandes ont la même largeur → n2==n1 → 0 copie.
+				if (i == start + 1) {
+					const int32 n1 = M * ((int32)eBands[start + 1] - (int32)eBands[start]);
+					const int32 n2 = M * ((int32)eBands[start + 2] - (int32)eBands[start + 1]);
+					for (int32 k = 0; k < n2 - n1; ++k)
+						norm[n1 + k] = norm[2 * n1 - n2 + k];
+				}
 
 				ctx.tfChange = tfRes[i];
 				float32 *scratch = last ? nullptr : lowbandScratch;
