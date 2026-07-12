@@ -35,6 +35,7 @@
  */
 #include "NKImage/Codecs/EXR/NkEXRCodec.h"
 #include "NKMemory/NkAllocator.h"
+#include "NKContainers/Sequential/NkVector.h"
 #include "NKLogger/NkLog.h"
 #include <cstring>
 #include <cstdio>
@@ -1409,6 +1410,113 @@ namespace nkentseu {
 		logger.Info("[EXR] Decode reussi : {0}x{1} {2} canaux compression={3}.", width, height, numChans,
 					CompressionName(compression));
 		return img;
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  NkEXRCodec::Encode — EXR scanline single-part, compression NONE, canaux FLOAT.
+	// ═══════════════════════════════════════════════════════════════════════════
+	bool NkEXRCodec::Encode(const NkImage &img, uint8 *&out, usize &outSize) noexcept {
+		if (!img.IsValid())
+			return false;
+		const int32 w = img.Width(), h = img.Height();
+		if (w <= 0 || h <= 0)
+			return false;
+		const NkImagePixelFormat fmt = img.Format();
+		const int32 chIn = img.Channels();
+		const bool hasA = (chIn == 4);
+		const int32 nc = hasA ? 4 : 3;
+
+		auto getPix = [&](int32 x, int32 y, float &r, float &g, float &b, float &a) {
+			const uint8 *row = img.RowPtr(y);
+			if (fmt == NkImagePixelFormat::NK_RGB96F) {
+				const float *p = reinterpret_cast<const float *>(row) + (usize)x * 3;
+				r = p[0]; g = p[1]; b = p[2]; a = 1.0f;
+			} else if (fmt == NkImagePixelFormat::NK_RGBA128F) {
+				const float *p = reinterpret_cast<const float *>(row) + (usize)x * 4;
+				r = p[0]; g = p[1]; b = p[2]; a = p[3];
+			} else {
+				const uint8 *p = row + (usize)x * chIn;
+				r = p[0] / 255.0f;
+				g = (chIn > 1 ? p[1] : p[0]) / 255.0f;
+				b = (chIn > 2 ? p[2] : p[0]) / 255.0f;
+				a = (chIn == 4 ? p[3] / 255.0f : 1.0f);
+			}
+		};
+
+		// ── En-tête dans un stream SÉPARÉ (pour connaître sa taille exacte) ──
+		NkImageStream hdr;
+		auto wStr = [&](const char *str) {
+			for (const char *c = str; *c; ++c)
+				hdr.WriteU8((uint8)*c);
+			hdr.WriteU8(0);
+		};
+		auto wF = [&](float v) {
+			uint8 bb[4];
+			memcpy(bb, &v, 4);
+			hdr.WriteBytes(bb, 4);
+		};
+		hdr.WriteU32LE(0x01312F76u);
+		hdr.WriteU8(2); hdr.WriteU8(0); hdr.WriteU8(0); hdr.WriteU8(0);
+		const char *chNames[4];
+		int32 k = 0;
+		if (hasA) chNames[k++] = "A";
+		chNames[k++] = "B"; chNames[k++] = "G"; chNames[k++] = "R";
+		uint32 chlistSize = 1;
+		for (int32 i = 0; i < nc; ++i)
+			chlistSize += (uint32)strlen(chNames[i]) + 1u + 16u;
+		wStr("channels"); wStr("chlist"); hdr.WriteU32LE(chlistSize);
+		for (int32 i = 0; i < nc; ++i) {
+			wStr(chNames[i]);
+			hdr.WriteU32LE(2u); hdr.WriteU32LE(0u); hdr.WriteU32LE(1u); hdr.WriteU32LE(1u);
+		}
+		hdr.WriteU8(0);
+		wStr("compression"); wStr("compression"); hdr.WriteU32LE(1u); hdr.WriteU8(0);
+		wStr("dataWindow"); wStr("box2i"); hdr.WriteU32LE(16u);
+		hdr.WriteU32LE(0u); hdr.WriteU32LE(0u); hdr.WriteU32LE((uint32)(w - 1)); hdr.WriteU32LE((uint32)(h - 1));
+		wStr("displayWindow"); wStr("box2i"); hdr.WriteU32LE(16u);
+		hdr.WriteU32LE(0u); hdr.WriteU32LE(0u); hdr.WriteU32LE((uint32)(w - 1)); hdr.WriteU32LE((uint32)(h - 1));
+		wStr("lineOrder"); wStr("lineOrder"); hdr.WriteU32LE(1u); hdr.WriteU8(0);
+		wStr("pixelAspectRatio"); wStr("float"); hdr.WriteU32LE(4u); wF(1.0f);
+		wStr("screenWindowCenter"); wStr("v2f"); hdr.WriteU32LE(8u); wF(0.0f); wF(0.0f);
+		wStr("screenWindowWidth"); wStr("float"); hdr.WriteU32LE(4u); wF(1.0f);
+		hdr.WriteU8(0);
+
+		uint8 *hdrData = nullptr;
+		usize hdrSize = 0;
+		if (!hdr.TakeBuffer(hdrData, hdrSize))
+			return false;
+
+		// ── Assemble : en-tête + table d'offsets + chunks scanline ──
+		NkImageStream s;
+		s.WriteBytes(hdrData, hdrSize);
+		NkFree(hdrData);
+		const uint64 offTableSize = (uint64)h * 8u;
+		const uint64 dataStart = (uint64)hdrSize + offTableSize;
+		const uint64 chunkSize = 8u + (uint64)nc * (uint64)w * 4u;
+		for (int32 y = 0; y < h; ++y) {
+			const uint64 off = dataStart + (uint64)y * chunkSize;
+			s.WriteU32LE((uint32)(off & 0xFFFFFFFFu));
+			s.WriteU32LE((uint32)(off >> 32));
+		}
+		NkVector<float> lineR, lineG, lineB, lineA;
+		lineR.Resize((usize)w); lineG.Resize((usize)w); lineB.Resize((usize)w);
+		if (hasA) lineA.Resize((usize)w);
+		for (int32 y = 0; y < h; ++y) {
+			for (int32 x = 0; x < w; ++x) {
+				float r, g, b, a;
+				getPix(x, y, r, g, b, a);
+				lineR[(usize)x] = r; lineG[(usize)x] = g; lineB[(usize)x] = b;
+				if (hasA) lineA[(usize)x] = a;
+			}
+			s.WriteU32LE((uint32)y);
+			s.WriteU32LE((uint32)(nc * w * 4));
+			if (hasA)
+				s.WriteBytes(reinterpret_cast<const uint8 *>(lineA.Data()), (usize)w * 4);
+			s.WriteBytes(reinterpret_cast<const uint8 *>(lineB.Data()), (usize)w * 4);
+			s.WriteBytes(reinterpret_cast<const uint8 *>(lineG.Data()), (usize)w * 4);
+			s.WriteBytes(reinterpret_cast<const uint8 *>(lineR.Data()), (usize)w * 4);
+		}
+		return s.TakeBuffer(out, outSize);
 	}
 
 } // namespace nkentseu

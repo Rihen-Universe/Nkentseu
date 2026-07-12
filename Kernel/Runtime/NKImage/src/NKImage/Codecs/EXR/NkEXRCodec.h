@@ -53,6 +53,11 @@ namespace nkentseu {
 			/// @return      NkImage* a liberer avec ->Free(), ou nullptr si format
 			///              invalide / compression non supportee.
 			static NkImage *Decode(const uint8 *data, usize size) noexcept;
+
+			/// Encode une NkImage en EXR (scanline single-part, compression NONE, canaux
+			/// FLOAT 32-bit R/G/B[/A]). Les entrées 8-bit sont converties en float [0,1].
+			/// @param out  Buffer alloué via NkAlloc (à libérer avec NkFree). @return false si erreur.
+			static bool Encode(const NkImage &img, uint8 *&out, usize &outSize) noexcept;
 	};
 
 } // namespace nkentseu

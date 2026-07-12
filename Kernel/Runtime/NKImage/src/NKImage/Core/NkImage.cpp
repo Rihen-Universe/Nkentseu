@@ -2021,6 +2021,8 @@ namespace nkentseu {
 			return SavePPM(path);
 		if (nkEq(ext, "hdr"))
 			return SaveHDR(path);
+		if (nkEq(ext, "exr"))
+			return SaveEXR(path);
 		if (nkEq(ext, "qoi"))
 			return SaveQOI(path);
 		if (nkEq(ext, "gif"))
@@ -2080,6 +2082,17 @@ namespace nkentseu {
 	/** Délègue l'encodage HDR directement au codec. */
 	bool NkImage::SaveHDR(const char *path) const noexcept {
 		return NkHDRCodec::Encode(*this, path);
+	}
+
+	/** Encode en EXR (scanline FLOAT, NONE) et écrit sur disque. */
+	bool NkImage::SaveEXR(const char *path) const noexcept {
+		uint8 *data = nullptr;
+		usize size = 0;
+		if (!NkEXRCodec::Encode(*this, data, size))
+			return false;
+		bool ok = nkWF(path, data, size);
+		nkFree(data);
+		return ok;
 	}
 
 	/** Encode en QOI et écrit sur disque. */
