@@ -16,7 +16,7 @@ namespace nkentseu {
 		} // namespace
 
 		bool NkVideoRecorder::Begin(const char *path, int32 width, int32 height, int32 fpsNum, int32 fpsDen,
-									int32 qp) {
+									int32 qp, int32 maxQueuedFrames) {
 			if (mOpen)
 				return false;
 			mWidth = width;
@@ -25,6 +25,12 @@ namespace nkentseu {
 			mHead = 0;
 			mQueue.Clear();
 			mAudioCh.Clear();
+			mMaxQueuedVideo = maxQueuedFrames > 0 ? maxQueuedFrames : 32;
+			mPendingVideo = 0;
+			mDropped = 0;
+			mEncodedVideo = 0;
+			mEncodeFpsEma = 0.0;
+			mLastEncodeNs = 0;
 			// GOP raisonnable pour de la capture temps réel (IDR régulières = seek/robustesse).
 			if (!mEnc.Open(path, width, height, fpsNum, fpsDen, qp, 60))
 				return false;
@@ -49,6 +55,17 @@ namespace nkentseu {
 		bool NkVideoRecorder::PushVideo(const uint8 *pixels, NkVideoInputFormat fmt, bool flipVertical) {
 			if (!mOpen || !pixels)
 				return false;
+
+			// File BORNEE : si l'encodeur est en retard (file pleine), on ABANDONNE cette
+			// trame (drop-newest) au lieu de gonfler la memoire. Test AVANT le memcpy (cher).
+			mMutex.Lock();
+			if (mPendingVideo >= mMaxQueuedVideo) {
+				++mDropped;
+				mMutex.Unlock();
+				return true; // temps reel : trame droppee (voir DroppedFrames())
+			}
+			++mPendingVideo; // reserve un emplacement
+			mMutex.Unlock();
 			const int32 bpp = BppOf(fmt);
 			const uint64 stride = (uint64)mWidth * bpp;
 			const uint64 total = stride * (uint64)mHeight;
@@ -128,14 +145,48 @@ namespace nkentseu {
 					continue;
 				if (item.type == 2)
 					break; // stop
-				else if (item.type == 0)
+				else if (item.type == 0) {
 					mEnc.WriteFrame(item.data.Data(), item.fmt);
+					const int64 nowNs = NkChrono::Now().ToNanoseconds();
+					mMutex.Lock();
+					if (mPendingVideo > 0)
+						--mPendingVideo;
+					++mEncodedVideo;
+					if (mLastEncodeNs != 0 && nowNs > mLastEncodeNs) {
+						const double dt = (double)(nowNs - mLastEncodeNs) * 1e-9;
+						const double inst = dt > 0.0 ? 1.0 / dt : 0.0;
+						mEncodeFpsEma = (mEncodeFpsEma <= 0.0) ? inst : (0.9 * mEncodeFpsEma + 0.1 * inst);
+					}
+					mLastEncodeNs = nowNs;
+					mMutex.Unlock();
+				}
 				else if (item.type == 1)
 					mEnc.WriteAudioPcm(item.track, reinterpret_cast<const int16 *>(item.data.Data()), item.frames);
 				else if (item.type == 3)
 					mEnc.AddSubtitle(item.track, reinterpret_cast<const char *>(item.data.Data()), item.startMs,
 									 item.durMs);
 			}
+		}
+
+		int32 NkVideoRecorder::QueueDepth() {
+			mMutex.Lock();
+			const int32 d = mPendingVideo;
+			mMutex.Unlock();
+			return d;
+		}
+
+		uint64 NkVideoRecorder::DroppedFrames() {
+			mMutex.Lock();
+			const uint64 d = mDropped;
+			mMutex.Unlock();
+			return d;
+		}
+
+		double NkVideoRecorder::EncodeFps() {
+			mMutex.Lock();
+			const double v = mEncodeFpsEma;
+			mMutex.Unlock();
+			return v;
 		}
 
 		bool NkVideoRecorder::End() {
