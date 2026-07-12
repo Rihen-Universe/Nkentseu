@@ -33,6 +33,7 @@
 #include "NKMedia/Codecs/Opus/Silk/NkSilkTop.h"
 #include "NKMedia/Codecs/Opus/Silk/NkSilkResampler.h"
 #include "NKMedia/Codecs/Opus/NkOpusDecoder.h"
+#include "NKMedia/Codecs/Opus/NkOpusFile.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Transform.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Encoder.h"
@@ -159,6 +160,25 @@ int main(int argc, char **argv) {
 			fclose(f);
 		}
 		printf("[OPUS] %d paquets -> %d echantillons @ 48 kHz -> %s\n", (int)packets.Size(), (int)pcm.Size(), argv[3]);
+		return 0;
+	}
+	// Fichier .opus (Ogg-Opus) complet : --oggopus <in.opus> <out.pcm> (48 kHz s16le mono).
+	if (argc >= 4 && NkString(argv[1]) == NkString("--oggopus")) {
+		NkVector<nk_int16> pcm;
+		nk_int32 channels = 0;
+		nk_int32 rate = 0;
+		NkString err;
+		if (!media::NkOpusFile::DecodeFile(argv[2], pcm, channels, rate, &err)) {
+			printf("[OGGOPUS] ERREUR : %s\n", err.CStr());
+			return 1;
+		}
+		FILE *f = fopen(argv[3], "wb");
+		if (f) {
+			fwrite(pcm.Data(), sizeof(nk_int16), pcm.Size(), f);
+			fclose(f);
+		}
+		printf("[OGGOPUS] %s -> %d echantillons @ %d Hz (%d canal) -> %s\n", argv[2], (int)pcm.Size(), rate,
+			   channels, argv[3]);
 		return 0;
 	}
 	// Dump des paquets Opus bruts : --dumppkts <flux.webm> <out.pkts> ([u32 len][octets]*).
@@ -479,6 +499,14 @@ int main(int argc, char **argv) {
 		++nbTotal;
 		const bool ok = media::NkOpusDecoder::SelfTest();
 		printf("[ %s ] NkOpusDecoder : dispatch TOC (CELT/SILK) -> 48 kHz (trame CELT silence 20ms=960)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkOpusFile::SelfTest();
+		printf("[ %s ] NkOpusFile : Ogg-Opus forge (OpusHead/Tags/EOS) -> demux + decode + pre-skip + trim\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
