@@ -12,6 +12,7 @@
 // =============================================================================
 #include "NKAudio/NkAudioCapture.h"
 #include "NKAudio/NkDenoiser.h"
+#include "NKAudio/NKAudio.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
@@ -74,6 +75,23 @@ namespace {
 } // namespace
 
 int main(int argc, char **argv) {
+	// Mode décodage : NkMicRecord --decode <in.(wav|mp3|ogg|flac|opus)> <out.wav>
+	// Charge via AudioLoader (auto-détection du format, dont Ogg-Opus) et
+	// réécrit en WAV 16-bit — test end-to-end des codecs NKAudio.
+	if (argc >= 4 && NkString(argv[1]) == NkString("--decode")) {
+		audio::AudioSample smp = audio::AudioLoader::Load(argv[2]);
+		if (!smp.IsValid()) {
+			printf("[DECODE] ERREUR : chargement impossible : %s\n", argv[2]);
+			return 1;
+		}
+		const bool ok = audio::AudioLoader::SaveWAV(argv[3], smp);
+		printf("[DECODE] %s -> %llu frames @ %d Hz (%d canal/aux) -> %s (%s)\n", argv[2],
+			   static_cast<unsigned long long>(smp.frameCount), smp.sampleRate, smp.channels, argv[3],
+			   ok ? "OK" : "ECHEC ecriture");
+		audio::AudioLoader::Free(smp);
+		return ok ? 0 : 1;
+	}
+
 	int32 seconds = 5;
 	const char *outPath = "nkmic_capture.wav";
 	bool denoise = true; // débruitage + normalisation par défaut (corrige bruit + volume bas)

@@ -655,6 +655,7 @@ namespace nkentseu {
 				static AudioSample LoadMP3(const uint8 *data, usize size, memory::NkAllocator *alloc);
 				static AudioSample LoadOGG(const uint8 *data, usize size, memory::NkAllocator *alloc);
 				static AudioSample LoadFLAC(const uint8 *data, usize size, memory::NkAllocator *alloc);
+				static AudioSample LoadOPUS(const uint8 *data, usize size, memory::NkAllocator *alloc);
 
 				/// Resampler Sinc (Kaiser-windowed)
 				static void ResampleSinc(AudioSample &sample, int32 targetSampleRate);
