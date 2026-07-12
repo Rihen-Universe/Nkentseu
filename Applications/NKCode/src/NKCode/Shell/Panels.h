@@ -824,7 +824,7 @@ namespace nkentseu {
 					// Bascule Apercu/Editer pour les .md — dessinee AU-DESSUS du contenu (sinon la preview la recouvre).
 					if (isMd) {
 						const float32 lhh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
-						const char *tlab = f.mdPreview ? "</>  Editer" : "ð  Apercu";
+						const char *tlab = f.mdPreview ? "</> Code source" : "Apercu rendu";
 						const float32 bw = ((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(tlab) : 60.f) + 22.f;
 						const NkRect tbb = {r.x + r.w - bw - 16.f, r.y + 8.f, bw, lhh + 10.f};
 						const NkVec2 mm = ctx.input.mousePos;
