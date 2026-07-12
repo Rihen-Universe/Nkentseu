@@ -3265,6 +3265,10 @@ namespace nkentseu {
 				// La source éteint dragActive UNE frame après le release. ──
 				NkVector<NkString> dragPaths;
 				bool dragActive = false;
+				// ── Drop de fichiers depuis l'OS (WM_DROPFILES) : consommé par le panneau
+				// dont la zone contient (osDropX, osDropY) ; TTL purgé par AppFlagsThunk. ──
+				NkVector<NkString> osDropPaths;
+				int32 osDropX = 0, osDropY = 0, osDropTtl = 0;
 				NkString wsPrefill;		 // sélection de l'éditeur préremplie dans le champ
 				NkString wsOpenFile;	 // clic sur un résultat : consommé par ProcessWsOpen (poll)
 				int32 wsOpenLine = -1;

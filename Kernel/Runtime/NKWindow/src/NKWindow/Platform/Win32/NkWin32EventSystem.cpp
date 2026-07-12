@@ -26,11 +26,13 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <shellapi.h> // DragAcceptFiles/DragQueryFile (drop OS)
 #include <windowsx.h>
 #include <dwmapi.h>
 #include <vector>
 
 #pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "shell32.lib") // DragAcceptFiles/DragQueryFile
 
 #ifndef HID_USAGE_PAGE_GENERIC
 #define HID_USAGE_PAGE_GENERIC ((USHORT)0x01)
@@ -215,9 +217,36 @@ namespace nkentseu {
 				// =====================================================================
 
 			case WM_CREATE: {
+				DragAcceptFiles(hwnd, TRUE); // drop de fichiers OS -> NkDropFileEvent
 				NkWindowCreateEvent evt(owner ? owner->GetConfig().width : 0u, owner ? owner->GetConfig().height : 0u,
 										winId);
 				EnqueueForWindow(evt);
+				break;
+			}
+
+			case WM_DROPFILES: { // fichiers déposés depuis l'OS (Explorateur Windows…)
+				HDROP drop = reinterpret_cast<HDROP>(wp);
+				POINT pt{};
+				DragQueryPoint(drop, &pt); // position CLIENT du dépôt
+				NkDropFileData data;
+				data.x = static_cast<int32>(pt.x);
+				data.y = static_cast<int32>(pt.y);
+				const UINT n = DragQueryFileW(drop, 0xFFFFFFFFu, nullptr, 0);
+				for (UINT i = 0; i < n; ++i) {
+					wchar_t wbuf[1024];
+					if (DragQueryFileW(drop, i, wbuf, 1024) == 0)
+						continue;
+					char u8[2048]; // UTF-16 -> UTF-8 (chemins accentués corrects)
+					const int len =
+						WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, u8, static_cast<int>(sizeof(u8)), nullptr, nullptr);
+					if (len > 0)
+						data.AddPath(NkString(u8));
+				}
+				DragFinish(drop);
+				if (data.Count() > 0) {
+					NkDropFileEvent evt(data, winId);
+					EnqueueForWindow(evt);
+				}
 				break;
 			}
 

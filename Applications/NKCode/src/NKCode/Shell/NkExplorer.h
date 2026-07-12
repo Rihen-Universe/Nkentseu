@@ -1032,6 +1032,11 @@ namespace nkentseu {
 							dl.AddRect(row, ctx.theme.accent, 1.5f);
 							mDragOverDir = r.path;
 						}
+						// Drop OS : le dossier sous la POSITION du dépôt devient la cible.
+						if (!mS->osDropPaths.Empty() && r.dir && !r.editNew &&
+							NkGuiRectContains(row, {static_cast<float32>(mS->osDropX),
+													static_cast<float32>(mS->osDropY)}))
+							mOsDropDir = r.path;
 						// Clic gauche : Ctrl = sélection multiple, Maj = plage ; sinon
 						// dossier = plier/déplier, fichier = ouverture, RE-clic LENT sur
 						// l'élément (seul) sélectionné = renommer. Le press ARME le drag.
@@ -1081,6 +1086,27 @@ namespace nkentseu {
 						mCtxPath = mRootStr;
 						mCtxIsDir = true;
 					}
+					// ── Drop de fichiers depuis l'OS : COPIE dans le dossier sous la
+					// position (posé par la boucle ci-dessus), sinon à la racine. ──
+					if (!mS->osDropPaths.Empty() && mRootStr.Length() > 0 &&
+						NkGuiRectContains(clip, {static_cast<float32>(mS->osDropX),
+												 static_cast<float32>(mS->osDropY)})) {
+						const NkString target = mOsDropDir.Length() > 0 ? mOsDropDir : mRootStr;
+						for (usize di = 0; di < mS->osDropPaths.Size(); ++di) {
+							const NkString &src = mS->osDropPaths[di];
+							NkString dst = target;
+							dst += "/";
+							dst += NkPath(src).GetFileName();
+							if (SameStr(dst.CStr(), src.CStr()))
+								continue; // déjà à cet endroit
+							if (NkFile::Exists(dst.CStr()))
+								dst += " - copie"; // ne pas écraser
+							CopyOrMove(src, dst, /*move=*/false); // source OS = COPIE
+						}
+						mS->osDropPaths.Clear();
+						mS->osDropTtl = 0;
+					}
+					mOsDropDir.Clear(); // re-détecté à la prochaine frame de drop
 					// ── DRAG & DROP : seuil de départ, fantôme, dépôt, annulation. ──
 					if (mDragArmed && !mDragging && ctx.input.mouseDown[0]) {
 						const float32 dx = m.x - mDragStart.x, dy = m.y - mDragStart.y;
@@ -1306,6 +1332,7 @@ namespace nkentseu {
 				bool mDragArmed = false, mDragging = false;
 				NkVec2 mDragStart{0.f, 0.f};
 				NkString mDragOverDir;
+				NkString mOsDropDir; ///< dossier sous la position d'un drop OS (frame courante)
 				bool mDelGroup = false; ///< la confirmation vise toute la sélection
 				bool mRowsDirty = true, mRootOpen = true;
 				bool mFilterOn = false, mShowExcluded = false, mFocus = false;

@@ -92,6 +92,13 @@ namespace nkentseu {
 					mActivityIndexRight = rightIdx;
 				}
 
+				// Drop de FICHIERS depuis l'OS : l'app reçoit chemins + position client.
+				void SetDropFilesHandler(void (*fn)(void *, const NkVector<NkString> &, int32, int32),
+										 void *user) noexcept {
+					mDropFn = fn;
+					mDropUser = user;
+				}
+
 				// Icônes TEXTURE des activity bars (teintées au rendu ; 0 = le dessin au
 				// trait par défaut reste). left[0..6] = vues gauche, gear = réglages,
 				// right[0..2] = IA droite.
@@ -356,6 +363,8 @@ namespace nkentseu {
 				uint32 mActTexGear = 0;						  // texture reglages
 				void (*mActivityFn)(void *, int32) = nullptr; // handler app du clic activity bar
 				void *mActivityUser = nullptr;
+				void (*mDropFn)(void *, const NkVector<NkString> &, int32, int32) = nullptr; // drop OS
+				void *mDropUser = nullptr;
 
 				// === Etat boucle ===
 				NkClock mClock;
