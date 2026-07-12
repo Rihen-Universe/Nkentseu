@@ -101,7 +101,7 @@ namespace nkentseu {
 				return;
 			}
 			(void)H; // drag gere par ctx.activeId dans le widget
-			const float32 sw = editorkit::NkScrollbarWidth(u.S);
+			const float32 sw = editorkit::NkScrollbarWidth();
 			const NkRect track = {area.x + area.w - sw, area.y, sw, area.h};
 			editorkit::NkVScrollbar(*u.ctx, *u.dl, track, scroll, contentH, area.h, 0x40E00000u + (uint32)id,
 									u.s(28)); // scrollbar general (= editeur)

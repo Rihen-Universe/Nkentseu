@@ -1,11 +1,11 @@
 #pragma once
 // -----------------------------------------------------------------------------
 // @File    NkEditorScrollbar.h
-// @Brief   Scrollbar GENERAL reutilisable (vertical + horizontal), calque sur
-//          celui de l'editeur de code : gouttiere toujours visible (theme-aware),
-//          fleches aux extremites, pouce draggable, clic-piste-pour-se-positionner.
-//          UN SEUL style/comportement partout (editeur, dropdowns, picker, listes).
-//          Engine-native (ctx/dl/theme) -> a utiliser dans toute l'UI Nkentseu.
+// @Brief   Scrollbar STANDARD reutilisable (vertical + horizontal). C'est le
+//          scrollbar de l'editeur de code EXTRAIT TEL QUEL (memes couleurs, memes
+//          fleches, memes tailles) -> une seule barre pour TOUTE l'UI Nkentseu.
+//          NE PAS "ameliorer" le rendu : il doit rester identique a l'editeur.
+//          Engine-native (ctx/dl/theme).
 // @Author  Rihen
 // @License Proprietary - Free to use and modify
 // -----------------------------------------------------------------------------
@@ -17,40 +17,54 @@ namespace nkentseu {
 		using namespace nkentseu;
 		using namespace nkentseu::nkgui;
 
-		// Largeur/epaisseur CANONIQUE d'une scrollbar (identique a l'editeur = 14 px logiques).
-		// Toutes les scrollbars de l'UI doivent reserver CETTE largeur -> aspect uniforme.
-		inline float32 NkScrollbarWidth(float32 scale) { return 14.f * scale; }
+		// Epaisseur STANDARD d'une scrollbar = celle de l'editeur (14 px, ctx).
+		inline float32 NkScrollbarWidth() { return 14.f; }
 
-		// ── Couleurs scrollbar deduites du theme (clair/sombre) ──
+		// ── Couleurs scrollbar (par defaut : EXACTEMENT celles de l'editeur, theme-aware) ──
 		struct NkScrollbarColors {
-				NkColor track, thumb, thumbHover, arrow, arrowHover;
+				NkColor track, thumb, thumbHover, arrowHover;
 		};
 
 		inline NkScrollbarColors NkScrollbarThemeColors(const NkGuiTheme &th) {
 			const bool light = ((int32)th.bgPrimary.r + th.bgPrimary.g + th.bgPrimary.b) > 384;
 			NkScrollbarColors c;
-			// Gouttiere VISIBLE sur n'importe quel fond (channel semi-opaque theme-aware).
-			c.track = light ? NkColor{0, 0, 0, 34} : NkColor{255, 255, 255, 26};
-			c.thumb = light ? NkColor{150, 158, 168, 255} : NkColor{104, 114, 128, 255};
-			c.thumbHover = light ? NkColor{112, 120, 130, 255} : NkColor{140, 152, 166, 255};
-			// Fleches NETTEMENT contrastees (pas la meme couleur que le pouce -> bien visibles).
-			c.arrow = light ? NkColor{90, 98, 108, 255} : NkColor{170, 180, 194, 255};
-			c.arrowHover = light ? NkColor{0, 0, 0, 45} : NkColor{255, 255, 255, 45};
+			c.track = light ? NkColor{0, 0, 0, 20} : NkColor{255, 255, 255, 16};
+			c.thumb = light ? NkColor{168, 176, 185, 255} : NkColor{80, 88, 98, 255};
+			c.thumbHover = light ? NkColor{130, 138, 148, 255} : NkColor{120, 130, 142, 255};
+			c.arrowHover = {33, 39, 48, 255};
 			return c;
+		}
+
+		// ── PERSONNALISATION UTILISATEUR (optionnelle) : si `custom` est vrai, ces
+		//    couleurs REMPLACENT celles du theme (l'utilisateur peut alterer l'apparence,
+		//    theme compris). Par defaut inactive -> le scrollbar suit le theme Dark/Light. ──
+		struct NkScrollbarSkin {
+				bool custom = false;
+				NkScrollbarColors colors;
+		};
+
+		inline NkScrollbarSkin &NkScrollbarUserSkin() {
+			static NkScrollbarSkin s;
+			return s;
+		}
+
+		// Couleurs effectives : skin utilisateur si actif, sinon le theme.
+		inline NkScrollbarColors NkScrollbarActiveColors(const NkGuiTheme &th) {
+			const NkScrollbarSkin &sk = NkScrollbarUserSkin();
+			return sk.custom ? sk.colors : NkScrollbarThemeColors(th);
 		}
 
 		namespace detail {
 			// Bouton fleche (dir : 0 haut, 1 bas, 2 gauche, 3 droite). Retourne MAINTENU.
-			// La taille de la fleche SCALE avec le bouton (sbW) -> visible en haute densite.
+			// IDENTIQUE a l'editeur : fond survol {33,39,48}, triangle a=3.2, couleur pouce.
 			inline bool NkSbArrow(NkGuiContext &ctx, NkGuiDrawList &dl, const NkRect &r, int32 dir,
 								  const NkScrollbarColors &c) {
 				const NkVec2 m = ctx.input.mousePos;
 				const bool h = NkGuiRectContains(r, m);
 				if (h)
 					dl.AddRectFilled(r, c.arrowHover);
-				const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
-				const float32 a = (r.w < r.h ? r.w : r.h) * 0.32f; // demi-taille de la fleche (scalee, bien visible)
-				const NkColor ac = h ? c.thumbHover : c.arrow;
+				const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f, a = 3.2f;
+				const NkColor ac = h ? c.thumbHover : c.thumb;
 				if (dir == 0)
 					dl.AddTriangleFilled({cx, cy - a}, {cx - a, cy + a}, {cx + a, cy + a}, ac);
 				else if (dir == 1)
@@ -59,17 +73,16 @@ namespace nkentseu {
 					dl.AddTriangleFilled({cx - a, cy}, {cx + a, cy - a}, {cx + a, cy + a}, ac);
 				else
 					dl.AddTriangleFilled({cx - a, cy - a}, {cx + a, cy}, {cx - a, cy + a}, ac);
-				return h && ctx.input.mouseClicked[0];
+				return h && ctx.input.mouseDown[0];
 			}
 		} // namespace detail
 
-		// ── Barre de defilement VERTICALE. `track` = gouttiere COMPLETE (fleches incluses).
-		//    `scroll` borne dans [0, contentLen-viewLen]. `id` = identifiant unique (drag).
-		//    `arrows` = affiche/active les fleches. Retourne true si `scroll` a change. ──
+		// ── Barre VERTICALE. `track` = gouttiere COMPLETE (fleches incluses). `scroll`
+		//    borne dans [0, contentLen-viewLen]. `id` = identifiant unique (drag). ──
 		inline bool NkVScrollbar(NkGuiContext &ctx, NkGuiDrawList &dl, const NkRect &track, float32 &scroll,
 								 float32 contentLen, float32 viewLen, uint32 id, float32 lineStep = 0.f,
 								 bool arrows = true) {
-			const NkScrollbarColors c = NkScrollbarThemeColors(ctx.theme);
+			const NkScrollbarColors c = NkScrollbarActiveColors(ctx.theme); // theme OU skin utilisateur
 			const float32 sbW = track.w;
 			dl.AddRectFilled(track, c.track); // gouttiere toujours visible
 			const float32 step = lineStep > 0.f ? lineStep : sbW * 1.4f;
@@ -87,14 +100,13 @@ namespace nkentseu {
 					scroll += step;
 			}
 			if (maxScroll > 0.f && inner.h > 8.f) {
-				const float32 pad = sbW * 0.21f;			   // inset/arrondi scale avec l'epaisseur
 				float32 th = inner.h * (viewLen / contentLen);
-				if (th < sbW * 1.7f)
-					th = sbW * 1.7f;
+				if (th < 24.f)
+					th = 24.f;
 				if (th > inner.h)
 					th = inner.h;
 				const float32 ty = inner.y + (scroll / maxScroll) * (inner.h - th);
-				const NkRect thumb = {inner.x + pad, ty, sbW - 2.f * pad, th};
+				const NkRect thumb = {inner.x + 3.f, ty, sbW - 6.f, th};
 				if (ctx.input.mouseClicked[0] && NkGuiRectContains(inner, m))
 					ctx.activeId = id;
 				const bool act = (ctx.activeId == id);
@@ -102,7 +114,7 @@ namespace nkentseu {
 					const float32 t = (m.y - inner.y - th * 0.5f) / (inner.h - th);
 					scroll = (t < 0.f ? 0.f : t > 1.f ? 1.f : t) * maxScroll;
 				}
-				dl.AddRectFilled(thumb, (act || NkGuiRectContains(inner, m)) ? c.thumbHover : c.thumb, pad);
+				dl.AddRectFilled(thumb, (act || NkGuiRectContains(inner, m)) ? c.thumbHover : c.thumb, 3.f);
 			}
 			if (ctx.activeId == id && !ctx.input.mouseDown[0])
 				ctx.activeId = 0; // relache le drag
@@ -113,11 +125,11 @@ namespace nkentseu {
 			return scroll != before;
 		}
 
-		// ── Barre de defilement HORIZONTALE. `track` = gouttiere COMPLETE (fleches incluses). ──
+		// ── Barre HORIZONTALE. `track` = gouttiere COMPLETE (fleches incluses). ──
 		inline bool NkHScrollbar(NkGuiContext &ctx, NkGuiDrawList &dl, const NkRect &track, float32 &scroll,
 								 float32 contentLen, float32 viewLen, uint32 id, float32 step = 18.f,
 								 bool arrows = true) {
-			const NkScrollbarColors c = NkScrollbarThemeColors(ctx.theme);
+			const NkScrollbarColors c = NkScrollbarActiveColors(ctx.theme); // theme OU skin utilisateur
 			const float32 sbW = track.h;
 			dl.AddRectFilled(track, c.track);
 			const float32 before = scroll;
@@ -134,14 +146,13 @@ namespace nkentseu {
 					scroll += step;
 			}
 			if (maxScroll > 0.f && inner.w > 8.f) {
-				const float32 pad = sbW * 0.21f;
 				float32 tw = inner.w * (viewLen / contentLen);
-				if (tw < sbW * 1.7f)
-					tw = sbW * 1.7f;
+				if (tw < 24.f)
+					tw = 24.f;
 				if (tw > inner.w)
 					tw = inner.w;
 				const float32 tx = inner.x + (scroll / maxScroll) * (inner.w - tw);
-				const NkRect thumb = {tx, inner.y + pad, tw, sbW - 2.f * pad};
+				const NkRect thumb = {tx, inner.y + 3.f, tw, sbW - 6.f};
 				if (ctx.input.mouseClicked[0] && NkGuiRectContains(inner, m))
 					ctx.activeId = id;
 				const bool act = (ctx.activeId == id);
@@ -149,7 +160,7 @@ namespace nkentseu {
 					const float32 t = (m.x - inner.x - tw * 0.5f) / (inner.w - tw);
 					scroll = (t < 0.f ? 0.f : t > 1.f ? 1.f : t) * maxScroll;
 				}
-				dl.AddRectFilled(thumb, (act || NkGuiRectContains(inner, m)) ? c.thumbHover : c.thumb, pad);
+				dl.AddRectFilled(thumb, (act || NkGuiRectContains(inner, m)) ? c.thumbHover : c.thumb, 3.f);
 			}
 			if (ctx.activeId == id && !ctx.input.mouseDown[0])
 				ctx.activeId = 0;

@@ -1824,14 +1824,14 @@ namespace nkentseu {
 			}
 			// Scrollbar VERTICALE (draggable).
 			if (ow->scrollMax > 0.5f) {
-				const float32 sw = editorkit::NkScrollbarWidth(u.S);
+				const float32 sw = editorkit::NkScrollbarWidth();
 				const NkRect track = {rowsArea.x + rowsArea.w - sw, rowsArea.y, sw, rowsArea.h};
 				editorkit::NkVScrollbar(*u.ctx, *u.dl, track, ow->scroll, rowsArea.h + ow->scrollMax, rowsArea.h,
 										0x0E157011u, u.s(28)); // scrollbar general (= editeur)
 			}
 			// Scrollbar HORIZONTALE (vue liste, quand les colonnes depassent la largeur).
 			if (ow->hscrollMax > 0.5f) {
-				const float32 sh = editorkit::NkScrollbarWidth(u.S);
+				const float32 sh = editorkit::NkScrollbarWidth();
 				const float32 availW = rowsArea.w - (ow->scrollMax > 0.5f ? sh : 0.f); // place pour la barre V
 				const NkRect track = {rowsArea.x, rowsArea.y + rowsArea.h - sh, availW, sh};
 				editorkit::NkHScrollbar(*u.ctx, *u.dl, track, ow->hscroll, lcw, list.w, 0x0E157012u,
