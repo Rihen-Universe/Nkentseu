@@ -43,6 +43,10 @@ vec3 SoftThreshold(vec3 c, float thr) {
     return c * contrib;
 }
 
+float KarisLuma(vec3 c) {
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
 void main() {
     vec2 t = pc.srcInvSize;
 
@@ -63,16 +67,33 @@ void main() {
     vec3 l = texture(uSrc, vUV + t * vec2( 0.0, -1.0)).rgb;
     vec3 m = texture(uSrc, vUV + t * vec2( 1.0, -1.0)).rgb;
 
-    // Reconstruction filtree (poids du Jimenez 2014 : centre 0.5, coins 0.125)
-    vec3 col = (d + e + i + j) * 0.5            // inner box  (poids 0.5)
-             + (a + b + g + f) * 0.125          // top-left   (poids 0.125)
-             + (b + c + h + g) * 0.125          // top-right
-             + (f + g + l + k) * 0.125          // bottom-left
-             + (g + h + m + l) * 0.125;         // bottom-right
-    col *= 1.0 / 4.0;                            // normalisation des 4 sub-blocks
-
-    // Premier downsample : soft threshold pour extraire les highlights
-    col = SoftThreshold(col, pc.threshold);
+    vec3 col;
+    if (pc.threshold > 0.001) {
+        // Premiere passe : moyenne de Karis par quad (poids 1/(1+luma)) —
+        // borne la contribution d'un firefly (pixel speculaire ultra-brillant)
+        // au lieu de le laisser exploser en rectangle geant dans les mips.
+        vec3 q0 = (d + e + i + j) * 0.25;
+        vec3 q1 = (a + b + g + f) * 0.25;
+        vec3 q2 = (b + c + h + g) * 0.25;
+        vec3 q3 = (f + g + l + k) * 0.25;
+        vec3 q4 = (g + h + m + l) * 0.25;
+        float w0 = 0.5   / (1.0 + KarisLuma(q0));
+        float w1 = 0.125 / (1.0 + KarisLuma(q1));
+        float w2 = 0.125 / (1.0 + KarisLuma(q2));
+        float w3 = 0.125 / (1.0 + KarisLuma(q3));
+        float w4 = 0.125 / (1.0 + KarisLuma(q4));
+        col = (q0 * w0 + q1 * w1 + q2 * w2 + q3 * w3 + q4 * w4)
+            / (w0 + w1 + w2 + w3 + w4);
+        col = SoftThreshold(col, pc.threshold);
+    } else {
+        // Reconstruction filtree (poids du Jimenez 2014 : centre 0.5, coins 0.125)
+        col = (d + e + i + j) * 0.5            // inner box  (poids 0.5)
+            + (a + b + g + f) * 0.125          // top-left   (poids 0.125)
+            + (b + c + h + g) * 0.125          // top-right
+            + (f + g + l + k) * 0.125          // bottom-left
+            + (g + h + m + l) * 0.125;         // bottom-right
+        col *= 1.0 / 4.0;                       // normalisation des 4 sub-blocks
+    }
 
     oColor = vec4(col, 1.0);
 }
