@@ -2023,6 +2023,8 @@ namespace nkentseu {
 			return SaveHDR(path);
 		if (nkEq(ext, "qoi"))
 			return SaveQOI(path);
+		if (nkEq(ext, "gif"))
+			return SaveGIF(path);
 		return false; // extension non reconnue
 	}
 
@@ -2091,13 +2093,15 @@ namespace nkentseu {
 		return ok;
 	}
 
-	/**
-	 * SaveGIF — non implémenté.
-	 * GIF est un format complexe (LZW, palette, animation) ; l'encodeur
-	 * n'a pas été intégré dans cette version.
-	 */
-	bool NkImage::SaveGIF(const char *) const noexcept {
-		return false;
+	/** Encode en GIF (palette 256 via median-cut + LZW) et écrit sur disque. */
+	bool NkImage::SaveGIF(const char *path) const noexcept {
+		uint8 *data = nullptr;
+		usize size = 0;
+		if (!NkGIFCodec::Encode(*this, data, size))
+			return false;
+		bool ok = nkWF(path, data, size);
+		nkFree(data);
+		return ok;
 	}
 
 	/**

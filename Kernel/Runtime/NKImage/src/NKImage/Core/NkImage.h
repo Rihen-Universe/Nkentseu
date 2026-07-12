@@ -353,7 +353,7 @@ namespace nkentseu {
 			bool SavePPM(const char *path) const noexcept;
 			bool SaveHDR(const char *path) const noexcept;
 			bool SaveQOI(const char *path) const noexcept;
-			bool SaveGIF(const char *path) const noexcept; ///< Non implémenté, retourne false.
+			bool SaveGIF(const char *path) const noexcept; ///< Palette 256 (median-cut) + LZW.
 			bool SaveWebP(const char *path, bool lossless = true,
 						  int32 quality = 90) const noexcept; ///< Non implémenté.
 			bool SaveSVG(const char *path) const noexcept;	  ///< Non implémenté.
