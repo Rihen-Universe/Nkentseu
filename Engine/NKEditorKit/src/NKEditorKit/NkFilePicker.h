@@ -14,7 +14,8 @@
 // @License Proprietary - Free to use and modify
 // -----------------------------------------------------------------------------
 #include "NKGui/NKGui.h"				  // rendu : NkGuiContext / NkGuiDrawList / NkGuiFont / NkGuiKey
-#include "NKEditorKit/NkEditorTextField.h" // NkOverlayTextField (champ mono-ligne moteur)
+#include "NKEditorKit/NkEditorTextField.h"  // NkOverlayTextField (champ mono-ligne moteur)
+#include "NKEditorKit/NkEditorScrollbar.h"  // NkVScrollbar/NkHScrollbar (scrollbar general)
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkPath.h"
@@ -544,7 +545,7 @@ namespace nkentseu {
 			y += 42.f * S;
 
 			// Arborescence des dossiers : fleche d'expansion sur les dossiers NON VIDES, clic = selectionner.
-			const float32 barW = 10.f * S;
+			const float32 barW = NkScrollbarWidth(S); // largeur canonique (= editeur)
 			const NkRect area = {cx, y, cwid, ph - (y - py) - fp.PickerBottomReserve(S)};
 			const NkRect inner = {area.x, area.y, area.w - barW, area.h - barW}; // zone hors barres
 			dl.AddRectFilled(area, sty.treeBg, 6.f * S);
@@ -679,37 +680,15 @@ namespace nkentseu {
 			// gestion du drag des thumbs
 			if (!down)
 				fp.pickerDrag = 0;
-			// barre V (toujours visible)
+			// barre V (widget general = editeur)
 			{
 				const NkRect track = {area.x + area.w - barW, inner.y, barW, inner.h};
-				dl.AddRectFilled(track, sty.scrollTrack, 3.f * S);
-				const float32 th = maxS > 0.f ? inner.h * (inner.h / contentH) : inner.h;
-				const float32 tt = inner.y + (maxS > 0.f ? (inner.h - th) * (fp.pickerScroll / maxS) : 0.f);
-				const NkRect thumb = {track.x + 2.f * S, tt, barW - 4.f * S, th};
-				if (click && hit(thumb)) {
-					fp.pickerDrag = 1;
-					fp.pickerDragOff = mp.y - tt;
-				}
-				if (fp.pickerDrag == 1 && maxS > 0.f)
-					fp.pickerScroll = ((mp.y - fp.pickerDragOff - inner.y) / (inner.h - th)) * maxS;
-				dl.AddRectFilled(thumb, fp.pickerDrag == 1 ? sty.accent : (hit(thumb) ? sty.scrollThumbHover : sty.scrollThumb),
-								 3.f * S);
+				NkVScrollbar(ctx, dl, track, fp.pickerScroll, contentH, inner.h, 0xF11CE001u, rowStep);
 			}
-			// barre H (toujours visible)
+			// barre H (widget general = editeur)
 			{
 				const NkRect track = {inner.x, area.y + area.h - barW, inner.w, barW};
-				dl.AddRectFilled(track, sty.scrollTrack, 3.f * S);
-				const float32 tw = maxX > 0.f ? inner.w * (inner.w / contentW) : inner.w;
-				const float32 tt = inner.x + (maxX > 0.f ? (inner.w - tw) * (fp.pickerScrollX / maxX) : 0.f);
-				const NkRect thumb = {tt, track.y + 2.f * S, tw, barW - 4.f * S};
-				if (click && hit(thumb)) {
-					fp.pickerDrag = 2;
-					fp.pickerDragOff = mp.x - tt;
-				}
-				if (fp.pickerDrag == 2 && maxX > 0.f)
-					fp.pickerScrollX = ((mp.x - fp.pickerDragOff - inner.x) / (inner.w - tw)) * maxX;
-				dl.AddRectFilled(thumb, fp.pickerDrag == 2 ? sty.accent : (hit(thumb) ? sty.scrollThumbHover : sty.scrollThumb),
-								 3.f * S);
+				NkHScrollbar(ctx, dl, track, fp.pickerScrollX, contentW, inner.w, 0xF11CE002u, 40.f * S);
 			}
 			if (fp.pickerScroll < 0.f)
 				fp.pickerScroll = 0.f;
