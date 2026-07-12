@@ -9,7 +9,6 @@
 #include "NKCode/Shell/Toolbar.h"
 #include "NKCode/Shell/Dialogs.h"
 #include "NKCode/Shell/NkHome.h"
-#include "NKCode/Shell/NkRootPicker.h"
 
 namespace nkentseu {
 	namespace nkcode {
@@ -120,10 +119,13 @@ inline void OverlayThunk(NkEditorFrameContext &ec, void *u) {
 		d->st->reqSaveAs = false;
 		d->SaveActiveNative();
 	}
+	// « Ajouter un dossier au workspace » (explorateur) : réutilise LE picker de
+	// l'app (Dialogs.h, mode PK_PickFolder — dossier quelconque). Un seul picker.
+	if (d->st && d->st->reqPickFolder) {
+		d->st->reqPickFolder = false;
+		d->OpenPicker(nkcode::NkCodeDialogs::PK_PickFolder, d->st->root.ToString().CStr());
+	}
 	nkcode::DrawOverlay(ec, d);
-	// Sélecteur de dossier MAISON (mobile) pour « Ajouter un dossier au workspace ».
-	if (d->st && d->st->icons)
-		nkcode::NkDrawRootPicker(ec, &nkcode::NkRootPicker(), d->st, d, *d->st->icons);
 }
 
 
