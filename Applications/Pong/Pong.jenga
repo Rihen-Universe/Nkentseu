@@ -64,7 +64,7 @@ with project("Pong"):
     # NKPlatform, NKMemory, NKContainers, NKMath, NKLogger, NKThreading, NKFileSystem...)
     # est tire automatiquement. Les extras propres a l'app passent inline.
     nkentseudependson(
-        ["NKCanvas", "NKUI", "NKAudio", "NKNetwork", "NKFont", "NKImage",
+        ["NKCanvas", "NKUI", "NKAudio", "NKMedia", "NKNetwork", "NKFont", "NKImage",
          "NKTime", "NKStream", "NKGlad"],
         extra_includes=["src", "%{wks.location}/Externals"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),

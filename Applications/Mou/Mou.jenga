@@ -70,7 +70,7 @@ with project("Mou"):
     nkentseudependson(
         ["NKEvent", "NKWindow", "NKCanvas", "NKImage", "NKFont", "NKGlad", "NKLogger",
          "NKMath", "NKTime", "NKStream", "NKUI", "NKFileSystem", "NKSerialization",
-         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio"],
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio", "NKMedia"],
         extra_includes=["src/Mou", "src", "%{NKGlad.location}/include", "%{wks.location}/Externals"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
         # NKENTSEU_ENABLE_VULKAN_BACKEND est defini par plateforme ci-dessous

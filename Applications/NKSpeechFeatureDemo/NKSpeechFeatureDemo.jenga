@@ -13,7 +13,7 @@ with project("NKSpeechFeatureDemo"):
     files(["src/main.cpp"])
 
     nkentseudependson(
-        ["NKSpeech", "NKAudio", "NKFileSystem", "NKStream", "NKMath", "NKLogger",
+        ["NKSpeech", "NKAudio", "NKMedia", "NKFileSystem", "NKStream", "NKMath", "NKLogger",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src"],
     )
