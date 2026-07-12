@@ -3,6 +3,7 @@
 // AUCUN device GPU : pur CPU. Sortie via printf (sortie directe console).
 // =============================================================================
 #include "NKSpeech/NkAudioFeatures.h"
+#include "NKSpeech/NkGriffinLim.h"
 
 #include <cstdio>
 
@@ -17,6 +18,16 @@ int main() {
 		++nbTotal;
 		const bool ok = ai::NkAudioFeatures::SelfTest();
 		printf("[ %s ] NkAudioFeatures : MFCC/log-Mel (sinus 1kHz -> bon canal Mel, deterministe, silence fini)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+
+	{
+		++nbTotal;
+		const bool ok = ai::NkGriffinLim::SelfTest();
+		printf("[ %s ] NkGriffinLim : vocodeur (spectrogramme magnitude -> onde, phase iterative ; "
+			   "magnitude reconstruite fidele + energie preservee)\n",
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
