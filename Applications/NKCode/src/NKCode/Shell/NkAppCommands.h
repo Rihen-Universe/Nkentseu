@@ -180,6 +180,9 @@ inline void AppFlagsThunk(NkEditorFrameContext &ec, void *u) { // user = NkHomeS
 	nkcode::DrawAppFlags(ec, home->dlg);
 	EnforceExclusiveSides(home->dlg->shell); // sidebars exclusives
 	SyncActivityMarkers(home->dlg->shell);   // marqueurs = état réel
+	// Drop OS non consommé (zone morte) : purge après quelques frames.
+	if (home->dlg->st && home->dlg->st->osDropTtl > 0 && --home->dlg->st->osDropTtl == 0)
+		home->dlg->st->osDropPaths.Clear();
 	if (!home->settings.loaded)
 		home->settings.Load();
 	nkcode::NkApplyEditorTheme(ec.Ui(), home->settings.theme, home->settings.accent);

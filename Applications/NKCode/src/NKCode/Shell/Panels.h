@@ -510,6 +510,16 @@ namespace nkentseu {
 							if (!NkDirectory::Exists(mS->dragPaths[di].CStr()))
 								mS->OpenPath(NkPath(mS->dragPaths[di]));
 					}
+					// ── Drop de fichiers depuis l'OS (Explorateur Windows) : OUVRE. ──
+					if (!mS->osDropPaths.Empty() &&
+						NkGuiRectContains(ctx.DL().CurrentClip(),
+										  {static_cast<float32>(mS->osDropX), static_cast<float32>(mS->osDropY)})) {
+						for (usize di = 0; di < mS->osDropPaths.Size(); ++di)
+							if (!NkDirectory::Exists(mS->osDropPaths[di].CStr()))
+								mS->OpenPath(NkPath(mS->osDropPaths[di]));
+						mS->osDropPaths.Clear();
+						mS->osDropTtl = 0;
+					}
 					if (mS->files.Empty()) {
 						if (mShell)
 							mShell->SetFooter("NKCode", "Jenga");
@@ -1889,6 +1899,22 @@ namespace nkentseu {
 							dt.pty.Write(q.CStr(), q.Size());
 						}
 						dt.touched = true;
+					}
+					// ── Drop de fichiers depuis l'OS : colle les chemins quotés. ──
+					if (mState && !mState->osDropPaths.Empty() &&
+						NkGuiRectContains(clip, {static_cast<float32>(mState->osDropX),
+												 static_cast<float32>(mState->osDropY)}) &&
+						mActive >= 0 && mActive < 8 && mTerm[mActive].alive) {
+						Term &dt = mTerm[mActive];
+						for (usize di = 0; di < mState->osDropPaths.Size(); ++di) {
+							NkString q = "\"";
+							q += mState->osDropPaths[di];
+							q += "\" ";
+							dt.pty.Write(q.CStr(), q.Size());
+						}
+						dt.touched = true;
+						mState->osDropPaths.Clear();
+						mState->osDropTtl = 0;
 					}
 					// Changement de WORKSPACE : recycle les terminaux JAMAIS utilises (touched=false)
 					// pour que le defaut redemarre dans la NOUVELLE racine (celle du boot peut etre

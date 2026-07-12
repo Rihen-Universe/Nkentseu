@@ -234,6 +234,11 @@ namespace nkentseu {
 			auto &events = NkEvents();
 
 			events.AddEventCallback<NkWindowCloseEvent>([this](NkWindowCloseEvent *) { mRunning = false; });
+			// Drop de FICHIERS depuis l'OS (Explorateur Windows…) -> handler de l'app.
+			events.AddEventCallback<NkDropFileEvent>([this](NkDropFileEvent *e) {
+				if (mDropFn && e)
+					mDropFn(mDropUser, e->data.paths, e->data.x, e->data.y);
+			});
 			events.AddEventCallback<NkMouseMoveEvent>([this](NkMouseMoveEvent *e) {
 				mUI.input.mousePos = {static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY())};
 			});

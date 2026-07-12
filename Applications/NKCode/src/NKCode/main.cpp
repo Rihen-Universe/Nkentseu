@@ -104,6 +104,16 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&pExt);
 
 	shell->SetActivityHandler(&nkcode::ActivityThunk, shell.Get()); // sidebars exclusives (activity bar)
+	// Drop de fichiers depuis l'OS -> état partagé (consommé par le panneau visé).
+	shell->SetDropFilesHandler(
+		+[](void *u, const NkVector<NkString> &paths, nkentseu::int32 x, nkentseu::int32 y) {
+			auto *st = static_cast<nkcode::NkCodeState *>(u);
+			st->osDropPaths = paths;
+			st->osDropX = x;
+			st->osDropY = y;
+			st->osDropTtl = 3; // purge AppFlagsThunk si aucune cible ne consomme
+		},
+		&g_state);
 	shell->SetToolbar(&nkcode::ToolbarThunk, &g_state);				// barre d'outils Visual Studio
 	nkcode::NkZoomCtx() = {&g_state, shell.Get()};
 	shell->SetZoomHandler(&nkcode::ZoomHandler, &nkcode::NkZoomCtx()); // zoom Ctrl+molette/±/0 -> onglet actif
