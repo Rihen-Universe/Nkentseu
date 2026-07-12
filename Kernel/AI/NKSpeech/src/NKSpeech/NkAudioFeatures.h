@@ -1,12 +1,12 @@
 // =============================================================================
-// NKSpeech/NkAudioFeatures.h  —  SCAFFOLD (spec, impl staged — voir Kernel/AI/ROADMAP.md Phase 8)
+// NKSpeech/NkAudioFeatures.h  —  ✅ LIVRÉ (brique 1 Phase 8 ; voir Kernel/AI/ROADMAP.md)
 // -----------------------------------------------------------------------------
 // Extraction de FEATURES audio pour la parole (fondation partagée ASR + TTS).
 // Chaîne classique : pré-emphase → trames fenêtrées (Hann) → FFT (radix-2, cf.
 // NkDenoiser) → spectre de puissance → BANC DE FILTRES MEL → log → DCT = MFCC
 // (+ deltas). Zero-STL, namespace nkentseu::ai. From-scratch, petite échelle.
 //
-// ⚠️ SCAFFOLD : interfaces posées, implémentation à venir (brique 1 de la Phase 8).
+// ✅ Implémenté et validé (NKSpeechTest 1/1 + démo sur audio réel). ASR/TTS = briques suivantes.
 // AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #pragma once
@@ -40,8 +40,7 @@ namespace nkentseu {
 
 		struct NkAudioFeatures {
 			public:
-				// Mel-spectrogramme log (frames × melBands) d'un signal mono normalisé [-1,1].
-				// ⬜ impl staged (Phase 8, brique 1).
+				// Mel-spectrogramme log (frames × melBands) d'un signal mono normalisé [-1,1]. ✅
 				static NkFeatureMatrix LogMelSpectrogram(const float32 *mono, int32 samples,
 														 const NkAudioFeatureConfig &cfg = NkAudioFeatureConfig{});
 

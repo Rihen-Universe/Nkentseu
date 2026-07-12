@@ -222,7 +222,7 @@ en conflit avec ce module. Cette couche s'appelle ici **pont directeur** (NkAnim
   GPT » (matmul par lots, LayerNorm, attention+masque causal, embedding, GELU). Montée en échelle
   (GPU serveurs) quand les moyens le permettront.
 
-## Phase 2 — L'apprentissage — 🟡 en cours
+## Phase 2 — L'apprentissage — ✅ socle complet (extensions en cours)
 
 **Modules : NKAutograd, NKNN, NKOptim.**
 - ✅ **NKAutograd** : graphe define-by-run + rétropropagation mode inverse (sans STL,
@@ -238,7 +238,11 @@ en conflit avec ce module. Cette couche s'appelle ici **pont directeur** (NkAnim
   **100%**). Pile Phase 2 complète : **NKTensor → NKAutograd → NKNN + NKOptim**. Prête
   pour la Phase 3 (entropie croisée + Adam = tout pour MNIST).
 
-## Phase 3 — Données, entraînement, inférence — 🟡 en cours
+## Phase 3 — Données, entraînement, inférence — ✅ socle complet (extensions en cours)
+
+> ⚠️ Audit 2026-07-12 : accumulation de gradient + scheduler LR + checkpoints/validation existent
+> dans **NKGpt/NkGptTrainer** mais **pas encore remontés dans la lib générique NKTrain** — chantier
+> de factorisation prioritaire (Option A.1). NKData = MNIST IDX seul ; NKInfer f32 non portable.
 
 **Modules : NKData, NKTrain, NKInfer.**
 - ✅ **NKData** : `NkDataset` + `NkDataLoader` (shuffle Fisher-Yates, lots, one-hot) +
@@ -277,9 +281,12 @@ en conflit avec ce module. Cette couche s'appelle ici **pont directeur** (NkAnim
 ## Phase 6 — Génération & incarnation
 
 **Modules : NKGen, NKEmbodied.**
-- ⬜ NKGen : un petit modèle génératif (image 2D → texture) ; brancher la génération
-  d'assets au moteur. Puis **formes 3D** générées par **catégories** :
-  🌿 végétal, 🐾 animal/créature, 🧍 humanoïde, 🌍 monde/terrain (+ rig + animation).
+- 🟡 **NKGen — socle génératif LIVRÉ** (audit 2026-07-12) : auto-encodeur dense, **VAE** dense,
+  **VAE conv 2D** (chiffres MNIST générés), **VAE 3D voxels** (Conv3D/ConvT3D) → formes 3D
+  exportées OBJ (banane/rocher/arbre) + rendues moteur PBR/Vulkan ; maillage (Surface Nets,
+  décimation, quads). ⏳ Reste : GAN, **diffusion**, marching cubes, conditionnement **image/
+  texte→3D** (le seul « conditionnement » actuel = centroïde latent par classe), catégories
+  végétal/animal/humanoïde/monde, rig + animation.
 - ⬜ NKEmbodied : relier une politique à un corps simulé (puis réel via Kernel/Bare).
 - ⬜ **Acteurs génératifs** : un personnage reçoit un **rôle** et le joue (apparence +
   animation + comportement) → animation 3D & jeux **pilotés par IA** (NKGen + NKAgent).
