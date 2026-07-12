@@ -95,19 +95,6 @@ namespace nkentseu {
 				}
 
 				// ── SÉLECTEUR de FICHIER/DOSSIER GÉNÉRIQUE (modal, réutilisable) ────
-				// Générique = PAS lié à .jenga : navigue n'importe quel dossier. Mode 0 =
-				// choisir un DOSSIER, mode 1 = choisir un FICHIER. Résultat via
-				// TakeFilePickerResult() (vide si aucun). Fenêtre MODALE déplaçable.
-				void OpenFolderPicker(const char *startDir, const char *title) noexcept;
-				void OpenFilePicker(const char *startDir, const char *title) noexcept;
-				nkentseu::NkString TakeFilePickerResult() noexcept {
-					const nkentseu::NkString r = mFpResult;
-					mFpResult.Clear();
-					return r;
-				}
-				bool IsFilePickerOpen() const noexcept {
-					return mFpOpen;
-				}
 
 				// ── Géométrie de fenêtre (launcher) : fichier global taille/pos/maximisé ──
 				void MaximizeWindow() noexcept;
@@ -409,17 +396,6 @@ namespace nkentseu {
 				float32 mCtxSy = 0.f; // défilement vertical (listes longues)
 				void DrawContextMenu() noexcept;
 				// Sélecteur fichier/dossier générique (modal).
-				bool mFpOpen = false;
-				int32 mFpMode = 0; // 0 = dossier, 1 = fichier
-				nkentseu::NkString mFpTitle, mFpDir, mFpResult, mFpSel;
-				nkentseu::NkVector<nkentseu::NkString> mFpNames;
-				nkentseu::NkVector<nkentseu::uint8> mFpIsDir;
-				nkgui::NkRect mFpWin{0.f, 0.f, 0.f, 0.f};
-				bool mFpDrag = false, mFpBarDrag = false;
-				nkgui::NkVec2 mFpDragOff{0.f, 0.f};
-				float32 mFpScroll = 0.f;
-				void FpListDir(const char *dir) noexcept;
-				void DrawFilePicker() noexcept;
 				void (*mActivityFn)(void *, int32) = nullptr; // handler app du clic activity bar
 				void *mActivityUser = nullptr;
 				void (*mDropFn)(void *, const NkVector<NkString> &, int32, int32) = nullptr; // drop OS
