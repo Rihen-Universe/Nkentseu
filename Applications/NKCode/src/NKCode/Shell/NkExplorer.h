@@ -1276,10 +1276,10 @@ namespace nkentseu {
 					// Mutations APRÈS la boucle (mRows est reconstruit par BuildRows).
 					if (toToggle >= 0) {
 						const Row &r = mRows[toToggle];
-						if (r.root)
-							mRootOpen = !mRootOpen;
+						if (r.root && !r.extraRoot)
+							mRootOpen = !mRootOpen; // racine PRINCIPALE
 						else
-							ToggleExpanded(r.path);
+							ToggleExpanded(r.path); // racine SECONDAIRE ou dossier : état par chemin
 						mRowsDirty = true;
 					} else if (toOpen >= 0)
 						mS->OpenPath(NkPath(mRows[toOpen].path));

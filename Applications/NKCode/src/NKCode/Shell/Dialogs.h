@@ -193,6 +193,10 @@ namespace nkentseu {
 				bool pickerNewFocus = false;
 				int32 pickerDrag = 0;		   // 0 aucun, 1 thumb V, 2 thumb H
 				float32 pickerDragOff = 0.f;   // offset souris/thumb pendant le drag
+				// Fenêtre DÉPLAÇABLE (barre de titre) : décalage vs position centrée.
+				float32 pickerWinOffX = 0.f, pickerWinOffY = 0.f;
+				bool pickerWinDrag = false;
+				float32 pickerWinDragX = 0.f, pickerWinDragY = 0.f;
 				NkVector<NkString> pickerDirs; // (legacy) sous-dossiers du chemin courant
 
 				// ── Arborescence du picker (style Windows : fleches d'expansion, pas de « Remonter ») ──
@@ -426,6 +430,8 @@ namespace nkentseu {
 					pickerBuf = buf;
 					pickerBufCap = cap;
 					pickerScroll = 0.f;
+					pickerWinOffX = pickerWinOffY = 0.f; // recentre à chaque ouverture
+					pickerWinDrag = false;
 					pickerEditing = false;
 					pickerConfine = (confine && *confine) ? NkString(confine) : NkString(); // parcours limité (opt-in)
 					const char *start = (startDir && *startDir) ? startDir : (st ? st->root.ToString().CStr() : ".");
@@ -1763,19 +1769,38 @@ namespace nkentseu {
 			// Nouveau fichier (buffer VIDE) -> assistant de création par TYPE ; sinon champ nom simple.
 			const bool newFile =
 				saveMode && d->st && d->st->HasActive() && d->st->files[d->st->active].doc.GetText().Empty();
-			const float32 pw = 580.f * S, ph = (newFile ? 700.f : (saveMode ? 548.f : 500.f)) * S, px = (W - pw) * 0.5f,
-						  py = (H - ph) * 0.5f;
+			const float32 pw = 580.f * S, ph = (newFile ? 700.f : (saveMode ? 548.f : 500.f)) * S;
+			const float32 px = (W - pw) * 0.5f + d->pickerWinOffX, py = (H - ph) * 0.5f + d->pickerWinOffY;
 			const bool down = ctx.input.mouseDown[0];
 			bool fieldClicked = false; // un champ de saisie a-t-il ete clique cette frame ?
 			dl.AddRectFilled({0.f, 0.f, W, H}, NkColor{0, 0, 0, 160});
 			dl.AddRectFilled({px, py, pw, ph}, cCard, 10.f * S);
 			dl.AddRect({px, py, pw, ph}, cBorder, 1.5f);
 			const bool fileMode = (d->pickerFor == NkCodeDialogs::PK_File);
+			const bool pickFolderMode = (d->pickerFor == NkCodeDialogs::PK_PickFolder);
+			// ── BARRE DE TITRE déplaçable (liseré accent + drag) ──
+			const float32 tbH = 40.f * S;
+			dl.AddRectFilled({px, py, pw, 3.f * S}, cAccent, 10.f * S);
 			text(px + 20.f * S, py + 16.f * S,
-				 saveMode	? "Enregistrer le fichier - choisir le dossier"
-				 : fileMode ? "Choisir un fichier (executable)"
-							: "Choisir un dossier",
+				 saveMode		 ? "Enregistrer le fichier - choisir le dossier"
+				 : fileMode		 ? "Choisir un fichier (executable)"
+				 : pickFolderMode ? "Ajouter un dossier au workspace"
+								  : "Choisir un dossier",
 				 cText);
+			{
+				const NkRect titleBar = {px, py, pw - 44.f * S, tbH}; // hors bouton ✕ (à droite)
+				if (click && hit(titleBar)) {
+					d->pickerWinDrag = true;
+					d->pickerWinDragX = mp.x - px;
+					d->pickerWinDragY = mp.y - py;
+				}
+				if (d->pickerWinDrag && down) {
+					d->pickerWinOffX = (mp.x - d->pickerWinDragX) - (W - pw) * 0.5f;
+					d->pickerWinOffY = (mp.y - d->pickerWinDragY) - (H - ph) * 0.5f;
+				}
+				if (!down)
+					d->pickerWinDrag = false;
+			}
 
 			// Champ chemin (selection courante) + Aller (saisie libre). PAS de « Remonter » -> arbre.
 			const float32 cx = px + 20.f * S, cwid = pw - 40.f * S;
