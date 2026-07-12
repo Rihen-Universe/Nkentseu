@@ -623,7 +623,12 @@ namespace nkentseu {
 			const NkSLTarget target = nksl::ApiToTarget(mTarget);
 			// GL : la source NkSL est en convention Vulkan (NDC Y-bas, comme les
 			// .vk.glsl), donc on inverse Y en sortie du vertex (équiv. SPIRV-Cross).
-			slOpts.glFlipYPosition = (target == NkSLTarget::NK_GLSL);
+			// Opt-out PAR-SHADER via le pragma commentaire « @gl-no-flip-y » : un VS
+			// qui a des varyings mais rend dans une cible NON présentée (shadow
+			// atlas…) doit garder la convention non-flippée — le heuristique du
+			// générateur (inputs+varyings ⇒ flip) le classerait à tort (cf.
+			// ShadowAlpha : alpha-test d'ombre avec vUV).
+			slOpts.glFlipYPosition = (target == NkSLTarget::NK_GLSL) && !src.Contains("@gl-no-flip-y");
 			NkSLCompileResult r = nksl::GetCompiler().Compile(src, ToRHIStage(stage), target, slOpts, "nksl_renderer");
 
 			NkShaderCompileResult res;

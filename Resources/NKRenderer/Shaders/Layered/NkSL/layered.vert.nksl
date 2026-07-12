@@ -44,6 +44,8 @@ uniform ObjectUBO {
     float clearcoatRoughness;
     float subsurface;
     vec4  subsurfaceColor;
+    vec4  shadowOverrides;
+    vec4  triplanarParams;
 } uObj;
 
 @location(0) out vec3 vWorldPos;
