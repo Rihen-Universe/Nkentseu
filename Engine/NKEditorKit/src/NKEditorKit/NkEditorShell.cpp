@@ -641,7 +641,7 @@ namespace nkentseu {
 					overPopup = true;
 					break;
 				}
-			const bool modal = mShowPrefs || mUI.appModal || overPopup;
+			const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen;
 			nkgui::NkGuiInput savedInput;
 			if (modal) {
 				savedInput = mUI.input;
@@ -681,6 +681,7 @@ namespace nkentseu {
 			if (modal)
 				mUI.input = savedInput; // restaure pour le popup
 			mPopupMasked = false;
+			DrawContextMenu(); // menu contextuel shell-level (au-dessus des panneaux)
 			DrawCommandPalette(ec);
 			DrawPreferences(ec); // fenetre Preferences (menu dedie)
 			if (mOverlayFn)
@@ -1529,6 +1530,100 @@ namespace nkentseu {
 						DockBuilderDock(mUI, pl->Title(), SideToZone(pl->DefaultSide()));
 				}
 			}
+		}
+
+		// ── Gestionnaire de menu contextuel (réutilisable) ───────────────────────
+		void NkEditorShell::OpenContextMenu(const nkgui::NkVec2 &pos, const char *const *items, const bool *enabled,
+											int32 count) noexcept {
+			mCtxItems.Clear();
+			mCtxEnabled.Clear();
+			for (int32 i = 0; i < count; ++i) {
+				mCtxItems.PushBack(NkString(items[i] ? items[i] : ""));
+				mCtxEnabled.PushBack(enabled ? (enabled[i] ? 1u : 0u) : 1u);
+			}
+			mCtxPos = pos;
+			mCtxOpen = true;
+			mCtxChoice = -1;
+			mCtxSy = 0.f;
+		}
+
+		// Dessiné APRÈS les panneaux (input réel restauré) sur la couche overlay :
+		// occlusion propre (les panneaux ont vu un input neutralisé pendant leur draw).
+		void NkEditorShell::DrawContextMenu() noexcept {
+			if (!mCtxOpen)
+				return;
+			auto &dl = mUI.dlOverlay;
+			auto &in = mUI.input;
+			const NkVec2 m = in.mousePos;
+			const int32 n = static_cast<int32>(mCtxItems.Size());
+			const float32 lh = (mUI.font && mUI.font->Valid()) ? mUI.font->LineHeight() : 16.f;
+			const float32 asc = (mUI.font && mUI.font->Valid()) ? mUI.font->Ascent() : 12.f;
+			const float32 rowH = lh + 8.f, pad = 12.f;
+			// Largeur = plus long libellé.
+			float32 w = 120.f;
+			if (mUI.font && mUI.font->Valid())
+				for (int32 i = 0; i < n; ++i) {
+					const float32 tw = mUI.font->MeasureWidth(mCtxItems[i].CStr()) + pad * 2.f + 14.f;
+					if (tw > w)
+						w = tw;
+				}
+			const float32 vh = static_cast<float32>(mUI.viewH);
+			const float32 fullH = n * rowH + 8.f;
+			const float32 maxH = vh * 0.7f;
+			const float32 h = fullH > maxH ? maxH : fullH;
+			// Reste à l'écran.
+			float32 x = mCtxPos.x, y = mCtxPos.y;
+			if (x + w > mUI.viewW)
+				x = mUI.viewW - w - 4.f;
+			if (y + h > vh)
+				y = vh - h - 4.f;
+			if (x < 2.f)
+				x = 2.f;
+			if (y < 2.f)
+				y = 2.f;
+			const NkRect box = {x, y, w, h};
+			dl.AddRectFilled({box.x + 2.f, box.y + 3.f, box.w, box.h}, NkColor{0, 0, 0, 60}, 6.f); // ombre
+			dl.AddRectFilled(box, mUI.theme.panel, 6.f);
+			dl.AddRect(box, mUI.theme.border, 1.f);
+			const bool scroll = fullH > maxH;
+			const float32 maxSy = scroll ? (fullH - h) : 0.f;
+			if (scroll) {
+				mCtxSy += -in.wheel * rowH;
+				if (mCtxSy < 0.f)
+					mCtxSy = 0.f;
+				if (mCtxSy > maxSy)
+					mCtxSy = maxSy;
+			}
+			dl.PushClipRect({box.x, box.y + 4.f, box.w, box.h - 8.f}, true);
+			float32 ry = box.y + 4.f - mCtxSy;
+			int32 clicked = -1;
+			for (int32 i = 0; i < n; ++i) {
+				const NkRect r = {box.x + 3.f, ry, box.w - 6.f, rowH};
+				if (ry + rowH >= box.y && ry <= box.y + box.h) {
+					const bool en = mCtxEnabled[i] != 0;
+					const bool hov = en && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
+					if (hov) {
+						NkColor sel = mUI.theme.selection;
+						sel.a = 110;
+						dl.AddRectFilled(r, sel, 4.f);
+					}
+					if (mUI.font && mUI.font->Valid())
+						dl.AddText(mUI.font->Face(), mUI.font->TexId(), {r.x + pad, ry + (rowH - lh) * 0.5f + asc},
+								   mCtxItems[i].CStr(), en ? mUI.theme.text : mUI.theme.textDisabled);
+					if (hov && in.mouseClicked[0])
+						clicked = i;
+				}
+				ry += rowH;
+			}
+			dl.PopClipRect();
+			if (clicked >= 0) {
+				mCtxChoice = clicked;
+				mCtxOpen = false;
+			}
+			// Fermeture : clic HORS du menu, ou Échap.
+			if ((in.mouseClicked[0] && !nkgui::NkGuiRectContains(box, m)) ||
+				in.KeyPressed(nkgui::NkGuiKey::Escape))
+				mCtxOpen = false;
 		}
 
 		void NkEditorShell::MaximizeWindow() noexcept {

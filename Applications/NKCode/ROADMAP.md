@@ -7,6 +7,52 @@
 
 Légende : ✅ fait · 🟡 partiel · ⬜ à faire.
 
+---
+
+## 🧩 Widgets réutilisables — OÙ ça vit (cartographie, décidée 2026-07-12)
+
+**Constat** : plusieurs widgets ont été RÉIMPLÉMENTÉS à l'app (bugs de traversée
+d'événements, duplication : DEUX sélecteurs de dossier). Le moteur possède déjà
+les PRIMITIVES. Règle : **ne plus réimplémenter — réutiliser/consolider**.
+
+### Ce qui existe DÉJÀ dans NKGui (`Kernel/Runtime/NKGui/src/NKGui/Widgets/NkGuiWidgets.h`) — primitives bas niveau, thémées :
+- **Menus/popups** : `BeginPopupMenu`/`EndPopupMenu`, `OpenPopupAt`, `MenuItem`,
+  `BeginMenu`, `Separator`, `BeginCombo`. Pile de popups avec **occlusion d'input**
+  (`popupRects`/`popupDepth`, respectée par `ItemHoverable`).
+- **Champs texte** : `InputText`, `InputTextEx`, `InputTextMultiline`.
+- **Listes** : `Selectable`, `SelectableEditable`, `ListBox`.
+- Thème = `NkGuiTheme` (couleurs) + `NkGuiSyntax` → **personnalisable** par l'utilisateur.
+
+### Réimplémentations APP à retirer/migrer (dette) :
+- `NkCtxMenuDraw` (`Editor/NkTextDraw.h`) → menu ad hoc, NE registre PAS dans la
+  pile de popups → **traverse les événements**. À remplacer par un MANAGER de menu.
+- `NkOwEdit`/`NkOwEditA` (`Shell/NkOpenWs.h`) → champs texte ad hoc → utiliser `InputText*`.
+- **DEUX sélecteurs de dossier** : `NkOpenWsPanel` (`Shell/NkOpenWs.h`, launcher) +
+  picker `pickerTree` (`Shell/Dialogs.h`, SaveAs). À UNIFIER en un seul.
+
+### DÉCISION — où vivent les OUTILS réutilisables (managers) :
+- **NKEditorKit** (`Engine/NKEditorKit/`) : gestionnaires qui doivent être dessinés
+  AU-DESSUS des panneaux et gérer l'occlusion cross-panneaux (rôle du shell) :
+  - `NkPopupManager` — menu contextuel/déroulant demandé par un panneau, dessiné
+    par le shell APRÈS tous les panneaux, input réel, occlusion via le mécanisme
+    modal existant. **1 seul menu, thémé, personnalisable.**
+  - `NkModalManager` / fenêtres FLOTTANTES ou ANCRÉES (non modales) — cadre
+    déplaçable réutilisable (barre de titre + ✕ + drag), au choix flottant/docké.
+  - `NkFilePicker` — sélecteur de fichier ET dossier UNIQUE (mode file/folder),
+    bâti sur les primitives NKGui, présentable en fenêtre flottante ou panneau
+    docké. Absorbe `NkOpenWsPanel` + le picker SaveAs (a besoin de NKFileSystem,
+    que NKGui n'a PAS → ne peut PAS vivre dans NKGui).
+- **NKGui** : reste la couche de PRIMITIVES (menus/texte/listes/occlusion). Les
+  managers NKEditorKit l'utilisent pour dessiner.
+
+**Personnalisation** = uniquement design + couleurs (thème NKGui + hooks de style
+des managers) ; la logique est unique et partagée.
+
+**Plan de migration (phasé, faible risque)** : (1) `NkPopupManager` shell-level +
+migrer le menu de l'explorateur (corrige la traversée) ; (2) `NkFilePicker` unifié
+(remplace NkRootPicker + les 2 pickers) ; (3) champs texte → `InputText*` ;
+(4) retrait de la dette (`NkCtxMenuDraw`, `NkOwEdit`).
+
 > ### 📣 RÈGLE PERMANENTE — Communiquer CHAQUE évolution (depuis 2026-07-05)
 > Toute évolution notable de NKCode (feature livrée, jalon, fix visible) doit produire,
 > **en plus du code** : (1) des **publications réseaux** (LinkedIn FR+EN, X, Facebook,
