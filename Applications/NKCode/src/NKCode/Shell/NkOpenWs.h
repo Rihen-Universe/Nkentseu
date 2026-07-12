@@ -7,7 +7,8 @@
 // Mode PLEIN CADRE du launcher : meme barre de titre + meme sidebar nav (item
 // « Ouvrir » actif) ; le panneau central Home est remplace par ce navigateur.
 //
-#include "NKEditorKit/NkDirBrowser.h" // NkDirBrowserState : navigation reutilisable
+#include "NKEditorKit/NkDirBrowser.h"
+#include "NKEditorKit/NkEditorScrollbar.h" // scrollbar general // NkDirBrowserState : navigation reutilisable
 		// Coeur fonctionnel : listing reel d'un dossier, detection des .jenga + du
 // workspace declare (`with workspace("NOM")`), navigation (fil d'Ariane / parent
 // / historique / double-clic), recherche, ouverture du dossier (DoLoad).
@@ -1823,63 +1824,18 @@ namespace nkentseu {
 			}
 			// Scrollbar VERTICALE (draggable).
 			if (ow->scrollMax > 0.5f) {
-				const float32 sw = u.s(10);
+				const float32 sw = editorkit::NkScrollbarWidth(u.S);
 				const NkRect track = {rowsArea.x + rowsArea.w - sw, rowsArea.y, sw, rowsArea.h};
-				u.dl->AddRectFilled(track, NkColor{18, 21, 26, 160}, sw * 0.5f);
-				float32 thh = rowsArea.h * (rowsArea.h / (rowsArea.h + ow->scrollMax));
-				if (thh < u.s(28))
-					thh = u.s(28);
-				const float32 ty = rowsArea.y + (rowsArea.h - thh) * (ow->scroll / ow->scrollMax);
-				const NkRect thumb = {track.x + u.s(2), ty, sw - u.s(4), thh};
-				const bool hov = u.Hit(thumb);
-				if (ow->barDrag) {
-					if (!u.down)
-						ow->barDrag = false;
-					else {
-						const float32 t = (u.mp.y - ow->barOff - rowsArea.y) / (rowsArea.h - thh);
-						ow->scroll = t * ow->scrollMax;
-						if (ow->scroll < 0.f)
-							ow->scroll = 0.f;
-						if (ow->scroll > ow->scrollMax)
-							ow->scroll = ow->scrollMax;
-					}
-				} else if (hov && u.click && !blockBg) {
-					ow->barDrag = true;
-					ow->barOff = u.mp.y - ty;
-				}
-				u.dl->AddRectFilled(thumb, (ow->barDrag || hov) ? NkColor{96, 104, 114, 255} : NkColor{56, 63, 72, 255},
-									(sw - u.s(4)) * 0.5f);
+				editorkit::NkVScrollbar(*u.ctx, *u.dl, track, ow->scroll, rowsArea.h + ow->scrollMax, rowsArea.h,
+										0x0E157011u, u.s(28)); // scrollbar general (= editeur)
 			}
 			// Scrollbar HORIZONTALE (vue liste, quand les colonnes depassent la largeur).
 			if (ow->hscrollMax > 0.5f) {
-				const float32 sh = u.s(10);
-				const float32 availW = rowsArea.w - (ow->scrollMax > 0.5f ? u.s(12) : 0.f); // place pour la barre V
+				const float32 sh = editorkit::NkScrollbarWidth(u.S);
+				const float32 availW = rowsArea.w - (ow->scrollMax > 0.5f ? sh : 0.f); // place pour la barre V
 				const NkRect track = {rowsArea.x, rowsArea.y + rowsArea.h - sh, availW, sh};
-				u.dl->AddRectFilled(track, NkColor{18, 21, 26, 160}, sh * 0.5f);
-				float32 thw = availW * (list.w / lcw);
-				if (thw < u.s(28))
-					thw = u.s(28);
-				const float32 tx = track.x + (availW - thw) * (ow->hscroll / ow->hscrollMax);
-				const NkRect thumb = {tx, track.y + u.s(2), thw, sh - u.s(4)};
-				const bool hov = u.Hit(thumb);
-				if (ow->hbarDrag) {
-					if (!u.down)
-						ow->hbarDrag = false;
-					else {
-						const float32 t = (u.mp.x - ow->hbarOff - track.x) / (availW - thw);
-						ow->hscroll = t * ow->hscrollMax;
-						if (ow->hscroll < 0.f)
-							ow->hscroll = 0.f;
-						if (ow->hscroll > ow->hscrollMax)
-							ow->hscroll = ow->hscrollMax;
-					}
-				} else if (hov && u.click && !blockBg) {
-					ow->hbarDrag = true;
-					ow->hbarOff = u.mp.x - tx;
-				}
-				u.dl->AddRectFilled(thumb,
-									(ow->hbarDrag || hov) ? NkColor{96, 104, 114, 255} : NkColor{56, 63, 72, 255},
-									(sh - u.s(4)) * 0.5f);
+				editorkit::NkHScrollbar(*u.ctx, *u.dl, track, ow->hscroll, lcw, list.w, 0x0E157012u,
+										u.s(40)); // scrollbar general (= editeur)
 			}
 
 			// ============ RANGEE D'OPTIONS (filtres) ============

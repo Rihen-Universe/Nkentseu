@@ -5,6 +5,7 @@
 // + panneau (filtres, workspaces recents groupes, actions rapides, exemples).
 // =============================================================================
 #include "NKCode/Shell/NkShell.h" // nkcode::NkShellRun (std::system gardé iOS)
+#include "NKEditorKit/NkEditorScrollbar.h"
 #include "NKCode/Shell/NkUi.h"
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Shell/Dialogs.h"		 // reutilise la logique d'actions (ouvrir/creer)
@@ -99,33 +100,11 @@ namespace nkentseu {
 					H->barDrag = 0;
 				return;
 			}
-			const float32 sw = u.s(10);
+			(void)H; // drag gere par ctx.activeId dans le widget
+			const float32 sw = editorkit::NkScrollbarWidth(u.S);
 			const NkRect track = {area.x + area.w - sw, area.y, sw, area.h};
-			u.dl->AddRectFilled(track, NkScrollTrack(), sw * 0.5f);
-			float32 thh = area.h * (area.h / contentH);
-			const float32 thmin = u.s(28);
-			if (thh < thmin)
-				thh = thmin;
-			const float32 ty = area.y + (area.h - thh) * (scroll / maxS);
-			const NkRect thumb = {track.x + u.s(2), ty, sw - u.s(4), thh};
-			const bool hov = u.Hit(thumb);
-			if (H->barDrag == 0 && hov && u.click) {
-				H->barDrag = id;
-				H->barOff = u.mp.y - ty;
-			}
-			if (H->barDrag == id) {
-				if (!u.down)
-					H->barDrag = 0;
-				else {
-					const float32 t = (u.mp.y - H->barOff - area.y) / (area.h - thh);
-					scroll = t * maxS;
-					if (scroll < 0.f)
-						scroll = 0.f;
-					if (scroll > maxS)
-						scroll = maxS;
-				}
-			}
-			u.dl->AddRectFilled(thumb, NkScrollThumb(H->barDrag == id || hov), (sw - u.s(4)) * 0.5f);
+			editorkit::NkVScrollbar(*u.ctx, *u.dl, track, scroll, contentH, area.h, 0x40E00000u + (uint32)id,
+									u.s(28)); // scrollbar general (= editeur)
 		}
 
 		// ── Item de navigation de la sidebar ──

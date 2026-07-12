@@ -8,6 +8,7 @@
 // (dropdown différé). Les actions appellent DoBuildAction/DoClean/DoRun/DoTest.
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
+#include "NKEditorKit/NkEditorScrollbar.h" // NkVScrollbar/NkHScrollbar (scrollbar general)
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Shell/NkUi.h"
 #include "NKCode/Shell/NkOpenWs.h" // NkOwIco
@@ -478,13 +479,13 @@ namespace nkentseu {
 					maxH = ih + pad;
 				const bool scroll = contentH > maxH;
 				const float32 ddh = scroll ? maxH : contentH;
-				const float32 sbW = scroll ? u.s(10) : 0.f;
+				const float32 sbW = scroll ? editorkit::NkScrollbarWidth(u.S) : 0.f; // largeur canonique (= editeur)
 				float32 ddx = a.x;
 				if (ddx + ddw > r.x + r.w - u.s(8))
 					ddx = r.x + r.w - u.s(8) - ddw;
 				const NkRect dd = {ddx, a.y + a.h + u.s(2), ddw, ddh};
 				uo.dl->AddRectFilled({dd.x + u.s(2), dd.y + u.s(3), dd.w, dd.h}, NkColor{0, 0, 0, 110}, NkR::md * u.S);
-				uo.Panel(dd, NkCol::surface, NkCol::primary, NkR::md * u.S);
+				uo.Panel(dd, NkCol::surface, NkCol::border, NkR::md * u.S); // bordure discrete (coherence menus)
 				const float32 maxScroll = scroll ? (contentH - ddh) : 0.f;
 				if (scroll && u.Hit(dd)) {
 					tb.scroll -= ec.Ui().input.wheel * ih * 2.f;
@@ -545,37 +546,20 @@ namespace nkentseu {
 					}
 				}
 				uo.dl->PopClipRect();
-				// Barre de défilement verticale UNIFORME (thème-aware) + glissement du pouce.
+				// Barre de defilement GENERALE (widget moteur NKEditorKit, identique a l'editeur :
+				// gouttiere theme-aware + fleches + pouce draggable + clic-piste).
 				if (scroll) {
 					const NkRect track = {dd.x + dd.w - sbW, dd.y + u.s(2), sbW, ddh - u.s(4)};
-					uo.dl->AddRectFilled(track, NkScrollTrack(), sbW * 0.5f);
-					float32 thh = track.h * (ddh / contentH);
-					if (thh < u.s(24))
-						thh = u.s(24);
-					if (thh > track.h)
-						thh = track.h;
-					const float32 ty = track.y + (maxScroll > 0.f ? (tb.scroll / maxScroll) : 0.f) * (track.h - thh);
-					const NkRect thumb = {track.x + u.s(2), ty, sbW - u.s(4), thh};
-					const bool thov = u.Hit(thumb);
-					if (u.click && thov) {
-						tb.scrollDrag = true;
-						tb.scrollDragOff = u.mp.y - ty;
-					}
-					if (tb.scrollDrag) {
-						if (!u.down)
-							tb.scrollDrag = false;
-						else if (track.h - thh > 0.f) {
-							tb.scroll = ((u.mp.y - tb.scrollDragOff - track.y) / (track.h - thh)) * maxScroll;
-							if (tb.scroll < 0.f)
-								tb.scroll = 0.f;
-							if (tb.scroll > maxScroll)
-								tb.scroll = maxScroll;
-						}
-					}
-					uo.dl->AddRectFilled(thumb, NkScrollThumb(tb.scrollDrag || thov), (sbW - u.s(4)) * 0.5f);
+					editorkit::NkVScrollbar(ec.Ui(), *uo.dl, track, tb.scroll, contentH, track.h, 0x5010D0Du, ih);
 				}
 				if (chose || (u.click && !u.Hit(dd) && !tb.justOpened && !tb.scrollDrag))
 					tb.open = -1;
+				// MODAL : rien DERRIERE le dropdown ne doit voir ces evenements (clic/molette).
+				if (u.Hit(dd)) {
+					ec.Ui().input.mouseClicked[0] = false;
+					ec.Ui().input.mouseClicked[1] = false;
+					ec.Ui().input.wheel = 0.f;
+				}
 				tb.justOpened = false;
 			}
 
