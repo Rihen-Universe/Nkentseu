@@ -26,6 +26,10 @@ namespace nkentseu {
 				int32 fftSize = 1024; // longueur de fenêtre = longueur FFT (puissance de 2)
 				int32 hopSize = 256;  // pas entre trames (recouvrement = fftSize - hopSize)
 				int32 iterations = 60; // itérations Griffin-Lim (plus = meilleure phase)
+					// Momentum du Fast Griffin-Lim (Perraudin 2013) : extrapolation entre projections
+					// successives -> convergence bien plus rapide vers une phase coherente (moins de buzz).
+					// 0 = Griffin-Lim classique ; ~0.9 recommande. Doit rester < 1.
+					float32 momentum = 0.9f;
 		};
 
 		// Spectrogramme de magnitude : `frames` trames × `bins` (= fftSize/2 + 1), row-major.
