@@ -72,7 +72,7 @@ int nkmain(const NkEntryState &state) {
 	// Ouvre un fichier au demarrage (demo) : le README de NKCode.
 	g_state.OpenPath(g_state.root / "README.md");
 
-	static nkcode::ExplorerPanel explorer(&g_state);
+	static nkcode::ExplorerPanel explorer(&g_state, shell.Get());
 	static nkcode::OutlinePanel outline(&g_state);
 	static nkcode::EditorPanel editor(&g_state, shell.Get());
 	static nkcode::OutputPanel output(&g_state);

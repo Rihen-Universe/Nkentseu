@@ -27,8 +27,8 @@ namespace nkentseu {
 
 		class ExplorerPanel : public NkEditorPanel {
 			public:
-				explicit ExplorerPanel(NkCodeState *s)
-					: NkEditorPanel("Explorateur", NkEditorDockSide::NK_LEFT), mS(s) {
+				explicit ExplorerPanel(NkCodeState *s, NkEditorShell *shell = nullptr)
+					: NkEditorPanel("Explorateur", NkEditorDockSide::NK_LEFT), mS(s), mShell(shell) {
 				}
 
 				void OnUI(NkEditorFrameContext &ec) override {
@@ -64,9 +64,9 @@ namespace nkentseu {
 					DrawHeader(ctx, vclip);
 					if (mFilterOn)
 						DrawFilterBar(ctx, vclip);
-					DrawCtxMenu(ctx);	 // overlay : par-dessus tout
-					DrawConfirmDel(ctx); // confirmation de suppression
-					DrawPeek(ctx);		 // aperçu barre Espace (overlay centré) — lit ctx.input
+					PollExplorerMenu(ctx); // menu contextuel via le gestionnaire du shell
+					DrawConfirmDel(ctx);   // confirmation de suppression
+					DrawPeek(ctx);		   // aperçu barre Espace (overlay centré) — lit ctx.input
 					// PEEK OUVERT = MODAL : l'explorateur est le 1er panneau dessiné ; on
 					// neutralise l'input APRÈS le peek -> les panneaux suivants (éditeur,
 					// terminal…) ne reçoivent aucun CLIC sous l'overlay. Le peek, lui, a
@@ -75,9 +75,9 @@ namespace nkentseu {
 					// de DÉPLACEMENT (jamais re-sondé) -> l'écraser le GÈLE pour toute
 					// l'app à la frame suivante (clic sans bouger = position figée). On
 					// neutralise donc SEULEMENT les clics/molette/frappes.
-					// Actif pour le peek ET les menus overlay (clic droit, confirmation) :
-					// sinon le clic « traverse » vers l'éditeur/terminal dessous.
-					if (mPeekOpen || mCtx.open || mDelMenu.open) {
+					// Actif pour le peek ET la confirmation de suppression (le menu clic
+					// droit passe désormais par le gestionnaire du shell, occlusion incluse).
+					if (mPeekOpen || mDelMenu.open) {
 						for (int32 b = 0; b < 3; ++b) {
 							ctx.input.mouseClicked[b] = false;
 							ctx.input.mouseDown[b] = false;
@@ -1188,21 +1188,12 @@ namespace nkentseu {
 							if (!IsSelected(r.path))
 								SelectOnly(r.path, static_cast<int32>(i));
 							mSelTick = mTick;
-							mCtx.open = true;
-							mCtx.pos = m;
-							mCtxPath = r.path;
-							mCtxIsDir = r.dir;
-							mCtxIsExtraRoot = r.extraRoot;
+							OpenExplorerMenu(m, r.path, r.dir, r.extraRoot);
 						}
 					}
 					// Clic droit dans le VIDE : menu sur la racine (création à la racine).
-					if (inClip && ctx.input.mouseClicked[1] && !rowHit && !editing && mRootStr.Length() > 0) {
-						mCtx.open = true;
-						mCtx.pos = m;
-						mCtxPath = mRootStr;
-						mCtxIsDir = true;
-						mCtxIsExtraRoot = false;
-					}
+					if (inClip && ctx.input.mouseClicked[1] && !rowHit && !editing && mRootStr.Length() > 0)
+						OpenExplorerMenu(m, mRootStr, true, false);
 					// ── Drop de fichiers depuis l'OS : COPIE dans le dossier sous la
 					// position (posé par la boucle ci-dessus), sinon à la racine. ──
 					if (!mS->osDropPaths.Empty() && mRootStr.Length() > 0 &&
@@ -1582,12 +1573,13 @@ namespace nkentseu {
 						mPeekOpen = false;
 				}
 
-				// ── Menu contextuel (clic droit) : actions sur la cible. ──
-				void DrawCtxMenu(NkGuiContext &ctx) {
-					if (!mCtx.open)
-						return;
-					// Fichiers/dossiers (0-9) + GIT & IA (10-15) : ces derniers sont des
-					// PLACEHOLDERS — présents dans le menu, comportement défini plus tard.
+				// ── Menu contextuel : ouvre via le GESTIONNAIRE DU SHELL (réutilisable,
+				//    occlusion propre — plus de traversée d'événements). ──
+				void OpenExplorerMenu(const NkVec2 &pos, const NkString &path, bool dir, bool extraRoot) {
+					mCtxPath = path;
+					mCtxIsDir = dir;
+					mCtxIsExtraRoot = extraRoot;
+					// Fichiers/dossiers (0-9) + GIT & IA (10-15, placeholders) + racines (16-17).
 					const char *items[18] = {NkT("exp.ctx.newfile"),  NkT("exp.ctx.newfolder"),
 											 NkT("exp.ctx.rename"),	  NkT("exp.ctx.delete"),
 											 NkT("exp.ctx.dup"),	  NkT("exp.ctx.copypath"),
@@ -1600,17 +1592,23 @@ namespace nkentseu {
 					bool en[18];
 					for (int32 i = 0; i < 18; ++i)
 						en[i] = true;
-					const bool isMainRoot = SameStr(mCtxPath.CStr(), mRootStr.CStr());
-					const bool isExtraRoot = mCtxIsExtraRoot;
-					if (isMainRoot || isExtraRoot) // pas de rename/suppr/dup/gitignore d'une racine
+					const bool isMainRoot = SameStr(path.CStr(), mRootStr.CStr());
+					if (isMainRoot || extraRoot)
 						en[2] = en[3] = en[4] = en[9] = false;
-					if (mCtxIsDir) // git compare/blame/discard + IA = fichiers uniquement
+					if (dir)
 						en[10] = en[11] = en[12] = en[13] = en[14] = false;
-					en[16] = isMainRoot || isExtraRoot; // « Ajouter un dossier » : sur une racine
-					en[17] = isExtraRoot;				// « Retirer du workspace » : racine secondaire
-					// Cache les 2 derniers si non pertinents (les met en fin, désactivés).
-					const int32 nItems = (isMainRoot || isExtraRoot) ? 18 : 16;
-					const int32 act = NkCtxMenuDraw(ctx, mCtx, items, en, nItems);
+					en[16] = isMainRoot || extraRoot;
+					en[17] = extraRoot;
+					const int32 nItems = (isMainRoot || extraRoot) ? 18 : 16;
+					if (mShell)
+						mShell->OpenContextMenu(pos, items, en, nItems);
+				}
+
+				// Traite le choix du menu (poll chaque frame).
+				void PollExplorerMenu(NkGuiContext &ctx) {
+					if (!mShell)
+						return;
+					const int32 act = mShell->TakeContextMenuChoice();
 					if (act < 0)
 						return;
 					const NkString p = mCtxPath;
@@ -1674,6 +1672,7 @@ namespace nkentseu {
 				}
 
 				NkCodeState *mS = nullptr;
+				NkEditorShell *mShell = nullptr; ///< gestionnaire de menu contextuel (shell-level)
 				NkVector<Row> mRows;
 				NkVector<NkString> mExpanded;
 				NkVector<NkString> mExtraRoots; ///< racines secondaires (multi-racines)
@@ -1699,8 +1698,7 @@ namespace nkentseu {
 				uint32 mGitNext = 0;
 				bool mGitParsed = true; ///< résultat du run courant déjà consommé ?
 				// ── Tranche 2 : menu contextuel + édition inline + opérations fichiers ──
-				NkCtxMenu mCtx;			///< menu clic droit
-				NkString mCtxPath;		///< cible du menu
+				NkString mCtxPath;		///< cible du menu (mémorisée entre ouverture et choix)
 				bool mCtxIsDir = false;
 				NkString mEditPath;		///< row en RENOMMAGE inline (vide = aucun)
 				NkString mEditParent;	///< création inline : dossier parent (vide = aucune)

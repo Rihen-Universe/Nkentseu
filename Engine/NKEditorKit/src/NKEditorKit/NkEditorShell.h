@@ -78,6 +78,22 @@ namespace nkentseu {
 				int32 PanelDockNode(const char *title) noexcept; ///< feuille de dock (-1 = non ancre)
 				void DetachPanel(const char *title) noexcept; ///< retire de sa feuille (collapse si vide)
 
+				// ── GESTIONNAIRE DE MENU CONTEXTUEL (réutilisable, shell-level) ──────
+				// Un panneau APPELLE OpenContextMenu(pos, items, enabled, count) ; le shell
+				// dessine le menu APRÈS tous les panneaux (input réel, occlusion propre via
+				// le mécanisme modal). Le panneau récupère l'item choisi via
+				// TakeContextMenuChoice() (-1 si aucun). Thémé (NkGuiTheme) -> personnalisable.
+				void OpenContextMenu(const nkgui::NkVec2 &pos, const char *const *items, const bool *enabled,
+									 int32 count) noexcept;
+				int32 TakeContextMenuChoice() noexcept {
+					const int32 c = mCtxChoice;
+					mCtxChoice = -1;
+					return c;
+				}
+				bool IsContextMenuOpen() const noexcept {
+					return mCtxOpen;
+				}
+
 				// ── Géométrie de fenêtre (launcher) : fichier global taille/pos/maximisé ──
 				void MaximizeWindow() noexcept;
 				void SaveWindowGeom(const char *path) noexcept;	 ///< écrit win=/maximized= (position écran)
@@ -369,6 +385,14 @@ namespace nkentseu {
 				// Géométrie fenêtre cachée chaque frame (valide à la sauvegarde post-Run).
 				bool mGeomValid = false, mGeomMax = false;
 				int32 mGeomX = 0, mGeomY = 0, mGeomW = 1440, mGeomH = 900;
+				// Gestionnaire de menu contextuel (shell-level).
+				bool mCtxOpen = false;
+				nkgui::NkVec2 mCtxPos{0.f, 0.f};
+				nkentseu::NkVector<nkentseu::NkString> mCtxItems;
+				nkentseu::NkVector<nkentseu::uint8> mCtxEnabled;
+				int32 mCtxChoice = -1;
+				float32 mCtxSy = 0.f; // défilement vertical (listes longues)
+				void DrawContextMenu() noexcept;
 				void (*mActivityFn)(void *, int32) = nullptr; // handler app du clic activity bar
 				void *mActivityUser = nullptr;
 				void (*mDropFn)(void *, const NkVector<NkString> &, int32, int32) = nullptr; // drop OS
