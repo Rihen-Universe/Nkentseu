@@ -1,6 +1,8 @@
 # NKRenderer — Roadmap
 
-État actuel (mai 2026) : Phases A → G + G.ext M.1..M.5 + M.8 livrées. Pipeline
+État actuel (2026-07-12) : Phases A → G + G.ext M.1..M.5 + M.8 livrées ;
+viewport d'édition (gizmo + 6 view modes + edit mode mesh) livré ; convolutions
+IBL sur GPU compute (Phase N v1) livrées (DX11 = CPU par défaut). Pipeline
 post-process avec **Bloom Dual-Kawase 11-pass AAA cross-API** + ACES tonemap.
 HDR IBL avec cubemap dédié skybox (RGBA32F brut). PBR avec mirror via
 tSkyEnvCube pour roughness ~0. SSAO v0 + Voxel AO v0 stable. **Planar
@@ -78,16 +80,22 @@ Socle d'un viewport d'édition façon Blender (testbed `renderdemo --demo=2`, fu
   Overlay via **nouvelle option moteur `NkRender3D::DrawDebugLine(..., overlay=true)`**
   (pipeline debug-line **depth-OFF** `mLinePipelineNoDepth`). Contrôleurs caméra réutilisables
   `NkOrbitCameraController3D` / `NkFlyCameraController3D`. Grille infinie `SetInfiniteGridEnabled`.
-- ⏳ **Modes d'affichage** — `SetWireframe` est un **STUB** (`mWireframe` jamais consommé,
-  pipelines PBR tous en `NoCull` solide) et l'enum `NkViewMode`
-  (SOLID/WIREFRAME/NORMALS/UV/DEPTH/AO/UNLIT) est **déclaré mais non branché** (pas dans
-  `NkSceneContext`, aucune conso). À FAIRE : variante pipeline `Wireframe()` bindée selon le
-  mode + uniforme `viewMode` (pad CameraUBO) + branche debug en fin de `pbr.frag` NkSL
-  (normal/UV/depth/AO/unlit) recompilée cross-backend (GL/VK/DX).
-- ⏳ **Edit Mode mesh** (Blender-like) — sélection/édition **vertices / arêtes / faces** des
-  meshes sélectionnés. Phases : A) copie CPU éditable + pick de vertices + déplacement **via
-  `NkGizmo3D`** + re-upload GPU → B) arêtes + faces → C) outils topologie (extrude / subdivise /
-  supprime). Prérequis : API d'accès/màj des buffers de mesh (`NkMeshSystem` = GPU-only aujourd'hui).
+- ✅ **Modes d'affichage LIVRÉS (2026-07-05)** — touche Z cycle **6 modes**
+  RENDERED / SOLID (matcap) / WIREFRAME / NORMAL / UV / AO ; wireframe via variante
+  `pipelineWire` par template matériau (`NkMaterialSystem::SetWireframe`, rasterizer
+  natif GL/VK/DX) ; uniforme `viewMode` + `matcapId` dans le CameraUBO ; **5 matcaps**
+  (touche M : Studio/Clay/Metal/Toon procéduraux + Chrome texture, binding 28 global).
+  ⚠️ Piège : le bloc CameraUBO doit rester IDENTIQUE entre pbr.vert et pbr.frag .nksl.
+  Reste optionnel : mode DEPTH ; demande future Rihen = matcap par OBJET en RENDERED.
+- ✅ **Edit Mode mesh LIVRÉ côté démo (2026-07-05, testbed Demo3D)** — TAB objet/édition,
+  sélection **vertex/arête/face** (1/2/3, combinables Shift), pick rayon Möller-Trumbore,
+  déplacement via `NkGizmo3D` (groupe au centroïde), **extrude (E) / delete (X) / merge (M) /
+  create face (F)**, recalcul normales, X-ray Alt+Z, **batch GPU persistant**
+  (`SetEditOverlayLines/Tris/Points`, ~145 FPS sphère dense), persistance par objet.
+  Moteur : `NkMeshSystem` cache CPU (`keepCPU`) + `UpdateVertices(Range)` ;
+  `NkRender3D::DrawDebugTriangle` ; purge debug-lines O(n). **`NkEditMesh` half-edge
+  (Mesh/NkEditMesh.{h,cpp}) Phase 1a** compile — RESTE : quadify + câblage éditeur (1b),
+  ops topo n-gon (2), import (3) — cf. mémoire `project_editmesh_halfedge_plan`.
 
 ## ✅ Livré
 
@@ -209,7 +217,7 @@ NkPlanarReflectionSystem + reflets planaires complets sur sol mirror.
 - ❌ DOF/bokeh, Motion blur, TAA, vignette/grain chromatic, Lens flares
   — non implémentés
 
-### Phase N — IBL pipeline (partielle CPU, GPU à venir)
+### Phase N — IBL pipeline
 - ✅ Phase N v0 : `LoadFromHDR(.hdr)` via NkImage existant + convolution CPU
   IBL irradiance + prefilter (Reinhard tonemap)
 - ✅ Phase N v0.5 : Background HDR skybox visible (fullscreen triangle
@@ -218,7 +226,17 @@ NkPlanarReflectionSystem + reflets planaires complets sur sol mirror.
   au binding=26 — preserve HDR brut > 1.0
 - ✅ Phase I : PBR specular IBL via tSkyEnvCube pour roughness ≤ 0.5
   (mirror) → métalliques recevent bloom HDR
-- ❌ Compute shader prefilter GPU (remplace CPU 0.5-2s → <50ms)
+- ✅ **Convolutions GPU compute (2026-07-12)** — `NkIBLCompute.{h,cpp}`
+  (Tools/Environment) : kernels NkSL irradiance Lambert + prefilter GGX
+  (chemin compute prouvé de NkTensorGpu : NkSL→SPIRV/GLSL/HLSL, SSBO in/out),
+  branchés dans `LoadFromHDR` avec **fallback CPU automatique**. Mesuré
+  (demo3, HDR 1k, prefilter 256²×6 mips) : **convolution 9-28 ms vs CPU
+  79-99 ms** (compile kernels 10-260 ms one-shot par backend). Validation
+  numérique `NK_IBL_VERIFY=1` : GL/VK/DX12 **maxDiff 5/255 sur 0.09 %** des
+  octets (= trig float GPU). ⚠️ **DX11 : CPU par défaut** (maxDiff 175/255
+  sur 0.8 % des texels, fxc cs_5_0 à investiguer ; `NK_IBL_GPU=1` force).
+  NB : le cache disque IBL couvrait déjà les runs suivants ; le gain GPU =
+  premier chargement + **swap de HDRI à chaud** (éditeur, T.5).
 - ❌ Env light probes / reflection probes par zone
 
 ### Phase F — Multi-backend (DX au niveau VK)
@@ -310,6 +328,19 @@ limité, DX12+Metal OK. Plan :
 - **Self-shadowing artifacts** sur certains objets : bias actuel 0.003
   (NkVSMConfig.shadowBias). Live-tunable via `[` `]` dans Demo3D HUD.
   Si artefact persiste, monter à 0.005-0.01.
+- ~~**Debug-draw invisible dans la vue principale quand un miroir est
+  actif**~~ **CORRIGÉ 2026-07-12** : la passe miroir (rendue en premier)
+  appelait `FlushDebug` qui décrémentait la vie des primitives one-frame
+  et les purgeait — la vue principale n'avait plus rien (symptôme : cercle
+  vert du matériau actif Demo4/5 visible SEULEMENT dans le reflet). Fix :
+  les overlays debug/édition ne sont plus rendus dans la passe miroir
+  (aides d'éditeur ≠ contenu de scène — un reflet ne les montre pas).
+- **IBL GPU sur DX11** : convolutions compute désactivées par défaut
+  (maxDiff 175/255 sur 0.8 % des texels vs CPU, fxc cs_5_0 — GL/VK/DX12
+  propres à 5/255). `NK_IBL_GPU=1` pour reproduire/investiguer.
+- **Reflet plus clair que la scène ?** (rapport Rihen 2026-07-12, demo à
+  préciser) : hypothèse = la passe miroir est rendue SANS SSAO/VoxelAO +
+  composite additif du reflet sur le sol — à investiguer.
 
 ---
 
@@ -431,8 +462,9 @@ fine est inutilisable en production stylisée.
 + normal bias + per-material override + planar reflection complete ajoutent
 ~10% par rapport à l'estimation précédente de 70%). Restant pour MVP :
 - **Phase H.6 v1 voxel AO précision** (gpu bake + .glsli partagé)
-- **Phase L finition** (FXAA + auto-exposure + color grading)
-- **Phase N GPU** (compute prefilter pour boot rapide)
+- **Phase L finition** (~~FXAA~~ ✅ + ~~auto-exposure~~ ✅ ; reste API
+  SetColorGradingLUT + LUT 3D réelle sur GL)
+- ~~**Phase N GPU** (compute prefilter)~~ ✅ 2026-07-12 (reste : GPU sur DX11)
 - **Phase E v1** (Materials 2D fonctionnels)
 - **Phase F finition** (DX/Metal validation)
 - **Phase D.4.2** (NkVSM v2 : ClearRect API + dynamic offsets UBO + shader overrides étendus)
