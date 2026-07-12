@@ -366,10 +366,15 @@ limité, DX12+Metal OK. Plan :
   gris du sol par-dessus le reflet, + flou du RT de réflexion. La vue directe
   (sous le plan) est donc plus nette/saturée → perçue « plus claire ».
   En cause aussi : `reflStr = (1-roughness)*mix(0.9, 1.0, fresnel)` = miroir
-  ~90 % à TOUT angle (non physique ; un vrai Fresnel diélectrique = 4 % de
-  face → 100 % rasant). Options (décision Rihen) : (a) Fresnel physique
-  (reflets discrets de face, look plus réaliste), (b) garder le look miroir
-  stylisé et réduire le voile (mix litBase pondéré par (1-reflStr)²), (c) rien.
+  ~90 % à TOUT angle (non physique). **RÉSOLU EN OPTION UTILISATEUR
+  (2026-07-12, demande Rihen)** : `NkPBRParams::reflBlend` +
+  `NkMaterial(Instance)::SetReflFloorBlend(v)` — `-1` = Fresnel PHYSIQUE
+  (4 % de face → 100 % rasant, style UE5) ; `[0..1]` = STYLISÉ avec intensité
+  du voile litBase (1 = look historique par défaut, 0 = reflet pur). Propagé
+  par l'héritage M.4. Validé par captures DX11 mesurées : mode défaut =
+  non-régression pixel exacte ; reflet pur = canal B de la sphère réfléchie
+  58 → 3 (= sphère directe) ; physique = reflet ~4 % de face. Demo4/demo3 :
+  touche **P** cycle les modes + env `NK_REFL_MODEL=<0-3>`.
 - **Readback OpenGL de NkOffscreenTarget cassé** (GLAD 1282
   glMapNamedBufferRange) — la capture NK_CAPTURE ne marche que sur DX11
   (vérifié pixel-perfect) ; fix côté NKRHI GL à coordonner (module partagé).
