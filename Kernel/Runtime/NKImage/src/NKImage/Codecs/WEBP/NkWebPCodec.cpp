@@ -943,17 +943,59 @@ namespace nkentseu {
 			++nextNode;
 		}
 
-		// Calcule les longueurs en remontant vers la racine
+		// Longueurs BRUTES (profondeur dans l'arbre) → histogramme.
 		const int32 root = totalNodes - 1;
+		const int32 kMaxLen = 15; // limite VP8L
+		uint32 blCount[64] = {};
+		int32 rawMax = 0;
 		for (int32 i = 0; i < nSym; ++i) {
 			int32 len = 0, node = i;
 			while (nodeParent[node] != -1 && node != root) {
 				++len;
 				node = nodeParent[node];
 			}
-			// Borne à 15 bits (limite VP8L)
-			lens[syms[i].idx] = static_cast<uint8>(len > 15 ? 15 : len);
+			if (len < 1)
+				len = 1;
+			if (len > 63)
+				len = 63;
+			++blCount[len];
+			if (len > rawMax)
+				rawMax = len;
 		}
+
+		// Limitation de longueur à 15 SANS casser la validité (méthode type zlib) :
+		// on rabat le débordement sur la longueur 15, puis on réduit la sur-souscription
+		// (Σ blCount[l]·2^(15-l) doit valoir 2^15) en rallongeant des codes courts.
+		if (rawMax > kMaxLen) {
+			for (int32 l = kMaxLen + 1; l <= rawMax; ++l) {
+				blCount[kMaxLen] += blCount[l];
+				blCount[l] = 0;
+			}
+			uint32 total = 0;
+			for (int32 l = 1; l <= kMaxLen; ++l)
+				total += blCount[l] << (kMaxLen - l);
+			const uint32 target = 1u << kMaxLen;
+			while (total > target) {
+				// Un code de longueur `bits` (<15) devient deux de longueur bits+1,
+				// et on retire une feuille de longueur 15 → total -= 1, nb de feuilles conservé.
+				int32 bits = kMaxLen - 1;
+				while (bits > 0 && blCount[bits] == 0)
+					--bits;
+				if (bits == 0)
+					break;
+				--blCount[bits];
+				blCount[bits + 1] += 2;
+				--blCount[kMaxLen];
+				--total;
+			}
+		}
+
+		// Réassigne les longueurs : les symboles les PLUS fréquents reçoivent les codes
+		// les plus COURTS (syms trié par fréquence CROISSANTE → on part de la fin).
+		int32 pos = nSym - 1;
+		for (int32 l = 1; l <= kMaxLen && pos >= 0; ++l)
+			for (uint32 c = 0; c < blCount[l] && pos >= 0; ++c, --pos)
+				lens[syms[pos].idx] = static_cast<uint8>(l);
 
 		NkFree(syms);
 		NkFree(nodeFreq);
@@ -1092,7 +1134,7 @@ namespace nkentseu {
 		}
 
 		// Calcule les fréquences des 4 canaux (alphabets G, R, B, A = 256 symboles)
-		uint32 fG[256] = {}, fR[256] = {}, fB[256] = {}, fA[256] = {};
+		uint32 fG[280] = {}, fR[256] = {}, fB[256] = {}, fA[256] = {}; // vert = 256 litt. + 24 longueurs
 		for (int32 i = 0; i < total; ++i) {
 			++fG[(argb[i] >> 8) & 0xFF];
 			++fR[(argb[i] >> 16) & 0xFF];
@@ -1101,8 +1143,8 @@ namespace nkentseu {
 		}
 
 		// Construit les tables Huffman (BUG C CORRIGÉ : algorithme correct)
-		uint8 lG[256] = {}, lR[256] = {}, lB[256] = {}, lA[256] = {};
-		BuildCanonicalHuff(fG, 256, lG);
+		uint8 lG[280] = {}, lR[256] = {}, lB[256] = {}, lA[256] = {};
+		BuildCanonicalHuff(fG, 280, lG);
 		BuildCanonicalHuff(fR, 256, lR);
 		BuildCanonicalHuff(fB, 256, lB);
 		BuildCanonicalHuff(fA, 256, lA);
@@ -1130,8 +1172,8 @@ namespace nkentseu {
 				codes[i] = static_cast<uint32>(rev);
 			}
 		};
-		uint32 cG[256], cR[256], cB[256], cA[256];
-		buildCodes(lG, 256, cG);
+		uint32 cG[280], cR[256], cB[256], cA[256];
+		buildCodes(lG, 280, cG);
 		buildCodes(lR, 256, cR);
 		buildCodes(lB, 256, cB);
 		buildCodes(lA, 256, cA);
@@ -1152,19 +1194,17 @@ namespace nkentseu {
 		bw.WriteBits(2, 2); // transform_type = subtract_green
 		bw.WriteBits(0, 1); // has_transform = false (fin des transforms)
 
-		// BUG D CORRIGÉ : 5 tables Huffman au format VP8L spec
-		// Alphabets : G(256), R(256), B(256), A(256), Distance(40)
-		WriteHuffmanCode(bw, lG, 256);
+		// Ordre VP8L (spec) : color_cache PUIS use_meta_huffman AVANT les tables Huffman.
+		bw.WriteBits(0, 1); // color_cache : pas de cache
+		bw.WriteBits(0, 1); // use_meta_huffman : non (un seul groupe)
+		// G = 280 (256 litt. + 24 codes de longueur), R/B/A = 256, Distance = 40.
+		WriteHuffmanCode(bw, lG, 280);
 		WriteHuffmanCode(bw, lR, 256);
 		WriteHuffmanCode(bw, lB, 256);
 		WriteHuffmanCode(bw, lA, 256);
-		// Distance tree : distribution quasi-uniforme (toutes longueurs = 6)
 		uint8 lD[40];
 		NkSet(lD, 6, 40);
 		WriteHuffmanCode(bw, lD, 40);
-
-		// Pas de color cache
-		bw.WriteBits(0, 1);
 
 		// Encode les pixels (mode littéral uniquement)
 		for (int32 i = 0; i < total; ++i) {
