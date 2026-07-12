@@ -3720,7 +3720,12 @@ namespace nkentseu {
 			{
 				int32 sA, sB, sC, sD;
 				d.SelRange(sA, sB, sC, sD);
-				if (d.HasSel() && sA == sC && sD > sB && sD - sB <= 64) {
+				// GARDE anti-crash : une sélection RESTAURÉE (session) peut pointer hors
+				// du contenu actuel du fichier (ligne/colonnes périmées) -> valider ligne
+				// ET bornes de colonnes avant de lire (sinon lecture hors ligne vide).
+				if (d.HasSel() && sA == sC && sD > sB && sD - sB <= 64 && sA >= 0 &&
+					sA < static_cast<int32>(d.lines.Size()) && sB >= 0 &&
+					sD <= static_cast<int32>(d.lines[sA].Size())) {
 					const NkCodeLine &SL = d.lines[sA];
 					bool onlySpace = true;
 					for (int32 c = sB; c < sD; ++c) {
