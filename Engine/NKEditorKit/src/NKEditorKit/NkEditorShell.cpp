@@ -545,6 +545,19 @@ namespace nkentseu {
 				mLastWidth = wsz.x;
 				mLastHeight = wsz.y;
 			}
+			// CACHE la géométrie CHAQUE frame (fenêtre encore valide) : SaveUiState/
+			// SaveWindowGeom tournent APRÈS Run() quand la fenêtre peut être détruite
+			// -> IsMaximized/GetSize renverraient un état faux. On sauve donc l'état
+			// vu à la dernière frame. La taille FENÊTRÉE n'est mémorisée que hors max.
+			mGeomMax = mWindow.IsMaximized();
+			if (!mGeomMax) {
+				const math::NkVec2u gp = mWindow.GetPosition();
+				mGeomX = static_cast<int32>(gp.x);
+				mGeomY = static_cast<int32>(gp.y);
+				mGeomW = static_cast<int32>(wsz.x);
+				mGeomH = static_cast<int32>(wsz.y);
+			}
+			mGeomValid = true;
 			const math::NkVec2u sz = mRenderer->Size();
 			if (sz.x > 0 && sz.y > 0) {
 				mUI.viewW = static_cast<int32>(sz.x);
@@ -1522,13 +1535,10 @@ namespace nkentseu {
 			NkPath p(path);
 			NkDirectory::CreateRecursive(p.GetParent());
 			NkString out;
-			if (!mWindow.IsMaximized()) {
-				const math::NkVec2u sz = mWindow.GetSize();
-				const math::NkVec2u ps = mWindow.GetPosition();
-				out += NkPrintf("win=%d|%d|%d|%d\n", static_cast<int32>(ps.x), static_cast<int32>(ps.y),
-								static_cast<int32>(sz.x), static_cast<int32>(sz.y));
-			}
-			out += mWindow.IsMaximized() ? "maximized=1\n" : "maximized=0\n";
+			const bool gmax = mGeomValid ? mGeomMax : mWindow.IsMaximized();
+			if (!gmax)
+				out += NkPrintf("win=%d|%d|%d|%d\n", mGeomX, mGeomY, mGeomW, mGeomH);
+			out += gmax ? "maximized=1\n" : "maximized=0\n";
 			NkFile::WriteAllText(p, out);
 		}
 
@@ -1568,19 +1578,13 @@ namespace nkentseu {
 			NkPath p(path);
 			NkDirectory::CreateRecursive(p.GetParent()); // cree <ws>/.nkcode/ si besoin
 			NkString out;
-			// Géométrie fenêtrée D'ABORD (place la fenêtre sur le bon MONITEUR via les
-			// coordonnées écran absolues), PUIS l'état maximisé -> maximise sur ce
-			// moniteur. Non sauvée si maximisée (coords = plein écran, pas la taille
-			// fenêtrée à restaurer). Cast unsigned->int : récupère une position négative.
-			if (!mWindow.IsMaximized()) {
-				const math::NkVec2u sz = mWindow.GetSize();
-				const math::NkVec2u ps = mWindow.GetPosition();
-				out += NkPrintf("win=%d|%d|%d|%d\n", static_cast<int32>(ps.x), static_cast<int32>(ps.y),
-								static_cast<int32>(sz.x), static_cast<int32>(sz.y));
-			}
-			out += "maximized=";
-			out += mWindow.IsMaximized() ? "1" : "0";
-			out += "\n";
+			// Géométrie CACHÉE (dernière frame, fenêtre valide) : ici la fenêtre peut
+			// être détruite (SaveUiState appelé après Run()). Fenêtré d'ABORD (bon
+			// moniteur via coords écran), PUIS maximisé.
+			const bool gmax = mGeomValid ? mGeomMax : mWindow.IsMaximized();
+			if (!gmax)
+				out += NkPrintf("win=%d|%d|%d|%d\n", mGeomX, mGeomY, mGeomW, mGeomH);
+			out += gmax ? "maximized=1\n" : "maximized=0\n";
 			for (int32 i = 0; i < mNumPanels; ++i)
 				if (mPanels[i]->IsOpen()) {
 					out += "panel=";

@@ -366,6 +366,9 @@ namespace nkentseu {
 				uint32 mActTexL[8] = {};					  // textures vues gauche (0 = trait)
 				uint32 mActTexR[4] = {};					  // textures IA droite
 				uint32 mActTexGear = 0;						  // texture reglages
+				// Géométrie fenêtre cachée chaque frame (valide à la sauvegarde post-Run).
+				bool mGeomValid = false, mGeomMax = false;
+				int32 mGeomX = 0, mGeomY = 0, mGeomW = 1440, mGeomH = 900;
 				void (*mActivityFn)(void *, int32) = nullptr; // handler app du clic activity bar
 				void *mActivityUser = nullptr;
 				void (*mDropFn)(void *, const NkVector<NkString> &, int32, int32) = nullptr; // drop OS
