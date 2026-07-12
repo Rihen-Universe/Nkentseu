@@ -43,6 +43,13 @@ namespace nkentseu {
 				// interleaved, N = (1<<LM)*shortMdctSize). Renvoie true si OK. Met à jour l'état interne.
 				bool DecodeFrame(const uint8 *data, int32 len, int32 LM, float32 *pcm, NkFrameFlags *outFlags);
 
+				// Décode depuis un range decoder PARTAGÉ (mode HYBRIDE : CELT continue
+				// après SILK dans le même flux), sur les bandes [start, end). Si accum,
+				// AJOUTE au pcm (bande haute par-dessus SILK) au lieu d'écraser.
+				// Le silence + post-filtre ne sont lus que si start == 0 (CELT-only).
+				bool DecodeShared(NkOpusRangeDecoder &dec, int32 len, int32 LM, int32 start, int32 end, float32 *pcm,
+								  bool accum, NkFrameFlags *outFlags);
+
 				static bool SelfTest();
 
 			private:
