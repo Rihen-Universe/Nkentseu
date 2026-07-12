@@ -13,6 +13,10 @@
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkPath.h"
+#include "NKPlatform/NkEnv.h" // env::GetEnvVar (emplacements du sélecteur)
+#if defined(_WIN32)
+#include <windows.h> // GetLogicalDrives (barre latérale disques)
+#endif
 
 using namespace nkentseu;
 using namespace nkentseu::nkgui;
@@ -1731,9 +1735,50 @@ namespace nkentseu {
 				dl.AddText(mUI.font->Face(), mUI.font->TexId(), {pathR.x + 8.f, pathR.y + (th - lh) * 0.5f + asc},
 						   mFpDir.CStr(), mUI.theme.textDisabled, pathR.w - 12.f);
 			y += th + 8.f;
-			// ── Liste (molette + barre draggable qui MARCHENT) ──
+			// ── Barre latérale d'EMPLACEMENTS (Accueil/Bureau/Documents/Téléch. + disques) ──
 			const float32 listBottom = w.y + w.h - th - 16.f;
-			const NkRect list = {w.x + pad, y, w.w - pad * 2.f, listBottom - y};
+			const float32 sideW = 150.f;
+			const NkRect side = {w.x + pad, y, sideW, listBottom - y};
+			dl.AddRectFilled(side, mUI.theme.panel, 4.f);
+			{
+				const char *up = env::GetEnvVar("USERPROFILE");
+				if (!up || !*up)
+					up = env::GetEnvVar("HOME");
+				const NkString home = NkString((up && *up) ? up : ".");
+				struct Place {
+						NkString label, path;
+				};
+				NkVector<Place> places;
+				places.PushBack({NkString("Accueil"), home});
+				places.PushBack({NkString("Bureau"), (NkPath(home.CStr()) / "Desktop").ToString()});
+				places.PushBack({NkString("Documents"), (NkPath(home.CStr()) / "Documents").ToString()});
+				places.PushBack({NkString("Téléchargements"), (NkPath(home.CStr()) / "Downloads").ToString()});
+#if defined(_WIN32)
+				const DWORD mask = GetLogicalDrives();
+				for (int32 d = 0; d < 26; ++d)
+					if (mask & (1u << d)) {
+						char dl2[4] = {static_cast<char>('A' + d), ':', '/', 0};
+						places.PushBack({NkString(dl2), NkString(dl2)});
+					}
+#endif
+				float32 sy = side.y + 4.f;
+				const float32 sh = lh + 6.f;
+				for (usize i = 0; i < places.Size(); ++i) {
+					const NkRect pr = {side.x + 3.f, sy, side.w - 6.f, sh};
+					const bool ph = NkGuiRectContains(pr, m);
+					if (ph)
+						dl.AddRectFilled(pr, mUI.theme.tabHover, 3.f);
+					if (mUI.font && mUI.font->Valid())
+						dl.AddText(mUI.font->Face(), mUI.font->TexId(),
+								   {pr.x + 8.f, sy + (sh - lh) * 0.5f + asc}, places[i].label.CStr(),
+								   mUI.theme.text, pr.w - 12.f);
+					if (ph && in.mouseClicked[0] && NkDirectory::Exists(places[i].path.CStr()))
+						FpListDir(places[i].path.CStr());
+					sy += sh;
+				}
+			}
+			// ── Liste (molette + barre draggable qui MARCHENT) ──
+			const NkRect list = {side.x + sideW + 8.f, y, w.w - pad * 2.f - sideW - 8.f, listBottom - y};
 			dl.AddRectFilled(list, mUI.theme.panel, 4.f);
 			const float32 rowH = lh + 8.f;
 			const int32 n = static_cast<int32>(mFpNames.Size());
