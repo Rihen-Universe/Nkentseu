@@ -641,7 +641,7 @@ namespace nkentseu {
 					overPopup = true;
 					break;
 				}
-			const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen;
+			const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen || mFpOpen;
 			nkgui::NkGuiInput savedInput;
 			if (modal) {
 				savedInput = mUI.input;
@@ -682,6 +682,7 @@ namespace nkentseu {
 				mUI.input = savedInput; // restaure pour le popup
 			mPopupMasked = false;
 			DrawContextMenu(); // menu contextuel shell-level (au-dessus des panneaux)
+			DrawFilePicker();  // sélecteur fichier/dossier modal (au-dessus des panneaux)
 			DrawCommandPalette(ec);
 			DrawPreferences(ec); // fenetre Preferences (menu dedie)
 			if (mOverlayFn)
@@ -1620,10 +1621,226 @@ namespace nkentseu {
 				mCtxChoice = clicked;
 				mCtxOpen = false;
 			}
-			// Fermeture : clic HORS du menu, ou Échap.
-			if ((in.mouseClicked[0] && !nkgui::NkGuiRectContains(box, m)) ||
+			// Fermeture : clic gauche OU DROIT hors du menu, ou Échap. (Le clic droit
+			// hors du menu le referme -> un nouveau clic droit rouvre au nouvel endroit.)
+			if (((in.mouseClicked[0] || in.mouseClicked[1]) && !nkgui::NkGuiRectContains(box, m)) ||
 				in.KeyPressed(nkgui::NkGuiKey::Escape))
 				mCtxOpen = false;
+		}
+
+		// ── Sélecteur de fichier/dossier GÉNÉRIQUE (modal, non Jenga-aware) ───────
+		void NkEditorShell::FpListDir(const char *dir) noexcept {
+			mFpNames.Clear();
+			mFpIsDir.Clear();
+			mFpSel.Clear();
+			mFpScroll = 0.f;
+			if (!dir || !*dir)
+				return;
+			mFpDir = NkString(dir);
+			NkVector<NkDirectoryEntry> entries = NkDirectory::GetEntries(NkPath(dir), "*",
+																		 NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+			for (int32 pass = 0; pass < 2; ++pass) { // dossiers d'abord, puis fichiers
+				const bool wantDir = (pass == 0);
+				for (usize i = 0; i < entries.Size(); ++i) {
+					if (entries[i].IsDirectory != wantDir)
+						continue;
+					if (mFpMode == 0 && !entries[i].IsDirectory)
+						continue; // mode DOSSIER : masque les fichiers
+					mFpNames.PushBack(entries[i].Name);
+					mFpIsDir.PushBack(entries[i].IsDirectory ? 1u : 0u);
+				}
+			}
+		}
+
+		void NkEditorShell::OpenFolderPicker(const char *startDir, const char *title) noexcept {
+			mFpMode = 0;
+			mFpTitle = NkString(title ? title : "Choisir un dossier");
+			mFpResult.Clear();
+			const float32 W = static_cast<float32>(mUI.viewW), H = static_cast<float32>(mUI.viewH);
+			mFpWin = {W * 0.5f - 340.f, H * 0.5f - 240.f, 680.f, 480.f};
+			mFpOpen = true;
+			mFpDrag = mFpBarDrag = false;
+			FpListDir(startDir && *startDir ? startDir : ".");
+		}
+
+		void NkEditorShell::OpenFilePicker(const char *startDir, const char *title) noexcept {
+			OpenFolderPicker(startDir, title);
+			mFpMode = 1; // fichiers visibles
+			FpListDir(mFpDir.CStr());
+		}
+
+		void NkEditorShell::DrawFilePicker() noexcept {
+			if (!mFpOpen)
+				return;
+			auto &dl = mUI.dlOverlay;
+			auto &in = mUI.input;
+			const NkVec2 m = in.mousePos;
+			const float32 VW = static_cast<float32>(mUI.viewW), VH = static_cast<float32>(mUI.viewH);
+			const float32 lh = (mUI.font && mUI.font->Valid()) ? mUI.font->LineHeight() : 16.f;
+			const float32 asc = (mUI.font && mUI.font->Valid()) ? mUI.font->Ascent() : 12.f;
+			// Fond assombri (MODALE) : clic dessus n'annule pas (évite les fermetures
+			// accidentelles) ; on ferme par ✕, Annuler ou Échap.
+			dl.AddRectFilled({0.f, 0.f, VW, VH}, NkColor{0, 0, 0, 130});
+			NkRect &w = mFpWin;
+			dl.AddRectFilled({w.x + 3.f, w.y + 5.f, w.w, w.h}, NkColor{0, 0, 0, 80}, 8.f);
+			dl.AddRectFilled(w, mUI.theme.bgPrimary, 8.f);
+			dl.AddRect(w, mUI.theme.accent, 1.5f);
+			// ── Barre de titre déplaçable ──
+			const float32 th = lh + 14.f;
+			const NkRect title = {w.x, w.y, w.w, th};
+			dl.AddRectFilled({w.x, w.y, w.w, 3.f}, mUI.theme.accent, 8.f);
+			if (mUI.font && mUI.font->Valid())
+				dl.AddText(mUI.font->Face(), mUI.font->TexId(), {w.x + 14.f, w.y + (th - lh) * 0.5f + asc},
+						   mFpTitle.CStr(), mUI.theme.text);
+			const NkRect xr = {w.x + w.w - th, w.y, th, th};
+			const bool xh = NkGuiRectContains(xr, m);
+			if (mUI.font && mUI.font->Valid())
+				dl.AddText(mUI.font->Face(), mUI.font->TexId(), {xr.x + 11.f, w.y + (th - lh) * 0.5f + asc}, "X",
+						   xh ? NkColor{230, 90, 90, 255} : mUI.theme.textDisabled);
+			bool close = false, choose = false;
+			if (xh && in.mouseClicked[0])
+				close = true;
+			const bool onTitle = m.x >= title.x && m.x < xr.x && m.y >= title.y && m.y < title.y + th;
+			if (in.mouseClicked[0] && onTitle) {
+				mFpDrag = true;
+				mFpDragOff = {m.x - w.x, m.y - w.y};
+			}
+			if (mFpDrag && in.mouseDown[0]) {
+				w.x = m.x - mFpDragOff.x;
+				w.y = m.y - mFpDragOff.y;
+			}
+			if (!in.mouseDown[0])
+				mFpDrag = false;
+			// ── Barre de chemin + bouton « Remonter » ──
+			const float32 pad = 12.f;
+			float32 y = w.y + th + 8.f;
+			const NkRect upR = {w.x + pad, y, th, th};
+			const bool uph = NkGuiRectContains(upR, m);
+			dl.AddRectFilled(upR, uph ? mUI.theme.buttonHover : mUI.theme.button, 4.f);
+			if (mUI.font && mUI.font->Valid()) // flèche ↑
+				dl.AddText(mUI.font->Face(), mUI.font->TexId(), {upR.x + 9.f, upR.y + (th - lh) * 0.5f + asc},
+						   "\xE2\x86\x91", mUI.theme.text);
+			if (uph && in.mouseClicked[0]) {
+				const NkString parent = NkPath(mFpDir.CStr()).GetParent().ToString();
+				if (parent.Length() > 1)
+					FpListDir(parent.CStr());
+			}
+			const NkRect pathR = {upR.x + th + 8.f, y, w.w - pad * 2.f - th - 8.f, th};
+			dl.AddRectFilled(pathR, mUI.theme.panel, 4.f);
+			if (mUI.font && mUI.font->Valid())
+				dl.AddText(mUI.font->Face(), mUI.font->TexId(), {pathR.x + 8.f, pathR.y + (th - lh) * 0.5f + asc},
+						   mFpDir.CStr(), mUI.theme.textDisabled, pathR.w - 12.f);
+			y += th + 8.f;
+			// ── Liste (molette + barre draggable qui MARCHENT) ──
+			const float32 listBottom = w.y + w.h - th - 16.f;
+			const NkRect list = {w.x + pad, y, w.w - pad * 2.f, listBottom - y};
+			dl.AddRectFilled(list, mUI.theme.panel, 4.f);
+			const float32 rowH = lh + 8.f;
+			const int32 n = static_cast<int32>(mFpNames.Size());
+			const float32 fullH = n * rowH;
+			const float32 maxSc = fullH > list.h ? (fullH - list.h) : 0.f;
+			const bool overList = NkGuiRectContains(list, m);
+			if (overList && in.wheel != 0.f)
+				mFpScroll -= in.wheel * rowH * 3.f;
+			if (mFpScroll < 0.f)
+				mFpScroll = 0.f;
+			if (mFpScroll > maxSc)
+				mFpScroll = maxSc;
+			dl.PushClipRect(list, true);
+			float32 ry = list.y - mFpScroll;
+			int32 enter = -1;
+			for (int32 i = 0; i < n; ++i) {
+				const NkRect r = {list.x, ry, list.w - 10.f, rowH};
+				if (ry + rowH >= list.y && ry <= list.y + list.h) {
+					const bool sel = mFpSel.Length() > 0 && StrEqual(mFpSel.CStr(), mFpNames[i].CStr());
+					const bool hov = NkGuiRectContains(list, m) && NkGuiRectContains(r, m);
+					if (sel)
+						dl.AddRectFilled(r, mUI.theme.selection, 3.f);
+					else if (hov)
+						dl.AddRectFilled(r, mUI.theme.tabHover, 3.f);
+					const NkColor ic = mFpIsDir[i] ? mUI.theme.accent : mUI.theme.textDisabled;
+					if (mUI.font && mUI.font->Valid()) {
+						// petite icône dossier/fichier (au trait)
+						const float32 iy = ry + rowH * 0.5f;
+						if (mFpIsDir[i])
+							dl.AddRect({r.x + 8.f, iy - 5.f, 12.f, 10.f}, ic, 1.2f);
+						else
+							dl.AddRect({r.x + 9.f, iy - 6.f, 10.f, 12.f}, ic, 1.2f);
+						dl.AddText(mUI.font->Face(), mUI.font->TexId(), {r.x + 28.f, ry + (rowH - lh) * 0.5f + asc},
+								   mFpNames[i].CStr(), mUI.theme.text, r.w - 34.f);
+					}
+					if (hov && in.mouseClicked[0])
+						mFpSel = mFpNames[i];
+					if (hov && in.mouseDoubleClicked[0]) {
+						if (mFpIsDir[i])
+							enter = i;
+						else if (mFpMode == 1) // fichier : double-clic = choisir
+							choose = true;
+					}
+				}
+				ry += rowH;
+			}
+			dl.PopClipRect();
+			// Barre de défilement (témoin + clic/glisser).
+			if (maxSc > 0.f) {
+				const NkRect track = {list.x + list.w - 8.f, list.y, 8.f, list.h};
+				dl.AddRectFilled(track, mUI.theme.track, 3.f);
+				float32 thh = list.h * (list.h / fullH);
+				if (thh < 24.f)
+					thh = 24.f;
+				const float32 ty = track.y + (mFpScroll / maxSc) * (track.h - thh);
+				dl.AddRectFilled({track.x + 1.f, ty, 6.f, thh}, mUI.theme.border, 3.f);
+				if (in.mouseClicked[0] && NkGuiRectContains(track, m))
+					mFpBarDrag = true;
+				if (mFpBarDrag && in.mouseDown[0]) {
+					const float32 t = (m.y - track.y - thh * 0.5f) / (track.h - thh > 1.f ? track.h - thh : 1.f);
+					mFpScroll = (t < 0.f ? 0.f : t > 1.f ? 1.f : t) * maxSc;
+				}
+				if (!in.mouseDown[0])
+					mFpBarDrag = false;
+			}
+			if (enter >= 0) {
+				NkString np = mFpDir;
+				np += "/";
+				np += mFpNames[enter];
+				FpListDir(np.CStr());
+			}
+			// ── Boutons Choisir / Annuler ──
+			const float32 by = w.y + w.h - th - 8.f;
+			const char *chooseLbl = mFpMode == 0 ? "Choisir ce dossier" : "Ouvrir";
+			const float32 cw =
+				((mUI.font && mUI.font->Valid()) ? mUI.font->MeasureWidth(chooseLbl) : 100.f) + 28.f;
+			const NkRect chR = {w.x + w.w - pad - cw, by, cw, th};
+			const bool chh = NkGuiRectContains(chR, m);
+			dl.AddRectFilled(chR, chh ? NkColor{110, 180, 250, 255} : mUI.theme.accent, 5.f);
+			if (mUI.font && mUI.font->Valid())
+				dl.AddText(mUI.font->Face(), mUI.font->TexId(), {chR.x + 14.f, by + (th - lh) * 0.5f + asc},
+						   chooseLbl, NkColor{255, 255, 255, 255});
+			if (chh && in.mouseClicked[0])
+				choose = true;
+			const float32 caw = ((mUI.font && mUI.font->Valid()) ? mUI.font->MeasureWidth("Annuler") : 60.f) + 24.f;
+			const NkRect caR = {chR.x - caw - 8.f, by, caw, th};
+			const bool cah = NkGuiRectContains(caR, m);
+			dl.AddRectFilled(caR, cah ? mUI.theme.buttonHover : mUI.theme.button, 5.f);
+			if (mUI.font && mUI.font->Valid())
+				dl.AddText(mUI.font->Face(), mUI.font->TexId(), {caR.x + 12.f, by + (th - lh) * 0.5f + asc},
+						   "Annuler", mUI.theme.text);
+			if (cah && in.mouseClicked[0])
+				close = true;
+			// Validation.
+			if (choose) {
+				if (mFpMode == 0)
+					mFpResult = mFpDir; // choisir le dossier courant
+				else if (mFpSel.Length() > 0) {
+					mFpResult = mFpDir;
+					mFpResult += "/";
+					mFpResult += mFpSel;
+				}
+				if (mFpResult.Length() > 0)
+					mFpOpen = false;
+			}
+			if (in.KeyPressed(nkgui::NkGuiKey::Escape) || close)
+				mFpOpen = false;
 		}
 
 		void NkEditorShell::MaximizeWindow() noexcept {
