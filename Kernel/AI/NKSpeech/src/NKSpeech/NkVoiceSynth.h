@@ -2,11 +2,13 @@
 // NKSpeech/NkVoiceSynth.h — synthèse vocale par FORMANTS (source-filtre) → onde.
 //
 // Brique TTS (Phase 8) : produire une voix AUDIBLE *from-scratch*, sans donnée ni
-// modèle appris. Modèle source-filtre classique : une SOURCE (peigne d'harmoniques
-// de la fréquence fondamentale F0 pour les sons voisés, bruit large bande pour les
-// non-voisés) est mise en forme par un FILTRE de FORMANTS (résonances F1/F2/F3 qui
-// définissent la voyelle). On synthétise un SPECTROGRAMME DE MAGNITUDE, puis le
-// vocodeur Griffin-Lim (NkGriffinLim) reconstruit la forme d'onde.
+// modèle appris. Modèle source-filtre classique (à la Klatt), en DOMAINE TEMPOREL :
+// une SOURCE (train d'impulsions glottiques à la fréquence fondamentale F0 pour les
+// sons voisés, bruit large bande pour les non-voisés) excite trois RÉSONATEURS de
+// FORMANTS en parallèle (F1/F2/F3, filtres numériques du 2nd ordre). Chaque résonateur
+// « sonne » entre deux impulsions → un son SOUTENU (une vraie voyelle), pas un grain.
+// (Le vocodeur Griffin-Lim NkGriffinLim reste une brique séparée, pour reconstruire une
+// onde depuis un spectrogramme de magnitude — ex. mel produit par un futur modèle appris.)
 //
 // Petite échelle, pédagogique : ça « parle » des voyelles reconnaissables (a/e/i/o/u),
 // pas une voix naturelle. Zero-STL, namespace nkentseu::ai.

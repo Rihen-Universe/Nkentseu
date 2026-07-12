@@ -8,6 +8,8 @@
 namespace nkentseu {
 	namespace ai {
 
+		using math::NkCos;
+		using math::NkExp;
 		using math::NkSqrt;
 
 		NkPhone NkVoiceSynth::Vowel(char v, float32 durationMs) {
@@ -50,22 +52,25 @@ namespace nkentseu {
 		}
 
 		namespace {
-			// Enveloppe de formants : somme de résonances (Lorentziennes) à F1/F2/F3.
-			float32 FormantEnvelope(float32 freq, const NkPhone &p) {
-				const float32 bw = 90.0f; // largeur de bande (Hz)
-				float32 e = 0.0f;
-				const float32 fs[3] = {p.f1, p.f2, p.f3};
-				const float32 amp[3] = {1.0f, 0.7f, 0.35f}; // formants hauts plus faibles
-				for (int i = 0; i < 3; ++i) {
-					if (fs[i] <= 0.0f)
-						continue;
-					const float32 d = (freq - fs[i]) / bw;
-					e += amp[i] / (1.0f + d * d);
-				}
-				// Pente spectrale douce de la source glottale (−6 dB/octave approx).
-				const float32 tilt = 1.0f / (1.0f + freq / 1000.0f);
-				return e * tilt;
-			}
+			// Résonateur numérique de formant (Klatt) : y[n] = a·x[n] + b·y[n-1] + c·y[n-2].
+			// Résonance à la fréquence F (Hz), largeur de bande BW (Hz). Gain unité en continu.
+			struct Resonator {
+					float32 a = 1.0f, b = 0.0f, c = 0.0f;
+					float32 y1 = 0.0f, y2 = 0.0f;
+					void Set(float32 F, float32 BW, int32 sr) {
+						const float32 kPi = 3.14159265358979323846f;
+						const float32 r = NkExp(-kPi * BW / (float32)sr);
+						c = -r * r;
+						b = 2.0f * r * NkCos(2.0f * kPi * F / (float32)sr);
+						a = 1.0f - b - c;
+					}
+					float32 Step(float32 x) {
+						const float32 y = a * x + b * y1 + c * y2;
+						y2 = y1;
+						y1 = y;
+						return y;
+					}
+			};
 
 			// LCG déterministe pour le bruit des non-voisés.
 			inline float32 Lcg(uint32 &s) {
@@ -78,68 +83,59 @@ namespace nkentseu {
 			NkVector<float32> out;
 			if (phones.Size() == 0 || cfg.sampleRate <= 0)
 				return out;
-			const int32 sr = cfg.sampleRate, N = cfg.fftSize, hop = cfg.hopSize, bins = N / 2 + 1;
-			const float32 binHz = (float32)sr / (float32)N;
+			const int32 sr = cfg.sampleRate;
 
-			// Durée totale → nombre de trames.
 			float32 totalMs = 0.0f;
 			for (uint32 i = 0; i < phones.Size(); ++i)
 				totalMs += phones[i].durationMs;
 			const int32 totalSamples = (int32)(totalMs * 0.001f * (float32)sr);
-			if (totalSamples < N)
+			if (totalSamples <= 0)
 				return out;
-			const int32 frames = 1 + (totalSamples - N) / hop;
+			out.Resize((nk_size)totalSamples);
 
-			NkMagSpectrogram mag;
-			mag.frames = frames;
-			mag.bins = bins;
-			mag.data.Resize((nk_size)frames * (nk_size)bins);
-
+			// SYNTHÈSE TEMPORELLE source-filtre : une SOURCE (train d'impulsions glottiques à F0
+			// pour les voisés, bruit pour les non-voisés) excite 3 RÉSONATEURS de formants en
+			// parallèle (F1/F2/F3). Le résonateur « sonne » entre deux impulsions → son SOUTENU
+			// (une vraie voyelle), pas un grain isolé.
+			Resonator r1, r2, r3;
 			uint32 rng = 0x1234abcdu;
-			for (int32 f = 0; f < frames; ++f) {
-				// Phone courant au centre de la trame.
-				const float32 tMs = ((float32)(f * hop + N / 2) / (float32)sr) * 1000.0f;
-				float32 acc = 0.0f;
-				const NkPhone *cur = &phones[phones.Size() - 1];
-				for (uint32 i = 0; i < phones.Size(); ++i) {
-					acc += phones[i].durationMs;
-					if (tMs < acc) {
-						cur = &phones[i];
-						break;
+			float32 phase = 0.0f; // phase du train d'impulsions (0..1 par période F0)
+			int32 idx = 0;
+			for (uint32 pi = 0; pi < phones.Size(); ++pi) {
+				const NkPhone &p = phones[pi];
+				const int32 nS = (int32)(p.durationMs * 0.001f * (float32)sr);
+				if (p.f1 > 0.0f)
+					r1.Set(p.f1, 80.0f, sr);
+				if (p.f2 > 0.0f)
+					r2.Set(p.f2, 100.0f, sr);
+				if (p.f3 > 0.0f)
+					r3.Set(p.f3, 120.0f, sr);
+				const float32 step = cfg.f0 / (float32)sr; // incrément de phase par échantillon
+				for (int32 n = 0; n < nS && idx < totalSamples; ++n, ++idx) {
+					float32 src = 0.0f;
+					if (p.gain > 0.0f) {
+						if (p.voiced) {
+							phase += step;
+							if (phase >= 1.0f) { // une impulsion glottique par période F0
+								phase -= 1.0f;
+								src = 1.0f;
+							}
+						} else {
+							src = 0.3f * Lcg(rng); // fricative : bruit
+						}
+						src *= p.gain;
 					}
-				}
-				float32 *row = mag.data.Data() + (nk_size)f * (nk_size)bins;
-				for (int32 k = 0; k < bins; ++k)
-					row[k] = 0.0f;
-				if (cur->gain <= 0.0f)
-					continue;
-
-				if (cur->voiced) {
-					// Source = peigne d'harmoniques de F0, mis en forme par l'enveloppe de formants.
-					for (int32 h = 1;; ++h) {
-						const float32 freq = (float32)h * cfg.f0;
-						if (freq >= (float32)sr * 0.5f)
-							break;
-						const int32 k = (int32)(freq / binHz + 0.5f);
-						if (k >= 0 && k < bins)
-							row[k] += cur->gain * FormantEnvelope(freq, *cur);
-					}
-				} else {
-					// Non-voisé : bruit large bande mis en forme par l'enveloppe (fricative).
-					for (int32 k = 1; k < bins; ++k) {
-						const float32 freq = (float32)k * binHz;
-						const float32 nz = 0.5f * (Lcg(rng) + 1.0f); // magnitude ≥ 0
-						row[k] = cur->gain * nz * (0.3f + FormantEnvelope(freq, *cur));
-					}
+					// Formants en parallèle (F1 dominant), enveloppe d'attaque/relâche douce.
+					float32 y = r1.Step(src) + 0.7f * r2.Step(src) + 0.3f * r3.Step(src);
+					float32 env = 1.0f;
+					const int32 fade = nS / 6 > 0 ? nS / 6 : 1;
+					if (n < fade)
+						env = (float32)n / (float32)fade;
+					else if (n > nS - fade)
+						env = (float32)(nS - n) / (float32)fade;
+					out[(nk_size)idx] = y * env;
 				}
 			}
-
-			// Vocodeur : magnitude → onde (Griffin-Lim).
-			NkGriffinLimConfig gl;
-			gl.fftSize = N;
-			gl.hopSize = hop;
-			gl.iterations = cfg.glIterations;
-			out = NkGriffinLim::Reconstruct(mag, gl);
 
 			// Normalisation à ~0,9 crête.
 			float32 peak = 1e-6f;
@@ -163,6 +159,24 @@ namespace nkentseu {
 			NkVector<float32> wav = NkVoiceSynth::Synthesize(seq, cfg);
 			if ((int32)wav.Size() < cfg.fftSize)
 				return false;
+
+			// (0) Son SOUTENU (pas des clics isolés) : une bonne part des échantillons doit
+			//     dépasser 10 % de la crête. Un train de clics échouerait ici.
+			float32 peak = 1e-6f;
+			for (uint32 i = 0; i < wav.Size(); ++i) {
+				const float32 a = wav[i] < 0.0f ? -wav[i] : wav[i];
+				if (a > peak)
+					peak = a;
+			}
+			int32 loud = 0;
+			for (uint32 i = 0; i < wav.Size(); ++i) {
+				const float32 a = wav[i] < 0.0f ? -wav[i] : wav[i];
+				if (a > 0.1f * peak)
+					++loud;
+			}
+			const double sustained = (double)loud / (double)wav.Size();
+			if (sustained < 0.30)
+				return false; // signal soutenu attendu (voyelle tenue), pas des impulsions
 
 			NkGriffinLimConfig gl;
 			gl.fftSize = cfg.fftSize;
