@@ -674,7 +674,11 @@ namespace nkentseu {
 				td.srgb = true;
 				td.debugName = "Demo3D_MaskedLeaf";
 				st->maskedTex = texLib->Create(td);
-				st->maskedMat = NkMaterial::Create(ctx.renderer->GetMaterials(), "PBR");
+				// NB : le template PBR est enregistre sous "Default_PBR" — on passe
+				// par l'overload TYPE (pas de nom en dur qui casse silencieusement).
+				st->maskedMat = NkMaterial::Create(ctx.renderer->GetMaterials(), NkMaterialType::NK_PBR_METALLIC);
+				if (!st->maskedMat)
+					logger.Errorf("[Demo3D] Creation material panneau masked KO\n");
 				if (st->maskedMat && st->maskedTex.IsValid())
 					st->maskedMat->SetAlbedoMap(st->maskedTex)->SetRoughness(0.8f)->SetCastShadowAlphaTest(true);
 			}
