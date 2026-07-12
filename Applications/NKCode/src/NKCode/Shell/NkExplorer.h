@@ -1275,6 +1275,7 @@ namespace nkentseu {
 						return;
 					mPeekPath = p;
 					mPeekOpen = true;
+					mPeekJustOpened = true; // l'Espace d'OUVERTURE ne doit pas REFERMER (même frame)
 					mPeekScroll = 0.f;
 					mPeekSize = NkFile::GetFileSize(p.CStr());
 					mPeekLines.Clear();
@@ -1418,8 +1419,11 @@ namespace nkentseu {
 								return true;
 						return false;
 					}();
-					if (ctx.input.KeyPressed(NkGuiKey::Escape) || spaceAgain ||
-						(ctx.input.mouseClicked[0] && !NkGuiRectContains(box, m)))
+					// L'Espace qui vient d'OUVRIR le peek (même frame) ne le referme pas.
+					if (mPeekJustOpened)
+						mPeekJustOpened = false;
+					else if (ctx.input.KeyPressed(NkGuiKey::Escape) || spaceAgain ||
+							 (ctx.input.mouseClicked[0] && !NkGuiRectContains(box, m)))
 						mPeekOpen = false;
 					if (NkGuiRectContains(box, m)) { // garde d'input : rien ne passe dessous
 						ctx.input.mouseClicked[0] = false;
@@ -1535,6 +1539,7 @@ namespace nkentseu {
 				NkString mPeekCommit;		  ///< « auteur — date — sujet »
 				NkVector<NkString> mPeekDiff; ///< lignes du diff (tronquées)
 				bool mPeekGitPending = false;
+				bool mPeekJustOpened = false; ///< frame d'ouverture : l'Espace ne referme pas
 				float32 mPeekScroll = 0.f;
 				NkRect mEditRect = {0.f, 0.f, 0.f, 0.f}; ///< zone de saisie inline (clic hors = valide)
 		};
