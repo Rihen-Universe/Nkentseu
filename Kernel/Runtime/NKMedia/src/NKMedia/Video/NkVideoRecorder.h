@@ -23,6 +23,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKMedia/Video/NkVideoTypes.h" // NkVideoInputFormat
 #include "NKMedia/Codecs/Video/H264/NkH264Encoder.h"
+#include "NKMedia/Video/NkVideoWriter.h" // chemin MJPEG (codec=MJPEG)
 #include "NKThreading/NkThread.h"
 #include "NKThreading/NkMutex.h"
 #include "NKThreading/NkSemaphore.h"
@@ -31,6 +32,12 @@
 namespace nkentseu {
 	namespace media {
 
+		// Codec vidéo de l'enregistreur. H264 (défaut) = MP4 H.264 + audio/sous-titres.
+		// MJPEG = chaque trame en JPEG (via le codec NKImage) → qualité intra propre (zéro
+		// macroblocking inter-frame), encodage BIEN moins cher (cadences hautes) ; conteneur
+		// MOV/MP4, VIDÉO SEULE (audio/sous-titres ignorés dans ce mode).
+		enum class NkRecorderCodec { H264, MJPEG };
+
 		struct NkVideoRecorder {
 			public:
 				// Démarre un enregistrement MP4 (H.264) + lance le thread d'encodage.
@@ -38,7 +45,8 @@ namespace nkentseu {
 				// les nouvelles trames sont ABANDONNEES (drop-newest) au lieu de gonfler la memoire
 				// (temps reel : perdre une trame vaut mieux que geler). Abandons comptes (DroppedFrames()).
 				bool Begin(const char *path, int32 width, int32 height, int32 fpsNum = 60, int32 fpsDen = 1,
-						   int32 qp = 20, int32 maxQueuedFrames = 32);
+						   int32 qp = 20, int32 maxQueuedFrames = 32,
+					   NkRecorderCodec codec = NkRecorderCodec::H264, int32 mjpegQuality = 90);
 
 				// Pistes audio PCM — plusieurs = choix de LANGUE. À appeler juste après Begin (avant les trames).
 				int32 AddAudio(int32 sampleRate, int32 channels, const char *lang3 = nullptr);
@@ -80,6 +88,9 @@ namespace nkentseu {
 				void WorkerLoop();
 
 				NkH264Encoder mEnc;
+				NkVideoWriter mMjpegWriter; // utilisé si codec == MJPEG
+				bool mUseMjpeg = false;
+				int32 mMjpegQuality = 90;
 				int32 mWidth = 0, mHeight = 0, mPushed = 0;
 				bool mOpen = false;
 				NkVector<int32> mAudioCh; // nb de canaux par piste audio (pour bufferiser le PCM)

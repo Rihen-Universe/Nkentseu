@@ -16,7 +16,7 @@ namespace nkentseu {
 		} // namespace
 
 		bool NkVideoRecorder::Begin(const char *path, int32 width, int32 height, int32 fpsNum, int32 fpsDen,
-									int32 qp, int32 maxQueuedFrames) {
+									int32 qp, int32 maxQueuedFrames, NkRecorderCodec codec, int32 mjpegQuality) {
 			if (mOpen)
 				return false;
 			mWidth = width;
@@ -31,17 +31,33 @@ namespace nkentseu {
 			mEncodedVideo = 0;
 			mEncodeFpsEma = 0.0;
 			mLastEncodeNs = 0;
-			// GOP raisonnable pour de la capture temps réel (IDR régulières = seek/robustesse).
-			if (!mEnc.Open(path, width, height, fpsNum, fpsDen, qp, 60))
-				return false;
+			mUseMjpeg = (codec == NkRecorderCodec::MJPEG);
+			mMjpegQuality = (mjpegQuality < 1) ? 1 : (mjpegQuality > 100 ? 100 : mjpegQuality);
+			if (mUseMjpeg) {
+				// MJPEG : chaque trame = JPEG (codec NKImage), conteneur MOV/MP4, vidéo seule.
+				NkVideoConfig cfg;
+				cfg.width = width;
+				cfg.height = height;
+				cfg.fpsNum = fpsNum;
+				cfg.fpsDen = fpsDen;
+				cfg.codec = NkVideoCodec::MJPEG;
+				cfg.container = NkVideoContainer::MOV;
+				cfg.quality = mMjpegQuality;
+				if (!mMjpegWriter.Open(path, cfg))
+					return false;
+			} else {
+				// GOP raisonnable pour de la capture temps réel (IDR régulières = seek/robustesse).
+				if (!mEnc.Open(path, width, height, fpsNum, fpsDen, qp, 60))
+					return false;
+			}
 			mOpen = true;
 			mWorker.Start([this](void *) { WorkerLoop(); }); // thread d'encodage
 			return true;
 		}
 
 		int32 NkVideoRecorder::AddAudio(int32 sampleRate, int32 channels, const char *lang3) {
-			if (!mOpen)
-				return -1;
+			if (!mOpen || mUseMjpeg)
+				return -1; // MJPEG = vidéo seule (pas d'audio)
 			const int32 idx = mEnc.AddAudioTrack(sampleRate, channels, lang3);
 			if (idx >= 0)
 				mAudioCh.PushBack(channels); // indexé par l'index de piste audio (ordre d'ajout)
@@ -49,7 +65,7 @@ namespace nkentseu {
 		}
 
 		int32 NkVideoRecorder::AddSubtitleTrack(const char *lang3) {
-			return mOpen ? mEnc.AddSubtitleTrack(lang3) : -1;
+			return (mOpen && !mUseMjpeg) ? mEnc.AddSubtitleTrack(lang3) : -1;
 		}
 
 		bool NkVideoRecorder::PushVideo(const uint8 *pixels, NkVideoInputFormat fmt, bool flipVertical) {
@@ -146,7 +162,10 @@ namespace nkentseu {
 				if (item.type == 2)
 					break; // stop
 				else if (item.type == 0) {
-					mEnc.WriteFrame(item.data.Data(), item.fmt);
+					if (mUseMjpeg)
+						mMjpegWriter.WriteFrame(item.data.Data(), item.fmt);
+					else
+						mEnc.WriteFrame(item.data.Data(), item.fmt);
 					const int64 nowNs = NkChrono::Now().ToNanoseconds();
 					mMutex.Lock();
 					if (mPendingVideo > 0)
@@ -160,9 +179,9 @@ namespace nkentseu {
 					mLastEncodeNs = nowNs;
 					mMutex.Unlock();
 				}
-				else if (item.type == 1)
+				else if (item.type == 1 && !mUseMjpeg)
 					mEnc.WriteAudioPcm(item.track, reinterpret_cast<const int16 *>(item.data.Data()), item.frames);
-				else if (item.type == 3)
+				else if (item.type == 3 && !mUseMjpeg)
 					mEnc.AddSubtitle(item.track, reinterpret_cast<const char *>(item.data.Data()), item.startMs,
 									 item.durMs);
 			}
@@ -200,7 +219,10 @@ namespace nkentseu {
 			(void)mSem.Release();
 			if (mWorker.Joinable())
 				mWorker.Join();
-			mEnc.Close();
+			if (mUseMjpeg)
+				mMjpegWriter.Close();
+			else
+				mEnc.Close();
 			mOpen = false;
 			return true;
 		}
