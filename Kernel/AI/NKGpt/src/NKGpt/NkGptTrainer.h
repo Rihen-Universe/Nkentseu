@@ -13,6 +13,7 @@
 #pragma once
 
 #include "NKGpt/NkGptCore.h"
+#include "NKGpt/NkSampling.h"
 #include "NKNN/NkNN.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
@@ -73,7 +74,12 @@ namespace nkentseu {
 					void Fit();
 
 					// Génération autoregressive depuis une amorce (langIdx>=0 => préfixe le tag de langue).
+					// Utilise le KV-cache quand le contexte total tient dans la fenêtre T (rapide),
+					// sinon repli fenêtre glissante. Échantillonnage température seule (compat).
 					NkString Generate(const NkString &seed, int nToks, double temp, int langIdx);
+
+					// Variante avec échantillonnage top-k / top-p (nucleus) — cf. NkSampling.h.
+					NkString Generate(const NkString &seed, int nToks, const NkSampleParams &sp, int langIdx);
 
 					// Génération finale : une sortie par langue si multilingue.
 					void GenerateFinal();
