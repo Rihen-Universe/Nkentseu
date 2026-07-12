@@ -37,7 +37,10 @@ uniform ReflFloorUBO {
     float anisotropy;
     float sheen;
     float reflFloorFaceMode;
-    float _pad;
+    // Modele de reflexion : -1 = Fresnel PHYSIQUE (4% de face -> 100% rasant),
+    // [0..1] = STYLISE (miroir ~90%) avec intensite du voile litBase
+    // (1 = look historique, 0 = reflet pur). Cf. NkPBRParams::reflBlend.
+    float reflBlend;
 } uFloor;
 
 @binding(set=2, binding=3) uniform sampler2D tReflection;
@@ -91,7 +94,21 @@ void main() {
     float f0      = 0.04;
     float fresnel = f0 + (1.0 - f0) * pow(1.0 - NdV_abs, 5.0);
 
-    float reflStr = (1.0 - uFloor.roughness) * mix(0.9, 1.0, fresnel) * facing;
+    // Deux modeles de reflexion (uFloor.reflBlend, choix utilisateur) :
+    //  - PHYSIQUE (reflBlend < 0) : force du reflet = Fresnel dielectrique
+    //    reel -> discret de face (~4%), total en rasant. litBase garde le
+    //    complement (conservation d'energie approx.).
+    //  - STYLISE (reflBlend in [0..1]) : miroir ~90% a tout angle (look
+    //    historique) ; reflBlend module l'INTENSITE DU VOILE litBase melange
+    //    au reflet : 1 = voile plein (comportement d'origine), 0 = reflet pur.
+    float reflStr;
+    if (uFloor.reflBlend < -0.5) {
+        reflStr = fresnel * (1.0 - uFloor.roughness) * facing;
+    } else {
+        float styl = (1.0 - uFloor.roughness) * mix(0.9, 1.0, fresnel) * facing;
+        float veil = clamp(uFloor.reflBlend, 0.0, 1.0);
+        reflStr = 1.0 - (1.0 - styl) * veil;
+    }
 
     vec4 reflClip = uCam.mirrorViewProj * vec4(vWorldPos, 1.0);
     vec2 reflUV   = (reflClip.xy / reflClip.w) * 0.5 + 0.5;

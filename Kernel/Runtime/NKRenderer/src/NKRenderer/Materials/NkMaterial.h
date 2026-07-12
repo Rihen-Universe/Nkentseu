@@ -94,6 +94,7 @@ namespace nkentseu {
 				NkMaterial *SetORMMap(NkTexHandle t); // AO+Roughness+Metallic
 				NkMaterial *SetMetallic(float32 v);
 				NkMaterial *SetRoughness(float32 v);
+				NkMaterial *SetReflFloorBlend(float32 blend); // sol miroir : -1=Fresnel physique, [0..1]=voile stylise (cf. NkPBRParams::reflBlend)
 				NkMaterial *SetEmissive(NkVec3f c, float32 strength = 1.f);
 				NkMaterial *SetEmissiveMap(NkTexHandle t);
 				NkMaterial *SetAOMap(NkTexHandle t);

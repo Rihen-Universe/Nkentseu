@@ -218,6 +218,12 @@ namespace nkentseu {
 			return this;
 		}
 
+		NkMaterial *NkMaterial::SetReflFloorBlend(float32 blend) {
+			if (mInstance)
+				mInstance->SetReflFloorBlend(blend);
+			return this;
+		}
+
 		NkMaterial *NkMaterial::SetRoughness(float32 v) {
 			if (mInstance)
 				mInstance->SetRoughness(v);
