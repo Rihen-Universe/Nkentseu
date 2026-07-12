@@ -17,10 +17,13 @@
 #include "NKFileSystem/NkFile.h"		   // Phase N v0 : lire le .hdr pour LoadFromHDR
 #include "NKImage/Core/NkImage.h"		   // Phase N v0 : type NkImage
 #include "NKImage/Codecs/HDR/NkHDRCodec.h" // Phase N v0 : decoder Radiance .hdr
+#include "NkIBLCompute.h"				   // Phase N v1 : convolutions GPU (compute)
+#include "NKTime/NkChrono.h"			   // timings GPU vs CPU
 #include <cstdint>
 #include <cstring>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 namespace nkentseu {
@@ -785,10 +788,107 @@ namespace nkentseu {
 				mDevice->WriteTexture(mBrdfLUT, lutData.data());
 			}
 
-			// ── Irradiance convolution ──────────────────────────────────────
-			// Lambert weighted hemisphere, 4 strates × 16 azimuts = 64 samples
+			// ── Phase N v1 : convolutions sur GPU (compute) ─────────────────
+			// Remplit les MÊMES buffers que le chemin CPU (packing RGBA8
+			// identique) → upload et cache disque inchangés. Sur le moindre
+			// échec (backend sans compute, kernel KO), gpuDone reste false et
+			// les blocs CPU ci-dessous s'exécutent comme avant.
 			std::vector<std::vector<uint8_t>> irrData(6);
-			if (mIrradiance.IsValid()) {
+			std::vector<std::vector<std::vector<uint8_t>>> prefData(prefMips, std::vector<std::vector<uint8_t>>(6));
+			bool gpuDone = false;
+
+			const char *envGpu = std::getenv("NK_IBL_GPU");
+			// DX11 : NK_IBL_VERIFY montre maxDiff=175/255 sur ~0.8% des texels
+			// (fxc cs_5_0 ; GL/VK/DX12 sont a 5/255 pres) — comme le resultat
+			// alimente le cache disque, DX11 reste sur le CPU par defaut.
+			// NK_IBL_GPU=1 force le GPU (debug), NK_IBL_GPU=0 force le CPU.
+			const bool dx11 = mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_DX11;
+			const bool envForceOn = envGpu != nullptr && envGpu[0] == '1';
+			const bool envForceOff = envGpu != nullptr && envGpu[0] == '0';
+			const bool wantGpu = mCfg.gpuConvolution && !envForceOff && (!dx11 || envForceOn) &&
+								 mIrradiance.IsValid() && mPrefilter.IsValid();
+			if (wantGpu) {
+				const float64 tGpu0 = ::nkentseu::NkChrono::Now().nanoseconds;
+
+				// Equirect → RGBA float32 contigu (SSBO source du kernel).
+				const uint32 hw = (uint32)hdr->Width();
+				const uint32 hh = (uint32)hdr->Height();
+				const NkImagePixelFormat hfmt = hdr->Format();
+				std::vector<float> rgba((size_t)hw * hh * 4, 0.f);
+				for (uint32 yy = 0; yy < hh; ++yy) {
+					const uint8 *row = hdr->RowPtr((int32)yy);
+					float *dst = rgba.data() + (size_t)yy * hw * 4;
+					if (hfmt == NkImagePixelFormat::NK_RGB96F) {
+						const float *s = (const float *)row;
+						for (uint32 xx = 0; xx < hw; ++xx) {
+							dst[xx * 4 + 0] = s[xx * 3 + 0];
+							dst[xx * 4 + 1] = s[xx * 3 + 1];
+							dst[xx * 4 + 2] = s[xx * 3 + 2];
+							dst[xx * 4 + 3] = 1.f;
+						}
+					} else { // NK_RGBA128F (garanti par le check format plus haut)
+						std::memcpy(dst, row, (size_t)hw * 4 * sizeof(float));
+					}
+				}
+
+				NkIBLCompute gpu;
+				const bool gpuInit = gpu.Init(mDevice);
+				const float64 tCompile = ::nkentseu::NkChrono::Now().nanoseconds;
+				if (gpuInit && gpu.UploadHDR(rgba.data(), hw, hh)) {
+					bool ok = true;
+
+					uint8_t *irrPtr[6];
+					for (uint32 f = 0; f < 6; ++f) {
+						irrData[f].assign((size_t)irrSize * irrSize * 4, 0);
+						irrPtr[f] = irrData[f].data();
+					}
+					ok = gpu.ConvolveIrradiance(irrSize, irrPtr);
+
+					for (uint32 mip = 0; ok && mip < prefMips; ++mip) {
+						uint32 mipSize = prefSize >> mip;
+						if (mipSize < 1)
+							mipSize = 1;
+						const float roughness = (prefMips > 1) ? float(mip) / float(prefMips - 1) : 0.f;
+						uint8_t *prefPtr[6];
+						for (uint32 f = 0; f < 6; ++f) {
+							prefData[mip][f].assign((size_t)mipSize * mipSize * 4, 0);
+							prefPtr[f] = prefData[mip][f].data();
+						}
+						ok = gpu.PrefilterMip(mipSize, roughness, /*numSamples=*/32, prefPtr);
+					}
+
+					if (ok) {
+						gpuDone = true;
+						const float64 now = ::nkentseu::NkChrono::Now().nanoseconds;
+						const float64 compileMs = (tCompile - tGpu0) / 1.0e6;
+						const float64 convMs = (now - tCompile) / 1.0e6;
+						logger.Infof("[IBL] Convolutions GPU : %.1f ms (compile kernels %.1f ms one-shot + "
+									 "convolution %.1f ms) — irr %ux%u + prefilter %ux%u x%u mips\n",
+									 compileMs + convMs, compileMs, convMs, irrSize, irrSize, prefSize, prefSize,
+									 prefMips);
+					} else {
+						logger.Warnf("[IBL] Convolution GPU echouee — fallback CPU\n");
+					}
+				}
+			}
+
+			// NK_IBL_VERIFY=1 : garde une copie du resultat GPU, force le
+			// recalcul CPU ci-dessous, puis loggue l'ecart max (validation
+			// numerique headless, backend par backend).
+			std::vector<std::vector<uint8_t>> irrGpuCopy;
+			std::vector<std::vector<std::vector<uint8_t>>> prefGpuCopy;
+			const char *envVerify = std::getenv("NK_IBL_VERIFY");
+			const bool verify = gpuDone && envVerify != nullptr && envVerify[0] == '1';
+			if (verify) {
+				irrGpuCopy = irrData;
+				prefGpuCopy = prefData;
+				gpuDone = false; // ré-exécute le CPU dans irrData/prefData
+			}
+
+			// ── Irradiance convolution (CPU, fallback / verify) ─────────────
+			// Lambert weighted hemisphere, 4 strates × 16 azimuts = 64 samples
+			const float64 tCpu0 = ::nkentseu::NkChrono::Now().nanoseconds;
+			if (mIrradiance.IsValid() && !gpuDone) {
 				auto irrFaceWork = [&](uint32 face) {
 					auto &buf = irrData[face];
 					buf.assign(irrSize * irrSize * 4, 0);
@@ -844,15 +944,16 @@ namespace nkentseu {
 				};
 				pool.ParallelFor(6, [&](nk_size f) { irrFaceWork((uint32)f); }, 1);
 				pool.Join();
+			}
+			if (mIrradiance.IsValid()) {
 				for (uint32 f = 0; f < 6; f++)
 					mDevice->WriteTextureRegion(mIrradiance, irrData[f].data(), 0, 0, 0, irrSize, irrSize, 1, 0, f);
 			}
 
-			// ── Prefilter GGX par mip ───────────────────────────────────────
+			// ── Prefilter GGX par mip (CPU, fallback / verify) ──────────────
 			// 32 samples : qualite correcte pour HDR a hautes frequences (vs
 			// 16 pour gradient procedural). Garde le mip 0 mirror du HDR.
-			std::vector<std::vector<std::vector<uint8_t>>> prefData(prefMips, std::vector<std::vector<uint8_t>>(6));
-			if (mPrefilter.IsValid()) {
+			if (mPrefilter.IsValid() && !gpuDone) {
 				const uint32 numSamples = 32;
 				for (uint32 mip = 0; mip < prefMips; mip++) {
 					uint32 mipSize = prefSize >> mip;
@@ -920,10 +1021,48 @@ namespace nkentseu {
 					};
 					pool.ParallelFor(6, [&](nk_size f) { prefFaceWork((uint32)f); }, 1);
 					pool.Join();
-					for (uint32 f = 0; f < 6; f++)
-						mDevice->WriteTextureRegion(mPrefilter, mipBufs[f].data(), 0, 0, 0, mipSize, mipSize, 1, mip,
-													f);
 				}
+			}
+			if (mPrefilter.IsValid()) {
+				for (uint32 mip = 0; mip < prefMips; mip++) {
+					uint32 mipSize = prefSize >> mip;
+					if (mipSize < 1)
+						mipSize = 1;
+					for (uint32 f = 0; f < 6; f++)
+						mDevice->WriteTextureRegion(mPrefilter, prefData[mip][f].data(), 0, 0, 0, mipSize, mipSize, 1,
+													mip, f);
+				}
+			}
+
+			if (!gpuDone) {
+				const float64 cpuMs = (::nkentseu::NkChrono::Now().nanoseconds - tCpu0) / 1.0e6;
+				logger.Infof("[IBL] Convolutions CPU : %.1f ms\n", cpuMs);
+			}
+
+			// ── NK_IBL_VERIFY=1 : ecart GPU vs CPU (octets RGBA8) ───────────
+			if (verify) {
+				uint32 maxDiff = 0;
+				uint64 nDiff = 0;
+				uint64 nTotal = 0;
+				auto compare = [&](const std::vector<uint8_t> &a, const std::vector<uint8_t> &b) {
+					const size_t n = a.size() < b.size() ? a.size() : b.size();
+					for (size_t i = 0; i < n; ++i) {
+						const uint32 d = (uint32)(a[i] > b[i] ? a[i] - b[i] : b[i] - a[i]);
+						if (d > maxDiff)
+							maxDiff = d;
+						if (d != 0)
+							++nDiff;
+						++nTotal;
+					}
+				};
+				for (uint32 f = 0; f < 6; ++f)
+					compare(irrGpuCopy[f], irrData[f]);
+				for (uint32 mip = 0; mip < prefMips; ++mip)
+					for (uint32 f = 0; f < 6; ++f)
+						compare(prefGpuCopy[mip][f], prefData[mip][f]);
+				logger.Infof("[IBL] VERIFY GPU vs CPU : maxDiff=%u/255, octets differents=%llu/%llu (%.3f%%)\n",
+							 maxDiff, (unsigned long long)nDiff, (unsigned long long)nTotal,
+							 nTotal ? 100.0 * (float64)nDiff / (float64)nTotal : 0.0);
 			}
 
 			// ── Sauvegarde du cache ─────────────────────────────────────────

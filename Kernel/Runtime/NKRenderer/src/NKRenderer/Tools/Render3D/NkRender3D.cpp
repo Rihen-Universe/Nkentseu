@@ -1229,7 +1229,15 @@ namespace nkentseu {
 					cmd->BindDescriptorSet(gs, 0);
 			}
 			FlushTransparent(cmd);
-			FlushDebug(cmd, currentRP, gs);
+			// Overlays debug/édition : PAS dans la passe miroir (ce sont des
+			// aides d'éditeur, pas du contenu de scène — un reflet ne doit pas
+			// les montrer). Accessoirement, FlushDebug décrémente la vie des
+			// primitives one-frame et les purge : s'il tournait dans la passe
+			// miroir (rendue AVANT la vue principale), il les CONSOMMAIT et la
+			// vue principale ne les affichait jamais (bug « cercle vert visible
+			// seulement dans le miroir », Demo4/5 surlignage matériau actif).
+			if (!mPendingMirrorActive)
+				FlushDebug(cmd, currentRP, gs);
 			mInScene = false;
 
 			// NOTE : plus d'auto-avance de mFrameSlot ici. Il est desormais derive
