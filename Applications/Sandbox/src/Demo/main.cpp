@@ -30,6 +30,8 @@
 #include "NKRHI/Core/NkDeviceFactory.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h" // NK_CAPTURE (validation headless)
+#include "NKRenderer/Tools/Offscreen/NkFrameCapture.h"	  // NK_RECORD (capture async -> video)
+#include "NKMedia/Video/NkVideoRecorder.h"				  // NK_RECORD (encodage MP4/H.264 threade)
 
 namespace nkentseu {
 	struct NkEntryState;
@@ -564,6 +566,22 @@ int nkmain(const NkEntryState &state) {
 	renderer::NkOffscreenTarget captureTarget;
 	bool captureArmed = false;
 
+	// NK_RECORD=<out.mp4> : enregistre le rendu en video H.264 (NKMedia,
+	// encodage sur thread dedie) via la capture ASYNCHRONE NkFrameCapture
+	// (ring staging + fences, zero WaitIdle -> le rendu ne stalle jamais).
+	// NK_RECORD_FPS=<n> (defaut 30) regle la cadence d'echantillonnage.
+	// V1 : la fenetre n'est pas rafraichie pendant l'enregistrement (sortie
+	// redirigee) — cinematiques/CI ; le miroir fenetre+record = V2.
+	const char *recEnv = getenv("NK_RECORD");
+	const char *recFpsEnv = getenv("NK_RECORD_FPS");
+	const int32 recordFps = recFpsEnv ? (int32)atoll(recFpsEnv) : 30;
+	bool recording = recEnv != nullptr && recEnv[0] != 0;
+	renderer::NkOffscreenTarget recordTarget;
+	renderer::NkFrameCapture recordCapture;
+	media::NkVideoRecorder recorder;
+	float64 recordAccum = 0.0;
+	uint64 recordPushed = 0;
+
 	// Le cap FPS (garde-fou thermique + anti-jitter) est désormais géré par le MOTEUR
 	// dans NkRenderer::Present() (pacing haute précision). Défaut = NK_FPS_CAP (120),
 	// modifiable à chaud via F1/F2 (cf. callback clavier). Plus de limiteur ici.
@@ -584,6 +602,50 @@ int nkmain(const NkEntryState &state) {
 
 		if (ctx.width == 0 || ctx.height == 0)
 			continue;
+
+		// ── NK_RECORD : capture async -> NkVideoRecorder (thread encode) ────
+		if (recording) {
+			if (!recordTarget.IsValid()) {
+				renderer::NkOffscreenDesc od;
+				od.width = ctx.width;
+				od.height = ctx.height;
+				od.hasDepth = false;
+				od.colorFmt = ::nkentseu::NkGPUFormat::NK_RGBA8_UNORM;
+				od.readback = false; // le readback passe par NkFrameCapture
+				od.name = "nk_record";
+				renderer::NkFrameCaptureDesc fd;
+				fd.width = ctx.width;
+				fd.height = ctx.height;
+				const bool ok = recordTarget.Init(device, renderer->GetTextures(), od) &&
+								recordCapture.Init(device, fd) &&
+								recorder.Begin(recEnv, (int32)ctx.width, (int32)ctx.height, recordFps);
+				if (ok) {
+					renderer->SetFinalColorTarget(renderer->GetTextures()->GetRHIHandle(recordTarget.GetColorResult()));
+					logger.Infof("[main] NK_RECORD -> %s (%d fps, %ux%u)\n", recEnv, recordFps, ctx.width, ctx.height);
+				} else {
+					logger.Warnf("[main] NK_RECORD: init KO, enregistrement annule\n");
+					recording = false;
+				}
+			} else {
+				// Echantillonnage a recordFps : enqueue la copie de la frame
+				// rendue precedente (non bloquant, saute si ring plein).
+				recordAccum += (float64)dt;
+				const float64 interval = 1.0 / (float64)recordFps;
+				if (recordAccum >= interval) {
+					recordAccum -= interval;
+					(void)recordCapture.EnqueueCopy(
+						renderer->GetTextures()->GetRHIHandle(recordTarget.GetColorResult()), ctx.frame);
+				}
+				// Draine les captures pretes vers l'encodeur (deja threade).
+				while (recordCapture.Poll([&](const uint8 *rgba, uint32 w, uint32 h, uint64) {
+					(void)w;
+					(void)h;
+					recorder.PushVideo(rgba, media::NkVideoInputFormat::RGBA32);
+					recordPushed++;
+				})) {
+				}
+			}
+		}
 
 		// ── NK_CAPTURE : redirection -> readback -> restauration ────────────
 		if (captureFrame > 0) {
@@ -614,6 +676,22 @@ int nkmain(const NkEntryState &state) {
 		}
 
 		demo.frame(ctx, dt);
+	}
+
+	// ── NK_RECORD : drainage final + finalisation MP4 ────────────────────────
+	if (recording && recordTarget.IsValid()) {
+		device->WaitIdle(); // seule attente : a la fin de l'enregistrement
+		while (recordCapture.PendingCount() > 0) {
+			(void)recordCapture.Poll([&](const uint8 *rgba, uint32, uint32, uint64) {
+				recorder.PushVideo(rgba, media::NkVideoInputFormat::RGBA32);
+				recordPushed++;
+			});
+		}
+		recorder.End();
+		renderer->SetFinalColorTarget(NkTextureHandle{});
+		recordCapture.Shutdown();
+		recordTarget.Shutdown();
+		logger.Infof("[main] NK_RECORD termine : %llu trames -> %s\n", (unsigned long long)recordPushed, recEnv);
 	}
 
 	// ── Cleanup ──────────────────────────────────────────────────────────────
