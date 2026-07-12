@@ -4517,6 +4517,11 @@ namespace nkentseu {
 
 				// ── Workspaces : fichiers .jenga a la racine contenant "with workspace" ──
 				NkVector<NkString> wsPaths, wsNames;
+				NkVector<NkString> extraWsRoots; ///< racines SECONDAIRES (multi-racines) à scanner aussi
+				void RefreshWorkspaces() {		 ///< force un re-scan du combo (racines changées)
+					mWsScanned = false;
+					ScanWorkspaces();
+				}
 				int32 wsIdx = 0;
 				bool mWsScanned = false;
 
@@ -4540,6 +4545,21 @@ namespace nkentseu {
 							continue;
 						wsPaths.PushBack(e.FullPath.ToString());
 						wsNames.PushBack(WorkspaceName(txt, nm));
+					}
+					// Racines SECONDAIRES (multi-racines) : leurs workspaces .jenga rejoignent
+					// le combo « Solution » de la toolbar.
+					for (usize k = 0; k < extraWsRoots.Size(); ++k) {
+						NkVector<NkDirectoryEntry> ee = NkDirectory::GetEntries(NkPath(extraWsRoots[k].CStr()), "*",
+																			  NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+						for (usize i = 0; i < ee.Size(); ++i) {
+							if (ee[i].IsDirectory || !EndsWithI(ee[i].Name.CStr(), ".jenga"))
+								continue;
+							const NkString txt = NkFile::ReadAllText(ee[i].FullPath);
+							if (!Contains(txt.CStr(), "with workspace") && !Contains(txt.CStr(), "workspace("))
+								continue;
+							wsPaths.PushBack(ee[i].FullPath.ToString());
+							wsNames.PushBack(WorkspaceName(txt, ee[i].Name));
+						}
 					}
 					if (wsIdx < 0 || wsIdx >= static_cast<int32>(wsPaths.Size()))
 						wsIdx = 0;

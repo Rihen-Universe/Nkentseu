@@ -432,6 +432,7 @@ namespace nkentseu {
 						} else
 							line += *p;
 					}
+					SyncRootsToState(); // publie au combo workspace de la toolbar
 				}
 
 				void SaveRoots() {
@@ -443,6 +444,14 @@ namespace nkentseu {
 					const NkString f = RootsPath();
 					NkDirectory::CreateRecursive(NkPath(f).GetParent());
 					NkFile::WriteAllText(NkPath(f), out);
+					SyncRootsToState();
+				}
+
+				// Publie les racines secondaires à l'état + rafraîchit le combo « Solution »
+				// de la toolbar (leurs workspaces .jenga y apparaissent).
+				void SyncRootsToState() {
+					mS->extraWsRoots = mExtraRoots;
+					mS->RefreshWorkspaces();
 				}
 
 				// « Ajouter un dossier » : demande le PICKER de l'app (celui de Dialogs.h,
