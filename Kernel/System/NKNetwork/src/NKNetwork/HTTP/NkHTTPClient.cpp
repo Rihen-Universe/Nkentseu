@@ -62,6 +62,8 @@
 #include <mbedtls/ssl.h>
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/entropy.h>
+#include <mbedtls/x509_crt.h>
+#include <mbedtls/error.h>
 #elif defined(NKENTSEU_HTTP_USE_OPENSSL)
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -1041,37 +1043,166 @@ namespace nkentseu {
 		}
 
 		NkHTTPResponse NkHTTPClient::SendOverTLS(const NkHTTPRequest &req) noexcept {
-			// Placeholder pour implémentation TLS
-			// En production : intégrer mbedTLS ou OpenSSL ici
 			NkHTTPResponse response;
-			response.error = "HTTPS not implemented in this build";
+
+#if !defined(NKENTSEU_HTTP_USE_MBEDTLS)
+			// Build sans backend TLS : recompiler avec NK_ENABLE_TLS=1 (mbedTLS).
+			response.error = "HTTPS not compiled in (rebuild with NK_ENABLE_TLS=1)";
 			return response;
+#else
+			// Parsing de l'URL
+			NkString scheme, host, path;
+			uint16 port = 0;
+			if (!ParseURL(req.url, scheme, host, port, path)) {
+				response.error = "Invalid URL";
+				return response;
+			}
+			if (port == 0) {
+				port = 443;
+			}
 
-			// Exemple de structure pour mbedTLS :
-			/*
-			mbedtls_net_context server_fd;
-			mbedtls_ssl_config conf;
+			mbedtls_net_context serverFd;
 			mbedtls_ssl_context ssl;
-			mbedtls_ctr_drbg_context ctr_drbg;
+			mbedtls_ssl_config conf;
+			mbedtls_ctr_drbg_context ctrDrbg;
 			mbedtls_entropy_context entropy;
+			mbedtls_x509_crt caChain;
 
-			// Initialisation
-			mbedtls_net_init(&server_fd);
+			mbedtls_net_init(&serverFd);
 			mbedtls_ssl_init(&ssl);
 			mbedtls_ssl_config_init(&conf);
-			mbedtls_ctr_drbg_init(&ctr_drbg);
+			mbedtls_ctr_drbg_init(&ctrDrbg);
 			mbedtls_entropy_init(&entropy);
+			mbedtls_x509_crt_init(&caChain);
 
-			// ... configuration et handshake ...
+			// Nettoyage centralisé (close_notify best-effort inclus).
+			auto cleanup = [&]() {
+				(void)mbedtls_ssl_close_notify(&ssl);
+				mbedtls_net_free(&serverFd);
+				mbedtls_x509_crt_free(&caChain);
+				mbedtls_ssl_free(&ssl);
+				mbedtls_ssl_config_free(&conf);
+				mbedtls_ctr_drbg_free(&ctrDrbg);
+				mbedtls_entropy_free(&entropy);
+			};
 
-			// Nettoyage
-			mbedtls_ssl_close_notify(&ssl);
-			mbedtls_net_free(&server_fd);
-			mbedtls_ssl_free(&ssl);
-			mbedtls_ssl_config_free(&conf);
-			mbedtls_ctr_drbg_free(&ctr_drbg);
-			mbedtls_entropy_free(&entropy);
-			*/
+			auto fail = [&](const char *what, int code) {
+				char errBuf[128] = {};
+				mbedtls_strerror(code, errBuf, sizeof(errBuf));
+				response.error = NkString::Format("%s (mbedtls -0x%04X %s)", what,
+												  static_cast<unsigned int>(-code), errBuf);
+				cleanup();
+				return response;
+			};
+
+			// Graine du générateur aléatoire (obligatoire pour le handshake).
+			static const char kPers[] = "nkentseu_https";
+			int ret = mbedtls_ctr_drbg_seed(&ctrDrbg, mbedtls_entropy_func, &entropy,
+											reinterpret_cast<const unsigned char *>(kPers), sizeof(kPers) - 1);
+			if (ret != 0) {
+				return fail("TLS RNG seed failed", ret);
+			}
+
+			// Connexion TCP (résolution DNS incluse par mbedtls_net_connect).
+			const NkString portStr = NkString::Format("%u", static_cast<unsigned int>(port));
+			ret = mbedtls_net_connect(&serverFd, host.CStr(), portStr.CStr(), MBEDTLS_NET_PROTO_TCP);
+			if (ret != 0) {
+				return fail("TLS connect failed", ret);
+			}
+
+			ret = mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
+											  MBEDTLS_SSL_PRESET_DEFAULT);
+			if (ret != 0) {
+				return fail("TLS config failed", ret);
+			}
+
+			// Vérification du certificat serveur :
+			//   • verifySSL + caCertPath fourni → vérification STRICTE contre ce bundle ;
+			//   • sinon → pas de vérification (mbedTLS n'a pas accès aux CA système).
+			//     Fournir Config::caCertPath pour une vérification réelle en production.
+			if (mConfig.verifySSL && !mConfig.caCertPath.Empty()) {
+				ret = mbedtls_x509_crt_parse_file(&caChain, mConfig.caCertPath.CStr());
+				if (ret < 0) {
+					return fail("TLS CA bundle load failed", ret);
+				}
+				mbedtls_ssl_conf_ca_chain(&conf, &caChain, nullptr);
+				mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+			} else {
+				mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_NONE);
+			}
+
+			mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &ctrDrbg);
+			const uint32 timeoutMs = (req.timeoutMs > 0) ? req.timeoutMs : mConfig.defaultTimeoutMs;
+			mbedtls_ssl_conf_read_timeout(&conf, timeoutMs);
+
+			ret = mbedtls_ssl_setup(&ssl, &conf);
+			if (ret != 0) {
+				return fail("TLS setup failed", ret);
+			}
+
+			// SNI + vérification du nom d'hôte.
+			ret = mbedtls_ssl_set_hostname(&ssl, host.CStr());
+			if (ret != 0) {
+				return fail("TLS hostname failed", ret);
+			}
+
+			mbedtls_ssl_set_bio(&ssl, &serverFd, mbedtls_net_send, nullptr, mbedtls_net_recv_timeout);
+
+			// Handshake (poursuivre tant que WANT_READ/WANT_WRITE).
+			while ((ret = mbedtls_ssl_handshake(&ssl)) != 0) {
+				if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
+					return fail("TLS handshake failed", ret);
+				}
+			}
+
+			// Envoi de la requête HTTP chiffrée.
+			const NkString requestStr = BuildRequestStr(req);
+			const unsigned char *sendPtr = reinterpret_cast<const unsigned char *>(requestStr.CStr());
+			uint32 sent = 0;
+			while (sent < requestStr.Length()) {
+				ret = mbedtls_ssl_write(&ssl, sendPtr + sent, requestStr.Length() - sent);
+				if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
+					continue;
+				}
+				if (ret <= 0) {
+					return fail("TLS send failed", ret);
+				}
+				sent += static_cast<uint32>(ret);
+			}
+
+			// Réception jusqu'à fermeture propre, fin de flux ou taille max.
+			NkString rawResponse;
+			unsigned char recvBuf[4096];
+			for (;;) {
+				ret = mbedtls_ssl_read(&ssl, recvBuf, sizeof(recvBuf));
+				if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
+					continue;
+				}
+				if (ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY || ret == 0) {
+					break; // fermeture propre / fin de connexion
+				}
+				if (ret == MBEDTLS_ERR_SSL_TIMEOUT) {
+					// Timeout de lecture : la réponse reçue jusqu'ici fera foi
+					// (même sémantique que RecvWithTimeout du chemin HTTP).
+					break;
+				}
+				if (ret < 0) {
+					return fail("TLS receive failed", ret);
+				}
+				rawResponse.Append(reinterpret_cast<const char *>(recvBuf), static_cast<uint32>(ret));
+				if (rawResponse.Length() >= kMaxResponseSize) {
+					break;
+				}
+			}
+
+			cleanup();
+
+			if (rawResponse.Empty()) {
+				response.error = "Empty response";
+				return response;
+			}
+			return ParseResponse(rawResponse);
+#endif // NKENTSEU_HTTP_USE_MBEDTLS
 		}
 
 		// =====================================================================

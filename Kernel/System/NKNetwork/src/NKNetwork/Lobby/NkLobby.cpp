@@ -72,7 +72,7 @@ namespace {
 	// Structure d'en-tête pour messages lobby
 	// =====================================================================
 	struct NkLobbyMessageHeader {
-			static constexpr uint32 kSize = 12u; // Taille fixe en bytes
+			static constexpr uint32 kSize = 16u; // Taille fixe en bytes (4 octets + peerId u64 + payloadSize u32)
 
 			uint8 magic = kLobbyProtocolMagic;	   /// Signature de validation
 			uint8 version = kLobbyProtocolVersion; /// Version du protocole
