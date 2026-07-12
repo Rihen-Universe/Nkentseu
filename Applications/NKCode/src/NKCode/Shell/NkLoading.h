@@ -77,6 +77,10 @@ namespace nkentseu {
 											? st->wsPaths[st->wsIdx < (int32)st->wsPaths.Size() ? st->wsIdx : 0]
 											: NkString();
 					wsName = jp.Empty() ? st->root.GetFileName() : NkCodeState::WorkspaceNameOf(jp.CStr());
+					// TOUJOURS mémoriser dans les RÉCENTS : un workspace ouvert par DoLoad
+					// (argument, « Ouvrir », dernier workspace au démarrage) n'y entrait
+					// jamais -> il disparaissait du launcher dès qu'il n'était plus courant.
+					st->AddRecent(jp.Empty() ? f.ToString() : jp);
 					// LoadFolder a déjà relancé `jenga info` (RequestReload). Le poll se fait dans Tick.
 				}
 

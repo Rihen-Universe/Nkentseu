@@ -293,8 +293,10 @@ namespace nkentseu {
 			if (mn.sx > maxSx)
 				mn.sx = maxSx;
 			mn.rect = box; // exposee : les zones DERRIERE ignorent la souris quand elle est ici
-			dl.AddRectFilled(box, NkColor{32, 38, 46, 255}, 6.f);
-			dl.AddRect(box, NkColor{60, 66, 74, 255}, 1.f);
+			// Couleurs du THÈME (dark ET light) — plus de valeurs en dur qui juraient
+			// en thème clair (fond sombre + texte clair sur UI claire).
+			dl.AddRectFilled(box, ctx.theme.panel, 6.f);
+			dl.AddRect(box, ctx.theme.border, 1.f);
 			int32 clicked = -1;
 			dl.PushClipRect(inner, true);
 			float32 y = box.y + 4.f - mn.sy;
@@ -305,16 +307,19 @@ namespace nkentseu {
 									 m.y < inner.y + inner.h;
 					if (hov && hoveredOut)
 						*hoveredOut = i; // sous-menus : l'appelant sait quel item est survolé
-					if (hov && enabled[i])
-						dl.AddRectFilled(r, NkColor{31, 111, 235, 110}, 4.f);
+					if (hov && enabled[i]) {
+						NkColor selBg = ctx.theme.selection;
+						selBg.a = 110;
+						dl.AddRectFilled(r, selBg, 4.f);
+					}
 					if (ctx.font && ctx.font->Valid())
 						dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 								   {r.x + pad - mn.sx, y + (rowH - lh) * 0.5f + ctx.font->Ascent()}, items[i],
-								   enabled[i] ? NkColor{223, 223, 223, 255} : NkColor{110, 118, 129, 255});
+								   enabled[i] ? ctx.theme.text : ctx.theme.textDisabled);
 					if (hasSub && hasSub[i]) { // indicateur de SOUS-MENU : petite flèche ▸ à droite
 						const float32 ax = r.x + r.w - 11.f, ay = y + rowH * 0.5f;
 						dl.AddTriangleFilled({ax - 3.f, ay - 4.f}, {ax - 3.f, ay + 4.f}, {ax + 3.f, ay},
-											 enabled[i] ? NkColor{200, 205, 212, 230} : NkColor{110, 118, 129, 200});
+											 enabled[i] ? ctx.theme.text : ctx.theme.textDisabled);
 					}
 					if (hov && enabled[i] && ctx.input.mouseClicked[0])
 						clicked = i;
@@ -325,12 +330,12 @@ namespace nkentseu {
 			// Barres de defilement (temoins + clic/glisser pour se positionner).
 			if (hasV) {
 				const NkRect tr = {box.x + box.w - sbT, inner.y, sbT, inner.h};
-				dl.AddRectFilled(tr, NkColor{255, 255, 255, 14}, 3.f);
+				dl.AddRectFilled(tr, ctx.theme.track, 3.f);
 				float32 th = inner.h * (inner.h / (contentH + 8.f));
 				if (th < 18.f)
 					th = 18.f;
 				const float32 ty = tr.y + (maxSy > 0.f ? (mn.sy / maxSy) * (tr.h - th) : 0.f);
-				dl.AddRectFilled({tr.x + 1.f, ty, sbT - 2.f, th}, NkColor{150, 158, 170, 210}, 3.f);
+				dl.AddRectFilled({tr.x + 1.f, ty, sbT - 2.f, th}, ctx.theme.border, 3.f);
 				if (ctx.input.mouseDown[0] && m.x >= tr.x && m.x < tr.x + tr.w && m.y >= tr.y && m.y < tr.y + tr.h) {
 					const float32 t = (m.y - tr.y - th * 0.5f) / (tr.h - th > 1.f ? tr.h - th : 1.f);
 					mn.sy = (t < 0.f ? 0.f : t > 1.f ? 1.f : t) * maxSy;
@@ -338,12 +343,12 @@ namespace nkentseu {
 			}
 			if (hasH) {
 				const NkRect tr = {box.x, box.y + box.h - sbT, inner.w, sbT};
-				dl.AddRectFilled(tr, NkColor{255, 255, 255, 14}, 3.f);
+				dl.AddRectFilled(tr, ctx.theme.track, 3.f);
 				float32 th = tr.w * (inner.w / wIdeal);
 				if (th < 24.f)
 					th = 24.f;
 				const float32 tx = tr.x + (maxSx > 0.f ? (mn.sx / maxSx) * (tr.w - th) : 0.f);
-				dl.AddRectFilled({tx, tr.y + 1.f, th, sbT - 2.f}, NkColor{150, 158, 170, 210}, 3.f);
+				dl.AddRectFilled({tx, tr.y + 1.f, th, sbT - 2.f}, ctx.theme.border, 3.f);
 				if (ctx.input.mouseDown[0] && m.x >= tr.x && m.x < tr.x + tr.w && m.y >= tr.y && m.y < tr.y + tr.h) {
 					const float32 t = (m.x - tr.x - th * 0.5f) / (tr.w - th > 1.f ? tr.w - th : 1.f);
 					mn.sx = (t < 0.f ? 0.f : t > 1.f ? 1.f : t) * maxSx;
