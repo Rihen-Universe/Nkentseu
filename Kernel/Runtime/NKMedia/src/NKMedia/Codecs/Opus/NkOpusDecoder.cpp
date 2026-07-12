@@ -23,6 +23,7 @@ namespace nkentseu {
 			mSilkFsKHz = 0;
 			mSilkNbSubfr = 0;
 			mSMid[0] = mSMid[1] = 0;
+			mPrevMode = -1;
 		}
 
 		int32 NkOpusDecoder::DecodePacket(const uint8 *data, int32 len, int16 *out48) {
@@ -36,6 +37,14 @@ namespace nkentseu {
 				const int32 fl = (int32)op.frames[fr].size;
 				if (fl <= 0)
 					continue;
+
+				// Reset de l'état CELT au changement de mode (cf. opus_decoder.c : OPUS_RESET_STATE
+				// avant le décodage CELT si mode != prev_mode). Évite que l'overlap/énergie d'un mode
+				// précédent pollue les trames CELT/hybride suivantes sur un flux mixte.
+				const int32 curMode = (int32)op.mode;
+				if (op.mode != NkOpusMode::NK_SILK_ONLY && mPrevMode >= 0 && curMode != mPrevMode)
+					mCelt.Init(mChannels);
+				mPrevMode = curMode;
 
 				if (op.mode == NkOpusMode::NK_SILK_ONLY) {
 					const int32 fs = (op.bandwidth == NkOpusBandwidth::NK_NB) ? 8
@@ -137,9 +146,9 @@ namespace nkentseu {
 					}
 
 					// 3) CELT bande haute (bandes 17→endband), ajouté par-dessus SILK.
-					// ⚠️ WIP : SILK bande basse BIT-EXACT (gains+LPC vérifiés vs libopus), mais
-					// la bande haute CELT + l'alignement des délais SILK/CELT restent à affiner
-					// (corr ~0.84 vs ffmpeg). Ne pas activer l'hybride en prod tant que non validé.
+					// SILK bande basse BIT-EXACT vs libopus ; bande haute CELT validée (corr 0.992
+					// vs libopus/ffmpeg sur flux mixte). La clé était special_hybrid_folding dans
+					// NkCeltQuantBands (repli de la 2e bande hybride) — sans lui : NaN.
 					NkCeltDecoder::NkFrameFlags flags;
 					mCelt.DecodeShared(rd, fl - redundancyBytes, LM, 17, endband, buf48, true, &flags);
 

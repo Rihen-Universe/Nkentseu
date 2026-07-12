@@ -111,7 +111,7 @@ namespace nkentseu {
 				total -= skipRsv;
 				// (mono : intensity_rsv = dual_stereo_rsv = 0.)
 
-				int32 bits1[kNbEBands], bits2[kNbEBands], thresh[kNbEBands], trimOff[kNbEBands];
+				int32 bits1[kNbEBands] = {0}, bits2[kNbEBands] = {0}, thresh[kNbEBands] = {0}, trimOff[kNbEBands] = {0};
 				NkCeltAlloc::BuildInterp(start, end, offsets, cap, allocTrim, total, C, LM, bits1, bits2, thresh,
 										 trimOff);
 				if (offsets)
@@ -119,7 +119,7 @@ namespace nkentseu {
 						if (offsets[j] > 0)
 							skipStart = j;
 
-				int32 bits[kNbEBands];
+				int32 bits[kNbEBands] = {0};
 
 				// Bissection sur le coefficient d'interpolation.
 				int32 lo = 0, hi = 1 << ALLOC_STEPS;
@@ -266,6 +266,71 @@ namespace nkentseu {
 				}
 			}
 
+			// Fenêtre MDCT CELT (identique au repli TDAC de l'IMDCT) : window(i) =
+			// sin(π/2 · sin²(π/2 · (i+.5)/overlap)). Utilisée par le crossfade du post-filtre.
+			inline float32 CeltWindow(int32 i, int32 overlap) {
+				const double s = ::sin(0.5 * kPi * ((double)i + 0.5) / (double)overlap);
+				return (float32)::sin(0.5 * kPi * s * s);
+			}
+
+			// --- POST-FILTRE CELT (comb_filter, celt.c) : filtre en peigne accordé sur le
+			// pitch qui renforce la périodicité. `x` peut = `y` (in-place). Lit l'historique
+			// x[i-T] EN AMONT de x[0] (présent dans le buffer glissant). Sur `overlap`
+			// échantillons, fond l'ancien filtre (T0,g0,tapset0) vers le nouveau (T1,g1,tapset1)
+			// via la fenêtre ; le reste utilise le filtre constant (T1,g1). Port du chemin float
+			// (SHL32 = no-op, MULT_COEF* = multiplication). Sans lui, la sortie CELT est ~2.8×
+			// trop faible (le deemphasis, LTI, amplifie moins un signal non enrichi en basses).
+			void CombFilter(float32 *y, const float32 *x, int32 T0, int32 T1, int32 N, float32 g0, float32 g1,
+							int32 tapset0, int32 tapset1, int32 overlap) {
+				static const float32 kCombGains[3][3] = {
+					{0.3066406250f, 0.2170410156f, 0.1296386719f},
+					{0.4638671875f, 0.2680664062f, 0.0f},
+					{0.7998046875f, 0.1000976562f, 0.0f}};
+				const int32 kMinPeriod = 15; // COMBFILTER_MINPERIOD
+				if (g0 == 0.0f && g1 == 0.0f) {
+					if (x != y)
+						for (int32 i = 0; i < N; ++i)
+							y[i] = x[i];
+					return;
+				}
+				if (T0 < kMinPeriod)
+					T0 = kMinPeriod;
+				if (T1 < kMinPeriod)
+					T1 = kMinPeriod;
+				const float32 g00 = g0 * kCombGains[tapset0][0], g01 = g0 * kCombGains[tapset0][1],
+							  g02 = g0 * kCombGains[tapset0][2];
+				const float32 g10 = g1 * kCombGains[tapset1][0], g11 = g1 * kCombGains[tapset1][1],
+							  g12 = g1 * kCombGains[tapset1][2];
+				float32 x1 = x[-T1 + 1], x2 = x[-T1], x3 = x[-T1 - 1], x4 = x[-T1 - 2];
+				int32 ov = overlap;
+				if (g0 == g1 && T0 == T1 && tapset0 == tapset1)
+					ov = 0; // filtre inchangé → pas de crossfade
+				int32 i = 0;
+				for (; i < ov; ++i) {
+					const float32 x0 = x[i - T1 + 2];
+					const float32 fw = CeltWindow(i, overlap);
+					const float32 f = fw * fw;
+					y[i] = x[i] + (1.0f - f) * g00 * x[i - T0] +
+						   (1.0f - f) * g01 * (x[i - T0 + 1] + x[i - T0 - 1]) +
+						   (1.0f - f) * g02 * (x[i - T0 + 2] + x[i - T0 - 2]) + f * g10 * x2 +
+						   f * g11 * (x1 + x3) + f * g12 * (x0 + x4);
+					x4 = x3;
+					x3 = x2;
+					x2 = x1;
+					x1 = x0;
+				}
+				if (g1 == 0.0f) {
+					if (x != y)
+						for (; i < N; ++i)
+							y[i] = x[i];
+					return;
+				}
+				// Partie à filtre constant (comb_filter_const).
+				for (; i < N; ++i)
+					y[i] = x[i] + g10 * x[i - T1] + g11 * (x[i - T1 + 1] + x[i - T1 - 1]) +
+						   g12 * (x[i - T1 + 2] + x[i - T1 - 2]);
+			}
+
 			// --- IMDCT CELT (clt_mdct_backward, DFT directe à la place du kiss_fft). ---
 			// Reproduit exactement pré-rotation → FFT → post-rotation → repli TDAC fenêtré.
 			// `in` : N2 coefficients (accès avec `stride`) ; `out` : écrit out[0..N2+overlap/2).
@@ -371,6 +436,9 @@ namespace nkentseu {
 			for (int32 i = 0; i < (kDecBufSize + kOverlap) * kMaxChannels; ++i)
 				mDecodeMem[i] = 0.0f;
 			mRng = 0;
+			mPostfilterPeriod = mPostfilterPeriodOld = 0;
+			mPostfilterGain = mPostfilterGainOld = 0.0f;
+			mPostfilterTapset = mPostfilterTapsetOld = 0;
 			mInit = true;
 		}
 
@@ -408,16 +476,22 @@ namespace nkentseu {
 			bool transient = false;
 			bool intra = false;
 
+			// Params du post-filtre décodés cette trame (0 = inactif). Appliqués après synthèse.
+			int32 pfPitch = 0;
+			float32 pfGain = 0.0f;
+			int32 pfTapset = 0;
+
 			if (!silence) {
-				// Post-filtre (lu et ignoré pour ne pas désynchroniser l'ec). Uniquement
-				// en CELT-only (start==0) ; en hybride le post-filtre n'est pas transmis.
+				// Post-filtre (comb filter pitch). Uniquement en CELT-only (start==0) ; en
+				// hybride il n'est pas transmis. On décode ET on applique (cf. CombFilter plus bas).
 				if (start == 0 && dec.Tell() + 16 <= totalBitsRaw) {
 					if (dec.DecodeBitLogp(1)) {
 						const uint32 octave = dec.DecodeUint(6);
-						(void)((16u << octave) + dec.DecodeBits(4 + (uint32)octave) - 1u);
-						(void)dec.DecodeBits(3);
+						pfPitch = (int32)((16u << octave) + dec.DecodeBits(4 + (uint32)octave) - 1u);
+						const int32 qg = (int32)dec.DecodeBits(3);
 						if (dec.Tell() + 2 <= totalBitsRaw)
-							(void)dec.DecodeIcdf(kTapsetIcdf, 2);
+							pfTapset = (int32)dec.DecodeIcdf(kTapsetIcdf, 2);
+						pfGain = 0.09375f * (float32)(qg + 1); // QCONST16(.09375,15)*(qg+1)
 					}
 				}
 				if (LM > 0 && dec.Tell() + 3 <= totalBitsRaw)
@@ -447,7 +521,7 @@ namespace nkentseu {
 				NkCeltEnergy::UnquantCoarse(dec, mOldEBands, kNumBands, start, end, intra, C, LM);
 
 				// tf_decode.
-				int32 tfRes[kNumBands];
+				int32 tfRes[kNumBands] = {0};
 				TfDecode(dec, start, end, transient ? 1 : 0, tfRes, LM, len);
 
 				// Spread.
@@ -460,7 +534,7 @@ namespace nkentseu {
 				InitCaps(cap, LM, C, eBands);
 
 				// Dynalloc (boosts).
-				int32 offsets[kNumBands];
+				int32 offsets[kNumBands] = {0};
 				int32 dynallocLogp = 6;
 				int32 totalBitsFrac = totalBitsRaw << BITRES;
 				uint32 tellFrac = dec.TellFrac();
@@ -495,7 +569,7 @@ namespace nkentseu {
 				bits -= antiCollapseRsv;
 
 				// Allocation (décodage).
-				int32 pulses[kNumBands], fineQuant[kNumBands], finePriority[kNumBands];
+				int32 pulses[kNumBands] = {0}, fineQuant[kNumBands] = {0}, finePriority[kNumBands] = {0};
 				int32 balance = 0;
 				const int32 codedBands = ComputeAllocation(dec, start, end, offsets, cap, allocTrim, bits, LM, C,
 														   eBands, pulses, fineQuant, finePriority, &balance);
@@ -558,12 +632,35 @@ namespace nkentseu {
 						MdctBackward(&freq[b], outSyn + NB * b, shift, B);
 				}
 
+				// Post-filtre (comb filter) : 1er sous-bloc avec l'ancien filtre → crossfade vers le
+				// filtre courant ; le reste avec le nouveau pitch/gain de cette trame. In-place sur
+				// outSyn (l'historique x[i-T] est en amont dans le buffer glissant). No-op si gains nuls
+				// (hybride + trames sans post-filtre) → n'affecte pas le chemin hybride bit-exact.
+				CombFilter(outSyn, outSyn, mPostfilterPeriodOld, mPostfilterPeriod, kShortMdctSize,
+						   mPostfilterGainOld, mPostfilterGain, mPostfilterTapsetOld, mPostfilterTapset, kOverlap);
+				if (LM != 0)
+					CombFilter(outSyn + kShortMdctSize, outSyn + kShortMdctSize, mPostfilterPeriod, pfPitch,
+							   N - kShortMdctSize, mPostfilterGain, pfGain, mPostfilterTapset, pfTapset, kOverlap);
+
 				// Deemphasis → PCM interleaved.
 				float32 *pcmC = (float32 *)memory::NkAlloc((size_t)N * sizeof(float32));
 				NkCeltDeemphasis::Apply(outSyn, pcmC, N, NkCeltDeemphasis::kPreemphCoef48k, &mPreemphMem[c]);
 				for (int32 i = 0; i < N; ++i)
 					if (accum) pcm[i * C + c] += pcmC[i] * (1.0f / 32768.0f); else pcm[i * C + c] = pcmC[i] * (1.0f / 32768.0f); // SCALEOUT + accum (hybride)
 				memory::NkFree(pcmC);
+			}
+
+			// Bascule l'état du post-filtre : courant → old, décodé → courant (cf. celt_decode).
+			mPostfilterPeriodOld = mPostfilterPeriod;
+			mPostfilterGainOld = mPostfilterGain;
+			mPostfilterTapsetOld = mPostfilterTapset;
+			mPostfilterPeriod = pfPitch;
+			mPostfilterGain = pfGain;
+			mPostfilterTapset = pfTapset;
+			if (LM != 0) {
+				mPostfilterPeriodOld = mPostfilterPeriod;
+				mPostfilterGainOld = mPostfilterGain;
+				mPostfilterTapsetOld = mPostfilterTapset;
 			}
 
 			// Historique énergie pour l'anti-collapse de la trame suivante.
