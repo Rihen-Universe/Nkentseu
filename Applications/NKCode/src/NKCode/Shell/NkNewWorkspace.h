@@ -15,6 +15,7 @@
 // (0 = rien, 1 = annuler -> retour Accueil).
 // =============================================================================
 #include "NKCode/Shell/NkUi.h"
+#include "NKEditorKit/NkEditorScrollbar.h"
 #include "NKCode/Shell/NkOpenWs.h" // reutilise NkOwEdit (editeur caret) + NkOwIco
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Shell/Dialogs.h"
@@ -2369,49 +2370,11 @@ namespace nkentseu {
 			} // relache le drag
 			if (maxSY > 0.5f) {
 				const NkRect track = {rect.x + rect.w - sbW - u.s(3), rect.y + u.s(2), sbW, rect.h - u.s(4)};
-				u.dl->AddRectFilled(track, NkScrollTrack(), sbW * 0.5f);
-				float32 thh = viewH * (viewH / contentH);
-				if (thh < u.s(24))
-					thh = u.s(24);
-				float32 ty = track.y + (track.h - thh) * (w->codeSY / maxSY);
-				const NkRect thumb = {track.x + u.s(2), ty, sbW - u.s(4), thh};
-				if (!blockBg && u.click && u.Hit(thumb)) {
-					w->codeBar = 1;
-					w->codeBarOff = u.mp.y - ty;
-				}
-				if (w->codeBar == 1) {
-					w->codeSY = ((u.mp.y - w->codeBarOff - track.y) / (track.h - thh)) * maxSY;
-					if (w->codeSY < 0.f)
-						w->codeSY = 0.f;
-					if (w->codeSY > maxSY)
-						w->codeSY = maxSY;
-					ty = track.y + (track.h - thh) * (w->codeSY / maxSY);
-				}
-				u.dl->AddRectFilled({track.x + u.s(2), ty, sbW - u.s(4), thh},
-									w->codeBar == 1 ? NkCol::primary : NkScrollThumb(false), (sbW - u.s(4)) * 0.5f);
+				editorkit::NkVScrollbar(*u.ctx, *u.dl, track, w->codeSY, contentH, viewH, 0x0E4B0001u, u.s(20));
 			}
 			if (maxSX > 0.5f) {
 				const NkRect track = {rect.x + gutter, rect.y + rect.h - sbW - u.s(2), viewW, sbW};
-				u.dl->AddRectFilled(track, NkScrollTrack(), sbW * 0.5f);
-				float32 tww = viewW * (viewW / maxW);
-				if (tww < u.s(24))
-					tww = u.s(24);
-				float32 tx = track.x + (track.w - tww) * (w->codeSX / maxSX);
-				const NkRect thumb = {tx, track.y + u.s(2), tww, sbW - u.s(4)};
-				if (!blockBg && u.click && u.Hit(thumb)) {
-					w->codeBar = 2;
-					w->codeBarOff = u.mp.x - tx;
-				}
-				if (w->codeBar == 2) {
-					w->codeSX = ((u.mp.x - w->codeBarOff - track.x) / (track.w - tww)) * maxSX;
-					if (w->codeSX < 0.f)
-						w->codeSX = 0.f;
-					if (w->codeSX > maxSX)
-						w->codeSX = maxSX;
-					tx = track.x + (track.w - tww) * (w->codeSX / maxSX);
-				}
-				u.dl->AddRectFilled({tx, track.y + u.s(2), tww, sbW - u.s(4)},
-									w->codeBar == 2 ? NkCol::primary : NkScrollThumb(false), (sbW - u.s(4)) * 0.5f);
+				editorkit::NkHScrollbar(*u.ctx, *u.dl, track, w->codeSX, maxW, viewW, 0x0E4B0002u, 20.f);
 			}
 		}
 
