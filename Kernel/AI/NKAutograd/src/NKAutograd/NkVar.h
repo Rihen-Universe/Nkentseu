@@ -51,6 +51,8 @@ namespace nkentseu {
 			NK_GELU,		   // GELU (tanh-approx)
 			NK_EMBEDDING,	   // lookup table[vocab,d] par indices (aux) ; backward = scatter-add
 			NK_PERMUTE,		   // permutation d'axes (rang ≤ 4) ; backward = permutation inverse
+			NK_CONCAT0,		   // concaténation de deux tenseurs sur l'AXE 0 ; backward = découpe
+			NK_CTC,			   // perte CTC (forward-backward) ; grad pré-calculé stocké dans `aux`
 		};
 
 		// Nœud du graphe (refcompté, partagé).
@@ -181,6 +183,19 @@ namespace nkentseu {
 			// Permutation d'axes (rang ≤ 4) ; backward = permutation inverse. Pour découper les
 			// têtes d'attention ([B,T,h,hd] ↔ [B,h,T,hd]).
 			NkVar Permute(const NkVar &x, const NkShape &order);
+
+				// Concaténation de deux tenseurs sur l'AXE 0 (mêmes dimensions restantes) :
+				// [Na,…] ⊕ [Nb,…] -> [Na+Nb,…]. Backward = redécoupe le gradient. Sert à
+				// EMPILER les sorties d'un RNN dans le temps ([1,B,H] ⊕ … -> [T,B,H]).
+				NkVar Concat0(const NkVar &a, const NkVar &b);
+
+				// Perte CTC (Connectionist Temporal Classification, Graves 2006) — aligne une
+				// séquence de logits [T,B,V] sur des cibles de longueurs variables SANS
+				// alignement fourni (algorithme forward-backward en espace log). `targets[b]`
+				// = suite d'indices de symboles (hors blanc) pour l'exemple b ; `blank` = index
+				// du symbole blanc. Renvoie la perte scalaire moyennée sur le lot ; le gradient
+				// (déjà moyenné) est pré-calculé et diffusé aux logits au Backward.
+				NkVar CTCLoss(const NkVar &logits, const NkVector<NkVector<int32>> &targets, int32 blank = 0);
 		} // namespace autograd
 
 	} // namespace ai
