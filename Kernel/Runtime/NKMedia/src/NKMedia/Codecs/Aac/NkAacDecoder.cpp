@@ -121,65 +121,54 @@ namespace nkentseu {
 				}
 			}
 
-			// Générateur pseudo-aléatoire de faad (parité calculée par popcount).
-			inline uint32 NeRng(uint32 *r1, uint32 *r2) {
-				const uint32 t3 = *r1;
-				const uint32 t4 = *r2;
-				uint32 t1 = *r1 & 0xF5u;
-				uint32 t2 = *r2 >> 25;
-				uint32 p1 = (uint32)(__builtin_popcount(t1) & 1);
-				t2 &= 0x63u;
-				p1 <<= 31;
-				const uint32 p2 = (uint32)(__builtin_popcount(t2) & 1);
-				*r1 = (t3 >> 1) | p1;
-				*r2 = (t4 + t4) | p2;
-				return *r1 ^ *r2;
+			// Générateur congruentiel linéaire (LCG) de ffmpeg (aacdec) : état → état suivant.
+			inline uint32 LcgRandom(uint32 prev) {
+				return prev * 1664525u + 1013904223u;
 			}
 
-			// Remplit une bande de bruit : `size` valeurs aléatoires normalisées à énergie
-			// unité × 2^(0.25·(noise_energy−100)). ⚠️ RNG ≠ celui de ffmpeg → énergie correcte
-			// mais pas les échantillons exacts (impossible pour du bruit).
-			void GenNoise(float32 *spec, int32 size, int32 noiseEnergy, uint32 *r1, uint32 *r2) {
-				if (noiseEnergy < -120)
-					noiseEnergy = -120;
-				else if (noiseEnergy > 120)
-					noiseEnergy = 120;
+			// Remplit une bande de bruit : `size` valeurs = (int32)état LCG, normalisées à
+			// énergie unité × gain 2^(sfo/4). Réplique exactement ffmpeg (RNG + normalisation),
+			// donc BIT-EXACT (même flux aléatoire, même échelle).
+			void GenNoise(float32 *spec, int32 size, int32 sfo, uint32 *state) {
 				double energy = 0.0;
 				for (int32 i = 0; i < size; ++i) {
-					const float32 t = (float32)(int32)NeRng(r1, r2);
-					spec[i] = t;
-					energy += (double)t * (double)t;
+					*state = LcgRandom(*state);
+					const float32 v = (float32)(int32)*state;
+					spec[i] = v;
+					energy += (double)v * (double)v;
 				}
 				if (energy > 0.0) {
-					const float32 scale =
-						(float32)(1.0 / ::sqrt(energy)) * ::powf(2.0f, 0.25f * (float32)(noiseEnergy - 100));
+					const float32 gain = ::powf(2.0f, 0.25f * (float32)sfo);
+					const float32 scale = gain / (float32)::sqrt(energy);
 					for (int32 i = 0; i < size; ++i)
 						spec[i] *= scale;
 				}
 			}
 
 			// PNS (perceptual noise substitution) : remplit les bandes de bruit (cb 13) d'un
-			// canal, sur le spectre désentrelacé. RNG persistant entre trames.
-			void PnsDecode(const NkAacIcs &ics, float32 *spec, uint32 *r1, uint32 *r2) {
+			// canal, sur le spectre désentrelacé (fenêtre·128 + offset). Ordre ffmpeg exact :
+			// par groupe de fenêtres, par bande, par fenêtre, par coefficient ; état RNG unique
+			// persistant entre canaux et trames → décodage du bruit BIT-EXACT vs ffmpeg.
+			void PnsDecode(const NkAacIcs &ics, float32 *spec, uint32 *state) {
 				const int32 nshort = NkAacIcs::kFrameLen / 8;
 				const int32 swbMax = (int32)ics.swbOffset[ics.numSwb];
-				int32 group = 0;
+				int32 groupBase = 0;
 				for (int32 g = 0; g < ics.numWindowGroups; ++g) {
-					for (int32 b = 0; b < ics.windowGroupLength[g]; ++b) {
-						const int32 base = group * nshort;
-						for (int32 sfb = 0; sfb < ics.maxSfb; ++sfb) {
-							if ((int32)ics.sfbCb[g][sfb] == 13) {
-								int32 begin = (int32)ics.swbOffset[sfb];
-								int32 end = (int32)ics.swbOffset[sfb + 1];
-								if (begin > swbMax)
-									begin = swbMax;
-								if (end > swbMax)
-									end = swbMax;
-								GenNoise(&spec[base + begin], end - begin, (int32)ics.scaleFactors[g][sfb], r1, r2);
+					for (int32 sfb = 0; sfb < ics.maxSfb; ++sfb) {
+						if ((int32)ics.sfbCb[g][sfb] == 13) {
+							int32 begin = (int32)ics.swbOffset[sfb];
+							int32 end = (int32)ics.swbOffset[sfb + 1];
+							if (begin > swbMax)
+								begin = swbMax;
+							if (end > swbMax)
+								end = swbMax;
+							for (int32 b = 0; b < ics.windowGroupLength[g]; ++b) {
+								const int32 base = (groupBase + b) * nshort;
+								GenNoise(&spec[base + begin], end - begin, (int32)ics.scaleFactors[g][sfb], state);
 							}
 						}
-						++group;
 					}
+					groupBase += ics.windowGroupLength[g];
 				}
 			}
 		} // namespace
@@ -190,6 +179,7 @@ namespace nkentseu {
 				return false;
 			mChannels = (channels == 2) ? 2 : 1;
 			mPrevWindowShape[0] = mPrevWindowShape[1] = 0;
+			mRandomState = 0x1f2e3d4c; // seed RNG PNS (ffmpeg)
 			mFb[0].Reset();
 			mFb[1].Reset();
 			return true;
@@ -212,7 +202,7 @@ namespace nkentseu {
 						return 0;
 					float32 spec[1024];
 					NkAacDequant::Apply(ics, spec);
-					PnsDecode(ics, spec, &mR1, &mR2);
+					PnsDecode(ics, spec, &mRandomState);
 					NkAacTns::Apply(ics, mSfIndex, spec);
 					const int32 c = (nch < 2) ? nch : 0;
 					mFb[c].Process(spec, ics.windowSequence, ics.windowShape, mPrevWindowShape[c], chTime[c]);
@@ -245,8 +235,8 @@ namespace nkentseu {
 					float32 spec2[1024];
 					NkAacDequant::Apply(ics1, spec1);
 					NkAacDequant::Apply(ics2, spec2);
-					PnsDecode(ics1, spec1, &mR1, &mR2);
-					PnsDecode(ics2, spec2, &mR1, &mR2);
+					PnsDecode(ics1, spec1, &mRandomState);
+					PnsDecode(ics2, spec2, &mRandomState);
 					if (msMask >= 1)
 						MsDecode(ics1, ics2, msMask, msUsed, spec1, spec2);
 					IsDecode(ics1, ics2, msMask, msUsed, spec1, spec2);
