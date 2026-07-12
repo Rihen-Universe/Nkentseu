@@ -69,9 +69,12 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    `NkCullingSystem` (octree/occlusion HZB/distance/LOD — v2, nécessite un mode retained).
    Limite connue : le miroir reflète la liste cullée par la caméra PRINCIPALE (un objet
    derrière la caméra manque du reflet). 2) **VSM v2 bornés** : shadowOverrides Layered/Toon/
-   Anime (absents des .nksl, vérifié) + alpha-tested shadow. 3) **Finitions Phase L/E petites** :
-   API `SetColorGradingLUT` (n'existe PAS — seulement des commentaires, vérifié) + vraie LUT 3D
-   sur GL (dummy 1×1 confirmé NkPostProcessStack.cpp:296) + `DrawSpriteGlow` (fallback confirmé).
+   Anime (absents des .nksl, vérifié) + alpha-tested shadow — ✅ LIVRÉ 2026-07-12 (cf. TODOs V2).
+   3) **Finitions Phase L/E petites** : ✅ `SetColorGradingLUT(rgba, size)` LIVRÉ
+   (NkPostProcessStack, accessible via `GetPostProcess()`, recréation auto si taille change) ;
+   ✅ vraie LUT 3D sur GL LIVRÉE (le dummy 1×1 datait du chemin SPIRV-Cross sampler3D —
+   le tonemap NkSL natif marche : validé capture `NK_LUT_TEST=1` teal&orange, 99,4 % pixels
+   gradés, zéro crash) ; reste `DrawSpriteGlow` (fallback confirmé).
    4) Morph targets (stub confirmé ; nécessite AUSSI l'import morph glTF, différé). 5) Streaming
    réel (`FinalizeLoad` ne charge rien — « In a real impl » dans le code ; simulateur de budget).
    6) Deferred lighting pass + branchement (gros ; jamais instancié par le renderer). 7) IK
