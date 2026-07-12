@@ -34,21 +34,6 @@ namespace nkentseu {
 					auto &ctx = ec.Ui();
 					++mTick;
 					TickGit();
-					// PEEK OUVERT = MODAL : l'explorateur est dessiné en PREMIER, donc
-					// neutraliser l'input ici empêche TOUS les panneaux dessinés ensuite
-					// (éditeur, terminal…) de recevoir les clics sous l'overlay. Le peek
-					// lui-même utilise la COPIE réelle (mPeekInput).
-					if (mPeekOpen) {
-						mPeekInput = ctx.input;
-						ctx.input.mousePos = {-100000.f, -100000.f};
-						for (int32 b = 0; b < 3; ++b) {
-							ctx.input.mouseClicked[b] = false;
-							ctx.input.mouseDown[b] = false;
-							ctx.input.mouseDoubleClicked[b] = false;
-						}
-						ctx.input.wheel = ctx.input.wheelH = 0.f;
-						ctx.input.charCount = 0;
-					}
 					// Changement de workspace -> reset complet (expansion, filtre, git).
 					if (!SameStr(mRootStr.CStr(), mS->root.ToString().CStr())) {
 						mRootStr = mS->root.ToString();
@@ -74,7 +59,21 @@ namespace nkentseu {
 						DrawFilterBar(ctx, vclip);
 					DrawCtxMenu(ctx);	 // overlay : par-dessus tout
 					DrawConfirmDel(ctx); // confirmation de suppression
-					DrawPeek(ctx);		 // aperçu barre Espace (overlay centré)
+					DrawPeek(ctx);		 // aperçu barre Espace (overlay centré) — lit ctx.input
+					// PEEK OUVERT = MODAL : l'explorateur est le 1er panneau dessiné ; on
+					// neutralise l'input APRÈS le peek -> les panneaux suivants (éditeur,
+					// terminal…) ne reçoivent aucun clic sous l'overlay. Le peek, lui, a
+					// utilisé l'input RÉEL (même chemin que DrawRows).
+					if (mPeekOpen) {
+						ctx.input.mousePos = {-100000.f, -100000.f};
+						for (int32 b = 0; b < 3; ++b) {
+							ctx.input.mouseClicked[b] = false;
+							ctx.input.mouseDown[b] = false;
+							ctx.input.mouseDoubleClicked[b] = false;
+						}
+						ctx.input.wheel = ctx.input.wheelH = 0.f;
+						ctx.input.charCount = 0;
+					}
 				}
 
 			private:
@@ -874,7 +873,8 @@ namespace nkentseu {
 					auto &dl = ctx.DL();
 					const NkVec2 m = ctx.input.mousePos;
 					const NkRect clip = dl.CurrentClip();
-					const bool inClip = NkGuiRectContains(clip, m) && m.y >= topY;
+					// Peek ouvert : l'arbre ne réagit plus (le peek modal a la main).
+					const bool inClip = NkGuiRectContains(clip, m) && m.y >= topY && !mPeekOpen;
 					// Focus-clic du panneau : un clic DANS le panneau (header compris) le
 					// prend, un clic ailleurs le rend — les raccourcis Ctrl+C/X/V, F2,
 					// Suppr restent actifs après un clic sur la toolbar ou le menu.
@@ -1217,7 +1217,7 @@ namespace nkentseu {
 						return;			  // pas de raccourcis pendant l'édition
 					}
 					// ── Raccourcis (focus-clic dans l'explorateur, hors filtre actif) ──
-					if (mFocus && !mFilterOn) {
+					if (mFocus && !mFilterOn && !mPeekOpen) {
 						if (ctx.input.KeyPressed(NkGuiKey::Enter) && mSelPath.Length() > 0 && !SelIsDir())
 							mS->OpenPath(NkPath(mSelPath));
 						if (ctx.input.KeyPressed(NkGuiKey::F2) && mSelPath.Length() > 0)
@@ -1354,9 +1354,10 @@ namespace nkentseu {
 						return;
 					TickPeek();
 					auto &ov = ctx.dlOverlay;
-					// L'input a été neutralisé pour tous les panneaux (anti-traversée) ;
-					// le peek lit l'input RÉEL sauvegardé en début de frame.
-					const nkgui::NkGuiInput &in = mPeekInput;
+					// Le peek lit ctx.input DIRECTEMENT (même chemin éprouvé que DrawRows) :
+					// hit-tests fiables. L'input est neutralisé pour les AUTRES panneaux
+					// APRÈS le peek (dans OnUI).
+					const nkgui::NkGuiInput &in = ctx.input;
 					const float32 W = static_cast<float32>(ctx.viewW), H = static_cast<float32>(ctx.viewH);
 					// Position = base centrée + décalage utilisateur (DÉPLAÇABLE par l'en-tête).
 					const NkRect box = {W * 0.18f + mPeekOff.x, H * 0.12f + mPeekOff.y, W * 0.64f, H * 0.72f};
