@@ -47,10 +47,11 @@ namespace nkentseu {
 						LoadRoots(); // racines secondaires du workspace (.nkcode/roots.cfg)
 						mRowsDirty = true;
 					}
-					// Dossier choisi par le sélecteur maison -> nouvelle racine secondaire.
-					if (mS->pickedFolder.Length() > 0) {
-						AddRootPath(mS->pickedFolder);
-						mS->pickedFolder.Clear();
+					// Dossier choisi par le sélecteur du shell -> nouvelle racine secondaire.
+					if (mShell) {
+						const NkString picked = mShell->TakeFilePickerResult();
+						if (picked.Length() > 0)
+							AddRootPath(picked);
 					}
 					if (mRowsDirty)
 						BuildRows();
@@ -445,10 +446,11 @@ namespace nkentseu {
 					NkFile::WriteAllText(NkPath(f), out);
 				}
 
-				// « Ajouter un dossier » : demande le sélecteur de dossier MAISON (mobile,
-				// NkRootPicker piloté par l'app) ; le résultat revient via pickedFolder.
+				// « Ajouter un dossier » : sélecteur de dossier GÉNÉRIQUE MODAL du shell
+				// (pas Jenga-aware : n'importe quel dossier). Résultat récupéré au poll.
 				void AddRootFolder() {
-					mS->reqPickFolder = true;
+					if (mShell)
+						mShell->OpenFolderPicker(mRootStr.CStr(), NkT("exp.addroot"));
 				}
 
 				// Intègre un dossier choisi comme racine secondaire (dédupliqué).
