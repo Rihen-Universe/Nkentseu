@@ -1376,9 +1376,23 @@ namespace nkentseu {
 													   static_cast<int32>(mPeekSize));
 						ov.AddText(ctx.font->Face(), ctx.font->TexId(), {box.x + 14.f, y + asc}, head.CStr(),
 								   ctx.theme.text, box.w - 120.f);
+						// Bouton FERMER (✕) tout à droite.
+						const NkRect xbr = {box.x + box.w - lh - 12.f, y - 3.f, lh + 8.f, lh + 8.f};
+						const bool xbh = NkGuiRectContains(xbr, m);
+						if (xbh)
+							ov.AddRectFilled(xbr, ctx.theme.buttonHover, 4.f);
+						{
+							const float32 cx = xbr.x + xbr.w * 0.5f, cy = xbr.y + xbr.h * 0.5f, s = 4.f;
+							const NkColor xc = xbh ? NkColor{230, 90, 90, 255} : ctx.theme.textDisabled;
+							ov.AddLine({cx - s, cy - s}, {cx + s, cy + s}, xc, 1.6f);
+							ov.AddLine({cx - s, cy + s}, {cx + s, cy - s}, xc, 1.6f);
+						}
+						if (xbh && in.mouseClicked[0])
+							mPeekOpen = false;
+						// Bouton Ouvrir (à gauche du ✕).
 						const char *ob = NkT("peek.open");
 						const float32 obw = ctx.font->MeasureWidth(ob) + 20.f;
-						const NkRect obr = {box.x + box.w - obw - 12.f, y - 3.f, obw, lh + 8.f};
+						const NkRect obr = {xbr.x - obw - 6.f, y - 3.f, obw, lh + 8.f};
 						const bool obh = NkGuiRectContains(obr, m);
 						ov.AddRectFilled(obr, obh ? ctx.theme.buttonHover : ctx.theme.button, 4.f);
 						ov.AddText(ctx.font->Face(), ctx.font->TexId(), {obr.x + 10.f, y + asc}, ob, ctx.theme.text);
@@ -1434,10 +1448,9 @@ namespace nkentseu {
 							y += lh;
 						}
 					}
-					// ── DÉPLACEMENT par l'en-tête (bande du haut) : press dedans = glisse. ──
-					const NkRect headerBar = {box.x, box.y, box.w, lh + 12.f};
-					if (in.mouseClicked[0] && NkGuiRectContains(headerBar, m) && !NkGuiRectContains(
-							{box.x + box.w - 120.f, box.y, 120.f, lh + 12.f}, m)) { // pas sur le bouton Ouvrir
+					// ── DÉPLACEMENT par l'en-tête (bande du haut, hors boutons à droite). ──
+					const NkRect headerBar = {box.x, box.y, box.w - 130.f, lh + 12.f};
+					if (in.mouseClicked[0] && NkGuiRectContains(headerBar, m)) {
 						mPeekDrag = true;
 						mPeekDragOff = {m.x - box.x, m.y - box.y};
 					}
@@ -1447,19 +1460,18 @@ namespace nkentseu {
 					}
 					if (!in.mouseDown[0])
 						mPeekDrag = false;
-					// ── Fermeture : Échap, Espace, ou clic dont le PRESS a commencé HORS du
-					//    panneau (clic sur le fond) — un clic/glisser DANS le panneau ne
-					//    ferme jamais. (L'input des autres panneaux est déjà neutralisé.) ──
+					// ── Fermeture UNIQUEMENT explicite : bouton ✕ (ci-dessus), Échap, ou
+					//    Espace à nouveau. PAS de fermeture au clic (évite toute fermeture
+					//    intempestive : un clic dans le panneau ne le referme jamais). ──
 					const bool spaceAgain = [&] {
 						for (int32 i = 0; i < in.charCount; ++i)
 							if (in.chars[i] == 32)
 								return true;
 						return false;
 					}();
-					const bool pressedOutside = in.mouseClicked[0] && !NkGuiRectContains(box, m) && !mPeekDrag;
 					if (mPeekJustOpened) // l'Espace d'ouverture ne referme pas
 						mPeekJustOpened = false;
-					else if (in.KeyPressed(NkGuiKey::Escape) || spaceAgain || pressedOutside)
+					else if (in.KeyPressed(NkGuiKey::Escape) || spaceAgain)
 						mPeekOpen = false;
 				}
 
@@ -1467,18 +1479,25 @@ namespace nkentseu {
 				void DrawCtxMenu(NkGuiContext &ctx) {
 					if (!mCtx.open)
 						return;
-					const char *items[10] = {NkT("exp.ctx.newfile"),  NkT("exp.ctx.newfolder"),
+					// Fichiers/dossiers (0-9) + GIT & IA (10-15) : ces derniers sont des
+					// PLACEHOLDERS — présents dans le menu, comportement défini plus tard.
+					const char *items[16] = {NkT("exp.ctx.newfile"),  NkT("exp.ctx.newfolder"),
 											 NkT("exp.ctx.rename"),	  NkT("exp.ctx.delete"),
 											 NkT("exp.ctx.dup"),	  NkT("exp.ctx.copypath"),
 											 NkT("exp.ctx.copyrel"),  NkT("exp.ctx.reveal"),
-											 NkT("exp.ctx.term"),	  NkT("exp.ctx.gitignore")};
-					bool en[10];
-					for (int32 i = 0; i < 10; ++i)
+											 NkT("exp.ctx.term"),	  NkT("exp.ctx.gitignore"),
+											 NkT("exp.ctx.compare"),  NkT("exp.ctx.blame"),
+											 NkT("exp.ctx.discard"),  NkT("exp.ctx.aigen"),
+											 NkT("exp.ctx.aitest"),	  NkT("exp.ctx.props")};
+					bool en[16];
+					for (int32 i = 0; i < 16; ++i)
 						en[i] = true;
 					const bool isRoot = SameStr(mCtxPath.CStr(), mRootStr.CStr());
 					if (isRoot) // pas de rename/suppression/duplication/gitignore de la racine
 						en[2] = en[3] = en[4] = en[9] = false;
-					const int32 act = NkCtxMenuDraw(ctx, mCtx, items, en, 10);
+					if (mCtxIsDir) // git compare/blame/discard + IA = fichiers uniquement
+						en[10] = en[11] = en[12] = en[13] = en[14] = false;
+					const int32 act = NkCtxMenuDraw(ctx, mCtx, items, en, 16);
 					if (act < 0)
 						return;
 					const NkString p = mCtxPath;
@@ -1518,6 +1537,18 @@ namespace nkentseu {
 						case 9:
 							AddToGitignore(p);
 							break;
+						case 10: // Comparer avec HEAD  (à définir)
+						case 11: // Blame Git           (à définir)
+						case 12: // Annuler les modifs  (à définir)
+						case 13: // IA → Générer         (à définir)
+						case 14: // IA → Créer des tests (à définir)
+							mS->status = NkString(NkT("exp.ctx.soon")); // fonctionnalité à venir
+							break;
+						case 15: { // Propriétés : infos basiques dans la barre d'état
+							const int64 sz = NkFile::GetFileSize(p.CStr());
+							mS->status = NkPrintf("%s \xE2\x80\x94 %d o", NkPath(p).GetFileName().CStr(),
+												  static_cast<int32>(sz));
+						} break;
 						default:
 							break;
 					}
