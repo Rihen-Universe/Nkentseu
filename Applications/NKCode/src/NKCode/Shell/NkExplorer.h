@@ -1003,6 +1003,7 @@ namespace nkentseu {
 						mFocus = NkGuiRectContains(clip, m);
 					const bool editing = mEditPath.Length() > 0 || mEditParent.Length() > 0;
 					int32 toToggle = -1, toOpen = -1, toRename = -1;
+					bool toOpenPermanent = false; // double-clic => onglet permanent (sinon apercu, facon VSCode)
 					bool rowHit = false;
 					if (mDragging)
 						mDragOverDir.Clear(); // re-posée par la row dossier survolée ce frame
@@ -1198,8 +1199,13 @@ namespace nkentseu {
 									mSelTick = mTick;
 									if (r.dir)
 										toToggle = static_cast<int32>(i);
-									else
+									else {
 										toOpen = static_cast<int32>(i);
+										// Double-clic rapide (facon VSCode) => onglet PERMANENT ; simple
+										// clic => APERCU (le re-clic lent 30-150 frames reste le renommage).
+										if (ctx.input.mouseDoubleClicked[0])
+											toOpenPermanent = true;
+									}
 								}
 							}
 						}
@@ -1304,7 +1310,7 @@ namespace nkentseu {
 							ToggleExpanded(r.path); // racine SECONDAIRE ou dossier : état par chemin
 						mRowsDirty = true;
 					} else if (toOpen >= 0)
-						mS->OpenPath(NkPath(mRows[toOpen].path));
+						mS->OpenPath(NkPath(mRows[toOpen].path), /*preview=*/!toOpenPermanent);
 					else if (toRename >= 0)
 						StartRename(mRows[toRename].path);
 					// ── Saisie de l'ÉDITION INLINE (prioritaire sur tout le reste) ──
