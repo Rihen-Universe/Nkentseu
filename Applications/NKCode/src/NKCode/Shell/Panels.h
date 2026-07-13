@@ -2037,7 +2037,7 @@ namespace nkentseu {
 		//    invite coloree, execution ASYNC -> sortie en flux. ──
 		class TerminalPanel : public NkEditorPanel {
 			public:
-				enum Shell { SH_PWSH = 0, SH_WSL, SH_BASH, SH_CMD, SH_JENGA, SH_COUNT };
+				enum Shell { SH_PWSH = 0, SH_WSL, SH_BASH, SH_CMD, SH_JENGA, SH_DOCKER, SH_COUNT };
 
 				// Entree du selecteur de shell : un type (kind) + un libelle + une distro
 				// WSL optionnelle. La liste est construite dynamiquement (distros WSL2 reelles).
@@ -2045,6 +2045,7 @@ namespace nkentseu {
 						int32 kind;
 						NkString label;
 						NkString distro;
+						NkString cmd; // commande explicite (pwsh 7, Git Bash...) ; vide = PtyCommand(kind)
 				};
 
 				TerminalPanel() : NkEditorPanel("TERMINAL", NkEditorDockSide::NK_BOTTOM) {
@@ -2237,7 +2238,7 @@ namespace nkentseu {
 							AddTerm(mNewShell);
 					}
 					// Combobox de shell (a gauche du "+").
-					const float32 cw = ctx.S(118.f);
+					const float32 cw = ctx.S(178.f); // combo elargi (colle au bouton +)
 					// Etoile « definir par defaut » : le shell du combo devient le TERMINAL PAR DEFAUT
 					// (persiste). Pleine (accent) quand le combo == defaut courant.
 					{
@@ -2245,16 +2246,24 @@ namespace nkentseu {
 						EnsureBaseShells();
 						if (mNewShell < 0 || mNewShell >= static_cast<int32>(mShells.Size()))
 							mNewShell = 0;
-						const NkRect stR = {addR.x - cw - 4.f - h, bar.y + 1.f, h, h - 2.f};
+						const NkRect stR = {addR.x - cw - 1.f - h, bar.y + 1.f, h, h - 2.f};
 						const bool hov = inR(stR);
 						const ShellDef &cur = mShells[mNewShell];
 						const bool isDef = (cur.kind == mDefShell) && StrEq(cur.distro.CStr(), mDefDistro.CStr());
 						if (hov)
 							dl.AddRectFilled(stR, ctx.theme.buttonHover);
+						// Vraie ETOILE (« définir par défaut ») : pleine (accent) si c'est le shell
+						// par défaut, sinon grisée. Éventail de triangles sur 5 pointes.
 						const float32 scx = stR.x + h * 0.5f, scy = stR.y + (h - 2.f) * 0.5f;
 						const NkColor sc = isDef ? ctx.theme.accent : ctx.theme.textDisabled;
-						dl.AddTriangleFilled({scx, scy - 5.f}, {scx - 4.5f, scy + 3.5f}, {scx + 4.5f, scy + 3.5f}, sc);
-						dl.AddTriangleFilled({scx, scy + 5.f}, {scx - 4.5f, scy - 3.5f}, {scx + 4.5f, scy - 3.5f}, sc);
+						static const float32 SUX[10] = {0.000f,  0.225f,  0.951f, 0.363f,  0.588f,
+														0.000f,  -0.588f, -0.363f, -0.951f, -0.225f};
+						static const float32 SUY[10] = {-1.000f, -0.309f, -0.309f, 0.118f,  0.809f,
+														0.382f,  0.809f,  0.118f, -0.309f, -0.309f};
+						const float32 sr = 6.5f;
+						for (int32 k = 0; k < 10; ++k)
+							dl.AddTriangleFilled({scx, scy}, {scx + SUX[k] * sr, scy + SUY[k] * sr},
+												 {scx + SUX[(k + 1) % 10] * sr, scy + SUY[(k + 1) % 10] * sr}, sc);
 						if (hov && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) {
 							mDefShell = cur.kind;
 							mDefDistro = cur.distro;
@@ -2262,7 +2271,8 @@ namespace nkentseu {
 						}
 					}
 					const float32 savedW = ctx.layout.region.w;
-					ctx.layout.cursor = {addR.x - cw - 4.f, bar.y + 1.f};
+					const float32 comboH = h - ctx.S(9.f); // combo un peu plus court que la barre (centre)
+					ctx.layout.cursor = {addR.x - cw - 1.f, bar.y + (h - comboH) * 0.5f};
 					ctx.layout.lineStartX = ctx.layout.cursor.x;
 					ctx.layout.curLineH = 0.f;
 					ctx.layout.region.w = (ctx.layout.cursor.x - ctx.layout.region.x) + cw;
@@ -2270,7 +2280,8 @@ namespace nkentseu {
 					if (mNewShell < 0 || mNewShell >= static_cast<int32>(mShells.Size()))
 						mNewShell = 0;
 					ctx.PushId("shellhdr");
-					if (BeginCombo(ctx, "", mShells[mNewShell].label.CStr(), static_cast<int32>(mShells.Size()))) {
+					if (BeginCombo(ctx, "", mShells[mNewShell].label.CStr(), static_cast<int32>(mShells.Size()),
+								   comboH)) {
 						DetectWslDistros(); // ajoute les distros WSL2 reelles (une seule fois)
 						for (int32 i = 0; i < static_cast<int32>(mShells.Size()); ++i)
 							if (Selectable(ctx, mShells[i].label.CStr(), i == ctx.comboNav) ||
@@ -2325,18 +2336,33 @@ namespace nkentseu {
 				}
 
 				// Programme reel a lancer pour chaque type de shell.
+				// Invite COLOREE injectee (chemin bleu + « > » vert) : PowerShell/cmd n'emettent
+				// pas de couleurs par defaut (contrairement a bash Ubuntu) -> on definit une
+				// invite ANSI a leur lancement pour un rendu colore homogene.
+				static NkString PwshColored(const NkString &exe) {
+					return exe +
+						   " -NoLogo -NoExit -Command \"function prompt { $e=[char]27; \\\"$e[38;2;88;166;255m$($PWD.Path)$e[0m$e[38;2;120;200;120m> $e[0m\\\" }\"";
+				}
+				static NkString CmdColored(const char *pre) {
+					const NkString p = "prompt $E[38;2;88;166;255m$P$E[0m$E[38;2;120;200;120m$G$E[0m$S";
+					if (pre && pre[0])
+						return NkString("cmd.exe /K \"") + p + " & " + pre + "\"";
+					return NkString("cmd.exe /K ") + p;
+				}
+
 				static NkString PtyCommand(int32 s, const NkString &distro) {
 					switch (s) {
 						case SH_PWSH:
-							return NkString("powershell.exe -NoLogo");
+						case SH_JENGA:
+							return PwshColored("powershell.exe");
 						case SH_WSL:
 							return distro.Empty() ? NkString("wsl.exe") : (NkString("wsl.exe -d ") + distro);
 						case SH_BASH:
 							return NkString("bash.exe");
-						case SH_JENGA:
-							return NkString("powershell.exe -NoLogo"); // jenga s'utilise dans powershell
+						case SH_DOCKER:
+							return CmdColored("docker ps");
 						default:
-							return NkString("cmd.exe");
+							return CmdColored("");
 					}
 				}
 
@@ -2684,9 +2710,32 @@ namespace nkentseu {
 					if (mShellsBuilt)
 						return;
 					mShellsBuilt = true;
-					mShells.PushBack(ShellDef{SH_PWSH, "powershell", ""});
-					mShells.PushBack(ShellDef{SH_CMD, "cmd", ""});
-					mShells.PushBack(ShellDef{SH_BASH, "bash", ""});
+					mShells.PushBack(ShellDef{SH_PWSH, "Windows PowerShell", "", ""});
+					// PowerShell 7 (pwsh.exe) si installe (a cote de Windows PowerShell).
+					const char *pf = env::GetEnvVar("ProgramFiles");
+					if (pf) {
+						const NkString pwsh = NkString(pf) + "\\PowerShell\\7\\pwsh.exe";
+						if (NkFile::Exists(NkPath(pwsh)))
+							mShells.PushBack(ShellDef{SH_PWSH, "PowerShell 7", "", PwshColored(NkString("\"") + pwsh + "\"")});
+					}
+					mShells.PushBack(ShellDef{SH_CMD, "cmd", "", ""});
+					// Git Bash si installe (sinon bash.exe generique du PATH).
+					bool gitBash = false;
+					if (pf) {
+						const NkString gb = NkString(pf) + "\\Git\\bin\\bash.exe";
+						if (NkFile::Exists(NkPath(gb))) {
+							mShells.PushBack(ShellDef{SH_BASH, "Git Bash", "", NkString("\"") + gb + "\" -i -l"});
+							gitBash = true;
+						}
+					}
+					if (!gitBash)
+						mShells.PushBack(ShellDef{SH_BASH, "bash", "", ""});
+					// Docker Desktop : entree "Docker" seulement si docker.exe est present.
+					if (pf) {
+						const NkString dk = NkString(pf) + "\Docker\Docker\resources\bin\docker.exe";
+						if (NkFile::Exists(NkPath(dk)))
+							mShells.PushBack(ShellDef{SH_DOCKER, "Docker", "", CmdColored("docker ps")});
+					}
 				}
 
 				// Detecte les distributions WSL2 INSTALLEES (`wsl --list --quiet`) et ajoute
@@ -2768,7 +2817,7 @@ namespace nkentseu {
 							mTerm[i].scrollY = 0.f;
 							mTerm[i].follow = true;
 							mTerm[i].cwd = NkString();
-							mTerm[i].cmdOverride = NkString();
+							mTerm[i].cmdOverride = sd.cmd; // pwsh 7 / Git Bash : commande explicite detectee
 							mTerm[i].sAL = mTerm[i].sAC = mTerm[i].sBL = mTerm[i].sBC = 0;
 							mTerm[i].dragging = false;
 							mActive = i;
@@ -2869,64 +2918,97 @@ namespace nkentseu {
 				static NkColor ShellColor(int32 s) {
 					switch (s) {
 						case SH_PWSH:
-							return {31, 111, 235, 255};
+							return {31, 111, 235, 255};   // bleu PowerShell
+						case SH_CMD:
+							return {120, 130, 145, 255};  // gris-bleu cmd
 						case SH_WSL:
-							return {233, 84, 32, 255};
+							return {233, 84, 32, 255};    // orange WSL
 						case SH_BASH:
-							return {77, 160, 79, 255};
+							return {77, 160, 79, 255};    // vert bash
 						case SH_JENGA:
-							return {200, 150, 40, 255};
+							return {200, 150, 40, 255};   // ambre Jenga
+						case SH_DOCKER:
+							return {33, 150, 243, 255};  // bleu Docker
 						default:
 							return {150, 158, 168, 255};
 					}
 				}
 
-				// Liste VERTICALE des terminaux a DROITE (facon VSCode) : actions (+ / combo
-				// de shell) en haut, puis un item par terminal (icone couleur + nom), actif
-				// surligne, X au survol.
+				// Icone (texture) associee a un type de shell ; 0 si non chargee (-> pastille couleur).
+				uint32 ShellIcon(int32 kind) const {
+					const NkIcons *ic = mState ? mState->icons : nullptr;
+					if (!ic)
+						return 0;
+					switch (kind) {
+						case SH_PWSH:
+							return ic->windowsLogo ? ic->windowsLogo : ic->kConsole;
+						case SH_CMD:
+							return ic->kConsole ? ic->kConsole : ic->windowsLogo;
+						case SH_JENGA:
+							return ic->kConsole ? ic->kConsole : ic->windowsLogo;
+						case SH_BASH: // Git Bash / bash
+						case SH_WSL:  // distro Linux
+							return ic->linux ? ic->linux : ic->kConsole;
+						case SH_DOCKER:
+							return ic->docker ? ic->docker : ic->kConsole;
+						default:
+							return ic->kConsole;
+					}
+				}
+
 				void DrawTermList(NkGuiContext &ctx, const NkRect &R) {
 					if (R.w < 8.f)
 						return;
 					auto &dl = ctx.DL();
-					dl.AddRectFilled(R, ctx.theme.header);					  // fond liste #010409
+					dl.AddRectFilled(R, ctx.theme.header);
 					dl.AddRectFilled({R.x, R.y, 1.f, R.h}, ctx.theme.button); // bord gauche
 					const NkVec2 m = ctx.input.mousePos;
 					auto inR = [&](const NkRect &r) {
 						return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
 					};
-					const float32 h = ctx.ItemHeight();
+					const NkIcons *ic = mState ? mState->icons : nullptr;
+					const float32 h = ctx.ItemHeight() + ctx.S(4.f); // lignes plus aerees
 					const float32 by = (h - (ctx.font ? ctx.font->LineHeight() : 14.f)) * 0.5f +
-									   (ctx.font ? ctx.font->Ascent() : 11.f);
-
-					// (Le "+" et le combobox de shell sont sur la BARRE D'ONGLETS — OnTabBarActions.)
-					// Items : un par terminal vivant.
+						   (ctx.font ? ctx.font->Ascent() : 11.f);
 					float32 y = R.y + 6.f;
 					int32 toClose = -1;
 					for (int32 i = 0; i < 8; ++i) {
 						if (!mTerm[i].alive)
 							continue;
-						const NkRect row = {R.x + 1.f, y, R.w - 1.f, h};
+						const NkRect row = {R.x + 4.f, y, R.w - 8.f, h - 3.f};
 						const bool active = (i == mActive), hov = inR(row);
-						if (active)
-							dl.AddRectFilled(row, NkColor{31, 111, 235, 55}); // selection
-						else if (hov)
-							dl.AddRectFilled(row, ctx.theme.buttonHover);
-						if (active)
-							dl.AddRectFilled({R.x + 1.f, y, 2.f, h}, ctx.theme.accent);
-						dl.AddRectFilled({R.x + 10.f, y + (h - 9.f) * 0.5f, 9.f, 9.f},
-										 ShellColor(mTerm[i].shell)); // icone
+						const NkColor sc = ShellColor(mTerm[i].shell);
+						if (active) {
+							dl.AddRectFilled(row, NkColor{sc.r, sc.g, sc.b, 38}, 5.f);
+							dl.AddRect(row, NkColor{sc.r, sc.g, sc.b, 150}, 1.f);
+							dl.AddRectFilled({row.x, row.y + 4.f, 3.f, row.h - 8.f}, sc, 2.f);
+						} else if (hov)
+							dl.AddRectFilled(row, ctx.theme.buttonHover, 5.f);
+						// Icone du shell (tintee couleur shell) ; repli = pastille coloree.
+						const uint32 ico = ShellIcon(mTerm[i].shell);
+						const NkRect ir = {row.x + 10.f, y + (h - 14.f) * 0.5f - 1.f, 14.f, 14.f};
+						if (ico)
+							dl.AddImage(ico, ir, {0.f, 0.f}, {1.f, 1.f}, sc);
+						else
+							dl.AddRectFilled({ir.x + 2.f, ir.y + 2.f, 10.f, 10.f}, sc, 3.f);
 						if (ctx.font && ctx.font->Valid())
-							dl.AddText(ctx.font->Face(), ctx.font->TexId(), {R.x + 26.f, y + by}, mTerm[i].label.CStr(),
-									   active ? ctx.theme.text : ctx.theme.textDisabled);
+							dl.AddText(ctx.font->Face(), ctx.font->TexId(), {row.x + 32.f, y + by - 1.f},
+								   mTerm[i].label.CStr(), active ? ctx.theme.text : ctx.theme.textDisabled);
+						// Corbeille (fermer) au survol / actif, si plus d'un terminal.
 						bool closeClicked = false;
-						if (hov && AliveCount() > 1) {
-							const NkRect cl = {row.x + row.w - 20.f, y + (h - 14.f) * 0.5f, 14.f, 14.f};
+						if ((hov || active) && AliveCount() > 1) {
+							const NkRect cl = {row.x + row.w - 22.f, y + (h - 16.f) * 0.5f - 1.f, 16.f, 16.f};
 							const bool ch = inR(cl);
 							if (ch)
-								dl.AddRectFilled(cl, ctx.theme.button);
-							const float32 cx = cl.x + 7.f, cy = cl.y + 7.f, a = 3.f;
-							dl.AddLine({cx - a, cy - a}, {cx + a, cy + a}, ctx.theme.text, 1.2f);
-							dl.AddLine({cx - a, cy + a}, {cx + a, cy - a}, ctx.theme.text, 1.2f);
+								dl.AddRectFilled(cl, ctx.theme.button, 3.f);
+							const NkColor tc = ch ? NkColor{248, 81, 73, 255} : ctx.theme.textDisabled;
+							if (ic && ic->corbeille)
+								dl.AddImage(ic->corbeille, {cl.x + 2.f, cl.y + 2.f, 12.f, 12.f}, {0.f, 0.f}, {1.f, 1.f}, tc);
+							else {
+								const float32 cx = cl.x + 8.f, cy = cl.y + 8.f, a = 3.f;
+								dl.AddLine({cx - a, cy - a}, {cx + a, cy + a}, tc, 1.4f);
+								dl.AddLine({cx - a, cy + a}, {cx + a, cy - a}, tc, 1.4f);
+							}
 							if (ch && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) {
 								toClose = i;
 								closeClicked = true;

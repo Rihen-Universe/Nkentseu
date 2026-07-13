@@ -92,6 +92,9 @@ int nkmain(const NkEntryState &state) {
 	static ScaffoldPanel pGit("Controle de version", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #9", sc::kGit, 3);
 	static ScaffoldPanel pDebug("Debogueur", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #10", sc::kDebug, 2);
 	static ScaffoldPanel pBuild("Build & Taches", NkEditorDockSide::NK_BOTTOM, "Maquette - roadmap #14", sc::kBuild, 1);
+	static ScaffoldPanel pDbgConsole("Console de debogage", NkEditorDockSide::NK_BOTTOM, "Maquette", sc::kDbgConsole, 1);
+	static ScaffoldPanel pTests("Tests", NkEditorDockSide::NK_BOTTOM, "Maquette", sc::kTests, 1);
+	static ScaffoldPanel pPorts("Ports", NkEditorDockSide::NK_BOTTOM, "Maquette", sc::kPorts, 1);
 	static ScaffoldPanel pProf("Profiler", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #19", sc::kProfiler, 1);
 	static ScaffoldPanel pCollab("Live Collab", NkEditorDockSide::NK_LEFT, "Maquette - collaboration", sc::kCollab, 2);
 	static nkcode::AiPanel aiPanel(&g_state); // Assistant IA FONCTIONNEL (remplace la maquette)
@@ -105,6 +108,9 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&pGit);
 	shell->AddPanel(&pDebug);
 	shell->AddPanel(&pBuild);
+	shell->AddPanel(&pDbgConsole);
+	shell->AddPanel(&pTests);
+	shell->AddPanel(&pPorts);
 	shell->AddPanel(&pProf);
 	shell->AddPanel(&aiPanel);
 	shell->AddPanel(&claudePanel);
