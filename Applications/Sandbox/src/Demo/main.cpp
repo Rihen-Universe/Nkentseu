@@ -98,6 +98,9 @@ namespace nkentseu {
 		bool DemoNKGen_Init(DemoCtx &);
 		void DemoNKGen_Frame(DemoCtx &, float32);
 		void DemoNKGen_Shutdown(DemoCtx &);
+		bool DemoStream_Init(DemoCtx &);
+		void DemoStream_Frame(DemoCtx &, float32);
+		void DemoStream_Shutdown(DemoCtx &);
 
 		static const DemoEntry kDemos[] = {
 			{"Subsystems", "Runtime enable/disable des sous-systemes", DemoSubsystems_Init, DemoSubsystems_Frame,
@@ -152,6 +155,10 @@ namespace nkentseu {
 			// DemoNKGen : maillage GENERE par l'IA (NKGen -> Surface Nets) charge et rendu.
 			{"NKGen", "DemoNKGen : maillage genere par l'IA (metaballs -> SurfaceNets -> rendu 3D)", DemoNKGen_Init,
 			 DemoNKGen_Frame, DemoNKGen_Shutdown},
+			// DemoStream : streaming REEL visible (panneaux textures stream-in/out
+			// par distance, worker async, eviction LRU, budget serre + HUD stats).
+			{"Stream", "DemoStream : streaming reel (textures stream-in/out par distance, eviction LRU)",
+			 DemoStream_Init, DemoStream_Frame, DemoStream_Shutdown},
 		};
 		static constexpr uint32 kDemoCount = (uint32)(sizeof(kDemos) / sizeof(kDemos[0]));
 
@@ -404,6 +411,8 @@ int nkmain(const NkEntryState &state) {
 		demoIx = 16; // DemoAnimIK     -> kDemos[16]
 	if (demoIx == 18)
 		demoIx = 17; // DemoNKGen      -> kDemos[17]
+	if (demoIx == 19)
+		demoIx = 18; // DemoStream     -> kDemos[18]
 	if (demoIx < 0 || (uint32)demoIx >= kDemoCount)
 		demoIx = 0;
 	const DemoEntry &demo = kDemos[demoIx];
