@@ -56,14 +56,26 @@ namespace nkentseu {
 						BuildRows();
 					// L'EN-TÊTE est FIXE (il ne défile pas) : l'espace est réservé dans le
 					// flux, les rows défilent DESSOUS, le chrome est dessiné PAR-DESSUS.
+					// Disposition : [titre + actions] / [barre de recherche PERMANENTE] / [arbre].
 					const NkRect vclip = ctx.DL().CurrentClip();
-					const float32 headH = ctx.ItemHeight() * (mFilterOn ? 2.f : 1.f);
+					const float32 ih = ctx.ItemHeight();
+					const float32 headH = ih * 2.f; // en-tête + recherche (toujours visibles)
+					// Focus de la recherche selon le clic : dans la barre -> focus ; dans l'arbre -> défocus.
+					if (ctx.input.mouseClicked[0]) {
+						const NkVec2 m = ctx.input.mousePos;
+						const bool inSearch =
+							m.x >= vclip.x && m.x < vclip.x + vclip.w && m.y >= vclip.y + ih && m.y < vclip.y + headH;
+						const bool inHead = m.y >= vclip.y && m.y < vclip.y + ih;
+						if (inSearch)
+							mFilterOn = true;
+						else if (!inHead)
+							mFilterOn = false;
+					}
 					ctx.NextItemRect(ctx.ContentWidth(), headH); // réserve du flux
 					DrawRows(ctx, vclip.y + headH);
 					mS->explorerFocus = mFocus; // publie le focus (l'éditeur coupe son clavier)
 					DrawHeader(ctx, vclip);
-					if (mFilterOn)
-						DrawFilterBar(ctx, vclip);
+					DrawFilterBar(ctx, vclip); // barre permanente (2e ligne de l'en-tête)
 					PollExplorerMenu(ctx); // menu contextuel via le gestionnaire du shell
 					DrawConfirmDel(ctx);   // confirmation de suppression
 					DrawPeek(ctx);		   // aperçu barre Espace (overlay centré) — lit ctx.input
@@ -376,7 +388,7 @@ namespace nkentseu {
 					mRowsDirty = false;
 					if (mRootStr.Length() == 0)
 						return;
-					if (mFilterOn && mFilter[0]) { // filtre : liste PLATE des correspondances
+					if (mFilter[0]) { // filtre actif dès qu'il y a du texte : liste PLATE des correspondances
 						CollectFiltered(mS->root, 0);
 						return;
 					}
@@ -853,9 +865,10 @@ namespace nkentseu {
 					const float32 titleEnd =
 						bar.x + 4.f +
 						((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth("EXPLORATEUR") : 90.f) + 6.f;
-					// [6] filtre, [5] œil (exclus), [4] replier, [3] actualiser,
-					// [2] nouveau dossier, [1] nouveau fichier — de droite à gauche.
-					for (int32 b = 6; b >= 1; --b, bx -= bs + 2.f) {
+					// [5] œil (exclus), [4] replier, [3] actualiser, [2] nouveau dossier,
+					// [1] nouveau fichier — de droite à gauche. (La recherche est permanente
+					// sous l'en-tête -> plus de bouton filtre.)
+					for (int32 b = 5; b >= 1; --b, bx -= bs + 2.f) {
 						if (bx < titleEnd)
 							break;
 						const NkRect r = {bx, bar.y + 2.f, bs, bs};
@@ -871,9 +884,10 @@ namespace nkentseu {
 										   : b == 5  ? (mShowExcluded ? mS->icons->oeilOuvert : mS->icons->oeilFermer)
 										   : b == 6  ? (mS->icons->filter ? mS->icons->filter : mS->icons->search)
 												     : 0u;
+						const float32 isz = h * 0.5f; // icônes plus fines (avant : r.w-4, trop grosses)
 						if (tex)
-							dl.AddImage(tex, {r.x + 2.f, r.y + 2.f, r.w - 4.f, r.h - 4.f}, {0.f, 0.f}, {1.f, 1.f},
-										{255, 255, 255, 255});
+							dl.AddImage(tex, {r.x + (r.w - isz) * 0.5f, r.y + (r.h - isz) * 0.5f, isz, isz}, {0.f, 0.f},
+										{1.f, 1.f}, {255, 255, 255, 255});
 						else if (b == 4) { // tout replier : deux chevrons vers le haut (au trait)
 							const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f, a = r.w * 0.22f;
 							dl.AddLine({cx - a, cy - a * 0.1f}, {cx, cy - a * 1.1f}, c, 1.6f);
@@ -917,16 +931,17 @@ namespace nkentseu {
 					dl.AddRectFilled(bar, ctx.theme.panel); // opaque
 					dl.AddRectFilled({bar.x + 2.f, bar.y + 1.f, bar.w - 4.f, h - 2.f}, ctx.theme.bgPrimary, 2.f);
 					dl.AddRect({bar.x + 2.f, bar.y + 1.f, bar.w - 4.f, h - 2.f}, ctx.theme.border, 2.f);
+					const float32 sisz = h * 0.46f; // loupe plus fine (avant : h-6, trop grosse)
 					if (mS->icons && mS->icons->search)
-						dl.AddImage(mS->icons->search, {bar.x + 5.f, bar.y + 3.f, h - 6.f, h - 6.f}, {0.f, 0.f},
+						dl.AddImage(mS->icons->search, {bar.x + 9.f, bar.y + (h - sisz) * 0.5f, sisz, sisz}, {0.f, 0.f},
 									{1.f, 1.f}, {255, 255, 255, 255});
 					const char *shown = mFilter[0] ? mFilter : NkT("exp.filter");
 					const NkColor col = mFilter[0] ? ctx.theme.text : ctx.theme.textDisabled;
-					float32 tx = bar.x + h + 2.f;
+					float32 tx = bar.x + 9.f + sisz + 8.f;
 					if (ctx.font && ctx.font->Valid()) {
 						dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 								   {tx, bar.y + (h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()}, shown, col);
-						if ((mTick / 30) % 2 == 0) // caret clignotant (aussi champ vide)
+						if (mFilterOn && (mTick / 30) % 2 == 0) // caret clignotant SEULEMENT si le champ a le focus
 							dl.AddRectFilled({tx + (mFilter[0] ? ctx.font->MeasureWidth(mFilter) : 0.f) + 1.f,
 											  bar.y + 3.f, 1.5f, h - 6.f},
 											 ctx.theme.accent);
@@ -938,15 +953,13 @@ namespace nkentseu {
 					const NkColor xc = xh ? ctx.theme.text : ctx.theme.textDisabled;
 					dl.AddLine({xr.x + 4.f, xr.y + 4.f}, {xr.x + xr.w - 4.f, xr.y + xr.h - 4.f}, xc, 1.5f);
 					dl.AddLine({xr.x + 4.f, xr.y + xr.h - 4.f}, {xr.x + xr.w - 4.f, xr.y + 4.f}, xc, 1.5f);
-					if (xh && ctx.input.mouseClicked[0]) {
-						mFilterOn = false;
+					if (xh && ctx.input.mouseClicked[0]) { // X : efface le texte, la barre reste
 						mFilter[0] = 0;
 						mRowsDirty = true;
 					}
-					// Saisie clavier : filtre OUVERT = saisie ACTIVE (l'exigence de focus-clic
-					// rendait le champ muet ; Échap ou X referment, comme VSCode).
-					// Une ÉDITION INLINE en cours a la priorité sur la saisie du filtre.
-					if (mEditPath.Length() == 0 && mEditParent.Length() == 0) {
+					// Saisie clavier : ACTIVE seulement quand le champ a le FOCUS (clic dans la barre).
+					// Échap défocus + efface. Une ÉDITION INLINE en cours a la priorité.
+					if (mFilterOn && mEditPath.Length() == 0 && mEditParent.Length() == 0) {
 						int32 len = 0;
 						while (mFilter[len])
 							++len;
