@@ -373,6 +373,10 @@ namespace nkentseu {
 				float32 mDockSavedRatio = -1.f; // ratio normal sauvegarde (restauration)
 				int32 mDockRegionState = 0;		// 0 normal, 1 replie, 2 maximise (region du bas)
 				void SetRegionMode(const char *title, int32 mode) noexcept;
+				// Boutons maximiser/replier dessines par le SHELL sur la barre d'onglets d'une
+				// region HAUT|BAS -> dispo pour TOUS les onglets (Terminal/Sortie/Problemes...).
+				bool IsBottomRegionTab(nkgui::NkGuiContext &c, nkgui::NkGuiId win) noexcept;
+				void DrawRegionButtons(nkgui::NkGuiContext &c, const nkgui::NkRect &area, nkgui::NkGuiId win) noexcept;
 				NkEditorCommand mCommands[MAX_COMMANDS] = {};
 				int32 mNumCommands = 0;
 				NkEditorAppMenuFn mAppMenuFn = nullptr;
