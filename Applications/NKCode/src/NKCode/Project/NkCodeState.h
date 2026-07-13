@@ -50,6 +50,20 @@ namespace nkentseu {
 				bool deletedOnDisk = false; // le fichier a ete supprime en dehors de NKCode
 				bool changedOnDisk = false; // le fichier a ete modifie en dehors de NKCode
 				float32 codeZoom = 0.f;		// taille police PROPRE a cet onglet (0 = taille globale). Zoom par-fichier.
+				// ── Onglet MEDIA (image / video / audio) : pas de texte, viewer dedie ──
+				int32 mediaKind = 0;		 // 0 aucun (texte), 1 image, 2 video, 3 audio
+				bool mediaLoaded = false;	 // texture GPU chargee (image)
+				uint32 mediaTex = 0;		 // texture backend (image) via UploadRGBA
+				int32 mediaW = 0, mediaH = 0; // dimensions natives (px)
+				float32 mediaZoom = 1.f;	 // facteur de zoom (mediaFit ignore si l'utilisateur zoome)
+				float32 mediaPanX = 0.f, mediaPanY = 0.f; // decalage (glisser)
+				bool mediaFit = true;		 // ajuster a la fenetre (reset au 1er rendu et via touche)
+				int64 mediaSize = 0;		 // taille du fichier (octets, info)
+				bool IsMedia() const { return mediaKind != 0; }
+				// ── Markdown (.md) : preview rendu (par defaut) vs edition brute ──
+				bool mdPreview = true;	  // true = rendu formate, false = editeur texte
+				float32 mdScroll = 0.f;	  // defilement vertical de la preview (md/json/csv)
+				float32 mdScrollX = 0.f;  // defilement horizontal (table csv)
 
 				NkString Name() const {
 					return path.GetFileName();
@@ -92,6 +106,22 @@ namespace nkentseu {
 				} // go-to-def async : évite un thread orphelin à la fermeture
 
 				// Ouvre `p` dans l'editeur (ou le re-selectionne si deja ouvert).
+				// Type de media d'apres l'extension : 0 texte, 1 image, 2 video, 3 audio.
+				static int32 MediaKindOf(const char *name) {
+					if (EndsWithI(name, ".png") || EndsWithI(name, ".jpg") || EndsWithI(name, ".jpeg") ||
+						EndsWithI(name, ".bmp") || EndsWithI(name, ".gif") || EndsWithI(name, ".webp") ||
+						EndsWithI(name, ".tga") || EndsWithI(name, ".ico") || EndsWithI(name, ".ppm"))
+						return 1;
+					if (EndsWithI(name, ".mp4") || EndsWithI(name, ".mkv") || EndsWithI(name, ".avi") ||
+						EndsWithI(name, ".webm") || EndsWithI(name, ".mov") || EndsWithI(name, ".m4v"))
+						return 2;
+					if (EndsWithI(name, ".mp3") || EndsWithI(name, ".wav") || EndsWithI(name, ".ogg") ||
+						EndsWithI(name, ".flac") || EndsWithI(name, ".m4a") || EndsWithI(name, ".aac") ||
+						EndsWithI(name, ".opus"))
+						return 3;
+					return 0;
+				}
+
 				void OpenPath(const NkPath &p) {
 					const NkString ps = p.ToString();
 					for (usize i = 0; i < files.Size(); ++i)
@@ -99,6 +129,20 @@ namespace nkentseu {
 							active = static_cast<int32>(i);
 							return;
 						}
+
+					// MEDIA (image/video/audio) : onglet dedie SANS lecture texte (la texture est
+					// chargee au 1er rendu par l'EditorPanel, qui a l'acces GPU du shell).
+					const int32 mk = MediaKindOf(p.GetFileName().CStr());
+					if (mk != 0) {
+						OpenFile mf;
+						mf.path = p;
+						mf.mediaKind = mk;
+						mf.mediaSize = NkFile::GetFileSize(p);
+						mf.diskMtime = MTimeOf(p.ToString().CStr());
+						files.PushBack(mf);
+						active = static_cast<int32>(files.Size()) - 1;
+						return;
+					}
 
 					const NkString content = NkFile::ReadAllText(p);
 					// GARDE-FOU anti perte de donnees : le fichier existe et est NON VIDE sur disque,
@@ -278,6 +322,122 @@ namespace nkentseu {
 					projFuncs = f; // ecrit une fois puis lecture seule
 					wsTab = tt;
 					projReady = true;
+				}
+
+				// QUICK-OPEN (barre « Recherche rapide » toolbar, facon VSCode) : index PLAT des
+				// fichiers du projet (chemins relatifs), construit en tache de fond. Fuzzy match =
+				// sous-sequence + bonus (debut de mot / consecutif / match sur le NOM de fichier).
+				NkVector<NkString> qoRel; // chemins relatifs a `root` (affichage + match)
+				NkVector<NkString> qoAbs; // chemins absolus (ouverture)
+				volatile bool qoReady = false;
+				bool qoStarted = false;
+				threading::NkThread qoThread;
+				NkVector<int32> tbQoHits; // indices (dans qoRel/qoAbs) des meilleurs resultats
+				int32 tbQoSel = 0;        // ligne selectionnee dans la liste deroulante
+				NkString tbQoLast;        // derniere requete calculee (cache anti-recalcul par frame)
+					float32 tbQoScrollX = 0.f, tbQoScrollY = 0.f; // defilement de la liste deroulante
+					float32 tbQoContentW = 0.f;                   // largeur max des lignes (scroll H)
+
+				void StartFileIndex() {
+					if (qoStarted || root.ToString().Empty())
+						return;
+					qoStarted = true;
+					qoThread = threading::NkThread([this](void *) { BuildFileIndex(); });
+				}
+				void BuildFileIndex() {
+					NkVector<NkString> rel, abs;
+					QoWalk(root, rel, abs, 0);
+					qoRel = rel;
+					qoAbs = abs;
+					qoReady = true;
+				}
+				void QoWalk(const NkPath &dir, NkVector<NkString> &rel, NkVector<NkString> &abs, int32 depth) {
+					if (depth > 18 || abs.Size() > 20000)
+						return;
+					const NkString rootS = root.ToString();
+					NkVector<NkDirectoryEntry> es =
+						NkDirectory::GetEntries(dir, "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+					for (usize i = 0; i < es.Size(); ++i) {
+						const char *nm = es[i].Name.CStr();
+						if (es[i].IsDirectory) {
+							if (nm[0] == '.' || StrEq(nm, "Build") || StrEq(nm, "build") || StrEq(nm, "dist") ||
+								StrEq(nm, "node_modules") || StrEq(nm, "Captures") || StrEq(nm, "bin") ||
+								StrEq(nm, "obj") || StrEq(nm, "out"))
+								continue; // dossiers lourds/generes
+							QoWalk(es[i].FullPath, rel, abs, depth + 1);
+						} else {
+							const NkString full = es[i].FullPath.ToString();
+							const char *fp = full.CStr();
+							usize skip = rootS.Size();
+							if (skip < full.Size() && (fp[skip] == '/' || fp[skip] == '\\'))
+								++skip;
+							rel.PushBack(skip < full.Size() ? NkString(fp + skip) : es[i].Name);
+							abs.PushBack(full);
+						}
+					}
+				}
+				static const char *QoFileName(const char *s) { // dernier composant (apres / ou \)
+					const char *r = s;
+					for (const char *p = s; *p; ++p)
+						if (*p == '/' || *p == '\\')
+							r = p + 1;
+					return r;
+				}
+				// Sous-sequence fuzzy (insensible a la casse) : score >= 0, ou -1 si pas de match.
+				static int32 QoFuzzy(const char *q, const char *s) {
+					int32 score = 0, streak = 0;
+					char prev = 0;
+					while (*q && *s) {
+						const char cq = (*q >= 'A' && *q <= 'Z') ? char(*q + 32) : *q;
+						const char cs = (*s >= 'A' && *s <= 'Z') ? char(*s + 32) : *s;
+						if (cq == cs) {
+							score += 1 + streak * 3; // bonus consecutif
+							const bool boundary = prev == 0 || prev == '/' || prev == '\\' || prev == '_' ||
+								prev == '-' || prev == '.' || prev == ' ' ||
+								(prev >= 'a' && prev <= 'z' && *s >= 'A' && *s <= 'Z');
+							if (boundary)
+								score += 10; // bonus debut de mot
+							++streak;
+							++q;
+						} else
+							streak = 0;
+						prev = *s;
+						++s;
+					}
+					return *q == 0 ? score : -1; // toute la requete consommee ?
+				}
+				// (Re)calcule les meilleurs resultats pour `filter` (top 12, tri decroissant).
+				void QoRefresh(const char *filter) {
+					tbQoHits.Clear();
+					tbQoSel = 0;
+					if (!filter || !filter[0])
+						return;
+					const int32 K = 40;
+					int32 bi[40] = {}, bs[40] = {}, nb = 0;
+					for (usize i = 0; i < qoRel.Size(); ++i) {
+						const char *rel = qoRel[i].CStr();
+						const int32 sf = QoFuzzy(filter, QoFileName(rel));
+						const int32 sp = QoFuzzy(filter, rel);
+						const int32 sc = sf >= 0 ? sf + 30 : sp; // priorite au match sur le NOM
+						if (sc < 0)
+							continue;
+						int32 pos = nb < K ? nb : K - 1;
+						while (pos > 0 && bs[pos - 1] < sc)
+							--pos;
+						if (pos >= K)
+							continue; // moins bon que les K deja retenus
+						const int32 last = nb < K ? nb : K - 1;
+						for (int32 k = last; k > pos; --k) {
+							bs[k] = bs[k - 1];
+							bi[k] = bi[k - 1];
+						}
+						bs[pos] = sc;
+						bi[pos] = (int32)i;
+						if (nb < K)
+							++nb;
+					}
+					for (int32 k = 0; k < nb; ++k)
+						tbQoHits.PushBack(bi[k]);
 				}
 
 				void ScanDirSymbols(const NkPath &dir, NkVector<NkString> &t, NkVector<NkString> &f, NkSymTables &tt,
@@ -3259,6 +3419,23 @@ namespace nkentseu {
 				// FOCUS CLAVIER GLOBAL : l'EXPLORATEUR a le focus-clic -> l'éditeur ignore
 				// le clavier (sinon Ctrl+D/Suppr/Entrée tireraient des DEUX côtés).
 				bool explorerFocus = false;
+				// ── DRAG & DROP GLOBAL : source = explorateur (sélection glissée) ; les
+				// CIBLES (dossiers de l'arbre, éditeur = ouvrir, terminal = coller le
+				// chemin, champs texte/IA plus tard) consomment au RELEASE dans leur zone.
+				// La source éteint dragActive UNE frame après le release. ──
+				NkVector<NkString> dragPaths;
+				bool dragActive = false;
+				// ── Drop de fichiers depuis l'OS (WM_DROPFILES) : consommé par le panneau
+				// dont la zone contient (osDropX, osDropY) ; TTL purgé par AppFlagsThunk. ──
+				NkVector<NkString> osDropPaths;
+				int32 osDropX = 0, osDropY = 0, osDropTtl = 0;
+				// ── Sélecteur de dossier MAISON (mobile) : l'explorateur demande, l'app
+				// affiche le picker, et repose le dossier choisi ici. ──
+				bool reqPickFolder = false;
+				NkString pickedFolder;
+				bool reqSearch = false;		// Entree dans la barre recherche toolbar -> ouvrir le panneau resultats
+				char tbSearch[256] = {};	// texte du champ « Recherche rapide » (toolbar, editable en place)
+				bool tbSearchFocus = false; // le champ recherche toolbar a le focus (saisie)
 				NkString wsPrefill;		 // sélection de l'éditeur préremplie dans le champ
 				NkString wsOpenFile;	 // clic sur un résultat : consommé par ProcessWsOpen (poll)
 				int32 wsOpenLine = -1;
@@ -4503,6 +4680,11 @@ namespace nkentseu {
 
 				// ── Workspaces : fichiers .jenga a la racine contenant "with workspace" ──
 				NkVector<NkString> wsPaths, wsNames;
+				NkVector<NkString> extraWsRoots; ///< racines SECONDAIRES (multi-racines) à scanner aussi
+				void RefreshWorkspaces() {		 ///< force un re-scan du combo (racines changées)
+					mWsScanned = false;
+					ScanWorkspaces();
+				}
 				int32 wsIdx = 0;
 				bool mWsScanned = false;
 
@@ -4526,6 +4708,21 @@ namespace nkentseu {
 							continue;
 						wsPaths.PushBack(e.FullPath.ToString());
 						wsNames.PushBack(WorkspaceName(txt, nm));
+					}
+					// Racines SECONDAIRES (multi-racines) : leurs workspaces .jenga rejoignent
+					// le combo « Solution » de la toolbar.
+					for (usize k = 0; k < extraWsRoots.Size(); ++k) {
+						NkVector<NkDirectoryEntry> ee = NkDirectory::GetEntries(NkPath(extraWsRoots[k].CStr()), "*",
+																			  NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+						for (usize i = 0; i < ee.Size(); ++i) {
+							if (ee[i].IsDirectory || !EndsWithI(ee[i].Name.CStr(), ".jenga"))
+								continue;
+							const NkString txt = NkFile::ReadAllText(ee[i].FullPath);
+							if (!Contains(txt.CStr(), "with workspace") && !Contains(txt.CStr(), "workspace("))
+								continue;
+							wsPaths.PushBack(ee[i].FullPath.ToString());
+							wsNames.PushBack(WorkspaceName(txt, ee[i].Name));
+						}
 					}
 					if (wsIdx < 0 || wsIdx >= static_cast<int32>(wsPaths.Size()))
 						wsIdx = 0;

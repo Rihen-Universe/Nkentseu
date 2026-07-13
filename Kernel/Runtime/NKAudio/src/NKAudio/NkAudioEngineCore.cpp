@@ -437,7 +437,10 @@ namespace nkentseu {
 					for (int32 v = 0; v < config.maxVoices; ++v) {
 						Voice &voice = voices[v];
 
-						if (voice.state == VoiceState::FREE || voice.state == VoiceState::FINISHED)
+						// PAUSED inclus : une voix en pause ne doit NI avancer NI etre mixee
+						// (sinon le son continue alors que le curseur est fige).
+						if (voice.state == VoiceState::FREE || voice.state == VoiceState::FINISHED ||
+							voice.state == VoiceState::PAUSED)
 							continue;
 
 						// Calcul spatial

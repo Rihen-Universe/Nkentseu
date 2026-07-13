@@ -8,6 +8,7 @@
 // les panneaux). ctx.appModal est leve tant qu'un dialogue est ouvert.
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
+#include "NKEditorKit/NkFilePicker.h" // NkFilePickerState : coeur reutilisable du picker
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Project/NkCodeGen.h"
 #include "NKCode/Shell/NkLoading.h" // ecran de chargement (section 14)
@@ -23,7 +24,7 @@ namespace nkentseu {
 		using namespace nkentseu::nkgui;
 
 		// Etat des dialogues modaux (un seul a la fois). 0 = aucun.
-		struct NkCodeDialogs {
+		struct NkCodeDialogs : public NkFilePickerState {
 				NkCodeState *st = nullptr;
 				NkEditorShell *shell = nullptr; // pour appliquer l'etat d'UI du projet (ui.cfg)
 				NkLoadingState loading;			// ecran de chargement (workspace -> editeur)
@@ -158,17 +159,6 @@ namespace nkentseu {
 					return o;
 				}
 
-				// ── Selecteur de dossier / fichier CUSTOM (NKGui) ──
-				enum PickFor { PK_None = 0, PK_Open, PK_NewDir, PK_LoadDir, PK_Buf, PK_File, PK_SaveFile };
-
-				char pickerSaveName[256] = {}; // mode PK_SaveFile : nom du fichier (avec extension)
-				bool pickerSaveFocus = false;
-				NkString pickerConfine; // si non-vide : parcours LIMITÉ à ce dossier + sous-dossiers
-
-				bool PickerAllowed(const char *p) const {
-					return pickerConfine.Empty() || NkPathIsAncestor(pickerConfine.CStr(), p);
-				}
-
 				// ── Assistant de création (choix du TYPE) : 0 Classe, 1 Struct, 2 Union (=> .h+.cpp),
 				//    3 Enum (=> .h), 4 Python(.py), 5 Markdown(.md), 6 NKSL(.nksl), 7 Jenga(.jenga),
 				//    8 Texte/Autre (extension demandée). ──
@@ -179,302 +169,105 @@ namespace nkentseu {
 				char scafChildren[256] = {};	// classes filles (csv)
 				char scafExt[24] = {};			// extension (mode Texte/Autre)
 				int32 scafFocus = 0;			// 0 aucun, 1 nom, 2 ns, 3 base, 4 filles, 5 ext
-				NkVector<NkString> pickerFiles; // fichiers du dossier selectionne (mode PK_File)
-				int32 pickerFileSel = -1;		// fichier choisi (index dans pickerFiles)
-				bool pickerOpen = false;
-				int32 pickerFor = PK_None;
-				char pickerPath[512] = {};
-				char *pickerBuf = nullptr;
-				int32 pickerBufCap = 0;
-				float32 pickerScroll = 0.f;	 // defilement vertical
-				float32 pickerScrollX = 0.f; // defilement horizontal
-				bool pickerEditing = false;	 // edition du champ chemin
-				char pickerNew[128] = {};	 // nom du dossier a creer
-				bool pickerNewFocus = false;
-				int32 pickerDrag = 0;		   // 0 aucun, 1 thumb V, 2 thumb H
-				float32 pickerDragOff = 0.f;   // offset souris/thumb pendant le drag
-				NkVector<NkString> pickerDirs; // (legacy) sous-dossiers du chemin courant
-
-				// ── Arborescence du picker (style Windows : fleches d'expansion, pas de « Remonter ») ──
-				struct PickNode {
-						NkString path, name;
-						int32 depth = 0;
-						bool hasKids = false;
-						bool open = false;
-				};
-
-				NkVector<PickNode> pickerTree;
-				int32 pickerSel = -1; // ligne selectionnee (= dossier choisi)
-				// clic-droit : menu contextuel + renommage inline
-				int32 pickMenu = -1;
-				float32 pickMenuX = 0.f, pickMenuY = 0.f;
-				int32 pickRename = -1;
-				char pickRenameBuf[256] = {};
-				bool pickRenameFocus = false;
-
-				void PickBeginRename(int32 i) {
-					if (i < 0 || i >= (int32)pickerTree.Size() || pickerTree[i].depth == 0)
-						return; // pas les racines
-					pickRename = i;
-					CopyTo(pickRenameBuf, pickerTree[i].name.CStr(), (int32)sizeof(pickRenameBuf));
-					pickRenameFocus = true;
-					pickMenu = -1;
-				}
-
-				void PickRenameCommit() {
-					if (pickRename < 0 || pickRename >= (int32)pickerTree.Size()) {
-						pickRename = -1;
-						return;
-					}
-					PickNode &n = pickerTree[pickRename];
-					if (pickRenameBuf[0]) {
-						const NkString parent = NkPath(n.path.CStr()).GetParent().ToString();
-						const NkString dst = (NkPath(parent.CStr()) / pickRenameBuf).ToString();
-						if (NkDirectory::Move(n.path.CStr(), dst.CStr())) {
-							const bool wasOpen = n.open;
-							const int32 idx = pickRename;
-							if (wasOpen)
-								TogglePickerNode(idx); // replie (chemins enfants perimes)
-							pickerTree[idx].path = dst;
-							pickerTree[idx].name = pickRenameBuf;
-						}
-					}
-					pickRename = -1;
-				}
-
-				void PickDelete(int32 i) {
-					if (i < 0 || i >= (int32)pickerTree.Size() || pickerTree[i].depth == 0)
-						return; // pas les racines
-					if (NkDirectory::MoveToTrash(pickerTree[i].path.CStr())) {
-						const int32 d0 = pickerTree[i].depth;
-						while (i + 1 < (int32)pickerTree.Size() && pickerTree[i + 1].depth > d0)
-							pickerTree.Erase(pickerTree.Begin() + i + 1);
-						pickerTree.Erase(pickerTree.Begin() + i);
-						if (pickerSel == i)
-							pickerSel = -1;
-					}
-					pickMenu = -1;
-				}
-
-				static bool DirHasSubdirs(const char *path) {
-					NkVector<NkDirectoryEntry> e =
-						NkDirectory::GetEntries(NkPath(path), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
-					for (usize i = 0; i < e.Size(); ++i)
-						if (e[i].IsDirectory && !e[i].IsHidden && e[i].Name.CStr()[0] != '.')
-							return true;
-					return false;
-				}
-
-				void AddPickRoot(const char *path, const char *label) {
-					if (!path || !*path || !NkDirectory::Exists(path))
-						return;
-					PickNode n;
-					n.path = path;
-					n.name = label;
-					n.hasKids = DirHasSubdirs(path);
-					pickerTree.PushBack(n);
-				}
-
-				void BuildPickerTree() {
-					pickerTree.Clear();
-					pickerSel = -1;
-					pickerScroll = 0.f;
-					if (!pickerConfine.Empty()) { // parcours LIMITÉ : un seul nœud racine (le dossier de référence)
-						NkString nm = NkPath(pickerConfine).GetFileName();
-						if (nm.Empty())
-							nm = pickerConfine;
-						AddPickRoot(pickerConfine.CStr(), nm.CStr());
-						return;
-					}
-					// ── Raccourcis (facon Windows) : Accueil / Bureau / Documents / Favoris ──
-					const char *home = env::GetEnvVar("USERPROFILE"); // API maison (NkEnv.h)
-					if (!home || !*home)
-						home = env::GetEnvVar("HOME");
-					auto known = [&](const char *sub) -> NkString {
-						const char *od = env::GetEnvVar("OneDrive");
-						if (od && *od) {
-							NkString p = (NkPath(od) / sub).ToString();
-							if (NkDirectory::Exists(p.CStr()))
-								return p;
-						}
-						return home ? (NkPath(home) / sub).ToString() : NkString();
-					};
-					if (home && *home)
-						AddPickRoot(home, "Accueil");
-					{
-						const NkString d = known("Desktop");
-						if (!d.Empty())
-							AddPickRoot(d.CStr(), "Bureau");
-					}
-					{
-						const NkString d = known("Documents");
-						if (!d.Empty())
-							AddPickRoot(d.CStr(), "Documents");
-					}
-					// Favoris (~/.nkcode/favorites.txt : « chemin<TAB>alias » par ligne)
-					if (home && *home) {
-						const NkString favF = (NkPath(home) / ".nkcode" / "favorites.txt").ToString();
-						if (NkFile::Exists(favF.CStr())) {
-							const NkString txt = NkFile::ReadAllText(NkPath(favF.CStr()));
-							NkString line;
-							for (const char *p = txt.CStr();; ++p) {
-								if (*p == '\n' || *p == '\0') {
-									if (!line.Empty()) {
-										const char *s = line.CStr();
-										int32 tab = -1;
-										for (int32 k = 0; s[k]; ++k)
-											if (s[k] == '\t') {
-												tab = k;
-												break;
-											}
-										NkString path, alias;
-										if (tab >= 0) {
-											for (int32 k = 0; k < tab; ++k)
-												path += s[k];
-											for (int32 k = tab + 1; s[k]; ++k)
-												alias += s[k];
-										} else
-											path = line;
-										if (!path.Empty())
-											AddPickRoot(path.CStr(), alias.Empty() ? path.CStr() : alias.CStr());
-									}
-									line.Clear();
-									if (*p == '\0')
-										break;
-								} else if (*p != '\r')
-									line += *p;
-							}
-						}
-					}
-// ── Disques ──
-#ifdef _WIN32
-					for (char c = 'C'; c <= 'Z'; ++c) {
-						const char root[4] = {c, ':', '/', 0};
-						if (NkDirectory::Exists(root)) {
-							PickNode n;
-							n.path = root;
-							n.name = root;
-							n.hasKids = DirHasSubdirs(root);
-							pickerTree.PushBack(n);
-						}
-					}
-#else
-					AddPickRoot("/", "/");
-#endif
-				}
-
-				void TogglePickerNode(int32 i) {
-					if (i < 0 || i >= (int32)pickerTree.Size() || !pickerTree[i].hasKids)
-						return;
-					const int32 d0 = pickerTree[i].depth;
-					if (pickerTree[i].open) { // replier : retire les descendants
-						pickerTree[i].open = false;
-						while (i + 1 < (int32)pickerTree.Size() && pickerTree[i + 1].depth > d0)
-							pickerTree.Erase(pickerTree.Begin() + i + 1);
-					} else { // deplier : insere les sous-dossiers
-						pickerTree[i].open = true;
-						const NkString base = pickerTree[i].path;
-						NkVector<NkDirectoryEntry> e =
-							NkDirectory::GetEntries(NkPath(base), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
-						int32 ins = i + 1;
-						for (usize k = 0; k < e.Size(); ++k)
-							if (e[k].IsDirectory && !e[k].IsHidden && e[k].Name.CStr()[0] != '.') {
-								PickNode cn;
-								cn.path = (NkPath(base.CStr()) / e[k].Name.CStr()).ToString();
-								cn.name = e[k].Name;
-								cn.depth = d0 + 1;
-								cn.hasKids = DirHasSubdirs(cn.path.CStr());
-								pickerTree.Insert(pickerTree.Begin() + ins, cn);
-								++ins;
-							}
-					}
-				}
-
-				void PickerCreateFolder() {
-					if (!pickerNew[0])
-						return;
-					// Cree sous le dossier SELECTIONNE (sinon le chemin courant), sans reconstruire tout l'arbre.
-					const NkString parent = (pickerSel >= 0 && pickerSel < (int32)pickerTree.Size())
-												? pickerTree[pickerSel].path
-												: NkString(pickerPath);
-					if (NkDirectory::CreateRecursive(NkPath(parent.CStr()) / pickerNew)) {
-						pickerNew[0] = '\0';
-						if (pickerSel >= 0 && pickerSel < (int32)pickerTree.Size()) {
-							pickerTree[pickerSel].hasKids = true;
-							if (pickerTree[pickerSel].open) {
-								TogglePickerNode(pickerSel);
-								TogglePickerNode(pickerSel);
-							} // replie+deplie = rafraichit
-							else
-								TogglePickerNode(pickerSel); // deplie pour montrer le nouveau
-						}
-					}
-				}
-
-				static void CopyTo(char *dst, const char *src, int32 cap) {
-					int32 i = 0;
-					if (src)
-						for (; src[i] && i + 1 < cap; ++i)
-							dst[i] = src[i];
-					dst[i] = '\0';
-				}
-
 				void OpenPicker(int32 purpose, const char *startDir, char *buf = nullptr, int32 cap = 0,
 								const char *confine = nullptr) {
-					pickerOpen = true;
-					pickerFor = purpose;
-					pickerBuf = buf;
-					pickerBufCap = cap;
-					pickerScroll = 0.f;
-					pickerEditing = false;
-					pickerConfine = (confine && *confine) ? NkString(confine) : NkString(); // parcours limité (opt-in)
+					// Coeur generique dans NKEditorKit (NkFilePickerState) ; ici on ne fixe
+					// que le dossier de depart par defaut = racine du workspace NKCode.
 					const char *start = (startDir && *startDir) ? startDir : (st ? st->root.ToString().CStr() : ".");
-					CopyTo(pickerPath, start, (int32)sizeof(pickerPath));
-					if (!PickerAllowed(pickerPath))
-						CopyTo(pickerPath, pickerConfine.CStr(),
-							   (int32)sizeof(pickerPath)); // départ dans la zone autorisée
-					BuildPickerTree();
-					if (purpose == PK_File)
-						ScanPickerFiles(pickerPath);
+					OpenPickerBase(purpose, start, buf, cap, confine);
 				}
 
-				void ScanPicker() {
-					pickerDirs.Clear();
-					NkVector<NkDirectoryEntry> e =
-						NkDirectory::GetEntries(NkPath(pickerPath), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
-					for (usize i = 0; i < e.Size(); ++i)
-						if (e[i].IsDirectory && e[i].Name.CStr()[0] != '.')
-							pickerDirs.PushBack(e[i].Name);
+				// ── Specialisation du picker moteur (NkFilePickerState) : scaffolding + actions ──
+				// « Nouveau fichier » = enregistrer un onglet actif VIDE -> assistant de creation.
+				bool PickerIsNewFile() const {
+					return pickerFor == PK_SaveFile && st && st->HasActive() &&
+						   st->files[st->active].doc.GetText().Empty();
+				}
+				float32 PickerWindowHeight(float32 S) const override {
+					return (PickerIsNewFile() ? 700.f : (pickerFor == PK_SaveFile ? 548.f : 500.f)) * S;
+				}
+				float32 PickerBottomReserve(float32 S) const override {
+					return (PickerIsNewFile() ? 340.f : (pickerFor == PK_SaveFile ? 140.f : 96.f)) * S;
+				}
+				float32 PickerExtraHeight(float32 S) const override { return PickerIsNewFile() ? 300.f * S : 0.f; }
+				bool PickerConfirmEnabled() const override {
+					if (PickerIsNewFile())
+						return scafName[0] != '\0' && (scafKind != 8 || scafExt[0] != '\0');
+					return NkFilePickerState::PickerConfirmEnabled();
+				}
+				const char *PickerConfirmLabel() const override {
+					if (PickerIsNewFile())
+						return "Creer";
+					return NkFilePickerState::PickerConfirmLabel();
+				}
+				void PickerClearExtraFocus() override { scafFocus = 0; }
+
+				// Assistant de CREATION (scaffolding C++) dessine dans la region app du picker moteur.
+				void DrawPickerExtra(NkGuiContext &ctx, NkGuiDrawList &dl, const NkGuiFont *f, const NkRect &region,
+									 const NkFilePickerStyle &sty, bool click, bool &fieldClicked) override {
+					const float32 S = ctx.S(1.f), lh = f->LineHeight(), asc = f->Ascent();
+					const NkVec2 mp = ctx.input.mousePos;
+					auto hit = [&](const NkRect &r) { return NkGuiRectContains(r, mp); };
+					auto text = [&](float32 x, float32 yy, const char *s, const NkColor &c) {
+						dl.AddText(f->Face(), f->TexId(), {x, yy + asc}, s, c);
+					};
+					const float32 cx = region.x, cwid = region.w, ny = region.y;
+					auto field = [&](float32 fx, float32 fyy, float32 fw, char *buf, int32 cap, int32 fid,
+									 const char *ph2) {
+						const NkRect r = {fx, fyy, fw, 26.f * S};
+						// Focus AVANT le dessin (place le curseur au clic, pas de faux double-clic).
+						if (hit(r) && click) {
+							scafFocus = fid;
+							pickerSaveFocus = pickerNewFocus = pickerEditing = false;
+							fieldClicked = true;
+						}
+						NkOverlayTextField(ctx, dl, f, r, buf, cap, scafFocus == fid);
+						if (buf[0] == '\0' && scafFocus != fid && ph2)
+							text(r.x + 10.f * S, r.y + (26.f * S - lh) * 0.5f, ph2, sty.sub);
+					};
+					const float32 halfW = (cwid - 10.f * S) * 0.5f;
+					text(cx, ny + 40.f * S, "Type", sty.sub);
+					const char *kinds[] = {"Classe",   "Struct", "Union", "Enum",		"Python",
+										   "Markdown", "NKSL",	 "Jenga", "Texte/Autre"};
+					float32 kx = cx, kyy = ny + 58.f * S;
+					for (int32 k = 0; k < 9; ++k) {
+						const float32 bw = f->MeasureWidth(kinds[k]) + 16.f * S;
+						if (kx + bw > cx + cwid) {
+							kx = cx;
+							kyy += 28.f * S;
+						}
+						const NkRect r = {kx, kyy, bw, 24.f * S};
+						const bool sel = (scafKind == k);
+						dl.AddRectFilled(r, sel ? sty.accent : (hit(r) ? sty.rowHover : NkColor{24, 28, 34, 255}), 5.f * S);
+						text(r.x + 8.f * S, r.y + (24.f * S - lh) * 0.5f, kinds[k], sel ? sty.textStrong : sty.text);
+						if (hit(r) && click)
+							scafKind = k;
+						kx += bw + 6.f * S;
+					}
+					const float32 fy = kyy + 46.f * S;
+					text(cx, fy - 18.f * S, "Nom", sty.sub);
+					field(cx, fy, cwid, scafName, (int32)sizeof(scafName), 1, "ex: NkFoo");
+					const int32 k = scafKind;
+					const bool isCpp = (k <= 3), hasBase = (k == 0 || k == 1), isTexte = (k == 8);
+					const float32 fy2 = fy + 46.f * S;
+					if (isCpp) {
+						text(cx, fy2 - 18.f * S, "Namespace ( :: pour sous-namespaces )", sty.sub);
+						field(cx, fy2, hasBase ? halfW : cwid, scafNs, (int32)sizeof(scafNs), 2, "nkentseu::code");
+						if (hasBase) {
+							text(cx + halfW + 10.f * S, fy2 - 18.f * S, "Classes meres (csv)", sty.sub);
+							field(cx + halfW + 10.f * S, fy2, halfW, scafBase, (int32)sizeof(scafBase), 3,
+								  "NkBaseA, NkBaseB");
+						}
+					} else if (isTexte) {
+						text(cx, fy2 - 18.f * S, "Extension", sty.sub);
+						field(cx, fy2, halfW, scafExt, (int32)sizeof(scafExt), 5, ".txt");
+					}
 				}
 
-				void PickerGoto(const NkPath &p) {
-					CopyTo(pickerPath, p.ToString().CStr(), (int32)sizeof(pickerPath));
-					pickerScroll = 0.f;
-					ScanPicker();
-				}
-
-				void PickerUp() {
-					PickerGoto(NkPath(pickerPath).GetParent());
-				}
-
-				void PickerEnter(const char *sub) {
-					PickerGoto(NkPath(pickerPath) / sub);
-				}
-
-				void PickerCancel() {
-					pickerOpen = false;
-					pickerFor = PK_None;
-					pickerBuf = nullptr;
-					pickerFileSel = -1;
-					pickerFiles.Clear();
-				}
-
-				void PickerConfirm() {
-					NkString chosen(pickerPath);
-					const int32 purpose = pickerFor;
-					char *buf = pickerBuf;
-					const int32 cap = pickerBufCap;
-					PickerCancel();
+				// Route le RESULTAT du picker moteur vers les actions NKCode (hors enregistrement).
+				void RoutePickerResult() {
+					const int32 purpose = pickerResultFor;
+					NkString chosen(pickerResultPath);
 					if (purpose == PK_Open)
 						DoLoad(NkPath(chosen.CStr()));
 					else if (purpose == PK_NewDir)
@@ -482,8 +275,9 @@ namespace nkentseu {
 					else if (purpose == PK_LoadDir) {
 						CopyTo(loadDir, chosen.CStr(), (int32)sizeof(loadDir));
 						ScanLoad();
-					} else if ((purpose == PK_Buf || purpose == PK_File) && buf)
-						CopyTo(buf, chosen.CStr(), cap);
+					} else if (purpose == PK_PickFolder && st)
+						st->pickedFolder = chosen; // dossier QUELCONQUE -> l'explorateur le récupère
+					// PK_Buf / PK_File : le buffer cible est deja rempli par le moteur.
 				}
 
 				// ── Génération de squelette (scaffolding) selon l'extension ──────────────────
@@ -739,27 +533,14 @@ namespace nkentseu {
 					PickerCancel();
 				}
 
-				// Annuler l'enregistrement : referme un onglet « + » resté vierge.
-				void CancelSavePicker() {
+				// Nettoyage APRES annulation d'un enregistrement (le moteur a deja ferme le
+				// picker) : referme un onglet « + » resté vierge.
+				void CancelSaveCleanup() {
 					if (st && st->HasActive()) {
 						auto &f = st->files[st->active];
 						if (f.untitled && f.doc.GetText().Empty())
 							st->CloseFile(st->active);
 					}
-					PickerCancel();
-				}
-
-				// Liste les FICHIERS (non-dossiers) du repertoire courant (mode PK_File).
-				void ScanPickerFiles(const char *dir) {
-					pickerFiles.Clear();
-					pickerFileSel = -1;
-					if (!dir || !dir[0])
-						return;
-					NkVector<NkDirectoryEntry> e =
-						NkDirectory::GetEntries(NkPath(dir), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
-					for (usize i = 0; i < e.Size(); ++i)
-						if (!e[i].IsDirectory && e[i].Name.CStr()[0] != '.')
-							pickerFiles.PushBack(e[i].Name);
 				}
 
 				// Parcourir pour choisir un FICHIER (executable de toolchain).
@@ -1720,445 +1501,34 @@ namespace nkentseu {
 		}
 
 		// ── Selecteur de dossier CUSTOM (NKGui) : modal centre, navigation arborescente ──
+		// ── Selecteur de dossier/fichier : DELEGUE au widget moteur NkDrawFilePicker
+		//    (NKEditorKit). NKCode ne fournit que le STYLE (couleurs, scrollbars
+		//    theme-aware) et ROUTE le resultat (charger / enregistrer / scaffolding /
+		//    dossier au workspace). Le rendu + la navigation vivent dans le moteur. ──
 		inline void DrawFolderPicker(NkEditorFrameContext &ec, NkCodeDialogs *d) {
 			auto &ctx = ec.Ui();
-			const NkGuiFont *f = ctx.font;
-			if (!f || !f->Valid())
-				return;
-			auto &dl = ctx.dlOverlay;
-			const float32 W = (float32)ctx.viewW, H = (float32)ctx.viewH, S = ctx.S(1.f);
-			const float32 asc = f->Ascent(), lh = f->LineHeight();
-			const NkVec2 mp = ctx.input.mousePos;
-			const bool click = ctx.input.mouseClicked[0];
-			const bool rclick = ctx.input.mouseClicked[1];
-			auto hit = [&](const NkRect &r) { return NkGuiRectContains(r, mp); };
-			auto text = [&](float32 x, float32 y, const char *s, const NkColor &c) {
-				dl.AddText(f->Face(), f->TexId(), {x, y + asc}, s, c);
-			};
-			const NkColor cCard = {22, 24, 29, 255}, cBorder = {50, 55, 63, 255}, cAccent = {15, 115, 213, 255};
-			const NkColor cText = {236, 237, 239, 255}, cSub = {150, 156, 164, 255}, cRowHov = {33, 38, 46, 255};
-			auto sbtn = [&](const NkRect &r, const char *s) -> bool {
-				const bool hov = hit(r);
-				dl.AddRectFilled(r, hov ? NkColor{40, 46, 54, 255} : NkColor{30, 34, 40, 255}, 6.f * S);
-				dl.AddRect(r, cBorder, 1.f);
-				const float32 tw = f->MeasureWidth(s);
-				text(r.x + (r.w - tw) * 0.5f, r.y + (r.h - lh) * 0.5f, s, cText);
-				return hov && click;
-			};
-			auto pbtn = [&](const NkRect &r, const char *s, bool en) -> bool {
-				const bool hov = en && hit(r);
-				dl.AddRectFilled(r,
-								 !en   ? NkColor{30, 34, 40, 255}
-								 : hov ? NkColor{41, 133, 224, 255}
-									   : cAccent,
-								 6.f * S);
-				const float32 tw = f->MeasureWidth(s);
-				text(r.x + (r.w - tw) * 0.5f, r.y + (r.h - lh) * 0.5f, s, en ? NkColor{255, 255, 255, 255} : cSub);
-				return en && hov && click;
-			};
-
-			const bool saveMode = (d->pickerFor == NkCodeDialogs::PK_SaveFile);
-			// Nouveau fichier (buffer VIDE) -> assistant de création par TYPE ; sinon champ nom simple.
-			const bool newFile =
-				saveMode && d->st && d->st->HasActive() && d->st->files[d->st->active].doc.GetText().Empty();
-			const float32 pw = 580.f * S, ph = (newFile ? 700.f : (saveMode ? 548.f : 500.f)) * S, px = (W - pw) * 0.5f,
-						  py = (H - ph) * 0.5f;
-			const bool down = ctx.input.mouseDown[0];
-			bool fieldClicked = false; // un champ de saisie a-t-il ete clique cette frame ?
-			dl.AddRectFilled({0.f, 0.f, W, H}, NkColor{0, 0, 0, 160});
-			dl.AddRectFilled({px, py, pw, ph}, cCard, 10.f * S);
-			dl.AddRect({px, py, pw, ph}, cBorder, 1.5f);
-			const bool fileMode = (d->pickerFor == NkCodeDialogs::PK_File);
-			text(px + 20.f * S, py + 16.f * S,
-				 saveMode	? "Enregistrer le fichier - choisir le dossier"
-				 : fileMode ? "Choisir un fichier (executable)"
-							: "Choisir un dossier",
-				 cText);
-
-			// Champ chemin (selection courante) + Aller (saisie libre). PAS de « Remonter » -> arbre.
-			const float32 cx = px + 20.f * S, cwid = pw - 40.f * S;
-			float32 y = py + 50.f * S;
-			{
-				const NkRect r = {cx, y, cwid - 96.f * S, 30.f * S};
-				NkOverlayTextField(ctx, dl, f, r, d->pickerPath, (int32)sizeof(d->pickerPath), d->pickerEditing);
-				if (hit(r) && click) {
-					d->pickerEditing = true;
-					d->pickerNewFocus = false;
-					d->pickerSaveFocus = false;
-					d->scafFocus = 0;
-					fieldClicked = true;
-				}
-				if (sbtn({cx + cwid - 84.f * S, y, 84.f * S, 30.f * S}, "Aller")) {
-					if (!d->PickerAllowed(d->pickerPath))
-						NkCodeDialogs::CopyTo(d->pickerPath, d->pickerConfine.CStr(), (int32)sizeof(d->pickerPath));
-					d->pickerSel = -1;
-					d->pickerEditing = false;
-					if (fileMode)
-						d->ScanPickerFiles(d->pickerPath);
-				}
+			NkFilePickerStyle sty;                       // couleurs par defaut (sombre) ...
+			sty.scrollTrack = NkScrollTrack();           // ... + scrollbars THEME-AWARE NKCode
+			sty.scrollThumb = NkScrollThumb(false);
+			sty.scrollThumbHover = NkScrollThumb(true);
+			// Capture AVANT le rendu : la confirmation ferme le picker (pickerFor remis a None).
+			const bool wasNewFile = d->PickerIsNewFile();
+			const int32 wasFor = d->pickerFor;
+			NkDrawFilePicker(ctx, *d, sty);
+			if (d->pickerConfirmed) {
+				d->pickerConfirmed = false;
+				if (wasFor == NkCodeDialogs::PK_SaveFile) {
+					if (wasNewFile)
+						d->DoScaffoldCreate();           // assistant de creation (scaffolding)
+					else
+						d->DoSaveHere();                 // enregistrer sous <dossier>/<nom>
+				} else
+					d->RoutePickerResult();              // charger / wsDir / loadDir / pickedFolder
 			}
-			y += 42.f * S;
-
-			// Arborescence des dossiers : fleche d'expansion sur les dossiers NON VIDES, clic = selectionner.
-			const float32 barW = 10.f * S;
-			const NkRect area = {cx, y, cwid, ph - (y - py) - (newFile ? 340.f : (saveMode ? 140.f : 96.f)) * S};
-			const NkRect inner = {area.x, area.y, area.w - barW, area.h - barW}; // zone hors barres
-			dl.AddRectFilled(area, NkColor{16, 18, 22, 255}, 6.f * S);
-			dl.AddRect(area, cBorder, 1.f);
-			if (hit(inner) && ctx.input.wheel != 0.f) {
-				d->pickerScroll -= ctx.input.wheel * 34.f;
-				ctx.input.wheel = 0.f;
-			}
-			const float32 rowH = 28.f * S, rowStep = 30.f * S, indent = 16.f * S;
-			float32 contentW = 0.f;
-			for (usize i = 0; i < d->pickerTree.Size(); ++i) {
-				const float32 w =
-					d->pickerTree[i].depth * indent + f->MeasureWidth(d->pickerTree[i].name.CStr()) + 60.f * S;
-				if (w > contentW)
-					contentW = w;
-			}
-			// UN SEUL contentH/maxS/maxX (sinon pre-clamp et clamp final divergent -> clignotement bas).
-			const int32 totalRows = (int32)d->pickerTree.Size() + (fileMode ? (int32)d->pickerFiles.Size() + 1 : 0);
-			const float32 contentH = totalRows * rowStep + 12.f * S;
-			const float32 maxS = contentH - inner.h > 0.f ? contentH - inner.h : 0.f;
-			const float32 maxX = contentW - inner.w > 0.f ? contentW - inner.w : 0.f;
-			// Clamp AVANT de dessiner (sinon overshoot d'1 frame aux limites = clignotement).
-			if (d->pickerScroll < 0.f)
-				d->pickerScroll = 0.f;
-			if (d->pickerScroll > maxS)
-				d->pickerScroll = maxS;
-			if (d->pickerScrollX < 0.f)
-				d->pickerScrollX = 0.f;
-			if (d->pickerScrollX > maxX)
-				d->pickerScrollX = maxX;
-			const bool menuOpen = (d->pickMenu >= 0); // un menu contextuel ouvert capture les clics
-			dl.PushClipRect(inner, true);
-			int32 doToggle = -1, doSelect = -1;
-			float32 ly = inner.y + 6.f * S - d->pickerScroll;
-			for (usize i = 0; i < d->pickerTree.Size(); ++i) {
-				const auto &n = d->pickerTree[i];
-				const float32 rowW = (contentW > inner.w ? contentW : inner.w) - 8.f * S;
-				const NkRect r = {inner.x + 4.f * S - d->pickerScrollX, ly, rowW, rowH};
-				if (ly + rowH > inner.y && ly < inner.y + inner.h) {
-					const bool sel = ((int32)i == d->pickerSel);
-					const bool hov = NkGuiRectContains(r, mp) && hit(inner);
-					if (sel)
-						dl.AddRectFilled(r, NkColor{15, 115, 213, 90}, 5.f * S);
-					else if (hov)
-						dl.AddRectFilled(r, cRowHov, 5.f * S);
-					const float32 ix = r.x + 8.f * S + n.depth * indent;
-					if (n.hasKids) { // chevron ► (replie) / ▼ (deplie) — NEUTRE (pas bleu)
-						const float32 ax = ix, ay = r.y + rowH * 0.5f, s = 4.f * S;
-						const NkColor ac = n.open ? cText : cSub;
-						if (n.open) {
-							dl.AddLine({ax - s, ay - s * 0.5f}, {ax, ay + s * 0.6f}, ac, 1.6f * S);
-							dl.AddLine({ax + s, ay - s * 0.5f}, {ax, ay + s * 0.6f}, ac, 1.6f * S);
-						} else {
-							dl.AddLine({ax - s * 0.5f, ay - s}, {ax + s * 0.6f, ay}, ac, 1.6f * S);
-							dl.AddLine({ax - s * 0.5f, ay + s}, {ax + s * 0.6f, ay}, ac, 1.6f * S);
-						}
-					}
-					const float32 fx = ix + 14.f * S; // icone dossier
-					dl.AddRectFilled({fx, r.y + 9.f * S, 16.f * S, 11.f * S}, NkColor{247, 154, 40, 220}, 2.f * S);
-					dl.AddRectFilled({fx, r.y + 7.f * S, 8.f * S, 4.f * S}, NkColor{247, 154, 40, 220}, 1.f * S);
-					if (d->pickRename == (int32)i) { // renommage inline
-						const NkRect fr = {fx + 22.f * S, r.y + 2.f * S, rowW - (fx + 22.f * S - r.x) - 8.f * S,
-										   rowH - 4.f * S};
-						NkOverlayTextField(ctx, dl, f, fr, d->pickRenameBuf, (int32)sizeof(d->pickRenameBuf),
-										   d->pickRenameFocus);
-						if (ctx.input.KeyPressed(NkGuiKey::Enter))
-							d->PickRenameCommit();
-						if (ctx.input.KeyPressed(NkGuiKey::Escape))
-							d->pickRename = -1;
-					} else {
-						text(fx + 22.f * S, r.y + (rowH - lh) * 0.5f, n.name.CStr(), cText);
-						if (hov && click && !menuOpen) {
-							const NkRect arrowR = {ix - 8.f * S, r.y, 18.f * S, rowH};
-							if (n.hasKids && NkGuiRectContains(arrowR, mp))
-								doToggle = (int32)i;
-							else
-								doSelect = (int32)i;
-						}
-						if (hov && rclick && !menuOpen) {
-							d->pickMenu = (int32)i;
-							d->pickMenuX = mp.x;
-							d->pickMenuY = mp.y;
-							d->pickerSel = (int32)i;
-						}
-					}
-				}
-				ly += rowStep;
-			}
-			// Fichiers du dossier selectionne (mode PK_File) — listes a la suite de l'arbre.
-			int32 doFile = -1;
-			if (fileMode) {
-				const float32 rowW = (contentW > inner.w ? contentW : inner.w) - 8.f * S;
-				if (ly + rowH > inner.y && ly < inner.y + inner.h)
-					text(inner.x + 8.f * S - d->pickerScrollX, ly + (rowH - lh) * 0.5f,
-						 "Fichiers du dossier selectionne :", cSub);
-				ly += rowStep;
-				for (usize i = 0; i < d->pickerFiles.Size(); ++i) {
-					const NkRect r = {inner.x + 4.f * S - d->pickerScrollX, ly, rowW, rowH};
-					if (ly + rowH > inner.y && ly < inner.y + inner.h) {
-						const bool sel = ((int32)i == d->pickerFileSel);
-						const bool hov = NkGuiRectContains(r, mp) && hit(inner);
-						if (sel)
-							dl.AddRectFilled(r, NkColor{15, 115, 213, 90}, 5.f * S);
-						else if (hov)
-							dl.AddRectFilled(r, cRowHov, 5.f * S);
-						const float32 fx = r.x + 8.f * S + indent;
-						dl.AddRectFilled({fx, r.y + 6.f * S, 13.f * S, 15.f * S}, NkColor{120, 130, 145, 230}, 2.f * S);
-						text(fx + 20.f * S, r.y + (rowH - lh) * 0.5f, d->pickerFiles[i].CStr(), cText);
-						if (hov && click && !menuOpen)
-							doFile = (int32)i;
-					}
-					ly += rowStep;
-				}
-				if (d->pickerFiles.Empty() && ly < inner.y + inner.h)
-					text(inner.x + 16.f * S - d->pickerScrollX, ly - rowStep + (rowH - lh) * 0.5f + rowStep,
-						 "(aucun fichier)", cSub);
-			}
-			dl.PopClipRect();
-			if (d->pickerTree.Empty())
-				text(inner.x + 12.f * S, inner.y + 10.f * S, "(aucun lecteur)", cSub);
-			if (doSelect >= 0) {
-				d->pickerSel = doSelect;
-				NkCodeDialogs::CopyTo(d->pickerPath, d->pickerTree[doSelect].path.CStr(), (int32)sizeof(d->pickerPath));
-				d->pickerEditing = false;
-				if (fileMode)
-					d->ScanPickerFiles(d->pickerPath);
-			} else if (doToggle >= 0)
-				d->TogglePickerNode(doToggle);
-			if (doFile >= 0)
-				d->pickerFileSel = doFile;
-			// gestion du drag des thumbs
-			if (!down)
-				d->pickerDrag = 0;
-			// barre V (toujours visible)
-			{
-				const NkRect track = {area.x + area.w - barW, inner.y, barW, inner.h};
-				dl.AddRectFilled(track, NkScrollTrack(), 3.f * S);
-				const float32 th = maxS > 0.f ? inner.h * (inner.h / contentH) : inner.h;
-				const float32 tt = inner.y + (maxS > 0.f ? (inner.h - th) * (d->pickerScroll / maxS) : 0.f);
-				const NkRect thumb = {track.x + 2.f * S, tt, barW - 4.f * S, th};
-				if (click && hit(thumb)) {
-					d->pickerDrag = 1;
-					d->pickerDragOff = mp.y - tt;
-				}
-				if (d->pickerDrag == 1 && maxS > 0.f)
-					d->pickerScroll = ((mp.y - d->pickerDragOff - inner.y) / (inner.h - th)) * maxS;
-				dl.AddRectFilled(thumb, d->pickerDrag == 1 ? cAccent : NkScrollThumb(hit(thumb)), 3.f * S);
-			}
-			// barre H (toujours visible)
-			{
-				const NkRect track = {inner.x, area.y + area.h - barW, inner.w, barW};
-				dl.AddRectFilled(track, NkScrollTrack(), 3.f * S);
-				const float32 tw = maxX > 0.f ? inner.w * (inner.w / contentW) : inner.w;
-				const float32 tt = inner.x + (maxX > 0.f ? (inner.w - tw) * (d->pickerScrollX / maxX) : 0.f);
-				const NkRect thumb = {tt, track.y + 2.f * S, tw, barW - 4.f * S};
-				if (click && hit(thumb)) {
-					d->pickerDrag = 2;
-					d->pickerDragOff = mp.x - tt;
-				}
-				if (d->pickerDrag == 2 && maxX > 0.f)
-					d->pickerScrollX = ((mp.x - d->pickerDragOff - inner.x) / (inner.w - tw)) * maxX;
-				dl.AddRectFilled(thumb, d->pickerDrag == 2 ? cAccent : NkScrollThumb(hit(thumb)), 3.f * S);
-			}
-			if (d->pickerScroll < 0.f)
-				d->pickerScroll = 0.f;
-			if (d->pickerScroll > maxS)
-				d->pickerScroll = maxS;
-			if (d->pickerScrollX < 0.f)
-				d->pickerScrollX = 0.f;
-			if (d->pickerScrollX > maxX)
-				d->pickerScrollX = maxX;
-
-			// Ligne creation de dossier : champ + bouton
-			const float32 ny = area.y + area.h + 8.f * S;
-			{
-				const NkRect r = {cx, ny, cwid - 150.f * S, 30.f * S};
-				NkOverlayTextField(ctx, dl, f, r, d->pickerNew, (int32)sizeof(d->pickerNew), d->pickerNewFocus);
-				if (hit(r) && click) {
-					d->pickerNewFocus = true;
-					d->pickerEditing = false;
-					d->pickerSaveFocus = false;
-					d->scafFocus = 0;
-					fieldClicked = true;
-				}
-				if (d->pickerNew[0] == '\0' && !d->pickerNewFocus)
-					text(r.x + 10.f * S, r.y + (30.f * S - lh) * 0.5f, "nom du nouveau dossier", cSub);
-				if (sbtn({cx + cwid - 140.f * S, ny, 140.f * S, 30.f * S}, "+ Creer dossier"))
-					d->PickerCreateFolder();
-			}
-			// Mode ENREGISTRER, buffer NON vide : simple champ « nom du fichier (avec extension) ».
-			if (saveMode && !newFile) {
-				const float32 fy = ny + 56.f * S;
-				text(cx, fy - 18.f * S, "Nom du fichier (avec extension)", cSub);
-				const NkRect r = {cx, fy, cwid, 30.f * S};
-				NkOverlayTextField(ctx, dl, f, r, d->pickerSaveName, (int32)sizeof(d->pickerSaveName),
-								   d->pickerSaveFocus);
-				if (hit(r) && click) {
-					d->pickerSaveFocus = true;
-					d->pickerEditing = false;
-					d->pickerNewFocus = false;
-					d->scafFocus = 0;
-					fieldClicked = true;
-				}
-				if (d->pickerSaveName[0] == '\0' && !d->pickerSaveFocus)
-					text(r.x + 10.f * S, r.y + (30.f * S - lh) * 0.5f, "ex: MonFichier.cpp", cSub);
-			}
-			// ── Assistant de CRÉATION (nouveau fichier) : TYPE + nom + namespace/mères/filles/ext ──
-			if (newFile) {
-				auto field = [&](float32 fx, float32 fyy, float32 fw, char *buf, int32 cap, int32 fid,
-								 const char *ph2) {
-					const NkRect r = {fx, fyy, fw, 26.f * S};
-					NkOverlayTextField(ctx, dl, f, r, buf, cap, d->scafFocus == fid);
-					if (hit(r) && click) {
-						d->scafFocus = fid;
-						d->pickerSaveFocus = d->pickerNewFocus = d->pickerEditing = false;
-						fieldClicked = true;
-					}
-					if (buf[0] == '\0' && d->scafFocus != fid && ph2)
-						text(r.x + 10.f * S, r.y + (26.f * S - lh) * 0.5f, ph2, cSub);
-				};
-				const float32 halfW = (cwid - 10.f * S) * 0.5f;
-				text(cx, ny + 40.f * S, "Type", cSub);
-				const char *kinds[] = {"Classe",   "Struct", "Union", "Enum",		"Python",
-									   "Markdown", "NKSL",	 "Jenga", "Texte/Autre"};
-				float32 kx = cx, kyy = ny + 58.f * S;
-				for (int32 k = 0; k < 9; ++k) {
-					const float32 bw = f->MeasureWidth(kinds[k]) + 16.f * S;
-					if (kx + bw > cx + cwid) {
-						kx = cx;
-						kyy += 28.f * S;
-					}
-					const NkRect r = {kx, kyy, bw, 24.f * S};
-					const bool sel = (d->scafKind == k);
-					dl.AddRectFilled(r, sel ? cAccent : (hit(r) ? cRowHov : NkColor{24, 28, 34, 255}), 5.f * S);
-					text(r.x + 8.f * S, r.y + (24.f * S - lh) * 0.5f, kinds[k],
-						 sel ? NkColor{255, 255, 255, 255} : cText);
-					if (hit(r) && click)
-						d->scafKind = k;
-					kx += bw + 6.f * S;
-				}
-				const float32 fy = kyy + 46.f * S;
-				text(cx, fy - 18.f * S, "Nom", cSub);
-				field(cx, fy, cwid, d->scafName, (int32)sizeof(d->scafName), 1, "ex: NkFoo");
-				const int32 k = d->scafKind;
-				const bool isCpp = (k <= 3), hasBase = (k == 0 || k == 1), isTexte = (k == 8);
-				const float32 fy2 = fy + 46.f * S;
-				if (isCpp) {
-					text(cx, fy2 - 18.f * S, "Namespace ( :: pour sous-namespaces )", cSub);
-					field(cx, fy2, hasBase ? halfW : cwid, d->scafNs, (int32)sizeof(d->scafNs), 2, "nkentseu::code");
-					if (hasBase) {
-						text(cx + halfW + 10.f * S, fy2 - 18.f * S, "Classes meres (csv)", cSub);
-						field(cx + halfW + 10.f * S, fy2, halfW, d->scafBase, (int32)sizeof(d->scafBase), 3,
-							  "NkBaseA, NkBaseB");
-					}
-				} else if (isTexte) {
-					text(cx, fy2 - 18.f * S, "Extension", cSub);
-					field(cx, fy2, halfW, d->scafExt, (int32)sizeof(d->scafExt), 5, ".txt");
-				}
-			}
-			// Clic AILLEURS (arbre, vide, boutons) -> desactive la saisie des champs.
-			if (click && !fieldClicked) {
-				d->pickerEditing = false;
-				d->pickerNewFocus = false;
-				d->pickerSaveFocus = false;
-				d->scafFocus = 0;
-			}
-
-			// Boutons bas (geles si un menu contextuel est ouvert)
-			const float32 by = py + ph - 44.f * S;
-			if (saveMode && newFile) {
-				const bool en = d->scafName[0] != '\0' && (d->scafKind != 8 || d->scafExt[0] != '\0');
-				if (!menuOpen && pbtn({px + pw - 200.f * S, by, 180.f * S, 32.f * S}, "Creer", en)) {
-					d->DoScaffoldCreate();
-					return;
-				}
-			} else if (saveMode) {
-				const bool en = d->pickerSaveName[0] != '\0';
-				if (!menuOpen && pbtn({px + pw - 200.f * S, by, 180.f * S, 32.f * S}, "Enregistrer ici", en)) {
-					d->DoSaveHere();
-					return;
-				}
-			} else if (fileMode) {
-				const bool en = d->pickerFileSel >= 0 && d->pickerFileSel < (int32)d->pickerFiles.Size();
-				if (!menuOpen && pbtn({px + pw - 200.f * S, by, 180.f * S, 32.f * S}, "Selectionner ce fichier", en)) {
-					NkString fp = (NkPath(d->pickerPath) / d->pickerFiles[d->pickerFileSel].CStr()).ToString();
-					NkCodeDialogs::CopyTo(d->pickerPath, fp.CStr(), (int32)sizeof(d->pickerPath));
-					d->PickerConfirm();
-					return;
-				}
-			} else {
-				if (!menuOpen &&
-					pbtn({px + pw - 200.f * S, by, 180.f * S, 32.f * S}, "Selectionner ce dossier", true)) {
-					d->PickerConfirm();
-					return;
-				}
-			}
-			if (!menuOpen && sbtn({px + pw - 290.f * S, by, 80.f * S, 32.f * S}, "Annuler")) {
-				if (saveMode)
-					d->CancelSavePicker();
-				else
-					d->PickerCancel();
-				return;
-			}
-
-			// ── Menu contextuel (clic droit) : Nouveau dossier / Renommer / Supprimer ──
-			if (d->pickMenu >= 0 && d->pickMenu < (int32)d->pickerTree.Size()) {
-				const bool isRoot = d->pickerTree[d->pickMenu].depth == 0;
-
-				struct MI {
-						const char *lab;
-						int32 act;
-						bool en;
-				};
-
-				const MI items[] = {{"Nouveau dossier", 0, true}, {"Renommer", 1, !isRoot}, {"Supprimer", 2, !isRoot}};
-				const float32 mw = 180.f * S, ih = 28.f * S;
-				float32 mx = d->pickMenuX, my = d->pickMenuY;
-				if (mx + mw > W)
-					mx = W - mw - 4.f * S;
-				if (my + ih * 3 + 8.f * S > H)
-					my = H - ih * 3 - 8.f * S;
-				const NkRect menu = {mx, my, mw, ih * 3 + 8.f * S};
-				dl.AddRectFilled(menu, NkColor{26, 30, 37, 255}, 6.f * S);
-				dl.AddRect(menu, cBorder, 1.f);
-				int32 chosen = -1;
-				for (int32 k = 0; k < 3; ++k) {
-					const NkRect ir = {menu.x + 4.f * S, menu.y + 4.f * S + k * ih, mw - 8.f * S, ih};
-					const bool hov = items[k].en && hit(ir);
-					if (hov)
-						dl.AddRectFilled(ir, cRowHov, 4.f * S);
-					const NkColor tc = !items[k].en ? cSub : (items[k].act == 2 ? NkColor{248, 81, 73, 255} : cText);
-					text(ir.x + 12.f * S, ir.y + (ih - lh) * 0.5f, items[k].lab, tc);
-					if (hov && click)
-						chosen = items[k].act;
-				}
-				const int32 node = d->pickMenu;
-				if (chosen == 0) {
-					d->pickMenu = -1;
-					d->pickerSel = node;
-					d->pickerNewFocus = true;
-					d->pickerEditing = false;
-				} else if (chosen == 1)
-					d->PickBeginRename(node);
-				else if (chosen == 2)
-					d->PickDelete(node);
-				else if (click && !hit(menu))
-					d->pickMenu = -1;
-			}
-
-			if (ctx.input.KeyPressed(NkGuiKey::Escape)) {
-				if (d->pickMenu >= 0)
-					d->pickMenu = -1;
-				else if (d->pickRename >= 0)
-					d->pickRename = -1;
-				else {
-					d->PickerCancel();
-					return;
-				}
+			if (d->pickerCancelled) {
+				d->pickerCancelled = false;
+				if (wasFor == NkCodeDialogs::PK_SaveFile)
+					d->CancelSaveCleanup();              // referme l'onglet « + » vierge
 			}
 		}
 

@@ -8,6 +8,8 @@
 // (dropdown différé). Les actions appellent DoBuildAction/DoClean/DoRun/DoTest.
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
+#include "NKEditorKit/NkEditorScrollbar.h" // NkVScrollbar/NkHScrollbar (scrollbar general)
+#include "NKEditorKit/NkEditorTextField.h" // NkOverlayTextField (champ recherche editable)
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Shell/NkUi.h"
 #include "NKCode/Shell/NkOpenWs.h" // NkOwIco
@@ -349,11 +351,130 @@ namespace nkentseu {
 					if (tb.open < 0 && u.Hit(b) && u.click)
 						doBtn(sg.id);
 				} else {
+					// ── Champ « Recherche rapide » = QUICK-OPEN façon VSCode ──
+					// Défaut : recherche FICHIERS (liste déroulante live, fuzzy sur le nom/chemin).
+					// Préfixe `?` : recherche TEXTE projet (Entrée -> panneau Recherche).
+					// Entrée ouvre le résultat sélectionné ; ↑/↓ navigue ; Échap ferme.
 					const NkRect sb = {sx, ctrlY, sg.w, ctrlH};
-					u.Panel(sb, NkCol::input, NkCol::border, NkR::sm * u.S);
-					NkOwIco(u, sg.tex, "search", {sb.x + u.s(9), ctrlY + (ctrlH - u.s(12)) * 0.5f, u.s(12), u.s(12)},
-							NkCol::mutedFg);
-					u.Text(sb.x + u.s(27), ctrlY + (ctrlH - u.Lh()) * 0.5f, sg.label, NkCol::mutedFg);
+					s->StartFileIndex(); // index fichiers (tâche de fond, une seule fois)
+					const bool textMode = s->tbSearch[0] == '?';
+					const char *filter = textMode ? s->tbSearch + 1 : s->tbSearch;
+					if (!textMode) {
+						if (!StrEq(s->tbSearch, s->tbQoLast.CStr())) {
+							s->QoRefresh(filter);
+							s->tbQoLast = NkString(s->tbSearch);
+						}
+					} else
+						s->tbQoHits.Clear();
+					// ── Géométrie de la liste déroulante quick-open (sous le champ) ──
+					const int32 n = (int32)s->tbQoHits.Size();
+					const bool showDD = s->tbSearchFocus && !textMode && n > 0;
+					const float32 ddRowH = u.s(24), pad = u.s(4), sbW = u.s(14.f); // 14 = NkScrollbarWidth()
+					const float32 fullW = sg.w + u.s(230);
+					// Largeur du contenu (scroll horizontal) = la ligne la plus large.
+					float32 contentW = 0.f;
+					if (showDD)
+						for (int32 r2 = 0; r2 < n; ++r2) {
+							const char *rel = s->qoRel[s->tbQoHits[r2]].CStr();
+							const char *fn = NkCodeState::QoFileName(rel);
+							float32 w2 = u.s(5) + u.TextW(fn) + u.s(9);
+							if (fn != rel) {
+								NkString d; for (const char *z = rel; z < fn; ++z) d += *z;
+								w2 += u.s(8) + u.TextW(d.CStr());
+							}
+							if (w2 > contentW) contentW = w2;
+						}
+					const int32 visRows = n < 12 ? n : 12;
+					const float32 viewH = (float32)visRows * ddRowH;
+					const float32 contentH = (float32)n * ddRowH;
+					const bool needV = contentH > viewH + 0.5f;
+					const float32 viewW = fullW - (needV ? sbW : 0.f) - pad * 2.f;
+					const bool needH = contentW > viewW + 0.5f;
+					const float32 ddH = viewH + pad * 2.f + (needH ? sbW : 0.f);
+					const NkRect dd = {sb.x, sb.y + ctrlH + u.s(3), fullW, ddH};
+					const bool hitDD = showDD && u.Hit(dd);
+					// Focus : clic dans le champ OU la liste -> garde ; clic ailleurs -> défocus.
+					if (u.click && tb.open < 0)
+						s->tbSearchFocus = (u.Hit(sb) || hitDD);
+					editorkit::NkOverlayTextField(*u.ctx, *u.dl, u.ctx->font, sb, s->tbSearch,
+						                              (int32)sizeof(s->tbSearch), s->tbSearchFocus);
+					if (s->tbSearch[0] == 0 && !s->tbSearchFocus)
+						u.Text(sb.x + u.s(9), ctrlY + (ctrlH - u.Lh()) * 0.5f, sg.label, NkCol::mutedFg);
+					NkOwIco(u, sg.tex, "search",
+						        {sb.x + sg.w - u.s(18), ctrlY + (ctrlH - u.s(12)) * 0.5f, u.s(12), u.s(12)},
+						        textMode ? NkCol::primary : NkCol::mutedFg);
+					// ── Liste (fichiers) : calque OVERLAY, contenu CLIPPÉ + scrollbars thémés ──
+					if (showDD) {
+						const NkUi uo = NkUi::From(ec, true);
+						auto &in = u.ctx->input;
+						uo.dl->AddRectFilled(dd, NkCol::surface, NkR::sm * u.S);
+						uo.dl->AddRect(dd, NkCol::border, 1.f);
+						if (s->tbQoSel >= n) s->tbQoSel = n - 1;
+						if (s->tbQoSel < 0) s->tbQoSel = 0;
+						if (in.KeyPressedRepeat(nkgui::NkGuiKey::Down)) s->tbQoSel = (s->tbQoSel + 1) % n;
+						if (in.KeyPressedRepeat(nkgui::NkGuiKey::Up)) s->tbQoSel = (s->tbQoSel - 1 + n) % n;
+						// Molette (verticale/horizontale) quand la souris est sur la liste.
+						if (hitDD && in.wheel != 0.f) { s->tbQoScrollY -= in.wheel * ddRowH * 3.f; in.wheel = 0.f; }
+						if (hitDD && in.wheelH != 0.f) { s->tbQoScrollX -= in.wheelH * u.s(40); in.wheelH = 0.f; }
+						// Auto-scroll : garde la ligne sélectionnée visible (navigation clavier).
+						const float32 selTop = (float32)s->tbQoSel * ddRowH;
+						if (selTop < s->tbQoScrollY) s->tbQoScrollY = selTop;
+						if (selTop + ddRowH > s->tbQoScrollY + viewH) s->tbQoScrollY = selTop + ddRowH - viewH;
+						const float32 maxY = contentH - viewH > 0.f ? contentH - viewH : 0.f;
+						const float32 maxX = contentW - viewW > 0.f ? contentW - viewW : 0.f;
+						s->tbQoScrollY = s->tbQoScrollY < 0.f ? 0.f : (s->tbQoScrollY > maxY ? maxY : s->tbQoScrollY);
+						s->tbQoScrollX = s->tbQoScrollX < 0.f ? 0.f : (s->tbQoScrollX > maxX ? maxX : s->tbQoScrollX);
+						// Zone des lignes, CLIPPÉE (le texte ne déborde plus).
+						const NkRect clip = {dd.x + pad, dd.y + pad, viewW, viewH};
+						uo.dl->PushClipRect(clip, true);
+						for (int32 r2 = 0; r2 < n; ++r2) {
+							const float32 rowY = clip.y - s->tbQoScrollY + (float32)r2 * ddRowH;
+							if (rowY + ddRowH <= clip.y || rowY >= clip.y + clip.h) continue; // hors vue
+							const NkRect vis = {clip.x, rowY, viewW, ddRowH};
+							const bool rhov = u.Hit(vis) && u.Hit(clip);
+							if (rhov) s->tbQoSel = r2;
+							if (r2 == s->tbQoSel) uo.dl->AddRectFilled(vis, NkCol::selection, NkR::sm * u.S);
+							const char *rel = s->qoRel[s->tbQoHits[r2]].CStr();
+							const char *fn = NkCodeState::QoFileName(rel);
+							const float32 tx = clip.x + u.s(5) - s->tbQoScrollX;
+							const float32 ty = rowY + (ddRowH - u.Lh()) * 0.5f;
+							uo.Text(tx, ty, fn, NkCol::foreground);
+							if (fn != rel) {
+								NkString dir2; for (const char *z = rel; z < fn; ++z) dir2 += *z;
+								uo.Text(tx + u.TextW(fn) + u.s(8), ty, dir2.CStr(), NkCol::mutedFg);
+							}
+							if (rhov && u.click) {
+								s->OpenPath(NkPath(s->qoAbs[s->tbQoHits[r2]]));
+								s->tbSearch[0] = 0; s->tbQoHits.Clear(); s->tbSearchFocus = false;
+							}
+						}
+						uo.dl->PopClipRect();
+						// Scrollbars standard (NKEditorKit) — thémés, personnalisables par l'utilisateur.
+						if (needV) {
+							const NkRect vtrack = {dd.x + fullW - sbW, dd.y, sbW, viewH + pad * 2.f};
+							editorkit::NkVScrollbar(*u.ctx, *uo.dl, vtrack, s->tbQoScrollY, contentH, viewH, 0x5EA3C401u, ddRowH);
+						}
+						if (needH) {
+							const NkRect htrack = {dd.x, dd.y + viewH + pad * 2.f, fullW - (needV ? sbW : 0.f), sbW};
+							editorkit::NkHScrollbar(*u.ctx, *uo.dl, htrack, s->tbQoScrollX, contentW, viewW, 0x5EA3C402u);
+						}
+						if (u.click && hitDD) in.mouseClicked[0] = false; // consommé -> pas de fuite vers l'éditeur
+					}
+					// Entrée : ouvre le fichier sélectionné (mode fichiers) ou lance la recherche
+					// texte projet (mode `?`). Échap : ferme/défocus.
+					if (s->tbSearchFocus && u.ctx->input.KeyPressed(nkgui::NkGuiKey::Enter) && s->tbSearch[0]) {
+						if (textMode && filter[0]) {
+							s->wsPrefill = NkString(filter);
+							s->reqSearch = true;
+							s->tbSearchFocus = false;
+						} else if (!textMode && s->tbQoHits.Size() > 0) {
+							const int32 sel = (s->tbQoSel >= 0 && s->tbQoSel < (int32)s->tbQoHits.Size()) ? s->tbQoSel : 0;
+							s->OpenPath(NkPath(s->qoAbs[s->tbQoHits[sel]]));
+							s->tbSearch[0] = 0; s->tbQoHits.Clear(); s->tbSearchFocus = false;
+						}
+					}
+					if (s->tbSearchFocus && u.ctx->input.KeyPressed(nkgui::NkGuiKey::Escape))
+						s->tbSearchFocus = false;
 				}
 			};
 
@@ -478,13 +599,13 @@ namespace nkentseu {
 					maxH = ih + pad;
 				const bool scroll = contentH > maxH;
 				const float32 ddh = scroll ? maxH : contentH;
-				const float32 sbW = scroll ? u.s(10) : 0.f;
+				const float32 sbW = scroll ? editorkit::NkScrollbarWidth() : 0.f; // largeur canonique (= editeur)
 				float32 ddx = a.x;
 				if (ddx + ddw > r.x + r.w - u.s(8))
 					ddx = r.x + r.w - u.s(8) - ddw;
 				const NkRect dd = {ddx, a.y + a.h + u.s(2), ddw, ddh};
 				uo.dl->AddRectFilled({dd.x + u.s(2), dd.y + u.s(3), dd.w, dd.h}, NkColor{0, 0, 0, 110}, NkR::md * u.S);
-				uo.Panel(dd, NkCol::surface, NkCol::primary, NkR::md * u.S);
+				uo.Panel(dd, NkCol::surface, NkCol::border, NkR::md * u.S); // bordure discrete (coherence menus)
 				const float32 maxScroll = scroll ? (contentH - ddh) : 0.f;
 				if (scroll && u.Hit(dd)) {
 					tb.scroll -= ec.Ui().input.wheel * ih * 2.f;
@@ -545,37 +666,20 @@ namespace nkentseu {
 					}
 				}
 				uo.dl->PopClipRect();
-				// Barre de défilement verticale UNIFORME (thème-aware) + glissement du pouce.
+				// Barre de defilement GENERALE (widget moteur NKEditorKit, identique a l'editeur :
+				// gouttiere theme-aware + fleches + pouce draggable + clic-piste).
 				if (scroll) {
 					const NkRect track = {dd.x + dd.w - sbW, dd.y + u.s(2), sbW, ddh - u.s(4)};
-					uo.dl->AddRectFilled(track, NkScrollTrack(), sbW * 0.5f);
-					float32 thh = track.h * (ddh / contentH);
-					if (thh < u.s(24))
-						thh = u.s(24);
-					if (thh > track.h)
-						thh = track.h;
-					const float32 ty = track.y + (maxScroll > 0.f ? (tb.scroll / maxScroll) : 0.f) * (track.h - thh);
-					const NkRect thumb = {track.x + u.s(2), ty, sbW - u.s(4), thh};
-					const bool thov = u.Hit(thumb);
-					if (u.click && thov) {
-						tb.scrollDrag = true;
-						tb.scrollDragOff = u.mp.y - ty;
-					}
-					if (tb.scrollDrag) {
-						if (!u.down)
-							tb.scrollDrag = false;
-						else if (track.h - thh > 0.f) {
-							tb.scroll = ((u.mp.y - tb.scrollDragOff - track.y) / (track.h - thh)) * maxScroll;
-							if (tb.scroll < 0.f)
-								tb.scroll = 0.f;
-							if (tb.scroll > maxScroll)
-								tb.scroll = maxScroll;
-						}
-					}
-					uo.dl->AddRectFilled(thumb, NkScrollThumb(tb.scrollDrag || thov), (sbW - u.s(4)) * 0.5f);
+					editorkit::NkVScrollbar(ec.Ui(), *uo.dl, track, tb.scroll, contentH, track.h, 0x5010D0Du, ih);
 				}
 				if (chose || (u.click && !u.Hit(dd) && !tb.justOpened && !tb.scrollDrag))
 					tb.open = -1;
+				// MODAL : rien DERRIERE le dropdown ne doit voir ces evenements (clic/molette).
+				if (u.Hit(dd)) {
+					ec.Ui().input.mouseClicked[0] = false;
+					ec.Ui().input.mouseClicked[1] = false;
+					ec.Ui().input.wheel = 0.f;
+				}
 				tb.justOpened = false;
 			}
 

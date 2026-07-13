@@ -20,6 +20,7 @@
 #include "NKCode/Project/NkLogSink.h"
 #include "NKImage/NKImage.h"
 #include "NKPlatform/NkEnv.h" // env::GetEnvVar (variables d'environnement maison)
+#include "NKCode/Editor/NkSyntaxLangs.h" // coloration data-driven (CSS, JS, Lua…)
 
 #include <cstdio>
 #include <cstddef>
@@ -49,7 +50,8 @@ int nkmain(const NkEntryState &state) {
 
 	nkcode::InstallLogSink(); // capture les logs NKLogger -> panneau OUTPUT
 
-	nkcode::NkLoadFallbackFonts(); // polices de repli (broad/CJK/emoji)
+	nkcode::NkSynInitDefaultLangs(); // coloration data-driven (CSS, JS, Lua, Rust…)
+	nkcode::NkLoadFallbackFonts();	 // polices de repli (broad/CJK/emoji)
 
 	auto shell = memory::NkMakeUnique<NkEditorShell>();
 	NkEditorShellConfig cfg;
@@ -59,10 +61,18 @@ int nkmain(const NkEntryState &state) {
 	if (!shell || !shell->Init(cfg))
 		return -1;
 
+	// Géométrie du LAUNCHER : mémorisée globalement (taille/pos/moniteur). Par
+	// DÉFAUT (aucun état sauvegardé) -> maximisé. Un workspace ouvert écrasera
+	// ensuite cette géométrie via son ui.cfg (état par workspace).
+	const nkentseu::NkString g_launcherGeom =
+		(NkPath(nkcode::NkOpenWsState::Home().CStr()) / ".nkcode" / "window.cfg").ToString();
+	if (!shell->LoadWindowGeom(g_launcherGeom.CStr()))
+		shell->MaximizeWindow();
+
 	// Ouvre un fichier au demarrage (demo) : le README de NKCode.
 	g_state.OpenPath(g_state.root / "README.md");
 
-	static nkcode::ExplorerPanel explorer(&g_state);
+	static nkcode::ExplorerPanel explorer(&g_state, shell.Get());
 	static nkcode::OutlinePanel outline(&g_state);
 	static nkcode::EditorPanel editor(&g_state, shell.Get());
 	static nkcode::OutputPanel output(&g_state);
@@ -82,6 +92,9 @@ int nkmain(const NkEntryState &state) {
 	static ScaffoldPanel pGit("Controle de version", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #9", sc::kGit, 3);
 	static ScaffoldPanel pDebug("Debogueur", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #10", sc::kDebug, 2);
 	static ScaffoldPanel pBuild("Build & Taches", NkEditorDockSide::NK_BOTTOM, "Maquette - roadmap #14", sc::kBuild, 1);
+	static ScaffoldPanel pDbgConsole("Console de debogage", NkEditorDockSide::NK_BOTTOM, "Maquette", sc::kDbgConsole, 1);
+	static ScaffoldPanel pTests("Tests", NkEditorDockSide::NK_BOTTOM, "Maquette", sc::kTests, 1);
+	static ScaffoldPanel pPorts("Ports", NkEditorDockSide::NK_BOTTOM, "Maquette", sc::kPorts, 1);
 	static ScaffoldPanel pProf("Profiler", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #19", sc::kProfiler, 1);
 	static ScaffoldPanel pCollab("Live Collab", NkEditorDockSide::NK_LEFT, "Maquette - collaboration", sc::kCollab, 2);
 	static nkcode::AiPanel aiPanel(&g_state); // Assistant IA FONCTIONNEL (remplace la maquette)
@@ -95,6 +108,9 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&pGit);
 	shell->AddPanel(&pDebug);
 	shell->AddPanel(&pBuild);
+	shell->AddPanel(&pDbgConsole);
+	shell->AddPanel(&pTests);
+	shell->AddPanel(&pPorts);
 	shell->AddPanel(&pProf);
 	shell->AddPanel(&aiPanel);
 	shell->AddPanel(&claudePanel);
@@ -104,6 +120,16 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&pExt);
 
 	shell->SetActivityHandler(&nkcode::ActivityThunk, shell.Get()); // sidebars exclusives (activity bar)
+	// Drop de fichiers depuis l'OS -> état partagé (consommé par le panneau visé).
+	shell->SetDropFilesHandler(
+		+[](void *u, const NkVector<NkString> &paths, nkentseu::int32 x, nkentseu::int32 y) {
+			auto *st = static_cast<nkcode::NkCodeState *>(u);
+			st->osDropPaths = paths;
+			st->osDropX = x;
+			st->osDropY = y;
+			st->osDropTtl = 3; // purge AppFlagsThunk si aucune cible ne consomme
+		},
+		&g_state);
 	shell->SetToolbar(&nkcode::ToolbarThunk, &g_state);				// barre d'outils Visual Studio
 	nkcode::NkZoomCtx() = {&g_state, shell.Get()};
 	shell->SetZoomHandler(&nkcode::ZoomHandler, &nkcode::NkZoomCtx()); // zoom Ctrl+molette/±/0 -> onglet actif
@@ -163,8 +189,11 @@ int nkmain(const NkEntryState &state) {
 	shell->RegisterCommand("Application: Quitter", &nkcode::CmdQuit, shell.Get(), "Ctrl+Q");
 
 	const int rc = shell->Run();
-	// Sauvegarde l'etat d'interface du projet courant (maximise + panneaux ouverts).
+	// Sauvegarde l'etat d'interface : par WORKSPACE si un projet est ouvert (dock +
+	// geometrie fenetre + moniteur), sinon la geometrie GLOBALE du launcher.
 	if (!g_dialogs.showStart && g_state.HasWorkspace())
 		shell->SaveUiState(g_state.UiConfigPath().CStr());
+	else
+		shell->SaveWindowGeom(g_launcherGeom.CStr());
 	return rc;
 }

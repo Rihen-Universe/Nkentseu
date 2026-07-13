@@ -119,6 +119,12 @@ inline void OverlayThunk(NkEditorFrameContext &ec, void *u) {
 		d->st->reqSaveAs = false;
 		d->SaveActiveNative();
 	}
+	// « Ajouter un dossier au workspace » (explorateur) : réutilise LE picker de
+	// l'app (Dialogs.h, mode PK_PickFolder — dossier quelconque). Un seul picker.
+	if (d->st && d->st->reqPickFolder) {
+		d->st->reqPickFolder = false;
+		d->OpenPicker(nkcode::NkCodeDialogs::PK_PickFolder, d->st->root.ToString().CStr());
+	}
 	nkcode::DrawOverlay(ec, d);
 }
 
@@ -178,8 +184,32 @@ inline void AppFlagsThunk(NkEditorFrameContext &ec, void *u) { // user = NkHomeS
 	if (!home || !home->dlg)
 		return;
 	nkcode::DrawAppFlags(ec, home->dlg);
+		// Entree dans la barre « Recherche rapide » (toolbar) -> ouvre le panneau
+		// Recherche, y recopie la requete (wsPrefill deja pose par la toolbar) et
+		// LANCE la recherche projet. Le champ du panneau prend le focus (Ctrl+Maj+F-like).
+		if (home->dlg->st && home->dlg->st->reqSearch) {
+			auto *st = home->dlg->st;
+			st->reqSearch = false;
+			if (home->dlg->shell)
+				home->dlg->shell->FocusPanel("Recherche");
+			// Si aucune requete fournie (cas clic sans texte), reprend la selection editeur.
+			if (st->wsPrefill.Empty() && st->HasActive() && st->files[st->active].doc.HasSel())
+				st->wsPrefill = st->files[st->active].doc.GetSelectedText();
+			st->wsFocusField = 1;
+			st->wsFocusReq = true;
+			if (!st->wsPrefill.Empty())
+				st->StartWsFind(st->wsPrefill, false, false); // resultats immediats
+		}
+	{ // audio : arret auto quand on quitte l'onglet (option) — par onglet actif
+		auto *st2 = home->dlg->st;
+		const NkString ap = (st2 && st2->HasActive()) ? st2->files[st2->active].path.ToString() : NkString();
+		nkcode::NkAudioStopInactive(ap.CStr());
+	}
 	EnforceExclusiveSides(home->dlg->shell); // sidebars exclusives
 	SyncActivityMarkers(home->dlg->shell);   // marqueurs = état réel
+	// Drop OS non consommé (zone morte) : purge après quelques frames.
+	if (home->dlg->st && home->dlg->st->osDropTtl > 0 && --home->dlg->st->osDropTtl == 0)
+		home->dlg->st->osDropPaths.Clear();
 	if (!home->settings.loaded)
 		home->settings.Load();
 	nkcode::NkApplyEditorTheme(ec.Ui(), home->settings.theme, home->settings.accent);

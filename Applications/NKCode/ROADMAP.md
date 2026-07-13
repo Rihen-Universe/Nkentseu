@@ -7,6 +7,100 @@
 
 Légende : ✅ fait · 🟡 partiel · ⬜ à faire.
 
+---
+
+## 🧩 Widgets réutilisables — OÙ ça vit (cartographie, décidée 2026-07-12)
+
+**Constat** : plusieurs widgets ont été RÉIMPLÉMENTÉS à l'app (bugs de traversée
+d'événements, duplication : DEUX sélecteurs de dossier). Le moteur possède déjà
+les PRIMITIVES. Règle : **ne plus réimplémenter — réutiliser/consolider**.
+
+### Ce qui existe DÉJÀ dans NKGui (`Kernel/Runtime/NKGui/src/NKGui/Widgets/NkGuiWidgets.h`) — primitives bas niveau, thémées :
+- **Menus/popups** : `BeginPopupMenu`/`EndPopupMenu`, `OpenPopupAt`, `MenuItem`,
+  `BeginMenu`, `Separator`, `BeginCombo`. Pile de popups avec **occlusion d'input**
+  (`popupRects`/`popupDepth`, respectée par `ItemHoverable`).
+- **Champs texte** : `InputText`, `InputTextEx`, `InputTextMultiline`.
+- **Listes** : `Selectable`, `SelectableEditable`, `ListBox`.
+- Thème = `NkGuiTheme` (couleurs) + `NkGuiSyntax` → **personnalisable** par l'utilisateur.
+
+### Réimplémentations APP à retirer/migrer (dette) :
+- `NkCtxMenuDraw` (`Editor/NkTextDraw.h`) → menu ad hoc, NE registre PAS dans la
+  pile de popups → **traverse les événements**. À remplacer par un MANAGER de menu.
+- `NkOwEdit`/`NkOwEditA` (`Shell/NkOpenWs.h`) → champs texte ad hoc → utiliser `InputText*`.
+- **DEUX sélecteurs de dossier** : `NkOpenWsPanel` (`Shell/NkOpenWs.h`, launcher) +
+  picker `pickerTree` (`Shell/Dialogs.h`, SaveAs). À UNIFIER en un seul.
+
+### DÉCISION — où vivent les OUTILS réutilisables (managers) :
+- **NKEditorKit** (`Engine/NKEditorKit/`) : gestionnaires qui doivent être dessinés
+  AU-DESSUS des panneaux et gérer l'occlusion cross-panneaux (rôle du shell) :
+  - `NkPopupManager` — menu contextuel/déroulant demandé par un panneau, dessiné
+    par le shell APRÈS tous les panneaux, input réel, occlusion via le mécanisme
+    modal existant. **1 seul menu, thémé, personnalisable.**
+  - `NkModalManager` / fenêtres FLOTTANTES ou ANCRÉES (non modales) — cadre
+    déplaçable réutilisable (barre de titre + ✕ + drag), au choix flottant/docké.
+  - `NkFilePicker` — sélecteur de fichier ET dossier UNIQUE (mode file/folder),
+    bâti sur les primitives NKGui, présentable en fenêtre flottante ou panneau
+    docké. Absorbe `NkOpenWsPanel` + le picker SaveAs (a besoin de NKFileSystem,
+    que NKGui n'a PAS → ne peut PAS vivre dans NKGui).
+- **NKGui** : reste la couche de PRIMITIVES (menus/texte/listes/occlusion). Les
+  managers NKEditorKit l'utilisent pour dessiner.
+
+**Personnalisation** = uniquement design + couleurs (thème NKGui + hooks de style
+des managers) ; la logique est unique et partagée.
+
+**Plan de migration (phasé, faible risque)** : (1) `NkPopupManager` shell-level +
+migrer le menu de l'explorateur (corrige la traversée) ; (2) `NkFilePicker` unifié
+(remplace NkRootPicker + les 2 pickers) ; (3) champs texte → `InputText*` ;
+(4) retrait de la dette (`NkCtxMenuDraw`, `NkOwEdit`).
+
+### ✅ Dette traitée (2026-07-12) :
+- **`NkCtxMenu` + `NkCtxMenuDraw` → `Engine/NKEditorKit/src/NKEditorKit/NkEditorContextMenu.h`**
+  (commit `4657771`). Widget moteur réutilisable (scroll V/H, sous-menus, thème,
+  **occlusion « modal léger »** : consomme le clic quand la souris est dedans — la
+  « traversée d'événements » était déjà réglée). 8 appelants NKCode ré-exportés.
+- **`NkDirBrowserState` → `NkDirBrowser.h`** (commit `2c06612`) : cœur de navigation
+  du launcher (curDir + historique + dossiers connus) ; `NkOpenWsState` en dérive.
+- **Retrait dette morte** (commit `c651b9b`) : picker dormant du shell + `NkRootPicker.h`.
+- **⏳ `NkOwEdit` — À FUSIONNER (tâche dédiée)** : champ PLUS riche que
+  `NkOverlayTextField` (masquage mot de passe, `leftPad` icône, caret par-champ, menu
+  contextuel clic-droit `NkTxtMenu` intégré) et couplé à `NkUi`. Le remplacer
+  régresserait des features → il faut FUSIONNER les deux en un seul champ moteur
+  (porter hors `NkUi`, absorber masked/leftPad + menu). Mini-projet à part, non fait.
+
+### ✅ AVANCEMENT (2026-07-12) — briques posées dans NKEditorKit :
+- **`Engine/NKEditorKit/src/NKEditorKit/NkEditorTextField.h`** — `NkOverlayTextField`
+  (champ mono-ligne complet : caret, sélection, copier/couper/coller, double-clic)
+  DÉPLACÉ de l'app → widget moteur réutilisable. NkTextDraw.h le ré-exporte pour
+  les 23 appelants historiques. Commit `3b6cd29`.
+- **`Engine/NKEditorKit/src/NKEditorKit/NkFilePicker.h`** — `NkFilePickerState` =
+  **cœur RÉUTILISABLE du picker** (extraction phase 1) : ÉTAT (arborescence, chemin,
+  scroll, fenêtre déplaçable, menu/renommage) + NAVIGATION filesystem (BuildPickerTree,
+  TogglePickerNode, PickerCreateFolder, PickBeginRename/Commit, PickDelete,
+  OpenPickerBase, ScanPickerFiles, PickerGoto/Up/Enter/Cancel). **Zéro dépendance
+  NkCodeState** (comparaison de chemins `PathIsAncestor` inlinée). `NkCodeDialogs`
+  en **dérive** (`: public NkFilePickerState`) et SPÉCIALISE : le RENDU
+  (`DrawFolderPicker`), les ACTIONS de confirmation (`PickerConfirm` → DoLoad /
+  wsDir / loadDir / pickedFolder), l'assistant de **scaffolding C++** (`newFile`,
+  `scafKind`, `DoScaffoldCreate`, `GenCode`) — 100 % NKCode. Logique DÉPLACÉE (pas
+  réécrite) → comportement identique. Commit `38b21a6`.
+- **✅ PHASE 2 (2026-07-12, commit `a205f03`)** — le RENDU est monté dans le moteur :
+  `NkDrawFilePicker(ctx, NkFilePickerState&, NkFilePickerStyle&)` dans
+  `NkFilePicker.h`. Frame modal + barre de titre déplaçable + champ chemin + arbre +
+  scrollbars V/H + création de dossier + liste de fichiers + menu contextuel
+  (nouveau/renommer/supprimer) — **tout générique**. Confirmation par **RÉSULTAT**
+  (`fp.pickerConfirmed`/`pickerCancelled` + `pickerResult*`) : l'app poll et route.
+  **`NkFilePickerStyle`** = TOUTES les couleurs → personnalisation = design/couleurs
+  (l'app passe scrollbars theme-aware). Spécialisation NKCode via **surcharges
+  virtuelles** (`NkFilePickerState` est polymorphe) : `PickerWindowHeight`,
+  `PickerBottomReserve`, `PickerExtraHeight`, `DrawPickerExtra` (assistant scaffolding
+  C++ = SEUL morceau NKCode restant, dessiné dans la région app), `PickerConfirmLabel`,
+  `PickerConfirmEnabled`, `PickerClearExtraFocus`. NKCode `DrawFolderPicker` = wrapper
+  ~25 lignes (style + routage `DoLoad`/`DoSaveHere`/`DoScaffoldCreate`/`RoutePickerResult`).
+- **RESTE (phase 3)** : absorber `NkOpenWsPanel` (couche workspace .jenga restant côté
+  NKCode) dans le picker moteur ; factoriser le cadre modal déplaçable (barre de titre
+  + drag, dupliqué) en widget `NkModalFrame` ; retirer la dette (`NkRootPicker`,
+  `NkCtxMenuDraw`, `NkOwEdit`).
+
 > ### 📣 RÈGLE PERMANENTE — Communiquer CHAQUE évolution (depuis 2026-07-05)
 > Toute évolution notable de NKCode (feature livrée, jalon, fix visible) doit produire,
 > **en plus du code** : (1) des **publications réseaux** (LinkedIn FR+EN, X, Facebook,

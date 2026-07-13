@@ -51,7 +51,7 @@ with project("NKCode"):
 
     nkentseudependson(
         ["NKEditorKit", "NKCanvas", "NKGui", "NKWindow", "NKEvent", "NKGlad",
-         "NKFont", "NKImage", "NKFileSystem", "NKThreading", "NKLogger", "NKMath", "NKTime",
+         "NKFont", "NKImage", "NKAudio", "NKMedia", "NKFileSystem", "NKThreading", "NKLogger", "NKMath", "NKTime",
          "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
         extra_includes=["src", "src/NKCode", "%{NKGlad.location}/include"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
@@ -76,6 +76,7 @@ with project("NKCode"):
             "mf", "mfplat", "mfreadwrite", "mfuuid",
             "uuid", "ole32", "dinput8", "dxguid",
             "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            "winmm", "avrt",  # NKAudio : backend WASAPI (lecteur audio)
         ]
         if _WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
@@ -86,13 +87,13 @@ with project("NKCode"):
         windowedapp()
         usetoolchain("clang-native")
         defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
-        links(["pthread", "X11", "Xext", "GL"])
+        links(["pthread", "X11", "Xext", "GL", "asound", "m"]) # asound/m : NKAudio (backend ALSA)
 
     # ===== macOS ==================================================================
     with filter("system:macOS"):
         windowedapp()
         usetoolchain("clang-native")
-        frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+        frameworks(["Cocoa", "QuartzCore", "OpenGL", "AudioToolbox", "CoreAudio", "AudioUnit"]) # NKAudio (CoreAudio)
 
     # ===== iOS ====================================================================
     # Rendu via Metal (NkContextFactory sélectionne automatiquement le backend
