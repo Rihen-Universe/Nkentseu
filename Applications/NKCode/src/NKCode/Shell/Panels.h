@@ -2991,9 +2991,25 @@ namespace nkentseu {
 							dl.AddImage(ico, ir, {0.f, 0.f}, {1.f, 1.f}, sc);
 						else
 							dl.AddRectFilled({ir.x + 2.f, ir.y + 2.f, 10.f, 10.f}, sc, 3.f);
-						if (ctx.font && ctx.font->Valid())
+						if (mRenaming == i) { // renommage inline (double-clic)
+							const NkRect fr = {row.x + 28.f, y + 2.f, row.w - 54.f, h - 6.f};
+							mRenameRect = fr;
+							editorkit::NkOverlayTextField(ctx, dl, ctx.font, fr, mRenameBuf, (int32)sizeof(mRenameBuf),
+														  true);
+						} else if (ctx.font && ctx.font->Valid()) {
 							dl.AddText(ctx.font->Face(), ctx.font->TexId(), {row.x + 32.f, y + by - 1.f},
 								   mTerm[i].label.CStr(), active ? ctx.theme.text : ctx.theme.textDisabled);
+							if (hov && ctx.input.mouseDoubleClicked[0] && ctx.popupDepth == 0) {
+								if (mRenaming >= 0 && mRenaming != i && mRenameBuf[0])
+									mTerm[mRenaming].label = NkString(mRenameBuf);
+								mRenaming = i;
+								mRenameArmed = false;
+								int32 k = 0;
+								for (const char *c = mTerm[i].label.CStr(); *c && k < 127; ++c)
+									mRenameBuf[k++] = *c;
+								mRenameBuf[k] = 0;
+							}
+						}
 						// Corbeille (fermer) au survol / actif, si plus d'un terminal.
 						bool closeClicked = false;
 						if ((hov || active) && AliveCount() > 1) {
@@ -3014,16 +3030,44 @@ namespace nkentseu {
 								closeClicked = true;
 							}
 						}
-						if (hov && !closeClicked && ctx.input.mouseClicked[0] && ctx.popupDepth == 0)
+						if (hov && !closeClicked && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) {
+							if (mRenaming >= 0 && mRenaming != i) { // clic autre ligne -> valide le renommage
+								if (mRenameBuf[0])
+									mTerm[mRenaming].label = NkString(mRenameBuf);
+								mRenaming = -1;
+							}
 							mActive = i;
+						}
 						y += h;
 					}
 					if (toClose >= 0)
 						CloseTerm(toClose);
+					// Renommage : Entree valide, Echap annule.
+					if (mRenaming >= 0) {
+						if (mRenaming >= 8 || !mTerm[mRenaming].alive)
+							mRenaming = -1;
+						else if (ctx.input.KeyPressed(nkgui::NkGuiKey::Enter)) {
+							if (mRenameBuf[0])
+								mTerm[mRenaming].label = NkString(mRenameBuf);
+							mRenaming = -1;
+						} else if (ctx.input.KeyPressed(nkgui::NkGuiKey::Escape))
+							mRenaming = -1;
+						else if (mRenameArmed && ctx.input.mouseClicked[0] && !ctx.input.mouseDoubleClicked[0] &&
+								 !NkGuiRectContains(mRenameRect, ctx.input.mousePos)) {
+							if (mRenameBuf[0]) // clic HORS du champ -> valide
+								mTerm[mRenaming].label = NkString(mRenameBuf);
+							mRenaming = -1;
+						}
+						mRenameArmed = (mRenaming >= 0); // arme pour la frame suivante
+					}
 				}
 
 				Term mTerm[8];
 				int32 mActive = 0;
+				int32 mRenaming = -1;	   // terminal en cours de renommage (double-clic) ; -1 = aucun
+				char mRenameBuf[128] = {}; // saisie du nouveau nom
+				NkRect mRenameRect{};	   // rect du champ (pour valider au clic HORS du champ)
+				bool mRenameArmed = false; // vrai des la 2e frame (evite de valider sur le double-clic d'ouverture)
 				int32 mNewShell = 0;	   // index dans mShells (0 = powershell)
 				int32 mDefShell = SH_PWSH; // TYPE du terminal par defaut (preference persistee)
 				NkString mDefDistro;	   // distro WSL du defaut (si SH_WSL)
