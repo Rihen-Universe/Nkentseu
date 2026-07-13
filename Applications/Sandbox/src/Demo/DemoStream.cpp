@@ -285,7 +285,7 @@ namespace nkentseu {
 			if (auto *overlay = ctx.renderer->GetOverlay()) {
 				overlay->BeginOverlay(ctx.renderer->GetCmd(), ctx.width, ctx.height);
 				overlay->DrawText({20.f, 35.f}, "DemoStream : streaming REEL  |  API : %s", NkGraphicsApiName(ctx.api));
-				overlay->DrawText({20.f, 55.f}, "GRIS=unloaded  ORANGE=pending  JAUNE=loading  TEXTURE=resident");
+				overlay->DrawText({20.f, 55.f}, "GRIS=unloaded  ORANGE=pending  JAUNE=loading  FLOU=basse res (loin)  NET=pleine res (pres)");
 				overlay->DrawText({20.f, 75.f}, "resident:%u  pending:%u  loading:%u  evicted:%u  failed:%u",
 								  st->stream.GetResidentCount(), st->stream.GetPendingCount(),
 								  st->stream.GetLoadingCount(), st->stream.GetEvictedCount(),
