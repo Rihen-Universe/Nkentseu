@@ -1073,6 +1073,14 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Applications/NkAudioPlayer/NkAudioPlayer.jenga"):
+
+        pass
+
+    with include("Applications/NkVideoPlayer/NkVideoPlayer.jenga"):
+
+        pass
+
     with include("Applications/NKOpusRef/NKOpusRef.jenga"):
 
         pass
