@@ -53,11 +53,13 @@ namespace nkentseu {
 				FreePayload(r);
 			mResults.Clear();
 			mJobsIn.Clear();
-			// Raffinements en attente : pleine res jamais uploadee.
-			for (auto &pr : mRefines)
-				if (pr.imgFull)
-					memory::NkGetDefaultAllocator().Delete(pr.imgFull);
-			mRefines.Clear();
+			// Basse res CPU gardees par les entries.
+			for (auto &kv : mEntries) {
+				if (kv.Second.lowPayload) {
+					kv.Second.lowPayload->Free();
+					kv.Second.lowPayload = nullptr;
+				}
+			}
 			// Evince toutes les ressources residentes (rend la VRAM).
 			for (auto &kv : mEntries) {
 				NkStreamEntry &e = kv.Second;
@@ -210,6 +212,7 @@ namespace nkentseu {
 			LoadResult r;
 			r.id = job.id;
 			r.isMesh = job.isMesh;
+			r.fullOnly = job.fullOnly;
 			if (job.isMesh) {
 				auto *md = memory::NkGetDefaultAllocator().New<NkGLTFMeshData>();
 				NkString lower = job.path;
@@ -236,8 +239,9 @@ namespace nkentseu {
 					r.img = img;
 					r.ok = true;
 					// V2 mip streaming : version basse resolution (floue) fabriquee
-					// ICI (worker, CPU) — uploadee EN PREMIER cote main thread.
-					if (mCfg.enableMipStreaming && mCfg.lowResMax > 0) {
+					// ICI (worker, CPU). Pas pour les jobs de REFINE (pleine res
+					// seule : la basse est deja gardee en RAM cote entry).
+					if (!job.fullOnly && mCfg.enableMipStreaming && mCfg.lowResMax > 0) {
 						const int32 w = img->Width(), h = img->Height();
 						const int32 side = w > h ? w : h;
 						if ((uint32)side > mCfg.lowResMax * 2) { // inutil si deja petite
@@ -273,51 +277,64 @@ namespace nkentseu {
 
 		// ── Main thread ──────────────────────────────────────────────────────────
 
-		// V2 mip streaming : upgrades basse -> pleine resolution quand la camera
-		// est a moins de refineDist. Budget d'uploads partage avec les loads.
+		// V2 mip streaming pilote par la DISTANCE (hysterese anti ping-pong) :
+		//   dist <= refineDist          -> pleine resolution (re-decode worker)
+		//   dist >  refineDist * 1.25   -> retrogradation basse res (instantanee,
+		//                                  la basse res CPU est gardee en RAM)
 		void NkStreamingSystem::TickRefines(uint32 &budgetJobs) {
 			const float32 refineDist = mCfg.streamInDist * mCfg.refineDistMult;
-			for (uint32 i = 0; i < (uint32)mRefines.Size();) {
-				PendingRefine &pr = mRefines[i];
-				auto *e = mEntries.Find(pr.id);
-				// Entree disparue ou evincee : la pleine res n'a plus de cible.
-				if (!e || e->state != NkStreamState::NK_RESIDENT || e->residentMip == 0) {
-					if (pr.imgFull)
-						memory::NkGetDefaultAllocator().Delete(pr.imgFull);
-					mRefines.Erase(mRefines.Begin() + i);
+			const float32 downDist = refineDist * 1.25f;
+			for (auto &kv : mEntries) {
+				NkStreamEntry &e = kv.Second;
+				if (e.isMesh || e.state != NkStreamState::NK_RESIDENT || !e.lowPayload)
+					continue;
+				e.targetMip = (e.dist <= refineDist) ? 0u : 1u;
+
+				// Remontee basse -> pleine : re-decode sur le worker (fullOnly).
+				if (e.residentMip == 1 && e.targetMip == 0 && !e.refineInFlight && budgetJobs > 0) {
+					e.refineInFlight = true;
+					LoadJob job;
+					job.id = e.id;
+					job.path = e.sourcePath;
+					job.isMesh = false;
+					job.fullOnly = true;
+					if (mCfg.async) {
+						{
+							threading::NkScopedLockMutex lock(mJobMutex);
+							mJobsIn.PushBack(job);
+						}
+						mJobCv.NotifyOne();
+					} else {
+						LoadResult r = DoLoadCPU(job);
+						FinalizeLoad(r);
+					}
+					--budgetJobs;
 					continue;
 				}
-				e->targetMip = (e->dist <= refineDist) ? 0u : 1u;
-				if (e->targetMip != 0 || budgetJobs == 0) {
-					++i;
-					continue; // pas encore assez proche, ou plus de budget frame
+
+				// Retrogradation pleine -> basse : upload direct du payload RAM.
+				if (e.residentMip == 0 && e.dist > downDist && mTexLib && budgetJobs > 0) {
+					NkTextureCreateDesc td;
+					td.pixels = e.lowPayload->Pixels();
+					td.width = (uint32)e.lowPayload->Width();
+					td.height = (uint32)e.lowPayload->Height();
+					td.srgb = true;
+					td.genMips = true;
+					td.debugName = e.sourcePath.CStr();
+					NkTexHandle low = mTexLib->Create(td);
+					if (low.IsValid()) {
+						if (e.tex.IsValid())
+							mTexLib->Release(e.tex); // libere la pleine res GPU
+						mUsedBytes = (mUsedBytes >= e.sizeBytes) ? mUsedBytes - e.sizeBytes : 0;
+						e.tex = low;
+						e.sizeBytes = (uint64)td.width * td.height * 4ULL * 4ULL / 3ULL;
+						mUsedBytes += e.sizeBytes;
+						e.residentMip = 1;
+						if (mCallback)
+							mCallback(e.id, NkStreamState::NK_RESIDENT); // retrogradee
+						--budgetJobs;
+					}
 				}
-				// Upload pleine resolution + swap du handle (l'appelant re-binde
-				// en surveillant GetTexture). L'ancienne basse res est liberee.
-				NkTextureCreateDesc td;
-				td.pixels = pr.imgFull->Pixels();
-				td.width = (uint32)pr.imgFull->Width();
-				td.height = (uint32)pr.imgFull->Height();
-				td.srgb = true;
-				td.genMips = true;
-				td.debugName = e->sourcePath.CStr();
-				NkTexHandle full = mTexLib ? mTexLib->Create(td) : NkTexHandle{};
-				if (full.IsValid()) {
-					const uint64 fullBytes = (uint64)td.width * td.height * 4ULL * 4ULL / 3ULL;
-					if (e->tex.IsValid() && mTexLib)
-						mTexLib->Release(e->tex); // libere la basse res
-					mUsedBytes = (mUsedBytes >= e->sizeBytes) ? mUsedBytes - e->sizeBytes : 0;
-					e->tex = full;
-					e->sizeBytes = fullBytes;
-					mUsedBytes += fullBytes;
-					e->residentMip = 0;
-					if (mCallback)
-						mCallback(pr.id, NkStreamState::NK_RESIDENT); // raffinee
-					--budgetJobs;
-				}
-				memory::NkGetDefaultAllocator().Delete(pr.imgFull);
-				pr.imgFull = nullptr;
-				mRefines.Erase(mRefines.Begin() + i);
 			}
 		}
 
@@ -397,6 +414,36 @@ namespace nkentseu {
 				}
 			}
 			auto *e = mEntries.Find(r.id);
+			// ── Resultat d'un job de REFINE (remontee basse -> pleine res) ───
+			if (r.fullOnly) {
+				if (e)
+					e->refineInFlight = false;
+				if (!e || e->state != NkStreamState::NK_RESIDENT || e->residentMip != 1 || !r.ok || !mTexLib) {
+					FreePayload(r); // entry evincee/disparue entre-temps : on jette
+					return;
+				}
+				NkTextureCreateDesc td;
+				td.pixels = r.img->Pixels();
+				td.width = (uint32)r.img->Width();
+				td.height = (uint32)r.img->Height();
+				td.srgb = true;
+				td.genMips = true;
+				td.debugName = e->sourcePath.CStr();
+				NkTexHandle full = mTexLib->Create(td);
+				if (full.IsValid()) {
+					if (e->tex.IsValid())
+						mTexLib->Release(e->tex); // libere la basse res GPU
+					mUsedBytes = (mUsedBytes >= e->sizeBytes) ? mUsedBytes - e->sizeBytes : 0;
+					e->tex = full;
+					e->sizeBytes = (uint64)td.width * td.height * 4ULL * 4ULL / 3ULL;
+					mUsedBytes += e->sizeBytes;
+					e->residentMip = 0;
+					if (mCallback)
+						mCallback(r.id, NkStreamState::NK_RESIDENT); // raffinee
+				}
+				FreePayload(r);
+				return;
+			}
 			if (!e || e->state != NkStreamState::NK_LOADING) {
 				// Unregister pendant le vol : payload a liberer.
 				FreePayload(r);
@@ -434,12 +481,14 @@ namespace nkentseu {
 				// +33% pour la chaine de mips.
 				realBytes = (uint64)td.width * td.height * 4ULL * 4ULL / 3ULL;
 				if (e->tex.IsValid() && progressive) {
-					e->residentMip = 1; // basse res residente, pleine res en attente
-					PendingRefine pr;
-					pr.id = r.id;
-					pr.imgFull = r.img;
-					r.img = nullptr; // possession transferee a mRefines
-					mRefines.PushBack(pr);
+					e->residentMip = 1; // basse res residente (floue)
+					// La basse res CPU est GARDEE dans l'entry : la retrogradation
+					// (loin) sera instantanee. La pleine res sera RE-DECODEE par
+					// un job de refine quand la camera approchera (TickQueue).
+					if (e->lowPayload)
+						e->lowPayload->Free();
+					e->lowPayload = r.imgLow;
+					r.imgLow = nullptr; // possession transferee a l'entry
 				} else if (e->tex.IsValid()) {
 					e->residentMip = 0;
 				}
@@ -498,6 +547,12 @@ namespace nkentseu {
 				mMesh->Release(e->mesh);
 			e->tex = {};
 			e->mesh = {};
+			if (e->lowPayload) {
+				e->lowPayload->Free(); // basse res CPU rendue avec l'eviction
+				e->lowPayload = nullptr;
+			}
+			e->refineInFlight = false;
+			e->residentMip = 0;
 			mUsedBytes = (mUsedBytes >= e->sizeBytes) ? mUsedBytes - e->sizeBytes : 0;
 			++mEvictCount;
 			e->state = NkStreamState::NK_UNLOADED;

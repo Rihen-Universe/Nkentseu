@@ -91,6 +91,11 @@ namespace nkentseu {
 				NkTexHandle tex;		 // handle REEL une fois resident (texture)
 				NkMeshHandle mesh;		 // handle REEL une fois resident (mesh)
 				bool loadFailed = false; // vrai si la derniere tentative a echoue
+				// V2 mip streaming : version basse resolution GARDEE en RAM
+				// (quelques dizaines de Ko) -> la RETROGRADATION loin est
+				// instantanee ; la remontee en pleine res re-decode (worker).
+				NkImage *lowPayload = nullptr; // possede (Free() de NkImage::Resize)
+				bool refineInFlight = false;   // re-decode pleine res en cours
 		};
 
 		// =========================================================================
@@ -177,6 +182,7 @@ namespace nkentseu {
 						uint64 id = 0;
 						NkString path;
 						bool isMesh = false;
+						bool fullOnly = false; // refine : re-decode pleine res seule
 				};
 
 				// Resultat du worker : payload CPU decode, upload GPU fait au Update.
@@ -184,16 +190,10 @@ namespace nkentseu {
 						uint64 id = 0;
 						bool isMesh = false;
 						bool ok = false;
+						bool fullOnly = false; // resultat d'un job de refine
 						NkImage *img = nullptr;				// texture PLEINE resolution (RGBA8)
 						NkImage *imgLow = nullptr;			// version basse resolution (mip streaming)
 						NkGLTFMeshData *meshData = nullptr; // mesh parse
-				};
-
-				// Raffinement en attente : la basse resolution est a l'ecran, la
-				// pleine resolution (payload CPU) attend que la camera approche.
-				struct PendingRefine {
-						uint64 id = 0;
-						NkImage *imgFull = nullptr;
 				};
 
 				NkIDevice *mDevice = nullptr;
@@ -219,12 +219,10 @@ namespace nkentseu {
 				NkVector<LoadJob> mJobsIn;		 // protegee par mJobMutex
 				NkVector<LoadResult> mResults;	 // protegee par mJobMutex
 				bool mStop = false;				 // protegee par mJobMutex
-				NkVector<PendingRefine> mRefines; // main thread uniquement
-
 				void WorkerLoop();
 				LoadResult DoLoadCPU(const LoadJob &job) const; // pur CPU, thread-safe
 				void FreePayload(LoadResult &r);
-				void TickRefines(uint32 &budgetJobs); // upgrades basse -> pleine res
+				void TickRefines(uint32 &budgetJobs); // upgrades/downgrades de mip par distance
 
 				void TickQueue(float32 dt);
 				void StartLoadJob(uint64 id);
