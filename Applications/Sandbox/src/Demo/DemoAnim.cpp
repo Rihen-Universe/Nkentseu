@@ -174,6 +174,15 @@ namespace nkentseu {
 										 NkAnimStateMachine::NkCondKind::FLOAT_GREATER, 0.5f, 0.2f);
 						sm.AddTransition(sWalk, sIdle, NkString("speed"),
 										 NkAnimStateMachine::NkCondKind::FLOAT_LESS, 0.2f, 0.2f);
+						// Evenements de transition : compte les debuts et fins.
+						int32 evStart = 0;
+						int32 evEnd = 0;
+						sm.SetTransitionCallback([&evStart, &evEnd](const NkString &, const NkString &, bool fin) {
+							if (fin)
+								evEnd++;
+							else
+								evStart++;
+						});
 						sm.Update(0.016f);
 						const bool ok1 = sm.GetCurrentState() == sIdle;
 						sm.SetFloat(NkString("speed"), 1.f);
@@ -184,8 +193,25 @@ namespace nkentseu {
 						for (int i = 0; i < 20; i++)
 							sm.Update(0.016f);
 						const bool ok3 = sm.GetCurrentState() == sIdle;
-						logger.Info("[DemoAnim] SM self-test : start_idle={0} vers_walk={1} retour_idle={2}\n",
-									ok1 ? 1 : 0, ok2 ? 1 : 0, ok3 ? 1 : 0);
+						const bool okEv = (evStart == 2 && evEnd == 2);
+						logger.Info("[DemoAnim] SM self-test : start_idle={0} vers_walk={1} retour_idle={2} "
+									"events(start={3} end={4} ok={5})\n",
+									ok1 ? 1 : 0, ok2 ? 1 : 0, ok3 ? 1 : 0, evStart, evEnd, okEv ? 1 : 0);
+
+						// Self-test blend 2D : 3 clips a 3 points, parametre au
+						// barycentre -> pose melangee non vide ; hit exact -> pur.
+						NkBlendTree2D bt2;
+						bt2.AddClip(st->blendClips[0], {0.f, 0.f});
+						bt2.AddClip(st->blendClips[1], {1.f, 0.f});
+						bt2.AddClip(st->blendClips.Size() >= 3 ? st->blendClips[2] : st->blendClips[1], {0.f, 1.f});
+						bt2.SetParameter({0.4f, 0.3f});
+						bt2.Update(0.016f);
+						const bool ok2d1 = !bt2.GetState().boneMatrices.Empty() && !bt2.GetLocalPose().Empty();
+						bt2.SetParameter({0.f, 0.f}); // hit exact clip 0
+						bt2.Update(0.016f);
+						const bool ok2d2 = !bt2.GetState().boneMatrices.Empty();
+						logger.Info("[DemoAnim] BLEND2D self-test : mix={0} exact={1}\n", ok2d1 ? 1 : 0,
+									ok2d2 ? 1 : 0);
 					}
 				}
 			}

@@ -107,8 +107,15 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    par paramètres bool/float + seuil, crossfade, any-state) + helper partagé
    `NkBlendLocalTRS`. Validé : Fox Survey/Walk/Run en fondu continu (captures — galop
    plein à param 1.94, mix cohérent à 0.57) + self-test SM 3/3 (`NK_ANIM_SMTEST=1`).
-   Demo : `NK_SKIN_MODEL=Resources/Models/Fox/Fox.glb --demo=16`. Reste v2 : blend 2D
-   (direction+vitesse), events de transition, SM crossfade bone-local. 9) Metal + Software.
+   Demo : `NK_SKIN_MODEL=Resources/Models/Fox/Fox.glb --demo=16`.
+   ✅ **v2 COMPLÈTE (2026-07-13)** : **NkBlendTree2D** (N clips à des points 2D,
+   pondération inverse-distance Shepard p=2 + hit exact, blend bone-local CUMULATIF
+   avant FK, phases synchro durée pondérée) ; **SM crossfade BONE-LOCAL** (les états
+   clip/tree exposent leur pose locale pré-FK via GetLocalPose/GetSkeletonClip —
+   blend TRS par os puis UN FK ; fallback matriciel sinon) ; **événements de
+   transition** (`SetTransitionCallback(from, to, finished)` au déclenchement et à
+   la fin du fondu). Self-tests 5/5 (`NK_ANIM_SMTEST=1` : SM 3/3 + events 2+2 +
+   blend2D mix/exact). 9) Metal + Software.
    10) Phase T.1 bake (nouveau chantier) ; T.2 graphe matériaux = ATTEND la coordination NKGraph.
 
 ## 🧭 Éditeur / Viewport (chantier 2026-07, cap « famille d'éditeurs »)
