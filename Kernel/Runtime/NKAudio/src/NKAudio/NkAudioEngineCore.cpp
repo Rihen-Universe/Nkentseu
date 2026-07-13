@@ -415,7 +415,10 @@ namespace nkentseu {
 					for (int32 v = 0; v < config.maxVoices; ++v) {
 						Voice &voice = voices[v];
 
-						if (voice.state == VoiceState::FREE || voice.state == VoiceState::FINISHED)
+						// PAUSED inclus : une voix en pause ne doit NI avancer NI etre mixee
+						// (sinon le son continue alors que le curseur est fige).
+						if (voice.state == VoiceState::FREE || voice.state == VoiceState::FINISHED ||
+							voice.state == VoiceState::PAUSED)
 							continue;
 
 						// Calcul spatial
@@ -745,6 +748,14 @@ namespace nkentseu {
 				mImpl->backend = nullptr;
 				return false;
 			}
+
+			// Le backend adopte la frequence REELLE du device (ex. WASAPI shared-mode
+			// force le mix format : souvent 44100 alors qu'on demande 48000). On
+			// resynchronise config.sampleRate dessus : sinon le ratio de reechantillonnage
+			// (rateRatio = s.sampleRate / config.sampleRate) du mixage utilise une mauvaise
+			// cadence -> lecture au ralenti/accelere. Complete le fix rateRatio.
+			if (mImpl->backend->GetSampleRate() > 0)
+				mImpl->config.sampleRate = mImpl->backend->GetSampleRate();
 
 			mImpl->backend->Start();
 			mImpl->masterVolume = config.masterVolume;
