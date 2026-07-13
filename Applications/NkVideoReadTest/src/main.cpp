@@ -46,47 +46,129 @@ int main(int argc, char **argv) {
 		size_t rd2 = fread(buf.Data(), 1, (size_t)n, f);
 		fclose(f);
 		(void)rd2;
-		NkH264Frame fr;
-		if (!NkH264Decoder::DecodeIdrFrame(buf.Data(), (usize)n, fr)) {
-			printf("  [KO] DecodeIdrFrame a echoue (CABAC/inter/multi-slice non geres ?)\n");
-			return 1;
+		// Split en NALs (start codes). Collecte SPS/PPS + les slices (type 1/5) dans l'ordre.
+		NkVector<nk_uint8> sps, pps;
+		struct Slice {
+				usize off, len;
+		};
+		NkVector<Slice> slices;
+		{
+			usize i = 0, prev = (usize)-1;
+			auto isSC = [&](usize p) {
+				return p + 2 < (usize)n && buf[p] == 0 && buf[p + 1] == 0 && buf[p + 2] == 1;
+			};
+			while (i + 2 < (usize)n) {
+				if (isSC(i)) {
+					const usize ns = i + 3;
+					if (prev != (usize)-1) {
+						usize e = i;
+						while (e > prev && buf[e - 1] == 0)
+							--e;
+						const int32 t = buf[prev] & 0x1F;
+						if (t == 7) {
+							sps.Clear();
+							for (usize k = prev; k < e; ++k)
+								sps.PushBack(buf[k]);
+						} else if (t == 8) {
+							pps.Clear();
+							for (usize k = prev; k < e; ++k)
+								pps.PushBack(buf[k]);
+						} else if (t == 5 || t == 1) {
+							Slice s;
+							s.off = prev;
+							s.len = e - prev;
+							slices.PushBack(s);
+						}
+					}
+					prev = ns;
+					i = ns;
+				} else
+					++i;
+			}
+			if (prev != (usize)-1) {
+				const int32 t = buf[prev] & 0x1F;
+				if (t == 5 || t == 1) {
+					Slice s;
+					s.off = prev;
+					s.len = (usize)n - prev;
+					slices.PushBack(s);
+				}
+			}
 		}
-		printf("  decode IDR : luma %dx%d (crop %dx%d), chroma %dx%d\n", fr.lumaW, fr.lumaH, fr.cropW, fr.cropH,
-			   fr.chromaW, fr.chromaH);
-		if (argc >= 4) {
-			FILE *rf = fopen(argv[3], "rb");
+		printf("  %d slices (SPS %llu o, PPS %llu o)\n", (int)slices.Size(), (unsigned long long)sps.Size(),
+			   (unsigned long long)pps.Size());
+
+		FILE *rf = (argc >= 4) ? fopen(argv[3], "rb") : nullptr;
+		NkH264Frame prev, cur;
+		bool havePrev = false;
+		uint64 totalDiffs = 0;
+		for (uint64 si = 0; si < slices.Size(); ++si) {
+			NkVector<nk_uint8> ab;
+			auto sc = [&]() {
+				ab.PushBack(0);
+				ab.PushBack(0);
+				ab.PushBack(0);
+				ab.PushBack(1);
+			};
+			sc();
+			for (uint64 k = 0; k < sps.Size(); ++k)
+				ab.PushBack(sps[k]);
+			sc();
+			for (uint64 k = 0; k < pps.Size(); ++k)
+				ab.PushBack(pps[k]);
+			sc();
+			for (usize k = 0; k < slices[si].len; ++k)
+				ab.PushBack(buf[slices[si].off + k]);
+
+			if (!NkH264Decoder::DecodeFrame(ab.Data(), (usize)ab.Size(), havePrev ? &prev : nullptr, cur)) {
+				printf("  frame %d : [KO] DecodeFrame echoue (P sub-part / B / CABAC ?)\n", (int)si);
+				break;
+			}
+			uint64 diffs = 0;
+			double sse = 0.0;
+			uint64 total = 0;
 			if (rf) {
-				const uint64 yN = (uint64)fr.cropW * fr.cropH;
-				const uint64 cN = (uint64)(fr.cropW / 2) * (fr.cropH / 2);
+				const uint64 yN = (uint64)cur.cropW * cur.cropH;
+				const uint64 cN = (uint64)(cur.cropW / 2) * (cur.cropH / 2);
 				NkVector<nk_uint8> ref;
 				ref.Resize(yN + 2 * cN);
 				size_t got = fread(ref.Data(), 1, (size_t)(yN + 2 * cN), rf);
-				fclose(rf);
 				(void)got;
-				// Compare (crop) : Y, puis U, V.
-				uint64 diffs = 0, total = 0;
-				double sse = 0.0;
-				auto cmpPlane = [&](const uint8 *dec, int32 dw, int32 w, int32 h, const uint8 *r) {
+				auto cmp = [&](const uint8 *dec, int32 dw, int32 w, int32 h, const uint8 *r) {
 					for (int32 y = 0; y < h; ++y)
 						for (int32 x = 0; x < w; ++x) {
-							int32 a = dec[(usize)y * dw + x], b = r[(usize)y * w + x];
-							int32 d = a - b;
+							const int32 d = (int32)dec[(usize)y * dw + x] - (int32)r[(usize)y * w + x];
 							if (d)
 								++diffs;
 							sse += (double)d * d;
 							++total;
 						}
 				};
-				cmpPlane(fr.y.Data(), fr.lumaW, fr.cropW, fr.cropH, ref.Data());
-				cmpPlane(fr.cb.Data(), fr.chromaW, fr.cropW / 2, fr.cropH / 2, ref.Data() + yN);
-				cmpPlane(fr.cr.Data(), fr.chromaW, fr.cropW / 2, fr.cropH / 2, ref.Data() + yN + cN);
-				double psnr = (sse > 0.0) ? 10.0 * log10(255.0 * 255.0 * (double)total / sse) : 999.0;
-				printf("  vs ref.yuv : %llu/%llu pixels differents, PSNR=%.2f dB %s\n", (unsigned long long)diffs,
-					   (unsigned long long)total, psnr, (diffs == 0) ? "(BIT-EXACT !)" : "");
-				return (diffs == 0) ? 0 : 2;
+				cmp(cur.y.Data(), cur.lumaW, cur.cropW, cur.cropH, ref.Data());
+				cmp(cur.cb.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref.Data() + yN);
+				cmp(cur.cr.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref.Data() + yN + cN);
+				const double psnr = (sse > 0.0) ? 10.0 * log10(255.0 * 255.0 * (double)total / sse) : 999.0;
+				printf("  frame %d (%s) %dx%d : %llu diff, PSNR=%.2f %s\n", (int)si, (si == 0 ? "IDR" : "P"),
+					   cur.cropW, cur.cropH, (unsigned long long)diffs, psnr, diffs == 0 ? "(BIT-EXACT)" : "");
+				totalDiffs += diffs;
+			} else {
+				printf("  frame %d (%s) : decode OK %dx%d\n", (int)si, (si == 0 ? "IDR" : "P"), cur.cropW, cur.cropH);
 			}
+			// La frame courante devient la référence (clone des plans).
+			prev.y = cur.y;
+			prev.cb = cur.cb;
+			prev.cr = cur.cr;
+			prev.lumaW = cur.lumaW;
+			prev.lumaH = cur.lumaH;
+			prev.chromaW = cur.chromaW;
+			prev.chromaH = cur.chromaH;
+			prev.cropW = cur.cropW;
+			prev.cropH = cur.cropH;
+			havePrev = true;
 		}
-		return 0;
+		if (rf)
+			fclose(rf);
+		return (totalDiffs == 0) ? 0 : 2;
 	}
 
 	const char *path = argv[1];
