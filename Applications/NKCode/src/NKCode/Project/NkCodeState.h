@@ -61,8 +61,9 @@ namespace nkentseu {
 				int64 mediaSize = 0;		 // taille du fichier (octets, info)
 				bool IsMedia() const { return mediaKind != 0; }
 				// ── Markdown (.md) : preview rendu (par defaut) vs edition brute ──
-				bool mdPreview = true;	 // true = rendu formate, false = editeur texte
-				float32 mdScroll = 0.f;	 // defilement de la preview
+				bool mdPreview = true;	  // true = rendu formate, false = editeur texte
+				float32 mdScroll = 0.f;	  // defilement vertical de la preview (md/json/csv)
+				float32 mdScrollX = 0.f;  // defilement horizontal (table csv)
 
 				NkString Name() const {
 					return path.GetFileName();
