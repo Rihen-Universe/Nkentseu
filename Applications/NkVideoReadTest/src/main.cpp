@@ -6,6 +6,7 @@
 // =============================================================================
 #include "NKMedia/Video/NkVideoReader.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Decoder.h"
+#include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
 
 #include <cstdio>
 
@@ -21,8 +22,11 @@ int main(int argc, char **argv) {
 		printf("  [ %s ] NkVideoReader::SelfTest (AVI MJPEG round-trip)\n", ok ? "OK " : "KO");
 		bool okH264 = NkH264Decoder::SelfTest();
 		printf("  [ %s ] NkH264Decoder::SelfTest (NAL split + SPS + PPS + slice header I)\n", okH264 ? "OK " : "KO");
-		printf("=== %s ===\n", (ok && okH264) ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
-		return (ok && okH264) ? 0 : 1;
+		bool okCavlc = NkH264Cavlc::SelfTest();
+		printf("  [ %s ] NkH264Cavlc::SelfTest (encode->decode round-trip)\n", okCavlc ? "OK " : "KO");
+		bool all = ok && okH264 && okCavlc;
+		printf("=== %s ===\n", all ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
+		return all ? 0 : 1;
 	}
 
 	const char *path = argv[1];
