@@ -202,6 +202,15 @@ namespace nkentseu {
 					return mRenderer->UploadImageRGBA(id, pixels, w, h) ? id : 0;
 				}
 
+				// Re-uploade des pixels RGBA8 dans une texture DEJA allouee (meme texId).
+				// Pour le contenu qui change chaque frame (video : NkVideoReader -> onglet)
+				// sans allouer une nouvelle texture a chaque image. false si texId==0.
+				bool UpdateRGBA(uint32 texId, const uint8 *pixels, int32 w, int32 h) noexcept {
+					if (!mRenderer || !texId || !pixels || w <= 0 || h <= 0)
+						return false;
+					return mRenderer->UploadImageRGBA(texId, pixels, w, h);
+				}
+
 				// Ouvre la palette de commandes (equivalent Ctrl+P) par programme
 				// (ex. clic sur la barre de recherche de la toolbar NKCode).
 				void OpenCommandPalette() noexcept {
