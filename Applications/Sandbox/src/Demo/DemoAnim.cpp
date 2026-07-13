@@ -54,6 +54,10 @@ namespace nkentseu {
 				bool blendMode = false;
 				NkVector<NkAnimationClip *> blendClips;
 				NkBlendTree1D blendTree;
+
+				// ── Morph targets sur mesh SKINNE (morph applique AVANT skinning) ──
+				NkVector<NkVertexSkinned> morphScratch;
+				NkVector<float32> morphWeights;
 		};
 
 		static NkString PickModel() {
@@ -86,6 +90,8 @@ namespace nkentseu {
 			// ── Mesh GPU skinné + matériaux (calque DemoSkin) ─────────────────────
 			NkMeshDesc d;
 			d.layout = st->skinned ? renderer::NkVertexLayout::Skinned() : renderer::NkVertexLayout::Default3D();
+			// Morph targets : le VBO doit etre re-uploadable chaque frame.
+			d.dynamic = data.hasMorphs;
 			d.vertices = st->skinned ? (const void *)data.skinnedVertices.Data() : (const void *)data.vertices.Data();
 			d.vertexCount = st->skinned ? (uint32)data.skinnedVertices.Size() : (uint32)data.vertices.Size();
 			d.indices = data.indices.Data();
@@ -330,6 +336,18 @@ namespace nkentseu {
 
 			// ── Avance le player (clip rechargé du .nkanim) ───────────────────────
 			st->player.Update(dt);
+
+			// ── Morphs sur mesh SKINNE : deltas appliques AVANT le skinning ──────
+			// (le shader skin fait ensuite le LBS normalement — bones preserves).
+			if (st->gltf && st->gltf->hasMorphs && st->skinned && st->mesh.IsValid()) {
+				const int32 mAnim = st->gltf->animations.Empty() ? -1 : 0;
+				if (EvaluateGLTFMorphWeights(*st->gltf, mAnim, ctx.totalTime, st->morphWeights) &&
+					ApplyGLTFMorphCPUSkinned(*st->gltf, st->morphWeights.Data(), (uint32)st->morphWeights.Size(),
+											 st->morphScratch)) {
+					if (auto *meshSys = ctx.renderer->GetMeshSystem())
+						meshSys->UpdateVertices(st->mesh, st->morphScratch.Data(), (uint32)st->morphScratch.Size());
+				}
+			}
 
 			// ── Blend tree : balaye le parametre 0..N-1 (triangle 8 s) ────────────
 			// On VOIT le fondu continu entre les clips (ex. Fox Survey->Walk->Run

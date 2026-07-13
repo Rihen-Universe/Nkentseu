@@ -1814,13 +1814,11 @@ namespace nkentseu {
 		}
 
 		// ── Morph targets : application CPU ────────────────────────────────────
-		bool ApplyGLTFMorphCPU(const NkGLTFMeshData &data, const float32 *weights, uint32 weightCount,
-							   NkVector<NkVertex3D> &outVerts) {
-			if (!data.hasMorphs || data.morphTargets.Empty() || !weights)
-				return false;
-
-			outVerts = data.vertices; // base
-			const usize vcount = outVerts.Size();
+		// Coeur commun (template) : V doit deriver de NkVertex3D (pos/normal).
+		template <typename V>
+		static bool ApplyMorphDeltas(const NkGLTFMeshData &data, const float32 *weights, uint32 weightCount,
+									 NkVector<V> &verts) {
+			const usize vcount = verts.Size();
 			const uint32 nbT = (uint32)data.morphTargets.Size();
 			bool anyNormal = false;
 
@@ -1832,7 +1830,7 @@ namespace nkentseu {
 				const usize np = mt.dPos.Size() < vcount ? mt.dPos.Size() : vcount;
 				for (usize vi = 0; vi < np; ++vi) {
 					const NkVec3f &d = mt.dPos[vi];
-					NkVec3f &p = outVerts[vi].pos;
+					NkVec3f &p = verts[vi].pos;
 					p.x += w * d.x;
 					p.y += w * d.y;
 					p.z += w * d.z;
@@ -1841,7 +1839,7 @@ namespace nkentseu {
 				for (usize vi = 0; vi < nn; ++vi) {
 					const NkVec3f &d = mt.dNormal[vi];
 					if (d.x != 0.f || d.y != 0.f || d.z != 0.f) {
-						NkVec3f &nrm = outVerts[vi].normal;
+						NkVec3f &nrm = verts[vi].normal;
 						nrm.x += w * d.x;
 						nrm.y += w * d.y;
 						nrm.z += w * d.z;
@@ -1852,7 +1850,7 @@ namespace nkentseu {
 			// Renormalise les normales si des deltas de normale ont contribue.
 			if (anyNormal) {
 				for (usize vi = 0; vi < vcount; ++vi) {
-					NkVec3f &n = outVerts[vi].normal;
+					NkVec3f &n = verts[vi].normal;
 					const float32 len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
 					if (len > 1e-8f) {
 						n.x /= len;
@@ -1862,6 +1860,22 @@ namespace nkentseu {
 				}
 			}
 			return true;
+		}
+
+		bool ApplyGLTFMorphCPU(const NkGLTFMeshData &data, const float32 *weights, uint32 weightCount,
+							   NkVector<NkVertex3D> &outVerts) {
+			if (!data.hasMorphs || data.morphTargets.Empty() || !weights)
+				return false;
+			outVerts = data.vertices; // base
+			return ApplyMorphDeltas(data, weights, weightCount, outVerts);
+		}
+
+		bool ApplyGLTFMorphCPUSkinned(const NkGLTFMeshData &data, const float32 *weights, uint32 weightCount,
+									  NkVector<NkVertexSkinned> &outVerts) {
+			if (!data.hasMorphs || data.morphTargets.Empty() || !weights || data.skinnedVertices.Empty())
+				return false;
+			outVerts = data.skinnedVertices; // base (bones preserves)
+			return ApplyMorphDeltas(data, weights, weightCount, outVerts);
 		}
 
 	} // namespace renderer
