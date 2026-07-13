@@ -6,6 +6,7 @@
 
 #include "NKImage/Core/NkImage.h"
 #include "NKImage/Codecs/JPEG/NkJPEGCodec.h"
+#include "NKMedia/Codecs/Video/H264/NkH264Decoder.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKMemory/NKMemory.h"
@@ -57,7 +58,9 @@ namespace nkentseu {
 				NkVector<NkString> seqPaths; // séquence : chemins des images triés
 				NkVideoReaderInfo info;
 				int32 cursor = 0;
-				int32 bitCount = 24; // RAWRGB
+				int32 bitCount = 24;			 // RAWRGB
+				NkVector<nk_uint8> h264Sps, h264Pps; // H264 : SPS/PPS extraits de l'avcC
+				int32 nalLenSize = 4;			 // taille du préfixe de longueur AVCC
 
 				// --- Parse AVI : remplit info + frames ---
 				bool ParseAvi() {
@@ -308,6 +311,44 @@ namespace nkentseu {
 					if (!isMjpeg && !isAvc)
 						return false;
 
+					// H264 : extrait SPS/PPS de la box avcC (enfant de l'entrée avc1, après 78 octets fixes).
+					if (isAvc) {
+						const uint32 entrySize = RdU32BE(d + entS);
+						const usize avc1End = entS + (usize)entrySize;
+						usize acS, acE;
+						if (entS + 8 + 78 <= avc1End && Box(d, entS + 8 + 78, avc1End, "avcC", acS, acE) &&
+							acE - acS >= 7) {
+							nalLenSize = (d[acS + 4] & 3) + 1;
+							usize p = acS + 5;
+							const int32 numSps = d[p] & 0x1F;
+							++p;
+							for (int32 s = 0; s < numSps && p + 2 <= acE; ++s) {
+								const int32 len = (int32)RdU16BE(d + p);
+								p += 2;
+								if (p + (usize)len > acE)
+									break;
+								if (s == 0)
+									for (int32 i = 0; i < len; ++i)
+										h264Sps.PushBack(d[p + i]);
+								p += (usize)len;
+							}
+							if (p < acE) {
+								const int32 numPps = d[p];
+								++p;
+								for (int32 s = 0; s < numPps && p + 2 <= acE; ++s) {
+									const int32 len = (int32)RdU16BE(d + p);
+									p += 2;
+									if (p + (usize)len > acE)
+										break;
+									if (s == 0)
+										for (int32 i = 0; i < len; ++i)
+											h264Pps.PushBack(d[p + i]);
+									p += (usize)len;
+								}
+							}
+						}
+					}
+
 					// Assemble la table des samples via stsz + stco/co64 + stsc.
 					if (stszE - stszS < 12 || stcoE - stcoS < 8 || stscE - stscS < 8)
 						return false;
@@ -541,6 +582,65 @@ namespace nkentseu {
 								o[(y * w + x) * 4 + 3] = (bpp >= 4) ? s[3] : 255;
 							}
 						}
+						out.index = index;
+						return true;
+					}
+
+					if (codec == Codec::H264) {
+						if (h264Sps.Size() == 0 || h264Pps.Size() == 0)
+							return false;
+						// Construit un flux Annex-B : SPS + PPS + NAL du sample (AVCC len-prefixé -> start codes).
+						NkVector<nk_uint8> ab;
+						auto sc = [&]() {
+							ab.PushBack(0);
+							ab.PushBack(0);
+							ab.PushBack(0);
+							ab.PushBack(1);
+						};
+						sc();
+						for (uint64 i = 0; i < h264Sps.Size(); ++i)
+							ab.PushBack(h264Sps[i]);
+						sc();
+						for (uint64 i = 0; i < h264Pps.Size(); ++i)
+							ab.PushBack(h264Pps[i]);
+						const usize n = fr.size;
+						usize p = 0;
+						while (p + (usize)nalLenSize <= n) {
+							uint32 len = 0;
+							for (int32 i = 0; i < nalLenSize; ++i)
+								len = (len << 8) | src[p + i];
+							p += (usize)nalLenSize;
+							if (p + len > n)
+								break;
+							sc();
+							for (uint32 i = 0; i < len; ++i)
+								ab.PushBack(src[p + i]);
+							p += len;
+						}
+
+						NkH264Frame f;
+						if (!NkH264Decoder::DecodeIdrFrame(ab.Data(), (usize)ab.Size(), f))
+							return false; // P/B-frame ou non géré (décodeur INTRA seulement)
+
+						// YUV 4:2:0 -> RGBA (BT.601 limited-range, chroma nearest).
+						const int32 w = f.cropW, h = f.cropH;
+						out.width = w;
+						out.height = h;
+						out.rgba.Resize((uint64)w * (uint64)h * 4u);
+						uint8 *o = out.rgba.Data();
+						for (int32 y = 0; y < h; ++y)
+							for (int32 x = 0; x < w; ++x) {
+								const int32 Y = f.y[(usize)y * f.lumaW + x];
+								const int32 U = f.cb[(usize)(y / 2) * f.chromaW + (x / 2)];
+								const int32 V = f.cr[(usize)(y / 2) * f.chromaW + (x / 2)];
+								const int32 C = Y - 16, D = U - 128, E = V - 128;
+								auto cl = [](int32 v) -> uint8 { return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v)); };
+								const usize oi = ((usize)y * (usize)w + (usize)x) * 4;
+								o[oi + 0] = cl((298 * C + 409 * E + 128) >> 8);
+								o[oi + 1] = cl((298 * C - 100 * D - 208 * E + 128) >> 8);
+								o[oi + 2] = cl((298 * C + 516 * D + 128) >> 8);
+								o[oi + 3] = 255;
+							}
 						out.index = index;
 						return true;
 					}
