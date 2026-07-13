@@ -61,8 +61,8 @@ namespace nkentseu {
 				int32 bitCount = 24;			 // RAWRGB
 				NkVector<nk_uint8> h264Sps, h264Pps; // H264 : SPS/PPS extraits de l'avcC
 				int32 nalLenSize = 4;			 // taille du préfixe de longueur AVCC
-				NkH264Frame h264Prev;			 // frame précédente décodée (référence des P-frames)
-				int32 h264PrevIndex = -2;		 // index de la frame de référence courante
+				NkVector<NkH264Frame> h264Dpb;	 // RefPicList0 : [0] = frame la plus récente (multi-réf)
+				int32 h264PrevIndex = -2;		 // index de la dernière frame décodée (séquentialité)
 
 				// --- Parse AVI : remplit info + frames ---
 				bool ParseAvi() {
@@ -620,13 +620,25 @@ namespace nkentseu {
 							p += len;
 						}
 
-						// Décodage séquentiel : la frame précédente sert de référence aux P-frames.
-						const NkH264Frame *ref = (index == h264PrevIndex + 1 && h264PrevIndex >= 0) ? &h264Prev : nullptr;
+						// Décodage séquentiel MULTI-RÉFÉRENCE : RefPicList0 = les dernières frames décodées
+						// (h264Dpb[0] = la plus récente). Si on saute (non séquentiel), on repart d'une IDR.
+						const bool sequential = (index == h264PrevIndex + 1 && h264PrevIndex >= 0);
+						if (!sequential)
+							h264Dpb.Clear();
+						NkVector<const NkH264Frame *> refs;
+						for (uint64 k = 0; k < h264Dpb.Size(); ++k)
+							refs.PushBack(&h264Dpb[k]);
 						NkH264Frame f;
-						if (!NkH264Decoder::DecodeFrame(ab.Data(), (usize)ab.Size(), ref, f))
-							return false; // IDR requise en tête / P sub-partition / B / CABAC non géré
-						// Mémorise cette frame comme référence de la suivante.
-						h264Prev = f;
+						if (!NkH264Decoder::DecodeFrame(ab.Data(), (usize)ab.Size(), refs.Data(), (int32)refs.Size(), f))
+							return false; // IDR requise en tête / B / CABAC non géré
+						// Insère la frame décodée en TÊTE de la liste (plus récente), plafonnée à 16.
+						{
+							NkVector<NkH264Frame> newDpb;
+							newDpb.PushBack(f);
+							for (uint64 k = 0; k < h264Dpb.Size() && k < 15; ++k)
+								newDpb.PushBack(h264Dpb[k]);
+							h264Dpb = newDpb;
+						}
 						h264PrevIndex = index;
 
 						// YUV 4:2:0 -> RGBA (BT.601 limited-range, chroma nearest).

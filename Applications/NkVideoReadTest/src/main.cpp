@@ -99,8 +99,8 @@ int main(int argc, char **argv) {
 			   (unsigned long long)pps.Size());
 
 		FILE *rf = (argc >= 4) ? fopen(argv[3], "rb") : nullptr;
-		NkH264Frame prev, cur;
-		bool havePrev = false;
+		NkH264Frame cur;
+		NkVector<NkH264Frame> dpb; // RefPicList0 : dpb[0] = image la plus recente
 		uint64 totalDiffs = 0;
 		for (uint64 si = 0; si < slices.Size(); ++si) {
 			NkVector<nk_uint8> ab;
@@ -120,8 +120,11 @@ int main(int argc, char **argv) {
 			for (usize k = 0; k < slices[si].len; ++k)
 				ab.PushBack(buf[slices[si].off + k]);
 
-			if (!NkH264Decoder::DecodeFrame(ab.Data(), (usize)ab.Size(), havePrev ? &prev : nullptr, cur)) {
-				printf("  frame %d : [KO] DecodeFrame echoue (P sub-part / B / CABAC ?)\n", (int)si);
+			NkVector<const NkH264Frame *> refs;
+			for (uint64 k = 0; k < dpb.Size(); ++k)
+				refs.PushBack(&dpb[k]);
+			if (!NkH264Decoder::DecodeFrame(ab.Data(), (usize)ab.Size(), refs.Data(), (int32)refs.Size(), cur)) {
+				printf("  frame %d : [KO] DecodeFrame echoue (B / CABAC ?)\n", (int)si);
 				break;
 			}
 			uint64 diffs = 0;
@@ -158,17 +161,12 @@ int main(int argc, char **argv) {
 			} else {
 				printf("  frame %d (%s) : decode OK %dx%d\n", (int)si, (si == 0 ? "IDR" : "P"), cur.cropW, cur.cropH);
 			}
-			// La frame courante devient la référence (clone des plans).
-			prev.y = cur.y;
-			prev.cb = cur.cb;
-			prev.cr = cur.cr;
-			prev.lumaW = cur.lumaW;
-			prev.lumaH = cur.lumaH;
-			prev.chromaW = cur.chromaW;
-			prev.chromaH = cur.chromaH;
-			prev.cropW = cur.cropW;
-			prev.cropH = cur.cropH;
-			havePrev = true;
+			// La frame courante entre en TÊTE de la liste de références (plus récente d'abord).
+			NkVector<NkH264Frame> newDpb;
+			newDpb.PushBack(cur);
+			for (uint64 k = 0; k < dpb.Size() && k < 15; ++k)
+				newDpb.PushBack(dpb[k]);
+			dpb = newDpb;
 		}
 		if (rf)
 			fclose(rf);

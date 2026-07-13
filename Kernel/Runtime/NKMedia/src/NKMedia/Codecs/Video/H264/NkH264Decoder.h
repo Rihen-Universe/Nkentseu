@@ -59,6 +59,7 @@ namespace nkentseu {
 				int32 deblockingControlPresent = 0;
 				int32 constrainedIntraPred = 0;
 				int32 redundantPicCntPresent = 0;
+				int32 numRefIdxL0DefaultActive = 1; // num_ref_idx_l0_default_active_minus1 + 1
 		};
 
 		// En-tête de slice (chemin I-slice IDR baseline).
@@ -91,8 +92,14 @@ namespace nkentseu {
 
 				// Décode UNE image (I-slice IDR OU P-slice) baseline CAVLC. `ref` = image précédente
 				// décodée (nécessaire pour une P-slice ; nullptr pour une IDR). Renvoie false si non
-				// géré (CABAC, B-slice, partitions P sub-16x16, I_PCM, slices multiples…).
+				// géré (CABAC, B-slice, I_PCM, slices multiples…).
 				static bool DecodeFrame(const uint8 *annexB, usize size, const NkH264Frame *ref, NkH264Frame &out);
+
+				// Variante MULTI-RÉFÉRENCE : `refs` = RefPicList0 (index 0 = référence la plus récente),
+				// `numRefs` sa taille. Nécessaire pour les flux P baseline avec num_ref_idx_l0_active > 1
+				// (ref_idx_l0 codé par partition). Une IDR ignore la liste.
+				static bool DecodeFrame(const uint8 *annexB, usize size, const NkH264Frame *const *refs, int32 numRefs,
+										NkH264Frame &out);
 
 				// Décode un SPS depuis une unité NAL (type 7). data/size = l'unité NAL complète
 				// (en-tête inclus). Retire l'anti-émulation et lit les champs Exp-Golomb.
