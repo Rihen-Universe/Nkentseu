@@ -1119,9 +1119,11 @@ namespace nkentseu {
 					NkCabacCtx ctx[1024];
 					// Grilles voisines (par MB) pour les ctxIdxInc dépendants du voisinage.
 					NkVector<int32> mbTypeClass; // -1 indispo, 0 I_NxN, 1 I_16x16/inter (par MB)
-					NkVector<int32> cbpLumaMb;	 // CodedBlockPatternLuma par MB (4 bits)
-					NkVector<int32> cbpChromaMb; // CodedBlockPatternChroma par MB
-					NkVector<int32> chromaModeMb;
+					NkVector<int32> cbpLumaMb;	   // CodedBlockPatternLuma par MB (4 bits)
+					NkVector<int32> cbpChromaMb;   // CodedBlockPatternChroma par MB
+					NkVector<int32> chromaModeMb;  // intra_chroma_pred_mode par MB
+					NkVector<int32> lumaDcCodedMb; // cbf luma DC (I_16x16) par MB, pour le contexte cbf DC
+					NkVector<int32> chromaDcCodedMb; // cbf chroma DC par MB (bit0=Cb, bit1=Cr)
 					int32 mbW = 0;
 					int32 prevQpDeltaNonZero = 0;
 
@@ -1132,11 +1134,15 @@ namespace nkentseu {
 						cbpLumaMb.Resize((uint64)n);
 						cbpChromaMb.Resize((uint64)n);
 						chromaModeMb.Resize((uint64)n);
+						lumaDcCodedMb.Resize((uint64)n);
+						chromaDcCodedMb.Resize((uint64)n);
 						for (int32 i = 0; i < n; ++i) {
 							mbTypeClass[(uint64)i] = -1;
 							cbpLumaMb[(uint64)i] = 0;
 							cbpChromaMb[(uint64)i] = 0;
 							chromaModeMb[(uint64)i] = 0;
+							lumaDcCodedMb[(uint64)i] = 0;
+							chromaDcCodedMb[(uint64)i] = 0;
 						}
 						prevQpDeltaNonZero = 0;
 						// Init des 1024 contextes depuis la table normative (I ou variante P/B).
@@ -1308,6 +1314,73 @@ namespace nkentseu {
 				cab.prevQpDeltaNonZero = 1;
 				// Mapping unaire -> signe : 1,2,3,... -> +1,-1,+2,-2,...
 				return (val & 1) ? ((val + 1) >> 1) : -(val >> 1);
+			}
+
+			// ── Brique D : residus CABAC (coded_block_flag + significativite + niveaux) ──
+			// cat = ctxBlockCat (0=I16DC,1=I16AC,2=Luma4x4,3=ChromaDC,4=ChromaAC).
+			// cbfA/cbfB = indicateurs "code" des blocs voisins (pour le contexte cbf).
+			// scanMode : 0 = 16 coeffs (Luma4x4 / I16DC) ; 1 = 15 AC ; 2 = 4 chroma DC.
+			// out[] (pre-mis a zero) recoit les niveaux BRUTS en ordre RASTER (dequant ensuite).
+			// Renvoie le nombre de coefficients non nuls (0 si cbf=0).
+			int32 DecodeResidualCabac(CabacMb &cab, int32 cat, int32 cbfA, int32 cbfB, int32 scanMode, int32 *out) {
+				static const int32 cbfBase[5] = {85, 89, 93, 97, 101};
+				static const int32 sigBase[5] = {105, 120, 134, 149, 152};
+				static const int32 lastBase[5] = {166, 181, 195, 210, 213};
+				static const int32 absBase[5] = {227, 237, 247, 257, 266};
+				// coded_block_flag.
+				const int32 cbfCtx = cbfBase[cat] + (cbfA > 0 ? 1 : 0) + (cbfB > 0 ? 2 : 0);
+				if (cab.Bin(cbfCtx) == 0)
+					return 0;
+				const int32 maxCoeff = (scanMode == 2) ? 4 : (scanMode == 1) ? 15 : 16;
+				const int32 sb = sigBase[cat], lb = lastBase[cat], ab = absBase[cat];
+				// Carte de significativite (§9.3.3.1.3).
+				int32 index[16];
+				int32 coeffCount = 0;
+				int32 last;
+				for (last = 0; last < maxCoeff - 1; ++last) {
+					if (cab.Bin(sb + last)) {
+						index[coeffCount++] = last;
+						if (cab.Bin(lb + last)) {
+							last = maxCoeff;
+							break;
+						}
+					}
+				}
+				if (last == maxCoeff - 1)
+					index[coeffCount++] = maxCoeff - 1;
+				// Niveaux (machine a etat node_ctx, §9.3.3.1.1.7 + UEGk k=0 pour l'echappement).
+				static const int32 level1ctx[8] = {1, 2, 3, 4, 0, 0, 0, 0};
+				static const int32 gt1ctx[8] = {5, 5, 5, 5, 6, 7, 8, 9};
+				static const int32 trans0[8] = {1, 2, 3, 3, 4, 5, 6, 7};
+				static const int32 trans1[8] = {4, 4, 4, 4, 5, 6, 7, 7};
+				int32 nodeCtx = 0;
+				for (int32 k = coeffCount - 1; k >= 0; --k) {
+					const int32 sp = index[k];
+					const int32 rp = (scanMode == 2) ? sp : (scanMode == 1) ? kZigZag[sp + 1] : kZigZag[sp];
+					int32 level;
+					if (cab.Bin(ab + level1ctx[nodeCtx]) == 0) {
+						nodeCtx = trans0[nodeCtx];
+						level = 1;
+					} else {
+						int32 coeffAbs = 2;
+						const int32 gctx = ab + gt1ctx[nodeCtx];
+						nodeCtx = trans1[nodeCtx];
+						while (coeffAbs < 15 && cab.Bin(gctx))
+							++coeffAbs;
+						if (coeffAbs >= 15) { // echappement Exp-Golomb ordre 0
+							int32 j = 0;
+							while (cab.Bypass() && j < 23)
+								++j;
+							coeffAbs = 1;
+							while (j-- > 0)
+								coeffAbs += coeffAbs + (int32)cab.Bypass();
+							coeffAbs += 14;
+						}
+						level = coeffAbs;
+					}
+					out[rp] = cab.BypassSign(level);
+				}
+				return coeffCount;
 			}
 
 		} // namespace
