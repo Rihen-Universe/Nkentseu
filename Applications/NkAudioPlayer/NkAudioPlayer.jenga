@@ -1,0 +1,28 @@
+"""NkAudioPlayer — lecteur audio de RÉFÉRENCE (patron correct AudioEngine + AudioLoader).
+
+Montre l'usage propre de NKAudio pour lire un fichier -> haut-parleurs :
+Initialize -> Load -> Play -> suivi (IsPlaying / position) -> Shutdown.
+Sert de référence à l'agent NKCode pour son lecteur."""
+from Jenga import *
+from jengaconfig import *
+
+with project("NkAudioPlayer"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        ["NKAudio", "NKMedia", "NKImage", "NKStream", "NKFileSystem", "NKMath", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKTime"],
+        extra_includes=["src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links(["user32", "ole32", "avrt"])
