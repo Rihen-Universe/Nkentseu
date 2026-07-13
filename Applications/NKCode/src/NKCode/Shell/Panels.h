@@ -819,13 +819,26 @@ namespace nkentseu {
 							DrawMediaViewer(ctx, mShell, f, r);
 					} else if (isMd && f.mdPreview) { // MARKDOWN -> preview rendu
 						NkDrawMarkdown(ctx, f.doc.GetText().CStr(), r, f.mdScroll);
-					} else if (isJson && f.mdPreview) { // JSON -> arbre repliable EDITABLE
+					} else if (isJson && f.mdPreview) { // JSON -> arbre EDITABLE
+						// Ctrl+Z / Ctrl+Y : undo/redo du doc (l'apercu ne passe pas par l'editeur).
+						if (ctx.input.ctrlDown && !ctx.input.altDown) {
+							if (ctx.input.KeyPressed(nkgui::NkGuiKey::Z)) {
+								if (ctx.input.shiftDown)
+									f.doc.Redo();
+								else
+									f.doc.Undo();
+							}
+							if (ctx.input.KeyPressed(nkgui::NkGuiKey::Y))
+								f.doc.Redo();
+						}
 						const NkString jtxt = f.doc.GetText();
 						NkString jnew;
 						bool jchanged = false;
 						NkDrawJson(ctx, &f, jtxt.CStr(), r, f.mdScroll, jnew, jchanged);
-						if (jchanged)
+						if (jchanged) {
+							f.doc.Checkpoint(3); // snapshot pre-edition -> undo/redo
 							f.doc.SetText(jnew.CStr());
+						}
 					} else {
 						mS->StartProjectIndex(); // index sémantique niveau projet (async, une fois)
 						const NkVector<NkString> *ppDefs = mS->EffectiveDefines(
