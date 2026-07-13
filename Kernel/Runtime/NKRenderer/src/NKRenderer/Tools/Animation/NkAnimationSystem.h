@@ -452,6 +452,149 @@ namespace nkentseu {
 		};
 
 		// =========================================================================
+		// NkBlendTree1D — blend space 1D (ex. idle / walk / run pilotes par la
+		// vitesse). N clips places sur un axe parametrique ; SetParameter(x)
+		// choisit les 2 voisins et les melange BONE-LOCAL (TRS-NLerp par os,
+		// AVANT le FK) — le blend est donc correct sur les rotations, pas un
+		// lerp de matrices de skinning. Les PHASES sont synchronisees : le temps
+		// avance en NORMALISE (0..1) sur une duree interpolee entre les 2 clips
+		// (le pied gauche du walk reste le pied gauche du run).
+		// Prerequis : clips en mode skeletalLocal partageant le MEME squelette
+		// (typiquement BakeFromGLTF du meme fichier, ex. Fox Survey/Walk/Run).
+		// =========================================================================
+		class NkBlendTree1D {
+			public:
+				NkString name;
+
+				// Ajoute un clip a la position parametrique `pos` (insertion triee).
+				void AddClip(const NkAnimationClip *clip, float32 pos);
+
+				// Parametre de blend (clampe sur [posMin, posMax]).
+				void SetParameter(float32 x);
+
+				float32 GetParameter() const {
+					return mParam;
+				}
+
+				void SetSpeed(float32 s) {
+					mSpeed = s;
+				}
+
+				// Avance le temps normalise et evalue la pose melangee.
+				void Update(float32 dt);
+
+				const NkAnimationState &GetState() const {
+					return mState;
+				}
+
+				float32 GetNormTime() const {
+					return mNormTime;
+				}
+
+				void SeekNorm(float32 nt) {
+					mNormTime = nt - floorf(nt);
+				}
+
+				uint32 GetClipCount() const {
+					return (uint32)mEntries.Size();
+				}
+
+			private:
+				struct Entry {
+						const NkAnimationClip *clip = nullptr;
+						float32 pos = 0.f;
+				};
+
+				NkVector<Entry> mEntries; // triees par pos croissante
+				float32 mParam = 0.f;
+				float32 mNormTime = 0.f; // temps normalise 0..1 (phases synchro)
+				float32 mSpeed = 1.f;
+				NkAnimationState mState;
+				NkVector<NkMat4f> mScratch; // locaux du clip B pendant le blend
+		};
+
+		// =========================================================================
+		// NkAnimStateMachine — machine a etats d'animation (idle -> walk -> jump).
+		// Chaque etat = un clip OU un blend tree 1D. Les transitions sont
+		// declenchees par des parametres (bool / seuil float) et font un
+		// crossfade sur `fadeDur` secondes (blend des etats evalues — meme
+		// approximation que NkAnimationPlayer::BlendTo, OK pour des fondus
+		// courts). Update(dt) : evalue l'etat courant, teste les transitions,
+		// avance le fondu. GetState() = pose finale a soumettre au renderer.
+		// =========================================================================
+		class NkAnimStateMachine {
+			public:
+				// Etats (retourne l'index de l'etat). Un seul des deux pointeurs.
+				int32 AddState(const NkString &name, const NkAnimationClip *clip);
+				int32 AddState(const NkString &name, NkBlendTree1D *tree);
+
+				// Transition from -> to declenchee quand :
+				//   - param bool `paramName` == true (kind BOOL), ou
+				//   - param float `paramName` >  threshold (kind FLOAT_GREATER), ou
+				//   - param float `paramName` <  threshold (kind FLOAT_LESS).
+				// from = -1 : depuis N'IMPORTE quel etat (any-state transition).
+				enum class NkCondKind : uint8 { BOOL_TRUE, FLOAT_GREATER, FLOAT_LESS };
+				void AddTransition(int32 from, int32 to, const NkString &paramName, NkCondKind kind,
+								   float32 threshold = 0.f, float32 fadeDur = 0.25f);
+
+				// Parametres pilotes par le gameplay.
+				void SetBool(const NkString &name, bool v);
+				void SetFloat(const NkString &name, float32 v);
+				float32 GetFloat(const NkString &name) const;
+
+				// Force un etat sans transition (init / teleport).
+				void ForceState(int32 idx);
+
+				int32 GetCurrentState() const {
+					return mCurrent;
+				}
+
+				const NkString &GetCurrentStateName() const;
+
+				void Update(float32 dt);
+
+				const NkAnimationState &GetState() const {
+					return mState;
+				}
+
+			private:
+				struct State {
+						NkString name;
+						const NkAnimationClip *clip = nullptr;
+						NkBlendTree1D *tree = nullptr; // possede par l'appelant
+						float32 time = 0.f;			   // temps local (clips)
+				};
+
+				struct Transition {
+						int32 from = -1;
+						int32 to = -1;
+						NkString param;
+						NkCondKind kind = NkCondKind::BOOL_TRUE;
+						float32 threshold = 0.f;
+						float32 fadeDur = 0.25f;
+				};
+
+				void EvalState(int32 idx, float32 dt, NkAnimationState &out);
+				bool CondTrue(const Transition &tr) const;
+
+				NkVector<State> mStates;
+				NkVector<Transition> mTransitions;
+				NkHashMap<NkString, bool> mBools;
+				NkHashMap<NkString, float32> mFloats;
+				int32 mCurrent = -1;
+				int32 mNext = -1;	  // etat cible pendant un fondu (-1 = aucun)
+				float32 mFadeT = 0.f; // temps restant du fondu
+				float32 mFadeDur = 0.f;
+				NkAnimationState mState;
+				NkAnimationState mNextState;
+		};
+
+		// Blend TRS-NLerp de deux matrices BONE-LOCALES (decompose T/R/S, lerp
+		// T et S, NLerp rotation chemin court). Partage par le player (interp
+		// keyframes), NkBlendTree1D (blend inter-clips) et la state machine.
+		NkMat4f NkBlendLocalTRS(const NkMat4f &A, const NkMat4f &B, float32 a);
+
+		// =========================================================================
 		// NkAnimationSystem — gestionnaire central
 		// =========================================================================
 		class NkAnimationSystem {
