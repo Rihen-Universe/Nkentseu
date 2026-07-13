@@ -81,18 +81,103 @@ static bool LooksLikeAudio(const NkString &p) {
 	return false;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Étalonnage couleur (color grade) appliqué à l'image RGBA décodée AVANT upload.
+// NB : c'est un grade CPU intégré (presets). Le jour où NKRenderer expose des LUT
+// .cube en 2D, on branchera ici une LUT à la place de ces presets (le point de
+// câblage est le même : transformer les pixels juste avant frameTex.Update).
+// ─────────────────────────────────────────────────────────────────────────────
+enum class Grade : int32 { Neutral = 0, Cinema, Warm, Cool, Mono, Vivid, Count };
+
+static const char *GradeName(Grade g) {
+	switch (g) {
+		case Grade::Cinema:
+			return "Cinema teal/orange";
+		case Grade::Warm:
+			return "Chaud";
+		case Grade::Cool:
+			return "Froid";
+		case Grade::Mono:
+			return "N&B";
+		case Grade::Vivid:
+			return "Vif";
+		default:
+			return "Neutre";
+	}
+}
+
+static inline nk_uint8 U8(float32 v) {
+	return (nk_uint8)(v < 0.0f ? 0.0f : (v > 255.0f ? 255.0f : v + 0.5f));
+}
+
+static void ApplyGrade(nk_uint8 *px, uint64 pixelCount, Grade g) {
+	if (g == Grade::Neutral)
+		return;
+	for (uint64 i = 0; i < pixelCount; ++i) {
+		float32 r = (float32)px[i * 4 + 0];
+		float32 gr = (float32)px[i * 4 + 1];
+		float32 b = (float32)px[i * 4 + 2];
+		const float32 luma = 0.299f * r + 0.587f * gr + 0.114f * b;
+		switch (g) {
+			case Grade::Cinema: {
+				// Contraste filmique doux + ombres froides / hautes lumières chaudes.
+				const float32 t = (luma / 255.0f - 0.5f) * 2.0f; // [-1..1]
+				r = (r - 128.0f) * 1.08f + 128.0f;
+				gr = (gr - 128.0f) * 1.05f + 128.0f;
+				b = (b - 128.0f) * 1.08f + 128.0f;
+				r *= 1.0f + 0.10f * t;	// chaud dans les clairs
+				b *= 1.0f - 0.10f * t;	// froid dans les sombres
+				r = luma + (r - luma) * 0.92f;
+				gr = luma + (gr - luma) * 0.92f;
+				b = luma + (b - luma) * 0.92f;
+				break;
+			}
+			case Grade::Warm:
+				r *= 1.10f;
+				b *= 0.90f;
+				break;
+			case Grade::Cool:
+				r *= 0.90f;
+				b *= 1.10f;
+				break;
+			case Grade::Mono:
+				r = gr = b = luma;
+				break;
+			case Grade::Vivid:
+				r = luma + (r - luma) * 1.35f;
+				gr = luma + (gr - luma) * 1.35f;
+				b = luma + (b - luma) * 1.35f;
+				r = (r - 128.0f) * 1.10f + 128.0f;
+				gr = (gr - 128.0f) * 1.10f + 128.0f;
+				b = (b - 128.0f) * 1.10f + 128.0f;
+				break;
+			default:
+				break;
+		}
+		px[i * 4 + 0] = U8(r);
+		px[i * 4 + 1] = U8(gr);
+		px[i * 4 + 2] = U8(b);
+	}
+}
+
 int nkmain(const NkEntryState &state) {
-	// ── Arguments : [1] = média vidéo, [2] éventuel = audio ───────────────────
+	// ── Arguments : [1] = média vidéo, [2] éventuel = audio, --step N = pas de saut
 	NkString videoPath, audioPath;
+	int32 stepArg = 0; // 0 => défaut = ~1 seconde (calculé plus bas d'après le fps)
 	for (uint64 i = 1; i < state.args.Size(); ++i) {
 		const NkString &a = state.args[i];
-		if (LooksLikeAudio(a))
+		if ((a == "--step" || a == "-s") && i + 1 < state.args.Size()) {
+			stepArg = 0;
+			const char *v = state.args[++i].CStr();
+			for (uint64 k = 0; v[k] >= '0' && v[k] <= '9'; ++k)
+				stepArg = stepArg * 10 + (v[k] - '0');
+		} else if (LooksLikeAudio(a))
 			audioPath = a;
 		else if (videoPath.Empty())
 			videoPath = a;
 	}
 	if (videoPath.Empty()) {
-		logger.Error("[NkVideoPlayer] usage : NkVideoPlayer <video> [audio]");
+		logger.Error("[NkVideoPlayer] usage : NkVideoPlayer <video> [audio] [--step N]");
 		return -1;
 	}
 
@@ -164,58 +249,138 @@ int nkmain(const NkEntryState &state) {
 		}
 	}
 
-	// ── 6) Boucle : cadence au fps, décode -> upload -> dessine ───────────────
+	// ── 6) Boucle : cadence au fps, décode -> (grade) -> upload -> dessine ─────
+	//   CONTRÔLES : Espace=pause/lecture · S=stop(retour début) · L=boucle on/off
+	//               →/←=avancer/reculer d'un PAS · ↑/↓=vitesse · C=étalonnage couleur
+	//   Le PAS de saut est --step N images (défaut ≈ 1 seconde).
 	bool running = true;
 	auto &events = NkEvents();
 	events.AddEventCallback<NkWindowCloseEvent>([&](NkWindowCloseEvent *) { running = false; });
 
-	const float32 frameDur = 1.0f / fps;
-	float32 acc = frameDur; // force la 1re image immédiatement
+	const int32 step = (stepArg > 0) ? stepArg : (int32)(fps + 0.5f); // pas de saut (images)
 	media::NkVideoFrame fr;
+	NkVector<nk_uint8> rawFrame; // copie brute (non étalonnée) de l'image courante
+	int32 rawW = 0, rawH = 0;
 	bool haveFrame = false;
 	bool ended = false;
+	bool paused = false;
+	bool loop = true;
+	float32 speed = 1.0f;
+	Grade grade = Grade::Neutral;
+
+	// Décode/étalonne/upload l'image fraîchement lue dans `fr`.
+	auto pushFrame = [&]() {
+		rawW = fr.width;
+		rawH = fr.height;
+		rawFrame = fr.rgba; // conserve la version brute pour un ré-étalonnage à la volée
+		ApplyGrade(fr.rgba.Data(), (uint64)fr.width * fr.height, grade);
+		frameTex.Update(fr.rgba.Data(), (uint32)fr.width, (uint32)fr.height, 0, 0);
+		haveFrame = true;
+	};
+	// Ré-applique l'étalonnage sur l'image courante (ex. changement de grade en pause).
+	auto regrade = [&]() {
+		if (!haveFrame || rawFrame.Empty())
+			return;
+		fr.rgba = rawFrame;
+		ApplyGrade(fr.rgba.Data(), (uint64)rawW * rawH, grade);
+		frameTex.Update(fr.rgba.Data(), (uint32)rawW, (uint32)rawH, 0, 0);
+	};
+	// Va à l'image `target` (accès aléatoire : MJPEG/AVI/MOV/séquences ; no-op si non supporté).
+	auto seekTo = [&](int32 tgt) {
+		if (vin.frameCount > 0) {
+			if (tgt < 0)
+				tgt = 0;
+			if (tgt > vin.frameCount - 1)
+				tgt = vin.frameCount - 1;
+		} else if (tgt < 0)
+			tgt = 0;
+		if (reader.SeekFrame(tgt) && reader.ReadFrame(fr)) {
+			pushFrame();
+			ended = false;
+		}
+	};
+	auto restartAudio = [&]() {
+		if (!audioOn)
+			return;
+		engine.StopAll();
+		audio::VoiceParams vp;
+		vp.bus = "Music";
+		engine.Play(audioSample, vp);
+	};
+
+	float32 acc = 1.0f; // force la 1re image immédiatement
+	float32 titleAcc = 1.0f;
+	uint32 lastW = 0, lastH = 0;
 	NkClock clock;
 
 	while (running && window.IsOpen()) {
 		const float32 dt = clock.Tick().delta;
 		acc += dt;
+		titleAcc += dt;
+		const float32 frameDur = 1.0f / (fps * (speed > 0.01f ? speed : 0.01f));
 
-		// Événements (fermeture, Échap, Espace = pause).
-		static bool paused = false;
+		// ── Entrées clavier ───────────────────────────────────────────────────
 		while (NkEvent *ev = events.PollEvent()) {
 			if (auto *k = ev->As<NkKeyPressEvent>()) {
-				if (k->GetKey() == NkKey::NK_ESCAPE)
-					running = false;
-				else if (k->GetKey() == NkKey::NK_SPACE)
-					paused = !paused;
-			}
-		}
-
-		// Avance d'une image si le temps de l'image est écoulé.
-		if (!paused && acc >= frameDur && !ended) {
-			acc -= frameDur;
-			if (reader.ReadFrame(fr)) {
-				frameTex.Update(fr.rgba.Data(), (uint32)fr.width, (uint32)fr.height, 0, 0);
-				haveFrame = true;
-			} else {
-				// Fin : reboucle (les séquences/MJPEG supportent SeekFrame(0)).
-				if (reader.SeekFrame(0)) {
-					if (audioOn) {
-						// resynchronise l'audio depuis le début.
-						engine.StopAll();
-						audio::VoiceParams vp;
-						vp.bus = "Music";
-						engine.Play(audioSample, vp);
-					}
-				} else {
-					ended = true; // pas de rembobinage possible -> fige la dernière image
+				switch (k->GetKey()) {
+					case NkKey::NK_ESCAPE:
+						running = false;
+						break;
+					case NkKey::NK_SPACE:
+						paused = !paused;
+						break;
+					case NkKey::NK_S: // stop -> retour au début, en pause
+						seekTo(0);
+						paused = true;
+						if (audioOn)
+							engine.StopAll();
+						break;
+					case NkKey::NK_L: // boucle on/off
+						loop = !loop;
+						break;
+					case NkKey::NK_RIGHT: // avancer d'un pas
+						seekTo(reader.CurrentIndex() + step);
+						break;
+					case NkKey::NK_LEFT: // reculer d'un pas
+						seekTo(reader.CurrentIndex() - step);
+						break;
+					case NkKey::NK_UP: // plus vite
+						speed = math::NkMin(speed * 1.25f, 4.0f);
+						break;
+					case NkKey::NK_DOWN: // plus lent
+						speed = math::NkMax(speed / 1.25f, 0.1f);
+						break;
+					case NkKey::NK_C: // cycle étalonnage couleur
+						grade = (Grade)(((int32)grade + 1) % (int32)Grade::Count);
+						regrade();
+						break;
+					default:
+						break;
 				}
 			}
 		}
 
-		// Resize éventuel de la fenêtre.
+		// ── Avance temporelle ───────────────────────────────────────────────────
+		if (!paused && acc >= frameDur && !ended) {
+			acc -= frameDur;
+			if (acc > frameDur * 4.0f)
+				acc = 0.0f; // évite le rattrapage explosif après un gros hoquet
+			if (reader.ReadFrame(fr)) {
+				pushFrame();
+			} else if (loop) {
+				if (reader.SeekFrame(0) && reader.ReadFrame(fr)) {
+					pushFrame();
+					restartAudio();
+				} else {
+					ended = true; // pas de rembobinage possible -> fige la dernière image
+				}
+			} else {
+				paused = true; // fin sans boucle -> fige sur la dernière image
+			}
+		}
+
+		// ── Resize éventuel ─────────────────────────────────────────────────────
 		const math::NkVec2u sz = target.GetSize();
-		static uint32 lastW = 0, lastH = 0;
 		if (sz.x != lastW || sz.y != lastH) {
 			if (lastW != 0 && sz.x > 0 && sz.y > 0)
 				target.OnResize(sz.x, sz.y);
@@ -224,12 +389,22 @@ int nkmain(const NkEntryState &state) {
 		}
 		const float32 W = (float32)sz.x, H = (float32)sz.y;
 
-		// Mise à l'échelle en préservant le ratio (letterbox).
+		// Letterbox (préserve le ratio).
 		const float32 s = math::NkMin(W / (float32)vidW, H / (float32)vidH);
 		sprite.SetScale(s, s);
 		sprite.SetPosition((W - (float32)vidW * s) * 0.5f, (H - (float32)vidH * s) * 0.5f);
 
-		// Rendu.
+		// ── HUD dans la barre de titre (~5x/s) ──────────────────────────────────
+		if (titleAcc >= 0.2f) {
+			titleAcc = 0.0f;
+			const int32 idx = reader.CurrentIndex();
+			window.SetTitle(NkString::Format("NkVideoPlayer  %s  img %d/%d  x%.2f  [%s]  boucle:%s  (%s)",
+											 paused ? "PAUSE" : "LECTURE", idx,
+											 vin.frameCount > 0 ? vin.frameCount : -1, (double)speed, GradeName(grade),
+											 loop ? "on" : "off", videoPath.CStr()));
+		}
+
+		// ── Rendu ───────────────────────────────────────────────────────────────
 		target.Clear(NkColor2D{0, 0, 0, 255});
 		if (haveFrame)
 			target.Draw(static_cast<const NkDrawable &>(sprite));
