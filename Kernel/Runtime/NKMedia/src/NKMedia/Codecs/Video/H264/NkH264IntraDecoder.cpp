@@ -1383,6 +1383,237 @@ namespace nkentseu {
 				return coeffCount;
 			}
 
+			// Chroma CABAC : prediction (4 modes) + residus DC(cat3)/AC(cat4).
+			void DecodeChromaCabac(DecCtx &c, CabacMb &cab, int32 mbX, int32 mbY, int32 chromaMode, int32 cbpChroma) {
+				const int32 cpx = mbX * 8, cpy = mbY * 8;
+				const bool avt = mbY > 0, avl = mbX > 0;
+				const int32 mbIdx = mbY * cab.mbW + mbX;
+				uint8 cPred[2][64];
+				for (int32 comp = 0; comp < 2; ++comp) {
+					const uint8 *rec = (comp == 0) ? c.Cb : c.Cr;
+					int32 ct[8], cl[8], tl = 128;
+					for (int32 i = 0; i < 8; ++i) {
+						ct[i] = avt ? rec[(usize)(cpy - 1) * c.chromaW + cpx + i] : 0;
+						cl[i] = avl ? rec[(usize)(cpy + i) * c.chromaW + cpx - 1] : 0;
+					}
+					if (avt && avl)
+						tl = rec[(usize)(cpy - 1) * c.chromaW + cpx - 1];
+					else if (avt)
+						tl = ct[0];
+					else if (avl)
+						tl = cl[0];
+					PredictChroma8x8(chromaMode, ct, cl, tl, avt, avl, cPred[comp]);
+				}
+				const int32 qpC = NkH264Transform::ChromaQp(Clamp(c.qp + c.chromaQpOffset, 0, 51));
+				// DC chroma (cat 3, 4 coeffs 2x2 par composante).
+				int32 cDcRec[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
+				if (cbpChroma & 3) {
+					for (int32 comp = 0; comp < 2; ++comp) {
+						const int32 cbfA =
+							(mbX > 0) ? ((cab.chromaDcCodedMb[(uint64)(mbIdx - 1)] >> comp) & 1) : 1;
+						const int32 cbfB =
+							(mbY > 0) ? ((cab.chromaDcCodedMb[(uint64)(mbIdx - cab.mbW)] >> comp) & 1) : 1;
+						int32 dcRaster[4] = {0, 0, 0, 0};
+						const int32 nz = DecodeResidualCabac(cab, 3, cbfA, cbfB, 2, dcRaster);
+						if (nz > 0) {
+							cab.chromaDcCodedMb[(uint64)mbIdx] |= (1 << comp);
+							int32 gdc[4];
+							NkH264Transform::Hadamard2x2(dcRaster, gdc);
+							NkH264Transform::DequantChromaDC(gdc, cDcRec[comp], qpC);
+						}
+					}
+				}
+				// AC chroma (cat 4) + reconstruction.
+				const int32 cbx0 = mbX * 2, cby0 = mbY * 2;
+				for (int32 comp = 0; comp < 2; ++comp) {
+					int32 *cnz = (comp == 0) ? c.chromaNz0 : c.chromaNz1;
+					uint8 *rec = (comp == 0) ? c.Cb : c.Cr;
+					for (int32 blk = 0; blk < 4; ++blk) {
+						const int32 bx4 = (blk & 1) * 4, by4 = (blk >> 1) * 4;
+						const int32 bx = cbx0 + (blk & 1), by = cby0 + (blk >> 1);
+						int32 acRaster[16] = {0};
+						int32 tc = 0;
+						if (cbpChroma & 2) {
+							const int32 cbfA = (bx > 0) ? (cnz[by * c.cnzW + (bx - 1)] > 0 ? 1 : 0) : 1;
+							const int32 cbfB = (by > 0) ? (cnz[(by - 1) * c.cnzW + bx] > 0 ? 1 : 0) : 1;
+							tc = DecodeResidualCabac(cab, 4, cbfA, cbfB, 1, acRaster);
+						}
+						cnz[by * c.cnzW + bx] = tc;
+						int32 deq[16];
+						NkH264Transform::Dequant4x4(acRaster, deq, qpC);
+						if (!(cbpChroma & 2))
+							for (int32 k = 1; k < 16; ++k)
+								deq[k] = 0;
+						deq[0] = (cbpChroma & 3) ? cDcRec[comp][blk] : 0;
+						int32 resRec[16];
+						NkH264Transform::Inverse4x4(deq, resRec);
+						for (int32 r = 0; r < 4; ++r)
+							for (int32 col = 0; col < 4; ++col) {
+								const int32 p = cPred[comp][(by4 + r) * 8 + (bx4 + col)];
+								rec[(usize)(cpy + by4 + r) * c.chromaW + cpx + bx4 + col] =
+									ClampU8(p + resRec[r * 4 + col]);
+							}
+					}
+				}
+			}
+
+			// Macrobloc I_4x4 en CABAC (miroir de DecodeMbI4x4 ; entropie CABAC).
+			bool DecodeMbCabacI4x4(DecCtx &c, CabacMb &cab, int32 mbX, int32 mbY) {
+				const int32 px = mbX * 16, py = mbY * 16;
+				const bool availTop = mbY > 0, availLeft = mbX > 0;
+				const bool availTrMb = (mbY > 0) && (mbX < c.mbW - 1);
+				const int32 mbIdx = mbY * cab.mbW + mbX;
+
+				int32 mode4[16];
+				for (int32 blk = 0; blk < 16; ++blk) {
+					int32 x4, y4;
+					LumaBlk(blk, x4, y4);
+					const int32 bx = mbX * 4 + x4 / 4, by = mbY * 4 + y4 / 4;
+					int32 predMode;
+					if (bx == 0 || by == 0)
+						predMode = 2;
+					else {
+						const int32 a = c.i4mode[by * c.nzW + (bx - 1)];
+						const int32 b = c.i4mode[(by - 1) * c.nzW + bx];
+						predMode = a < b ? a : b;
+					}
+					mode4[blk] = DecodeIntra4x4ModeCabac(cab, predMode);
+					c.i4mode[by * c.nzW + bx] = mode4[blk];
+				}
+
+				const int32 chromaMode = DecodeChromaModeCabac(cab, mbX, mbY);
+				const int32 lumaCbp = DecodeCbpLumaCabac(cab, mbX, mbY);
+				const int32 cbpChroma = DecodeCbpChromaCabac(cab, mbX, mbY);
+				// Grilles voisines (I_NxN).
+				cab.mbTypeClass[(uint64)mbIdx] = 0;
+				cab.cbpLumaMb[(uint64)mbIdx] = lumaCbp;
+				cab.cbpChromaMb[(uint64)mbIdx] = cbpChroma;
+				cab.chromaModeMb[(uint64)mbIdx] = chromaMode;
+				if (lumaCbp || cbpChroma)
+					c.qp = (c.qp + DecodeMbQpDeltaCabac(cab) + 52) % 52;
+				else
+					cab.prevQpDeltaNonZero = 0;
+
+				for (int32 blk = 0; blk < 16; ++blk) {
+					int32 x4, y4;
+					LumaBlk(blk, x4, y4);
+					const int32 X = px + x4, Y = py + y4;
+					const bool avt = (y4 > 0) || availTop;
+					const bool avl = (x4 > 0) || availLeft;
+					const bool avtl = avt && avl;
+					bool avtr;
+					switch (kTrAvail[blk]) {
+						case 2: avtr = true; break;
+						case 1: avtr = availTop; break;
+						case 3: avtr = availTrMb; break;
+						default: avtr = false; break;
+					}
+					int32 t[8], l[4], tl;
+					for (int32 i = 0; i < 4; ++i)
+						t[i] = avt ? c.Y[(usize)(Y - 1) * c.lumaW + X + i] : 0;
+					for (int32 i = 0; i < 4; ++i)
+						t[4 + i] = (avt && avtr) ? c.Y[(usize)(Y - 1) * c.lumaW + X + 4 + i] : t[3];
+					for (int32 j = 0; j < 4; ++j)
+						l[j] = avl ? c.Y[(usize)(Y + j) * c.lumaW + X - 1] : 0;
+					tl = avtl ? c.Y[(usize)(Y - 1) * c.lumaW + X - 1] : 0;
+
+					uint8 pred[16];
+					Predict4x4(mode4[blk], t, l, tl, avt, avl, pred);
+
+					const int32 bx = mbX * 4 + x4 / 4, by = mbY * 4 + y4 / 4;
+					int32 raster[16] = {0};
+					int32 tc = 0;
+					if (lumaCbp & (1 << (blk >> 2))) {
+						const int32 cbfA = (bx > 0) ? (c.lumaNz[by * c.nzW + (bx - 1)] > 0 ? 1 : 0) : 1;
+						const int32 cbfB = (by > 0) ? (c.lumaNz[(by - 1) * c.nzW + bx] > 0 ? 1 : 0) : 1;
+						tc = DecodeResidualCabac(cab, 2, cbfA, cbfB, 0, raster);
+					}
+					c.lumaNz[by * c.nzW + bx] = tc;
+					int32 deq[16], resRec[16];
+					NkH264Transform::Dequant4x4(raster, deq, c.qp);
+					NkH264Transform::Inverse4x4(deq, resRec);
+					for (int32 r = 0; r < 4; ++r)
+						for (int32 col = 0; col < 4; ++col)
+							c.Y[(usize)(Y + r) * c.lumaW + X + col] = ClampU8(pred[r * 4 + col] + resRec[r * 4 + col]);
+				}
+
+				DecodeChromaCabac(c, cab, mbX, mbY, chromaMode, cbpChroma);
+				return true;
+			}
+
+			// Macrobloc I_16x16 en CABAC (miroir de DecodeMbI16x16).
+			bool DecodeMbCabacI16x16(DecCtx &c, CabacMb &cab, int32 mbX, int32 mbY, int32 mbType) {
+				const int32 px = mbX * 16, py = mbY * 16;
+				const int32 predMode = (mbType - 1) % 4;
+				const int32 cbpChroma = ((mbType - 1) / 4) % 3;
+				const int32 cbpLuma = ((mbType - 1) >= 12) ? 15 : 0;
+				const bool availTop = mbY > 0, availLeft = mbX > 0;
+				const int32 mbIdx = mbY * cab.mbW + mbX;
+
+				int32 top[16], left[16], tl = 128;
+				for (int32 i = 0; i < 16; ++i) {
+					top[i] = availTop ? c.Y[(usize)(py - 1) * c.lumaW + px + i] : 0;
+					left[i] = availLeft ? c.Y[(usize)(py + i) * c.lumaW + px - 1] : 0;
+				}
+				if (availTop && availLeft)
+					tl = c.Y[(usize)(py - 1) * c.lumaW + px - 1];
+				uint8 pred[256];
+				Predict16x16(predMode, top, left, tl, availTop, availLeft, pred);
+
+				const int32 chromaMode = DecodeChromaModeCabac(cab, mbX, mbY);
+				c.qp = (c.qp + DecodeMbQpDeltaCabac(cab) + 52) % 52; // toujours present en I_16x16
+				// Grilles voisines (classe 1 = I_16x16).
+				cab.mbTypeClass[(uint64)mbIdx] = 1;
+				cab.cbpLumaMb[(uint64)mbIdx] = cbpLuma;
+				cab.cbpChromaMb[(uint64)mbIdx] = cbpChroma;
+				cab.chromaModeMb[(uint64)mbIdx] = chromaMode;
+
+				const int32 bx0 = mbX * 4, by0 = mbY * 4;
+				// DC luma (cat 0).
+				int32 dcRec[16] = {0};
+				{
+					const int32 cbfA = (mbX > 0) ? cab.lumaDcCodedMb[(uint64)(mbIdx - 1)] : 1;
+					const int32 cbfB = (mbY > 0) ? cab.lumaDcCodedMb[(uint64)(mbIdx - cab.mbW)] : 1;
+					int32 dcLvl[16] = {0};
+					const int32 nz = DecodeResidualCabac(cab, 0, cbfA, cbfB, 0, dcLvl);
+					if (nz > 0)
+						cab.lumaDcCodedMb[(uint64)mbIdx] = 1;
+					int32 gDc[16];
+					NkH264Transform::HadamardInverse4x4(dcLvl, gDc);
+					NkH264Transform::DequantDC(gDc, dcRec, 16, c.qp);
+				}
+
+				// AC luma (cat 1) + reconstruction.
+				for (int32 blk = 0; blk < 16; ++blk) {
+					int32 x4, y4;
+					LumaBlk(blk, x4, y4);
+					const int32 bx = bx0 + x4 / 4, by = by0 + y4 / 4;
+					int32 acRaster[16] = {0};
+					int32 tc = 0;
+					if (cbpLuma) {
+						const int32 cbfA = (bx > 0) ? (c.lumaNz[by * c.nzW + (bx - 1)] > 0 ? 1 : 0) : 1;
+						const int32 cbfB = (by > 0) ? (c.lumaNz[(by - 1) * c.nzW + bx] > 0 ? 1 : 0) : 1;
+						tc = DecodeResidualCabac(cab, 1, cbfA, cbfB, 1, acRaster);
+					}
+					c.lumaNz[by * c.nzW + bx] = tc;
+					int32 deq[16];
+					NkH264Transform::Dequant4x4(acRaster, deq, c.qp);
+					if (!cbpLuma)
+						for (int32 k = 1; k < 16; ++k)
+							deq[k] = 0;
+					deq[0] = dcRec[(y4 / 4) * 4 + (x4 / 4)];
+					int32 resRec[16];
+					NkH264Transform::Inverse4x4(deq, resRec);
+					for (int32 r = 0; r < 4; ++r)
+						for (int32 col = 0; col < 4; ++col)
+							c.Y[(usize)(py + y4 + r) * c.lumaW + px + x4 + col] =
+								ClampU8(pred[(y4 + r) * 16 + (x4 + col)] + resRec[r * 4 + col]);
+				}
+
+				DecodeChromaCabac(c, cab, mbX, mbY, chromaMode, cbpChroma);
+				return true;
+			}
+
 		} // namespace
 
 		bool NkH264Decoder::DecodeIdrFrame(const uint8 *annexB, usize size, NkH264Frame &out) {
@@ -1421,8 +1652,8 @@ namespace nkentseu {
 			NkH264Pps pps;
 			if (!ParseSps(spsN, spsS, sps) || !ParsePps(ppsN, ppsS, pps))
 				return false;
-			if (pps.entropyCodingMode != 0) // CABAC non géré
-				return false;
+			// CABAC (entropyCodingMode==1) : géré pour les I-slices (voir dispatch plus bas) ;
+			// P/B CABAC pas encore -> rejeté au dispatch.
 			if (sps.frameMbsOnly != 1) // entrelacé non géré
 				return false;
 
@@ -1581,7 +1812,38 @@ namespace nkentseu {
 
 			NkVector<int32> mbQp;
 			mbQp.Resize((uint64)numMb);
-			if (isI) {
+			if (pps.entropyCodingMode == 1) {
+				// ── CABAC (profils Main/High) — I-slices ──────────────────────────────
+				// Chaine complete implementee (moteur + tables ISO verifiees + syntaxe I +
+				// residus + reconstruction) mais PAS ENCORE bit-exact : un bug de contexte
+				// residuel (1er MB : ~9 dB) reste a debusquer via une trace bin-a-bin vs
+				// reference. On echoue proprement en attendant (pas de sortie corrompue).
+				constexpr bool kCabacDecodeEnabled = false;
+				if (!kCabacDecodeEnabled || !isI)
+					return false; // P/B CABAC + I CABAC (WIP) non actives
+				const usize byteStart = (br.pos + 7) / 8; // cabac_alignment_one_bit -> octet
+				CabacMb cab;
+				cab.InitSlice(mbW, mbH, c.qp, true, 0);
+				cab.e.InitEngine(rbsp.Data(), (usize)rbsp.Size(), byteStart);
+				int32 mbAddr = 0;
+				while (mbAddr < numMb) {
+					const int32 mbX = mbAddr % mbW, mbY = mbAddr / mbW;
+					const int32 mbType = DecodeMbTypeICabac(cab, mbX, mbY);
+					if (mbType == 0) {
+						if (!DecodeMbCabacI4x4(c, cab, mbX, mbY))
+							return false;
+					} else if (mbType <= 24) {
+						if (!DecodeMbCabacI16x16(c, cab, mbX, mbY, mbType))
+							return false;
+					} else {
+						return false; // I_PCM non gere
+					}
+					mbQp[(uint64)mbAddr] = c.qp;
+					++mbAddr;
+					if (cab.Terminate()) // end_of_slice_flag
+						break;
+				}
+			} else if (isI) {
 				for (int32 mbAddr = 0; mbAddr < numMb; ++mbAddr) {
 					const int32 mbX = mbAddr % mbW, mbY = mbAddr / mbW;
 					const uint32 mbType = br.UE();
