@@ -103,8 +103,16 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    (`GetTexture/GetMesh`), éviction LRU de vraies ressources (Release) + stream-out
    par distance, priorité 1/(1+dist), échecs sans retry-spam (`GetFailedCount`).
    Self-test `NK_STREAM_TEST=1` 4/4 (5 assets réels + 1 introuvable, budget 6 MiB
-   serré → 3 évictions, handles cohérents, budget respecté). Reste v2 : mip
-   streaming progressif (residentMip/targetMip réservés), LOD meshes.
+   serré → 3 évictions, handles cohérents, budget respecté). ✅ **V2 MIP
+   STREAMING progressif (2026-07-13)** : le worker fabrique une version basse
+   résolution (`lowResMax`, Resize bilinéaire) uploadée EN PREMIER (texture
+   floue instantanée → zéro pop) ; la pleine résolution REMPLACE quand la
+   caméra passe sous `refineDist = streamInDist × refineDistMult`
+   (`TickRefines`, budget d'uploads partagé, swap de handle — l'appelant
+   re-binde en surveillant `GetTexture`). Config ajustable runtime
+   (`GetConfig()`). Démo `--demo=19` Stream : allée de panneaux, caméra libre
+   (C/WASD), distances réglables live (1/2+Shift), fondu anti-pop.
+   Reste v3 : LOD meshes, vraie chaîne de mips partagée (base-level GPU).
    6) Deferred lighting pass + branchement (gros ; jamais instancié par le renderer). 7) IK
    renderer (orphelin — NB : NkAnima a son propre IK validé, celui du renderer est redondant à
    requalifier/supprimer). 8) ~~Animation avancée~~ ✅ **LIVRÉ v1 (2026-07-13)** :
