@@ -308,6 +308,12 @@ namespace nkentseu {
 				// NON alloue (gratuit) et GetVoxelAO() renvoie nullptr.
 				bool voxelAOEnabled = false;
 
+				// DEFERRED v1 (opt-in) : G-buffer MRT + lighting fullscreen a la
+				// place du forward pour les opaques simples ; skybox/instancies/
+				// skins/transparents/debug restent forward par-dessus. Necessite
+				// le post-process actif (cible HDR transiente).
+				bool deferred = false;
+
 				// Debug
 				bool debugOverlay = false;
 				bool wireframe = false;

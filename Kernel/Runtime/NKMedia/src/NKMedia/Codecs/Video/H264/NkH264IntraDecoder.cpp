@@ -14,6 +14,7 @@
 #include "NKMedia/Codecs/Video/H264/NkH264BitReader.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Transform.h"
+#include "NKMedia/Codecs/Video/H264/NkH264Cabac.h"
 
 namespace nkentseu {
 	namespace media {
@@ -273,16 +274,27 @@ namespace nkentseu {
 					int32 *lumaNz = nullptr, *chromaNz0 = nullptr, *chromaNz1 = nullptr, *i4mode = nullptr;
 					int32 qp = 26;
 					int32 chromaQpOffset = 0;
-					// Inter (P-slice) : plan de référence + grilles MV/ref PAR BLOC 4x4 (partitions).
+					// Inter (P-slice) : LISTE de plans de référence (RefPicList0, multi-référence) + grilles
+					// MV/ref PAR BLOC 4x4. ref4 : -2 non décodé, -1 intra, >=0 = index dans la liste de réf.
+					const uint8 *refListY[16] = {nullptr};
+					const uint8 *refListCb[16] = {nullptr};
+					const uint8 *refListCr[16] = {nullptr};
+					int32 numRefs = 0;		// nombre de références disponibles (taille RefPicList0)
+					int32 numRefActive = 1; // num_ref_idx_l0_active (PPS default / override slice)
+					// Compat : refY/refCb/refCr = refListY[0] (référence la plus récente).
 					const uint8 *refY = nullptr, *refCb = nullptr, *refCr = nullptr;
-					int32 *mvx4 = nullptr, *mvy4 = nullptr, *ref4 = nullptr; // ref4 : -2 non décodé, -1 intra, 0 inter
+					int32 *mvx4 = nullptr, *mvy4 = nullptr, *ref4 = nullptr;
 			};
 
 			// MC luma quart-pel (§8.4.2.2.1) d'un rectangle w×h -> écrit dans predY[16*16] à (ox,oy).
 			void McLumaRect(const DecCtx &c, int32 dx, int32 dy, int32 ox, int32 oy, int32 w, int32 h, int32 mvx,
-							int32 mvy, uint8 predY[256]) {
+							int32 mvy, uint8 predY[256], int32 refIdx = 0) {
 				const int32 W = c.lumaW, H = c.lumaH;
-				const uint8 *ref = c.refY;
+				if (refIdx < 0)
+					refIdx = 0;
+				if (refIdx >= c.numRefs)
+					refIdx = c.numRefs > 0 ? c.numRefs - 1 : 0;
+				const uint8 *ref = c.refListY[refIdx];
 				auto R = [&](int32 x, int32 y) -> int32 {
 					x = x < 0 ? 0 : (x >= W ? W - 1 : x);
 					y = y < 0 ? 0 : (y >= H ? H - 1 : y);
@@ -331,8 +343,12 @@ namespace nkentseu {
 
 			// MC chroma 1/8-pel bilinéaire (§8.4.2.2.2) d'un rectangle cw×ch -> cPred[64] à (ox,oy).
 			void McChromaRect(const DecCtx &c, int32 comp, int32 dx, int32 dy, int32 ox, int32 oy, int32 cw, int32 ch,
-							  int32 mvx, int32 mvy, uint8 cPred[64]) {
-				const uint8 *ref = (comp == 0) ? c.refCb : c.refCr;
+							  int32 mvx, int32 mvy, uint8 cPred[64], int32 refIdx = 0) {
+				if (refIdx < 0)
+					refIdx = 0;
+				if (refIdx >= c.numRefs)
+					refIdx = c.numRefs > 0 ? c.numRefs - 1 : 0;
+				const uint8 *ref = (comp == 0) ? c.refListCb[refIdx] : c.refListCr[refIdx];
 				const int32 W = c.chromaW, H = c.chromaH;
 				const int32 fx = mvx & 7, fy = mvy & 7, oxx = mvx >> 3, oyy = mvy >> 3;
 				auto C = [&](int32 x, int32 y) -> int32 {
@@ -371,13 +387,14 @@ namespace nkentseu {
 				}
 			}
 
-			// Stocke la MV d'une partition (grille 4x4) + marque ref4=0 (inter).
-			void StoreMv4(const DecCtx &c, int32 bx, int32 by, int32 pw, int32 ph, int32 mvx, int32 mvy) {
+			// Stocke la MV + l'index de référence d'une partition (grille 4x4). ref4 = refIdx (>=0 inter).
+			void StoreMv4(const DecCtx &c, int32 bx, int32 by, int32 pw, int32 ph, int32 mvx, int32 mvy,
+						  int32 refIdx) {
 				for (int32 y = by; y < by + ph; ++y)
 					for (int32 x = bx; x < bx + pw; ++x) {
 						c.mvx4[y * c.nzW + x] = mvx;
 						c.mvy4[y * c.nzW + x] = mvy;
-						c.ref4[y * c.nzW + x] = 0;
+						c.ref4[y * c.nzW + x] = refIdx;
 					}
 			}
 
@@ -389,8 +406,8 @@ namespace nkentseu {
 
 			// Prédiction de MV d'une partition (§8.4.1.3). (bx,by) = coin 4x4, pw/ph = taille 4x4,
 			// mbType (1=16x8, 2=8x16 -> cas directionnels), part = index. refIdx=0 (baseline ref=1).
-			void PredMvPart(const DecCtx &c, int32 bx, int32 by, int32 pw, int32 mbType, int32 part, int32 &pmx,
-							int32 &pmy) {
+			void PredMvPart(const DecCtx &c, int32 bx, int32 by, int32 pw, int32 mbType, int32 part, int32 refIdx,
+							int32 &pmx, int32 &pmy) {
 				bool avA, avB, avC;
 				int32 rA, rB, rC, ax, ay, bxx, byy, cx, cy;
 				GetMv4(c, bx - 1, by, avA, rA, ax, ay);
@@ -398,7 +415,6 @@ namespace nkentseu {
 				GetMv4(c, bx + pw, by - 1, avC, rC, cx, cy);
 				if (!avC)
 					GetMv4(c, bx - 1, by - 1, avC, rC, cx, cy); // repli D
-				const int32 refIdx = 0;
 				if (mbType == 1) { // P_16x8
 					if (part == 0 && avB && rB == refIdx) {
 						pmx = bxx;
@@ -459,7 +475,7 @@ namespace nkentseu {
 					smx = smy = 0;
 					return;
 				}
-				PredMvPart(c, bx, by, 4, 0, 0, smx, smy);
+				PredMvPart(c, bx, by, 4, 0, 0, 0, smx, smy); // P_Skip -> référence 0
 			}
 
 			// De-emulation locale (00 00 03 -> 00 00).
@@ -762,7 +778,7 @@ namespace nkentseu {
 					for (int32 x = 0; x < 8; ++x)
 						c.Cr[(usize)(cpy + y) * c.chromaW + cpx + x] = cp[y * 8 + x];
 				ClearMbNz(c, mbX, mbY);
-				StoreMv4(c, mbX * 4, mbY * 4, 4, 4, smx, smy);
+				StoreMv4(c, mbX * 4, mbY * 4, 4, 4, smx, smy, 0); // P_Skip -> référence 0
 			}
 
 			// --- Macrobloc inter P : partitions 16x16 / 16x8 / 8x16 / 8x8(+sous-mb) ---
@@ -771,59 +787,80 @@ namespace nkentseu {
 				const int32 gbx = mbX * 4, gby = mbY * 4;
 				uint8 predY[256], cPred[2][64];
 
-				// Compense une partition (bx4,by4 = coin 4x4 dans le MB ; pw4/ph4 = taille 4x4) + stocke la MV.
-				auto doPart = [&](int32 bx4, int32 by4, int32 pw4, int32 ph4, int32 mvx, int32 mvy) {
-					McLumaRect(c, px + bx4 * 4, py + by4 * 4, bx4 * 4, by4 * 4, pw4 * 4, ph4 * 4, mvx, mvy, predY);
+				// Compense une partition (bx4,by4 = coin 4x4 ; pw4/ph4 = taille 4x4) + stocke MV/refIdx.
+				auto doPart = [&](int32 bx4, int32 by4, int32 pw4, int32 ph4, int32 mvx, int32 mvy, int32 ri) {
+					McLumaRect(c, px + bx4 * 4, py + by4 * 4, bx4 * 4, by4 * 4, pw4 * 4, ph4 * 4, mvx, mvy, predY, ri);
 					McChromaRect(c, 0, cpx + bx4 * 2, cpy + by4 * 2, bx4 * 2, by4 * 2, pw4 * 2, ph4 * 2, mvx, mvy,
-								 cPred[0]);
+								 cPred[0], ri);
 					McChromaRect(c, 1, cpx + bx4 * 2, cpy + by4 * 2, bx4 * 2, by4 * 2, pw4 * 2, ph4 * 2, mvx, mvy,
-								 cPred[1]);
-					StoreMv4(c, gbx + bx4, gby + by4, pw4, ph4, mvx, mvy);
+								 cPred[1], ri);
+					StoreMv4(c, gbx + bx4, gby + by4, pw4, ph4, mvx, mvy, ri);
 				};
 
-				if (mbType == 0) { // P_L0_16x16
+				// Lit un ref_idx_l0 (te(v)) : range = numRefActive-1. range==0 -> 0 (non codé) ;
+				// range==1 -> 1 bit inversé ; range>1 -> ue(v). (H.264 §9.1.1)
+				const bool readRef = (c.numRefActive > 1);
+				auto readRefIdx = [&]() -> int32 {
+					if (!readRef)
+						return 0;
+					if (c.numRefActive == 2)
+						return 1 - (int32)br.U1();
+					return (int32)br.UE();
+				};
+
+				if (mbType == 0) { // P_L0_16x16 : 1 ref_idx puis 1 mvd
+					const int32 ri = readRefIdx();
 					int32 pmx, pmy;
-					PredMvPart(c, gbx, gby, 4, 0, 0, pmx, pmy);
-					doPart(0, 0, 4, 4, pmx + br.SE(), pmy + br.SE());
-				} else if (mbType == 1) { // P_L0_L0_16x8
+					PredMvPart(c, gbx, gby, 4, 0, 0, ri, pmx, pmy);
+					doPart(0, 0, 4, 4, pmx + br.SE(), pmy + br.SE(), ri);
+				} else if (mbType == 1) { // P_L0_L0_16x8 : ref_idx[0..1] puis mvd[0..1]
+					const int32 ri0 = readRefIdx(), ri1 = readRefIdx();
+					const int32 ri[2] = {ri0, ri1};
 					for (int32 part = 0; part < 2; ++part) {
 						const int32 by4 = part * 2;
 						int32 pmx, pmy;
-						PredMvPart(c, gbx, gby + by4, 4, 1, part, pmx, pmy);
-						doPart(0, by4, 4, 2, pmx + br.SE(), pmy + br.SE());
+						PredMvPart(c, gbx, gby + by4, 4, 1, part, ri[part], pmx, pmy);
+						doPart(0, by4, 4, 2, pmx + br.SE(), pmy + br.SE(), ri[part]);
 					}
-				} else if (mbType == 2) { // P_L0_L0_8x16
+				} else if (mbType == 2) { // P_L0_L0_8x16 : ref_idx[0..1] puis mvd[0..1]
+					const int32 ri0 = readRefIdx(), ri1 = readRefIdx();
+					const int32 ri[2] = {ri0, ri1};
 					for (int32 part = 0; part < 2; ++part) {
 						const int32 bx4 = part * 2;
 						int32 pmx, pmy;
-						PredMvPart(c, gbx + bx4, gby, 2, 2, part, pmx, pmy);
-						doPart(bx4, 0, 2, 4, pmx + br.SE(), pmy + br.SE());
+						PredMvPart(c, gbx + bx4, gby, 2, 2, part, ri[part], pmx, pmy);
+						doPart(bx4, 0, 2, 4, pmx + br.SE(), pmy + br.SE(), ri[part]);
 					}
 				} else { // P_8x8 (3) / P_8x8ref0 (4)
 					int32 subType[4];
 					for (int32 b = 0; b < 4; ++b)
 						subType[b] = (int32)br.UE();
+					// ref_idx_l0 : UN par partition 8x8 (ordre : tous avant les MVs). P_8x8ref0 -> toujours 0.
+					int32 ri[4] = {0, 0, 0, 0};
+					if (mbType == 3)
+						for (int32 b = 0; b < 4; ++b)
+							ri[b] = readRefIdx();
 					for (int32 b = 0; b < 4; ++b) {
 						const int32 sbx = (b & 1) * 2, sby = (b >> 1) * 2;
 						int32 pmx, pmy;
 						if (subType[b] == 0) { // 8x8
-							PredMvPart(c, gbx + sbx, gby + sby, 2, 3, 0, pmx, pmy);
-							doPart(sbx, sby, 2, 2, pmx + br.SE(), pmy + br.SE());
+							PredMvPart(c, gbx + sbx, gby + sby, 2, 3, 0, ri[b], pmx, pmy);
+							doPart(sbx, sby, 2, 2, pmx + br.SE(), pmy + br.SE(), ri[b]);
 						} else if (subType[b] == 1) { // 8x4
 							for (int32 sp = 0; sp < 2; ++sp) {
-								PredMvPart(c, gbx + sbx, gby + sby + sp, 2, 3, 0, pmx, pmy);
-								doPart(sbx, sby + sp, 2, 1, pmx + br.SE(), pmy + br.SE());
+								PredMvPart(c, gbx + sbx, gby + sby + sp, 2, 3, 0, ri[b], pmx, pmy);
+								doPart(sbx, sby + sp, 2, 1, pmx + br.SE(), pmy + br.SE(), ri[b]);
 							}
 						} else if (subType[b] == 2) { // 4x8
 							for (int32 sp = 0; sp < 2; ++sp) {
-								PredMvPart(c, gbx + sbx + sp, gby + sby, 1, 3, 0, pmx, pmy);
-								doPart(sbx + sp, sby, 1, 2, pmx + br.SE(), pmy + br.SE());
+								PredMvPart(c, gbx + sbx + sp, gby + sby, 1, 3, 0, ri[b], pmx, pmy);
+								doPart(sbx + sp, sby, 1, 2, pmx + br.SE(), pmy + br.SE(), ri[b]);
 							}
 						} else { // 4x4
 							for (int32 sp = 0; sp < 4; ++sp) {
 								const int32 pbx = sbx + (sp & 1), pby = sby + (sp >> 1);
-								PredMvPart(c, gbx + pbx, gby + pby, 1, 3, 0, pmx, pmy);
-								doPart(pbx, pby, 1, 1, pmx + br.SE(), pmy + br.SE());
+								PredMvPart(c, gbx + pbx, gby + pby, 1, 3, 0, ri[b], pmx, pmy);
+								doPart(pbx, pby, 1, 1, pmx + br.SE(), pmy + br.SE(), ri[b]);
 							}
 						}
 					}
@@ -1053,6 +1090,13 @@ namespace nkentseu {
 		}
 
 		bool NkH264Decoder::DecodeFrame(const uint8 *annexB, usize size, const NkH264Frame *ref, NkH264Frame &out) {
+			// Wrapper mono-référence : liste de 0 ou 1 élément.
+			const NkH264Frame *refs[1] = {ref};
+			return DecodeFrame(annexB, size, ref ? refs : nullptr, ref ? 1 : 0, out);
+		}
+
+		bool NkH264Decoder::DecodeFrame(const uint8 *annexB, usize size, const NkH264Frame *const *refs, int32 numRefs,
+										NkH264Frame &out) {
 			NkVector<NkH264Nal> nals;
 			SplitNalsAnnexB(annexB, size, nals);
 			const uint8 *spsN = nullptr, *ppsN = nullptr, *idrN = nullptr;
@@ -1095,7 +1139,7 @@ namespace nkentseu {
 			const bool isI = (st == 2), isP = (st == 0);
 			if (firstMb != 0 || (!isI && !isP)) // seules I / P (slice unique à 0) gérées
 				return false;
-			if (isP && !ref) // P-slice sans référence
+			if (isP && numRefs <= 0) // P-slice sans reference
 				return false;
 			br.UE();				   // pps_id
 			br.U(sps.log2MaxFrameNum); // frame_num
@@ -1111,10 +1155,11 @@ namespace nkentseu {
 			}
 			if (pps.redundantPicCntPresent)
 				br.UE();
+			int32 numRefActive = pps.numRefIdxL0DefaultActive; // num_ref_idx_l0_active effectif
 			if (isP) {
-				if (br.U1())	 // num_ref_idx_active_override_flag
-					br.UE();	 // num_ref_idx_l0_active_minus1
-				if (br.U1()) {	 // ref_pic_list_modification_flag_l0
+				if (br.U1())									   // num_ref_idx_active_override_flag
+					numRefActive = (int32)br.UE() + 1;		   // num_ref_idx_l0_active_minus1 + 1
+				if (br.U1()) {								   // ref_pic_list_modification_flag_l0
 					uint32 idc;
 					do {
 						idc = br.UE();
@@ -1216,11 +1261,22 @@ namespace nkentseu {
 			c.mvy4 = mvy4G.Data();
 			c.ref4 = ref4G.Data();
 			if (isP) {
-				if (!ref || ref->lumaW != lumaW || ref->lumaH != lumaH)
+				if (numRefs <= 0)
 					return false; // référence incompatible
-				c.refY = ref->y.Data();
-				c.refCb = ref->cb.Data();
-				c.refCr = ref->cr.Data();
+				int32 nUse = numRefs > 16 ? 16 : numRefs;
+				for (int32 i = 0; i < nUse; ++i) {
+					const NkH264Frame *r = refs[i];
+					if (!r || r->lumaW != lumaW || r->lumaH != lumaH)
+						return false; // reference incompatible
+					c.refListY[i] = r->y.Data();
+					c.refListCb[i] = r->cb.Data();
+					c.refListCr[i] = r->cr.Data();
+				}
+				c.numRefs = nUse;
+				c.numRefActive = (numRefActive < 1) ? 1 : (numRefActive > nUse ? nUse : numRefActive);
+				c.refY = c.refListY[0];
+				c.refCb = c.refListCb[0];
+				c.refCr = c.refListCr[0];
 			}
 
 			NkVector<int32> mbQp;

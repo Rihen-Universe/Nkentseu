@@ -668,7 +668,45 @@ namespace nkentseu {
 			}
 
 			// ── Geometry pass (3D opaque) ─────────────────────────────────────
-			if (has3D) {
+			// DEFERRED v1 (cfg.deferred + post-process actif) : G-buffer MRT →
+			// lighting fullscreen → reste en forward par-dessus. Sinon : passe
+			// Geometry forward classique.
+			const bool useDeferred = has3D && mCfg.deferred && hasPP;
+			if (useDeferred) {
+				NkGraphResId gbufA = g.CreateTransient(
+					"GBufAlbedo", NkTextureDesc::RenderTarget(mCfg.width, mCfg.height, NkGPUFormat::NK_RGBA8_UNORM));
+				NkGraphResId gbufN = g.CreateTransient(
+					"GBufNormal", NkTextureDesc::RenderTarget(mCfg.width, mCfg.height, NkGPUFormat::NK_RGBA16_FLOAT));
+				NkGraphResId gbufE = g.CreateTransient(
+					"GBufEmissive", NkTextureDesc::RenderTarget(mCfg.width, mCfg.height, NkGPUFormat::NK_RGBA16_FLOAT));
+
+				auto &geom = g.AddPass("DeferredGeom", NkPassType::NK_GEOMETRY);
+				geom.SetColor(0, gbufA, NkLoadOp::NK_CLEAR, {0.f, 0.f, 0.f, 0.f})
+					.SetColor(1, gbufN, NkLoadOp::NK_CLEAR, {0.5f, 0.5f, 1.f, 1.f})
+					.SetColor(2, gbufE, NkLoadOp::NK_CLEAR, {0.f, 0.f, 0.f, 1.f})
+					.SetDepth(mainDepth, NkLoadOp::NK_CLEAR, 1.f);
+				geom.Execute([this](NkICommandBuffer *cmd) { mRender3D->FlushDeferredGeometry(cmd); });
+
+				auto &lit = g.AddPass("DeferredLight", NkPassType::NK_POST_PROCESS);
+				lit.Reads(gbufA);
+				lit.Reads(gbufN);
+				lit.Reads(gbufE);
+				lit.Reads(mainDepth);
+				lit.SetColor(0, mainColor, NkLoadOp::NK_CLEAR, {0.05f, 0.05f, 0.07f, 1.f});
+				lit.Execute([this, gbufA, gbufN, gbufE, mainDepth](NkICommandBuffer *cmd) {
+					mRender3D->RenderDeferredLighting(cmd, mRenderGraph->GetResourceTexture(gbufA),
+													  mRenderGraph->GetResourceTexture(gbufN),
+													  mRenderGraph->GetResourceTexture(gbufE),
+													  mRenderGraph->GetResourceTexture(mainDepth));
+				});
+
+				// Reste en FORWARD par-dessus le HDR (skybox, instancies, skins,
+				// grille, transparents, debug) avec la MEME depth (LOAD).
+				auto &fwd = g.AddPass("ForwardRest", NkPassType::NK_GEOMETRY);
+				fwd.SetColor(0, mainColor, NkLoadOp::NK_LOAD)
+					.SetDepth(mainDepth, NkLoadOp::NK_LOAD);
+				fwd.Execute([this](NkICommandBuffer *cmd) { mRender3D->FlushForwardRest(cmd); });
+			} else if (has3D) {
 				auto &geom = g.AddPass("Geometry", NkPassType::NK_GEOMETRY);
 				geom.SetColor(0, mainColor, NkLoadOp::NK_CLEAR, {0.05f, 0.05f, 0.07f, 1.f})
 					.SetDepth(mainDepth, NkLoadOp::NK_CLEAR, 1.f);

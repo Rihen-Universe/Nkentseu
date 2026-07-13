@@ -48,6 +48,20 @@ namespace nkentseu {
 				void ResetFrame();
 				void BeginScene(const NkSceneContext &ctx);
 				void Flush(NkICommandBuffer *cmd);
+
+				// ── DEFERRED v1 (cf. NkRendererImpl, branche cfg.deferred) ──────
+				// FlushDeferredGeometry : rend les OPAQUES simples dans le G-buffer
+				// (pipeline DeferredGeom MRT). Ne consomme PAS la scene (mInScene
+				// reste vrai) — FlushForwardRest termine la frame.
+				void FlushDeferredGeometry(NkICommandBuffer *cmd);
+				// RenderDeferredLighting : passe fullscreen qui lit le G-buffer +
+				// lumieres/ombres/IBL du set global et ecrit le HDR.
+				void RenderDeferredLighting(NkICommandBuffer *cmd, ::nkentseu::NkTextureHandle texA,
+											::nkentseu::NkTextureHandle texN, ::nkentseu::NkTextureHandle texE,
+											::nkentseu::NkTextureHandle texD);
+				// FlushForwardRest : tout le reste en FORWARD par-dessus le HDR
+				// (skybox, instancies, skins, grille, transparents, debug).
+				void FlushForwardRest(NkICommandBuffer *cmd);
 				// Surcharge render-to-texture : utilise renderPass au lieu du RP Geometry du graph.
 				void Flush(NkICommandBuffer *cmd, NkRenderPassHandle renderPass);
 
@@ -448,6 +462,19 @@ namespace nkentseu {
 				// par-caster dans RenderShadowPass quand matInst->mCastShadowAlphaTest.
 				::nkentseu::NkShaderHandle mShadowAlphaShader;
 				NkPipelineHandle mShadowAlphaPipeline;
+
+				// ── DEFERRED v1 ───────────────────────────────────────────────
+				// Pipeline G-buffer fill (DeferredGeom, MRT 3 cibles + depth) +
+				// pipeline lighting fullscreen (DeferredLight, lit le G-buffer).
+				// Voir NkRendererImpl::RebuildRenderGraph (branche cfg.deferred).
+				::nkentseu::NkShaderHandle mDeferredGeomShader;
+				NkPipelineHandle mDeferredGeomPipeline;
+				::nkentseu::NkShaderHandle mDeferredLightShader;
+				NkPipelineHandle mDeferredLightPipeline;
+				NkDescSetHandle mGBufLayout; // set=1 du lighting : 4 samplers (A/N/E/depth)
+				NkDescSetHandle mGBufSet;
+				bool EnsureDeferredGeomPipeline(NkRenderPassHandle rp);
+				bool EnsureDeferredLightPipeline(NkRenderPassHandle rp);
 
 				// Shadow INSTANCIÉ : projette les instances (mInstanced) dans l'atlas
 				// d'ombre en 1 draw/batch (InstanceUBO set=1 binding=4 + lightVP push
