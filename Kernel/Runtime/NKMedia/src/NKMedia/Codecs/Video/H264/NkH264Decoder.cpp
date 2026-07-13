@@ -275,6 +275,13 @@ namespace nkentseu {
 			}
 			// (CABAC : cabac_init_idc — baseline CAVLC, ignoré.)
 			out.sliceQp = pps.picInitQp + br.SE(); // slice_qp_delta
+			if (pps.deblockingControlPresent) {
+				const uint32 idc = br.UE();
+				if (idc != 1) {
+					br.SE();
+					br.SE();
+				}
+			}
 			out.valid = (out.sliceQp >= 0 && out.sliceQp <= 51);
 			return out.valid;
 		}
