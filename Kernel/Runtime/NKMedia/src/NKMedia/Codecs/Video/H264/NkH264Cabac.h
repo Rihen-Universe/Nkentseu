@@ -58,6 +58,9 @@ namespace nkentseu {
 				out[i] = NkCabacInitOne(mn[i][0], mn[i][1], sliceQp);
 		}
 
+// Tables (m,n) normatives ISO/IEC 14496-10 (1024 ctxIdx : I + 3 variantes P/B).
+#include "NKMedia/Codecs/Video/H264/NkH264CabacTables.inc"
+
 		// Table 9-44 : rangeTabLPS[pStateIdx][qCodIRangeIdx].
 		static const uint8 kCabacRangeTabLPS[64][4] = {
 			{128, 176, 208, 240}, {128, 167, 197, 227}, {128, 158, 187, 216}, {123, 150, 178, 205},
