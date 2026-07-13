@@ -1047,7 +1047,13 @@ namespace nkentseu {
 
 		NkMeshHandle NkAnimationSystem::ApplyMorphTargets(NkMeshHandle base, const NkMeshHandle *targets,
 														  const float32 *weights, uint32 count, bool useGPU) {
-			// GPU : compute shader (stub) ; CPU : retourne le mesh de base pour l'instant
+			// Cette API handle-par-target est INADAPTEE aux morph targets reels
+			// (glTF = DELTAS par vertex, pas des meshes complets). Le VRAI chemin
+			// livre (2026-07-13) est dans NkGLTFLoader :
+			//   EvaluateGLTFMorphWeights(data, anim, t, w)  — poids animes (canaux WEIGHTS)
+			//   ApplyGLTFMorphCPU(data, w, n, outVerts)     — base + somme(w_i * delta_i)
+			//   puis NkMeshSystem::UpdateVertices(mesh cree dynamic=true).
+			// Reference d'integration : DemoGLTF.cpp (asset MorphTest). GPU compute = futur.
 			(void)targets;
 			(void)weights;
 			(void)count;

@@ -46,6 +46,13 @@ namespace nkentseu {
 				uint32 vertexCount = 0;
 				uint32 indexCount = 0;
 				uint32 matCount = 0;
+				// ── Morph targets (si le modele en a) ────────────────────────
+				// Les donnees CPU du loader sont GARDEES (deltas + base) pour
+				// appliquer base + somme(w_i * delta_i) chaque frame (CPU) puis
+				// re-uploader via UpdateVertices. nullptr si pas de morphs.
+				NkGLTFMeshData *morphData = nullptr;
+				NkVector<NkVertex3D> morphScratch;
+				NkVector<float32> morphWeights;
 		};
 
 		// Path du modele de test : rubber_duck (geometrie + materiau PBR +
@@ -84,7 +91,10 @@ namespace nkentseu {
 				if (c >= 'A' && c <= 'Z')
 					lower[i] = (char)(c + 32);
 			}
-			NkGLTFMeshData data;
+			// NkGLTFMeshData non copiable -> heap, garde SEULEMENT si morphs
+			// (les deltas + vertices de base servent chaque frame).
+			NkGLTFMeshData *dataPtr = new NkGLTFMeshData();
+			NkGLTFMeshData &data = *dataPtr;
 			bool loaded = false;
 			if (lower.EndsWith(".gltf") || lower.EndsWith(".glb"))
 				loaded = LoadGLTF(path, data);
@@ -102,6 +112,7 @@ namespace nkentseu {
 				loaded = LoadUSDA(path, data);
 			if (!loaded) {
 				logger.Errorf("[DemoGLTF] echec chargement modele : %s\n", path.CStr());
+				delete dataPtr;
 				// On garde la demo vivante (affiche overlay d'erreur) mais sans mesh.
 				return true;
 			}
@@ -109,6 +120,8 @@ namespace nkentseu {
 			// Cree le mesh GPU depuis les buffers CPU du loader.
 			NkMeshDesc d;
 			d.layout = renderer::NkVertexLayout::Default3D();
+			// Morph targets : le VBO doit etre re-uploadable chaque frame.
+			d.dynamic = data.hasMorphs;
 			d.vertices = data.vertices.Data();
 			d.vertexCount = (uint32)data.vertices.Size();
 			d.indices = data.indices.Data();
@@ -139,6 +152,19 @@ namespace nkentseu {
 				st->radius = 0.5f;
 
 			st->loaded = st->mesh.IsValid() && st->vertexCount > 0;
+
+			// ── Morph targets : garde les donnees CPU (deltas + base) ────────────
+			if (data.hasMorphs && st->loaded) {
+				st->morphData = dataPtr;
+				dataPtr = nullptr;
+				logger.Info("[DemoGLTF] MORPH : {0} targets, node={1}, {2} animation(s)\n",
+							(uint32)st->morphData->morphTargets.Size(), st->morphData->morphNode,
+							(uint32)st->morphData->animations.Size());
+			}
+			if (dataPtr) {
+				delete dataPtr;
+				dataPtr = nullptr;
+			}
 
 			logger.Info("[DemoGLTF] Init OK — '{0}' : {1} v / {2} i, {3} materiaux, "
 						"center=({4},{5},{6}) radius={7}\n",
@@ -171,6 +197,32 @@ namespace nkentseu {
 				ctx.renderer->Present();
 				ctx.renderer->EndFrame();
 				return;
+			}
+
+			// ── Morph targets : evalue les poids au temps t et re-uploade ────────
+			// base + somme(w_i * delta_i) sur CPU -> UpdateVertices (le mesh garde
+			// ses donnees CPU, keepCPU par defaut). Anim 0 si presente, sinon des
+			// poids oscillants pour VOIR le morph meme sans canal WEIGHTS.
+			if (st->morphData && st->mesh.IsValid()) {
+				auto *meshSys = ctx.renderer->GetMeshSystem();
+				const int32 animIdx = st->morphData->animations.Empty() ? -1 : 0;
+				if (EvaluateGLTFMorphWeights(*st->morphData, animIdx, ctx.totalTime, st->morphWeights)) {
+					if (animIdx < 0) {
+						// Pas d'animation : oscille chaque target a tour de role.
+						const uint32 nbT = (uint32)st->morphWeights.Size();
+						for (uint32 i = 0; i < nbT; ++i) {
+							const float32 ph = ctx.totalTime * 1.2f - (float32)i * 1.7f;
+							const float32 s = sinf(ph);
+							st->morphWeights[i] = s > 0.f ? s : 0.f;
+						}
+					}
+					if (ApplyGLTFMorphCPU(*st->morphData, st->morphWeights.Data(),
+										  (uint32)st->morphWeights.Size(), st->morphScratch) &&
+						meshSys) {
+						meshSys->UpdateVertices(st->mesh, st->morphScratch.Data(),
+												(uint32)st->morphScratch.Size());
+					}
+				}
 			}
 
 			// ── Camera orbitale autour du centre du modele ───────────────────────
@@ -286,6 +338,11 @@ namespace nkentseu {
 		}
 
 		void DemoGLTF_Shutdown(DemoCtx &ctx) {
+			auto *stt = (DemoGLTFState *)ctx.userData;
+			if (stt && stt->morphData) {
+				delete stt->morphData;
+				stt->morphData = nullptr;
+			}
 			delete (DemoGLTFState *)ctx.userData;
 			ctx.userData = nullptr;
 			logger.Info("[DemoGLTF] Shutdown\n");

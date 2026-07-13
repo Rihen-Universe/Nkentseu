@@ -82,6 +82,9 @@ namespace nkentseu {
 				NkGLTFInterp interp = NkGLTFInterp::LINEAR;
 				NkVector<float32> times;  // input (n keyframes)
 				NkVector<NkVec4f> values; // output (n) : .xyz (T/S) ou .xyzw (quat)
+				// WEIGHTS (morph targets) : poids PLATS, n keyframes × nbTargets
+				// (values reste vide pour ce path). nbTargets = weightValues/times.
+				NkVector<float32> weightValues;
 		};
 
 		struct NkGLTFAnimation {
@@ -119,6 +122,19 @@ namespace nkentseu {
 				NkVector<NkMat4f> inverseBind;			   // inverseBindMatrices[] (par joint)
 				int32 skinRootNode = -1;				   // skins[0].skeleton (optionnel)
 
+				// ── Morph targets (rempli si primitives[].targets presents) ──────
+				// Deltas PAR VERTEX GLOBAL (paralleles a `vertices`, memes offsets
+				// baseVertex que les submeshes ; zeros pour les primitives sans
+				// targets). Deltas BAKES world comme les positions/normales.
+				struct NkGLTFMorphTarget {
+						NkVector<NkVec3f> dPos;	   // delta POSITION (taille = vertices)
+						NkVector<NkVec3f> dNormal; // delta NORMAL (taille = vertices, zeros si absent)
+				};
+				bool hasMorphs = false;
+				NkVector<NkGLTFMorphTarget> morphTargets;
+				NkVector<float32> morphDefaultWeights; // mesh.weights (0 si absent)
+				int32 morphNode = -1;				   // node portant le mesh morphe (cible WEIGHTS)
+
 				// ── Scene graph + animations (pour evaluer la pose a un temps t) ──
 				NkVector<NkGLTFNode> nodes;			  // tous les nodes (TRS + children)
 				NkVector<NkGLTFAnimation> animations; // animations[]
@@ -152,6 +168,25 @@ namespace nkentseu {
 		// Retourne false si data non skinnee.
 		bool EvaluateGLTFWorldJoints(const NkGLTFMeshData &data, int32 animIdx, float32 t, NkVector<NkMat4f> &outWorld,
 									 NkVector<int32> &outParentJoint);
+
+		// ── Morph targets ─────────────────────────────────────────────────────
+		// Echantillonne les canaux WEIGHTS de l'animation `animIdx` au temps `t`
+		// (boucle sur la duree) et ecrit les poids dans `outWeights` (taille =
+		// nb de morph targets). Si animIdx < 0, pas d'animation ou pas de canal
+		// WEIGHTS : sort morphDefaultWeights (ou des zeros). LINEAR/STEP ;
+		// CUBICSPLINE traite comme LINEAR (valeur centrale). Retourne false si
+		// data sans morph targets.
+		bool EvaluateGLTFMorphWeights(const NkGLTFMeshData &data, int32 animIdx, float32 t,
+									  NkVector<float32> &outWeights);
+
+		// Applique les morph targets sur CPU : outVerts = vertices de base +
+		// somme(weights[i] * deltas[i]) (positions ET normales, normales
+		// renormalisees). `outVerts` est redimensionne. Le resultat s'uploade
+		// via NkMeshSystem::UpdateVertices(mesh, outVerts.Data(), count).
+		// count = min(weightCount, morphTargets.Size()). Retourne false si
+		// data sans morph targets.
+		bool ApplyGLTFMorphCPU(const NkGLTFMeshData &data, const float32 *weights, uint32 weightCount,
+							   NkVector<NkVertex3D> &outVerts);
 
 		// Charge un fichier glTF 2.0 (.gltf ou .glb) dans `out`.
 		// path : chemin du fichier (les .bin externes sont resolus relativement
