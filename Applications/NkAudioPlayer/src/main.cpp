@@ -44,7 +44,9 @@ int main(int argc, char **argv) {
 		printf("  [KO] AudioEngine::Initialize a echoue (device audio indisponible ?)\n");
 		return 1;
 	}
-	printf("  moteur : %d Hz, %d canaux\n", cfg.sampleRate, cfg.channels);
+	printf("  moteur (demande) : %d Hz, %d canaux\n", cfg.sampleRate, cfg.channels);
+	printf("  device (REEL)    : %d Hz, %d canaux  <-- taux cible du reechantillonnage\n", engine.GetSampleRate(),
+		   engine.GetChannels());
 
 	// 2) Charge et décode le fichier.
 	AudioSample sample = AudioLoader::Load(path);
