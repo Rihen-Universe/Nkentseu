@@ -127,12 +127,17 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    **V2 en cours (2026-07-13)** : ✅ COOKIES portés (spot 2D + point cube — parité GL
    passée de 73 % à **91,7 %** vs forward, le X rouge du sol est là) ; ✅ conventions
    NDC/sampling PAR BACKEND dans le PC (GL : sample direct + ndcY=-1 ; VK : sample
-   direct + ndcY=+1 ; DX : sample flippé + ndcY=-1) ; ✅ **DX11 VALIDÉ capture**
-   (image à l'endroit, ombres + cookies OK). ⚠ **Vulkan : le backend NKRHI ne
-   supporte pas les MRT** (même signature que le bug GL glDrawBuffers : normales
-   lues blanches → attachements 1..N-1 jamais écrits ; il faut le render pass VK
-   multi-attachements + VkPipelineColorBlendState.attachmentCount = N) — chantier
-   NKRHI à part. Limites restantes : clearcoat/subsurface/velocity non portés,
+   direct + ndcY=+1 ; DX : sample flippé + ndcY=-1) ; ⚠ **ÉTAT MULTI-BACKEND réel
+   (retest Rihen + repro 2026-07-13)** : **GL = RÉFÉRENCE VALIDÉE** (91,8 % parité,
+   X rouge cookies OK — si le X manque : PURGER `Build/Bin/<cfg>/renderdemo/cache/
+   shaders`) ; **DX11 = rendu OK mais RAYONS PARASITES** (bandes translucides
+   radiant du spot — projection cookie/conventions à affiner) ; **DX12 = PAGE
+   BLANCHE** (MRT/RTV multiples à câbler dans le backend DX12 ?) ; **VK = sombre,
+   le backend NKRHI ne supporte pas les MRT** (normales lues blanches, mêmes
+   symptômes que le bug GL glDrawBuffers : il faut le render pass VK
+   multi-attachements + VkPipelineColorBlendState.attachmentCount = N).
+   → chantier « deferred multi-backend » NKRHI (VK + DX12 + finitions DX11),
+   nécessite le feu vert module partagé. Limites restantes : clearcoat/subsurface/velocity non portés,
    passe miroir non différée, boucle 32 lumières (tiled/clustered = v3), DX12 à
    capturer.
    Ancien plan :
