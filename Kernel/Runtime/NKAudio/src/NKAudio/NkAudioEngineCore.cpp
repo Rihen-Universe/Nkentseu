@@ -401,13 +401,34 @@ namespace nkentseu {
 				// Zéro allocation, zéro lock
 				// ──────────────────────────────────────────────────────────────
 
+				// Point d'entree du backend. ROBUSTESSE MULTIPLATEFORME : un backend "pull"
+				// (WASAPI framesAvail, CoreAudio inNumberFrames, AAudio numFrames) peut demander
+				// PLUS de frames par callback que la capacite du mixBuffer. Plutot que tronquer (ce
+				// qui laissait le buffer device sous-rempli -> silence/hoquets/bruit), on traite la
+				// sortie par SOUS-BLOCS <= capacite. L'etat des voix (readPos, filtres) avance
+				// naturellement d'un sous-bloc au suivant -> audio continu, correct sur TOUS les OS.
 				void AudioCallback(float32 *outputBuffer, int32 frameCount, int32 channels) {
+					const int32 maxBlock = (mixBuffer && channels > 0) ? (mixBufferSize / channels) : 0;
+					if (maxBlock <= 0) {
+						memset(outputBuffer, 0, (usize)frameCount * (usize)channels * sizeof(float32));
+						return;
+					}
+					int32 remaining = frameCount;
+					float32 *out = outputBuffer;
+					while (remaining > 0) {
+						const int32 block = (remaining < maxBlock) ? remaining : maxBlock;
+						AudioCallbackBlock(out, block, channels);
+						out += (usize)block * (usize)channels;
+						remaining -= block;
+					}
+				}
+
+				void AudioCallbackBlock(float32 *outputBuffer, int32 frameCount, int32 channels) {
 					// Zeroing du buffer de sortie
 					memset(outputBuffer, 0, (usize)frameCount * (usize)channels * sizeof(float32));
 
-					// Buffer de mix par voix (réutilisation du mixBuffer pré-alloué)
+					// Securite : le wrapper garantit frameCount <= capacite, mais on reste defensif.
 					if (!mixBuffer || mixBufferSize < frameCount * channels) {
-						// Ne pas allouer dans le callback RT : ignorer le surplus
 						frameCount = mixBufferSize / channels;
 						if (frameCount <= 0)
 							return;
