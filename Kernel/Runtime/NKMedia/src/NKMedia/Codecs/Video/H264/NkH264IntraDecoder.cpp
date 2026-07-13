@@ -1083,6 +1083,110 @@ namespace nkentseu {
 					}
 			}
 
+			// ═══════════════════════════════════════════════════════════════════════
+			// CABAC (profils Main/High) — brique C : couche macrobloc.
+			// Réutilise Predict*/Inverse*/DecCtx ; ne remplace QUE l'entropie CAVLC.
+			// Offsets ctxIdx = Table 9-11 du standard ; init = kCabacInitI/PB (brique B).
+			// ═══════════════════════════════════════════════════════════════════════
+
+			// Table 9-11 : ctxIdxOffset par élément de syntaxe (les indices utiles).
+			enum : int32 {
+				kCtxMbTypeSI = 0,		 // mb_type (SI) 0..2
+				kCtxMbTypeI = 3,		 // mb_type (I) 3..10
+				kCtxMbSkipP = 11,		 // mb_skip_flag (P/SP) 11..13
+				kCtxMbTypePpre = 14,	 // mb_type (P) préfixe 14..16
+				kCtxMbTypePsuf = 17,	 // mb_type (P) suffixe 17..20
+				kCtxSubMbTypeP = 21,	 // sub_mb_type (P) 21..23
+				kCtxMvd0 = 40,			 // mvd_l0[][][0] (x) 40..46
+				kCtxMvd1 = 47,			 // mvd_l0[][][1] (y) 47..53
+				kCtxRefIdx = 54,		 // ref_idx_l0 54..59
+				kCtxMbQpDelta = 60,		 // mb_qp_delta 60..63
+				kCtxIntraChroma = 64,	 // intra_chroma_pred_mode 64..67
+				kCtxPrevIntra4 = 68,	 // prev_intra4x4_pred_mode_flag 68
+				kCtxRemIntra4 = 69,		 // rem_intra4x4_pred_mode 69
+				kCtxCbpLuma = 73,		 // coded_block_pattern (luma) 73..76
+				kCtxCbpChroma = 77,		 // coded_block_pattern (chroma) 77..84
+				kCtxCbf = 85,			 // coded_block_flag 85..104 (+1012.. High)
+				kCtxSig = 105,			 // significant_coeff_flag 105..165
+				kCtxLast = 166,			 // last_significant_coeff_flag 166..226
+				kCtxCoeffAbs = 227,		 // coeff_abs_level_minus1 227..275
+				kCtxEndOfSlice = 276,	 // end_of_slice_flag (terminaison)
+			};
+
+			// Décodeur CABAC au niveau macrobloc : moteur + 1024 contextes + grilles voisines.
+			struct CabacMb {
+					NkCabacEngine e;
+					NkCabacCtx ctx[1024];
+					// Grilles voisines (par MB) pour les ctxIdxInc dépendants du voisinage.
+					NkVector<int32> mbTypeClass; // -1 indispo, 0 I_NxN, 1 I_16x16/inter (par MB)
+					NkVector<int32> cbpLumaMb;	 // CodedBlockPatternLuma par MB (4 bits)
+					NkVector<int32> cbpChromaMb; // CodedBlockPatternChroma par MB
+					NkVector<int32> chromaModeMb;
+					int32 mbW = 0;
+					int32 prevQpDeltaNonZero = 0;
+
+					void InitSlice(int32 nbMbW, int32 nbMbH, int32 sliceQp, bool isI, int32 cabacInitIdc) {
+						mbW = nbMbW;
+						const int32 n = nbMbW * nbMbH;
+						mbTypeClass.Resize((uint64)n);
+						cbpLumaMb.Resize((uint64)n);
+						cbpChromaMb.Resize((uint64)n);
+						chromaModeMb.Resize((uint64)n);
+						for (int32 i = 0; i < n; ++i) {
+							mbTypeClass[(uint64)i] = -1;
+							cbpLumaMb[(uint64)i] = 0;
+							cbpChromaMb[(uint64)i] = 0;
+							chromaModeMb[(uint64)i] = 0;
+						}
+						prevQpDeltaNonZero = 0;
+						// Init des 1024 contextes depuis la table normative (I ou variante P/B).
+						if (isI)
+							NkCabacInitContexts(ctx, kCabacInitI, 1024, sliceQp);
+						else
+							NkCabacInitContexts(ctx, kCabacInitPB[cabacInitIdc], 1024, sliceQp);
+					}
+
+					// Décode un bin régulier au contexte ctxIdxOffset+ctxIdxInc.
+					uint32 Bin(int32 ctxIdx) {
+						return e.DecodeDecision(ctx[ctxIdx]);
+					}
+					uint32 Bypass() {
+						return e.DecodeBypass();
+					}
+					uint32 Terminate() {
+						return e.DecodeTerminate();
+					}
+
+					// Binarisation Unary tronquée (TU) de max cMax, contextes ctxIdxOffset+inc(bin).
+					// incFn(binIdx) -> ctxIdxInc. Renvoie la valeur.
+					template <typename F>
+					int32 DecodeTU(int32 cMax, F incFn) {
+						int32 v = 0;
+						while (v < cMax) {
+							if (Bin(incFn(v)) == 0)
+								break;
+							++v;
+						}
+						return v;
+					}
+
+					// Exp-Golomb d'ordre k EN CONTOURNEMENT (suffixe UEGk, §9.3.2.3).
+					int32 DecodeBypassEGk(int32 k) {
+						int32 value = 0;
+						// Préfixe unaire (bits à 1) tant que le seuil est atteint.
+						while (Bypass() == 1) {
+							value += (1 << k);
+							++k;
+							if (k > 30)
+								break;
+						}
+						// Suffixe : k bits.
+						while (k-- > 0)
+							value += (int32)(Bypass() << k);
+						return value;
+					}
+			};
+
 		} // namespace
 
 		bool NkH264Decoder::DecodeIdrFrame(const uint8 *annexB, usize size, NkH264Frame &out) {
