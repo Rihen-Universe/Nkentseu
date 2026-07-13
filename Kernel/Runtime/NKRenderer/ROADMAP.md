@@ -74,7 +74,15 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    (NkPostProcessStack, accessible via `GetPostProcess()`, recréation auto si taille change) ;
    ✅ vraie LUT 3D sur GL LIVRÉE (le dummy 1×1 datait du chemin SPIRV-Cross sampler3D —
    le tonemap NkSL natif marche : validé capture `NK_LUT_TEST=1` teal&orange, 99,4 % pixels
-   gradés, zéro crash) ; reste `DrawSpriteGlow` (fallback confirmé).
+   gradés, zéro crash) ; ✅ `DrawSpriteGlow` RÉEL LIVRÉ + validé capture (halo
+   radial visible, demo 9) — intégré au batching (batch dédié marqué glow →
+   pipeline Glow2D + PC 96B au Flush, jamais fusionné ; buffers 1-quad v0
+   retirés). AU PASSAGE, vrai bug GL 2D corrigé : le descriptor set UNIQUE
+   partagé du Flush était écrasé au Submit (exécution différée → TOUS les
+   batchs de la frame samplaient la DERNIÈRE texture bindée, ex. l'atlas de
+   police du HUD à la place des textures des sprites ; UB sur VK aussi) →
+   POOL de 256 sets per-batch, bindings partagés (lights/cookies/shadows/
+   normal) répliqués via BindSharedTexture/BindSharedUBO.
    4) Morph targets (stub confirmé ; nécessite AUSSI l'import morph glTF, différé). 5) Streaming
    réel (`FinalizeLoad` ne charge rien — « In a real impl » dans le code ; simulateur de budget).
    6) Deferred lighting pass + branchement (gros ; jamais instancié par le renderer). 7) IK

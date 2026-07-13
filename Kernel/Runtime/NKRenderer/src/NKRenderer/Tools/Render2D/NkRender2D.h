@@ -117,10 +117,13 @@ namespace nkentseu {
 				//   intensity : 0..4+ (combien le halo "brille")
 				//   power     : 0.5..8 (concentration au bord ; haut = bord fin)
 				void SetGlowParams(NkVec3f color, float32 intensity = 1.f, float32 power = 3.f);
-				// Dessine un sprite avec le pipeline Glow2D (1 quad, pas batche
-				// — donc plus couteux que DrawSprite ; reserver aux objets clefs
-				// comme power-ups / projectiles / UI accent). Le tint multiplie
-				// la texture comme un DrawSprite standard.
+				// Dessine un sprite avec le pipeline Glow2D (halo radial additif).
+				// Integre au batching mais chaque DrawSpriteGlow cree son propre
+				// batch (1 draw) — reserver aux objets clefs comme power-ups /
+				// projectiles / UI accent. Le tint multiplie la texture comme un
+				// DrawSprite standard ; les params viennent du dernier SetGlowParams
+				// (snapshot par sprite : deux glows avec des params differents dans
+				// la meme frame sont corrects).
 				void DrawSpriteGlow(NkRectF dst, NkTexHandle tex, NkVec4f tint = {1, 1, 1, 1},
 									NkRectF uv = {0, 0, 1, 1});
 
@@ -183,6 +186,12 @@ namespace nkentseu {
 						uint8 layer;
 						uint32 vStart;
 						uint32 vCount;
+						// Phase E Materials 2D : batch glow — rendu avec mPipeGlow +
+						// push constant etendu (ortho + glowColor + glowParams,
+						// snapshot au moment du draw). Jamais fusionne.
+						bool glow = false;
+						NkVec4f glowColor{};
+						NkVec4f glowParams{};
 				};
 
 				NkIDevice *mDevice = nullptr;
@@ -196,13 +205,27 @@ namespace nkentseu {
 				NkBufferHandle mUBOShadows2D;	  // Phase E.5 : circle shadow casters
 				NkBufferHandle mUBOShadowsAABB2D; // Phase E.7a : AABB shadow casters
 				NkPipelineHandle mPipeAlpha, mPipeAdd, mPipeOpaque;
-				// Phase E Materials 2D — pipeline Glow + buffers dedies pour 1 quad.
+				// Phase E Materials 2D — pipeline Glow (integre au batching : un
+				// DrawSpriteGlow = un batch dedie rendu avec ce pipeline).
 				NkPipelineHandle mPipeGlow;
-				NkBufferHandle mVBOGlow; // 4 vertices Vert2D
-				NkBufferHandle mIBOGlow; // 6 indices uint16
 				NkVec4f mGlowColor = {1.f, 0.5f, 0.1f, 1.f};
 				NkVec4f mGlowParams = {3.f, 1.f, 0.f, 0.f}; // x=power
+				bool mGlowNext = false; // arme par DrawSpriteGlow pour le PushQuad suivant
 				NkDescSetHandle mTexLayout, mTexSet;
+				// Pool de descriptor sets pour l'atlas PER-BATCH (binding 0) : le set
+				// unique partage etait ecrase au Submit sur GL (execution differee →
+				// derniere ecriture gagne → TOUS les batchs de la frame samplaient la
+				// DERNIERE texture bindee, ex. l'atlas de police du HUD au lieu de la
+				// texture du sprite) et etait de l'UB sur Vulkan (update d'un set encore
+				// en vol). Chaque batch consomme un set frais (curseur monotone, modulo).
+				// Les bindings PARTAGES (1=lights, 2..9=cookies, 10/11=shadows,
+				// 12=normal map) sont repliques sur TOUT le pool via BindSharedTexture/
+				// BindSharedUBO. 256 sets ≈ 85 batchs/frame × 3 frames in flight.
+				static constexpr int kTexSetPool = 256;
+				NkDescSetHandle mTexSetPool[kTexSetPool];
+				int mTexSetCursor = 0;
+				void BindSharedTexture(uint32 binding, ::nkentseu::NkTextureHandle rhi, NkSamplerHandle samp);
+				void BindSharedUBO(uint32 binding, NkBufferHandle buf);
 				NkSamplerHandle mLinearSampler;
 				bool mLitMode = false;
 				bool mNormalMode = false;
