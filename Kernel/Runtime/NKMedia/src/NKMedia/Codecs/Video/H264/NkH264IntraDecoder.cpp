@@ -1185,7 +1185,130 @@ namespace nkentseu {
 							value += (int32)(Bypass() << k);
 						return value;
 					}
+
+					// Signe en contournement (§9.3.3.2.3) : renvoie +val ou -val selon le bit.
+					int32 BypassSign(int32 val) {
+						return Bypass() ? -val : val;
+					}
 			};
+
+			// ── Decodeurs de syntaxe I-slice (miroir exact de la reference H.264) ──────
+
+			// mb_type (I-slice) : 0=I_NxN(I_4x4) ; 1..24=I_16x16 ; 25=I_PCM. (ctxIdxOffset 3)
+			int32 DecodeMbTypeICabac(CabacMb &cab, int32 mbX, int32 mbY) {
+				const int32 idx = mbY * cab.mbW + mbX;
+				int32 base = kCtxMbTypeI;
+				int32 ctx = 0;
+				const int32 clsA = (mbX > 0) ? cab.mbTypeClass[(uint64)(idx - 1)] : -1;
+				const int32 clsB = (mbY > 0) ? cab.mbTypeClass[(uint64)(idx - cab.mbW)] : -1;
+				if (clsA > 0)
+					++ctx; // voisin gauche I_16x16/PCM (pas I_NxN, dispo)
+				if (clsB > 0)
+					++ctx;
+				if (cab.Bin(base + ctx) == 0)
+					return 0; // I_NxN
+				base += 2;
+				if (cab.Terminate())
+					return 25; // I_PCM
+				int32 mbType = 1;
+				mbType += 12 * (int32)cab.Bin(base + 1);		// cbp_luma != 0
+				if (cab.Bin(base + 2))							// cbp_chroma present
+					mbType += 4 + 4 * (int32)cab.Bin(base + 3); // cbp_chroma == 2 ? 2 : 1
+				mbType += 2 * (int32)cab.Bin(base + 4);			// pred mode (bit haut)
+				mbType += (int32)cab.Bin(base + 5);				// pred mode (bit bas)
+				return mbType;
+			}
+
+			// prev_intra4x4_pred_mode_flag + rem_intra4x4_pred_mode -> mode intra 4x4 final.
+			int32 DecodeIntra4x4ModeCabac(CabacMb &cab, int32 predMode) {
+				if (cab.Bin(kCtxPrevIntra4)) // flag : utilise la prediction
+					return predMode;
+				int32 mode = (int32)cab.Bin(kCtxRemIntra4);
+				mode += 2 * (int32)cab.Bin(kCtxRemIntra4);
+				mode += 4 * (int32)cab.Bin(kCtxRemIntra4);
+				return mode + (mode >= predMode ? 1 : 0);
+			}
+
+			// intra_chroma_pred_mode (0..3). (ctxIdxOffset 64)
+			int32 DecodeChromaModeCabac(CabacMb &cab, int32 mbX, int32 mbY) {
+				const int32 idx = mbY * cab.mbW + mbX;
+				int32 ctx = 0;
+				if (mbX > 0 && cab.mbTypeClass[(uint64)(idx - 1)] >= 0 && cab.chromaModeMb[(uint64)(idx - 1)] != 0)
+					++ctx;
+				if (mbY > 0 && cab.mbTypeClass[(uint64)(idx - cab.mbW)] >= 0 &&
+					cab.chromaModeMb[(uint64)(idx - cab.mbW)] != 0)
+					++ctx;
+				if (cab.Bin(kCtxIntraChroma + ctx) == 0)
+					return 0;
+				if (cab.Bin(kCtxIntraChroma + 3) == 0)
+					return 1;
+				if (cab.Bin(kCtxIntraChroma + 3) == 0)
+					return 2;
+				return 3;
+			}
+
+			// coded_block_pattern luma (4 bits, un par 8x8). (ctxIdxOffset 73)
+			int32 DecodeCbpLumaCabac(CabacMb &cab, int32 mbX, int32 mbY) {
+				const int32 idx = mbY * cab.mbW + mbX;
+				const int32 cbpA = (mbX > 0 && cab.mbTypeClass[(uint64)(idx - 1)] >= 0)
+									   ? cab.cbpLumaMb[(uint64)(idx - 1)]
+									   : 0x0F;
+				const int32 cbpB = (mbY > 0 && cab.mbTypeClass[(uint64)(idx - cab.mbW)] >= 0)
+									   ? cab.cbpLumaMb[(uint64)(idx - cab.mbW)]
+									   : 0x0F;
+				int32 cbp = 0, ctx;
+				ctx = !(cbpA & 0x02) + 2 * !(cbpB & 0x04);
+				cbp += (int32)cab.Bin(kCtxCbpLuma + ctx);
+				ctx = !(cbp & 0x01) + 2 * !(cbpB & 0x08);
+				cbp += (int32)cab.Bin(kCtxCbpLuma + ctx) << 1;
+				ctx = !(cbpA & 0x08) + 2 * !(cbp & 0x01);
+				cbp += (int32)cab.Bin(kCtxCbpLuma + ctx) << 2;
+				ctx = !(cbp & 0x04) + 2 * !(cbp & 0x02);
+				cbp += (int32)cab.Bin(kCtxCbpLuma + ctx) << 3;
+				return cbp;
+			}
+
+			// coded_block_pattern chroma (0/1/2). (ctxIdxOffset 77)
+			int32 DecodeCbpChromaCabac(CabacMb &cab, int32 mbX, int32 mbY) {
+				const int32 idx = mbY * cab.mbW + mbX;
+				const int32 cbpA = (mbX > 0 && cab.mbTypeClass[(uint64)(idx - 1)] >= 0)
+									   ? cab.cbpChromaMb[(uint64)(idx - 1)]
+									   : 0;
+				const int32 cbpB = (mbY > 0 && cab.mbTypeClass[(uint64)(idx - cab.mbW)] >= 0)
+									   ? cab.cbpChromaMb[(uint64)(idx - cab.mbW)]
+									   : 0;
+				int32 ctx = 0;
+				if (cbpA > 0)
+					++ctx;
+				if (cbpB > 0)
+					ctx += 2;
+				if (cab.Bin(kCtxCbpChroma + ctx) == 0)
+					return 0;
+				ctx = 4;
+				if (cbpA == 2)
+					++ctx;
+				if (cbpB == 2)
+					ctx += 2;
+				return 1 + (int32)cab.Bin(kCtxCbpChroma + ctx);
+			}
+
+			// mb_qp_delta -> valeur signee. (ctxIdxOffset 60)
+			int32 DecodeMbQpDeltaCabac(CabacMb &cab) {
+				int32 ctx = cab.prevQpDeltaNonZero ? 1 : 0;
+				if (cab.Bin(kCtxMbQpDelta + ctx) == 0) {
+					cab.prevQpDeltaNonZero = 0;
+					return 0;
+				}
+				int32 val = 1;
+				ctx = 2;
+				while (cab.Bin(kCtxMbQpDelta + ctx) && val < 128) {
+					++val;
+					ctx = 3;
+				}
+				cab.prevQpDeltaNonZero = 1;
+				// Mapping unaire -> signe : 1,2,3,... -> +1,-1,+2,-2,...
+				return (val & 1) ? ((val + 1) >> 1) : -(val >> 1);
+			}
 
 		} // namespace
 
