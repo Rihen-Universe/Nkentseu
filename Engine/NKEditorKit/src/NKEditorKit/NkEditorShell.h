@@ -77,6 +77,12 @@ namespace nkentseu {
 				void ClosePanel(const char *title) noexcept;  ///< ferme le panneau nomme
 				int32 PanelDockNode(const char *title) noexcept; ///< feuille de dock (-1 = non ancre)
 				void DetachPanel(const char *title) noexcept; ///< retire de sa feuille (collapse si vide)
+				// Agrandir / replier la REGION de dock d'un panneau (ajuste le ratio du split
+				// parent) : maximiser = la region prend presque toute la place ; replier = juste
+				// les onglets. Rebascule a l'etat normal si deja dans cet etat.
+				void ToggleMaximizePanel(const char *title) noexcept;
+				void ToggleCollapsePanel(const char *title) noexcept;
+				int32 PanelRegionMode() const noexcept { return mDockRegionState; } ///< 0 normal,1 replie,2 max
 
 				// ── GESTIONNAIRE DE MENU CONTEXTUEL (réutilisable, shell-level) ──────
 				// Un panneau APPELLE OpenContextMenu(pos, items, enabled, count) ; le shell
@@ -364,6 +370,9 @@ namespace nkentseu {
 				// === Panneaux / commandes ===
 				NkEditorPanel *mPanels[MAX_PANELS] = {};
 				int32 mNumPanels = 0;
+				float32 mDockSavedRatio = -1.f; // ratio normal sauvegarde (restauration)
+				int32 mDockRegionState = 0;		// 0 normal, 1 replie, 2 maximise (region du bas)
+				void SetRegionMode(const char *title, int32 mode) noexcept;
 				NkEditorCommand mCommands[MAX_COMMANDS] = {};
 				int32 mNumCommands = 0;
 				NkEditorAppMenuFn mAppMenuFn = nullptr;
