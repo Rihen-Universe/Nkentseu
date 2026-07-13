@@ -182,10 +182,21 @@ namespace nkentseu {
 			// Buffer scratch pour conversion / mismatch channels
 			float32 *scratch = static_cast<float32 *>(
 				memory::NkAlloc(usize(kChunkFrames) * 8 * sizeof(float32), nullptr, sizeof(float32)));
-			if (!scratch) {
+			// Buffer de sortie du rééchantillonnage (taux natif -> taux du device).
+			constexpr int32 kResCap = kChunkFrames + 16;
+			float32 *resBuf = static_cast<float32 *>(
+				memory::NkAlloc(usize(kResCap) * 8 * sizeof(float32), nullptr, sizeof(float32)));
+			if (!scratch || !resBuf) {
 				logger.Error("[StreamPlayer] Allocation scratch buffer echec.");
+				if (scratch)
+					memory::NkFree(scratch, nullptr);
+				if (resBuf)
+					memory::NkFree(resBuf, nullptr);
 				return;
 			}
+			// État du rééchantillonneur linéaire (persistant entre les chunks pour éviter les clics).
+			double resFrac = 0.0;
+			float32 resPrev[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
 			while (mRunning.load()) {
 				if (!mActive.load() || mPaused.load()) {
@@ -198,7 +209,7 @@ namespace nkentseu {
 				int32 wPos = mWritePos.load(std::memory_order_relaxed);
 				int32 rPos = mReadPos.load(std::memory_order_acquire);
 				int32 freeFrames = FramesFree(wPos, rPos, mRingFrames);
-				if (freeFrames < kChunkFrames) {
+				if (freeFrames < kResCap) {
 					// Attendre que le consommateur libere de la place
 					std::unique_lock<std::mutex> lk(mStreamMutex);
 					mCV.wait_for(lk, std::chrono::milliseconds(10));
@@ -209,12 +220,15 @@ namespace nkentseu {
 				IAudioStream *stream = nullptr;
 				bool loop = false;
 				int32 streamCh = 0;
+					int32 streamRate = 0;
 				{
 					std::lock_guard<std::mutex> lock(mStreamMutex);
 					stream = mStream;
 					loop = mLoop;
-					if (stream)
+					if (stream) {
 						streamCh = stream->GetChannels();
+						streamRate = stream->GetSampleRate();
+					}
 				}
 				if (!stream) {
 					std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -226,47 +240,81 @@ namespace nkentseu {
 					mActive = false;
 					continue;
 				}
-				int32 nRead = stream->ReadFrames(scratch, kChunkFrames);
+				const double ratio = (streamRate > 0) ? (double)streamRate / (double)mSampleRate : 1.0;
+				const bool doResample = (streamRate > 0 && streamRate != mSampleRate);
+				// Frames SOURCE a lire pour produire ~kChunkFrames de sortie (upsampling => moins).
+				int32 srcToRead = kChunkFrames;
+				if (doResample && ratio < 1.0) {
+					srcToRead = (int32)((double)kChunkFrames * ratio) + 2;
+					if (srcToRead > kChunkFrames) srcToRead = kChunkFrames;
+					if (srcToRead < 2) srcToRead = 2;
+				}
+				int32 nRead = stream->ReadFrames(scratch, srcToRead);
 				if (nRead == 0) {
 					if (loop) {
 						stream->Seek(0);
+						resFrac = 0.0; // reset resampler (evite un clic a la boucle)
+						for (int32 c = 0; c < 8; ++c) resPrev[c] = 0.0f;
 						continue;
 					} else {
 						mActive = false;
 						continue;
 					}
 				}
-
-				// Conversion canaux si necessaire (downmix stereo->mono ou
-				// upmix mono->stereo)
+				
+				// Reechantillonnage lineaire natif -> device (etat persistant resFrac/resPrev).
+				const float32 *outSrc = scratch;
+				int32 outFrames = nRead;
+				if (doResample) {
+					double pos = resFrac;
+					int32 of = 0;
+					while (of < kResCap) {
+						int32 i = (int32)pos;
+						if ((double)i > pos) i -= 1; // vrai floor (pos peut etre negatif)
+						if (i > nRead - 2) break;   // il faut l'echantillon i+1 <= nRead-1
+						const double f = pos - (double)i;
+						for (int32 c = 0; c < streamCh; ++c) {
+							const float32 a = (i < 0) ? resPrev[c] : scratch[usize(i) * usize(streamCh) + c];
+							const float32 bb = scratch[usize(i + 1) * usize(streamCh) + c];
+							resBuf[usize(of) * usize(streamCh) + c] = a + (bb - a) * (float32)f;
+						}
+						pos += ratio;
+						++of;
+					}
+					resFrac = pos - (double)nRead; // origine decalee pour le prochain chunk
+					for (int32 c = 0; c < streamCh; ++c)
+						resPrev[c] = scratch[usize(nRead - 1) * usize(streamCh) + c];
+					outSrc = resBuf;
+					outFrames = of;
+				}
+				if (outFrames <= 0)
+					continue;
+				
+				// Conversion canaux (mono<->stereo) + ecriture ring buffer.
 				int32 wIdx = wPos % mRingFrames;
-				int32 left = nRead;
-				const float32 *src = scratch;
+				int32 left = outFrames;
+				const float32 *src = outSrc;
 				while (left > 0) {
 					int32 chunk = (wIdx + left <= mRingFrames) ? left : (mRingFrames - wIdx);
 					float32 *dst = mRingBuf + usize(wIdx) * usize(mChannels);
 					if (streamCh == mChannels) {
 						::memcpy(dst, src, usize(chunk) * usize(mChannels) * sizeof(float32));
 					} else if (streamCh == 1 && mChannels == 2) {
-						// Mono -> Stereo : duplique
 						for (int32 i = 0; i < chunk; ++i) {
 							dst[i * 2 + 0] = src[i];
 							dst[i * 2 + 1] = src[i];
 						}
 					} else if (streamCh == 2 && mChannels == 1) {
-						// Stereo -> Mono : moyenne
-						for (int32 i = 0; i < chunk; ++i) {
+						for (int32 i = 0; i < chunk; ++i)
 							dst[i] = (src[i * 2 + 0] + src[i * 2 + 1]) * 0.5f;
-						}
 					} else {
-						// Mismatch non gere : silence
 						::memset(dst, 0, usize(chunk) * usize(mChannels) * sizeof(float32));
 					}
 					src += usize(chunk) * usize(streamCh);
 					wIdx = (wIdx + chunk) % mRingFrames;
 					left -= chunk;
 				}
-				mWritePos.store(wPos + nRead, std::memory_order_release);
+				mWritePos.store(wPos + outFrames, std::memory_order_release);
 			}
 
 			memory::NkFree(scratch, nullptr);
