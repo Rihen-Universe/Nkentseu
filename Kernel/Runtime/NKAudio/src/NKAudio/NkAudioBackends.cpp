@@ -335,6 +335,13 @@ namespace nkentseu {
 			}
 			logger.Info("[WASAPI] Buffer effectif : {0} frames", (int)mImpl->bufferFrames);
 
+			// Le callback peut recevoir jusqu'a bufferFrames frames par reveil (framesAvail =
+			// bufFrames - padding). GetBufferSize() DOIT donc refleter cette taille REELLE (pas
+			// le 256 demande), sinon l'engine dimensionne son mixBuffer trop petit -> frameCount
+			// clampe dans AudioCallback -> buffer device sous-rempli -> hoquets/bruit intermittents.
+			mBufferSize = (int32)mImpl->bufferFrames;
+			mLatencyMs = (float32)mBufferSize / (float32)mSampleRate * 1000.0f;
+
 			// 5. Event handle pour reveil dirige par le driver.
 			mImpl->event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
 			if (!mImpl->event) {
