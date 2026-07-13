@@ -2,6 +2,7 @@
 // NKMedia/Codecs/Video/H264/NkH264Decoder.cpp — brique 1 (NAL split + SPS).
 // =============================================================================
 #include "NKMedia/Codecs/Video/H264/NkH264Decoder.h"
+#include "NKMedia/Codecs/Video/H264/NkH264BitReader.h"
 
 namespace nkentseu {
 	namespace media {
@@ -139,14 +140,15 @@ namespace nkentseu {
 					return false; // listes de quantif. custom non gérées dans cette brique
 			}
 
-			br.UE(); // log2_max_frame_num_minus4
+			out.log2MaxFrameNum = (int32)br.UE() + 4; // log2_max_frame_num_minus4
 			const uint32 pocType = br.UE();
+			out.pocType = (int32)pocType;
 			if (pocType == 0) {
-				br.UE(); // log2_max_pic_order_cnt_lsb_minus4
+				out.log2MaxPocLsb = (int32)br.UE() + 4; // log2_max_pic_order_cnt_lsb_minus4
 			} else if (pocType == 1) {
-				br.U1(); // delta_pic_order_always_zero_flag
-				br.SE(); // offset_for_non_ref_pic
-				br.SE(); // offset_for_top_to_bottom_field
+				out.deltaPocAlwaysZero = (int32)br.U1(); // delta_pic_order_always_zero_flag
+				br.SE();								 // offset_for_non_ref_pic
+				br.SE();								 // offset_for_top_to_bottom_field
 				const uint32 num = br.UE();
 				for (uint32 i = 0; i < num; ++i)
 					br.SE();
@@ -157,6 +159,9 @@ namespace nkentseu {
 			const uint32 wMbs = br.UE() + 1;   // pic_width_in_mbs_minus1
 			const uint32 hMap = br.UE() + 1;   // pic_height_in_map_units_minus1
 			const uint32 frameMbsOnly = br.U1();
+			out.picWidthInMbs = (int32)wMbs;
+			out.picHeightInMapUnits = (int32)hMap;
+			out.frameMbsOnly = (int32)frameMbsOnly;
 			if (!frameMbsOnly)
 				br.U1(); // mb_adaptive_frame_field_flag
 			br.U1();	 // direct_8x8_inference_flag
@@ -184,27 +189,139 @@ namespace nkentseu {
 			return out.width > 0 && out.height > 0;
 		}
 
+		bool NkH264Decoder::ParsePps(const uint8 *nal, usize size, NkH264Pps &out) {
+			out = NkH264Pps{};
+			if (!nal || size < 2 || (nal[0] & 0x1F) != 8)
+				return false;
+			NkVector<nk_uint8> rbsp;
+			Deemulate(nal + 1, size - 1, rbsp);
+			NkH264BitReader br(rbsp.Data(), (usize)rbsp.Size());
+			out.ppsId = (int32)br.UE();
+			out.spsId = (int32)br.UE();
+			out.entropyCodingMode = (int32)br.U1();
+			out.bottomFieldPocPresent = (int32)br.U1();
+			out.numSliceGroups = (int32)br.UE() + 1;
+			if (out.numSliceGroups > 1)
+				return false; // slice groups (FMO) non gérés
+			br.UE();		  // num_ref_idx_l0_default_active_minus1
+			br.UE();		  // num_ref_idx_l1_default_active_minus1
+			br.U1();		  // weighted_pred_flag
+			br.U(2);		  // weighted_bipred_idc
+			out.picInitQp = 26 + br.SE(); // pic_init_qp_minus26
+			br.SE();					  // pic_init_qs_minus26
+			out.chromaQpIndexOffset = br.SE();
+			out.deblockingControlPresent = (int32)br.U1();
+			out.constrainedIntraPred = (int32)br.U1();
+			out.redundantPicCntPresent = (int32)br.U1();
+			out.valid = true;
+			return true;
+		}
+
+		bool NkH264Decoder::ParseSliceHeader(const uint8 *nal, usize size, const NkH264Sps &sps, const NkH264Pps &pps,
+											 NkH264SliceHeader &out) {
+			out = NkH264SliceHeader{};
+			if (!nal || size < 2)
+				return false;
+			const int32 nalType = nal[0] & 0x1F;
+			const int32 nalRefIdc = (nal[0] >> 5) & 3;
+			NkVector<nk_uint8> rbsp;
+			Deemulate(nal + 1, size - 1, rbsp);
+			NkH264BitReader br(rbsp.Data(), (usize)rbsp.Size());
+
+			out.firstMbInSlice = (int32)br.UE();
+			out.sliceType = (int32)br.UE();
+			out.ppsId = (int32)br.UE();
+			const int32 st = out.sliceType % 5;
+			out.isIntra = (st == 2); // 2 = I
+
+			out.frameNum = (int32)br.U(sps.log2MaxFrameNum);
+			// frame_mbs_only_flag supposé (pas de field_pic_flag).
+			const bool idr = (nalType == 5);
+			if (idr)
+				out.idrPicId = (int32)br.UE();
+
+			if (sps.pocType == 0) {
+				br.U(sps.log2MaxPocLsb); // pic_order_cnt_lsb
+				if (pps.bottomFieldPocPresent)
+					br.SE(); // delta_pic_order_cnt_bottom
+			} else if (sps.pocType == 1 && !sps.deltaPocAlwaysZero) {
+				br.SE();
+				br.SE();
+			}
+			if (pps.redundantPicCntPresent)
+				br.UE(); // redundant_pic_cnt
+
+			// (I-slice : pas de ref_pic_list_modification ni pred_weight_table.)
+			if (nalRefIdc != 0) {
+				if (idr) {
+					br.U1(); // no_output_of_prior_pics_flag
+					br.U1(); // long_term_reference_flag
+				} else {
+					if (br.U1()) { // adaptive_ref_pic_marking_mode_flag
+						uint32 op;
+						do {
+							op = br.UE();
+							if (op == 1 || op == 3)
+								br.UE();
+							if (op == 2)
+								br.UE();
+							if (op == 3 || op == 6)
+								br.UE();
+							if (op == 4)
+								br.UE();
+						} while (op != 0 && !br.Eof());
+					}
+				}
+			}
+			// (CABAC : cabac_init_idc — baseline CAVLC, ignoré.)
+			out.sliceQp = pps.picInitQp + br.SE(); // slice_qp_delta
+			out.valid = (out.sliceQp >= 0 && out.sliceQp <= 51);
+			return out.valid;
+		}
+
 		bool NkH264Decoder::SelfTest() {
-			// SPS baseline 176x144 (profil 66) réel produit par x264.
-			static const uint8 kSps[] = {0x67, 0x42, 0xc0, 0x0a, 0xd9, 0x02, 0xc4, 0xec, 0x04, 0x40, 0x00, 0x00,
-										 0x03, 0x00, 0x40, 0x00, 0x00, 0x03, 0x02, 0x83, 0xc4, 0x89, 0x92};
-			// 1) découpage NAL (on préfixe un start code).
+			// Flux baseline 48x32 (profil 66, CAVLC, no-deblock) réel produit par x264.
+			static const uint8 kSps[] = {0x67, 0x42, 0xc0, 0x0a, 0xdc, 0xd6, 0xc0, 0x44, 0x00, 0x00, 0x03,
+										 0x00, 0x04, 0x00, 0x00, 0x03, 0x00, 0x08, 0x3c, 0x48, 0x9e};
+			static const uint8 kPps[] = {0x68, 0xce, 0x32, 0xc8};
+			static const uint8 kIdr[] = {0x65, 0x88, 0x84, 0x3a, 0xf0, 0xdc, 0x2d,
+										 0x02, 0xf1, 0xb1, 0x40, 0x00, 0x41, 0x0e};
+
+			// 1) découpage NAL (SPS + PPS enchaînés avec start codes).
 			NkVector<nk_uint8> stream;
-			stream.PushBack(0);
-			stream.PushBack(0);
-			stream.PushBack(1);
+			const uint8 sc[3] = {0, 0, 1};
+			for (int32 k = 0; k < 3; ++k)
+				stream.PushBack(sc[k]);
 			for (usize i = 0; i < sizeof(kSps); ++i)
 				stream.PushBack(kSps[i]);
+			for (int32 k = 0; k < 3; ++k)
+				stream.PushBack(sc[k]);
+			for (usize i = 0; i < sizeof(kPps); ++i)
+				stream.PushBack(kPps[i]);
 			NkVector<NkH264Nal> nals;
 			SplitNalsAnnexB(stream.Data(), (usize)stream.Size(), nals);
-			if (nals.Size() != 1 || nals[0].type != 7)
+			if (nals.Size() != 2 || nals[0].type != 7 || nals[1].type != 8)
 				return false;
 
-			// 2) parsing SPS -> profil 66, 176x144.
+			// 2) SPS -> profil 66, 48x32.
 			NkH264Sps sps;
 			if (!ParseSps(kSps, sizeof(kSps), sps))
 				return false;
-			return sps.valid && sps.profileIdc == 66 && sps.width == 176 && sps.height == 144;
+			if (!sps.valid || sps.profileIdc != 66 || sps.width != 48 || sps.height != 32)
+				return false;
+
+			// 3) PPS -> CAVLC (entropyCodingMode 0).
+			NkH264Pps pps;
+			if (!ParsePps(kPps, sizeof(kPps), pps))
+				return false;
+			if (!pps.valid || pps.entropyCodingMode != 0)
+				return false;
+
+			// 4) slice header IDR -> I-slice, QP plausible.
+			NkH264SliceHeader sh;
+			if (!ParseSliceHeader(kIdr, sizeof(kIdr), sps, pps, sh))
+				return false;
+			return sh.valid && sh.isIntra && sh.sliceQp >= 0 && sh.sliceQp <= 51;
 		}
 
 	} // namespace media

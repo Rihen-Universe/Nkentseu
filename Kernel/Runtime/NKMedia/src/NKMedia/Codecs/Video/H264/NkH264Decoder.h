@@ -36,6 +36,41 @@ namespace nkentseu {
 				int32 width = 0;  // en pixels (après cropping, hypothèse 4:2:0)
 				int32 height = 0; // en pixels
 				int32 numRefFrames = 0;
+				// Champs nécessaires au décodage du slice header / des macroblocs.
+				int32 log2MaxFrameNum = 4;	  // log2_max_frame_num_minus4 + 4
+				int32 pocType = 0;			  // pic_order_cnt_type
+				int32 log2MaxPocLsb = 4;	  // (poc type 0)
+				int32 deltaPocAlwaysZero = 0; // (poc type 1)
+				int32 frameMbsOnly = 1;
+				int32 picWidthInMbs = 0;
+				int32 picHeightInMapUnits = 0;
+		};
+
+		// Infos extraites d'un PPS (baseline / CAVLC).
+		struct NkH264Pps {
+				bool valid = false;
+				int32 ppsId = 0;
+				int32 spsId = 0;
+				int32 entropyCodingMode = 0;  // 0 = CAVLC, 1 = CABAC
+				int32 bottomFieldPocPresent = 0;
+				int32 numSliceGroups = 1;
+				int32 picInitQp = 26;		 // 26 + pic_init_qp_minus26
+				int32 chromaQpIndexOffset = 0;
+				int32 deblockingControlPresent = 0;
+				int32 constrainedIntraPred = 0;
+				int32 redundantPicCntPresent = 0;
+		};
+
+		// En-tête de slice (chemin I-slice IDR baseline).
+		struct NkH264SliceHeader {
+				bool valid = false;
+				int32 firstMbInSlice = 0;
+				int32 sliceType = 0; // 2 ou 7 = I
+				int32 ppsId = 0;
+				int32 frameNum = 0;
+				int32 idrPicId = 0;
+				int32 sliceQp = 26; // pic_init_qp + slice_qp_delta
+				bool isIntra = false;
 		};
 
 		class NkH264Decoder {
@@ -47,7 +82,14 @@ namespace nkentseu {
 				// (en-tête inclus). Retire l'anti-émulation et lit les champs Exp-Golomb.
 				static bool ParseSps(const uint8 *nal, usize size, NkH264Sps &out);
 
-				// Auto-test headless : parse un SPS baseline 176x144 connu et vérifie profil+dimensions.
+				// Décode un PPS depuis une unité NAL (type 8).
+				static bool ParsePps(const uint8 *nal, usize size, NkH264Pps &out);
+
+				// Décode l'en-tête de slice (chemin I-slice IDR). `nalType` = 5 (IDR) ou 1 (non-IDR).
+				static bool ParseSliceHeader(const uint8 *nal, usize size, const NkH264Sps &sps, const NkH264Pps &pps,
+											 NkH264SliceHeader &out);
+
+				// Auto-test headless : parse SPS + PPS + slice header d'un flux baseline connu.
 				static bool SelfTest();
 		};
 
