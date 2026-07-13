@@ -7,6 +7,7 @@
 #include "NKImage/Core/NkImage.h"
 #include "NKImage/Codecs/JPEG/NkJPEGCodec.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKFileSystem/NkDirectory.h"
 #include "NKMemory/NKMemory.h"
 
 #include <cstring>
@@ -53,6 +54,7 @@ namespace nkentseu {
 				Codec codec = Codec::NONE;
 				NkVector<nk_uint8> bytes;	// fichier complet (AVI/MOV)
 				NkVector<FrameRef> frames;	// table des images (offset dans `bytes`)
+				NkVector<NkString> seqPaths; // séquence : chemins des images triés
 				NkVideoReaderInfo info;
 				int32 cursor = 0;
 				int32 bitCount = 24; // RAWRGB
@@ -397,8 +399,94 @@ namespace nkentseu {
 					return true;
 				}
 
+				// Charge un fichier image (PNG/JPEG/BMP/TGA…) -> RGBA via NKImage.
+				static bool LoadImageFile(const char *path, int32 index, NkVideoFrame &out) {
+					NkImage img;
+					if (!img.Load(path, 4))
+						return false;
+					const int32 w = img.Width(), h = img.Height(), ch = img.Channels();
+					const uint8 *px = img.Pixels();
+					if (w <= 0 || h <= 0 || !px)
+						return false;
+					out.width = w;
+					out.height = h;
+					out.rgba.Resize((uint64)w * (uint64)h * 4u);
+					uint8 *o = out.rgba.Data();
+					for (int32 i = 0; i < w * h; ++i) {
+						const uint8 *s = px + (usize)i * (usize)ch;
+						o[i * 4 + 0] = s[0];
+						o[i * 4 + 1] = (ch >= 2) ? s[1] : s[0];
+						o[i * 4 + 2] = (ch >= 3) ? s[2] : s[0];
+						o[i * 4 + 3] = (ch >= 4) ? s[3] : 255;
+					}
+					out.index = index;
+					return true;
+				}
+
+				// Extension image reconnue (insensible à la casse).
+				static bool HasImageExt(const char *s) {
+					usize n = 0;
+					while (s[n])
+						++n;
+					auto ends = [&](const char *e) {
+						usize m = 0;
+						while (e[m])
+							++m;
+						if (m > n)
+							return false;
+						for (usize i = 0; i < m; ++i) {
+							char a = s[n - m + i];
+							if (a >= 'A' && a <= 'Z')
+								a = (char)(a - 'A' + 'a');
+							if (a != e[i])
+								return false;
+						}
+						return true;
+					};
+					return ends(".png") || ends(".jpg") || ends(".jpeg") || ends(".bmp") || ends(".tga") ||
+						   ends(".qoi") || ends(".ppm");
+				}
+
+				// --- Parse une SÉQUENCE d'images (dossier) : chemins triés + dims de la 1re ---
+				bool ParseSequence(const char *dir) {
+					NkVector<NkString> files =
+						NkDirectory::GetFiles(dir, "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+					for (uint64 i = 0; i < files.Size(); ++i)
+						if (HasImageExt(files[i].CStr()))
+							seqPaths.PushBack(files[i]);
+					if (seqPaths.Size() == 0)
+						return false;
+					// Tri lexicographique (frame_001, frame_002, …).
+					for (uint64 i = 0; i + 1 < seqPaths.Size(); ++i) {
+						uint64 mn = i;
+						for (uint64 j = i + 1; j < seqPaths.Size(); ++j)
+							if (strcmp(seqPaths[j].CStr(), seqPaths[mn].CStr()) < 0)
+								mn = j;
+						if (mn != i) {
+							NkString t = seqPaths[i];
+							seqPaths[i] = seqPaths[mn];
+							seqPaths[mn] = t;
+						}
+					}
+					NkVideoFrame f0;
+					if (!LoadImageFile(seqPaths[0].CStr(), 0, f0))
+						return false;
+					info.width = f0.width;
+					info.height = f0.height;
+					info.frameCount = (int32)seqPaths.Size();
+					info.fps = 30.0; // débit par défaut (inconnu pour une séquence)
+					info.codec = NkString("image");
+					info.container = NkString("sequence");
+					return true;
+				}
+
 				// Décode l'image `index` en RGBA dans `out`.
 				bool Decode(int32 index, NkVideoFrame &out) {
+					if (backend == Backend::SEQUENCE) {
+						if (index < 0 || index >= (int32)seqPaths.Size())
+							return false;
+						return LoadImageFile(seqPaths[(uint64)index].CStr(), index, out);
+					}
 					if (index < 0 || index >= (int32)frames.Size())
 						return false;
 					const FrameRef &fr = frames[(uint64)index];
@@ -499,6 +587,16 @@ namespace nkentseu {
 				return false;
 			Close();
 
+			// Dossier => séquence d'images.
+			if (NkDirectory::Exists(path)) {
+				if (mImpl->ParseSequence(path)) {
+					mImpl->backend = Backend::SEQUENCE;
+					mImpl->cursor = 0;
+					return true;
+				}
+				return false;
+			}
+
 			mImpl->bytes = NkFile::ReadAllBytes(path);
 			if (mImpl->bytes.Size() < 12)
 				return false;
@@ -531,7 +629,7 @@ namespace nkentseu {
 		bool NkVideoReader::ReadFrame(NkVideoFrame &out) {
 			if (!IsOpen())
 				return false;
-			if (mImpl->cursor >= (int32)mImpl->frames.Size())
+			if (mImpl->cursor >= mImpl->info.frameCount)
 				return false;
 			if (!mImpl->Decode(mImpl->cursor, out))
 				return false;
@@ -541,7 +639,7 @@ namespace nkentseu {
 		}
 
 		bool NkVideoReader::SeekFrame(int32 index) {
-			if (!IsOpen() || index < 0 || index >= (int32)mImpl->frames.Size())
+			if (!IsOpen() || index < 0 || index >= mImpl->info.frameCount)
 				return false;
 			mImpl->cursor = index;
 			return true;
