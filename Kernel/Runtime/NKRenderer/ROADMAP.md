@@ -113,7 +113,17 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    (`GetConfig()`). Démo `--demo=19` Stream : allée de panneaux, caméra libre
    (C/WASD), distances réglables live (1/2+Shift), fondu anti-pop.
    Reste v3 : LOD meshes, vraie chaîne de mips partagée (base-level GPU).
-   6) Deferred lighting pass + branchement (gros ; jamais instancié par le renderer). 7) ~~IK renderer~~ ✅ **REQUALIFIÉ (2026-07-13)** :
+   6) Deferred lighting pass + branchement — **PLAN v1 (2026-07-13, chantier ouvert)** :
+   l'existant `Passes/Deferred/NkDeferredPass` = G-buffer 5 RT + buffers lumières, SANS
+   shaders ni branchement. Briques : **(a)** shaders NkSL `DeferredGeom` (variante du PBR
+   vert/frag écrivant en MRT : RT0 albedo+metallic RGBA8, RT1 normal+roughness RGBA16F,
+   RT2 emissive+AO RGBA16F — velocity différée) ; **(b)** shader `DeferredLight` plein
+   écran (fullscreen triangle, lit G-buffer + LightsUBO + ShadowSlots + IBL → accum HDR
+   RGBA16F ; v1 = boucle 32 lumières par pixel, tiled/clustered = v2) ; **(c)** branchement
+   `NkRendererImpl::RebuildRenderGraph` derrière `cfg.deferred` (défaut OFF) : pass Geometry
+   MRT → pass Lighting → alimente la chaîne post existante (bloom/tonemap inchangés) ;
+   reconstruction worldPos depuis depth (invViewProj). Prérequis vérifiés : le RenderGraph
+   gère les MRT via SetColor(0..3), les transients RGBA16F existent (HDR path). 7) ~~IK renderer~~ ✅ **REQUALIFIÉ (2026-07-13)** :
    il n'existe qu'UN module IK (`Tools/IK/NkIKSystem`) et il N'EST PLUS orphelin — rendu
    fonctionnel par NkAnima M0 (3240b1ae : FABRIK/TwoBone/CCD sur positions réelles via
    `BindPose`/`EvaluateGLTFWorldJoints`, validé DemoIK + DemoIKChar). La note d'audit
