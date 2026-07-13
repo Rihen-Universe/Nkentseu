@@ -33,6 +33,7 @@
 #include "NKRenderer/Tools/Offscreen/NkFrameCapture.h"	  // NK_RECORD (capture async -> video)
 #include "NKMedia/Video/NkVideoRecorder.h"
 #include "NKThreading/NkThread.h" // NK_RECORD : finalisation MP4 asynchrone (fix freeze F9)
+#include "NKRenderer/Streaming/NkStreamingSystem.h" // NK_STREAM_TEST : self-test streaming reel
 #include "NKMemory/NkAllocator.h" // NK_RECORD : recorder alloue (possede par le thread de finalisation)				  // NK_RECORD (encodage MP4/H.264 threade)
 
 namespace nkentseu {
@@ -522,6 +523,61 @@ int nkmain(const NkEntryState &state) {
 			pp.lutSize = N;
 			renderer->SetPostConfig(pp);
 			logger.Infof("[main] NK_LUT_TEST : LUT teal&orange 16^3 %s\n", ok ? "OK" : "ECHEC upload");
+		}
+	}
+
+	// ── NK_STREAM_TEST=1 : self-test du streaming REEL ──────────────────────
+	// 4 textures + 1 mesh reels charges en ASYNC (worker disque+decode, upload
+	// GPU au Update), budget volontairement SERRE pour forcer l'eviction LRU.
+	{
+		const char *stEnv = getenv("NK_STREAM_TEST");
+		if (stEnv && stEnv[0] && stEnv[0] != '0') {
+			renderer::NkStreamingSystem stream;
+			renderer::NkStreamingConfig scfg;
+			scfg.budgetBytes = 6ULL * 1024 * 1024; // ~6 MiB : ne tient pas tout
+			scfg.maxJobsPerFrame = 2;
+			scfg.async = true;
+			stream.Init(device, renderer->GetTextures(), renderer->GetMeshSystem(), scfg);
+			stream.RegisterTexture(1, NkString("Resources/NKRenderer/Textures/Vracs/awesomeface.png"));
+			stream.RegisterTexture(2, NkString("Resources/NKRenderer/Textures/Vracs/background.jpg"));
+			stream.RegisterTexture(3, NkString("Resources/NKRenderer/Textures/Vracs/block.png"));
+			stream.RegisterTexture(4, NkString("Resources/NKRenderer/Textures/Defaults/test_pattern.png"));
+			stream.RegisterMesh(5, NkString("Resources/Models/rubber_duck/scene.gltf"));
+			stream.RegisterTexture(6, NkString("Resources/inexistant_pour_test.png")); // echec attendu
+			// Demandes : 5 proches (streament) + 1 introuvable.
+			for (uint64 id = 1; id <= 6; id++)
+				stream.Request(id, 10.f + (float32)id);
+			// Boucle jusqu'a stabilisation (worker async) — bornee.
+			uint32 it = 0;
+			for (; it < 2000; ++it) {
+				stream.Update(0.016f);
+				const uint32 done = stream.GetResidentCount() + stream.GetEvictedCount() + stream.GetFailedCount();
+				if (stream.GetPendingCount() == 0 && stream.GetLoadingCount() == 0 && done >= 5)
+					break;
+				NkChrono::Sleep((int64)2);
+			}
+			// Criteres : (a) au moins une ressource VRAIMENT residente avec un
+			// handle GPU valide et coherent, (b) l'eviction LRU a tourne (le
+			// budget serre ne peut pas tout tenir), (c) budget respecte,
+			// (d) le fichier introuvable a echoue proprement (sans retry-spam).
+			uint32 validHandles = 0;
+			for (uint64 id = 1; id <= 5; id++) {
+				if (!stream.IsResident(id))
+					continue;
+				const bool v = (id == 5) ? stream.GetMesh(id).IsValid() : stream.GetTexture(id).IsValid();
+				if (v)
+					++validHandles;
+			}
+			const bool okRes = stream.GetResidentCount() >= 1 && validHandles == stream.GetResidentCount();
+			const bool okEvict = stream.GetEvictedCount() >= 1;
+			const bool okBudget = stream.GetUsedBytes() <= stream.GetBudgetBytes();
+			const bool okFail = stream.GetFailedCount() == 1;
+			logger.Infof("[main] STREAM self-test : it=%u resident=%u (handles=%u) evicted=%u failed=%u "
+						 "used=%.2fMiB -> res=%d evict=%d budget=%d fail=%d\n",
+						 it, stream.GetResidentCount(), validHandles, stream.GetEvictedCount(),
+						 stream.GetFailedCount(), (float64)stream.GetUsedBytes() / (1024.0 * 1024.0), okRes ? 1 : 0,
+						 okEvict ? 1 : 0, okBudget ? 1 : 0, okFail ? 1 : 0);
+			stream.Shutdown();
 		}
 	}
 

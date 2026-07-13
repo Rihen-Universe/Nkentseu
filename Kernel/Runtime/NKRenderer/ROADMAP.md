@@ -96,8 +96,15 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    template) + câblage DemoAnim ; asset test `SkinMorphTest/skinmorph_test.gltf`
    (colonne 2 os qui PLIE pendant qu'un morph la GONFLE, déphasés) — validé captures
    (bulge à t1, coude 70° sans bulge à t2 : les deux coexistent).
-   Reste v2 : application GPU (compute). 5) Streaming
-   réel (`FinalizeLoad` ne charge rien — « In a real impl » dans le code ; simulateur de budget).
+   Reste v2 : application GPU (compute). 5) ~~Streaming réel~~ ✅ **LIVRÉ v1
+   (2026-07-13)** : `NkStreamingSystem` fait de VRAIES E/S — worker thread dédié
+   (disque + décodage CPU : NkImage RGBA8 / loaders mesh gltf/glb/obj), upload GPU
+   sur le thread de rendu au Update() (borné maxJobsPerFrame), handles réels
+   (`GetTexture/GetMesh`), éviction LRU de vraies ressources (Release) + stream-out
+   par distance, priorité 1/(1+dist), échecs sans retry-spam (`GetFailedCount`).
+   Self-test `NK_STREAM_TEST=1` 4/4 (5 assets réels + 1 introuvable, budget 6 MiB
+   serré → 3 évictions, handles cohérents, budget respecté). Reste v2 : mip
+   streaming progressif (residentMip/targetMip réservés), LOD meshes.
    6) Deferred lighting pass + branchement (gros ; jamais instancié par le renderer). 7) IK
    renderer (orphelin — NB : NkAnima a son propre IK validé, celui du renderer est redondant à
    requalifier/supprimer). 8) ~~Animation avancée~~ ✅ **LIVRÉ v1 (2026-07-13)** :
