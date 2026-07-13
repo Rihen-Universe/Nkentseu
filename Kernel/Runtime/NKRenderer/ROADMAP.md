@@ -95,7 +95,15 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    réel (`FinalizeLoad` ne charge rien — « In a real impl » dans le code ; simulateur de budget).
    6) Deferred lighting pass + branchement (gros ; jamais instancié par le renderer). 7) IK
    renderer (orphelin — NB : NkAnima a son propre IK validé, celui du renderer est redondant à
-   requalifier/supprimer). 8) Animation avancée (state machines/blend trees). 9) Metal + Software.
+   requalifier/supprimer). 8) ~~Animation avancée~~ ✅ **LIVRÉ v1 (2026-07-13)** :
+   **NkBlendTree1D** (N clips sur un axe paramétrique, blend BONE-LOCAL TRS-NLerp par os
+   AVANT le FK — correct sur les rotations — + phases synchronisées via temps normalisé
+   sur durée interpolée) + **NkAnimStateMachine** (états clip/blend-tree, transitions
+   par paramètres bool/float + seuil, crossfade, any-state) + helper partagé
+   `NkBlendLocalTRS`. Validé : Fox Survey/Walk/Run en fondu continu (captures — galop
+   plein à param 1.94, mix cohérent à 0.57) + self-test SM 3/3 (`NK_ANIM_SMTEST=1`).
+   Demo : `NK_SKIN_MODEL=Resources/Models/Fox/Fox.glb --demo=16`. Reste v2 : blend 2D
+   (direction+vitesse), events de transition, SM crossfade bone-local. 9) Metal + Software.
    10) Phase T.1 bake (nouveau chantier) ; T.2 graphe matériaux = ATTEND la coordination NKGraph.
 
 ## 🧭 Éditeur / Viewport (chantier 2026-07, cap « famille d'éditeurs »)
