@@ -499,6 +499,19 @@ namespace nkentseu {
 					return (uint32)mEntries.Size();
 				}
 
+				// Pose BONE-LOCALE melangee (avant FK) — utilisee par la state
+				// machine pour un crossfade bone-local correct entre etats.
+				// Vide si les clips ne sont pas en mode skeletalLocal.
+				const NkVector<NkMat4f> &GetLocalPose() const {
+					return mLocalPose;
+				}
+
+				// Clip de reference du squelette (parents/topo/inverseBind) pour
+				// refaire le FK apres un blend externe des poses locales.
+				const NkAnimationClip *GetSkeletonClip() const {
+					return mEntries.Empty() ? nullptr : mEntries[0].clip;
+				}
+
 			private:
 				struct Entry {
 						const NkAnimationClip *clip = nullptr;
@@ -510,23 +523,85 @@ namespace nkentseu {
 				float32 mNormTime = 0.f; // temps normalise 0..1 (phases synchro)
 				float32 mSpeed = 1.f;
 				NkAnimationState mState;
-				NkVector<NkMat4f> mScratch; // locaux du clip B pendant le blend
+				NkVector<NkMat4f> mLocalPose; // pose locale melangee (pre-FK)
+				NkVector<NkMat4f> mScratch;	  // locaux du clip B pendant le blend
+		};
+
+		// =========================================================================
+		// NkBlendTree2D — blend space 2D (ex. direction × vitesse d'un perso).
+		// N clips places a des POINTS 2D ; SetParameter(x, y) melange les clips
+		// par ponderation inverse-distance normalisee (Shepard, puissance 2 —
+		// simple et robuste pour des echantillons epars ; hit exact = clip pur).
+		// Meme discipline que le 1D : blend BONE-LOCAL cumulatif avant FK,
+		// phases synchronisees sur la duree ponderee. Prerequis identiques
+		// (clips skeletalLocal, meme squelette).
+		// =========================================================================
+		class NkBlendTree2D {
+			public:
+				NkString name;
+
+				void AddClip(const NkAnimationClip *clip, NkVec2f pos);
+				void SetParameter(NkVec2f p);
+
+				NkVec2f GetParameter() const {
+					return mParam;
+				}
+
+				void SetSpeed(float32 s) {
+					mSpeed = s;
+				}
+
+				void Update(float32 dt);
+
+				const NkAnimationState &GetState() const {
+					return mState;
+				}
+
+				const NkVector<NkMat4f> &GetLocalPose() const {
+					return mLocalPose;
+				}
+
+				const NkAnimationClip *GetSkeletonClip() const {
+					return mEntries.Empty() ? nullptr : mEntries[0].clip;
+				}
+
+				uint32 GetClipCount() const {
+					return (uint32)mEntries.Size();
+				}
+
+			private:
+				struct Entry {
+						const NkAnimationClip *clip = nullptr;
+						NkVec2f pos = {0.f, 0.f};
+						float32 weight = 0.f; // poids normalise de la derniere eval
+				};
+
+				NkVector<Entry> mEntries;
+				NkVec2f mParam = {0.f, 0.f};
+				float32 mNormTime = 0.f;
+				float32 mSpeed = 1.f;
+				NkAnimationState mState;
+				NkVector<NkMat4f> mLocalPose;
+				NkVector<NkMat4f> mScratch;
 		};
 
 		// =========================================================================
 		// NkAnimStateMachine — machine a etats d'animation (idle -> walk -> jump).
-		// Chaque etat = un clip OU un blend tree 1D. Les transitions sont
+		// Chaque etat = un clip OU un blend tree (1D/2D). Les transitions sont
 		// declenchees par des parametres (bool / seuil float) et font un
-		// crossfade sur `fadeDur` secondes (blend des etats evalues — meme
-		// approximation que NkAnimationPlayer::BlendTo, OK pour des fondus
-		// courts). Update(dt) : evalue l'etat courant, teste les transitions,
-		// avance le fondu. GetState() = pose finale a soumettre au renderer.
+		// crossfade sur `fadeDur` secondes — BONE-LOCAL (blend TRS par os puis
+		// un seul FK, correct sur les rotations) quand les deux etats exposent
+		// leur pose locale sur le meme squelette, sinon fallback matriciel
+		// (fondus courts). Evenements de transition via SetTransitionCallback.
+		// Update(dt) : evalue l'etat courant, teste les transitions, avance le
+		// fondu. GetState() = pose finale a soumettre au renderer.
 		// =========================================================================
 		class NkAnimStateMachine {
 			public:
-				// Etats (retourne l'index de l'etat). Un seul des deux pointeurs.
+				// Etats (retourne l'index de l'etat). Un seul des pointeurs.
 				int32 AddState(const NkString &name, const NkAnimationClip *clip);
 				int32 AddState(const NkString &name, NkBlendTree1D *tree);
+				int32 AddState(const NkString &name, NkBlendTree2D *tree2d);
 
 				// Transition from -> to declenchee quand :
 				//   - param bool `paramName` == true (kind BOOL), ou
@@ -557,12 +632,22 @@ namespace nkentseu {
 					return mState;
 				}
 
+				// Evenements de transition : appele au DECLENCHEMENT (finished=false)
+				// puis a la FIN du fondu (finished=true). Sert au gameplay (sons de
+				// pas, verrous d'input pendant une action, etc.).
+				using TransitionFn = NkFunction<void(const NkString &from, const NkString &to, bool finished)>;
+
+				void SetTransitionCallback(TransitionFn fn) {
+					mTransitionCb = fn;
+				}
+
 			private:
 				struct State {
 						NkString name;
 						const NkAnimationClip *clip = nullptr;
-						NkBlendTree1D *tree = nullptr; // possede par l'appelant
-						float32 time = 0.f;			   // temps local (clips)
+						NkBlendTree1D *tree = nullptr;	 // possede par l'appelant
+						NkBlendTree2D *tree2d = nullptr; // possede par l'appelant
+						float32 time = 0.f;				 // temps local (clips)
 				};
 
 				struct Transition {
@@ -574,7 +659,12 @@ namespace nkentseu {
 						float32 fadeDur = 0.25f;
 				};
 
-				void EvalState(int32 idx, float32 dt, NkAnimationState &out);
+				// Evalue l'etat : avance son horloge, remplit `out` (bones finaux +
+				// morphs). Si l'etat expose une pose BONE-LOCALE (clip skeletalLocal
+				// ou blend tree), `outLocal` la recoit et `outSkel` pointe le clip
+				// squelette — sinon outLocal reste vide (fallback matriciel).
+				void EvalState(int32 idx, float32 dt, NkAnimationState &out, NkVector<NkMat4f> &outLocal,
+							   const NkAnimationClip *&outSkel);
 				bool CondTrue(const Transition &tr) const;
 
 				NkVector<State> mStates;
@@ -587,6 +677,8 @@ namespace nkentseu {
 				float32 mFadeDur = 0.f;
 				NkAnimationState mState;
 				NkAnimationState mNextState;
+				NkVector<NkMat4f> mLocalA, mLocalB; // poses locales pour crossfade bone-local
+				TransitionFn mTransitionCb;
 		};
 
 		// Blend TRS-NLerp de deux matrices BONE-LOCALES (decompose T/R/S, lerp
