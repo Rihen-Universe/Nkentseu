@@ -134,22 +134,26 @@ int main(int argc, char **argv) {
 				ref.Resize(yN + 2 * cN);
 				size_t got = fread(ref.Data(), 1, (size_t)(yN + 2 * cN), rf);
 				(void)got;
-				auto cmp = [&](const uint8 *dec, int32 dw, int32 w, int32 h, const uint8 *r) {
+				uint64 dY = 0, dC = 0;
+				auto cmp = [&](const uint8 *dec, int32 dw, int32 w, int32 h, const uint8 *r, uint64 &dd) {
 					for (int32 y = 0; y < h; ++y)
 						for (int32 x = 0; x < w; ++x) {
 							const int32 d = (int32)dec[(usize)y * dw + x] - (int32)r[(usize)y * w + x];
-							if (d)
+							if (d) {
 								++diffs;
+								++dd;
+							}
 							sse += (double)d * d;
 							++total;
 						}
 				};
-				cmp(cur.y.Data(), cur.lumaW, cur.cropW, cur.cropH, ref.Data());
-				cmp(cur.cb.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref.Data() + yN);
-				cmp(cur.cr.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref.Data() + yN + cN);
+				cmp(cur.y.Data(), cur.lumaW, cur.cropW, cur.cropH, ref.Data(), dY);
+				cmp(cur.cb.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref.Data() + yN, dC);
+				cmp(cur.cr.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref.Data() + yN + cN, dC);
 				const double psnr = (sse > 0.0) ? 10.0 * log10(255.0 * 255.0 * (double)total / sse) : 999.0;
-				printf("  frame %d (%s) %dx%d : %llu diff, PSNR=%.2f %s\n", (int)si, (si == 0 ? "IDR" : "P"),
-					   cur.cropW, cur.cropH, (unsigned long long)diffs, psnr, diffs == 0 ? "(BIT-EXACT)" : "");
+				printf("  frame %d (%s) %dx%d : %llu diff (Y=%llu C=%llu), PSNR=%.2f %s\n", (int)si,
+					   (si == 0 ? "IDR" : "P"), cur.cropW, cur.cropH, (unsigned long long)diffs,
+					   (unsigned long long)dY, (unsigned long long)dC, psnr, diffs == 0 ? "(BIT-EXACT)" : "");
 				totalDiffs += diffs;
 			} else {
 				printf("  frame %d (%s) : decode OK %dx%d\n", (int)si, (si == 0 ? "IDR" : "P"), cur.cropW, cur.cropH);
