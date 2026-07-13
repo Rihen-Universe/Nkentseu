@@ -9,6 +9,8 @@
 #include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
 
 #include <cstdio>
+#include <cstring>
+#include <cmath>
 
 using namespace nkentseu;
 using namespace nkentseu::media;
@@ -27,6 +29,64 @@ int main(int argc, char **argv) {
 		bool all = ok && okH264 && okCavlc;
 		printf("=== %s ===\n", all ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
 		return all ? 0 : 1;
+	}
+
+	// Mode décodeur H264 intra : --decode264 <fichier.264> [ref.yuv]
+	if (argc >= 3 && strcmp(argv[1], "--decode264") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		fseek(f, 0, SEEK_END);
+		long n = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		NkVector<nk_uint8> buf;
+		buf.Resize((uint64)n);
+		size_t rd2 = fread(buf.Data(), 1, (size_t)n, f);
+		fclose(f);
+		(void)rd2;
+		NkH264Frame fr;
+		if (!NkH264Decoder::DecodeIdrFrame(buf.Data(), (usize)n, fr)) {
+			printf("  [KO] DecodeIdrFrame a echoue (CABAC/inter/multi-slice non geres ?)\n");
+			return 1;
+		}
+		printf("  decode IDR : luma %dx%d (crop %dx%d), chroma %dx%d\n", fr.lumaW, fr.lumaH, fr.cropW, fr.cropH,
+			   fr.chromaW, fr.chromaH);
+		if (argc >= 4) {
+			FILE *rf = fopen(argv[3], "rb");
+			if (rf) {
+				const uint64 yN = (uint64)fr.cropW * fr.cropH;
+				const uint64 cN = (uint64)(fr.cropW / 2) * (fr.cropH / 2);
+				NkVector<nk_uint8> ref;
+				ref.Resize(yN + 2 * cN);
+				size_t got = fread(ref.Data(), 1, (size_t)(yN + 2 * cN), rf);
+				fclose(rf);
+				(void)got;
+				// Compare (crop) : Y, puis U, V.
+				uint64 diffs = 0, total = 0;
+				double sse = 0.0;
+				auto cmpPlane = [&](const uint8 *dec, int32 dw, int32 w, int32 h, const uint8 *r) {
+					for (int32 y = 0; y < h; ++y)
+						for (int32 x = 0; x < w; ++x) {
+							int32 a = dec[(usize)y * dw + x], b = r[(usize)y * w + x];
+							int32 d = a - b;
+							if (d)
+								++diffs;
+							sse += (double)d * d;
+							++total;
+						}
+				};
+				cmpPlane(fr.y.Data(), fr.lumaW, fr.cropW, fr.cropH, ref.Data());
+				cmpPlane(fr.cb.Data(), fr.chromaW, fr.cropW / 2, fr.cropH / 2, ref.Data() + yN);
+				cmpPlane(fr.cr.Data(), fr.chromaW, fr.cropW / 2, fr.cropH / 2, ref.Data() + yN + cN);
+				double psnr = (sse > 0.0) ? 10.0 * log10(255.0 * 255.0 * (double)total / sse) : 999.0;
+				printf("  vs ref.yuv : %llu/%llu pixels differents, PSNR=%.2f dB %s\n", (unsigned long long)diffs,
+					   (unsigned long long)total, psnr, (diffs == 0) ? "(BIT-EXACT !)" : "");
+				return (diffs == 0) ? 0 : 2;
+			}
+		}
+		return 0;
 	}
 
 	const char *path = argv[1];
