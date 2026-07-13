@@ -124,8 +124,17 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    + panneau alpha-testé OK, **207 FPS vs 140 forward**. Diag `NK_DEFLIGHT_DEBUG=1/2/3`
    (N/worldPos/albedo). ⚠ FIX NKRHI GL au passage : `CreateFramebuffer` n'appelait
    JAMAIS glDrawBuffers → les MRT 1..N-1 étaient JETÉES (défaut GL = attachment 0 seul).
-   Limites v1 (documentées) : cookies/clearcoat/subsurface/velocity non portés, passe
-   miroir non différée, boucle 32 lumières (tiled/clustered = v2), VK/DX à valider.
+   **V2 en cours (2026-07-13)** : ✅ COOKIES portés (spot 2D + point cube — parité GL
+   passée de 73 % à **91,7 %** vs forward, le X rouge du sol est là) ; ✅ conventions
+   NDC/sampling PAR BACKEND dans le PC (GL : sample direct + ndcY=-1 ; VK : sample
+   direct + ndcY=+1 ; DX : sample flippé + ndcY=-1) ; ✅ **DX11 VALIDÉ capture**
+   (image à l'endroit, ombres + cookies OK). ⚠ **Vulkan : le backend NKRHI ne
+   supporte pas les MRT** (même signature que le bug GL glDrawBuffers : normales
+   lues blanches → attachements 1..N-1 jamais écrits ; il faut le render pass VK
+   multi-attachements + VkPipelineColorBlendState.attachmentCount = N) — chantier
+   NKRHI à part. Limites restantes : clearcoat/subsurface/velocity non portés,
+   passe miroir non différée, boucle 32 lumières (tiled/clustered = v3), DX12 à
+   capturer.
    Ancien plan :
    l'existant `Passes/Deferred/NkDeferredPass` = G-buffer 5 RT + buffers lumières, SANS
    shaders ni branchement. Briques : **(a)** shaders NkSL `DeferredGeom` (variante du PBR
