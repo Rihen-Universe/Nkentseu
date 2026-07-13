@@ -32,6 +32,32 @@ namespace nkentseu {
 				uint8 valMPS = 0;	 // 0 ou 1
 		};
 
+		static inline int32 NkCabacClip3(int32 lo, int32 hi, int32 v) {
+			return v < lo ? lo : (v > hi ? hi : v);
+		}
+
+		// §9.3.1.1 : dérive l'état initial d'UN contexte depuis (m,n) et SliceQPY.
+		//   preCtxState = Clip3(1,126, ((m*Clip3(0,51,QP))>>4) + n)
+		//   preCtxState<=63 -> pStateIdx=63-pre, valMPS=0 ; sinon pStateIdx=pre-64, valMPS=1.
+		static inline NkCabacCtx NkCabacInitOne(int32 m, int32 n, int32 sliceQp) {
+			const int32 pre = NkCabacClip3(1, 126, ((m * NkCabacClip3(0, 51, sliceQp)) >> 4) + n);
+			NkCabacCtx c;
+			if (pre <= 63) {
+				c.pStateIdx = (uint8)(63 - pre);
+				c.valMPS = 0;
+			} else {
+				c.pStateIdx = (uint8)(pre - 64);
+				c.valMPS = 1;
+			}
+			return c;
+		}
+
+		// Remplit out[0..count-1] depuis une table (m,n) (int8 paires) et SliceQPY.
+		static inline void NkCabacInitContexts(NkCabacCtx *out, const int8 (*mn)[2], int32 count, int32 sliceQp) {
+			for (int32 i = 0; i < count; ++i)
+				out[i] = NkCabacInitOne(mn[i][0], mn[i][1], sliceQp);
+		}
+
 		// Table 9-44 : rangeTabLPS[pStateIdx][qCodIRangeIdx].
 		static const uint8 kCabacRangeTabLPS[64][4] = {
 			{128, 176, 208, 240}, {128, 167, 197, 227}, {128, 158, 187, 216}, {123, 150, 178, 205},
