@@ -83,7 +83,15 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    police du HUD à la place des textures des sprites ; UB sur VK aussi) →
    POOL de 256 sets per-batch, bindings partagés (lights/cookies/shadows/
    normal) répliqués via BindSharedTexture/BindSharedUBO.
-   4) Morph targets (stub confirmé ; nécessite AUSSI l'import morph glTF, différé). 5) Streaming
+   4) ~~Morph targets~~ ✅ **LIVRÉ v1 CPU (2026-07-13)** : import glTF (`primitives[].targets`
+   deltas POSITION/NORMAL bakés world, `mesh.weights`, canaux anim `WEIGHTS` plats
+   LINEAR/STEP/CUBICSPLINE-dégradé) + `EvaluateGLTFMorphWeights(t)` +
+   `ApplyGLTFMorphCPU` (base + Σ w·delta, normales renormalisées) →
+   `NkMeshSystem::UpdateVertices` (mesh `dynamic=true`). Asset de test généré
+   `Resources/Models/MorphTest/morph_test.gltf` (cube→sphère + étirement Y, anim
+   4 s) ; DemoGLTF applique automatiquement si le modèle a des morphs — validé
+   capture GL (`NK_GLTF_MODEL=Resources/Models/MorphTest/morph_test.gltf --demo=12`).
+   Reste v2 : application GPU (compute), morphs sur meshes skinnés. 5) Streaming
    réel (`FinalizeLoad` ne charge rien — « In a real impl » dans le code ; simulateur de budget).
    6) Deferred lighting pass + branchement (gros ; jamais instancié par le renderer). 7) IK
    renderer (orphelin — NB : NkAnima a son propre IK validé, celui du renderer est redondant à
