@@ -17,6 +17,7 @@
 #include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
 #include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison)
 #include "NKImage/NKImage.h"			  // NkImage : viewer media (image)
+#include "NKCode/Shell/NkAudioViewer.h"	  // DrawAudioViewer : lecteur audio (onde + play/seek)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -809,8 +810,11 @@ namespace nkentseu {
 
 					// Bascule preview/edition pour les .md (bouton haut-droite).
 					const bool isMd = !f.IsMedia() && NkCodeState::EndsWithI(f.Name().CStr(), ".md");
-					if (f.IsMedia()) { // MEDIA (image/video/audio) -> viewer dedie a la place de l'editeur
-						DrawMediaViewer(ctx, mShell, f, r);
+					if (f.IsMedia()) { // MEDIA -> viewer dedie a la place de l'editeur
+						if (f.mediaKind == 3) // AUDIO : onde + play/pause/seek (NKAudio natif)
+							DrawAudioViewer(ctx, f, r);
+						else // IMAGE / VIDEO
+							DrawMediaViewer(ctx, mShell, f, r);
 					} else if (isMd && f.mdPreview) { // MARKDOWN -> preview rendu
 						NkDrawMarkdown(ctx, f.doc.GetText().CStr(), r, f.mdScroll);
 					} else {
