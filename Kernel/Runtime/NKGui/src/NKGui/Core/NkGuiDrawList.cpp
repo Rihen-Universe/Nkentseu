@@ -224,7 +224,7 @@ namespace nkentseu {
 		}
 
 		void NkGuiDrawList::AddText(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *text,
-									const NkColor &col, float32 maxWidth) noexcept {
+									const NkColor &col, float32 maxWidth, float32 skew) noexcept {
 			if (!face || !text || !*text || texId == 0u)
 				return;
 			const uint32 c = NkGuiPackColor(col);
@@ -248,10 +248,14 @@ namespace nkentseu {
 					const float32 x1 = x + g->x1, y1 = y + g->y1;
 					if (x1 > xEnd)
 						break; // troncature simple
-					const uint32 i0 = Vtx({x0, y0}, {g->u0, g->v0}, c);
-					const uint32 i1 = Vtx({x1, y0}, {g->u1, g->v0}, c);
-					const uint32 i2 = Vtx({x1, y1}, {g->u1, g->v1}, c);
-					const uint32 i3 = Vtx({x0, y1}, {g->u0, g->v1}, c);
+					// Italique factice : décale chaque sommet selon sa hauteur au-dessus
+					// de la ligne de base (haut penché à droite, descendantes à gauche).
+					const float32 sTop = skew != 0.f ? skew * (y - y0) : 0.f;
+					const float32 sBot = skew != 0.f ? skew * (y - y1) : 0.f;
+					const uint32 i0 = Vtx({x0 + sTop, y0}, {g->u0, g->v0}, c);
+					const uint32 i1 = Vtx({x1 + sTop, y0}, {g->u1, g->v0}, c);
+					const uint32 i2 = Vtx({x1 + sBot, y1}, {g->u1, g->v1}, c);
+					const uint32 i3 = Vtx({x0 + sBot, y1}, {g->u0, g->v1}, c);
 					Tri(i0, i1, i2, texId);
 					Tri(i0, i2, i3, texId);
 				}
