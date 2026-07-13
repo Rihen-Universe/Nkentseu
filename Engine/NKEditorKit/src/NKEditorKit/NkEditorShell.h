@@ -77,6 +77,35 @@ namespace nkentseu {
 				void ClosePanel(const char *title) noexcept;  ///< ferme le panneau nomme
 				int32 PanelDockNode(const char *title) noexcept; ///< feuille de dock (-1 = non ancre)
 				void DetachPanel(const char *title) noexcept; ///< retire de sa feuille (collapse si vide)
+				// Agrandir / replier la REGION de dock d'un panneau (ajuste le ratio du split
+				// parent) : maximiser = la region prend presque toute la place ; replier = juste
+				// les onglets. Rebascule a l'etat normal si deja dans cet etat.
+				void ToggleMaximizePanel(const char *title) noexcept;
+				void ToggleCollapsePanel(const char *title) noexcept;
+				int32 PanelRegionMode() const noexcept { return mDockRegionState; } ///< 0 normal,1 replie,2 max
+
+				// ── GESTIONNAIRE DE MENU CONTEXTUEL (réutilisable, shell-level) ──────
+				// Un panneau APPELLE OpenContextMenu(pos, items, enabled, count) ; le shell
+				// dessine le menu APRÈS tous les panneaux (input réel, occlusion propre via
+				// le mécanisme modal). Le panneau récupère l'item choisi via
+				// TakeContextMenuChoice() (-1 si aucun). Thémé (NkGuiTheme) -> personnalisable.
+				void OpenContextMenu(const nkgui::NkVec2 &pos, const char *const *items, const bool *enabled,
+									 int32 count) noexcept;
+				int32 TakeContextMenuChoice() noexcept {
+					const int32 c = mCtxChoice;
+					mCtxChoice = -1;
+					return c;
+				}
+				bool IsContextMenuOpen() const noexcept {
+					return mCtxOpen;
+				}
+
+				// ── SÉLECTEUR de FICHIER/DOSSIER GÉNÉRIQUE (modal, réutilisable) ────
+
+				// ── Géométrie de fenêtre (launcher) : fichier global taille/pos/maximisé ──
+				void MaximizeWindow() noexcept;
+				void SaveWindowGeom(const char *path) noexcept;	 ///< écrit win=/maximized= (position écran)
+				bool LoadWindowGeom(const char *path) noexcept;	 ///< applique si le fichier existe ; false sinon
 
 				// Clic sur l'activity bar : l'app recoit l'index (0..6 = vues gauche, 100..102 = IA
 				// droite, 999 = reglages) et decide (sidebar exclusive facon VSCode).
@@ -90,6 +119,13 @@ namespace nkentseu {
 				void SetActivityActive(int32 leftIdx, int32 rightIdx) noexcept {
 					mActivityIndex = leftIdx;
 					mActivityIndexRight = rightIdx;
+				}
+
+				// Drop de FICHIERS depuis l'OS : l'app reçoit chemins + position client.
+				void SetDropFilesHandler(void (*fn)(void *, const NkVector<NkString> &, int32, int32),
+										 void *user) noexcept {
+					mDropFn = fn;
+					mDropUser = user;
 				}
 
 				// Icônes TEXTURE des activity bars (teintées au rendu ; 0 = le dessin au
@@ -164,6 +200,22 @@ namespace nkentseu {
 						return 0;
 					const uint32 id = mNextTexId++;
 					return mRenderer->UploadImageRGBA(id, pixels, w, h) ? id : 0;
+				}
+
+				// Re-uploade des pixels RGBA8 dans une texture DEJA allouee (meme texId).
+				// Pour le contenu qui change chaque frame (video : NkVideoReader -> onglet)
+				// sans allouer une nouvelle texture a chaque image. false si texId==0.
+				bool UpdateRGBA(uint32 texId, const uint8 *pixels, int32 w, int32 h) noexcept {
+					if (!mRenderer || !texId || !pixels || w <= 0 || h <= 0)
+						return false;
+					return mRenderer->UploadImageRGBA(texId, pixels, w, h);
+				}
+
+				// Ouvre la palette de commandes (equivalent Ctrl+P) par programme
+				// (ex. clic sur la barre de recherche de la toolbar NKCode).
+				void OpenCommandPalette() noexcept {
+					mPaletteOpen = true;
+					mPaletteSel = 0;
 				}
 
 				// Logo dessine a gauche de la barre de titre (texId via UploadRGBA).
@@ -327,6 +379,13 @@ namespace nkentseu {
 				// === Panneaux / commandes ===
 				NkEditorPanel *mPanels[MAX_PANELS] = {};
 				int32 mNumPanels = 0;
+				float32 mDockSavedRatio = -1.f; // ratio normal sauvegarde (restauration)
+				int32 mDockRegionState = 0;		// 0 normal, 1 replie, 2 maximise (region du bas)
+				void SetRegionMode(const char *title, int32 mode) noexcept;
+				// Boutons maximiser/replier dessines par le SHELL sur la barre d'onglets d'une
+				// region HAUT|BAS -> dispo pour TOUS les onglets (Terminal/Sortie/Problemes...).
+				bool IsBottomRegionTab(nkgui::NkGuiContext &c, nkgui::NkGuiId win) noexcept;
+				void DrawRegionButtons(nkgui::NkGuiContext &c, const nkgui::NkRect &area, nkgui::NkGuiId win) noexcept;
 				NkEditorCommand mCommands[MAX_COMMANDS] = {};
 				int32 mNumCommands = 0;
 				NkEditorAppMenuFn mAppMenuFn = nullptr;
@@ -354,8 +413,22 @@ namespace nkentseu {
 				uint32 mActTexL[8] = {};					  // textures vues gauche (0 = trait)
 				uint32 mActTexR[4] = {};					  // textures IA droite
 				uint32 mActTexGear = 0;						  // texture reglages
+				// Géométrie fenêtre cachée chaque frame (valide à la sauvegarde post-Run).
+				bool mGeomValid = false, mGeomMax = false;
+				int32 mGeomX = 0, mGeomY = 0, mGeomW = 1440, mGeomH = 900;
+				// Gestionnaire de menu contextuel (shell-level).
+				bool mCtxOpen = false;
+				nkgui::NkVec2 mCtxPos{0.f, 0.f};
+				nkentseu::NkVector<nkentseu::NkString> mCtxItems;
+				nkentseu::NkVector<nkentseu::uint8> mCtxEnabled;
+				int32 mCtxChoice = -1;
+				float32 mCtxSy = 0.f; // défilement vertical (listes longues)
+				void DrawContextMenu() noexcept;
+				// Sélecteur fichier/dossier générique (modal).
 				void (*mActivityFn)(void *, int32) = nullptr; // handler app du clic activity bar
 				void *mActivityUser = nullptr;
+				void (*mDropFn)(void *, const NkVector<NkString> &, int32, int32) = nullptr; // drop OS
+				void *mDropUser = nullptr;
 
 				// === Etat boucle ===
 				NkClock mClock;

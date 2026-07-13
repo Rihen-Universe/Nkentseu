@@ -367,8 +367,9 @@ namespace nkentseu {
 		// nb d'éléments (dimensionne le popup). Si ouvert, retourne true : l'app
 		// dessine ses Selectable() à l'intérieur (clic → fermer via ctx.ClosePopup())
 		// puis appelle EndCombo. Le popup est rendu DANS LA COUCHE OVERLAY (au-dessus).
+		// heightOverride > 0 : hauteur du champ imposee (sinon ItemHeight standard).
 		NKENTSEU_NKGUI_API bool BeginCombo(NkGuiContext &ctx, const char *label, const char *preview,
-										   int32 itemCount) noexcept;
+										   int32 itemCount, float32 heightOverride = 0.f) noexcept;
 		NKENTSEU_NKGUI_API void EndCombo(NkGuiContext &ctx) noexcept;
 		// Primitif de popup générique (fermé au clic-dehors / Échap). Ouvre avec
 		// ctx.OpenPopup(ctx.GetId(idStr)). À refermer par EndPopup si true.

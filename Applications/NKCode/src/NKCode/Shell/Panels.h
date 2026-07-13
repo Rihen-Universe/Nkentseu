@@ -10,11 +10,17 @@
 #include "NKCode/Project/NkPty.h"
 #include "NKCode/Project/NkTerm.h"
 #include "NKCode/Editor/NkTextDraw.h"
+#include "NKCode/Editor/NkMarkdown.h" // viewer .md (preview rendu)
+#include "NKCode/Editor/NkJsonView.h" // viewer .json (arbre repliable colore)
+#include "NKCode/Editor/NkCsvView.h"  // viewer .csv (table)
 #include "NKCode/Shell/NkI18n.h"  // NkT() : bannière mojibake traduite
 #include "NKCode/Shell/NkShell.h" // NkCodeShellRun (révéler dans l'explorateur / terminal)
 #include "NKCode/Shell/NkExplorer.h" // ExplorerPanel (arbre + git + filtre, maquette Banani)
 #include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
 #include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison)
+#include "NKImage/NKImage.h"			  // NkImage : viewer media (image)
+#include "NKCode/Shell/NkAudioViewer.h"	  // DrawAudioViewer : lecteur audio (onde + play/seek)
+#include "NKCode/Shell/NkVideoViewer.h"	  // DrawVideoViewer : lecteur video (frames RGBA + transport)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -22,6 +28,120 @@ namespace nkentseu {
 		using namespace nkentseu;
 		using namespace nkentseu::editorkit;
 		using namespace nkentseu::nkgui;
+
+		// ── Viewer MEDIA (image/video/audio) : dessine dans `r` a la place de l'editeur
+		//    quand l'onglet est un media. Image : fit-fenetre + zoom molette + pan glisser
+		//    (double-clic = re-fit) sur fond DAMIER (transparence). Video/audio : placeholder. ──
+		inline void DrawMediaViewer(NkGuiContext &ctx, editorkit::NkEditorShell *shell, OpenFile &f, const NkRect &r) {
+			NkGuiDrawList &dl = ctx.DL();
+			const NkGuiFont *font = ctx.font;
+			const float32 lh = (font && font->Valid()) ? font->LineHeight() : 16.f;
+			const float32 asc = (font && font->Valid()) ? font->Ascent() : 12.f;
+			dl.PushClipRect(r, true);
+			dl.AddRectFilled(r, NkColor{28, 30, 34, 255}); // fond
+			const float32 cs = 16.f;					   // damier (transparence)
+			for (float32 yy = r.y; yy < r.y + r.h; yy += cs)
+				for (float32 xx = r.x; xx < r.x + r.w; xx += cs)
+					if (((((int32)((xx - r.x) / cs)) + ((int32)((yy - r.y) / cs))) & 1) == 0)
+						dl.AddRectFilled({xx, yy, cs, cs}, NkColor{38, 40, 45, 255});
+
+			auto centered = [&](const char *msg, const NkColor &col) {
+				if (!font || !font->Valid())
+					return;
+				const float32 tw = font->MeasureWidth(msg);
+				dl.AddText(font->Face(), font->TexId(), {r.x + (r.w - tw) * 0.5f, r.y + (r.h - lh) * 0.5f + asc}, msg, col);
+			};
+
+			NkString info;
+			const NkVec2 mp = ctx.input.mousePos;
+			const bool over = NkGuiRectContains(r, mp);
+
+			if (f.mediaKind == 1) { // ── IMAGE ──
+				if (!f.mediaLoaded) {
+					f.mediaLoaded = true;
+					NkImage img;
+					if (img.Load(f.path.ToString().CStr(), 4) && img.IsValid() && shell) {
+						f.mediaW = img.Width();
+						f.mediaH = img.Height();
+						f.mediaTex = shell->UploadRGBA(img.Pixels(), f.mediaW, f.mediaH);
+					}
+				}
+				if (f.mediaTex && f.mediaW > 0 && f.mediaH > 0) {
+					// Zoom molette -> desactive le fit.
+					if (over && ctx.input.wheel != 0.f) {
+						const float32 base = f.mediaFit ? 1.f : f.mediaZoom;
+						float32 z = base * (ctx.input.wheel > 0.f ? 1.15f : 1.f / 1.15f);
+						if (z < 0.05f)
+							z = 0.05f;
+						if (z > 32.f)
+							z = 32.f;
+						// si on etait en fit, part de l'echelle fit courante
+						if (f.mediaFit) {
+							const float32 aw = r.w - 40.f, ah = r.h - 40.f;
+							float32 fit = aw / f.mediaW < ah / f.mediaH ? aw / f.mediaW : ah / f.mediaH;
+							if (fit > 1.f)
+								fit = 1.f;
+							z = fit * (ctx.input.wheel > 0.f ? 1.15f : 1.f / 1.15f);
+						}
+						f.mediaZoom = z;
+						f.mediaFit = false;
+						ctx.input.wheel = 0.f;
+					}
+					// Double-clic -> re-ajuster.
+					if (over && ctx.input.mouseDoubleClicked[0]) {
+						f.mediaFit = true;
+						f.mediaPanX = f.mediaPanY = 0.f;
+					}
+					// Pan par glisser (etat statique par onglet).
+					static const void *s_drag = nullptr;
+					static NkVec2 s_m0;
+					static float32 s_px0, s_py0;
+					if (over && ctx.input.mouseClicked[0] && !ctx.input.mouseDoubleClicked[0]) {
+						s_drag = &f;
+						s_m0 = mp;
+						s_px0 = f.mediaPanX;
+						s_py0 = f.mediaPanY;
+					}
+					if (s_drag == &f) {
+						if (ctx.input.mouseDown[0]) {
+							f.mediaPanX = s_px0 + (mp.x - s_m0.x);
+							f.mediaPanY = s_py0 + (mp.y - s_m0.y);
+						} else
+							s_drag = nullptr;
+					}
+					// Echelle effective.
+					float32 scale;
+					if (f.mediaFit) {
+						const float32 aw = r.w - 40.f, ah = r.h - 40.f;
+						scale = aw / f.mediaW < ah / f.mediaH ? aw / f.mediaW : ah / f.mediaH;
+						if (scale > 1.f)
+							scale = 1.f;
+						f.mediaPanX = f.mediaPanY = 0.f;
+					} else
+						scale = f.mediaZoom;
+					const float32 dw = f.mediaW * scale, dh = f.mediaH * scale;
+					const NkRect disp = {r.x + (r.w - dw) * 0.5f + f.mediaPanX, r.y + (r.h - dh) * 0.5f + f.mediaPanY, dw,
+										 dh};
+					dl.AddImage(f.mediaTex, disp, {0.f, 0.f}, {1.f, 1.f}, NkColor{255, 255, 255, 255});
+					info = NkPrintf("%s      %d x %d      %d Ko      %d%%", f.Name().CStr(), f.mediaW, f.mediaH,
+									(int32)(f.mediaSize / 1024), (int32)(scale * 100.f + 0.5f));
+				} else
+					centered("Impossible de charger l'image", NkColor{240, 120, 110, 255});
+			} else { // ── VIDEO / AUDIO : placeholder ──
+				centered(f.mediaKind == 2 ? "Apercu video - lecture a venir" : "Apercu audio - lecture a venir",
+						 ctx.theme.textDisabled);
+				info = NkPrintf("%s      %d Ko", f.Name().CStr(), (int32)(f.mediaSize / 1024));
+			}
+
+			// Barre d'info en bas.
+			if (!info.Empty() && font && font->Valid()) {
+				const float32 bh = lh + 10.f;
+				const NkRect bar = {r.x, r.y + r.h - bh, r.w, bh};
+				dl.AddRectFilled(bar, NkColor{20, 22, 26, 225});
+				dl.AddText(font->Face(), font->TexId(), {bar.x + 12.f, bar.y + 5.f + asc}, info.CStr(), ctx.theme.text);
+			}
+			dl.PopClipRect();
+		}
 
 		// Texte COLORE sur une ligne : reserve un rect de la LARGEUR DU TEXTE (pas
 		// pleine largeur, sinon un SameLine() suivant pousse l'item hors champ) et
@@ -502,6 +622,24 @@ namespace nkentseu {
 							ctx.input.wantSelectAll = false;
 						}
 					}
+					// ── CIBLE de DRAG & DROP global : déposer des fichiers de l'explorateur
+					// sur l'éditeur les OUVRE (les dossiers sont ignorés). ──
+					if (mS->dragActive && ctx.input.mouseReleased[0] &&
+						NkGuiRectContains(ctx.DL().CurrentClip(), ctx.input.mousePos)) {
+						for (usize di = 0; di < mS->dragPaths.Size(); ++di)
+							if (!NkDirectory::Exists(mS->dragPaths[di].CStr()))
+								mS->OpenPath(NkPath(mS->dragPaths[di]));
+					}
+					// ── Drop de fichiers depuis l'OS (Explorateur Windows) : OUVRE. ──
+					if (!mS->osDropPaths.Empty() &&
+						NkGuiRectContains(ctx.DL().CurrentClip(),
+										  {static_cast<float32>(mS->osDropX), static_cast<float32>(mS->osDropY)})) {
+						for (usize di = 0; di < mS->osDropPaths.Size(); ++di)
+							if (!NkDirectory::Exists(mS->osDropPaths[di].CStr()))
+								mS->OpenPath(NkPath(mS->osDropPaths[di]));
+						mS->osDropPaths.Clear();
+						mS->osDropTtl = 0;
+					}
 					if (mS->files.Empty()) {
 						if (mShell)
 							mShell->SetFooter("NKCode", "Jenga");
@@ -673,12 +811,70 @@ namespace nkentseu {
 							mS->navPickerOpen = false;
 					}
 
-					mS->StartProjectIndex(); // index sémantique niveau projet (async, une fois)
-					const NkVector<NkString> *ppDefs = mS->EffectiveDefines(
-						f.path.ToString()); // macros effectives (dump compilo) -> grisage préproc exact
-					CodeEditor(ctx, "##code", f.doc, r, NkLangFromExt(f.path.GetExtension().CStr()),
-							   mS->projReady ? &mS->projTypes : nullptr, mS->projReady ? &mS->projFuncs : nullptr,
-							   ppDefs);
+					// Bascule preview/edition pour les .md (bouton haut-droite).
+					const bool isMd = !f.IsMedia() && NkCodeState::EndsWithI(f.Name().CStr(), ".md");
+					const bool isJson = !f.IsMedia() && NkCodeState::EndsWithI(f.Name().CStr(), ".json");
+					const bool isCsv = !f.IsMedia() && (NkCodeState::EndsWithI(f.Name().CStr(), ".csv") ||
+														NkCodeState::EndsWithI(f.Name().CStr(), ".tsv"));
+					if (f.IsMedia()) { // MEDIA -> viewer dedie a la place de l'editeur
+						if (f.mediaKind == 3) // AUDIO : onde + play/pause/seek (NKAudio natif)
+							DrawAudioViewer(ctx, f, r);
+						else if (f.mediaKind == 2) // VIDEO : decode + affiche frames (NkVideoReader)
+							DrawVideoViewer(ctx, mShell, f, r);
+						else // IMAGE
+							DrawMediaViewer(ctx, mShell, f, r);
+					} else if (isMd && f.mdPreview) { // MARKDOWN -> preview rendu
+						NkDrawMarkdown(ctx, f.doc.GetText().CStr(), r, f.mdScroll);
+					} else if (isJson && f.mdPreview) { // JSON -> arbre EDITABLE
+						// Ctrl+Z / Ctrl+Y : undo/redo du doc (l'apercu ne passe pas par l'editeur).
+						if (ctx.input.ctrlDown && !ctx.input.altDown) {
+							if (ctx.input.KeyPressed(nkgui::NkGuiKey::Z)) {
+								if (ctx.input.shiftDown)
+									f.doc.Redo();
+								else
+									f.doc.Undo();
+							}
+							if (ctx.input.KeyPressed(nkgui::NkGuiKey::Y))
+								f.doc.Redo();
+						}
+						const NkString jtxt = f.doc.GetText();
+						NkString jnew;
+						bool jchanged = false;
+						NkDrawJson(ctx, &f, jtxt.CStr(), r, f.mdScroll, jnew, jchanged);
+						if (jchanged) {
+							f.doc.Checkpoint(3); // snapshot pre-edition -> undo/redo
+							f.doc.SetText(jnew.CStr());
+						}
+					} else if (isCsv && f.mdPreview) { // CSV/TSV -> table
+						const NkString ctxt = f.doc.GetText();
+						NkDrawCsv(ctx, &f, ctxt.CStr(), r, f.mdScroll, f.mdScrollX);
+					} else {
+						mS->StartProjectIndex(); // index sémantique niveau projet (async, une fois)
+						const NkVector<NkString> *ppDefs = mS->EffectiveDefines(
+							f.path.ToString()); // macros effectives (dump compilo) -> grisage préproc exact
+						CodeEditor(ctx, "##code", f.doc, r, NkLangFromExt(f.path.GetExtension().CStr()),
+								   mS->projReady ? &mS->projTypes : nullptr, mS->projReady ? &mS->projFuncs : nullptr,
+								   ppDefs);
+					}
+					// Bascule Apercu/Editer pour .md/.json/.csv — dessinee AU-DESSUS du contenu (sinon la preview la recouvre).
+					if (isMd || isJson || isCsv) {
+						const float32 lhh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
+						const char *tlab = f.mdPreview ? "</> Code source"
+													   : (isJson ? "Arbre JSON" : isCsv ? "Table CSV" : "Apercu rendu");
+						const float32 bw = ((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(tlab) : 60.f) + 22.f;
+						const NkRect tbb = {r.x + r.w - bw - 16.f, r.y + 8.f, bw, lhh + 10.f};
+						const NkVec2 mm = ctx.input.mousePos;
+						const bool th = mm.x >= tbb.x && mm.x < tbb.x + tbb.w && mm.y >= tbb.y && mm.y < tbb.y + tbb.h;
+						ctx.DL().AddRectFilled(tbb, th ? ctx.theme.buttonHover : ctx.theme.button, 6.f);
+						ctx.DL().AddRect(tbb, th ? ctx.theme.accent : ctx.theme.border, 1.f);
+						if (ctx.font && ctx.font->Valid())
+							ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
+											 {tbb.x + 11.f, tbb.y + 5.f + ctx.font->Ascent()}, tlab, ctx.theme.text);
+						if (th && ctx.input.mouseClicked[0]) {
+							f.mdPreview = !f.mdPreview;
+							ctx.input.mouseClicked[0] = false;
+						}
+					}
 
 					// ── Overlay Ctrl+clic : barre de PROGRESSION (recherche) + LISTE de toutes les
 					//    occurrences (façon VSCode « aller à la définition » multi-résultats). ──
@@ -1739,6 +1935,7 @@ namespace nkentseu {
 								x1 += 4.f;
 							dl.AddRectFilled({x0, ytop, x1 - x0, lineH}, NkColor{31, 111, 235, 90});
 						}
+
 						const char *L = mLogs[i].CStr();
 						NkDrawTextU(ctx, left - mScrollX, ytop + asc, ytop, lineH, L, L + mLogs[i].Size(), LogColor(L));
 					}
@@ -1844,7 +2041,7 @@ namespace nkentseu {
 		//    invite coloree, execution ASYNC -> sortie en flux. ──
 		class TerminalPanel : public NkEditorPanel {
 			public:
-				enum Shell { SH_PWSH = 0, SH_WSL, SH_BASH, SH_CMD, SH_JENGA, SH_COUNT };
+				enum Shell { SH_PWSH = 0, SH_WSL, SH_BASH, SH_CMD, SH_JENGA, SH_DOCKER, SH_COUNT };
 
 				// Entree du selecteur de shell : un type (kind) + un libelle + une distro
 				// WSL optionnelle. La liste est construite dynamiquement (distros WSL2 reelles).
@@ -1852,6 +2049,7 @@ namespace nkentseu {
 						int32 kind;
 						NkString label;
 						NkString distro;
+						NkString cmd; // commande explicite (pwsh 7, Git Bash...) ; vide = PtyCommand(kind)
 				};
 
 				TerminalPanel() : NkEditorPanel("TERMINAL", NkEditorDockSide::NK_BOTTOM) {
@@ -1868,6 +2066,36 @@ namespace nkentseu {
 					auto &dl = ctx.DL();
 					const NkRect clip = dl.CurrentClip();
 					dl.AddRectFilled(clip, ctx.theme.bgPrimary); // fond terminal #0D1117
+					// ── CIBLE de DRAG & DROP global : déposer des fichiers/dossiers de
+					// l'explorateur COLLE leurs chemins (quotés) dans le shell actif. ──
+					if (mState && mState->dragActive && ctx.input.mouseReleased[0] &&
+						NkGuiRectContains(clip, ctx.input.mousePos) && mActive >= 0 && mActive < 8 &&
+						mTerm[mActive].alive) {
+						Term &dt = mTerm[mActive];
+						for (usize di = 0; di < mState->dragPaths.Size(); ++di) {
+							NkString q = "\"";
+							q += mState->dragPaths[di];
+							q += "\" ";
+							dt.pty.Write(q.CStr(), q.Size());
+						}
+						dt.touched = true;
+					}
+					// ── Drop de fichiers depuis l'OS : colle les chemins quotés. ──
+					if (mState && !mState->osDropPaths.Empty() &&
+						NkGuiRectContains(clip, {static_cast<float32>(mState->osDropX),
+												 static_cast<float32>(mState->osDropY)}) &&
+						mActive >= 0 && mActive < 8 && mTerm[mActive].alive) {
+						Term &dt = mTerm[mActive];
+						for (usize di = 0; di < mState->osDropPaths.Size(); ++di) {
+							NkString q = "\"";
+							q += mState->osDropPaths[di];
+							q += "\" ";
+							dt.pty.Write(q.CStr(), q.Size());
+						}
+						dt.touched = true;
+						mState->osDropPaths.Clear();
+						mState->osDropTtl = 0;
+					}
 					// Changement de WORKSPACE : recycle les terminaux JAMAIS utilises (touched=false)
 					// pour que le defaut redemarre dans la NOUVELLE racine (celle du boot peut etre
 					// un faux workspace : le CWD de l exe). Ceux ou l on a tape restent en vie.
@@ -1977,7 +2205,13 @@ namespace nkentseu {
 						DrawGrid(ctx, t, mainR, lineH, pad);
 
 					// ── Clavier : frappes routees vers le pty (pas de boite de saisie) ──
-					if (mFocused && !mMenu.open && ctx.popupDepth == 0)
+					// Ctrl+F / Ctrl+H : ouvre la recherche DANS le terminal (lecture seule -> pas de remplacement).
+					if (mFocused && ctx.input.ctrlDown && ctx.popupDepth == 0 &&
+						(ctx.input.KeyPressed(nkgui::NkGuiKey::F) || ctx.input.KeyPressed(nkgui::NkGuiKey::H)))
+						mFindOpen = true;
+					if (mFindOpen)
+						DrawTermFind(ctx, t, mainR);
+					if (mFocused && !mMenu.open && !mFindOpen && ctx.popupDepth == 0)
 						RouteKeyboard(ctx, t);
 
 					// ── Menu contextuel (overlay) ──
@@ -2014,7 +2248,7 @@ namespace nkentseu {
 							AddTerm(mNewShell);
 					}
 					// Combobox de shell (a gauche du "+").
-					const float32 cw = ctx.S(118.f);
+					const float32 cw = ctx.S(178.f); // combo elargi (colle au bouton +)
 					// Etoile « definir par defaut » : le shell du combo devient le TERMINAL PAR DEFAUT
 					// (persiste). Pleine (accent) quand le combo == defaut courant.
 					{
@@ -2022,16 +2256,24 @@ namespace nkentseu {
 						EnsureBaseShells();
 						if (mNewShell < 0 || mNewShell >= static_cast<int32>(mShells.Size()))
 							mNewShell = 0;
-						const NkRect stR = {addR.x - cw - 4.f - h, bar.y + 1.f, h, h - 2.f};
+						const NkRect stR = {addR.x - cw - 1.f - h, bar.y + 1.f, h, h - 2.f};
 						const bool hov = inR(stR);
 						const ShellDef &cur = mShells[mNewShell];
 						const bool isDef = (cur.kind == mDefShell) && StrEq(cur.distro.CStr(), mDefDistro.CStr());
 						if (hov)
 							dl.AddRectFilled(stR, ctx.theme.buttonHover);
+						// Vraie ETOILE (« définir par défaut ») : pleine (accent) si c'est le shell
+						// par défaut, sinon grisée. Éventail de triangles sur 5 pointes.
 						const float32 scx = stR.x + h * 0.5f, scy = stR.y + (h - 2.f) * 0.5f;
 						const NkColor sc = isDef ? ctx.theme.accent : ctx.theme.textDisabled;
-						dl.AddTriangleFilled({scx, scy - 5.f}, {scx - 4.5f, scy + 3.5f}, {scx + 4.5f, scy + 3.5f}, sc);
-						dl.AddTriangleFilled({scx, scy + 5.f}, {scx - 4.5f, scy - 3.5f}, {scx + 4.5f, scy - 3.5f}, sc);
+						static const float32 SUX[10] = {0.000f,  0.225f,  0.951f, 0.363f,  0.588f,
+														0.000f,  -0.588f, -0.363f, -0.951f, -0.225f};
+						static const float32 SUY[10] = {-1.000f, -0.309f, -0.309f, 0.118f,  0.809f,
+														0.382f,  0.809f,  0.118f, -0.309f, -0.309f};
+						const float32 sr = 6.5f;
+						for (int32 k = 0; k < 10; ++k)
+							dl.AddTriangleFilled({scx, scy}, {scx + SUX[k] * sr, scy + SUY[k] * sr},
+												 {scx + SUX[(k + 1) % 10] * sr, scy + SUY[(k + 1) % 10] * sr}, sc);
 						if (hov && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) {
 							mDefShell = cur.kind;
 							mDefDistro = cur.distro;
@@ -2039,7 +2281,8 @@ namespace nkentseu {
 						}
 					}
 					const float32 savedW = ctx.layout.region.w;
-					ctx.layout.cursor = {addR.x - cw - 4.f, bar.y + 1.f};
+					const float32 comboH = h - ctx.S(9.f); // combo un peu plus court que la barre (centre)
+					ctx.layout.cursor = {addR.x - cw - 1.f, bar.y + (h - comboH) * 0.5f};
 					ctx.layout.lineStartX = ctx.layout.cursor.x;
 					ctx.layout.curLineH = 0.f;
 					ctx.layout.region.w = (ctx.layout.cursor.x - ctx.layout.region.x) + cw;
@@ -2047,7 +2290,8 @@ namespace nkentseu {
 					if (mNewShell < 0 || mNewShell >= static_cast<int32>(mShells.Size()))
 						mNewShell = 0;
 					ctx.PushId("shellhdr");
-					if (BeginCombo(ctx, "", mShells[mNewShell].label.CStr(), static_cast<int32>(mShells.Size()))) {
+					if (BeginCombo(ctx, "", mShells[mNewShell].label.CStr(), static_cast<int32>(mShells.Size()),
+								   comboH)) {
 						DetectWslDistros(); // ajoute les distros WSL2 reelles (une seule fois)
 						for (int32 i = 0; i < static_cast<int32>(mShells.Size()); ++i)
 							if (Selectable(ctx, mShells[i].label.CStr(), i == ctx.comboNav) ||
@@ -2102,23 +2346,158 @@ namespace nkentseu {
 				}
 
 				// Programme reel a lancer pour chaque type de shell.
+				// Invite COLOREE injectee (chemin bleu + « > » vert) : PowerShell/cmd n'emettent
+				// pas de couleurs par defaut (contrairement a bash Ubuntu) -> on definit une
+				// invite ANSI a leur lancement pour un rendu colore homogene.
+				static NkString PwshColored(const NkString &exe) {
+					return exe +
+						   " -NoLogo -NoExit -Command \"function prompt { $e=[char]27; \\\"$e[38;2;88;166;255m$($PWD.Path)$e[0m$e[38;2;120;200;120m> $e[0m\\\" }\"";
+				}
+				static NkString CmdColored(const char *pre) {
+					const NkString p = "prompt $E[38;2;88;166;255m$P$E[0m$E[38;2;120;200;120m$G$E[0m$S";
+					if (pre && pre[0])
+						return NkString("cmd.exe /K \"") + p + " & " + pre + "\"";
+					return NkString("cmd.exe /K ") + p;
+				}
+
 				static NkString PtyCommand(int32 s, const NkString &distro) {
 					switch (s) {
 						case SH_PWSH:
-							return NkString("powershell.exe -NoLogo");
+						case SH_JENGA:
+							return PwshColored("powershell.exe");
 						case SH_WSL:
 							return distro.Empty() ? NkString("wsl.exe") : (NkString("wsl.exe -d ") + distro);
 						case SH_BASH:
 							return NkString("bash.exe");
-						case SH_JENGA:
-							return NkString("powershell.exe -NoLogo"); // jenga s'utilise dans powershell
+						case SH_DOCKER:
+							return CmdColored("docker ps");
 						default:
-							return NkString("cmd.exe");
+							return CmdColored("");
 					}
 				}
 
 				// ── Grille du terminal : rend les cellules visibles + curseur + selection +
 				//    scrollbars V/H avec fleches + auto-suivi du bas (vrai terminal). ──
+				// Recalcule les correspondances de la recherche (Ctrl+F) sur TOUT le terminal.
+				void RecomputeFind(Term &t) {
+					mFindHits.Clear();
+					mFindCur = 0;
+					if (!mFindBuf[0])
+						return;
+					char q[128];
+					int32 ql = 0;
+					for (const char *pp = mFindBuf; *pp && ql < 127; ++pp)
+						q[ql++] = (!mFindCase && *pp >= 'A' && *pp <= 'Z') ? (char)(*pp + 32) : *pp;
+					const int32 total = (int32)t.screen.TotalLines();
+					for (int32 i = 0; i < total; ++i) {
+						const NkTerm::Line &ln = t.screen.LineAt((usize)i);
+						const int32 sl = (int32)ln.Size();
+						for (int32 c = 0; c + ql <= sl; ++c) {
+							bool mm = true;
+							for (int32 k = 0; k < ql && mm; ++k) {
+								const uint32 cp = ln[c + k].cp;
+								char ch = (cp < 128) ? (char)cp : '?';
+								if (!mFindCase && ch >= 'A' && ch <= 'Z')
+									ch = (char)(ch + 32);
+								if (ch != q[k])
+									mm = false;
+							}
+							if (mm) {
+								FindHit fh;
+								fh.line = i;
+								fh.col = c;
+								fh.len = ql;
+								mFindHits.PushBack(fh);
+								c += ql - 1;
+							}
+						}
+						if (mFindHits.Size() > 5000)
+							break;
+					}
+				}
+
+				// Barre de recherche DANS le terminal (Ctrl+F) : champ + compteur + prec/suiv/fermer.
+				void DrawTermFind(NkGuiContext &ctx, Term &t, const NkRect &out) {
+					auto &dl = ctx.DL();
+					const NkGuiFont *font = ctx.font;
+					const float32 S = ctx.S(1.f);
+					const int32 total = (int32)t.screen.TotalLines();
+					if (!StrEq(mFindBuf, mFindLast) || total != mFindTotalSeen) {
+						RecomputeFind(t);
+						int32 k = 0;
+						for (const char *pp = mFindBuf; *pp && k < 128; ++pp)
+							mFindLast[k++] = *pp;
+						mFindLast[k] = 0;
+						mFindTotalSeen = total;
+					}
+					const float32 bw = 340.f * S, bh = 28.f * S;
+					const NkRect bar = {out.x + out.w - bw - 20.f * S, out.y + 6.f * S, bw, bh};
+					dl.AddRectFilled(bar, NkColor{30, 33, 40, 255}, 6.f * S);
+					dl.AddRect(bar, NkColor{70, 78, 90, 255}, 1.f);
+					const NkRect fr = {bar.x + 8.f * S, bar.y + 4.f * S, bw - 164.f * S, bh - 8.f * S};
+					editorkit::NkOverlayTextField(ctx, dl, font, fr, mFindBuf, (int32)sizeof(mFindBuf), true);
+					const NkVec2 m = ctx.input.mousePos;
+					const float32 lineH = font ? font->LineHeight() : 16.f;
+					auto goHit = [&](int32 d) {
+						if (mFindHits.Empty())
+							return;
+						mFindCur = (mFindCur + d + (int32)mFindHits.Size()) % (int32)mFindHits.Size();
+						t.follow = false;
+						const float32 sy = (float32)mFindHits[mFindCur].line * lineH - out.h * 0.4f;
+						t.scrollY = sy < 0.f ? 0.f : sy;
+					};
+					if (font && font->Valid()) {
+						const NkString cnt = mFindHits.Empty() ? NkString(mFindBuf[0] ? "0" : "")
+						                                       : NkPrintf("%d/%d", mFindCur + 1, (int32)mFindHits.Size());
+						dl.AddText(font->Face(), font->TexId(),
+						           {fr.x + fr.w + 6.f * S, bar.y + (bh - lineH) * 0.5f + font->Ascent()}, cnt.CStr(),
+						           ctx.theme.textDisabled);
+					}
+					auto iconBtn = [&](float32 bx, int32 kind) -> bool {
+						const NkRect r = {bx, bar.y + 4.f * S, 22.f * S, bh - 8.f * S};
+						const bool hh = m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
+						if (hh)
+							dl.AddRectFilled(r, ctx.theme.buttonHover, 3.f);
+						const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f, a = 4.f * S;
+						const NkColor c = hh ? ctx.theme.text : ctx.theme.textDisabled;
+						if (kind == 0)
+							dl.AddTriangleFilled({cx, cy - a}, {cx - a, cy + a}, {cx + a, cy + a}, c);
+						else if (kind == 1)
+							dl.AddTriangleFilled({cx - a, cy - a}, {cx + a, cy - a}, {cx, cy + a}, c);
+						else {
+							dl.AddLine({cx - a, cy - a}, {cx + a, cy + a}, c, 1.5f);
+							dl.AddLine({cx - a, cy + a}, {cx + a, cy - a}, c, 1.5f);
+						}
+						return hh && ctx.input.mouseClicked[0] && ctx.popupDepth == 0;
+					};
+					const float32 b0 = bar.x + bw - 74.f * S;
+					// Bouton « Aa » : respecter la casse (recherche exacte).
+					{
+						const NkRect ar = {b0 - 26.f * S, bar.y + 4.f * S, 22.f * S, bh - 8.f * S};
+						const bool ah = m.x >= ar.x && m.x < ar.x + ar.w && m.y >= ar.y && m.y < ar.y + ar.h;
+						dl.AddRectFilled(ar, mFindCase ? NkColor{15, 115, 213, 255}
+						                               : (ah ? ctx.theme.buttonHover : NkColor{0, 0, 0, 0}), 3.f);
+						if (font && font->Valid())
+							dl.AddText(font->Face(), font->TexId(),
+							           {ar.x + (ar.w - font->MeasureWidth("Aa")) * 0.5f, bar.y + (bh - lineH) * 0.5f + font->Ascent()},
+							           "Aa", mFindCase ? NkColor{255, 255, 255, 255} : ctx.theme.textDisabled);
+						if (ah && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) {
+							mFindCase = !mFindCase;
+							RecomputeFind(t); // recalcul immediat avec/sans casse
+						}
+					}
+					if (iconBtn(b0, 0))
+						goHit(-1);
+					if (iconBtn(b0 + 24.f * S, 1))
+						goHit(1);
+					if (iconBtn(b0 + 48.f * S, 2))
+						mFindOpen = false;
+					if (ctx.input.KeyPressed(nkgui::NkGuiKey::Enter))
+						goHit(ctx.input.shiftDown ? -1 : 1);
+					if (ctx.input.KeyPressed(nkgui::NkGuiKey::Escape))
+						mFindOpen = false;
+				}
+
 				void DrawGrid(NkGuiContext &ctx, Term &t, const NkRect &out, float32 lineH, float32 pad) {
 					auto &dl = ctx.DL();
 					const bool sbLight =
@@ -2242,6 +2621,17 @@ namespace nkentseu {
 							if (c1 > c0)
 								dl.AddRectFilled({left + c0 * cw, ytop, (c1 - c0) * cw, lineH},
 												 NkColor{31, 111, 235, 90});
+						}
+						// Surlignage des correspondances de recherche (Ctrl+F) sur cette ligne.
+						if (mFindOpen && !mFindHits.Empty()) {
+							for (usize hI = 0; hI < mFindHits.Size(); ++hI) {
+								const FindHit &fh = mFindHits[hI];
+								if (fh.line != i)
+									continue;
+								const bool cur = ((int32)hI == mFindCur);
+								dl.AddRectFilled({left + fh.col * cw, ytop, fh.len * cw, lineH},
+												 cur ? NkColor{240, 190, 40, 175} : NkColor{240, 190, 40, 80});
+							}
 						}
 						const int32 ncell = static_cast<int32>(ln.Size());
 						for (int32 c = 0; c < ncell; ++c) {
@@ -2461,9 +2851,32 @@ namespace nkentseu {
 					if (mShellsBuilt)
 						return;
 					mShellsBuilt = true;
-					mShells.PushBack(ShellDef{SH_PWSH, "powershell", ""});
-					mShells.PushBack(ShellDef{SH_CMD, "cmd", ""});
-					mShells.PushBack(ShellDef{SH_BASH, "bash", ""});
+					mShells.PushBack(ShellDef{SH_PWSH, "Windows PowerShell", "", ""});
+					// PowerShell 7 (pwsh.exe) si installe (a cote de Windows PowerShell).
+					const char *pf = env::GetEnvVar("ProgramFiles");
+					if (pf) {
+						const NkString pwsh = NkString(pf) + "\\PowerShell\\7\\pwsh.exe";
+						if (NkFile::Exists(NkPath(pwsh)))
+							mShells.PushBack(ShellDef{SH_PWSH, "PowerShell 7", "", PwshColored(NkString("\"") + pwsh + "\"")});
+					}
+					mShells.PushBack(ShellDef{SH_CMD, "cmd", "", ""});
+					// Git Bash si installe (sinon bash.exe generique du PATH).
+					bool gitBash = false;
+					if (pf) {
+						const NkString gb = NkString(pf) + "\\Git\\bin\\bash.exe";
+						if (NkFile::Exists(NkPath(gb))) {
+							mShells.PushBack(ShellDef{SH_BASH, "Git Bash", "", NkString("\"") + gb + "\" -i -l"});
+							gitBash = true;
+						}
+					}
+					if (!gitBash)
+						mShells.PushBack(ShellDef{SH_BASH, "bash", "", ""});
+					// Docker Desktop : entree "Docker" seulement si docker.exe est present.
+					if (pf) {
+						const NkString dk = NkString(pf) + "\Docker\Docker\resources\bin\docker.exe";
+						if (NkFile::Exists(NkPath(dk)))
+							mShells.PushBack(ShellDef{SH_DOCKER, "Docker", "", CmdColored("docker ps")});
+					}
 				}
 
 				// Detecte les distributions WSL2 INSTALLEES (`wsl --list --quiet`) et ajoute
@@ -2545,7 +2958,7 @@ namespace nkentseu {
 							mTerm[i].scrollY = 0.f;
 							mTerm[i].follow = true;
 							mTerm[i].cwd = NkString();
-							mTerm[i].cmdOverride = NkString();
+							mTerm[i].cmdOverride = sd.cmd; // pwsh 7 / Git Bash : commande explicite detectee
 							mTerm[i].sAL = mTerm[i].sAC = mTerm[i].sBL = mTerm[i].sBC = 0;
 							mTerm[i].dragging = false;
 							mActive = i;
@@ -2646,79 +3059,167 @@ namespace nkentseu {
 				static NkColor ShellColor(int32 s) {
 					switch (s) {
 						case SH_PWSH:
-							return {31, 111, 235, 255};
+							return {31, 111, 235, 255};   // bleu PowerShell
+						case SH_CMD:
+							return {120, 130, 145, 255};  // gris-bleu cmd
 						case SH_WSL:
-							return {233, 84, 32, 255};
+							return {233, 84, 32, 255};    // orange WSL
 						case SH_BASH:
-							return {77, 160, 79, 255};
+							return {77, 160, 79, 255};    // vert bash
 						case SH_JENGA:
-							return {200, 150, 40, 255};
+							return {200, 150, 40, 255};   // ambre Jenga
+						case SH_DOCKER:
+							return {33, 150, 243, 255};  // bleu Docker
 						default:
 							return {150, 158, 168, 255};
 					}
 				}
 
-				// Liste VERTICALE des terminaux a DROITE (facon VSCode) : actions (+ / combo
-				// de shell) en haut, puis un item par terminal (icone couleur + nom), actif
-				// surligne, X au survol.
+				// Icone (texture) associee a un type de shell ; 0 si non chargee (-> pastille couleur).
+				uint32 ShellIcon(int32 kind) const {
+					const NkIcons *ic = mState ? mState->icons : nullptr;
+					if (!ic)
+						return 0;
+					switch (kind) {
+						case SH_PWSH:
+							return ic->windowsLogo ? ic->windowsLogo : ic->kConsole;
+						case SH_CMD:
+							return ic->kConsole ? ic->kConsole : ic->windowsLogo;
+						case SH_JENGA:
+							return ic->kConsole ? ic->kConsole : ic->windowsLogo;
+						case SH_BASH: // Git Bash / bash
+						case SH_WSL:  // distro Linux
+							return ic->linux ? ic->linux : ic->kConsole;
+						case SH_DOCKER:
+							return ic->docker ? ic->docker : ic->kConsole;
+						default:
+							return ic->kConsole;
+					}
+				}
+
 				void DrawTermList(NkGuiContext &ctx, const NkRect &R) {
 					if (R.w < 8.f)
 						return;
 					auto &dl = ctx.DL();
-					dl.AddRectFilled(R, ctx.theme.header);					  // fond liste #010409
+					dl.AddRectFilled(R, ctx.theme.header);
 					dl.AddRectFilled({R.x, R.y, 1.f, R.h}, ctx.theme.button); // bord gauche
 					const NkVec2 m = ctx.input.mousePos;
 					auto inR = [&](const NkRect &r) {
 						return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
 					};
-					const float32 h = ctx.ItemHeight();
+					const NkIcons *ic = mState ? mState->icons : nullptr;
+					const float32 h = ctx.ItemHeight() + ctx.S(4.f); // lignes plus aerees
 					const float32 by = (h - (ctx.font ? ctx.font->LineHeight() : 14.f)) * 0.5f +
-									   (ctx.font ? ctx.font->Ascent() : 11.f);
-
-					// (Le "+" et le combobox de shell sont sur la BARRE D'ONGLETS — OnTabBarActions.)
-					// Items : un par terminal vivant.
+						   (ctx.font ? ctx.font->Ascent() : 11.f);
 					float32 y = R.y + 6.f;
 					int32 toClose = -1;
 					for (int32 i = 0; i < 8; ++i) {
 						if (!mTerm[i].alive)
 							continue;
-						const NkRect row = {R.x + 1.f, y, R.w - 1.f, h};
+						const NkRect row = {R.x + 4.f, y, R.w - 8.f, h - 3.f};
 						const bool active = (i == mActive), hov = inR(row);
-						if (active)
-							dl.AddRectFilled(row, NkColor{31, 111, 235, 55}); // selection
-						else if (hov)
-							dl.AddRectFilled(row, ctx.theme.buttonHover);
-						if (active)
-							dl.AddRectFilled({R.x + 1.f, y, 2.f, h}, ctx.theme.accent);
-						dl.AddRectFilled({R.x + 10.f, y + (h - 9.f) * 0.5f, 9.f, 9.f},
-										 ShellColor(mTerm[i].shell)); // icone
-						if (ctx.font && ctx.font->Valid())
-							dl.AddText(ctx.font->Face(), ctx.font->TexId(), {R.x + 26.f, y + by}, mTerm[i].label.CStr(),
-									   active ? ctx.theme.text : ctx.theme.textDisabled);
+						const NkColor sc = ShellColor(mTerm[i].shell);
+						if (active) {
+							dl.AddRectFilled(row, NkColor{sc.r, sc.g, sc.b, 38}, 5.f);
+							dl.AddRect(row, NkColor{sc.r, sc.g, sc.b, 150}, 1.f);
+							dl.AddRectFilled({row.x, row.y + 4.f, 3.f, row.h - 8.f}, sc, 2.f);
+						} else if (hov)
+							dl.AddRectFilled(row, ctx.theme.buttonHover, 5.f);
+						// Icone du shell (tintee couleur shell) ; repli = pastille coloree.
+						const uint32 ico = ShellIcon(mTerm[i].shell);
+						const NkRect ir = {row.x + 10.f, y + (h - 14.f) * 0.5f - 1.f, 14.f, 14.f};
+						if (ico)
+							dl.AddImage(ico, ir, {0.f, 0.f}, {1.f, 1.f}, sc);
+						else
+							dl.AddRectFilled({ir.x + 2.f, ir.y + 2.f, 10.f, 10.f}, sc, 3.f);
+						if (mRenaming == i) { // renommage inline (double-clic)
+							const NkRect fr = {row.x + 28.f, y + 2.f, row.w - 54.f, h - 6.f};
+							mRenameRect = fr;
+							editorkit::NkOverlayTextField(ctx, dl, ctx.font, fr, mRenameBuf, (int32)sizeof(mRenameBuf),
+														  true);
+						} else if (ctx.font && ctx.font->Valid()) {
+							dl.AddText(ctx.font->Face(), ctx.font->TexId(), {row.x + 32.f, y + by - 1.f},
+								   mTerm[i].label.CStr(), active ? ctx.theme.text : ctx.theme.textDisabled);
+							if (hov && ctx.input.mouseDoubleClicked[0] && ctx.popupDepth == 0) {
+								if (mRenaming >= 0 && mRenaming != i && mRenameBuf[0])
+									mTerm[mRenaming].label = NkString(mRenameBuf);
+								mRenaming = i;
+								mRenameArmed = false;
+								int32 k = 0;
+								for (const char *c = mTerm[i].label.CStr(); *c && k < 127; ++c)
+									mRenameBuf[k++] = *c;
+								mRenameBuf[k] = 0;
+							}
+						}
+						// Corbeille (fermer) au survol / actif, si plus d'un terminal.
 						bool closeClicked = false;
-						if (hov && AliveCount() > 1) {
-							const NkRect cl = {row.x + row.w - 20.f, y + (h - 14.f) * 0.5f, 14.f, 14.f};
+						if ((hov || active) && AliveCount() > 1) {
+							const NkRect cl = {row.x + row.w - 22.f, y + (h - 16.f) * 0.5f - 1.f, 16.f, 16.f};
 							const bool ch = inR(cl);
 							if (ch)
-								dl.AddRectFilled(cl, ctx.theme.button);
-							const float32 cx = cl.x + 7.f, cy = cl.y + 7.f, a = 3.f;
-							dl.AddLine({cx - a, cy - a}, {cx + a, cy + a}, ctx.theme.text, 1.2f);
-							dl.AddLine({cx - a, cy + a}, {cx + a, cy - a}, ctx.theme.text, 1.2f);
+								dl.AddRectFilled(cl, ctx.theme.button, 3.f);
+							const NkColor tc = ch ? NkColor{248, 81, 73, 255} : ctx.theme.textDisabled;
+							if (ic && ic->corbeille)
+								dl.AddImage(ic->corbeille, {cl.x + 2.f, cl.y + 2.f, 12.f, 12.f}, {0.f, 0.f}, {1.f, 1.f}, tc);
+							else {
+								const float32 cx = cl.x + 8.f, cy = cl.y + 8.f, a = 3.f;
+								dl.AddLine({cx - a, cy - a}, {cx + a, cy + a}, tc, 1.4f);
+								dl.AddLine({cx - a, cy + a}, {cx + a, cy - a}, tc, 1.4f);
+							}
 							if (ch && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) {
 								toClose = i;
 								closeClicked = true;
 							}
 						}
-						if (hov && !closeClicked && ctx.input.mouseClicked[0] && ctx.popupDepth == 0)
+						if (hov && !closeClicked && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) {
+							if (mRenaming >= 0 && mRenaming != i) { // clic autre ligne -> valide le renommage
+								if (mRenameBuf[0])
+									mTerm[mRenaming].label = NkString(mRenameBuf);
+								mRenaming = -1;
+							}
 							mActive = i;
+						}
 						y += h;
 					}
 					if (toClose >= 0)
 						CloseTerm(toClose);
+					// Renommage : Entree valide, Echap annule.
+					if (mRenaming >= 0) {
+						if (mRenaming >= 8 || !mTerm[mRenaming].alive)
+							mRenaming = -1;
+						else if (ctx.input.KeyPressed(nkgui::NkGuiKey::Enter)) {
+							if (mRenameBuf[0])
+								mTerm[mRenaming].label = NkString(mRenameBuf);
+							mRenaming = -1;
+						} else if (ctx.input.KeyPressed(nkgui::NkGuiKey::Escape))
+							mRenaming = -1;
+						else if (mRenameArmed && ctx.input.mouseClicked[0] && !ctx.input.mouseDoubleClicked[0] &&
+								 !NkGuiRectContains(mRenameRect, ctx.input.mousePos)) {
+							if (mRenameBuf[0]) // clic HORS du champ -> valide
+								mTerm[mRenaming].label = NkString(mRenameBuf);
+							mRenaming = -1;
+						}
+						mRenameArmed = (mRenaming >= 0); // arme pour la frame suivante
+					}
 				}
 
 				Term mTerm[8];
 				int32 mActive = 0;
+				int32 mRenaming = -1;	   // terminal en cours de renommage (double-clic) ; -1 = aucun
+				char mRenameBuf[128] = {}; // saisie du nouveau nom
+				NkRect mRenameRect{};	   // rect du champ (pour valider au clic HORS du champ)
+				bool mRenameArmed = false; // vrai des la 2e frame (evite de valider sur le double-clic d'ouverture)
+				// ── Recherche DANS le terminal (Ctrl+F) : surlignage + navigation ──
+				bool mFindOpen = false;
+				bool mFindCase = false; // « Aa » : respecter la casse (recherche exacte)
+				char mFindBuf[128] = {};
+				char mFindLast[130] = {(char)1, 0}; // != mFindBuf au depart -> 1er calcul
+				int32 mFindTotalSeen = -1;
+				int32 mFindCur = 0;
+				struct FindHit {
+						int32 line = 0, col = 0, len = 0;
+				};
+				NkVector<FindHit> mFindHits;
 				int32 mNewShell = 0;	   // index dans mShells (0 = powershell)
 				int32 mDefShell = SH_PWSH; // TYPE du terminal par defaut (preference persistee)
 				NkString mDefDistro;	   // distro WSL du defaut (si SH_WSL)

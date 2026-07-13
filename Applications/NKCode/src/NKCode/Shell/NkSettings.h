@@ -7,6 +7,7 @@
 // =============================================================================
 #pragma once
 #include "NKCode/Shell/NkUi.h"
+#include "NKEditorKit/NkEditorScrollbar.h"
 #include "NKCode/Shell/NkOpenWs.h"		 // NkOwEditA, NkOwIco, NkWizLabel, Home
 #include "NKCode/Shell/NkNewWorkspace.h" // NkNewWsState::TcWhich / TcRun
 #include "NKCode/Shell/NkI18n.h"		 // NkT() : traductions multi-langue (temps reel)
@@ -590,47 +591,17 @@ namespace nkentseu {
 
 		// Scrollbar verticale autonome (drag statique par pointeur de scroll).
 		inline void NkVScrollS(const NkUi &u, const NkRect &area, float32 contentH, float32 &scroll) {
-			static const void *dragOwner = nullptr;
-			static float32 dragOff = 0.f;
 			const float32 maxS = contentH > area.h ? contentH - area.h : 0.f;
 			if (scroll < 0.f)
 				scroll = 0.f;
 			if (scroll > maxS)
 				scroll = maxS;
-			if (maxS <= 0.5f) {
-				if (dragOwner == &scroll)
-					dragOwner = nullptr;
+			if (maxS <= 0.5f)
 				return;
-			}
-			const float32 sw = u.s(10);
+			const float32 sw = editorkit::NkScrollbarWidth();
 			const NkRect track = {area.x + area.w - sw, area.y, sw, area.h};
-			u.dl->AddRectFilled(track, NkColor{18, 21, 26, 160}, sw * 0.5f);
-			float32 thh = area.h * (area.h / contentH);
-			if (thh < u.s(28))
-				thh = u.s(28);
-			float32 ty = area.y + (area.h - thh) * (scroll / maxS);
-			const NkRect thumb = {track.x + u.s(2), ty, sw - u.s(4), thh};
-			const bool hov = u.Hit(thumb);
-			if (dragOwner == nullptr && hov && u.click) {
-				dragOwner = &scroll;
-				dragOff = u.mp.y - ty;
-			}
-			if (dragOwner == &scroll) {
-				if (!u.down)
-					dragOwner = nullptr;
-				else {
-					const float32 t = (u.mp.y - dragOff - area.y) / (area.h - thh);
-					scroll = t * maxS;
-					if (scroll < 0.f)
-						scroll = 0.f;
-					if (scroll > maxS)
-						scroll = maxS;
-					ty = area.y + (area.h - thh) * (scroll / maxS);
-				}
-			}
-			u.dl->AddRectFilled({track.x + u.s(2), ty, sw - u.s(4), thh},
-								(dragOwner == &scroll || hov) ? NkColor{96, 104, 114, 255} : NkColor{56, 63, 72, 255},
-								(sw - u.s(4)) * 0.5f);
+			editorkit::NkVScrollbar(*u.ctx, *u.dl, track, scroll, contentH, area.h,
+									(uint32)reinterpret_cast<usize>(&scroll), u.s(28)); // scrollbar standard
 		}
 
 		inline int32 NkSettingsPanel(const NkUi &u, const NkRect &r, NkSettingsState *s, NkCodeState *st,

@@ -174,6 +174,29 @@ namespace nkentseu {
 			};
 			inline const ScaffoldSection kExtensions[] = {{"EXTENSIONS & PAQUETS", kExtRows, 5}};
 
+			// Console de debogage (REPL du debogueur)
+			inline const char *const kDbgConsoleRows[] = {
+				"> (aucune session de debogage active)",
+				"Lancez le debogueur pour evaluer des expressions ici.",
+			};
+			inline const ScaffoldSection kDbgConsole[] = {{"CONSOLE DE DEBOGAGE", kDbgConsoleRows, 2}};
+
+			// Tests (Unitest)
+			inline const char *const kTestsRows[] = {
+				"v Suite : (aucun test detecte)",
+				"Construisez une cible de test Unitest pour voir les resultats.",
+				"[ Lancer tous les tests ]   [ Rafraichir ]",
+			};
+			inline const ScaffoldSection kTests[] = {{"TESTS  (Unitest)", kTestsRows, 3}};
+
+			// Ports (redirection / ecoute)
+			inline const char *const kPortsRows[] = {
+				"Port    Etat        Processus",
+				"(aucun port en ecoute)",
+				"[ + Ajouter un port ]",
+			};
+			inline const ScaffoldSection kPorts[] = {{"PORTS", kPortsRows, 3}};
+
 		} // namespace scaffold
 
 	} // namespace nkcode

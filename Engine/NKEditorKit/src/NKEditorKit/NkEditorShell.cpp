@@ -13,6 +13,10 @@
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkPath.h"
+#include "NKPlatform/NkEnv.h" // env::GetEnvVar (emplacements du sélecteur)
+#if defined(_WIN32)
+#include <windows.h> // GetLogicalDrives (barre latérale disques)
+#endif
 
 using namespace nkentseu;
 using namespace nkentseu::nkgui;
@@ -188,6 +192,11 @@ namespace nkentseu {
 			mUI.dockHeaderUser = this;
 			mUI.dockHeaderFn = [](NkGuiContext &c, const NkRect &bar, NkGuiId win, void *u) {
 				auto *self = static_cast<NkEditorShell *>(u);
+				// Region HAUT|BAS -> le SHELL reserve un espace a DROITE pour maximiser/replier
+				// (dispo pour TOUS les onglets de la region, pas seulement l'actif).
+				const bool region = self->IsBottomRegionTab(c, win);
+				const float32 rw = region ? 2.f * bar.h + 6.f : 0.f;
+				const NkRect innerBar = {bar.x, bar.y, bar.w - rw, bar.h};
 				for (int32 i = 0; i < self->mNumPanels; ++i)
 					if (c.GetId(self->mPanels[i]->Title()) == win) {
 						// Le masquage anti clic-a-travers (souris sur un popup) vise les corps en
@@ -197,12 +206,22 @@ namespace nkentseu {
 						if (self->mPopupMasked) {
 							const nkgui::NkGuiInput masked = c.input;
 							c.input = self->mRealInput;
-							self->mPanels[i]->OnTabBarActions(c, bar);
+							self->mPanels[i]->OnTabBarActions(c, innerBar);
 							c.input = masked;
 						} else
-							self->mPanels[i]->OnTabBarActions(c, bar);
+							self->mPanels[i]->OnTabBarActions(c, innerBar);
 						break;
 					}
+				if (region) { // boutons region (shell-level), a l'extreme droite
+					const NkRect rb = {bar.x + bar.w - rw + 6.f, bar.y, rw - 6.f, bar.h};
+					if (self->mPopupMasked) {
+						const nkgui::NkGuiInput masked = c.input;
+						c.input = self->mRealInput;
+						self->DrawRegionButtons(c, rb, win);
+						c.input = masked;
+					} else
+						self->DrawRegionButtons(c, rb, win);
+				}
 			};
 
 			// ── DEUX polices distinctes (comme VSCode), pilotees par les reglages ──
@@ -234,6 +253,11 @@ namespace nkentseu {
 			auto &events = NkEvents();
 
 			events.AddEventCallback<NkWindowCloseEvent>([this](NkWindowCloseEvent *) { mRunning = false; });
+			// Drop de FICHIERS depuis l'OS (Explorateur Windows…) -> handler de l'app.
+			events.AddEventCallback<NkDropFileEvent>([this](NkDropFileEvent *e) {
+				if (mDropFn && e)
+					mDropFn(mDropUser, e->data.paths, e->data.x, e->data.y);
+			});
 			events.AddEventCallback<NkMouseMoveEvent>([this](NkMouseMoveEvent *e) {
 				mUI.input.mousePos = {static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY())};
 			});
@@ -540,6 +564,19 @@ namespace nkentseu {
 				mLastWidth = wsz.x;
 				mLastHeight = wsz.y;
 			}
+			// CACHE la géométrie CHAQUE frame (fenêtre encore valide) : SaveUiState/
+			// SaveWindowGeom tournent APRÈS Run() quand la fenêtre peut être détruite
+			// -> IsMaximized/GetSize renverraient un état faux. On sauve donc l'état
+			// vu à la dernière frame. La taille FENÊTRÉE n'est mémorisée que hors max.
+			mGeomMax = mWindow.IsMaximized();
+			if (!mGeomMax) {
+				const math::NkVec2u gp = mWindow.GetPosition();
+				mGeomX = static_cast<int32>(gp.x);
+				mGeomY = static_cast<int32>(gp.y);
+				mGeomW = static_cast<int32>(wsz.x);
+				mGeomH = static_cast<int32>(wsz.y);
+			}
+			mGeomValid = true;
 			const math::NkVec2u sz = mRenderer->Size();
 			if (sz.x > 0 && sz.y > 0) {
 				mUI.viewW = static_cast<int32>(sz.x);
@@ -623,7 +660,7 @@ namespace nkentseu {
 					overPopup = true;
 					break;
 				}
-			const bool modal = mShowPrefs || mUI.appModal || overPopup;
+			const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen;
 			nkgui::NkGuiInput savedInput;
 			if (modal) {
 				savedInput = mUI.input;
@@ -663,6 +700,9 @@ namespace nkentseu {
 			if (modal)
 				mUI.input = savedInput; // restaure pour le popup
 			mPopupMasked = false;
+			DrawContextMenu(); // menu contextuel shell-level (au-dessus des panneaux)
+			// (DrawFilePicker retiré : add-folder réutilise LE picker de l'app, Dialogs.h.
+			//  Le picker fichier/dossier UNIFIÉ sera extrait dans NKEditorKit — phase 2.)
 			DrawCommandPalette(ec);
 			DrawPreferences(ec); // fenetre Preferences (menu dedie)
 			if (mOverlayFn)
@@ -812,6 +852,13 @@ namespace nkentseu {
 			for (int32 i = 0; i < 7; ++i)			// vues GAUCHE : explorateur, recherche, git, debug, collab,
 				drawIcon(i, top + i * cell, false); // extensions, profiler
 			drawIcon(999, bar.y + bar.h - cell * 0.5f, true); // Reglages en bas
+			// Consomme le clic dans l'activity bar -> il ne FUIT PAS vers les panneaux dessous
+			// (sinon un clic d'icone traverse jusqu'a la barre d'onglets de l'editeur = onglet actif change).
+			if ((mUI.input.mouseClicked[0] || mUI.input.mouseClicked[1]) && m.x >= bar.x && m.x < bar.x + bar.w &&
+				m.y >= bar.y && m.y < bar.y + bar.h) {
+				mUI.input.mouseClicked[0] = false;
+				mUI.input.mouseClicked[1] = false;
+			}
 		}
 
 		// ── Activity bar DROITE : les systèmes d'IA (panneau latéral droit exclusif). ──
@@ -1265,6 +1312,114 @@ namespace nkentseu {
 				}
 		}
 
+		// Ajuste le ratio du split PARENT de la feuille contenant `title` -> la region
+		// (ex. panneau du bas + ses onglets) prend presque tout (maximise), juste les
+		// onglets (replie), ou revient au ratio normal (restaure).
+		void NkEditorShell::SetRegionMode(const char *title, int32 mode) noexcept {
+			const int32 leaf = DockWindowNode(mUI, title);
+			if (leaf < 0 || leaf >= static_cast<int32>(mUI.dockNodes.Size()))
+				return;
+			const int32 par = mUI.dockNodes[leaf].parent;
+			if (par < 0 || par >= static_cast<int32>(mUI.dockNodes.Size()))
+				return;
+			nkgui::NkGuiDockNode &split = mUI.dockNodes[par];
+			if (split.kind != 1 || split.vertical)
+				return; // il faut un split HAUT|BAS
+			const bool bottomChild1 = (split.child1 == leaf);
+			if (mDockRegionState == 0 && mode != 0)
+				mDockSavedRatio = split.ratio; // sauvegarde le ratio normal une seule fois
+			const float32 h = split.rect.h > 1.f ? split.rect.h : 400.f;
+			float32 minFrac = (mUI.ItemHeight() + 6.f) / h; // hauteur minimale (onglets visibles)
+			if (minFrac > 0.4f)
+				minFrac = 0.4f;
+			if (mode == 0) {
+				if (mDockSavedRatio >= 0.f)
+					split.ratio = mDockSavedRatio;
+			} else if (mode == 1) // replie : la region = juste ses onglets
+				split.ratio = bottomChild1 ? (1.f - minFrac) : minFrac;
+			else // maximise : la region prend presque toute la hauteur
+				split.ratio = bottomChild1 ? minFrac : (1.f - minFrac);
+			mDockRegionState = mode;
+		}
+
+		void NkEditorShell::ToggleMaximizePanel(const char *title) noexcept {
+			SetRegionMode(title, mDockRegionState == 2 ? 0 : 2);
+		}
+		void NkEditorShell::ToggleCollapsePanel(const char *title) noexcept {
+			SetRegionMode(title, mDockRegionState == 1 ? 0 : 1);
+		}
+
+		bool NkEditorShell::IsBottomRegionTab(NkGuiContext &c, NkGuiId win) noexcept {
+			const char *title = nullptr;
+			for (int32 i = 0; i < mNumPanels; ++i)
+				if (mPanels[i] && c.GetId(mPanels[i]->Title()) == win) {
+					title = mPanels[i]->Title();
+					break;
+				}
+			if (!title)
+				return false;
+			const int32 leaf = DockWindowNode(c, title);
+			if (leaf < 0 || leaf >= static_cast<int32>(c.dockNodes.Size()))
+				return false;
+			const int32 par = c.dockNodes[leaf].parent;
+			return par >= 0 && par < static_cast<int32>(c.dockNodes.Size()) && c.dockNodes[par].kind == 1 &&
+				   !c.dockNodes[par].vertical; // split HAUT|BAS
+		}
+
+		// Boutons maximiser/replier de la REGION, dessines par le shell -> dispo pour TOUS les onglets.
+		void NkEditorShell::DrawRegionButtons(NkGuiContext &c, const NkRect &area, NkGuiId win) noexcept {
+			const char *title = nullptr;
+			for (int32 i = 0; i < mNumPanels; ++i)
+				if (mPanels[i] && c.GetId(mPanels[i]->Title()) == win) {
+					title = mPanels[i]->Title();
+					break;
+				}
+			if (!title)
+				return;
+			auto &dl = c.DL();
+			const float32 bh2 = area.h - 8.f;
+			const NkVec2 m = c.input.mousePos;
+			const int32 rmode = mDockRegionState;
+			auto inR = [&](const NkRect &r) { return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h; };
+			// Maximiser / restaurer (a l'extreme droite).
+			const NkRect maxR = {area.x + area.w - bh2 - 4.f, area.y + 4.f, bh2, bh2};
+			const bool mh = inR(maxR);
+			if (mh)
+				dl.AddRectFilled(maxR, c.theme.buttonHover, 3.f);
+			{
+				const NkColor col = mh ? c.theme.text : c.theme.textDisabled;
+				const float32 s2 = bh2 - 12.f;
+				if (rmode == 2) {
+					dl.AddRect({maxR.x + 5.f, maxR.y + 7.f, s2, s2}, col, 1.4f);
+					dl.AddRect({maxR.x + 8.f, maxR.y + 4.f, s2, s2}, col, 1.4f);
+				} else {
+					const NkRect w = {maxR.x + 5.f, maxR.y + 5.f, bh2 - 10.f, bh2 - 10.f};
+					dl.AddRect(w, col, 1.4f);
+					dl.AddRectFilled({w.x, w.y, w.w, 2.5f}, col);
+				}
+				if (mh && c.input.mouseClicked[0] && c.popupDepth == 0)
+					SetRegionMode(title, mDockRegionState == 2 ? 0 : 2);
+			}
+			// Replier / restaurer (chevron, a gauche du maximiser).
+			const NkRect colR = {maxR.x - bh2 - 4.f, area.y + 4.f, bh2, bh2};
+			const bool ch2 = inR(colR);
+			if (ch2)
+				dl.AddRectFilled(colR, c.theme.buttonHover, 3.f);
+			{
+				const NkColor col = ch2 ? c.theme.text : c.theme.textDisabled;
+				const float32 cx = colR.x + bh2 * 0.5f, cy = colR.y + bh2 * 0.5f;
+				if (rmode == 1) { // replie -> chevron HAUT (restaurer)
+					dl.AddLine({cx - 4.f, cy + 2.f}, {cx, cy - 2.f}, col, 1.6f);
+					dl.AddLine({cx, cy - 2.f}, {cx + 4.f, cy + 2.f}, col, 1.6f);
+				} else { // etendu -> chevron BAS (replier)
+					dl.AddLine({cx - 4.f, cy - 2.f}, {cx, cy + 2.f}, col, 1.6f);
+					dl.AddLine({cx, cy + 2.f}, {cx + 4.f, cy - 2.f}, col, 1.6f);
+				}
+				if (ch2 && c.input.mouseClicked[0] && c.popupDepth == 0)
+					SetRegionMode(title, mDockRegionState == 1 ? 0 : 1);
+			}
+		}
+
 		int32 NkEditorShell::PanelDockNode(const char *title) noexcept {
 			return DockWindowNode(mUI, title);
 		}
@@ -1310,8 +1465,14 @@ namespace nkentseu {
 			}
 			if (BeginMenu(mUI, "Affichage")) {
 				for (int32 i = 0; i < mNumPanels; ++i)
-					if (MenuItem(mUI, mPanels[i]->Title()))
-						mPanels[i]->SetOpen(!mPanels[i]->IsOpen());
+					if (MenuItem(mUI, mPanels[i]->Title())) {
+						// Ouvrir via le menu doit ANCRER au cote par defaut (sinon le panneau
+						// s'ouvre sans se docker). FocusPanel ouvre + ancre ; sinon on ferme.
+						if (mPanels[i]->IsOpen())
+							mPanels[i]->SetOpen(false);
+						else
+							FocusPanel(mPanels[i]->Title());
+					}
 				EndMenu(mUI);
 			}
 			if (BeginMenu(mUI, "Fenetre")) {
@@ -1374,10 +1535,24 @@ namespace nkentseu {
 			};
 			auto apply = [&](const NkString &ln) {
 				const char *s = ln.CStr();
-				if (StartsWith(s, "maximized=")) {
-					if (s[10] == '1')
-						mWindow.Maximize();
-					else
+				if (StartsWith(s, "win=")) {
+					// Restaure la TAILLE seulement (pas la position -> pas de changement de
+					// moniteur/DPI qui désynchroniserait l'échelle). Le resize du renderer
+					// suit dans la boucle (GetSize).
+					int32 x = 0, y = 0, w = 0, h = 0;
+					if (std::sscanf(s + 4, "%d|%d|%d|%d", &x, &y, &w, &h) == 4 && w > 200 && h > 150 && w < 20000 &&
+						h < 20000) {
+						if (mWindow.IsMaximized())
+							mWindow.Restore(); // sortir de l'état maximisé AVANT de dimensionner
+						mWindow.SetSize(static_cast<uint32>(w), static_cast<uint32>(h));
+					}
+				} else if (StartsWith(s, "maximized=")) {
+					// Maximize()/Restore() du moteur BASCULENT (toggle) -> guarder par
+					// l'état courant, sinon un launcher déjà maximisé serait dé-maximisé.
+					if (s[10] == '1') {
+						if (!mWindow.IsMaximized())
+							mWindow.Maximize();
+					} else if (mWindow.IsMaximized())
 						mWindow.Restore();
 				} else if (StartsWith(s, "panel=")) {
 					const char *name = s + 6;
@@ -1499,15 +1674,165 @@ namespace nkentseu {
 			}
 		}
 
+		// ── Gestionnaire de menu contextuel (réutilisable) ───────────────────────
+		void NkEditorShell::OpenContextMenu(const nkgui::NkVec2 &pos, const char *const *items, const bool *enabled,
+											int32 count) noexcept {
+			mCtxItems.Clear();
+			mCtxEnabled.Clear();
+			for (int32 i = 0; i < count; ++i) {
+				mCtxItems.PushBack(NkString(items[i] ? items[i] : ""));
+				mCtxEnabled.PushBack(enabled ? (enabled[i] ? 1u : 0u) : 1u);
+			}
+			mCtxPos = pos;
+			mCtxOpen = true;
+			mCtxChoice = -1;
+			mCtxSy = 0.f;
+		}
+
+		// Dessiné APRÈS les panneaux (input réel restauré) sur la couche overlay :
+		// occlusion propre (les panneaux ont vu un input neutralisé pendant leur draw).
+		void NkEditorShell::DrawContextMenu() noexcept {
+			if (!mCtxOpen)
+				return;
+			auto &dl = mUI.dlOverlay;
+			auto &in = mUI.input;
+			const NkVec2 m = in.mousePos;
+			const int32 n = static_cast<int32>(mCtxItems.Size());
+			const float32 lh = (mUI.font && mUI.font->Valid()) ? mUI.font->LineHeight() : 16.f;
+			const float32 asc = (mUI.font && mUI.font->Valid()) ? mUI.font->Ascent() : 12.f;
+			const float32 rowH = lh + 8.f, pad = 12.f;
+			// Largeur = plus long libellé.
+			float32 w = 120.f;
+			if (mUI.font && mUI.font->Valid())
+				for (int32 i = 0; i < n; ++i) {
+					const float32 tw = mUI.font->MeasureWidth(mCtxItems[i].CStr()) + pad * 2.f + 14.f;
+					if (tw > w)
+						w = tw;
+				}
+			const float32 vh = static_cast<float32>(mUI.viewH);
+			const float32 fullH = n * rowH + 8.f;
+			const float32 maxH = vh * 0.7f;
+			const float32 h = fullH > maxH ? maxH : fullH;
+			// Reste à l'écran.
+			float32 x = mCtxPos.x, y = mCtxPos.y;
+			if (x + w > mUI.viewW)
+				x = mUI.viewW - w - 4.f;
+			if (y + h > vh)
+				y = vh - h - 4.f;
+			if (x < 2.f)
+				x = 2.f;
+			if (y < 2.f)
+				y = 2.f;
+			const NkRect box = {x, y, w, h};
+			dl.AddRectFilled({box.x + 2.f, box.y + 3.f, box.w, box.h}, NkColor{0, 0, 0, 60}, 6.f); // ombre
+			dl.AddRectFilled(box, mUI.theme.panel, 6.f);
+			dl.AddRect(box, mUI.theme.border, 1.f);
+			const bool scroll = fullH > maxH;
+			const float32 maxSy = scroll ? (fullH - h) : 0.f;
+			if (scroll) {
+				mCtxSy += -in.wheel * rowH;
+				if (mCtxSy < 0.f)
+					mCtxSy = 0.f;
+				if (mCtxSy > maxSy)
+					mCtxSy = maxSy;
+			}
+			dl.PushClipRect({box.x, box.y + 4.f, box.w, box.h - 8.f}, true);
+			float32 ry = box.y + 4.f - mCtxSy;
+			int32 clicked = -1;
+			for (int32 i = 0; i < n; ++i) {
+				const NkRect r = {box.x + 3.f, ry, box.w - 6.f, rowH};
+				if (ry + rowH >= box.y && ry <= box.y + box.h) {
+					const bool en = mCtxEnabled[i] != 0;
+					const bool hov = en && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
+					if (hov) {
+						NkColor sel = mUI.theme.selection;
+						sel.a = 110;
+						dl.AddRectFilled(r, sel, 4.f);
+					}
+					if (mUI.font && mUI.font->Valid())
+						dl.AddText(mUI.font->Face(), mUI.font->TexId(), {r.x + pad, ry + (rowH - lh) * 0.5f + asc},
+								   mCtxItems[i].CStr(), en ? mUI.theme.text : mUI.theme.textDisabled);
+					if (hov && in.mouseClicked[0])
+						clicked = i;
+				}
+				ry += rowH;
+			}
+			dl.PopClipRect();
+			if (clicked >= 0) {
+				mCtxChoice = clicked;
+				mCtxOpen = false;
+			}
+			// Fermeture : clic gauche OU DROIT hors du menu, ou Échap. (Le clic droit
+			// hors du menu le referme -> un nouveau clic droit rouvre au nouvel endroit.)
+			if (((in.mouseClicked[0] || in.mouseClicked[1]) && !nkgui::NkGuiRectContains(box, m)) ||
+				in.KeyPressed(nkgui::NkGuiKey::Escape))
+				mCtxOpen = false;
+		}
+
+void NkEditorShell::MaximizeWindow() noexcept {
+			if (!mWindow.IsMaximized()) // Maximize() bascule -> guarder
+				mWindow.Maximize();
+		}
+
+		// Géométrie GLOBALE (launcher) : mêmes lignes win=/maximized= que l'UiState.
+		void NkEditorShell::SaveWindowGeom(const char *path) noexcept {
+			if (!path || !*path)
+				return;
+			NkPath p(path);
+			NkDirectory::CreateRecursive(p.GetParent());
+			NkString out;
+			const bool gmax = mGeomValid ? mGeomMax : mWindow.IsMaximized();
+			out += gmax ? "maximized=1\n" : "maximized=0\n";
+			NkFile::WriteAllText(p, out);
+		}
+
+		bool NkEditorShell::LoadWindowGeom(const char *path) noexcept {
+			if (!path || !*path || !NkFile::Exists(path))
+				return false;
+			const NkString txt = NkFile::ReadAllText(NkPath(path));
+			NkString line;
+			auto apply = [&](const char *s) {
+				if (StartsWith(s, "win=")) { // taille seule (pas la position)
+					int32 x = 0, y = 0, w = 0, h = 0;
+					if (std::sscanf(s + 4, "%d|%d|%d|%d", &x, &y, &w, &h) == 4 && w > 200 && h > 150 && w < 20000 &&
+						h < 20000) {
+						if (mWindow.IsMaximized())
+							mWindow.Restore();
+						mWindow.SetSize(static_cast<uint32>(w), static_cast<uint32>(h));
+					}
+				} else if (StartsWith(s, "maximized=") && s[10] == '1') {
+					if (!mWindow.IsMaximized()) // toggle -> guarder
+						mWindow.Maximize();
+				}
+			};
+			for (const char *c = txt.CStr();; ++c) {
+				if (*c == '\n' || *c == '\r' || *c == '\0') {
+					if (!line.Empty()) {
+						apply(line.CStr());
+						line.Clear();
+					}
+					if (*c == '\0')
+						break;
+				} else
+					line += *c;
+			}
+			return true;
+		}
+
 		void NkEditorShell::SaveUiState(const char *path) noexcept {
 			if (!path || !*path)
 				return;
 			NkPath p(path);
 			NkDirectory::CreateRecursive(p.GetParent()); // cree <ws>/.nkcode/ si besoin
 			NkString out;
-			out += "maximized=";
-			out += mWindow.IsMaximized() ? "1" : "0";
-			out += "\n";
+			// Géométrie CACHÉE en vol (la fenêtre peut être détruite après Run()).
+			// On sauve la TAILLE fenêtrée (restaurée telle quelle sur le même moniteur)
+			// + l'état maximisé. La POSITION n'est PAS restaurée (éviterait un changement
+			// de moniteur/DPI qui désynchronise l'échelle).
+			const bool gmax = mGeomValid ? mGeomMax : mWindow.IsMaximized();
+			if (!gmax)
+				out += NkPrintf("win=%d|%d|%d|%d\n", mGeomX, mGeomY, mGeomW, mGeomH);
+			out += gmax ? "maximized=1\n" : "maximized=0\n";
 			for (int32 i = 0; i < mNumPanels; ++i)
 				if (mPanels[i]->IsOpen()) {
 					out += "panel=";
