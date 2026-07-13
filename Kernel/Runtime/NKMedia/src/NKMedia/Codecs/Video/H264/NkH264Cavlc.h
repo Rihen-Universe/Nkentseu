@@ -13,6 +13,7 @@
 
 #include "NKCore/NkTypes.h"
 #include "NKMedia/Codecs/Video/H264/NkH264BitWriter.h"
+#include "NKMedia/Codecs/Video/H264/NkH264BitReader.h"
 
 namespace nkentseu {
 	namespace media {
@@ -24,6 +25,10 @@ namespace nkentseu {
 				// `nC` = contexte (moyenne des coeffs non nuls voisins) ; nC = -1 pour le DC chroma.
 				// Renvoie total_coeff (pour la mise à jour du contexte nC des voisins).
 				static int32 EncodeResidual(NkH264BitWriter &bs, const int32 *coef, int32 maxNumCoeff, int32 nC);
+
+				// DÉCODE un bloc résiduel (le miroir de EncodeResidual). Remplit `coefOut[0..maxNumCoeff-1]`
+				// (ordre de balayage, mis à zéro d'abord) et renvoie total_coeff. `nC` = même contexte.
+				static int32 DecodeResidual(NkH264BitReader &bs, int32 *coefOut, int32 maxNumCoeff, int32 nC);
 
 				static bool SelfTest();
 		};

@@ -14,7 +14,7 @@ uniform CameraUBO{
     vec4 reflectionFlags;
 }uCam;
 @binding(set=1, binding=1)
-uniform ObjectUBO{mat4 model,normalMatrix;vec4 tint;float metallic,roughness,aoStr,emissStr,normStr,clearcoat,ccRough,sss;vec4 sssColor;}uObj;
+uniform ObjectUBO{mat4 model,normalMatrix;vec4 tint;float metallic,roughness,aoStr,emissStr,normStr,clearcoat,ccRough,sss;vec4 sssColor;vec4 shadowOverrides;vec4 triplanarParams;}uObj;
 
 @location(0) out vec3 vWorldPos;
 @location(1) out vec3 vNormal;

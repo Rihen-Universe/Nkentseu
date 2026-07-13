@@ -1409,7 +1409,24 @@ namespace nkentseu {
 				bs.Ue(0);							  // crop top
 				bs.Ue((uint32)((mLumaH - mHeight) / 2)); // crop bottom (CropUnitY=2)
 			}
-			bs.PutBits(0, 1); // vui_parameters_present_flag
+			// VUI : signale un flux YUV PLEINE PLAGE (0..255) + BT.601. Sans ca le decodeur
+			// suppose limited-range (16..235) et RE-ETIRE la plage -> couleurs delavees / contraste faux.
+			bs.PutBits(1, 1); // vui_parameters_present_flag
+			bs.PutBits(0, 1); // aspect_ratio_info_present_flag
+			bs.PutBits(0, 1); // overscan_info_present_flag
+			bs.PutBits(1, 1); // video_signal_type_present_flag
+			bs.PutBits(5, 3); // video_format = unspecified
+			bs.PutBits(1, 1); // video_full_range_flag = 1 (PLEINE PLAGE)
+			bs.PutBits(1, 1); // colour_description_present_flag
+			bs.PutBits(6, 8); // colour_primaries = SMPTE170M (BT.601)
+			bs.PutBits(6, 8); // transfer_characteristics = SMPTE170M
+			bs.PutBits(6, 8); // matrix_coefficients = SMPTE170M
+			bs.PutBits(0, 1); // chroma_loc_info_present_flag
+			bs.PutBits(0, 1); // timing_info_present_flag
+			bs.PutBits(0, 1); // nal_hrd_parameters_present_flag
+			bs.PutBits(0, 1); // vcl_hrd_parameters_present_flag
+			bs.PutBits(0, 1); // pic_struct_present_flag
+			bs.PutBits(0, 1); // bitstream_restriction_flag
 			bs.TrailingBits();
 			bs.EmitNal(out, 3, 7);
 

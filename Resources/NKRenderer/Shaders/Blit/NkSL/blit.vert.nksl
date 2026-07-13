@@ -1,0 +1,21 @@
+// blit.vert.nksl — NKRenderer — Blit VS (VRAI dialecte NkSL). Fullscreen triangle.
+// Même interface que PP_FXAA (push constants 16 octets, yFlipUV) pour partager
+// la plomberie pipeline de NkPostProcessStack. Sert à la passe MirrorPresent
+// (recopie de la cible finale redirigée vers le swapchain — voir + enregistrer).
+@location(0) out vec2 vUV;
+
+layout(push_constant) uniform PC {
+    vec2  invResolution;
+    float yFlipUV;
+    float _pad;
+} pc;
+
+@stage(vertex)
+@entry
+void main() {
+    vec2 pos = vec2((gl_VertexID == 1) ? 3.0 : -1.0,
+                    (gl_VertexID == 2) ? 3.0 : -1.0);
+    gl_Position = vec4(pos, 0.0, 1.0);
+    vec2 uvBase = pos * 0.5 + 0.5;
+    vUV = (pc.yFlipUV < 0.0) ? vec2(uvBase.x, 1.0 - uvBase.y) : uvBase;
+}

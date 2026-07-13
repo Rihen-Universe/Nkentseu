@@ -46,6 +46,18 @@ namespace nkentseu {
 				bool roundTripOK = false;
 				NkString nkanimPath;
 				uint32 jointCount = 0, frameCount = 0;
+
+				// ── Blend tree 1D (si le modele a >= 2 animations, ex. Fox) ──────
+				// Chaque animation glTF est bakee en clip skeletalLocal, posee a
+				// la position i sur l'axe ; le parametre balaye l'axe -> on VOIT
+				// les melanges (Survey<->Walk<->Run) avec phases synchronisees.
+				bool blendMode = false;
+				NkVector<NkAnimationClip *> blendClips;
+				NkBlendTree1D blendTree;
+
+				// ── Morph targets sur mesh SKINNE (morph applique AVANT skinning) ──
+				NkVector<NkVertexSkinned> morphScratch;
+				NkVector<float32> morphWeights;
 		};
 
 		static NkString PickModel() {
@@ -78,6 +90,8 @@ namespace nkentseu {
 			// ── Mesh GPU skinné + matériaux (calque DemoSkin) ─────────────────────
 			NkMeshDesc d;
 			d.layout = st->skinned ? renderer::NkVertexLayout::Skinned() : renderer::NkVertexLayout::Default3D();
+			// Morph targets : le VBO doit etre re-uploadable chaque frame.
+			d.dynamic = data.hasMorphs;
 			d.vertices = st->skinned ? (const void *)data.skinnedVertices.Data() : (const void *)data.vertices.Data();
 			d.vertexCount = st->skinned ? (uint32)data.skinnedVertices.Size() : (uint32)data.vertices.Size();
 			d.indices = data.indices.Data();
@@ -128,6 +142,76 @@ namespace nkentseu {
 					if (loaded) {
 						st->player.SetClip(&st->clip);
 						st->player.Play(NkPlayMode::NK_LOOP, 1.f);
+					}
+				}
+
+				// ── Blend tree 1D si le modele a PLUSIEURS animations (ex. Fox :
+				// Survey/Walk/Run). Bake chaque animation en clip skeletalLocal
+				// et le pose a la position i (0, 1, 2, ...).
+				if (data.animations.Size() >= 2) {
+					for (uint32 ai = 0; ai < (uint32)data.animations.Size(); ++ai) {
+						auto *c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
+						if (c->BakeFromGLTF(data, (int32)ai, 30.f)) {
+							c->name = data.animations[ai].name;
+							st->blendClips.PushBack(c);
+							st->blendTree.AddClip(c, (float32)(st->blendClips.Size() - 1));
+						} else {
+							memory::NkGetDefaultAllocator().Delete(c);
+						}
+					}
+					st->blendMode = st->blendClips.Size() >= 2;
+					if (st->blendMode)
+						logger.Info("[DemoAnim] BLEND TREE 1D : {0} clips sur l'axe 0..{1}\n",
+									(uint32)st->blendClips.Size(), (uint32)st->blendClips.Size() - 1);
+
+					// Self-test state machine (NK_ANIM_SMTEST) : 2 etats + transitions
+					// pilotees par un float, verifie declenchement + fin de fondu.
+					if (getenv("NK_ANIM_SMTEST") && st->blendClips.Size() >= 2) {
+						NkAnimStateMachine sm;
+						int32 sIdle = sm.AddState(NkString("idle"), st->blendClips[0]);
+						int32 sWalk = sm.AddState(NkString("walk"), st->blendClips[1]);
+						sm.AddTransition(sIdle, sWalk, NkString("speed"),
+										 NkAnimStateMachine::NkCondKind::FLOAT_GREATER, 0.5f, 0.2f);
+						sm.AddTransition(sWalk, sIdle, NkString("speed"),
+										 NkAnimStateMachine::NkCondKind::FLOAT_LESS, 0.2f, 0.2f);
+						// Evenements de transition : compte les debuts et fins.
+						int32 evStart = 0;
+						int32 evEnd = 0;
+						sm.SetTransitionCallback([&evStart, &evEnd](const NkString &, const NkString &, bool fin) {
+							if (fin)
+								evEnd++;
+							else
+								evStart++;
+						});
+						sm.Update(0.016f);
+						const bool ok1 = sm.GetCurrentState() == sIdle;
+						sm.SetFloat(NkString("speed"), 1.f);
+						for (int i = 0; i < 20; i++)
+							sm.Update(0.016f); // 0.32 s > fadeDur 0.2 s
+						const bool ok2 = sm.GetCurrentState() == sWalk && !sm.GetState().boneMatrices.Empty();
+						sm.SetFloat(NkString("speed"), 0.f);
+						for (int i = 0; i < 20; i++)
+							sm.Update(0.016f);
+						const bool ok3 = sm.GetCurrentState() == sIdle;
+						const bool okEv = (evStart == 2 && evEnd == 2);
+						logger.Info("[DemoAnim] SM self-test : start_idle={0} vers_walk={1} retour_idle={2} "
+									"events(start={3} end={4} ok={5})\n",
+									ok1 ? 1 : 0, ok2 ? 1 : 0, ok3 ? 1 : 0, evStart, evEnd, okEv ? 1 : 0);
+
+						// Self-test blend 2D : 3 clips a 3 points, parametre au
+						// barycentre -> pose melangee non vide ; hit exact -> pur.
+						NkBlendTree2D bt2;
+						bt2.AddClip(st->blendClips[0], {0.f, 0.f});
+						bt2.AddClip(st->blendClips[1], {1.f, 0.f});
+						bt2.AddClip(st->blendClips.Size() >= 3 ? st->blendClips[2] : st->blendClips[1], {0.f, 1.f});
+						bt2.SetParameter({0.4f, 0.3f});
+						bt2.Update(0.016f);
+						const bool ok2d1 = !bt2.GetState().boneMatrices.Empty() && !bt2.GetLocalPose().Empty();
+						bt2.SetParameter({0.f, 0.f}); // hit exact clip 0
+						bt2.Update(0.016f);
+						const bool ok2d2 = !bt2.GetState().boneMatrices.Empty();
+						logger.Info("[DemoAnim] BLEND2D self-test : mix={0} exact={1}\n", ok2d1 ? 1 : 0,
+									ok2d2 ? 1 : 0);
 					}
 				}
 			}
@@ -279,6 +363,29 @@ namespace nkentseu {
 			// ── Avance le player (clip rechargé du .nkanim) ───────────────────────
 			st->player.Update(dt);
 
+			// ── Morphs sur mesh SKINNE : deltas appliques AVANT le skinning ──────
+			// (le shader skin fait ensuite le LBS normalement — bones preserves).
+			if (st->gltf && st->gltf->hasMorphs && st->skinned && st->mesh.IsValid()) {
+				const int32 mAnim = st->gltf->animations.Empty() ? -1 : 0;
+				if (EvaluateGLTFMorphWeights(*st->gltf, mAnim, ctx.totalTime, st->morphWeights) &&
+					ApplyGLTFMorphCPUSkinned(*st->gltf, st->morphWeights.Data(), (uint32)st->morphWeights.Size(),
+											 st->morphScratch)) {
+					if (auto *meshSys = ctx.renderer->GetMeshSystem())
+						meshSys->UpdateVertices(st->mesh, st->morphScratch.Data(), (uint32)st->morphScratch.Size());
+				}
+			}
+
+			// ── Blend tree : balaye le parametre 0..N-1 (triangle 8 s) ────────────
+			// On VOIT le fondu continu entre les clips (ex. Fox Survey->Walk->Run
+			// puis retour), phases synchronisees par le blend tree.
+			if (st->blendMode) {
+				const float32 nspan = (float32)(st->blendClips.Size() - 1);
+				const float32 cyc = fmodf(ctx.totalTime * 0.25f, 2.f); // 0..2
+				const float32 tri = (cyc < 1.f) ? cyc : (2.f - cyc);   // triangle 0..1..0
+				st->blendTree.SetParameter(tri * nspan);
+				st->blendTree.Update(dt);
+			}
+
 			// ── Caméra orbitale ───────────────────────────────────────────────────
 			NkCamera3DData camData;
 			const float32 a = ctx.totalTime * 0.4f;
@@ -325,10 +432,11 @@ namespace nkentseu {
 				r3d->Submit(dc);
 			}
 
-			// ── Mesh skinné piloté par le PLAYER (boneMatrices du clip rechargé) ──
+			// ── Mesh skinné : pose du BLEND TREE si actif, sinon du player ───────
 			bool submitted = false;
-			if (st->loaded && st->skinned && st->clip.boneTracks.Size() > 0) {
-				const NkVector<NkMat4f> &bones = st->player.GetState().boneMatrices;
+			if (st->loaded && st->skinned && (st->blendMode || st->clip.boneTracks.Size() > 0)) {
+				const NkVector<NkMat4f> &bones =
+					st->blendMode ? st->blendTree.GetState().boneMatrices : st->player.GetState().boneMatrices;
 				if (!bones.Empty()) {
 					NkDrawCallSkinned dc;
 					dc.mesh = st->mesh;
@@ -352,6 +460,14 @@ namespace nkentseu {
 								  st->jointCount, st->frameCount, st->player.GetTime());
 				overlay->DrawText({20.f, 95.f}, "submitted:%d  FPS:%.0f", submitted ? 1 : 0,
 								  dt > 1e-5f ? 1.f / dt : 0.f);
+				if (st->blendMode) {
+					const uint32 nc = (uint32)st->blendClips.Size();
+					const float32 p = st->blendTree.GetParameter();
+					const uint32 lo = (uint32)p < nc ? (uint32)p : nc - 1;
+					const uint32 hi = lo + 1 < nc ? lo + 1 : lo;
+					overlay->DrawText({20.f, 115.f}, "BLEND TREE 1D : param=%.2f  [%s <-> %s]", p,
+									  st->blendClips[lo]->name.CStr(), st->blendClips[hi]->name.CStr());
+				}
 				overlay->EndOverlay();
 			}
 
@@ -362,6 +478,10 @@ namespace nkentseu {
 		void DemoAnim_Shutdown(DemoCtx &ctx) {
 			auto *st = (DemoAnimState *)ctx.userData;
 			if (st) {
+				for (auto *c : st->blendClips)
+					if (c)
+						memory::NkGetDefaultAllocator().Delete(c);
+				st->blendClips.Clear();
 				delete st->gltf;
 				delete st;
 			}

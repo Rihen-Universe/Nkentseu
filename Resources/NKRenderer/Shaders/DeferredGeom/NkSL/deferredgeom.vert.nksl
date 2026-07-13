@@ -1,0 +1,65 @@
+// deferredgeom.vert.nksl — NKRenderer — Deferred G-buffer fill VS (VRAI dialecte NkSL)
+// Variante du PBR vert SANS gestion miroir (le deferred v1 ne rend pas la
+// passe planar reflection). Sort worldPos/TBN/UV/couleur pour le FS MRT.
+
+@location(0) in vec3 aPos;
+@location(1) in vec3 aNormal;
+@location(2) in vec3 aTangent;
+@location(3) in vec2 aUV;
+@location(4) in vec2 aUV2;
+@location(5) in vec4 aColor;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+    float _p0;
+    float viewMode;
+    float matcapId;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;
+} uCam;
+
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model;
+    mat4  normalMatrix;
+    vec4  tint;
+    float metallic;
+    float roughness;
+    float aoStrength;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRoughness;
+    float subsurface;
+    vec4  subsurfaceColor;
+    vec4  shadowOverrides;
+    vec4  triplanarParams;
+} uObj;
+
+@location(0) out vec3 vWorldPos;
+@location(1) out vec3 vNormal;
+@location(2) out vec3 vTangent;
+@location(3) out vec2 vUV;
+@location(4) out vec4 vColor;
+
+@stage(vertex)
+@entry
+void main() {
+    vec4 worldPos = uObj.model * vec4(aPos, 1.0);
+    vWorldPos = worldPos.xyz;
+    vNormal   = normalize(mat3(uObj.normalMatrix) * aNormal);
+    vTangent  = normalize(mat3(uObj.model) * aTangent);
+    vUV       = aUV;
+    vColor    = aColor * uObj.tint;
+    gl_Position = uCam.viewProj * worldPos;
+}

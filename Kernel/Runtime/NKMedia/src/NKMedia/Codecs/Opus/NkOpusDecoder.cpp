@@ -23,6 +23,7 @@ namespace nkentseu {
 			mSilkFsKHz = 0;
 			mSilkNbSubfr = 0;
 			mSMid[0] = mSMid[1] = 0;
+			mPrevMode = -1;
 		}
 
 		int32 NkOpusDecoder::DecodePacket(const uint8 *data, int32 len, int16 *out48) {
@@ -36,6 +37,14 @@ namespace nkentseu {
 				const int32 fl = (int32)op.frames[fr].size;
 				if (fl <= 0)
 					continue;
+
+				// Reset de l'état CELT au changement de mode (cf. opus_decoder.c : OPUS_RESET_STATE
+				// avant le décodage CELT si mode != prev_mode). Évite que l'overlap/énergie d'un mode
+				// précédent pollue les trames CELT/hybride suivantes sur un flux mixte.
+				const int32 curMode = (int32)op.mode;
+				if (op.mode != NkOpusMode::NK_SILK_ONLY && mPrevMode >= 0 && curMode != mPrevMode)
+					mCelt.Init(mChannels);
+				mPrevMode = curMode;
 
 				if (op.mode == NkOpusMode::NK_SILK_ONLY) {
 					const int32 fs = (op.bandwidth == NkOpusBandwidth::NK_NB) ? 8
@@ -85,11 +94,67 @@ namespace nkentseu {
 							out48[nOut++] = floatToI16(pcmF[i * mChannels]); // mono : 1er canal
 					}
 				} else {
-					// HYBRIDE : SILK bande basse + CELT bande haute — À VENIR (nécessite
-					// une bande de départ dans le décodeur CELT). Silence en attendant.
-					const int32 N = (int32)(op.frameSizeMs * 48.0f + 0.5f);
-					for (int32 i = 0; i < N; ++i)
-						out48[nOut++] = 0;
+					// HYBRIDE (config 12-15) : SILK bande basse (WB 16 kHz) + CELT bande
+					// haute (bandes 17→endband), MÊME range decoder, sortie CELT ajoutée.
+					const int32 LM = (op.frameSizeMs <= 11.0f) ? 2 : 3;
+					const int32 nb = (op.frameSizeMs <= 11.0f) ? 2 : 4;
+					const int32 endband = (op.bandwidth == NkOpusBandwidth::NK_SWB) ? 19 : 21;
+					const int32 N48 = 120 << LM; // échantillons 48 kHz de la trame
+					if (mSilkFsKHz != 16 || mSilkNbSubfr != nb) {
+						mSilk.Init(16, nb);
+						mResampler.Init(16000, 48000);
+						mSilkFsKHz = 16;
+						mSilkNbSubfr = nb;
+						mSMid[0] = mSMid[1] = 0;
+					}
+					NkOpusRangeDecoder rd;
+					rd.Init(fd, (uint32)fl);
+
+					// 1) SILK (bande basse) → 16 kHz → rééchantillonne → tampon float [-1,1].
+					int16 internal[960];
+					const int32 nInt = mSilk.DecodePacket(rd, 1, internal);
+					float32 buf48[960 + 16];
+					for (int32 i = 0; i < N48; ++i)
+						buf48[i] = 0.0f;
+					{
+						const int32 flen = 16 * 5 * nb; // longueur trame SILK
+						int32 w = 0;
+						for (int32 cc = 0; cc + flen <= nInt; cc += flen) {
+							int16 tmp[2 + 960];
+							tmp[0] = mSMid[0];
+							tmp[1] = mSMid[1];
+							for (int32 i = 0; i < flen; ++i)
+								tmp[2 + i] = internal[cc + i];
+							mSMid[0] = internal[cc + flen - 2];
+							mSMid[1] = internal[cc + flen - 1];
+							int16 o48[960 + 16];
+							mResampler.Process(o48, &tmp[1], flen);
+							const int32 no = flen * 48 / 16;
+							for (int32 i = 0; i < no && w < N48; ++i)
+								buf48[w++] = (float32)o48[i] * (1.0f / 32768.0f);
+						}
+					}
+
+					// 2) Flag redundancy (lu pour rester synchro ; flux propre → 0).
+					int32 redundancyBytes = 0;
+					if (rd.Tell() + 37 <= fl * 8) {
+						if (rd.DecodeBitLogp(12)) {
+							(void)rd.DecodeBitLogp(1);						 // celt_to_silk
+							redundancyBytes = (int32)rd.DecodeUint(256) + 2; // trame redondante (ignorée)
+							rd.storage -= (uint32)redundancyBytes;
+						}
+					}
+
+					// 3) CELT bande haute (bandes 17→endband), ajouté par-dessus SILK.
+					// SILK bande basse BIT-EXACT vs libopus ; bande haute CELT validée (corr 0.992
+					// vs libopus/ffmpeg sur flux mixte). La clé était special_hybrid_folding dans
+					// NkCeltQuantBands (repli de la 2e bande hybride) — sans lui : NaN.
+					NkCeltDecoder::NkFrameFlags flags;
+					mCelt.DecodeShared(rd, fl - redundancyBytes, LM, 17, endband, buf48, true, &flags);
+
+					// 4) → int16.
+					for (int32 i = 0; i < N48; ++i)
+						out48[nOut++] = floatToI16(buf48[i]);
 				}
 			}
 			return nOut;

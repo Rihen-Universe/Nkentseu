@@ -40,6 +40,13 @@ namespace nkentseu {
 				bool enableCache = true;
 				const char *cacheDir = ""; // "" = repertoire courant
 
+				// Phase N v1 : convolutions irradiance + prefilter sur GPU
+				// (compute NkSL, cf. NkIBLCompute). Fallback CPU automatique si
+				// le backend n'a pas de compute ou si un kernel echoue.
+				// Override runtime : NK_IBL_GPU=0 force le CPU ;
+				// NK_IBL_VERIFY=1 execute AUSSI le CPU et loggue l'ecart max.
+				bool gpuConvolution = true;
+
 				// ── Source IBL (Phase N v0) ─────────────────────────────────────
 				// L'app choisit comment Init() initialise l'IBL. Retro-compat :
 				// default = PROCEDURAL avec les couleurs ci-dessous.

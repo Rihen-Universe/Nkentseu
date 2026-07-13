@@ -1,0 +1,61 @@
+// deferredgeom.frag.nksl — NKRenderer — Deferred G-buffer fill FS (VRAI dialecte NkSL)
+// AUCUN eclairage ici : on ECRIT les attributs de surface dans le G-buffer,
+// la passe DeferredLight fait l'accumulation ensuite.
+//   RT0 : albedo.rgb + metallic.a   (RGBA8_UNORM)
+//   RT1 : normal.xyz*0.5+0.5 + roughness.a (RGBA16F — normal world-space)
+//   RT2 : emissive.rgb + ao.a       (RGBA16F)
+// set=2 = layout UNIVERSEL des instances materiaux (sous-ensemble declare,
+// comme Toon) : tAlbedo b3, tNormal b4.
+
+@location(0) in vec3 vWorldPos;
+@location(1) in vec3 vNormal;
+@location(2) in vec3 vTangent;
+@location(3) in vec2 vUV;
+@location(4) in vec4 vColor;
+
+@location(0) out vec4 oAlbedoMetal;
+@location(1) out vec4 oNormalRough;
+@location(2) out vec4 oEmissiveAO;
+
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model;
+    mat4  normalMatrix;
+    vec4  tint;
+    float metallic;
+    float roughness;
+    float aoStrength;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRoughness;
+    float subsurface;
+    vec4  subsurfaceColor;
+    vec4  shadowOverrides;
+    vec4  triplanarParams;
+} uObj;
+
+@binding(set=2, binding=3) uniform sampler2D tAlbedo;
+@binding(set=2, binding=4) uniform sampler2D tNormal;
+
+@stage(fragment)
+@entry
+void main() {
+    vec4 albedo = texture(tAlbedo, vUV) * vColor;
+    if (albedo.a < 0.01)
+        discard;
+
+    // Normal mapping (TBN) — normalStrength 0 = normale geometrique pure.
+    vec3 N = normalize(vNormal);
+    if (uObj.normalStrength > 0.001) {
+        vec3 T = normalize(vTangent - N * dot(vTangent, N));
+        vec3 B = cross(N, T);
+        vec3 nTex = texture(tNormal, vUV).xyz * 2.0 - 1.0;
+        vec3 nMapped = normalize(mat3(T, B, N) * nTex);
+        N = normalize(mix(N, nMapped, uObj.normalStrength));
+    }
+
+    oAlbedoMetal = vec4(albedo.rgb, uObj.metallic);
+    oNormalRough = vec4(N * 0.5 + 0.5, uObj.roughness);
+    oEmissiveAO  = vec4(albedo.rgb * uObj.emissiveStrength, uObj.aoStrength);
+}

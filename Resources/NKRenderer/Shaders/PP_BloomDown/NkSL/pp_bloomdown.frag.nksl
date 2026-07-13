@@ -19,6 +19,10 @@ vec3 SoftThreshold(vec3 c, float thr) {
     return c * contrib;
 }
 
+float KarisLuma(vec3 c) {
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
 @stage(fragment)
 @entry
 void main() {
@@ -38,13 +42,35 @@ void main() {
     vec3 l = texture(uSrc, vUV + t * vec2( 0.0, -1.0)).rgb;
     vec3 m = texture(uSrc, vUV + t * vec2( 1.0, -1.0)).rgb;
 
-    vec3 col = (d + e + i + j) * 0.5
-             + (a + b + g + f) * 0.125
-             + (b + c + h + g) * 0.125
-             + (f + g + l + k) * 0.125
-             + (g + h + m + l) * 0.125;
-    col *= 1.0 / 4.0;
-
-    col = SoftThreshold(col, pc.threshold);
+    vec3 col;
+    if (pc.threshold > 0.001) {
+        // Premiere passe (threshold actif) : MOYENNE DE KARIS par groupe de
+        // 4 taps — poids 1/(1+luma) par quad. Un firefly (pixel speculaire
+        // ultra-brillant, ex. metal roughness 0.15 -> lobe GGX en milliers)
+        // voit sa contribution BORNEE au lieu d'exploser en rectangle geant
+        // dans les mips grossieres (flares violets constates en capture).
+        vec3 q0 = (d + e + i + j) * 0.25;
+        vec3 q1 = (a + b + g + f) * 0.25;
+        vec3 q2 = (b + c + h + g) * 0.25;
+        vec3 q3 = (f + g + l + k) * 0.25;
+        vec3 q4 = (g + h + m + l) * 0.25;
+        float w0 = 0.5   / (1.0 + KarisLuma(q0));
+        float w1 = 0.125 / (1.0 + KarisLuma(q1));
+        float w2 = 0.125 / (1.0 + KarisLuma(q2));
+        float w3 = 0.125 / (1.0 + KarisLuma(q3));
+        float w4 = 0.125 / (1.0 + KarisLuma(q4));
+        col = (q0 * w0 + q1 * w1 + q2 * w2 + q3 * w3 + q4 * w4)
+            / (w0 + w1 + w2 + w3 + w4);
+        col = SoftThreshold(col, pc.threshold);
+    } else {
+        // Passes suivantes : downsample 13-tap classique (pas de Karis, la
+        // dynamique est deja bornee par la premiere passe).
+        col = (d + e + i + j) * 0.5
+            + (a + b + g + f) * 0.125
+            + (b + c + h + g) * 0.125
+            + (f + g + l + k) * 0.125
+            + (g + h + m + l) * 0.125;
+        col *= 1.0 / 4.0;
+    }
     oColor = vec4(col, 1.0);
 }
