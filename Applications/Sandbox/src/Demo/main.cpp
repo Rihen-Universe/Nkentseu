@@ -480,6 +480,16 @@ int nkmain(const NkEntryState &state) {
 	// dédoublait l'overlay 2D (layout texte en pixels fenêtre vs ortho réduit) -> retiré. Le vrai
 	// goulot est ailleurs (ex. shadow atlas 4096², cf. NK_SW_SHADOW_SCALE côté device).
 	NkRendererConfig cfg = BuildConfig(demoIx, api, W, H);
+	// NK_DEFERRED=1 : pipeline DIFFERE v1 (G-buffer MRT + lighting fullscreen)
+	// pour les opaques ; le reste (skybox/instancies/skins/transparents) reste
+	// forward par-dessus. Necessite le post-process (cible HDR).
+	{
+		const char *defEnv = getenv("NK_DEFERRED");
+		if (defEnv && defEnv[0] && defEnv[0] != '0') {
+			cfg.deferred = true;
+			logger.Info("[main] Pipeline DIFFERE active (NK_DEFERRED)\n");
+		}
+	}
 
 	char flagsBuf[256];
 	SubsystemFlagsToString(cfg.subsystems, flagsBuf, sizeof(flagsBuf));

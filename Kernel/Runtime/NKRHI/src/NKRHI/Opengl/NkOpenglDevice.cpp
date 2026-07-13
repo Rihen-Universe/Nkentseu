@@ -1374,6 +1374,23 @@ namespace nkentseu {
 			}
 		}
 
+		// MRT : configurer les draw buffers pour TOUTES les cibles couleur.
+		// Le defaut GL d'un FBO = GL_COLOR_ATTACHMENT0 SEUL -> sans cet appel,
+		// les sorties fragment 1..N-1 (G-buffer deferred) etaient JETEES.
+		if (d.colorAttachments.Size() > 1) {
+			GLenum bufs[8];
+			uint32 n = (uint32)d.colorAttachments.Size();
+			if (n > 8)
+				n = 8;
+			for (uint32 i = 0; i < n; i++)
+				bufs[i] = GL_COLOR_ATTACHMENT0 + i;
+#if defined(NK_OPENGL_ES)
+			glDrawBuffers((GLsizei)n, bufs); // FBO deja binde ci-dessus en ES
+#else
+			glNamedFramebufferDrawBuffers(fbo, (GLsizei)n, bufs);
+#endif
+		}
+
 		// FBO depth-only (sans color attachment) : il faut explicitement dire que
 		// ni le draw ni le read buffer ne sont color, sinon GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER.
 		if (d.colorAttachments.Empty() && d.depthAttachment.IsValid()) {

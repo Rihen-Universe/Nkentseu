@@ -1,0 +1,186 @@
+// deferredlight.frag.nksl — NKRenderer — Deferred lighting FS (VRAI dialecte NkSL)
+// Lit le G-BUFFER (DeferredGeom) + depth, reconstruit worldPos via invViewProj,
+// accumule les lumieres (Cook-Torrance GGX, miroir du pbr.frag) + ombres atlas
+// + ambiance IBL irradiance -> sortie HDR (RGBA16F, meme cible que le forward).
+// v1 : boucle plate 32 lumieres (tiled/clustered = v2) ; pas de cookies ni
+// clearcoat/subsurface (proprietes par-objet non stockees dans le G-buffer).
+//
+// set=0 : conventions GLOBALES du forward (Camera b0, Lights b2, Shadow b3,
+//         IBL b8/b9/b10, atlas b11) -> on binde le MEME global set.
+// set=1 : G-buffer de la passe DeferredGeom (b0..b3).
+
+@location(0) in vec2 vUV;
+@location(0) out vec4 oHDR;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+    float _p0;
+    float viewMode;
+    float matcapId;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;
+} uCam;
+
+@binding(set=0, binding=2)
+uniform LightsUBO {
+    vec4  positions[32], colors[32], directions[32], angles[32];
+    int   count; int _pad[3];
+} uLights;
+
+struct NkShadowSlot {
+    mat4 shadowMatrix;
+    vec4 tileUV;
+    vec4 lightPosOrDir;
+    vec4 packedIds;
+};
+@binding(set=0, binding=3)
+uniform ShadowSlotsUBO {
+    NkShadowSlot slots[256];
+    vec4 firstSlotPerLight[8];
+    vec4 slotCountPerLight[8];
+    vec4 globalCfg;
+    vec4 biasParams;
+} uShadows;
+@binding(set=0, binding=11) uniform sampler2DShadow tShadowAtlas;
+#include "Include/NkShadowAtlas.glsli"
+
+@binding(set=0, binding=8)  uniform samplerCube tEnvIrradiance;
+@binding(set=0, binding=9)  uniform samplerCube tEnvPrefilter;
+@binding(set=0, binding=10) uniform sampler2D   tBRDFLUT;
+
+@binding(set=1, binding=0) uniform sampler2D tGBufAlbedoMetal;
+@binding(set=1, binding=1) uniform sampler2D tGBufNormalRough;
+@binding(set=1, binding=2) uniform sampler2D tGBufEmissiveAO;
+@binding(set=1, binding=3) uniform sampler2D tGBufDepth;
+
+layout(push_constant) uniform PC {
+    vec2  invResolution;
+    float yFlipUV;
+    float _pad;
+} pc;
+
+const float PI = 3.14159265358979;
+
+float D_GGX(vec3 N, vec3 H, float r) {
+    float a = r * r, a2 = a * a, NdH = max(dot(N, H), 0.0);
+    float d = NdH * NdH * (a2 - 1.0) + 1.0;
+    return a2 / (PI * d * d + 1e-4);
+}
+float G_Schlick(float x, float k) {
+    return x / (x * (1.0 - k) + k);
+}
+float G_Smith(vec3 N, vec3 V, vec3 L, float r) {
+    float k = (r + 1.0) * (r + 1.0) / 8.0;
+    return G_Schlick(max(dot(N, V), 0.0), k) * G_Schlick(max(dot(N, L), 0.0), k);
+}
+vec3 F_Schlick(float cosT, vec3 F0) {
+    return F0 + (1.0 - F0) * pow(max(1.0 - cosT, 0.0), 5.0);
+}
+vec3 F_SchlickR(float cosT, vec3 F0, float r) {
+    return F0 + (max(vec3(1.0 - r), F0) - F0) * pow(max(1.0 - cosT, 0.0), 5.0);
+}
+
+@stage(fragment)
+@entry
+void main() {
+    float depth = texture(tGBufDepth, vUV).r;
+    if (depth >= 0.9999) {
+        // Ciel / rien d'ecrit : DISCARD -> garde la clear color de la passe
+        // (et la skybox du ForwardRest se dessine par-dessus via le depth-test).
+        discard;
+    }
+
+    vec4 am = texture(tGBufAlbedoMetal, vUV);
+    vec4 nr = texture(tGBufNormalRough, vUV);
+    vec4 ea = texture(tGBufEmissiveAO, vUV);
+    vec3 albedo = am.rgb;
+    float met = am.a;
+    vec3 N = normalize(nr.xyz * 2.0 - 1.0);
+    float rog = clamp(nr.a, 0.04, 1.0);
+    float ao = ea.a;
+
+    // worldPos reconstruit depuis la depth (Z clip [0,1] sur tous les
+    // backends — glClipControl ZERO_TO_ONE sur GL). Le NDC Y est INVERSE :
+    // les VS 3D negativent Y en clip-space (convention moteur, cf. tonemap
+    // « HDR Y-DOWN, VS 3D Y-negate ») alors qu'invViewProj correspond au
+    // clip NON negati — d'ou le -(...) sur y.
+    vec4 ndc = vec4(vUV.x * 2.0 - 1.0, -(vUV.y * 2.0 - 1.0), depth, 1.0);
+    vec4 wp4 = uCam.invViewProj * ndc;
+    vec3 worldPos = wp4.xyz / max(wp4.w, 1e-6);
+
+    // DEBUG (pc._pad via NK_DEFLIGHT_DEBUG) : 1=N, 2=fract(worldPos), 3=albedo.
+    if (pc._pad > 2.5) {
+        oHDR = vec4(albedo, 1.0);
+        return;
+    }
+    if (pc._pad > 1.5) {
+        oHDR = vec4(fract(worldPos * 0.25), 1.0);
+        return;
+    }
+    if (pc._pad > 0.5) {
+        oHDR = vec4(N * 0.5 + 0.5, 1.0);
+        return;
+    }
+
+    vec3 V = normalize(uCam.camPos.xyz - worldPos);
+    vec3 F0 = mix(vec3(0.04), albedo, met);
+
+    vec3 Lo = vec3(0.0);
+    for (int i = 0; i < uLights.count && i < 32; i++) {
+        int lt = int(uLights.positions[i].w);
+        vec3 L;
+        float att = 1.0;
+        if (lt == 0) {
+            L = normalize(-uLights.directions[i].xyz);
+        } else {
+            vec3 d = uLights.positions[i].xyz - worldPos;
+            float dist = length(d);
+            L = normalize(d);
+            att = max(1.0 - dist / max(uLights.directions[i].w, 0.001), 0.0);
+            att = att * att;
+            if (lt == 2) {
+                float th = dot(L, normalize(-uLights.directions[i].xyz));
+                float cosInner = uLights.angles[i].x;
+                float cosOuter = uLights.angles[i].y;
+                att *= clamp((th - cosOuter) / (cosInner - cosOuter + 1e-4), 0.0, 1.0);
+            }
+        }
+
+        float csf = 1.0;
+        if (uLights.angles[i].z > 0.5) {
+            csf = SampleLightShadow(i, worldPos, N, L);
+        }
+        vec3 H = normalize(V + L);
+        float NdL = max(dot(N, L), 0.0);
+        vec3 rad = uLights.colors[i].rgb * uLights.colors[i].w * att;
+
+        float NDF = D_GGX(N, H, rog);
+        float G = G_Smith(N, V, L, rog);
+        vec3 F = F_Schlick(max(dot(H, V), 0.0), F0);
+        vec3 spec = NDF * G * F / (4.0 * max(dot(N, V), 0.0) * NdL + 1e-4);
+        vec3 kD = (1.0 - F) * (1.0 - met);
+        Lo += csf * (kD * albedo / PI + spec) * rad * NdL;
+    }
+
+    // Ambiance IBL (irradiance + prefilter split-sum, miroir simplifie du forward).
+    vec3 Fi = F_SchlickR(max(dot(N, V), 0.0), F0, rog);
+    vec3 kDi = (1.0 - Fi) * (1.0 - met);
+    vec3 R = reflect(-V, N);
+    vec3 irr = texture(tEnvIrradiance, N).rgb;
+    vec3 pref = textureLod(tEnvPrefilter, R, rog * 4.0).rgb;
+    vec2 brdf = texture(tBRDFLUT, vec2(max(dot(N, V), 0.0), rog)).rg;
+    vec3 amb = (kDi * irr * albedo + pref * (Fi * brdf.x + brdf.y)) * ao * uCam.iblStrength;
+
+    vec3 emissive = ea.rgb;
+    oHDR = vec4(Lo + amb + emissive, 1.0);
+}

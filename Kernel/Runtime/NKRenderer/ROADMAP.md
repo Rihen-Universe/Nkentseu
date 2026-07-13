@@ -113,7 +113,20 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    (`GetConfig()`). Démo `--demo=19` Stream : allée de panneaux, caméra libre
    (C/WASD), distances réglables live (1/2+Shift), fondu anti-pop.
    Reste v3 : LOD meshes, vraie chaîne de mips partagée (base-level GPU).
-   6) Deferred lighting pass + branchement — **PLAN v1 (2026-07-13, chantier ouvert)** :
+   6) ~~Deferred~~ ✅ **LIVRÉ v1 (2026-07-13)** : pipeline DIFFÉRÉ opt-in (`cfg.deferred`,
+   `NK_DEFERRED=1` dans renderdemo) — passe `DeferredGeom` (MRT : RT0 albedo+metallic
+   RGBA8, RT1 normal world+roughness 16F, RT2 emissive+AO 16F + depth partagée, UN
+   pipeline pour tous les opaques) → passe `DeferredLight` fullscreen (G-buffer +
+   LightsUBO + ombres atlas + IBL irradiance/prefilter/BRDF-LUT, worldPos reconstruit
+   depuis la depth via invViewProj — NDC Y INVERSÉ car les VS 3D négatent Y en clip) →
+   passe `ForwardRest` (skybox/instanciés/skins/grille/transparents/debug forward
+   par-dessus, même depth). Validé capture GL demo 2 : 73 % pixels ≈ forward, ombres
+   + panneau alpha-testé OK, **207 FPS vs 140 forward**. Diag `NK_DEFLIGHT_DEBUG=1/2/3`
+   (N/worldPos/albedo). ⚠ FIX NKRHI GL au passage : `CreateFramebuffer` n'appelait
+   JAMAIS glDrawBuffers → les MRT 1..N-1 étaient JETÉES (défaut GL = attachment 0 seul).
+   Limites v1 (documentées) : cookies/clearcoat/subsurface/velocity non portés, passe
+   miroir non différée, boucle 32 lumières (tiled/clustered = v2), VK/DX à valider.
+   Ancien plan :
    l'existant `Passes/Deferred/NkDeferredPass` = G-buffer 5 RT + buffers lumières, SANS
    shaders ni branchement. Briques : **(a)** shaders NkSL `DeferredGeom` (variante du PBR
    vert/frag écrivant en MRT : RT0 albedo+metallic RGBA8, RT1 normal+roughness RGBA16F,
