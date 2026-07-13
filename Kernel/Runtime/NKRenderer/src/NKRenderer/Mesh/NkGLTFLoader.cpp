@@ -1078,7 +1078,88 @@ namespace nkentseu {
 					out.subMeshMaterial.PushBack((int32)ObjGetInt(prim, "material", -1));
 
 					out.bounds.Merge(subBounds);
+
+					// ── Morph targets (primitives[].targets) ──────────────────
+					// Chaque target = accessors de DELTAS (POSITION obligatoire,
+					// NORMAL optionnel). Les deltas sont stockes PAR VERTEX GLOBAL
+					// (paralleles a out.vertices, zeros la ou une primitive n'a
+					// pas de targets) et BAKES world comme la geometrie (delta =
+					// direction -> matrice world 3x3 / normal matrix).
+					{
+						const NkArchiveNode *targetsNode = ObjFind(prim, "targets");
+						const nk_size tcount =
+							(targetsNode && targetsNode->IsArray()) ? targetsNode->array.Size() : 0;
+						// Padde les targets deja connus jusqu'a baseVertex (les
+						// primitives precedentes sans targets laissent des trous).
+						for (nk_size ti = 0; ti < out.morphTargets.Size(); ++ti) {
+							out.morphTargets[ti].dPos.Resize((usize)baseVertex + vcount, NkVec3f{0, 0, 0});
+							out.morphTargets[ti].dNormal.Resize((usize)baseVertex + vcount, NkVec3f{0, 0, 0});
+						}
+						if (tcount > 0) {
+							// Cree les entrees manquantes (zeros jusqu'a la fin de
+							// cette primitive incluse — remplies juste apres).
+							while (out.morphTargets.Size() < tcount) {
+								NkGLTFMeshData::NkGLTFMorphTarget mt;
+								mt.dPos.Resize((usize)baseVertex + vcount, NkVec3f{0, 0, 0});
+								mt.dNormal.Resize((usize)baseVertex + vcount, NkVec3f{0, 0, 0});
+								out.morphTargets.PushBack(traits::NkMove(mt));
+							}
+							for (nk_size ti = 0; ti < tcount; ++ti) {
+								if (!targetsNode->array[ti].IsObject())
+									continue;
+								const NkArchive &tgtObj = *targetsNode->array[ti].object;
+								AccessorInfo aDP =
+									ResolveAccessor(*accessors, *bufferViews, ObjGetInt(tgtObj, "POSITION", -1));
+								AccessorInfo aDN =
+									ResolveAccessor(*accessors, *bufferViews, ObjGetInt(tgtObj, "NORMAL", -1));
+								const RawBuffer *dpBuf = bufOf(aDP);
+								const RawBuffer *dnBuf = bufOf(aDN);
+								auto &mt = out.morphTargets[ti];
+								for (uint32 vi = 0; vi < vcount; ++vi) {
+									if (dpBuf && aDP.compCount >= 3 && vi < aDP.count) {
+										NkVec3f d = {ReadAccessorFloat(*dpBuf, aDP, vi, 0),
+													 ReadAccessorFloat(*dpBuf, aDP, vi, 1),
+													 ReadAccessorFloat(*dpBuf, aDP, vi, 2)};
+										if (bake)
+											d = TransformDir3(meshW, d); // delta = direction (w=0)
+										mt.dPos[baseVertex + vi] = d;
+									}
+									if (dnBuf && aDN.compCount >= 3 && vi < aDN.count) {
+										NkVec3f d = {ReadAccessorFloat(*dnBuf, aDN, vi, 0),
+													 ReadAccessorFloat(*dnBuf, aDN, vi, 1),
+													 ReadAccessorFloat(*dnBuf, aDN, vi, 2)};
+										if (bake)
+											d = TransformDir3(meshNM, d);
+										mt.dNormal[baseVertex + vi] = d;
+									}
+								}
+							}
+							out.hasMorphs = true;
+							// Poids par defaut (mesh.weights) + node porteur (cible
+							// des canaux anim WEIGHTS) : premier mesh morphe trouve.
+							if (out.morphDefaultWeights.Empty()) {
+								float32 wtmp[16] = {};
+								int32 nw = ObjGetFloatArray(*mesh, "weights", wtmp, 16);
+								for (int32 wi = 0; wi < nw && wi < (int32)tcount; ++wi)
+									out.morphDefaultWeights.PushBack(wtmp[wi]);
+							}
+							if (out.morphNode < 0) {
+								for (nk_size ni = 0; ni < out.nodes.Size(); ++ni) {
+									if (out.nodes[ni].mesh == (int32)mi) {
+										out.morphNode = (int32)ni;
+										break;
+									}
+								}
+							}
+						}
+					}
 				}
+			}
+			// Padde les morph targets jusqu'a la taille finale des vertices (les
+			// dernieres primitives sans targets laissent les arrays plus courts).
+			for (nk_size ti = 0; ti < out.morphTargets.Size(); ++ti) {
+				out.morphTargets[ti].dPos.Resize(out.vertices.Size(), NkVec3f{0, 0, 0});
+				out.morphTargets[ti].dNormal.Resize(out.vertices.Size(), NkVec3f{0, 0, 0});
 			}
 
 			if (out.vertices.Empty() || out.subMeshes.Empty()) {
@@ -1189,7 +1270,9 @@ namespace nkentseu {
 
 			// 7) Skinning : nodes[] (scene graph), skins[] (joints + inverseBind),
 			//    animations[] (samplers TRS). Necessaire pour evaluer la pose.
-			if (out.isSkinned) {
+			//    AUSSI parcouru pour les meshes MORPHES non skinnes (canaux WEIGHTS
+			//    + nodes) — le sous-bloc skins tolere l'absence de skins[].
+			if (out.isSkinned || out.hasMorphs) {
 				const NkVector<NkArchiveNode> *nodesArr = GetArrayNode(root, "nodes");
 				const NkVector<NkArchiveNode> *skinsArr = GetArrayNode(root, "skins");
 				const NkVector<NkArchiveNode> *animArr = GetArrayNode(root, "animations");
@@ -1268,8 +1351,6 @@ namespace nkentseu {
 								gc.path = NkGLTFPath::SCALE;
 							else
 								gc.path = NkGLTFPath::WEIGHTS;
-							if (gc.path == NkGLTFPath::WEIGHTS)
-								continue; // morph non gere
 
 							const NkArchive *samp = ArrayObjAt(samplers, (nk_size)sampIdx);
 							if (!samp)
@@ -1297,6 +1378,31 @@ namespace nkentseu {
 									: nullptr;
 							if (!inBuf || !outBuf)
 								continue;
+
+							// WEIGHTS (morph targets) : output = scalaires PLATS
+							// (nk keys × nbTargets), stockes dans weightValues.
+							if (gc.path == NkGLTFPath::WEIGHTS) {
+								uint32 nkw = aIn.count;
+								uint32 strideW = (gc.interp == NkGLTFInterp::CUBICSPLINE) ? 3 : 1;
+								uint32 nbT = (nkw > 0) ? aOut.count / (nkw * strideW) : 0;
+								if (nbT == 0)
+									continue;
+								for (uint32 k = 0; k < nkw; ++k) {
+									gc.times.PushBack(ReadAccessorFloat(*inBuf, aIn, k, 0));
+									for (uint32 wti = 0; wti < nbT; ++wti) {
+										// CUBICSPLINE : blocs [inTang|valeurs|outTang]
+										// de nbT scalaires par cle -> valeur centrale.
+										uint32 oi = (strideW == 3) ? ((k * 3 + 1) * nbT + wti) : (k * nbT + wti);
+										gc.weightValues.PushBack(ReadAccessorFloat(*outBuf, aOut, oi, 0));
+									}
+									if (gc.times[k] > ga.duration)
+										ga.duration = gc.times[k];
+								}
+								if (gc.interp == NkGLTFInterp::CUBICSPLINE)
+									gc.interp = NkGLTFInterp::LINEAR;
+								ga.channels.PushBack(traits::NkMove(gc));
+								continue;
+							}
 
 							uint32 nk = aIn.count;
 							// CUBICSPLINE : output a 3x les valeurs (in/val/out tangents).
@@ -1443,6 +1549,8 @@ namespace nkentseu {
 					const NkGLTFAnimChannel &ch = anim.channels[c];
 					if (ch.node < 0 || ch.node >= (int32)nodeCount)
 						continue;
+					if (ch.path == NkGLTFPath::WEIGHTS)
+						continue; // morph : evalue par EvaluateGLTFMorphWeights (values vide ici)
 					NkVec4f v = SampleChannel(ch, tt);
 					if (ch.path == NkGLTFPath::TRANSLATION)
 						trans[ch.node] = {v.x, v.y, v.z};
@@ -1552,6 +1660,8 @@ namespace nkentseu {
 					const NkGLTFAnimChannel &ch = anim.channels[c];
 					if (ch.node < 0 || ch.node >= (int32)nodeCount)
 						continue;
+					if (ch.path == NkGLTFPath::WEIGHTS)
+						continue; // morph : evalue par EvaluateGLTFMorphWeights (values vide ici)
 					NkVec4f v = SampleChannel(ch, tt);
 					if (ch.path == NkGLTFPath::TRANSLATION)
 						trans[ch.node] = {v.x, v.y, v.z};
@@ -1641,6 +1751,115 @@ namespace nkentseu {
 					p = parentNode[p];
 				}
 				outParentJoint[j] = pj;
+			}
+			return true;
+		}
+
+		// ── Morph targets : echantillonnage des poids ──────────────────────────
+		bool EvaluateGLTFMorphWeights(const NkGLTFMeshData &data, int32 animIdx, float32 t,
+									  NkVector<float32> &outWeights) {
+			if (!data.hasMorphs || data.morphTargets.Empty())
+				return false;
+
+			const uint32 nbT = (uint32)data.morphTargets.Size();
+			outWeights.Assign(0.f, nbT); // (value, count) — attention a l'ordre NkVector
+			for (uint32 i = 0; i < nbT && i < (uint32)data.morphDefaultWeights.Size(); ++i)
+				outWeights[i] = data.morphDefaultWeights[i];
+
+			if (animIdx < 0 || animIdx >= (int32)data.animations.Size())
+				return true; // poids par defaut
+
+			const NkGLTFAnimation &anim = data.animations[(uint32)animIdx];
+			const float32 dur = anim.duration > 1e-4f ? anim.duration : 1.f;
+			const float32 tt = t - floorf(t / dur) * dur;
+
+			for (uint32 c = 0; c < (uint32)anim.channels.Size(); ++c) {
+				const NkGLTFAnimChannel &ch = anim.channels[c];
+				if (ch.path != NkGLTFPath::WEIGHTS || ch.times.Empty())
+					continue;
+				// Cible : le node du mesh morphe (ou n'importe quel canal WEIGHTS
+				// si morphNode inconnu — assets mono-mesh).
+				if (data.morphNode >= 0 && ch.node >= 0 && ch.node != data.morphNode)
+					continue;
+				const uint32 n = (uint32)ch.times.Size();
+				const uint32 chT = (uint32)ch.weightValues.Size() / n;
+				if (chT == 0)
+					continue;
+				// Cherche l'intervalle [lo, hi] autour de tt.
+				uint32 hi = 0;
+				while (hi < n && ch.times[hi] <= tt)
+					++hi;
+				float32 a = 0.f;
+				uint32 lo;
+				if (hi == 0) {
+					lo = 0;
+					hi = 0;
+				} else if (hi >= n) {
+					lo = n - 1;
+					hi = n - 1;
+				} else {
+					lo = hi - 1;
+					const float32 dt = ch.times[hi] - ch.times[lo];
+					a = (dt > 1e-8f) ? (tt - ch.times[lo]) / dt : 0.f;
+				}
+				if (ch.interp == NkGLTFInterp::STEP)
+					a = 0.f;
+				for (uint32 wi = 0; wi < nbT && wi < chT; ++wi) {
+					const float32 A = ch.weightValues[lo * chT + wi];
+					const float32 B = ch.weightValues[hi * chT + wi];
+					outWeights[wi] = A + (B - A) * a;
+				}
+			}
+			return true;
+		}
+
+		// ── Morph targets : application CPU ────────────────────────────────────
+		bool ApplyGLTFMorphCPU(const NkGLTFMeshData &data, const float32 *weights, uint32 weightCount,
+							   NkVector<NkVertex3D> &outVerts) {
+			if (!data.hasMorphs || data.morphTargets.Empty() || !weights)
+				return false;
+
+			outVerts = data.vertices; // base
+			const usize vcount = outVerts.Size();
+			const uint32 nbT = (uint32)data.morphTargets.Size();
+			bool anyNormal = false;
+
+			for (uint32 ti = 0; ti < nbT && ti < weightCount; ++ti) {
+				const float32 w = weights[ti];
+				if (w > -1e-6f && w < 1e-6f)
+					continue; // poids ~0 : aucune contribution
+				const auto &mt = data.morphTargets[ti];
+				const usize np = mt.dPos.Size() < vcount ? mt.dPos.Size() : vcount;
+				for (usize vi = 0; vi < np; ++vi) {
+					const NkVec3f &d = mt.dPos[vi];
+					NkVec3f &p = outVerts[vi].pos;
+					p.x += w * d.x;
+					p.y += w * d.y;
+					p.z += w * d.z;
+				}
+				const usize nn = mt.dNormal.Size() < vcount ? mt.dNormal.Size() : vcount;
+				for (usize vi = 0; vi < nn; ++vi) {
+					const NkVec3f &d = mt.dNormal[vi];
+					if (d.x != 0.f || d.y != 0.f || d.z != 0.f) {
+						NkVec3f &nrm = outVerts[vi].normal;
+						nrm.x += w * d.x;
+						nrm.y += w * d.y;
+						nrm.z += w * d.z;
+						anyNormal = true;
+					}
+				}
+			}
+			// Renormalise les normales si des deltas de normale ont contribue.
+			if (anyNormal) {
+				for (usize vi = 0; vi < vcount; ++vi) {
+					NkVec3f &n = outVerts[vi].normal;
+					const float32 len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+					if (len > 1e-8f) {
+						n.x /= len;
+						n.y /= len;
+						n.z /= len;
+					}
+				}
 			}
 			return true;
 		}
