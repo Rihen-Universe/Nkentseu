@@ -466,6 +466,17 @@ namespace nkentseu {
 							const AudioSample &s = *voice.sample;
 							int32 sCh = s.channels;
 
+							// Ratio de rééchantillonnage à la volée : un son à s.sampleRate joué sur un
+							// device à config.sampleRate doit avancer de s.sampleRate/config.sampleRate
+							// source-frame par frame de sortie (SINON il joue trop vite/aigu — ex. 22050
+							// sur 48000 = 2,18× trop rapide). Combiné au pitch. (NormalizeSample n'étant
+							// jamais appelé, la conversion de taux se fait ICI, par voix, sans réalloc.)
+							const float32 rateRatio =
+								(config.sampleRate > 0 && s.sampleRate > 0)
+									? (float32)s.sampleRate / (float32)config.sampleRate
+									: 1.0f;
+							const float32 step = finalPitch * rateRatio; // avance source par frame de sortie
+
 							// Determine la qualite de resampling (LINEAR / SINC_4 / SINC_8)
 							ResamplingQuality rq = config.resamplingQuality;
 							// Determine l'ordre Lanczos (a) et le nombre de taps
@@ -492,9 +503,9 @@ namespace nkentseu {
 									}
 								}
 
-								// Bypass : si frac == 0 et pitch == 1.0, pas besoin
-								// d'interpoler (lecture directe sample).
-								bool bypass = (frac < 1e-6f) && (NkFabsf(finalPitch - 1.0f) < 1e-6f);
+								// Bypass : si frac == 0 et pas de rééchantillonnage effectif (step==1),
+								// pas besoin d'interpoler (lecture directe sample).
+								bool bypass = (frac < 1e-6f) && (NkFabsf(step - 1.0f) < 1e-6f);
 
 								if (bypass || sincOrder == 0) {
 									// ── Mode LINEAR (default) ou bypass ──
@@ -529,8 +540,8 @@ namespace nkentseu {
 									}
 								}
 
-								// Avancer la position (supporte pitch != 1)
-								voice.subFramePos += finalPitch;
+								// Avancer la position (pitch + rééchantillonnage de taux)
+								voice.subFramePos += step;
 								while (voice.subFramePos >= 1.0f) {
 									voice.readPos++;
 									voice.subFramePos -= 1.0f;
