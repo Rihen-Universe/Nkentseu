@@ -1356,9 +1356,17 @@ namespace nkentseu {
 			struct PC {
 					float32 invResW, invResH, yFlipUV, _pad;
 			} pc;
-			pc.invResW = 1.f;
-			pc.invResH = 1.f;
-			pc.yFlipUV = 1.f; // PAS de flip : G-buffer et sortie partagent l'orientation FBO
+			// Conventions PAR BACKEND (validees capture) :
+			//   GL : sample sans flip, NDC Y = -(uv*2-1) (VS 3D negate + flip codegen)
+			//   VK : sample sans flip, NDC Y = +(uv*2-1) (pas de negate VS en SPIRV)
+			//   DX : sample FLIPPE,   NDC Y = -(uv*2-1) (VS HLSL negate Y)
+			const NkGraphicsApi dApi = mDevice ? mDevice->GetApi() : NkGraphicsApi::NK_GFX_API_OPENGL;
+			const bool dIsVK = (dApi == NkGraphicsApi::NK_GFX_API_VULKAN);
+			const bool dIsDX =
+				(dApi == NkGraphicsApi::NK_GFX_API_DX11) || (dApi == NkGraphicsApi::NK_GFX_API_DX12);
+			pc.invResW = dIsVK ? 1.f : -1.f; // = ndcYSign (invResolution inutilisee sinon)
+			pc.invResH = 0.f;
+			pc.yFlipUV = dIsDX ? -1.f : 1.f;
 			static int sDbg = -1;
 			if (sDbg < 0) {
 				const char *v = getenv("NK_DEFLIGHT_DEBUG");
