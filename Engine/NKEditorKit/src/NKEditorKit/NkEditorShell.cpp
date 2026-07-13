@@ -1297,6 +1297,43 @@ namespace nkentseu {
 				}
 		}
 
+		// Ajuste le ratio du split PARENT de la feuille contenant `title` -> la region
+		// (ex. panneau du bas + ses onglets) prend presque tout (maximise), juste les
+		// onglets (replie), ou revient au ratio normal (restaure).
+		void NkEditorShell::SetRegionMode(const char *title, int32 mode) noexcept {
+			const int32 leaf = DockWindowNode(mUI, title);
+			if (leaf < 0 || leaf >= static_cast<int32>(mUI.dockNodes.Size()))
+				return;
+			const int32 par = mUI.dockNodes[leaf].parent;
+			if (par < 0 || par >= static_cast<int32>(mUI.dockNodes.Size()))
+				return;
+			nkgui::NkGuiDockNode &split = mUI.dockNodes[par];
+			if (split.kind != 1 || split.vertical)
+				return; // il faut un split HAUT|BAS
+			const bool bottomChild1 = (split.child1 == leaf);
+			if (mDockRegionState == 0 && mode != 0)
+				mDockSavedRatio = split.ratio; // sauvegarde le ratio normal une seule fois
+			const float32 h = split.rect.h > 1.f ? split.rect.h : 400.f;
+			float32 minFrac = (mUI.ItemHeight() + 6.f) / h; // hauteur minimale (onglets visibles)
+			if (minFrac > 0.4f)
+				minFrac = 0.4f;
+			if (mode == 0) {
+				if (mDockSavedRatio >= 0.f)
+					split.ratio = mDockSavedRatio;
+			} else if (mode == 1) // replie : la region = juste ses onglets
+				split.ratio = bottomChild1 ? (1.f - minFrac) : minFrac;
+			else // maximise : la region prend presque toute la hauteur
+				split.ratio = bottomChild1 ? minFrac : (1.f - minFrac);
+			mDockRegionState = mode;
+		}
+
+		void NkEditorShell::ToggleMaximizePanel(const char *title) noexcept {
+			SetRegionMode(title, mDockRegionState == 2 ? 0 : 2);
+		}
+		void NkEditorShell::ToggleCollapsePanel(const char *title) noexcept {
+			SetRegionMode(title, mDockRegionState == 1 ? 0 : 1);
+		}
+
 		int32 NkEditorShell::PanelDockNode(const char *title) noexcept {
 			return DockWindowNode(mUI, title);
 		}
