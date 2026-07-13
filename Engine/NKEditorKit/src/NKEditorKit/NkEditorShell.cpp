@@ -1342,8 +1342,14 @@ namespace nkentseu {
 			}
 			if (BeginMenu(mUI, "Affichage")) {
 				for (int32 i = 0; i < mNumPanels; ++i)
-					if (MenuItem(mUI, mPanels[i]->Title()))
-						mPanels[i]->SetOpen(!mPanels[i]->IsOpen());
+					if (MenuItem(mUI, mPanels[i]->Title())) {
+						// Ouvrir via le menu doit ANCRER au cote par defaut (sinon le panneau
+						// s'ouvre sans se docker). FocusPanel ouvre + ancre ; sinon on ferme.
+						if (mPanels[i]->IsOpen())
+							mPanels[i]->SetOpen(false);
+						else
+							FocusPanel(mPanels[i]->Title());
+					}
 				EndMenu(mUI);
 			}
 			if (BeginMenu(mUI, "Fenetre")) {
