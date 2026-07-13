@@ -1,6 +1,8 @@
 # NKRenderer — Roadmap
 
-État actuel (mai 2026) : Phases A → G + G.ext M.1..M.5 + M.8 livrées. Pipeline
+État actuel (2026-07-12) : Phases A → G + G.ext M.1..M.5 + M.8 livrées ;
+viewport d'édition (gizmo + 6 view modes + edit mode mesh) livré ; convolutions
+IBL sur GPU compute (Phase N v1) livrées (DX11 = CPU par défaut). Pipeline
 post-process avec **Bloom Dual-Kawase 11-pass AAA cross-API** + ACES tonemap.
 HDR IBL avec cubemap dédié skybox (RGBA32F brut). PBR avec mirror via
 tSkyEnvCube pour roughness ~0. SSAO v0 + Voxel AO v0 stable. **Planar
@@ -25,12 +27,12 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
   tonemap→`ToneLDR` puis passe `FXAA_Final`→swapchain, flag `cfg.postProcess.fxaa`, shader
   `PP_FXAA/NkSL/pp_fxaa.nksl` FXAA 3.11 ; validé exécutant sur OpenGL 2026-06-25 — la mention
   « non câblé » était périmée). Reste : LUT 3D dégradé en dummy 1×1 sur OpenGL.
-- Animation : tracks/blend réels ; **skinning GPU RÉEL (2026-06-25)** sur GL/VK/DX11 — shader
-  `Skin/VK/skin.vert.vk.glsl` calcule `skinMat = Σ wᵢ·bones[jᵢ]`, SSBO bones (set=1,b=2),
-  `NkRender3D::EnsureSkinPipeline`+`FlushSkinned` bindent le pipeline skin. DX12 bloqué
-  (HLSL SM6 ne cross-compile pas le SSBO → draw sauté sans crash, à régler côté converter).
-  **morph targets = stub** (`ApplyMorphTargets` return base) ; pas de state machine / blend
-  tree / retargeting.
+- Animation : tracks/blend réels ; **skinning GPU RÉEL sur GL/VK/DX11/DX12** —
+  shader `Skin/NkSL/skin.vert.nksl` (source NkSL unique, bones UBO set=1 binding=4
+  depuis le fix collision LightsUBO 2026-07-03), `EnsureSkinPipeline`+`FlushSkinned`.
+  La note « DX12 bloqué SSBO » était PÉRIMÉE : réparé 2026-06-27 (bones→TEXCOORD2/3)
+  puis migration NkSL. **morph targets = stub** (`ApplyMorphTargets` return base,
+  re-vérifié 2026-07-12) ; pas de state machine / blend tree / retargeting.
 - Render2D : **`DrawSpriteGlow` = stub** (fallback DrawSprite).
 - Mesh : **loader glTF 2.0 LIVRÉ** — `NkGLTFLoader.{h,cpp}` from-scratch zero-STL.
   `.gltf` (JSON + .bin externe + data URI base64) et `.glb` (chunks JSON/BIN). Attributs
@@ -58,12 +60,90 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
 - **Denoiser** (OIDN/NRD `return false`), **AIRendering** (IssueCopy vide), **Voxel-sculpt**,
   **PixolSculpt** : partiels/stubs, orphelins.
 
-**Reste à faire priorisé** : 1) Deferred lighting pass + branchement (gros). 2) Streaming réel
-(connecter à TextureLibrary/MeshSystem). 3) IK fonctionnel (lire/écrire bones depuis Animation).
-4) Morph targets (pipeline déjà créé). 5) ~~FXAA wiring~~ ✅ (déjà câblé) + LUT 3D GL (petit).
-6) DrawSpriteGlow. 7) ~~GLTF loader~~ ✅ (géométrie + matériaux PBR + skinning livrés ;
-reste morph/cameras/KHR/DX12-skin — voir ci-dessus). 8) Brancher les orphelins utiles
-(Culling frustum-cull). 9) Animation avancée (state machines/blend trees). 10) Metal + Software.
+**Reste à faire priorisé (re-vérifié à l'audit 2026-07-12)** :
+1) ~~Culling frustum de base~~ **précision d'audit + complément 2026-07-12** : le frustum cull
+   caméra était DÉJÀ actif pour l'opaque (`Submit` → `NkCamera3D::IsAABBVisible`, casters
+   d'ombre collectés AVANT le cull) ; ajouté le **cull par batch des INSTANCIÉS** au Flush
+   (2 chemins GPU/fallback, pas en passe miroir, passe shadow intacte) + **`GetCullStats()`**
+   (opaque soumis/cullés + batchs instanciés cullés). Ce qui reste VRAIMENT orphelin =
+   `NkCullingSystem` (octree/occlusion HZB/distance/LOD — v2, nécessite un mode retained).
+   Limite connue : le miroir reflète la liste cullée par la caméra PRINCIPALE (un objet
+   derrière la caméra manque du reflet). 2) **VSM v2 bornés** : shadowOverrides Layered/Toon/
+   Anime (absents des .nksl, vérifié) + alpha-tested shadow — ✅ LIVRÉ 2026-07-12 (cf. TODOs V2).
+   3) **Finitions Phase L/E petites** : ✅ `SetColorGradingLUT(rgba, size)` LIVRÉ
+   (NkPostProcessStack, accessible via `GetPostProcess()`, recréation auto si taille change) ;
+   ✅ vraie LUT 3D sur GL LIVRÉE (le dummy 1×1 datait du chemin SPIRV-Cross sampler3D —
+   le tonemap NkSL natif marche : validé capture `NK_LUT_TEST=1` teal&orange, 99,4 % pixels
+   gradés, zéro crash) ; ✅ `DrawSpriteGlow` RÉEL LIVRÉ + validé capture (halo
+   radial visible, demo 9) — intégré au batching (batch dédié marqué glow →
+   pipeline Glow2D + PC 96B au Flush, jamais fusionné ; buffers 1-quad v0
+   retirés). AU PASSAGE, vrai bug GL 2D corrigé : le descriptor set UNIQUE
+   partagé du Flush était écrasé au Submit (exécution différée → TOUS les
+   batchs de la frame samplaient la DERNIÈRE texture bindée, ex. l'atlas de
+   police du HUD à la place des textures des sprites ; UB sur VK aussi) →
+   POOL de 256 sets per-batch, bindings partagés (lights/cookies/shadows/
+   normal) répliqués via BindSharedTexture/BindSharedUBO.
+   4) ~~Morph targets~~ ✅ **LIVRÉ v1 CPU (2026-07-13)** : import glTF (`primitives[].targets`
+   deltas POSITION/NORMAL bakés world, `mesh.weights`, canaux anim `WEIGHTS` plats
+   LINEAR/STEP/CUBICSPLINE-dégradé) + `EvaluateGLTFMorphWeights(t)` +
+   `ApplyGLTFMorphCPU` (base + Σ w·delta, normales renormalisées) →
+   `NkMeshSystem::UpdateVertices` (mesh `dynamic=true`). Asset de test généré
+   `Resources/Models/MorphTest/morph_test.gltf` (cube→sphère + étirement Y, anim
+   4 s) ; DemoGLTF applique automatiquement si le modèle a des morphs — validé
+   capture GL (`NK_GLTF_MODEL=Resources/Models/MorphTest/morph_test.gltf --demo=12`).
+   ✅ **Morphs sur meshes SKINNÉS (2026-07-13)** : `ApplyGLTFMorphCPUSkinned` (deltas
+   appliqués sur `skinnedVertices` AVANT le skinning GPU, bones préservés, cœur commun
+   template) + câblage DemoAnim ; asset test `SkinMorphTest/skinmorph_test.gltf`
+   (colonne 2 os qui PLIE pendant qu'un morph la GONFLE, déphasés) — validé captures
+   (bulge à t1, coude 70° sans bulge à t2 : les deux coexistent).
+   Reste v2 : application GPU (compute). 5) ~~Streaming réel~~ ✅ **LIVRÉ v1
+   (2026-07-13)** : `NkStreamingSystem` fait de VRAIES E/S — worker thread dédié
+   (disque + décodage CPU : NkImage RGBA8 / loaders mesh gltf/glb/obj), upload GPU
+   sur le thread de rendu au Update() (borné maxJobsPerFrame), handles réels
+   (`GetTexture/GetMesh`), éviction LRU de vraies ressources (Release) + stream-out
+   par distance, priorité 1/(1+dist), échecs sans retry-spam (`GetFailedCount`).
+   Self-test `NK_STREAM_TEST=1` 4/4 (5 assets réels + 1 introuvable, budget 6 MiB
+   serré → 3 évictions, handles cohérents, budget respecté). ✅ **V2 MIP
+   STREAMING progressif (2026-07-13)** : le worker fabrique une version basse
+   résolution (`lowResMax`, Resize bilinéaire) uploadée EN PREMIER (texture
+   floue instantanée → zéro pop) ; la pleine résolution REMPLACE quand la
+   caméra passe sous `refineDist = streamInDist × refineDistMult`
+   (`TickRefines`, budget d'uploads partagé, swap de handle — l'appelant
+   re-binde en surveillant `GetTexture`). Config ajustable runtime
+   (`GetConfig()`). Démo `--demo=19` Stream : allée de panneaux, caméra libre
+   (C/WASD), distances réglables live (1/2+Shift), fondu anti-pop.
+   Reste v3 : LOD meshes, vraie chaîne de mips partagée (base-level GPU).
+   6) Deferred lighting pass + branchement — **PLAN v1 (2026-07-13, chantier ouvert)** :
+   l'existant `Passes/Deferred/NkDeferredPass` = G-buffer 5 RT + buffers lumières, SANS
+   shaders ni branchement. Briques : **(a)** shaders NkSL `DeferredGeom` (variante du PBR
+   vert/frag écrivant en MRT : RT0 albedo+metallic RGBA8, RT1 normal+roughness RGBA16F,
+   RT2 emissive+AO RGBA16F — velocity différée) ; **(b)** shader `DeferredLight` plein
+   écran (fullscreen triangle, lit G-buffer + LightsUBO + ShadowSlots + IBL → accum HDR
+   RGBA16F ; v1 = boucle 32 lumières par pixel, tiled/clustered = v2) ; **(c)** branchement
+   `NkRendererImpl::RebuildRenderGraph` derrière `cfg.deferred` (défaut OFF) : pass Geometry
+   MRT → pass Lighting → alimente la chaîne post existante (bloom/tonemap inchangés) ;
+   reconstruction worldPos depuis depth (invViewProj). Prérequis vérifiés : le RenderGraph
+   gère les MRT via SetColor(0..3), les transients RGBA16F existent (HDR path). 7) ~~IK renderer~~ ✅ **REQUALIFIÉ (2026-07-13)** :
+   il n'existe qu'UN module IK (`Tools/IK/NkIKSystem`) et il N'EST PLUS orphelin — rendu
+   fonctionnel par NkAnima M0 (3240b1ae : FABRIK/TwoBone/CCD sur positions réelles via
+   `BindPose`/`EvaluateGLTFWorldJoints`, validé DemoIK + DemoIKChar). La note d'audit
+   « placeholder {0,0,0} » datait d'avant M0. Rien à supprimer : c'est L'IK de NkAnima. 8) ~~Animation avancée~~ ✅ **LIVRÉ v1 (2026-07-13)** :
+   **NkBlendTree1D** (N clips sur un axe paramétrique, blend BONE-LOCAL TRS-NLerp par os
+   AVANT le FK — correct sur les rotations — + phases synchronisées via temps normalisé
+   sur durée interpolée) + **NkAnimStateMachine** (états clip/blend-tree, transitions
+   par paramètres bool/float + seuil, crossfade, any-state) + helper partagé
+   `NkBlendLocalTRS`. Validé : Fox Survey/Walk/Run en fondu continu (captures — galop
+   plein à param 1.94, mix cohérent à 0.57) + self-test SM 3/3 (`NK_ANIM_SMTEST=1`).
+   Demo : `NK_SKIN_MODEL=Resources/Models/Fox/Fox.glb --demo=16`.
+   ✅ **v2 COMPLÈTE (2026-07-13)** : **NkBlendTree2D** (N clips à des points 2D,
+   pondération inverse-distance Shepard p=2 + hit exact, blend bone-local CUMULATIF
+   avant FK, phases synchro durée pondérée) ; **SM crossfade BONE-LOCAL** (les états
+   clip/tree exposent leur pose locale pré-FK via GetLocalPose/GetSkeletonClip —
+   blend TRS par os puis UN FK ; fallback matriciel sinon) ; **événements de
+   transition** (`SetTransitionCallback(from, to, finished)` au déclenchement et à
+   la fin du fondu). Self-tests 5/5 (`NK_ANIM_SMTEST=1` : SM 3/3 + events 2+2 +
+   blend2D mix/exact). 9) Metal + Software.
+   10) Phase T.1 bake (nouveau chantier) ; T.2 graphe matériaux = ATTEND la coordination NKGraph.
 
 ## 🧭 Éditeur / Viewport (chantier 2026-07, cap « famille d'éditeurs »)
 
@@ -78,18 +158,87 @@ Socle d'un viewport d'édition façon Blender (testbed `renderdemo --demo=2`, fu
   Overlay via **nouvelle option moteur `NkRender3D::DrawDebugLine(..., overlay=true)`**
   (pipeline debug-line **depth-OFF** `mLinePipelineNoDepth`). Contrôleurs caméra réutilisables
   `NkOrbitCameraController3D` / `NkFlyCameraController3D`. Grille infinie `SetInfiniteGridEnabled`.
-- ⏳ **Modes d'affichage** — `SetWireframe` est un **STUB** (`mWireframe` jamais consommé,
-  pipelines PBR tous en `NoCull` solide) et l'enum `NkViewMode`
-  (SOLID/WIREFRAME/NORMALS/UV/DEPTH/AO/UNLIT) est **déclaré mais non branché** (pas dans
-  `NkSceneContext`, aucune conso). À FAIRE : variante pipeline `Wireframe()` bindée selon le
-  mode + uniforme `viewMode` (pad CameraUBO) + branche debug en fin de `pbr.frag` NkSL
-  (normal/UV/depth/AO/unlit) recompilée cross-backend (GL/VK/DX).
-- ⏳ **Edit Mode mesh** (Blender-like) — sélection/édition **vertices / arêtes / faces** des
-  meshes sélectionnés. Phases : A) copie CPU éditable + pick de vertices + déplacement **via
-  `NkGizmo3D`** + re-upload GPU → B) arêtes + faces → C) outils topologie (extrude / subdivise /
-  supprime). Prérequis : API d'accès/màj des buffers de mesh (`NkMeshSystem` = GPU-only aujourd'hui).
+- ✅ **Modes d'affichage LIVRÉS (2026-07-05)** — touche Z cycle **6 modes**
+  RENDERED / SOLID (matcap) / WIREFRAME / NORMAL / UV / AO ; wireframe via variante
+  `pipelineWire` par template matériau (`NkMaterialSystem::SetWireframe`, rasterizer
+  natif GL/VK/DX) ; uniforme `viewMode` + `matcapId` dans le CameraUBO ; **5 matcaps**
+  (touche M : Studio/Clay/Metal/Toon procéduraux + Chrome texture, binding 28 global).
+  ⚠️ Piège : le bloc CameraUBO doit rester IDENTIQUE entre pbr.vert et pbr.frag .nksl.
+  Reste optionnel : mode DEPTH ; demande future Rihen = matcap par OBJET en RENDERED.
+- ✅ **Edit Mode mesh LIVRÉ côté démo (2026-07-05, testbed Demo3D)** — TAB objet/édition,
+  sélection **vertex/arête/face** (1/2/3, combinables Shift), pick rayon Möller-Trumbore,
+  déplacement via `NkGizmo3D` (groupe au centroïde), **extrude (E) / delete (X) / merge (M) /
+  create face (F)**, recalcul normales, X-ray Alt+Z, **batch GPU persistant**
+  (`SetEditOverlayLines/Tris/Points`, ~145 FPS sphère dense), persistance par objet.
+  Moteur : `NkMeshSystem` cache CPU (`keepCPU`) + `UpdateVertices(Range)` ;
+  `NkRender3D::DrawDebugTriangle` ; purge debug-lines O(n). **`NkEditMesh` half-edge
+  (Mesh/NkEditMesh.{h,cpp}) Phase 1a** compile — RESTE : quadify + câblage éditeur (1b),
+  ops topo n-gon (2), import (3) — cf. mémoire `project_editmesh_halfedge_plan`.
 
 ## ✅ Livré
+
+### Capture & enregistrement vidéo ✅ (2026-07-12) — pipeline complet
+- ✅ **Readback GL réparé** (NKRHI `MapBuffer` : PERSISTENT/COHERENT illégaux
+  sur storage mutable → 1282 ; flags par usage READ/WRITE) — capture sur
+  GL **et** DX11 validée (images identiques), flip Y GL dans
+  `NkOffscreenTarget::ReadbackPixels`.
+- ✅ **`NkFrameCapture`** (Tools/Offscreen) : capture ASYNCHRONE — ring de
+  staging buffers + fences (`Submit(signalFence)` + `IsFenceSignaled`),
+  `EnqueueCopy` non bloquant (ring plein = frame sautée, jamais de stall),
+  `Poll` non bloquant livrant RGBA8 top-down (flip GL auto) → consommable
+  par un thread encodeur/tutoriel/réseau. Zéro `WaitIdle` en régime.
+- ✅ **renderdemo `NK_CAPTURE=<frame>`** (PNG one-shot, validation headless
+  des agents) et **`NK_RECORD=<out.mp4>`** (+`NK_RECORD_FPS`, défaut 30) :
+  rendu → NkFrameCapture → `NkVideoRecorder` NKMedia (H.264, encodage
+  threadé). **Prouvé bout-en-bout** : demo3 GL → mp4 h264 1280×720 30 fps
+  6.4 s / 193 trames, lisible ffprobe/ffmpeg, contenu vérifié.
+- ✅ **V2 « voir + enregistrer » (2026-07-12)** — finalement SANS toucher
+  NKRHI : passe **MirrorPresent** dans le RenderGraph (blit plein-écran de la
+  cible redirigée vers le vrai swapchain, shader `Blit/NkSL`, ~1 draw) via
+  `SetFinalColorTargetMirror(target, true)`. La fenêtre reste vivante pendant
+  l'enregistrement, rendu à pleine vitesse (HUD 144 FPS mesuré en record).
+  2 pièges corrigés : descriptor set DÉDIÉ au blit (le set partagé avec FXAA
+  était écrasé au Submit sur GL — exécution différée → FXAA lisait sa propre
+  cible = image noire) ; flip Y écran par backend (DX/VK flip, GL direct).
+  Protections : resize pendant record = arrêt propre ; drainage final borné.
+- ⚠️ **PLAFOND ENCODEUR MESURÉ** : le H.264 CPU soutient ~10 fps en 720p.
+  Défaut NK_RECORD_FPS = 10. ✅ Côté NKMedia (commit 0bbaabcb) : file
+  **bornée** (maxQueuedFrames=32, drop-newest) + stats
+  `QueueDepth()/DroppedFrames()/EncodeFps()` — plus de saturation RAM
+  possible ; renderdemo auto-régule (saute l'échantillon si file ≥ 24) et
+  logue les stats à l'arrêt. Reste (NKMedia) : mode MJPEG pour cadence haute.
+- ✅ **Toggle à chaud + zone (2026-07-12)** — renderdemo : **touche INSER** (ex-F9, conflit demo 2)
+  démarre/arrête l'enregistrement en cours de session (noms auto
+  `nk_record_NNN.mp4`) ; `NK_RECORD_RECT=x,y,w,h` n'enregistre qu'une ZONE
+  (crop CPU au push, w/h alignés 2, clamp fenêtre, arrêt propre au resize).
+  Côté moteur tout est activable/désactivable au runtime
+  (`SetFinalColorTargetMirror` ↔ handle nul). Doc :
+  `wiki/Runtime/NKRenderer/Capture.md` + README racine.
+- ✅ **V3 résolution d'export indépendante (2026-07-12)** : côté moteur
+  `NkRenderer::SetRenderSizeOverride(w, h)` — rend TOUTE la 3D à la
+  résolution demandée (RenderGraph/post-process/offscreen) SANS toucher le
+  swapchain de la fenêtre (`ApplyRenderSize(touchDevice=false)`), la passe
+  MirrorPresent fait le pont (viewport par-pass). renderdemo :
+  `NK_RECORD_W/H` (ex. 3840×2160 natif pendant affichage 720p, alignés 2).
+- ✅ **Finalisation MP4 asynchrone (2026-07-12)** : `recorder->End()` draine
+  la file d'encodage (des secondes) — sur le thread de rendu ça FIGEAIT
+  l'app au F9-stop. Fix renderdemo : l'affichage est restauré immédiatement,
+  puis un `NkThread` dédié prend possession du recorder (heap NKMemory) et
+  fait `End()+Delete` en fond. Pattern de référence documenté dans le wiki.
+- ✅ **Qualité vidéo + anti-firefly (2026-07-12)** : `NK_RECORD_QP` (10..40,
+  défaut 24 — plus bas = moins de blocs de compression) ; **Karis average**
+  dans la 1re passe de bloom downsample (poids 1/(1+luma) par quad) — borne
+  les fireflies spéculaires (métal roughness basse → lobe GGX en milliers)
+  qui explosaient en rectangles violets géants dans les mips grossières
+  (constaté en capture lossless DX11 + vidéo VK ; HDR source innocenté,
+  max 22.25). Shaders : `PP_BloomDown/NkSL` + fallback VK synchronisé.
+- ✅ **MJPEG + touche INSER (2026-07-12)** : `NK_RECORD_CODEC=mjpeg` +
+  `NK_RECORD_MJPEG_Q` câblés sur l'API NKMedia 8c926507 (intra pur, 30-60 fps
+  sans scintillement de blocs) ; toggle d'enregistrement déplacé **F9 → INSER**
+  (F1-F12 toutes prises par les démos). Demo3D : panneau « feuillage »
+  alpha-testé ajouté (disques troués, `SetCastShadowAlphaTest`) pour valider
+  visuellement l'ombre trouée du pipeline Shadow_AlphaTest.
+- ⏳ Reste : audio dans l'enregistrement.
 
 ### Fondations (Phase A → D.3d) — toutes livrées
 - PBR forward avec UBO push-constant
@@ -143,8 +292,25 @@ par `NkVirtualShadowMaps` (multi-lights). Style UE5 simplifié.
 - ⏳ **ClearRect API au RHI** : caching per-tile (au lieu de all-or-nothing)
 - ⏳ **Dynamic offsets UBO** : scale à 10k+ draws sans descriptor sets
 - ⏳ **LOD tile size** adaptatif (distance light/cam)
-- ⏳ **Shadow override Layered/Toon/Anime** : ObjectUBO étendu
-- ⏳ **Alpha-tested shadow** (foliage) : shader Shadow alpha-aware
+- ✅ **Shadow override Layered/Toon/Anime** (2026-07-12) : ObjectUBO étendu
+  (+shadowOverrides/+triplanarParams, identique dans les DEUX stages — le
+  linker GL exige des déclarations de bloc identiques) dans toon/anime/
+  layered .vert+.frag ; `SampleLightShadowEx(..., biasMul)` + garde
+  receiveShadow (.x) câblés dans les 3 frags. LayeredV1 hors scope (ne
+  sample pas d'ombres). C++ inchangé (ObjBlock déjà rempli pour tous).
+- ✅ **Alpha-tested shadow** (foliage) (2026-07-12) : shaders
+  `ShadowAlpha/NkSL` (VS pos+UV → FS sample tAlbedo, discard < 0.5) +
+  pipeline `Shadow_AlphaTest` (layouts [global, object, GetInstanceLayout]
+  → binde `matInst->GetDescSet()` tel quel) ; sélection par-caster dans
+  RenderShadowPass quand `SetCastShadowAlphaTest(true)` (re-push PC après
+  switch de PSO — DX12 invalide les root params). Piège résolu : le
+  générateur GLSL injectait le flip Y NDC dès inputs+varyings → pragma
+  commentaire **`@gl-no-flip-y`** (NkShaderBackend) pour les VS qui rendent
+  dans l'atlas avec des varyings. **VALIDÉ visuellement (Rihen, 2026-07-12)** :
+  panneau feuillage Demo3D → ombre à points (trous respectés) sur OpenGL.
+  ⚠️ Piège corrigé au passage : `NkMaterial::Create(sys, "PBR")` échoue en
+  silence (le template s'appelle `"Default_PBR"`) — préférer l'overload par
+  TYPE (`NK_PBR_METALLIC`).
 - ⏳ **Page-based VSM réel** UE5 (refactor 16k² atlas virtuel pagination 128²)
 
 ### Phase G — NkMaterialSystem ✅
@@ -209,7 +375,7 @@ NkPlanarReflectionSystem + reflets planaires complets sur sol mirror.
 - ❌ DOF/bokeh, Motion blur, TAA, vignette/grain chromatic, Lens flares
   — non implémentés
 
-### Phase N — IBL pipeline (partielle CPU, GPU à venir)
+### Phase N — IBL pipeline
 - ✅ Phase N v0 : `LoadFromHDR(.hdr)` via NkImage existant + convolution CPU
   IBL irradiance + prefilter (Reinhard tonemap)
 - ✅ Phase N v0.5 : Background HDR skybox visible (fullscreen triangle
@@ -218,7 +384,17 @@ NkPlanarReflectionSystem + reflets planaires complets sur sol mirror.
   au binding=26 — preserve HDR brut > 1.0
 - ✅ Phase I : PBR specular IBL via tSkyEnvCube pour roughness ≤ 0.5
   (mirror) → métalliques recevent bloom HDR
-- ❌ Compute shader prefilter GPU (remplace CPU 0.5-2s → <50ms)
+- ✅ **Convolutions GPU compute (2026-07-12)** — `NkIBLCompute.{h,cpp}`
+  (Tools/Environment) : kernels NkSL irradiance Lambert + prefilter GGX
+  (chemin compute prouvé de NkTensorGpu : NkSL→SPIRV/GLSL/HLSL, SSBO in/out),
+  branchés dans `LoadFromHDR` avec **fallback CPU automatique**. Mesuré
+  (demo3, HDR 1k, prefilter 256²×6 mips) : **convolution 9-28 ms vs CPU
+  79-99 ms** (compile kernels 10-260 ms one-shot par backend). Validation
+  numérique `NK_IBL_VERIFY=1` : GL/VK/DX12 **maxDiff 5/255 sur 0.09 %** des
+  octets (= trig float GPU). ⚠️ **DX11 : CPU par défaut** (maxDiff 175/255
+  sur 0.8 % des texels, fxc cs_5_0 à investiguer ; `NK_IBL_GPU=1` force).
+  NB : le cache disque IBL couvrait déjà les runs suivants ; le gain GPU =
+  premier chargement + **swap de HDRI à chaud** (éditeur, T.5).
 - ❌ Env light probes / reflection probes par zone
 
 ### Phase F — Multi-backend (DX au niveau VK)
@@ -266,10 +442,17 @@ Pour les sols/objets transparents, propagation partielle de l'AO/shadow.
 4 approches techniques notées dans la mémoire.
 
 ### Phase E — Materials 2D + lumière 2D + ombres 2D
-- ⏳ Phase E v0 partielle : `DrawSpriteGlow` API stable mais effet glow non
-  fonctionnel (DrawSprite fallback)
-- À refactor en v1 : pipeline override par batch + conflit bindings
-  Render2D vs Overlay
+*(Audit 2026-07-12 : la ROADMAP sous-vendait — le gros de la 2D éclairée est
+LIVRÉ dans `NkRender2D`, seul le glow reste un stub.)*
+- ✅ **Lumières 2D** : `SetLights2D` (point lights `kMaxLights2D` + ambient,
+  UBO `lights[]` du shader Render2D)
+- ✅ **Ombres 2D** : `SetShadowCasters2D` (cercles, E.5) +
+  `SetShadowCastersAABB2D` (32 AABB murs/plateformes, E.7a)
+- ✅ **Layer masks lumière/shape** (E.7b : `light.layerMask & shape.layerMask`)
+- ✅ **Normal maps 2D** (E.7c : binding 12, relief éclairé)
+- ⏳ `DrawSpriteGlow` : API stable mais effet non fonctionnel (fallback
+  DrawSprite — vérifié 2026-07-12). Refactor v1 : pipeline override par batch
+  + conflit bindings Render2D vs Overlay
 
 ### Phase L — Finition post-process (TODO restants)
 - **FXAA wirage RenderGraph** : pipeline créé, manque split tonemap→mToneTex
@@ -310,6 +493,37 @@ limité, DX12+Metal OK. Plan :
 - **Self-shadowing artifacts** sur certains objets : bias actuel 0.003
   (NkVSMConfig.shadowBias). Live-tunable via `[` `]` dans Demo3D HUD.
   Si artefact persiste, monter à 0.005-0.01.
+- ~~**Debug-draw invisible dans la vue principale quand un miroir est
+  actif**~~ **CORRIGÉ 2026-07-12** : la passe miroir (rendue en premier)
+  appelait `FlushDebug` qui décrémentait la vie des primitives one-frame
+  et les purgeait — la vue principale n'avait plus rien (symptôme : cercle
+  vert du matériau actif Demo4/5 visible SEULEMENT dans le reflet). Fix :
+  les overlays debug/édition ne sont plus rendus dans la passe miroir
+  (aides d'éditeur ≠ contenu de scène — un reflet ne les montre pas).
+- **IBL GPU sur DX11** : convolutions compute désactivées par défaut
+  (maxDiff 175/255 sur 0.8 % des texels vs CPU, fxc cs_5_0 — GL/VK/DX12
+  propres à 5/255). `NK_IBL_GPU=1` pour reproduire/investiguer.
+- **« Sous le plan plus clair qu'au-dessus » (demo3, rapport Rihen) —
+  MESURÉ 2026-07-12** (capture DX11 + comparaison pixels, outil NK_CAPTURE) :
+  le reflet n'est PAS plus lumineux (sphère réfléchie lum 174 vs directe 186) ;
+  la vraie différence est un **voile gris désaturant** sur le reflet (canal B
+  de la sphère : 2 direct → 58 reflété) = le mix du shader ReflFloor
+  `color = mix(litBase, reflColor, reflStr)` injecte ~10-40 % de l'éclairage
+  gris du sol par-dessus le reflet, + flou du RT de réflexion. La vue directe
+  (sous le plan) est donc plus nette/saturée → perçue « plus claire ».
+  En cause aussi : `reflStr = (1-roughness)*mix(0.9, 1.0, fresnel)` = miroir
+  ~90 % à TOUT angle (non physique). **RÉSOLU EN OPTION UTILISATEUR
+  (2026-07-12, demande Rihen)** : `NkPBRParams::reflBlend` +
+  `NkMaterial(Instance)::SetReflFloorBlend(v)` — `-1` = Fresnel PHYSIQUE
+  (4 % de face → 100 % rasant, style UE5) ; `[0..1]` = STYLISÉ avec intensité
+  du voile litBase (1 = look historique par défaut, 0 = reflet pur). Propagé
+  par l'héritage M.4. Validé par captures DX11 mesurées : mode défaut =
+  non-régression pixel exacte ; reflet pur = canal B de la sphère réfléchie
+  58 → 3 (= sphère directe) ; physique = reflet ~4 % de face. Demo4/demo3 :
+  touche **P** cycle les modes + env `NK_REFL_MODEL=<0-3>`.
+- **Readback OpenGL de NkOffscreenTarget cassé** (GLAD 1282
+  glMapNamedBufferRange) — la capture NK_CAPTURE ne marche que sur DX11
+  (vérifié pixel-perfect) ; fix côté NKRHI GL à coordonner (module partagé).
 
 ---
 
@@ -317,11 +531,13 @@ limité, DX12+Metal OK. Plan :
 
 ### Phase H — Texture pipeline
 - ✅ Loader PNG/JPG/TGA/HDR via NkImage (existant)
-- ❌ Loader EXR (OpenEXR)
-- ❌ Mipmap generation auto
+- ✅ **Loader EXR** (audit 2026-07-12 : `NkEXRCodec` livré dans NKImage —
+  la démo materials charge d'ailleurs `piazza_bologni_1k.exr`)
+- ✅ **Mipmap generation** (audit 2026-07-12 : `NkIDevice::GenerateMipmaps`
+  au RHI, utilisé par la chaîne matériaux — cf. fix mips DX12 2026-06-23)
 - ❌ Compression BC1-7 (desktop) + ASTC + ETC2 (mobile)
 - ❌ Texture streaming (LOD-mip selon distance)
-- ❌ Hot-reload des textures
+- ❌ Hot-reload des textures (les matériaux `.nkasset` l'ont, pas les textures)
 - ❌ Atlasing pour batching
 
 ### Phase M — Forward+ / Deferred
@@ -431,8 +647,9 @@ fine est inutilisable en production stylisée.
 + normal bias + per-material override + planar reflection complete ajoutent
 ~10% par rapport à l'estimation précédente de 70%). Restant pour MVP :
 - **Phase H.6 v1 voxel AO précision** (gpu bake + .glsli partagé)
-- **Phase L finition** (FXAA + auto-exposure + color grading)
-- **Phase N GPU** (compute prefilter pour boot rapide)
+- **Phase L finition** (~~FXAA~~ ✅ + ~~auto-exposure~~ ✅ ; reste API
+  SetColorGradingLUT + LUT 3D réelle sur GL)
+- ~~**Phase N GPU** (compute prefilter)~~ ✅ 2026-07-12 (reste : GPU sur DX11)
 - **Phase E v1** (Materials 2D fonctionnels)
 - **Phase F finition** (DX/Metal validation)
 - **Phase D.4.2** (NkVSM v2 : ClearRect API + dynamic offsets UBO + shader overrides étendus)

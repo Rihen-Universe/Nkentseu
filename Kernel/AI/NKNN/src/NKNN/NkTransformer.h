@@ -79,7 +79,35 @@ namespace nkentseu {
 						return autograd::Reshape(out, NkShape{B, T, d});
 					}
 
-					void Parameters(NkVector<NkVar> &o) const {
+					// Un pas de décodage INCRÉMENTAL avec KV-cache. `x` = [B,1,d] (le token
+				// courant seul). `kC`/`vC` = caches [B,h,Tpast,hd] de CETTE couche, étendus
+				// en place. La requête voit toutes les clés passées (softmax simple).
+				NkVar ForwardStep(const NkVar &x, NkTensor &kC, NkTensor &vC) const {
+					const NkShape xs = x.Value().Shape();
+					const int64 B = xs[0], d = xs[2];
+					const int64 h = mH, hd = d / h;
+					auto proj = [&](const NkDense &W) {
+						NkVar f = autograd::Reshape(x, NkShape{B * 1, d});
+						NkVar p = W.Forward(f);
+						p = autograd::Reshape(p, NkShape{B, (int64)1, h, hd});
+						return autograd::Permute(p, NkShape{0, 2, 1, 3}); // [B, h, 1, hd]
+					};
+					NkVar Q = proj(mWq), K = proj(mWk), V = proj(mWv);
+					kC = kC.IsValid() ? CatTimeAxis(kC, K.Value()) : K.Value().Contiguous();
+					vC = vC.IsValid() ? CatTimeAxis(vC, V.Value()) : V.Value().Contiguous();
+					NkVar Kc = NkVar::Leaf(kC, false), Vc = NkVar::Leaf(vC, false);
+					NkVar Kt = autograd::Permute(Kc, NkShape{0, 1, 3, 2}); // [B,h,hd,Ttot]
+					NkVar scores = autograd::Matmul(Q, Kt);				  // [B,h,1,Ttot]
+					scores = autograd::MulScalar(scores, 1.0 / std::sqrt((double)hd));
+					NkVar attn = autograd::Softmax(scores);
+					NkVar ctx = autograd::Matmul(attn, Vc); // [B,h,1,hd]
+					ctx = autograd::Permute(ctx, NkShape{0, 2, 1, 3});
+					ctx = autograd::Reshape(ctx, NkShape{B * 1, d});
+					NkVar out = mWo.Forward(ctx);
+					return autograd::Reshape(out, NkShape{B, (int64)1, d});
+				}
+
+				void Parameters(NkVector<NkVar> &o) const {
 						mWq.Parameters(o);
 						mWk.Parameters(o);
 						mWv.Parameters(o);
@@ -87,6 +115,29 @@ namespace nkentseu {
 					}
 
 				private:
+					// Concatène [B,h,Ta,hd] ⊕ [B,h,Tb,hd] sur l'axe TEMPS (2).
+					static NkTensor CatTimeAxis(const NkTensor &a, const NkTensor &b) {
+						NkTensor ca = a.Contiguous(), cb = b.Contiguous();
+						const NkShape &sa = ca.Shape();
+						const NkShape &sb = cb.Shape();
+						const int64 B = sa[0], H = sa[1], Ta = sa[2], hd = sa[3], Tb = sb[2];
+						NkTensor out = NkTensor::Zeros(NkShape{B, H, Ta + Tb, hd});
+						const float *pa = ca.DataAs<float>();
+						const float *pb = cb.DataAs<float>();
+						float *po = out.DataAs<float>();
+						for (int64 bb = 0; bb < B; ++bb)
+							for (int64 hh = 0; hh < H; ++hh) {
+								const int64 obase = ((bb * H + hh) * (Ta + Tb)) * hd;
+								const int64 abase = ((bb * H + hh) * Ta) * hd;
+								const int64 bbase = ((bb * H + hh) * Tb) * hd;
+								for (int64 i = 0; i < Ta * hd; ++i)
+									po[obase + i] = pa[abase + i];
+								for (int64 i = 0; i < Tb * hd; ++i)
+									po[obase + Ta * hd + i] = pb[bbase + i];
+							}
+						return out;
+					}
+
 					uint32 mD = 0, mH = 0;
 					NkDense mWq, mWk, mWv, mWo;
 			};
@@ -127,6 +178,19 @@ namespace nkentseu {
 						return autograd::Add(x1, mo); // résiduel
 					}
 
+					// Un pas incrémental (KV-cache) : x = [B,1,d], caches K/V de cette couche.
+					NkVar ForwardStep(const NkVar &x, NkTensor &kC, NkTensor &vC) const {
+						const NkShape xs = x.Value().Shape();
+						const int64 B = xs[0], d = xs[2];
+						NkVar a = mAttn.ForwardStep(mLn1.Forward(x), kC, vC);
+						NkVar x1 = autograd::Add(x, a);
+						NkVar n = mLn2.Forward(x1);
+						NkVar f = autograd::Reshape(n, NkShape{B * 1, d});
+						NkVar hid = autograd::Gelu(mFc1.Forward(f));
+						NkVar mo = autograd::Reshape(mFc2.Forward(hid), NkShape{B, (int64)1, d});
+						return autograd::Add(x1, mo);
+					}
+
 					void Parameters(NkVector<NkVar> &o) const {
 						mLn1.Parameters(o);
 						mAttn.Parameters(o);
@@ -141,6 +205,22 @@ namespace nkentseu {
 					NkDense mFc1, mFc2;
 					uint32 mD = 0;
 			};
+
+				// Cache clé/valeur pour le décodage INCRÉMENTAL : K et V par couche
+				// ([B,h,Tpast,hd]). `len` = nombre de tokens déjà traités (= position absolue
+				// du prochain token pour l'embedding positionnel).
+				struct NkKVCache {
+						NkVector<NkTensor> k, v;
+						int64 len = 0;
+
+						void Reset(uint32 nLayers) {
+							k.Clear();
+							v.Clear();
+							k.Resize((nk_size)nLayers);
+							v.Resize((nk_size)nLayers);
+							len = 0;
+						}
+				};
 
 			// ---- Modèle GPT (char-level) : embeddings + blocs + LN final + tête LM --------
 			class NkGPT {
@@ -175,6 +255,26 @@ namespace nkentseu {
 						x = mLnf.Forward(x);
 						NkVar f = autograd::Reshape(x, NkShape{B * T, (int64)mD});
 						return mHead.Forward(f); // [B*T, vocab]
+					}
+
+					// Décodage INCRÉMENTAL avec KV-cache : traite UN token (id) à la position
+					// absolue `cache.len`, met à jour les caches, renvoie les logits [B, vocab]
+					// de ce token. Mathématiquement identique à Forward sur le préfixe complet,
+					// mais en O(T) par token au lieu de O(T²). `tokenId` = [B,1].
+					NkVar ForwardStep(const NkTensor &tokenId, NkKVCache &cache) const {
+						if (cache.k.Size() != mBlocks.Size())
+							cache.Reset((uint32)mBlocks.Size());
+						const int64 B = tokenId.Shape()[0];
+						NkVar te = autograd::Embedding(mTokEmb, tokenId); // [B,1,d]
+						NkTensor posIdx = NkTensor::Full(NkShape{B, (int64)1}, (double)cache.len);
+						NkVar pe = autograd::Embedding(mPosEmb, posIdx); // [B,1,d]
+						NkVar x = autograd::Add(te, pe);
+						for (uint32 l = 0; l < mBlocks.Size(); ++l)
+							x = mBlocks[l].ForwardStep(x, cache.k[(nk_size)l], cache.v[(nk_size)l]);
+						x = mLnf.Forward(x);
+						NkVar f = autograd::Reshape(x, NkShape{B * 1, (int64)mD});
+						cache.len += 1;
+						return mHead.Forward(f); // [B, vocab]
 					}
 
 					void Parameters(NkVector<NkVar> &o) const {

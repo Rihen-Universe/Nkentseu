@@ -222,7 +222,7 @@ en conflit avec ce module. Cette couche s'appelle ici **pont directeur** (NkAnim
   GPT » (matmul par lots, LayerNorm, attention+masque causal, embedding, GELU). Montée en échelle
   (GPU serveurs) quand les moyens le permettront.
 
-## Phase 2 — L'apprentissage — 🟡 en cours
+## Phase 2 — L'apprentissage — ✅ socle complet (extensions en cours)
 
 **Modules : NKAutograd, NKNN, NKOptim.**
 - ✅ **NKAutograd** : graphe define-by-run + rétropropagation mode inverse (sans STL,
@@ -238,16 +238,23 @@ en conflit avec ce module. Cette couche s'appelle ici **pont directeur** (NkAnim
   **100%**). Pile Phase 2 complète : **NKTensor → NKAutograd → NKNN + NKOptim**. Prête
   pour la Phase 3 (entropie croisée + Adam = tout pour MNIST).
 
-## Phase 3 — Données, entraînement, inférence — 🟡 en cours
+## Phase 3 — Données, entraînement, inférence — ✅ socle complet (extensions en cours)
+
+> ✅ Option A.1 livrée (2026-07-12) : accumulation de gradient + scheduler LR (warmup+cosine) +
+> validation forward-only **remontés dans la lib générique NKTrain** (`NkLRSchedule`,
+> `TrainEpochAccum`, `EvalLoss`, `SelfTest`), factorisés depuis NkGptTrainer. `NKTrainTest` **4/4**.
+> Reste : NKData = MNIST IDX seul ; NKInfer f32 non portable.
 
 **Modules : NKData, NKTrain, NKInfer.**
 - ✅ **NKData** : `NkDataset` + `NkDataLoader` (shuffle Fisher-Yates, lots, one-hot) +
   `MakeBlobs` + **chargeur MNIST IDX** (`LoadMnist`). Prouvé (`NKDataTest` 7/7).
-- ✅ **NKTrain** : `TrainEpoch` (forward→CE→backward→step, métriques perte+exactitude)
-  + `Accuracy`. Prouvé (`NKTrainTest`) : Dense+relu+Dense, Adam+CE → **train/test 100%**.
+- ✅ **NKTrain** : `TrainEpoch` + `Accuracy` **+ (Option A.1, 2026-07-12)** `NkLRSchedule`
+  (warmup linéaire → décroissance cosine → plancher), `TrainEpochAccum` (accumulation de
+  gradient + scheduler + loss configurable), `EvalLoss` (validation forward-only), `SelfTest`.
+  Prouvé (`NKTrainTest` **4/4**) : Adam+CE → train/test 100% ; accumulation+scheduler converge.
 - ✅ **NKInfer** : `SaveParams`/`LoadParams` (format NKMD) + `Predict`. Prouvé
   (`NKInferTest`) : round-trip **exact** (A entraîné → sauve → B neuf recharge → 100%).
-- ⬜ Checkpoints d'optimiseur (reprise) + boucle de validation (NKTrain Jalon 2).
+- ⬜ Checkpoints d'optimiseur (reprise) : existe dans NkGptTrainer, à généraliser dans NKTrain.
 - 🎯 ✅ **Pipeline complet données→train→save→load→infer** validé de bout en bout.
 - ✅ **Entraînement sur le VRAI MNIST** (`Datasets/mnist/` téléchargé, `NK_MNIST_DIR`) :
   MLP 784→64→10 (Adam+CE) sur les **60 000 vraies images** → **96.3%** en 3 époques
@@ -277,9 +284,12 @@ en conflit avec ce module. Cette couche s'appelle ici **pont directeur** (NkAnim
 ## Phase 6 — Génération & incarnation
 
 **Modules : NKGen, NKEmbodied.**
-- ⬜ NKGen : un petit modèle génératif (image 2D → texture) ; brancher la génération
-  d'assets au moteur. Puis **formes 3D** générées par **catégories** :
-  🌿 végétal, 🐾 animal/créature, 🧍 humanoïde, 🌍 monde/terrain (+ rig + animation).
+- 🟡 **NKGen — socle génératif LIVRÉ** (audit 2026-07-12) : auto-encodeur dense, **VAE** dense,
+  **VAE conv 2D** (chiffres MNIST générés), **VAE 3D voxels** (Conv3D/ConvT3D) → formes 3D
+  exportées OBJ (banane/rocher/arbre) + rendues moteur PBR/Vulkan ; maillage (Surface Nets,
+  décimation, quads). ⏳ Reste : GAN, **diffusion**, marching cubes, conditionnement **image/
+  texte→3D** (le seul « conditionnement » actuel = centroïde latent par classe), catégories
+  végétal/animal/humanoïde/monde, rig + animation.
 - ⬜ NKEmbodied : relier une politique à un corps simulé (puis réel via Kernel/Bare).
 - ⬜ **Acteurs génératifs** : un personnage reçoit un **rôle** et le joue (apparence +
   animation + comportement) → animation 3D & jeux **pilotés par IA** (NKGen + NKAgent).
@@ -340,6 +350,12 @@ en conflit avec ce module. Cette couche s'appelle ici **pont directeur** (NkAnim
 - ✅ **10. Entraînement + génération — `NKGptTrain`** (2026-07-06) : lit un livre réel (Project
   Gutenberg, `Resources/Datasets/`), entraîne `NkGPT` avec **AdamW 100% GPU-résident**,
   **échantillonnage autoregressif à température**.
+- ✅ **11. Inférence rapide — KV-cache + sampling (Option A.3, 2026-07-12)** : décodage **incrémental**
+  (`NkGPT::ForwardStep` + `NkKVCache` par couche, attention/bloc/GPT) **bit-exact vs Forward complet**
+  (err **0.0**) → O(T) par token au lieu de O(T²). **Échantillonnage top-k / top-p (nucleus) / température**
+  réutilisable (`NKGpt/NkSampling.h`, `NkSampleToken`). `NkGptTrainer::Generate` : chemin **KV-cache**
+  quand le contexte tient dans la fenêtre, sinon repli fenêtre glissante ; overload `NkSampleParams`.
+  Validé `NKTransformerTest` **7/7**.
 - ✅ **Optim vitesse — broadcast GPU (2026-07-06)** : biais `Dense` (`[1,C]+[..,C]`) et affine
   `LayerNorm` (γ/β) faisaient un **aller-retour CPU** à chaque appel (broadcast non géré par les
   kernels élémentaires). Ajout de kernels GPU `addbcast`/`mulbcast` (`out[i]=big[i] op vec[i%C]`)
@@ -495,20 +511,39 @@ pour les modèles). Scaffold posé (spec headers) ; impl staged ci-dessous.
    `LogMelSpectrogram()` + `MFCC()`. Testé HEADLESS (`NKSpeechTest` → **1/1 OK** : un **sinus 1 kHz tombe dans
    le bon canal Mel**, MFCC déterministes et de bonne dimension (13×3), silence → sortie finie). **Fondation
    partagée ASR + TTS**, prête à tourner sur le corpus lamba (Bassa/Bulu/ghomala').
-2. ⬜ **ASR acoustique** (`NkASR`) — petit réseau (Conv/GRU from-scratch NKNN) features→phonèmes/caractères,
-   perte **CTC** (à ajouter à NKAutograd), **décodage glouton** puis beam. Entraîné sur un mini-corpus voix→texte.
-   Résultat : transcrire des mots isolés d'un petit vocabulaire.
+   > ✅ **Briques débloquantes livrées (Option A.2, 2026-07-12)** : cellules **GRU/LSTM** from-scratch
+   > (`NkRnn.h/.cpp`, gradient-checkées) + **perte CTC** forward-backward log-space (`autograd::CTCLoss`,
+   > gradient-checkée 5e-5) + op `Concat0`. `NKRnnCtcTest` : GRU+CTC **entraîné bout-en-bout** (perte
+   > 5.46→0.0003, **décodage glouton = cible**). L'ASR acoustique peut maintenant être assemblé.
+2. ✅ **ASR acoustique — modèle assemblé (Option B.1, 2026-07-12)** : `NkASRModel` (`NKSpeech/NkAsrModel.h`,
+   header-only) = **GRU BIDIRECTIONNEL** (avant + arrière) + tête linéaire par trame → logits [T,1,V] →
+   **perte CTC** + **décodage glouton** (`NkCTCGreedyDecode`). Prouvé bout-en-bout `NKASRTest` **3/3** :
+   audio synthétique (3 tons distincts) → **MFCC** (NkAudioFeatures) → BiGRU → CTC → **perte 51,7 → 0,01**,
+   **4/4 mots transcrits correctement** (suites de symboles de longueurs variées, sans alignement fourni ;
+   SGD en ligne par énoncé + scheduler LR A.1). Reste : **beam search** + **corpus voix→texte réel** (mots isolés).
 3. ⬜ **Lexique/décodage** — dictionnaire + modèle de langue n-gram (réutilise le GPT/BPE) pour re-scorer.
 4. ⬜ **TTS front-end** (`NkTTS`) — normalisation texte (nombres, ponctuation) → **G2P** (texte→phonèmes,
    table par langue : fr/en/**bbj**) → durées.
-5. ⬜ **TTS acoustique + vocodeur** — phonèmes→mel (petit modèle) → **vocodeur** (d'abord Griffin-Lim from-scratch
-   sur la mel, puis vocodeur neuronal léger). Résultat : prononcer une phrase courte, audible via NKAudio.
+5. 🟡 **TTS acoustique + vocodeur** — **✅ vocodeur Griffin-Lim livré** (Option B.2 brique 1, 2026-07-12) :
+   `NkGriffinLim` (`NKSpeech/NkGriffinLim.h/.cpp`) = STFT/iSTFT overlap-add (FFT radix-2 avant/arrière, Hann,
+   normalisation COLA) + **reconstruction de phase itérative** → spectrogramme magnitude → onde, SANS donnée ni
+   modèle appris. Validé `NKSpeechTest` 2/2 (round-trip : erreur magnitude **2,4 %**, énergie préservée **0,9999**).
+   **✅ synthèse par formants livrée** (brique 2, 2026-07-12) : `NkVoiceSynth` (modèle source-filtre : peigne
+   d'harmoniques F0 pour les voisés / bruit pour les non-voisés, mis en forme par un filtre de formants F1/F2/F3)
+   → spectrogramme magnitude → Griffin-Lim → **onde AUDIBLE**. `NKSpeechTest` **3/3** (voyelle 'a' → énergie
+   autour de F1/F2) + écrit un **WAV `a e i o u`** (`nkvoice_aeiou.wav`, 1,6 s) à écouter. **Le moteur PARLE**
+   des voyelles reconnaissables. **✅ consonnes + parole de mots** (brique 3, 2026-07-12) : jeu de
+   consonnes (fricatives s/f/ch, nasales m/n, liquides l/r, plosives p/t/k/b/d/g approximées) +
+   `NkVoiceSynth::Speak("p a p a")` (suite de phonèmes → onde) → dit **papa / maman / salu / lili**.
+   ⚠️ Limite honnête : synthèse par formants (2-3 résonances) — voix robotique, /y/ imparfait ; le vrai
+   naturel viendra d'un **modèle appris sur données de voix** (dataset LJSpeech en cours de récupération).
+   Reste : G2P texte→phonèmes orthographique réel (fr/en/bbj) + pipeline TTS appris.
 6. ⬜ **Boucle voix** — micro (NkAudioCapture) → débruitage (NkDenoiser) → ASR → (logique) → TTS → sortie NKAudio :
    commande vocale + lecture. Brancher les **permissions micro** mobile/Web.
 7. ⬜ **Corpus langues locales** — pipeline de collecte texte/voix (dont **ghomala'**) : scraping sources
    publiques, alignement, nettoyage → dataset réutilisable ASR/TTS/GPT.
 
-⚠️ Dépendances à ajouter : **CTC loss** + **GRU/LSTM** dans NKAutograd/NKNN ; **Griffin-Lim** (iFFT + itérations
+⚠️ Dépendances : **CTC loss** ✅ + **GRU/LSTM** ✅ (livrés 2026-07-12, Option A.2) ; reste **Griffin-Lim** (iFFT + itérations
 de phase) dans NKSpeech. Chaque étape = publication + article (règle §Communication).
 
 ## 📣 Communication & diffusion — **À FAIRE À CHAQUE ÉVOLUTION** (récurrent)

@@ -99,7 +99,14 @@ namespace nkentseu {
 				// Reutilise _pad[0] pour eviter de casser le layout std140 du UBO PBR
 				// (96 bytes total). Ignore par les autres shaders PBR/Toon/Anime.
 				float32 reflFloorFaceMode = 0.f;
-				float32 _pad = 0.f;
+				// Modele de reflexion du sol miroir (shader ReflFloor) :
+				//   -1        = FRESNEL PHYSIQUE (reflet ~4% de face -> 100% rasant,
+				//               style UE5 ; le litBase garde le complement d'energie)
+				//   [0..1]    = STYLISE (miroir ~90% a tout angle) avec INTENSITE DU
+				//               VOILE litBase : 1 = voile plein (look historique),
+				//               0 = reflet pur sans voile gris.
+				// Defaut 1.0 = comportement d'origine. Ignore par les autres shaders.
+				float32 reflBlend = 1.f;
 		};
 
 		// M.1 v0 : 2 layers PBR superposes avec masque vertex-color.
@@ -262,6 +269,11 @@ namespace nkentseu {
 				// Sol miroir : mode d'affichage des faces (0=FrontOnly, 1=BackOnly,
 				// 2=Both). Lu par le shader ReflFloor via uFloor.reflFloorFaceMode.
 				NkMaterialInstance *SetReflFloorFaceMode(int32 mode);
+
+				// Sol miroir : modele de reflexion (cf. NkPBRParams::reflBlend).
+				//   -1 = Fresnel physique ; [0..1] = stylise avec intensite du
+				//   voile litBase (1 = look historique, 0 = reflet pur).
+				NkMaterialInstance *SetReflFloorBlend(float32 blend);
 
 				// M.1 v0 : Layered material setters
 				NkMaterialInstance *SetLayerBase(const NkPBRParams &p);

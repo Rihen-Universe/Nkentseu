@@ -251,6 +251,38 @@ int main() {
 		GradCheck("Upsample2x", Mat(NkShape{1, 1, 2, 2}, xd),
 				  [](NkVar x) { return autograd::Sum(autograd::Upsample2x(x)); });
 	}
+	// 20) Concat0 — empile [2,3] ⊕ constante [1,3] -> [3,3], pondéré puis sommé.
+	//     Vérifie que le gradient est redécoupé correctement vers le 1er opérande.
+	{
+		float xd[6] = {1, 2, 3, 4, 5, 6};	 // [2,3]
+		float cd[3] = {0.5f, -1.f, 2.f};	 // constante [1,3]
+		float wd[9] = {1, 2, 3, 4, 5, 6, 7, 8, 9}; // poids [3,3]
+		NkTensor C = Mat(NkShape{1, 3}, cd);
+		NkTensor W = Mat(NkShape{3, 3}, wd);
+		GradCheck("Concat0", Mat(NkShape{2, 3}, xd), [C, W](NkVar x) {
+			NkVar cat = autograd::Concat0(x, NkVar::Leaf(C, false)); // [3,3]
+			return autograd::Sum(autograd::Mul(cat, NkVar::Leaf(W, false)));
+		});
+	}
+	// 21) CTCLoss — logits [T=4,B=1,V=3], cible = {0,1} (blanc = 2). Vérifie le gradient
+	//     analytique (forward-backward) contre les différences finies.
+	{
+		float ld[12] = {0.2f, -0.3f, 0.1f, 0.5f, 0.4f, -0.2f, -0.1f, 0.6f, 0.0f, 0.3f, -0.5f, 0.2f};
+		NkVector<NkVector<int32>> tgts;
+		tgts.Resize(1);
+		tgts[0].PushBack(0);
+		tgts[0].PushBack(1);
+		GradCheck("CTCLoss", Mat(NkShape{4, 1, 3}, ld),
+				  [tgts](NkVar z) { return autograd::CTCLoss(z, tgts, /*blank*/ 2); });
+	}
+	// 22) CTCLoss cible vide — seul le blanc participe (tous les pas -> blanc).
+	{
+		float ld[8] = {0.2f, -0.3f, 0.5f, 0.4f, -0.1f, 0.6f, 0.3f, -0.5f}; // [T=4,B=1,V=2]
+		NkVector<NkVector<int32>> tgts;
+		tgts.Resize(1); // cible vide pour l'exemple 0
+		GradCheck("CTCLoss vide", Mat(NkShape{4, 1, 2}, ld),
+				  [tgts](NkVar z) { return autograd::CTCLoss(z, tgts, /*blank*/ 1); });
+	}
 
 	// -----------------------------------------------------------------------
 	// Entraînement XOR : MLP 2-8-1, tanh caché + sigmoid sortie + MSE, SGD.
