@@ -4351,8 +4351,9 @@ namespace nkentseu {
 			ctx.curPopupLevel = level - 1;		// revient au parent / principale
 		}
 
-		bool BeginCombo(NkGuiContext &ctx, const char *label, const char *preview, int32 itemCount) noexcept {
-			const float32 h = ctx.ItemHeight();
+		bool BeginCombo(NkGuiContext &ctx, const char *label, const char *preview, int32 itemCount,
+						float32 heightOverride) noexcept {
+			const float32 h = heightOverride > 0.f ? heightOverride : ctx.ItemHeight();
 			const NkRect rowR = ctx.NextItemRect(0.f, h);
 			const NkGuiId id = ctx.GetId(label);
 
