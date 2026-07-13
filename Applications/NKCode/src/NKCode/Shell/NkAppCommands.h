@@ -200,6 +200,11 @@ inline void AppFlagsThunk(NkEditorFrameContext &ec, void *u) { // user = NkHomeS
 			if (!st->wsPrefill.Empty())
 				st->StartWsFind(st->wsPrefill, false, false); // resultats immediats
 		}
+	{ // audio : arret auto quand on quitte l'onglet (option) — par onglet actif
+		auto *st2 = home->dlg->st;
+		const NkString ap = (st2 && st2->HasActive()) ? st2->files[st2->active].path.ToString() : NkString();
+		nkcode::NkAudioStopInactive(ap.CStr());
+	}
 	EnforceExclusiveSides(home->dlg->shell); // sidebars exclusives
 	SyncActivityMarkers(home->dlg->shell);   // marqueurs = état réel
 	// Drop OS non consommé (zone morte) : purge après quelques frames.
