@@ -639,6 +639,87 @@ namespace nkentseu {
 			return mPBRPipeline.IsValid();
 		}
 
+		// ── DEFERRED v1 : pipeline G-buffer fill (lazy, RP-compatible) ────────
+		// Calque d'EnsurePBRPipeline avec le shader DeferredGeom (MRT 3 cibles).
+		// Le blend desc unique s'applique a toutes les cibles (opaque partout).
+		bool NkRender3D::EnsureDeferredGeomPipeline(NkRenderPassHandle currentRP) {
+			if (mDeferredGeomPipeline.IsValid())
+				return true;
+			if (!mDeferredGeomShader.IsValid() && mShaderLib) {
+				auto prog = mShaderLib->LoadOrCompileVF("DeferredGeom", "", "");
+				if (prog.IsValid())
+					mDeferredGeomShader = mShaderLib->GetRHIHandle(prog);
+			}
+			if (!mDeferredGeomShader.IsValid())
+				return false;
+
+			NkGraphicsPipelineDesc pd;
+			pd.shader = mDeferredGeomShader;
+			pd.depthStencil = NkDepthStencilDesc::Default();
+			pd.rasterizer = NkRasterizerDesc::NoCull();
+			pd.blend = NkBlendDesc::Opaque();
+			pd.debugName = "Deferred_GBuffer";
+			pd.renderPass = currentRP;
+			pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+			pd.descriptorSetLayouts.PushBack(mObjectLayout);
+			if (mMat && mMat->GetInstanceLayout().IsValid())
+				pd.descriptorSetLayouts.PushBack(mMat->GetInstanceLayout());
+			pd.vertexLayout.AddBinding(0, sizeof(NkVertex3D), false)
+				.AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0, "POSITION", 0)
+				.AddAttribute(1, 0, NkVertexFormat::NK_RGB32_FLOAT, 12, "NORMAL", 0)
+				.AddAttribute(2, 0, NkVertexFormat::NK_RGB32_FLOAT, 24, "TANGENT", 0)
+				.AddAttribute(3, 0, NkVertexFormat::NK_RG32_FLOAT, 36, "TEXCOORD", 0)
+				.AddAttribute(4, 0, NkVertexFormat::NK_RG32_FLOAT, 44, "TEXCOORD", 1)
+				.AddAttribute(5, 0, NkVertexFormat::NK_RGBA8_UNORM, 52, "COLOR", 0);
+			mDeferredGeomPipeline = mDevice->CreateGraphicsPipeline(pd);
+			logger.Info("[NkRender3D] DeferredGeom pipeline: shader={0} pipeline={1}\n",
+						mDeferredGeomShader.IsValid() ? 1 : 0, mDeferredGeomPipeline.IsValid() ? 1 : 0);
+			return mDeferredGeomPipeline.IsValid();
+		}
+
+		// ── DEFERRED v1 : pipeline lighting fullscreen (lazy) ─────────────────
+		// Layouts [global, gbuf]. Le set gbuf (4 samplers) est alloue ICI
+		// (lazy) et re-ecrit chaque frame dans RenderDeferredLighting.
+		bool NkRender3D::EnsureDeferredLightPipeline(NkRenderPassHandle currentRP) {
+			if (mDeferredLightPipeline.IsValid())
+				return true;
+			if (!mDeferredLightShader.IsValid() && mShaderLib) {
+				auto prog = mShaderLib->LoadOrCompileVF("DeferredLight", "", "");
+				if (prog.IsValid())
+					mDeferredLightShader = mShaderLib->GetRHIHandle(prog);
+			}
+			if (!mDeferredLightShader.IsValid())
+				return false;
+
+			if (!mGBufLayout.IsValid()) {
+				using RHIStage = ::nkentseu::NkShaderStage;
+				NkDescriptorSetLayoutDesc gl;
+				gl.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
+					.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
+					.Add(2, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
+					.Add(3, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS);
+				mGBufLayout = mDevice->CreateDescriptorSetLayout(gl);
+				mGBufSet = mDevice->AllocateDescriptorSet(mGBufLayout);
+			}
+
+			NkGraphicsPipelineDesc pd;
+			pd.shader = mDeferredLightShader;
+			pd.depthStencil = NkDepthStencilDesc::NoDepth();
+			pd.rasterizer = NkRasterizerDesc::NoCull();
+			pd.blend = NkBlendDesc::Opaque();
+			pd.debugName = "Deferred_Lighting";
+			pd.renderPass = currentRP;
+			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 16);
+			pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+			pd.descriptorSetLayouts.PushBack(mGBufLayout);
+			// Fullscreen triangle via gl_VertexID : aucun vertex input.
+			mDeferredLightPipeline = mDevice->CreateGraphicsPipeline(pd);
+			logger.Info("[NkRender3D] DeferredLight pipeline: shader={0} pipeline={1}\n",
+						mDeferredLightShader.IsValid() ? 1 : 0, mDeferredLightPipeline.IsValid() ? 1 : 0);
+			return mDeferredLightPipeline.IsValid();
+		}
+
+
 		// ── Lazy create du pipeline de skinning GPU ──────────────────────────
 		// Calque sur EnsurePBRPipeline mais avec le vertex layout NkVertexSkinned
 		// (ajout de aBoneIdx/aBoneWeight) et le shader "Skin". L'UBO de bones
@@ -1148,6 +1229,180 @@ namespace nkentseu {
 		}
 
 		// ── Flush ────────────────────────────────────────────────────────────────
+		// =====================================================================
+		// DEFERRED v1 — G-buffer fill + lighting fullscreen + reste forward.
+		// Sequence par frame (RebuildRenderGraph, branche cfg.deferred) :
+		//   DeferredGeom -> DeferredLight -> ForwardRest.
+		// =====================================================================
+		void NkRender3D::FlushDeferredGeometry(NkICommandBuffer *cmd) {
+			if (!mInScene || !cmd)
+				return;
+			if (mDevice && mFramesInFlight > 0)
+				mFrameSlot = mDevice->GetFrameIndex() % mFramesInFlight;
+			SortDrawCalls();
+			UploadUBOs(cmd);
+
+			NkRenderPassHandle rp{};
+			if (mGraph)
+				rp = mGraph->GetPassRenderPass("DeferredGeom");
+			if (!EnsureDeferredGeomPipeline(rp))
+				return;
+
+			cmd->BindGraphicsPipeline(mDeferredGeomPipeline);
+			NkDescSetHandle gs = (mFrameSlot < mGlobalSetRing.Size()) ? mGlobalSetRing[mFrameSlot] : NkDescSetHandle{};
+			if (gs.IsValid())
+				cmd->BindDescriptorSet(gs, 0);
+
+			// Meme ObjBlock 224B que FlushOpaque/RenderShadowPass (linker GL).
+			struct ObjBlock {
+					NkMat4f model;
+					NkMat4f normalMatrix;
+					NkVec4f tint;
+					float32 metallic;
+					float32 roughness;
+					float32 aoStrength;
+					float32 emissiveStrength;
+					float32 normalStrength;
+					float32 clearcoat;
+					float32 clearcoatRough;
+					float32 subsurface;
+					NkVec4f subsurfaceColor;
+					NkVec4f shadowOverrides;
+					NkVec4f triplanarParams;
+			};
+			static_assert(sizeof(ObjBlock) == 224, "ObjBlock std140 deferred");
+
+			const bool poolFrameValid = (mFrameSlot < mUBOObjectPool.Size()) && (mFrameSlot < mObjectSetPool.Size());
+			if (!poolFrameValid)
+				return;
+
+			for (auto &sdc : mOpaque) {
+				auto &dc = sdc.dc;
+				if (!mCtx.camera.IsAABBVisible(dc.aabb))
+					continue; // frustum cull identique au forward
+				if (mObjectDrawIdx >= mObjectPoolCap) {
+					logger.Errorf("[NkRender3D] ObjectUBO pool overflow (deferred)\n");
+					break;
+				}
+				NkMaterialInstance *matInst = nullptr;
+				if (dc.material.IsValid() && mMat)
+					matInst = mMat->GetInstance(dc.material);
+				if (!matInst && mMat) {
+					if (!mFallbackMatInst.IsValid()) {
+						auto *inst = mMat->CreateInstance(mMat->DefaultPBR());
+						if (inst)
+							mFallbackMatInst = inst->GetHandle();
+					}
+					matInst = mMat->GetInstance(mFallbackMatInst);
+				}
+
+				ObjBlock ob{};
+				ob.model = dc.transform;
+				ob.normalMatrix = dc.transform.Inverse().Transpose();
+				ob.tint = {dc.tint.x, dc.tint.y, dc.tint.z, 1.f};
+				ob.metallic = dc.metallic;
+				ob.roughness = dc.roughness;
+				ob.aoStrength = dc.aoStrength;
+				ob.emissiveStrength = 0.f;				 // emissive via materiau (v1)
+				ob.normalStrength = matInst ? 1.f : 0.f; // normal map si materiau
+				ob.shadowOverrides = NkVec4f{1.f, 0.f, 1.f, 0.f};
+
+				NkBufferHandle ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
+				NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
+				if (ubo.IsValid())
+					mDevice->WriteBuffer(ubo, &ob, sizeof(ob), 0);
+				if (matInst && matInst->GetDescSet().IsValid())
+					cmd->BindDescriptorSet(matInst->GetDescSet(), 2);
+				if (os.IsValid())
+					cmd->BindDescriptorSet(os, 1);
+				mMesh->BindMesh(cmd, dc.mesh);
+				if (dc.subMeshIdx == 0xFFFFFFFFu)
+					mMesh->DrawAll(cmd, dc.mesh);
+				else
+					mMesh->DrawSubMesh(cmd, dc.mesh, dc.subMeshIdx);
+				mObjectDrawIdx++;
+			}
+			// mInScene reste VRAI : FlushForwardRest termine la frame.
+		}
+
+		void NkRender3D::RenderDeferredLighting(NkICommandBuffer *cmd, ::nkentseu::NkTextureHandle texA,
+												::nkentseu::NkTextureHandle texN, ::nkentseu::NkTextureHandle texE,
+												::nkentseu::NkTextureHandle texD) {
+			if (!cmd)
+				return;
+			NkRenderPassHandle rp{};
+			if (mGraph)
+				rp = mGraph->GetPassRenderPass("DeferredLight");
+			if (!EnsureDeferredLightPipeline(rp))
+				return;
+
+			// Ecrit les 4 textures du G-buffer dans le set (refait chaque frame,
+			// pattern mToneSet du post-process).
+			if (mGBufSet.IsValid() && mResources) {
+				NkSamplerHandle samp = mResources->GetSamplerLinearClamp();
+				mDevice->BindTextureSampler(mGBufSet, 0, texA, samp);
+				mDevice->BindTextureSampler(mGBufSet, 1, texN, samp);
+				mDevice->BindTextureSampler(mGBufSet, 2, texE, samp);
+				mDevice->BindTextureSampler(mGBufSet, 3, texD, samp);
+			}
+
+			cmd->BindGraphicsPipeline(mDeferredLightPipeline);
+			NkDescSetHandle gs = (mFrameSlot < mGlobalSetRing.Size()) ? mGlobalSetRing[mFrameSlot] : NkDescSetHandle{};
+			if (gs.IsValid())
+				cmd->BindDescriptorSet(gs, 0);
+			if (mGBufSet.IsValid())
+				cmd->BindDescriptorSet(mGBufSet, 1);
+
+			struct PC {
+					float32 invResW, invResH, yFlipUV, _pad;
+			} pc;
+			pc.invResW = 1.f;
+			pc.invResH = 1.f;
+			pc.yFlipUV = 1.f; // PAS de flip : G-buffer et sortie partagent l'orientation FBO
+			static int sDbg = -1;
+			if (sDbg < 0) {
+				const char *v = getenv("NK_DEFLIGHT_DEBUG");
+				sDbg = (v && v[0]) ? atoi(v) : 0;
+			}
+			pc._pad = (float32)sDbg; // 1=N, 2=worldPos, 3=albedo (diag)
+			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+			cmd->Draw(3, 1, 0, 0);
+		}
+
+		void NkRender3D::FlushForwardRest(NkICommandBuffer *cmd) {
+			if (!mInScene || !cmd)
+				return;
+			NkRenderPassHandle currentRP{};
+			if (mGraph)
+				currentRP = mGraph->GetPassRenderPass("ForwardRest");
+
+			if (!mSkinned.Empty())
+				EnsureSkinPipeline(currentRP);
+			if (mDrawSkybox) {
+				EnsureSkyboxPipeline(currentRP);
+				DrawSkybox(cmd);
+			}
+			if (mMat)
+				mMat->UpdateRenderPass(currentRP);
+			if (mPBRPipeline.IsValid())
+				cmd->BindGraphicsPipeline(mPBRPipeline);
+			NkDescSetHandle gs = (mFrameSlot < mGlobalSetRing.Size()) ? mGlobalSetRing[mFrameSlot] : NkDescSetHandle{};
+			if (gs.IsValid())
+				cmd->BindDescriptorSet(gs, 0);
+			FlushInstanced(cmd);
+			FlushSkinned(cmd);
+			if (mDrawGrid) {
+				EnsureGridPipeline(currentRP);
+				DrawGrid(cmd);
+				if (gs.IsValid())
+					cmd->BindDescriptorSet(gs, 0);
+			}
+			FlushTransparent(cmd);
+			if (!mPendingMirrorActive)
+				FlushDebug(cmd, currentRP, gs);
+			mInScene = false;
+		}
+
 		void NkRender3D::Flush(NkICommandBuffer *cmd) {
 			if (!mInScene)
 				return;
