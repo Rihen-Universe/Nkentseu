@@ -658,6 +658,11 @@ namespace nkentseu {
 			pd.depthStencil = NkDepthStencilDesc::Default();
 			pd.rasterizer = NkRasterizerDesc::NoCull();
 			pd.blend = NkBlendDesc::Opaque();
+			// MRT : Vulkan (et DX12) exigent UN blend state PAR attachement
+			// couleur — avec 1 seul, les cibles 1..2 sont indefinies (VK sombre,
+			// DX12 blanc). 3 cibles => 3 blends opaques.
+			while (pd.blend.attachments.Size() < 3)
+				pd.blend.attachments.PushBack(NkBlendAttachment::Opaque());
 			pd.debugName = "Deferred_GBuffer";
 			pd.renderPass = currentRP;
 			pd.descriptorSetLayouts.PushBack(mGlobalLayout);
@@ -1365,9 +1370,11 @@ namespace nkentseu {
 			const bool dIsVK = (dApi == NkGraphicsApi::NK_GFX_API_VULKAN);
 			const bool dIsDX =
 				(dApi == NkGraphicsApi::NK_GFX_API_DX11) || (dApi == NkGraphicsApi::NK_GFX_API_DX12);
-			pc.invResW = dIsVK ? 1.f : -1.f; // = ndcYSign (invResolution inutilisee sinon)
+			// VK valide capture : memes conventions que DX (sample flippe +
+			// ndcY negatif) — l'essai sample direct donnait l'image inversee.
+			pc.invResW = -1.f; // = ndcYSign (tous backends)
 			pc.invResH = 0.f;
-			pc.yFlipUV = dIsDX ? -1.f : 1.f;
+			pc.yFlipUV = (dIsDX || dIsVK) ? -1.f : 1.f;
 			static int sDbg = -1;
 			if (sDbg < 0) {
 				const char *v = getenv("NK_DEFLIGHT_DEBUG");
