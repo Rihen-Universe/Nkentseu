@@ -933,17 +933,13 @@ namespace nkentseu {
 				}
 			}
 
-			// Déblocage d'une image INTRA : bS = 4 (bord MB) / 3 (interne). QP moyen par bord.
-			void DeblockIntra(DecCtx &c, const int32 *mbQp, int32 alphaOff, int32 betaOff) {
-				const int32 mbW = c.mbW;
-				auto lumaEdge = [&](int32 qPav, int32 bS, int32 &alpha, int32 &beta, int32 &tc0) {
+			// Déblocage §8.7 (intra ET inter) : bS calculé par segment 4x4.
+			//   intra impliqué -> 4 (bord MB) / 3 (interne) ; inter -> 2 (coeff nz) / 1 (Δmv≥1pel) / 0.
+			void Deblock(DecCtx &c, const int32 *mbQp, int32 alphaOff, int32 betaOff) {
+				const int32 mbW = c.mbW, nzW = c.nzW;
+				int32 alpha, beta, tc0;
+				auto lumaEdge = [&](int32 qPav, int32 bS) {
 					const int32 ia = Clamp(qPav + alphaOff, 0, 51), ib = Clamp(qPav + betaOff, 0, 51);
-					alpha = kAlpha[ia];
-					beta = kBeta[ib];
-					tc0 = (bS < 4) ? kTc0[ia][bS - 1] : 0;
-				};
-				auto chromaEdge = [&](int32 qPavC, int32 bS, int32 &alpha, int32 &beta, int32 &tc0) {
-					const int32 ia = Clamp(qPavC + alphaOff, 0, 51), ib = Clamp(qPavC + betaOff, 0, 51);
 					alpha = kAlpha[ia];
 					beta = kBeta[ib];
 					tc0 = (bS < 4) ? kTc0[ia][bS - 1] : 0;
@@ -951,58 +947,94 @@ namespace nkentseu {
 				auto chromaQpOf = [&](int32 lumaQp) {
 					return NkH264Transform::ChromaQp(Clamp(lumaQp + c.chromaQpOffset, 0, 51));
 				};
+				// Force de bord entre les blocs 4x4 q(qx,qy) et p(px,py) ; mbB = bord de MB.
+				auto bsOf = [&](int32 qx, int32 qy, int32 px, int32 py, bool mbB) -> int32 {
+					const int32 rq = c.ref4[qy * nzW + qx], rp = c.ref4[py * nzW + px];
+					if (rq < 0 || rp < 0)
+						return mbB ? 4 : 3; // intra impliqué
+					if (c.lumaNz[qy * nzW + qx] > 0 || c.lumaNz[py * nzW + px] > 0)
+						return 2;
+					const int32 dx = c.mvx4[qy * nzW + qx] - c.mvx4[py * nzW + px];
+					const int32 dy = c.mvy4[qy * nzW + qx] - c.mvy4[py * nzW + px];
+					const int32 adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+					return (adx >= 4 || ady >= 4) ? 1 : 0;
+				};
 
 				for (int32 mbY = 0; mbY < c.mbH; ++mbY)
 					for (int32 mbX = 0; mbX < mbW; ++mbX) {
 						const int32 cur = mbY * mbW + mbX;
 						const int32 qpQ = mbQp[cur];
-						int32 alpha, beta, tc0;
-						// Luma bords verticaux.
+						// Luma bords verticaux (par segment de 4 lignes).
 						for (int32 e = 0; e < 4; ++e) {
 							if (e == 0 && mbX == 0)
 								continue;
-							const int32 bS = (e == 0) ? 4 : 3;
-							const int32 qPav = (e == 0) ? ((mbQp[cur - 1] + qpQ + 1) >> 1) : qpQ;
-							lumaEdge(qPav, bS, alpha, beta, tc0);
 							const int32 x = mbX * 16 + e * 4;
-							for (int32 row = 0; row < 16; ++row)
-								FiltLuma(&c.Y[(usize)(mbY * 16 + row) * c.lumaW + x], 1, alpha, beta, bS, tc0);
+							const int32 qPav = (e == 0) ? ((mbQp[cur - 1] + qpQ + 1) >> 1) : qpQ;
+							for (int32 seg = 0; seg < 4; ++seg) {
+								const int32 qx = mbX * 4 + e, qy = mbY * 4 + seg;
+								const int32 pxx = (e == 0) ? (mbX * 4 - 1) : (mbX * 4 + e - 1);
+								const int32 bS = bsOf(qx, qy, pxx, qy, e == 0);
+								if (!bS)
+									continue;
+								lumaEdge(qPav, bS);
+								for (int32 r = 0; r < 4; ++r)
+									FiltLuma(&c.Y[(usize)(mbY * 16 + seg * 4 + r) * c.lumaW + x], 1, alpha, beta, bS, tc0);
+							}
 						}
 						// Luma bords horizontaux.
 						for (int32 e = 0; e < 4; ++e) {
 							if (e == 0 && mbY == 0)
 								continue;
-							const int32 bS = (e == 0) ? 4 : 3;
-							const int32 qPav = (e == 0) ? ((mbQp[cur - mbW] + qpQ + 1) >> 1) : qpQ;
-							lumaEdge(qPav, bS, alpha, beta, tc0);
 							const int32 y = mbY * 16 + e * 4;
-							for (int32 col = 0; col < 16; ++col)
-								FiltLuma(&c.Y[(usize)y * c.lumaW + mbX * 16 + col], c.lumaW, alpha, beta, bS, tc0);
+							const int32 qPav = (e == 0) ? ((mbQp[cur - mbW] + qpQ + 1) >> 1) : qpQ;
+							for (int32 seg = 0; seg < 4; ++seg) {
+								const int32 qx = mbX * 4 + seg, qy = mbY * 4 + e;
+								const int32 pyy = (e == 0) ? (mbY * 4 - 1) : (mbY * 4 + e - 1);
+								const int32 bS = bsOf(qx, qy, qx, pyy, e == 0);
+								if (!bS)
+									continue;
+								lumaEdge(qPav, bS);
+								for (int32 col = 0; col < 4; ++col)
+									FiltLuma(&c.Y[(usize)y * c.lumaW + mbX * 16 + seg * 4 + col], c.lumaW, alpha, beta, bS,
+											 tc0);
+							}
 						}
-						// Chroma 4:2:0 : bords cx/cy = 0 et 4 (ec = 0,1).
+						// Chroma 4:2:0 : bords ec=0/1 (↔ luma e=0/2) ; bS repris du segment luma cr/2.
 						for (int32 comp = 0; comp < 2; ++comp) {
 							uint8 *rec = (comp == 0) ? c.Cb : c.Cr;
 							for (int32 ec = 0; ec < 2; ++ec) {
 								if (ec == 0 && mbX == 0)
 									continue;
-								const int32 bS = (ec == 0) ? 4 : 3;
+								const int32 e = ec * 2, cx = mbX * 8 + ec * 4;
 								const int32 qpcQ = chromaQpOf(qpQ);
 								const int32 qPavC = (ec == 0) ? ((chromaQpOf(mbQp[cur - 1]) + qpcQ + 1) >> 1) : qpcQ;
-								chromaEdge(qPavC, bS, alpha, beta, tc0);
-								const int32 cx = mbX * 8 + ec * 4;
-								for (int32 cr = 0; cr < 8; ++cr)
+								for (int32 cr = 0; cr < 8; ++cr) {
+									const int32 seg = cr / 2;
+									const int32 qx = mbX * 4 + e, qy = mbY * 4 + seg;
+									const int32 pxx = (e == 0) ? (mbX * 4 - 1) : (mbX * 4 + e - 1);
+									const int32 bS = bsOf(qx, qy, pxx, qy, e == 0);
+									if (!bS)
+										continue;
+									lumaEdge(qPavC, bS);
 									FiltChroma(&rec[(usize)(mbY * 8 + cr) * c.chromaW + cx], 1, alpha, beta, bS, tc0);
+								}
 							}
 							for (int32 ec = 0; ec < 2; ++ec) {
 								if (ec == 0 && mbY == 0)
 									continue;
-								const int32 bS = (ec == 0) ? 4 : 3;
+								const int32 e = ec * 2, cy = mbY * 8 + ec * 4;
 								const int32 qpcQ = chromaQpOf(qpQ);
 								const int32 qPavC = (ec == 0) ? ((chromaQpOf(mbQp[cur - mbW]) + qpcQ + 1) >> 1) : qpcQ;
-								chromaEdge(qPavC, bS, alpha, beta, tc0);
-								const int32 cy = mbY * 8 + ec * 4;
-								for (int32 cc = 0; cc < 8; ++cc)
+								for (int32 cc = 0; cc < 8; ++cc) {
+									const int32 seg = cc / 2;
+									const int32 qx = mbX * 4 + seg, qy = mbY * 4 + e;
+									const int32 pyy = (e == 0) ? (mbY * 4 - 1) : (mbY * 4 + e - 1);
+									const int32 bS = bsOf(qx, qy, qx, pyy, e == 0);
+									if (!bS)
+										continue;
+									lumaEdge(qPavC, bS);
 									FiltChroma(&rec[(usize)cy * c.chromaW + mbX * 8 + cc], c.chromaW, alpha, beta, bS, tc0);
+								}
 							}
 						}
 					}
@@ -1240,10 +1272,9 @@ namespace nkentseu {
 				}
 			}
 
-			// Déblocage en boucle (§8.7). Intra : bS 4/3 exact. P : bS inter (mv/nz) pas encore
-			// implémenté -> on ne débloque que les I-frames (les flux P testés sont no-deblock).
-			if (isI && disableDeblock != 1)
-				DeblockIntra(c, mbQp.Data(), alphaOff, betaOff);
+			// Déblocage en boucle (§8.7), intra ET inter (bS par segment 4x4).
+			if (disableDeblock != 1)
+				Deblock(c, mbQp.Data(), alphaOff, betaOff);
 
 			out.lumaW = lumaW;
 			out.lumaH = lumaH;
