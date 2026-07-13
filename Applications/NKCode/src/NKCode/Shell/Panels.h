@@ -11,6 +11,7 @@
 #include "NKCode/Project/NkTerm.h"
 #include "NKCode/Editor/NkTextDraw.h"
 #include "NKCode/Editor/NkMarkdown.h" // viewer .md (preview rendu)
+#include "NKCode/Editor/NkJsonView.h" // viewer .json (arbre repliable colore)
 #include "NKCode/Shell/NkI18n.h"  // NkT() : bannière mojibake traduite
 #include "NKCode/Shell/NkShell.h" // NkCodeShellRun (révéler dans l'explorateur / terminal)
 #include "NKCode/Shell/NkExplorer.h" // ExplorerPanel (arbre + git + filtre, maquette Banani)
@@ -810,6 +811,7 @@ namespace nkentseu {
 
 					// Bascule preview/edition pour les .md (bouton haut-droite).
 					const bool isMd = !f.IsMedia() && NkCodeState::EndsWithI(f.Name().CStr(), ".md");
+					const bool isJson = !f.IsMedia() && NkCodeState::EndsWithI(f.Name().CStr(), ".json");
 					if (f.IsMedia()) { // MEDIA -> viewer dedie a la place de l'editeur
 						if (f.mediaKind == 3) // AUDIO : onde + play/pause/seek (NKAudio natif)
 							DrawAudioViewer(ctx, f, r);
@@ -817,6 +819,13 @@ namespace nkentseu {
 							DrawMediaViewer(ctx, mShell, f, r);
 					} else if (isMd && f.mdPreview) { // MARKDOWN -> preview rendu
 						NkDrawMarkdown(ctx, f.doc.GetText().CStr(), r, f.mdScroll);
+					} else if (isJson && f.mdPreview) { // JSON -> arbre repliable EDITABLE
+						const NkString jtxt = f.doc.GetText();
+						NkString jnew;
+						bool jchanged = false;
+						NkDrawJson(ctx, &f, jtxt.CStr(), r, f.mdScroll, jnew, jchanged);
+						if (jchanged)
+							f.doc.SetText(jnew.CStr());
 					} else {
 						mS->StartProjectIndex(); // index sémantique niveau projet (async, une fois)
 						const NkVector<NkString> *ppDefs = mS->EffectiveDefines(
@@ -825,10 +834,10 @@ namespace nkentseu {
 								   mS->projReady ? &mS->projTypes : nullptr, mS->projReady ? &mS->projFuncs : nullptr,
 								   ppDefs);
 					}
-					// Bascule Apercu/Editer pour les .md — dessinee AU-DESSUS du contenu (sinon la preview la recouvre).
-					if (isMd) {
+					// Bascule Apercu/Editer pour .md et .json — dessinee AU-DESSUS du contenu (sinon la preview la recouvre).
+					if (isMd || isJson) {
 						const float32 lhh = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
-						const char *tlab = f.mdPreview ? "</> Code source" : "Apercu rendu";
+						const char *tlab = f.mdPreview ? "</> Code source" : (isJson ? "Arbre JSON" : "Apercu rendu");
 						const float32 bw = ((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(tlab) : 60.f) + 22.f;
 						const NkRect tbb = {r.x + r.w - bw - 16.f, r.y + 8.f, bw, lhh + 10.f};
 						const NkVec2 mm = ctx.input.mousePos;
