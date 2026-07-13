@@ -361,8 +361,14 @@ namespace nkentseu {
 				}
 				avail = true;
 				ref = c.ref4[y4 * c.nzW + x4];
-				mx = c.mvx4[y4 * c.nzW + x4];
-				my = c.mvy4[y4 * c.nzW + x4];
+				// Voisin INTRA (ref==-1) : sa MV vaut 0 pour la prediction (H.264 §8.4.1.3.2),
+				// PAS la valeur périmée de mvx4/mvy4 (StoreMv4 n'est appelé que pour l'inter).
+				if (ref < 0) {
+					mx = my = 0;
+				} else {
+					mx = c.mvx4[y4 * c.nzW + x4];
+					my = c.mvy4[y4 * c.nzW + x4];
+				}
 			}
 
 			// Stocke la MV d'une partition (grille 4x4) + marque ref4=0 (inter).
