@@ -113,9 +113,11 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    (`GetConfig()`). Démo `--demo=19` Stream : allée de panneaux, caméra libre
    (C/WASD), distances réglables live (1/2+Shift), fondu anti-pop.
    Reste v3 : LOD meshes, vraie chaîne de mips partagée (base-level GPU).
-   6) Deferred lighting pass + branchement (gros ; jamais instancié par le renderer). 7) IK
-   renderer (orphelin — NB : NkAnima a son propre IK validé, celui du renderer est redondant à
-   requalifier/supprimer). 8) ~~Animation avancée~~ ✅ **LIVRÉ v1 (2026-07-13)** :
+   6) Deferred lighting pass + branchement (gros ; jamais instancié par le renderer). 7) ~~IK renderer~~ ✅ **REQUALIFIÉ (2026-07-13)** :
+   il n'existe qu'UN module IK (`Tools/IK/NkIKSystem`) et il N'EST PLUS orphelin — rendu
+   fonctionnel par NkAnima M0 (3240b1ae : FABRIK/TwoBone/CCD sur positions réelles via
+   `BindPose`/`EvaluateGLTFWorldJoints`, validé DemoIK + DemoIKChar). La note d'audit
+   « placeholder {0,0,0} » datait d'avant M0. Rien à supprimer : c'est L'IK de NkAnima. 8) ~~Animation avancée~~ ✅ **LIVRÉ v1 (2026-07-13)** :
    **NkBlendTree1D** (N clips sur un axe paramétrique, blend BONE-LOCAL TRS-NLerp par os
    AVANT le FK — correct sur les rotations — + phases synchronisées via temps normalisé
    sur durée interpolée) + **NkAnimStateMachine** (états clip/blend-tree, transitions
