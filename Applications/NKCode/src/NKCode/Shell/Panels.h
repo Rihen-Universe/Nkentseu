@@ -2277,49 +2277,6 @@ namespace nkentseu {
 							SavePrefs();
 						}
 					}
-					// ââ Replier (chevron) + maximiser la REGION du panneau bas, a gauche de l'etoile ââ
-					if (mShell) {
-						const float32 starX = addR.x - cw - 1.f - h;
-						const float32 bh2 = h - 4.f;
-						const int32 rmode = mShell->PanelRegionMode();
-						// Maximiser / restaurer.
-						const NkRect maxR = {starX - bh2 - 6.f, bar.y + 2.f, bh2, bh2};
-						const bool mh = inR(maxR);
-						if (mh)
-							dl.AddRectFilled(maxR, ctx.theme.buttonHover, 3.f);
-						{
-							const NkColor c = mh ? ctx.theme.text : ctx.theme.textDisabled;
-							const float32 s2 = bh2 - 12.f;
-							if (rmode == 2) {
-								dl.AddRect({maxR.x + 5.f, maxR.y + 7.f, s2, s2}, c, 1.4f);
-								dl.AddRect({maxR.x + 8.f, maxR.y + 4.f, s2, s2}, c, 1.4f);
-							} else {
-								const NkRect w = {maxR.x + 5.f, maxR.y + 5.f, bh2 - 10.f, bh2 - 10.f};
-								dl.AddRect(w, c, 1.4f);
-								dl.AddRectFilled({w.x, w.y, w.w, 2.5f}, c);
-							}
-							if (mh && ctx.input.mouseClicked[0] && ctx.popupDepth == 0)
-								mShell->ToggleMaximizePanel("TERMINAL");
-						}
-						// Replier / restaurer (chevron bas quand etendu, haut quand replie).
-						const NkRect colR = {maxR.x - bh2 - 4.f, bar.y + 2.f, bh2, bh2};
-						const bool ch2 = inR(colR);
-						if (ch2)
-							dl.AddRectFilled(colR, ctx.theme.buttonHover, 3.f);
-						{
-							const NkColor c = ch2 ? ctx.theme.text : ctx.theme.textDisabled;
-							const float32 cx = colR.x + bh2 * 0.5f, cy = colR.y + bh2 * 0.5f;
-							if (rmode == 1) {
-								dl.AddLine({cx - 4.f, cy + 2.f}, {cx, cy - 2.f}, c, 1.6f);
-								dl.AddLine({cx, cy - 2.f}, {cx + 4.f, cy + 2.f}, c, 1.6f);
-							} else {
-								dl.AddLine({cx - 4.f, cy - 2.f}, {cx, cy + 2.f}, c, 1.6f);
-								dl.AddLine({cx, cy + 2.f}, {cx + 4.f, cy - 2.f}, c, 1.6f);
-							}
-							if (ch2 && ctx.input.mouseClicked[0] && ctx.popupDepth == 0)
-								mShell->ToggleCollapsePanel("TERMINAL");
-						}
-					}
 					const float32 savedW = ctx.layout.region.w;
 					const float32 comboH = h - ctx.S(9.f); // combo un peu plus court que la barre (centre)
 					ctx.layout.cursor = {addR.x - cw - 1.f, bar.y + (h - comboH) * 0.5f};

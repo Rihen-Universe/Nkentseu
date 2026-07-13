@@ -192,6 +192,11 @@ namespace nkentseu {
 			mUI.dockHeaderUser = this;
 			mUI.dockHeaderFn = [](NkGuiContext &c, const NkRect &bar, NkGuiId win, void *u) {
 				auto *self = static_cast<NkEditorShell *>(u);
+				// Region HAUT|BAS -> le SHELL reserve un espace a DROITE pour maximiser/replier
+				// (dispo pour TOUS les onglets de la region, pas seulement l'actif).
+				const bool region = self->IsBottomRegionTab(c, win);
+				const float32 rw = region ? 2.f * bar.h + 6.f : 0.f;
+				const NkRect innerBar = {bar.x, bar.y, bar.w - rw, bar.h};
 				for (int32 i = 0; i < self->mNumPanels; ++i)
 					if (c.GetId(self->mPanels[i]->Title()) == win) {
 						// Le masquage anti clic-a-travers (souris sur un popup) vise les corps en
@@ -201,12 +206,22 @@ namespace nkentseu {
 						if (self->mPopupMasked) {
 							const nkgui::NkGuiInput masked = c.input;
 							c.input = self->mRealInput;
-							self->mPanels[i]->OnTabBarActions(c, bar);
+							self->mPanels[i]->OnTabBarActions(c, innerBar);
 							c.input = masked;
 						} else
-							self->mPanels[i]->OnTabBarActions(c, bar);
+							self->mPanels[i]->OnTabBarActions(c, innerBar);
 						break;
 					}
+				if (region) { // boutons region (shell-level), a l'extreme droite
+					const NkRect rb = {bar.x + bar.w - rw + 6.f, bar.y, rw - 6.f, bar.h};
+					if (self->mPopupMasked) {
+						const nkgui::NkGuiInput masked = c.input;
+						c.input = self->mRealInput;
+						self->DrawRegionButtons(c, rb, win);
+						c.input = masked;
+					} else
+						self->DrawRegionButtons(c, rb, win);
+				}
 			};
 
 			// ── DEUX polices distinctes (comme VSCode), pilotees par les reglages ──
@@ -1332,6 +1347,77 @@ namespace nkentseu {
 		}
 		void NkEditorShell::ToggleCollapsePanel(const char *title) noexcept {
 			SetRegionMode(title, mDockRegionState == 1 ? 0 : 1);
+		}
+
+		bool NkEditorShell::IsBottomRegionTab(NkGuiContext &c, NkGuiId win) noexcept {
+			const char *title = nullptr;
+			for (int32 i = 0; i < mNumPanels; ++i)
+				if (mPanels[i] && c.GetId(mPanels[i]->Title()) == win) {
+					title = mPanels[i]->Title();
+					break;
+				}
+			if (!title)
+				return false;
+			const int32 leaf = DockWindowNode(c, title);
+			if (leaf < 0 || leaf >= static_cast<int32>(c.dockNodes.Size()))
+				return false;
+			const int32 par = c.dockNodes[leaf].parent;
+			return par >= 0 && par < static_cast<int32>(c.dockNodes.Size()) && c.dockNodes[par].kind == 1 &&
+				   !c.dockNodes[par].vertical; // split HAUT|BAS
+		}
+
+		// Boutons maximiser/replier de la REGION, dessines par le shell -> dispo pour TOUS les onglets.
+		void NkEditorShell::DrawRegionButtons(NkGuiContext &c, const NkRect &area, NkGuiId win) noexcept {
+			const char *title = nullptr;
+			for (int32 i = 0; i < mNumPanels; ++i)
+				if (mPanels[i] && c.GetId(mPanels[i]->Title()) == win) {
+					title = mPanels[i]->Title();
+					break;
+				}
+			if (!title)
+				return;
+			auto &dl = c.DL();
+			const float32 bh2 = area.h - 8.f;
+			const NkVec2 m = c.input.mousePos;
+			const int32 rmode = mDockRegionState;
+			auto inR = [&](const NkRect &r) { return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h; };
+			// Maximiser / restaurer (a l'extreme droite).
+			const NkRect maxR = {area.x + area.w - bh2 - 4.f, area.y + 4.f, bh2, bh2};
+			const bool mh = inR(maxR);
+			if (mh)
+				dl.AddRectFilled(maxR, c.theme.buttonHover, 3.f);
+			{
+				const NkColor col = mh ? c.theme.text : c.theme.textDisabled;
+				const float32 s2 = bh2 - 12.f;
+				if (rmode == 2) {
+					dl.AddRect({maxR.x + 5.f, maxR.y + 7.f, s2, s2}, col, 1.4f);
+					dl.AddRect({maxR.x + 8.f, maxR.y + 4.f, s2, s2}, col, 1.4f);
+				} else {
+					const NkRect w = {maxR.x + 5.f, maxR.y + 5.f, bh2 - 10.f, bh2 - 10.f};
+					dl.AddRect(w, col, 1.4f);
+					dl.AddRectFilled({w.x, w.y, w.w, 2.5f}, col);
+				}
+				if (mh && c.input.mouseClicked[0] && c.popupDepth == 0)
+					SetRegionMode(title, mDockRegionState == 2 ? 0 : 2);
+			}
+			// Replier / restaurer (chevron, a gauche du maximiser).
+			const NkRect colR = {maxR.x - bh2 - 4.f, area.y + 4.f, bh2, bh2};
+			const bool ch2 = inR(colR);
+			if (ch2)
+				dl.AddRectFilled(colR, c.theme.buttonHover, 3.f);
+			{
+				const NkColor col = ch2 ? c.theme.text : c.theme.textDisabled;
+				const float32 cx = colR.x + bh2 * 0.5f, cy = colR.y + bh2 * 0.5f;
+				if (rmode == 1) { // replie -> chevron HAUT (restaurer)
+					dl.AddLine({cx - 4.f, cy + 2.f}, {cx, cy - 2.f}, col, 1.6f);
+					dl.AddLine({cx, cy - 2.f}, {cx + 4.f, cy + 2.f}, col, 1.6f);
+				} else { // etendu -> chevron BAS (replier)
+					dl.AddLine({cx - 4.f, cy - 2.f}, {cx, cy + 2.f}, col, 1.6f);
+					dl.AddLine({cx, cy + 2.f}, {cx + 4.f, cy - 2.f}, col, 1.6f);
+				}
+				if (ch2 && c.input.mouseClicked[0] && c.popupDepth == 0)
+					SetRegionMode(title, mDockRegionState == 1 ? 0 : 1);
+			}
 		}
 
 		int32 NkEditorShell::PanelDockNode(const char *title) noexcept {
