@@ -41,6 +41,7 @@ Selon ce que vous cherchez à faire :
 | Sculpter de la matière en volume (voxels) | [Le système voxel](NKRenderer/Voxel.md) |
 | Sculpter en espace-écran à la ZBrush (pixol) | [Le sculpting](NKRenderer/Sculpt.md) |
 | Animer, faire de l'IK, des particules, de la simulation, capturer pour une IA | [Les systèmes](NKRenderer/FeatureSystems.md) |
+| Capturer le rendu en PNG, enregistrer en vidéo MP4 (fenêtre vivante, async) | [Capture & enregistrement](NKRenderer/Capture.md) |
 
 Chaque page décrit l'**API publique réelle** du module, ses structures de données, ses idiomes de
 cycle de vie (`Create`/`Destroy` ou `Init`/`Shutdown`) et ses pièges concrets.

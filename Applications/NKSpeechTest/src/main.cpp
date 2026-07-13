@@ -3,10 +3,34 @@
 // AUCUN device GPU : pur CPU. Sortie via printf (sortie directe console).
 // =============================================================================
 #include "NKSpeech/NkAudioFeatures.h"
+#include "NKSpeech/NkGriffinLim.h"
+#include "NKSpeech/NkVoiceSynth.h"
 
 #include <cstdio>
 
 using namespace nkentseu;
+
+// Écrit un WAV PCM16 mono (pour ÉCOUTER la synthèse). RIFF little-endian.
+static void WriteWavPcm16(const char *path, const float *samples, int n, int sampleRate) {
+	FILE *fp = fopen(path, "wb");
+	if (!fp)
+		return;
+	auto u32 = [&](unsigned v) { fputc(v & 255, fp); fputc((v >> 8) & 255, fp); fputc((v >> 16) & 255, fp); fputc((v >> 24) & 255, fp); };
+	auto u16 = [&](unsigned v) { fputc(v & 255, fp); fputc((v >> 8) & 255, fp); };
+	const int dataBytes = n * 2;
+	fwrite("RIFF", 1, 4, fp); u32(36 + dataBytes); fwrite("WAVE", 1, 4, fp);
+	fwrite("fmt ", 1, 4, fp); u32(16); u16(1); u16(1);           // PCM, mono
+	u32(sampleRate); u32(sampleRate * 2); u16(2); u16(16);        // byte rate, block align, bits
+	fwrite("data", 1, 4, fp); u32(dataBytes);
+	for (int i = 0; i < n; ++i) {
+		float v = samples[i];
+		if (v > 1.0f) v = 1.0f;
+		if (v < -1.0f) v = -1.0f;
+		int s = (int)(v * 32767.0f);
+		u16((unsigned)(s & 0xFFFF));
+	}
+	fclose(fp);
+}
 
 int main() {
 	printf("=== NKSpeechTest — parole from-scratch (NKAI, headless) ===\n\n");
@@ -20,6 +44,82 @@ int main() {
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
+	}
+
+	{
+		++nbTotal;
+		const bool ok = ai::NkGriffinLim::SelfTest();
+		printf("[ %s ] NkGriffinLim : vocodeur (spectrogramme magnitude -> onde, phase iterative ; "
+			   "magnitude reconstruite fidele + energie preservee)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+
+	{
+		++nbTotal;
+		const bool ok = ai::NkVoiceSynth::SelfTest();
+		printf("[ %s ] NkVoiceSynth : synthese par formants (voyelle 'a' -> energie autour de F1/F2)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+
+	// Synthese AUDIBLE (a ecouter).
+	{
+		// Sequence de voyelles a e i o u (u = /y/ francais) + le "ou" a la fin pour comparer.
+		auto voyelles = []() {
+			NkVector<ai::NkPhone> seq;
+			const char v[6] = {'a', 'e', 'i', 'o', 'u', 'w'}; // 'w' = "ou" /u/
+			for (int i = 0; i < 6; ++i) {
+				seq.PushBack(ai::NkVoiceSynth::Vowel(v[i], 300.0f));
+				ai::NkPhone sil;
+				sil.gain = 0.0f;
+				sil.durationMs = 70.0f;
+				seq.PushBack(sil);
+			}
+			return seq;
+		};
+
+		struct Voix {
+			const char *file;
+			ai::NkVoiceSynthConfig cfg;
+		};
+		Voix voix[4] = {
+			{"nkvoice_homme.wav", ai::NkVoiceSynthConfig::Homme()},
+			{"nkvoice_femme.wav", ai::NkVoiceSynthConfig::Femme()},
+			{"nkvoice_enfant.wav", ai::NkVoiceSynthConfig::Enfant()},
+			{"nkvoice_geant.wav", ai::NkVoiceSynthConfig::Geant()},
+		};
+		NkVector<ai::NkPhone> seq = voyelles();
+		for (int k = 0; k < 4; ++k) {
+			NkVector<float32> wav = ai::NkVoiceSynth::Synthesize(seq, voix[k].cfg);
+			if (wav.Size() > 0) {
+				WriteWavPcm16(voix[k].file, wav.Data(), (int)wav.Size(), voix[k].cfg.sampleRate);
+				printf("       -> %s (%d ech., F0=%.0f Hz) : a e i o u [u=/y/] ou\n", voix[k].file,
+					   (int)wav.Size(), voix[k].cfg.f0);
+			}
+		}
+
+		// MOTS (consonnes + voyelles) : "papa", "maman", "salu", "lili".
+		struct Mot {
+			const char *file;
+			const char *phon;
+		};
+		Mot mots[4] = {
+			{"nkmot_papa.wav", "p a p a"},
+			{"nkmot_maman.wav", "m a m a~"},
+			{"nkmot_salu.wav", "s a l u"},
+			{"nkmot_lili.wav", "l i l i"},
+		};
+		ai::NkVoiceSynthConfig cfgH = ai::NkVoiceSynthConfig::Homme();
+		for (int k = 0; k < 4; ++k) {
+			NkVector<float32> wav = ai::NkVoiceSynth::Speak(mots[k].phon, cfgH);
+			if (wav.Size() > 0) {
+				WriteWavPcm16(mots[k].file, wav.Data(), (int)wav.Size(), cfgH.sampleRate);
+				printf("       -> %s (\"%s\")\n", mots[k].file, mots[k].phon);
+			}
+		}
 	}
 
 	printf("\n=== Resultat : %d/%d suites OK ===\n", nbOk, nbTotal);

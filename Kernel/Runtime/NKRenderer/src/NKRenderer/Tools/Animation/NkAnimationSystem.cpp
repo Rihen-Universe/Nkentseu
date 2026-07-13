@@ -470,10 +470,20 @@ namespace nkentseu {
 						r[i][j] = ka.value[i][j] + (kb.value[i][j] - ka.value[i][j]) * a;
 				return r;
 			}
+			return NkBlendLocalTRS(ka.value, kb.value, a);
+		}
+
+		// Blend TRS-NLerp de deux matrices BONE-LOCALES (cf. header). Extrait de
+		// SampleBoneLocalSlerp pour etre partage avec NkBlendTree1D / state machine.
+		NkMat4f NkBlendLocalTRS(const NkMat4f &A, const NkMat4f &B, float32 a) {
+			if (a <= 0.f)
+				return A;
+			if (a >= 1.f)
+				return B;
 			NkVec3f ta, sa, tb, sb;
 			NkMat4f ra, rb;
-			ka.value.DecomposeTRS(ta, ra, sa);
-			kb.value.DecomposeTRS(tb, rb, sb);
+			A.DecomposeTRS(ta, ra, sa);
+			B.DecomposeTRS(tb, rb, sb);
 			NkQuatf qa(ra), qb(rb);
 			NkVec3f tt = {ta.x + (tb.x - ta.x) * a, ta.y + (tb.y - ta.y) * a, ta.z + (tb.z - ta.z) * a};
 			NkVec3f ss = {sa.x + (sb.x - sa.x) * a, sa.y + (sb.y - sa.y) * a, sa.z + (sb.z - sa.z) * a};
@@ -850,6 +860,416 @@ namespace nkentseu {
 		}
 
 		// =========================================================================
+		// NkBlendTree1D
+		// =========================================================================
+
+		// Evaluation SQUELETTE (+morphs) d'un clip — sous-ensemble du
+		// NkAnimationPlayer::Evaluate (les tracks materiau/camera ne sont pas
+		// concernees par le blend d'animations de personnage).
+		static void EvalSkeletalLocal(const NkAnimationClip *clip, float32 t, NkVector<NkMat4f> &outLocal) {
+			outLocal.Resize(clip->boneCount);
+			for (uint32 i = 0; i < clip->boneCount; i++)
+				outLocal[i] = (i < (uint32)clip->boneTracks.Size() && !clip->boneTracks[i].Empty())
+								  ? SampleBoneLocalSlerp(clip->boneTracks[i], t)
+								  : NkMat4f::Identity();
+		}
+
+		void NkBlendTree1D::AddClip(const NkAnimationClip *clip, float32 pos) {
+			if (!clip)
+				return;
+			Entry e;
+			e.clip = clip;
+			e.pos = pos;
+			// Insertion triee par pos croissante.
+			usize at = 0;
+			while (at < mEntries.Size() && mEntries[at].pos < pos)
+				++at;
+			mEntries.Insert(mEntries.Begin() + at, e);
+		}
+
+		void NkBlendTree1D::SetParameter(float32 x) {
+			if (mEntries.Empty()) {
+				mParam = x;
+				return;
+			}
+			const float32 lo = mEntries[0].pos;
+			const float32 hi = mEntries[mEntries.Size() - 1].pos;
+			mParam = x < lo ? lo : (x > hi ? hi : x);
+		}
+
+		void NkBlendTree1D::Update(float32 dt) {
+			if (mEntries.Empty())
+				return;
+			const uint32 n = (uint32)mEntries.Size();
+
+			// Voisins autour de mParam + poids de blend.
+			uint32 hi = 0;
+			while (hi < n && mEntries[hi].pos <= mParam)
+				++hi;
+			uint32 lo = (hi > 0) ? hi - 1 : 0;
+			if (hi >= n)
+				hi = n - 1;
+			float32 w = 0.f;
+			if (hi != lo) {
+				const float32 span = mEntries[hi].pos - mEntries[lo].pos;
+				w = (span > 1e-6f) ? (mParam - mEntries[lo].pos) / span : 0.f;
+			}
+			const NkAnimationClip *A = mEntries[lo].clip;
+			const NkAnimationClip *B = mEntries[hi].clip;
+
+			// Duree INTERPOLEE -> avance du temps NORMALISE (phases synchro :
+			// les deux clips sont echantillonnes a la meme phase 0..1).
+			const float32 durA = A->duration > 1e-4f ? A->duration : 1.f;
+			const float32 durB = B->duration > 1e-4f ? B->duration : 1.f;
+			const float32 dur = durA + (durB - durA) * w;
+			mNormTime += dt * mSpeed / dur;
+			mNormTime -= floorf(mNormTime);
+
+			// Sample bone-LOCAL des deux clips puis blend par os AVANT le FK.
+			if (A->skeletalLocal && !A->jointTopo.Empty()) {
+				EvalSkeletalLocal(A, mNormTime * durA, mState.boneMatrices);
+				if (w > 1e-4f && B != A) {
+					EvalSkeletalLocal(B, mNormTime * durB, mScratch);
+					const uint32 bc = (uint32)mState.boneMatrices.Size();
+					for (uint32 i = 0; i < bc && i < (uint32)mScratch.Size(); i++)
+						mState.boneMatrices[i] = NkBlendLocalTRS(mState.boneMatrices[i], mScratch[i], w);
+				}
+				mLocalPose = mState.boneMatrices; // pose locale pre-FK (crossfade SM)
+				A->ApplyFKSkinning(mState.boneMatrices);
+			} else {
+				mLocalPose.Clear();
+				// Mode legacy (matrices de skinning directes) : lerp matriciel,
+				// approximation acceptable pour de petits ecarts de pose.
+				mState.boneMatrices.Resize(A->boneCount);
+				for (uint32 i = 0; i < A->boneCount; i++) {
+					NkMat4f ma = (i < (uint32)A->boneTracks.Size() && !A->boneTracks[i].Empty())
+									 ? A->boneTracks[i].Evaluate(mNormTime * durA)
+									 : NkMat4f::Identity();
+					if (w > 1e-4f && B != A && i < (uint32)B->boneTracks.Size() && !B->boneTracks[i].Empty()) {
+						NkMat4f mb = B->boneTracks[i].Evaluate(mNormTime * durB);
+						for (int r = 0; r < 4; r++)
+							for (int c = 0; c < 4; c++)
+								ma[r][c] = ma[r][c] + (mb[r][c] - ma[r][c]) * w;
+					}
+					mState.boneMatrices[i] = ma;
+				}
+			}
+
+			// Morph weights : blend lineaire si les deux clips en ont.
+			const uint32 nmA = (uint32)A->morphTracks.Size();
+			const uint32 nmB = (uint32)B->morphTracks.Size();
+			const uint32 nm = nmA > nmB ? nmA : nmB;
+			mState.morphWeights.Resize(nm, 0.f);
+			for (uint32 i = 0; i < nm; i++) {
+				const float32 wa = (i < nmA) ? A->morphTracks[i].Evaluate(mNormTime * durA) : 0.f;
+				const float32 wb = (i < nmB) ? B->morphTracks[i].Evaluate(mNormTime * durB) : 0.f;
+				mState.morphWeights[i] = wa + (wb - wa) * w;
+			}
+		}
+
+		// =========================================================================
+		// NkBlendTree2D
+		// =========================================================================
+		void NkBlendTree2D::AddClip(const NkAnimationClip *clip, NkVec2f pos) {
+			if (!clip)
+				return;
+			Entry e;
+			e.clip = clip;
+			e.pos = pos;
+			mEntries.PushBack(e);
+		}
+
+		void NkBlendTree2D::SetParameter(NkVec2f p) {
+			mParam = p;
+		}
+
+		void NkBlendTree2D::Update(float32 dt) {
+			if (mEntries.Empty())
+				return;
+			const uint32 n = (uint32)mEntries.Size();
+
+			// ── Poids inverse-distance (Shepard, p=2), hit exact = clip pur ──────
+			float32 wsum = 0.f;
+			int32 exact = -1;
+			for (uint32 i = 0; i < n; i++) {
+				const float32 dx = mEntries[i].pos.x - mParam.x;
+				const float32 dy = mEntries[i].pos.y - mParam.y;
+				const float32 d2 = dx * dx + dy * dy;
+				if (d2 < 1e-8f) {
+					exact = (int32)i;
+					break;
+				}
+				mEntries[i].weight = 1.f / d2;
+				wsum += mEntries[i].weight;
+			}
+			if (exact >= 0) {
+				for (uint32 i = 0; i < n; i++)
+					mEntries[i].weight = (i == (uint32)exact) ? 1.f : 0.f;
+			} else if (wsum > 1e-12f) {
+				for (uint32 i = 0; i < n; i++)
+					mEntries[i].weight /= wsum;
+			}
+
+			// ── Duree ponderee -> temps normalise (phases synchro) ──────────────
+			float32 dur = 0.f;
+			for (uint32 i = 0; i < n; i++) {
+				const float32 di = mEntries[i].clip->duration > 1e-4f ? mEntries[i].clip->duration : 1.f;
+				dur += mEntries[i].weight * di;
+			}
+			if (dur < 1e-4f)
+				dur = 1.f;
+			mNormTime += dt * mSpeed / dur;
+			mNormTime -= floorf(mNormTime);
+
+			// ── Blend bone-LOCAL CUMULATIF : result = melange progressif ────────
+			// resultat := blend(resultat, pose_i, w_i / accW) — equivalent au
+			// barycentre des N poses sans etendre NkBlendLocalTRS a N entrees.
+			const NkAnimationClip *skel = mEntries[0].clip;
+			if (skel->skeletalLocal && !skel->jointTopo.Empty()) {
+				float32 accW = 0.f;
+				bool first = true;
+				for (uint32 i = 0; i < n; i++) {
+					const float32 w = mEntries[i].weight;
+					if (w < 1e-4f)
+						continue;
+					const NkAnimationClip *c = mEntries[i].clip;
+					const float32 dc = c->duration > 1e-4f ? c->duration : 1.f;
+					if (first) {
+						EvalSkeletalLocal(c, mNormTime * dc, mLocalPose);
+						accW = w;
+						first = false;
+						continue;
+					}
+					EvalSkeletalLocal(c, mNormTime * dc, mScratch);
+					const float32 a = w / (accW + w);
+					const uint32 bc = (uint32)mLocalPose.Size();
+					for (uint32 b = 0; b < bc && b < (uint32)mScratch.Size(); b++)
+						mLocalPose[b] = NkBlendLocalTRS(mLocalPose[b], mScratch[b], a);
+					accW += w;
+				}
+				if (first)
+					EvalSkeletalLocal(skel, mNormTime * skel->duration, mLocalPose);
+				mState.boneMatrices = mLocalPose;
+				skel->ApplyFKSkinning(mState.boneMatrices);
+			} else {
+				mLocalPose.Clear();
+			}
+
+			// ── Morph weights : moyenne ponderee ─────────────────────────────────
+			uint32 nm = 0;
+			for (uint32 i = 0; i < n; i++)
+				if ((uint32)mEntries[i].clip->morphTracks.Size() > nm)
+					nm = (uint32)mEntries[i].clip->morphTracks.Size();
+			mState.morphWeights.Resize(nm, 0.f);
+			for (uint32 m = 0; m < nm; m++) {
+				float32 acc = 0.f;
+				for (uint32 i = 0; i < n; i++) {
+					const NkAnimationClip *c = mEntries[i].clip;
+					if (m < (uint32)c->morphTracks.Size()) {
+						const float32 dc = c->duration > 1e-4f ? c->duration : 1.f;
+						acc += mEntries[i].weight * c->morphTracks[m].Evaluate(mNormTime * dc);
+					}
+				}
+				mState.morphWeights[m] = acc;
+			}
+		}
+
+		// =========================================================================
+		// NkAnimStateMachine
+		// =========================================================================
+		int32 NkAnimStateMachine::AddState(const NkString &name, const NkAnimationClip *clip) {
+			State s;
+			s.name = name;
+			s.clip = clip;
+			mStates.PushBack(s);
+			if (mCurrent < 0)
+				mCurrent = (int32)mStates.Size() - 1;
+			return (int32)mStates.Size() - 1;
+		}
+
+		int32 NkAnimStateMachine::AddState(const NkString &name, NkBlendTree1D *tree) {
+			State s;
+			s.name = name;
+			s.tree = tree;
+			mStates.PushBack(s);
+			if (mCurrent < 0)
+				mCurrent = (int32)mStates.Size() - 1;
+			return (int32)mStates.Size() - 1;
+		}
+
+		int32 NkAnimStateMachine::AddState(const NkString &name, NkBlendTree2D *tree2d) {
+			State s;
+			s.name = name;
+			s.tree2d = tree2d;
+			mStates.PushBack(s);
+			if (mCurrent < 0)
+				mCurrent = (int32)mStates.Size() - 1;
+			return (int32)mStates.Size() - 1;
+		}
+
+		void NkAnimStateMachine::AddTransition(int32 from, int32 to, const NkString &paramName, NkCondKind kind,
+											   float32 threshold, float32 fadeDur) {
+			Transition tr;
+			tr.from = from;
+			tr.to = to;
+			tr.param = paramName;
+			tr.kind = kind;
+			tr.threshold = threshold;
+			tr.fadeDur = fadeDur;
+			mTransitions.PushBack(tr);
+		}
+
+		void NkAnimStateMachine::SetBool(const NkString &name, bool v) {
+			mBools[name] = v;
+		}
+
+		void NkAnimStateMachine::SetFloat(const NkString &name, float32 v) {
+			mFloats[name] = v;
+		}
+
+		float32 NkAnimStateMachine::GetFloat(const NkString &name) const {
+			const float32 *p = mFloats.Find(name);
+			return p ? *p : 0.f;
+		}
+
+		void NkAnimStateMachine::ForceState(int32 idx) {
+			if (idx >= 0 && idx < (int32)mStates.Size()) {
+				mCurrent = idx;
+				mNext = -1;
+				mFadeT = 0.f;
+			}
+		}
+
+		const NkString &NkAnimStateMachine::GetCurrentStateName() const {
+			static NkString sEmpty;
+			return (mCurrent >= 0 && mCurrent < (int32)mStates.Size()) ? mStates[(uint32)mCurrent].name : sEmpty;
+		}
+
+		bool NkAnimStateMachine::CondTrue(const Transition &tr) const {
+			if (tr.kind == NkCondKind::BOOL_TRUE) {
+				const bool *b = mBools.Find(tr.param);
+				return b && *b;
+			}
+			const float32 *f = mFloats.Find(tr.param);
+			const float32 v = f ? *f : 0.f;
+			return (tr.kind == NkCondKind::FLOAT_GREATER) ? (v > tr.threshold) : (v < tr.threshold);
+		}
+
+		void NkAnimStateMachine::EvalState(int32 idx, float32 dt, NkAnimationState &out, NkVector<NkMat4f> &outLocal,
+										   const NkAnimationClip *&outSkel) {
+			outLocal.Clear();
+			outSkel = nullptr;
+			State &st = mStates[(uint32)idx];
+			if (st.tree) {
+				st.tree->Update(dt);
+				out = st.tree->GetState();
+				outLocal = st.tree->GetLocalPose();
+				outSkel = st.tree->GetSkeletonClip();
+				return;
+			}
+			if (st.tree2d) {
+				st.tree2d->Update(dt);
+				out = st.tree2d->GetState();
+				outLocal = st.tree2d->GetLocalPose();
+				outSkel = st.tree2d->GetSkeletonClip();
+				return;
+			}
+			if (!st.clip)
+				return;
+			st.time += dt;
+			const float32 dur = st.clip->duration > 1e-4f ? st.clip->duration : 1.f;
+			st.time -= floorf(st.time / dur) * dur;
+			// Pose squelette (+ morphs) — les tracks materiau/camera ne sont pas
+			// evaluees par la state machine v1.
+			out.boneMatrices.Resize(st.clip->boneCount);
+			if (st.clip->skeletalLocal && !st.clip->jointTopo.Empty()) {
+				EvalSkeletalLocal(st.clip, st.time, outLocal);
+				outSkel = st.clip;
+				out.boneMatrices = outLocal;
+				st.clip->ApplyFKSkinning(out.boneMatrices);
+			} else {
+				for (uint32 i = 0; i < st.clip->boneCount; i++)
+					out.boneMatrices[i] = (i < (uint32)st.clip->boneTracks.Size() && !st.clip->boneTracks[i].Empty())
+											  ? st.clip->boneTracks[i].Evaluate(st.time)
+											  : NkMat4f::Identity();
+			}
+			out.morphWeights.Resize((uint32)st.clip->morphTracks.Size(), 0.f);
+			for (uint32 i = 0; i < (uint32)st.clip->morphTracks.Size(); i++)
+				out.morphWeights[i] = st.clip->morphTracks[i].Evaluate(st.time);
+		}
+
+		void NkAnimStateMachine::Update(float32 dt) {
+			if (mCurrent < 0 || mCurrent >= (int32)mStates.Size())
+				return;
+
+			// Transitions (pas de re-trigger pendant un fondu).
+			if (mNext < 0) {
+				for (uint32 i = 0; i < (uint32)mTransitions.Size(); i++) {
+					const Transition &tr = mTransitions[i];
+					if (tr.to < 0 || tr.to >= (int32)mStates.Size() || tr.to == mCurrent)
+						continue;
+					if (tr.from >= 0 && tr.from != mCurrent)
+						continue;
+					if (!CondTrue(tr))
+						continue;
+					mNext = tr.to;
+					mFadeDur = tr.fadeDur > 1e-3f ? tr.fadeDur : 1e-3f;
+					mFadeT = mFadeDur;
+					mStates[(uint32)mNext].time = 0.f; // repart du debut
+					if (mTransitionCb)
+						mTransitionCb(mStates[(uint32)mCurrent].name, mStates[(uint32)mNext].name,
+									  /*finished=*/false);
+					break;
+				}
+			}
+
+			const NkAnimationClip *skelA = nullptr;
+			EvalState(mCurrent, dt, mState, mLocalA, skelA);
+
+			if (mNext >= 0) {
+				const NkAnimationClip *skelB = nullptr;
+				EvalState(mNext, dt, mNextState, mLocalB, skelB);
+				mFadeT -= dt;
+				const float32 w = 1.f - (mFadeT > 0.f ? mFadeT / mFadeDur : 0.f); // 0 -> 1
+				// Crossfade BONE-LOCAL si les deux etats exposent leur pose locale
+				// sur le meme squelette : blend TRS par os PUIS un seul FK —
+				// correct sur les rotations. Sinon fallback lerp matriciel des
+				// matrices de skinning (fondus courts).
+				const bool localOK = !mLocalA.Empty() && !mLocalB.Empty() && skelA &&
+									 mLocalA.Size() == mLocalB.Size();
+				if (localOK) {
+					const uint32 bc = (uint32)mLocalA.Size();
+					mState.boneMatrices.Resize(bc);
+					for (uint32 i = 0; i < bc; i++)
+						mState.boneMatrices[i] = NkBlendLocalTRS(mLocalA[i], mLocalB[i], w);
+					skelA->ApplyFKSkinning(mState.boneMatrices);
+				} else {
+					const uint32 bc = (uint32)mState.boneMatrices.Size();
+					const uint32 bn = (uint32)mNextState.boneMatrices.Size();
+					for (uint32 i = 0; i < bc && i < bn; i++) {
+						NkMat4f &a = mState.boneMatrices[i];
+						const NkMat4f &b = mNextState.boneMatrices[i];
+						for (int r = 0; r < 4; r++)
+							for (int c = 0; c < 4; c++)
+								a[r][c] = a[r][c] + (b[r][c] - a[r][c]) * w;
+					}
+				}
+				const uint32 mc = (uint32)mState.morphWeights.Size();
+				const uint32 mn = (uint32)mNextState.morphWeights.Size();
+				for (uint32 i = 0; i < mc && i < mn; i++)
+					mState.morphWeights[i] += (mNextState.morphWeights[i] - mState.morphWeights[i]) * w;
+				if (mFadeT <= 0.f) {
+					const int32 prev = mCurrent;
+					mCurrent = mNext;
+					mNext = -1;
+					if (mTransitionCb)
+						mTransitionCb(mStates[(uint32)prev].name, mStates[(uint32)mCurrent].name,
+									  /*finished=*/true);
+				}
+			}
+		}
+
+		// =========================================================================
 		// NkAnimationSystem
 		// =========================================================================
 		NkAnimationSystem::~NkAnimationSystem() {
@@ -1047,7 +1467,13 @@ namespace nkentseu {
 
 		NkMeshHandle NkAnimationSystem::ApplyMorphTargets(NkMeshHandle base, const NkMeshHandle *targets,
 														  const float32 *weights, uint32 count, bool useGPU) {
-			// GPU : compute shader (stub) ; CPU : retourne le mesh de base pour l'instant
+			// Cette API handle-par-target est INADAPTEE aux morph targets reels
+			// (glTF = DELTAS par vertex, pas des meshes complets). Le VRAI chemin
+			// livre (2026-07-13) est dans NkGLTFLoader :
+			//   EvaluateGLTFMorphWeights(data, anim, t, w)  — poids animes (canaux WEIGHTS)
+			//   ApplyGLTFMorphCPU(data, w, n, outVerts)     — base + somme(w_i * delta_i)
+			//   puis NkMeshSystem::UpdateVertices(mesh cree dynamic=true).
+			// Reference d'integration : DemoGLTF.cpp (asset MorphTest). GPU compute = futur.
 			(void)targets;
 			(void)weights;
 			(void)count;

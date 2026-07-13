@@ -17,6 +17,7 @@
 #include "NKCore/NkAtomic.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKMemory/NkAllocator.h"
+#include "NKLogger/NkLog.h"
 
 #include <cmath>
 #include <cstring>
@@ -400,13 +401,34 @@ namespace nkentseu {
 				// Zéro allocation, zéro lock
 				// ──────────────────────────────────────────────────────────────
 
+				// Point d'entree du backend. ROBUSTESSE MULTIPLATEFORME : un backend "pull"
+				// (WASAPI framesAvail, CoreAudio inNumberFrames, AAudio numFrames) peut demander
+				// PLUS de frames par callback que la capacite du mixBuffer. Plutot que tronquer (ce
+				// qui laissait le buffer device sous-rempli -> silence/hoquets/bruit), on traite la
+				// sortie par SOUS-BLOCS <= capacite. L'etat des voix (readPos, filtres) avance
+				// naturellement d'un sous-bloc au suivant -> audio continu, correct sur TOUS les OS.
 				void AudioCallback(float32 *outputBuffer, int32 frameCount, int32 channels) {
+					const int32 maxBlock = (mixBuffer && channels > 0) ? (mixBufferSize / channels) : 0;
+					if (maxBlock <= 0) {
+						memset(outputBuffer, 0, (usize)frameCount * (usize)channels * sizeof(float32));
+						return;
+					}
+					int32 remaining = frameCount;
+					float32 *out = outputBuffer;
+					while (remaining > 0) {
+						const int32 block = (remaining < maxBlock) ? remaining : maxBlock;
+						AudioCallbackBlock(out, block, channels);
+						out += (usize)block * (usize)channels;
+						remaining -= block;
+					}
+				}
+
+				void AudioCallbackBlock(float32 *outputBuffer, int32 frameCount, int32 channels) {
 					// Zeroing du buffer de sortie
 					memset(outputBuffer, 0, (usize)frameCount * (usize)channels * sizeof(float32));
 
-					// Buffer de mix par voix (réutilisation du mixBuffer pré-alloué)
+					// Securite : le wrapper garantit frameCount <= capacite, mais on reste defensif.
 					if (!mixBuffer || mixBufferSize < frameCount * channels) {
-						// Ne pas allouer dans le callback RT : ignorer le surplus
 						frameCount = mixBufferSize / channels;
 						if (frameCount <= 0)
 							return;
@@ -749,13 +771,44 @@ namespace nkentseu {
 				return false;
 			}
 
-			// Le backend adopte la frequence REELLE du device (ex. WASAPI shared-mode
-			// force le mix format : souvent 44100 alors qu'on demande 48000). On
-			// resynchronise config.sampleRate dessus : sinon le ratio de reechantillonnage
-			// (rateRatio = s.sampleRate / config.sampleRate) du mixage utilise une mauvaise
-			// cadence -> lecture au ralenti/accelere. Complete le fix rateRatio.
-			if (mImpl->backend->GetSampleRate() > 0)
-				mImpl->config.sampleRate = mImpl->backend->GetSampleRate();
+			// ── CRITIQUE : adopter le format REELLEMENT negocie par le device ──────────
+			// Un backend (WASAPI en tete) ouvre le flux au format de mix PARTAGE du device
+			// (ex. 44100 Hz / 6 canaux), qui peut differer de ce qu'on a demande. Le callback
+			// est alors appele a CE taux et CE nombre de canaux. Si l'engine garde son
+			// config.sampleRate/channels d'origine :
+			//   - le ratio de reechantillonnage (s.sampleRate/config.sampleRate) vise le mauvais
+			//     taux -> lecture ralentie/acceleree (bug "au ralenti" 22050->48000 sur device 44100) ;
+			//   - le mixBuffer (dimensionne config.bufferSize*config.channels) est trop petit si le
+			//     device a plus de canaux -> frameCount clampe dans AudioCallback -> buffer
+			//     sous-rempli -> bruit / hoquets.
+			// On resynchronise donc config sur le format reel AVANT tout mixage.
+			{
+				const int32 realRate = mImpl->backend->GetSampleRate();
+				const int32 realCh = mImpl->backend->GetChannels();
+				const int32 realFrames = mImpl->backend->GetBufferSize(); // frames REELS par reveil callback
+				if (realRate > 0)
+					mImpl->config.sampleRate = realRate;
+				if (realCh > 0)
+					mImpl->config.channels = realCh;
+				// Le mixBuffer doit couvrir le MAX de frames qu'un callback peut demander (WASAPI :
+				// framesAvail jusqu'a bufferFrames). S'il est trop petit, AudioCallback clampe
+				// frameCount -> device sous-rempli -> hoquets/bruit. On (re)dimensionne au besoin, en
+				// gardant une marge de securite.
+				int32 framesNeeded = mImpl->config.bufferSize;
+				if (realFrames > framesNeeded)
+					framesNeeded = realFrames;
+				const int32 ch = (realCh > 0) ? realCh : mImpl->config.channels;
+				const int32 newSize = framesNeeded * ch;
+				if (newSize > mImpl->mixBufferSize || realCh != config.channels) {
+					if (mImpl->mixBuffer)
+						memory::NkFree(mImpl->mixBuffer, config.allocator);
+					mImpl->mixBuffer =
+						(float32 *)memory::NkAlloc((usize)newSize * sizeof(float32), config.allocator, sizeof(float32));
+					mImpl->mixBufferSize = newSize;
+				}
+				logger.Info("[AudioEngine] device reel : {0} Hz, {1} canaux, {2} frames/callback (mixBuffer={3})",
+							mImpl->config.sampleRate, mImpl->config.channels, realFrames, mImpl->mixBufferSize);
+			}
 
 			mImpl->backend->Start();
 			mImpl->masterVolume = config.masterVolume;

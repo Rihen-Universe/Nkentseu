@@ -1,0 +1,20 @@
+// shadowalpha.frag.nksl — NKRenderer — Shadow depth-only ALPHA-TESTED FS (VRAI dialecte NkSL)
+// NkVSM v2 : depth-only avec alpha-test — les texels transparents de l'albedo
+// ne castent PAS d'ombre (feuillage, grilles, decoupes). Cutoff fixe 0.5
+// (convention glTF MASK par defaut).
+//
+// set=2 = layout UNIVERSEL des instances materiaux (NkMaterialSystem
+// GetInstanceLayout : UBO b8 + textures b3/b4/b5/b6) — on ne declare que
+// tAlbedo (b3), sous-ensemble legal du layout, ce qui permet de binder
+// directement matInst->GetDescSet() dans la passe shadow.
+
+@location(0) in vec2 vUV;
+
+@binding(set=2, binding=3) uniform sampler2D tAlbedo;
+
+@stage(fragment)
+@entry
+void main() {
+    if (texture(tAlbedo, vUV).a < 0.5)
+        discard;
+}

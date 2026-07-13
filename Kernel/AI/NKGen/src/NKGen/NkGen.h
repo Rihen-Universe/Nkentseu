@@ -4,7 +4,8 @@
 // Regroupe les modèles génératifs du module :
 //   • NkAutoencoder.h — auto-encodeur (compression + reconstruction/génération)
 //   • NkMesh.h        — voxels -> maillage de triangles + export OBJ
-// (à venir : VAE, diffusion 2D, marching cubes, animation — cf ROADMAP.)
+// Livré : auto-encodeur, VAE dense/conv 2D, VAE 3D voxels, maillage (Surface Nets, OBJ).
+// (à venir : GAN, diffusion 2D, marching cubes, conditionnement image/texte — cf ROADMAP.)
 // Namespace : nkentseu::ai::gen.
 // =============================================================================
 #pragma once

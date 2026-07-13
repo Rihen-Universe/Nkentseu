@@ -1023,6 +1023,24 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+
+
+    with include("Applications/NKRnnCtcTest/NKRnnCtcTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKASRTest/NKASRTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKImageCodecTest/NKImageCodecTest.jenga"):
+
+        pass
+
     with include("Applications/NKMeshAITest/NKMeshAITest.jenga"):
 
         pass
@@ -1039,11 +1057,27 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Applications/NKTTSTrain/NKTTSTrain.jenga"):
+
+        pass
+
     with include("Applications/NKSpeechFeatureDemo/NKSpeechFeatureDemo.jenga"):
 
         pass
 
     with include("Applications/NKMediaTest/NKMediaTest.jenga"):
+
+        pass
+
+    with include("Applications/NkVideoReadTest/NkVideoReadTest.jenga"):
+
+        pass
+
+    with include("Applications/NkAudioPlayer/NkAudioPlayer.jenga"):
+
+        pass
+
+    with include("Applications/NkVideoPlayer/NkVideoPlayer.jenga"):
 
         pass
 

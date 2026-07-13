@@ -1125,36 +1125,169 @@ namespace nkentseu {
 		NkImageStream s; // buffer d'écriture dynamique
 
 		// ── En-tête zlib (CMF + FLG) ──────────────────────────────────────────
-		// CMF = 0x78 : CM=8 (DEFLATE), CINFO=7 (fenêtre 32 KiB)
-		// FLG : calculé pour que (CMF*256 + FLG) % 31 == 0, FDICT=0, FLEVEL=0
-		uint8 cmf = 0x78;
+		uint8 cmf = 0x78; // CM=8 (DEFLATE), CINFO=7 (fenêtre 32 KiB)
 		uint8 flg = uint8(31 - (uint16(cmf) * 256u % 31u));
-		flg &= ~0x20u; // s'assure que FDICT=0
+		flg &= ~0x20u; // FDICT=0
 		if (((uint16(cmf) << 8) | flg) % 31 != 0)
-			flg = 0; // sécurité
+			flg = 0;
 		s.WriteU8(cmf);
 		s.WriteU8(flg);
 
-		// ── Blocs stored (taille max 65535 octets par bloc) ───────────────────
-		usize rem = inSz;
-		const uint8 *src = in;
-		while (rem > 0) {
-			uint16 bl = uint16(rem > 65535u ? 65535u : rem);
-			uint16 nl = uint16(~bl);
-			bool last = (bl == rem); // dernier bloc → BFINAL=1
+		// ── DEFLATE réel : UN bloc Huffman FIXE (BTYPE=01) + LZ77 (RFC 1951) ──
+		// Écriture des bits LSB-first (convention DEFLATE, ≠ JPEG MSB-first).
+		uint32 bitBuf = 0;
+		int32 bitCnt = 0;
+		auto putBits = [&](uint32 val, int32 n) {
+			bitBuf |= (val & ((n < 32) ? ((1u << n) - 1u) : 0xFFFFFFFFu)) << bitCnt;
+			bitCnt += n;
+			while (bitCnt >= 8) {
+				s.WriteU8(uint8(bitBuf & 0xFFu));
+				bitBuf >>= 8;
+				bitCnt -= 8;
+			}
+		};
+		// Un code de Huffman est packé MSB-first → on inverse ses `n` bits.
+		auto putCode = [&](uint32 code, int32 n) {
+			uint32 r = 0;
+			for (int32 i = 0; i < n; ++i)
+				r |= ((code >> i) & 1u) << (n - 1 - i);
+			putBits(r, n);
+		};
+		// Symbole littéral/longueur (0..287) via la table de Huffman FIXE (RFC 3.2.6).
+		auto putLitLen = [&](int32 sym) {
+			if (sym < 144)
+				putCode(uint32(0x30 + sym), 8);
+			else if (sym < 256)
+				putCode(uint32(0x190 + (sym - 144)), 9);
+			else if (sym < 280)
+				putCode(uint32(0x00 + (sym - 256)), 7);
+			else
+				putCode(uint32(0xC0 + (sym - 280)), 8);
+		};
+		auto putDistSym = [&](int32 sym) { putCode(uint32(sym), 5); };
 
-			s.WriteU8(last ? 0x01u : 0x00u); // BFINAL | BTYPE=00
-			s.WriteU16LE(bl);				 // LEN
-			s.WriteU16LE(nl);				 // NLEN = ~LEN
-			s.WriteBytes(src, bl);			 // données verbatim
+		// Tables longueur (3..258) et distance (1..32768) : base + bits extra (RFC 3.2.5).
+		static const uint16 kLenBase[29] = {3,	 4,	 5,	 6,	 7,	 8,	 9,	 10, 11,  13,
+											15,	 17, 19, 23, 27, 31, 35, 43, 51,  59,
+											67,	 83, 99, 115, 131, 163, 195, 227, 258};
+		static const uint8 kLenExtra[29] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2,
+											2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0};
+		static const uint16 kDistBase[30] = {1,	  2,   3,	4,	 5,	  7,	9,	  13,	 17,   25,
+											 33,  49,  65,	97,	 129, 193,	257,  385,	 513,  769,
+											 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577};
+		static const uint8 kDistExtra[30] = {0, 0,	0,	0,	1,	1,	2,	2,	3,	3,	4,	4,	5,	5,	6,
+											 6, 7,	7,	8,	8,	9,	9,	10, 10, 11, 11, 12, 12, 13, 13};
+		auto lenToSym = [&](int32 len, int32 &extra, int32 &nExtra) {
+			int32 sym = 28;
+			for (int32 i = 0; i < 29; ++i)
+				if (len < (int32)kLenBase[i]) {
+					sym = i - 1;
+					break;
+				}
+			if (len >= 258)
+				sym = 28;
+			extra = len - kLenBase[sym];
+			nExtra = kLenExtra[sym];
+			return 257 + sym;
+		};
+		auto distToSym = [&](int32 d, int32 &extra, int32 &nExtra) {
+			int32 sym = 29;
+			for (int32 i = 0; i < 30; ++i)
+				if (d < (int32)kDistBase[i]) {
+					sym = i - 1;
+					break;
+				}
+			extra = d - kDistBase[sym];
+			nExtra = kDistExtra[sym];
+			return sym;
+		};
 
-			src += bl;
-			rem -= bl;
+		putBits(1, 1); // BFINAL = 1 (bloc unique)
+		putBits(1, 2); // BTYPE = 01 (Huffman fixe)
+
+		// LZ77 par CHAÎNES DE HASH (hachage 3 octets). Fenêtre 32 KiB, recherche bornée.
+		const int32 n = (int32)inSz;
+		const uint32 HSIZE = 1u << 15; // 32768 têtes
+		const int32 kMaxChain = 128, kMinMatch = 3, kMaxMatch = 258;
+		int32 *head = (int32 *)memory::NkAlloc(HSIZE * sizeof(int32));
+		int32 *prev = (int32 *)memory::NkAlloc((usize)(n > 0 ? n : 1) * sizeof(int32));
+		if (!head || !prev) {
+			if (head)
+				memory::NkFree(head);
+			if (prev)
+				memory::NkFree(prev);
+			return false;
 		}
+		for (uint32 i = 0; i < HSIZE; ++i)
+			head[i] = -1;
+		auto hash3 = [&](int32 p) -> uint32 {
+			return ((uint32(in[p]) << 10) ^ (uint32(in[p + 1]) << 5) ^ uint32(in[p + 2])) & (HSIZE - 1);
+		};
+
+		int32 i = 0;
+		while (i < n) {
+			int32 bestLen = 0, bestDist = 0;
+			if (i + kMinMatch <= n) {
+				const uint32 h = hash3(i);
+				int32 cand = head[h];
+				int32 chain = kMaxChain;
+				const int32 maxLen = (n - i < kMaxMatch) ? (n - i) : kMaxMatch;
+				while (cand >= 0 && chain-- > 0) {
+					const int32 dist = i - cand;
+					if (dist > 32768)
+						break;
+					// compare
+					int32 l = 0;
+					while (l < maxLen && in[cand + l] == in[i + l])
+						++l;
+					if (l > bestLen) {
+						bestLen = l;
+						bestDist = dist;
+						if (l >= maxLen)
+							break;
+					}
+					cand = prev[cand];
+				}
+			}
+			if (bestLen >= kMinMatch) {
+				int32 le, ne, de, dne;
+				const int32 lsym = lenToSym(bestLen, le, ne);
+				putLitLen(lsym);
+				if (ne)
+					putBits(uint32(le), ne);
+				const int32 dsym = distToSym(bestDist, de, dne);
+				putDistSym(dsym);
+				if (dne)
+					putBits(uint32(de), dne);
+				// insère les positions couvertes dans la table de hash.
+				const int32 end = i + bestLen;
+				while (i < end) {
+					if (i + kMinMatch <= n) {
+						const uint32 h = hash3(i);
+						prev[i] = head[h];
+						head[h] = i;
+					}
+					++i;
+				}
+			} else {
+				putLitLen(int32(in[i])); // littéral
+				if (i + kMinMatch <= n) {
+					const uint32 h = hash3(i);
+					prev[i] = head[h];
+					head[h] = i;
+				}
+				++i;
+			}
+		}
+		putLitLen(256); // symbole de fin de bloc
+		if (bitCnt > 0)
+			putBits(0, 8 - bitCnt); // aligne sur l'octet (les bits restants sont déjà écrits)
+
+		memory::NkFree(head);
+		memory::NkFree(prev);
 
 		// ── Checksum Adler-32 (big-endian, fin du flux zlib) ─────────────────
 		s.WriteU32BE(Adler32(in, inSz, 1));
-
 		return s.TakeBuffer(outData, outSz);
 	}
 
@@ -1888,8 +2021,12 @@ namespace nkentseu {
 			return SavePPM(path);
 		if (nkEq(ext, "hdr"))
 			return SaveHDR(path);
+		if (nkEq(ext, "exr"))
+			return SaveEXR(path);
 		if (nkEq(ext, "qoi"))
 			return SaveQOI(path);
+		if (nkEq(ext, "gif"))
+			return SaveGIF(path);
 		return false; // extension non reconnue
 	}
 
@@ -1947,6 +2084,17 @@ namespace nkentseu {
 		return NkHDRCodec::Encode(*this, path);
 	}
 
+	/** Encode en EXR (scanline FLOAT, NONE) et écrit sur disque. */
+	bool NkImage::SaveEXR(const char *path) const noexcept {
+		uint8 *data = nullptr;
+		usize size = 0;
+		if (!NkEXRCodec::Encode(*this, data, size))
+			return false;
+		bool ok = nkWF(path, data, size);
+		nkFree(data);
+		return ok;
+	}
+
 	/** Encode en QOI et écrit sur disque. */
 	bool NkImage::SaveQOI(const char *path) const noexcept {
 		uint8 *data = nullptr;
@@ -1958,13 +2106,15 @@ namespace nkentseu {
 		return ok;
 	}
 
-	/**
-	 * SaveGIF — non implémenté.
-	 * GIF est un format complexe (LZW, palette, animation) ; l'encodeur
-	 * n'a pas été intégré dans cette version.
-	 */
-	bool NkImage::SaveGIF(const char *) const noexcept {
-		return false;
+	/** Encode en GIF (palette 256 via median-cut + LZW) et écrit sur disque. */
+	bool NkImage::SaveGIF(const char *path) const noexcept {
+		uint8 *data = nullptr;
+		usize size = 0;
+		if (!NkGIFCodec::Encode(*this, data, size))
+			return false;
+		bool ok = nkWF(path, data, size);
+		nkFree(data);
+		return ok;
 	}
 
 	/**

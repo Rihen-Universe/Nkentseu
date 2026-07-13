@@ -35,6 +35,9 @@ namespace nkentseu {
 				NkMeshHandle meshCube;
 				NkTexHandle cookieWindow; // E.6 : cookie 2D pour le spot
 				NkTexHandle cookieCube;	  // E.6b : cookie cube pour le point red
+				// NkVSM v2 : panneau "feuillage" alpha-teste (validation ombre trouee).
+				NkMaterial *maskedMat = nullptr;
+				NkTexHandle maskedTex;
 				float32 angle = 0.f;	  // orbite camera
 				// Mode d'affichage viewport (touche Z, façon Blender) : 0=RENDERED (PBR éclairé),
 				// 1=SOLID (unlit, phare caméra), 2=WIREFRAME (unlit + fil de fer).
@@ -641,6 +644,44 @@ namespace nkentseu {
 			auto *texLib = ctx.renderer->GetTextures();
 			auto *r3d = ctx.renderer->GetRender3D();
 			auto *device = ctx.renderer->GetDevice();
+
+			// ── NkVSM v2 : caster ALPHA-TESTED de validation ─────────────────────
+			// Panneau "feuillage" : disques de matiere (alpha=255) sur fond TROUE
+			// (alpha=0). SetCastShadowAlphaTest(true) -> l'ombre projetee au sol
+			// doit montrer les TROUS entre les disques (pipeline Shadow_AlphaTest)
+			// et non le rectangle plein. NB : la passe COULEUR reste opaque (le
+			// PBR ne fait pas d'alpha-blend) — c'est l'OMBRE qui valide la feature.
+			if (texLib && ctx.renderer->GetMaterials()) {
+				const uint32 TW = 128, TH = 128;
+				NkVector<uint8> px;
+				px.Resize((usize)TW * TH * 4u);
+				for (uint32 y = 0; y < TH; y++) {
+					for (uint32 x = 0; x < TW; x++) {
+						const int32 lx = (int32)(x % 32) - 16;
+						const int32 ly = (int32)(y % 32) - 16;
+						const bool inDisc = (lx * lx + ly * ly) <= 12 * 12;
+						uint8 *p = &px[((usize)y * TW + x) * 4u];
+						p[0] = 46;
+						p[1] = inDisc ? 168 : 60;
+						p[2] = 52;
+						p[3] = inDisc ? 255 : 0;
+					}
+				}
+				NkTextureCreateDesc td;
+				td.pixels = px.Data();
+				td.width = TW;
+				td.height = TH;
+				td.srgb = true;
+				td.debugName = "Demo3D_MaskedLeaf";
+				st->maskedTex = texLib->Create(td);
+				// NB : le template PBR est enregistre sous "Default_PBR" — on passe
+				// par l'overload TYPE (pas de nom en dur qui casse silencieusement).
+				st->maskedMat = NkMaterial::Create(ctx.renderer->GetMaterials(), NkMaterialType::NK_PBR_METALLIC);
+				if (!st->maskedMat)
+					logger.Errorf("[Demo3D] Creation material panneau masked KO\n");
+				if (st->maskedMat && st->maskedTex.IsValid())
+					st->maskedMat->SetAlbedoMap(st->maskedTex)->SetRoughness(0.8f)->SetCastShadowAlphaTest(true);
+			}
 			if (texLib && r3d) {
 				// Phase H : test de la pipeline file-based.
 				// On genere un PNG "test_pattern.png" puis on le charge via
@@ -1539,6 +1580,21 @@ namespace nkentseu {
 					r3d->Submit(dc);
 			}
 
+			// ── NkVSM v2 : panneau feuillage ALPHA-TESTED (ombre trouee) ──────────
+			// Panneau vertical au-dessus du sol, entre le soleil et le sol : son
+			// ombre doit montrer les trous entre les disques (Shadow_AlphaTest).
+			if (st->maskedMat) {
+				NkDrawCall3D dc;
+				dc.mesh = st->meshCube;
+				dc.transform = NkMat4f::Translate({4.f, 1.6f, -1.f}) *
+							   NkMat4f::RotationY(NkAngle::FromRad(0.6f)) *
+							   NkMat4f::Scale({1.6f, 1.2f, 0.03f});
+				dc.aabb = {{4.f - 1.7f, 0.3f, -1.f - 1.7f}, {4.f + 1.7f, 2.9f, -1.f + 1.7f}};
+				dc.material = st->maskedMat->GetInstHandle();
+				dc.castShadow = true;
+				r3d->Submit(dc);
+			}
+
 			// ── Volet 2 : EDIT MODE — gizmo centroïde + pick VERTEX/EDGE/FACE + marqueurs ──
 			// Modèle Blender : la sélection est un ENSEMBLE de vertices ; le gizmo a UNE
 			// seule cible = leur centroïde ; le drag applique la transform de groupe (G,
@@ -2266,7 +2322,10 @@ namespace nkentseu {
 		}
 
 		void Demo3D_Shutdown(DemoCtx &ctx) {
-			delete (Demo3DState *)ctx.userData;
+			auto *st = (Demo3DState *)ctx.userData;
+			if (st && st->maskedMat)
+				NkMaterial::Destroy(st->maskedMat);
+			delete st;
 			ctx.userData = nullptr;
 			logger.Info("[Demo3D] Shutdown\n");
 		}

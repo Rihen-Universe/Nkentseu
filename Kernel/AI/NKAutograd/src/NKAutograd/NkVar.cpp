@@ -937,6 +937,23 @@ namespace nkentseu {
 					AccumGrad(n->a, ToDevOf(dX, n->a->value));
 					break;
 				}
+
+				case NkAutoOp::NK_CONCAT0: { // grad découpé sur l'axe 0 vers chaque parent
+					NkTensor go = ToCpuT(g).Contiguous();
+					const int64 Na = n->a->value.Shape()[0];
+					const int64 Nb = n->b->value.Shape()[0];
+					NkTensor gA = go.Slice(0, 0, Na).Contiguous();
+					NkTensor gB = go.Slice(0, Na, Na + Nb).Contiguous();
+					AccumGrad(n->a, ToDevOf(gA, n->a->value));
+					AccumGrad(n->b, ToDevOf(gB, n->b->value));
+					break;
+				}
+
+				case NkAutoOp::NK_CTC: { // grad pré-calculé (dans aux) diffusé aux logits, mis à l'échelle
+					const double s = ScalarOf(g);
+					AccumGrad(n->a, ToDevOf(ops::MulScalar(ToCpuT(n->aux), s), n->a->value));
+					break;
+				}
 			}
 		}
 
@@ -1147,6 +1164,134 @@ namespace nkentseu {
 				for (uint32 i = 0; i < order.Size() && i < 4; ++i)
 					v.Node()->iparam[i] = (int32)order[i];
 				return v;
+			}
+
+			NkVar Concat0(const NkVar &a, const NkVar &b) {
+				// Concaténation sur l'axe 0 (CPU) : [Na,R…] ⊕ [Nb,R…] -> [Na+Nb,R…].
+				NkTensor ca = ToCpuT(a.Value()).Contiguous();
+				NkTensor cb = ToCpuT(b.Value()).Contiguous();
+				const NkShape &sa = ca.Shape();
+				const NkShape &sb = cb.Shape();
+				const int64 Na = sa[0], Nb = sb[0];
+				const int64 rest = (Na > 0) ? ca.Numel() / Na : 0; // taille d'une « tranche » axe-0
+				NkShape outShape = sa;
+				outShape[0] = Na + Nb;
+				NkTensor out = NkTensor::Zeros(outShape);
+				const float *pa = ca.DataAs<float>();
+				const float *pb = cb.DataAs<float>();
+				float *op = out.DataAs<float>();
+				for (int64 i = 0; i < Na * rest; ++i)
+					op[i] = pa[i];
+				for (int64 i = 0; i < Nb * rest; ++i)
+					op[Na * rest + i] = pb[i];
+				return NkMakeOp(NkAutoOp::NK_CONCAT0, ToDevOf(out, a.Value()), a.Node(), b.Node());
+			}
+
+			NkVar CTCLoss(const NkVar &logits, const NkVector<NkVector<int32>> &targets, int32 blank) {
+				// CTC (Graves 2006), forward-backward en espace LOG (CPU). logits : [T,B,V].
+				//   L = (1/B) Σ_b −log p(target_b | x_b),   p obtenu par sommation sur tous les
+				//   alignements compatibles. Le gradient d(−log p)/d(logit[t,b,k]) = y[t,b,k] −
+				//   Σ_{s: ext_s=k} exp(α+β−logP)/y[t,b,k], moyenné sur B, est pré-calculé ici et
+				//   diffusé aux logits au Backward (stocké dans `aux`).
+				NkTensor probs = SoftmaxRows(ToCpuT(logits.Value())).Contiguous(); // [T,B,V]
+				const NkShape &sh = probs.Shape();
+				const int64 T = sh.Size() >= 1 ? sh[0] : 1;
+				const int64 B = sh.Size() >= 2 ? sh[1] : 1;
+				const int64 V = sh.Size() >= 3 ? sh[2] : NkShapeNumel(sh) / (T * B);
+				const float *yp = probs.DataAs<float>();
+
+				NkTensor grad = NkTensor::Zeros(sh); // dL/dlogits [T,B,V]
+				float *gp = grad.DataAs<float>();
+				const double NEG = -1e30; // « −infini » numérique
+				double totalLoss = 0.0;
+				const double invB = (B > 0) ? 1.0 / (double)B : 1.0;
+
+				// Accès y[t,b,k].
+				auto Y = [&](int64 t, int64 b, int64 k) -> double {
+					return (double)yp[(t * B + b) * V + k];
+				};
+				auto LSE = [&](double x, double y) -> double {
+					if (x <= NEG)
+						return y;
+					if (y <= NEG)
+						return x;
+					const double m = (x > y) ? x : y;
+					return m + std::log(std::exp(x - m) + std::exp(y - m));
+				};
+
+				NkVector<double> a, bta; // alpha, beta : [T*S]
+				NkVector<int32> ext;	 // étiquettes étendues [S]
+				for (int64 b = 0; b < B; ++b) {
+					const NkVector<int32> &tgt = targets[(uint32)b];
+					const int64 L = (int64)tgt.Size();
+					const int64 S = 2 * L + 1;
+					ext.Resize((uint64)S);
+					for (int64 i = 0; i < L; ++i) {
+						ext[(uint64)(2 * i)] = blank;
+						ext[(uint64)(2 * i + 1)] = tgt[(uint32)i];
+					}
+					ext[(uint64)(S - 1)] = blank;
+
+					a.Resize((uint64)(T * S));
+					bta.Resize((uint64)(T * S));
+					for (int64 i = 0; i < T * S; ++i) {
+						a[(uint64)i] = NEG;
+						bta[(uint64)i] = NEG;
+					}
+					// alpha : init t=0.
+					a[0] = std::log(Y(0, b, ext[0]) + 1e-30);
+					if (S > 1)
+						a[1] = std::log(Y(0, b, ext[1]) + 1e-30);
+					for (int64 t = 1; t < T; ++t) {
+						for (int64 s = 0; s < S; ++s) {
+							double v = a[(uint64)((t - 1) * S + s)];
+							if (s >= 1)
+								v = LSE(v, a[(uint64)((t - 1) * S + s - 1)]);
+							if (s >= 2 && ext[(uint64)s] != blank && ext[(uint64)s] != ext[(uint64)(s - 2)])
+								v = LSE(v, a[(uint64)((t - 1) * S + s - 2)]);
+							a[(uint64)(t * S + s)] = v + std::log(Y(t, b, ext[(uint64)s]) + 1e-30);
+						}
+					}
+					double logP = a[(uint64)((T - 1) * S + S - 1)];
+					if (S > 1)
+						logP = LSE(logP, a[(uint64)((T - 1) * S + S - 2)]);
+					totalLoss += -logP * invB;
+
+					// beta : init t=T-1.
+					bta[(uint64)((T - 1) * S + S - 1)] = std::log(Y(T - 1, b, ext[(uint64)(S - 1)]) + 1e-30);
+					if (S > 1)
+						bta[(uint64)((T - 1) * S + S - 2)] = std::log(Y(T - 1, b, ext[(uint64)(S - 2)]) + 1e-30);
+					for (int64 t = T - 2; t >= 0; --t) {
+						for (int64 s = 0; s < S; ++s) {
+							double v = bta[(uint64)((t + 1) * S + s)];
+							if (s <= S - 2)
+								v = LSE(v, bta[(uint64)((t + 1) * S + s + 1)]);
+							if (s <= S - 3 && ext[(uint64)s] != blank && ext[(uint64)s] != ext[(uint64)(s + 2)])
+								v = LSE(v, bta[(uint64)((t + 1) * S + s + 2)]);
+							bta[(uint64)(t * S + s)] = v + std::log(Y(t, b, ext[(uint64)s]) + 1e-30);
+						}
+					}
+
+					// Gradient : occupations puis dL/dlogit = y − occ (moyenné sur B).
+					for (int64 t = 0; t < T; ++t) {
+						// occ[k] accumulé pour ce (t,b).
+						for (int64 s = 0; s < S; ++s) {
+							const int64 k = ext[(uint64)s];
+							const double ab = a[(uint64)(t * S + s)] + bta[(uint64)(t * S + s)];
+							if (ab <= NEG)
+								continue;
+							const double occ = std::exp(ab - logP) / (Y(t, b, k) + 1e-30);
+							gp[(t * B + b) * V + k] -= (float)(occ * invB); // −occ
+						}
+						for (int64 k = 0; k < V; ++k)
+							gp[(t * B + b) * V + k] += (float)(Y(t, b, k) * invB); // +y
+					}
+				}
+
+				NkTensor lossT = NkTensor::Full(NkShape{(int64)1}, totalLoss);
+				NkVar r = NkMakeOp(NkAutoOp::NK_CTC, lossT, logits.Node(), nullptr);
+				r.Node()->aux = grad; // dL/dlogits pré-calculé, diffusé au Backward
+				return r;
 			}
 
 			NkVar Conv2D(const NkVar &input, const NkVar &weight, int32 stride, int32 pad) {

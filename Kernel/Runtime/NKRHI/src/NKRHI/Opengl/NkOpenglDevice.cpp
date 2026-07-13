@@ -808,19 +808,26 @@ namespace nkentseu {
 		if (!buffer)
 			return {};
 		uint64 mapSz = sz > 0 ? sz : buffer->size - off;
+		// Flags d'accès selon l'usage du buffer :
+		//  - NK_READBACK : lecture CPU (capture/readback) → GL_MAP_READ_BIT.
+		//  - sinon        : écriture CPU → GL_MAP_WRITE_BIT.
+		// PAS de PERSISTENT/COHERENT : nos buffers sont créés par
+		// glNamedBufferData (storage MUTABLE) et ces flags exigent un storage
+		// immutable (glBufferStorage) → GL_INVALID_OPERATION 1282 garanti
+		// (c'était le bug : MapBuffer échouait pour TOUS les buffers GL).
+		const GLbitfield access =
+			(buffer->usage == NkResourceUsage::NK_READBACK) ? GL_MAP_READ_BIT : GL_MAP_WRITE_BIT;
 #if defined(NK_OPENGL_ES)
 		GLenum target = (NkHasFlag(buffer->bind, NkBindFlags::NK_UNIFORM_BUFFER))	? GL_UNIFORM_BUFFER
 						: (NkHasFlag(buffer->bind, NkBindFlags::NK_STORAGE_BUFFER)) ? GL_SHADER_STORAGE_BUFFER
 						: (NkHasFlag(buffer->bind, NkBindFlags::NK_VERTEX_BUFFER))	? GL_ARRAY_BUFFER
 																					: GL_ELEMENT_ARRAY_BUFFER;
 		glBindBuffer(target, buffer->id);
-		void *ptr = glMapBufferRange(target, (GLintptr)off, (GLsizeiptr)mapSz,
-									 GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
+		void *ptr = glMapBufferRange(target, (GLintptr)off, (GLsizeiptr)mapSz, access);
 		glBindBuffer(target, 0);
 		return {ptr, mapSz};
 #else
-		void *ptr = glMapNamedBufferRange(buffer->id, (GLintptr)off, (GLsizeiptr)mapSz,
-										  GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
+		void *ptr = glMapNamedBufferRange(buffer->id, (GLintptr)off, (GLsizeiptr)mapSz, access);
 		return {ptr, mapSz};
 #endif
 	}

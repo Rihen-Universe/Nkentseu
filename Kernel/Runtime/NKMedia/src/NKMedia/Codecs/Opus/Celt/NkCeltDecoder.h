@@ -43,6 +43,13 @@ namespace nkentseu {
 				// interleaved, N = (1<<LM)*shortMdctSize). Renvoie true si OK. Met à jour l'état interne.
 				bool DecodeFrame(const uint8 *data, int32 len, int32 LM, float32 *pcm, NkFrameFlags *outFlags);
 
+				// Décode depuis un range decoder PARTAGÉ (mode HYBRIDE : CELT continue
+				// après SILK dans le même flux), sur les bandes [start, end). Si accum,
+				// AJOUTE au pcm (bande haute par-dessus SILK) au lieu d'écraser.
+				// Le silence + post-filtre ne sont lus que si start == 0 (CELT-only).
+				bool DecodeShared(NkOpusRangeDecoder &dec, int32 len, int32 LM, int32 start, int32 end, float32 *pcm,
+								  bool accum, NkFrameFlags *outFlags);
+
 				static bool SelfTest();
 
 			private:
@@ -53,6 +60,15 @@ namespace nkentseu {
 				float32 mPreemphMem[kMaxChannels];							// état deemphasis
 				float32 mDecodeMem[(kDecBufSize + kOverlap) * kMaxChannels]; // buffer glissant de synthèse
 				uint32 mRng = 0;											// graine LCG (folding + anti-collapse)
+				// État du post-filtre (comb filter CELT), conservé entre trames. La trame N applique
+				// les params de la trame N-1 (…Old) sur le 1er sous-bloc puis fond vers les params
+				// courants (crossfade). Décodés seulement en CELT-only (start==0).
+				int32 mPostfilterPeriod = 0;
+				int32 mPostfilterPeriodOld = 0;
+				float32 mPostfilterGain = 0.0f;
+				float32 mPostfilterGainOld = 0.0f;
+				int32 mPostfilterTapset = 0;
+				int32 mPostfilterTapsetOld = 0;
 				bool mInit = false;
 		};
 

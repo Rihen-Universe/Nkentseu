@@ -344,6 +344,7 @@ namespace nkentseu {
 						break;
 					case NK_PBR_O_REFL_FLOOR:
 						child->mPBR.reflFloorFaceMode = mPBR.reflFloorFaceMode;
+						child->mPBR.reflBlend = mPBR.reflBlend;
 						break;
 					default:
 						break;
@@ -859,6 +860,12 @@ namespace nkentseu {
 
 		NkMaterialInstance *NkMaterialInstance::SetReflFloorFaceMode(int32 mode) {
 			mPBR.reflFloorFaceMode = (float32)mode;
+			MarkPBRChanged(NK_PBR_O_REFL_FLOOR);
+			return this;
+		}
+
+		NkMaterialInstance *NkMaterialInstance::SetReflFloorBlend(float32 blend) {
+			mPBR.reflBlend = blend;
 			MarkPBRChanged(NK_PBR_O_REFL_FLOOR);
 			return this;
 		}

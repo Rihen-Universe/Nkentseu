@@ -120,6 +120,8 @@ namespace nkentseu {
 				NkOffscreenTarget *CreateOffscreen(const NkOffscreenDesc &desc) override;
 				void DestroyOffscreen(NkOffscreenTarget *&t) override;
 				void SetFinalColorTarget(NkTextureHandle target) override;
+				void SetFinalColorTargetMirror(NkTextureHandle target, bool mirrorToScreen) override;
+				void SetRenderSizeOverride(uint32 w, uint32 h) override;
 
 				class NkPlanarReflectionSystem *GetPlanarReflection() override {
 					return mPlanarReflection.Get();
@@ -211,6 +213,9 @@ namespace nkentseu {
 
 				NkVector<NkOffscreenTarget *> mOffscreenTargets;
 				NkTextureHandle mFinalColorOverride{}; // sortie graph -> RT externe (vide=swapchain)
+				bool mMirrorToScreen = false; // MirrorPresent : recopie la cible redirigee vers le swapchain
+				uint32 mRenderOverrideW = 0, mRenderOverrideH = 0; // 0 = suit la fenetre
+				void ApplyRenderSize(uint32 w, uint32 h, bool touchDevice);
 
 				bool InitRHI();
 				void BuildDefaultRenderGraph();

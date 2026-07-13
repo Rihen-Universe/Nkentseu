@@ -6,6 +6,7 @@
 //   • NkActivations.h  — Relu / Sigmoid / Tanh
 //   • NkLosses.h       — MSELoss / CrossEntropyLoss (+ OneHot)
 //   • NkTransformer.h  — LayerNorm affine / attention multi-têtes / bloc / GPT
+//   • NkRnn.h          — cellules récurrentes GRU / LSTM + déroulé séquence
 // Inclure ce header suffit pour tout le module. Namespace : nkentseu::ai::nn.
 // =============================================================================
 #pragma once
@@ -15,3 +16,4 @@
 #include "NKNN/NkActivations.h"
 #include "NKNN/NkLosses.h"
 #include "NKNN/NkTransformer.h"
+#include "NKNN/NkRnn.h"

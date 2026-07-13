@@ -15,6 +15,14 @@
 #include "NKMedia/Codecs/Opus/Celt/NkCeltRate.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltAlloc.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltVq.h"
+#include "NKMedia/Codecs/Aac/NkAacBitReader.h"
+#include "NKMedia/Codecs/Aac/NkAacTables.h"
+#include "NKMedia/Codecs/Aac/NkAacHuffman.h"
+#include "NKMedia/Codecs/Aac/NkAacIcs.h"
+#include "NKMedia/Codecs/Aac/NkAacDequant.h"
+#include "NKMedia/Codecs/Aac/NkAacTns.h"
+#include "NKMedia/Codecs/Aac/NkAacFilterbank.h"
+#include "NKMedia/Codecs/Aac/NkAacDecoder.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDenorm.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDeemphasis.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDecoder.h"
@@ -162,6 +170,124 @@ int main(int argc, char **argv) {
 		printf("[OPUS] %d paquets -> %d echantillons @ 48 kHz -> %s\n", (int)packets.Size(), (int)pcm.Size(), argv[3]);
 		return 0;
 	}
+	// Décodeur AAC-LC : --aac <fichier.m4a/.mp4> <out.pcm> (s16le entrelacé, débit natif).
+	if (argc >= 4 && NkString(argv[1]) == NkString("--aac")) {
+		NkVector<nk_uint8> bytes;
+		media::NkMediaInfo info;
+		NkVector<media::NkMediaPacket> packets;
+		if (!media::NkMediaDemux::ExtractAudioPacketsFile(argv[2], bytes, info, packets))
+			return 1;
+		const media::NkMediaTrack *tr = info.FirstAudio();
+		const int sr = tr ? tr->sampleRate : 44100;
+		const int ch = tr ? tr->channels : 1;
+		media::NkAacDecoder dec;
+		if (!dec.Init(sr, ch)) {
+			printf("[AAC] config non geree (sr=%d ch=%d)\n", sr, ch);
+			return 1;
+		}
+		NkVector<nk_int16> pcm;
+		nk_int16 frame[1024 * 2];
+		int ok = 0;
+		for (uint64 p = 0; p < packets.Size(); ++p) {
+			const int32 n = dec.DecodeFrame(bytes.Data() + packets[p].offset, (int32)packets[p].size, frame);
+			if (n <= 0)
+				continue;
+			++ok;
+			for (int32 i = 0; i < n * ch; ++i)
+				pcm.PushBack(frame[i]);
+		}
+		FILE *f = fopen(argv[3], "wb");
+		if (f) {
+			fwrite(pcm.Data(), sizeof(nk_int16), pcm.Size(), f);
+			fclose(f);
+		}
+		printf("[AAC] %d/%d paquets decodes -> %d echantillons @ %d Hz (%d canal) -> %s\n", ok, (int)packets.Size(),
+			   (int)pcm.Size(), sr, ch, argv[3]);
+		return 0;
+	}
+	// Qualité vidéo : --vidquality  → encode un motif synthétique connu (dégradés, damier fin,
+	// barres de couleur saturées, « texte » contrasté) via H.264 (NkVideoRecorder) ET MJPEG
+	// (NkVideoWriter), + sauve la RÉFÉRENCE brute RGBA → PSNR/SSIM mesurable avec ffmpeg.
+	if (argc >= 2 && NkString(argv[1]) == NkString("--vidquality")) {
+		const int W = 1280, H = 720, FR = 12;
+		NkVector<nk_uint8> frame;
+		frame.Resize((nk_size)W * H * 4);
+		nk_uint8 *px = frame.Data();
+		for (int y = 0; y < H; ++y) {
+			for (int x = 0; x < W; ++x) {
+				nk_uint8 r = 0, g = 0, b = 0;
+				if (y < 180) { // dégradé de gris (test smearing)
+					const nk_uint8 v = (nk_uint8)(x * 255 / W);
+					r = g = b = v;
+				} else if (y < 360) { // damier fin 4 px (test macroblocking)
+					const nk_uint8 v = (((x / 4) + (y / 4)) & 1) ? 255 : 0;
+					r = g = b = v;
+				} else if (y < 540) { // barres de couleur saturées (test chroma/fringes)
+					const int bar = x * 8 / W;
+					const nk_uint8 C[8][3] = {{255, 0, 0},   {0, 255, 0},	{0, 0, 255},   {255, 255, 0},
+											  {0, 255, 255}, {255, 0, 255}, {255, 255, 255}, {0, 0, 0}};
+					r = C[bar][0];
+					g = C[bar][1];
+					b = C[bar][2];
+				} else { // « texte » : lignes blanches fines sur fond bleu foncé (test fringes)
+					const bool ink = (x % 6) < 2;
+					r = ink ? 255 : 10;
+					g = ink ? 255 : 20;
+					b = ink ? 255 : 60;
+				}
+				nk_uint8 *p = px + ((nk_size)y * W + x) * 4;
+				p[0] = r;
+				p[1] = g;
+				p[2] = b;
+				p[3] = 255;
+			}
+		}
+		// Référence brute (frame 0) pour ffmpeg (-f rawvideo -pix_fmt rgba).
+		FILE *rf = fopen("nkq_ref.rgba", "wb");
+		if (rf) {
+			fwrite(px, 1, (size_t)W * H * 4, rf);
+			fclose(rf);
+		}
+		// H.264 (NkVideoRecorder, QP défaut).
+		{
+			media::NkVideoRecorder rec;
+			if (rec.Begin("nkq_h264.mp4", W, H, FR, 1)) {
+				for (int i = 0; i < FR; ++i)
+					rec.PushVideo(px, media::NkVideoInputFormat::RGBA32, false);
+				rec.End();
+			}
+		}
+		// MJPEG via NkVideoRecorder (codec=MJPEG dans Begin) — teste le NOUVEAU chemin recorder.
+		{
+			media::NkVideoRecorder rec;
+			if (rec.Begin("nkq_recmjpeg.mp4", W, H, FR, 1, 20, 32, media::NkRecorderCodec::MJPEG, 92)) {
+				for (int i = 0; i < FR; ++i)
+					rec.PushVideo(px, media::NkVideoInputFormat::RGBA32, false);
+				rec.End();
+			}
+		}
+		// MJPEG q92 (NkVideoWriter, conteneur MOV).
+		{
+			media::NkVideoWriter w;
+			media::NkVideoConfig cfg;
+			cfg.width = W;
+			cfg.height = H;
+			cfg.fpsNum = FR;
+			cfg.codec = media::NkVideoCodec::MJPEG;
+			cfg.container = media::NkVideoContainer::MOV;
+			cfg.quality = 92;
+			if (w.Open("nkq_mjpeg.mov", cfg)) {
+				for (int i = 0; i < FR; ++i)
+					w.WriteFrame(px, media::NkVideoInputFormat::RGBA32);
+				w.Close();
+			}
+		}
+		printf("[VIDQUALITY] ecrit nkq_ref.rgba (%dx%d rgba), nkq_h264.mp4, nkq_mjpeg.mov (%d trames)\n", W, H, FR);
+		printf("             PSNR : ffmpeg -f rawvideo -pix_fmt rgba -s %dx%d -i nkq_ref.rgba -i <sortie> -lavfi psnr -f null -\n",
+			   W, H);
+		return 0;
+	}
+
 	// Fichier .opus (Ogg-Opus) complet : --oggopus <in.opus> <out.pcm> (48 kHz s16le mono).
 	if (argc >= 4 && NkString(argv[1]) == NkString("--oggopus")) {
 		NkVector<nk_int16> pcm;
@@ -508,6 +634,69 @@ int main(int argc, char **argv) {
 		const bool ok = media::NkOpusFile::SelfTest();
 		printf("[ %s ] NkOpusFile : Ogg-Opus forge (OpusHead/Tags/EOS) -> demux + decode + pre-skip + trim\n",
 			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkAacBitReader::SelfTest();
+		printf("[ %s ] NkAacBitReader : lecteur de bits MSB-first (round-trip + peek + align + overrun)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkAacTables::SelfTest();
+		printf("[ %s ] NkAacTables : sample rates + swb_offset (monotone->1024/128) + fenetres sine/KBD (PR=1)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkAacHuffman::SelfTest();
+		printf("[ %s ] NkAacHuffman : codebooks 1-11 + scalefactor (round-trip toutes entrees + signe + escape)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkAacIcs::SelfTest();
+		printf("[ %s ] NkAacIcs : individual_channel_stream (ics_info+sections+scalefactors+spectral, round-trip)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkAacDequant::SelfTest();
+		printf("[ %s ] NkAacDequant : iquant x^4/3 + gain 2^((sf-100)/4) + pulses + desentrelacement short\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkAacTns::SelfTest();
+		printf("[ %s ] NkAacTns : filtre tout-pole (coef->LPC + AR filter, reponse impulsionnelle)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkAacFilterbank::SelfTest();
+		printf("[ %s ] NkAacFilterbank : IMDCT + fenetrage + overlap-add (reconstruction TDAC ONLY_LONG)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+	{
+		++nbTotal;
+		const bool ok = media::NkAacDecoder::SelfTest();
+		printf("[ %s ] NkAacDecoder : raw_data_block (SCE/FIL/DSE/END) -> PCM (assemblage)\n", ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
 	}

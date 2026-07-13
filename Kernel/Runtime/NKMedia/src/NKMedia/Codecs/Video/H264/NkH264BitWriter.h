@@ -61,6 +61,16 @@ namespace nkentseu {
 					Ue(u);
 				}
 
+				// Copie les octets bruts (bit-packés MSB-first, dernier octet aligné à gauche) SANS
+				// encapsulation NAL ni anti-émulation — utile pour tester/relire directement les bits.
+				void Finalize(NkVector<uint8> &out) {
+					out.Clear();
+					for (uint64 i = 0; i < mRbsp.Size(); ++i)
+						out.PushBack(mRbsp[i]);
+					if (mNbits != 0)
+						out.PushBack((uint8)(mAcc << (8 - mNbits)));
+				}
+
 				// rbsp_trailing_bits : bit '1' puis remplissage '0' jusqu'à l'octet.
 				void TrailingBits() {
 					PutBits(1, 1);

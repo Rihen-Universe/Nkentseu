@@ -1,7 +1,10 @@
 # NKGen — modèles génératifs (2D / 3D / animation)
 
-> ⚠️ Squelette : pas encore de code. Voir la [ROADMAP](ROADMAP.md) et l'[architecture de la
-> couche](../ARCHITECTURE.md).
+> ✅ **Livré et prouvé** (état 2026-07). Auto-encodeur dense, **VAE** dense, **VAE convolutionnel
+> 2D**, **VAE 3D voxels** (Conv3D/ConvTranspose3D), et une brique maillage (voxels→mesh, Surface
+> Nets, décimation, export OBJ). Résultats réels sur disque : chiffres MNIST générés, formes 3D
+> (banane/rocher/arbre) exportées en OBJ et rendues dans le moteur (PBR/Vulkan). Voir la
+> [ROADMAP](ROADMAP.md). ⏳ À venir : GAN, diffusion, marching cubes, conditionnement image/texte→3D.
 
 ## Rôle
 

@@ -102,6 +102,18 @@
     à QP26 — ce qui prouve le CAVLC **bit-exact**). Bug clé corrigé : échelle DC (facteur `weightScale ×16`
     manquant en déquant + ordre Hadamard-inverse-puis-échelle) qui faisait dériver la prédiction (effondrement
     à 0). `NKMediaTest` écrit un `h264_test.h264` de démonstration.
+  - **Qualité vidéo — enquête + fixes (2026-07-12)** : artefacts « comme défectueux » signalés sur les
+    captures NK_RECORD. **Cause racine trouvée** : le SPS n'écrivait **PAS de VUI** → le décodeur supposait
+    **limited-range (16-235)** alors que l'encodeur produit du YUV **pleine plage** → ré-étirement → couleurs
+    délavées/contraste faux. **Fix** : VUI `video_full_range_flag=1` + BT.601 (`ffprobe` confirme
+    `color_range=pc`). + **QP défaut `NkVideoRecorder` 24→20** (moins de macroblocking). Harnais objectif
+    **`NKMediaTest --vidquality`** (motif synthétique → H264 + MJPEG + réf brute pour PSNR). Constats mesurés :
+    H264 (QP20, VUI) = **46-54 dB** RGB (bon). **Bug MAJEUR trouvé + corrigé côté `NKImage` (JPEG)** : la
+    FDCT « rapide » avait une **partie IMPAIRE fausse** (fréquences 1,3,5,7 aux mauvaises positions) → bords/
+    damiers/texte détruits → **MJPEG à 4-8 dB** sur le haute-fréquence. Réécrite en **DCT-II séparable exacte**
+    (vérifiée au coeff près vs DCT directe + via ffmpeg oracle). **Après fix** : NKImage MJPEG **41-57 dB**
+    (égale/dépasse ffmpeg). → Le **mode MJPEG** est désormais une option qualité PROPRE, prête à brancher dans
+    `NkVideoRecorder` (codec param dans `Begin()`) pour des captures sans macroblocking inter-frame.
   - **Brique 3a (2026-07-11) — Intra_4×4 (9 modes)** — `NkH264Encoder::EncodeMbIntra4x4` : macroblocs
     **I_4×4** avec les **9 modes de prédiction** (Vertical, Horizontal, DC, Diagonal-Down-Left/Right,
     Vertical-Right, Horizontal-Down, Vertical-Left, Horizontal-Up ; §8.3.1.2, formules entières exactes),

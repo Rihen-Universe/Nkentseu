@@ -29,6 +29,12 @@
 #include "NKLogger/NkLog.h"
 #include "NKRHI/Core/NkDeviceFactory.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
+#include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h" // NK_CAPTURE (validation headless)
+#include "NKRenderer/Tools/Offscreen/NkFrameCapture.h"	  // NK_RECORD (capture async -> video)
+#include "NKMedia/Video/NkVideoRecorder.h"
+#include "NKThreading/NkThread.h" // NK_RECORD : finalisation MP4 asynchrone (fix freeze F9)
+#include "NKRenderer/Streaming/NkStreamingSystem.h" // NK_STREAM_TEST : self-test streaming reel
+#include "NKMemory/NkAllocator.h" // NK_RECORD : recorder alloue (possede par le thread de finalisation)				  // NK_RECORD (encodage MP4/H.264 threade)
 
 namespace nkentseu {
 	struct NkEntryState;
@@ -92,6 +98,9 @@ namespace nkentseu {
 		bool DemoNKGen_Init(DemoCtx &);
 		void DemoNKGen_Frame(DemoCtx &, float32);
 		void DemoNKGen_Shutdown(DemoCtx &);
+		bool DemoStream_Init(DemoCtx &);
+		void DemoStream_Frame(DemoCtx &, float32);
+		void DemoStream_Shutdown(DemoCtx &);
 
 		static const DemoEntry kDemos[] = {
 			{"Subsystems", "Runtime enable/disable des sous-systemes", DemoSubsystems_Init, DemoSubsystems_Frame,
@@ -146,6 +155,10 @@ namespace nkentseu {
 			// DemoNKGen : maillage GENERE par l'IA (NKGen -> Surface Nets) charge et rendu.
 			{"NKGen", "DemoNKGen : maillage genere par l'IA (metaballs -> SurfaceNets -> rendu 3D)", DemoNKGen_Init,
 			 DemoNKGen_Frame, DemoNKGen_Shutdown},
+			// DemoStream : streaming REEL visible (panneaux textures stream-in/out
+			// par distance, worker async, eviction LRU, budget serre + HUD stats).
+			{"Stream", "DemoStream : streaming reel (textures stream-in/out par distance, eviction LRU)",
+			 DemoStream_Init, DemoStream_Frame, DemoStream_Shutdown},
 		};
 		static constexpr uint32 kDemoCount = (uint32)(sizeof(kDemos) / sizeof(kDemos[0]));
 
@@ -398,6 +411,8 @@ int nkmain(const NkEntryState &state) {
 		demoIx = 16; // DemoAnimIK     -> kDemos[16]
 	if (demoIx == 18)
 		demoIx = 17; // DemoNKGen      -> kDemos[17]
+	if (demoIx == 19)
+		demoIx = 18; // DemoStream     -> kDemos[18]
 	if (demoIx < 0 || (uint32)demoIx >= kDemoCount)
 		demoIx = 0;
 	const DemoEntry &demo = kDemos[demoIx];
@@ -479,6 +494,102 @@ int nkmain(const NkEntryState &state) {
 		return 3;
 	}
 
+	// ── NK_LUT_TEST=1 : color grading LUT 3D "teal & orange" ────────────────
+	// Valide SetColorGradingLUT + le path sampler3D (notamment OpenGL, ex-dummy).
+	// Effet volontairement marque : ombres poussees vers le teal (cyan-bleu),
+	// hautes lumieres vers l'orange -> visible au premier coup d'oeil.
+	{
+		const char *lutEnv = getenv("NK_LUT_TEST");
+		if (lutEnv && lutEnv[0] && lutEnv[0] != '0' && renderer->GetPostProcess()) {
+			const uint32 N = 16;
+			NkVector<uint8> lut;
+			lut.Resize((usize)N * N * N * 4u);
+			for (uint32 k = 0; k < N; k++)
+				for (uint32 j = 0; j < N; j++)
+					for (uint32 i = 0; i < N; i++) {
+						const float32 r = (float32)i / (float32)(N - 1);
+						const float32 g = (float32)j / (float32)(N - 1);
+						const float32 b = (float32)k / (float32)(N - 1);
+						const float32 lum = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+						// Teal (0.10,0.45,0.55) dans les ombres, orange (1.0,0.62,0.25)
+						// dans les hautes lumieres, pondere par la luminance.
+						const float32 w = lum;
+						float32 orr = r * (0.65f + 0.35f * w) + 0.10f * (1.f - w);
+						float32 og = g * (0.75f + 0.25f * w) + 0.45f * 0.35f * (1.f - w) * (1.f - g);
+						float32 ob = b * (0.85f - 0.45f * w) + 0.55f * 0.30f * (1.f - w) * (1.f - b);
+						orr = orr + 0.30f * w * (1.f - orr);
+						og = og + 0.62f * 0.20f * w * (1.f - og);
+						uint8 *p = &lut[(((usize)k * N + j) * N + i) * 4u];
+						p[0] = (uint8)(math::NkClamp(orr, 0.f, 1.f) * 255.f);
+						p[1] = (uint8)(math::NkClamp(og, 0.f, 1.f) * 255.f);
+						p[2] = (uint8)(math::NkClamp(ob, 0.f, 1.f) * 255.f);
+						p[3] = 255;
+					}
+			const bool ok = renderer->GetPostProcess()->SetColorGradingLUT(lut.Data(), N);
+			NkPostConfig pp = renderer->GetConfig().postProcess;
+			pp.colorGrading = true;
+			pp.lutStrength = 1.f;
+			pp.lutSize = N;
+			renderer->SetPostConfig(pp);
+			logger.Infof("[main] NK_LUT_TEST : LUT teal&orange 16^3 %s\n", ok ? "OK" : "ECHEC upload");
+		}
+	}
+
+	// ── NK_STREAM_TEST=1 : self-test du streaming REEL ──────────────────────
+	// 4 textures + 1 mesh reels charges en ASYNC (worker disque+decode, upload
+	// GPU au Update), budget volontairement SERRE pour forcer l'eviction LRU.
+	{
+		const char *stEnv = getenv("NK_STREAM_TEST");
+		if (stEnv && stEnv[0] && stEnv[0] != '0') {
+			renderer::NkStreamingSystem stream;
+			renderer::NkStreamingConfig scfg;
+			scfg.budgetBytes = 6ULL * 1024 * 1024; // ~6 MiB : ne tient pas tout
+			scfg.maxJobsPerFrame = 2;
+			scfg.async = true;
+			stream.Init(device, renderer->GetTextures(), renderer->GetMeshSystem(), scfg);
+			stream.RegisterTexture(1, NkString("Resources/NKRenderer/Textures/Vracs/awesomeface.png"));
+			stream.RegisterTexture(2, NkString("Resources/NKRenderer/Textures/Vracs/background.jpg"));
+			stream.RegisterTexture(3, NkString("Resources/NKRenderer/Textures/Vracs/block.png"));
+			stream.RegisterTexture(4, NkString("Resources/NKRenderer/Textures/Defaults/test_pattern.png"));
+			stream.RegisterMesh(5, NkString("Resources/Models/rubber_duck/scene.gltf"));
+			stream.RegisterTexture(6, NkString("Resources/inexistant_pour_test.png")); // echec attendu
+			// Demandes : 5 proches (streament) + 1 introuvable.
+			for (uint64 id = 1; id <= 6; id++)
+				stream.Request(id, 10.f + (float32)id);
+			// Boucle jusqu'a stabilisation (worker async) — bornee.
+			uint32 it = 0;
+			for (; it < 2000; ++it) {
+				stream.Update(0.016f);
+				const uint32 done = stream.GetResidentCount() + stream.GetEvictedCount() + stream.GetFailedCount();
+				if (stream.GetPendingCount() == 0 && stream.GetLoadingCount() == 0 && done >= 5)
+					break;
+				NkChrono::Sleep((int64)2);
+			}
+			// Criteres : (a) au moins une ressource VRAIMENT residente avec un
+			// handle GPU valide et coherent, (b) l'eviction LRU a tourne (le
+			// budget serre ne peut pas tout tenir), (c) budget respecte,
+			// (d) le fichier introuvable a echoue proprement (sans retry-spam).
+			uint32 validHandles = 0;
+			for (uint64 id = 1; id <= 5; id++) {
+				if (!stream.IsResident(id))
+					continue;
+				const bool v = (id == 5) ? stream.GetMesh(id).IsValid() : stream.GetTexture(id).IsValid();
+				if (v)
+					++validHandles;
+			}
+			const bool okRes = stream.GetResidentCount() >= 1 && validHandles == stream.GetResidentCount();
+			const bool okEvict = stream.GetEvictedCount() >= 1;
+			const bool okBudget = stream.GetUsedBytes() <= stream.GetBudgetBytes();
+			const bool okFail = stream.GetFailedCount() == 1;
+			logger.Infof("[main] STREAM self-test : it=%u resident=%u (handles=%u) evicted=%u failed=%u "
+						 "used=%.2fMiB -> res=%d evict=%d budget=%d fail=%d\n",
+						 it, stream.GetResidentCount(), validHandles, stream.GetEvictedCount(),
+						 stream.GetFailedCount(), (float64)stream.GetUsedBytes() / (1024.0 * 1024.0), okRes ? 1 : 0,
+						 okEvict ? 1 : 0, okBudget ? 1 : 0, okFail ? 1 : 0);
+			stream.Shutdown();
+		}
+	}
+
 	// ── Demo init ────────────────────────────────────────────────────────────
 	DemoCtx ctx;
 	ctx.device = device;
@@ -499,6 +610,7 @@ int nkmain(const NkEntryState &state) {
 	// ── Boucle ───────────────────────────────────────────────────────────────
 	bool running = true;
 	NkClock clock;
+	bool recordTogglePending = false; // INSER (declare avant le callback clavier qui le capture)
 	NkEventSystem &events = NkEvents();
 
 	events.AddEventCallback<NkWindowCloseEvent>([&](NkWindowCloseEvent *) { running = false; });
@@ -507,6 +619,13 @@ int nkmain(const NkEntryState &state) {
 			running = false;
 		// Cap FPS DYNAMIQUE (le pacing est fait par le moteur, cf. NkRenderer::SetFrameRateCap) :
 		//   F1 = on/off (bascule cap courant <-> illimité) ; F2 = cycle 30/60/120/144/illimité.
+		else if (e->GetKey() == NkKey::NK_INSERT) {
+			// Toggle enregistrement video (NK_RECORD a chaud) — traite dans la
+			// boucle principale (acces au device/recorder hors du callback).
+			// Touche INSER : les F1-F12 sont toutes prises par les demos
+			// (conflit constate : F9 = softness ombres / modificateur en demo 2).
+			recordTogglePending = true;
+		}
 		else if (e->GetKey() == NkKey::NK_F1 && renderer) {
 			const float32 cur = renderer->GetFrameRateCap();
 			static float32 sLast = 120.f;
@@ -551,6 +670,137 @@ int nkmain(const NkEntryState &state) {
 	const char *mfEnv = getenv("NK_MAXFRAMES");
 	const uint64 maxFrames = mfEnv ? (uint64)atoll(mfEnv) : 0;
 
+	// NK_CAPTURE=<frame> : capture du rendu final a la frame donnee vers
+	// NK_CAPTURE_PATH (defaut "nk_capture.png"), via SetFinalColorTarget +
+	// NkOffscreenTarget readback (marche sur les 6 backends). La fenetre est
+	// redirigee 3 frames avant la capture puis restauree. Outil de validation
+	// visuelle headless (agents/CI) — 0 cout si NK_CAPTURE absent.
+	const char *capEnv = getenv("NK_CAPTURE");
+	uint64 captureFrame = capEnv ? (uint64)atoll(capEnv) : 0;
+	const char *capPathEnv = getenv("NK_CAPTURE_PATH");
+	const char *capturePath = capPathEnv ? capPathEnv : "nk_capture.png";
+	renderer::NkOffscreenTarget captureTarget;
+	bool captureArmed = false;
+
+	// NK_RECORD=<out.mp4> : enregistre le rendu en video H.264 (NKMedia,
+	// encodage sur thread dedie) via la capture ASYNCHRONE NkFrameCapture
+	// (ring staging + fences, zero WaitIdle -> le rendu ne stalle jamais).
+	// NK_RECORD_FPS=<n> (defaut 10) : cadence d'echantillonnage.
+	// ⚠ PLAFOND MESURE (2026-07-12) : l'encodeur H.264 CPU soutient ~10 fps
+	// en 720p (RAM plate) ; a 30 fps la file d'encodage NON BORNEE de
+	// NkVideoRecorder gonfle de ~100 Mo/s et sature la machine. File bornee
+	// + drop policy a demander cote NKMedia (module de l'autre agent).
+	// La fenetre RESTE VIVANTE pendant l'enregistrement (passe MirrorPresent
+	// du moteur : blit plein-ecran de la cible redirigee vers le swapchain).
+	const char *recEnv = getenv("NK_RECORD");
+	const char *recFpsEnv = getenv("NK_RECORD_FPS");
+	const int32 recordFps = recFpsEnv ? (int32)atoll(recFpsEnv) : 10;
+	// NK_RECORD_QP=<10..40> : qualite H.264 (quantization parameter). Plus BAS
+	// = plus fin (moins de blocs de compression, fichier plus gros, encodage
+	// plus lent). Defaut 24 (celui de NkVideoRecorder) ; 16-18 = tres propre.
+	const char *recQpEnv = getenv("NK_RECORD_QP");
+	int32 recordQp = recQpEnv ? (int32)atoll(recQpEnv) : 24;
+	if (recordQp < 10)
+		recordQp = 10;
+	if (recordQp > 40)
+		recordQp = 40;
+	// NK_RECORD_CODEC=mjpeg : encode en MJPEG (intra pur, zero macroblocking
+	// inter-trame, cadences hautes OK) au lieu du H.264 (defaut). Qualite via
+	// NK_RECORD_MJPEG_Q=<1..100> (defaut 90). MJPEG = video seule (pas d'audio).
+	const char *recCodecEnv = getenv("NK_RECORD_CODEC");
+	const bool recordMjpeg = recCodecEnv && (recCodecEnv[0] == 'm' || recCodecEnv[0] == 'M');
+	const char *recMjqEnv = getenv("NK_RECORD_MJPEG_Q");
+	int32 recordMjpegQ = recMjqEnv ? (int32)atoll(recMjqEnv) : 90;
+	if (recordMjpegQ < 1)
+		recordMjpegQ = 1;
+	if (recordMjpegQ > 100)
+		recordMjpegQ = 100;
+	char recordPath[256] = {0};
+	if (recEnv && recEnv[0])
+		snprintf(recordPath, sizeof(recordPath), "%s", recEnv);
+	bool recording = recordPath[0] != 0;
+	uint32 recordSeq = 0;			  // noms auto nk_record_NNN.mp4 (toggle INSER)
+	renderer::NkOffscreenTarget recordTarget;
+	renderer::NkFrameCapture recordCapture;
+	media::NkVideoRecorder *recorder = nullptr; // alloue au demarrage d'un enregistrement
+	threading::NkThread recordFinalizeThread;	// End() draine la file d'encodage -> HORS du thread de rendu
+
+	// NK_RECORD_W/H : resolution d'ENREGISTREMENT independante de la fenetre
+	// (ex: 3840x2160 pendant un affichage 720p). Le moteur rend a cette taille
+	// (SetRenderSizeOverride) et la passe MirrorPresent re-echantillonne vers
+	// l'ecran. Qualite NATIVE (pas d'upscale). Defaut 0 = taille fenetre.
+	const char *recWEnv = getenv("NK_RECORD_W");
+	const char *recHEnv = getenv("NK_RECORD_H");
+	uint32 recOutW = recWEnv ? ((uint32)atoll(recWEnv) & ~1u) : 0;
+	uint32 recOutH = recHEnv ? ((uint32)atoll(recHEnv) & ~1u) : 0;
+	if ((recOutW == 0) != (recOutH == 0)) {
+		recOutW = 0;
+		recOutH = 0; // les DEUX ou aucun
+	}
+	float64 recordAccum = 0.0;
+	uint64 recordPushed = 0;
+
+	// NK_RECORD_RECT=x,y,w,h : n'enregistre que cette ZONE de l'image (crop
+	// CPU au moment de pousser vers l'encodeur ; w/h alignes a 2 pour H.264,
+	// clampes a la fenetre). La qualite = resolution du rendu source.
+	uint32 recRX = 0, recRY = 0, recRW = 0, recRH = 0;
+	bool recHasRect = false;
+	if (const char *rr = getenv("NK_RECORD_RECT")) {
+		unsigned x = 0, y = 0, w = 0, h = 0;
+		if (sscanf(rr, "%u,%u,%u,%u", &x, &y, &w, &h) == 4 && w >= 16 && h >= 16) {
+			recRX = x;
+			recRY = y;
+			recRW = w & ~1u;
+			recRH = h & ~1u;
+			recHasRect = true;
+		}
+	}
+	NkVector<uint8> recCrop; // scratch du crop (reutilise)
+
+	// Arret PROPRE de l'enregistrement (fin, resize, toggle INSER). Draine les
+	// captures en vol (borne), finalise le MP4, restaure le swapchain.
+	auto stopRecording = [&]() {
+		if (!recordTarget.IsValid())
+			return;
+		device->WaitIdle();
+		for (int guard = 0; recordCapture.PendingCount() > 0 && guard < 64; ++guard) {
+			if (!recordCapture.Poll([&](const uint8 *px, uint32 w, uint32 h, uint64) {
+					(void)w;
+					(void)h;
+					if (recorder)
+						recorder->PushVideo(px, media::NkVideoInputFormat::RGBA32);
+				}))
+				break;
+		}
+		// Restaure l'affichage IMMEDIATEMENT (le rendu continue sans a-coup)...
+		renderer->SetFinalColorTarget(NkTextureHandle{});
+		if (recOutW)
+			renderer->SetRenderSizeOverride(0, 0);
+		recordCapture.Shutdown();
+		recordTarget.Shutdown();
+		if (recorder)
+			logger.Infof("[main] NK_RECORD stats : file=%d, droppees=%llu, encodage=%.1f fps\n",
+						 recorder->QueueDepth(), (unsigned long long)recorder->DroppedFrames(),
+						 recorder->EncodeFps());
+		// ... et FINALISE le MP4 sur un THREAD DEDIE : recorder->End() draine
+		// toute la file d'encodage (potentiellement des secondes) — sur le
+		// thread de rendu ca FIGEAIT l'application (bug F9 constate par Rihen).
+		// Le thread prend possession du recorder et le libere.
+		if (recorder) {
+			if (recordFinalizeThread.Joinable())
+				recordFinalizeThread.Join(); // une finalisation precedente encore en cours
+			media::NkVideoRecorder *toEnd = recorder;
+			recorder = nullptr;
+			recordFinalizeThread.Start([toEnd](void *) {
+				toEnd->End();
+				memory::NkGetDefaultAllocator().Delete(toEnd);
+			});
+		}
+		logger.Infof("[main] NK_RECORD arrete : %llu trames -> %s (finalisation en fond)\n",
+					 (unsigned long long)recordPushed, recordPath);
+		recording = false;
+	};
+
 	// Le cap FPS (garde-fou thermique + anti-jitter) est désormais géré par le MOTEUR
 	// dans NkRenderer::Present() (pacing haute précision). Défaut = NK_FPS_CAP (120),
 	// modifiable à chaud via F1/F2 (cf. callback clavier). Plus de limiteur ici.
@@ -571,8 +821,144 @@ int nkmain(const NkEntryState &state) {
 
 		if (ctx.width == 0 || ctx.height == 0)
 			continue;
+
+		// ── NK_RECORD : capture async -> NkVideoRecorder (thread encode) ────
+		// Toggle INSER : demarre (nom auto nk_record_NNN.mp4) / arrete a chaud.
+		if (recordTogglePending) {
+			recordTogglePending = false;
+			if (recording) {
+				stopRecording();
+			} else {
+				snprintf(recordPath, sizeof(recordPath), "nk_record_%03u.mp4", ++recordSeq);
+				recordPushed = 0;
+				recording = true; // init lazy ci-dessous
+			}
+		}
+		if (recording) {
+			// Resize pendant l'enregistrement : tailles cible/capture/encodeur
+			// incoherentes -> on STOPPE proprement (protege contre les blocages).
+			if (recordTarget.IsValid() && recOutW == 0 &&
+				(recordTarget.GetWidth() != ctx.width || recordTarget.GetHeight() != ctx.height)) {
+				logger.Warnf("[main] NK_RECORD: resize fenetre detecte, arret de l'enregistrement\n");
+				stopRecording();
+			} else if (!recordTarget.IsValid()) {
+				// Resolution d'ENREGISTREMENT : NK_RECORD_W/H (qualite native,
+				// independante de la fenetre) sinon taille de la fenetre.
+				const uint32 rw = recOutW ? recOutW : ctx.width;
+				const uint32 rh = recOutH ? recOutH : ctx.height;
+				renderer::NkOffscreenDesc od;
+				od.width = rw;
+				od.height = rh;
+				od.hasDepth = false;
+				od.colorFmt = ::nkentseu::NkGPUFormat::NK_RGBA8_UNORM;
+				od.readback = false; // le readback passe par NkFrameCapture
+				od.name = "nk_record";
+				renderer::NkFrameCaptureDesc fd;
+				fd.width = rw;
+				fd.height = rh;
+				// Zone : clamp a l'image RENDUE (rw x rh).
+				uint32 vw = rw, vh = rh;
+				if (recHasRect) {
+					const uint32 rx = recRX < rw ? recRX : 0;
+					const uint32 ry = recRY < rh ? recRY : 0;
+					vw = (rx + recRW <= rw) ? recRW : ((rw - rx) & ~1u);
+					vh = (ry + recRH <= rh) ? recRH : ((rh - ry) & ~1u);
+					recRX = rx;
+					recRY = ry;
+					recRW = vw;
+					recRH = vh;
+					recCrop.Resize((usize)vw * vh * 4u);
+				}
+				if (!recorder)
+					recorder = memory::NkGetDefaultAllocator().New<media::NkVideoRecorder>();
+				bool ok = vw >= 16 && vh >= 16 && recordTarget.Init(device, renderer->GetTextures(), od) &&
+						  recordCapture.Init(device, fd) &&
+						  recorder->Begin(recordPath, (int32)vw, (int32)vh, recordFps, 1, recordQp,
+										  /*maxQueuedFrames*/ 32,
+										  recordMjpeg ? media::NkRecorderCodec::MJPEG : media::NkRecorderCodec::H264,
+										  recordMjpegQ);
+				if (ok && recOutW)
+					renderer->SetRenderSizeOverride(rw, rh); // rendu interne a la taille d'export
+				if (ok) {
+					renderer->SetFinalColorTargetMirror(
+						renderer->GetTextures()->GetRHIHandle(recordTarget.GetColorResult()), /*mirrorToScreen=*/true);
+					logger.Infof("[main] NK_RECORD -> %s (%d fps, %ux%u%s)\n", recordPath, recordFps, vw, vh,
+								 recHasRect ? " [zone]" : "");
+				} else {
+					logger.Warnf("[main] NK_RECORD: init KO, enregistrement annule\n");
+					recording = false;
+				}
+			} else {
+				// Echantillonnage a recordFps : enqueue la copie de la frame
+				// rendue precedente (non bloquant, saute si ring plein).
+				recordAccum += (float64)dt;
+				const float64 interval = 1.0 / (float64)recordFps;
+				if (recordAccum >= interval) {
+					recordAccum -= interval;
+					// AUTO-REGULATION (stats NKMedia 0bbaabcb) : si la file
+					// d'encodage approche son cap, on saute l'echantillon ICI
+					// (economise copie GPU + readback + memcpy d'une trame que
+					// le recorder dropperait de toute facon).
+					const bool encoderBusy = recorder && recorder->QueueDepth() >= 24;
+					if (!encoderBusy)
+						(void)recordCapture.EnqueueCopy(
+							renderer->GetTextures()->GetRHIHandle(recordTarget.GetColorResult()), ctx.frame);
+				}
+				// Draine les captures pretes vers l'encodeur (deja threade).
+				while (recordCapture.Poll([&](const uint8 *rgba, uint32 w, uint32 h, uint64) {
+					(void)h;
+					if (recHasRect) {
+						// Crop CPU de la zone -> scratch (lignes contigues).
+						const uint32 rowBytes = recRW * 4u;
+						for (uint32 row = 0; row < recRH; ++row)
+							memcpy(recCrop.Data() + (usize)row * rowBytes,
+								   rgba + ((usize)(recRY + row) * w + recRX) * 4u, rowBytes);
+						if (recorder)
+							recorder->PushVideo(recCrop.Data(), media::NkVideoInputFormat::RGBA32);
+					} else {
+						if (recorder)
+							recorder->PushVideo(rgba, media::NkVideoInputFormat::RGBA32);
+					}
+					recordPushed++;
+				})) {
+				}
+			}
+		}
+
+		// ── NK_CAPTURE : redirection -> readback -> restauration ────────────
+		if (captureFrame > 0) {
+			if (!captureArmed && ctx.frame + 3 >= captureFrame) {
+				renderer::NkOffscreenDesc od;
+				od.width = ctx.width;
+				od.height = ctx.height;
+				od.hasDepth = false;
+				od.colorFmt = ::nkentseu::NkGPUFormat::NK_RGBA8_UNORM;
+				od.readback = true;
+				od.name = "nk_capture";
+				if (captureTarget.Init(device, renderer->GetTextures(), od)) {
+					renderer->SetFinalColorTarget(renderer->GetTextures()->GetRHIHandle(captureTarget.GetColorResult()));
+					captureArmed = true;
+				} else {
+					logger.Warnf("[main] NK_CAPTURE: offscreen init KO, capture annulee\n");
+					captureFrame = 0;
+				}
+			} else if (captureArmed && ctx.frame > captureFrame) {
+				device->WaitIdle();
+				const bool ok = captureTarget.Capture(capturePath);
+				logger.Infof("[main] NK_CAPTURE frame %llu -> %s (%s)\n",
+							 (unsigned long long)ctx.frame, capturePath, ok ? "OK" : "ECHEC");
+				renderer->SetFinalColorTarget(NkTextureHandle{});
+				captureTarget.Shutdown();
+				captureFrame = 0; // one-shot
+			}
+		}
+
 		demo.frame(ctx, dt);
 	}
+
+	// ── NK_RECORD : drainage final + finalisation MP4 ────────────────────────
+	if (recording && recordTarget.IsValid())
+		stopRecording();
 
 	// ── Cleanup ──────────────────────────────────────────────────────────────
 	demo.shutdown(ctx);
@@ -580,6 +966,15 @@ int nkmain(const NkEntryState &state) {
 	device->WaitIdle();
 	NkDeviceFactory::Destroy(device);
 	window.Close();
+
+	// NK_RECORD : si une finalisation MP4 est encore en cours, l'ATTENDRE avant
+	// de quitter — sinon le processus meurt avec le thread detache et le fichier
+	// reste TRONQUE (l'index MP4 s'ecrit a la fin). La fenetre est deja fermee,
+	// le blocage est invisible pour l'utilisateur.
+	if (recordFinalizeThread.Joinable()) {
+		logger.Info("[main] NK_RECORD : finalisation du MP4 en cours, attente...\n");
+		recordFinalizeThread.Join();
+	}
 
 	logger.Info("[main] Bye\n");
 	return 0;

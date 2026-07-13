@@ -545,6 +545,37 @@ namespace nkentseu {
 				mMat->SetSharedContext(mGlobalLayout, mObjectLayout, sharedVL);
 			}
 
+			// ── Shadow ALPHA-TESTED (NkVSM v2) : casters feuillage/masked ─────────
+			// Variante du pipeline Shadow qui passe l'UV et sample l'albedo du
+			// material (discard < 0.5). set=2 = layout UNIVERSEL des instances
+			// (GetInstanceLayout) → on binde matInst->GetDescSet() tel quel dans
+			// RenderShadowPass. Cree ici car depend de mMat (layout) + mShadow (RP).
+			if (mShaderLib && mMat) {
+				auto progHandle = mShaderLib->LoadOrCompileVF("ShadowAlpha", "", "");
+				if (progHandle.IsValid())
+					mShadowAlphaShader = mShaderLib->GetRHIHandle(progHandle);
+			}
+			if (mShadowAlphaShader.IsValid() && mMat) {
+				NkGraphicsPipelineDesc pd;
+				pd.shader = mShadowAlphaShader;
+				pd.depthStencil = NkDepthStencilDesc::Default();
+				if (mShadow)
+					pd.renderPass = mShadow->GetShadowRenderPass();
+				pd.rasterizer = NkRasterizerDesc::NoCull();
+				pd.blend = NkBlendDesc::Opaque();
+				pd.debugName = "Shadow_AlphaTest";
+				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f));
+				pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+				pd.descriptorSetLayouts.PushBack(mObjectLayout);
+				pd.descriptorSetLayouts.PushBack(mMat->GetInstanceLayout());
+				pd.vertexLayout.AddBinding(0, sizeof(NkVertex3D), false)
+					.AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0, "POSITION", 0)
+					.AddAttribute(3, 0, NkVertexFormat::NK_RG32_FLOAT, 36, "TEXCOORD", 0);
+				mShadowAlphaPipeline = mDevice->CreateGraphicsPipeline(pd);
+				logger.Info("[NkRender3D] ShadowAlpha pipeline create: shader_valid={0} pipeline_valid={1}\n",
+							mShadowAlphaShader.IsValid() ? 1 : 0, mShadowAlphaPipeline.IsValid() ? 1 : 0);
+			}
+
 			bool ringValid = !mUBOCameraRing.Empty() && mUBOCameraRing[0].IsValid();
 			logger.Info(
 				"[NkRender3D] Init final: ringValid={0} pbrShader.valid={1} (PBR pipeline: lazy create at 1st flush)\n",
@@ -848,6 +879,10 @@ namespace nkentseu {
 				mDevice->DestroyPipeline(mShadowPipeline);
 				mShadowPipeline = {};
 			}
+			if (mShadowAlphaPipeline.IsValid()) {
+				mDevice->DestroyPipeline(mShadowAlphaPipeline);
+				mShadowAlphaPipeline = {};
+			}
 			if (mShadowInstancePipeline.IsValid()) {
 				mDevice->DestroyPipeline(mShadowInstancePipeline);
 				mShadowInstancePipeline = {};
@@ -1033,6 +1068,7 @@ namespace nkentseu {
 			mShadowCasters.Clear();
 			mInstanced.Clear();
 			mSkinned.Clear();
+			mCullStats = NkCullStats{}; // stats de culling : nouvelles soumissions
 			// mObjectDrawIdx N'EST PAS reset ici — voir ResetFrame() ci-dessus.
 		}
 
@@ -1056,8 +1092,11 @@ namespace nkentseu {
 				mShadowCasters.PushBack({dc, depth});
 
 			// Culling camera : uniquement pour le rendu visible (mOpaque).
-			if (!mCtx.camera.IsAABBVisible(dc.aabb))
+			mCullStats.opaqueSubmitted++;
+			if (!mCtx.camera.IsAABBVisible(dc.aabb)) {
+				mCullStats.opaqueCulled++;
 				return;
+			}
 			mOpaque.PushBack({dc, depth});
 		}
 
@@ -1229,7 +1268,15 @@ namespace nkentseu {
 					cmd->BindDescriptorSet(gs, 0);
 			}
 			FlushTransparent(cmd);
-			FlushDebug(cmd, currentRP, gs);
+			// Overlays debug/édition : PAS dans la passe miroir (ce sont des
+			// aides d'éditeur, pas du contenu de scène — un reflet ne doit pas
+			// les montrer). Accessoirement, FlushDebug décrémente la vie des
+			// primitives one-frame et les purge : s'il tournait dans la passe
+			// miroir (rendue AVANT la vue principale), il les CONSOMMAIT et la
+			// vue principale ne les affichait jamais (bug « cercle vert visible
+			// seulement dans le miroir », Demo4/5 surlignage matériau actif).
+			if (!mPendingMirrorActive)
+				FlushDebug(cmd, currentRP, gs);
 			mInScene = false;
 
 			// NOTE : plus d'auto-avance de mFrameSlot ici. Il est desormais derive
@@ -1558,6 +1605,12 @@ namespace nkentseu {
 			// Itere sur mShadowCasters (collecte SANS culling camera) et non
 			// mOpaque : sinon les casters hors champ camera n'auraient pas
 			// d'ombre (cf. Submit). Tous les elements ici ont castShadow=true.
+			// NkVSM v2 : les casters dont le material a mCastShadowAlphaTest
+			// passent par mShadowAlphaPipeline (sample albedo + discard) — on
+			// suit le pipeline courant et on ne re-binde qu'au changement
+			// (re-push du PC obligatoire apres switch : DX12 invalide les
+			// root parameters au changement de PSO).
+			bool usingAlpha = false;
 			for (auto &sdc : mShadowCasters) {
 				auto &dc = sdc.dc;
 				if (mObjectDrawIdx >= mObjectPoolCap) {
@@ -1566,6 +1619,18 @@ namespace nkentseu {
 								  mObjectDrawIdx, mObjectPoolCap);
 					break;
 				}
+				NkMaterialInstance *matInst = nullptr;
+				if (mMat && dc.material.IsValid())
+					matInst = mMat->GetInstance(dc.material);
+				const bool wantAlpha =
+					mShadowAlphaPipeline.IsValid() && matInst && matInst->mCastShadowAlphaTest;
+				if (wantAlpha != usingAlpha) {
+					usingAlpha = wantAlpha;
+					cmd->BindGraphicsPipeline(usingAlpha ? mShadowAlphaPipeline : mShadowPipeline);
+					cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f), &lightVP);
+				}
+				if (usingAlpha && matInst->GetDescSet().IsValid())
+					cmd->BindDescriptorSet(matInst->GetDescSet(), 2);
 				ObjBlock ob{};
 				ob.model = dc.transform;
 				ob.normalMatrix = dc.transform.Inverse().Transpose();
@@ -1899,6 +1964,15 @@ namespace nkentseu {
 					const uint32 total = (uint32)dc.transforms.Size();
 					if (total == 0)
 						continue;
+					// Frustum cull par BATCH — mêmes règles que le chemin
+					// fallback ci-dessous (pas en miroir, shadow non affectée).
+					if (!mPendingMirrorActive) {
+						mCullStats.instancedBatches++;
+						if (!mCtx.camera.IsAABBVisible(dc.aabb)) {
+							mCullStats.instancedCulled++;
+							continue;
+						}
+					}
 
 					NkMaterialInstance *matInst = nullptr;
 					if (dc.material.IsValid() && mMat)
@@ -1975,6 +2049,16 @@ namespace nkentseu {
 				const uint32 n = (uint32)dc.transforms.Size();
 				if (n == 0)
 					continue;
+				// Frustum cull par BATCH (AABB monde fusionné des instances).
+				// Pas en passe miroir (caméra différente) ; la passe shadow
+				// itère mInstanced directement et n'est pas affectée.
+				if (!mPendingMirrorActive) {
+					mCullStats.instancedBatches++;
+					if (!mCtx.camera.IsAABBVisible(dc.aabb)) {
+						mCullStats.instancedCulled++;
+						continue;
+					}
+				}
 
 				// Materiau + pipeline : resolus UNE fois pour tout le drawcall.
 				NkMaterialInstance *matInst = nullptr;
