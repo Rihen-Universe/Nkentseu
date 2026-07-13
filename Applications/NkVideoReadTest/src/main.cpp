@@ -5,6 +5,7 @@
 //   (mesure une somme de contrôle par image pour prouver le décodage frame par frame).
 // =============================================================================
 #include "NKMedia/Video/NkVideoReader.h"
+#include "NKMedia/Codecs/Video/H264/NkH264Decoder.h"
 
 #include <cstdio>
 
@@ -17,9 +18,11 @@ int main(int argc, char **argv) {
 	if (argc < 2) {
 		printf("  [self-test] ecrire AVI MJPEG -> relire -> verifier...\n");
 		bool ok = NkVideoReader::SelfTest();
-		printf("  [ %s ] NkVideoReader::SelfTest\n", ok ? "OK " : "KO");
-		printf("=== %s ===\n", ok ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
-		return ok ? 0 : 1;
+		printf("  [ %s ] NkVideoReader::SelfTest (AVI MJPEG round-trip)\n", ok ? "OK " : "KO");
+		bool okH264 = NkH264Decoder::SelfTest();
+		printf("  [ %s ] NkH264Decoder::SelfTest (NAL split + parse SPS 176x144)\n", okH264 ? "OK " : "KO");
+		printf("=== %s ===\n", (ok && okH264) ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
+		return (ok && okH264) ? 0 : 1;
 	}
 
 	const char *path = argv[1];
