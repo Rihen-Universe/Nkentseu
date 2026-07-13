@@ -153,6 +153,31 @@ int main(int argc, char **argv) {
 				cmp(cur.y.Data(), cur.lumaW, cur.cropW, cur.cropH, ref.Data(), dY);
 				cmp(cur.cb.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref.Data() + yN, dC);
 				cmp(cur.cr.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref.Data() + yN + cN, dC);
+				// DEBUG : nb de diffs par bloc 4x4 (grille), 1er MB seulement.
+				if (dY > 0 && cur.cropW <= 32 && cur.cropH <= 32) {
+					const int32 bw = cur.cropW / 4, bh = cur.cropH / 4;
+					printf("    diffs Y par bloc 4x4 (max diff) :\n");
+					for (int32 by = 0; by < bh; ++by) {
+						printf("      ");
+						for (int32 bx = 0; bx < bw; ++bx) {
+							int32 nd = 0, md = 0;
+							for (int32 yy = 0; yy < 4; ++yy)
+								for (int32 xx = 0; xx < 4; ++xx) {
+									const int32 px = bx * 4 + xx, py = by * 4 + yy;
+									const int32 dv = (int32)cur.y[(usize)py * cur.lumaW + px] -
+													 (int32)ref[(usize)py * cur.cropW + px];
+									if (dv) {
+										++nd;
+										const int32 a = dv < 0 ? -dv : dv;
+										if (a > md)
+											md = a;
+									}
+								}
+							printf("%2d/%-3d ", nd, md);
+						}
+						printf("\n");
+					}
+				}
 				const double psnr = (sse > 0.0) ? 10.0 * log10(255.0 * 255.0 * (double)total / sse) : 999.0;
 				printf("  frame %d (%s) %dx%d : %llu diff (Y=%llu C=%llu), PSNR=%.2f %s\n", (int)si,
 					   (si == 0 ? "IDR" : "P"), cur.cropW, cur.cropH, (unsigned long long)diffs,
