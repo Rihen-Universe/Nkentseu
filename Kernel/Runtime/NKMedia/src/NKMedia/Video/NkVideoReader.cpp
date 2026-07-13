@@ -26,6 +26,16 @@ namespace nkentseu {
 			inline bool Tag(const uint8 *p, char a, char b, char c, char d) {
 				return p[0] == (uint8)a && p[1] == (uint8)b && p[2] == (uint8)c && p[3] == (uint8)d;
 			}
+			// ISOBMFF (MP4/MOV) = big-endian.
+			inline uint32 RdU32BE(const uint8 *p) {
+				return ((uint32)p[0] << 24) | ((uint32)p[1] << 16) | ((uint32)p[2] << 8) | (uint32)p[3];
+			}
+			inline uint16 RdU16BE(const uint8 *p) {
+				return (uint16)(((uint16)p[0] << 8) | (uint16)p[1]);
+			}
+			inline uint64 RdU64BE(const uint8 *p) {
+				return ((uint64)RdU32BE(p) << 32) | (uint64)RdU32BE(p + 4);
+			}
 
 			enum class Backend { NONE, AVI, MOV, SEQUENCE };
 			enum class Codec { NONE, MJPEG, RAWRGB, H264 };
@@ -174,6 +184,219 @@ namespace nkentseu {
 					return true;
 				}
 
+				// Trouve le 1er box `t` (4 car) enfant direct dans [s,e). ps/pe = payload.
+				static bool Box(const uint8 *d, usize s, usize e, const char *t, usize &ps, usize &pe) {
+					usize p = s;
+					while (p + 8 <= e) {
+						uint64 bsz = RdU32BE(d + p);
+						usize hdr = 8;
+						if (bsz == 1) {
+							if (p + 16 > e)
+								break;
+							bsz = RdU64BE(d + p + 8);
+							hdr = 16;
+						} else if (bsz == 0) {
+							bsz = (uint64)(e - p);
+						}
+						if (bsz < hdr || p + (usize)bsz > e)
+							break;
+						if (Tag(d + p + 4, t[0], t[1], t[2], t[3])) {
+							ps = p + hdr;
+							pe = p + (usize)bsz;
+							return true;
+						}
+						p += (usize)bsz;
+					}
+					return false;
+				}
+
+				// --- Parse MOV/MP4 (ISOBMFF) : piste vidéo -> table des samples + info ---
+				bool ParseMov() {
+					const uint8 *d = bytes.Data();
+					const usize n = (usize)bytes.Size();
+					usize moovS = 0, moovE = 0;
+					if (!Box(d, 0, n, "moov", moovS, moovE))
+						return false;
+
+					usize stsdS = 0, stsdE = 0, stszS = 0, stszE = 0, stcoS = 0, stcoE = 0, stscS = 0, stscE = 0;
+					usize sttsS = 0, sttsE = 0;
+					bool co64 = false, found = false;
+					uint32 timescale = 0;
+
+					usize p = moovS;
+					while (p + 8 <= moovE && !found) {
+						uint64 bsz = RdU32BE(d + p);
+						usize hdr = 8;
+						if (bsz == 1) {
+							if (p + 16 > moovE)
+								break;
+							bsz = RdU64BE(d + p + 8);
+							hdr = 16;
+						} else if (bsz == 0)
+							bsz = (uint64)(moovE - p);
+						if (bsz < hdr || p + (usize)bsz > moovE)
+							break;
+						if (Tag(d + p + 4, 't', 'r', 'a', 'k')) {
+							const usize trS = p + hdr, trE = p + (usize)bsz;
+							usize mdiaS, mdiaE;
+							if (Box(d, trS, trE, "mdia", mdiaS, mdiaE)) {
+								usize hS, hE;
+								bool isVid = Box(d, mdiaS, mdiaE, "hdlr", hS, hE) && (hE - hS >= 12) &&
+											 Tag(d + hS + 8, 'v', 'i', 'd', 'e');
+								if (isVid) {
+									usize mdhdS, mdhdE;
+									if (Box(d, mdiaS, mdiaE, "mdhd", mdhdS, mdhdE)) {
+										uint8 ver = d[mdhdS];
+										if (ver == 1 && mdhdE - mdhdS >= 28)
+											timescale = RdU32BE(d + mdhdS + 20);
+										else if (mdhdE - mdhdS >= 16)
+											timescale = RdU32BE(d + mdhdS + 12);
+									}
+									usize minfS, minfE, stblS, stblE;
+									if (Box(d, mdiaS, mdiaE, "minf", minfS, minfE) &&
+										Box(d, minfS, minfE, "stbl", stblS, stblE)) {
+										usize a, b;
+										if (Box(d, stblS, stblE, "stsd", a, b)) {
+											stsdS = a;
+											stsdE = b;
+										}
+										if (Box(d, stblS, stblE, "stsz", a, b)) {
+											stszS = a;
+											stszE = b;
+										}
+										if (Box(d, stblS, stblE, "stco", a, b)) {
+											stcoS = a;
+											stcoE = b;
+											co64 = false;
+										} else if (Box(d, stblS, stblE, "co64", a, b)) {
+											stcoS = a;
+											stcoE = b;
+											co64 = true;
+										}
+										if (Box(d, stblS, stblE, "stsc", a, b)) {
+											stscS = a;
+											stscE = b;
+										}
+										if (Box(d, stblS, stblE, "stts", a, b)) {
+											sttsS = a;
+											sttsE = b;
+										}
+										found = (stsdS && stszS && stcoS && stscS);
+									}
+								}
+							}
+						}
+						p += (usize)bsz;
+					}
+					if (!found)
+						return false;
+
+					// stsd -> codec + dimensions (VisualSampleEntry).
+					if (stsdE - stsdS < 16)
+						return false;
+					const usize entS = stsdS + 8; // saute version/flags/entryCount
+					if (entS + 36 > stsdE)
+						return false;
+					const uint8 *etype = d + entS + 4;
+					int32 w = (int32)RdU16BE(d + entS + 32);
+					int32 h = (int32)RdU16BE(d + entS + 34);
+					const bool isMjpeg = Tag(etype, 'm', 'j', 'p', 'a') || Tag(etype, 'j', 'p', 'e', 'g') ||
+										 Tag(etype, 'M', 'J', 'P', 'G');
+					const bool isAvc = Tag(etype, 'a', 'v', 'c', '1') || Tag(etype, 'a', 'v', 'c', '3');
+					if (!isMjpeg && !isAvc)
+						return false;
+
+					// Assemble la table des samples via stsz + stco/co64 + stsc.
+					if (stszE - stszS < 12 || stcoE - stcoS < 8 || stscE - stscS < 8)
+						return false;
+					const uint32 sampleSize = RdU32BE(d + stszS + 4);
+					const uint32 sampleCount = RdU32BE(d + stszS + 8);
+					const uint32 chunkCount = RdU32BE(d + stcoS + 4);
+					const uint32 stscCount = RdU32BE(d + stscS + 4);
+					if (sampleCount == 0 || chunkCount == 0 || stscCount == 0)
+						return false;
+
+					auto sizeOf = [&](uint32 i) -> uint32 {
+						if (sampleSize)
+							return sampleSize;
+						const usize off = stszS + 12 + (usize)i * 4;
+						return (off + 4 <= stszE) ? RdU32BE(d + off) : 0;
+					};
+					auto chunkOffset = [&](uint32 c1) -> uint64 { // c1 = index de chunk 1-based
+						const usize base = stcoS + 8;
+						if (co64) {
+							const usize o = base + (usize)(c1 - 1) * 8;
+							return (o + 8 <= stcoE) ? RdU64BE(d + o) : 0;
+						}
+						const usize o = base + (usize)(c1 - 1) * 4;
+						return (o + 4 <= stcoE) ? (uint64)RdU32BE(d + o) : 0;
+					};
+
+					uint32 sampleIdx = 0;
+					for (uint32 e = 0; e < stscCount && sampleIdx < sampleCount; ++e) {
+						const usize eo = stscS + 8 + (usize)e * 12;
+						if (eo + 12 > stscE)
+							break;
+						const uint32 firstChunk = RdU32BE(d + eo);
+						const uint32 spc = RdU32BE(d + eo + 4);
+						const uint32 nextFirst =
+							(e + 1 < stscCount && eo + 12 + 12 <= stscE) ? RdU32BE(d + eo + 12) : (chunkCount + 1);
+						for (uint32 c = firstChunk; c < nextFirst && sampleIdx < sampleCount; ++c) {
+							if (c < 1 || c > chunkCount)
+								break;
+							uint64 off = chunkOffset(c);
+							for (uint32 s = 0; s < spc && sampleIdx < sampleCount; ++s) {
+								const uint32 sz = sizeOf(sampleIdx);
+								if (off + sz <= (uint64)n && sz > 0) {
+									FrameRef fr;
+									fr.offset = (usize)off;
+									fr.size = sz;
+									frames.PushBack(fr);
+								}
+								off += sz;
+								++sampleIdx;
+							}
+						}
+					}
+					if (frames.Size() == 0)
+						return false;
+
+					// fps via stts + timescale.
+					double fps = 0.0;
+					if (sttsS && timescale > 0 && sttsE - sttsS >= 8) {
+						const uint32 nent = RdU32BE(d + sttsS + 4);
+						uint64 total = 0, nsamp = 0;
+						for (uint32 i = 0; i < nent; ++i) {
+							const usize o = sttsS + 8 + (usize)i * 8;
+							if (o + 8 > sttsE)
+								break;
+							const uint32 cnt = RdU32BE(d + o);
+							const uint32 dl = RdU32BE(d + o + 4);
+							total += (uint64)cnt * (uint64)dl;
+							nsamp += cnt;
+						}
+						if (total > 0)
+							fps = (double)timescale * (double)nsamp / (double)total;
+					}
+
+					codec = isMjpeg ? Codec::MJPEG : Codec::H264;
+					info.codec = NkString(isMjpeg ? "mjpeg" : "h264");
+					info.container = NkString("mov");
+					info.width = w;
+					info.height = h;
+					info.frameCount = (int32)frames.Size();
+					info.fps = fps;
+					// Dimensions manquantes + MJPEG : on décode la 1re image pour les obtenir.
+					if ((w <= 0 || h <= 0) && codec == Codec::MJPEG) {
+						NkVideoFrame f0;
+						if (Decode(0, f0)) {
+							info.width = f0.width;
+							info.height = f0.height;
+						}
+					}
+					return true;
+				}
+
 				// Décode l'image `index` en RGBA dans `out`.
 				bool Decode(int32 index, NkVideoFrame &out) {
 					if (index < 0 || index >= (int32)frames.Size())
@@ -291,9 +514,14 @@ namespace nkentseu {
 				return false;
 			}
 
-			// ISOBMFF (....ftyp) => MOV/MP4 : lecture vidéo à venir (itération suivante).
+			// ISOBMFF (....ftyp) => MOV/MP4 : démux piste vidéo (MJPEG décodé ; H264 = métadonnées
+			// seules pour l'instant, décodeur dédié à venir -> ReadFrame renverra false).
 			if (mImpl->bytes.Size() >= 12 && Tag(d + 4, 'f', 't', 'y', 'p')) {
-				// TODO(next) : démux piste vidéo ISOBMFF + MJPEG ; H264 = décodeur dédié.
+				if (mImpl->ParseMov()) {
+					mImpl->backend = Backend::MOV;
+					mImpl->cursor = 0;
+					return true;
+				}
 				return false;
 			}
 
