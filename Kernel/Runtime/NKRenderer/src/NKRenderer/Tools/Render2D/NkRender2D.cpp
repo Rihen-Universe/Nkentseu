@@ -371,6 +371,10 @@ void main() {
 				.Add(12, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			mTexLayout = mDevice->CreateDescriptorSetLayout(texLayout);
 			mTexSet = mDevice->AllocateDescriptorSet(mTexLayout);
+			// Pool per-batch (cf. header) : un set frais par batch au Flush.
+			for (int i = 0; i < kTexSetPool; i++)
+				mTexSetPool[i] = mDevice->AllocateDescriptorSet(mTexLayout);
+			mTexSetCursor = 0;
 			mLinearSampler = mDevice->CreateSampler(NkSamplerDesc::Linear());
 
 			// Pre-bind les 8 slots cookies sur la texture White1x1 (no-op = cookie
@@ -379,7 +383,7 @@ void main() {
 				NkTexHandle white = mTexLib->GetWhite1x1();
 				NkTextureHandle whiteRhi = mTexLib->GetRHIHandle(white);
 				for (uint32 i = 0; i < kMaxCookies2D; i++) {
-					mDevice->BindTextureSampler(mTexSet, 2 + i, whiteRhi, mLinearSampler);
+					BindSharedTexture(2 + i, whiteRhi, mLinearSampler);
 				}
 			}
 
@@ -405,7 +409,7 @@ void main() {
 				zero.ambient[2] = 0.2f;
 				zero.ambient[3] = 0.f; // count = 0
 				mDevice->WriteBuffer(mUBOLights2D, &zero, sizeof(zero));
-				mDevice->BindUniformBuffer(mTexSet, 1, mUBOLights2D);
+				BindSharedUBO(1, mUBOLights2D);
 			}
 
 			// E.5 + E.7d : Shadows2D UBO std140 — 32 vec4 occluders + meta + isoMat
@@ -431,7 +435,7 @@ void main() {
 				init.isoMat[2] = 0.f;
 				init.isoMat[3] = 1.f;
 				mDevice->WriteBuffer(mUBOShadows2D, &init, sizeof(init));
-				mDevice->BindUniformBuffer(mTexSet, 10, mUBOShadows2D);
+				BindSharedUBO(10, mUBOShadows2D);
 			}
 
 			// E.7a : ShadowsAABB2D UBO — std140 : 32 vec4 boxes + 1 vec4 meta = 528 bytes
@@ -449,7 +453,7 @@ void main() {
 				mUBOShadowsAABB2D = mDevice->CreateBuffer(ubd);
 				ShadowsAABB2DBlock zero{};
 				mDevice->WriteBuffer(mUBOShadowsAABB2D, &zero, sizeof(zero));
-				mDevice->BindUniformBuffer(mTexSet, 11, mUBOShadowsAABB2D);
+				BindSharedUBO(11, mUBOShadowsAABB2D);
 			}
 
 			// E.7c : pre-bind binding 12 (normal map) sur White1x1 = pas d'effet
@@ -457,7 +461,7 @@ void main() {
 			// par defaut avec NORMAL_MAP bit off donc pas de souci).
 			if (mTexLib) {
 				NkTexHandle white = mTexLib->GetWhite1x1();
-				mDevice->BindTextureSampler(mTexSet, 12, mTexLib->GetRHIHandle(white), mLinearSampler);
+				BindSharedTexture(12, mTexLib->GetRHIHandle(white), mLinearSampler);
 			}
 
 			// Compile et lie le shader 2D si une ShaderLibrary est fournie.
@@ -537,19 +541,40 @@ void main() {
 					pd.debugName = "2D_Glow";
 					mPipeGlow = mDevice->CreateGraphicsPipeline(pd);
 				}
-				// Buffers dedies : 4 verts + 6 indices fixes.
-				mVBOGlow = mDevice->CreateBuffer(NkBufferDesc::Vertex(sizeof(Vert2D) * 4));
-				const uint16 quadIdx[6] = {0, 1, 2, 0, 2, 3};
-				NkBufferDesc iboDesc = NkBufferDesc::Index(sizeof(quadIdx));
-				iboDesc.initialData = quadIdx;
-				mIBOGlow = mDevice->CreateBuffer(iboDesc);
+				// (Les buffers 1-quad dedies du v0 sont retires : le glow passe
+				// desormais par le VBO/IBO du batching normal.)
 			}
 			return mVBO.IsValid();
+		}
+
+		// Applique une ecriture de binding PARTAGE sur le set maitre + tout le
+		// pool per-batch (les sets du pool doivent porter les memes bindings
+		// statiques que mTexSet, seul le binding 0 change par batch).
+		void NkRender2D::BindSharedTexture(uint32 binding, ::nkentseu::NkTextureHandle rhi, NkSamplerHandle samp) {
+			if (mTexSet.IsValid())
+				mDevice->BindTextureSampler(mTexSet, binding, rhi, samp);
+			for (int i = 0; i < kTexSetPool; i++)
+				if (mTexSetPool[i].IsValid())
+					mDevice->BindTextureSampler(mTexSetPool[i], binding, rhi, samp);
+		}
+
+		void NkRender2D::BindSharedUBO(uint32 binding, NkBufferHandle buf) {
+			if (mTexSet.IsValid())
+				mDevice->BindUniformBuffer(mTexSet, binding, buf);
+			for (int i = 0; i < kTexSetPool; i++)
+				if (mTexSetPool[i].IsValid())
+					mDevice->BindUniformBuffer(mTexSetPool[i], binding, buf);
 		}
 
 		void NkRender2D::Shutdown() {
 			if (mTexSet.IsValid()) {
 				mDevice->FreeDescriptorSet(mTexSet);
+			}
+			for (int i = 0; i < kTexSetPool; i++) {
+				if (mTexSetPool[i].IsValid()) {
+					mDevice->FreeDescriptorSet(mTexSetPool[i]);
+					mTexSetPool[i] = {};
+				}
 			}
 			if (mTexLayout.IsValid()) {
 				mDevice->DestroyDescriptorSetLayout(mTexLayout);
@@ -577,14 +602,6 @@ void main() {
 			if (mIBO.IsValid()) {
 				mDevice->DestroyBuffer(mIBO);
 				mIBO = {};
-			}
-			if (mVBOGlow.IsValid()) {
-				mDevice->DestroyBuffer(mVBOGlow);
-				mVBOGlow = {};
-			}
-			if (mIBOGlow.IsValid()) {
-				mDevice->DestroyBuffer(mIBOGlow);
-				mIBOGlow = {};
 			}
 			if (mUBOLights2D.IsValid()) {
 				mDevice->DestroyBuffer(mUBOLights2D);
@@ -655,7 +672,7 @@ void main() {
 				return;
 			NkTextureHandle rhi =
 				tex.IsValid() ? mTexLib->GetRHIHandle(tex) : mTexLib->GetRHIHandle(mTexLib->GetWhite1x1());
-			mDevice->BindTextureSampler(mTexSet, 2 + slot, rhi, mLinearSampler);
+			BindSharedTexture(2 + slot, rhi, mLinearSampler);
 		}
 
 		void NkRender2D::SetNormalMap(NkTexHandle tex) {
@@ -663,7 +680,7 @@ void main() {
 				return;
 			NkTextureHandle rhi =
 				tex.IsValid() ? mTexLib->GetRHIHandle(tex) : mTexLib->GetRHIHandle(mTexLib->GetWhite1x1());
-			mDevice->BindTextureSampler(mTexSet, 12, rhi, mLinearSampler);
+			BindSharedTexture(12, rhi, mLinearSampler);
 		}
 
 		// ── Phase E.7a : AABB Shadow Casters ──────────────────────────────────────
@@ -785,7 +802,9 @@ void main() {
 			// a un autre VAO et perdus).
 			for (auto &b : mBatches) {
 				NkPipelineHandle pipe = mPipeAlpha;
-				if (b.blend == NkBlendMode::NK_ADDITIVE)
+				if (b.glow && mPipeGlow.IsValid())
+					pipe = mPipeGlow; // batch glow : pipeline dedie (halo radial)
+				else if (b.blend == NkBlendMode::NK_ADDITIVE)
 					pipe = mPipeAdd;
 				else if (b.blend == NkBlendMode::NK_OPAQUE)
 					pipe = mPipeOpaque;
@@ -795,19 +814,41 @@ void main() {
 				// Apres BindPipeline : bind buffers et push constants au VAO actif
 				mCmd->BindVertexBuffer(0, mVBO, 0);
 				mCmd->BindIndexBuffer(mIBO, NkIndexFormat::NK_UINT32, 0);
-				mCmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f), &mOrtho);
+				if (b.glow && mPipeGlow.IsValid()) {
+					// PC etendu 96B du shader Glow2D : ortho + glowColor + glowParams
+					// (snapshot du batch — pas les membres courants).
+					struct GlowPC {
+							NkMat4f ortho;
+							NkVec4f glowColor;
+							NkVec4f glowParams;
+					} gpc;
+					gpc.ortho = mOrtho;
+					gpc.glowColor = b.glowColor;
+					gpc.glowParams = b.glowParams;
+					mCmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(gpc), &gpc);
+				} else {
+					mCmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f), &mOrtho);
+				}
 
 				NkTexHandle src = b.tex.IsValid() ? b.tex : mTexLib->GetWhite1x1();
 				NkTextureHandle rhi = mTexLib->GetRHIHandle(src);
 				NkSamplerHandle samp = mTexLib->GetRHISampler(src);
-				if (mTexSet.IsValid()) {
-					mDevice->BindTextureSampler(mTexSet, 0, rhi, samp);
+				// Un set FRAIS du pool par batch (cf. header) : un set unique
+				// partage etait ecrase au Submit sur GL (execution differee ->
+				// TOUS les batchs samplaient la DERNIERE texture de la frame).
+				NkDescSetHandle ds = mTexSet;
+				if (mTexSetPool[0].IsValid()) {
+					ds = mTexSetPool[mTexSetCursor % kTexSetPool];
+					mTexSetCursor++;
+				}
+				if (ds.IsValid()) {
+					mDevice->BindTextureSampler(ds, 0, rhi, samp);
 					// Le pipeline 2D n'a qu'un seul descriptor set layout (mTexLayout)
 					// a l'index 0 (cf. CreateGraphicsPipeline ci-dessus). Le shader
 					// render2d.frag.vk.glsl utilise set=0 pour tous ses bindings (atlas,
 					// lights, shadows, cookies, normal). Bind donc en firstSet=0 — sinon
 					// validation Vulkan : firstSet+count > setLayoutCount.
-					mCmd->BindDescriptorSet(mTexSet, 0);
+					mCmd->BindDescriptorSet(ds, 0);
 				}
 
 				uint32 triIdx = b.vStart / 4 * 6;
@@ -841,10 +882,11 @@ void main() {
 			mVerts.PushBack({br, uvBR, c, flags});
 			mVerts.PushBack({bl, uvBL, c, flags});
 
-			// Fusionner batch si même texture/blend/layer
-			if (!mBatches.Empty()) {
+			// Fusionner batch si même texture/blend/layer. Les batchs GLOW ne
+			// fusionnent JAMAIS (params snapshotes par sprite, pipeline dedie).
+			if (!mGlowNext && !mBatches.Empty()) {
 				auto &last = mBatches[mBatches.Size() - 1];
-				if (last.tex == tex && last.blend == mBlend && last.layer == mLayer) {
+				if (!last.glow && last.tex == tex && last.blend == mBlend && last.layer == mLayer) {
 					last.vCount += 4;
 					return;
 				}
@@ -855,6 +897,11 @@ void main() {
 			b.layer = mLayer;
 			b.vStart = vStart;
 			b.vCount = 4;
+			b.glow = mGlowNext;
+			if (mGlowNext) {
+				b.glowColor = mGlowColor;
+				b.glowParams = mGlowParams;
+			}
 			mBatches.PushBack(b);
 		}
 
@@ -887,13 +934,24 @@ void main() {
 		}
 
 		void NkRender2D::DrawSpriteGlow(NkRectF dst, NkTexHandle tex, NkVec4f tint, NkRectF uv) {
-			// [v0 fallback] L'implementation directe (draw hors render pass) causait
-			// des validation errors VK. Le vrai support necessite un refactor de
-			// FlushPending pour supporter pipeline override par batch. Pour la v0
-			// pragmatique, on fait juste un DrawSprite standard (sans effet glow)
-			// — l'API reste stable pour le code utilisateur, mais l'effet glow
-			// n'est pas applique tant que la v1 unifiee n'est pas faite.
+			// v1 UNIFIEE : le glow passe par le batching normal, mais dans un
+			// batch DEDIE marque glow (pipeline mPipeGlow + push constant etendu
+			// au Flush). L'ancien v0 (draw direct hors passe) causait des
+			// validation errors VK ; ici le draw part dans la meme passe que le
+			// reste du 2D. Fallback DrawSprite si le pipeline glow n'existe pas
+			// (shader Glow2D absent).
+			if (!mPipeGlow.IsValid()) {
+				static bool sWarned = false;
+				if (!sWarned) {
+					sWarned = true;
+					logger.Warnf("[NkRender2D] DrawSpriteGlow: pipeline Glow2D INVALIDE -> fallback DrawSprite\n");
+				}
+				DrawSprite(dst, tex, tint, uv);
+				return;
+			}
+			mGlowNext = true;
 			DrawSprite(dst, tex, tint, uv);
+			mGlowNext = false;
 		}
 
 		void NkRender2D::DrawNineSlice(NkRectF dst, NkTexHandle tex, float32 l, float32 t, float32 r, float32 b,
