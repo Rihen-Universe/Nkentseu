@@ -45,6 +45,8 @@ namespace nkentseu {
 				NkPath path;
 				NkCodeDoc doc;				// modele par lignes + etat d'edition
 				bool pinned = false;		// onglet epingle (non fermable accidentellement, affiche en tete)
+				bool preview = false;		// onglet APERCU (facon VSCode) : titre en italique, remplace par le
+											// prochain simple-clic ; promu (permanent) au double-clic ou a l'edition
 				bool untitled = false;		// fichier « sans-titre » (pas encore sauvegarde -> Ctrl+S = dialogue)
 				int64 diskMtime = 0;		// date de modif sur disque au dernier open/save (detection externe)
 				bool deletedOnDisk = false; // le fichier a ete supprime en dehors de NKCode
@@ -122,42 +124,62 @@ namespace nkentseu {
 					return 0;
 				}
 
-				void OpenPath(const NkPath &p) {
+				// `preview` (facon VSCode) : simple-clic explorateur => ouvre en APERCU (titre
+				// italique). Un onglet apercu est REMPLACE par le prochain fichier ouvert en
+				// apercu (un seul apercu a la fois). preview=false (double-clic, Entree, edition)
+				// => onglet PERMANENT ; si le fichier est deja en apercu, il est PROMU.
+				void OpenPath(const NkPath &p, bool preview = false) {
 					const NkString ps = p.ToString();
 					for (usize i = 0; i < files.Size(); ++i)
 						if (StrEq(files[i].path.ToString().CStr(), ps.CStr())) {
 							active = static_cast<int32>(i);
+							if (!preview)
+								files[i].preview = false; // double-clic/Entree sur un onglet apercu => permanent
 							return;
 						}
 
-					// MEDIA (image/video/audio) : onglet dedie SANS lecture texte (la texture est
-					// chargee au 1er rendu par l'EditorPanel, qui a l'acces GPU du shell).
+					// Construit le nouvel onglet (media ou texte) SANS l'inserer tout de suite :
+					// en mode apercu on reutilise l'onglet apercu existant au lieu d'en creer un.
+					OpenFile nf;
 					const int32 mk = MediaKindOf(p.GetFileName().CStr());
 					if (mk != 0) {
-						OpenFile mf;
-						mf.path = p;
-						mf.mediaKind = mk;
-						mf.mediaSize = NkFile::GetFileSize(p);
-						mf.diskMtime = MTimeOf(p.ToString().CStr());
-						files.PushBack(mf);
-						active = static_cast<int32>(files.Size()) - 1;
-						return;
+						// MEDIA (image/video/audio) : onglet dedie SANS lecture texte (la texture est
+						// chargee au 1er rendu par l'EditorPanel, qui a l'acces GPU du shell).
+						nf.path = p;
+						nf.mediaKind = mk;
+						nf.mediaSize = NkFile::GetFileSize(p);
+						nf.diskMtime = MTimeOf(ps.CStr());
+					} else {
+						const NkString content = NkFile::ReadAllText(p);
+						// GARDE-FOU anti perte de donnees : le fichier existe et est NON VIDE sur disque,
+						// mais on lit un contenu VIDE (echec de lecture / verrou / chemin foireux) -> NE PAS
+						// ouvrir un onglet vide (un Ctrl+S l'ecraserait). On abandonne l'ouverture.
+						if (content.Empty() && NkFile::GetFileSize(p) > 0)
+							return;
+						nf.path = p;
+						nf.doc.SetText(content.CStr());
+						nf.doc.savedSig = nf.doc.SymSig();		 // etat propre de reference (undo -> point eteint)
+						nf.diskMtime = MTimeOf(ps.CStr());		 // référence pour la détection de changement externe
 					}
+					nf.preview = preview;
 
-					const NkString content = NkFile::ReadAllText(p);
-					// GARDE-FOU anti perte de donnees : le fichier existe et est NON VIDE sur disque,
-					// mais on lit un contenu VIDE (echec de lecture / verrou / chemin foireux) -> NE PAS
-					// ouvrir un onglet vide (un Ctrl+S l'ecraserait). On abandonne l'ouverture.
-					if (content.Empty() && NkFile::GetFileSize(p) > 0)
-						return;
-					OpenFile f;
-					f.path = p;
-					f.doc.SetText(content.CStr());
-					f.doc.savedSig = f.doc.SymSig();			// etat propre de reference (undo -> point eteint)
-					f.diskMtime = MTimeOf(p.ToString().CStr()); // référence pour la détection de changement externe
-					files.PushBack(f);
-					active = static_cast<int32>(files.Size()) - 1;
-					RefreshGit(files[active]); // indicateurs Git de la gouttière
+					// En apercu : REMPLACE l'onglet apercu existant (jamais epingle) au lieu d'empiler.
+					int32 slot = -1;
+					if (preview)
+						for (usize i = 0; i < files.Size(); ++i)
+							if (files[i].preview && !files[i].pinned) {
+								slot = static_cast<int32>(i);
+								break;
+							}
+					if (slot >= 0) {
+						files[static_cast<usize>(slot)] = nf;
+						active = slot;
+					} else {
+						files.PushBack(nf);
+						active = static_cast<int32>(files.Size()) - 1;
+					}
+					if (mk == 0)
+						RefreshGit(files[active]); // indicateurs Git de la gouttière
 				}
 
 				// ── Encodage (mojibake) : réparation par LOT de tous les fichiers ouverts affectés ──
