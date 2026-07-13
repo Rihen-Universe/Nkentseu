@@ -1932,6 +1932,7 @@ namespace nkentseu {
 								x1 += 4.f;
 							dl.AddRectFilled({x0, ytop, x1 - x0, lineH}, NkColor{31, 111, 235, 90});
 						}
+
 						const char *L = mLogs[i].CStr();
 						NkDrawTextU(ctx, left - mScrollX, ytop + asc, ytop, lineH, L, L + mLogs[i].Size(), LogColor(L));
 					}
@@ -2201,7 +2202,13 @@ namespace nkentseu {
 						DrawGrid(ctx, t, mainR, lineH, pad);
 
 					// ── Clavier : frappes routees vers le pty (pas de boite de saisie) ──
-					if (mFocused && !mMenu.open && ctx.popupDepth == 0)
+					// Ctrl+F / Ctrl+H : ouvre la recherche DANS le terminal (lecture seule -> pas de remplacement).
+					if (mFocused && ctx.input.ctrlDown && ctx.popupDepth == 0 &&
+						(ctx.input.KeyPressed(nkgui::NkGuiKey::F) || ctx.input.KeyPressed(nkgui::NkGuiKey::H)))
+						mFindOpen = true;
+					if (mFindOpen)
+						DrawTermFind(ctx, t, mainR);
+					if (mFocused && !mMenu.open && !mFindOpen && ctx.popupDepth == 0)
 						RouteKeyboard(ctx, t);
 
 					// ── Menu contextuel (overlay) ──
@@ -2368,6 +2375,126 @@ namespace nkentseu {
 
 				// ── Grille du terminal : rend les cellules visibles + curseur + selection +
 				//    scrollbars V/H avec fleches + auto-suivi du bas (vrai terminal). ──
+				// Recalcule les correspondances de la recherche (Ctrl+F) sur TOUT le terminal.
+				void RecomputeFind(Term &t) {
+					mFindHits.Clear();
+					mFindCur = 0;
+					if (!mFindBuf[0])
+						return;
+					char q[128];
+					int32 ql = 0;
+					for (const char *pp = mFindBuf; *pp && ql < 127; ++pp)
+						q[ql++] = (!mFindCase && *pp >= 'A' && *pp <= 'Z') ? (char)(*pp + 32) : *pp;
+					const int32 total = (int32)t.screen.TotalLines();
+					for (int32 i = 0; i < total; ++i) {
+						const NkTerm::Line &ln = t.screen.LineAt((usize)i);
+						const int32 sl = (int32)ln.Size();
+						for (int32 c = 0; c + ql <= sl; ++c) {
+							bool mm = true;
+							for (int32 k = 0; k < ql && mm; ++k) {
+								const uint32 cp = ln[c + k].cp;
+								char ch = (cp < 128) ? (char)cp : '?';
+								if (!mFindCase && ch >= 'A' && ch <= 'Z')
+									ch = (char)(ch + 32);
+								if (ch != q[k])
+									mm = false;
+							}
+							if (mm) {
+								FindHit fh;
+								fh.line = i;
+								fh.col = c;
+								fh.len = ql;
+								mFindHits.PushBack(fh);
+								c += ql - 1;
+							}
+						}
+						if (mFindHits.Size() > 5000)
+							break;
+					}
+				}
+
+				// Barre de recherche DANS le terminal (Ctrl+F) : champ + compteur + prec/suiv/fermer.
+				void DrawTermFind(NkGuiContext &ctx, Term &t, const NkRect &out) {
+					auto &dl = ctx.DL();
+					const NkGuiFont *font = ctx.font;
+					const float32 S = ctx.S(1.f);
+					const int32 total = (int32)t.screen.TotalLines();
+					if (!StrEq(mFindBuf, mFindLast) || total != mFindTotalSeen) {
+						RecomputeFind(t);
+						int32 k = 0;
+						for (const char *pp = mFindBuf; *pp && k < 128; ++pp)
+							mFindLast[k++] = *pp;
+						mFindLast[k] = 0;
+						mFindTotalSeen = total;
+					}
+					const float32 bw = 340.f * S, bh = 28.f * S;
+					const NkRect bar = {out.x + out.w - bw - 20.f * S, out.y + 6.f * S, bw, bh};
+					dl.AddRectFilled(bar, NkColor{30, 33, 40, 255}, 6.f * S);
+					dl.AddRect(bar, NkColor{70, 78, 90, 255}, 1.f);
+					const NkRect fr = {bar.x + 8.f * S, bar.y + 4.f * S, bw - 164.f * S, bh - 8.f * S};
+					editorkit::NkOverlayTextField(ctx, dl, font, fr, mFindBuf, (int32)sizeof(mFindBuf), true);
+					const NkVec2 m = ctx.input.mousePos;
+					const float32 lineH = font ? font->LineHeight() : 16.f;
+					auto goHit = [&](int32 d) {
+						if (mFindHits.Empty())
+							return;
+						mFindCur = (mFindCur + d + (int32)mFindHits.Size()) % (int32)mFindHits.Size();
+						t.follow = false;
+						const float32 sy = (float32)mFindHits[mFindCur].line * lineH - out.h * 0.4f;
+						t.scrollY = sy < 0.f ? 0.f : sy;
+					};
+					if (font && font->Valid()) {
+						const NkString cnt = mFindHits.Empty() ? NkString(mFindBuf[0] ? "0" : "")
+						                                       : NkPrintf("%d/%d", mFindCur + 1, (int32)mFindHits.Size());
+						dl.AddText(font->Face(), font->TexId(),
+						           {fr.x + fr.w + 6.f * S, bar.y + (bh - lineH) * 0.5f + font->Ascent()}, cnt.CStr(),
+						           ctx.theme.textDisabled);
+					}
+					auto iconBtn = [&](float32 bx, int32 kind) -> bool {
+						const NkRect r = {bx, bar.y + 4.f * S, 22.f * S, bh - 8.f * S};
+						const bool hh = m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
+						if (hh)
+							dl.AddRectFilled(r, ctx.theme.buttonHover, 3.f);
+						const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f, a = 4.f * S;
+						const NkColor c = hh ? ctx.theme.text : ctx.theme.textDisabled;
+						if (kind == 0)
+							dl.AddTriangleFilled({cx, cy - a}, {cx - a, cy + a}, {cx + a, cy + a}, c);
+						else if (kind == 1)
+							dl.AddTriangleFilled({cx - a, cy - a}, {cx + a, cy - a}, {cx, cy + a}, c);
+						else {
+							dl.AddLine({cx - a, cy - a}, {cx + a, cy + a}, c, 1.5f);
+							dl.AddLine({cx - a, cy + a}, {cx + a, cy - a}, c, 1.5f);
+						}
+						return hh && ctx.input.mouseClicked[0] && ctx.popupDepth == 0;
+					};
+					const float32 b0 = bar.x + bw - 74.f * S;
+					// Bouton « Aa » : respecter la casse (recherche exacte).
+					{
+						const NkRect ar = {b0 - 26.f * S, bar.y + 4.f * S, 22.f * S, bh - 8.f * S};
+						const bool ah = m.x >= ar.x && m.x < ar.x + ar.w && m.y >= ar.y && m.y < ar.y + ar.h;
+						dl.AddRectFilled(ar, mFindCase ? NkColor{15, 115, 213, 255}
+						                               : (ah ? ctx.theme.buttonHover : NkColor{0, 0, 0, 0}), 3.f);
+						if (font && font->Valid())
+							dl.AddText(font->Face(), font->TexId(),
+							           {ar.x + (ar.w - font->MeasureWidth("Aa")) * 0.5f, bar.y + (bh - lineH) * 0.5f + font->Ascent()},
+							           "Aa", mFindCase ? NkColor{255, 255, 255, 255} : ctx.theme.textDisabled);
+						if (ah && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) {
+							mFindCase = !mFindCase;
+							RecomputeFind(t); // recalcul immediat avec/sans casse
+						}
+					}
+					if (iconBtn(b0, 0))
+						goHit(-1);
+					if (iconBtn(b0 + 24.f * S, 1))
+						goHit(1);
+					if (iconBtn(b0 + 48.f * S, 2))
+						mFindOpen = false;
+					if (ctx.input.KeyPressed(nkgui::NkGuiKey::Enter))
+						goHit(ctx.input.shiftDown ? -1 : 1);
+					if (ctx.input.KeyPressed(nkgui::NkGuiKey::Escape))
+						mFindOpen = false;
+				}
+
 				void DrawGrid(NkGuiContext &ctx, Term &t, const NkRect &out, float32 lineH, float32 pad) {
 					auto &dl = ctx.DL();
 					const bool sbLight =
@@ -2491,6 +2618,17 @@ namespace nkentseu {
 							if (c1 > c0)
 								dl.AddRectFilled({left + c0 * cw, ytop, (c1 - c0) * cw, lineH},
 												 NkColor{31, 111, 235, 90});
+						}
+						// Surlignage des correspondances de recherche (Ctrl+F) sur cette ligne.
+						if (mFindOpen && !mFindHits.Empty()) {
+							for (usize hI = 0; hI < mFindHits.Size(); ++hI) {
+								const FindHit &fh = mFindHits[hI];
+								if (fh.line != i)
+									continue;
+								const bool cur = ((int32)hI == mFindCur);
+								dl.AddRectFilled({left + fh.col * cw, ytop, fh.len * cw, lineH},
+												 cur ? NkColor{240, 190, 40, 175} : NkColor{240, 190, 40, 80});
+							}
 						}
 						const int32 ncell = static_cast<int32>(ln.Size());
 						for (int32 c = 0; c < ncell; ++c) {
@@ -3068,6 +3206,17 @@ namespace nkentseu {
 				char mRenameBuf[128] = {}; // saisie du nouveau nom
 				NkRect mRenameRect{};	   // rect du champ (pour valider au clic HORS du champ)
 				bool mRenameArmed = false; // vrai des la 2e frame (evite de valider sur le double-clic d'ouverture)
+				// ── Recherche DANS le terminal (Ctrl+F) : surlignage + navigation ──
+				bool mFindOpen = false;
+				bool mFindCase = false; // « Aa » : respecter la casse (recherche exacte)
+				char mFindBuf[128] = {};
+				char mFindLast[130] = {(char)1, 0}; // != mFindBuf au depart -> 1er calcul
+				int32 mFindTotalSeen = -1;
+				int32 mFindCur = 0;
+				struct FindHit {
+						int32 line = 0, col = 0, len = 0;
+				};
+				NkVector<FindHit> mFindHits;
 				int32 mNewShell = 0;	   // index dans mShells (0 = powershell)
 				int32 mDefShell = SH_PWSH; // TYPE du terminal par defaut (preference persistee)
 				NkString mDefDistro;	   // distro WSL du defaut (si SH_WSL)
