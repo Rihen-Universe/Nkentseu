@@ -42,6 +42,10 @@
 #include "NKMedia/Video/NkVideoReader.h"
 #include "NKAudio/NKAudio.h"
 
+#include <cstdio>
+#include <cstring>
+#include <cstdlib>
+
 using namespace nkentseu;
 using namespace nkentseu::renderer;
 
@@ -160,9 +164,121 @@ static void ApplyGrade(nk_uint8 *px, uint64 pixelCount, Grade g) {
 	}
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LUT 3D .cube (format Adobe/DaVinci Resolve) : etalonnage professionnel « cinema ».
+// Un fichier .cube contient LUT_3D_SIZE N puis N^3 lignes « R G B » in [0,1], R variant
+// le plus vite (r + g*N + b*N*N). On applique par interpolation trilineaire.
+// ─────────────────────────────────────────────────────────────────────────────
+struct NkCubeLut {
+		int32 size = 0;
+		NkVector<float32> data; // 3 * size^3 (RGB entrelaces)
+		bool IsValid() const {
+			return size >= 2 && data.Size() == (uint64)size * size * size * 3;
+		}
+};
+
+// Parse minimal d'un .cube (ignore commentaires #, TITLE, DOMAIN_*). 3D uniquement.
+static bool LoadCubeLut(const char *path, NkCubeLut &lut) {
+	FILE *f = fopen(path, "rb");
+	if (!f)
+		return false;
+	lut.size = 0;
+	lut.data.Clear();
+	char line[256];
+	int32 expected = 0;
+	while (fgets(line, sizeof(line), f)) {
+		// Ignore espaces initiaux.
+		const char *p = line;
+		while (*p == ' ' || *p == '\t')
+			++p;
+		if (*p == '#' || *p == '\r' || *p == '\n' || *p == 0)
+			continue;
+		if (strncmp(p, "LUT_3D_SIZE", 11) == 0) {
+			int n = 0;
+			if (sscanf(p + 11, "%d", &n) == 1 && n >= 2 && n <= 128) {
+				lut.size = n;
+				expected = n * n * n * 3;
+				lut.data.Clear();
+			}
+			continue;
+		}
+		// Lignes de meta connues -> ignorer.
+		if ((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z'))
+			continue;
+		// Sinon : triplet R G B.
+		float r = 0, g = 0, b = 0;
+		if (sscanf(p, "%f %f %f", &r, &g, &b) == 3) {
+			lut.data.PushBack((float32)r);
+			lut.data.PushBack((float32)g);
+			lut.data.PushBack((float32)b);
+		}
+	}
+	fclose(f);
+	(void)expected;
+	return lut.IsValid();
+}
+
+static inline float32 LerpF(float32 a, float32 b, float32 t) {
+	return a + (b - a) * t;
+}
+
+// Applique la LUT 3D (trilineaire) a l'image RGBA in place.
+static void ApplyCubeLut(nk_uint8 *px, uint64 pixelCount, const NkCubeLut &lut) {
+	if (!lut.IsValid())
+		return;
+	const int32 N = lut.size;
+	const float32 scale = (float32)(N - 1);
+	for (uint64 i = 0; i < pixelCount; ++i) {
+		const float32 R = px[i * 4 + 0] / 255.0f;
+		const float32 G = px[i * 4 + 1] / 255.0f;
+		const float32 B = px[i * 4 + 2] / 255.0f;
+		const float32 fr = R * scale, fg = G * scale, fb = B * scale;
+		int32 r0 = (int32)fr, g0 = (int32)fg, b0 = (int32)fb;
+		if (r0 >= N - 1)
+			r0 = N - 2;
+		if (g0 >= N - 1)
+			g0 = N - 2;
+		if (b0 >= N - 1)
+			b0 = N - 2;
+		if (r0 < 0)
+			r0 = 0;
+		if (g0 < 0)
+			g0 = 0;
+		if (b0 < 0)
+			b0 = 0;
+		const float32 dr = fr - r0, dg = fg - g0, db = fb - b0;
+		auto sample = [&](int32 r, int32 g, int32 b, float32 &oR, float32 &oG, float32 &oB) {
+			const uint64 idx = ((uint64)b * N * N + (uint64)g * N + (uint64)r) * 3;
+			oR = lut.data[idx + 0];
+			oG = lut.data[idx + 1];
+			oB = lut.data[idx + 2];
+		};
+		float32 c000R, c000G, c000B, c100R, c100G, c100B, c010R, c010G, c010B, c110R, c110G, c110B;
+		float32 c001R, c001G, c001B, c101R, c101G, c101B, c011R, c011G, c011B, c111R, c111G, c111B;
+		sample(r0, g0, b0, c000R, c000G, c000B);
+		sample(r0 + 1, g0, b0, c100R, c100G, c100B);
+		sample(r0, g0 + 1, b0, c010R, c010G, c010B);
+		sample(r0 + 1, g0 + 1, b0, c110R, c110G, c110B);
+		sample(r0, g0, b0 + 1, c001R, c001G, c001B);
+		sample(r0 + 1, g0, b0 + 1, c101R, c101G, c101B);
+		sample(r0, g0 + 1, b0 + 1, c011R, c011G, c011B);
+		sample(r0 + 1, g0 + 1, b0 + 1, c111R, c111G, c111B);
+		// Interpolation trilineaire.
+		const float32 oR = LerpF(LerpF(LerpF(c000R, c100R, dr), LerpF(c010R, c110R, dr), dg),
+								 LerpF(LerpF(c001R, c101R, dr), LerpF(c011R, c111R, dr), dg), db);
+		const float32 oG = LerpF(LerpF(LerpF(c000G, c100G, dr), LerpF(c010G, c110G, dr), dg),
+								 LerpF(LerpF(c001G, c101G, dr), LerpF(c011G, c111G, dr), dg), db);
+		const float32 oB = LerpF(LerpF(LerpF(c000B, c100B, dr), LerpF(c010B, c110B, dr), dg),
+								 LerpF(LerpF(c001B, c101B, dr), LerpF(c011B, c111B, dr), dg), db);
+		px[i * 4 + 0] = U8(oR * 255.0f);
+		px[i * 4 + 1] = U8(oG * 255.0f);
+		px[i * 4 + 2] = U8(oB * 255.0f);
+	}
+}
+
 int nkmain(const NkEntryState &state) {
-	// ── Arguments : [1] = média vidéo, [2] éventuel = audio, --step N = pas de saut
-	NkString videoPath, audioPath;
+	// ── Arguments : [1] = média vidéo, [2] éventuel = audio, --step N, --lut fichier.cube
+	NkString videoPath, audioPath, lutPath;
 	int32 stepArg = 0; // 0 => défaut = ~1 seconde (calculé plus bas d'après le fps)
 	for (uint64 i = 1; i < state.args.Size(); ++i) {
 		const NkString &a = state.args[i];
@@ -171,14 +287,27 @@ int nkmain(const NkEntryState &state) {
 			const char *v = state.args[++i].CStr();
 			for (uint64 k = 0; v[k] >= '0' && v[k] <= '9'; ++k)
 				stepArg = stepArg * 10 + (v[k] - '0');
+		} else if ((a == "--lut" || a == "-l") && i + 1 < state.args.Size()) {
+			lutPath = state.args[++i];
 		} else if (LooksLikeAudio(a))
 			audioPath = a;
 		else if (videoPath.Empty())
 			videoPath = a;
 	}
 	if (videoPath.Empty()) {
-		logger.Error("[NkVideoPlayer] usage : NkVideoPlayer <video> [audio] [--step N]");
+		logger.Error("[NkVideoPlayer] usage : NkVideoPlayer <video> [audio] [--step N] [--lut fichier.cube]");
 		return -1;
+	}
+
+	// Charge la LUT .cube si fournie (etalonnage cinema professionnel, active par 'U').
+	NkCubeLut lut;
+	bool lutLoaded = false;
+	if (!lutPath.Empty()) {
+		lutLoaded = LoadCubeLut(lutPath.CStr(), lut);
+		if (lutLoaded)
+			logger.Info("[NkVideoPlayer] LUT chargee : {0} (taille {1})", lutPath.CStr(), lut.size);
+		else
+			logger.Warn("[NkVideoPlayer] LUT illisible/invalide : {0}", lutPath.CStr());
 	}
 
 	// ── 1) Ouvre la vidéo (décodage image par image en RGBA) ──────────────────
@@ -251,8 +380,8 @@ int nkmain(const NkEntryState &state) {
 
 	// ── 6) Boucle : cadence au fps, décode -> (grade) -> upload -> dessine ─────
 	//   CONTRÔLES : Espace=pause/lecture · S=stop(retour début) · L=boucle on/off
-	//               →/←=avancer/reculer d'un PAS · ↑/↓=vitesse · C=étalonnage couleur
-	//   Le PAS de saut est --step N images (défaut ≈ 1 seconde).
+	//               →/←=avancer/reculer d'un PAS · ↑/↓=vitesse · C=étalonnage couleur · U=LUT
+	//   Le PAS de saut est --step N images (défaut ≈ 1 seconde). LUT via --lut fichier.cube.
 	bool running = true;
 	auto &events = NkEvents();
 	events.AddEventCallback<NkWindowCloseEvent>([&](NkWindowCloseEvent *) { running = false; });
@@ -267,22 +396,29 @@ int nkmain(const NkEntryState &state) {
 	bool loop = true;
 	float32 speed = 1.0f;
 	Grade grade = Grade::Neutral;
+	bool lutOn = lutLoaded; // si une LUT est fournie, active par defaut ; bascule avec 'U'
 
+	// Applique preset d'etalonnage PUIS LUT .cube (si active) sur un buffer RGBA.
+	auto applyLook = [&](nk_uint8 *px, uint64 pixelCount) {
+		ApplyGrade(px, pixelCount, grade);
+		if (lutOn && lutLoaded)
+			ApplyCubeLut(px, pixelCount, lut);
+	};
 	// Décode/étalonne/upload l'image fraîchement lue dans `fr`.
 	auto pushFrame = [&]() {
 		rawW = fr.width;
 		rawH = fr.height;
 		rawFrame = fr.rgba; // conserve la version brute pour un ré-étalonnage à la volée
-		ApplyGrade(fr.rgba.Data(), (uint64)fr.width * fr.height, grade);
+		applyLook(fr.rgba.Data(), (uint64)fr.width * fr.height);
 		frameTex.Update(fr.rgba.Data(), (uint32)fr.width, (uint32)fr.height, 0, 0);
 		haveFrame = true;
 	};
-	// Ré-applique l'étalonnage sur l'image courante (ex. changement de grade en pause).
+	// Ré-applique l'étalonnage sur l'image courante (ex. changement de grade/LUT en pause).
 	auto regrade = [&]() {
 		if (!haveFrame || rawFrame.Empty())
 			return;
 		fr.rgba = rawFrame;
-		ApplyGrade(fr.rgba.Data(), (uint64)rawW * rawH, grade);
+		applyLook(fr.rgba.Data(), (uint64)rawW * rawH);
 		frameTex.Update(fr.rgba.Data(), (uint32)rawW, (uint32)rawH, 0, 0);
 	};
 	// Va à l'image `target` (accès aléatoire : MJPEG/AVI/MOV/séquences ; no-op si non supporté).
@@ -354,6 +490,12 @@ int nkmain(const NkEntryState &state) {
 						grade = (Grade)(((int32)grade + 1) % (int32)Grade::Count);
 						regrade();
 						break;
+					case NkKey::NK_U: // active/desactive la LUT .cube (si chargee)
+						if (lutLoaded) {
+							lutOn = !lutOn;
+							regrade();
+						}
+						break;
 					default:
 						break;
 				}
@@ -398,10 +540,11 @@ int nkmain(const NkEntryState &state) {
 		if (titleAcc >= 0.2f) {
 			titleAcc = 0.0f;
 			const int32 idx = reader.CurrentIndex();
-			window.SetTitle(NkString::Format("NkVideoPlayer  %s  img %d/%d  x%.2f  [%s]  boucle:%s  (%s)",
+			const char *lutTxt = lutLoaded ? (lutOn ? "LUT:on" : "LUT:off") : "LUT:-";
+			window.SetTitle(NkString::Format("NkVideoPlayer  %s  img %d/%d  x%.2f  [%s]  %s  boucle:%s  (%s)",
 											 paused ? "PAUSE" : "LECTURE", idx,
 											 vin.frameCount > 0 ? vin.frameCount : -1, (double)speed, GradeName(grade),
-											 loop ? "on" : "off", videoPath.CStr()));
+											 lutTxt, loop ? "on" : "off", videoPath.CStr()));
 		}
 
 		// ── Rendu ───────────────────────────────────────────────────────────────
