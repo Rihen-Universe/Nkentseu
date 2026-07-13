@@ -530,6 +530,151 @@ namespace nkentseu {
 				return true;
 			}
 
+			// --- Déblocage (§8.7) : tables + filtres (copie de l'encodeur) ---
+			const int32 kAlpha[52] = {0,   0,	0,	 0,	  0,   0,	0,	 0,	  0,   0,	0,	 0,	  0,	0,	 0,	  0,
+									  4,   4,	5,	 6,	  7,   8,	9,	 10,  12,  13,	15,	 17,  20,	22,	 25,  28,
+									  32,  36,	40,	 45,  50,  56,	63,	 71,  80,  90,	101, 113, 127, 144, 162, 182,
+									  203, 226, 255, 255};
+			const int32 kBeta[52] = {0,	 0,	 0,	 0,	 0,	 0,	 0,	 0,	 0,	 0,	 0,	 0,	 0,	 0,	 0,	 0,	 2,	 2,
+									 2,	 3,	 3,	 3,	 3,	 4,	 4,	 4,	 6,	 6,	 7,	 7,	 8,	 8,	 9,	 9,	 10, 10,
+									 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18};
+			const int32 kTc0[52][3] = {
+				{0, 0, 0},	 {0, 0, 0},	  {0, 0, 0},   {0, 0, 0},  {0, 0, 0},  {0, 0, 0},  {0, 0, 0},	  {0, 0, 0},
+				{0, 0, 0},	 {0, 0, 0},	  {0, 0, 0},   {0, 0, 0},  {0, 0, 0},  {0, 0, 0},  {0, 0, 0},	  {0, 0, 0},
+				{0, 0, 0},	 {0, 0, 1},	  {0, 0, 1},   {0, 0, 1},  {0, 0, 1},  {0, 0, 1},  {0, 0, 1},	  {0, 1, 1},
+				{0, 1, 1},	 {1, 1, 1},	  {1, 1, 1},   {1, 1, 1},  {1, 1, 1},  {1, 1, 2},  {1, 1, 2},	  {1, 1, 2},
+				{1, 1, 2},	 {1, 2, 3},	  {1, 2, 3},   {2, 2, 3},  {2, 2, 4},  {2, 3, 4},  {2, 3, 4},	  {3, 3, 5},
+				{3, 4, 6},	 {3, 4, 6},	  {4, 5, 7},   {4, 5, 8},  {5, 6, 9},  {6, 7, 10}, {6, 8, 11},  {7, 9, 12},
+				{8, 10, 13}, {9, 12, 15}, {10, 13, 17}, {11, 17, 25}};
+
+			void FiltLuma(uint8 *q, int32 d, int32 alpha, int32 beta, int32 bS, int32 tc0) {
+				const int32 p0 = q[-d], p1 = q[-2 * d], p2 = q[-3 * d], p3 = q[-4 * d];
+				const int32 Q0 = q[0], Q1 = q[d], Q2 = q[2 * d], Q3 = q[3 * d];
+				const int32 dpq = p0 - Q0 < 0 ? Q0 - p0 : p0 - Q0;
+				if (dpq >= alpha || (p1 - p0 < 0 ? p0 - p1 : p1 - p0) >= beta ||
+					(Q1 - Q0 < 0 ? Q0 - Q1 : Q1 - Q0) >= beta)
+					return;
+				const int32 ap = p2 - p0 < 0 ? p0 - p2 : p2 - p0;
+				const int32 aq = Q2 - Q0 < 0 ? Q0 - Q2 : Q2 - Q0;
+				if (bS < 4) {
+					const int32 tc = tc0 + (ap < beta ? 1 : 0) + (aq < beta ? 1 : 0);
+					const int32 delta = Clamp(((Q0 - p0) * 4 + (p1 - Q1) + 4) >> 3, -tc, tc);
+					q[-d] = ClampU8(p0 + delta);
+					q[0] = ClampU8(Q0 - delta);
+					if (ap < beta)
+						q[-2 * d] = (uint8)(p1 + Clamp((p2 + ((p0 + Q0 + 1) >> 1) - 2 * p1) >> 1, -tc0, tc0));
+					if (aq < beta)
+						q[d] = (uint8)(Q1 + Clamp((Q2 + ((p0 + Q0 + 1) >> 1) - 2 * Q1) >> 1, -tc0, tc0));
+				} else {
+					const int32 thr = (alpha >> 2) + 2;
+					if (ap < beta && dpq < thr) {
+						q[-d] = (uint8)((p2 + 2 * p1 + 2 * p0 + 2 * Q0 + Q1 + 4) >> 3);
+						q[-2 * d] = (uint8)((p2 + p1 + p0 + Q0 + 2) >> 2);
+						q[-3 * d] = (uint8)((2 * p3 + 3 * p2 + p1 + p0 + Q0 + 4) >> 3);
+					} else {
+						q[-d] = (uint8)((2 * p1 + p0 + Q1 + 2) >> 2);
+					}
+					if (aq < beta && dpq < thr) {
+						q[0] = (uint8)((Q2 + 2 * Q1 + 2 * Q0 + 2 * p0 + p1 + 4) >> 3);
+						q[d] = (uint8)((Q2 + Q1 + Q0 + p0 + 2) >> 2);
+						q[2 * d] = (uint8)((2 * Q3 + 3 * Q2 + Q1 + Q0 + p0 + 4) >> 3);
+					} else {
+						q[0] = (uint8)((2 * Q1 + Q0 + p1 + 2) >> 2);
+					}
+				}
+			}
+
+			void FiltChroma(uint8 *q, int32 d, int32 alpha, int32 beta, int32 bS, int32 tc0) {
+				const int32 p1 = q[-2 * d], p0 = q[-d], Q0 = q[0], Q1 = q[d];
+				if ((p0 - Q0 < 0 ? Q0 - p0 : p0 - Q0) >= alpha || (p1 - p0 < 0 ? p0 - p1 : p1 - p0) >= beta ||
+					(Q1 - Q0 < 0 ? Q0 - Q1 : Q1 - Q0) >= beta)
+					return;
+				if (bS < 4) {
+					const int32 tc = tc0 + 1;
+					const int32 delta = Clamp(((Q0 - p0) * 4 + (p1 - Q1) + 4) >> 3, -tc, tc);
+					q[-d] = ClampU8(p0 + delta);
+					q[0] = ClampU8(Q0 - delta);
+				} else {
+					q[-d] = (uint8)((2 * p1 + p0 + Q1 + 2) >> 2);
+					q[0] = (uint8)((2 * Q1 + Q0 + p1 + 2) >> 2);
+				}
+			}
+
+			// Déblocage d'une image INTRA : bS = 4 (bord MB) / 3 (interne). QP moyen par bord.
+			void DeblockIntra(DecCtx &c, const int32 *mbQp, int32 alphaOff, int32 betaOff) {
+				const int32 mbW = c.mbW;
+				auto lumaEdge = [&](int32 qPav, int32 bS, int32 &alpha, int32 &beta, int32 &tc0) {
+					const int32 ia = Clamp(qPav + alphaOff, 0, 51), ib = Clamp(qPav + betaOff, 0, 51);
+					alpha = kAlpha[ia];
+					beta = kBeta[ib];
+					tc0 = (bS < 4) ? kTc0[ia][bS - 1] : 0;
+				};
+				auto chromaEdge = [&](int32 qPavC, int32 bS, int32 &alpha, int32 &beta, int32 &tc0) {
+					const int32 ia = Clamp(qPavC + alphaOff, 0, 51), ib = Clamp(qPavC + betaOff, 0, 51);
+					alpha = kAlpha[ia];
+					beta = kBeta[ib];
+					tc0 = (bS < 4) ? kTc0[ia][bS - 1] : 0;
+				};
+				auto chromaQpOf = [&](int32 lumaQp) {
+					return NkH264Transform::ChromaQp(Clamp(lumaQp + c.chromaQpOffset, 0, 51));
+				};
+
+				for (int32 mbY = 0; mbY < c.mbH; ++mbY)
+					for (int32 mbX = 0; mbX < mbW; ++mbX) {
+						const int32 cur = mbY * mbW + mbX;
+						const int32 qpQ = mbQp[cur];
+						int32 alpha, beta, tc0;
+						// Luma bords verticaux.
+						for (int32 e = 0; e < 4; ++e) {
+							if (e == 0 && mbX == 0)
+								continue;
+							const int32 bS = (e == 0) ? 4 : 3;
+							const int32 qPav = (e == 0) ? ((mbQp[cur - 1] + qpQ + 1) >> 1) : qpQ;
+							lumaEdge(qPav, bS, alpha, beta, tc0);
+							const int32 x = mbX * 16 + e * 4;
+							for (int32 row = 0; row < 16; ++row)
+								FiltLuma(&c.Y[(usize)(mbY * 16 + row) * c.lumaW + x], 1, alpha, beta, bS, tc0);
+						}
+						// Luma bords horizontaux.
+						for (int32 e = 0; e < 4; ++e) {
+							if (e == 0 && mbY == 0)
+								continue;
+							const int32 bS = (e == 0) ? 4 : 3;
+							const int32 qPav = (e == 0) ? ((mbQp[cur - mbW] + qpQ + 1) >> 1) : qpQ;
+							lumaEdge(qPav, bS, alpha, beta, tc0);
+							const int32 y = mbY * 16 + e * 4;
+							for (int32 col = 0; col < 16; ++col)
+								FiltLuma(&c.Y[(usize)y * c.lumaW + mbX * 16 + col], c.lumaW, alpha, beta, bS, tc0);
+						}
+						// Chroma 4:2:0 : bords cx/cy = 0 et 4 (ec = 0,1).
+						for (int32 comp = 0; comp < 2; ++comp) {
+							uint8 *rec = (comp == 0) ? c.Cb : c.Cr;
+							for (int32 ec = 0; ec < 2; ++ec) {
+								if (ec == 0 && mbX == 0)
+									continue;
+								const int32 bS = (ec == 0) ? 4 : 3;
+								const int32 qpcQ = chromaQpOf(qpQ);
+								const int32 qPavC = (ec == 0) ? ((chromaQpOf(mbQp[cur - 1]) + qpcQ + 1) >> 1) : qpcQ;
+								chromaEdge(qPavC, bS, alpha, beta, tc0);
+								const int32 cx = mbX * 8 + ec * 4;
+								for (int32 cr = 0; cr < 8; ++cr)
+									FiltChroma(&rec[(usize)(mbY * 8 + cr) * c.chromaW + cx], 1, alpha, beta, bS, tc0);
+							}
+							for (int32 ec = 0; ec < 2; ++ec) {
+								if (ec == 0 && mbY == 0)
+									continue;
+								const int32 bS = (ec == 0) ? 4 : 3;
+								const int32 qpcQ = chromaQpOf(qpQ);
+								const int32 qPavC = (ec == 0) ? ((chromaQpOf(mbQp[cur - mbW]) + qpcQ + 1) >> 1) : qpcQ;
+								chromaEdge(qPavC, bS, alpha, beta, tc0);
+								const int32 cy = mbY * 8 + ec * 4;
+								for (int32 cc = 0; cc < 8; ++cc)
+									FiltChroma(&rec[(usize)cy * c.chromaW + mbX * 8 + cc], c.chromaW, alpha, beta, bS, tc0);
+							}
+						}
+					}
+			}
+
 		} // namespace
 
 		bool NkH264Decoder::DecodeIdrFrame(const uint8 *annexB, usize size, NkH264Frame &out) {
@@ -593,11 +738,12 @@ namespace nkentseu {
 			if (qp < 0 || qp > 51)
 				return false;
 			// deblocking_filter_control (présent dans ce PPS) : idc + offsets, AVANT les données MB.
+			int32 disableDeblock = 0, alphaOff = 0, betaOff = 0;
 			if (pps.deblockingControlPresent) {
-				const uint32 idc = br.UE(); // disable_deblocking_filter_idc
-				if (idc != 1) {
-					br.SE(); // slice_alpha_c0_offset_div2
-					br.SE(); // slice_beta_offset_div2
+				disableDeblock = (int32)br.UE(); // disable_deblocking_filter_idc
+				if (disableDeblock != 1) {
+					alphaOff = br.SE() * 2; // slice_alpha_c0_offset_div2 ×2
+					betaOff = br.SE() * 2;	// slice_beta_offset_div2 ×2
 				}
 			}
 
@@ -650,6 +796,8 @@ namespace nkentseu {
 			c.chromaQpOffset = pps.chromaQpIndexOffset;
 
 			const int32 numMb = mbW * mbH;
+			NkVector<int32> mbQp;
+			mbQp.Resize((uint64)numMb);
 			for (int32 mbAddr = 0; mbAddr < numMb; ++mbAddr) {
 				const int32 mbX = mbAddr % mbW, mbY = mbAddr / mbW;
 				const uint32 mbType = br.UE();
@@ -662,7 +810,12 @@ namespace nkentseu {
 				} else {
 					return false; // I_PCM / inter non gérés
 				}
+				mbQp[(uint64)mbAddr] = c.qp;
 			}
+
+			// Déblocage en boucle (§8.7) sur l'image intra, sauf si désactivé.
+			if (disableDeblock != 1)
+				DeblockIntra(c, mbQp.Data(), alphaOff, betaOff);
 
 			out.lumaW = lumaW;
 			out.lumaH = lumaH;
