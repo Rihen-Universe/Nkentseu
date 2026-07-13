@@ -37,7 +37,9 @@ namespace nkentseu {
 					uint64 id = 0;
 					float32 x = 0.f;
 					NkMaterial *mat = nullptr;
-					bool bound = false; // texture streamee actuellement bindee au materiau
+					bool bound = false;	  // texture streamee actuellement bindee au materiau
+					NkTexHandle boundTex; // handle binde (change au RAFFINEMENT mip V2)
+					float32 fadeIn = 0.f; // 0..1 : fondu a l'apparition (anti-pop)
 					const char *label = "";
 			};
 
@@ -76,6 +78,12 @@ namespace nkentseu {
 			cfg.maxJobsPerFrame = 2;
 			cfg.streamInDist = 14.f;  // stream quand la camera est a moins de 14 m
 			cfg.streamOutDist = 22.f; // evince au-dela de 22 m
+			// Mip streaming V2 : la version FLOUE arrive d'abord ; la pleine
+			// resolution remplace sous refineDist = 14 * 0.85 ≈ 11.9 m -> le
+			// panneau EN FACE est net, les voisins restent flous jusqu'a
+			// l'approche (l'effet est visible en se deplacant, touche C/WASD).
+			cfg.refineDistMult = 0.85f;
+			cfg.lowResMax = 96;
 			cfg.async = true;
 			st->stream.Init(ctx.renderer->GetDevice(), texLib, meshSys, cfg);
 
@@ -187,19 +195,44 @@ namespace nkentseu {
 			}
 			st->stream.Update(dt);
 
-			// Bind/unbind la texture streamee sur le materiau du panneau.
+			// ── Reglage LIVE des distances de streaming (touches 1/2, +Shift) ────
+			// 1 = stream-in -/+ , 2 = stream-out -/+ (Shift = augmente).
+			// L'ecart in<out est preserve (hysterese anti ping-pong).
+			{
+				NkStreamingConfig &scfg = st->stream.GetConfig();
+				const float32 step = 8.f * dt;
+				if (NkInput.IsKeyDown(NkKey::NK_NUM1))
+					scfg.streamInDist = NkMax(2.f, scfg.streamInDist + (shift ? step : -step));
+				if (NkInput.IsKeyDown(NkKey::NK_NUM2))
+					scfg.streamOutDist = NkMax(4.f, scfg.streamOutDist + (shift ? step : -step));
+				if (scfg.streamOutDist < scfg.streamInDist + 2.f)
+					scfg.streamOutDist = scfg.streamInDist + 2.f;
+			}
+
+			// Bind/unbind la texture streamee sur le materiau du panneau,
+			// avec FONDU a l'apparition (anti-pop : gris -> texture en ~0.4 s).
 			for (auto &p : st->panels) {
 				if (!p.mat)
 					continue;
 				const bool res = st->stream.IsResident(p.id);
-				if (res && !p.bound) {
-					p.mat->SetAlbedoMap(st->stream.GetTexture(p.id));
+				const NkTexHandle cur = st->stream.GetTexture(p.id);
+				if (res && (!p.bound || cur.id != p.boundTex.id)) {
+					// Premiere apparition OU raffinement mip (flou -> net) : le
+					// handle change, on re-binde. Le fondu ne joue qu'a l'arrivee.
+					p.mat->SetAlbedoMap(cur);
+					if (!p.bound)
+						p.fadeIn = 0.f; // demarre le fondu (apparition)
 					p.bound = true;
+					p.boundTex = cur;
 				} else if (!res && p.bound) {
 					// Texture evincee : rebinde le blanc (le handle streame est mort).
 					p.mat->SetAlbedoMap(texLib->GetWhite1x1());
 					p.bound = false;
+					p.boundTex = {};
+					p.fadeIn = 0.f;
 				}
+				if (p.bound && p.fadeIn < 1.f)
+					p.fadeIn = NkMin(1.f, p.fadeIn + dt * 2.5f);
 			}
 
 			// ── Scene ────────────────────────────────────────────────────────────
@@ -235,7 +268,9 @@ namespace nkentseu {
 				dc.castShadow = true;
 				if (s == NkStreamState::NK_RESIDENT && p.mat) {
 					dc.material = p.mat->GetInstHandle();
-					dc.tint = {1.f, 1.f, 1.f};
+					// Fondu gris -> blanc : la texture "arrive" en douceur.
+					const float32 f = 0.35f + 0.65f * p.fadeIn;
+					dc.tint = {f, f, f};
 				} else if (s == NkStreamState::NK_LOADING) {
 					dc.tint = {0.9f, 0.85f, 0.2f}; // jaune : worker en cours
 				} else if (s == NkStreamState::NK_PENDING) {
@@ -259,9 +294,10 @@ namespace nkentseu {
 								  (float64)st->stream.GetUsedBytes() / (1024.0 * 1024.0),
 								  (float64)st->stream.GetBudgetBytes() / (1024.0 * 1024.0),
 								  st->stream.GetUsageRatio() * 100.f);
-				overlay->DrawText({20.f, 115.f}, "cam %s : x=%.1f  (in<14m, out>22m)  FPS:%.0f",
-								  st->freeCam ? "LIBRE" : "AUTO", st->camX, dt > 1e-5f ? 1.f / dt : 0.f);
-				overlay->DrawText({20.f, 135.f}, "C=auto/libre  |  WASD+E/Q deplacer  clic DROIT regarder  Shift=vite");
+				overlay->DrawText({20.f, 115.f}, "cam %s : x=%.1f  |  in<%.1fm  out>%.1fm  |  FPS:%.0f",
+								  st->freeCam ? "LIBRE" : "AUTO", st->camX, st->stream.GetConfig().streamInDist,
+								  st->stream.GetConfig().streamOutDist, dt > 1e-5f ? 1.f / dt : 0.f);
+				overlay->DrawText({20.f, 135.f}, "C=auto/libre  WASD+E/Q+clic DROIT  |  1/2=dist in/out (-, Shift=+)");
 				overlay->EndOverlay();
 			}
 

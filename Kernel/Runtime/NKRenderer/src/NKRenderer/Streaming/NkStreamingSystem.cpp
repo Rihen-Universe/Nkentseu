@@ -53,6 +53,11 @@ namespace nkentseu {
 				FreePayload(r);
 			mResults.Clear();
 			mJobsIn.Clear();
+			// Raffinements en attente : pleine res jamais uploadee.
+			for (auto &pr : mRefines)
+				if (pr.imgFull)
+					memory::NkGetDefaultAllocator().Delete(pr.imgFull);
+			mRefines.Clear();
 			// Evince toutes les ressources residentes (rend la VRAM).
 			for (auto &kv : mEntries) {
 				NkStreamEntry &e = kv.Second;
@@ -201,7 +206,7 @@ namespace nkentseu {
 			}
 		}
 
-		NkStreamingSystem::LoadResult NkStreamingSystem::DoLoadCPU(const LoadJob &job) {
+		NkStreamingSystem::LoadResult NkStreamingSystem::DoLoadCPU(const LoadJob &job) const {
 			LoadResult r;
 			r.id = job.id;
 			r.isMesh = job.isMesh;
@@ -230,6 +235,18 @@ namespace nkentseu {
 				if (img->Load(job.path.CStr(), 4) && img->Pixels() && img->Width() > 0) {
 					r.img = img;
 					r.ok = true;
+					// V2 mip streaming : version basse resolution (floue) fabriquee
+					// ICI (worker, CPU) — uploadee EN PREMIER cote main thread.
+					if (mCfg.enableMipStreaming && mCfg.lowResMax > 0) {
+						const int32 w = img->Width(), h = img->Height();
+						const int32 side = w > h ? w : h;
+						if ((uint32)side > mCfg.lowResMax * 2) { // inutil si deja petite
+							const float32 k = (float32)mCfg.lowResMax / (float32)side;
+							const int32 lw = (int32)(w * k) > 1 ? (int32)(w * k) : 1;
+							const int32 lh = (int32)(h * k) > 1 ? (int32)(h * k) : 1;
+							r.imgLow = img->Resize(lw, lh, NkResizeFilter::NK_BILINEAR);
+						}
+					}
 				} else {
 					memory::NkGetDefaultAllocator().Delete(img);
 				}
@@ -242,6 +259,12 @@ namespace nkentseu {
 				memory::NkGetDefaultAllocator().Delete(r.img);
 				r.img = nullptr;
 			}
+			if (r.imgLow) {
+				// ⚠ imgLow vient de NkImage::Resize -> NkImage::Alloc : liberation
+				// par Free() UNIQUEMENT (jamais Delete -> double-free c0000374).
+				r.imgLow->Free();
+				r.imgLow = nullptr;
+			}
 			if (r.meshData) {
 				memory::NkGetDefaultAllocator().Delete(r.meshData);
 				r.meshData = nullptr;
@@ -249,6 +272,54 @@ namespace nkentseu {
 		}
 
 		// ── Main thread ──────────────────────────────────────────────────────────
+
+		// V2 mip streaming : upgrades basse -> pleine resolution quand la camera
+		// est a moins de refineDist. Budget d'uploads partage avec les loads.
+		void NkStreamingSystem::TickRefines(uint32 &budgetJobs) {
+			const float32 refineDist = mCfg.streamInDist * mCfg.refineDistMult;
+			for (uint32 i = 0; i < (uint32)mRefines.Size();) {
+				PendingRefine &pr = mRefines[i];
+				auto *e = mEntries.Find(pr.id);
+				// Entree disparue ou evincee : la pleine res n'a plus de cible.
+				if (!e || e->state != NkStreamState::NK_RESIDENT || e->residentMip == 0) {
+					if (pr.imgFull)
+						memory::NkGetDefaultAllocator().Delete(pr.imgFull);
+					mRefines.Erase(mRefines.Begin() + i);
+					continue;
+				}
+				e->targetMip = (e->dist <= refineDist) ? 0u : 1u;
+				if (e->targetMip != 0 || budgetJobs == 0) {
+					++i;
+					continue; // pas encore assez proche, ou plus de budget frame
+				}
+				// Upload pleine resolution + swap du handle (l'appelant re-binde
+				// en surveillant GetTexture). L'ancienne basse res est liberee.
+				NkTextureCreateDesc td;
+				td.pixels = pr.imgFull->Pixels();
+				td.width = (uint32)pr.imgFull->Width();
+				td.height = (uint32)pr.imgFull->Height();
+				td.srgb = true;
+				td.genMips = true;
+				td.debugName = e->sourcePath.CStr();
+				NkTexHandle full = mTexLib ? mTexLib->Create(td) : NkTexHandle{};
+				if (full.IsValid()) {
+					const uint64 fullBytes = (uint64)td.width * td.height * 4ULL * 4ULL / 3ULL;
+					if (e->tex.IsValid() && mTexLib)
+						mTexLib->Release(e->tex); // libere la basse res
+					mUsedBytes = (mUsedBytes >= e->sizeBytes) ? mUsedBytes - e->sizeBytes : 0;
+					e->tex = full;
+					e->sizeBytes = fullBytes;
+					mUsedBytes += fullBytes;
+					e->residentMip = 0;
+					if (mCallback)
+						mCallback(pr.id, NkStreamState::NK_RESIDENT); // raffinee
+					--budgetJobs;
+				}
+				memory::NkGetDefaultAllocator().Delete(pr.imgFull);
+				pr.imgFull = nullptr;
+				mRefines.Erase(mRefines.Begin() + i);
+			}
+		}
 
 		void NkStreamingSystem::TickQueue(float32 /*dt*/) {
 			// 1) Draine les resultats du worker -> uploads GPU (bornes par frame).
@@ -264,6 +335,10 @@ namespace nkentseu {
 			}
 			for (auto &r : ready)
 				FinalizeLoad(r);
+
+			// 1b) Raffinements basse -> pleine resolution (budget partage).
+			uint32 refineBudget = mCfg.maxJobsPerFrame;
+			TickRefines(refineBudget);
 
 			// 2) Eviction distance (stream-out) + budget.
 			for (auto &kv : mEntries) {
@@ -342,16 +417,32 @@ namespace nkentseu {
 			// ── Upload GPU (thread de rendu) ─────────────────────────────────
 			uint64 realBytes = 0;
 			if (!r.isMesh && mTexLib) {
+				// V2 mip streaming : si une version BASSE resolution existe, on
+				// l'uploade EN PREMIER (quasi instantane -> texture floue tout de
+				// suite) et la pleine resolution part en file de RAFFINEMENT
+				// (TickRefines l'echangera quand la camera sera assez proche).
+				const bool progressive = (r.imgLow != nullptr);
+				const NkImage *up = progressive ? r.imgLow : r.img;
 				NkTextureCreateDesc td;
-				td.pixels = r.img->Pixels();
-				td.width = (uint32)r.img->Width();
-				td.height = (uint32)r.img->Height();
+				td.pixels = up->Pixels();
+				td.width = (uint32)up->Width();
+				td.height = (uint32)up->Height();
 				td.srgb = true;
 				td.genMips = true;
 				td.debugName = e->sourcePath.CStr();
 				e->tex = mTexLib->Create(td);
 				// +33% pour la chaine de mips.
 				realBytes = (uint64)td.width * td.height * 4ULL * 4ULL / 3ULL;
+				if (e->tex.IsValid() && progressive) {
+					e->residentMip = 1; // basse res residente, pleine res en attente
+					PendingRefine pr;
+					pr.id = r.id;
+					pr.imgFull = r.img;
+					r.img = nullptr; // possession transferee a mRefines
+					mRefines.PushBack(pr);
+				} else if (e->tex.IsValid()) {
+					e->residentMip = 0;
+				}
 				if (!e->tex.IsValid()) {
 					r.ok = false;
 				}
