@@ -86,10 +86,13 @@ namespace nkentseu {
 				// Découpe un flux Annex-B (start codes 00 00 01 / 00 00 00 01) en unités NAL.
 				static void SplitNalsAnnexB(const uint8 *data, usize size, NkVector<NkH264Nal> &out);
 
-				// Décode UNE image IDR (I-slice, baseline CAVLC, sans déblocage) d'un flux Annex-B
-				// contenant SPS + PPS + slice IDR -> plans YUV 4:2:0. Renvoie false si non géré
-				// (CABAC, slices multiples, I_PCM, inter…). C'est le décodeur INTRA (bricks 4-6).
+				// Décode UNE image IDR (I-slice) d'un flux Annex-B (SPS+PPS+slice) -> YUV 4:2:0.
 				static bool DecodeIdrFrame(const uint8 *annexB, usize size, NkH264Frame &out);
+
+				// Décode UNE image (I-slice IDR OU P-slice) baseline CAVLC. `ref` = image précédente
+				// décodée (nécessaire pour une P-slice ; nullptr pour une IDR). Renvoie false si non
+				// géré (CABAC, B-slice, partitions P sub-16x16, I_PCM, slices multiples…).
+				static bool DecodeFrame(const uint8 *annexB, usize size, const NkH264Frame *ref, NkH264Frame &out);
 
 				// Décode un SPS depuis une unité NAL (type 7). data/size = l'unité NAL complète
 				// (en-tête inclus). Retire l'anti-émulation et lit les champs Exp-Golomb.
