@@ -50,7 +50,15 @@ namespace nkentseu {
 				float32 distanceMult = 1.f;				   // scale sur les distances de streaming
 				float32 streamInDist = 300.f;			   // distance au-dela de laquelle on streame
 				float32 streamOutDist = 400.f;			   // distance d'eviction
-				bool enableMipStreaming = true;			   // reserve
+				// V2 mip streaming PROGRESSIF : une version basse resolution
+				// (lowResMax px sur le grand cote) est uploadee EN PREMIER
+				// (quasi instantane -> texture floue), puis la pleine resolution
+				// remplace quand la camera est a moins de refineDistMult *
+				// streamInDist. GetTexture() retourne toujours le meilleur
+				// disponible ; surveiller le handle pour re-binder au raffinement.
+				bool enableMipStreaming = true;
+				uint32 lowResMax = 128;			// grand cote de la version floue
+				float32 refineDistMult = 0.6f;	// refineDist = streamInDist * mult
 				bool enableMeshStreaming = true;
 				bool async = true; // false = tout synchrone (debug/tests)
 		};
@@ -78,8 +86,8 @@ namespace nkentseu {
 				float32 lastUsed = 0.f;	 // age en secondes (LRU)
 				uint64 sizeBytes = 0;	 // estimation avant load, REEL apres
 				bool isMesh = false;	 // texture sinon
-				uint32 residentMip = 0;	 // reserve (mip streaming futur)
-				uint32 targetMip = 0;	 // reserve
+				uint32 residentMip = 0;	 // 0 = pleine resolution, 1 = basse (floue)
+				uint32 targetMip = 0;	 // vise selon la distance (0 pres, 1 loin)
 				NkTexHandle tex;		 // handle REEL une fois resident (texture)
 				NkMeshHandle mesh;		 // handle REEL une fois resident (mesh)
 				bool loadFailed = false; // vrai si la derniere tentative a echoue
@@ -118,6 +126,17 @@ namespace nkentseu {
 
 				// Callbacks
 				void SetStateCallback(NkStreamCallback cb);
+
+				// Config ajustable au RUNTIME (ex. curseur de qualite / debug) :
+				// distances de stream-in/out, budget, jobs par frame. Prise en
+				// compte au prochain Update.
+				NkStreamingConfig &GetConfig() {
+					return mCfg;
+				}
+
+				const NkStreamingConfig &GetConfig() const {
+					return mCfg;
+				}
 
 				// ── Acces ─────────────────────────────────────────────────────────────
 				NkStreamState GetState(uint64 id) const;
@@ -165,8 +184,16 @@ namespace nkentseu {
 						uint64 id = 0;
 						bool isMesh = false;
 						bool ok = false;
-						NkImage *img = nullptr;			 // texture decodee (RGBA8)
+						NkImage *img = nullptr;				// texture PLEINE resolution (RGBA8)
+						NkImage *imgLow = nullptr;			// version basse resolution (mip streaming)
 						NkGLTFMeshData *meshData = nullptr; // mesh parse
+				};
+
+				// Raffinement en attente : la basse resolution est a l'ecran, la
+				// pleine resolution (payload CPU) attend que la camera approche.
+				struct PendingRefine {
+						uint64 id = 0;
+						NkImage *imgFull = nullptr;
 				};
 
 				NkIDevice *mDevice = nullptr;
@@ -192,10 +219,12 @@ namespace nkentseu {
 				NkVector<LoadJob> mJobsIn;		 // protegee par mJobMutex
 				NkVector<LoadResult> mResults;	 // protegee par mJobMutex
 				bool mStop = false;				 // protegee par mJobMutex
+				NkVector<PendingRefine> mRefines; // main thread uniquement
 
 				void WorkerLoop();
-				static LoadResult DoLoadCPU(const LoadJob &job); // pur CPU, thread-safe
+				LoadResult DoLoadCPU(const LoadJob &job) const; // pur CPU, thread-safe
 				void FreePayload(LoadResult &r);
+				void TickRefines(uint32 &budgetJobs); // upgrades basse -> pleine res
 
 				void TickQueue(float32 dt);
 				void StartLoadJob(uint64 id);
