@@ -1278,8 +1278,9 @@ namespace nkentseu {
 
 			for (auto &sdc : mOpaque) {
 				auto &dc = sdc.dc;
-				if (!mCtx.camera.IsAABBVisible(dc.aabb))
-					continue; // frustum cull identique au forward
+				// PAS de re-cull ici : mOpaque est DEJA culle au Submit. Un double
+				// cull avec l'etat camera du moment faisait DISPARAITRE des objets
+				// valides selon l'angle de vue (bug panneau, constate DX11).
 				if (mObjectDrawIdx >= mObjectPoolCap) {
 					logger.Errorf("[NkRender3D] ObjectUBO pool overflow (deferred)\n");
 					break;
