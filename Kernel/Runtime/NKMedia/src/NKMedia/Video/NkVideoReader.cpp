@@ -61,6 +61,8 @@ namespace nkentseu {
 				int32 bitCount = 24;			 // RAWRGB
 				NkVector<nk_uint8> h264Sps, h264Pps; // H264 : SPS/PPS extraits de l'avcC
 				int32 nalLenSize = 4;			 // taille du préfixe de longueur AVCC
+				NkH264Frame h264Prev;			 // frame précédente décodée (référence des P-frames)
+				int32 h264PrevIndex = -2;		 // index de la frame de référence courante
 
 				// --- Parse AVI : remplit info + frames ---
 				bool ParseAvi() {
@@ -618,9 +620,14 @@ namespace nkentseu {
 							p += len;
 						}
 
+						// Décodage séquentiel : la frame précédente sert de référence aux P-frames.
+						const NkH264Frame *ref = (index == h264PrevIndex + 1 && h264PrevIndex >= 0) ? &h264Prev : nullptr;
 						NkH264Frame f;
-						if (!NkH264Decoder::DecodeIdrFrame(ab.Data(), (usize)ab.Size(), f))
-							return false; // P/B-frame ou non géré (décodeur INTRA seulement)
+						if (!NkH264Decoder::DecodeFrame(ab.Data(), (usize)ab.Size(), ref, f))
+							return false; // IDR requise en tête / P sub-partition / B / CABAC non géré
+						// Mémorise cette frame comme référence de la suivante.
+						h264Prev = f;
+						h264PrevIndex = index;
 
 						// YUV 4:2:0 -> RGBA (BT.601 limited-range, chroma nearest).
 						const int32 w = f.cropW, h = f.cropH;
