@@ -248,20 +248,22 @@ static void MelToLin(const NkMelFB &fb, const float32 *mel, float32 *linOut) {
 
 // ---- Modele acoustique (Transformer texte -> mel), factorise pour train + inference -----
 struct NkTTSModel {
-		int32 d = 0, L = 0, H = 0, R = 0, mel = 0, maxT = 0;
+		int32 d = 0, L = 0, H = 0, R = 0, mel = 0, maxT = 0; // mel = dimension de SORTIE (mel bands OU 513 lin)
+		bool melScale = false;								 // true = sortie mel (a inverser) ; false = |STFT| lineaire direct
 		uint32 V = 0;
 		NkVar tokEmb, posEmb;
 		NkVector<nn::NkTransformerBlock> blocks;
 		nn::NkLayerNorm lnf;
 		nn::NkDense fc1, fc2;
 
-		void Build(uint32 V_, int32 d_, int32 L_, int32 H_, int32 R_, int32 mel_, int32 maxT_) {
+		void Build(uint32 V_, int32 d_, int32 L_, int32 H_, int32 R_, int32 mel_, bool melScale_, int32 maxT_) {
 			V = V_;
 			d = d_;
 			L = L_;
 			H = H_;
 			R = R_;
 			mel = mel_;
+			melScale = melScale_;
 			maxT = maxT_;
 			tokEmb = NkVar::Leaf(nn::RandnTensor(NkShape{(int64)V, (int64)d}, 0.02, 11u), true);
 			posEmb = NkVar::Leaf(nn::RandnTensor(NkShape{(int64)(maxT + 1), (int64)d}, 0.02, 12u), true);
@@ -322,9 +324,9 @@ static bool SaveModel(const char *path, const NkTTSModel &mdl, const NkCharVocab
 	FILE *f = fopen(path, "wb");
 	if (!f)
 		return false;
-	fwrite("NKTTSM03", 1, 8, f);
-	int32 hdr[8] = {(int32)mdl.V, mdl.d, mdl.L, mdl.H, mdl.R, mdl.mel, mdl.maxT, vocab.size};
-	fwrite(hdr, sizeof(int32), 8, f);
+	fwrite("NKTTSM04", 1, 8, f);
+	int32 hdr[9] = {(int32)mdl.V, mdl.d, mdl.L, mdl.H, mdl.R, mdl.mel, mdl.maxT, vocab.size, mdl.melScale ? 1 : 0};
+	fwrite(hdr, sizeof(int32), 9, f);
 	fwrite(vocab.map, sizeof(int32), 128, f);
 	fwrite(vocab.inv, sizeof(char), 128, f);
 	NkVector<NkVar> ps;
@@ -346,19 +348,19 @@ static bool LoadModel(const char *path, NkTTSModel &mdl, NkCharVocab &vocab) {
 	if (!f)
 		return false;
 	char magic[8];
-	if (fread(magic, 1, 8, f) != 8 || memcmp(magic, "NKTTSM03", 8) != 0) {
+	if (fread(magic, 1, 8, f) != 8 || memcmp(magic, "NKTTSM04", 8) != 0) {
 		fclose(f);
 		return false;
 	}
-	int32 hdr[8];
-	if (fread(hdr, sizeof(int32), 8, f) != 8) {
+	int32 hdr[9];
+	if (fread(hdr, sizeof(int32), 9, f) != 9) {
 		fclose(f);
 		return false;
 	}
 	fread(vocab.map, sizeof(int32), 128, f);
 	fread(vocab.inv, sizeof(char), 128, f);
 	vocab.size = hdr[7];
-	mdl.Build((uint32)hdr[0], hdr[1], hdr[2], hdr[3], hdr[4], hdr[5], hdr[6]);
+	mdl.Build((uint32)hdr[0], hdr[1], hdr[2], hdr[3], hdr[4], hdr[5], hdr[8] != 0, hdr[6]);
 	int32 np = 0;
 	fread(&np, sizeof(int32), 1, f);
 	NkVector<NkVar> ps;
@@ -389,22 +391,30 @@ static void SynthToWavStd(const NkTTSModel &mdl, const NkMelFB &fb, const NkGrif
 	NkTensor pcpu = pred.Value().ToCPU();
 	const float *pp = pcpu.DataAs<float>();
 	const int32 Tout = (int32)ids.Size() * mdl.R;
-	const int32 MEL = mdl.mel;
+	const int32 OUT = mdl.mel; // dimension de sortie
 	NkMagSpectrogram pm;
 	pm.frames = Tout;
 	pm.bins = BINS;
 	pm.data.Resize((uint64)Tout * (uint64)BINS);
-	NkVector<float32> melFrame, linFrame;
-	melFrame.Resize((uint64)MEL);
-	linFrame.Resize((uint64)BINS);
-	for (int32 i = 0; i < Tout; ++i) {
-		for (int32 k = 0; k < MEL; ++k) {
-			double mg = exp((double)pp[i * MEL + k]) - 1.0;
-			melFrame[(uint64)k] = (float32)(mg > 0.0 ? mg : 0.0);
+	if (mdl.melScale) {
+		NkVector<float32> melFrame, linFrame;
+		melFrame.Resize((uint64)OUT);
+		linFrame.Resize((uint64)BINS);
+		for (int32 i = 0; i < Tout; ++i) {
+			for (int32 k = 0; k < OUT; ++k) {
+				double mg = exp((double)pp[i * OUT + k]) - 1.0;
+				melFrame[(uint64)k] = (float32)(mg > 0.0 ? mg : 0.0);
+			}
+			MelToLin(fb, melFrame.Data(), linFrame.Data()); // mel -> |STFT| approx
+			for (int32 b = 0; b < BINS; ++b)
+				pm.data[(uint64)i * (uint64)BINS + b] = linFrame[(uint64)b];
 		}
-		MelToLin(fb, melFrame.Data(), linFrame.Data());
-		for (int32 b = 0; b < BINS; ++b)
-			pm.data[(uint64)i * (uint64)BINS + b] = linFrame[(uint64)b];
+	} else {
+		// Sortie LINEAIRE directe (OUT == BINS) : exp-1 par bin (meilleure nettete).
+		for (uint64 i = 0; i < pm.data.Size(); ++i) {
+			double mg = exp((double)pp[i]) - 1.0;
+			pm.data[i] = (float32)(mg > 0.0 ? mg : 0.0);
+		}
 	}
 	ReconNormalizeWrite(pm, gl, 22050, path);
 }
@@ -447,7 +457,7 @@ static int RunSay(const char *loadPath, const char *text) {
 	gl.hopSize = 256;
 	gl.iterations = 150;
 	const int32 BINS = gl.fftSize / 2 + 1;
-	NkMelFB fb = BuildMelFB(mdl.mel, BINS, 22050, gl.fftSize, 0.0f, 8000.0f);
+	NkMelFB fb = mdl.melScale ? BuildMelFB(mdl.mel, BINS, 22050, gl.fftSize, 0.0f, 8000.0f) : NkMelFB{};
 	NkVector<int32> ids;
 	int32 unknown = TextToIds(vocab, text, ids);
 	printf("  \"%.70s\" -> %d car connus, %d inconnus\n", text, (int)ids.Size(), unknown);
@@ -475,7 +485,7 @@ static int RunTraining(const char *dir) {
 	const int32 H = EnvI("NK_TTS_H", 4);
 	const int32 L = EnvI("NK_TTS_L", 3);
 	const int32 R = EnvI("NK_TTS_R", 8);		 // trames de spectro par caractere (debit fixe)
-	const int32 MEL = EnvI("NK_TTS_MEL", 80);	 // bandes mel predites (< 513 linaire = plus lisse)
+	const int32 MEL = EnvI("NK_TTS_MEL", 0); // >0 = predire le mel (plus lisse/etouffe) ; 0 (DEFAUT) = lineaire 513 (plus net)
 	const float32 lr = EnvF("NK_TTS_LR", 3e-4f);
 	const char *savePath = getenv("NK_TTS_SAVE");
 
@@ -483,8 +493,10 @@ static int RunTraining(const char *dir) {
 	gl.fftSize = 1024;
 	gl.hopSize = 256;
 	gl.iterations = 150;
-	const int32 BINS = gl.fftSize / 2 + 1; // 513
-	NkMelFB fb = BuildMelFB(MEL, BINS, 22050, gl.fftSize, 0.0f, 8000.0f);
+	const int32 BINS = gl.fftSize / 2 + 1;			  // 513
+	const bool useMel = (MEL > 0);
+	const int32 OUT = useMel ? MEL : BINS;			  // dimension de sortie du modele
+	NkMelFB fb = useMel ? BuildMelFB(MEL, BINS, 22050, gl.fftSize, 0.0f, 8000.0f) : NkMelFB{};
 
 	// ---- Chargement des clips (texte -> ids, audio -> log-magnitude) ----
 	char metaPath[1024];
@@ -534,11 +546,11 @@ static int RunTraining(const char *dir) {
 			maxT = (int32)clip.ids.Size();
 
 		NkMagSpectrogram m = NkGriffinLim::Magnitude(audio.Data(), (int32)audio.Size(), gl);
-		// Cible = log(1+MEL) : projette chaque trame |STFT| sur le banc de filtres mel.
 		clip.frames = m.frames;
-		clip.bins = MEL;
-		clip.spec.Resize((uint64)m.frames * (uint64)MEL);
-		{
+		clip.bins = OUT;
+		clip.spec.Resize((uint64)m.frames * (uint64)OUT);
+		if (useMel) {
+			// Cible = log(1+MEL) : projette chaque trame |STFT| sur le banc de filtres mel.
 			NkVector<float32> melFrame;
 			melFrame.Resize((uint64)MEL);
 			for (int32 fr = 0; fr < m.frames; ++fr) {
@@ -546,6 +558,10 @@ static int RunTraining(const char *dir) {
 				for (int32 k = 0; k < MEL; ++k)
 					clip.spec[(uint64)fr * (uint64)MEL + k] = (float32)log(1.0 + (double)melFrame[(uint64)k]);
 			}
+		} else {
+			// Cible = log(1+|STFT|) LINEAIRE (513 bins) : plus net.
+			for (uint64 i = 0; i < clip.spec.Size(); ++i)
+				clip.spec[i] = (float32)log(1.0 + (double)m.data[i]);
 		}
 		clips.PushBack(clip);
 		printf("  clip[%d] %s : %d car -> %d trames | \"%.50s\"\n", (int)clips.Size() - 1, clip.id,
@@ -559,26 +575,27 @@ static int RunTraining(const char *dir) {
 	printf("  vocab = %d caracteres, %d clips, maxT=%d, d=%d L=%d H=%d R=%d\n", vocab.size,
 		   (int)clips.Size(), maxT, d, L, H, R);
 
-	// ---- Construction du modele (mel en sortie) ----
+	// ---- Construction du modele ----
 	NkTTSModel mdl;
-	mdl.Build((uint32)vocab.size, d, L, H, R, MEL, maxT);
+	mdl.Build((uint32)vocab.size, d, L, H, R, OUT, useMel, maxT);
 	NkVector<NkVar> params;
 	mdl.Parameters(params);
-	printf("  %d tenseurs de parametres (sortie = %d bandes mel).\n", (int)params.Size(), MEL);
+	printf("  %d tenseurs de parametres (sortie = %d %s).\n", (int)params.Size(), OUT,
+		   useMel ? "bandes mel" : "bins lineaires");
 
 	optim::NkAdam adam(params, lr);
 
-	// Cible mel d'un clip re-echantillonnee a [Tout,MEL] (debit fixe).
+	// Cible d'un clip re-echantillonnee a [Tout,OUT] (debit fixe).
 	auto targetOf = [&](const NkClip &clip) -> NkVar {
 		const int32 Tout = (int32)clip.ids.Size() * R;
-		NkTensor tgt = NkTensor::Zeros(NkShape{(int64)Tout, (int64)MEL});
+		NkTensor tgt = NkTensor::Zeros(NkShape{(int64)Tout, (int64)OUT});
 		float *tp = tgt.DataAs<float>();
 		for (int32 i = 0; i < Tout; ++i) {
 			int32 sf = (int32)((int64)i * clip.frames / (Tout > 0 ? Tout : 1));
 			if (sf >= clip.frames)
 				sf = clip.frames - 1;
-			for (int32 k = 0; k < MEL; ++k)
-				tp[i * MEL + k] = clip.spec[(uint64)sf * (uint64)MEL + k];
+			for (int32 k = 0; k < OUT; ++k)
+				tp[i * OUT + k] = clip.spec[(uint64)sf * (uint64)OUT + k];
 		}
 		return NkVar::Leaf(tgt, false);
 	};
