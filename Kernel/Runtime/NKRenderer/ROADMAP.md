@@ -91,7 +91,12 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    `Resources/Models/MorphTest/morph_test.gltf` (cube→sphère + étirement Y, anim
    4 s) ; DemoGLTF applique automatiquement si le modèle a des morphs — validé
    capture GL (`NK_GLTF_MODEL=Resources/Models/MorphTest/morph_test.gltf --demo=12`).
-   Reste v2 : application GPU (compute), morphs sur meshes skinnés. 5) Streaming
+   ✅ **Morphs sur meshes SKINNÉS (2026-07-13)** : `ApplyGLTFMorphCPUSkinned` (deltas
+   appliqués sur `skinnedVertices` AVANT le skinning GPU, bones préservés, cœur commun
+   template) + câblage DemoAnim ; asset test `SkinMorphTest/skinmorph_test.gltf`
+   (colonne 2 os qui PLIE pendant qu'un morph la GONFLE, déphasés) — validé captures
+   (bulge à t1, coude 70° sans bulge à t2 : les deux coexistent).
+   Reste v2 : application GPU (compute). 5) Streaming
    réel (`FinalizeLoad` ne charge rien — « In a real impl » dans le code ; simulateur de budget).
    6) Deferred lighting pass + branchement (gros ; jamais instancié par le renderer). 7) IK
    renderer (orphelin — NB : NkAnima a son propre IK validé, celui du renderer est redondant à

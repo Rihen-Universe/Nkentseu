@@ -188,6 +188,14 @@ namespace nkentseu {
 		bool ApplyGLTFMorphCPU(const NkGLTFMeshData &data, const float32 *weights, uint32 weightCount,
 							   NkVector<NkVertex3D> &outVerts);
 
+		// Variante SKINNEE : base = data.skinnedVertices (parallele a vertices,
+		// memes deltas par index global). Le morph s'applique AVANT le skinning
+		// GPU : uploader outVerts sur le VBO skinne (mesh dynamic), les bones
+		// (boneIdx/boneWeight) sont preserves tels quels. C'est le chemin
+		// "visage morphe sur personnage squelette" (NkAnima).
+		bool ApplyGLTFMorphCPUSkinned(const NkGLTFMeshData &data, const float32 *weights, uint32 weightCount,
+									  NkVector<NkVertexSkinned> &outVerts);
+
 		// Charge un fichier glTF 2.0 (.gltf ou .glb) dans `out`.
 		// path : chemin du fichier (les .bin externes sont resolus relativement
 		//        au dossier de `path`).
