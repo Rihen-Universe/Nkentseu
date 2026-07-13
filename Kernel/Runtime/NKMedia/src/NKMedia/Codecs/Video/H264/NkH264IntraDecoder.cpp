@@ -273,13 +273,14 @@ namespace nkentseu {
 					int32 *lumaNz = nullptr, *chromaNz0 = nullptr, *chromaNz1 = nullptr, *i4mode = nullptr;
 					int32 qp = 26;
 					int32 chromaQpOffset = 0;
-					// Inter (P-slice) : plan de référence + grilles MV/inter par MB.
+					// Inter (P-slice) : plan de référence + grilles MV/ref PAR BLOC 4x4 (partitions).
 					const uint8 *refY = nullptr, *refCb = nullptr, *refCr = nullptr;
-					int32 *mvx = nullptr, *mvy = nullptr, *mbInter = nullptr;
+					int32 *mvx4 = nullptr, *mvy4 = nullptr, *ref4 = nullptr; // ref4 : -2 non décodé, -1 intra, 0 inter
 			};
 
-			// --- Compensation de mouvement luma quart-pel (§8.4.2.2.1) : miroir de l'encodeur ---
-			void McLuma(const DecCtx &c, int32 px, int32 py, int32 mvx, int32 mvy, uint8 out[256]) {
+			// MC luma quart-pel (§8.4.2.2.1) d'un rectangle w×h -> écrit dans predY[16*16] à (ox,oy).
+			void McLumaRect(const DecCtx &c, int32 dx, int32 dy, int32 ox, int32 oy, int32 w, int32 h, int32 mvx,
+							int32 mvy, uint8 predY[256]) {
 				const int32 W = c.lumaW, H = c.lumaH;
 				const uint8 *ref = c.refY;
 				auto R = [&](int32 x, int32 y) -> int32 {
@@ -301,9 +302,9 @@ namespace nkentseu {
 					return ClampU8((j1 + 512) >> 10);
 				};
 				const int32 fx = mvx & 3, fy = mvy & 3;
-				const int32 bx = px + (mvx >> 2), by = py + (mvy >> 2);
-				for (int32 y = 0; y < 16; ++y)
-					for (int32 x = 0; x < 16; ++x) {
+				const int32 bx = dx + (mvx >> 2), by = dy + (mvy >> 2);
+				for (int32 y = 0; y < h; ++y)
+					for (int32 x = 0; x < w; ++x) {
 						const int32 ix = bx + x, iy = by + y;
 						int32 v;
 						switch (fy * 4 + fx) {
@@ -324,102 +325,135 @@ namespace nkentseu {
 							case 14: v = (Jj(ix, iy) + Bh(ix, iy + 1) + 1) >> 1; break;
 							default: v = (Hh(ix + 1, iy) + Bh(ix, iy + 1) + 1) >> 1; break;
 						}
-						out[y * 16 + x] = (uint8)v;
+						predY[(oy + y) * 16 + (ox + x)] = (uint8)v;
 					}
 			}
 
-			// Compensation chroma 1/8-pel bilinéaire (§8.4.2.2.2).
-			void McChroma(const DecCtx &c, int32 comp, int32 cpx, int32 cpy, int32 mvx, int32 mvy, uint8 out[64]) {
+			// MC chroma 1/8-pel bilinéaire (§8.4.2.2.2) d'un rectangle cw×ch -> cPred[64] à (ox,oy).
+			void McChromaRect(const DecCtx &c, int32 comp, int32 dx, int32 dy, int32 ox, int32 oy, int32 cw, int32 ch,
+							  int32 mvx, int32 mvy, uint8 cPred[64]) {
 				const uint8 *ref = (comp == 0) ? c.refCb : c.refCr;
 				const int32 W = c.chromaW, H = c.chromaH;
-				const int32 fx = mvx & 7, fy = mvy & 7, ox = mvx >> 3, oy = mvy >> 3;
+				const int32 fx = mvx & 7, fy = mvy & 7, oxx = mvx >> 3, oyy = mvy >> 3;
 				auto C = [&](int32 x, int32 y) -> int32 {
 					x = x < 0 ? 0 : (x >= W ? W - 1 : x);
 					y = y < 0 ? 0 : (y >= H ? H - 1 : y);
 					return ref[(usize)y * W + x];
 				};
-				for (int32 y = 0; y < 8; ++y)
-					for (int32 x = 0; x < 8; ++x) {
-						const int32 rx = cpx + x + ox, ry = cpy + y + oy;
+				for (int32 y = 0; y < ch; ++y)
+					for (int32 x = 0; x < cw; ++x) {
+						const int32 rx = dx + x + oxx, ry = dy + y + oyy;
 						const int32 A = C(rx, ry), Bb = C(rx + 1, ry), Cc = C(rx, ry + 1), D = C(rx + 1, ry + 1);
-						out[y * 8 + x] = (uint8)(((8 - fx) * (8 - fy) * A + fx * (8 - fy) * Bb + (8 - fx) * fy * Cc +
-												 fx * fy * D + 32) >>
-												6);
+						cPred[(oy + y) * 8 + (ox + x)] = (uint8)(((8 - fx) * (8 - fy) * A + fx * (8 - fy) * Bb +
+																 (8 - fx) * fy * Cc + fx * fy * D + 32) >>
+																6);
 					}
 			}
 
-			// Prédicteur médian de MV (§8.4.1.3) pour une partition 16×16.
-			void PredictMv(const DecCtx &c, int32 mbX, int32 mbY, int32 &pmx, int32 &pmy) {
-				auto NB = [&](int32 nx, int32 ny, bool &av, int32 &rf, int32 &mx, int32 &my) {
-					if (nx < 0 || ny < 0 || nx >= c.mbW || ny >= c.mbH) {
-						av = false;
-						rf = -1;
-						mx = my = 0;
+			// Voisin 4x4 pour la prédiction de MV : dispo + ref (-1 = intra/hors) + MV.
+			void GetMv4(const DecCtx &c, int32 x4, int32 y4, bool &avail, int32 &ref, int32 &mx, int32 &my) {
+				const int32 w4 = c.mbW * 4, h4 = c.mbH * 4;
+				if (x4 < 0 || y4 < 0 || x4 >= w4 || y4 >= h4 || c.ref4[y4 * c.nzW + x4] == -2) {
+					avail = false;
+					ref = -1;
+					mx = my = 0;
+					return;
+				}
+				avail = true;
+				ref = c.ref4[y4 * c.nzW + x4];
+				mx = c.mvx4[y4 * c.nzW + x4];
+				my = c.mvy4[y4 * c.nzW + x4];
+			}
+
+			// Stocke la MV d'une partition (grille 4x4) + marque ref4=0 (inter).
+			void StoreMv4(const DecCtx &c, int32 bx, int32 by, int32 pw, int32 ph, int32 mvx, int32 mvy) {
+				for (int32 y = by; y < by + ph; ++y)
+					for (int32 x = bx; x < bx + pw; ++x) {
+						c.mvx4[y * c.nzW + x] = mvx;
+						c.mvy4[y * c.nzW + x] = mvy;
+						c.ref4[y * c.nzW + x] = 0;
+					}
+			}
+
+			int32 Med3(int32 a, int32 b, int32 cc) {
+				const int32 mn = a < b ? (a < cc ? a : cc) : (b < cc ? b : cc);
+				const int32 mx = a > b ? (a > cc ? a : cc) : (b > cc ? b : cc);
+				return a + b + cc - mn - mx;
+			}
+
+			// Prédiction de MV d'une partition (§8.4.1.3). (bx,by) = coin 4x4, pw/ph = taille 4x4,
+			// mbType (1=16x8, 2=8x16 -> cas directionnels), part = index. refIdx=0 (baseline ref=1).
+			void PredMvPart(const DecCtx &c, int32 bx, int32 by, int32 pw, int32 mbType, int32 part, int32 &pmx,
+							int32 &pmy) {
+				bool avA, avB, avC;
+				int32 rA, rB, rC, ax, ay, bxx, byy, cx, cy;
+				GetMv4(c, bx - 1, by, avA, rA, ax, ay);
+				GetMv4(c, bx, by - 1, avB, rB, bxx, byy);
+				GetMv4(c, bx + pw, by - 1, avC, rC, cx, cy);
+				if (!avC)
+					GetMv4(c, bx - 1, by - 1, avC, rC, cx, cy); // repli D
+				const int32 refIdx = 0;
+				if (mbType == 1) { // P_16x8
+					if (part == 0 && avB && rB == refIdx) {
+						pmx = bxx;
+						pmy = byy;
 						return;
 					}
-					av = true;
-					const int32 id = ny * c.mbW + nx;
-					if (c.mbInter[id]) {
-						rf = 0;
-						mx = c.mvx[id];
-						my = c.mvy[id];
-					} else {
-						rf = -1;
-						mx = my = 0;
+					if (part == 1 && avA && rA == refIdx) {
+						pmx = ax;
+						pmy = ay;
+						return;
 					}
-				};
-				bool aA, aB, aC;
-				int32 rA, rB, rC, ax, ay, bx, by, cx, cy;
-				NB(mbX - 1, mbY, aA, rA, ax, ay);
-				NB(mbX, mbY - 1, aB, rB, bx, by);
-				NB(mbX + 1, mbY - 1, aC, rC, cx, cy);
-				if (!aC)
-					NB(mbX - 1, mbY - 1, aC, rC, cx, cy);
-				if (!aB && !aC && aA) {
-					pmx = ax;
-					pmy = ay;
+				} else if (mbType == 2) { // P_8x16
+					if (part == 0 && avA && rA == refIdx) {
+						pmx = ax;
+						pmy = ay;
+						return;
+					}
+					if (part == 1 && avC && rC == refIdx) {
+						pmx = cx;
+						pmy = cy;
+						return;
+					}
+				}
+				if (!avB && !avC && avA) { // B et C indispo, A dispo -> B=C=A
+					avB = avC = true;
+					rB = rC = rA;
+					bxx = cx = ax;
+					byy = cy = ay;
+				}
+				const int32 eqA = (avA && rA == refIdx) ? 1 : 0;
+				const int32 eqB = (avB && rB == refIdx) ? 1 : 0;
+				const int32 eqC = (avC && rC == refIdx) ? 1 : 0;
+				if (eqA + eqB + eqC == 1) {
+					if (eqA) {
+						pmx = ax;
+						pmy = ay;
+					} else if (eqB) {
+						pmx = bxx;
+						pmy = byy;
+					} else {
+						pmx = cx;
+						pmy = cy;
+					}
 					return;
 				}
-				const bool eA = aA && rA == 0, eB = aB && rB == 0, eC = aC && rC == 0;
-				if (eA && !eB && !eC) {
-					pmx = ax;
-					pmy = ay;
-					return;
-				}
-				if (!eA && eB && !eC) {
-					pmx = bx;
-					pmy = by;
-					return;
-				}
-				if (!eA && !eB && eC) {
-					pmx = cx;
-					pmy = cy;
-					return;
-				}
-				auto med = [](int32 a, int32 b, int32 cc) -> int32 {
-					const int32 mn = a < b ? (a < cc ? a : cc) : (b < cc ? b : cc);
-					const int32 mx = a > b ? (a > cc ? a : cc) : (b > cc ? b : cc);
-					return a + b + cc - mn - mx;
-				};
-				pmx = med(ax, bx, cx);
-				pmy = med(ay, by, cy);
+				pmx = Med3(ax, bxx, cx);
+				pmy = Med3(ay, byy, cy);
 			}
 
-			// Prédicteur P_Skip (§8.4.1.1).
+			// P_Skip (§8.4.1.1) : MV nul si A/B manque ou est inter à MV nulle ; sinon médian 16x16.
 			void SkipMv(const DecCtx &c, int32 mbX, int32 mbY, int32 &smx, int32 &smy) {
-				bool zero = (mbX == 0) || (mbY == 0);
-				if (!zero) {
-					const int32 idA = mbY * c.mbW + (mbX - 1), idB = (mbY - 1) * c.mbW + mbX;
-					if (c.mbInter[idA] && c.mvx[idA] == 0 && c.mvy[idA] == 0)
-						zero = true;
-					if (c.mbInter[idB] && c.mvx[idB] == 0 && c.mvy[idB] == 0)
-						zero = true;
-				}
-				if (zero) {
+				const int32 bx = mbX * 4, by = mbY * 4;
+				bool avA, avB;
+				int32 rA, rB, ax, ay, bxx, byy;
+				GetMv4(c, bx - 1, by, avA, rA, ax, ay);
+				GetMv4(c, bx, by - 1, avB, rB, bxx, byy);
+				if (!avA || !avB || (rA == 0 && ax == 0 && ay == 0) || (rB == 0 && bxx == 0 && byy == 0)) {
 					smx = smy = 0;
 					return;
 				}
-				PredictMv(c, mbX, mbY, smx, smy);
+				PredMvPart(c, bx, by, 4, 0, 0, smx, smy);
 			}
 
 			// De-emulation locale (00 00 03 -> 00 00).
@@ -687,8 +721,8 @@ namespace nkentseu {
 				return true;
 			}
 
-			// Marque un MB entier (grilles nz=0, i4mode=DC) — pour skip / inter.
-			void MarkMbGrids(DecCtx &c, int32 mbX, int32 mbY, int32 mv0x, int32 mv0y, int32 inter) {
+			// Grilles nz=0 + i4mode=DC d'un MB (skip / inter).
+			void ClearMbNz(DecCtx &c, int32 mbX, int32 mbY) {
 				const int32 bx0 = mbX * 4, by0 = mbY * 4;
 				for (int32 by = by0; by < by0 + 4; ++by)
 					for (int32 bx = bx0; bx < bx0 + 4; ++bx) {
@@ -701,10 +735,6 @@ namespace nkentseu {
 						c.chromaNz0[by * c.cnzW + bx] = 0;
 						c.chromaNz1[by * c.cnzW + bx] = 0;
 					}
-				const int32 id = mbY * c.mbW + mbX;
-				c.mvx[id] = mv0x;
-				c.mvy[id] = mv0y;
-				c.mbInter[id] = inter;
 			}
 
 			// --- P_Skip : compensation au MV de skip, aucun résidu ---
@@ -712,32 +742,86 @@ namespace nkentseu {
 				const int32 px = mbX * 16, py = mbY * 16, cpx = mbX * 8, cpy = mbY * 8;
 				int32 smx, smy;
 				SkipMv(c, mbX, mbY, smx, smy);
-				uint8 predY[256];
-				McLuma(c, px, py, smx, smy, predY);
+				uint8 predY[256], cp[64];
+				McLumaRect(c, px, py, 0, 0, 16, 16, smx, smy, predY);
 				for (int32 y = 0; y < 16; ++y)
 					for (int32 x = 0; x < 16; ++x)
 						c.Y[(usize)(py + y) * c.lumaW + px + x] = predY[y * 16 + x];
-				uint8 cp[64];
-				McChroma(c, 0, cpx, cpy, smx, smy, cp);
+				McChromaRect(c, 0, cpx, cpy, 0, 0, 8, 8, smx, smy, cp);
 				for (int32 y = 0; y < 8; ++y)
 					for (int32 x = 0; x < 8; ++x)
 						c.Cb[(usize)(cpy + y) * c.chromaW + cpx + x] = cp[y * 8 + x];
-				McChroma(c, 1, cpx, cpy, smx, smy, cp);
+				McChromaRect(c, 1, cpx, cpy, 0, 0, 8, 8, smx, smy, cp);
 				for (int32 y = 0; y < 8; ++y)
 					for (int32 x = 0; x < 8; ++x)
 						c.Cr[(usize)(cpy + y) * c.chromaW + cpx + x] = cp[y * 8 + x];
-				MarkMbGrids(c, mbX, mbY, smx, smy, 1);
+				ClearMbNz(c, mbX, mbY);
+				StoreMv4(c, mbX * 4, mbY * 4, 4, 4, smx, smy);
 			}
 
-			// --- Macrobloc P_L0_16x16 ---
-			bool DecodeMbInterP(DecCtx &c, NkH264BitReader &br, int32 mbX, int32 mbY) {
+			// --- Macrobloc inter P : partitions 16x16 / 16x8 / 8x16 / 8x8(+sous-mb) ---
+			bool DecodeMbInterP(DecCtx &c, NkH264BitReader &br, int32 mbX, int32 mbY, int32 mbType) {
 				const int32 px = mbX * 16, py = mbY * 16, cpx = mbX * 8, cpy = mbY * 8;
-				int32 pmx, pmy;
-				PredictMv(c, mbX, mbY, pmx, pmy);
-				const int32 mvx = pmx + br.SE(); // mvd_l0 x
-				const int32 mvy = pmy + br.SE(); // mvd_l0 y
-				uint8 predY[256];
-				McLuma(c, px, py, mvx, mvy, predY);
+				const int32 gbx = mbX * 4, gby = mbY * 4;
+				uint8 predY[256], cPred[2][64];
+
+				// Compense une partition (bx4,by4 = coin 4x4 dans le MB ; pw4/ph4 = taille 4x4) + stocke la MV.
+				auto doPart = [&](int32 bx4, int32 by4, int32 pw4, int32 ph4, int32 mvx, int32 mvy) {
+					McLumaRect(c, px + bx4 * 4, py + by4 * 4, bx4 * 4, by4 * 4, pw4 * 4, ph4 * 4, mvx, mvy, predY);
+					McChromaRect(c, 0, cpx + bx4 * 2, cpy + by4 * 2, bx4 * 2, by4 * 2, pw4 * 2, ph4 * 2, mvx, mvy,
+								 cPred[0]);
+					McChromaRect(c, 1, cpx + bx4 * 2, cpy + by4 * 2, bx4 * 2, by4 * 2, pw4 * 2, ph4 * 2, mvx, mvy,
+								 cPred[1]);
+					StoreMv4(c, gbx + bx4, gby + by4, pw4, ph4, mvx, mvy);
+				};
+
+				if (mbType == 0) { // P_L0_16x16
+					int32 pmx, pmy;
+					PredMvPart(c, gbx, gby, 4, 0, 0, pmx, pmy);
+					doPart(0, 0, 4, 4, pmx + br.SE(), pmy + br.SE());
+				} else if (mbType == 1) { // P_L0_L0_16x8
+					for (int32 part = 0; part < 2; ++part) {
+						const int32 by4 = part * 2;
+						int32 pmx, pmy;
+						PredMvPart(c, gbx, gby + by4, 4, 1, part, pmx, pmy);
+						doPart(0, by4, 4, 2, pmx + br.SE(), pmy + br.SE());
+					}
+				} else if (mbType == 2) { // P_L0_L0_8x16
+					for (int32 part = 0; part < 2; ++part) {
+						const int32 bx4 = part * 2;
+						int32 pmx, pmy;
+						PredMvPart(c, gbx + bx4, gby, 2, 2, part, pmx, pmy);
+						doPart(bx4, 0, 2, 4, pmx + br.SE(), pmy + br.SE());
+					}
+				} else { // P_8x8 (3) / P_8x8ref0 (4)
+					int32 subType[4];
+					for (int32 b = 0; b < 4; ++b)
+						subType[b] = (int32)br.UE();
+					for (int32 b = 0; b < 4; ++b) {
+						const int32 sbx = (b & 1) * 2, sby = (b >> 1) * 2;
+						int32 pmx, pmy;
+						if (subType[b] == 0) { // 8x8
+							PredMvPart(c, gbx + sbx, gby + sby, 2, 3, 0, pmx, pmy);
+							doPart(sbx, sby, 2, 2, pmx + br.SE(), pmy + br.SE());
+						} else if (subType[b] == 1) { // 8x4
+							for (int32 sp = 0; sp < 2; ++sp) {
+								PredMvPart(c, gbx + sbx, gby + sby + sp, 2, 3, 0, pmx, pmy);
+								doPart(sbx, sby + sp, 2, 1, pmx + br.SE(), pmy + br.SE());
+							}
+						} else if (subType[b] == 2) { // 4x8
+							for (int32 sp = 0; sp < 2; ++sp) {
+								PredMvPart(c, gbx + sbx + sp, gby + sby, 1, 3, 0, pmx, pmy);
+								doPart(sbx + sp, sby, 1, 2, pmx + br.SE(), pmy + br.SE());
+							}
+						} else { // 4x4
+							for (int32 sp = 0; sp < 4; ++sp) {
+								const int32 pbx = sbx + (sp & 1), pby = sby + (sp >> 1);
+								PredMvPart(c, gbx + pbx, gby + pby, 1, 3, 0, pmx, pmy);
+								doPart(pbx, pby, 1, 1, pmx + br.SE(), pmy + br.SE());
+							}
+						}
+					}
+				}
 
 				const int32 codeNum = (int32)br.UE();
 				if (codeNum >= 48)
@@ -746,10 +830,6 @@ namespace nkentseu {
 				const int32 lumaCbp = cbp & 15, cbpChroma = cbp >> 4;
 				if (cbp > 0)
 					c.qp = (c.qp + br.SE() + 52) % 52;
-
-				uint8 cPred[2][64];
-				McChroma(c, 0, cpx, cpy, mvx, mvy, cPred[0]);
-				McChroma(c, 1, cpx, cpy, mvx, mvy, cPred[1]);
 
 				const int32 bx0 = mbX * 4, by0 = mbY * 4;
 				for (int32 blk = 0; blk < 16; ++blk) {
@@ -777,15 +857,9 @@ namespace nkentseu {
 				}
 
 				DecodeChromaResidual(c, br, mbX, mbY, cbpChroma, cPred);
-
-				// Le mode intra4x4 des voisins d'un MB inter = DC(2) ; MV/inter stockés.
 				for (int32 by = by0; by < by0 + 4; ++by)
 					for (int32 bx = bx0; bx < bx0 + 4; ++bx)
 						c.i4mode[by * c.nzW + bx] = 2;
-				const int32 id = mbY * c.mbW + mbX;
-				c.mvx[id] = mvx;
-				c.mvy[id] = mvy;
-				c.mbInter[id] = 1;
 				return true;
 			}
 
@@ -1061,26 +1135,25 @@ namespace nkentseu {
 			}
 
 			const int32 numMb = mbW * mbH;
-			NkVector<int32> lumaNz, cnz0, cnz1, i4mode, mvxG, mvyG, mbInterG;
-			lumaNz.Resize((uint64)mbW * 4 * mbH * 4);
+			const uint64 n4 = (uint64)mbW * 4 * mbH * 4;
+			NkVector<int32> lumaNz, cnz0, cnz1, i4mode, mvx4G, mvy4G, ref4G;
+			lumaNz.Resize(n4);
+			i4mode.Resize(n4);
+			mvx4G.Resize(n4);
+			mvy4G.Resize(n4);
+			ref4G.Resize(n4);
 			cnz0.Resize((uint64)mbW * 2 * mbH * 2);
 			cnz1.Resize((uint64)mbW * 2 * mbH * 2);
-			i4mode.Resize((uint64)mbW * 4 * mbH * 4);
-			mvxG.Resize((uint64)numMb);
-			mvyG.Resize((uint64)numMb);
-			mbInterG.Resize((uint64)numMb);
-			for (uint64 i = 0; i < lumaNz.Size(); ++i) {
+			for (uint64 i = 0; i < n4; ++i) {
 				lumaNz[i] = 0;
 				i4mode[i] = 2;
+				mvx4G[i] = 0;
+				mvy4G[i] = 0;
+				ref4G[i] = -2; // 4x4 non décodé
 			}
 			for (uint64 i = 0; i < cnz0.Size(); ++i) {
 				cnz0[i] = 0;
 				cnz1[i] = 0;
-			}
-			for (int32 i = 0; i < numMb; ++i) {
-				mvxG[(uint64)i] = 0;
-				mvyG[(uint64)i] = 0;
-				mbInterG[(uint64)i] = 0;
 			}
 
 			DecCtx c;
@@ -1101,9 +1174,9 @@ namespace nkentseu {
 			c.i4mode = i4mode.Data();
 			c.qp = qp;
 			c.chromaQpOffset = pps.chromaQpIndexOffset;
-			c.mvx = mvxG.Data();
-			c.mvy = mvyG.Data();
-			c.mbInter = mbInterG.Data();
+			c.mvx4 = mvx4G.Data();
+			c.mvy4 = mvy4G.Data();
+			c.ref4 = ref4G.Data();
 			if (isP) {
 				if (!ref || ref->lumaW != lumaW || ref->lumaH != lumaH)
 					return false; // référence incompatible
@@ -1142,10 +1215,10 @@ namespace nkentseu {
 						break;
 					const int32 mbX = mbAddr % mbW, mbY = mbAddr / mbW;
 					const uint32 mbType = br.UE();
-					if (mbType == 0) { // P_L0_16x16
-						if (!DecodeMbInterP(c, br, mbX, mbY))
+					if (mbType <= 4) { // P_16x16(0)/16x8(1)/8x16(2)/8x8(3)/8x8ref0(4)
+						if (!DecodeMbInterP(c, br, mbX, mbY, (int32)mbType))
 							return false;
-					} else if (mbType >= 5) { // intra dans une P-slice : I mb_type = mbType-5
+					} else { // intra dans une P-slice : I mb_type = mbType-5
 						const int32 iType = (int32)mbType - 5;
 						if (iType == 0) {
 							if (!DecodeMbI4x4(c, br, mbX, mbY))
@@ -1156,8 +1229,11 @@ namespace nkentseu {
 						} else {
 							return false; // I_PCM
 						}
-					} else {
-						return false; // P_16x8 / P_8x16 / P_8x8 non gérés
+						// MB intra -> ref4 = -1 (voisin non disponible pour la prédiction de MV)
+						const int32 bx0 = mbX * 4, by0 = mbY * 4;
+						for (int32 by = by0; by < by0 + 4; ++by)
+							for (int32 bx = bx0; bx < bx0 + 4; ++bx)
+								c.ref4[by * c.nzW + bx] = -1;
 					}
 					mbQp[(uint64)mbAddr] = c.qp;
 					++mbAddr;
