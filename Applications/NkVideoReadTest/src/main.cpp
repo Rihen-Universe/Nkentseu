@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
 		bool ok = NkVideoReader::SelfTest();
 		printf("  [ %s ] NkVideoReader::SelfTest (AVI MJPEG round-trip)\n", ok ? "OK " : "KO");
 		bool okH264 = NkH264Decoder::SelfTest();
-		printf("  [ %s ] NkH264Decoder::SelfTest (NAL split + parse SPS 176x144)\n", okH264 ? "OK " : "KO");
+		printf("  [ %s ] NkH264Decoder::SelfTest (NAL split + SPS + PPS + slice header I)\n", okH264 ? "OK " : "KO");
 		printf("=== %s ===\n", (ok && okH264) ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
 		return (ok && okH264) ? 0 : 1;
 	}
