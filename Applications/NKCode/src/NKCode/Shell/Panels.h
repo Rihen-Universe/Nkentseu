@@ -1215,6 +1215,9 @@ namespace nkentseu {
 					x = x0 - mTabScroll;
 					for (usize i = 0; i < mS->files.Size(); ++i) {
 						OpenFile &f = mS->files[i];
+						// Apercu (VSCode) : editer le fichier (doc modifie) le rend PERMANENT.
+						if (f.preview && f.doc.dirty)
+							f.preview = false;
 						const NkString nm = TabLabel(i, dup[i] != 0);
 						const float32 dotW = 16.f;
 						const float32 pinW = f.pinned ? 13.f : 0.f; // icône épingle en tête
@@ -1238,7 +1241,8 @@ namespace nkentseu {
 						if (ctx.font && ctx.font->Valid())
 							dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 									   {tx, tab.y + (h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()},
-									   nm.CStr(), active ? ctx.theme.text : ctx.theme.textDisabled, nameW);
+									   nm.CStr(), active ? ctx.theme.text : ctx.theme.textDisabled, nameW,
+									   f.preview ? 0.20f : 0.f); // apercu (VSCode) : titre en italique
 						// Zone droite : épingle -> pas de X ; sinon point "modifié" (si dirty non survolé) sinon X.
 						const NkRect cl = {tab.x + tabW - dotW - 5.f, tab.y + (h - dotW) * 0.5f, dotW, dotW};
 						const bool clHov = m.x >= cl.x && m.x < cl.x + cl.w && m.y >= cl.y && m.y < cl.y + cl.h;
@@ -1265,6 +1269,9 @@ namespace nkentseu {
 								mDragMoved = false;
 							}
 						}
+						// Double-clic sur l'onglet (hors bouton X) => PROMEUT l'apercu en permanent (VSCode).
+						if (ctx.input.mouseDoubleClicked[0] && hov && !clHov && f.preview)
+							f.preview = false;
 						// Clic-molette (bouton milieu) = fermer (sauf épinglé).
 						if (ctx.input.mouseClicked[2] && hov && !f.pinned)
 							toClose = static_cast<int32>(i);

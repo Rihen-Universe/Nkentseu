@@ -82,8 +82,10 @@ namespace nkentseu {
 				// Texte : émet des quads texturés (atlas `texId`) à partir de la
 				// face NKFont. `baseline` = ligne de base du 1er glyphe. `maxWidth`
 				// >= 0 tronque (coupe au glyphe qui déborde).
+				// `skew` > 0 : italique factice (penche les glyphes, décalage horizontal
+				// proportionnel à la hauteur au-dessus de la ligne de base ; 0 = normal).
 				void AddText(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *text,
-							 const NkColor &col, float32 maxWidth = -1.f) noexcept;
+							 const NkColor &col, float32 maxWidth = -1.f, float32 skew = 0.f) noexcept;
 				// Dessine la sous-chaîne [begin, end) (sans troncature) — brique du
 				// retour à la ligne (TextWrapped) qui passe des plages de ligne.
 				void AddTextRange(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *begin,
