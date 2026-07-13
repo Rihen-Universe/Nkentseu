@@ -14,6 +14,7 @@
 #include "NKMedia/Codecs/Video/H264/NkH264BitReader.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Transform.h"
+#include "NKMedia/Codecs/Video/H264/NkH264Cabac.h"
 
 namespace nkentseu {
 	namespace media {
