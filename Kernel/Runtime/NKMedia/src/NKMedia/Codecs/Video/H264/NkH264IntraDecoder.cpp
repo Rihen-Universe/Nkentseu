@@ -1818,6 +1818,10 @@ namespace nkentseu {
 				// residus + reconstruction) mais PAS ENCORE bit-exact : un bug de contexte
 				// residuel (1er MB : ~9 dB) reste a debusquer via une trace bin-a-bin vs
 				// reference. On echoue proprement en attendant (pas de sortie corrompue).
+				// ⚠️ ETAT (2026-07-13) : la LUMA CABAC est BIT-EXACT (Y=0 diff verifie a QP40 sans
+				// deblocage sur 1 MB : moteur+tables+mb_type+modes+cbp+residus luma+reconstruction
+				// tous prouves). Il RESTE un bug dans la CHROMA (DC/AC) qui desync le flux et
+				// corrompt les MB suivants. Gate OFF tant que ce n'est pas corrige.
 				constexpr bool kCabacDecodeEnabled = false;
 				if (!kCabacDecodeEnabled || !isI)
 					return false; // P/B CABAC + I CABAC (WIP) non actives
