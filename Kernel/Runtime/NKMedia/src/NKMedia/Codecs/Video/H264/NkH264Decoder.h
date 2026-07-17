@@ -83,6 +83,9 @@ namespace nkentseu {
 				int32 lumaW = 0, lumaH = 0;
 				int32 chromaW = 0, chromaH = 0;
 				int32 cropW = 0, cropH = 0;
+				// frame_num de l'image : identifie la reference pour ref_pic_list_modification
+				// (§8.2.4.3.1 reordonne la liste par PicNum, derive de frame_num).
+				int32 frameNum = 0;
 		};
 
 		class NkH264Decoder {
