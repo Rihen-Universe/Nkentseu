@@ -124,7 +124,8 @@ void main() {
         col.a = max(col.a, pc.cellColor.a * fillFade);
         // Hiérarchie NETTE : sous-grille très discrète < mineure discrète < MAJEURE épaisse+claire.
         float aSub = gSub * pc.lineColor.a * 0.45 * fadeMinor;   // sous-grille (visible de près)
-        col.rgb = mix(col.rgb, pc.lineColor.rgb, aSub);    col.a = max(col.a, aSub);
+        col.rgb = mix(col.rgb, pc.lineColor.rgb, aSub);    
+        col.a = max(col.a, aSub);
         float aMinor = gMinor * pc.lineColor.a * fadeMinor;      // mineure = pleine (bien visible)
         col.rgb = mix(col.rgb, pc.lineColor.rgb, aMinor);  col.a = max(col.a, aMinor);
         vec3  majRGB = min(pc.lineColor.rgb * 2.8, vec3(1.0, 1.0, 1.0)); // majeure quasi-blanche
@@ -134,9 +135,11 @@ void main() {
         // < 1 au centre de la ligne les dilue avec le gris = aspect "délavé"). On garde juste
         // le fondu rasant. Le cœur de la ligne reçoit ainsi la couleur PLEINE.
         float aAxX = axisX * pc.axisXColor.a * grazeF;
-        col.rgb = mix(col.rgb, pc.axisXColor.rgb, aAxX);   col.a = max(col.a, aAxX);
+        col.rgb = mix(col.rgb, pc.axisXColor.rgb, aAxX);   
+        col.a = max(col.a, aAxX);
         float aAxZ = axisZ * pc.axisZColor.a * grazeF;
-        col.rgb = mix(col.rgb, pc.axisZColor.rgb, aAxZ);   col.a = max(col.a, aAxZ);
+        col.rgb = mix(col.rgb, pc.axisZColor.rgb, aAxZ);   
+        col.a = max(col.a, aAxZ);
     }
 
     // ── Axe Y VERT (ligne monde x=0,z=0) : projection écran en espace PIXELS ──
