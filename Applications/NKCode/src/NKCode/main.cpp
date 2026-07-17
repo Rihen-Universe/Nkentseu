@@ -97,10 +97,12 @@ int nkmain(const NkEntryState &state) {
 	static ScaffoldPanel pPorts("Ports", NkEditorDockSide::NK_BOTTOM, "Maquette", sc::kPorts, 1);
 	static ScaffoldPanel pProf("Profiler", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #19", sc::kProfiler, 1);
 	static ScaffoldPanel pCollab("Live Collab", NkEditorDockSide::NK_LEFT, "Maquette - collaboration", sc::kCollab, 2);
-	static nkcode::AiPanel aiPanel(&g_state); // Assistant IA FONCTIONNEL (remplace la maquette)
-	static nkcode::AgentCliPanel claudePanel("Claude Code", "claude", "npm install -g @anthropic-ai/claude-code",
-											 &g_state, shell.Get());
-	static nkcode::AgentCliPanel codexPanel("Codex", "codex", "npm install -g @openai/codex", &g_state, shell.Get());
+	// 4 IA, MEME interface (AiPanel) mais backend + proprietes propres a chacune :
+	//   0 Assistant (general), 1 Claude Code, 2 Codex, 3 NkAI (maison Rihen).
+	static nkcode::AiPanel aiPanel(&g_state, shell.Get(), 0, "Assistant IA");
+	static nkcode::AiPanel claudePanel(&g_state, shell.Get(), 1, "Claude Code");
+	static nkcode::AiPanel codexPanel(&g_state, shell.Get(), 2, "Codex");
+	static nkcode::AiPanel nkaiPanel(&g_state, shell.Get(), 3, "NkAI");
 	static ScaffoldPanel pEngine("Moteur", NkEditorDockSide::NK_RIGHT, "Maquette - roadmap #17", sc::kEngine, 1);
 	static ScaffoldPanel pExt("Extensions", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #12", sc::kExtensions, 1);
 	shell->AddPanel(&pSearch);
@@ -115,6 +117,7 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&aiPanel);
 	shell->AddPanel(&claudePanel);
 	shell->AddPanel(&codexPanel);
+	shell->AddPanel(&nkaiPanel);
 	shell->AddPanel(&pCollab);
 	shell->AddPanel(&pEngine);
 	shell->AddPanel(&pExt);

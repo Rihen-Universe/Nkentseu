@@ -831,13 +831,68 @@ namespace nkentseu {
 			return n;
 		}
 
+		// Découpe `b` en LIGNES VISUELLES (word-wrap à `wrapW` px) : renvoie l'offset de début
+		// de chaque ligne visuelle (toujours >= 1 entrée). Un '\n' force une nouvelle ligne.
+		// Sans face ou wrapW<=1 : une entrée par ligne LOGIQUE (aucun wrap).
+		static void MlWrapStarts(const NkFont *face, const char *b, int32 len, float32 wrapW,
+								 NkVector<int32> &out) noexcept {
+			out.Clear();
+			out.PushBack(0);
+			if (!face || wrapW <= 1.f) {
+				for (int32 i = 0; i < len; ++i)
+					if (b[i] == '\n')
+						out.PushBack(i + 1);
+				return;
+			}
+			int32 lineStart = 0, lastSpace = -1;
+			float32 x = 0.f;
+			int32 i = 0;
+			while (i < len) {
+				const char c = b[i];
+				if (c == '\n') {
+					out.PushBack(i + 1);
+					lineStart = i + 1;
+					lastSpace = -1;
+					x = 0.f;
+					++i;
+					continue;
+				}
+				int32 cl = 1; // longueur du caractère UTF-8
+				const unsigned char uc = (unsigned char)c;
+				if (uc >= 0xF0)
+					cl = 4;
+				else if (uc >= 0xE0)
+					cl = 3;
+				else if (uc >= 0xC0)
+					cl = 2;
+				if (i + cl > len)
+					cl = 1;
+				const float32 cw = face->CalcTextSizeX(b + i, b + i + cl);
+				if (c == ' ')
+					lastSpace = i;
+				if (x + cw > wrapW && i > lineStart) {
+					int32 brk = (lastSpace >= lineStart) ? lastSpace + 1 : i; // coupe au dernier espace, sinon au caractère
+					if (brk <= lineStart)
+						brk = i; // sécurité anti-boucle
+					out.PushBack(brk);
+					lineStart = brk;
+					lastSpace = -1;
+					x = 0.f;
+					i = brk; // reprend au break
+					continue;
+				}
+				x += cw;
+				i += cl;
+			}
+		}
+
 		// Champ de saisie MULTI-LIGNE dans `rect` : édition 2D (Entrée = saut de ligne,
 		// flèches ↑/↓ entre lignes en gardant la colonne, Home/End par ligne), clic 2D,
 		// auto-défilement vers le caret + molette + scrollbar. Flags : ReadOnly, filtres
 		// (CharsDecimal/Hex/Uppercase/NoBlank) + maxChars. Retourne true si le texte a
 		// changé. `idStr` = id stable.
 		bool InputTextMultiline(NkGuiContext &ctx, const char *idStr, char *buf, int32 bufSize, const NkRect &rect,
-								NkGuiInputFlags flags, int32 maxChars) noexcept {
+								NkGuiInputFlags flags, int32 maxChars, bool wrap) noexcept {
 			if (!buf || bufSize <= 1)
 				return false;
 			const NkGuiId id = ctx.GetId(idStr);
@@ -846,13 +901,17 @@ namespace nkentseu {
 			const float32 lineH = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
 			const float32 padX = 6.f, padY = 4.f;
 
-			// Focus au clic.
+			// Focus au clic. Changement de focus -> réinitialise la sélection/drag (pas hérités
+			// du champ précédent qui partageait ctx.inputAnchor/ctx.inputDrag).
 			const bool over =
 				NkGuiRectContains(rect, ctx.input.mousePos) && (ctx.activeId == NKGUI_ID_NONE || ctx.activeId == id);
 			if (over)
 				ctx.hotId = id;
-			if (over && ctx.input.mouseClicked[0] && ctx.inputId != id)
+			if (over && ctx.input.mouseClicked[0] && ctx.inputId != id) {
 				ctx.inputId = id;
+				ctx.inputAnchor = -1;
+				ctx.inputDrag = false;
+			}
 			const bool focused = (ctx.inputId == id);
 
 			// Fond + bordure.
@@ -873,19 +932,152 @@ namespace nkentseu {
 			const float32 sbW = 12.f;
 			const NkRect inner = {rect.x + padX, rect.y + padY, rect.w - padX * 2.f - sbW, rect.h - padY * 2.f};
 
+			// Lignes VISUELLES (word-wrap si `wrap`). Reconstruites après chaque édition.
+			NkVector<int32> vstart;
+			auto rebuildV = [&]() { MlWrapStarts(face, buf, len, wrap ? inner.w : 0.f, vstart); };
+			rebuildV();
+			auto vCount = [&]() -> int32 {
+				return wrap ? static_cast<int32>(vstart.Size()) : MlCountLines(buf, len);
+			};
+			auto vStartOf = [&](int32 line) -> int32 {
+				if (!wrap)
+					return MlLineStart(buf, len, line);
+				if (line < 0)
+					line = 0;
+				return line < static_cast<int32>(vstart.Size()) ? vstart[static_cast<usize>(line)] : len;
+			};
+			auto vEndOf = [&](int32 line, int32 ls) -> int32 {
+				if (!wrap)
+					return MlLineEnd(buf, len, ls);
+				int32 e = (line + 1 < static_cast<int32>(vstart.Size())) ? vstart[static_cast<usize>(line + 1)] : len;
+				while (e > ls && (buf[e - 1] == '\n')) // n'affiche pas le '\n' terminal
+					--e;
+				return e;
+			};
+			auto vLineOf = [&](int32 off) -> int32 {
+				if (!wrap)
+					return MlLineOf(buf, len, off);
+				int32 lo = 0;
+				for (int32 v = 0; v < static_cast<int32>(vstart.Size()); ++v) {
+					if (vstart[static_cast<usize>(v)] <= off)
+						lo = v;
+					else
+						break;
+				}
+				return lo;
+			};
+
+			// Sélection (partagée entre widgets via ctx, comme inputCaret ; réinitialisée au
+			// changement de focus ci-dessus). -1 = pas de sélection.
+			int32 anchor = ctx.inputAnchor;
+			if (anchor > len)
+				anchor = len;
 			if (focused) {
 				ctx.interact = NkGuiInteract::EditWidget;
-				// Clic → caret 2D (ligne par y, colonne par x).
+				auto hasSel = [&]() { return anchor >= 0 && anchor != caret; };
+				auto selLo = [&]() { return anchor < caret ? anchor : caret; };
+				auto selHi = [&]() { return anchor < caret ? caret : anchor; };
+				auto copySel = [&]() {
+					const int32 lo = selLo(), hi = selHi();
+					NkString t2;
+					for (int32 k = lo; k < hi; ++k)
+						t2 += buf[k];
+					ctx.SetClipboard(t2.CStr());
+				};
+				auto delSel = [&]() {
+					const int32 lo = selLo(), hi = selHi(), n = hi - lo;
+					::memmove(buf + lo, buf + hi, static_cast<usize>(len - hi + 1));
+					len -= n;
+					caret = lo;
+					anchor = -1;
+					changed = true;
+				};
+				// Clic → caret 2D (ligne par y, colonne par x). Simple = déplace + arme le
+				// glissement (sélection) ; Maj+clic = étend depuis l'ancre ; double-clic = mot.
 				if (ctx.input.mouseClicked[0] && over && face) {
 					float32 relY = ctx.input.mousePos.y - inner.y + st.y;
 					int32 line = (relY > 0.f) ? static_cast<int32>(relY / lineH) : 0;
-					const int32 nL = MlCountLines(buf, len);
+					const int32 nL = vCount();
 					if (line >= nL)
 						line = nL - 1;
-					const int32 ls = MlLineStart(buf, len, line);
-					const int32 le = MlLineEnd(buf, len, ls);
-					caret = ls + CaretFromX(face, buf + ls, le - ls, ctx.input.mousePos.x - inner.x);
+					const int32 ls = vStartOf(line);
+					const int32 le = vEndOf(line, ls);
+					const int32 c2 = ls + CaretFromX(face, buf + ls, le - ls, ctx.input.mousePos.x - inner.x);
+					if (ctx.input.mouseDoubleClicked[0]) {
+						auto isWord = [](char c) {
+							return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+								   c == '_';
+						};
+						int32 a = c2, b = c2;
+						while (a > 0 && isWord(buf[a - 1]))
+							--a;
+						while (b < len && isWord(buf[b]))
+							++b;
+						anchor = a;
+						caret = b;
+					} else if (ctx.input.shiftDown) {
+						if (anchor < 0)
+							anchor = caret;
+						caret = c2;
+					} else {
+						caret = c2;
+						anchor = c2;
+						ctx.inputDrag = true;
+					}
 					ctx.inputClickConsumed = true;
+				} else if (ctx.inputDrag && ctx.input.mouseDown[0] && face) {
+					// Glissement en cours : étend la sélection jusqu'à la position souris.
+					float32 relY = ctx.input.mousePos.y - inner.y + st.y;
+					int32 line = (relY > 0.f) ? static_cast<int32>(relY / lineH) : 0;
+					const int32 nL = vCount();
+					if (line >= nL)
+						line = nL - 1;
+					if (line < 0)
+						line = 0;
+					const int32 ls = vStartOf(line);
+					const int32 le = vEndOf(line, ls);
+					caret = ls + CaretFromX(face, buf + ls, le - ls, ctx.input.mousePos.x - inner.x);
+				}
+				if (!ctx.input.mouseDown[0])
+					ctx.inputDrag = false;
+				if (ctx.input.wantSelectAll) {
+					anchor = 0;
+					caret = len;
+					ctx.input.wantSelectAll = false;
+				}
+				if (ctx.input.wantCopy) {
+					if (hasSel())
+						copySel();
+					ctx.input.wantCopy = false;
+				}
+				if (!readOnly && ctx.input.wantCut) {
+					if (hasSel()) {
+						copySel();
+						delSel();
+					}
+					ctx.input.wantCut = false;
+				}
+				if (!readOnly && ctx.input.wantPaste) {
+					if (hasSel())
+						delSel();
+					const NkString cb = ctx.GetClipboard();
+					for (const char *s = cb.CStr(); *s; ++s) {
+						const unsigned char uc = (unsigned char)*s;
+						if (uc == '\r')
+							continue; // normalise CRLF -> LF
+						if (uc < 32 && uc != '\n' && uc != '\t')
+							continue;
+						if (maxChars >= 0 && CountCp(buf, buf + len) >= maxChars)
+							break;
+						if (len + 1 >= bufSize)
+							break;
+						::memmove(buf + caret + 1, buf + caret, static_cast<usize>(len - caret + 1));
+						buf[caret] = (char)uc;
+						++caret;
+						++len;
+						changed = true;
+					}
+					ctx.input.wantPaste = false;
 				}
 				if (!readOnly) {
 					for (int32 k = 0; k < ctx.input.charCount; ++k) {
@@ -897,6 +1089,8 @@ namespace nkentseu {
 							continue;
 						if (maxChars >= 0 && CountCp(buf, buf + len) >= maxChars)
 							continue; // limite
+						if (hasSel())
+							delSel();
 						char tmp[5] = {};
 						const int32 n = NkFontEncodeUTF8(cp, tmp, 5);
 						if (n > 0 && len + n < bufSize) {
@@ -910,50 +1104,106 @@ namespace nkentseu {
 					// Entrée = saut de ligne (pas de validation en multi-ligne).
 					if (ctx.input.KeyPressed(NkGuiKey::Enter) && len + 1 < bufSize &&
 						(maxChars < 0 || CountCp(buf, buf + len) < maxChars)) {
+						if (hasSel())
+							delSel();
 						::memmove(buf + caret + 1, buf + caret, static_cast<usize>(len - caret + 1));
 						buf[caret] = '\n';
 						caret += 1;
 						len += 1;
 						changed = true;
 					}
-					if (ctx.input.KeyPressedRepeat(NkGuiKey::Backspace) && caret > 0) {
-						const int32 p = PrevCharStart(buf, caret);
-						const int32 n = caret - p;
-						::memmove(buf + p, buf + caret, static_cast<usize>(len - caret + 1));
-						caret = p;
-						len -= n;
-						changed = true;
+					if (ctx.input.KeyPressedRepeat(NkGuiKey::Backspace)) {
+						if (hasSel())
+							delSel();
+						else if (caret > 0) {
+							const int32 p = PrevCharStart(buf, caret);
+							const int32 n = caret - p;
+							::memmove(buf + p, buf + caret, static_cast<usize>(len - caret + 1));
+							caret = p;
+							len -= n;
+							changed = true;
+						}
 					}
-					if (ctx.input.KeyPressedRepeat(NkGuiKey::Delete) && caret < len) {
-						const int32 nx = NextCharStart(buf, len, caret);
-						const int32 n = nx - caret;
-						::memmove(buf + caret, buf + nx, static_cast<usize>(len - nx + 1));
-						len -= n;
-						changed = true;
+					if (ctx.input.KeyPressedRepeat(NkGuiKey::Delete)) {
+						if (hasSel())
+							delSel();
+						else if (caret < len) {
+							const int32 nx = NextCharStart(buf, len, caret);
+							const int32 n = nx - caret;
+							::memmove(buf + caret, buf + nx, static_cast<usize>(len - nx + 1));
+							len -= n;
+							changed = true;
+						}
 					}
 				}
-				// Navigation (autorisée en lecture seule).
-				if (ctx.input.KeyPressedRepeat(NkGuiKey::Left) && caret > 0)
-					caret = PrevCharStart(buf, caret);
-				if (ctx.input.KeyPressedRepeat(NkGuiKey::Right) && caret < len)
-					caret = NextCharStart(buf, len, caret);
+				if (changed) // le texte a bougé -> recalcule les lignes visuelles pour la nav/le rendu
+					rebuildV();
+				// Navigation. Maj = étend la sélection ; sinon la 1re pression sur une
+				// sélection existante la COLLAPSE à la borne concernée (façon éditeurs standards).
+				const bool shift = ctx.input.shiftDown;
+				auto startSel = [&]() {
+					if (anchor < 0)
+						anchor = caret;
+				};
+				if (ctx.input.KeyPressedRepeat(NkGuiKey::Left)) {
+					if (shift) {
+						startSel();
+						if (caret > 0)
+							caret = PrevCharStart(buf, caret);
+					} else {
+						if (hasSel())
+							caret = selLo();
+						else if (caret > 0)
+							caret = PrevCharStart(buf, caret);
+						anchor = -1;
+					}
+				}
+				if (ctx.input.KeyPressedRepeat(NkGuiKey::Right)) {
+					if (shift) {
+						startSel();
+						if (caret < len)
+							caret = NextCharStart(buf, len, caret);
+					} else {
+						if (hasSel())
+							caret = selHi();
+						else if (caret < len)
+							caret = NextCharStart(buf, len, caret);
+						anchor = -1;
+					}
+				}
 				if ((ctx.input.KeyPressedRepeat(NkGuiKey::Up) || ctx.input.KeyPressedRepeat(NkGuiKey::Down)) && face) {
-					const int32 cl = MlLineOf(buf, len, caret);
-					const int32 cls = MlLineStart(buf, len, cl);
+					if (shift)
+						startSel();
+					else
+						anchor = -1;
+					const int32 cl = vLineOf(caret);
+					const int32 cls = vStartOf(cl);
 					const float32 cx = face->CalcTextSizeX(buf + cls, buf + caret); // colonne pixel courante
-					const int32 nL = MlCountLines(buf, len);
+					const int32 nL = vCount();
 					int32 tl = cl + (ctx.input.KeyPressedRepeat(NkGuiKey::Up) ? -1 : 1);
 					if (tl >= 0 && tl < nL) {
-						const int32 tls = MlLineStart(buf, len, tl);
-						const int32 tle = MlLineEnd(buf, len, tls);
+						const int32 tls = vStartOf(tl);
+						const int32 tle = vEndOf(tl, tls);
 						caret = tls + CaretFromX(face, buf + tls, tle - tls, cx);
 					}
 				}
-				if (ctx.input.KeyPressed(NkGuiKey::Home))
-					caret = MlLineStart(buf, len, MlLineOf(buf, len, caret));
-				if (ctx.input.KeyPressed(NkGuiKey::End))
-					caret = MlLineEnd(buf, len, MlLineStart(buf, len, MlLineOf(buf, len, caret)));
+				if (ctx.input.KeyPressed(NkGuiKey::Home)) {
+					if (shift)
+						startSel();
+					else
+						anchor = -1;
+					caret = vStartOf(vLineOf(caret));
+				}
+				if (ctx.input.KeyPressed(NkGuiKey::End)) {
+					if (shift)
+						startSel();
+					else
+						anchor = -1;
+					const int32 cl = vLineOf(caret);
+					caret = vEndOf(cl, vStartOf(cl));
+				}
 				ctx.inputCaret = caret;
+				ctx.inputAnchor = anchor;
 			}
 
 			// Molette (survol).
@@ -961,7 +1211,7 @@ namespace nkentseu {
 				st.y -= ctx.input.wheel * 36.f;
 
 			// Auto-défilement vers le caret.
-			const int32 caretLine = MlLineOf(buf, len, caret);
+			const int32 caretLine = vLineOf(caret);
 			const float32 caretY = caretLine * lineH;
 			if (focused) {
 				if (caretY - st.y < 0.f)
@@ -969,7 +1219,7 @@ namespace nkentseu {
 				if (caretY + lineH - st.y > inner.h)
 					st.y = caretY + lineH - inner.h;
 			}
-			const int32 nLines = MlCountLines(buf, len);
+			const int32 nLines = vCount();
 			const float32 contentH = nLines * lineH;
 			float32 maxY = contentH - inner.h;
 			if (maxY < 0.f)
@@ -983,18 +1233,29 @@ namespace nkentseu {
 			ctx.DL().PushClipRect(inner, true);
 			if (face) {
 				const NkColor tc = readOnly ? ctx.theme.textDisabled : ctx.theme.text;
+				const bool showSel = focused && anchor >= 0 && anchor != caret;
+				const int32 selLoG = showSel ? (anchor < caret ? anchor : caret) : 0;
+				const int32 selHiG = showSel ? (anchor < caret ? caret : anchor) : 0;
 				int32 line = (st.y > 0.f) ? static_cast<int32>(st.y / lineH) : 0;
 				for (; line < nLines; ++line) {
 					const float32 y = inner.y + line * lineH - st.y;
 					if (y >= inner.y + inner.h)
 						break;
-					const int32 ls = MlLineStart(buf, len, line);
-					const int32 le = MlLineEnd(buf, len, ls);
+					const int32 ls = vStartOf(line);
+					const int32 le = vEndOf(line, ls);
+					if (showSel && selHiG > ls && selLoG < le) {
+						const int32 hlLo = selLoG > ls ? selLoG : ls;
+						const int32 hlHi = selHiG < le ? selHiG : le;
+						const float32 xa = inner.x + face->CalcTextSizeX(buf + ls, buf + hlLo);
+						const float32 xb = inner.x + face->CalcTextSizeX(buf + ls, buf + hlHi);
+						const float32 hw = (xb - xa) > 0.f ? (xb - xa) : 2.f;
+						ctx.DL().AddRectFilled({xa, y, hw, lineH}, NkColor{60, 110, 200, 110});
+					}
 					ctx.DL().AddTextRange(face, ctx.font->TexId(), {inner.x, y + ctx.font->Ascent()}, buf + ls,
 										  buf + le, tc);
 				}
 				if (focused && (static_cast<int32>(ctx.time * 2.f) & 1) == 0) {
-					const int32 cls = MlLineStart(buf, len, caretLine);
+					const int32 cls = vStartOf(caretLine);
 					const float32 cx = inner.x + face->CalcTextSizeX(buf + cls, buf + caret);
 					const float32 cy = inner.y + caretLine * lineH - st.y;
 					ctx.DL().AddRectFilled({cx, cy + 2.f, 1.5f, lineH - 4.f}, tc);
@@ -2733,9 +2994,20 @@ namespace nkentseu {
 					if (hov || act)
 						ctx.wantCursor = node.vertical ? NkGuiCursor::ResizeEW : NkGuiCursor::ResizeNS;
 					if (act) { // glisser → redimensionne les 2 zones (chacune dans sa part)
-						const float32 ratio = node.vertical ? (ctx.input.mousePos.x - node.rect.x) / node.rect.w
-															: (ctx.input.mousePos.y - node.rect.y) / node.rect.h;
-						ctx.dockNodes[ni].ratio = math::NkClamp(ratio, 0.08f, 0.92f);
+						if (node.vertical) {
+							// Split HORIZONTAL (panneaux latéraux) : largeur MINIMALE en pixels pour que
+							// les deux côtés restent utilisables (combos/onglets lisibles). Sinon un
+							// panneau latéral pouvait être réduit à ~80 px.
+							const float32 minPx = 380.f;
+							float32 minR = node.rect.w > 1.f ? minPx / node.rect.w : 0.08f;
+							if (minR > 0.45f)
+								minR = 0.45f; // garde-fou petits écrans
+							const float32 ratio = (ctx.input.mousePos.x - node.rect.x) / node.rect.w;
+							ctx.dockNodes[ni].ratio = math::NkClamp(ratio, minR, 1.f - minR);
+						} else {
+							const float32 ratio = (ctx.input.mousePos.y - node.rect.y) / node.rect.h;
+							ctx.dockNodes[ni].ratio = math::NkClamp(ratio, 0.08f, 0.92f);
+						}
 					}
 					ctx.DL().AddRectFilled(sbVis, (hov || act) ? ctx.theme.accent : ctx.theme.border, 0.f);
 				}
