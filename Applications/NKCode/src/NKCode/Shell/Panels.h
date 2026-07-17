@@ -212,8 +212,8 @@ namespace nkentseu {
 		}
 
 		inline const char *const *SideRightGroup(int32 &n) {
-			static const char *kG[] = {"Assistant IA", "Claude Code", "Codex", "Moteur"};
-			n = 4;
+			static const char *kG[] = {"Assistant IA", "Claude Code", "Codex", "NkAI", "Moteur"};
+			n = 5;
 			return kG;
 		}
 

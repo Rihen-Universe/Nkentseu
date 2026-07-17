@@ -915,7 +915,8 @@ namespace nkentseu {
 			const float32 top = bar.y + cell * 0.5f;
 			icon(100, top);			   // Claude Code
 			icon(101, top + cell);	   // Codex
-			icon(102, top + cell * 2); // IA Maison
+			icon(102, top + cell * 2); // Assistant IA
+			icon(103, top + cell * 3); // NkAI (IA maison)
 		}
 
 		// ── Barre de titre custom (UNE ligne : logo + menus | infos | controles) ──
