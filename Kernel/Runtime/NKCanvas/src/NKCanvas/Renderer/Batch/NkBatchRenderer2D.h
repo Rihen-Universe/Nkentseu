@@ -47,6 +47,10 @@ namespace nkentseu {
 				void End() override;
 				void Flush() override;
 
+				bool IsInFrame() const override {
+					return mInFrame;
+				}
+
 				void SetView(const NkView2D &view) override;
 
 				NkView2D GetView() const override {

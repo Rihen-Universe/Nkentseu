@@ -90,10 +90,20 @@ namespace nkentseu {
 
 		static struct {
 				NkVector<NkDX11RTEntry *> entries;
-				// Sauvegarde du RTV courant lors d'un Bind, pour pouvoir restorer.
+				// Sauvegarde du RTV/DSV courant lors d'un Bind, pour pouvoir restorer.
 				ID3D11RenderTargetView *savedRTV = nullptr;
 				ID3D11DepthStencilView *savedDSV = nullptr;
+				// RTV offscreen actuellement lie (nullptr = back buffer). Clear() cible
+				// ce RTV quand une offscreen est active.
+				ID3D11RenderTargetView *currentRTV = nullptr;
 		} gDX11RTRegistry;
+
+		// Recupere l'entry render-texture depuis un handle 1-based (nullptr sinon).
+		static NkDX11RTEntry *DX11_GetRT(nkentseu::uint32 handle) {
+			if (handle == 0 || handle > gDX11RTRegistry.entries.Size())
+				return nullptr;
+			return gDX11RTRegistry.entries[handle - 1];
+		}
 
 		// Recupere l'entry depuis un ID 1-based (nullptr si invalide).
 		static NkDX11TextureEntry *DX11_GetEntry(uint32 id) {
@@ -291,7 +301,16 @@ namespace nkentseu {
 			// OMSet*/PSSet* dans SubmitBatches. Implementation differee — stub
 			// installe pour preserver la consistance API.
 			NkShaderInstallUnsupportedBackend("DX11");
-			NkRenderTextureInstallUnsupportedBackend("DX11");
+			// ── Dispatch NkRenderTexture (offscreen RTV+SRV) ──────────────────────
+			{
+				NkRenderTextureBackend rtb{};
+				rtb.Create = &NkDX11Renderer2D::CreateDX11RenderTexture;
+				rtb.Destroy = &NkDX11Renderer2D::DestroyDX11RenderTexture;
+				rtb.Bind = &NkDX11Renderer2D::BindDX11RenderTexture;
+				rtb.Unbind = &NkDX11Renderer2D::UnbindDX11RenderTexture;
+				rtb.GetColorTextureGPUId = &NkDX11Renderer2D::GetDX11RenderTextureColorId;
+				NkRenderTextureSetBackend(rtb);
+			}
 
 			mIsValid = true;
 			NK_DX11_2D_LOG("Initialized");
@@ -485,11 +504,14 @@ namespace nkentseu {
 		// =============================================================================
 		void NkDX11Renderer2D::Clear(const NkColor2D &col) {
 			NkDX11ContextData *d = NkNativeContext::DX11(mCtx);
-			if (!d || !d->context || !d->rtv)
+			if (!d || !d->context)
 				return;
 			math::NkColorF cf = col.ToColorF();
 			float fc[4] = {cf.r, cf.g, cf.b, cf.a};
-			d->context->ClearRenderTargetView(d->rtv.Get(), fc);
+			// Si une render-texture offscreen est liee, on clear SA RTV ; sinon le back buffer.
+			ID3D11RenderTargetView *rtv = gDX11RTRegistry.currentRTV ? gDX11RTRegistry.currentRTV : d->rtv.Get();
+			if (rtv)
+				d->context->ClearRenderTargetView(rtv, fc);
 		}
 
 		// =============================================================================
@@ -633,6 +655,109 @@ namespace nkentseu {
 			mDevCtx->Map(mCBProj.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m);
 			memcpy(m.pData, proj, 64);
 			mDevCtx->Unmap(mCBProj.Get(), 0);
+		}
+
+
+		// =============================================================================
+		// Dispatch NkRenderTexture (offscreen) — RTV pour dessiner, SRV/entry texture
+		// pour sampler le resultat. Contexte immediat : Bind = OMSetRenderTargets.
+		// =============================================================================
+		uint32 NkDX11Renderer2D::CreateDX11RenderTexture(uint32 w, uint32 h) {
+			if (!gDX11Registry.device || w == 0 || h == 0)
+				return 0;
+			D3D11_TEXTURE2D_DESC td{};
+			td.Width = w;
+			td.Height = h;
+			td.MipLevels = 1;
+			td.ArraySize = 1;
+			td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			td.SampleDesc.Count = 1;
+			td.Usage = D3D11_USAGE_DEFAULT;
+			td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+			ID3D11Texture2D *tex = nullptr;
+			if (FAILED(gDX11Registry.device->CreateTexture2D(&td, nullptr, &tex)) || !tex)
+				return 0;
+			ID3D11RenderTargetView *rtv = nullptr;
+			if (FAILED(gDX11Registry.device->CreateRenderTargetView(tex, nullptr, &rtv))) {
+				tex->Release();
+				return 0;
+			}
+			D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
+			sd.Format = td.Format;
+			sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+			sd.Texture2D.MostDetailedMip = 0;
+			sd.Texture2D.MipLevels = 1;
+			ID3D11ShaderResourceView *srv = nullptr;
+			if (FAILED(gDX11Registry.device->CreateShaderResourceView(tex, &sd, &srv))) {
+				rtv->Release();
+				tex->Release();
+				return 0;
+			}
+			// Entry texture pour exposer le resultat au sampler (chemin GetGPUId normal).
+			NkDX11TextureEntry *te = nkentseu::memory::NkGetDefaultAllocator().New<NkDX11TextureEntry>();
+			te->texture = tex;
+			te->srv = srv;
+			te->width = w;
+			te->height = h;
+			te->filter = NkTextureFilter::NK_LINEAR;
+			te->wrap = NkTextureWrap::NK_CLAMP;
+			DX11_RebuildSampler(te);
+			gDX11Registry.entries.PushBack(te);
+			const uint32 colorId = (uint32)gDX11Registry.entries.Size(); // 1-based
+			NkDX11RTEntry *rt = nkentseu::memory::NkGetDefaultAllocator().New<NkDX11RTEntry>();
+			rt->tex = tex;   // possede par l'entry texture (release via DeleteDX11Texture)
+			rt->rtv = rtv;   // possede par l'entry RT
+			rt->colorTextureId = colorId;
+			rt->width = w;
+			rt->height = h;
+			gDX11RTRegistry.entries.PushBack(rt);
+			return (uint32)gDX11RTRegistry.entries.Size(); // handle 1-based
+		}
+
+		void NkDX11Renderer2D::DestroyDX11RenderTexture(uint32 handle) {
+			NkDX11RTEntry *rt = DX11_GetRT(handle);
+			if (!rt)
+				return;
+			if (rt->rtv) {
+				rt->rtv->Release();
+				rt->rtv = nullptr;
+			}
+			// L'entry texture (tex + srv + sampler) est liberee via DeleteDX11Texture.
+			DeleteDX11Texture(rt->colorTextureId);
+			nkentseu::memory::NkGetDefaultAllocator().Delete(rt);
+			gDX11RTRegistry.entries[handle - 1] = nullptr;
+		}
+
+		void NkDX11Renderer2D::BindDX11RenderTexture(uint32 handle) {
+			NkDX11RTEntry *rt = DX11_GetRT(handle);
+			if (!rt || !rt->rtv || !gDX11Registry.context)
+				return;
+			// Sauvegarde la cible courante (back buffer) pour restaurer au Unbind.
+			gDX11Registry.context->OMGetRenderTargets(1, &gDX11RTRegistry.savedRTV, &gDX11RTRegistry.savedDSV);
+			ID3D11RenderTargetView *rtvs[] = {rt->rtv};
+			gDX11Registry.context->OMSetRenderTargets(1, rtvs, nullptr);
+			gDX11RTRegistry.currentRTV = rt->rtv;
+		}
+
+		void NkDX11Renderer2D::UnbindDX11RenderTexture() {
+			if (!gDX11Registry.context)
+				return;
+			ID3D11RenderTargetView *rtvs[] = {gDX11RTRegistry.savedRTV};
+			gDX11Registry.context->OMSetRenderTargets(1, rtvs, gDX11RTRegistry.savedDSV);
+			if (gDX11RTRegistry.savedRTV) {
+				gDX11RTRegistry.savedRTV->Release();
+				gDX11RTRegistry.savedRTV = nullptr;
+			}
+			if (gDX11RTRegistry.savedDSV) {
+				gDX11RTRegistry.savedDSV->Release();
+				gDX11RTRegistry.savedDSV = nullptr;
+			}
+			gDX11RTRegistry.currentRTV = nullptr;
+		}
+
+		uint32 NkDX11Renderer2D::GetDX11RenderTextureColorId(uint32 handle) {
+			NkDX11RTEntry *rt = DX11_GetRT(handle);
+			return rt ? rt->colorTextureId : 0;
 		}
 
 	} // namespace renderer

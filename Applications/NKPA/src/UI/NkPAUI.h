@@ -13,19 +13,10 @@
 
 #include "NKCore/NkTypes.h"
 #include "Renderer/NkPAMesh.h"
+#include "UI/NkPAUIState.h" // NkPAUIState (partagé NKUI/NKGui)
 
 namespace nkentseu {
 	namespace nkpa {
-
-		// ─── État exposé à l'application ──────────────────────────────────────────────
-
-		struct NkPAUIState {
-				bool paused = false;
-				bool showUI = true;
-				float speedScale = 1.f; ///< Multiplicateur global de vitesse [0.1 .. 3.0]
-				int32 fishCount = 3;	///< [1..6]
-				int32 sharkCount = 1;	///< [0..3]
-		};
 
 		// ─── Classe principale ────────────────────────────────────────────────────────
 

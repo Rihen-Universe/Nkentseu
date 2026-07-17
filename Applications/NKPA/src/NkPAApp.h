@@ -12,15 +12,17 @@
  *    - UI overlay (panneau NKPA)
  */
 
+#include "NKContainers/String/NkString.h"
 #include "NKWindow/Core/NkWindow.h"
-#include "NKRHI/Core/NkIDevice.h"
-#include "NKRHI/Commands/NkICommandBuffer.h"
-#include "NKRHI/Core/NkGraphicsApi.h"
+#include "NKCanvas/Core/NkGraphicsApi.h" // NkGraphicsApi (partagé NKEvent) + NkGraphicsApiName
+#include "NKCanvas/Renderer/Core/NkRenderer2DTypes.h"   // NkVertex2D
+#include "NKCanvas/Renderer/Targets/NkRenderTexture.h"  // sim rendue offscreen
+#include "NKCanvas/Renderer/Resources/NkTexture.h"      // wrapper sampler de la RT
 #include "NKTime/NkChrono.h"
 
 #include "Renderer/NkPAMesh.h"
 #include "Environment/NkPAEnvironment.h"
-#include "UI/NkPAUI.h"
+#include "UI/NkPAGui.h"
 
 // ── Créatures marines ─────────────────────────────────────────────────────────
 #include "Creatures/NkPAFish.h"
@@ -41,6 +43,9 @@
 #include "Creatures/NkPABird.h"
 
 namespace nkentseu {
+	namespace renderer {
+		class NkRenderWindow;
+	}
 	namespace nkpa {
 
 		class NkPAApp {
@@ -53,27 +58,57 @@ namespace nkentseu {
 				void Run();
 				void Shutdown();
 
+				/// Infos de lancement (fichier de config éditable + chemin de l'exe) —
+				/// nécessaires pour changer de backend + redémarrer depuis l'interface.
+				void SetLaunchInfo(const NkString &configPath, const NkString &exePath) {
+					mConfigPath = configPath;
+					mExePath = exePath;
+				}
+
+				/// L'utilisateur a demandé un redémarrage (changement de backend appliqué).
+				bool WantsRestart() const {
+					return mRestartRequested;
+				}
+
+				const NkString &ExePath() const {
+					return mExePath;
+				}
+
 			private:
 				void Update(float32 dt);
 				void Render();
 
-				// ── Fenêtre & RHI ─────────────────────────────────────────────────────────
+				/// (Re)crée l'environnement + place les créatures dans un monde de
+				/// dimensions worldW × worldH (= la vue centrale de l'éditeur).
+				void SeedWorld(int32 worldW, int32 worldH);
+
+				/// Applique le backend choisi dans l'UI : écrit la config + demande le
+				/// redémarrage (relancé par nkmain).
+				void ApplyBackendRequest();
+
+				// ── Fenêtre & rendu NKCanvas ──────────────────────────────────────────────
 				NkWindow mWindow;
-				NkIDevice *mDevice = nullptr;
-				NkICommandBuffer *mCmd = nullptr;
-				NkPipelineHandle mPipeline;
-				NkShaderHandle mShader;
+				renderer::NkRenderWindow *mTarget = nullptr; // device + swapchain + renderer 2D
 
 				// ── État ─────────────────────────────────────────────────────────────────
 				bool mRunning = false;
 				int32 mWidth = 1280;
 				int32 mHeight = 720;
+				int32 mViewW = 0; // dimensions de la VUE centrale (monde de la sim)
+				int32 mViewH = 0;
 				NkGraphicsApi mApi = NkGraphicsApi::NK_GFX_API_SOFTWARE;
 				NkChrono mChrono;
 				NkPAUIState mUIState;
 
-				// ── UI ───────────────────────────────────────────────────────────────────
-				NkPAUI mUI;
+				// ── Redimensionnement : une SEULE source de vérité = l'événement fenêtre
+				// (autoritatif), traité à un point sûr de la boucle (pas de poll GetSize
+				// qui « lag » selon le backend et se battait avec l'événement).
+				bool mResizePending = false;
+				int32 mPendingW = 0;
+				int32 mPendingH = 0;
+
+				// ── UI (NKGui + backend NKRHI texturé) ────────────────────────────────────
+				NkPAGui mGui;
 
 				// ── Environnement ────────────────────────────────────────────────────────
 				Environment mEnv;
@@ -113,6 +148,20 @@ namespace nkentseu {
 
 				// ── Mesh ─────────────────────────────────────────────────────────────────
 				MeshBuilder mMesh;
+				NkVector<renderer::NkVertex2D> mSimVerts; // scratch : mesh → NkVertex2D
+				NkVector<uint32> mSimIdx;                 // indices séquentiels (triangle-list)
+
+				// ── Viewport offscreen : la sim est rendue dans une render-texture,
+				// puis affichée dans le panneau central (comme un vrai éditeur). ────────
+				renderer::NkRenderTexture mRT;  // cible offscreen (taille = panneau central)
+				renderer::NkTexture mRTTexture; // wrapper pour sampler la RT sur le backbuffer
+				int32 mRTW = 0;
+				int32 mRTH = 0;
+
+				// ── Config / redémarrage (changement de backend depuis l'UI) ─────────────
+				NkString mConfigPath;
+				NkString mExePath;
+				bool mRestartRequested = false;
 		};
 
 	} // namespace nkpa

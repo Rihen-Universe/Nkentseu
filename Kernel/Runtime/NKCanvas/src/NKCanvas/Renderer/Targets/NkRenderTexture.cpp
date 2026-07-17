@@ -76,24 +76,35 @@ namespace nkentseu {
 		void NkRenderTexture::Clear(const NkColor2D &color) {
 			if (!mHandle || !mRenderer)
 				return;
+			// NESTED : frame principale deja ouverte (editeur : sim rendue offscreen
+			// au milieu de la frame UI) -> pas de Begin/End (donc pas de BeginFrame/
+			// Present swapchain) : on FLUSH le batch backbuffer courant AVANT de
+			// switcher la cible, puis on bind l'offscreen. STANDALONE : on ouvre notre frame.
+			const bool nested = mRenderer->IsInFrame();
+			if (nested)
+				mRenderer->Flush();
 			if (gRTBackend.Bind)
 				gRTBackend.Bind(mHandle);
-			if (!mFrameOpen) {
+			if (!nested && !mFrameOpen) {
 				mRenderer->Begin();
 				mFrameOpen = true;
 			}
+			// Cible offscreen active : viewport plein + vue par defaut de la RT.
+			mRenderer->SetViewport(mViewport);
+			mRenderer->SetView(mView);
 			mRenderer->Clear(color);
 		}
 
 		void NkRenderTexture::Display() {
 			if (!mHandle || !mRenderer)
 				return;
-			if (mFrameOpen) {
+			// Commit les draws offscreen AVANT de restaurer la cible principale.
+			mRenderer->Flush();
+			if (mFrameOpen) { // mode standalone : on avait ouvert la frame
 				mRenderer->End();
 				mFrameOpen = false;
 			}
-			// Restaure le framebuffer principal pour que les draws suivants
-			// (sur le target principal) reprennent normalement.
+			// Restaure le framebuffer principal (back buffer) pour la suite.
 			if (gRTBackend.Unbind)
 				gRTBackend.Unbind();
 		}

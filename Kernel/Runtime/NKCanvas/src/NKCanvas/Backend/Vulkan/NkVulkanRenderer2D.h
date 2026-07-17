@@ -94,13 +94,22 @@ namespace nkentseu {
 				VkPipeline mPipeMul = VK_NULL_HANDLE;
 				VkPipeline mPipeNone = VK_NULL_HANDLE;
 
-				// Vertex / index buffers (host-visible, persistent map)
+				// Vertex / index buffers (host-visible, persistent map), utilisés en
+				// RING par frame : chaque SubmitBatches écrit à un offset qui AVANCE
+				// (mVBHead/mIBHead, reset en BeginBackend). Indispensable : le command
+				// buffer Vulkan est ENREGISTRÉ puis exécuté au submit/present, donc
+				// plusieurs SubmitBatches écrivant tous à l'offset 0 s'écraseraient
+				// mutuellement (tous les draws liraient la dernière copie → fantômes).
 				VkBuffer mVB = VK_NULL_HANDLE;
 				VkDeviceMemory mVBMem = VK_NULL_HANDLE;
 				VkBuffer mIB = VK_NULL_HANDLE;
 				VkDeviceMemory mIBMem = VK_NULL_HANDLE;
 				void *mVBMap = nullptr;
 				void *mIBMap = nullptr;
+				VkDeviceSize mVBSize = 0;  // capacité ring VB (octets)
+				VkDeviceSize mIBSize = 0;  // capacité ring IB (octets)
+				VkDeviceSize mVBHead = 0;  // tête d'écriture VB (octets) — reset/frame
+				VkDeviceSize mIBHead = 0;  // tête d'écriture IB (octets) — reset/frame
 
 				// White 1x1 texture
 				VkImage mWhiteImage = VK_NULL_HANDLE;
@@ -110,15 +119,26 @@ namespace nkentseu {
 
 				static VkSampler sSampler; // shared sampler for all textures
 
-				// Per-texture descriptor set cache
+				// Per-texture descriptor set cache. Cle = (pointeur, gpuId) : si le
+				// gpuId change (ex. render-texture recreee au resize → nouvelle vue), le
+				// cache rate et recree un set frais (evite d'echantillonner une vue morte).
 				struct TexDescEntry {
 						const NkTexture *texture = nullptr;
+						uint32 gpuId = 0;
 						VkDescriptorSet set = VK_NULL_HANDLE;
 				};
 
 				NkVector<TexDescEntry> mTexDescCache;
 
 				VkDescriptorSet GetOrCreateDescSet(const NkTexture *tex);
+
+				// ── Dispatch NkRenderTexture (offscreen : image color + framebuffer sur
+				// le render pass swapchain + barrier vers SHADER_READ pour sampler) ──────
+				static uint32 CreateVulkanRenderTexture(uint32 w, uint32 h);
+				static void DestroyVulkanRenderTexture(uint32 handle);
+				static void BindVulkanRenderTexture(uint32 handle);
+				static void UnbindVulkanRenderTexture();
+				static uint32 GetVulkanRenderTextureColorId(uint32 handle);
 
 				// Push constants layout (projection = 64 bytes at offset 0)
 				float32 mProjection[16] = {};

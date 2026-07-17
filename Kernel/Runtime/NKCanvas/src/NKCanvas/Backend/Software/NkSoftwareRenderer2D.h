@@ -38,6 +38,15 @@ namespace nkentseu {
 
 				void Draw(const NkSprite &sprite) override;
 
+				// ── Dispatch NkRenderTexture (offscreen = framebuffer CPU dedie) ──────
+				// Bind redirige le rasterizer vers le framebuffer offscreen ; le sampling
+				// de cette RT lit directement ses pixels CPU (registry par colorId).
+				static uint32 CreateSWRenderTexture(uint32 w, uint32 h);
+				static void DestroySWRenderTexture(uint32 handle);
+				static void BindSWRenderTexture(uint32 handle);
+				static void UnbindSWRenderTexture();
+				static uint32 GetSWRenderTextureColorId(uint32 handle);
+
 			private:
 				NkIGraphicsContext *mCtx = nullptr;
 				NkSoftwareContext *mSWCtx = nullptr;

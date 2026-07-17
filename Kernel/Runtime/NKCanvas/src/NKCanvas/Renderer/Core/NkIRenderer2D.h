@@ -59,6 +59,12 @@ namespace nkentseu {
 				virtual bool Begin() = 0;
 				virtual void End() = 0;
 
+				// true si une frame est ouverte (entre Begin() et End()). Permet aux
+				// cibles offscreen (NkRenderTexture) de savoir si elles sont utilisees
+				// EN NESTED dans une frame deja ouverte (bind/unbind du render target
+				// dans le meme command buffer) plutot qu'en frame autonome.
+				virtual bool IsInFrame() const = 0;
+
 				// Explicit flush: submit current batch, reset accumulators.
 				// Called automatically by End(). Call manually when switching views.
 				virtual void Flush() = 0;
