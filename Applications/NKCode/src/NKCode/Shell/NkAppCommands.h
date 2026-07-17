@@ -47,8 +47,8 @@ inline void ActivityThunk(void *user, int32 idx) {
 										"Extensions",  "Profiler"};
 		const char *const *g = nkcode::SideLeftGroup(gN);
 		nkcode::ToggleSideExclusive(sh, g, gN, kByIdx[idx]);
-	} else if (idx >= 100 && idx <= 102) {
-		static const char *kAi[3] = {"Claude Code", "Codex", "Assistant IA"};
+	} else if (idx >= 100 && idx <= 103) {
+		static const char *kAi[4] = {"Claude Code", "Codex", "Assistant IA", "NkAI"};
 		const char *const *g = nkcode::SideRightGroup(gN);
 		nkcode::ToggleSideExclusive(sh, g, gN, kAi[idx - 100]);
 	} else if (idx == 999)
@@ -168,12 +168,12 @@ inline void SyncActivityMarkers(editorkit::NkEditorShell *sh) {
 		return;
 	static const char *kLeft[7] = {"Explorateur", "Recherche",	"Controle de version", "Debogueur",
 								   "Live Collab", "Extensions", "Profiler"};
-	static const char *kAi[3] = {"Claude Code", "Codex", "Assistant IA"};
+	static const char *kAi[4] = {"Claude Code", "Codex", "Assistant IA", "NkAI"};
 	int32 left = -1, right = -1;
 	for (int32 i = 0; i < 7 && left < 0; ++i)
 		if (sh->IsPanelOpen(kLeft[i]))
 			left = i;
-	for (int32 i = 0; i < 3 && right < 0; ++i)
+	for (int32 i = 0; i < 4 && right < 0; ++i)
 		if (sh->IsPanelOpen(kAi[i]))
 			right = 100 + i;
 	sh->SetActivityActive(left, right);
