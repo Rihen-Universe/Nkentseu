@@ -124,8 +124,23 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    + panneau alpha-testé OK, **207 FPS vs 140 forward**. Diag `NK_DEFLIGHT_DEBUG=1/2/3`
    (N/worldPos/albedo). ⚠ FIX NKRHI GL au passage : `CreateFramebuffer` n'appelait
    JAMAIS glDrawBuffers → les MRT 1..N-1 étaient JETÉES (défaut GL = attachment 0 seul).
-   Limites v1 (documentées) : cookies/clearcoat/subsurface/velocity non portés, passe
-   miroir non différée, boucle 32 lumières (tiled/clustered = v2), VK/DX à valider.
+   **V2 en cours (2026-07-13)** : ✅ COOKIES portés (spot 2D + point cube — parité GL
+   passée de 73 % à **91,7 %** vs forward, le X rouge du sol est là) ; ✅ conventions
+   NDC/sampling PAR BACKEND dans le PC (GL : sample direct + ndcY=-1 ; VK : sample
+   direct + ndcY=+1 ; DX : sample flippé + ndcY=-1) ; **MULTI-BACKEND
+   (feu vert Rihen, 2026-07-13)** : la CAUSE RACINE de VK sombre + DX12 RT1..2
+   mortes était le **blend à 1 seul attachement** sur un render pass à 3 cibles
+   (VK exige attachmentCount == N ; DX12 laissait RT1..7 avec write mask 0) —
+   fix : le pipeline G-buffer déclare 3 blends opaques (le RP VK et le PSO DX12
+   savaient DÉJÀ faire du MRT). ✅ **GL = référence** (91,8 % parité, purger
+   `cache/shaders` si le X rouge manque) ; ✅ **VULKAN VALIDÉ capture** (mêmes
+   conventions que DX : sample flippé + ndcY négatif — l'essai « sample direct »
+   donnait l'image inversée) ; ⚠ **DX11 : rendu OK mais rayons parasites**
+   (bandes translucides radiant du spot, à affiner) ; ❌ **DX12 : DEVICE REMOVED**
+   (0x887A0001 pendant la frame différée — violation d'états de ressources
+   probable, session dédiée debug layer requise). Limites restantes : clearcoat/subsurface/velocity non portés,
+   passe miroir non différée, boucle 32 lumières (tiled/clustered = v3), DX12 à
+   capturer.
    Ancien plan :
    l'existant `Passes/Deferred/NkDeferredPass` = G-buffer 5 RT + buffers lumières, SANS
    shaders ni branchement. Briques : **(a)** shaders NkSL `DeferredGeom` (variante du PBR
