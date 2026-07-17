@@ -1152,6 +1152,10 @@ namespace nkentseu {
 				kCtxMbTypePpre = 14,	 // mb_type (P) préfixe 14..16
 				kCtxMbTypePsuf = 17,	 // mb_type (P) suffixe 17..20
 				kCtxSubMbTypeP = 21,	 // sub_mb_type (P) 21..23
+				kCtxMbSkipB = 24,		 // mb_skip_flag (B) 24..26 (= 11 + 13)
+				kCtxMbTypeB = 27,		 // mb_type (B) prefixe 27..35
+				kCtxMbTypeBIntra = 32,	 // mb_type (B) : echappement intra (intraSlice=0)
+				kCtxSubMbTypeB = 36,	 // sub_mb_type (B) 36..39
 				kCtxMvd0 = 40,			 // mvd_l0[][][0] (x) 40..46
 				kCtxMvd1 = 47,			 // mvd_l0[][][1] (y) 47..53
 				kCtxRefIdx = 54,		 // ref_idx_l0 54..59
@@ -1179,7 +1183,8 @@ namespace nkentseu {
 					NkVector<int32> chromaModeMb;  // intra_chroma_pred_mode par MB
 					NkVector<int32> lumaDcCodedMb; // cbf luma DC (I_16x16) par MB, pour le contexte cbf DC
 					NkVector<int32> chromaDcCodedMb; // cbf chroma DC par MB (bit0=Cb, bit1=Cr)
-					NkVector<int32> mbSkipMb;		 // 1 si le MB a ete code en P_Skip (ctx de mb_skip_flag)
+					NkVector<int32> mbSkipMb;	// 1 si le MB est P_Skip/B_Skip (ctx de mb_skip_flag)
+					NkVector<int32> mbDirectMb; // 1 si le MB est B_Direct/B_Skip (ctx du 1er bin mb_type B)
 					int32 mbW = 0;
 					int32 prevQpDeltaNonZero = 0;
 
@@ -1193,6 +1198,7 @@ namespace nkentseu {
 						lumaDcCodedMb.Resize((uint64)n);
 						chromaDcCodedMb.Resize((uint64)n);
 						mbSkipMb.Resize((uint64)n);
+						mbDirectMb.Resize((uint64)n);
 						for (int32 i = 0; i < n; ++i) {
 							mbTypeClass[(uint64)i] = -1;
 							cbpLumaMb[(uint64)i] = 0;
@@ -1201,6 +1207,7 @@ namespace nkentseu {
 							lumaDcCodedMb[(uint64)i] = 0;
 							chromaDcCodedMb[(uint64)i] = 0;
 							mbSkipMb[(uint64)i] = 0;
+							mbDirectMb[(uint64)i] = 0;
 						}
 						prevQpDeltaNonZero = 0;
 						// Init des 1024 contextes depuis la table normative (I ou variante P/B).
@@ -1411,6 +1418,155 @@ namespace nkentseu {
 				}
 				isIntra = true;
 				return DecodeMbTypeIntraCabac(cab, kCtxMbTypePsuf, 0, 0, 0);
+			}
+
+			// ── Description d'un mb_type / sub_mb_type de B-slice ─────────────────────
+			// Les B ont 23 mb_type et 13 sub_mb_type : chaque entree dit la GEOMETRIE des partitions
+			// et, pour CHAQUE partition, de quelle(s) liste(s) elle predit (L0, L1 ou les deux = Bi).
+			struct BPartInfo {
+					int32 pw = 4, ph = 4; // taille de partition en blocs 4x4 (4x4=16x16, 4x2=16x8, 2x4=8x16)
+					int32 nParts = 1;	  // 1, 2 ou 4
+					bool direct = false;  // B_Direct (le mouvement est DEDUIT, rien n'est code)
+					bool l0[2] = {false, false}; // la partition p predit-elle depuis L0 ?
+					bool l1[2] = {false, false}; // ... depuis L1 ? (les deux = bi-prediction)
+			};
+
+			// Table des 23 mb_type B (miroir de ff_h264_b_mb_type_info). Indices 0..22.
+			BPartInfo BMbTypeInfo(int32 t) {
+				BPartInfo b;
+				if (t == 0) { // B_Direct_16x16
+					b.direct = true;
+					b.l0[0] = b.l1[0] = true;
+					return b;
+				}
+				if (t <= 3) { // 1=B_L0_16x16, 2=B_L1_16x16, 3=B_Bi_16x16
+					b.l0[0] = (t == 1 || t == 3);
+					b.l1[0] = (t == 2 || t == 3);
+					return b;
+				}
+				if (t == 22) { // B_8x8 : les 4 sous-blocs portent leur propre sub_mb_type
+					b.pw = b.ph = 2;
+					b.nParts = 4;
+					return b;
+				}
+				// 4..21 : deux partitions 16x8 (t pair) ou 8x16 (t impair), avec les 9 combinaisons
+				// de directions (L0/L1/Bi) x (L0/L1/Bi) — cf. ff_h264_b_mb_type_info.
+				static const int32 kDir[18][2] = {
+					{0, 0}, {0, 0}, // 4,5   : L0_L0
+					{1, 1}, {1, 1}, // 6,7   : L1_L1
+					{0, 1}, {0, 1}, // 8,9   : L0_L1
+					{1, 0}, {1, 0}, // 10,11 : L1_L0
+					{0, 2}, {0, 2}, // 12,13 : L0_Bi
+					{1, 2}, {1, 2}, // 14,15 : L1_Bi
+					{2, 0}, {2, 0}, // 16,17 : Bi_L0
+					{2, 1}, {2, 1}, // 18,19 : Bi_L1
+					{2, 2}, {2, 2}, // 20,21 : Bi_Bi
+				};
+				const int32 k = t - 4;
+				const bool horiz = ((t & 1) == 0); // pair -> 16x8, impair -> 8x16
+				b.pw = horiz ? 4 : 2;
+				b.ph = horiz ? 2 : 4;
+				b.nParts = 2;
+				for (int32 p = 0; p < 2; ++p) {
+					const int32 d = kDir[k][p];
+					b.l0[p] = (d == 0 || d == 2);
+					b.l1[p] = (d == 1 || d == 2);
+				}
+				return b;
+			}
+
+			// Table des 13 sub_mb_type B (miroir de ff_h264_b_sub_mb_type_info). Indices 0..12.
+			BPartInfo BSubMbTypeInfo(int32 t) {
+				BPartInfo b;
+				static const int32 kGeo[13][3] = {
+					// {pw, ph, nParts} en blocs 4x4, dans un 8x8
+					{2, 2, 1}, // 0  B_Direct_8x8
+					{2, 2, 1}, // 1  B_L0_8x8
+					{2, 2, 1}, // 2  B_L1_8x8
+					{2, 2, 1}, // 3  B_Bi_8x8
+					{2, 1, 2}, // 4  B_L0_8x4
+					{1, 2, 2}, // 5  B_L0_4x8
+					{2, 1, 2}, // 6  B_L1_8x4
+					{1, 2, 2}, // 7  B_L1_4x8
+					{2, 1, 2}, // 8  B_Bi_8x4
+					{1, 2, 2}, // 9  B_Bi_4x8
+					{1, 1, 4}, // 10 B_L0_4x4
+					{1, 1, 4}, // 11 B_L1_4x4
+					{1, 1, 4}, // 12 B_Bi_4x4
+				};
+				static const int32 kDir[13] = {2, 0, 1, 2, 0, 0, 1, 1, 2, 2, 0, 1, 2}; // 0=L0,1=L1,2=Bi
+				b.pw = kGeo[t][0];
+				b.ph = kGeo[t][1];
+				b.nParts = kGeo[t][2];
+				b.direct = (t == 0);
+				const int32 d = kDir[t];
+				b.l0[0] = (d == 0 || d == 2);
+				b.l1[0] = (d == 1 || d == 2);
+				b.l0[1] = b.l0[0];
+				b.l1[1] = b.l1[0];
+				return b;
+			}
+
+			// mb_skip_flag (B) : meme derivation qu'en P mais offset 24 (= 11 + 13).
+			int32 DecodeMbSkipBCabac(CabacMb &cab, int32 mbX, int32 mbY) {
+				const int32 idx = mbY * cab.mbW + mbX;
+				int32 ctx = 0;
+				if (mbX > 0 && cab.mbTypeClass[(uint64)(idx - 1)] >= 0 && !cab.mbSkipMb[(uint64)(idx - 1)])
+					++ctx;
+				if (mbY > 0 && cab.mbTypeClass[(uint64)(idx - cab.mbW)] >= 0 &&
+					!cab.mbSkipMb[(uint64)(idx - cab.mbW)])
+					++ctx;
+				return (int32)cab.Bin(kCtxMbSkipB + ctx);
+			}
+
+			// mb_type (B). Renvoie 0..22 ; si le MB est intra, pose isIntra et renvoie le mb_type intra.
+			// ctxIdxInc du 1er bin = nombre de voisins dispo qui ne sont PAS Direct. (offsets 27..35)
+			int32 DecodeMbTypeBCabac(CabacMb &cab, int32 mbX, int32 mbY, bool &isIntra) {
+				isIntra = false;
+				const int32 idx = mbY * cab.mbW + mbX;
+				int32 ctx = 0;
+				if (mbX > 0 && cab.mbTypeClass[(uint64)(idx - 1)] >= 0 && !cab.mbDirectMb[(uint64)(idx - 1)])
+					++ctx;
+				if (mbY > 0 && cab.mbTypeClass[(uint64)(idx - cab.mbW)] >= 0 &&
+					!cab.mbDirectMb[(uint64)(idx - cab.mbW)])
+					++ctx;
+				if (cab.Bin(kCtxMbTypeB + ctx) == 0)
+					return 0; // B_Direct_16x16
+				if (cab.Bin(kCtxMbTypeB + 3) == 0)
+					return 1 + (int32)cab.Bin(kCtxMbTypeB + 5); // B_L0_16x16 / B_L1_16x16
+				int32 bits = (int32)cab.Bin(kCtxMbTypeB + 4) << 3;
+				bits += (int32)cab.Bin(kCtxMbTypeB + 5) << 2;
+				bits += (int32)cab.Bin(kCtxMbTypeB + 5) << 1;
+				bits += (int32)cab.Bin(kCtxMbTypeB + 5);
+				if (bits < 8)
+					return bits + 3; // B_Bi_16x16 .. B_L1_L0_16x8
+				if (bits == 13) {
+					isIntra = true;
+					return DecodeMbTypeIntraCabac(cab, kCtxMbTypeBIntra, 0, 0, 0);
+				}
+				if (bits == 14)
+					return 11; // B_L1_L0_8x16
+				if (bits == 15)
+					return 22; // B_8x8
+				bits = (bits << 1) + (int32)cab.Bin(kCtxMbTypeB + 5);
+				return bits - 4; // B_L0_Bi_* .. B_Bi_Bi_*
+			}
+
+			// sub_mb_type (B) : 0..12. (offsets 36..39)
+			int32 DecodeSubMbTypeBCabac(CabacMb &cab) {
+				if (cab.Bin(kCtxSubMbTypeB) == 0)
+					return 0; // B_Direct_8x8
+				if (cab.Bin(kCtxSubMbTypeB + 1) == 0)
+					return 1 + (int32)cab.Bin(kCtxSubMbTypeB + 3); // B_L0_8x8 / B_L1_8x8
+				int32 type = 3;
+				if (cab.Bin(kCtxSubMbTypeB + 2)) {
+					if (cab.Bin(kCtxSubMbTypeB + 3))
+						return 11 + (int32)cab.Bin(kCtxSubMbTypeB + 3); // B_L1_4x4 / B_Bi_4x4
+					type += 4;
+				}
+				type += 2 * (int32)cab.Bin(kCtxSubMbTypeB + 3);
+				type += (int32)cab.Bin(kCtxSubMbTypeB + 3);
+				return type;
 			}
 
 			// sub_mb_type (P) : 0=8x8, 1=8x4, 2=4x8, 3=4x4. (offset 21)
@@ -2618,6 +2774,24 @@ namespace nkentseu {
 			out.pocLsb = pocLsb;
 			out.pocMsb = pocMsb;
 			out.isReference = (nalRefIdc != 0); // sinon : ne PAS inserer dans le DPB
+			// Conserve le champ de mouvement : une B ultérieure lira celui de sa co-localisée
+			// (RefPicList1[0]) pour son Direct spatial (§8.4.1.2.2).
+			out.mvW = mbW * 4;
+			out.mvH = mbH * 4;
+			out.mvL0x.Resize(n4);
+			out.mvL0y.Resize(n4);
+			out.mvL0Ref.Resize(n4);
+			out.mvL1x.Resize(n4);
+			out.mvL1y.Resize(n4);
+			out.mvL1Ref.Resize(n4);
+			for (uint64 i = 0; i < n4; ++i) {
+				out.mvL0x[i] = mvx4G[i];
+				out.mvL0y[i] = mvy4G[i];
+				out.mvL0Ref[i] = (ref4G[i] < 0) ? -1 : ref4G[i]; // -2 (non decode) et -1 (intra) -> -1
+				out.mvL1x[i] = mvx4G1[i];
+				out.mvL1y[i] = mvy4G1[i];
+				out.mvL1Ref[i] = (ref4G1[i] < 0) ? -1 : ref4G1[i];
+			}
 			return true;
 		}
 

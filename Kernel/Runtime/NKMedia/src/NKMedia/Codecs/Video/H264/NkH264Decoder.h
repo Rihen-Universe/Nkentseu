@@ -97,6 +97,13 @@ namespace nkentseu {
 				// non-references par defaut (pas de B-pyramid) : elles ne doivent PAS y entrer, sinon
 				// l'etat POC "image de reference precedente" est fausse.
 				bool isReference = true;
+				// ── Champ de mouvement (grilles par bloc 4x4, largeur mbW*4) ──────────
+				// Le Direct SPATIAL des B (§8.4.1.2.2) interroge l'image CO-LOCALISEE (= RefPicList1[0])
+				// pour detecter un bloc "immobile" (reference 0 + MV quasi nulle) : chaque image doit
+				// donc CONSERVER le mouvement avec lequel elle a ete decodee. mvRef : -1 = intra/inutilise.
+				NkVector<nk_int32> mvL0x, mvL0y, mvL0Ref;
+				NkVector<nk_int32> mvL1x, mvL1y, mvL1Ref;
+				int32 mvW = 0, mvH = 0; // dimensions de ces grilles (mbW*4, mbH*4)
 		};
 
 		class NkH264Decoder {
