@@ -60,6 +60,9 @@ namespace nkentseu {
 				int32 constrainedIntraPred = 0;
 				int32 redundantPicCntPresent = 0;
 				int32 numRefIdxL0DefaultActive = 1; // num_ref_idx_l0_default_active_minus1 + 1
+				int32 numRefIdxL1DefaultActive = 1; // num_ref_idx_l1_default_active_minus1 + 1 (B)
+				int32 weightedPred = 0;				// weighted_pred_flag : pred_weight_table dans les slices P/SP
+				int32 weightedBipredIdc = 0;		// weighted_bipred_idc : 1 = explicite en B, 2 = implicite
 		};
 
 		// En-tête de slice (chemin I-slice IDR baseline).
@@ -70,7 +73,8 @@ namespace nkentseu {
 				int32 ppsId = 0;
 				int32 frameNum = 0;
 				int32 idrPicId = 0;
-				int32 sliceQp = 26; // pic_init_qp + slice_qp_delta
+				int32 sliceQp = 26;	   // pic_init_qp + slice_qp_delta
+				int32 cabacInitIdc = 0; // 0..2 : variante de table d'init CABAC (P/B seulement)
 				bool isIntra = false;
 		};
 
@@ -80,6 +84,26 @@ namespace nkentseu {
 				int32 lumaW = 0, lumaH = 0;
 				int32 chromaW = 0, chromaH = 0;
 				int32 cropW = 0, cropH = 0;
+				// frame_num de l'image : identifie la reference pour ref_pic_list_modification
+				// (§8.2.4.3.1 reordonne la liste par PicNum, derive de frame_num).
+				int32 frameNum = 0;
+				// ── Ordre d'affichage (POC, §8.2.1) ──────────────────────────────────
+				// Avec des B-frames l'ordre de DECODAGE n'est PAS l'ordre d'AFFICHAGE : c'est le POC
+				// qui donne l'ordre d'affichage, et il ordonne aussi les listes L0/L1 des B (§8.2.4.2.3).
+				int32 poc = 0;	  // PicOrderCnt
+				int32 pocLsb = 0; // pic_order_cnt_lsb   } etat necessaire a la derivation du POC
+				int32 pocMsb = 0; // PicOrderCntMsb      } de l'image SUIVANTE (§8.2.1.1)
+				// nal_ref_idc != 0 : l'image sert de reference et entre dans le DPB. Les B de x264 sont
+				// non-references par defaut (pas de B-pyramid) : elles ne doivent PAS y entrer, sinon
+				// l'etat POC "image de reference precedente" est fausse.
+				bool isReference = true;
+				// ── Champ de mouvement (grilles par bloc 4x4, largeur mbW*4) ──────────
+				// Le Direct SPATIAL des B (§8.4.1.2.2) interroge l'image CO-LOCALISEE (= RefPicList1[0])
+				// pour detecter un bloc "immobile" (reference 0 + MV quasi nulle) : chaque image doit
+				// donc CONSERVER le mouvement avec lequel elle a ete decodee. mvRef : -1 = intra/inutilise.
+				NkVector<nk_int32> mvL0x, mvL0y, mvL0Ref;
+				NkVector<nk_int32> mvL1x, mvL1y, mvL1Ref;
+				int32 mvW = 0, mvH = 0; // dimensions de ces grilles (mbW*4, mbH*4)
 		};
 
 		class NkH264Decoder {

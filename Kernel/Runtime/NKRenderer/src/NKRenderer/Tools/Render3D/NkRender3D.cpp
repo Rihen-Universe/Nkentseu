@@ -658,6 +658,11 @@ namespace nkentseu {
 			pd.depthStencil = NkDepthStencilDesc::Default();
 			pd.rasterizer = NkRasterizerDesc::NoCull();
 			pd.blend = NkBlendDesc::Opaque();
+			// MRT : Vulkan (et DX12) exigent UN blend state PAR attachement
+			// couleur — avec 1 seul, les cibles 1..2 sont indefinies (VK sombre,
+			// DX12 blanc). 3 cibles => 3 blends opaques.
+			while (pd.blend.attachments.Size() < 3)
+				pd.blend.attachments.PushBack(NkBlendAttachment::Opaque());
 			pd.debugName = "Deferred_GBuffer";
 			pd.renderPass = currentRP;
 			pd.descriptorSetLayouts.PushBack(mGlobalLayout);
@@ -1278,8 +1283,9 @@ namespace nkentseu {
 
 			for (auto &sdc : mOpaque) {
 				auto &dc = sdc.dc;
-				if (!mCtx.camera.IsAABBVisible(dc.aabb))
-					continue; // frustum cull identique au forward
+				// PAS de re-cull ici : mOpaque est DEJA culle au Submit. Un double
+				// cull avec l'etat camera du moment faisait DISPARAITRE des objets
+				// valides selon l'angle de vue (bug panneau, constate DX11).
 				if (mObjectDrawIdx >= mObjectPoolCap) {
 					logger.Errorf("[NkRender3D] ObjectUBO pool overflow (deferred)\n");
 					break;
@@ -1356,9 +1362,19 @@ namespace nkentseu {
 			struct PC {
 					float32 invResW, invResH, yFlipUV, _pad;
 			} pc;
-			pc.invResW = 1.f;
-			pc.invResH = 1.f;
-			pc.yFlipUV = 1.f; // PAS de flip : G-buffer et sortie partagent l'orientation FBO
+			// Conventions PAR BACKEND (validees capture) :
+			//   GL : sample sans flip, NDC Y = -(uv*2-1) (VS 3D negate + flip codegen)
+			//   VK : sample sans flip, NDC Y = +(uv*2-1) (pas de negate VS en SPIRV)
+			//   DX : sample FLIPPE,   NDC Y = -(uv*2-1) (VS HLSL negate Y)
+			const NkGraphicsApi dApi = mDevice ? mDevice->GetApi() : NkGraphicsApi::NK_GFX_API_OPENGL;
+			const bool dIsVK = (dApi == NkGraphicsApi::NK_GFX_API_VULKAN);
+			const bool dIsDX =
+				(dApi == NkGraphicsApi::NK_GFX_API_DX11) || (dApi == NkGraphicsApi::NK_GFX_API_DX12);
+			// VK valide capture : memes conventions que DX (sample flippe +
+			// ndcY negatif) — l'essai sample direct donnait l'image inversee.
+			pc.invResW = -1.f; // = ndcYSign (tous backends)
+			pc.invResH = 0.f;
+			pc.yFlipUV = (dIsDX || dIsVK) ? -1.f : 1.f;
 			static int sDbg = -1;
 			if (sDbg < 0) {
 				const char *v = getenv("NK_DEFLIGHT_DEBUG");
