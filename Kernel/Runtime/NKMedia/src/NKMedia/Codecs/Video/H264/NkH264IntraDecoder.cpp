@@ -2015,7 +2015,7 @@ namespace nkentseu {
 			if (isP && numRefs <= 0) // P-slice sans reference
 				return false;
 			br.UE();				   // pps_id
-			br.U(sps.log2MaxFrameNum); // frame_num
+			const int32 frameNum = (int32)br.U(sps.log2MaxFrameNum); // frame_num
 			if (nalType == 5)
 				br.UE(); // idr_pic_id
 			if (sps.pocType == 0) {
@@ -2028,6 +2028,15 @@ namespace nkentseu {
 			}
 			if (pps.redundantPicCntPresent)
 				br.UE();
+			// ref_pic_list_modification (§7.3.3.1) : operations de reordonnancement de RefPicList0.
+			// x264 s'en sert en profil Main avec weightp=2 (le DEFAUT) pour placer une copie ponderee
+			// d'une reference dans la liste -> sans l'appliquer on compenserait la MAUVAISE image.
+			struct ListMod {
+					int32 idc = 0;			 // 0 = soustraire, 1 = ajouter
+					int32 absDiffMinus1 = 0; // abs_diff_pic_num_minus1
+			};
+			NkVector<ListMod> listMods;
+			bool hasLongTerm = false;
 			int32 numRefActive = pps.numRefIdxL0DefaultActive; // num_ref_idx_l0_active effectif
 			if (isP) {
 				if (br.U1())									   // num_ref_idx_active_override_flag
@@ -2036,8 +2045,16 @@ namespace nkentseu {
 					uint32 idc;
 					do {
 						idc = br.UE();
-						if (idc == 0 || idc == 1)
-							br.UE();
+						if (idc == 0 || idc == 1) {
+							ListMod m;
+							m.idc = (int32)idc;
+							m.absDiffMinus1 = (int32)br.UE(); // abs_diff_pic_num_minus1
+							if (listMods.Size() < 32)
+								listMods.PushBack(m);
+						} else if (idc == 2) {
+							br.UE();		 // long_term_pic_num : references long terme non gerees
+							hasLongTerm = true;
+						}
 					} while (idc != 3 && !br.Eof());
 				}
 			}
@@ -2204,17 +2221,104 @@ namespace nkentseu {
 			if (isP) {
 				if (numRefs <= 0)
 					return false; // référence incompatible
-				int32 nUse = numRefs > 16 ? 16 : numRefs;
+				if (hasLongTerm)
+					return false; // references long terme non gerees
+				const int32 nUse = numRefs > 16 ? 16 : numRefs;
 				for (int32 i = 0; i < nUse; ++i) {
 					const NkH264Frame *r = refs[i];
 					if (!r || r->lumaW != lumaW || r->lumaH != lumaH)
 						return false; // reference incompatible
-					c.refListY[i] = r->y.Data();
-					c.refListCb[i] = r->cb.Data();
-					c.refListCr[i] = r->cr.Data();
 				}
-				c.numRefs = nUse;
-				c.numRefActive = (numRefActive < 1) ? 1 : (numRefActive > nUse ? nUse : numRefActive);
+				// ── RefPicList0 : liste initiale (§8.2.4.2.1) ────────────────────────
+				// Les refs arrivent deja par PicNum decroissant (plus recente d'abord) = l'ordre
+				// initial normatif pour une P-slice. PicNum = FrameNumWrap (§8.2.4.1).
+				const int32 maxPicNum = 1 << sps.log2MaxFrameNum;
+				const int32 kNoPic = -1000000;
+				int32 dpbPn[16];
+				for (int32 i = 0; i < nUse; ++i)
+					dpbPn[i] = (refs[i]->frameNum > frameNum) ? refs[i]->frameNum - maxPicNum : refs[i]->frameNum;
+				// La liste de travail va jusqu'a l'indice nAct inclus (le §8.2.4.3.1 manipule
+				// num_ref_idx_active+1 entrees avant troncature).
+				const int32 nAct = (numRefActive < 1) ? 1 : (numRefActive > 16 ? 16 : numRefActive);
+				const uint8 *ly[18], *lcb[18], *lcr[18];
+				int32 lpn[18];
+				for (int32 i = 0; i <= nAct + 1; ++i) {
+					if (i < nUse) {
+						ly[i] = refs[i]->y.Data();
+						lcb[i] = refs[i]->cb.Data();
+						lcr[i] = refs[i]->cr.Data();
+						lpn[i] = dpbPn[i];
+					} else {
+						ly[i] = lcb[i] = lcr[i] = nullptr;
+						lpn[i] = kNoPic;
+					}
+				}
+				// ── Reordonnancement (§8.2.4.3.1) ────────────────────────────────────
+				// L'image est prise dans le DPB, inseree en refIdx apres decalage a droite, puis la
+				// compaction retire ses AUTRES copies a partir de refIdx (les entrees deja placees
+				// avant refIdx sont donc protegees : c'est ainsi qu'une meme image peut figurer
+				// DEUX FOIS dans la liste — exactement ce que fait x264 en weightp=2, via un
+				// abs_diff_pic_num == MaxPicNum qui reboucle sur la meme image).
+				int32 refIdx = 0, picNumPred = frameNum;
+				for (uint64 m = 0; m < listMods.Size(); ++m) {
+					const int32 absDiff = listMods[m].absDiffMinus1 + 1;
+					int32 noWrap;
+					if (listMods[m].idc == 0) {
+						noWrap = picNumPred - absDiff;
+						if (noWrap < 0)
+							noWrap += maxPicNum;
+					} else {
+						noWrap = picNumPred + absDiff;
+						if (noWrap >= maxPicNum)
+							noWrap -= maxPicNum;
+					}
+					picNumPred = noWrap;
+					const int32 picNum = (noWrap > frameNum) ? noWrap - maxPicNum : noWrap;
+					int32 src = -1;
+					for (int32 j = 0; j < nUse; ++j)
+						if (dpbPn[j] == picNum) {
+							src = j;
+							break;
+						}
+					if (src < 0 || refIdx > nAct)
+						return false; // reference absente du DPB / flux invalide
+					const uint8 *sy = refs[src]->y.Data();
+					const uint8 *scb = refs[src]->cb.Data();
+					const uint8 *scr = refs[src]->cr.Data();
+					for (int32 cIdx = nAct; cIdx > refIdx; --cIdx) {
+						ly[cIdx] = ly[cIdx - 1];
+						lcb[cIdx] = lcb[cIdx - 1];
+						lcr[cIdx] = lcr[cIdx - 1];
+						lpn[cIdx] = lpn[cIdx - 1];
+					}
+					ly[refIdx] = sy;
+					lcb[refIdx] = scb;
+					lcr[refIdx] = scr;
+					lpn[refIdx] = picNum;
+					++refIdx;
+					int32 nIdx = refIdx;
+					for (int32 cIdx = refIdx; cIdx <= nAct; ++cIdx) {
+						if (lpn[cIdx] != picNum) {
+							ly[nIdx] = ly[cIdx];
+							lcb[nIdx] = lcb[cIdx];
+							lcr[nIdx] = lcr[cIdx];
+							lpn[nIdx] = lpn[cIdx];
+							++nIdx;
+						}
+					}
+				}
+				// Troncature a num_ref_idx_l0_active entrees (sans reordonnancement la liste initiale
+				// suffit : on garde alors les nUse refs telles quelles).
+				const int32 nFinal = listMods.Size() > 0 ? nAct : (nAct < nUse ? nAct : nUse);
+				for (int32 i = 0; i < nFinal; ++i) {
+					if (!ly[i])
+						return false; // entree "aucune image de reference" : flux invalide
+					c.refListY[i] = ly[i];
+					c.refListCb[i] = lcb[i];
+					c.refListCr[i] = lcr[i];
+				}
+				c.numRefs = nFinal;
+				c.numRefActive = nFinal;
 				c.refY = c.refListY[0];
 				c.refCb = c.refListCb[0];
 				c.refCr = c.refListCr[0];
@@ -2354,6 +2458,7 @@ namespace nkentseu {
 			out.chromaH = chromaH;
 			out.cropW = sps.width;
 			out.cropH = sps.height;
+			out.frameNum = frameNum; // identifie cette image comme reference (PicNum) pour les P suivantes
 			return true;
 		}
 
