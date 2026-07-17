@@ -204,7 +204,7 @@ namespace nkentseu {
 			if (out.numSliceGroups > 1)
 				return false; // slice groups (FMO) non gérés
 			out.numRefIdxL0DefaultActive = (int32)br.UE() + 1; // num_ref_idx_l0_default_active_minus1 + 1
-			br.UE();										   // num_ref_idx_l1_default_active_minus1
+			out.numRefIdxL1DefaultActive = (int32)br.UE() + 1; // num_ref_idx_l1_default_active_minus1 + 1
 			out.weightedPred = (int32)br.U1();		// weighted_pred_flag (P/SP)
 			out.weightedBipredIdc = (int32)br.U(2); // weighted_bipred_idc (B)
 			out.picInitQp = 26 + br.SE(); // pic_init_qp_minus26

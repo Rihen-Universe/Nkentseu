@@ -2009,10 +2009,16 @@ namespace nkentseu {
 			const int32 firstMb = (int32)br.UE();
 			const int32 sliceType = (int32)br.UE();
 			const int32 st = sliceType % 5;
-			const bool isI = (st == 2), isP = (st == 0);
-			if (firstMb != 0 || (!isI && !isP)) // seules I / P (slice unique à 0) gérées
+			const bool isI = (st == 2), isP = (st == 0), isB = (st == 1);
+			const bool isInter = isP || isB; // slices a compensation de mouvement (listes de refs)
+			if (firstMb != 0 || (!isI && !isInter)) // seules I / P / B (slice unique a 0) gerees
 				return false;
-			if (isP && numRefs <= 0) // P-slice sans reference
+			if (isInter && numRefs <= 0) // P/B sans reference
+				return false;
+			// ⚠️ Le DECODAGE des B n'est pas encore implemente (seul leur EN-TETE l'est) : on echoue
+			// proprement ICI. Sans ce garde-fou une B tomberait dans le chemin P (CAVLC : `else if
+			// (isI) ... else <P>`) et sortirait des pixels FAUX au lieu d'un echec franc.
+			if (isB)
 				return false;
 			br.UE();				   // pps_id
 			const int32 frameNum = (int32)br.U(sps.log2MaxFrameNum); // frame_num
@@ -2075,11 +2081,23 @@ namespace nkentseu {
 			};
 			NkVector<ListMod> listMods;
 			bool hasLongTerm = false;
-			int32 numRefActive = pps.numRefIdxL0DefaultActive; // num_ref_idx_l0_active effectif
-			if (isP) {
-				if (br.U1())									   // num_ref_idx_active_override_flag
-					numRefActive = (int32)br.UE() + 1;		   // num_ref_idx_l0_active_minus1 + 1
-				if (br.U1()) {								   // ref_pic_list_modification_flag_l0
+			// direct_spatial_mv_pred_flag (B uniquement) : 1 = Direct SPATIAL (le defaut x264), 0 = temporel.
+			int32 directSpatial = 1;
+			if (isB)
+				directSpatial = (int32)br.U1();
+			NkVector<ListMod> listMods1;					   // reordonnancement de RefPicList1 (B)
+			int32 numRefActive = pps.numRefIdxL0DefaultActive;  // num_ref_idx_l0_active effectif
+			int32 numRefActive1 = pps.numRefIdxL1DefaultActive; // num_ref_idx_l1_active effectif (B)
+			if (isInter) {
+				if (br.U1()) {							 // num_ref_idx_active_override_flag
+					numRefActive = (int32)br.UE() + 1;	 // num_ref_idx_l0_active_minus1 + 1
+					if (isB)
+						numRefActive1 = (int32)br.UE() + 1; // num_ref_idx_l1_active_minus1 + 1
+				}
+				// ref_pic_list_modification_flag_l0 puis (B) _l1.
+				auto readMods = [&](NkVector<ListMod> &dst) {
+					if (!br.U1())
+						return;
 					uint32 idc;
 					do {
 						idc = br.UE();
@@ -2087,56 +2105,61 @@ namespace nkentseu {
 							ListMod m;
 							m.idc = (int32)idc;
 							m.absDiffMinus1 = (int32)br.UE(); // abs_diff_pic_num_minus1
-							if (listMods.Size() < 32)
-								listMods.PushBack(m);
+							if (dst.Size() < 32)
+								dst.PushBack(m);
 						} else if (idc == 2) {
 							br.UE();		 // long_term_pic_num : references long terme non gerees
 							hasLongTerm = true;
 						}
 					} while (idc != 3 && !br.Eof());
-				}
+				};
+				readMods(listMods);
+				if (isB)
+					readMods(listMods1);
 			}
-			// pred_weight_table() (§7.3.3.2) : presente en P/SP si weighted_pred_flag=1. x264 l'active
-			// PAR DEFAUT en profil Main ("weightp") -> indispensable des qu'on sort du baseline, sinon
-			// tout le reste de l'en-tete est decale.
+			// pred_weight_table() (§7.3.3.2) : presente en P/SP si weighted_pred_flag=1, et en B si
+			// weighted_bipred_idc==1 (ponderation EXPLICITE ; l'idc==2 = IMPLICITE ne transmet aucune
+			// table, les poids se derivent des distances POC). x264 active weightp PAR DEFAUT en Main
+			// -> indispensable des qu'on sort du baseline, sinon tout le reste de l'en-tete est decale.
 			int32 wpLumaDenom = 0, wpChromaDenom = 0;
-			int32 wpLumaW[16], wpLumaO[16], wpChromaW[16][2], wpChromaO[16][2];
-			const bool useWeighted = (isP && pps.weightedPred != 0);
-			{
-				const int32 defL = 1 << wpLumaDenom;
+			// [0] = liste L0, [1] = liste L1.
+			int32 wpLumaW[2][16], wpLumaO[2][16], wpChromaW[2][16][2], wpChromaO[2][16][2];
+			const bool useWeighted = (isP && pps.weightedPred != 0) || (isB && pps.weightedBipredIdc == 1);
+			const bool useImplicit = (isB && pps.weightedBipredIdc == 2); // defaut x264 (weightb=1)
+			for (int32 l = 0; l < 2; ++l)
 				for (int32 i = 0; i < 16; ++i) {
-					wpLumaW[i] = defL;
-					wpLumaO[i] = 0;
-					wpChromaW[i][0] = wpChromaW[i][1] = defL;
-					wpChromaO[i][0] = wpChromaO[i][1] = 0;
+					wpLumaW[l][i] = 1;
+					wpLumaO[l][i] = 0;
+					wpChromaW[l][i][0] = wpChromaW[l][i][1] = 1;
+					wpChromaO[l][i][0] = wpChromaO[l][i][1] = 0;
 				}
-			}
 			if (useWeighted) {
-				wpLumaDenom = (int32)br.UE(); // luma_log2_weight_denom
+				wpLumaDenom = (int32)br.UE();	// luma_log2_weight_denom
 				wpChromaDenom = (int32)br.UE(); // chroma_log2_weight_denom (ChromaArrayType != 0)
 				if (wpLumaDenom > 7 || wpChromaDenom > 7)
 					return false;
-				const int32 nw = numRefActive > 16 ? 16 : numRefActive;
-				for (int32 i = 0; i < nw; ++i) {
-					// Defauts quand le drapeau est absent : poids neutre 2^denom, offset 0.
-					wpLumaW[i] = 1 << wpLumaDenom;
-					wpLumaO[i] = 0;
-					wpChromaW[i][0] = wpChromaW[i][1] = 1 << wpChromaDenom;
-					wpChromaO[i][0] = wpChromaO[i][1] = 0;
-					if (br.U1()) { // luma_weight_l0_flag
-						wpLumaW[i] = br.SE();
-						wpLumaO[i] = br.SE();
+				const int32 nLists = isB ? 2 : 1;
+				for (int32 l = 0; l < nLists; ++l) {
+					const int32 act = (l == 0) ? numRefActive : numRefActive1;
+					const int32 nw = act > 16 ? 16 : act;
+					for (int32 i = 0; i < 16; ++i) { // defaut si le drapeau est absent : poids neutre
+						wpLumaW[l][i] = 1 << wpLumaDenom;
+						wpLumaO[l][i] = 0;
+						wpChromaW[l][i][0] = wpChromaW[l][i][1] = 1 << wpChromaDenom;
+						wpChromaO[l][i][0] = wpChromaO[l][i][1] = 0;
 					}
-					if (br.U1()) { // chroma_weight_l0_flag
-						for (int32 j = 0; j < 2; ++j) {
-							wpChromaW[i][j] = br.SE();
-							wpChromaO[i][j] = br.SE();
+					for (int32 i = 0; i < nw; ++i) {
+						if (br.U1()) { // luma_weight_lX_flag
+							wpLumaW[l][i] = br.SE();
+							wpLumaO[l][i] = br.SE();
+						}
+						if (br.U1()) { // chroma_weight_lX_flag
+							for (int32 j = 0; j < 2; ++j) {
+								wpChromaW[l][i][j] = br.SE();
+								wpChromaO[l][i][j] = br.SE();
+							}
 						}
 					}
-				}
-				for (int32 i = nw; i < 16; ++i) { // au-dela de la liste active : neutre
-					wpLumaW[i] = 1 << wpLumaDenom;
-					wpChromaW[i][0] = wpChromaW[i][1] = 1 << wpChromaDenom;
 				}
 			}
 			if (nalRefIdc != 0) {
@@ -2245,15 +2268,16 @@ namespace nkentseu {
 			c.ref4 = ref4G.Data();
 			c.mvdx4 = mvdx4G.Data();
 			c.mvdy4 = mvdy4G.Data();
+			// Poids de la liste L0 (les P n'en ont qu'une ; la L1 des B suivra avec la bi-prediction).
 			c.weightedPred = useWeighted ? 1 : 0;
 			c.lumaLog2Denom = wpLumaDenom;
 			c.chromaLog2Denom = wpChromaDenom;
 			for (int32 i = 0; i < 16; ++i) {
-				c.lumaWeight[i] = wpLumaW[i];
-				c.lumaOffset[i] = wpLumaO[i];
+				c.lumaWeight[i] = wpLumaW[0][i];
+				c.lumaOffset[i] = wpLumaO[0][i];
 				for (int32 j = 0; j < 2; ++j) {
-					c.chromaWeight[i][j] = wpChromaW[i][j];
-					c.chromaOffset[i][j] = wpChromaO[i][j];
+					c.chromaWeight[i][j] = wpChromaW[0][i][j];
+					c.chromaOffset[i][j] = wpChromaO[0][i][j];
 				}
 			}
 			if (isP) {
