@@ -205,8 +205,8 @@ namespace nkentseu {
 				return false; // slice groups (FMO) non gérés
 			out.numRefIdxL0DefaultActive = (int32)br.UE() + 1; // num_ref_idx_l0_default_active_minus1 + 1
 			br.UE();										   // num_ref_idx_l1_default_active_minus1
-			br.U1();		  // weighted_pred_flag
-			br.U(2);		  // weighted_bipred_idc
+			out.weightedPred = (int32)br.U1();		// weighted_pred_flag (P/SP)
+			out.weightedBipredIdc = (int32)br.U(2); // weighted_bipred_idc (B)
 			out.picInitQp = 26 + br.SE(); // pic_init_qp_minus26
 			br.SE();					  // pic_init_qs_minus26
 			out.chromaQpIndexOffset = br.SE();
@@ -273,7 +273,11 @@ namespace nkentseu {
 					}
 				}
 			}
-			// (CABAC : cabac_init_idc — baseline CAVLC, ignoré.)
+			// cabac_init_idc : présent SEULEMENT si CABAC et slice non-I. Sélectionne la variante de
+			// table d'init des contextes. ⚠️ Doit être lu même si on ne s'en sert pas, sinon tout le
+			// reste de l'en-tête (slice_qp_delta…) est décalé.
+			if (pps.entropyCodingMode == 1 && !out.isIntra)
+				out.cabacInitIdc = (int32)br.UE();
 			out.sliceQp = pps.picInitQp + br.SE(); // slice_qp_delta
 			if (pps.deblockingControlPresent) {
 				const uint32 idc = br.UE();
@@ -282,7 +286,7 @@ namespace nkentseu {
 					br.SE();
 				}
 			}
-			out.valid = (out.sliceQp >= 0 && out.sliceQp <= 51);
+			out.valid = (out.sliceQp >= 0 && out.sliceQp <= 51 && out.cabacInitIdc >= 0 && out.cabacInitIdc <= 2);
 			return out.valid;
 		}
 

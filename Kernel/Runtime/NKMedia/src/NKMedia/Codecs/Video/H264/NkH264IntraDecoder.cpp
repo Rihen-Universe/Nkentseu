@@ -284,7 +284,35 @@ namespace nkentseu {
 					// Compat : refY/refCb/refCr = refListY[0] (référence la plus récente).
 					const uint8 *refY = nullptr, *refCb = nullptr, *refCr = nullptr;
 					int32 *mvx4 = nullptr, *mvy4 = nullptr, *ref4 = nullptr;
+					// CABAC uniquement : |mvd| par bloc 4x4 (borne a 70), pour le ctxIdxInc de mvd
+					// (§9.3.3.1.1.7 : amvd = |mvd_A| + |mvd_B|). 0 pour intra/skip/indisponible.
+					int32 *mvdx4 = nullptr, *mvdy4 = nullptr;
+					// Prediction ponderee EXPLICITE (§8.4.2.3), slices P/SP quand weighted_pred_flag=1
+					// (x264 l'active par defaut en profil Main : "weightp"). Poids par index de reference.
+					int32 weightedPred = 0;
+					int32 lumaLog2Denom = 0, chromaLog2Denom = 0;
+					int32 lumaWeight[16], lumaOffset[16];
+					int32 chromaWeight[16][2], chromaOffset[16][2];
+
+					DecCtx() {
+						for (int32 i = 0; i < 16; ++i) {
+							lumaWeight[i] = 1;
+							lumaOffset[i] = 0;
+							for (int32 j = 0; j < 2; ++j) {
+								chromaWeight[i][j] = 1;
+								chromaOffset[i][j] = 0;
+							}
+						}
+					}
 			};
+
+			// §8.4.2.3.2 : applique la ponderation explicite a un echantillon predit.
+			//   logWD >= 1 : Clip1(((pred * w + 2^(logWD-1)) >> logWD) + o)
+			//   logWD == 0 : Clip1(pred * w + o)
+			int32 ApplyWeight(int32 pred, int32 w, int32 o, int32 logWD) {
+				const int32 v = (logWD >= 1) ? (((pred * w + (1 << (logWD - 1))) >> logWD) + o) : (pred * w + o);
+				return v < 0 ? 0 : (v > 255 ? 255 : v);
+			}
 
 			// MC luma quart-pel (§8.4.2.2.1) d'un rectangle w×h -> écrit dans predY[16*16] à (ox,oy).
 			void McLumaRect(const DecCtx &c, int32 dx, int32 dy, int32 ox, int32 oy, int32 w, int32 h, int32 mvx,
@@ -337,6 +365,8 @@ namespace nkentseu {
 							case 14: v = (Jj(ix, iy) + Bh(ix, iy + 1) + 1) >> 1; break;
 							default: v = (Hh(ix + 1, iy) + Bh(ix, iy + 1) + 1) >> 1; break;
 						}
+						if (c.weightedPred)
+							v = ApplyWeight(v, c.lumaWeight[refIdx], c.lumaOffset[refIdx], c.lumaLog2Denom);
 						predY[(oy + y) * 16 + (ox + x)] = (uint8)v;
 					}
 			}
@@ -360,9 +390,13 @@ namespace nkentseu {
 					for (int32 x = 0; x < cw; ++x) {
 						const int32 rx = dx + x + oxx, ry = dy + y + oyy;
 						const int32 A = C(rx, ry), Bb = C(rx + 1, ry), Cc = C(rx, ry + 1), D = C(rx + 1, ry + 1);
-						cPred[(oy + y) * 8 + (ox + x)] = (uint8)(((8 - fx) * (8 - fy) * A + fx * (8 - fy) * Bb +
-																 (8 - fx) * fy * Cc + fx * fy * D + 32) >>
-																6);
+						int32 v = ((8 - fx) * (8 - fy) * A + fx * (8 - fy) * Bb + (8 - fx) * fy * Cc + fx * fy * D +
+								   32) >>
+								  6;
+						if (c.weightedPred)
+							v = ApplyWeight(v, c.chromaWeight[refIdx][comp], c.chromaOffset[refIdx][comp],
+											c.chromaLog2Denom);
+						cPred[(oy + y) * 8 + (ox + x)] = (uint8)v;
 					}
 			}
 
@@ -396,6 +430,15 @@ namespace nkentseu {
 						c.mvy4[y * c.nzW + x] = mvy;
 						c.ref4[y * c.nzW + x] = refIdx;
 					}
+			}
+
+			// Stocke SEULEMENT l'index de reference d'une partition (CABAC : la reference remplit la grille
+			// ref des la lecture du ref_idx, AVANT les mvd, car les partitions se voisinent entre elles
+			// pour le ctxIdxInc du ref_idx suivant).
+			void StoreRef4(const DecCtx &c, int32 bx, int32 by, int32 pw, int32 ph, int32 refIdx) {
+				for (int32 y = by; y < by + ph; ++y)
+					for (int32 x = bx; x < bx + pw; ++x)
+						c.ref4[y * c.nzW + x] = refIdx;
 			}
 
 			int32 Med3(int32 a, int32 b, int32 cc) {
@@ -1124,6 +1167,7 @@ namespace nkentseu {
 					NkVector<int32> chromaModeMb;  // intra_chroma_pred_mode par MB
 					NkVector<int32> lumaDcCodedMb; // cbf luma DC (I_16x16) par MB, pour le contexte cbf DC
 					NkVector<int32> chromaDcCodedMb; // cbf chroma DC par MB (bit0=Cb, bit1=Cr)
+					NkVector<int32> mbSkipMb;		 // 1 si le MB a ete code en P_Skip (ctx de mb_skip_flag)
 					int32 mbW = 0;
 					int32 prevQpDeltaNonZero = 0;
 
@@ -1136,6 +1180,7 @@ namespace nkentseu {
 						chromaModeMb.Resize((uint64)n);
 						lumaDcCodedMb.Resize((uint64)n);
 						chromaDcCodedMb.Resize((uint64)n);
+						mbSkipMb.Resize((uint64)n);
 						for (int32 i = 0; i < n; ++i) {
 							mbTypeClass[(uint64)i] = -1;
 							cbpLumaMb[(uint64)i] = 0;
@@ -1143,6 +1188,7 @@ namespace nkentseu {
 							chromaModeMb[(uint64)i] = 0;
 							lumaDcCodedMb[(uint64)i] = 0;
 							chromaDcCodedMb[(uint64)i] = 0;
+							mbSkipMb[(uint64)i] = 0;
 						}
 						prevQpDeltaNonZero = 0;
 						// Init des 1024 contextes depuis la table normative (I ou variante P/B).
@@ -1198,31 +1244,43 @@ namespace nkentseu {
 					}
 			};
 
-			// ── Decodeurs de syntaxe I-slice (miroir exact de la reference H.264) ──────
+			// ── Decodeurs de syntaxe CABAC (miroir exact de la reference H.264) ───────
 
-			// mb_type (I-slice) : 0=I_NxN(I_4x4) ; 1..24=I_16x16 ; 25=I_PCM. (ctxIdxOffset 3)
-			int32 DecodeMbTypeICabac(CabacMb &cab, int32 mbX, int32 mbY) {
-				const int32 idx = mbY * cab.mbW + mbX;
-				int32 base = kCtxMbTypeI;
-				int32 ctx = 0;
-				const int32 clsA = (mbX > 0) ? cab.mbTypeClass[(uint64)(idx - 1)] : -1;
-				const int32 clsB = (mbY > 0) ? cab.mbTypeClass[(uint64)(idx - cab.mbW)] : -1;
-				if (clsA > 0)
-					++ctx; // voisin gauche I_16x16/PCM (pas I_NxN, dispo)
-				if (clsB > 0)
-					++ctx;
-				if (cab.Bin(base + ctx) == 0)
-					return 0; // I_NxN
-				base += 2;
+			// mb_type intra generique. `ctxBase` = 3 (I-slice, intraSlice=1) ou 17 (suffixe intra d'une
+			// P-slice, intraSlice=0). ⚠️ Quand intraSlice=0, la reference REUTILISE certains contextes
+			// (state[2] deux fois, state[3] deux fois) : ce n'est PAS un simple decalage d'offset.
+			int32 DecodeMbTypeIntraCabac(CabacMb &cab, int32 ctxBase, int32 intraSlice, int32 mbX, int32 mbY) {
+				int32 base = ctxBase;
+				if (intraSlice) {
+					const int32 idx = mbY * cab.mbW + mbX;
+					int32 ctx = 0;
+					const int32 clsA = (mbX > 0) ? cab.mbTypeClass[(uint64)(idx - 1)] : -1;
+					const int32 clsB = (mbY > 0) ? cab.mbTypeClass[(uint64)(idx - cab.mbW)] : -1;
+					if (clsA > 0)
+						++ctx; // voisin gauche I_16x16/PCM (pas I_NxN, dispo)
+					if (clsB > 0)
+						++ctx;
+					if (cab.Bin(base + ctx) == 0)
+						return 0; // I_NxN
+					base += 2;
+				} else {
+					if (cab.Bin(base) == 0)
+						return 0; // I_NxN
+				}
 				if (cab.Terminate())
 					return 25; // I_PCM
 				int32 mbType = 1;
-				mbType += 12 * (int32)cab.Bin(base + 1);		// cbp_luma != 0
-				if (cab.Bin(base + 2))							// cbp_chroma present
-					mbType += 4 + 4 * (int32)cab.Bin(base + 3); // cbp_chroma == 2 ? 2 : 1
-				mbType += 2 * (int32)cab.Bin(base + 4);			// pred mode (bit haut)
-				mbType += (int32)cab.Bin(base + 5);				// pred mode (bit bas)
+				mbType += 12 * (int32)cab.Bin(base + 1);					 // cbp_luma != 0
+				if (cab.Bin(base + 2))										 // cbp_chroma present
+					mbType += 4 + 4 * (int32)cab.Bin(base + 2 + intraSlice); // cbp_chroma == 2 ? 2 : 1
+				mbType += 2 * (int32)cab.Bin(base + 3 + intraSlice);			 // pred mode (bit haut)
+				mbType += (int32)cab.Bin(base + 3 + 2 * intraSlice);			 // pred mode (bit bas)
 				return mbType;
+			}
+
+			// mb_type (I-slice) : 0=I_NxN(I_4x4) ; 1..24=I_16x16 ; 25=I_PCM. (ctxIdxOffset 3)
+			int32 DecodeMbTypeICabac(CabacMb &cab, int32 mbX, int32 mbY) {
+				return DecodeMbTypeIntraCabac(cab, kCtxMbTypeI, 1, mbX, mbY);
 			}
 
 			// prev_intra4x4_pred_mode_flag + rem_intra4x4_pred_mode -> mode intra 4x4 final.
@@ -1316,6 +1374,100 @@ namespace nkentseu {
 				return (val & 1) ? ((val + 1) >> 1) : -(val >> 1);
 			}
 
+			// ── Syntaxe P-slice ───────────────────────────────────────────────────────
+
+			// mb_skip_flag (P). ctxIdxInc = (A dispo && non-skip) + (B dispo && non-skip). (offset 11)
+			int32 DecodeMbSkipCabac(CabacMb &cab, int32 mbX, int32 mbY) {
+				const int32 idx = mbY * cab.mbW + mbX;
+				int32 ctx = 0;
+				if (mbX > 0 && cab.mbTypeClass[(uint64)(idx - 1)] >= 0 && !cab.mbSkipMb[(uint64)(idx - 1)])
+					++ctx;
+				if (mbY > 0 && cab.mbTypeClass[(uint64)(idx - cab.mbW)] >= 0 &&
+					!cab.mbSkipMb[(uint64)(idx - cab.mbW)])
+					++ctx;
+				return (int32)cab.Bin(kCtxMbSkipP + ctx);
+			}
+
+			// mb_type (P). Renvoie le type P 0..3 (0=P_L0_16x16, 1=P_16x8, 2=P_8x16, 3=P_8x8) ; si le MB
+			// est en fait intra, pose isIntra=true et renvoie le mb_type intra (0..25). (offsets 14..17)
+			int32 DecodeMbTypePCabac(CabacMb &cab, bool &isIntra) {
+				isIntra = false;
+				if (cab.Bin(kCtxMbTypePpre) == 0) {
+					if (cab.Bin(kCtxMbTypePpre + 1) == 0)
+						return 3 * (int32)cab.Bin(kCtxMbTypePpre + 2); // P_L0_16x16 (0) ou P_8x8 (3)
+					return 2 - (int32)cab.Bin(kCtxMbTypePsuf);		  // P_8x16 (2) ou P_16x8 (1)
+				}
+				isIntra = true;
+				return DecodeMbTypeIntraCabac(cab, kCtxMbTypePsuf, 0, 0, 0);
+			}
+
+			// sub_mb_type (P) : 0=8x8, 1=8x4, 2=4x8, 3=4x4. (offset 21)
+			// ⚠️ La polarite des bins n'est pas uniforme : bin(21)==1 -> 8x8 ; bin(22)==0 -> 8x4.
+			int32 DecodeSubMbTypePCabac(CabacMb &cab) {
+				if (cab.Bin(kCtxSubMbTypeP))
+					return 0; // 8x8
+				if (cab.Bin(kCtxSubMbTypeP + 1) == 0)
+					return 1; // 8x4
+				if (cab.Bin(kCtxSubMbTypeP + 2))
+					return 2; // 4x8
+				return 3;	  // 4x4
+			}
+
+			// ref_idx_l0. ctxIdxInc = (refA > 0) + 2*(refB > 0) ; unaire, puis ctx = (ctx>>2)+4. (offset 54)
+			int32 DecodeRefIdxCabac(CabacMb &cab, const DecCtx &c, int32 bx, int32 by) {
+				const int32 refA = (bx > 0) ? c.ref4[by * c.nzW + (bx - 1)] : -1;
+				const int32 refB = (by > 0) ? c.ref4[(by - 1) * c.nzW + bx] : -1;
+				int32 ctx = 0;
+				if (refA > 0)
+					++ctx;
+				if (refB > 0)
+					ctx += 2;
+				int32 ref = 0;
+				while (cab.Bin(kCtxRefIdx + ctx)) {
+					++ref;
+					ctx = (ctx >> 2) + 4;
+					if (ref >= 32)
+						return -1;
+				}
+				return ref;
+			}
+
+			// Sentinelle de debordement de mvd (flux corrompu) — hors de toute plage de MV legale.
+			const int32 kMvdOverflow = 0x7FFFFFFF;
+
+			// mvd (une composante). `ctxBase` = 40 (x) ou 47 (y). amvd = |mvd_A| + |mvd_B| (grille 4x4).
+			// Prefixe TU(9) puis echappement UEG3, signe en contournement. `absOut` = |mvd| borne a 70
+			// (valeur a stocker dans la grille pour les voisins). (§9.3.3.1.1.7)
+			int32 DecodeMvdCabac(CabacMb &cab, int32 ctxBase, int32 amvd, int32 &absOut) {
+				if (cab.Bin(ctxBase + (amvd > 2 ? 1 : 0) + (amvd > 32 ? 1 : 0)) == 0) {
+					absOut = 0;
+					return 0;
+				}
+				int32 mvd = 1;
+				int32 ctx = ctxBase + 3;
+				while (mvd < 9 && cab.Bin(ctx)) {
+					if (mvd < 4)
+						++ctx;
+					++mvd;
+				}
+				if (mvd >= 9) {
+					int32 k = 3;
+					while (cab.Bypass()) {
+						mvd += 1 << k;
+						++k;
+						if (k > 24) {
+							absOut = 70;
+							return kMvdOverflow; // debordement -> flux invalide
+						}
+					}
+					while (k--)
+						mvd += (int32)cab.Bypass() << k;
+					absOut = mvd < 70 ? mvd : 70;
+				} else
+					absOut = mvd;
+				return cab.Bypass() ? -mvd : mvd;
+			}
+
 			// ── Brique D : residus CABAC (coded_block_flag + significativite + niveaux) ──
 			// cat = ctxBlockCat (0=I16DC,1=I16AC,2=Luma4x4,3=ChromaDC,4=ChromaAC).
 			// cbfA/cbfB = indicateurs "code" des blocs voisins (pour le contexte cbf).
@@ -1384,35 +1536,22 @@ namespace nkentseu {
 			}
 
 			// Chroma CABAC : prediction (4 modes) + residus DC(cat3)/AC(cat4).
-			void DecodeChromaCabac(DecCtx &c, CabacMb &cab, int32 mbX, int32 mbY, int32 chromaMode, int32 cbpChroma) {
+			// Residu chroma CABAC (DC + AC) pour une prediction cPred donnee (intra OU inter).
+			// `cbfDef` = valeur cbf a prendre pour un voisin INDISPONIBLE : 1 si le MB courant est intra,
+			// 0 s'il est inter (la reference derive ce defaut du TYPE DU MB COURANT, pas du voisin).
+			void DecodeChromaResidualCabac(DecCtx &c, CabacMb &cab, int32 mbX, int32 mbY, int32 cbpChroma,
+										   const uint8 cPred[2][64], int32 cbfDef) {
 				const int32 cpx = mbX * 8, cpy = mbY * 8;
-				const bool avt = mbY > 0, avl = mbX > 0;
 				const int32 mbIdx = mbY * cab.mbW + mbX;
-				uint8 cPred[2][64];
-				for (int32 comp = 0; comp < 2; ++comp) {
-					const uint8 *rec = (comp == 0) ? c.Cb : c.Cr;
-					int32 ct[8], cl[8], tl = 128;
-					for (int32 i = 0; i < 8; ++i) {
-						ct[i] = avt ? rec[(usize)(cpy - 1) * c.chromaW + cpx + i] : 0;
-						cl[i] = avl ? rec[(usize)(cpy + i) * c.chromaW + cpx - 1] : 0;
-					}
-					if (avt && avl)
-						tl = rec[(usize)(cpy - 1) * c.chromaW + cpx - 1];
-					else if (avt)
-						tl = ct[0];
-					else if (avl)
-						tl = cl[0];
-					PredictChroma8x8(chromaMode, ct, cl, tl, avt, avl, cPred[comp]);
-				}
 				const int32 qpC = NkH264Transform::ChromaQp(Clamp(c.qp + c.chromaQpOffset, 0, 51));
 				// DC chroma (cat 3, 4 coeffs 2x2 par composante).
 				int32 cDcRec[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
 				if (cbpChroma & 3) {
 					for (int32 comp = 0; comp < 2; ++comp) {
 						const int32 cbfA =
-							(mbX > 0) ? ((cab.chromaDcCodedMb[(uint64)(mbIdx - 1)] >> comp) & 1) : 1;
+							(mbX > 0) ? ((cab.chromaDcCodedMb[(uint64)(mbIdx - 1)] >> comp) & 1) : cbfDef;
 						const int32 cbfB =
-							(mbY > 0) ? ((cab.chromaDcCodedMb[(uint64)(mbIdx - cab.mbW)] >> comp) & 1) : 1;
+							(mbY > 0) ? ((cab.chromaDcCodedMb[(uint64)(mbIdx - cab.mbW)] >> comp) & 1) : cbfDef;
 						int32 dcRaster[4] = {0, 0, 0, 0};
 						const int32 nz = DecodeResidualCabac(cab, 3, cbfA, cbfB, 2, dcRaster);
 						if (nz > 0) {
@@ -1434,8 +1573,8 @@ namespace nkentseu {
 						int32 acRaster[16] = {0};
 						int32 tc = 0;
 						if (cbpChroma & 2) {
-							const int32 cbfA = (bx > 0) ? (cnz[by * c.cnzW + (bx - 1)] > 0 ? 1 : 0) : 1;
-							const int32 cbfB = (by > 0) ? (cnz[(by - 1) * c.cnzW + bx] > 0 ? 1 : 0) : 1;
+							const int32 cbfA = (bx > 0) ? (cnz[by * c.cnzW + (bx - 1)] > 0 ? 1 : 0) : cbfDef;
+							const int32 cbfB = (by > 0) ? (cnz[(by - 1) * c.cnzW + bx] > 0 ? 1 : 0) : cbfDef;
 							tc = DecodeResidualCabac(cab, 4, cbfA, cbfB, 1, acRaster);
 						}
 						cnz[by * c.cnzW + bx] = tc;
@@ -1455,6 +1594,29 @@ namespace nkentseu {
 							}
 					}
 				}
+			}
+
+			// Chroma d'un MB INTRA en CABAC : prediction 8x8 (4 modes) puis residu (defaut cbf voisin = 1).
+			void DecodeChromaCabac(DecCtx &c, CabacMb &cab, int32 mbX, int32 mbY, int32 chromaMode, int32 cbpChroma) {
+				const int32 cpx = mbX * 8, cpy = mbY * 8;
+				const bool avt = mbY > 0, avl = mbX > 0;
+				uint8 cPred[2][64];
+				for (int32 comp = 0; comp < 2; ++comp) {
+					const uint8 *rec = (comp == 0) ? c.Cb : c.Cr;
+					int32 ct[8], cl[8], tl = 128;
+					for (int32 i = 0; i < 8; ++i) {
+						ct[i] = avt ? rec[(usize)(cpy - 1) * c.chromaW + cpx + i] : 0;
+						cl[i] = avl ? rec[(usize)(cpy + i) * c.chromaW + cpx - 1] : 0;
+					}
+					if (avt && avl)
+						tl = rec[(usize)(cpy - 1) * c.chromaW + cpx - 1];
+					else if (avt)
+						tl = ct[0];
+					else if (avl)
+						tl = cl[0];
+					PredictChroma8x8(chromaMode, ct, cl, tl, avt, avl, cPred[comp]);
+				}
+				DecodeChromaResidualCabac(c, cab, mbX, mbY, cbpChroma, cPred, 1);
 			}
 
 			// Macrobloc I_4x4 en CABAC (miroir de DecodeMbI4x4 ; entropie CABAC).
@@ -1614,6 +1776,186 @@ namespace nkentseu {
 				return true;
 			}
 
+			// Remet a zero la grille |mvd| d'un MB (skip ou intra : la reference y met 0 pour les voisins).
+			void ClearMvdGrid(const DecCtx &c, int32 mbX, int32 mbY) {
+				for (int32 y = 0; y < 4; ++y)
+					for (int32 x = 0; x < 4; ++x) {
+						const int32 i = (mbY * 4 + y) * c.nzW + (mbX * 4 + x);
+						c.mvdx4[i] = 0;
+						c.mvdy4[i] = 0;
+					}
+			}
+
+			// Ecrit |mvd| sur le rectangle d'une partition (grille 4x4).
+			void StoreMvd4(const DecCtx &c, int32 bx, int32 by, int32 pw, int32 ph, int32 ax, int32 ay) {
+				for (int32 y = by; y < by + ph; ++y)
+					for (int32 x = bx; x < bx + pw; ++x) {
+						c.mvdx4[y * c.nzW + x] = ax;
+						c.mvdy4[y * c.nzW + x] = ay;
+					}
+			}
+
+			// Macrobloc INTER P en CABAC (miroir de DecodeMbInterP ; entropie CABAC).
+			// mbType : 0=P_L0_16x16, 1=P_16x8, 2=P_8x16, 3=P_8x8.
+			bool DecodeMbCabacP(DecCtx &c, CabacMb &cab, int32 mbX, int32 mbY, int32 mbType) {
+				const int32 px = mbX * 16, py = mbY * 16, cpx = mbX * 8, cpy = mbY * 8;
+				const int32 gbx = mbX * 4, gby = mbY * 4;
+				const int32 mbIdx = mbY * cab.mbW + mbX;
+				uint8 predY[256], cPred[2][64];
+
+				// Compense une partition (bx4,by4 = coin 4x4 ; pw4/ph4 = taille 4x4) + stocke MV/refIdx/|mvd|.
+				auto doPart = [&](int32 bx4, int32 by4, int32 pw4, int32 ph4, int32 mvx, int32 mvy, int32 ri,
+								  int32 ax, int32 ay) {
+					McLumaRect(c, px + bx4 * 4, py + by4 * 4, bx4 * 4, by4 * 4, pw4 * 4, ph4 * 4, mvx, mvy, predY, ri);
+					McChromaRect(c, 0, cpx + bx4 * 2, cpy + by4 * 2, bx4 * 2, by4 * 2, pw4 * 2, ph4 * 2, mvx, mvy,
+								 cPred[0], ri);
+					McChromaRect(c, 1, cpx + bx4 * 2, cpy + by4 * 2, bx4 * 2, by4 * 2, pw4 * 2, ph4 * 2, mvx, mvy,
+								 cPred[1], ri);
+					StoreMv4(c, gbx + bx4, gby + by4, pw4, ph4, mvx, mvy, ri);
+					StoreMvd4(c, gbx + bx4, gby + by4, pw4, ph4, ax, ay);
+				};
+
+				// ref_idx_l0 : non code (donc 0) si une seule reference active.
+				const bool readRef = (c.numRefActive > 1);
+
+				// Lit les 2 composantes du mvd. amvd = |mvd_A| + |mvd_B| lus dans la grille 4x4 AVANT
+				// d'ecrire cette partition (les sous-blocs d'un meme MB se voisinent entre eux).
+				bool bad = false;
+				auto readMvd = [&](int32 bx, int32 by, int32 &dx, int32 &dy, int32 &ax, int32 &ay) {
+					const int32 ax0 = (bx > 0) ? c.mvdx4[by * c.nzW + (bx - 1)] : 0;
+					const int32 ax1 = (by > 0) ? c.mvdx4[(by - 1) * c.nzW + bx] : 0;
+					const int32 ay0 = (bx > 0) ? c.mvdy4[by * c.nzW + (bx - 1)] : 0;
+					const int32 ay1 = (by > 0) ? c.mvdy4[(by - 1) * c.nzW + bx] : 0;
+					dx = DecodeMvdCabac(cab, kCtxMvd0, ax0 + ax1, ax);
+					dy = DecodeMvdCabac(cab, kCtxMvd1, ay0 + ay1, ay);
+					if (dx == kMvdOverflow || dy == kMvdOverflow)
+						bad = true;
+				};
+
+				if (mbType == 0) { // P_L0_16x16 : 1 ref_idx puis 1 mvd
+					const int32 ri = readRef ? DecodeRefIdxCabac(cab, c, gbx, gby) : 0;
+					if (ri < 0)
+						return false;
+					StoreRef4(c, gbx, gby, 4, 4, ri);
+					int32 pmx, pmy;
+					PredMvPart(c, gbx, gby, 4, 0, 0, ri, pmx, pmy);
+					int32 dx, dy, ax, ay;
+					readMvd(gbx, gby, dx, dy, ax, ay);
+					if (bad)
+						return false;
+					doPart(0, 0, 4, 4, pmx + dx, pmy + dy, ri, ax, ay);
+				} else if (mbType == 1 || mbType == 2) { // P_16x8 / P_8x16 : les 2 ref_idx AVANT les 2 mvd
+					const bool horiz = (mbType == 1);
+					int32 ri[2];
+					for (int32 part = 0; part < 2; ++part) {
+						const int32 bx4 = horiz ? 0 : part * 2, by4 = horiz ? part * 2 : 0;
+						// ⚠️ La grille ref DOIT etre remplie entre les deux lectures : la partition 1 voit
+						// la partition 0 comme voisine pour son ctxIdxInc.
+						ri[part] = readRef ? DecodeRefIdxCabac(cab, c, gbx + bx4, gby + by4) : 0;
+						if (ri[part] < 0)
+							return false;
+						StoreRef4(c, gbx + bx4, gby + by4, horiz ? 4 : 2, horiz ? 2 : 4, ri[part]);
+					}
+					for (int32 part = 0; part < 2; ++part) {
+						const int32 bx4 = horiz ? 0 : part * 2, by4 = horiz ? part * 2 : 0;
+						int32 pmx, pmy;
+						PredMvPart(c, gbx + bx4, gby + by4, horiz ? 4 : 2, horiz ? 1 : 2, part, ri[part], pmx, pmy);
+						int32 dx, dy, ax, ay;
+						readMvd(gbx + bx4, gby + by4, dx, dy, ax, ay);
+						if (bad)
+							return false;
+						doPart(bx4, by4, horiz ? 4 : 2, horiz ? 2 : 4, pmx + dx, pmy + dy, ri[part], ax, ay);
+					}
+				} else { // P_8x8
+					int32 subType[4];
+					for (int32 b = 0; b < 4; ++b)
+						subType[b] = DecodeSubMbTypePCabac(cab);
+					int32 ri[4] = {0, 0, 0, 0};
+					for (int32 b = 0; b < 4; ++b) {
+						const int32 sbx = (b & 1) * 2, sby = (b >> 1) * 2;
+						ri[b] = readRef ? DecodeRefIdxCabac(cab, c, gbx + sbx, gby + sby) : 0;
+						if (ri[b] < 0)
+							return false;
+						StoreRef4(c, gbx + sbx, gby + sby, 2, 2, ri[b]);
+					}
+					for (int32 b = 0; b < 4; ++b) {
+						const int32 sbx = (b & 1) * 2, sby = (b >> 1) * 2;
+						int32 pmx, pmy, dx, dy, ax, ay;
+						if (subType[b] == 0) { // 8x8
+							PredMvPart(c, gbx + sbx, gby + sby, 2, 3, 0, ri[b], pmx, pmy);
+							readMvd(gbx + sbx, gby + sby, dx, dy, ax, ay);
+							if (bad)
+								return false;
+							doPart(sbx, sby, 2, 2, pmx + dx, pmy + dy, ri[b], ax, ay);
+						} else if (subType[b] == 1) { // 8x4
+							for (int32 sp = 0; sp < 2; ++sp) {
+								PredMvPart(c, gbx + sbx, gby + sby + sp, 2, 3, 0, ri[b], pmx, pmy);
+								readMvd(gbx + sbx, gby + sby + sp, dx, dy, ax, ay);
+								if (bad)
+									return false;
+								doPart(sbx, sby + sp, 2, 1, pmx + dx, pmy + dy, ri[b], ax, ay);
+							}
+						} else if (subType[b] == 2) { // 4x8
+							for (int32 sp = 0; sp < 2; ++sp) {
+								PredMvPart(c, gbx + sbx + sp, gby + sby, 1, 3, 0, ri[b], pmx, pmy);
+								readMvd(gbx + sbx + sp, gby + sby, dx, dy, ax, ay);
+								if (bad)
+									return false;
+								doPart(sbx + sp, sby, 1, 2, pmx + dx, pmy + dy, ri[b], ax, ay);
+							}
+						} else { // 4x4
+							for (int32 sp = 0; sp < 4; ++sp) {
+								const int32 pbx = sbx + (sp & 1), pby = sby + (sp >> 1);
+								PredMvPart(c, gbx + pbx, gby + pby, 1, 3, 0, ri[b], pmx, pmy);
+								readMvd(gbx + pbx, gby + pby, dx, dy, ax, ay);
+								if (bad)
+									return false;
+								doPart(pbx, pby, 1, 1, pmx + dx, pmy + dy, ri[b], ax, ay);
+							}
+						}
+					}
+				}
+
+				// cbp puis mb_qp_delta.
+				const int32 lumaCbp = DecodeCbpLumaCabac(cab, mbX, mbY);
+				const int32 cbpChroma = DecodeCbpChromaCabac(cab, mbX, mbY);
+				cab.mbTypeClass[(uint64)mbIdx] = 1; // inter -> classe 1 (comme I_16x16 pour le ctx mb_type)
+				cab.cbpLumaMb[(uint64)mbIdx] = lumaCbp;
+				cab.cbpChromaMb[(uint64)mbIdx] = cbpChroma;
+				cab.chromaModeMb[(uint64)mbIdx] = 0;
+				cab.mbSkipMb[(uint64)mbIdx] = 0;
+				if (lumaCbp || cbpChroma)
+					c.qp = (c.qp + DecodeMbQpDeltaCabac(cab) + 52) % 52;
+				else
+					cab.prevQpDeltaNonZero = 0;
+
+				// Residu luma (cat 2). ⚠️ MB inter -> defaut cbf d'un voisin INDISPONIBLE = 0 (pas 1).
+				const int32 bx0 = mbX * 4, by0 = mbY * 4;
+				for (int32 blk = 0; blk < 16; ++blk) {
+					int32 x4, y4;
+					LumaBlk(blk, x4, y4);
+					const int32 bx = bx0 + x4 / 4, by = by0 + y4 / 4;
+					int32 raster[16] = {0};
+					int32 tc = 0;
+					if (lumaCbp & (1 << (blk >> 2))) {
+						const int32 cbfA = (bx > 0) ? (c.lumaNz[by * c.nzW + (bx - 1)] > 0 ? 1 : 0) : 0;
+						const int32 cbfB = (by > 0) ? (c.lumaNz[(by - 1) * c.nzW + bx] > 0 ? 1 : 0) : 0;
+						tc = DecodeResidualCabac(cab, 2, cbfA, cbfB, 0, raster);
+					}
+					c.lumaNz[by * c.nzW + bx] = tc;
+					int32 deq[16], resRec[16];
+					NkH264Transform::Dequant4x4(raster, deq, c.qp);
+					NkH264Transform::Inverse4x4(deq, resRec);
+					for (int32 r = 0; r < 4; ++r)
+						for (int32 col = 0; col < 4; ++col)
+							c.Y[(usize)(py + y4 + r) * c.lumaW + px + x4 + col] =
+								ClampU8(predY[(y4 + r) * 16 + (x4 + col)] + resRec[r * 4 + col]);
+				}
+
+				DecodeChromaResidualCabac(c, cab, mbX, mbY, cbpChroma, cPred, 0); // inter -> defaut cbf = 0
+				return true;
+			}
+
 		} // namespace
 
 		bool NkH264Decoder::DecodeIdrFrame(const uint8 *annexB, usize size, NkH264Frame &out) {
@@ -1699,6 +2041,49 @@ namespace nkentseu {
 					} while (idc != 3 && !br.Eof());
 				}
 			}
+			// pred_weight_table() (§7.3.3.2) : presente en P/SP si weighted_pred_flag=1. x264 l'active
+			// PAR DEFAUT en profil Main ("weightp") -> indispensable des qu'on sort du baseline, sinon
+			// tout le reste de l'en-tete est decale.
+			int32 wpLumaDenom = 0, wpChromaDenom = 0;
+			int32 wpLumaW[16], wpLumaO[16], wpChromaW[16][2], wpChromaO[16][2];
+			const bool useWeighted = (isP && pps.weightedPred != 0);
+			{
+				const int32 defL = 1 << wpLumaDenom;
+				for (int32 i = 0; i < 16; ++i) {
+					wpLumaW[i] = defL;
+					wpLumaO[i] = 0;
+					wpChromaW[i][0] = wpChromaW[i][1] = defL;
+					wpChromaO[i][0] = wpChromaO[i][1] = 0;
+				}
+			}
+			if (useWeighted) {
+				wpLumaDenom = (int32)br.UE(); // luma_log2_weight_denom
+				wpChromaDenom = (int32)br.UE(); // chroma_log2_weight_denom (ChromaArrayType != 0)
+				if (wpLumaDenom > 7 || wpChromaDenom > 7)
+					return false;
+				const int32 nw = numRefActive > 16 ? 16 : numRefActive;
+				for (int32 i = 0; i < nw; ++i) {
+					// Defauts quand le drapeau est absent : poids neutre 2^denom, offset 0.
+					wpLumaW[i] = 1 << wpLumaDenom;
+					wpLumaO[i] = 0;
+					wpChromaW[i][0] = wpChromaW[i][1] = 1 << wpChromaDenom;
+					wpChromaO[i][0] = wpChromaO[i][1] = 0;
+					if (br.U1()) { // luma_weight_l0_flag
+						wpLumaW[i] = br.SE();
+						wpLumaO[i] = br.SE();
+					}
+					if (br.U1()) { // chroma_weight_l0_flag
+						for (int32 j = 0; j < 2; ++j) {
+							wpChromaW[i][j] = br.SE();
+							wpChromaO[i][j] = br.SE();
+						}
+					}
+				}
+				for (int32 i = nw; i < 16; ++i) { // au-dela de la liste active : neutre
+					wpLumaW[i] = 1 << wpLumaDenom;
+					wpChromaW[i][0] = wpChromaW[i][1] = 1 << wpChromaDenom;
+				}
+			}
 			if (nalRefIdc != 0) {
 				if (nalType == 5) {
 					br.U1(); // no_output_of_prior_pics_flag
@@ -1717,6 +2102,14 @@ namespace nkentseu {
 							br.UE();
 					} while (op != 0 && !br.Eof());
 				}
+			}
+			// cabac_init_idc : present SEULEMENT si CABAC et slice non-I. Selectionne la variante de table
+			// d'init des contextes. ⚠️ A lire meme si inutilise, sinon tout le reste de l'en-tete decale.
+			int32 cabacInitIdc = 0;
+			if (pps.entropyCodingMode == 1 && !isI) {
+				cabacInitIdc = (int32)br.UE();
+				if (cabacInitIdc < 0 || cabacInitIdc > 2)
+					return false;
 			}
 			int32 qp = pps.picInitQp + br.SE();
 			if (qp < 0 || qp > 51)
@@ -1750,12 +2143,14 @@ namespace nkentseu {
 
 			const int32 numMb = mbW * mbH;
 			const uint64 n4 = (uint64)mbW * 4 * mbH * 4;
-			NkVector<int32> lumaNz, cnz0, cnz1, i4mode, mvx4G, mvy4G, ref4G;
+			NkVector<int32> lumaNz, cnz0, cnz1, i4mode, mvx4G, mvy4G, ref4G, mvdx4G, mvdy4G;
 			lumaNz.Resize(n4);
 			i4mode.Resize(n4);
 			mvx4G.Resize(n4);
 			mvy4G.Resize(n4);
 			ref4G.Resize(n4);
+			mvdx4G.Resize(n4);
+			mvdy4G.Resize(n4);
 			cnz0.Resize((uint64)mbW * 2 * mbH * 2);
 			cnz1.Resize((uint64)mbW * 2 * mbH * 2);
 			for (uint64 i = 0; i < n4; ++i) {
@@ -1764,6 +2159,8 @@ namespace nkentseu {
 				mvx4G[i] = 0;
 				mvy4G[i] = 0;
 				ref4G[i] = -2; // 4x4 non décodé
+				mvdx4G[i] = 0;
+				mvdy4G[i] = 0;
 			}
 			for (uint64 i = 0; i < cnz0.Size(); ++i) {
 				cnz0[i] = 0;
@@ -1791,6 +2188,19 @@ namespace nkentseu {
 			c.mvx4 = mvx4G.Data();
 			c.mvy4 = mvy4G.Data();
 			c.ref4 = ref4G.Data();
+			c.mvdx4 = mvdx4G.Data();
+			c.mvdy4 = mvdy4G.Data();
+			c.weightedPred = useWeighted ? 1 : 0;
+			c.lumaLog2Denom = wpLumaDenom;
+			c.chromaLog2Denom = wpChromaDenom;
+			for (int32 i = 0; i < 16; ++i) {
+				c.lumaWeight[i] = wpLumaW[i];
+				c.lumaOffset[i] = wpLumaO[i];
+				for (int32 j = 0; j < 2; ++j) {
+					c.chromaWeight[i][j] = wpChromaW[i][j];
+					c.chromaOffset[i][j] = wpChromaO[i][j];
+				}
+			}
 			if (isP) {
 				if (numRefs <= 0)
 					return false; // référence incompatible
@@ -1813,30 +2223,68 @@ namespace nkentseu {
 			NkVector<int32> mbQp;
 			mbQp.Resize((uint64)numMb);
 			if (pps.entropyCodingMode == 1) {
-				// ── CABAC (profils Main/High) — I-slices ──────────────────────────────
+				// ── CABAC (profils Main/High) — I-slices et P-slices ──────────────────
 				// ETAT (2026-07-16) : BIT-EXACT vs la reference sur les I-slices. Valide sur
 				// 15 combinaisons (QP 18/22/28/34/40 x 16x16 / 64x48 / 176x144, no-deblock) :
-				// 0 diff luma ET chroma. Chaine = moteur arithmetique + tables ISO + syntaxe I
+				// 0 diff luma ET chroma. Chaine = moteur arithmetique + tables ISO + syntaxe
 				// + residus + reconstruction.
-				// Les P/B en CABAC restent a faire : on echoue proprement (pas de sortie corrompue).
-				if (!isI)
-					return false; // P/B CABAC non encore implementes
+				// Les B restent a faire : on echoue proprement (pas de sortie corrompue).
+				if (!isI && !isP)
+					return false; // B CABAC non encore implemente
 				const usize byteStart = (br.pos + 7) / 8; // cabac_alignment_one_bit -> octet
 				CabacMb cab;
-				cab.InitSlice(mbW, mbH, c.qp, true, 0);
+				cab.InitSlice(mbW, mbH, c.qp, isI, cabacInitIdc);
 				cab.e.InitEngine(rbsp.Data(), (usize)rbsp.Size(), byteStart);
 				int32 mbAddr = 0;
 				while (mbAddr < numMb) {
 					const int32 mbX = mbAddr % mbW, mbY = mbAddr / mbW;
-					const int32 mbType = DecodeMbTypeICabac(cab, mbX, mbY);
-					if (mbType == 0) {
-						if (!DecodeMbCabacI4x4(c, cab, mbX, mbY))
-							return false;
-					} else if (mbType <= 24) {
-						if (!DecodeMbCabacI16x16(c, cab, mbX, mbY, mbType))
-							return false;
+					const int32 mbIdx = mbY * mbW + mbX;
+					if (isP && DecodeMbSkipCabac(cab, mbX, mbY)) {
+						// P_Skip : aucun residu, MV predite. Les grilles voisines passent a "vide".
+						DecodeMbSkip(c, mbX, mbY);
+						cab.mbTypeClass[(uint64)mbIdx] = 1;
+						cab.cbpLumaMb[(uint64)mbIdx] = 0;
+						cab.cbpChromaMb[(uint64)mbIdx] = 0;
+						cab.chromaModeMb[(uint64)mbIdx] = 0;
+						cab.lumaDcCodedMb[(uint64)mbIdx] = 0;
+						cab.chromaDcCodedMb[(uint64)mbIdx] = 0;
+						cab.mbSkipMb[(uint64)mbIdx] = 1;
+						cab.prevQpDeltaNonZero = 0;
+						ClearMvdGrid(c, mbX, mbY);
+						for (int32 y = 0; y < 4; ++y)
+							for (int32 x = 0; x < 4; ++x)
+								c.lumaNz[(mbY * 4 + y) * c.nzW + (mbX * 4 + x)] = 0;
+						for (int32 y = 0; y < 2; ++y)
+							for (int32 x = 0; x < 2; ++x) {
+								c.chromaNz0[(mbY * 2 + y) * c.cnzW + (mbX * 2 + x)] = 0;
+								c.chromaNz1[(mbY * 2 + y) * c.cnzW + (mbX * 2 + x)] = 0;
+							}
 					} else {
-						return false; // I_PCM non gere
+						bool intraInP = false;
+						const int32 mbType =
+							isP ? DecodeMbTypePCabac(cab, intraInP) : DecodeMbTypeICabac(cab, mbX, mbY);
+						if (isP && !intraInP) {
+							if (!DecodeMbCabacP(c, cab, mbX, mbY, mbType))
+								return false;
+						} else {
+							// MB intra (I-slice, ou intra a l'interieur d'une P-slice).
+							if (isP) {
+								ClearMvdGrid(c, mbX, mbY);
+								for (int32 y = 0; y < 4; ++y)
+									for (int32 x = 0; x < 4; ++x)
+										c.ref4[(mbY * 4 + y) * c.nzW + (mbX * 4 + x)] = -1; // intra
+							}
+							if (mbType == 0) {
+								if (!DecodeMbCabacI4x4(c, cab, mbX, mbY))
+									return false;
+							} else if (mbType <= 24) {
+								if (!DecodeMbCabacI16x16(c, cab, mbX, mbY, mbType))
+									return false;
+							} else {
+								return false; // I_PCM non gere
+							}
+							cab.mbSkipMb[(uint64)mbIdx] = 0;
+						}
 					}
 					mbQp[(uint64)mbAddr] = c.qp;
 					++mbAddr;
