@@ -275,6 +275,7 @@ namespace nkentseu {
 					const uint8 *cr[16] = {nullptr};
 					int32 numRefs = 0;		// taille de la liste
 					int32 numRefActive = 1; // num_ref_idx_lX_active (PPS default / override slice)
+					int32 poc[16] = {0};	// POC de chaque entree (poids IMPLICITES des B)
 					// Grilles PAR BLOC 4x4. ref4 : -2 non decode, -1 intra/non utilise, >=0 = index dans
 					// cette liste. mvd4 : |mvd| borne a 70 (CABAC, ctxIdxInc de mvd §9.3.3.1.1.7).
 					int32 *mvx4 = nullptr, *mvy4 = nullptr, *ref4 = nullptr;
@@ -305,9 +306,17 @@ namespace nkentseu {
 					int32 chromaQpOffset = 0;
 					// L[0] = RefPicList0 (P et B), L[1] = RefPicList1 (B seulement).
 					RefList L[2];
-					// Ponderation explicite : active + denominateurs (communs aux deux listes).
+					// Ponderation EXPLICITE : active + denominateurs (communs aux deux listes).
+					// ⚠️ Ne s'applique JAMAIS a une partition bi-predite : la bi-prediction combine les
+					// DEUX poids en une seule formule (§8.4.2.3.2), elle ne pondere pas chaque cote.
 					int32 weightedPred = 0;
 					int32 lumaLog2Denom = 0, chromaLog2Denom = 0;
+					// Ponderation IMPLICITE des B (weighted_bipred_idc == 2, le DEFAUT de x264) : les
+					// poids se derivent des distances POC, aucune table n'est transmise. implicitW0
+					// = poids de L0 pour le couple (refIdx L0, refIdx L1) ; w1 = 64 - w0 ; denom = 5.
+					// ⚠️ N'affecte QUE les partitions bi-predites (une partition mono-liste reste brute).
+					int32 biPredMode = 0; // 0 = aucune ponderation, 1 = explicite, 2 = implicite
+					int32 implicitW0[16][16];
 			};
 
 			// §8.4.2.3.2 : applique la ponderation explicite a un echantillon predit.
@@ -318,9 +327,25 @@ namespace nkentseu {
 				return v < 0 ? 0 : (v > 255 ? 255 : v);
 			}
 
+			// Sature a un int8 (av_clip_int8 de la reference) : les distances POC des poids implicites.
+			int32 ClampI8(int32 v) {
+				return v < -128 ? -128 : (v > 127 ? 127 : v);
+			}
+
+			// §8.4.2.3.2 (cas bi-predit) : combine les predictions L0 et L1 en UNE formule.
+			//   logWD >= 1 : Clip1(((p0*w0 + p1*w1 + 2^logWD) >> (logWD+1)) + ((o0+o1+1) >> 1))
+			//   logWD == 0 : Clip1(((p0*w0 + p1*w1 + 1) >> 1) + ((o0+o1+1) >> 1))
+			int32 ApplyBiWeight(int32 p0, int32 p1, int32 w0, int32 w1, int32 o0, int32 o1, int32 logWD) {
+				const int32 s = p0 * w0 + p1 * w1;
+				const int32 v = ((logWD >= 1) ? ((s + (1 << logWD)) >> (logWD + 1)) : ((s + 1) >> 1)) +
+								((o0 + o1 + 1) >> 1);
+				return v < 0 ? 0 : (v > 255 ? 255 : v);
+			}
+
 			// MC luma quart-pel (§8.4.2.2.1) d'un rectangle w×h -> écrit dans predY[16*16] à (ox,oy).
 			void McLumaRect(const DecCtx &c, const RefList &L, int32 dx, int32 dy, int32 ox, int32 oy, int32 w, int32 h, int32 mvx,
-							int32 mvy, uint8 predY[256], int32 refIdx = 0) {
+							int32 mvy, uint8 predY[256], int32 refIdx = 0,
+							bool applyWeight = true) {
 				const int32 W = c.lumaW, H = c.lumaH;
 				if (refIdx < 0)
 					refIdx = 0;
@@ -369,7 +394,7 @@ namespace nkentseu {
 							case 14: v = (Jj(ix, iy) + Bh(ix, iy + 1) + 1) >> 1; break;
 							default: v = (Hh(ix + 1, iy) + Bh(ix, iy + 1) + 1) >> 1; break;
 						}
-						if (c.weightedPred)
+						if (c.weightedPred && applyWeight)
 							v = ApplyWeight(v, L.lumaWeight[refIdx], L.lumaOffset[refIdx], c.lumaLog2Denom);
 						predY[(oy + y) * 16 + (ox + x)] = (uint8)v;
 					}
@@ -377,7 +402,8 @@ namespace nkentseu {
 
 			// MC chroma 1/8-pel bilinéaire (§8.4.2.2.2) d'un rectangle cw×ch -> cPred[64] à (ox,oy).
 			void McChromaRect(const DecCtx &c, const RefList &L, int32 comp, int32 dx, int32 dy, int32 ox, int32 oy, int32 cw, int32 ch,
-							  int32 mvx, int32 mvy, uint8 cPred[64], int32 refIdx = 0) {
+							  int32 mvx, int32 mvy, uint8 cPred[64], int32 refIdx = 0,
+							  bool applyWeight = true) {
 				if (refIdx < 0)
 					refIdx = 0;
 				if (refIdx >= L.numRefs)
@@ -397,7 +423,7 @@ namespace nkentseu {
 						int32 v = ((8 - fx) * (8 - fy) * A + fx * (8 - fy) * Bb + (8 - fx) * fy * Cc + fx * fy * D +
 								   32) >>
 								  6;
-						if (c.weightedPred)
+						if (c.weightedPred && applyWeight)
 							v = ApplyWeight(v, L.chromaWeight[refIdx][comp], L.chromaOffset[refIdx][comp],
 											c.chromaLog2Denom);
 						cPred[(oy + y) * 8 + (ox + x)] = (uint8)v;
@@ -1944,6 +1970,81 @@ namespace nkentseu {
 				return true;
 			}
 
+			// Predit UNE partition d'un MB B dans predY/cPred : depuis L0 seule, L1 seule, ou les DEUX
+			// (bi-prediction). (bx4,by4) = coin en blocs 4x4 dans le MB ; pw4/ph4 = taille en 4x4.
+			// Regles de ponderation (§8.4.2.3, verifiees sur la reference) :
+			//   - mono-liste : ponderation EXPLICITE seulement (l'implicite ne s'applique pas) ;
+			//   - bi-predite : UNE formule combinant les deux poids — jamais deux ponderations
+			//     successives — d'ou le passage de applyWeight=false a la MC.
+			void McPartB(const DecCtx &c, int32 mbX, int32 mbY, int32 bx4, int32 by4, int32 pw4, int32 ph4,
+						 bool useL0, bool useL1, int32 ri0, int32 ri1, int32 mvx0, int32 mvy0, int32 mvx1,
+						 int32 mvy1, uint8 predY[256], uint8 cPred[2][64]) {
+				const int32 px = mbX * 16, py = mbY * 16, cpx = mbX * 8, cpy = mbY * 8;
+				const int32 dx = px + bx4 * 4, dy = py + by4 * 4;
+				const int32 ox = bx4 * 4, oy = by4 * 4, w = pw4 * 4, h = ph4 * 4;
+				const int32 cdx = cpx + bx4 * 2, cdy = cpy + by4 * 2;
+				const int32 cox = bx4 * 2, coy = by4 * 2, cw = pw4 * 2, ch = ph4 * 2;
+
+				if (useL0 && !useL1) {
+					McLumaRect(c, c.L[0], dx, dy, ox, oy, w, h, mvx0, mvy0, predY, ri0);
+					McChromaRect(c, c.L[0], 0, cdx, cdy, cox, coy, cw, ch, mvx0, mvy0, cPred[0], ri0);
+					McChromaRect(c, c.L[0], 1, cdx, cdy, cox, coy, cw, ch, mvx0, mvy0, cPred[1], ri0);
+					return;
+				}
+				if (useL1 && !useL0) {
+					McLumaRect(c, c.L[1], dx, dy, ox, oy, w, h, mvx1, mvy1, predY, ri1);
+					McChromaRect(c, c.L[1], 0, cdx, cdy, cox, coy, cw, ch, mvx1, mvy1, cPred[0], ri1);
+					McChromaRect(c, c.L[1], 1, cdx, cdy, cox, coy, cw, ch, mvx1, mvy1, cPred[1], ri1);
+					return;
+				}
+				// ── Bi-prediction : les deux predictions BRUTES puis une seule combinaison ──
+				uint8 p0Y[256], p1Y[256], p0C[2][64], p1C[2][64];
+				McLumaRect(c, c.L[0], dx, dy, ox, oy, w, h, mvx0, mvy0, p0Y, ri0, false);
+				McLumaRect(c, c.L[1], dx, dy, ox, oy, w, h, mvx1, mvy1, p1Y, ri1, false);
+				for (int32 comp = 0; comp < 2; ++comp) {
+					McChromaRect(c, c.L[0], comp, cdx, cdy, cox, coy, cw, ch, mvx0, mvy0, p0C[comp], ri0, false);
+					McChromaRect(c, c.L[1], comp, cdx, cdy, cox, coy, cw, ch, mvx1, mvy1, p1C[comp], ri1, false);
+				}
+				int32 w0 = 1, w1 = 1, o0 = 0, o1 = 0, logWD = 0;
+				bool weighted = false;
+				if (c.biPredMode == 1) { // explicite
+					weighted = true;
+				} else if (c.biPredMode == 2) { // implicite : w0 depuis les distances POC, w1 = 64 - w0
+					w0 = c.implicitW0[ri0][ri1];
+					w1 = 64 - w0;
+					logWD = 5;
+					weighted = (w0 != 32); // 32/32 == moyenne simple : inutile de ponderer
+				}
+				for (int32 y = 0; y < h; ++y)
+					for (int32 x = 0; x < w; ++x) {
+						const int32 i = (oy + y) * 16 + (ox + x);
+						const int32 a = p0Y[i], b = p1Y[i];
+						if (!weighted)
+							predY[i] = (uint8)((a + b + 1) >> 1);
+						else if (c.biPredMode == 1)
+							predY[i] = (uint8)ApplyBiWeight(a, b, c.L[0].lumaWeight[ri0], c.L[1].lumaWeight[ri1],
+															c.L[0].lumaOffset[ri0], c.L[1].lumaOffset[ri1],
+															c.lumaLog2Denom);
+						else
+							predY[i] = (uint8)ApplyBiWeight(a, b, w0, w1, o0, o1, logWD);
+					}
+				for (int32 comp = 0; comp < 2; ++comp)
+					for (int32 y = 0; y < ch; ++y)
+						for (int32 x = 0; x < cw; ++x) {
+							const int32 i = (coy + y) * 8 + (cox + x);
+							const int32 a = p0C[comp][i], b = p1C[comp][i];
+							if (!weighted)
+								cPred[comp][i] = (uint8)((a + b + 1) >> 1);
+							else if (c.biPredMode == 1)
+								cPred[comp][i] = (uint8)ApplyBiWeight(
+									a, b, c.L[0].chromaWeight[ri0][comp], c.L[1].chromaWeight[ri1][comp],
+									c.L[0].chromaOffset[ri0][comp], c.L[1].chromaOffset[ri1][comp],
+									c.chromaLog2Denom);
+							else
+								cPred[comp][i] = (uint8)ApplyBiWeight(a, b, w0, w1, o0, o1, logWD);
+						}
+			}
+
 			// Remet a zero la grille |mvd| d'un MB (skip ou intra : la reference y met 0 pour les voisins).
 			void ClearMvdGrid(const DecCtx &c, const RefList &L, int32 mbX, int32 mbY) {
 				for (int32 y = 0; y < 4; ++y)
@@ -2555,7 +2656,7 @@ namespace nkentseu {
 					// num_ref_idx_active+1 entrees avant troncature).
 					const int32 nAct = (nActive < 1) ? 1 : (nActive > 16 ? 16 : nActive);
 					const uint8 *ly[18], *lcb[18], *lcr[18];
-					int32 lpn[18];
+					int32 lpn[18], lpoc[18];
 					for (int32 i = 0; i <= nAct + 1; ++i) {
 						if (i < nInit[li]) {
 							const NkH264Frame *r = refs[init[li][i]];
@@ -2563,9 +2664,11 @@ namespace nkentseu {
 							lcb[i] = r->cb.Data();
 							lcr[i] = r->cr.Data();
 							lpn[i] = dpbPn[init[li][i]];
+							lpoc[i] = r->poc;
 						} else {
 							ly[i] = lcb[i] = lcr[i] = nullptr;
 							lpn[i] = kNoPic;
+							lpoc[i] = 0;
 						}
 					}
 					int32 refIdx = 0, picNumPred = frameNum;
@@ -2599,11 +2702,13 @@ namespace nkentseu {
 							lcb[cIdx] = lcb[cIdx - 1];
 							lcr[cIdx] = lcr[cIdx - 1];
 							lpn[cIdx] = lpn[cIdx - 1];
+							lpoc[cIdx] = lpoc[cIdx - 1];
 						}
 						ly[refIdx] = sy;
 						lcb[refIdx] = scb;
 						lcr[refIdx] = scr;
 						lpn[refIdx] = picNum;
+						lpoc[refIdx] = refs[src]->poc;
 						++refIdx;
 						int32 nIdx = refIdx;
 						for (int32 cIdx = refIdx; cIdx <= nAct; ++cIdx) {
@@ -2612,6 +2717,7 @@ namespace nkentseu {
 								lcb[nIdx] = lcb[cIdx];
 								lcr[nIdx] = lcr[cIdx];
 								lpn[nIdx] = lpn[cIdx];
+								lpoc[nIdx] = lpoc[cIdx];
 								++nIdx;
 							}
 						}
@@ -2624,6 +2730,7 @@ namespace nkentseu {
 						c.L[li].y[i] = ly[i];
 						c.L[li].cb[i] = lcb[i];
 						c.L[li].cr[i] = lcr[i];
+						c.L[li].poc[i] = lpoc[i];
 					}
 					c.L[li].numRefs = nFinal;
 					c.L[li].numRefActive = nFinal;
@@ -2633,6 +2740,39 @@ namespace nkentseu {
 					return false;
 				if (isB && !buildList(1, listMods1, numRefActive1))
 					return false;
+
+				// ── Poids IMPLICITES des B (§8.4.2.3.1, weighted_bipred_idc == 2) ────
+				// Aucune table n'est transmise : les poids se derivent des distances POC entre
+				// l'image courante et les deux references. denom = 5, offsets nuls.
+				c.biPredMode = useWeighted ? 1 : (useImplicit ? 2 : 0);
+				if (useImplicit) {
+					// Cas degenere : une seule ref de chaque cote, exactement symetriques autour de
+					// l'image courante -> poids 32/32 = simple moyenne, on n'active pas la ponderation.
+					if (c.L[0].numRefs == 1 && c.L[1].numRefs == 1 &&
+						c.L[0].poc[0] + c.L[1].poc[0] == 2 * poc) {
+						c.biPredMode = 0;
+					} else {
+						c.lumaLog2Denom = 5;
+						c.chromaLog2Denom = 5;
+						for (int32 r0 = 0; r0 < 16; ++r0)
+							for (int32 r1 = 0; r1 < 16; ++r1) {
+								int32 w = 32; // defaut : moyenne
+								if (r0 < c.L[0].numRefs && r1 < c.L[1].numRefs) {
+									const int32 poc0 = c.L[0].poc[r0], poc1 = c.L[1].poc[r1];
+									const int32 td = ClampI8(poc1 - poc0);
+									if (td != 0) {
+										const int32 tb = ClampI8(poc - poc0);
+										const int32 ad = td < 0 ? -td : td;
+										const int32 tx = (16384 + (ad >> 1)) / td;
+										const int32 dsf = (tb * tx + 32) >> 8;
+										if (dsf >= -64 && dsf <= 128)
+											w = 64 - dsf; // w0 ; w1 = 64 - w0 = dsf
+									}
+								}
+								c.implicitW0[r0][r1] = w;
+							}
+					}
+				}
 			}
 
 			NkVector<int32> mbQp;
