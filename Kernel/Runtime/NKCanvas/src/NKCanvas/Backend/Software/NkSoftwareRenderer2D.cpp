@@ -17,6 +17,7 @@
 #include "NKCanvas/Renderer/Resources/NkTextureBackend.h"
 #include "NKCanvas/Renderer/Resources/NkShaderBackend.h"
 #include "NKCanvas/Renderer/Targets/NkRenderTextureBackend.h"
+#include "NKMemory/NkAllocator.h"
 #include "NKCanvas/Renderer/Resources/NkSprite.h"
 #include "NKCanvas/Core/NkNativeContextAccess.h"
 #include "NKLogger/NkLog.h"
@@ -85,7 +86,34 @@ namespace nkentseu {
 			static void NkSW_SetTextureWrap(uint32 /*id*/, NkTextureWrap /*w*/) {
 				// No-op : le sampling software est clampe pour l'instant.
 			}
-		} // namespace
+
+			} // namespace
+
+		// ── Render-texture offscreen (framebuffer CPU dedie, echantillonne direct) ──
+		struct NkSWRTEntry {
+				NkSoftwareFramebuffer *fb = nullptr;
+				uint32 colorId = 0;
+				uint32 width = 0, height = 0;
+		};
+		static struct {
+				NkVector<NkSWRTEntry *> entries;
+				NkSoftwareFramebuffer *target = nullptr; // cible courante (nullptr = back buffer)
+		} gSWRT;
+
+		static NkSWRTEntry *SW_GetRT(uint32 handle) {
+			if (handle == 0 || handle > gSWRT.entries.Size())
+				return nullptr;
+			return gSWRT.entries[handle - 1];
+		}
+		// Framebuffer d'une RT depuis son colorId (pour le sampling). nullptr sinon.
+		static const NkSoftwareFramebuffer *SW_RTByColorId(uint32 colorId) {
+			if (colorId == 0)
+				return nullptr;
+			for (nkentseu::uint32 i = 0; i < gSWRT.entries.Size(); ++i)
+				if (gSWRT.entries[i] && gSWRT.entries[i]->colorId == colorId)
+					return gSWRT.entries[i]->fb;
+			return nullptr;
+		}
 
 		// =============================================================================
 		bool NkSoftwareRenderer2D::Initialize(NkIGraphicsContext *ctx) {
@@ -130,7 +158,15 @@ namespace nkentseu {
 			// On installe un stub NkShader « non supporte » pour que l'API
 			// utilisateur reste consistante (NkShader::Compile renverra false).
 			NkShaderInstallUnsupportedBackend("Software");
-			NkRenderTextureInstallUnsupportedBackend("Software");
+			{
+				NkRenderTextureBackend rtb{};
+				rtb.Create = &NkSoftwareRenderer2D::CreateSWRenderTexture;
+				rtb.Destroy = &NkSoftwareRenderer2D::DestroySWRenderTexture;
+				rtb.Bind = &NkSoftwareRenderer2D::BindSWRenderTexture;
+				rtb.Unbind = &NkSoftwareRenderer2D::UnbindSWRenderTexture;
+				rtb.GetColorTextureGPUId = &NkSoftwareRenderer2D::GetSWRenderTextureColorId;
+				NkRenderTextureSetBackend(rtb);
+			}
 
 			mIsValid = true;
 			NK_SW2D_LOG("Initialized (%ux%u)", W, H);
@@ -148,7 +184,7 @@ namespace nkentseu {
 		void NkSoftwareRenderer2D::Clear(const NkColor2D &col) {
 			if (!mSWCtx)
 				return;
-			NkSoftwareFramebuffer &fb = mSWCtx->GetBackBuffer();
+			NkSoftwareFramebuffer &fb = gSWRT.target ? *gSWRT.target : mSWCtx->GetBackBuffer();
 			if (!fb.IsValid())
 				return;
 
@@ -293,7 +329,7 @@ namespace nkentseu {
 												 uint32 vCount, const uint32 *idx, uint32 iCount) {
 			if (!mSWCtx || !verts || !idx || vCount == 0 || iCount == 0)
 				return;
-			NkSoftwareFramebuffer &fb = mSWCtx->GetBackBuffer();
+			NkSoftwareFramebuffer &fb = gSWRT.target ? *gSWRT.target : mSWCtx->GetBackBuffer();
 			if (!fb.IsValid())
 				return;
 
@@ -401,10 +437,21 @@ namespace nkentseu {
 			// Texture CPU
 			const uint8 *texPix = nullptr;
 			int32 texW = 0, texH = 0;
-			if (tex && tex->IsValid() && tex->GetCPUPixels()) {
-				texPix = tex->GetCPUPixels();
-				texW = (int32)tex->GetWidth();
-				texH = (int32)tex->GetHeight();
+			bool texBGRA = false; // une render-texture stocke ses pixels dans l'ordre du
+								  // framebuffer (BGRA sous Windows) → R/B à échanger au sampling.
+			if (tex && tex->IsValid()) {
+				if (const NkSoftwareFramebuffer *rtfb = SW_RTByColorId(tex->GetGPUId())) {
+					texPix = rtfb->pixels.Data();
+					texW = (int32)rtfb->width;
+					texH = (int32)rtfb->height;
+#if NK_SW_PIXEL_BGRA
+					texBGRA = true;
+#endif
+				} else if (tex->GetCPUPixels()) {
+					texPix = tex->GetCPUPixels();
+					texW = (int32)tex->GetWidth();
+					texH = (int32)tex->GetHeight();
+				}
 			}
 
 			for (int32 y = yMin; y <= yMax; ++y) {
@@ -513,11 +560,13 @@ namespace nkentseu {
 					if (texPix) {
 						const int32 tx = nk_clampi((int32)(cu * texW), 0, texW - 1);
 						const int32 ty = nk_clampi((int32)(cv * texH), 0, texH - 1);
-						// Texture stockée en RGBA (format CPU NkEngine)
+						// Texture CPU en RGBA ; render-texture en BGRA (échange R/B).
 						const uint8 *tp = texPix + (ty * texW + tx) * 4;
-						sr = nk_f2b(tp[0] * cr / 255.f);
+						const int32 ri = texBGRA ? 2 : 0;
+						const int32 bi = texBGRA ? 0 : 2;
+						sr = nk_f2b(tp[ri] * cr / 255.f);
 						sg = nk_f2b(tp[1] * cg / 255.f);
-						sb = nk_f2b(tp[2] * cb / 255.f);
+						sb = nk_f2b(tp[bi] * cb / 255.f);
 						sa_out = nk_f2b(tp[3] * ca / 255.f);
 					} else {
 						sr = nk_f2b(cr);
@@ -573,6 +622,53 @@ namespace nkentseu {
 					cv += dvDx;
 				}
 			}
+		}
+
+
+		// =============================================================================
+		// Dispatch NkRenderTexture (Software) : framebuffer CPU offscreen.
+		// =============================================================================
+		uint32 NkSoftwareRenderer2D::CreateSWRenderTexture(uint32 w, uint32 h) {
+			if (w == 0 || h == 0)
+				return 0;
+			NkSoftwareFramebuffer *fb = nkentseu::memory::NkGetDefaultAllocator().New<NkSoftwareFramebuffer>();
+			if (!fb)
+				return 0;
+			fb->Resize(w, h);
+			NkSWRTEntry *rt = nkentseu::memory::NkGetDefaultAllocator().New<NkSWRTEntry>();
+			rt->fb = fb;
+			rt->colorId = gSWNextTextureId++;
+			rt->width = w;
+			rt->height = h;
+			gSWRT.entries.PushBack(rt);
+			return (uint32)gSWRT.entries.Size();
+		}
+
+		void NkSoftwareRenderer2D::DestroySWRenderTexture(uint32 handle) {
+			NkSWRTEntry *rt = SW_GetRT(handle);
+			if (!rt)
+				return;
+			if (gSWRT.target == rt->fb)
+				gSWRT.target = nullptr;
+			if (rt->fb)
+				nkentseu::memory::NkGetDefaultAllocator().Delete(rt->fb);
+			nkentseu::memory::NkGetDefaultAllocator().Delete(rt);
+			gSWRT.entries[handle - 1] = nullptr;
+		}
+
+		void NkSoftwareRenderer2D::BindSWRenderTexture(uint32 handle) {
+			NkSWRTEntry *rt = SW_GetRT(handle);
+			if (rt && rt->fb)
+				gSWRT.target = rt->fb;
+		}
+
+		void NkSoftwareRenderer2D::UnbindSWRenderTexture() {
+			gSWRT.target = nullptr;
+		}
+
+		uint32 NkSoftwareRenderer2D::GetSWRenderTextureColorId(uint32 handle) {
+			NkSWRTEntry *rt = SW_GetRT(handle);
+			return rt ? rt->colorId : 0;
 		}
 
 	} // namespace renderer

@@ -512,8 +512,8 @@ namespace nkentseu {
 		struct NkInfiniteGridParams {
 				NkVec4f lineColor = {0.45f, 0.45f, 0.45f, 1.0f};  // gris lignes + alpha
 				NkVec4f cellColor = {0.13f, 0.13f, 0.14f, 0.0f};  // gris intérieur ; .w = opacité
-				NkVec4f axisXColor = {0.86f, 0.22f, 0.24f, 1.0f}; // axe X rouge
-				NkVec4f axisZColor = {0.20f, 0.38f, 0.90f, 1.0f}; // axe Z bleu
+				NkVec4f axisXColor = {1.0f, 0.0f, 0.0f, 1.0f}; // axe X rouge
+				NkVec4f axisZColor = {0.0f, 0.0f, 1.0f, 1.0f}; // axe Z bleu
 				float32 cellSize = 1.0f;						  // taille d'une cellule (unités monde)
 				float32 majorEvery = 10.0f;						  // ligne majeure toutes les N cellules
 				float32 extent = 250.0f;						  // demi-taille du quad (suit la caméra)

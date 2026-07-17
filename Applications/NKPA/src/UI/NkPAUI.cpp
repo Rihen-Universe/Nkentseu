@@ -114,12 +114,6 @@ namespace nkentseu {
 
 				nkui::NkUI::Separator(im.ctx, im.ls, *im.ctx.dl);
 
-				// Compteurs créatures
-				nkui::NkUI::SliderInt(im.ctx, im.ls, *im.ctx.dl, *font, "Fish", state.fishCount, 1, 6);
-				nkui::NkUI::SliderInt(im.ctx, im.ls, *im.ctx.dl, *font, "Sharks", state.sharkCount, 0, 3);
-
-				nkui::NkUI::Separator(im.ctx, im.ls, *im.ctx.dl);
-
 				// Afficher / masquer UI
 				nkui::NkUI::Checkbox(im.ctx, im.ls, *im.ctx.dl, *font, "Show UI", state.showUI);
 			}

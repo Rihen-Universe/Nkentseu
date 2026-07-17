@@ -4,6 +4,7 @@
  */
 
 #include "Renderer/NkPAMesh.h"
+#include "Renderer/NKIViewport.h" // conversion pixels → NDC (BuildNDC)
 #include <cmath>
 
 namespace nkentseu {
@@ -105,15 +106,14 @@ namespace nkentseu {
 
 		// ─────────────────────────────────────────────────────────────────────────────
 
-		NkVector<PaVertex> MeshBuilder::BuildNDC(float32 screenW, float32 screenH) const {
+		NkVector<PaVertex> MeshBuilder::BuildNDC(const NKIViewport &viewport) const {
 			NkVector<PaVertex> out;
 			out.Reserve(mPixels.Size());
 			for (int32 i = 0; i < (int32)mPixels.Size(); ++i) {
 				const PaVertex &v = mPixels[i];
-				// Conversion pixels → NDC : x ∈ [-1,1], y inversé (pixels y-down)
-				float32 nx = (v.x / screenW) * 2.0f - 1.0f;
-				float32 ny = 1.0f - (v.y / screenH) * 2.0f;
-				out.PushBack({nx, ny, v.z, v.r, v.g, v.b, v.a});
+				// Le viewport gère le mapping pixels → NDC + la convention Y du backend.
+				const NkVector2f ndc = viewport.ToNDC(v.x, v.y);
+				out.PushBack({ndc.x, ndc.y, v.z, v.r, v.g, v.b, v.a});
 			}
 			return out;
 		}

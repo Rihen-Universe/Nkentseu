@@ -57,6 +57,16 @@ namespace nkentseu {
 				static void SetDX11TextureFilter(uint32 id, NkTextureFilter f);
 				static void SetDX11TextureWrap(uint32 id, NkTextureWrap w);
 
+				// ── Dispatch NkRenderTexture (offscreen RTV+SRV) ──────────────────────
+				// Cree un Texture2D RENDER_TARGET|SHADER_RESOURCE + RTV + une entry
+				// texture (pour sampler le resultat). Bind bascule l'OMSetRenderTargets
+				// vers l'offscreen (contexte immediat), Unbind restaure le back buffer.
+				static uint32 CreateDX11RenderTexture(uint32 w, uint32 h);
+				static void DestroyDX11RenderTexture(uint32 handle);
+				static void BindDX11RenderTexture(uint32 handle);
+				static void UnbindDX11RenderTexture();
+				static uint32 GetDX11RenderTextureColorId(uint32 handle);
+
 			private:
 				bool CreateShaders();
 				bool CreateBuffers();

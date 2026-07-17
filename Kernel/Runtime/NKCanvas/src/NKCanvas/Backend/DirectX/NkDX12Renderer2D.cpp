@@ -101,6 +101,48 @@ namespace nkentseu {
 				NkVector<NkDX12TextureEntry *> entries; // index = id-1 (id=0 reserve "invalide")
 		} gDX12Registry;
 
+		// ── Render-texture offscreen (RTV heap dedie + resource RT + SRV pour sampler).
+		struct NkDX12RTEntry {
+				ID3D12Resource *resource = nullptr;
+				D3D12_CPU_DESCRIPTOR_HANDLE rtv = {};
+				uint32 textureId = 0; // index+1 dans gDX12Registry.entries (pour sampler)
+				uint32 width = 0, height = 0;
+				D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+		};
+
+		static struct {
+				ID3D12DescriptorHeap *rtvHeap = nullptr; // heap RTV dediee aux offscreen
+				uint32 rtvStride = 0;
+				uint32 nextRtvSlot = 0;
+				ID3D12GraphicsCommandList4 *cmdList = nullptr; // MAJ chaque BeginBackend
+				D3D12_CPU_DESCRIPTOR_HANDLE backbufferRTV = {}; // MAJ chaque BeginBackend
+				bool bound = false;
+				D3D12_CPU_DESCRIPTOR_HANDLE currentRTV = {}; // RTV offscreen liee (pour Clear)
+				NkVector<NkDX12RTEntry *> entries;
+		} gDX12RTRegistry;
+
+		static NkDX12RTEntry *gBoundDX12RT = nullptr; // entry offscreen liee (pour Unbind)
+
+		static NkDX12RTEntry *DX12_GetRT(uint32 handle) {
+			if (handle == 0 || handle > gDX12RTRegistry.entries.Size())
+				return nullptr;
+			return gDX12RTRegistry.entries[handle - 1];
+		}
+
+		// Barrier de transition d'etat sur une command list.
+		static void DX12_Barrier(ID3D12GraphicsCommandList4 *cmd, ID3D12Resource *res, D3D12_RESOURCE_STATES from,
+								 D3D12_RESOURCE_STATES to) {
+			if (!cmd || !res || from == to)
+				return;
+			D3D12_RESOURCE_BARRIER b{};
+			b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+			b.Transition.pResource = res;
+			b.Transition.StateBefore = from;
+			b.Transition.StateAfter = to;
+			b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+			cmd->ResourceBarrier(1, &b);
+		}
+
 		// -----------------------------------------------------------------------------
 		// Helpers internes a la registry (anonymes pour eviter polluer la classe)
 		// -----------------------------------------------------------------------------
@@ -539,7 +581,15 @@ namespace nkentseu {
 			// Implementation differee — stub installe pour preserver la
 			// consistance API.
 			NkShaderInstallUnsupportedBackend("DX12");
-			NkRenderTextureInstallUnsupportedBackend("DX12");
+			{
+				NkRenderTextureBackend rtb{};
+				rtb.Create = &NkDX12Renderer2D::CreateDX12RenderTexture;
+				rtb.Destroy = &NkDX12Renderer2D::DestroyDX12RenderTexture;
+				rtb.Bind = &NkDX12Renderer2D::BindDX12RenderTexture;
+				rtb.Unbind = &NkDX12Renderer2D::UnbindDX12RenderTexture;
+				rtb.GetColorTextureGPUId = &NkDX12Renderer2D::GetDX12RenderTextureColorId;
+				NkRenderTextureSetBackend(rtb);
+			}
 
 			mIsValid = true;
 			NK_DX12_2D_LOG("Initialized");
@@ -712,8 +762,13 @@ namespace nkentseu {
 
 		// =============================================================================
 		bool NkDX12Renderer2D::CreateBuffers() {
-			const UINT64 vbSize = (UINT64)kMaxVertices * sizeof(NkVertex2D);
-			const UINT64 ibSize = (UINT64)kMaxIndices * sizeof(uint32);
+			// Ring : capacité = plusieurs SubmitBatches par frame (sim + UI clippée =
+			// nombreux flushes). Chaque submit avance mVBHead/mIBHead (reset/frame).
+			static constexpr UINT64 kRingFactor = 8;
+			const UINT64 vbSize = (UINT64)kMaxVertices * sizeof(NkVertex2D) * kRingFactor;
+			const UINT64 ibSize = (UINT64)kMaxIndices * sizeof(uint32) * kRingFactor;
+			mVBSize = vbSize;
+			mIBSize = ibSize;
 
 			D3D12_HEAP_PROPERTIES hp{D3D12_HEAP_TYPE_UPLOAD};
 			auto MakeBuf = [&](UINT64 sz, ComPtr<ID3D12Resource> &out) -> bool {
@@ -967,8 +1022,12 @@ namespace nkentseu {
 				return;
 			math::NkColorF cf = col.ToColorF();
 			float fc[4] = {cf.r, cf.g, cf.b, cf.a};
-			const uint32 frame = d->currentBackBuffer;
-			d->cmdList->ClearRenderTargetView(d->rtvHandles[frame], fc, 0, nullptr);
+			// Si une render-texture offscreen est liee, on clear SA RTV ; sinon le back buffer.
+			if (gDX12RTRegistry.bound && gDX12RTRegistry.currentRTV.ptr) {
+				d->cmdList->ClearRenderTargetView(gDX12RTRegistry.currentRTV, fc, 0, nullptr);
+			} else {
+				d->cmdList->ClearRenderTargetView(d->rtvHandles[d->currentBackBuffer], fc, 0, nullptr);
+			}
 		}
 
 		// =============================================================================
@@ -987,6 +1046,19 @@ namespace nkentseu {
 				mCtx->BeginFrame();
 
 			mCmdList = d->cmdList;
+
+			// Expose la command list + la RTV back buffer courante au dispatch
+			// render-texture (Bind/Unbind operent sur cette command list).
+			gDX12RTRegistry.cmdList = mCmdList.Get();
+			gDX12RTRegistry.backbufferRTV = d->rtvHandles[d->currentBackBuffer];
+			gDX12RTRegistry.bound = false;
+
+			// NB : on NE remet PAS mVBHead/mIBHead à 0 ici. Le ring est CONTINU sur
+			// plusieurs frames : DX12 a des frames « in flight » (2-3 back buffers) ;
+			// remettre à 0 chaque frame ferait écrire la frame N à l'offset 0 pendant
+			// que le GPU lit encore la frame N-1 au même endroit → CLIGNOTEMENT /
+			// positions qui sautent. On avance toujours et on wrap (ring assez grand
+			// pour que la zone réécrite soit largement terminée côté GPU).
 
 			// Le PSO 2D a DSVFormat=UNKNOWN (pas de depth). BeginFrame() a bind
 			// RTV+DSV ; on REBIND la RTV SEULE (DSV null) pour matcher le PSO. Sinon
@@ -1018,8 +1090,33 @@ namespace nkentseu {
 			if (!mIsValid || !mCmdList || !vCount || !iCount)
 				return;
 
-			memcpy(mVBMap, verts, vCount * sizeof(NkVertex2D));
-			memcpy(mIBMap, idx, iCount * sizeof(uint32));
+			// ── Ring : écrit CE submit à un offset qui avance (jamais à 0 systématique,
+			// sinon les submits suivants de la MÊME frame écraseraient celui-ci avant
+			// que le GPU ne l'exécute au Present). Wrap de sécurité si dépassement.
+			const UINT64 vbBytes = (UINT64)vCount * sizeof(NkVertex2D);
+			const UINT64 ibBytes = (UINT64)iCount * sizeof(uint32);
+			if (mVBHead + vbBytes > mVBSize)
+				mVBHead = 0;
+			if (mIBHead + ibBytes > mIBSize)
+				mIBHead = 0;
+			memcpy((uint8 *)mVBMap + mVBHead, verts, vbBytes);
+			memcpy((uint8 *)mIBMap + mIBHead, idx, ibBytes);
+
+			// Vues liées sur le SOUS-INTERVALLE de ce submit (offsets 4-alignés :
+			// stride 20 et index 4 octets). indexStart des groupes reste relatif à ce
+			// sous-buffer ; baseVertex = 0.
+			D3D12_VERTEX_BUFFER_VIEW vbv{};
+			vbv.BufferLocation = mVB->GetGPUVirtualAddress() + mVBHead;
+			vbv.SizeInBytes = (UINT)vbBytes;
+			vbv.StrideInBytes = (UINT)sizeof(NkVertex2D);
+			D3D12_INDEX_BUFFER_VIEW ibv{};
+			ibv.BufferLocation = mIB->GetGPUVirtualAddress() + mIBHead;
+			ibv.SizeInBytes = (UINT)ibBytes;
+			ibv.Format = DXGI_FORMAT_R32_UINT;
+			mCmdList->IASetVertexBuffers(0, 1, &vbv);
+			mCmdList->IASetIndexBuffer(&ibv);
+			mVBHead += vbBytes;
+			mIBHead += ibBytes;
 
 			// Viewport + scissor
 			D3D12_VIEWPORT vp{
@@ -1084,6 +1181,139 @@ namespace nkentseu {
 		// =============================================================================
 		void NkDX12Renderer2D::UploadProjection(const float32 proj[16]) {
 			memcpy(mProjection, proj, 64);
+		}
+
+
+		// =============================================================================
+		// Dispatch NkRenderTexture (offscreen) — resource RENDER_TARGET + RTV (heap
+		// dediee) + SRV (mSRVHeap) pour sampler. Bind/Unbind transitionnent l'etat et
+		// basculent l'OMSetRenderTargets sur la command list courante.
+		// =============================================================================
+		uint32 NkDX12Renderer2D::CreateDX12RenderTexture(uint32 w, uint32 h) {
+			ID3D12Device *dev = gDX12Registry.device;
+			if (!dev || w == 0 || h == 0)
+				return 0;
+			if (!gDX12Registry.nextSrvSlot || *gDX12Registry.nextSrvSlot >= gDX12Registry.srvHeapMaxSlots)
+				return 0;
+
+			// Heap RTV dediee (lazy).
+			if (!gDX12RTRegistry.rtvHeap) {
+				D3D12_DESCRIPTOR_HEAP_DESC hd{};
+				hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+				hd.NumDescriptors = 16;
+				hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+				if (FAILED(dev->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&gDX12RTRegistry.rtvHeap))))
+					return 0;
+				gDX12RTRegistry.rtvStride = dev->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+			}
+			if (gDX12RTRegistry.nextRtvSlot >= 16)
+				return 0;
+
+			// Resource RENDER_TARGET (etat initial = PIXEL_SHADER_RESOURCE, symetrique
+			// avec Bind PSR->RT / Unbind RT->PSR).
+			D3D12_HEAP_PROPERTIES hp{D3D12_HEAP_TYPE_DEFAULT};
+			D3D12_RESOURCE_DESC rd{};
+			rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+			rd.Width = w;
+			rd.Height = h;
+			rd.DepthOrArraySize = 1;
+			rd.MipLevels = 1;
+			rd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			rd.SampleDesc.Count = 1;
+			rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+			D3D12_CLEAR_VALUE cv{};
+			cv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			ID3D12Resource *res = nullptr;
+			if (FAILED(dev->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+													D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &cv, IID_PPV_ARGS(&res))))
+				return 0;
+
+			// RTV.
+			D3D12_CPU_DESCRIPTOR_HANDLE rtv = gDX12RTRegistry.rtvHeap->GetCPUDescriptorHandleForHeapStart();
+			rtv.ptr += (uint64)gDX12RTRegistry.nextRtvSlot * gDX12RTRegistry.rtvStride;
+			dev->CreateRenderTargetView(res, nullptr, rtv);
+			const uint32 rtvSlot = gDX12RTRegistry.nextRtvSlot++;
+			(void)rtvSlot;
+
+			// SRV dans mSRVHeap (slot alloue via nextSrvSlot).
+			const uint32 srvSlot = (*gDX12Registry.nextSrvSlot)++;
+			D3D12_SHADER_RESOURCE_VIEW_DESC sd{};
+			sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+			sd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+			sd.Texture2D.MipLevels = 1;
+			{
+				D3D12_CPU_DESCRIPTOR_HANDLE sh = gDX12Registry.srvHeap->GetCPUDescriptorHandleForHeapStart();
+				sh.ptr += (uint64)srvSlot * gDX12Registry.srvHeapStride;
+				dev->CreateShaderResourceView(res, &sd, sh);
+			}
+
+			// Entry texture (resource=nullptr : possedee par l'entry RT, pas de double release).
+			NkDX12TextureEntry *te = nkentseu::memory::NkGetDefaultAllocator().New<NkDX12TextureEntry>();
+			te->resource = nullptr;
+			te->srvIndex = srvSlot;
+			te->width = w;
+			te->height = h;
+			te->alive = true;
+			gDX12Registry.entries.PushBack(te);
+			const uint32 texId = (uint32)gDX12Registry.entries.Size(); // 1-based
+
+			NkDX12RTEntry *rt = nkentseu::memory::NkGetDefaultAllocator().New<NkDX12RTEntry>();
+			rt->resource = res;
+			rt->rtv = rtv;
+			rt->textureId = texId;
+			rt->width = w;
+			rt->height = h;
+			rt->state = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+			gDX12RTRegistry.entries.PushBack(rt);
+			return (uint32)gDX12RTRegistry.entries.Size(); // handle 1-based
+		}
+
+		void NkDX12Renderer2D::DestroyDX12RenderTexture(uint32 handle) {
+			NkDX12RTEntry *rt = DX12_GetRT(handle);
+			if (!rt)
+				return;
+			if (rt->textureId && rt->textureId - 1 < gDX12Registry.entries.Size()) {
+				NkDX12TextureEntry *te = gDX12Registry.entries[rt->textureId - 1];
+				if (te)
+					te->alive = false; // resource possedee par l'entry RT (release ci-dessous)
+			}
+			if (rt->resource) {
+				rt->resource->Release();
+				rt->resource = nullptr;
+			}
+			nkentseu::memory::NkGetDefaultAllocator().Delete(rt);
+			gDX12RTRegistry.entries[handle - 1] = nullptr;
+		}
+
+		void NkDX12Renderer2D::BindDX12RenderTexture(uint32 handle) {
+			NkDX12RTEntry *rt = DX12_GetRT(handle);
+			if (!rt || !rt->resource || !gDX12RTRegistry.cmdList)
+				return;
+			DX12_Barrier(gDX12RTRegistry.cmdList, rt->resource, rt->state, D3D12_RESOURCE_STATE_RENDER_TARGET);
+			rt->state = D3D12_RESOURCE_STATE_RENDER_TARGET;
+			gDX12RTRegistry.cmdList->OMSetRenderTargets(1, &rt->rtv, FALSE, nullptr);
+			gDX12RTRegistry.currentRTV = rt->rtv;
+			gDX12RTRegistry.bound = true;
+			gBoundDX12RT = rt; // entry liee (pour Unbind : restaure l'etat)
+		}
+
+		void NkDX12Renderer2D::UnbindDX12RenderTexture() {
+			if (!gDX12RTRegistry.cmdList || !gBoundDX12RT)
+				return;
+			NkDX12RTEntry *rt = gBoundDX12RT;
+			DX12_Barrier(gDX12RTRegistry.cmdList, rt->resource, rt->state,
+						 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+			rt->state = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+			gDX12RTRegistry.cmdList->OMSetRenderTargets(1, &gDX12RTRegistry.backbufferRTV, FALSE, nullptr);
+			gDX12RTRegistry.bound = false;
+			gDX12RTRegistry.currentRTV = D3D12_CPU_DESCRIPTOR_HANDLE{};
+			gBoundDX12RT = nullptr;
+		}
+
+		uint32 NkDX12Renderer2D::GetDX12RenderTextureColorId(uint32 handle) {
+			NkDX12RTEntry *rt = DX12_GetRT(handle);
+			return rt ? rt->textureId : 0;
 		}
 
 	} // namespace renderer

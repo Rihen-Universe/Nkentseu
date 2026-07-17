@@ -65,13 +65,16 @@ with project("NKPA"):
 
     nkentseudependson(
         ["NKEvent", "NKWindow", "NKGlad", "NKLogger",
-         "NKMath", "NKTime", "NKStream",
+         "NKMath", "NKTime", "NKStream", "NKFileSystem",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading",
-         "NKRHI", "NKUI", "NKGLSlang", "NKSPIRVCross"],
-        extra_includes=["src", "%{NKGlad.location}/include"]
+         "NKRHI", "NKCanvas", "NKUI", "NKGui", "NKFont", "NKImage", "NKGLSlang", "NKSPIRVCross"],
+        extra_includes=["src", "%{NKGlad.location}/include", "%{wks.location}/Integrations"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
         extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"],
     )
+
+    # Backend UI NKGui->NKRHI officiel (lib d'intégration, battle-testé tous backends).
+    dependson(["NKGuiIntegration"])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")

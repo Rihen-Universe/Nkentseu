@@ -73,13 +73,23 @@ namespace nkentseu {
 				ComPtr<ID3D12PipelineState> mPSOMul;
 				ComPtr<ID3D12PipelineState> mPSONone;
 
-				// Dynamic vertex/index buffers (host-visible upload heap)
+				// Dynamic vertex/index buffers (host-visible upload heap), utilisés en
+				// RING par frame : chaque SubmitBatches écrit à un offset qui AVANCE
+				// (mVBHead/mIBHead), remis à 0 en BeginBackend. Indispensable en DX12 :
+				// la command list est EXÉCUTÉE en différé (au Present), donc plusieurs
+				// SubmitBatches par frame qui écriraient tous à l'offset 0 se
+				// écraseraient mutuellement (tous les draws liraient la dernière copie
+				// → fantômes). DX11 (contexte immédiat) n'a pas ce problème.
 				ComPtr<ID3D12Resource> mVB;
 				ComPtr<ID3D12Resource> mIB;
 				void *mVBMap = nullptr;
 				void *mIBMap = nullptr;
 				D3D12_VERTEX_BUFFER_VIEW mVBView{};
 				D3D12_INDEX_BUFFER_VIEW mIBView{};
+				UINT64 mVBSize = 0;  // capacité ring VB en octets
+				UINT64 mIBSize = 0;  // capacité ring IB en octets
+				UINT64 mVBHead = 0;  // tête d'écriture VB (octets) — reset/frame
+				UINT64 mIBHead = 0;  // tête d'écriture IB (octets) — reset/frame
 
 				// SRV descriptor heap (one entry per texture + 1 for white)
 				ComPtr<ID3D12DescriptorHeap> mSRVHeap;
@@ -128,6 +138,15 @@ namespace nkentseu {
 				static void DeleteDX12Texture(uint32 id);
 				static void SetDX12TextureFilter(uint32 id, NkTextureFilter f);
 				static void SetDX12TextureWrap(uint32 id, NkTextureWrap w);
+
+				// ── Dispatch NkRenderTexture (offscreen : resource RT + RTV heap + SRV) ─
+				// Bind transitionne PSR->RT + OMSetRenderTargets(offscreen) sur la command
+				// list courante ; Unbind transitionne RT->PSR + restaure le back buffer.
+				static uint32 CreateDX12RenderTexture(uint32 w, uint32 h);
+				static void DestroyDX12RenderTexture(uint32 handle);
+				static void BindDX12RenderTexture(uint32 handle);
+				static void UnbindDX12RenderTexture();
+				static uint32 GetDX12RenderTextureColorId(uint32 handle);
 		};
 
 	} // namespace renderer

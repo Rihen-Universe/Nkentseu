@@ -14,6 +14,8 @@ namespace nkentseu {
 
 		using namespace math;
 
+		class NKIViewport; // conversion pixels → NDC consciente du backend
+
 		// ─── Constantes ───────────────────────────────────────────────────────────────
 
 		static constexpr float32 PA_PI = 3.14159265358979323846f;
@@ -67,8 +69,9 @@ namespace nkentseu {
 				bool IsEmpty() const;
 				int32 VertexCount() const;
 
-				// Construit le buffer de sommets en espace NDC (converti depuis pixels)
-				NkVector<PaVertex> BuildNDC(float32 screenW, float32 screenH) const;
+				// Construit le buffer de sommets en NDC via le viewport (gère le
+				// mapping pixels → NDC + la convention Y du backend).
+				NkVector<PaVertex> BuildNDC(const NKIViewport &viewport) const;
 
 				// Accès direct (en pixels)
 				const NkVector<PaVertex> &RawPixels() const {

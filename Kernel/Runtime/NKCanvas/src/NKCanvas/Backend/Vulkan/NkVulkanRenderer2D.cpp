@@ -89,6 +89,50 @@ namespace nkentseu {
 
 		static NkVulkanTextureRegistry gVkTexRegistry;
 
+		// ── Render-texture offscreen : image color (swapFormat) + framebuffer sur le
+		// render pass swapchain (reutilise le depthView), barrier -> SHADER_READ pour sampler.
+		struct NkVkRTEntry {
+				VkImage image = VK_NULL_HANDLE;
+				VkDeviceMemory memory = VK_NULL_HANDLE;
+				VkImageView view = VK_NULL_HANDLE;
+				// Depth PROPRE à la RT (pas le depth swapchain) : sinon un RecreateSwapchain
+				// ultérieur détruirait ce depth et le framebuffer RT pointerait sur une
+				// vue morte → crash au prochain vkCmdBeginRenderPass offscreen.
+				VkImage depthImage = VK_NULL_HANDLE;
+				VkDeviceMemory depthMem = VK_NULL_HANDLE;
+				VkImageView depthView = VK_NULL_HANDLE;
+				VkFramebuffer framebuffer = VK_NULL_HANDLE;
+				uint32 texId = 0; // index dans gVkTexRegistry.entries (pour sampler)
+				uint32 width = 0, height = 0;
+		};
+
+		// Choix du format depth (même logique que NkVulkanContext::FindDepthFormat, pour
+		// que le framebuffer RT soit compatible avec le render pass swapchain).
+		static VkFormat Vk_RTPickDepthFormat(VkPhysicalDevice phys) {
+			const VkFormat cands[] = {VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D32_SFLOAT};
+			for (VkFormat f : cands) {
+				VkFormatProperties props;
+				vkGetPhysicalDeviceFormatProperties(phys, f, &props);
+				if (props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+					return f;
+			}
+			return VK_FORMAT_D24_UNORM_S8_UINT;
+		}
+
+		static struct {
+				NkVulkanContextData *vk = nullptr; // pose a Initialize
+				VkCommandBuffer cmd = VK_NULL_HANDLE; // MAJ chaque BeginBackend
+				bool bound = false;
+				NkVkRTEntry *boundEntry = nullptr;
+				NkVector<NkVkRTEntry *> entries;
+		} gVkRTRegistry;
+
+		static NkVkRTEntry *Vk_GetRT(uint32 handle) {
+			if (handle == 0 || handle > gVkRTRegistry.entries.Size())
+				return nullptr;
+			return gVkRTRegistry.entries[handle - 1];
+		}
+
 		// ── Helpers internes (anonymes au TU) ─────────────────────────────────────
 		namespace {
 
@@ -506,7 +550,16 @@ namespace nkentseu {
 			// pour preserver la consistance API (NkShader::Compile retourne
 			// false sur Vulkan tant que le pipeline-cache user n'est pas la).
 			NkShaderInstallUnsupportedBackend("Vulkan");
-			NkRenderTextureInstallUnsupportedBackend("Vulkan");
+			{
+				gVkRTRegistry.vk = mVkData;
+				NkRenderTextureBackend rtb{};
+				rtb.Create = &NkVulkanRenderer2D::CreateVulkanRenderTexture;
+				rtb.Destroy = &NkVulkanRenderer2D::DestroyVulkanRenderTexture;
+				rtb.Bind = &NkVulkanRenderer2D::BindVulkanRenderTexture;
+				rtb.Unbind = &NkVulkanRenderer2D::UnbindVulkanRenderTexture;
+				rtb.GetColorTextureGPUId = &NkVulkanRenderer2D::GetVulkanRenderTextureColorId;
+				NkRenderTextureSetBackend(rtb);
+			}
 
 			mIsValid = true;
 			NK_VK2D_LOG("Initialized");
@@ -825,8 +878,12 @@ namespace nkentseu {
 
 		// =============================================================================
 		bool NkVulkanRenderer2D::CreateBuffers() {
-			constexpr VkDeviceSize vbSize = (VkDeviceSize)kMaxVertices * sizeof(NkVertex2D);
-			constexpr VkDeviceSize ibSize = (VkDeviceSize)kMaxIndices * sizeof(uint32);
+			// Ring : capacité = plusieurs SubmitBatches par frame (sim + UI clippée).
+			constexpr VkDeviceSize kRingFactor = 8;
+			constexpr VkDeviceSize vbSize = (VkDeviceSize)kMaxVertices * sizeof(NkVertex2D) * kRingFactor;
+			constexpr VkDeviceSize ibSize = (VkDeviceSize)kMaxIndices * sizeof(uint32) * kRingFactor;
+			mVBSize = vbSize;
+			mIBSize = ibSize;
 
 			const VkMemoryPropertyFlags hostVis =
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
@@ -1038,8 +1095,18 @@ namespace nkentseu {
 		// BeginFrame() peut retourner false (minimise/resize) : isAcquire protege
 		// alors EndFrame()/Present(), et SubmitBatches skip sur cmd null.
 		void NkVulkanRenderer2D::BeginBackend() {
-			if (mCtx)
-				mCtx->BeginFrame();
+			// NB : on NE remet PAS mVBHead/mIBHead à 0 ici. Ring CONTINU sur plusieurs
+			// frames : Vulkan a des frames « in flight » ; remettre à 0 chaque frame
+			// ferait écrire la frame N à l'offset 0 pendant que le GPU lit encore la
+			// frame N-1 → clignotement. On avance toujours et on wrap.
+			// IMPORTANT : capturer le retour de BeginFrame(). S'il ECHOUE (minimise /
+			// swapchain out-of-date au redimensionnement), AUCUN render pass n'est
+			// ouvert. On met alors gVkRTRegistry.cmd = null pour que Bind/Unbind NE
+			// fassent PAS de vkCmdEndRenderPass (sinon crash : fin d'un render pass
+			// jamais commence). Sinon on expose la command buffer au dispatch RT.
+			const bool frameOk = mCtx ? mCtx->BeginFrame() : false;
+			gVkRTRegistry.cmd = frameOk ? NkNativeContext::GetVkCurrentCommandBuffer(mCtx) : VK_NULL_HANDLE;
+			gVkRTRegistry.bound = false;
 		}
 
 		void NkVulkanRenderer2D::EndBackend() {
@@ -1066,8 +1133,9 @@ namespace nkentseu {
 			if (!tex || !tex->IsValid())
 				return mWhiteSet;
 
+			const uint32 texGpuId = tex->GetGPUId();
 			for (const auto &e : mTexDescCache) {
-				if (e.texture == tex)
+				if (e.texture == tex && e.gpuId == texGpuId)
 					return e.set;
 			}
 
@@ -1100,7 +1168,7 @@ namespace nkentseu {
 			wd.pImageInfo = &dii;
 			vkUpdateDescriptorSets(mVkData->device, 1, &wd, 0, nullptr);
 
-			TexDescEntry entry{tex, ds};
+			TexDescEntry entry{tex, texGpuId, ds};
 			mTexDescCache.PushBack(entry);
 			return ds;
 		}
@@ -1111,13 +1179,30 @@ namespace nkentseu {
 			if (!mIsValid || !vCount || !iCount)
 				return;
 
-			VkCommandBuffer cmd = NkNativeContext::GetVkCurrentCommandBuffer(mCtx);
+			// On utilise la command buffer EXPOSÉE par BeginBackend (null si BeginFrame
+			// a échoué : minimisé / swapchain out-of-date au redimensionnement). NB :
+			// GetVkCurrentCommandBuffer() renvoie la command buffer PERSISTANTE (jamais
+			// null) même si la frame n'a PAS été démarrée → enregistrer dedans (pas
+			// d'état "recording", pas de render pass) = SIGSEGV driver au resize. Le
+			// garde sur gVkRTRegistry.cmd rend SubmitBatches sûr sur les frames ratées.
+			VkCommandBuffer cmd = gVkRTRegistry.cmd;
 			if (!cmd)
 				return;
 
-			// Upload to persistently mapped buffers
-			memcpy(mVBMap, verts, vCount * sizeof(NkVertex2D));
-			memcpy(mIBMap, idx, iCount * sizeof(uint32));
+			// ── Ring : écrit CE submit à un offset qui avance (sinon les submits
+			// suivants de la MÊME frame l'écraseraient avant l'exécution au present).
+			const VkDeviceSize vbBytes = (VkDeviceSize)vCount * sizeof(NkVertex2D);
+			const VkDeviceSize ibBytes = (VkDeviceSize)iCount * sizeof(uint32);
+			if (mVBHead + vbBytes > mVBSize)
+				mVBHead = 0;
+			if (mIBHead + ibBytes > mIBSize)
+				mIBHead = 0;
+			const VkDeviceSize vbOff = mVBHead;
+			const VkDeviceSize ibOff = mIBHead;
+			memcpy((uint8 *)mVBMap + vbOff, verts, (size_t)vbBytes);
+			memcpy((uint8 *)mIBMap + ibOff, idx, (size_t)ibBytes);
+			mVBHead += vbBytes;
+			mIBHead += ibBytes;
 
 			// Viewport + scissor.
 			// Y-FLIP Vulkan : le NDC Vulkan a +Y vers le BAS (inverse d'OpenGL).
@@ -1152,9 +1237,11 @@ namespace nkentseu {
 			vkCmdSetViewport(cmd, 0, 1, &vp);
 			vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-			VkDeviceSize offsets[] = {0};
+			// Lie le SOUS-INTERVALLE de ce submit : indexStart des groupes reste
+			// relatif à ibOff, baseVertex = 0 relatif à vbOff.
+			VkDeviceSize offsets[] = {vbOff};
 			vkCmdBindVertexBuffers(cmd, 0, 1, &mVB, offsets);
-			vkCmdBindIndexBuffer(cmd, mIB, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdBindIndexBuffer(cmd, mIB, ibOff, VK_INDEX_TYPE_UINT32);
 
 			// Push projection constant
 			vkCmdPushConstants(cmd, mPipeLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, 64, mProjection);
@@ -1179,6 +1266,257 @@ namespace nkentseu {
 		// =============================================================================
 		void NkVulkanRenderer2D::UploadProjection(const float32 proj[16]) {
 			memcpy(mProjection, proj, 64);
+		}
+
+
+		// =============================================================================
+		// Dispatch NkRenderTexture (offscreen) - image color (swapFormat) + framebuffer
+		// sur le render pass swapchain (reutilise le depthView : RT <= fenetre).
+		// Bind : end render pass swapchain -> begin render pass offscreen.
+		// Unbind : end offscreen -> barrier COLOR->SHADER_READ -> re-begin swapchain.
+		// =============================================================================
+		uint32 NkVulkanRenderer2D::CreateVulkanRenderTexture(uint32 w, uint32 h) {
+			NkVulkanContextData *vk = gVkRTRegistry.vk;
+			if (!vk || !vk->device || w == 0 || h == 0)
+				return 0;
+			VkDevice dev = vk->device;
+
+			VkImageCreateInfo ici{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+			ici.imageType = VK_IMAGE_TYPE_2D;
+			ici.format = vk->swapFormat;
+			ici.extent = {w, h, 1};
+			ici.mipLevels = 1;
+			ici.arrayLayers = 1;
+			ici.samples = VK_SAMPLE_COUNT_1_BIT;
+			ici.tiling = VK_IMAGE_TILING_OPTIMAL;
+			ici.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+			ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			VkImage image = VK_NULL_HANDLE;
+			if (vkCreateImage(dev, &ici, nullptr, &image) != VK_SUCCESS)
+				return 0;
+			VkMemoryRequirements req;
+			vkGetImageMemoryRequirements(dev, image, &req);
+			uint32 memType = 0;
+			if (!VkTexFindMemoryType(vk->physicalDevice, req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, memType)) {
+				vkDestroyImage(dev, image, nullptr);
+				return 0;
+			}
+			VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, nullptr, req.size, memType};
+			VkDeviceMemory mem = VK_NULL_HANDLE;
+			if (vkAllocateMemory(dev, &ai, nullptr, &mem) != VK_SUCCESS) {
+				vkDestroyImage(dev, image, nullptr);
+				return 0;
+			}
+			vkBindImageMemory(dev, image, mem, 0);
+
+			VkImageViewCreateInfo ivci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+			ivci.image = image;
+			ivci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			ivci.format = vk->swapFormat;
+			ivci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+			VkImageView view = VK_NULL_HANDLE;
+			if (vkCreateImageView(dev, &ivci, nullptr, &view) != VK_SUCCESS) {
+				vkFreeMemory(dev, mem, nullptr);
+				vkDestroyImage(dev, image, nullptr);
+				return 0;
+			}
+
+			// ── Depth PROPRE à la RT (décorrélé du depth swapchain) ────────────────
+			const VkFormat depthFmt = Vk_RTPickDepthFormat(vk->physicalDevice);
+			VkImageCreateInfo dci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+			dci.imageType = VK_IMAGE_TYPE_2D;
+			dci.format = depthFmt;
+			dci.extent = {w, h, 1};
+			dci.mipLevels = 1;
+			dci.arrayLayers = 1;
+			dci.samples = VK_SAMPLE_COUNT_1_BIT;
+			dci.tiling = VK_IMAGE_TILING_OPTIMAL;
+			dci.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+			dci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			VkImage depthImage = VK_NULL_HANDLE;
+			VkDeviceMemory depthMem = VK_NULL_HANDLE;
+			VkImageView depthView = VK_NULL_HANDLE;
+			auto cleanupColor = [&]() {
+				vkDestroyImageView(dev, view, nullptr);
+				vkFreeMemory(dev, mem, nullptr);
+				vkDestroyImage(dev, image, nullptr);
+			};
+			if (vkCreateImage(dev, &dci, nullptr, &depthImage) != VK_SUCCESS) {
+				cleanupColor();
+				return 0;
+			}
+			VkMemoryRequirements dreq;
+			vkGetImageMemoryRequirements(dev, depthImage, &dreq);
+			uint32 dMemType = 0;
+			if (!VkTexFindMemoryType(vk->physicalDevice, dreq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+									 dMemType)) {
+				vkDestroyImage(dev, depthImage, nullptr);
+				cleanupColor();
+				return 0;
+			}
+			VkMemoryAllocateInfo dai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, nullptr, dreq.size, dMemType};
+			if (vkAllocateMemory(dev, &dai, nullptr, &depthMem) != VK_SUCCESS) {
+				vkDestroyImage(dev, depthImage, nullptr);
+				cleanupColor();
+				return 0;
+			}
+			vkBindImageMemory(dev, depthImage, depthMem, 0);
+			VkImageAspectFlags dAspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+			if (depthFmt == VK_FORMAT_D32_SFLOAT_S8_UINT || depthFmt == VK_FORMAT_D24_UNORM_S8_UINT)
+				dAspect |= VK_IMAGE_ASPECT_STENCIL_BIT;
+			VkImageViewCreateInfo dvci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+			dvci.image = depthImage;
+			dvci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			dvci.format = depthFmt;
+			dvci.subresourceRange = {dAspect, 0, 1, 0, 1};
+			if (vkCreateImageView(dev, &dvci, nullptr, &depthView) != VK_SUCCESS) {
+				vkFreeMemory(dev, depthMem, nullptr);
+				vkDestroyImage(dev, depthImage, nullptr);
+				cleanupColor();
+				return 0;
+			}
+
+			VkImageView atts[] = {view, depthView};
+			VkFramebufferCreateInfo fci{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+			fci.renderPass = vk->renderPass;
+			fci.attachmentCount = 2;
+			fci.pAttachments = atts;
+			fci.width = w;
+			fci.height = h;
+			fci.layers = 1;
+			VkFramebuffer fb = VK_NULL_HANDLE;
+			if (vkCreateFramebuffer(dev, &fci, nullptr, &fb) != VK_SUCCESS) {
+				vkDestroyImageView(dev, depthView, nullptr);
+				vkFreeMemory(dev, depthMem, nullptr);
+				vkDestroyImage(dev, depthImage, nullptr);
+				cleanupColor();
+				return 0;
+			}
+
+			// Entry texture (view) pour le sampling via GetOrCreateDescSet.
+			auto &entries = gVkTexRegistry.entries;
+			if (entries.Empty())
+				entries.PushBack(NkVulkanTextureEntry{});
+			NkVulkanTextureEntry te{};
+			te.width = w;
+			te.height = h;
+			te.image = image;
+			te.memory = VK_NULL_HANDLE; // possedee par l entry RT
+			te.view = view;
+			uint32 texId = 0;
+			for (uint32 i = 1; i < (uint32)entries.Size(); ++i) {
+				if (entries[i].image == VK_NULL_HANDLE) {
+					entries[i] = te;
+					texId = i;
+					break;
+				}
+			}
+			if (!texId) {
+				entries.PushBack(te);
+				texId = (uint32)entries.Size() - 1;
+			}
+
+			NkVkRTEntry *rt = nkentseu::memory::NkGetDefaultAllocator().New<NkVkRTEntry>();
+			rt->image = image;
+			rt->memory = mem;
+			rt->view = view;
+			rt->depthImage = depthImage;
+			rt->depthMem = depthMem;
+			rt->depthView = depthView;
+			rt->framebuffer = fb;
+			rt->texId = texId;
+			rt->width = w;
+			rt->height = h;
+			gVkRTRegistry.entries.PushBack(rt);
+			return (uint32)gVkRTRegistry.entries.Size();
+		}
+
+		void NkVulkanRenderer2D::DestroyVulkanRenderTexture(uint32 handle) {
+			NkVkRTEntry *rt = Vk_GetRT(handle);
+			if (!rt)
+				return;
+			NkVulkanContextData *vk = gVkRTRegistry.vk;
+			if (vk && vk->device) {
+				vkDeviceWaitIdle(vk->device);
+				if (rt->framebuffer)
+					vkDestroyFramebuffer(vk->device, rt->framebuffer, nullptr);
+				if (rt->view)
+					vkDestroyImageView(vk->device, rt->view, nullptr);
+				if (rt->image)
+					vkDestroyImage(vk->device, rt->image, nullptr);
+				if (rt->memory)
+					vkFreeMemory(vk->device, rt->memory, nullptr);
+				if (rt->depthView)
+					vkDestroyImageView(vk->device, rt->depthView, nullptr);
+				if (rt->depthImage)
+					vkDestroyImage(vk->device, rt->depthImage, nullptr);
+				if (rt->depthMem)
+					vkFreeMemory(vk->device, rt->depthMem, nullptr);
+			}
+			if (rt->texId && rt->texId < gVkTexRegistry.entries.Size()) {
+				gVkTexRegistry.entries[rt->texId].image = VK_NULL_HANDLE;
+				gVkTexRegistry.entries[rt->texId].view = VK_NULL_HANDLE;
+				gVkTexRegistry.entries[rt->texId].memory = VK_NULL_HANDLE;
+			}
+			nkentseu::memory::NkGetDefaultAllocator().Delete(rt);
+			gVkRTRegistry.entries[handle - 1] = nullptr;
+		}
+
+		void NkVulkanRenderer2D::BindVulkanRenderTexture(uint32 handle) {
+			NkVkRTEntry *rt = Vk_GetRT(handle);
+			VkCommandBuffer cmd = gVkRTRegistry.cmd;
+			if (!rt || !cmd || !gVkRTRegistry.vk)
+				return;
+			vkCmdEndRenderPass(cmd);
+			VkClearValue cv[2]{};
+			cv[1].depthStencil = {1.0f, 0};
+			VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+			rp.renderPass = gVkRTRegistry.vk->renderPass;
+			rp.framebuffer = rt->framebuffer;
+			rp.renderArea.offset = {0, 0};
+			rp.renderArea.extent = {rt->width, rt->height};
+			rp.clearValueCount = 2;
+			rp.pClearValues = cv;
+			vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+			gVkRTRegistry.bound = true;
+			gVkRTRegistry.boundEntry = rt;
+		}
+
+		void NkVulkanRenderer2D::UnbindVulkanRenderTexture() {
+			VkCommandBuffer cmd = gVkRTRegistry.cmd;
+			NkVulkanContextData *vk = gVkRTRegistry.vk;
+			NkVkRTEntry *rt = gVkRTRegistry.boundEntry;
+			if (!cmd || !vk || !rt)
+				return;
+			vkCmdEndRenderPass(cmd);
+			VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+			b.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+			b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			b.image = rt->image;
+			b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+			b.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+								 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
+			VkClearValue cv[2]{};
+			cv[1].depthStencil = {1.0f, 0};
+			VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+			rp.renderPass = vk->renderPass;
+			rp.framebuffer = vk->framebuffers[vk->currentImageIndex];
+			rp.renderArea.offset = {0, 0};
+			rp.renderArea.extent = vk->swapExtent;
+			rp.clearValueCount = 2;
+			rp.pClearValues = cv;
+			vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+			gVkRTRegistry.bound = false;
+			gVkRTRegistry.boundEntry = nullptr;
+		}
+
+		uint32 NkVulkanRenderer2D::GetVulkanRenderTextureColorId(uint32 handle) {
+			NkVkRTEntry *rt = Vk_GetRT(handle);
+			return rt ? rt->texId : 0;
 		}
 
 	} // namespace renderer
