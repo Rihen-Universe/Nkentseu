@@ -266,35 +266,24 @@ namespace nkentseu {
 			}
 
 			// Contexte de décodage d'une image (plans + grilles de voisinage).
-			struct DecCtx {
-					uint8 *Y = nullptr, *Cb = nullptr, *Cr = nullptr;
-					int32 lumaW = 0, lumaH = 0, chromaW = 0, chromaH = 0;
-					int32 mbW = 0, mbH = 0;
-					int32 nzW = 0, cnzW = 0;
-					int32 *lumaNz = nullptr, *chromaNz0 = nullptr, *chromaNz1 = nullptr, *i4mode = nullptr;
-					int32 qp = 26;
-					int32 chromaQpOffset = 0;
-					// Inter (P-slice) : LISTE de plans de référence (RefPicList0, multi-référence) + grilles
-					// MV/ref PAR BLOC 4x4. ref4 : -2 non décodé, -1 intra, >=0 = index dans la liste de réf.
-					const uint8 *refListY[16] = {nullptr};
-					const uint8 *refListCb[16] = {nullptr};
-					const uint8 *refListCr[16] = {nullptr};
-					int32 numRefs = 0;		// nombre de références disponibles (taille RefPicList0)
-					int32 numRefActive = 1; // num_ref_idx_l0_active (PPS default / override slice)
-					// Compat : refY/refCb/refCr = refListY[0] (référence la plus récente).
-					const uint8 *refY = nullptr, *refCb = nullptr, *refCr = nullptr;
+			// UNE liste de references (RefPicList0 ou RefPicList1) : les plans, les poids explicites
+			// associes a chaque index, et l'etat de mouvement decode CONTRE cette liste.
+			// Les P n'utilisent que L[0] ; les B utilisent les deux et moyennent les deux predictions.
+			struct RefList {
+					const uint8 *y[16] = {nullptr};
+					const uint8 *cb[16] = {nullptr};
+					const uint8 *cr[16] = {nullptr};
+					int32 numRefs = 0;		// taille de la liste
+					int32 numRefActive = 1; // num_ref_idx_lX_active (PPS default / override slice)
+					// Grilles PAR BLOC 4x4. ref4 : -2 non decode, -1 intra/non utilise, >=0 = index dans
+					// cette liste. mvd4 : |mvd| borne a 70 (CABAC, ctxIdxInc de mvd §9.3.3.1.1.7).
 					int32 *mvx4 = nullptr, *mvy4 = nullptr, *ref4 = nullptr;
-					// CABAC uniquement : |mvd| par bloc 4x4 (borne a 70), pour le ctxIdxInc de mvd
-					// (§9.3.3.1.1.7 : amvd = |mvd_A| + |mvd_B|). 0 pour intra/skip/indisponible.
 					int32 *mvdx4 = nullptr, *mvdy4 = nullptr;
-					// Prediction ponderee EXPLICITE (§8.4.2.3), slices P/SP quand weighted_pred_flag=1
-					// (x264 l'active par defaut en profil Main : "weightp"). Poids par index de reference.
-					int32 weightedPred = 0;
-					int32 lumaLog2Denom = 0, chromaLog2Denom = 0;
+					// Poids EXPLICITES (§8.4.2.3) par index de reference. Neutres par defaut.
 					int32 lumaWeight[16], lumaOffset[16];
 					int32 chromaWeight[16][2], chromaOffset[16][2];
 
-					DecCtx() {
+					RefList() {
 						for (int32 i = 0; i < 16; ++i) {
 							lumaWeight[i] = 1;
 							lumaOffset[i] = 0;
@@ -306,6 +295,21 @@ namespace nkentseu {
 					}
 			};
 
+			struct DecCtx {
+					uint8 *Y = nullptr, *Cb = nullptr, *Cr = nullptr;
+					int32 lumaW = 0, lumaH = 0, chromaW = 0, chromaH = 0;
+					int32 mbW = 0, mbH = 0;
+					int32 nzW = 0, cnzW = 0;
+					int32 *lumaNz = nullptr, *chromaNz0 = nullptr, *chromaNz1 = nullptr, *i4mode = nullptr;
+					int32 qp = 26;
+					int32 chromaQpOffset = 0;
+					// L[0] = RefPicList0 (P et B), L[1] = RefPicList1 (B seulement).
+					RefList L[2];
+					// Ponderation explicite : active + denominateurs (communs aux deux listes).
+					int32 weightedPred = 0;
+					int32 lumaLog2Denom = 0, chromaLog2Denom = 0;
+			};
+
 			// §8.4.2.3.2 : applique la ponderation explicite a un echantillon predit.
 			//   logWD >= 1 : Clip1(((pred * w + 2^(logWD-1)) >> logWD) + o)
 			//   logWD == 0 : Clip1(pred * w + o)
@@ -315,14 +319,14 @@ namespace nkentseu {
 			}
 
 			// MC luma quart-pel (§8.4.2.2.1) d'un rectangle w×h -> écrit dans predY[16*16] à (ox,oy).
-			void McLumaRect(const DecCtx &c, int32 dx, int32 dy, int32 ox, int32 oy, int32 w, int32 h, int32 mvx,
+			void McLumaRect(const DecCtx &c, const RefList &L, int32 dx, int32 dy, int32 ox, int32 oy, int32 w, int32 h, int32 mvx,
 							int32 mvy, uint8 predY[256], int32 refIdx = 0) {
 				const int32 W = c.lumaW, H = c.lumaH;
 				if (refIdx < 0)
 					refIdx = 0;
-				if (refIdx >= c.numRefs)
-					refIdx = c.numRefs > 0 ? c.numRefs - 1 : 0;
-				const uint8 *ref = c.refListY[refIdx];
+				if (refIdx >= L.numRefs)
+					refIdx = L.numRefs > 0 ? L.numRefs - 1 : 0;
+				const uint8 *ref = L.y[refIdx];
 				auto R = [&](int32 x, int32 y) -> int32 {
 					x = x < 0 ? 0 : (x >= W ? W - 1 : x);
 					y = y < 0 ? 0 : (y >= H ? H - 1 : y);
@@ -366,19 +370,19 @@ namespace nkentseu {
 							default: v = (Hh(ix + 1, iy) + Bh(ix, iy + 1) + 1) >> 1; break;
 						}
 						if (c.weightedPred)
-							v = ApplyWeight(v, c.lumaWeight[refIdx], c.lumaOffset[refIdx], c.lumaLog2Denom);
+							v = ApplyWeight(v, L.lumaWeight[refIdx], L.lumaOffset[refIdx], c.lumaLog2Denom);
 						predY[(oy + y) * 16 + (ox + x)] = (uint8)v;
 					}
 			}
 
 			// MC chroma 1/8-pel bilinéaire (§8.4.2.2.2) d'un rectangle cw×ch -> cPred[64] à (ox,oy).
-			void McChromaRect(const DecCtx &c, int32 comp, int32 dx, int32 dy, int32 ox, int32 oy, int32 cw, int32 ch,
+			void McChromaRect(const DecCtx &c, const RefList &L, int32 comp, int32 dx, int32 dy, int32 ox, int32 oy, int32 cw, int32 ch,
 							  int32 mvx, int32 mvy, uint8 cPred[64], int32 refIdx = 0) {
 				if (refIdx < 0)
 					refIdx = 0;
-				if (refIdx >= c.numRefs)
-					refIdx = c.numRefs > 0 ? c.numRefs - 1 : 0;
-				const uint8 *ref = (comp == 0) ? c.refListCb[refIdx] : c.refListCr[refIdx];
+				if (refIdx >= L.numRefs)
+					refIdx = L.numRefs > 0 ? L.numRefs - 1 : 0;
+				const uint8 *ref = (comp == 0) ? L.cb[refIdx] : L.cr[refIdx];
 				const int32 W = c.chromaW, H = c.chromaH;
 				const int32 fx = mvx & 7, fy = mvy & 7, oxx = mvx >> 3, oyy = mvy >> 3;
 				auto C = [&](int32 x, int32 y) -> int32 {
@@ -394,51 +398,51 @@ namespace nkentseu {
 								   32) >>
 								  6;
 						if (c.weightedPred)
-							v = ApplyWeight(v, c.chromaWeight[refIdx][comp], c.chromaOffset[refIdx][comp],
+							v = ApplyWeight(v, L.chromaWeight[refIdx][comp], L.chromaOffset[refIdx][comp],
 											c.chromaLog2Denom);
 						cPred[(oy + y) * 8 + (ox + x)] = (uint8)v;
 					}
 			}
 
 			// Voisin 4x4 pour la prédiction de MV : dispo + ref (-1 = intra/hors) + MV.
-			void GetMv4(const DecCtx &c, int32 x4, int32 y4, bool &avail, int32 &ref, int32 &mx, int32 &my) {
+			void GetMv4(const DecCtx &c, const RefList &L, int32 x4, int32 y4, bool &avail, int32 &ref, int32 &mx, int32 &my) {
 				const int32 w4 = c.mbW * 4, h4 = c.mbH * 4;
-				if (x4 < 0 || y4 < 0 || x4 >= w4 || y4 >= h4 || c.ref4[y4 * c.nzW + x4] == -2) {
+				if (x4 < 0 || y4 < 0 || x4 >= w4 || y4 >= h4 || L.ref4[y4 * c.nzW + x4] == -2) {
 					avail = false;
 					ref = -1;
 					mx = my = 0;
 					return;
 				}
 				avail = true;
-				ref = c.ref4[y4 * c.nzW + x4];
+				ref = L.ref4[y4 * c.nzW + x4];
 				// Voisin INTRA (ref==-1) : sa MV vaut 0 pour la prediction (H.264 §8.4.1.3.2),
 				// PAS la valeur périmée de mvx4/mvy4 (StoreMv4 n'est appelé que pour l'inter).
 				if (ref < 0) {
 					mx = my = 0;
 				} else {
-					mx = c.mvx4[y4 * c.nzW + x4];
-					my = c.mvy4[y4 * c.nzW + x4];
+					mx = L.mvx4[y4 * c.nzW + x4];
+					my = L.mvy4[y4 * c.nzW + x4];
 				}
 			}
 
 			// Stocke la MV + l'index de référence d'une partition (grille 4x4). ref4 = refIdx (>=0 inter).
-			void StoreMv4(const DecCtx &c, int32 bx, int32 by, int32 pw, int32 ph, int32 mvx, int32 mvy,
+			void StoreMv4(const DecCtx &c, const RefList &L, int32 bx, int32 by, int32 pw, int32 ph, int32 mvx, int32 mvy,
 						  int32 refIdx) {
 				for (int32 y = by; y < by + ph; ++y)
 					for (int32 x = bx; x < bx + pw; ++x) {
-						c.mvx4[y * c.nzW + x] = mvx;
-						c.mvy4[y * c.nzW + x] = mvy;
-						c.ref4[y * c.nzW + x] = refIdx;
+						L.mvx4[y * c.nzW + x] = mvx;
+						L.mvy4[y * c.nzW + x] = mvy;
+						L.ref4[y * c.nzW + x] = refIdx;
 					}
 			}
 
 			// Stocke SEULEMENT l'index de reference d'une partition (CABAC : la reference remplit la grille
 			// ref des la lecture du ref_idx, AVANT les mvd, car les partitions se voisinent entre elles
 			// pour le ctxIdxInc du ref_idx suivant).
-			void StoreRef4(const DecCtx &c, int32 bx, int32 by, int32 pw, int32 ph, int32 refIdx) {
+			void StoreRef4(const DecCtx &c, const RefList &L, int32 bx, int32 by, int32 pw, int32 ph, int32 refIdx) {
 				for (int32 y = by; y < by + ph; ++y)
 					for (int32 x = bx; x < bx + pw; ++x)
-						c.ref4[y * c.nzW + x] = refIdx;
+						L.ref4[y * c.nzW + x] = refIdx;
 			}
 
 			int32 Med3(int32 a, int32 b, int32 cc) {
@@ -449,15 +453,16 @@ namespace nkentseu {
 
 			// Prédiction de MV d'une partition (§8.4.1.3). (bx,by) = coin 4x4, pw/ph = taille 4x4,
 			// mbType (1=16x8, 2=8x16 -> cas directionnels), part = index. refIdx=0 (baseline ref=1).
-			void PredMvPart(const DecCtx &c, int32 bx, int32 by, int32 pw, int32 mbType, int32 part, int32 refIdx,
+			void PredMvPart(const DecCtx &c, const RefList &L, int32 bx, int32 by, int32 pw, int32 mbType, int32 part,
+							int32 refIdx,
 							int32 &pmx, int32 &pmy) {
 				bool avA, avB, avC;
 				int32 rA, rB, rC, ax, ay, bxx, byy, cx, cy;
-				GetMv4(c, bx - 1, by, avA, rA, ax, ay);
-				GetMv4(c, bx, by - 1, avB, rB, bxx, byy);
-				GetMv4(c, bx + pw, by - 1, avC, rC, cx, cy);
+				GetMv4(c, L, bx - 1, by, avA, rA, ax, ay);
+				GetMv4(c, L, bx, by - 1, avB, rB, bxx, byy);
+				GetMv4(c, L, bx + pw, by - 1, avC, rC, cx, cy);
 				if (!avC)
-					GetMv4(c, bx - 1, by - 1, avC, rC, cx, cy); // repli D
+					GetMv4(c, L, bx - 1, by - 1, avC, rC, cx, cy); // repli D
 				if (mbType == 1) { // P_16x8
 					if (part == 0 && avB && rB == refIdx) {
 						pmx = bxx;
@@ -509,16 +514,17 @@ namespace nkentseu {
 
 			// P_Skip (§8.4.1.1) : MV nul si A/B manque ou est inter à MV nulle ; sinon médian 16x16.
 			void SkipMv(const DecCtx &c, int32 mbX, int32 mbY, int32 &smx, int32 &smy) {
+				const RefList &L = c.L[0]; // P_Skip : toujours la reference 0 de la liste 0
 				const int32 bx = mbX * 4, by = mbY * 4;
 				bool avA, avB;
 				int32 rA, rB, ax, ay, bxx, byy;
-				GetMv4(c, bx - 1, by, avA, rA, ax, ay);
-				GetMv4(c, bx, by - 1, avB, rB, bxx, byy);
+				GetMv4(c, L, bx - 1, by, avA, rA, ax, ay);
+				GetMv4(c, L, bx, by - 1, avB, rB, bxx, byy);
 				if (!avA || !avB || (rA == 0 && ax == 0 && ay == 0) || (rB == 0 && bxx == 0 && byy == 0)) {
 					smx = smy = 0;
 					return;
 				}
-				PredMvPart(c, bx, by, 4, 0, 0, 0, smx, smy); // P_Skip -> référence 0
+				PredMvPart(c, L, bx, by, 4, 0, 0, 0, smx, smy); // P_Skip -> référence 0
 			}
 
 			// De-emulation locale (00 00 03 -> 00 00).
@@ -804,49 +810,53 @@ namespace nkentseu {
 
 			// --- P_Skip : compensation au MV de skip, aucun résidu ---
 			void DecodeMbSkip(DecCtx &c, int32 mbX, int32 mbY) {
+				const RefList &L = c.L[0]; // P : une seule liste de references
+
 				const int32 px = mbX * 16, py = mbY * 16, cpx = mbX * 8, cpy = mbY * 8;
 				int32 smx, smy;
 				SkipMv(c, mbX, mbY, smx, smy);
 				uint8 predY[256], cp[64];
-				McLumaRect(c, px, py, 0, 0, 16, 16, smx, smy, predY);
+				McLumaRect(c, L, px, py, 0, 0, 16, 16, smx, smy, predY);
 				for (int32 y = 0; y < 16; ++y)
 					for (int32 x = 0; x < 16; ++x)
 						c.Y[(usize)(py + y) * c.lumaW + px + x] = predY[y * 16 + x];
-				McChromaRect(c, 0, cpx, cpy, 0, 0, 8, 8, smx, smy, cp);
+				McChromaRect(c, L, 0, cpx, cpy, 0, 0, 8, 8, smx, smy, cp);
 				for (int32 y = 0; y < 8; ++y)
 					for (int32 x = 0; x < 8; ++x)
 						c.Cb[(usize)(cpy + y) * c.chromaW + cpx + x] = cp[y * 8 + x];
-				McChromaRect(c, 1, cpx, cpy, 0, 0, 8, 8, smx, smy, cp);
+				McChromaRect(c, L, 1, cpx, cpy, 0, 0, 8, 8, smx, smy, cp);
 				for (int32 y = 0; y < 8; ++y)
 					for (int32 x = 0; x < 8; ++x)
 						c.Cr[(usize)(cpy + y) * c.chromaW + cpx + x] = cp[y * 8 + x];
 				ClearMbNz(c, mbX, mbY);
-				StoreMv4(c, mbX * 4, mbY * 4, 4, 4, smx, smy, 0); // P_Skip -> référence 0
+				StoreMv4(c, L, mbX * 4, mbY * 4, 4, 4, smx, smy, 0); // P_Skip -> référence 0
 			}
 
 			// --- Macrobloc inter P : partitions 16x16 / 16x8 / 8x16 / 8x8(+sous-mb) ---
 			bool DecodeMbInterP(DecCtx &c, NkH264BitReader &br, int32 mbX, int32 mbY, int32 mbType) {
+				const RefList &L = c.L[0]; // P : une seule liste de references
+
 				const int32 px = mbX * 16, py = mbY * 16, cpx = mbX * 8, cpy = mbY * 8;
 				const int32 gbx = mbX * 4, gby = mbY * 4;
 				uint8 predY[256], cPred[2][64];
 
 				// Compense une partition (bx4,by4 = coin 4x4 ; pw4/ph4 = taille 4x4) + stocke MV/refIdx.
 				auto doPart = [&](int32 bx4, int32 by4, int32 pw4, int32 ph4, int32 mvx, int32 mvy, int32 ri) {
-					McLumaRect(c, px + bx4 * 4, py + by4 * 4, bx4 * 4, by4 * 4, pw4 * 4, ph4 * 4, mvx, mvy, predY, ri);
-					McChromaRect(c, 0, cpx + bx4 * 2, cpy + by4 * 2, bx4 * 2, by4 * 2, pw4 * 2, ph4 * 2, mvx, mvy,
+					McLumaRect(c, L, px + bx4 * 4, py + by4 * 4, bx4 * 4, by4 * 4, pw4 * 4, ph4 * 4, mvx, mvy, predY, ri);
+					McChromaRect(c, L, 0, cpx + bx4 * 2, cpy + by4 * 2, bx4 * 2, by4 * 2, pw4 * 2, ph4 * 2, mvx, mvy,
 								 cPred[0], ri);
-					McChromaRect(c, 1, cpx + bx4 * 2, cpy + by4 * 2, bx4 * 2, by4 * 2, pw4 * 2, ph4 * 2, mvx, mvy,
+					McChromaRect(c, L, 1, cpx + bx4 * 2, cpy + by4 * 2, bx4 * 2, by4 * 2, pw4 * 2, ph4 * 2, mvx, mvy,
 								 cPred[1], ri);
-					StoreMv4(c, gbx + bx4, gby + by4, pw4, ph4, mvx, mvy, ri);
+					StoreMv4(c, L, gbx + bx4, gby + by4, pw4, ph4, mvx, mvy, ri);
 				};
 
 				// Lit un ref_idx_l0 (te(v)) : range = numRefActive-1. range==0 -> 0 (non codé) ;
 				// range==1 -> 1 bit inversé ; range>1 -> ue(v). (H.264 §9.1.1)
-				const bool readRef = (c.numRefActive > 1);
+				const bool readRef = (L.numRefActive > 1);
 				auto readRefIdx = [&]() -> int32 {
 					if (!readRef)
 						return 0;
-					if (c.numRefActive == 2)
+					if (L.numRefActive == 2)
 						return 1 - (int32)br.U1();
 					return (int32)br.UE();
 				};
@@ -854,7 +864,7 @@ namespace nkentseu {
 				if (mbType == 0) { // P_L0_16x16 : 1 ref_idx puis 1 mvd
 					const int32 ri = readRefIdx();
 					int32 pmx, pmy;
-					PredMvPart(c, gbx, gby, 4, 0, 0, ri, pmx, pmy);
+					PredMvPart(c, L, gbx, gby, 4, 0, 0, ri, pmx, pmy);
 					doPart(0, 0, 4, 4, pmx + br.SE(), pmy + br.SE(), ri);
 				} else if (mbType == 1) { // P_L0_L0_16x8 : ref_idx[0..1] puis mvd[0..1]
 					const int32 ri0 = readRefIdx(), ri1 = readRefIdx();
@@ -862,7 +872,7 @@ namespace nkentseu {
 					for (int32 part = 0; part < 2; ++part) {
 						const int32 by4 = part * 2;
 						int32 pmx, pmy;
-						PredMvPart(c, gbx, gby + by4, 4, 1, part, ri[part], pmx, pmy);
+						PredMvPart(c, L, gbx, gby + by4, 4, 1, part, ri[part], pmx, pmy);
 						doPart(0, by4, 4, 2, pmx + br.SE(), pmy + br.SE(), ri[part]);
 					}
 				} else if (mbType == 2) { // P_L0_L0_8x16 : ref_idx[0..1] puis mvd[0..1]
@@ -871,7 +881,7 @@ namespace nkentseu {
 					for (int32 part = 0; part < 2; ++part) {
 						const int32 bx4 = part * 2;
 						int32 pmx, pmy;
-						PredMvPart(c, gbx + bx4, gby, 2, 2, part, ri[part], pmx, pmy);
+						PredMvPart(c, L, gbx + bx4, gby, 2, 2, part, ri[part], pmx, pmy);
 						doPart(bx4, 0, 2, 4, pmx + br.SE(), pmy + br.SE(), ri[part]);
 					}
 				} else { // P_8x8 (3) / P_8x8ref0 (4)
@@ -887,22 +897,22 @@ namespace nkentseu {
 						const int32 sbx = (b & 1) * 2, sby = (b >> 1) * 2;
 						int32 pmx, pmy;
 						if (subType[b] == 0) { // 8x8
-							PredMvPart(c, gbx + sbx, gby + sby, 2, 3, 0, ri[b], pmx, pmy);
+							PredMvPart(c, L, gbx + sbx, gby + sby, 2, 3, 0, ri[b], pmx, pmy);
 							doPart(sbx, sby, 2, 2, pmx + br.SE(), pmy + br.SE(), ri[b]);
 						} else if (subType[b] == 1) { // 8x4
 							for (int32 sp = 0; sp < 2; ++sp) {
-								PredMvPart(c, gbx + sbx, gby + sby + sp, 2, 3, 0, ri[b], pmx, pmy);
+								PredMvPart(c, L, gbx + sbx, gby + sby + sp, 2, 3, 0, ri[b], pmx, pmy);
 								doPart(sbx, sby + sp, 2, 1, pmx + br.SE(), pmy + br.SE(), ri[b]);
 							}
 						} else if (subType[b] == 2) { // 4x8
 							for (int32 sp = 0; sp < 2; ++sp) {
-								PredMvPart(c, gbx + sbx + sp, gby + sby, 1, 3, 0, ri[b], pmx, pmy);
+								PredMvPart(c, L, gbx + sbx + sp, gby + sby, 1, 3, 0, ri[b], pmx, pmy);
 								doPart(sbx + sp, sby, 1, 2, pmx + br.SE(), pmy + br.SE(), ri[b]);
 							}
 						} else { // 4x4
 							for (int32 sp = 0; sp < 4; ++sp) {
 								const int32 pbx = sbx + (sp & 1), pby = sby + (sp >> 1);
-								PredMvPart(c, gbx + pbx, gby + pby, 1, 3, 0, ri[b], pmx, pmy);
+								PredMvPart(c, L, gbx + pbx, gby + pby, 1, 3, 0, ri[b], pmx, pmy);
 								doPart(pbx, pby, 1, 1, pmx + br.SE(), pmy + br.SE(), ri[b]);
 							}
 						}
@@ -1022,6 +1032,8 @@ namespace nkentseu {
 			// Déblocage §8.7 (intra ET inter) : bS calculé par segment 4x4.
 			//   intra impliqué -> 4 (bord MB) / 3 (interne) ; inter -> 2 (coeff nz) / 1 (Δmv≥1pel) / 0.
 			void Deblock(DecCtx &c, const int32 *mbQp, int32 alphaOff, int32 betaOff) {
+				const RefList &L = c.L[0]; // P : une seule liste de references
+
 				const int32 mbW = c.mbW, nzW = c.nzW;
 				int32 alpha, beta, tc0;
 				auto lumaEdge = [&](int32 qPav, int32 bS) {
@@ -1035,13 +1047,13 @@ namespace nkentseu {
 				};
 				// Force de bord entre les blocs 4x4 q(qx,qy) et p(px,py) ; mbB = bord de MB.
 				auto bsOf = [&](int32 qx, int32 qy, int32 px, int32 py, bool mbB) -> int32 {
-					const int32 rq = c.ref4[qy * nzW + qx], rp = c.ref4[py * nzW + px];
+					const int32 rq = L.ref4[qy * nzW + qx], rp = L.ref4[py * nzW + px];
 					if (rq < 0 || rp < 0)
 						return mbB ? 4 : 3; // intra impliqué
 					if (c.lumaNz[qy * nzW + qx] > 0 || c.lumaNz[py * nzW + px] > 0)
 						return 2;
-					const int32 dx = c.mvx4[qy * nzW + qx] - c.mvx4[py * nzW + px];
-					const int32 dy = c.mvy4[qy * nzW + qx] - c.mvy4[py * nzW + px];
+					const int32 dx = L.mvx4[qy * nzW + qx] - L.mvx4[py * nzW + px];
+					const int32 dy = L.mvy4[qy * nzW + qx] - L.mvy4[py * nzW + px];
 					const int32 adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
 					return (adx >= 4 || ady >= 4) ? 1 : 0;
 				};
@@ -1414,9 +1426,9 @@ namespace nkentseu {
 			}
 
 			// ref_idx_l0. ctxIdxInc = (refA > 0) + 2*(refB > 0) ; unaire, puis ctx = (ctx>>2)+4. (offset 54)
-			int32 DecodeRefIdxCabac(CabacMb &cab, const DecCtx &c, int32 bx, int32 by) {
-				const int32 refA = (bx > 0) ? c.ref4[by * c.nzW + (bx - 1)] : -1;
-				const int32 refB = (by > 0) ? c.ref4[(by - 1) * c.nzW + bx] : -1;
+			int32 DecodeRefIdxCabac(CabacMb &cab, const DecCtx &c, const RefList &L, int32 bx, int32 by) {
+				const int32 refA = (bx > 0) ? L.ref4[by * c.nzW + (bx - 1)] : -1;
+				const int32 refB = (by > 0) ? L.ref4[(by - 1) * c.nzW + bx] : -1;
 				int32 ctx = 0;
 				if (refA > 0)
 					++ctx;
@@ -1777,27 +1789,29 @@ namespace nkentseu {
 			}
 
 			// Remet a zero la grille |mvd| d'un MB (skip ou intra : la reference y met 0 pour les voisins).
-			void ClearMvdGrid(const DecCtx &c, int32 mbX, int32 mbY) {
+			void ClearMvdGrid(const DecCtx &c, const RefList &L, int32 mbX, int32 mbY) {
 				for (int32 y = 0; y < 4; ++y)
 					for (int32 x = 0; x < 4; ++x) {
 						const int32 i = (mbY * 4 + y) * c.nzW + (mbX * 4 + x);
-						c.mvdx4[i] = 0;
-						c.mvdy4[i] = 0;
+						L.mvdx4[i] = 0;
+						L.mvdy4[i] = 0;
 					}
 			}
 
 			// Ecrit |mvd| sur le rectangle d'une partition (grille 4x4).
-			void StoreMvd4(const DecCtx &c, int32 bx, int32 by, int32 pw, int32 ph, int32 ax, int32 ay) {
+			void StoreMvd4(const DecCtx &c, const RefList &L, int32 bx, int32 by, int32 pw, int32 ph, int32 ax, int32 ay) {
 				for (int32 y = by; y < by + ph; ++y)
 					for (int32 x = bx; x < bx + pw; ++x) {
-						c.mvdx4[y * c.nzW + x] = ax;
-						c.mvdy4[y * c.nzW + x] = ay;
+						L.mvdx4[y * c.nzW + x] = ax;
+						L.mvdy4[y * c.nzW + x] = ay;
 					}
 			}
 
 			// Macrobloc INTER P en CABAC (miroir de DecodeMbInterP ; entropie CABAC).
 			// mbType : 0=P_L0_16x16, 1=P_16x8, 2=P_8x16, 3=P_8x8.
 			bool DecodeMbCabacP(DecCtx &c, CabacMb &cab, int32 mbX, int32 mbY, int32 mbType) {
+				const RefList &L = c.L[0]; // P : une seule liste de references
+
 				const int32 px = mbX * 16, py = mbY * 16, cpx = mbX * 8, cpy = mbY * 8;
 				const int32 gbx = mbX * 4, gby = mbY * 4;
 				const int32 mbIdx = mbY * cab.mbW + mbX;
@@ -1806,26 +1820,26 @@ namespace nkentseu {
 				// Compense une partition (bx4,by4 = coin 4x4 ; pw4/ph4 = taille 4x4) + stocke MV/refIdx/|mvd|.
 				auto doPart = [&](int32 bx4, int32 by4, int32 pw4, int32 ph4, int32 mvx, int32 mvy, int32 ri,
 								  int32 ax, int32 ay) {
-					McLumaRect(c, px + bx4 * 4, py + by4 * 4, bx4 * 4, by4 * 4, pw4 * 4, ph4 * 4, mvx, mvy, predY, ri);
-					McChromaRect(c, 0, cpx + bx4 * 2, cpy + by4 * 2, bx4 * 2, by4 * 2, pw4 * 2, ph4 * 2, mvx, mvy,
+					McLumaRect(c, L, px + bx4 * 4, py + by4 * 4, bx4 * 4, by4 * 4, pw4 * 4, ph4 * 4, mvx, mvy, predY, ri);
+					McChromaRect(c, L, 0, cpx + bx4 * 2, cpy + by4 * 2, bx4 * 2, by4 * 2, pw4 * 2, ph4 * 2, mvx, mvy,
 								 cPred[0], ri);
-					McChromaRect(c, 1, cpx + bx4 * 2, cpy + by4 * 2, bx4 * 2, by4 * 2, pw4 * 2, ph4 * 2, mvx, mvy,
+					McChromaRect(c, L, 1, cpx + bx4 * 2, cpy + by4 * 2, bx4 * 2, by4 * 2, pw4 * 2, ph4 * 2, mvx, mvy,
 								 cPred[1], ri);
-					StoreMv4(c, gbx + bx4, gby + by4, pw4, ph4, mvx, mvy, ri);
-					StoreMvd4(c, gbx + bx4, gby + by4, pw4, ph4, ax, ay);
+					StoreMv4(c, L, gbx + bx4, gby + by4, pw4, ph4, mvx, mvy, ri);
+					StoreMvd4(c, L, gbx + bx4, gby + by4, pw4, ph4, ax, ay);
 				};
 
 				// ref_idx_l0 : non code (donc 0) si une seule reference active.
-				const bool readRef = (c.numRefActive > 1);
+				const bool readRef = (L.numRefActive > 1);
 
 				// Lit les 2 composantes du mvd. amvd = |mvd_A| + |mvd_B| lus dans la grille 4x4 AVANT
 				// d'ecrire cette partition (les sous-blocs d'un meme MB se voisinent entre eux).
 				bool bad = false;
 				auto readMvd = [&](int32 bx, int32 by, int32 &dx, int32 &dy, int32 &ax, int32 &ay) {
-					const int32 ax0 = (bx > 0) ? c.mvdx4[by * c.nzW + (bx - 1)] : 0;
-					const int32 ax1 = (by > 0) ? c.mvdx4[(by - 1) * c.nzW + bx] : 0;
-					const int32 ay0 = (bx > 0) ? c.mvdy4[by * c.nzW + (bx - 1)] : 0;
-					const int32 ay1 = (by > 0) ? c.mvdy4[(by - 1) * c.nzW + bx] : 0;
+					const int32 ax0 = (bx > 0) ? L.mvdx4[by * c.nzW + (bx - 1)] : 0;
+					const int32 ax1 = (by > 0) ? L.mvdx4[(by - 1) * c.nzW + bx] : 0;
+					const int32 ay0 = (bx > 0) ? L.mvdy4[by * c.nzW + (bx - 1)] : 0;
+					const int32 ay1 = (by > 0) ? L.mvdy4[(by - 1) * c.nzW + bx] : 0;
 					dx = DecodeMvdCabac(cab, kCtxMvd0, ax0 + ax1, ax);
 					dy = DecodeMvdCabac(cab, kCtxMvd1, ay0 + ay1, ay);
 					if (dx == kMvdOverflow || dy == kMvdOverflow)
@@ -1833,12 +1847,12 @@ namespace nkentseu {
 				};
 
 				if (mbType == 0) { // P_L0_16x16 : 1 ref_idx puis 1 mvd
-					const int32 ri = readRef ? DecodeRefIdxCabac(cab, c, gbx, gby) : 0;
+					const int32 ri = readRef ? DecodeRefIdxCabac(cab, c, L, gbx, gby) : 0;
 					if (ri < 0)
 						return false;
-					StoreRef4(c, gbx, gby, 4, 4, ri);
+					StoreRef4(c, L, gbx, gby, 4, 4, ri);
 					int32 pmx, pmy;
-					PredMvPart(c, gbx, gby, 4, 0, 0, ri, pmx, pmy);
+					PredMvPart(c, L, gbx, gby, 4, 0, 0, ri, pmx, pmy);
 					int32 dx, dy, ax, ay;
 					readMvd(gbx, gby, dx, dy, ax, ay);
 					if (bad)
@@ -1851,15 +1865,15 @@ namespace nkentseu {
 						const int32 bx4 = horiz ? 0 : part * 2, by4 = horiz ? part * 2 : 0;
 						// ⚠️ La grille ref DOIT etre remplie entre les deux lectures : la partition 1 voit
 						// la partition 0 comme voisine pour son ctxIdxInc.
-						ri[part] = readRef ? DecodeRefIdxCabac(cab, c, gbx + bx4, gby + by4) : 0;
+						ri[part] = readRef ? DecodeRefIdxCabac(cab, c, L, gbx + bx4, gby + by4) : 0;
 						if (ri[part] < 0)
 							return false;
-						StoreRef4(c, gbx + bx4, gby + by4, horiz ? 4 : 2, horiz ? 2 : 4, ri[part]);
+						StoreRef4(c, L, gbx + bx4, gby + by4, horiz ? 4 : 2, horiz ? 2 : 4, ri[part]);
 					}
 					for (int32 part = 0; part < 2; ++part) {
 						const int32 bx4 = horiz ? 0 : part * 2, by4 = horiz ? part * 2 : 0;
 						int32 pmx, pmy;
-						PredMvPart(c, gbx + bx4, gby + by4, horiz ? 4 : 2, horiz ? 1 : 2, part, ri[part], pmx, pmy);
+						PredMvPart(c, L, gbx + bx4, gby + by4, horiz ? 4 : 2, horiz ? 1 : 2, part, ri[part], pmx, pmy);
 						int32 dx, dy, ax, ay;
 						readMvd(gbx + bx4, gby + by4, dx, dy, ax, ay);
 						if (bad)
@@ -1873,23 +1887,23 @@ namespace nkentseu {
 					int32 ri[4] = {0, 0, 0, 0};
 					for (int32 b = 0; b < 4; ++b) {
 						const int32 sbx = (b & 1) * 2, sby = (b >> 1) * 2;
-						ri[b] = readRef ? DecodeRefIdxCabac(cab, c, gbx + sbx, gby + sby) : 0;
+						ri[b] = readRef ? DecodeRefIdxCabac(cab, c, L, gbx + sbx, gby + sby) : 0;
 						if (ri[b] < 0)
 							return false;
-						StoreRef4(c, gbx + sbx, gby + sby, 2, 2, ri[b]);
+						StoreRef4(c, L, gbx + sbx, gby + sby, 2, 2, ri[b]);
 					}
 					for (int32 b = 0; b < 4; ++b) {
 						const int32 sbx = (b & 1) * 2, sby = (b >> 1) * 2;
 						int32 pmx, pmy, dx, dy, ax, ay;
 						if (subType[b] == 0) { // 8x8
-							PredMvPart(c, gbx + sbx, gby + sby, 2, 3, 0, ri[b], pmx, pmy);
+							PredMvPart(c, L, gbx + sbx, gby + sby, 2, 3, 0, ri[b], pmx, pmy);
 							readMvd(gbx + sbx, gby + sby, dx, dy, ax, ay);
 							if (bad)
 								return false;
 							doPart(sbx, sby, 2, 2, pmx + dx, pmy + dy, ri[b], ax, ay);
 						} else if (subType[b] == 1) { // 8x4
 							for (int32 sp = 0; sp < 2; ++sp) {
-								PredMvPart(c, gbx + sbx, gby + sby + sp, 2, 3, 0, ri[b], pmx, pmy);
+								PredMvPart(c, L, gbx + sbx, gby + sby + sp, 2, 3, 0, ri[b], pmx, pmy);
 								readMvd(gbx + sbx, gby + sby + sp, dx, dy, ax, ay);
 								if (bad)
 									return false;
@@ -1897,7 +1911,7 @@ namespace nkentseu {
 							}
 						} else if (subType[b] == 2) { // 4x8
 							for (int32 sp = 0; sp < 2; ++sp) {
-								PredMvPart(c, gbx + sbx + sp, gby + sby, 1, 3, 0, ri[b], pmx, pmy);
+								PredMvPart(c, L, gbx + sbx + sp, gby + sby, 1, 3, 0, ri[b], pmx, pmy);
 								readMvd(gbx + sbx + sp, gby + sby, dx, dy, ax, ay);
 								if (bad)
 									return false;
@@ -1906,7 +1920,7 @@ namespace nkentseu {
 						} else { // 4x4
 							for (int32 sp = 0; sp < 4; ++sp) {
 								const int32 pbx = sbx + (sp & 1), pby = sby + (sp >> 1);
-								PredMvPart(c, gbx + pbx, gby + pby, 1, 3, 0, ri[b], pmx, pmy);
+								PredMvPart(c, L, gbx + pbx, gby + pby, 1, 3, 0, ri[b], pmx, pmy);
 								readMvd(gbx + pbx, gby + pby, dx, dy, ax, ay);
 								if (bad)
 									return false;
@@ -2222,6 +2236,7 @@ namespace nkentseu {
 			const int32 numMb = mbW * mbH;
 			const uint64 n4 = (uint64)mbW * 4 * mbH * 4;
 			NkVector<int32> lumaNz, cnz0, cnz1, i4mode, mvx4G, mvy4G, ref4G, mvdx4G, mvdy4G;
+			NkVector<int32> mvx4G1, mvy4G1, ref4G1, mvdx4G1, mvdy4G1; // grilles de la liste L1 (B)
 			lumaNz.Resize(n4);
 			i4mode.Resize(n4);
 			mvx4G.Resize(n4);
@@ -2229,6 +2244,11 @@ namespace nkentseu {
 			ref4G.Resize(n4);
 			mvdx4G.Resize(n4);
 			mvdy4G.Resize(n4);
+			mvx4G1.Resize(n4);
+			mvy4G1.Resize(n4);
+			ref4G1.Resize(n4);
+			mvdx4G1.Resize(n4);
+			mvdy4G1.Resize(n4);
 			cnz0.Resize((uint64)mbW * 2 * mbH * 2);
 			cnz1.Resize((uint64)mbW * 2 * mbH * 2);
 			for (uint64 i = 0; i < n4; ++i) {
@@ -2239,6 +2259,11 @@ namespace nkentseu {
 				ref4G[i] = -2; // 4x4 non décodé
 				mvdx4G[i] = 0;
 				mvdy4G[i] = 0;
+				mvx4G1[i] = 0;
+				mvy4G1[i] = 0;
+				ref4G1[i] = -2;
+				mvdx4G1[i] = 0;
+				mvdy4G1[i] = 0;
 			}
 			for (uint64 i = 0; i < cnz0.Size(); ++i) {
 				cnz0[i] = 0;
@@ -2263,23 +2288,29 @@ namespace nkentseu {
 			c.i4mode = i4mode.Data();
 			c.qp = qp;
 			c.chromaQpOffset = pps.chromaQpIndexOffset;
-			c.mvx4 = mvx4G.Data();
-			c.mvy4 = mvy4G.Data();
-			c.ref4 = ref4G.Data();
-			c.mvdx4 = mvdx4G.Data();
-			c.mvdy4 = mvdy4G.Data();
-			// Poids de la liste L0 (les P n'en ont qu'une ; la L1 des B suivra avec la bi-prediction).
+			// Grilles de mouvement : une par liste (L0 pour les P et les B, L1 pour les B seules).
+			c.L[0].mvx4 = mvx4G.Data();
+			c.L[0].mvy4 = mvy4G.Data();
+			c.L[0].ref4 = ref4G.Data();
+			c.L[0].mvdx4 = mvdx4G.Data();
+			c.L[0].mvdy4 = mvdy4G.Data();
+			c.L[1].mvx4 = mvx4G1.Data();
+			c.L[1].mvy4 = mvy4G1.Data();
+			c.L[1].ref4 = ref4G1.Data();
+			c.L[1].mvdx4 = mvdx4G1.Data();
+			c.L[1].mvdy4 = mvdy4G1.Data();
 			c.weightedPred = useWeighted ? 1 : 0;
 			c.lumaLog2Denom = wpLumaDenom;
 			c.chromaLog2Denom = wpChromaDenom;
-			for (int32 i = 0; i < 16; ++i) {
-				c.lumaWeight[i] = wpLumaW[0][i];
-				c.lumaOffset[i] = wpLumaO[0][i];
-				for (int32 j = 0; j < 2; ++j) {
-					c.chromaWeight[i][j] = wpChromaW[0][i][j];
-					c.chromaOffset[i][j] = wpChromaO[0][i][j];
+			for (int32 l = 0; l < 2; ++l)
+				for (int32 i = 0; i < 16; ++i) {
+					c.L[l].lumaWeight[i] = wpLumaW[l][i];
+					c.L[l].lumaOffset[i] = wpLumaO[l][i];
+					for (int32 j = 0; j < 2; ++j) {
+						c.L[l].chromaWeight[i][j] = wpChromaW[l][i][j];
+						c.L[l].chromaOffset[i][j] = wpChromaO[l][i][j];
+					}
 				}
-			}
 			if (isP) {
 				if (numRefs <= 0)
 					return false; // référence incompatible
@@ -2375,15 +2406,12 @@ namespace nkentseu {
 				for (int32 i = 0; i < nFinal; ++i) {
 					if (!ly[i])
 						return false; // entree "aucune image de reference" : flux invalide
-					c.refListY[i] = ly[i];
-					c.refListCb[i] = lcb[i];
-					c.refListCr[i] = lcr[i];
+					c.L[0].y[i] = ly[i];
+					c.L[0].cb[i] = lcb[i];
+					c.L[0].cr[i] = lcr[i];
 				}
-				c.numRefs = nFinal;
-				c.numRefActive = nFinal;
-				c.refY = c.refListY[0];
-				c.refCb = c.refListCb[0];
-				c.refCr = c.refListCr[0];
+				c.L[0].numRefs = nFinal;
+				c.L[0].numRefActive = nFinal;
 			}
 
 			NkVector<int32> mbQp;
@@ -2416,7 +2444,7 @@ namespace nkentseu {
 						cab.chromaDcCodedMb[(uint64)mbIdx] = 0;
 						cab.mbSkipMb[(uint64)mbIdx] = 1;
 						cab.prevQpDeltaNonZero = 0;
-						ClearMvdGrid(c, mbX, mbY);
+						ClearMvdGrid(c, c.L[0], mbX, mbY);
 						for (int32 y = 0; y < 4; ++y)
 							for (int32 x = 0; x < 4; ++x)
 								c.lumaNz[(mbY * 4 + y) * c.nzW + (mbX * 4 + x)] = 0;
@@ -2435,10 +2463,10 @@ namespace nkentseu {
 						} else {
 							// MB intra (I-slice, ou intra a l'interieur d'une P-slice).
 							if (isP) {
-								ClearMvdGrid(c, mbX, mbY);
+								ClearMvdGrid(c, c.L[0], mbX, mbY);
 								for (int32 y = 0; y < 4; ++y)
 									for (int32 x = 0; x < 4; ++x)
-										c.ref4[(mbY * 4 + y) * c.nzW + (mbX * 4 + x)] = -1; // intra
+										c.L[0].ref4[(mbY * 4 + y) * c.nzW + (mbX * 4 + x)] = -1; // intra
 							}
 							if (mbType == 0) {
 								if (!DecodeMbCabacI4x4(c, cab, mbX, mbY))
@@ -2503,7 +2531,7 @@ namespace nkentseu {
 						const int32 bx0 = mbX * 4, by0 = mbY * 4;
 						for (int32 by = by0; by < by0 + 4; ++by)
 							for (int32 bx = bx0; bx < bx0 + 4; ++bx)
-								c.ref4[by * c.nzW + bx] = -1;
+								c.L[0].ref4[by * c.nzW + bx] = -1;
 					}
 					mbQp[(uint64)mbAddr] = c.qp;
 					++mbAddr;
