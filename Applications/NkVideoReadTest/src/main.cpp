@@ -102,6 +102,20 @@ int main(int argc, char **argv) {
 		NkH264Frame cur;
 		NkVector<NkH264Frame> dpb; // RefPicList0 : dpb[0] = image la plus recente
 		uint64 totalDiffs = 0;
+		// â  Avec des B-frames, l'ordre de DECODAGE n'est PAS l'ordre d'AFFICHAGE. Le YUV de
+		// reference (ffmpeg) est en ordre d'AFFICHAGE : on compare donc chaque image decodee a
+		// ref[POC/2 - pocBase/2], et non a la i-eme image du fichier. On charge tout le YUV pour
+		// pouvoir adresser n'importe quelle position.
+		NkVector<nk_uint8> allRef;
+		int32 pocBase = -1;
+		if (rf) {
+			fseek(rf, 0, SEEK_END);
+			const long rn = ftell(rf);
+			fseek(rf, 0, SEEK_SET);
+			allRef.Resize((uint64)rn);
+			size_t gg = fread(allRef.Data(), 1, (size_t)rn, rf);
+			(void)gg;
+		}
 		for (uint64 si = 0; si < slices.Size(); ++si) {
 			NkVector<nk_uint8> ab;
 			auto sc = [&]() {
@@ -133,10 +147,18 @@ int main(int argc, char **argv) {
 			if (rf) {
 				const uint64 yN = (uint64)cur.cropW * cur.cropH;
 				const uint64 cN = (uint64)(cur.cropW / 2) * (cur.cropH / 2);
-				NkVector<nk_uint8> ref;
-				ref.Resize(yN + 2 * cN);
-				size_t got = fread(ref.Data(), 1, (size_t)(yN + 2 * cN), rf);
-				(void)got;
+				const uint64 frameBytes = yN + 2 * cN;
+				// Index d'AFFICHAGE derive du POC (il avance de 2 par image en codage trame).
+				if (pocBase < 0)
+					pocBase = cur.poc;
+				const int64 disp = (int64)(cur.poc - pocBase) / 2;
+				const uint64 off = (uint64)disp * frameBytes;
+				if (disp < 0 || off + frameBytes > allRef.Size()) {
+					printf("  frame %d : POC=%d hors du YUV de reference (%llu images)\n", (int)si, cur.poc,
+						   (unsigned long long)(allRef.Size() / frameBytes));
+					continue;
+				}
+				const nk_uint8 *ref = allRef.Data() + off;
 				uint64 dY = 0, dC = 0;
 				auto cmp = [&](const uint8 *dec, int32 dw, int32 w, int32 h, const uint8 *r, uint64 &dd) {
 					for (int32 y = 0; y < h; ++y)
@@ -150,23 +172,54 @@ int main(int argc, char **argv) {
 							++total;
 						}
 				};
-				cmp(cur.y.Data(), cur.lumaW, cur.cropW, cur.cropH, ref.Data(), dY);
-				cmp(cur.cb.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref.Data() + yN, dC);
-				cmp(cur.cr.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref.Data() + yN + cN, dC);
+				cmp(cur.y.Data(), cur.lumaW, cur.cropW, cur.cropH, ref, dY);
+				cmp(cur.cb.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref + yN, dC);
+				cmp(cur.cr.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref + yN + cN, dC);
+				// DEBUG : nb de diffs par bloc 4x4 (grille), 1er MB seulement.
+				if (dY > 0 && cur.cropW <= 32 && cur.cropH <= 32) {
+					const int32 bw = cur.cropW / 4, bh = cur.cropH / 4;
+					printf("    diffs Y par bloc 4x4 (max diff) :\n");
+					for (int32 by = 0; by < bh; ++by) {
+						printf("      ");
+						for (int32 bx = 0; bx < bw; ++bx) {
+							int32 nd = 0, md = 0;
+							for (int32 yy = 0; yy < 4; ++yy)
+								for (int32 xx = 0; xx < 4; ++xx) {
+									const int32 px = bx * 4 + xx, py = by * 4 + yy;
+									const int32 dv = (int32)cur.y[(usize)py * cur.lumaW + px] -
+													 (int32)ref[(usize)py * cur.cropW + px];
+									if (dv) {
+										++nd;
+										const int32 a = dv < 0 ? -dv : dv;
+										if (a > md)
+											md = a;
+									}
+								}
+							printf("%2d/%-3d ", nd, md);
+						}
+						printf("\n");
+					}
+				}
 				const double psnr = (sse > 0.0) ? 10.0 * log10(255.0 * 255.0 * (double)total / sse) : 999.0;
-				printf("  frame %d (%s) %dx%d : %llu diff (Y=%llu C=%llu), PSNR=%.2f %s\n", (int)si,
-					   (si == 0 ? "IDR" : "P"), cur.cropW, cur.cropH, (unsigned long long)diffs,
-					   (unsigned long long)dY, (unsigned long long)dC, psnr, diffs == 0 ? "(BIT-EXACT)" : "");
+				printf("  dec#%d -> aff#%d (POC=%d%s) %dx%d : %llu diff (Y=%llu C=%llu), PSNR=%.2f %s\n", (int)si,
+					   (int)disp, cur.poc, cur.isReference ? "" : ", non-ref", cur.cropW, cur.cropH,
+					   (unsigned long long)diffs, (unsigned long long)dY, (unsigned long long)dC, psnr,
+					   diffs == 0 ? "(BIT-EXACT)" : "");
 				totalDiffs += diffs;
 			} else {
-				printf("  frame %d (%s) : decode OK %dx%d\n", (int)si, (si == 0 ? "IDR" : "P"), cur.cropW, cur.cropH);
+				printf("  dec#%d (POC=%d%s) : decode OK %dx%d\n", (int)si, cur.poc,
+					   cur.isReference ? "" : ", non-ref", cur.cropW, cur.cropH);
 			}
 			// La frame courante entre en TÊTE de la liste de références (plus récente d'abord).
-			NkVector<NkH264Frame> newDpb;
-			newDpb.PushBack(cur);
-			for (uint64 k = 0; k < dpb.Size() && k < 15; ++k)
-				newDpb.PushBack(dpb[k]);
-			dpb = newDpb;
+			// ⚠️ SEULES les images de référence entrent dans le DPB : une B non-référencée ne doit
+			// pas y figurer (sinon l'état POC « image de référence précédente » est faussé).
+			if (cur.isReference) {
+				NkVector<NkH264Frame> newDpb;
+				newDpb.PushBack(cur);
+				for (uint64 k = 0; k < dpb.Size() && k < 15; ++k)
+					newDpb.PushBack(dpb[k]);
+				dpb = newDpb;
+			}
 		}
 		if (rf)
 			fclose(rf);
