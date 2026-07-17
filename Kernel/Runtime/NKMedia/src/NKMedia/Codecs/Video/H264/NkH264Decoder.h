@@ -104,6 +104,10 @@ namespace nkentseu {
 				NkVector<nk_int32> mvL0x, mvL0y, mvL0Ref;
 				NkVector<nk_int32> mvL1x, mvL1y, mvL1Ref;
 				int32 mvW = 0, mvH = 0; // dimensions de ces grilles (mbW*4, mbH*4)
+				// Par MACROBLOC : 1 si le MB est 16x16 ou intra. Le Direct spatial en a besoin pour la
+				// GRANULARITE du test "bloc immobile" de la co-localisee : un seul test pour tout le MB
+				// si elle est 16x16/intra, un test par 8x8 sinon.
+				NkVector<nk_uint8> mb16x16OrIntra;
 		};
 
 		class NkH264Decoder {
