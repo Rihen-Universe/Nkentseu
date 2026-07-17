@@ -304,6 +304,17 @@ namespace nkentseu {
 					int32 *lumaNz = nullptr, *chromaNz0 = nullptr, *chromaNz1 = nullptr, *i4mode = nullptr;
 					int32 qp = 26;
 					int32 chromaQpOffset = 0;
+					// Par MB : 1 si 16x16 ou intra (sauvegarde dans la frame pour le Direct spatial des
+					// B ULTERIEURES, qui liront cette image comme co-localisee).
+					uint8 *mb16x16OrIntra = nullptr;
+					// B-slices : 1 si le bloc 4x4 appartient a une partition Direct. Le contexte de
+					// ref_idx (§9.3.3.1.1.6) EXCLUT un voisin Direct meme si sa reference est > 0.
+					int32 *direct4 = nullptr;
+					// Image CO-LOCALISEE (= RefPicList1[0]) : son champ de mouvement + ses formes.
+					// Le Direct spatial (§8.4.1.2.2) y teste si le bloc est "immobile".
+					const int32 *colL0x = nullptr, *colL0y = nullptr, *colL0Ref = nullptr;
+					const int32 *colL1x = nullptr, *colL1y = nullptr, *colL1Ref = nullptr;
+					const uint8 *col16x16OrIntra = nullptr;
 					// L[0] = RefPicList0 (P et B), L[1] = RefPicList1 (B seulement).
 					RefList L[2];
 					// Ponderation EXPLICITE : active + denominateurs (communs aux deux listes).
@@ -952,6 +963,10 @@ namespace nkentseu {
 				const int32 lumaCbp = cbp & 15, cbpChroma = cbp >> 4;
 				if (cbp > 0)
 					c.qp = (c.qp + br.SE() + 52) % 52;
+				// ⚠️ Une B pourrait lire cette image comme co-localisee (forme = granularite du test
+				// "bloc immobile" de son Direct spatial). P_L0_16x16 -> 16x16 ; les autres -> non.
+				if (c.mb16x16OrIntra)
+					c.mb16x16OrIntra[mbY * c.mbW + mbX] = (mbType == 0) ? 1 : 0;
 
 				const int32 bx0 = mbX * 4, by0 = mbY * 4;
 				for (int32 blk = 0; blk < 16; ++blk) {
@@ -1608,13 +1623,18 @@ namespace nkentseu {
 			}
 
 			// ref_idx_l0. ctxIdxInc = (refA > 0) + 2*(refB > 0) ; unaire, puis ctx = (ctx>>2)+4. (offset 54)
-			int32 DecodeRefIdxCabac(CabacMb &cab, const DecCtx &c, const RefList &L, int32 bx, int32 by) {
+			int32 DecodeRefIdxCabac(CabacMb &cab, const DecCtx &c, const RefList &L, int32 bx, int32 by,
+									bool isB = false) {
 				const int32 refA = (bx > 0) ? L.ref4[by * c.nzW + (bx - 1)] : -1;
 				const int32 refB = (by > 0) ? L.ref4[(by - 1) * c.nzW + bx] : -1;
+				// ⚠️ B-slices : un voisin DIRECT ne contribue PAS au contexte, meme si sa reference
+				// est > 0 (§9.3.3.1.1.6, condition direct_cache de la reference). En P, direct4 est nul.
+				const bool dirA = isB && c.direct4 && bx > 0 && c.direct4[by * c.nzW + (bx - 1)] != 0;
+				const bool dirB = isB && c.direct4 && by > 0 && c.direct4[(by - 1) * c.nzW + bx] != 0;
 				int32 ctx = 0;
-				if (refA > 0)
+				if (refA > 0 && !dirA)
 					++ctx;
-				if (refB > 0)
+				if (refB > 0 && !dirB)
 					ctx += 2;
 				int32 ref = 0;
 				while (cab.Bin(kCtxRefIdx + ctx)) {
@@ -1970,6 +1990,94 @@ namespace nkentseu {
 				return true;
 			}
 
+			// ── B_Direct SPATIAL (§8.4.1.2.2) ─────────────────────────────────────────
+			// Rien n'est code : le mouvement se DEDUIT. Deux ingredients :
+			//  1) refs/MV pris des VOISINS du MB courant (comme une prediction de MV classique) ;
+			//  2) l'image CO-LOCALISEE (RefPicList1[0]) : si le bloc y est "immobile" (reference 0 et
+			//     |MV| <= 1), on FORCE la MV a 0 pour la liste dont la reference vaut 0 ("col_zero").
+			// Sorties : ref[2] (-1 = liste inutilisee), mv[2][2], zero8[4] = col_zero par 8x8.
+			void PredDirectSpatial(const DecCtx &c, int32 mbX, int32 mbY, int32 ref[2], int32 mv[2][2],
+								   bool zero8[4]) {
+				const int32 bx = mbX * 4, by = mbY * 4;
+				// 1) ref = min des voisins A (gauche), B (haut), C (haut-droite, sinon haut-gauche).
+				for (int32 l = 0; l < 2; ++l) {
+					const RefList &L = c.L[l];
+					bool avA, avB, avC;
+					int32 rA, rB, rC, ax, ay, bxx, byy, cx, cy;
+					GetMv4(c, L, bx - 1, by, avA, rA, ax, ay);
+					GetMv4(c, L, bx, by - 1, avB, rB, bxx, byy);
+					GetMv4(c, L, bx + 4, by - 1, avC, rC, cx, cy);
+					if (!avC) // C indisponible -> D (haut-gauche)
+						GetMv4(c, L, bx - 1, by - 1, avC, rC, cx, cy);
+					// Le minimum se prend en NON SIGNE (astuce de la reference) : toute reference >= 0
+					// l'emporte sur les indisponibles/intra (negatives), qui deviennent enormes.
+					const uint32 uA = (uint32)rA, uB = (uint32)rB, uC = (uint32)rC;
+					uint32 um = uA < uB ? uA : uB;
+					um = um < uC ? um : uC;
+					const int32 r = (int32)um;
+					if (r >= 0) {
+						ref[l] = r;
+						const int32 match = (rA == r ? 1 : 0) + (rB == r ? 1 : 0) + (rC == r ? 1 : 0);
+						if (match > 1) { // cas courant : mediane des trois
+							mv[l][0] = Med3(ax, bxx, cx);
+							mv[l][1] = Med3(ay, byy, cy);
+						} else if (rA == r) {
+							mv[l][0] = ax;
+							mv[l][1] = ay;
+						} else if (rB == r) {
+							mv[l][0] = bxx;
+							mv[l][1] = byy;
+						} else {
+							mv[l][0] = cx;
+							mv[l][1] = cy;
+						}
+					} else {
+						ref[l] = -1;
+						mv[l][0] = mv[l][1] = 0;
+					}
+				}
+				// Aucun voisin utilisable sur AUCUNE liste -> bi-prediction sur la reference 0, MV nulle.
+				if (ref[0] < 0 && ref[1] < 0) {
+					ref[0] = ref[1] = 0;
+					mv[0][0] = mv[0][1] = mv[1][0] = mv[1][1] = 0;
+				}
+				// 2) col_zero : le bloc co-localise est-il "immobile" ? Granularite = tout le MB si la
+				//    co-localisee est 16x16/intra, sinon par 8x8.
+				for (int32 i = 0; i < 4; ++i)
+					zero8[i] = false;
+				if (!c.colL0Ref)
+					return; // pas de co-localisee exploitable
+				const int32 mbIdx = mbY * c.mbW + mbX;
+				const bool whole = c.col16x16OrIntra && c.col16x16OrIntra[mbIdx] != 0;
+				for (int32 i8 = 0; i8 < 4; ++i8) {
+					// direct_8x8_inference : la MV de la co-localisee s'echantillonne au COIN du 8x8.
+					const int32 sx = whole ? bx : (bx + (i8 & 1) * 3);
+					const int32 sy = whole ? by : (by + (i8 >> 1) * 3);
+					const int32 ci = sy * c.nzW + sx;
+					const int32 r0 = c.colL0Ref[ci], r1 = c.colL1Ref[ci];
+					if (!(r0 < 0 && r1 < 0)) { // co-localisee INTRA -> jamais "immobile"
+						int32 cmx = 0, cmy = 0;
+						bool cand = false;
+						if (r0 == 0) {
+							cmx = c.colL0x[ci];
+							cmy = c.colL0y[ci];
+							cand = true;
+						} else if (r0 < 0 && r1 == 0) {
+							// N'utilise pas L0 mais L1 avec la reference 0.
+							cmx = c.colL1x[ci];
+							cmy = c.colL1y[ci];
+							cand = true;
+						}
+						if (cand && cmx >= -1 && cmx <= 1 && cmy >= -1 && cmy <= 1)
+							zero8[i8] = true;
+					}
+					if (whole) { // un seul test : il vaut pour tout le MB
+						zero8[1] = zero8[2] = zero8[3] = zero8[0];
+						break;
+					}
+				}
+			}
+
 			// Predit UNE partition d'un MB B dans predY/cPred : depuis L0 seule, L1 seule, ou les DEUX
 			// (bi-prediction). (bx4,by4) = coin en blocs 4x4 dans le MB ; pw4/ph4 = taille en 4x4.
 			// Regles de ponderation (§8.4.2.3, verifiees sur la reference) :
@@ -2009,7 +2117,7 @@ namespace nkentseu {
 				bool weighted = false;
 				if (c.biPredMode == 1) { // explicite
 					weighted = true;
-				} else if (c.biPredMode == 2) { // implicite : w0 depuis les distances POC, w1 = 64 - w0
+				} else if (c.biPredMode == 2) { // implicite
 					w0 = c.implicitW0[ri0][ri1];
 					w1 = 64 - w0;
 					logWD = 5;
@@ -2043,6 +2151,25 @@ namespace nkentseu {
 							else
 								cPred[comp][i] = (uint8)ApplyBiWeight(a, b, w0, w1, o0, o1, logWD);
 						}
+			}
+
+			// Applique un mouvement DIRECT (deja deduit) sur un rectangle 8x8 du MB et compense.
+			// `zero` = col_zero : la MV est forcee a 0 pour la liste dont la reference vaut 0.
+			void ApplyDirect8x8(const DecCtx &c, int32 mbX, int32 mbY, int32 i8, const int32 ref[2],
+								const int32 mv[2][2], bool zero, uint8 predY[256], uint8 cPred[2][64]) {
+				const int32 sbx = (i8 & 1) * 2, sby = (i8 >> 1) * 2;
+				int32 m[2][2] = {{mv[0][0], mv[0][1]}, {mv[1][0], mv[1][1]}};
+				if (zero) {
+					for (int32 l = 0; l < 2; ++l)
+						if (ref[l] == 0) // la reference 0 "colle" a la co-localisee immobile
+							m[l][0] = m[l][1] = 0;
+				}
+				const bool u0 = (ref[0] >= 0), u1 = (ref[1] >= 0);
+				const int32 r0 = u0 ? ref[0] : 0, r1 = u1 ? ref[1] : 0;
+				McPartB(c, mbX, mbY, sbx, sby, 2, 2, u0, u1, r0, r1, m[0][0], m[0][1], m[1][0], m[1][1],
+						predY, cPred);
+				StoreMv4(c, c.L[0], mbX * 4 + sbx, mbY * 4 + sby, 2, 2, m[0][0], m[0][1], u0 ? ref[0] : -1);
+				StoreMv4(c, c.L[1], mbX * 4 + sbx, mbY * 4 + sby, 2, 2, m[1][0], m[1][1], u1 ? ref[1] : -1);
 			}
 
 			// Remet a zero la grille |mvd| d'un MB (skip ou intra : la reference y met 0 pour les voisins).
@@ -2195,6 +2322,9 @@ namespace nkentseu {
 				cab.cbpChromaMb[(uint64)mbIdx] = cbpChroma;
 				cab.chromaModeMb[(uint64)mbIdx] = 0;
 				cab.mbSkipMb[(uint64)mbIdx] = 0;
+				// ⚠️ Une B lira CETTE image comme co-localisee : la forme conditionne la granularite de
+				// son test "bloc immobile". P_L0_16x16 -> 16x16 ; les autres partitions -> pas 16x16.
+				c.mb16x16OrIntra[mbIdx] = (mbType == 0) ? 1 : 0;
 				if (lumaCbp || cbpChroma)
 					c.qp = (c.qp + DecodeMbQpDeltaCabac(cab) + 52) % 52;
 				else
@@ -2224,6 +2354,251 @@ namespace nkentseu {
 				}
 
 				DecodeChromaResidualCabac(c, cab, mbX, mbY, cbpChroma, cPred, 0); // inter -> defaut cbf = 0
+				return true;
+			}
+
+			// Macrobloc INTER B en CABAC. mbType 0..22 (0 = B_Direct_16x16, 22 = B_8x8).
+			// `skip` : B_Skip = B_Direct_16x16 sans aucun residu.
+			bool DecodeMbCabacB(DecCtx &c, CabacMb &cab, int32 mbX, int32 mbY, int32 mbType, bool skip) {
+				const int32 px = mbX * 16, py = mbY * 16;
+				const int32 gbx = mbX * 4, gby = mbY * 4;
+				const int32 mbIdx = mbY * cab.mbW + mbX;
+				uint8 predY[256], cPred[2][64];
+				const BPartInfo info = skip ? BMbTypeInfo(0) : BMbTypeInfo(mbType);
+
+				// Les grilles |mvd| ne servent qu'aux partitions codees : le Direct n'en code aucune.
+				ClearMvdGrid(c, c.L[0], mbX, mbY);
+				ClearMvdGrid(c, c.L[1], mbX, mbY);
+
+				// direct4 : marque les blocs Direct AVANT de lire les ref_idx (leur contexte exclut un
+				// voisin Direct). Tout le MB si B_Skip/Direct_16x16 ; sinon rien (les sous-blocs Direct
+				// d'un B_8x8 sont marques plus bas, une fois les sub_mb_type connus).
+				if (c.direct4)
+					for (int32 y = 0; y < 4; ++y)
+						for (int32 x = 0; x < 4; ++x)
+							c.direct4[(gby + y) * c.nzW + (gbx + x)] = info.direct ? 1 : 0;
+
+				if (info.direct) { // B_Skip / B_Direct_16x16 : tout le MB est deduit
+					int32 dref[2], dmv[2][2];
+					bool zero8[4];
+					PredDirectSpatial(c, mbX, mbY, dref, dmv, zero8);
+					for (int32 i8 = 0; i8 < 4; ++i8)
+						ApplyDirect8x8(c, mbX, mbY, i8, dref, dmv, zero8[i8], predY, cPred);
+				} else if (mbType == 22) { // B_8x8 : chaque 8x8 a son sub_mb_type
+					int32 sub[4];
+					for (int32 b = 0; b < 4; ++b)
+						sub[b] = DecodeSubMbTypeBCabac(cab);
+					BPartInfo si[4];
+					for (int32 b = 0; b < 4; ++b)
+						si[b] = BSubMbTypeInfo(sub[b]);
+						// Marque les sous-blocs Direct AVANT les ref_idx (contexte des voisins internes).
+						if (c.direct4)
+							for (int32 b = 0; b < 4; ++b) {
+								const int32 sbx = (b & 1) * 2, sby = (b >> 1) * 2;
+								for (int32 y = 0; y < 2; ++y)
+									for (int32 x = 0; x < 2; ++x)
+										c.direct4[(gby + sby + y) * c.nzW + (gbx + sbx + x)] = si[b].direct ? 1 : 0;
+							}
+					// Tous les ref_idx (L0 puis L1) AVANT tous les mvd — ordre de la reference.
+					int32 ri[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
+					for (int32 l = 0; l < 2; ++l)
+						for (int32 b = 0; b < 4; ++b) {
+							const bool use = (l == 0) ? si[b].l0[0] : si[b].l1[0];
+							const int32 sbx = (b & 1) * 2, sby = (b >> 1) * 2;
+							if (si[b].direct || !use) {
+								ri[l][b] = -1;
+								continue;
+							}
+							ri[l][b] = (c.L[l].numRefActive > 1)
+										   ? DecodeRefIdxCabac(cab, c, c.L[l], gbx + sbx, gby + sby, true)
+										   : 0;
+							if (ri[l][b] < 0)
+								return false;
+							StoreRef4(c, c.L[l], gbx + sbx, gby + sby, 2, 2, ri[l][b]);
+						}
+						// Position (en blocs 4x4, dans le MB) de la sous-partition sp d'un 8x8.
+						auto subOff = [&](int32 b, int32 sp, const BPartInfo &sinf, int32 &ox, int32 &oy) {
+							ox = (b & 1) * 2;
+							oy = (b >> 1) * 2;
+							if (sinf.nParts == 2) {
+								if (sinf.ph == 1)
+									oy += sp; // 8x4
+								else
+									ox += sp; // 4x8
+							} else if (sinf.nParts == 4) {
+								ox += (sp & 1);
+								oy += (sp >> 1);
+							}
+						};
+						// mvd LISTE-EXTERNE (toute la L0 puis toute la L1), block puis sous-partition, en
+						// SAUTANT les blocs Direct -- exactement l'ordre de la reference (sinon desync).
+						int32 mvSub[2][4][4][2] = {{{{0}}}}; // [list][block][subpart][xy]
+						for (int32 l = 0; l < 2; ++l)
+							for (int32 b = 0; b < 4; ++b) {
+								if (si[b].direct)
+									continue;
+								const bool use = (l == 0) ? si[b].l0[0] : si[b].l1[0];
+								if (!use)
+									continue;
+								for (int32 sp = 0; sp < si[b].nParts; ++sp) {
+									int32 ox, oy;
+									subOff(b, sp, si[b], ox, oy);
+									int32 pmx, pmy;
+									PredMvPart(c, c.L[l], gbx + ox, gby + oy, si[b].pw, 3, 0, ri[l][b], pmx, pmy);
+									const int32 ax0 = (gbx + ox > 0) ? c.L[l].mvdx4[(gby + oy) * c.nzW + gbx + ox - 1] : 0;
+									const int32 ax1 = (gby + oy > 0) ? c.L[l].mvdx4[(gby + oy - 1) * c.nzW + gbx + ox] : 0;
+									const int32 ay0 = (gbx + ox > 0) ? c.L[l].mvdy4[(gby + oy) * c.nzW + gbx + ox - 1] : 0;
+									const int32 ay1 = (gby + oy > 0) ? c.L[l].mvdy4[(gby + oy - 1) * c.nzW + gbx + ox] : 0;
+									int32 ax, ay;
+									const int32 dx = DecodeMvdCabac(cab, kCtxMvd0, ax0 + ax1, ax);
+									const int32 dy = DecodeMvdCabac(cab, kCtxMvd1, ay0 + ay1, ay);
+									if (dx == kMvdOverflow || dy == kMvdOverflow)
+										return false;
+									mvSub[l][b][sp][0] = pmx + dx;
+									mvSub[l][b][sp][1] = pmy + dy;
+									StoreMvd4(c, c.L[l], gbx + ox, gby + oy, si[b].pw, si[b].ph, ax, ay);
+									StoreMv4(c, c.L[l], gbx + ox, gby + oy, si[b].pw, si[b].ph, mvSub[l][b][sp][0],
+											 mvSub[l][b][sp][1], ri[l][b]);
+								}
+							}
+						// Compensation (2e passage) : Direct deduits, les autres compenses.
+						for (int32 b = 0; b < 4; ++b) {
+							if (si[b].direct) {
+								int32 dref[2], dmv[2][2];
+								bool zero8[4];
+								PredDirectSpatial(c, mbX, mbY, dref, dmv, zero8);
+								ApplyDirect8x8(c, mbX, mbY, b, dref, dmv, zero8[b], predY, cPred);
+								continue;
+							}
+							for (int32 sp = 0; sp < si[b].nParts; ++sp) {
+								int32 ox, oy;
+								subOff(b, sp, si[b], ox, oy);
+								McPartB(c, mbX, mbY, ox, oy, si[b].pw, si[b].ph, si[b].l0[0], si[b].l1[0],
+										si[b].l0[0] ? ri[0][b] : 0, si[b].l1[0] ? ri[1][b] : 0, mvSub[0][b][sp][0],
+										mvSub[0][b][sp][1], mvSub[1][b][sp][0], mvSub[1][b][sp][1], predY, cPred);
+							}
+						}
+				} else { // 16x16 / 16x8 / 8x16, avec une direction par partition
+					const int32 nP = info.nParts;
+					const int32 shape = (nP == 1) ? 0 : (info.ph == 2 ? 1 : 2); // 0=16x16,1=16x8,2=8x16
+					int32 ri[2][2] = {{0, 0}, {0, 0}};
+					for (int32 l = 0; l < 2; ++l)
+						for (int32 p = 0; p < nP; ++p) {
+							const bool use = (l == 0) ? info.l0[p] : info.l1[p];
+							const int32 ox = (shape == 2) ? p * 2 : 0, oy = (shape == 1) ? p * 2 : 0;
+							if (!use) {
+								ri[l][p] = -1;
+								StoreRef4(c, c.L[l], gbx + ox, gby + oy, info.pw, info.ph, -1);
+								continue;
+							}
+							ri[l][p] = (c.L[l].numRefActive > 1)
+										   ? DecodeRefIdxCabac(cab, c, c.L[l], gbx + ox, gby + oy, true)
+										   : 0;
+							if (ri[l][p] < 0)
+								return false;
+							StoreRef4(c, c.L[l], gbx + ox, gby + oy, info.pw, info.ph, ri[l][p]);
+						}
+					// ⚠️ ORDRE : les mvd se lisent LISTE-EXTERNE (toute la L0 puis toute la L1), comme la
+					// reference — PAS partition-externe. Sinon desync des que 2 partitions/listes ont un
+					// mvd non nul. La MV de chaque partition est stockee des sa lecture (prediction des
+					// suivantes de la MEME liste), la compensation se fait dans un 2e passage.
+					int32 mvPart[2][2][2] = {{{0, 0}, {0, 0}}, {{0, 0}, {0, 0}}}; // [list][part][xy]
+					for (int32 l = 0; l < 2; ++l)
+						for (int32 p = 0; p < nP; ++p) {
+							const bool use = (l == 0) ? info.l0[p] : info.l1[p];
+							if (!use)
+								continue;
+							const int32 ox = (shape == 2) ? p * 2 : 0, oy = (shape == 1) ? p * 2 : 0;
+							int32 pmx, pmy;
+							PredMvPart(c, c.L[l], gbx + ox, gby + oy, info.pw, shape, p, ri[l][p], pmx, pmy);
+							const int32 ax0 = (gbx + ox > 0) ? c.L[l].mvdx4[(gby + oy) * c.nzW + gbx + ox - 1] : 0;
+							const int32 ax1 = (gby + oy > 0) ? c.L[l].mvdx4[(gby + oy - 1) * c.nzW + gbx + ox] : 0;
+							const int32 ay0 = (gbx + ox > 0) ? c.L[l].mvdy4[(gby + oy) * c.nzW + gbx + ox - 1] : 0;
+							const int32 ay1 = (gby + oy > 0) ? c.L[l].mvdy4[(gby + oy - 1) * c.nzW + gbx + ox] : 0;
+							int32 ax, ay;
+							const int32 dx = DecodeMvdCabac(cab, kCtxMvd0, ax0 + ax1, ax);
+							const int32 dy = DecodeMvdCabac(cab, kCtxMvd1, ay0 + ay1, ay);
+							if (dx == kMvdOverflow || dy == kMvdOverflow)
+								return false;
+							mvPart[l][p][0] = pmx + dx;
+							mvPart[l][p][1] = pmy + dy;
+							StoreMvd4(c, c.L[l], gbx + ox, gby + oy, info.pw, info.ph, ax, ay);
+							StoreMv4(c, c.L[l], gbx + ox, gby + oy, info.pw, info.ph, mvPart[l][p][0],
+									 mvPart[l][p][1], ri[l][p]);
+						}
+					for (int32 p = 0; p < nP; ++p) {
+						const int32 ox = (shape == 2) ? p * 2 : 0, oy = (shape == 1) ? p * 2 : 0;
+						McPartB(c, mbX, mbY, ox, oy, info.pw, info.ph, info.l0[p], info.l1[p],
+								info.l0[p] ? ri[0][p] : 0, info.l1[p] ? ri[1][p] : 0, mvPart[0][p][0],
+								mvPart[0][p][1], mvPart[1][p][0], mvPart[1][p][1], predY, cPred);
+					}
+				}
+
+				// Grilles voisines. Un B_Direct/B_Skip compte comme "Direct" pour le ctx de mb_type.
+				cab.mbTypeClass[(uint64)mbIdx] = 1;
+				cab.chromaModeMb[(uint64)mbIdx] = 0;
+				cab.mbSkipMb[(uint64)mbIdx] = skip ? 1 : 0;
+				cab.mbDirectMb[(uint64)mbIdx] = info.direct ? 1 : 0;
+				c.mb16x16OrIntra[mbIdx] = (info.nParts == 1) ? 1 : 0;
+
+				if (skip) { // B_Skip : aucun residu, aucun cbp, aucun mb_qp_delta
+					cab.cbpLumaMb[(uint64)mbIdx] = 0;
+					cab.cbpChromaMb[(uint64)mbIdx] = 0;
+					cab.lumaDcCodedMb[(uint64)mbIdx] = 0;
+					cab.chromaDcCodedMb[(uint64)mbIdx] = 0;
+					cab.prevQpDeltaNonZero = 0;
+					for (int32 y = 0; y < 4; ++y)
+						for (int32 x = 0; x < 4; ++x)
+							c.lumaNz[(mbY * 4 + y) * c.nzW + (mbX * 4 + x)] = 0;
+					for (int32 y = 0; y < 2; ++y)
+						for (int32 x = 0; x < 2; ++x) {
+							c.chromaNz0[(mbY * 2 + y) * c.cnzW + (mbX * 2 + x)] = 0;
+							c.chromaNz1[(mbY * 2 + y) * c.cnzW + (mbX * 2 + x)] = 0;
+						}
+					for (int32 y = 0; y < 16; ++y)
+						for (int32 x = 0; x < 16; ++x)
+							c.Y[(usize)(py + y) * c.lumaW + px + x] = predY[y * 16 + x];
+					for (int32 comp = 0; comp < 2; ++comp) {
+						uint8 *rec = (comp == 0) ? c.Cb : c.Cr;
+						for (int32 y = 0; y < 8; ++y)
+							for (int32 x = 0; x < 8; ++x)
+								rec[(usize)(mbY * 8 + y) * c.chromaW + mbX * 8 + x] = cPred[comp][y * 8 + x];
+					}
+					return true;
+				}
+
+				const int32 lumaCbp = DecodeCbpLumaCabac(cab, mbX, mbY);
+				const int32 cbpChroma = DecodeCbpChromaCabac(cab, mbX, mbY);
+				cab.cbpLumaMb[(uint64)mbIdx] = lumaCbp;
+				cab.cbpChromaMb[(uint64)mbIdx] = cbpChroma;
+				if (lumaCbp || cbpChroma)
+					c.qp = (c.qp + DecodeMbQpDeltaCabac(cab) + 52) % 52;
+				else
+					cab.prevQpDeltaNonZero = 0;
+
+				// Residu luma (cat 2). MB inter -> defaut cbf d'un voisin INDISPONIBLE = 0.
+				const int32 bx0 = mbX * 4, by0 = mbY * 4;
+				for (int32 blk = 0; blk < 16; ++blk) {
+					int32 x4, y4;
+					LumaBlk(blk, x4, y4);
+					const int32 bx = bx0 + x4 / 4, by = by0 + y4 / 4;
+					int32 raster[16] = {0};
+					int32 tc = 0;
+					if (lumaCbp & (1 << (blk >> 2))) {
+						const int32 cbfA = (bx > 0) ? (c.lumaNz[by * c.nzW + (bx - 1)] > 0 ? 1 : 0) : 0;
+						const int32 cbfB = (by > 0) ? (c.lumaNz[(by - 1) * c.nzW + bx] > 0 ? 1 : 0) : 0;
+						tc = DecodeResidualCabac(cab, 2, cbfA, cbfB, 0, raster);
+					}
+					c.lumaNz[by * c.nzW + bx] = tc;
+					int32 deq[16], resRec[16];
+					NkH264Transform::Dequant4x4(raster, deq, c.qp);
+					NkH264Transform::Inverse4x4(deq, resRec);
+					for (int32 r = 0; r < 4; ++r)
+						for (int32 col = 0; col < 4; ++col)
+							c.Y[(usize)(py + y4 + r) * c.lumaW + px + x4 + col] =
+								ClampU8(predY[(y4 + r) * 16 + (x4 + col)] + resRec[r * 4 + col]);
+				}
+				DecodeChromaResidualCabac(c, cab, mbX, mbY, cbpChroma, cPred, 0);
 				return true;
 			}
 
@@ -2286,10 +2661,9 @@ namespace nkentseu {
 				return false;
 			if (isInter && numRefs <= 0) // P/B sans reference
 				return false;
-			// ⚠️ Le DECODAGE des B n'est pas encore implemente (seul leur EN-TETE l'est) : on echoue
-			// proprement ICI. Sans ce garde-fou une B tomberait dans le chemin P (CAVLC : `else if
-			// (isI) ... else <P>`) et sortirait des pixels FAUX au lieu d'un echec franc.
-			if (isB)
+			// ⚠️ Les B ne sont decodees qu'en CABAC (les B CAVLC tomberaient dans le chemin P de la
+			// branche `else if (isI) ... else <P>` et sortiraient des pixels FAUX au lieu d'un echec).
+			if (isB && pps.entropyCodingMode != 1)
 				return false;
 			br.UE();				   // pps_id
 			const int32 frameNum = (int32)br.U(sps.log2MaxFrameNum); // frame_num
@@ -2354,8 +2728,13 @@ namespace nkentseu {
 			bool hasLongTerm = false;
 			// direct_spatial_mv_pred_flag (B uniquement) : 1 = Direct SPATIAL (le defaut x264), 0 = temporel.
 			int32 directSpatial = 1;
-			if (isB)
+			if (isB) {
 				directSpatial = (int32)br.U1();
+				// Le Direct SPATIAL seul est implemente (defaut x264) ; le temporel exigerait la mise
+				// a l'echelle des MV de la co-localisee par les distances POC.
+				if (!directSpatial)
+					return false;
+			}
 			NkVector<ListMod> listMods1;					   // reordonnancement de RefPicList1 (B)
 			int32 numRefActive = pps.numRefIdxL0DefaultActive;  // num_ref_idx_l0_active effectif
 			int32 numRefActive1 = pps.numRefIdxL1DefaultActive; // num_ref_idx_l1_active effectif (B)
@@ -2494,6 +2873,8 @@ namespace nkentseu {
 			const uint64 n4 = (uint64)mbW * 4 * mbH * 4;
 			NkVector<int32> lumaNz, cnz0, cnz1, i4mode, mvx4G, mvy4G, ref4G, mvdx4G, mvdy4G;
 			NkVector<int32> mvx4G1, mvy4G1, ref4G1, mvdx4G1, mvdy4G1; // grilles de la liste L1 (B)
+			NkVector<int32> direct4G; // par 4x4 : 1 si bloc Direct (contexte ref_idx des B)
+			NkVector<uint8> shape16; // par MB : 1 si 16x16 ou intra (granularite du Direct spatial)
 			lumaNz.Resize(n4);
 			i4mode.Resize(n4);
 			mvx4G.Resize(n4);
@@ -2522,6 +2903,9 @@ namespace nkentseu {
 				mvdx4G1[i] = 0;
 				mvdy4G1[i] = 0;
 			}
+			direct4G.Resize(n4);
+			for (uint64 i = 0; i < n4; ++i)
+				direct4G[i] = 0;
 			for (uint64 i = 0; i < cnz0.Size(); ++i) {
 				cnz0[i] = 0;
 				cnz1[i] = 0;
@@ -2549,6 +2933,10 @@ namespace nkentseu {
 			c.L[0].mvx4 = mvx4G.Data();
 			c.L[0].mvy4 = mvy4G.Data();
 			c.L[0].ref4 = ref4G.Data();
+			shape16.Resize((uint64)(mbW * mbH));
+			for (uint64 i = 0; i < shape16.Size(); ++i)
+				shape16[i] = 1; // defaut : intra / 16x16
+			c.mb16x16OrIntra = shape16.Data();
 			c.L[0].mvdx4 = mvdx4G.Data();
 			c.L[0].mvdy4 = mvdy4G.Data();
 			c.L[1].mvx4 = mvx4G1.Data();
@@ -2556,6 +2944,7 @@ namespace nkentseu {
 			c.L[1].ref4 = ref4G1.Data();
 			c.L[1].mvdx4 = mvdx4G1.Data();
 			c.L[1].mvdy4 = mvdy4G1.Data();
+			c.direct4 = direct4G.Data();
 			c.weightedPred = useWeighted ? 1 : 0;
 			c.lumaLog2Denom = wpLumaDenom;
 			c.chromaLog2Denom = wpChromaDenom;
@@ -2740,6 +3129,27 @@ namespace nkentseu {
 					return false;
 				if (isB && !buildList(1, listMods1, numRefActive1))
 					return false;
+				// ── Image CO-LOCALISEE = RefPicList1[0] (§8.4.1.2) ───────────────────
+				// Le Direct spatial y teste si le bloc est immobile. On la retrouve par identite de
+				// plan (buildList ne garde que des pointeurs) ; il faut aussi son champ de mouvement,
+				// donc l'image DOIT l'avoir conserve (mvW correct).
+				if (isB) {
+					for (int32 i = 0; i < nUse; ++i) {
+						if (refs[i]->y.Data() != c.L[1].y[0])
+							continue;
+						if (refs[i]->mvW != c.nzW || refs[i]->mvL0Ref.Size() == 0)
+							break; // mouvement absent/incompatible -> pas de col_zero
+						c.colL0x = refs[i]->mvL0x.Data();
+						c.colL0y = refs[i]->mvL0y.Data();
+						c.colL0Ref = refs[i]->mvL0Ref.Data();
+						c.colL1x = refs[i]->mvL1x.Data();
+						c.colL1y = refs[i]->mvL1y.Data();
+						c.colL1Ref = refs[i]->mvL1Ref.Data();
+						if (refs[i]->mb16x16OrIntra.Size() == (uint64)(mbW * mbH))
+							c.col16x16OrIntra = refs[i]->mb16x16OrIntra.Data();
+						break;
+					}
+				}
 
 				// ── Poids IMPLICITES des B (§8.4.2.3.1, weighted_bipred_idc == 2) ────
 				// Aucune table n'est transmise : les poids se derivent des distances POC entre
@@ -2778,14 +3188,9 @@ namespace nkentseu {
 			NkVector<int32> mbQp;
 			mbQp.Resize((uint64)numMb);
 			if (pps.entropyCodingMode == 1) {
-				// ── CABAC (profils Main/High) — I-slices et P-slices ──────────────────
-				// ETAT (2026-07-16) : BIT-EXACT vs la reference sur les I-slices. Valide sur
-				// 15 combinaisons (QP 18/22/28/34/40 x 16x16 / 64x48 / 176x144, no-deblock) :
-				// 0 diff luma ET chroma. Chaine = moteur arithmetique + tables ISO + syntaxe
-				// + residus + reconstruction.
-				// Les B restent a faire : on echoue proprement (pas de sortie corrompue).
-				if (!isI && !isP)
-					return false; // B CABAC non encore implemente
+				// ── CABAC (profils Main/High) — I, P et B ─────────────────────────────
+				// ETAT : I et P BIT-EXACTS vs la reference (P : 96/96 combinaisons aux reglages
+				// x264 Main PAR DEFAUT). Les B (Direct spatial) sont NEUVES et pas encore validees.
 				const usize byteStart = (br.pos + 7) / 8; // cabac_alignment_one_bit -> octet
 				CabacMb cab;
 				cab.InitSlice(mbW, mbH, c.qp, isI, cabacInitIdc);
@@ -2794,6 +3199,47 @@ namespace nkentseu {
 				while (mbAddr < numMb) {
 					const int32 mbX = mbAddr % mbW, mbY = mbAddr / mbW;
 					const int32 mbIdx = mbY * mbW + mbX;
+					if (isB) {
+						// B_Skip = B_Direct_16x16 sans residu ; sinon mb_type B (ou intra).
+						if (DecodeMbSkipBCabac(cab, mbX, mbY)) {
+							if (!DecodeMbCabacB(c, cab, mbX, mbY, 0, true))
+								return false;
+						} else {
+							bool intraInB = false;
+							const int32 mbTypeB = DecodeMbTypeBCabac(cab, mbX, mbY, intraInB);
+							if (!intraInB) {
+								if (!DecodeMbCabacB(c, cab, mbX, mbY, mbTypeB, false))
+									return false;
+							} else {
+								// MB intra dans une B : aucune des deux listes n'est utilisee.
+								ClearMvdGrid(c, c.L[0], mbX, mbY);
+								ClearMvdGrid(c, c.L[1], mbX, mbY);
+								for (int32 y = 0; y < 4; ++y)
+									for (int32 x = 0; x < 4; ++x) {
+										const int32 gi = (mbY * 4 + y) * c.nzW + (mbX * 4 + x);
+										c.L[0].ref4[gi] = -1;
+										c.L[1].ref4[gi] = -1;
+									}
+								if (mbTypeB == 0) {
+									if (!DecodeMbCabacI4x4(c, cab, mbX, mbY))
+										return false;
+								} else if (mbTypeB <= 24) {
+									if (!DecodeMbCabacI16x16(c, cab, mbX, mbY, mbTypeB))
+										return false;
+								} else {
+									return false; // I_PCM non gere
+								}
+								cab.mbSkipMb[(uint64)mbIdx] = 0;
+								cab.mbDirectMb[(uint64)mbIdx] = 0;
+								c.mb16x16OrIntra[mbIdx] = 1; // intra
+							}
+						}
+						mbQp[(uint64)mbAddr] = c.qp;
+						++mbAddr;
+						if (cab.Terminate()) // end_of_slice_flag
+							break;
+						continue;
+					}
 					if (isP && DecodeMbSkipCabac(cab, mbX, mbY)) {
 						// P_Skip : aucun residu, MV predite. Les grilles voisines passent a "vide".
 						DecodeMbSkip(c, mbX, mbY);
@@ -2918,6 +3364,9 @@ namespace nkentseu {
 			// (RefPicList1[0]) pour son Direct spatial (§8.4.1.2.2).
 			out.mvW = mbW * 4;
 			out.mvH = mbH * 4;
+			out.mb16x16OrIntra.Resize((uint64)(mbW * mbH));
+			for (uint64 i = 0; i < out.mb16x16OrIntra.Size(); ++i)
+				out.mb16x16OrIntra[i] = shape16[i];
 			out.mvL0x.Resize(n4);
 			out.mvL0y.Resize(n4);
 			out.mvL0Ref.Resize(n4);

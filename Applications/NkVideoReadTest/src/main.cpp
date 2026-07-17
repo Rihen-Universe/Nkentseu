@@ -175,6 +175,35 @@ int main(int argc, char **argv) {
 				cmp(cur.y.Data(), cur.lumaW, cur.cropW, cur.cropH, ref, dY);
 				cmp(cur.cb.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref + yN, dC);
 				cmp(cur.cr.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref + yN + cN, dC);
+				// DEBUG : localise le PREMIER MB 16x16 (ordre raster) dont un pixel luma differe.
+				if (dY > 0) {
+					const int32 mbw = (cur.cropW + 15) / 16, mbh = (cur.cropH + 15) / 16;
+					for (int32 mby = 0; mby < mbh; ++mby) {
+						for (int32 mbx = 0; mbx < mbw; ++mbx) {
+							int32 nd = 0, mxd = 0;
+							for (int32 yy = 0; yy < 16; ++yy)
+								for (int32 xx = 0; xx < 16; ++xx) {
+									const int32 pxx = mbx * 16 + xx, pyy = mby * 16 + yy;
+									if (pxx >= cur.cropW || pyy >= cur.cropH)
+										continue;
+									const int32 dv = (int32)cur.y[(usize)pyy * cur.lumaW + pxx] -
+													 (int32)ref[(usize)pyy * cur.cropW + pxx];
+									if (dv) {
+										++nd;
+										const int32 a = dv < 0 ? -dv : dv;
+										if (a > mxd)
+											mxd = a;
+									}
+								}
+							if (nd > 0) {
+								printf("    1er MB divergent : (%d,%d) [addr %d] nd=%d maxdiff=%d\n", mbx, mby,
+									   mby * mbw + mbx, nd, mxd);
+								mby = mbh;
+								break;
+							}
+						}
+					}
+				}
 				// DEBUG : nb de diffs par bloc 4x4 (grille), 1er MB seulement.
 				if (dY > 0 && cur.cropW <= 32 && cur.cropH <= 32) {
 					const int32 bw = cur.cropW / 4, bh = cur.cropH / 4;
