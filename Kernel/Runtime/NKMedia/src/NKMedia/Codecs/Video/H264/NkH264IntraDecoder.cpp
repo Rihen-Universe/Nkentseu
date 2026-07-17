@@ -1814,19 +1814,13 @@ namespace nkentseu {
 			mbQp.Resize((uint64)numMb);
 			if (pps.entropyCodingMode == 1) {
 				// ── CABAC (profils Main/High) — I-slices ──────────────────────────────
-				// Chaine complete implementee (moteur + tables ISO verifiees + syntaxe I +
-				// residus + reconstruction) mais PAS ENCORE bit-exact : un bug de contexte
-				// residuel (1er MB : ~9 dB) reste a debusquer via une trace bin-a-bin vs
-				// reference. On echoue proprement en attendant (pas de sortie corrompue).
-				// ⚠️ ETAT (2026-07-13) : PROUVES corrects = moteur arithmetique, tables (rangeTabLPS/
-				// transIdx/init verifiees vs x264), mb_type, modes intra, cbp, defauts de voisins
-				// (= cbp_table 0x7CF de la reference), prediction/reconstruction. Sur 1 MB sans
-				// deblocage : Y=0 a QP40/34 (peu ou pas de residu luma) mais Y!=0 des QP28, et la
-				// chroma est fausse a tout QP => BUG dans DecodeResidualCabac (partage luma+chroma :
-				// significativite / niveaux). Gate OFF tant que ce n'est pas corrige.
-				constexpr bool kCabacDecodeEnabled = false;
-				if (!kCabacDecodeEnabled || !isI)
-					return false; // P/B CABAC + I CABAC (WIP) non actives
+				// ETAT (2026-07-16) : BIT-EXACT vs la reference sur les I-slices. Valide sur
+				// 15 combinaisons (QP 18/22/28/34/40 x 16x16 / 64x48 / 176x144, no-deblock) :
+				// 0 diff luma ET chroma. Chaine = moteur arithmetique + tables ISO + syntaxe I
+				// + residus + reconstruction.
+				// Les P/B en CABAC restent a faire : on echoue proprement (pas de sortie corrompue).
+				if (!isI)
+					return false; // P/B CABAC non encore implementes
 				const usize byteStart = (br.pos + 7) / 8; // cabac_alignment_one_bit -> octet
 				CabacMb cab;
 				cab.InitSlice(mbW, mbH, c.qp, true, 0);
