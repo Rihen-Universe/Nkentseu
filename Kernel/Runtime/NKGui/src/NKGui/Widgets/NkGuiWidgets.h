@@ -132,9 +132,11 @@ namespace nkentseu {
 		// Champ de saisie MULTI-LIGNE dans `rect` : Entrée = saut de ligne, flèches
 		// ↑/↓ entre lignes, clic 2D, auto-scroll vers le caret + molette + scrollbar.
 		// Flags (ReadOnly/filtres) + maxChars. Retourne true si le texte a changé.
+		// `wrap` : retour à la ligne AUTOMATIQUE (word-wrap) à la largeur du champ (sinon les
+		// longues lignes débordent horizontalement). Défaut off (compatibilité).
 		NKENTSEU_NKGUI_API bool InputTextMultiline(NkGuiContext &ctx, const char *idStr, char *buf, int32 bufSize,
 												   const NkRect &rect, NkGuiInputFlags flags = NkGuiInputFlags::None,
-												   int32 maxChars = -1) noexcept;
+												   int32 maxChars = -1, bool wrap = false) noexcept;
 		NKENTSEU_NKGUI_API void Separator(NkGuiContext &ctx) noexcept;
 
 		// ════════════════ CONTENEURS DE LAYOUT ════════════════

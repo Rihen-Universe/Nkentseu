@@ -270,6 +270,8 @@ namespace nkentseu {
 				float32 time = 0.f;				 ///< temps accumulé (blink du caret)
 				NkGuiId inputId = NKGUI_ID_NONE; ///< champ texte focalisé (0 = aucun)
 				int32 inputCaret = 0;			 ///< position caret (octets) du champ focalisé
+				int32 inputAnchor = -1;		 ///< ancre de SELECTION (octets, -1 = pas de sélection)
+				bool inputDrag = false;		 ///< glissement souris en cours (étend la sélection)
 				float32 inputScroll = 0.f;		 ///< défilement horizontal du champ focalisé
 				bool inputClickConsumed = false; ///< un champ a-t-il pris le clic cette frame ?
 

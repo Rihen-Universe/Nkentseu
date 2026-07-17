@@ -339,8 +339,9 @@ namespace nkentseu {
 				{ // Activity bars : textures codicon (remplacent les dessins au trait du shell)
 					const uint32 L[7] = {ic.files, ic.search,	 ic.sourceControl, ic.bug,
 										 ic.liveShare, ic.puzzle, ic.chart}; // vues gauche 0..6
-					const uint32 R[3] = {ic.claude, ic.codeC, ic.accueil}; // 100 Claude (vrai logo), 101 Codex, 102 Maison
-					shell->SetActivityIcons(L, 7, ic.gear, R, 3);
+					// 100 Claude (vrai logo), 101 Codex, 102 Assistant (Maison), 103 NkAI (etincelle)
+					const uint32 R[4] = {ic.claude, ic.codeC, ic.accueil, ic.sparkles};
+					shell->SetActivityIcons(L, 7, ic.gear, R, 4);
 				}
 				// toggle liste/grille : pas d'asset adapte (`<>` et `↕` ne conviennent pas) -> dessine.
 
