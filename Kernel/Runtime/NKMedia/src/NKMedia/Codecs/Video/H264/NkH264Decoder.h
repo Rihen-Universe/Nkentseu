@@ -60,6 +60,8 @@ namespace nkentseu {
 				int32 constrainedIntraPred = 0;
 				int32 redundantPicCntPresent = 0;
 				int32 numRefIdxL0DefaultActive = 1; // num_ref_idx_l0_default_active_minus1 + 1
+				int32 weightedPred = 0;				// weighted_pred_flag : pred_weight_table dans les slices P/SP
+				int32 weightedBipredIdc = 0;		// weighted_bipred_idc : 1 = explicite en B, 2 = implicite
 		};
 
 		// En-tête de slice (chemin I-slice IDR baseline).
@@ -70,7 +72,8 @@ namespace nkentseu {
 				int32 ppsId = 0;
 				int32 frameNum = 0;
 				int32 idrPicId = 0;
-				int32 sliceQp = 26; // pic_init_qp + slice_qp_delta
+				int32 sliceQp = 26;	   // pic_init_qp + slice_qp_delta
+				int32 cabacInitIdc = 0; // 0..2 : variante de table d'init CABAC (P/B seulement)
 				bool isIntra = false;
 		};
 
