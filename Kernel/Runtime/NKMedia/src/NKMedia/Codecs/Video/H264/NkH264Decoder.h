@@ -86,6 +86,16 @@ namespace nkentseu {
 				// frame_num de l'image : identifie la reference pour ref_pic_list_modification
 				// (§8.2.4.3.1 reordonne la liste par PicNum, derive de frame_num).
 				int32 frameNum = 0;
+				// ── Ordre d'affichage (POC, §8.2.1) ──────────────────────────────────
+				// Avec des B-frames l'ordre de DECODAGE n'est PAS l'ordre d'AFFICHAGE : c'est le POC
+				// qui donne l'ordre d'affichage, et il ordonne aussi les listes L0/L1 des B (§8.2.4.2.3).
+				int32 poc = 0;	  // PicOrderCnt
+				int32 pocLsb = 0; // pic_order_cnt_lsb   } etat necessaire a la derivation du POC
+				int32 pocMsb = 0; // PicOrderCntMsb      } de l'image SUIVANTE (§8.2.1.1)
+				// nal_ref_idc != 0 : l'image sert de reference et entre dans le DPB. Les B de x264 sont
+				// non-references par defaut (pas de B-pyramid) : elles ne doivent PAS y entrer, sinon
+				// l'etat POC "image de reference precedente" est fausse.
+				bool isReference = true;
 		};
 
 		class NkH264Decoder {

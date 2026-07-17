@@ -2018,13 +2018,51 @@ namespace nkentseu {
 			const int32 frameNum = (int32)br.U(sps.log2MaxFrameNum); // frame_num
 			if (nalType == 5)
 				br.UE(); // idr_pic_id
+			// ── POC (§8.2.1.1, pic_order_cnt_type 0) ─────────────────────────────────
+			// L'etat requis (prevPicOrderCntMsb/Lsb) est celui de l'IMAGE DE REFERENCE PRECEDENTE en
+			// ordre de decodage — c'est exactement refs[0] (le DPB est trie plus recent d'abord), donc
+			// la derivation reste SANS ETAT tant que l'appelant n'insere que les references dans le DPB.
+			int32 pocLsb = 0, pocMsb = 0, poc = 0;
 			if (sps.pocType == 0) {
-				br.U(sps.log2MaxPocLsb);
+				pocLsb = (int32)br.U(sps.log2MaxPocLsb); // pic_order_cnt_lsb
 				if (pps.bottomFieldPocPresent)
+					br.SE(); // delta_pic_order_cnt_bottom (frame coding : ignore)
+				const int32 maxPocLsb = 1 << sps.log2MaxPocLsb;
+				int32 prevMsb = 0, prevLsb = 0;
+				if (nalType != 5 && numRefs > 0 && refs && refs[0]) {
+					prevMsb = refs[0]->pocMsb;
+					prevLsb = refs[0]->pocLsb;
+				}
+				if (pocLsb < prevLsb && (prevLsb - pocLsb) >= (maxPocLsb / 2))
+					pocMsb = prevMsb + maxPocLsb;
+				else if (pocLsb > prevLsb && (pocLsb - prevLsb) > (maxPocLsb / 2))
+					pocMsb = prevMsb - maxPocLsb;
+				else
+					pocMsb = prevMsb;
+				poc = pocMsb + pocLsb;
+			} else if (sps.pocType == 2) {
+				// §8.2.1.3 : POC = 2*(FrameNumOffset + frame_num), -1 si l'image n'est pas une
+				// reference. x264 choisit ce type en BASELINE (sans B, ordre decodage == affichage).
+				// FrameNumOffset absorbe le rebouclage de frame_num ; on le transporte dans pocMsb.
+				const int32 maxFrameNum = 1 << sps.log2MaxFrameNum;
+				int32 frameNumOffset = 0;
+				if (nalType != 5 && numRefs > 0 && refs && refs[0])
+					frameNumOffset = (refs[0]->frameNum > frameNum) ? refs[0]->pocMsb + maxFrameNum
+																   : refs[0]->pocMsb;
+				pocMsb = frameNumOffset; // ce que l'image SUIVANTE devra reprendre
+				pocLsb = 0;
+				poc = 2 * (frameNumOffset + frameNum) - ((nalRefIdc != 0) ? 0 : 1);
+			} else if (sps.pocType == 1) {
+				if (!sps.deltaPocAlwaysZero) {
 					br.SE();
-			} else if (sps.pocType == 1 && !sps.deltaPocAlwaysZero) {
-				br.SE();
-				br.SE();
+					br.SE();
+				}
+				// ⚠️ Type 1 NON derive : il exige les champs de cycle du SPS (offset_for_ref_frame[]…)
+				// que l'on ne parse pas. Approximation valable tant que decodage == affichage (pas de B).
+				// Aucun encodeur courant ne l'emet (x264 : type 0 avec B, type 2 en baseline).
+				poc = 2 * frameNum;
+				pocMsb = 0;
+				pocLsb = 0;
 			}
 			if (pps.redundantPicCntPresent)
 				br.UE();
@@ -2459,6 +2497,10 @@ namespace nkentseu {
 			out.cropW = sps.width;
 			out.cropH = sps.height;
 			out.frameNum = frameNum; // identifie cette image comme reference (PicNum) pour les P suivantes
+			out.poc = poc;			 // ordre d'affichage + ordonnancement des listes L0/L1 des B
+			out.pocLsb = pocLsb;
+			out.pocMsb = pocMsb;
+			out.isReference = (nalRefIdc != 0); // sinon : ne PAS inserer dans le DPB
 			return true;
 		}
 
