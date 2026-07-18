@@ -1072,9 +1072,7 @@ namespace nkentseu {
 
 			// Déblocage §8.7 (intra ET inter) : bS calculé par segment 4x4.
 			//   intra impliqué -> 4 (bord MB) / 3 (interne) ; inter -> 2 (coeff nz) / 1 (Δmv≥1pel) / 0.
-			void Deblock(DecCtx &c, const int32 *mbQp, int32 alphaOff, int32 betaOff) {
-				const RefList &L = c.L[0]; // P : une seule liste de references
-
+			void Deblock(DecCtx &c, const int32 *mbQp, int32 alphaOff, int32 betaOff, bool isB) {
 				const int32 mbW = c.mbW, nzW = c.nzW;
 				int32 alpha, beta, tc0;
 				auto lumaEdge = [&](int32 qPav, int32 bS) {
@@ -1086,17 +1084,45 @@ namespace nkentseu {
 				auto chromaQpOf = [&](int32 lumaQp) {
 					return NkH264Transform::ChromaQp(Clamp(lumaQp + c.chromaQpOffset, 0, 51));
 				};
-				// Force de bord entre les blocs 4x4 q(qx,qy) et p(px,py) ; mbB = bord de MB.
+				// Identifiant d'IMAGE (POC) de la liste l d'un bloc 4x4, ou -1 si la liste est inutilisee.
+				// Deux blocs qui referencent la MEME image ont le meme POC, meme via des listes differentes.
+				auto pocOf = [&](int32 l, int32 x, int32 y) -> int32 {
+					const int32 r = c.L[l].ref4[y * nzW + x];
+					return (r >= 0) ? c.L[l].poc[r] : -1;
+				};
+				// |Δmv| >= 4 (1 pel en quart-pel) entre deux blocs, pour un couple de listes (lq, lp).
+				auto mvFar = [&](int32 lq, int32 qx, int32 qy, int32 lp, int32 px, int32 py) -> bool {
+					const int32 dx = c.L[lq].mvx4[qy * nzW + qx] - c.L[lp].mvx4[py * nzW + px];
+					const int32 dy = c.L[lq].mvy4[qy * nzW + qx] - c.L[lp].mvy4[py * nzW + px];
+					return (dx <= -4 || dx >= 4) || (dy <= -4 || dy >= 4);
+				};
+				// Force de bord entre les blocs 4x4 q(qx,qy) et p(px,py) ; mbB = bord de MB. (§8.7.2.1)
 				auto bsOf = [&](int32 qx, int32 qy, int32 px, int32 py, bool mbB) -> int32 {
-					const int32 rq = L.ref4[qy * nzW + qx], rp = L.ref4[py * nzW + px];
-					if (rq < 0 || rp < 0)
-						return mbB ? 4 : 3; // intra impliqué
+					// Intra impliqué (une ref < 0 sur les DEUX listes = bloc intra/non decode).
+					const bool qInter = c.L[0].ref4[qy * nzW + qx] >= 0 || c.L[1].ref4[qy * nzW + qx] >= 0;
+					const bool pInter = c.L[0].ref4[py * nzW + px] >= 0 || c.L[1].ref4[py * nzW + px] >= 0;
+					if (!qInter || !pInter)
+						return mbB ? 4 : 3;
 					if (c.lumaNz[qy * nzW + qx] > 0 || c.lumaNz[py * nzW + px] > 0)
 						return 2;
-					const int32 dx = L.mvx4[qy * nzW + qx] - L.mvx4[py * nzW + px];
-					const int32 dy = L.mvy4[qy * nzW + qx] - L.mvy4[py * nzW + px];
-					const int32 adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
-					return (adx >= 4 || ady >= 4) ? 1 : 0;
+					// Blocs inter, aucun coefficient : comparer refs (par IMAGE) + MV. (miroir de check_mv)
+					const int32 q0 = pocOf(0, qx, qy), q1 = pocOf(1, qx, qy);
+					const int32 p0 = pocOf(0, px, py), p1 = pocOf(1, px, py);
+					// Appariement direct L0<->L0, L1<->L1.
+					bool v = (q0 != p0);
+					if (!v && q0 != -1)
+						v = mvFar(0, qx, qy, 0, px, py);
+					if (isB) {
+						if (!v)
+							v = (q1 != p1) || (q1 != -1 && mvFar(1, qx, qy, 1, px, py));
+						if (v) {
+							// L'appariement direct diffère : essayer l'appariement CROISE L0<->L1.
+							if (q0 != p1 || q1 != p0)
+								return 1;
+							return (mvFar(0, qx, qy, 1, px, py) || mvFar(1, qx, qy, 0, px, py)) ? 1 : 0;
+						}
+					}
+					return v ? 1 : 0;
 				};
 
 				for (int32 mbY = 0; mbY < c.mbH; ++mbY)
@@ -3371,7 +3397,7 @@ namespace nkentseu {
 
 			// Déblocage en boucle (§8.7), intra ET inter (bS par segment 4x4).
 			if (disableDeblock != 1)
-				Deblock(c, mbQp.Data(), alphaOff, betaOff);
+				Deblock(c, mbQp.Data(), alphaOff, betaOff, isB);
 
 			out.lumaW = lumaW;
 			out.lumaH = lumaH;
