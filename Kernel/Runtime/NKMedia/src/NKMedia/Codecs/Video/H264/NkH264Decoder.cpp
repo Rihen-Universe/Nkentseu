@@ -213,6 +213,13 @@ namespace nkentseu {
 			out.deblockingControlPresent = (int32)br.U1();
 			out.constrainedIntraPred = (int32)br.U1();
 			out.redundantPicCntPresent = (int32)br.U1();
+			out.secondChromaQpOffset = out.chromaQpIndexOffset; // defaut si extension absente
+			if (br.MoreRbspData()) { // extension High du PPS
+				out.transform8x8Mode = (int32)br.U1(); // transform_8x8_mode_flag
+				if (br.U1()) // pic_scaling_matrix_present_flag
+					return false; // listes de quantif. custom non gerees
+				out.secondChromaQpOffset = br.SE(); // second_chroma_qp_index_offset
+			}
 			out.valid = true;
 			return true;
 		}

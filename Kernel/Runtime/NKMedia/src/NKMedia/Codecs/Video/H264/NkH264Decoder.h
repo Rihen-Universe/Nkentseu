@@ -61,6 +61,8 @@ namespace nkentseu {
 				int32 redundantPicCntPresent = 0;
 				int32 numRefIdxL0DefaultActive = 1; // num_ref_idx_l0_default_active_minus1 + 1
 				int32 numRefIdxL1DefaultActive = 1; // num_ref_idx_l1_default_active_minus1 + 1 (B)
+				int32 transform8x8Mode = 0;			// transform_8x8_mode_flag (extension High)
+				int32 secondChromaQpOffset = 0;		// second_chroma_qp_index_offset (defaut = chromaQpIndexOffset)
 				int32 weightedPred = 0;				// weighted_pred_flag : pred_weight_table dans les slices P/SP
 				int32 weightedBipredIdc = 0;		// weighted_bipred_idc : 1 = explicite en B, 2 = implicite
 		};
