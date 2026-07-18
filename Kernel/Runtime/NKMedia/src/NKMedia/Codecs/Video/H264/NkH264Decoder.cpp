@@ -164,7 +164,7 @@ namespace nkentseu {
 			out.frameMbsOnly = (int32)frameMbsOnly;
 			if (!frameMbsOnly)
 				br.U1(); // mb_adaptive_frame_field_flag
-			br.U1();	 // direct_8x8_inference_flag
+			out.directInference = (int32)br.U1(); // direct_8x8_inference_flag (Direct + transform 8x8 B)
 
 			int32 cropL = 0, cropR = 0, cropT = 0, cropB = 0;
 			if (br.U1()) { // frame_cropping_flag
