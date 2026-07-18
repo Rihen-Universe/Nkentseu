@@ -31,6 +31,22 @@ namespace nkentseu {
 				usize BitsLeft() const {
 					return (pos < sizeBits) ? (sizeBits - pos) : 0;
 				}
+				// §7.2 more_rbsp_data() : reste-t-il des donnees AVANT le rbsp_stop_one_bit ?
+				// Vrai s'il existe un bit a 1 quelque part apres la position courante (le dernier 1
+				// du RBSP est le stop bit ; tout ce qui precede est de la vraie donnee).
+				bool MoreRbspData() const {
+					if (pos >= sizeBits)
+						return false;
+					usize last = sizeBits; // position (exclue) du dernier bit a 1
+					while (last > pos) {
+						const usize p = last - 1;
+						if ((data[p >> 3] >> (7 - (p & 7))) & 1u)
+							break;
+						--last;
+					}
+					// last-1 = index du stop bit ; il reste de la donnee si pos < last-1.
+					return (last > pos + 1);
+				}
 
 				uint32 U1() {
 					if (pos >= sizeBits)

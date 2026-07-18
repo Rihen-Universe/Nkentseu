@@ -156,6 +156,57 @@ namespace nkentseu {
 			}
 		}
 
+		void NkH264Transform::Dequant8x8(const int32 lvl[64], int32 coef[64], int32 qp) {
+			// normAdjust8x8 (Table 8-14) : 6 valeurs par (qp%6), selectionnees par la position (i,j).
+			static const int32 v8[6][6] = {{20, 18, 32, 19, 25, 24}, {22, 19, 35, 21, 28, 26},
+				{26, 23, 42, 24, 33, 31}, {28, 25, 45, 26, 35, 33},
+				{32, 28, 51, 30, 40, 38}, {36, 32, 58, 34, 46, 43}};
+			const int32 m = qp % 6, shift = qp / 6;
+			for (int32 idx = 0; idx < 64; ++idx) {
+				const int32 i = idx >> 3, j = idx & 7;
+				const int32 i4 = i & 3, j4 = j & 3, i2 = i & 1, j2 = j & 1;
+				int32 cls;
+				if (i4 == 0 && j4 == 0) cls = 0;
+				else if (i2 == 1 && j2 == 1) cls = 1;
+				else if (i4 == 2 && j4 == 2) cls = 2;
+				else if ((i4 == 0 && j2 == 1) || (i2 == 1 && j4 == 0)) cls = 3;
+				else if ((i4 == 0 && j4 == 2) || (i4 == 2 && j4 == 0)) cls = 4;
+				else cls = 5;
+				const int32 ls = 16 * v8[m][cls]; // weightScale FLAT=16 ; LevelScale = 16 * v8
+				if (qp >= 36) coef[idx] = (lvl[idx] * ls) << (shift - 6);
+				else { const int32 sh = 6 - shift; coef[idx] = (lvl[idx] * ls + (1 << (sh - 1))) >> sh; }
+			}
+		}
+
+		void NkH264Transform::Inverse8x8(const int32 in[64], int32 out[64]) {
+			// Inverse 8x8 separable (8.5.13.2) : 1D sur lignes puis colonnes ; (.+32)>>6 a la fin.
+			auto idct1d = [](const int32 d[8], int32 e[8]) {
+				const int32 a0 = d[0] + d[4], a4 = d[0] - d[4];
+				const int32 a2 = (d[2] >> 1) - d[6], a6 = d[2] + (d[6] >> 1);
+				const int32 b0 = a0 + a6, b2 = a4 + a2, b4 = a4 - a2, b6 = a0 - a6;
+				const int32 a1 = -d[3] + d[5] - d[7] - (d[7] >> 1);
+				const int32 a3 = d[1] + d[7] - d[3] - (d[3] >> 1);
+				const int32 a5 = -d[1] + d[7] + d[5] + (d[5] >> 1);
+				const int32 a7 = d[3] + d[5] + d[1] + (d[1] >> 1);
+				const int32 b1 = a1 + (a7 >> 2), b7 = a7 - (a1 >> 2);
+				const int32 b3 = a3 + (a5 >> 2), b5 = (a3 >> 2) - a5;
+				e[0] = b0 + b7; e[7] = b0 - b7; e[1] = b2 + b5; e[6] = b2 - b5;
+				e[2] = b4 + b3; e[5] = b4 - b3; e[3] = b6 + b1; e[4] = b6 - b1;
+			};
+			int32 t[64], row[8], er[8];
+			for (int32 i = 0; i < 8; ++i) {
+				for (int32 j = 0; j < 8; ++j) row[j] = in[i * 8 + j];
+				idct1d(row, er);
+				for (int32 j = 0; j < 8; ++j) t[i * 8 + j] = er[j];
+			}
+			int32 col[8], ec[8];
+			for (int32 j = 0; j < 8; ++j) {
+				for (int32 i = 0; i < 8; ++i) col[i] = t[i * 8 + j];
+				idct1d(col, ec);
+				for (int32 i = 0; i < 8; ++i) out[i * 8 + j] = (ec[i] + 32) >> 6;
+			}
+		}
+
 		void NkH264Transform::Hadamard2x2(const int32 in[4], int32 out[4]) {
 			// 2×2 Hadamard (in raster [TL,TR,BL,BR]) ; directe = inverse (à un facteur 4 près,
 			// absorbé par la paire quant/dequant).

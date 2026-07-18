@@ -34,6 +34,11 @@ namespace nkentseu {
 				static void QuantDC(const int32 dc[16], int32 lvl[16], int32 n, int32 qp, bool intra);
 				static void DequantDC(const int32 lvl[16], int32 dc[16], int32 n, int32 qp);
 
+				// Transformée 8×8 (profil High). Inverse §8.5.13.2 (blocs 64 coeffs raster, inclut (·+32)>>6)
+				// et déquantification 8×8 §8.5.13.1 (scaling lists FLAT = défaut x264).
+				static void Inverse8x8(const int32 in[64], int32 out[64]);
+				static void Dequant8x8(const int32 lvl[64], int32 coef[64], int32 qp);
+
 				// Chroma 4:2:0 : transformée DC 2×2 (Hadamard, directe = inverse), quant/dequant DC chroma
 				// (échelle spec 8.5.11 : facteur ×16, décalage >>5), et table de QP chroma (qPi → QPc).
 				static void Hadamard2x2(const int32 in[4], int32 out[4]);
