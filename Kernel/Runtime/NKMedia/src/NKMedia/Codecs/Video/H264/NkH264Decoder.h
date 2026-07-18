@@ -42,6 +42,7 @@ namespace nkentseu {
 				int32 log2MaxPocLsb = 4;	  // (poc type 0)
 				int32 deltaPocAlwaysZero = 0; // (poc type 1)
 				int32 frameMbsOnly = 1;
+				int32 directInference = 1;	  // direct_8x8_inference_flag (B Direct + transform 8x8)
 				int32 picWidthInMbs = 0;
 				int32 picHeightInMapUnits = 0;
 		};
