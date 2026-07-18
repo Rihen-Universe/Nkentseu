@@ -410,6 +410,7 @@ namespace nkentseu {
 					int32 qp = 26;
 					int32 chromaQpOffset = 0;
 					int32 transform8x8Mode = 0; // PPS transform_8x8_mode_flag (profil High)
+					int32 directInference = 1;	// SPS direct_8x8_inference_flag (condition transform 8x8 B)
 					// Par MB : 1 si 16x16 ou intra (sauvegarde dans la frame pour le Direct spatial des
 					// B ULTERIEURES, qui liront cette image comme co-localisee).
 					uint8 *mb16x16OrIntra = nullptr;
@@ -2560,6 +2561,9 @@ namespace nkentseu {
 						bad = true;
 				};
 
+				// noSubMbPartSizeLessThan8x8Flag : autorise la transformée 8x8 (profil High) seulement si
+				// aucune sous-partition n'est < 8x8. Vrai sauf en P_8x8 avec au moins un sous-type != 8x8.
+				bool noSub8 = true;
 				if (mbType == 0) { // P_L0_16x16 : 1 ref_idx puis 1 mvd
 					const int32 ri = readRef ? DecodeRefIdxCabac(cab, c, L, gbx, gby) : 0;
 					if (ri < 0)
@@ -2596,8 +2600,11 @@ namespace nkentseu {
 					}
 				} else { // P_8x8
 					int32 subType[4];
-					for (int32 b = 0; b < 4; ++b)
+					for (int32 b = 0; b < 4; ++b) {
 						subType[b] = DecodeSubMbTypePCabac(cab);
+						if (subType[b] != 0) // 8x4/4x8/4x4 -> sous-partition < 8x8
+							noSub8 = false;
+					}
 					int32 ri[4] = {0, 0, 0, 0};
 					for (int32 b = 0; b < 4; ++b) {
 						const int32 sbx = (b & 1) * 2, sby = (b >> 1) * 2;
@@ -2655,6 +2662,14 @@ namespace nkentseu {
 				// ⚠️ Une B lira CETTE image comme co-localisee : la forme conditionne la granularite de
 				// son test "bloc immobile". P_L0_16x16 -> 16x16 ; les autres partitions -> pas 16x16.
 				c.mb16x16OrIntra[mbIdx] = (mbType == 0) ? 1 : 0;
+				// transform_size_8x8_flag (inter, profil High) : APRES le CBP, si CBPLuma>0 et aucune
+				// sous-partition < 8x8. (§7.3.5 : lu entre coded_block_pattern et mb_qp_delta.)
+				int32 t8 = 0;
+				if (c.transform8x8Mode && lumaCbp > 0 && noSub8)
+					t8 = DecodeTransform8x8FlagCabac(cab, mbX, mbY);
+				cab.transform8x8Mb[(uint64)mbIdx] = t8;
+				if (c.transform8x8Mb)
+					c.transform8x8Mb[mbIdx] = (uint8)t8;
 				if (lumaCbp || cbpChroma)
 					c.qp = (c.qp + DecodeMbQpDeltaCabac(cab) + 52) % 52;
 				else
@@ -2662,25 +2677,47 @@ namespace nkentseu {
 
 				// Residu luma (cat 2). ⚠️ MB inter -> defaut cbf d'un voisin INDISPONIBLE = 0 (pas 1).
 				const int32 bx0 = mbX * 4, by0 = mbY * 4;
-				for (int32 blk = 0; blk < 16; ++blk) {
-					int32 x4, y4;
-					LumaBlk(blk, x4, y4);
-					const int32 bx = bx0 + x4 / 4, by = by0 + y4 / 4;
-					int32 raster[16] = {0};
-					int32 tc = 0;
-					if (lumaCbp & (1 << (blk >> 2))) {
-						const int32 cbfA = (bx > 0) ? (c.lumaNz[by * c.nzW + (bx - 1)] > 0 ? 1 : 0) : 0;
-						const int32 cbfB = (by > 0) ? (c.lumaNz[(by - 1) * c.nzW + bx] > 0 ? 1 : 0) : 0;
-						tc = DecodeResidualCabac(cab, 2, cbfA, cbfB, 0, raster);
+				if (t8) {
+					// Transformée 8x8 : 4 blocs 8x8, résidu ajouté à la prédiction compensée.
+					for (int32 i8 = 0; i8 < 4; ++i8) {
+						const int32 bx8 = (i8 & 1) * 8, by8 = (i8 >> 1) * 8;
+						const int32 bx4 = bx0 + (i8 & 1) * 2, by4 = by0 + (i8 >> 1) * 2;
+						int32 raster[64] = {0};
+						int32 tc = 0;
+						if (lumaCbp & (1 << i8)) // pas de coded_block_flag en 4:2:0 (inféré à 1)
+							tc = DecodeResidualCabac8x8(cab, raster);
+						for (int32 dy = 0; dy < 2; ++dy)
+							for (int32 dx = 0; dx < 2; ++dx)
+								c.lumaNz[(by4 + dy) * c.nzW + (bx4 + dx)] = tc;
+						int32 deq[64], resRec[64];
+						NkH264Transform::Dequant8x8(raster, deq, c.qp);
+						NkH264Transform::Inverse8x8(deq, resRec);
+						for (int32 r = 0; r < 8; ++r)
+							for (int32 col = 0; col < 8; ++col)
+								c.Y[(usize)(py + by8 + r) * c.lumaW + px + bx8 + col] =
+									ClampU8((int32)predY[(by8 + r) * 16 + (bx8 + col)] + resRec[r * 8 + col]);
 					}
-					c.lumaNz[by * c.nzW + bx] = tc;
-					int32 deq[16], resRec[16];
-					NkH264Transform::Dequant4x4(raster, deq, c.qp);
-					NkH264Transform::Inverse4x4(deq, resRec);
-					for (int32 r = 0; r < 4; ++r)
-						for (int32 col = 0; col < 4; ++col)
-							c.Y[(usize)(py + y4 + r) * c.lumaW + px + x4 + col] =
-								ClampU8(predY[(y4 + r) * 16 + (x4 + col)] + resRec[r * 4 + col]);
+				} else {
+					for (int32 blk = 0; blk < 16; ++blk) {
+						int32 x4, y4;
+						LumaBlk(blk, x4, y4);
+						const int32 bx = bx0 + x4 / 4, by = by0 + y4 / 4;
+						int32 raster[16] = {0};
+						int32 tc = 0;
+						if (lumaCbp & (1 << (blk >> 2))) {
+							const int32 cbfA = (bx > 0) ? (c.lumaNz[by * c.nzW + (bx - 1)] > 0 ? 1 : 0) : 0;
+							const int32 cbfB = (by > 0) ? (c.lumaNz[(by - 1) * c.nzW + bx] > 0 ? 1 : 0) : 0;
+							tc = DecodeResidualCabac(cab, 2, cbfA, cbfB, 0, raster);
+						}
+						c.lumaNz[by * c.nzW + bx] = tc;
+						int32 deq[16], resRec[16];
+						NkH264Transform::Dequant4x4(raster, deq, c.qp);
+						NkH264Transform::Inverse4x4(deq, resRec);
+						for (int32 r = 0; r < 4; ++r)
+							for (int32 col = 0; col < 4; ++col)
+								c.Y[(usize)(py + y4 + r) * c.lumaW + px + x4 + col] =
+									ClampU8(predY[(y4 + r) * 16 + (x4 + col)] + resRec[r * 4 + col]);
+					}
 				}
 
 				DecodeChromaResidualCabac(c, cab, mbX, mbY, cbpChroma, cPred, 0); // inter -> defaut cbf = 0
@@ -2695,6 +2732,8 @@ namespace nkentseu {
 				const int32 mbIdx = mbY * cab.mbW + mbX;
 				uint8 predY[256], cPred[2][64];
 				const BPartInfo info = skip ? BMbTypeInfo(0) : BMbTypeInfo(mbType);
+				// noSubMbPartSizeLessThan8x8Flag (autorise la transformée 8x8 inter, profil High).
+				bool noSub8 = true;
 
 				// Les grilles |mvd| ne servent qu'aux partitions codees : le Direct n'en code aucune.
 				ClearMvdGrid(c, c.L[0], mbX, mbY);
@@ -2731,8 +2770,16 @@ namespace nkentseu {
 					for (int32 b = 0; b < 4; ++b)
 						sub[b] = DecodeSubMbTypeBCabac(cab);
 					BPartInfo si[4];
-					for (int32 b = 0; b < 4; ++b)
+					for (int32 b = 0; b < 4; ++b) {
 						si[b] = BSubMbTypeInfo(sub[b]);
+						// §7.4.5.2 : un sous-bloc non-Direct de plus d'une partition -> < 8x8 ; un
+						// B_Direct_8x8 impose < 8x8 SAUF si direct_8x8_inference_flag.
+						if (si[b].direct) {
+							if (!c.directInference)
+								noSub8 = false;
+						} else if (si[b].nParts > 1)
+							noSub8 = false;
+					}
 						// Marque les sous-blocs Direct AVANT les ref_idx (contexte des voisins internes).
 						if (c.direct4)
 							for (int32 b = 0; b < 4; ++b) {
@@ -2925,6 +2972,14 @@ namespace nkentseu {
 				const int32 cbpChroma = DecodeCbpChromaCabac(cab, mbX, mbY);
 				cab.cbpLumaMb[(uint64)mbIdx] = lumaCbp;
 				cab.cbpChromaMb[(uint64)mbIdx] = cbpChroma;
+				// transform_size_8x8_flag (inter B, profil High) : après le CBP. Condition B-specifique
+				// (§7.3.5) : mb_type != B_Direct_16x16 OU direct_8x8_inference_flag.
+				int32 t8 = 0;
+				if (c.transform8x8Mode && lumaCbp > 0 && noSub8 && (!info.direct || c.directInference))
+					t8 = DecodeTransform8x8FlagCabac(cab, mbX, mbY);
+				cab.transform8x8Mb[(uint64)mbIdx] = t8;
+				if (c.transform8x8Mb)
+					c.transform8x8Mb[mbIdx] = (uint8)t8;
 				if (lumaCbp || cbpChroma)
 					c.qp = (c.qp + DecodeMbQpDeltaCabac(cab) + 52) % 52;
 				else
@@ -2932,25 +2987,46 @@ namespace nkentseu {
 
 				// Residu luma (cat 2). MB inter -> defaut cbf d'un voisin INDISPONIBLE = 0.
 				const int32 bx0 = mbX * 4, by0 = mbY * 4;
-				for (int32 blk = 0; blk < 16; ++blk) {
-					int32 x4, y4;
-					LumaBlk(blk, x4, y4);
-					const int32 bx = bx0 + x4 / 4, by = by0 + y4 / 4;
-					int32 raster[16] = {0};
-					int32 tc = 0;
-					if (lumaCbp & (1 << (blk >> 2))) {
-						const int32 cbfA = (bx > 0) ? (c.lumaNz[by * c.nzW + (bx - 1)] > 0 ? 1 : 0) : 0;
-						const int32 cbfB = (by > 0) ? (c.lumaNz[(by - 1) * c.nzW + bx] > 0 ? 1 : 0) : 0;
-						tc = DecodeResidualCabac(cab, 2, cbfA, cbfB, 0, raster);
+				if (t8) {
+					for (int32 i8 = 0; i8 < 4; ++i8) {
+						const int32 bx8 = (i8 & 1) * 8, by8 = (i8 >> 1) * 8;
+						const int32 bx4 = bx0 + (i8 & 1) * 2, by4 = by0 + (i8 >> 1) * 2;
+						int32 raster[64] = {0};
+						int32 tc = 0;
+						if (lumaCbp & (1 << i8)) // pas de coded_block_flag en 4:2:0 (inféré à 1)
+							tc = DecodeResidualCabac8x8(cab, raster);
+						for (int32 dy = 0; dy < 2; ++dy)
+							for (int32 dx = 0; dx < 2; ++dx)
+								c.lumaNz[(by4 + dy) * c.nzW + (bx4 + dx)] = tc;
+						int32 deq[64], resRec[64];
+						NkH264Transform::Dequant8x8(raster, deq, c.qp);
+						NkH264Transform::Inverse8x8(deq, resRec);
+						for (int32 r = 0; r < 8; ++r)
+							for (int32 col = 0; col < 8; ++col)
+								c.Y[(usize)(py + by8 + r) * c.lumaW + px + bx8 + col] =
+									ClampU8((int32)predY[(by8 + r) * 16 + (bx8 + col)] + resRec[r * 8 + col]);
 					}
-					c.lumaNz[by * c.nzW + bx] = tc;
-					int32 deq[16], resRec[16];
-					NkH264Transform::Dequant4x4(raster, deq, c.qp);
-					NkH264Transform::Inverse4x4(deq, resRec);
-					for (int32 r = 0; r < 4; ++r)
-						for (int32 col = 0; col < 4; ++col)
-							c.Y[(usize)(py + y4 + r) * c.lumaW + px + x4 + col] =
-								ClampU8(predY[(y4 + r) * 16 + (x4 + col)] + resRec[r * 4 + col]);
+				} else {
+					for (int32 blk = 0; blk < 16; ++blk) {
+						int32 x4, y4;
+						LumaBlk(blk, x4, y4);
+						const int32 bx = bx0 + x4 / 4, by = by0 + y4 / 4;
+						int32 raster[16] = {0};
+						int32 tc = 0;
+						if (lumaCbp & (1 << (blk >> 2))) {
+							const int32 cbfA = (bx > 0) ? (c.lumaNz[by * c.nzW + (bx - 1)] > 0 ? 1 : 0) : 0;
+							const int32 cbfB = (by > 0) ? (c.lumaNz[(by - 1) * c.nzW + bx] > 0 ? 1 : 0) : 0;
+							tc = DecodeResidualCabac(cab, 2, cbfA, cbfB, 0, raster);
+						}
+						c.lumaNz[by * c.nzW + bx] = tc;
+						int32 deq[16], resRec[16];
+						NkH264Transform::Dequant4x4(raster, deq, c.qp);
+						NkH264Transform::Inverse4x4(deq, resRec);
+						for (int32 r = 0; r < 4; ++r)
+							for (int32 col = 0; col < 4; ++col)
+								c.Y[(usize)(py + y4 + r) * c.lumaW + px + x4 + col] =
+									ClampU8(predY[(y4 + r) * 16 + (x4 + col)] + resRec[r * 4 + col]);
+					}
 				}
 				DecodeChromaResidualCabac(c, cab, mbX, mbY, cbpChroma, cPred, 0);
 				return true;
@@ -3285,6 +3361,7 @@ namespace nkentseu {
 			c.qp = qp;
 			c.chromaQpOffset = pps.chromaQpIndexOffset;
 			c.transform8x8Mode = pps.transform8x8Mode;
+			c.directInference = sps.directInference;
 			// Grilles de mouvement : une par liste (L0 pour les P et les B, L1 pour les B seules).
 			c.L[0].mvx4 = mvx4G.Data();
 			c.L[0].mvy4 = mvy4G.Data();
