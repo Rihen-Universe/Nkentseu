@@ -31,6 +31,13 @@ namespace nkentseu {
 			// Balayage zig-zag 4x4 (position raster pour chaque indice de scan) — même que l'encodeur.
 			const int32 kZigZag[16] = {0, 1, 4, 8, 5, 2, 3, 6, 9, 12, 13, 10, 7, 11, 14, 15};
 
+			// Balayage zig-zag 8x8 (profil High) — position raster (row-major) pour chaque indice de scan.
+			const int32 kZigZag8x8[64] = {
+				0,  1,  8,  16, 9,  2,  3,  10, 17, 24, 32, 25, 18, 11, 4,  5,
+				12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6,  7,  14, 21, 28,
+				35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
+				58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
+
 			inline void LumaBlk(int32 blkIdx, int32 &x4, int32 &y4) {
 				const int32 b8 = blkIdx >> 2, b4 = blkIdx & 3;
 				x4 = (b8 & 1) * 8 + (b4 & 1) * 4;
@@ -402,9 +409,13 @@ namespace nkentseu {
 					int32 *lumaNz = nullptr, *chromaNz0 = nullptr, *chromaNz1 = nullptr, *i4mode = nullptr;
 					int32 qp = 26;
 					int32 chromaQpOffset = 0;
+					int32 transform8x8Mode = 0; // PPS transform_8x8_mode_flag (profil High)
 					// Par MB : 1 si 16x16 ou intra (sauvegarde dans la frame pour le Direct spatial des
 					// B ULTERIEURES, qui liront cette image comme co-localisee).
 					uint8 *mb16x16OrIntra = nullptr;
+					// Par MB : 1 si le MB utilise la transformée 8x8 (profil High). Le déblocage luma NE
+					// filtre PAS les arêtes internes 4x4 d'un MB 8x8 (seulement les bords à 8 échantillons).
+					uint8 *transform8x8Mb = nullptr;
 					// B-slices : 1 si le bloc 4x4 appartient a une partition Direct. Le contexte de
 					// ref_idx (§9.3.3.1.1.6) EXCLUT un voisin Direct meme si sa reference est > 0.
 					int32 *direct4 = nullptr;
@@ -1227,9 +1238,14 @@ namespace nkentseu {
 					for (int32 mbX = 0; mbX < mbW; ++mbX) {
 						const int32 cur = mbY * mbW + mbX;
 						const int32 qpQ = mbQp[cur];
+						// MB en transformée 8x8 (profil High) : les arêtes internes 4x4 (e=1,3) ne sont PAS
+						// filtrées — il n'y a pas de bord de transformée à x=4/12 ni y=4/12 (§8.7.1).
+						const bool c8x8 = c.transform8x8Mb && c.transform8x8Mb[cur];
 						// Luma bords verticaux (par segment de 4 lignes).
 						for (int32 e = 0; e < 4; ++e) {
 							if (e == 0 && mbX == 0)
+								continue;
+							if (c8x8 && (e & 1))
 								continue;
 							const int32 x = mbX * 16 + e * 4;
 							const int32 qPav = (e == 0) ? ((mbQp[cur - 1] + qpQ + 1) >> 1) : qpQ;
@@ -1247,6 +1263,8 @@ namespace nkentseu {
 						// Luma bords horizontaux.
 						for (int32 e = 0; e < 4; ++e) {
 							if (e == 0 && mbY == 0)
+								continue;
+							if (c8x8 && (e & 1))
 								continue;
 							const int32 y = mbY * 16 + e * 4;
 							const int32 qPav = (e == 0) ? ((mbQp[cur - mbW] + qpQ + 1) >> 1) : qpQ;
@@ -1335,6 +1353,11 @@ namespace nkentseu {
 				kCtxLast = 166,			 // last_significant_coeff_flag 166..226
 				kCtxCoeffAbs = 227,		 // coeff_abs_level_minus1 227..275
 				kCtxEndOfSlice = 276,	 // end_of_slice_flag (terminaison)
+				// ── Profil High (transformée 8x8) ──
+				kCtxTransform8x8 = 399,	 // transform_size_8x8_flag 399..401
+				kCtxSig8x8 = 402,		 // significant_coeff_flag 8x8 (frame) 402..416 (15 ctx)
+				kCtxLast8x8 = 417,		 // last_significant_coeff_flag 8x8 (frame) 417..425 (9 ctx)
+				kCtxCoeffAbs8x8 = 426,	 // coeff_abs_level_minus1 8x8 426..435 (10 ctx)
 			};
 
 			// Décodeur CABAC au niveau macrobloc : moteur + 1024 contextes + grilles voisines.
@@ -1350,6 +1373,7 @@ namespace nkentseu {
 					NkVector<int32> chromaDcCodedMb; // cbf chroma DC par MB (bit0=Cb, bit1=Cr)
 					NkVector<int32> mbSkipMb;	// 1 si le MB est P_Skip/B_Skip (ctx de mb_skip_flag)
 					NkVector<int32> mbDirectMb; // 1 si le MB est B_Direct/B_Skip (ctx du 1er bin mb_type B)
+					NkVector<int32> transform8x8Mb; // 1 si transform_size_8x8_flag (ctx du flag, §9.3.3.1.1.10)
 					int32 mbW = 0;
 					int32 prevQpDeltaNonZero = 0;
 
@@ -1364,6 +1388,7 @@ namespace nkentseu {
 						chromaDcCodedMb.Resize((uint64)n);
 						mbSkipMb.Resize((uint64)n);
 						mbDirectMb.Resize((uint64)n);
+						transform8x8Mb.Resize((uint64)n);
 						for (int32 i = 0; i < n; ++i) {
 							mbTypeClass[(uint64)i] = -1;
 							cbpLumaMb[(uint64)i] = 0;
@@ -1373,6 +1398,7 @@ namespace nkentseu {
 							chromaDcCodedMb[(uint64)i] = 0;
 							mbSkipMb[(uint64)i] = 0;
 							mbDirectMb[(uint64)i] = 0;
+							transform8x8Mb[(uint64)i] = 0;
 						}
 						prevQpDeltaNonZero = 0;
 						// Init des 1024 contextes depuis la table normative (I ou variante P/B).
@@ -1873,6 +1899,85 @@ namespace nkentseu {
 				return coeffCount;
 			}
 
+			// transform_size_8x8_flag (§9.3.3.1.1.10). ctxIdxInc = condTermA + condTermB, où
+			// condTermN = 1 si le MB voisin N est dispo ET a transform_size_8x8_flag == 1. (offset 399)
+			int32 DecodeTransform8x8FlagCabac(CabacMb &cab, int32 mbX, int32 mbY) {
+				const int32 idx = mbY * cab.mbW + mbX;
+				int32 ctx = 0;
+				if (mbX > 0 && cab.mbTypeClass[(uint64)(idx - 1)] >= 0 && cab.transform8x8Mb[(uint64)(idx - 1)])
+					++ctx;
+				if (mbY > 0 && cab.mbTypeClass[(uint64)(idx - cab.mbW)] >= 0 &&
+					cab.transform8x8Mb[(uint64)(idx - cab.mbW)])
+					++ctx;
+				return (int32)cab.Bin(kCtxTransform8x8 + ctx);
+			}
+
+			// Residu LUMA 8x8 CABAC (ctxBlockCat 5, profil High). En 4:2:0 (ChromaArrayType != 3) il n'y a
+			// PAS de coded_block_flag pour le bloc 8x8 (il est inféré à 1) : l'appelant n'entre ici que si le
+			// bit CBP du 8x8 est armé. La carte de significativité 8x8 utilise un MAPPING NON-LINÉAIRE des
+			// contextes (Table 9-43, seulement 15 contextes sig / 9 last pour 63 positions). Les niveaux
+			// réutilisent la même machine node_ctx que le 4x4 (offset 426). out[64] pré-mis à zéro (raster).
+			int32 DecodeResidualCabac8x8(CabacMb &cab, int32 *out) {
+				// ctxIdxMap significant_coeff_flag 8x8 (frame), levelListIdx 0..62 (Table 9-43).
+				static const int32 sig8[63] = {
+					0, 1,	2,	3,	4,	5,	5,	4,	4,	3,	3,	4,	4,	4,	5,	5,	4,	4,	4,	4,	3,
+					3, 6,	7,	7,	7,	8,	9,	10, 9,	8,	7,	7,	6,	11, 12, 13, 11, 6,	7,	8,	9,
+					14, 10, 9,	8,	6,	11, 12, 13, 11, 6,	9,	14, 10, 9,	11, 12, 13, 11, 14, 10, 12};
+				// ctxIdxMap last_significant_coeff_flag 8x8 (frame), levelListIdx 0..62 (9 contextes : 0..8).
+				// ⚠️ Table EXACTE de ffmpeg (cabac.c) : 15 uns puis 16 DEUX (idx 16..31), pas le motif
+				// "régulier" du texte de la spec — le décalage à idx 16 est la clé de la bit-exactness.
+				static const int32 last8[63] = {
+					0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2,
+					2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4,
+					4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8};
+				const int32 sb = kCtxSig8x8, lb = kCtxLast8x8, ab = kCtxCoeffAbs8x8;
+				int32 index[64];
+				int32 coeffCount = 0;
+				int32 last;
+				for (last = 0; last < 63; ++last) {
+					if (cab.Bin(sb + sig8[last])) {
+						index[coeffCount++] = last;
+						if (cab.Bin(lb + last8[last])) {
+							last = 64;
+							break;
+						}
+					}
+				}
+				if (last == 63)
+					index[coeffCount++] = 63;
+				static const int32 level1ctx[8] = {1, 2, 3, 4, 0, 0, 0, 0};
+				static const int32 gt1ctx[8] = {5, 5, 5, 5, 6, 7, 8, 9};
+				static const int32 trans0[8] = {1, 2, 3, 3, 4, 5, 6, 7};
+				static const int32 trans1[8] = {4, 4, 4, 4, 5, 6, 7, 7};
+				int32 nodeCtx = 0;
+				for (int32 k = coeffCount - 1; k >= 0; --k) {
+					const int32 rp = kZigZag8x8[index[k]];
+					int32 level;
+					if (cab.Bin(ab + level1ctx[nodeCtx]) == 0) {
+						nodeCtx = trans0[nodeCtx];
+						level = 1;
+					} else {
+						int32 coeffAbs = 2;
+						const int32 gctx = ab + gt1ctx[nodeCtx];
+						nodeCtx = trans1[nodeCtx];
+						while (coeffAbs < 15 && cab.Bin(gctx))
+							++coeffAbs;
+						if (coeffAbs >= 15) { // echappement Exp-Golomb ordre 0
+							int32 j = 0;
+							while (cab.Bypass() && j < 23)
+								++j;
+							coeffAbs = 1;
+							while (j-- > 0)
+								coeffAbs += coeffAbs + (int32)cab.Bypass();
+							coeffAbs += 14;
+						}
+						level = coeffAbs;
+					}
+					out[rp] = cab.BypassSign(level);
+				}
+				return coeffCount;
+			}
+
 			// Chroma CABAC : prediction (4 modes) + residus DC(cat3)/AC(cat4).
 			// Residu chroma CABAC (DC + AC) pour une prediction cPred donnee (intra OU inter).
 			// `cbfDef` = valeur cbf a prendre pour un voisin INDISPONIBLE : 1 si le MB courant est intra,
@@ -2039,6 +2144,107 @@ namespace nkentseu {
 
 				DecodeChromaCabac(c, cab, mbX, mbY, chromaMode, cbpChroma);
 				return true;
+			}
+
+			// Macrobloc I_8x8 en CABAC (profil High). Comme I_4x4 mais 4 blocs 8x8 : prédiction Intra_8x8
+			// (9 modes + filtrage des références), résidu 8x8 (ctxBlockCat 5), transformée inverse 8x8.
+			// transform_size_8x8_flag a DÉJÀ été décodé et vaut 1 (par l'appelant DecodeMbCabacINxN).
+			bool DecodeMbCabacI8x8(DecCtx &c, CabacMb &cab, int32 mbX, int32 mbY) {
+				const int32 px = mbX * 16, py = mbY * 16;
+				const bool availTop = mbY > 0, availLeft = mbX > 0;
+				const bool availTrMb = (mbY > 0) && (mbX < c.mbW - 1);
+				const int32 mbIdx = mbY * cab.mbW + mbX;
+
+				// Modes des 4 blocs 8x8 (prédits depuis les voisins, grille i4mode répliquée par 2x2).
+				int32 mode8[4];
+				for (int32 i8 = 0; i8 < 4; ++i8) {
+					const int32 bx = mbX * 4 + (i8 & 1) * 2, by = mbY * 4 + (i8 >> 1) * 2;
+					int32 predMode;
+					if (bx == 0 || by == 0)
+						predMode = 2;
+					else {
+						const int32 a = c.i4mode[by * c.nzW + (bx - 1)];
+						const int32 b = c.i4mode[(by - 1) * c.nzW + bx];
+						predMode = a < b ? a : b;
+					}
+					mode8[i8] = DecodeIntra4x4ModeCabac(cab, predMode); // prev/rem partagent les ctx 68/69
+					// Réplique le mode sur les 4 cellules 4x4 couvertes (pour la prédiction des voisins).
+					for (int32 dy = 0; dy < 2; ++dy)
+						for (int32 dx = 0; dx < 2; ++dx)
+							c.i4mode[(by + dy) * c.nzW + (bx + dx)] = mode8[i8];
+				}
+
+				const int32 chromaMode = DecodeChromaModeCabac(cab, mbX, mbY);
+				const int32 lumaCbp = DecodeCbpLumaCabac(cab, mbX, mbY);
+				const int32 cbpChroma = DecodeCbpChromaCabac(cab, mbX, mbY);
+				cab.mbTypeClass[(uint64)mbIdx] = 0;
+				cab.cbpLumaMb[(uint64)mbIdx] = lumaCbp;
+				cab.cbpChromaMb[(uint64)mbIdx] = cbpChroma;
+				cab.chromaModeMb[(uint64)mbIdx] = chromaMode;
+				if (lumaCbp || cbpChroma)
+					c.qp = (c.qp + DecodeMbQpDeltaCabac(cab) + 52) % 52;
+				else
+					cab.prevQpDeltaNonZero = 0;
+
+				for (int32 i8 = 0; i8 < 4; ++i8) {
+					const int32 bx8 = (i8 & 1) * 8, by8 = (i8 >> 1) * 8;
+					const int32 X = px + bx8, Y = py + by8;
+					const bool avt = (by8 > 0) || availTop;
+					const bool avl = (bx8 > 0) || availLeft;
+					const bool avtl = avt && avl;
+					// Disponibilité du haut-droit de ce bloc 8x8 (Predict8x8 étend top[7] sinon).
+					bool avtr;
+					switch (i8) {
+						case 0: avtr = availTop; break;   // rangée au-dessus du MB
+						case 1: avtr = availTrMb; break;  // MB en haut à droite
+						case 2: avtr = true; break;		  // bloc 1 (déjà reconstruit)
+						default: avtr = false; break;	  // MB de droite, non décodé
+					}
+					int32 top0[16], left0[8], tl;
+					for (int32 i = 0; i < 8; ++i)
+						top0[i] = avt ? (int32)c.Y[(usize)(Y - 1) * c.lumaW + X + i] : 0;
+					for (int32 i = 8; i < 16; ++i)
+						top0[i] = (avt && avtr) ? (int32)c.Y[(usize)(Y - 1) * c.lumaW + X + i] : top0[7];
+					for (int32 j = 0; j < 8; ++j)
+						left0[j] = avl ? (int32)c.Y[(usize)(Y + j) * c.lumaW + X - 1] : 0;
+					tl = avtl ? (int32)c.Y[(usize)(Y - 1) * c.lumaW + X - 1] : 0;
+
+					uint8 pred[64];
+					Predict8x8(mode8[i8], top0, tl, left0, avt, avl, avtr, pred);
+
+					const int32 bx4 = mbX * 4 + (i8 & 1) * 2, by4 = mbY * 4 + (i8 >> 1) * 2;
+					int32 raster[64] = {0};
+					int32 tc = 0;
+					if (lumaCbp & (1 << i8)) // pas de coded_block_flag en 4:2:0 (inféré à 1)
+						tc = DecodeResidualCabac8x8(cab, raster);
+					// Réplique le nnz du 8x8 sur les 4 cellules 4x4 (contexte cbf des voisins + déblocage).
+					for (int32 dy = 0; dy < 2; ++dy)
+						for (int32 dx = 0; dx < 2; ++dx)
+							c.lumaNz[(by4 + dy) * c.nzW + (bx4 + dx)] = tc;
+					int32 deq[64], resRec[64];
+					NkH264Transform::Dequant8x8(raster, deq, c.qp);
+					NkH264Transform::Inverse8x8(deq, resRec);
+					for (int32 r = 0; r < 8; ++r)
+						for (int32 col = 0; col < 8; ++col)
+							c.Y[(usize)(Y + r) * c.lumaW + X + col] =
+								ClampU8((int32)pred[r * 8 + col] + resRec[r * 8 + col]);
+				}
+
+				DecodeChromaCabac(c, cab, mbX, mbY, chromaMode, cbpChroma);
+				return true;
+			}
+
+			// Dispatch I_NxN CABAC : décode transform_size_8x8_flag (si activé au PPS) puis route vers
+			// le chemin 4x4 (transformée entière) ou 8x8 (profil High).
+			bool DecodeMbCabacINxN(DecCtx &c, CabacMb &cab, int32 mbX, int32 mbY) {
+				const int32 mbIdx = mbY * cab.mbW + mbX;
+				int32 t8 = 0;
+				if (c.transform8x8Mode)
+					t8 = DecodeTransform8x8FlagCabac(cab, mbX, mbY);
+				cab.transform8x8Mb[(uint64)mbIdx] = t8;
+				if (c.transform8x8Mb)
+					c.transform8x8Mb[mbIdx] = (uint8)t8; // règle de déblocage High (arêtes internes 4x4)
+				return t8 ? DecodeMbCabacI8x8(c, cab, mbX, mbY) : DecodeMbCabacI4x4(c, cab, mbX, mbY);
 			}
 
 			// Macrobloc I_16x16 en CABAC (miroir de DecodeMbI16x16).
@@ -3023,6 +3229,7 @@ namespace nkentseu {
 			NkVector<int32> mvx4G1, mvy4G1, ref4G1, mvdx4G1, mvdy4G1; // grilles de la liste L1 (B)
 			NkVector<int32> direct4G; // par 4x4 : 1 si bloc Direct (contexte ref_idx des B)
 			NkVector<uint8> shape16; // par MB : 1 si 16x16 ou intra (granularite du Direct spatial)
+			NkVector<uint8> t8x8Grid; // par MB : 1 si transformée 8x8 (règle de déblocage High)
 			lumaNz.Resize(n4);
 			i4mode.Resize(n4);
 			mvx4G.Resize(n4);
@@ -3077,6 +3284,7 @@ namespace nkentseu {
 			c.i4mode = i4mode.Data();
 			c.qp = qp;
 			c.chromaQpOffset = pps.chromaQpIndexOffset;
+			c.transform8x8Mode = pps.transform8x8Mode;
 			// Grilles de mouvement : une par liste (L0 pour les P et les B, L1 pour les B seules).
 			c.L[0].mvx4 = mvx4G.Data();
 			c.L[0].mvy4 = mvy4G.Data();
@@ -3085,6 +3293,10 @@ namespace nkentseu {
 			for (uint64 i = 0; i < shape16.Size(); ++i)
 				shape16[i] = 1; // defaut : intra / 16x16
 			c.mb16x16OrIntra = shape16.Data();
+			t8x8Grid.Resize((uint64)(mbW * mbH));
+			for (uint64 i = 0; i < t8x8Grid.Size(); ++i)
+				t8x8Grid[i] = 0; // defaut : transformée 4x4
+			c.transform8x8Mb = t8x8Grid.Data();
 			c.L[0].mvdx4 = mvdx4G.Data();
 			c.L[0].mvdy4 = mvdy4G.Data();
 			c.L[1].mvx4 = mvx4G1.Data();
@@ -3369,7 +3581,7 @@ namespace nkentseu {
 										c.L[1].ref4[gi] = -1;
 									}
 								if (mbTypeB == 0) {
-									if (!DecodeMbCabacI4x4(c, cab, mbX, mbY))
+									if (!DecodeMbCabacINxN(c, cab, mbX, mbY))
 										return false;
 								} else if (mbTypeB <= 24) {
 									if (!DecodeMbCabacI16x16(c, cab, mbX, mbY, mbTypeB))
@@ -3424,7 +3636,7 @@ namespace nkentseu {
 										c.L[0].ref4[(mbY * 4 + y) * c.nzW + (mbX * 4 + x)] = -1; // intra
 							}
 							if (mbType == 0) {
-								if (!DecodeMbCabacI4x4(c, cab, mbX, mbY))
+								if (!DecodeMbCabacINxN(c, cab, mbX, mbY))
 									return false;
 							} else if (mbType <= 24) {
 								if (!DecodeMbCabacI16x16(c, cab, mbX, mbY, mbType))
