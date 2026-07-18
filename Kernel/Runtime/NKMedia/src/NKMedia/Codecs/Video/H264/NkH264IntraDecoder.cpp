@@ -2369,6 +2369,18 @@ namespace nkentseu {
 				// Les grilles |mvd| ne servent qu'aux partitions codees : le Direct n'en code aucune.
 				ClearMvdGrid(c, c.L[0], mbX, mbY);
 				ClearMvdGrid(c, c.L[1], mbX, mbY);
+				// ⚠️ Init du champ de mouvement du MB courant a "non utilise" (ref=-1, mv=0) pour LES
+				// DEUX listes. Sinon, dans un B_8x8, un sous-bloc qui n'utilise pas une liste garde le
+				// ref4/mv4 PERIME du MB precedent a cette position -> la prediction MV d'un sous-bloc
+				// VOISIN (meme MB) qui interroge cette liste lit une valeur fausse -> MV finale fausse.
+				for (int32 l = 0; l < 2; ++l)
+					for (int32 y = 0; y < 4; ++y)
+						for (int32 x = 0; x < 4; ++x) {
+							const int32 gi = (gby + y) * c.nzW + (gbx + x);
+							c.L[l].ref4[gi] = -1;
+							c.L[l].mvx4[gi] = 0;
+							c.L[l].mvy4[gi] = 0;
+						}
 
 				// direct4 : marque les blocs Direct AVANT de lire les ref_idx (leur contexte exclut un
 				// voisin Direct). Tout le MB si B_Skip/Direct_16x16 ; sinon rien (les sous-blocs Direct
@@ -2400,6 +2412,22 @@ namespace nkentseu {
 										c.direct4[(gby + sby + y) * c.nzW + (gbx + sbx + x)] = si[b].direct ? 1 : 0;
 							}
 					// Tous les ref_idx (L0 puis L1) AVANT tous les mvd — ordre de la reference.
+					// Sous-blocs Direct calcules + stockes + compenses ICI, AVANT ref/mvd (comme la reference
+					// ff_h264_pred_direct_motion qui precede les ref_idx). Sinon un sous-bloc CODE ayant un
+					// voisin Direct dans le meme MB predirait sa MV sur un champ de mouvement encore vide.
+					{
+						bool anyDirect = false;
+						for (int32 b = 0; b < 4; ++b)
+							anyDirect = anyDirect || si[b].direct;
+						if (anyDirect) {
+							int32 dref[2], dmv[2][2];
+							bool zero8[4];
+							PredDirectSpatial(c, mbX, mbY, dref, dmv, zero8);
+							for (int32 b = 0; b < 4; ++b)
+								if (si[b].direct)
+									ApplyDirect8x8(c, mbX, mbY, b, dref, dmv, zero8[b], predY, cPred);
+						}
+					}
 					int32 ri[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
 					for (int32 l = 0; l < 2; ++l)
 						for (int32 b = 0; b < 4; ++b) {
@@ -2461,15 +2489,11 @@ namespace nkentseu {
 											 mvSub[l][b][sp][1], ri[l][b]);
 								}
 							}
-						// Compensation (2e passage) : Direct deduits, les autres compenses.
+						// Compensation (2e passage) : SEULEMENT les sous-blocs codes (les Direct ont deja
+						// ete compenses plus haut, avant ref/mvd).
 						for (int32 b = 0; b < 4; ++b) {
-							if (si[b].direct) {
-								int32 dref[2], dmv[2][2];
-								bool zero8[4];
-								PredDirectSpatial(c, mbX, mbY, dref, dmv, zero8);
-								ApplyDirect8x8(c, mbX, mbY, b, dref, dmv, zero8[b], predY, cPred);
+							if (si[b].direct)
 								continue;
-							}
 							for (int32 sp = 0; sp < si[b].nParts; ++sp) {
 								int32 ox, oy;
 								subOff(b, sp, si[b], ox, oy);
