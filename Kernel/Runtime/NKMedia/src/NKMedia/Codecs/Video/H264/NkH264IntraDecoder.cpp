@@ -265,6 +265,104 @@ namespace nkentseu {
 						pred[y * 8 + x] = ClampU8(q[(x < 4 ? 0 : 1) + (y < 4 ? 0 : 2)]);
 			}
 
+			// --- Prediction Intra_8x8 (8.3.2), 9 modes + filtrage des references (8.3.2.2.1) ---
+			// Entree : top[16] (p[0..15][-1]), tl (coin), left[8]. avtr = top-right dispo (top[8..15]).
+			void Predict8x8(int32 mode, const int32 top0[16], int32 tlIn, const int32 left0[8], bool avt, bool avl,
+				bool avtr, uint8 pred[64]) {
+				// Filtrage low-pass des references (8.3.2.2.1). Si top-right absent, on etend top[7].
+				int32 tp[16], lf[8], tl;
+				int32 rawT[16];
+				for (int32 x = 0; x < 16; ++x)
+					rawT[x] = (x < 8) ? top0[x] : (avtr ? top0[x] : top0[7]);
+				// Coin filtre.
+				if (avt && avl) tl = (rawT[0] + 2 * tlIn + left0[0] + 2) >> 2;
+				else if (avt) tl = (3 * tlIn + rawT[0] + 2) >> 2;
+				else if (avl) tl = (3 * tlIn + left0[0] + 2) >> 2;
+				else tl = tlIn;
+				// Top filtre.
+				if (avt) {
+					tp[0] = avl ? ((tlIn + 2 * rawT[0] + rawT[1] + 2) >> 2) : ((3 * rawT[0] + rawT[1] + 2) >> 2);
+					for (int32 x = 1; x < 15; ++x)
+						tp[x] = (rawT[x - 1] + 2 * rawT[x] + rawT[x + 1] + 2) >> 2;
+					tp[15] = (rawT[14] + 3 * rawT[15] + 2) >> 2;
+				}
+				// Left filtre.
+				if (avl) {
+					lf[0] = avt ? ((tlIn + 2 * left0[0] + left0[1] + 2) >> 2) : ((3 * left0[0] + left0[1] + 2) >> 2);
+					for (int32 y = 1; y < 7; ++y)
+						lf[y] = (left0[y - 1] + 2 * left0[y] + left0[y + 1] + 2) >> 2;
+					lf[7] = (left0[6] + 3 * left0[7] + 2) >> 2;
+				}
+				auto TP = [&](int32 i) -> int32 { return i < 0 ? tl : tp[i]; };
+				auto LF = [&](int32 j) -> int32 { return j < 0 ? tl : lf[j]; };
+				auto P = [&](int32 y, int32 x, int32 v) { pred[y * 8 + x] = ClampU8(v); };
+				switch (mode) {
+					case 0: // Vertical
+						for (int32 y = 0; y < 8; ++y) for (int32 x = 0; x < 8; ++x) P(y, x, tp[x]);
+						break;
+					case 1: // Horizontal
+						for (int32 y = 0; y < 8; ++y) for (int32 x = 0; x < 8; ++x) P(y, x, lf[y]);
+						break;
+					case 2: { // DC
+						int32 dc;
+						if (avt && avl) { int32 s = 0; for (int32 k = 0; k < 8; ++k) s += tp[k] + lf[k]; dc = (s + 8) >> 4; }
+						else if (avt) { int32 s = 0; for (int32 k = 0; k < 8; ++k) s += tp[k]; dc = (s + 4) >> 3; }
+						else if (avl) { int32 s = 0; for (int32 k = 0; k < 8; ++k) s += lf[k]; dc = (s + 4) >> 3; }
+						else dc = 128;
+						for (int32 i = 0; i < 64; ++i) pred[i] = ClampU8(dc);
+						break;
+					}
+					case 3: // Diagonal Down-Left
+						for (int32 y = 0; y < 8; ++y) for (int32 x = 0; x < 8; ++x) {
+							const int32 i = x + y;
+							P(y, x, (x == 7 && y == 7) ? (tp[14] + 3 * tp[15] + 2) >> 2
+								: (tp[i] + 2 * tp[i + 1] + tp[i + 2] + 2) >> 2);
+						}
+						break;
+					case 4: // Diagonal Down-Right
+						for (int32 y = 0; y < 8; ++y) for (int32 x = 0; x < 8; ++x) {
+							if (x > y) P(y, x, (TP(x - y - 2) + 2 * TP(x - y - 1) + TP(x - y) + 2) >> 2);
+							else if (x < y) P(y, x, (LF(y - x - 2) + 2 * LF(y - x - 1) + LF(y - x) + 2) >> 2);
+							else P(y, x, (tp[0] + 2 * tl + lf[0] + 2) >> 2);
+						}
+						break;
+					case 5: // Vertical-Right
+						for (int32 y = 0; y < 8; ++y) for (int32 x = 0; x < 8; ++x) {
+							const int32 z = 2 * x - y, h = x - (y >> 1);
+							if (z >= 0 && (z & 1) == 0) P(y, x, (TP(h - 1) + TP(h) + 1) >> 1);
+							else if (z >= 0) P(y, x, (TP(h - 2) + 2 * TP(h - 1) + TP(h) + 2) >> 2);
+							else if (z == -1) P(y, x, (lf[0] + 2 * tl + tp[0] + 2) >> 2);
+							else P(y, x, (LF(y - 2 * x - 1) + 2 * LF(y - 2 * x - 2) + LF(y - 2 * x - 3) + 2) >> 2);
+						}
+						break;
+					case 6: // Horizontal-Down
+						for (int32 y = 0; y < 8; ++y) for (int32 x = 0; x < 8; ++x) {
+							const int32 z = 2 * y - x, h = y - (x >> 1);
+							if (z >= 0 && (z & 1) == 0) P(y, x, (LF(h - 1) + LF(h) + 1) >> 1);
+							else if (z >= 0) P(y, x, (LF(h - 2) + 2 * LF(h - 1) + LF(h) + 2) >> 2);
+							else if (z == -1) P(y, x, (lf[0] + 2 * tl + tp[0] + 2) >> 2);
+							else P(y, x, (TP(x - 2 * y - 1) + 2 * TP(x - 2 * y - 2) + TP(x - 2 * y - 3) + 2) >> 2);
+						}
+						break;
+					case 7: // Vertical-Left
+						for (int32 y = 0; y < 8; ++y) for (int32 x = 0; x < 8; ++x) {
+							const int32 h = x + (y >> 1);
+							if ((y & 1) == 0) P(y, x, (tp[h] + tp[h + 1] + 1) >> 1);
+							else P(y, x, (tp[h] + 2 * tp[h + 1] + tp[h + 2] + 2) >> 2);
+						}
+						break;
+					default: // 8 Horizontal-Up
+						for (int32 y = 0; y < 8; ++y) for (int32 x = 0; x < 8; ++x) {
+							const int32 z = x + 2 * y, h = y + (x >> 1);
+							if (z < 13 && (z & 1) == 0) P(y, x, (LF(h) + LF(h + 1) + 1) >> 1);
+							else if (z < 13) P(y, x, (LF(h) + 2 * LF(h + 1) + LF(h + 2) + 2) >> 2);
+							else if (z == 13) P(y, x, (lf[6] + 3 * lf[7] + 2) >> 2);
+							else P(y, x, lf[7]);
+						}
+						break;
+				}
+			}
+
 			// Contexte de décodage d'une image (plans + grilles de voisinage).
 			// UNE liste de references (RefPicList0 ou RefPicList1) : les plans, les poids explicites
 			// associes a chaque index, et l'etat de mouvement decode CONTRE cette liste.
