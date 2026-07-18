@@ -267,18 +267,50 @@ int main(int argc, char **argv) {
 	printf("  conteneur=%s codec=%s  %dx%d  %.2f fps  frames=%d\n", in.container.CStr(), in.codec.CStr(), in.width,
 		   in.height, in.fps, in.frameCount);
 
+	// Argument optionnel : une référence RGBA (ordre d'AFFICHAGE) pour valider le réordonnancement.
+	FILE *refRgba = (argc >= 3) ? fopen(argv[2], "rb") : nullptr;
+
 	int32 count = 0;
 	uint64 globalSum = 0;
+	uint64 maxPixDiff = 0, totBadFrames = 0;
 	NkVideoFrame fr;
 	while (rd.ReadFrame(fr)) {
 		uint64 s = 0;
 		for (uint64 i = 0; i < fr.rgba.Size(); ++i)
 			s += fr.rgba[i];
 		globalSum += s;
+		if (refRgba) {
+			// Compare pixel à pixel à la frame de MÊME position dans la référence (ordre affichage).
+			// On tolère un petit écart (la conversion YUV->RGBA diffère de celle de ffmpeg) : ce qui
+			// est validé ici est l'ORDRE, pas le bit-exact RGBA.
+			NkVector<nk_uint8> ref;
+			ref.Resize(fr.rgba.Size());
+			size_t got = fread(ref.Data(), 1, (size_t)fr.rgba.Size(), refRgba);
+			if (got == fr.rgba.Size()) {
+				uint64 bad = 0, mx = 0;
+				for (uint64 i = 0; i < fr.rgba.Size(); ++i) {
+					const int32 d = (int32)fr.rgba[i] - (int32)ref[i];
+					const uint64 a = (uint64)(d < 0 ? -d : d);
+					if (a > 6)
+						++bad; // au-delà de la tolérance de conversion
+					if (a > mx)
+						mx = a;
+				}
+				if (mx > maxPixDiff)
+					maxPixDiff = mx;
+				if (bad > fr.rgba.Size() / 20)
+					++totBadFrames; // > 5% de pixels franchement différents = mauvais ORDRE
+			}
+		}
 		if (count < 3 || (count % 30) == 0)
 			printf("    frame %4d : %dx%d  t=%lldms  checksum=%llu\n", fr.index, fr.width, fr.height,
 				   (long long)fr.timestampMs, (unsigned long long)s);
 		++count;
+	}
+	if (refRgba) {
+		fclose(refRgba);
+		printf("  validation ordre : maxPixDiff=%llu, frames mal ordonnees=%llu/%d\n",
+			   (unsigned long long)maxPixDiff, (unsigned long long)totBadFrames, count);
 	}
 	printf("  %d images decodees (somme globale=%llu)\n", count, (unsigned long long)globalSum);
 	printf("=== %s ===\n", count > 0 ? "LECTURE OK" : "AUCUNE IMAGE");
