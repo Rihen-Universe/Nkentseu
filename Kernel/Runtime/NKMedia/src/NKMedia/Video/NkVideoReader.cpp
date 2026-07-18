@@ -63,6 +63,17 @@ namespace nkentseu {
 				int32 nalLenSize = 4;			 // taille du préfixe de longueur AVCC
 				NkVector<NkH264Frame> h264Dpb;	 // RefPicList0 : [0] = frame la plus récente (multi-réf)
 				int32 h264PrevIndex = -2;		 // index de la dernière frame décodée (séquentialité)
+				// Réordonnancement POC (les B se décodent dans le désordre → réaffichage par POC).
+				// Clé de tri = POC GLOBAL monotone : gopBase (grand pas par IDR) + poc. Ainsi le POC
+				// min du buffer est TOUJOURS la prochaine image à afficher, sans flush explicite.
+				int32 lastPoc = 0;				  // POC de la dernière frame décodée (rempli par Decode)
+				bool lastIsIdr = false;			  // la dernière frame décodée est un IDR (rempli par Decode)
+				int32 h264DecodeCursor = 0;		  // prochain sample H264 à décoder (ordre bitstream)
+				int64 h264GopBase = 0;			  // décalage de POC par GOP (incrémenté à chaque IDR)
+				int32 h264ReorderMax = 4;		  // taille du buffer de réordonnancement (num B max)
+				int32 h264OutCount = 0;			  // nombre d'images sorties (ordre d'affichage)
+				NkVector<NkVideoFrame> h264Reorder;  // frames RGBA décodées, en attente d'affichage
+				NkVector<nk_int64> h264ReorderKey;   // POC global parallèle
 
 				// --- Parse AVI : remplit info + frames ---
 				bool ParseAvi() {
@@ -349,6 +360,14 @@ namespace nkentseu {
 								}
 							}
 						}
+						// Borne de réordonnancement = max_num_ref_frames du SPS (borne sûre du DPB en
+						// l'absence de VUI num_reorder_frames). Couvre les B consécutives de x264.
+						NkH264Sps sps;
+						if (h264Sps.Size() > 0 &&
+							NkH264Decoder::ParseSps(h264Sps.Data(), (usize)h264Sps.Size(), sps) && sps.valid) {
+							int32 rm = sps.numRefFrames;
+							h264ReorderMax = rm < 1 ? 1 : (rm > 16 ? 16 : rm);
+						}
 					}
 
 					// Assemble la table des samples via stsz + stco/co64 + stsc.
@@ -607,6 +626,7 @@ namespace nkentseu {
 							ab.PushBack(h264Pps[i]);
 						const usize n = fr.size;
 						usize p = 0;
+						bool isIdr = false;
 						while (p + (usize)nalLenSize <= n) {
 							uint32 len = 0;
 							for (int32 i = 0; i < nalLenSize; ++i)
@@ -614,25 +634,33 @@ namespace nkentseu {
 							p += (usize)nalLenSize;
 							if (p + len > n)
 								break;
+							if (len > 0 && (src[p] & 0x1F) == 5)
+								isIdr = true; // NAL de type 5 = slice IDR (début de GOP)
 							sc();
 							for (uint32 i = 0; i < len; ++i)
 								ab.PushBack(src[p + i]);
 							p += len;
 						}
+						lastIsIdr = isIdr;
 
 						// Décodage séquentiel MULTI-RÉFÉRENCE : RefPicList0 = les dernières frames décodées
 						// (h264Dpb[0] = la plus récente). Si on saute (non séquentiel), on repart d'une IDR.
+						// ⚠️ Un IDR VIDE le DPB : les images du GOP précédent ne sont plus des références
+						// (sinon les P/B du nouveau GOP prédiraient depuis de mauvaises images).
 						const bool sequential = (index == h264PrevIndex + 1 && h264PrevIndex >= 0);
-						if (!sequential)
+						if (!sequential || isIdr)
 							h264Dpb.Clear();
 						NkVector<const NkH264Frame *> refs;
 						for (uint64 k = 0; k < h264Dpb.Size(); ++k)
 							refs.PushBack(&h264Dpb[k]);
 						NkH264Frame f;
 						if (!NkH264Decoder::DecodeFrame(ab.Data(), (usize)ab.Size(), refs.Data(), (int32)refs.Size(), f))
-							return false; // IDR requise en tête / B / CABAC non géré
-						// Insère la frame décodée en TÊTE de la liste (plus récente), plafonnée à 16.
-						{
+							return false; // IDR requise en tête / cas non géré
+						lastPoc = f.poc; // pour le réordonnancement d'affichage
+						// ⚠️ SEULES les images de RÉFÉRENCE entrent dans le DPB (nal_ref_idc != 0).
+						// Une B non-référencée ne doit PAS y figurer (sinon l'état POC / le mouvement
+						// co-localisé de la frame suivante serait faussé).
+						if (f.isReference) {
 							NkVector<NkH264Frame> newDpb;
 							newDpb.PushBack(f);
 							for (uint64 k = 0; k < h264Dpb.Size() && k < 15; ++k)
@@ -748,12 +776,65 @@ namespace nkentseu {
 		bool NkVideoReader::ReadFrame(NkVideoFrame &out) {
 			if (!IsOpen())
 				return false;
-			if (mImpl->cursor >= mImpl->info.frameCount)
+			Impl *m = mImpl;
+
+			// ── Chemin H.264 : réordonnancement POC (décodage bitstream → affichage POC) ──
+			// Les B se décodent dans le désordre ; on bufferise et on ressort par POC croissant.
+			// Le tri utilise un POC GLOBAL monotone (gopBase + poc) : l'IDR d'un nouveau GOP a poc=0
+			// mais un gopBase plus grand, donc il s'affiche APRÈS tout le GOP précédent. Le POC min
+			// du buffer est ainsi toujours la prochaine image à afficher, sans flush explicite.
+			if (m->codec == Codec::H264) {
+				const int32 count = m->info.frameCount;
+				for (;;) {
+					// Sortir une image si le buffer est assez rempli (ou plus rien à décoder).
+					const bool noMoreInput = (m->h264DecodeCursor >= count);
+					const bool canOutput =
+						m->h264Reorder.Size() > 0 &&
+						((int32)m->h264Reorder.Size() > m->h264ReorderMax || noMoreInput);
+					if (canOutput) {
+						uint64 best = 0;
+						for (uint64 k = 1; k < m->h264ReorderKey.Size(); ++k)
+							if (m->h264ReorderKey[k] < m->h264ReorderKey[best])
+								best = k;
+						out = m->h264Reorder[best];
+						// Retirer l'élément `best` (compaction).
+						for (uint64 k = best + 1; k < m->h264Reorder.Size(); ++k) {
+							m->h264Reorder[k - 1] = m->h264Reorder[k];
+							m->h264ReorderKey[k - 1] = m->h264ReorderKey[k];
+						}
+						m->h264Reorder.Resize(m->h264Reorder.Size() - 1);
+						m->h264ReorderKey.Resize(m->h264ReorderKey.Size() - 1);
+						out.index = m->h264OutCount; // ordre d'AFFICHAGE
+						out.timestampMs =
+							(m->info.fps > 0.0) ? (int64)((double)m->h264OutCount * 1000.0 / m->info.fps) : 0;
+						++m->h264OutCount;
+						return true;
+					}
+					if (noMoreInput)
+						return false; // buffer vide et plus d'entrée -> fin
+					// Décoder le prochain sample (ordre bitstream).
+					NkVideoFrame f;
+					const int32 idx = m->h264DecodeCursor;
+					if (!m->Decode(idx, f)) {
+						++m->h264DecodeCursor;
+						continue; // sample non décodable -> on saute (ex. cas non géré)
+					}
+					if (m->lastIsIdr && idx != 0)
+						m->h264GopBase += 1000000; // nouveau GOP -> POC repart, on décale la clé globale
+					f.timestampMs = 0;			   // recalculé à la sortie (ordre d'affichage)
+					m->h264Reorder.PushBack(f);
+					m->h264ReorderKey.PushBack(m->h264GopBase + (int64)m->lastPoc);
+					++m->h264DecodeCursor;
+				}
+			}
+
+			// ── Autres codecs (MJPEG, RAWRGB, séquences) : ordre décodage == affichage ──
+			if (m->cursor >= m->info.frameCount)
 				return false;
-			if (!mImpl->Decode(mImpl->cursor, out))
+			if (!m->Decode(m->cursor, out))
 				return false;
-			out.timestampMs = (mImpl->info.fps > 0.0) ? (int64)((double)mImpl->cursor * 1000.0 / mImpl->info.fps) : 0;
-			mImpl->cursor++;
+			out.timestampMs = (m->info.fps > 0.0) ? (int64)((double)m->cursor * 1000.0 / m->info.fps) : 0;
+			m->cursor++;
 			return true;
 		}
 
