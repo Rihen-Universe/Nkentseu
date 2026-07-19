@@ -411,6 +411,18 @@ namespace nkentseu {
 					int32 chromaQpOffset = 0;
 					int32 transform8x8Mode = 0; // PPS transform_8x8_mode_flag (profil High)
 					int32 directInference = 1;	// SPS direct_8x8_inference_flag (condition transform 8x8 B)
+					// Scaling matrices EFFECTIVES (PPS prioritaire, sinon SPS), en raster ; nullptr = plates.
+					// 4x4 : [0]=IntraY [1]=IntraCb [2]=IntraCr [3]=InterY [4]=InterCb [5]=InterCr.
+					const nk_uint8 *wsl4[6] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+					const nk_uint8 *wsl8[2] = {nullptr, nullptr}; // 8x8 : [0]=IntraY [1]=InterY
+					int32 W00(int32 i) const {
+						return wsl4[i] ? (int32)wsl4[i][0] : 16; // weightScale(0,0) pour les DC
+					}
+					int32 qpprimeBypass = 0; // SPS qpprime_y_zero_transform_bypass_flag
+					// Transform bypass §8.5.15 : lossless quand le flag SPS est armé ET QP du MB == 0.
+					bool TsBypass() const {
+						return qpprimeBypass != 0 && qp == 0;
+					}
 					// Par MB : 1 si 16x16 ou intra (sauvegarde dans la frame pour le Direct spatial des
 					// B ULTERIEURES, qui liront cette image comme co-localisee).
 					uint8 *mb16x16OrIntra = nullptr;
@@ -688,10 +700,12 @@ namespace nkentseu {
 			}
 
 			// Décode et reconstruit le résidu chroma (DC + AC) pour une prédiction cPred donnée (intra OU inter).
+			// `intra` sélectionne la scaling list chroma (1/2 = intra Cb/Cr, 4/5 = inter Cb/Cr).
 			void DecodeChromaResidual(DecCtx &c, NkH264BitReader &br, int32 mbX, int32 mbY, int32 cbpChroma,
-									  const uint8 cPred[2][64]) {
+									  const uint8 cPred[2][64], bool intra) {
 				const int32 qpC = NkH264Transform::ChromaQp(Clamp(c.qp + c.chromaQpOffset, 0, 51));
 				const int32 cpx = mbX * 8, cpy = mbY * 8;
+				const int32 wCb = intra ? 1 : 4, wCr = intra ? 2 : 5;
 
 				// DC chroma (4 coeffs raster 2x2 par composante) si cbp&3.
 				int32 cDcRec[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
@@ -701,7 +715,7 @@ namespace nkentseu {
 						NkH264Cavlc::DecodeResidual(br, dcLvl, 4, -1);
 						int32 gdc[4];
 						NkH264Transform::Hadamard2x2(dcLvl, gdc);
-						NkH264Transform::DequantChromaDC(gdc, cDcRec[comp], qpC);
+						NkH264Transform::DequantChromaDC(gdc, cDcRec[comp], qpC, c.W00(comp == 0 ? wCb : wCr));
 					}
 				}
 
@@ -727,7 +741,7 @@ namespace nkentseu {
 						cnz[by * c.cnzW + bx] = tc;
 
 						int32 deq[16];
-						NkH264Transform::Dequant4x4(acRaster, deq, qpC);
+						NkH264Transform::Dequant4x4(acRaster, deq, qpC, c.wsl4[comp == 0 ? wCb : wCr]);
 						if (!(cbpChroma & 2))
 							for (int32 k = 1; k < 16; ++k)
 								deq[k] = 0;
@@ -764,7 +778,7 @@ namespace nkentseu {
 						tl = cl[0];
 					PredictChroma8x8(chromaMode, ct, cl, tl, avt, avl, cPred[comp]);
 				}
-				DecodeChromaResidual(c, br, mbX, mbY, cbpChroma, cPred);
+				DecodeChromaResidual(c, br, mbX, mbY, cbpChroma, cPred, true);
 			}
 
 			// --- Macrobloc I_4x4 ---
@@ -849,7 +863,7 @@ namespace nkentseu {
 					c.lumaNz[by * c.nzW + bx] = tc;
 
 					int32 deq[16], resRec[16];
-					NkH264Transform::Dequant4x4(raster, deq, c.qp);
+					NkH264Transform::Dequant4x4(raster, deq, c.qp, c.wsl4[0]);
 					NkH264Transform::Inverse4x4(deq, resRec);
 					for (int32 r = 0; r < 4; ++r)
 						for (int32 col = 0; col < 4; ++col)
@@ -895,7 +909,7 @@ namespace nkentseu {
 					InvScan16(dcScan, dcLvl);
 					int32 gDc[16];
 					NkH264Transform::HadamardInverse4x4(dcLvl, gDc);
-					NkH264Transform::DequantDC(gDc, dcRec, 16, c.qp);
+					NkH264Transform::DequantDC(gDc, dcRec, 16, c.qp, c.W00(0));
 				}
 
 				// AC luma + reconstruction.
@@ -917,7 +931,7 @@ namespace nkentseu {
 					c.lumaNz[by * c.nzW + bx] = tc;
 
 					int32 deq[16];
-					NkH264Transform::Dequant4x4(acRaster, deq, c.qp);
+					NkH264Transform::Dequant4x4(acRaster, deq, c.qp, c.wsl4[0]);
 					if (!cbpLuma)
 						for (int32 k = 1; k < 16; ++k)
 							deq[k] = 0;
@@ -1095,7 +1109,7 @@ namespace nkentseu {
 					}
 					c.lumaNz[by * c.nzW + bx] = tc;
 					int32 deq[16], resRec[16];
-					NkH264Transform::Dequant4x4(raster, deq, c.qp);
+					NkH264Transform::Dequant4x4(raster, deq, c.qp, c.wsl4[3]);
 					NkH264Transform::Inverse4x4(deq, resRec);
 					for (int32 r = 0; r < 4; ++r)
 						for (int32 col = 0; col < 4; ++col)
@@ -1103,7 +1117,7 @@ namespace nkentseu {
 								ClampU8(predY[(y4 + r) * 16 + (x4 + col)] + resRec[r * 4 + col]);
 				}
 
-				DecodeChromaResidual(c, br, mbX, mbY, cbpChroma, cPred);
+				DecodeChromaResidual(c, br, mbX, mbY, cbpChroma, cPred, false);
 				for (int32 by = by0; by < by0 + 4; ++by)
 					for (int32 bx = bx0; bx < bx0 + 4; ++bx)
 						c.i4mode[by * c.nzW + bx] = 2;
@@ -1983,11 +1997,15 @@ namespace nkentseu {
 			// Residu chroma CABAC (DC + AC) pour une prediction cPred donnee (intra OU inter).
 			// `cbfDef` = valeur cbf a prendre pour un voisin INDISPONIBLE : 1 si le MB courant est intra,
 			// 0 s'il est inter (la reference derive ce defaut du TYPE DU MB COURANT, pas du voisin).
+			// `chromaMode` : mode de prédiction chroma du MB (0..3) pour le cumul DPCM du transform
+			// bypass §8.5.15 (1=H, 2=V) ; -1 pour un MB inter (jamais de cumul).
 			void DecodeChromaResidualCabac(DecCtx &c, CabacMb &cab, int32 mbX, int32 mbY, int32 cbpChroma,
-										   const uint8 cPred[2][64], int32 cbfDef) {
+										   const uint8 cPred[2][64], int32 cbfDef, int32 chromaMode = -1) {
 				const int32 cpx = mbX * 8, cpy = mbY * 8;
 				const int32 mbIdx = mbY * cab.mbW + mbX;
 				const int32 qpC = NkH264Transform::ChromaQp(Clamp(c.qp + c.chromaQpOffset, 0, 51));
+				// Scaling lists chroma : cbfDef == 1 <=> MB courant intra (listes 1/2), sinon inter (4/5).
+				const int32 wCb = cbfDef ? 1 : 4, wCr = cbfDef ? 2 : 5;
 				// DC chroma (cat 3, 4 coeffs 2x2 par composante).
 				int32 cDcRec[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
 				if (cbpChroma & 3) {
@@ -2000,17 +2018,25 @@ namespace nkentseu {
 						const int32 nz = DecodeResidualCabac(cab, 3, cbfA, cbfB, 2, dcRaster);
 						if (nz > 0) {
 							cab.chromaDcCodedMb[(uint64)mbIdx] |= (1 << comp);
-							int32 gdc[4];
-							NkH264Transform::Hadamard2x2(dcRaster, gdc);
-							NkH264Transform::DequantChromaDC(gdc, cDcRec[comp], qpC);
+							if (c.TsBypass()) { // lossless : les niveaux SONT les DC (ni Hadamard ni scale)
+								for (int32 i = 0; i < 4; ++i)
+									cDcRec[comp][i] = dcRaster[i];
+							} else {
+								int32 gdc[4];
+								NkH264Transform::Hadamard2x2(dcRaster, gdc);
+								NkH264Transform::DequantChromaDC(gdc, cDcRec[comp], qpC,
+																 c.W00(comp == 0 ? wCb : wCr));
+							}
 						}
 					}
 				}
 				// AC chroma (cat 4) + reconstruction.
 				const int32 cbx0 = mbX * 2, cby0 = mbY * 2;
+				const bool byp = c.TsBypass();
 				for (int32 comp = 0; comp < 2; ++comp) {
 					int32 *cnz = (comp == 0) ? c.chromaNz0 : c.chromaNz1;
 					uint8 *rec = (comp == 0) ? c.Cb : c.Cr;
+					int32 resC[64]; // bypass : résidu du MB chroma ENTIER (le cumul DPCM traverse le 8x8)
 					for (int32 blk = 0; blk < 4; ++blk) {
 						const int32 bx4 = (blk & 1) * 4, by4 = (blk >> 1) * 4;
 						const int32 bx = cbx0 + (blk & 1), by = cby0 + (blk >> 1);
@@ -2022,13 +2048,19 @@ namespace nkentseu {
 							tc = DecodeResidualCabac(cab, 4, cbfA, cbfB, 1, acRaster);
 						}
 						cnz[by * c.cnzW + bx] = tc;
+						if (byp) { // lossless : niveaux directs (DC en 0), assemblés pour le cumul 8x8
+							for (int32 k = 0; k < 16; ++k)
+								resC[(by4 + k / 4) * 8 + bx4 + (k & 3)] = (cbpChroma & 2) ? acRaster[k] : 0;
+							resC[by4 * 8 + bx4] = (cbpChroma & 3) ? cDcRec[comp][blk] : 0;
+							continue;
+						}
 						int32 deq[16];
-						NkH264Transform::Dequant4x4(acRaster, deq, qpC);
+						int32 resRec[16];
+						NkH264Transform::Dequant4x4(acRaster, deq, qpC, c.wsl4[comp == 0 ? wCb : wCr]);
 						if (!(cbpChroma & 2))
 							for (int32 k = 1; k < 16; ++k)
 								deq[k] = 0;
 						deq[0] = (cbpChroma & 3) ? cDcRec[comp][blk] : 0;
-						int32 resRec[16];
 						NkH264Transform::Inverse4x4(deq, resRec);
 						for (int32 r = 0; r < 4; ++r)
 							for (int32 col = 0; col < 4; ++col) {
@@ -2036,6 +2068,21 @@ namespace nkentseu {
 								rec[(usize)(cpy + by4 + r) * c.chromaW + cpx + bx4 + col] =
 									ClampU8(p + resRec[r * 4 + col]);
 							}
+					}
+					if (byp) {
+						if (chromaMode == 2) { // vertical : cumul par colonne sur les 8 lignes
+							for (int32 col = 0; col < 8; ++col)
+								for (int32 r = 1; r < 8; ++r)
+									resC[r * 8 + col] += resC[(r - 1) * 8 + col];
+						} else if (chromaMode == 1) { // horizontal : cumul par ligne
+							for (int32 r = 0; r < 8; ++r)
+								for (int32 col = 1; col < 8; ++col)
+									resC[r * 8 + col] += resC[r * 8 + col - 1];
+						}
+						for (int32 r = 0; r < 8; ++r)
+							for (int32 col = 0; col < 8; ++col)
+								rec[(usize)(cpy + r) * c.chromaW + cpx + col] =
+									ClampU8((int32)cPred[comp][r * 8 + col] + resC[r * 8 + col]);
 					}
 				}
 			}
@@ -2060,7 +2107,7 @@ namespace nkentseu {
 						tl = cl[0];
 					PredictChroma8x8(chromaMode, ct, cl, tl, avt, avl, cPred[comp]);
 				}
-				DecodeChromaResidualCabac(c, cab, mbX, mbY, cbpChroma, cPred, 1);
+				DecodeChromaResidualCabac(c, cab, mbX, mbY, cbpChroma, cPred, 1, chromaMode);
 			}
 
 			// Macrobloc I_4x4 en CABAC (miroir de DecodeMbI4x4 ; entropie CABAC).
@@ -2136,8 +2183,25 @@ namespace nkentseu {
 					}
 					c.lumaNz[by * c.nzW + bx] = tc;
 					int32 deq[16], resRec[16];
-					NkH264Transform::Dequant4x4(raster, deq, c.qp);
-					NkH264Transform::Inverse4x4(deq, resRec);
+					if (c.TsBypass()) {
+						// Lossless §8.5.15 : les niveaux SONT les résidus (ni déquant ni IDCT) ; en mode
+						// vertical (0) / horizontal (1), le résidu se CUMULE dans la direction de prédiction
+						// (chaque ligne/colonne est prédite de la précédente RECONSTRUITE — DPCM).
+						for (int32 i = 0; i < 16; ++i)
+							resRec[i] = raster[i];
+						if (mode4[blk] == 0) {
+							for (int32 col = 0; col < 4; ++col)
+								for (int32 r = 1; r < 4; ++r)
+									resRec[r * 4 + col] += resRec[(r - 1) * 4 + col];
+						} else if (mode4[blk] == 1) {
+							for (int32 r = 0; r < 4; ++r)
+								for (int32 col = 1; col < 4; ++col)
+									resRec[r * 4 + col] += resRec[r * 4 + col - 1];
+						}
+					} else {
+						NkH264Transform::Dequant4x4(raster, deq, c.qp, c.wsl4[0]);
+						NkH264Transform::Inverse4x4(deq, resRec);
+					}
 					for (int32 r = 0; r < 4; ++r)
 						for (int32 col = 0; col < 4; ++col)
 							c.Y[(usize)(Y + r) * c.lumaW + X + col] = ClampU8(pred[r * 4 + col] + resRec[r * 4 + col]);
@@ -2151,6 +2215,8 @@ namespace nkentseu {
 			// (9 modes + filtrage des références), résidu 8x8 (ctxBlockCat 5), transformée inverse 8x8.
 			// transform_size_8x8_flag a DÉJÀ été décodé et vaut 1 (par l'appelant DecodeMbCabacINxN).
 			bool DecodeMbCabacI8x8(DecCtx &c, CabacMb &cab, int32 mbX, int32 mbY) {
+				if (c.TsBypass())
+					return false; // lossless 8x8 (cumul DPCM 8x8) non géré — échec propre
 				const int32 px = mbX * 16, py = mbY * 16;
 				const bool availTop = mbY > 0, availLeft = mbX > 0;
 				const bool availTrMb = (mbY > 0) && (mbX < c.mbW - 1);
@@ -2223,7 +2289,7 @@ namespace nkentseu {
 						for (int32 dx = 0; dx < 2; ++dx)
 							c.lumaNz[(by4 + dy) * c.nzW + (bx4 + dx)] = tc;
 					int32 deq[64], resRec[64];
-					NkH264Transform::Dequant8x8(raster, deq, c.qp);
+					NkH264Transform::Dequant8x8(raster, deq, c.qp, c.wsl8[0]);
 					NkH264Transform::Inverse8x8(deq, resRec);
 					for (int32 r = 0; r < 8; ++r)
 						for (int32 col = 0; col < 8; ++col)
@@ -2232,6 +2298,62 @@ namespace nkentseu {
 				}
 
 				DecodeChromaCabac(c, cab, mbX, mbY, chromaMode, cbpChroma);
+				return true;
+			}
+
+			// Macrobloc I_PCM en CABAC (§7.3.5 + §9.3.1) : échantillons BRUTS non compressés.
+			// Le bin terminate (déjà décodé par DecodeMbTypeIntraCabac) laisse bytePos/bitPos de notre
+			// moteur bit-à-bit EXACTEMENT après le flush arithmétique de l'encodeur (NOTE §9.3.3.2.4 :
+			// le dernier bit inséré dans codIOffset est le dernier bit du codeword — pas de lookahead à
+			// compenser, contrairement à ffmpeg qui recule son pointeur selon l'état de `low`).
+			// On aligne à l'octet (pcm_alignment_zero_bit), on copie 256+64+64 octets, puis on
+			// RÉ-INITIALISE le moteur CABAC à l'octet suivant (§9.3.1.2) — les contextes, eux, survivent.
+			bool DecodeMbCabacIPcm(DecCtx &c, CabacMb &cab, int32 mbX, int32 mbY) {
+				NkCabacEngine &e = cab.e;
+				usize pos = e.bytePos;
+				if (e.bitPos != 0)
+					++pos; // pcm_alignment_zero_bit(s) jusqu'à l'octet suivant
+				if (pos + 384 > e.size)
+					return false; // flux tronqué
+				const uint8 *p = e.data + pos;
+				const int32 px = mbX * 16, py = mbY * 16;
+				for (int32 y = 0; y < 16; ++y)
+					for (int32 x = 0; x < 16; ++x)
+						c.Y[(usize)(py + y) * c.lumaW + px + x] = *p++;
+				const int32 cx = mbX * 8, cy = mbY * 8;
+				for (int32 y = 0; y < 8; ++y)
+					for (int32 x = 0; x < 8; ++x)
+						c.Cb[(usize)(cy + y) * c.chromaW + cx + x] = *p++;
+				for (int32 y = 0; y < 8; ++y)
+					for (int32 x = 0; x < 8; ++x)
+						c.Cr[(usize)(cy + y) * c.chromaW + cx + x] = *p++;
+				pos += 384;
+				e.InitEngine(e.data, e.size, pos);
+				// Grilles voisines — conventions de la référence : TOUT est "codé" (nnz=16, cbp plein),
+				// pas I_NxN (classe 1), mode chroma 0, transformée 4x4.
+				const int32 mbIdx = mbY * cab.mbW + mbX;
+				cab.mbTypeClass[(uint64)mbIdx] = 1;
+				cab.cbpLumaMb[(uint64)mbIdx] = 0xF;
+				cab.cbpChromaMb[(uint64)mbIdx] = 2;
+				cab.chromaModeMb[(uint64)mbIdx] = 0;
+				cab.lumaDcCodedMb[(uint64)mbIdx] = 1;
+				cab.chromaDcCodedMb[(uint64)mbIdx] = 3;
+				cab.mbSkipMb[(uint64)mbIdx] = 0;
+				cab.mbDirectMb[(uint64)mbIdx] = 0;
+				cab.transform8x8Mb[(uint64)mbIdx] = 0;
+				cab.prevQpDeltaNonZero = 0;
+				if (c.transform8x8Mb)
+					c.transform8x8Mb[mbIdx] = 0;
+				for (int32 y = 0; y < 4; ++y)
+					for (int32 x = 0; x < 4; ++x) {
+						c.lumaNz[(mbY * 4 + y) * c.nzW + mbX * 4 + x] = 16;
+						c.i4mode[(mbY * 4 + y) * c.nzW + mbX * 4 + x] = 2; // DC pour la prédiction voisine
+					}
+				for (int32 y = 0; y < 2; ++y)
+					for (int32 x = 0; x < 2; ++x) {
+						c.chromaNz0[(mbY * 2 + y) * c.cnzW + mbX * 2 + x] = 16;
+						c.chromaNz1[(mbY * 2 + y) * c.cnzW + mbX * 2 + x] = 16;
+					}
 				return true;
 			}
 
@@ -2285,12 +2407,21 @@ namespace nkentseu {
 					const int32 nz = DecodeResidualCabac(cab, 0, cbfA, cbfB, 0, dcLvl);
 					if (nz > 0)
 						cab.lumaDcCodedMb[(uint64)mbIdx] = 1;
-					int32 gDc[16];
-					NkH264Transform::HadamardInverse4x4(dcLvl, gDc);
-					NkH264Transform::DequantDC(gDc, dcRec, 16, c.qp);
+					if (c.TsBypass()) { // lossless : les niveaux SONT les DC (ni Hadamard ni scale)
+						for (int32 i = 0; i < 16; ++i)
+							dcRec[i] = dcLvl[i];
+					} else {
+						int32 gDc[16];
+						NkH264Transform::HadamardInverse4x4(dcLvl, gDc);
+						NkH264Transform::DequantDC(gDc, dcRec, 16, c.qp, c.W00(0));
+					}
 				}
 
-				// AC luma (cat 1) + reconstruction.
+				// AC luma (cat 1) + reconstruction. En bypass (§8.5.15) le cumul DPCM V/H opère sur le
+				// résidu du MB ENTIER (chaque ligne/colonne prédite de la précédente reconstruite) :
+				// on assemble d'abord les 256 résidus, on cumule, puis on ajoute la prédiction.
+				const bool byp = c.TsBypass();
+				int32 res16[256];
 				for (int32 blk = 0; blk < 16; ++blk) {
 					int32 x4, y4;
 					LumaBlk(blk, x4, y4);
@@ -2303,8 +2434,14 @@ namespace nkentseu {
 						tc = DecodeResidualCabac(cab, 1, cbfA, cbfB, 1, acRaster);
 					}
 					c.lumaNz[by * c.nzW + bx] = tc;
+					if (byp) { // résidu direct : AC (jamais de coeff en 0) + DC en position 0 du bloc
+						for (int32 k = 0; k < 16; ++k)
+							res16[(y4 + k / 4) * 16 + x4 + (k & 3)] = cbpLuma ? acRaster[k] : 0;
+						res16[y4 * 16 + x4] = dcRec[(y4 / 4) * 4 + (x4 / 4)];
+						continue;
+					}
 					int32 deq[16];
-					NkH264Transform::Dequant4x4(acRaster, deq, c.qp);
+					NkH264Transform::Dequant4x4(acRaster, deq, c.qp, c.wsl4[0]);
 					if (!cbpLuma)
 						for (int32 k = 1; k < 16; ++k)
 							deq[k] = 0;
@@ -2315,6 +2452,21 @@ namespace nkentseu {
 						for (int32 col = 0; col < 4; ++col)
 							c.Y[(usize)(py + y4 + r) * c.lumaW + px + x4 + col] =
 								ClampU8(pred[(y4 + r) * 16 + (x4 + col)] + resRec[r * 4 + col]);
+				}
+				if (byp) {
+					if (predMode == 0) { // vertical : cumul par colonne sur les 16 lignes
+						for (int32 col = 0; col < 16; ++col)
+							for (int32 r = 1; r < 16; ++r)
+								res16[r * 16 + col] += res16[(r - 1) * 16 + col];
+					} else if (predMode == 1) { // horizontal : cumul par ligne
+						for (int32 r = 0; r < 16; ++r)
+							for (int32 col = 1; col < 16; ++col)
+								res16[r * 16 + col] += res16[r * 16 + col - 1];
+					}
+					for (int32 r = 0; r < 16; ++r)
+						for (int32 col = 0; col < 16; ++col)
+							c.Y[(usize)(py + r) * c.lumaW + px + col] =
+								ClampU8((int32)pred[r * 16 + col] + res16[r * 16 + col]);
 				}
 
 				DecodeChromaCabac(c, cab, mbX, mbY, chromaMode, cbpChroma);
@@ -2690,8 +2842,13 @@ namespace nkentseu {
 							for (int32 dx = 0; dx < 2; ++dx)
 								c.lumaNz[(by4 + dy) * c.nzW + (bx4 + dx)] = tc;
 						int32 deq[64], resRec[64];
-						NkH264Transform::Dequant8x8(raster, deq, c.qp);
-						NkH264Transform::Inverse8x8(deq, resRec);
+						if (c.TsBypass()) { // lossless inter : résidu direct (pas de cumul en inter)
+							for (int32 i = 0; i < 64; ++i)
+								resRec[i] = raster[i];
+						} else {
+							NkH264Transform::Dequant8x8(raster, deq, c.qp, c.wsl8[1]);
+							NkH264Transform::Inverse8x8(deq, resRec);
+						}
 						for (int32 r = 0; r < 8; ++r)
 							for (int32 col = 0; col < 8; ++col)
 								c.Y[(usize)(py + by8 + r) * c.lumaW + px + bx8 + col] =
@@ -2711,8 +2868,13 @@ namespace nkentseu {
 						}
 						c.lumaNz[by * c.nzW + bx] = tc;
 						int32 deq[16], resRec[16];
-						NkH264Transform::Dequant4x4(raster, deq, c.qp);
-						NkH264Transform::Inverse4x4(deq, resRec);
+						if (c.TsBypass()) { // lossless inter : résidu direct (pas de cumul en inter)
+							for (int32 i = 0; i < 16; ++i)
+								resRec[i] = raster[i];
+						} else {
+							NkH264Transform::Dequant4x4(raster, deq, c.qp, c.wsl4[3]);
+							NkH264Transform::Inverse4x4(deq, resRec);
+						}
 						for (int32 r = 0; r < 4; ++r)
 							for (int32 col = 0; col < 4; ++col)
 								c.Y[(usize)(py + y4 + r) * c.lumaW + px + x4 + col] =
@@ -2999,8 +3161,13 @@ namespace nkentseu {
 							for (int32 dx = 0; dx < 2; ++dx)
 								c.lumaNz[(by4 + dy) * c.nzW + (bx4 + dx)] = tc;
 						int32 deq[64], resRec[64];
-						NkH264Transform::Dequant8x8(raster, deq, c.qp);
-						NkH264Transform::Inverse8x8(deq, resRec);
+						if (c.TsBypass()) { // lossless inter : résidu direct (pas de cumul en inter)
+							for (int32 i = 0; i < 64; ++i)
+								resRec[i] = raster[i];
+						} else {
+							NkH264Transform::Dequant8x8(raster, deq, c.qp, c.wsl8[1]);
+							NkH264Transform::Inverse8x8(deq, resRec);
+						}
 						for (int32 r = 0; r < 8; ++r)
 							for (int32 col = 0; col < 8; ++col)
 								c.Y[(usize)(py + by8 + r) * c.lumaW + px + bx8 + col] =
@@ -3020,8 +3187,13 @@ namespace nkentseu {
 						}
 						c.lumaNz[by * c.nzW + bx] = tc;
 						int32 deq[16], resRec[16];
-						NkH264Transform::Dequant4x4(raster, deq, c.qp);
-						NkH264Transform::Inverse4x4(deq, resRec);
+						if (c.TsBypass()) { // lossless inter : résidu direct (pas de cumul en inter)
+							for (int32 i = 0; i < 16; ++i)
+								resRec[i] = raster[i];
+						} else {
+							NkH264Transform::Dequant4x4(raster, deq, c.qp, c.wsl4[3]);
+							NkH264Transform::Inverse4x4(deq, resRec);
+						}
 						for (int32 r = 0; r < 4; ++r)
 							for (int32 col = 0; col < 4; ++col)
 								c.Y[(usize)(py + y4 + r) * c.lumaW + px + x4 + col] =
@@ -3068,7 +3240,7 @@ namespace nkentseu {
 
 			NkH264Sps sps;
 			NkH264Pps pps;
-			if (!ParseSps(spsN, spsS, sps) || !ParsePps(ppsN, ppsS, pps))
+			if (!ParseSps(spsN, spsS, sps) || !ParsePps(ppsN, ppsS, pps, &sps))
 				return false;
 			// CABAC (entropyCodingMode==1) : géré pour les I-slices (voir dispatch plus bas) ;
 			// P/B CABAC pas encore -> rejeté au dispatch.
@@ -3362,6 +3534,23 @@ namespace nkentseu {
 			c.chromaQpOffset = pps.chromaQpIndexOffset;
 			c.transform8x8Mode = pps.transform8x8Mode;
 			c.directInference = sps.directInference;
+			c.qpprimeBypass = sps.qpprimeBypass;
+			// Lossless (§8.5.15) : seul le chemin CABAC gère le bypass — CAVLC+bypass = échec propre
+			// plutôt qu'un décodage silencieusement faux.
+			if (sps.qpprimeBypass && pps.entropyCodingMode == 0)
+				return false;
+			// Scaling matrices effectives (§8.5.9) : celles du PPS si présentes, sinon celles du SPS,
+			// sinon listes PLATES (pointeurs nuls -> chemin de déquantification prouvé, inchangé).
+			{
+				const NkH264ScalingLists *eff =
+					pps.scaling.present ? &pps.scaling : (sps.scaling.present ? &sps.scaling : nullptr);
+				if (eff) {
+					for (int32 i = 0; i < 6; ++i)
+						c.wsl4[i] = eff->w4[i];
+					c.wsl8[0] = eff->w8[0];
+					c.wsl8[1] = eff->w8[1];
+				}
+			}
 			// Grilles de mouvement : une par liste (L0 pour les P et les B, L1 pour les B seules).
 			c.L[0].mvx4 = mvx4G.Data();
 			c.L[0].mvy4 = mvy4G.Data();
@@ -3636,6 +3825,7 @@ namespace nkentseu {
 				while (mbAddr < numMb) {
 					const int32 mbX = mbAddr % mbW, mbY = mbAddr / mbW;
 					const int32 mbIdx = mbY * mbW + mbX;
+					bool pcmMb = false; // I_PCM : QP de déblocage = 0 (c.qp, lui, reste inchangé)
 					if (isB) {
 						// B_Skip = B_Direct_16x16 sans residu ; sinon mb_type B (ou intra).
 						if (DecodeMbSkipBCabac(cab, mbX, mbY)) {
@@ -3663,15 +3853,17 @@ namespace nkentseu {
 								} else if (mbTypeB <= 24) {
 									if (!DecodeMbCabacI16x16(c, cab, mbX, mbY, mbTypeB))
 										return false;
-								} else {
-									return false; // I_PCM non gere
+								} else { // I_PCM
+									if (!DecodeMbCabacIPcm(c, cab, mbX, mbY))
+										return false;
+									pcmMb = true;
 								}
 								cab.mbSkipMb[(uint64)mbIdx] = 0;
 								cab.mbDirectMb[(uint64)mbIdx] = 0;
 								c.mb16x16OrIntra[mbIdx] = 1; // intra
 							}
 						}
-						mbQp[(uint64)mbAddr] = c.qp;
+						mbQp[(uint64)mbAddr] = pcmMb ? 0 : c.qp;
 						++mbAddr;
 						if (cab.Terminate()) // end_of_slice_flag
 							break;
@@ -3718,13 +3910,15 @@ namespace nkentseu {
 							} else if (mbType <= 24) {
 								if (!DecodeMbCabacI16x16(c, cab, mbX, mbY, mbType))
 									return false;
-							} else {
-								return false; // I_PCM non gere
+							} else { // I_PCM
+								if (!DecodeMbCabacIPcm(c, cab, mbX, mbY))
+									return false;
+								pcmMb = true;
 							}
 							cab.mbSkipMb[(uint64)mbIdx] = 0;
 						}
 					}
-					mbQp[(uint64)mbAddr] = c.qp;
+					mbQp[(uint64)mbAddr] = pcmMb ? 0 : c.qp;
 					++mbAddr;
 					if (cab.Terminate()) // end_of_slice_flag
 						break;

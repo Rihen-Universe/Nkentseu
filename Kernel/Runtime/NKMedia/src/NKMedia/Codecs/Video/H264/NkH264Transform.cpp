@@ -120,11 +120,23 @@ namespace nkentseu {
 			}
 		}
 
-		void NkH264Transform::Dequant4x4(const int32 lvl[16], int32 coef[16], int32 qp) {
-			const int32 shift = qp / 6;
+		void NkH264Transform::Dequant4x4(const int32 lvl[16], int32 coef[16], int32 qp, const uint8 *w) {
 			const int32 m = qp % 6;
-			for (int32 i = 0; i < 16; ++i)
-				coef[i] = (lvl[i] * kV[m][PosClass(i)]) << shift;
+			if (!w) { // liste PLATE : chemin prouvé bit-exact (weightScale=16 absorbé dans le décalage)
+				const int32 shift = qp / 6;
+				for (int32 i = 0; i < 16; ++i)
+					coef[i] = (lvl[i] * kV[m][PosClass(i)]) << shift;
+				return;
+			}
+			// Scaling matrices custom (§8.5.12.1) : LevelScale = weightScale(raster) × normAdjust.
+			const int32 sh = qp / 6;
+			for (int32 i = 0; i < 16; ++i) {
+				const int32 ls = (int32)w[i] * kV[m][PosClass(i)];
+				if (qp >= 24)
+					coef[i] = (lvl[i] * ls) << (sh - 4);
+				else
+					coef[i] = (lvl[i] * ls + (1 << (3 - sh))) >> (4 - sh);
+			}
 		}
 
 		void NkH264Transform::QuantDC(const int32 dc[16], int32 lvl[16], int32 n, int32 qp, bool intra) {
@@ -139,11 +151,11 @@ namespace nkentseu {
 			}
 		}
 
-		void NkH264Transform::DequantDC(const int32 lvl[16], int32 dc[16], int32 n, int32 qp) {
+		void NkH264Transform::DequantDC(const int32 lvl[16], int32 dc[16], int32 n, int32 qp, int32 w00) {
 			// Entrée = coefficients APRÈS Hadamard inverse (les niveaux ont déjà traversé A·(·)·A).
-			// LevelScale = weightScale(16) × normAdjust(kV) → facteur ×16 (spec 8.5.10.2).
+			// LevelScale = weightScale(w00) × normAdjust(kV) → facteur ×w00 (spec 8.5.10.2 ; w00=16 = plat).
 			const int32 m = qp % 6;
-			const int32 v = 16 * kV[m][0];
+			const int32 v = w00 * kV[m][0];
 			if (qp >= 36) {
 				const int32 shift = qp / 6 - 6;
 				for (int32 i = 0; i < n; ++i)
@@ -156,7 +168,7 @@ namespace nkentseu {
 			}
 		}
 
-		void NkH264Transform::Dequant8x8(const int32 lvl[64], int32 coef[64], int32 qp) {
+		void NkH264Transform::Dequant8x8(const int32 lvl[64], int32 coef[64], int32 qp, const uint8 *w) {
 			// normAdjust8x8 (Table 8-14) : 6 valeurs par (qp%6), selectionnees par la position (i,j).
 			static const int32 v8[6][6] = {{20, 18, 32, 19, 25, 24}, {22, 19, 35, 21, 28, 26},
 				{26, 23, 42, 24, 33, 31}, {28, 25, 45, 26, 35, 33},
@@ -172,7 +184,8 @@ namespace nkentseu {
 				else if ((i4 == 0 && j2 == 1) || (i2 == 1 && j4 == 0)) cls = 3;
 				else if ((i4 == 0 && j4 == 2) || (i4 == 2 && j4 == 0)) cls = 4;
 				else cls = 5;
-				const int32 ls = 16 * v8[m][cls]; // weightScale FLAT=16 ; LevelScale = 16 * v8
+				// weightScale : 16 (plat) ou la liste custom en raster ; LevelScale = weightScale * v8.
+				const int32 ls = (w ? (int32)w[idx] : 16) * v8[m][cls];
 				if (qp >= 36) coef[idx] = (lvl[idx] * ls) << (shift - 6);
 				else { const int32 sh = 6 - shift; coef[idx] = (lvl[idx] * ls + (1 << (sh - 1))) >> sh; }
 			}
@@ -227,10 +240,10 @@ namespace nkentseu {
 			}
 		}
 
-		void NkH264Transform::DequantChromaDC(const int32 g[4], int32 dc[4], int32 qp) {
+		void NkH264Transform::DequantChromaDC(const int32 g[4], int32 dc[4], int32 qp, int32 w00) {
 			// Entrée = niveaux APRÈS Hadamard inverse 2×2. Spec 8.5.11.2 : dcC = (g·LevelScale)<<(qP/6) >>5.
 			const int32 m = qp % 6;
-			const int32 v = 16 * kV[m][0];
+			const int32 v = w00 * kV[m][0];
 			const int32 sh = qp / 6;
 			for (int32 i = 0; i < 4; ++i)
 				dc[i] = ((g[i] * v) << sh) >> 5;
