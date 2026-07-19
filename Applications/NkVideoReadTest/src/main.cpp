@@ -175,6 +175,24 @@ int main(int argc, char **argv) {
 				cmp(cur.y.Data(), cur.lumaW, cur.cropW, cur.cropH, ref, dY);
 				cmp(cur.cb.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref + yN, dC);
 				cmp(cur.cr.Data(), cur.chromaW, cur.cropW / 2, cur.cropH / 2, ref + yN + cN, dC);
+				// DEBUG : liste les premiers pixels CHROMA divergents (plan, x, y, nous vs ref).
+				if (dC > 0 && dY == 0) {
+					int32 shown = 0;
+					for (int32 comp = 0; comp < 2 && shown < 8; ++comp) {
+						const nk_uint8 *dec = comp == 0 ? cur.cb.Data() : cur.cr.Data();
+						const nk_uint8 *rf = ref + yN + (uint64)comp * cN;
+						const int32 cw = cur.cropW / 2, ch = cur.cropH / 2;
+						for (int32 y = 0; y < ch && shown < 8; ++y)
+							for (int32 x = 0; x < cw && shown < 8; ++x) {
+								const int32 a = dec[(usize)y * cur.chromaW + x], b = rf[(usize)y * cw + x];
+								if (a != b) {
+									printf("    chroma%s (%d,%d) mb(%d,%d) nous=%d ref=%d\n", comp ? "Cr" : "Cb",
+										   x, y, x / 8, y / 8, a, b);
+									++shown;
+								}
+							}
+					}
+				}
 				// DEBUG : localise le PREMIER MB 16x16 (ordre raster) dont un pixel luma differe.
 				if (dY > 0) {
 					const int32 mbw = (cur.cropW + 15) / 16, mbh = (cur.cropH + 15) / 16;
