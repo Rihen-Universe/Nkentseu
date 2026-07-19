@@ -28,6 +28,16 @@ namespace nkentseu {
 				int32 refIdc = 0;
 		};
 
+		// Listes de quantification (profil High, scaling matrices §7.3.2.1.1). 8 listes en 4:2:0 :
+		// 4x4 [0]=IntraY [1]=IntraCb [2]=IntraCr [3]=InterY [4]=InterCb [5]=InterCr ;
+		// 8x8 [0]=IntraY [1]=InterY. Stockées en ordre RASTER (le zigzag est appliqué au parsing).
+		struct NkH264ScalingLists {
+				bool present = false;		 // scaling_matrix_present_flag (SPS ou PPS)
+				nk_uint8 listPresent[8] = {0}; // scaling_list_present_flag par liste (pour le fallback B)
+				nk_uint8 w4[6][16];
+				nk_uint8 w8[2][64];
+		};
+
 		// Infos extraites d'un SPS.
 		struct NkH264Sps {
 				bool valid = false;
@@ -43,8 +53,11 @@ namespace nkentseu {
 				int32 deltaPocAlwaysZero = 0; // (poc type 1)
 				int32 frameMbsOnly = 1;
 				int32 directInference = 1;	  // direct_8x8_inference_flag (B Direct + transform 8x8)
+				int32 qpprimeBypass = 0;	  // qpprime_y_zero_transform_bypass_flag : QP'=0 -> lossless §8.5.15
 				int32 picWidthInMbs = 0;
 				int32 picHeightInMapUnits = 0;
+				// Scaling matrices du SPS (résolues au parsing : fallback A + listes par défaut).
+				NkH264ScalingLists scaling;
 		};
 
 		// Infos extraites d'un PPS (baseline / CAVLC).
@@ -66,6 +79,9 @@ namespace nkentseu {
 				int32 secondChromaQpOffset = 0;		// second_chroma_qp_index_offset (defaut = chromaQpIndexOffset)
 				int32 weightedPred = 0;				// weighted_pred_flag : pred_weight_table dans les slices P/SP
 				int32 weightedBipredIdc = 0;		// weighted_bipred_idc : 1 = explicite en B, 2 = implicite
+				// Scaling matrices du PPS (listes BRUTES + listPresent ; le fallback B — qui référence les
+				// listes du SPS — est résolu au décodage, quand SPS et PPS sont tous deux disponibles).
+				NkH264ScalingLists scaling;
 		};
 
 		// En-tête de slice (chemin I-slice IDR baseline).
@@ -136,8 +152,9 @@ namespace nkentseu {
 				// (en-tête inclus). Retire l'anti-émulation et lit les champs Exp-Golomb.
 				static bool ParseSps(const uint8 *nal, usize size, NkH264Sps &out);
 
-				// Décode un PPS depuis une unité NAL (type 8).
-				static bool ParsePps(const uint8 *nal, usize size, NkH264Pps &out);
+				// Décode un PPS depuis une unité NAL (type 8). `sps` (optionnel) : nécessaire au fallback B
+				// des scaling matrices (les listes absentes du PPS héritent de celles du SPS).
+				static bool ParsePps(const uint8 *nal, usize size, NkH264Pps &out, const NkH264Sps *sps = nullptr);
 
 				// Décode l'en-tête de slice (chemin I-slice IDR). `nalType` = 5 (IDR) ou 1 (non-IDR).
 				static bool ParseSliceHeader(const uint8 *nal, usize size, const NkH264Sps &sps, const NkH264Pps &pps,

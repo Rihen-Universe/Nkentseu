@@ -45,6 +45,86 @@ namespace nkentseu {
 					}
 			};
 
+			// ── Scaling matrices (profil High, §7.3.2.1.1) ─────────────────────────
+			// Zigzag 4x4 / 8x8 (position raster de chaque indice de scan).
+			const int32 kZzScan4[16] = {0, 1, 4, 8, 5, 2, 3, 6, 9, 12, 13, 10, 7, 11, 14, 15};
+			const int32 kZzScan8[64] = {
+				0,  1,  8,  16, 9,  2,  3,  10, 17, 24, 32, 25, 18, 11, 4,  5,
+				12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6,  7,  14, 21, 28,
+				35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
+				58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
+			// Listes PAR DÉFAUT (Tables 7-3/7-4), en RASTER — extraites de ffmpeg h264_ps.c.
+			const nk_uint8 kDefScaling4[2][16] = {
+				{6, 13, 20, 28, 13, 20, 28, 32, 20, 28, 32, 37, 28, 32, 37, 42},   // Intra
+				{10, 14, 20, 24, 14, 20, 24, 27, 20, 24, 27, 30, 24, 27, 30, 34}}; // Inter
+			const nk_uint8 kDefScaling8[2][64] = {
+				{6,	 10, 13, 16, 18, 23, 25, 27, 10, 11, 16, 18, 23, 25, 27, 29, 13, 16, 18, 23, 25, 27,
+				 29, 31, 16, 18, 23, 25, 27, 29, 31, 33, 18, 23, 25, 27, 29, 31, 33, 36, 23, 25, 27, 29,
+				 31, 33, 36, 38, 25, 27, 29, 31, 33, 36, 38, 40, 27, 29, 31, 33, 36, 38, 40, 42}, // Intra
+				{9,	 13, 15, 17, 19, 21, 22, 24, 13, 13, 17, 19, 21, 22, 24, 25, 15, 17, 19, 21, 22, 24,
+				 25, 27, 17, 19, 21, 22, 24, 25, 27, 28, 19, 21, 22, 24, 25, 27, 28, 30, 21, 22, 24, 25,
+				 27, 28, 30, 32, 22, 24, 25, 27, 28, 30, 32, 33, 24, 25, 27, 28, 30, 32, 33, 35}}; // Inter
+			// scaling_list() : lit UNE liste (16/64) en zigzag -> stocke en raster. Si le flag est absent,
+			// copie `fallback` ; si le 1er nextScale vaut 0, copie la liste PAR DÉFAUT `jvt`.
+			template <typename BR>
+			bool ReadScalingList(BR &br, nk_uint8 *factors, int32 size, const nk_uint8 *jvt, const nk_uint8 *fallback,
+								 nk_uint8 &presentFlag) {
+				const int32 *scan = (size == 16) ? kZzScan4 : kZzScan8;
+				presentFlag = (nk_uint8)br.U1(); // scaling_list_present_flag
+				if (!presentFlag) {
+					for (int32 k = 0; k < size; ++k)
+						factors[k] = fallback[k];
+					return true;
+				}
+				int32 last = 8, next = 8;
+				for (int32 i = 0; i < size; ++i) {
+					if (next) {
+						const int32 v = br.SE();
+						if (v < -128 || v > 127)
+							return false;
+						next = (last + v) & 0xFF;
+					}
+					if (i == 0 && next == 0) { // useDefaultScalingMatrixFlag
+						for (int32 k = 0; k < size; ++k)
+							factors[k] = jvt[k];
+						return true;
+					}
+					last = factors[scan[i]] = (nk_uint8)(next ? next : last);
+				}
+				return true;
+			}
+			// Les 8 listes (4:2:0), avec la chaîne de fallback de ffmpeg decode_scaling_matrices :
+			// règle A (SPS, ou PPS sans matrices SPS) = défauts ; règle B (PPS avec SPS) = listes du SPS
+			// pour 0/3/6/7 ; les autres héritent de la liste PRÉCÉDENTE. `t8x8` : les listes 8x8 ne sont
+			// présentes dans un PPS que si transform_8x8_mode_flag.
+			template <typename BR>
+			bool ReadScalingMatrices(BR &br, bool isSps, const NkH264ScalingLists *spsSc, int32 t8x8,
+									 NkH264ScalingLists &out) {
+				const bool fbSps = !isSps && spsSc && spsSc->present;
+				const nk_uint8 *fb4i = fbSps ? spsSc->w4[0] : kDefScaling4[0];
+				const nk_uint8 *fb4p = fbSps ? spsSc->w4[3] : kDefScaling4[1];
+				const nk_uint8 *fb8i = fbSps ? spsSc->w8[0] : kDefScaling8[0];
+				const nk_uint8 *fb8p = fbSps ? spsSc->w8[1] : kDefScaling8[1];
+				out.present = true;
+				bool ok = true;
+				ok = ok && ReadScalingList(br, out.w4[0], 16, kDefScaling4[0], fb4i, out.listPresent[0]);
+				ok = ok && ReadScalingList(br, out.w4[1], 16, kDefScaling4[0], out.w4[0], out.listPresent[1]);
+				ok = ok && ReadScalingList(br, out.w4[2], 16, kDefScaling4[0], out.w4[1], out.listPresent[2]);
+				ok = ok && ReadScalingList(br, out.w4[3], 16, kDefScaling4[1], fb4p, out.listPresent[3]);
+				ok = ok && ReadScalingList(br, out.w4[4], 16, kDefScaling4[1], out.w4[3], out.listPresent[4]);
+				ok = ok && ReadScalingList(br, out.w4[5], 16, kDefScaling4[1], out.w4[4], out.listPresent[5]);
+				if (isSps || t8x8) {
+					ok = ok && ReadScalingList(br, out.w8[0], 64, kDefScaling8[0], fb8i, out.listPresent[6]);
+					ok = ok && ReadScalingList(br, out.w8[1], 64, kDefScaling8[1], fb8p, out.listPresent[7]);
+				} else { // pas de listes 8x8 dans ce PPS : héritent du fallback
+					for (int32 k = 0; k < 64; ++k) {
+						out.w8[0][k] = fb8i[k];
+						out.w8[1][k] = fb8p[k];
+					}
+				}
+				return ok;
+			}
+
 			// Retire les octets anti-émulation 00 00 03 -> 00 00 d'un RBSP.
 			void Deemulate(const uint8 *src, usize n, NkVector<nk_uint8> &out) {
 				out.Clear();
@@ -135,9 +215,13 @@ namespace nkentseu {
 					br.U1(); // separate_colour_plane_flag
 				br.UE();	 // bit_depth_luma_minus8
 				br.UE();	 // bit_depth_chroma_minus8
-				br.U1();	 // qpprime_y_zero_transform_bypass_flag
-				if (br.U1()) // seq_scaling_matrix_present_flag
-					return false; // listes de quantif. custom non gérées dans cette brique
+				out.qpprimeBypass = (int32)br.U1(); // qpprime_y_zero_transform_bypass_flag (lossless §8.5.15)
+				if (br.U1()) { // seq_scaling_matrix_present_flag
+					if (chroma == 3)
+						return false; // 12 listes (4:4:4) non gérées
+					if (!ReadScalingMatrices(br, true, nullptr, 1, out.scaling))
+						return false;
+				}
 			}
 
 			out.log2MaxFrameNum = (int32)br.UE() + 4; // log2_max_frame_num_minus4
@@ -189,7 +273,7 @@ namespace nkentseu {
 			return out.width > 0 && out.height > 0;
 		}
 
-		bool NkH264Decoder::ParsePps(const uint8 *nal, usize size, NkH264Pps &out) {
+		bool NkH264Decoder::ParsePps(const uint8 *nal, usize size, NkH264Pps &out, const NkH264Sps *sps) {
 			out = NkH264Pps{};
 			if (!nal || size < 2 || (nal[0] & 0x1F) != 8)
 				return false;
@@ -216,8 +300,12 @@ namespace nkentseu {
 			out.secondChromaQpOffset = out.chromaQpIndexOffset; // defaut si extension absente
 			if (br.MoreRbspData()) { // extension High du PPS
 				out.transform8x8Mode = (int32)br.U1(); // transform_8x8_mode_flag
-				if (br.U1()) // pic_scaling_matrix_present_flag
-					return false; // listes de quantif. custom non gerees
+				if (br.U1()) { // pic_scaling_matrix_present_flag
+					// Fallback B : les listes 0/3/6/7 absentes héritent du SPS (s'il a des matrices).
+					if (!ReadScalingMatrices(br, false, sps ? &sps->scaling : nullptr, out.transform8x8Mode,
+											 out.scaling))
+						return false;
+				}
 				out.secondChromaQpOffset = br.SE(); // second_chroma_qp_index_offset
 			}
 			out.valid = true;
