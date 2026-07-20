@@ -55,6 +55,16 @@ inline void ActivityThunk(void *user, int32 idx) {
 		sh->OpenPreferences();
 }
 
+// ── Ctrl+Shift+A : bascule le panneau « Assistant IA » (Section 6.4 du spec Banani).
+//    Réutilise EXACTEMENT le chemin de l'icône activity bar idx==102 (ActivityThunk) —
+//    même groupe exclusif (SideRightGroup), même ToggleSideExclusive. ──
+inline void CmdToggleAiPanel(void *user) {
+	auto *sh = static_cast<editorkit::NkEditorShell *>(user);
+	int32 gN = 0;
+	const char *const *g = nkcode::SideRightGroup(gN);
+	nkcode::ToggleSideExclusive(sh, g, gN, "Assistant IA");
+}
+
 inline void CmdToggleTabRows(void *) { // Affichage: onglets multi-rangees (option VS)
 	nkcode::NkCodeTabRowsOn() = !nkcode::NkCodeTabRowsOn();
 }

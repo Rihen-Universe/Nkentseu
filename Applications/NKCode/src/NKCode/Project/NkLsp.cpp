@@ -211,7 +211,28 @@ namespace nkentseu {
 		}
 
 #if defined(_WIN32)
-		bool NkPipeProc::Start(const NkString &cmdline, const NkString &cwd) {
+		// Compare "entry" (une entree brute "CLE=valeur" du bloc d'environnement Win32,
+		// PAS null-terminee au sens C — juste jusqu'a son propre '\0') a `key` (juste la
+		// partie CLE), insensible a la casse (comme Windows). true si `entry` commence
+		// par `key` suivi de '='.
+		static bool NkEnvEntryMatchesKey(const wchar_t *entry, const NkString &key) {
+			const char *k = key.CStr();
+			const wchar_t *p = entry;
+			for (; *k; ++k, ++p) {
+				wchar_t a = *p;
+				wchar_t b = static_cast<wchar_t>(static_cast<unsigned char>(*k));
+				if (a >= L'a' && a <= L'z')
+					a = static_cast<wchar_t>(a - 32);
+				if (b >= L'a' && b <= L'z')
+					b = static_cast<wchar_t>(b - 32);
+				if (a != b)
+					return false;
+			}
+			return *p == L'=';
+		}
+
+		bool NkPipeProc::StartWithEnv(const NkString &cmdline, const NkString &cwd,
+									  const NkVector<NkString> &envOverrides, bool mergeStderr) {
 			Stop();
 			SECURITY_ATTRIBUTES sa{};
 			sa.nLength = sizeof(sa);
@@ -233,20 +254,77 @@ namespace nkentseu {
 			si.dwFlags = STARTF_USESTDHANDLES;
 			si.hStdInput = inR;
 			si.hStdOutput = outW;
-			si.hStdError = GetStdHandle(STD_ERROR_HANDLE); // stderr de clangd -> log parent (invisible)
+			// stderr de clangd -> log parent (invisible), sauf si `mergeStderr` (diagnostics
+			// d'un CLI comme `claude` qui peut echouer silencieusement sur stdout seul).
+			si.hStdError = mergeStderr ? outW : GetStdHandle(STD_ERROR_HANDLE);
 			PROCESS_INFORMATION pi{};
 
-			// UTF-8 -> UTF-16 (cmdline + cwd).
-			wchar_t wcmd[2048];
-			MultiByteToWideChar(CP_UTF8, 0, cmdline.CStr(), -1, wcmd, 2048);
+			// UTF-8 -> UTF-16 (cmdline + cwd). Buffer dimensionne pour des lignes de
+			// commande LONGUES (ex. prompt de chat entier, pas juste un clangd court) —
+			// verifie explicitement le retour de MultiByteToWideChar : un cmdline qui ne
+			// tient pas dans le buffer echouait auparavant SILENCIEUSEMENT (CreateProcessW
+			// aurait alors recu un buffer wcmd non-initialise/tronque).
+			wchar_t wcmd[16384];
+			if (MultiByteToWideChar(CP_UTF8, 0, cmdline.CStr(), -1, wcmd, 16384) == 0) {
+				CloseHandle(inR);
+				CloseHandle(inW);
+				CloseHandle(outR);
+				CloseHandle(outW);
+				return false;
+			}
 			wchar_t wcwd[1024];
 			const wchar_t *pcwd = nullptr;
 			if (!cwd.Empty()) {
 				MultiByteToWideChar(CP_UTF8, 0, cwd.CStr(), -1, wcwd, 1024);
 				pcwd = wcwd;
 			}
-			const BOOL ok =
-				CreateProcessW(nullptr, wcmd, nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, pcwd, &si, &pi);
+
+			// ── Environnement : herite du PARENT (NKCode), en REMPLACANT les cles listees
+			// dans `envOverrides` (ex. ANTHROPIC_API_KEY dedie a UN projet) — jamais de fuite
+			// vers les autres appels : chaque StartWithEnv construit son PROPRE bloc local. ──
+			NkVector<wchar_t> envBuf; // garde le stockage vivant jusqu'a CreateProcessW plus bas
+			void *envBlock = nullptr;
+			if (!envOverrides.Empty()) {
+				LPWCH parentEnv = GetEnvironmentStringsW();
+				if (parentEnv) {
+					for (const wchar_t *e = parentEnv; *e;) {
+						usize elen = 0;
+						while (e[elen])
+							++elen;
+						bool skip = false;
+						for (usize i = 0; i < envOverrides.Size() && !skip; ++i) {
+							const char *eq = envOverrides[i].CStr();
+							NkString key;
+							while (*eq && *eq != '=') {
+								key += *eq;
+								++eq;
+							}
+							if (NkEnvEntryMatchesKey(e, key))
+								skip = true;
+						}
+						if (!skip) {
+							for (usize k = 0; k < elen; ++k)
+								envBuf.PushBack(e[k]);
+							envBuf.PushBack(L'\0');
+						}
+						e += elen + 1;
+					}
+					FreeEnvironmentStringsW(parentEnv);
+				}
+				for (usize i = 0; i < envOverrides.Size(); ++i) {
+					wchar_t wentry[2048];
+					if (MultiByteToWideChar(CP_UTF8, 0, envOverrides[i].CStr(), -1, wentry, 2048) == 0)
+						continue; // entree trop longue : ignoree plutot que corrompre le bloc
+					for (usize k = 0; wentry[k]; ++k)
+						envBuf.PushBack(wentry[k]);
+					envBuf.PushBack(L'\0');
+				}
+				envBuf.PushBack(L'\0'); // terminateur final du bloc (double '\0')
+				envBlock = envBuf.Data();
+			}
+
+			const DWORD flags = CREATE_NO_WINDOW | (envBlock ? CREATE_UNICODE_ENVIRONMENT : 0);
+			const BOOL ok = CreateProcessW(nullptr, wcmd, nullptr, nullptr, TRUE, flags, envBlock, pcwd, &si, &pi);
 			CloseHandle(inR); // cotes ENFANT : plus besoin chez nous
 			CloseHandle(outW);
 			if (!ok) {
@@ -259,6 +337,10 @@ namespace nkentseu {
 			mStdinW = inW;
 			mStdoutR = outR;
 			return true;
+		}
+
+		bool NkPipeProc::Start(const NkString &cmdline, const NkString &cwd) {
+			return StartWithEnv(cmdline, cwd, NkVector<NkString>());
 		}
 
 		void NkPipeProc::Stop() {
@@ -308,6 +390,10 @@ namespace nkentseu {
 #else
 		bool NkPipeProc::Start(const NkString &, const NkString &) {
 			return false;
+		}
+
+		bool NkPipeProc::StartWithEnv(const NkString &, const NkString &, const NkVector<NkString> &, bool) {
+			return false; // TODO(POSIX) : meme limite que Start() sur cette plateforme
 		}
 
 		void NkPipeProc::Stop() {

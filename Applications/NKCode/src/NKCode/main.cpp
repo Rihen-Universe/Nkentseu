@@ -190,6 +190,8 @@ int nkmain(const NkEntryState &state) {
 	shell->RegisterCommand("Affichage: Minimap (afficher/masquer)", &nkcode::CmdToggleMinimap, nullptr);
 	shell->RegisterCommand("Affichage: Onglets multi-rangees", &nkcode::CmdToggleTabRows, nullptr);
 	shell->RegisterCommand("Application: Quitter", &nkcode::CmdQuit, shell.Get(), "Ctrl+Q");
+	shell->RegisterCommand("IA: Basculer le panneau Assistant", &nkcode::CmdToggleAiPanel, shell.Get(),
+						   "Ctrl+Shift+A");
 
 	const int rc = shell->Run();
 	// Sauvegarde l'etat d'interface : par WORKSPACE si un projet est ouvert (dock +
