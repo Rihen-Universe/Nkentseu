@@ -389,8 +389,10 @@ namespace nkentseu {
 							if (font && font->Valid())
 								dl.AddText(font->Face(), font->TexId(), {viewR.x + ctx.S(7.f), by}, viewLbl.CStr(),
 										   viewHov ? NkColor{255, 220, 170, 255} : NkColor{210, 175, 120, 255});
-							if (viewHov && ctx.input.mouseClicked[0])
+							if (viewHov && ctx.input.mouseClicked[0]) {
 								mUsageOpen = true;
+								mUsageJustOpened = true;
+							}
 							const NkRect xR = {ban.x + ban.w - ctx.S(26.f), ban.y + (ban.h - ctx.S(16.f)) * 0.5f,
 											   ctx.S(16.f), ctx.S(16.f)};
 							const bool xHov = NkGuiRectContains(xR, mp);
@@ -572,6 +574,12 @@ namespace nkentseu {
 				NkString mClaudeCurModel; // "message.model" du tour Claude Code EN COURS
 
 				bool mUsageOpen = false; // popover "Compte et utilisation" ouvert
+				// Le clic qui OUVRE le popover (lien "Voir l'utilisation" de la banniere, ou item
+				// du panneau Actions) reste vu comme "mouseClicked[0]" par le test de fermeture
+				// (clic en dehors) de DrawUsagePopover EXECUTE la MEME frame, juste apres : sans
+				// ce garde-fou, le popover se referme instantanement des qu'il vient d'apparaitre
+				// (sauf coincidence de position). Latch d'UNE frame, remis a false a chaque appel.
+				bool mUsageJustOpened = false;
 				NkString mUsageBannerDismissKey; // banniere ecartee POUR CETTE cle (type+%) — reapparait
 												  // des que le bucket le plus urgent change de cle
 
@@ -604,6 +612,114 @@ namespace nkentseu {
 					mAcctEmail = JsonStr(j, "email");
 					mAcctOrg = JsonStr(j, "orgName");
 					mAcctPlan = JsonStr(j, "subscriptionType");
+				}
+
+				// ── Rapport "/usage" : COMPLEMENT de rate_limit_event, qui ne rapporte QU'UNE
+				// seule fenetre a la fois (celle qui vient de franchir un seuil — verifie
+				// empiriquement le 20 juil, CLI v2.1.212 : un tour normal n'emet qu'un seul
+				// `rate_limit_event`). `/usage` envoye comme prompt declenche une reponse
+				// SYNTHETIQUE (model:"<synthetic>", num_turns:0, cout nul) qui contient TOUJOURS
+				// la session (5h) ET la semaine (tous modeles), plus le detail "contributing to
+				// your limits usage" — capture INTEGRALE du texte, aucun champ trie/invente. ──
+				NkPipeProc mQuickUsageProc;
+				NkString mQuickUsageBuf;
+				bool mQuickUsageRequested = false, mQuickUsageLoaded = false;
+				NkString mQuickUsageText; // texte brut renvoye par /usage (vide = jamais recu)
+
+				void TriggerQuickUsage() {
+					if (mQuickUsageRequested || mQuickUsageLoaded || ClaudeExe().Empty())
+						return;
+					mQuickUsageRequested = true;
+					mQuickUsageBuf.Clear();
+					const NkString cmd = NkWin32QuoteArg(ClaudeExe().CStr()) +
+										  " -p --input-format stream-json --output-format stream-json "
+										  "--permission-mode default";
+					const NkString cwd = (mS && mS->HasWorkspace()) ? mS->root.ToString() : NkString(".");
+					NkVector<NkString> noEnv;
+					if (!mQuickUsageProc.StartWithEnv(cmd, cwd, noEnv, /*mergeStderr=*/true)) {
+						mQuickUsageRequested = false;
+						mQuickUsageLoaded = true; // echec : pas de re-essai en boucle, section vide honnete
+						return;
+					}
+					const NkString um = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":"
+										 "\"text\",\"text\":\"/usage\"}]}}\n";
+					mQuickUsageProc.WriteData(um.CStr(), static_cast<int32>(um.Size()));
+				}
+
+				void PollQuickUsage() {
+					if (!mQuickUsageRequested)
+						return;
+					char buf[4096];
+					int32 n;
+					while ((n = mQuickUsageProc.ReadAvail(buf, sizeof(buf))) > 0)
+						mQuickUsageBuf.Append(buf, static_cast<usize>(n));
+					if (mQuickUsageProc.Running())
+						return;
+					mQuickUsageRequested = false;
+					mQuickUsageLoaded = true;
+					NkString rest = mQuickUsageBuf;
+					mQuickUsageBuf.Clear();
+					for (;;) {
+						const usize nl = rest.Find('\n');
+						const NkString line = nl == NkString::npos ? rest : rest.SubStr(0, nl);
+						if (NkFindSub(line.CStr(), "\"type\":\"result\"") != nullptr) {
+							mQuickUsageText = JsonStr(line.CStr(), "result");
+							mQuickUsageText.Trim();
+							break;
+						}
+						if (nl == NkString::npos)
+							break;
+						rest.Erase(0, nl + 1);
+					}
+				}
+
+				// Decoupe un texte libre en lignes ne depassant pas maxW (mots entiers jamais
+				// coupes ; les "\n" du texte source deviennent des lignes vides preservees).
+				static void WrapTextLines(const NkGuiFont *font, const char *text, float32 maxW,
+										   NkVector<NkString> &out) {
+					if (!text)
+						return;
+					if (!font || !font->Valid()) {
+						out.PushBack(NkString(text));
+						return;
+					}
+					const char *p = text;
+					while (*p) {
+						const char *lineEnd = p;
+						while (*lineEnd && *lineEnd != '\n')
+							++lineEnd;
+						if (lineEnd == p) {
+							out.PushBack(NkString());
+						} else {
+							NkString cur;
+							const char *w = p;
+							while (w < lineEnd) {
+								const char *ws = w;
+								while (w < lineEnd && *w != ' ')
+									++w;
+								NkString word;
+								for (const char *q = ws; q < w; ++q)
+									word += *q;
+								NkString trial = cur;
+								if (!trial.Empty())
+									trial += " ";
+								trial += word;
+								if (!cur.Empty() && font->MeasureWidth(trial.CStr()) > maxW) {
+									out.PushBack(cur);
+									cur = word;
+								} else {
+									cur = trial;
+								}
+								while (w < lineEnd && *w == ' ')
+									++w;
+							}
+							if (!cur.Empty())
+								out.PushBack(cur);
+						}
+						p = lineEnd;
+						if (*p == '\n')
+							++p;
+					}
 				}
 
 				bool mPermPending = false;
@@ -2352,6 +2468,7 @@ namespace nkentseu {
 							mEffort = (mEffort + 1) % 3;
 						} else if (clicked == 14) { // Compte et utilisation -> popover REEL (rate_limit_event)
 							mUsageOpen = true;
+							mUsageJustOpened = true;
 							// "claude auth status --json" : sous-commande DEDIEE/SURE (pas de lecture
 							// directe de fichier de secrets) -> email/organisation/plan REELS, comme
 							// la capture VSCode. Une seule requete par session (cache).
@@ -2360,6 +2477,10 @@ namespace nkentseu {
 								mAcctLines.Clear();
 								mAcctProc.Start(NkWin32QuoteArg(ClaudeExe().CStr()) + " auth status --json");
 							}
+							// "/usage" : seule source qui rapporte TOUJOURS session + semaine
+							// ensemble (rate_limit_event n'en rapporte qu'une a la fois).
+							if (mKind == 1)
+								TriggerQuickUsage();
 						} else if (clicked == 22 && mS) { // Open Claude in Terminal (reel, meme si claude absent)
 							mS->termOpenCmd = "claude";
 							mS->termOpenKind = -1;
@@ -2897,17 +3018,27 @@ namespace nkentseu {
 					const float32 sepH = ctx.S(18.f);
 					const bool hasBuckets = !mRlBuckets.Empty();
 					const bool hasModels = !mModelUsage.Empty();
+					// Detail "/usage" (capture INTEGRALE, cf. TriggerQuickUsage/PollQuickUsage) :
+					// seule source qui rapporte TOUJOURS session + semaine ensemble (bien plus
+					// fiable que les buckets rate_limit_event, qui n'en rapportent qu'un a la fois).
+					const bool hasQuickUsage = !mQuickUsageText.Empty();
+					NkVector<NkString> quickLines;
+					if (hasQuickUsage)
+						WrapTextLines(font, mQuickUsageText.CStr(), w - pad * 2.f, quickLines);
 					// Section ACCOUNT ("claude auth status --json", cf. PollAccountStatus) :
 					// 4 lignes fixes (Auth method/Email/Organisation/Plan) si les identifiants
 					// sont bien charges ET valides — sinon 1 ligne d'etat honnete (chargement/
 					// non connecte), jamais de champ vide fait passer pour une vraie valeur.
 					const bool hasAcct = mAcctLoaded && mAcctLoggedIn;
-					// Hauteur : titre + [ACCOUNT] + (rien encore ? 1 ligne : [USAGE + N buckets] + [sep +
-					// MODELES + M lignes + sep + TOTAL]) + ligne "Gerer sur claude.ai" (toujours).
+					// Hauteur : titre + [ACCOUNT] + [detail /usage] + (rien encore ? 1 ligne :
+					// [USAGE + N buckets] + [sep + MODELES + M lignes + sep + TOTAL]) + lien
+					// "Gerer sur claude.ai" (toujours).
 					float32 h = pad * 2.f + it;
 					if (mKind == 1)
 						h += it + (hasAcct ? it * 4.f : it) + sepH;
-					if (!hasBuckets && !hasModels)
+					if (hasQuickUsage)
+						h += it + static_cast<float32>(quickLines.Size()) * it + sepH;
+					if (!hasBuckets && !hasModels && !hasQuickUsage)
 						h += it;
 					if (hasBuckets)
 						h += it + static_cast<float32>(mRlBuckets.Size()) * bucketH;
@@ -2973,7 +3104,19 @@ namespace nkentseu {
 						}
 						y += sepH;
 					}
-					if (!hasBuckets && !hasModels) {
+					// Detail "/usage" : capture INTEGRALE (session + semaine + repartition), texte
+					// libre du CLI reproduit tel quel, jamais reformule/invente.
+					if (hasQuickUsage) {
+						sectionHdr(y, NkT("ai.usage.section.detail"));
+						y += it;
+						for (usize i = 0; i < quickLines.Size(); ++i) {
+							if (!quickLines[i].Empty())
+								txt(menu.x + pad, y, quickLines[i].CStr(), ctx.theme.text, w - pad * 2.f);
+							y += it;
+						}
+						y += sepH;
+					}
+					if (!hasBuckets && !hasModels && !hasQuickUsage) {
 						txt(menu.x + pad, y, NkT("ai.usage.none"), ctx.theme.textDisabled, w - pad * 2.f);
 						y += it;
 					}
@@ -3041,8 +3184,11 @@ namespace nkentseu {
 								NkLauncher::OpenURL("https://claude.ai/settings/usage");
 						}
 					}
-					if (ctx.input.mouseClicked[0] && !NkGuiRectContains(menu, mp))
+					// Le clic qui vient d'OUVRIR ce popover (meme frame) ne doit jamais le refermer,
+					// quelle que soit sa position — cf. mUsageJustOpened.
+					if (ctx.input.mouseClicked[0] && !NkGuiRectContains(menu, mp) && !mUsageJustOpened)
 						mUsageOpen = false;
+					mUsageJustOpened = false;
 				}
 
 				// ── JSON : échappe une chaîne pour un littéral JSON. ──
@@ -4096,6 +4242,7 @@ namespace nkentseu {
 
 				void Poll() {
 					PollAccountStatus(); // independant de mBusy (requete ponctuelle "claude auth status")
+					PollQuickUsage();	 // independant de mBusy (requete ponctuelle "/usage")
 					if (!mBusy)
 						return;
 					if (mKind == 1) { // Claude Code : draine le pipe NkPipeProc (NDJSON), pas curl/NkProcess
