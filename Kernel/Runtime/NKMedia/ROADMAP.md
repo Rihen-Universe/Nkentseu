@@ -222,6 +222,15 @@ déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré 
   (confondait "producteur a fini de décoder" avec "plus rien à jouer") — `IsFinished()` ajouté pour
   distinguer les deux. Validé : pipeline complet corr=1.000000 vs ffmpeg, RAM bornée (paquets =
   quelques centaines de Ko même pour un long film, plus ring de ~2s), WavStream non régressé.
+- ✅ **Codecs audio MP4 additionnels** (2026-07-20, commit 805e0c93) : `ContainerAudioStream` gère
+  désormais **PCM** non compressé (twos/sowt/lpcm, 8/16/24-bit, streamé comme l'AAC — paquets de
+  taille variable) en plus de l'AAC ; **MP3 embarqué** (rare) via repli RAM (`NkMP3Codec` n'a pas
+  d'API incrémentale) + concaténation des paquets démuxés. ⭐ Bug de détection trouvé et corrigé au
+  passage : le fourcc `mp4a` ne veut PAS dire AAC — un MP3-en-MP4 (`ffmpeg -c:a mp3 -f mp4`, cas
+  réel) utilise le même fourcc ; le vrai codec est dans la boîte `esds` (objectTypeIndication),
+  désormais parsée. Validé : PCM corr=1.000000 (LE et BE) ; MP3-en-MP4 correctement routé (corr
+  identique à un .mp3 autonome via le même décodeur — écart de précision **pré-existant** de
+  `NkMP3Codec`, hors scope, pas une régression) ; AAC non régressé (corr=1.000000).
 - **Conteneurs supplémentaires** (cap validé Rihen 2026-07-19, PLUS TARD) : **MKV/WebM (EBML)**
   en priorité, puis TS/M2TS, FLV, OGG. Le gros du travail = démuxage (le décodeur H264 est prêt) ;
   VP8/VP9/AV1 seraient de nouveaux décodeurs.
