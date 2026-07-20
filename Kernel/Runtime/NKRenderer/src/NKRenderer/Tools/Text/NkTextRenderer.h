@@ -104,12 +104,9 @@ namespace nkentseu {
 				void UnloadFont(NkFontHandle &handle);
 
 				// ── Rendu 2D (délègue à NkRender2D) ──────────────────────────────────
-				void DrawText(NkVec2f pos, const char *text, NkFontHandle font, float32 size,
-							  uint32 colorRGBA = 0xFFFFFFFF);
-				void DrawTextCentered(NkRectF bounds, const char *text, NkFontHandle font, float32 size,
-									  uint32 colorRGBA = 0xFFFFFFFF);
-				void DrawTextWorld(NkVec3f worldPos, const NkMat4f &viewProj, uint32 vpW, uint32 vpH, const char *text,
-								   NkFontHandle font, float32 size, uint32 colorRGBA = 0xFFFFFFFF);
+				void DrawText(NkVec2f pos, const char *text, NkFontHandle font, float32 size, uint32 colorRGBA = 0xFFFFFFFF);
+				void DrawTextCentered(NkRectF bounds, const char *text, NkFontHandle font, float32 size, uint32 colorRGBA = 0xFFFFFFFF);
+				void DrawTextWorld(NkVec3f worldPos, const NkMat4f &viewProj, uint32 vpW, uint32 vpH, const char *text, NkFontHandle font, float32 size, uint32 colorRGBA = 0xFFFFFFFF);
 
 				// ── Mesure ────────────────────────────────────────────────────────────
 				NkVec2f CalcTextSize(const char *text, NkFontHandle font, float32 size) const;

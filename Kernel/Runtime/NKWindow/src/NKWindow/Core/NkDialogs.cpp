@@ -221,11 +221,17 @@ namespace nkentseu {
 		return res;
 	}
 
-	NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title) {
+	NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title,
+											 const NkString &initialDir) {
 		NkDialogResult res;
 		NkString cmd = "zenity --file-selection --save --confirm-overwrite --title=\"";
 		cmd += title;
 		cmd += "\"";
+		if (!initialDir.Empty()) {
+			cmd += " --filename=\"";
+			cmd += initialDir;
+			cmd += "/\"";
+		}
 		if (!defaultExt.Empty()) {
 			cmd += " --file-filter=\"*.";
 			cmd += defaultExt;
@@ -349,11 +355,15 @@ namespace nkentseu {
 		return res;
 	}
 
-	NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title) {
+	NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title,
+											 const NkString &initialDir) {
 		NkDialogResult res;
 		NkString script = "osascript -e 'POSIX path of (choose file name with prompt \"" + title + "\"";
 		if (!defaultExt.Empty()) {
 			script += " default name \"untitled." + defaultExt + "\"";
+		}
+		if (!initialDir.Empty()) {
+			script += " default location \"" + initialDir + "\"";
 		}
 		script += ")'";
 		NkString path = ExecCommand(script.CStr());
@@ -427,7 +437,7 @@ namespace nkentseu {
 		return {};
 	}
 
-	NkDialogResult NkDialogs::SaveFileDialog(const NkString &, const NkString &) {
+	NkDialogResult NkDialogs::SaveFileDialog(const NkString &, const NkString &, const NkString &) {
 		// Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.file.picker
 		return {};
 	}
@@ -455,7 +465,7 @@ namespace nkentseu {
 		return {};
 	}
 
-	NkDialogResult NkDialogs::SaveFileDialog(const NkString &, const NkString &) {
+	NkDialogResult NkDialogs::SaveFileDialog(const NkString &, const NkString &, const NkString &) {
 		return {};
 	}
 
