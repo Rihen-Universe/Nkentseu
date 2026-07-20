@@ -10,6 +10,8 @@
 #include "NKAudio/Codecs/FLAC/NkFLACCodec.h"
 #include "NKAudio/Codecs/MP3/NkMP3Codec.h"
 #include "NKAudio/Codecs/OGG/NkOGGVorbisCodec.h"
+#include "NKMedia/NkMediaProbe.h"
+#include "NKMedia/NkMediaDemux.h"
 #include "NKMemory/NkAllocator.h"
 #include "NKLogger/NkLog.h"
 #include <cstring>
@@ -251,6 +253,50 @@ namespace nkentseu {
 			return ext[i] == 0 && lower[i] == 0;
 		}
 
+		// MP3 EMBARQUE dans un conteneur (MP4/MOV/WebM...) : rare (AAC est le codec standard
+		// des MP4 réels), mais NkMP3Codec ne fournit PAS d'API de décodage incrémental (bit
+		// reservoir géré en interne sur TOUT le buffer, cf. NkMP3Codec.h §Status) — impossible
+		// de streamer paquet par paquet comme pour l'AAC/PCM (ContainerAudioStream). On
+		// concatène les paquets audio DÉMUXÉS (les octets MP3 bruts, dans l'ordre — les frames
+		// MP3 successives forment un flux valide une fois mises bout à bout, même si leurs
+		// offsets dans le FICHIER ne sont pas contigus à cause de l'entrelacement vidéo), puis
+		// on décode EN UNE FOIS (RAM complète pour CETTE piste seulement — acceptable, cas rare).
+		// Renvoie nullptr si la piste n'est pas MP3 ou si le décodage échoue.
+		static IAudioStream *TryLoadMp3FromContainer(const char *path) noexcept {
+			NkVector<nk_uint8> bytes;
+			media::NkMediaInfo info;
+			NkVector<media::NkMediaPacket> packets;
+			if (!media::NkMediaDemux::ExtractAudioPacketsFile(path, bytes, info, packets))
+				return nullptr;
+			const media::NkMediaTrack *tr = info.FirstAudio();
+			if (!tr || packets.Empty() || !(tr->codec == NkString("mp3")))
+				return nullptr;
+
+			usize total = 0;
+			for (usize i = 0; i < packets.Size(); ++i)
+				total += packets[i].size;
+			uint8 *mp3Buf = static_cast<uint8 *>(memory::NkAlloc(total, nullptr, sizeof(uint8)));
+			if (!mp3Buf)
+				return nullptr;
+			usize w = 0;
+			for (usize i = 0; i < packets.Size(); ++i) {
+				const media::NkMediaPacket &p = packets[i];
+				if (p.offset + p.size > bytes.Size())
+					continue; // paquet corrompu/tronqué -> saute (comme le chemin AAC)
+				::memcpy(mp3Buf + w, bytes.Data() + p.offset, p.size);
+				w += p.size;
+			}
+			AudioSample sample = NkMP3Codec::Decode(mp3Buf, w, nullptr);
+			memory::NkFree(mp3Buf, nullptr);
+			if (!sample.IsValid()) {
+				logger.Info("[OpenAudioStream] MP3 embarque : decodage echec : {0}", path);
+				return nullptr;
+			}
+			logger.Info("[OpenAudioStream] MP3 embarque decode (RAM complete, {0} paquets concatenes) : {1}",
+						(long long)packets.Size(), path);
+			return memory::NkGetDefaultAllocator().New<MemoryStream>(sample);
+		}
+
 		IAudioStream *OpenAudioStream(const char *path) noexcept {
 			if (!path)
 				return nullptr;
@@ -267,17 +313,19 @@ namespace nkentseu {
 			}
 
 			// Conteneurs VIDEO (piste audio streamee par paquets, jamais tout en RAM) :
-			// couvre le cas d'usage principal (jouer le son D'UN MP4/MOV/WebM). Seul l'AAC
-			// est gere cote codec pour l'instant (ContainerAudioStream::Open echoue proprement
-			// sinon, ex. piste MP3/PCM dans un MP4 -> nullptr, le caller peut retomber ailleurs).
+			// couvre le cas d'usage principal (jouer le son D'UN MP4/MOV/WebM). AAC et PCM
+			// (twos/sowt/lpcm) sont streames par ContainerAudioStream ; MP3 embarque (rare) se
+			// replie sur un decodage RAM complet (voir TryLoadMp3FromContainer, NkMP3Codec n'a
+			// pas d'API incrementale) ; tout autre codec -> nullptr (le caller retombe ailleurs).
 			if (ExtEquals(ext, "mp4") || ExtEquals(ext, "m4a") || ExtEquals(ext, "m4v") ||
 				ExtEquals(ext, "mov") || ExtEquals(ext, "webm") || ExtEquals(ext, "mkv")) {
 				auto *s = memory::NkGetDefaultAllocator().New<ContainerAudioStream>();
-				if (!s->Open(path)) {
-					memory::NkGetDefaultAllocator().Delete(s);
-					return nullptr;
-				}
-				return s;
+				if (s->Open(path))
+					return s;
+				memory::NkGetDefaultAllocator().Delete(s);
+				if (IAudioStream *mp3 = TryLoadMp3FromContainer(path))
+					return mp3;
+				return nullptr;
 			}
 
 			// WAV : streaming reel

@@ -52,6 +52,62 @@ namespace nkentseu {
 			// =====================================================================
 			//  ISOBMFF (MP4)
 			// =====================================================================
+			// Lit un champ de longueur "expandable" ISO/IEC 14496-1 §8.3.3 (descripteurs esds) :
+			// chaque octet a un bit de continuation (0x80) + 7 bits de longueur, jusqu'a 4 octets.
+			// Avance `p` juste apres ce champ. Renvoie -1 si le buffer est trop court.
+			int32 ReadDescLen(const uint8 *&p, const uint8 *end) {
+				if (p >= end)
+					return -1;
+				int32 len = 0;
+				for (int32 i = 0; i < 4 && p < end; ++i) {
+					const uint8 b = *p++;
+					len = (len << 7) | (int32)(b & 0x7F);
+					if (!(b & 0x80))
+						return len;
+				}
+				return len;
+			}
+
+			// Cherche une boite `esds` (MPEG-4 ES_Descriptor) dans [start,end) et renvoie
+			// objectTypeIndication (DecoderConfigDescriptor) : 0x40=AAC, 0x6B/0x69=MPEG Layer 3,
+			// 0x6C=MPEG Layer 2, ... Renvoie -1 si esds absent/illisible.
+			int32 FindEsdsObjectType(const uint8 *start, const uint8 *end) {
+				const uint8 *pos = start;
+				while (pos + 8 <= end) {
+					const uint64 boxSize = (uint64)U32BE(pos);
+					const uint8 *boxType = pos + 4;
+					if (boxSize < 8 || pos + (usize)boxSize > end)
+						break;
+					if (Tag4(boxType, "esds")) {
+						const uint8 *q = pos + 8 + 4; // + version/flags(4)
+						const uint8 *boxEnd = pos + (usize)boxSize;
+						if (q >= boxEnd || *q != 0x03) // ES_DescrTag
+							return -1;
+						++q;
+						if (ReadDescLen(q, boxEnd) < 0 || q + 3 > boxEnd)
+							return -1;
+						q += 2; // ES_ID
+						const uint8 flags = *q++;
+						if (flags & 0x80) q += 2; // streamDependenceFlag -> dependsOn_ES_ID
+						if (flags & 0x40) {		  // URL_Flag -> URLlength + URL
+							if (q >= boxEnd)
+								return -1;
+							const uint8 urlLen = *q++;
+							q += urlLen;
+						}
+						if (flags & 0x20) q += 2; // OCRstreamFlag -> OCR_ES_Id
+						if (q >= boxEnd || *q != 0x04)	  // DecoderConfigDescrTag
+							return -1;
+						++q;
+						if (ReadDescLen(q, boxEnd) < 0 || q >= boxEnd)
+							return -1;
+						return (int32)*q; // objectTypeIndication
+					}
+					pos += (usize)boxSize;
+				}
+				return -1;
+			}
+
 			void ParseStsd(const uint8 *p, usize len, NkMediaTrackType tt, NkMediaInfo &info) {
 				if (len < 8)
 					return;
@@ -72,7 +128,18 @@ namespace nkentseu {
 					// 6 réservés + 2 data_ref + 8 (version/rev/vendor) + 2 channelcount + 2 samplesize
 					// + 2 predef + 2 reserved + 4 samplerate(16.16).
 					tr.channels = (int32)U16BE(body + 16);
+					tr.bitsPerSample = (int32)U16BE(body + 18);
 					tr.sampleRate = (int32)U16BE(body + 24); // partie entière du 16.16
+					tr.pcmBigEndian = Tag4(fourcc, "twos"); // "sowt"/"lpcm" = little-endian
+					// ⚠️ "mp4a" NE VEUT PAS DIRE AAC : le vrai codec est dans la boite enfant
+					// `esds` (objectTypeIndication du DecoderConfigDescriptor). Un MP3 encapsulé
+					// en MP4 (ex. ffmpeg -c:a mp3 -f mp4) utilise ENCORE le fourcc "mp4a" — sans
+					// ce test il serait pris pour de l'AAC et décodé n'importe comment.
+					if (Tag4(fourcc, "mp4a") && bodyLen > 28) {
+						const int32 objType = FindEsdsObjectType(body + 28, body + bodyLen);
+						if (objType >= 0 && objType != 0x40) // 0x40 = MPEG-4 Audio (AAC)
+							tr.codec = NkString("mp3");		 // 0x6B/0x69 = MPEG Layer 3 (autre -> échec propre)
+					}
 				} else if (tt == NkMediaTrackType::NK_VIDEO && bodyLen >= 32) {
 					// 6 réservés + 2 data_ref + 16 (predef/reserved) + 2 width + 2 height.
 					tr.width = (int32)U16BE(body + 24);
