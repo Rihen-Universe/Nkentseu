@@ -19,7 +19,7 @@
  *  AudioSample interleaved float32 normalise, 48 kHz.
  */
 
-#include "NKAudio/NKAudio.h"
+#include "NKAudio/NkAudio.h"
 
 namespace nkentseu {
 	namespace audio {

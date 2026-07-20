@@ -27,7 +27,7 @@
  *  pipeline NKAudio : mixer, effects, backends).
  */
 
-#include "NKAudio/NKAudio.h"
+#include "NKAudio/NkAudio.h"
 
 namespace nkentseu {
 	namespace audio {

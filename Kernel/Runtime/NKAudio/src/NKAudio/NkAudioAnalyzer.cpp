@@ -7,7 +7,7 @@
 // NOTES: FFT Cooley-Tukey itérative, détection pitch YIN, tempo autocorrélation
 // -----------------------------------------------------------------------------
 
-#include "NKAudio.h"
+#include "NkAudio.h"
 #include "NKMemory/NkAllocator.h"
 
 #include <cmath>

@@ -11,7 +11,7 @@
 // =============================================================================
 
 #include "AudioManager.h"
-#include "NKAudio/NKAudio.h"
+#include "NKAudio/NkAudio.h"
 #include "NKLogger/NkLog.h"
 #include "NKMath/NkRandom.h"
 #include <cstdio>

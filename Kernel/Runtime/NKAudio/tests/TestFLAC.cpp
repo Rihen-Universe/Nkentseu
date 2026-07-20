@@ -4,7 +4,7 @@
  * @Author TEUGUIA TADJUIDJE Rodolf Séderis
  * @License Proprietary - Free to use and modify
  */
-#include "NKAudio/NKAudio.h"
+#include "NKAudio/NkAudio.h"
 #include "NKAudio/Codecs/FLAC/NkFLACCodec.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKMemory/NkAllocator.h"

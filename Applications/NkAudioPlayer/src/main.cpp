@@ -34,7 +34,7 @@
 #include "NKCanvas/Renderer/Core/NkRenderer2DTypes.h"
 #include "NKCanvas/Renderer/Targets/NkRenderWindow.h"
 
-#include "NKAudio/NKAudio.h"
+#include "NKAudio/NkAudio.h"
 
 using namespace nkentseu;
 using namespace nkentseu::renderer;

@@ -31,7 +31,7 @@
  *       player.Shutdown();
  *   }
  */
-#include "NKAudio/NKAudio.h"
+#include "NKAudio/NkAudio.h"
 #include "NKFileSystem/NkFile.h"
 
 namespace nkentseu {
