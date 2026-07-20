@@ -11,7 +11,7 @@
 // @Author  Rihen
 // =============================================================================
 #include "NKGui/NKGui.h"
-#include "NKAudio/NKAudio.h"
+#include "NKAudio/NkAudio.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/String/NkFormat.h"
 #include "NKContainers/Sequential/NkVector.h"

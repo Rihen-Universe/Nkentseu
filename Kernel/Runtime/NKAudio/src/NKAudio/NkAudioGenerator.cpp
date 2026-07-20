@@ -12,7 +12,7 @@
 // INCLUDES
 // ============================================================
 
-#include "NKAudio.h"
+#include "NkAudio.h"
 #include "NKCore/NkMacros.h"
 #include "NKMemory/NkAllocator.h"
 

@@ -29,7 +29,7 @@
  *  pas d'API de seek (SeekToFrame / SeekToTime).
  */
 
-#include "NKAudio/NKAudio.h"
+#include "NKAudio/NkAudio.h"
 
 namespace nkentseu {
 	namespace audio {

@@ -11,7 +11,7 @@
 // INCLUDES
 // ============================================================
 
-#include "NKAudio.h"
+#include "NkAudio.h"
 #include "NKAudio/Codecs/FLAC/NkFLACCodec.h"
 #include "NKAudio/Codecs/MP3/NkMP3Codec.h"
 #include "NKAudio/Codecs/OGG/NkOGGVorbisCodec.h"

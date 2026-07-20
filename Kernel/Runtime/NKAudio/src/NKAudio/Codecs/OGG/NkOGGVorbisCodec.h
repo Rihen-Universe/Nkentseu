@@ -27,7 +27,7 @@
  *  AudioSample float32 normalise dans [-1.0, 1.0] (interleaved par frame).
  */
 
-#include "NKAudio/NKAudio.h"
+#include "NKAudio/NkAudio.h"
 
 namespace nkentseu {
 	namespace audio {

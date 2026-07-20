@@ -2,7 +2,7 @@
  * @File   TestStreaming.cpp
  * @Brief  Test streaming : ouvre un fichier FLAC, joue 3 secondes via le player.
  */
-#include "NKAudio/NKAudio.h"
+#include "NKAudio/NkAudio.h"
 #include "NKAudio/Streaming/NkAudioStream.h"
 #include "NKAudio/Streaming/NkAudioStreamPlayer.h"
 #include <cstdio>

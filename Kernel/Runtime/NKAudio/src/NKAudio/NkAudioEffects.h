@@ -12,7 +12,7 @@
 #ifndef NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEFFECTS_H
 #define NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEFFECTS_H
 
-#include "NKAudio.h"
+#include "NkAudio.h"
 #include "NKMemory/NkAllocator.h"
 
 namespace nkentseu {

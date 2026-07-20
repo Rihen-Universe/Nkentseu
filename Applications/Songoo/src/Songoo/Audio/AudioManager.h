@@ -6,7 +6,7 @@
 // =============================================================================
 
 #include "NKCore/NkTypes.h"
-#include "NKAudio/NKAudio.h"
+#include "NKAudio/NkAudio.h"
 #include "Songoo/Game/GameTypes.h"
 
 namespace nkentseu {

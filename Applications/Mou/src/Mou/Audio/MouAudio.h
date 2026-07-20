@@ -10,7 +10,7 @@
 #define MOU_AUDIO_H
 
 #include "NKCore/NkTypes.h"
-#include "NKAudio/NKAudio.h"
+#include "NKAudio/NkAudio.h"
 
 namespace mou {
 

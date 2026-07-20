@@ -12,7 +12,7 @@
 // =============================================================================
 #include "NKAudio/NkAudioCapture.h"
 #include "NKAudio/NkDenoiser.h"
-#include "NKAudio/NKAudio.h"
+#include "NKAudio/NkAudio.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"

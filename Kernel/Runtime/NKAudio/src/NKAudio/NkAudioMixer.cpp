@@ -6,7 +6,7 @@
 // VERSION: 2.0.0
 // -----------------------------------------------------------------------------
 
-#include "NKAudio.h"
+#include "NkAudio.h"
 #include "NKMemory/NkAllocator.h"
 
 #include <cmath>

@@ -13,7 +13,7 @@
 #ifndef NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOBACKENDS_H
 #define NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOBACKENDS_H
 
-#include "NKAudio.h"
+#include "NkAudio.h"
 #include "NKCore/NkPlatform.h"
 
 namespace nkentseu {
