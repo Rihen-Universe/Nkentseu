@@ -10,21 +10,27 @@
  *
  * @Architecture
  *  A l'ouverture : NkMediaDemux extrait la LISTE des paquets (offset+taille dans le
- *  fichier, charge UNE FOIS en RAM — les paquets eux-memes, compresses, pas le PCM).
- *  ReadFrames() decode alors les paquets un par un (AAC-LC, 1024 echantillons/canal
- *  chacun) au fil de l'eau, sur demande du AudioStreamPlayer (thread worker dedie).
- *  Seul le CODEC AAC est gere pour l'instant (couvre la quasi-totalite des MP4 reels
- *  — telephone/YouTube/export ffmpeg) ; Open() echoue proprement sinon.
+ *  fichier, charge UNE FOIS en RAM — les paquets eux-memes, compresses/bruts, pas
+ *  le PCM decode). ReadFrames() decode alors les paquets un par un au fil de l'eau,
+ *  sur demande du AudioStreamPlayer (thread worker dedie). Codecs geres :
+ *   - **AAC-LC** : 1024 echantillons/canal par paquet (raw_data_block).
+ *   - **PCM non compresse** (twos/sowt/lpcm, 8/16/24/32-bit) : taille de paquet
+ *     VARIABLE (aucune notion de "frame" cote conteneur) — juste une conversion de
+ *     format (endianness + profondeur -> int16), aucun etat entre paquets.
+ *  Autre codec (ex. MP3 embarque) -> Open() echoue proprement (le caller retombe
+ *  sur un autre chemin, ex. RAM complete via NkMP3Codec — voir OpenAudioStream()).
  *
  *  Le PRIMING de l'encodeur AAC (1024 echantillons de delai standard) est saute au
  *  premier paquet, pour aligner l'audio sur l'horodatage video (meme convention que
- *  la comparaison ffmpeg qui a valide le decodeur : corr 1.000000).
+ *  la comparaison ffmpeg qui a valide le decodeur : corr 1.000000). Le PCM n'a PAS
+ *  de priming (pas d'encodeur a delai de bloc).
  *
- * @note Seek() est APPROXIMATIF (granularite 1024 echantillons = ~23ms a 44100 Hz,
- *       du meme ordre que la granularite d'une image video) : saute au paquet le
- *       plus proche. L'etat PNS (bruit de confort) perd sa continuite inter-trame
- *       exacte apres un seek — imperceptible (c'est un GENERATEUR de bruit, pas un
- *       signal a preserver bit-exact).
+ * @note Seek() est APPROXIMATIF pour l'AAC (granularite 1024 echantillons = ~23ms a
+ *       44100 Hz, du meme ordre que la granularite d'une image video) : saute au
+ *       paquet le plus proche. L'etat PNS (bruit de confort) perd sa continuite
+ *       inter-trame exacte apres un seek — imperceptible (c'est un GENERATEUR de
+ *       bruit, pas un signal a preserver bit-exact). Pour le PCM, Seek() est EXACT
+ *       (pas de granularite de frame imposee par un codec).
  */
 
 #include "NKAudio/Streaming/NkAudioStream.h"
@@ -41,7 +47,8 @@ namespace nkentseu {
 
 				/// Ouvre `path` (MP4/MOV/WebM...), demuxe la piste audio et prepare le
 				/// decodeur. Renvoie false si conteneur non supporte, pas de piste audio,
-				/// ou codec != AAC (echec propre : le caller peut retomber sur autre chose).
+				/// ou codec non gere (AAC/PCM seulement — echec propre : le caller peut
+				/// retomber sur autre chose, ex. RAM complete pour du MP3 embarque).
 				bool Open(const char *path) noexcept;
 
 				int32 ReadFrames(float32 *outBuf, int32 maxFrames) noexcept override;
@@ -60,13 +67,17 @@ namespace nkentseu {
 				}
 
 				bool IsEOF() const noexcept override {
-					return mPacketIndex >= mNumPackets && mLeftoverAvail == 0;
+					return mPacketIndex >= mNumPackets && mLeftoverPos >= mLeftoverAvail;
 				}
 
 			private:
-				// Decode le paquet `mPacketIndex` dans mLeftover (int16 entrelace), avance
-				// mPacketIndex. Renvoie le nombre de frames decodees (0 si echec/EOF).
+				enum class Codec { AAC, PCM };
+
+				// Decode/convertit le paquet `mPacketIndex` dans mLeftover (int16 entrelace),
+				// avance mPacketIndex. Renvoie le nombre de frames obtenues (0 si echec/EOF).
 				int32 DecodeNextPacket() noexcept;
+				int32 DecodeNextAacPacket() noexcept;
+				int32 DecodeNextPcmPacket() noexcept;
 
 				media::NkAacDecoder mDecoder;
 				NkVector<nk_uint8> mBytes; // fichier complet (les paquets pointent dedans)
@@ -84,10 +95,16 @@ namespace nkentseu {
 				int32 mChannels = 0;
 				nk_int64 mApproxFrameCount = 0;
 
-				// Reste du dernier paquet decode, pas encore consomme par ReadFrames.
-				nk_int16 mLeftover[2048] = {0}; // 1024 frames x 2 canaux max
-				int32 mLeftoverAvail = 0;		 // frames restantes dans mLeftover
-				int32 mLeftoverPos = 0;			 // position de lecture dans mLeftover
+				Codec mCodec = Codec::AAC;
+				int32 mBitsPerSample = 16; // PCM seulement
+				bool mPcmBigEndian = false; // PCM seulement
+
+				// Reste du dernier paquet decode/converti, pas encore consomme par ReadFrames.
+				// Dynamique : un paquet AAC fait toujours <=1024 frames, mais un paquet PCM peut
+				// etre bien plus gros (pas de taille de "frame" imposee par le conteneur).
+				NkVector<nk_int16> mLeftover;
+				int32 mLeftoverAvail = 0; // frames valides dans mLeftover
+				int32 mLeftoverPos = 0;	  // position de lecture dans mLeftover
 		};
 
 	} // namespace audio
