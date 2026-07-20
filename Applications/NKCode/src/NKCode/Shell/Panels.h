@@ -1478,13 +1478,13 @@ namespace nkentseu {
 							switch (act) {
 								case 0:
 									if (!mS->files[idx].pinned)
-										mS->CloseFile(idx);
+										RequestCloseFile(ctx, idx);
 									break;
 								case 1:
-									mS->CloseOthers(idx);
+									RequestCloseGroup(ctx, 1, idx);
 									break;
 								case 2:
-									mS->CloseToRight(idx);
+									RequestCloseGroup(ctx, 2, idx);
 									break;
 								case 3:
 									mS->TogglePin(idx);
@@ -1518,7 +1518,98 @@ namespace nkentseu {
 					ctx.layout.lineStartX = x0;
 					ctx.layout.curLineH = 0.f;
 					if (toClose >= 0)
-						mS->CloseFile(toClose);
+						RequestCloseFile(ctx, toClose);
+					DrawCloseConfirm(ctx);
+					DrawCloseGroupConfirm(ctx);
+				}
+
+				// Ferme l'onglet `idx` — si son contenu N'EST PAS enregistre, ouvre D'ABORD
+				// une confirmation (Enregistrer / Ne pas enregistrer / Annuler) au lieu de
+				// perdre les modifications silencieusement (bug remonte par Rihen).
+				void RequestCloseFile(NkGuiContext &ctx, int32 idx) {
+					if (idx < 0 || idx >= static_cast<int32>(mS->files.Size()))
+						return;
+					if (!mS->files[idx].doc.dirty) {
+						mS->CloseFile(idx);
+						return;
+					}
+					mCloseConfirmIdx = idx;
+					mCloseConfirm.open = true;
+					mCloseConfirm.pos = ctx.input.mousePos;
+				}
+
+				void DrawCloseConfirm(NkGuiContext &ctx) {
+					if (!mCloseConfirm.open)
+						return;
+					if (mCloseConfirmIdx < 0 || mCloseConfirmIdx >= static_cast<int32>(mS->files.Size())) {
+						mCloseConfirm.open = false;
+						return;
+					}
+					const NkString label =
+						NkPrintf(NkT("editor.close.save"), mS->files[mCloseConfirmIdx].Name().CStr());
+					const char *items[3] = {label.CStr(), NkT("editor.close.discard"), NkT("editor.close.cancel")};
+					bool en[3] = {true, true, true};
+					const int32 act = NkCtxMenuDraw(ctx, mCloseConfirm, items, en, 3);
+					if (act == 0) { // Enregistrer puis fermer (uniquement si l'enregistrement reussit)
+						const int32 idx = mCloseConfirmIdx;
+						const int32 wasActive = mS->active;
+						mS->active = idx;
+						if (mS->SaveActive())
+							mS->CloseFile(idx);
+						else if (wasActive != idx && wasActive < static_cast<int32>(mS->files.Size()))
+							mS->active = wasActive; // echec (ex. Enregistrer sous annule) : ne ferme pas
+						mCloseConfirmIdx = -1;
+					} else if (act == 1) { // Ne pas enregistrer : ferme sans sauver
+						mS->CloseFile(mCloseConfirmIdx);
+						mCloseConfirmIdx = -1;
+					} else if (act == 2 || !mCloseConfirm.open) {
+						mCloseConfirmIdx = -1;
+					}
+				}
+
+				// CloseOthers/CloseToRight : pas de confirmation PAR fichier (complexite
+				// disproportionnee) — juste un avertissement bloc si AU MOINS un des fichiers
+				// concernes est modifie.
+				void RequestCloseGroup(NkGuiContext &ctx, int32 mode, int32 idx) {
+					bool anyDirty = false;
+					for (int32 i = 0; i < static_cast<int32>(mS->files.Size()) && !anyDirty; ++i) {
+						if (i == idx)
+							continue;
+						if (mode == 1 && mS->files[i].pinned)
+							continue; // CloseOthers ignore les epingles (comportement CloseOthers existant)
+						if (mode == 2 && i <= idx)
+							continue; // CloseToRight : uniquement a droite
+						anyDirty = mS->files[i].doc.dirty;
+					}
+					if (!anyDirty) {
+						if (mode == 1)
+							mS->CloseOthers(idx);
+						else
+							mS->CloseToRight(idx);
+						return;
+					}
+					mCloseGroupMode = mode;
+					mCloseGroupIdx = idx;
+					mCloseGroupConfirm.open = true;
+					mCloseGroupConfirm.pos = ctx.input.mousePos;
+				}
+
+				void DrawCloseGroupConfirm(NkGuiContext &ctx) {
+					if (!mCloseGroupConfirm.open)
+						return;
+					const char *items[2] = {NkT("editor.close.discardgroup"), NkT("editor.close.cancel")};
+					bool en[2] = {true, true};
+					const int32 act = NkCtxMenuDraw(ctx, mCloseGroupConfirm, items, en, 2);
+					if (act == 0) {
+						if (mCloseGroupMode == 1)
+							mS->CloseOthers(mCloseGroupIdx);
+						else
+							mS->CloseToRight(mCloseGroupIdx);
+					}
+					if (act >= 0 || !mCloseGroupConfirm.open) {
+						mCloseGroupMode = 0;
+						mCloseGroupIdx = -1;
+					}
 				}
 
 				// Petite épingle vectorielle (tête + aiguille) centrée verticalement en `c`.
@@ -1612,6 +1703,16 @@ namespace nkentseu {
 				float32 mTabHovTime = 0.f;
 				int32 mZoomLastActive = -1; // dernier onglet actif (detection changement -> rebuild atlas immediat,
 											// anti « saut » de taille)
+				// ── Confirmation de fermeture d'un onglet NON ENREGISTRE (Enregistrer /
+				// Ne pas enregistrer / Annuler), façon VSCode — voir RequestCloseFile. ──
+				NkCtxMenu mCloseConfirm;
+				int32 mCloseConfirmIdx = -1;
+				// ── Fermeture GROUPEE (Fermer les autres / Fermer a droite) : pas de
+				// confirmation PAR FICHIER (trop complexe), juste un avertissement bloc si au
+				// moins un des fichiers cibles est modifie. ──
+				NkCtxMenu mCloseGroupConfirm;
+				int32 mCloseGroupMode = 0; // 1 = CloseOthers, 2 = CloseToRight
+				int32 mCloseGroupIdx = -1;
 		};
 
 		// ── OUTPUT : VRAI affichage NKLogger (logs du moteur) + sortie du build jenga.
