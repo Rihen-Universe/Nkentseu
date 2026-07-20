@@ -105,9 +105,10 @@ namespace nkentseu {
 			mStream = stream;
 			mLoop = loop;
 
-			// Reset le ring buffer
+			// Reset le ring buffer + l'horloge de contenu (nouveau stream = position 0).
 			mWritePos = 0;
 			mReadPos = 0;
+			mContentMicros.store(0, std::memory_order_release);
 			mActive = true;
 			mPaused = false;
 			mCV.notify_all();
@@ -128,10 +129,47 @@ namespace nkentseu {
 			mReadPos = 0;
 		}
 
+		void AudioStreamPlayer::SeekContent(float32 seconds) noexcept {
+			if (seconds < 0.0f)
+				seconds = 0.0f;
+			std::lock_guard<std::mutex> lock(mStreamMutex);
+			if (!mStream)
+				return;
+			const int32 sr = mStream->GetSampleRate();
+			mStream->Seek((nk_int64)((double)seconds * (double)(sr > 0 ? sr : mSampleRate)));
+			mWritePos = 0;
+			mReadPos = 0;
+			mContentMicros.store((nk_int64)((double)seconds * 1000000.0), std::memory_order_release);
+			mCV.notify_all();
+		}
+
+		void AudioStreamPlayer::FlushRing() noexcept {
+			mWritePos = 0;
+			mReadPos = 0;
+			mCV.notify_all();
+		}
+
 		int32 AudioStreamPlayer::ReadFrames(float32 *outBuf, int32 maxFrames) noexcept {
-			if (!mRunning.load() || !mActive.load() || mPaused.load() || maxFrames <= 0) {
+			// ⚠️ PAS de garde sur `mActive` ici : le thread PRODUCTEUR le passe à false dès
+			// qu'il atteint la VRAIE fin du stream (EOF sans boucle) — mais il peut rester
+			// jusqu'à Capacity()-1 frames DÉJÀ DÉCODÉES dans le ring à ce moment-là (le
+			// producteur décode plus vite que le temps réel). Refuser de servir ce reliquat
+			// jetait jusqu'à ~2s d'audio valide en fin de lecture (bug trouvé en rejouant un
+			// MP4 réel : le producteur atteignait EOF à wPos=177152 pendant que le
+			// consommateur n'était qu'à rPos=90112 — 87040 frames valides perdues). Le test
+			// `avail<=0` plus bas gère déjà correctement le "vraiment plus rien" (Stop() ET
+			// l'état initial avant tout Play() remettent le ring à 0/0).
+			if (!mRunning.load() || mPaused.load() || maxFrames <= 0) {
 				::memset(outBuf, 0, usize(maxFrames) * usize(mChannels) * sizeof(float32));
 				return 0;
+			}
+			// Horloge de CONTENU : avance de maxFrames (le backend appelle a cadence reelle
+			// fixe, meme en cas de sous-remplissage du ring) x la vitesse courante. Ecrivain
+			// unique (ce thread) -> store simple suffit, pas de read-modify-write atomique.
+			if (mSampleRate > 0) {
+				const nk_int64 curMicros = mContentMicros.load(std::memory_order_relaxed);
+				const double deltaSec = (double)maxFrames / (double)mSampleRate * (double)mSpeed.load();
+				mContentMicros.store(curMicros + (nk_int64)(deltaSec * 1000000.0), std::memory_order_release);
 			}
 			const int32 wPos = mWritePos.load(std::memory_order_acquire);
 			const int32 rPos = mReadPos.load(std::memory_order_relaxed);
@@ -240,8 +278,11 @@ namespace nkentseu {
 					mActive = false;
 					continue;
 				}
-				const double ratio = (streamRate > 0) ? (double)streamRate / (double)mSampleRate : 1.0;
-				const bool doResample = (streamRate > 0 && streamRate != mSampleRate);
+				const double speed = (double)mSpeed.load(std::memory_order_relaxed);
+				const double ratio = (streamRate > 0) ? ((double)streamRate / (double)mSampleRate) * speed : speed;
+				// Reechantillonner des que le ratio n'est pas 1:1 EXACT — pas seulement pour un
+				// taux natif different, mais aussi pour une vitesse != 1.0 (meme taux natif).
+				const bool doResample = (streamRate > 0) && (streamRate != mSampleRate || speed != 1.0);
 				// Frames SOURCE a lire pour produire ~kChunkFrames de sortie (upsampling => moins).
 				int32 srcToRead = kChunkFrames;
 				if (doResample && ratio < 1.0) {
