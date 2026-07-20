@@ -563,6 +563,8 @@ with workspace("Nkentseu", location="."):
     with unitest() as u:
         u.Compile()
 
+
+
     startproject("Sandbox")
 
 
@@ -852,212 +854,402 @@ with workspace("Nkentseu", location="."):
 
 
     # ===== Sous-systeme IA (Kernel/AI) — construit bottom-up =====
+
     with include("Kernel/AI/NKTensor/NKTensor.jenga"):
+
         pass
+
+
 
     with include("Kernel/AI/NKAutograd/NKAutograd.jenga"):
+
         pass
+
+
 
     with include("Kernel/AI/NKNN/NKNN.jenga"):
+
         pass
+
+
 
     with include("Kernel/AI/NKOptim/NKOptim.jenga"):
+
         pass
+
+
 
     with include("Kernel/AI/NKData/NKData.jenga"):
+
         pass
+
+
 
     with include("Kernel/AI/NKTrain/NKTrain.jenga"):
+
         pass
+
+
 
     with include("Kernel/AI/NKInfer/NKInfer.jenga"):
+
         pass
+
+
 
     with include("Kernel/AI/NKRL/NKRL.jenga"):
+
         pass
 
+
+
     with include("Kernel/AI/NKGen/NKGen.jenga"):
+
         pass
 
     with include("Kernel/AI/NKGpt/NKGpt.jenga"):
+
         pass
 
     with include("Kernel/AI/NKSpeech/NKSpeech.jenga"):
+
         pass
+
+
 
     with include("Applications/NKTensorDemo/NKTensorDemo.jenga"):
+
         pass
+
+
 
     with include("Applications/NkSLComputeCheck/NkSLComputeCheck.jenga"):
+
         pass
+
+
 
     with include("Applications/NkGpuProbe/NkGpuProbe.jenga"):
+
         pass
+
+
 
     with include("Applications/NkComputeNkSL/NkComputeNkSL.jenga"):
+
         pass
+
+
 
     with include("Applications/NkTensorGpuTest/NkTensorGpuTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKGpuBenchTest/NKGpuBenchTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKConvBenchTest/NKConvBenchTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKConvResidentBench/NKConvResidentBench.jenga"):
+
         pass
+
+
 
     with include("Applications/NKMlpResidentBench/NKMlpResidentBench.jenga"):
+
         pass
+
+
 
     with include("Applications/NKMnistGpuTrain/NKMnistGpuTrain.jenga"):
+
         pass
+
+
 
     with include("Applications/NKMnistCnnGpuTrain/NKMnistCnnGpuTrain.jenga"):
+
         pass
+
+
 
     with include("Applications/NKTransformerTest/NKTransformerTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKGptTrain/NKGptTrain.jenga"):
+
         pass
+
+
 
     with include("Applications/NKAutogradTest/NKAutogradTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKNNTest/NKNNTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKConvTest/NKConvTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKDataTest/NKDataTest.jenga"):
+
         pass
-        
+
+
+
     with include("Applications/NKTrainTest/NKTrainTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKRnnCtcTest/NKRnnCtcTest.jenga"):
+
         pass
-        
+
+
+
     with include("Applications/NKASRTest/NKASRTest.jenga"):
+
         pass
-        
+
+
+
     with include("Applications/NKImageCodecTest/NKImageCodecTest.jenga"):
+
         pass
-        
+
     with include("Applications/NKMeshAITest/NKMeshAITest.jenga"):
+
         pass
+
     with include("Applications/NkAnimPhysTest/NkAnimPhysTest.jenga"):
+
         pass
+
     with include("Applications/NkMicRecord/NkMicRecord.jenga"):
+
         pass
-    with include("Applications/NKSpeechTest/NKSpeechTest.jenga"):        pass
+
+    with include("Applications/NKSpeechTest/NKSpeechTest.jenga"):
+
+        pass
 
     with include("Applications/NKTTSTrain/NKTTSTrain.jenga"):
+
         pass
+
     with include("Applications/NKSpeechFeatureDemo/NKSpeechFeatureDemo.jenga"):
 
         pass
+
     with include("Applications/NKMediaTest/NKMediaTest.jenga"):
 
         pass
+
     with include("Applications/NkVideoReadTest/NkVideoReadTest.jenga"):
+
         pass
 
     with include("Applications/NkAudioPlayer/NkAudioPlayer.jenga"):
+
         pass
 
     with include("Applications/NkVideoPlayer/NkVideoPlayer.jenga"):
+
         pass
 
     with include("Applications/NKOpusRef/NKOpusRef.jenga"):
+
         pass
 
     with include("Applications/NKVideoTest/NKVideoTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKInferTest/NKInferTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKRLTest/NKRLTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKGenTest/NKGenTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKVAETest/NKVAETest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKMnistVAETest/NKMnistVAETest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKMnistConvVAETest/NKMnistConvVAETest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKConvVAETest/NKConvVAETest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKVoxelGenTest/NKVoxelGenTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKObjectGenTest/NKObjectGenTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKGen3DTest/NKGen3DTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKGenMeshTest/NKGenMeshTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKSmoothMeshTest/NKSmoothMeshTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NKMeshRenderTest/NKMeshRenderTest.jenga"):
+
         pass
+
+
 
     with include("Applications/Model/Model.jenga"):
+
         pass
+
+
 
     with include("Applications/NkSLCheck/NkSLCheck.jenga"):
+
         pass
+
+
 
     with include("Applications/NKPA/NKPA.jenga"):
+
         pass
+
+
 
     # NKECS (ECS bas niveau archetypes) — DOIT etre enregistre AVANT Noge qui en
+
     # depend (sinon %{NKECS.location} vide -> includes NKECS/* introuvables).
+
     with include("Kernel/Runtime/NKECS/NKECS.jenga"):
+
         pass
+
+
 
     with include("Engine/Noge/Noge.jenga"):
+
         pass
+
+
 
     with include("Applications/Nogee/Nogee.jenga"):
+
         pass
+
+
 
     with include("Applications/NKEditorKitDemo/NKEditorKitDemo.jenga"):
+
         pass
+
+
 
     with include("Applications/NkAnimaEditor/NkAnimaEditor.jenga"):
+
         pass
+
+
 
     with include("Applications/ImGuiRef/ImGuiRef.jenga"):
+
         pass
+
+
 
     with include("Applications/NKGuiDemo/NKGuiDemo.jenga"):
+
         pass
+
+
 
     with include("Applications/NKViewportDemo/NKViewportDemo.jenga"):
+
         pass
+
+
 
     with include("Applications/PV3DE/PV3DE.jenga"):
+
         pass
 
+
+
     with include("Applications/Pong/Pong.jenga"):
+
         pass
+
+
 
     # TODO(Songoo) : migration rendu GL -> NKCanvas a FINIR (12 scenes UI utilisent encore
     # Render/GLContext|GLRenderer2D|Texture2D|FontAtlas supprimes). Desactive du build pour
@@ -1068,21 +1260,33 @@ with workspace("Nkentseu", location="."):
         with include("Applications/Songoo/Songoo.jenga"):
             pass
 
+
+
     with include("Applications/Nkoung/Nkoung.jenga"):
+
         pass
+
+
 
     with include("Applications/Mou/Mou.jenga"):
+
         pass
+
+
 
     with include("Applications/NkImeTest/NkImeTest.jenga"):
+
         pass
+
+
 
     with include("Applications/NkImageDemo/NkImageDemo.jenga"):
+
         pass
 
+
+
     with include("Applications/RihenDefi/RihenDefi.jenga"):
+
         pass
-        
-    with include("Applications/DemoRW/demorw.jenga"):
-            pass
 
