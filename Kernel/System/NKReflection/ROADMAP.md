@@ -1,6 +1,14 @@
 # NKReflection — Roadmap
 
-État actuel (2026-07-12) : **CHANTIER PRINCIPAL TERMINÉ (phases P1→P5)**.
+État actuel (2026-07-19, audit de maturité) : **MATURE — chantier principal terminé (P1→P5)**.
+Audit 2026-07-19 : le module (9 420 LOC, 20 fichiers) et son pont NKECS compilent ;
+les consommateurs réels sont branchés (NKEditorKit `NkEditorInspector` +
+NKGuiDemo via `EnumerateEditableProperties`, NkReflectSerializer côté
+NKSerialization, NkEntitySerialization côté NKECS). Les suites de tests
+P2/P3/P4/P5 vivent chez les consommateurs (`NKSerialization/tests/test_reflect_*`,
+`NKECS/tests/test_entity_serialization`) — exécution actuellement désactivée par
+la politique workspace (`disableunittestexecution`), dernière exécution verte
+2026-07-12. Il ne reste que des TODO de confort (voir tableau).
 NKReflection est la **source de vérité runtime UNIQUE** de la réflexion
 (décision d'architecture 2026-06 : NKECS/Reflect et NKSerialization/Native
 sont des adaptateurs au-dessus, pas des systèmes concurrents). Le module
