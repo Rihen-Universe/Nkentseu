@@ -114,18 +114,35 @@ namespace nkentseu {
 						mRunning = false;
 						return;
 					}
-					char line[2048], clean[2048];
-					while (std::fgets(line, sizeof(line), pipe)) {
+					// fgets() coupe au premier '\n' OU quand le buffer chunk est plein — les
+					// bannieres Jenga (box-drawing Unicode 3 octets/glyphe + codes ANSI denses)
+					// peuvent depasser un buffer fixe modeste sur une seule ligne logique. Avant :
+					// buffer fixe 2048 -> une ligne trop longue etait COUPEE au milieu et le
+					// reste repoussait comme une "ligne" separee (texte visiblement tronque/
+					// casse, remonte par Rihen). Ici : accumulation dans `acc` tant qu'aucun
+					// '\n' n'a ete vu -> plus de limite de taille par ligne.
+					char chunk[4096], clean[8192];
+					NkString acc;
+					auto emit = [&](const NkString &raw) {
 						if (mKeepAnsi) { // garde ANSI, retire juste \r\n
 							usize j = 0;
-							for (const char *p = line; *p && j + 1 < sizeof(clean); ++p)
+							for (const char *p = raw.CStr(); *p && j + 1 < sizeof(clean); ++p)
 								if (*p != '\r' && *p != '\n')
 									clean[j++] = *p;
 							clean[j] = '\0';
 						} else
-							NkStripAnsiInto(line, clean, sizeof(clean));
+							NkStripAnsiInto(raw.CStr(), clean, sizeof(clean));
 						Push(NkString(clean));
+					};
+					while (std::fgets(chunk, sizeof(chunk), pipe)) {
+						acc += chunk;
+						if (!acc.Empty() && acc.Back() == '\n') {
+							emit(acc);
+							acc = NkString();
+						}
 					}
+					if (!acc.Empty()) // dernier fragment sans saut de ligne final (fin de flux)
+						emit(acc);
 #if defined(_WIN32)
 					mExit = _pclose(pipe);
 #else

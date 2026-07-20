@@ -9,6 +9,7 @@
 //   d'un dossier, au rafraîchissement ou à la mise à jour du statut Git.
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
+#include "NKEditorKit/NkEditorTextField.h" // champ mono-ligne complet (caret/selection/copier-coller) - renommage/creation
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Project/NkProcess.h"
 #include "NKCode/Shell/NkI18n.h"
@@ -1046,6 +1047,12 @@ namespace nkentseu {
 						const float32 is = rowH - 9.f; // ~16 px : taille façon VSCode
 						float32 iadv = is; // largeur réellement occupée (pastilles adaptatives)
 						const NkRect ir = {x, cy - is * 0.5f, is, is};
+						// SANTE du chemin (compilation, diagnostics, verif fond) : 2 = ERREUR
+						// (rouge), 1 = WARNING (orange), 0 = valide. Dossier = max des fichiers
+						// contenus -> propagation automatique jusqu'a la racine.
+						const int32 diagLvl = mS->PathDiagLevel(r.path.CStr(), r.dir);
+						const bool hasErr = diagLvl == 2;
+						const bool hasWarn = diagLvl == 1;
 						if (r.dir) {
 							const NkColor tint = DirTint(r.name.CStr(), r.root);
 							// 1) dossier SPÉCIAL Material (coloré, sans teinte) ; 2) dossier
@@ -1124,31 +1131,43 @@ namespace nkentseu {
 								dl.AddLine({ir.x + 4.f, ir.y + 8.f}, {ir.x + ir.w - 6.f, ir.y + 8.f}, bc, 1.f);
 							}
 						}
+						if (hasErr) // voile ROUGE par-dessus l'icone (quel que soit son type)
+							dl.AddRectFilled({ir.x, ir.y, iadv, ir.h}, NkColor{225, 70, 70, 105}, 3.f);
+						else if (hasWarn) // voile ORANGE : warnings seulement
+							dl.AddRectFilled({ir.x, ir.y, iadv, ir.h}, NkColor{230, 160, 50, 90}, 3.f);
 						x += iadv + 4.f;
 						// ── Champ d'ÉDITION INLINE (renommage / création) à la place du nom ──
+						// Champ complet reutilisable NKEditorKit (caret, SELECTION, copier/couper/
+						// coller, double-clic, clic-position, deplacement clavier) — avant : rendu +
+						// saisie manuels minimalistes (ni selection ni presse-papiers).
 						if (inEdit) {
 							const NkRect er = {x, row.y + 1.f, row.x + fullW - x - 6.f, rowH - 2.f};
 							mEditRect = er; // mémorisé : un clic HORS du champ VALIDE l'édition
-							dl.AddRectFilled(er, ctx.theme.bgPrimary, 2.f);
-							dl.AddRect(er, ctx.theme.accent, 2.f);
-							if (ctx.font && ctx.font->Valid()) {
-								dl.AddText(ctx.font->Face(), ctx.font->TexId(),
-										   {er.x + 3.f, row.y + (rowH - ctx.font->LineHeight()) * 0.5f +
-															ctx.font->Ascent()},
-										   mEditBuf, ctx.theme.text, er.w - 6.f);
-								if ((mTick / 30) % 2 == 0)
-									dl.AddRectFilled({er.x + 3.f + ctx.font->MeasureWidth(mEditBuf) + 1.f,
-													  er.y + 2.f, 1.5f, er.h - 4.f},
-													 ctx.theme.accent);
+							editorkit::NkOverlayTextField(ctx, dl, ctx.font, er, mEditBuf, (int32)sizeof(mEditBuf),
+														   true);
+							// Caracteres interdits dans un nom de fichier : filtres APRES coup (le
+							// champ partage ne connait pas cette contrainte specifique aux noms).
+							{
+								int32 w = 0;
+								for (int32 rI = 0; mEditBuf[rI]; ++rI) {
+									const char c = mEditBuf[rI];
+									if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' ||
+										c == '<' || c == '>' || c == '|')
+										continue;
+									mEditBuf[w++] = c;
+								}
+								mEditBuf[w] = 0;
 							}
 							continue; // pas de badge/clic sur la ligne en édition
 						}
 						// Nom (racine en circonflexe visuel : couleur pleine).
 						if (ctx.font && ctx.font->Valid()) {
-							// Modifié/ajouté/non-tracké : le NOM prend la couleur git
-							// (dossiers contenant des modifs compris), façon VSCode.
-							NkColor nc = r.git ? GitColor(r.git) : ctx.theme.text;
-							if (r.git == 'D')
+							// ERREUR > WARNING > git > normal : le NOM suit la sante du chemin
+							// (dossiers parents propages compris), sinon la couleur git, façon VSCode.
+							NkColor nc = hasErr	   ? NkColor{235, 92, 92, 255}
+										 : hasWarn ? NkColor{230, 165, 70, 255}
+												   : (r.git ? GitColor(r.git) : ctx.theme.text);
+							if (!hasErr && !hasWarn && r.git == 'D')
 								nc.a = 120;
 							dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 									   {x, row.y + (rowH - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()},
@@ -1314,20 +1333,9 @@ namespace nkentseu {
 					else if (toRename >= 0)
 						StartRename(mRows[toRename].path);
 					// ── Saisie de l'ÉDITION INLINE (prioritaire sur tout le reste) ──
+					// La frappe/selection/copier-coller sont geres par NkOverlayTextField au
+					// rendu (DrawRows, plus haut) ; ici seulement Entree/Echap/clic-exterieur.
 					if (editing) {
-						int32 len = 0;
-						while (mEditBuf[len])
-							++len;
-						for (int32 i = 0; i < ctx.input.charCount; ++i) {
-							const uint32 cp = ctx.input.chars[i];
-							// caractères interdits dans un nom de fichier
-							if (cp >= 32 && cp < 127 && len < 126 && cp != '/' && cp != '\\' && cp != ':' &&
-								cp != '*' && cp != '?' && cp != '"' && cp != '<' && cp != '>' && cp != '|')
-								mEditBuf[len++] = static_cast<char>(cp);
-						}
-						if (ctx.input.KeyPressed(NkGuiKey::Backspace) && len > 0)
-							--len;
-						mEditBuf[len] = 0;
 						if (ctx.input.KeyPressed(NkGuiKey::Enter))
 							CommitEdit();
 						else if (ctx.input.KeyPressed(NkGuiKey::Escape))
@@ -1607,8 +1615,10 @@ namespace nkentseu {
 					mCtxPath = path;
 					mCtxIsDir = dir;
 					mCtxIsExtraRoot = extraRoot;
-					// Fichiers/dossiers (0-9) + GIT & IA (10-15, placeholders) + racines (16-17).
-					const char *items[18] = {NkT("exp.ctx.newfile"),  NkT("exp.ctx.newfolder"),
+					mCtxPos = pos;
+					// Fichiers/dossiers (0-9) + GIT & IA (10-15, placeholders) + projet de base
+					// (16, dossiers seulement) + racines (17-18).
+					const char *items[19] = {NkT("exp.ctx.newfile"),  NkT("exp.ctx.newfolder"),
 											 NkT("exp.ctx.rename"),	  NkT("exp.ctx.delete"),
 											 NkT("exp.ctx.dup"),	  NkT("exp.ctx.copypath"),
 											 NkT("exp.ctx.copyrel"),  NkT("exp.ctx.reveal"),
@@ -1616,20 +1626,64 @@ namespace nkentseu {
 											 NkT("exp.ctx.compare"),  NkT("exp.ctx.blame"),
 											 NkT("exp.ctx.discard"),  NkT("exp.ctx.aigen"),
 											 NkT("exp.ctx.aitest"),	  NkT("exp.ctx.props"),
-											 NkT("exp.addroot"),	  NkT("exp.removeroot")};
-					bool en[18];
-					for (int32 i = 0; i < 18; ++i)
+											 NkT("exp.ctx.setproj"),  NkT("exp.addroot"),
+											 NkT("exp.removeroot")};
+					bool en[19];
+					for (int32 i = 0; i < 19; ++i)
 						en[i] = true;
 					const bool isMainRoot = SameStr(path.CStr(), mRootStr.CStr());
 					if (isMainRoot || extraRoot)
 						en[2] = en[3] = en[4] = en[9] = false;
 					if (dir)
 						en[10] = en[11] = en[12] = en[13] = en[14] = false;
-					en[16] = isMainRoot || extraRoot;
-					en[17] = extraRoot;
-					const int32 nItems = (isMainRoot || extraRoot) ? 18 : 16;
-					if (mShell)
+					// « Definir comme projet de base » : collecte des maintenant les projets du
+					// workspace presents dans ce dossier (lui-meme, enfants directs, petits-
+					// enfants bornes) -> SOUS-MENU au SURVOL (fleche ▸, scrollable V/H via le
+					// shell). Grise si aucun projet trouve.
+					mProjPick.Clear();
+					if (dir && mS) {
+						auto projIdxOf = [&](const char *name) -> int32 {
+							for (int32 i = 0; i < static_cast<int32>(mS->projects.Size()); ++i)
+								if (NkCodeState::StrEqI(mS->projects[i].CStr(), name))
+									return i;
+							return -1;
+						};
+						auto addIf = [&](const char *name) {
+							const int32 idx = projIdxOf(name);
+							if (idx < 0)
+								return;
+							for (usize q = 0; q < mProjPick.Size(); ++q)
+								if (NkCodeState::StrEqI(mProjPick[q].CStr(), mS->projects[idx].CStr()))
+									return;
+							mProjPick.PushBack(mS->projects[idx]);
+						};
+						addIf(NkPath(path).GetFileName().CStr());
+						const NkVector<NkString> subs = NkDirectory::GetDirectories(path.CStr(), "*");
+						for (usize si = 0; si < subs.Size(); ++si)
+							addIf(NkPath(subs[si]).GetFileName().CStr());
+						if (subs.Size() <= 64) // 2e niveau seulement si l'arbre reste raisonnable
+							for (usize si = 0; si < subs.Size(); ++si) {
+								const NkVector<NkString> s2 = NkDirectory::GetDirectories(subs[si].CStr(), "*");
+								for (usize sj = 0; sj < s2.Size(); ++sj)
+									addIf(NkPath(s2[sj]).GetFileName().CStr());
+							}
+					}
+					en[16] = dir && !mProjPick.Empty();
+					en[17] = isMainRoot || extraRoot;
+					en[18] = extraRoot;
+					const int32 nItems = (isMainRoot || extraRoot) ? 19 : 17;
+					if (mShell) {
 						mShell->OpenContextMenu(pos, items, en, nItems);
+						if (!mProjPick.Empty()) {
+							const char *pitems[128];
+							int32 pn = static_cast<int32>(mProjPick.Size());
+							if (pn > 128)
+								pn = 128;
+							for (int32 i = 0; i < pn; ++i)
+								pitems[i] = mProjPick[(usize)i].CStr();
+							mShell->SetContextSubmenu(16, pitems, pn);
+						}
+					}
 				}
 
 				// Traite le choix du menu (poll chaque frame).
@@ -1688,10 +1742,25 @@ namespace nkentseu {
 							mS->status = NkPrintf("%s \xE2\x80\x94 %d o", NkPath(p).GetFileName().CStr(),
 												  static_cast<int32>(sz));
 						} break;
-						case 16: // Ajouter un dossier au workspace (racine secondaire)
+						case 16: { // Definir comme PROJET DE BASE : choix arrive du SOUS-MENU (survol)
+							// La liste a ete collectee a l'OUVERTURE du menu (OpenExplorerMenu ->
+							// mProjPick + SetContextSubmenu) ; ici on ne fait que router le choix.
+							const int32 sub = mShell->TakeContextMenuSubChoice();
+							if (sub >= 0 && sub < static_cast<int32>(mProjPick.Size())) {
+								for (int32 i = 0; i < static_cast<int32>(mS->projects.Size()); ++i)
+									if (NkCodeState::StrEqI(mS->projects[i].CStr(), mProjPick[(usize)sub].CStr())) {
+										mS->projIdx = i; // la toolbar lit projIdx chaque frame
+										mS->status = NkPrintf("%s : %s", NkT("exp.ctx.setproj.ok"),
+															  mS->projects[i].CStr());
+										mS->Journal(NkString("projet de base change : ") + mS->projects[i].CStr());
+										break;
+									}
+							}
+						} break;
+						case 17: // Ajouter un dossier au workspace (racine secondaire)
 							AddRootFolder();
 							break;
-						case 17: // Retirer du workspace (racine secondaire)
+						case 18: // Retirer du workspace (racine secondaire)
 							RemoveRootFolder(p);
 							break;
 						default:
@@ -1728,6 +1797,8 @@ namespace nkentseu {
 				// ── Tranche 2 : menu contextuel + édition inline + opérations fichiers ──
 				NkString mCtxPath;		///< cible du menu (mémorisée entre ouverture et choix)
 				bool mCtxIsDir = false;
+				NkVec2 mCtxPos{0.f, 0.f};	  ///< position d'ouverture (reutilisee pour le 2e niveau)
+				NkVector<NkString> mProjPick; ///< non vide = menu « choix de projet » en attente
 				NkString mEditPath;		///< row en RENOMMAGE inline (vide = aucun)
 				NkString mEditParent;	///< création inline : dossier parent (vide = aucune)
 				bool mEditCreateDir = false;

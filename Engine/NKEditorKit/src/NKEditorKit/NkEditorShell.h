@@ -29,6 +29,7 @@
 #include "NKMemory/NkUniquePtr.h"
 #include "NKEditorKit/NkFontPrefs.h"
 #include "NKEditorKit/NkIEditorRenderer.h" // backend de rendu pluggable
+#include "NKEditorKit/NkEditorContextMenu.h" // NkCtxMenu : sous-menu du menu contextuel shell
 
 namespace nkentseu {
 	namespace editorkit {
@@ -91,9 +92,27 @@ namespace nkentseu {
 				// TakeContextMenuChoice() (-1 si aucun). Thémé (NkGuiTheme) -> personnalisable.
 				void OpenContextMenu(const nkgui::NkVec2 &pos, const char *const *items, const bool *enabled,
 									 int32 count) noexcept;
+				// SOUS-MENU (façon menus natifs) : l'item `item` du menu COURANT ouvre au
+				// SURVOL (sans clic, flèche ▸) une liste déroulante scrollable V/H
+				// (NkCtxMenuDraw). À appeler juste APRÈS OpenContextMenu. Le choix arrive via
+				// TakeContextMenuChoice() == item, puis TakeContextMenuSubChoice() = index
+				// dans `subItems`. Un seul item à sous-menu par menu.
+				void SetContextSubmenu(int32 item, const char *const *subItems, int32 count) noexcept {
+					mCtxSubItem = item;
+					mCtxSubItems.Clear();
+					for (int32 i = 0; i < count; ++i)
+						mCtxSubItems.PushBack(nkentseu::NkString(subItems[i] ? subItems[i] : ""));
+					mCtxSub = NkCtxMenu{};
+					mCtxSubChoice = -1;
+				}
 				int32 TakeContextMenuChoice() noexcept {
 					const int32 c = mCtxChoice;
 					mCtxChoice = -1;
+					return c;
+				}
+				int32 TakeContextMenuSubChoice() noexcept {
+					const int32 c = mCtxSubChoice;
+					mCtxSubChoice = -1;
 					return c;
 				}
 				bool IsContextMenuOpen() const noexcept {
@@ -251,6 +270,18 @@ namespace nkentseu {
 
 				// ── Barre d'etat (footer VSCode) : texte gauche/droite mis par l'app ─
 				void SetFooter(const char *left, const char *right = "") noexcept;
+				// VOYANTS du footer (pastilles colorees SANS texte, tout a gauche) : l'app
+				// pousse chaque frame l'etat courant (ex. sante code/compilation/link).
+				// `tips[i]` (optionnel) = libelle montre en INFOBULLE au survol seulement.
+				void SetFooterLights(const nkgui::NkColor *colors, const char *const *tips, int32 count) noexcept {
+					if (count > 8)
+						count = 8;
+					mFooterLightCount = count < 0 ? 0 : count;
+					for (int32 i = 0; i < mFooterLightCount; ++i) {
+						mFooterLights[i] = colors[i];
+						mFooterLightTips[i] = (tips && tips[i]) ? nkentseu::NkString(tips[i]) : nkentseu::NkString();
+					}
+				}
 				// ── Zoom de l'editeur (Ctrl+molette / Ctrl+± ) : ajuste la taille de la
 				//    police du code (+ terminal), reconstruit l'atlas, persiste. ──────────
 				void NudgeCodeFontSize(float32 delta) noexcept;
@@ -407,6 +438,10 @@ namespace nkentseu {
 				char mTitle[160] = {};
 				char mTitleCenter[200] = {};
 				char mFooterLeft[256] = {};
+				// Voyants du footer (cf. SetFooterLights)
+				nkgui::NkColor mFooterLights[8] = {};
+				nkentseu::NkString mFooterLightTips[8];
+				int32 mFooterLightCount = 0;
 				char mFooterRight[128] = {};
 				int32 mActivityIndex = 0;					  // icone selectionnee dans l'activity bar
 				int32 mActivityIndexRight = -1;				  // icone marquee de la barre DROITE (IA)
@@ -423,6 +458,11 @@ namespace nkentseu {
 				nkentseu::NkVector<nkentseu::uint8> mCtxEnabled;
 				int32 mCtxChoice = -1;
 				float32 mCtxSy = 0.f; // défilement vertical (listes longues)
+				// ── Sous-menu (un seul item à sous-menu par menu) ──
+				int32 mCtxSubItem = -1;	  ///< item parent (▸) ; -1 = pas de sous-menu
+				int32 mCtxSubChoice = -1; ///< index choisi dans le sous-menu (avec mCtxChoice)
+				nkentseu::NkVector<nkentseu::NkString> mCtxSubItems;
+				NkCtxMenu mCtxSub; ///< état du sous-menu (position/scroll, NkCtxMenuDraw)
 				void DrawContextMenu() noexcept;
 				// Sélecteur fichier/dossier générique (modal).
 				void (*mActivityFn)(void *, int32) = nullptr; // handler app du clic activity bar

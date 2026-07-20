@@ -10,23 +10,74 @@
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKEditorKit/NkEditorCombo.h" // NkComboButton/NkComboMenu (combo reutilisable, ouverture haut/bas auto)
+#include "NKEditorKit/NkEditorScrollbar.h" // NkVScrollbar (scrollbar STANDARD reutilisable, cf. regle CLAUDE.md UI/UX)
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Project/NkProcess.h"
+#include "NKCode/Project/NkLsp.h" // NkPipeProc (process a pipes CreateProcessW, reutilise pour le CLI `claude`)
 #include "NKCode/Editor/NkTextDraw.h" // NkEncodeU8 (décodage \uXXXX -> UTF-8)
 #include "NKCode/Shell/NkI18n.h"
 #include "NKCode/Shell/NkUi.h" // NkIcons (icones de la vue IDE)
 #include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
 #include "NKFileSystem/NkFile.h"		  // NkFile::WriteAllText (fichiers maison)
+#include "NKFileSystem/NkDirectory.h"	  // NkDirectory::Exists (drag-drop fichiers -> contexte)
+#include "NKEditorKit/NkEditorTooltip.h"  // NkTooltip : infobulle avec delai (boutons icone-seule)
 #include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison)
 #include <cmath> // std::cos/std::sin (spinner du statut "en cours")
 #include "NKWindow/Core/NkLauncher.h" // OpenURL (bouton "View help docs" de la palette d'actions)
 #include <cstdio> // _popen/fgets UNIQUEMENT (pipe process, cf. wrapper désigné NkProcess.h)
+#include <ctime>  // std::time (temps relatif de reinitialisation, popover Utilisation & limites)
 
 namespace nkentseu {
 	namespace nkcode {
 
 		using namespace nkentseu::editorkit;
 		using namespace nkentseu::nkgui;
+
+		// ── Echappe un argument pour une ligne de commande Win32 (CreateProcessW),
+		// SANS shell (NkPipeProc::Start ne passe PAS par cmd.exe — lpApplicationName
+		// est nul, wcmd est decoupe par l'ARGV du process ENFANT, pas interprete comme
+		// du shell). Algorithme standard Microsoft ("Parsing C++ Command-Line
+		// Arguments") : necessaire des qu'un argument contient espace/tabulation/
+		// guillemet — typiquement le PROMPT de l'utilisateur, texte libre non fiable.
+		// Ne PAS remplacer par une concatenation/echappement "shell" (cmd.exe) : il
+		// n'y en a pas ici, et ce serait de toute facon un terrain mine (injection). ──
+		inline NkString NkWin32QuoteArg(const char *s) {
+			bool needsQuotes = (*s == '\0');
+			for (const char *p = s; *p && !needsQuotes; ++p)
+				if (*p == ' ' || *p == '\t' || *p == '"')
+					needsQuotes = true;
+			if (!needsQuotes)
+				return NkString(s);
+			NkString out = "\"";
+			usize len = 0;
+			while (s[len])
+				++len;
+			usize i = 0;
+			while (i < len) {
+				usize nBs = 0;
+				while (i < len && s[i] == '\\') {
+					++nBs;
+					++i;
+				}
+				if (i == len) { // backslashes en fin de chaine : doubles (avant le guillemet fermant)
+					for (usize k = 0; k < nBs * 2; ++k)
+						out += '\\';
+					break;
+				} else if (s[i] == '"') { // 2N+1 backslashes puis le guillemet echappe
+					for (usize k = 0; k < nBs * 2 + 1; ++k)
+						out += '\\';
+					out += '"';
+					++i;
+				} else { // backslashes litteraux (pas suivis d'un guillemet) : inchanges
+					for (usize k = 0; k < nBs; ++k)
+						out += '\\';
+					out += s[i];
+					++i;
+				}
+			}
+			out += '"';
+			return out;
+		}
 
 		// ── Agent IA en ligne de commande (Claude Code, Codex...) : panneau lateral DROIT qui
 		//    DETECTE le CLI et le LANCE dans un nouvel onglet du terminal integre (workspace). ──
@@ -137,6 +188,36 @@ namespace nkentseu {
 						NewChat(); // 1re conversation (locale correcte : posée après construction)
 					Poll(); // draine la réponse en cours
 
+					// ── CIBLE de DRAG & DROP (explorateur interne + OS) : ajoute le(s) chemin(s)
+					// au brouillon de saisie (façon @mention), l'utilisateur complète son message
+					// autour. Meme mecanisme que EditorPanel/TerminalPanel (mS->dragActive/
+					// osDropPaths), absent ici jusqu'a present -> aucun effet au depot de fichier. ──
+					if (mS) {
+						auto appendPath = [&](const NkString &p) {
+							int32 len = 0;
+							while (mInput[len])
+								++len;
+							NkString tok = NkString("@\"") + p + "\" ";
+							for (usize k = 0; k < tok.Size() && len < 8191; ++k)
+								mInput[len++] = tok[k];
+							mInput[len] = 0;
+						};
+						if (mS->dragActive && ctx.input.mouseReleased[0] && NkGuiRectContains(r, ctx.input.mousePos)) {
+							for (usize di = 0; di < mS->dragPaths.Size(); ++di)
+								if (!NkDirectory::Exists(mS->dragPaths[di].CStr()))
+									appendPath(mS->dragPaths[di]);
+						}
+						if (!mS->osDropPaths.Empty() &&
+							NkGuiRectContains(
+								r, {static_cast<float32>(mS->osDropX), static_cast<float32>(mS->osDropY)})) {
+							for (usize di = 0; di < mS->osDropPaths.Size(); ++di)
+								if (!NkDirectory::Exists(mS->osDropPaths[di].CStr()))
+									appendPath(mS->osDropPaths[di]);
+							mS->osDropPaths.Clear();
+							mS->osDropTtl = 0;
+						}
+					}
+
 					const NkGuiFont *font = ctx.font;
 					const NkVec2 mp = ctx.input.mousePos;
 					// ── Palette : structure = thème (theme-aware) ; accent = VIOLET de marque IA. ──
@@ -174,9 +255,26 @@ namespace nkentseu {
 					const float32 inInnerW = r.w - ctx.S(24.f);
 					const int32 inRows = InputRows(ctx, inInnerW);
 					const float32 inH = chatView ? (inRows * lineH + ctx.S(20.f)) : 0.f;
+					// Banniere d'utilisation (Claude Code, façon VSCode : "Utilisation à 56% de
+					// Hebdomadaire (7 jours) · reinitialisation dans 5j [Voir l'utilisation] [x]")
+					// — juste au-dessus de la saisie, visible SEULEMENT au-dela d'un seuil et tant
+					// que l'utilisateur ne l'a pas ecartee pour ce palier de 10% (reapparait si
+					// l'usage grimpe encore). Donnee REELLE (mRlBuckets), aucune simulation.
+					const RlBucket *topBucket = nullptr;
+					if (mKind == 1 && chatView)
+						for (usize i = 0; i < mRlBuckets.Size(); ++i)
+							if (!topBucket || mRlBuckets[i].utilization > topBucket->utilization)
+								topBucket = &mRlBuckets[i];
+					NkString bannerDismissKey;
+					bool showBanner = false;
+					if (topBucket && topBucket->utilization >= 0.5f) {
+						bannerDismissKey = NkPrintf("%s:%d", topBucket->type.CStr(), (int32)(topBucket->utilization * 10.f));
+						showBanner = (mUsageBannerDismissKey != bannerDismissKey);
+					}
+					const float32 bannerH = showBanner ? (ctx.ItemHeight() + ctx.S(10.f)) : 0.f;
 					const NkRect hdr = {r.x, r.y, r.w, hdrH};
 					const float32 bodyY = r.y + hdrH + tabsH;
-					const float32 bodyH = r.h - hdrH - tabsH - inH - toolH;
+					const float32 bodyH = r.h - hdrH - tabsH - inH - toolH - bannerH;
 					const NkRect body = {r.x, bodyY, r.w, bodyH};
 
 					dl.AddRectFilled(r, kBody);
@@ -244,9 +342,10 @@ namespace nkentseu {
 						}
 						rx -= bsz + ctx.S(6.f);
 					}
-					{ // pilule modèle (combo, aligné à droite) : « claude-3.5-sonnet ▾ »
+					{ // pilule modèle (combo, aligné à droite) : « claude-3.5-sonnet ▾ » (ou le
+					  // titre humain "Sonnet"/"Opus"/... pour Claude Code, cf. ClaudeModelTitles)
 						int32 nModels = 0;
-						const char *const *models = kModels(nModels);
+						const char *const *models = mKind == 1 ? ClaudeModelTitles(nModels) : kModels(nModels);
 						const char *cur = models[mModelIdx < nModels ? mModelIdx : 0];
 						const float32 chevW = ctx.S(14.f);
 						const float32 pw = measure(cur) + ctx.S(20.f) + chevW;
@@ -259,9 +358,50 @@ namespace nkentseu {
 					if (mKind == 0)
 						DrawViewTabs(ctx, {r.x, r.y + hdrH, r.w, tabsH}, kViolet);
 
+					// Un popover/menu ouvert (dessiné APRÈS, donc PAR-DESSUS) doit rendre le contenu
+					// EN DESSOUS non-interactif — sinon la molette/les clics « traversent » vers le
+					// chat caché dessous (bug remonté par Rihen : la molette au-dessus de la
+					// palette d'actions scrollait le chat au lieu de la liste filtrée).
+					const bool overlayOpen =
+						mComboOpen != 0 || mPropsOpen || mChatListOpen || mPlusOpen || mActionsOpen || mUsageOpen;
+
 					// ══ CORPS : conversation, OU sous-vue Génération/Revue (Assistant général). ══
 					if (chatView) {
-						DrawMessages(ctx, body, kViolet);
+						DrawMessages(ctx, body, kViolet, overlayOpen);
+						// Banniere d'utilisation (voir calcul de bannerH plus haut).
+						if (showBanner && topBucket) {
+							const NkRect ban = {r.x, r.y + r.h - toolH - inH - bannerH, r.w, bannerH};
+							dl.AddRectFilled(ban, NkColor{58, 46, 20, 255}, ctx.S(4.f));
+							dl.AddRect(ban, NkColor{158, 122, 46, 255}, 1.f);
+							const NkString msg =
+								NkPrintf(NkT("ai.usage.banner"), (int32)(topBucket->utilization * 100.f + 0.5f),
+										 UsageBucketLabel(topBucket->type).CStr(), RelTimeFromNow(topBucket->resetsAt).CStr());
+							const float32 by = ban.y + (ban.h - lineH) * 0.5f + (font ? font->Ascent() : 12.f);
+							if (font && font->Valid())
+								dl.AddText(font->Face(), font->TexId(), {ban.x + ctx.S(10.f), by}, msg.CStr(),
+										   NkColor{230, 200, 150, 255}, ban.w - ctx.S(160.f));
+							// "Voir l'utilisation" (ouvre le popover) + fermer (x), a droite.
+							const NkString viewLbl = NkT("ai.usage.viewusage");
+							const float32 vw = measure(viewLbl.CStr());
+							const NkRect viewR = {ban.x + ban.w - ctx.S(30.f) - vw - ctx.S(14.f), ban.y, vw + ctx.S(14.f),
+												  ban.h};
+							const bool viewHov = NkGuiRectContains(viewR, mp);
+							if (font && font->Valid())
+								dl.AddText(font->Face(), font->TexId(), {viewR.x + ctx.S(7.f), by}, viewLbl.CStr(),
+										   viewHov ? NkColor{255, 220, 170, 255} : NkColor{210, 175, 120, 255});
+							if (viewHov && ctx.input.mouseClicked[0])
+								mUsageOpen = true;
+							const NkRect xR = {ban.x + ban.w - ctx.S(26.f), ban.y + (ban.h - ctx.S(16.f)) * 0.5f,
+											   ctx.S(16.f), ctx.S(16.f)};
+							const bool xHov = NkGuiRectContains(xR, mp);
+							if (xHov)
+								dl.AddRectFilled(xR, ctx.theme.buttonHover, ctx.S(3.f));
+							const float32 xa = ctx.S(4.f), xcx = xR.x + xR.w * 0.5f, xcy = xR.y + xR.h * 0.5f;
+							dl.AddLine({xcx - xa, xcy - xa}, {xcx + xa, xcy + xa}, NkColor{210, 175, 120, 255}, 1.4f);
+							dl.AddLine({xcx - xa, xcy + xa}, {xcx + xa, xcy - xa}, NkColor{210, 175, 120, 255}, 1.4f);
+							if (xHov && ctx.input.mouseClicked[0])
+								mUsageBannerDismissKey = bannerDismissKey;
+						}
 						// ══ BAS : champ de saisie (pleine largeur) PUIS barre d'outils (Mode/Portée/
 						//    Édition + chips de contexte + envoi), façon Claude Code (VSCode). ══
 						DrawInput(ctx, {r.x, r.y + r.h - toolH - inH, r.w, inH}, ic);
@@ -275,11 +415,15 @@ namespace nkentseu {
 					// ══ Overlays (au-dessus de tout) : menu du combo ouvert (ouvre haut/bas selon la
 					//    place dans `r`) · popover réglages. Ancre DEDIEE par combo (jamais partagee). ══
 					if (mComboOpen == 1) {
-						int32 n = 0;
-						const char *const *m = kModels(n);
-						NkComboMenu(ctx, dl, font, mModelAnchor, r, m, n, mModelIdx, mComboOpen, kViolet,
-									ctx.theme.panel, ctx.theme.border, ctx.theme.text, NkColor{255, 255, 255, 255},
-									ctx.theme.buttonHover);
+						if (mKind == 1) { // Claude Code : menu titre+description façon VSCode
+							DrawModelMenu(ctx, r, kViolet);
+						} else {
+							int32 n = 0;
+							const char *const *m = kModels(n);
+							NkComboMenu(ctx, dl, font, mModelAnchor, r, m, n, mModelIdx, mComboOpen, kViolet,
+										ctx.theme.panel, ctx.theme.border, ctx.theme.text, NkColor{255, 255, 255, 255},
+										ctx.theme.buttonHover);
+						}
 					} else if (mComboOpen == 2) {
 						DrawModeMenu(ctx, r, kViolet); // menu spécialisé : titre+description par option + Effort
 					} else if (mComboOpen == 3) {
@@ -311,12 +455,20 @@ namespace nkentseu {
 						DrawPlusMenu(ctx, r);
 					if (mActionsOpen)
 						DrawActionsPalette(ctx, r, kViolet);
+					if (mUsageOpen)
+						DrawUsagePopover(ctx, r, kViolet);
 				}
 
 			private:
 				struct Msg {
 						int32 role;
 						NkString text;
+						// icône OUTIL (role==2 uniquement) : 0 aucune, 1 fichier (Read/Write/Edit),
+						// 2 terminal (Bash), 3 loupe (Grep/Glob), 4 générique (autre outil). PAS
+						// d'emoji — la police NotoSans du projet n'a pas de couverture emoji
+						// (rendu en tofu/« ? ») — icônes VECTORIELLES dessinées à la main, comme
+						// partout ailleurs dans ce fichier (DrawFileIcon, DrawGear...).
+						int32 tool = 0;
 				}; // role: 0 user, 1 assistant, 2 système/erreur
 
 				// ── Conversation (façon Copilot/Claude Code : plusieurs chats par agent).
@@ -340,6 +492,8 @@ namespace nkentseu {
 						int32 effort = 2;			// 0 Low, 1 Medium, 2 High
 						bool thinking = true;		// afficher le raisonnement (extended thinking)
 						bool autoSwitchFlagged = false; // change de modele si un message est signale
+						// ── Backend CLI reel (mKind==1, Claude Code) ──
+						NkString claudeSessionId; // session_id retourne par system/init -> --resume au tour suivant
 				};
 
 				NkCodeState *mS;
@@ -350,12 +504,83 @@ namespace nkentseu {
 				int32 mChatSeq = 0;	   // numerotation "Chat N"
 				bool mChatListOpen = false;
 				NkRect mChatListAnchor = {0, 0, 0, 0};
+				// ── Selection de texte LIBRE dans le fil de messages : PARTIELLE (glisser) ou
+				// INTEGRALE (Ctrl+A souris sur le fil). Points A/B en coordonnees CONTENU
+				// (x ecran fixe, y + scroll) -> la selection reste accrochee au texte pendant
+				// le defilement. Ctrl+C copie la partie selectionnee (messages hors ecran
+				// compris). Un simple clic efface (A == B). ──
+				bool mSelDrag = false;
+				NkVec2 mSelA{0.f, 0.f}, mSelB{0.f, 0.f};
+				int32 mSelChat = -1; // chat proprietaire de la selection (reset au changement)
 				float32 mToolScroll = 0.f;	   // défilement horizontal de la barre d'outils du bas
 				float32 mToolContentW = 0.f;  // largeur intrinsèque de son contenu (frame précédente)
 				int32 mProvider = 0; // 0 Claude, 1 Ollama, 2 Maison
 				NkProcess mProc;
 				NkVector<NkString> mRespLines; // accumule la sortie curl entre frames
 				bool mBusy = false;
+
+				// ── Backend CLI reel `claude` (mKind==1 UNIQUEMENT) : NkPipeProc (pipes
+				// CreateProcessW, deja utilise pour clangd/LSP) au lieu de curl+NkProcess —
+				// flux NDJSON (une ligne = un evenement), pas un JSON unique en fin de reponse. ──
+				NkPipeProc mClaudeProc;
+				NkString mClaudeBuf;		 // accumulation stdout entre frames (coupe sur '\n' -> 1 evenement)
+				bool mClaudeStarted = false; // un message assistant "en cours" a deja ete pousse dans msgs
+				int32 mClaudeMsgIdx = -1;	 // index STABLE du message assistant en cours (pas juste "le dernier" -
+											 // des messages tool_use/thinking peuvent s'intercaler apres lui)
+				bool mClaudeThinkStarted = false; // un bloc "reflexion" est deja en cours (mThinking uniquement)
+				int32 mClaudeThinkIdx = -1;		  // index STABLE du message de reflexion en cours
+				NkString mClaudeExePath;			  // cache : chemin NATIF resolu de claude.exe (voir ClaudeExe())
+				bool mClaudeExeResolved = false;
+				// ── PERMISSION EN ATTENTE (protocole can_use_tool, cf. SendClaudeCli) : le
+				// CLI est BLOQUE en attendant notre control_response -> carte Autoriser/
+				// Refuser dans le fil (DrawMessages) ; les boutons appellent
+				// AnswerClaudePermission(). Une seule demande a la fois (le CLI serialise). ──
+				// ── UTILISATION / LIMITES DE COMPTE (evenements reels `rate_limit_event` +
+				// `result.usage`/`total_cost_usd` du CLI, PAS de simulation) : alimente le
+				// popover "Compte et utilisation" (voir DrawUsagePopover). Compte partage
+				// entre TOUS les chats Claude Code (l'API n'a qu'un seul compte).
+				//
+				// PLUSIEURS fenetres de quota coexistent (verifie via capture reelle du 20
+				// juil + capture d'ecran VSCode fournie par Rihen : Session 5h, Hebdomadaire
+				// 7 jours, Hebdomadaire PAR MODELE...) -> une entree PAR `rateLimitType` recu
+				// (mise a jour independante, jamais une seule remplace les autres). ──
+				struct RlBucket {
+						NkString type;	// rateLimitType brut (cle) — ex "seven_day", "session"
+						NkString status; // "allowed", "allowed_warning", "rejected"...
+						float32 utilization = 0.f; // 0..1 (peut depasser 1 en depassement)
+						int64 resetsAt = 0;		   // epoch unix
+						bool overage = false;	   // isUsingOverage
+						bool surpassed = false;   // surpassedThreshold (avertissement seuil)
+				};
+				NkVector<RlBucket> mRlBuckets;
+
+				// ── USAGE PAR MODELE + GLOBAL (persiste sur disque, survit aux redemarrages
+				// de NKCode) : une entree par nom de modele REELLEMENT utilise (capture depuis
+				// "message.model" du CLI Claude Code, ou "model" de la reponse API brute) —
+				// jamais agrege sous un libelle generique inventé. ──
+				struct ModelUsage {
+						NkString model;
+						double costUsd = 0.0; // Claude Code : total_cost_usd (exact) ; API brute : ESTIME (pas de
+											   // champ cout dans la reponse Messages -> tarif public applique aux tokens)
+						int64 tokIn = 0, tokOut = 0;
+						int32 turns = 0;
+				};
+				NkVector<ModelUsage> mModelUsage; // persiste (voir SaveUsagePersist/EnsureUsageLoaded)
+				bool mUsageLoaded = false;
+				double mLastCostUsd = 0.0; // cout de la DERNIERE requete (ephemere, pas persiste)
+				int32 mLastTokIn = 0, mLastTokOut = 0;
+				NkString mClaudeCurModel; // "message.model" du tour Claude Code EN COURS
+
+				bool mUsageOpen = false; // popover "Compte et utilisation" ouvert
+				NkString mUsageBannerDismissKey; // banniere ecartee POUR CETTE cle (type+%) — reapparait
+												  // des que le bucket le plus urgent change de cle
+
+				bool mPermPending = false;
+				NkString mPermReqId;	// request_id a renvoyer dans la reponse
+				NkString mPermTool;		// nom de l'outil demande (Write/Bash/...)
+				NkString mPermDetail;	// detail lisible (file_path/command/pattern)
+				NkString mPermInputRaw; // sous-objet JSON brut "input" (renvoye en updatedInput)
+				int32 mPermIcon = 0;	// icone vectorielle (ToolIconFor)
 
 				NkVector<Msg> &Msgs() { return mChats[static_cast<usize>(mActiveChat)].msgs; }
 				const NkVector<Msg> &Msgs() const { return mChats[static_cast<usize>(mActiveChat)].msgs; }
@@ -365,6 +590,11 @@ namespace nkentseu {
 					ChatSession c;
 					c.title = NkPrintf("%s %d", NkT("ai.chat"), ++mChatSeq);
 					c.msgs.PushBack({2, NkString(NkT("ai.hello"))});
+					// Claude Code (mKind==1) : "Manuel" (idx 0, --permission-mode default) est
+					// REELLEMENT interactif depuis le 20 juil (protocole --permission-prompt-tool
+					// stdio + control_request/control_response, verifie empiriquement) -> plus
+					// besoin de retomber sur "Plan" par prudence, "Manuel" est desormais le
+					// defaut le plus utile (façon VSCode : demande a chaque outil).
 					mChats.PushBack(c);
 					mActiveChat = static_cast<int32>(mChats.Size()) - 1;
 				}
@@ -417,18 +647,21 @@ namespace nkentseu {
 				NkRect mActionsAnchor = {0, 0, 0, 0};
 				char mActionsFilter[128] = {0};
 				float32 mActionsScroll = 0.f;
-				bool mActionsScrollDrag = false; // glissement de la scrollbar de la palette
 
 				// Modèles par agent (pilule + menu). Le provider effectif est dérivé du choix.
 				const char *const *ModelsFor(int32 kind, int32 &n) const {
 					static const char *general[] = {"claude-3.5-sonnet", "claude-sonnet-5", "Ollama (llama3.2)",
 													"NkAI (maison)"};
-					static const char *claudeCode[] = {"claude-3.5-sonnet", "claude-sonnet-5", "claude-opus-4"};
+					// Alias --model REELS acceptes par le CLI `claude` (verifie via --help :
+					// "Provide an alias for the latest model (e.g. 'fable', 'opus', or
+					// 'sonnet')") — "auto" = ne passe PAS --model, laisse le defaut du CLI.
+					// Remplace l'ancienne liste figee (claude-3.5-sonnet/claude-opus-4, perimee).
+					static const char *claudeCode[] = {"auto", "sonnet", "opus", "fable", "haiku"};
 					static const char *codex[] = {"gpt-5-codex", "o4-mini"};
 					static const char *nkai[] = {"NkAI-base (Rihen)"};
 					switch (kind) {
 						case 1:
-							n = 3;
+							n = 5;
 							return claudeCode;
 						case 2:
 							n = 2;
@@ -564,6 +797,85 @@ namespace nkentseu {
 					}
 				}
 
+				// ── Segment d'une réponse assistant : prose (enveloppée par mot, comme
+				// WrapLines) OU bloc de code ``` (lignes BRUTES, pas de word-wrap — un
+				// découpage arbitraire casserait la lisibilité du code). ──
+				struct MsgBlock {
+						bool code = false;
+						NkVector<NkString> lines;
+				};
+
+				// ── Détecte les fences ``` (même heuristique que NkMarkdown.h : une ligne qui,
+				// une fois les espaces de tête retirés, commence par ```) et découpe `text` en
+				// blocs prose/code alternés. La prose entre deux blocs de code est ré-enveloppée
+				// d'un coup (WrapLines) pour ne pas casser le word-wrap sur les sauts de ligne
+				// internes au bloc. ──
+				static void SplitBlocks(NkGuiContext &ctx, const char *text, float32 maxW, NkVector<MsgBlock> &out) {
+					out.Clear();
+					NkVector<NkString> rawLines;
+					{
+						NkString ln;
+						for (const char *p = text;; ++p) {
+							if (*p == '\n' || *p == '\0') {
+								rawLines.PushBack(ln);
+								ln.Clear();
+								if (!*p)
+									break;
+							} else if (*p != '\r')
+								ln += *p;
+						}
+					}
+					NkString proseAcc;
+					auto flushProse = [&]() {
+						if (proseAcc.Empty())
+							return;
+						MsgBlock b;
+						b.code = false;
+						WrapLines(ctx, proseAcc.CStr(), maxW, b.lines);
+						out.PushBack(b);
+						proseAcc.Clear();
+					};
+					usize i = 0;
+					while (i < rawLines.Size()) {
+						const char *t = rawLines[i].CStr();
+						int32 sp = 0;
+						while (t[sp] == ' ')
+							++sp;
+						if (t[sp] == '`' && t[sp + 1] == '`' && t[sp + 2] == '`') {
+							flushProse();
+							MsgBlock b;
+							b.code = true;
+							usize j = i + 1;
+							while (j < rawLines.Size()) {
+								const char *e = rawLines[j].CStr();
+								int32 es = 0;
+								while (e[es] == ' ')
+									++es;
+								if (e[es] == '`' && e[es + 1] == '`' && e[es + 2] == '`')
+									break;
+								b.lines.PushBack(rawLines[j]);
+								++j;
+							}
+							if (b.lines.Empty()) // fence vide (```\n```) : évite un bloc à hauteur 0 invisible
+								b.lines.PushBack(NkString(""));
+							out.PushBack(b);
+							i = (j < rawLines.Size()) ? j + 1 : j; // saute la fence fermante si trouvée
+							continue;
+						}
+						if (!proseAcc.Empty())
+							proseAcc += "\n";
+						proseAcc += rawLines[i];
+						++i;
+					}
+					flushProse();
+					if (out.Empty()) { // texte vide ou sans fences reconnues : un seul bloc prose (comportement d'avant)
+						MsgBlock b;
+						b.code = false;
+						WrapLines(ctx, text, maxW, b.lines);
+						out.PushBack(b);
+					}
+				}
+
 				// ── Onglets Chat / Génération de Code / Revue de Code IA (Assistant général
 				// UNIQUEMENT — mKind==0). Simple sélecteur segmenté, pas de menu déroulant. ──
 				void DrawViewTabs(NkGuiContext &ctx, const NkRect &r, const NkColor &violet) {
@@ -607,9 +919,13 @@ namespace nkentseu {
 				// ── Conversation façon Claude Code (timeline) : le message UTILISATEUR est une
 				// bulle pâle pleine largeur ; les réponses s'enchaînent sur un FIL VERTICAL à
 				// puces (pas de bulle violette), avec un statut animé pendant la génération. ──
-				void DrawMessages(NkGuiContext &ctx, const NkRect &body, const NkColor &violet) {
+				void DrawMessages(NkGuiContext &ctx, const NkRect &body, const NkColor &violet, bool overlayOpen) {
 					auto &dl = ctx.DL();
-					const NkVec2 mp = ctx.input.mousePos; // hover des boutons Copier/Insérer/Retry par-message
+					// Un popover/menu ouvert PAR-DESSUS (palette d'actions, combo, props...) rend ce
+					// contenu non-interactif : un point hors-écran ne matche jamais aucun
+					// NkGuiRectContains ici -> plus aucun hover/clic/molette ne « traverse » vers le
+					// chat caché dessous (bug remonté par Rihen).
+					const NkVec2 mp = overlayOpen ? NkVec2{-99999.f, -99999.f} : ctx.input.mousePos;
 					NkVector<Msg> &msgs = Msgs();
 					float32 &scroll = mChats[static_cast<usize>(mActiveChat)].scroll;
 					bool &stick = mChats[static_cast<usize>(mActiveChat)].stick;
@@ -617,32 +933,66 @@ namespace nkentseu {
 					const float32 asc = ctx.font && ctx.font->Valid() ? ctx.font->Ascent() : 12.f;
 					const float32 pad = ctx.S(12.f), bubPad = ctx.S(11.f), gap = ctx.S(14.f), rnd = ctx.S(10.f);
 					const NkColor kUserBg = {42, 46, 58, 255}; // bulle utilisateur PALE (pas violette)
-					const float32 userMaxW = body.w - pad * 2.f;
+					// Largeur de contenu REDUITE de la largeur de la scrollbar STANDARD
+					// (NkEditorScrollbar.h) — jamais de scrollbar maison redessinee a la main
+					// (et jamais de zone de scroll SANS scrollbar visible/glissable non plus).
+					const float32 sbW = NkScrollbarWidth();
+					const float32 contentW = body.w - sbW;
+					const float32 userMaxW = contentW - pad * 2.f;
 					const float32 userTextMaxW = userMaxW - bubPad * 2.f;
 					// Fil vertical (thread) : puce a threadX, texte a partir de threadX+dotGap.
 					const float32 threadX = body.x + pad + ctx.S(3.f);
 					const float32 dotGap = ctx.S(16.f);
-					const float32 threadTextMaxW = body.w - pad - dotGap - ctx.S(4.f) - pad;
+					const float32 threadTextMaxW = contentW - pad - dotGap - ctx.S(4.f) - pad;
 					const bool typing = mBusy && mBusyChat == mActiveChat;
+					// Carte de PERMISSION en attente (protocole can_use_tool) : le CLI est
+					// BLOQUE, remplace l'indicateur "Thinking..." tant qu'elle est affichee.
+					const bool permHere = mPermPending && mBusyChat == mActiveChat;
+					const float32 permCardH = ctx.S(70.f);
 
 					// 1) mesure de la hauteur totale (bulle pour user, texte simple pour le reste).
 					// Les réponses assistant (role 1) réservent une ligne d'actions (Copier /
-					// Insérer dans l'éditeur / Retry) sous le texte, façon Copilot Chat/Cursor.
+					// Insérer dans l'éditeur / Retry) sous le texte, façon Copilot Chat/Cursor,
+					// et sont découpées en blocs prose/code (```) — chaque bloc de code reçoit un
+					// fond distinct, pas de word-wrap dessus (voir SplitBlocks/MsgBlock).
 					const float32 actRowH = ctx.S(24.f);
-					NkVector<NkVector<NkString>> wrapped;
+					const float32 blockGap = ctx.S(6.f);  // interligne entre 2 blocs (prose/code) d'un MEME message
+					const float32 codePad = ctx.S(16.f);  // marge haut+bas a l'interieur d'un bloc de code
+					auto blockHeight = [&](const NkVector<MsgBlock> &blocks) {
+						float32 h = 0.f;
+						for (usize bi = 0; bi < blocks.Size(); ++bi) {
+							if (bi > 0)
+								h += blockGap;
+							h += blocks[bi].lines.Size() * lineH + (blocks[bi].code ? codePad : 0.f);
+						}
+						return h;
+					};
+					NkVector<NkVector<NkString>> wrapped;		 // role 0 (user) et role 2 (systeme) UNIQUEMENT
+					NkVector<NkVector<MsgBlock>> blocksFor; // role 1 (assistant) UNIQUEMENT — vide sinon (indices alignes)
 					float32 total = pad;
 					for (usize i = 0; i < msgs.Size(); ++i) {
 						const bool user = (msgs[i].role == 0);
+						if (msgs[i].role == 1) {
+							NkVector<MsgBlock> blocks;
+							SplitBlocks(ctx, msgs[i].text.CStr(), threadTextMaxW, blocks);
+							total += blockHeight(blocks) + actRowH + gap;
+							wrapped.PushBack(NkVector<NkString>());
+							blocksFor.PushBack(blocks);
+							continue;
+						}
 						NkVector<NkString> ls;
 						WrapLines(ctx, msgs[i].text.CStr(), user ? userTextMaxW : threadTextMaxW, ls);
-						total += ls.Size() * lineH + (user ? bubPad * 2.f : 0.f) + (msgs[i].role == 1 ? actRowH : 0.f) + gap;
+						total += ls.Size() * lineH + (user ? bubPad * 2.f : 0.f) + gap;
 						wrapped.PushBack(ls);
+						blocksFor.PushBack(NkVector<MsgBlock>());
 					}
-					if (typing)
+					if (permHere)
+						total += permCardH + gap; // carte Autoriser/Refuser
+					else if (typing)
 						total += lineH * 2.f + gap; // statut « Thinking… » + « Mustering… »
 					const float32 viewH = body.h;
 					const float32 maxScroll = total > viewH ? (total - viewH) : 0.f;
-					if (NkGuiRectContains(body, ctx.input.mousePos) && ctx.input.wheel != 0.f) {
+					if (NkGuiRectContains(body, mp) && ctx.input.wheel != 0.f) {
 						scroll -= ctx.input.wheel * lineH * 3.f;
 						ctx.input.wheel = 0.f;
 						stick = false;
@@ -656,6 +1006,229 @@ namespace nkentseu {
 					if (scroll >= maxScroll - 1.f)
 						stick = true;
 
+					// ── SELECTION DE TEXTE (partielle par glisser, integrale par Ctrl+A) ──
+					if (mSelChat != mActiveChat) { // la selection appartient a UN chat
+						mSelA = mSelB = NkVec2{0.f, 0.f};
+						mSelDrag = false;
+						mSelChat = mActiveChat;
+					}
+					if (!overlayOpen && ctx.input.mouseClicked[0] && NkGuiRectContains(body, ctx.input.mousePos) &&
+						ctx.input.mousePos.x < body.x + contentW && !ctx.input.ctrlDown) {
+						mSelDrag = true; // nouveau point d'ancre (un simple clic EFFACE : A == B)
+						mSelA = NkVec2{ctx.input.mousePos.x, ctx.input.mousePos.y - body.y + scroll};
+						mSelB = mSelA;
+					}
+					if (mSelDrag) {
+						if (ctx.input.mouseDown[0])
+							mSelB = NkVec2{ctx.input.mousePos.x, ctx.input.mousePos.y - body.y + scroll};
+						else
+							mSelDrag = false;
+					}
+					if (!overlayOpen && ctx.input.wantSelectAll && NkGuiRectContains(body, ctx.input.mousePos)) {
+						mSelA = NkVec2{-1.0e8f, -1.0e8f}; // englobe TOUT le contenu (integrale)
+						mSelB = NkVec2{1.0e8f, 1.0e8f};
+						ctx.input.wantSelectAll = false;
+					}
+					const bool selHas = (mSelA.x != mSelB.x || mSelA.y != mSelB.y);
+					NkVec2 sTop = mSelA, sBot = mSelB; // points ordonnes haut -> bas
+					if (sBot.y < sTop.y || (sBot.y == sTop.y && sBot.x < sTop.x)) {
+						const NkVec2 t = sTop;
+						sTop = sBot;
+						sBot = t;
+					}
+					// Largeur d'un prefixe de `s` (k octets, borne) — mesure police partagee par
+					// la selection et les liens fichiers.
+					char selBuf[1024];
+					auto prefW = [&](const char *s, int32 k) -> float32 {
+						if (!ctx.font || !ctx.font->Valid())
+							return 0.f;
+						if (k > 1000)
+							k = 1000;
+						for (int32 q = 0; q < k; ++q)
+							selBuf[q] = s[q];
+						selBuf[k < 0 ? 0 : k] = 0;
+						return ctx.font->MeasureWidth(selBuf);
+					};
+					// Index d'octet le plus proche de la position X `target` (relative au debut de
+					// ligne), en avancant codepoint par codepoint (jamais coupe un UTF-8).
+					auto colAtX = [&](const char *s, float32 target) -> int32 {
+						if (target <= 0.f)
+							return 0;
+						int32 n = 0;
+						while (s[n])
+							++n;
+						int32 k = 0, bestC = n;
+						float32 best = 1.0e9f;
+						while (k <= n) {
+							const float32 w = prefW(s, k);
+							const float32 d = w > target ? w - target : target - w;
+							if (d < best) {
+								best = d;
+								bestC = k;
+							}
+							if (k >= n)
+								break;
+							const unsigned char c = (unsigned char)s[k];
+							k += (c >= 0xF0) ? 4 : (c >= 0xE0) ? 3 : (c >= 0xC0) ? 2 : 1;
+						}
+						return bestC;
+					};
+					// Bornes [c0, c1) de la partie selectionnee d'une ligne (coordonnees CONTENU).
+					// false = ligne entierement hors selection.
+					auto selRange = [&](float32 tx, float32 cTop, const char *s, int32 &c0, int32 &c1) -> bool {
+						if (!selHas)
+							return false;
+						const float32 cBot = cTop + lineH;
+						if (cBot <= sTop.y || cTop >= sBot.y)
+							return false;
+						int32 n = 0;
+						while (s[n])
+							++n;
+						const bool startHere = sTop.y >= cTop && sTop.y < cBot;
+						const bool endHere = sBot.y >= cTop && sBot.y < cBot;
+						c0 = startHere ? colAtX(s, sTop.x - tx) : 0;
+						c1 = endHere ? colAtX(s, sBot.x - tx) : n;
+						if (c1 < c0) {
+							const int32 t = c0;
+							c0 = c1;
+							c1 = t;
+						}
+						return true;
+					};
+					// Surlignage (rendu uniquement — la collecte pour Ctrl+C est faite dans la
+					// passe dediee ci-dessous, messages hors ecran compris).
+					const NkColor kSelBg = {64, 96, 158, 110};
+					auto selDraw = [&](float32 tx, float32 tyTop, const char *s) {
+						int32 c0, c1;
+						if (!selRange(tx, tyTop - body.y + scroll, s, c0, c1))
+							return;
+						const float32 w0 = prefW(s, c0), w1 = prefW(s, c1);
+						const float32 w = (w1 - w0) < 2.f ? 2.f : (w1 - w0); // ligne vide = petit marqueur
+						dl.AddRectFilled({tx + w0, tyTop, w, lineH}, kSelBg, 0.f);
+					};
+					// ── LIEN FICHIER (Ctrl+survol) : le token sous la souris qui ressemble a un
+					// chemin EXISTANT (absolu, ou relatif a la racine du workspace, suffixe :NNN
+					// tolere) est souligne ; Ctrl+clic l'ouvre dans l'editeur. ──
+					auto fileLink = [&](float32 tx, float32 tyTop, const char *s) {
+						if (!ctx.input.ctrlDown || overlayOpen || !mS)
+							return;
+						if (mp.y < tyTop || mp.y >= tyTop + lineH || mp.x < tx)
+							return;
+						const int32 col = colAtX(s, mp.x - tx);
+						int32 n = 0;
+						while (s[n])
+							++n;
+						if (col >= n)
+							return;
+						int32 a = col, b = col;
+						while (a > 0 && s[a - 1] != ' ' && s[a - 1] != '\t')
+							--a;
+						while (b < n && s[b] != ' ' && s[b] != '\t')
+							++b;
+						// retire la ponctuation d'emballage (guillemets, parentheses, backticks...)
+						while (b > a && (s[b - 1] == ',' || s[b - 1] == ')' || s[b - 1] == ';' || s[b - 1] == '"' ||
+										 s[b - 1] == '\'' || s[b - 1] == '`' || s[b - 1] == '.'))
+							--b;
+						while (a < b && (s[a] == '(' || s[a] == '"' || s[a] == '\'' || s[a] == '`' || s[a] == '@'))
+							++a;
+						if (b - a < 3 || b - a > 500)
+							return;
+						char tok[512];
+						int32 tn = 0;
+						bool pathish = false;
+						for (int32 q = a; q < b; ++q) {
+							tok[tn++] = s[q];
+							if (s[q] == '/' || s[q] == '\\')
+								pathish = true;
+						}
+						tok[tn] = 0;
+						// suffixe :NNN (style compilateur "fichier.cpp:42") -> retire pour le test
+						int32 cut = tn;
+						while (cut > 0 && tok[cut - 1] >= '0' && tok[cut - 1] <= '9')
+							--cut;
+						if (cut > 0 && cut < tn && tok[cut - 1] == ':')
+							tok[cut - 1] = 0;
+						else if (!pathish) { // sans separateur ni :NNN : exige une extension (a.b)
+							bool dot = false;
+							for (int32 q = 1; tok[q]; ++q)
+								if (tok[q] == '.')
+									dot = true;
+							if (!dot)
+								return;
+						}
+						NkString full(tok);
+						if (!NkFile::Exists(full.CStr())) { // relatif a la racine du workspace ?
+							full = mS->root.ToString();
+							full += "/";
+							full += tok;
+							if (!NkFile::Exists(full.CStr()))
+								return;
+						}
+						const float32 wA = prefW(s, a), wB = prefW(s, b);
+						dl.AddLine({tx + wA, tyTop + lineH - 1.f}, {tx + wB, tyTop + lineH - 1.f}, violet, 1.2f);
+						if (ctx.input.mouseClicked[0]) {
+							mS->OpenPath(NkPath(full));
+							ctx.input.mouseClicked[0] = false;
+							mSelDrag = false; // le clic-lien n'amorce pas une selection
+							mSelA = mSelB;
+						}
+					};
+					// ── COLLECTE pour Ctrl+C : rejoue la MEME disposition que le rendu (memes
+					// formules y/tx) sur TOUS les messages, y compris hors ecran. ──
+					if (selHas && ctx.input.wantCopy && !overlayOpen) {
+						NkString out;
+						auto grab = [&](float32 tx, float32 cTop, const char *s) {
+							int32 c0, c1;
+							if (!selRange(tx, cTop, s, c0, c1))
+								return;
+							for (int32 q = c0; q < c1; ++q)
+								out += s[q];
+							out += '\n';
+						};
+						float32 cy = pad; // y en coordonnees CONTENU (= ecran + scroll - body.y)
+						for (usize i = 0; i < msgs.Size(); ++i) {
+							if (msgs[i].role == 0) {
+								const NkVector<NkString> &ls = wrapped[i];
+								for (usize k = 0; k < ls.Size(); ++k)
+									grab(body.x + pad + bubPad, cy + bubPad + k * lineH, ls[k].CStr());
+								cy += ls.Size() * lineH + bubPad * 2.f + gap;
+							} else if (msgs[i].role == 1) {
+								const NkVector<MsgBlock> &blocks = blocksFor[i];
+								float32 by = cy;
+								for (usize bi = 0; bi < blocks.Size(); ++bi) {
+									if (bi > 0)
+										by += blockGap;
+									const MsgBlock &blk = blocks[bi];
+									if (blk.code) {
+										for (usize k = 0; k < blk.lines.Size(); ++k)
+											grab(threadX + dotGap + ctx.S(10.f), by + codePad * 0.5f + k * lineH,
+												 blk.lines[k].CStr());
+										by += blk.lines.Size() * lineH + codePad;
+									} else {
+										for (usize k = 0; k < blk.lines.Size(); ++k)
+											grab(threadX + dotGap, by + k * lineH, blk.lines[k].CStr());
+										by += blk.lines.Size() * lineH;
+									}
+								}
+								cy += blockHeight(blocks) + actRowH + gap;
+							} else {
+								const NkVector<NkString> &ls = wrapped[i];
+								const NkComboIconFn ti = ToolIconFor(msgs[i].tool);
+								const float32 iw = ti ? lineH * 0.85f : 0.f;
+								for (usize k = 0; k < ls.Size(); ++k)
+									grab(threadX + dotGap + (k == 0 ? iw + ctx.S(4.f) : 0.f), cy + k * lineH,
+										 ls[k].CStr());
+								cy += ls.Size() * lineH + gap;
+							}
+						}
+						if (!out.Empty()) {
+							while (!out.Empty() && out.Back() == '\n')
+								out.PopBack(); // pas de saut de ligne final parasite
+							ctx.SetClipboard(out.CStr());
+							ctx.input.wantCopy = false;
+						}
+					}
+
 					// 2) rendu (clippé).
 					dl.PushClipRect(body, true);
 					float32 y = body.y + pad - scroll;
@@ -668,67 +1241,175 @@ namespace nkentseu {
 					bool doRetry = false;
 					for (usize i = 0; i < msgs.Size(); ++i) {
 						const Msg &m = msgs[i];
-						const NkVector<NkString> &ls = wrapped[i];
 						const bool user = (m.role == 0);
 						if (user) {
+							const NkVector<NkString> &ls = wrapped[i];
 							prevDotY = -1.f; // casse la chaine : le fil ne traverse pas cette bulle
 							const float32 bh = ls.Size() * lineH + bubPad * 2.f;
 							if (y + bh >= body.y && y <= body.y + body.h) {
 								dl.AddRectFilled({body.x + pad, y, userMaxW, bh}, kUserBg, rnd);
 								if (ctx.font && ctx.font->Valid())
-									for (usize k = 0; k < ls.Size(); ++k)
+									for (usize k = 0; k < ls.Size(); ++k) {
+										selDraw(body.x + pad + bubPad, y + bubPad + k * lineH, ls[k].CStr());
 										dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 												   {body.x + pad + bubPad, y + bubPad + k * lineH + asc}, ls[k].CStr(),
 												   ctx.theme.text);
+										fileLink(body.x + pad + bubPad, y + bubPad + k * lineH, ls[k].CStr());
+									}
 							}
 							y += bh + gap;
-						} else { // assistant/systeme : puce sur le fil + texte simple (pas de bulle)
-							const float32 bh = ls.Size() * lineH;
-							const bool isAssistant = (m.role == 1); // pas les messages systeme/erreur (role 2)
-							const float32 blockH = bh + (isAssistant ? actRowH : 0.f);
+						} else if (m.role == 1) { // assistant : puce + blocs prose/code + actions
+							const NkVector<MsgBlock> &blocks = blocksFor[i];
+							const float32 bh = blockHeight(blocks);
+							const float32 blockH = bh + actRowH;
 							const float32 dotY = y + lineH * 0.5f;
 							if (prevDotY >= 0.f)
 								dl.AddLine({threadX, prevDotY}, {threadX, dotY}, ctx.theme.border, 1.2f);
 							prevDotY = dotY;
 							if (y + blockH >= body.y && y <= body.y + body.h) {
-								const NkColor dotCol = (m.role == 2) ? ctx.theme.textDisabled : NkColor{88, 209, 143, 255};
-								dl.AddCircleFilled({threadX, dotY}, ctx.S(3.f), dotCol);
-								const NkColor fg = (m.role == 2) ? ctx.theme.textDisabled : ctx.theme.text;
-								if (ctx.font && ctx.font->Valid())
-									for (usize k = 0; k < ls.Size(); ++k)
-										dl.AddText(ctx.font->Face(), ctx.font->TexId(),
-												   {threadX + dotGap, y + k * lineH + asc}, ls[k].CStr(), fg);
-								if (isAssistant) {
-									// Ligne d'actions : Copier · Insérer dans l'éditeur · Retry (dernier
-									// message seulement — regénère en renvoyant le même tour utilisateur).
-									const float32 acy = y + bh + actRowH * 0.5f;
-									const float32 asz = ctx.S(20.f), agap = ctx.S(4.f);
-									float32 ax = threadX + dotGap;
-									if (ActionIconBtn(ctx, dl, ax, acy, asz, &DrawCopyIcon, mp)) {
-										ctx.SetClipboard(m.text.CStr());
-										ctx.input.mouseClicked[0] = false;
+								dl.AddCircleFilled({threadX, dotY}, ctx.S(3.f), NkColor{88, 209, 143, 255});
+								float32 by = y;
+								for (usize bi = 0; bi < blocks.Size(); ++bi) {
+									if (bi > 0)
+										by += blockGap;
+									const MsgBlock &blk = blocks[bi];
+									if (blk.code) {
+										const float32 boxH = blk.lines.Size() * lineH + codePad;
+										const NkRect box = {threadX + dotGap, by, threadTextMaxW, boxH};
+										dl.AddRectFilled(box, NkColor{32, 36, 44, 255}, ctx.S(5.f));
+										dl.AddRect(box, ctx.theme.border, 1.f);
+										if (ctx.font && ctx.font->Valid())
+											for (usize k = 0; k < blk.lines.Size(); ++k) {
+												selDraw(box.x + ctx.S(10.f), by + codePad * 0.5f + k * lineH,
+														blk.lines[k].CStr());
+												dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+														   {box.x + ctx.S(10.f), by + codePad * 0.5f + k * lineH + asc},
+														   blk.lines[k].CStr(), NkColor{224, 196, 148, 255});
+												fileLink(box.x + ctx.S(10.f), by + codePad * 0.5f + k * lineH,
+														 blk.lines[k].CStr());
+											}
+										by += boxH;
+									} else {
+										if (ctx.font && ctx.font->Valid())
+											for (usize k = 0; k < blk.lines.Size(); ++k) {
+												selDraw(threadX + dotGap, by + k * lineH, blk.lines[k].CStr());
+												dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+														   {threadX + dotGap, by + k * lineH + asc}, blk.lines[k].CStr(),
+														   ctx.theme.text);
+												fileLink(threadX + dotGap, by + k * lineH, blk.lines[k].CStr());
+											}
+										by += blk.lines.Size() * lineH;
 									}
-									ax += asz + agap;
-									if (ActionIconBtn(ctx, dl, ax, acy, asz, &DrawInsertIcon, mp)) {
-										if (mS && mS->HasActive())
-											mS->files[mS->active].doc.InsertText(m.text.CStr());
+								}
+								// Ligne d'actions : Copier · Insérer dans l'éditeur · Retry (dernier
+								// message seulement — regénère en renvoyant le même tour utilisateur).
+								const float32 acy = y + bh + actRowH * 0.5f;
+								const float32 asz = ctx.S(20.f), agap = ctx.S(4.f);
+								float32 ax = threadX + dotGap;
+								if (ActionIconBtn(ctx, dl, ax, acy, asz, &DrawCopyIcon, mp, NkT("ai.tip.copy"))) {
+									ctx.SetClipboard(m.text.CStr());
+									ctx.input.mouseClicked[0] = false;
+								}
+								ax += asz + agap;
+								if (ActionIconBtn(ctx, dl, ax, acy, asz, &DrawInsertIcon, mp, NkT("ai.tip.insert"))) {
+									if (mS && mS->HasActive())
+										mS->files[mS->active].doc.InsertText(m.text.CStr());
+									ctx.input.mouseClicked[0] = false;
+								}
+								ax += asz + agap;
+								if (!mBusy && i == msgs.Size() - 1) { // Retry : uniquement la derniere reponse
+									if (ActionIconBtn(ctx, dl, ax, acy, asz, &DrawRetryIcon, mp, NkT("ai.tip.retry"))) {
+										doRetry = true; // appliqué APRÈS la boucle (ne pas muter `msgs` ici)
 										ctx.input.mouseClicked[0] = false;
-									}
-									ax += asz + agap;
-									if (!mBusy && i == msgs.Size() - 1) { // Retry : uniquement la derniere reponse
-										if (ActionIconBtn(ctx, dl, ax, acy, asz, &DrawRetryIcon, mp)) {
-											doRetry = true; // appliqué APRÈS la boucle (ne pas muter `msgs` ici)
-											ctx.input.mouseClicked[0] = false;
-										}
 									}
 								}
 							}
 							y += blockH + gap;
+						} else { // systeme/erreur (role 2) : puce grisee + texte simple (pas de bulle),
+								 // + icone OUTIL vectorielle optionnelle (Msg::tool, voir ToolIconFor)
+							const NkVector<NkString> &ls = wrapped[i];
+							const float32 bh = ls.Size() * lineH;
+							const float32 dotY = y + lineH * 0.5f;
+							if (prevDotY >= 0.f)
+								dl.AddLine({threadX, prevDotY}, {threadX, dotY}, ctx.theme.border, 1.2f);
+							prevDotY = dotY;
+							if (y + bh >= body.y && y <= body.y + body.h) {
+								dl.AddCircleFilled({threadX, dotY}, ctx.S(3.f), ctx.theme.textDisabled);
+								const NkComboIconFn toolIcon = ToolIconFor(m.tool);
+								const float32 iconW = toolIcon ? lineH * 0.85f : 0.f;
+								if (toolIcon)
+									toolIcon(dl, {threadX + dotGap + iconW * 0.5f, y + lineH * 0.5f}, iconW * 0.4f,
+											ctx.theme.textDisabled);
+								if (ctx.font && ctx.font->Valid())
+									for (usize k = 0; k < ls.Size(); ++k) {
+										const float32 sx = threadX + dotGap + (k == 0 ? iconW + ctx.S(4.f) : 0.f);
+										selDraw(sx, y + k * lineH, ls[k].CStr());
+										dl.AddText(ctx.font->Face(), ctx.font->TexId(), {sx, y + k * lineH + asc},
+												   ls[k].CStr(), ctx.theme.textDisabled);
+										fileLink(sx, y + k * lineH, ls[k].CStr());
+									}
+							}
+							y += bh + gap;
 						}
+					}
+					// ── Carte de PERMISSION (protocole can_use_tool) : le CLI est bloque en
+					// attente de notre reponse -> icone outil + nom + detail + 2 boutons
+					// Autoriser/Refuser (AnswerClaudePermission). Remplace l'indicateur de
+					// generation tant qu'elle est affichee (le CLI n'avance plus). ──
+					if (permHere) {
+						const float32 cardY = y;
+						const NkColor kAmber = {230, 160, 60, 255};
+						const float32 dotY = cardY + lineH * 0.5f;
+						if (prevDotY >= 0.f)
+							dl.AddLine({threadX, prevDotY}, {threadX, dotY}, ctx.theme.border, 1.2f);
+						dl.AddCircleFilled({threadX, dotY}, ctx.S(3.f), kAmber);
+						const NkRect card = {threadX + dotGap, cardY, threadTextMaxW, permCardH};
+						dl.AddRectFilled(card, NkColor{46, 38, 26, 255}, ctx.S(6.f));
+						dl.AddRect(card, kAmber, 1.2f);
+						const NkComboIconFn ti = ToolIconFor(mPermIcon);
+						const float32 iw = ctx.S(16.f), ipad = ctx.S(10.f);
+						if (ti)
+							ti(dl, {card.x + ipad + iw * 0.5f, card.y + ipad + iw * 0.5f}, iw * 0.4f, kAmber);
+						if (ctx.font && ctx.font->Valid()) {
+							const NkString title = NkPrintf("%s : %s", NkT("ai.perm.title"), mPermTool.CStr());
+							dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+									   {card.x + ipad + iw + ctx.S(6.f), card.y + ipad + asc - lineH * 0.15f},
+									   title.CStr(), ctx.theme.text);
+							if (!mPermDetail.Empty())
+								dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+										   {card.x + ipad + iw + ctx.S(6.f), card.y + ipad + lineH + asc - lineH * 0.15f},
+										   mPermDetail.CStr(), ctx.theme.textDisabled,
+										   card.w - ipad - iw - ctx.S(6.f) - ipad);
+						}
+						auto permBtn = [&](float32 bx, float32 bw, const char *label, bool accent,
+											const NkColor &fg) -> bool {
+							const NkRect r = {bx, card.y + card.h - ctx.S(30.f), bw, ctx.S(22.f)};
+							const bool hov = NkGuiRectContains(r, mp);
+							dl.AddRectFilled(r, accent ? kAmber : (hov ? ctx.theme.buttonHover : ctx.theme.button),
+											 ctx.S(4.f));
+							if (ctx.font && ctx.font->Valid()) {
+								const float32 tw = ctx.font->MeasureWidth(label);
+								dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+										   {r.x + (r.w - tw) * 0.5f, r.y + (r.h - lineH) * 0.5f + asc}, label, fg);
+							}
+							return hov && ctx.input.mouseClicked[0];
+						};
+						const float32 bw = ctx.S(90.f), bgap = ctx.S(8.f);
+						const float32 bx1 = card.x + card.w - ipad - bw;
+						const float32 bx0 = bx1 - bgap - bw;
+						if (permBtn(bx0, bw, NkT("ai.perm.deny"), false, ctx.theme.text)) {
+							AnswerClaudePermission(false);
+							ctx.input.mouseClicked[0] = false;
+						}
+						if (permBtn(bx1, bw, NkT("ai.perm.allow"), true, NkColor{20, 20, 20, 255})) {
+							AnswerClaudePermission(true);
+							ctx.input.mouseClicked[0] = false;
+						}
+						y += permCardH + gap;
 					}
 					// Statut animé pendant la génération : puce + "Thinking… · Nk tokens" (dim)
 					// puis "Mustering…" (accent) — façon Claude Code, remplace l'ancien "...".
-					if (typing) {
+					else if (typing) {
 						const float32 dotY = y + lineH * 0.5f;
 						if (prevDotY >= 0.f)
 							dl.AddLine({threadX, prevDotY}, {threadX, dotY}, ctx.theme.border, 1.2f);
@@ -750,6 +1431,24 @@ namespace nkentseu {
 									   NkT("ai.mustering"), kOrange);
 					}
 					dl.PopClipRect();
+					// Scrollbar STANDARD (NkEditorScrollbar.h) — visible + glissable, jamais de
+					// zone de scroll sans elle (cf. regle CLAUDE.md UI/UX). `id` derive du chat
+					// actif : chaque chat garde son propre etat de drag independant.
+					// TOUJOURS appelee (jamais conditionnee par maxScroll>0) : NkVScrollbar gere
+					// deja en interne le cas « rien a faire defiler » (pas de pouce dessine), et
+					// SURTOUT relache ctx.activeId (verrou GLOBAL de widget en cours de glissement)
+					// inconditionnellement en fin de fonction. Si on saute l'appel pile quand
+					// maxScroll retombe a 0 (ex. pendant le streaming d'une reponse, le contenu
+					// fluctue), le relachement ne s'execute JAMAIS -> ctx.activeId reste bloque
+					// pour TOUTE l'application (clavier ET drag-drop casses partout, pas que le
+					// chat) — regression reelle detectee le 18 juil, cause du blocage clavier/DnD
+					// global remonte par Rihen.
+					{
+						const NkRect sbTrack = {body.x + contentW, body.y, sbW, body.h};
+						if (NkVScrollbar(ctx, dl, sbTrack, scroll, total, body.h,
+										ctx.GetId(NkPrintf("##aiChatSb%d", mActiveChat).CStr())))
+							stick = false; // glissement manuel -> ne recolle plus en bas tout seul
+					}
 					if (doRetry) // appliqué ICI (après la boucle) : RetryLast() mute `msgs` (RemoveAt + Send)
 						RetryLast();
 				}
@@ -773,6 +1472,47 @@ namespace nkentseu {
 								   {c.x + dx[i] * rad * 1.3f, c.y + dy[i] * rad * 1.3f}, col, 2.f);
 					dl.AddCircleFilled(c, rad * 0.8f, col);
 					dl.AddCircleFilled(c, rad * 0.34f, NkColor{20, 22, 28, 255});
+				}
+				// ── Terminal (Bash/PowerShell) : cadre + chevron ">" — icône OUTIL par-message
+				// (fil de conversation), PAS d'emoji (pas de couverture NotoSans). ──
+				static void DrawTerminalIcon(NkGuiDrawList &dl, const NkVec2 &c, float32 rad, const NkColor &col) {
+					const float32 w = rad * 1.7f, h = rad * 1.3f;
+					dl.AddRect({c.x - w * 0.5f, c.y - h * 0.5f, w, h}, col, 1.2f);
+					const float32 ix = c.x - w * 0.28f, iy = c.y;
+					dl.AddLine({ix, iy - rad * 0.32f}, {ix + rad * 0.32f, iy}, col, 1.3f);
+					dl.AddLine({ix, iy + rad * 0.32f}, {ix + rad * 0.32f, iy}, col, 1.3f);
+				}
+				// ── Loupe (Grep/Glob) : cercle (segments, pas de primitive stroke-circle) +
+				// manche. Icône OUTIL par-message, même contrainte anti-emoji. ──
+				static void DrawSearchIcon(NkGuiDrawList &dl, const NkVec2 &c, float32 rad, const NkColor &col) {
+					const float32 r = rad * 0.55f;
+					const NkVec2 cc = {c.x - rad * 0.15f, c.y - rad * 0.15f};
+					const int32 N = 12;
+					NkVec2 prev = {};
+					for (int32 i = 0; i <= N; ++i) {
+						const float32 a = (float32)i / (float32)N * 6.2832f;
+						const NkVec2 p = {cc.x + std::cos(a) * r, cc.y + std::sin(a) * r};
+						if (i > 0)
+							dl.AddLine(prev, p, col, 1.2f);
+						prev = p;
+					}
+					dl.AddLine({cc.x + r * 0.7f, cc.y + r * 0.7f}, {c.x + rad * 0.75f, c.y + rad * 0.75f}, col, 1.4f);
+				}
+				// ── Route un ID d'icône OUTIL (Msg::tool) vers son glyphe vectoriel. nullptr si
+				// aucune icône (tool==0, messages système ordinaires non liés à un outil). ──
+				static NkComboIconFn ToolIconFor(int32 tool) {
+					switch (tool) {
+						case 1:
+							return &DrawFileIcon;
+						case 2:
+							return &DrawTerminalIcon;
+						case 3:
+							return &DrawSearchIcon;
+						case 4:
+							return &DrawGear;
+						default:
+							return nullptr;
+					}
 				}
 				// ── Thermomètre (température) : tige + bulbe. ──
 				static void DrawThermo(NkGuiDrawList &dl, const NkVec2 &c, float32 h, const NkColor &col) {
@@ -846,8 +1586,10 @@ namespace nkentseu {
 					NkVector<NkString> ls;
 					WrapLines(ctx, mInput[0] ? mInput : " ", innerW, ls);
 					int32 n = (int32)ls.Size();
-					if (n < 1)
-						n = 1;
+					// Hauteur MINIMALE genereuse (3 lignes) même vide — la zone de saisie ne
+					// doit pas paraître trop petite au démarrage, façon Claude Code (VSCode).
+					if (n < 3)
+						n = 3;
 					return n > 6 ? 6 : n;
 				}
 
@@ -1205,13 +1947,17 @@ namespace nkentseu {
 				}
 				// ── Petit bouton icône-seule pour la ligne d'actions par-message. Retourne
 				// true au clic (le caller consomme mouseClicked lui-même). ──
+				// `tip` (optionnel) : infobulle apres ~0,45 s de survol (NkEditorTooltip) —
+				// indispensable sur ces boutons icone-seule, sans libelle visible.
 				static bool ActionIconBtn(NkGuiContext &ctx, NkGuiDrawList &dl, float32 x, float32 cy, float32 sz,
-										  NkComboIconFn iconFn, const NkVec2 &mp) {
+										  NkComboIconFn iconFn, const NkVec2 &mp, const char *tip = nullptr) {
 					const NkRect r = {x, cy - sz * 0.5f, sz, sz};
 					const bool hov = NkGuiRectContains(r, mp);
 					if (hov)
 						dl.AddRectFilled(r, ctx.theme.buttonHover, ctx.S(4.f));
 					iconFn(dl, {r.x + sz * 0.5f, cy}, sz * 0.3f, hov ? ctx.theme.text : ctx.theme.textDisabled);
+					if (tip)
+						editorkit::NkTooltip(ctx, hov, tip);
 					return hov && ctx.input.mouseClicked[0];
 				}
 
@@ -1357,15 +2103,17 @@ namespace nkentseu {
 							int32 n;
 					};
 					int32 nModels = 0;
-					const char *const *models = kModels(nModels);
+					const char *const *models = mKind == 1 ? ClaudeModelTitles(nModels) : kModels(nModels);
 					const char *curModel = models[mModelIdx < nModels ? mModelIdx : 0];
 					const NkString effLblStr = NkPrintf("%d/%d", mEffort + 1, (int32)kEffortLevels);
 					const char *effLbl = effLblStr.CStr();
 					Group groups[6] = {
 						{NkT("ai.grp.context"),
 						 {{NkString(NkT("ai.act.attach")), 0, nullptr, 0}, {NkString(NkT("ai.act.mention")), 0, nullptr, 1},
-						  {NkString(NkT("ai.act.clearconv")), 0, nullptr, 2}, {NkString(NkT("ai.act.rewind")), 0, nullptr, 3}},
-						 4},
+						  {NkString(NkT("ai.act.clearconv")), 0, nullptr, 2}, {NkString(NkT("ai.act.rewind")), 0, nullptr, 3},
+						  {NkString(NkT("ai.act.copyconv")), 0, nullptr, 5},
+						  {NkString(NkT("ai.act.selectall")), 0, nullptr, 6}},
+						 6},
 						{NkT("ai.grp.model"),
 						 {{NkString(NkT("ai.act.switchmodel")), 2, curModel, 10},
 						  {NkString(NkT("ai.effort")), 2, effLbl, 11},
@@ -1451,12 +2199,15 @@ namespace nkentseu {
 								   {filterR.x + ctx.S(6.f), filterR.y + ctx.S(4.f) + font->Ascent()}, NkT("ai.act.filter"),
 								   ctx.theme.textDisabled);
 
-					const NkRect listR = {menu.x, menu.y + filterH, w, listH};
+					// Largeur de contenu REDUITE de la largeur de la scrollbar STANDARD
+					// (NkEditorScrollbar.h) — jamais de scrollbar maison redessinee a la main.
+					const float32 sbW = NkScrollbarWidth();
+					const NkRect listR = {menu.x, menu.y + filterH, w - sbW, listH};
 					dl.PushClipRect(listR, true);
 					float32 y = listR.y - mActionsScroll;
 					int32 clicked = -1;
 					auto drawRow = [&](const NkString &label, int32 kind, const char *value, int32 action) {
-						const NkRect row = {listR.x + ctx.S(6.f), y, w - ctx.S(12.f), rowH};
+						const NkRect row = {listR.x + ctx.S(6.f), y, listR.w - ctx.S(12.f), rowH};
 						const bool hov = NkGuiRectContains(row, mp) && NkGuiRectContains(listR, mp);
 						if (hov)
 							dl.AddRectFilled(row, ctx.theme.buttonHover, ctx.S(4.f));
@@ -1527,28 +2278,14 @@ namespace nkentseu {
 						mActionsScroll = 0.f;
 					if (mActionsScroll > maxSc)
 						mActionsScroll = maxSc;
-					// Scrollbar verticale (visible + glissable) si le contenu deborde.
-					if (maxSc > 0.f) {
-						const float32 sbW = ctx.S(5.f);
-						const NkRect track = {listR.x + listR.w - sbW - ctx.S(3.f), listR.y, sbW, listR.h};
-						float32 thumbH = listH * (listH / contentH);
-						if (thumbH < ctx.S(24.f))
-							thumbH = ctx.S(24.f);
-						if (thumbH > track.h)
-							thumbH = track.h;
-						const float32 thumbY = track.y + (mActionsScroll / maxSc) * (track.h - thumbH);
-						const NkRect thumb = {track.x, thumbY, sbW, thumbH};
-						const bool thumbHov = NkGuiRectContains(thumb, mp);
-						dl.AddRectFilled(thumb, thumbHov ? ctx.theme.textDisabled : ctx.theme.border, sbW * 0.5f);
-						if (thumbHov && ctx.input.mouseClicked[0])
-							mActionsScrollDrag = true;
-						if (mActionsScrollDrag) {
-							if (ctx.input.mouseDown[0]) {
-								const float32 t = (mp.y - track.y - thumbH * 0.5f) / (track.h - thumbH > 1.f ? track.h - thumbH : 1.f);
-								mActionsScroll = (t < 0.f ? 0.f : (t > 1.f ? 1.f : t)) * maxSc;
-							} else
-								mActionsScrollDrag = false;
-						}
+					// Scrollbar STANDARD (NkEditorScrollbar.h) — jamais de scrollbar maison
+					// redessinee a la main (cf. regle CLAUDE.md UI/UX). `listR` reserve deja
+					// `sbW` a droite (voir plus haut) : la piste se place juste apres.
+					// TOUJOURS appelee, meme raison que le chat principal (cf. commentaire dans
+					// DrawMessages) : sinon ctx.activeId peut rester bloque globalement.
+					{
+						const NkRect track = {listR.x + listR.w, listR.y, sbW, listR.h};
+						NkVScrollbar(ctx, dl, track, mActionsScroll, contentH, listH, ctx.GetId("##aiActSb"));
 					}
 
 					// Actions REELLES cablees ; les autres affichent un message honnete "a venir".
@@ -1556,6 +2293,20 @@ namespace nkentseu {
 						if (clicked == 2) { // Clear conversation
 							Msgs().Clear();
 							Msgs().PushBack({2, NkString(NkT("ai.hello"))});
+						} else if (clicked == 5) { // Copier TOUTE la conversation
+							const NkVector<Msg> &msgs = Msgs();
+							NkString all;
+							for (usize i = 0; i < msgs.Size(); ++i) {
+								if (!all.Empty())
+									all += "\n\n";
+								all += (msgs[i].role == 0) ? "Moi :\n" : (msgs[i].role == 1) ? "Assistant :\n" : "";
+								all += msgs[i].text;
+							}
+							ctx.SetClipboard(all.CStr());
+						} else if (clicked == 6) { // Selectionner TOUT le fil (equivalent Ctrl+A sur le fil)
+							mSelChat = mActiveChat;
+							mSelA = NkVec2{-1.0e8f, -1.0e8f};
+							mSelB = NkVec2{1.0e8f, 1.0e8f};
 						} else if (clicked >= 100 && clicked < 110) { // commande slash -> insere dans la saisie
 							const NkString cmd = NkString(kSlash[clicked - 100]) + " ";
 							int32 L = 0;
@@ -1568,6 +2319,8 @@ namespace nkentseu {
 							mComboOpen = 1;
 						} else if (clicked == 11) { // Effort -> cycle (raccourci rapide)
 							mEffort = (mEffort + 1) % 3;
+						} else if (clicked == 14) { // Compte et utilisation -> popover REEL (rate_limit_event)
+							mUsageOpen = true;
 						} else if (clicked == 22 && mS) { // Open Claude in Terminal (reel, meme si claude absent)
 							mS->termOpenCmd = "claude";
 							mS->termOpenKind = -1;
@@ -1691,22 +2444,38 @@ namespace nkentseu {
 					dl.PopClipRect();
 
 					// Bouton d'envoi (violet), fixe à l'extrême droite — hors zone de défilement.
+					// Devient un bouton STOP tant qu'une requête est en cours SUR CE chat, pour
+					// Claude Code (mKind==1, seul backend qui sait vraiment tuer son process —
+					// NkProcess/curl des autres agents n'a pas de Stop(), limite pré-existante).
+					// Sans ça, une requête bloquée (panneau caché entre-temps, process qui traîne)
+					// laissait l'utilisateur coincé sur "A request is already running." sans recours.
+					const bool busyHere = mBusy && mBusyChat == mActiveChat;
+					const bool canCancel = busyHere && mKind == 1;
 					const NkRect send = {row2.x + row2.w - pad - btn, cy - btn * 0.5f, btn, btn};
 					const bool canSend = !mBusy && mInput[0] != 0;
-					const bool hov = canSend && NkGuiRectContains(send, mp);
-					dl.AddRectFilled(send, canSend ? (hov ? violetHov : violet) : ctx.theme.button, ctx.S(8.f));
-					const NkColor ac = canSend ? NkColor{255, 255, 255, 255} : ctx.theme.textDisabled;
-					if (ic && ic->up)
+					const bool hov = (canSend || canCancel) && NkGuiRectContains(send, mp);
+					const NkColor kRed = {224, 90, 90, 255}, kRedHov = {240, 110, 110, 255};
+					dl.AddRectFilled(send, canCancel ? (hov ? kRedHov : kRed) : (canSend ? (hov ? violetHov : violet) : ctx.theme.button),
+									ctx.S(8.f));
+					const NkColor ac = (canSend || canCancel) ? NkColor{255, 255, 255, 255} : ctx.theme.textDisabled;
+					if (canCancel) { // carré plein (glyphe "stop" universel)
+						const float32 s = btn * 0.32f, cx = send.x + btn * 0.5f, cyy = send.y + btn * 0.5f;
+						dl.AddRectFilled({cx - s * 0.5f, cyy - s * 0.5f, s, s}, ac, ctx.S(2.f));
+					} else if (ic && ic->up) {
 						dl.AddImage(ic->up, {send.x + ctx.S(7.f), send.y + ctx.S(7.f), btn - ctx.S(14.f), btn - ctx.S(14.f)},
 									{0.f, 0.f}, {1.f, 1.f}, ac);
-					else {
+					} else {
 						const float32 cx = send.x + btn * 0.5f, cyy = send.y + btn * 0.5f, a = ctx.S(5.f);
 						dl.AddLine({cx, cyy + a}, {cx, cyy - a}, ac, 2.f);
 						dl.AddLine({cx - a * 0.6f, cyy - a * 0.3f}, {cx, cyy - a}, ac, 2.f);
 						dl.AddLine({cx + a * 0.6f, cyy - a * 0.3f}, {cx, cyy - a}, ac, 2.f);
 					}
-					if (canSend && hov && ctx.input.mouseClicked[0])
-						Send();
+					if (hov && ctx.input.mouseClicked[0]) {
+						if (canCancel)
+							CancelClaudeCli();
+						else if (canSend)
+							Send();
+					}
 				}
 
 				// ── Popover réglages (engrenage) : max tokens + instructions système (multi-ligne). ──
@@ -1840,6 +2609,111 @@ namespace nkentseu {
 						mComboOpen = 0;
 				}
 
+				// ── Titres/descriptions HUMAINS pour le picker de modèle Claude Code
+				// (mKind==1 uniquement), façon VSCode : « Sonnet 5 · Efficient for routine
+				// tasks », etc. (capture d'écran de référence fournie par Rihen). Les VALEURS
+				// réellement transmises à --model restent celles de kModels() (alias bruts
+				// "sonnet"/"opus"/...) — ces deux tableaux ne servent qu'à l'AFFICHAGE. Buffer
+				// `static` REMPLI À CHAQUE APPEL (pas figé) : évite le piège de verrouillage de
+				// langue déjà rencontré sur ModeOptionsFor/ModeDescFor (NkT() doit être
+				// ré-évalué à chaque frame pour suivre un changement de langue à chaud). ──
+				const char *const *ClaudeModelTitles(int32 &n) const {
+					const char *fresh[5] = {NkT("ai.model.default"), NkT("ai.model.sonnet"), NkT("ai.model.opus"),
+											NkT("ai.model.fable"), NkT("ai.model.haiku")};
+					static const char *out[5];
+					for (int32 i = 0; i < 5; ++i)
+						out[i] = fresh[i];
+					n = 5;
+					return out;
+				}
+				const char *const *ClaudeModelDescs(int32 &n) const {
+					const char *fresh[5] = {NkT("ai.model.default.desc"), NkT("ai.model.sonnet.desc"),
+											NkT("ai.model.opus.desc"), NkT("ai.model.fable.desc"),
+											NkT("ai.model.haiku.desc")};
+					static const char *out[5];
+					for (int32 i = 0; i < 5; ++i)
+						out[i] = fresh[i];
+					n = 5;
+					return out;
+				}
+
+				// ── Menu du picker de modèle Claude Code (titre + description par option),
+				// même structure que DrawModeMenu mais sans le pied Effort (déjà dans le menu
+				// Mode). Uniquement utilisé pour mKind==1 (voir dispatch dans OnUI). ──
+				void DrawModelMenu(NkGuiContext &ctx, const NkRect &bounds, const NkColor &violet) {
+					auto &dl = ctx.DL();
+					const NkGuiFont *font = ctx.font;
+					const NkVec2 mp = ctx.input.mousePos;
+					int32 n = 0;
+					const char *const *opts = ClaudeModelTitles(n);
+					int32 nd = 0;
+					const char *const *descs = ClaudeModelDescs(nd);
+					const float32 w = ctx.S(270.f);
+					const float32 titleH = ctx.ItemHeight();
+					const float32 descLineH = (font && font->Valid()) ? font->LineHeight() * 0.88f : 12.f;
+					NkVector<NkVector<NkString>> wrapped;
+					float32 rowsH = 0.f;
+					for (int32 i = 0; i < n; ++i) {
+						NkVector<NkString> ls;
+						WrapLines(ctx, descs[i], w - ctx.S(44.f), ls);
+						rowsH += titleH + ls.Size() * descLineH + ctx.S(10.f);
+						wrapped.PushBack(ls);
+					}
+					const float32 menuH = rowsH + ctx.S(8.f);
+
+					const float32 spaceBelow = (bounds.y + bounds.h) - (mModelAnchor.y + mModelAnchor.h);
+					const float32 spaceAbove = mModelAnchor.y - bounds.y;
+					const bool openUp = spaceBelow < menuH + ctx.S(4.f) && spaceAbove > spaceBelow;
+					NkRect menu = {mModelAnchor.x,
+								   openUp ? (mModelAnchor.y - menuH - ctx.S(4.f))
+										 : (mModelAnchor.y + mModelAnchor.h + ctx.S(4.f)),
+								   w, menuH};
+					if (menu.x + menu.w > bounds.x + bounds.w - ctx.S(4.f))
+						menu.x = bounds.x + bounds.w - ctx.S(4.f) - menu.w;
+					if (menu.x < bounds.x + ctx.S(4.f))
+						menu.x = bounds.x + ctx.S(4.f);
+					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(8.f));
+					dl.AddRect(menu, ctx.theme.border, 1.f);
+
+					float32 y = menu.y + ctx.S(4.f);
+					for (int32 i = 0; i < n; ++i) {
+						const NkVector<NkString> &ls = wrapped[i];
+						const float32 rh = titleH + ls.Size() * descLineH + ctx.S(10.f);
+						const NkRect row = {menu.x + ctx.S(4.f), y, w - ctx.S(8.f), rh};
+						const bool hov = NkGuiRectContains(row, mp);
+						const bool sel = (i == mModelIdx);
+						if (hov || sel)
+							dl.AddRectFilled(row, sel ? NkColor{violet.r, violet.g, violet.b, 55} : ctx.theme.buttonHover,
+											 ctx.S(4.f));
+						if (font && font->Valid()) {
+							dl.AddText(font->Face(), font->TexId(), {row.x + ctx.S(8.f), y + ctx.S(4.f) + font->Ascent()},
+									   opts[i], ctx.theme.text);
+							if (sel)
+								DrawCheckIcon(dl, {row.x + row.w - ctx.S(14.f), y + ctx.S(4.f) + font->LineHeight() * 0.5f},
+											 ctx.S(6.f), violet);
+							float32 dy = y + titleH;
+							for (usize k = 0; k < ls.Size(); ++k)
+								dl.AddText(font->Face(), font->TexId(),
+										   {row.x + ctx.S(8.f), dy + k * descLineH + font->Ascent() * 0.88f}, ls[k].CStr(),
+										   ctx.theme.textDisabled);
+						}
+						if (hov && ctx.input.mouseClicked[0]) {
+							mModelIdx = i;
+							mComboOpen = 0;
+							ctx.input.mouseClicked[0] = false;
+						}
+						y += rh;
+					}
+					if (ctx.input.mouseClicked[0] && !NkGuiRectContains(menu, mp) && !NkGuiRectContains(mModelAnchor, mp))
+						mComboOpen = 0;
+				}
+
+				// ── Température/Max tokens sont des paramètres de l'API Messages BRUTE
+				// (Assistant général/NkAI, appel curl direct) — le CLI `claude` (Claude Code)
+				// n'a PAS d'équivalent documenté pour ces deux réglages : les masquer plutôt
+				// que de laisser des contrôles qui ne changeraient RIEN à la requête réelle. ──
+				bool ShowTempMaxTokens() const { return mKind != 1; }
+
 				void DrawPropsPopover(NkGuiContext &ctx, const NkColor &violet) {
 					(void)violet;
 					auto &dl = ctx.DL();
@@ -1847,8 +2721,9 @@ namespace nkentseu {
 					const NkVec2 mp = ctx.input.mousePos;
 					const float32 w = ctx.S(268.f), it = ctx.ItemHeight();
 					const float32 sysH = ctx.S(92.f);
-					const float32 mh = ctx.S(10.f) + it + ctx.S(8.f) + it + ctx.S(10.f) + it + ctx.S(10.f) + it +
-									   ctx.S(10.f) + it + ctx.S(4.f) + sysH + ctx.S(12.f); // + ligne Effort
+					const bool showTM = ShowTempMaxTokens();
+					const float32 mh = ctx.S(10.f) + it + ctx.S(8.f) + (showTM ? (it + ctx.S(10.f)) * 2.f : 0.f) + it +
+									   ctx.S(10.f) + it + ctx.S(4.f) + sysH + ctx.S(12.f); // Effort + Systeme (+ Temp/MaxTok)
 					NkRect menu = {mGearRect.x + mGearRect.w - w, mGearRect.y + mGearRect.h + ctx.S(4.f), w, mh};
 					if (menu.x < ctx.S(4.f))
 						menu.x = ctx.S(4.f);
@@ -1861,8 +2736,8 @@ namespace nkentseu {
 					float32 y = menu.y + ctx.S(8.f);
 					txt(menu.x + ctx.S(12.f), y, NkT("ai.props"), ctx.theme.text);
 					y += it + ctx.S(8.f);
-					// Température (slider) — toujours accessible ici même si masquée dans la barre.
-					{
+					// Température (slider) — UNIQUEMENT si l'API brute la consomme réellement.
+					if (showTM) {
 						txt(menu.x + ctx.S(12.f), y + (it - (font ? font->LineHeight() : 16.f)) * 0.5f, "Température",
 							ctx.theme.textDisabled);
 						const float32 trkW = ctx.S(96.f);
@@ -1882,13 +2757,14 @@ namespace nkentseu {
 						}
 						y += it + ctx.S(10.f);
 					}
-					// Effort (raisonnement) — icône + « Effort (Valeur) » + toggle 3 arrêts.
+					// Effort (raisonnement) — icône + « Effort (Valeur) » + toggle. Pour Claude
+					// Code (mKind==1), ceci est REELLEMENT transmis via --effort au CLI.
 					{
 						DrawEffortToggle(ctx, dl, {menu.x + ctx.S(12.f), y, w - ctx.S(24.f), it}, mEffort);
 						y += it + ctx.S(10.f);
 					}
-					// Max tokens : − valeur +
-					{
+					// Max tokens : − valeur + — UNIQUEMENT si l'API brute le consomme réellement.
+					if (showTM) {
 						txt(menu.x + ctx.S(12.f), y + (it - (font ? font->LineHeight() : 16.f)) * 0.5f, NkT("ai.maxtokens"),
 							ctx.theme.textDisabled);
 						const float32 bw = ctx.S(24.f);
@@ -1914,7 +2790,9 @@ namespace nkentseu {
 							mMaxTokens = mMaxTokens < 8192 ? mMaxTokens + 256 : 8192;
 						y += it + ctx.S(10.f);
 					}
-					// Instructions système (multi-ligne, scrollable).
+					// Instructions système (multi-ligne, scrollable) — pour Claude Code, transmises
+					// via --append-system-prompt (le prompt système NATIF de Claude Code reste
+					// actif, on AJOUTE juste ces instructions par-dessus, cf. SendClaudeCli()).
 					txt(menu.x + ctx.S(12.f), y, NkT("ai.system"), ctx.theme.textDisabled);
 					y += it + ctx.S(4.f);
 					const NkRect sys = {menu.x + ctx.S(12.f), y, w - ctx.S(24.f), sysH};
@@ -1922,6 +2800,165 @@ namespace nkentseu {
 									   sizeof(mSystem) - 1, /*wrap=*/true);
 					if (ctx.input.mouseClicked[0] && !NkGuiRectContains(menu, mp) && !NkGuiRectContains(mGearRect, mp))
 						mPropsOpen = false;
+				}
+
+				// Temps relatif depuis MAINTENANT jusqu'a un epoch unix (donnee REELLE
+				// resetsAt) — jamais d'horloge murale a formater, correct quel que soit le
+				// fuseau du poste. "" si epoch inconnu/passe.
+				static NkString RelTimeFromNow(int64 epoch) {
+					if (epoch <= 0)
+						return NkString();
+					const int64 now = static_cast<int64>(std::time(nullptr));
+					const int64 secs = epoch > now ? epoch - now : 0;
+					if (secs >= 86400)
+						return NkPrintf("%dj %dh", (int32)(secs / 86400), (int32)((secs % 86400) / 3600));
+					if (secs >= 3600)
+						return NkPrintf("%dh %dmin", (int32)(secs / 3600), (int32)((secs % 3600) / 60));
+					return NkPrintf("%dmin", (int32)(secs / 60));
+				}
+
+				// Libelle humain d'un `rateLimitType` brut ("session", "seven_day",
+				// "seven_day_fable"...) — reconnait les motifs vus empiriquement + un nom de
+				// modele imbrique (fenetre hebdo PAR MODELE, cf. capture VSCode fournie par
+				// Rihen) ; repli HONNETE sur le type brut si rien ne correspond (jamais invente).
+				static NkString UsageBucketLabel(const NkString &type) {
+					const char *t = type.CStr();
+					auto has = [&](const char *k) { return NkFindSub(t, k) != nullptr; };
+					if (has("session"))
+						return NkString(NkT("ai.usage.bucket.session"));
+					const char *mdl = nullptr;
+					if (has("fable") || has("mythos"))
+						mdl = "Fable";
+					else if (has("opus"))
+						mdl = "Opus";
+					else if (has("sonnet"))
+						mdl = "Sonnet";
+					else if (has("haiku"))
+						mdl = "Haiku";
+					if (mdl)
+						return NkPrintf("%s %s", NkT("ai.usage.bucket.weekly"), mdl);
+					if (has("seven_day") || has("week"))
+						return NkString(NkT("ai.usage.bucket.weekly7"));
+					return type;
+				}
+
+				// ── Popover "Compte et utilisation" (Claude Code, mKind==1) : donnees
+				// REELLES du CLI — PLUSIEURS fenetres de quota simultanees (evenements
+				// rate_limit_event, upsert par type) + usage/cout PAR MODELE persiste sur
+				// disque (survit aux redemarrages, AccumModelUsage). AUCUNE valeur inventee :
+				// si rien n'a encore ete recu, le dit explicitement plutot qu'un faux 0%. ──
+				void DrawUsagePopover(NkGuiContext &ctx, const NkRect &bounds, const NkColor &violet) {
+					(void)violet;
+					EnsureUsageLoaded();
+					auto &dl = ctx.DL();
+					const NkGuiFont *font = ctx.font;
+					const NkVec2 mp = ctx.input.mousePos;
+					const float32 w = ctx.S(300.f), it = ctx.ItemHeight(), pad = ctx.S(12.f);
+					const float32 bucketH = it * 2.f + ctx.S(16.f); // label+% / barre / reinit
+					const float32 sepH = ctx.S(18.f);
+					const bool hasBuckets = !mRlBuckets.Empty();
+					const bool hasModels = !mModelUsage.Empty();
+					// Hauteur : titre + (rien encore ? 1 ligne : [USAGE + N buckets] + [sep +
+					// MODELES + M lignes + sep + TOTAL]) + ligne "Gerer sur claude.ai" (toujours).
+					float32 h = pad * 2.f + it;
+					if (!hasBuckets && !hasModels)
+						h += it;
+					if (hasBuckets)
+						h += it + static_cast<float32>(mRlBuckets.Size()) * bucketH;
+					if (hasModels) {
+						if (hasBuckets)
+							h += sepH;
+						h += it + static_cast<float32>(mModelUsage.Size()) * it + sepH + it;
+					}
+					h += it; // lien "Gerer sur claude.ai"
+					NkRect menu = {bounds.x + bounds.w - w - ctx.S(8.f), bounds.y + ctx.S(40.f), w, h};
+					if (menu.x < ctx.S(4.f))
+						menu.x = ctx.S(4.f);
+					const float32 vh = static_cast<float32>(ctx.viewH);
+					if (menu.y + menu.h > vh)
+						menu.y = vh - menu.h - ctx.S(4.f);
+					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(8.f));
+					dl.AddRect(menu, ctx.theme.border, 1.f);
+					auto txt = [&](float32 x, float32 yy, const char *s, const NkColor &c, float32 maxW = -1.f) {
+						if (font && font->Valid())
+							dl.AddText(font->Face(), font->TexId(), {x, yy + font->Ascent()}, s, c, maxW);
+					};
+					auto sectionHdr = [&](float32 yy, const char *s) {
+						txt(menu.x + pad, yy, s, ctx.theme.textDisabled);
+					};
+					float32 y = menu.y + pad;
+					txt(menu.x + pad, y, NkT("ai.usage.title"), ctx.theme.text);
+					y += it;
+					if (!hasBuckets && !hasModels) {
+						txt(menu.x + pad, y, NkT("ai.usage.none"), ctx.theme.textDisabled, w - pad * 2.f);
+						y += it;
+					}
+					if (hasBuckets) {
+						sectionHdr(y, NkT("ai.usage.section.usage"));
+						y += it;
+						for (usize i = 0; i < mRlBuckets.Size(); ++i) {
+							const RlBucket &b = mRlBuckets[i];
+							const float32 frac = b.utilization < 0.f ? 0.f : (b.utilization > 1.f ? 1.f : b.utilization);
+							const NkColor barC = b.utilization >= 1.f  ? NkColor{225, 70, 70, 255}
+												  : b.surpassed		  ? NkColor{230, 160, 50, 255}
+																	  : NkColor{88, 209, 143, 255};
+							const NkString label = UsageBucketLabel(b.type);
+							txt(menu.x + pad, y, label.CStr(), ctx.theme.text, w - pad * 2.f - ctx.S(50.f));
+							const NkString pct = NkPrintf("%d%%", (int32)(b.utilization * 100.f + 0.5f));
+							const float32 pctW = font && font->Valid() ? font->MeasureWidth(pct.CStr()) : 0.f;
+							txt(menu.x + w - pad - pctW, y, pct.CStr(), ctx.theme.text);
+							y += it;
+							const NkRect trk = {menu.x + pad, y + ctx.S(3.f), w - pad * 2.f, ctx.S(6.f)};
+							dl.AddRectFilled(trk, ctx.theme.button, ctx.S(3.f));
+							dl.AddRectFilled({trk.x, trk.y, trk.w * frac, trk.h}, barC, ctx.S(3.f));
+							y += ctx.S(12.f);
+							NkString sub = b.resetsAt > 0
+											   ? NkPrintf("%s %s", NkT("ai.usage.resetsin"), RelTimeFromNow(b.resetsAt).CStr())
+											   : NkString();
+							if (b.overage)
+								sub += sub.Empty() ? NkString(NkT("ai.usage.overage"))
+												   : (NkString("  \xC2\xB7  ") + NkT("ai.usage.overage"));
+							txt(menu.x + pad, y, sub.CStr(), ctx.theme.textDisabled);
+							y += it;
+						}
+					}
+					if (hasModels) {
+						if (hasBuckets) {
+							dl.AddRectFilled({menu.x + pad, y + ctx.S(6.f), w - pad * 2.f, 1.f}, ctx.theme.border);
+							y += sepH;
+						}
+						sectionHdr(y, NkT("ai.usage.section.models"));
+						y += it;
+						for (usize i = 0; i < mModelUsage.Size(); ++i) {
+							const ModelUsage &mu = mModelUsage[i];
+							txt(menu.x + pad, y, mu.model.CStr(), ctx.theme.text, w * 0.5f - pad);
+							const NkString c = NkPrintf("$%.4f", mu.costUsd);
+							const float32 cw = font && font->Valid() ? font->MeasureWidth(c.CStr()) : 0.f;
+							txt(menu.x + w - pad - cw, y, c.CStr(), ctx.theme.text);
+							y += it;
+						}
+						dl.AddRectFilled({menu.x + pad, y + ctx.S(6.f), w - pad * 2.f, 1.f}, ctx.theme.border);
+						y += sepH;
+						const NkString tot = NkPrintf("$%.4f", TotalUsageCostUsd());
+						const float32 tw = font && font->Valid() ? font->MeasureWidth(tot.CStr()) : 0.f;
+						txt(menu.x + pad, y, NkT("ai.usage.total"), ctx.theme.text);
+						txt(menu.x + w - pad - tw, y, tot.CStr(), ctx.theme.text);
+						y += it;
+					}
+					// Lien REEL (pas une donnee simulee) : ouvre la page officielle d'usage —
+					// c'est la que vivent auth/email/organisation/plan, que le protocole CLI
+					// stream-json n'expose pas (repli honnete plutot qu'invente).
+					{
+						const bool hov = mp.y >= y && mp.y < y + it && mp.x >= menu.x + pad && mp.x < menu.x + w - pad;
+						txt(menu.x + pad, y, NkT("ai.usage.managelink"), hov ? ctx.theme.accent : ctx.theme.textDisabled);
+						if (hov) {
+							ctx.wantCursor = NkGuiCursor::Hand;
+							if (ctx.input.mouseClicked[0])
+								NkLauncher::OpenURL("https://claude.ai/settings/usage");
+						}
+					}
+					if (ctx.input.mouseClicked[0] && !NkGuiRectContains(menu, mp))
+						mUsageOpen = false;
 				}
 
 				// ── JSON : échappe une chaîne pour un littéral JSON. ──
@@ -2014,6 +3051,192 @@ namespace nkentseu {
 					return o;
 				}
 
+				// Extrait un champ NUMERIQUE `"key":123.45` (0.0 si absent) — meme recherche
+				// maison que JsonStr, pour usage.input_tokens/output_tokens (API brute mKind==0).
+				static double JsonNum(const char *json, const char *key) {
+					NkString pat = NkString("\"") + key + "\"";
+					const char *k = NkFindSub(json, pat.CStr());
+					if (!k)
+						return 0.0;
+					const char *p = k + pat.Size();
+					while (*p && *p != ':')
+						++p;
+					if (*p)
+						++p;
+					while (*p == ' ' || *p == '\t' || *p == '\n')
+						++p;
+					bool neg = false;
+					if (*p == '-') {
+						neg = true;
+						++p;
+					}
+					double v = 0.0;
+					while (*p >= '0' && *p <= '9') {
+						v = v * 10.0 + (*p - '0');
+						++p;
+					}
+					if (*p == '.') {
+						++p;
+						double frac = 0.1;
+						while (*p >= '0' && *p <= '9') {
+							v += (*p - '0') * frac;
+							frac *= 0.1;
+							++p;
+						}
+					}
+					return neg ? -v : v;
+				}
+
+				// Conversion decimale minimale ("12.3456" -> double) — pas de dependance
+				// <cstdlib>, coherent avec les autres parseurs "maison" de ce fichier.
+				static double AtofSimple(const char *s) {
+					if (!s)
+						return 0.0;
+					bool neg = false;
+					if (*s == '-') {
+						neg = true;
+						++s;
+					}
+					double v = 0.0;
+					while (*s >= '0' && *s <= '9')
+						v = v * 10.0 + (*s++ - '0');
+					if (*s == '.') {
+						++s;
+						double frac = 0.1;
+						while (*s >= '0' && *s <= '9') {
+							v += (*s++ - '0') * frac;
+							frac *= 0.1;
+						}
+					}
+					return neg ? -v : v;
+				}
+
+				// ── Persistance GLOBALE de l'usage (survit aux redemarrages de NKCode, PAS
+				// lie a un workspace : le compte/la cle API sont partages entre projets) —
+				// meme convention que TerminalPanel::PrefPath (%APPDATA%/NKCode/*.cfg,
+				// format ligne "cle=valeur"). ──
+				static NkString UsagePrefPath() {
+					const char *base = env::GetEnvVar("APPDATA");
+					if (!base)
+						base = env::GetEnvVar("HOME");
+					if (!base)
+						return NkString();
+					NkString dir = NkString(base) + "/NKCode";
+					NkDirectory::Create(dir.CStr());
+					return dir + "/ai_usage.cfg";
+				}
+
+				void EnsureUsageLoaded() {
+					if (mUsageLoaded)
+						return;
+					mUsageLoaded = true;
+					const NkString p = UsagePrefPath();
+					if (p.Empty() || !NkFile::Exists(NkPath(p)))
+						return;
+					const NkString txt = NkFile::ReadAllText(NkPath(p));
+					const char *s = txt.CStr();
+					while (*s) {
+						const char *e = s;
+						while (*e && *e != '\n' && *e != '\r')
+							++e;
+						if (e - s > 6 && s[0] == 'm' && s[1] == 'o' && s[2] == 'd' && s[3] == 'e' && s[4] == 'l' &&
+							s[5] == '=') {
+							// "model=<nom>|cost=<f>|tokin=<i>|tokout=<i>|turns=<i>"
+							NkString line;
+							for (const char *q = s + 6; q < e; ++q)
+								line += *q;
+							ModelUsage mu;
+							usize barPos = line.Find('|');
+							mu.model = barPos == NkString::npos ? line : line.SubStr(0, barPos);
+							auto field = [&](const char *key) -> NkString {
+								const NkString pat = NkString(key) + "=";
+								const char *k = NkFindSub(line.CStr(), pat.CStr());
+								if (!k)
+									return NkString();
+								const char *v = k + pat.Size();
+								NkString out;
+								while (*v && *v != '|')
+									out += *v++;
+								return out;
+							};
+							mu.costUsd = AtofSimple(field("cost").CStr());
+							mu.tokIn = NkAtoi(field("tokin").CStr());
+							mu.tokOut = NkAtoi(field("tokout").CStr());
+							mu.turns = NkAtoi(field("turns").CStr());
+							if (!mu.model.Empty())
+								mModelUsage.PushBack(mu);
+						}
+						s = e;
+						while (*s == '\n' || *s == '\r')
+							++s;
+					}
+				}
+
+				void SaveUsagePersist() {
+					const NkString p = UsagePrefPath();
+					if (p.Empty())
+						return;
+					NkString out;
+					for (usize i = 0; i < mModelUsage.Size(); ++i) {
+						const ModelUsage &mu = mModelUsage[i];
+						out += NkPrintf("model=%s|cost=%.6f|tokin=%lld|tokout=%lld|turns=%d\n", mu.model.CStr(),
+										mu.costUsd, (long long)mu.tokIn, (long long)mu.tokOut, mu.turns);
+					}
+					NkFile::WriteAllText(NkPath(p), out.CStr());
+				}
+
+				// Cumule `cost`/`tokIn`/`tokOut` sous `model` (nouvelle entree si jamais vu),
+				// persiste immediatement (perte de donnees nulle meme si NKCode plante).
+				void AccumModelUsage(const NkString &model, double cost, int64 tokIn, int64 tokOut) {
+					EnsureUsageLoaded();
+					const NkString key = model.Empty() ? NkString("?") : model;
+					for (usize i = 0; i < mModelUsage.Size(); ++i)
+						if (mModelUsage[i].model == key) {
+							mModelUsage[i].costUsd += cost;
+							mModelUsage[i].tokIn += tokIn;
+							mModelUsage[i].tokOut += tokOut;
+							mModelUsage[i].turns += 1;
+							SaveUsagePersist();
+							return;
+						}
+					ModelUsage mu;
+					mu.model = key;
+					mu.costUsd = cost;
+					mu.tokIn = tokIn;
+					mu.tokOut = tokOut;
+					mu.turns = 1;
+					mModelUsage.PushBack(mu);
+					SaveUsagePersist();
+				}
+
+				double TotalUsageCostUsd() const {
+					double t = 0.0;
+					for (usize i = 0; i < mModelUsage.Size(); ++i)
+						t += mModelUsage[i].costUsd;
+					return t;
+				}
+
+				// Tarif PUBLIC ($/1M tokens in,out) — utilise UNIQUEMENT pour l'Assistant
+				// general (API brute, mKind==0) qui n'a pas de champ cout dans sa reponse
+				// (contrairement au CLI Claude Code, qui renvoie total_cost_usd EXACT). Le
+				// popover marque ces couts "estimes", jamais confondus avec les couts exacts.
+				static void PublicRateFor(const NkString &model, double &inRate, double &outRate) {
+					const char *m = model.CStr();
+					if (NkFindSub(m, "fable") || NkFindSub(m, "mythos")) {
+						inRate = 10.0;
+						outRate = 50.0;
+					} else if (NkFindSub(m, "opus")) {
+						inRate = 5.0;
+						outRate = 25.0;
+					} else if (NkFindSub(m, "haiku")) {
+						inRate = 1.0;
+						outRate = 5.0;
+					} else { // sonnet, ou modele inconnu -> repli le plus courant
+						inRate = 3.0;
+						outRate = 15.0;
+					}
+				}
+
 				NkString ReqPath() const {
 					return (mS->root / ".nkcode" / "ai_req.json").ToString();
 				}
@@ -2052,6 +3275,617 @@ namespace nkentseu {
 					return j;
 				}
 
+				// ── Resout le chemin NATIF de claude.exe. Piege Windows : les shims npm
+				// "claude"/"claude.cmd" ne sont PAS lancables par CreateProcessW direct
+				// (utilisé par NkPipeProc, sans cmd.exe) — CreateProcess n'essaie QUE
+				// l'extension .exe implicite, JAMAIS .cmd/.bat/PATHEXT (contrairement à
+				// cmd.exe/_popen, qui eux résolvent .cmd). Le paquet npm
+				// @anthropic-ai/claude-code fournit un VRAI binaire natif à
+				// <dossier-du-shim>\node_modules\@anthropic-ai\claude-code\bin\claude.exe —
+				// on le localise UNE FOIS (`where claude.cmd`, qui passe par cmd.exe et
+				// résout donc .cmd correctement) et on met en cache (ClaudeExe()). ──
+				static NkString ResolveClaudeExe() {
+					const char *appData = env::GetEnvVar("APPDATA");
+					if (appData && *appData) {
+						const NkString candidate =
+							NkString(appData) + "\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe";
+						if (NkFile::Exists(candidate.CStr()))
+							return candidate;
+					}
+#ifdef _WIN32
+					FILE *pipe = _popen("where claude.cmd 2>nul", "r");
+#else
+					FILE *pipe = popen("which claude 2>/dev/null", "r");
+#endif
+					if (pipe) {
+						char line[512];
+						NkString shimPath;
+						if (std::fgets(line, sizeof(line), pipe)) {
+							for (char *q = line; *q; ++q)
+								if (*q == '\n' || *q == '\r') {
+									*q = 0;
+									break;
+								}
+							shimPath = NkString(line);
+						}
+#ifdef _WIN32
+						_pclose(pipe);
+#else
+						pclose(pipe);
+#endif
+						if (!shimPath.Empty()) {
+							const usize slash = shimPath.RFind('\\');
+							if (slash != NkString::npos) {
+								const NkString dir = shimPath.SubStr(0, slash);
+								const NkString candidate =
+									dir + "\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe";
+								if (NkFile::Exists(candidate.CStr()))
+									return candidate;
+							}
+						}
+					}
+					return NkString("claude"); // dernier recours (echouera si aucun .exe natif trouve)
+				}
+				const NkString &ClaudeExe() {
+					if (!mClaudeExeResolved) {
+						mClaudeExePath = ResolveClaudeExe();
+						mClaudeExeResolved = true;
+					}
+					return mClaudeExePath;
+				}
+
+				// ── Backend REEL pour l'agent Claude Code (mKind==1) : spawn le CLI `claude`
+				// en sous-processus (NkPipeProc, mêmes pipes que le client LSP) au lieu du
+				// curl+API brut des autres agents. Récupère GRATUITEMENT : mémoire
+				// (CLAUDE.md/.claude auto-chargés par le CLI), outils réels (Read/Write/
+				// Edit/Bash selon --permission-mode), session persistée sur disque
+				// (--resume <session_id>). Voir NkWin32QuoteArg : le prompt utilisateur
+				// (texte libre, non fiable) ne doit JAMAIS être interpolé dans une chaîne de
+				// commande sans échappement — CreateProcessW n'a pas de shell pour absorber
+				// ça, contrairement à _popen/cmd.exe. ──
+				void SendClaudeCli() {
+					mClaudeCurModel = NkString(); // capture du modele REEL de ce tour (voir "assistant" plus bas)
+					// Portée (Scope) + chip contexte fichier : préfixe le prompt d'un rappel du
+					// contexte actif — l'agent a de VRAIS outils Read donc peut déjà tout
+					// explorer seul, mais lui rappeler le fichier/la sélection ACTUELLEMENT
+					// visible dans NKCode évite qu'il parte à l'aveugle chercher où regarder.
+					NkString contextPrefix;
+					if (mCtxFileOn && mS && mS->HasActive()) {
+						OpenFile &f = mS->files[mS->active];
+						contextPrefix +=
+							NkPrintf("[Contexte NKCode : fichier actif %s, ligne %d]\n", f.Name().CStr(), f.doc.curLine + 1);
+					}
+					if (mScope == 1 && mS && mS->HasActive() && mS->files[mS->active].doc.HasSel()) {
+						OpenFile &f = mS->files[mS->active];
+						contextPrefix += NkString("[Sélection concernée]\n```\n") + f.doc.GetSelectedText().CStr() + "\n```\n";
+					}
+					// ── MEMOIRE GLOBALE DES INTERACTIONS IDE : le JOURNAL (commandes, resultats,
+					// executions, sauvegardes, changements de projet...) part avec CHAQUE requete
+					// (compact, ~25 lignes) -> l'agent sait « ce qui vient de se passer ». ──
+					if (mS && !mS->ideJournal.Empty()) {
+						contextPrefix += "[Journal IDE recent — du plus ancien au plus recent]\n";
+						const usize jn = mS->ideJournal.Size();
+						const usize js = jn > 25 ? jn - 25 : 0;
+						for (usize i = js; i < jn; ++i) {
+							contextPrefix += "- ";
+							contextPrefix += mS->ideJournal[i];
+							contextPrefix += "\n";
+						}
+					}
+					// ── En complement : si le prompt parle de build/erreur/compilation ET
+					// qu'une compilation a ECHOUE, on attache le TRANSCRIPT de ce dernier echec
+					// (NkCodeState::lastBuildFail, aussi persiste dans .nkcode/
+					// last_build_fail.log) -> « corrige la derniere erreur de build »
+					// fonctionne sans que l'agent ait a chercher ou regarder. ──
+					if (mS && !mS->lastBuildFail.Empty()) {
+						auto containsI = [](const char *hay, const char *needle) {
+							return NkCodeState::ContainsI(hay, needle);
+						};
+						const char *q = mInput;
+						const bool wants = containsI(q, "build") || containsI(q, "compil") || containsI(q, "erreur") ||
+										   containsI(q, "error") || containsI(q, "link") || containsI(q, "warning");
+						if (wants) {
+							contextPrefix += NkPrintf("[Dernière compilation ÉCHOUÉE — commande : %s]\n```\n",
+													  mS->lastBuildFailCmd.CStr());
+							// Cap : dernieres ~150 lignes (les erreurs sont a la fin du transcript).
+							const usize n = mS->lastBuildFail.Size();
+							const usize start = n > 150 ? n - 150 : 0;
+							for (usize i = start; i < n; ++i) {
+								contextPrefix += mS->lastBuildFail[i];
+								contextPrefix += "\n";
+							}
+							contextPrefix += "```\n";
+						}
+					}
+
+					Msgs().PushBack({0, NkString(mInput)}); // bulle utilisateur : le texte TEL QUE TAPE (sans prefixe)
+					const NkString prompt = contextPrefix + mInput; // le prefixe part AVEC la requete au CLI
+					mInput[0] = 0;
+					mChats[static_cast<usize>(mActiveChat)].stick = true;
+					mBusyChat = mActiveChat;
+					mClaudeStarted = false;
+					mClaudeMsgIdx = -1;
+					mClaudeThinkStarted = false;
+					mClaudeThinkIdx = -1;
+					mClaudeBuf.Clear();
+
+					// permission-mode : mappe le combo Mode existant (Manuel/Auto-Edit/Plan/
+					// Auto). « Manuel » = "default" (le CLI demande CHAQUE outil) — couple au
+					// protocole de controle stdio ci-dessous, il devient REELLEMENT interactif :
+					// chaque demande arrive en `control_request { can_use_tool }` et NKCode
+					// affiche une carte Autoriser/Refuser (verifie empiriquement le 20 juil :
+					// allow -> l'outil s'execute, fichier cree). Les autres modes profitent du
+					// meme canal pour leurs demandes residuelles (ex. Bash en Auto-Edit).
+					static const char *const kPermModes[4] = {"default", "acceptEdits", "plan", "auto"};
+					const int32 permIdx = (mMode >= 0 && mMode < 4) ? mMode : 0;
+
+					// Clé API PAR-PROJET (optionnelle) : si `.nkcode/ai_claude_key.txt` existe
+					// dans le workspace, --bare + ANTHROPIC_API_KEY DÉDIÉ (n'affecte PAS la
+					// session OAuth partagée ni les autres projets — chaque appel construit
+					// son propre bloc d'environnement, cf. NkPipeProc::StartWithEnv). Sinon :
+					// session OAuth globale (claude auth login), comportement par défaut.
+					NkString projectKey;
+					if (mS && mS->HasWorkspace()) {
+						const NkString keyPath = (mS->root / ".nkcode" / "ai_claude_key.txt").ToString();
+						if (NkFile::Exists(keyPath.CStr()))
+							projectKey = NkFile::ReadAllText(keyPath.CStr()).Trim();
+					}
+
+					NkVector<NkString> argv;
+					argv.PushBack(ClaudeExe()); // chemin NATIF resolu (voir ResolveClaudeExe) -- PAS le shim .cmd
+					argv.PushBack(NkString("-p"));
+					argv.PushBack(NkString("--input-format")); // prompt via STDIN (NDJSON) : le canal
+					argv.PushBack(NkString("stream-json"));	   // reste OUVERT pour repondre aux
+					argv.PushBack(NkString("--output-format")); // demandes de permission du CLI
+					argv.PushBack(NkString("stream-json"));
+					argv.PushBack(NkString("--verbose"));
+					argv.PushBack(NkString("--include-partial-messages"));
+					argv.PushBack(NkString("--permission-mode"));
+					argv.PushBack(NkString(kPermModes[permIdx]));
+					// Protocole de permission INTERACTIF : les demandes d'outils arrivent en
+					// `control_request { subtype:"can_use_tool", tool_name, input }` sur stdout
+					// et attendent notre `control_response { behavior:"allow"|"deny" }` sur
+					// stdin (verifie empiriquement, CLI v2.1.212).
+					argv.PushBack(NkString("--permission-prompt-tool"));
+					argv.PushBack(NkString("stdio"));
+					// --model : alias reel du combo Modele ("auto" = ne passe PAS le flag, laisse
+					// le CLI decider — evite de figer un choix par defaut qu'on ne controle pas).
+					{
+						int32 nModels = 0;
+						const char *const *models = kModels(nModels);
+						const char *mdl = (mModelIdx >= 0 && mModelIdx < nModels) ? models[mModelIdx] : "auto";
+						if (mdl && NkString(mdl) != "auto") {
+							argv.PushBack(NkString("--model"));
+							argv.PushBack(NkString(mdl));
+						}
+					}
+					// --effort : mappe les 6 niveaux de l'UI (kEffortLevels) sur les 5 valeurs
+					// REELLES du CLI ("low","medium","high","xhigh","max" — verifie via --help).
+					// Bucketing forcement approximatif (6 -> 5) : les deux niveaux les plus bas
+					// partagent "low" plutot que d'inventer un 6e palier cote CLI.
+					{
+						static const char *const kCliEffort[6] = {"low", "low", "medium", "high", "xhigh", "max"};
+						const int32 effIdx = (mEffort >= 0 && mEffort < 6) ? mEffort : 2;
+						argv.PushBack(NkString("--effort"));
+						argv.PushBack(NkString(kCliEffort[effIdx]));
+					}
+					// Instructions systeme (gear popover) : AJOUTEES au prompt systeme natif de
+					// Claude Code (pas --system-prompt, qui le REMPLACERAIT entierement et
+					// perdrait le comportement agentique par defaut).
+					if (mSystem[0]) {
+						argv.PushBack(NkString("--append-system-prompt"));
+						argv.PushBack(NkString(mSystem));
+					}
+					// --bare desactive CLAUDE.md/memoire auto (voulu pour l'ISOLATION de la cle
+					// API) — mais on veut GARDER la memoire projet malgre tout (meme systeme
+					// que VSCode : CLAUDE.md + memoire auto qui s'enrichit avec le temps) : on
+					// la restaure explicitement via --add-dir, comme documente par `--bare`
+					// lui-meme ("Explicitly provide context via: ... --add-dir (CLAUDE.md dirs)").
+					if (!projectKey.Empty()) {
+						argv.PushBack(NkString("--bare"));
+						if (mS && mS->HasWorkspace()) {
+							argv.PushBack(NkString("--add-dir"));
+							argv.PushBack(mS->root.ToString());
+						}
+					}
+					const NkString &sid = mChats[static_cast<usize>(mActiveChat)].claudeSessionId;
+					if (!sid.Empty()) {
+						argv.PushBack(NkString("--resume"));
+						argv.PushBack(sid);
+					}
+					// (plus d'argument [prompt] : il part via STDIN en NDJSON, cf. ci-dessous)
+
+					NkString cmd;
+					for (usize i = 0; i < argv.Size(); ++i) {
+						if (i > 0)
+							cmd += " ";
+						cmd += NkWin32QuoteArg(argv[i].CStr());
+					}
+
+					NkVector<NkString> envOverrides;
+					if (!projectKey.Empty())
+						envOverrides.PushBack(NkString("ANTHROPIC_API_KEY=") + projectKey.CStr());
+
+					const NkString cwd = (mS && mS->HasWorkspace()) ? mS->root.ToString() : NkString(".");
+					if (!mClaudeProc.StartWithEnv(cmd, cwd, envOverrides, /*mergeStderr=*/true)) {
+						Msgs().PushBack({2, NkString(NkT("ai.claude.launchfail"))});
+						return;
+					}
+					// Prompt -> stdin (une ligne NDJSON). Le canal stdin RESTE ouvert tout le
+					// tour pour pouvoir repondre aux demandes de permission (control_response).
+					{
+						NkString um = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":"
+									  "\"text\",\"text\":\"";
+						um += NkJsonEscape(prompt.CStr());
+						um += "\"}]}}\n";
+						mClaudeProc.WriteData(um.CStr(), static_cast<int32>(um.Size()));
+					}
+					mBusy = true;
+				}
+
+				// Echappe `s` pour l'inserer dans une chaine JSON (guillemets, antislashs,
+				// sauts de ligne, caracteres de controle -> \uXXXX). L'UTF-8 passe tel quel.
+				static NkString NkJsonEscape(const char *s) {
+					NkString out;
+					for (const char *p = s; *p; ++p) {
+						const unsigned char c = (unsigned char)*p;
+						if (c == '"')
+							out += "\\\"";
+						else if (c == '\\')
+							out += "\\\\";
+						else if (c == '\n')
+							out += "\\n";
+						else if (c == '\r')
+							out += "\\r";
+						else if (c == '\t')
+							out += "\\t";
+						else if (c < 0x20)
+							out += NkPrintf("\\u%04x", (int32)c);
+						else
+							out += (char)c;
+					}
+					return out;
+				}
+
+				// Extrait le SOUS-OBJET JSON brut `"key":{...}` d'une ligne NDJSON (scanner
+				// d'accolades conscient des chaines/echappements). Retourne "{}" si absent —
+				// sert a renvoyer `updatedInput` tel quel dans la reponse de permission sans
+				// re-serialiser (NkJsonDoc est un lecteur, pas un ecrivain).
+				static NkString NkJsonRawObject(const char *line, const char *key) {
+					const char *k = line;
+					const usize kl = [&] {
+						usize n = 0;
+						while (key[n])
+							++n;
+						return n;
+					}();
+					while ((k = NkFindSub(k, key)) != nullptr) {
+						const char *p = k + kl;
+						while (*p == ' ' || *p == ':')
+							++p;
+						if (*p == '{') {
+							int32 depth = 0;
+							bool inStr = false;
+							const char *q = p;
+							for (; *q; ++q) {
+								if (inStr) {
+									if (*q == '\\' && q[1])
+										++q;
+									else if (*q == '"')
+										inStr = false;
+								} else if (*q == '"')
+									inStr = true;
+								else if (*q == '{')
+									++depth;
+								else if (*q == '}') {
+									if (--depth == 0) {
+										NkString out;
+										for (const char *r = p; r <= q; ++r)
+											out += *r;
+										return out;
+									}
+								}
+							}
+							break; // objet non ferme : ligne corrompue
+						}
+						k += kl;
+					}
+					return NkString("{}");
+				}
+
+				// ── Traite UNE ligne NDJSON du flux stream-json (un événement complet par
+				// ligne). V1 volontairement MINIMAL et honnête : capture le session_id
+				// (system/init) + accumule le texte (stream_event/text_delta) + finalise sur
+				// `result` (texte AUTORITAIRE final, remplace l'accumulation partielle si
+				// elle divergeait). Les événements tool_use/tool_result ne sont PAS encore
+				// affichés (pas de fausse carte d'outil qui ne ferait rien) — prochain
+				// incrément à faire, noté en mémoire projet. ──
+				void HandleClaudeLine(const NkString &line, NkVector<Msg> &msgs, ChatSession &chat) {
+					NkJsonDoc doc;
+					if (!doc.Parse(line.CStr(), static_cast<int32>(line.Size())))
+						return;
+					const NkJsonVal *root = doc.Root();
+					const NkJsonVal *typeV = doc.Member(root, "type");
+					if (!typeV || typeV->kind != 3)
+						return;
+					if (typeV->str == "system") {
+						const NkJsonVal *subV = doc.Member(root, "subtype");
+						if (subV && subV->kind == 3 && subV->str == "init") {
+							const NkJsonVal *sidV = doc.Member(root, "session_id");
+							if (sidV && sidV->kind == 3)
+								chat.claudeSessionId = sidV->str;
+						}
+					} else if (typeV->str == "rate_limit_event") {
+						// ── UTILISATION REELLE (protocole du CLI, verifie empiriquement le 20
+						// juil) : {"rate_limit_info":{"status","utilization","resetsAt",
+						// "rateLimitType","isUsingOverage","surpassedThreshold"}}. PLUSIEURS
+						// fenetres coexistent (session/hebdo/par-modele, cf. capture VSCode
+						// fournie par Rihen) -> upsert par `rateLimitType`, jamais un remplace
+						// tous les autres. Alimente le popover — AUCUNE valeur inventee. ──
+						const NkJsonVal *infoV = doc.Member(root, "rate_limit_info");
+						if (infoV) {
+							const NkJsonVal *stV = doc.Member(infoV, "status");
+							const NkJsonVal *utV = doc.Member(infoV, "utilization");
+							const NkJsonVal *raV = doc.Member(infoV, "resetsAt");
+							const NkJsonVal *rtV = doc.Member(infoV, "rateLimitType");
+							const NkJsonVal *ovV = doc.Member(infoV, "isUsingOverage");
+							const NkJsonVal *spV = doc.Member(infoV, "surpassedThreshold");
+							RlBucket b;
+							b.type = (rtV && rtV->kind == 3) ? rtV->str : NkString("?");
+							b.status = (stV && stV->kind == 3) ? stV->str : NkString();
+							b.utilization = (utV && utV->kind == 2) ? (float32)utV->num : 0.f;
+							b.resetsAt = (raV && raV->kind == 2) ? (int64)raV->num : 0;
+							b.overage = ovV && ovV->kind == 1 && ovV->b;
+							b.surpassed = spV && spV->kind == 1 && spV->b;
+							bool found = false;
+							for (usize i = 0; i < mRlBuckets.Size() && !found; ++i)
+								if (mRlBuckets[i].type == b.type) {
+									mRlBuckets[i] = b;
+									found = true;
+								}
+							if (!found)
+								mRlBuckets.PushBack(b);
+						}
+					} else if (typeV->str == "stream_event") {
+						const NkJsonVal *eventV = doc.Member(root, "event");
+						const NkJsonVal *deltaV = eventV ? doc.Member(eventV, "delta") : nullptr;
+						const NkJsonVal *dtypeV = deltaV ? doc.Member(deltaV, "type") : nullptr;
+						if (dtypeV && dtypeV->kind == 3 && dtypeV->str == "text_delta") {
+							const NkJsonVal *textV = doc.Member(deltaV, "text");
+							if (textV && textV->kind == 3) {
+								// index STABLE (pas "le dernier message") : un tool_use peut avoir
+								// poussé un message-statut ENTRE deux deltas de texte.
+								if (!mClaudeStarted) {
+									msgs.PushBack({1, NkString()});
+									mClaudeMsgIdx = static_cast<int32>(msgs.Size()) - 1;
+									mClaudeStarted = true;
+								}
+								msgs[static_cast<usize>(mClaudeMsgIdx)].text += textV->str;
+							}
+						} else if (mThinking && dtypeV && dtypeV->kind == 3 && dtypeV->str == "thinking_delta") {
+							// Réflexion (extended thinking) : SEULEMENT si l'utilisateur l'a demandé
+							// (mThinking) — accumulée dans un message dédié, distinct de la réponse
+							// finale, façon Claude Code (bloc "Réflexion" séparé).
+							const NkJsonVal *thinkV = doc.Member(deltaV, "thinking");
+							if (thinkV && thinkV->kind == 3) {
+								if (!mClaudeThinkStarted) {
+									msgs.PushBack({2, NkString(NkT("ai.thinking")) + " :\n"});
+									mClaudeThinkIdx = static_cast<int32>(msgs.Size()) - 1;
+									mClaudeThinkStarted = true;
+								}
+								msgs[static_cast<usize>(mClaudeThinkIdx)].text += thinkV->str;
+							}
+						}
+					} else if (typeV->str == "assistant") {
+						// Visibilité des ACTIONS de l'agent (Read/Write/Edit/Bash/Grep/Glob/...) :
+						// chaque tool_use devient une ligne-statut discrète (role système, pas de
+						// bouton Copier/Insérer dessus — ce n'est pas une réponse). PAS d'emoji
+						// (la police NotoSans du projet n'a pas de couverture emoji -> tofu/« ? »)
+						// — texte brut uniquement, façon "[Outil] détail". Cherche le champ le
+						// plus parlant selon l'outil : file_path (Read/Write/Edit), command
+						// (Bash), pattern (Grep/Glob).
+						const NkJsonVal *messageV = doc.Member(root, "message");
+						// Modele REEL de ce tour (utile quand --model est "auto" : c'est le CLI qui
+						// choisit) — chaque chunk "assistant" le porte, capture des le premier vu.
+						const NkJsonVal *modelV = messageV ? doc.Member(messageV, "model") : nullptr;
+						if (modelV && modelV->kind == 3)
+							mClaudeCurModel = modelV->str;
+						const NkJsonVal *contentV = messageV ? doc.Member(messageV, "content") : nullptr;
+						const int32 cn = contentV ? doc.Count(contentV) : 0;
+						for (int32 ci = 0; ci < cn; ++ci) {
+							const NkJsonVal *item = doc.At(contentV, ci);
+							const NkJsonVal *itypeV = item ? doc.Member(item, "type") : nullptr;
+							if (!itypeV || itypeV->kind != 3 || itypeV->str != "tool_use")
+								continue;
+							const NkJsonVal *nameV = doc.Member(item, "name");
+							if (!nameV || nameV->kind != 3)
+								continue;
+							const NkString &toolName = nameV->str;
+							int32 toolIcon = 4; // generique par defaut
+							if (toolName == "Read" || toolName == "Write" || toolName == "Edit" ||
+								toolName == "NotebookEdit")
+								toolIcon = 1;
+							else if (toolName == "Bash" || toolName == "PowerShell")
+								toolIcon = 2;
+							else if (toolName == "Grep" || toolName == "Glob")
+								toolIcon = 3;
+							NkString label = NkPrintf("[%s]", toolName.CStr());
+							const NkJsonVal *inputV = doc.Member(item, "input");
+							const NkJsonVal *pathV = inputV ? doc.Member(inputV, "file_path") : nullptr;
+							const NkJsonVal *cmdV = inputV ? doc.Member(inputV, "command") : nullptr;
+							const NkJsonVal *patV = inputV ? doc.Member(inputV, "pattern") : nullptr;
+							if (pathV && pathV->kind == 3)
+								label += NkString(" ") + pathV->str;
+							else if (cmdV && cmdV->kind == 3)
+								label += NkString(" ") + cmdV->str;
+							else if (patV && patV->kind == 3)
+								label += NkString(" ") + patV->str;
+							msgs.PushBack({2, label, toolIcon});
+						}
+					} else if (typeV->str == "control_request") {
+						// ── DEMANDE DE PERMISSION (can_use_tool) : le CLI est BLOQUE jusqu'a
+						// notre control_response -> memorise la demande, la carte Autoriser/
+						// Refuser est rendue par DrawMessages, les boutons repondent via
+						// AnswerClaudePermission(). ──
+						const NkJsonVal *reqV = doc.Member(root, "request");
+						const NkJsonVal *subV = reqV ? doc.Member(reqV, "subtype") : nullptr;
+						if (subV && subV->kind == 3 && subV->str == "can_use_tool") {
+							const NkJsonVal *ridV = doc.Member(root, "request_id");
+							const NkJsonVal *toolV = doc.Member(reqV, "tool_name");
+							mPermReqId = (ridV && ridV->kind == 3) ? ridV->str : NkString();
+							mPermTool = (toolV && toolV->kind == 3) ? toolV->str : NkString("?");
+							mPermInputRaw = NkJsonRawObject(line.CStr(), "\"input\"");
+							mPermIcon = 4;
+							if (mPermTool == "Read" || mPermTool == "Write" || mPermTool == "Edit" ||
+								mPermTool == "NotebookEdit")
+								mPermIcon = 1;
+							else if (mPermTool == "Bash" || mPermTool == "PowerShell")
+								mPermIcon = 2;
+							else if (mPermTool == "Grep" || mPermTool == "Glob")
+								mPermIcon = 3;
+							mPermDetail = NkString();
+							const NkJsonVal *inputV = doc.Member(reqV, "input");
+							const NkJsonVal *pathV = inputV ? doc.Member(inputV, "file_path") : nullptr;
+							const NkJsonVal *cmdV = inputV ? doc.Member(inputV, "command") : nullptr;
+							const NkJsonVal *patV = inputV ? doc.Member(inputV, "pattern") : nullptr;
+							if (pathV && pathV->kind == 3)
+								mPermDetail = pathV->str;
+							else if (cmdV && cmdV->kind == 3)
+								mPermDetail = cmdV->str;
+							else if (patV && patV->kind == 3)
+								mPermDetail = patV->str;
+							mPermPending = !mPermReqId.Empty();
+						}
+					} else if (typeV->str == "result") {
+						const NkJsonVal *resV = doc.Member(root, "result");
+						if (resV && resV->kind == 3) {
+							if (!mClaudeStarted) {
+								msgs.PushBack({1, resV->str});
+								mClaudeMsgIdx = static_cast<int32>(msgs.Size()) - 1;
+								mClaudeStarted = true;
+							} else {
+								msgs[static_cast<usize>(mClaudeMsgIdx)].text = resV->str; // version FINALE autoritaire
+							}
+						}
+						// Cout REEL de ce tour (total_cost_usd, EXACT — fourni par le CLI, pas
+						// estime) + tokens (usage.*) : cumule PAR MODELE (mClaudeCurModel, capture
+						// depuis "assistant" plus haut) + persiste sur disque (AccumModelUsage).
+						{
+							double cost = 0.0;
+							int64 tokIn = 0, tokOut = 0;
+							const NkJsonVal *costV = doc.Member(root, "total_cost_usd");
+							if (costV && costV->kind == 2)
+								cost = costV->num;
+							const NkJsonVal *usageV = doc.Member(root, "usage");
+							const NkJsonVal *inV = usageV ? doc.Member(usageV, "input_tokens") : nullptr;
+							const NkJsonVal *outV = usageV ? doc.Member(usageV, "output_tokens") : nullptr;
+							if (inV && inV->kind == 2)
+								tokIn = (int64)inV->num;
+							if (outV && outV->kind == 2)
+								tokOut = (int64)outV->num;
+							mLastCostUsd = cost;
+							mLastTokIn = (int32)tokIn;
+							mLastTokOut = (int32)tokOut;
+							if (cost > 0.0 || tokIn > 0 || tokOut > 0)
+								AccumModelUsage(mClaudeCurModel.Empty() ? NkString("claude-code") : mClaudeCurModel,
+												cost, tokIn, tokOut);
+						}
+						// Tour termine : on ferme le process NOUS-MEMES (stdin reste sinon ouvert
+						// et le CLI attendrait d'autres messages) — le tour suivant repart via
+						// --resume, comportement inchange.
+						mClaudeProc.Stop();
+						mPermPending = false;
+					}
+					chat.stick = true;
+				}
+
+				// Repond a la demande de permission en attente (boutons de la carte du fil).
+				// allow -> renvoie l'input INCHANGE (updatedInput) ; deny -> message court.
+				void AnswerClaudePermission(bool allow) {
+					if (!mPermPending || mPermReqId.Empty())
+						return;
+					NkString resp = "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\","
+									"\"request_id\":\"";
+					resp += NkJsonEscape(mPermReqId.CStr());
+					resp += "\",\"response\":";
+					if (allow) {
+						resp += "{\"behavior\":\"allow\",\"updatedInput\":";
+						resp += mPermInputRaw.Empty() ? NkString("{}") : mPermInputRaw;
+						resp += "}";
+					} else {
+						resp += "{\"behavior\":\"deny\",\"message\":\"";
+						resp += NkJsonEscape(NkT("ai.perm.denymsg"));
+						resp += "\"}";
+					}
+					resp += "}}\n";
+					mClaudeProc.WriteData(resp.CStr(), static_cast<int32>(resp.Size()));
+					const int32 idx =
+						(mBusyChat >= 0 && mBusyChat < static_cast<int32>(mChats.Size())) ? mBusyChat : mActiveChat;
+					MsgsOf(idx).PushBack({2, NkPrintf("%s : [%s] %s",
+													  allow ? NkT("ai.perm.allowed") : NkT("ai.perm.denied"),
+													  mPermTool.CStr(), mPermDetail.CStr()),
+										  mPermIcon});
+					mPermPending = false;
+				}
+
+				// ── Draine le pipe du CLI `claude` (non-bloquant), découpe le NDJSON en
+				// lignes COMPLETES (une ligne partielle reste dans mClaudeBuf pour la
+				// prochaine frame — jamais de JSON tronqué traité comme complet). ──
+				void PollClaudeCli() {
+					char buf[4096];
+					int32 n;
+					while ((n = mClaudeProc.ReadAvail(buf, sizeof(buf))) > 0)
+						mClaudeBuf.Append(buf, static_cast<usize>(n));
+
+					const int32 idx =
+						(mBusyChat >= 0 && mBusyChat < static_cast<int32>(mChats.Size())) ? mBusyChat : mActiveChat;
+					NkVector<Msg> &msgs = MsgsOf(idx);
+					ChatSession &chat = mChats[static_cast<usize>(idx)];
+
+					for (;;) {
+						const usize nl = mClaudeBuf.Find('\n');
+						if (nl == NkString::npos)
+							break;
+						NkString line = mClaudeBuf.SubStr(0, nl);
+						mClaudeBuf.Erase(0, nl + 1);
+						line.Trim();
+						if (!line.Empty())
+							HandleClaudeLine(line, msgs, chat);
+					}
+
+					if (!mClaudeProc.Running()) {
+						mBusy = false;
+						mPermPending = false; // le process est mort : plus personne n'attend la reponse
+						if (!mClaudeStarted) { // aucun texte recu : erreur (auth/CLI absent/crash) — le
+												// reste du buffer contient souvent le message (stderr fusionne).
+							NkString diag = mClaudeBuf;
+							diag.Trim();
+							msgs.PushBack({2, diag.Empty() ? NkString(NkT("ai.errnet")) : diag});
+						}
+						mClaudeBuf.Clear();
+						chat.stick = true;
+					}
+				}
+
+				// ── Annule la requête Claude Code en cours (bouton Stop, cf. DrawBottomToolbar).
+				// Termine le process (NkPipeProc::Stop -> ferme stdin, TerminateProcess après un
+				// court délai si besoin) et redonne la main immédiatement — corrige le blocage
+				// "A request is already running." quand une requête traîne sans jamais se
+				// résoudre (ex. le panneau a été masqué entre-temps : Poll()/OnUI() ne tournent
+				// que pour le panneau VISIBLE, donc une requête terminée pendant ce temps ne se
+				// signale jamais — ce bouton donne toujours un moyen de s'en sortir). ──
+				void CancelClaudeCli() {
+					mClaudeProc.Stop();
+					mPermPending = false; // une demande en attente meurt avec le process
+					const int32 idx =
+						(mBusyChat >= 0 && mBusyChat < static_cast<int32>(mChats.Size())) ? mBusyChat : mActiveChat;
+					if (!mClaudeStarted) // aucun texte recu : rien a garder, juste noter l'annulation
+						MsgsOf(idx).PushBack({2, NkString(NkT("ai.cancelled"))});
+					mChats[static_cast<usize>(idx)].stick = true;
+					mClaudeBuf.Clear();
+					mBusy = false;
+				}
+
 				// ── Retry (bouton par-message) : régénère la DERNIÈRE réponse assistant en
 				// rejouant exactement le même tour — retire la réponse ET le message
 				// utilisateur qui l'a produite, puis les repousse via Send() (pas de second
@@ -2081,6 +3915,10 @@ namespace nkentseu {
 				void Send() {
 					if (mBusy || mInput[0] == 0)
 						return;
+					if (mKind == 1) { // Claude Code : CLI reel (memoire/outils/permissions natifs), pas de curl
+						SendClaudeCli();
+						return;
+					}
 					mProvider = ProviderForModel(); // dérivé de l'agent + du modèle choisi
 					if (mProvider == 5) {			// Codex / OpenAI : intégration à venir
 						Msgs().PushBack({0, NkString(mInput)});
@@ -2137,6 +3975,10 @@ namespace nkentseu {
 				void Poll() {
 					if (!mBusy)
 						return;
+					if (mKind == 1) { // Claude Code : draine le pipe NkPipeProc (NDJSON), pas curl/NkProcess
+						PollClaudeCli();
+						return;
+					}
 					mProc.Drain(mRespLines); // accumule (Drain n'efface pas `out`)
 					if (!mProc.Done())
 						return;
@@ -2170,6 +4012,23 @@ namespace nkentseu {
 						ans = JsonStr(j, "content");
 					if (ans.Empty())
 						ans = raw; // dernier recours : brut
+					// Cout/usage — Assistant général en API DIRECTE (mProvider==0) uniquement :
+					// Ollama (mProvider==1) tourne en LOCAL, aucun cout a suivre. La reponse
+					// Messages API brute n'a PAS de champ cout (contrairement au CLI Claude
+					// Code) -> ESTIME via le tarif PUBLIC applique aux tokens reels retournes,
+					// marque comme tel dans le popover (PublicRateFor), jamais confondu avec
+					// les couts EXACTS du CLI.
+					if (mProvider == 0) {
+						const NkString model = JsonStr(j, "model");
+						const int64 tokIn = (int64)JsonNum(j, "input_tokens");
+						const int64 tokOut = (int64)JsonNum(j, "output_tokens");
+						if (!model.Empty() && (tokIn > 0 || tokOut > 0)) {
+							double inRate = 3.0, outRate = 15.0;
+							PublicRateFor(model, inRate, outRate);
+							const double cost = (double)tokIn / 1.0e6 * inRate + (double)tokOut / 1.0e6 * outRate;
+							AccumModelUsage(model, cost, tokIn, tokOut);
+						}
+					}
 					msgs.PushBack({1, ans});
 					stick() = true;
 				}

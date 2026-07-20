@@ -640,9 +640,25 @@ namespace nkentseu {
 						mS->osDropPaths.Clear();
 						mS->osDropTtl = 0;
 					}
+					// ── VOYANTS du footer (sans texte, infobulle au survol) : sante CODE
+					// (diagnostics + verif fond), COMPILATION et LINK du dernier build.
+					// VERT = valide, ORANGE = warnings, ROUGE = erreurs. ──
+					if (mShell) {
+						const NkColor okC = {70, 160, 90, 255}, wnC = {230, 160, 50, 255},
+									  koC = {235, 70, 70, 255};
+						const int32 codeLvl = mS->CodeDiagLevel();
+						const NkColor lights[3] = {
+							codeLvl == 2 ? koC : codeLvl == 1 ? wnC : okC,
+							mS->errCompile ? koC : mS->buildHasWarn ? wnC : okC,
+							mS->errLink ? koC : okC,
+						};
+						const char *ltips[3] = {NkT("ft.light.code"), NkT("ft.light.compile"),
+												NkT("ft.light.link")};
+						mShell->SetFooterLights(lights, ltips, 3);
+					}
 					if (mS->files.Empty()) {
 						if (mShell)
-							mShell->SetFooter("NKCode", "Jenga");
+							mShell->SetFooter("NKCode", mS->IsBuilding() ? mS->status.CStr() : "Jenga");
 						ec.Text("Ouvrez un fichier depuis l'Explorateur.");
 						return;
 					}
@@ -943,9 +959,30 @@ namespace nkentseu {
 						const bool qfEmpty = (f.doc.tick - f.doc.qfEmptyTick <= 120);
 						// Statut d'action (ex. « Panneau Structure affiché ») : VISIBLE ici, pas seulement
 						// dans l'en-tete du panneau Sortie. (NkPrintf maison)
+						// Indicateur build/run EN COURS : icone qui tourne + % (nb de fichiers,
+						// pas de projets, cf. ParseProgress) -> visible meme si le panneau Sortie
+						// n'est pas affiche a l'ecran.
+						NkString buildInd;
+						if (mS->IsBuilding()) {
+							static const char sp[] = "|/-\\";
+							const char spc = sp[(f.doc.tick / 6) % 4];
+							// DEUX progressions : GLOBALE (modules finis/total) + MODULE en cours
+							// (fichiers) — jamais 100% global avant la vraie fin du build.
+							const int32 pctG = (int32)(mS->BuildProgress() * 100.f + 0.5f);
+							const int32 pctM = (int32)(mS->ModuleProgress() * 100.f + 0.5f);
+							buildInd = NkPrintf("%c %s %d%% (module %d%%)      ", spc, mS->status.CStr(), pctG, pctM);
+						}
+						// Compteur d'instances d'EXECUTION (jenga run, process separes du build) :
+						// aide au test multi-instances - visible tant qu'au moins une tourne.
+						{
+							const int32 runN = mS->RunCount();
+							if (runN > 0)
+								buildInd += NkPrintf("%d execution(s) en cours      ", runN);
+						}
 						const NkString rbuf =
-							NkPrintf("%s%s%s%sLn %d, Col %d     Espaces : 4     UTF-8     %s",
-									 mS->status.Empty() ? "" : mS->status.CStr(), mS->status.Empty() ? "" : "      ",
+							NkPrintf("%s%s%s%s%sLn %d, Col %d     Espaces : 4     UTF-8     %s", buildInd.CStr(),
+									 (buildInd.Empty() && !mS->status.Empty()) ? mS->status.CStr() : "",
+									 (buildInd.Empty() && !mS->status.Empty()) ? "      " : "",
 									 chordArmed ? "(Ctrl+K)  0 = replier   J = deplier   I = info      " : "",
 									 qfEmpty ? "(Ctrl+.)  aucune action rapide sur cette ligne      " : "",
 									 f.doc.curLine + 1, f.doc.curCol + 1, LangOf(f.path));
@@ -1642,20 +1679,26 @@ namespace nkentseu {
 							dl.AddText(ctx.font->Face(), ctx.font->TexId(), {x, by}, spc, ctx.theme.accent);
 							x += ctx.S(16.f);
 						}
-						const float32 barW = ctx.S(160.f), barH = ctx.S(8.f);
-						const NkRect bar = {x, clip.y + (hdrH - barH) * 0.5f, barW, barH};
-						dl.AddRectFilled(bar, ctx.theme.button, 3.f);
-						const float32 prog = mS->BuildProgress();
-						dl.AddRectFilled({bar.x, bar.y,
-										  barW * (prog < 0.f   ? 0.f
-												  : prog > 1.f ? 1.f
-															   : prog),
-										  barH},
-										 ctx.theme.accent, 3.f);
-						const NkString info = NkPrintf("  %d/%d  (%d%%)", mS->buildDone, mS->buildTotal,
-													   (int)(prog * 100.f + 0.5f)); // NkPrintf maison
+						// DEUX barres : GLOBALE (accent, modules) au-dessus, MODULE courant
+						// (verte, fichiers) en dessous — + texte "module k/n (M%) · global i/N (G%)".
+						const float32 barW = ctx.S(160.f), barH = ctx.S(5.f), barGap = ctx.S(2.f);
+						const float32 progG = mS->BuildProgress();
+						const float32 progM = mS->ModuleProgress();
+						const float32 byTop = clip.y + (hdrH - barH * 2.f - barGap) * 0.5f;
+						const NkRect barG = {x, byTop, barW, barH};
+						const NkRect barM = {x, byTop + barH + barGap, barW, barH};
+						dl.AddRectFilled(barG, ctx.theme.button, 2.f);
+						dl.AddRectFilled({barG.x, barG.y, barW * (progG < 0.f ? 0.f : progG > 1.f ? 1.f : progG), barH},
+										 ctx.theme.accent, 2.f);
+						dl.AddRectFilled(barM, ctx.theme.button, 2.f);
+						dl.AddRectFilled({barM.x, barM.y, barW * (progM < 0.f ? 0.f : progM > 1.f ? 1.f : progM), barH},
+										 NkColor{88, 209, 143, 255}, 2.f);
+						const NkString info =
+							NkPrintf("  module %d/%d (%d%%)  \xC2\xB7  global %d/%d (%d%%)", mS->buildDone,
+									 mS->buildTotal, (int)(progM * 100.f + 0.5f), mS->projDone, mS->projTotal,
+									 (int)(progG * 100.f + 0.5f)); // NkPrintf maison
 						if (ctx.font && ctx.font->Valid())
-							dl.AddText(ctx.font->Face(), ctx.font->TexId(), {bar.x + barW + 4.f, by}, info.CStr(),
+							dl.AddText(ctx.font->Face(), ctx.font->TexId(), {barG.x + barW + 4.f, by}, info.CStr(),
 									   ctx.theme.text);
 					} else if (ctx.font && ctx.font->Valid()) {
 						dl.AddText(ctx.font->Face(), ctx.font->TexId(), {clip.x + pad, by},
@@ -1745,17 +1788,85 @@ namespace nkentseu {
 					return false;
 				}
 
+				// DEUX progressions (demande Rihen) : MODULE courant (fichiers, via l'index
+				// [k/n] des lignes de compilation — k inclut les fichiers sautes par le cache
+				// incremental, qui ne produisent AUCUNE ligne) + GLOBALE (modules finis /
+				// total, total connu D'AVANCE via l'en-tete "Build Order (N projects)" ->
+				// la barre globale ne peut plus afficher 100% avant la vraie fin).
 				void ParseProgress(const char *L) {
-					if (const char *p = FindP(L, "Build Order (")) {
+					// ── Detection d'ERREURS (voyants footer + icones rouges explorateur) —
+					// independante de la chaine de progression ci-dessous. ──
+					if (Find(L, "Link failed") || Find(L, "Link Failed")) {
+						mS->errLink = true;
+					} else if (const char *cf = FindP(L, "Compilation failed: ")) {
+						// "✗ Compilation failed: <chemin complet du fichier>"
+						mS->errCompile = true;
+						NkString pth(cf);
+						while (!pth.Empty() && (pth.Back() == ' ' || pth.Back() == '\r'))
+							pth.PopBack();
+						if (!pth.Empty())
+							mS->buildErrFiles.PushBack(pth);
+					} else if (Find(L, "Compilation Error:")) {
+						mS->errCompile = true;
+					}
+					if (Find(L, "Compiled with warnings:") || FindP(L, "Warning: "))
+						mS->buildHasWarn = true; // voyant ORANGE (valide-avec-warnings)
+					if (L[0] == '$' && L[1] == ' ') { // echo de commande : nouveau cycle
+						mS->buildTotal = 0;
+						mS->buildDone = 0;
+						mS->projTotal = 0;
+						mS->projDone = 0;
+						mS->errCompile = false;
+						mS->errLink = false;
+						mS->buildHasWarn = false;
+						mS->buildErrFiles.Clear();
+					} else if (const char *bo = FindP(L, "Build Order (")) {
 						int n = 0;
-						for (const char *q = p; *q >= '0' && *q <= '9'; ++q)
+						for (const char *q = bo; *q >= '0' && *q <= '9'; ++q)
 							n = n * 10 + (*q - '0');
-						if (n > 0) {
-							mS->buildTotal = n;
+						if (n > 0)
+							mS->projTotal = n; // TOTAL de modules, connu des l'en-tete
+						mS->projDone = 0;
+						mS->buildTotal = 0;
+						mS->buildDone = 0;
+					} else if (const char *p2 = FindP(L, "Found ")) {
+						int n = 0;
+						const char *q = p2;
+						for (; *q >= '0' && *q <= '9'; ++q)
+							n = n * 10 + (*q - '0');
+						if (n > 0 && Find(q, "source file")) {
+							mS->buildTotal = n; // nouveau MODULE : sa propre progression repart
 							mS->buildDone = 0;
 						}
-					} else if (Find(L, "Built:") && !Find(L, "Projects")) {
-						++mS->buildDone;
+					} else if (Find(L, "Compiled") || Find(L, "Compilation Error:")) {
+						// "[k/n] Compiled..." : k inclut les fichiers SAUTES (cache) avant lui.
+						int k = 0;
+						bool got = false;
+						for (const char *q = L; *q && !got; ++q)
+							if (*q == '[') {
+								const char *r = q + 1;
+								int v = 0;
+								bool dig = false;
+								while (*r >= '0' && *r <= '9') {
+									v = v * 10 + (*r - '0');
+									++r;
+									dig = true;
+								}
+								if (dig && *r == '/') {
+									k = v;
+									got = true;
+								}
+							}
+						if (got)
+							mS->buildDone = k;
+						else if (mS->buildDone < mS->buildTotal)
+							++mS->buildDone; // ligne sans index : comptage simple (repli)
+					} else if (Find(L, "Build Successful") || Find(L, "Build Failed")) {
+						// Bandeau de FIN DE MODULE (imprime aussi pour un module 100% cache,
+						// contrairement aux lignes "Compiled:") -> avance la progression GLOBALE.
+						mS->buildDone = mS->buildTotal; // solde le module courant
+						if (mS->projDone < mS->projTotal || mS->projTotal == 0)
+							++mS->projDone;
 					}
 				}
 
@@ -2145,6 +2256,10 @@ namespace nkentseu {
 							mTerm[mActive].label = mState->termOpenCmd;
 							mState->termOpenCmd = NkString();
 						}
+						if (!mState->termOpenType.Empty()) { // texte pret a valider (ex. lancement emulateur)
+							mTerm[mActive].pendingType = mState->termOpenType;
+							mState->termOpenType = NkString();
+						}
 						mState->termOpenAt = NkString();
 					}
 					if (!mTerm[mActive].alive)
@@ -2163,6 +2278,13 @@ namespace nkentseu {
 
 					// Lance le shell (ConPTY) au premier affichage de cet onglet.
 					StartTerm(t);
+					// Texte en attente (ex. commande de lancement d'emulateur) : tape SANS
+					// valider, l'utilisateur presse Entree lui-meme apres verification.
+					if (!t.pendingType.Empty() && t.alive) {
+						t.pty.Write(t.pendingType.CStr(), t.pendingType.Size());
+						t.pendingType = NkString();
+						t.touched = true;
+					}
 					// Recupere la sortie brute et la passe a l'emulateur VT.
 					mDrain.Clear();
 					t.pty.Drain(mDrain);
@@ -2192,10 +2314,16 @@ namespace nkentseu {
 					}
 
 					// Focus clavier : clic gauche dans la zone -> focus ; clic hors panneau -> defocus.
+					// Efface AUSSI ctx.inputId (focus generique NKGui, ex. InputTextMultiline du
+					// panneau IA) — pas seulement NkCodeFocusId() (focus custom de l'editeur de
+					// code). Sinon un champ de texte focalise UNE FOIS ailleurs dans la session
+					// continue de voler wantPaste/wantCopy/wantCut GLOBALEMENT (meme invisible),
+					// et le terminal ne recoit plus jamais Ctrl+V (bug remonte par Rihen).
 					if (ctx.input.mouseClicked[0] && ctx.popupDepth == 0) {
 						if (inMain) {
 							mFocused = true;
 							NkCodeFocusId() = NKGUI_ID_NONE;
+							ctx.inputId = NKGUI_ID_NONE;
 						} else if (!inClip)
 							mFocused = false;
 					}
@@ -2324,6 +2452,7 @@ namespace nkentseu {
 						NkString label = "powershell"; // libelle affiche (onglet/liste)
 						bool alive = false;
 						bool started = false; // pty deja lance ?
+						NkString pendingType; // texte a TAPER (pas executer) une fois le pty demarre
 						bool touched = false; // l utilisateur y a TAPE (ne pas recycler au changement de workspace)
 						float32 scrollX = 0.f, scrollY = 0.f;
 						bool follow = true; // colle au bas (desactive au scroll manuel)
@@ -2786,8 +2915,14 @@ namespace nkentseu {
 					if (ctx.input.KeyPressed(NkGuiKey::Escape))
 						put("\x1b");
 					// Raccourcis : coller / copier (->SIGINT si pas de selection) / tout selectionner.
-					if (ctx.input.wantPaste)
+					// Remet wantPaste a false apres usage (contrairement a tous les AUTRES
+					// consommateurs de ce flag dans la base de code — InputTextMultiline,
+					// NkOverlayTextField, NkOpenWs.h, NkNewWorkspace.h le font tous — c'etait le
+					// seul manquant, incoherence corrigee lors du debug du collage terminal).
+					if (ctx.input.wantPaste) {
 						PasteClipboard(ctx, t);
+						ctx.input.wantPaste = false;
+					}
 					if (ctx.input.wantSelectAll)
 						SelectAll(t);
 					if (ctx.input.wantCopy && !t.HasSel())
