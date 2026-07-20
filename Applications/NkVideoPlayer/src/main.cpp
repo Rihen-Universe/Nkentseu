@@ -571,19 +571,34 @@ int nkmain(const NkEntryState &state) {
 				mediaClock = streamPlayer.GetPositionSeconds();
 			else
 				mediaClock += (float64)(dt * speed);
-			// L'image que l'horloge a atteinte ; on rattrape borné (4 décodes max
-			// par tick pour ne jamais bloquer le rendu après un hoquet).
+			// L'image que l'horloge a atteinte ; on rattrape par BUDGET DE TEMPS (pas un
+			// nombre fixe de décodes) et on ne pousse (upload texture + draw) que la
+			// DERNIÈRE image atteinte dans la rafale — jamais les intermédiaires.
+			// ⚠️ Un décodeur H264 from-scratch (scalaire, non-SIMD) n'a PAS de marge de
+			// temps réel garantie sur du contenu réel (mesuré : ~8-24 fps selon le profil/
+			// résolution, contre les 24-30 fps habituels d'une source — voir ROADMAP NKMedia
+			// "Performance décodage"). Un cap fixe à 4 décodes/tick faisait DIVERGER l'écart
+			// vidéo/audio sans limite (chaque frame décodée ET affichée coûte plus cher que
+			// le budget d'une frame réelle -> le retard grandit à chaque tick, "vidéo hyper
+			// lente"). Ici : on décode en rafale bornée par le TEMPS (adapte automatiquement
+			// à la vitesse réelle du décodeur, quelle qu'elle soit) et on n'affiche QUE la
+			// dernière image atteinte (économise l'upload/dessin des images intermédiaires,
+			// qui de toute façon seraient immédiatement remplacées) -> dégradation aussi
+			// gracieuse que le débit de décodage le permet structurellement, au lieu de
+			// diverger. Ne RÉSOUT PAS un décodeur structurellement trop lent (il faudrait
+			// l'accélérer), mais évite le pire.
 			const int32 targetIdx = (int32)(mediaClock * (float64)fps);
-			int32 catchup = 0;
 			bool wrapped = false;
-			while ((firstFrame || reader.CurrentIndex() < targetIdx) && catchup < 4) {
+			bool havePendingFrame = false; // décodée dans cette rafale, pas encore affichée
+			NkChrono burstTimer;
+			while ((firstFrame || reader.CurrentIndex() < targetIdx) &&
+				   burstTimer.Elapsed().ToMilliseconds() < 150.0) {
 				if (reader.ReadFrame(fr)) {
-					pushFrame();
+					havePendingFrame = true;
 					firstFrame = false;
-					++catchup;
 				} else if (loop) {
 					if (reader.SeekFrame(0) && reader.ReadFrame(fr)) {
-						pushFrame();
+						havePendingFrame = true;
 						mediaClock = 0.0;
 						syncAudioTo(0.0f); // re-seek le stream + vide le ring + reset l'horloge
 						wrapped = true;
@@ -598,6 +613,8 @@ int nkmain(const NkEntryState &state) {
 					break;
 				}
 			}
+			if (havePendingFrame)
+				pushFrame(); // upload + dessin UNE SEULE FOIS, avec la dernière image de la rafale
 			(void)wrapped;
 		}
 
