@@ -40,9 +40,9 @@
 #include "NKCanvas/Renderer/Resources/NkSprite.h"
 
 #include "NKMedia/Video/NkVideoReader.h"
-#include "NKMedia/NkMediaDemux.h"
-#include "NKMedia/Codecs/Aac/NkAacDecoder.h"
 #include "NKAudio/NkAudio.h"
+#include "NKAudio/Streaming/NkAudioStream.h"
+#include "NKAudio/Streaming/NkAudioStreamPlayer.h"
 #include "NKMemory/NkAllocator.h"
 
 #include <cstdio>
@@ -86,58 +86,6 @@ static bool LooksLikeAudio(const NkString &p) {
 			return true;
 	}
 	return false;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Audio DU CONTENEUR : démuxe la piste audio du MP4/MOV/WebM lui-même et la
-// décode en PCM float32 (AAC-LC via NkAacDecoder — mono/stéréo, from-scratch).
-// Renvoie un AudioSample prêt pour AudioEngine::Play (libérable par
-// AudioLoader::Free : data alloué NkAlloc, mAllocator nul). Le PRIMING de
-// l'encodeur AAC (1024 échantillons) est coupé pour s'aligner sur l'horodatage
-// vidéo (même convention que les lecteurs de référence).
-// ─────────────────────────────────────────────────────────────────────────────
-static bool LoadAudioFromContainer(const NkString &videoPath, audio::AudioSample &out) {
-	NkVector<nk_uint8> bytes;
-	media::NkMediaInfo minfo;
-	NkVector<media::NkMediaPacket> packets;
-	if (!media::NkMediaDemux::ExtractAudioPacketsFile(videoPath.CStr(), bytes, minfo, packets))
-		return false;
-	const media::NkMediaTrack *tr = minfo.FirstAudio();
-	if (!tr || packets.Empty())
-		return false;
-	if (!(tr->codec == NkString("aac")))
-		return false; // v1 : AAC seulement (le codec des MP4 réels)
-	const int32 ch = (tr->channels == 2) ? 2 : 1;
-	media::NkAacDecoder dec;
-	if (!dec.Init(tr->sampleRate, ch))
-		return false;
-	NkVector<nk_int16> pcm;
-	pcm.Reserve(packets.Size() * 1024 * (uint64)ch);
-	nk_int16 frame[2048];
-	for (uint64 i = 0; i < packets.Size(); ++i) {
-		const media::NkMediaPacket &p = packets[i];
-		if (p.offset + p.size > bytes.Size())
-			continue;
-		const int32 n = dec.DecodeFrame(bytes.Data() + p.offset, (int32)p.size, frame);
-		for (int32 s = 0; s < n * ch; ++s)
-			pcm.PushBack(frame[s]);
-	}
-	const uint64 priming = 1024ull * (uint64)ch; // délai encodeur AAC standard
-	if (pcm.Size() <= priming)
-		return false;
-	const uint64 total = pcm.Size() - priming;
-	float32 *data = (float32 *)memory::NkAlloc(total * sizeof(float32), nullptr, sizeof(float32));
-	if (!data)
-		return false;
-	for (uint64 i = 0; i < total; ++i)
-		data[i] = (float32)pcm[priming + i] / 32768.0f;
-	out.data = data;
-	out.frameCount = (usize)(total / (uint64)ch);
-	out.sampleRate = tr->sampleRate;
-	out.channels = ch;
-	out.format = audio::AudioFormat::RAW;
-	out.mAllocator = nullptr; // AudioLoader::Free -> NkFree
-	return true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -413,38 +361,49 @@ int nkmain(const NkEntryState &state) {
 	}
 	NkSprite sprite(frameTex);
 
-	// ── 5) Audio : piste DU CONTENEUR (AAC décodé from-scratch), sinon fichier
-	//    externe optionnel. La voix audio devient l'HORLOGE MAÎTRESSE de la vidéo.
+	// ── 5) Audio STREAMÉ (jamais tout en RAM) : piste DU CONTENEUR (MP4/MOV/WebM,
+	//    AAC décodé from-scratch par paquets) sinon fichier externe optionnel
+	//    (WAV/FLAC/MP3/OGG). AudioStreamPlayer (ring buffer + thread décodeur,
+	//    déjà livré dans NKAudio) alimente une voix procédurale ; c'est SA propre
+	//    horloge de contenu (GetPositionSeconds, indépendante de l'AudioEngine —
+	//    AudioEngine::GetPlaybackPosition renvoie toujours 0 pour une voix
+	//    procédurale) qui sert d'HORLOGE MAÎTRESSE à la vidéo.
 	audio::AudioEngine &engine = audio::AudioEngine::Instance();
-	audio::AudioSample audioSample;
+	audio::AudioStreamPlayer streamPlayer;
 	audio::AudioHandle audioHandle{};
 	bool audioOn = false;
 	{
-		audio::AudioEngineConfig acfg;
-		bool engineUp = false;
-		// 5a) Audio embarqué dans le conteneur vidéo (MP4/MOV/WebM + AAC).
-		if (audioPath.Empty() && LoadAudioFromContainer(videoPath, audioSample)) {
-			engineUp = engine.Initialize(acfg);
-			if (engineUp) {
-				logger.Info("[NkVideoPlayer] audio du conteneur : AAC {0} Hz, {1} canal(aux), {2:.1f}s",
-							audioSample.sampleRate, audioSample.channels, (double)audioSample.GetDuration());
+		audio::IAudioStream *astream = audio::OpenAudioStream(videoPath.CStr()); // piste du conteneur
+		if (!astream && !audioPath.Empty())
+			astream = audio::OpenAudioStream(audioPath.CStr()); // fichier externe (WAV/FLAC/MP3/OGG)
+		if (astream) {
+			audio::AudioEngineConfig acfg;
+			const bool engineUp = engine.Initialize(acfg);
+			const bool playerUp =
+				engineUp && streamPlayer.Init(engine.GetSampleRate(), engine.GetChannels(), 88200);
+			// Play() ne prend possession d'astream QUE s'il renvoie true (sinon `astream`
+			// reste nôtre à libérer — voir AudioStreamPlayer::Play/Shutdown).
+			const bool played = playerUp && streamPlayer.Play(astream, /*loop=*/false);
+			if (played) {
+				audio::VoiceParams vp;
+				vp.bus = "Music";
+				audioHandle = engine.PlayProcedural(
+					[&streamPlayer](float32 *buf, int32 frames, int32 /*channels*/) {
+						streamPlayer.ReadFrames(buf, frames);
+					},
+					vp);
+				audioOn = true;
+				logger.Info("[NkVideoPlayer] audio streamé : {0} Hz, {1} canal(aux), ~{2:.1f}s (source {3} Hz)",
+							engine.GetSampleRate(), engine.GetChannels(),
+							(double)astream->GetFrameCount() / (double)math::NkMax(1, astream->GetSampleRate()),
+							astream->GetSampleRate());
+			} else {
+				memory::NkGetDefaultAllocator().Delete(astream);
+				if (playerUp)
+					streamPlayer.Shutdown();
+				if (engineUp)
+					engine.Shutdown();
 			}
-		} else if (!audioPath.Empty()) {
-			// 5b) Fichier audio externe fourni explicitement.
-			engineUp = engine.Initialize(acfg);
-			if (engineUp) {
-				audioSample = audio::AudioLoader::Load(audioPath.CStr());
-				if (audioSample.IsValid())
-					logger.Info("[NkVideoPlayer] audio : {0} ({1} Hz)", audioPath.CStr(), audioSample.sampleRate);
-			}
-		}
-		if (engineUp && audioSample.IsValid()) {
-			audio::VoiceParams vp;
-			vp.bus = "Music";
-			audioHandle = engine.Play(audioSample, vp);
-			audioOn = true;
-		} else if (engineUp) {
-			engine.Shutdown();
 		}
 	}
 
@@ -506,24 +465,15 @@ int nkmain(const NkEntryState &state) {
 		}
 	};
 
-	auto restartAudio = [&]() {
-		if (!audioOn)
-			return;
-		engine.StopAll();
-		audio::VoiceParams vp;
-		vp.bus = "Music";
-		audioHandle = engine.Play(audioSample, vp);
-		engine.SetPitch(audioHandle, speed);
-		if (paused)
-			engine.Pause(audioHandle);
-	};
-	// Cale l'audio sur une position vidéo (secondes) — seek/stop.
+	// Cale l'audio streamé sur une position vidéo (secondes) — seek/stop/boucle.
+	// Une seule opération pour les deux anciens cas (redémarrer au bouclage ==
+	// simplement re-seeker à 0) : SeekContent repositionne le stream SOUS-JACENT
+	// (donc reste valide même pour un fichier externe non-conteneur) + vide le
+	// ring buffer + réinitialise l'horloge de contenu (GetPositionSeconds).
 	auto syncAudioTo = [&](float32 seconds) {
 		if (!audioOn)
 			return;
-		if (seconds < 0.0f)
-			seconds = 0.0f;
-		engine.SetPlaybackPosition(audioHandle, seconds);
+		streamPlayer.SeekContent(seconds < 0.0f ? 0.0f : seconds);
 	};
 
 	// ── Horloge média ──────────────────────────────────────────────────────────
@@ -579,13 +529,18 @@ int nkmain(const NkEntryState &state) {
 						break;
 					case NkKey::NK_UP: // plus vite
 						speed = math::NkMin(speed * 1.25f, 4.0f);
-						if (audioOn)
-							engine.SetPitch(audioHandle, speed);
+						if (audioOn) {
+							streamPlayer.SetSpeed(speed);
+							streamPlayer.FlushRing(); // applique la vitesse immediatement (sinon
+													  // ~1-2s de contenu deja bufferise a l'ancienne vitesse)
+						}
 						break;
 					case NkKey::NK_DOWN: // plus lent
 						speed = math::NkMax(speed / 1.25f, 0.1f);
-						if (audioOn)
-							engine.SetPitch(audioHandle, speed);
+						if (audioOn) {
+							streamPlayer.SetSpeed(speed);
+							streamPlayer.FlushRing();
+						}
 						break;
 					case NkKey::NK_C: // cycle étalonnage couleur
 						grade = (Grade)(((int32)grade + 1) % (int32)Grade::Count);
@@ -605,10 +560,15 @@ int nkmain(const NkEntryState &state) {
 
 		// ── Avance temporelle (horloge maîtresse = AUDIO si présent) ───────────
 		if (!paused && !ended) {
-			// Si la voix joue encore, elle EST l'horloge ; si l'audio est plus
-			// court que la vidéo (voix terminée), on repasse en horloge cumulée.
-			if (audioOn && engine.IsPlaying(audioHandle))
-				mediaClock = (float64)engine.GetPlaybackPosition(audioHandle);
+			// AudioStreamPlayer::GetPositionSeconds() = horloge de CONTENU tenue par le
+			// thread audio lui-même (AudioEngine::GetPlaybackPosition renverrait toujours 0
+			// pour une voix procédurale). ⚠️ On teste !IsFinished() (PAS IsActive()) : le
+			// producteur passe IsActive()=false dès qu'il a fini de DÉCODER, alors qu'il peut
+			// encore rester jusqu'à ~2s de contenu déjà décodé dans le ring — IsActive() seul
+			// ferait décrocher la vidéo ~2s avant la fin réelle du son. Si le flux audio est
+			// VRAIMENT plus court que la vidéo (IsFinished()==true), on repasse en horloge cumulée.
+			if (audioOn && !streamPlayer.IsFinished())
+				mediaClock = streamPlayer.GetPositionSeconds();
 			else
 				mediaClock += (float64)(dt * speed);
 			// L'image que l'horloge a atteinte ; on rattrape borné (4 décodes max
@@ -625,8 +585,7 @@ int nkmain(const NkEntryState &state) {
 					if (reader.SeekFrame(0) && reader.ReadFrame(fr)) {
 						pushFrame();
 						mediaClock = 0.0;
-						restartAudio();
-						syncAudioTo(0.0f);
+						syncAudioTo(0.0f); // re-seek le stream + vide le ring + reset l'horloge
 						wrapped = true;
 					} else {
 						ended = true; // pas de rembobinage possible -> fige la dernière image
@@ -676,9 +635,14 @@ int nkmain(const NkEntryState &state) {
 	}
 
 	// ── Libération ────────────────────────────────────────────────────────────
+	// streamPlayer.Shutdown() joint le thread décodeur et libère le IAudioStream
+	// qu'il possède (ContainerAudioStream/MemoryStream/WavStream) ; l'ordre importe :
+	// arrêter l'engine (qui appelle le callback procédural depuis son thread audio)
+	// AVANT de détruire streamPlayer, pour ne jamais mixer un stream en cours de
+	// destruction.
 	if (audioOn) {
 		engine.Shutdown();
-		audio::AudioLoader::Free(audioSample);
+		streamPlayer.Shutdown();
 	}
 	window.Close();
 	logger.Info("[NkVideoPlayer] fin.");

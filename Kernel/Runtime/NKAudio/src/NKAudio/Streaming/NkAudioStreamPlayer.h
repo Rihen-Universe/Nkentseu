@@ -89,6 +89,57 @@ namespace nkentseu {
 					return mVolume;
 				}
 
+				/// Vitesse de lecture (1.0 = normale). Multiplie le ratio de reechantillonnage
+				/// cote PRODUCTEUR (thread worker) : un changement prend effet une fois le ring
+				/// buffer draine (~1-2s) SAUF si on force un flush (voir SeekContent/FlushRing).
+				void SetSpeed(float32 speed) noexcept {
+					mSpeed.store(speed > 0.01f ? speed : 0.01f, std::memory_order_relaxed);
+				}
+
+				float32 GetSpeed() const noexcept {
+					return mSpeed.load(std::memory_order_relaxed);
+				}
+
+				/// Position de lecture en SECONDES DE CONTENU (pas le temps mixeur/ring look-ahead).
+				/// Avancee par le thread AUDIO (cote consommateur, dans ReadFrames) au rythme de
+				/// l'horloge reelle du backend x la vitesse courante -> utilisable comme horloge
+				/// maitresse (ex. synchronisation video), contrairement a AudioEngine::
+				/// GetPlaybackPosition qui renvoie toujours 0 pour une voix PlayProcedural.
+				float64 GetPositionSeconds() const noexcept {
+					return (float64)mContentMicros.load(std::memory_order_acquire) / 1000000.0;
+				}
+
+				/// Repositionne le CONTENU (stream + horloge de position) ; vide le ring buffer
+				/// (les donnees deja decodees a l'ancienne position/vitesse sont invalidees).
+				/// Thread-safe (verrouille comme Play/Stop) ; sans effet si aucun stream actif.
+				void SeekContent(float32 seconds) noexcept;
+
+				/// Vide le ring buffer SANS changer la position du stream sous-jacent (utile pour
+				/// appliquer un changement de vitesse "immediatement" plutot qu'apres ~1-2s).
+				void FlushRing() noexcept;
+
+				/// True si le thread PRODUCTEUR est associe a un stream et n'a pas encore atteint
+				/// sa fin (EOF sans boucle) OU si Stop() n'a pas ete appele. ⚠️ Passe a false DES
+				/// que le decodage source est termine, MEME S'IL RESTE DU CONTENU DEJA DECODE
+				/// dans le ring buffer (jusqu'a ~2s, le producteur decodant plus vite que le temps
+				/// reel) : ne PAS l'utiliser seul pour decider "il n'y a plus rien a entendre" (ca
+				/// coupe le son ~2s trop tot) — voir IsFinished() pour cette question-la.
+				bool IsActive() const noexcept {
+					return mActive.load(std::memory_order_relaxed);
+				}
+
+				/// True uniquement quand il n'y a VRAIMENT plus rien a jouer : producteur termine
+				/// (IsActive()==false) ET ring buffer vide (aucune frame deja decodee en attente).
+				/// C'est la bonne question pour une horloge de synchronisation externe (ex. video) :
+				/// "puis-je encore faire confiance a GetPositionSeconds() ?" -> !IsFinished().
+				bool IsFinished() const noexcept {
+					if (mActive.load(std::memory_order_relaxed))
+						return false;
+					const int32 wPos = mWritePos.load(std::memory_order_acquire);
+					const int32 rPos = mReadPos.load(std::memory_order_relaxed);
+					return (wPos - rPos) <= 0;
+				}
+
 			private:
 				void DecoderThreadProc();
 
@@ -116,6 +167,15 @@ namespace nkentseu {
 
 				// Volume
 				std::atomic<float32> mVolume{1.0f};
+
+				// Vitesse (multiplie le ratio de reechantillonnage cote producteur).
+				std::atomic<float32> mSpeed{1.0f};
+
+				// Position de CONTENU en microsecondes. Ecrivain UNIQUE = le thread audio
+				// (dans ReadFrames) -> store/load simples suffisent (pas de CAS necessaire,
+				// un seul thread modifie jamais cette valeur), lu par le thread appelant
+				// (ex. la boucle video) via GetPositionSeconds().
+				std::atomic<nk_int64> mContentMicros{0};
 		};
 
 	} // namespace audio

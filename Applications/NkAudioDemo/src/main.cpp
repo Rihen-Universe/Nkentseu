@@ -69,11 +69,17 @@ static int RunStreamingTest(const char *path) {
 		int32 got = player.ReadFrames(outBuf + usize(readSoFar) * usize(channels), want);
 		if (got == 0) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			// ⚠️ Compte les lectures vides CONSECUTIVES (buffer réellement à sec trop
+			// longtemps), pas un cumul sur toute la durée du test : un hoquet isolé du
+			// thread décodeur (quelques ms de retard CPU) est normal et ne doit PAS
+			// s'additionner avec d'autres hoquets bien plus tard pour déclencher un
+			// faux timeout alors que le flux reste parfaitement sain entre-temps.
 			if (++nZeroFrames > 1000) {
 				logger.Warn("[NkAudioDemo] Timeout streaming (buffer vide trop longtemps)");
 				break;
 			}
 		} else {
+			nZeroFrames = 0;
 			readSoFar += got;
 			std::this_thread::sleep_for(std::chrono::microseconds(int(got * 1000000LL / sampleRate)));
 		}
@@ -111,6 +117,59 @@ static int RunStreamingTest(const char *path) {
 	}
 	memory::NkFree(outBuf, nullptr);
 	player.Shutdown();
+	return 0;
+}
+
+// Mode diagnostic : pull DIRECT sur IAudioStream (sans AudioStreamPlayer/thread/
+// ring buffer), boucle serree jusqu'a EOF. Isole un bug eventuel du STREAM lui-meme
+// de celui, eventuel, du pipeline threade (ring buffer SPSC + decoder thread).
+static int RunDirectPullTest(const char *path) {
+	logger.Info("[NkAudioDemo] Mode pull direct : {0}", path);
+	IAudioStream *stream = OpenAudioStream(path);
+	if (!stream) {
+		logger.Error("[NkAudioDemo] OpenAudioStream echec");
+		return 1;
+	}
+	const int32 sampleRate = stream->GetSampleRate();
+	const int32 channels = stream->GetChannels();
+	const nk_int64 totalFrames = stream->GetFrameCount();
+	logger.Info("[NkAudioDemo] Stream ouvert : {0} frames, {1} ch, {2} Hz", (long long)totalFrames, channels,
+				sampleRate);
+
+	NkVector<float32> pcm;
+	float32 chunk[4096];
+	int32 totalRead = 0;
+	int32 iterations = 0;
+	int32 zeroReturns = 0;
+	for (;;) {
+		int32 got = stream->ReadFrames(chunk, 1024);
+		++iterations;
+		if (got == 0) {
+			++zeroReturns;
+			if (stream->IsEOF() || zeroReturns > 5)
+				break;
+			continue;
+		}
+		zeroReturns = 0;
+		for (int32 i = 0; i < got * channels; ++i)
+			pcm.PushBack(chunk[i]);
+		totalRead += got;
+		if (iterations > 1000000)
+			break; // garde-fou
+	}
+	logger.Info("[NkAudioDemo] Pull direct termine : {0} frames lues (attendu ~{1}), {2} iterations, IsEOF={3}",
+				totalRead, (long long)totalFrames, iterations, stream->IsEOF() ? 1 : 0);
+
+	AudioSample s{};
+	s.data = pcm.Data();
+	s.frameCount = usize(totalRead);
+	s.sampleRate = sampleRate;
+	s.channels = channels;
+	s.format = AudioFormat::WAV;
+	s.mAllocator = nullptr;
+	if (AudioLoader::SaveWAV("Build/test_direct_pull.wav", s))
+		logger.Info("[NkAudioDemo] Sauve Build/test_direct_pull.wav");
+	delete stream;
 	return 0;
 }
 
@@ -254,20 +313,25 @@ int main(int argc, char **argv) {
 	const char *path = defaultPath;
 	bool streamMode = false;
 	bool hrtfMode = false;
+	bool directPullMode = false;
 	for (int i = 1; i < argc; ++i) {
 		if (std::strcmp(argv[i], "--stream") == 0)
 			streamMode = true;
 		else if (std::strcmp(argv[i], "--hrtf-test") == 0)
 			hrtfMode = true;
+		else if (std::strcmp(argv[i], "--direct-pull") == 0)
+			directPullMode = true;
 		else if (argv[i][0] != '-')
 			path = argv[i];
 	}
 
-	logger.Info("[NkAudioDemo] Demarrage. Fichier : {0} (stream={1} hrtf={2})", path, streamMode ? 1 : 0,
-				hrtfMode ? 1 : 0);
+	logger.Info("[NkAudioDemo] Demarrage. Fichier : {0} (stream={1} hrtf={2} direct={3})", path, streamMode ? 1 : 0,
+				hrtfMode ? 1 : 0, directPullMode ? 1 : 0);
 
 	if (hrtfMode)
 		return RunHrtfTest(path);
+	if (directPullMode)
+		return RunDirectPullTest(path);
 	if (streamMode)
 		return RunStreamingTest(path);
 
