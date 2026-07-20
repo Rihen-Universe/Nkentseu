@@ -81,14 +81,388 @@ namespace nkentseu {
 										   // ré-enregistrer supprimé)
 				NkVector<NkString> output; // sortie de la derniere commande jenga
 				NkString status;		   // ligne d'etat (ex. "Build OK")
-				int32 buildTotal = 0, buildDone = 0; // progression : projets total / faits
+				// DEUX progressions distinctes (demande Rihen) :
+				//  - MODULE courant : fichiers faits / total du projet en cours de compilation
+				//  - GLOBALE : modules finis / total de modules (connu des l'en-tete
+				//    "Build Order (N projects)" -> jamais 100% avant la vraie fin)
+				int32 buildTotal = 0, buildDone = 0; // module courant : fichiers total / faits
+				int32 projTotal = 0, projDone = 0;	 // global : modules total / finis
 
 				bool IsBuilding() const {
 					return mBuild.Running() || !mQueue.Empty();
 				}
 
+				// Progression GLOBALE lissee : modules finis + fraction du module en cours.
 				float32 BuildProgress() const {
-					return buildTotal > 0 ? (float32)buildDone / (float32)buildTotal : 0.f;
+					float32 frac = buildTotal > 0 ? (float32)buildDone / (float32)buildTotal : 0.f;
+					if (frac > 1.f)
+						frac = 1.f;
+					if (projTotal <= 0)
+						return frac; // pas d'en-tete "Build Order" vu : repli sur le module
+					const float32 p = ((float32)projDone + frac) / (float32)projTotal;
+					return p > 1.f ? 1.f : p;
+				}
+
+				// Progression du MODULE en cours uniquement.
+				float32 ModuleProgress() const {
+					const float32 f = buildTotal > 0 ? (float32)buildDone / (float32)buildTotal : 0.f;
+					return f > 1.f ? 1.f : f;
+				}
+
+				// ── Erreurs VISIBLES : explorateur (icones rouges propagees jusqu'a la
+				// racine) + voyants du footer. Alimentes par le parsing de la sortie build
+				// (OutputPanel::ParseProgress) et par les diagnostics live des fichiers
+				// ouverts. Reinitialises au debut de chaque commande jenga. ──
+				NkVector<NkString> buildErrFiles; // chemins sources en erreur de COMPILATION
+				bool errCompile = false;		  // voyant : au moins une erreur de compilation
+				bool errLink = false;			  // voyant : au moins une erreur d'edition de liens
+				bool buildHasWarn = false;		  // voyant ORANGE : le dernier build a des warnings
+				// ── Memoire de la DERNIERE COMPILATION ECHOUEE : transcript complet garde en
+				// memoire + persiste dans .nkcode/last_build_fail.log. Sert (1) a consulter
+				// apres coup, (2) de CONTEXTE aux agents IA ("corrige la derniere erreur de
+				// build" -> le panneau IA attache ce transcript a la requete). ──
+				NkVector<NkString> mCmdLog;		 // transcript de la commande jenga EN COURS
+				NkString mCmdCur;				 // la commande elle-meme
+				bool mBuildDoneHandled = true;	 // fin de commande deja traitee ?
+				NkVector<NkString> lastBuildFail;	// transcript de la derniere commande ECHOUEE
+				NkString lastBuildFailCmd;			// sa ligne de commande
+
+				// ── JOURNAL GLOBAL des interactions IDE (memoire pour les agents IA) :
+				// commandes lancees/terminees, executions, sauvegardes, changement de projet
+				// de base... Une ligne par evenement, ordre chronologique, borne a 200. Les
+				// panneaux IA attachent la fin de ce journal a chaque requete -> l'agent sait
+				// « ce qui vient de se passer » sans avoir a demander. ──
+				NkVector<NkString> ideJournal;
+
+				void Journal(const NkString &line) {
+					ideJournal.PushBack(line);
+					while (ideJournal.Size() > 200)
+						ideJournal.Erase(ideJournal.Begin());
+				}
+
+				// `file` est-il DANS `folder` (ou un de ses sous-dossiers) ? Insensible a la
+				// casse, '/' et '\\' equivalents, slash final du dossier tolere.
+				static bool PathUnderI(const char *file, const char *folder) {
+					usize n = 0;
+					while (folder[n])
+						++n;
+					while (n > 0 && (folder[n - 1] == '/' || folder[n - 1] == '\\'))
+						--n;
+					if (n == 0)
+						return false;
+					for (usize i = 0; i < n; ++i) {
+						char a = file[i], b = folder[i];
+						if (!a)
+							return false;
+						if (a == '\\')
+							a = '/';
+						if (b == '\\')
+							b = '/';
+						if (UpC(a) != UpC(b))
+							return false;
+					}
+					return file[n] == '/' || file[n] == '\\';
+				}
+
+				// Au moins un fichier OUVERT porte-t-il une erreur de code (diagnostic sev=1) ?
+				bool AnyCodeError() const {
+					for (usize i = 0; i < files.Size(); ++i)
+						for (usize k = 0; k < files[i].doc.diags.Size(); ++k)
+							if (files[i].doc.diags[k].sev == 1)
+								return true;
+					return false;
+				}
+
+				// Niveau de sante du chemin `path` (fichier ou dossier) : 0 = valide,
+				// 1 = WARNING (orange), 2 = ERREUR (rouge). Fichier : match exact (erreur de
+				// build, diagnostic d'un fichier ouvert, ou verif fond d'un fichier disque).
+				// Dossier : niveau MAX des fichiers contenus -> PROPAGATION automatique aux
+				// parents jusqu'a la racine (l'explorateur teste chaque row avec son chemin).
+				int32 PathDiagLevel(const char *path, bool dir) const {
+					int32 lvl = 0;
+					auto match = [&](const char *file) {
+						return dir ? PathUnderI(file, path) : PathEqI(file, path);
+					};
+					for (usize i = 0; i < buildErrFiles.Size(); ++i)
+						if (match(buildErrFiles[i].CStr()))
+							return 2; // erreur de compilation : niveau max, stop
+					for (usize i = 0; i < chkErrFiles.Size(); ++i)
+						if (match(chkErrFiles[i].CStr()))
+							return 2; // erreur trouvee par la verif fond
+					for (usize i = 0; i < files.Size(); ++i) {
+						int32 fl = 0;
+						for (usize k = 0; k < files[i].doc.diags.Size() && fl < 2; ++k)
+							fl = files[i].doc.diags[k].sev == 1 ? 2 : (fl < 1 ? 1 : fl);
+						if (fl <= lvl)
+							continue;
+						const NkString fp = files[i].path.ToString();
+						if (match(fp.CStr())) {
+							if (fl == 2)
+								return 2;
+							lvl = fl;
+						}
+					}
+					for (usize i = 0; i < chkWarnFiles.Size() && lvl < 1; ++i)
+						if (match(chkWarnFiles[i].CStr()))
+							lvl = 1;
+					return lvl;
+				}
+
+				// Niveau de sante GLOBAL du code (voyant footer) : max des diagnostics des
+				// fichiers ouverts + resultats de la verif fond des fichiers disque.
+				int32 CodeDiagLevel() const {
+					if (!chkErrFiles.Empty())
+						return 2;
+					int32 lvl = chkWarnFiles.Empty() ? 0 : 1;
+					for (usize i = 0; i < files.Size(); ++i)
+						for (usize k = 0; k < files[i].doc.diags.Size(); ++k) {
+							if (files[i].doc.diags[k].sev == 1)
+								return 2;
+							lvl = 1;
+						}
+					return lvl;
+				}
+
+				// ── VERIF EN ARRIERE-PLAN des fichiers STRATEGIQUES modifies NON ouverts ──
+				// Les fichiers ouverts ont deja les squiggles live (compile-first/clangd a la
+				// sauvegarde) ; ici on couvre les fichiers modifies HORS editeur ou jamais
+				// ouverts : `git status --porcelain` (poll ~3 s — git scanne le disque bien
+				// plus vite qu'un parcours recursif maison et respecte .gitignore) -> sources
+				// C/C++ modifiees/ajoutees -> file d'attente -> `-fsyntax-only` avec les memes
+				// flags PROJET que les squiggles -> chkErr/chkWarnFiles alimentent
+				// PathDiagLevel (icones rouges/oranges) + le voyant CODE du footer.
+				NkProcess chkGit; // git status --porcelain (detection des modifs)
+				NkVector<NkString> chkGitAcc;
+				float32 chkGitTimer = 999.f; // 1er poll immediat
+				// REPLI SANS GIT (git non installe, ou workspace hors depot) : balayage
+				// maison INCREMENTAL (quelques dossiers par frame, jamais bloquant) qui
+				// compare les mtimes des sources aux valeurs memorisees. Bascule automatique
+				// apres 2 echecs de `git status`.
+				int32 chkGitFails = 0;
+				bool chkGitOff = false;
+				NkVector<NkString> chkScanDirs; // file de dossiers du balayage en cours
+				float32 chkScanPause = 0.f;		// pause entre deux balayages complets
+				bool chkScanActive = false;		// un balayage est en cours
+				bool chkScanBaselined = false;	// 1er balayage = MEMORISER seulement (pas de
+												// verif : sinon TOUT le workspace serait enfile)
+				NkVector<NkString> chkQueue; // fichiers a verifier (chemins absolus)
+				NkProcess chkProc;			 // verification en cours (UN fichier a la fois)
+				NkVector<NkString> chkAcc;
+				NkString chkCur;
+				NkVector<NkString> chkDonePath; // memo : dernier mtime verifie par fichier
+				NkVector<int64> chkDoneMt;
+				NkVector<NkString> chkErrFiles;	 // fichiers DISQUE en ERREUR (verif fond)
+				NkVector<NkString> chkWarnFiles; // fichiers DISQUE en WARNING (verif fond)
+
+				bool ChkKnownUpToDate(const char *p, int64 mt) const {
+					for (usize i = 0; i < chkDonePath.Size(); ++i)
+						if (PathEqI(chkDonePath[i].CStr(), p))
+							return chkDoneMt[i] == mt;
+					return false;
+				}
+
+				void ChkRemember(const char *p, int64 mt) {
+					for (usize i = 0; i < chkDonePath.Size(); ++i)
+						if (PathEqI(chkDonePath[i].CStr(), p)) {
+							chkDoneMt[i] = mt;
+							return;
+						}
+					chkDonePath.PushBack(NkString(p));
+					chkDoneMt.PushBack(mt);
+				}
+
+				static void ChkSetIn(NkVector<NkString> &list, const char *p, bool on) {
+					for (usize i = 0; i < list.Size(); ++i)
+						if (PathEqI(list[i].CStr(), p)) {
+							if (!on)
+								list.Erase(list.Begin() + i);
+							return;
+						}
+					if (on)
+						list.PushBack(NkString(p));
+				}
+
+				bool IsOpenInEditor(const char *p) const {
+					for (usize i = 0; i < files.Size(); ++i)
+						if (PathEqI(files[i].path.ToString().CStr(), p))
+							return true;
+					return false;
+				}
+
+				// Enfile `ap` pour verification si c'est une source C/C++ modifiee, non
+				// ouverte, pas deja verifiee a ce mtime, et pas deja en file.
+				void ChkMaybeQueue(const NkString &ap) {
+					const NkString ext = NkPath(ap).GetExtension();
+					if (!IsCppExt(ext.CStr()))
+						return; // pas un fichier strategique C/C++
+					if (IsOpenInEditor(ap.CStr()))
+						return; // deja couvert par les squiggles live
+					const int64 mt = MTimeOf(ap.CStr());
+					if (mt == 0 || ChkKnownUpToDate(ap.CStr(), mt))
+						return;
+					bool queued = PathEqI(chkCur.CStr(), ap.CStr());
+					for (usize q = 0; q < chkQueue.Size() && !queued; ++q)
+						queued = PathEqI(chkQueue[q].CStr(), ap.CStr());
+					if (!queued)
+						chkQueue.PushBack(ap);
+				}
+
+				void TickBgCheck(float32 dt) {
+					if (!HasWorkspace() || !cdb.ready)
+						return;
+					// 1) Detection des modifs : GIT si disponible (rapide, .gitignore
+					// respecte), sinon REPLI balayage maison incremental (voir plus bas).
+					if (!chkGitOff) {
+						chkGitTimer += dt;
+						if (!chkGit.Running() && chkGitTimer >= 3.f) {
+							chkGitTimer = 0.f;
+							chkGitAcc.Clear();
+							chkGit.Start(NkString("git -C \"") + root.ToString().CStr() + "\" status --porcelain");
+						}
+						chkGit.Drain(chkGitAcc);
+						if (chkGit.Done() && chkGit.ExitCode() != 0) {
+							// git absent ("n'est pas reconnu") OU workspace hors depot
+							// ("fatal: not a git repository") -> apres 2 echecs, repli maison.
+							chkGitAcc.Clear();
+							if (++chkGitFails >= 2) {
+								chkGitOff = true;
+								GlobalLogBuffer().Push(
+									NkString("[chk] git indisponible ici - bascule sur le balayage maison"));
+							}
+						} else if (chkGit.Done() && !chkGitAcc.Empty()) {
+							chkGitFails = 0;
+							for (usize i = 0; i < chkGitAcc.Size(); ++i) {
+								const char *l = chkGitAcc[i].CStr();
+								if (!l[0] || !l[1])
+									continue;
+								if (l[0] == 'D' || l[1] == 'D')
+									continue; // fichier supprime
+								const char *rel = l + 3;
+								if (l[0] == 'R') { // renomme : "R  ancien -> nouveau"
+									if (const char *ar = NkFindSub(l, " -> "))
+										rel = ar + 4;
+								}
+								char clean[1024]; // porcelain met des guillemets (chemins a espaces)
+								int32 cn = 0;
+								for (const char *q = rel; *q && cn < 1023; ++q)
+									if (*q != '"')
+										clean[cn++] = *q;
+								clean[cn] = 0;
+								NkString ap = root.ToString();
+								ap += "/";
+								ap += clean;
+								ChkMaybeQueue(ap);
+							}
+							chkGitAcc.Clear();
+						}
+					} else {
+						// REPLI SANS GIT : balayage incremental, ~6 dossiers par frame (jamais
+						// bloquant) ; un tour complet puis pause de 5 s avant de recommencer.
+						// Le PREMIER tour ne fait que MEMORISER les mtimes (baseline) — seuls
+						// les tours suivants detectent les changements.
+						if (chkScanDirs.Empty() && !chkScanActive) {
+							chkScanPause -= dt;
+							if (chkScanPause <= 0.f) {
+								chkScanDirs.PushBack(root.ToString());
+								chkScanActive = true;
+								chkScanPause = 5.f;
+							}
+						}
+						for (int32 budget = 6; budget > 0 && !chkScanDirs.Empty(); --budget) {
+							const NkString dir = chkScanDirs[0];
+							chkScanDirs.Erase(chkScanDirs.Begin());
+							const NkVector<NkDirectoryEntry> es =
+								NkDirectory::GetEntries(dir.CStr(), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+							for (usize i = 0; i < es.Size(); ++i) {
+								const char *nm = es[i].Name.CStr();
+								if (es[i].IsDirectory) {
+									// dossiers sans sources utilisateur : ignores (gros/bruit)
+									if (StrEq(nm, ".git") || StrEq(nm, ".nkcode") || StrEq(nm, "Build") ||
+										StrEq(nm, "node_modules") || StrEq(nm, ".vs") || StrEq(nm, ".idea"))
+										continue;
+									chkScanDirs.PushBack(es[i].FullPath.ToString());
+								} else if (es[i].IsFile) {
+									if (chkScanBaselined)
+										ChkMaybeQueue(es[i].FullPath.ToString());
+									else { // 1er tour : baseline mtime, aucune verif
+										const NkString fp = es[i].FullPath.ToString();
+										if (IsCppExt(NkPath(fp).GetExtension().CStr()))
+											ChkRemember(fp.CStr(), static_cast<int64>(es[i].ModificationTime));
+									}
+								}
+							}
+						}
+						if (chkScanActive && chkScanDirs.Empty()) { // tour termine
+							chkScanActive = false;
+							chkScanBaselined = true;
+						}
+					}
+					// 2) Une verification a la fois (le process compile le VRAI fichier disque).
+					chkProc.Drain(chkAcc);
+					if (chkProc.Done() && !chkCur.Empty()) {
+						bool err = false, warn = false;
+						for (usize i = 0; i < chkAcc.Size() && !err; ++i) {
+							const char *ln = chkAcc[i].CStr();
+							if (NkFindSub(ln, "error:") || NkFindSub(ln, "error C"))
+								err = true; // clang/gcc "error:" · msvc "error C1234"
+							else if (NkFindSub(ln, "warning:") || NkFindSub(ln, "warning C"))
+								warn = true;
+						}
+						ChkSetIn(chkErrFiles, chkCur.CStr(), err);
+						ChkSetIn(chkWarnFiles, chkCur.CStr(), !err && warn);
+						ChkRemember(chkCur.CStr(), MTimeOf(chkCur.CStr()));
+						chkCur = NkString();
+						chkAcc.Clear();
+					}
+					if (!chkProc.Running() && chkCur.Empty() && !chkQueue.Empty()) {
+						NkString p = chkQueue[0];
+						chkQueue.Erase(chkQueue.Begin());
+						const ProjFlags *pf = FlagsForFile(p);
+						if (!pf) { // pas de flags projet connus : memorise pour ne pas boucler
+							ChkRemember(p.CStr(), MTimeOf(p.CStr()));
+							return;
+						}
+						const NkString ext = NkPath(p).GetExtension();
+						const bool isC = StrEqI(ext.CStr(), ".c");
+						// Memes flags que RunDiagPass (squiggles live) mais sur le fichier REEL.
+						NkString cmd = CompilerPathPrefix() + "\"" + cdb.compiler.CStr() + "\" ";
+						if (cdb.msvc) {
+							cmd += isC ? "/TC " : "/TP ";
+							cmd += "/Zs /nologo ";
+							if (!pf->std.Empty()) {
+								cmd += "/std:";
+								cmd += pf->std.CStr();
+								cmd += " ";
+							}
+						} else {
+							cmd += "-fsyntax-only ";
+							cmd += isC ? "-x c " : "-x c++ ";
+							if (!pf->std.Empty()) {
+								cmd += "-std=";
+								cmd += pf->std.CStr();
+								cmd += " ";
+							}
+							cmd += NkFindSub(cdb.compiler.CStr(), "clang")
+									   ? "-ferror-limit=0 -fno-caret-diagnostics -Wno-pragma-once-outside-header "
+									   : "-fmax-errors=0 -fno-diagnostics-show-caret ";
+						}
+						for (usize i = 0; i < pf->includes.Size(); ++i) {
+							cmd += cdb.msvc ? "/I\"" : "-I\"";
+							cmd += pf->includes[i].CStr();
+							cmd += "\" ";
+						}
+						for (usize i = 0; i < pf->defines.Size(); ++i) {
+							cmd += cdb.msvc ? "/D" : "-D";
+							cmd += pf->defines[i].CStr();
+							cmd += " ";
+						}
+						cmd += "\"";
+						cmd += p.CStr();
+						cmd += "\" 2>&1";
+						chkAcc.Clear();
+						chkCur = p;
+						chkProc.Start(cmd);
+					}
 				}
 
 				// Barre d'outils Visual Studio : config / plateforme / appareil cibles.
@@ -105,6 +479,9 @@ namespace nkentseu {
 				~NkCodeState() {
 					if (navThread.Joinable())
 						navThread.Join();
+					for (usize i = 0; i < mRuns.Size(); ++i) // instances d'execution (jenga run)
+						delete mRuns[i];					 // ~NkProcess joint son thread lecteur
+					mRuns.Clear();
 				} // go-to-def async : évite un thread orphelin à la fermeture
 
 				// Ouvre `p` dans l'editeur (ou le re-selectionne si deja ouvert).
@@ -3438,6 +3815,11 @@ namespace nkentseu {
 				NkString termOpenAt;	 // « Ouvrir dans le terminal » : dossier demandé (consommé par TerminalPanel)
 				NkString termOpenCmd;	 // commande a executer DANS le nouvel onglet (ex. « claude », « codex »)
 				int32 termOpenKind = -1; // shell demandé (-1 = défaut ; 0 pwsh, 1 wsl, 2 bash, 3 cmd)
+				// Texte a TAPER (pas executer, pas de "\r") dans le nouvel onglet une fois le
+				// shell demarre - ex. commande de lancement d'emulateur prete a valider par
+				// l'utilisateur (voir bouton "Emulateur" de la toolbar). Different de
+				// termOpenCmd (qui REMPLACE le shell par une commande, façon agent CLI).
+				NkString termOpenType;
 				// FOCUS CLAVIER GLOBAL : l'EXPLORATEUR a le focus-clic -> l'éditeur ignore
 				// le clavier (sinon Ctrl+D/Suppr/Entrée tireraient des DEUX côtés).
 				bool explorerFocus = false;
@@ -4294,6 +4676,7 @@ namespace nkentseu {
 						f.changedOnDisk = false;
 						f.diskMtime = MTimeOf(f.path.ToString().CStr());
 						status = NkString("Enregistre : ") + f.Name().CStr();
+						Journal(NkString("fichier enregistre : ") + f.Name().CStr());
 						RefreshGit(f);			// met à jour la bande Git après écriture disque
 						RunDiagnostics(active); // vérif syntaxe (squiggles) sur le fichier sauvegardé
 						// Sauvegarde d'un .jenga (workspace OU projet inclus) -> recharge la
@@ -4426,7 +4809,53 @@ namespace nkentseu {
 
 				// A appeler CHAQUE FRAME : recupere la sortie + enchaine la file + statut.
 				void PollBuild() {
-					mBuild.Drain(output);
+					{ // drain -> output (affichage) ET mCmdLog (transcript par commande, borne)
+						NkVector<NkString> fresh;
+						mBuild.Drain(fresh);
+						for (usize i = 0; i < fresh.Size(); ++i) {
+							output.PushBack(fresh[i]);
+							if (mCmdLog.Size() < 3000)
+								mCmdLog.PushBack(fresh[i]);
+						}
+					}
+					// Fin de commande : si ECHEC, memorise le transcript complet (memoire +
+					// .nkcode/last_build_fail.log) pour consultation et pour les agents IA.
+					if (mBuild.Done() && !mBuildDoneHandled) {
+						mBuildDoneHandled = true;
+						Journal(NkPrintf("commande terminee (code %d)%s : %s", mBuild.ExitCode(),
+										 mBuild.ExitCode() != 0 ? " - ECHEC" : "", mCmdCur.CStr()));
+						if (mBuild.ExitCode() != 0 && !mCmdLog.Empty()) {
+							lastBuildFail = mCmdLog;
+							lastBuildFailCmd = mCmdCur;
+							NkString log;
+							for (usize i = 0; i < lastBuildFail.Size(); ++i) {
+								log += lastBuildFail[i];
+								log += "\n";
+							}
+							const NkPath dir = root / ".nkcode";
+							NkDirectory::CreateRecursive(dir);
+							NkFile::WriteAllText(dir / "last_build_fail.log", log);
+						}
+					}
+					// Draine les instances d'EXECUTION (process separes) + retire celles qui
+					// se sont terminees (liberation immediate, compteur du footer a jour).
+					for (int32 i = static_cast<int32>(mRuns.Size()) - 1; i >= 0; --i) {
+						if (!mRuns[i]) {
+							mRuns.Erase(mRuns.Begin() + i);
+							continue;
+						}
+						mRuns[i]->Drain(output);
+						if (!mRuns[i]->Running()) {
+							output.PushBack(NkPrintf("[run] instance terminee (code %d)", mRuns[i]->ExitCode()));
+							Journal(NkPrintf("execution terminee (code %d)", mRuns[i]->ExitCode()));
+							delete mRuns[i];
+							mRuns.Erase(mRuns.Begin() + i);
+							const int32 left = RunCount();
+							if (status.StartsWith("Execution"))
+								status = left > 0 ? NkPrintf("Execution... (%d instance(s))", left)
+												  : NkString("Execution terminee");
+						}
+					}
 					if (!mBuild.Running()) {
 						if (!mQueue.Empty()) {
 							PumpQueue();
@@ -5498,10 +5927,32 @@ namespace nkentseu {
 				}
 
 				// ── File d'attente de commandes jenga (compilation en rafale) ──
+				// `mQueueTags[i]` = projet cible de la commande i ("" = tous les projets) ;
+				// `mBuildTag` = projet de la commande EN COURS. Permet de refuser un build
+				// DOUBLON (meme projet deja en cours/en file) tout en ACCEPTANT un build
+				// d'un AUTRE projet (mis en file, execute a la suite - jamais en parallele :
+				// les dependances partagees ecrivent dans les memes Build/Obj).
 				NkVector<NkString> mQueue;
+				NkVector<NkString> mQueueTags;
+				NkString mBuildTag;
 
-				void EnqueueJenga(const NkString &args) {
+				void EnqueueJenga(const NkString &args, const NkString &tag = NkString()) {
 					mQueue.PushBack(NkString("jenga ") + args.CStr());
+					mQueueTags.PushBack(tag);
+				}
+
+				// Le projet `proj` a-t-il deja un build en cours ou en file ? ("" = "tous les
+				// projets" : entre en conflit avec n'importe quel build actif.)
+				bool BuildBusyFor(const char *proj) const {
+					if (!proj)
+						proj = "";
+					const bool all = (proj[0] == 0);
+					if (mBuild.Running() && (all || mBuildTag.Empty() || StrEqI(mBuildTag.CStr(), proj)))
+						return true;
+					for (usize i = 0; i < mQueueTags.Size(); ++i)
+						if (all || mQueueTags[i].Empty() || StrEqI(mQueueTags[i].CStr(), proj))
+							return true;
+					return false;
 				}
 
 				void PumpQueue() {
@@ -5509,9 +5960,23 @@ namespace nkentseu {
 						return;
 					NkString next = mQueue[0];
 					mQueue.Erase(mQueue.Begin());
+					mBuildTag = mQueueTags.Empty() ? NkString() : mQueueTags[0];
+					if (!mQueueTags.Empty())
+						mQueueTags.Erase(mQueueTags.Begin());
 					output.PushBack(NkString("$ ") + next.CStr());
-					buildTotal = 0;
-					buildDone = 0; // progression de cette commande
+					buildTotal = 0; // progression de cette commande (module + global)
+					buildDone = 0;
+					projTotal = 0;
+					projDone = 0;
+					errCompile = false; // voyants/erreurs du cycle precedent effaces
+					errLink = false;
+					buildHasWarn = false;
+					buildErrFiles.Clear();
+					mCmdLog.Clear(); // transcript de CETTE commande (-> lastBuildFail si echec)
+					mCmdLog.PushBack(NkString("$ ") + next.CStr());
+					mCmdCur = next;
+					mBuildDoneHandled = false;
+					Journal(NkString("commande lancee : ") + next.CStr());
 					mBuild.Start(next);
 					status = NkString("Construction...");
 				}
@@ -5522,8 +5987,21 @@ namespace nkentseu {
 						status = NkString("(aucun workspace)");
 						return;
 					}
-					output.Clear();
-					mQueue.Clear();
+					// Concurrence : un build DOUBLON (meme projet, ou "tous" pendant qu'un
+					// build tourne) est refuse ; un build d'un AUTRE projet est ACCEPTE et
+					// mis en file (execute a la suite, cf. mQueueTags).
+					const char *target = AllProjects() ? "" : SelectedProject();
+					const bool busy = IsBuilding();
+					if (busy && BuildBusyFor(target)) {
+						status = target[0] ? NkPrintf("(construction de %s deja en cours)", target)
+										   : NkString("(construction deja en cours)");
+						return;
+					}
+					if (!busy) { // pipeline libre : repart d'une sortie propre (comportement historique)
+						output.Clear();
+						mQueue.Clear();
+						mQueueTags.Clear();
+					}
 					int32 nSys = 0;
 					const SysDef *sys = Systems(&nSys);
 					const SysDef &S = sys[(sysIdx >= 0 && sysIdx < nSys) ? sysIdx : 0];
@@ -5557,8 +6035,10 @@ namespace nkentseu {
 								cmd += compilerName;
 							}
 							cmd += JengaFileArg();
-							EnqueueJenga(cmd);
+							EnqueueJenga(cmd, NkString(target));
 						}
+					if (busy) // accepte : passera a la suite du build en cours
+						status = NkPrintf("(mis en file : %s)", target[0] ? target : "tous les projets");
 					PumpQueue();
 				}
 
@@ -5567,8 +6047,13 @@ namespace nkentseu {
 						status = NkString("(aucun workspace)");
 						return;
 					}
+					if (IsBuilding()) { // clean pendant un build = recette a .obj corrompus
+						status = NkString("(construction en cours - nettoyer apres)");
+						return;
+					}
 					output.Clear();
 					mQueue.Clear();
+					mQueueTags.Clear();
 					NkString cmd("clean");
 					if (!AllProjects()) {
 						cmd += " --project ";
@@ -5588,13 +6073,22 @@ namespace nkentseu {
 						status = NkString("(choisir un projet pour Demarrer)");
 						return;
 					}
-					output.Clear();
-					mQueue.Clear();
+					// EXECUTION = process SEPARE du pipeline build -> PLUSIEURS instances de la
+					// meme application peuvent tourner en parallele (multi-fenetres, tests
+					// reseau/multi-process). Refusee seulement si un build du MEME projet est
+					// en cours/en file (la phase --build du run entrerait en collision). La
+					// phase --build reste incrementale cote Jenga : rien de modifie => aucun
+					// recompile, lancement direct.
+					const char *proj = SelectedProject();
+					if (BuildBusyFor(proj)) {
+						status = NkPrintf("(construction de %s en cours - reessayer apres)", proj);
+						return;
+					}
 					int32 nSys = 0;
 					const SysDef *sys = Systems(&nSys);
 					const SysDef &S = sys[(sysIdx >= 0 && sysIdx < nSys) ? sysIdx : 0];
-					NkString cmd("run ");
-					cmd += SelectedProject();
+					NkString cmd("jenga run ");
+					cmd += proj;
 					cmd += " --config ";
 					cmd += ConfigNameOf(cfgIdx >= 2 ? 0 : cfgIdx);
 					cmd += " --platform ";
@@ -5605,8 +6099,115 @@ namespace nkentseu {
 					}
 					cmd += " --build";
 					cmd += JengaFileArg();
-					EnqueueJenga(cmd);
-					PumpQueue();
+					NkProcess *p = new NkProcess();
+					output.PushBack(NkString("$ ") + cmd.CStr());
+					Journal(NkString("execution lancee : ") + cmd.CStr());
+					p->Start(cmd);
+					mRuns.PushBack(p);
+					status = NkPrintf("Execution... (%d instance(s))", RunCount());
+				}
+
+				// ── Instances d'EXECUTION en cours (jenga run) : separees du pipeline build.
+				// Pointeurs (NkProcess est non-copiable), liberees des que le process finit. ──
+				NkVector<NkProcess *> mRuns;
+
+				int32 RunCount() const {
+					int32 n = 0;
+					for (usize i = 0; i < mRuns.Size(); ++i)
+						if (mRuns[i] && mRuns[i]->Running())
+							++n;
+					return n;
+				}
+
+				// Résout le texte de commande à TAPER (pas exécuter) dans un NOUVEL onglet
+				// terminal pour lancer l'émulateur/simulateur de la plateforme CIBLE actuelle
+				// (Android/HarmonyOS) — bouton "Émulateur" de la toolbar. Scan filesystem
+				// UNIQUEMENT (API Nk, pas de process externe à parser) : AVD Android
+				// (%USERPROFILE%/.android/avd/*.avd), instances HarmonyOS-NEXT
+				// (C:/ohos/Emulator/*/Start.bat, convention par défaut de DevEco Studio).
+				// `outCwd` = dossier où ouvrir le nouvel onglet. Retourne "" si rien trouvé
+				// (message explicatif alors posé dans `status`). iOS : pas de simulateur
+				// possible hors macOS+Xcode, message explicatif seulement.
+				NkString ResolveEmulatorLaunchHint(NkString &outCwd) {
+					int32 nSys = 0;
+					const SysDef *sysd = Systems(&nSys);
+					if (sysIdx < 0 || sysIdx >= nSys)
+						return NkString();
+					const SysDef &S = sysd[sysIdx];
+					auto has = [&](const char *k) {
+						auto low = [](char ch) { return (ch >= 'A' && ch <= 'Z') ? char(ch + 32) : ch; };
+						for (const char *h = S.name; h && *h; ++h) {
+							const char *a = h, *b = k;
+							while (*a && *b && low(*a) == low(*b)) {
+								++a;
+								++b;
+							}
+							if (!*b)
+								return true;
+						}
+						return false;
+					};
+					if (has("android")) {
+						const char *home = env::GetEnvVar("ANDROID_HOME");
+						if (!home || !*home)
+							home = env::GetEnvVar("ANDROID_SDK_ROOT");
+						if (!home || !*home) {
+							status = NkString("(ANDROID_HOME non defini - installer le SDK Android)");
+							return NkString();
+						}
+						const NkString emuExe = NkString(home) + "/emulator/emulator.exe";
+						if (!NkFile::Exists(emuExe.CStr())) {
+							status = NkString("(composant \"emulator\" non installe dans le SDK Android)");
+							return NkString();
+						}
+						const char *userProfile = env::GetEnvVar("USERPROFILE");
+						if (!userProfile || !*userProfile)
+							userProfile = env::GetEnvVar("HOME");
+						outCwd = NkString(home) + "/emulator";
+						if (!userProfile || !*userProfile) {
+							status = NkString("(dossier utilisateur introuvable)");
+							return NkString();
+						}
+						const NkString avdDir = NkString(userProfile) + "/.android/avd";
+						const NkVector<NkString> avds =
+							NkDirectory::Exists(avdDir.CStr()) ? NkDirectory::GetDirectories(avdDir.CStr(), "*.avd")
+																: NkVector<NkString>();
+						if (avds.Empty()) {
+							status = NkString("(aucun appareil virtuel Android - creer via Android Studio)");
+							return NkString();
+						}
+						const NkString name = NkPath(avds[0]).GetFileNameWithoutExtension();
+						NkString cmd = NkString("& \"") + emuExe + "\" -avd " + name;
+						if (avds.Size() > 1)
+							cmd += NkPrintf("   # %d AVD trouves, changer -avd si besoin", (int32)avds.Size());
+						return cmd;
+					}
+					if (has("harmonyos")) {
+						const char *root = "C:/ohos/Emulator";
+						if (!NkDirectory::Exists(root)) {
+							status = NkString("(dossier emulateur HarmonyOS introuvable : C:/ohos/Emulator)");
+							return NkString();
+						}
+						const NkVector<NkString> insts = NkDirectory::GetDirectories(root, "*");
+						NkVector<NkString> valid;
+						for (usize i = 0; i < insts.Size(); ++i)
+							if (NkFile::Exists((insts[i] + "/Start.bat").CStr()))
+								valid.PushBack(insts[i]);
+						if (valid.Empty()) {
+							status = NkString("(aucune instance emulateur HarmonyOS dans C:/ohos/Emulator)");
+							return NkString();
+						}
+						outCwd = valid[0];
+						NkString cmd("& \".\\Start.bat\"");
+						if (valid.Size() > 1)
+							cmd += NkPrintf("   # %d instances trouvees dans C:/ohos/Emulator", (int32)valid.Size());
+						return cmd;
+					}
+					if (has("ios") || has("macos") || has("tvos") || has("watchos") || has("visionos")) {
+						status = NkString("(simulateur Apple : necessite macOS + Xcode, indisponible ici)");
+						return NkString();
+					}
+					return NkString();
 				}
 
 				// Lance les tests : si testIdx == -1 -> TOUS les tests visibles (ceux du
@@ -5619,6 +6220,7 @@ namespace nkentseu {
 					}
 					output.Clear();
 					mQueue.Clear();
+					mQueueTags.Clear();
 					int32 ran = 0;
 					for (int32 i = 0; i < static_cast<int32>(tests.Size()); ++i) {
 						if (!TestVisible(i))

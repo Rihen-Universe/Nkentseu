@@ -98,6 +98,12 @@ namespace nkentseu {
 				bool findReplace = false; // mode remplacement (champ « Remplacer » en plus)
 				bool findCase = false;	  // sensible à la casse
 				int32 findFocus = 0;	  // champ actif : 0 = Rechercher, 1 = Remplacer
+				// Barre NON MODALE (façon VSCode) : la barre reste OUVERTE mais un clic dans
+				// le corps du document lui reprend le focus clavier (édition/sélection/nav
+				// normales reprennent) sans la fermer. true = la barre capte le clavier
+				// (navigation entre occurrences, Entrée = suivant/remplacer) ; false = le
+				// document a repris la main, la barre reste visible mais inerte.
+				bool findBarActive = false;
 				char findQuery[256] = {},
 					 findRepl[256] = {};		   // termes recherché / remplacement (buffers -> NkOverlayTextField)
 				NkVector<int32> findLine, findCol; // occurrences (arrays parallèles ligne/colonne)
@@ -1133,7 +1139,14 @@ namespace nkentseu {
 						ComputeFoldRegions(lang);
 						foldDirty = true;
 					}
-					if (foldDirty || static_cast<int32>(rowOfLine.Size()) != LineCount()) {
+					// widthDirty (posé par toute édition qui change la largeur d'une ligne SANS
+					// forcément changer SymSig() - ex. IndentSelection() qui ajoute/retire des
+					// blancs de tête) doit AUSSI invalider le mapping ligne->row visuel en mode
+					// wrap : sinon rowOfLine/visRows restent bases sur les anciens points de
+					// cesure -> le caret est repere a un row FAUX -> ensureCaret (scroll-to-
+					// caret) peut sauter n'importe ou (bug remonte par Rihen : Tab sur une
+					// selection multi-ligne fait sauter la scrollbar au fond de la page).
+					if (foldDirty || (wrapOn && widthDirty) || static_cast<int32>(rowOfLine.Size()) != LineCount()) {
 						RebuildVisRows();
 						foldDirty = false;
 					}
@@ -1737,12 +1750,23 @@ namespace nkentseu {
 						if (!out) {
 							for (int32 k = 0; k < 4; ++k)
 								lines[l].Insert(lines[l].Begin(), ' ');
+							// Le caret/l'ancre de selection sur CETTE ligne doivent suivre le texte
+							// qu'ils "pointaient" - sinon la colonne logique reste la meme mais le
+							// texte a glisse de 4 (le caret semble avoir "saute" dans la ligne).
+							if (l == curLine)
+								curCol += 4;
+							if (l == selLine)
+								selCol += 4;
 						} else {
 							int32 rm = 0;
 							while (rm < 4 && rm < LineLen(l) && lines[l][rm] == ' ')
 								++rm;
 							for (int32 k = 0; k < rm; ++k)
 								lines[l].Erase(lines[l].Begin());
+							if (l == curLine)
+								curCol = curCol > rm ? curCol - rm : 0;
+							if (l == selLine)
+								selCol = selCol > rm ? selCol - rm : 0;
 						}
 					}
 					ClampCursor();
@@ -1939,19 +1963,119 @@ namespace nkentseu {
 					return NkString(buf.Data());
 				}
 
+				// Saut de ligne BRUT : scinde la ligne au caret sans AUCUNE auto-indentation
+				// (ni recopie des blancs, ni continuation de commentaire) — reserve au collage,
+				// qui pose lui-meme son indentation calculee (voir InsertText).
+				void InsertRawNewline() {
+					NkCodeLine &C = lines[curLine];
+					NkCodeLine tail;
+					for (usize j = static_cast<usize>(curCol); j < C.Size(); ++j)
+						tail.PushBack(C[j]);
+					C.Erase(C.Begin() + curCol, C.End());
+					lines.Insert(lines.Begin() + (curLine + 1), tail);
+					++curLine;
+					curCol = 0;
+					Collapse();
+					dirty = true;
+					widthDirty = true;
+				}
+
 				// Insere `s` au curseur (remplace la selection). Gere '\n' / '\t'.
+				// Collage MULTI-LIGNE : REINDENTATION RELATIVE (façon VSCode « paste and
+				// indent ») — la STRUCTURE d'origine est conservee exactement (fermantes `}`
+				// desindentees, lignes de continuation alignees, doubles niveaux...), seul le
+				// NIVEAU DE BASE est deplace : chaque ligne recoit
+				//   indentDestination + (indentSourceLigne - indentSourcePremiereLigne)
+				// ou indentDestination = blancs de tete de la ligne d'insertion. Les tabs
+				// comptent 4 colonnes et sont reecrits en espaces (convention du projet).
 				void InsertText(const char *s) {
 					if (HasSel())
 						EraseSelection();
-					for (const char *p = s; *p; ++p) {
-						if (*p == '\n')
-							InsertNewline();
-						else if (*p == '\r') { /* ignore */
-						} else if (*p == '\t') {
-							for (int32 k = 0; k < 4; ++k)
-								InsertChar(' ');
-						} else
-							InsertChar(*p);
+					bool multi = false;
+					for (const char *p = s; *p; ++p)
+						if (*p == '\n') {
+							multi = true;
+							break;
+						}
+					if (!multi) { // une seule ligne : insertion telle quelle (tab -> 4 espaces)
+						for (const char *p = s; *p; ++p) {
+							if (*p == '\r')
+								continue;
+							if (*p == '\t') {
+								for (int32 k = 0; k < 4; ++k)
+									InsertChar(' ');
+							} else
+								InsertChar(*p);
+						}
+						return;
+					}
+					// Largeur (en colonnes, tab = 4) des blancs de tete d'une ligne source.
+					auto indentColsOf = [](const char *ln) -> int32 {
+						int32 c = 0;
+						for (const char *p = ln; *p == ' ' || *p == '\t'; ++p)
+							c += (*p == '\t') ? (4 - (c % 4)) : 1;
+						return c;
+					};
+					auto isBlank = [](const char *ln) -> bool {
+						for (const char *p = ln; *p && *p != '\n'; ++p)
+							if (*p != ' ' && *p != '\t' && *p != '\r')
+								return false;
+						return true;
+					};
+					// Decoupe en lignes (le '\r' est ignore).
+					NkVector<NkString> src;
+					{
+						NkString cur;
+						for (const char *p = s; *p; ++p) {
+							if (*p == '\r')
+								continue;
+							if (*p == '\n') {
+								src.PushBack(cur);
+								cur = NkString();
+							} else
+								cur += *p;
+						}
+						src.PushBack(cur);
+					}
+					// Base SOURCE = indentation de la premiere ligne NON vide.
+					int32 srcBase = 0;
+					for (usize i = 0; i < src.Size(); ++i)
+						if (!isBlank(src[i].CStr())) {
+							srcBase = indentColsOf(src[i].CStr());
+							break;
+						}
+					// Base DESTINATION = blancs de tete de la ligne d'insertion.
+					int32 dstBase = 0;
+					{
+						const NkCodeLine &C = lines[curLine];
+						for (usize j = 0; j < C.Size() && (C[j] == ' ' || C[j] == '\t'); ++j)
+							dstBase += (C[j] == '\t') ? (4 - (dstBase % 4)) : 1;
+					}
+					auto insertBody = [&](const char *ln) { // contenu SANS blancs de tete
+						const char *p = ln;
+						while (*p == ' ' || *p == '\t')
+							++p;
+						for (; *p; ++p) {
+							if (*p == '\t') {
+								for (int32 k = 0; k < 4; ++k)
+									InsertChar(' ');
+							} else
+								InsertChar(*p);
+						}
+					};
+					// Ligne 1 : au caret, sans ses blancs d'origine (l'indentation du point
+					// d'insertion — deja tapee ou auto-posee par Entree — fait office de base).
+					insertBody(src[0].CStr());
+					for (usize i = 1; i < src.Size(); ++i) {
+						InsertRawNewline();
+						if (isBlank(src[i].CStr()))
+							continue; // ligne vide : reste vide (pas de blancs parasites)
+						int32 ind = dstBase + (indentColsOf(src[i].CStr()) - srcBase);
+						if (ind < 0)
+							ind = 0;
+						for (int32 k = 0; k < ind; ++k)
+							InsertChar(' ');
+						insertBody(src[i].CStr());
 					}
 				}
 
@@ -2634,6 +2758,8 @@ namespace nkentseu {
 			if (!ctrlLink && !overAc && !overHovCard && !overCtxMenus && overText && ctx.input.mouseDoubleClicked[0] &&
 				!ctx.input.altDown) {
 				NkCodeFocusId() = id;
+				d.findBarActive = false; // clic dans le document -> lui reprend le focus (barre Recherche
+				                          // reste visible mais devient inerte, comme VSCode)
 				int32 l = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
 				if (l < 0)
 					l = 0;
@@ -2674,6 +2800,8 @@ namespace nkentseu {
 			if (!ctrlLink && !overAc && !overHovCard && !overCtxMenus && ctx.input.mouseClicked[0] && overText &&
 				!ctx.input.mouseDoubleClicked[0]) {
 				NkCodeFocusId() = id;
+				d.findBarActive = false; // clic dans le document -> lui reprend le focus (barre Recherche
+				                          // reste visible mais devient inerte, comme VSCode)
 				int32 l = d.LineAtRow(static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH));
 				if (l < 0)
 					l = 0;
@@ -2765,7 +2893,7 @@ namespace nkentseu {
 					if (!shift && ctx.input.KeyPressed(NkGuiKey::F)) { // Maj -> recherche WORKSPACE (panneau)
 						d.findReplace = false;
 						d.findFocus = 0;
-						if (!d.findOpen && d.HasSel()) {
+						if (d.HasSel()) { // resynchronise a CHAQUE Ctrl+F (pas seulement a l'ouverture)
 							int32 aL, aC, bL, bC;
 							d.SelRange(aL, aC, bL, bC);
 							if (aL == bL) {
@@ -2777,18 +2905,36 @@ namespace nkentseu {
 							}
 						}
 						d.findOpen = true;
+						d.findBarActive = true; // (re)donne le focus a la barre
 						d.FindRecompute();
 					}
 					if (!shift && ctx.input.KeyPressed(NkGuiKey::H)) {
-						d.findOpen = true;
 						d.findReplace = true;
 						d.findFocus = 0;
+						if (d.HasSel()) { // meme pre-remplissage que Ctrl+F
+							int32 aL, aC, bL, bC;
+							d.SelRange(aL, aC, bL, bC);
+							if (aL == bL) {
+								const NkCodeLine &L = d.lines[aL];
+								int32 j = 0;
+								for (int32 c = aC; c < bC && j < 255; ++c)
+									d.findQuery[j++] = L[c];
+								d.findQuery[j] = '\0';
+							}
+						}
+						d.findOpen = true;
+						d.findBarActive = true; // (re)donne le focus a la barre
 						d.FindRecompute();
 					}
 				}
 				// Capture AVANT traitement : l'Entree/Echap qui FERME une barre ne doit pas fuir
 				// vers l'edition la meme frame (inserait une ligne apres Ctrl+G -> caret +1).
-				const bool barWasOpen = d.findOpen || d.gotoOpen || d.renOpen;
+				// Va-a-la-ligne (gotoOpen) et Renommer (renOpen) restent MODAUX (interaction
+				// courte, un seul champ) ; Recherche/Remplacement (findOpen) ne l'est plus
+				// des que le document a repris le focus (findBarActive == false, cf. clic
+				// dans le corps du document plus bas) — barre visible mais inerte, comme VSCode.
+				const bool findHasFocus = d.findOpen && d.findBarActive;
+				const bool barWasOpen = findHasFocus || d.gotoOpen || d.renOpen;
 				if (d.renOpen) { // barre « Renommer » (F2) : identifiant + Entree/Echap
 					int32 gl = 0;
 					while (d.renBuf[gl])
@@ -2842,8 +2988,10 @@ namespace nkentseu {
 						d.gotoOpen = false;
 					}
 				}
-				if (d.findOpen) { // la barre gèle le document ; l'ÉDITION des champs est faite par NkOverlayTextField
-								  // (rendu, plus bas)
+				if (findHasFocus) { // barre active (focus clavier) ; l'ÉDITION des champs est faite par
+									 // NkOverlayTextField (rendu, plus bas). Si le document a repris la
+									 // main (clic dedans), ces raccourcis retombent au comportement normal
+									 // de l'éditeur (Entrée = nouvelle ligne, Échap = déselection, etc.).
 					if (ctx.input.KeyPressed(NkGuiKey::Escape))
 						d.FindClose();
 					if (d.findReplace && ctx.input.KeyPressedRepeat(NkGuiKey::Tab))
@@ -4618,11 +4766,13 @@ namespace nkentseu {
 					ctx.SetClipboard(d.GetSelectedText().CStr());
 				else if (act == 1 && d.HasSel()) {
 					ctx.SetClipboard(d.GetSelectedText().CStr());
+					d.Checkpoint(3); // manquait : Ctrl+Z apres un Couper par clic-droit ne revenait pas en arriere
 					d.EraseSelection();
 					changed = true;
 				} else if (act == 2) {
 					const NkString clip = ctx.GetClipboard();
 					if (!clip.Empty()) {
+						d.Checkpoint(3); // manquait : Ctrl+Z apres un Coller par clic-droit ne revenait pas en arriere
 						d.InsertText(clip.CStr());
 						changed = true;
 					}
@@ -4704,12 +4854,16 @@ namespace nkentseu {
 				// Champ texte partagé (NkOverlayTextField) + placeholder + focus au clic.
 				auto tfield = [&](float32 x, float32 y, float32 w, char *buf, const char *ph, int32 idx) {
 					const NkRect r = {x, y, w, rowH - gap};
-					NkOverlayTextField(ctx, dl, ctx.font, r, buf, 256, d.findFocus == idx);
+					// Focus visuel/clavier du champ SEULEMENT si la barre est active (sinon le
+					// document a la main et ce champ doit rester inerte, pas de double-frappe).
+					NkOverlayTextField(ctx, dl, ctx.font, r, buf, 256, d.findBarActive && d.findFocus == idx);
 					if (buf[0] == '\0')
 						dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 								   {r.x + ctx.S(8.f), r.y + (r.h - fh) * 0.5f + fasc}, ph, ctx.theme.textDisabled);
-					if (hit(r) && clk)
+					if (hit(r) && clk) {
 						d.findFocus = idx;
+						d.findBarActive = true; // clic sur un champ de la barre -> lui rend le focus
+					}
 				};
 				const float32 btnW = ctx.S(30.f), countW = ctx.S(54.f);
 				float32 rx = bx + pad, ry = by + ctx.S(5.f);
@@ -4718,11 +4872,18 @@ namespace nkentseu {
 				// TEMPS RÉEL : le champ vient d'être édité (NkOverlayTextField). Si la requête a
 				// changé, on recalcule MAINTENANT (occurrences en ordre ligne par ligne) et on saute
 				// à la 1ʳᵉ occurrence >= curseur -> compteur + surlignage à jour dès la frappe.
+				// ⚠️ Le SAUT (FindNext : sélectionne l'occurrence + scrolle dessus) n'a de sens
+				// que quand c'est la BARRE qui a le focus. Le signal FindSigOf() change AUSSI
+				// quand on ÉDITE le DOCUMENT (il hache le contenu) : sans ce garde, chaque
+				// frappe dans l'éditeur re-sélectionnait une occurrence du terme recherché
+				// ailleurs dans le fichier et déplaçait la scrollbar (bug remonté par Rihen).
 				if (d.findSig != d.FindSigOf()) {
-					d.FindRecompute();
-					d.findCur = -1;
-					d.FindNext(true);
-					changed = true;
+					d.FindRecompute(); // surlignage/compteur toujours à jour (sans saut)
+					if (d.findBarActive) {
+						d.findCur = -1;
+						d.FindNext(true);
+						changed = true;
+					}
 				}
 				float32 cx2 = rx + queryW + gap;
 				NkString cnt; // NkPrintf maison (logique inchangée : "" / "0" / "i/n")
