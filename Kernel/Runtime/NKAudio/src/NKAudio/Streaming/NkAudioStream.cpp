@@ -6,6 +6,7 @@
  */
 
 #include "NKAudio/Streaming/NkAudioStream.h"
+#include "NKAudio/Streaming/NkContainerAudioStream.h"
 #include "NKAudio/Codecs/FLAC/NkFLACCodec.h"
 #include "NKAudio/Codecs/MP3/NkMP3Codec.h"
 #include "NKAudio/Codecs/OGG/NkOGGVorbisCodec.h"
@@ -236,6 +237,20 @@ namespace nkentseu {
 		//  Factory : detecte le format et instancie le stream approprie
 		// ════════════════════════════════════════════════════════════════════
 
+		// Compare `ext` (sous-chaine APRES le dernier '.') a `lower` (deja en minuscules),
+		// insensible a la casse, exigeant la MEME longueur (pas de prefixe partiel).
+		static bool ExtEquals(const char *ext, const char *lower) noexcept {
+			usize i = 0;
+			for (; ext[i] && lower[i]; ++i) {
+				char c = ext[i];
+				if (c >= 'A' && c <= 'Z')
+					c = char(c - 'A' + 'a');
+				if (c != lower[i])
+					return false;
+			}
+			return ext[i] == 0 && lower[i] == 0;
+		}
+
 		IAudioStream *OpenAudioStream(const char *path) noexcept {
 			if (!path)
 				return nullptr;
@@ -249,6 +264,20 @@ namespace nkentseu {
 			if (!ext) {
 				logger.Error("[OpenAudioStream] Extension manquante : {0}", path);
 				return nullptr;
+			}
+
+			// Conteneurs VIDEO (piste audio streamee par paquets, jamais tout en RAM) :
+			// couvre le cas d'usage principal (jouer le son D'UN MP4/MOV/WebM). Seul l'AAC
+			// est gere cote codec pour l'instant (ContainerAudioStream::Open echoue proprement
+			// sinon, ex. piste MP3/PCM dans un MP4 -> nullptr, le caller peut retomber ailleurs).
+			if (ExtEquals(ext, "mp4") || ExtEquals(ext, "m4a") || ExtEquals(ext, "m4v") ||
+				ExtEquals(ext, "mov") || ExtEquals(ext, "webm") || ExtEquals(ext, "mkv")) {
+				auto *s = memory::NkGetDefaultAllocator().New<ContainerAudioStream>();
+				if (!s->Open(path)) {
+					memory::NkGetDefaultAllocator().Delete(s);
+					return nullptr;
+				}
+				return s;
 			}
 
 			// WAV : streaming reel

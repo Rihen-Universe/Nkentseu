@@ -4,8 +4,9 @@
 // Décodeur AAC-LC complet (ISO/IEC 14496-3) — ASSEMBLAGE. Décode un raw_data_block
 // (suite d'éléments SCE/CPE/LFE/DSE/PCE/FIL/END) en PCM, en enchaînant les briques :
 // NkAacIcs (parse canal) → NkAacDequant (spectre) → NkAacFilterbank (IMDCT+overlap).
-// Chemin MONO (SCE) opérationnel ; CPE (stéréo M/S) et TNS à venir. Un paquet AAC
-// (raw_data_block) = 1024 échantillons/canal. Zero-STL, nkentseu::media.
+// Mono (SCE) ET stéréo (CPE : M/S, intensity stereo, PNS, TNS) opérationnels, validés
+// bit-proche vs ffmpeg (corr 1.000000). Un paquet AAC (raw_data_block) = 1024
+// échantillons/canal. Zero-STL, nkentseu::media.
 //
 // AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
