@@ -231,9 +231,51 @@ déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré 
   désormais parsée. Validé : PCM corr=1.000000 (LE et BE) ; MP3-en-MP4 correctement routé (corr
   identique à un .mp3 autonome via le même décodeur — écart de précision **pré-existant** de
   `NkMP3Codec`, hors scope, pas une régression) ; AAC non régressé (corr=1.000000).
+- ✅ **Lecture d'un vrai film (2026-07-20)** : test réel sur un fichier 34 min (720×360, H264 High
+  profile, 23.98 fps, AAC 48 kHz) → **audio correct** (streaming validé en conditions réelles) mais
+  **vidéo "hyper lente"** signalée par Rihen. Diagnostic : PAS un bug de synchro — le décodeur H264
+  décode réellement à **~8,4 fps** sur ce contenu (mesuré : 210 frames en 25,1s réelles, chrono
+  bash autour d'un run borné), contre 23,98 fps requis → **~3× trop lent pour le temps réel**
+  (décodeur scalaire, jamais optimisé perf, seulement validé bit-exact sur petits clips synthétiques
+  jusqu'ici). Le cap de rattrapage fixe (`catchup < 4` décodes/tick, chaque décodée ET affichée)
+  faisait **diverger** l'écart vidéo/audio sans limite. **Fix appliqué** (`NkVideoPlayer/main.cpp`) :
+  rattrapage borné par un **budget de TEMPS** (`NkChrono`, 150 ms/tick, s'adapte à la vitesse réelle
+  du décodeur) + upload/dessin (`pushFrame`) appelé **UNE SEULE FOIS** par tick avec la dernière image
+  atteinte (économise le coût de rendu des images intermédiaires, de toute façon aussitôt remplacées).
+  Dégrade proprement (le retard vidéo/audio reste borné par le débit réel de décodage) au lieu de
+  diverger — **ne résout pas** la lenteur structurelle du décodeur (optimisation perf = chantier séparé,
+  voir Bugs ci-dessous).
 - **Conteneurs supplémentaires** (cap validé Rihen 2026-07-19, PLUS TARD) : **MKV/WebM (EBML)**
   en priorité, puis TS/M2TS, FLV, OGG. Le gros du travail = démuxage (le décodeur H264 est prêt) ;
   VP8/VP9/AV1 seraient de nouveaux décodeurs.
+- **Plan détaillé conteneurs + codecs additionnels (2026-07-20)** — prochain chantier, à démarrer
+  par le moins coûteux :
+  1. **3GP/3G2** (quasi gratuit) : c'est de l'**ISOBMFF** (même famille que MP4/MOV, `NkMediaProbe`
+     reconnaît déjà la magie de boîte `ftyp`) avec un `major_brand` `3gp4/3gp5/3g2a` et des codecs
+     déjà supportés côté vidéo (H.264 baseline le plus souvent) et audio (AAC-LC, AMR-NB/WB en plus
+     — AMR = nouveau décodeur si rencontré). Devrait surtout demander du **routage d'extension**
+     (`.3gp/.3g2` → chemin ISOBMFF existant) plus vérification sur fichiers réels.
+  2. **MKV/WebM (EBML)** — démuxage déjà maîtrisé côté Ogg/EBML (`NkMediaProbe` EBML existe pour la
+     détection) : à étendre pour l'**extraction de paquets vidéo** (aujourd'hui seul l'audio Opus
+     est démuxé depuis WebM) + support conteneur `.mkv` (même famille EBML que WebM, codecs plus
+     variés : H.264/H.265/AV1 vidéo, Vorbis/Opus/AAC/FLAC audio).
+  3. **TS/M2TS** (MPEG Transport Stream) : format par paquets fixes 188 octets (PID + PES), démuxage
+     structurellement différent d'ISOBMFF/EBML (streaming broadcast) — nouveau parseur.
+  4. **FLV** (Flash Video) : conteneur simple par tags (audio/vidéo/script), utile pour du contenu
+     RTMP/legacy — démuxage rapide à écrire.
+  5. **OGG comme conteneur générique vidéo (.ogv)** : le démuxage Ogg (pages/lacing/granule) est
+     **déjà livré** pour Ogg-Opus — étendre au **Theora** (vidéo) si rencontré en pratique (rare).
+  6. **AIFF** (audio Apple, PCM non compressé la plupart du temps) : proche de WAV, coût faible.
+  - **Codecs vidéo à décoder (nouveaux, gros chantiers)**, par ordre de proximité avec l'existant :
+    - **H.265/HEVC** : évolution directe de H.264 (même famille CABAC/transformées/déblocage en
+      plus complexe — CTU/CU/PU/TU au lieu de MB fixes, plus de modes intra, SAO) — le décodeur
+      H.264 bit-exact déjà livré est la meilleure base de départ.
+    - **VP8/VP9** (Google, libvpx) : famille différente (pas de CABAC, arithmétique booléenne
+      simple pour VP8 ; VP9 plus proche de HEVC en complexité) — nécessaire pour WebM complet.
+    - **AV1** : le plus gros chantier (spec récente, complexité élevée, film grain synthesis,
+      OBU/tile-based) — à ne considérer qu'après HEVC/VP9.
+    - **MPEG-2 vidéo** : legacy (DVD/diffusion), plus simple que H.264 (pas de CABAC/déblocage en
+      boucle obligatoire) — utile seulement si du contenu MPEG-2 réel doit être lu.
 - **📺 Capture d'écran système** (cap validé Rihen 2026-07-19, PLUS TARD) : capturer une **fenêtre
   précise** du système OU le **bureau entier** (façon Google Meet / OBS), sur **toutes les
   plateformes prises en charge** (Windows : DXGI Desktop Duplication + `PrintWindow`/WGC ;
@@ -243,6 +285,18 @@ déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré 
 - **H264 cas rares** (basse priorité) : Direct temporel, B en CAVLC, multi-slices, POC type 1,
   entrelacé, 4:2:2/10-bit ; résidu CQM+deblock-ON invisible (PSNR 50-81) documenté.
 - **Encodeur H264 Main/High** (optionnel) : CABAC/B/8×8 à l'encodage pour des NK_RECORD plus compacts.
+
+## Bugs / limitations connues
+- ⚠️ **Décodeur H264 trop lent pour le temps réel sur du contenu réel** (trouvé 2026-07-20, sur un
+  film 720×360 High profile 23.98 fps) : **~8,4 fps** de débit de décodage mesuré (mesure fiable :
+  chrono mur autour d'un run borné, PAS le champ `t=` de `NkVideoReadTest` qui affiche le PTS vidéo,
+  pas le temps de décodage réel — piège rencontré une fois, à ne pas refaire). Cause structurelle :
+  décodeur **scalaire, sans SIMD, jamais optimisé perf** (CABAC + B-frames + transformée 8×8 +
+  déblocage — toute la pile), validé jusqu'ici uniquement bit-exact sur petits clips synthétiques.
+  Optimisation réelle (SIMD/threading/algorithmique) = chantier séparé, pas encore commencé — piste
+  jumelle de [[project_sw_rasterizer_optim]] (même situation pour le rasteriseur logiciel). Le
+  symptôme côté lecteur (divergence progressive vidéo/audio, "vidéo hyper lente") est atténué (pas
+  résolu) par le fix de rattrapage à budget de temps ci-dessus.
 
 ## Dépendances
 Foundation (NKCore/NKMemory/NKContainers/NKMath) + NKStream/NKFileSystem (I/O). Consommateurs visés :
