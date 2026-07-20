@@ -575,6 +575,37 @@ namespace nkentseu {
 				NkString mUsageBannerDismissKey; // banniere ecartee POUR CETTE cle (type+%) — reapparait
 												  // des que le bucket le plus urgent change de cle
 
+				// ── Section ACCOUNT du popover (Auth method/Email/Organisation/Plan, comme
+				// la capture VSCode) : `claude auth status --json` — sous-commande DEDIEE et
+				// SURE du CLI (lit ses identifiants elle-meme), aucun fichier de secrets
+				// touche par NKCode. Requete UNIQUE par session (pas d'appel API, gratuit,
+				// quasi instantane), lancee au premier affichage du popover. ──
+				NkProcess mAcctProc;
+				NkVector<NkString> mAcctLines;
+				bool mAcctRequested = false, mAcctLoaded = false, mAcctLoggedIn = false;
+				NkString mAcctMethod, mAcctEmail, mAcctOrg, mAcctPlan;
+
+				void PollAccountStatus() {
+					if (!mAcctRequested)
+						return;
+					mAcctProc.Drain(mAcctLines);
+					if (!mAcctProc.Done())
+						return;
+					mAcctRequested = false;
+					mAcctLoaded = true;
+					NkString raw;
+					for (usize i = 0; i < mAcctLines.Size(); ++i)
+						raw += mAcctLines[i].CStr();
+					mAcctLines.Clear();
+					const char *j = raw.CStr();
+					mAcctLoggedIn = NkFindSub(j, "\"loggedIn\":true") != nullptr ||
+									NkFindSub(j, "\"loggedIn\": true") != nullptr;
+					mAcctMethod = JsonStr(j, "authMethod");
+					mAcctEmail = JsonStr(j, "email");
+					mAcctOrg = JsonStr(j, "orgName");
+					mAcctPlan = JsonStr(j, "subscriptionType");
+				}
+
 				bool mPermPending = false;
 				NkString mPermReqId;	// request_id a renvoyer dans la reponse
 				NkString mPermTool;		// nom de l'outil demande (Write/Bash/...)
@@ -2321,6 +2352,14 @@ namespace nkentseu {
 							mEffort = (mEffort + 1) % 3;
 						} else if (clicked == 14) { // Compte et utilisation -> popover REEL (rate_limit_event)
 							mUsageOpen = true;
+							// "claude auth status --json" : sous-commande DEDIEE/SURE (pas de lecture
+							// directe de fichier de secrets) -> email/organisation/plan REELS, comme
+							// la capture VSCode. Une seule requete par session (cache).
+							if (mKind == 1 && !mAcctLoaded && !mAcctRequested && !ClaudeExe().Empty()) {
+								mAcctRequested = true;
+								mAcctLines.Clear();
+								mAcctProc.Start(NkWin32QuoteArg(ClaudeExe().CStr()) + " auth status --json");
+							}
 						} else if (clicked == 22 && mS) { // Open Claude in Terminal (reel, meme si claude absent)
 							mS->termOpenCmd = "claude";
 							mS->termOpenKind = -1;
@@ -2858,9 +2897,16 @@ namespace nkentseu {
 					const float32 sepH = ctx.S(18.f);
 					const bool hasBuckets = !mRlBuckets.Empty();
 					const bool hasModels = !mModelUsage.Empty();
-					// Hauteur : titre + (rien encore ? 1 ligne : [USAGE + N buckets] + [sep +
+					// Section ACCOUNT ("claude auth status --json", cf. PollAccountStatus) :
+					// 4 lignes fixes (Auth method/Email/Organisation/Plan) si les identifiants
+					// sont bien charges ET valides — sinon 1 ligne d'etat honnete (chargement/
+					// non connecte), jamais de champ vide fait passer pour une vraie valeur.
+					const bool hasAcct = mAcctLoaded && mAcctLoggedIn;
+					// Hauteur : titre + [ACCOUNT] + (rien encore ? 1 ligne : [USAGE + N buckets] + [sep +
 					// MODELES + M lignes + sep + TOTAL]) + ligne "Gerer sur claude.ai" (toujours).
 					float32 h = pad * 2.f + it;
+					if (mKind == 1)
+						h += it + (hasAcct ? it * 4.f : it) + sepH;
 					if (!hasBuckets && !hasModels)
 						h += it;
 					if (hasBuckets)
@@ -2889,6 +2935,44 @@ namespace nkentseu {
 					float32 y = menu.y + pad;
 					txt(menu.x + pad, y, NkT("ai.usage.title"), ctx.theme.text);
 					y += it;
+					// ── ACCOUNT (comme la capture VSCode) : Auth method/Email/Organisation/
+					// Plan, source = "claude auth status --json" (sous-commande dediee, cf.
+					// PollAccountStatus) — jamais lu directement depuis un fichier de secrets. ──
+					if (mKind == 1) {
+						sectionHdr(y, NkT("ai.usage.section.account"));
+						y += it;
+						auto row = [&](const char *label, const char *value) {
+							txt(menu.x + pad, y, label, ctx.theme.textDisabled);
+							const float32 vw = font && font->Valid() ? font->MeasureWidth(value) : 0.f;
+							txt(menu.x + w - pad - vw, y, value, ctx.theme.text, w * 0.6f);
+							y += it;
+						};
+						if (!mAcctLoaded) {
+							txt(menu.x + pad, y, NkT("ai.usage.acct.loading"), ctx.theme.textDisabled);
+							y += it;
+						} else if (!mAcctLoggedIn) {
+							txt(menu.x + pad, y, NkT("ai.usage.acct.notloggedin"), ctx.theme.textDisabled);
+							y += it;
+						} else {
+							row(NkT("ai.usage.acct.method"), mAcctMethod.Empty() ? "—" : mAcctMethod.CStr());
+							row(NkT("ai.usage.acct.email"), mAcctEmail.Empty() ? "—" : mAcctEmail.CStr());
+							row(NkT("ai.usage.acct.org"), mAcctOrg.Empty() ? "—" : mAcctOrg.CStr());
+							// "pro" -> "Claude Pro" (capitalise) ; valeur brute si non reconnue —
+							// jamais invente au-dela d'une simple mise en forme du texte REEL recu.
+							NkString planLbl = mAcctPlan;
+							if (!planLbl.Empty()) {
+								char up0 = planLbl.CStr()[0];
+								if (up0 >= 'a' && up0 <= 'z')
+									up0 = (char)(up0 - 32);
+								NkString cap;
+								cap += up0;
+								cap += (planLbl.CStr() + 1);
+								planLbl = NkString("Claude ") + cap.CStr();
+							}
+							row(NkT("ai.usage.acct.plan"), planLbl.Empty() ? "—" : planLbl.CStr());
+						}
+						y += sepH;
+					}
 					if (!hasBuckets && !hasModels) {
 						txt(menu.x + pad, y, NkT("ai.usage.none"), ctx.theme.textDisabled, w - pad * 2.f);
 						y += it;
@@ -3973,6 +4057,7 @@ namespace nkentseu {
 				}
 
 				void Poll() {
+					PollAccountStatus(); // independant de mBusy (requete ponctuelle "claude auth status")
 					if (!mBusy)
 						return;
 					if (mKind == 1) { // Claude Code : draine le pipe NkPipeProc (NDJSON), pas curl/NkProcess
