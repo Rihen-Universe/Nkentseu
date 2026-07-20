@@ -9,7 +9,7 @@
 //        Zéro STL. Utilise NkVector et NkAtomic de la fondation.
 // -----------------------------------------------------------------------------
 
-#include "NKAudio.h"
+#include "NkAudio.h"
 #include "NkAudioBackends.h"
 #include "NkAudioEffects.h"
 #include "NkAudioBus.h"

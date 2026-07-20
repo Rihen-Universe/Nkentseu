@@ -32,7 +32,7 @@
 #ifndef NK_NKAUDIO_SRC_NKAUDIO_NKHRTFDATASET_H_INCLUDED
 #define NK_NKAUDIO_SRC_NKAUDIO_NKHRTFDATASET_H_INCLUDED
 
-#include "NKAudio/NKAudio.h"
+#include "NKAudio/NkAudio.h"
 #include "NKMemory/NkAllocator.h"
 
 namespace nkentseu {
