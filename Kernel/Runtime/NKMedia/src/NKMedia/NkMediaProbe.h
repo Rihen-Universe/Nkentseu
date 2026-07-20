@@ -38,6 +38,10 @@ namespace nkentseu {
 				int32 channels = 0;		 // audio
 				int32 width = 0;		 // vidéo
 				int32 height = 0;		 // vidéo
+				// PCM (codec=="pcm", fourcc twos/sowt/lpcm) uniquement : profondeur (8/16/24/32) et
+				// boutisme des échantillons. "twos" = big-endian, "sowt"/"lpcm" = little-endian.
+				int32 bitsPerSample = 0;
+				bool pcmBigEndian = false;
 		};
 
 		struct NkMediaInfo {
