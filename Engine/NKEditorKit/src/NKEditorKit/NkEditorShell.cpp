@@ -4,6 +4,7 @@
 // =============================================================================
 #include "NKEditorKit/NkEditorShell.h"
 #include "NKEditorKit/NkEditorCanvasRenderer.h" // backend de rendu par defaut (IDE)
+#include "NKEditorKit/NkEditorTooltip.h"		// NkTooltip : infobulle des voyants du footer
 #include <cstdio>								// snprintf (indicateur de zoom barre d'etat)
 
 #include "NKEvent/NkWindowEvent.h"
@@ -1164,8 +1165,24 @@ namespace nkentseu {
 			const NkColor fg = mUI.theme.text; // texte theme
 			const float32 pad = mUI.S(10.f);
 			const float32 by = bar.y + (footerH - mUI.font->LineHeight()) * 0.5f + mUI.font->Ascent();
+			float32 leftX = bar.x + pad;
+			// ── VOYANTS (petites pastilles SANS texte, poussees par l'app via
+			// SetFooterLights : etat sante code/compilation/link...) ; le libelle
+			// n'apparait qu'en INFOBULLE au survol. ──
+			for (int32 i = 0; i < mFooterLightCount; ++i) {
+				const float32 r = mUI.S(4.f);
+				const NkVec2 c = {leftX + r, bar.y + footerH * 0.5f};
+				mUI.dl.AddCircleFilled(c, r, mFooterLights[i]);
+				const NkRect hit = {c.x - r - 2.f, c.y - r - 2.f, r * 2.f + 4.f, r * 2.f + 4.f};
+				if (!mFooterLightTips[i].Empty())
+					NkTooltip(mUI, nkgui::NkGuiRectContains(hit, mUI.input.mousePos),
+							  mFooterLightTips[i].CStr());
+				leftX += r * 2.f + mUI.S(6.f);
+			}
+			if (mFooterLightCount > 0)
+				leftX += pad * 0.5f;
 			if (mFooterLeft[0])
-				mUI.dl.AddText(mUI.font->Face(), mUI.font->TexId(), {bar.x + pad, by}, mFooterLeft, fg);
+				mUI.dl.AddText(mUI.font->Face(), mUI.font->TexId(), {leftX, by}, mFooterLeft, fg);
 			float32 rightX = bar.x + W - pad; // bord droit courant (les elements s'empilent vers la gauche)
 			if (mFooterRight[0]) {
 				const float32 rw = mUI.font->MeasureWidth(mFooterRight);
@@ -1688,6 +1705,10 @@ namespace nkentseu {
 			mCtxOpen = true;
 			mCtxChoice = -1;
 			mCtxSy = 0.f;
+			mCtxSubItem = -1; // pas de sous-menu tant que SetContextSubmenu n'est pas appelé
+			mCtxSubItems.Clear();
+			mCtxSub = NkCtxMenu{};
+			mCtxSubChoice = -1;
 		}
 
 		// Dessiné APRÈS les panneaux (input réel restauré) sur la couche overlay :
@@ -1745,6 +1766,7 @@ namespace nkentseu {
 				if (ry + rowH >= box.y && ry <= box.y + box.h) {
 					const bool en = mCtxEnabled[i] != 0;
 					const bool hov = en && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
+					const bool sub = (i == mCtxSubItem && !mCtxSubItems.Empty());
 					if (hov) {
 						NkColor sel = mUI.theme.selection;
 						sel.a = 110;
@@ -1753,12 +1775,45 @@ namespace nkentseu {
 					if (mUI.font && mUI.font->Valid())
 						dl.AddText(mUI.font->Face(), mUI.font->TexId(), {r.x + pad, ry + (rowH - lh) * 0.5f + asc},
 								   mCtxItems[i].CStr(), en ? mUI.theme.text : mUI.theme.textDisabled);
-					if (hov && in.mouseClicked[0])
-						clicked = i;
+					if (sub) { // indicateur ▸ + ouverture au SURVOL (sans clic, façon menus natifs)
+						const float32 ax2 = r.x + r.w - 11.f, ay2 = ry + rowH * 0.5f;
+						dl.AddTriangleFilled({ax2 - 3.f, ay2 - 4.f}, {ax2 - 3.f, ay2 + 4.f}, {ax2 + 3.f, ay2},
+											 en ? mUI.theme.text : mUI.theme.textDisabled);
+						if (hov && !mCtxSub.open) {
+							mCtxSub.open = true;
+							mCtxSub.pos = {r.x + r.w - 4.f, ry};
+							mCtxSub.sx = 0.f;
+							mCtxSub.sy = 0.f;
+						}
+					} else if (hov && mCtxSub.open) {
+						mCtxSub.open = false; // survol d'un AUTRE item : referme le sous-menu
+					}
+					if (hov && in.mouseClicked[0] && !sub)
+						clicked = i; // l'item parent d'un sous-menu n'est PAS cliquable lui-même
 				}
 				ry += rowH;
 			}
 			dl.PopClipRect();
+			// ── SOUS-MENU : par-dessus le menu (NkCtxMenuDraw : scrollbars V ET H
+			// intégrées pour les listes longues / noms de projets larges ; consomme les
+			// clics dans sa boîte -> le menu principal ne se referme pas dessous). ──
+			if (mCtxSub.open && !mCtxSubItems.Empty()) {
+				int32 sn = static_cast<int32>(mCtxSubItems.Size());
+				if (sn > 256)
+					sn = 256;
+				const char *sitems[256];
+				bool sen[256];
+				for (int32 i = 0; i < sn; ++i) {
+					sitems[i] = mCtxSubItems[static_cast<usize>(i)].CStr();
+					sen[i] = true;
+				}
+				const int32 act = NkCtxMenuDraw(mUI, mCtxSub, sitems, sen, sn);
+				if (act >= 0) {
+					mCtxChoice = mCtxSubItem; // le choix = (item parent, index du sous-menu)
+					mCtxSubChoice = act;
+					mCtxOpen = false;
+				}
+			}
 			if (clicked >= 0) {
 				mCtxChoice = clicked;
 				mCtxOpen = false;

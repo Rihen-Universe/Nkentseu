@@ -10,6 +10,7 @@
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKEditorKit/NkEditorScrollbar.h" // NkVScrollbar/NkHScrollbar (scrollbar general)
 #include "NKEditorKit/NkEditorTextField.h" // NkOverlayTextField (champ recherche editable)
+#include "NKEditorKit/NkEditorTooltip.h"   // NkTooltip : infobulle avec delai (valeurs tronquees + boutons)
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Shell/NkUi.h"
 #include "NKCode/Shell/NkOpenWs.h" // NkOwIco
@@ -76,6 +77,8 @@ namespace nkentseu {
 			s->ProcessNavPick();   // Ctrl+clic : include / go-to-def (thread) / choix liste (différé hors rendu)
 			s->TickSession(ec.dt); // persistance session : onglets + contenu non sauvegardé (hot-exit / reprise crash)
 			s->TickFileWatch(ec.dt); // détecte suppression / modification EXTERNE des fichiers ouverts
+			s->TickBgCheck(ec.dt);	 // vérif fond des fichiers STRATÉGIQUES modifiés hors éditeur
+									 // (git status -> -fsyntax-only) : icônes rouges/oranges + voyant CODE
 
 			const NkUi u = NkUi::From(ec);
 			const NkRect r = ec.Ui().layout.region; // bornes de la toolbar (46px)
@@ -119,6 +122,9 @@ namespace nkentseu {
 							   accent ? NkCol::primary : NkCol::foreground);
 				NkOwIco(u, 0u, "chevron-down", {x + w - u.s(15), ctrlY + (ctrlH - u.s(9)) * 0.5f, u.s(9), u.s(9)},
 						NkCol::mutedFg);
+				// Infobulle : valeur COMPLETE au survol (la valeur affichee est tronquee par
+				// ellipse quand elle depasse la largeur du combo — noms de projets/tests longs).
+				NkTooltip(ec.Ui(), u.Hit(box) && tb.open < 0, value);
 				if (u.Hit(box) && u.click) {
 					if (open)
 						tb.open = -1;
@@ -280,6 +286,26 @@ namespace nkentseu {
 			Bt(3, 1000, true, NkT("tb.run"), TEX(ic ? ic->play : 0), "play", 1, nullptr);
 			Bt(4, 45, false, NkT("tb.debug"), TEX(ic ? ic->bug : 0), "bug", 0, nullptr);
 			Bt(5, 65, false, NkT("tb.test"), TEX(ic ? ic->kTest : 0), "flask", 2, hasTests ? testBadge.CStr() : nullptr);
+			// Bouton "Emulateur" : visible seulement pour Android/HarmonyOS (plateformes
+			// avec un emulateur PC lancable) — ouvre un onglet terminal avec la commande
+			// de lancement DEJA TAPEE (l'utilisateur valide lui-meme, cf. ResolveEmulatorLaunchHint).
+			{
+				auto sysHas = [&](const char *k) {
+					auto low = [](char ch) { return (ch >= 'A' && ch <= 'Z') ? char(ch + 32) : ch; };
+					for (const char *h = SY.name; h && *h; ++h) {
+						const char *a = h, *b = k;
+						while (*a && *b && low(*a) == low(*b)) {
+							++a;
+							++b;
+						}
+						if (!*b)
+							return true;
+					}
+					return false;
+				};
+				if (sysHas("android") || sysHas("harmonyos"))
+					Bt(6, 40, false, NkT("tb.emulator"), TEX(ic ? ic->monitor : 0), "monitor", 0, nullptr);
+			}
 			segs.PushBack({2, -1, wSearch, 10, true, NkT("tb.quicksearch"), nullptr, TEX(ic ? ic->search : 0), "search",
 						   false, 0, nullptr}); // recherche : repliée en 1er, absente du menu
 
@@ -340,6 +366,16 @@ namespace nkentseu {
 						if (hasTests)
 							s->DoTest();
 						break;
+					case 6: {
+						NkString cwd;
+						const NkString cmd = s->ResolveEmulatorLaunchHint(cwd);
+						if (!cmd.Empty()) {
+							s->termOpenKind = -1;
+							s->termOpenAt = cwd;
+							s->termOpenType = cmd;
+						}
+						break;
+					}
 				}
 			};
 			auto drawSeg = [&](const Seg &sg, float32 sx) {

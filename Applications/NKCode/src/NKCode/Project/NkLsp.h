@@ -53,6 +53,16 @@ namespace nkentseu {
 				NkPipeProc &operator=(const NkPipeProc &) = delete;
 
 				bool Start(const NkString &cmdline, const NkString &cwd);
+				// Variante avec SURCHARGE d'environnement (ex. ANTHROPIC_API_KEY dedie a un
+				// projet, sans affecter les autres process/projets) : chaque entree est
+				// "CLE=valeur" ; le reste de l'environnement du PARENT (NKCode) est herite
+				// tel quel (PATH, TEMP, USERPROFILE...), seules les cles listees ici sont
+				// ajoutees/REMPLACEES (comparaison insensible a la casse, comme Windows).
+				// `mergeStderr` (false par defaut, comportement INCHANGE pour clangd/LSP) :
+				// true redirige stderr de l'enfant dans LE MEME pipe que stdout (utile pour
+				// diagnostiquer un CLI qui echoue silencieusement sur stdout, ex. `claude`).
+				bool StartWithEnv(const NkString &cmdline, const NkString &cwd,
+								  const NkVector<NkString> &envOverrides, bool mergeStderr = false);
 				void Stop();
 				bool Running();
 				bool WriteData(const char *d, int32 n);
