@@ -40,7 +40,10 @@
 #include "NKCanvas/Renderer/Resources/NkSprite.h"
 
 #include "NKMedia/Video/NkVideoReader.h"
-#include "NKAudio/NKAudio.h"
+#include "NKMedia/NkMediaDemux.h"
+#include "NKMedia/Codecs/Aac/NkAacDecoder.h"
+#include "NKAudio/NkAudio.h"
+#include "NKMemory/NkAllocator.h"
 
 #include <cstdio>
 #include <cstring>
@@ -83,6 +86,58 @@ static bool LooksLikeAudio(const NkString &p) {
 			return true;
 	}
 	return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Audio DU CONTENEUR : démuxe la piste audio du MP4/MOV/WebM lui-même et la
+// décode en PCM float32 (AAC-LC via NkAacDecoder — mono/stéréo, from-scratch).
+// Renvoie un AudioSample prêt pour AudioEngine::Play (libérable par
+// AudioLoader::Free : data alloué NkAlloc, mAllocator nul). Le PRIMING de
+// l'encodeur AAC (1024 échantillons) est coupé pour s'aligner sur l'horodatage
+// vidéo (même convention que les lecteurs de référence).
+// ─────────────────────────────────────────────────────────────────────────────
+static bool LoadAudioFromContainer(const NkString &videoPath, audio::AudioSample &out) {
+	NkVector<nk_uint8> bytes;
+	media::NkMediaInfo minfo;
+	NkVector<media::NkMediaPacket> packets;
+	if (!media::NkMediaDemux::ExtractAudioPacketsFile(videoPath.CStr(), bytes, minfo, packets))
+		return false;
+	const media::NkMediaTrack *tr = minfo.FirstAudio();
+	if (!tr || packets.Empty())
+		return false;
+	if (!(tr->codec == NkString("aac")))
+		return false; // v1 : AAC seulement (le codec des MP4 réels)
+	const int32 ch = (tr->channels == 2) ? 2 : 1;
+	media::NkAacDecoder dec;
+	if (!dec.Init(tr->sampleRate, ch))
+		return false;
+	NkVector<nk_int16> pcm;
+	pcm.Reserve(packets.Size() * 1024 * (uint64)ch);
+	nk_int16 frame[2048];
+	for (uint64 i = 0; i < packets.Size(); ++i) {
+		const media::NkMediaPacket &p = packets[i];
+		if (p.offset + p.size > bytes.Size())
+			continue;
+		const int32 n = dec.DecodeFrame(bytes.Data() + p.offset, (int32)p.size, frame);
+		for (int32 s = 0; s < n * ch; ++s)
+			pcm.PushBack(frame[s]);
+	}
+	const uint64 priming = 1024ull * (uint64)ch; // délai encodeur AAC standard
+	if (pcm.Size() <= priming)
+		return false;
+	const uint64 total = pcm.Size() - priming;
+	float32 *data = (float32 *)memory::NkAlloc(total * sizeof(float32), nullptr, sizeof(float32));
+	if (!data)
+		return false;
+	for (uint64 i = 0; i < total; ++i)
+		data[i] = (float32)pcm[priming + i] / 32768.0f;
+	out.data = data;
+	out.frameCount = (usize)(total / (uint64)ch);
+	out.sampleRate = tr->sampleRate;
+	out.channels = ch;
+	out.format = audio::AudioFormat::RAW;
+	out.mAllocator = nullptr; // AudioLoader::Free -> NkFree
+	return true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -358,23 +413,38 @@ int nkmain(const NkEntryState &state) {
 	}
 	NkSprite sprite(frameTex);
 
-	// ── 5) Audio optionnel (démo A/V, via NKAudio) ────────────────────────────
+	// ── 5) Audio : piste DU CONTENEUR (AAC décodé from-scratch), sinon fichier
+	//    externe optionnel. La voix audio devient l'HORLOGE MAÎTRESSE de la vidéo.
 	audio::AudioEngine &engine = audio::AudioEngine::Instance();
 	audio::AudioSample audioSample;
+	audio::AudioHandle audioHandle{};
 	bool audioOn = false;
-	if (!audioPath.Empty()) {
+	{
 		audio::AudioEngineConfig acfg;
-		if (engine.Initialize(acfg)) {
-			audioSample = audio::AudioLoader::Load(audioPath.CStr());
-			if (audioSample.IsValid()) {
-				audio::VoiceParams vp;
-				vp.bus = "Music";
-				engine.Play(audioSample, vp);
-				audioOn = true;
-				logger.Info("[NkVideoPlayer] audio : {0} ({1} Hz)", audioPath.CStr(), audioSample.sampleRate);
-			} else {
-				engine.Shutdown();
+		bool engineUp = false;
+		// 5a) Audio embarqué dans le conteneur vidéo (MP4/MOV/WebM + AAC).
+		if (audioPath.Empty() && LoadAudioFromContainer(videoPath, audioSample)) {
+			engineUp = engine.Initialize(acfg);
+			if (engineUp) {
+				logger.Info("[NkVideoPlayer] audio du conteneur : AAC {0} Hz, {1} canal(aux), {2:.1f}s",
+							audioSample.sampleRate, audioSample.channels, (double)audioSample.GetDuration());
 			}
+		} else if (!audioPath.Empty()) {
+			// 5b) Fichier audio externe fourni explicitement.
+			engineUp = engine.Initialize(acfg);
+			if (engineUp) {
+				audioSample = audio::AudioLoader::Load(audioPath.CStr());
+				if (audioSample.IsValid())
+					logger.Info("[NkVideoPlayer] audio : {0} ({1} Hz)", audioPath.CStr(), audioSample.sampleRate);
+			}
+		}
+		if (engineUp && audioSample.IsValid()) {
+			audio::VoiceParams vp;
+			vp.bus = "Music";
+			audioHandle = engine.Play(audioSample, vp);
+			audioOn = true;
+		} else if (engineUp) {
+			engine.Shutdown();
 		}
 	}
 
@@ -435,25 +505,39 @@ int nkmain(const NkEntryState &state) {
 			ended = false;
 		}
 	};
+
 	auto restartAudio = [&]() {
 		if (!audioOn)
 			return;
 		engine.StopAll();
 		audio::VoiceParams vp;
 		vp.bus = "Music";
-		engine.Play(audioSample, vp);
+		audioHandle = engine.Play(audioSample, vp);
+		engine.SetPitch(audioHandle, speed);
+		if (paused)
+			engine.Pause(audioHandle);
+	};
+	// Cale l'audio sur une position vidéo (secondes) — seek/stop.
+	auto syncAudioTo = [&](float32 seconds) {
+		if (!audioOn)
+			return;
+		if (seconds < 0.0f)
+			seconds = 0.0f;
+		engine.SetPlaybackPosition(audioHandle, seconds);
 	};
 
-	float32 acc = 1.0f; // force la 1re image immédiatement
+	// ── Horloge média ──────────────────────────────────────────────────────────
+	// L'AUDIO est l'horloge maîtresse : la vidéo affiche l'image que le son a
+	// atteinte (mediaClock = position de la voix). Sans audio, horloge cumulée.
+	float64 mediaClock = 0.0;
 	float32 titleAcc = 1.0f;
 	uint32 lastW = 0, lastH = 0;
 	NkClock clock;
+	bool firstFrame = true;
 
 	while (running && window.IsOpen()) {
 		const float32 dt = clock.Tick().delta;
-		acc += dt;
 		titleAcc += dt;
-		const float32 frameDur = 1.0f / (fps * (speed > 0.01f ? speed : 0.01f));
 
 		// ── Entrées clavier ───────────────────────────────────────────────────
 		while (NkEvent *ev = events.PollEvent()) {
@@ -464,27 +548,44 @@ int nkmain(const NkEntryState &state) {
 						break;
 					case NkKey::NK_SPACE:
 						paused = !paused;
+						if (audioOn) {
+							if (paused)
+								engine.Pause(audioHandle);
+							else
+								engine.Resume(audioHandle);
+						}
 						break;
 					case NkKey::NK_S: // stop -> retour au début, en pause
 						seekTo(0);
 						paused = true;
-						if (audioOn)
-							engine.StopAll();
+						mediaClock = 0.0;
+						if (audioOn) {
+							syncAudioTo(0.0f);
+							engine.Pause(audioHandle);
+						}
 						break;
 					case NkKey::NK_L: // boucle on/off
 						loop = !loop;
 						break;
 					case NkKey::NK_RIGHT: // avancer d'un pas
 						seekTo(reader.CurrentIndex() + step);
+						mediaClock = (float64)reader.CurrentIndex() / (float64)fps;
+						syncAudioTo((float32)mediaClock);
 						break;
 					case NkKey::NK_LEFT: // reculer d'un pas
 						seekTo(reader.CurrentIndex() - step);
+						mediaClock = (float64)reader.CurrentIndex() / (float64)fps;
+						syncAudioTo((float32)mediaClock);
 						break;
 					case NkKey::NK_UP: // plus vite
 						speed = math::NkMin(speed * 1.25f, 4.0f);
+						if (audioOn)
+							engine.SetPitch(audioHandle, speed);
 						break;
 					case NkKey::NK_DOWN: // plus lent
 						speed = math::NkMax(speed / 1.25f, 0.1f);
+						if (audioOn)
+							engine.SetPitch(audioHandle, speed);
 						break;
 					case NkKey::NK_C: // cycle étalonnage couleur
 						grade = (Grade)(((int32)grade + 1) % (int32)Grade::Count);
@@ -502,23 +603,43 @@ int nkmain(const NkEntryState &state) {
 			}
 		}
 
-		// ── Avance temporelle ───────────────────────────────────────────────────
-		if (!paused && acc >= frameDur && !ended) {
-			acc -= frameDur;
-			if (acc > frameDur * 4.0f)
-				acc = 0.0f; // évite le rattrapage explosif après un gros hoquet
-			if (reader.ReadFrame(fr)) {
-				pushFrame();
-			} else if (loop) {
-				if (reader.SeekFrame(0) && reader.ReadFrame(fr)) {
+		// ── Avance temporelle (horloge maîtresse = AUDIO si présent) ───────────
+		if (!paused && !ended) {
+			// Si la voix joue encore, elle EST l'horloge ; si l'audio est plus
+			// court que la vidéo (voix terminée), on repasse en horloge cumulée.
+			if (audioOn && engine.IsPlaying(audioHandle))
+				mediaClock = (float64)engine.GetPlaybackPosition(audioHandle);
+			else
+				mediaClock += (float64)(dt * speed);
+			// L'image que l'horloge a atteinte ; on rattrape borné (4 décodes max
+			// par tick pour ne jamais bloquer le rendu après un hoquet).
+			const int32 targetIdx = (int32)(mediaClock * (float64)fps);
+			int32 catchup = 0;
+			bool wrapped = false;
+			while ((firstFrame || reader.CurrentIndex() < targetIdx) && catchup < 4) {
+				if (reader.ReadFrame(fr)) {
 					pushFrame();
-					restartAudio();
+					firstFrame = false;
+					++catchup;
+				} else if (loop) {
+					if (reader.SeekFrame(0) && reader.ReadFrame(fr)) {
+						pushFrame();
+						mediaClock = 0.0;
+						restartAudio();
+						syncAudioTo(0.0f);
+						wrapped = true;
+					} else {
+						ended = true; // pas de rembobinage possible -> fige la dernière image
+					}
+					break;
 				} else {
-					ended = true; // pas de rembobinage possible -> fige la dernière image
+					paused = true; // fin sans boucle -> fige sur la dernière image
+					if (audioOn)
+						engine.Pause(audioHandle);
+					break;
 				}
-			} else {
-				paused = true; // fin sans boucle -> fige sur la dernière image
 			}
+			(void)wrapped;
 		}
 
 		// ── Resize éventuel ─────────────────────────────────────────────────────

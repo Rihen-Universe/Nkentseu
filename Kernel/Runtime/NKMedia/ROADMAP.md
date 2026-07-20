@@ -208,9 +208,25 @@
   tap audio direct dans NKAudio (démo = tonalité) ; re-blit offscreen→swapchain pour un aperçu visible.
 
 ## En cours / À venir
-- Poursuivre Opus (range decoder → CELT → SILK), puis **AAC-LC** (corpus Bassa). Branchés comme codecs
-  supplémentaires de NKAudio (l'engine lira alors le corpus SANS ffmpeg).
-- Vidéo bien plus tard (frames → NKImage/NKRHI). Repli ffmpeg documenté pour la prépa dataset entre-temps.
+
+*(MAJ 2026-07-19 — la section précédente était périmée : Opus/CELT+SILK ✅, AAC-LC stéréo ✅
+(CPE/M/S/IS/PNS/TNS, corr 1.000000 vs ffmpeg), décodeur H264 Main+High COMPLET bit-exact avec
+déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré ».)*
+
+- **Sync A/V dans NkVideoPlayer** (EN COURS) : lire l'audio DU conteneur (démux + NkAacDecoder →
+  AudioSample) et cadencer la vidéo sur l'horloge audio (`GetPlaybackPosition`).
+- **Conteneurs supplémentaires** (cap validé Rihen 2026-07-19, PLUS TARD) : **MKV/WebM (EBML)**
+  en priorité, puis TS/M2TS, FLV, OGG. Le gros du travail = démuxage (le décodeur H264 est prêt) ;
+  VP8/VP9/AV1 seraient de nouveaux décodeurs.
+- **📺 Capture d'écran système** (cap validé Rihen 2026-07-19, PLUS TARD) : capturer une **fenêtre
+  précise** du système OU le **bureau entier** (façon Google Meet / OBS), sur **toutes les
+  plateformes prises en charge** (Windows : DXGI Desktop Duplication + `PrintWindow`/WGC ;
+  Linux : XShm/PipeWire ; macOS : ScreenCaptureKit ; Android/iOS : MediaProjection/ReplayKit).
+  Sortie = frames RGBA → brancher sur NkVideoWriter (enregistrement) et/ou NKNetwork (diffusion).
+  Distinct de NKCamera (caméras physiques) — probablement un `NkScreenCapture` dans NKMedia.
+- **H264 cas rares** (basse priorité) : Direct temporel, B en CAVLC, multi-slices, POC type 1,
+  entrelacé, 4:2:2/10-bit ; résidu CQM+deblock-ON invisible (PSNR 50-81) documenté.
+- **Encodeur H264 Main/High** (optionnel) : CABAC/B/8×8 à l'encodage pour des NK_RECORD plus compacts.
 
 ## Dépendances
 Foundation (NKCore/NKMemory/NKContainers/NKMath) + NKStream/NKFileSystem (I/O). Consommateurs visés :
