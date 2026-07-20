@@ -1077,6 +1077,7 @@ namespace nkentseu {
 						++len;
 						changed = true;
 					}
+					anchor = -1; // colle sans selection prealable : pas de "selection" fantome sur le texte colle
 					ctx.input.wantPaste = false;
 				}
 				if (!readOnly) {
@@ -1098,6 +1099,7 @@ namespace nkentseu {
 							::memcpy(buf + caret, tmp, static_cast<usize>(n));
 							caret += n;
 							len += n;
+							anchor = -1; // frappe normale (pas de selection avant) : jamais de selection fantome apres
 							changed = true;
 						}
 					}
@@ -1110,6 +1112,7 @@ namespace nkentseu {
 						buf[caret] = '\n';
 						caret += 1;
 						len += 1;
+						anchor = -1;
 						changed = true;
 					}
 					if (ctx.input.KeyPressedRepeat(NkGuiKey::Backspace)) {
@@ -1121,6 +1124,7 @@ namespace nkentseu {
 							::memmove(buf + p, buf + caret, static_cast<usize>(len - caret + 1));
 							caret = p;
 							len -= n;
+							anchor = -1;
 							changed = true;
 						}
 					}
@@ -1132,6 +1136,7 @@ namespace nkentseu {
 							const int32 n = nx - caret;
 							::memmove(buf + caret, buf + nx, static_cast<usize>(len - nx + 1));
 							len -= n;
+							anchor = -1;
 							changed = true;
 						}
 					}
