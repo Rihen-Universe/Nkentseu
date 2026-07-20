@@ -171,7 +171,6 @@ with project("Mou"):
     with filter("system:HarmonyOS"):
         windowedapp()
         usetoolchain("ohos-ndk")
-        harmonyabis(["arm64-v8a", "x86_64"])
         harmonybundlename("com.nkentseu.mou")
         harmonyminsdk(12)
         harmonytargetapi(12)
