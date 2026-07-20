@@ -3249,6 +3249,35 @@ namespace nkentseu {
 							mu.turns = NkAtoi(field("turns").CStr());
 							if (!mu.model.Empty())
 								mModelUsage.PushBack(mu);
+						} else if (e - s > 7 && s[0] == 'b' && s[1] == 'u' && s[2] == 'c' && s[3] == 'k' &&
+								   s[4] == 'e' && s[5] == 't' && s[6] == '=') {
+							// "bucket=<type>|status=<s>|util=<f>|resets=<i64>|overage=<0/1>|surpassed=<0/1>"
+							// Repli entre redemarrages : affiche la DERNIERE valeur connue par fenetre de
+							// quota tant qu'un `rate_limit_event` plus frais ne l'a pas remplacee ce tour-ci.
+							NkString line;
+							for (const char *q = s + 7; q < e; ++q)
+								line += *q;
+							RlBucket b;
+							usize barPos2 = line.Find('|');
+							b.type = barPos2 == NkString::npos ? line : line.SubStr(0, barPos2);
+							auto field2 = [&](const char *key) -> NkString {
+								const NkString pat = NkString(key) + "=";
+								const char *k = NkFindSub(line.CStr(), pat.CStr());
+								if (!k)
+									return NkString();
+								const char *v = k + pat.Size();
+								NkString out;
+								while (*v && *v != '|')
+									out += *v++;
+								return out;
+							};
+							b.status = field2("status");
+							b.utilization = static_cast<float32>(AtofSimple(field2("util").CStr()));
+							b.resetsAt = static_cast<int64>(AtofSimple(field2("resets").CStr()));
+							b.overage = field2("overage") == "1";
+							b.surpassed = field2("surpassed") == "1";
+							if (!b.type.Empty())
+								mRlBuckets.PushBack(b);
 						}
 						s = e;
 						while (*s == '\n' || *s == '\r')
@@ -3265,6 +3294,12 @@ namespace nkentseu {
 						const ModelUsage &mu = mModelUsage[i];
 						out += NkPrintf("model=%s|cost=%.6f|tokin=%lld|tokout=%lld|turns=%d\n", mu.model.CStr(),
 										mu.costUsd, (long long)mu.tokIn, (long long)mu.tokOut, mu.turns);
+					}
+					for (usize i = 0; i < mRlBuckets.Size(); ++i) {
+						const RlBucket &b = mRlBuckets[i];
+						out += NkPrintf("bucket=%s|status=%s|util=%.6f|resets=%lld|overage=%d|surpassed=%d\n",
+										b.type.CStr(), b.status.CStr(), (double)b.utilization, (long long)b.resetsAt,
+										b.overage ? 1 : 0, b.surpassed ? 1 : 0);
 					}
 					NkFile::WriteAllText(NkPath(p), out.CStr());
 				}
@@ -3708,6 +3743,8 @@ namespace nkentseu {
 						// tous les autres. Alimente le popover — AUCUNE valeur inventee. ──
 						const NkJsonVal *infoV = doc.Member(root, "rate_limit_info");
 						if (infoV) {
+							EnsureUsageLoaded(); // fusionne les fenetres deja connues (autres sessions)
+													  // avant d'upserter celle-ci
 							const NkJsonVal *stV = doc.Member(infoV, "status");
 							const NkJsonVal *utV = doc.Member(infoV, "utilization");
 							const NkJsonVal *raV = doc.Member(infoV, "resetsAt");
@@ -3729,6 +3766,7 @@ namespace nkentseu {
 								}
 							if (!found)
 								mRlBuckets.PushBack(b);
+							SaveUsagePersist(); // survit aux redemarrages (toutes les fenetres vues a ce jour)
 						}
 					} else if (typeV->str == "stream_event") {
 						const NkJsonVal *eventV = doc.Member(root, "event");

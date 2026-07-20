@@ -1177,6 +1177,9 @@ namespace nkentseu {
 							if (dup)
 								f.doc.diags.Erase(f.doc.diags.Begin() + i);
 						}
+						// Les messages "Error Lens" inline dependent des nouveaux diags : la barre H
+						// doit recalculer sa largeur max (pas seulement sur edition de texte).
+						f.doc.widthDirty = true;
 						// Trace OUTPUT (dédupliquée entre passes) : fichier:ligne:col + message, headers inclus.
 						for (usize li = 0; li < diagAcc.Size(); ++li) {
 							const char *ln = diagAcc[li].CStr();
@@ -3671,6 +3674,7 @@ namespace nkentseu {
 								for (usize k = 0; k < lsp.diags.Size(); ++k)
 									files[i].doc.diags.PushBack({lsp.diags[k].line, lsp.diags[k].col, lsp.diags[k].col,
 																 lsp.diags[k].sev, lsp.diags[k].msg});
+								files[i].doc.widthDirty = true; // messages inline -> barre H a recalculer
 								break;
 							}
 					}
