@@ -213,8 +213,15 @@
 (CPE/M/S/IS/PNS/TNS, corr 1.000000 vs ffmpeg), décodeur H264 Main+High COMPLET bit-exact avec
 déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré ».)*
 
-- **Sync A/V dans NkVideoPlayer** (EN COURS) : lire l'audio DU conteneur (démux + NkAacDecoder →
-  AudioSample) et cadencer la vidéo sur l'horloge audio (`GetPlaybackPosition`).
+- ✅ **Sync A/V dans NkVideoPlayer** (2026-07-20, commits 88c3dcb2 puis a801de04) : l'audio DU
+  conteneur cadence la vidéo. **Étape 2 (a801de04) : audio STREAMÉ, jamais tout en RAM** —
+  `ContainerAudioStream` (NKAudio/Streaming) décode l'AAC paquet par paquet à la demande, via
+  `AudioStreamPlayer` (ring buffer SPSC + thread décodeur, déjà présent dans NKAudio mais jamais
+  réellement exercé en prod) + `AudioEngine::PlayProcedural`. **Bug latent trouvé et corrigé** dans
+  `AudioStreamPlayer::ReadFrames` : coupait jusqu'à ~2s d'audio déjà décodé en fin de lecture
+  (confondait "producteur a fini de décoder" avec "plus rien à jouer") — `IsFinished()` ajouté pour
+  distinguer les deux. Validé : pipeline complet corr=1.000000 vs ffmpeg, RAM bornée (paquets =
+  quelques centaines de Ko même pour un long film, plus ring de ~2s), WavStream non régressé.
 - **Conteneurs supplémentaires** (cap validé Rihen 2026-07-19, PLUS TARD) : **MKV/WebM (EBML)**
   en priorité, puis TS/M2TS, FLV, OGG. Le gros du travail = démuxage (le décodeur H264 est prêt) ;
   VP8/VP9/AV1 seraient de nouveaux décodeurs.
