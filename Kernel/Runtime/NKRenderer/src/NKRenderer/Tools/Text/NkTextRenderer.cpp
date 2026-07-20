@@ -249,7 +249,8 @@ namespace nkentseu {
 		}
 
 		// ── Rendu 2D ─────────────────────────────────────────────────────────────
-		void NkTextRenderer::DrawText(NkVec2f pos, const char *text, NkFontHandle font, float32 size, uint32 colorRGBA) {
+		void NkTextRenderer::DrawText(NkVec2f pos, const char *text, NkFontHandle font, float32 size,
+									  uint32 colorRGBA) {
 			NkFontEntry *e = FindEntry(font);
 			if (!e || !text)
 				return;
