@@ -3707,6 +3707,41 @@ namespace nkentseu {
 					if (w > mw)
 						mw = w;
 				}
+				// Les messages « Error Lens » (erreurs/avertissements affichés en fin de ligne)
+				// peuvent dépasser le code lui-même : la barre H doit pouvoir défiler jusqu'à
+				// leur extrémité, pas seulement celle du code (une annotation par ligne, la
+				// plus sévère — même règle que le rendu plus bas).
+				const float32 chW0 = ctx.font->MeasureWidth("0");
+				for (usize li = 0; li < d.lines.Size(); ++li) {
+					int32 bestDi = -1;
+					for (usize di = 0; di < d.diags.Size(); ++di) {
+						if (d.diags[di].line != static_cast<int32>(li))
+							continue;
+						if (bestDi < 0 || d.diags[di].sev > d.diags[static_cast<usize>(bestDi)].sev)
+							bestDi = static_cast<int32>(di);
+					}
+					if (bestDi < 0)
+						continue;
+					char mb[144];
+					int32 mk = 0;
+					const char *ms = d.diags[static_cast<usize>(bestDi)].msg.CStr();
+					while (ms[mk] && mk < 137) {
+						mb[mk] = ms[mk];
+						++mk;
+					}
+					if (ms[mk]) {
+						mb[mk++] = '.';
+						mb[mk++] = '.';
+						mb[mk++] = '.';
+					}
+					mb[mk] = 0;
+					const NkCodeLine &ln = d.lines[li];
+					const float32 lineW =
+						ln.Size() ? ctx.font->Face()->CalcTextSizeX(ln.Data(), ln.Data() + ln.Size()) : 0.f;
+					const float32 w = lineW + chW0 * 2.f + ctx.font->Face()->CalcTextSizeX(mb, mb + mk);
+					if (w > mw)
+						mw = w;
+				}
 				d.maxLineWCache = mw;
 				d.widthDirty = false;
 			}
@@ -4032,6 +4067,11 @@ namespace nkentseu {
 							NkColor{ctx.theme.textDisabled.r, ctx.theme.textDisabled.g, ctx.theme.textDisabled.b, 46},
 							3.f);
 						dl.AddText(face, tex, {bx + chW * 0.5f, baseline}, "...", ctx.theme.textDisabled);
+						// Clic direct sur le badge « … » -> déplie sans passer par le chevron de gouttière.
+						if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0] && NkGuiRectContains(badge, mouse)) {
+							d.SetFold(i, false);
+							NkCodeFocusId() = id;
+						}
 					}
 				} else {
 					inBlock = TokenizeLine(
@@ -4064,6 +4104,11 @@ namespace nkentseu {
 							NkColor{ctx.theme.textDisabled.r, ctx.theme.textDisabled.g, ctx.theme.textDisabled.b, 46},
 							3.f);
 						dl.AddText(face, tex, {ex + chW * 1.1f, ey + asc}, "...", ctx.theme.textDisabled);
+						// Clic direct sur le badge « … » -> déplie sans passer par le chevron de gouttière.
+						if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0] && NkGuiRectContains(badge, mouse)) {
+							d.SetFold(i, false);
+							NkCodeFocusId() = id;
+						}
 					}
 				}
 			}
