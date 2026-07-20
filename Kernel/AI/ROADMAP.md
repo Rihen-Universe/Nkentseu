@@ -474,8 +474,21 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
   aucun kernel backend-spécifique). `MakeBatchIdx` remplace le one-hot dans `Fit`/`EvaluateVal`. **Validé** :
   gradient-check différences finies (`NKAutogradTest` 29 OK, cas `SoftmaxCE_Idx` + `SoftmaxCE_IdxMask`) +
   **perte pas 1 identique** au chemin one-hot (5,9703) → équivalence numérique prouvée.
-- ⬜ **Restes** : mixed precision FP16 (Palier 2, per-backend : Metal/Vulkan/DX12 ok, DX11 approx, GL patchy) ;
-  corpus format dialogue (pipeline HF validé, 63 Mo collectés) ; couche multi-GPU.
+- ✅ **PALIER 2 TERMINÉ (2026-07-10, 06:17)** : 6 000 pas sur `Palier2Data` (109 Mo, 9-10 tags dont
+  dialogue fr/en 41 Mo + code Nkentseu/Jenga + Ghomala), D=384/L=6/H=6/T=192, cible-indices, val held-out.
+  Perte finale **2,145**, verdict `[ OK ]`, 100 % GPU. Checkpoint **v4** (poids + état Adam) :
+  `D:/Projets/Camrail/AI/checkpoint_palier2.nkgp` (154 Mo) → reprise PARFAITE possible.
+  ⚠️ Le Palier 2 avait chargé son corpus AVANT l'écriture des derniers `dev_ag_*` : le corpus niche
+  complet (1 684 paires Q→R grounded générées par sous-agents) sert au Palier 3.
+- 🟡 **PALIER 3 EN COURS (lancé 2026-07-20 08:04, arrière-plan)** : reprise parfaite validée au log
+  (`Etat optimiseur repris : pas 6000, 102 moments`, schedule continué sans warmup) depuis
+  `checkpoint_palier2.nkgp` sur `Palier2Data` COMPLET (10 tags, dev enrichi 1684 paires). 6000 pas
+  supplémentaires (horizon 12000). Config `palier3.cfg`, exe isolé `palier_run3/`, checkpoint
+  `checkpoint_palier3.nkgp`. **RÈGLE DE RÉGIME (Rihen, 2026-07-20)** : les paliers NKAI tournent **EN
+  ARRIÈRE-PLAN** pendant que le travail actif est sur la chaîne MÉDIA (premier plan) ; à chaque palier
+  fini → lancer le suivant.
+- ⬜ **Restes** : mixed precision FP16 (per-backend : Metal/Vulkan/DX12 ok, DX11 approx, GL patchy) ;
+  éval qualitative sérieuse (les pertes descendent mais le SENS n'émerge qu'avec l'échelle) ; couche multi-GPU.
   ⚠️ Ne pas lancer un 2ᵉ entraînement GPU pendant qu'un run tourne (contention Vulkan sur 8 Go → crash
   du 2ᵉ process ; l'exe isolé du Palier n'est pas affecté).
 
