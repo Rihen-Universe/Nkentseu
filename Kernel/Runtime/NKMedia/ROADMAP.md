@@ -311,8 +311,24 @@ déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré 
      `stream_type` audio (AAC 0x0F, MPEG 0x03/0x04, AC-3 0x81…) ignoré — piste audio TS non gérée
      (contrairement à MOV/WebM/3GP dont l'audio passe par `NKAudio::OpenAudioStream`), lacing
      PES multi-images non géré (rare).
-  4. **FLV** (Flash Video) : conteneur simple par tags (audio/vidéo/script), utile pour du contenu
-     RTMP/legacy — démuxage rapide à écrire.
+  4. ✅ **FLV LIVRÉ (2026-07-21)** — le plus rapide des trois derniers, presque aussi gratuit que
+     3GP/MKV : conteneur par tags séquentiels simple (pas de table d'échantillons), et **H264-en-FLV
+     utilise EXACTEMENT le même `AVCDecoderConfigurationRecord`** (`AVCPacketType==0`, tag vidéo) **ET
+     le même format NALU longueur-préfixé** (`AVCPacketType==1`) que la boîte `avcC` ISOBMFF — donc
+     `ParseAvcCBytes` et le chemin de décodage AVCC existant (identique à MOV, PAS la variante Annex-B
+     de TS) sont réutilisés **sans aucun changement**. `ParseFlv` (nouveau) : vérifie la magie `FLV`,
+     saute le header (taille variable via le champ `header_size`), parcourt les tags séquentiels
+     (`TagType`+`DataSize`+`Timestamp`+payload+`PreviousTagSize`), ne retient que les tags vidéo
+     (`TagType==9`) avec `CodecID==7` (AVC) — Sorenson H.263/VP6/Screen Video (legacy Flash, très
+     répandus historiquement) **échouent proprement** (pas de décodeur). `fps` dérivé des horodatages
+     RÉELS des tags (FLV les porte nativement en millisecondes, pas de conversion d'échelle requise
+     contrairement à EBML/TimecodeScale). **Validé** : `.flv` H264 baseline 50/50 images (checksum
+     **identique** aux quatre autres conteneurs — MP4/3GP/MKV/TS — même contenu, **cinq conteneurs
+     bit-exact cohérents entre eux**, confirmation forte de correction) + High+B-frames 75/75 ;
+     `SeekFrame` fonctionne ; `.flv` Sorenson H.263 (`flv1`) échoue proprement ; lecture bout-en-bout
+     `NkVideoPlayer` OK. **Reste** : audio FLV (AAC/MP3/Nellymoser…) non géré, script tag `onMetaData`
+     (AMF, contient parfois un `framerate` exact) non exploité (repli sur l'estimation par
+     horodatages, suffisant en pratique).
   5. **OGG comme conteneur générique vidéo (.ogv)** : le démuxage Ogg (pages/lacing/granule) est
      **déjà livré** pour Ogg-Opus — étendre au **Theora** (vidéo) si rencontré en pratique (rare).
   6. **AIFF** (audio Apple, PCM non compressé la plupart du temps) : proche de WAV, coût faible.
