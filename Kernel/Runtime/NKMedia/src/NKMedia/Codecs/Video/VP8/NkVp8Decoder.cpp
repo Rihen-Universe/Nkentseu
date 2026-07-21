@@ -261,5 +261,180 @@ namespace nkentseu {
 			return true;
 		}
 
+		namespace {
+
+			// §13.2 : décode les coefficients d'UN bloc 4×4. Renvoie la position du dernier
+			// coefficient non nul + 1 (0 si le bloc est entièrement vide).
+			//
+			// `prob` = `fc.coefProbs[typeDeBloc]`, indexé ensuite par [bande][contexte][nœud].
+			// `ctx` = 0..2 (somme des drapeaux « non vide » du voisin du dessus et de gauche).
+			// `n` = indice du premier coefficient à lire (1 si le DC vient du bloc Y2).
+			//
+			// ⚠️ Le contexte utilisé pour le coefficient SUIVANT dépend de la VALEUR qu'on
+			// vient de lire (0 → contexte 0, 1 → contexte 1, >1 → contexte 2) : c'est ce
+			// ré-adressage de `p` à chaque itération qui porte l'essentiel de la compression.
+			int32 Vp8GetCoeffs(NkVp8BoolDecoder &bd, const uint8 (*prob)[3][11], int32 ctx, int32 n,
+							   int16 *out) {
+				const uint8 *p = prob[n][ctx];
+				if (!bd.GetBool(p[0])) // 1er "EOB" : joue le rôle d'un bit "ce bloc est vide"
+					return 0;
+				for (;;) {
+					++n;
+					if (!bd.GetBool(p[1])) { // coefficient nul
+						p = prob[kVp8CoefBands[n]][0];
+					} else {
+						int32 v;
+						if (!bd.GetBool(p[2])) { // valeur 1
+							p = prob[kVp8CoefBands[n]][1];
+							v = 1;
+						} else {
+							if (!bd.GetBool(p[3])) {
+								if (!bd.GetBool(p[4]))
+									v = 2;
+								else
+									v = 3 + bd.GetBool(p[5]);
+							} else {
+								if (!bd.GetBool(p[6])) {
+									if (!bd.GetBool(p[7]))
+										v = 5 + bd.GetBool(kVp8Pcat1[0]);
+									else {
+										v = 7 + 2 * bd.GetBool(kVp8Pcat2[0]);
+										v += bd.GetBool(kVp8Pcat2[1]);
+									}
+								} else {
+									// Grandes valeurs : catégories 3..6, magnitude codée par des
+									// bits supplémentaires à probabilités CONSTANTES (kVp8Pcat3456,
+									// terminée par une sentinelle 0).
+									const int32 bit1 = bd.GetBool(p[8]);
+									const int32 bit0 = bd.GetBool(p[9 + bit1]);
+									const int32 cat = 2 * bit1 + bit0;
+									v = 0;
+									for (const uint8 *tab = kVp8Pcat3456[cat]; *tab; ++tab)
+										v += v + bd.GetBool(*tab);
+									v += 3 + (8 << cat);
+								}
+							}
+							p = prob[kVp8CoefBands[n]][2];
+						}
+						// Le coefficient est stocké à sa position RASTER via le zigzag inverse.
+						// Le signe est un bit non biaisé (la référence l'implémente à la main,
+						// mais c'est exactement GetBool(128) — vérifié algébriquement).
+						out[kVp8Zigzag[n - 1]] = (int16)(bd.GetFlag() ? -v : v);
+						if (n == 16 || !bd.GetBool(p[0])) // EOB
+							return n;
+					}
+					if (n == 16)
+						return 16;
+				}
+			}
+
+		} // namespace
+
+		void NkVp8ResetMbTokenContext(bool isBPred, NkVp8EntropyContext &above,
+									   NkVp8EntropyContext &left) {
+			for (int32 i = 0; i < 8; ++i) { // Y (0-3), U (4-5), V (6-7)
+				above.v[i] = 0;
+				left.v[i] = 0;
+			}
+			// ⚠️ L'entrée Y2 n'est remise à zéro que si le MB POSSÈDE un bloc Y2. Un MB en
+			// B_PRED n'en a pas : son contexte Y2 doit rester INCHANGÉ pour le MB suivant.
+			if (!isBPred) {
+				above.v[8] = 0;
+				left.v[8] = 0;
+			}
+		}
+
+		int32 NkVp8DecodeMbTokens(NkVp8BoolDecoder &bd, const NkVp8FrameContext &fc, bool isBPred,
+								   NkVp8EntropyContext &above, NkVp8EntropyContext &left,
+								   NkVp8MbCoeffs &out) {
+			out = NkVp8MbCoeffs();
+			int32 eobTotal = 0;
+			int32 skipDc = 0;
+			const uint8 (*coefProbs)[3][11];
+
+			if (!isBPred) {
+				// Bloc Y2 (type 1) : porte les DC des 16 blocs Y (transformés par WHT).
+				const int32 nz =
+					Vp8GetCoeffs(bd, fc.coefProbs[1], above.v[8] + left.v[8], 0, out.coeffs[24]);
+				above.v[8] = left.v[8] = (nz > 0) ? 1 : 0;
+				out.eobs[24] = (uint8)nz;
+				eobTotal += nz - 16; // convention libvpx (permet de détecter "MB vide")
+				coefProbs = fc.coefProbs[0]; // Y SANS le DC (il vient de Y2)
+				skipDc = 1;
+			} else {
+				coefProbs = fc.coefProbs[3]; // Y AVEC son DC
+				skipDc = 0;
+			}
+
+			for (int32 i = 0; i < 16; ++i) { // 16 blocs luma, ordre raster 4×4
+				uint8 &a = above.v[i & 3];
+				uint8 &l = left.v[(i & 0xC) >> 2];
+				int32 nz = Vp8GetCoeffs(bd, coefProbs, (int32)a + (int32)l, skipDc, out.coeffs[i]);
+				a = l = (nz > 0) ? 1 : 0; // contexte MIS À JOUR avant l'ajout de skipDc
+				nz += skipDc; // eob=1 signifie alors "DC seul" (venu de Y2)
+				out.eobs[i] = (uint8)nz;
+				eobTotal += nz;
+			}
+
+			for (int32 i = 16; i < 24; ++i) { // 4 blocs U puis 4 blocs V (grilles 2×2)
+				uint8 &a = above.v[4 + ((i > 19) ? 2 : 0) + (i & 1)];
+				uint8 &l = left.v[4 + ((i > 19) ? 2 : 0) + (((i & 3) > 1) ? 1 : 0)];
+				const int32 nz =
+					Vp8GetCoeffs(bd, fc.coefProbs[2], (int32)a + (int32)l, 0, out.coeffs[i]);
+				a = l = (nz > 0) ? 1 : 0;
+				out.eobs[i] = (uint8)nz;
+				eobTotal += nz;
+			}
+			return eobTotal;
+		}
+
+		bool NkVp8DecodeKeyFrameResiduals(NkVp8BoolDecoder &bd, const NkVp8FrameContext &fc,
+										   const NkVector<NkVp8MbModeInfo> &mbInfo, int32 mbCols,
+										   int32 mbRows, NkVp8ResidualStats &stats) {
+			if (mbCols <= 0 || mbRows <= 0)
+				return false;
+			const int32 stride = mbCols + 1;
+			if (mbInfo.Size() < (uint64)((mbRows + 1) * stride))
+				return false;
+
+			stats = NkVp8ResidualStats();
+			// Un contexte « au-dessus » PAR COLONNE (persistant sur toute l'image), remis à
+			// zéro au début de l'image ; un contexte « à gauche » unique, remis à zéro au
+			// début de CHAQUE ligne de macroblocs.
+			NkVector<NkVp8EntropyContext> aboveCtx;
+			aboveCtx.Resize((uint64)mbCols);
+			for (uint64 i = 0; i < aboveCtx.Size(); ++i)
+				aboveCtx[i] = NkVp8EntropyContext();
+
+			NkVp8MbCoeffs coeffs;
+			for (int32 r = 0; r < mbRows; ++r) {
+				NkVp8EntropyContext leftCtx;
+				for (int32 c = 0; c < mbCols; ++c) {
+					const NkVp8MbModeInfo &mi = mbInfo[(uint64)(r + 1) * stride + (c + 1)];
+					const bool isBPred = (mi.yMode == kVp8MbBPred);
+					if (mi.skipCoeff) {
+						NkVp8ResetMbTokenContext(isBPred, aboveCtx[(uint64)c], leftCtx);
+						++stats.skippedMbs;
+						continue;
+					}
+					stats.eobTotal +=
+						NkVp8DecodeMbTokens(bd, fc, isBPred, aboveCtx[(uint64)c], leftCtx, coeffs);
+					++stats.decodedMbs;
+					for (int32 b = 0; b < 25; ++b) {
+						for (int32 k = 0; k < 16; ++k) {
+							const int32 v = coeffs.coeffs[b][k];
+							if (v != 0)
+								++stats.nonZeroCoeffs;
+							if (v < stats.minCoeff)
+								stats.minCoeff = v;
+							if (v > stats.maxCoeff)
+								stats.maxCoeff = v;
+						}
+					}
+				}
+			}
+			return true;
+		}
+
 	} // namespace media
 } // namespace nkentseu

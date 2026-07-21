@@ -178,6 +178,44 @@ int main(int argc, char **argv) {
 					   (fullyConsumed && noWildOverread) ? "OK " : "KO", (unsigned long long)bd.pos,
 					   tag.firstPartSize, bd.overreadBytes);
 				headerOk = headerOk && modesValidOk && fullyConsumed && noWildOverread;
+
+				// ── Brique 5 : residus (2eme partition) ──────────────────────────────
+				// Les coefficients vivent dans une partition SEPAREE, qui commence juste
+				// apres la 1ere. Ici on ne gere que le cas log2Partitions==0 (1 seule
+				// partition de tokens) ; au-dela il y a des champs de taille 3 octets a
+				// parser en tete, non implemente a ce stade.
+				if (hdr.log2NbrOfDctPartitions == 0) {
+					const usize tokStart = tag.headerSize + (usize)tag.firstPartSize;
+					if (tokStart < (usize)frame.Size()) {
+						const usize tokSize = (usize)frame.Size() - tokStart;
+						NkVp8BoolDecoder tbd(frame.Data() + tokStart, tokSize);
+						NkVp8ResidualStats st;
+						if (NkVp8DecodeKeyFrameResiduals(tbd, fc, mbInfo, mbCols, mbRows, st)) {
+							printf("  residus : MB decodes=%d sautes=%d | coeffs non nuls=%lld "
+								   "eobTotal=%lld | plage coeff [%d..%d]\n",
+								   st.decodedMbs, st.skippedMbs, (long long)st.nonZeroCoeffs,
+								   (long long)st.eobTotal, st.minCoeff, st.maxCoeff);
+							const bool mbCountOk = (st.decodedMbs + st.skippedMbs) == mbCols * mbRows;
+							const bool tokConsumed = (tbd.pos == tokSize);
+							const bool tokNoOverread = (tbd.overreadBytes <= 2);
+							printf("  [ %s ] tous les MB traites (%d + %d = %d)\n",
+								   mbCountOk ? "OK " : "KO", st.decodedMbs, st.skippedMbs,
+								   mbCols * mbRows);
+							printf("  [ %s ] partition de tokens consommee EXACTEMENT : %llu / %llu "
+								   "octets (depassement=%d, <=2 normal)\n",
+								   (tokConsumed && tokNoOverread) ? "OK " : "KO",
+								   (unsigned long long)tbd.pos, (unsigned long long)tokSize,
+								   tbd.overreadBytes);
+							headerOk = headerOk && mbCountOk && tokConsumed && tokNoOverread;
+						} else {
+							printf("  [KO] NkVp8DecodeKeyFrameResiduals a echoue\n");
+							headerOk = false;
+						}
+					}
+				} else {
+					printf("  (residus non testes : %d partitions de tokens, non gere a ce stade)\n",
+						   1 << hdr.log2NbrOfDctPartitions);
+				}
 			} else {
 				printf("  [KO] NkVp8DecodeKeyFrameModes a echoue\n");
 				headerOk = false;
