@@ -318,7 +318,8 @@ namespace nkentseu {
 			// replie sur un decodage RAM complet (voir TryLoadMp3FromContainer, NkMP3Codec n'a
 			// pas d'API incrementale) ; tout autre codec -> nullptr (le caller retombe ailleurs).
 			if (ExtEquals(ext, "mp4") || ExtEquals(ext, "m4a") || ExtEquals(ext, "m4v") ||
-				ExtEquals(ext, "mov") || ExtEquals(ext, "webm") || ExtEquals(ext, "mkv")) {
+				ExtEquals(ext, "mov") || ExtEquals(ext, "webm") || ExtEquals(ext, "mkv") ||
+				ExtEquals(ext, "3gp") || ExtEquals(ext, "3g2")) {
 				auto *s = memory::NkGetDefaultAllocator().New<ContainerAudioStream>();
 				if (s->Open(path))
 					return s;
