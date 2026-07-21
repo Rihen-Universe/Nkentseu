@@ -661,22 +661,20 @@ namespace nkentseu {
 					// confirmation (et la suppression) portent sur TOUT le groupe.
 					mDelGroup = (mSelSet.Size() > 1 && IsSelected(path));
 					if (mDelGroup)
-						mDelLabel = NkPrintf("%s (%d)", NkT("exp.ctx.delete"), static_cast<int32>(mSelSet.Size()));
+						mDelLabel = NkPrintf(NkT("exp.del.msggroup"), static_cast<int32>(mSelSet.Size()));
 					else {
 						const NkString name = NkPath(path).GetFileName();
-						mDelLabel = NkPrintf("%s \xC2\xAB %s \xC2\xBB", NkT("exp.ctx.delete"), name.CStr());
+						mDelLabel = NkPrintf(NkT("exp.del.msgone"), name.CStr());
 					}
 					mDelMenu.open = true;
-					mDelMenu.pos = ctx.input.mousePos;
 				}
 
-				// Confirmation de suppression (2 items : confirmer / annuler).
+				// Confirmation de suppression (dialogue modal : confirmer / annuler).
 				void DrawConfirmDel(NkGuiContext &ctx) {
 					if (!mDelMenu.open)
 						return;
-					const char *items[2] = {mDelLabel.CStr(), NkT("exp.del.cancel")};
-					bool en[2] = {true, true};
-					const int32 act = NkCtxMenuDraw(ctx, mDelMenu, items, en, 2);
+					const char *items[2] = {NkT("exp.ctx.delete"), NkT("exp.del.cancel")};
+					const int32 act = NkModalDraw(ctx, mDelMenu, NkT("exp.del.title"), mDelLabel.CStr(), items, 2);
 					if (act == 0) {
 						if (mDelGroup) { // corbeille pour TOUTE la sélection
 							const NkVector<NkString> grp = mSelSet;
@@ -688,7 +686,7 @@ namespace nkentseu {
 						} else
 							Trash(mDelPath, mDelIsDir);
 						mDelPath.Clear();
-					} else if (act == 1 || !mDelMenu.open)
+					} else if (act == 1)
 						mDelPath.Clear();
 				}
 
@@ -1806,7 +1804,7 @@ namespace nkentseu {
 				NkVector<NkString> mClipPaths; ///< copier/couper interne (Ctrl+C/X/V, groupe)
 				bool mClipCut = false;
 				uint32 mSelTick = 0;	///< frame de la dernière sélection (clic-lent = renommer)
-				NkCtxMenu mDelMenu;		///< confirmation de suppression
+				NkModal mDelMenu;		///< confirmation de suppression (dialogue modal REEL, NkEditorModal.h)
 				NkString mDelPath;
 				bool mDelIsDir = false;
 				NkString mDelLabel;

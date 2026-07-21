@@ -11,6 +11,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKEditorKit/NkEditorTextField.h"    // NkOverlayTextField (widget moteur reutilisable)
 #include "NKEditorKit/NkEditorContextMenu.h" // NkCtxMenu / NkCtxMenuDraw (widget moteur reutilisable)
+#include "NKEditorKit/NkEditorModal.h"		  // NkModal / NkModalDraw (dialogue modal REEL, confirmations)
 
 namespace nkentseu {
 	namespace nkcode {
