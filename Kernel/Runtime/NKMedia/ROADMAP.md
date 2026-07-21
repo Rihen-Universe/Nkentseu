@@ -22,6 +22,7 @@
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅** ; puis WebM, WAV |
 | 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High bit-exact** (MP4/MOV/3GP/MKV) ; VP8/VP9/AV1/H.265 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
+| 8. **Décodeur vidéo VP8** | 🔶 DÉMARRÉ | Chantier neuf (2026-07-21, décision explicite Rihen après H.264+conteneurs) : décodeur booléen (RFC 6386 §7.3) ✅ + frame tag (dimensions, keyFrame) ✅ validés sur fichier réel. **Ne décode PAS encore d'image** — voir détail dans « Livré » et « En cours ». |
 
 ## Livré
 - **Brique 1 (2026-07-10)** — `NkMediaProbe` (`NkMediaProbe.{h,cpp}`) : détection de conteneur + parseurs
@@ -206,6 +207,38 @@
   encodage threadé → `viewport_capture.mp4`. Compile+link OK ; à valider sur GPU (écran noir pendant la
   capture car le rendu final est redirigé vers l'offscreen — cosmétique, la vidéo est correcte). ⏳ Reste :
   tap audio direct dans NKAudio (démo = tonalité) ; re-blit offscreen→swapchain pour un aperçu visible.
+
+- **Décodeur vidéo VP8 (RFC 6386) — chantier démarré (2026-07-21)**, `Codecs/Video/VP8/`. Décision
+  explicite Rihen : après H.264 + les 5 conteneurs additionnels (3GP/MKV/TS/FLV/AIFF, tous réutilisant
+  le décodeur H.264 existant), VP8 est le point d'entrée choisi pour un VRAI nouveau codec vidéo
+  (plus simple que VP9/AV1 — pas de CABAC, codeur arithmétique binaire direct à probabilité explicite
+  — et plus utile en pratique que Theora/OGV, abandonné depuis longtemps au profit de VP8/VP9).
+  Construit **brique par brique comme H.264**, honnêteté d'échelle : ceci est le DÉBUT d'un chantier
+  multi-session, pas un décodeur fonctionnel.
+  - **Brique 1 — décodeur booléen** (`NkVp8BoolDecoder.h`, §7.3) : codeur arithmétique binaire à
+    probabilité EXPLICITE (0..255) fournie par l'appelant à chaque décision — contrairement à la CABAC
+    H.264 (machine à états + tables de transition par contexte), **pas de table d'état normative à
+    transcrire** pour le cœur du décodeur (réduit la surface des "bugs de table" qui ont coûté ×5
+    sessions sur H.264). `GetBool(prob)` / `GetFlag()` / `GetLiteral(n)` / `GetSignedLiteral(n)` /
+    `GetTree(tree,probs)` (arbres de probabilités §8.2, utilisés partout dans la suite : modes de
+    prédiction, vecteurs de mouvement, tokens résiduels).
+  - **Brique 2 — frame tag** (`NkVp8Decoder.h`, §9.1) : en-tête NON compressé (3 octets communs +
+    7 de plus si image clé : start code `0x9D 0x01 0x2A`, dimensions 14 bits + échelle d'affichage
+    2 bits). ⚠️ Piège documenté : le bit `key_frame` du bitstream est **inversé** (0 = image clé).
+  - **Validé** (`NkVideoReadTest --vp8header <fichier.ivf>`, nouveau harnais IVF minimal — conteneur
+    brut dédié aux codecs, pas de démuxage NKMedia requis) : fichier VP8 réel généré par
+    `ffmpeg -c:v libvpx` — dimensions du frame tag **EXACTEMENT identiques** à l'en-tête IVF ET à
+    `ffprobe` (176×144) ; `firstPartSize` plausible (611 o) ; le décodeur booléen s'initialise et
+    décode `color_space`/`clamping_type` (2 premiers bits du header compressé) sans planter.
+  - **Reste (dans l'ordre logique)** : en-tête compressé complet §9.2-9.11 (segmentation optionnelle,
+    type+niveau+netteté du filtre de boucle, ajustements de filtre par mode/référence, index+deltas
+    de quantification, mise à jour des probabilités de token — table normative `coeff_update_probs`
+    **4×8×3×11 = 1056 entrées, à extraire par script depuis une source faisant autorité, PAS à la
+    main** — probabilités de mode intra/mv) ; prédiction intra (16×16 DC/V/H/TM, 4×4 B_PRED 10 modes,
+    chroma 8×8) ; prédiction inter (vecteurs de mouvement, interpolation sous-pel 6-tap différente de
+    H.264) ; transformée (WHT 4×4 pour le DC luma en mode 16×16 + IDCT 4×4) ; décodage des coefficients
+    résiduels (tokens, contexte par bande/position) ; filtre de boucle (normal/simple, par arête de MB).
+    Chaque brique à valider sur du contenu réel ffmpeg avant la suivante, même méthode que H.264.
 
 ## En cours / À venir
 

@@ -7,6 +7,8 @@
 #include "NKMedia/Video/NkVideoReader.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Decoder.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
+#include "NKMedia/Codecs/Video/VP8/NkVp8Decoder.h"
+#include "NKMedia/Codecs/Video/VP8/NkVp8BoolDecoder.h"
 
 #include <cstdio>
 #include <cstring>
@@ -29,6 +31,70 @@ int main(int argc, char **argv) {
 		bool all = ok && okH264 && okCavlc;
 		printf("=== %s ===\n", all ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
 		return all ? 0 : 1;
+	}
+
+	// Mode diagnostic VP8 (chantier en cours) : --vp8header <fichier.ivf>
+	// Lit le frame tag (en-tête non compressé) + démarre le décodeur booléen sur la 1ère
+	// partition pour décoder color_space/clamping_type (2 premiers bits du header compressé,
+	// §9.2) — validation minimale que la brique 1 (décodeur booléen) tourne sans planter.
+	// IVF = conteneur brut minimal (pas de démuxage NKMedia requis) : entête 32 octets
+	// ("DKIF"+version+header_size+fourcc+w+h+timebase+num_frames) puis, par frame,
+	// taille(4 LE)+timestamp(8 LE)+données.
+	if (argc >= 3 && strcmp(argv[1], "--vp8header") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		uint8 ivfHdr[32];
+		if (fread(ivfHdr, 1, 32, f) != 32 || memcmp(ivfHdr, "DKIF", 4) != 0) {
+			printf("  [KO] pas un fichier IVF valide\n");
+			fclose(f);
+			return 1;
+		}
+		char fourcc[5] = {(char)ivfHdr[8], (char)ivfHdr[9], (char)ivfHdr[10], (char)ivfHdr[11], 0};
+		const uint16 ivfW = (uint16)(ivfHdr[12] | (ivfHdr[13] << 8));
+		const uint16 ivfH = (uint16)(ivfHdr[14] | (ivfHdr[15] << 8));
+		printf("  IVF : fourcc=%s dims=%ux%u\n", fourcc, ivfW, ivfH);
+		uint8 frameHdr[12];
+		if (fread(frameHdr, 1, 12, f) != 12) {
+			printf("  [KO] pas de frame\n");
+			fclose(f);
+			return 1;
+		}
+		const uint32 frameSize = (uint32)frameHdr[0] | ((uint32)frameHdr[1] << 8) | ((uint32)frameHdr[2] << 16) |
+								  ((uint32)frameHdr[3] << 24);
+		NkVector<uint8> frame;
+		frame.Resize(frameSize);
+		if (fread(frame.Data(), 1, frameSize, f) != frameSize) {
+			printf("  [KO] frame tronquee\n");
+			fclose(f);
+			return 1;
+		}
+		fclose(f);
+
+		NkVp8FrameTag tag;
+		if (!NkVp8ParseFrameTag(frame.Data(), (usize)frame.Size(), tag)) {
+			printf("  [KO] NkVp8ParseFrameTag a echoue\n");
+			return 1;
+		}
+		printf("  frame tag : keyFrame=%d version=%d showFrame=%d firstPartSize=%u dims=%dx%d "
+			   "hscale=%d vscale=%d headerSize=%llu\n",
+			   tag.keyFrame ? 1 : 0, tag.version, tag.showFrame ? 1 : 0, tag.firstPartSize, tag.width,
+			   tag.height, tag.horizScale, tag.vertScale, (unsigned long long)tag.headerSize);
+
+		const bool dimsOk = (tag.width == ivfW && tag.height == ivfH);
+		printf("  [ %s ] dimensions frame tag == entete IVF (%dx%d vs %ux%u)\n", dimsOk ? "OK " : "KO",
+			   tag.width, tag.height, ivfW, ivfH);
+
+		if (tag.keyFrame && tag.headerSize + tag.firstPartSize <= (usize)frame.Size()) {
+			NkVp8BoolDecoder bd(frame.Data() + tag.headerSize, (usize)tag.firstPartSize);
+			const int32 colorSpace = bd.GetFlag();
+			const int32 clampingType = bd.GetFlag();
+			printf("  1ere partition (decodeur booleen) : color_space=%d clamping_type=%d\n", colorSpace,
+				   clampingType);
+		}
+		return dimsOk ? 0 : 1;
 	}
 
 	// Mode validation SeekFrame H264 : --seektest <fichier.mp4/mov> <index affichage>
