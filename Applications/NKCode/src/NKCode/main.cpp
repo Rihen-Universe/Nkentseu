@@ -149,9 +149,13 @@ int nkmain(const NkEntryState &state) {
 	g_home.st = &g_state;
 	g_home.dlg = &g_dialogs;
 	g_home.exePath = (state.args.Size() > 0) ? state.args[0] : NkString(); // pour "Ouvrir dans une nouvelle fenetre"
-	if (state.args.Size() > 0)
+	if (state.args.Size() > 0) {
 		nkcode::NkOpenWsState::ExeDir() =
 			NkPath(state.args[0].CStr()).GetParent().ToString(); // pour trouver le Jenga embarque (tools/jenga)
+		// Jenga IN-PROCESS (Phase 12) : memorise les chemins tools/python-embed +
+		// tools/jenga-src (init de l'interpreteur paresseuse, au premier build).
+		nkcode::NkEmbeddedJenga::Configure(nkcode::NkOpenWsState::ExeDir());
+	}
 	// Argument : un dossier de workspace -> ouvre directement (cas "nouvelle fenetre").
 	bool g_openedArg = false;
 	for (usize ai = 1; ai < state.args.Size(); ++ai) {
@@ -200,5 +204,8 @@ int nkmain(const NkEntryState &state) {
 		shell->SaveUiState(g_state.UiConfigPath().CStr());
 	else
 		shell->SaveWindowGeom(g_launcherGeom.CStr());
+	// Jenga IN-PROCESS : join du worker + Py_FinalizeEx sur SON thread (no-op si
+	// l'interpreteur n'a jamais ete initialise).
+	nkcode::NkEmbeddedJenga::Shutdown();
 	return rc;
 }
