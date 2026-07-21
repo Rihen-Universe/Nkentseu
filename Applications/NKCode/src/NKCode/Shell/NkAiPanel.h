@@ -630,11 +630,13 @@ namespace nkentseu {
 				// your limits usage" — capture INTEGRALE du texte, aucun champ trie/invente. ──
 				NkPipeProc mQuickUsageProc;
 				NkString mQuickUsageBuf;
-				bool mQuickUsageRequested = false, mQuickUsageLoaded = false;
+				bool mQuickUsageRequested = false;
 				NkString mQuickUsageText; // texte brut renvoye par /usage (vide = jamais recu)
 
 				// Ouvre le popover "Compte et utilisation" et lance les requetes REELLES qui
-				// l'alimentent (une seule fois par session) — factorise ici pour que les DEUX
+				// l'alimentent (rafraichies a CHAQUE ouverture — les % changent en continu, une
+				// capture "une fois pour la session" restait affichee perimee) — factorise ici
+				// pour que les DEUX
 				// points d'entree (lien "Voir l'utilisation" de la banniere ET item du panneau
 				// Actions) declenchent bien les MEMES requetes (bug corrige : la banniere
 				// n'ouvrait que le popover vide, sans jamais lancer "claude auth status --json"
@@ -652,7 +654,7 @@ namespace nkentseu {
 				}
 
 				void TriggerQuickUsage() {
-					if (mQuickUsageRequested || mQuickUsageLoaded || ClaudeExe().Empty())
+					if (mQuickUsageRequested || ClaudeExe().Empty())
 						return;
 					mQuickUsageRequested = true;
 					mQuickUsageBuf.Clear();
@@ -700,13 +702,10 @@ namespace nkentseu {
 							break;
 						rest.Erase(0, nl + 1);
 					}
-					// Repli auto-reparable (comme PollAccountStatus) : pas de latch definitif
-					// si rien n'a ete recu (erreur CLI, flag manquant, etc.) -> reessai possible
-					// au prochain affichage du popover plutot que de rester bloque sans jamais
-					// re-tenter pour le reste de la session.
+					// Rien recu (erreur CLI, flag manquant, etc.) : mQuickUsageRequested est deja
+					// retombe a false plus haut -> reessai automatique a la prochaine ouverture.
 					if (mQuickUsageText.Empty())
 						return;
-					mQuickUsageLoaded = true;
 					ParseQuickUsageBuckets();
 				}
 
@@ -2439,6 +2438,15 @@ namespace nkentseu {
 						menu.x = bounds.x + bounds.w - ctx.S(4.f) - menu.w;
 					if (menu.x < bounds.x + ctx.S(4.f))
 						menu.x = bounds.x + ctx.S(4.f);
+					// NkGuiContext::Update() (debut de frame, AVANT que ce panneau ne s'execute)
+					// reinitialise ctx.popupDepth a 0 des qu'un clic tombe hors de
+					// popupRects[0]/popupAnchor — jamais renseignes jusqu'ici pour ce panneau,
+					// donc CHAQUE clic (meme sur le panneau lui-meme) faisait retomber popupDepth
+					// a 0 AVANT que la force plus haut ne le remette a 1, laissant largement le
+					// temps aux AUTRES panneaux (traites plus tot dans la frame) de reagir au
+					// meme clic entretemps. Renseignes ici pour la frame SUIVANTE.
+					ctx.popupRects[0] = menu;
+					ctx.popupAnchor = mActionsAnchor;
 					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(8.f));
 					dl.AddRect(menu, ctx.theme.border, 1.f);
 
