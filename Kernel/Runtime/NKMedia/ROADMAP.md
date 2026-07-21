@@ -261,10 +261,38 @@
     la 1ère partition (611 octets) avec une marge plausible pour le décodage des modes par macrobloc
     (~99 MB restants pour ce flux 176×144) — cohérence structurelle forte, pas encore une preuve
     bit-exacte (pas de décodage complet à comparer à ce stade).
+  - **Brique 4 — modes de macrobloc (image clé, §11)** : pour chaque MB, identifiant de segment
+    (si la carte de segmentation est mise à jour), drapeau `mb_skip_coeff`, mode luma (arbre+probas
+    **"kf"**, ⚠️ DIFFÉRENTS de ceux des images inter : l'arbre kf place `B_PRED` en PREMIÈRE feuille,
+    l'autre en dernier — les confondre décode des modes plausibles mais faux, sans erreur visible),
+    puis si `B_PRED` les **16 modes de sous-bloc 4×4** conditionnés par le contexte (mode du
+    sous-bloc AU-DESSUS × mode du sous-bloc À GAUCHE → table 10×10×9), et enfin le mode chroma.
+    Le contexte des sous-blocs **traverse les frontières de macrobloc** → stockage du champ de modes
+    complet, en tableau **AVEC BORDURE** (1 colonne à gauche + 1 ligne au-dessus, laissées à zéro)
+    pour que les voisins hors image vaillent naturellement DC_PRED/B_DC_PRED sans test de bord —
+    même astuce que libvpx (`mi = mip + stride + 1`). Les **arbres de modes** (§8.2) sont eux aussi
+    extraits par script, avec résolution PROGRAMMATIQUE des enums symboliques (`-B_DC_PRED`, `-V_PRED`…)
+    depuis `blockd.h` : un réordonnancement amont de ces enums (qui indexent les tables de probas)
+    casserait la génération au lieu de passer inaperçu.
+  - ⭐ **Validation brique 4 — le contrôle le plus fort disponible sans pixels de référence** :
+    le décodage complet (frame tag → en-tête compressé → modes de TOUS les macroblocs) doit consommer
+    la 1ère partition **EXACTEMENT**, sans déborder. Un seul champ mal ordonné, un mauvais arbre ou
+    une table de probabilités fausse ferait diverger la consommation de bits et raterait la borne.
+    ⚠️ Le compteur d'octets seul ne suffit pas (il est plafonné à la taille du tampon, donc "tout
+    consommé" et "débordé silencieusement" sont indiscernables) → ajout d'un compteur de
+    **dépassement** (`overreadBytes`) au décodeur booléen. **Résultat sur 4 fichiers VP8 réels
+    ffmpeg** (résolutions, contenus et débits différents — 176×144 mandelbrot, 320×240 testsrc2,
+    176×144 smptebars bas débit, et **100×60 non-multiple de 16** qui valide l'arrondi
+    `mbCols/mbRows`) : **611/611, 884/884, 212/212, 356/356 octets, dépassement = 0 partout**.
+    Cohérence sémantique en prime : les distributions de modes suivent la qualité comme attendu
+    (fichier haute qualité → 69/99 MB en `B_PRED` ; bas débit → seulement 15/99 `B_PRED` et 70/99
+    macroblocs sautés), et la somme des sous-modes 4×4 vaut exactement 16 × (nombre de MB `B_PRED`).
   - **Reste (dans l'ordre logique)** : prédiction intra (16×16 DC/V/H/TM, 4×4 B_PRED 10 modes,
-    chroma 8×8) ; prédiction inter (vecteurs de mouvement, interpolation sous-pel 6-tap différente de
-    H.264) ; transformée (WHT 4×4 pour le DC luma en mode 16×16 + IDCT 4×4) ; décodage des coefficients
-    résiduels (tokens, contexte par bande/position) ; filtre de boucle (normal/simple, par arête de MB).
+    chroma 8×8) ; décodage des coefficients résiduels (tokens, contexte par bande/position, 2ème
+    partition) ; transformée (WHT 4×4 pour le DC luma en mode 16×16 + IDCT 4×4) ; filtre de boucle
+    (normal/simple, par arête de MB) → à ce point une IMAGE CLÉ devrait se décoder et pouvoir être
+    comparée pixel à pixel à ffmpeg ; puis seulement les images inter (vecteurs de mouvement,
+    interpolation sous-pel 6-tap différente de H.264).
     Chaque brique à valider sur du contenu réel ffmpeg avant la suivante, même méthode que H.264.
 
 ## En cours / À venir
