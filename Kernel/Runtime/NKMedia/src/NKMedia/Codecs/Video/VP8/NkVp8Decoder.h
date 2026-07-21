@@ -201,5 +201,58 @@ namespace nkentseu {
 									   const NkVp8Segmentation &seg, int32 mbCols, int32 mbRows,
 									   NkVector<NkVp8MbModeInfo> &out);
 
+		// ── Résidus / coefficients (§13) ─────────────────────────────────────────────
+		// Contexte d'entropie d'UN macrobloc : 4 (Y) + 2 (U) + 2 (V) + 1 (Y2) = 9 entrées,
+		// chacune valant 0/1 selon que le bloc 4×4 correspondant avait des coefficients.
+		// Le contexte d'un bloc est la SOMME de son voisin du dessus et de gauche (0..2) →
+		// il faut donc un contexte « au-dessus » PAR COLONNE de macrobloc (persistant sur
+		// toute l'image) et un contexte « à gauche » remis à zéro à chaque début de ligne.
+		struct NkVp8EntropyContext {
+				uint8 v[9] = {};
+		};
+
+		// Coefficients quantifiés d'un macrobloc : 25 blocs 4×4 — 0-15 = Y, 16-19 = U,
+		// 20-23 = V, 24 = Y2 (les DC des 16 blocs Y, transformés par WHT ; présent seulement
+		// quand le MB n'est PAS en B_PRED). `eobs[b]` = position du dernier coefficient non
+		// nul + 1 (0 = bloc vide).
+		struct NkVp8MbCoeffs {
+				int16 coeffs[25][16] = {};
+				uint8 eobs[25] = {};
+		};
+
+		// §13.3 : décode les coefficients d'UN macrobloc depuis la partition de tokens.
+		// Met à jour `above`/`left` EN PLACE. Renvoie `eobTotal` (somme des eobs, avec la
+		// convention libvpx `-16` sur le bloc Y2) : la référence s'en sert pour forcer le
+		// saut du filtre de boucle quand il vaut 0.
+		int32 NkVp8DecodeMbTokens(NkVp8BoolDecoder &bd, const NkVp8FrameContext &fc, bool isBPred,
+								   NkVp8EntropyContext &above, NkVp8EntropyContext &left,
+								   NkVp8MbCoeffs &out);
+
+		// §13.1 : remise à zéro du contexte d'un macrobloc SAUTÉ (`mb_skip_coeff`).
+		// ⚠️ Subtilité normative : les 8 premières entrées (Y/U/V) sont toujours remises à
+		// zéro, mais l'entrée Y2 (indice 8) ne l'est QUE si le macrobloc possède un bloc Y2
+		// (donc PAS en B_PRED) — sinon elle garde sa valeur précédente.
+		void NkVp8ResetMbTokenContext(bool isBPred, NkVp8EntropyContext &above,
+									   NkVp8EntropyContext &left);
+
+		// Statistiques de validation du décodage des résidus d'une image complète.
+		struct NkVp8ResidualStats {
+				int64 nonZeroCoeffs = 0;
+				int64 eobTotal = 0;
+				int32 skippedMbs = 0;
+				int32 decodedMbs = 0;
+				int32 minCoeff = 0;
+				int32 maxCoeff = 0;
+		};
+
+		// Parcourt tous les macroblocs d'une image clé et décode leurs résidus depuis la
+		// partition de tokens `bd` (distincte de la 1ère partition qui portait l'en-tête et
+		// les modes). Les coefficients ne sont PAS conservés (le décodeur final travaillera
+		// macrobloc par macrobloc) : cette fonction sert à valider que toute la partition est
+		// consommée exactement, et à collecter des statistiques.
+		bool NkVp8DecodeKeyFrameResiduals(NkVp8BoolDecoder &bd, const NkVp8FrameContext &fc,
+										   const NkVector<NkVp8MbModeInfo> &mbInfo, int32 mbCols,
+										   int32 mbRows, NkVp8ResidualStats &stats);
+
 	} // namespace media
 } // namespace nkentseu
