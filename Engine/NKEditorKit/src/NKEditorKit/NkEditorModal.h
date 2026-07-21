@@ -77,6 +77,12 @@ namespace nkentseu {
 
 			const float32 msgH = (message && *message) ? lh + 14.f : 10.f;
 			const float32 boxH = titleH + msgH + btnH + pad;
+			// Le clic qui vient d'OUVRIR ce dialogue (ex. bouton X d'un onglet) reste
+			// vu comme mouseClicked[0] cette meme frame, avec la souris tres
+			// probablement HORS du rect (nouvellement centre) -> sans ce garde-fou,
+			// le test "clic en dehors -> Annuler" plus bas fermait le dialogue
+			// AUSSITOT ouvert (jamais visible assez longtemps pour cliquer/glisser).
+			const bool justOpened = !m.posInit;
 			if (!m.posInit) {
 				m.pos = {(static_cast<float32>(ctx.viewW) - boxW) * 0.5f,
 						 (static_cast<float32>(ctx.viewH) - boxH) * 0.5f};
@@ -91,25 +97,36 @@ namespace nkentseu {
 				m.pos.x = static_cast<float32>(ctx.viewW) - boxW;
 			if (m.pos.y + boxH > static_cast<float32>(ctx.viewH))
 				m.pos.y = static_cast<float32>(ctx.viewH) - boxH;
+			const NkVec2 mp = ctx.input.mousePos;
+			// Glisser de la barre de titre : traite AVANT de figer `box` pour le
+			// rendu/hit-test de cette frame (sinon la position affichee reste
+			// toujours en retard d'une frame sur la souris).
+			{
+				const NkRect prelimTitle = {m.pos.x, m.pos.y, boxW, titleH};
+				const bool overTitlePrelim = mp.x >= prelimTitle.x && mp.x < prelimTitle.x + prelimTitle.w &&
+											 mp.y >= prelimTitle.y && mp.y < prelimTitle.y + prelimTitle.h;
+				if (!justOpened && overTitlePrelim && ctx.input.mouseClicked[0] && !m.dragging) {
+					m.dragging = true;
+					m.dragOff = {mp.x - m.pos.x, mp.y - m.pos.y};
+				}
+				if (m.dragging) {
+					if (ctx.input.mouseDown[0]) {
+						m.pos = {mp.x - m.dragOff.x, mp.y - m.dragOff.y};
+						if (m.pos.x < 0.f)
+							m.pos.x = 0.f;
+						if (m.pos.y < 0.f)
+							m.pos.y = 0.f;
+						if (m.pos.x + boxW > static_cast<float32>(ctx.viewW))
+							m.pos.x = static_cast<float32>(ctx.viewW) - boxW;
+						if (m.pos.y + boxH > static_cast<float32>(ctx.viewH))
+							m.pos.y = static_cast<float32>(ctx.viewH) - boxH;
+					} else
+						m.dragging = false;
+				}
+			}
 			const NkRect box = {m.pos.x, m.pos.y, boxW, boxH};
 			const NkRect titleBar = {box.x, box.y, box.w, titleH};
-			const NkVec2 mp = ctx.input.mousePos;
 			const bool inBox = mp.x >= box.x && mp.x < box.x + box.w && mp.y >= box.y && mp.y < box.y + box.h;
-			const bool overTitle = mp.x >= titleBar.x && mp.x < titleBar.x + titleBar.w && mp.y >= titleBar.y &&
-								   mp.y < titleBar.y + titleBar.h;
-
-			// Barre de titre DEPLACABLE : clic dedans arme le glisser, suit la souris
-			// tant que le bouton reste enfonce (facon fenetre d'OS).
-			if (overTitle && ctx.input.mouseClicked[0] && !m.dragging) {
-				m.dragging = true;
-				m.dragOff = {mp.x - box.x, mp.y - box.y};
-			}
-			if (m.dragging) {
-				if (ctx.input.mouseDown[0]) {
-					m.pos = {mp.x - m.dragOff.x, mp.y - m.dragOff.y};
-				} else
-					m.dragging = false;
-			}
 
 			dl.AddRectFilled(box, ctx.theme.panel, 8.f);
 			dl.AddRect(box, ctx.theme.border, 1.5f);
@@ -149,8 +166,8 @@ namespace nkentseu {
 			bool cancelled = false;
 			if (clicked < 0 && ctx.input.KeyPressed(NkGuiKey::Escape))
 				cancelled = true;
-			if (clicked < 0 && !cancelled && ctx.input.mouseClicked[0] && !inBox)
-				cancelled = true; // clic en dehors du dialogue -> Annuler
+			if (clicked < 0 && !cancelled && !justOpened && ctx.input.mouseClicked[0] && !inBox)
+				cancelled = true; // clic en dehors du dialogue -> Annuler (jamais sur la frame d'ouverture)
 
 			// MODALITE : force ctx.popupDepth > 0 tant que ce dialogue reste affiche —
 			// deja verifie par la quasi-totalite des points d'interaction de NKCode,
