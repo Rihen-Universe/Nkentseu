@@ -16,6 +16,7 @@
 #pragma once
 
 #include "NKCore/NkTypes.h"
+#include "NKContainers/Sequential/NkVector.h"
 #include "NKMedia/Codecs/Video/VP8/NkVp8BoolDecoder.h"
 
 namespace nkentseu {
@@ -144,6 +145,61 @@ namespace nkentseu {
 		bool NkVp8ParseCompressedHeader(NkVp8BoolDecoder &bd, bool keyFrame, NkVp8FrameHeader &out,
 										 NkVp8FrameContext &fc, NkVp8Segmentation &seg,
 										 NkVp8LoopFilterDeltas &lfDeltas);
+
+		// ── Modes de prédiction (§8.2, §11) ──────────────────────────────────────────
+		// ⚠️ Ces valeurs sont NORMATIVES : elles INDEXENT directement les tables de
+		// probabilités extraites (`kVp8KfBModeProb[above][left]`…). L'ordre vient des enums
+		// `MB_PREDICTION_MODE` / `B_PREDICTION_MODE` de la référence libvpx (`blockd.h`), et
+		// il est vérifié PAR SCRIPT lors de la génération de `NkVp8Tables.inc` (assertions
+		// dans `extract.py` : les arbres résolvent ces symboles, un réordonnancement amont
+		// casserait la génération au lieu de passer inaperçu).
+		enum : uint8 {
+			// Modes de macrobloc (luma 16×16, et chroma qui n'en utilise que les 4 premiers).
+			kVp8MbDcPred = 0,
+			kVp8MbVPred = 1,
+			kVp8MbHPred = 2,
+			kVp8MbTmPred = 3,
+			kVp8MbBPred = 4, // luma en 16 sous-blocs 4×4, chacun son propre mode
+			// Modes de sous-bloc 4×4 (B_PRED).
+			kVp8BDcPred = 0,
+			kVp8BTmPred = 1,
+			kVp8BVePred = 2,
+			kVp8BHePred = 3,
+			kVp8BLdPred = 4,
+			kVp8BRdPred = 5,
+			kVp8BVrPred = 6,
+			kVp8BVlPred = 7,
+			kVp8BHdPred = 8,
+			kVp8BHuPred = 9,
+		};
+
+		// Information de mode d'UN macrobloc. Sur une image clé, tous les MB sont intra
+		// (pas de `refFrame`/vecteurs de mouvement à ce stade du chantier).
+		struct NkVp8MbModeInfo {
+				uint8 yMode = kVp8MbDcPred;
+				uint8 uvMode = kVp8MbDcPred;
+				uint8 segmentId = 0;
+				uint8 skipCoeff = 0;
+				uint8 bModes[16] = {}; // significatif seulement si yMode == kVp8MbBPred
+		};
+
+		// §11.3 : décode les modes de TOUS les macroblocs d'une image CLÉ depuis la 1ère
+		// partition (à appeler juste après `NkVp8ParseCompressedHeader`, le décodeur booléen
+		// étant positionné là où celui-ci l'a laissé).
+		//
+		// ⚠️ Disposition de `out` : tableau AVEC BORDURE, `stride = mbCols + 1`, taille
+		// `(mbRows + 1) * stride`. Le macrobloc (r,c) est à l'index `(r + 1) * stride + (c + 1)`.
+		// La 1ère ligne et la 1ère colonne sont une bordure laissée à zéro : elle rend les
+		// voisins HORS IMAGE naturellement égaux à DC_PRED/B_DC_PRED, exactement ce que la
+		// spec demande, SANS test de bord dans le chemin chaud (même astuce que libvpx, qui
+		// alloue `mip` puis décale `mi = mip + stride + 1`).
+		//
+		// Les modes des sous-blocs 4×4 sont décodés avec un contexte (mode du sous-bloc
+		// AU-DESSUS, mode du sous-bloc À GAUCHE) qui traverse les frontières de macrobloc —
+		// d'où la nécessité de garder tout le tableau, pas seulement le MB courant.
+		bool NkVp8DecodeKeyFrameModes(NkVp8BoolDecoder &bd, const NkVp8FrameHeader &hdr,
+									   const NkVp8Segmentation &seg, int32 mbCols, int32 mbRows,
+									   NkVector<NkVp8MbModeInfo> &out);
 
 	} // namespace media
 } // namespace nkentseu

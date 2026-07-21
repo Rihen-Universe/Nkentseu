@@ -534,5 +534,17 @@ namespace nkentseu {
 		// 3 entrees (3)
 		static const uint8 kVp8MbsplitProbs[3] = { 110, 111, 150 };
 
+		// 18 entrees (18)
+		static const int8 kVp8BModeTree[18] = { 0, 2, -1, 4, -2, 6, 8, 12, -3, 10, -5, -6, -4, 14, -7, 16, -8, -9 };
+
+		// 8 entrees (8)
+		static const int8 kVp8YModeTree[8] = { 0, 2, 4, 6, -1, -2, -3, -4 };
+
+		// 8 entrees (8)
+		static const int8 kVp8KfYModeTree[8] = { -4, 2, 4, 6, 0, -1, -2, -3 };
+
+		// 6 entrees (6)
+		static const int8 kVp8UvModeTree[6] = { 0, 2, -1, 4, -2, -3 };
+
 	} // namespace media
 } // namespace nkentseu
