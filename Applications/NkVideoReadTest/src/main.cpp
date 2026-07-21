@@ -31,6 +31,77 @@ int main(int argc, char **argv) {
 		return all ? 0 : 1;
 	}
 
+	// Mode validation SeekFrame H264 : --seektest <fichier.mp4/mov> <index affichage>
+	// Valide le fix 2026-07-21 (SeekFrame était un no-op silencieux pour H264, voir ROADMAP
+	// NKMedia). Méthode : décode SÉQUENTIELLEMENT de 0 jusqu'à index+marge (référence sûre),
+	// PUIS ré-ouvre un lecteur frais et appelle SeekFrame(index) + un seul ReadFrame — compare
+	// la somme de contrôle obtenue à la fenêtre séquentielle [index-6, index+6] (le seek est une
+	// APPROXIMATION assumée : ordre décodage ≈ ordre affichage, exact aux limites de GOP).
+	if (argc >= 4 && strcmp(argv[1], "--seektest") == 0) {
+		const char *path = argv[2];
+		const int32 target = atoi(argv[3]);
+		const int32 margin = 6;
+		NkVector<uint64> seqSums;
+		int32 seqBase = target - margin < 0 ? 0 : target - margin;
+		{
+			NkVideoReader rd;
+			if (!rd.Open(path)) {
+				printf("  [KO] impossible d'ouvrir : %s\n", path);
+				return 1;
+			}
+			NkVideoFrame fr;
+			int32 idx = 0;
+			while (idx <= target + margin && rd.ReadFrame(fr)) {
+				if (idx >= seqBase) {
+					uint64 s = 0;
+					for (uint64 i = 0; i < fr.rgba.Size(); ++i)
+						s += fr.rgba[i];
+					seqSums.PushBack(s);
+				}
+				++idx;
+			}
+		}
+		NkVideoReader rd2;
+		if (!rd2.Open(path) || !rd2.SeekFrame(target)) {
+			printf("  [KO] Open/SeekFrame(%d) a echoue\n", target);
+			return 1;
+		}
+		// SeekFrame se contente de repositionner sur l'IDR précédente (voir implémentation) : il
+		// faut ensuite redécoder EN AVANT jusqu'à la cible, exactement comme le fait la boucle de
+		// rattrapage du lecteur (Applications/NkVideoPlayer). On plafonne les itérations pour ne
+		// jamais boucler indéfiniment si `CurrentIndex()` ne progresse pas comme attendu.
+		NkVideoFrame fr2;
+		int32 guard = 0;
+		bool first = true; // garantit au moins UN ReadFrame (cas target=0 : CurrentIndex() y est déjà)
+		while ((first || rd2.CurrentIndex() < target) && guard < target + margin + 1000) {
+			if (!rd2.ReadFrame(fr2)) {
+				printf("  [KO] ReadFrame (rattrapage post-seek) a echoue avant d'atteindre %d\n", target);
+				return 1;
+			}
+			first = false;
+			++guard;
+		}
+		uint64 seekSum = 0;
+		for (uint64 i = 0; i < fr2.rgba.Size(); ++i)
+			seekSum += fr2.rgba[i];
+		int32 bestOffset = 999;
+		for (uint64 k = 0; k < seqSums.Size(); ++k) {
+			if (seqSums[k] == seekSum) {
+				const int32 off = (int32)((int64)(seqBase + (int32)k) - (int64)target);
+				const int32 absOff = off < 0 ? -off : off;
+				const int32 absBest = bestOffset < 0 ? -bestOffset : bestOffset;
+				if (absOff < absBest)
+					bestOffset = off;
+			}
+		}
+		if (bestOffset == 999)
+			printf("  [KO] SeekFrame(%d) : aucune correspondance dans [%d,%d]\n", target, seqBase, target + margin);
+		else
+			printf("  [%s] SeekFrame(%d) -> retombe sur l'image affichage %d (offset %+d)\n",
+				   bestOffset == 0 ? "OK " : "OK~", target, target + bestOffset, bestOffset);
+		return bestOffset == 999 ? 1 : 0;
+	}
+
 	// Mode décodeur H264 intra : --decode264 <fichier.264> [ref.yuv]
 	if (argc >= 3 && strcmp(argv[1], "--decode264") == 0) {
 		FILE *f = fopen(argv[2], "rb");
