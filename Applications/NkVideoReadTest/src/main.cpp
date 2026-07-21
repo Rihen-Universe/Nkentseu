@@ -33,6 +33,148 @@ int main(int argc, char **argv) {
 		return all ? 0 : 1;
 	}
 
+	// Mode VP8 reconstruction : --vp8recon <fichier.ivf> <reference.yuv>
+	// Decode la 1ere image (CLE) en pixels et la compare A LA REFERENCE ffmpeg (I420).
+	// ⚠️ Le filtre de boucle n'est pas encore implemente : la comparaison n'a de sens
+	// que sur un flux dont filterLevel == 0 (le harnais le signale sinon).
+	if (argc >= 4 && strcmp(argv[1], "--vp8recon") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		uint8 ivfHdr[32];
+		if (fread(ivfHdr, 1, 32, f) != 32 || memcmp(ivfHdr, "DKIF", 4) != 0) {
+			printf("  [KO] pas un fichier IVF valide\n");
+			fclose(f);
+			return 1;
+		}
+		uint8 frameHdr[12];
+		if (fread(frameHdr, 1, 12, f) != 12) {
+			printf("  [KO] pas de frame\n");
+			fclose(f);
+			return 1;
+		}
+		const uint32 frameSize = (uint32)frameHdr[0] | ((uint32)frameHdr[1] << 8) |
+								  ((uint32)frameHdr[2] << 16) | ((uint32)frameHdr[3] << 24);
+		NkVector<uint8> frame;
+		frame.Resize(frameSize);
+		if (fread(frame.Data(), 1, frameSize, f) != frameSize) {
+			printf("  [KO] frame tronquee\n");
+			fclose(f);
+			return 1;
+		}
+		fclose(f);
+
+		NkVp8FrameTag tag;
+		if (!NkVp8ParseFrameTag(frame.Data(), (usize)frame.Size(), tag) || !tag.keyFrame) {
+			printf("  [KO] 1ere image absente ou non-cle\n");
+			return 1;
+		}
+		NkVp8BoolDecoder bd(frame.Data() + tag.headerSize, (usize)tag.firstPartSize);
+		NkVp8FrameContext fc;
+		NkVp8Segmentation seg;
+		NkVp8LoopFilterDeltas lfd;
+		NkVp8FrameHeader hdr;
+		NkVp8ParseCompressedHeader(bd, true, hdr, fc, seg, lfd);
+		const int32 mbCols = (tag.width + 15) / 16, mbRows = (tag.height + 15) / 16;
+		NkVector<NkVp8MbModeInfo> mbInfo;
+		NkVp8DecodeKeyFrameModes(bd, hdr, seg, mbCols, mbRows, mbInfo);
+
+		if (hdr.log2NbrOfDctPartitions != 0) {
+			printf("  [KO] %d partitions de tokens, non gere\n", 1 << hdr.log2NbrOfDctPartitions);
+			return 1;
+		}
+		const usize tokStart = tag.headerSize + (usize)tag.firstPartSize;
+		NkVp8BoolDecoder tbd(frame.Data() + tokStart, (usize)frame.Size() - tokStart);
+		NkVp8Image img;
+		if (!NkVp8ReconstructKeyFrame(tbd, fc, hdr, mbInfo, tag.width, tag.height, img)) {
+			printf("  [KO] NkVp8ReconstructKeyFrame a echoue\n");
+			return 1;
+		}
+		printf("  reconstruit : %dx%d (filterLevel=%d)\n", tag.width, tag.height, hdr.filterLevel);
+		if (hdr.filterLevel != 0)
+			printf("  ⚠ filterLevel=%d : le filtre de boucle n'est PAS implemente, des ecarts "
+				   "sont ATTENDUS (comparaison indicative seulement)\n",
+				   hdr.filterLevel);
+
+		// Reference I420 : Y (w*h) puis U puis V (chacun w/2 * h/2, arrondi au superieur).
+		FILE *rf = fopen(argv[3], "rb");
+		if (!rf) {
+			printf("  [KO] reference introuvable : %s\n", argv[3]);
+			return 1;
+		}
+		const int32 cw = (tag.width + 1) / 2, ch = (tag.height + 1) / 2;
+		NkVector<uint8> ref;
+		ref.Resize((uint64)(tag.width * tag.height + 2 * cw * ch));
+		const usize got = fread(ref.Data(), 1, (size_t)ref.Size(), rf);
+		fclose(rf);
+		if (got != (usize)ref.Size()) {
+			printf("  [KO] reference tronquee (%llu / %llu)\n", (unsigned long long)got,
+				   (unsigned long long)ref.Size());
+			return 1;
+		}
+
+		int64 diffY = 0, diffU = 0, diffV = 0, maxDiff = 0;
+		int32 shown = 0;
+		for (int32 y = 0; y < tag.height; ++y)
+			for (int32 x = 0; x < tag.width; ++x) {
+				const int32 a = img.Y()[(int64)y * img.yStride + x];
+				const int32 b = ref[(int64)y * tag.width + x];
+				const int32 d = a > b ? a - b : b - a;
+				if (d) {
+					++diffY;
+					if (d > maxDiff)
+						maxDiff = d;
+					// Ne detailler que si l'ecart est INATTENDU (sans filtre de boucle,
+					// un flux filterLevel>0 differe forcement : ce n'est pas un bug).
+					if (hdr.filterLevel == 0 && shown < 24) {
+						const NkVp8MbModeInfo &dmi =
+							mbInfo[(uint64)(y / 16 + 1) * (mbCols + 1) + (x / 16 + 1)];
+						printf("    diff Y (%3d,%3d) nous=%3d ref=%3d | MB(%d,%d) yMode=%d "
+							   "bMode[%d]=%d skip=%d\n",
+							   x, y, a, b, x / 16, y / 16, dmi.yMode,
+							   ((y % 16) / 4) * 4 + (x % 16) / 4,
+							   dmi.bModes[((y % 16) / 4) * 4 + (x % 16) / 4], dmi.skipCoeff);
+						++shown;
+					}
+				}
+			}
+		const uint8 *refU = ref.Data() + (int64)tag.width * tag.height;
+		const uint8 *refV = refU + (int64)cw * ch;
+		for (int32 y = 0; y < ch; ++y)
+			for (int32 x = 0; x < cw; ++x) {
+				const int32 au = img.U()[(int64)y * img.uvStride + x], bu = refU[(int64)y * cw + x];
+				const int32 av = img.V()[(int64)y * img.uvStride + x], bv = refV[(int64)y * cw + x];
+				const int32 du = au > bu ? au - bu : bu - au;
+				const int32 dv = av > bv ? av - bv : bv - av;
+				if (du) {
+					++diffU;
+					if (du > maxDiff)
+						maxDiff = du;
+				}
+				if (dv) {
+					++diffV;
+					if (dv > maxDiff)
+						maxDiff = dv;
+				}
+			}
+		const int64 totalPix = (int64)tag.width * tag.height + 2LL * cw * ch;
+		const int64 totalDiff = diffY + diffU + diffV;
+		printf("  vs reference ffmpeg : %lld / %lld pixels differents (Y=%lld U=%lld V=%lld), "
+			   "ecart max=%lld\n",
+			   (long long)totalDiff, (long long)totalPix, (long long)diffY, (long long)diffU,
+			   (long long)diffV, (long long)maxDiff);
+		if (totalDiff == 0) {
+			printf("  [ OK  ] RECONSTRUCTION BIT-EXACTE vs ffmpeg\n");
+			return 0;
+		}
+		printf("  [ %s ] %s\n", (hdr.filterLevel != 0) ? "~~ " : "KO",
+			   (hdr.filterLevel != 0) ? "ecarts attendus (filtre de boucle absent)"
+									  : "ECARTS INATTENDUS (filterLevel=0)");
+		return (hdr.filterLevel != 0) ? 0 : 1;
+	}
+
 	// Mode diagnostic VP8 (chantier en cours) : --vp8header <fichier.ivf>
 	// Lit le frame tag (en-tête non compressé) + démarre le décodeur booléen sur la 1ère
 	// partition pour décoder color_space/clamping_type (2 premiers bits du header compressé,
