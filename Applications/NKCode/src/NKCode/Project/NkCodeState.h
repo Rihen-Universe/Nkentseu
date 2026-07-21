@@ -4762,8 +4762,17 @@ namespace nkentseu {
 				bool buildStructured = false;
 
 				static bool UseEmbeddedJenga() {
+					// "0" = force off, "1" = force on (dev). SANS variable : actif PAR
+					// DEFAUT si la distribution testeur (tools/ de prod a cote de l'exe,
+					// assemblee par scripts/MakeNkCodeDist.py) est presente — les
+					// testeurs n'ont ni Python ni `jenga` sur le PATH, aucune
+					// configuration ne doit leur etre demandee.
 					const char *v = env::GetEnvVar("NKCODE_EMBEDDED_JENGA");
-					return v && v[0] == '1' && NkEmbeddedJenga::Available();
+					if (v && v[0] == '0')
+						return false;
+					if (v && v[0] == '1')
+						return NkEmbeddedJenga::Available();
+					return NkEmbeddedJenga::HasProdTools() && NkEmbeddedJenga::Available();
 				}
 
 				// Etat unifie du slot de build (sous-processus OU embarque).

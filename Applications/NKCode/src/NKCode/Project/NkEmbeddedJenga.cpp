@@ -50,6 +50,7 @@ namespace nkentseu {
 			NkString gPyHome;	 // dossier du runtime embarque (python312.dll, zip, DLLs)
 			NkString gJengaSrc;	 // dossier contenant le package Jenga/ (tools/jenga-src)
 			bool gConfigured = false;
+			bool gProdTools = false; // tools/ de PROD a cote de l'exe (distribution testeur)
 
 			std::wstring WidenUtf8(const NkString &s) {
 #if defined(_WIN32)
@@ -78,11 +79,17 @@ namespace nkentseu {
 			return inst;
 		}
 
+		bool NkEmbeddedJenga::HasProdTools() {
+			return gProdTools;
+		}
+
 		void NkEmbeddedJenga::Configure(const NkString &exeDir) {
 			// Prod : tools/ a cote de NKCode.exe (pose par le packaging, Phase 5).
 			// Dev  : repli sur le PythonEmbed vendorise du repo (exe dans
 			// Build/Bin/<cfg>-<os>/NKCode -> racine repo = 4 niveaux au-dessus) et
 			// sur NKCODE_JENGA_SRC pour les sources Jenga (repo Jenga local).
+			gProdTools = DirExists(exeDir + "/tools/python-embed") &&
+						 DirExists(exeDir + "/tools/jenga-src/Jenga");
 			gPyHome = exeDir + "/tools/python-embed";
 			if (!DirExists(gPyHome)) {
 				const NkString devRoot = exeDir + "/../../../..";
@@ -96,6 +103,24 @@ namespace nkentseu {
 				if (env && *env && DirExists(NkString(env) + "/Jenga"))
 					gJengaSrc = env;
 			}
+			// Compilateur PAR DEFAUT embarque (tools/compilers/llvm-mingw, pose par
+			// scripts/MakeNkCodeDist.py) : prefixe le PATH du PROCESS pour que le
+			// ToolchainManager de Jenga (qui detecte clang via PATH, preference
+			// `clang-mingw` en tete sur Windows) le trouve — herite par le worker
+			// Python ET ses subprocess compilateur. Un clang deja installe par
+			// l'utilisateur garde priorite ? NON : le notre est PREFIXE volontairement
+			// (comportement reproductible chez tous les testeurs) ; un power-user
+			// peut toujours forcer --toolchain ou retirer tools/compilers.
+#if defined(_WIN32)
+			{
+				const NkString binDir = exeDir + "/tools/compilers/llvm-mingw/bin";
+				if (DirExists(binDir)) {
+					const char *cur = std::getenv("PATH");
+					const NkString merged = binDir + ";" + (cur ? cur : "");
+					_putenv_s("PATH", merged.CStr());
+				}
+			}
+#endif
 			gConfigured = true;
 		}
 

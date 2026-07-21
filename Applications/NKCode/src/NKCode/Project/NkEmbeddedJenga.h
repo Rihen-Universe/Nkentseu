@@ -71,6 +71,12 @@ namespace nkentseu {
 				// feature-flag retombe automatiquement sur le chemin sous-processus.)
 				static bool Available();
 
+				// true si les tools/ de PRODUCTION sont a cote de l'exe (distribution
+				// testeur assemblee par scripts/MakeNkCodeDist.py) — dans ce cas le
+				// mode embarque s'active PAR DEFAUT, sans variable d'environnement
+				// (les testeurs n'ont ni Python ni `jenga` sur le PATH).
+				static bool HasProdTools();
+
 				bool Start(const Request &req); // false si deja en cours
 				bool Running() const;
 				bool Done() const;
