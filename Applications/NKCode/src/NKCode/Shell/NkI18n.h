@@ -869,6 +869,8 @@ namespace nkentseu {
 				{"ai.usage.section.detail",
 				 {"DÉTAIL (/usage)", "DETAIL (/usage)", "DETALLE (/usage)", "DETALHE (/usage)", "DETAIL (/usage)",
 				  "DETTAGLIO (/usage)", "ПОДРОБНО (/usage)", "DÉTAIL (/usage)"}},
+				{"ai.usage.day", {"Jour", "Day", "Día", "Dia", "Tag", "Giorno", "День", "Jour"}},
+				{"ai.usage.week", {"Semaine", "Week", "Semana", "Semana", "Woche", "Settimana", "Неделя", "Semaine"}},
 				{"ai.usage.section.models",
 				 {"COÛT PAR MODÈLE", "COST BY MODEL", "COSTE POR MODELO", "CUSTO POR MODELO", "KOSTEN PRO MODELL",
 				  "COSTO PER MODELLO", "СТОИМОСТЬ ПО МОДЕЛЯМ", "COÛT PAR MODÈLE"}},
