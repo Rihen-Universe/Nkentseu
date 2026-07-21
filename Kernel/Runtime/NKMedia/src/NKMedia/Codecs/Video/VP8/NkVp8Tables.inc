@@ -534,6 +534,26 @@ namespace nkentseu {
 		// 3 entrees (3)
 		static const uint8 kVp8MbsplitProbs[3] = { 110, 111, 150 };
 
+		// 17 entrees (17)
+		static const uint8 kVp8CoefBands[17] = { 0, 1, 2, 3, 6, 4, 5, 6, 6, 6, 6, 6, 6, 6, 6, 7, 0 };
+
+		// 16 entrees (16)
+		static const uint8 kVp8Zigzag[16] = { 0, 1, 4, 8, 5, 2, 3, 6, 9, 12, 13, 10, 7, 11, 14, 15 };
+
+		// 1 entrees (1)
+		static const uint8 kVp8Pcat1[1] = { 159 };
+
+		// 2 entrees (2)
+		static const uint8 kVp8Pcat2[2] = { 165, 145 };
+
+		// 48 entrees (4*12)
+		static const uint8 kVp8Pcat3456[4][12] = {
+			{ 173, 148, 140, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+			{ 176, 155, 140, 135, 0, 0, 0, 0, 0, 0, 0, 0 },
+			{ 180, 157, 141, 134, 130, 0, 0, 0, 0, 0, 0, 0 },
+			{ 254, 254, 243, 230, 196, 177, 153, 140, 133, 130, 129, 0 }
+		};
+
 		// 18 entrees (18)
 		static const int8 kVp8BModeTree[18] = { 0, 2, -1, 4, -2, 6, 8, 12, -3, 10, -5, -6, -4, 14, -7, 16, -8, -9 };
 

@@ -287,13 +287,44 @@
     Cohérence sémantique en prime : les distributions de modes suivent la qualité comme attendu
     (fichier haute qualité → 69/99 MB en `B_PRED` ; bas débit → seulement 15/99 `B_PRED` et 70/99
     macroblocs sautés), et la somme des sous-modes 4×4 vaut exactement 16 × (nombre de MB `B_PRED`).
-  - **Reste (dans l'ordre logique)** : prédiction intra (16×16 DC/V/H/TM, 4×4 B_PRED 10 modes,
-    chroma 8×8) ; décodage des coefficients résiduels (tokens, contexte par bande/position, 2ème
-    partition) ; transformée (WHT 4×4 pour le DC luma en mode 16×16 + IDCT 4×4) ; filtre de boucle
-    (normal/simple, par arête de MB) → à ce point une IMAGE CLÉ devrait se décoder et pouvoir être
-    comparée pixel à pixel à ffmpeg ; puis seulement les images inter (vecteurs de mouvement,
-    interpolation sous-pel 6-tap différente de H.264).
-    Chaque brique à valider sur du contenu réel ffmpeg avant la suivante, même méthode que H.264.
+  - **Brique 5 — coefficients résiduels / tokens (§13)** : décodage des 25 blocs 4×4 par macrobloc
+    (16 Y + 4 U + 4 V + 1 Y2), depuis la **2ème partition** (distincte de celle qui porte l'en-tête
+    et les modes). Chaque coefficient est lu avec un contexte à trois dimensions — type de bloc
+    (Y-avec-DC / Y2 / chroma / Y-sans-DC), **bande** (position dans le bloc), et **valeur du
+    coefficient précédent** (0 / 1 / >1) — plus un contexte d'entropie « bloc voisin non vide »
+    (somme du voisin du dessus et de gauche, 0..2) qui exige un contexte persistant **par colonne
+    de macrobloc** et un contexte « à gauche » remis à zéro à chaque ligne. Grandes magnitudes
+    codées par catégories (`DCT_VAL_CATEGORY1..6`) avec bits supplémentaires à probabilités
+    constantes. ⚠️ Subtilité normative du saut de macrobloc (`mb_skip_coeff`) : la remise à zéro du
+    contexte efface Y/U/V mais **ne touche à l'entrée Y2 que si le macrobloc possède un bloc Y2**
+    (donc pas en `B_PRED`) — sinon elle garde sa valeur pour le macrobloc suivant.
+  - ⭐⭐ **Bug trouvé grâce à la variété du contenu de test — sentinelle manquante (même FAMILLE
+    que les bugs de table du H.264)** : les probabilités des bits supplémentaires des catégories
+    3..6 sont parcourues par une boucle `while (*tab)` terminée par une **sentinelle 0**. Mises à
+    plat en lignes de largeur 11, la catégorie 6 (qui a **exactement** 11 probabilités) n'avait
+    **plus aucune place pour sa sentinelle** → lecture hors bornes, désynchronisation totale du
+    flux. **Invisible sur le premier fichier de test** (basse qualité, baseQ=12 : les grandes
+    valeurs de catégorie 6 n'apparaissent jamais, coefficients max ±41) et révélé uniquement en
+    testant du contenu **haute qualité** (baseQ=4), où les symptômes étaient sans ambiguïté :
+    coefficients absurdes (±32765 alors que le maximum théorique VP8 est ~±2114) et dépassement de
+    partition de 13 à 192 octets. Fix : lignes de largeur 12 + assertion dans le script de
+    génération garantissant qu'il reste toujours au moins une sentinelle. ⭐ **Leçon** : tester une
+    seule qualité/résolution aurait laissé passer ce bug jusqu'à la comparaison pixel, où il aurait
+    été bien plus coûteux à localiser.
+  - **Validé** sur les **4 mêmes fichiers VP8 réels** (résolutions, contenus et débits différents) :
+    la 2ème partition est elle aussi consommée **EXACTEMENT** — 5075/5075, 6833/6833, 437/437,
+    1918/1918 octets, **dépassement = 0 partout** ; tous les macroblocs traités (décodés + sautés
+    = mbCols×mbRows) ; et les plages de coefficients sont désormais toutes plausibles
+    (±41, ±344, ±208, ±97 — largement dans le maximum théorique). **Les DEUX partitions d'une
+    image clé sont donc maintenant parsées intégralement et sans dérive.**
+  - **Reste (dans l'ordre logique)** : déquantification (index de base + deltas déjà lus dans
+    l'en-tête) ; transformées inverses (WHT 4×4 pour le DC luma en mode 16×16 + IDCT 4×4) ;
+    prédiction intra (16×16 DC/V/H/TM, 4×4 B_PRED 10 modes, chroma 8×8) ; reconstruction
+    (prédiction + résidu) ; filtre de boucle (normal/simple, par arête de MB) → à ce point une
+    IMAGE CLÉ devrait se décoder et pouvoir être comparée **pixel à pixel à ffmpeg**, ce qui
+    remplacera enfin la validation « par consommation de bits » par une vraie preuve bit-exacte ;
+    puis seulement les images inter (vecteurs de mouvement, interpolation sous-pel 6-tap différente
+    de H.264). Chaque brique à valider sur du contenu réel ffmpeg avant la suivante.
 
 ## En cours / À venir
 
