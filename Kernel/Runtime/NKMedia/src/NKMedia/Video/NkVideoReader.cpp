@@ -39,7 +39,7 @@ namespace nkentseu {
 				return ((uint64)RdU32BE(p) << 32) | (uint64)RdU32BE(p + 4);
 			}
 
-			enum class Backend { NONE, AVI, MOV, SEQUENCE };
+			enum class Backend { NONE, AVI, MOV, WEBM, SEQUENCE };
 			enum class Codec { NONE, MJPEG, RAWRGB, H264 };
 
 			// Référence d'une image encodée dans le buffer fichier (offset+taille).
@@ -47,6 +47,151 @@ namespace nkentseu {
 					usize offset = 0;
 					usize size = 0;
 			};
+
+			// ── EBML (Matroska/WebM) — primitives et parseurs de PISTE VIDÉO ──────────────
+			// Dupliquées ici (pas partagées avec NkMediaProbe/NkMediaDemux qui ont les leurs) par
+			// cohérence avec le reste du fichier : NkVideoReader ne dépend d'aucun autre parseur.
+			int32 EbmlReadVint(const uint8 *p, usize avail, uint64 &value, bool keepMarker) {
+				if (avail == 0)
+					return 0;
+				uint8 b = p[0];
+				int32 len = 0;
+				uint8 mask = 0x80;
+				for (int32 i = 0; i < 8; ++i) {
+					if (b & mask) {
+						len = i + 1;
+						break;
+					}
+					mask >>= 1;
+				}
+				if (len == 0 || (usize)len > avail)
+					return 0;
+				uint64 v = keepMarker ? b : (uint64)(b & (0xFF >> len));
+				for (int32 i = 1; i < len; ++i)
+					v = (v << 8) | p[i];
+				value = v;
+				return len;
+			}
+			uint64 EbmlReadUint(const uint8 *p, usize len) {
+				uint64 v = 0;
+				for (usize i = 0; i < len && i < 8; ++i)
+					v = (v << 8) | p[i];
+				return v;
+			}
+
+			struct WebmVideoTrackInfo {
+					int64 num = -1;
+					int32 type = 0;
+					NkString codecId;
+					NkVector<nk_uint8> codecPriv;
+					int32 width = 0, height = 0;
+			};
+
+			// Cherche la 1re piste VIDÉO (TrackType==1) dans Segment/Tracks/TrackEntry : numéro,
+			// CodecID, CodecPrivate (= AVCDecoderConfigurationRecord pour V_MPEG4/ISO/AVC, MÊMES
+			// octets que la boîte avcC ISOBMFF, sans le wrapper de boîte), dimensions.
+			void WalkWebmTracks(const uint8 *base, usize start, usize end, WebmVideoTrackInfo *found,
+								 WebmVideoTrackInfo *cur, int32 depth) {
+				if (depth > 10 || (found && found->num >= 0))
+					return;
+				usize pos = start;
+				while (pos < end) {
+					uint64 id = 0, sz = 0;
+					int32 il = EbmlReadVint(base + pos, end - pos, id, true);
+					if (il <= 0)
+						break;
+					int32 sl = EbmlReadVint(base + pos + il, end - pos - il, sz, false);
+					if (sl <= 0)
+						break;
+					const usize ds = pos + il + sl;
+					const uint64 allOnes = (1ULL << (7 * sl)) - 1;
+					const usize de = (sz == allOnes || ds + (usize)sz > end) ? end : ds + (usize)sz;
+					if (id == 0x18538067ULL || id == 0x1654AE6BULL) { // Segment, Tracks
+						WalkWebmTracks(base, ds, de, found, nullptr, depth + 1);
+					} else if (id == 0xAEULL) { // TrackEntry
+						WebmVideoTrackInfo t;
+						WalkWebmTracks(base, ds, de, found, &t, depth + 1);
+						if (t.type == 1 && t.num >= 0 && found && found->num < 0)
+							*found = t;
+					} else if (id == 0xE0ULL || id == 0xE1ULL) { // Video / Audio (sous TrackEntry)
+						WalkWebmTracks(base, ds, de, found, cur, depth + 1);
+					} else if (cur != nullptr) {
+						if (id == 0x83ULL) { // TrackType
+							cur->type = (int32)EbmlReadUint(base + ds, de - ds);
+						} else if (id == 0xD7ULL) { // TrackNumber
+							cur->num = (int64)EbmlReadUint(base + ds, de - ds);
+						} else if (id == 0x86ULL) { // CodecID
+							usize l = de - ds;
+							if (l > 63)
+								l = 63;
+							char buf[64];
+							for (usize i = 0; i < l; ++i)
+								buf[i] = (char)base[ds + i];
+							buf[l] = 0;
+							cur->codecId = NkString(buf);
+						} else if (id == 0x63A2ULL) { // CodecPrivate
+							for (usize i = ds; i < de; ++i)
+								cur->codecPriv.PushBack(base[i]);
+						} else if (id == 0xB0ULL) { // PixelWidth
+							cur->width = (int32)EbmlReadUint(base + ds, de - ds);
+						} else if (id == 0xBAULL) { // PixelHeight
+							cur->height = (int32)EbmlReadUint(base + ds, de - ds);
+						}
+					}
+					pos = de;
+				}
+			}
+
+			// Parcourt les Clusters et sort les SimpleBlock/Block de la piste vidéo (offset+taille
+			// dans `outFrames`, horodatage réel en ms dans `outTs`, requis pour dériver `info.fps`
+			// puisqu'EBML ne fournit pas d'équivalent direct à `stts` de l'ISOBMFF). Miroir de
+			// `NkMediaDemux::WalkClusters` (audio) — pas de lacing géré (quasi jamais utilisé pour
+			// la vidéo, c'est une optimisation de petits paquets audio).
+			void WalkWebmVideoClusters(const uint8 *base, usize start, usize end, int64 videoNum,
+									   uint64 clusterTs, NkVector<FrameRef> &outFrames,
+									   NkVector<int64> &outTs, int32 depth) {
+				if (depth > 10)
+					return;
+				usize pos = start;
+				uint64 curClusterTs = clusterTs;
+				while (pos < end) {
+					uint64 id = 0, sz = 0;
+					int32 il = EbmlReadVint(base + pos, end - pos, id, true);
+					if (il <= 0)
+						break;
+					int32 sl = EbmlReadVint(base + pos + il, end - pos - il, sz, false);
+					if (sl <= 0)
+						break;
+					const usize ds = pos + il + sl;
+					const uint64 allOnes = (1ULL << (7 * sl)) - 1;
+					const usize de = (sz == allOnes || ds + (usize)sz > end) ? end : ds + (usize)sz;
+					if (id == 0x18538067ULL) { // Segment
+						WalkWebmVideoClusters(base, ds, de, videoNum, curClusterTs, outFrames, outTs, depth + 1);
+					} else if (id == 0x1F43B675ULL) { // Cluster
+						WalkWebmVideoClusters(base, ds, de, videoNum, 0, outFrames, outTs, depth + 1);
+					} else if (id == 0xE7ULL) { // Timestamp (du cluster)
+						curClusterTs = EbmlReadUint(base + ds, de - ds);
+					} else if (id == 0xA0ULL) { // BlockGroup
+						WalkWebmVideoClusters(base, ds, de, videoNum, curClusterTs, outFrames, outTs, depth + 1);
+					} else if (id == 0xA3ULL || id == 0xA1ULL) { // SimpleBlock / Block
+						uint64 trackNum = 0;
+						int32 tl = EbmlReadVint(base + ds, de - ds, trackNum, false);
+						if (tl > 0 && ds + (usize)tl + 3 <= de && (int64)trackNum == videoNum) {
+							const usize hp = ds + (usize)tl;
+							const int16 rel = (int16)(((uint16)base[hp] << 8) | (uint16)base[hp + 1]);
+							const usize frameStart = hp + 3;
+							if (frameStart <= de && de > frameStart) {
+								FrameRef fr;
+								fr.offset = frameStart;
+								fr.size = de - frameStart;
+								outFrames.PushBack(fr);
+								outTs.PushBack((int64)curClusterTs + (int64)rel);
+							}
+						}
+					}
+					pos = de;
+				}
+			}
 
 		} // namespace
 
@@ -75,6 +220,78 @@ namespace nkentseu {
 				int32 h264OutCount = 0;			  // nombre d'images sorties (ordre d'affichage)
 				NkVector<NkVideoFrame> h264Reorder;  // frames RGBA décodées, en attente d'affichage
 				NkVector<nk_int64> h264ReorderKey;   // POC global parallèle
+
+				// Parse un AVCDecoderConfigurationRecord (mêmes octets pour la boîte `avcC` ISOBMFF
+				// ET `CodecPrivate` EBML/Matroska V_MPEG4/ISO/AVC — seul le wrapper de boîte diffère,
+				// absent côté EBML) : extrait SPS/PPS (1er jeu seulement, comme l'original) +
+				// `nalLenSize`, et borne `h264ReorderMax` via `max_num_ref_frames` du SPS. Partagé par
+				// ParseMov (MP4/MOV) et ParseWebm (MKV/WebM).
+				void ParseAvcCBytes(const uint8 *p, usize n) {
+					if (n < 7)
+						return;
+					nalLenSize = (p[4] & 3) + 1;
+					usize pos = 5;
+					const int32 numSps = p[pos] & 0x1F;
+					++pos;
+					for (int32 s = 0; s < numSps && pos + 2 <= n; ++s) {
+						const int32 len = (int32)RdU16BE(p + pos);
+						pos += 2;
+						if (pos + (usize)len > n)
+							break;
+						if (s == 0)
+							for (int32 i = 0; i < len; ++i)
+								h264Sps.PushBack(p[pos + i]);
+						pos += (usize)len;
+					}
+					if (pos < n) {
+						const int32 numPps = p[pos];
+						++pos;
+						for (int32 s = 0; s < numPps && pos + 2 <= n; ++s) {
+							const int32 len = (int32)RdU16BE(p + pos);
+							pos += 2;
+							if (pos + (usize)len > n)
+								break;
+							if (s == 0)
+								for (int32 i = 0; i < len; ++i)
+									h264Pps.PushBack(p[pos + i]);
+							pos += (usize)len;
+						}
+					}
+					NkH264Sps sps;
+					if (h264Sps.Size() > 0 &&
+						NkH264Decoder::ParseSps(h264Sps.Data(), (usize)h264Sps.Size(), sps) && sps.valid) {
+						int32 rm = sps.numRefFrames;
+						h264ReorderMax = rm < 1 ? 1 : (rm > 16 ? 16 : rm);
+					}
+				}
+
+				// Index des images clés (IDR) en ORDRE DE DÉCODAGE, requis pour SeekFrame : un
+				// échantillon AVCC peut contenir plusieurs NAL (longueur-préfixées, `nalLenSize`
+				// octets) ; il est IDR si l'une d'elles a type=5. Scan une seule fois à l'ouverture
+				// (pas de décodage, juste les en-têtes NAL). Partagé par ParseMov et ParseWebm.
+				void ScanH264Keyframes() {
+					h264Keyframe.Resize(frames.Size());
+					for (uint64 i = 0; i < frames.Size(); ++i) {
+						const uint8 *s = bytes.Data() + frames[i].offset;
+						const usize sz = frames[i].size;
+						bool idr = false;
+						usize p = 0;
+						while (p + (usize)nalLenSize <= sz) {
+							uint32 len = 0;
+							for (int32 k = 0; k < nalLenSize; ++k)
+								len = (len << 8) | s[p + k];
+							p += (usize)nalLenSize;
+							if (p + len > sz)
+								break;
+							if (len > 0 && (s[p] & 0x1F) == 5) {
+								idr = true;
+								break;
+							}
+							p += len;
+						}
+						h264Keyframe[i] = idr;
+					}
+				}
 
 				// --- Parse AVI : remplit info + frames ---
 				bool ParseAvi() {
@@ -331,44 +548,8 @@ namespace nkentseu {
 						const usize avc1End = entS + (usize)entrySize;
 						usize acS, acE;
 						if (entS + 8 + 78 <= avc1End && Box(d, entS + 8 + 78, avc1End, "avcC", acS, acE) &&
-							acE - acS >= 7) {
-							nalLenSize = (d[acS + 4] & 3) + 1;
-							usize p = acS + 5;
-							const int32 numSps = d[p] & 0x1F;
-							++p;
-							for (int32 s = 0; s < numSps && p + 2 <= acE; ++s) {
-								const int32 len = (int32)RdU16BE(d + p);
-								p += 2;
-								if (p + (usize)len > acE)
-									break;
-								if (s == 0)
-									for (int32 i = 0; i < len; ++i)
-										h264Sps.PushBack(d[p + i]);
-								p += (usize)len;
-							}
-							if (p < acE) {
-								const int32 numPps = d[p];
-								++p;
-								for (int32 s = 0; s < numPps && p + 2 <= acE; ++s) {
-									const int32 len = (int32)RdU16BE(d + p);
-									p += 2;
-									if (p + (usize)len > acE)
-										break;
-									if (s == 0)
-										for (int32 i = 0; i < len; ++i)
-											h264Pps.PushBack(d[p + i]);
-									p += (usize)len;
-								}
-							}
-						}
-						// Borne de réordonnancement = max_num_ref_frames du SPS (borne sûre du DPB en
-						// l'absence de VUI num_reorder_frames). Couvre les B consécutives de x264.
-						NkH264Sps sps;
-						if (h264Sps.Size() > 0 &&
-							NkH264Decoder::ParseSps(h264Sps.Data(), (usize)h264Sps.Size(), sps) && sps.valid) {
-							int32 rm = sps.numRefFrames;
-							h264ReorderMax = rm < 1 ? 1 : (rm > 16 ? 16 : rm);
-						}
+							acE - acS >= 7)
+							ParseAvcCBytes(d + acS, acE - acS);
 					}
 
 					// Assemble la table des samples via stsz + stco/co64 + stsc.
@@ -451,33 +632,8 @@ namespace nkentseu {
 					info.height = h;
 					info.frameCount = (int32)frames.Size();
 					info.fps = fps;
-					// Index des images clés (IDR) en ORDRE DE DÉCODAGE, requis pour SeekFrame (voir
-					// plus bas) : un échantillon AVCC peut contenir plusieurs NAL (longueur-préfixées,
-					// `nalLenSize` octets) ; il est IDR si l'une d'elles a type=5. Scan une seule fois
-					// à l'ouverture (pas de décodage, juste les en-têtes NAL — rapide même sur un film).
-					if (codec == Codec::H264) {
-						h264Keyframe.Resize(frames.Size());
-						for (uint64 i = 0; i < frames.Size(); ++i) {
-							const uint8 *s = bytes.Data() + frames[i].offset;
-							const usize sz = frames[i].size;
-							bool idr = false;
-							usize p = 0;
-							while (p + (usize)nalLenSize <= sz) {
-								uint32 len = 0;
-								for (int32 k = 0; k < nalLenSize; ++k)
-									len = (len << 8) | s[p + k];
-								p += (usize)nalLenSize;
-								if (p + len > sz)
-									break;
-								if (len > 0 && (s[p] & 0x1F) == 5) {
-									idr = true;
-									break;
-								}
-								p += len;
-							}
-							h264Keyframe[i] = idr;
-						}
-					}
+					if (codec == Codec::H264)
+						ScanH264Keyframes();
 					// Dimensions manquantes + MJPEG : on décode la 1re image pour les obtenir.
 					if ((w <= 0 || h <= 0) && codec == Codec::MJPEG) {
 						NkVideoFrame f0;
@@ -486,6 +642,44 @@ namespace nkentseu {
 							info.height = f0.height;
 						}
 					}
+					return true;
+				}
+
+				// --- Parse WebM/Matroska (EBML) : piste vidéo H264 uniquement pour l'instant ---
+				// VP8/VP9/AV1 (les codecs vidéo natifs les plus courants en WebM) échouent proprement
+				// (pas de décodeur) — un H264-en-MKV (rips courants) se lit via le décodeur existant,
+				// AUCUN changement requis côté décodage (CodecPrivate EBML = mêmes octets que avcC).
+				bool ParseWebm() {
+					const uint8 *d = bytes.Data();
+					const usize n = (usize)bytes.Size();
+					WebmVideoTrackInfo found;
+					WalkWebmTracks(d, 0, n, &found, nullptr, 0);
+					if (found.num < 0 || found.codecId.Empty())
+						return false;
+					if (!found.codecId.Contains("AVC") && !found.codecId.Contains("MPEG4"))
+						return false; // VP8/VP9/AV1 etc. : pas de décodeur -> échec propre
+					if (found.codecPriv.Size() < 7)
+						return false;
+					ParseAvcCBytes(found.codecPriv.Data(), (usize)found.codecPriv.Size());
+					if (h264Sps.Size() == 0 || h264Pps.Size() == 0)
+						return false;
+					NkVector<int64> ts;
+					WalkWebmVideoClusters(d, 0, n, found.num, 0, frames, ts, 0);
+					if (frames.Size() == 0)
+						return false;
+					// fps dérivé des horodatages RÉELS des blocs (EBML n'a pas d'équivalent direct à
+					// `stts` de l'ISOBMFF) ; repli 25 si dégénéré (un seul paquet, horodatages égaux…).
+					double fps = 25.0;
+					if (ts.Size() >= 2 && ts[ts.Size() - 1] > ts[0])
+						fps = 1000.0 * (double)(ts.Size() - 1) / (double)(ts[ts.Size() - 1] - ts[0]);
+					codec = Codec::H264;
+					info.codec = NkString("h264");
+					info.container = NkString("webm");
+					info.width = found.width;
+					info.height = found.height;
+					info.frameCount = (int32)frames.Size();
+					info.fps = fps;
+					ScanH264Keyframes();
 					return true;
 				}
 
@@ -811,6 +1005,17 @@ namespace nkentseu {
 			if (mImpl->bytes.Size() >= 12 && Tag(d + 4, 'f', 't', 'y', 'p')) {
 				if (mImpl->ParseMov()) {
 					mImpl->backend = Backend::MOV;
+					mImpl->cursor = 0;
+					return true;
+				}
+				return false;
+			}
+
+			// EBML (Matroska/WebM), magie 0x1A45DFA3 : piste vidéo H264 uniquement pour l'instant
+			// (VP8/VP9/AV1 -> ParseWebm échoue proprement, pas de décodeur).
+			if (mImpl->bytes.Size() >= 4 && d[0] == 0x1A && d[1] == 0x45 && d[2] == 0xDF && d[3] == 0xA3) {
+				if (mImpl->ParseWebm()) {
+					mImpl->backend = Backend::WEBM;
 					mImpl->cursor = 0;
 					return true;
 				}
