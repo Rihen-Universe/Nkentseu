@@ -735,7 +735,17 @@ namespace nkentseu {
 		}
 
 		int32 NkVideoReader::CurrentIndex() const {
-			return mImpl ? mImpl->cursor : -1;
+			if (!mImpl)
+				return -1;
+			// ⚠️ Le chemin H264 (ReadFrame ci-dessus) réordonne par POC et avance
+			// `h264OutCount` (ordre d'AFFICHAGE), PAS `cursor` (qui reste figé à sa valeur de
+			// SeekFrame pour ce codec) -> un appelant qui compare CurrentIndex() à une cible
+			// (ex. rattrapage vidéo/audio de NkVideoPlayer) ne voyait JAMAIS de progression et
+			// bouclait donc à chaque tick jusqu'à épuiser son budget de temps, même une fois
+			// rattrapé (cause réelle de la lenteur perçue, indépendante du débit du décodeur).
+			if (mImpl->codec == Codec::H264)
+				return mImpl->h264OutCount;
+			return mImpl->cursor;
 		}
 
 		bool NkVideoReader::Open(const char *path) {
@@ -805,10 +815,17 @@ namespace nkentseu {
 						for (uint64 k = 1; k < m->h264ReorderKey.Size(); ++k)
 							if (m->h264ReorderKey[k] < m->h264ReorderKey[best])
 								best = k;
-						out = m->h264Reorder[best];
+						// PERF : DEPLACE (traits::NkMove) au lieu de COPIER — `out` et chaque élément
+						// décalé pendant la compaction embarquent le buffer RGBA COMPLET de l'image
+						// (~1 Mo à 720x360) ; une copie par assignation ici (au lieu d'un move) refaisait
+						// jusqu'à ~4-5 copies de 1 Mo PAR IMAGE SORTIE (trouvé par échantillonnage gdb :
+						// 6/8 relevés de pile du thread principal étaient dans NkVector<uint8>::operator=
+						// appelé DIRECTEMENT depuis ReadFrame — même famille de bug que le DPB de
+						// NkH264Decoder, ici sur le buffer de réordonnancement POC).
+						out = traits::NkMove(m->h264Reorder[best]);
 						// Retirer l'élément `best` (compaction).
 						for (uint64 k = best + 1; k < m->h264Reorder.Size(); ++k) {
-							m->h264Reorder[k - 1] = m->h264Reorder[k];
+							m->h264Reorder[k - 1] = traits::NkMove(m->h264Reorder[k]);
 							m->h264ReorderKey[k - 1] = m->h264ReorderKey[k];
 						}
 						m->h264Reorder.Resize(m->h264Reorder.Size() - 1);
@@ -831,7 +848,7 @@ namespace nkentseu {
 					if (m->lastIsIdr && idx != 0)
 						m->h264GopBase += 1000000; // nouveau GOP -> POC repart, on décale la clé globale
 					f.timestampMs = 0;			   // recalculé à la sortie (ordre d'affichage)
-					m->h264Reorder.PushBack(f);
+					m->h264Reorder.PushBack(traits::NkMove(f)); // f inutilisée après (évite une copie de ~1 Mo)
 					m->h264ReorderKey.PushBack(m->h264GopBase + (int64)m->lastPoc);
 					++m->h264DecodeCursor;
 				}
