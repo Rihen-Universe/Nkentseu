@@ -18,9 +18,9 @@
 | 3bis. Décodeur audio **Opus/SILK** | ✅ | SILK mono FONCTIONNEL — **BIT-EXACT vs libopus/ffmpeg (onde 1.0000, spectro 0.9999, RMS 0.995)**. 9 sous-briques (gains, NLSF→LPC, LTP, excitation shell-code, synthèse DSP, en-tête, index, decode_frame, top-level), ~11 self-tests. Validé via oracle libopus compilé+patché (dump valeurs intermédiaires) : gains/LPC/signalType identiques trame par trame. **Resampler 8/12/16→48 kHz livré (up2 HQ + FIR frac) : sortie 48 kHz onde 0.99998 vs ffmpeg.** |
 | 3ter. **Dispatcher Opus** (`NkOpusDecoder`) | 🔶 | Route le TOC → **CELT-only ✅ + SILK-only ✅ (bit-exact, identique au direct)** → PCM 48 kHz. Harnais `NKMediaTest --opus`. Reste : **mode hybride** (config 12-15 : SILK bande basse + CELT bande haute, nécessite une bande de départ dans NkCeltDecoder) ; **calibrer l'échelle de sortie CELT** (~3× trop fort, invisible en corrélation) |
 | 3quater. **Fichiers .opus (Ogg-Opus, RFC 7845)** + câblage NKAudio | ✅ | **Conteneur Ogg livré (2026-07-12)** : probe (pistes opus/vorbis depuis les pages BOS) + démux (pages → paquets, lacing, `granule`) ; `NkOpusFile` (OpusHead pre-skip/gain + décode + trim granule ; **hybride/stéréo refusés proprement** → retirer le garde quand 3ter sera fini). Harnais `--oggopus`, self-test forge Ogg (34/34). **Validé vs ffmpeg** : SILK-WB corr 0.999985 (lag +2 = délai resampler), CELT corr 0.965 lag 0. **NKAudio branché** : `AudioFormat::OPUS` décodé via `NkOpusCodec` (détection OggS+OpusHead), test `NkMicRecord --decode in.opus out.wav`. NB : NKAudio dépend de NKMedia → 10 jengas d'apps mis à jour |
-| 4. Décodeur audio AAC-LC | ⬜ | MP4 → PCM (AAC Low Complexity from-scratch) |
+| 4. Décodeur audio AAC-LC | ✅ | *(table périmée, tenue à jour dans « Livré » ci-dessous)* MP4 → PCM, stéréo complet, bit-exact vs ffmpeg |
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅** ; puis WebM, WAV |
-| 6. Vidéo (décode) | ⬜ | VP8/VP9 puis H.264 (très long) → frames RGBA (→ NKImage/NKRHI) |
+| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High bit-exact** (MP4/MOV/3GP/MKV) ; VP8/VP9/AV1/H.265 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
 
 ## Livré
@@ -264,10 +264,28 @@ déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré 
      `NkVideoPlayer` sans erreur. **AMR-NB/WB** (codec audio 3GP legacy, alternative à AAC sur les
      très vieux téléphones) **non géré** — nouveau décodeur, reporté (rare en pratique aujourd'hui,
      la plupart des `.3gp` réels/modernes utilisent AAC comme le fichier de test).
-  2. **MKV/WebM (EBML)** — démuxage déjà maîtrisé côté Ogg/EBML (`NkMediaProbe` EBML existe pour la
-     détection) : à étendre pour l'**extraction de paquets vidéo** (aujourd'hui seul l'audio Opus
-     est démuxé depuis WebM) + support conteneur `.mkv` (même famille EBML que WebM, codecs plus
-     variés : H.264/H.265/AV1 vidéo, Vorbis/Opus/AAC/FLAC audio).
+  2. ✅ **MKV/WebM (EBML) — piste VIDÉO H264 LIVRÉE (2026-07-21)** (le pendant audio Opus/Vorbis
+     existait déjà). `NkVideoReader::Open` reconnaît désormais la magie EBML (`0x1A45DFA3`) et
+     `ParseWebm` (nouveau, `Video/NkVideoReader.cpp`) : trouve la 1ère piste `TrackType==1` dans
+     `Segment/Tracks/TrackEntry`, lit `CodecID` (0x86) + `CodecPrivate` (0x63A2) + dimensions
+     (PixelWidth/Height) — **découverte clé** : `CodecPrivate` de `V_MPEG4/ISO/AVC` est EXACTEMENT
+     l'`AVCDecoderConfigurationRecord` (mêmes octets que la boîte `avcC` ISOBMFF, juste sans le
+     wrapper de boîte) → **le décodage H264 lui-même est intégralement réutilisé, zéro changement**
+     (`ParseAvcCBytes`/`ScanH264Keyframes` factorisés hors de `ParseMov` pour être partagés).
+     Parcourt ensuite les `Cluster`/`SimpleBlock`/`BlockGroup+Block` (miroir de
+     `NkMediaDemux::WalkClusters`, l'équivalent déjà livré pour l'audio) pour bâtir la table des
+     paquets vidéo ; `fps` dérivé des horodatages RÉELS des blocs (EBML n'a pas d'équivalent à
+     `stts`). **VP8/VP9/AV1** (codecs vidéo natifs les plus courants en `.webm` proprement dit,
+     par opposition aux rips `.mkv` H264) → **échec propre** (`ParseWebm` renvoie `false`, pas de
+     décodeur — honnête, pas de faux positif). **Validé** : `.mkv` H264 baseline (I+P, 50/50
+     images, checksums **identiques** au même contenu encapsulé en 3GP/ISOBMFF, confirmant le
+     partage de code) ET H264 High avec B-frames/réordonnancement POC (75/75 images) ; `SeekFrame`
+     fonctionne aussi (même index de mots clés que MOV) ; `.webm` VP9 natif échoue proprement (pas
+     de crash) ; lecture bout-en-bout `NkVideoPlayer` sur les deux OK. **Reste** : H.265/VP8/VP9/AV1
+     en MKV/WebM restent des codecs à décoder (gros chantiers séparés, voir plus bas) ; le lacing
+     EBML (regroupement de plusieurs trames dans un seul bloc, quasi jamais utilisé pour la vidéo)
+     n'est pas géré — un fichier qui l'utiliserait produirait un paquet trop gros, échec de décodage
+     propre plutôt que silencieux.
   3. **TS/M2TS** (MPEG Transport Stream) : format par paquets fixes 188 octets (PID + PES), démuxage
      structurellement différent d'ISOBMFF/EBML (streaming broadcast) — nouveau parseur.
   4. **FLV** (Flash Video) : conteneur simple par tags (audio/vidéo/script), utile pour du contenu
