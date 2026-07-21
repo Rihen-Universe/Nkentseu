@@ -61,6 +61,7 @@ namespace nkentseu {
 				int32 bitCount = 24;			 // RAWRGB
 				NkVector<nk_uint8> h264Sps, h264Pps; // H264 : SPS/PPS extraits de l'avcC
 				int32 nalLenSize = 4;			 // taille du préfixe de longueur AVCC
+				NkVector<bool> h264Keyframe;	 // parallèle à `frames` : image clé (IDR) en ordre de décodage
 				NkVector<NkH264Frame> h264Dpb;	 // RefPicList0 : [0] = frame la plus récente (multi-réf)
 				int32 h264PrevIndex = -2;		 // index de la dernière frame décodée (séquentialité)
 				// Réordonnancement POC (les B se décodent dans le désordre → réaffichage par POC).
@@ -450,6 +451,33 @@ namespace nkentseu {
 					info.height = h;
 					info.frameCount = (int32)frames.Size();
 					info.fps = fps;
+					// Index des images clés (IDR) en ORDRE DE DÉCODAGE, requis pour SeekFrame (voir
+					// plus bas) : un échantillon AVCC peut contenir plusieurs NAL (longueur-préfixées,
+					// `nalLenSize` octets) ; il est IDR si l'une d'elles a type=5. Scan une seule fois
+					// à l'ouverture (pas de décodage, juste les en-têtes NAL — rapide même sur un film).
+					if (codec == Codec::H264) {
+						h264Keyframe.Resize(frames.Size());
+						for (uint64 i = 0; i < frames.Size(); ++i) {
+							const uint8 *s = bytes.Data() + frames[i].offset;
+							const usize sz = frames[i].size;
+							bool idr = false;
+							usize p = 0;
+							while (p + (usize)nalLenSize <= sz) {
+								uint32 len = 0;
+								for (int32 k = 0; k < nalLenSize; ++k)
+									len = (len << 8) | s[p + k];
+								p += (usize)nalLenSize;
+								if (p + len > sz)
+									break;
+								if (len > 0 && (s[p] & 0x1F) == 5) {
+									idr = true;
+									break;
+								}
+								p += len;
+							}
+							h264Keyframe[i] = idr;
+						}
+					}
 					// Dimensions manquantes + MJPEG : on décode la 1re image pour les obtenir.
 					if ((w <= 0 || h <= 0) && codec == Codec::MJPEG) {
 						NkVideoFrame f0;
@@ -867,7 +895,27 @@ namespace nkentseu {
 		bool NkVideoReader::SeekFrame(int32 index) {
 			if (!IsOpen() || index < 0 || index >= mImpl->info.frameCount)
 				return false;
-			mImpl->cursor = index;
+			Impl *m = mImpl;
+			// ⚠️ H264 : `cursor` seul (ci-dessous) ne veut RIEN dire pour ce codec — le chemin de
+			// lecture (ReadFrame) utilise un état de réordonnancement POC séparé qu'il faut
+			// repositionner explicitement, sinon SeekFrame est un no-op silencieux (bug trouvé et
+			// documenté 2026-07-21, voir ROADMAP).
+			if (m->codec == Codec::H264) {
+				// Approximation ordre-décodage ≈ ordre-affichage (exacte aux limites de GOP ; l'écart
+				// ailleurs = au plus `h264ReorderMax` B en attente, quelques images) : cherche la
+				// DERNIÈRE image clé (IDR) à un index de décodage <= `index`, repart de là, puis
+				// redécode en avant — coût normal pour tout lecteur H264 (distance au GOP précédent).
+				int32 kf = 0;
+				for (int32 i = 0; i <= index && i < (int32)m->h264Keyframe.Size(); ++i)
+					if (m->h264Keyframe[(uint64)i])
+						kf = i;
+				m->h264DecodeCursor = kf;
+				m->h264OutCount = kf; // exact à la limite de GOP (l'IDR est la 1re image affichée de son GOP)
+				m->h264Reorder.Resize(0);
+				m->h264ReorderKey.Resize(0);
+				m->lastIsIdr = false; // redécouvert au 1er ReadFrame (décodera l'IDR -> vide h264Dpb)
+			}
+			m->cursor = index;
 			return true;
 		}
 

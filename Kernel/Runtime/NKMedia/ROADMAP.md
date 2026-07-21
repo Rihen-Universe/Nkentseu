@@ -335,18 +335,38 @@ déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré 
   en Debug — les symboles Release suffisaient) révèle la fonction chaude SANS avoir à deviner où
   ajouter le prochain timer. À réutiliser en premier réflexe si un profilage par phase laisse un
   écart inexpliqué entre le temps mesuré et le temps réel observé.
-- 🚫 **`NkVideoReader::SeekFrame` ne fonctionne PAS pour le codec H264** (bug préexistant, découvert
-  en creusant le bug de copie ci-dessus, non corrigé) : la fonction ne modifie que `mImpl->cursor`,
-  un champ utilisé par les codecs MJPEG/RAWRGB/séquences — le chemin H264 (`ReadFrame`) utilise un
-  état de réordonnancement POC totalement séparé (`h264DecodeCursor`/`h264OutCount`/`h264Reorder`/
-  `h264GopBase`) que `SeekFrame` n'initialise jamais. Un appel à `SeekFrame` sur un flux H264 est donc
-  un no-op silencieux (fonctionne par coïncidence seulement au tout début de lecture et au rebouclage,
-  où cet état est déjà proche de zéro). **Bloquant pour tout scrubber/seek UI** (voir
-  `Applications/NkVideoPlayer/ROADMAP.md` — plan UI NKGui/NKEditorKit). Fix nécessaire : localiser
-  l'IDR précédant la cible (table keyframes déjà extraite au probe), réinitialiser
-  `h264DecodeCursor`/vider `h264Reorder`+`h264ReorderKey`/réinitialiser `h264GopBase` et le DPB, puis
-  décoder en avance jusqu'à la cible (coût = distance à l'IDR précédent, comportement normal pour
-  tout lecteur H264).
+- ✅ **CORRIGÉ (2026-07-21) — `NkVideoReader::SeekFrame` ne fonctionnait PAS pour le codec H264**
+  (bug préexistant, découvert en creusant le bug de copie ci-dessus) : la fonction ne modifiait que
+  `mImpl->cursor`, un champ utilisé par les codecs MJPEG/RAWRGB/séquences — le chemin H264
+  (`ReadFrame`) utilise un état de réordonnancement POC totalement séparé
+  (`h264DecodeCursor`/`h264OutCount`/`h264Reorder`/`h264GopBase`) que `SeekFrame` n'initialisait
+  jamais → no-op silencieux. **Fix** : nouvel index `Impl::h264Keyframe` (`NkVector<bool>` parallèle
+  à `frames`, un sample H264 est marqué clé s'il contient un NAL de type 5/IDR — scanné une seule
+  fois à l'ouverture, pas de décodage, juste les en-têtes NAL) ; `SeekFrame` localise la DERNIÈRE
+  IDR à un index de décodage ≤ la cible (approximation décodage≈affichage, exacte aux limites de
+  GOP), y repositionne `h264DecodeCursor`/`h264OutCount`, vide `h264Reorder`/`h264ReorderKey` — le
+  redécodage en avant jusqu'à la cible (coût normal = distance au GOP précédent) reste à la charge
+  de l'appelant (boucle de rattrapage), comme pour tout lecteur H264. **Validé** par un nouveau
+  harnais `NkVideoReadTest --seektest <fichier> <index>` (décode séquentiel de référence PUIS
+  seek+redécodage, compare les sommes de contrôle) : cible 0/50/200/500/1000 sur le film réel →
+  toutes retombent sur l'image exacte (±1, artefact attendu de la condition d'arrêt `CurrentIndex()
+  < target`, identique à la convention déjà utilisée par la boucle de rattrapage du lecteur).
+  Débloquait le scrubber UI (voir `Applications/NkVideoPlayer/ROADMAP.md`) **et** la
+  resynchronisation active ci-dessous.
+- ✅ **Resynchronisation active dans `NkVideoPlayer` (2026-07-21, demande explicite Rihen : "on ne
+  dois pas avoir de decalage... le systeme doit etre robuste a tout moment").** Le rattrapage à
+  budget de temps (150 ms/tick, voir plus haut) empêche le blocage mais n'empêchait PAS un retard
+  qui croît lentement sans borne si le débit de décodage reste, même de peu, sous le débit requis
+  (dépend du contenu/matériel — un décodeur scalaire ne peut PAS garantir mathématiquement un débit
+  minimal pour tout contenu). Maintenant que `SeekFrame` fonctionne pour H264 (ci-dessus) : si le
+  retard dépasse **~1,5 s de contenu** (`fps*1.5` images), le lecteur saute DIRECTEMENT au voisinage
+  de la cible via `SeekFrame` (coût = distance au GOP, bien moindre qu'un rattrapage frame-par-frame
+  décodant-puis-jetant des dizaines/centaines d'images) au lieu de laisser le rattrapage normal
+  lutter indéfiniment — ramène le décalage à quelques images en une seule opération, que le
+  rattrapage normal referme ensuite. Best-effort (un échec, ex. cible hors bornes en fin de flux,
+  retombe simplement sur le chemin normal inchangé). Testé 20 s sans crash sur le film réel (le
+  chemin de resync ne s'est pas déclenché sur ce contenu, le débit normal suffisant déjà — voir
+  fix perf ci-dessus).
 
 ## Dépendances
 Foundation (NKCore/NKMemory/NKContainers/NKMath) + NKStream/NKFileSystem (I/O). Consommateurs visés :
