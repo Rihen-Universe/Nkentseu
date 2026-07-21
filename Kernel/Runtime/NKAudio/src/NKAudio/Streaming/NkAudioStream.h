@@ -109,6 +109,51 @@ namespace nkentseu {
 				nk_int64 mCurFrame = 0;
 		};
 
+		// ── Concrete : AiffStream ────────────────────────────────────────────
+		// Lecture chunked d'un AIFF (Apple, IFF/big-endian) depuis le fichier. Miroir de
+		// WavStream (même pattern chunked+conversion float32) mais : entête "FORM"..."AIFF",
+		// tailles de chunk BIG-ENDIAN, chunk 'COMM' (pas 'fmt ') avec sampleRate en flottant
+		// étendu IEEE 80-bit, chunk 'SSND' (pas 'data') avec échantillons PCM BIG-ENDIAN —
+		// ⚠️ le 8-bit AIFF est SIGNÉ (contrairement au 8-bit WAV qui est non signé).
+
+		class NKENTSEU_AUDIO_API AiffStream : public IAudioStream {
+			public:
+				AiffStream() = default;
+				~AiffStream() override;
+
+				bool Open(const char *path) noexcept;
+
+				int32 ReadFrames(float32 *outBuf, int32 maxFrames) noexcept override;
+				bool Seek(nk_int64 frameIdx) noexcept override;
+
+				nk_int64 GetFrameCount() const noexcept override {
+					return mFrameCount;
+				}
+
+				int32 GetSampleRate() const noexcept override {
+					return mSampleRate;
+				}
+
+				int32 GetChannels() const noexcept override {
+					return mChannels;
+				}
+
+				bool IsEOF() const noexcept override {
+					return mEOF;
+				}
+
+			private:
+				NkFile mFile;
+				nk_int64 mDataStart = 0; ///< Offset du premier octet PCM (après offset/blockSize de SSND)
+				nk_int64 mDataSize = 0;
+				nk_int64 mFrameCount = 0;
+				int32 mSampleRate = 0;
+				int32 mChannels = 0;
+				int32 mBitsPerSamp = 0;
+				bool mEOF = false;
+				nk_int64 mCurFrame = 0;
+		};
+
 		// ── Concrete : MemoryStream (wrapper AudioSample) ───────────────────
 		// Utile pour FLAC/MP3/OGG : decode le fichier entier puis stream depuis
 		// la memoire. Plus simple que d'instrumenter chaque decodeur en streaming.
