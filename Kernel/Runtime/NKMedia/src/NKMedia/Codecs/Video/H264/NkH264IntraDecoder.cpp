@@ -496,15 +496,25 @@ namespace nkentseu {
 				auto Ver = [&](int32 x, int32 y) -> int32 {
 					return R(x, y - 2) - 5 * R(x, y - 1) + 20 * R(x, y) + 20 * R(x, y + 1) - 5 * R(x, y + 2) + R(x, y + 3);
 				};
-				auto Bh = [&](int32 x, int32 y) -> int32 { return ClampU8((Hor(x, y) + 16) >> 5); };
-				auto Hh = [&](int32 x, int32 y) -> int32 { return ClampU8((Ver(x, y) + 16) >> 5); };
-				auto Jj = [&](int32 x, int32 y) -> int32 {
-					const int32 j1 = Hor(x, y - 2) - 5 * Hor(x, y - 1) + 20 * Hor(x, y) + 20 * Hor(x, y + 1) -
-									 5 * Hor(x, y + 2) + Hor(x, y + 3);
-					return ClampU8((j1 + 512) >> 10);
-				};
 				const int32 fx = mvx & 3, fy = mvy & 3;
 				const int32 bx = dx + (mvx >> 2), by = dy + (mvy >> 2);
+				int32 horBuf[21 * 16];
+				int32 rowLo = 0;
+				if (fx != 0) {
+					rowLo = -2;
+					const int32 rowHi = h + 2;
+					for (int32 r = rowLo; r <= rowHi; ++r)
+						for (int32 xx = 0; xx < w; ++xx)
+							horBuf[(r - rowLo) * w + xx] = Hor(bx + xx, by + r);
+				}
+				auto HorC = [&](int32 x, int32 y) -> int32 { return horBuf[(y - by - rowLo) * w + (x - bx)]; };
+				auto Bh = [&](int32 x, int32 y) -> int32 { return ClampU8((HorC(x, y) + 16) >> 5); };
+				auto Hh = [&](int32 x, int32 y) -> int32 { return ClampU8((Ver(x, y) + 16) >> 5); };
+				auto Jj = [&](int32 x, int32 y) -> int32 {
+					const int32 j1 = HorC(x, y - 2) - 5 * HorC(x, y - 1) + 20 * HorC(x, y) + 20 * HorC(x, y + 1) -
+									 5 * HorC(x, y + 2) + HorC(x, y + 3);
+					return ClampU8((j1 + 512) >> 10);
+				};
 				for (int32 y = 0; y < h; ++y)
 					for (int32 x = 0; x < w; ++x) {
 						const int32 ix = bx + x, iy = by + y;
