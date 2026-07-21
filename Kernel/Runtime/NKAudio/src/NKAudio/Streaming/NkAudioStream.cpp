@@ -196,6 +196,207 @@ namespace nkentseu {
 			return true;
 		}
 
+		// ────────────────────────────────────────────────────────────────────
+		//  Helpers big-endian (AIFF est BE, contrairement a WAV)
+		// ────────────────────────────────────────────────────────────────────
+
+		static NKENTSEU_INLINE uint16 RD_U16BE(const uint8 *p) noexcept {
+			return (uint16(p[0]) << 8) | uint16(p[1]);
+		}
+
+		static NKENTSEU_INLINE uint32 RD_U32BE(const uint8 *p) noexcept {
+			return (uint32(p[0]) << 24) | (uint32(p[1]) << 16) | (uint32(p[2]) << 8) | uint32(p[3]);
+		}
+
+		// Flottant etendu IEEE 754 80-bit (1 signe + 15 exposant + 64 mantisse EXPLICITE, pas
+		// de bit implicite contrairement au double 64-bit) : format du sampleRate AIFF 'COMM'.
+		static double ReadExtended80BE(const uint8 *p) noexcept {
+			uint16 exponent = RD_U16BE(p);
+			const bool negative = (exponent & 0x8000) != 0;
+			exponent &= 0x7FFF;
+			uint64 mantissa = 0;
+			for (int32 i = 0; i < 8; ++i)
+				mantissa = (mantissa << 8) | uint64(p[2 + i]);
+			if (exponent == 0 && mantissa == 0)
+				return 0.0;
+			double v = double(mantissa);
+			int32 e = int32(exponent) - 16383 - 63;
+			// Mise a l'echelle par puissances de 2 (evite <math.h> pow() pour ce module).
+			if (e >= 0) {
+				for (int32 i = 0; i < e; ++i)
+					v *= 2.0;
+			} else {
+				for (int32 i = 0; i < -e; ++i)
+					v *= 0.5;
+			}
+			return negative ? -v : v;
+		}
+
+		// ════════════════════════════════════════════════════════════════════
+		//  AiffStream
+		// ════════════════════════════════════════════════════════════════════
+
+		AiffStream::~AiffStream() {
+			if (mFile.IsOpen())
+				mFile.Close();
+		}
+
+		bool AiffStream::Open(const char *path) noexcept {
+			if (!path)
+				return false;
+			if (!mFile.Open(path, NkFileMode::NK_READ_BINARY)) {
+				logger.Error("[AiffStream] Impossible d'ouvrir : {0}", path);
+				return false;
+			}
+
+			uint8 hdr[12];
+			if (mFile.Read(hdr, 12) != 12)
+				goto fail;
+			if (hdr[0] != 'F' || hdr[1] != 'O' || hdr[2] != 'R' || hdr[3] != 'M')
+				goto fail;
+			if (hdr[8] != 'A' || hdr[9] != 'I' || hdr[10] != 'F' || hdr[11] != 'F')
+				goto fail; // AIFC (compressé) non géré ici -> échec propre
+
+			while (true) {
+				uint8 chunkHdr[8];
+				if (mFile.Read(chunkHdr, 8) != 8)
+					break;
+				uint32 chunkSize = RD_U32BE(chunkHdr + 4);
+
+				if (chunkHdr[0] == 'C' && chunkHdr[1] == 'O' && chunkHdr[2] == 'M' && chunkHdr[3] == 'M') {
+					if (chunkSize < 18)
+						goto fail;
+					uint8 comm[18];
+					if (mFile.Read(comm, 18) != 18)
+						goto fail;
+					mChannels = int32(RD_U16BE(comm + 0));
+					// numSampleFrames (comm+2, 4 octets) ignoré : mFrameCount recalculé depuis SSND
+					// (plus fiable, certains encodeurs le laissent à 0).
+					mBitsPerSamp = int32(RD_U16BE(comm + 6));
+					mSampleRate = int32(ReadExtended80BE(comm + 8) + 0.5);
+					if (chunkSize > 18) // reste (extension AIFC éventuelle) : ignoré
+						mFile.Seek(nk_int64((chunkSize - 18 + 1) & ~1u), NkSeekOrigin::NK_CURRENT);
+				} else if (chunkHdr[0] == 'S' && chunkHdr[1] == 'S' && chunkHdr[2] == 'N' && chunkHdr[3] == 'D') {
+					uint8 ssndHdr[8]; // offset(4) + blockSize(4)
+					if (mFile.Read(ssndHdr, 8) != 8)
+						goto fail;
+					const uint32 offset = RD_U32BE(ssndHdr);
+					if (offset > 0)
+						mFile.Seek(nk_int64(offset), NkSeekOrigin::NK_CURRENT);
+					mDataStart = mFile.Tell();
+					mDataSize = nk_int64(chunkSize) - 8 - nk_int64(offset);
+					const int32 bytesPerFrame = (mChannels * mBitsPerSamp) / 8;
+					if (bytesPerFrame <= 0 || mChannels <= 0 || mSampleRate <= 0)
+						goto fail;
+					mFrameCount = mDataSize / bytesPerFrame;
+					mFile.Seek(mDataStart, NkSeekOrigin::NK_BEGIN);
+					mCurFrame = 0;
+					mEOF = false;
+					logger.Info("[AiffStream] Ouvert : {0} frames, {1} Hz, {2} ch, {3} bps", mFrameCount,
+								mSampleRate, mChannels, mBitsPerSamp);
+					return true;
+				} else {
+					mFile.Seek(nk_int64((chunkSize + 1) & ~1u), NkSeekOrigin::NK_CURRENT);
+				}
+			}
+
+		fail:
+			if (mFile.IsOpen())
+				mFile.Close();
+			return false;
+		}
+
+		int32 AiffStream::ReadFrames(float32 *outBuf, int32 maxFrames) noexcept {
+			if (!mFile.IsOpen() || mEOF || maxFrames <= 0)
+				return 0;
+			const int32 bytesPerSamp = mBitsPerSamp / 8;
+			const int32 bytesPerFrame = bytesPerSamp * mChannels;
+			const nk_int64 remaining = mFrameCount - mCurFrame;
+			if (remaining <= 0) {
+				mEOF = true;
+				return 0;
+			}
+			const int32 framesToRead = (nk_int64(maxFrames) > remaining) ? int32(remaining) : maxFrames;
+
+			const int32 chunkFrames = 4096;
+			uint8 raw[4096 * 2 * 4]; // 4096 frames * 2 canaux * 4 octets max
+			int32 totalRead = 0;
+			while (totalRead < framesToRead) {
+				const int32 wantFrames =
+					(framesToRead - totalRead > chunkFrames) ? chunkFrames : (framesToRead - totalRead);
+				const usize wantBytes = usize(wantFrames) * usize(bytesPerFrame);
+				if (wantBytes > sizeof(raw))
+					break;
+				const usize got = mFile.Read(raw, wantBytes);
+				if (got == 0) {
+					mEOF = true;
+					break;
+				}
+				const int32 frames = int32(got / usize(bytesPerFrame));
+				if (frames == 0) {
+					mEOF = true;
+					break;
+				}
+
+				// Conversion BIG-ENDIAN vers float32. ⚠️ 8-bit AIFF = SIGNÉ (WAV 8-bit = non signé).
+				float32 *dst = outBuf + usize(totalRead) * usize(mChannels);
+				const uint8 *src = raw;
+				const int32 cnt = frames * mChannels;
+				if (mBitsPerSamp == 16) {
+					for (int32 i = 0; i < cnt; ++i) {
+						const int16 v = (int16)((uint16(src[0]) << 8) | uint16(src[1]));
+						dst[i] = float32(v) * (1.0f / 32768.0f);
+						src += 2;
+					}
+				} else if (mBitsPerSamp == 8) {
+					for (int32 i = 0; i < cnt; ++i) {
+						dst[i] = float32(int8(src[0])) * (1.0f / 128.0f);
+						src += 1;
+					}
+				} else if (mBitsPerSamp == 24) {
+					for (int32 i = 0; i < cnt; ++i) {
+						int32 v = (int32(src[0]) << 16) | (int32(src[1]) << 8) | int32(src[2]);
+						if (v & 0x00800000)
+							v |= (int32)0xFF000000; // extension de signe
+						dst[i] = float32(v) * (1.0f / 8388608.0f);
+						src += 3;
+					}
+				} else if (mBitsPerSamp == 32) {
+					for (int32 i = 0; i < cnt; ++i) {
+						const int32 v = (int32(src[0]) << 24) | (int32(src[1]) << 16) | (int32(src[2]) << 8) |
+										int32(src[3]);
+						dst[i] = float32(v) * (1.0f / 2147483648.0f);
+						src += 4;
+					}
+				} else {
+					mEOF = true; // profondeur non gérée (ex. 20-bit non-octet-aligné)
+					break;
+				}
+
+				totalRead += frames;
+				mCurFrame += frames;
+				if (frames < wantFrames) {
+					mEOF = true;
+					break;
+				}
+			}
+			return totalRead;
+		}
+
+		bool AiffStream::Seek(nk_int64 frameIdx) noexcept {
+			if (!mFile.IsOpen())
+				return false;
+			if (frameIdx < 0)
+				frameIdx = 0;
+			if (frameIdx > mFrameCount)
+				frameIdx = mFrameCount;
+			const int32 bytesPerFrame = (mBitsPerSamp / 8) * mChannels;
+			mFile.Seek(mDataStart + frameIdx * bytesPerFrame, NkSeekOrigin::NK_BEGIN);
+			mCurFrame = frameIdx;
+			mEOF = (frameIdx >= mFrameCount);
+			return true;
+		}
+
 		// ════════════════════════════════════════════════════════════════════
 		//  MemoryStream (wrapper sur un AudioSample deja decode)
 		// ════════════════════════════════════════════════════════════════════
@@ -333,6 +534,18 @@ namespace nkentseu {
 			if ((ext[0] == 'w' || ext[0] == 'W') && (ext[1] == 'a' || ext[1] == 'A') &&
 				(ext[2] == 'v' || ext[2] == 'V') && ext[3] == 0) {
 				auto *s = memory::NkGetDefaultAllocator().New<WavStream>();
+				if (!s->Open(path)) {
+					memory::NkGetDefaultAllocator().Delete(s);
+					return nullptr;
+				}
+				return s;
+			}
+
+			// AIFF/AIF (Apple) : streaming reel, miroir de WAV en big-endian (AIFC compresse
+			// non gere -> AiffStream::Open echoue proprement, la boucle FLAC/MP3/OGG ci-dessous
+			// ne le comprendrait pas non plus).
+			if (ExtEquals(ext, "aiff") || ExtEquals(ext, "aif")) {
+				auto *s = memory::NkGetDefaultAllocator().New<AiffStream>();
 				if (!s->Open(path)) {
 					memory::NkGetDefaultAllocator().Delete(s);
 					return nullptr;

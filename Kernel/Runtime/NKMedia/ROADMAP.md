@@ -331,7 +331,27 @@ déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré 
      horodatages, suffisant en pratique).
   5. **OGG comme conteneur générique vidéo (.ogv)** : le démuxage Ogg (pages/lacing/granule) est
      **déjà livré** pour Ogg-Opus — étendre au **Theora** (vidéo) si rencontré en pratique (rare).
-  6. **AIFF** (audio Apple, PCM non compressé la plupart du temps) : proche de WAV, coût faible.
+  6. ✅ **AIFF LIVRÉ (2026-07-21)** — audio uniquement (pas de piste vidéo dans ce format), NKAudio
+     pas NKMedia. Nouveau `AiffStream` (`Kernel/Runtime/NKAudio/src/NKAudio/Streaming/
+     NkAudioStream.{h,cpp}`), miroir de `WavStream` déjà livré : entête `FORM`…`AIFF` (IFF), chunk
+     `COMM` (au lieu de `fmt `, avec un `sampleRate` en flottant étendu IEEE 80-bit — décodeur ad
+     hoc écrit, sans `<math.h>`) et chunk `SSND` (au lieu de `data`). ⚠️ **Piège AIFF-spécifique** :
+     tout est **BIG-ENDIAN** (contrairement à WAV, LE) et le **PCM 8-bit est SIGNÉ** (contrairement
+     au 8-bit WAV qui est NON signé) — géré explicitement, PCM 8/16/24/32-bit. AIFC (variante
+     compressée) détectée et refusée proprement (magie `AIFC` ≠ `AIFF`). Câblé dans
+     `OpenAudioStream` (extensions `aiff`/`aif`). **Bug latent trouvé et corrigé au passage** (pas
+     lié à AIFF) : `NkAudioDemo::RunDirectPullTest`/`RunStreamingTest` appelaient `delete stream;`
+     (CRT brut) sur un `IAudioStream*` alloué par `OpenAudioStream` via
+     `memory::NkGetDefaultAllocator().New<T>()` — mélange allocateur custom/CRT, **heap corruption
+     silencieuse jusqu'à la fin du process** (`Critical error detected c0000374` en sortie,
+     symptôme classique de corruption différée) ; ne s'était jamais manifesté visiblement avant
+     (WAV/3GP testés dans cette même session via ce harnais, corruption déjà présente mais crash
+     retardé jusqu'en fin de process, donc invisible sans un run sous `gdb`). Fix : utiliser le même
+     allocateur pour libérer (`memory::NkGetDefaultAllocator().Delete(stream)`), conforme à la
+     règle dure NKMemory du projet. **Validé** : 8/16/24-bit (mono et stéréo) comparés à ffmpeg
+     (conversion en WAV 16-bit commun) — **maxdiff=1 sur TOUS les échantillons**, cohérent avec la
+     précision déjà établie ailleurs dans le pipeline audio float32 (arrondi du aller-retour
+     int↔float32, pas une régression).
   - **Codecs vidéo à décoder (nouveaux, gros chantiers)**, par ordre de proximité avec l'existant :
     - **H.265/HEVC** : évolution directe de H.264 (même famille CABAC/transformées/déblocage en
       plus complexe — CTU/CU/PU/TU au lieu de MB fixes, plus de modes intra, SAO) — le décodeur
