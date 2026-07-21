@@ -243,8 +243,9 @@ déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré 
   du décodeur) + upload/dessin (`pushFrame`) appelé **UNE SEULE FOIS** par tick avec la dernière image
   atteinte (économise le coût de rendu des images intermédiaires, de toute façon aussitôt remplacées).
   Dégrade proprement (le retard vidéo/audio reste borné par le débit réel de décodage) au lieu de
-  diverger — **ne résout pas** la lenteur structurelle du décodeur (optimisation perf = chantier séparé,
-  voir Bugs ci-dessous).
+  diverger. ⭐ **Root cause réelle trouvée et corrigée le lendemain (2026-07-21, voir Bugs ci-dessous)** :
+  ce n'était PAS le décodeur qui était trop lent, mais un bug de copie profonde évitable dans la
+  gestion du DPB du lecteur — fix → **6 fps → 30 fps** (×5) sur le même film.
 - **Conteneurs supplémentaires** (cap validé Rihen 2026-07-19, PLUS TARD) : **MKV/WebM (EBML)**
   en priorité, puis TS/M2TS, FLV, OGG. Le gros du travail = démuxage (le décodeur H264 est prêt) ;
   VP8/VP9/AV1 seraient de nouveaux décodeurs.
@@ -287,16 +288,32 @@ déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré 
 - **Encodeur H264 Main/High** (optionnel) : CABAC/B/8×8 à l'encodage pour des NK_RECORD plus compacts.
 
 ## Bugs / limitations connues
-- ⚠️ **Décodeur H264 trop lent pour le temps réel sur du contenu réel** (trouvé 2026-07-20, sur un
-  film 720×360 High profile 23.98 fps) : **~8,4 fps** de débit de décodage mesuré (mesure fiable :
-  chrono mur autour d'un run borné, PAS le champ `t=` de `NkVideoReadTest` qui affiche le PTS vidéo,
-  pas le temps de décodage réel — piège rencontré une fois, à ne pas refaire). Cause structurelle :
-  décodeur **scalaire, sans SIMD, jamais optimisé perf** (CABAC + B-frames + transformée 8×8 +
-  déblocage — toute la pile), validé jusqu'ici uniquement bit-exact sur petits clips synthétiques.
-  Optimisation réelle (SIMD/threading/algorithmique) = chantier séparé, pas encore commencé — piste
-  jumelle de [[project_sw_rasterizer_optim]] (même situation pour le rasteriseur logiciel). Le
-  symptôme côté lecteur (divergence progressive vidéo/audio, "vidéo hyper lente") est atténué (pas
-  résolu) par le fix de rattrapage à budget de temps ci-dessus.
+- ✅ **CORRIGÉ (2026-07-20/21) — le décodeur H264 n'était PAS le coupable de la lenteur réelle.**
+  Diagnostic initial (trouvé sur un film 720×360 High 23.98 fps) : **~8,4 fps** de débit mesuré
+  (mesure fiable : chrono mur autour d'un run borné, PAS le champ `t=` de `NkVideoReadTest` qui
+  affiche le PTS vidéo, pas le temps de décodage réel — piège rencontré une fois). Hypothèse initiale
+  (décodeur scalaire/non-SIMD trop lent) **INVALIDÉE par profilage** : une instrumentation temporaire
+  (`NkChrono` par phase, retirée après diagnostic) a montré que le cœur du décodeur (boucle MB CABAC +
+  déblocage) ne coûte que **~4-6 ms/frame** — le vrai coupable était **`NkVideoReader::ReadFrame`**
+  (`Video/NkVideoReader.cpp`) : la gestion du DPB (liste de références) **COPIAIT EN PROFONDEUR** (au
+  lieu de déplacer) jusqu'à 16 `NkH264Frame` (plans Y/Cb/Cr + grilles de mouvement, ~380 Ko/image)
+  **DEUX FOIS par frame décodée** (une fois en construisant `newDpb`, une fois en l'assignant par
+  copie à `h264Dpb`) — coût mesuré **~80 ms/frame et CROISSANT** avec le nombre de frames (churn heap
+  pathologique), \>90% du temps total. **Fix** : `traits::NkMove` (`NKCore/NkTraits.h`) aux 3 points
+  de copie + réordonnancement (conversion YUV→RGBA faite AVANT le déplacement de `f`, puisqu'elle lit
+  encore `f.y/f.cb/f.cr`). Coût DPB post-fix : **~0,5 ms/frame, STABLE**. **Résultat mesuré** (même
+  film, même méthode) : **6 fps → 30 fps** (×5, dépasse le 23,98 fps requis par le contenu) — validé
+  bit-exact non régressé (35/35 sur deux flux témoins Main/High, I+P+B, avec et sans déblocage).
+  En passant, une optimisation par cache (`McLumaRect`, `Codecs/Video/H264/NkH264IntraDecoder.cpp`)
+  du filtre de compensation de mouvement quart-pel a aussi été appliquée (élimine des recalculs
+  redondants du filtre horizontal 6-tap) — bit-exact confirmée mais **AUCUN gain mesurable** (le
+  compilateur éliminait déjà cette redondance par CSE sur les lambdas pures) ; gardée car
+  correcte et sans risque, mais **le vrai gain vient entièrement du fix DPB ci-dessus**.
+  ⭐ **Leçon de méthode** : ne jamais optimiser à l'aveugle sur une hypothèse plausible — profiler
+  D'ABORD (ici, une instrumentation `NkChrono` grossière par phase a immédiatement montré que 95%+ du
+  temps était HORS du décodeur, dans la couche lecteur/gestion mémoire, pas dans le calcul pixel).
+  Le lecteur (`NkVideoPlayer`) garde son fix de rattrapage à budget de temps (ci-dessus) en filet de
+  sécurité pour tout contenu qui resterait malgré tout trop lourd (résolutions/profils plus exigeants).
 
 ## Dépendances
 Foundation (NKCore/NKMemory/NKContainers/NKMath) + NKStream/NKFileSystem (I/O). Consommateurs visés :
