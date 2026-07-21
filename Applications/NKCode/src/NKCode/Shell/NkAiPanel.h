@@ -648,8 +648,14 @@ namespace nkentseu {
 						return;
 					mQuickUsageRequested = true;
 					mQuickUsageBuf.Clear();
+					// --verbose est OBLIGATOIRE des que --output-format=stream-json est utilise
+					// avec -p (sinon le CLI refuse purement et simplement : "Error: When using
+					// --print, --output-format=stream-json requires --verbose") -> sans lui,
+					// TOUTE la requete /usage echouait silencieusement (mQuickUsageText jamais
+					// rempli, donc "Session" n'apparaissait JAMAIS, meme apres le parsing ajoute
+					// dans ParseQuickUsageBuckets).
 					const NkString cmd = NkWin32QuoteArg(ClaudeExe().CStr()) +
-										  " -p --input-format stream-json --output-format stream-json "
+										  " -p --verbose --input-format stream-json --output-format stream-json "
 										  "--permission-mode default";
 					const NkString cwd = (mS && mS->HasWorkspace()) ? mS->root.ToString() : NkString(".");
 					NkVector<NkString> noEnv;
@@ -2313,6 +2319,15 @@ namespace nkentseu {
 				// Contexte / Modèle / Personnaliser / Commandes slash / Réglages / Support. ──
 				void DrawActionsPalette(NkGuiContext &ctx, const NkRect &bounds, const NkColor &violet) {
 					(void)violet;
+					// MODALITE GLOBALE : force ctx.popupDepth > 0 tant que ce panneau reste
+					// ouvert — deja verifie par la quasi-totalite des points d'interaction de
+					// NKCode, bloque donc TOUT autre panneau (editeur, explorateur...) SANS
+					// autre modification, meme ceux traites AVANT ce panneau dans l'ordre de
+					// la frame (persiste depuis la frame precedente : consommer le clic ICI ne
+					// suffisait pas si un AUTRE panneau avait deja reagi PLUS TOT dans la meme
+					// frame — bug remonte par Rihen). Remis a 0 explicitement a la fermeture.
+					if (ctx.popupDepth == 0)
+						ctx.popupDepth = 1;
 					auto &dl = ctx.DL();
 					const NkGuiFont *font = ctx.font;
 					const NkVec2 mp = ctx.input.mousePos;
@@ -2573,6 +2588,8 @@ namespace nkentseu {
 						ctx.input.mouseClicked[0] = false;
 						ctx.input.mouseClicked[1] = false;
 					}
+					if (!mActionsOpen)
+						ctx.popupDepth = 0; // libere la modalite (voir le force en debut de fonction)
 				}
 
 				// ── Barre d'outils du BAS (façon Claude Code / VSCode) : combos Mode/Portée/Édition
