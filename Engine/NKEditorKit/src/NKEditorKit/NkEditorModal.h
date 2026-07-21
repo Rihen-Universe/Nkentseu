@@ -174,6 +174,14 @@ namespace nkentseu {
 			// donc bloque TOUT le reste de l'appli sans autre modification.
 			if (ctx.popupDepth == 0)
 				ctx.popupDepth = 1;
+			// NkGuiContext::Update() (debut de frame, AVANT que ce dialogue ne se dessine)
+			// reinitialise ctx.popupDepth a 0 des qu'un clic tombe hors de
+			// popupRects[0]/popupAnchor de la frame PRECEDENTE. Sans les renseigner, CHAQUE
+			// clic (meme sur ce dialogue) faisait retomber popupDepth a 0 AVANT que la force
+			// ci-dessus ne le remette a 1 — largement le temps pour un AUTRE panneau, traite
+			// plus tot dans la frame, de reagir au meme clic entretemps.
+			ctx.popupRects[0] = box;
+			ctx.popupAnchor = box;
 
 			if (clicked >= 0 || cancelled) {
 				m.open = false;
