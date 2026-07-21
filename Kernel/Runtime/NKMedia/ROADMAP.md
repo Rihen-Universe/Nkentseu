@@ -251,11 +251,19 @@ déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré 
   VP8/VP9/AV1 seraient de nouveaux décodeurs.
 - **Plan détaillé conteneurs + codecs additionnels (2026-07-20)** — prochain chantier, à démarrer
   par le moins coûteux :
-  1. **3GP/3G2** (quasi gratuit) : c'est de l'**ISOBMFF** (même famille que MP4/MOV, `NkMediaProbe`
-     reconnaît déjà la magie de boîte `ftyp`) avec un `major_brand` `3gp4/3gp5/3g2a` et des codecs
-     déjà supportés côté vidéo (H.264 baseline le plus souvent) et audio (AAC-LC, AMR-NB/WB en plus
-     — AMR = nouveau décodeur si rencontré). Devrait surtout demander du **routage d'extension**
-     (`.3gp/.3g2` → chemin ISOBMFF existant) plus vérification sur fichiers réels.
+  1. ✅ **3GP/3G2 LIVRÉ (2026-07-21)** — confirmé quasi gratuit comme prévu : le chemin vidéo
+     (`NkVideoReader::Open`) détecte déjà TOUT fichier ISOBMFF par la magie de boîte `ftyp` SANS
+     regarder le `major_brand` ni l'extension → un `.3gp`/`.3g2` H.264+AAC s'ouvre et se décode
+     **sans aucun changement de code**. Seul gap réel trouvé : `NKAudio::OpenAudioStream` (piste
+     audio streamée) filtre par **liste blanche d'extensions** (`mp4/m4a/m4v/mov/webm/mkv`) qui
+     n'incluait ni `3gp` ni `3g2` → une piste audio de 3GP tombait en échec silencieux malgré un
+     conteneur/codec 100% supportés. **Fix** : ajout de `"3gp"`/`"3g2"` à la liste
+     (`NKAudio/Streaming/NkAudioStream.cpp`). **Validé** sur un fichier `.3gp` généré par ffmpeg
+     (H.264 baseline + AAC, `-brand 3gp5`) : vidéo 50/50 images décodées, audio 89088/89088 frames
+     lues exactement (`NkAudioDemo --direct-pull`, IsEOF propre), lecture bout-en-bout dans
+     `NkVideoPlayer` sans erreur. **AMR-NB/WB** (codec audio 3GP legacy, alternative à AAC sur les
+     très vieux téléphones) **non géré** — nouveau décodeur, reporté (rare en pratique aujourd'hui,
+     la plupart des `.3gp` réels/modernes utilisent AAC comme le fichier de test).
   2. **MKV/WebM (EBML)** — démuxage déjà maîtrisé côté Ogg/EBML (`NkMediaProbe` EBML existe pour la
      détection) : à étendre pour l'**extraction de paquets vidéo** (aujourd'hui seul l'audio Opus
      est démuxé depuis WebM) + support conteneur `.mkv` (même famille EBML que WebM, codecs plus
