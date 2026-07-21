@@ -39,7 +39,7 @@ namespace nkentseu {
 				return ((uint64)RdU32BE(p) << 32) | (uint64)RdU32BE(p + 4);
 			}
 
-			enum class Backend { NONE, AVI, MOV, WEBM, TS, SEQUENCE };
+			enum class Backend { NONE, AVI, MOV, WEBM, TS, FLV, SEQUENCE };
 			enum class Codec { NONE, MJPEG, RAWRGB, H264 };
 
 			// Référence d'une image encodée dans le buffer fichier (offset+taille).
@@ -942,6 +942,69 @@ namespace nkentseu {
 					return true;
 				}
 
+				// --- Parse FLV (Flash Video) : piste vidéo H264 uniquement ---
+				// Conteneur par TAGS séquentiels (pas de table d'échantillons). ⭐ H264-en-FLV
+				// utilise EXACTEMENT le même AVCDecoderConfigurationRecord (`AVCPacketType==0`) et
+				// le même format NALU longueur-préfixé (`AVCPacketType==1`) que la boîte `avcC`
+				// ISOBMFF -> `ParseAvcCBytes` + le chemin de décodage AVCC existant (comme MOV) sont
+				// réutilisés SANS AUCUN CHANGEMENT (contrairement à TS qui est Annex-B en bande).
+				bool ParseFlv() {
+					const uint8 *d = bytes.Data();
+					const usize n = (usize)bytes.Size();
+					if (n < 13 || !(d[0] == 'F' && d[1] == 'L' && d[2] == 'V'))
+						return false;
+					const uint32 headerSize = RdU32BE(d + 5);
+					if ((usize)headerSize + 4 > n)
+						return false;
+					usize pos = (usize)headerSize + 4; // header + 1er PreviousTagSize (toujours 0)
+					NkVector<int64> ts;
+					while (pos + 11 <= n) {
+						const uint8 tagType = d[pos];
+						const uint32 dataSize = ((uint32)d[pos + 1] << 16) | ((uint32)d[pos + 2] << 8) | d[pos + 3];
+						const uint32 tsLow = ((uint32)d[pos + 4] << 16) | ((uint32)d[pos + 5] << 8) | d[pos + 6];
+						const uint32 tsExt = d[pos + 7];
+						const int64 timestampMs = (int64)(((uint32)tsExt << 24) | tsLow);
+						const usize dataStart = pos + 11;
+						if (dataStart + (usize)dataSize > n)
+							break;
+						if (tagType == 9 && dataSize >= 5) { // TagType 9 = vidéo
+							const uint8 codecId = d[dataStart] & 0x0F;
+							if (codecId == 7) { // AVC/H264
+								const uint8 pktType = d[dataStart + 1];
+								if (pktType == 0) { // AVCDecoderConfigurationRecord (SPS/PPS)
+									ParseAvcCBytes(d + dataStart + 5, (usize)dataSize - 5);
+								} else if (pktType == 1 && dataSize > 5) { // NALU(s), AVCC longueur-préfixé
+									FrameRef fr;
+									fr.offset = dataStart + 5;
+									fr.size = (usize)dataSize - 5;
+									frames.PushBack(fr);
+									ts.PushBack(timestampMs);
+								}
+							}
+						}
+						pos = dataStart + (usize)dataSize + 4; // + PreviousTagSize suivant
+					}
+					if (frames.Size() == 0 || h264Sps.Size() == 0 || h264Pps.Size() == 0)
+						return false;
+					double fps = 25.0;
+					if (ts.Size() >= 2 && ts[ts.Size() - 1] > ts[0])
+						fps = 1000.0 * (double)(ts.Size() - 1) / (double)(ts[ts.Size() - 1] - ts[0]);
+					codec = Codec::H264;
+					info.codec = NkString("h264");
+					info.container = NkString("flv");
+					info.frameCount = (int32)frames.Size();
+					info.fps = fps;
+					NkH264Sps sps;
+					if (h264Sps.Size() > 0 &&
+						NkH264Decoder::ParseSps(h264Sps.Data(), (usize)h264Sps.Size(), sps) && sps.valid) {
+						info.width = sps.width;
+						info.height = sps.height;
+					}
+					backend = Backend::FLV; // avant ScanH264Keyframes (par cohérence, AVCC ici)
+					ScanH264Keyframes();
+					return true;
+				}
+
 				// Charge un fichier image (PNG/JPEG/BMP/TGA…) -> RGBA via NKImage.
 				static bool LoadImageFile(const char *path, int32 index, NkVideoFrame &out) {
 					NkImage img;
@@ -1296,6 +1359,16 @@ namespace nkentseu {
 				if (mImpl->ParseWebm()) {
 					mImpl->backend = Backend::WEBM;
 					mImpl->cursor = 0;
+					return true;
+				}
+				return false;
+			}
+
+			// FLV (Flash Video), magie "FLV" : piste vidéo H264 uniquement (Sorenson/VP6/Screen
+			// Video -> ParseFlv échoue proprement, pas de décodeur).
+			if (mImpl->bytes.Size() >= 13 && d[0] == 'F' && d[1] == 'L' && d[2] == 'V') {
+				if (mImpl->ParseFlv()) {
+					mImpl->cursor = 0; // backend déjà posé par ParseFlv
 					return true;
 				}
 				return false;
