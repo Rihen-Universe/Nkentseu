@@ -599,12 +599,20 @@ namespace nkentseu {
 					if (!mAcctProc.Done())
 						return;
 					mAcctRequested = false;
-					mAcctLoaded = true;
 					NkString raw;
 					for (usize i = 0; i < mAcctLines.Size(); ++i)
 						raw += mAcctLines[i].CStr();
 					mAcctLines.Clear();
 					const char *j = raw.CStr();
+					// Repli auto-reparable : si la sortie ne ressemble meme pas a du JSON
+					// "auth status" (CLI absent, erreur transitoire, sortie vide...), ne
+					// verrouille PAS mAcctLoaded -> un reessai reste possible au prochain
+					// affichage du popover, au lieu de rester bloque sur "Chargement..."
+					// pour le reste de la session (mAcctRequested est deja retombe a false,
+					// donc OpenUsagePopover() relancera normalement la requete).
+					if (NkFindSub(j, "loggedIn") == nullptr)
+						return;
+					mAcctLoaded = true;
 					mAcctLoggedIn = NkFindSub(j, "\"loggedIn\":true") != nullptr ||
 									NkFindSub(j, "\"loggedIn\": true") != nullptr;
 					mAcctMethod = JsonStr(j, "authMethod");
@@ -660,8 +668,7 @@ namespace nkentseu {
 					const NkString cwd = (mS && mS->HasWorkspace()) ? mS->root.ToString() : NkString(".");
 					NkVector<NkString> noEnv;
 					if (!mQuickUsageProc.StartWithEnv(cmd, cwd, noEnv, /*mergeStderr=*/true)) {
-						mQuickUsageRequested = false;
-						mQuickUsageLoaded = true; // echec : pas de re-essai en boucle, section vide honnete
+						mQuickUsageRequested = false; // pas de latch : reessai possible au prochain ouverture
 						return;
 					}
 					const NkString um = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":"
@@ -679,7 +686,6 @@ namespace nkentseu {
 					if (mQuickUsageProc.Running())
 						return;
 					mQuickUsageRequested = false;
-					mQuickUsageLoaded = true;
 					NkString rest = mQuickUsageBuf;
 					mQuickUsageBuf.Clear();
 					for (;;) {
@@ -694,8 +700,14 @@ namespace nkentseu {
 							break;
 						rest.Erase(0, nl + 1);
 					}
-					if (!mQuickUsageText.Empty())
-						ParseQuickUsageBuckets();
+					// Repli auto-reparable (comme PollAccountStatus) : pas de latch definitif
+					// si rien n'a ete recu (erreur CLI, flag manquant, etc.) -> reessai possible
+					// au prochain affichage du popover plutot que de rester bloque sans jamais
+					// re-tenter pour le reste de la session.
+					if (mQuickUsageText.Empty())
+						return;
+					mQuickUsageLoaded = true;
+					ParseQuickUsageBuckets();
 				}
 
 				// Extrait "Current session: X% used · resets ..." et "Current week (all
@@ -2643,6 +2655,13 @@ namespace nkentseu {
 						mActionsAnchor = actionsBtn;
 						if (hov && ctx.input.mouseClicked[0]) {
 							mActionsOpen = !mActionsOpen;
+							// Ouvrir le panneau ne changeait pas le focus TEXTE global
+							// (ctx.inputId) : la saisie du chat (toujours "focus") continuait de
+							// recevoir chaque caractere tape alors que l'utilisateur croit ecrire
+							// dans le filtre du panneau qui vient d'apparaitre par-dessus (bug
+							// remonte par Rihen).
+							if (mActionsOpen)
+								ctx.inputId = NKGUI_ID_NONE;
 							ctx.input.mouseClicked[0] = false;
 						}
 					}
