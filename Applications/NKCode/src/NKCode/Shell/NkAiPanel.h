@@ -2339,6 +2339,26 @@ namespace nkentseu {
 					// frame — bug remonte par Rihen). Remis a 0 explicitement a la fermeture.
 					if (ctx.popupDepth == 0)
 						ctx.popupDepth = 1;
+					// ItemHoverable() exclut de l'interaction tout widget dont le niveau de
+					// popup courant est INFERIEUR a un niveau de popupRects[] existant sous la
+					// souris (z-ordre) : en renseignant popupRects[0] plus bas (necessaire pour
+					// que NkGuiContext::Update() ne reinitialise pas popupDepth au clic suivant),
+					// le contenu de CE panneau — dessine au niveau -1 par defaut — se serait
+					// exclu LUI-MEME (plus aucun bouton/ligne/champ ne recevait de clic, cf. bug
+					// remonte par Rihen). Se hisser au niveau 0 (comme BeginPopupLevel le fait
+					// pour les popups natifs) l'exempte de sa propre exclusion. RAII : restaure
+					// le niveau d'origine a la sortie, quel que soit le chemin.
+					struct PopupLevelGuard {
+							NkGuiContext *c = nullptr;
+							int32 saved = -1;
+							~PopupLevelGuard() {
+								if (c)
+									c->curPopupLevel = saved;
+							}
+					} plGuard;
+					plGuard.c = &ctx;
+					plGuard.saved = ctx.curPopupLevel;
+					ctx.curPopupLevel = 0;
 					auto &dl = ctx.DL();
 					const NkGuiFont *font = ctx.font;
 					const NkVec2 mp = ctx.input.mousePos;
