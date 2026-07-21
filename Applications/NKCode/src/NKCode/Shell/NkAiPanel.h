@@ -548,7 +548,8 @@ namespace nkentseu {
 						NkString type;	// rateLimitType brut (cle) — ex "seven_day", "session"
 						NkString status; // "allowed", "allowed_warning", "rejected"...
 						float32 utilization = 0.f; // 0..1 (peut depasser 1 en depassement)
-						int64 resetsAt = 0;		   // epoch unix
+						int64 resetsAt = 0;		   // epoch unix (source rate_limit_event)
+						NkString resetsText;	   // texte brut deja forme (source /usage, pas d'epoch fourni)
 						bool overage = false;	   // isUsingOverage
 						bool surpassed = false;   // surpassedThreshold (avertissement seuil)
 				};
@@ -687,6 +688,67 @@ namespace nkentseu {
 							break;
 						rest.Erase(0, nl + 1);
 					}
+					if (!mQuickUsageText.Empty())
+						ParseQuickUsageBuckets();
+				}
+
+				// Extrait "Current session: X% used · resets ..." et "Current week (all
+				// models): X% used · resets ..." du texte /usage -> upsert dans mRlBuckets
+				// (types synthetiques "session"/"seven_day", reconnus par UsageBucketLabel)
+				// pour qu'ils apparaissent comme barres colorees dans la section USAGE
+				// principale, PAS seulement dans le detail texte brut plus bas — sinon la
+				// session (rarement rapportee par rate_limit_event, qui ne rapporte qu'UNE
+				// seule fenetre a la fois) n'apparaissait jamais tant qu'aucun evenement
+				// dedie ne l'avait fait remonter.
+				void ParseQuickUsageBuckets() {
+					EnsureUsageLoaded(); // fusionne les buckets deja connus (autres sessions) avant d'upserter
+					auto upsert = [&](const char *marker, const char *type) {
+						const char *m = NkFindSub(mQuickUsageText.CStr(), marker);
+						if (!m)
+							return;
+						int32 markerLen = 0;
+						while (marker[markerLen])
+							++markerLen;
+						const char *p = m + markerLen;
+						int32 pct = 0;
+						bool any = false;
+						while (*p >= '0' && *p <= '9') {
+							pct = pct * 10 + (*p - '0');
+							++p;
+							any = true;
+						}
+						if (!any || *p != '%')
+							return;
+						// avance jusqu'a "resets " (repli : garde le reste de la ligne tel quel).
+						const char *rp = NkFindSub(p, "resets ");
+						const char *le = p;
+						while (*le && *le != '\n')
+							++le;
+						NkString resetsTxt;
+						if (rp && rp < le)
+							for (const char *q = rp + 7; q < le; ++q)
+								resetsTxt += *q;
+						// Met a jour SEULEMENT utilization/resetsText si un bucket du meme type
+						// existe deja (ex. rate_limit_event, plus precis sur resetsAt/status/
+						// surpassed) — ne degrade jamais une donnee plus riche deja connue.
+						bool found = false;
+						for (usize i = 0; i < mRlBuckets.Size() && !found; ++i)
+							if (mRlBuckets[i].type == type) {
+								mRlBuckets[i].utilization = static_cast<float32>(pct) / 100.f;
+								mRlBuckets[i].resetsText = resetsTxt;
+								found = true;
+							}
+						if (!found) {
+							RlBucket b;
+							b.type = type;
+							b.utilization = static_cast<float32>(pct) / 100.f;
+							b.resetsText = resetsTxt;
+							mRlBuckets.PushBack(b);
+						}
+					};
+					upsert("Current session: ", "session");
+					upsert("Current week (all models): ", "seven_day");
+					SaveUsagePersist();
 				}
 
 				// Decoupe un texte libre en lignes ne depassant pas maxW (mots entiers jamais
@@ -2499,8 +2561,18 @@ namespace nkentseu {
 						}
 						mActionsOpen = false;
 					}
-					if (ctx.input.mouseClicked[0] && !NkGuiRectContains(menu, mp) && !NkGuiRectContains(mActionsAnchor, mp))
+					// MODAL-LITE (comme NkCtxMenuDraw) : un clic DANS le rect du panneau — qu'il
+					// touche une ligne precise ou seulement le fond/padding/titre de groupe — ne
+					// doit JAMAIS traverser jusqu'a ce qu'il y a derriere (bug remonte par Rihen).
+					// Calcule AVANT de fermer sur clic exterieur (sinon un clic sur une ligne qui
+					// ferme le panneau ce meme instant echapperait a la consommation).
+					const bool clickedInMenu = ctx.input.mouseClicked[0] && NkGuiRectContains(menu, mp);
+					if (ctx.input.mouseClicked[0] && !clickedInMenu && !NkGuiRectContains(mActionsAnchor, mp))
 						mActionsOpen = false;
+					if (clickedInMenu) {
+						ctx.input.mouseClicked[0] = false;
+						ctx.input.mouseClicked[1] = false;
+					}
 				}
 
 				// ── Barre d'outils du BAS (façon Claude Code / VSCode) : combos Mode/Portée/Édition
@@ -3129,9 +3201,12 @@ namespace nkentseu {
 						for (usize i = 0; i < mRlBuckets.Size(); ++i) {
 							const RlBucket &b = mRlBuckets[i];
 							const float32 frac = b.utilization < 0.f ? 0.f : (b.utilization > 1.f ? 1.f : b.utilization);
-							const NkColor barC = b.utilization >= 1.f  ? NkColor{225, 70, 70, 255}
-												  : b.surpassed		  ? NkColor{230, 160, 50, 255}
-																	  : NkColor{88, 209, 143, 255};
+							// Repli honnete : sans "surpassed" (rate_limit_event uniquement), un seuil
+							// simple sur l'utilisation evite qu'un bucket a 90% affiche vert (source
+							// /usage, qui ne fournit pas ce flag).
+							const NkColor barC = b.utilization >= 1.f					? NkColor{225, 70, 70, 255}
+												  : (b.surpassed || b.utilization >= 0.75f) ? NkColor{230, 160, 50, 255}
+																						  : NkColor{88, 209, 143, 255};
 							const NkString label = UsageBucketLabel(b.type);
 							txt(menu.x + pad, y, label.CStr(), ctx.theme.text, w - pad * 2.f - ctx.S(50.f));
 							const NkString pct = NkPrintf("%d%%", (int32)(b.utilization * 100.f + 0.5f));
@@ -3142,9 +3217,12 @@ namespace nkentseu {
 							dl.AddRectFilled(trk, ctx.theme.button, ctx.S(3.f));
 							dl.AddRectFilled({trk.x, trk.y, trk.w * frac, trk.h}, barC, ctx.S(3.f));
 							y += ctx.S(12.f);
-							NkString sub = b.resetsAt > 0
-											   ? NkPrintf("%s %s", NkT("ai.usage.resetsin"), RelTimeFromNow(b.resetsAt).CStr())
-											   : NkString();
+							NkString sub = !b.resetsText.Empty()
+											   ? NkPrintf("%s %s", NkT("ai.usage.resetsin"), b.resetsText.CStr())
+											   : b.resetsAt > 0
+													 ? NkPrintf("%s %s", NkT("ai.usage.resetsin"),
+																RelTimeFromNow(b.resetsAt).CStr())
+													 : NkString();
 							if (b.overage)
 								sub += sub.Empty() ? NkString(NkT("ai.usage.overage"))
 												   : (NkString("  \xC2\xB7  ") + NkT("ai.usage.overage"));
