@@ -590,6 +590,23 @@ int nkmain(const NkEntryState &state) {
 			const int32 targetIdx = (int32)(mediaClock * (float64)fps);
 			bool wrapped = false;
 			bool havePendingFrame = false; // décodée dans cette rafale, pas encore affichée
+			// ── Resynchronisation active (robustesse, demande Rihen 2026-07-21) ─────────
+			// Le rattrapage image-par-image ci-dessous a un plancher structurel : si le débit de
+			// décodage reste, même de peu, sous le débit requis, le retard croît lentement mais
+			// SANS BORNE au fil du temps (aucune régression par rapport au correctif précédent,
+			// mais pas non plus une garantie de "jamais de décalage" à elle seule). Ici : si le
+			// retard dépasse ~1,5 s de contenu, décoder puis jeter chaque image intermédiaire
+			// serait lui-même trop coûteux (des dizaines/centaines d'images) — on saute DIRECTEMENT
+			// au voisinage de la cible via `SeekFrame` (relance depuis l'IDR précédente, coût =
+			// distance au GOP, bien moindre qu'un rattrapage frame-par-frame sur un grand écart) ;
+			// ramène le décalage à quelques images (granularité GOP) en une seule opération, que le
+			// rattrapage normal ci-dessous referme ensuite. Best-effort : un échec (ex. cible hors
+			// bornes en fin de flux) retombe simplement sur le chemin normal, inchangé.
+			const int32 kHardResyncLagFrames = (int32)(fps * 1.5f);
+			if (!firstFrame && (targetIdx - reader.CurrentIndex()) > kHardResyncLagFrames) {
+				if (reader.SeekFrame(targetIdx) && reader.ReadFrame(fr))
+					havePendingFrame = true;
+			}
 			NkChrono burstTimer;
 			while ((firstFrame || reader.CurrentIndex() < targetIdx) &&
 				   burstTimer.Elapsed().ToMilliseconds() < 150.0) {

@@ -10,8 +10,9 @@
 | 1. Lecture vidéo | ✅ | `NkVideoReader` (MJPEG/AVI/MOV/MP4 H264 Main+High) → `NkTexture` |
 | 2. Sync A/V | ✅ | horloge maîtresse = audio streamé ; rattrapage à budget de temps ; **0 décalage mesuré** (voir NKMedia/ROADMAP.md) |
 | 3. Contrôles clavier | ✅ | pause/stop/seek pas-à-pas/vitesse/boucle/étalonnage couleur/LUT |
-| 4. **UI graphique (NKGui + NKEditorKit)** | ⬜ | à construire — voir plan détaillé ci-dessous |
-| 5. Seek H264 (scrubber) | 🚫 | **bloquant pour l'UI** : `NkVideoReader::SeekFrame` ne fonctionne PAS pour H264 (bug pré-existant, voir Bugs) |
+| 4. Seek H264 | ✅ | `NkVideoReader::SeekFrame` fonctionne désormais pour H264 (voir NKMedia/ROADMAP.md) — **plus de bloquant pour le scrubber UI** |
+| 5. Resynchronisation active | ✅ | retard \>1,5s → saut direct via SeekFrame au lieu de rattraper image par image |
+| 6. **UI graphique (NKGui + NKEditorKit)** | ⬜ | à construire — voir plan détaillé ci-dessous |
 
 ## Livré
 - **Lecteur clavier complet** (`src/main.cpp`) : `NkVideoReader` → `NkTexture` (NKCanvas),
@@ -23,6 +24,19 @@
   et corrigés dans `NKMedia/Video/NkVideoReader.cpp` (DPB + buffer de réordonnancement POC) —
   lag vidéo/audio mesuré à **0 en continu**. Détail complet : `Kernel/Runtime/NKMedia/ROADMAP.md`
   section « Bugs / limitations connues » + mémoire `[[project_nkmedia_video_reader]]`.
+- **`NkVideoReader::SeekFrame` réparé pour H264 (2026-07-21)** : localise l'IDR précédant la
+  cible et repositionne l'état de réordonnancement POC. Validé par `NkVideoReadTest --seektest`.
+  Débloque le scrubber UI (ci-dessous) ET permet la resynchronisation active.
+- **Resynchronisation active (2026-07-21, demande explicite Rihen : "jamais de décalage, robuste
+  à tout moment")** : si le retard vidéo/audio dépasse ~1,5s de contenu, le lecteur saute
+  directement au voisinage de la cible via `SeekFrame` (coût = distance au GOP) plutôt que de
+  laisser le rattrapage frame-par-frame lutter indéfiniment contre un débit de décodage
+  insuffisant. Complète (ne remplace pas) le rattrapage à budget de temps normal.
+  ⚠️ **Honnêteté** : ceci borne le décalage maximal observable (auto-correction après ~1,5s de
+  retard cumulé) — ce n'est PAS une preuve mathématique de débit temps réel garanti pour tout
+  contenu/matériel (un décodeur H264 scalaire ne peut pas l'offrir), mais un filet de sécurité
+  actif qui rattrape au lieu de laisser diverger. Testé 20s sans crash sur film réel (chemin de
+  resync non déclenché sur ce contenu — le débit normal suffit déjà après les fix perf).
 
 ## En cours / À venir
 
@@ -50,38 +64,19 @@ overlay NKGui par-dessus la surface vidéo).
    pour la position (0..durée) ET pour le volume, affichage temps courant/durée totale,
    bouton boucle, menu déroulant vitesse (0.1x..4x, déjà supporté côté moteur), menu
    étalonnage (6 presets + toggle LUT, déjà supporté côté moteur).
-3. **Binding position ↔ scrubber** : `SliderFloat` lu/écrit sur `mediaClock` (actuellement
-   piloté par `streamPlayer.GetPositionSeconds()`) — glisser le curseur doit appeler
-   `syncAudioTo(nouvelle_position)` + `reader.SeekFrame(...)`, **mais voir blocage ci-dessous**.
+3. **Binding position ↔ scrubber** : `SliderFloat` lu/écrit sur `mediaClock` — glisser le
+   curseur appelle `syncAudioTo(nouvelle_position)` + `reader.SeekFrame(...)`. **Prêt** :
+   `SeekFrame` fonctionne désormais pour H264 (livré ci-dessus), plus de blocage technique.
+   ⚠️ Le seek reste une APPROXIMATION granularité-GOP (repart de l'IDR précédente, pas d'un
+   accès frame-exact instantané) — comportement normal pour tout lecteur H264, à refléter dans
+   l'UX (ex. léger délai visible en glissant loin d'une image clé, comme dans VLC/YouTube).
 4. **Plein écran / redimensionnement** : déjà géré côté rendu (letterbox `sprite.SetScale`),
    l'UI NKGui doit juste se recaler à la taille fenêtre (`ctx` connaît déjà la taille via
    NKGui backend, cf. démos NKGui existantes).
 
-**⚠️ BLOQUANT identifié (2026-07-21) — le scrubber (glisser pour avancer/reculer) NE PEUT
-PAS fonctionner tant que `NkVideoReader::SeekFrame` reste cassé pour H264** : la fonction
-ne touche QUE `mImpl->cursor` (champ utilisé par les codecs MJPEG/RAWRGB/séquences), alors
-que le chemin H264 utilise un état de réordonnancement POC totalement séparé
-(`h264DecodeCursor`/`h264OutCount`/`h264Reorder`/`h264GopBase`, voir `NKMedia/Video/
-NkVideoReader.cpp`) que `SeekFrame` n'initialise jamais. Aujourd'hui, appeler `SeekFrame`
-sur un flux H264 ne fait RIEN de perceptible (juste un champ mort) — seul le seek au
-DÉMARRAGE (position 0, état déjà vierge) et le rebouclage (`SeekFrame(0)` en fin de
-lecture, même raison : état déjà proche de 0) fonctionnent PAR COÏNCIDENCE. Un vrai seek
-H264 nécessite : trouver l'IDR précédant la cible (table `stss`/keyframes déjà extraite au
-probe), réinitialiser `h264DecodeCursor` à cet IDR, vider `h264Reorder`/`h264ReorderKey`,
-réinitialiser `h264GopBase`/le DPB, puis décoder en avance jusqu'à la cible (coût = distance
-à l'IDR précédent, potentiellement plusieurs dizaines de frames sur un GOP long — normal,
-tous les lecteurs H264 ont ce comportement). **À corriger AVANT ou EN MÊME TEMPS que le
-scrubber UI** (sinon glisser la barre ne fera rien, régression perçue immédiatement par
-l'utilisateur). Documenté aussi dans `Kernel/Runtime/NKMedia/ROADMAP.md`.
-
-**Ordre de travail suggéré** : (a) fixer `SeekFrame` H264 d'abord (prérequis dur, sinon
-UI à moitié fonctionnelle) → (b) barre de contrôle NKGui minimale (play/pause/stop/volume/
-temps, PAS de scrubber tant que (a) n'est pas fait) → (c) scrubber une fois (a) livré →
-(d) polish (auto-hide, plein écran, playlist si besoin via NKEditorKit docking).
-
-## Bugs
-- 🚫 **`NkVideoReader::SeekFrame` cassé pour H264** (bloquant pour le scrubber UI ci-dessus) —
-  voir description complète ci-dessus et dans `Kernel/Runtime/NKMedia/ROADMAP.md`.
+**Ordre de travail suggéré** (le préalable SeekFrame étant réglé) : (a) barre de contrôle NKGui
+minimale (play/pause/stop/volume/temps) → (b) scrubber (position + drag-seek) → (c) polish
+(auto-hide, plein écran, playlist si besoin via NKEditorKit docking).
 
 ## Dépendances
 `NKMedia` (lecture vidéo), `NKAudio` + `NKAudio/Streaming` (audio streamé), `NKCanvas`/`NKRHI`
