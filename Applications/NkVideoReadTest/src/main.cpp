@@ -87,14 +87,37 @@ int main(int argc, char **argv) {
 		printf("  [ %s ] dimensions frame tag == entete IVF (%dx%d vs %ux%u)\n", dimsOk ? "OK " : "KO",
 			   tag.width, tag.height, ivfW, ivfH);
 
+		bool headerOk = true;
 		if (tag.keyFrame && tag.headerSize + tag.firstPartSize <= (usize)frame.Size()) {
 			NkVp8BoolDecoder bd(frame.Data() + tag.headerSize, (usize)tag.firstPartSize);
-			const int32 colorSpace = bd.GetFlag();
-			const int32 clampingType = bd.GetFlag();
-			printf("  1ere partition (decodeur booleen) : color_space=%d clamping_type=%d\n", colorSpace,
-				   clampingType);
+			NkVp8FrameContext fc;
+			NkVp8Segmentation seg;
+			NkVp8LoopFilterDeltas lfDeltas;
+			NkVp8FrameHeader hdr;
+			NkVp8ParseCompressedHeader(bd, tag.keyFrame, hdr, fc, seg, lfDeltas);
+			printf("  en-tete compresse : colorSpace=%d clamping=%d segEnabled=%d filterType=%d "
+				   "filterLevel=%d sharpness=%d lfDeltaEnabled=%d log2Partitions=%d baseQ=%d "
+				   "y1dcDQ=%d y2dcDQ=%d y2acDQ=%d uvdcDQ=%d uvacDQ=%d refreshEntropy=%d "
+				   "refreshLast=%d mbNoSkip=%d probSkipFalse=%d\n",
+				   hdr.colorSpace, hdr.clampingType, hdr.segmentationEnabled ? 1 : 0, hdr.filterType,
+				   hdr.filterLevel, hdr.sharpnessLevel, hdr.lfDeltaEnabled ? 1 : 0,
+				   hdr.log2NbrOfDctPartitions, hdr.baseQIndex, hdr.y1dcDeltaQ, hdr.y2dcDeltaQ,
+				   hdr.y2acDeltaQ, hdr.uvdcDeltaQ, hdr.uvacDeltaQ, hdr.refreshEntropyProbs ? 1 : 0,
+				   hdr.refreshLastFrame ? 1 : 0, hdr.mbNoSkipCoeff ? 1 : 0, hdr.probSkipFalse);
+			// Sanity structurelle (pas encore de decodage complet a comparer bit-a-bit) :
+			// plages valides + position finale du decodeur booleen a l'interieur (pas au-dela)
+			// de la 1ere partition, avec une marge pour le pre-chargement 2 octets a l'init.
+			const bool rangesOk = hdr.log2NbrOfDctPartitions >= 0 && hdr.log2NbrOfDctPartitions <= 3 &&
+								   hdr.baseQIndex >= 0 && hdr.baseQIndex <= 127 && hdr.filterLevel >= 0 &&
+								   hdr.filterLevel <= 63 && hdr.sharpnessLevel >= 0 && hdr.sharpnessLevel <= 7;
+			const bool posOk = bd.pos <= (usize)tag.firstPartSize + 2;
+			headerOk = rangesOk && posOk;
+			printf("  [ %s ] plages valides (log2Partitions/baseQ/filterLevel/sharpness)\n",
+				   rangesOk ? "OK " : "KO");
+			printf("  [ %s ] position decodeur booleen (%llu) <= firstPartSize (%u) + marge\n",
+				   posOk ? "OK " : "KO", (unsigned long long)bd.pos, tag.firstPartSize);
 		}
-		return dimsOk ? 0 : 1;
+		return (dimsOk && headerOk) ? 0 : 1;
 	}
 
 	// Mode validation SeekFrame H264 : --seektest <fichier.mp4/mov> <index affichage>

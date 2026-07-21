@@ -121,6 +121,17 @@ namespace nkentseu {
 					return -i;
 				}
 
+				// Motif "presence puis valeur signee" utilisé partout dans l'en-tête compressé
+				// (deltas de quantification §9.6, données de segmentation §9.3, deltas de
+				// filtre de boucle §9.4) : 1 bit de présence, si vrai magnitude sur n bits PUIS
+				// signe. Renvoie 0 si absent.
+				int32 GetOptionalSignedLiteral(int32 n) {
+					if (!GetFlag())
+						return 0;
+					const int32 mag = (int32)GetLiteral(n);
+					return GetFlag() ? -mag : mag;
+				}
+
 				bool Eof() const {
 					return pos >= size && bitCount == 0; // heuristique : plus d'octets neufs à charger
 				}

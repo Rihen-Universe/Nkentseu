@@ -16,6 +16,7 @@
 #pragma once
 
 #include "NKCore/NkTypes.h"
+#include "NKMedia/Codecs/Video/VP8/NkVp8BoolDecoder.h"
 
 namespace nkentseu {
 	namespace media {
@@ -63,6 +64,86 @@ namespace nkentseu {
 			out.headerSize = 10;
 			return true;
 		}
+
+		// §9.7/§16 (via entropymode.c/entropymv.c) : état PERSISTANT entre images — les
+		// probabilités "courantes" utilisées pour décoder. Réinitialisé aux tables par défaut
+		// sur CHAQUE image clé (`NkVp8ResetFrameContext`) ; muté EN PLACE par l'en-tête
+		// compressé de chaque image (token_prob_update §13.4 +, pour les images non-clés,
+		// mise à jour de ymode_prob/uv_mode_prob/mvc). ⚠️ Repli `refresh_entropy_probs==0` :
+		// l'appelant doit sauvegarder une COPIE avant d'appeler le parseur et la restaurer
+		// après le décodage complet de l'image si `header.refreshEntropyProbs==false` — ce
+		// parseur ne fait QUE la mutation "pour cette image", pas la logique de repli
+		// (pas encore de boucle de décodage complète à ce stade du chantier).
+		struct NkVp8FrameContext {
+				uint8 coefProbs[4][8][3][11];
+				uint8 yModeProb[4];
+				uint8 uvModeProb[3];
+				uint8 mvContext[2][19];
+		};
+
+		void NkVp8ResetFrameContext(NkVp8FrameContext &fc);
+
+		// §9.3 : état de segmentation (persistant, mais seulement les champs mis à jour
+		// CETTE image sont modifiés — voir `updateMbSegmentationData/Map` dans le header).
+		struct NkVp8Segmentation {
+				bool absDelta = false; // false = SEGMENT_DELTADATA, true = SEGMENT_ABSDATA
+				int32 featureData[2][4] = {}; // [0]=quant,[1]=loop filter ; par segment (4 max)
+				uint8 segmentTreeProbs[3] = {255, 255, 255};
+		};
+
+		// §9.4 : deltas de filtre de boucle par référence/mode (persistants).
+		struct NkVp8LoopFilterDeltas {
+				int8 refLfDeltas[4] = {};	// [intra, last, golden, altref]
+				int8 modeLfDeltas[4] = {}; // [B_PRED, ZEROMV, MV, SPLITMV]
+		};
+
+		// §9.2-9.11 : champs TRANSITOIRES de l'en-tête compressé d'UNE image (ne persistent
+		// pas tels quels — certains, comme les deltas de quantification, sont réappliqués
+		// depuis zéro à chaque image puisqu'ils sont eux-mêmes lus dans l'en-tête).
+		struct NkVp8FrameHeader {
+				// Clé uniquement (§9.2) :
+				int32 colorSpace = 0;
+				int32 clampingType = 0;
+				// Segmentation (§9.3) :
+				bool segmentationEnabled = false;
+				bool updateMbSegmentationMap = false;
+				bool updateMbSegmentationData = false;
+				// Filtre de boucle (§9.4) :
+				int32 filterType = 0; // 0 = normal, 1 = simple
+				int32 filterLevel = 0;
+				int32 sharpnessLevel = 0;
+				bool lfDeltaEnabled = false;
+				bool lfDeltaUpdate = false;
+				// Partitions (§9.5) :
+				int32 log2NbrOfDctPartitions = 0;
+				// Quantification (§9.6) :
+				int32 baseQIndex = 0;
+				int32 y1dcDeltaQ = 0, y2dcDeltaQ = 0, y2acDeltaQ = 0, uvdcDeltaQ = 0, uvacDeltaQ = 0;
+				// Rafraîchissement des tampons de référence (§9.7, non-clé uniquement) :
+				bool refreshGolden = false;
+				bool refreshAltRef = false;
+				int32 copyBufferToGf = 0;
+				int32 copyBufferToArf = 0;
+				bool signBiasGolden = false;
+				bool signBiasAltRef = false;
+				bool refreshEntropyProbs = false;
+				bool refreshLastFrame = false; // toujours vrai sur une image clé
+				// Skip de coefficients (§9.10) :
+				bool mbNoSkipCoeff = false;
+				int32 probSkipFalse = 0;
+				// Probabilités de mode/référence inter (§9.9, non-clé uniquement) :
+				int32 probIntra = 0, probLast = 0, probGf = 0;
+		};
+
+		// Parse l'en-tête compressé COMPLET (§9.2-9.11, tout ce qui précède le premier
+		// macrobloc) : segmentation, filtre de boucle, partitions, quantification,
+		// rafraîchissement, mise à jour des probabilités de token (mute `fc.coefProbs` EN
+		// PLACE via `kVp8CoefUpdateProbs`), skip de coefficients, et (images non-clés)
+		// probabilités de mode/référence + mise à jour ymode/uv_mode/mv (mute `fc` EN PLACE).
+		// `bd` doit déjà être initialisé sur la 1ère partition (voir NkVp8BoolDecoder::Init).
+		bool NkVp8ParseCompressedHeader(NkVp8BoolDecoder &bd, bool keyFrame, NkVp8FrameHeader &out,
+										 NkVp8FrameContext &fc, NkVp8Segmentation &seg,
+										 NkVp8LoopFilterDeltas &lfDeltas);
 
 	} // namespace media
 } // namespace nkentseu

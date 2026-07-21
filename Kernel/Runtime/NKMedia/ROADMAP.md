@@ -230,11 +230,38 @@
     `ffmpeg -c:v libvpx` — dimensions du frame tag **EXACTEMENT identiques** à l'en-tête IVF ET à
     `ffprobe` (176×144) ; `firstPartSize` plausible (611 o) ; le décodeur booléen s'initialise et
     décode `color_space`/`clamping_type` (2 premiers bits du header compressé) sans planter.
-  - **Reste (dans l'ordre logique)** : en-tête compressé complet §9.2-9.11 (segmentation optionnelle,
-    type+niveau+netteté du filtre de boucle, ajustements de filtre par mode/référence, index+deltas
-    de quantification, mise à jour des probabilités de token — table normative `coeff_update_probs`
-    **4×8×3×11 = 1056 entrées, à extraire par script depuis une source faisant autorité, PAS à la
-    main** — probabilités de mode intra/mv) ; prédiction intra (16×16 DC/V/H/TM, 4×4 B_PRED 10 modes,
+  - **Brique 3 — en-tête compressé COMPLET** (§9.2-9.11, `NkVp8Decoder.cpp`) : segmentation
+    optionnelle (§9.3), type+niveau+netteté du filtre de boucle + ajustements par mode/référence
+    (§9.4), nombre de partitions de coefficients (§9.5 — ⚠️ lu ENTRE le filtre de boucle et la
+    quantification, ordre PAS évident depuis la seule prose RFC, vérifié contre le décodeur de
+    référence libvpx `vp8_decode_frame`), quantification (§9.6), rafraîchissement des tampons de
+    référence (§9.7), **mise à jour des probabilités de token** (§13.4 — mute `NkVp8FrameContext.
+    coefProbs` EN PLACE via la table normative `kVp8CoefUpdateProbs`), skip de coefficients (§9.10),
+    et (images non-clés) probabilités de mode/référence inter + mise à jour ymode/uv_mode/mv (§9.9,
+    §17.2). **Tables normatives EXTRAITES PAR SCRIPT** (`scratchpad/vp8ref/extract.py`, PAS à la
+    main) depuis le source de référence libvpx (`webmproject/libvpx`, BSD) : `kVp8DefaultCoefProbs`
+    + `kVp8CoefUpdateProbs` (4×8×3×11 = 1056 entrées chacune), `kVp8KfBModeProb` (10×10×9),
+    `kVp8YModeProb`/`kVp8KfYModeProb`/`kVp8UvModeProb`/`kVp8KfUvModeProb`/`kVp8BModeProb`,
+    `kVp8DefaultMvContext`/`kVp8MvUpdateProbs` (2×19), `kVp8SubMvRefProb2`/`3`, `kVp8MbsplitProbs` —
+    dans `NkVp8Tables.inc` (fichier généré, régénérable, jamais édité à la main). ⭐ **Piège trouvé
+    dans le SCRIPT d'extraction lui-même** (pas dans les données) : les commentaires source du type
+    `/* Block Type ( 0 ) */`/`/* Coeff Band ( 7 )*/` contiennent des nombres littéraux qui polluaient
+    l'extraction par regex si non retirés AVANT le parsing numérique (décalait toute la séquence,
+    corruption silencieuse détectée par des assertions de sanity intégrées au script comparant les
+    premières/dernières valeurs connues du fichier source). ⭐⭐ **2e piège, dans le GÉNÉRATEUR de
+    C++ imbriqué** : le générateur ajoutait un niveau d'accolades FANTÔME (`= {` littéral en plus de
+    l'accolade déjà fournie par la fonction récursive d'imbrication) → `excess elements in scalar
+    initializer` dès le tout premier élément à la compilation — trouvé en isolant le problème sur un
+    cas jouet `[2][2][2][2]` compilé avec `-fsyntax-only` (méthode : ne PAS deviner depuis l'erreur
+    du compilateur sur les 1056 valeurs réelles, réduire au plus petit cas reproductible).
+  - **Validé** (`NkVideoReadTest --vp8header`, harnais étendu) sur le même fichier VP8 réel : tous
+    les champs de l'en-tête dans des plages valides (baseQ=12 cohérent avec `-qmin 10 -qmax 42` de
+    l'encodage, filterLevel=8, log2Partitions=0, refreshEntropy/Last=1 comme attendu sur une image
+    clé), et surtout la position finale du décodeur booléen (283 octets) reste **À L'INTÉRIEUR** de
+    la 1ère partition (611 octets) avec une marge plausible pour le décodage des modes par macrobloc
+    (~99 MB restants pour ce flux 176×144) — cohérence structurelle forte, pas encore une preuve
+    bit-exacte (pas de décodage complet à comparer à ce stade).
+  - **Reste (dans l'ordre logique)** : prédiction intra (16×16 DC/V/H/TM, 4×4 B_PRED 10 modes,
     chroma 8×8) ; prédiction inter (vecteurs de mouvement, interpolation sous-pel 6-tap différente de
     H.264) ; transformée (WHT 4×4 pour le DC luma en mode 16×16 + IDCT 4×4) ; décodage des coefficients
     résiduels (tokens, contexte par bande/position) ; filtre de boucle (normal/simple, par arête de MB).
