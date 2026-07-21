@@ -186,6 +186,13 @@ namespace nkentseu {
 					const NkRect r = dl.CurrentClip();
 					if (mChats.Empty())
 						NewChat(); // 1re conversation (locale correcte : posée après construction)
+					// Compte & Usage : lance les requetes DES l'entree dans le panneau (pas
+					// besoin d'ouvrir le popover ni d'avoir ecrit un prompt) — le calcul est
+					// deja pret des que l'utilisateur regarde "Compte et utilisation".
+					if (!mAutoUsageFetched) {
+						mAutoUsageFetched = true;
+						EnsureUsageDataFetching();
+					}
 					Poll(); // draine la réponse en cours
 
 					// ── CIBLE de DRAG & DROP (explorateur interne + OS) : ajoute le(s) chemin(s)
@@ -632,6 +639,7 @@ namespace nkentseu {
 				NkString mQuickUsageBuf;
 				bool mQuickUsageRequested = false;
 				NkString mQuickUsageText; // texte brut renvoye par /usage (vide = jamais recu)
+				bool mAutoUsageFetched = false; // declenche EnsureUsageDataFetching() une fois a l'entree du panneau
 				int32 mUsagePeriod = 0;	  // bascule "contributing to your limits usage" : 0 Jour, 1 Semaine
 
 				// Decoupe mQuickUsageText en 3 : preambule (avant "Last 24h"), bloc Jour
@@ -665,24 +673,30 @@ namespace nkentseu {
 					}
 				}
 
-				// Ouvre le popover "Compte et utilisation" et lance les requetes REELLES qui
-				// l'alimentent (rafraichies a CHAQUE ouverture — les % changent en continu, une
-				// capture "une fois pour la session" restait affichee perimee) — factorise ici
-				// pour que les DEUX
-				// points d'entree (lien "Voir l'utilisation" de la banniere ET item du panneau
-				// Actions) declenchent bien les MEMES requetes (bug corrige : la banniere
-				// n'ouvrait que le popover vide, sans jamais lancer "claude auth status --json"
-				// ni "/usage").
-				void OpenUsagePopover() {
-					mUsageOpen = true;
-					mUsageJustOpened = true;
-					if (mKind == 1 && !mAcctLoaded && !mAcctRequested && !ClaudeExe().Empty()) {
+				// Lance les requetes REELLES (compte + /usage) si pas deja en cours —
+				// factorise pour etre appelable SOIT au clic explicite "Voir l'utilisation"/
+				// "Compte et utilisation", SOIT en arriere-plan des l'entree dans le panneau
+				// (voir l'appel dans OnUI) : le temps que l'utilisateur ouvre le popover, les
+				// donnees sont deja pretes (plus de "Chargement..." ni d'attente au clic).
+				void EnsureUsageDataFetching() {
+					if (mKind != 1)
+						return;
+					if (!mAcctLoaded && !mAcctRequested && !ClaudeExe().Empty()) {
 						mAcctRequested = true;
 						mAcctLines.Clear();
 						mAcctProc.Start(NkWin32QuoteArg(ClaudeExe().CStr()) + " auth status --json");
 					}
-					if (mKind == 1)
-						TriggerQuickUsage();
+					TriggerQuickUsage();
+				}
+
+				// Ouvre le popover "Compte et utilisation" — les requetes qui l'alimentent sont
+				// normalement DEJA en cours/faites (declenchees a l'entree du panneau, cf.
+				// EnsureUsageDataFetching) ; ce rappel couvre le cas ou l'utilisateur rouvre le
+				// popover APRES un premier essai infructueux (pas de latch definitif en echec).
+				void OpenUsagePopover() {
+					mUsageOpen = true;
+					mUsageJustOpened = true;
+					EnsureUsageDataFetching();
 				}
 
 				void TriggerQuickUsage() {
