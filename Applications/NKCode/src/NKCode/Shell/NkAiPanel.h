@@ -2339,26 +2339,6 @@ namespace nkentseu {
 					// frame — bug remonte par Rihen). Remis a 0 explicitement a la fermeture.
 					if (ctx.popupDepth == 0)
 						ctx.popupDepth = 1;
-					// ItemHoverable() exclut de l'interaction tout widget dont le niveau de
-					// popup courant est INFERIEUR a un niveau de popupRects[] existant sous la
-					// souris (z-ordre) : en renseignant popupRects[0] plus bas (necessaire pour
-					// que NkGuiContext::Update() ne reinitialise pas popupDepth au clic suivant),
-					// le contenu de CE panneau — dessine au niveau -1 par defaut — se serait
-					// exclu LUI-MEME (plus aucun bouton/ligne/champ ne recevait de clic, cf. bug
-					// remonte par Rihen). Se hisser au niveau 0 (comme BeginPopupLevel le fait
-					// pour les popups natifs) l'exempte de sa propre exclusion. RAII : restaure
-					// le niveau d'origine a la sortie, quel que soit le chemin.
-					struct PopupLevelGuard {
-							NkGuiContext *c = nullptr;
-							int32 saved = -1;
-							~PopupLevelGuard() {
-								if (c)
-									c->curPopupLevel = saved;
-							}
-					} plGuard;
-					plGuard.c = &ctx;
-					plGuard.saved = ctx.curPopupLevel;
-					ctx.curPopupLevel = 0;
 					auto &dl = ctx.DL();
 					const NkGuiFont *font = ctx.font;
 					const NkVec2 mp = ctx.input.mousePos;
@@ -2458,15 +2438,6 @@ namespace nkentseu {
 						menu.x = bounds.x + bounds.w - ctx.S(4.f) - menu.w;
 					if (menu.x < bounds.x + ctx.S(4.f))
 						menu.x = bounds.x + ctx.S(4.f);
-					// NkGuiContext::Update() (debut de frame, AVANT que ce panneau ne s'execute)
-					// reinitialise ctx.popupDepth a 0 des qu'un clic tombe hors de
-					// popupRects[0]/popupAnchor — jamais renseignes jusqu'ici pour ce panneau,
-					// donc CHAQUE clic (meme sur le panneau lui-meme) faisait retomber popupDepth
-					// a 0 AVANT que la force plus haut ne le remette a 1, laissant largement le
-					// temps aux AUTRES panneaux (traites plus tot dans la frame) de reagir au
-					// meme clic entretemps. Renseignes ici pour la frame SUIVANTE.
-					ctx.popupRects[0] = menu;
-					ctx.popupAnchor = mActionsAnchor;
 					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(8.f));
 					dl.AddRect(menu, ctx.theme.border, 1.f);
 
