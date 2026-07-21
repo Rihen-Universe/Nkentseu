@@ -632,6 +632,38 @@ namespace nkentseu {
 				NkString mQuickUsageBuf;
 				bool mQuickUsageRequested = false;
 				NkString mQuickUsageText; // texte brut renvoye par /usage (vide = jamais recu)
+				int32 mUsagePeriod = 0;	  // bascule "contributing to your limits usage" : 0 Jour, 1 Semaine
+
+				// Decoupe mQuickUsageText en 3 : preambule (avant "Last 24h"), bloc Jour
+				// ("Last 24h" -> "Last 7d"), bloc Semaine ("Last 7d" -> fin). Repli honnete :
+				// si les marqueurs ne sont pas trouves (format different), preamble recoit le
+				// texte ENTIER tel quel (aucune donnee perdue, juste pas de bascule).
+				void SplitQuickUsageDetail(NkString &preamble, NkString &dayBlock, NkString &weekBlock) const {
+					preamble.Clear();
+					dayBlock.Clear();
+					weekBlock.Clear();
+					const char *base = mQuickUsageText.CStr();
+					const char *d = NkFindSub(base, "Last 24h");
+					if (!d) {
+						preamble = mQuickUsageText;
+						preamble.Trim();
+						return;
+					}
+					for (const char *q = base; q < d; ++q)
+						preamble += *q;
+					preamble.Trim();
+					const char *w = NkFindSub(d, "Last 7d");
+					if (w) {
+						for (const char *q = d; q < w; ++q)
+							dayBlock += *q;
+						dayBlock.Trim();
+						weekBlock = NkString(w);
+						weekBlock.Trim();
+					} else {
+						dayBlock = NkString(d);
+						dayBlock.Trim();
+					}
+				}
 
 				// Ouvre le popover "Compte et utilisation" et lance les requetes REELLES qui
 				// l'alimentent (rafraichies a CHAQUE ouverture — les % changent en continu, une
@@ -3132,9 +3164,25 @@ namespace nkentseu {
 					// seule source qui rapporte TOUJOURS session + semaine ensemble (bien plus
 					// fiable que les buckets rate_limit_event, qui n'en rapportent qu'un a la fois).
 					const bool hasQuickUsage = !mQuickUsageText.Empty();
-					NkVector<NkString> quickLines;
-					if (hasQuickUsage)
-						WrapTextLines(font, mQuickUsageText.CStr(), w - pad * 2.f, quickLines);
+					// Bascule Jour/Semaine (comme la reference VSCode fournie par Rihen) : le
+					// texte /usage contient un bloc "Last 24h" et un bloc "Last 7d" distincts —
+					// on n'affiche QUE celui selectionne, pas les deux empiles.
+					NkString qPreamble, qDayBlock, qWeekBlock;
+					NkVector<NkString> quickLines;		 // preambule (session/semaine deja couverts par
+														 // les barres ; garde juste l'intro + disclaimer)
+					NkVector<NkString> quickPeriodLines; // bloc Jour OU Semaine selon mUsagePeriod
+					bool hasPeriodToggle = false;
+					if (hasQuickUsage) {
+						SplitQuickUsageDetail(qPreamble, qDayBlock, qWeekBlock);
+						hasPeriodToggle = !qDayBlock.Empty() && !qWeekBlock.Empty();
+						if (!qPreamble.Empty())
+							WrapTextLines(font, qPreamble.CStr(), w - pad * 2.f, quickLines);
+						const NkString &sel =
+							hasPeriodToggle ? (mUsagePeriod == 0 ? qDayBlock : qWeekBlock)
+											: (qDayBlock.Empty() ? qWeekBlock : qDayBlock);
+						if (!sel.Empty())
+							WrapTextLines(font, sel.CStr(), w - pad * 2.f, quickPeriodLines);
+					}
 					// Section ACCOUNT ("claude auth status --json", cf. PollAccountStatus) :
 					// 4 lignes fixes (Auth method/Email/Organisation/Plan) si les identifiants
 					// sont bien charges ET valides — sinon 1 ligne d'etat honnete (chargement/
@@ -3146,8 +3194,12 @@ namespace nkentseu {
 					float32 h = pad * 2.f + it;
 					if (mKind == 1)
 						h += it + (hasAcct ? it * 4.f : it) + sepH;
-					if (hasQuickUsage)
-						h += it + static_cast<float32>(quickLines.Size()) * it + sepH;
+					if (hasQuickUsage) {
+						h += it + static_cast<float32>(quickLines.Size()) * it;
+						if (hasPeriodToggle)
+							h += it; // ligne des boutons Jour/Semaine
+						h += static_cast<float32>(quickPeriodLines.Size()) * it + sepH;
+					}
 					if (!hasBuckets && !hasModels && !hasQuickUsage)
 						h += it;
 					if (hasBuckets)
@@ -3215,13 +3267,40 @@ namespace nkentseu {
 						y += sepH;
 					}
 					// Detail "/usage" : capture INTEGRALE (session + semaine + repartition), texte
-					// libre du CLI reproduit tel quel, jamais reformule/invente.
+					// libre du CLI reproduit tel quel, jamais reformule/invente. Bascule Jour/
+					// Semaine (comme la reference VSCode) : n'affiche que le bloc selectionne.
 					if (hasQuickUsage) {
 						sectionHdr(y, NkT("ai.usage.section.detail"));
 						y += it;
 						for (usize i = 0; i < quickLines.Size(); ++i) {
 							if (!quickLines[i].Empty())
 								txt(menu.x + pad, y, quickLines[i].CStr(), ctx.theme.text, w - pad * 2.f);
+							y += it;
+						}
+						if (hasPeriodToggle) {
+							const char *tabs[2] = {NkT("ai.usage.day"), NkT("ai.usage.week")};
+							float32 tx = menu.x + pad;
+							for (int32 ti = 0; ti < 2; ++ti) {
+								const float32 tw =
+									(font && font->Valid() ? font->MeasureWidth(tabs[ti]) : 40.f) + ctx.S(16.f);
+								const NkRect tr = {tx, y, tw, it - ctx.S(4.f)};
+								const bool sel = (mUsagePeriod == ti);
+								const bool hov = NkGuiRectContains(tr, mp);
+								dl.AddRectFilled(tr, sel ? ctx.theme.buttonActive : (hov ? ctx.theme.buttonHover : ctx.theme.button),
+												 ctx.S(4.f));
+								if (font && font->Valid())
+									txt(tr.x + ctx.S(8.f), tr.y + ctx.S(2.f), tabs[ti], ctx.theme.text);
+								if (hov && ctx.input.mouseClicked[0]) {
+									mUsagePeriod = ti;
+									ctx.input.mouseClicked[0] = false;
+								}
+								tx += tw + ctx.S(6.f);
+							}
+							y += it;
+						}
+						for (usize i = 0; i < quickPeriodLines.Size(); ++i) {
+							if (!quickPeriodLines[i].Empty())
+								txt(menu.x + pad, y, quickPeriodLines[i].CStr(), ctx.theme.text, w - pad * 2.f);
 							y += it;
 						}
 						y += sepH;
