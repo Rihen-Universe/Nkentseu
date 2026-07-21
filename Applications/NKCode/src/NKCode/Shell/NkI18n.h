@@ -873,7 +873,7 @@ namespace nkentseu {
 				 {"COÛT PAR MODÈLE", "COST BY MODEL", "COSTE POR MODELO", "CUSTO POR MODELO", "KOSTEN PRO MODELL",
 				  "COSTO PER MODELLO", "СТОИМОСТЬ ПО МОДЕЛЯМ", "COÛT PAR MODÈLE"}},
 				{"ai.usage.bucket.session",
-				 {"Session (5h)", "Session (5h)", "Sesión (5h)", "Sessão (5h)", "Sitzung (5h)", "Sessione (5h)",
+				 {"Session (5h)", "Session (5hr)", "Sesión (5h)", "Sessão (5h)", "Sitzung (5h)", "Sessione (5h)",
 				  "Сессия (5ч)", "Session (5h)"}},
 				{"ai.usage.bucket.weekly7",
 				 {"Hebdomadaire (7 jours)", "Weekly (7 day)", "Semanal (7 días)", "Semanal (7 dias)",
