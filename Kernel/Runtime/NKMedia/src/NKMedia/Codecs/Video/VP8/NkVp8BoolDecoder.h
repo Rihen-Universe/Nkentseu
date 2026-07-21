@@ -42,14 +42,27 @@ namespace nkentseu {
 					Init(d, n);
 				}
 
+				// Nombre d'octets demandés AU-DELÀ de la fin du tampon. Le décodeur booléen lit
+				// structurellement ~2 octets d'avance (pré-chargement à l'init + renormalisation),
+				// donc une valeur de 1-2 en fin de partition est NORMALE et n'indique pas une
+				// erreur. En revanche une valeur qui s'envole signale un désalignement du
+				// bitstream. ⚠️ Indispensable comme contrôle : `pos` seul est plafonné à `size`
+				// (voir NextByte), donc `pos == size` NE distingue PAS "tout consommé" de
+				// "consommé puis débordé silencieusement".
+				int32 overreadBytes = 0;
+
 				uint8 NextByte() {
-					return (pos < size) ? buf[pos++] : 0; // 0 au-delà de la fin (comportement standard)
+					if (pos < size)
+						return buf[pos++];
+					++overreadBytes;
+					return 0; // 0 au-delà de la fin (comportement standard)
 				}
 
 				void Init(const uint8 *d, usize n) {
 					buf = d;
 					size = n;
 					pos = 0;
+					overreadBytes = 0;
 					value = ((uint32)NextByte() << 8);
 					value |= NextByte();
 					range = 255;

@@ -116,6 +116,72 @@ int main(int argc, char **argv) {
 				   rangesOk ? "OK " : "KO");
 			printf("  [ %s ] position decodeur booleen (%llu) <= firstPartSize (%u) + marge\n",
 				   posOk ? "OK " : "KO", (unsigned long long)bd.pos, tag.firstPartSize);
+
+			// ── Brique 4 : modes de tous les macroblocs (image cle) ──────────────────
+			const int32 mbCols = (tag.width + 15) / 16;
+			const int32 mbRows = (tag.height + 15) / 16;
+			NkVector<NkVp8MbModeInfo> mbInfo;
+			if (NkVp8DecodeKeyFrameModes(bd, hdr, seg, mbCols, mbRows, mbInfo)) {
+				const int32 stride = mbCols + 1;
+				int32 yModeCount[5] = {0, 0, 0, 0, 0};
+				int32 uvModeCount[4] = {0, 0, 0, 0};
+				int32 bModeCount[10] = {};
+				int32 nSkip = 0, nBad = 0, nBpred = 0;
+				for (int32 r = 0; r < mbRows; ++r) {
+					for (int32 c = 0; c < mbCols; ++c) {
+						const NkVp8MbModeInfo &mi = mbInfo[(uint64)(r + 1) * stride + (c + 1)];
+						if (mi.yMode > 4 || mi.uvMode > 3)
+							++nBad;
+						else {
+							++yModeCount[mi.yMode];
+							++uvModeCount[mi.uvMode];
+						}
+						if (mi.skipCoeff)
+							++nSkip;
+						if (mi.yMode == kVp8MbBPred) {
+							++nBpred;
+							for (int32 b = 0; b < 16; ++b) {
+								if (mi.bModes[b] > 9)
+									++nBad;
+								else
+									++bModeCount[mi.bModes[b]];
+							}
+						}
+					}
+				}
+				printf("  modes MB (%dx%d = %d MB) : yMode DC=%d V=%d H=%d TM=%d B_PRED=%d | "
+					   "uvMode DC=%d V=%d H=%d TM=%d | skip=%d\n",
+					   mbCols, mbRows, mbCols * mbRows, yModeCount[0], yModeCount[1], yModeCount[2],
+					   yModeCount[3], yModeCount[4], uvModeCount[0], uvModeCount[1], uvModeCount[2],
+					   uvModeCount[3], nSkip);
+				if (nBpred > 0) {
+					printf("  sous-modes 4x4 (%d MB en B_PRED) : DC=%d TM=%d VE=%d HE=%d LD=%d "
+						   "RD=%d VR=%d VL=%d HD=%d HU=%d\n",
+						   nBpred, bModeCount[0], bModeCount[1], bModeCount[2], bModeCount[3],
+						   bModeCount[4], bModeCount[5], bModeCount[6], bModeCount[7], bModeCount[8],
+						   bModeCount[9]);
+				}
+				// CONTROLE LE PLUS FORT disponible a ce stade (pas encore de pixels a comparer
+				// a une reference) : le decodage de l'en-tete + des 99 MB doit consommer la 1ere
+				// partition ENTIEREMENT et SANS deborder. Un desalignement du bitstream (champ
+				// mal ordonne, mauvais arbre, table de probas fausse) ferait diverger la
+				// consommation et raterait la borne. ⚠️ `bd.pos` seul ne suffit PAS (plafonne a
+				// `size`) -> on verifie AUSSI `overreadBytes`, dont 1-2 est normal (le decodeur
+				// booleen lit structurellement ~2 octets d'avance).
+				const bool modesValidOk = (nBad == 0);
+				const bool fullyConsumed = (bd.pos == (usize)tag.firstPartSize);
+				const bool noWildOverread = (bd.overreadBytes <= 2);
+				printf("  [ %s ] tous les modes dans des plages valides (%d invalides)\n",
+					   modesValidOk ? "OK " : "KO", nBad);
+				printf("  [ %s ] 1ere partition consommee EXACTEMENT : %llu / %u octets "
+					   "(depassement=%d, <=2 normal)\n",
+					   (fullyConsumed && noWildOverread) ? "OK " : "KO", (unsigned long long)bd.pos,
+					   tag.firstPartSize, bd.overreadBytes);
+				headerOk = headerOk && modesValidOk && fullyConsumed && noWildOverread;
+			} else {
+				printf("  [KO] NkVp8DecodeKeyFrameModes a echoue\n");
+				headerOk = false;
+			}
 		}
 		return (dimsOk && headerOk) ? 0 : 1;
 	}
