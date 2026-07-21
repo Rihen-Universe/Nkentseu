@@ -314,6 +314,39 @@ déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré 
   temps était HORS du décodeur, dans la couche lecteur/gestion mémoire, pas dans le calcul pixel).
   Le lecteur (`NkVideoPlayer`) garde son fix de rattrapage à budget de temps (ci-dessus) en filet de
   sécurité pour tout contenu qui resterait malgré tout trop lourd (résolutions/profils plus exigeants).
+- ✅ **CORRIGÉ (2026-07-21) — 2e bug de copie profonde, trouvé par échantillonnage `gdb`, PAS par
+  hypothèse.** Après le fix DPB ci-dessus, Rihen a re-testé et signalé "c'est toujours lent" — la
+  divergence vidéo/audio ne partait plus en vrille mais **continuait de croître** (~4 frames/s de
+  retard, mesuré). Le fix DPB touchait `NkH264Decoder`/le DPB de référence, **PAS** le chemin de
+  sortie du lecteur. Méthode : lancer `NkVideoPlayer` en tâche de fond, l'attacher avec `gdb -p <pid>`
+  et prendre ~8 relevés de pile (`thread apply all bt`) espacés de ~0,6 s pendant qu'il tourne — **6/8
+  relevés du thread principal étaient dans `NkVector<uint8>::operator=` appelé DIRECTEMENT depuis
+  `NkVideoReader::ReadFrame`**, hors du décodeur. Cause : le buffer de réordonnancement POC (`h264Reorder`,
+  `NkVector<NkH264Frame>`… en réalité `NkVector<NkVideoFrame>`, chacune portant un buffer RGBA COMPLET
+  ~1 Mo à 720×360) était **COPIÉ (pas déplacé)** à 3 endroits : `out = h264Reorder[best]` (l'image
+  extraite pour affichage), le décalage de compaction (`h264Reorder[k-1] = h264Reorder[k]`, jusqu'à
+  ~4 fois), et le `PushBack` initial après décodage — jusqu'à **4-5 copies de ~1 Mo PAR IMAGE SORTIE**.
+  **Fix** : `traits::NkMove` aux 3 points. **Résultat mesuré** : lag vidéo/audio **= 0, en continu sur
+  14 s** (`idx == target` à chaque échantillon, contre un retard croissant avant ce fix). Bit-exact
+  non régressé (ce fix ne touche que des déplacements de `NkVideoFrame`, aucune logique de décodage).
+  ⭐ **Leçon de méthode #2** : quand l'instrumentation `NkChrono` par phase ne couvre pas TOUT le
+  chemin (ici, elle couvrait `Impl::Decode` mais pas la boucle de réordonnancement dans `ReadFrame`
+  qui l'appelle), un échantillonnage par débogueur (`gdb -p <pid>` + `bt` répété, sans même recompiler
+  en Debug — les symboles Release suffisaient) révèle la fonction chaude SANS avoir à deviner où
+  ajouter le prochain timer. À réutiliser en premier réflexe si un profilage par phase laisse un
+  écart inexpliqué entre le temps mesuré et le temps réel observé.
+- 🚫 **`NkVideoReader::SeekFrame` ne fonctionne PAS pour le codec H264** (bug préexistant, découvert
+  en creusant le bug de copie ci-dessus, non corrigé) : la fonction ne modifie que `mImpl->cursor`,
+  un champ utilisé par les codecs MJPEG/RAWRGB/séquences — le chemin H264 (`ReadFrame`) utilise un
+  état de réordonnancement POC totalement séparé (`h264DecodeCursor`/`h264OutCount`/`h264Reorder`/
+  `h264GopBase`) que `SeekFrame` n'initialise jamais. Un appel à `SeekFrame` sur un flux H264 est donc
+  un no-op silencieux (fonctionne par coïncidence seulement au tout début de lecture et au rebouclage,
+  où cet état est déjà proche de zéro). **Bloquant pour tout scrubber/seek UI** (voir
+  `Applications/NkVideoPlayer/ROADMAP.md` — plan UI NKGui/NKEditorKit). Fix nécessaire : localiser
+  l'IDR précédant la cible (table keyframes déjà extraite au probe), réinitialiser
+  `h264DecodeCursor`/vider `h264Reorder`+`h264ReorderKey`/réinitialiser `h264GopBase` et le DPB, puis
+  décoder en avance jusqu'à la cible (coût = distance à l'IDR précédent, comportement normal pour
+  tout lecteur H264).
 
 ## Dépendances
 Foundation (NKCore/NKMemory/NKContainers/NKMath) + NKStream/NKFileSystem (I/O). Consommateurs visés :
