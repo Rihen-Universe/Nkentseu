@@ -39,7 +39,7 @@ namespace nkentseu {
 				return ((uint64)RdU32BE(p) << 32) | (uint64)RdU32BE(p + 4);
 			}
 
-			enum class Backend { NONE, AVI, MOV, WEBM, SEQUENCE };
+			enum class Backend { NONE, AVI, MOV, WEBM, TS, SEQUENCE };
 			enum class Codec { NONE, MJPEG, RAWRGB, H264 };
 
 			// Référence d'une image encodée dans le buffer fichier (offset+taille).
@@ -193,6 +193,115 @@ namespace nkentseu {
 				}
 			}
 
+			// ── MPEG Transport Stream (TS/M2TS) — découverte des PID ──────────────────────
+			// Paquets fixes 188 octets (sync byte 0x47). M2TS/BDAV ajoute un préfixe de 4 octets
+			// avant chaque paquet (192 octets de foulée) — détecté en cherchant le plus petit
+			// stride pour lequel le sync byte retombe pile sur plusieurs paquets consécutifs.
+			int32 DetectTsPacketSize(const uint8 *d, usize n) {
+				const int32 strides[2] = {188, 192};
+				for (int32 si = 0; si < 2; ++si) {
+					const int32 stride = strides[si];
+					const int32 syncOff = (stride == 192) ? 4 : 0;
+					if ((usize)(syncOff + 188) > n)
+						continue;
+					const usize maxPkts = n / (usize)stride;
+					const int32 need = maxPkts < 8 ? (int32)maxPkts : 8;
+					if (need < 1)
+						continue;
+					bool good = true;
+					for (int32 i = 0; i < need; ++i) {
+						const usize p = (usize)i * (usize)stride + (usize)syncOff;
+						if (p >= n || d[p] != 0x47) {
+							good = false;
+							break;
+						}
+					}
+					if (good)
+						return stride;
+				}
+				return 0;
+			}
+
+			// Cherche le PID du PMT en parsant le PAT (PID 0, table_id 0x00). Ne gère qu'un PAT
+			// tenant dans UN SEUL paquet TS (cas quasi universel en pratique).
+			int32 FindPmtPid(const uint8 *d, usize n, int32 pktSize, int32 syncOff) {
+				for (usize p = (usize)syncOff; p + 188 <= n; p += (usize)pktSize) {
+					if (d[p] != 0x47)
+						continue;
+					const int32 pid = (((int32)(d[p + 1] & 0x1F)) << 8) | d[p + 2];
+					if (pid != 0)
+						continue;
+					if ((d[p + 1] & 0x40) == 0) // payload_unit_start_indicator
+						continue;
+					const int32 afc = (d[p + 3] >> 4) & 0x3;
+					usize payload = p + 4;
+					if (afc == 2)
+						continue; // adaptation seule, pas de payload
+					if (afc == 3) {
+						const int32 al = d[payload];
+						payload += 1 + (usize)al;
+					}
+					if (payload >= p + 188)
+						continue;
+					const usize sec = payload + 1 + (usize)d[payload]; // + pointer_field
+					if (sec + 8 > p + 188 || d[sec] != 0x00)			// table_id PAT
+						continue;
+					const int32 sectionLen = (((int32)(d[sec + 1] & 0x0F)) << 8) | d[sec + 2];
+					const usize secEnd = sec + 3 + (usize)sectionLen;
+					usize q = sec + 8; // après table_id..last_section_number
+					while (secEnd >= 4 && q + 4 <= secEnd - 4 && q + 4 <= p + 188) {
+						const int32 progNum = ((int32)d[q] << 8) | d[q + 1];
+						const int32 progPid = (((int32)(d[q + 2] & 0x1F)) << 8) | d[q + 3];
+						if (progNum != 0)
+							return progPid; // 1er programme (pas le NIT, program_number 0)
+						q += 4;
+					}
+					break; // PAT trouvé mais aucun programme -> échec
+				}
+				return -1;
+			}
+
+			// Cherche le PID vidéo H264 (stream_type 0x1B) en parsant le PMT du programme trouvé
+			// ci-dessus. Autres stream_types (HEVC 0x24, MPEG-2 0x02…) ignorés (pas de décodeur).
+			int32 FindVideoPid(const uint8 *d, usize n, int32 pktSize, int32 syncOff, int32 pmtPid) {
+				for (usize p = (usize)syncOff; p + 188 <= n; p += (usize)pktSize) {
+					if (d[p] != 0x47)
+						continue;
+					const int32 pid = (((int32)(d[p + 1] & 0x1F)) << 8) | d[p + 2];
+					if (pid != pmtPid)
+						continue;
+					if ((d[p + 1] & 0x40) == 0)
+						continue;
+					const int32 afc = (d[p + 3] >> 4) & 0x3;
+					usize payload = p + 4;
+					if (afc == 2)
+						continue;
+					if (afc == 3) {
+						const int32 al = d[payload];
+						payload += 1 + (usize)al;
+					}
+					if (payload >= p + 188)
+						continue;
+					const usize sec = payload + 1 + (usize)d[payload];
+					if (sec + 12 > p + 188 || d[sec] != 0x02) // table_id PMT
+						continue;
+					const int32 sectionLen = (((int32)(d[sec + 1] & 0x0F)) << 8) | d[sec + 2];
+					const usize secEnd = sec + 3 + (usize)sectionLen;
+					const int32 programInfoLen = (((int32)(d[sec + 10] & 0x0F)) << 8) | d[sec + 11];
+					usize q = sec + 12 + (usize)programInfoLen;
+					while (secEnd >= 4 && q + 5 <= secEnd - 4 && q + 5 <= p + 188) {
+						const int32 streamType = d[q];
+						const int32 elemPid = (((int32)(d[q + 1] & 0x1F)) << 8) | d[q + 2];
+						const int32 esInfoLen = (((int32)(d[q + 3] & 0x0F)) << 8) | d[q + 4];
+						if (streamType == 0x1B) // H.264/AVC
+							return elemPid;
+						q += 5 + (usize)esInfoLen;
+					}
+					break;
+				}
+				return -1;
+			}
+
 		} // namespace
 
 		struct NkVideoReader::Impl {
@@ -268,26 +377,38 @@ namespace nkentseu {
 				// Index des images clés (IDR) en ORDRE DE DÉCODAGE, requis pour SeekFrame : un
 				// échantillon AVCC peut contenir plusieurs NAL (longueur-préfixées, `nalLenSize`
 				// octets) ; il est IDR si l'une d'elles a type=5. Scan une seule fois à l'ouverture
-				// (pas de décodage, juste les en-têtes NAL). Partagé par ParseMov et ParseWebm.
+				// (pas de décodage, juste les en-têtes NAL). Partagé par ParseMov/ParseWebm (AVCC,
+				// longueur-préfixé) ET ParseTs (Annex-B, start codes — `backend` DOIT être posé
+				// AVANT cet appel pour ces deux conventions, contrairement à `nalLenSize`).
 				void ScanH264Keyframes() {
 					h264Keyframe.Resize(frames.Size());
 					for (uint64 i = 0; i < frames.Size(); ++i) {
 						const uint8 *s = bytes.Data() + frames[i].offset;
 						const usize sz = frames[i].size;
 						bool idr = false;
-						usize p = 0;
-						while (p + (usize)nalLenSize <= sz) {
-							uint32 len = 0;
-							for (int32 k = 0; k < nalLenSize; ++k)
-								len = (len << 8) | s[p + k];
-							p += (usize)nalLenSize;
-							if (p + len > sz)
-								break;
-							if (len > 0 && (s[p] & 0x1F) == 5) {
-								idr = true;
-								break;
+						if (backend == Backend::TS) {
+							NkVector<NkH264Nal> nals;
+							NkH264Decoder::SplitNalsAnnexB(s, sz, nals);
+							for (uint64 k = 0; k < nals.Size(); ++k)
+								if (nals[k].type == 5) {
+									idr = true;
+									break;
+								}
+						} else {
+							usize p = 0;
+							while (p + (usize)nalLenSize <= sz) {
+								uint32 len = 0;
+								for (int32 k = 0; k < nalLenSize; ++k)
+									len = (len << 8) | s[p + k];
+								p += (usize)nalLenSize;
+								if (p + len > sz)
+									break;
+								if (len > 0 && (s[p] & 0x1F) == 5) {
+									idr = true;
+									break;
+								}
+								p += len;
 							}
-							p += len;
 						}
 						h264Keyframe[i] = idr;
 					}
@@ -683,6 +804,144 @@ namespace nkentseu {
 					return true;
 				}
 
+				// --- Parse TS/M2TS (MPEG Transport Stream) : piste vidéo H264 uniquement ---
+				// Contrairement à ParseMov/ParseWebm (samples AVCC contigus dans le fichier), les
+				// données d'une image H264 sont ÉPARPILLÉES sur plusieurs paquets TS de 188 octets
+				// (payload utile ~184 octets/paquet) : il faut les RÉASSEMBLER. `bytes` (le fichier
+				// TS brut) est donc REMPLACÉ par le flux Annex-B reconstruit (une entrée `frames[i]`
+				// = un paquet PES complet, SPS/PPS PRÉFIXÉS depuis le dernier jeu vu en flux si ce
+				// paquet ne les répète pas lui-même — même logique que MOV/WebM qui les stockent hors
+				// bande, sauf qu'ici SPS/PPS sont EN BANDE, normal pour du TS/broadcast).
+				bool ParseTs() {
+					const uint8 *d = bytes.Data();
+					const usize n = (usize)bytes.Size();
+					const int32 pktSize = DetectTsPacketSize(d, n);
+					if (pktSize == 0)
+						return false;
+					const int32 syncOff = (pktSize == 192) ? 4 : 0;
+					const int32 pmtPid = FindPmtPid(d, n, pktSize, syncOff);
+					if (pmtPid < 0)
+						return false;
+					const int32 vpid = FindVideoPid(d, n, pktSize, syncOff, pmtPid);
+					if (vpid < 0)
+						return false; // pas de piste H264 (HEVC/MPEG-2 non gérés) -> échec propre
+
+					NkVector<nk_uint8> outBytes;
+					NkVector<nk_uint8> curPes;
+					NkVector<nk_uint8> cachedSps, cachedPps;
+					bool havePes = false;
+
+					auto flushPes = [&]() {
+						if (curPes.Size() < 9 || !(curPes[0] == 0 && curPes[1] == 0 && curPes[2] == 1)) {
+							curPes.Resize(0);
+							return;
+						}
+						const usize hdrDataLen = curPes[8]; // PES_header_data_length
+						const usize esStart = 9 + hdrDataLen;
+						if (esStart >= curPes.Size()) {
+							curPes.Resize(0);
+							return;
+						}
+						const uint8 *es = curPes.Data() + esStart;
+						const usize esSize = curPes.Size() - esStart;
+						NkVector<NkH264Nal> nals;
+						NkH264Decoder::SplitNalsAnnexB(es, esSize, nals);
+						bool hasSps = false, hasPps = false, hasSlice = false;
+						for (uint64 i = 0; i < nals.Size(); ++i) {
+							if (nals[i].type == 7) {
+								hasSps = true;
+								cachedSps.Resize(0);
+								for (usize k = 0; k < nals[i].size; ++k)
+									cachedSps.PushBack(es[nals[i].offset + k]);
+							} else if (nals[i].type == 8) {
+								hasPps = true;
+								cachedPps.Resize(0);
+								for (usize k = 0; k < nals[i].size; ++k)
+									cachedPps.PushBack(es[nals[i].offset + k]);
+							} else if (nals[i].type == 1 || nals[i].type == 5) {
+								hasSlice = true;
+							}
+						}
+						if (!hasSlice) { // paquet audio/AUD/SEI seul -> rien à décoder ici
+							curPes.Resize(0);
+							return;
+						}
+						const usize frameStart = outBytes.Size();
+						auto appendStartCode = [&]() {
+							outBytes.PushBack(0);
+							outBytes.PushBack(0);
+							outBytes.PushBack(0);
+							outBytes.PushBack(1);
+						};
+						if (!hasSps && cachedSps.Size() > 0) {
+							appendStartCode();
+							for (uint64 k = 0; k < cachedSps.Size(); ++k)
+								outBytes.PushBack(cachedSps[k]);
+						}
+						if (!hasPps && cachedPps.Size() > 0) {
+							appendStartCode();
+							for (uint64 k = 0; k < cachedPps.Size(); ++k)
+								outBytes.PushBack(cachedPps[k]);
+						}
+						for (usize k = esStart; k < curPes.Size(); ++k)
+							outBytes.PushBack(curPes[k]);
+						FrameRef fr;
+						fr.offset = frameStart;
+						fr.size = outBytes.Size() - frameStart;
+						frames.PushBack(fr);
+						curPes.Resize(0);
+					};
+
+					for (usize p = (usize)syncOff; p + 188 <= n; p += (usize)pktSize) {
+						if (d[p] != 0x47)
+							continue;
+						const int32 pid = (((int32)(d[p + 1] & 0x1F)) << 8) | d[p + 2];
+						if (pid != vpid)
+							continue;
+						const bool pusi = (d[p + 1] & 0x40) != 0;
+						const int32 afc = (d[p + 3] >> 4) & 0x3;
+						usize payload = p + 4;
+						if (afc == 2)
+							continue; // adaptation seule, pas de payload
+						if (afc == 3) {
+							const int32 al = d[payload];
+							payload += 1 + (usize)al;
+						}
+						if (payload > p + 188)
+							continue;
+						if (pusi) {
+							flushPes();
+							havePes = true;
+						}
+						if (havePes)
+							for (usize i = payload; i < p + 188; ++i)
+								curPes.PushBack(d[i]);
+					}
+					flushPes();
+					if (frames.Size() == 0)
+						return false;
+
+					bytes = traits::NkMove(outBytes); // remplace les paquets TS bruts par l'ES assemblé
+					backend = Backend::TS;			   // AVANT ScanH264Keyframes (convention Annex-B)
+					codec = Codec::H264;
+					info.codec = NkString("h264");
+					info.container = NkString("ts");
+					// Dimensions via le dernier SPS vu (TS n'a pas d'équivalent PixelWidth/Height).
+					NkH264Sps sps;
+					if (cachedSps.Size() > 0 && NkH264Decoder::ParseSps(cachedSps.Data(), (usize)cachedSps.Size(), sps) &&
+						sps.valid) {
+						info.width = sps.width;
+						info.height = sps.height;
+					}
+					info.frameCount = (int32)frames.Size();
+					// Pas d'horodatage simplement exploitable (PCR/PTS 90 kHz, wrap 33 bits) sans
+					// démuxage complet du PES : repli sur 25 fps, cohérent avec l'estimation MOV/WebM
+					// en l'absence de métadonnée exacte.
+					info.fps = 25.0;
+					ScanH264Keyframes();
+					return true;
+				}
+
 				// Charge un fichier image (PNG/JPEG/BMP/TGA…) -> RGBA via NKImage.
 				static bool LoadImageFile(const char *path, int32 index, NkVideoFrame &out) {
 					NkImage img;
@@ -830,38 +1089,58 @@ namespace nkentseu {
 					}
 
 					if (codec == Codec::H264) {
-						if (h264Sps.Size() == 0 || h264Pps.Size() == 0)
-							return false;
-						// Construit un flux Annex-B : SPS + PPS + NAL du sample (AVCC len-prefixé -> start codes).
-						NkVector<nk_uint8> ab;
-						auto sc = [&]() {
-							ab.PushBack(0);
-							ab.PushBack(0);
-							ab.PushBack(0);
-							ab.PushBack(1);
-						};
-						sc();
-						for (uint64 i = 0; i < h264Sps.Size(); ++i)
-							ab.PushBack(h264Sps[i]);
-						sc();
-						for (uint64 i = 0; i < h264Pps.Size(); ++i)
-							ab.PushBack(h264Pps[i]);
-						const usize n = fr.size;
-						usize p = 0;
+						// Deux conventions selon le conteneur : MOV/WebM stockent SPS/PPS HORS BANDE
+						// (avcC/CodecPrivate) et les échantillons en AVCC longueur-préfixé -> il faut
+						// construire l'Annex-B (start codes + SPS/PPS + NAL). TS assemble DÉJÀ un
+						// Annex-B complet et autonome par image dans ParseTs (SPS/PPS EN BANDE comme
+						// tout flux broadcast) -> `frames[i]` est directement utilisable telle quelle.
+						NkVector<nk_uint8> ab; // MOV/WebM seulement (TS n'en a pas besoin)
+						const uint8 *annexB;
+						usize annexBSize;
 						bool isIdr = false;
-						while (p + (usize)nalLenSize <= n) {
-							uint32 len = 0;
-							for (int32 i = 0; i < nalLenSize; ++i)
-								len = (len << 8) | src[p + i];
-							p += (usize)nalLenSize;
-							if (p + len > n)
-								break;
-							if (len > 0 && (src[p] & 0x1F) == 5)
-								isIdr = true; // NAL de type 5 = slice IDR (début de GOP)
+						if (backend == Backend::TS) {
+							annexB = src;
+							annexBSize = fr.size;
+							NkVector<NkH264Nal> nals;
+							NkH264Decoder::SplitNalsAnnexB(annexB, annexBSize, nals);
+							for (uint64 i = 0; i < nals.Size(); ++i)
+								if (nals[i].type == 5) {
+									isIdr = true;
+									break;
+								}
+						} else {
+							if (h264Sps.Size() == 0 || h264Pps.Size() == 0)
+								return false;
+							auto sc = [&]() {
+								ab.PushBack(0);
+								ab.PushBack(0);
+								ab.PushBack(0);
+								ab.PushBack(1);
+							};
 							sc();
-							for (uint32 i = 0; i < len; ++i)
-								ab.PushBack(src[p + i]);
-							p += len;
+							for (uint64 i = 0; i < h264Sps.Size(); ++i)
+								ab.PushBack(h264Sps[i]);
+							sc();
+							for (uint64 i = 0; i < h264Pps.Size(); ++i)
+								ab.PushBack(h264Pps[i]);
+							const usize n = fr.size;
+							usize p = 0;
+							while (p + (usize)nalLenSize <= n) {
+								uint32 len = 0;
+								for (int32 i = 0; i < nalLenSize; ++i)
+									len = (len << 8) | src[p + i];
+								p += (usize)nalLenSize;
+								if (p + len > n)
+									break;
+								if (len > 0 && (src[p] & 0x1F) == 5)
+									isIdr = true; // NAL de type 5 = slice IDR (début de GOP)
+								sc();
+								for (uint32 i = 0; i < len; ++i)
+									ab.PushBack(src[p + i]);
+								p += len;
+							}
+							annexB = ab.Data();
+							annexBSize = ab.Size();
 						}
 						lastIsIdr = isIdr;
 
@@ -876,7 +1155,7 @@ namespace nkentseu {
 						for (uint64 k = 0; k < h264Dpb.Size(); ++k)
 							refs.PushBack(&h264Dpb[k]);
 						NkH264Frame f;
-						if (!NkH264Decoder::DecodeFrame(ab.Data(), (usize)ab.Size(), refs.Data(), (int32)refs.Size(), f))
+						if (!NkH264Decoder::DecodeFrame(annexB, annexBSize, refs.Data(), (int32)refs.Size(), f))
 							return false; // IDR requise en tête / cas non géré
 						lastPoc = f.poc; // pour le réordonnancement d'affichage
 						h264PrevIndex = index;
@@ -1017,6 +1296,16 @@ namespace nkentseu {
 				if (mImpl->ParseWebm()) {
 					mImpl->backend = Backend::WEBM;
 					mImpl->cursor = 0;
+					return true;
+				}
+				return false;
+			}
+
+			// TS/M2TS : paquets 188 (ou 192 avec préfixe M2TS) de sync byte 0x47. Piste vidéo H264
+			// uniquement pour l'instant (HEVC/MPEG-2 -> ParseTs échoue proprement, pas de décodeur).
+			if (DetectTsPacketSize(d, mImpl->bytes.Size()) != 0) {
+				if (mImpl->ParseTs()) {
+					mImpl->cursor = 0; // backend déjà posé par ParseTs (avant ScanH264Keyframes)
 					return true;
 				}
 				return false;

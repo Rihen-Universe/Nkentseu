@@ -286,8 +286,31 @@ déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré 
      EBML (regroupement de plusieurs trames dans un seul bloc, quasi jamais utilisé pour la vidéo)
      n'est pas géré — un fichier qui l'utiliserait produirait un paquet trop gros, échec de décodage
      propre plutôt que silencieux.
-  3. **TS/M2TS** (MPEG Transport Stream) : format par paquets fixes 188 octets (PID + PES), démuxage
-     structurellement différent d'ISOBMFF/EBML (streaming broadcast) — nouveau parseur.
+  3. ✅ **TS/M2TS LIVRÉ (2026-07-21)** — vrai nouveau parseur cette fois (structurellement différent
+     d'ISOBMFF/EBML : paquets fixes 188 octets, PID + PSI/PAT/PMT + PES), contrairement à 3GP/MKV
+     qui réutilisaient l'infrastructure existante. `NkVideoReader::Open` détecte le sync byte 0x47
+     à intervalle régulier (188, ou 192 pour la variante M2TS/BDAV avec préfixe 4 octets — les deux
+     foulées testées par `DetectTsPacketSize`, ⚠️ variante 192 codée mais **pas testée sur un vrai
+     fichier BDAV**, seulement sur `mpegts` standard 188 octets généré par ffmpeg y compris avec
+     l'extension `.m2ts`). `ParseTs` (nouveau) : PAT (PID 0) → PID du PMT → PMT → PID vidéo
+     (`stream_type` 0x1B = H.264 seulement ; HEVC 0x24, MPEG-2 0x02… échouent proprement, pas de
+     décodeur). Réassemble les PES de la piste vidéo (paquets TS fragmentés → payload ES contigu,
+     `payload_unit_start_indicator` délimite les PES), extrait l'ES après l'en-tête PES via
+     `NkH264Decoder::SplitNalsAnnexB` (déjà publique, réutilisée telle quelle). **Différence clé
+     avec MOV/WebM** : le flux H264-en-TS est **Annex-B EN BANDE** (SPS/PPS répétés dans le flux,
+     comme tout broadcast — pas de boîte `avcC`/`CodecPrivate` hors bande) → `frames[i]` stocke un
+     Annex-B **déjà complet et autonome** par image (SPS/PPS mis en cache et PRÉFIXÉS si le PES ne
+     les répète pas lui-même) ; `Decode()` détecte `backend==TS` et saute la conversion AVCC→Annex-B
+     utilisée par MOV/WebM (nouvelle branche dédiée, `ScanH264Keyframes` rendue elle aussi
+     bi-convention AVCC/Annex-B selon `backend`). `bytes` (fichier TS brut) est **remplacé** par
+     l'ES Annex-B reconstruit — `frames[i]` y pointe, comme pour les autres conteneurs. **Validé** :
+     `.ts` H264 baseline I+P 50/50 images (checksums **identiques** au même contenu en 3GP/MKV,
+     confirme le partage intégral du décodeur) et High+B-frames 75/75 images ; `SeekFrame`
+     fonctionne ; `.ts` avec vidéo MPEG-2 échoue proprement (pas de crash) ; lecture bout-en-bout
+     `NkVideoPlayer` OK. **Reste** : `fps` figé à 25 (pas d'exploitation simple du PCR/PTS 90 kHz,
+     `stream_type` audio (AAC 0x0F, MPEG 0x03/0x04, AC-3 0x81…) ignoré — piste audio TS non gérée
+     (contrairement à MOV/WebM/3GP dont l'audio passe par `NKAudio::OpenAudioStream`), lacing
+     PES multi-images non géré (rare).
   4. **FLV** (Flash Video) : conteneur simple par tags (audio/vidéo/script), utile pour du contenu
      RTMP/legacy — démuxage rapide à écrire.
   5. **OGG comme conteneur générique vidéo (.ogv)** : le démuxage Ogg (pages/lacing/granule) est
