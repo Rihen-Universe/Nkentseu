@@ -868,14 +868,9 @@ namespace nkentseu {
 						mS->StartProjectIndex(); // index sémantique niveau projet (async, une fois)
 						const NkVector<NkString> *ppDefs = mS->EffectiveDefines(
 							f.path.ToString()); // macros effectives (dump compilo) -> grisage préproc exact
-						// Confirmation de fermeture (onglet seul ou groupe) ouverte AU-DESSUS de
-						// l'editeur : bloque tout clic/frappe destine au texte le temps qu'elle reste
-						// affichee (sinon la boite laisse "traverser" les evenements a l'editeur).
-						NkCodeModalBlocking() = (mCloseConfirm.open || mCloseGroupConfirm.open);
 						CodeEditor(ctx, "##code", f.doc, r, NkLangFromExt(f.path.GetExtension().CStr()),
 								   mS->projReady ? &mS->projTypes : nullptr, mS->projReady ? &mS->projFuncs : nullptr,
 								   ppDefs);
-						NkCodeModalBlocking() = false;
 					}
 					// Bascule Apercu/Editer pour .md/.json/.csv — dessinee AU-DESSUS du contenu (sinon la preview la recouvre).
 					if (isMd || isJson || isCsv) {
@@ -1540,7 +1535,6 @@ namespace nkentseu {
 					}
 					mCloseConfirmIdx = idx;
 					mCloseConfirm.open = true;
-					mCloseConfirm.pos = ctx.input.mousePos;
 				}
 
 				void DrawCloseConfirm(NkGuiContext &ctx) {
@@ -1550,11 +1544,11 @@ namespace nkentseu {
 						mCloseConfirm.open = false;
 						return;
 					}
-					const NkString label =
+					const NkString msg =
 						NkPrintf(NkT("editor.close.save"), mS->files[mCloseConfirmIdx].Name().CStr());
-					const char *items[3] = {label.CStr(), NkT("editor.close.discard"), NkT("editor.close.cancel")};
-					bool en[3] = {true, true, true};
-					const int32 act = NkCtxMenuDraw(ctx, mCloseConfirm, items, en, 3);
+					const char *items[3] = {NkT("editor.close.savebtn"), NkT("editor.close.discard"),
+											 NkT("editor.close.cancel")};
+					const int32 act = NkModalDraw(ctx, mCloseConfirm, NkT("editor.close.title"), msg.CStr(), items, 3);
 					if (act == 0) { // Enregistrer puis fermer (uniquement si l'enregistrement reussit)
 						const int32 idx = mCloseConfirmIdx;
 						const int32 wasActive = mS->active;
@@ -1567,7 +1561,7 @@ namespace nkentseu {
 					} else if (act == 1) { // Ne pas enregistrer : ferme sans sauver
 						mS->CloseFile(mCloseConfirmIdx);
 						mCloseConfirmIdx = -1;
-					} else if (act == 2 || !mCloseConfirm.open) {
+					} else if (act == 2) { // Annuler (bouton, Echap, ou clic en dehors)
 						mCloseConfirmIdx = -1;
 					}
 				}
@@ -1596,22 +1590,21 @@ namespace nkentseu {
 					mCloseGroupMode = mode;
 					mCloseGroupIdx = idx;
 					mCloseGroupConfirm.open = true;
-					mCloseGroupConfirm.pos = ctx.input.mousePos;
 				}
 
 				void DrawCloseGroupConfirm(NkGuiContext &ctx) {
 					if (!mCloseGroupConfirm.open)
 						return;
 					const char *items[2] = {NkT("editor.close.discardgroup"), NkT("editor.close.cancel")};
-					bool en[2] = {true, true};
-					const int32 act = NkCtxMenuDraw(ctx, mCloseGroupConfirm, items, en, 2);
+					const int32 act = NkModalDraw(ctx, mCloseGroupConfirm, NkT("editor.close.title"),
+												   NkT("editor.close.groupmsg"), items, 2);
 					if (act == 0) {
 						if (mCloseGroupMode == 1)
 							mS->CloseOthers(mCloseGroupIdx);
 						else
 							mS->CloseToRight(mCloseGroupIdx);
 					}
-					if (act >= 0 || !mCloseGroupConfirm.open) {
+					if (act >= 0) {
 						mCloseGroupMode = 0;
 						mCloseGroupIdx = -1;
 					}
@@ -1709,13 +1702,15 @@ namespace nkentseu {
 				int32 mZoomLastActive = -1; // dernier onglet actif (detection changement -> rebuild atlas immediat,
 											// anti « saut » de taille)
 				// ── Confirmation de fermeture d'un onglet NON ENREGISTRE (Enregistrer /
-				// Ne pas enregistrer / Annuler), façon VSCode — voir RequestCloseFile. ──
-				NkCtxMenu mCloseConfirm;
+				// Ne pas enregistrer / Annuler), façon VSCode — voir RequestCloseFile.
+				// NkModal (dialogue REEL, NkEditorModal.h) : modalite globale (ctx.popupDepth),
+				// pas seulement un menu leger ancre a la souris. ──
+				NkModal mCloseConfirm;
 				int32 mCloseConfirmIdx = -1;
 				// ── Fermeture GROUPEE (Fermer les autres / Fermer a droite) : pas de
 				// confirmation PAR FICHIER (trop complexe), juste un avertissement bloc si au
 				// moins un des fichiers cibles est modifie. ──
-				NkCtxMenu mCloseGroupConfirm;
+				NkModal mCloseGroupConfirm;
 				int32 mCloseGroupMode = 0; // 1 = CloseOthers, 2 = CloseToRight
 				int32 mCloseGroupIdx = -1;
 		};

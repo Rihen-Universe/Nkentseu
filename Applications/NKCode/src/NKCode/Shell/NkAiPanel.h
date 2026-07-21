@@ -389,10 +389,8 @@ namespace nkentseu {
 							if (font && font->Valid())
 								dl.AddText(font->Face(), font->TexId(), {viewR.x + ctx.S(7.f), by}, viewLbl.CStr(),
 										   viewHov ? NkColor{255, 220, 170, 255} : NkColor{210, 175, 120, 255});
-							if (viewHov && ctx.input.mouseClicked[0]) {
-								mUsageOpen = true;
-								mUsageJustOpened = true;
-							}
+							if (viewHov && ctx.input.mouseClicked[0])
+								OpenUsagePopover();
 							const NkRect xR = {ban.x + ban.w - ctx.S(26.f), ban.y + (ban.h - ctx.S(16.f)) * 0.5f,
 											   ctx.S(16.f), ctx.S(16.f)};
 							const bool xHov = NkGuiRectContains(xR, mp);
@@ -625,6 +623,24 @@ namespace nkentseu {
 				NkString mQuickUsageBuf;
 				bool mQuickUsageRequested = false, mQuickUsageLoaded = false;
 				NkString mQuickUsageText; // texte brut renvoye par /usage (vide = jamais recu)
+
+				// Ouvre le popover "Compte et utilisation" et lance les requetes REELLES qui
+				// l'alimentent (une seule fois par session) — factorise ici pour que les DEUX
+				// points d'entree (lien "Voir l'utilisation" de la banniere ET item du panneau
+				// Actions) declenchent bien les MEMES requetes (bug corrige : la banniere
+				// n'ouvrait que le popover vide, sans jamais lancer "claude auth status --json"
+				// ni "/usage").
+				void OpenUsagePopover() {
+					mUsageOpen = true;
+					mUsageJustOpened = true;
+					if (mKind == 1 && !mAcctLoaded && !mAcctRequested && !ClaudeExe().Empty()) {
+						mAcctRequested = true;
+						mAcctLines.Clear();
+						mAcctProc.Start(NkWin32QuoteArg(ClaudeExe().CStr()) + " auth status --json");
+					}
+					if (mKind == 1)
+						TriggerQuickUsage();
+				}
 
 				void TriggerQuickUsage() {
 					if (mQuickUsageRequested || mQuickUsageLoaded || ClaudeExe().Empty())
@@ -2467,20 +2483,7 @@ namespace nkentseu {
 						} else if (clicked == 11) { // Effort -> cycle (raccourci rapide)
 							mEffort = (mEffort + 1) % 3;
 						} else if (clicked == 14) { // Compte et utilisation -> popover REEL (rate_limit_event)
-							mUsageOpen = true;
-							mUsageJustOpened = true;
-							// "claude auth status --json" : sous-commande DEDIEE/SURE (pas de lecture
-							// directe de fichier de secrets) -> email/organisation/plan REELS, comme
-							// la capture VSCode. Une seule requete par session (cache).
-							if (mKind == 1 && !mAcctLoaded && !mAcctRequested && !ClaudeExe().Empty()) {
-								mAcctRequested = true;
-								mAcctLines.Clear();
-								mAcctProc.Start(NkWin32QuoteArg(ClaudeExe().CStr()) + " auth status --json");
-							}
-							// "/usage" : seule source qui rapporte TOUJOURS session + semaine
-							// ensemble (rate_limit_event n'en rapporte qu'une a la fois).
-							if (mKind == 1)
-								TriggerQuickUsage();
+							OpenUsagePopover();
 						} else if (clicked == 22 && mS) { // Open Claude in Terminal (reel, meme si claude absent)
 							mS->termOpenCmd = "claude";
 							mS->termOpenKind = -1;
