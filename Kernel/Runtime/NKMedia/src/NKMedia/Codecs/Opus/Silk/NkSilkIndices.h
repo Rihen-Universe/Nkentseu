@@ -66,6 +66,10 @@ namespace nkentseu {
 
 		struct NkSilkIndices {
 				static constexpr int32 kCodeIndependently = 0;
+				// Side stéréo après une période mid-only : gains absolus mais LTP_scaleIndex
+				// forcé à 0 (l'état LTP est bien défini). Les comparaisons `== kCode...`
+				// existantes donnent naturellement ce comportement (ni indép, ni cond).
+				static constexpr int32 kCodeIndependentlyNoLtpScaling = 1;
 				static constexpr int32 kCodeConditionally = 2;
 				static constexpr int32 kTypeVoiced = 2;
 

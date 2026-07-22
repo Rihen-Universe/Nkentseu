@@ -20,6 +20,7 @@ namespace nkentseu {
 
 			constexpr int32 BITRES = 3;
 			constexpr int32 QTHETA_OFFSET = 4;
+			constexpr int32 QTHETA_OFFSET_TWOPHASE = 16;
 			constexpr int32 kNbEBands = 21;
 			constexpr int32 kEffEBands = 21;
 
@@ -50,10 +51,11 @@ namespace nkentseu {
 					int32 remainingBits = 0;
 					int32 i = 0;
 					int32 tfChange = 0;
+					int32 intensity = 0; // stéréo : 1re bande en intensity stereo (0 = aucune)
 			};
 
 			struct SplitResult {
-					int32 imid, iside, delta, itheta, qalloc;
+					int32 imid, iside, delta, itheta, qalloc, inv;
 			};
 
 			void DeinterleaveHadamard(float32 *X, int32 N0, int32 stride, int32 hadamard, float32 *tmp) {
@@ -88,26 +90,51 @@ namespace nkentseu {
 					X[k] = tmp[k];
 			}
 
-			uint32 QuantBandN1(Ctx *ctx, float32 *X, float32 *lowbandOut) {
-				int32 sign = 0;
-				if (ctx->remainingBits >= (1 << BITRES)) {
-					sign = (int32)ctx->dec->DecodeBits(1);
-					ctx->remainingBits -= (1 << BITRES);
+			uint32 QuantBandN1(Ctx *ctx, float32 *X, float32 *Y, float32 *lowbandOut) {
+				// Une bande d'un seul échantillon : un bit de signe par canal (Y = stéréo).
+				float32 *x = X;
+				const int32 nCh = (Y != nullptr) ? 2 : 1;
+				for (int32 c = 0; c < nCh; ++c) {
+					int32 sign = 0;
+					if (ctx->remainingBits >= (1 << BITRES)) {
+						sign = (int32)ctx->dec->DecodeBits(1);
+						ctx->remainingBits -= (1 << BITRES);
+					}
+					x[0] = sign ? -1.0f : 1.0f;
+					x = Y;
 				}
-				X[0] = sign ? -1.0f : 1.0f;
 				if (lowbandOut)
 					lowbandOut[0] = X[0]; // SHR32(.,4) = no-op float
 				return 1;
 			}
 
-			SplitResult ComputeTheta(Ctx *ctx, int32 N, int32 *b, int32 B, int32 B0, int32 LM, int32 *fill) {
+			SplitResult ComputeTheta(Ctx *ctx, int32 N, int32 *b, int32 B, int32 B0, int32 LM, int32 stereo,
+									 int32 *fill) {
 				const int32 pulseCap = kLogN[ctx->i] + LM * (1 << BITRES);
-				const int32 offset = (pulseCap >> 1) - QTHETA_OFFSET;
-				int32 qn = NkCeltSplit::ComputeQn(N, *b, offset, pulseCap, 0);
+				const int32 offset = (pulseCap >> 1) - ((stereo && N == 2) ? QTHETA_OFFSET_TWOPHASE : QTHETA_OFFSET);
+				int32 qn = NkCeltSplit::ComputeQn(N, *b, offset, pulseCap, stereo);
+				if (stereo && ctx->i >= ctx->intensity)
+					qn = 1; // bandes en intensity stereo : pas d'angle, juste le flag inv
 				const int32 tell = (int32)ctx->dec->TellFrac();
 				int32 itheta = 0;
+				int32 inv = 0;
 				if (qn != 1) {
-					if (B0 > 1) {
+					if (stereo && N > 2) {
+						// pdf en escalier : probabilité p0=3 jusqu'à qn/2, puis 1 (bands.c).
+						const int32 p0 = 3;
+						const int32 x0 = qn / 2;
+						const int32 ft = p0 * (x0 + 1) + x0;
+						const int32 fs = (int32)ctx->dec->Decode((uint32)ft);
+						int32 x;
+						if (fs < (x0 + 1) * p0)
+							x = fs / p0;
+						else
+							x = x0 + 1 + (fs - (x0 + 1) * p0);
+						const int32 fl = (x <= x0) ? p0 * x : (x - 1 - x0) + (x0 + 1) * p0;
+						const int32 fh = (x <= x0) ? p0 * (x + 1) : (x - x0) + (x0 + 1) * p0;
+						ctx->dec->Update((uint32)fl, (uint32)fh, (uint32)ft);
+						itheta = x;
+					} else if (B0 > 1 || stereo) {
 						itheta = (int32)ctx->dec->DecodeUint((uint32)qn + 1); // pdf uniforme
 					} else {
 						// pdf triangulaire
@@ -126,6 +153,11 @@ namespace nkentseu {
 						ctx->dec->Update((uint32)fl, (uint32)(fl + fs), (uint32)ft);
 					}
 					itheta = (int32)((uint32)itheta * 16384u / (uint32)qn);
+				} else if (stereo) {
+					// qn==1 (intensity ou budget nul) : flag d'inversion de phase du canal side.
+					if (*b > (2 << BITRES) && ctx->remainingBits > (2 << BITRES))
+						inv = ctx->dec->DecodeBitLogp(2);
+					itheta = 0;
 				}
 				const int32 qalloc = (int32)ctx->dec->TellFrac() - tell;
 				*b -= qalloc;
@@ -148,6 +180,7 @@ namespace nkentseu {
 				}
 				r.itheta = itheta;
 				r.qalloc = qalloc;
+				r.inv = inv;
 				return r;
 			}
 
@@ -170,7 +203,7 @@ namespace nkentseu {
 					int32 b2 = (B + 1) >> 1;
 
 					int32 bb = b;
-					SplitResult sc = ComputeTheta(ctx, n, &bb, b2, B0, lm2, &f);
+					SplitResult sc = ComputeTheta(ctx, n, &bb, b2, B0, lm2, 0, &f);
 					const float32 mid = (1.0f / 32768.0f) * (float32)sc.imid;
 					const float32 side = (1.0f / 32768.0f) * (float32)sc.iside;
 					int32 delta = sc.delta;
@@ -255,7 +288,7 @@ namespace nkentseu {
 
 				N_B = N_B / B;
 				if (N == 1)
-					return QuantBandN1(ctx, X, lowbandOut);
+					return QuantBandN1(ctx, X, nullptr, lowbandOut);
 
 				if (tfChange > 0)
 					recombine = tfChange;
@@ -317,19 +350,128 @@ namespace nkentseu {
 				return cm;
 			}
 
+			// --- stereo_merge (bands.c) : reconstruit L/R depuis mid (X, normalisé) et side (Y). ---
+			// El/Er = normes de mid−side / mid+side ; si l'une est quasi nulle → copie X→Y (mono).
+			void StereoMerge(float32 *X, float32 *Y, float32 mid, int32 N) {
+				float32 xp = 0.0f, side = 0.0f;
+				for (int32 j = 0; j < N; ++j) {
+					xp += X[j] * Y[j];
+					side += Y[j] * Y[j];
+				}
+				xp *= mid; // compense la normalisation du mid
+				const float32 El = mid * mid + side - 2.0f * xp;
+				const float32 Er = mid * mid + side + 2.0f * xp;
+				if (Er < 6e-4f || El < 6e-4f) {
+					for (int32 j = 0; j < N; ++j)
+						Y[j] = X[j];
+					return;
+				}
+				const float32 lgain = 1.0f / ::sqrtf(El);
+				const float32 rgain = 1.0f / ::sqrtf(Er);
+				for (int32 j = 0; j < N; ++j) {
+					const float32 l = mid * X[j];
+					const float32 r = Y[j];
+					X[j] = lgain * (l - r);
+					Y[j] = rgain * (l + r);
+				}
+			}
+
+			// --- quant_band_stereo (bands.c, chemin décodeur) : une bande stéréo. ---
+			// θ répartit l'énergie mid/side ; N==2 = cas spécial (side = rotation orthogonale du
+			// mid, 1 bit de signe) ; sinon split normal mid (gain 1, servira au folding) + side
+			// (gain `side`, jamais replié : bits hauts de fill à 0) puis stereo_merge → L/R.
+			uint32 QuantBandStereo(Ctx *ctx, float32 *X, float32 *Y, int32 N, int32 b, int32 B, float32 *lowband,
+								   int32 LM, float32 *lowbandOut, float32 *lowbandScratch, int32 fill, float32 *tmp) {
+				if (N == 1)
+					return QuantBandN1(ctx, X, Y, lowbandOut);
+
+				const int32 origFill = fill;
+				uint32 cm = 0;
+
+				SplitResult sc = ComputeTheta(ctx, N, &b, B, B, LM, 1, &fill);
+				const int32 itheta = sc.itheta;
+				const float32 mid = (1.0f / 32768.0f) * (float32)sc.imid;
+				const float32 side = (1.0f / 32768.0f) * (float32)sc.iside;
+
+				if (N == 2) {
+					// mid et side orthogonaux → le side tient dans UN bit de signe.
+					int32 mbits = b;
+					int32 sbits = (itheta != 0 && itheta != 16384) ? (1 << BITRES) : 0;
+					mbits -= sbits;
+					const int32 c = (itheta > 8192) ? 1 : 0;
+					ctx->remainingBits -= sc.qalloc + sbits;
+
+					float32 *x2 = c ? Y : X;
+					float32 *y2 = c ? X : Y;
+					int32 sign = 0;
+					if (sbits)
+						sign = (int32)ctx->dec->DecodeBits(1);
+					sign = 1 - 2 * sign;
+					// origFill : on veut replier le side même si itheta==16384 a nettoyé fill.
+					cm = QuantBand(ctx, x2, N, mbits, B, lowband, LM, lowbandOut, 1.0f, lowbandScratch, origFill,
+								   tmp);
+					y2[0] = -(float32)sign * x2[1];
+					y2[1] = (float32)sign * x2[0];
+					// resynth : gains mid/side puis papillon somme/différence.
+					X[0] *= mid;
+					X[1] *= mid;
+					Y[0] *= side;
+					Y[1] *= side;
+					float32 t = X[0];
+					X[0] = t - Y[0];
+					Y[0] = t + Y[0];
+					t = X[1];
+					X[1] = t - Y[1];
+					Y[1] = t + Y[1];
+				} else {
+					// Split normal : le mid garde un gain 1 (il sert de base de folding).
+					int32 mbits = IMax(0, IMin(b, (b - sc.delta) / 2));
+					int32 sbits = b - mbits;
+					ctx->remainingBits -= sc.qalloc;
+
+					int32 rebalance = ctx->remainingBits;
+					if (mbits >= sbits) {
+						cm = QuantBand(ctx, X, N, mbits, B, lowband, LM, lowbandOut, 1.0f, lowbandScratch, fill, tmp);
+						rebalance = mbits - (rebalance - ctx->remainingBits);
+						if (rebalance > (3 << BITRES) && itheta != 0)
+							sbits += rebalance - (3 << BITRES);
+						// side : bits hauts de fill toujours nuls → jamais de folding.
+						cm |= QuantBand(ctx, Y, N, sbits, B, nullptr, LM, nullptr, side, nullptr, fill >> B, tmp);
+					} else {
+						cm = QuantBand(ctx, Y, N, sbits, B, nullptr, LM, nullptr, side, nullptr, fill >> B, tmp);
+						rebalance = sbits - (rebalance - ctx->remainingBits);
+						if (rebalance > (3 << BITRES) && itheta != 16384)
+							mbits += rebalance - (3 << BITRES);
+						cm |= QuantBand(ctx, X, N, mbits, B, lowband, LM, lowbandOut, 1.0f, lowbandScratch, fill,
+										tmp);
+					}
+				}
+
+				// resynth : merge mid/side → L/R (sauf N==2, déjà fait) + inversion de phase.
+				if (N != 2)
+					StereoMerge(X, Y, mid, N);
+				if (sc.inv) {
+					for (int32 j = 0; j < N; ++j)
+						Y[j] = -Y[j];
+				}
+				return cm;
+			}
+
 		} // namespace
 
-		void NkCeltQuantBands::QuantAllBands(NkOpusRangeDecoder &dec, int32 start, int32 end, float32 *X_,
+		void NkCeltQuantBands::QuantAllBands(NkOpusRangeDecoder &dec, int32 start, int32 end, float32 *X_, float32 *Y_,
 											 uint8 *collapseMasks, const int32 *pulses, int32 shortBlocks, int32 spread,
-											 const int32 *tfRes, int32 totalBits, int32 balance, int32 LM,
-											 int32 codedBands, uint32 *seed) {
+											 int32 dualStereo, int32 intensity, const int32 *tfRes, int32 totalBits,
+											 int32 balance, int32 LM, int32 codedBands, uint32 *seed) {
 			const int16 *eBands = NkCeltBands::Eband5ms();
 			const int32 M = 1 << LM;
 			const int32 B = shortBlocks ? M : 1;
+			const int32 C = (Y_ != nullptr) ? 2 : 1;
 			const int32 normOffset = M * (int32)eBands[start];
 			const int32 normLen = M * (int32)eBands[kNbEBands] - normOffset;
 
-			float32 *norm = (float32 *)memory::NkAlloc((size_t)(normLen > 0 ? normLen : 1) * sizeof(float32));
+			float32 *norm = (float32 *)memory::NkAlloc((size_t)C * (size_t)(normLen > 0 ? normLen : 1) * sizeof(float32));
+			float32 *norm2 = norm + normLen; // base de folding du canal 1 (dual stereo)
 			float32 *tmp = (float32 *)memory::NkAlloc((size_t)256 * sizeof(float32)); // scratch hadamard
 			float32 *lowbandScratch = X_ + M * (int32)eBands[kEffEBands - 1];
 
@@ -337,6 +479,7 @@ namespace nkentseu {
 			ctx.dec = &dec;
 			ctx.seed = *seed;
 			ctx.spread = spread;
+			ctx.intensity = intensity;
 
 			int32 lowbandOffset = 0;
 			int32 updateLowband = 1;
@@ -345,6 +488,7 @@ namespace nkentseu {
 				ctx.i = i;
 				const int32 last = (i == end - 1);
 				float32 *X = X_ + M * (int32)eBands[i];
+				float32 *Y = (Y_ != nullptr) ? (Y_ + M * (int32)eBands[i]) : nullptr;
 				const int32 N = M * (int32)eBands[i + 1] - M * (int32)eBands[i];
 				const int32 tell = (int32)dec.TellFrac();
 				if (i != start)
@@ -373,13 +517,16 @@ namespace nkentseu {
 					const int32 n2 = M * ((int32)eBands[start + 2] - (int32)eBands[start + 1]);
 					for (int32 k = 0; k < n2 - n1; ++k)
 						norm[n1 + k] = norm[2 * n1 - n2 + k];
+					if (dualStereo)
+						for (int32 k = 0; k < n2 - n1; ++k)
+							norm2[n1 + k] = norm2[2 * n1 - n2 + k];
 				}
 
 				ctx.tfChange = tfRes[i];
 				float32 *scratch = last ? nullptr : lowbandScratch;
 
 				int32 effectiveLowband = -1;
-				uint32 xcm;
+				uint32 xcm, ycm;
 				if (lowbandOffset != 0 && (spread != 3 || B > 1 || ctx.tfChange < 0)) {
 					effectiveLowband = IMax(0, M * (int32)eBands[lowbandOffset] - normOffset - N);
 					int32 foldStart = lowbandOffset;
@@ -388,21 +535,46 @@ namespace nkentseu {
 					int32 foldEnd = lowbandOffset - 1;
 					while (++foldEnd < i && M * (int32)eBands[foldEnd] < effectiveLowband + normOffset + N)
 						;
-					xcm = 0;
+					xcm = ycm = 0;
 					int32 fi = foldStart;
 					do {
-						xcm |= collapseMasks[fi];
+						xcm |= collapseMasks[fi * C + 0];
+						ycm |= collapseMasks[fi * C + C - 1];
 					} while (++fi < foldEnd);
 				} else {
-					xcm = (uint32)((1u << B) - 1u);
+					xcm = ycm = (uint32)((1u << B) - 1u);
+				}
+
+				// Bascule dual stereo → intensity : les canaux redeviennent couplés, la base de
+				// folding devient la moyenne des deux (bands.c).
+				if (dualStereo && i == intensity) {
+					dualStereo = 0;
+					for (int32 j = 0; j < M * (int32)eBands[i] - normOffset; ++j)
+						norm[j] = 0.5f * (norm[j] + norm2[j]);
 				}
 
 				float32 *lowbandPtr = (effectiveLowband != -1) ? (norm + effectiveLowband) : nullptr;
 				float32 *lowbandOut = last ? nullptr : (norm + M * (int32)eBands[i] - normOffset);
 
-				xcm = QuantBand(&ctx, X, N, b, B, lowbandPtr, LM, lowbandOut, 1.0f, scratch, (int32)xcm, tmp);
+				if (dualStereo) {
+					// Deux canaux indépendants, b/2 chacun, bases de folding séparées.
+					float32 *lowbandPtr2 = (effectiveLowband != -1) ? (norm2 + effectiveLowband) : nullptr;
+					float32 *lowbandOut2 = last ? nullptr : (norm2 + M * (int32)eBands[i] - normOffset);
+					xcm = QuantBand(&ctx, X, N, b / 2, B, lowbandPtr, LM, lowbandOut, 1.0f, scratch, (int32)xcm, tmp);
+					ycm = QuantBand(&ctx, Y, N, b / 2, B, lowbandPtr2, LM, lowbandOut2, 1.0f, scratch, (int32)ycm,
+									tmp);
+				} else if (Y != nullptr) {
+					xcm = QuantBandStereo(&ctx, X, Y, N, b, B, lowbandPtr, LM, lowbandOut, scratch,
+										  (int32)(xcm | ycm), tmp);
+					ycm = xcm;
+				} else {
+					xcm = QuantBand(&ctx, X, N, b, B, lowbandPtr, LM, lowbandOut, 1.0f, scratch,
+									(int32)(xcm | ycm), tmp);
+					ycm = xcm;
+				}
 
-				collapseMasks[i] = (uint8)xcm;
+				collapseMasks[i * C + 0] = (uint8)xcm;
+				collapseMasks[i * C + C - 1] = (uint8)ycm;
 				balance += pulses[i] + tell;
 				updateLowband = (b > (N << BITRES));
 			}
@@ -441,7 +613,8 @@ namespace nkentseu {
 			NkOpusRangeDecoder dec;
 			dec.Init(buf, (uint32)(enc.RangeBytes() > 0 ? enc.RangeBytes() : 1));
 			uint32 seed = 0;
-			NkCeltQuantBands::QuantAllBands(dec, 0, 21, X, masks, pulses, 0, 2, tf, 64 * 8, 0, LM, 21, &seed);
+			NkCeltQuantBands::QuantAllBands(dec, 0, 21, X, nullptr, masks, pulses, 0, 2, 0, 0, tf, 64 * 8, 0, LM, 21,
+											&seed);
 
 			for (int32 i = 0; i < total; ++i) {
 				const float32 v = X[i];
