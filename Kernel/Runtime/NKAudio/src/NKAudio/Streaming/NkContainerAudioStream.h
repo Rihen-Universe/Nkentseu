@@ -17,13 +17,14 @@
  *   - **PCM non compresse** (twos/sowt/lpcm, 8/16/24/32-bit) : taille de paquet
  *     VARIABLE (aucune notion de "frame" cote conteneur) — juste une conversion de
  *     format (endianness + profondeur -> int16), aucun etat entre paquets.
- *   - **Opus-dans-WebM** (MONO) : paquets Opus BRUTS dans les SimpleBlocks (pas
- *     d'encapsulation Ogg), decodes par NkOpusDecoder (SILK/CELT/hybride), sortie
- *     native 48 kHz. Le PRE-SKIP (delai encodeur, RFC 7845) est lu dans l'OpusHead
- *     du CodecPrivate de la piste (uint16 LE offset 10, repli 312) et consomme sur
- *     les premiers echantillons — valide corr 1.000000 lag 0 vs ffmpeg.
- *  Autre codec (ex. MP3 embarque, Opus STEREO) -> Open() echoue proprement (le caller
- *  retombe sur un autre chemin, ex. RAM complete via NkMP3Codec — voir OpenAudioStream()).
+ *   - **Opus-dans-WebM** (mono + STEREO) : paquets Opus BRUTS dans les SimpleBlocks
+ *     (pas d'encapsulation Ogg), decodes par NkOpusDecoder (SILK/CELT/hybride,
+ *     stereo MS->LR + mid/side/intensity), sortie native 48 kHz. Le PRE-SKIP (delai
+ *     encodeur, RFC 7845) est lu dans l'OpusHead du CodecPrivate de la piste
+ *     (uint16 LE offset 10, repli 312) et consomme sur les premieres trames —
+ *     valide corr 1.000000 lag 0 vs ffmpeg (mono).
+ *  Autre codec (ex. MP3 embarque, Opus multicanal >2) -> Open() echoue proprement (le
+ *  caller retombe sur un autre chemin, ex. RAM complete via NkMP3Codec — voir OpenAudioStream()).
  *
  *  Le PRIMING de l'encodeur AAC (1024 echantillons de delai standard) est saute au
  *  premier paquet, pour aligner l'audio sur l'horodatage video (meme convention que
@@ -53,7 +54,7 @@ namespace nkentseu {
 
 				/// Ouvre `path` (MP4/MOV/WebM...), demuxe la piste audio et prepare le
 				/// decodeur. Renvoie false si conteneur non supporte, pas de piste audio,
-				/// ou codec non gere (AAC/PCM/Opus-mono seulement — echec propre : le caller
+				/// ou codec non gere (AAC/PCM/Opus seulement — echec propre : le caller
 				/// peut retomber sur autre chose, ex. RAM complete pour du MP3 embarque).
 				bool Open(const char *path) noexcept;
 
