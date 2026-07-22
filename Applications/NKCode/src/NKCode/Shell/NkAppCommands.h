@@ -201,6 +201,128 @@ inline void DrawNewWsModal(NkEditorFrameContext &ec, nkcode::NkCodeDialogs *d) {
 	ctx.appModal = true;
 }
 
+// ── Fenetre DEDIEE d'aide : Raccourcis clavier (1) / A propos (2). Contenu
+//    statique reel (les raccourcis listes = ceux effectivement cables). ──
+inline void DrawHelpModal(NkEditorFrameContext &ec, nkcode::NkCodeDialogs *d) {
+	nkcode::NkUi u = nkcode::NkUi::From(ec, /*overlay=*/true);
+	if (!u.Valid())
+		return;
+	NkGuiContext &ctx = *u.ctx;
+	const float32 W = (float32)ctx.viewW, Vh = (float32)ctx.viewH;
+	const bool about = (d->showHelp == 2);
+	float32 pw = u.s(about ? 520.f : 680.f), ph = Vh * 0.85f;
+	if (about && ph > u.s(360))
+		ph = u.s(360);
+	if (!about && ph > u.s(700))
+		ph = u.s(700);
+	const NkRect box = {(W - pw) * 0.5f, (Vh - ph) * 0.5f, pw, ph};
+	ctx.PushOcclusion(box, 100);
+	NkGuiContext::NkInputLayerScope _layer(ctx, 100);
+	u.Rect({0.f, 0.f, W, Vh}, NkColor{0, 0, 0, 150});
+	if ((u.click && !u.Hit(box)) || ctx.input.KeyPressed(NkGuiKey::Escape)) {
+		d->showHelp = 0;
+		d->helpScroll = 0.f;
+		return;
+	}
+	u.Panel(box, nkcode::NkCol::background, nkcode::NkCol::border, nkcode::NkR::lg);
+	// Titre + lisere accent + bouton fermer.
+	const float32 tbH = u.s(44.f);
+	u.Rect({box.x, box.y, box.w, u.s(3.f)}, nkcode::NkCol::primary, nkcode::NkR::lg);
+	u.TextV(box.x + u.s(20), box.y, tbH, about ? NkT("mb.help.about") : NkT("mb.help.shortcuts"),
+			nkcode::NkCol::foreground);
+	{
+		const NkRect xr = {box.x + box.w - u.s(36), box.y + u.s(8), u.s(28), u.s(28)};
+		if (u.Button(xr, "x", NkColor{0, 0, 0, 0}, nkcode::NkColHover(nkcode::NkCol::sidebar),
+					 nkcode::NkCol::foreground, u.s(6))) {
+			d->showHelp = 0;
+			d->helpScroll = 0.f;
+			return;
+		}
+	}
+	const NkRect body = {box.x + u.s(24), box.y + tbH + u.s(6), box.w - u.s(48), box.h - tbH - u.s(30)};
+	if (about) {
+		// ── A PROPOS : identite produit/editeur, contact. ──
+		const char *L[] = {"NKCode 0.1.0-beta",
+						   "",
+						   "IDE natif de l'ecosysteme Nkentseu (NKGui).",
+						   "Builds pilotes par Jenga (C, C++, ASM, Rust, Zig).",
+						   "",
+						   "Editeur : Rihen",
+						   "Contact : rihen.universe@gmail.com",
+						   "Depot beta : github.com/Rihen-Universe/NKCode-Beta"};
+		float32 y = body.y + u.s(6);
+		for (int32 i = 0; i < 8; ++i) {
+			u.Text(body.x, y, L[i], i == 0 ? nkcode::NkCol::foreground : nkcode::NkCol::sidebarFg);
+			y += u.Lh() + u.s(8);
+		}
+		return;
+	}
+	// ── RACCOURCIS : (touche, action) — la liste reflete les cablages REELS. ──
+	struct Sc {
+			const char *k, *a;
+	};
+	static const Sc SC[] = {{"Ctrl+N / Ctrl+S / Ctrl+Shift+S", "Nouveau fichier / Enregistrer / Enregistrer sous"},
+							{"Ctrl+Q", "Quitter"},
+							{"Ctrl+P", "Palette de commandes"},
+							{"Ctrl+Shift+A", "Panneau Assistant IA"},
+							{"", ""},
+							{"Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y", "Annuler / Retablir"},
+							{"Ctrl+X / Ctrl+C / Ctrl+V / Ctrl+A", "Couper / Copier / Coller / Tout selectionner"},
+							{"Ctrl+D", "Dupliquer la ligne ou la selection"},
+							{"Ctrl+L", "Selectionner la ligne (etend au repete)"},
+							{"Ctrl+Shift+D", "Occurrence suivante (multi-curseur)"},
+							{"Ctrl+Shift+L", "Toutes les occurrences (multi-curseur)"},
+							{"Ctrl+Shift+K", "Supprimer la ligne"},
+							{"Alt+\xE2\x86\x91 / Alt+\xE2\x86\x93", "Deplacer la ligne"},
+							{"Shift+Alt+\xE2\x86\x91 / Shift+Alt+\xE2\x86\x93", "Dupliquer la ligne (haut/bas)"},
+							{"Ctrl+Entree / Ctrl+Shift+Entree", "Inserer une ligne dessous / dessus"},
+							{"Ctrl+/ et Ctrl+Shift+/", "Commentaire ligne / bloc (selon langage)"},
+							{"Ctrl+] / Ctrl+[", "Indenter / Desindenter"},
+							{"", ""},
+							{"Ctrl+F / Ctrl+H", "Rechercher / Remplacer (fichier)"},
+							{"F3 / Shift+F3", "Occurrence suivante / precedente"},
+							{"Ctrl+Shift+F / Ctrl+Shift+H", "Rechercher / Remplacer (workspace)"},
+							{"Ctrl+G", "Aller a la ligne"},
+							{"F2", "Renommer l'identifiant"},
+							{"F8 / Shift+F8", "Probleme suivant / precedent"},
+							{"", ""},
+							{"F9", "Point d'arret (gouttiere)"},
+							{"F5", "Deboguer (jenga gdb, points d'arret transmis)"},
+							{"Alt+Z", "Retour a la ligne (word wrap)"},
+							{"Ctrl+molette / Ctrl+\xC2\xB1 / Ctrl+0", "Zoom du code (par onglet)"},
+							{"Ctrl+K Ctrl+0 / Ctrl+K Ctrl+J", "Replier / Deplier tout"},
+							{"F1", "Documentation"}};
+	const int32 N = (int32)(sizeof(SC) / sizeof(SC[0]));
+	const float32 rowH = u.Lh() + u.s(10);
+	const float32 contentH = N * rowH;
+	if (u.Hit(body) && ctx.input.wheel != 0.f) {
+		d->helpScroll -= ctx.input.wheel * rowH;
+		ctx.input.wheel = 0.f;
+	}
+	const float32 maxS = contentH - body.h > 0.f ? contentH - body.h : 0.f;
+	if (d->helpScroll < 0.f)
+		d->helpScroll = 0.f;
+	if (d->helpScroll > maxS)
+		d->helpScroll = maxS;
+	u.dl->PushClipRect(body, true);
+	float32 y = body.y - d->helpScroll;
+	const float32 keyW = u.s(280.f);
+	for (int32 i = 0; i < N; ++i) {
+		if (y + rowH >= body.y && y <= body.y + body.h && SC[i].k[0]) {
+			u.Text(body.x, y + u.s(4), SC[i].k, nkcode::NkCol::primary);
+			u.Text(body.x + keyW, y + u.s(4), SC[i].a, nkcode::NkCol::foreground);
+		}
+		y += SC[i].k[0] ? rowH : u.s(10.f);
+	}
+	u.dl->PopClipRect();
+	if (maxS > 0.f) { // barre de defilement fine
+		const float32 th = body.h * (body.h / contentH);
+		const float32 ty = body.y + (body.h - th) * (d->helpScroll / maxS);
+		u.Rect({body.x + body.w + u.s(10), ty, u.s(4), th}, nkcode::NkCol::border, u.s(2));
+	}
+	ctx.appModal = true;
+}
+
 inline void OverlayThunk(NkEditorFrameContext &ec, void *u) {
 	auto *d = static_cast<nkcode::NkCodeDialogs *>(u);
 	// Modales AVANT DrawOverlay : le picker (ouvert par un champ des
@@ -209,6 +331,8 @@ inline void OverlayThunk(NkEditorFrameContext &ec, void *u) {
 		DrawPrefsModal(ec, d);
 	if (d->showNewWs)
 		DrawNewWsModal(ec, d);
+	if (d->showHelp)
+		DrawHelpModal(ec, d);
 	// Demande d'« Enregistrer sous » (bouton +, ré-enregistrer un fichier supprimé) : ouvre le dialogue.
 	if (d->st && d->st->reqSaveAs) {
 		d->st->reqSaveAs = false;
