@@ -473,10 +473,26 @@
   charges, toutes les sous-trames, vérifs (sync, dims clés == IVF, headerSize borné, somme
   superframe). **Validé** : self-test forgé bit à bit ; flux 1-passe 100/100 trames ; flux
   2-passes torture **108 trames dont 8 superframes et 8 altref invisibles** tous parsés.
-- **À venir** (ordre VP8-like) : bool decoder compressé (identique VP8) + en-tête compressé
-  (probas), modes intra + partitions récursives 64→4, résiduels/transformées 4x4-32x32 DCT/ADST,
-  reconstruction image clé, inter (MC 1/8 pel, compound, refs multiples), loop filter,
-  branchement NkVideoReader (.webm/.ivf VP9).
+- ⭐ **Brique 2 — EN-TÊTE COMPRESSÉ (2026-07-22)** : le bool decoder VP8 (`NkVp8BoolDecoder`)
+  est RÉUTILISÉ tel quel — l'arithmétique est identique (`(range·p+256−p)>>8` ≡
+  `1+((range−1)·p)>>8`), MAIS `vpx_reader_init` VP9 lit UN BIT MARQUEUR à l'init (doit
+  valoir 0) — LA différence d'amorçage. `NkVp9Tables.inc` GÉNÉRÉ par `vp9ref/extract.py`
+  (scratchpad) : **35 tables** extraites de libvpx avec assertions (inv_map_table[255],
+  coef probs par défaut 4×[2][2][6][6][3] avec bande 0 partielle paddée, tous les mode/mv
+  probs par défaut + kf probs, 8 arbres avec résolution PROGRAMMATIQUE des enums/#define +
+  macro INTER_OFFSET). `NkVp9FrameContext` complet + `ParseCompressedHeader` (§6.3, ordre
+  `read_compressed_header`) : tx_mode (+ tx probs p8x8→p16x16→p32x32), coef probs (flag par
+  taille, deltas subexp `decode_term_subexp` + `inv_remap_prob`), skip, et pour l'inter :
+  inter modes, filtre switchable, intra/inter, reference mode (compound ssi sign bias
+  divergents), single/comp refs, modes Y, partitions, MV (`update_mv_probs` proba 252 →
+  7 bits impairs, hp conditionnel). Taille héritée d'une réf : paramètre refW/refH.
+  **Validé : 312/312 en-têtes compressés parsés sans erreur** (bit marqueur + bornes du
+  bool decoder) sur 4 flux : 2-passes altref (108), 1-passe (100), HD 1280x720 multi-tiles
+  (54), segmentation aq-mode (50). Un désalignement d'un seul bit ferait déborder le bool
+  decoder — critère fort avant le décodage réel.
+- **À venir** (ordre VP8-like) : partitions récursives 64→4 + modes intra (arbres kf),
+  tokens résiduels + transformées 4x4-32x32 DCT/ADST, reconstruction image clé, loop filter,
+  inter (MC 1/8 pel, compound, refs multiples), branchement NkVideoReader (.webm/.ivf VP9).
 
 ## En cours / À venir
 

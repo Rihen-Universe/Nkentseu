@@ -315,7 +315,7 @@ int main(int argc, char **argv) {
 			printf("  [!!] fourcc != VP90\n");
 
 		int32 nPayloads = 0, nFrames = 0, nKey = 0, nInter = 0, nAltref = 0, nShowExisting = 0;
-		int32 nSuperframes = 0;
+		int32 nSuperframes = 0, nCompOk = 0, nCompTotal = 0;
 		bool allOk = true;
 		for (;;) {
 			uint8 frameHdr[12];
@@ -341,7 +341,8 @@ int main(int argc, char **argv) {
 			for (int32 fr = 0; fr < sf.count; ++fr) {
 				NkVp9FrameHeader h;
 				if (!NkVp9Decoder::ParseUncompressedHeader(payload.Data() + sf.offsets[fr],
-														   sf.sizes[fr], h)) {
+														   sf.sizes[fr], h, (int32)ivfW,
+														   (int32)ivfH)) {
 					printf("  [KO] header invalide (charge %d, sous-trame %d)\n", nPayloads, fr);
 					allOk = false;
 					continue;
@@ -366,6 +367,22 @@ int main(int argc, char **argv) {
 						   nPayloads, fr, h.uncompressedBytes, h.headerSizeBytes,
 						   (unsigned)sf.sizes[fr]);
 					allOk = false;
+				} else if (!h.showExistingFrame && h.headerSizeBytes > 0) {
+					// Brique 2 : en-tête COMPRESSÉ (bool decoder + updates de probas).
+					++nCompTotal;
+					NkVp9FrameContext fc;
+					NkVp9Decoder::InitDefaultFrameContext(fc);
+					NkVp9CompressedHeader ch;
+					if (NkVp9Decoder::ParseCompressedHeader(payload.Data() + sf.offsets[fr] +
+																(usize)h.uncompressedBytes,
+															(usize)h.headerSizeBytes, h, fc, ch)) {
+						++nCompOk;
+					} else {
+						if (nCompTotal - nCompOk <= 4)
+							printf("  [KO] en-tete compresse invalide (charge %d, sous-trame %d)\n",
+								   nPayloads, fr);
+						allOk = false;
+					}
 				}
 				if (nFrames <= 6)
 					printf("  trame %d : type=%s show=%d dims=%dx%d profil=%d cs=%d q=%d lf=%d "
@@ -383,6 +400,8 @@ int main(int argc, char **argv) {
 		printf("  charges=%d (superframes=%d) trames=%d : cles=%d inter=%d (altref invisibles=%d) "
 			   "show_existing=%d\n",
 			   nPayloads, nSuperframes, nFrames, nKey, nInter, nAltref, nShowExisting);
+		printf("  en-tetes compresses : %d/%d parses sans erreur (bit marqueur + bornes bool)\n",
+			   nCompOk, nCompTotal);
 		printf("  [ %s ] parsing en-tetes VP9\n", allOk ? "OK " : "KO");
 		return allOk ? 0 : 1;
 	}
