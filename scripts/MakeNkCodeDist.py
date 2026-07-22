@@ -118,6 +118,17 @@ def Main() -> int:
     Log("copie de NKCode.exe")
     shutil.copy2(exe, out / "NKCode.exe")
 
+    # Ressources de l'IDE (logos, icones SVG, polices, langues, icons.cfg) :
+    # NkAppFonts/NkAppIcons cherchent notamment "data/..." RELATIF au dossier
+    # de lancement -> un dossier data/ A COTE de l'exe suffit (double-clic =
+    # CWD = dossier de l'exe).
+    data = REPO / "Applications/NKCode/data"
+    if data.exists():
+        Log("copie des ressources (data/ : polices, textures, logos, langues)")
+        CopyTree(data, out / "data", exclude_dirs={"__pycache__"})
+    else:
+        Log("ATTENTION : Applications/NKCode/data introuvable — dist sans ressources !")
+
     Log("copie du runtime Python embarque (tools/python-embed)")
     CopyTree(pyembed, tools / "python-embed")
     # DLLs exigees au DEMARRAGE (import table de NKCode.exe) -> a cote de l'exe.
