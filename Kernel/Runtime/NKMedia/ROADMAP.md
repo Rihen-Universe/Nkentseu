@@ -22,7 +22,7 @@
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅** ; puis WebM, WAV |
 | 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High bit-exact** (MP4/MOV/3GP/MKV) ; VP8/VP9/AV1/H.265 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
-| 8. **Décodeur vidéo VP8** | 🔶 DÉMARRÉ | Chantier neuf (2026-07-21, décision explicite Rihen après H.264+conteneurs) : décodeur booléen (RFC 6386 §7.3) ✅ + frame tag (dimensions, keyFrame) ✅ validés sur fichier réel. **Ne décode PAS encore d'image** — voir détail dans « Livré » et « En cours ». |
+| 8. **Décodeur vidéo VP8** | 🔶 EN COURS | Chantier neuf (2026-07-21) : **une IMAGE CLÉ se décode BIT-EXACT vs ffmpeg** (0 pixel d'écart sur 2 flux indépendants à `filterLevel=0`) — décodeur booléen, en-têtes, modes, résidus, déquantification, WHT+IDCT, prédiction intra complète. Reste : **filtre de boucle**, puis les **images inter** (mouvement). Voir détail dans « En cours / À venir ». |
 
 ## Livré
 - **Brique 1 (2026-07-10)** — `NkMediaProbe` (`NkMediaProbe.{h,cpp}`) : détection de conteneur + parseurs
@@ -287,13 +287,70 @@
     Cohérence sémantique en prime : les distributions de modes suivent la qualité comme attendu
     (fichier haute qualité → 69/99 MB en `B_PRED` ; bas débit → seulement 15/99 `B_PRED` et 70/99
     macroblocs sautés), et la somme des sous-modes 4×4 vaut exactement 16 × (nombre de MB `B_PRED`).
-  - **Reste (dans l'ordre logique)** : prédiction intra (16×16 DC/V/H/TM, 4×4 B_PRED 10 modes,
-    chroma 8×8) ; décodage des coefficients résiduels (tokens, contexte par bande/position, 2ème
-    partition) ; transformée (WHT 4×4 pour le DC luma en mode 16×16 + IDCT 4×4) ; filtre de boucle
-    (normal/simple, par arête de MB) → à ce point une IMAGE CLÉ devrait se décoder et pouvoir être
-    comparée pixel à pixel à ffmpeg ; puis seulement les images inter (vecteurs de mouvement,
-    interpolation sous-pel 6-tap différente de H.264).
-    Chaque brique à valider sur du contenu réel ffmpeg avant la suivante, même méthode que H.264.
+  - **Brique 5 — coefficients résiduels / tokens (§13)** : décodage des 25 blocs 4×4 par macrobloc
+    (16 Y + 4 U + 4 V + 1 Y2), depuis la **2ème partition** (distincte de celle qui porte l'en-tête
+    et les modes). Chaque coefficient est lu avec un contexte à trois dimensions — type de bloc
+    (Y-avec-DC / Y2 / chroma / Y-sans-DC), **bande** (position dans le bloc), et **valeur du
+    coefficient précédent** (0 / 1 / >1) — plus un contexte d'entropie « bloc voisin non vide »
+    (somme du voisin du dessus et de gauche, 0..2) qui exige un contexte persistant **par colonne
+    de macrobloc** et un contexte « à gauche » remis à zéro à chaque ligne. Grandes magnitudes
+    codées par catégories (`DCT_VAL_CATEGORY1..6`) avec bits supplémentaires à probabilités
+    constantes. ⚠️ Subtilité normative du saut de macrobloc (`mb_skip_coeff`) : la remise à zéro du
+    contexte efface Y/U/V mais **ne touche à l'entrée Y2 que si le macrobloc possède un bloc Y2**
+    (donc pas en `B_PRED`) — sinon elle garde sa valeur pour le macrobloc suivant.
+  - ⭐⭐ **Bug trouvé grâce à la variété du contenu de test — sentinelle manquante (même FAMILLE
+    que les bugs de table du H.264)** : les probabilités des bits supplémentaires des catégories
+    3..6 sont parcourues par une boucle `while (*tab)` terminée par une **sentinelle 0**. Mises à
+    plat en lignes de largeur 11, la catégorie 6 (qui a **exactement** 11 probabilités) n'avait
+    **plus aucune place pour sa sentinelle** → lecture hors bornes, désynchronisation totale du
+    flux. **Invisible sur le premier fichier de test** (basse qualité, baseQ=12 : les grandes
+    valeurs de catégorie 6 n'apparaissent jamais, coefficients max ±41) et révélé uniquement en
+    testant du contenu **haute qualité** (baseQ=4), où les symptômes étaient sans ambiguïté :
+    coefficients absurdes (±32765 alors que le maximum théorique VP8 est ~±2114) et dépassement de
+    partition de 13 à 192 octets. Fix : lignes de largeur 12 + assertion dans le script de
+    génération garantissant qu'il reste toujours au moins une sentinelle. ⭐ **Leçon** : tester une
+    seule qualité/résolution aurait laissé passer ce bug jusqu'à la comparaison pixel, où il aurait
+    été bien plus coûteux à localiser.
+  - **Validé** sur les **4 mêmes fichiers VP8 réels** (résolutions, contenus et débits différents) :
+    la 2ème partition est elle aussi consommée **EXACTEMENT** — 5075/5075, 6833/6833, 437/437,
+    1918/1918 octets, **dépassement = 0 partout** ; tous les macroblocs traités (décodés + sautés
+    = mbCols×mbRows) ; et les plages de coefficients sont désormais toutes plausibles
+    (±41, ±344, ±208, ±97 — largement dans le maximum théorique). **Les DEUX partitions d'une
+    image clé sont donc maintenant parsées intégralement et sans dérive.**
+  - ⭐⭐⭐ **Brique 6 — RECONSTRUCTION : une image clé VP8 se décode BIT-EXACT vs ffmpeg.**
+    Déquantification (§14.1, tables `dc_qlookup`/`ac_qlookup` extraites par script ; le DC du bloc
+    Y2 est **doublé** et son AC multiplié par 155/100 borné à 8 — compensation d'échelle de la
+    transformée de Walsh ; le DC chroma est **plafonné à 132**) ; transformées inverses (**WHT 4×4**
+    reconstruisant les 16 DC luma depuis le bloc Y2, + **IDCT 4×4** en virgule fixe 16 bits, chacune
+    avec son chemin rapide « DC seul ») ; **prédiction intra** complète — 16×16 et chroma 8×8
+    (DC/V/H/TM, le DC ayant 4 variantes selon la disponibilité des voisins, dont la valeur normative
+    **128** quand ni le haut ni la gauche n'existent) et **4×4 B_PRED, les 10 modes** ; puis
+    reconstruction (prédiction + résidu, avec saturation). ⚠️ En `B_PRED` chaque sous-bloc est
+    prédit **puis reconstruit avant le suivant** (cascade), ses voisins servant de référence.
+    ⚠️ Astuce reprise de la référence : quand un bloc Y2 existe, ses DC déjà déquantifiés sont
+    écrits dans les blocs luma et le facteur DC de ces blocs est forcé à **1** pour ne pas les
+    re-multiplier.
+  - ⭐⭐ **Bug trouvé et corrigé — extension du bord DROIT.** Premier essai : **17 pixels faux sur
+    115200** (chroma déjà parfaite). Le diagnostic a été immédiat parce que le harnais affiche les
+    coordonnées ET le contexte (macrobloc, mode) des pixels divergents : les 17 étaient **tous** dans
+    la dernière colonne de macroblocs, dans le sous-bloc le plus à droite, et **uniquement** sur les
+    modes `B_LD_PRED`/`B_VE_PRED` — c'est-à-dire exactement les modes qui lisent des échantillons
+    **en haut à droite**, hors image à cet endroit. La référence réplique le dernier pixel réel dans
+    4 pixels de bordure à la fin de chaque ligne de macroblocs, et **uniquement sur les deux
+    dernières lignes** (seule la ligne 15 sera lue comme « au-dessus » par la ligne suivante).
+    ⭐ **Leçon** : faire afficher au harnais le CONTEXTE des pixels faux (position, macrobloc, mode)
+    plutôt qu'un simple compteur transforme un « 17 pixels faux » opaque en diagnostic immédiat.
+  - ⭐ **Validé BIT-EXACT vs ffmpeg sur DEUX flux indépendants** dont le filtre de boucle est
+    désactivé (`filterLevel == 0`, seul cas comparable tant que le filtre n'est pas écrit) :
+    **0 / 115200** et **0 / 38016 pixels différents**, contenus et résolutions différents. Sur les
+    trois flux à `filterLevel > 0`, l'écart résiduel **suit exactement l'intensité du filtre**
+    (niveau 1 → écart max 2 ; niveau 5 → max 4 ; niveau 8 → max 7), signature caractéristique d'un
+    déblocage manquant et non d'une erreur de décodage.
+  - **Reste** : **filtre de boucle** (normal/simple, par arête de macrobloc) → rendra les flux
+    `filterLevel > 0` bit-exacts eux aussi ; segmentation par macrobloc (refusée proprement pour
+    l'instant, aucun flux de test ne l'active) ; partitions de tokens multiples (>1) ; puis les
+    **images inter** (vecteurs de mouvement, interpolation sous-pel 6-tap différente de H.264),
+    qui sont le gros morceau restant pour lire une vidéo VP8 complète.
 
 ## En cours / À venir
 
