@@ -98,6 +98,11 @@ namespace nkentseu {
 			if (m.pos.y + boxH > static_cast<float32>(ctx.viewH))
 				m.pos.y = static_cast<float32>(ctx.viewH) - boxH;
 			const NkVec2 mp = ctx.input.mousePos;
+			// ── ROUTEUR D'OCCLUSION UNIFIE : ce dialogue est une surface MODALE
+			// (couche 100). Ses hit-tests utilisent la couche 100 ; toute surface de
+			// couche inferieure passee a InputHits/ClickIn devient automatiquement
+			// aveugle sous son rect (PushOcclusion en fin de fonction). ──
+			NkGuiContext::NkInputLayerScope _layer(ctx, 100);
 			// Glisser de la barre de titre : traite AVANT de figer `box` pour le
 			// rendu/hit-test de cette frame (sinon la position affichee reste
 			// toujours en retard d'une frame sur la souris).
@@ -182,6 +187,9 @@ namespace nkentseu {
 			// plus tot dans la frame, de reagir au meme clic entretemps.
 			ctx.popupRects[0] = box;
 			ctx.popupAnchor = box;
+			// Routeur d'occlusion : declare la surface modale pour la frame suivante
+			// (les hit-tests de couche < 100 sous ce rect echoueront d'eux-memes).
+			ctx.PushOcclusion(box, 100);
 
 			if (clicked >= 0 || cancelled) {
 				m.open = false;
