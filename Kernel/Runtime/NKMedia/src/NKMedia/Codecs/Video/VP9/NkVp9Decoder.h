@@ -17,9 +17,18 @@
 #pragma once
 
 #include "NKCore/NkTypes.h"
+#include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
 	namespace media {
+
+		// Image décodée (I420 ; strides = largeurs des plans).
+		struct NkVp9Image {
+				NkVector<nk_uint8> y, u, v;
+				int32 width = 0, height = 0;
+				int32 yStride = 0, uvStride = 0;
+				int32 uvWidth = 0, uvHeight = 0;
+		};
 
 		// --- Superframe VP9 : jusqu'à 8 trames concaténées + index final. ---
 		// Le DERNIER octet 0b110xxxxx = marqueur : bits 0-2 = nb trames - 1,
@@ -217,6 +226,13 @@ namespace nkentseu {
 												 const NkVp9FrameHeader &hdr, const NkVp9FrameContext &fc,
 												 const NkVp9CompressedHeader &chdr,
 												 NkTileParseStats &stats);
+
+				// BRIQUE 4 : décode ENTIÈREMENT une trame clé/intra-only (en-têtes +
+				// contenu + prédiction intra + déquantification + transformées
+				// inverses) → image I420. `frame` = une trame VP9 (déjà extraite de
+				// son superframe). Sans loop filter pour l'instant (brique 5).
+				static bool DecodeKeyFrame(const uint8 *frame, usize size, NkVp9Image &out,
+										   NkTileParseStats *statsOut = nullptr);
 
 				static bool SelfTest();
 		};

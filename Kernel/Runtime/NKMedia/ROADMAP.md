@@ -512,10 +512,32 @@
   dans les milliers de décisions par trame désaligne le bool decoder) sur 6 flux : 1-passe
   (4 clés), 2-passes (2), HD 1280x720 multi-tiles, segmentation aq-mode, résolution IMPAIRE
   355x289 (blocs partiels aux bords), LOSSLESS (~156k coefficients lus au total).
-- **À venir** (ordre VP8-like) : reconstruction image clé (prédiction intra 10 modes +
-  déquant + transformées inverses 4x4-32x32 DCT/ADST + WHT lossless) → VALIDATION BIT-EXACTE
-  vs ffmpeg, loop filter, inter (MC 1/8 pel, compound, refs multiples), branchement
-  NkVideoReader (.webm/.ivf VP9).
+- ⭐⭐ **Brique 4 — RECONSTRUCTION D'IMAGE CLÉ (2026-07-22) : BIT-EXACTE vs ffmpeg** sur les
+  flux lossless (le loop filter — qui masquerait les vraies erreurs — arrive brique 5).
+  (1) **Transformées inverses** (`NkVp9Itxfm`, port fidèle inv_txfm.c) : iDCT 4/8/16/32 +
+  iADST 4/8/16 (hybrides par type : {rows, cols} = default/row/col) + iWHT 4x4 lossless —
+  constantes cospi/sinpi Q14, arrondi Q14, stockage intermédiaire int16 (wrap normatif :
+  step[] int16 MAIS x0-x15 des iADST en int32 SANS troncature — WRAPLOW n'est une troncature
+  qu'en EMULATE_HARDWARE), passes lignes→colonnes avec shifts 4/5/6/6. 3 bugs de
+  transcription attrapés à la RELECTURE avant tout run (boucles compactes idct16/32 étape 7,
+  wraps iadst). (2) **Prédiction intra** : 10 modes génériques (motif 127/129, extensions aux
+  bords via frameW/frameH, DC 4 variantes) + ⚠ LES 6 VARIANTES 4x4 DÉDIÉES des modes
+  directionnels (D45/D63/D117/D135/D153/D207 : les coins utilisent l'above-right RÉEL E..H,
+  « differs from vp8 » — le générique `intra_pred_no_4x4` ne sert qu'aux ≥8x8) — sans elles :
+  ~2% de pixels faux, diagnostiqué en croisant blocs faux × modes (le chroma, qui n'utilise
+  jamais D45/D63 ici, était parfait). (3) **Déquantification** par segment (get_qindex ALT_Q,
+  dc/ac_qlookup, deltas, dqShift 32x32) intégrée à decode_coefs (dq[0] premier coefficient
+  puis dq[1]). (4) ⚠ **MARGE de 64 px** droite/bas des plans : les blocs PARTIELS des bords
+  écrivent leur emprise complète (normatif, libvpx alloue pareil) — sans marge, un bloc du
+  bord droit wrappe sur la bande gauche de la rangée suivante (diagnostiqué : bande de
+  360−354=6 px constants). API `DecodeKeyFrame` (en-têtes + contenu + reconstruction → I420)
+  + harnais `--vp9recon` (comparaison pixel à pixel vs ffmpeg). **VALIDÉ : 3 flux lossless
+  BIT-EXACTS (176x144, mandelbrot 320x240, 354x288 avec superblocs partiels)** ; flux non-
+  lossless : écarts = uniquement le loop filter manquant. Limite : profils 1-3 (4:4:4/sRGB/
+  haute profondeur) non gérés — refus propre, le VP9 web est profil 0.
+- **À venir** (ordre VP8-like) : loop filter (→ bit-exact sur flux avec lf>0), trames inter
+  (MC 1/8 pel 8 taps, compound, refs multiples), superframes/altref au niveau séquence,
+  branchement NkVideoReader (.webm/.ivf VP9).
 
 ## En cours / À venir
 

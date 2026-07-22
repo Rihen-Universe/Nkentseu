@@ -290,6 +290,105 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
+	// Mode reconstruction VP9 (brique 4) : --vp9recon <fichier.ivf> <reference.yuv>
+	// Décode la PREMIÈRE trame clé (prédiction intra + déquant + transformées) et la
+	// compare pixel à pixel à la référence ffmpeg (I420). Objectif : BIT-EXACT.
+	if (argc >= 4 && strcmp(argv[1], "--vp9recon") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		uint8 ivfHdr[32];
+		if (fread(ivfHdr, 1, 32, f) != 32 || memcmp(ivfHdr, "DKIF", 4) != 0) {
+			printf("  [KO] pas un IVF\n");
+			fclose(f);
+			return 1;
+		}
+		uint8 frameHdr[12];
+		if (fread(frameHdr, 1, 12, f) != 12) {
+			fclose(f);
+			return 1;
+		}
+		const uint32 payloadSize = (uint32)frameHdr[0] | ((uint32)frameHdr[1] << 8) |
+								   ((uint32)frameHdr[2] << 16) | ((uint32)frameHdr[3] << 24);
+		NkVector<uint8> payload;
+		payload.Resize(payloadSize);
+		if (fread(payload.Data(), 1, payloadSize, f) != payloadSize) {
+			fclose(f);
+			return 1;
+		}
+		fclose(f);
+		NkVp9Superframe sf;
+		NkVp9Decoder::ParseSuperframe(payload.Data(), (usize)payload.Size(), sf);
+		NkVp9Image img;
+		NkVp9Decoder::NkTileParseStats ts;
+		if (!NkVp9Decoder::DecodeKeyFrame(payload.Data() + sf.offsets[0], sf.sizes[0], img, &ts)) {
+			printf("  [KO] DecodeKeyFrame a echoue (tiles=%d blocs=%d)\n", ts.tiles, ts.blocks);
+			return 1;
+		}
+		printf("  decode : %dx%d (uv %dx%d), %d blocs, eob=%lld\n", img.width, img.height,
+			   img.uvWidth, img.uvHeight, ts.blocks, (long long)ts.eobTotal);
+
+		FILE *rf = fopen(argv[3], "rb");
+		if (!rf) {
+			printf("  [KO] reference introuvable : %s\n", argv[3]);
+			return 1;
+		}
+		const usize ySz = (usize)img.width * (usize)img.height;
+		const usize uvSz = (usize)img.uvWidth * (usize)img.uvHeight;
+		NkVector<uint8> ref;
+		ref.Resize(ySz + 2 * uvSz);
+		if (fread(ref.Data(), 1, ySz + 2 * uvSz, rf) != ySz + 2 * uvSz) {
+			printf("  [KO] reference trop courte\n");
+			fclose(rf);
+			return 1;
+		}
+		fclose(rf);
+		int64 diffs = 0;
+		int32 maxDiff = 0, firstX = -1, firstY = -1, firstPlane = -1;
+		const uint8 *planes[3] = {img.y.Data(), img.u.Data(), img.v.Data()};
+		const uint8 *refs[3] = {ref.Data(), ref.Data() + ySz, ref.Data() + ySz + uvSz};
+		const int32 pw[3] = {img.width, img.uvWidth, img.uvWidth};
+		const int32 ph[3] = {img.height, img.uvHeight, img.uvHeight};
+		const int32 pstride[3] = {img.yStride, img.uvStride, img.uvStride};
+		for (int32 p = 0; p < 3; ++p) {
+			for (int32 yy = 0; yy < ph[p]; ++yy) {
+				for (int32 xx = 0; xx < pw[p]; ++xx) {
+					const int32 a = planes[p][yy * pstride[p] + xx];
+					const int32 b = refs[p][yy * pw[p] + xx];
+					const int32 d = a > b ? a - b : b - a;
+					if (d) {
+						++diffs;
+						if (d > maxDiff)
+							maxDiff = d;
+						if (firstX < 0) {
+							firstX = xx;
+							firstY = yy;
+							firstPlane = p;
+						}
+					}
+				}
+			}
+		}
+		if (diffs == 0) {
+			printf("  [ OK  ] image cle VP9 BIT-EXACTE vs ffmpeg (%dx%d)\n", img.width, img.height);
+			return 0;
+		}
+		printf("  [ KO ] %lld pixels differents (maxdiff=%d, premier plan=%d @ %d,%d)\n",
+			   (long long)diffs, maxDiff, firstPlane, firstX, firstY);
+		// Dump de notre image pour cartographier les écarts (vp9recon_out.yuv).
+		FILE *of = fopen("vp9recon_out.yuv", "wb");
+		if (of) {
+			for (int32 p = 0; p < 3; ++p)
+				for (int32 yy = 0; yy < ph[p]; ++yy)
+					fwrite(planes[p] + (usize)yy * (usize)pstride[p], 1, (usize)pw[p], of);
+			fclose(of);
+			printf("  (image decodee ecrite dans vp9recon_out.yuv)\n");
+		}
+		return 1;
+	}
+
 	// Mode diagnostic VP9 (brique 1) : --vp9header <fichier.ivf>
 	// Parcourt TOUTES les frames IVF : découpe superframe (Annexe B) + en-tête non
 	// compressé (§6.2) de chaque sous-trame. Vérifie : sync code/marker OK, dims des
