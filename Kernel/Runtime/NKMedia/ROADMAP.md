@@ -22,7 +22,7 @@
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅** ; puis WebM, WAV |
 | 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High bit-exact** (MP4/MOV/3GP/MKV) ; VP8/VP9/AV1/H.265 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
-| 8. **Décodeur vidéo VP8** | 🔶 EN COURS | Chantier neuf (2026-07-21) : **une IMAGE CLÉ se décode BIT-EXACT vs ffmpeg** (0 pixel d'écart sur 2 flux indépendants à `filterLevel=0`) — décodeur booléen, en-têtes, modes, résidus, déquantification, WHT+IDCT, prédiction intra complète. Reste : **filtre de boucle**, puis les **images inter** (mouvement). Voir détail dans « En cours / À venir ». |
+| 8. **Décodeur vidéo VP8** | 🔶 EN COURS | Chantier neuf (2026-07-21) : **image CLÉ COMPLÈTE bit-exacte vs ffmpeg, filtre de boucle inclus** (0 pixel d'écart sur les 5 flux de test, niveaux de filtre 0/1/5/8) — décodeur booléen, en-têtes, modes, résidus, déquantification, WHT+IDCT, prédiction intra, filtre de boucle normal+simple. Reste : les **images inter** (mouvement), le gros morceau pour lire une vidéo complète. |
 
 ## Livré
 - **Brique 1 (2026-07-10)** — `NkMediaProbe` (`NkMediaProbe.{h,cpp}`) : détection de conteneur + parseurs
@@ -346,11 +346,27 @@
     trois flux à `filterLevel > 0`, l'écart résiduel **suit exactement l'intensité du filtre**
     (niveau 1 → écart max 2 ; niveau 5 → max 4 ; niveau 8 → max 7), signature caractéristique d'un
     déblocage manquant et non d'une erreur de décodage.
-  - **Reste** : **filtre de boucle** (normal/simple, par arête de macrobloc) → rendra les flux
-    `filterLevel > 0` bit-exacts eux aussi ; segmentation par macrobloc (refusée proprement pour
-    l'instant, aucun flux de test ne l'active) ; partitions de tokens multiples (>1) ; puis les
-    **images inter** (vecteurs de mouvement, interpolation sous-pel 6-tap différente de H.264),
-    qui sont le gros morceau restant pour lire une vidéo VP8 complète.
+  - ⭐⭐ **Brique 7 — FILTRE DE BOUCLE (§15) : les 5 flux de test sont BIT-EXACTS, tous niveaux
+    de filtre confondus.** Filtre **normal** (luma + chroma : filtre fort 6 pixels sur les arêtes
+    de macrobloc, filtre 4 pixels sur les arêtes internes 4/8/12, masques `FilterMask`/`HevMask`,
+    arithmétique recentrée `^0x80` en signed char conservée à l'identique de la référence pour
+    l'exactitude bit à bit) et filtre **simple** (luma seulement — codé mais non exercé par nos
+    flux). Seuils dérivés du niveau et de la netteté (§15.2 : `interior`, `blim = 2·lvl+interior`,
+    `mblim = 2·(lvl+2)+interior`), seuil de variance d'arête via la table **image clé** (≥40→2,
+    ≥15→1, sinon 0 — différente de celle des images inter). Niveau par macrobloc : niveau de base
+    + deltas par référence/mode si activés (B_PRED a son propre delta de mode). ⚠️ Subtilité
+    reprise de la référence : le « skip » vu par le filtre est le skip **EFFECTIF** — un macrobloc
+    non sauté au bitstream mais dont **tous** les coefficients sont nuls (`eobTotal == 0`) saute
+    quand même ses arêtes internes (il filtre néanmoins ses bords de macrobloc). Passe finale en
+    ordre raster, séquence par MB : arête verticale MB → verticales internes → horizontale MB →
+    horizontales internes. **Validé BIT-EXACT du premier coup sur les 5 flux** (0 pixel d'écart :
+    115200 + 3×38016 + 9000 pixels), y compris les trois flux à `filterLevel` 1, 5 et 8 dont
+    l'écart résiduel de la brique 6 a disparu exactement comme prédit ; les deux flux
+    `filterLevel = 0` restent bit-exacts (non-régression).
+  - **Reste** : segmentation par macrobloc (refusée proprement pour l'instant, aucun flux de test
+    ne l'active) ; partitions de tokens multiples (>1) ; puis les **images inter** (vecteurs de
+    mouvement, interpolation sous-pel 6-tap différente de H.264), qui sont le gros morceau restant
+    pour lire une vidéo VP8 complète.
 
 ## En cours / À venir
 

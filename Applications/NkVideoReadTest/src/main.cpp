@@ -88,15 +88,12 @@ int main(int argc, char **argv) {
 		const usize tokStart = tag.headerSize + (usize)tag.firstPartSize;
 		NkVp8BoolDecoder tbd(frame.Data() + tokStart, (usize)frame.Size() - tokStart);
 		NkVp8Image img;
-		if (!NkVp8ReconstructKeyFrame(tbd, fc, hdr, mbInfo, tag.width, tag.height, img)) {
+		if (!NkVp8ReconstructKeyFrame(tbd, fc, hdr, lfd, mbInfo, tag.width, tag.height, img)) {
 			printf("  [KO] NkVp8ReconstructKeyFrame a echoue\n");
 			return 1;
 		}
-		printf("  reconstruit : %dx%d (filterLevel=%d)\n", tag.width, tag.height, hdr.filterLevel);
-		if (hdr.filterLevel != 0)
-			printf("  ⚠ filterLevel=%d : le filtre de boucle n'est PAS implemente, des ecarts "
-				   "sont ATTENDUS (comparaison indicative seulement)\n",
-				   hdr.filterLevel);
+		printf("  reconstruit : %dx%d (filterLevel=%d filterType=%d sharpness=%d)\n", tag.width,
+			   tag.height, hdr.filterLevel, hdr.filterType, hdr.sharpnessLevel);
 
 		// Reference I420 : Y (w*h) puis U puis V (chacun w/2 * h/2, arrondi au superieur).
 		FILE *rf = fopen(argv[3], "rb");
@@ -126,9 +123,7 @@ int main(int argc, char **argv) {
 					++diffY;
 					if (d > maxDiff)
 						maxDiff = d;
-					// Ne detailler que si l'ecart est INATTENDU (sans filtre de boucle,
-					// un flux filterLevel>0 differe forcement : ce n'est pas un bug).
-					if (hdr.filterLevel == 0 && shown < 24) {
+					if (shown < 24) {
 						const NkVp8MbModeInfo &dmi =
 							mbInfo[(uint64)(y / 16 + 1) * (mbCols + 1) + (x / 16 + 1)];
 						printf("    diff Y (%3d,%3d) nous=%3d ref=%3d | MB(%d,%d) yMode=%d "
@@ -169,10 +164,8 @@ int main(int argc, char **argv) {
 			printf("  [ OK  ] RECONSTRUCTION BIT-EXACTE vs ffmpeg\n");
 			return 0;
 		}
-		printf("  [ %s ] %s\n", (hdr.filterLevel != 0) ? "~~ " : "KO",
-			   (hdr.filterLevel != 0) ? "ecarts attendus (filtre de boucle absent)"
-									  : "ECARTS INATTENDUS (filterLevel=0)");
-		return (hdr.filterLevel != 0) ? 0 : 1;
+		printf("  [ KO ] ECARTS INATTENDUS (le filtre de boucle est desormais implemente)\n");
+		return 1;
 	}
 
 	// Mode diagnostic VP8 (chantier en cours) : --vp8header <fichier.ivf>

@@ -287,11 +287,12 @@ namespace nkentseu {
 		void NkVp8ComputeDequant(const NkVp8FrameHeader &hdr, int32 qIndex, NkVp8Dequant &out);
 
 		// Décode une image CLÉ complète en pixels : modes déjà décodés (`mbInfo`) + résidus
-		// lus depuis `tokenBd`, puis pour chaque macrobloc prédiction intra + ajout du résidu.
-		// ⚠️ N'applique PAS le filtre de boucle (brique suivante) : le résultat n'est donc
-		// comparable pixel à pixel à une référence que sur un flux dont `filterLevel == 0`.
+		// lus depuis `tokenBd`, puis pour chaque macrobloc prédiction intra + ajout du résidu,
+		// et enfin le FILTRE DE BOUCLE (§15, normal ou simple selon l'en-tête) si
+		// `filterLevel > 0`. `lfDeltas` = ajustements par référence/mode lus dans l'en-tête.
 		bool NkVp8ReconstructKeyFrame(NkVp8BoolDecoder &tokenBd, const NkVp8FrameContext &fc,
 									   const NkVp8FrameHeader &hdr,
+									   const NkVp8LoopFilterDeltas &lfDeltas,
 									   const NkVector<NkVp8MbModeInfo> &mbInfo, int32 width,
 									   int32 height, NkVp8Image &out);
 
