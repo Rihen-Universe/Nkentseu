@@ -261,5 +261,655 @@ namespace nkentseu {
 			return true;
 		}
 
+		namespace {
+
+			// §13.2 : décode les coefficients d'UN bloc 4×4. Renvoie la position du dernier
+			// coefficient non nul + 1 (0 si le bloc est entièrement vide).
+			//
+			// `prob` = `fc.coefProbs[typeDeBloc]`, indexé ensuite par [bande][contexte][nœud].
+			// `ctx` = 0..2 (somme des drapeaux « non vide » du voisin du dessus et de gauche).
+			// `n` = indice du premier coefficient à lire (1 si le DC vient du bloc Y2).
+			//
+			// ⚠️ Le contexte utilisé pour le coefficient SUIVANT dépend de la VALEUR qu'on
+			// vient de lire (0 → contexte 0, 1 → contexte 1, >1 → contexte 2) : c'est ce
+			// ré-adressage de `p` à chaque itération qui porte l'essentiel de la compression.
+			int32 Vp8GetCoeffs(NkVp8BoolDecoder &bd, const uint8 (*prob)[3][11], int32 ctx, int32 n,
+							   int16 *out) {
+				const uint8 *p = prob[n][ctx];
+				if (!bd.GetBool(p[0])) // 1er "EOB" : joue le rôle d'un bit "ce bloc est vide"
+					return 0;
+				for (;;) {
+					++n;
+					if (!bd.GetBool(p[1])) { // coefficient nul
+						p = prob[kVp8CoefBands[n]][0];
+					} else {
+						int32 v;
+						if (!bd.GetBool(p[2])) { // valeur 1
+							p = prob[kVp8CoefBands[n]][1];
+							v = 1;
+						} else {
+							if (!bd.GetBool(p[3])) {
+								if (!bd.GetBool(p[4]))
+									v = 2;
+								else
+									v = 3 + bd.GetBool(p[5]);
+							} else {
+								if (!bd.GetBool(p[6])) {
+									if (!bd.GetBool(p[7]))
+										v = 5 + bd.GetBool(kVp8Pcat1[0]);
+									else {
+										v = 7 + 2 * bd.GetBool(kVp8Pcat2[0]);
+										v += bd.GetBool(kVp8Pcat2[1]);
+									}
+								} else {
+									// Grandes valeurs : catégories 3..6, magnitude codée par des
+									// bits supplémentaires à probabilités CONSTANTES (kVp8Pcat3456,
+									// terminée par une sentinelle 0).
+									const int32 bit1 = bd.GetBool(p[8]);
+									const int32 bit0 = bd.GetBool(p[9 + bit1]);
+									const int32 cat = 2 * bit1 + bit0;
+									v = 0;
+									for (const uint8 *tab = kVp8Pcat3456[cat]; *tab; ++tab)
+										v += v + bd.GetBool(*tab);
+									v += 3 + (8 << cat);
+								}
+							}
+							p = prob[kVp8CoefBands[n]][2];
+						}
+						// Le coefficient est stocké à sa position RASTER via le zigzag inverse.
+						// Le signe est un bit non biaisé (la référence l'implémente à la main,
+						// mais c'est exactement GetBool(128) — vérifié algébriquement).
+						out[kVp8Zigzag[n - 1]] = (int16)(bd.GetFlag() ? -v : v);
+						if (n == 16 || !bd.GetBool(p[0])) // EOB
+							return n;
+					}
+					if (n == 16)
+						return 16;
+				}
+			}
+
+		} // namespace
+
+		void NkVp8ResetMbTokenContext(bool isBPred, NkVp8EntropyContext &above,
+									   NkVp8EntropyContext &left) {
+			for (int32 i = 0; i < 8; ++i) { // Y (0-3), U (4-5), V (6-7)
+				above.v[i] = 0;
+				left.v[i] = 0;
+			}
+			// ⚠️ L'entrée Y2 n'est remise à zéro que si le MB POSSÈDE un bloc Y2. Un MB en
+			// B_PRED n'en a pas : son contexte Y2 doit rester INCHANGÉ pour le MB suivant.
+			if (!isBPred) {
+				above.v[8] = 0;
+				left.v[8] = 0;
+			}
+		}
+
+		int32 NkVp8DecodeMbTokens(NkVp8BoolDecoder &bd, const NkVp8FrameContext &fc, bool isBPred,
+								   NkVp8EntropyContext &above, NkVp8EntropyContext &left,
+								   NkVp8MbCoeffs &out) {
+			out = NkVp8MbCoeffs();
+			int32 eobTotal = 0;
+			int32 skipDc = 0;
+			const uint8 (*coefProbs)[3][11];
+
+			if (!isBPred) {
+				// Bloc Y2 (type 1) : porte les DC des 16 blocs Y (transformés par WHT).
+				const int32 nz =
+					Vp8GetCoeffs(bd, fc.coefProbs[1], above.v[8] + left.v[8], 0, out.coeffs[24]);
+				above.v[8] = left.v[8] = (nz > 0) ? 1 : 0;
+				out.eobs[24] = (uint8)nz;
+				eobTotal += nz - 16; // convention libvpx (permet de détecter "MB vide")
+				coefProbs = fc.coefProbs[0]; // Y SANS le DC (il vient de Y2)
+				skipDc = 1;
+			} else {
+				coefProbs = fc.coefProbs[3]; // Y AVEC son DC
+				skipDc = 0;
+			}
+
+			for (int32 i = 0; i < 16; ++i) { // 16 blocs luma, ordre raster 4×4
+				uint8 &a = above.v[i & 3];
+				uint8 &l = left.v[(i & 0xC) >> 2];
+				int32 nz = Vp8GetCoeffs(bd, coefProbs, (int32)a + (int32)l, skipDc, out.coeffs[i]);
+				a = l = (nz > 0) ? 1 : 0; // contexte MIS À JOUR avant l'ajout de skipDc
+				nz += skipDc; // eob=1 signifie alors "DC seul" (venu de Y2)
+				out.eobs[i] = (uint8)nz;
+				eobTotal += nz;
+			}
+
+			for (int32 i = 16; i < 24; ++i) { // 4 blocs U puis 4 blocs V (grilles 2×2)
+				uint8 &a = above.v[4 + ((i > 19) ? 2 : 0) + (i & 1)];
+				uint8 &l = left.v[4 + ((i > 19) ? 2 : 0) + (((i & 3) > 1) ? 1 : 0)];
+				const int32 nz =
+					Vp8GetCoeffs(bd, fc.coefProbs[2], (int32)a + (int32)l, 0, out.coeffs[i]);
+				a = l = (nz > 0) ? 1 : 0;
+				out.eobs[i] = (uint8)nz;
+				eobTotal += nz;
+			}
+			return eobTotal;
+		}
+
+		bool NkVp8DecodeKeyFrameResiduals(NkVp8BoolDecoder &bd, const NkVp8FrameContext &fc,
+										   const NkVector<NkVp8MbModeInfo> &mbInfo, int32 mbCols,
+										   int32 mbRows, NkVp8ResidualStats &stats) {
+			if (mbCols <= 0 || mbRows <= 0)
+				return false;
+			const int32 stride = mbCols + 1;
+			if (mbInfo.Size() < (uint64)((mbRows + 1) * stride))
+				return false;
+
+			stats = NkVp8ResidualStats();
+			// Un contexte « au-dessus » PAR COLONNE (persistant sur toute l'image), remis à
+			// zéro au début de l'image ; un contexte « à gauche » unique, remis à zéro au
+			// début de CHAQUE ligne de macroblocs.
+			NkVector<NkVp8EntropyContext> aboveCtx;
+			aboveCtx.Resize((uint64)mbCols);
+			for (uint64 i = 0; i < aboveCtx.Size(); ++i)
+				aboveCtx[i] = NkVp8EntropyContext();
+
+			NkVp8MbCoeffs coeffs;
+			for (int32 r = 0; r < mbRows; ++r) {
+				NkVp8EntropyContext leftCtx;
+				for (int32 c = 0; c < mbCols; ++c) {
+					const NkVp8MbModeInfo &mi = mbInfo[(uint64)(r + 1) * stride + (c + 1)];
+					const bool isBPred = (mi.yMode == kVp8MbBPred);
+					if (mi.skipCoeff) {
+						NkVp8ResetMbTokenContext(isBPred, aboveCtx[(uint64)c], leftCtx);
+						++stats.skippedMbs;
+						continue;
+					}
+					stats.eobTotal +=
+						NkVp8DecodeMbTokens(bd, fc, isBPred, aboveCtx[(uint64)c], leftCtx, coeffs);
+					++stats.decodedMbs;
+					for (int32 b = 0; b < 25; ++b) {
+						for (int32 k = 0; k < 16; ++k) {
+							const int32 v = coeffs.coeffs[b][k];
+							if (v != 0)
+								++stats.nonZeroCoeffs;
+							if (v < stats.minCoeff)
+								stats.minCoeff = v;
+							if (v > stats.maxCoeff)
+								stats.maxCoeff = v;
+						}
+					}
+				}
+			}
+			return true;
+		}
+
+		// =====================================================================
+		//  Reconstruction : déquantification, transformées inverses, prédiction intra
+		// =====================================================================
+		namespace {
+
+			inline uint8 Clip255(int32 v) {
+				return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v));
+			}
+			inline int32 ClampQIndex(int32 q) {
+				return q < 0 ? 0 : (q > 127 ? 127 : q);
+			}
+			inline int32 Avg2(int32 a, int32 b) {
+				return (a + b + 1) >> 1;
+			}
+			inline int32 Avg3(int32 a, int32 b, int32 c) {
+				return (a + 2 * b + c + 2) >> 2;
+			}
+
+			// §14.3 : transformée inverse de Walsh-Hadamard 4×4. Reconstruit les 16 DC des
+			// blocs luma à partir du bloc Y2, et les écrit DIRECTEMENT à la position 0 de
+			// chacun des 16 blocs (d'où le pas de 16 dans `mbCoeffs`).
+			void Vp8InverseWalsh(const int16 *input, int16 *mbCoeffs) {
+				int16 output[16];
+				for (int32 i = 0; i < 4; ++i) {
+					const int32 a1 = input[i + 0] + input[i + 12];
+					const int32 b1 = input[i + 4] + input[i + 8];
+					const int32 c1 = input[i + 4] - input[i + 8];
+					const int32 d1 = input[i + 0] - input[i + 12];
+					output[i + 0] = (int16)(a1 + b1);
+					output[i + 4] = (int16)(c1 + d1);
+					output[i + 8] = (int16)(a1 - b1);
+					output[i + 12] = (int16)(d1 - c1);
+				}
+				for (int32 i = 0; i < 4; ++i) {
+					const int32 o = i * 4;
+					const int32 a1 = output[o + 0] + output[o + 3];
+					const int32 b1 = output[o + 1] + output[o + 2];
+					const int32 c1 = output[o + 1] - output[o + 2];
+					const int32 d1 = output[o + 0] - output[o + 3];
+					output[o + 0] = (int16)((a1 + b1 + 3) >> 3);
+					output[o + 1] = (int16)((c1 + d1 + 3) >> 3);
+					output[o + 2] = (int16)((a1 - b1 + 3) >> 3);
+					output[o + 3] = (int16)((d1 - c1 + 3) >> 3);
+				}
+				for (int32 i = 0; i < 16; ++i)
+					mbCoeffs[i * 16] = output[i];
+			}
+
+			// Variante « DC seul » : quand le bloc Y2 n'a qu'un coefficient, les 16 DC sont
+			// tous identiques. Doit donner EXACTEMENT le même résultat que la version
+			// générale sur une entrée DC-seul (propriété vérifiée en self-test).
+			void Vp8InverseWalshDcOnly(int32 dc, int16 *mbCoeffs) {
+				const int16 a1 = (int16)((dc + 3) >> 3);
+				for (int32 i = 0; i < 16; ++i)
+					mbCoeffs[i * 16] = a1;
+			}
+
+			// §14.4 : IDCT 4×4 « llm ». Les deux constantes sont des approximations 16 bits
+			// en virgule fixe de sqrt(2)·cos(pi/8) et sqrt(2)·sin(pi/8) ; la première étant
+			// > 1, elle est codée sous la forme x·a = x + x·(a−1), d'où le « minus1 ».
+			const int32 kCosPi8Sqrt2Minus1 = 20091;
+			const int32 kSinPi8Sqrt2 = 35468;
+
+			// Applique l'IDCT à `input` (déjà déquantifié) et ADDITIONNE le résultat au
+			// prédicteur déjà présent dans `dst`, avec saturation.
+			void Vp8IdctAdd(const int16 *input, uint8 *dst, int32 stride) {
+				int16 tmp[16];
+				for (int32 i = 0; i < 4; ++i) {
+					const int32 i0 = input[i + 0], i4 = input[i + 4];
+					const int32 i8 = input[i + 8], i12 = input[i + 12];
+					const int32 a1 = i0 + i8;
+					const int32 b1 = i0 - i8;
+					const int32 c1 = ((i4 * kSinPi8Sqrt2) >> 16) - (i12 + ((i12 * kCosPi8Sqrt2Minus1) >> 16));
+					const int32 d1 = (i4 + ((i4 * kCosPi8Sqrt2Minus1) >> 16)) + ((i12 * kSinPi8Sqrt2) >> 16);
+					tmp[i + 0] = (int16)(a1 + d1);
+					tmp[i + 12] = (int16)(a1 - d1);
+					tmp[i + 4] = (int16)(b1 + c1);
+					tmp[i + 8] = (int16)(b1 - c1);
+				}
+				for (int32 i = 0; i < 4; ++i) {
+					const int32 o = i * 4;
+					const int32 t0 = tmp[o + 0], t1 = tmp[o + 1], t2 = tmp[o + 2], t3 = tmp[o + 3];
+					const int32 a1 = t0 + t2;
+					const int32 b1 = t0 - t2;
+					const int32 c1 = ((t1 * kSinPi8Sqrt2) >> 16) - (t3 + ((t3 * kCosPi8Sqrt2Minus1) >> 16));
+					const int32 d1 = (t1 + ((t1 * kCosPi8Sqrt2Minus1) >> 16)) + ((t3 * kSinPi8Sqrt2) >> 16);
+					tmp[o + 0] = (int16)((a1 + d1 + 4) >> 3);
+					tmp[o + 3] = (int16)((a1 - d1 + 4) >> 3);
+					tmp[o + 1] = (int16)((b1 + c1 + 4) >> 3);
+					tmp[o + 2] = (int16)((b1 - c1 + 4) >> 3);
+				}
+				for (int32 r = 0; r < 4; ++r)
+					for (int32 c = 0; c < 4; ++c)
+						dst[r * stride + c] = Clip255(tmp[r * 4 + c] + dst[r * stride + c]);
+			}
+
+			// Raccourci « DC seul » (eob == 1) : toute la matrice vaut la même constante.
+			void Vp8IdctAddDcOnly(int32 dc, uint8 *dst, int32 stride) {
+				const int32 a1 = (dc + 4) >> 3;
+				for (int32 r = 0; r < 4; ++r)
+					for (int32 c = 0; c < 4; ++c)
+						dst[r * stride + c] = Clip255(a1 + dst[r * stride + c]);
+			}
+
+			// ── Prédicteurs intra pleine taille (16×16 luma, 8×8 chroma) ─────────────
+			// `above` pointe sur la ligne au-dessus du bloc, `left` sur la colonne à gauche
+			// (pas `leftStride` : on la copie d'abord dans un tableau contigu).
+			void Vp8PredictBlockDcVhTm(uint8 *dst, int32 stride, int32 bs, const uint8 *above,
+									   const uint8 *leftCol, int32 mode, bool upAvail,
+									   bool leftAvail) {
+				if (mode == kVp8MbVPred) {
+					for (int32 r = 0; r < bs; ++r)
+						for (int32 c = 0; c < bs; ++c)
+							dst[r * stride + c] = above[c];
+					return;
+				}
+				if (mode == kVp8MbHPred) {
+					for (int32 r = 0; r < bs; ++r)
+						for (int32 c = 0; c < bs; ++c)
+							dst[r * stride + c] = leftCol[r];
+					return;
+				}
+				if (mode == kVp8MbTmPred) {
+					const int32 topLeft = above[-1];
+					for (int32 r = 0; r < bs; ++r)
+						for (int32 c = 0; c < bs; ++c)
+							dst[r * stride + c] = Clip255(leftCol[r] + above[c] - topLeft);
+					return;
+				}
+				// DC_PRED : la moyenne porte sur les voisins RÉELLEMENT disponibles ; si
+				// aucun ne l'est (macrobloc en haut à gauche), la valeur normative est 128.
+				int32 expected;
+				if (upAvail && leftAvail) {
+					int32 sum = 0;
+					for (int32 i = 0; i < bs; ++i)
+						sum += above[i] + leftCol[i];
+					expected = (sum + bs) / (2 * bs);
+				} else if (upAvail) {
+					int32 sum = 0;
+					for (int32 i = 0; i < bs; ++i)
+						sum += above[i];
+					expected = (sum + (bs >> 1)) / bs;
+				} else if (leftAvail) {
+					int32 sum = 0;
+					for (int32 i = 0; i < bs; ++i)
+						sum += leftCol[i];
+					expected = (sum + (bs >> 1)) / bs;
+				} else {
+					expected = 128;
+				}
+				for (int32 r = 0; r < bs; ++r)
+					for (int32 c = 0; c < bs; ++c)
+						dst[r * stride + c] = (uint8)expected;
+			}
+
+			// ── Prédicteurs intra 4×4 (B_PRED, 10 modes) ─────────────────────────────
+			// `above` doit exposer 8 échantillons (A..H) ET `above[-1]` (coin haut-gauche) :
+			// les modes diagonaux lisent jusqu'à 4 pixels EN HAUT À DROITE du bloc.
+			void Vp8Predict4x4(uint8 *dst, int32 stride, int32 mode, const uint8 *above,
+							   const uint8 *left) {
+				const int32 X = above[-1];
+				const int32 A = above[0], B = above[1], C = above[2], D = above[3];
+				const int32 E = above[4], F = above[5], G = above[6], H = above[7];
+				const int32 I = left[0], J = left[1], K = left[2], L = left[3];
+				auto D_ = [&](int32 x, int32 y) -> uint8 & { return dst[(x) + (y)*stride]; };
+
+				switch (mode) {
+					case kVp8BDcPred: {
+						int32 sum = A + B + C + D + I + J + K + L;
+						const uint8 v = (uint8)((sum + 4) >> 3);
+						for (int32 r = 0; r < 4; ++r)
+							for (int32 c = 0; c < 4; ++c)
+								D_(c, r) = v;
+						break;
+					}
+					case kVp8BTmPred:
+						for (int32 r = 0; r < 4; ++r)
+							for (int32 c = 0; c < 4; ++c)
+								D_(c, r) = Clip255(left[r] + above[c] - X);
+						break;
+					case kVp8BVePred: {
+						const uint8 v0 = (uint8)Avg3(X, A, B), v1 = (uint8)Avg3(A, B, C);
+						const uint8 v2 = (uint8)Avg3(B, C, D), v3 = (uint8)Avg3(C, D, E);
+						for (int32 r = 0; r < 4; ++r) {
+							D_(0, r) = v0;
+							D_(1, r) = v1;
+							D_(2, r) = v2;
+							D_(3, r) = v3;
+						}
+						break;
+					}
+					case kVp8BHePred: {
+						const uint8 r0 = (uint8)Avg3(X, I, J), r1 = (uint8)Avg3(I, J, K);
+						const uint8 r2 = (uint8)Avg3(J, K, L), r3 = (uint8)Avg3(K, L, L);
+						for (int32 c = 0; c < 4; ++c) {
+							D_(c, 0) = r0;
+							D_(c, 1) = r1;
+							D_(c, 2) = r2;
+							D_(c, 3) = r3;
+						}
+						break;
+					}
+					case kVp8BLdPred: // "down-left" (d45e)
+						D_(0, 0) = (uint8)Avg3(A, B, C);
+						D_(1, 0) = D_(0, 1) = (uint8)Avg3(B, C, D);
+						D_(2, 0) = D_(1, 1) = D_(0, 2) = (uint8)Avg3(C, D, E);
+						D_(3, 0) = D_(2, 1) = D_(1, 2) = D_(0, 3) = (uint8)Avg3(D, E, F);
+						D_(3, 1) = D_(2, 2) = D_(1, 3) = (uint8)Avg3(E, F, G);
+						D_(3, 2) = D_(2, 3) = (uint8)Avg3(F, G, H);
+						D_(3, 3) = (uint8)Avg3(G, H, H);
+						break;
+					case kVp8BRdPred: // "down-right" (d135)
+						D_(0, 3) = (uint8)Avg3(J, K, L);
+						D_(1, 3) = D_(0, 2) = (uint8)Avg3(I, J, K);
+						D_(2, 3) = D_(1, 2) = D_(0, 1) = (uint8)Avg3(X, I, J);
+						D_(3, 3) = D_(2, 2) = D_(1, 1) = D_(0, 0) = (uint8)Avg3(A, X, I);
+						D_(3, 2) = D_(2, 1) = D_(1, 0) = (uint8)Avg3(B, A, X);
+						D_(3, 1) = D_(2, 0) = (uint8)Avg3(C, B, A);
+						D_(3, 0) = (uint8)Avg3(D, C, B);
+						break;
+					case kVp8BVrPred: // "vertical-right" (d117)
+						D_(0, 0) = D_(1, 2) = (uint8)Avg2(X, A);
+						D_(1, 0) = D_(2, 2) = (uint8)Avg2(A, B);
+						D_(2, 0) = D_(3, 2) = (uint8)Avg2(B, C);
+						D_(3, 0) = (uint8)Avg2(C, D);
+						D_(0, 3) = (uint8)Avg3(K, J, I);
+						D_(0, 2) = (uint8)Avg3(J, I, X);
+						D_(0, 1) = D_(1, 3) = (uint8)Avg3(I, X, A);
+						D_(1, 1) = D_(2, 3) = (uint8)Avg3(X, A, B);
+						D_(2, 1) = D_(3, 3) = (uint8)Avg3(A, B, C);
+						D_(3, 1) = (uint8)Avg3(B, C, D);
+						break;
+					case kVp8BVlPred: // "vertical-left" (d63e)
+						D_(0, 0) = (uint8)Avg2(A, B);
+						D_(1, 0) = D_(0, 2) = (uint8)Avg2(B, C);
+						D_(2, 0) = D_(1, 2) = (uint8)Avg2(C, D);
+						D_(3, 0) = D_(2, 2) = (uint8)Avg2(D, E);
+						D_(3, 2) = (uint8)Avg3(E, F, G);
+						D_(0, 1) = (uint8)Avg3(A, B, C);
+						D_(1, 1) = D_(0, 3) = (uint8)Avg3(B, C, D);
+						D_(2, 1) = D_(1, 3) = (uint8)Avg3(C, D, E);
+						D_(3, 1) = D_(2, 3) = (uint8)Avg3(D, E, F);
+						D_(3, 3) = (uint8)Avg3(F, G, H);
+						break;
+					case kVp8BHdPred: // "horizontal-down" (d153)
+						D_(0, 0) = D_(2, 1) = (uint8)Avg2(I, X);
+						D_(0, 1) = D_(2, 2) = (uint8)Avg2(J, I);
+						D_(0, 2) = D_(2, 3) = (uint8)Avg2(K, J);
+						D_(0, 3) = (uint8)Avg2(L, K);
+						D_(3, 0) = (uint8)Avg3(A, B, C);
+						D_(2, 0) = (uint8)Avg3(X, A, B);
+						D_(1, 0) = D_(3, 1) = (uint8)Avg3(I, X, A);
+						D_(1, 1) = D_(3, 2) = (uint8)Avg3(J, I, X);
+						D_(1, 2) = D_(3, 3) = (uint8)Avg3(K, J, I);
+						D_(1, 3) = (uint8)Avg3(L, K, J);
+						break;
+					default: // kVp8BHuPred, "horizontal-up" (d207)
+						D_(0, 0) = (uint8)Avg2(I, J);
+						D_(2, 0) = D_(0, 1) = (uint8)Avg2(J, K);
+						D_(2, 1) = D_(0, 2) = (uint8)Avg2(K, L);
+						D_(1, 0) = (uint8)Avg3(I, J, K);
+						D_(3, 0) = D_(1, 1) = (uint8)Avg3(J, K, L);
+						D_(3, 1) = D_(1, 2) = (uint8)Avg3(K, L, L);
+						D_(3, 2) = D_(2, 2) = D_(0, 3) = D_(1, 3) = D_(2, 3) = D_(3, 3) = (uint8)L;
+						break;
+				}
+			}
+
+		} // namespace
+
+		void NkVp8ComputeDequant(const NkVp8FrameHeader &hdr, int32 qIndex, NkVp8Dequant &out) {
+			const int32 q = ClampQIndex(qIndex);
+			out.y1[0] = kVp8DcQLookup[ClampQIndex(q + hdr.y1dcDeltaQ)];
+			out.y1[1] = kVp8AcQLookup[q];
+			// Y2 : le DC est DOUBLÉ et l'AC multiplié par 155/100 (borné à 8) — c'est la
+			// compensation d'échelle de la transformée de Walsh appliquée aux DC.
+			out.y2[0] = (int16)(kVp8DcQLookup[ClampQIndex(q + hdr.y2dcDeltaQ)] * 2);
+			int32 ac2 = (kVp8AcQLookup[ClampQIndex(q + hdr.y2acDeltaQ)] * 101581) >> 16;
+			out.y2[1] = (int16)(ac2 < 8 ? 8 : ac2);
+			int32 dcUv = kVp8DcQLookup[ClampQIndex(q + hdr.uvdcDeltaQ)];
+			out.uv[0] = (int16)(dcUv > 132 ? 132 : dcUv); // plafond normatif du DC chroma
+			out.uv[1] = kVp8AcQLookup[ClampQIndex(q + hdr.uvacDeltaQ)];
+		}
+
+		bool NkVp8ReconstructKeyFrame(NkVp8BoolDecoder &tokenBd, const NkVp8FrameContext &fc,
+									   const NkVp8FrameHeader &hdr,
+									   const NkVector<NkVp8MbModeInfo> &mbInfo, int32 width,
+									   int32 height, NkVp8Image &out) {
+			const int32 mbCols = (width + 15) / 16;
+			const int32 mbRows = (height + 15) / 16;
+			if (mbCols <= 0 || mbRows <= 0)
+				return false;
+			const int32 miStride = mbCols + 1;
+			if (mbInfo.Size() < (uint64)((mbRows + 1) * miStride))
+				return false;
+			// Segmentation par macrobloc non gérée à ce stade (aucun de nos flux de test ne
+			// l'active) : on refuse proprement plutôt que de produire des pixels faux.
+			if (hdr.segmentationEnabled)
+				return false;
+
+			// Buffers avec bordure : 1 pixel à gauche, 1 ligne au-dessus, marge à droite
+			// (les prédicteurs 4×4 diagonaux lisent jusqu'à 4 pixels au-delà du bord droit).
+			const int32 yW = mbCols * 16, yH = mbRows * 16;
+			const int32 cW = mbCols * 8, cH = mbRows * 8;
+			out.width = width;
+			out.height = height;
+			out.mbCols = mbCols;
+			out.mbRows = mbRows;
+			out.yStride = yW + 1 + 8;
+			out.uvStride = cW + 1 + 8;
+			out.yOrigin = out.yStride + 1;
+			out.uvOrigin = out.uvStride + 1;
+			out.y.Resize((uint64)(out.yStride * (yH + 1)));
+			out.u.Resize((uint64)(out.uvStride * (cH + 1)));
+			out.v.Resize((uint64)(out.uvStride * (cH + 1)));
+			for (uint64 i = 0; i < out.y.Size(); ++i)
+				out.y[i] = 0;
+			for (uint64 i = 0; i < out.u.Size(); ++i)
+				out.u[i] = 0;
+			for (uint64 i = 0; i < out.v.Size(); ++i)
+				out.v[i] = 0;
+
+			// §12.2 : bordures normatives — 127 sur la ligne AU-DESSUS de l'image (y compris
+			// le coin), 129 sur la colonne À GAUCHE. Ces constantes ne sont pas arbitraires :
+			// elles font que les prédicteurs V/H/TM donnent le résultat attendu sur les bords
+			// SANS cas particulier.
+			auto initBorders = [](uint8 *plane, int32 stride, int32 w, int32 h) {
+				uint8 *topLeft = plane - stride - 1;
+				for (int32 i = 0; i < w + 5; ++i)
+					topLeft[i] = 127;
+				for (int32 r = 0; r < h; ++r)
+					plane[(int64)r * stride - 1] = 129;
+			};
+			initBorders(out.Y(), out.yStride, yW, yH);
+			initBorders(out.U(), out.uvStride, cW, cH);
+			initBorders(out.V(), out.uvStride, cW, cH);
+
+			NkVp8Dequant dq;
+			NkVp8ComputeDequant(hdr, hdr.baseQIndex, dq);
+
+			NkVector<NkVp8EntropyContext> aboveCtx;
+			aboveCtx.Resize((uint64)mbCols);
+			for (uint64 i = 0; i < aboveCtx.Size(); ++i)
+				aboveCtx[i] = NkVp8EntropyContext();
+
+			NkVp8MbCoeffs mb;
+			int16 dqBlock[16];
+
+			for (int32 r = 0; r < mbRows; ++r) {
+				NkVp8EntropyContext leftCtx;
+				for (int32 c = 0; c < mbCols; ++c) {
+					const NkVp8MbModeInfo &mi = mbInfo[(uint64)(r + 1) * miStride + (c + 1)];
+					const bool isBPred = (mi.yMode == kVp8MbBPred);
+					const bool upAvail = (r != 0);
+					const bool leftAvail = (c != 0);
+
+					if (mi.skipCoeff) {
+						NkVp8ResetMbTokenContext(isBPred, aboveCtx[(uint64)c], leftCtx);
+						mb = NkVp8MbCoeffs(); // aucun résidu : coefficients tous nuls
+					} else {
+						NkVp8DecodeMbTokens(tokenBd, fc, isBPred, aboveCtx[(uint64)c], leftCtx, mb);
+					}
+
+					uint8 *yMb = out.Y() + (int64)(r * 16) * out.yStride + c * 16;
+					uint8 *uMb = out.U() + (int64)(r * 8) * out.uvStride + c * 8;
+					uint8 *vMb = out.V() + (int64)(r * 8) * out.uvStride + c * 8;
+
+					// ── Luma ────────────────────────────────────────────────────────
+					// `dcFactor` : quand un bloc Y2 existe, ses DC déjà déquantifiés sont
+					// écrits dans les blocs luma, donc il ne faut PAS les re-multiplier —
+					// d'où un facteur DC de 1 (astuce de la référence).
+					int16 yDc = dq.y1[0];
+					if (!isBPred) {
+						// Bloc Y2 → IWHT → DC des 16 blocs luma.
+						if (mb.eobs[24] > 1) {
+							for (int32 i = 0; i < 16; ++i)
+								dqBlock[i] = (int16)(mb.coeffs[24][i] * (i == 0 ? dq.y2[0] : dq.y2[1]));
+							Vp8InverseWalsh(dqBlock, &mb.coeffs[0][0]);
+						} else {
+							Vp8InverseWalshDcOnly(mb.coeffs[24][0] * dq.y2[0], &mb.coeffs[0][0]);
+						}
+						yDc = 1; // les DC sont déjà déquantifiés par le chemin Y2
+					}
+
+					if (isBPred) {
+						// B_PRED : chaque sous-bloc est prédit PUIS reconstruit avant le
+						// suivant (cascade), car ses voisins servent de référence.
+						// « Down-copy » : les 4 pixels en haut à droite du macrobloc sont
+						// recopiés sur les lignes 3/7/11 afin que les sous-blocs des rangées
+						// inférieures disposent eux aussi d'un « au-dessus à droite ».
+						const uint8 *aboveRight = yMb - out.yStride + 16;
+						for (int32 k = 0; k < 3; ++k)
+							for (int32 i = 0; i < 4; ++i)
+								yMb[(int64)(3 + 4 * k) * out.yStride + 16 + i] = aboveRight[i];
+
+						for (int32 b = 0; b < 16; ++b) {
+							uint8 *dst = yMb + (int64)((b >> 2) * 4) * out.yStride + (b & 3) * 4;
+							const uint8 *above = dst - out.yStride;
+							uint8 leftCol[4];
+							for (int32 i = 0; i < 4; ++i)
+								leftCol[i] = dst[(int64)i * out.yStride - 1];
+							Vp8Predict4x4(dst, out.yStride, mi.bModes[b], above, leftCol);
+							if (mb.eobs[b] > 1) {
+								for (int32 i = 0; i < 16; ++i)
+									dqBlock[i] = (int16)(mb.coeffs[b][i] * (i == 0 ? yDc : dq.y1[1]));
+								Vp8IdctAdd(dqBlock, dst, out.yStride);
+							} else if (mb.eobs[b] == 1) {
+								Vp8IdctAddDcOnly(mb.coeffs[b][0] * yDc, dst, out.yStride);
+							}
+						}
+					} else {
+						uint8 leftCol[16];
+						for (int32 i = 0; i < 16; ++i)
+							leftCol[i] = yMb[(int64)i * out.yStride - 1];
+						Vp8PredictBlockDcVhTm(yMb, out.yStride, 16, yMb - out.yStride, leftCol,
+											  mi.yMode, upAvail, leftAvail);
+						for (int32 b = 0; b < 16; ++b) {
+							uint8 *dst = yMb + (int64)((b >> 2) * 4) * out.yStride + (b & 3) * 4;
+							if (mb.eobs[b] > 1) {
+								for (int32 i = 0; i < 16; ++i)
+									dqBlock[i] = (int16)(mb.coeffs[b][i] * (i == 0 ? yDc : dq.y1[1]));
+								Vp8IdctAdd(dqBlock, dst, out.yStride);
+							} else if (mb.eobs[b] == 1) {
+								Vp8IdctAddDcOnly(mb.coeffs[b][0] * yDc, dst, out.yStride);
+							}
+						}
+					}
+
+					// ── Chroma (U puis V, 8×8 prédits en un bloc, résidu par 4×4) ────
+					for (int32 plane = 0; plane < 2; ++plane) {
+						uint8 *cMb = (plane == 0) ? uMb : vMb;
+						uint8 leftCol[8];
+						for (int32 i = 0; i < 8; ++i)
+							leftCol[i] = cMb[(int64)i * out.uvStride - 1];
+						Vp8PredictBlockDcVhTm(cMb, out.uvStride, 8, cMb - out.uvStride, leftCol,
+											  mi.uvMode, upAvail, leftAvail);
+						for (int32 k = 0; k < 4; ++k) {
+							const int32 b = 16 + plane * 4 + k;
+							uint8 *dst = cMb + (int64)((k >> 1) * 4) * out.uvStride + (k & 1) * 4;
+							if (mb.eobs[b] > 1) {
+								for (int32 i = 0; i < 16; ++i)
+									dqBlock[i] = (int16)(mb.coeffs[b][i] * (i == 0 ? dq.uv[0] : dq.uv[1]));
+								Vp8IdctAdd(dqBlock, dst, out.uvStride);
+							} else if (mb.eobs[b] == 1) {
+								Vp8IdctAddDcOnly(mb.coeffs[b][0] * dq.uv[0], dst, out.uvStride);
+							}
+						}
+					}
+				}
+
+				// ⚠️ Extension du bord DROIT en fin de ligne de macroblocs (§reconstruction).
+				// Les modes 4×4 diagonaux (LD, VE, VL…) lisent 4 échantillons EN HAUT À DROITE
+				// du sous-bloc ; pour le DERNIER macrobloc d'une ligne, ces échantillons sont
+				// hors image. La référence y réplique le dernier pixel réel de la ligne — et
+				// UNIQUEMENT sur les DEUX DERNIÈRES lignes du macrobloc, car seule la ligne 15
+				// sera lue comme « au-dessus » par la ligne de macroblocs suivante.
+				// Sans ça : 17 pixels faux, tous dans la dernière colonne de macroblocs, sur
+				// les seuls sous-blocs utilisant un mode à référence haut-droite (bug réel).
+				for (int32 k = 14; k <= 15; ++k) {
+					uint8 *row = out.Y() + (int64)(r * 16 + k) * out.yStride + yW;
+					for (int32 i = 0; i < 4; ++i)
+						row[i] = row[-1];
+				}
+				for (int32 k = 6; k <= 7; ++k) {
+					uint8 *ru = out.U() + (int64)(r * 8 + k) * out.uvStride + cW;
+					uint8 *rv = out.V() + (int64)(r * 8 + k) * out.uvStride + cW;
+					for (int32 i = 0; i < 4; ++i) {
+						ru[i] = ru[-1];
+						rv[i] = rv[-1];
+					}
+				}
+			}
+			return true;
+		}
+
 	} // namespace media
 } // namespace nkentseu
