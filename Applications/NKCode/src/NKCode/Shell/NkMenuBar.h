@@ -348,7 +348,9 @@ namespace nkentseu {
 #endif
 				}
 				if (MenuItem(ctx, NkT("mb.file.export"), nullptr, hasWs) && s)
-					TermCmd(s, sh, "tar -a -c --exclude=Build --exclude=.git -f workspace-export.zip . && echo Exporte: workspace-export.zip");
+					// Picker maison : choisir le dossier de DESTINATION du zip ; la
+					// confirmation lance tar dans le terminal integre (RoutePickerResult).
+					d->OpenPicker(NkCodeDialogs::PK_ExportZip, s->root.ToString().CStr());
 				Separator(ctx);
 				if (MenuItem(ctx, NkT("mb.file.prefs")))
 					d->showPrefs = true; // modale PREFERENCES complete (panneau launcher)
