@@ -60,17 +60,16 @@ namespace nkentseu {
 				// Opus-dans-WebM/MKV : paquets Opus BRUTS dans les SimpleBlocks (pas
 				// d'encapsulation Ogg). Le decodeur NKMedia decode paquet par paquet et sort
 				// TOUJOURS du 48 kHz (sortie native Opus, quel que soit le taux d'origine).
-				// LIMITE heritee du decodeur : MONO uniquement (stereo -> echec propre, le
-				// caller peut retomber ailleurs).
-				if (tr->channels > 1) {
-					logger.Info("[ContainerAudioStream] Opus stereo non gere (decodeur mono) : {0}",
-								path);
+				// Mono et STEREO (SILK MS->LR + CELT mid/side/intensity). >2 canaux
+				// (mapping multicanal) -> echec propre, le caller peut retomber ailleurs.
+				if (tr->channels > 2) {
+					logger.Info("[ContainerAudioStream] Opus multicanal (>2) non gere : {0}", path);
 					return false;
 				}
 				mCodec = Codec::OPUS;
-				mChannels = 1;
+				mChannels = (tr->channels == 2) ? 2 : 1;
 				mSampleRate = 48000;
-				mOpus.Init(1);
+				mOpus.Init(mChannels);
 				// Pre-skip : OpusHead (RFC 7845 par5.1) dans le CodecPrivate de la piste —
 				// uint16 LE a l'offset 10. Repli 312 (valeur libopus standard) si absent.
 				mOpusPreSkipLeft = 312;
@@ -81,16 +80,24 @@ namespace nkentseu {
 						(int32)tr->codecPrivate[10] | ((int32)tr->codecPrivate[11] << 8);
 				}
 			} else {
-				logger.Info("[ContainerAudioStream] Codec '{0}' non gere (AAC/PCM/Opus mono) : {1}",
+				logger.Info("[ContainerAudioStream] Codec '{0}' non gere (AAC/PCM/Opus) : {1}",
 							tr->codec.CStr(), path);
 				return false;
 			}
 
 			mPackets.Reserve(packets.Size());
 			usize totalBytes = 0;
+			nk_int64 totalDiscard = 0;
 			for (usize i = 0; i < packets.Size(); ++i) {
-				mPackets.PushBack(PacketRef{packets[i].offset, packets[i].size});
+				PacketRef ref{packets[i].offset, packets[i].size};
+				// DiscardPadding WebM (dernier paquet Opus) : ns -> frames 48 kHz a jeter
+				// en FIN de paquet decode (arrondi au plus proche, convention ffmpeg).
+				if (packets[i].discardPaddingNs > 0)
+					ref.discardFrames =
+						(nk_int32)((packets[i].discardPaddingNs * 48 + 500000) / 1000000);
+				mPackets.PushBack(ref);
 				totalBytes += packets[i].size;
+				totalDiscard += ref.discardFrames;
 			}
 			mNumPackets = mPackets.Size();
 			mLeftover.Resize(2048); // >= 1024 frames stereo (AAC) ; redimensionne si besoin (PCM)
@@ -107,11 +114,11 @@ namespace nkentseu {
 				mApproxFrameCount = (nk_int64)((mNumPackets > 0 ? mNumPackets - 1 : 0)) * 1024;
 			} else if (mCodec == Codec::OPUS) {
 				mPacketIndex = 0;
-				// Un paquet Opus peut porter jusqu'a 120 ms = 5760 echantillons a 48 kHz.
-				mLeftover.Resize(5760);
-				// ~20 ms (960 ech.) par paquet, moins le pre-skip : APPROXIMATIF (suffisant,
-				// meme usage que l'estimation AAC).
-				mApproxFrameCount = (nk_int64)mNumPackets * 960 - mOpusPreSkipLeft;
+				// Un paquet Opus peut porter jusqu'a 120 ms = 5760 frames a 48 kHz (× canaux).
+				mLeftover.Resize((usize)5760 * (usize)mChannels);
+				// ~20 ms (960 ech.) par paquet, moins le pre-skip et le DiscardPadding de fin
+				// de flux : APPROXIMATIF (suffisant, meme usage que l'estimation AAC).
+				mApproxFrameCount = (nk_int64)mNumPackets * 960 - mOpusPreSkipLeft - totalDiscard;
 				if (mApproxFrameCount < 0)
 					mApproxFrameCount = 0;
 			} else {
@@ -137,8 +144,17 @@ namespace nkentseu {
 				++mPacketIndex;
 				if (p.offset + p.size > mBytes.Size())
 					continue; // paquet corrompu/tronque -> saute
-				const int32 n =
+				// DecodePacket renvoie le nombre TOTAL de valeurs int16 (frames × canaux).
+				const int32 vals =
 					mOpus.DecodePacket(mBytes.Data() + p.offset, (int32)p.size, mLeftover.Data());
+				int32 n = vals / mChannels; // frames
+				// DiscardPadding (WebM) : jette les dernieres frames du paquet (padding
+				// d'encodeur en fin de flux — ffmpeg fait pareil).
+				if (p.discardFrames > 0) {
+					n -= p.discardFrames;
+					if (n < 0)
+						n = 0;
+				}
 				if (n <= 0)
 					continue; // paquet indecodable -> saute (silence)
 				if (mOpusPreSkipLeft >= n) {
@@ -269,7 +285,7 @@ namespace nkentseu {
 				if (target > mNumPackets)
 					target = mNumPackets;
 				mPacketIndex = target;
-				mOpus.Init(1);
+				mOpus.Init(mChannels);
 				mOpusPreSkipLeft = 0; // le pre-skip ne concerne que le tout debut du flux
 				return true;
 			}

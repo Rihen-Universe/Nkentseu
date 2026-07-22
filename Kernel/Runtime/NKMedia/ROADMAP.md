@@ -417,13 +417,66 @@
     récupérable après un saut — même catégorie que la note PNS de l'AAC). **Validé** :
     `.webm` VP8+Opus mono réel — **corrélation 1.000000 au lag 0** vs ffmpeg (pre-skip exact),
     96648/96648 frames lues avec EOF propre, lecture bout-en-bout `NkVideoPlayer` avec vidéo ET
-    son. LIMITES : **mono uniquement** (le décodeur Opus refuse la stéréo proprement — un
-    `.webm` stéréo se lit sans le son) ; le `DiscardPadding` de fin de flux WebM n'est pas
-    géré (~13 ms de queue en trop en toute fin de piste, imperceptible).
+    son. LIMITE : le `DiscardPadding` de fin de flux WebM n'est pas géré (~13 ms de queue en
+    trop en toute fin de piste, imperceptible).
+  - ⭐ **Brique 11 — OPUS STÉRÉO complet (2026-07-22) : le décodeur Opus décode les 3 modes en
+    stéréo.** (1) **CELT stéréo** (bands.c) : réservations/décodage `intensity` + `dual_stereo`
+    dans l'allocation (LOG2_FRAC_TABLE, réajustement dans la boucle de skip, den `C*N+1` pour le
+    degré de liberté θ, `>>stereo` sur l'énergie fine), `quant_band_stereo` (θ mid/side à pdf en
+    escalier p0=3, cas N=2 à 1 bit de signe + rotation orthogonale, split normal avec side jamais
+    replié `fill>>B`, `stereo_merge` El/Er), flag `inv` (qn==1), énergie/finalise/anti-collapse
+    par canal (masques de collapse indexés `[i*C+c]`, LCG séquentiel bandes→canaux). (2) **SILK
+    stéréo** (dec_API.c) : en-tête VAD+LBRR ×2 canaux, poids de prédiction MS par trame
+    (`stereo_decode_pred`, tables joint/uniform3/5), flag `mid-only` quand le VAD side est nul,
+    reset PARTIEL du canal side à la reprise (outBuf/sLPC/lagPrev/LastGainIndex, PAS l'état
+    entropique), condCoding `INDEP_NO_LTP_SCALING` (=1) pour le side post-mid-only, conversion
+    MS→LR à interpolation de prédicteurs sur 8 ms + tampons 2 échantillons (arithmétique Q13/Q16
+    SMULBB/SMLAWB copiée à l'identique). (3) **Hybride stéréo** : SILK stéréo WB + CELT stéréo
+    bandes 17+, tampon 48 kHz entrelacé, accumulation par canal. Canaux INTERNES par paquet (TOC) :
+    un paquet SILK mono dans un flux stéréo est décodé puis dupliqué L=R. ⚠️ **BUG LATENT MONO
+    trouvé et corrigé au passage : CELT-only décodait TOUJOURS 21 bandes** — un paquet CELT
+    NB/WB/SWB n'en code que 13/17/19 (`endband` du TOC, opus_decoder.c) → désynchronisation
+    totale du bitstream sur ces paquets (l'application voip mélange SILK et CELT WB ; nos flux de
+    test mono étaient FB ou SILK purs, d'où l'invisibilité). Diagnostic par corrélation par
+    fenêtre de 20 ms : 19 fenêtres parfaites puis cassure = les paquets CELT WB. **VALIDATION** :
+    CELT stéréo FB 48k/64k/192k/320k corr 0.987-0.9997 par canal ; CELT WB stéréo 0.999992 ;
+    SILK+CELT mixte voip 0.9956-0.9969 ; hybride 32k 0.9966 ; L==R 0.998947 identiques ;
+    **`.webm` VP8+Opus stéréo bout-en-bout : corr 1.000000 lag 0 sur LES DEUX canaux**
+    (`--direct-pull` 384648/384648, lecture NkVideoPlayer image+son) ; mono NON régressé
+    (corr 1.000000). Branché partout : `NkOpusFile` (.opus stéréo + refus hybride PÉRIMÉ retiré,
+    pre-skip/trim ×canaux), `ContainerAudioStream` (2 ch), harnais `--opus` (canaux de la piste).
+  - ⭐ **Brique 12 — `DiscardPadding` WebM (2026-07-22) : la piste audio Opus d'un WebM est
+    désormais ÉCHANTILLON-POUR-ÉCHANTILLON identique à ffmpeg, du premier au dernier.**
+    Élément EBML `0x75A2` (entier SIGNÉ big-endian, nanosecondes) extrait du BlockGroup par
+    pré-scan dans `NkMediaDemux::WalkClusters` → champ `discardPaddingNs` de `NkMediaPacket` →
+    converti en frames 48 kHz (arrondi au plus proche) et tronqué en FIN du paquet décodé dans
+    `ContainerAudioStream` (+ `mApproxFrameCount` exact). Validé : mono 96000/96000, stéréo
+    384000/384000 (tailles IDENTIQUES à ffmpeg, corr 1.000000 L+R) — avant : +648 frames (~13 ms).
   - **Reste (finitions, refus propre en attendant)** : segmentation par macrobloc (aucun flux de
     test ne l'active) ; partitions de tokens multiples (>1) ; versions de bitstream 1-3
-    (bilinéaire/fullpel) ; **Opus stéréo** (débloquerait le son de la plupart des `.webm` réels) ;
-    `DiscardPadding` WebM.
+    (bilinéaire/fullpel) ; Opus multicanal >2 (mapping) ; paquets TOC-mono à composante CELT dans
+    un flux stéréo (sautés proprement — jamais émis par libopus).
+
+## Décodeur VP9 from-scratch (spec VP9 v0.7 + libvpx comme oracle) — CHANTIER EN COURS
+
+- ⭐ **Brique 1 — SUPERFRAMES + EN-TÊTE NON COMPRESSÉ (2026-07-22)** :
+  `Codecs/Video/VP9/NkVp9Decoder.h/.cpp`. `ParseSuperframe` (Annexe B : marqueur 0b110xxxxx en
+  DERNIER octet, index encadré par le même octet, tailles little-endian mag 1-4) ;
+  `ParseUncompressedHeader` (§6.2 COMPLET, ordre vérifié contre `vp9_decodeframe.c
+  read_uncompressed_header`) : frame_marker, profil (2 bits + bit réservé profil 3),
+  show_existing_frame, sync code 0x498342, color config (bit depth profils 2-3, sRGB profils 1/3),
+  tailles + render size, intra-only, refs (3× idx 3 bits + sign bias, taille héritée d'une réf =
+  sentinelle), filtre d'interpolation, refresh/parallel/context idx, filtre de boucle (deltas),
+  quantification (base_q + 3 delta_q, détection lossless), segmentation (7 tree probs + 3 pred
+  probs + 8×4 features avec bornes 255/63/3/0 et signes), tiles (bornes min/max dérivées des
+  superblocs 64), header_size de l'en-tête compressé. Harnais `--vp9header <ivf>` : toutes les
+  charges, toutes les sous-trames, vérifs (sync, dims clés == IVF, headerSize borné, somme
+  superframe). **Validé** : self-test forgé bit à bit ; flux 1-passe 100/100 trames ; flux
+  2-passes torture **108 trames dont 8 superframes et 8 altref invisibles** tous parsés.
+- **À venir** (ordre VP8-like) : bool decoder compressé (identique VP8) + en-tête compressé
+  (probas), modes intra + partitions récursives 64→4, résiduels/transformées 4x4-32x32 DCT/ADST,
+  reconstruction image clé, inter (MC 1/8 pel, compound, refs multiples), loop filter,
+  branchement NkVideoReader (.webm/.ivf VP9).
 
 ## En cours / À venir
 
