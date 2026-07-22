@@ -145,16 +145,27 @@ inline void DrawPrefsModal(NkEditorFrameContext &ec, nkcode::NkCodeDialogs *d) {
 	// hit-tests passent grace au scope.
 	ctx.PushOcclusion(box, 100);
 	NkGuiContext::NkInputLayerScope _layer(ctx, 100);
+	// MODALITE GLOBALE (meme mecanisme que NkModalDraw) : popupDepth > 0 est
+	// LE signal verifie par les points d'interaction des panneaux NKCode —
+	// sans lui les clics TRAVERSENT vers l'editeur/l'explorateur derriere.
+	// popupRects[0] doit pointer la modale, sinon Update() (debut de frame)
+	// retombe a 0 au premier clic et un panneau traite avant nous reagit.
+	if (ctx.popupDepth == 0)
+		ctx.popupDepth = 1;
+	ctx.popupRects[0] = box;
+	ctx.popupAnchor = box;
 	u.Rect({0.f, 0.f, W, Vh}, NkColor{0, 0, 0, 150}); // backdrop
 	// Clic hors fenetre = fermer (sauf si le picker des settings est ouvert).
 	if (u.click && !u.Hit(box) && !d->pickerOpen) {
 		d->showPrefs = false;
+		ctx.popupDepth = 0; // libere la modalite
 		return;
 	}
 	u.Panel(box, nkcode::NkCol::background, nkcode::NkCol::border, nkcode::NkR::lg);
 	int32 navDummy = -1; // navOut inutilise par NkSettingsPanel ((void)navOut)
 	if (nkcode::NkSettingsPanel(u, box, &H->settings, H->st, d, ec.dt, H->icons, &navDummy) == 1) {
 		d->showPrefs = false; // Echap (champ/combo deja defocalises) = fermer
+		ctx.popupDepth = 0;
 		return;
 	}
 	ctx.appModal = true; // neutralise raccourcis/edition derriere la modale
@@ -181,21 +192,29 @@ inline void DrawNewWsModal(NkEditorFrameContext &ec, nkcode::NkCodeDialogs *d) {
 	const NkRect box = {(W - pw) * 0.5f, (Vh - ph) * 0.5f, pw, ph};
 	ctx.PushOcclusion(box, 100);
 	NkGuiContext::NkInputLayerScope _layer(ctx, 100);
+	// MODALITE GLOBALE (cf. DrawPrefsModal) : popupDepth + popupRects[0].
+	if (ctx.popupDepth == 0)
+		ctx.popupDepth = 1;
+	ctx.popupRects[0] = box;
+	ctx.popupAnchor = box;
 	u.Rect({0.f, 0.f, W, Vh}, NkColor{0, 0, 0, 150}); // backdrop
 	if (u.click && !u.Hit(box) && !d->pickerOpen) {	  // clic dehors = annuler
 		d->showNewWs = false;
 		d->wsAddAsRoot = false;
+		ctx.popupDepth = 0;
 		return;
 	}
 	u.Panel(box, nkcode::NkCol::background, nkcode::NkCol::border, nkcode::NkR::lg);
 	if (nkcode::NkNewWsPanel(u, box, &H->nw, H->st, d, ec.dt, H->icons) == 1) {
 		d->showNewWs = false; // Annuler du wizard
 		d->wsAddAsRoot = false;
+		ctx.popupDepth = 0;
 		return;
 	}
 	if (!d->wsAddAsRoot) {
 		// DoLoad intercepte -> creation TERMINEE (workspace ajoute en racine).
 		d->showNewWs = false;
+		ctx.popupDepth = 0;
 		return;
 	}
 	ctx.appModal = true;
@@ -218,10 +237,17 @@ inline void DrawHelpModal(NkEditorFrameContext &ec, nkcode::NkCodeDialogs *d) {
 	const NkRect box = {(W - pw) * 0.5f, (Vh - ph) * 0.5f, pw, ph};
 	ctx.PushOcclusion(box, 100);
 	NkGuiContext::NkInputLayerScope _layer(ctx, 100);
+	// MODALITE GLOBALE (cf. DrawPrefsModal) : popupDepth + popupRects[0] —
+	// sans eux, les clics TRAVERSENT vers les panneaux derriere la fenetre.
+	if (ctx.popupDepth == 0)
+		ctx.popupDepth = 1;
+	ctx.popupRects[0] = box;
+	ctx.popupAnchor = box;
 	u.Rect({0.f, 0.f, W, Vh}, NkColor{0, 0, 0, 150});
 	if ((u.click && !u.Hit(box)) || ctx.input.KeyPressed(NkGuiKey::Escape)) {
 		d->showHelp = 0;
 		d->helpScroll = 0.f;
+		ctx.popupDepth = 0;
 		return;
 	}
 	u.Panel(box, nkcode::NkCol::background, nkcode::NkCol::border, nkcode::NkR::lg);
@@ -236,6 +262,7 @@ inline void DrawHelpModal(NkEditorFrameContext &ec, nkcode::NkCodeDialogs *d) {
 					 nkcode::NkCol::foreground, u.s(6))) {
 			d->showHelp = 0;
 			d->helpScroll = 0.f;
+			ctx.popupDepth = 0;
 			return;
 		}
 	}
