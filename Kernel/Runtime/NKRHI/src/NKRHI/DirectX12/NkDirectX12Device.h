@@ -96,7 +96,15 @@ namespace nkentseu {
 	// région contiguë d'un RING shader-visible, puis on binde la table. Root sig 1.1 + flag
 	// DESCRIPTORS_VOLATILE : seuls les descripteurs réellement accédés doivent être valides.
 	namespace NkDX12RootLayout {
-		constexpr uint32 ROOT_CONSTANTS = 0;	// b0 space1, 16 valeurs (PushConstants, 64 o)
+		constexpr uint32 ROOT_CONSTANTS = 0; // b0 space1 (PushConstants)
+		// 32 DWORDs = 128 o : aligné sur la garantie minimale Vulkan
+		// (maxPushConstantsSize >= 128) pour que tout PC légal VK passe sur DX12.
+		// 16 (64 o) était TROP PETIT : la grille infinie (GridPC 96 o) et Glow2D
+		// (96 o) débordaient → SetGraphicsRoot32BitConstants hors bornes →
+		// root arguments corrompus (table de descripteurs) → DEVICE REMOVED
+		// 0x887A0001 aléatoire (cause racine du hang DX12, diag debug layer
+		// 2026-07-22). Coût root sig : 32 + 2 tables = 34/64 DWORDs, OK.
+		constexpr uint32 NUM_ROOT_CONSTANT_DWORDS = 32;
 		constexpr uint32 TABLE_CBV_SRV_UAV = 1; // table : CBV b0-31, SRV t0-31, UAV u0-7 (space0)
 		constexpr uint32 TABLE_SAMPLER = 2;		// table : SAMPLER s0-31 (space0)
 		constexpr uint32 NUM_PARAMS = 3;
@@ -178,7 +186,17 @@ namespace nkentseu {
 			uint64 baseFmtSig = 0;		 // signature du PSO de base (.pso)
 			// Variantes additionnelles : signature formats -> PSO. Le PSO de base (baseFmtSig)
 			// reste dans .pso ; on ne stocke ici que les formats DIFFÉRENTS rencontrés au bind.
-			NkUnorderedMap<uint64, ComPtr<ID3D12PipelineState>> variants;
+			// NkVector volontairement (2-4 variantes max, scan linéaire) — l'ancien
+			// NkUnorderedMap<uint64, ComPtr> PERDAIT la valeur stockée
+			// (variants[sig]=pso puis Find(sig) → ComPtr NULL, diag 2026-07-22) →
+			// la variante était reconstruite CHAQUE frame et l'ancienne relâchée en
+			// plein enregistrement → 921 + DEVICE REMOVED en mode NK_CAPTURE.
+			// Bug conteneur à isoler côté NKContainers (map imbriquée move + ComPtr).
+			struct NkPsoVariant {
+					uint64 sig = 0;
+					ComPtr<ID3D12PipelineState> pso;
+			};
+			NkVector<NkPsoVariant> variants;
 	};
 
 	struct NkDX12RenderPass {
@@ -570,6 +588,24 @@ namespace nkentseu {
 			};
 
 			NkUnorderedMap<uint64, DX12Fence> mFences;
+
+			// ── Destruction différée (fix DEVICE REMOVED 0x887A0001, 2026-07-22) ──
+			// Un PSO/root sig/resource détruit par l'appelant peut être référencé
+			// par la command list de la frame COURANTE (recréation de pipeline en
+			// plein enregistrement : grille/debug quand le render pass cible change
+			// entre passe miroir et passe principale) ou d'une frame en vol. Le
+			// release immédiat déclenchait « PipelineState deleted prior to
+			// executing the command list » (validation msg 921) → DEVICE REMOVED
+			// INVALID_CALL (cause racine du crash DX12 headless, diag debug layer).
+			// Chaque objet est daté avec la fence de FIN de frame courante
+			// (mFenceValue+1) et release seulement une fois cette valeur complétée.
+			struct NkDeferredRelease {
+					ComPtr<IUnknown> obj;
+					UINT64 fenceValue = 0;
+			};
+			NkVector<NkDeferredRelease> mDeferredReleases;
+			void DeferRelease(const ComPtr<IUnknown> &obj);
+			void DrainDeferredReleases(UINT64 completedFence);
 
 			// Mutex RÉCURSIF : certaines méthodes verrouillées appellent d'autres méthodes
 			// verrouillées sur le même thread (ex. CreateTexture → CreateBuffer pour le

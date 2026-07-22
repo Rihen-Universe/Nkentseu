@@ -623,6 +623,7 @@ namespace nkentseu {
 		mSamplers.Clear();
 		mShaders.Clear();
 		mPipelines.Clear();
+		mDeferredReleases.Clear(); // même si WaitIdle a échoué (device removed)
 		mRenderPasses.Clear();
 		mFramebuffers.Clear();
 		mDescLayouts.Clear();
@@ -679,7 +680,7 @@ namespace nkentseu {
 	// =============================================================================
 	ComPtr<ID3D12RootSignature> NkDirectX12Device::CreateDefaultRootSignature(bool compute) {
 		// Root signature 1.1 (TABLES LARGES) :
-		//   param 0 -> Root constants (b0, space1) — PushConstants (16 DWORD = 64 o)
+		//   param 0 -> Root constants (b0, space1) — PushConstants (NUM_ROOT_CONSTANT_DWORDS = 128 o)
 		//   param 1 -> table CBV b0-31 + SRV t0-31 + UAV u0-7 (space0)
 		//   param 2 -> table SAMPLER s0-31 (space0)
 		// Flag DESCRIPTORS_VOLATILE : seuls les descripteurs accédés par le shader doivent
@@ -713,7 +714,7 @@ namespace nkentseu {
 		params[ROOT_CONSTANTS].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 		params[ROOT_CONSTANTS].Constants.ShaderRegister = 0;
 		params[ROOT_CONSTANTS].Constants.RegisterSpace = 1; // space1 dédié → pas de collision cbuffer
-		params[ROOT_CONSTANTS].Constants.Num32BitValues = 16;
+		params[ROOT_CONSTANTS].Constants.Num32BitValues = NUM_ROOT_CONSTANT_DWORDS;
 
 		params[TABLE_CBV_SRV_UAV].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
 		params[TABLE_CBV_SRV_UAV].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
@@ -906,6 +907,7 @@ namespace nkentseu {
 			return;
 		if (it->mapped)
 			it->resource->Unmap(0, nullptr);
+		DeferRelease(it->resource); // même hazard que DestroyPipeline
 		mBuffers.Erase(h.id);
 		h.id = 0;
 	}
@@ -1257,6 +1259,12 @@ namespace nkentseu {
 		auto it = mTextures.Find(h.id);
 		if (!it)
 			return;
+		// Release différé (même hazard que DestroyPipeline). Exception : les
+		// images swapchain — DXGI exige que TOUTES les références backbuffer
+		// soient relâchées avant la recréation (resize), et DestroySwapchain
+		// fait déjà un WaitIdle avant.
+		if (!it->isSwapchain)
+			DeferRelease(it->resource);
 		mTextures.Erase(h.id);
 		h.id = 0;
 	}
@@ -1767,6 +1775,14 @@ namespace nkentseu {
 
 		ComPtr<ID3D12PipelineState> pso;
 		HRESULT hr = mDevice->CreateGraphicsPipelineState(&psd, IID_PPV_ARGS(&pso));
+		if (SUCCEEDED(hr) && pso && d.debugName && *d.debugName) {
+			// Nom ANSI (WKPDID_D3DDebugObjectName) : apparaît dans les messages de
+			// validation/DRED à la place de « Unnamed Object » — indispensable pour
+			// tracer QUEL PSO est en cause (diag 921 / device removed).
+			static const GUID kD3DDebugObjectName = {
+				0x429b8c22, 0x9188, 0x4b0c, {0x87, 0x42, 0xac, 0xb0, 0xbf, 0x85, 0xc2, 0x71}};
+			pso->SetPrivateData(kD3DDebugObjectName, (UINT)strlen(d.debugName), d.debugName);
+		}
 		if (FAILED(hr) || !pso) {
 			NK_DX12_ERR("CreateGraphicsPipelineState failed (hr=0x%X)\n", (unsigned)hr);
 			NK_DX12_ERR("  PSO desc: numInputElems=%u NumRenderTargets=%u RTV0=%d DSVFormat=%d "
@@ -1804,9 +1820,9 @@ namespace nkentseu {
 		if (sig == pipe->baseFmtSig)
 			return pipe->pso.Get(); // PSO de base déjà compatible
 
-		auto *v = pipe->variants.Find(sig);
-		if (v && *v)
-			return v->Get();
+		for (auto &v : pipe->variants)
+			if (v.sig == sig && v.pso)
+				return v.pso.Get();
 
 		// Nouvelle variante : reconstruire avec les formats du RP courant.
 		ComPtr<ID3D12PipelineState> pso = BuildGraphicsPSO(pipe->desc, pipe->rootSig.Get(), numRT, rtv, dsv);
@@ -1814,7 +1830,13 @@ namespace nkentseu {
 			// Echec build : retomber sur le PSO de base (au pire #613, mais pas de crash).
 			return pipe->pso.Get();
 		}
-		pipe->variants[sig] = pso;
+		NK_DX12_LOG("Resolve: variante pso=%p pour id=%llu name='%s' (sig=%llx numRT=%u rtv0=%d)\n", (void *)pso.Get(),
+					(unsigned long long)pipelineId, pipe->desc.debugName ? pipe->desc.debugName : "?",
+					(unsigned long long)sig, numRT, (int)rtv[0]);
+		NkDX12Pipeline::NkPsoVariant nv;
+		nv.sig = sig;
+		nv.pso = pso;
+		pipe->variants.PushBack(nv);
 		return pso.Get();
 	}
 
@@ -1906,8 +1928,42 @@ namespace nkentseu {
 		return h;
 	}
 
+	void NkDirectX12Device::DeferRelease(const ComPtr<IUnknown> &obj) {
+		if (!obj)
+			return;
+		threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
+		NkDeferredRelease e;
+		e.obj = obj;
+		e.fenceValue = mFenceValue + 1; // valeur signalée à la FIN de la frame courante
+		mDeferredReleases.PushBack(std::move(e));
+	}
+
+	void NkDirectX12Device::DrainDeferredReleases(UINT64 completedFence) {
+		threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
+		for (uint32 i = 0; i < mDeferredReleases.Size();) {
+			if (mDeferredReleases[i].fenceValue <= completedFence) {
+				mDeferredReleases[i] = std::move(mDeferredReleases[mDeferredReleases.Size() - 1]);
+				mDeferredReleases.PopBack();
+			} else {
+				++i;
+			}
+		}
+	}
+
 	void NkDirectX12Device::DestroyPipeline(NkPipelineHandle &h) {
 		threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
+		// Release DIFFÉRÉ : le PSO peut être référencé par la cmd list en cours
+		// d'enregistrement ou une frame en vol (cf. mDeferredReleases).
+		auto *pipe = mPipelines.Find(h.id);
+		if (pipe) {
+			NK_DX12_LOG("DestroyPipeline id=%llu pso=%p name='%s' (release differe fence=%llu)\n",
+						(unsigned long long)h.id, (void *)pipe->pso.Get(),
+						pipe->desc.debugName ? pipe->desc.debugName : "?", (unsigned long long)(mFenceValue + 1));
+			DeferRelease(pipe->pso);
+			DeferRelease(pipe->rootSig);
+			for (auto &v : pipe->variants)
+				DeferRelease(v.pso);
+		}
 		mPipelines.Erase(h.id);
 		h.id = 0;
 	}
@@ -2806,6 +2862,10 @@ namespace nkentseu {
 			fd.fence->SetEventOnCompletion(fd.fenceValue, fd.fenceEvent);
 			WaitForSingleObject(fd.fenceEvent, INFINITE);
 		}
+		// La frame fd.fenceValue est complète : release des objets différés datés
+		// jusqu'à cette valeur (cf. mDeferredReleases).
+		if (!getenv("NK_DX12_NODRAIN")) // diag : NK_DX12_NODRAIN=1 => fuite volontaire
+			DrainDeferredReleases(fd.fenceValue);
 	}
 
 	// =============================================================================
@@ -2879,6 +2939,7 @@ namespace nkentseu {
 		fence->SetEventOnCompletion(1, ev);
 		WaitForSingleObject(ev, INFINITE);
 		CloseHandle(ev);
+		DrainDeferredReleases(UINT64_MAX); // GPU idle : tout peut partir
 	}
 
 	// =============================================================================
