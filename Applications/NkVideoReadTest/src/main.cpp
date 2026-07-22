@@ -321,9 +321,11 @@ int main(int argc, char **argv) {
 		fclose(f);
 		NkVp9Superframe sf;
 		NkVp9Decoder::ParseSuperframe(payload.Data(), (usize)payload.Size(), sf);
+		const bool noLf = (argc >= 5 && strcmp(argv[4], "nolf") == 0);
 		NkVp9Image img;
 		NkVp9Decoder::NkTileParseStats ts;
-		if (!NkVp9Decoder::DecodeKeyFrame(payload.Data() + sf.offsets[0], sf.sizes[0], img, &ts)) {
+		if (!NkVp9Decoder::DecodeKeyFrame(payload.Data() + sf.offsets[0], sf.sizes[0], img, &ts,
+										  !noLf)) {
 			printf("  [KO] DecodeKeyFrame a echoue (tiles=%d blocs=%d)\n", ts.tiles, ts.blocks);
 			return 1;
 		}

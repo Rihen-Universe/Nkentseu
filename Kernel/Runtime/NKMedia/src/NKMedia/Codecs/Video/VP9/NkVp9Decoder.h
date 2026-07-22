@@ -232,7 +232,8 @@ namespace nkentseu {
 				// inverses) → image I420. `frame` = une trame VP9 (déjà extraite de
 				// son superframe). Sans loop filter pour l'instant (brique 5).
 				static bool DecodeKeyFrame(const uint8 *frame, usize size, NkVp9Image &out,
-										   NkTileParseStats *statsOut = nullptr);
+										   NkTileParseStats *statsOut = nullptr,
+										   bool applyLoopFilter = true);
 
 				static bool SelfTest();
 		};

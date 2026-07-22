@@ -535,9 +535,25 @@
   BIT-EXACTS (176x144, mandelbrot 320x240, 354x288 avec superblocs partiels)** ; flux non-
   lossless : écarts = uniquement le loop filter manquant. Limite : profils 1-3 (4:4:4/sRGB/
   haute profondeur) non gérés — refus propre, le VP9 web est profil 0.
-- **À venir** (ordre VP8-like) : loop filter (→ bit-exact sur flux avec lf>0), trames inter
-  (MC 1/8 pel 8 taps, compound, refs multiples), superframes/altref au niveau séquence,
-  branchement NkVideoReader (.webm/.ivf VP9).
+- ⭐⭐⭐ **Brique 5 — LOOP FILTER (2026-07-22) : L'IMAGE CLÉ VP9 EST COMPLÈTE — 8/8 FLUX
+  BIT-EXACTS vs ffmpeg**, dont HD 1280x720 MULTI-TILES, segmentation aq-mode 640x360, bords
+  partiels 354x288, et 3 lossless. Port fidèle : filtres 4/8/16 taps (arithmétique ^0x80,
+  arrondi +4/+3, masques filter/flat4/flat5/hev), seuils par niveau 0-63 (update_sharpness :
+  mblim/lim, hev = lvl>>4), niveaux par segment (ALT_LF + ref_deltas[INTRA]×scale), chemin
+  générique `filter_block_plane_non420` (masques 16/8/4/4int à la volée par superbloc,
+  verticales de tout le SB PUIS horizontales, 1re colonne/rangée d'image jamais filtrées,
+  arêtes internes 4x4, « duals » = appels adjacents). Le filtre était CORRECT DU PREMIER
+  COUP — le bug révélé par la validation était AILLEURS : ⚠⚠ **`transform_2d` libvpx =
+  `{cols, rows}` — COLS EN PREMIER** (vp9_idct.h) → mes tables hybrides IHT étaient
+  inversées (ADST appliqué aux lignes au lieu des colonnes). Invisible en lossless (tout
+  WHT) ; diagnostiqué en 2 temps : (1) `-skip_loop_filter all` côté ffmpeg + option `nolf`
+  chez nous → la BASE pré-filtre divergeait déjà → pas le filtre ; (2) dump des blocs tx :
+  le bloc #0 (DCT_DCT pur) parfait, le #1 (DCT_ADST) faux de ±1-2 → chemin ADST → relecture
+  du header → l'ordre des champs. Leçon : TOUJOURS vérifier la déclaration des structs à
+  initialiseurs positionnels, pas seulement les tables.
+- **À venir** : trames inter (MC 1/8 pel 8 taps, compound, refs multiples, MV prediction),
+  superframes/altref au niveau séquence, branchement NkVideoReader (.webm/.ivf VP9) + audio
+  Opus déjà prêt.
 
 ## En cours / À venir
 
