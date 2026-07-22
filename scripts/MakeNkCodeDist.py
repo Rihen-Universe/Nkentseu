@@ -42,12 +42,26 @@ JENGA_EXCLUDE_DIRS = {"Docs", "Exemples", "Unitest", "unused", "__pycache__",
                       ".git", ".github", "Captures", "Tools"}
 JENGA_EXCLUDE_TOP = {"Tools"}  # Tools/Installer & co : packaging Jenga, pas le build
 
+# Polices REELLEMENT chargees par NkAppFonts/NkFontPrefs (verifie par grep du
+# code) — les 9 autres graisses NotoSansSC (11 Mo chacune !) + la variable
+# (17 Mo) ne sont referencees nulle part : ~95 Mo economises.
+KEEP_FONTS = {"NotoSans-Regular.ttf", "NotoSansSC-Regular.ttf",
+              "NotoEmoji-Regular.ttf", "NotoSansCJKsc-Regular.otf",
+              "CascadiaCode.ttf", "CascadiaMono.ttf"}
+
+# llvm-mingw multi-cible : on ne compile QUE pour x86_64 -> les triplets
+# i686/ARM (sysroots + wrappers bin/) representent plus de la moitie du
+# dossier pour zero utilite ici.
+COMPILER_EXCLUDE_DIRS = {"i686-w64-mingw32", "armv7-w64-mingw32",
+                         "aarch64-w64-mingw32", "arm64ec-w64-mingw32"}
+COMPILER_EXCLUDE_PREFIXES = ("i686-", "armv7-", "aarch64-", "arm64ec-")
+
 
 def Log(msg):
     print(f"[dist] {msg}", flush=True)
 
 
-def CopyTree(src: Path, dst: Path, exclude_dirs=None):
+def CopyTree(src: Path, dst: Path, exclude_dirs=None, file_filter=None):
     exclude_dirs = exclude_dirs or set()
     for root, dirs, files in os.walk(src):
         rel = Path(root).relative_to(src)
@@ -56,6 +70,8 @@ def CopyTree(src: Path, dst: Path, exclude_dirs=None):
         out.mkdir(parents=True, exist_ok=True)
         for f in files:
             if f.endswith((".pyc", ".pyo")):
+                continue
+            if file_filter and not file_filter(rel, f):
                 continue
             shutil.copy2(Path(root) / f, out / f)
 
@@ -91,6 +107,8 @@ def Main() -> int:
                     help="n'embarque pas Clang (distribution plus legere, "
                          "suppose un compilateur deja present chez le testeur)")
     ap.add_argument("--zip", action="store_true", help="zippe la distribution")
+    ap.add_argument("--xz", action="store_true",
+                    help="archive .tar.xz (LZMA, bien plus petite que zip)")
     ap.add_argument("--out", default=str(REPO / "dist"))
     args = ap.parse_args()
 
@@ -124,8 +142,15 @@ def Main() -> int:
     # CWD = dossier de l'exe).
     data = REPO / "Applications/NKCode/data"
     if data.exists():
-        Log("copie des ressources (data/ : polices, textures, logos, langues)")
-        CopyTree(data, out / "data", exclude_dirs={"__pycache__"})
+        Log("copie des ressources (data/ : polices UTILES, textures, logos, langues)")
+
+        def DataFilter(rel: Path, f: str) -> bool:
+            # fonts/ : ne garde que les polices reellement chargees par le code.
+            if rel.parts and rel.parts[0] == "fonts":
+                return f in KEEP_FONTS
+            return True
+
+        CopyTree(data, out / "data", exclude_dirs={"__pycache__"}, file_filter=DataFilter)
     else:
         Log("ATTENTION : Applications/NKCode/data introuvable — dist sans ressources !")
 
@@ -145,8 +170,16 @@ def Main() -> int:
 
     if not args.skip_compiler:
         comp = DownloadCompiler(REPO / ".cache")
-        Log("copie du compilateur par defaut (tools/compilers/llvm-mingw)")
-        CopyTree(comp, tools / "compilers" / "llvm-mingw")
+        Log("copie du compilateur par defaut (tools/compilers/llvm-mingw, x86_64 uniquement)")
+
+        def CompFilter(rel: Path, f: str) -> bool:
+            # bin/ : retire les wrappers des cibles i686/ARM (on ne vise que x86_64).
+            if rel.parts and rel.parts[0] == "bin" and f.startswith(COMPILER_EXCLUDE_PREFIXES):
+                return False
+            return True
+
+        CopyTree(comp, tools / "compilers" / "llvm-mingw",
+                 exclude_dirs=COMPILER_EXCLUDE_DIRS, file_filter=CompFilter)
     else:
         Log("compilateur SAUTE (--skip-compiler)")
 
@@ -154,6 +187,10 @@ def Main() -> int:
         zpath = Path(args.out) / f"NKCode-{args.config}-win64"
         Log(f"zip -> {zpath}.zip")
         shutil.make_archive(str(zpath), "zip", Path(args.out), "NKCode")
+    if args.xz:
+        xpath = Path(args.out) / f"NKCode-{args.config}-win64"
+        Log(f"tar.xz (LZMA, ~2x plus petit que zip ; Windows 11/7-Zip l'ouvrent) -> {xpath}.tar.xz")
+        shutil.make_archive(str(xpath), "xztar", Path(args.out), "NKCode")
 
     Log(f"OK : {out}")
     Log("Test : lancer dist/NKCode/NKCode.exe sur une machine SANS Python ni compilateur.")
