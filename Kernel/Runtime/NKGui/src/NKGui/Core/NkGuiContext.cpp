@@ -49,6 +49,16 @@ namespace nkentseu {
 			disabledDepth = 0;
 			inputClickConsumed = false;
 			curPopupLevel = -1; // le dessin reprend sur la couche principale
+			// Routeur d'occlusion : la liste ecrite la frame PRECEDENTE devient la
+			// liste LUE (stable toute la frame, comme hotIdPrev) ; on repart a zero
+			// pour l'ecriture de cette frame.
+			occlCount = occlCountNew;
+			for (int32 i = 0; i < occlCountNew; ++i) {
+				occlRects[i] = occlRectsNew[i];
+				occlLayers[i] = occlLayersNew[i];
+			}
+			occlCountNew = 0;
+			curInputLayer = 0;
 			winCount = 0;		// pool de fenêtres ré-attribué cette frame
 			curWindow = -1;
 			curWindowId = NKGUI_ID_NONE;
@@ -479,6 +489,12 @@ namespace nkentseu {
 		}
 
 		bool NkGuiContext::ItemHoverable(const NkRect &r, NkGuiId id) noexcept {
+			// Routeur d'occlusion UNIFIE : un widget n'est jamais survolable si une
+			// surface flottante d'une couche SUPERIEURE (modal, palette, popover
+			// declares via PushOcclusion) recouvre le pointeur — quel que soit
+			// l'ordre de dessin des panneaux.
+			if (!PointReachable(input.mousePos))
+				return false;
 			// Désactivé : aucune interaction.
 			if (IsDisabled())
 				return false;
