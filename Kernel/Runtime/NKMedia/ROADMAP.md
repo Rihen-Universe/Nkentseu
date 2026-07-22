@@ -405,9 +405,25 @@
     `NkVideoReader`, lecture bout-en-bout dans `NkVideoPlayer` sans erreur, seek exact aux index
     0/20/45. ⚠️ L'audio Opus-dans-WebM n'est PAS branché dans `OpenAudioStream` (seul l'Ogg-Opus
     l'est) → un `.webm` VP8+Opus se lit pour l'instant SANS le son (piste suivante naturelle).
+  - ⭐ **Brique 10 — AUDIO Opus-dans-WebM : un `.webm` VP8+Opus se lit AVEC LE SON dans
+    `NkVideoPlayer`.** `ContainerAudioStream` gagne un troisième codec (`OPUS`) : les SimpleBlocks
+    WebM portent des paquets Opus **BRUTS** (pas d'encapsulation Ogg) → `NkOpusDecoder::
+    DecodePacket` (le dispatcheur SILK/CELT/hybride existant) les décode paquet par paquet,
+    sortie native 48 kHz. Le **pre-skip** (délai encodeur) est lu depuis l'`OpusHead` du
+    `CodecPrivate` de la piste (RFC 7845 §5.1, uint16 LE offset 10 — champ `codecPrivate` ajouté
+    à `NkMediaTrack` + extraction EBML `0x63A2` dans `NkMediaProbe`), repli 312 sinon ; consommé
+    sur les premiers échantillons décodés (potentiellement plusieurs paquets). Seek granularité
+    paquet (~20 ms) avec réinitialisation du décodeur (état SILK/CELT inter-trame non
+    récupérable après un saut — même catégorie que la note PNS de l'AAC). **Validé** :
+    `.webm` VP8+Opus mono réel — **corrélation 1.000000 au lag 0** vs ffmpeg (pre-skip exact),
+    96648/96648 frames lues avec EOF propre, lecture bout-en-bout `NkVideoPlayer` avec vidéo ET
+    son. LIMITES : **mono uniquement** (le décodeur Opus refuse la stéréo proprement — un
+    `.webm` stéréo se lit sans le son) ; le `DiscardPadding` de fin de flux WebM n'est pas
+    géré (~13 ms de queue en trop en toute fin de piste, imperceptible).
   - **Reste (finitions, refus propre en attendant)** : segmentation par macrobloc (aucun flux de
     test ne l'active) ; partitions de tokens multiples (>1) ; versions de bitstream 1-3
-    (bilinéaire/fullpel) ; audio Opus-dans-WebM dans `OpenAudioStream`.
+    (bilinéaire/fullpel) ; **Opus stéréo** (débloquerait le son de la plupart des `.webm` réels) ;
+    `DiscardPadding` WebM.
 
 ## En cours / À venir
 

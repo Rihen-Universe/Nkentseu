@@ -17,8 +17,13 @@
  *   - **PCM non compresse** (twos/sowt/lpcm, 8/16/24/32-bit) : taille de paquet
  *     VARIABLE (aucune notion de "frame" cote conteneur) — juste une conversion de
  *     format (endianness + profondeur -> int16), aucun etat entre paquets.
- *  Autre codec (ex. MP3 embarque) -> Open() echoue proprement (le caller retombe
- *  sur un autre chemin, ex. RAM complete via NkMP3Codec — voir OpenAudioStream()).
+ *   - **Opus-dans-WebM** (MONO) : paquets Opus BRUTS dans les SimpleBlocks (pas
+ *     d'encapsulation Ogg), decodes par NkOpusDecoder (SILK/CELT/hybride), sortie
+ *     native 48 kHz. Le PRE-SKIP (delai encodeur, RFC 7845) est lu dans l'OpusHead
+ *     du CodecPrivate de la piste (uint16 LE offset 10, repli 312) et consomme sur
+ *     les premiers echantillons — valide corr 1.000000 lag 0 vs ffmpeg.
+ *  Autre codec (ex. MP3 embarque, Opus STEREO) -> Open() echoue proprement (le caller
+ *  retombe sur un autre chemin, ex. RAM complete via NkMP3Codec — voir OpenAudioStream()).
  *
  *  Le PRIMING de l'encodeur AAC (1024 echantillons de delai standard) est saute au
  *  premier paquet, pour aligner l'audio sur l'horodatage video (meme convention que
@@ -36,6 +41,7 @@
 #include "NKAudio/Streaming/NkAudioStream.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKMedia/Codecs/Aac/NkAacDecoder.h"
+#include "NKMedia/Codecs/Opus/NkOpusDecoder.h"
 
 namespace nkentseu {
 	namespace audio {
@@ -47,8 +53,8 @@ namespace nkentseu {
 
 				/// Ouvre `path` (MP4/MOV/WebM...), demuxe la piste audio et prepare le
 				/// decodeur. Renvoie false si conteneur non supporte, pas de piste audio,
-				/// ou codec non gere (AAC/PCM seulement — echec propre : le caller peut
-				/// retomber sur autre chose, ex. RAM complete pour du MP3 embarque).
+				/// ou codec non gere (AAC/PCM/Opus-mono seulement — echec propre : le caller
+				/// peut retomber sur autre chose, ex. RAM complete pour du MP3 embarque).
 				bool Open(const char *path) noexcept;
 
 				int32 ReadFrames(float32 *outBuf, int32 maxFrames) noexcept override;
@@ -71,15 +77,18 @@ namespace nkentseu {
 				}
 
 			private:
-				enum class Codec { AAC, PCM };
+				enum class Codec { AAC, PCM, OPUS };
 
 				// Decode/convertit le paquet `mPacketIndex` dans mLeftover (int16 entrelace),
 				// avance mPacketIndex. Renvoie le nombre de frames obtenues (0 si echec/EOF).
 				int32 DecodeNextPacket() noexcept;
 				int32 DecodeNextAacPacket() noexcept;
 				int32 DecodeNextPcmPacket() noexcept;
+				int32 DecodeNextOpusPacket() noexcept;
 
 				media::NkAacDecoder mDecoder;
+				media::NkOpusDecoder mOpus;	   // Opus-dans-WebM (mono, sortie 48 kHz native)
+				int32 mOpusPreSkipLeft = 0;	   // echantillons de pre-skip (OpusHead) a jeter
 				NkVector<nk_uint8> mBytes; // fichier complet (les paquets pointent dedans)
 
 				// Paquets demuxes : (offset, taille) dans mBytes.
