@@ -490,9 +490,32 @@
   bool decoder) sur 4 flux : 2-passes altref (108), 1-passe (100), HD 1280x720 multi-tiles
   (54), segmentation aq-mode (50). Un désalignement d'un seul bit ferait déborder le bool
   decoder — critère fort avant le décodage réel.
-- **À venir** (ordre VP8-like) : partitions récursives 64→4 + modes intra (arbres kf),
-  tokens résiduels + transformées 4x4-32x32 DCT/ADST, reconstruction image clé, loop filter,
-  inter (MC 1/8 pel, compound, refs multiples), branchement NkVideoReader (.webm/.ivf VP9).
+- ⭐ **Brique 3 — CONTENU DE TRAME CLÉ (2026-07-22) : partitions + modes + TOKENS, chaque
+  tile consommée EXACTEMENT.** Particularité vs VP8 : modes et résidus sont ENTRELACÉS par
+  bloc dans les tiles (pas de partitions séparées) → la validation par consommation exige de
+  lire aussi les tokens. Livré : tiles (tailles 4 octets BE sauf la dernière, bit marqueur
+  par tile, offsets alignés superbloc `min(((idx·sbDim)>>log2)<<3, miDim)`, contextes gauche
+  remis à zéro par rangée de SB) ; partitions récursives 64→4 (arbre kf, contexte above/left
+  par bits de `partition_context_lookup`, lecture PARTIELLE aux bords : 1 seul bool
+  probs[1]/probs[2] quand rows/cols manquent, SPLIT forcé sinon) ; grille MODE_INFO (cellule
+  copiée sur l'emprise = propagation de pointeurs libvpx) ; modes intra kf (arbres
+  `kf_y_mode_prob[above][left]` par sous-bloc — 4X4 : 4 modes, 4X8/8X4 : 2, ≥8X8 : 1 ; voisins
+  `above/left_block_mode` avec bmi du bloc adjacent) + mode UV ; segment id (arbre 7 probas),
+  skip (contexte a+l), tx_size (`read_selected_tx_size`, contexte des voisins non-skip) ;
+  TOKENS (`decode_coefs`) : bandes (`coefband_trans`), contexte des voisins du scan
+  `(1+cache[nb0]+cache[nb1])>>1`, modèle de Pareto (255×8) au-delà du token ONE, catégories
+  d'extra bits CAT1-6, scans default/row/col par type de transformée intra
+  (`intra_mode_to_tx_type`), contextes d'entropie A/L par plane avec clip aux bords
+  (`vp9_set_contexts`), reset au skip. 78 tables au total dans `NkVp9Tables.inc` (2e vague :
+  scans+neighbors, pareto, bandes, cat probs, dc/ac_qlookup, lookups de blocs). **Validé :
+  10/10 trames clés/intra, TOUTES les tiles consommées EXACTEMENT** (un seul bit d'écart
+  dans les milliers de décisions par trame désaligne le bool decoder) sur 6 flux : 1-passe
+  (4 clés), 2-passes (2), HD 1280x720 multi-tiles, segmentation aq-mode, résolution IMPAIRE
+  355x289 (blocs partiels aux bords), LOSSLESS (~156k coefficients lus au total).
+- **À venir** (ordre VP8-like) : reconstruction image clé (prédiction intra 10 modes +
+  déquant + transformées inverses 4x4-32x32 DCT/ADST + WHT lossless) → VALIDATION BIT-EXACTE
+  vs ffmpeg, loop filter, inter (MC 1/8 pel, compound, refs multiples), branchement
+  NkVideoReader (.webm/.ivf VP9).
 
 ## En cours / À venir
 

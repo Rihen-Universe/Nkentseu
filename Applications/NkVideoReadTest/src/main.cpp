@@ -316,6 +316,8 @@ int main(int argc, char **argv) {
 
 		int32 nPayloads = 0, nFrames = 0, nKey = 0, nInter = 0, nAltref = 0, nShowExisting = 0;
 		int32 nSuperframes = 0, nCompOk = 0, nCompTotal = 0;
+		int32 nContentOk = 0, nContentTotal = 0, nContentBlocks = 0;
+		long long nContentEob = 0;
 		bool allOk = true;
 		for (;;) {
 			uint8 frameHdr[12];
@@ -383,6 +385,26 @@ int main(int argc, char **argv) {
 								   nPayloads, fr);
 						allOk = false;
 					}
+					// Brique 3 : CONTENU des trames clés/intra (partitions + modes + tokens),
+					// critère = consommation exacte de chaque tile.
+					if ((h.frameType == kVp9KeyFrame || h.intraOnly) && !h.showExistingFrame) {
+						++nContentTotal;
+						const usize hdrBytes = (usize)h.uncompressedBytes + (usize)h.headerSizeBytes;
+						NkVp9Decoder::NkTileParseStats ts;
+						if (NkVp9Decoder::ParseKeyFrameContent(
+								payload.Data() + sf.offsets[fr] + hdrBytes, sf.sizes[fr] - hdrBytes,
+								h, fc, ch, ts)) {
+							++nContentOk;
+							nContentBlocks += ts.blocks;
+							nContentEob += ts.eobTotal;
+						} else {
+							if (nContentTotal - nContentOk <= 4)
+								printf("  [KO] contenu cle invalide (charge %d, sous-trame %d : "
+									   "tiles=%d blocs=%d overread=%d)\n",
+									   nPayloads, fr, ts.tiles, ts.blocks, ts.maxOverread);
+							allOk = false;
+						}
+					}
 				}
 				if (nFrames <= 6)
 					printf("  trame %d : type=%s show=%d dims=%dx%d profil=%d cs=%d q=%d lf=%d "
@@ -402,6 +424,9 @@ int main(int argc, char **argv) {
 			   nPayloads, nSuperframes, nFrames, nKey, nInter, nAltref, nShowExisting);
 		printf("  en-tetes compresses : %d/%d parses sans erreur (bit marqueur + bornes bool)\n",
 			   nCompOk, nCompTotal);
+		printf("  contenu cles/intra : %d/%d trames (tiles consommees EXACTEMENT), %d blocs, "
+			   "eob total=%lld\n",
+			   nContentOk, nContentTotal, nContentBlocks, nContentEob);
 		printf("  [ %s ] parsing en-tetes VP9\n", allOk ? "OK " : "KO");
 		return allOk ? 0 : 1;
 	}

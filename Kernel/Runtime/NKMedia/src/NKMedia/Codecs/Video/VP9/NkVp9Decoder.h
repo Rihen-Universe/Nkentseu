@@ -194,6 +194,30 @@ namespace nkentseu {
 				static bool ParseCompressedHeader(const uint8 *data, usize size, const NkVp9FrameHeader &hdr,
 												  NkVp9FrameContext &fc, NkVp9CompressedHeader &out);
 
+				// Statistiques du parse de contenu (brique 3 : consommation, pas encore
+				// de reconstruction).
+				struct NkTileParseStats {
+						int32 tiles = 0;		// tiles décodées
+						int32 blocks = 0;		// blocs feuilles (unités de prédiction)
+						int32 skipBlocks = 0;	// blocs à skip=1 (aucun résidu)
+						int64 eobTotal = 0;		// somme des EOB (nb de coefficients lus)
+						int32 maxOverread = 0;	// pire dépassement bool decoder (≤2 = normal)
+				};
+
+				// BRIQUE 3 : parse le CONTENU d'une trame CLÉ (§8-9) — tiles (tailles 4
+				// octets BE sauf la dernière) → partitions récursives 64→4 (arbre +
+				// contextes above/left) → modes intra kf (arbres à voisins) + tx_size/
+				// skip/segment → TOKENS résiduels (decode_coefs : bandes, contexte des
+				// voisins du scan, modèle de Pareto, catégories d'extra bits). Les
+				// coefficients sont décodés puis JETÉS (reconstruction = brique 4).
+				// `tileData` = début des données de tiles (après en-têtes non compressé
+				// + compressé) ; `chdr` = résultat de ParseCompressedHeader (tx_mode).
+				// Renvoie false si une tile ne se consomme pas EXACTEMENT.
+				static bool ParseKeyFrameContent(const uint8 *tileData, usize tileSize,
+												 const NkVp9FrameHeader &hdr, const NkVp9FrameContext &fc,
+												 const NkVp9CompressedHeader &chdr,
+												 NkTileParseStats &stats);
+
 				static bool SelfTest();
 		};
 
