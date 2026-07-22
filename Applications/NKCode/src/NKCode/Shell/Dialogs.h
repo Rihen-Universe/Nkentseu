@@ -187,12 +187,12 @@ namespace nkentseu {
 				static constexpr int32 PK_NewFolder = 200;
 
 				void OpenPicker(int32 purpose, const char *startDir, char *buf = nullptr, int32 cap = 0,
-								const char *confine = nullptr) {
+								const char *confine = nullptr, const char *fileExt = nullptr) {
 					// Coeur generique dans NKEditorKit (NkFilePickerState) ; ici on ne fixe
 					// que le dossier de depart par defaut = racine du workspace NKCode.
 					pickWsJenga = false; // discriminateur re-arme par OpenWorkspaceDialog seul
 					const char *start = (startDir && *startDir) ? startDir : (st ? st->root.ToString().CStr() : ".");
-					OpenPickerBase(purpose, start, buf, cap, confine);
+					OpenPickerBase(purpose, start, buf, cap, confine, fileExt);
 				}
 
 				// ── Specialisation du picker moteur (NkFilePickerState) : scaffolding + actions ──
@@ -730,7 +730,7 @@ namespace nkentseu {
 				void OpenWorkspaceDialog() {
 					wsOpenBuf[0] = '\0';
 					OpenPicker(PK_File, st ? st->root.ToString().CStr() : nullptr, wsOpenBuf,
-							   (int32)sizeof(wsOpenBuf));
+							   (int32)sizeof(wsOpenBuf), nullptr, ".jenga"); // filtre : .jenga uniquement
 					pickWsJenga = true; // APRES OpenPicker (qui remet le flag a false)
 				}
 
