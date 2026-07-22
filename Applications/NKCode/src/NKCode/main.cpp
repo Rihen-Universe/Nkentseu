@@ -148,6 +148,7 @@ int nkmain(const NkEntryState &state) {
 	static nkcode::NkMenuBarCtx g_menuBar;
 	g_menuBar.dlg = &g_dialogs;
 	g_menuBar.shell = shell.Get();
+	g_menuBar.exePath = (state.args.Size() > 0) ? state.args[0] : NkString(); // « Nouvelle fenetre »
 	shell->SetMenuBar(&nkcode::MainMenuBarThunk, &g_menuBar);
 	shell->SetOverlay(&nkcode::OverlayThunk, &g_dialogs);	// dialogues modaux (creation/enregistrement)
 
