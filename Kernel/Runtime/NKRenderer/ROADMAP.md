@@ -138,10 +138,15 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    savaient DÉJÀ faire du MRT). ✅ **GL = référence** (91,8 % parité, purger
    `cache/shaders` si le X rouge manque) ; ✅ **VULKAN VALIDÉ capture** (mêmes
    conventions que DX : sample flippé + ndcY négatif — l'essai « sample direct »
-   donnait l'image inversée) ; ⚠ **DX11 : rendu OK mais rayons parasites**
-   (bandes translucides radiant du spot, à affiner) ; ❌ **DX12 : DEVICE REMOVED**
-   (0x887A0001 pendant la frame différée — violation d'états de ressources
-   probable, session dédiée debug layer requise). Limites restantes : clearcoat/subsurface/velocity non portés,
+   donnait l'image inversée) ; ⚠ **DX11 + DX12 : deferred REND mais rayons
+   parasites COMMUNS** (bandes translucides radiant du spot à cookie — même
+   artefact sur les deux DX, absent GL/VK et absent en forward DX → bug
+   DX-spécifique du chemin deferred, en cours) ; ✅ **DX12 : DEVICE REMOVED
+   RÉSOLU (2026-07-23, 269207c9)** — 4 causes racines (root constants 64 o
+   débordés, release PSO immédiat → destruction différée, cache variantes
+   NkUnorderedMap défaillant → NkVector, RowPitch readback) — détail dans
+   « Bugs/quirks connus » ; le deferred DX12 tourne à 409 FPS avec capture
+   réelle. Limites restantes : clearcoat/subsurface/velocity non portés,
    passe miroir non différée, boucle 32 lumières (tiled/clustered = v3), DX12 à
    capturer.
    Ancien plan :
@@ -563,12 +568,20 @@ limité, DX12+Metal OK. Plan :
 - **Readback OpenGL de NkOffscreenTarget cassé** (GLAD 1282
   glMapNamedBufferRange) — la capture NK_CAPTURE ne marche que sur DX11
   (vérifié pixel-perfect) ; fix côté NKRHI GL à coordonner (module partagé).
-- **DX12 : DEVICE REMOVED 0x887A0001 en run headless** (2026-07-22) — demo 2
-  meurt en quelques secondes en run automatisé (Present FAILED en rafale,
-  capture NK_CAPTURE blanche) alors que le rendu interactif tourne chez Rihen.
-  DRED loggé mais « aucun breadcrumb node » → l'enablement DRED
-  (auto-breadcrumbs + page fault) doit être posé AVANT CreateDevice. Même
-  famille que le device-removed du deferred DX12 — chantier 1 en cours.
+- ~~**DX12 : DEVICE REMOVED 0x887A0001**~~ **RÉSOLU (2026-07-23, 269207c9)** —
+  4 causes racines trouvées au debug layer : (1) root constants 64 o débordés
+  par GridPC/Glow2D 96 o → root sig passée à 32 DWORDs (128 o) + clamp ;
+  (2) release immédiat des PSO détruits en plein enregistrement → destruction
+  DIFFÉRÉE générale datée par fence (pipelines/textures/buffers) ;
+  (3) cache de variantes PSO `NkUnorderedMap<uint64,ComPtr>` imbriquée PERDAIT
+  la valeur stockée (⚠ bug conteneur à isoler côté NKContainERS — map imbriquée
+  déplacée + ComPtr) → variante PP_Tone reconstruite/relâchée CHAQUE frame →
+  remplacée par `NkVector<NkPsoVariant>` ; (4) readback NK_CAPTURE :
+  `CopyTextureToBuffer` passait RowPitch=0 au footprint (INVALID_CALL) → pitch
+  serré aligné 256 + staging NkOffscreenTarget dimensionné/lu au pitch aligné.
+  Validé : demo 2 DX12 zéro erreur, **capture NK_CAPTURE DX12 fonctionnelle**
+  (pixels réels, ombre alpha-testée confirmée), deferred DX12 REND (409 FPS),
+  non-régression GL/VK/DX11. PSO nommés (WKPDID) + env diag `NK_DX12_NODRAIN`.
 
 ---
 
@@ -591,8 +604,9 @@ limité, DX12+Metal OK. Plan :
 - ✅ **Deferred v1+v2 LIVRÉ (2026-07-13)** : G-buffer MRT 3 RT + light pass
   fullscreen + ForwardRest, opt-in `cfg.deferred`/`NK_DEFERRED=1` — GL référence
   (91,8 % parité, 207 vs 140 FPS) + VULKAN validé capture ; DX11 fonctionnel
-  (⚠ rayons parasites du spot cookie à corriger) ; DX12 ❌ device-removed
-  0x887A0001 (session debug layer) — détail « Reste à faire priorisé » point 6
+  (⚠ rayons parasites du spot cookie à corriger — communs DX11+DX12) ; DX12
+  ✅ device-removed RÉSOLU 2026-07-23 (269207c9), deferred DX12 REND — détail
+  « Reste à faire priorisé » point 6 et « Bugs/quirks connus »
 - ❌ v3 : tiled/clustered light culling (>32 lumières) + bench scène 100+ lights
 - ❌ Forward+ (alternative tile-based si besoin)
 
