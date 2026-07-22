@@ -526,6 +526,17 @@ namespace nkentseu {
 					d->OpenPicker(NkCodeDialogs::PK_File, hasWs ? s->root.ToString().CStr() : nullptr, mb->openFileBuf,
 								  (int32)sizeof(mb->openFileBuf));
 				}
+				if (MenuItem(ctx, NkT("mb.go.gotoline"), "Ctrl+G", hasFile) && doc) {
+					doc->gotoBuf[0] = '\0'; // meme barre modale que Ctrl+G dans l'editeur
+					doc->gotoOpen = true;
+				}
+				Separator(ctx);
+				// ── Navigation entre les ONGLETS ouverts ──
+				const bool multiTabs = s && s->files.Size() > 1;
+				if (MenuItem(ctx, NkT("mb.go.nexttab"), nullptr, multiTabs) && s)
+					s->active = (s->active + 1) % (int32)s->files.Size();
+				if (MenuItem(ctx, NkT("mb.go.prevtab"), nullptr, multiTabs) && s)
+					s->active = (s->active + (int32)s->files.Size() - 1) % (int32)s->files.Size();
 				Separator(ctx);
 				const NkString word = doc ? WordAtCaret(*doc) : NkString();
 				const bool hasWord = hasWs && !word.Empty();
@@ -697,8 +708,14 @@ namespace nkentseu {
 					sh->SaveUiState((s->root.ToString() + "/.nkcode/layout_manual.cfg").CStr());
 				if (hasWs && MenuItem(ctx, NkT("mb.window.loadlayout")) && s)
 					sh->LoadUiState((s->root.ToString() + "/.nkcode/layout_manual.cfg").CStr());
-				if (MenuItem(ctx, NkT("mb.view.resetlayout")))
+				if (MenuItem(ctx, NkT("mb.view.resetlayout"))) {
+					// MEME reset COMPLET que dans Affichage : dock + ui.cfg du projet.
 					sh->ResetLayout();
+					if (s && s->HasWorkspace()) {
+						NkFile::Delete(NkPath(s->UiConfigPath().CStr()));
+						s->status = NkString("Disposition reinitialisee (defaut)");
+					}
+				}
 				EndMenu(ctx);
 			}
 
