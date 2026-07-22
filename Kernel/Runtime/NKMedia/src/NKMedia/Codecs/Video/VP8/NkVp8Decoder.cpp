@@ -704,6 +704,136 @@ namespace nkentseu {
 				}
 			}
 
+			// ── Filtre de boucle (§15) ───────────────────────────────────────────────
+			// Toutes les primitives travaillent sur des valeurs recentrées (`^ 0x80`,
+			// c'est-à-dire décalées de -128) et saturées en signed char — le style de la
+			// référence, conservé à l'identique pour l'exactitude bit à bit.
+
+			inline int8 SignedClamp(int32 t) {
+				return (int8)(t < -128 ? -128 : (t > 127 ? 127 : t));
+			}
+			inline int32 IAbs(int32 v) {
+				return v < 0 ? -v : v;
+			}
+
+			// Faut-il filtrer cette position ? (masque -1 = oui, 0 = non)
+			inline int32 FilterMask(int32 limit, int32 blimit, int32 p3, int32 p2, int32 p1,
+									int32 p0, int32 q0, int32 q1, int32 q2, int32 q3) {
+				int32 mask = 0;
+				mask |= (IAbs(p3 - p2) > limit);
+				mask |= (IAbs(p2 - p1) > limit);
+				mask |= (IAbs(p1 - p0) > limit);
+				mask |= (IAbs(q1 - q0) > limit);
+				mask |= (IAbs(q2 - q1) > limit);
+				mask |= (IAbs(q3 - q2) > limit);
+				mask |= (IAbs(p0 - q0) * 2 + IAbs(p1 - q1) / 2 > blimit);
+				return mask - 1;
+			}
+
+			// Variance d'arête élevée ? (-1 = oui, 0 = non)
+			inline int32 HevMask(int32 thresh, int32 p1, int32 p0, int32 q0, int32 q1) {
+				int32 hev = 0;
+				hev |= (IAbs(p1 - p0) > thresh) * -1;
+				hev |= (IAbs(q1 - q0) > thresh) * -1;
+				return hev;
+			}
+
+			// Filtre « intérieur » (arêtes de sous-bloc) : ajuste p1/p0/q0/q1.
+			void Vp8Filter4(int32 mask, int32 hev, uint8 *op1, uint8 *op0, uint8 *oq0,
+							uint8 *oq1) {
+				const int8 ps1 = (int8)(*op1 ^ 0x80), ps0 = (int8)(*op0 ^ 0x80);
+				const int8 qs0 = (int8)(*oq0 ^ 0x80), qs1 = (int8)(*oq1 ^ 0x80);
+				int32 f = SignedClamp(ps1 - qs1);
+				f &= hev; // les taps externes ne participent qu'en cas de forte variance
+				f = SignedClamp(f + 3 * (qs0 - ps0));
+				f &= mask;
+				// +4 d'un côté, +3 de l'autre : arrondi asymétrique voulu par la norme.
+				const int8 f1 = (int8)(SignedClamp(f + 4) >> 3);
+				const int8 f2 = (int8)(SignedClamp(f + 3) >> 3);
+				*oq0 = (uint8)(SignedClamp(qs0 - f1) ^ 0x80);
+				*op0 = (uint8)(SignedClamp(ps0 + f2) ^ 0x80);
+				int32 outer = f1;
+				outer = (outer + 1) >> 1;
+				outer &= ~hev; // p1/q1 ne bougent QUE si la variance est faible
+				*oq1 = (uint8)(SignedClamp(qs1 - outer) ^ 0x80);
+				*op1 = (uint8)(SignedClamp(ps1 + outer) ^ 0x80);
+			}
+
+			// Filtre « fort » (arêtes de macrobloc) : ajuste p2..q2 (6 pixels).
+			void Vp8MbFilter6(int32 mask, int32 hev, uint8 *op2, uint8 *op1, uint8 *op0,
+							  uint8 *oq0, uint8 *oq1, uint8 *oq2) {
+				int8 ps2 = (int8)(*op2 ^ 0x80), ps1 = (int8)(*op1 ^ 0x80), ps0 = (int8)(*op0 ^ 0x80);
+				int8 qs0 = (int8)(*oq0 ^ 0x80), qs1 = (int8)(*oq1 ^ 0x80), qs2 = (int8)(*oq2 ^ 0x80);
+				int32 f = SignedClamp(ps1 - qs1);
+				f = SignedClamp(f + 3 * (qs0 - ps0));
+				f &= mask;
+				// Cas forte variance : filtre court classique sur p0/q0 seulement.
+				int32 f2 = f & hev;
+				const int8 f1c = (int8)(SignedClamp(f2 + 4) >> 3);
+				const int8 f2c = (int8)(SignedClamp(f2 + 3) >> 3);
+				qs0 = SignedClamp(qs0 - f1c);
+				ps0 = SignedClamp(ps0 + f2c);
+				// Cas variance faible : filtre large ~3/7, 2/7, 1/7 de la différence.
+				f &= ~hev;
+				const int32 w = f;
+				int32 u = SignedClamp((63 + w * 27) >> 7);
+				*oq0 = (uint8)(SignedClamp(qs0 - u) ^ 0x80);
+				*op0 = (uint8)(SignedClamp(ps0 + u) ^ 0x80);
+				u = SignedClamp((63 + w * 18) >> 7);
+				*oq1 = (uint8)(SignedClamp(qs1 - u) ^ 0x80);
+				*op1 = (uint8)(SignedClamp(ps1 + u) ^ 0x80);
+				u = SignedClamp((63 + w * 9) >> 7);
+				*oq2 = (uint8)(SignedClamp(qs2 - u) ^ 0x80);
+				*op2 = (uint8)(SignedClamp(ps2 + u) ^ 0x80);
+			}
+
+			// Arête HORIZONTALE (pixels au-dessus/au-dessous, on avance en colonne).
+			void Vp8FilterHorizEdge(uint8 *s, int32 p, int32 blimit, int32 limit, int32 thresh,
+									int32 count, bool mbEdge) {
+				for (int32 i = 0; i < count * 8; ++i, ++s) {
+					const int32 mask = FilterMask(limit, blimit, s[-4 * p], s[-3 * p], s[-2 * p],
+												  s[-1 * p], s[0], s[1 * p], s[2 * p], s[3 * p]);
+					const int32 hev = HevMask(thresh, s[-2 * p], s[-1 * p], s[0], s[1 * p]);
+					if (mbEdge)
+						Vp8MbFilter6(mask, hev, s - 3 * p, s - 2 * p, s - 1 * p, s, s + 1 * p,
+									 s + 2 * p);
+					else
+						Vp8Filter4(mask, hev, s - 2 * p, s - 1 * p, s, s + 1 * p);
+				}
+			}
+
+			// Arête VERTICALE (pixels à gauche/à droite, on avance en ligne).
+			void Vp8FilterVertEdge(uint8 *s, int32 p, int32 blimit, int32 limit, int32 thresh,
+								   int32 count, bool mbEdge) {
+				for (int32 i = 0; i < count * 8; ++i, s += p) {
+					const int32 mask = FilterMask(limit, blimit, s[-4], s[-3], s[-2], s[-1], s[0],
+												  s[1], s[2], s[3]);
+					const int32 hev = HevMask(thresh, s[-2], s[-1], s[0], s[1]);
+					if (mbEdge)
+						Vp8MbFilter6(mask, hev, s - 3, s - 2, s - 1, s, s + 1, s + 2);
+					else
+						Vp8Filter4(mask, hev, s - 2, s - 1, s, s + 1);
+				}
+			}
+
+			// Variante SIMPLE (filterType == 1) : luma seulement, masque réduit, 2 pixels.
+			void Vp8SimpleFilterEdge(uint8 *s, int32 stride, int32 blimit, bool vertical) {
+				const int32 stepPix = vertical ? stride : 1; // d'un pixel au suivant LE LONG de l'arête
+				const int32 stepTap = vertical ? 1 : stride; // d'un tap au suivant EN TRAVERS de l'arête
+				for (int32 i = 0; i < 16; ++i, s += stepPix) {
+					const int32 p1 = s[-2 * stepTap], p0 = s[-1 * stepTap];
+					const int32 q0 = s[0], q1 = s[1 * stepTap];
+					const int32 mask = (IAbs(p0 - q0) * 2 + IAbs(p1 - q1) / 2 <= blimit) ? -1 : 0;
+					const int8 sp1 = (int8)(p1 ^ 0x80), sp0 = (int8)(p0 ^ 0x80);
+					const int8 sq0 = (int8)(q0 ^ 0x80), sq1 = (int8)(q1 ^ 0x80);
+					int32 f = SignedClamp(sp1 - sq1);
+					f = SignedClamp(f + 3 * (sq0 - sp0));
+					f &= mask;
+					s[0] = (uint8)(SignedClamp(sq0 - (SignedClamp(f + 4) >> 3)) ^ 0x80);
+					s[-1 * stepTap] = (uint8)(SignedClamp(sp0 + (SignedClamp(f + 3) >> 3)) ^ 0x80);
+				}
+			}
+
 		} // namespace
 
 		void NkVp8ComputeDequant(const NkVp8FrameHeader &hdr, int32 qIndex, NkVp8Dequant &out) {
@@ -722,6 +852,7 @@ namespace nkentseu {
 
 		bool NkVp8ReconstructKeyFrame(NkVp8BoolDecoder &tokenBd, const NkVp8FrameContext &fc,
 									   const NkVp8FrameHeader &hdr,
+									   const NkVp8LoopFilterDeltas &lfDeltas,
 									   const NkVector<NkVp8MbModeInfo> &mbInfo, int32 width,
 									   int32 height, NkVp8Image &out) {
 			const int32 mbCols = (width + 15) / 16;
@@ -784,6 +915,13 @@ namespace nkentseu {
 			NkVp8MbCoeffs mb;
 			int16 dqBlock[16];
 
+			// Skip EFFECTIF par macrobloc, pour le filtre de boucle : un MB non sauté au
+			// bitstream mais dont TOUS les coefficients sont nuls (eobTotal == 0) est
+			// considéré sauté par le filtre (miroir de la référence, qui force
+			// `mb_skip_coeff = (eobtotal == 0)` après le décodage des tokens).
+			NkVector<uint8> effSkip;
+			effSkip.Resize((uint64)(mbRows * mbCols));
+
 			for (int32 r = 0; r < mbRows; ++r) {
 				NkVp8EntropyContext leftCtx;
 				for (int32 c = 0; c < mbCols; ++c) {
@@ -795,8 +933,11 @@ namespace nkentseu {
 					if (mi.skipCoeff) {
 						NkVp8ResetMbTokenContext(isBPred, aboveCtx[(uint64)c], leftCtx);
 						mb = NkVp8MbCoeffs(); // aucun résidu : coefficients tous nuls
+						effSkip[(uint64)(r * mbCols + c)] = 1;
 					} else {
-						NkVp8DecodeMbTokens(tokenBd, fc, isBPred, aboveCtx[(uint64)c], leftCtx, mb);
+						const int32 eobTotal =
+							NkVp8DecodeMbTokens(tokenBd, fc, isBPred, aboveCtx[(uint64)c], leftCtx, mb);
+						effSkip[(uint64)(r * mbCols + c)] = (eobTotal == 0) ? 1 : 0;
 					}
 
 					uint8 *yMb = out.Y() + (int64)(r * 16) * out.yStride + c * 16;
@@ -905,6 +1046,91 @@ namespace nkentseu {
 					for (int32 i = 0; i < 4; ++i) {
 						ru[i] = ru[-1];
 						rv[i] = rv[-1];
+					}
+				}
+			}
+
+			// ── Filtre de boucle (§15) : passe finale, ordre raster ─────────────────
+			if (hdr.filterLevel > 0) {
+				for (int32 r = 0; r < mbRows; ++r) {
+					for (int32 c = 0; c < mbCols; ++c) {
+						const NkVp8MbModeInfo &mi = mbInfo[(uint64)(r + 1) * miStride + (c + 1)];
+						const bool isBPred = (mi.yMode == kVp8MbBPred);
+
+						// Niveau par MB (image clé, sans segmentation) : niveau de base +
+						// ajustements par référence/mode si activés — B_PRED a son propre
+						// delta de mode, les autres modes intra n'en ont pas.
+						int32 lvl = hdr.filterLevel;
+						if (hdr.lfDeltaEnabled) {
+							int32 lvlRef = hdr.filterLevel + lfDeltas.refLfDeltas[0]; // [0] = INTRA
+							if (isBPred)
+								lvlRef += lfDeltas.modeLfDeltas[0]; // [0] = B_PRED
+							lvl = lvlRef < 0 ? 0 : (lvlRef > 63 ? 63 : lvlRef);
+						}
+						if (lvl == 0)
+							continue;
+
+						// Seuils dérivés du niveau et de la netteté (§15.2, miroir de
+						// vp8_loop_filter_update_sharpness).
+						int32 interior = lvl >> ((hdr.sharpnessLevel > 0) ? 1 : 0);
+						interior >>= (hdr.sharpnessLevel > 4) ? 1 : 0;
+						if (hdr.sharpnessLevel > 0 && interior > 9 - hdr.sharpnessLevel)
+							interior = 9 - hdr.sharpnessLevel;
+						if (interior < 1)
+							interior = 1;
+						const int32 lim = interior;
+						const int32 blim = 2 * lvl + interior;
+						const int32 mblim = 2 * (lvl + 2) + interior;
+						// Seuil de variance d'arête, table IMAGE CLÉ (différente des inter).
+						const int32 hev = (lvl >= 40) ? 2 : ((lvl >= 15) ? 1 : 0);
+
+						// Un MB sans coefficient (et pas en B_PRED) saute ses arêtes INTERNES,
+						// mais filtre quand même ses bords de macrobloc.
+						const bool skipInternal = !isBPred && effSkip[(uint64)(r * mbCols + c)] != 0;
+
+						uint8 *yMb = out.Y() + (int64)(r * 16) * out.yStride + c * 16;
+						uint8 *uMb = out.U() + (int64)(r * 8) * out.uvStride + c * 8;
+						uint8 *vMb = out.V() + (int64)(r * 8) * out.uvStride + c * 8;
+
+						if (hdr.filterType == 0) { // filtre NORMAL (luma + chroma)
+							if (c > 0) {
+								Vp8FilterVertEdge(yMb, out.yStride, mblim, lim, hev, 2, true);
+								Vp8FilterVertEdge(uMb, out.uvStride, mblim, lim, hev, 1, true);
+								Vp8FilterVertEdge(vMb, out.uvStride, mblim, lim, hev, 1, true);
+							}
+							if (!skipInternal) {
+								for (int32 e = 4; e <= 12; e += 4)
+									Vp8FilterVertEdge(yMb + e, out.yStride, blim, lim, hev, 2, false);
+								Vp8FilterVertEdge(uMb + 4, out.uvStride, blim, lim, hev, 1, false);
+								Vp8FilterVertEdge(vMb + 4, out.uvStride, blim, lim, hev, 1, false);
+							}
+							if (r > 0) {
+								Vp8FilterHorizEdge(yMb, out.yStride, mblim, lim, hev, 2, true);
+								Vp8FilterHorizEdge(uMb, out.uvStride, mblim, lim, hev, 1, true);
+								Vp8FilterHorizEdge(vMb, out.uvStride, mblim, lim, hev, 1, true);
+							}
+							if (!skipInternal) {
+								for (int32 e = 4; e <= 12; e += 4)
+									Vp8FilterHorizEdge(yMb + (int64)e * out.yStride, out.yStride,
+													   blim, lim, hev, 2, false);
+								Vp8FilterHorizEdge(uMb + (int64)4 * out.uvStride, out.uvStride,
+												   blim, lim, hev, 1, false);
+								Vp8FilterHorizEdge(vMb + (int64)4 * out.uvStride, out.uvStride,
+												   blim, lim, hev, 1, false);
+							}
+						} else { // filtre SIMPLE (luma uniquement)
+							if (c > 0)
+								Vp8SimpleFilterEdge(yMb, out.yStride, mblim, true);
+							if (!skipInternal)
+								for (int32 e = 4; e <= 12; e += 4)
+									Vp8SimpleFilterEdge(yMb + e, out.yStride, blim, true);
+							if (r > 0)
+								Vp8SimpleFilterEdge(yMb, out.yStride, mblim, false);
+							if (!skipInternal)
+								for (int32 e = 4; e <= 12; e += 4)
+									Vp8SimpleFilterEdge(yMb + (int64)e * out.yStride, out.yStride,
+														blim, false);
+						}
 					}
 				}
 			}
