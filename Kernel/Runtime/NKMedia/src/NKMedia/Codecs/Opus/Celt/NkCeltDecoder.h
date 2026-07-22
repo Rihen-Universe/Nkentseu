@@ -41,7 +41,11 @@ namespace nkentseu {
 
 				// Décode UNE trame CELT (données range-codées `data/len`, facteur `LM`) → `pcm` (N*C samples
 				// interleaved, N = (1<<LM)*shortMdctSize). Renvoie true si OK. Met à jour l'état interne.
-				bool DecodeFrame(const uint8 *data, int32 len, int32 LM, float32 *pcm, NkFrameFlags *outFlags);
+				// `endBand` = dernière bande codée selon la bande passante du TOC (CELT-only :
+				// NB→13, WB→17, SWB→19, FB→21 — opus_decoder.c). Décoder 21 bandes sur un
+				// paquet WB désynchronise tout le bitstream (bits lus en trop).
+				bool DecodeFrame(const uint8 *data, int32 len, int32 LM, float32 *pcm, NkFrameFlags *outFlags,
+								 int32 endBand = 21);
 
 				// Décode depuis un range decoder PARTAGÉ (mode HYBRIDE : CELT continue
 				// après SILK dans le même flux), sur les bandes [start, end). Si accum,

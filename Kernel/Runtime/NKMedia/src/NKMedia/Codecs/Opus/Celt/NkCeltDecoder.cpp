@@ -95,21 +95,39 @@ namespace nkentseu {
 				}
 			}
 
-			// --- compute_allocation (décodage, rate.c interp_bits2pulses) — MONO. ---
-			// Renvoie codedBands ; remplit pulses (budget PVQ frac), fineQuant, finePriority ; met à jour balance.
+			// LOG2_FRAC_TABLE (rate.c) : coût en 1/8 bit du paramètre intensity selon le nombre
+			// de bandes candidates.
+			const uint8 kLog2FracTable[24] = {0,  8,  13, 16, 19, 21, 23, 24, 26, 27, 28, 29,
+											  30, 31, 32, 32, 33, 34, 34, 35, 36, 36, 37, 37};
+
+			// --- compute_allocation (décodage, rate.c interp_bits2pulses) — mono + stéréo. ---
+			// Renvoie codedBands ; remplit pulses (budget PVQ frac), fineQuant, finePriority ; met à jour
+			// balance ; en stéréo (C==2) décode aussi intensity et dualStereo.
 			int32 ComputeAllocation(NkOpusRangeDecoder &dec, int32 start, int32 end, const int32 *offsets,
 									const int32 *cap, int32 allocTrim, int32 totalFrac, int32 LM, int32 C,
 									const int16 *eBands, int32 *pulses, int32 *fineQuant, int32 *finePriority,
-									int32 *balanceOut) {
+									int32 *balanceOut, int32 *intensityOut, int32 *dualStereoOut) {
 				const int32 allocFloor = C << BITRES;
 				const int32 ALLOC_STEPS = 6;
 				const int32 logM = LM << BITRES;
+				const int32 stereo = (C == 2) ? 1 : 0;
 
 				int32 total = IMax(totalFrac, 0);
 				int32 skipStart = start;
 				const int32 skipRsv = total >= (1 << BITRES) ? (1 << BITRES) : 0;
 				total -= skipRsv;
-				// (mono : intensity_rsv = dual_stereo_rsv = 0.)
+				// Réservation des paramètres intensity + dual stereo (C==2 seulement).
+				int32 intensityRsv = 0, dualStereoRsv = 0;
+				if (C == 2) {
+					intensityRsv = (int32)kLog2FracTable[end - start];
+					if (intensityRsv > total) {
+						intensityRsv = 0;
+					} else {
+						total -= intensityRsv;
+						dualStereoRsv = total >= (1 << BITRES) ? (1 << BITRES) : 0;
+						total -= dualStereoRsv;
+					}
+				}
 
 				int32 bits1[kNbEBands] = {0}, bits2[kNbEBands] = {0}, thresh[kNbEBands] = {0}, trimOff[kNbEBands] = {0};
 				NkCeltAlloc::BuildInterp(start, end, offsets, cap, allocTrim, total, C, LM, bits1, bits2, thresh,
@@ -172,7 +190,12 @@ namespace nkentseu {
 						psum += 1 << BITRES;
 						bandBits -= 1 << BITRES;
 					}
-					psum -= bits[j];
+					// Récupère les bits de cette bande + réajuste la réservation intensity
+					// (moins de bandes candidates → coût plus faible).
+					psum -= bits[j] + intensityRsv;
+					if (intensityRsv > 0)
+						intensityRsv = (int32)kLog2FracTable[j - start];
+					psum += intensityRsv;
 					if (bandBits >= allocFloor) {
 						psum += allocFloor;
 						bits[j] = allocFloor;
@@ -181,7 +204,20 @@ namespace nkentseu {
 					}
 				}
 
-				// (mono : intensity = 0, dual_stereo = 0 — aucun bit ec.)
+				// Décodage des paramètres intensity et dual stereo.
+				int32 intensity = 0, dualStereo = 0;
+				if (intensityRsv > 0)
+					intensity = start + (int32)dec.DecodeUint((uint32)(codedBands + 1 - start));
+				if (intensity <= start) {
+					total += dualStereoRsv;
+					dualStereoRsv = 0;
+				}
+				if (dualStereoRsv > 0)
+					dualStereo = dec.DecodeBitLogp(1);
+				if (intensityOut)
+					*intensityOut = intensity;
+				if (dualStereoOut)
+					*dualStereoOut = dualStereo;
 
 				// Répartition des bits restants.
 				int32 left = total - psum;
@@ -207,7 +243,8 @@ namespace nkentseu {
 					if (N > 1) {
 						excess = IMax(bit - cap[j], 0);
 						bits[j] = bit - excess;
-						const int32 den = C * N; // mono
+						// Compense le degré de liberté supplémentaire du split stéréo (l'angle θ).
+						const int32 den = C * N + ((C == 2 && N > 2 && !dualStereo && j < intensity) ? 1 : 0);
 						const int32 NClogN = den * ((int32)kLogN[j] + logM);
 						int32 offset = (NClogN >> 1) - den * FINE_OFFSET;
 						if (N == 2)
@@ -219,7 +256,7 @@ namespace nkentseu {
 						int32 eb = IMax(0, bits[j] + offset + (den << (BITRES - 1)));
 						eb = (eb / den) >> BITRES;
 						if (C * eb > (bits[j] >> BITRES))
-							eb = bits[j] >> BITRES; // stereo=0
+							eb = bits[j] >> stereo >> BITRES;
 						eb = IMin(eb, MAX_FINE_BITS);
 						fineQuant[j] = eb;
 						finePriority[j] = (eb * (den << BITRES) >= bits[j] + offset) ? 1 : 0;
@@ -241,7 +278,7 @@ namespace nkentseu {
 				}
 				*balanceOut = balance;
 				for (; j < end; ++j) {
-					fineQuant[j] = bits[j] >> BITRES; // stereo=0
+					fineQuant[j] = bits[j] >> stereo >> BITRES;
 					bits[j] = 0;
 					finePriority[j] = (fineQuant[j] < 1) ? 1 : 0;
 				}
@@ -257,11 +294,13 @@ namespace nkentseu {
 					for (int32 i = start; i < end && bitsLeft >= C; ++i) {
 						if (fineQuant[i] >= MAX_FINE_BITS || finePriority[i] != prio)
 							continue;
-						const int32 q2 = (int32)dec.DecodeBits(1);
-						const float32 offset = ((float32)q2 - 0.5f) * (float32)(1 << (14 - fineQuant[i] - 1)) *
-											   (1.0f / 16384.0f);
-						oldEBands[i] += offset;
-						bitsLeft--;
+						for (int32 c = 0; c < C; ++c) {
+							const int32 q2 = (int32)dec.DecodeBits(1);
+							const float32 offset = ((float32)q2 - 0.5f) * (float32)(1 << (14 - fineQuant[i] - 1)) *
+												   (1.0f / 16384.0f);
+							oldEBands[i + c * kNbEBands] += offset;
+							bitsLeft--;
+						}
 					}
 				}
 			}
@@ -442,12 +481,15 @@ namespace nkentseu {
 			mInit = true;
 		}
 
-		bool NkCeltDecoder::DecodeFrame(const uint8 *data, int32 len, int32 LM, float32 *pcm, NkFrameFlags *outFlags) {
+		bool NkCeltDecoder::DecodeFrame(const uint8 *data, int32 len, int32 LM, float32 *pcm, NkFrameFlags *outFlags,
+										int32 endBand) {
 			if (data == nullptr || len <= 0)
 				return false;
+			if (endBand < 1 || endBand > kNumBands)
+				endBand = kNumBands;
 			NkOpusRangeDecoder dec;
 			dec.Init(data, (uint32)len);
-			return DecodeShared(dec, len, LM, 0, kNumBands, pcm, false, outFlags);
+			return DecodeShared(dec, len, LM, 0, endBand, pcm, false, outFlags);
 		}
 
 		bool NkCeltDecoder::DecodeShared(NkOpusRangeDecoder &dec, int32 len, int32 LM, int32 start, int32 end,
@@ -568,17 +610,19 @@ namespace nkentseu {
 					(transient && LM >= 2 && bits >= ((LM + 2) << BITRES)) ? (1 << BITRES) : 0;
 				bits -= antiCollapseRsv;
 
-				// Allocation (décodage).
+				// Allocation (décodage) ; en stéréo décode aussi intensity + dual stereo.
 				int32 pulses[kNumBands] = {0}, fineQuant[kNumBands] = {0}, finePriority[kNumBands] = {0};
-				int32 balance = 0;
+				int32 balance = 0, intensity = 0, dualStereo = 0;
 				const int32 codedBands = ComputeAllocation(dec, start, end, offsets, cap, allocTrim, bits, LM, C,
-														   eBands, pulses, fineQuant, finePriority, &balance);
+														   eBands, pulses, fineQuant, finePriority, &balance,
+														   &intensity, &dualStereo);
 
 				// Énergie fine.
 				NkCeltEnergy::UnquantFine(dec, mOldEBands, kNumBands, fineQuant, start, end, C);
 
-				// Décodage des bandes (forme spectrale).
-				NkCeltQuantBands::QuantAllBands(dec, start, end, X, collapseMasks, pulses, shortBlocks, spread, tfRes,
+				// Décodage des bandes (forme spectrale). En stéréo, Y = plan du canal 1.
+				NkCeltQuantBands::QuantAllBands(dec, start, end, X, (C == 2) ? (X + N) : nullptr, collapseMasks,
+												pulses, shortBlocks, spread, dualStereo, intensity, tfRes,
 												(totalBitsRaw << BITRES) - antiCollapseRsv, balance, LM, codedBands,
 												&mRng);
 
@@ -591,11 +635,24 @@ namespace nkentseu {
 				EnergyFinalise(dec, mOldEBands, fineQuant, finePriority, start, end, len * 8 - dec.Tell(), C);
 
 				if (antiCollapseOn) {
+					// Ordre normatif : bandes en boucle externe, canaux en interne (le LCG mRng
+					// est séquentiel). Pour C==1, libopus prend le MAX de l'historique des deux
+					// canaux (trace d'un éventuel passé stéréo) — notre canal 1 vaut -28 constant,
+					// le max avec lui plafonne l'historique par le bas exactement pareil.
 					for (int32 i = start; i < end; ++i) {
 						const int32 N0 = (int32)eBands[i + 1] - (int32)eBands[i];
-						mRng = NkCeltAntiCollapse::ApplyBand(X + M * (int32)eBands[i], N0, LM, collapseMasks[i],
-															 mOldEBands[i], mOldLogE[i], mOldLogE2[i], pulses[i],
-															 mRng);
+						for (int32 c = 0; c < C; ++c) {
+							float32 prev1 = mOldLogE[c * kNumBands + i];
+							float32 prev2 = mOldLogE2[c * kNumBands + i];
+							if (C == 1) {
+								prev1 = prev1 > mOldLogE[kNumBands + i] ? prev1 : mOldLogE[kNumBands + i];
+								prev2 = prev2 > mOldLogE2[kNumBands + i] ? prev2 : mOldLogE2[kNumBands + i];
+							}
+							mRng = NkCeltAntiCollapse::ApplyBand(X + c * N + M * (int32)eBands[i], N0, LM,
+																 collapseMasks[i * C + c],
+																 mOldEBands[c * kNumBands + i], prev1, prev2,
+																 pulses[i], mRng);
+						}
 					}
 				}
 			}
