@@ -1,13 +1,16 @@
 // =============================================================================
-// NKMedia/Codecs/Video/VP9/NkVp9Decoder.cpp — briques 1-2 :
+// NKMedia/Codecs/Video/VP9/NkVp9Decoder.cpp — briques 1-3 :
 //   1) superframes + en-tête de trame non compressé (§6.2 / Annexe B) ;
 //   2) en-tête COMPRESSÉ (§6.3) : bool decoder (identique VP8, MAIS avec un bit
-//      marqueur initial) + contexte d'entropie + mises à jour subexp.
-// Ordres vérifiés contre vp9_decodeframe.c / vp9_dsubexp.c (réécrit, zéro code
-// importé). Tables normatives : NkVp9Tables.inc GÉNÉRÉ par vp9ref/extract.py.
+//      marqueur initial) + contexte d'entropie + mises à jour subexp ;
+//   3) CONTENU de trame clé : tiles → partitions récursives 64→4 → modes intra
+//      kf → tx_size/skip/segment → tokens résiduels (sans reconstruction).
+// Ordres vérifiés contre vp9_decodeframe.c / vp9_decodemv.c / vp9_detokenize.c
+// (réécrit, zéro code importé). Tables : NkVp9Tables.inc GÉNÉRÉ (vp9ref/extract.py).
 // =============================================================================
 #include "NKMedia/Codecs/Video/VP9/NkVp9Decoder.h"
 #include "NKMedia/Codecs/Video/VP8/NkVp8BoolDecoder.h"
+#include "NKMemory/NKMemory.h"
 
 namespace nkentseu {
 	namespace media {
@@ -255,6 +258,471 @@ namespace nkentseu {
 				for (int32 i = 0; i < n; ++i)
 					if (bd.GetBool(kMvUpdateProb))
 						p[i] = (uint8)(((int32)bd.GetLiteral(7) << 1) | 1);
+			}
+
+			// =================================================================
+			// BRIQUE 3 — contenu de trame clé (partitions, modes, tokens).
+			// =================================================================
+
+			int32 IMin(int32 a, int32 b) {
+				return a < b ? a : b;
+			}
+
+			constexpr int32 kBlock8x8 = 3;	 // BLOCK_8X8
+			constexpr int32 kBlock64x64 = 12;
+			constexpr int32 kMiBlockSize = 8; // unités mi (8x8) par superbloc 64
+
+			// Une cellule de la grille MODE_INFO (par unité mi 8x8). Les blocs plus
+			// grands COPIENT leur cellule sur toute leur emprise (équivalent de la
+			// propagation de pointeurs de libvpx) — les voisins la consultent.
+			struct MiCell {
+					uint8 sbType = 0;  // BLOCK_SIZE
+					uint8 skip = 0;
+					uint8 txSize = 0;
+					uint8 mode = 0;	   // mode Y (bloc >= 8x8) ou bmi[3]
+					uint8 uvMode = 0;
+					uint8 segId = 0;
+					uint8 bmi[4] = {0, 0, 0, 0}; // sous-modes 4x4
+			};
+
+			// État de décodage du contenu (une trame).
+			struct FrameParseState {
+					const NkVp9FrameHeader *hdr = nullptr;
+					const NkVp9FrameContext *fc = nullptr;
+					int32 miCols = 0, miRows = 0;
+					int32 sbCols = 0; // superblocs (alignement des contextes above)
+					MiCell *mi = nullptr;			  // grille miRows × miCols
+					uint8 *aboveSegCtx = nullptr;	  // par colonne mi (alignée sb)
+					uint8 leftSegCtx[8] = {0};		  // par rangée mi dans le SB
+					uint8 *aboveEntCtx[3] = {nullptr, nullptr, nullptr}; // par plane, 2/mi
+					uint8 leftEntCtx[3][16] = {{0}};  // par plane, unités 4x4 dans le SB
+					// Tile courante.
+					int32 tileMiColStart = 0, tileMiColEnd = 0;
+					int32 txMode = 0; // du header compressé (TX_MODE_SELECT = 4)
+					// Bloc courant.
+					MiCell cur;
+					const MiCell *aboveMi = nullptr;
+					const MiCell *leftMi = nullptr;
+					int32 mbToRightEdge = 0, mbToBottomEdge = 0; // en 1/8 pel (×8)
+					int32 n4w[3] = {0}, n4h[3] = {0};			 // unités 4x4 du bloc par plane
+					int32 aboveOff[3] = {0}, leftOff[3] = {0};	 // offsets contextes entropie
+					NkVp9Decoder::NkTileParseStats *stats = nullptr;
+			};
+
+			// Scans/voisins par (txSize, txType→variante) : 0=default, 1=row, 2=col.
+			void GetScan(int32 txSize, int32 txType, const int16 **scan, const int16 **nb) {
+				// tx_type → variante (vp9_scan_orders) : DCT_DCT→def, ADST_DCT→row,
+				// DCT_ADST→col, ADST_ADST→def ; 32x32 : toujours default.
+				const int32 variant = (txSize == 3) ? 0 : ((txType == 1) ? 1 : (txType == 2) ? 2 : 0);
+				switch (txSize) {
+					case 0:
+						*scan = (variant == 1) ? kVp9RowScan4x4 : (variant == 2) ? kVp9ColScan4x4 : kVp9DefaultScan4x4;
+						*nb = (variant == 1) ? kVp9RowScan4x4Neighbors
+							  : (variant == 2) ? kVp9ColScan4x4Neighbors
+											   : kVp9DefaultScan4x4Neighbors;
+						break;
+					case 1:
+						*scan = (variant == 1) ? kVp9RowScan8x8 : (variant == 2) ? kVp9ColScan8x8 : kVp9DefaultScan8x8;
+						*nb = (variant == 1) ? kVp9RowScan8x8Neighbors
+							  : (variant == 2) ? kVp9ColScan8x8Neighbors
+											   : kVp9DefaultScan8x8Neighbors;
+						break;
+					case 2:
+						*scan = (variant == 1)	 ? kVp9RowScan16x16
+								: (variant == 2) ? kVp9ColScan16x16
+												 : kVp9DefaultScan16x16;
+						*nb = (variant == 1)   ? kVp9RowScan16x16Neighbors
+							  : (variant == 2) ? kVp9ColScan16x16Neighbors
+											   : kVp9DefaultScan16x16Neighbors;
+						break;
+					default:
+						*scan = kVp9DefaultScan32x32;
+						*nb = kVp9DefaultScan32x32Neighbors;
+						break;
+				}
+			}
+
+			// read_coeff : n bits pondérés par probas.
+			int32 ReadCoeff(NkVp8BoolDecoder &bd, const uint8 *probs, int32 n) {
+				int32 val = 0;
+				for (int32 i = 0; i < n; ++i)
+					val = (val << 1) | bd.GetBool(probs[i]);
+				return val;
+			}
+
+			// decode_coefs (vp9_detokenize.c) : décode les tokens d'UN bloc de
+			// transformée. Les coefficients sont jetés (brique 3 : consommation).
+			// Renvoie l'EOB.
+			int32 DecodeCoefs(NkVp8BoolDecoder &bd, const NkVp9FrameContext &fc, int32 planeType,
+							  int32 txSize, int32 ctx, const int16 *scan, const int16 *nb) {
+				const int32 maxEob = 16 << (txSize << 1);
+				const uint8(*coefProbs)[6][3] = fc.coefProbs[txSize][planeType][0]; // ref=0 (intra)
+				uint8 tokenCache[32 * 32];
+				const uint8 *bandTranslate = (txSize == 0) ? kVp9CoefbandTrans4x4 : kVp9CoefbandTrans8x8Plus;
+				int32 c = 0;
+				while (c < maxEob) {
+					const int32 band = (int32)bandTranslate[c];
+					const uint8 *prob = coefProbs[band][ctx];
+					if (!bd.GetBool(prob[0])) // EOB
+						break;
+					// Suite de zéros.
+					while (!bd.GetBool(prob[1])) {
+						tokenCache[scan[c]] = 0;
+						++c;
+						if (c >= maxEob)
+							return c; // zéros jusqu'au bout (pas de token EOB)
+						ctx = (1 + tokenCache[nb[2 * c]] + tokenCache[nb[2 * c + 1]]) >> 1;
+						prob = coefProbs[(int32)bandTranslate[c]][ctx];
+					}
+					// Valeur.
+					if (bd.GetBool(prob[2])) {
+						const uint8 *p = kVp9Pareto8Full[prob[2] - 1];
+						if (bd.GetBool(p[0])) {
+							if (bd.GetBool(p[3])) {
+								tokenCache[scan[c]] = 5;
+								if (bd.GetBool(p[5])) {
+									if (bd.GetBool(p[7]))
+										(void)ReadCoeff(bd, kVp9Cat6Prob, 14); // CAT6
+									else
+										(void)ReadCoeff(bd, kVp9Cat5Prob, 5); // CAT5
+								} else if (bd.GetBool(p[6])) {
+									(void)ReadCoeff(bd, kVp9Cat4Prob, 4); // CAT4
+								} else {
+									(void)ReadCoeff(bd, kVp9Cat3Prob, 3); // CAT3
+								}
+							} else {
+								tokenCache[scan[c]] = 4;
+								if (bd.GetBool(p[4]))
+									(void)ReadCoeff(bd, kVp9Cat2Prob, 2); // CAT2
+								else
+									(void)ReadCoeff(bd, kVp9Cat1Prob, 1); // CAT1
+							}
+						} else {
+							if (bd.GetBool(p[1])) {
+								tokenCache[scan[c]] = 3;
+								(void)bd.GetBool(p[2]); // THREE vs FOUR
+							} else {
+								tokenCache[scan[c]] = 2; // TWO
+							}
+						}
+					} else {
+						tokenCache[scan[c]] = 1; // ONE
+					}
+					(void)bd.GetFlag(); // signe
+					++c;
+					if (c < maxEob)
+						ctx = (1 + tokenCache[nb[2 * c]] + tokenCache[nb[2 * c + 1]]) >> 1;
+				}
+				return c;
+			}
+
+			// get_entropy_context : combinaison des contextes above/left du bloc tx.
+			int32 GetEntropyContext(int32 txSize, const uint8 *a, const uint8 *l) {
+				const int32 n = 1 << txSize;
+				int32 aec = 0, lec = 0;
+				for (int32 i = 0; i < n; ++i) {
+					aec |= a[i];
+					lec |= l[i];
+				}
+				return (aec != 0) + (lec != 0);
+			}
+
+			// vp9_set_contexts : propage has_eob dans les contextes A/L, avec clip aux
+			// bords de l'image (les unités au-delà reçoivent 0).
+			void SetEntropyContexts(FrameParseState &st, int32 plane, int32 txSize, int32 hasEob,
+									int32 aoff, int32 loff, int32 ssx, int32 ssy) {
+				uint8 *a = st.aboveEntCtx[plane] + st.aboveOff[plane] + aoff;
+				uint8 *l = st.leftEntCtx[plane] + st.leftOff[plane] + loff;
+				const int32 n = 1 << txSize;
+				if (st.mbToRightEdge < 0) {
+					const int32 blocksWide = st.n4w[plane] + (st.mbToRightEdge >> (5 + ssx));
+					int32 aboveN = n;
+					if (aboveN + aoff > blocksWide)
+						aboveN = blocksWide - aoff;
+					for (int32 i = 0; i < aboveN; ++i)
+						a[i] = (uint8)hasEob;
+					for (int32 i = aboveN; i < n; ++i)
+						a[i] = 0;
+				} else {
+					for (int32 i = 0; i < n; ++i)
+						a[i] = (uint8)hasEob;
+				}
+				if (st.mbToBottomEdge < 0) {
+					const int32 blocksHigh = st.n4h[plane] + (st.mbToBottomEdge >> (5 + ssy));
+					int32 leftN = n;
+					if (leftN + loff > blocksHigh)
+						leftN = blocksHigh - loff;
+					for (int32 i = 0; i < leftN; ++i)
+						l[i] = (uint8)hasEob;
+					for (int32 i = leftN; i < n; ++i)
+						l[i] = 0;
+				} else {
+					for (int32 i = 0; i < n; ++i)
+						l[i] = (uint8)hasEob;
+				}
+			}
+
+			// Modes des voisins pour les arbres kf (vp9_above/left_block_mode).
+			uint8 AboveBlockMode(const MiCell &cur, const MiCell *above, int32 b) {
+				if (b == 0 || b == 1) {
+					if (above == nullptr)
+						return 0; // DC_PRED
+					return (above->sbType < kBlock8x8) ? above->bmi[b + 2] : above->mode;
+				}
+				return cur.bmi[b - 2];
+			}
+			uint8 LeftBlockMode(const MiCell &cur, const MiCell *left, int32 b) {
+				if (b == 0 || b == 2) {
+					if (left == nullptr)
+						return 0; // DC_PRED
+					return (left->sbType < kBlock8x8) ? left->bmi[b + 1] : left->mode;
+				}
+				return cur.bmi[b - 1];
+			}
+
+			// read_selected_tx_size + contexte (get_tx_size_context).
+			int32 ReadTxSize(NkVp8BoolDecoder &bd, const FrameParseState &st, int32 maxTxSize) {
+				// Contexte : tx des voisins non-skip, sinon maxTxSize.
+				const bool hasAbove = st.aboveMi != nullptr;
+				const bool hasLeft = st.leftMi != nullptr;
+				int32 aCtx = (hasAbove && !st.aboveMi->skip) ? st.aboveMi->txSize : maxTxSize;
+				int32 lCtx = (hasLeft && !st.leftMi->skip) ? st.leftMi->txSize : maxTxSize;
+				if (!hasLeft)
+					lCtx = aCtx;
+				if (!hasAbove)
+					aCtx = lCtx;
+				const int32 ctx = (aCtx + lCtx) > maxTxSize ? 1 : 0;
+				const uint8 *probs = (maxTxSize == 1)	? st.fc->txProbs8[ctx]
+									 : (maxTxSize == 2) ? st.fc->txProbs16[ctx]
+														: st.fc->txProbs32[ctx];
+				int32 txSize = bd.GetBool(probs[0]);
+				if (txSize != 0 && maxTxSize >= 2) {
+					txSize += bd.GetBool(probs[1]);
+					if (txSize != 1 && maxTxSize >= 3)
+						txSize += bd.GetBool(probs[2]);
+				}
+				return txSize;
+			}
+
+			// Tokens de tous les blocs de transformée d'un bloc de prédiction.
+			void DecodeBlockTokens(NkVp8BoolDecoder &bd, FrameParseState &st) {
+				const NkVp9FrameHeader &hdr = *st.hdr;
+				for (int32 plane = 0; plane < 3; ++plane) {
+					const int32 ssx = plane ? hdr.subsamplingX : 0;
+					const int32 ssy = plane ? hdr.subsamplingY : 0;
+					int32 txSize;
+					if (plane == 0) {
+						txSize = st.cur.txSize;
+					} else {
+						// get_uv_tx_size : min(tx luma, max tx du bloc plane).
+						const int32 planeBsize = kVp9SsSizeLookup[st.cur.sbType][ssx][ssy];
+						txSize = IMin((int32)st.cur.txSize, (int32)kVp9MaxTxsizeLookup[planeBsize]);
+					}
+					if (hdr.lossless)
+						txSize = 0;
+					const int32 step = 1 << txSize;
+					const int32 num4w = st.n4w[plane];
+					const int32 num4h = st.n4h[plane];
+					const int32 maxW = num4w + ((st.mbToRightEdge >= 0) ? 0 : (st.mbToRightEdge >> (5 + ssx)));
+					const int32 maxH = num4h + ((st.mbToBottomEdge >= 0) ? 0 : (st.mbToBottomEdge >> (5 + ssy)));
+					for (int32 row = 0; row < maxH; row += step) {
+						for (int32 col = 0; col < maxW; col += step) {
+							// Type de transformée : luma intra non-lossless → selon le mode.
+							int32 txType = 0; // DCT_DCT
+							if (plane == 0 && !hdr.lossless) {
+								const uint8 mode = (st.cur.sbType < kBlock8x8)
+													   ? st.cur.bmi[(row << 1) + col]
+													   : st.cur.mode;
+								txType = (int32)kVp9IntraModeToTxType[mode];
+							}
+							const int16 *scan = nullptr, *nb = nullptr;
+							GetScan(txSize, txType, &scan, &nb);
+							const int32 ctx = GetEntropyContext(
+								txSize, st.aboveEntCtx[plane] + st.aboveOff[plane] + col,
+								st.leftEntCtx[plane] + st.leftOff[plane] + row);
+							const int32 eob =
+								DecodeCoefs(bd, *st.fc, plane ? 1 : 0, txSize, ctx, scan, nb);
+							st.stats->eobTotal += eob;
+							SetEntropyContexts(st, plane, txSize, eob > 0, col, row, ssx, ssy);
+						}
+					}
+				}
+			}
+
+			// decode_block : un bloc feuille (modes + tokens).
+			void DecodeLeafBlock(NkVp8BoolDecoder &bd, FrameParseState &st, int32 miRow, int32 miCol,
+								 int32 bsize, int32 bwl, int32 bhl) {
+				const NkVp9FrameHeader &hdr = *st.hdr;
+				const NkVp9FrameContext &fc = *st.fc;
+				const int32 bw = 1 << (bwl - 1); // unités mi
+				const int32 bh = 1 << (bhl - 1);
+				const int32 xMis = IMin(bw, st.miCols - miCol);
+				const int32 yMis = IMin(bh, st.miRows - miRow);
+				++st.stats->blocks;
+
+				// set_mi_row_col : voisins + distances aux bords (unités 1/8 pel).
+				st.aboveMi = (miRow > 0) ? &st.mi[(miRow - 1) * st.miCols + miCol] : nullptr;
+				st.leftMi = (miCol > st.tileMiColStart) ? &st.mi[miRow * st.miCols + miCol - 1] : nullptr;
+				st.mbToRightEdge = (st.miCols - bw - miCol) * 8 * 8;
+				st.mbToBottomEdge = (st.miRows - bh - miRow) * 8 * 8;
+				// set_plane_n4 + set_skip_context.
+				for (int32 p = 0; p < 3; ++p) {
+					const int32 ssx = p ? hdr.subsamplingX : 0;
+					const int32 ssy = p ? hdr.subsamplingY : 0;
+					st.n4w[p] = (bw << 1) >> ssx;
+					st.n4h[p] = (bh << 1) >> ssy;
+					st.aboveOff[p] = (miCol * 2) >> ssx;
+					st.leftOff[p] = ((miRow * 2) & 15) >> ssy;
+				}
+
+				MiCell &cell = st.cur;
+				cell = MiCell{};
+				cell.sbType = (uint8)bsize;
+
+				// --- read_intra_frame_mode_info ---
+				// Segment id.
+				cell.segId = 0;
+				if (hdr.segEnabled && hdr.segUpdateMap)
+					cell.segId = (uint8)bd.GetTree(kVp9SegmentTree, hdr.segTreeProbs);
+				// Skip.
+				const bool segSkip = hdr.segEnabled && hdr.segFeatureEnabled[cell.segId][3];
+				if (segSkip) {
+					cell.skip = 1;
+				} else {
+					const int32 aSkip = st.aboveMi ? st.aboveMi->skip : 0;
+					const int32 lSkip = st.leftMi ? st.leftMi->skip : 0;
+					cell.skip = (uint8)bd.GetBool(fc.skipProbs[aSkip + lSkip]);
+					if (cell.skip)
+						++st.stats->skipBlocks;
+				}
+				// tx_size.
+				const int32 maxTx = (int32)kVp9MaxTxsizeLookup[bsize];
+				const int32 txModeBiggest[5] = {0, 1, 2, 3, 3};
+				const int32 txMode = st.txMode;
+				if (txMode == 4 && bsize >= kBlock8x8) {
+					cell.txSize = (uint8)ReadTxSize(bd, st, maxTx);
+				} else {
+					cell.txSize = (uint8)IMin(maxTx, txModeBiggest[txMode]);
+				}
+				// Modes intra kf (arbres à voisins).
+				switch (bsize) {
+					case 0: // BLOCK_4X4 : 4 sous-modes
+						for (int32 i = 0; i < 4; ++i)
+							cell.bmi[i] = (uint8)bd.GetTree(
+								kVp9IntraModeTree,
+								kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, i)]
+											   [LeftBlockMode(cell, st.leftMi, i)]);
+						cell.mode = cell.bmi[3];
+						break;
+					case 1: // BLOCK_4X8
+						cell.bmi[0] = cell.bmi[2] = (uint8)bd.GetTree(
+							kVp9IntraModeTree, kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, 0)]
+															  [LeftBlockMode(cell, st.leftMi, 0)]);
+						cell.bmi[1] = cell.bmi[3] = cell.mode = (uint8)bd.GetTree(
+							kVp9IntraModeTree, kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, 1)]
+															  [LeftBlockMode(cell, st.leftMi, 1)]);
+						break;
+					case 2: // BLOCK_8X4
+						cell.bmi[0] = cell.bmi[1] = (uint8)bd.GetTree(
+							kVp9IntraModeTree, kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, 0)]
+															  [LeftBlockMode(cell, st.leftMi, 0)]);
+						cell.bmi[2] = cell.bmi[3] = cell.mode = (uint8)bd.GetTree(
+							kVp9IntraModeTree, kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, 2)]
+															  [LeftBlockMode(cell, st.leftMi, 2)]);
+						break;
+					default:
+						cell.mode = (uint8)bd.GetTree(
+							kVp9IntraModeTree, kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, 0)]
+															  [LeftBlockMode(cell, st.leftMi, 0)]);
+						cell.bmi[0] = cell.bmi[1] = cell.bmi[2] = cell.bmi[3] = cell.mode;
+						break;
+				}
+				cell.uvMode = (uint8)bd.GetTree(kVp9IntraModeTree, kVp9KfUvModeProb[cell.mode]);
+
+				// Propagation de la cellule sur l'emprise (voisinage des blocs suivants).
+				for (int32 y = 0; y < yMis; ++y)
+					for (int32 x = 0; x < xMis; ++x)
+						st.mi[(miRow + y) * st.miCols + (miCol + x)] = cell;
+
+				// --- Résidus ---
+				if (cell.skip) {
+					// dec_reset_skip_context : contextes A/L à zéro sur l'emprise.
+					for (int32 p = 0; p < 3; ++p) {
+						for (int32 i = 0; i < st.n4w[p]; ++i)
+							st.aboveEntCtx[p][st.aboveOff[p] + i] = 0;
+						for (int32 i = 0; i < st.n4h[p]; ++i)
+							st.leftEntCtx[p][st.leftOff[p] + i] = 0;
+					}
+				} else {
+					DecodeBlockTokens(bd, st);
+				}
+			}
+
+			// read_partition : arbre complet ou lecture partielle aux bords.
+			int32 ReadPartition(NkVp8BoolDecoder &bd, FrameParseState &st, int32 miRow, int32 miCol,
+								bool hasRows, bool hasCols, int32 bsl) {
+				// dec_partition_plane_context.
+				const int32 above = (st.aboveSegCtx[miCol] >> bsl) & 1;
+				const int32 left = (st.leftSegCtx[miRow & 7] >> bsl) & 1;
+				const int32 ctx = (left * 2 + above) + bsl * 4; // PARTITION_PLOFFSET = 4
+				const uint8 *probs = kVp9KfPartitionProbs[ctx]; // trame clé
+				if (hasRows && hasCols)
+					return bd.GetTree(kVp9PartitionTree, probs);
+				if (!hasRows && hasCols)
+					return bd.GetBool(probs[1]) ? 3 : 1; // SPLIT : HORZ
+				if (hasRows && !hasCols)
+					return bd.GetBool(probs[2]) ? 3 : 2; // SPLIT : VERT
+				return 3;								 // SPLIT forcé
+			}
+
+			// decode_partition récursif (n4x4_l2 : 64x64 → 4).
+			void DecodePartition(NkVp8BoolDecoder &bd, FrameParseState &st, int32 miRow, int32 miCol,
+								 int32 bsize, int32 n4x4l2) {
+				if (miRow >= st.miRows || miCol >= st.miCols)
+					return;
+				const int32 n8x8l2 = n4x4l2 - 1;
+				const int32 num8x8 = 1 << n8x8l2;
+				const int32 hbs = num8x8 >> 1;
+				const bool hasRows = (miRow + hbs) < st.miRows;
+				const bool hasCols = (miCol + hbs) < st.miCols;
+				const int32 partition = ReadPartition(bd, st, miRow, miCol, hasRows, hasCols, n8x8l2);
+				const int32 subsize = (int32)kVp9SubsizeLookup[partition][bsize];
+				if (hbs == 0) {
+					// Bloc 8x8 : les sous-tailles < 8x8 restent UN bloc feuille.
+					DecodeLeafBlock(bd, st, miRow, miCol, subsize, 1, 1);
+				} else {
+					switch (partition) {
+						case 0: // NONE
+							DecodeLeafBlock(bd, st, miRow, miCol, subsize, n4x4l2, n4x4l2);
+							break;
+						case 1: // HORZ
+							DecodeLeafBlock(bd, st, miRow, miCol, subsize, n4x4l2, n8x8l2);
+							if (hasRows)
+								DecodeLeafBlock(bd, st, miRow + hbs, miCol, subsize, n4x4l2, n8x8l2);
+							break;
+						case 2: // VERT
+							DecodeLeafBlock(bd, st, miRow, miCol, subsize, n8x8l2, n4x4l2);
+							if (hasCols)
+								DecodeLeafBlock(bd, st, miRow, miCol + hbs, subsize, n8x8l2, n4x4l2);
+							break;
+						default: // SPLIT
+							DecodePartition(bd, st, miRow, miCol, subsize, n8x8l2);
+							DecodePartition(bd, st, miRow, miCol + hbs, subsize, n8x8l2);
+							DecodePartition(bd, st, miRow + hbs, miCol, subsize, n8x8l2);
+							DecodePartition(bd, st, miRow + hbs, miCol + hbs, subsize, n8x8l2);
+							break;
+					}
+				}
+				// dec_update_partition_context (8x8 : toujours ; sinon si pas SPLIT).
+				// memset(above+miCol, ., num8x8) / memset(left+(miRow&7), ., num8x8) —
+				// above est alloué aligné superbloc (jamais de débordement) ; la
+				// récursion aligne miRow sur num8x8 donc (miRow&7)+num8x8 <= 8.
+				if (bsize >= kBlock8x8 && (bsize == kBlock8x8 || partition != 3)) {
+					for (int32 i = 0; i < num8x8; ++i) {
+						st.aboveSegCtx[miCol + i] = kVp9PartitionCtxAbove[subsize];
+						st.leftSegCtx[(miRow & 7) + i] = kVp9PartitionCtxLeft[subsize];
+					}
+				}
 			}
 
 		} // namespace
@@ -599,6 +1067,116 @@ namespace nkentseu {
 			// Le bool decoder précharge 2 octets : un overread ≤ 2 est structurel,
 			// davantage = désalignement du parse.
 			return bd.overreadBytes <= 2;
+		}
+
+		bool NkVp9Decoder::ParseKeyFrameContent(const uint8 *tileData, usize tileSize,
+												const NkVp9FrameHeader &hdr, const NkVp9FrameContext &fc,
+												const NkVp9CompressedHeader &chdr,
+												NkTileParseStats &stats) {
+			stats = NkTileParseStats{};
+			if (tileData == nullptr || tileSize == 0 || hdr.width <= 0 || hdr.height <= 0)
+				return false;
+			if (hdr.frameType != kVp9KeyFrame && !hdr.intraOnly)
+				return false; // brique 3 : intra seulement
+
+			FrameParseState st;
+			st.hdr = &hdr;
+			st.fc = &fc;
+			st.miCols = (hdr.width + 7) >> 3;
+			st.miRows = (hdr.height + 7) >> 3;
+			st.sbCols = (st.miCols + 7) >> 3;
+			st.txMode = chdr.txMode;
+
+			const int32 miAligned = st.sbCols * kMiBlockSize;
+			st.mi = (MiCell *)memory::NkAlloc((size_t)st.miRows * (size_t)st.miCols * sizeof(MiCell));
+			st.aboveSegCtx = (uint8 *)memory::NkAlloc((size_t)miAligned);
+			for (int32 p = 0; p < 3; ++p)
+				st.aboveEntCtx[p] = (uint8 *)memory::NkAlloc((size_t)miAligned * 2);
+			if (!st.mi || !st.aboveSegCtx || !st.aboveEntCtx[0] || !st.aboveEntCtx[1] ||
+				!st.aboveEntCtx[2]) {
+				memory::NkFree(st.mi);
+				memory::NkFree(st.aboveSegCtx);
+				for (int32 p = 0; p < 3; ++p)
+					memory::NkFree(st.aboveEntCtx[p]);
+				return false;
+			}
+			for (int32 i = 0; i < st.miRows * st.miCols; ++i)
+				st.mi[i] = MiCell{};
+			for (int32 i = 0; i < miAligned; ++i)
+				st.aboveSegCtx[i] = 0;
+			for (int32 p = 0; p < 3; ++p)
+				for (int32 i = 0; i < miAligned * 2; ++i)
+					st.aboveEntCtx[p][i] = 0;
+			st.stats = &stats;
+
+			const int32 tileCols = 1 << hdr.tileColsLog2;
+			const int32 tileRows = 1 << hdr.tileRowsLog2;
+			const int32 sbRows = (st.miRows + 7) >> 3;
+
+			// get_tile_offset : min(((idx * sbDim) >> log2) << 3, miDim).
+			auto TileOffset = [](int32 idx, int32 sbDim, int32 log2, int32 miDim) -> int32 {
+				const int32 off = ((idx * sbDim) >> log2) << 3;
+				return off < miDim ? off : miDim;
+			};
+
+			bool ok = true;
+			const uint8 *p = tileData;
+			usize remaining = tileSize;
+			for (int32 tr = 0; tr < tileRows && ok; ++tr) {
+				const int32 miRowStart = TileOffset(tr, sbRows, hdr.tileRowsLog2, st.miRows);
+				const int32 miRowEnd = TileOffset(tr + 1, sbRows, hdr.tileRowsLog2, st.miRows);
+				for (int32 tc = 0; tc < tileCols && ok; ++tc) {
+					const bool last = (tr == tileRows - 1) && (tc == tileCols - 1);
+					usize sz = remaining;
+					if (!last) {
+						if (remaining < 4) {
+							ok = false;
+							break;
+						}
+						sz = ((usize)p[0] << 24) | ((usize)p[1] << 16) | ((usize)p[2] << 8) | (usize)p[3];
+						p += 4;
+						remaining -= 4;
+						if (sz > remaining) {
+							ok = false;
+							break;
+						}
+					}
+					st.tileMiColStart = TileOffset(tc, st.sbCols, hdr.tileColsLog2, st.miCols);
+					st.tileMiColEnd = TileOffset(tc + 1, st.sbCols, hdr.tileColsLog2, st.miCols);
+
+					NkVp8BoolDecoder bd(p, sz);
+					if (bd.GetFlag() != 0) { // bit marqueur (vpx_reader_init)
+						ok = false;
+						break;
+					}
+					for (int32 miRow = miRowStart; miRow < miRowEnd && ok; miRow += kMiBlockSize) {
+						// Nouvelle rangée de superblocs : contextes gauche à zéro.
+						for (int32 q = 0; q < 3; ++q)
+							for (int32 i = 0; i < 16; ++i)
+								st.leftEntCtx[q][i] = 0;
+						for (int32 i = 0; i < 8; ++i)
+							st.leftSegCtx[i] = 0;
+						for (int32 miCol = st.tileMiColStart; miCol < st.tileMiColEnd;
+							 miCol += kMiBlockSize)
+							DecodePartition(bd, st, miRow, miCol, kBlock64x64, 4);
+					}
+					// Consommation EXACTE : pré-chargement de 2 octets toléré.
+					if (bd.overreadBytes > 2 || bd.pos < sz) {
+						ok = false;
+					}
+					if (bd.overreadBytes > stats.maxOverread)
+						stats.maxOverread = bd.overreadBytes;
+					++stats.tiles;
+					p += sz;
+					remaining -= sz;
+				}
+			}
+
+			memory::NkFree(st.mi);
+			memory::NkFree(st.aboveSegCtx);
+			for (int32 q = 0; q < 3; ++q)
+				memory::NkFree(st.aboveEntCtx[q]);
+			return ok;
 		}
 
 		bool NkVp9Decoder::SelfTest() {
