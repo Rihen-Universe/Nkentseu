@@ -888,8 +888,23 @@ namespace nkentseu {
 			if (!d)
 				return;
 			auto &ctx = ec.Ui();
-			ctx.appModal = (d->mode != NkCodeDialogs::None) || d->pickerOpen || d->tcOpen;
+			const bool appWin = d->showPrefs || d->showNewWs || d->showHelp != 0;
+			ctx.appModal = (d->mode != NkCodeDialogs::None) || d->pickerOpen || d->tcOpen || appWin;
 			ctx.appFullScreen = d->showStart;
+			// MODALITE des fenetres app (Preferences / Nouveau Workspace / Aide)
+			// posee EN DEBUT DE FRAME — ce thunk tourne AVANT DrawPanels. La pose
+			// dans l'overlay (fin de frame) ne suffisait pas : sur un clic HORS
+			// fenetre, Update() venait de faire retomber popupDepth a 0 et les
+			// panneaux (traites avant l'overlay) recevaient le clic. Ici on
+			// re-force AVANT eux, rect = plein ecran pour la phase panneaux (la
+			// modale raffine popupRects[0] a son propre rect ensuite).
+			if (appWin) {
+				if (ctx.popupDepth == 0)
+					ctx.popupDepth = 1;
+				const NkRect full = {0.f, 0.f, (float32)ctx.viewW, (float32)ctx.viewH};
+				ctx.popupRects[0] = full;
+				ctx.popupAnchor = full;
+			}
 		}
 
 		// ── Ecran de demarrage PLEIN CADRE (via SetStartScreen) ──
