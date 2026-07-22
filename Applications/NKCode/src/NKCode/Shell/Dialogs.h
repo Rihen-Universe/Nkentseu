@@ -45,7 +45,8 @@ namespace nkentseu {
 				int32 projWarn = 0;			 // 0=Defaut,1=Off,2=High,3=Extra,4=Everything
 				float32 projScroll = 0.f;	 // defilement du formulaire projet
 				// Workspace d'APPARTENANCE du nouveau projet : tout projet depend d'un
-				// workspace. -1 = workspace courant ; >=0 = index dans st->recents.
+				// workspace. Seuls ceux OUVERTS dans CET editeur sont proposes
+				// (st->wsPaths, scannes dans la racine chargee). -1 = courant (wsIdx).
 				int32 projWsIdx = -1;
 				char projFiles[160] = {};	 // motif fichiers (defaut src/**.<ext>)
 				char projDefines[256] = {};	 // defines projet (csv)
@@ -206,11 +207,15 @@ namespace nkentseu {
 				bool PickerConfirmEnabled() const override {
 					if (PickerIsNewFile())
 						return scafName[0] != '\0' && (scafKind != 8 || scafExt[0] != '\0');
+					if (pickerFor == PK_NewFolder) // bouton principal = CREER (nom requis)
+						return pickerNew[0] != '\0';
 					return NkFilePickerState::PickerConfirmEnabled();
 				}
 				const char *PickerConfirmLabel() const override {
 					if (PickerIsNewFile())
 						return "Creer";
+					if (pickerFor == PK_NewFolder)
+						return "Creer le dossier";
 					return NkFilePickerState::PickerConfirmLabel();
 				}
 				void PickerClearExtraFocus() override { scafFocus = 0; }
@@ -295,8 +300,14 @@ namespace nkentseu {
 						ScanLoad();
 					} else if (purpose == PK_PickFolder && st)
 						st->pickedFolder = chosen; // dossier QUELCONQUE -> l'explorateur le récupère
+					else if (purpose == PK_NewFolder && pickerNew[0]) {
+						// Bouton principal « Creer le dossier » : cree <emplacement>/<nom>.
+						const NkPath np = NkPath(chosen.CStr()) / pickerNew;
+						if (NkDirectory::CreateRecursive(np) && st)
+							st->status = NkString("Dossier cree : ") + np.ToString().CStr();
+						pickerNew[0] = '\0';
+					}
 					// PK_Buf / PK_File : le buffer cible est deja rempli par le moteur.
-					// PK_NewFolder : rien a router (creation via le bouton « + Creer dossier »).
 				}
 
 				// ── Génération de squelette (scaffolding) selon l'extension ──────────────────
@@ -576,6 +587,8 @@ namespace nkentseu {
 						nameBuf[0] = '\0';
 					if (m == NewProject)
 						projWsIdx = -1; // defaut = workspace courant
+					if (m == NewWorkspace)
+						projFocus = 0; // focus initial = champ Nom
 				}
 
 				void ShowStart() {
@@ -1596,7 +1609,7 @@ namespace nkentseu {
 
 			const bool isProj = (d->mode == NkCodeDialogs::NewProject);
 			const bool isSaveAs = (d->mode == NkCodeDialogs::SaveAs);
-			const float32 pw = 460.f, ph = isProj ? 560.f : (isSaveAs ? 452.f : 220.f), px = (W - pw) * 0.5f,
+			const float32 pw = 460.f, ph = isProj ? 560.f : (isSaveAs ? 452.f : 320.f), px = (W - pw) * 0.5f,
 						  py = (H - ph) * 0.5f;
 			dl.AddRectFilled({0.f, 0.f, W, H}, NkColor{0, 0, 0, 150});
 			const NkRect panel = {px, py, pw, ph};
@@ -1674,12 +1687,35 @@ namespace nkentseu {
 					text(cx, y, (NkString("-> ") + full.CStr()).CStr(), NkColor{120, 180, 130, 255});
 				}
 			} else if (!isProj) {
-				// ── Workspace : champ Nom simple ──
+				// ── Workspace : Nom + EMPLACEMENT. Le workspace cree est AJOUTE comme
+				//    racine de l'explorateur (comme « Ajouter un dossier au workspace »)
+				//    et identifie comme nouveau workspace — PAS de retour au launcher. ──
 				float32 y = py + 52.f;
 				text(cx, y, "Nom", lblC);
 				y += 22.f;
-				const NkRect r = {cx, y, pw - 40.f, 28.f};
-				NkOverlayTextField(ctx, dl, f, r, d->nameBuf, (int32)sizeof(d->nameBuf), true);
+				{
+					const NkRect r = {cx, y, pw - 40.f, 28.f};
+					if (hit(r) && click)
+						d->projFocus = 0;
+					NkOverlayTextField(ctx, dl, f, r, d->nameBuf, (int32)sizeof(d->nameBuf), d->projFocus == 0);
+				}
+				y += 40.f;
+				text(cx, y, "Emplacement (le dossier <nom> y sera cree)", lblC);
+				y += 22.f;
+				{
+					const NkRect r = {cx, y, pw - 82.f, 28.f};
+					if (hit(r) && click)
+						d->projFocus = 1;
+					NkOverlayTextField(ctx, dl, f, r, d->wsDir, (int32)sizeof(d->wsDir), d->projFocus == 1);
+					if (d->wsDir[0] == '\0' && d->projFocus != 1)
+						text(r.x + 10.f, r.y + (28.f - lh) * 0.5f, d->st->root.ToString().CStr(),
+							 NkColor{110, 118, 126, 255});
+					if (btn({cx + pw - 76.f, y, 36.f, 28.f}, "...", true))
+						d->BrowseNewDir(); // picker maison (PK_NewDir -> wsDir)
+				}
+				y += 40.f;
+				text(cx, y, "Ajoute a l'explorateur comme NOUVEAU workspace (le courant reste charge).",
+					 NkColor{120, 180, 130, 255});
 			} else {
 				// ── Projet : formulaire COMPLET, defilable ──
 				int32 nk = 0, nl = 0, nd = 0;
@@ -1708,42 +1744,37 @@ namespace nkentseu {
 						d->BrowseInto(buf, cap, lab);
 					y += 32.f;
 				};
-				// ── Workspace d'APPARTENANCE : tout projet depend d'un workspace ──
+				// ── Workspace d'APPARTENANCE : tout projet depend d'un workspace.
+				//    Seuls les workspaces OUVERTS dans CET editeur (scannes dans la
+				//    racine chargee) sont proposes. ──
 				text(cx, y, "Workspace d'appartenance", lblC);
 				y += 22.f;
 				{
-					const bool curOk = !d->st->wsPaths.Empty() && d->st->wsIdx >= 0 &&
-									   d->st->wsIdx < (int32)d->st->wsPaths.Size();
-					const NkString curPath = curOk ? d->st->wsPaths[d->st->wsIdx] : NkString();
-					auto wsRow = [&](const char *nm, const char *pth, bool sel) -> bool {
+					const int32 curIdx = d->st->wsIdx;
+					const int32 selIdx = (d->projWsIdx >= 0 && d->projWsIdx < (int32)d->st->wsPaths.Size())
+											 ? d->projWsIdx
+											 : curIdx;
+					for (usize i = 0; i < d->st->wsPaths.Size(); ++i) {
 						const NkRect r = {cx, y, fw, 24.f};
+						const bool sel = ((int32)i == selIdx);
 						dl.AddRectFilled(r,
 										 sel ? NkColor{38, 60, 92, 255}
 											 : (mic && hit(r) ? NkColor{33, 39, 48, 255} : NkColor{24, 28, 34, 255}),
 										 4.f);
 						if (sel)
 							dl.AddRect(r, NkColor{88, 166, 255, 255}, 1.f);
-						text(r.x + 10.f, r.y + (24.f - lh) * 0.5f, nm,
+						NkString nm = (i < d->st->wsNames.Size() && !d->st->wsNames[i].Empty())
+										  ? d->st->wsNames[i]
+										  : d->st->wsPaths[i];
+						if ((int32)i == curIdx)
+							nm += " (courant)";
+						dl.PushClipRect({r.x, r.y, r.w - 8.f, r.h}, true);
+						text(r.x + 10.f, r.y + (24.f - lh) * 0.5f, nm.CStr(),
 							 sel ? NkColor{230, 237, 243, 255} : NkColor{180, 188, 196, 255});
-						if (pth && *pth) {
-							const float32 nw2 = f->MeasureWidth(nm);
-							dl.PushClipRect({r.x, r.y, r.w - 8.f, r.h}, true);
-							text(r.x + 18.f + nw2, r.y + (24.f - lh) * 0.5f, pth, NkColor{110, 118, 126, 255});
-							dl.PopClipRect();
-						}
-						y += 28.f;
-						return mic && hit(r) && click;
-					};
-					if (curOk && wsRow((d->st->wsNames[d->st->wsIdx] + " (courant)").CStr(), nullptr, d->projWsIdx < 0))
-						d->projWsIdx = -1;
-					for (usize i = 0; i < d->st->recents.Size(); ++i) {
-						if (curOk && StrEq(d->st->recents[i].CStr(), curPath.CStr()))
-							continue; // deja liste comme « courant »
-						const char *nm = (i < d->st->recentNames.Size() && !d->st->recentNames[i].Empty())
-											 ? d->st->recentNames[i].CStr()
-											 : d->st->recents[i].CStr();
-						if (wsRow(nm, d->st->recents[i].CStr(), d->projWsIdx == (int32)i))
+						dl.PopClipRect();
+						if (mic && hit(r) && click)
 							d->projWsIdx = (int32)i;
+						y += 28.f;
 					}
 					y += 6.f;
 				}
@@ -1907,44 +1938,46 @@ namespace nkentseu {
 						po.appVersion = d->projVersion;
 						po.appPublisher = d->projPublisher;
 						po.appIcon = d->projIcon;
-						// Workspace d'APPARTENANCE : courant (defaut) ou choisi dans les recents.
-						NkPath wsJenga, wsRoot;
-						bool foreignWs = false;
-						if (d->projWsIdx >= 0 && d->projWsIdx < (int32)d->st->recents.Size()) {
-							wsJenga = NkPath(d->st->recents[d->projWsIdx].CStr());
-							wsRoot = wsJenga.GetParent();
-							foreignWs = !StrEq(wsRoot.ToString().CStr(), d->st->root.ToString().CStr());
+						// Workspace d'APPARTENANCE : parmi ceux OUVERTS dans cet editeur
+						// (wsPaths) ; defaut = courant (wsIdx).
+						const int32 wsSel = (d->projWsIdx >= 0 && d->projWsIdx < (int32)d->st->wsPaths.Size())
+												? d->projWsIdx
+												: d->st->wsIdx;
+						made = GenerateProjectEx(d->st->root, NkPath(d->st->wsPaths[wsSel].CStr()), po);
+					} else {
+						// ── Nouveau workspace : cree <emplacement>/<nom>/ + <nom>.jenga,
+						//    puis l'AJOUTE comme racine de l'explorateur (meme mecanisme
+						//    que « Ajouter un dossier au workspace ») — le workspace
+						//    courant reste charge, PAS de retour au launcher. ──
+						NkWorkspaceOpts wo;
+						wo.name = d->nameBuf;
+						const NkPath base = d->wsDir[0] ? NkPath(d->wsDir) : d->st->root;
+						const NkPath wdir = base / NkSanitizeName(d->nameBuf).CStr();
+						const NkString wmade = GenerateWorkspaceEx(wdir, wo);
+						if (wmade.Empty()) {
+							d->status = "Echec : nom invalide ou .jenga deja existant.";
 						} else {
-							wsRoot = d->st->root;
-							wsJenga = NkPath(d->st->wsPaths[d->st->wsIdx].CStr());
-						}
-						made = GenerateProjectEx(wsRoot, wsJenga, po);
-						if (!made.Empty() && foreignWs) {
-							// Projet cree dans un AUTRE workspace : on le charge puis on
-							// ouvre le .jenga genere dedans.
-							d->DoLoad(wsRoot);
-							d->st->OpenPath(NkPath(made.CStr()));
+							d->st->pickedFolder = wdir.ToString(); // explorateur : NOUVELLE racine
+							d->st->AddRecent(wmade);
+							d->st->OpenPath(NkPath(wmade.CStr())); // ouvre le .jenga genere
+							d->st->status = NkString("Workspace cree : ") + wdir.ToString().CStr();
 							d->Close();
 							ctx.appModal = false;
 							return;
 						}
-					} else
-						made = GenerateWorkspace(d->st->root, d->nameBuf);
-					if (made.Empty()) {
-						d->status = isProj ? "Echec : nom invalide ou dossier deja existant."
-										   : "Echec : nom invalide ou .jenga deja existant.";
-					} else {
-						d->st->RequestReload();
-						d->st->mWsScanned = false;
-						d->st->ScanWorkspaces();
-						d->st->OpenPath(NkPath(made.CStr())); // ouvre le .jenga genere
-						if (!isProj) {						  // workspace cree -> on entre dans l'editeur
-							d->st->AddRecent(d->st->wsPaths.Empty() ? made : d->st->wsPaths[d->st->wsIdx]);
-							d->showStart = false;
+					}
+					if (isProj) {
+						if (made.Empty()) {
+							d->status = "Echec : nom invalide ou dossier deja existant.";
+						} else {
+							d->st->RequestReload();
+							d->st->mWsScanned = false;
+							d->st->ScanWorkspaces();
+							d->st->OpenPath(NkPath(made.CStr())); // ouvre le .jenga genere
+							d->Close();
+							ctx.appModal = false;
+							return;
 						}
-						d->Close();
-						ctx.appModal = false;
-						return;
 					}
 				}
 			}
