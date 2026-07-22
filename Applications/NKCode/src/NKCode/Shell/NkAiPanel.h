@@ -186,6 +186,21 @@ namespace nkentseu {
 					const NkRect r = dl.CurrentClip();
 					if (mChats.Empty())
 						NewChat(); // 1re conversation (locale correcte : posée après construction)
+					// ── Pont barre de menus -> chat (menu IA : Expliquer/Corriger/... la
+					// selection) : prompt depose dans NkCodeState, copie dans la saisie ici ;
+					// aiSend = envoi immediat (si un tour est deja en cours, le prompt reste
+					// dans la saisie — l'utilisateur enverra, jamais de perte silencieuse).
+					if (mS && !mS->aiPrompt.Empty()) {
+						const usize cap = sizeof(mInput) - 1;
+						const usize n = mS->aiPrompt.Size() < cap ? mS->aiPrompt.Size() : cap;
+						::memcpy(mInput, mS->aiPrompt.CStr(), n);
+						mInput[n] = 0;
+						const bool wantSend = mS->aiSend;
+						mS->aiPrompt.Clear();
+						mS->aiSend = false;
+						if (wantSend && !mBusy)
+							Send();
+					}
 					Poll(); // draine la réponse en cours
 
 					// ── CIBLE de DRAG & DROP (explorateur interne + OS) : ajoute le(s) chemin(s)
@@ -2142,6 +2157,7 @@ namespace nkentseu {
 								   w, n * rowH + ctx.S(8.f)};
 					if (menu.x < ctx.S(4.f))
 						menu.x = ctx.S(4.f);
+					ctx.PushOcclusion(menu, 50); // routeur d'occlusion : rien ne passe derriere
 					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(6.f));
 					dl.AddRect(menu, ctx.theme.border, 1.f);
 					float32 y = menu.y + ctx.S(4.f);
@@ -2209,6 +2225,7 @@ namespace nkentseu {
 								   w, menuH};
 					if (menu.x < bounds.x + ctx.S(4.f))
 						menu.x = bounds.x + ctx.S(4.f);
+					ctx.PushOcclusion(menu, 50); // routeur d'occlusion : rien ne passe derriere
 					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(6.f));
 					dl.AddRect(menu, ctx.theme.border, 1.f);
 					float32 y = menu.y + ctx.S(4.f);
@@ -2251,6 +2268,11 @@ namespace nkentseu {
 				// Contexte / Modèle / Personnaliser / Commandes slash / Réglages / Support. ──
 				void DrawActionsPalette(NkGuiContext &ctx, const NkRect &bounds, const NkColor &violet) {
 					(void)violet;
+					// ROUTEUR D'OCCLUSION UNIFIE : la palette est une surface de couche 50
+					// (rect declare plus bas via PushOcclusion) -> les panneaux/widgets de
+					// couche 0 derriere elle deviennent aveugles sous son rect, quel que
+					// soit leur ordre de dessin — fin des traversees de clics.
+					NkGuiContext::NkInputLayerScope _layer(ctx, 50);
 					auto &dl = ctx.DL();
 					const NkGuiFont *font = ctx.font;
 					const NkVec2 mp = ctx.input.mousePos;
@@ -2350,6 +2372,7 @@ namespace nkentseu {
 						menu.x = bounds.x + bounds.w - ctx.S(4.f) - menu.w;
 					if (menu.x < bounds.x + ctx.S(4.f))
 						menu.x = bounds.x + ctx.S(4.f);
+					ctx.PushOcclusion(menu, 50); // routeur d'occlusion : rien ne passe derriere
 					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(8.f));
 					dl.AddRect(menu, ctx.theme.border, 1.f);
 
@@ -2732,6 +2755,7 @@ namespace nkentseu {
 						menu.x = bounds.x + bounds.w - ctx.S(4.f) - menu.w;
 					if (menu.x < bounds.x + ctx.S(4.f))
 						menu.x = bounds.x + ctx.S(4.f);
+					ctx.PushOcclusion(menu, 50); // routeur d'occlusion : rien ne passe derriere
 					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(8.f));
 					dl.AddRect(menu, ctx.theme.border, 1.f);
 
@@ -2835,6 +2859,7 @@ namespace nkentseu {
 						menu.x = bounds.x + bounds.w - ctx.S(4.f) - menu.w;
 					if (menu.x < bounds.x + ctx.S(4.f))
 						menu.x = bounds.x + ctx.S(4.f);
+					ctx.PushOcclusion(menu, 50); // routeur d'occlusion : rien ne passe derriere
 					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(8.f));
 					dl.AddRect(menu, ctx.theme.border, 1.f);
 
@@ -2890,6 +2915,7 @@ namespace nkentseu {
 					NkRect menu = {mGearRect.x + mGearRect.w - w, mGearRect.y + mGearRect.h + ctx.S(4.f), w, mh};
 					if (menu.x < ctx.S(4.f))
 						menu.x = ctx.S(4.f);
+					ctx.PushOcclusion(menu, 50); // routeur d'occlusion : rien ne passe derriere
 					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(8.f));
 					dl.AddRect(menu, ctx.theme.border, 1.f);
 					auto txt = [&](float32 x, float32 yy, const char *s, const NkColor &c) {
@@ -3057,6 +3083,7 @@ namespace nkentseu {
 					const float32 vh = static_cast<float32>(ctx.viewH);
 					if (menu.y + menu.h > vh)
 						menu.y = vh - menu.h - ctx.S(4.f);
+					ctx.PushOcclusion(menu, 50); // routeur d'occlusion : rien ne passe derriere
 					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(8.f));
 					dl.AddRect(menu, ctx.theme.border, 1.f);
 					auto txt = [&](float32 x, float32 yy, const char *s, const NkColor &c, float32 maxW = -1.f) {

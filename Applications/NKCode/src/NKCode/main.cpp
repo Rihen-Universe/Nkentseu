@@ -11,6 +11,7 @@
 #include "NKCode/Shell/Panels.h"
 #include "NKCode/Shell/Toolbar.h"
 #include "NKCode/Shell/Dialogs.h"
+#include "NKCode/Shell/NkMenuBar.h" // barre de menus principale (spec Banani, remplace les menus shell)
 #include "NKCode/Shell/ScaffoldPanels.h"
 #include "NKCode/Shell/NkAiPanel.h"
 #include "NKCode/Shell/NkHome.h"
@@ -142,7 +143,13 @@ int nkmain(const NkEntryState &state) {
 	g_dialogs.shell = shell.Get();
 	g_state.LoadRecents();							// workspaces recents (ecran de demarrage)
 	shell->SetAppMenu(&nkcode::AppFlagsThunk, &g_home); // user = NkHomeState	// pose appFullScreen/appModal chaque frame
-	shell->SetFileMenu(&nkcode::FileMenuThunk, &g_dialogs); // items du menu Fichier (Nouveau/Enregistrer/Deploiement)
+	// Barre de menus COMPLETE (11 menus, spec Banani) : remplace les menus par
+	// defaut du shell ET l'ancien SetFileMenu (items Fichier absorbes dedans).
+	static nkcode::NkMenuBarCtx g_menuBar;
+	g_menuBar.dlg = &g_dialogs;
+	g_menuBar.shell = shell.Get();
+	g_menuBar.exePath = (state.args.Size() > 0) ? state.args[0] : NkString(); // « Nouvelle fenetre »
+	shell->SetMenuBar(&nkcode::MainMenuBarThunk, &g_menuBar);
 	shell->SetOverlay(&nkcode::OverlayThunk, &g_dialogs);	// dialogues modaux (creation/enregistrement)
 
 	// ── Ecran d'accueil (Home) : nouvelle UI + logos/icones rasterises en texture ──

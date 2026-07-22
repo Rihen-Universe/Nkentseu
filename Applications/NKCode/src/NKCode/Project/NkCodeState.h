@@ -3825,6 +3825,17 @@ namespace nkentseu {
 				// l'utilisateur (voir bouton "Emulateur" de la toolbar). Different de
 				// termOpenCmd (qui REMPLACE le shell par une commande, façon agent CLI).
 				NkString termOpenType;
+				// ── Pont barre de menus -> panneau IA (menu IA : Expliquer/Corriger/... la
+				// selection) : prompt depose ici, consomme par NkAiPanel::OnUI au prochain
+				// frame (copie dans la saisie ; aiSend=true = envoye immediatement).
+				NkString aiPrompt;
+				bool aiSend = false;
+				// ── Enregistrement automatique (menu Fichier > Auto Save) : 0 = off,
+				// 1 = apres delai (SaveAll periodique des fichiers modifies AVEC chemin).
+				int32 autoSave = 0;
+				uint32 autoSaveTick = 0; // compteur de frames (PollBuild)
+				// ── Fil d'Ariane au-dessus du code (menu Affichage > Breadcrumbs).
+				bool showBreadcrumb = true;
 				// FOCUS CLAVIER GLOBAL : l'EXPLORATEUR a le focus-clic -> l'éditeur ignore
 				// le clavier (sinon Ctrl+D/Suppr/Entrée tireraient des DEUX côtés).
 				bool explorerFocus = false;
@@ -4925,6 +4936,13 @@ namespace nkentseu {
 
 				// A appeler CHAQUE FRAME : recupere la sortie + enchaine la file + statut.
 				void PollBuild() {
+					// Auto Save (menu Fichier) : toutes les ~600 frames (~10 s), sauvegarde
+					// silencieuse des fichiers modifies AYANT deja un chemin (SaveAll ignore
+					// les brouillons sans chemin - jamais de dialogue surprise).
+					if (autoSave == 1 && ++autoSaveTick >= 600) {
+						autoSaveTick = 0;
+						SaveAll();
+					}
 					{ // drain -> output (affichage) ET mCmdLog (transcript par commande, borne)
 						NkVector<NkString> fresh;
 						if (mBuildEmbedded) {

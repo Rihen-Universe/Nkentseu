@@ -1470,6 +1470,16 @@ namespace nkentseu {
 				return;
 			}
 
+			// Barre COMPLETE fournie par l'app (SetMenuBar) : remplace entierement
+			// les menus par defaut ci-dessous (spec barre de menus NKCode/Banani).
+			if (mMenuBarFn) {
+				mMenuBarFn(ec, mMenuBarUser);
+				if (mAppMenuFn)
+					mAppMenuFn(ec, mAppMenuUser); // flags launcher (appFullScreen/appModal)
+				EndMenuBar(mUI);
+				return;
+			}
+
 			if (BeginMenu(mUI, "Fichier")) {
 				if (mFileMenuFn)
 					mFileMenuFn(ec, mFileMenuUser); // Nouveau/Enregistrer/Deploiement (app)
@@ -1482,15 +1492,7 @@ namespace nkentseu {
 				EndMenu(mUI);
 			}
 			if (BeginMenu(mUI, "Affichage")) {
-				for (int32 i = 0; i < mNumPanels; ++i)
-					if (MenuItem(mUI, mPanels[i]->Title())) {
-						// Ouvrir via le menu doit ANCRER au cote par defaut (sinon le panneau
-						// s'ouvre sans se docker). FocusPanel ouvre + ancre ; sinon on ferme.
-						if (mPanels[i]->IsOpen())
-							mPanels[i]->SetOpen(false);
-						else
-							FocusPanel(mPanels[i]->Title());
-					}
+				DrawPanelsMenuItems();
 				EndMenu(mUI);
 			}
 			if (BeginMenu(mUI, "Fenetre")) {
@@ -1512,6 +1514,19 @@ namespace nkentseu {
 				mAppMenuFn(ec, mAppMenuUser);
 
 			EndMenuBar(mUI);
+		}
+
+		// Boucle « un item par panneau » (ouvrir = FocusPanel pour ANCRER au cote
+		// par defaut ; deja ouvert = fermer) — partagee entre le menu Affichage
+		// historique et la barre fournie par l'app (Open View).
+		void NkEditorShell::DrawPanelsMenuItems() noexcept {
+			for (int32 i = 0; i < mNumPanels; ++i)
+				if (MenuItem(mUI, mPanels[i]->Title())) {
+					if (mPanels[i]->IsOpen())
+						mPanels[i]->SetOpen(false);
+					else
+						FocusPanel(mPanels[i]->Title());
+				}
 		}
 
 		// ── Etat d'interface par projet (maximise + panneaux ouverts) ────────────
