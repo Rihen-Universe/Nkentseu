@@ -50,6 +50,7 @@ namespace nkentseu {
 				// workspace. Seuls ceux OUVERTS dans CET editeur sont proposes
 				// (st->wsPaths, scannes dans la racine chargee). -1 = courant (wsIdx).
 				int32 projWsIdx = -1;
+				float32 projContentH = 0.f; // hauteur mesuree du formulaire (frame precedente)
 				char projFiles[160] = {};	 // motif fichiers (defaut src/**.<ext>)
 				char projDefines[256] = {};	 // defines projet (csv)
 				char projInc[256] = {};		 // includedirs (csv)
@@ -189,6 +190,7 @@ namespace nkentseu {
 								const char *confine = nullptr) {
 					// Coeur generique dans NKEditorKit (NkFilePickerState) ; ici on ne fixe
 					// que le dossier de depart par defaut = racine du workspace NKCode.
+					pickWsJenga = false; // discriminateur re-arme par OpenWorkspaceDialog seul
 					const char *start = (startDir && *startDir) ? startDir : (st ? st->root.ToString().CStr() : ".");
 					OpenPickerBase(purpose, start, buf, cap, confine);
 				}
@@ -308,6 +310,11 @@ namespace nkentseu {
 						if (NkDirectory::CreateRecursive(np) && st)
 							st->status = NkString("Dossier cree : ") + np.ToString().CStr();
 						pickerNew[0] = '\0';
+					} else if (purpose == PK_File && pickWsJenga) {
+						// « Ouvrir un workspace » : .jenga choisi -> charge son dossier.
+						pickWsJenga = false;
+						if (wsOpenBuf[0])
+							DoLoad(NkPath(wsOpenBuf).GetParent());
 					}
 					// PK_Buf / PK_File : le buffer cible est deja rempli par le moteur.
 				}
@@ -716,11 +723,15 @@ namespace nkentseu {
 					OpenPicker(PK_Open, st ? st->root.ToString().CStr() : ".");
 				}
 
-				// Ouvrir un .jenga precis reste via la boite fichier native (pas un dossier).
+				// Ouvrir un .jenga precis : PICKER MAISON en mode fichier (disque entier),
+				// discrimine du « Ouvrir un fichier » generique par pickWsJenga.
+				bool pickWsJenga = false;
+				char wsOpenBuf[512] = {};
 				void OpenWorkspaceDialog() {
-					NkDialogResult res = NkDialogs::OpenFileDialog("*.jenga", "Ouvrir un workspace (.jenga)");
-					if (res.confirmed && st)
-						DoLoad(NkPath(res.path.CStr()).GetParent());
+					wsOpenBuf[0] = '\0';
+					OpenPicker(PK_File, st ? st->root.ToString().CStr() : nullptr, wsOpenBuf,
+							   (int32)sizeof(wsOpenBuf));
+					pickWsJenga = true; // APRES OpenPicker (qui remet le flag a false)
 				}
 
 				// Lance l'ecran de CHARGEMENT (section 14) : LoadFolder + etapes reelles.
@@ -1741,6 +1752,16 @@ namespace nkentseu {
 					d->projScroll -= ctx.input.wheel * 30.f;
 					ctx.input.wheel = 0.f;
 				}
+				// CLAMP AVANT le dessin (hauteur mesuree a la frame precedente) : sinon
+				// une frame se dessine HORS bornes puis est re-clampee -> clignotement
+				// du contenu quand la scrollbar est en butee haut/bas.
+				{
+					const float32 maxS0 = d->projContentH - content.h > 0.f ? d->projContentH - content.h : 0.f;
+					if (d->projScroll < 0.f)
+						d->projScroll = 0.f;
+					if (d->projScroll > maxS0)
+						d->projScroll = maxS0;
+				}
 				dl.PushClipRect(content, true);
 				const float32 fw = pw - 40.f;
 				float32 y = content.y + 6.f - d->projScroll;
@@ -1893,6 +1914,7 @@ namespace nkentseu {
 					field("Icone de l'application", d->projIcon, (int32)sizeof(d->projIcon), 9, true);
 				}
 				const float32 contentH = (y + d->projScroll) - (content.y + 6.f);
+				d->projContentH = contentH; // memorise pour le clamp pre-dessin
 				dl.PopClipRect();
 				// barre de defilement
 				const float32 maxS = contentH - content.h > 0.f ? contentH - content.h : 0.f;
