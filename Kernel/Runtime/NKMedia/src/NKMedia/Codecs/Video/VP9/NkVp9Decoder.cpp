@@ -9,6 +9,7 @@
 // (réécrit, zéro code importé). Tables : NkVp9Tables.inc GÉNÉRÉ (vp9ref/extract.py).
 // =============================================================================
 #include "NKMedia/Codecs/Video/VP9/NkVp9Decoder.h"
+#include "NKMedia/Codecs/Video/VP9/NkVp9Itxfm.h"
 #include "NKMedia/Codecs/Video/VP8/NkVp8BoolDecoder.h"
 #include "NKMemory/NKMemory.h"
 
@@ -299,6 +300,12 @@ namespace nkentseu {
 					// Tile courante.
 					int32 tileMiColStart = 0, tileMiColEnd = 0;
 					int32 txMode = 0; // du header compressé (TX_MODE_SELECT = 4)
+					// Reconstruction (brique 4) — nullptr = parse seul (brique 3).
+					uint8 *planes[3] = {nullptr, nullptr, nullptr};
+					int32 planeStride[3] = {0, 0, 0};
+					int32 planeW[3] = {0, 0, 0}, planeH[3] = {0, 0, 0};
+					int32 mbToLeftEdge = 0, mbToTopEdge = 0; // 1/8 pel (négatifs)
+					int16 yDequant[8][2] = {{0}}, uvDequant[8][2] = {{0}};
 					// Bloc courant.
 					MiCell cur;
 					const MiCell *aboveMi = nullptr;
@@ -351,14 +358,17 @@ namespace nkentseu {
 			}
 
 			// decode_coefs (vp9_detokenize.c) : décode les tokens d'UN bloc de
-			// transformée. Les coefficients sont jetés (brique 3 : consommation).
-			// Renvoie l'EOB.
+			// transformée et écrit les coefficients DÉQUANTIFIÉS dans `dqcoeff`
+			// (ordre du scan). dq = {DC, AC} ; dqShift = 1 pour les 32x32. Renvoie l'EOB.
 			int32 DecodeCoefs(NkVp8BoolDecoder &bd, const NkVp9FrameContext &fc, int32 planeType,
-							  int32 txSize, int32 ctx, const int16 *scan, const int16 *nb) {
+							  int32 txSize, int32 ctx, const int16 *scan, const int16 *nb,
+							  const int16 *dq, int16 *dqcoeff) {
 				const int32 maxEob = 16 << (txSize << 1);
+				const int32 dqShift = (txSize == 3) ? 1 : 0;
 				const uint8(*coefProbs)[6][3] = fc.coefProbs[txSize][planeType][0]; // ref=0 (intra)
 				uint8 tokenCache[32 * 32];
 				const uint8 *bandTranslate = (txSize == 0) ? kVp9CoefbandTrans4x4 : kVp9CoefbandTrans8x8Plus;
+				int32 dqv = dq[0];
 				int32 c = 0;
 				while (c < maxEob) {
 					const int32 band = (int32)bandTranslate[c];
@@ -368,6 +378,7 @@ namespace nkentseu {
 					// Suite de zéros.
 					while (!bd.GetBool(prob[1])) {
 						tokenCache[scan[c]] = 0;
+						dqv = dq[1];
 						++c;
 						if (c >= maxEob)
 							return c; // zéros jusqu'au bout (pas de token EOB)
@@ -375,43 +386,49 @@ namespace nkentseu {
 						prob = coefProbs[(int32)bandTranslate[c]][ctx];
 					}
 					// Valeur.
+					int32 v;
 					if (bd.GetBool(prob[2])) {
 						const uint8 *p = kVp9Pareto8Full[prob[2] - 1];
+						int32 val;
 						if (bd.GetBool(p[0])) {
 							if (bd.GetBool(p[3])) {
 								tokenCache[scan[c]] = 5;
 								if (bd.GetBool(p[5])) {
 									if (bd.GetBool(p[7]))
-										(void)ReadCoeff(bd, kVp9Cat6Prob, 14); // CAT6
+										val = 67 + ReadCoeff(bd, kVp9Cat6Prob, 14); // CAT6
 									else
-										(void)ReadCoeff(bd, kVp9Cat5Prob, 5); // CAT5
+										val = 35 + ReadCoeff(bd, kVp9Cat5Prob, 5); // CAT5
 								} else if (bd.GetBool(p[6])) {
-									(void)ReadCoeff(bd, kVp9Cat4Prob, 4); // CAT4
+									val = 19 + ReadCoeff(bd, kVp9Cat4Prob, 4); // CAT4
 								} else {
-									(void)ReadCoeff(bd, kVp9Cat3Prob, 3); // CAT3
+									val = 11 + ReadCoeff(bd, kVp9Cat3Prob, 3); // CAT3
 								}
 							} else {
 								tokenCache[scan[c]] = 4;
 								if (bd.GetBool(p[4]))
-									(void)ReadCoeff(bd, kVp9Cat2Prob, 2); // CAT2
+									val = 7 + ReadCoeff(bd, kVp9Cat2Prob, 2); // CAT2
 								else
-									(void)ReadCoeff(bd, kVp9Cat1Prob, 1); // CAT1
+									val = 5 + ReadCoeff(bd, kVp9Cat1Prob, 1); // CAT1
 							}
+							v = (val * dqv) >> dqShift;
 						} else {
 							if (bd.GetBool(p[1])) {
 								tokenCache[scan[c]] = 3;
-								(void)bd.GetBool(p[2]); // THREE vs FOUR
+								v = ((3 + bd.GetBool(p[2])) * dqv) >> dqShift; // THREE/FOUR
 							} else {
 								tokenCache[scan[c]] = 2; // TWO
+								v = (2 * dqv) >> dqShift;
 							}
 						}
 					} else {
 						tokenCache[scan[c]] = 1; // ONE
+						v = dqv >> dqShift;
 					}
-					(void)bd.GetFlag(); // signe
+					dqcoeff[scan[c]] = (int16)(bd.GetFlag() ? -v : v); // signe
 					++c;
 					if (c < maxEob)
 						ctx = (1 + tokenCache[nb[2 * c]] + tokenCache[nb[2 * c + 1]]) >> 1;
+					dqv = dq[1];
 				}
 				return c;
 			}
@@ -504,9 +521,18 @@ namespace nkentseu {
 				return txSize;
 			}
 
-			// Tokens de tous les blocs de transformée d'un bloc de prédiction.
-			void DecodeBlockTokens(NkVp8BoolDecoder &bd, FrameParseState &st) {
+			// (défini plus bas, avec les prédicteurs)
+			void PredictIntra(const FrameParseState &st, int32 plane, int32 mode, int32 txSize,
+							  uint8 *dst, int32 stride, int32 aoff, int32 loff, int32 frameW,
+							  int32 frameH, bool haveTop, bool haveLeft, bool haveRight);
+
+			// Blocs de transformée d'un bloc de prédiction : prédiction intra (si
+			// reconstruction active) + tokens + transformée inverse ajoutée.
+			// `skip` : pas de résidus — prédiction seule.
+			void DecodeBlockTokens(NkVp8BoolDecoder &bd, FrameParseState &st, bool skip) {
 				const NkVp9FrameHeader &hdr = *st.hdr;
+				const bool recon = (st.planes[0] != nullptr);
+				int16 dqcoeff[32 * 32];
 				for (int32 plane = 0; plane < 3; ++plane) {
 					const int32 ssx = plane ? hdr.subsamplingX : 0;
 					const int32 ssy = plane ? hdr.subsamplingY : 0;
@@ -525,24 +551,70 @@ namespace nkentseu {
 					const int32 num4h = st.n4h[plane];
 					const int32 maxW = num4w + ((st.mbToRightEdge >= 0) ? 0 : (st.mbToRightEdge >> (5 + ssx)));
 					const int32 maxH = num4h + ((st.mbToBottomEdge >= 0) ? 0 : (st.mbToBottomEdge >> (5 + ssy)));
+					// n4wl : log2 des unités 4x4 du bloc (largeur) pour have_right.
+					int32 n4wl = 0;
+					while ((1 << n4wl) < num4w)
+						++n4wl;
+					const int16 *dq = plane ? st.uvDequant[st.cur.segId] : st.yDequant[st.cur.segId];
 					for (int32 row = 0; row < maxH; row += step) {
 						for (int32 col = 0; col < maxW; col += step) {
+							// Mode du bloc tx (luma <8x8 : sous-mode ; sinon mode/uv).
+							const uint8 mode = (plane == 0)
+												   ? ((st.cur.sbType < kBlock8x8)
+														  ? st.cur.bmi[(row << 1) + col]
+														  : st.cur.mode)
+												   : st.cur.uvMode;
+							uint8 *dst = nullptr;
+							if (recon) {
+								const int32 px = (((-st.mbToLeftEdge) >> (3 + ssx)) + col * 4);
+								const int32 py = (((-st.mbToTopEdge) >> (3 + ssy)) + row * 4);
+								dst = st.planes[plane] + (usize)py * (usize)st.planeStride[plane] + px;
+								const bool haveTop = (row != 0) || (st.aboveMi != nullptr);
+								const bool haveLeft = (col != 0) || (st.leftMi != nullptr);
+								const bool haveRight = (col + step) < (1 << n4wl);
+								PredictIntra(st, plane, mode, txSize, dst, st.planeStride[plane],
+											 col, row, st.planeW[plane], st.planeH[plane], haveTop,
+											 haveLeft, haveRight);
+							}
+							if (skip)
+								continue;
 							// Type de transformée : luma intra non-lossless → selon le mode.
 							int32 txType = 0; // DCT_DCT
-							if (plane == 0 && !hdr.lossless) {
-								const uint8 mode = (st.cur.sbType < kBlock8x8)
-													   ? st.cur.bmi[(row << 1) + col]
-													   : st.cur.mode;
+							if (plane == 0 && !hdr.lossless)
 								txType = (int32)kVp9IntraModeToTxType[mode];
-							}
 							const int16 *scan = nullptr, *nb = nullptr;
 							GetScan(txSize, txType, &scan, &nb);
 							const int32 ctx = GetEntropyContext(
 								txSize, st.aboveEntCtx[plane] + st.aboveOff[plane] + col,
 								st.leftEntCtx[plane] + st.leftOff[plane] + row);
-							const int32 eob =
-								DecodeCoefs(bd, *st.fc, plane ? 1 : 0, txSize, ctx, scan, nb);
+							if (recon) {
+								const int32 n = 16 << (txSize << 1);
+								for (int32 i = 0; i < n; ++i)
+									dqcoeff[i] = 0;
+							}
+							const int32 eob = DecodeCoefs(bd, *st.fc, plane ? 1 : 0, txSize, ctx,
+														  scan, nb, dq, dqcoeff);
 							st.stats->eobTotal += eob;
+							if (recon && eob > 0) {
+								if (hdr.lossless) {
+									NkVp9Itxfm::Iwht4x4Add(dqcoeff, dst, st.planeStride[plane]);
+								} else {
+									switch (txSize) {
+										case 0:
+											NkVp9Itxfm::Iht4x4Add(dqcoeff, dst, st.planeStride[plane], txType);
+											break;
+										case 1:
+											NkVp9Itxfm::Iht8x8Add(dqcoeff, dst, st.planeStride[plane], txType);
+											break;
+										case 2:
+											NkVp9Itxfm::Iht16x16Add(dqcoeff, dst, st.planeStride[plane], txType);
+											break;
+										default:
+											NkVp9Itxfm::Idct32x32Add(dqcoeff, dst, st.planeStride[plane]);
+											break;
+									}
+								}
+							}
 							SetEntropyContexts(st, plane, txSize, eob > 0, col, row, ssx, ssy);
 						}
 					}
@@ -565,6 +637,8 @@ namespace nkentseu {
 				st.leftMi = (miCol > st.tileMiColStart) ? &st.mi[miRow * st.miCols + miCol - 1] : nullptr;
 				st.mbToRightEdge = (st.miCols - bw - miCol) * 8 * 8;
 				st.mbToBottomEdge = (st.miRows - bh - miRow) * 8 * 8;
+				st.mbToLeftEdge = -(miCol * 8) * 8;
+				st.mbToTopEdge = -(miRow * 8) * 8;
 				// set_plane_n4 + set_skip_context.
 				for (int32 p = 0; p < 3; ++p) {
 					const int32 ssx = p ? hdr.subsamplingX : 0;
@@ -644,7 +718,7 @@ namespace nkentseu {
 					for (int32 x = 0; x < xMis; ++x)
 						st.mi[(miRow + y) * st.miCols + (miCol + x)] = cell;
 
-				// --- Résidus ---
+				// --- Résidus + reconstruction ---
 				if (cell.skip) {
 					// dec_reset_skip_context : contextes A/L à zéro sur l'emprise.
 					for (int32 p = 0; p < 3; ++p) {
@@ -653,8 +727,405 @@ namespace nkentseu {
 						for (int32 i = 0; i < st.n4h[p]; ++i)
 							st.leftEntCtx[p][st.leftOff[p] + i] = 0;
 					}
+				}
+				// La prédiction intra a toujours lieu ; les tokens seulement si !skip.
+				DecodeBlockTokens(bd, st, cell.skip != 0);
+			}
+
+			// =================================================================
+			// BRIQUE 4 — prédiction intra + reconstruction (port fidèle de
+			// vpx_dsp/intrapred.c + vp9_reconintra.c).
+			// =================================================================
+
+			inline uint8 Avg2(int32 a, int32 b) {
+				return (uint8)((a + b + 1) >> 1);
+			}
+			inline uint8 Avg3(int32 a, int32 b, int32 c) {
+				return (uint8)((a + 2 * b + c + 2) >> 2);
+			}
+			inline uint8 ClipPixel(int32 v) {
+				return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v));
+			}
+
+			// Prédicteurs génériques (bs = 4/8/16/32).
+			void PredV(uint8 *dst, int32 stride, int32 bs, const uint8 *above, const uint8 *left) {
+				(void)left;
+				for (int32 r = 0; r < bs; ++r, dst += stride)
+					for (int32 c = 0; c < bs; ++c)
+						dst[c] = above[c];
+			}
+			void PredH(uint8 *dst, int32 stride, int32 bs, const uint8 *above, const uint8 *left) {
+				(void)above;
+				for (int32 r = 0; r < bs; ++r, dst += stride)
+					for (int32 c = 0; c < bs; ++c)
+						dst[c] = left[r];
+			}
+			void PredTm(uint8 *dst, int32 stride, int32 bs, const uint8 *above, const uint8 *left) {
+				const int32 topLeft = above[-1];
+				for (int32 r = 0; r < bs; ++r, dst += stride)
+					for (int32 c = 0; c < bs; ++c)
+						dst[c] = ClipPixel(left[r] + above[c] - topLeft);
+			}
+			void PredDc128(uint8 *dst, int32 stride, int32 bs, const uint8 *, const uint8 *) {
+				for (int32 r = 0; r < bs; ++r, dst += stride)
+					for (int32 c = 0; c < bs; ++c)
+						dst[c] = 128;
+			}
+			void PredDcLeft(uint8 *dst, int32 stride, int32 bs, const uint8 *, const uint8 *left) {
+				int32 sum = 0;
+				for (int32 i = 0; i < bs; ++i)
+					sum += left[i];
+				const uint8 dc = (uint8)((sum + (bs >> 1)) / bs);
+				for (int32 r = 0; r < bs; ++r, dst += stride)
+					for (int32 c = 0; c < bs; ++c)
+						dst[c] = dc;
+			}
+			void PredDcTop(uint8 *dst, int32 stride, int32 bs, const uint8 *above, const uint8 *) {
+				int32 sum = 0;
+				for (int32 i = 0; i < bs; ++i)
+					sum += above[i];
+				const uint8 dc = (uint8)((sum + (bs >> 1)) / bs);
+				for (int32 r = 0; r < bs; ++r, dst += stride)
+					for (int32 c = 0; c < bs; ++c)
+						dst[c] = dc;
+			}
+			void PredDc(uint8 *dst, int32 stride, int32 bs, const uint8 *above, const uint8 *left) {
+				int32 sum = 0;
+				for (int32 i = 0; i < bs; ++i)
+					sum += above[i] + left[i];
+				const uint8 dc = (uint8)((sum + bs) / (2 * bs));
+				for (int32 r = 0; r < bs; ++r, dst += stride)
+					for (int32 c = 0; c < bs; ++c)
+						dst[c] = dc;
+			}
+			void PredD45(uint8 *dst, int32 stride, int32 bs, const uint8 *above, const uint8 *left) {
+				(void)left;
+				const uint8 aboveRight = above[bs - 1];
+				uint8 *row0 = dst;
+				for (int32 x = 0; x < bs - 1; ++x)
+					dst[x] = Avg3(above[x], above[x + 1], above[x + 2]);
+				dst[bs - 1] = aboveRight;
+				dst += stride;
+				for (int32 x = 1, size = bs - 2; x < bs; ++x, --size) {
+					for (int32 i = 0; i < size; ++i)
+						dst[i] = row0[x + i];
+					for (int32 i = 0; i < x + 1; ++i)
+						dst[size + i] = aboveRight;
+					dst += stride;
+				}
+			}
+			void PredD63(uint8 *dst, int32 stride, int32 bs, const uint8 *above, const uint8 *left) {
+				(void)left;
+				for (int32 c = 0; c < bs; ++c) {
+					dst[c] = Avg2(above[c], above[c + 1]);
+					dst[stride + c] = Avg3(above[c], above[c + 1], above[c + 2]);
+				}
+				for (int32 r = 2, size = bs - 2; r < bs; r += 2, --size) {
+					for (int32 i = 0; i < size; ++i)
+						dst[(r + 0) * stride + i] = dst[(r >> 1) + i];
+					for (int32 i = size; i < bs; ++i)
+						dst[(r + 0) * stride + i] = above[bs - 1];
+					for (int32 i = 0; i < size; ++i)
+						dst[(r + 1) * stride + i] = dst[stride + (r >> 1) + i];
+					for (int32 i = size; i < bs; ++i)
+						dst[(r + 1) * stride + i] = above[bs - 1];
+				}
+			}
+			void PredD117(uint8 *dst, int32 stride, int32 bs, const uint8 *above, const uint8 *left) {
+				// 1re rangée.
+				for (int32 c = 0; c < bs; ++c)
+					dst[c] = Avg2(above[c - 1], above[c]);
+				dst += stride;
+				// 2e rangée.
+				dst[0] = Avg3(left[0], above[-1], above[0]);
+				for (int32 c = 1; c < bs; ++c)
+					dst[c] = Avg3(above[c - 2], above[c - 1], above[c]);
+				dst += stride;
+				// Reste de la 1re colonne.
+				dst[0] = Avg3(above[-1], left[0], left[1]);
+				for (int32 r = 3; r < bs; ++r)
+					dst[(r - 2) * stride] = Avg3(left[r - 3], left[r - 2], left[r - 1]);
+				// Reste du bloc.
+				for (int32 r = 2; r < bs; ++r) {
+					for (int32 c = 1; c < bs; ++c)
+						dst[c] = dst[-2 * stride + c - 1];
+					dst += stride;
+				}
+			}
+			void PredD135(uint8 *dst, int32 stride, int32 bs, const uint8 *above, const uint8 *left) {
+				uint8 border[32 + 32 - 1]; // bordure externe, du bas-gauche au haut-droit
+				for (int32 i = 0; i < bs - 2; ++i)
+					border[i] = Avg3(left[bs - 3 - i], left[bs - 2 - i], left[bs - 1 - i]);
+				border[bs - 2] = Avg3(above[-1], left[0], left[1]);
+				border[bs - 1] = Avg3(left[0], above[-1], above[0]);
+				border[bs - 0] = Avg3(above[-1], above[0], above[1]);
+				for (int32 i = 0; i < bs - 2; ++i)
+					border[bs + 1 + i] = Avg3(above[i], above[i + 1], above[i + 2]);
+				for (int32 i = 0; i < bs; ++i)
+					for (int32 c = 0; c < bs; ++c)
+						dst[i * stride + c] = border[bs - 1 - i + c];
+			}
+			void PredD153(uint8 *dst, int32 stride, int32 bs, const uint8 *above, const uint8 *left) {
+				dst[0] = Avg2(above[-1], left[0]);
+				for (int32 r = 1; r < bs; ++r)
+					dst[r * stride] = Avg2(left[r - 1], left[r]);
+				++dst;
+				dst[0] = Avg3(left[0], above[-1], above[0]);
+				dst[stride] = Avg3(above[-1], left[0], left[1]);
+				for (int32 r = 2; r < bs; ++r)
+					dst[r * stride] = Avg3(left[r - 2], left[r - 1], left[r]);
+				++dst;
+				for (int32 c = 0; c < bs - 2; ++c)
+					dst[c] = Avg3(above[c - 1], above[c], above[c + 1]);
+				dst += stride;
+				for (int32 r = 1; r < bs; ++r) {
+					for (int32 c = 0; c < bs - 2; ++c)
+						dst[c] = dst[-stride + c - 2];
+					dst += stride;
+				}
+			}
+			void PredD207(uint8 *dst, int32 stride, int32 bs, const uint8 *above, const uint8 *left) {
+				(void)above;
+				// 1re colonne.
+				for (int32 r = 0; r < bs - 1; ++r)
+					dst[r * stride] = Avg2(left[r], left[r + 1]);
+				dst[(bs - 1) * stride] = left[bs - 1];
+				++dst;
+				// 2e colonne.
+				for (int32 r = 0; r < bs - 2; ++r)
+					dst[r * stride] = Avg3(left[r], left[r + 1], left[r + 2]);
+				dst[(bs - 2) * stride] = Avg3(left[bs - 2], left[bs - 1], left[bs - 1]);
+				dst[(bs - 1) * stride] = left[bs - 1];
+				++dst;
+				// Reste de la dernière rangée.
+				for (int32 c = 0; c < bs - 2; ++c)
+					dst[(bs - 1) * stride + c] = left[bs - 1];
+				for (int32 r = bs - 2; r >= 0; --r)
+					for (int32 c = 0; c < bs - 2; ++c)
+						dst[r * stride + c] = dst[(r + 1) * stride + c - 2];
+			}
+
+			// --- Variantes 4x4 DÉDIÉES des modes directionnels (intrapred.c) : les
+			// coins utilisent l'above-right RÉEL (E..H) au lieu de la réplication du
+			// générique (« differs from vp8 »). Sans elles : coins faux en 4x4.
+#define NK_DST(x, y) dst[(x) + (y)*stride]
+			void PredD207_4x4(uint8 *dst, int32 stride, const uint8 *above, const uint8 *left) {
+				const int32 I = left[0], J = left[1], K = left[2], L = left[3];
+				(void)above;
+				NK_DST(0, 0) = Avg2(I, J);
+				NK_DST(2, 0) = NK_DST(0, 1) = Avg2(J, K);
+				NK_DST(2, 1) = NK_DST(0, 2) = Avg2(K, L);
+				NK_DST(1, 0) = Avg3(I, J, K);
+				NK_DST(3, 0) = NK_DST(1, 1) = Avg3(J, K, L);
+				NK_DST(3, 1) = NK_DST(1, 2) = Avg3(K, L, L);
+				NK_DST(3, 2) = NK_DST(2, 2) = NK_DST(0, 3) = NK_DST(1, 3) = NK_DST(2, 3) =
+					NK_DST(3, 3) = (uint8)L;
+			}
+			void PredD63_4x4(uint8 *dst, int32 stride, const uint8 *above, const uint8 *left) {
+				const int32 A = above[0], B = above[1], C = above[2], D = above[3];
+				const int32 E = above[4], F = above[5], G = above[6];
+				(void)left;
+				NK_DST(0, 0) = Avg2(A, B);
+				NK_DST(1, 0) = NK_DST(0, 2) = Avg2(B, C);
+				NK_DST(2, 0) = NK_DST(1, 2) = Avg2(C, D);
+				NK_DST(3, 0) = NK_DST(2, 2) = Avg2(D, E);
+				NK_DST(3, 2) = Avg2(E, F);
+				NK_DST(0, 1) = Avg3(A, B, C);
+				NK_DST(1, 1) = NK_DST(0, 3) = Avg3(B, C, D);
+				NK_DST(2, 1) = NK_DST(1, 3) = Avg3(C, D, E);
+				NK_DST(3, 1) = NK_DST(2, 3) = Avg3(D, E, F);
+				NK_DST(3, 3) = Avg3(E, F, G);
+			}
+			void PredD45_4x4(uint8 *dst, int32 stride, const uint8 *above, const uint8 *left) {
+				const int32 A = above[0], B = above[1], C = above[2], D = above[3];
+				const int32 E = above[4], F = above[5], G = above[6], H = above[7];
+				(void)left;
+				NK_DST(0, 0) = Avg3(A, B, C);
+				NK_DST(1, 0) = NK_DST(0, 1) = Avg3(B, C, D);
+				NK_DST(2, 0) = NK_DST(1, 1) = NK_DST(0, 2) = Avg3(C, D, E);
+				NK_DST(3, 0) = NK_DST(2, 1) = NK_DST(1, 2) = NK_DST(0, 3) = Avg3(D, E, F);
+				NK_DST(3, 1) = NK_DST(2, 2) = NK_DST(1, 3) = Avg3(E, F, G);
+				NK_DST(3, 2) = NK_DST(2, 3) = Avg3(F, G, H);
+				NK_DST(3, 3) = (uint8)H;
+			}
+			void PredD117_4x4(uint8 *dst, int32 stride, const uint8 *above, const uint8 *left) {
+				const int32 I = left[0], J = left[1], K = left[2];
+				const int32 X = above[-1], A = above[0], B = above[1], C = above[2], D = above[3];
+				NK_DST(0, 0) = NK_DST(1, 2) = Avg2(X, A);
+				NK_DST(1, 0) = NK_DST(2, 2) = Avg2(A, B);
+				NK_DST(2, 0) = NK_DST(3, 2) = Avg2(B, C);
+				NK_DST(3, 0) = Avg2(C, D);
+				NK_DST(0, 3) = Avg3(K, J, I);
+				NK_DST(0, 2) = Avg3(J, I, X);
+				NK_DST(0, 1) = NK_DST(1, 3) = Avg3(I, X, A);
+				NK_DST(1, 1) = NK_DST(2, 3) = Avg3(X, A, B);
+				NK_DST(2, 1) = NK_DST(3, 3) = Avg3(A, B, C);
+				NK_DST(3, 1) = Avg3(B, C, D);
+			}
+			void PredD135_4x4(uint8 *dst, int32 stride, const uint8 *above, const uint8 *left) {
+				const int32 I = left[0], J = left[1], K = left[2], L = left[3];
+				const int32 X = above[-1], A = above[0], B = above[1], C = above[2], D = above[3];
+				NK_DST(0, 3) = Avg3(J, K, L);
+				NK_DST(1, 3) = NK_DST(0, 2) = Avg3(I, J, K);
+				NK_DST(2, 3) = NK_DST(1, 2) = NK_DST(0, 1) = Avg3(X, I, J);
+				NK_DST(3, 3) = NK_DST(2, 2) = NK_DST(1, 1) = NK_DST(0, 0) = Avg3(A, X, I);
+				NK_DST(3, 2) = NK_DST(2, 1) = NK_DST(1, 0) = Avg3(B, A, X);
+				NK_DST(3, 1) = NK_DST(2, 0) = Avg3(C, B, A);
+				NK_DST(3, 0) = Avg3(D, C, B);
+			}
+			void PredD153_4x4(uint8 *dst, int32 stride, const uint8 *above, const uint8 *left) {
+				const int32 I = left[0], J = left[1], K = left[2], L = left[3];
+				const int32 X = above[-1], A = above[0], B = above[1], C = above[2];
+				NK_DST(0, 0) = NK_DST(2, 1) = Avg2(I, X);
+				NK_DST(0, 1) = NK_DST(2, 2) = Avg2(J, I);
+				NK_DST(0, 2) = NK_DST(2, 3) = Avg2(K, J);
+				NK_DST(0, 3) = Avg2(L, K);
+				NK_DST(3, 0) = Avg3(A, B, C);
+				NK_DST(2, 0) = Avg3(X, A, B);
+				NK_DST(1, 0) = NK_DST(3, 1) = Avg3(I, X, A);
+				NK_DST(1, 1) = NK_DST(3, 2) = Avg3(J, I, X);
+				NK_DST(1, 2) = NK_DST(3, 3) = Avg3(K, J, I);
+				NK_DST(1, 3) = Avg3(L, K, J);
+			}
+#undef NK_DST
+
+			// Besoins de bords par mode : {left, above, aboveRight}.
+			const uint8 kNeedLeft[10] = {1, 0, 1, 0, 1, 1, 1, 1, 0, 1};
+			const uint8 kNeedAbove[10] = {1, 1, 0, 0, 1, 1, 1, 0, 0, 1};
+			const uint8 kNeedAboveRight[10] = {0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
+
+			// build_intra_predictors (vp9_reconintra.c, port fidèle — motif 127/129).
+			void PredictIntra(const FrameParseState &st, int32 plane, int32 mode, int32 txSize,
+							  uint8 *dst, int32 stride, int32 aoff, int32 loff, int32 frameW,
+							  int32 frameH, bool haveTop, bool haveLeft, bool haveRight) {
+				uint8 leftCol[32];
+				uint8 aboveData[64 + 16];
+				uint8 *aboveRow = aboveData + 16;
+				const uint8 *constAboveRow = aboveRow;
+				const int32 bs = 4 << txSize;
+				const int32 ssx = plane ? st.hdr->subsamplingX : 0;
+				const int32 ssy = plane ? st.hdr->subsamplingY : 0;
+				const int32 x0 = ((-st.mbToLeftEdge) >> (3 + ssx)) + aoff * 4;
+				const int32 y0 = ((-st.mbToTopEdge) >> (3 + ssy)) + loff * 4;
+				const uint8 *ref = dst;
+
+				if (kNeedLeft[mode]) {
+					if (haveLeft) {
+						if (st.mbToBottomEdge < 0 && y0 + bs > frameH) {
+							const int32 extend = frameH - y0;
+							int32 i = 0;
+							for (; i < extend; ++i)
+								leftCol[i] = ref[i * stride - 1];
+							for (; i < bs; ++i)
+								leftCol[i] = ref[(extend - 1) * stride - 1];
+						} else {
+							for (int32 i = 0; i < bs; ++i)
+								leftCol[i] = ref[i * stride - 1];
+						}
+					} else {
+						for (int32 i = 0; i < bs; ++i)
+							leftCol[i] = 129;
+					}
+				}
+
+				if (kNeedAbove[mode]) {
+					if (haveTop) {
+						const uint8 *aboveRef = ref - stride;
+						if (st.mbToRightEdge < 0 && x0 + bs > frameW) {
+							if (x0 <= frameW) {
+								const int32 r = frameW - x0;
+								for (int32 i = 0; i < r; ++i)
+									aboveRow[i] = aboveRef[i];
+								for (int32 i = r; i < bs; ++i)
+									aboveRow[i] = aboveRow[r - 1];
+							}
+						} else {
+							for (int32 i = 0; i < bs; ++i)
+								aboveRow[i] = aboveRef[i];
+						}
+						aboveRow[-1] = haveLeft ? aboveRef[-1] : 129;
+					} else {
+						for (int32 i = 0; i < bs; ++i)
+							aboveRow[i] = 127;
+						aboveRow[-1] = 127;
+					}
+				}
+
+				if (kNeedAboveRight[mode]) {
+					if (haveTop) {
+						const uint8 *aboveRef = ref - stride;
+						if (st.mbToRightEdge < 0) {
+							// chemin lent : extension au bord de l'image
+							if (x0 + 2 * bs <= frameW) {
+								if (haveRight && bs == 4) {
+									for (int32 i = 0; i < 2 * bs; ++i)
+										aboveRow[i] = aboveRef[i];
+								} else {
+									for (int32 i = 0; i < bs; ++i)
+										aboveRow[i] = aboveRef[i];
+									for (int32 i = 0; i < bs; ++i)
+										aboveRow[bs + i] = aboveRow[bs - 1];
+								}
+							} else if (x0 + bs <= frameW) {
+								const int32 r = frameW - x0;
+								if (haveRight && bs == 4) {
+									for (int32 i = 0; i < r; ++i)
+										aboveRow[i] = aboveRef[i];
+									for (int32 i = r; i < 2 * bs; ++i)
+										aboveRow[i] = aboveRow[r - 1];
+								} else {
+									for (int32 i = 0; i < bs; ++i)
+										aboveRow[i] = aboveRef[i];
+									for (int32 i = 0; i < bs; ++i)
+										aboveRow[bs + i] = aboveRow[bs - 1];
+								}
+							} else if (x0 <= frameW) {
+								const int32 r = frameW - x0;
+								for (int32 i = 0; i < r; ++i)
+									aboveRow[i] = aboveRef[i];
+								for (int32 i = r; i < 2 * bs; ++i)
+									aboveRow[i] = aboveRow[r - 1];
+							}
+						} else {
+							// chemin rapide
+							for (int32 i = 0; i < bs; ++i)
+								aboveRow[i] = aboveRef[i];
+							if (bs == 4 && haveRight)
+								for (int32 i = 0; i < bs; ++i)
+									aboveRow[bs + i] = aboveRef[bs + i];
+							else
+								for (int32 i = 0; i < bs; ++i)
+									aboveRow[bs + i] = aboveRow[bs - 1];
+						}
+						aboveRow[-1] = haveLeft ? aboveRef[-1] : 129;
+					} else {
+						for (int32 i = 0; i < 2 * bs; ++i)
+							aboveRow[i] = 127;
+						aboveRow[-1] = 127;
+					}
+				}
+
+				// Dispatch.
+				if (mode == 0) { // DC : 4 variantes selon la disponibilité
+					if (haveLeft && haveTop)
+						PredDc(dst, stride, bs, constAboveRow, leftCol);
+					else if (haveLeft)
+						PredDcLeft(dst, stride, bs, constAboveRow, leftCol);
+					else if (haveTop)
+						PredDcTop(dst, stride, bs, constAboveRow, leftCol);
+					else
+						PredDc128(dst, stride, bs, constAboveRow, leftCol);
+				} else if (bs == 4 && mode >= 3 && mode <= 8) {
+					// Variantes 4x4 dédiées des modes directionnels.
+					typedef void (*Pred4Fn)(uint8 *, int32, const uint8 *, const uint8 *);
+					static const Pred4Fn kPred4[6] = {PredD45_4x4,	PredD135_4x4, PredD117_4x4,
+													  PredD153_4x4, PredD207_4x4, PredD63_4x4};
+					kPred4[mode - 3](dst, stride, constAboveRow, leftCol);
 				} else {
-					DecodeBlockTokens(bd, st);
+					typedef void (*PredFn)(uint8 *, int32, int32, const uint8 *, const uint8 *);
+					static const PredFn kPred[10] = {nullptr, PredV,	PredH,	 PredD45, PredD135,
+													 PredD117, PredD153, PredD207, PredD63, PredTm};
+					kPred[mode](dst, stride, bs, constAboveRow, leftCol);
 				}
 			}
 
@@ -1069,15 +1540,17 @@ namespace nkentseu {
 			return bd.overreadBytes <= 2;
 		}
 
-		bool NkVp9Decoder::ParseKeyFrameContent(const uint8 *tileData, usize tileSize,
-												const NkVp9FrameHeader &hdr, const NkVp9FrameContext &fc,
-												const NkVp9CompressedHeader &chdr,
-												NkTileParseStats &stats) {
-			stats = NkTileParseStats{};
+		namespace {
+			// Corps commun briques 3-4 : parse (img == nullptr) ou reconstruction.
+			bool ParseOrDecodeKeyContent(const uint8 *tileData, usize tileSize,
+										 const NkVp9FrameHeader &hdr, const NkVp9FrameContext &fc,
+										 const NkVp9CompressedHeader &chdr,
+										 NkVp9Decoder::NkTileParseStats &stats, NkVp9Image *img) {
+			stats = NkVp9Decoder::NkTileParseStats{};
 			if (tileData == nullptr || tileSize == 0 || hdr.width <= 0 || hdr.height <= 0)
 				return false;
 			if (hdr.frameType != kVp9KeyFrame && !hdr.intraOnly)
-				return false; // brique 3 : intra seulement
+				return false; // intra seulement (l'inter = briques suivantes)
 
 			FrameParseState st;
 			st.hdr = &hdr;
@@ -1086,6 +1559,48 @@ namespace nkentseu {
 			st.miRows = (hdr.height + 7) >> 3;
 			st.sbCols = (st.miCols + 7) >> 3;
 			st.txMode = chdr.txMode;
+
+			if (img != nullptr) {
+				// Buffers de sortie I420 + tables de déquantification par segment.
+				// ⚠ MARGE de 64 px à droite et en bas : les blocs PARTIELS des bords
+				// écrivent leur emprise COMPLÈTE (prédiction pleine taille, normatif —
+				// libvpx alloue pareil des bordures) ; sans marge, un bloc du bord
+				// droit déborde du stride et écrase la bande gauche de la rangée
+				// suivante. La marge n'est jamais LUE (les chemins de bord répliquent
+				// via frameW/frameH), elle absorbe seulement les écritures.
+				img->width = hdr.width;
+				img->height = hdr.height;
+				img->uvWidth = (hdr.width + hdr.subsamplingX) >> hdr.subsamplingX;
+				img->uvHeight = (hdr.height + hdr.subsamplingY) >> hdr.subsamplingY;
+				img->yStride = hdr.width + 64;
+				img->uvStride = img->uvWidth + 64;
+				img->y.Resize((usize)img->yStride * (usize)(img->height + 64));
+				img->u.Resize((usize)img->uvStride * (usize)(img->uvHeight + 64));
+				img->v.Resize((usize)img->uvStride * (usize)(img->uvHeight + 64));
+				st.planes[0] = img->y.Data();
+				st.planes[1] = img->u.Data();
+				st.planes[2] = img->v.Data();
+				st.planeStride[0] = img->yStride;
+				st.planeStride[1] = st.planeStride[2] = img->uvStride;
+				st.planeW[0] = img->width;
+				st.planeH[0] = img->height;
+				st.planeW[1] = st.planeW[2] = img->uvWidth;
+				st.planeH[1] = st.planeH[2] = img->uvHeight;
+				// get_qindex + vp9_dc/ac_quant par segment (ALT_Q = feature 0).
+				for (int32 s = 0; s < 8; ++s) {
+					int32 q = hdr.baseQIdx;
+					if (hdr.segEnabled && hdr.segFeatureEnabled[s][0]) {
+						const int32 data = hdr.segFeatureData[s][0];
+						q = hdr.segAbsDelta ? data : hdr.baseQIdx + data;
+						q = q < 0 ? 0 : (q > 255 ? 255 : q);
+					}
+					auto ClampQ = [](int32 v) { return v < 0 ? 0 : (v > 255 ? 255 : v); };
+					st.yDequant[s][0] = kVp9DcQLookup[ClampQ(q + hdr.deltaQYDc)];
+					st.yDequant[s][1] = kVp9AcQLookup[q];
+					st.uvDequant[s][0] = kVp9DcQLookup[ClampQ(q + hdr.deltaQUvDc)];
+					st.uvDequant[s][1] = kVp9AcQLookup[ClampQ(q + hdr.deltaQUvAc)];
+				}
+			}
 
 			const int32 miAligned = st.sbCols * kMiBlockSize;
 			st.mi = (MiCell *)memory::NkAlloc((size_t)st.miRows * (size_t)st.miCols * sizeof(MiCell));
@@ -1176,6 +1691,38 @@ namespace nkentseu {
 			memory::NkFree(st.aboveSegCtx);
 			for (int32 q = 0; q < 3; ++q)
 				memory::NkFree(st.aboveEntCtx[q]);
+			return ok;
+			}
+		} // namespace
+
+		bool NkVp9Decoder::ParseKeyFrameContent(const uint8 *tileData, usize tileSize,
+												const NkVp9FrameHeader &hdr, const NkVp9FrameContext &fc,
+												const NkVp9CompressedHeader &chdr,
+												NkTileParseStats &stats) {
+			return ParseOrDecodeKeyContent(tileData, tileSize, hdr, fc, chdr, stats, nullptr);
+		}
+
+		bool NkVp9Decoder::DecodeKeyFrame(const uint8 *frame, usize size, NkVp9Image &out,
+										  NkTileParseStats *statsOut) {
+			NkVp9FrameHeader hdr;
+			if (!ParseUncompressedHeader(frame, size, hdr))
+				return false;
+			if (hdr.showExistingFrame || (hdr.frameType != kVp9KeyFrame && !hdr.intraOnly))
+				return false;
+			const usize hdrBytes = (usize)hdr.uncompressedBytes + (usize)hdr.headerSizeBytes;
+			if (hdrBytes >= size || hdr.headerSizeBytes <= 0)
+				return false;
+			NkVp9FrameContext fc;
+			InitDefaultFrameContext(fc);
+			NkVp9CompressedHeader chdr;
+			if (!ParseCompressedHeader(frame + hdr.uncompressedBytes, (usize)hdr.headerSizeBytes, hdr,
+									   fc, chdr))
+				return false;
+			NkTileParseStats stats;
+			const bool ok = ParseOrDecodeKeyContent(frame + hdrBytes, size - hdrBytes, hdr, fc, chdr,
+													stats, &out);
+			if (statsOut)
+				*statsOut = stats;
 			return ok;
 		}
 
