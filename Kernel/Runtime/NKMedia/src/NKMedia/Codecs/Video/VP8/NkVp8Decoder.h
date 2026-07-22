@@ -160,6 +160,17 @@ namespace nkentseu {
 			kVp8MbHPred = 2,
 			kVp8MbTmPred = 3,
 			kVp8MbBPred = 4, // luma en 16 sous-blocs 4×4, chacun son propre mode
+			// Modes INTER (images non-clés uniquement ; suite du même enum normatif).
+			kVp8MbNearestMv = 5,
+			kVp8MbNearMv = 6,
+			kVp8MbZeroMv = 7,
+			kVp8MbNewMv = 8,
+			kVp8MbSplitMv = 9,
+			// Images de référence.
+			kVp8RefIntra = 0,
+			kVp8RefLast = 1,
+			kVp8RefGolden = 2,
+			kVp8RefAltRef = 3,
 			// Modes de sous-bloc 4×4 (B_PRED).
 			kVp8BDcPred = 0,
 			kVp8BTmPred = 1,
@@ -173,14 +184,28 @@ namespace nkentseu {
 			kVp8BHuPred = 9,
 		};
 
-		// Information de mode d'UN macrobloc. Sur une image clé, tous les MB sont intra
-		// (pas de `refFrame`/vecteurs de mouvement à ce stade du chantier).
+		// Vecteur de mouvement en 1/8 de pixel pour le chroma, 1/4 luma… en réalité VP8
+		// code TOUT en unités de 1/8 pel (les composantes décodées §17 sont ×2, donc de
+		// facto au quart de pel pour le luma). row = vertical, col = horizontal.
+		struct NkVp8Mv {
+				int16 row = 0, col = 0;
+				bool IsZero() const { return row == 0 && col == 0; }
+				bool Same(const NkVp8Mv &o) const { return row == o.row && col == o.col; }
+		};
+
+		// Information de mode d'UN macrobloc (image clé : intra seulement ; image inter :
+		// intra OU inter avec vecteurs de mouvement).
 		struct NkVp8MbModeInfo {
-				uint8 yMode = kVp8MbDcPred;
+				uint8 yMode = kVp8MbDcPred; // DC..B_PRED (intra) ou NEARESTMV..SPLITMV (inter)
 				uint8 uvMode = kVp8MbDcPred;
 				uint8 segmentId = 0;
 				uint8 skipCoeff = 0;
-				uint8 bModes[16] = {}; // significatif seulement si yMode == kVp8MbBPred
+				uint8 refFrame = kVp8RefIntra;
+				uint8 partitioning = 0; // SPLITMV : 0=16×8, 1=8×16, 2=8×8, 3=4×4
+				uint8 needClampMvs = 0;
+				uint8 bModes[16] = {};	 // intra B_PRED : mode de chaque sous-bloc
+				NkVp8Mv mv;				 // MV du macrobloc (SPLITMV : celui du sous-bloc 15)
+				NkVp8Mv bmv[16];		 // MV par sous-bloc 4×4 (uniformes hors SPLITMV)
 		};
 
 		// §11.3 : décode les modes de TOUS les macroblocs d'une image CLÉ depuis la 1ère
@@ -295,6 +320,29 @@ namespace nkentseu {
 									   const NkVp8LoopFilterDeltas &lfDeltas,
 									   const NkVector<NkVp8MbModeInfo> &mbInfo, int32 width,
 									   int32 height, NkVp8Image &out);
+
+		// ── Décodeur complet multi-images (clé + inter) ──────────────────────────────
+		// État persistant entre les images : contexte d'entropie (avec repli
+		// `refresh_entropy_probs == 0`), état de segmentation/filtre, et les TROIS tampons
+		// de référence (`last` / `golden` / `altref`), chacun conservé avec une bordure
+		// étendue de 32 pixels (réplication des bords) pour que la compensation de
+		// mouvement puisse lire hors image, exactement comme la référence.
+		struct NkVp8DecoderState {
+				NkVp8FrameContext fc;
+				NkVp8FrameContext fcSaved; // copie pour le repli refresh_entropy_probs == 0
+				NkVp8Segmentation seg;
+				NkVp8LoopFilterDeltas lfDeltas;
+				NkVp8Image lastFrame, goldenFrame, altRefFrame;
+				bool hasKeyFrame = false;
+				int32 width = 0, height = 0;
+		};
+
+		// Décode UNE image (clé ou inter) et met à jour l'état (tampons de référence,
+		// contexte d'entropie). `out` = image reconstruite, filtre de boucle appliqué.
+		// Renvoie false sur les cas non gérés (version de bitstream != 0, segmentation
+		// active, partitions de tokens multiples, image inter avant toute image clé…).
+		bool NkVp8DecodeFrame(NkVp8DecoderState &st, const uint8 *data, usize size,
+							   NkVp8Image &out);
 
 	} // namespace media
 } // namespace nkentseu
