@@ -87,6 +87,11 @@ namespace nkentseu {
 			if (mn.sx > maxSx)
 				mn.sx = maxSx;
 			mn.rect = box; // exposee : les zones DERRIERE ignorent la souris quand elle est ici
+			// Routeur d'occlusion unifie : ce menu est une surface de couche 50 — les
+			// hit-tests de couche 0 (panneaux/widgets natifs via ItemHoverable) sous
+			// son rect echouent automatiquement des la frame suivante.
+			ctx.PushOcclusion(box, 50);
+			NkGuiContext::NkInputLayerScope _layer(ctx, 50);
 			// Couleurs du THÈME (dark ET light) — plus de valeurs en dur qui juraient
 			// en thème clair (fond sombre + texte clair sur UI claire).
 			dl.AddRectFilled(box, ctx.theme.panel, 6.f);

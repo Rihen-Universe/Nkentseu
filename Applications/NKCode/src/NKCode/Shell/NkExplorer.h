@@ -994,7 +994,9 @@ namespace nkentseu {
 					const NkVec2 m = ctx.input.mousePos;
 					const NkRect clip = dl.CurrentClip();
 					// Peek ouvert : l'arbre ne réagit plus (le peek modal a la main).
-					const bool inClip = NkGuiRectContains(clip, m) && m.y >= topY && !mPeekOpen;
+					// + routeur d'occlusion : aveugle sous un modal/palette (couche > 0).
+					const bool inClip =
+						NkGuiRectContains(clip, m) && m.y >= topY && !mPeekOpen && ctx.PointReachable(m);
 					// Focus-clic du panneau : un clic DANS le panneau (header compris) le
 					// prend, un clic ailleurs le rend — les raccourcis Ctrl+C/X/V, F2,
 					// Suppr restent actifs après un clic sur la toolbar ou le menu.
