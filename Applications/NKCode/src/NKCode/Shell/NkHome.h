@@ -401,14 +401,21 @@ namespace nkentseu {
 #endif
 		}
 
-		// Lance une NOUVELLE fenetre NKCode sur ce dossier (re-exec de l'executable + arg dossier).
+		// Lance une NOUVELLE fenetre NKCode : sur `folder` si fourni, sinon SANS
+		// argument -> la fenetre s'ouvre sur le LAUNCHER (ecran de demarrage).
 		inline void NkHomeOpenNewWindow(const NkString &exe, const NkString &folder) {
 			if (exe.Empty())
 				return;
 #ifdef _WIN32
-			NkCodeShellRun((NkString("start \"\" \"") + exe + "\" \"" + folder + "\"").CStr());
+			if (folder.Empty())
+				NkCodeShellRun((NkString("start \"\" \"") + exe + "\"").CStr());
+			else
+				NkCodeShellRun((NkString("start \"\" \"") + exe + "\" \"" + folder + "\"").CStr());
 #else
-			NkCodeShellRun((NkString("\"") + exe + "\" \"" + folder + "\" &").CStr());
+			if (folder.Empty())
+				NkCodeShellRun((NkString("\"") + exe + "\" &").CStr());
+			else
+				NkCodeShellRun((NkString("\"") + exe + "\" \"" + folder + "\" &").CStr());
 #endif
 		}
 

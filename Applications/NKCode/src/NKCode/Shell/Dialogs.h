@@ -33,6 +33,8 @@ namespace nkentseu {
 				bool showPrefs = false;			// fenetre modale PREFERENCES (panneau launcher complet)
 				bool showNewWs = false;			// fenetre modale NOUVEAU WORKSPACE (wizard launcher complet)
 				bool wsAddAsRoot = false;		// intercepte le DoLoad du wizard -> ajout comme racine explorateur
+				int32 showHelp = 0;				// fenetre dediee AIDE : 0 aucune, 1 raccourcis, 2 a propos
+				float32 helpScroll = 0.f;		// defilement de la fenetre d'aide
 				NkLoadingState loading;			// ecran de chargement (workspace -> editeur)
 
 				enum Mode { None = 0, NewProject, NewWorkspace, SaveAs, Properties };

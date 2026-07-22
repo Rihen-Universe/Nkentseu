@@ -573,10 +573,56 @@ namespace nkentseu {
 				EndMenu(ctx);
 			}
 
-			// ── DÉBOGUER (backend = chantier dedie ; honnete : tout grise) ───
+			// ── DÉBOGUER : GDB/LLDB REEL via `jenga gdb` dans le terminal integre.
+			//    Les points d'arret poses dans la gouttiere (F9) sont transmis au
+			//    debugger (--break fichier:ligne). UI in-app = chantier dedie. ──
 			if (BeginMenu(ctx, NkT("mb.debug"))) {
-				MenuItem(ctx, "Attach to Process", nullptr, false);
-				MenuItem(ctx, "Configurations", nullptr, false);
+				// Compose `jenga gdb [proj] --config Debug [--break f:l]... --build`
+				auto gdbCmd = [&](bool runNow) -> NkString {
+					NkString cmd("jenga gdb");
+					if (s && !s->AllProjects()) {
+						cmd += " ";
+						cmd += s->SelectedProject();
+					}
+					cmd += " --config Debug";
+					if (s)
+						for (usize i = 0; i < s->files.Size(); ++i) {
+							const OpenFile &f = s->files[i];
+							for (usize b = 0; b < f.doc.breakpoints.Size(); ++b) {
+								cmd += " --break \"";
+								cmd += f.Name();
+								cmd += NkPrintf(":%d", f.doc.breakpoints[b] + 1).CStr(); // gdb = 1-base
+								cmd += "\"";
+							}
+						}
+					if (runNow)
+						cmd += " --run";
+					cmd += " --build";
+					if (s)
+						cmd += s->JengaFileArg();
+					return cmd;
+				};
+				if (MenuItem(ctx, NkT("mb.debug.start"), "F5", hasWs) && s)
+					TermCmd(s, sh, gdbCmd(false).CStr());
+				if (MenuItem(ctx, NkT("mb.debug.startrun"), nullptr, hasWs) && s)
+					TermCmd(s, sh, gdbCmd(true).CStr());
+				Separator(ctx);
+				if (MenuItem(ctx, NkT("mb.run.breakpoint"), "F9", hasFile) && doc)
+					doc->ToggleBreakpoint(doc->curLine);
+				bool anyBp = false;
+				if (s)
+					for (usize i = 0; i < s->files.Size() && !anyBp; ++i)
+						anyBp = !s->files[i].doc.breakpoints.Empty();
+				if (MenuItem(ctx, NkT("mb.debug.clearbp"), nullptr, anyBp) && s) {
+					int32 n = 0;
+					for (usize i = 0; i < s->files.Size(); ++i) {
+						n += (int32)s->files[i].doc.breakpoints.Size();
+						s->files[i].doc.breakpoints.Clear();
+					}
+					s->status = NkPrintf("%d point(s) d'arret supprime(s)", n);
+				}
+				Separator(ctx);
+				MenuItem(ctx, "Attach to Process", nullptr, false); // (UI in-app a venir)
 				MenuItem(ctx, "Call Stack / Variables / Watch", nullptr, false);
 				MenuItem(ctx, "GPU Debugger", nullptr, false);
 				EndMenu(ctx);
@@ -679,7 +725,9 @@ namespace nkentseu {
 			// ── FENÊTRE ──────────────────────────────────────────────────────
 			if (BeginMenu(ctx, NkT("mb.window"))) {
 				if (MenuItem(ctx, NkT("mb.window.newwindow"), nullptr, !mb->exePath.Empty()))
-					NkHomeOpenNewWindow(mb->exePath, hasWs ? s->root.ToString() : NkString());
+					// SANS dossier : la nouvelle fenetre s'ouvre sur le LAUNCHER (et non
+					// dans le workspace courant) — l'utilisateur choisit quoi ouvrir.
+					NkHomeOpenNewWindow(mb->exePath, NkString());
 				if (MenuItem(ctx, NkT("mb.window.closewindow")))
 					sh->RequestClose();
 				Separator(ctx);
@@ -723,8 +771,10 @@ namespace nkentseu {
 			if (BeginMenu(ctx, NkT("mb.help"))) {
 				if (MenuItem(ctx, NkT("mb.help.docs"), "F1"))
 					NkLauncher::OpenURL("https://github.com/Rihen-Universe/Nkentseu/wiki");
-				if (MenuItem(ctx, NkT("mb.help.shortcuts")))
-					NkLauncher::OpenURL("https://github.com/Rihen-Universe/Nkentseu/wiki");
+				if (MenuItem(ctx, NkT("mb.help.shortcuts"))) {
+					d->showHelp = 1; // fenetre DEDIEE in-app (liste des raccourcis reels)
+					d->helpScroll = 0.f;
+				}
 				if (MenuItem(ctx, NkT("mb.help.forum")))
 					NkLauncher::OpenURL("https://github.com/Rihen-Universe/NKCode-Beta");
 				if (MenuItem(ctx, NkT("mb.help.releasenotes")))
@@ -735,8 +785,8 @@ namespace nkentseu {
 				if (MenuItem(ctx, NkT("mb.help.updates"), nullptr, true) && s)
 					TermCmd(s, sh,
 							"curl -s https://api.github.com/repos/Rihen-Universe/NKCode-Beta/releases/latest | findstr /i \"tag_name name browser_download_url\"");
-				if (MenuItem(ctx, NkT("mb.help.about")) && s)
-					s->status = NkString("NKCode 0.1.0-beta \xE2\x80\x94 Rihen \xC2\xB7 rihen.universe@gmail.com");
+				if (MenuItem(ctx, NkT("mb.help.about")))
+					d->showHelp = 2; // fenetre DEDIEE in-app (produit/editeur/contact)
 				EndMenu(ctx);
 			}
 		}
