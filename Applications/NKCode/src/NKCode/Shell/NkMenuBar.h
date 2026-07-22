@@ -12,7 +12,6 @@
 #include "NKCode/Shell/Panels.h"	  // SideLeftGroup/OpenSideExclusive (Recherche)
 #include "NKCode/Shell/NkHome.h"	  // NkHomeOpenNewWindow (Nouvelle fenetre)
 #include "NKCode/Shell/NkI18n.h"	  // NkT
-#include "NKWindow/Core/NkDialogs.h"  // OpenFileDialog (Ouvrir un fichier / Aller au fichier)
 #include "NKWindow/Core/NkLauncher.h" // OpenURL (Aide)
 
 namespace nkentseu {
@@ -26,7 +25,12 @@ namespace nkentseu {
 		struct NkMenuBarCtx {
 				NkCodeDialogs *dlg = nullptr;
 				NkEditorShell *shell = nullptr;
-				NkString exePath; // pour « Nouvelle fenetre » (NkHomeOpenNewWindow)
+				NkHomeState *home = nullptr; // wizard « Nouveau Workspace » du launcher (nav==2)
+				NkString exePath;			 // pour « Nouvelle fenetre » (NkHomeOpenNewWindow)
+				// « Ouvrir un fichier »/« Aller au fichier » via le PICKER MAISON :
+				// le picker (PK_File) remplit ce buffer a la confirmation (asynchrone) ;
+				// DrawMainMenuBar le poll chaque frame et ouvre le fichier.
+				char openFileBuf[512] = {};
 		};
 
 		namespace menubar_detail {
@@ -254,34 +258,48 @@ namespace nkentseu {
 			const bool hasFile = s && s->HasActive();
 			NkCodeDoc *doc = hasFile ? &s->files[s->active].doc : nullptr;
 
+			// Resultat ASYNCHRONE du picker « Ouvrir un fichier » (PK_File remplit le
+			// buffer a la confirmation, une frame plus tard) -> ouverture ici.
+			if (mb->openFileBuf[0] && s) {
+				s->OpenPath(NkPath(mb->openFileBuf));
+				mb->openFileBuf[0] = 0;
+			}
+
 			// ── FICHIER ──────────────────────────────────────────────────────
 			if (BeginMenu(ctx, NkT("mb.file"))) {
 				if (MenuItem(ctx, NkT("mb.file.startscreen")))
 					d->ShowStart();
 				Separator(ctx);
-				if (MenuItem(ctx, NkT("mb.file.newfile"), "Ctrl+N") && s)
+				if (MenuItem(ctx, NkT("mb.file.newfile"), "Ctrl+N", hasWs) && s) {
+					// Onglet vide + PICKER MAISON en mode enregistrer : le doc etant
+					// vide, l'ASSISTANT complet de creation s'affiche (emplacement,
+					// nom, type de fichier, proprietes/scaffolding C++) — exactement
+					// la fenetre modale de creation demandee, pas un onglet muet.
 					s->NewFile();
-				if (MenuItem(ctx, NkT("mb.file.newfolder"), nullptr, hasWs) && s) {
-					// « Nouveau dossier N » a la racine (l'explorateur le liste au refresh).
-					for (int32 k = 1; k <= 99; ++k) {
-						const NkString p = s->root.ToString() + (k == 1 ? "/NouveauDossier"
-																		: NkPrintf("/NouveauDossier%d", k).CStr());
-						if (!NkDirectory::Exists(p.CStr())) {
-							NkDirectory::CreateRecursive(NkPath(p));
-							s->status = NkString("Dossier cree : ") + p.CStr();
-							break;
-						}
-					}
+					d->SaveActiveNative();
 				}
+				if (MenuItem(ctx, NkT("mb.file.newfolder"), nullptr, hasWs) && s)
+					// Picker maison : navigation libre + bouton « nouveau dossier »
+					// integre (PickerCreateFolder) -> l'utilisateur choisit l'emplacement
+					// ET cree le dossier dans le meme dialogue modal.
+					d->OpenPicker(NkCodeDialogs::PK_NewFolder, s->root.ToString().CStr());
 				if (MenuItem(ctx, NkT("mb.file.newproject"), nullptr, hasWs))
-					d->Open(NkCodeDialogs::NewProject);
-				if (MenuItem(ctx, NkT("mb.file.newworkspace")))
-					d->Open(NkCodeDialogs::NewWorkspace);
+					d->Open(NkCodeDialogs::NewProject); // dialogue riche (nom/template/langage)
+				if (MenuItem(ctx, NkT("mb.file.newworkspace"))) {
+					// PARITE LAUNCHER : bascule vers l'ecran de demarrage sur le WIZARD
+					// « Nouveau Workspace » complet (templates, emplacement, options) —
+					// le meme flux que le launcher, pas un mini-dialogue.
+					d->ShowStart();
+					if (mb->home)
+						mb->home->nav = 2;
+				}
 				Separator(ctx);
 				if (MenuItem(ctx, NkT("mb.file.openfile")) && s) {
-					NkDialogResult r = NkDialogs::OpenFileDialog("*.*", NkT("mb.file.openfile"));
-					if (r.confirmed)
-						s->OpenPath(NkPath(r.path.CStr()));
+					// PICKER MAISON (pas le dialogue systeme), navigation DISQUE ENTIER
+					// (aucun confinement au workspace) — consigne explicite de Rihen.
+					mb->openFileBuf[0] = 0;
+					d->OpenPicker(NkCodeDialogs::PK_File, hasWs ? s->root.ToString().CStr() : nullptr, mb->openFileBuf,
+								  (int32)sizeof(mb->openFileBuf));
 				}
 				if (MenuItem(ctx, NkT("mb.file.openfolder")))
 					d->OpenFolderDialog();
@@ -335,7 +353,7 @@ namespace nkentseu {
 					TermCmd(s, sh, "tar -a -c --exclude=Build --exclude=.git -f workspace-export.zip . && echo Exporte: workspace-export.zip");
 				Separator(ctx);
 				if (MenuItem(ctx, NkT("mb.file.prefs")))
-					sh->OpenPreferences(0);
+					d->showPrefs = true; // modale PREFERENCES complete (panneau launcher)
 				if (MenuItem(ctx, NkT("mb.file.quit"), "Ctrl+Q"))
 					sh->RequestClose();
 				EndMenu(ctx);
@@ -455,12 +473,22 @@ namespace nkentseu {
 					EndMenu(ctx);
 				}
 				if (BeginMenu(ctx, NkT("mb.view.appearance"))) {
-					if (MenuItem(ctx, NkT("mb.view.theme")))
-						sh->OpenPreferences(1);
-					if (MenuItem(ctx, NkT("mb.view.fonts")))
-						sh->OpenPreferences(0);
-					if (MenuItem(ctx, NkT("mb.view.langs")))
-						sh->OpenPreferences(2);
+					// -> modale PREFERENCES, ouverte sur la bonne categorie.
+					if (MenuItem(ctx, NkT("mb.view.theme"))) {
+						d->showPrefs = true;
+						if (mb->home)
+							mb->home->settings.cat = 3; // Theme
+					}
+					if (MenuItem(ctx, NkT("mb.view.fonts"))) {
+						d->showPrefs = true;
+						if (mb->home)
+							mb->home->settings.cat = 0; // General (echelle/police UI)
+					}
+					if (MenuItem(ctx, NkT("mb.view.langs"))) {
+						d->showPrefs = true;
+						if (mb->home)
+							mb->home->settings.cat = 0; // General (langue)
+					}
 					EndMenu(ctx);
 				}
 				Separator(ctx);
@@ -482,9 +510,10 @@ namespace nkentseu {
 			// ── ALLER ────────────────────────────────────────────────────────
 			if (BeginMenu(ctx, NkT("mb.go"))) {
 				if (MenuItem(ctx, NkT("mb.go.gotofile")) && s) {
-					NkDialogResult r = NkDialogs::OpenFileDialog("*.*", NkT("mb.go.gotofile"));
-					if (r.confirmed)
-						s->OpenPath(NkPath(r.path.CStr()));
+					// meme picker maison que « Ouvrir un fichier » (disque entier).
+					mb->openFileBuf[0] = 0;
+					d->OpenPicker(NkCodeDialogs::PK_File, hasWs ? s->root.ToString().CStr() : nullptr, mb->openFileBuf,
+								  (int32)sizeof(mb->openFileBuf));
 				}
 				Separator(ctx);
 				const NkString word = doc ? WordAtCaret(*doc) : NkString();
@@ -602,8 +631,11 @@ namespace nkentseu {
 
 			// ── OUTILS ───────────────────────────────────────────────────────
 			if (BeginMenu(ctx, NkT("mb.tools"))) {
-				if (MenuItem(ctx, NkT("mb.view.theme")))
-					sh->OpenPreferences(1);
+				if (MenuItem(ctx, NkT("mb.view.theme"))) {
+					d->showPrefs = true;
+					if (mb->home)
+						mb->home->settings.cat = 3; // Theme
+				}
 				if (MenuItem(ctx, NkT("mb.tools.checksum"), nullptr, hasFile) && s)
 					TermCmd(s, sh,
 							(NkString("certutil -hashfile \"") + s->files[s->active].path.ToString().CStr() +

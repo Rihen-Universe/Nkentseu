@@ -140,6 +140,16 @@ namespace nkentseu {
 					return "Selectionner ce dossier";
 				}
 				virtual void PickerClearExtraFocus() {} // l'app y remet le focus de SES champs a 0
+				// Titre de la fenetre — surchargable par l'app (purposes applicatifs).
+				virtual const char *PickerTitle() const {
+					if (pickerFor == PK_SaveFile)
+						return "Enregistrer le fichier - choisir le dossier";
+					if (pickerFor == PK_File)
+						return "Choisir un fichier";
+					if (pickerFor == PK_PickFolder)
+						return "Ajouter un dossier au workspace";
+					return "Choisir un dossier";
+				}
 
 				// ── Comparaison de chemins : `dir` est-il ancetre (ou egal) de `file` ? ──
 				static bool PathIsAncestor(const char *dir, const char *file) {
@@ -499,12 +509,7 @@ namespace nkentseu {
 			// ── BARRE DE TITRE deplacable (lisere accent + drag) ──
 			const float32 tbH = 40.f * S;
 			dl.AddRectFilled({px, py, pw, 3.f * S}, sty.accent, 10.f * S);
-			text(px + 20.f * S, py + 16.f * S,
-				 saveMode		 ? "Enregistrer le fichier - choisir le dossier"
-				 : fileMode		 ? "Choisir un fichier (executable)"
-				 : pickFolderMode ? "Ajouter un dossier au workspace"
-								  : "Choisir un dossier",
-				 sty.text);
+			text(px + 20.f * S, py + 16.f * S, fp.PickerTitle(), sty.text);
 			{
 				const NkRect titleBar = {px, py, pw - 44.f * S, tbH}; // hors bouton ✕ (a droite)
 				if (click && hit(titleBar)) {

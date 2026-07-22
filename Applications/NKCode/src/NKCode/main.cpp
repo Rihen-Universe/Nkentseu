@@ -141,6 +141,7 @@ int nkmain(const NkEntryState &state) {
 	terminal.mState = &g_state;						 // terminal demarre dans la racine du workspace
 	g_dialogs.st = &g_state;
 	g_dialogs.shell = shell.Get();
+	g_dialogs.home = &g_home; // modale Preferences = panneau settings COMPLET du launcher
 	g_state.LoadRecents();							// workspaces recents (ecran de demarrage)
 	shell->SetAppMenu(&nkcode::AppFlagsThunk, &g_home); // user = NkHomeState	// pose appFullScreen/appModal chaque frame
 	// Barre de menus COMPLETE (11 menus, spec Banani) : remplace les menus par
@@ -148,6 +149,7 @@ int nkmain(const NkEntryState &state) {
 	static nkcode::NkMenuBarCtx g_menuBar;
 	g_menuBar.dlg = &g_dialogs;
 	g_menuBar.shell = shell.Get();
+	g_menuBar.home = &g_home; // « Nouveau Workspace » -> wizard complet du launcher (nav==2)
 	g_menuBar.exePath = (state.args.Size() > 0) ? state.args[0] : NkString(); // « Nouvelle fenetre »
 	shell->SetMenuBar(&nkcode::MainMenuBarThunk, &g_menuBar);
 	shell->SetOverlay(&nkcode::OverlayThunk, &g_dialogs);	// dialogues modaux (creation/enregistrement)
