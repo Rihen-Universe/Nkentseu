@@ -1754,13 +1754,16 @@ namespace nkentseu {
 			psd.RTVFormats[i] = rtvFormats[i];
 		psd.DSVFormat = dsvFormat;
 
-		if (numRT > 0) {
-			if (sh.ps.bytecode.empty()) {
-				NK_DX12_ERR("BuildGraphicsPSO: missing pixel shader with color outputs\n");
-				return nullptr;
-			}
-			psd.PS = sh.ps.bc();
+		if (numRT > 0 && sh.ps.bytecode.empty()) {
+			NK_DX12_ERR("BuildGraphicsPSO: missing pixel shader with color outputs\n");
+			return nullptr;
 		}
+		// PS attaché même avec 0 RTV (passe depth-only) : un PS discard-only est
+		// légal en D3D12 et NÉCESSAIRE pour les ombres alpha-testées (ShadowAlpha).
+		// Ne l'attacher que si numRT>0 exécutait la passe shadow SANS le discard →
+		// ombre pleine sur les casters masked (bug DX12 « trous absents »).
+		if (!sh.ps.bytecode.empty())
+			psd.PS = sh.ps.bc();
 
 		ComPtr<ID3D12PipelineState> pso;
 		HRESULT hr = mDevice->CreateGraphicsPipelineState(&psd, IID_PPV_ARGS(&pso));

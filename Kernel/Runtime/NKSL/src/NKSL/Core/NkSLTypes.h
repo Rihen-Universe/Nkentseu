@@ -424,6 +424,12 @@ namespace nkentseu {
 			// (NDC Vulkan Y-bas → OpenGL Y-haut). Équivalent du flip_vert_y de SPIRV-Cross.
 			// Activé par le consommateur quand la source est en convention Vulkan (NKRenderer).
 			bool glFlipYPosition = false;
+			// Desactive TOUT flip/negate Y automatique du vertex (GL flip ci-dessus
+			// ET negate Y des generateurs HLSL) : pour les VS qui rendent dans une
+			// cible NON presentee (atlas d'ombre...) avec des varyings — le
+			// heuristique inputs+varyings les classerait a tort. Active par le
+			// consommateur via le pragma commentaire « @gl-no-flip-y » (NKRenderer).
+			bool disableAutoYFlip = false;
 			// NK_GLSL : ne pas émettre layout(set=) — aplatir vers layout(binding=)
 			bool flattenGLSLBindings = true;
 			bool preferSpirvCrossForMSL = true;

@@ -1070,7 +1070,8 @@ namespace nkentseu {
 						hasUBO = true;
 				}
 				const bool purePC = hasPC && !hasUBO;
-				if (hasInputs && !purePC && hasVaryingOut)
+				const bool noFlip = mOpts && mOpts->disableAutoYFlip; // pragma @gl-no-flip-y
+				if (hasInputs && !purePC && hasVaryingOut && !noFlip)
 					EmitLine("output._Position.y = -output._Position.y;");
 			}
 			EmitLine("return output;");
