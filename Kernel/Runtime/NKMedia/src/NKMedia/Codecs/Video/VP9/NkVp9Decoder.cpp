@@ -1,14 +1,20 @@
 // =============================================================================
-// NKMedia/Codecs/Video/VP9/NkVp9Decoder.cpp — brique 1 : superframes + en-tête
-// de trame non compressé (spec VP9 §6.2 / Annexe B, vérifié contre l'ordre exact
-// de vp9_decodeframe.c read_uncompressed_header — réécrit, zéro code importé).
+// NKMedia/Codecs/Video/VP9/NkVp9Decoder.cpp — briques 1-2 :
+//   1) superframes + en-tête de trame non compressé (§6.2 / Annexe B) ;
+//   2) en-tête COMPRESSÉ (§6.3) : bool decoder (identique VP8, MAIS avec un bit
+//      marqueur initial) + contexte d'entropie + mises à jour subexp.
+// Ordres vérifiés contre vp9_decodeframe.c / vp9_dsubexp.c (réécrit, zéro code
+// importé). Tables normatives : NkVp9Tables.inc GÉNÉRÉ par vp9ref/extract.py.
 // =============================================================================
 #include "NKMedia/Codecs/Video/VP9/NkVp9Decoder.h"
+#include "NKMedia/Codecs/Video/VP8/NkVp8BoolDecoder.h"
 
 namespace nkentseu {
 	namespace media {
 
 		namespace {
+
+#include "NkVp9Tables.inc"
 
 			// --- Lecteur de bits MSB-first (vpx_read_bit_buffer) pour l'en-tête ---
 			// non compressé. L'en-tête compressé (briques suivantes) utilisera le
@@ -197,6 +203,60 @@ namespace nkentseu {
 					hdr.tileRowsLog2 += rb.Bit();
 			}
 
+			// --- Brique 2 : primitives de mise à jour de probabilités (§6.3) ---
+
+			constexpr int32 kDiffUpdateProb = 252; // DIFF_UPDATE_PROB
+			constexpr int32 kMvUpdateProb = 252;   // MV_UPDATE_PROB
+
+			// inv_recenter_nonneg (vp9_dsubexp.c).
+			int32 InvRecenterNonneg(int32 v, int32 m) {
+				if (v > 2 * m)
+					return v;
+				return (v & 1) ? m - ((v + 1) >> 1) : m + (v >> 1);
+			}
+
+			// decode_uniform : littéral 7 bits, étendu d'un bit au-delà de m=65.
+			int32 DecodeUniform(NkVp8BoolDecoder &bd) {
+				const int32 m = (1 << 8) - 191; // 65
+				const int32 v = (int32)bd.GetLiteral(7);
+				return v < m ? v : (v << 1) - m + bd.GetFlag();
+			}
+
+			// decode_term_subexp : delta en 4 tranches (4b, 4b+16, 5b+32, uniforme+64).
+			int32 DecodeTermSubexp(NkVp8BoolDecoder &bd) {
+				if (!bd.GetFlag())
+					return (int32)bd.GetLiteral(4);
+				if (!bd.GetFlag())
+					return (int32)bd.GetLiteral(4) + 16;
+				if (!bd.GetFlag())
+					return (int32)bd.GetLiteral(5) + 32;
+				return DecodeUniform(bd) + 64;
+			}
+
+			// inv_remap_prob : delta décodé + proba courante → nouvelle proba.
+			uint8 InvRemapProb(int32 v, int32 m) {
+				v = (int32)kVp9InvMapTable[v];
+				--m;
+				if ((m << 1) <= 255)
+					return (uint8)(1 + InvRecenterNonneg(v, m));
+				return (uint8)(255 - InvRecenterNonneg(v, 255 - 1 - m));
+			}
+
+			// vp9_diff_update_prob : flag (proba 252) puis delta subexp remappé.
+			void DiffUpdateProb(NkVp8BoolDecoder &bd, uint8 &p) {
+				if (bd.GetBool(kDiffUpdateProb)) {
+					const int32 delp = DecodeTermSubexp(bd);
+					p = InvRemapProb(delp, (int32)p);
+				}
+			}
+
+			// update_mv_probs : flag (proba 252) puis 7 bits → proba impaire.
+			void MvUpdateProbs(NkVp8BoolDecoder &bd, uint8 *p, int32 n) {
+				for (int32 i = 0; i < n; ++i)
+					if (bd.GetBool(kMvUpdateProb))
+						p[i] = (uint8)(((int32)bd.GetLiteral(7) << 1) | 1);
+			}
+
 		} // namespace
 
 		bool NkVp9Decoder::ParseSuperframe(const uint8 *data, usize size, NkVp9Superframe &out) {
@@ -234,7 +294,8 @@ namespace nkentseu {
 			return true;
 		}
 
-		bool NkVp9Decoder::ParseUncompressedHeader(const uint8 *data, usize size, NkVp9FrameHeader &out) {
+		bool NkVp9Decoder::ParseUncompressedHeader(const uint8 *data, usize size, NkVp9FrameHeader &out,
+												   int32 refW, int32 refH) {
 			out = NkVp9FrameHeader{};
 			BitReader rb;
 			rb.data = data;
@@ -299,16 +360,20 @@ namespace nkentseu {
 						out.refFrameSignBias[i] = rb.Bit() != 0;
 					}
 					// frame_size_with_refs : flag par référence (taille héritée), sinon
-					// taille explicite. La taille héritée exige l'état des refs (brique
-					// du décodeur complet) — ICI on note juste le flag choisi.
+					// taille explicite. La taille héritée = celle du slot référencé —
+					// fournie par l'appelant (`refW/refH`) ; sans elle, sentinelle
+					// négative (tile_info/headerSize non fiables).
 					bool found = false;
 					for (int32 i = 0; i < 3; ++i) {
 						if (rb.Bit()) {
 							found = true;
-							// Taille = celle de la référence i (résolue plus tard par le
-							// décodeur complet ; le harnais la considère inchangée).
-							out.width = -(out.refFrameIdx[i] + 1); // sentinelle : réf i
-							out.height = out.width;
+							if (refW > 0 && refH > 0) {
+								out.width = refW;
+								out.height = refH;
+							} else {
+								out.width = -(out.refFrameIdx[i] + 1); // sentinelle : réf i
+								out.height = out.width;
+							}
 							break;
 						}
 					}
@@ -348,6 +413,192 @@ namespace nkentseu {
 			out.headerSizeBytes = rb.Literal(16);
 			out.uncompressedBytes = (int32)((rb.bitPos + 7) >> 3);
 			return !rb.error;
+		}
+
+		void NkVp9Decoder::InitDefaultFrameContext(NkVp9FrameContext &fc) {
+			const uint8 *p;
+			p = &kVp9DefaultIfYProbs[0][0];
+			for (int32 i = 0; i < 4 * 9; ++i)
+				(&fc.yModeProb[0][0])[i] = p[i];
+			p = &kVp9DefaultIfUvProbs[0][0];
+			for (int32 i = 0; i < 10 * 9; ++i)
+				(&fc.uvModeProb[0][0])[i] = p[i];
+			p = &kVp9DefaultPartitionProbs[0][0];
+			for (int32 i = 0; i < 16 * 3; ++i)
+				(&fc.partitionProb[0][0])[i] = p[i];
+			p = &kVp9DefaultCoefProbs[0][0][0][0][0][0];
+			for (int32 i = 0; i < 4 * 2 * 2 * 6 * 6 * 3; ++i)
+				(&fc.coefProbs[0][0][0][0][0][0])[i] = p[i];
+			p = &kVp9DefaultSwitchableInterpProb[0][0];
+			for (int32 i = 0; i < 4 * 2; ++i)
+				(&fc.switchableInterpProb[0][0])[i] = p[i];
+			p = &kVp9DefaultInterModeProbs[0][0];
+			for (int32 i = 0; i < 7 * 3; ++i)
+				(&fc.interModeProbs[0][0])[i] = p[i];
+			for (int32 i = 0; i < 4; ++i)
+				fc.intraInterProb[i] = kVp9DefaultIntraInterP[i];
+			for (int32 i = 0; i < 5; ++i)
+				fc.compInterProb[i] = kVp9DefaultCompInterP[i];
+			p = &kVp9DefaultSingleRefP[0][0];
+			for (int32 i = 0; i < 5 * 2; ++i)
+				(&fc.singleRefProb[0][0])[i] = p[i];
+			for (int32 i = 0; i < 5; ++i)
+				fc.compRefProb[i] = kVp9DefaultCompRefP[i];
+			p = &kVp9DefaultTxProbs32[0][0];
+			for (int32 i = 0; i < 2 * 3; ++i)
+				(&fc.txProbs32[0][0])[i] = p[i];
+			p = &kVp9DefaultTxProbs16[0][0];
+			for (int32 i = 0; i < 2 * 2; ++i)
+				(&fc.txProbs16[0][0])[i] = p[i];
+			p = &kVp9DefaultTxProbs8[0][0];
+			for (int32 i = 0; i < 2 * 1; ++i)
+				(&fc.txProbs8[0][0])[i] = p[i];
+			for (int32 i = 0; i < 3; ++i)
+				fc.skipProbs[i] = kVp9DefaultSkipProbs[i];
+			for (int32 i = 0; i < 3; ++i)
+				fc.nmvJoints[i] = kVp9DefaultNmvJoints[i];
+			for (int32 c = 0; c < 2; ++c) {
+				NkVp9NmvComponent &co = fc.nmvComps[c];
+				co.sign = kVp9DefaultNmvSign[c];
+				for (int32 i = 0; i < 10; ++i)
+					co.classes[i] = kVp9DefaultNmvClasses[c][i];
+				co.class0[0] = kVp9DefaultNmvClass0[c][0];
+				for (int32 i = 0; i < 10; ++i)
+					co.bits[i] = kVp9DefaultNmvBits[c][i];
+				for (int32 i = 0; i < 2; ++i)
+					for (int32 j = 0; j < 3; ++j)
+						co.class0Fr[i][j] = kVp9DefaultNmvClass0Fr[c][i][j];
+				for (int32 i = 0; i < 3; ++i)
+					co.fr[i] = kVp9DefaultNmvFr[c][i];
+				co.class0Hp = kVp9DefaultNmvClass0Hp[c];
+				co.hp = kVp9DefaultNmvHp[c];
+			}
+		}
+
+		bool NkVp9Decoder::ParseCompressedHeader(const uint8 *data, usize size, const NkVp9FrameHeader &hdr,
+												 NkVp9FrameContext &fc, NkVp9CompressedHeader &out) {
+			if (data == nullptr || size == 0)
+				return false;
+			NkVp8BoolDecoder bd(data, size);
+			// ⚠ VP9 (vpx_reader_init) : UN BIT MARQUEUR est lu à l'init et doit valoir 0
+			// — c'est LA différence d'amorçage avec le bool decoder VP8 (aucun marqueur).
+			if (bd.GetFlag() != 0)
+				return false;
+
+			// tx_mode (§6.3.1) : 2 bits, +1 bit si ALLOW_32X32 (lossless → ONLY_4X4).
+			int32 txMode = 0;
+			if (!hdr.lossless) {
+				txMode = (int32)bd.GetLiteral(2);
+				if (txMode == 3)
+					txMode += bd.GetFlag();
+			}
+			out.txMode = txMode;
+
+			// tx probs (TX_MODE_SELECT) : p8x8 PUIS p16x16 PUIS p32x32 (read_tx_mode_probs).
+			if (txMode == 4) {
+				for (int32 i = 0; i < 2; ++i)
+					for (int32 j = 0; j < 1; ++j)
+						DiffUpdateProb(bd, fc.txProbs8[i][j]);
+				for (int32 i = 0; i < 2; ++i)
+					for (int32 j = 0; j < 2; ++j)
+						DiffUpdateProb(bd, fc.txProbs16[i][j]);
+				for (int32 i = 0; i < 2; ++i)
+					for (int32 j = 0; j < 3; ++j)
+						DiffUpdateProb(bd, fc.txProbs32[i][j]);
+			}
+
+			// coef probs (§6.3.2) : pour chaque taille de transformée ≤ max(txMode), un
+			// flag de mise à jour puis les deltas ([plane][ref][bande][ctx][3 nœuds] —
+			// la bande 0 n'a que 3 contextes).
+			static const int32 kTxModeToBiggestTxSize[5] = {0, 1, 2, 3, 3};
+			const int32 maxTxSize = kTxModeToBiggestTxSize[txMode];
+			for (int32 ts = 0; ts <= maxTxSize; ++ts) {
+				if (!bd.GetFlag())
+					continue;
+				for (int32 i = 0; i < 2; ++i)
+					for (int32 j = 0; j < 2; ++j)
+						for (int32 k = 0; k < 6; ++k) {
+							const int32 nCtx = (k == 0) ? 3 : 6;
+							for (int32 l = 0; l < nCtx; ++l)
+								for (int32 m = 0; m < 3; ++m)
+									DiffUpdateProb(bd, fc.coefProbs[ts][i][j][k][l][m]);
+						}
+			}
+
+			// skip probs.
+			for (int32 k = 0; k < 3; ++k)
+				DiffUpdateProb(bd, fc.skipProbs[k]);
+
+			out.referenceMode = kVp9SingleReference;
+			const bool intraOnlyFrame = (hdr.frameType == kVp9KeyFrame) || hdr.intraOnly;
+			if (!intraOnlyFrame) {
+				// inter modes.
+				for (int32 i = 0; i < 7; ++i)
+					for (int32 j = 0; j < 3; ++j)
+						DiffUpdateProb(bd, fc.interModeProbs[i][j]);
+				// filtre switchable.
+				if (hdr.interpFilter == kVp9Switchable)
+					for (int32 i = 0; i < 4; ++i)
+						for (int32 j = 0; j < 2; ++j)
+							DiffUpdateProb(bd, fc.switchableInterpProb[i][j]);
+				// intra/inter.
+				for (int32 i = 0; i < 4; ++i)
+					DiffUpdateProb(bd, fc.intraInterProb[i]);
+				// reference mode : compound possible ssi les sign bias divergent.
+				const bool compAllowed = (hdr.refFrameSignBias[1] != hdr.refFrameSignBias[0]) ||
+										 (hdr.refFrameSignBias[2] != hdr.refFrameSignBias[0]);
+				int32 refMode = kVp9SingleReference;
+				if (compAllowed) {
+					if (bd.GetFlag())
+						refMode = bd.GetFlag() ? kVp9ReferenceModeSelect : kVp9CompoundReference;
+				}
+				out.referenceMode = refMode;
+				if (refMode == kVp9ReferenceModeSelect)
+					for (int32 i = 0; i < 5; ++i)
+						DiffUpdateProb(bd, fc.compInterProb[i]);
+				if (refMode != kVp9CompoundReference)
+					for (int32 i = 0; i < 5; ++i) {
+						DiffUpdateProb(bd, fc.singleRefProb[i][0]);
+						DiffUpdateProb(bd, fc.singleRefProb[i][1]);
+					}
+				if (refMode != kVp9SingleReference)
+					for (int32 i = 0; i < 5; ++i)
+						DiffUpdateProb(bd, fc.compRefProb[i]);
+				// modes Y.
+				for (int32 j = 0; j < 4; ++j)
+					for (int32 i = 0; i < 9; ++i)
+						DiffUpdateProb(bd, fc.yModeProb[j][i]);
+				// partitions.
+				for (int32 j = 0; j < 16; ++j)
+					for (int32 i = 0; i < 3; ++i)
+						DiffUpdateProb(bd, fc.partitionProb[j][i]);
+				// vecteurs de mouvement (read_mv_probs) : joints, puis par composante
+				// sign/classes/class0/bits, puis par composante class0_fr/fr, puis hp.
+				MvUpdateProbs(bd, fc.nmvJoints, 3);
+				for (int32 c = 0; c < 2; ++c) {
+					NkVp9NmvComponent &co = fc.nmvComps[c];
+					MvUpdateProbs(bd, &co.sign, 1);
+					MvUpdateProbs(bd, co.classes, 10);
+					MvUpdateProbs(bd, co.class0, 1);
+					MvUpdateProbs(bd, co.bits, 10);
+				}
+				for (int32 c = 0; c < 2; ++c) {
+					NkVp9NmvComponent &co = fc.nmvComps[c];
+					for (int32 j = 0; j < 2; ++j)
+						MvUpdateProbs(bd, co.class0Fr[j], 3);
+					MvUpdateProbs(bd, co.fr, 3);
+				}
+				if (hdr.allowHighPrecisionMv) {
+					for (int32 c = 0; c < 2; ++c) {
+						MvUpdateProbs(bd, &fc.nmvComps[c].class0Hp, 1);
+						MvUpdateProbs(bd, &fc.nmvComps[c].hp, 1);
+					}
+				}
+			}
+
+			// Le bool decoder précharge 2 octets : un overread ≤ 2 est structurel,
+			// davantage = désalignement du parse.
+			return bd.overreadBytes <= 2;
 		}
 
 		bool NkVp9Decoder::SelfTest() {
