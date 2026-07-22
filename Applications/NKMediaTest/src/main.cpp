@@ -146,17 +146,20 @@ int main(int argc, char **argv) {
 			   to48 ? 48 : fs_kHz, argv[3]);
 		return 0;
 	}
-	// Décodeur Opus complet (dispatch CELT/SILK) : --opus <flux.webm> <out.pcm> (48 kHz s16le).
+	// Décodeur Opus complet (dispatch CELT/SILK) : --opus <flux.webm/.opus> <out.pcm>
+	// (48 kHz s16le, entrelacé si stéréo — canaux pris de la piste).
 	if (argc >= 4 && NkString(argv[1]) == NkString("--opus")) {
 		NkVector<nk_uint8> bytes;
 		media::NkMediaInfo info;
 		NkVector<media::NkMediaPacket> packets;
 		if (!media::NkMediaDemux::ExtractAudioPacketsFile(argv[2], bytes, info, packets))
 			return 1;
+		const media::NkMediaTrack *tr = info.FirstAudio();
+		const int ch = (tr && tr->channels == 2) ? 2 : 1;
 		media::NkOpusDecoder dec;
-		dec.Init(1);
+		dec.Init(ch);
 		NkVector<nk_int16> pcm;
-		nk_int16 out48[960 * 4];
+		nk_int16 out48[5760 * 2]; // 120 ms max (code 3) × 2 canaux
 		for (uint64 p = 0; p < packets.Size(); ++p) {
 			const int32 n = dec.DecodePacket(bytes.Data() + packets[p].offset, (int32)packets[p].size, out48);
 			for (int32 i = 0; i < n; ++i)
@@ -167,7 +170,8 @@ int main(int argc, char **argv) {
 			fwrite(pcm.Data(), sizeof(nk_int16), pcm.Size(), f);
 			fclose(f);
 		}
-		printf("[OPUS] %d paquets -> %d echantillons @ 48 kHz -> %s\n", (int)packets.Size(), (int)pcm.Size(), argv[3]);
+		printf("[OPUS] %d paquets -> %d echantillons (%d canal/aux) @ 48 kHz -> %s\n", (int)packets.Size(),
+			   (int)pcm.Size(), ch, argv[3]);
 		return 0;
 	}
 	// Décodeur AAC-LC : --aac <fichier.m4a/.mp4> <out.pcm> (s16le entrelacé, débit natif).
