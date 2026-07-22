@@ -122,8 +122,50 @@ inline void FileMenuThunk(NkEditorFrameContext &ec, void *u) {
 	nkcode::DrawFileMenu(ec, static_cast<nkcode::NkCodeDialogs *>(u));
 }
 
+// ── Fenetre modale PREFERENCES : heberge le panneau de parametres COMPLET du
+//    launcher (NkSettingsPanel — General/Chemins/Jenga/Theme/Git/Comptes/
+//    Raccourcis) au-dessus de l'editeur. Parite launcher demandee par Rihen. ──
+inline void DrawPrefsModal(NkEditorFrameContext &ec, nkcode::NkCodeDialogs *d) {
+	nkcode::NkHomeState *H = d->home;
+	if (!H)
+		return;
+	nkcode::NkUi u = nkcode::NkUi::From(ec, /*overlay=*/true);
+	if (!u.Valid())
+		return;
+	NkGuiContext &ctx = *u.ctx;
+	const float32 W = (float32)ctx.viewW, Vh = (float32)ctx.viewH;
+	// 88% du viewport, borne : assez grand pour le sous-sidebar categories + pages.
+	float32 pw = W * 0.88f, ph = Vh * 0.88f;
+	if (pw > u.s(1080))
+		pw = u.s(1080);
+	if (ph > u.s(760))
+		ph = u.s(760);
+	const NkRect box = {(W - pw) * 0.5f, (Vh - ph) * 0.5f, pw, ph};
+	// Routeur d'occlusion : la modale COUVRE tout (couche 100) ; ses propres
+	// hit-tests passent grace au scope.
+	ctx.PushOcclusion(box, 100);
+	NkGuiContext::NkInputLayerScope _layer(ctx, 100);
+	u.Rect({0.f, 0.f, W, Vh}, NkColor{0, 0, 0, 150}); // backdrop
+	// Clic hors fenetre = fermer (sauf si le picker des settings est ouvert).
+	if (u.click && !u.Hit(box) && !d->pickerOpen) {
+		d->showPrefs = false;
+		return;
+	}
+	u.Panel(box, nkcode::NkCol::background, nkcode::NkCol::border, nkcode::NkR::lg);
+	int32 navDummy = -1; // navOut inutilise par NkSettingsPanel ((void)navOut)
+	if (nkcode::NkSettingsPanel(u, box, &H->settings, H->st, d, ec.dt, H->icons, &navDummy) == 1) {
+		d->showPrefs = false; // Echap (champ/combo deja defocalises) = fermer
+		return;
+	}
+	ctx.appModal = true; // neutralise raccourcis/edition derriere la modale
+}
+
 inline void OverlayThunk(NkEditorFrameContext &ec, void *u) {
 	auto *d = static_cast<nkcode::NkCodeDialogs *>(u);
+	// Preferences AVANT DrawOverlay : le picker (ouvert par un champ des
+	// settings) doit se dessiner AU-DESSUS de la modale.
+	if (d->showPrefs)
+		DrawPrefsModal(ec, d);
 	// Demande d'« Enregistrer sous » (bouton +, ré-enregistrer un fichier supprimé) : ouvre le dialogue.
 	if (d->st && d->st->reqSaveAs) {
 		d->st->reqSaveAs = false;

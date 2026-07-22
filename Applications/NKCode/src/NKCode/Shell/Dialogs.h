@@ -23,10 +23,14 @@ namespace nkentseu {
 		using namespace nkentseu::editorkit;
 		using namespace nkentseu::nkgui;
 
+		struct NkHomeState; // forward (NkHome.h) — parametres launcher pour la modale Preferences
+
 		// Etat des dialogues modaux (un seul a la fois). 0 = aucun.
 		struct NkCodeDialogs : public NkFilePickerState {
 				NkCodeState *st = nullptr;
 				NkEditorShell *shell = nullptr; // pour appliquer l'etat d'UI du projet (ui.cfg)
+				NkHomeState *home = nullptr;	// pose par main.cpp — settings/icones du launcher
+				bool showPrefs = false;			// fenetre modale PREFERENCES (panneau launcher complet)
 				NkLoadingState loading;			// ecran de chargement (workspace -> editeur)
 
 				enum Mode { None = 0, NewProject, NewWorkspace, SaveAs, Properties };
@@ -40,6 +44,9 @@ namespace nkentseu {
 				int32 projFocus = 0;		 // champ focus du dialogue NewProject
 				int32 projWarn = 0;			 // 0=Defaut,1=Off,2=High,3=Extra,4=Everything
 				float32 projScroll = 0.f;	 // defilement du formulaire projet
+				// Workspace d'APPARTENANCE du nouveau projet : tout projet depend d'un
+				// workspace. -1 = workspace courant ; >=0 = index dans st->recents.
+				int32 projWsIdx = -1;
 				char projFiles[160] = {};	 // motif fichiers (defaut src/**.<ext>)
 				char projDefines[256] = {};	 // defines projet (csv)
 				char projInc[256] = {};		 // includedirs (csv)
@@ -169,6 +176,12 @@ namespace nkentseu {
 				char scafChildren[256] = {};	// classes filles (csv)
 				char scafExt[24] = {};			// extension (mode Texte/Autre)
 				int32 scafFocus = 0;			// 0 aucun, 1 nom, 2 ns, 3 base, 4 filles, 5 ext
+				// Purpose APPLICATIF : « creer un dossier » (menu Fichier > Nouveau Dossier).
+				// Le picker s'ouvre en mode dossier generique : navigation + bouton
+				// « + Creer dossier » integres ; la confirmation ne route AUCUNE action
+				// (le dossier est cree par le bouton dedie, rien d'autre a faire).
+				static constexpr int32 PK_NewFolder = 200;
+
 				void OpenPicker(int32 purpose, const char *startDir, char *buf = nullptr, int32 cap = 0,
 								const char *confine = nullptr) {
 					// Coeur generique dans NKEditorKit (NkFilePickerState) ; ici on ne fixe
@@ -201,6 +214,11 @@ namespace nkentseu {
 					return NkFilePickerState::PickerConfirmLabel();
 				}
 				void PickerClearExtraFocus() override { scafFocus = 0; }
+				const char *PickerTitle() const override {
+					if (pickerFor == PK_NewFolder)
+						return "Creer un dossier - choisir l'emplacement";
+					return NkFilePickerState::PickerTitle();
+				}
 
 				// Assistant de CREATION (scaffolding C++) dessine dans la region app du picker moteur.
 				void DrawPickerExtra(NkGuiContext &ctx, NkGuiDrawList &dl, const NkGuiFont *f, const NkRect &region,
@@ -278,6 +296,7 @@ namespace nkentseu {
 					} else if (purpose == PK_PickFolder && st)
 						st->pickedFolder = chosen; // dossier QUELCONQUE -> l'explorateur le récupère
 					// PK_Buf / PK_File : le buffer cible est deja rempli par le moteur.
+					// PK_NewFolder : rien a router (creation via le bouton « + Creer dossier »).
 				}
 
 				// ── Génération de squelette (scaffolding) selon l'extension ──────────────────
@@ -555,6 +574,8 @@ namespace nkentseu {
 					status.Clear();
 					if (m == NewProject || m == NewWorkspace)
 						nameBuf[0] = '\0';
+					if (m == NewProject)
+						projWsIdx = -1; // defaut = workspace courant
 				}
 
 				void ShowStart() {
@@ -1687,6 +1708,45 @@ namespace nkentseu {
 						d->BrowseInto(buf, cap, lab);
 					y += 32.f;
 				};
+				// ── Workspace d'APPARTENANCE : tout projet depend d'un workspace ──
+				text(cx, y, "Workspace d'appartenance", lblC);
+				y += 22.f;
+				{
+					const bool curOk = !d->st->wsPaths.Empty() && d->st->wsIdx >= 0 &&
+									   d->st->wsIdx < (int32)d->st->wsPaths.Size();
+					const NkString curPath = curOk ? d->st->wsPaths[d->st->wsIdx] : NkString();
+					auto wsRow = [&](const char *nm, const char *pth, bool sel) -> bool {
+						const NkRect r = {cx, y, fw, 24.f};
+						dl.AddRectFilled(r,
+										 sel ? NkColor{38, 60, 92, 255}
+											 : (mic && hit(r) ? NkColor{33, 39, 48, 255} : NkColor{24, 28, 34, 255}),
+										 4.f);
+						if (sel)
+							dl.AddRect(r, NkColor{88, 166, 255, 255}, 1.f);
+						text(r.x + 10.f, r.y + (24.f - lh) * 0.5f, nm,
+							 sel ? NkColor{230, 237, 243, 255} : NkColor{180, 188, 196, 255});
+						if (pth && *pth) {
+							const float32 nw2 = f->MeasureWidth(nm);
+							dl.PushClipRect({r.x, r.y, r.w - 8.f, r.h}, true);
+							text(r.x + 18.f + nw2, r.y + (24.f - lh) * 0.5f, pth, NkColor{110, 118, 126, 255});
+							dl.PopClipRect();
+						}
+						y += 28.f;
+						return mic && hit(r) && click;
+					};
+					if (curOk && wsRow((d->st->wsNames[d->st->wsIdx] + " (courant)").CStr(), nullptr, d->projWsIdx < 0))
+						d->projWsIdx = -1;
+					for (usize i = 0; i < d->st->recents.Size(); ++i) {
+						if (curOk && StrEq(d->st->recents[i].CStr(), curPath.CStr()))
+							continue; // deja liste comme « courant »
+						const char *nm = (i < d->st->recentNames.Size() && !d->st->recentNames[i].Empty())
+											 ? d->st->recentNames[i].CStr()
+											 : d->st->recents[i].CStr();
+						if (wsRow(nm, d->st->recents[i].CStr(), d->projWsIdx == (int32)i))
+							d->projWsIdx = (int32)i;
+					}
+					y += 6.f;
+				}
 				field("Nom du projet", d->nameBuf, (int32)sizeof(d->nameBuf), 0, false);
 				// Genre (2 colonnes)
 				text(cx, y, "Genre", lblC);
@@ -1847,7 +1907,27 @@ namespace nkentseu {
 						po.appVersion = d->projVersion;
 						po.appPublisher = d->projPublisher;
 						po.appIcon = d->projIcon;
-						made = GenerateProjectEx(d->st->root, NkPath(d->st->wsPaths[d->st->wsIdx].CStr()), po);
+						// Workspace d'APPARTENANCE : courant (defaut) ou choisi dans les recents.
+						NkPath wsJenga, wsRoot;
+						bool foreignWs = false;
+						if (d->projWsIdx >= 0 && d->projWsIdx < (int32)d->st->recents.Size()) {
+							wsJenga = NkPath(d->st->recents[d->projWsIdx].CStr());
+							wsRoot = wsJenga.GetParent();
+							foreignWs = !StrEq(wsRoot.ToString().CStr(), d->st->root.ToString().CStr());
+						} else {
+							wsRoot = d->st->root;
+							wsJenga = NkPath(d->st->wsPaths[d->st->wsIdx].CStr());
+						}
+						made = GenerateProjectEx(wsRoot, wsJenga, po);
+						if (!made.Empty() && foreignWs) {
+							// Projet cree dans un AUTRE workspace : on le charge puis on
+							// ouvre le .jenga genere dedans.
+							d->DoLoad(wsRoot);
+							d->st->OpenPath(NkPath(made.CStr()));
+							d->Close();
+							ctx.appModal = false;
+							return;
+						}
 					} else
 						made = GenerateWorkspace(d->st->root, d->nameBuf);
 					if (made.Empty()) {
