@@ -83,7 +83,20 @@ namespace nkentseu {
 			return gProdTools;
 		}
 
+		namespace {
+			NkString gExeDir;
+		}
+
+		NkString NkEmbeddedJenga::CompilersDir() {
+			return gExeDir + "/tools/compilers";
+		}
+
+		bool NkEmbeddedJenga::NeedsCompiler() {
+			return gProdTools && !DirExists(CompilersDir() + "/llvm-mingw/bin");
+		}
+
 		void NkEmbeddedJenga::Configure(const NkString &exeDir) {
+			gExeDir = exeDir;
 			// Prod : tools/ a cote de NKCode.exe (pose par le packaging, Phase 5).
 			// Dev  : repli sur le PythonEmbed vendorise du repo (exe dans
 			// Build/Bin/<cfg>-<os>/NKCode -> racine repo = 4 niveaux au-dessus) et
@@ -294,6 +307,31 @@ namespace nkentseu {
 							PushLine(NkString(clean));
 						});
 
+						if (req.kind == "installcompiler") {
+							// Distribution legere : telecharge Clang (llvm-mingw) via le
+							// module Jenga embarque ; progression via le MEME sink.
+							py::module_ cf = py::module_::import("Jenga.Core.CompilerFetch");
+							py::object r = cf.attr("InstallDefaultCompiler")(
+								py::str(req.target.CStr()), py::arg("sink") = ns);
+							exitCode = r.cast<int>();
+							if (exitCode == 0) {
+#if defined(_WIN32)
+								// rend le compilateur visible IMMEDIATEMENT (les builds
+								// suivants de la file heriteront de ce PATH).
+								const NkString bin = NkString(req.target.CStr()) + "/llvm-mingw/bin";
+								const char *cur = std::getenv("PATH");
+								const NkString merged = bin + ";" + (cur ? cur : "");
+								_putenv_s("PATH", merged.CStr());
+#endif
+							}
+							{
+								threading::NkScopedLock<NkMutex> lk(mMutex);
+								mExit = exitCode;
+								mRunning = false;
+								mDone = true;
+							}
+							continue;
+						}
 						const char *fn = (req.kind == "rebuild") ? "Rebuild" : "Build";
 						py::object res = embed.attr(fn)(
 							py::arg("jenga_file") = (req.jengaFile.Empty() ? py::object(py::none())

@@ -77,6 +77,13 @@ namespace nkentseu {
 				// (les testeurs n'ont ni Python ni `jenga` sur le PATH).
 				static bool HasProdTools();
 
+				// Distribution LEGERE : tools/ de prod presents mais compilateur par
+				// defaut absent (tools/compilers/llvm-mingw) -> a telecharger au
+				// premier build (Request.kind = "installcompiler", Jenga/Core/
+				// CompilerFetch.py via l'interpreteur embarque).
+				static bool NeedsCompiler();
+				static NkString CompilersDir(); // <exe>/tools/compilers
+
 				bool Start(const Request &req); // false si deja en cours
 				bool Running() const;
 				bool Done() const;
