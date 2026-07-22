@@ -1129,6 +1129,442 @@ namespace nkentseu {
 				}
 			}
 
+			// =================================================================
+			// BRIQUE 5 — LOOP FILTER (port fidèle vpx_dsp/loopfilter.c +
+			// vp9_loopfilter.c chemin générique filter_block_plane_non420).
+			// =================================================================
+
+			inline int8 SignedCharClamp(int32 t) {
+				return (int8)(t < -128 ? -128 : (t > 127 ? 127 : t));
+			}
+			inline int32 IAbs(int32 v) {
+				return v < 0 ? -v : v;
+			}
+
+			// Faut-il filtrer du tout ? (~0 oui, 0 non)
+			int8 LfFilterMask(uint8 limit, uint8 blimit, uint8 p3, uint8 p2, uint8 p1, uint8 p0,
+							  uint8 q0, uint8 q1, uint8 q2, uint8 q3) {
+				int8 mask = 0;
+				mask |= (int8)((IAbs(p3 - p2) > limit) * -1);
+				mask |= (int8)((IAbs(p2 - p1) > limit) * -1);
+				mask |= (int8)((IAbs(p1 - p0) > limit) * -1);
+				mask |= (int8)((IAbs(q1 - q0) > limit) * -1);
+				mask |= (int8)((IAbs(q2 - q1) > limit) * -1);
+				mask |= (int8)((IAbs(q3 - q2) > limit) * -1);
+				mask |= (int8)((IAbs(p0 - q0) * 2 + IAbs(p1 - q1) / 2 > blimit) * -1);
+				return (int8)~mask;
+			}
+			int8 LfFlatMask4(uint8 thresh, uint8 p3, uint8 p2, uint8 p1, uint8 p0, uint8 q0,
+							 uint8 q1, uint8 q2, uint8 q3) {
+				int8 mask = 0;
+				mask |= (int8)((IAbs(p1 - p0) > thresh) * -1);
+				mask |= (int8)((IAbs(q1 - q0) > thresh) * -1);
+				mask |= (int8)((IAbs(p2 - p0) > thresh) * -1);
+				mask |= (int8)((IAbs(q2 - q0) > thresh) * -1);
+				mask |= (int8)((IAbs(p3 - p0) > thresh) * -1);
+				mask |= (int8)((IAbs(q3 - q0) > thresh) * -1);
+				return (int8)~mask;
+			}
+			int8 LfFlatMask5(uint8 thresh, uint8 p4, uint8 p3, uint8 p2, uint8 p1, uint8 p0,
+							 uint8 q0, uint8 q1, uint8 q2, uint8 q3, uint8 q4) {
+				int8 mask = (int8)~LfFlatMask4(thresh, p3, p2, p1, p0, q0, q1, q2, q3);
+				mask |= (int8)((IAbs(p4 - p0) > thresh) * -1);
+				mask |= (int8)((IAbs(q4 - q0) > thresh) * -1);
+				return (int8)~mask;
+			}
+			int8 LfHevMask(uint8 thresh, uint8 p1, uint8 p0, uint8 q0, uint8 q1) {
+				int8 hev = 0;
+				hev |= (int8)((IAbs(p1 - p0) > thresh) * -1);
+				hev |= (int8)((IAbs(q1 - q0) > thresh) * -1);
+				return hev;
+			}
+
+			void LfFilter4(int8 mask, uint8 thresh, uint8 *op1, uint8 *op0, uint8 *oq0, uint8 *oq1) {
+				const int8 ps1 = (int8)(*op1 ^ 0x80);
+				const int8 ps0 = (int8)(*op0 ^ 0x80);
+				const int8 qs0 = (int8)(*oq0 ^ 0x80);
+				const int8 qs1 = (int8)(*oq1 ^ 0x80);
+				const int8 hev = LfHevMask(thresh, *op1, *op0, *oq0, *oq1);
+				// taps externes seulement en forte variance (hev)
+				int8 filter = (int8)(SignedCharClamp(ps1 - qs1) & hev);
+				filter = (int8)(SignedCharClamp(filter + 3 * (qs0 - ps0)) & mask);
+				// arrondi asymétrique +4/+3
+				const int8 filter1 = (int8)(SignedCharClamp(filter + 4) >> 3);
+				const int8 filter2 = (int8)(SignedCharClamp(filter + 3) >> 3);
+				*oq0 = (uint8)(SignedCharClamp(qs0 - filter1) ^ 0x80);
+				*op0 = (uint8)(SignedCharClamp(ps0 + filter2) ^ 0x80);
+				filter = (int8)(((filter1 + 1) >> 1) & (int8)~hev);
+				*oq1 = (uint8)(SignedCharClamp(qs1 - filter) ^ 0x80);
+				*op1 = (uint8)(SignedCharClamp(ps1 + filter) ^ 0x80);
+			}
+
+			void LfFilter8(int8 mask, uint8 thresh, int8 flat, uint8 *op3, uint8 *op2, uint8 *op1,
+						   uint8 *op0, uint8 *oq0, uint8 *oq1, uint8 *oq2, uint8 *oq3) {
+				if (flat && mask) {
+					const uint8 p3 = *op3, p2 = *op2, p1 = *op1, p0 = *op0;
+					const uint8 q0 = *oq0, q1 = *oq1, q2 = *oq2, q3 = *oq3;
+					// filtre 7 taps [1,1,1,2,1,1,1]
+					*op2 = (uint8)((p3 + p3 + p3 + 2 * p2 + p1 + p0 + q0 + 4) >> 3);
+					*op1 = (uint8)((p3 + p3 + p2 + 2 * p1 + p0 + q0 + q1 + 4) >> 3);
+					*op0 = (uint8)((p3 + p2 + p1 + 2 * p0 + q0 + q1 + q2 + 4) >> 3);
+					*oq0 = (uint8)((p2 + p1 + p0 + 2 * q0 + q1 + q2 + q3 + 4) >> 3);
+					*oq1 = (uint8)((p1 + p0 + q0 + 2 * q1 + q2 + q3 + q3 + 4) >> 3);
+					*oq2 = (uint8)((p0 + q0 + q1 + 2 * q2 + q3 + q3 + q3 + 4) >> 3);
+				} else {
+					LfFilter4(mask, thresh, op1, op0, oq0, oq1);
+				}
+			}
+
+			void LfFilter16(int8 mask, uint8 thresh, int8 flat, int8 flat2, uint8 *op7, uint8 *op6,
+							uint8 *op5, uint8 *op4, uint8 *op3, uint8 *op2, uint8 *op1, uint8 *op0,
+							uint8 *oq0, uint8 *oq1, uint8 *oq2, uint8 *oq3, uint8 *oq4, uint8 *oq5,
+							uint8 *oq6, uint8 *oq7) {
+				if (flat2 && flat && mask) {
+					const uint8 p7 = *op7, p6 = *op6, p5 = *op5, p4 = *op4, p3 = *op3, p2 = *op2,
+								p1 = *op1, p0 = *op0;
+					const uint8 q0 = *oq0, q1 = *oq1, q2 = *oq2, q3 = *oq3, q4 = *oq4, q5 = *oq5,
+								q6 = *oq6, q7 = *oq7;
+					// filtre 15 taps [1×7, 2, 1×7]
+					*op6 = (uint8)((p7 * 7 + p6 * 2 + p5 + p4 + p3 + p2 + p1 + p0 + q0 + 8) >> 4);
+					*op5 = (uint8)((p7 * 6 + p6 + p5 * 2 + p4 + p3 + p2 + p1 + p0 + q0 + q1 + 8) >> 4);
+					*op4 = (uint8)((p7 * 5 + p6 + p5 + p4 * 2 + p3 + p2 + p1 + p0 + q0 + q1 + q2 + 8) >> 4);
+					*op3 = (uint8)((p7 * 4 + p6 + p5 + p4 + p3 * 2 + p2 + p1 + p0 + q0 + q1 + q2 + q3 + 8) >> 4);
+					*op2 = (uint8)((p7 * 3 + p6 + p5 + p4 + p3 + p2 * 2 + p1 + p0 + q0 + q1 + q2 + q3 + q4 + 8) >> 4);
+					*op1 = (uint8)((p7 * 2 + p6 + p5 + p4 + p3 + p2 + p1 * 2 + p0 + q0 + q1 + q2 + q3 + q4 + q5 + 8) >> 4);
+					*op0 = (uint8)((p7 + p6 + p5 + p4 + p3 + p2 + p1 + p0 * 2 + q0 + q1 + q2 + q3 + q4 + q5 + q6 + 8) >> 4);
+					*oq0 = (uint8)((p6 + p5 + p4 + p3 + p2 + p1 + p0 + q0 * 2 + q1 + q2 + q3 + q4 + q5 + q6 + q7 + 8) >> 4);
+					*oq1 = (uint8)((p5 + p4 + p3 + p2 + p1 + p0 + q0 + q1 * 2 + q2 + q3 + q4 + q5 + q6 + q7 * 2 + 8) >> 4);
+					*oq2 = (uint8)((p4 + p3 + p2 + p1 + p0 + q0 + q1 + q2 * 2 + q3 + q4 + q5 + q6 + q7 * 3 + 8) >> 4);
+					*oq3 = (uint8)((p3 + p2 + p1 + p0 + q0 + q1 + q2 + q3 * 2 + q4 + q5 + q6 + q7 * 4 + 8) >> 4);
+					*oq4 = (uint8)((p2 + p1 + p0 + q0 + q1 + q2 + q3 + q4 * 2 + q5 + q6 + q7 * 5 + 8) >> 4);
+					*oq5 = (uint8)((p1 + p0 + q0 + q1 + q2 + q3 + q4 + q5 * 2 + q6 + q7 * 6 + 8) >> 4);
+					*oq6 = (uint8)((p0 + q0 + q1 + q2 + q3 + q4 + q5 + q6 * 2 + q7 * 7 + 8) >> 4);
+				} else {
+					LfFilter8(mask, thresh, flat, op3, op2, op1, op0, oq0, oq1, oq2, oq3);
+				}
+			}
+
+			// Arête HORIZONTALE (pixels au-dessus/en-dessous), sur `count` colonnes.
+			void LpfHorizontal(uint8 *s, int32 pitch, uint8 blimit, uint8 limit, uint8 thresh,
+							   int32 kind /*0=4taps,1=8taps,2=16taps*/, int32 count) {
+				for (int32 i = 0; i < count; ++i) {
+					const uint8 p3 = s[-4 * pitch], p2 = s[-3 * pitch], p1 = s[-2 * pitch], p0 = s[-pitch];
+					const uint8 q0 = s[0], q1 = s[1 * pitch], q2 = s[2 * pitch], q3 = s[3 * pitch];
+					const int8 mask = LfFilterMask(limit, blimit, p3, p2, p1, p0, q0, q1, q2, q3);
+					if (kind == 0) {
+						LfFilter4(mask, thresh, s - 2 * pitch, s - 1 * pitch, s, s + 1 * pitch);
+					} else if (kind == 1) {
+						const int8 flat = LfFlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3);
+						LfFilter8(mask, thresh, flat, s - 4 * pitch, s - 3 * pitch, s - 2 * pitch,
+								  s - 1 * pitch, s, s + 1 * pitch, s + 2 * pitch, s + 3 * pitch);
+					} else {
+						const int8 flat = LfFlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3);
+						const int8 flat2 = LfFlatMask5(1, s[-8 * pitch], s[-7 * pitch], s[-6 * pitch],
+													   s[-5 * pitch], p0, q0, s[4 * pitch],
+													   s[5 * pitch], s[6 * pitch], s[7 * pitch]);
+						LfFilter16(mask, thresh, flat, flat2, s - 8 * pitch, s - 7 * pitch,
+								   s - 6 * pitch, s - 5 * pitch, s - 4 * pitch, s - 3 * pitch,
+								   s - 2 * pitch, s - 1 * pitch, s, s + 1 * pitch, s + 2 * pitch,
+								   s + 3 * pitch, s + 4 * pitch, s + 5 * pitch, s + 6 * pitch,
+								   s + 7 * pitch);
+					}
+					++s;
+				}
+			}
+
+			// Arête VERTICALE (pixels à gauche/droite), sur `count` rangées.
+			void LpfVertical(uint8 *s, int32 pitch, uint8 blimit, uint8 limit, uint8 thresh,
+							 int32 kind, int32 count) {
+				for (int32 i = 0; i < count; ++i) {
+					const uint8 p3 = s[-4], p2 = s[-3], p1 = s[-2], p0 = s[-1];
+					const uint8 q0 = s[0], q1 = s[1], q2 = s[2], q3 = s[3];
+					const int8 mask = LfFilterMask(limit, blimit, p3, p2, p1, p0, q0, q1, q2, q3);
+					if (kind == 0) {
+						LfFilter4(mask, thresh, s - 2, s - 1, s, s + 1);
+					} else if (kind == 1) {
+						const int8 flat = LfFlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3);
+						LfFilter8(mask, thresh, flat, s - 4, s - 3, s - 2, s - 1, s, s + 1, s + 2, s + 3);
+					} else {
+						const int8 flat = LfFlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3);
+						const int8 flat2 =
+							LfFlatMask5(1, s[-8], s[-7], s[-6], s[-5], p0, q0, s[4], s[5], s[6], s[7]);
+						LfFilter16(mask, thresh, flat, flat2, s - 8, s - 7, s - 6, s - 5, s - 4, s - 3,
+								   s - 2, s - 1, s, s + 1, s + 2, s + 3, s + 4, s + 5, s + 6, s + 7);
+					}
+					s += pitch;
+				}
+			}
+
+			// Seuils par niveau 0..63 (update_sharpness + hev_thr = lvl>>4).
+			struct LfThresholds {
+					uint8 mblim[64], lim[64], hev[64];
+					void Build(int32 sharpness) {
+						for (int32 lvl = 0; lvl <= 63; ++lvl) {
+							int32 blockInsideLimit = lvl >> ((sharpness > 0) + (sharpness > 4));
+							if (sharpness > 0 && blockInsideLimit > 9 - sharpness)
+								blockInsideLimit = 9 - sharpness;
+							if (blockInsideLimit < 1)
+								blockInsideLimit = 1;
+							lim[lvl] = (uint8)blockInsideLimit;
+							mblim[lvl] = (uint8)(2 * (lvl + 2) + blockInsideLimit);
+							hev[lvl] = (uint8)(lvl >> 4);
+						}
+					}
+			};
+
+			// filter_selectively_vert : arêtes verticales d'une rangée mi (8 unités 8x8).
+			void FilterSelectivelyVert(uint8 *s, int32 pitch, uint32 m16, uint32 m8, uint32 m4,
+									   uint32 m4i, const LfThresholds &thr, const uint8 *lfl) {
+				for (uint32 mask = m16 | m8 | m4 | m4i; mask; mask >>= 1) {
+					const uint8 lvl = *lfl;
+					if (mask & 1) {
+						if (m16 & 1)
+							LpfVertical(s, pitch, thr.mblim[lvl], thr.lim[lvl], thr.hev[lvl], 2, 8);
+						else if (m8 & 1)
+							LpfVertical(s, pitch, thr.mblim[lvl], thr.lim[lvl], thr.hev[lvl], 1, 8);
+						else if (m4 & 1)
+							LpfVertical(s, pitch, thr.mblim[lvl], thr.lim[lvl], thr.hev[lvl], 0, 8);
+					}
+					if (m4i & 1)
+						LpfVertical(s + 4, pitch, thr.mblim[lvl], thr.lim[lvl], thr.hev[lvl], 0, 8);
+					s += 8;
+					lfl += 1;
+					m16 >>= 1;
+					m8 >>= 1;
+					m4 >>= 1;
+					m4i >>= 1;
+				}
+			}
+
+			// filter_selectively_horiz : arêtes horizontales (les « duals » = même
+			// résultat que 2 appels adjacents ; count=2 quand 2 bits consécutifs).
+			void FilterSelectivelyHoriz(uint8 *s, int32 pitch, uint32 m16, uint32 m8, uint32 m4,
+										uint32 m4i, const LfThresholds &thr, const uint8 *lfl) {
+				int32 count;
+				for (uint32 mask = m16 | m8 | m4 | m4i; mask; mask >>= count) {
+					count = 1;
+					if (mask & 1) {
+						const uint8 lvl = *lfl;
+						if (m16 & 1) {
+							if ((m16 & 3) == 3) {
+								LpfHorizontal(s, pitch, thr.mblim[lvl], thr.lim[lvl], thr.hev[lvl], 2, 16);
+								count = 2;
+							} else {
+								LpfHorizontal(s, pitch, thr.mblim[lvl], thr.lim[lvl], thr.hev[lvl], 2, 8);
+							}
+						} else if (m8 & 1) {
+							if ((m8 & 3) == 3) {
+								const uint8 ln = *(lfl + 1);
+								LpfHorizontal(s, pitch, thr.mblim[lvl], thr.lim[lvl], thr.hev[lvl], 1, 8);
+								LpfHorizontal(s + 8, pitch, thr.mblim[ln], thr.lim[ln], thr.hev[ln], 1, 8);
+								if ((m4i & 3) == 3) {
+									LpfHorizontal(s + 4 * pitch, pitch, thr.mblim[lvl], thr.lim[lvl],
+												  thr.hev[lvl], 0, 8);
+									LpfHorizontal(s + 8 + 4 * pitch, pitch, thr.mblim[ln], thr.lim[ln],
+												  thr.hev[ln], 0, 8);
+								} else {
+									if (m4i & 1)
+										LpfHorizontal(s + 4 * pitch, pitch, thr.mblim[lvl], thr.lim[lvl],
+													  thr.hev[lvl], 0, 8);
+									else if (m4i & 2)
+										LpfHorizontal(s + 8 + 4 * pitch, pitch, thr.mblim[ln],
+													  thr.lim[ln], thr.hev[ln], 0, 8);
+								}
+								count = 2;
+							} else {
+								LpfHorizontal(s, pitch, thr.mblim[lvl], thr.lim[lvl], thr.hev[lvl], 1, 8);
+								if (m4i & 1)
+									LpfHorizontal(s + 4 * pitch, pitch, thr.mblim[lvl], thr.lim[lvl],
+												  thr.hev[lvl], 0, 8);
+							}
+						} else if (m4 & 1) {
+							if ((m4 & 3) == 3) {
+								const uint8 ln = *(lfl + 1);
+								LpfHorizontal(s, pitch, thr.mblim[lvl], thr.lim[lvl], thr.hev[lvl], 0, 8);
+								LpfHorizontal(s + 8, pitch, thr.mblim[ln], thr.lim[ln], thr.hev[ln], 0, 8);
+								if ((m4i & 3) == 3) {
+									LpfHorizontal(s + 4 * pitch, pitch, thr.mblim[lvl], thr.lim[lvl],
+												  thr.hev[lvl], 0, 8);
+									LpfHorizontal(s + 8 + 4 * pitch, pitch, thr.mblim[ln], thr.lim[ln],
+												  thr.hev[ln], 0, 8);
+								} else {
+									if (m4i & 1)
+										LpfHorizontal(s + 4 * pitch, pitch, thr.mblim[lvl], thr.lim[lvl],
+													  thr.hev[lvl], 0, 8);
+									else if (m4i & 2)
+										LpfHorizontal(s + 8 + 4 * pitch, pitch, thr.mblim[ln],
+													  thr.lim[ln], thr.hev[ln], 0, 8);
+								}
+								count = 2;
+							} else {
+								LpfHorizontal(s, pitch, thr.mblim[lvl], thr.lim[lvl], thr.hev[lvl], 0, 8);
+								if (m4i & 1)
+									LpfHorizontal(s + 4 * pitch, pitch, thr.mblim[lvl], thr.lim[lvl],
+												  thr.hev[lvl], 0, 8);
+							}
+						} else {
+							LpfHorizontal(s + 4 * pitch, pitch, thr.mblim[lvl], thr.lim[lvl],
+										  thr.hev[lvl], 0, 8);
+						}
+					}
+					s += 8 * count;
+					lfl += count;
+					m16 >>= count;
+					m8 >>= count;
+					m4 >>= count;
+					m4i >>= count;
+				}
+			}
+
+			// vp9_filter_block_plane_non420 : masques à la volée par superbloc, un plane.
+			void FilterBlockPlane(const FrameParseState &st, int32 plane, const uint8 *lvlBySeg,
+								  const LfThresholds &thr, int32 miRow, int32 miCol) {
+				const NkVp9FrameHeader &hdr = *st.hdr;
+				const int32 ssx = plane ? hdr.subsamplingX : 0;
+				const int32 ssy = plane ? hdr.subsamplingY : 0;
+				const int32 rowStep = 1 << ssy;
+				const int32 colStep = 1 << ssx;
+				const int32 stride = st.planeStride[plane];
+				uint8 *const dst0 = st.planes[plane] +
+									(usize)((miRow * 8) >> ssy) * (usize)stride + ((miCol * 8) >> ssx);
+				uint8 *dst = dst0;
+				uint32 mask16[8] = {0}, mask8[8] = {0}, mask4[8] = {0}, mask4i[8] = {0};
+				uint8 lfl[64] = {0};
+
+				for (int32 r = 0; r < 8 && miRow + r < st.miRows; r += rowStep) {
+					uint32 m16c = 0, m8c = 0, m4c = 0;
+					for (int32 c = 0; c < 8 && miCol + c < st.miCols; c += colStep) {
+						const MiCell &mi = st.mi[(miRow + r) * st.miCols + (miCol + c)];
+						const int32 sbType = mi.sbType;
+						// (trame clé : jamais inter → le skip ne saute pas le filtre)
+						const bool skipThis = false;
+						const int32 blockEdgeLeft =
+							(kVp9Num4x4BlocksWide[sbType] > 1)
+								? !(c & (kVp9Num8x8BlocksWide[sbType] - 1))
+								: 1;
+						const bool skipThisC = skipThis && !blockEdgeLeft;
+						const int32 blockEdgeAbove =
+							(kVp9Num4x4BlocksHigh[sbType] > 1)
+								? !(r & (kVp9Num8x8BlocksHigh[sbType] - 1))
+								: 1;
+						const bool skipThisR = skipThis && !blockEdgeAbove;
+						// tx du plane (uv : min avec le max du bloc sous-échantillonné)
+						int32 txSize = mi.txSize;
+						if (plane) {
+							const int32 pbs = kVp9SsSizeLookup[sbType][ssx][ssy];
+							txSize = IMin(txSize, (int32)kVp9MaxTxsizeLookup[pbs]);
+						}
+						const bool skipBorder4x4C = ssx && (miCol + c == st.miCols - 1);
+						const bool skipBorder4x4R = ssy && (miRow + r == st.miRows - 1);
+
+						const uint8 level = lvlBySeg[mi.segId];
+						lfl[(r << 3) + (c >> ssx)] = level;
+						if (!level)
+							continue;
+
+						const uint32 bit = 1u << (c >> ssx);
+						if (txSize == 3) {
+							if (!skipThisC && ((c >> ssx) & 3) == 0) {
+								if (!skipBorder4x4C)
+									m16c |= bit;
+								else
+									m8c |= bit;
+							}
+							if (!skipThisR && ((r >> ssy) & 3) == 0) {
+								if (!skipBorder4x4R)
+									mask16[r] |= bit;
+								else
+									mask8[r] |= bit;
+							}
+						} else if (txSize == 2) {
+							if (!skipThisC && ((c >> ssx) & 1) == 0) {
+								if (!skipBorder4x4C)
+									m16c |= bit;
+								else
+									m8c |= bit;
+							}
+							if (!skipThisR && ((r >> ssy) & 1) == 0) {
+								if (!skipBorder4x4R)
+									mask16[r] |= bit;
+								else
+									mask8[r] |= bit;
+							}
+						} else {
+							// arêtes 8x8 forcées sur les frontières 32
+							if (!skipThisC) {
+								if (txSize == 1 || ((c >> ssx) & 3) == 0)
+									m8c |= bit;
+								else
+									m4c |= bit;
+							}
+							if (!skipThisR) {
+								if (txSize == 1 || ((r >> ssy) & 3) == 0)
+									mask8[r] |= bit;
+								else
+									mask4[r] |= bit;
+							}
+							if (!skipThis && txSize < 1 && !skipBorder4x4C)
+								mask4i[r] |= bit;
+						}
+					}
+					// Pas de filtrage sur la toute première colonne de l'image.
+					const uint32 borderMask = ~((miCol == 0) ? 1u : 0u);
+					FilterSelectivelyVert(dst, stride, m16c & borderMask, m8c & borderMask,
+										  m4c & borderMask, mask4i[r], thr, &lfl[r << 3]);
+					dst += 8 * stride;
+				}
+
+				// Passe horizontale.
+				dst = dst0;
+				for (int32 r = 0; r < 8 && miRow + r < st.miRows; r += rowStep) {
+					const bool skipBorder4x4R = ssy && (miRow + r == st.miRows - 1);
+					const uint32 m4ir = skipBorder4x4R ? 0 : mask4i[r];
+					uint32 m16r, m8r, m4r;
+					if (miRow + r == 0) {
+						m16r = m8r = m4r = 0;
+					} else {
+						m16r = mask16[r];
+						m8r = mask8[r];
+						m4r = mask4[r];
+					}
+					FilterSelectivelyHoriz(dst, stride, m16r, m8r, m4r, m4ir, thr, &lfl[r << 3]);
+					dst += 8 * stride;
+				}
+			}
+
+			// Niveaux par segment (trame clé : ref INTRA, mode delta 0).
+			void BuildLfLevels(const NkVp9FrameHeader &hdr, uint8 *lvlBySeg) {
+				const int32 scale = 1 << (hdr.lfLevel >> 5);
+				for (int32 s = 0; s < 8; ++s) {
+					int32 lvl = hdr.lfLevel;
+					if (hdr.segEnabled && hdr.segFeatureEnabled[s][1]) { // ALT_LF
+						const int32 data = hdr.segFeatureData[s][1];
+						lvl = hdr.segAbsDelta ? data : hdr.lfLevel + data;
+						lvl = lvl < 0 ? 0 : (lvl > 63 ? 63 : lvl);
+					}
+					if (hdr.lfDeltaEnabled) {
+						lvl = lvl + hdr.lfRefDeltas[0] * scale; // INTRA_FRAME
+						lvl = lvl < 0 ? 0 : (lvl > 63 ? 63 : lvl);
+					}
+					lvlBySeg[s] = (uint8)lvl;
+				}
+			}
+
+			// vp9_loop_filter_rows : superbloc par superbloc, les 3 planes.
+			void LoopFilterFrame(const FrameParseState &st) {
+				const NkVp9FrameHeader &hdr = *st.hdr;
+				if (hdr.lfLevel == 0)
+					return;
+				LfThresholds thr;
+				thr.Build(hdr.lfSharpness);
+				uint8 lvlBySeg[8];
+				BuildLfLevels(hdr, lvlBySeg);
+				for (int32 miRow = 0; miRow < st.miRows; miRow += 8)
+					for (int32 miCol = 0; miCol < st.miCols; miCol += 8)
+						for (int32 plane = 0; plane < 3; ++plane)
+							FilterBlockPlane(st, plane, lvlBySeg, thr, miRow, miCol);
+			}
+
 			// read_partition : arbre complet ou lecture partielle aux bords.
 			int32 ReadPartition(NkVp8BoolDecoder &bd, FrameParseState &st, int32 miRow, int32 miCol,
 								bool hasRows, bool hasCols, int32 bsl) {
@@ -1545,7 +1981,8 @@ namespace nkentseu {
 			bool ParseOrDecodeKeyContent(const uint8 *tileData, usize tileSize,
 										 const NkVp9FrameHeader &hdr, const NkVp9FrameContext &fc,
 										 const NkVp9CompressedHeader &chdr,
-										 NkVp9Decoder::NkTileParseStats &stats, NkVp9Image *img) {
+										 NkVp9Decoder::NkTileParseStats &stats, NkVp9Image *img,
+										 bool applyLoopFilter = true) {
 			stats = NkVp9Decoder::NkTileParseStats{};
 			if (tileData == nullptr || tileSize == 0 || hdr.width <= 0 || hdr.height <= 0)
 				return false;
@@ -1687,6 +2124,10 @@ namespace nkentseu {
 				}
 			}
 
+			// BRIQUE 5 : loop filter sur la trame reconstruite (grille mi encore vivante).
+			if (ok && img != nullptr && applyLoopFilter)
+				LoopFilterFrame(st);
+
 			memory::NkFree(st.mi);
 			memory::NkFree(st.aboveSegCtx);
 			for (int32 q = 0; q < 3; ++q)
@@ -1703,7 +2144,7 @@ namespace nkentseu {
 		}
 
 		bool NkVp9Decoder::DecodeKeyFrame(const uint8 *frame, usize size, NkVp9Image &out,
-										  NkTileParseStats *statsOut) {
+										  NkTileParseStats *statsOut, bool applyLoopFilter) {
 			NkVp9FrameHeader hdr;
 			if (!ParseUncompressedHeader(frame, size, hdr))
 				return false;
@@ -1720,7 +2161,7 @@ namespace nkentseu {
 				return false;
 			NkTileParseStats stats;
 			const bool ok = ParseOrDecodeKeyContent(frame + hdrBytes, size - hdrBytes, hdr, fc, chdr,
-													stats, &out);
+													stats, &out, applyLoopFilter);
 			if (statsOut)
 				*statsOut = stats;
 			return ok;

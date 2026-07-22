@@ -755,12 +755,15 @@ namespace nkentseu {
 
 		} // namespace
 
+		// ⚠ transform_2d libvpx = { cols, rows } — COLS EN PREMIER (vp9_idct.h).
+		// ADST_DCT = ADST VERTICAL (cols=iadst) + DCT horizontal (rows=idct) : la
+		// passe lignes utilise le champ [1], la passe colonnes le champ [0].
 		void NkVp9Itxfm::Iht4x4Add(const int16 *input, uint8 *dest, int32 stride, int32 txType) {
-			static const Txfm1D kIht4[4][2] = {{Idct4, Idct4},
+			static const Txfm1D kIht4[4][2] = {{Idct4, Idct4},	   // {cols, rows}
 											   {Iadst4, Idct4},
 											   {Idct4, Iadst4},
 											   {Iadst4, Iadst4}};
-			Transform2DAdd(input, dest, stride, kIht4[txType][0], kIht4[txType][1], 4, 4);
+			Transform2DAdd(input, dest, stride, kIht4[txType][1], kIht4[txType][0], 4, 4);
 		}
 
 		void NkVp9Itxfm::Iht8x8Add(const int16 *input, uint8 *dest, int32 stride, int32 txType) {
@@ -768,7 +771,7 @@ namespace nkentseu {
 											   {Iadst8, Idct8},
 											   {Idct8, Iadst8},
 											   {Iadst8, Iadst8}};
-			Transform2DAdd(input, dest, stride, kIht8[txType][0], kIht8[txType][1], 8, 5);
+			Transform2DAdd(input, dest, stride, kIht8[txType][1], kIht8[txType][0], 8, 5);
 		}
 
 		void NkVp9Itxfm::Iht16x16Add(const int16 *input, uint8 *dest, int32 stride, int32 txType) {
@@ -776,7 +779,7 @@ namespace nkentseu {
 												{Iadst16, Idct16},
 												{Idct16, Iadst16},
 												{Iadst16, Iadst16}};
-			Transform2DAdd(input, dest, stride, kIht16[txType][0], kIht16[txType][1], 16, 6);
+			Transform2DAdd(input, dest, stride, kIht16[txType][1], kIht16[txType][0], 16, 6);
 		}
 
 		void NkVp9Itxfm::Idct32x32Add(const int16 *input, uint8 *dest, int32 stride) {
