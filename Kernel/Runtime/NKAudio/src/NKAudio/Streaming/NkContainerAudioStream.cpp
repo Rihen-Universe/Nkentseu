@@ -87,9 +87,17 @@ namespace nkentseu {
 
 			mPackets.Reserve(packets.Size());
 			usize totalBytes = 0;
+			nk_int64 totalDiscard = 0;
 			for (usize i = 0; i < packets.Size(); ++i) {
-				mPackets.PushBack(PacketRef{packets[i].offset, packets[i].size});
+				PacketRef ref{packets[i].offset, packets[i].size};
+				// DiscardPadding WebM (dernier paquet Opus) : ns -> frames 48 kHz a jeter
+				// en FIN de paquet decode (arrondi au plus proche, convention ffmpeg).
+				if (packets[i].discardPaddingNs > 0)
+					ref.discardFrames =
+						(nk_int32)((packets[i].discardPaddingNs * 48 + 500000) / 1000000);
+				mPackets.PushBack(ref);
 				totalBytes += packets[i].size;
+				totalDiscard += ref.discardFrames;
 			}
 			mNumPackets = mPackets.Size();
 			mLeftover.Resize(2048); // >= 1024 frames stereo (AAC) ; redimensionne si besoin (PCM)
@@ -108,9 +116,9 @@ namespace nkentseu {
 				mPacketIndex = 0;
 				// Un paquet Opus peut porter jusqu'a 120 ms = 5760 frames a 48 kHz (× canaux).
 				mLeftover.Resize((usize)5760 * (usize)mChannels);
-				// ~20 ms (960 ech.) par paquet, moins le pre-skip : APPROXIMATIF (suffisant,
-				// meme usage que l'estimation AAC).
-				mApproxFrameCount = (nk_int64)mNumPackets * 960 - mOpusPreSkipLeft;
+				// ~20 ms (960 ech.) par paquet, moins le pre-skip et le DiscardPadding de fin
+				// de flux : APPROXIMATIF (suffisant, meme usage que l'estimation AAC).
+				mApproxFrameCount = (nk_int64)mNumPackets * 960 - mOpusPreSkipLeft - totalDiscard;
 				if (mApproxFrameCount < 0)
 					mApproxFrameCount = 0;
 			} else {
@@ -139,7 +147,14 @@ namespace nkentseu {
 				// DecodePacket renvoie le nombre TOTAL de valeurs int16 (frames × canaux).
 				const int32 vals =
 					mOpus.DecodePacket(mBytes.Data() + p.offset, (int32)p.size, mLeftover.Data());
-				const int32 n = vals / mChannels; // frames
+				int32 n = vals / mChannels; // frames
+				// DiscardPadding (WebM) : jette les dernieres frames du paquet (padding
+				// d'encodeur en fin de flux — ffmpeg fait pareil).
+				if (p.discardFrames > 0) {
+					n -= p.discardFrames;
+					if (n < 0)
+						n = 0;
+				}
 				if (n <= 0)
 					continue; // paquet indecodable -> saute (silence)
 				if (mOpusPreSkipLeft >= n) {

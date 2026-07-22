@@ -25,6 +25,9 @@ namespace nkentseu {
 				int64 timestampMs = 0;	// horodatage approx (ms depuis le début)
 				int64 granule = -1;		// OGG : granulepos de la page où le paquet se termine
 										// (dernier paquet complet de la page), -1 sinon
+				int64 discardPaddingNs = 0; // WebM : DiscardPadding (0x75A2) du BlockGroup —
+											// nanosecondes à JETER en FIN de bloc décodé
+											// (padding d'encodeur du dernier paquet Opus)
 		};
 
 		struct NkMediaDemux {

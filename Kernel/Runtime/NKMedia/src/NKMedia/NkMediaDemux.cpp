@@ -468,8 +468,37 @@ namespace nkentseu {
 						WalkClusters(base, ds, de, audioNum, 0, out, depth + 1);
 					} else if (id == 0xE7ULL) { // Timestamp (du cluster)
 						curClusterTs = EbmlUint(base + ds, de - ds);
-					} else if (id == 0xA0ULL) { // BlockGroup
+					} else if (id == 0xA0ULL) { // BlockGroup : Block + (optionnel) DiscardPadding
+						// Pré-scan des enfants : DiscardPadding (0x75A2) = entier SIGNÉ
+						// big-endian, en NANOSECONDES, à jeter en FIN du bloc décodé
+						// (padding d'encodeur — dernier paquet Opus d'un WebM).
+						int64 discardNs = 0;
+						{
+							usize p2 = ds;
+							while (p2 < de) {
+								uint64 id2 = 0, sz2 = 0;
+								int32 il2 = ReadVint(base + p2, de - p2, id2, true);
+								if (il2 <= 0)
+									break;
+								int32 sl2 = ReadVint(base + p2 + il2, de - p2 - il2, sz2, false);
+								if (sl2 <= 0)
+									break;
+								const usize ds2 = p2 + (usize)il2 + (usize)sl2;
+								usize de2 = (ds2 + (usize)sz2 > de) ? de : ds2 + (usize)sz2;
+								if (id2 == 0x75A2ULL && de2 > ds2 && de2 - ds2 <= 8) {
+									// Entier signé BE : extension de signe depuis le 1er octet.
+									int64 v = (base[ds2] & 0x80) ? -1 : 0;
+									for (usize k = ds2; k < de2; ++k)
+										v = (v << 8) | (int64)base[k];
+									discardNs = v;
+								}
+								p2 = de2;
+							}
+						}
+						const usize before = out.Size();
 						WalkClusters(base, ds, de, audioNum, curClusterTs, out, depth + 1);
+						if (discardNs > 0 && out.Size() > before)
+							out[out.Size() - 1].discardPaddingNs = discardNs;
 					} else if (id == 0xA3ULL || id == 0xA1ULL) { // SimpleBlock / Block
 						uint64 trackNum = 0;
 						int32 tl = ReadVint(base + ds, de - ds, trackNum, false);

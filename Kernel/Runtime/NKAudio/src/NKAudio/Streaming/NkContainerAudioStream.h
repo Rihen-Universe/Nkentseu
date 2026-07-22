@@ -92,10 +92,12 @@ namespace nkentseu {
 				int32 mOpusPreSkipLeft = 0;	   // echantillons de pre-skip (OpusHead) a jeter
 				NkVector<nk_uint8> mBytes; // fichier complet (les paquets pointent dedans)
 
-				// Paquets demuxes : (offset, taille) dans mBytes.
+				// Paquets demuxes : (offset, taille) dans mBytes. discardFrames = frames 48 kHz
+				// a JETER en fin de paquet decode (DiscardPadding WebM du dernier paquet Opus).
 				struct PacketRef {
 						usize offset;
 						usize size;
+						nk_int32 discardFrames = 0;
 				};
 				NkVector<PacketRef> mPackets;
 				usize mNumPackets = 0;

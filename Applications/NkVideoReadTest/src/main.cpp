@@ -9,6 +9,7 @@
 #include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
 #include "NKMedia/Codecs/Video/VP8/NkVp8Decoder.h"
 #include "NKMedia/Codecs/Video/VP8/NkVp8BoolDecoder.h"
+#include "NKMedia/Codecs/Video/VP9/NkVp9Decoder.h"
 
 #include <cstdio>
 #include <cstring>
@@ -28,7 +29,9 @@ int main(int argc, char **argv) {
 		printf("  [ %s ] NkH264Decoder::SelfTest (NAL split + SPS + PPS + slice header I)\n", okH264 ? "OK " : "KO");
 		bool okCavlc = NkH264Cavlc::SelfTest();
 		printf("  [ %s ] NkH264Cavlc::SelfTest (encode->decode round-trip)\n", okCavlc ? "OK " : "KO");
-		bool all = ok && okH264 && okCavlc;
+		bool okVp9 = NkVp9Decoder::SelfTest();
+		printf("  [ %s ] NkVp9Decoder::SelfTest (superframe + en-tete non compresse)\n", okVp9 ? "OK " : "KO");
+		bool all = ok && okH264 && okCavlc && okVp9;
 		printf("=== %s ===\n", all ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
 		return all ? 0 : 1;
 	}
@@ -285,6 +288,103 @@ int main(int argc, char **argv) {
 		}
 		printf("  [ KO ] ECARTS INATTENDUS (le filtre de boucle est desormais implemente)\n");
 		return 1;
+	}
+
+	// Mode diagnostic VP9 (brique 1) : --vp9header <fichier.ivf>
+	// Parcourt TOUTES les frames IVF : découpe superframe (Annexe B) + en-tête non
+	// compressé (§6.2) de chaque sous-trame. Vérifie : sync code/marker OK, dims des
+	// trames clés == entête IVF, somme des tailles superframe == charge, headerSize
+	// compressé dans les bornes. Statistiques par type de trame.
+	if (argc >= 3 && strcmp(argv[1], "--vp9header") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		uint8 ivfHdr[32];
+		if (fread(ivfHdr, 1, 32, f) != 32 || memcmp(ivfHdr, "DKIF", 4) != 0) {
+			printf("  [KO] pas un fichier IVF valide\n");
+			fclose(f);
+			return 1;
+		}
+		char fourcc[5] = {(char)ivfHdr[8], (char)ivfHdr[9], (char)ivfHdr[10], (char)ivfHdr[11], 0};
+		const uint16 ivfW = (uint16)(ivfHdr[12] | (ivfHdr[13] << 8));
+		const uint16 ivfH = (uint16)(ivfHdr[14] | (ivfHdr[15] << 8));
+		printf("  IVF : fourcc=%s dims=%ux%u\n", fourcc, ivfW, ivfH);
+		if (strcmp(fourcc, "VP90") != 0)
+			printf("  [!!] fourcc != VP90\n");
+
+		int32 nPayloads = 0, nFrames = 0, nKey = 0, nInter = 0, nAltref = 0, nShowExisting = 0;
+		int32 nSuperframes = 0;
+		bool allOk = true;
+		for (;;) {
+			uint8 frameHdr[12];
+			if (fread(frameHdr, 1, 12, f) != 12)
+				break;
+			const uint32 payloadSize = (uint32)frameHdr[0] | ((uint32)frameHdr[1] << 8) |
+									   ((uint32)frameHdr[2] << 16) | ((uint32)frameHdr[3] << 24);
+			NkVector<uint8> payload;
+			payload.Resize(payloadSize);
+			if (fread(payload.Data(), 1, payloadSize, f) != payloadSize) {
+				printf("  [KO] charge %d tronquee\n", nPayloads);
+				allOk = false;
+				break;
+			}
+			NkVp9Superframe sf;
+			if (!NkVp9Decoder::ParseSuperframe(payload.Data(), (usize)payload.Size(), sf)) {
+				printf("  [KO] superframe %d invalide\n", nPayloads);
+				allOk = false;
+				break;
+			}
+			if (sf.count > 1)
+				++nSuperframes;
+			for (int32 fr = 0; fr < sf.count; ++fr) {
+				NkVp9FrameHeader h;
+				if (!NkVp9Decoder::ParseUncompressedHeader(payload.Data() + sf.offsets[fr],
+														   sf.sizes[fr], h)) {
+					printf("  [KO] header invalide (charge %d, sous-trame %d)\n", nPayloads, fr);
+					allOk = false;
+					continue;
+				}
+				++nFrames;
+				if (h.showExistingFrame) {
+					++nShowExisting;
+				} else if (h.frameType == kVp9KeyFrame) {
+					++nKey;
+					if (h.width != (int32)ivfW || h.height != (int32)ivfH) {
+						printf("  [KO] dims cle %dx%d != IVF %ux%u\n", h.width, h.height, ivfW, ivfH);
+						allOk = false;
+					}
+				} else {
+					++nInter;
+					if (!h.showFrame)
+						++nAltref;
+				}
+				if (!h.showExistingFrame &&
+					(usize)h.uncompressedBytes + (usize)h.headerSizeBytes > sf.sizes[fr]) {
+					printf("  [KO] headerSize hors bornes (charge %d, sous-trame %d : %d+%d > %u)\n",
+						   nPayloads, fr, h.uncompressedBytes, h.headerSizeBytes,
+						   (unsigned)sf.sizes[fr]);
+					allOk = false;
+				}
+				if (nFrames <= 6)
+					printf("  trame %d : type=%s show=%d dims=%dx%d profil=%d cs=%d q=%d lf=%d "
+						   "tiles=%dx%d hdrNC=%d hdrC=%d\n",
+						   nFrames - 1,
+						   h.showExistingFrame ? "SHOW_EXISTING"
+											   : (h.frameType == kVp9KeyFrame ? "CLE" : "INTER"),
+						   h.showFrame ? 1 : 0, h.width, h.height, h.profile, h.colorSpace,
+						   h.baseQIdx, h.lfLevel, 1 << h.tileColsLog2, 1 << h.tileRowsLog2,
+						   h.uncompressedBytes, h.headerSizeBytes);
+			}
+			++nPayloads;
+		}
+		fclose(f);
+		printf("  charges=%d (superframes=%d) trames=%d : cles=%d inter=%d (altref invisibles=%d) "
+			   "show_existing=%d\n",
+			   nPayloads, nSuperframes, nFrames, nKey, nInter, nAltref, nShowExisting);
+		printf("  [ %s ] parsing en-tetes VP9\n", allOk ? "OK " : "KO");
+		return allOk ? 0 : 1;
 	}
 
 	// Mode diagnostic VP8 (chantier en cours) : --vp8header <fichier.ivf>
