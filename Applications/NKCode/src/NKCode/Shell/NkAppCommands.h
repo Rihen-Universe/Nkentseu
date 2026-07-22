@@ -160,12 +160,55 @@ inline void DrawPrefsModal(NkEditorFrameContext &ec, nkcode::NkCodeDialogs *d) {
 	ctx.appModal = true; // neutralise raccourcis/edition derriere la modale
 }
 
+// ── Fenetre modale NOUVEAU WORKSPACE : heberge le wizard COMPLET du launcher
+//    (NkNewWsPanel — templates, configs, OS, archs, toolchain, projets, git).
+//    A la creation, DoLoad est intercepte (wsAddAsRoot) : le workspace est
+//    AJOUTE comme racine de l'explorateur, le courant reste charge. ──
+inline void DrawNewWsModal(NkEditorFrameContext &ec, nkcode::NkCodeDialogs *d) {
+	nkcode::NkHomeState *H = d->home;
+	if (!H)
+		return;
+	nkcode::NkUi u = nkcode::NkUi::From(ec, /*overlay=*/true);
+	if (!u.Valid())
+		return;
+	NkGuiContext &ctx = *u.ctx;
+	const float32 W = (float32)ctx.viewW, Vh = (float32)ctx.viewH;
+	float32 pw = W * 0.9f, ph = Vh * 0.9f;
+	if (pw > u.s(1150))
+		pw = u.s(1150);
+	if (ph > u.s(800))
+		ph = u.s(800);
+	const NkRect box = {(W - pw) * 0.5f, (Vh - ph) * 0.5f, pw, ph};
+	ctx.PushOcclusion(box, 100);
+	NkGuiContext::NkInputLayerScope _layer(ctx, 100);
+	u.Rect({0.f, 0.f, W, Vh}, NkColor{0, 0, 0, 150}); // backdrop
+	if (u.click && !u.Hit(box) && !d->pickerOpen) {	  // clic dehors = annuler
+		d->showNewWs = false;
+		d->wsAddAsRoot = false;
+		return;
+	}
+	u.Panel(box, nkcode::NkCol::background, nkcode::NkCol::border, nkcode::NkR::lg);
+	if (nkcode::NkNewWsPanel(u, box, &H->nw, H->st, d, ec.dt, H->icons) == 1) {
+		d->showNewWs = false; // Annuler du wizard
+		d->wsAddAsRoot = false;
+		return;
+	}
+	if (!d->wsAddAsRoot) {
+		// DoLoad intercepte -> creation TERMINEE (workspace ajoute en racine).
+		d->showNewWs = false;
+		return;
+	}
+	ctx.appModal = true;
+}
+
 inline void OverlayThunk(NkEditorFrameContext &ec, void *u) {
 	auto *d = static_cast<nkcode::NkCodeDialogs *>(u);
-	// Preferences AVANT DrawOverlay : le picker (ouvert par un champ des
-	// settings) doit se dessiner AU-DESSUS de la modale.
+	// Modales AVANT DrawOverlay : le picker (ouvert par un champ des
+	// settings/du wizard) doit se dessiner AU-DESSUS de la modale.
 	if (d->showPrefs)
 		DrawPrefsModal(ec, d);
+	if (d->showNewWs)
+		DrawNewWsModal(ec, d);
 	// Demande d'« Enregistrer sous » (bouton +, ré-enregistrer un fichier supprimé) : ouvre le dialogue.
 	if (d->st && d->st->reqSaveAs) {
 		d->st->reqSaveAs = false;

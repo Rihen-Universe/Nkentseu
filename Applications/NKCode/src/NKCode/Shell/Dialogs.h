@@ -31,6 +31,8 @@ namespace nkentseu {
 				NkEditorShell *shell = nullptr; // pour appliquer l'etat d'UI du projet (ui.cfg)
 				NkHomeState *home = nullptr;	// pose par main.cpp — settings/icones du launcher
 				bool showPrefs = false;			// fenetre modale PREFERENCES (panneau launcher complet)
+				bool showNewWs = false;			// fenetre modale NOUVEAU WORKSPACE (wizard launcher complet)
+				bool wsAddAsRoot = false;		// intercepte le DoLoad du wizard -> ajout comme racine explorateur
 				NkLoadingState loading;			// ecran de chargement (workspace -> editeur)
 
 				enum Mode { None = 0, NewProject, NewWorkspace, SaveAs, Properties };
@@ -725,6 +727,15 @@ namespace nkentseu {
 				// La bascule vers l'editeur (LoadUiState + showStart=false) se fait quand loading.finished
 				// (gere dans DrawHome). Une erreur .jenga affiche l'etat d'erreur inline (pas de bascule).
 				void DoLoad(const NkPath &folder) {
+					if (wsAddAsRoot && st) {
+						// Wizard « Nouveau Workspace » lance DEPUIS L'EDITEUR (modale) :
+						// le workspace cree est AJOUTE comme racine de l'explorateur
+						// (add folder to workspace) — le workspace courant reste charge.
+						wsAddAsRoot = false;
+						st->pickedFolder = folder.ToString();
+						st->status = NkString("Workspace cree : ") + folder.ToString().CStr();
+						return;
+					}
 					loading.Start(folder, st);
 				}
 
@@ -1744,37 +1755,47 @@ namespace nkentseu {
 						d->BrowseInto(buf, cap, lab);
 					y += 32.f;
 				};
-				// ── Workspace d'APPARTENANCE : tout projet depend d'un workspace.
-				//    Seuls les workspaces OUVERTS dans CET editeur (scannes dans la
-				//    racine chargee) sont proposes. ──
+				// ── Workspace d'APPARTENANCE : tout projet depend d'un workspace. La
+				//    liste = ceux de l'EXPLORATEUR (racine chargee + racines ajoutees,
+				//    deja fusionnes dans wsPaths par ScanWorkspaces). Le CHOIX n'est
+				//    propose que s'il y en a PLUSIEURS. ──
 				text(cx, y, "Workspace d'appartenance", lblC);
 				y += 22.f;
 				{
 					const int32 curIdx = d->st->wsIdx;
-					const int32 selIdx = (d->projWsIdx >= 0 && d->projWsIdx < (int32)d->st->wsPaths.Size())
-											 ? d->projWsIdx
-											 : curIdx;
-					for (usize i = 0; i < d->st->wsPaths.Size(); ++i) {
-						const NkRect r = {cx, y, fw, 24.f};
-						const bool sel = ((int32)i == selIdx);
-						dl.AddRectFilled(r,
-										 sel ? NkColor{38, 60, 92, 255}
-											 : (mic && hit(r) ? NkColor{33, 39, 48, 255} : NkColor{24, 28, 34, 255}),
-										 4.f);
-						if (sel)
-							dl.AddRect(r, NkColor{88, 166, 255, 255}, 1.f);
-						NkString nm = (i < d->st->wsNames.Size() && !d->st->wsNames[i].Empty())
-										  ? d->st->wsNames[i]
-										  : d->st->wsPaths[i];
-						if ((int32)i == curIdx)
-							nm += " (courant)";
-						dl.PushClipRect({r.x, r.y, r.w - 8.f, r.h}, true);
-						text(r.x + 10.f, r.y + (24.f - lh) * 0.5f, nm.CStr(),
-							 sel ? NkColor{230, 237, 243, 255} : NkColor{180, 188, 196, 255});
-						dl.PopClipRect();
-						if (mic && hit(r) && click)
-							d->projWsIdx = (int32)i;
+					if (d->st->wsPaths.Size() <= 1) {
+						// Un seul workspace dans l'explorateur : pas de choix, on l'affiche.
+						const NkString nm = (curIdx >= 0 && curIdx < (int32)d->st->wsNames.Size())
+												? d->st->wsNames[curIdx]
+												: NkString("(workspace courant)");
+						text(cx + 2.f, y, nm.CStr(), NkColor{230, 237, 243, 255});
 						y += 28.f;
+					} else {
+						const int32 selIdx = (d->projWsIdx >= 0 && d->projWsIdx < (int32)d->st->wsPaths.Size())
+												 ? d->projWsIdx
+												 : curIdx;
+						for (usize i = 0; i < d->st->wsPaths.Size(); ++i) {
+							const NkRect r = {cx, y, fw, 24.f};
+							const bool sel = ((int32)i == selIdx);
+							dl.AddRectFilled(r,
+											 sel ? NkColor{38, 60, 92, 255}
+												 : (mic && hit(r) ? NkColor{33, 39, 48, 255} : NkColor{24, 28, 34, 255}),
+											 4.f);
+							if (sel)
+								dl.AddRect(r, NkColor{88, 166, 255, 255}, 1.f);
+							NkString nm = (i < d->st->wsNames.Size() && !d->st->wsNames[i].Empty())
+											  ? d->st->wsNames[i]
+											  : d->st->wsPaths[i];
+							if ((int32)i == curIdx)
+								nm += " (courant)";
+							dl.PushClipRect({r.x, r.y, r.w - 8.f, r.h}, true);
+							text(r.x + 10.f, r.y + (24.f - lh) * 0.5f, nm.CStr(),
+								 sel ? NkColor{230, 237, 243, 255} : NkColor{180, 188, 196, 255});
+							dl.PopClipRect();
+							if (mic && hit(r) && click)
+								d->projWsIdx = (int32)i;
+							y += 28.f;
+						}
 					}
 					y += 6.f;
 				}
@@ -1938,12 +1959,15 @@ namespace nkentseu {
 						po.appVersion = d->projVersion;
 						po.appPublisher = d->projPublisher;
 						po.appIcon = d->projIcon;
-						// Workspace d'APPARTENANCE : parmi ceux OUVERTS dans cet editeur
-						// (wsPaths) ; defaut = courant (wsIdx).
+						// Workspace d'APPARTENANCE : parmi ceux de l'EXPLORATEUR (wsPaths
+						// = racine chargee + racines ajoutees) ; defaut = courant.
+						// Racine du projet = dossier du .jenga choisi (vrai aussi pour
+						// un workspace d'une racine secondaire).
 						const int32 wsSel = (d->projWsIdx >= 0 && d->projWsIdx < (int32)d->st->wsPaths.Size())
 												? d->projWsIdx
 												: d->st->wsIdx;
-						made = GenerateProjectEx(d->st->root, NkPath(d->st->wsPaths[wsSel].CStr()), po);
+						const NkPath wsJenga = NkPath(d->st->wsPaths[wsSel].CStr());
+						made = GenerateProjectEx(wsJenga.GetParent(), wsJenga, po);
 					} else {
 						// ── Nouveau workspace : cree <emplacement>/<nom>/ + <nom>.jenga,
 						//    puis l'AJOUTE comme racine de l'explorateur (meme mecanisme
