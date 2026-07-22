@@ -285,14 +285,10 @@ namespace nkentseu {
 					d->OpenPicker(NkCodeDialogs::PK_NewFolder, s->root.ToString().CStr());
 				if (MenuItem(ctx, NkT("mb.file.newproject"), nullptr, hasWs))
 					d->Open(NkCodeDialogs::NewProject); // dialogue riche (nom/template/langage)
-				if (MenuItem(ctx, NkT("mb.file.newworkspace"))) {
-					// PARITE LAUNCHER : bascule vers l'ecran de demarrage sur le WIZARD
-					// « Nouveau Workspace » complet (templates, emplacement, options) —
-					// le meme flux que le launcher, pas un mini-dialogue.
-					d->ShowStart();
-					if (mb->home)
-						mb->home->nav = 2;
-				}
+				if (MenuItem(ctx, NkT("mb.file.newworkspace")))
+					// Modale de creation (Nom + Emplacement) : le workspace cree est
+					// AJOUTE comme racine de l'explorateur, le courant reste charge.
+					d->Open(NkCodeDialogs::NewWorkspace);
 				Separator(ctx);
 				if (MenuItem(ctx, NkT("mb.file.openfile")) && s) {
 					// PICKER MAISON (pas le dialogue systeme), navigation DISQUE ENTIER
