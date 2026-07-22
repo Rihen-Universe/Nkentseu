@@ -25,7 +25,7 @@ namespace nkentseu {
 				static bool Probe(const uint8 *data, usize size);
 
 				// Décode un fichier .opus complet (buffer mémoire) → PCM int16
-				// 48 kHz. outChannels = canaux décodés (V1 : 1), outSampleRate =
+				// 48 kHz. outChannels = canaux décodés (1 ou 2, entrelacé), outSampleRate =
 				// 48000. Renvoie false (et remplit outError si fourni) sur
 				// format invalide / stéréo / flux non-Opus.
 				static bool Decode(const uint8 *data, usize size, NkVector<int16> &outPcm, int32 &outChannels,
