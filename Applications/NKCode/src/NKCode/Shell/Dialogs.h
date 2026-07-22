@@ -182,9 +182,11 @@ namespace nkentseu {
 				int32 scafFocus = 0;			// 0 aucun, 1 nom, 2 ns, 3 base, 4 filles, 5 ext
 				// Purpose APPLICATIF : « creer un dossier » (menu Fichier > Nouveau Dossier).
 				// Le picker s'ouvre en mode dossier generique : navigation + bouton
-				// « + Creer dossier » integres ; la confirmation ne route AUCUNE action
-				// (le dossier est cree par le bouton dedie, rien d'autre a faire).
+				// « + Creer dossier » integres ; le bouton principal cree <emplacement>/<nom>.
 				static constexpr int32 PK_NewFolder = 200;
+				// Purpose APPLICATIF : « exporter le workspace » — choisir le dossier de
+				// DESTINATION du zip ; la confirmation lance tar dans le terminal integre.
+				static constexpr int32 PK_ExportZip = 201;
 
 				void OpenPicker(int32 purpose, const char *startDir, char *buf = nullptr, int32 cap = 0,
 								const char *confine = nullptr, const char *fileExt = nullptr) {
@@ -220,12 +222,16 @@ namespace nkentseu {
 						return "Creer";
 					if (pickerFor == PK_NewFolder)
 						return "Creer le dossier";
+					if (pickerFor == PK_ExportZip)
+						return "Exporter ici";
 					return NkFilePickerState::PickerConfirmLabel();
 				}
 				void PickerClearExtraFocus() override { scafFocus = 0; }
 				const char *PickerTitle() const override {
 					if (pickerFor == PK_NewFolder)
 						return "Creer un dossier - choisir l'emplacement";
+					if (pickerFor == PK_ExportZip)
+						return "Exporter le workspace - choisir la destination";
 					return NkFilePickerState::PickerTitle();
 				}
 
@@ -315,6 +321,26 @@ namespace nkentseu {
 						pickWsJenga = false;
 						if (wsOpenBuf[0])
 							DoLoad(NkPath(wsOpenBuf).GetParent());
+					} else if (purpose == PK_ExportZip && st) {
+						// « Exporter » : zip du workspace VERS le dossier choisi, via le
+						// terminal integre (commande visible). Nom = <workspace>-export.zip.
+						NkString nm = (st->wsIdx >= 0 && st->wsIdx < (int32)st->wsNames.Size() &&
+									   !st->wsNames[st->wsIdx].Empty())
+										  ? st->wsNames[st->wsIdx]
+										  : NkString("workspace");
+						NkString out = chosen;
+						out += "/";
+						out += nm;
+						out += "-export.zip";
+						NkString cmd = "tar -a -c --exclude=Build --exclude=.git -f \"";
+						cmd += out;
+						cmd += "\" . && echo Exporte: ";
+						cmd += out;
+						st->termOpenCmd = cmd;
+						st->termOpenKind = -1;
+						st->termOpenAt = st->root.ToString();
+						if (shell)
+							shell->FocusPanel("TERMINAL");
 					}
 					// PK_Buf / PK_File : le buffer cible est deja rempli par le moteur.
 				}
