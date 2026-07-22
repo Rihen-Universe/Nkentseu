@@ -599,6 +599,9 @@ namespace nkentseu {
 				{"mb.go.gotorefs", {"Aller aux références", "Go to References", "Ir a referencias", "Ir para referências", "Gehe zu Referenzen", "Vai ai riferimenti", "К ссылкам", "Aller aux références"}},
 				{"mb.go.gotoline", {"Aller à la ligne...", "Go to Line...", "Ir a línea...", "Ir para linha...", "Gehe zu Zeile...", "Vai alla riga...", "К строке...", "Aller à la ligne..."}},
 				{"mb.go.nextproblem", {"Problème suivant", "Next Problem", "Problema siguiente", "Próximo problema", "Nächstes Problem", "Problema successivo", "След. проблема", "Problème suivant"}},
+				{"mb.go.gotoline", {"Aller à la ligne...", "Go to Line...", "Ir a la línea...", "Ir para a linha...", "Gehe zu Zeile...", "Vai alla riga...", "Перейти к строке...", "Aller à la ligne..."}},
+				{"mb.go.nexttab", {"Onglet suivant", "Next Tab", "Pestaña siguiente", "Próxima aba", "Nächster Tab", "Scheda successiva", "След. вкладка", "Onglet suivant"}},
+				{"mb.go.prevtab", {"Onglet précédent", "Previous Tab", "Pestaña anterior", "Aba anterior", "Vorheriger Tab", "Scheda precedente", "Пред. вкладка", "Onglet précédent"}},
 				{"mb.go.prevproblem", {"Problème précédent", "Previous Problem", "Problema anterior", "Problema anterior", "Vorheriges Problem", "Problema precedente", "Пред. проблема", "Problème précédent"}},
 				// RUN
 				{"mb.run.run", {"Exécuter", "Run", "Ejecutar", "Executar", "Ausführen", "Esegui", "Запустить", "Exécuter"}},
