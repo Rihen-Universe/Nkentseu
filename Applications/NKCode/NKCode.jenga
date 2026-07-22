@@ -29,6 +29,23 @@ def _pkg_exists(pkg_name):
         return False
 
 
+# Embarquement Jenga in-process (Phase 12 ROADMAP.md) : CPython embeddable
+# vendorise dans Externals/Libs/PythonEmbed (voir NOTICE_NKENTSEU.md la-bas).
+# sdk/ = fichiers de DEV (Python.h, python312.lib), jamais distribues avec
+# NKCode ; runtime/ = ce qui sera copie a cote de NKCode.exe (voir Phase 3,
+# NkEmbeddedJenga, pour l'etape de copie postbuild une fois le code reel en
+# place). Chemins calcules depuis __file__ (repertoire de ce .jenga), pas un
+# env var : PythonEmbed est TOUJOURS vendorise au meme endroit relatif.
+## __file__ est RELATIF et le loader Jenga a deja fait chdir() dans le
+## dossier de ce fichier au moment de l'exec (verifie empiriquement) ->
+## os.path.abspath(__file__) double le chemin. On part du cwd directement.
+_HERE           = _norm(os.getcwd())
+_REPO_ROOT      = _norm(os.path.abspath(os.path.join(_HERE, "..", "..")))
+_PYEMBED_DIR    = _REPO_ROOT + "/Externals/Libs/PythonEmbed"
+_PYEMBED_INCLUDE = _PYEMBED_DIR + "/sdk/include"
+_PYEMBED_LIBDIR  = _PYEMBED_DIR + "/sdk/libs"
+_PYEMBED_LIBNAME = "python312"
+
 _VULKAN_SDK     = _norm(os.getenv("VULKAN_SDK", ""))
 _VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
 _VULKAN_LIB     = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
@@ -53,7 +70,11 @@ with project("NKCode"):
         ["NKEditorKit", "NKCanvas", "NKGui", "NKWindow", "NKEvent", "NKGlad",
          "NKFont", "NKImage", "NKAudio", "NKMedia", "NKFileSystem", "NKThreading", "NKLogger", "NKMath", "NKTime",
          "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
-        extra_includes=["src", "src/NKCode", "%{NKGlad.location}/include"]
+        # pybind11 est header-only (files([]), rien a compiler/lier) : simple
+        # includedirs, pas un dependson NK-prefixe (evite un edge dependson/
+        # link superflu, cf. NOTICE Externals/Libs/pybind11).
+        extra_includes=["src", "src/NKCode", "%{NKGlad.location}/include", "%{pybind11.location}/include",
+                        _PYEMBED_INCLUDE]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
     )
 
@@ -71,12 +92,14 @@ with project("NKCode"):
         defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
         if _VULKAN_LIB:
             libdirs([_VULKAN_LIB])
+        libdirs([_PYEMBED_LIBDIR])
         _WIN_LINKS = [
             "user32", "gdi32", "opengl32", "dwmapi", "shell32", "comdlg32",
             "mf", "mfplat", "mfreadwrite", "mfuuid",
             "uuid", "ole32", "dinput8", "dxguid",
             "d3d11", "d3d12", "dxgi", "d3dcompiler",
             "winmm", "avrt",  # NKAudio : backend WASAPI (lecteur audio)
+            _PYEMBED_LIBNAME,  # Jenga in-process (Phase 12) : voir NkEmbeddedJenga.h
         ]
         if _WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
