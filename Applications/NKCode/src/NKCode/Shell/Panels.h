@@ -683,8 +683,9 @@ namespace nkentseu {
 					if (r.y + r.h > clip.y + clip.h)
 						r.h = clip.y + clip.h - r.y;
 
-					// ── Fil d'Ariane (workspace › dossier › … › fichier) ──
-					{
+					// ── Fil d'Ariane (workspace › dossier › … › fichier) — desactivable via
+					// le menu Affichage > Breadcrumbs. ──
+					if (mS->showBreadcrumb) {
 						const float32 bcH = DrawBreadcrumb(ctx, f, r);
 						r.y += bcH;
 						if (r.h > bcH)

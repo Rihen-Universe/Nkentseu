@@ -186,6 +186,21 @@ namespace nkentseu {
 					const NkRect r = dl.CurrentClip();
 					if (mChats.Empty())
 						NewChat(); // 1re conversation (locale correcte : posée après construction)
+					// ── Pont barre de menus -> chat (menu IA : Expliquer/Corriger/... la
+					// selection) : prompt depose dans NkCodeState, copie dans la saisie ici ;
+					// aiSend = envoi immediat (si un tour est deja en cours, le prompt reste
+					// dans la saisie — l'utilisateur enverra, jamais de perte silencieuse).
+					if (mS && !mS->aiPrompt.Empty()) {
+						const usize cap = sizeof(mInput) - 1;
+						const usize n = mS->aiPrompt.Size() < cap ? mS->aiPrompt.Size() : cap;
+						::memcpy(mInput, mS->aiPrompt.CStr(), n);
+						mInput[n] = 0;
+						const bool wantSend = mS->aiSend;
+						mS->aiPrompt.Clear();
+						mS->aiSend = false;
+						if (wantSend && !mBusy)
+							Send();
+					}
 					Poll(); // draine la réponse en cours
 
 					// ── CIBLE de DRAG & DROP (explorateur interne + OS) : ajoute le(s) chemin(s)
