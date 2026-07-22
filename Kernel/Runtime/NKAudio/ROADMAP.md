@@ -146,6 +146,14 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
   (`.aiff`/`.aif`). Validé vs ffmpeg (conversion commune 16-bit) : **maxdiff=1** sur tous les
   échantillons (8/16/24-bit, mono/stéréo), cohérent avec la précision du reste du pipeline float32.
 - `MemoryStream` : wrap d'un AudioSample (FLAC/MP3/OGG en RAM)
+- `ContainerAudioStream` : piste audio d'un CONTENEUR VIDÉO décodée par paquets à la
+  demande (RAM bornée) — AAC-LC (MP4/MOV/3GP…), PCM twos/sowt/lpcm, et
+  **Opus-dans-WebM (2026-07-22)** : paquets Opus BRUTS des SimpleBlocks →
+  `NkOpusDecoder` (NKMedia, mono, 48 kHz natif), pre-skip lu dans l'OpusHead du
+  CodecPrivate (RFC 7845, uint16 LE offset 10, repli 312) et consommé sur les premiers
+  échantillons. Validé : **corr 1.000000 lag 0 vs ffmpeg** sur .webm VP8+Opus réel,
+  lecture bout-en-bout NkVideoPlayer image+son. Limites : Opus stéréo refusé proprement
+  (décodeur NKMedia mono) ; `DiscardPadding` fin de flux non géré (~13 ms de queue).
 - `AudioStreamPlayer` : ring buffer SPSC + thread worker + loop + crossfade EOF
 
 ### Phase 9 — Backends natifs
