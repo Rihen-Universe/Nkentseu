@@ -7,6 +7,7 @@
 #include "NKImage/Core/NkImage.h"
 #include "NKImage/Codecs/JPEG/NkJPEGCodec.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Decoder.h"
+#include "NKMedia/Codecs/Video/VP8/NkVp8Decoder.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKMemory/NKMemory.h"
@@ -39,8 +40,8 @@ namespace nkentseu {
 				return ((uint64)RdU32BE(p) << 32) | (uint64)RdU32BE(p + 4);
 			}
 
-			enum class Backend { NONE, AVI, MOV, WEBM, TS, FLV, SEQUENCE };
-			enum class Codec { NONE, MJPEG, RAWRGB, H264 };
+			enum class Backend { NONE, AVI, MOV, WEBM, TS, FLV, IVF, SEQUENCE };
+			enum class Codec { NONE, MJPEG, RAWRGB, H264, VP8 };
 
 			// Référence d'une image encodée dans le buffer fichier (offset+taille).
 			struct FrameRef {
@@ -329,6 +330,18 @@ namespace nkentseu {
 				int32 h264OutCount = 0;			  // nombre d'images sorties (ordre d'affichage)
 				NkVector<NkVideoFrame> h264Reorder;  // frames RGBA décodées, en attente d'affichage
 				NkVector<nk_int64> h264ReorderKey;   // POC global parallèle
+
+				// ── VP8 ─────────────────────────────────────────────────────────────
+				// Pas de B-frames en VP8 : ordre de décodage == ordre d'affichage, le
+				// curseur générique suffit. MAIS certains blocs sont des images altref
+				// INVISIBLES (`show_frame == 0`) : décodées (elles mettent à jour les
+				// références) mais jamais affichées. `vp8DisplayBlocks[i]` = indice du bloc
+				// qui produit la i-ème image AFFICHÉE ; Decode(i) décode tous les blocs
+				// depuis le précédent affiché (altref intermédiaires comprises).
+				NkVp8DecoderState vp8State;
+				NkVector<nk_int32> vp8DisplayBlocks;
+				NkVector<bool> vp8Keyframe; // parallèle à vp8DisplayBlocks (image clé ?)
+				int32 vp8PrevIndex = -2;	 // dernier index AFFICHÉ décodé (séquentialité)
 
 				// Parse un AVCDecoderConfigurationRecord (mêmes octets pour la boîte `avcC` ISOBMFF
 				// ET `CodecPrivate` EBML/Matroska V_MPEG4/ISO/AVC — seul le wrapper de boîte diffère,
@@ -770,6 +783,25 @@ namespace nkentseu {
 				// VP8/VP9/AV1 (les codecs vidéo natifs les plus courants en WebM) échouent proprement
 				// (pas de décodeur) — un H264-en-MKV (rips courants) se lit via le décodeur existant,
 				// AUCUN changement requis côté décodage (CodecPrivate EBML = mêmes octets que avcC).
+				// Scan des blocs VP8 : repère les images AFFICHÉES (`show_frame`) et les clés
+				// via le frame tag non compressé de chaque bloc. `frames` reste la liste de
+				// TOUS les blocs (altref invisibles comprises, à décoder mais pas afficher).
+				bool Vp8ScanBlocks() {
+					vp8DisplayBlocks.Clear();
+					vp8Keyframe.Clear();
+					for (uint64 i = 0; i < frames.Size(); ++i) {
+						NkVp8FrameTag tag;
+						if (!NkVp8ParseFrameTag(bytes.Data() + frames[i].offset, frames[i].size,
+												 tag))
+							return false;
+						if (tag.showFrame) {
+							vp8DisplayBlocks.PushBack((int32)i);
+							vp8Keyframe.PushBack(tag.keyFrame);
+						}
+					}
+					return vp8DisplayBlocks.Size() > 0;
+				}
+
 				bool ParseWebm() {
 					const uint8 *d = bytes.Data();
 					const usize n = (usize)bytes.Size();
@@ -777,13 +809,16 @@ namespace nkentseu {
 					WalkWebmTracks(d, 0, n, &found, nullptr, 0);
 					if (found.num < 0 || found.codecId.Empty())
 						return false;
-					if (!found.codecId.Contains("AVC") && !found.codecId.Contains("MPEG4"))
-						return false; // VP8/VP9/AV1 etc. : pas de décodeur -> échec propre
-					if (found.codecPriv.Size() < 7)
-						return false;
-					ParseAvcCBytes(found.codecPriv.Data(), (usize)found.codecPriv.Size());
-					if (h264Sps.Size() == 0 || h264Pps.Size() == 0)
-						return false;
+					const bool isVp8 = found.codecId.Contains("VP8");
+					if (!isVp8 && !found.codecId.Contains("AVC") && !found.codecId.Contains("MPEG4"))
+						return false; // VP9/AV1 etc. : pas de décodeur -> échec propre
+					if (!isVp8) {
+						if (found.codecPriv.Size() < 7)
+							return false;
+						ParseAvcCBytes(found.codecPriv.Data(), (usize)found.codecPriv.Size());
+						if (h264Sps.Size() == 0 || h264Pps.Size() == 0)
+							return false;
+					}
 					NkVector<int64> ts;
 					WalkWebmVideoClusters(d, 0, n, found.num, 0, frames, ts, 0);
 					if (frames.Size() == 0)
@@ -793,14 +828,57 @@ namespace nkentseu {
 					double fps = 25.0;
 					if (ts.Size() >= 2 && ts[ts.Size() - 1] > ts[0])
 						fps = 1000.0 * (double)(ts.Size() - 1) / (double)(ts[ts.Size() - 1] - ts[0]);
-					codec = Codec::H264;
-					info.codec = NkString("h264");
 					info.container = NkString("webm");
 					info.width = found.width;
 					info.height = found.height;
-					info.frameCount = (int32)frames.Size();
 					info.fps = fps;
-					ScanH264Keyframes();
+					if (isVp8) {
+						codec = Codec::VP8;
+						info.codec = NkString("vp8");
+						if (!Vp8ScanBlocks())
+							return false;
+						info.frameCount = (int32)vp8DisplayBlocks.Size();
+					} else {
+						codec = Codec::H264;
+						info.codec = NkString("h264");
+						info.frameCount = (int32)frames.Size();
+						ScanH264Keyframes();
+					}
+					return true;
+				}
+
+				// --- Parse IVF : conteneur brut minimal (DKIF), typiquement VP8/VP9 ---
+				bool ParseIvf() {
+					const uint8 *d = bytes.Data();
+					const usize n = (usize)bytes.Size();
+					if (n < 32 || d[0] != 'D' || d[1] != 'K' || d[2] != 'I' || d[3] != 'F')
+						return false;
+					if (!Tag(d + 8, 'V', 'P', '8', '0'))
+						return false; // VP90/AV01… : pas de décodeur -> échec propre
+					const int32 w = (int32)(d[12] | (d[13] << 8));
+					const int32 h = (int32)(d[14] | (d[15] << 8));
+					const uint32 rate = RdU32LE(d + 16);  // framerate numerator
+					const uint32 scale = RdU32LE(d + 20); // framerate denominator
+					usize pos = 32;
+					while (pos + 12 <= n) {
+						const uint32 sz = RdU32LE(d + pos);
+						if (pos + 12 + sz > n)
+							break;
+						FrameRef fr;
+						fr.offset = pos + 12;
+						fr.size = sz;
+						frames.PushBack(fr);
+						pos += 12 + (usize)sz;
+					}
+					if (frames.Size() == 0 || !Vp8ScanBlocks())
+						return false;
+					codec = Codec::VP8;
+					info.codec = NkString("vp8");
+					info.container = NkString("ivf");
+					info.width = w;
+					info.height = h;
+					info.frameCount = (int32)vp8DisplayBlocks.Size();
+					info.fps = (scale > 0) ? ((double)rate / (double)scale) : 25.0;
 					return true;
 				}
 
@@ -1265,6 +1343,57 @@ namespace nkentseu {
 						return true;
 					}
 
+					if (codec == Codec::VP8) {
+						if (index < 0 || index >= (int32)vp8DisplayBlocks.Size())
+							return false;
+						// Séquentiel : décoder les blocs depuis le dernier affiché (les altref
+						// invisibles intermédiaires mettent à jour les références). Saut : on
+						// repart de la dernière image CLÉ affichée <= index (l'état inter
+						// dépend de toute la chaîne depuis la clé).
+						int32 startDisplay = vp8PrevIndex + 1;
+						if (index != vp8PrevIndex + 1) {
+							int32 kf = index;
+							while (kf > 0 && !vp8Keyframe[(uint64)kf])
+								kf = kf - 1;
+							startDisplay = kf;
+							vp8State = NkVp8DecoderState(); // repart d'un état vierge
+						}
+						const int32 firstBlock =
+							(startDisplay > 0) ? vp8DisplayBlocks[(uint64)(startDisplay - 1)] + 1 : 0;
+						NkVp8Image img;
+						for (int32 b = firstBlock; b <= vp8DisplayBlocks[(uint64)index]; ++b) {
+							if (!NkVp8DecodeFrame(vp8State, bytes.Data() + frames[(uint64)b].offset,
+												   frames[(uint64)b].size, img))
+								return false;
+						}
+						vp8PrevIndex = index;
+
+						// YUV 4:2:0 -> RGBA (BT.601 limited-range, chroma nearest) — même
+						// conversion que le chemin H264.
+						const int32 w = img.width, h = img.height;
+						out.width = w;
+						out.height = h;
+						out.rgba.Resize((uint64)w * (uint64)h * 4u);
+						uint8 *o = out.rgba.Data();
+						for (int32 y = 0; y < h; ++y)
+							for (int32 x = 0; x < w; ++x) {
+								const int32 Y = img.Y()[(int64)y * img.yStride + x];
+								const int32 U = img.U()[(int64)(y / 2) * img.uvStride + (x / 2)];
+								const int32 V = img.V()[(int64)(y / 2) * img.uvStride + (x / 2)];
+								const int32 C = Y - 16, D = U - 128, E = V - 128;
+								auto cl = [](int32 v) -> uint8 {
+									return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v));
+								};
+								const usize oi = ((usize)y * (usize)w + (usize)x) * 4;
+								o[oi + 0] = cl((298 * C + 409 * E + 128) >> 8);
+								o[oi + 1] = cl((298 * C - 100 * D - 208 * E + 128) >> 8);
+								o[oi + 2] = cl((298 * C + 516 * D + 128) >> 8);
+								o[oi + 3] = 255;
+							}
+						out.index = index;
+						return true;
+					}
+
 					return false;
 				}
 		};
@@ -1369,6 +1498,17 @@ namespace nkentseu {
 			if (mImpl->bytes.Size() >= 13 && d[0] == 'F' && d[1] == 'L' && d[2] == 'V') {
 				if (mImpl->ParseFlv()) {
 					mImpl->cursor = 0; // backend déjà posé par ParseFlv
+					return true;
+				}
+				return false;
+			}
+
+			// IVF (magie "DKIF") : conteneur brut minimal, VP8 géré (VP9/AV1 -> échec propre).
+			if (mImpl->bytes.Size() >= 32 && d[0] == 'D' && d[1] == 'K' && d[2] == 'I' &&
+				d[3] == 'F') {
+				if (mImpl->ParseIvf()) {
+					mImpl->backend = Backend::IVF;
+					mImpl->cursor = 0;
 					return true;
 				}
 				return false;

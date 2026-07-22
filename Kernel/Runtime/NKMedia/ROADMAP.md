@@ -393,10 +393,21 @@
     mais non affichées), golden frames et 4 GOPs — **0 pixel d'écart partout, du premier coup**
     pour le chemin inter (seul le repli d'entropie avait un bug, corrigé avant exécution).
     Nouveau harnais `NkVideoReadTest --vp8seq <ivf> <ref.yuv>` (état persistant multi-images).
+  - ⭐ **Brique 9 — BRANCHÉ dans `NkVideoReader` : les `.webm` VP8 et les `.ivf` se lisent dans
+    `NkVideoPlayer`.** `ParseWebm` accepte `V_VP8` (le démux EBML existant est réutilisé tel quel,
+    seule la branche codec change) ; nouveau `ParseIvf` (conteneur DKIF : dims, fps `rate/scale`,
+    trames longueur-préfixées). Pas de B-frames en VP8 → le curseur générique du reader suffit
+    (aucun réordonnancement) ; le **seek est EXACT** (offset +0, meilleur que H264) via re-décodage
+    depuis la dernière image clé affichée. Les blocs **altref invisibles** (`show_frame == 0`)
+    sont mappés : `vp8DisplayBlocks[i]` = bloc produisant la i-ème image affichée ; `Decode(i)`
+    décode aussi les altref intermédiaires (elles mettent à jour les références). Validé : `.ivf`
+    100 images (altref/golden/4 GOPs) et `.webm` VP8+Opus réel lus intégralement via
+    `NkVideoReader`, lecture bout-en-bout dans `NkVideoPlayer` sans erreur, seek exact aux index
+    0/20/45. ⚠️ L'audio Opus-dans-WebM n'est PAS branché dans `OpenAudioStream` (seul l'Ogg-Opus
+    l'est) → un `.webm` VP8+Opus se lit pour l'instant SANS le son (piste suivante naturelle).
   - **Reste (finitions, refus propre en attendant)** : segmentation par macrobloc (aucun flux de
     test ne l'active) ; partitions de tokens multiples (>1) ; versions de bitstream 1-3
-    (bilinéaire/fullpel). **Prochaine étape naturelle : brancher le décodeur dans `NkVideoReader`**
-    (WebM/VP8 et IVF) pour lire les `.webm` VP8 dans `NkVideoPlayer`.
+    (bilinéaire/fullpel) ; audio Opus-dans-WebM dans `OpenAudioStream`.
 
 ## En cours / À venir
 
