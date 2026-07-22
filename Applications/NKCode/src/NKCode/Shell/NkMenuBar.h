@@ -54,85 +54,8 @@ namespace nkentseu {
 				return w;
 			}
 
-			// Commente/decommente les lignes [l0..l1] (prefixe "// ") via GetText/
-			// SetText (Checkpoint AVANT : SetText n'enregistre pas d'undo, cf. memoire).
-			inline void ToggleLineComment(NkCodeDoc &d) {
-				int32 aL, aC, bL, bC;
-				d.SelRange(aL, aC, bL, bC);
-				if (aL > bL)
-					return;
-				d.Checkpoint(3);
-				const NkString txt = d.GetText();
-				NkString out;
-				int32 line = 0;
-				// toutes commentees ? -> on retire ; sinon on ajoute.
-				bool allComment = true;
-				{
-					int32 l = 0;
-					const char *p = txt.CStr();
-					const char *ls = p;
-					for (;; ++p) {
-						if (*p == '\n' || !*p) {
-							if (l >= aL && l <= bL) {
-								const char *q = ls;
-								while (*q == ' ' || *q == '\t')
-									++q;
-								if (!(q[0] == '/' && q[1] == '/'))
-									allComment = false;
-							}
-							if (!*p)
-								break;
-							ls = p + 1;
-							++l;
-						}
-					}
-				}
-				const char *p = txt.CStr();
-				const char *ls = p;
-				for (;; ++p) {
-					if (*p == '\n' || !*p) {
-						NkString cur;
-						for (const char *q = ls; q < p; ++q)
-							cur += *q;
-						if (line >= aL && line <= bL) {
-							if (allComment) { // retirer "// " apres l'indentation
-								const char *q = cur.CStr();
-								usize ind = 0;
-								while (q[ind] == ' ' || q[ind] == '\t')
-									++ind;
-								if (q[ind] == '/' && q[ind + 1] == '/') {
-									usize cut = ind + 2;
-									if (q[cut] == ' ')
-										++cut;
-									NkString nl;
-									for (usize i = 0; i < ind; ++i)
-										nl += q[i];
-									nl += (q + cut);
-									cur = nl;
-								}
-							} else {
-								NkString nl;
-								const char *q = cur.CStr();
-								usize ind = 0;
-								while (q[ind] == ' ' || q[ind] == '\t') {
-									nl += q[ind];
-									++ind;
-								}
-								nl += "// ";
-								nl += (q + ind);
-								cur = nl;
-							}
-						}
-						out += cur;
-						if (!*p)
-							break;
-						out += "\n";
-						ls = p + 1;
-						++line;
-					}
-				}
-				d.SetText(out.CStr());
-			}
+			// (le commentaire de ligne passe par doc->ToggleComment(CommentPrefix(lang)),
+			//  sensible au langage — meme chemin que Ctrl+/ dans l'editeur)
 
 			// Reindentation simple par profondeur d'accolades (Format Document) —
 			// 4 espaces par niveau, lignes vides laissees vides.
@@ -402,16 +325,20 @@ namespace nkentseu {
 				}
 				Separator(ctx);
 				if (MenuItem(ctx, NkT("mb.edit.find"), "Ctrl+F", hasFile) && doc) {
+					doc->findReplace = false; // barre SANS le champ Remplacer (= Ctrl+F)
 					doc->findOpen = true;
 					doc->findBarActive = true;
+					doc->FindRecompute();
 				}
 				if (MenuItem(ctx, NkT("mb.edit.findnext"), "F3", hasFile) && doc)
 					doc->FindNext(true);
 				if (MenuItem(ctx, NkT("mb.edit.findprev"), "Shift+F3", hasFile) && doc)
 					doc->FindNext(false);
 				if (MenuItem(ctx, NkT("mb.edit.replace"), "Ctrl+H", hasFile) && doc) {
+					doc->findReplace = true; // mode REMPLACEMENT (= Ctrl+H), champ en plus
 					doc->findOpen = true;
 					doc->findBarActive = true;
+					doc->FindRecompute();
 				}
 				if (MenuItem(ctx, NkT("mb.edit.findfiles"), "Ctrl+Shift+F", hasWs) && s) {
 					s->wsFocusField = 1;
@@ -428,21 +355,81 @@ namespace nkentseu {
 					s->wsFocusReq = true;
 				}
 				Separator(ctx);
-				if (MenuItem(ctx, NkT("mb.edit.cursorabove"), nullptr, hasFile) && doc && doc->curLine > 0) {
-					doc->extraCarets.PushBack({doc->selLine, doc->selCol, doc->curLine, doc->curCol});
-					doc->curLine -= 1;
-					doc->selLine = doc->curLine;
-					doc->selCol = doc->curCol;
+				// ── Ligne : MEMES actions que les raccourcis natifs de l'editeur ──
+				if (BeginMenu(ctx, NkT("mb.edit.line"))) {
+					if (MenuItem(ctx, NkT("mb.edit.dupline"), "Ctrl+D", hasFile) && doc)
+						doc->DuplicateSelOrLine();
+					if (MenuItem(ctx, NkT("mb.edit.movelineup"), "Alt+\xE2\x86\x91", hasFile) && doc) {
+						doc->Checkpoint(3);
+						doc->MoveLines(true);
+					}
+					if (MenuItem(ctx, NkT("mb.edit.movelinedown"), "Alt+\xE2\x86\x93", hasFile) && doc) {
+						doc->Checkpoint(3);
+						doc->MoveLines(false);
+					}
+					if (MenuItem(ctx, NkT("mb.edit.delline"), "Ctrl+Shift+K", hasFile) && doc) {
+						doc->Checkpoint(3);
+						doc->DeleteLines();
+					}
+					if (MenuItem(ctx, NkT("mb.edit.insertbelow"), "Ctrl+Entree", hasFile) && doc) {
+						doc->Checkpoint(3);
+						doc->InsertLineBelow();
+					}
+					if (MenuItem(ctx, NkT("mb.edit.insertabove"), "Ctrl+Shift+Entree", hasFile) && doc) {
+						doc->Checkpoint(3);
+						doc->InsertLineAbove();
+					}
+					if (MenuItem(ctx, NkT("mb.edit.selectline"), "Ctrl+L", hasFile) && doc)
+						doc->SelectCurrentLine();
+					EndMenu(ctx);
 				}
-				if (MenuItem(ctx, NkT("mb.edit.cursorbelow"), nullptr, hasFile) && doc &&
-					doc->curLine + 1 < doc->LineCount()) {
-					doc->extraCarets.PushBack({doc->selLine, doc->selCol, doc->curLine, doc->curCol});
-					doc->curLine += 1;
-					doc->selLine = doc->curLine;
-					doc->selCol = doc->curCol;
+				// ── Multi-curseur ──
+				if (BeginMenu(ctx, NkT("mb.edit.multicursor"))) {
+					if (MenuItem(ctx, NkT("mb.edit.cursorabove"), nullptr, hasFile) && doc && doc->curLine > 0) {
+						doc->extraCarets.PushBack({doc->selLine, doc->selCol, doc->curLine, doc->curCol});
+						doc->curLine -= 1;
+						doc->selLine = doc->curLine;
+						doc->selCol = doc->curCol;
+					}
+					if (MenuItem(ctx, NkT("mb.edit.cursorbelow"), nullptr, hasFile) && doc &&
+						doc->curLine + 1 < doc->LineCount()) {
+						doc->extraCarets.PushBack({doc->selLine, doc->selCol, doc->curLine, doc->curCol});
+						doc->curLine += 1;
+						doc->selLine = doc->curLine;
+						doc->selCol = doc->curCol;
+					}
+					if (MenuItem(ctx, NkT("mb.edit.nextoccur"), "Ctrl+Shift+D", hasFile) && doc)
+						doc->SelectWordOrAddNext();
+					if (MenuItem(ctx, NkT("mb.edit.alloccur"), "Ctrl+Shift+L", hasFile) && doc)
+						doc->SelectAllOccurrences();
+					EndMenu(ctx);
 				}
-				if (MenuItem(ctx, NkT("mb.edit.linecomment"), nullptr, hasFile) && doc)
-					ToggleLineComment(*doc);
+				Separator(ctx);
+				// ── Commentaires / indentation — sensibles au LANGAGE du fichier actif,
+				//    exactement comme Ctrl+/ et Ctrl+Shift+/ dans l'editeur. ──
+				{
+					const NkLang mlang =
+						hasFile ? NkLangFromExt(s->files[s->active].path.GetExtension().CStr()) : NkLang::None;
+					if (MenuItem(ctx, NkT("mb.edit.linecomment"), "Ctrl+/", hasFile) && doc) {
+						doc->Checkpoint(3);
+						doc->ToggleComment(CommentPrefix(mlang));
+					}
+					if (MenuItem(ctx, NkT("mb.edit.blockcomment"), "Ctrl+Shift+/", hasFile) && doc) {
+						doc->Checkpoint(3);
+						if (mlang == NkLang::C || mlang == NkLang::NKSL)
+							doc->BlockComment("/* ", " */");
+						else
+							doc->ToggleComment(CommentPrefix(mlang));
+					}
+				}
+				if (MenuItem(ctx, NkT("mb.edit.indent"), "Ctrl+]", hasFile) && doc) {
+					doc->Checkpoint(3);
+					doc->IndentSelection(false);
+				}
+				if (MenuItem(ctx, NkT("mb.edit.unindent"), "Ctrl+[", hasFile) && doc) {
+					doc->Checkpoint(3);
+					doc->IndentSelection(true);
+				}
 				if (MenuItem(ctx, NkT("mb.edit.format"), nullptr, hasFile) && doc)
 					ReindentDocument(*doc);
 				Separator(ctx);
