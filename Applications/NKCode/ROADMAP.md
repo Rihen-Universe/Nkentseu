@@ -273,18 +273,64 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 - 🟡 **Internationalisation (i18n)** : document de traductions multi-langue (démarré
   côté Paramètres › Général) ; 5 langues majeures + Ghomala' (bamiléké).
 
-## Phase 12 — Intégration Jenga « zéro-dépendance » (in-process) ⬜
+## Phase 12 — Intégration Jenga « zéro-dépendance » (in-process) 🟡 ← EN COURS (21 juil 2026)
 > Objectif : **Jenga totalement intégré et fiable** dans NKCode, sans imposer
 > l'installation de Python à l'utilisateur, **en gardant le DSL Python**.
-- ⬜ **Embarquer libpython dans NKCode** (in-process) : exécuter Jenga **dans**
-  l'IDE via `libpython`/`pybind`, **sans spawn de `jenga.exe`** → plus rapide,
-  ultra-fiable, remontée directe des erreurs/logs (fin des popen fragiles).
-- ⬜ **CPython embeddable** bundlé (~10–15 Mo) : zéro install côté utilisateur,
-  plus de conflits de version.
+> **Décision Rihen (21 juil)** : Windows d'abord jusqu'au bout (le vrai cas
+> bloquant pour un testeur externe), puis extension Linux/macOS avec le même
+> design une fois la mécanique prouvée.
+- ✅ **Étape 1 (Windows)** : pybind11 v2.13.6 vendorisé (`Externals/Libs/pybind11/`,
+  header-only) + CPython 3.12.7 embeddable vendorisé (`Externals/Libs/PythonEmbed/` :
+  `runtime/` = distribution embeddable officielle à copier près de NKCode.exe,
+  `sdk/` = Python.h + libs de lien, jamais distribués). Câblé dans `NKCode.jenga`
+  (includedirs/libdirs/links, même patron que le bloc Vulkan) — build/lien OK.
+  ⚠️ Piège résolu : la `python312.lib` officielle est au format MSVC ; pour la
+  toolchain clang-mingw il a fallu générer `libpython312.a` via `objdump`
+  (exports du DLL) + `dlltool` (le `.def` et le `.a` sont dans `sdk/libs/`).
+  ⚠️ Piège résolu : dans un `.jenga`, `__file__` est RELATIF et le loader a déjà
+  fait chdir() dans le dossier du fichier → utiliser `os.getcwd()`, jamais
+  `os.path.abspath(__file__)` (chemin doublé sinon).
+- ⬜ **Étape 2** : `Jenga/Core/Embed.py` — API programmatique structurée
+  (build/clean/test/info/compile_flags + dataclasses de résultat + sink de
+  progression accroché dans `Utils/Reporter.py` : `BuildLogger.SetTotal/
+  LogCompile/LogLink`, `BuildCoordinator.PrintHeader/MarkProjectBuilt`).
+- ⬜ **Étape 3** : `NkEmbeddedJenga.h` (NKCode) — thread worker unique possédant
+  l'interpréteur (`pybind11::scoped_interpreter`, init paresseuse), `PyConfig`
+  isolé (`isolated=1`, `home=<exe>/tools/python-embed`, jamais le Python
+  système), surface compatible `NkProcess` (Start/Running/Done/Drain).
+- ⬜ **Étape 4** : feature-flag `NKCODE_EMBEDDED_JENGA` (défaut off) + migration
+  du premier site (`DoBuildAction`/`PumpQueue`) puis clean/test/info/flags.
+  `DoRun()` reste sur sous-processus (on ne peut pas exécuter un exe natif
+  dans l'interpréteur) ; l'onglet terminal garde le vrai CLI.
+- ⬜ **Étape 5** : packaging (copie `runtime/` → `<exe>/tools/python-embed/`,
+  arbre `Jenga/` → `<exe>/tools/jenga-src/`) + test sur machine SANS Python.
+- ⬜ **Étape 6 (multi-plateforme)** : Linux/macOS — pas d'équivalent officiel du
+  package embeddable hors Windows ; approche à trancher (python-build-standalone
+  vendorisé, ou repli détection Python système avec `python3-dev`).
 - ⬜ (Optionnel, côté Jenga) **cœur natif C++** pour le graphe de build/cache, le
   `.jenga` restant le frontend Python via l'interpréteur embarqué.
 - 🎯 **Jalon** : `Construire` lance Jenga in-process, aucun Python système requis.
   (Voir aussi Jenga `ROADMAP.md` § 6.5.)
+
+## Phase 13 — Mises à jour in-app (NKCode, Jenga, outils embarqués) ⬜
+> Demande Rihen (21 juil 2026) : l'utilisateur doit être **notifié** quand une
+> mise à jour existe (NKCode lui-même, Jenga embarqué, runtime Python, futurs
+> compilateurs bundlés) ; s'il **accepte**, on met à jour **sans réinstaller**
+> l'application complète, puis on **redémarre** NKCode proprement.
+- ⬜ Versionnage indépendant de chaque composant embarqué (déjà amorcé :
+  `Externals/Libs/PythonEmbed/VERSION` ; à faire pour `tools/jenga-src/`) —
+  permet de livrer un correctif Jenga/Python sans re-livrer NKCode.exe.
+- ⬜ Vérification de version distante (endpoint GitHub Releases ou manifeste
+  JSON hébergé), comparaison locale, périodicité raisonnable + bouton manuel.
+- ⬜ UI de notification (bannière/dialogue NkModal : « Mise à jour disponible
+  (composant, version) — Mettre à jour / Plus tard ») + notes de version.
+- ⬜ Téléchargement + remplacement à chaud des composants `tools/*` (Jenga,
+  python-embed) ; pour NKCode.exe lui-même : télécharger, poser un updater
+  minuscule, quitter, remplacer, relancer (patron standard Windows).
+- ⬜ Redémarrage propre après acceptation (sauvegarde de session déjà gérée
+  par `.nkcode/`).
+- 🎯 **Jalon** : un testeur reçoit la notification, clique Accepter, NKCode
+  redémarre à jour — sans réinstallation manuelle.
 
 ## Phase 10 — Extensions (NKCode devient une plateforme) ⬜
 - ⬜ **API d'extension** + **points de contribution** (commandes, panneaux, langages, **nœuds**, thèmes).

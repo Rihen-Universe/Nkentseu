@@ -11,6 +11,7 @@
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKCode/Project/NkProcess.h"
+#include "NKCode/Project/NkEmbeddedJenga.h" // Jenga IN-PROCESS (Phase 12) : CPython embarque
 #include "NKCode/Project/NkText.h"
 #include "NKCode/Project/NkLogSink.h" // GlobalLogBuffer : traces [ac] de la completion (panneau OUTPUT)
 #include "NKCode/Editor/NkCodeEditor.h"
@@ -4751,6 +4752,117 @@ namespace nkentseu {
 				}
 
 				NkProcess mBuild; // build ASYNCHRONE (ne gele pas l'UI)
+				// ── Jenga IN-PROCESS (Phase 12, feature-flag NKCODE_EMBEDDED_JENGA=1) ──
+				// true = la commande COURANTE du slot de build tourne dans l'interpreteur
+				// embarque (NkEmbeddedJenga) au lieu d'un sous-processus `jenga`.
+				bool mBuildEmbedded = false;
+				// true = la progression vient d'EVENEMENTS STRUCTURES (ApplyEmbedEvent) ;
+				// OutputPanel::ParseProgress DOIT alors s'abstenir (sinon double comptage
+				// projDone : banniere texte + evenement ProjectDone).
+				bool buildStructured = false;
+
+				static bool UseEmbeddedJenga() {
+					// "0" = force off, "1" = force on (dev). SANS variable : actif PAR
+					// DEFAUT si la distribution testeur (tools/ de prod a cote de l'exe,
+					// assemblee par scripts/MakeNkCodeDist.py) est presente — les
+					// testeurs n'ont ni Python ni `jenga` sur le PATH, aucune
+					// configuration ne doit leur etre demandee.
+					const char *v = env::GetEnvVar("NKCODE_EMBEDDED_JENGA");
+					if (v && v[0] == '0')
+						return false;
+					if (v && v[0] == '1')
+						return NkEmbeddedJenga::Available();
+					return NkEmbeddedJenga::HasProdTools() && NkEmbeddedJenga::Available();
+				}
+
+				// Etat unifie du slot de build (sous-processus OU embarque).
+				bool BuildSlotRunning() const {
+					return mBuildEmbedded ? NkEmbeddedJenga::Get().Running() : mBuild.Running();
+				}
+				bool BuildSlotDone() const {
+					return mBuildEmbedded ? NkEmbeddedJenga::Get().Done() : mBuild.Done();
+				}
+				int BuildSlotExit() const {
+					return mBuildEmbedded ? NkEmbeddedJenga::Get().ExitCode() : mBuild.ExitCode();
+				}
+
+				// "jenga build --target X --config Y --platform Z --toolchain T --jenga-file "F""
+				// -> Request. false si la commande n'est pas un build/rebuild embarquable.
+				static bool ParseJengaCmd(const NkString &cmd, NkEmbeddedJenga::Request &out) {
+					const char *p = cmd.CStr();
+					auto skipWs = [&]() { while (*p == ' ') ++p; };
+					auto token = [&]() -> NkString { // mot simple OU "chaine quotee"
+						NkString t;
+						if (*p == '"') {
+							++p;
+							while (*p && *p != '"') t += *p++;
+							if (*p == '"') ++p;
+						} else
+							while (*p && *p != ' ') t += *p++;
+						return t;
+					};
+					skipWs();
+					if (token() != "jenga")
+						return false;
+					skipWs();
+					const NkString verb = token();
+					if (verb == "installcompiler") { // dist legere : telecharge Clang (embarque only)
+						out.kind = verb;
+						out.target = NkEmbeddedJenga::CompilersDir();
+						return true;
+					}
+					if (verb != "build" && verb != "rebuild")
+						return false;
+					out.kind = verb;
+					for (;;) {
+						skipWs();
+						if (!*p)
+							break;
+						const NkString flag = token();
+						skipWs();
+						if (flag == "--target")
+							out.target = token();
+						else if (flag == "--config")
+							out.config = token();
+						else if (flag == "--platform")
+							out.platform = token();
+						else if (flag == "--toolchain")
+							out.toolchain = token();
+						else if (flag == "--jenga-file")
+							out.jengaFile = token();
+						else if (flag.StartsWith("--"))
+							return false; // flag inconnu (--verbose...) -> repli sous-processus, fidele
+					}
+					return true;
+				}
+
+				// Applique un evenement de progression structure aux champs UI (remplace
+				// ParseProgress pour le chemin embarque — memes champs, zero scraping).
+				void ApplyEmbedEvent(const NkJengaProgressEvent &e) {
+					switch (e.kind) {
+						case NkJengaProgressEvent::PROJECT_TOTAL: projTotal = e.total; break;
+						case NkJengaProgressEvent::PROJECT_DONE: ++projDone; break;
+						case NkJengaProgressEvent::FILE_TOTAL:
+							buildTotal = e.total;
+							buildDone = 0;
+							break;
+						case NkJengaProgressEvent::FILE_DONE:
+							buildDone = e.index;
+							if (e.warned)
+								buildHasWarn = true;
+							break;
+						case NkJengaProgressEvent::COMPILE_ERROR: {
+							errCompile = true;
+							bool known = false;
+							for (usize i = 0; i < buildErrFiles.Size() && !known; ++i)
+								known = StrEq(buildErrFiles[i].CStr(), e.file.CStr());
+							if (!known)
+								buildErrFiles.PushBack(e.file);
+							break;
+						}
+						case NkJengaProgressEvent::LINK_ERROR: errLink = true; break;
+					}
+				}
 				NkProcess mCfg;	  // commandes `jenga config ...` (toolchains)
 				bool mCfgPending = false;
 				NkString cfgStatus;
@@ -4815,7 +4927,15 @@ namespace nkentseu {
 				void PollBuild() {
 					{ // drain -> output (affichage) ET mCmdLog (transcript par commande, borne)
 						NkVector<NkString> fresh;
-						mBuild.Drain(fresh);
+						if (mBuildEmbedded) {
+							// Chemin IN-PROCESS : lignes (transcript identique au CLI) +
+							// evenements STRUCTURES (barres/voyants, sans scraping de texte).
+							NkVector<NkJengaProgressEvent> ev;
+							NkEmbeddedJenga::Get().Drain(fresh, ev);
+							for (usize i = 0; i < ev.Size(); ++i)
+								ApplyEmbedEvent(ev[i]);
+						} else
+							mBuild.Drain(fresh);
 						for (usize i = 0; i < fresh.Size(); ++i) {
 							output.PushBack(fresh[i]);
 							if (mCmdLog.Size() < 3000)
@@ -4824,11 +4944,11 @@ namespace nkentseu {
 					}
 					// Fin de commande : si ECHEC, memorise le transcript complet (memoire +
 					// .nkcode/last_build_fail.log) pour consultation et pour les agents IA.
-					if (mBuild.Done() && !mBuildDoneHandled) {
+					if (BuildSlotDone() && !mBuildDoneHandled) {
 						mBuildDoneHandled = true;
-						Journal(NkPrintf("commande terminee (code %d)%s : %s", mBuild.ExitCode(),
-										 mBuild.ExitCode() != 0 ? " - ECHEC" : "", mCmdCur.CStr()));
-						if (mBuild.ExitCode() != 0 && !mCmdLog.Empty()) {
+						Journal(NkPrintf("commande terminee (code %d)%s : %s", BuildSlotExit(),
+										 BuildSlotExit() != 0 ? " - ECHEC" : "", mCmdCur.CStr()));
+						if (BuildSlotExit() != 0 && !mCmdLog.Empty()) {
 							lastBuildFail = mCmdLog;
 							lastBuildFailCmd = mCmdCur;
 							NkString log;
@@ -4860,13 +4980,15 @@ namespace nkentseu {
 												  : NkString("Execution terminee");
 						}
 					}
-					if (!mBuild.Running()) {
+					if (!BuildSlotRunning()) {
+						const int lastExit = BuildSlotExit(); // AVANT le reset du mode (sinon mauvais slot lu)
+						mBuildEmbedded = false;				  // slot libere (le prochain PumpQueue rearbitre le mode)
 						if (!mQueue.Empty()) {
 							PumpQueue();
 							return;
 						} // commande suivante (rafale)
 						if (status.Size() > 0 && StrEq(status.CStr(), "Construction..."))
-							status = (mBuild.ExitCode() == 0) ? NkString("Termine (OK)") : NkString("Termine (echec)");
+							status = (lastExit == 0) ? NkString("Termine (OK)") : NkString("Termine (echec)");
 					}
 				}
 
@@ -5960,7 +6082,7 @@ namespace nkentseu {
 				}
 
 				void PumpQueue() {
-					if (mBuild.Running() || mQueue.Empty())
+					if (BuildSlotRunning() || mQueue.Empty())
 						return;
 					NkString next = mQueue[0];
 					mQueue.Erase(mQueue.Begin());
@@ -5981,7 +6103,22 @@ namespace nkentseu {
 					mCmdCur = next;
 					mBuildDoneHandled = false;
 					Journal(NkString("commande lancee : ") + next.CStr());
-					mBuild.Start(next);
+					// Jenga IN-PROCESS (flag NKCODE_EMBEDDED_JENGA=1 + runtime embarque
+					// present) : build/rebuild passent par l'interpreteur embarque. Toute
+					// commande non embarquable (clean/test/flags/flag inconnu) ou l'echec du
+					// depot retombent FIDELEMENT sur le sous-processus classique.
+					mBuildEmbedded = false;
+					buildStructured = false;
+					if (UseEmbeddedJenga()) {
+						NkEmbeddedJenga::Request req;
+						if (ParseJengaCmd(next, req) && NkEmbeddedJenga::Get().Start(req)) {
+							mBuildEmbedded = true;
+							buildStructured = true;
+							output.PushBack(NkString("[jenga-embed] execution in-process (CPython embarque)"));
+						}
+					}
+					if (!mBuildEmbedded)
+						mBuild.Start(next);
 					status = NkString("Construction...");
 				}
 
@@ -5990,6 +6127,16 @@ namespace nkentseu {
 					if (!HasWorkspace()) {
 						status = NkString("(aucun workspace)");
 						return;
+					}
+					// Distribution LEGERE (testeur) : compilateur par defaut absent ->
+					// enqueue son telechargement AVANT le build (la file existante
+					// enchaine naturellement ; progression dans le panneau Sortie).
+					if (UseEmbeddedJenga() && NkEmbeddedJenga::NeedsCompiler()) {
+						bool queued = false; // pas de doublon si deja en file
+						for (usize i = 0; i < mQueue.Size() && !queued; ++i)
+							queued = NkFindSub(mQueue[i].CStr(), "installcompiler") != nullptr;
+						if (!queued && !NkFindSub(mCmdCur.CStr(), "installcompiler"))
+							EnqueueJenga(NkString("installcompiler"), NkString("__compiler__"));
 					}
 					// Concurrence : un build DOUBLON (meme projet, ou "tous" pendant qu'un
 					// build tourne) est refuse ; un build d'un AUTRE projet est ACCEPTE et

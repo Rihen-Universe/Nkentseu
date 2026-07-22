@@ -1895,6 +1895,11 @@ namespace nkentseu {
 				// total, total connu D'AVANCE via l'en-tete "Build Order (N projects)" ->
 				// la barre globale ne peut plus afficher 100% avant la vraie fin).
 				void ParseProgress(const char *L) {
+					// Build IN-PROCESS (NkEmbeddedJenga) : la progression vient d'EVENEMENTS
+					// STRUCTURES (NkCodeState::ApplyEmbedEvent) — parser AUSSI le texte ici
+					// doublerait projDone (banniere "Build Successful" + evenement ProjectDone).
+					if (mS->buildStructured)
+						return;
 					// ── Detection d'ERREURS (voyants footer + icones rouges explorateur) —
 					// independante de la chaine de progression ci-dessous. ──
 					if (Find(L, "Link failed") || Find(L, "Link Failed")) {
