@@ -2413,7 +2413,8 @@ namespace nkentseu {
 			// Clic dans la zone texte : focus + place le curseur (+ selection si Shift) + drag.
 			// Ignore si un popup (ex. combo ouvert vers le haut) recouvre l'editeur -> sinon
 			// le clic sur le popup volerait le focus a l'editeur.
-			bool overText = InRect(textArea, mouse) && ctx.popupDepth == 0;
+			bool overText = InRect(textArea, mouse) && ctx.popupDepth == 0 &&
+							ctx.PointReachable(mouse); // routeur d'occlusion (modals/palettes devant)
 			if (d.findOpen &&
 				ctx.font) { // la barre de recherche « mange » la souris -> pas de déplacement du caret dessous
 				const float32 _rH = ctx.font->LineHeight() + ctx.S(12.f);

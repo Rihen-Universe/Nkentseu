@@ -903,8 +903,9 @@ namespace nkentseu {
 
 			// Focus au clic. Changement de focus -> réinitialise la sélection/drag (pas hérités
 			// du champ précédent qui partageait ctx.inputAnchor/ctx.inputDrag).
-			const bool over =
-				NkGuiRectContains(rect, ctx.input.mousePos) && (ctx.activeId == NKGUI_ID_NONE || ctx.activeId == id);
+			const bool over = NkGuiRectContains(rect, ctx.input.mousePos) &&
+							  ctx.PointReachable(ctx.input.mousePos) && // routeur d'occlusion unifie
+							  (ctx.activeId == NKGUI_ID_NONE || ctx.activeId == id);
 			if (over)
 				ctx.hotId = id;
 			if (over && ctx.input.mouseClicked[0] && ctx.inputId != id) {
