@@ -481,6 +481,8 @@ namespace nkentseu {
 				Separator(ctx);
 				if (MenuItem(ctx, (NkString(NkCodeMinimapOn() ? "\xE2\x9C\x93 " : "   ") + NkT("mb.view.minimap")).CStr()))
 					NkCodeMinimapOn() = !NkCodeMinimapOn();
+				if (MenuItem(ctx, (NkString(NkCodeTabRowsOn() ? "\xE2\x9C\x93 " : "   ") + NkT("mb.view.tabrows")).CStr()))
+					NkCodeTabRowsOn() = !NkCodeTabRowsOn();
 				if (s && MenuItem(ctx, (NkString(s->showBreadcrumb ? "\xE2\x9C\x93 " : "   ") + NkT("mb.view.breadcrumbs")).CStr()))
 					s->showBreadcrumb = !s->showBreadcrumb;
 				if (MenuItem(ctx,
@@ -489,8 +491,30 @@ namespace nkentseu {
 					doc)
 					doc->wrapOn = !doc->wrapOn;
 				Separator(ctx);
-				if (MenuItem(ctx, NkT("mb.view.resetlayout")))
+				// ── Zoom du CODE, par onglet — memes bornes que Ctrl+molette / Ctrl+± ──
+				if (MenuItem(ctx, NkT("mb.view.zoomin"), "Ctrl++", hasFile) && s) {
+					auto &f = s->files[s->active];
+					float32 z = (f.codeZoom > 0.f ? f.codeZoom : sh->CodeFontSize()) + 1.f;
+					f.codeZoom = z > 40.f ? 40.f : z;
+				}
+				if (MenuItem(ctx, NkT("mb.view.zoomout"), "Ctrl+-", hasFile) && s) {
+					auto &f = s->files[s->active];
+					float32 z = (f.codeZoom > 0.f ? f.codeZoom : sh->CodeFontSize()) - 1.f;
+					f.codeZoom = z < 8.f ? 8.f : z;
+				}
+				if (MenuItem(ctx, NkT("mb.view.zoomreset"), "Ctrl+0", hasFile) && s)
+					s->files[s->active].codeZoom = 0.f; // 0 = taille globale
+				Separator(ctx);
+				if (MenuItem(ctx, NkT("mb.view.resetlayout"))) {
+					// Reinitialisation COMPLETE : re-bootstrap du dock ET suppression de
+					// l'etat d'UI sauvegarde du projet (sinon l'ancienne disposition se
+					// reapplique au prochain chargement du workspace).
 					sh->ResetLayout();
+					if (s && s->HasWorkspace()) {
+						NkFile::Delete(NkPath(s->UiConfigPath().CStr()));
+						s->status = NkString("Disposition reinitialisee (defaut)");
+					}
+				}
 				EndMenu(ctx);
 			}
 
