@@ -4806,6 +4806,11 @@ namespace nkentseu {
 						return false;
 					skipWs();
 					const NkString verb = token();
+					if (verb == "installcompiler") { // dist legere : telecharge Clang (embarque only)
+						out.kind = verb;
+						out.target = NkEmbeddedJenga::CompilersDir();
+						return true;
+					}
 					if (verb != "build" && verb != "rebuild")
 						return false;
 					out.kind = verb;
@@ -6122,6 +6127,16 @@ namespace nkentseu {
 					if (!HasWorkspace()) {
 						status = NkString("(aucun workspace)");
 						return;
+					}
+					// Distribution LEGERE (testeur) : compilateur par defaut absent ->
+					// enqueue son telechargement AVANT le build (la file existante
+					// enchaine naturellement ; progression dans le panneau Sortie).
+					if (UseEmbeddedJenga() && NkEmbeddedJenga::NeedsCompiler()) {
+						bool queued = false; // pas de doublon si deja en file
+						for (usize i = 0; i < mQueue.Size() && !queued; ++i)
+							queued = NkFindSub(mQueue[i].CStr(), "installcompiler") != nullptr;
+						if (!queued && !NkFindSub(mCmdCur.CStr(), "installcompiler"))
+							EnqueueJenga(NkString("installcompiler"), NkString("__compiler__"));
 					}
 					// Concurrence : un build DOUBLON (meme projet, ou "tous" pendant qu'un
 					// build tourne) est refuse ; un build d'un AUTRE projet est ACCEPTE et
