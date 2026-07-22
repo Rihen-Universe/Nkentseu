@@ -458,6 +458,11 @@ namespace nkentseu {
 				// Bind avant draw (met à jour descset si dirty, utilise mTexLib interne).
 				bool BindInstance(NkICommandBuffer *cmd, NkMaterialInstance *inst);
 
+				// Upload UBO + textures de l'instance SI dirty, SANS binder le
+				// pipeline materiau. Pour les chemins qui bindent GetDescSet()
+				// directement (passe G-buffer du deferred, ombre alpha-testee).
+				void UpdateInstanceDescriptors(NkMaterialInstance *inst);
+
 				// Mode d'affichage WIREFRAME : quand actif, BindInstance binde une variante
 				// fil-de-fer (lazy) de chaque template au lieu du pipeline plein.
 				void SetWireframe(bool e) {

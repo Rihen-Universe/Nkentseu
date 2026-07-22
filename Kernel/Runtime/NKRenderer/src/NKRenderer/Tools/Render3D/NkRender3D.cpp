@@ -1317,8 +1317,13 @@ namespace nkentseu {
 				NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
 				if (ubo.IsValid())
 					mDevice->WriteBuffer(ubo, &ob, sizeof(ob), 0);
-				if (matInst && matInst->GetDescSet().IsValid())
+				if (matInst && matInst->GetDescSet().IsValid()) {
+					// Upload UBO/textures de l'instance si dirty : on ne passe PAS
+					// par BindInstance (pipeline unique G-buffer) — sans ca les
+					// textures ne sont jamais ecrites (albedo blanc, bug panneau).
+					mMat->UpdateInstanceDescriptors(matInst);
 					cmd->BindDescriptorSet(matInst->GetDescSet(), 2);
+				}
 				if (os.IsValid())
 					cmd->BindDescriptorSet(os, 1);
 				mMesh->BindMesh(cmd, dc.mesh);
