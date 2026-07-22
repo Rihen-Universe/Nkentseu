@@ -33,6 +33,125 @@ int main(int argc, char **argv) {
 		return all ? 0 : 1;
 	}
 
+	// Mode VP8 sequence COMPLETE (cle + inter) : --vp8seq <fichier.ivf> <reference.yuv>
+	// Decode TOUTES les images du flux via NkVp8DecodeFrame (etat persistant : contexte
+	// d'entropie + tampons de reference) et compare CHAQUE image affichee a la reference
+	// ffmpeg (I420 concatene). C'est la validation de bout en bout du decodeur VP8.
+	if (argc >= 4 && strcmp(argv[1], "--vp8seq") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		uint8 ivfHdr[32];
+		if (fread(ivfHdr, 1, 32, f) != 32 || memcmp(ivfHdr, "DKIF", 4) != 0) {
+			printf("  [KO] pas un fichier IVF valide\n");
+			fclose(f);
+			return 1;
+		}
+		FILE *rf = fopen(argv[3], "rb");
+		if (!rf) {
+			printf("  [KO] reference introuvable : %s\n", argv[3]);
+			fclose(f);
+			return 1;
+		}
+
+		NkVp8DecoderState st;
+		NkVp8Image img;
+		int32 frameIdx = 0, shownIdx = 0, badFrames = 0;
+		int64 grandDiff = 0, grandMax = 0;
+		for (;;) {
+			uint8 frameHdr[12];
+			if (fread(frameHdr, 1, 12, f) != 12)
+				break;
+			const uint32 frameSize = (uint32)frameHdr[0] | ((uint32)frameHdr[1] << 8) |
+									  ((uint32)frameHdr[2] << 16) | ((uint32)frameHdr[3] << 24);
+			NkVector<uint8> frame;
+			frame.Resize(frameSize);
+			if (fread(frame.Data(), 1, frameSize, f) != frameSize) {
+				printf("  [KO] frame %d tronquee\n", frameIdx);
+				fclose(f);
+				fclose(rf);
+				return 1;
+			}
+			NkVp8FrameTag tag;
+			const bool tagOk = NkVp8ParseFrameTag(frame.Data(), (usize)frame.Size(), tag);
+			if (!NkVp8DecodeFrame(st, frame.Data(), (usize)frame.Size(), img)) {
+				printf("  [KO] NkVp8DecodeFrame a echoue sur la frame %d (decodage #%d)\n",
+					   frameIdx, frameIdx);
+				fclose(f);
+				fclose(rf);
+				return 1;
+			}
+			++frameIdx;
+			if (tagOk && !tag.showFrame)
+				continue; // frame altref invisible : pas de sortie a comparer
+
+			// Compare a la reference (I420 : Y puis U puis V).
+			const int32 w = img.width, h = img.height;
+			const int32 cw = (w + 1) / 2, ch2 = (h + 1) / 2;
+			NkVector<uint8> ref;
+			ref.Resize((uint64)(w * h + 2 * cw * ch2));
+			if (fread(ref.Data(), 1, (size_t)ref.Size(), rf) != (usize)ref.Size()) {
+				printf("  [KO] reference epuisee a l'image affichee %d\n", shownIdx);
+				fclose(f);
+				fclose(rf);
+				return 1;
+			}
+			int64 nDiff = 0, maxD = 0;
+			for (int32 y = 0; y < h; ++y)
+				for (int32 x = 0; x < w; ++x) {
+					const int32 a = img.Y()[(int64)y * img.yStride + x];
+					const int32 b = ref[(int64)y * w + x];
+					const int32 d = a > b ? a - b : b - a;
+					if (d) {
+						++nDiff;
+						if (d > maxD)
+							maxD = d;
+					}
+				}
+			const uint8 *refU = ref.Data() + (int64)w * h;
+			const uint8 *refV = refU + (int64)cw * ch2;
+			for (int32 y = 0; y < ch2; ++y)
+				for (int32 x = 0; x < cw; ++x) {
+					const int32 du0 = img.U()[(int64)y * img.uvStride + x] - refU[(int64)y * cw + x];
+					const int32 dv0 = img.V()[(int64)y * img.uvStride + x] - refV[(int64)y * cw + x];
+					const int32 du = du0 < 0 ? -du0 : du0;
+					const int32 dv = dv0 < 0 ? -dv0 : dv0;
+					if (du) {
+						++nDiff;
+						if (du > maxD)
+							maxD = du;
+					}
+					if (dv) {
+						++nDiff;
+						if (dv > maxD)
+							maxD = dv;
+					}
+				}
+			grandDiff += nDiff;
+			if (maxD > grandMax)
+				grandMax = maxD;
+			if (nDiff == 0) {
+				printf("  image %3d (%s) : BIT-EXACT\n", shownIdx,
+					   (tagOk && tag.keyFrame) ? "CLE  " : "inter");
+			} else {
+				printf("  image %3d (%s) : %lld pixels differents (max %lld)\n", shownIdx,
+					   (tagOk && tag.keyFrame) ? "CLE  " : "inter", (long long)nDiff,
+					   (long long)maxD);
+				++badFrames;
+			}
+			++shownIdx;
+		}
+		fclose(f);
+		fclose(rf);
+		printf("  TOTAL : %d images affichees, %d avec ecarts, %lld pixels differents (max %lld)\n",
+			   shownIdx, badFrames, (long long)grandDiff, (long long)grandMax);
+		printf("  [ %s ] sequence VP8 %s\n", badFrames == 0 ? "OK " : "KO",
+			   badFrames == 0 ? "BIT-EXACTE vs ffmpeg" : "avec ecarts");
+		return badFrames == 0 ? 0 : 1;
+	}
+
 	// Mode VP8 reconstruction : --vp8recon <fichier.ivf> <reference.yuv>
 	// Decode la 1ere image (CLE) en pixels et la compare A LA REFERENCE ffmpeg (I420).
 	// ⚠️ Le filtre de boucle n'est pas encore implemente : la comparaison n'a de sens

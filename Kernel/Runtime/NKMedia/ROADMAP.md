@@ -22,7 +22,7 @@
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅** ; puis WebM, WAV |
 | 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High bit-exact** (MP4/MOV/3GP/MKV) ; VP8/VP9/AV1/H.265 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
-| 8. **Décodeur vidéo VP8** | 🔶 EN COURS | Chantier neuf (2026-07-21) : **image CLÉ COMPLÈTE bit-exacte vs ffmpeg, filtre de boucle inclus** (0 pixel d'écart sur les 5 flux de test, niveaux de filtre 0/1/5/8) — décodeur booléen, en-têtes, modes, résidus, déquantification, WHT+IDCT, prédiction intra, filtre de boucle normal+simple. Reste : les **images inter** (mouvement), le gros morceau pour lire une vidéo complète. |
+| 8. **Décodeur vidéo VP8** | ✅ | **DÉCODEUR COMPLET (clé + inter) : 325 images BIT-EXACTES vs ffmpeg sur 6 flux** (dont altref invisibles, golden frames, 4 GOPs, SPLITMV, filterLevel 0-8, résolutions impaires). Décodeur booléen, en-têtes, modes intra+inter, MV (near/nearest/new/split), MC 6-tap, résidus, WHT+IDCT, filtre de boucle. Restes mineurs : segmentation MB, partitions multiples, versions 1-3 (refus propre). **À brancher dans NkVideoReader** (WebM/IVF). |
 
 ## Livré
 - **Brique 1 (2026-07-10)** — `NkMediaProbe` (`NkMediaProbe.{h,cpp}`) : détection de conteneur + parseurs
@@ -363,10 +363,40 @@
     115200 + 3×38016 + 9000 pixels), y compris les trois flux à `filterLevel` 1, 5 et 8 dont
     l'écart résiduel de la brique 6 a disparu exactement comme prédit ; les deux flux
     `filterLevel = 0` restent bit-exacts (non-régression).
-  - **Reste** : segmentation par macrobloc (refusée proprement pour l'instant, aucun flux de test
-    ne l'active) ; partitions de tokens multiples (>1) ; puis les **images inter** (vecteurs de
-    mouvement, interpolation sous-pel 6-tap différente de H.264), qui sont le gros morceau restant
-    pour lire une vidéo VP8 complète.
+  - ⭐⭐⭐ **Brique 8 — IMAGES INTER : LE DÉCODEUR VP8 EST COMPLET, 325 IMAGES BIT-EXACTES vs
+    ffmpeg sur 6 flux.** Décodage des modes/MV (§16-17, miroir de `read_mb_modes_mv`) : référence
+    (last/golden/altref via `prob_intra`/`prob_last`/`prob_gf`), recherche des voisins
+    nearest/near avec compteurs de contexte (`kVp8ModeContexts[6][4]`), fusion above-left/nearest
+    et échange near/nearest, `mv_bias` (sign bias par référence), cascade
+    ZEROMV→NEAREST→NEAR→{NEWMV,SPLITMV}, lecture des composantes MV (arbre court 8 feuilles +
+    bits longs 9..4 avec **bit 3 parfois implicite** — piège §17.2), **SPLITMV** complet
+    (partitions 16×8/8×16/8×8/4×4, sous-MV avec probabilités dépendant des voisins
+    gauche/dessus, remplissage par partition AVANT la suivante qui peut s'y référer).
+    **Compensation de mouvement** : filtre **6-tap séparable** (2 passes AVEC clamp intermédiaire,
+    copié à l'identique — un offset nul donne le filtre exactement neutre), copie directe en
+    plein-pel, chroma = MV moitié **arrondie vers zéro** (formule `+= 1|(v>>31)` de la référence) ;
+    SPLITMV : luma par copies **clampées UMV**, chroma = **moyenne des 4 MV BRUTS** de chaque
+    quadrant (`build_4x4uvmvs` : les MV clampés servent au luma seulement, subtilité vérifiée dans
+    la référence) avec son propre clamp UV. **Gestion des tampons de référence** (§9.7) dans
+    l'ordre exact de `swap_frame_buffers` : copies arf puis gf (la 2e voyant l'effet de la 1re),
+    puis rafraîchissements ; bordures étendues de 30 pixels par réplication (la MC peut lire hors
+    image, MV clampés ≤19 px + 3 taps). **Repli `refresh_entropy_probs == 0`** : sauvegarde prise
+    APRÈS le reset image-clé et AVANT les mises à jour du header (⚠️ premier jet buggé : la
+    sauvegarde était prise après le parse, donc après mutation — corrigé avant même le premier
+    test). Intra en frame inter : arbres INTER (`kVp8YModeTree`, B_PRED en dernière feuille) et
+    probas 4×4 FIXES non contextuelles. Filtre de boucle inter : table HEV **inter** (≥40→3,
+    ≥20→2, ≥15→1) + `mode_lf_lut` complet (B_PRED→0, ZEROMV/intra→1, NEAREST/NEAR/NEW→2,
+    SPLITMV→3) + deltas par référence. **Validé BIT-EXACT, 325/325 images sur 6 flux** : les 5
+    flux existants ré-encodés en séquences complètes (5×25 images, 1 clé + 24 inter chacun,
+    filterLevel 0/1/5/8, résolution impaire comprise) **et** un flux de torture 100 images avec
+    **altref invisibles** (`-auto-alt-ref 1 -lag-in-frames 16`, frames `show_frame=0` décodées
+    mais non affichées), golden frames et 4 GOPs — **0 pixel d'écart partout, du premier coup**
+    pour le chemin inter (seul le repli d'entropie avait un bug, corrigé avant exécution).
+    Nouveau harnais `NkVideoReadTest --vp8seq <ivf> <ref.yuv>` (état persistant multi-images).
+  - **Reste (finitions, refus propre en attendant)** : segmentation par macrobloc (aucun flux de
+    test ne l'active) ; partitions de tokens multiples (>1) ; versions de bitstream 1-3
+    (bilinéaire/fullpel). **Prochaine étape naturelle : brancher le décodeur dans `NkVideoReader`**
+    (WebM/VP8 et IVF) pour lire les `.webm` VP8 dans `NkVideoPlayer`.
 
 ## En cours / À venir
 
