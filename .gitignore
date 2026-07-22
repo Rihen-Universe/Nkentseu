@@ -707,3 +707,7 @@ Applications/NKCode/data/fonts/NotoEmoji-Regular.ttf
 /Resources/Datasets/*.txt
 /Resources/Datasets/*.wav
 *.wav
+
+# Distribution testeur (assemblee par scripts/MakeNkCodeDist.py) + cache compilo
+dist/
+.cache/

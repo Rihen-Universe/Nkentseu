@@ -703,6 +703,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Externals/Libs/pybind11/pybind11.jenga"):
+
+        pass
+
+
+
     with include("Kernel/Runtime/NKEvent/NKEvent.jenga"):
 
         pass
