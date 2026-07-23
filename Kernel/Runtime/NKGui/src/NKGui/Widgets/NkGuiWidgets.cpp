@@ -1306,6 +1306,12 @@ namespace nkentseu {
 		void Separator(NkGuiContext &ctx) noexcept {
 			const NkRect r = ctx.NextItemRect(0.f, 1.f);
 			ctx.DL().AddRectFilled({r.x, r.y, r.w, 1.f}, ctx.theme.border);
+			// Dans un menu deroulant auto-dimensionne : contribue a la hauteur
+			// mesuree — sinon chaque separateur « vole » sa hauteur consommee et
+			// le DERNIER item du menu sort du popup (partiellement invisible).
+			const int32 L = ctx.curPopupLevel;
+			if (L >= 0 && ctx.menuMeasureId[L] != NKGUI_ID_NONE)
+				ctx.menuMeasureH[L] += 1.f + ctx.layout.itemSpacingY;
 		}
 
 		// ════════════════════ CONTENEURS DE LAYOUT ════════════════════

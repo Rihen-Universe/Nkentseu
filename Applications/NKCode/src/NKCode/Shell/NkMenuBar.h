@@ -12,7 +12,6 @@
 #include "NKCode/Shell/Panels.h"	  // SideLeftGroup/OpenSideExclusive (Recherche)
 #include "NKCode/Shell/NkHome.h"	  // NkHomeOpenNewWindow (Nouvelle fenetre)
 #include "NKCode/Shell/NkI18n.h"	  // NkT
-#include "NKWindow/Core/NkDialogs.h"  // OpenFileDialog (Ouvrir un fichier / Aller au fichier)
 #include "NKWindow/Core/NkLauncher.h" // OpenURL (Aide)
 
 namespace nkentseu {
@@ -26,7 +25,12 @@ namespace nkentseu {
 		struct NkMenuBarCtx {
 				NkCodeDialogs *dlg = nullptr;
 				NkEditorShell *shell = nullptr;
-				NkString exePath; // pour « Nouvelle fenetre » (NkHomeOpenNewWindow)
+				NkHomeState *home = nullptr; // wizard « Nouveau Workspace » du launcher (nav==2)
+				NkString exePath;			 // pour « Nouvelle fenetre » (NkHomeOpenNewWindow)
+				// « Ouvrir un fichier »/« Aller au fichier » via le PICKER MAISON :
+				// le picker (PK_File) remplit ce buffer a la confirmation (asynchrone) ;
+				// DrawMainMenuBar le poll chaque frame et ouvre le fichier.
+				char openFileBuf[512] = {};
 		};
 
 		namespace menubar_detail {
@@ -50,85 +54,8 @@ namespace nkentseu {
 				return w;
 			}
 
-			// Commente/decommente les lignes [l0..l1] (prefixe "// ") via GetText/
-			// SetText (Checkpoint AVANT : SetText n'enregistre pas d'undo, cf. memoire).
-			inline void ToggleLineComment(NkCodeDoc &d) {
-				int32 aL, aC, bL, bC;
-				d.SelRange(aL, aC, bL, bC);
-				if (aL > bL)
-					return;
-				d.Checkpoint(3);
-				const NkString txt = d.GetText();
-				NkString out;
-				int32 line = 0;
-				// toutes commentees ? -> on retire ; sinon on ajoute.
-				bool allComment = true;
-				{
-					int32 l = 0;
-					const char *p = txt.CStr();
-					const char *ls = p;
-					for (;; ++p) {
-						if (*p == '\n' || !*p) {
-							if (l >= aL && l <= bL) {
-								const char *q = ls;
-								while (*q == ' ' || *q == '\t')
-									++q;
-								if (!(q[0] == '/' && q[1] == '/'))
-									allComment = false;
-							}
-							if (!*p)
-								break;
-							ls = p + 1;
-							++l;
-						}
-					}
-				}
-				const char *p = txt.CStr();
-				const char *ls = p;
-				for (;; ++p) {
-					if (*p == '\n' || !*p) {
-						NkString cur;
-						for (const char *q = ls; q < p; ++q)
-							cur += *q;
-						if (line >= aL && line <= bL) {
-							if (allComment) { // retirer "// " apres l'indentation
-								const char *q = cur.CStr();
-								usize ind = 0;
-								while (q[ind] == ' ' || q[ind] == '\t')
-									++ind;
-								if (q[ind] == '/' && q[ind + 1] == '/') {
-									usize cut = ind + 2;
-									if (q[cut] == ' ')
-										++cut;
-									NkString nl;
-									for (usize i = 0; i < ind; ++i)
-										nl += q[i];
-									nl += (q + cut);
-									cur = nl;
-								}
-							} else {
-								NkString nl;
-								const char *q = cur.CStr();
-								usize ind = 0;
-								while (q[ind] == ' ' || q[ind] == '\t') {
-									nl += q[ind];
-									++ind;
-								}
-								nl += "// ";
-								nl += (q + ind);
-								cur = nl;
-							}
-						}
-						out += cur;
-						if (!*p)
-							break;
-						out += "\n";
-						ls = p + 1;
-						++line;
-					}
-				}
-				d.SetText(out.CStr());
-			}
+			// (le commentaire de ligne passe par doc->ToggleComment(CommentPrefix(lang)),
+			//  sensible au langage — meme chemin que Ctrl+/ dans l'editeur)
 
 			// Reindentation simple par profondeur d'accolades (Format Document) —
 			// 4 espaces par niveau, lignes vides laissees vides.
@@ -254,34 +181,46 @@ namespace nkentseu {
 			const bool hasFile = s && s->HasActive();
 			NkCodeDoc *doc = hasFile ? &s->files[s->active].doc : nullptr;
 
+			// Resultat ASYNCHRONE du picker « Ouvrir un fichier » (PK_File remplit le
+			// buffer a la confirmation, une frame plus tard) -> ouverture ici.
+			if (mb->openFileBuf[0] && s) {
+				s->OpenPath(NkPath(mb->openFileBuf));
+				mb->openFileBuf[0] = 0;
+			}
+
 			// ── FICHIER ──────────────────────────────────────────────────────
 			if (BeginMenu(ctx, NkT("mb.file"))) {
 				if (MenuItem(ctx, NkT("mb.file.startscreen")))
 					d->ShowStart();
 				Separator(ctx);
-				if (MenuItem(ctx, NkT("mb.file.newfile"), "Ctrl+N") && s)
+				if (MenuItem(ctx, NkT("mb.file.newfile"), "Ctrl+N", hasWs) && s) {
+					// Onglet vide + PICKER MAISON en mode enregistrer : le doc etant
+					// vide, l'ASSISTANT complet de creation s'affiche (emplacement,
+					// nom, type de fichier, proprietes/scaffolding C++) — exactement
+					// la fenetre modale de creation demandee, pas un onglet muet.
 					s->NewFile();
-				if (MenuItem(ctx, NkT("mb.file.newfolder"), nullptr, hasWs) && s) {
-					// « Nouveau dossier N » a la racine (l'explorateur le liste au refresh).
-					for (int32 k = 1; k <= 99; ++k) {
-						const NkString p = s->root.ToString() + (k == 1 ? "/NouveauDossier"
-																		: NkPrintf("/NouveauDossier%d", k).CStr());
-						if (!NkDirectory::Exists(p.CStr())) {
-							NkDirectory::CreateRecursive(NkPath(p));
-							s->status = NkString("Dossier cree : ") + p.CStr();
-							break;
-						}
-					}
+					d->SaveActiveNative();
 				}
+				if (MenuItem(ctx, NkT("mb.file.newfolder"), nullptr, hasWs) && s)
+					// Picker maison : navigation libre + bouton « nouveau dossier »
+					// integre (PickerCreateFolder) -> l'utilisateur choisit l'emplacement
+					// ET cree le dossier dans le meme dialogue modal.
+					d->OpenPicker(NkCodeDialogs::PK_NewFolder, s->root.ToString().CStr());
 				if (MenuItem(ctx, NkT("mb.file.newproject"), nullptr, hasWs))
-					d->Open(NkCodeDialogs::NewProject);
-				if (MenuItem(ctx, NkT("mb.file.newworkspace")))
-					d->Open(NkCodeDialogs::NewWorkspace);
+					d->Open(NkCodeDialogs::NewProject); // dialogue riche (nom/template/langage)
+				if (MenuItem(ctx, NkT("mb.file.newworkspace"))) {
+					// Modale DEDIEE = wizard COMPLET du launcher ; le workspace cree
+					// est AJOUTE comme racine de l'explorateur (courant reste charge).
+					d->showNewWs = true;
+					d->wsAddAsRoot = true;
+				}
 				Separator(ctx);
 				if (MenuItem(ctx, NkT("mb.file.openfile")) && s) {
-					NkDialogResult r = NkDialogs::OpenFileDialog("*.*", NkT("mb.file.openfile"));
-					if (r.confirmed)
-						s->OpenPath(NkPath(r.path.CStr()));
+					// PICKER MAISON (pas le dialogue systeme), navigation DISQUE ENTIER
+					// (aucun confinement au workspace) — consigne explicite de Rihen.
+					mb->openFileBuf[0] = 0;
+					d->OpenPicker(NkCodeDialogs::PK_File, hasWs ? s->root.ToString().CStr() : nullptr, mb->openFileBuf,
+								  (int32)sizeof(mb->openFileBuf));
 				}
 				if (MenuItem(ctx, NkT("mb.file.openfolder")))
 					d->OpenFolderDialog();
@@ -332,10 +271,12 @@ namespace nkentseu {
 #endif
 				}
 				if (MenuItem(ctx, NkT("mb.file.export"), nullptr, hasWs) && s)
-					TermCmd(s, sh, "tar -a -c --exclude=Build --exclude=.git -f workspace-export.zip . && echo Exporte: workspace-export.zip");
+					// Picker maison : choisir le dossier de DESTINATION du zip ; la
+					// confirmation lance tar dans le terminal integre (RoutePickerResult).
+					d->OpenPicker(NkCodeDialogs::PK_ExportZip, s->root.ToString().CStr());
 				Separator(ctx);
 				if (MenuItem(ctx, NkT("mb.file.prefs")))
-					sh->OpenPreferences(0);
+					d->showPrefs = true; // modale PREFERENCES complete (panneau launcher)
 				if (MenuItem(ctx, NkT("mb.file.quit"), "Ctrl+Q"))
 					sh->RequestClose();
 				EndMenu(ctx);
@@ -384,16 +325,20 @@ namespace nkentseu {
 				}
 				Separator(ctx);
 				if (MenuItem(ctx, NkT("mb.edit.find"), "Ctrl+F", hasFile) && doc) {
+					doc->findReplace = false; // barre SANS le champ Remplacer (= Ctrl+F)
 					doc->findOpen = true;
 					doc->findBarActive = true;
+					doc->FindRecompute();
 				}
 				if (MenuItem(ctx, NkT("mb.edit.findnext"), "F3", hasFile) && doc)
 					doc->FindNext(true);
 				if (MenuItem(ctx, NkT("mb.edit.findprev"), "Shift+F3", hasFile) && doc)
 					doc->FindNext(false);
 				if (MenuItem(ctx, NkT("mb.edit.replace"), "Ctrl+H", hasFile) && doc) {
+					doc->findReplace = true; // mode REMPLACEMENT (= Ctrl+H), champ en plus
 					doc->findOpen = true;
 					doc->findBarActive = true;
+					doc->FindRecompute();
 				}
 				if (MenuItem(ctx, NkT("mb.edit.findfiles"), "Ctrl+Shift+F", hasWs) && s) {
 					s->wsFocusField = 1;
@@ -410,21 +355,81 @@ namespace nkentseu {
 					s->wsFocusReq = true;
 				}
 				Separator(ctx);
-				if (MenuItem(ctx, NkT("mb.edit.cursorabove"), nullptr, hasFile) && doc && doc->curLine > 0) {
-					doc->extraCarets.PushBack({doc->selLine, doc->selCol, doc->curLine, doc->curCol});
-					doc->curLine -= 1;
-					doc->selLine = doc->curLine;
-					doc->selCol = doc->curCol;
+				// ── Ligne : MEMES actions que les raccourcis natifs de l'editeur ──
+				if (BeginMenu(ctx, NkT("mb.edit.line"))) {
+					if (MenuItem(ctx, NkT("mb.edit.dupline"), "Ctrl+D", hasFile) && doc)
+						doc->DuplicateSelOrLine();
+					if (MenuItem(ctx, NkT("mb.edit.movelineup"), "Alt+\xE2\x86\x91", hasFile) && doc) {
+						doc->Checkpoint(3);
+						doc->MoveLines(true);
+					}
+					if (MenuItem(ctx, NkT("mb.edit.movelinedown"), "Alt+\xE2\x86\x93", hasFile) && doc) {
+						doc->Checkpoint(3);
+						doc->MoveLines(false);
+					}
+					if (MenuItem(ctx, NkT("mb.edit.delline"), "Ctrl+Shift+K", hasFile) && doc) {
+						doc->Checkpoint(3);
+						doc->DeleteLines();
+					}
+					if (MenuItem(ctx, NkT("mb.edit.insertbelow"), "Ctrl+Entree", hasFile) && doc) {
+						doc->Checkpoint(3);
+						doc->InsertLineBelow();
+					}
+					if (MenuItem(ctx, NkT("mb.edit.insertabove"), "Ctrl+Shift+Entree", hasFile) && doc) {
+						doc->Checkpoint(3);
+						doc->InsertLineAbove();
+					}
+					if (MenuItem(ctx, NkT("mb.edit.selectline"), "Ctrl+L", hasFile) && doc)
+						doc->SelectCurrentLine();
+					EndMenu(ctx);
 				}
-				if (MenuItem(ctx, NkT("mb.edit.cursorbelow"), nullptr, hasFile) && doc &&
-					doc->curLine + 1 < doc->LineCount()) {
-					doc->extraCarets.PushBack({doc->selLine, doc->selCol, doc->curLine, doc->curCol});
-					doc->curLine += 1;
-					doc->selLine = doc->curLine;
-					doc->selCol = doc->curCol;
+				// ── Multi-curseur ──
+				if (BeginMenu(ctx, NkT("mb.edit.multicursor"))) {
+					if (MenuItem(ctx, NkT("mb.edit.cursorabove"), nullptr, hasFile) && doc && doc->curLine > 0) {
+						doc->extraCarets.PushBack({doc->selLine, doc->selCol, doc->curLine, doc->curCol});
+						doc->curLine -= 1;
+						doc->selLine = doc->curLine;
+						doc->selCol = doc->curCol;
+					}
+					if (MenuItem(ctx, NkT("mb.edit.cursorbelow"), nullptr, hasFile) && doc &&
+						doc->curLine + 1 < doc->LineCount()) {
+						doc->extraCarets.PushBack({doc->selLine, doc->selCol, doc->curLine, doc->curCol});
+						doc->curLine += 1;
+						doc->selLine = doc->curLine;
+						doc->selCol = doc->curCol;
+					}
+					if (MenuItem(ctx, NkT("mb.edit.nextoccur"), "Ctrl+Shift+D", hasFile) && doc)
+						doc->SelectWordOrAddNext();
+					if (MenuItem(ctx, NkT("mb.edit.alloccur"), "Ctrl+Shift+L", hasFile) && doc)
+						doc->SelectAllOccurrences();
+					EndMenu(ctx);
 				}
-				if (MenuItem(ctx, NkT("mb.edit.linecomment"), nullptr, hasFile) && doc)
-					ToggleLineComment(*doc);
+				Separator(ctx);
+				// ── Commentaires / indentation — sensibles au LANGAGE du fichier actif,
+				//    exactement comme Ctrl+/ et Ctrl+Shift+/ dans l'editeur. ──
+				{
+					const NkLang mlang =
+						hasFile ? NkLangFromExt(s->files[s->active].path.GetExtension().CStr()) : NkLang::None;
+					if (MenuItem(ctx, NkT("mb.edit.linecomment"), "Ctrl+/", hasFile) && doc) {
+						doc->Checkpoint(3);
+						doc->ToggleComment(CommentPrefix(mlang));
+					}
+					if (MenuItem(ctx, NkT("mb.edit.blockcomment"), "Ctrl+Shift+/", hasFile) && doc) {
+						doc->Checkpoint(3);
+						if (mlang == NkLang::C || mlang == NkLang::NKSL)
+							doc->BlockComment("/* ", " */");
+						else
+							doc->ToggleComment(CommentPrefix(mlang));
+					}
+				}
+				if (MenuItem(ctx, NkT("mb.edit.indent"), "Ctrl+]", hasFile) && doc) {
+					doc->Checkpoint(3);
+					doc->IndentSelection(false);
+				}
+				if (MenuItem(ctx, NkT("mb.edit.unindent"), "Ctrl+[", hasFile) && doc) {
+					doc->Checkpoint(3);
+					doc->IndentSelection(true);
+				}
 				if (MenuItem(ctx, NkT("mb.edit.format"), nullptr, hasFile) && doc)
 					ReindentDocument(*doc);
 				Separator(ctx);
@@ -455,17 +460,29 @@ namespace nkentseu {
 					EndMenu(ctx);
 				}
 				if (BeginMenu(ctx, NkT("mb.view.appearance"))) {
-					if (MenuItem(ctx, NkT("mb.view.theme")))
-						sh->OpenPreferences(1);
-					if (MenuItem(ctx, NkT("mb.view.fonts")))
-						sh->OpenPreferences(0);
-					if (MenuItem(ctx, NkT("mb.view.langs")))
-						sh->OpenPreferences(2);
+					// -> modale PREFERENCES, ouverte sur la bonne categorie.
+					if (MenuItem(ctx, NkT("mb.view.theme"))) {
+						d->showPrefs = true;
+						if (mb->home)
+							mb->home->settings.cat = 3; // Theme
+					}
+					if (MenuItem(ctx, NkT("mb.view.fonts"))) {
+						d->showPrefs = true;
+						if (mb->home)
+							mb->home->settings.cat = 0; // General (echelle/police UI)
+					}
+					if (MenuItem(ctx, NkT("mb.view.langs"))) {
+						d->showPrefs = true;
+						if (mb->home)
+							mb->home->settings.cat = 0; // General (langue)
+					}
 					EndMenu(ctx);
 				}
 				Separator(ctx);
 				if (MenuItem(ctx, (NkString(NkCodeMinimapOn() ? "\xE2\x9C\x93 " : "   ") + NkT("mb.view.minimap")).CStr()))
 					NkCodeMinimapOn() = !NkCodeMinimapOn();
+				if (MenuItem(ctx, (NkString(NkCodeTabRowsOn() ? "\xE2\x9C\x93 " : "   ") + NkT("mb.view.tabrows")).CStr()))
+					NkCodeTabRowsOn() = !NkCodeTabRowsOn();
 				if (s && MenuItem(ctx, (NkString(s->showBreadcrumb ? "\xE2\x9C\x93 " : "   ") + NkT("mb.view.breadcrumbs")).CStr()))
 					s->showBreadcrumb = !s->showBreadcrumb;
 				if (MenuItem(ctx,
@@ -474,18 +491,52 @@ namespace nkentseu {
 					doc)
 					doc->wrapOn = !doc->wrapOn;
 				Separator(ctx);
-				if (MenuItem(ctx, NkT("mb.view.resetlayout")))
+				// ── Zoom du CODE, par onglet — memes bornes que Ctrl+molette / Ctrl+± ──
+				if (MenuItem(ctx, NkT("mb.view.zoomin"), "Ctrl++", hasFile) && s) {
+					auto &f = s->files[s->active];
+					float32 z = (f.codeZoom > 0.f ? f.codeZoom : sh->CodeFontSize()) + 1.f;
+					f.codeZoom = z > 40.f ? 40.f : z;
+				}
+				if (MenuItem(ctx, NkT("mb.view.zoomout"), "Ctrl+-", hasFile) && s) {
+					auto &f = s->files[s->active];
+					float32 z = (f.codeZoom > 0.f ? f.codeZoom : sh->CodeFontSize()) - 1.f;
+					f.codeZoom = z < 8.f ? 8.f : z;
+				}
+				if (MenuItem(ctx, NkT("mb.view.zoomreset"), "Ctrl+0", hasFile) && s)
+					s->files[s->active].codeZoom = 0.f; // 0 = taille globale
+				Separator(ctx);
+				if (MenuItem(ctx, NkT("mb.view.resetlayout"))) {
+					// Reinitialisation COMPLETE : re-bootstrap du dock ET suppression de
+					// l'etat d'UI sauvegarde du projet (sinon l'ancienne disposition se
+					// reapplique au prochain chargement du workspace).
 					sh->ResetLayout();
+					if (s && s->HasWorkspace()) {
+						NkFile::Delete(NkPath(s->UiConfigPath().CStr()));
+						s->status = NkString("Disposition reinitialisee (defaut)");
+					}
+				}
 				EndMenu(ctx);
 			}
 
 			// ── ALLER ────────────────────────────────────────────────────────
 			if (BeginMenu(ctx, NkT("mb.go"))) {
 				if (MenuItem(ctx, NkT("mb.go.gotofile")) && s) {
-					NkDialogResult r = NkDialogs::OpenFileDialog("*.*", NkT("mb.go.gotofile"));
-					if (r.confirmed)
-						s->OpenPath(NkPath(r.path.CStr()));
+					// meme picker maison que « Ouvrir un fichier » (disque entier).
+					mb->openFileBuf[0] = 0;
+					d->OpenPicker(NkCodeDialogs::PK_File, hasWs ? s->root.ToString().CStr() : nullptr, mb->openFileBuf,
+								  (int32)sizeof(mb->openFileBuf));
 				}
+				if (MenuItem(ctx, NkT("mb.go.gotoline"), "Ctrl+G", hasFile) && doc) {
+					doc->gotoBuf[0] = '\0'; // meme barre modale que Ctrl+G dans l'editeur
+					doc->gotoOpen = true;
+				}
+				Separator(ctx);
+				// ── Navigation entre les ONGLETS ouverts ──
+				const bool multiTabs = s && s->files.Size() > 1;
+				if (MenuItem(ctx, NkT("mb.go.nexttab"), nullptr, multiTabs) && s)
+					s->active = (s->active + 1) % (int32)s->files.Size();
+				if (MenuItem(ctx, NkT("mb.go.prevtab"), nullptr, multiTabs) && s)
+					s->active = (s->active + (int32)s->files.Size() - 1) % (int32)s->files.Size();
 				Separator(ctx);
 				const NkString word = doc ? WordAtCaret(*doc) : NkString();
 				const bool hasWord = hasWs && !word.Empty();
@@ -522,10 +573,56 @@ namespace nkentseu {
 				EndMenu(ctx);
 			}
 
-			// ── DÉBOGUER (backend = chantier dedie ; honnete : tout grise) ───
+			// ── DÉBOGUER : GDB/LLDB REEL via `jenga gdb` dans le terminal integre.
+			//    Les points d'arret poses dans la gouttiere (F9) sont transmis au
+			//    debugger (--break fichier:ligne). UI in-app = chantier dedie. ──
 			if (BeginMenu(ctx, NkT("mb.debug"))) {
-				MenuItem(ctx, "Attach to Process", nullptr, false);
-				MenuItem(ctx, "Configurations", nullptr, false);
+				// Compose `jenga gdb [proj] --config Debug [--break f:l]... --build`
+				auto gdbCmd = [&](bool runNow) -> NkString {
+					NkString cmd("jenga gdb");
+					if (s && !s->AllProjects()) {
+						cmd += " ";
+						cmd += s->SelectedProject();
+					}
+					cmd += " --config Debug";
+					if (s)
+						for (usize i = 0; i < s->files.Size(); ++i) {
+							const OpenFile &f = s->files[i];
+							for (usize b = 0; b < f.doc.breakpoints.Size(); ++b) {
+								cmd += " --break \"";
+								cmd += f.Name();
+								cmd += NkPrintf(":%d", f.doc.breakpoints[b] + 1).CStr(); // gdb = 1-base
+								cmd += "\"";
+							}
+						}
+					if (runNow)
+						cmd += " --run";
+					cmd += " --build";
+					if (s)
+						cmd += s->JengaFileArg();
+					return cmd;
+				};
+				if (MenuItem(ctx, NkT("mb.debug.start"), "F5", hasWs) && s)
+					TermCmd(s, sh, gdbCmd(false).CStr());
+				if (MenuItem(ctx, NkT("mb.debug.startrun"), nullptr, hasWs) && s)
+					TermCmd(s, sh, gdbCmd(true).CStr());
+				Separator(ctx);
+				if (MenuItem(ctx, NkT("mb.run.breakpoint"), "F9", hasFile) && doc)
+					doc->ToggleBreakpoint(doc->curLine);
+				bool anyBp = false;
+				if (s)
+					for (usize i = 0; i < s->files.Size() && !anyBp; ++i)
+						anyBp = !s->files[i].doc.breakpoints.Empty();
+				if (MenuItem(ctx, NkT("mb.debug.clearbp"), nullptr, anyBp) && s) {
+					int32 n = 0;
+					for (usize i = 0; i < s->files.Size(); ++i) {
+						n += (int32)s->files[i].doc.breakpoints.Size();
+						s->files[i].doc.breakpoints.Clear();
+					}
+					s->status = NkPrintf("%d point(s) d'arret supprime(s)", n);
+				}
+				Separator(ctx);
+				MenuItem(ctx, "Attach to Process", nullptr, false); // (UI in-app a venir)
 				MenuItem(ctx, "Call Stack / Variables / Watch", nullptr, false);
 				MenuItem(ctx, "GPU Debugger", nullptr, false);
 				EndMenu(ctx);
@@ -602,8 +699,11 @@ namespace nkentseu {
 
 			// ── OUTILS ───────────────────────────────────────────────────────
 			if (BeginMenu(ctx, NkT("mb.tools"))) {
-				if (MenuItem(ctx, NkT("mb.view.theme")))
-					sh->OpenPreferences(1);
+				if (MenuItem(ctx, NkT("mb.view.theme"))) {
+					d->showPrefs = true;
+					if (mb->home)
+						mb->home->settings.cat = 3; // Theme
+				}
 				if (MenuItem(ctx, NkT("mb.tools.checksum"), nullptr, hasFile) && s)
 					TermCmd(s, sh,
 							(NkString("certutil -hashfile \"") + s->files[s->active].path.ToString().CStr() +
@@ -625,7 +725,9 @@ namespace nkentseu {
 			// ── FENÊTRE ──────────────────────────────────────────────────────
 			if (BeginMenu(ctx, NkT("mb.window"))) {
 				if (MenuItem(ctx, NkT("mb.window.newwindow"), nullptr, !mb->exePath.Empty()))
-					NkHomeOpenNewWindow(mb->exePath, hasWs ? s->root.ToString() : NkString());
+					// SANS dossier : la nouvelle fenetre s'ouvre sur le LAUNCHER (et non
+					// dans le workspace courant) — l'utilisateur choisit quoi ouvrir.
+					NkHomeOpenNewWindow(mb->exePath, NkString());
 				if (MenuItem(ctx, NkT("mb.window.closewindow")))
 					sh->RequestClose();
 				Separator(ctx);
@@ -654,8 +756,14 @@ namespace nkentseu {
 					sh->SaveUiState((s->root.ToString() + "/.nkcode/layout_manual.cfg").CStr());
 				if (hasWs && MenuItem(ctx, NkT("mb.window.loadlayout")) && s)
 					sh->LoadUiState((s->root.ToString() + "/.nkcode/layout_manual.cfg").CStr());
-				if (MenuItem(ctx, NkT("mb.view.resetlayout")))
+				if (MenuItem(ctx, NkT("mb.view.resetlayout"))) {
+					// MEME reset COMPLET que dans Affichage : dock + ui.cfg du projet.
 					sh->ResetLayout();
+					if (s && s->HasWorkspace()) {
+						NkFile::Delete(NkPath(s->UiConfigPath().CStr()));
+						s->status = NkString("Disposition reinitialisee (defaut)");
+					}
+				}
 				EndMenu(ctx);
 			}
 
@@ -663,8 +771,10 @@ namespace nkentseu {
 			if (BeginMenu(ctx, NkT("mb.help"))) {
 				if (MenuItem(ctx, NkT("mb.help.docs"), "F1"))
 					NkLauncher::OpenURL("https://github.com/Rihen-Universe/Nkentseu/wiki");
-				if (MenuItem(ctx, NkT("mb.help.shortcuts")))
-					NkLauncher::OpenURL("https://github.com/Rihen-Universe/Nkentseu/wiki");
+				if (MenuItem(ctx, NkT("mb.help.shortcuts"))) {
+					d->showHelp = 1; // fenetre DEDIEE in-app (liste des raccourcis reels)
+					d->helpScroll = 0.f;
+				}
 				if (MenuItem(ctx, NkT("mb.help.forum")))
 					NkLauncher::OpenURL("https://github.com/Rihen-Universe/NKCode-Beta");
 				if (MenuItem(ctx, NkT("mb.help.releasenotes")))
@@ -675,8 +785,8 @@ namespace nkentseu {
 				if (MenuItem(ctx, NkT("mb.help.updates"), nullptr, true) && s)
 					TermCmd(s, sh,
 							"curl -s https://api.github.com/repos/Rihen-Universe/NKCode-Beta/releases/latest | findstr /i \"tag_name name browser_download_url\"");
-				if (MenuItem(ctx, NkT("mb.help.about")) && s)
-					s->status = NkString("NKCode 0.1.0-beta \xE2\x80\x94 Rihen \xC2\xB7 rihen.universe@gmail.com");
+				if (MenuItem(ctx, NkT("mb.help.about")))
+					d->showHelp = 2; // fenetre DEDIEE in-app (produit/editeur/contact)
 				EndMenu(ctx);
 			}
 		}
