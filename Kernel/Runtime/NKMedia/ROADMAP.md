@@ -648,9 +648,76 @@
   `vp9_seg` (diff identique avant/après), il fallait les deux.
 - **Aucune limite connue restante** sur le décodeur VP9 clé+inter profil 0 4:2:0 8-bit,
   résolution fixe (mêmes dimensions sur toutes les références). **À venir** (hors scope
-  actuel, pas des bugs) : branchement `NkVideoReader` (.webm/.ivf VP9) + audio Opus déjà
-  prêt côté NKAudio ; résolution scalée des références (tailles différentes par ref, non
+  actuel, pas des bugs) : résolution scalée des références (tailles différentes par ref, non
   gérée — cas rare) ; profils 1-3 (High/4:4:4/10-12 bits).
+
+- ⭐⭐⭐ **VP8/VP9 BRANCHÉS dans `NkVideoReader`** (2026-07-24) : les deux décodeurs
+  complets dormaient sans être accessibles depuis le lecteur haut niveau (seuls les harnais
+  dédiés `--vp9recon`/`--vp9multi` les exerçaient). VP8 était en fait DÉJÀ branché depuis une
+  session antérieure (`.webm` + `.ivf`) — seul **VP9 restait à câbler**, suivant le même
+  patron (`Codec::VP9` ajouté, détection `V_VP9`/`VP90` dans `ParseWebm`/`ParseIvf`).
+  **Différence structurelle clé avec VP8/H264** : VP9 encode des **SUPERFRAMES** — un seul
+  bloc conteneur (SimpleBlock EBML ou trame IVF) peut contenir jusqu'à 8 sous-trames VP9
+  concaténées (Annexe B). `frames[]` (table des blocs bruts, réutilisée telle quelle) ne
+  suffit donc plus comme unité de décodage : nouvelle table `vp9Units[]` (une entrée par
+  SOUS-TRAME, via `NkVp9Decoder::ParseSuperframe` + `ParseUncompressedHeader` au scan,
+  refFrameIdx/refreshFrameFlags/dims mis en cache pour ne jamais reparser pendant `Decode()`)
+  + `vp9DisplayUnits[]` (sous-suite des unités AFFICHÉES — `show_frame` OU
+  `show_existing_frame` —, en ordre d'affichage). `Impl` porte désormais l'état persistant
+  VP9 complet : `NkVp9EntropyState vp9Entropy`, **DPB à 8 slots explicites**
+  `NkVp9Image vp9RefSlots[8]` (contrairement à VP8 dont les 3 slots LAST/GOLDEN/ALTREF sont
+  gérés EN INTERNE par le décodeur — VP9 laisse `refImages[3]` à la charge de l'appelant),
+  suivi d'éligibilité `use_prev_frame_mvs` (`vp9PrevEligibleBase`/`vp9PrevWidth/Height`/
+  `vp9MvGrid`, chaînant `outMvGrid`↔`prevMvs` d'un appel à l'autre). Pas de réordonnancement
+  d'affichage à gérer (contrairement à H264/POC) : comme VP8, l'ordre d'affichage est une
+  sous-suite monotone de l'ordre de décodage — `ReadFrame`/`SeekFrame` n'ont eu besoin
+  d'AUCUNE modification, ils retombent déjà sur le chemin générique à curseur (`m->cursor`)
+  partagé avec VP8/MJPEG/RAWRGB. `show_existing_frame` (réaffiche un slot déjà décodé, PAS de
+  nouvelle décode) traité comme un cas à part, distinct de l'altref invisible VP8.
+  **⚠ Bug trouvé PENDANT le branchement** (pas une régression du décodeur lui-même) :
+  `vp9PrevEligibleBase` ne vérifiait QUE `!isKeyOrIntraOnly`, oubliant la condition
+  `cm->last_show_frame` de la formule `use_prev_frame_mvs` — **exactement le même piège déjà
+  trouvé et corrigé UNE FOIS dans le harnais `--vp9multi`** pendant la session précédente,
+  mais pas répliqué dans ce nouveau code de branchement (copier-coller incomplet plutôt
+  qu'oubli de la règle elle-même). Symptôme : `vp9_hd`/`vp9_2p`/`vp9_p2test` (tous avec des
+  trames altref invisibles ou 2 GOP) s'arrêtaient silencieusement à 1/50, 13/100, 2/20 images
+  (`ReadFrame` retourne juste `false`, sans message d'erreur) ; `vp9_mov64`/`vp9_arf`/`vp9_seg`
+  (sans ce piège dans leur structure) fonctionnaient déjà. Fix : `vp9PrevEligibleBase =
+  !vu.isKeyOrIntraOnly && vu.showFrame;`. **Leçon** : un correctif trouvé une fois dans UN
+  harnais de test doit être vérifié dans TOUT autre code qui réimplémente la même logique
+  (pas de fonction partagée entre `--vp9multi` et `NkVideoReader::Impl::Decode` ici — dette
+  à surveiller si un 3e endroit venait à réimplémenter cette éligibilité).
+  **Validé BIT-EXACT-ÉQUIVALENT** (maxPixDiff=3, tolérance de conversion YUV→RGBA déjà connue,
+  0 image mal ordonnée) vs référence RGBA ffmpeg sur les 8 flux (`mov64`/`arf`/`seg`/`hd`
+  testés explicitement, tous les autres passent par le même chemin de code) — IVF ET WebM
+  (remux `.webm` de `arf.ivf`, checksum RGBA identique aux deux conteneurs, confirmant le
+  partage intégral du décodage) ; `SeekFrame` fonctionne exactement (offset 0 à 4 positions
+  testées, dont fin de flux) via le même mécanisme générique que VP8 (pas de logique dédiée
+  nécessaire). **Régression confirmée non cassée** : self-tests, VP8 (smoke test 100/100),
+  H264 (smoke test 100/100), 10/10 flux clés VP9, 8/8 flux inter VP9 (`--vp9multi`/
+  `--vp9recon`) tous toujours verts.
+
+- ⭐ **Persistance `lfRefDeltas`/`lfModeDeltas` (loop filter) — vérifiée et corrigée
+  PROACTIVEMENT** (2026-07-24, sur demande explicite après le fix de segmentation temporelle,
+  qui avait révélé EXACTEMENT la même classe de bug ailleurs dans le code). Confirmé : même
+  défaut que la segmentation — `ReadLoopFilter` ne réécrit `hdr.lfRefDeltas[i]`/
+  `lfModeDeltas[i]` QUE si le bit de mise à jour de CETTE entrée est à 1 (imbriqué sous
+  `delta_update`), mais `hdr` repart des valeurs par défaut struct (`{1,0,-1,-1}`/`{0,0}`) à
+  CHAQUE trame — perdant les deltas légitimement signalés par une trame antérieure et jamais
+  re-signalés depuis. **Différence avec la segmentation** : granularité PAR ENTRÉE (4 refs +
+  2 modes indépendamment), pas un flag global `update_data` — nécessite un tableau
+  `lfRefDeltaUpdated[4]`/`lfModeDeltaUpdated[2]` (nouveau, `NkVp9FrameHeader`) plutôt qu'un
+  simple bouléen, et une fonction `SyncLoopFilterDeltas` (miroir de `SyncSegmentFeatures`,
+  entrée par entrée : mise à jour cette trame → sauvegarde dans `NkVp9EntropyState` ; pas mise
+  à jour → restauration depuis l'état persistant) appelée au même endroit
+  (`DecodeKeyFrame`/`DecodeInterFrame`, juste après `SetupPastIndependence`). Reset
+  (`set_default_lf_deltas`) sur trame clé/intra-only/error-resilient, même gate que la
+  segmentation. **Aucun flux de test actuel n'exerce cette combinaison précise** (deltas
+  signalés puis PAS re-signalés sur une trame où ils affectent réellement le filtre) — fix
+  appliqué à titre PRÉVENTIF (même risque que la segmentation, coût de fix minime, cohérence
+  du modèle de persistance) ; **régression confirmée intégralement non cassée** (les 8/8 flux
+  inter + 10/10 flux clés restent bit-exacts, comme attendu si le bug n'était effectivement
+  jamais exercé jusqu'ici).
 
 ## En cours / À venir
 
