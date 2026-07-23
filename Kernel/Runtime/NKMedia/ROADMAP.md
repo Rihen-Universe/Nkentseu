@@ -607,18 +607,50 @@
   — signatures étendues, tous les appelants du dépôt mis à jour (`NkVideoReadTest` seul).
   Harnais `--vp9multi <ivf> <ref.yuv>` (NkVideoReadTest) : décode le flux ENTIER (DPB 8 slots
   via `refFrameIdx`/`refreshFrameFlags`, `show_existing_frame` géré, comparaison pixel de
-  CHAQUE trame affichée dans l'ordre d'affichage). **Validé BIT-EXACT vs ffmpeg** :
-  `vp9_mov64` (10/10, altref), `vp9_p2test` (20/20, altref invisible), `vp9_arf` (**100/100**,
-  gros flux altref réaliste), `vp9_2p` (100/100, 2 GOP/2 clés), `vp9_hd` (50/50, 1280x720),
-  `vp9_static`/`vp9_odd` (10/10 chacun). **Régression key-frame confirmée non cassée** :
-  10/10 flux clés toujours bit-exacts (`--vp9recon`). **Limite connue résiduelle** :
-  `vp9_seg` (flux segmentation) diverge dès la 1re trame inter — carte de segments
-  PERSISTANTE inter-trames non implémentée (`predicted_segment_id`/mise à jour temporelle),
-  déjà documentée comme limite dans `ReadInterFrameModeInfo` (`mi.segId=0` fixe) ; chantier
-  séparé, hors périmètre de cette session.
-- **À venir** : carte de segmentation temporelle (flux `vp9_seg`), branchement
-  `NkVideoReader` (.webm/.ivf VP9) + audio Opus déjà prêt, résolution scalée des références
-  (tailles différentes par ref, non gérée), profils 1-3 (High/4:4:4/10-12 bits).
+  CHAQUE trame affichée dans l'ordre d'affichage). **Validé BIT-EXACT vs ffmpeg sur 8 flux,
+  443 trames inter au total** : `vp9_mov64` (10/10, altref), `vp9_p2test` (20/20, altref
+  invisible), `vp9_arf` (**100/100**, gros flux altref réaliste), `vp9_2p` (100/100, 2 GOP/2
+  clés), `vp9_hd` (50/50, 1280x720), `vp9_static`/`vp9_odd` (10/10 chacun), **`vp9_seg`
+  (50/50, flux segmentation — voir ci-dessous)**. **Régression key-frame confirmée non
+  cassée** : 10/10 flux clés toujours bit-exacts (`--vp9recon`), self-tests verts.
+
+  **Segmentation temporelle (`vp9_seg`) — RÉSOLUE dans un 2e passage** (même session,
+  après un premier rapport marquant ce cas comme « limite connue »). Deux bugs distincts,
+  DIFFÉRENTS de l'hypothèse initiale (« carte de segments non implémentée ») :
+  1. **`read_inter_segment_id`/`read_intra_segment_id` absents** — le code ne faisait que
+     `segId=0; if (segEnabled && segUpdateMap) segId=lire l'arbre;`, ignorant totalement la
+     PRÉDICTION TEMPORELLE (`predicted_segment_id`, lu depuis la carte de la trame
+     précédente via un MIN sur l'emprise du bloc — `dec_get_segment_id`) et le cas
+     `!segUpdateMap` (copie pure sans lecture de bit). Fix : `NkVp9EntropyState::
+     lastFrameSegMap` (carte persistante, sortie via un nouveau paramètre `outSegMap` sur
+     `ParseOrDecodeKeyContent`/`ParseOrDecodeInterContent`, miroir de `outMvGrid`) +
+     `DecGetSegmentId`/`SetSegmentId`/`CopySegmentId`/`GetPredContextSegId` +
+     `ReadIntraSegmentId`/`ReadInterSegmentId` (port fidèle, y compris le bit
+     `seg_id_predicted` sous `segTemporalUpdate` avec son propre contexte de proba
+     `segPredProbs[above.segIdPredicted + left.segIdPredicted]`).
+  2. **Le vrai bloquant du test `vp9_seg`** (diagnostiqué en dumpant les champs d'en-tête :
+     `updateMap=0` dès la 1re trame inter) — **`segFeatureEnabled`/`segFeatureData`/
+     `segAbsDelta` (deltas de quantizer/filtre par segment) ne PERSISTAIENT PAS entre
+     trames** quand `update_data=0` : `ReadSegmentation` ne les réécrit QUE si
+     `update_data=1`, sinon `NkVp9FrameHeader` fraîchement construit à chaque trame les
+     laissait à leur défaut struct (0/faux), perdant les deltas légitimement signalés par
+     la trame clé. **Même classe de bug que `lfRefDeltas`/`lfModeDeltas`** (déjà repéré
+     comme non persistant dans une session antérieure, jamais corrigé — à vérifier/fixer
+     de la même façon si un flux l'exerce un jour). Fix : `segUpdateData` exposé dans
+     `NkVp9FrameHeader`, 3 champs persistés dans `NkVp9EntropyState`, `SyncSegmentFeatures`
+     (restaure depuis l'état persistant si `!segUpdateData`, sinon sauvegarde les valeurs
+     fraîches) appelée juste après `SetupPastIndependence` dans `DecodeKeyFrame`/
+     `DecodeInterFrame`. Reset (comme la carte) inconditionnel dès que
+     `SetupPastIndependence` s'exécute (intra-only/error-resilient), PAS soumis à
+     `resetFrameContext`.
+  Les deux bugs coexistaient et masquaient l'un l'autre au diagnostic superficiel — corriger
+  seulement le premier (prédiction temporelle du segment_id) ne suffisait PAS à faire passer
+  `vp9_seg` (diff identique avant/après), il fallait les deux.
+- **Aucune limite connue restante** sur le décodeur VP9 clé+inter profil 0 4:2:0 8-bit,
+  résolution fixe (mêmes dimensions sur toutes les références). **À venir** (hors scope
+  actuel, pas des bugs) : branchement `NkVideoReader` (.webm/.ivf VP9) + audio Opus déjà
+  prêt côté NKAudio ; résolution scalée des références (tailles différentes par ref, non
+  gérée — cas rare) ; profils 1-3 (High/4:4:4/10-12 bits).
 
 ## En cours / À venir
 

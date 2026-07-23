@@ -130,6 +130,12 @@ namespace nkentseu {
 				bool segTemporalUpdate = false;
 				uint8 segTreeProbs[7] = {255, 255, 255, 255, 255, 255, 255};
 				uint8 segPredProbs[3] = {255, 255, 255};
+				// segAbsDelta/segFeatureEnabled/segFeatureData ne sont RÉ-ÉCRITS par
+				// ReadSegmentation QUE si segUpdateData est vrai — sinon ils PERSISTENT
+				// depuis la trame précédente (setup_segmentation côté libvpx ne les touche
+				// pas du tout hors de ce cas) : DecodeKeyFrame/DecodeInterFrame restaurent
+				// ces 3 champs depuis NkVp9EntropyState quand segUpdateData est faux.
+				bool segUpdateData = false;
 				bool segAbsDelta = false;
 				bool segFeatureEnabled[8][4] = {{false}};
 				int32 segFeatureData[8][4] = {{0}};
@@ -231,6 +237,19 @@ namespace nkentseu {
 		struct NkVp9EntropyState {
 				NkVp9FrameContext frameContexts[4];
 				bool lastFrameWasKey = false;
+				// Carte de SEGMENTATION persistante (segment_id par unité mi 8x8, taille
+				// miRows*miCols de la DERNIÈRE trame décodée avec segEnabled) — utilisée pour
+				// la prédiction temporelle (read_inter_segment_id). Vide = indisponible (→ 0
+				// pour toute prédiction). Mise à jour par DecodeKeyFrame/DecodeInterFrame
+				// UNIQUEMENT si la trame décodée avait segEnabled (sinon inchangée, comme
+				// vp9_swap_current_and_last_seg_map côté libvpx).
+				NkVector<uint8> lastFrameSegMap;
+				// Données de features de segmentation (quantizer/loop-filter/ref/skip par
+				// segment) — PERSISTANTES entre trames tant que segUpdateData reste faux
+				// (voir NkVp9FrameHeader::segUpdateData). Reset par SetupPastIndependence.
+				bool segAbsDelta = false;
+				bool segFeatureEnabled[8][4] = {{false}};
+				int32 segFeatureData[8][4] = {{0}};
 		};
 
 		// Résultat du parse de l'en-tête compressé.

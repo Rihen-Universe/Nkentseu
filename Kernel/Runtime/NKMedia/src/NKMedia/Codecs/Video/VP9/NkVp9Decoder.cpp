@@ -167,7 +167,8 @@ namespace nkentseu {
 						hdr.segPredProbs[i] =
 							(hdr.segTemporalUpdate && rb.Bit()) ? (uint8)rb.Literal(8) : (uint8)255;
 				}
-				if (rb.Bit()) { // update_data
+				hdr.segUpdateData = rb.Bit() != 0;
+				if (hdr.segUpdateData) {
 					hdr.segAbsDelta = rb.Bit() != 0;
 					for (int32 i = 0; i < 8; ++i) {
 						for (int32 j = 0; j < 4; ++j) {
@@ -294,6 +295,7 @@ namespace nkentseu {
 					uint8 mode = 0;	   // mode Y (bloc >= 8x8) ou bmi[3]
 					uint8 uvMode = 0;
 					uint8 segId = 0;
+					uint8 segIdPredicted = 0; // valide seulement si segTemporalUpdate (voisin pour le contexte)
 					uint8 bmi[4] = {0, 0, 0, 0}; // sous-modes 4x4 (ou modes b_mode sub8x8 inter)
 					// --- Inter (brique 6) ---
 					int8 refFrame[2] = {0, -1}; // 0=INTRA_FRAME (défaut : bloc intra), -1=NONE
@@ -316,8 +318,12 @@ namespace nkentseu {
 					int32 miCols = 0, miRows = 0;
 					int32 sbCols = 0; // superblocs (alignement des contextes above)
 					MiCell *mi = nullptr;			  // grille miRows × miCols
-					uint8 *aboveSegCtx = nullptr;	  // par colonne mi (alignée sb)
-					uint8 leftSegCtx[8] = {0};		  // par rangée mi dans le SB
+					uint8 *aboveSegCtx = nullptr;	  // par colonne mi (alignée sb) — contexte de PARTITION
+					uint8 leftSegCtx[8] = {0};		  // par rangée mi dans le SB — contexte de PARTITION
+					// Carte de SEGMENTATION (segment_id par unité mi, miRows*miCols) — sans
+					// rapport avec aboveSegCtx/leftSegCtx ci-dessus (contexte de partition).
+					uint8 *currentSegMap = nullptr;  // écrite pendant CETTE trame (set_segment_id)
+					const uint8 *lastSegMap = nullptr; // lue depuis la trame PRÉCÉDENTE (dec_get_segment_id) ; nullptr = indisponible (→ 0)
 					uint8 *aboveEntCtx[3] = {nullptr, nullptr, nullptr}; // par plane, 2/mi
 					uint8 leftEntCtx[3][16] = {{0}};  // par plane, unités 4x4 dans le SB
 					// Tile courante.
@@ -697,6 +703,10 @@ namespace nkentseu {
 			int32 ClampI(int32 v, int32 lo, int32 hi);
 			int32 ReadIsInterBlock(NkVp8BoolDecoder &bd, FrameParseState &st, int32 segId);
 			void ReadInterBlockModeInfo(NkVp8BoolDecoder &bd, FrameParseState &st, int32 miRow, int32 miCol);
+			int32 ReadIntraSegmentId(NkVp8BoolDecoder &bd, FrameParseState &st, int32 miRow, int32 miCol,
+									 int32 xMis, int32 yMis);
+			int32 ReadInterSegmentId(NkVp8BoolDecoder &bd, FrameParseState &st, MiCell &mi, int32 miRow,
+									 int32 miCol, int32 xMis, int32 yMis);
 
 			// read_intra_block_mode_info (non-kf) : modes intra dans une trame INTER —
 			// contexte size_group_lookup (pas d'arbre à voisins comme en kf).
@@ -747,14 +757,13 @@ namespace nkentseu {
 
 			// read_inter_frame_mode_info : segment id + skip + is_inter + tx_size, puis
 			// délègue au chemin intra (non-kf) ou inter selon read_is_inter_block.
-			void ReadInterFrameModeInfo(NkVp8BoolDecoder &bd, FrameParseState &st, int32 miRow, int32 miCol) {
+			void ReadInterFrameModeInfo(NkVp8BoolDecoder &bd, FrameParseState &st, int32 miRow, int32 miCol,
+									   int32 xMis, int32 yMis) {
 				const NkVp9FrameHeader &hdr = *st.hdr;
 				MiCell &mi = st.cur;
-				// Segment id (limite documentée : pas de carte persistante inter-trames —
-				// équivaut à predicted_segment_id=0 / pas de mise à jour temporelle).
-				mi.segId = 0;
-				if (hdr.segEnabled && hdr.segUpdateMap)
-					mi.segId = (uint8)bd.GetTree(kVp9SegmentTree, hdr.segTreeProbs);
+				// Segment id : prédiction temporelle depuis la carte de la trame précédente
+				// (read_inter_segment_id — voir ReadInterSegmentId).
+				mi.segId = (uint8)ReadInterSegmentId(bd, st, mi, miRow, miCol, xMis, yMis);
 				// Skip.
 				const bool segSkip = hdr.segEnabled && hdr.segFeatureEnabled[mi.segId][3];
 				if (segSkip) {
@@ -952,13 +961,12 @@ namespace nkentseu {
 
 				if (st.isInterFrame) {
 					// --- read_inter_frame_mode_info (brique 6) ---
-					ReadInterFrameModeInfo(bd, st, miRow, miCol);
+					ReadInterFrameModeInfo(bd, st, miRow, miCol, xMis, yMis);
 				} else {
 					// --- read_intra_frame_mode_info (trame clé) ---
-					// Segment id.
-					cell.segId = 0;
-					if (hdr.segEnabled && hdr.segUpdateMap)
-						cell.segId = (uint8)bd.GetTree(kVp9SegmentTree, hdr.segTreeProbs);
+					// Segment id (prédiction temporelle depuis la carte précédente possible
+					// même sur une trame clé si segUpdateMap est faux — read_intra_segment_id).
+					cell.segId = (uint8)ReadIntraSegmentId(bd, st, miRow, miCol, xMis, yMis);
 					// Skip.
 					const bool segSkip = hdr.segEnabled && hdr.segFeatureEnabled[cell.segId][3];
 					if (segSkip) {
@@ -1270,6 +1278,90 @@ namespace nkentseu {
 						}
 					}
 				}
+			}
+
+			// --- Segmentation temporelle (§ carte de segments persistante inter-trames) ---
+
+			// vp9_get_pred_context_seg_id : somme des flags seg_id_predicted des voisins
+			// above/left (0, 1 ou 2) — contexte de la proba de réutilisation temporelle.
+			int32 GetPredContextSegId(const MiCell *above, const MiCell *left) {
+				const int32 a = above ? above->segIdPredicted : 0;
+				const int32 l = left ? left->segIdPredicted : 0;
+				return a + l;
+			}
+
+			// dec_get_segment_id : MIN du segment_id sur l'emprise x_mis*y_mis du bloc,
+			// lu dans la carte de la trame PRÉCÉDENTE (0 si indisponible).
+			int32 DecGetSegmentId(const FrameParseState &st, int32 miRow, int32 miCol, int32 xMis, int32 yMis) {
+				if (!st.lastSegMap)
+					return 0;
+				int32 segId = 7; // MAX_SEGMENTS-1 ; minimisé ci-dessous
+				for (int32 y = 0; y < yMis; ++y)
+					for (int32 x = 0; x < xMis; ++x)
+						segId = IMin(segId, (int32)st.lastSegMap[(miRow + y) * st.miCols + (miCol + x)]);
+				return segId;
+			}
+
+			// set_segment_id : écriture UNIFORME de segId sur l'emprise, dans la carte COURANTE.
+			void SetSegmentId(FrameParseState &st, int32 miRow, int32 miCol, int32 xMis, int32 yMis, int32 segId) {
+				if (!st.currentSegMap)
+					return;
+				for (int32 y = 0; y < yMis; ++y)
+					for (int32 x = 0; x < xMis; ++x)
+						st.currentSegMap[(miRow + y) * st.miCols + (miCol + x)] = (uint8)segId;
+			}
+
+			// copy_segment_id (cas !update_map) : recopie last→current cellule par cellule
+			// sur l'emprise (0 si last indisponible) — AUCUN bit lu dans le bitstream.
+			void CopySegmentId(FrameParseState &st, int32 miRow, int32 miCol, int32 xMis, int32 yMis) {
+				if (!st.currentSegMap)
+					return;
+				for (int32 y = 0; y < yMis; ++y) {
+					for (int32 x = 0; x < xMis; ++x) {
+						const usize idx = (usize)(miRow + y) * (usize)st.miCols + (usize)(miCol + x);
+						st.currentSegMap[idx] = st.lastSegMap ? st.lastSegMap[idx] : 0;
+					}
+				}
+			}
+
+			// read_intra_segment_id : trame clé/intra-only — pas de prédiction temporelle
+			// (toujours 0 si !update_map, sinon lecture directe de l'arbre).
+			int32 ReadIntraSegmentId(NkVp8BoolDecoder &bd, FrameParseState &st, int32 miRow, int32 miCol,
+									 int32 xMis, int32 yMis) {
+				const NkVp9FrameHeader &hdr = *st.hdr;
+				if (!hdr.segEnabled)
+					return 0;
+				if (!hdr.segUpdateMap) {
+					CopySegmentId(st, miRow, miCol, xMis, yMis);
+					return 0;
+				}
+				const int32 segId = bd.GetTree(kVp9SegmentTree, hdr.segTreeProbs);
+				SetSegmentId(st, miRow, miCol, xMis, yMis, segId);
+				return segId;
+			}
+
+			// read_inter_segment_id : trame inter — prédiction temporelle optionnelle
+			// (1 bit "réutiliser le segment prédit" avant de retomber sur l'arbre complet).
+			int32 ReadInterSegmentId(NkVp8BoolDecoder &bd, FrameParseState &st, MiCell &mi, int32 miRow,
+									 int32 miCol, int32 xMis, int32 yMis) {
+				const NkVp9FrameHeader &hdr = *st.hdr;
+				if (!hdr.segEnabled)
+					return 0;
+				const int32 predictedSegId = DecGetSegmentId(st, miRow, miCol, xMis, yMis);
+				if (!hdr.segUpdateMap) {
+					CopySegmentId(st, miRow, miCol, xMis, yMis);
+					return predictedSegId;
+				}
+				int32 segId;
+				if (hdr.segTemporalUpdate) {
+					const int32 ctx = GetPredContextSegId(st.aboveMi, st.leftMi);
+					mi.segIdPredicted = (uint8)bd.GetBool(hdr.segPredProbs[ctx]);
+					segId = mi.segIdPredicted ? predictedSegId : (int32)bd.GetTree(kVp9SegmentTree, hdr.segTreeProbs);
+				} else {
+					segId = (int32)bd.GetTree(kVp9SegmentTree, hdr.segTreeProbs);
+				}
+				SetSegmentId(st, miRow, miCol, xMis, yMis, segId);
+				return segId;
 			}
 
 			// --- Contextes de prédiction (vp9_pred_common.h/.c) ---
@@ -3197,6 +3289,46 @@ namespace nkentseu {
 				} else if (hdr.resetFrameContext == 2) {
 					entropy.frameContexts[hdr.frameContextIdx] = def;
 				}
+				// La carte de segmentation (last_frame_seg_map/current_frame_seg_map côté
+				// libvpx) est remise à zéro INCONDITIONNELLEMENT dès que cette fonction
+				// s'exécute (intra-only || error-resilient) — PAS soumise à resetFrameContext,
+				// contrairement aux frame_contexts ci-dessus. Un vecteur vide = « indisponible »
+				// pour DecGetSegmentId/CopySegmentId (fallback 0), équivalent au memset(0).
+				if (intraOnly || hdr.errorResilient) {
+					entropy.lastFrameSegMap.Resize(0);
+					entropy.segAbsDelta = false;
+					for (int32 i = 0; i < 8; ++i)
+						for (int32 j = 0; j < 4; ++j) {
+							entropy.segFeatureEnabled[i][j] = false;
+							entropy.segFeatureData[i][j] = 0;
+						}
+				}
+			}
+
+			// setup_segmentation ne réécrit segAbsDelta/segFeatureEnabled/segFeatureData QUE
+			// si segUpdateData est vrai — sinon ces champs restent aux valeurs par défaut du
+			// struct fraîchement construit (0/faux), alors qu'ils doivent PERSISTER depuis la
+			// dernière trame qui les a signalés (comme lfRefDeltas mais pour les features de
+			// segment). À appeler après ParseUncompressedHeader + SetupPastIndependence, avant
+			// tout usage de hdr.segFeature*.
+			void SyncSegmentFeatures(NkVp9FrameHeader &hdr, NkVp9EntropyState &entropy) {
+				if (!hdr.segEnabled)
+					return;
+				if (hdr.segUpdateData) {
+					entropy.segAbsDelta = hdr.segAbsDelta;
+					for (int32 i = 0; i < 8; ++i)
+						for (int32 j = 0; j < 4; ++j) {
+							entropy.segFeatureEnabled[i][j] = hdr.segFeatureEnabled[i][j];
+							entropy.segFeatureData[i][j] = hdr.segFeatureData[i][j];
+						}
+				} else {
+					hdr.segAbsDelta = entropy.segAbsDelta;
+					for (int32 i = 0; i < 8; ++i)
+						for (int32 j = 0; j < 4; ++j) {
+							hdr.segFeatureEnabled[i][j] = entropy.segFeatureEnabled[i][j];
+							hdr.segFeatureData[i][j] = entropy.segFeatureData[i][j];
+						}
+				}
 			}
 		} // namespace
 
@@ -3206,7 +3338,9 @@ namespace nkentseu {
 										 const NkVp9FrameHeader &hdr, const NkVp9FrameContext &fc,
 										 const NkVp9CompressedHeader &chdr,
 										 NkVp9Decoder::NkTileParseStats &stats, NkVp9Image *img,
-										 bool applyLoopFilter = true, NkVp9FrameCounts *counts = nullptr) {
+										 bool applyLoopFilter = true, NkVp9FrameCounts *counts = nullptr,
+										 const uint8 *lastSegMap = nullptr,
+										 NkVector<uint8> *outSegMap = nullptr) {
 			stats = NkVp9Decoder::NkTileParseStats{};
 			if (tileData == nullptr || tileSize == 0 || hdr.width <= 0 || hdr.height <= 0)
 				return false;
@@ -3266,18 +3400,22 @@ namespace nkentseu {
 			const int32 miAligned = st.sbCols * kMiBlockSize;
 			st.mi = (MiCell *)memory::NkAlloc((size_t)st.miRows * (size_t)st.miCols * sizeof(MiCell));
 			st.aboveSegCtx = (uint8 *)memory::NkAlloc((size_t)miAligned);
+			st.currentSegMap = (uint8 *)memory::NkAlloc((size_t)st.miRows * (size_t)st.miCols);
 			for (int32 p = 0; p < 3; ++p)
 				st.aboveEntCtx[p] = (uint8 *)memory::NkAlloc((size_t)miAligned * 2);
-			if (!st.mi || !st.aboveSegCtx || !st.aboveEntCtx[0] || !st.aboveEntCtx[1] ||
-				!st.aboveEntCtx[2]) {
+			if (!st.mi || !st.aboveSegCtx || !st.currentSegMap || !st.aboveEntCtx[0] ||
+				!st.aboveEntCtx[1] || !st.aboveEntCtx[2]) {
 				memory::NkFree(st.mi);
 				memory::NkFree(st.aboveSegCtx);
+				memory::NkFree(st.currentSegMap);
 				for (int32 p = 0; p < 3; ++p)
 					memory::NkFree(st.aboveEntCtx[p]);
 				return false;
 			}
-			for (int32 i = 0; i < st.miRows * st.miCols; ++i)
+			for (int32 i = 0; i < st.miRows * st.miCols; ++i) {
 				st.mi[i] = MiCell{};
+				st.currentSegMap[i] = 0;
+			}
 			for (int32 i = 0; i < miAligned; ++i)
 				st.aboveSegCtx[i] = 0;
 			for (int32 p = 0; p < 3; ++p)
@@ -3285,6 +3423,7 @@ namespace nkentseu {
 					st.aboveEntCtx[p][i] = 0;
 			st.stats = &stats;
 			st.counts = counts;
+			st.lastSegMap = lastSegMap;
 
 			const int32 tileCols = 1 << hdr.tileColsLog2;
 			const int32 tileRows = 1 << hdr.tileRowsLog2;
@@ -3353,8 +3492,15 @@ namespace nkentseu {
 			if (ok && img != nullptr && applyLoopFilter)
 				LoopFilterFrame(st);
 
+			if (ok && outSegMap != nullptr) {
+				outSegMap->Resize((usize)st.miRows * (usize)st.miCols);
+				for (int32 i = 0; i < st.miRows * st.miCols; ++i)
+					(*outSegMap)[i] = st.currentSegMap[i];
+			}
+
 			memory::NkFree(st.mi);
 			memory::NkFree(st.aboveSegCtx);
+			memory::NkFree(st.currentSegMap);
 			for (int32 q = 0; q < 3; ++q)
 				memory::NkFree(st.aboveEntCtx[q]);
 			return ok;
@@ -3382,7 +3528,9 @@ namespace nkentseu {
 										   const InterFrameCtx &ictx, NkVp9Decoder::NkTileParseStats &stats,
 										   NkVp9Image *img, bool applyLoopFilter = true,
 										   NkVp9FrameCounts *counts = nullptr,
-										   NkVector<NkVp9MvRef> *outMvGrid = nullptr) {
+										   NkVector<NkVp9MvRef> *outMvGrid = nullptr,
+										   const uint8 *lastSegMap = nullptr,
+										   NkVector<uint8> *outSegMap = nullptr) {
 				stats = NkVp9Decoder::NkTileParseStats{};
 				if (tileData == nullptr || tileSize == 0 || hdr.width <= 0 || hdr.height <= 0)
 					return false;
@@ -3450,17 +3598,22 @@ namespace nkentseu {
 				const int32 miAligned = st.sbCols * kMiBlockSize;
 				st.mi = (MiCell *)memory::NkAlloc((size_t)st.miRows * (size_t)st.miCols * sizeof(MiCell));
 				st.aboveSegCtx = (uint8 *)memory::NkAlloc((size_t)miAligned);
+				st.currentSegMap = (uint8 *)memory::NkAlloc((size_t)st.miRows * (size_t)st.miCols);
 				for (int32 p = 0; p < 3; ++p)
 					st.aboveEntCtx[p] = (uint8 *)memory::NkAlloc((size_t)miAligned * 2);
-				if (!st.mi || !st.aboveSegCtx || !st.aboveEntCtx[0] || !st.aboveEntCtx[1] || !st.aboveEntCtx[2]) {
+				if (!st.mi || !st.aboveSegCtx || !st.currentSegMap || !st.aboveEntCtx[0] || !st.aboveEntCtx[1] ||
+					!st.aboveEntCtx[2]) {
 					memory::NkFree(st.mi);
 					memory::NkFree(st.aboveSegCtx);
+					memory::NkFree(st.currentSegMap);
 					for (int32 p = 0; p < 3; ++p)
 						memory::NkFree(st.aboveEntCtx[p]);
 					return false;
 				}
-				for (int32 i = 0; i < st.miRows * st.miCols; ++i)
+				for (int32 i = 0; i < st.miRows * st.miCols; ++i) {
 					st.mi[i] = MiCell{};
+					st.currentSegMap[i] = 0;
+				}
 				for (int32 i = 0; i < miAligned; ++i)
 					st.aboveSegCtx[i] = 0;
 				for (int32 p = 0; p < 3; ++p)
@@ -3468,6 +3621,7 @@ namespace nkentseu {
 						st.aboveEntCtx[p][i] = 0;
 				st.stats = &stats;
 				st.counts = counts;
+				st.lastSegMap = lastSegMap;
 
 				const int32 tileCols = 1 << hdr.tileColsLog2;
 				const int32 tileRows = 1 << hdr.tileRowsLog2;
@@ -3552,8 +3706,15 @@ namespace nkentseu {
 					}
 				}
 
+				if (ok && outSegMap != nullptr) {
+					outSegMap->Resize((usize)st.miRows * (usize)st.miCols);
+					for (int32 i = 0; i < st.miRows * st.miCols; ++i)
+						(*outSegMap)[i] = st.currentSegMap[i];
+				}
+
 				memory::NkFree(st.mi);
 				memory::NkFree(st.aboveSegCtx);
+				memory::NkFree(st.currentSegMap);
 				for (int32 q = 0; q < 3; ++q)
 					memory::NkFree(st.aboveEntCtx[q]);
 				return ok;
@@ -3582,6 +3743,7 @@ namespace nkentseu {
 			// vp9_setup_past_independence : trame intra (clé/intra-only) → reset
 			// systématique (voir la fonction pour le détail resetFrameContext).
 			SetupPastIndependence(entropy, hdr);
+			SyncSegmentFeatures(hdr, entropy);
 			NkVp9FrameContext fc = entropy.frameContexts[hdr.frameContextIdx];
 
 			NkVp9CompressedHeader chdr;
@@ -3589,10 +3751,22 @@ namespace nkentseu {
 									   fc, chdr))
 				return false;
 
+			// Carte de segmentation persistée : n'est valide que si elle correspond aux
+			// dimensions mi de CETTE trame (sinon indisponible → prédiction 0, cas normatif
+			// d'un changement de résolution).
+			const int32 miColsChk = (hdr.width + 7) >> 3, miRowsChk = (hdr.height + 7) >> 3;
+			const uint8 *lastSegMap = (entropy.lastFrameSegMap.Size() == (usize)miRowsChk * (usize)miColsChk)
+										  ? entropy.lastFrameSegMap.Data()
+										  : nullptr;
+			NkVector<uint8> outSegMap;
+
 			NkVp9FrameCounts counts;
 			NkTileParseStats stats;
 			const bool ok = ParseOrDecodeKeyContent(frame + hdrBytes, size - hdrBytes, hdr, fc, chdr,
-													stats, &out, applyLoopFilter, &counts);
+													stats, &out, applyLoopFilter, &counts, lastSegMap,
+													&outSegMap);
+			if (ok && hdr.segEnabled)
+				entropy.lastFrameSegMap = outSegMap;
 
 			if (ok && !hdr.errorResilient && !hdr.frameParallelDecoding) {
 				// vp9_adapt_coef_probs s'applique MÊME sur les trames intra-only ; PAS
@@ -3682,6 +3856,7 @@ namespace nkentseu {
 			// vp9_setup_past_independence : une trame INTER normale (ni intra-only, ni
 			// error-resilient) ne déclenche AUCUN reset — le slot garde son adaptation.
 			SetupPastIndependence(entropy, hdr);
+			SyncSegmentFeatures(hdr, entropy);
 			NkVp9FrameContext fc = entropy.frameContexts[hdr.frameContextIdx];
 
 			NkVp9CompressedHeader chdr;
@@ -3723,10 +3898,19 @@ namespace nkentseu {
 			ictx.usePrevFrameMvs = usePrevFrameMvs;
 			ictx.prevMvs = prevMvs;
 
+			const int32 miColsChk = (hdr.width + 7) >> 3, miRowsChk = (hdr.height + 7) >> 3;
+			const uint8 *lastSegMap = (entropy.lastFrameSegMap.Size() == (usize)miRowsChk * (usize)miColsChk)
+										  ? entropy.lastFrameSegMap.Data()
+										  : nullptr;
+			NkVector<uint8> outSegMap;
+
 			NkVp9FrameCounts counts;
 			NkTileParseStats stats;
 			const bool ok = ParseOrDecodeInterContent(frame + hdrBytes, size - hdrBytes, hdr, fc, chdr, ictx,
-													  stats, &out, applyLoopFilter, &counts, outMvGrid);
+													  stats, &out, applyLoopFilter, &counts, outMvGrid,
+													  lastSegMap, &outSegMap);
+			if (ok && hdr.segEnabled)
+				entropy.lastFrameSegMap = outSegMap;
 
 			if (ok && !hdr.errorResilient && !hdr.frameParallelDecoding) {
 				// `preFc` = valeur PERSISTÉE du slot (avant cette trame) — `fc` local
