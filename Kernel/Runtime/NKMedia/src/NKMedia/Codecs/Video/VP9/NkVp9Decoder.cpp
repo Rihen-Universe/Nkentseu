@@ -117,7 +117,14 @@ namespace nkentseu {
 				return true;
 			}
 
-			// setup_loopfilter (§6.2.8).
+			// setup_loopfilter (§6.2.8). ⚠ lfRefDeltas/lfModeDeltas PERSISTENT entre trames
+			// (comme les features de segmentation) : chaque entrée n'est réécrite QUE si son
+			// propre bit de mise à jour est à 1 (imbriqué sous le bit `delta_update`) — sinon
+			// elle doit garder la valeur de la DERNIÈRE trame qui l'a signalée, PAS revenir au
+			// défaut struct. `lfRefDeltaUpdated`/`lfModeDeltaUpdated` trace QUELLES entrées
+			// viennent d'être (re)lues cette trame ; DecodeKeyFrame/DecodeInterFrame
+			// restaurent les entrées non mises à jour depuis NkVp9EntropyState juste après
+			// l'appel (SyncLoopFilterDeltas), même mécanisme que SyncSegmentFeatures.
 			void ReadLoopFilter(BitReader &rb, NkVp9FrameHeader &hdr) {
 				hdr.lfLevel = rb.Literal(6);
 				hdr.lfSharpness = rb.Literal(3);
@@ -125,11 +132,15 @@ namespace nkentseu {
 				if (hdr.lfDeltaEnabled) {
 					if (rb.Bit()) { // delta update
 						for (int32 i = 0; i < 4; ++i)
-							if (rb.Bit())
+							if (rb.Bit()) {
 								hdr.lfRefDeltas[i] = rb.SignedLiteral(6);
+								hdr.lfRefDeltaUpdated[i] = true;
+							}
 						for (int32 i = 0; i < 2; ++i)
-							if (rb.Bit())
+							if (rb.Bit()) {
 								hdr.lfModeDeltas[i] = rb.SignedLiteral(6);
+								hdr.lfModeDeltaUpdated[i] = true;
+							}
 					}
 				}
 			}
@@ -3302,6 +3313,13 @@ namespace nkentseu {
 							entropy.segFeatureEnabled[i][j] = false;
 							entropy.segFeatureData[i][j] = 0;
 						}
+					// set_default_lf_deltas (mêmes valeurs par défaut que le struct header).
+					entropy.lfRefDeltas[0] = 1;
+					entropy.lfRefDeltas[1] = 0;
+					entropy.lfRefDeltas[2] = -1;
+					entropy.lfRefDeltas[3] = -1;
+					entropy.lfModeDeltas[0] = 0;
+					entropy.lfModeDeltas[1] = 0;
 				}
 			}
 
@@ -3328,6 +3346,25 @@ namespace nkentseu {
 							hdr.segFeatureEnabled[i][j] = entropy.segFeatureEnabled[i][j];
 							hdr.segFeatureData[i][j] = entropy.segFeatureData[i][j];
 						}
+				}
+			}
+
+			// Symétrique de SyncSegmentFeatures pour les deltas de loop filter — granularité
+			// PAR ENTRÉE (contrairement à segUpdateData qui est global) : chaque delta lu
+			// cette trame (lfXxxDeltaUpdated[i]) écrase l'état persistant ; chaque delta NON
+			// lu restaure depuis l'état persistant (au lieu de rester au défaut struct).
+			void SyncLoopFilterDeltas(NkVp9FrameHeader &hdr, NkVp9EntropyState &entropy) {
+				for (int32 i = 0; i < 4; ++i) {
+					if (hdr.lfRefDeltaUpdated[i])
+						entropy.lfRefDeltas[i] = hdr.lfRefDeltas[i];
+					else
+						hdr.lfRefDeltas[i] = entropy.lfRefDeltas[i];
+				}
+				for (int32 i = 0; i < 2; ++i) {
+					if (hdr.lfModeDeltaUpdated[i])
+						entropy.lfModeDeltas[i] = hdr.lfModeDeltas[i];
+					else
+						hdr.lfModeDeltas[i] = entropy.lfModeDeltas[i];
 				}
 			}
 		} // namespace
@@ -3744,6 +3781,7 @@ namespace nkentseu {
 			// systématique (voir la fonction pour le détail resetFrameContext).
 			SetupPastIndependence(entropy, hdr);
 			SyncSegmentFeatures(hdr, entropy);
+			SyncLoopFilterDeltas(hdr, entropy);
 			NkVp9FrameContext fc = entropy.frameContexts[hdr.frameContextIdx];
 
 			NkVp9CompressedHeader chdr;
@@ -3857,6 +3895,7 @@ namespace nkentseu {
 			// error-resilient) ne déclenche AUCUN reset — le slot garde son adaptation.
 			SetupPastIndependence(entropy, hdr);
 			SyncSegmentFeatures(hdr, entropy);
+			SyncLoopFilterDeltas(hdr, entropy);
 			NkVp9FrameContext fc = entropy.frameContexts[hdr.frameContextIdx];
 
 			NkVp9CompressedHeader chdr;
