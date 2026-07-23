@@ -148,7 +148,12 @@ void main() {
     // les VS 3D negativent Y en clip-space (convention moteur, cf. tonemap
     // « HDR Y-DOWN, VS 3D Y-negate ») alors qu'invViewProj correspond au
     // clip NON negati — d'ou le -(...) sur y.
-    vec4 ndc = vec4(vUV.x * 2.0 - 1.0, -(vUV.y * 2.0 - 1.0), depth, 1.0);
+    // Signe NDC Y PAR BACKEND (pc.invResolution.x) : -1 sur GL/VK (vUV non
+    // flippe), +1 sur DX (le VS flippe vUV pour echantillonner le G-buffer,
+    // donc le signe s'inverse pour retrouver la position ECRAN). Le signe fixe
+    // -1 donnait un worldPos MIROITE verticalement sur DX -> rayons parasites
+    // du spot cookie + X fantome au-dessus de l'horizon (bug DX11+DX12).
+    vec4 ndc = vec4(vUV.x * 2.0 - 1.0, pc.invResolution.x * (vUV.y * 2.0 - 1.0), depth, 1.0);
     vec4 wp4 = uCam.invViewProj * ndc;
     vec3 worldPos = wp4.xyz / max(wp4.w, 1e-6);
 
