@@ -138,11 +138,14 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    savaient DÉJÀ faire du MRT). ✅ **GL = référence** (91,8 % parité, purger
    `cache/shaders` si le X rouge manque) ; ✅ **VULKAN VALIDÉ capture** (mêmes
    conventions que DX : sample flippé + ndcY négatif — l'essai « sample direct »
-   donnait l'image inversée) ; ⚠ **DX11 + DX12 : deferred REND mais rayons
-   parasites COMMUNS** (bandes translucides radiant du spot à cookie — même
-   artefact sur les deux DX, absent GL/VK et absent en forward DX → bug
-   DX-spécifique du chemin deferred, en cours) ; ✅ **DX12 : DEVICE REMOVED
-   RÉSOLU (2026-07-23, 269207c9)** — 4 causes racines (root constants 64 o
+   donnait l'image inversée) ; ✅ **RAYONS PARASITES DX11/DX12 RÉSOLUS
+   (2026-07-23, a6c71299)** : le signe NDC Y de la reconstruction worldPos
+   était codé en dur (-1) alors que le VS flippe vUV sur DX → worldPos MIROITÉ
+   verticalement → le cône du spot à cookie touchait les positions miroir
+   (rayons en éventail) ; le shader consomme désormais pc.invResolution.x
+   (ndcYSign : +1 DX, -1 GL/VK). **DEFERRED CORRECT SUR LES 4 BACKENDS**
+   (captures : DX11+DX12 alignés sur GL, VK non régressé) ; ✅ **DX12 : DEVICE
+   REMOVED RÉSOLU (2026-07-23, 269207c9)** — 4 causes racines (root constants 64 o
    débordés, release PSO immédiat → destruction différée, cache variantes
    NkUnorderedMap défaillant → NkVector, RowPitch readback) — détail dans
    « Bugs/quirks connus » ; le deferred DX12 tourne à 409 FPS avec capture
@@ -604,8 +607,9 @@ limité, DX12+Metal OK. Plan :
 - ✅ **Deferred v1+v2 LIVRÉ (2026-07-13)** : G-buffer MRT 3 RT + light pass
   fullscreen + ForwardRest, opt-in `cfg.deferred`/`NK_DEFERRED=1` — GL référence
   (91,8 % parité, 207 vs 140 FPS) + VULKAN validé capture ; DX11 fonctionnel
-  (⚠ rayons parasites du spot cookie à corriger — communs DX11+DX12) ; DX12
-  ✅ device-removed RÉSOLU 2026-07-23 (269207c9), deferred DX12 REND — détail
+  (✅ rayons parasites du spot cookie RÉSOLUS 2026-07-23, a6c71299 — signe
+  NDC Y par backend) ; DX12 ✅ device-removed RÉSOLU 2026-07-23 (269207c9) —
+  **deferred v2 VALIDÉ SUR LES 4 BACKENDS GL/VK/DX11/DX12**, détail
   « Reste à faire priorisé » point 6 et « Bugs/quirks connus »
 - ❌ v3 : tiled/clustered light culling (>32 lumières) + bench scène 100+ lights
 - ❌ Forward+ (alternative tile-based si besoin)
