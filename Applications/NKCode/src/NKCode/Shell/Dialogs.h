@@ -23,10 +23,18 @@ namespace nkentseu {
 		using namespace nkentseu::editorkit;
 		using namespace nkentseu::nkgui;
 
+		struct NkHomeState; // forward (NkHome.h) — parametres launcher pour la modale Preferences
+
 		// Etat des dialogues modaux (un seul a la fois). 0 = aucun.
 		struct NkCodeDialogs : public NkFilePickerState {
 				NkCodeState *st = nullptr;
 				NkEditorShell *shell = nullptr; // pour appliquer l'etat d'UI du projet (ui.cfg)
+				NkHomeState *home = nullptr;	// pose par main.cpp — settings/icones du launcher
+				bool showPrefs = false;			// fenetre modale PREFERENCES (panneau launcher complet)
+				bool showNewWs = false;			// fenetre modale NOUVEAU WORKSPACE (wizard launcher complet)
+				bool wsAddAsRoot = false;		// intercepte le DoLoad du wizard -> ajout comme racine explorateur
+				int32 showHelp = 0;				// fenetre dediee AIDE : 0 aucune, 1 raccourcis, 2 a propos
+				float32 helpScroll = 0.f;		// defilement de la fenetre d'aide
 				NkLoadingState loading;			// ecran de chargement (workspace -> editeur)
 
 				enum Mode { None = 0, NewProject, NewWorkspace, SaveAs, Properties };
@@ -40,6 +48,11 @@ namespace nkentseu {
 				int32 projFocus = 0;		 // champ focus du dialogue NewProject
 				int32 projWarn = 0;			 // 0=Defaut,1=Off,2=High,3=Extra,4=Everything
 				float32 projScroll = 0.f;	 // defilement du formulaire projet
+				// Workspace d'APPARTENANCE du nouveau projet : tout projet depend d'un
+				// workspace. Seuls ceux OUVERTS dans CET editeur sont proposes
+				// (st->wsPaths, scannes dans la racine chargee). -1 = courant (wsIdx).
+				int32 projWsIdx = -1;
+				float32 projContentH = 0.f; // hauteur mesuree du formulaire (frame precedente)
 				char projFiles[160] = {};	 // motif fichiers (defaut src/**.<ext>)
 				char projDefines[256] = {};	 // defines projet (csv)
 				char projInc[256] = {};		 // includedirs (csv)
@@ -169,12 +182,21 @@ namespace nkentseu {
 				char scafChildren[256] = {};	// classes filles (csv)
 				char scafExt[24] = {};			// extension (mode Texte/Autre)
 				int32 scafFocus = 0;			// 0 aucun, 1 nom, 2 ns, 3 base, 4 filles, 5 ext
+				// Purpose APPLICATIF : « creer un dossier » (menu Fichier > Nouveau Dossier).
+				// Le picker s'ouvre en mode dossier generique : navigation + bouton
+				// « + Creer dossier » integres ; le bouton principal cree <emplacement>/<nom>.
+				static constexpr int32 PK_NewFolder = 200;
+				// Purpose APPLICATIF : « exporter le workspace » — choisir le dossier de
+				// DESTINATION du zip ; la confirmation lance tar dans le terminal integre.
+				static constexpr int32 PK_ExportZip = 201;
+
 				void OpenPicker(int32 purpose, const char *startDir, char *buf = nullptr, int32 cap = 0,
-								const char *confine = nullptr) {
+								const char *confine = nullptr, const char *fileExt = nullptr) {
 					// Coeur generique dans NKEditorKit (NkFilePickerState) ; ici on ne fixe
 					// que le dossier de depart par defaut = racine du workspace NKCode.
+					pickWsJenga = false; // discriminateur re-arme par OpenWorkspaceDialog seul
 					const char *start = (startDir && *startDir) ? startDir : (st ? st->root.ToString().CStr() : ".");
-					OpenPickerBase(purpose, start, buf, cap, confine);
+					OpenPickerBase(purpose, start, buf, cap, confine, fileExt);
 				}
 
 				// ── Specialisation du picker moteur (NkFilePickerState) : scaffolding + actions ──
@@ -193,14 +215,27 @@ namespace nkentseu {
 				bool PickerConfirmEnabled() const override {
 					if (PickerIsNewFile())
 						return scafName[0] != '\0' && (scafKind != 8 || scafExt[0] != '\0');
+					if (pickerFor == PK_NewFolder) // bouton principal = CREER (nom requis)
+						return pickerNew[0] != '\0';
 					return NkFilePickerState::PickerConfirmEnabled();
 				}
 				const char *PickerConfirmLabel() const override {
 					if (PickerIsNewFile())
 						return "Creer";
+					if (pickerFor == PK_NewFolder)
+						return "Creer le dossier";
+					if (pickerFor == PK_ExportZip)
+						return "Exporter ici";
 					return NkFilePickerState::PickerConfirmLabel();
 				}
 				void PickerClearExtraFocus() override { scafFocus = 0; }
+				const char *PickerTitle() const override {
+					if (pickerFor == PK_NewFolder)
+						return "Creer un dossier - choisir l'emplacement";
+					if (pickerFor == PK_ExportZip)
+						return "Exporter le workspace - choisir la destination";
+					return NkFilePickerState::PickerTitle();
+				}
 
 				// Assistant de CREATION (scaffolding C++) dessine dans la region app du picker moteur.
 				void DrawPickerExtra(NkGuiContext &ctx, NkGuiDrawList &dl, const NkGuiFont *f, const NkRect &region,
@@ -277,6 +312,38 @@ namespace nkentseu {
 						ScanLoad();
 					} else if (purpose == PK_PickFolder && st)
 						st->pickedFolder = chosen; // dossier QUELCONQUE -> l'explorateur le récupère
+					else if (purpose == PK_NewFolder && pickerNew[0]) {
+						// Bouton principal « Creer le dossier » : cree <emplacement>/<nom>.
+						const NkPath np = NkPath(chosen.CStr()) / pickerNew;
+						if (NkDirectory::CreateRecursive(np) && st)
+							st->status = NkString("Dossier cree : ") + np.ToString().CStr();
+						pickerNew[0] = '\0';
+					} else if (purpose == PK_File && pickWsJenga) {
+						// « Ouvrir un workspace » : .jenga choisi -> charge son dossier.
+						pickWsJenga = false;
+						if (wsOpenBuf[0])
+							DoLoad(NkPath(wsOpenBuf).GetParent());
+					} else if (purpose == PK_ExportZip && st) {
+						// « Exporter » : zip du workspace VERS le dossier choisi, via le
+						// terminal integre (commande visible). Nom = <workspace>-export.zip.
+						NkString nm = (st->wsIdx >= 0 && st->wsIdx < (int32)st->wsNames.Size() &&
+									   !st->wsNames[st->wsIdx].Empty())
+										  ? st->wsNames[st->wsIdx]
+										  : NkString("workspace");
+						NkString out = chosen;
+						out += "/";
+						out += nm;
+						out += "-export.zip";
+						NkString cmd = "tar -a -c --exclude=Build --exclude=.git -f \"";
+						cmd += out;
+						cmd += "\" . && echo Exporte: ";
+						cmd += out;
+						st->termOpenCmd = cmd;
+						st->termOpenKind = -1;
+						st->termOpenAt = st->root.ToString();
+						if (shell)
+							shell->FocusPanel("TERMINAL");
+					}
 					// PK_Buf / PK_File : le buffer cible est deja rempli par le moteur.
 				}
 
@@ -555,6 +622,10 @@ namespace nkentseu {
 					status.Clear();
 					if (m == NewProject || m == NewWorkspace)
 						nameBuf[0] = '\0';
+					if (m == NewProject)
+						projWsIdx = -1; // defaut = workspace courant
+					if (m == NewWorkspace)
+						projFocus = 0; // focus initial = champ Nom
 				}
 
 				void ShowStart() {
@@ -680,17 +751,30 @@ namespace nkentseu {
 					OpenPicker(PK_Open, st ? st->root.ToString().CStr() : ".");
 				}
 
-				// Ouvrir un .jenga precis reste via la boite fichier native (pas un dossier).
+				// Ouvrir un .jenga precis : PICKER MAISON en mode fichier (disque entier),
+				// discrimine du « Ouvrir un fichier » generique par pickWsJenga.
+				bool pickWsJenga = false;
+				char wsOpenBuf[512] = {};
 				void OpenWorkspaceDialog() {
-					NkDialogResult res = NkDialogs::OpenFileDialog("*.jenga", "Ouvrir un workspace (.jenga)");
-					if (res.confirmed && st)
-						DoLoad(NkPath(res.path.CStr()).GetParent());
+					wsOpenBuf[0] = '\0';
+					OpenPicker(PK_File, st ? st->root.ToString().CStr() : nullptr, wsOpenBuf,
+							   (int32)sizeof(wsOpenBuf), nullptr, ".jenga"); // filtre : .jenga uniquement
+					pickWsJenga = true; // APRES OpenPicker (qui remet le flag a false)
 				}
 
 				// Lance l'ecran de CHARGEMENT (section 14) : LoadFolder + etapes reelles.
 				// La bascule vers l'editeur (LoadUiState + showStart=false) se fait quand loading.finished
 				// (gere dans DrawHome). Une erreur .jenga affiche l'etat d'erreur inline (pas de bascule).
 				void DoLoad(const NkPath &folder) {
+					if (wsAddAsRoot && st) {
+						// Wizard « Nouveau Workspace » lance DEPUIS L'EDITEUR (modale) :
+						// le workspace cree est AJOUTE comme racine de l'explorateur
+						// (add folder to workspace) — le workspace courant reste charge.
+						wsAddAsRoot = false;
+						st->pickedFolder = folder.ToString();
+						st->status = NkString("Workspace cree : ") + folder.ToString().CStr();
+						return;
+					}
 					loading.Start(folder, st);
 				}
 
@@ -804,8 +888,23 @@ namespace nkentseu {
 			if (!d)
 				return;
 			auto &ctx = ec.Ui();
-			ctx.appModal = (d->mode != NkCodeDialogs::None) || d->pickerOpen || d->tcOpen;
+			const bool appWin = d->showPrefs || d->showNewWs || d->showHelp != 0;
+			ctx.appModal = (d->mode != NkCodeDialogs::None) || d->pickerOpen || d->tcOpen || appWin;
 			ctx.appFullScreen = d->showStart;
+			// MODALITE des fenetres app (Preferences / Nouveau Workspace / Aide)
+			// posee EN DEBUT DE FRAME — ce thunk tourne AVANT DrawPanels. La pose
+			// dans l'overlay (fin de frame) ne suffisait pas : sur un clic HORS
+			// fenetre, Update() venait de faire retomber popupDepth a 0 et les
+			// panneaux (traites avant l'overlay) recevaient le clic. Ici on
+			// re-force AVANT eux, rect = plein ecran pour la phase panneaux (la
+			// modale raffine popupRects[0] a son propre rect ensuite).
+			if (appWin) {
+				if (ctx.popupDepth == 0)
+					ctx.popupDepth = 1;
+				const NkRect full = {0.f, 0.f, (float32)ctx.viewW, (float32)ctx.viewH};
+				ctx.popupRects[0] = full;
+				ctx.popupAnchor = full;
+			}
 		}
 
 		// ── Ecran de demarrage PLEIN CADRE (via SetStartScreen) ──
@@ -1575,7 +1674,7 @@ namespace nkentseu {
 
 			const bool isProj = (d->mode == NkCodeDialogs::NewProject);
 			const bool isSaveAs = (d->mode == NkCodeDialogs::SaveAs);
-			const float32 pw = 460.f, ph = isProj ? 560.f : (isSaveAs ? 452.f : 220.f), px = (W - pw) * 0.5f,
+			const float32 pw = 460.f, ph = isProj ? 560.f : (isSaveAs ? 452.f : 320.f), px = (W - pw) * 0.5f,
 						  py = (H - ph) * 0.5f;
 			dl.AddRectFilled({0.f, 0.f, W, H}, NkColor{0, 0, 0, 150});
 			const NkRect panel = {px, py, pw, ph};
@@ -1653,12 +1752,35 @@ namespace nkentseu {
 					text(cx, y, (NkString("-> ") + full.CStr()).CStr(), NkColor{120, 180, 130, 255});
 				}
 			} else if (!isProj) {
-				// ── Workspace : champ Nom simple ──
+				// ── Workspace : Nom + EMPLACEMENT. Le workspace cree est AJOUTE comme
+				//    racine de l'explorateur (comme « Ajouter un dossier au workspace »)
+				//    et identifie comme nouveau workspace — PAS de retour au launcher. ──
 				float32 y = py + 52.f;
 				text(cx, y, "Nom", lblC);
 				y += 22.f;
-				const NkRect r = {cx, y, pw - 40.f, 28.f};
-				NkOverlayTextField(ctx, dl, f, r, d->nameBuf, (int32)sizeof(d->nameBuf), true);
+				{
+					const NkRect r = {cx, y, pw - 40.f, 28.f};
+					if (hit(r) && click)
+						d->projFocus = 0;
+					NkOverlayTextField(ctx, dl, f, r, d->nameBuf, (int32)sizeof(d->nameBuf), d->projFocus == 0);
+				}
+				y += 40.f;
+				text(cx, y, "Emplacement (le dossier <nom> y sera cree)", lblC);
+				y += 22.f;
+				{
+					const NkRect r = {cx, y, pw - 82.f, 28.f};
+					if (hit(r) && click)
+						d->projFocus = 1;
+					NkOverlayTextField(ctx, dl, f, r, d->wsDir, (int32)sizeof(d->wsDir), d->projFocus == 1);
+					if (d->wsDir[0] == '\0' && d->projFocus != 1)
+						text(r.x + 10.f, r.y + (28.f - lh) * 0.5f, d->st->root.ToString().CStr(),
+							 NkColor{110, 118, 126, 255});
+					if (btn({cx + pw - 76.f, y, 36.f, 28.f}, "...", true))
+						d->BrowseNewDir(); // picker maison (PK_NewDir -> wsDir)
+				}
+				y += 40.f;
+				text(cx, y, "Ajoute a l'explorateur comme NOUVEAU workspace (le courant reste charge).",
+					 NkColor{120, 180, 130, 255});
 			} else {
 				// ── Projet : formulaire COMPLET, defilable ──
 				int32 nk = 0, nl = 0, nd = 0;
@@ -1672,6 +1794,16 @@ namespace nkentseu {
 				if (mic && ctx.input.wheel != 0.f) {
 					d->projScroll -= ctx.input.wheel * 30.f;
 					ctx.input.wheel = 0.f;
+				}
+				// CLAMP AVANT le dessin (hauteur mesuree a la frame precedente) : sinon
+				// une frame se dessine HORS bornes puis est re-clampee -> clignotement
+				// du contenu quand la scrollbar est en butee haut/bas.
+				{
+					const float32 maxS0 = d->projContentH - content.h > 0.f ? d->projContentH - content.h : 0.f;
+					if (d->projScroll < 0.f)
+						d->projScroll = 0.f;
+					if (d->projScroll > maxS0)
+						d->projScroll = maxS0;
 				}
 				dl.PushClipRect(content, true);
 				const float32 fw = pw - 40.f;
@@ -1687,6 +1819,50 @@ namespace nkentseu {
 						d->BrowseInto(buf, cap, lab);
 					y += 32.f;
 				};
+				// ── Workspace d'APPARTENANCE : tout projet depend d'un workspace. La
+				//    liste = ceux de l'EXPLORATEUR (racine chargee + racines ajoutees,
+				//    deja fusionnes dans wsPaths par ScanWorkspaces). Le CHOIX n'est
+				//    propose que s'il y en a PLUSIEURS. ──
+				text(cx, y, "Workspace d'appartenance", lblC);
+				y += 22.f;
+				{
+					const int32 curIdx = d->st->wsIdx;
+					if (d->st->wsPaths.Size() <= 1) {
+						// Un seul workspace dans l'explorateur : pas de choix, on l'affiche.
+						const NkString nm = (curIdx >= 0 && curIdx < (int32)d->st->wsNames.Size())
+												? d->st->wsNames[curIdx]
+												: NkString("(workspace courant)");
+						text(cx + 2.f, y, nm.CStr(), NkColor{230, 237, 243, 255});
+						y += 28.f;
+					} else {
+						const int32 selIdx = (d->projWsIdx >= 0 && d->projWsIdx < (int32)d->st->wsPaths.Size())
+												 ? d->projWsIdx
+												 : curIdx;
+						for (usize i = 0; i < d->st->wsPaths.Size(); ++i) {
+							const NkRect r = {cx, y, fw, 24.f};
+							const bool sel = ((int32)i == selIdx);
+							dl.AddRectFilled(r,
+											 sel ? NkColor{38, 60, 92, 255}
+												 : (mic && hit(r) ? NkColor{33, 39, 48, 255} : NkColor{24, 28, 34, 255}),
+											 4.f);
+							if (sel)
+								dl.AddRect(r, NkColor{88, 166, 255, 255}, 1.f);
+							NkString nm = (i < d->st->wsNames.Size() && !d->st->wsNames[i].Empty())
+											  ? d->st->wsNames[i]
+											  : d->st->wsPaths[i];
+							if ((int32)i == curIdx)
+								nm += " (courant)";
+							dl.PushClipRect({r.x, r.y, r.w - 8.f, r.h}, true);
+							text(r.x + 10.f, r.y + (24.f - lh) * 0.5f, nm.CStr(),
+								 sel ? NkColor{230, 237, 243, 255} : NkColor{180, 188, 196, 255});
+							dl.PopClipRect();
+							if (mic && hit(r) && click)
+								d->projWsIdx = (int32)i;
+							y += 28.f;
+						}
+					}
+					y += 6.f;
+				}
 				field("Nom du projet", d->nameBuf, (int32)sizeof(d->nameBuf), 0, false);
 				// Genre (2 colonnes)
 				text(cx, y, "Genre", lblC);
@@ -1781,6 +1957,7 @@ namespace nkentseu {
 					field("Icone de l'application", d->projIcon, (int32)sizeof(d->projIcon), 9, true);
 				}
 				const float32 contentH = (y + d->projScroll) - (content.y + 6.f);
+				d->projContentH = contentH; // memorise pour le clamp pre-dessin
 				dl.PopClipRect();
 				// barre de defilement
 				const float32 maxS = contentH - content.h > 0.f ? contentH - content.h : 0.f;
@@ -1847,24 +2024,49 @@ namespace nkentseu {
 						po.appVersion = d->projVersion;
 						po.appPublisher = d->projPublisher;
 						po.appIcon = d->projIcon;
-						made = GenerateProjectEx(d->st->root, NkPath(d->st->wsPaths[d->st->wsIdx].CStr()), po);
-					} else
-						made = GenerateWorkspace(d->st->root, d->nameBuf);
-					if (made.Empty()) {
-						d->status = isProj ? "Echec : nom invalide ou dossier deja existant."
-										   : "Echec : nom invalide ou .jenga deja existant.";
+						// Workspace d'APPARTENANCE : parmi ceux de l'EXPLORATEUR (wsPaths
+						// = racine chargee + racines ajoutees) ; defaut = courant.
+						// Racine du projet = dossier du .jenga choisi (vrai aussi pour
+						// un workspace d'une racine secondaire).
+						const int32 wsSel = (d->projWsIdx >= 0 && d->projWsIdx < (int32)d->st->wsPaths.Size())
+												? d->projWsIdx
+												: d->st->wsIdx;
+						const NkPath wsJenga = NkPath(d->st->wsPaths[wsSel].CStr());
+						made = GenerateProjectEx(wsJenga.GetParent(), wsJenga, po);
 					} else {
-						d->st->RequestReload();
-						d->st->mWsScanned = false;
-						d->st->ScanWorkspaces();
-						d->st->OpenPath(NkPath(made.CStr())); // ouvre le .jenga genere
-						if (!isProj) {						  // workspace cree -> on entre dans l'editeur
-							d->st->AddRecent(d->st->wsPaths.Empty() ? made : d->st->wsPaths[d->st->wsIdx]);
-							d->showStart = false;
+						// ── Nouveau workspace : cree <emplacement>/<nom>/ + <nom>.jenga,
+						//    puis l'AJOUTE comme racine de l'explorateur (meme mecanisme
+						//    que « Ajouter un dossier au workspace ») — le workspace
+						//    courant reste charge, PAS de retour au launcher. ──
+						NkWorkspaceOpts wo;
+						wo.name = d->nameBuf;
+						const NkPath base = d->wsDir[0] ? NkPath(d->wsDir) : d->st->root;
+						const NkPath wdir = base / NkSanitizeName(d->nameBuf).CStr();
+						const NkString wmade = GenerateWorkspaceEx(wdir, wo);
+						if (wmade.Empty()) {
+							d->status = "Echec : nom invalide ou .jenga deja existant.";
+						} else {
+							d->st->pickedFolder = wdir.ToString(); // explorateur : NOUVELLE racine
+							d->st->AddRecent(wmade);
+							d->st->OpenPath(NkPath(wmade.CStr())); // ouvre le .jenga genere
+							d->st->status = NkString("Workspace cree : ") + wdir.ToString().CStr();
+							d->Close();
+							ctx.appModal = false;
+							return;
 						}
-						d->Close();
-						ctx.appModal = false;
-						return;
+					}
+					if (isProj) {
+						if (made.Empty()) {
+							d->status = "Echec : nom invalide ou dossier deja existant.";
+						} else {
+							d->st->RequestReload();
+							d->st->mWsScanned = false;
+							d->st->ScanWorkspaces();
+							d->st->OpenPath(NkPath(made.CStr())); // ouvre le .jenga genere
+							d->Close();
+							ctx.appModal = false;
+							return;
+						}
 					}
 				}
 			}
