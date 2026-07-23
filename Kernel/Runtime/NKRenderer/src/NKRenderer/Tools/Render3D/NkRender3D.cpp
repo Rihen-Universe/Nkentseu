@@ -1377,7 +1377,11 @@ namespace nkentseu {
 				(dApi == NkGraphicsApi::NK_GFX_API_DX11) || (dApi == NkGraphicsApi::NK_GFX_API_DX12);
 			// VK valide capture : memes conventions que DX (sample flippe +
 			// ndcY negatif) — l'essai sample direct donnait l'image inversee.
-			pc.invResW = -1.f; // = ndcYSign (tous backends)
+			// ndcYSign PAR BACKEND (consomme par le shader, pc.invResolution.x) :
+			// le VS flippe vUV sur DX pour echantillonner le G-buffer -> le signe
+			// NDC s'inverse pour retrouver la position ECRAN. -1 fixe donnait un
+			// worldPos MIROITE sur DX -> rayons parasites du spot cookie.
+			pc.invResW = dIsDX ? 1.f : -1.f; // = ndcYSign
 			pc.invResH = 0.f;
 			pc.yFlipUV = (dIsDX || dIsVK) ? -1.f : 1.f;
 			static int sDbg = -1;
