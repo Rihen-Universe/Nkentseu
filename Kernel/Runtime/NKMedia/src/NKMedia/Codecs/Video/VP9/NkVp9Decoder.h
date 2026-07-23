@@ -110,12 +110,17 @@ namespace nkentseu {
 				bool frameParallelDecoding = false;
 				int32 frameContextIdx = 0;
 
-				// Filtre de boucle (§6.2.8).
+				// Filtre de boucle (§6.2.8). lfRefDeltas/lfModeDeltas PERSISTENT entre trames
+				// (voir ReadLoopFilter) — lfXxxDeltaUpdated indique quelles entrées viennent
+				// d'être relues CETTE trame ; les autres doivent être restaurées depuis l'état
+				// persistant (NkVp9EntropyState) par l'appelant, pas laissées au défaut struct.
 				int32 lfLevel = 0;
 				int32 lfSharpness = 0;
 				bool lfDeltaEnabled = false;
 				int32 lfRefDeltas[4] = {1, 0, -1, -1};
 				int32 lfModeDeltas[2] = {0, 0};
+				bool lfRefDeltaUpdated[4] = {false, false, false, false};
+				bool lfModeDeltaUpdated[2] = {false, false};
 
 				// Quantification (§6.2.9).
 				int32 baseQIdx = 0;
@@ -250,6 +255,11 @@ namespace nkentseu {
 				bool segAbsDelta = false;
 				bool segFeatureEnabled[8][4] = {{false}};
 				int32 segFeatureData[8][4] = {{0}};
+				// Deltas de loop filter (§6.2.8) — PERSISTANTS entre trames (voir
+				// NkVp9FrameHeader::lfRefDeltaUpdated/lfModeDeltaUpdated). Reset par
+				// SetupPastIndependence (mêmes valeurs par défaut que set_default_lf_deltas).
+				int32 lfRefDeltas[4] = {1, 0, -1, -1};
+				int32 lfModeDeltas[2] = {0, 0};
 		};
 
 		// Résultat du parse de l'en-tête compressé.
