@@ -30,6 +30,21 @@ namespace nkentseu {
 				int32 uvWidth = 0, uvHeight = 0;
 		};
 
+		// Copie d'une NkVp9Image avec BORDURE ÉTENDUE (réplication des pixels de bord,
+		// 96 px sur les 4 côtés, sur Y/U/V) — nécessaire pour la compensation de
+		// mouvement (les MV clampés peuvent pointer légèrement hors image). `yOrigin`/
+		// `uOrigin`/`vOrigin` pointent le pixel (0,0) logique ; lire à des offsets
+		// négatifs (jusqu'à -96) ou au-delà de width/height (jusqu'à +96) est valide.
+		struct NkVp9RefBuffer {
+				NkVector<nk_uint8> yBuf, uBuf, vBuf;
+				nk_uint8 *yOrigin = nullptr, *uOrigin = nullptr, *vOrigin = nullptr;
+				int32 yStride = 0, uvStride = 0;
+				int32 width = 0, height = 0, uvWidth = 0, uvHeight = 0;
+
+				// Construit la bordure à partir d'une image décodée (BuildRefBuffer).
+				static void Build(const NkVp9Image &img, NkVp9RefBuffer &out);
+		};
+
 		// --- Superframe VP9 : jusqu'à 8 trames concaténées + index final. ---
 		// Le DERNIER octet 0b110xxxxx = marqueur : bits 0-2 = nb trames - 1,
 		// bits 3-4 = taille des entrées - 1. L'index complet (même octet au début
@@ -235,7 +250,30 @@ namespace nkentseu {
 										   NkTileParseStats *statsOut = nullptr,
 										   bool applyLoopFilter = true);
 
+				// BRIQUE 6 : décode une trame INTER (non-clé, non-intra-only) référençant
+				// jusqu'à 3 images déjà décodées. `refImages[i]` : LAST(0)/GOLDEN(1)/
+				// ALTREF(2) — l'appelant résout `hdr.refFrameIdx` en amont (slots 0-7) ;
+				// le sign bias est lu directement dans l'en-tête (`refFrameSignBias`),
+				// pas besoin de le fournir. Limites documentées : références de MÊME
+				// taille uniquement (pas de mise à l'échelle) ; `usePrevFrameMvs` doit
+				// être `false` si la trame précédente n'est pas éligible (clé, intra-
+				// only, error-resilient, taille différente — § use_prev_frame_mvs de
+				// dec_api). `prevMvs` : grille MV/ref de la trame précédente
+				// (miRows*miCols), ignorée si `usePrevFrameMvs` est faux.
+				static bool DecodeInterFrame(const uint8 *frame, usize size, const NkVp9Image *refImages[3],
+											NkVp9Image &out, NkTileParseStats *statsOut = nullptr,
+											bool applyLoopFilter = true, bool usePrevFrameMvs = false,
+											const struct NkVp9MvRef *prevMvs = nullptr);
+
 				static bool SelfTest();
+		};
+
+		// Grille MV + réf sauvegardée après décodage d'une trame (pour use_prev_frame_mvs
+		// de la trame SUIVANTE). Une entrée par unité 8x8 (mi).
+		struct NkVp9MvRef {
+				int8 refFrame[2] = {-1, -1}; // -1 = NONE ; 0=INTRA (non stocké, cf note)
+				int16 mvRow[2] = {0, 0};
+				int16 mvCol[2] = {0, 0};
 		};
 
 	} // namespace media
