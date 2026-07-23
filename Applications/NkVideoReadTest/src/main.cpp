@@ -290,6 +290,129 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
+	// Mode reconstruction VP9 INTER (brique 6) : --vp9inter <fichier.ivf> <ref_frame1.yuv>
+	// Décode la trame 0 (clé, DecodeKeyFrame) PUIS la trame 1 (DecodeInterFrame, réfs
+	// LAST=GOLDEN=ALTREF=trame clé — vrai juste après un refresh_frame_flags=0xFF, cas
+	// normatif du tout premier P-frame) et compare la trame 1 pixel à pixel à la
+	// référence ffmpeg (2e frame brute du flux). Pas de use_prev_frame_mvs (garanti
+	// faux pour ce cas par la spec : last_frame_type==KEY_FRAME).
+	if (argc >= 4 && strcmp(argv[1], "--vp9inter") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		uint8 ivfHdr[32];
+		if (fread(ivfHdr, 1, 32, f) != 32 || memcmp(ivfHdr, "DKIF", 4) != 0) {
+			printf("  [KO] pas un IVF\n");
+			fclose(f);
+			return 1;
+		}
+		NkVector<uint8> payloads[2];
+		for (int32 fr = 0; fr < 2; ++fr) {
+			uint8 frameHdr[12];
+			if (fread(frameHdr, 1, 12, f) != 12) {
+				printf("  [KO] IVF tronque (frame %d)\n", fr);
+				fclose(f);
+				return 1;
+			}
+			const uint32 sz = (uint32)frameHdr[0] | ((uint32)frameHdr[1] << 8) | ((uint32)frameHdr[2] << 16) |
+							  ((uint32)frameHdr[3] << 24);
+			payloads[fr].Resize(sz);
+			if (fread(payloads[fr].Data(), 1, sz, f) != sz) {
+				printf("  [KO] frame %d tronquee\n", fr);
+				fclose(f);
+				return 1;
+			}
+		}
+		fclose(f);
+
+		NkVp9Image keyImg;
+		NkVp9Decoder::NkTileParseStats ts0;
+		if (!NkVp9Decoder::DecodeKeyFrame(payloads[0].Data(), (usize)payloads[0].Size(), keyImg, &ts0, true)) {
+			printf("  [KO] DecodeKeyFrame (trame 0) a echoue\n");
+			return 1;
+		}
+		printf("  trame 0 (cle) : %dx%d, %d blocs\n", keyImg.width, keyImg.height, ts0.blocks);
+
+		const NkVp9Image *refs[3] = {&keyImg, &keyImg, &keyImg};
+		NkVp9Image interImg;
+		NkVp9Decoder::NkTileParseStats ts1;
+		if (!NkVp9Decoder::DecodeInterFrame(payloads[1].Data(), (usize)payloads[1].Size(), refs, interImg, &ts1,
+											true, false, nullptr)) {
+			printf("  [KO] DecodeInterFrame (trame 1) a echoue (tiles=%d blocs=%d skip=%d eob=%lld overread=%d)\n",
+				   ts1.tiles, ts1.blocks, ts1.skipBlocks, (long long)ts1.eobTotal, ts1.maxOverread);
+			return 1;
+		}
+		printf("  trame 1 (inter) : %dx%d, %d blocs, eob=%lld\n", interImg.width, interImg.height, ts1.blocks,
+			   (long long)ts1.eobTotal);
+
+		FILE *rf = fopen(argv[3], "rb");
+		if (!rf) {
+			printf("  [KO] reference introuvable : %s\n", argv[3]);
+			return 1;
+		}
+		const usize ySz = (usize)interImg.width * (usize)interImg.height;
+		const usize uvSz = (usize)interImg.uvWidth * (usize)interImg.uvHeight;
+		const usize frameBytes = ySz + 2 * uvSz;
+		// La reference brute contient TOUTES les frames concatenees : on saute la
+		// frame 0 (cle) pour comparer a la frame 1 (inter).
+		if (fseek(rf, (long)frameBytes, SEEK_SET) != 0) {
+			printf("  [KO] reference trop courte (seek frame 1)\n");
+			fclose(rf);
+			return 1;
+		}
+		NkVector<uint8> ref;
+		ref.Resize(frameBytes);
+		if (fread(ref.Data(), 1, frameBytes, rf) != frameBytes) {
+			printf("  [KO] reference trop courte\n");
+			fclose(rf);
+			return 1;
+		}
+		fclose(rf);
+		int64 diffs = 0;
+		int32 maxDiff = 0, firstX = -1, firstY = -1, firstPlane = -1;
+		const uint8 *planes[3] = {interImg.y.Data(), interImg.u.Data(), interImg.v.Data()};
+		const uint8 *refp[3] = {ref.Data(), ref.Data() + ySz, ref.Data() + ySz + uvSz};
+		const int32 pw[3] = {interImg.width, interImg.uvWidth, interImg.uvWidth};
+		const int32 ph[3] = {interImg.height, interImg.uvHeight, interImg.uvHeight};
+		const int32 pstride[3] = {interImg.yStride, interImg.uvStride, interImg.uvStride};
+		for (int32 p = 0; p < 3; ++p) {
+			for (int32 yy = 0; yy < ph[p]; ++yy) {
+				for (int32 xx = 0; xx < pw[p]; ++xx) {
+					const int32 a = planes[p][yy * pstride[p] + xx];
+					const int32 b = refp[p][yy * pw[p] + xx];
+					const int32 d = a > b ? a - b : b - a;
+					if (d) {
+						++diffs;
+						if (d > maxDiff)
+							maxDiff = d;
+						if (firstX < 0) {
+							firstX = xx;
+							firstY = yy;
+							firstPlane = p;
+						}
+					}
+				}
+			}
+		}
+		if (diffs == 0) {
+			printf("  [ OK  ] trame INTER VP9 BIT-EXACTE vs ffmpeg (%dx%d)\n", interImg.width, interImg.height);
+			return 0;
+		}
+		printf("  [ KO ] %lld pixels differents (maxdiff=%d, premier plan=%d @ %d,%d)\n", (long long)diffs,
+			   maxDiff, firstPlane, firstX, firstY);
+		FILE *of = fopen("vp9inter_out.yuv", "wb");
+		if (of) {
+			for (int32 p = 0; p < 3; ++p)
+				for (int32 yy = 0; yy < ph[p]; ++yy)
+					fwrite(planes[p] + (usize)yy * (usize)pstride[p], 1, (usize)pw[p], of);
+			fclose(of);
+			printf("  (image decodee ecrite dans vp9inter_out.yuv)\n");
+		}
+		return 1;
+	}
+
 	// Mode reconstruction VP9 (brique 4) : --vp9recon <fichier.ivf> <reference.yuv>
 	// Décode la PREMIÈRE trame clé (prédiction intra + déquant + transformées) et la
 	// compare pixel à pixel à la référence ffmpeg (I420). Objectif : BIT-EXACT.

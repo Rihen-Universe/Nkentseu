@@ -276,6 +276,17 @@ namespace nkentseu {
 			// Une cellule de la grille MODE_INFO (par unité mi 8x8). Les blocs plus
 			// grands COPIENT leur cellule sur toute leur emprise (équivalent de la
 			// propagation de pointeurs de libvpx) — les voisins la consultent.
+			// MV entier (1/8 pel) — pas de int_mv 32 bits packé, deux int16 explicites.
+			struct SimpleMv {
+					int16 row = 0, col = 0;
+					bool operator==(const SimpleMv &o) const {
+						return row == o.row && col == o.col;
+					}
+					bool operator!=(const SimpleMv &o) const {
+						return !(*this == o);
+					}
+			};
+
 			struct MiCell {
 					uint8 sbType = 0;  // BLOCK_SIZE
 					uint8 skip = 0;
@@ -283,7 +294,19 @@ namespace nkentseu {
 					uint8 mode = 0;	   // mode Y (bloc >= 8x8) ou bmi[3]
 					uint8 uvMode = 0;
 					uint8 segId = 0;
-					uint8 bmi[4] = {0, 0, 0, 0}; // sous-modes 4x4
+					uint8 bmi[4] = {0, 0, 0, 0}; // sous-modes 4x4 (ou modes b_mode sub8x8 inter)
+					// --- Inter (brique 6) ---
+					int8 refFrame[2] = {0, -1}; // 0=INTRA_FRAME (défaut : bloc intra), -1=NONE
+					uint8 interpFilter = 3;		// SWITCHABLE_FILTERS (sentinelle "non dispo")
+					SimpleMv mv[2];				// MV du bloc (>=8x8) par référence
+					SimpleMv bmiMv[4][2];		// MV par sous-bloc 4x4 (sb_type<8x8) par référence
+
+					bool IsInter() const {
+						return refFrame[0] > 0; // > INTRA_FRAME(0)
+					}
+					bool HasSecondRef() const {
+						return refFrame[1] > 0;
+					}
 			};
 
 			// État de décodage du contenu (une trame).
@@ -314,7 +337,25 @@ namespace nkentseu {
 					int32 n4w[3] = {0}, n4h[3] = {0};			 // unités 4x4 du bloc par plane
 					int32 aboveOff[3] = {0}, leftOff[3] = {0};	 // offsets contextes entropie
 					NkVp9Decoder::NkTileParseStats *stats = nullptr;
+
+					// --- Inter (brique 6) : nullptr/false = trame clé (comportement inchangé). ---
+					bool isInterFrame = false;
+					int32 signBias[4] = {0, 0, 0, 0};	 // indexé MV_REFERENCE_FRAME (0=intra inutilisé)
+					int32 compFixedRef = 0, compVarRef[2] = {0, 0};
+					int32 referenceMode = 0; // NkVp9ReferenceMode
+					bool allowHighPrecisionMv = false;
+					int32 interpFilterHdr = 4; // SWITCHABLE par défaut
+					// Images de référence DÉJÀ décodées (bordure étendue), indexées par
+					// MV_REFERENCE_FRAME - 1 (0=LAST,1=GOLDEN,2=ALTREF). Plans Y/U/V avec
+					// marge kBorder de chaque côté (origine réelle = plane + border*stride+border).
+					const uint8 *refPlanes[3][3] = {{nullptr}}; // [refIdx][plane]
+					int32 refStride[3][3] = {{0}};
+					// Grille MV de la trame PRÉCÉDENTE (use_prev_frame_mvs) ; nullptr = inutilisée.
+					const NkVp9MvRef *prevMvs = nullptr;
+					bool usePrevFrameMvs = false;
 			};
+
+			constexpr int32 kMcBorder = 96; // marge des plans de référence (>= 16 (UMV) + 64 (bloc max))
 
 			// Scans/voisins par (txSize, txType→variante) : 0=default, 1=row, 2=col.
 			void GetScan(int32 txSize, int32 txType, const int16 **scan, const int16 **nb) {
@@ -362,10 +403,10 @@ namespace nkentseu {
 			// (ordre du scan). dq = {DC, AC} ; dqShift = 1 pour les 32x32. Renvoie l'EOB.
 			int32 DecodeCoefs(NkVp8BoolDecoder &bd, const NkVp9FrameContext &fc, int32 planeType,
 							  int32 txSize, int32 ctx, const int16 *scan, const int16 *nb,
-							  const int16 *dq, int16 *dqcoeff) {
+							  const int16 *dq, int16 *dqcoeff, int32 refIdx = 0) {
 				const int32 maxEob = 16 << (txSize << 1);
 				const int32 dqShift = (txSize == 3) ? 1 : 0;
-				const uint8(*coefProbs)[6][3] = fc.coefProbs[txSize][planeType][0]; // ref=0 (intra)
+				const uint8(*coefProbs)[6][3] = fc.coefProbs[txSize][planeType][refIdx]; // 0=intra,1=inter
 				uint8 tokenCache[32 * 32];
 				const uint8 *bandTranslate = (txSize == 0) ? kVp9CoefbandTrans4x4 : kVp9CoefbandTrans8x8Plus;
 				int32 dqv = dq[0];
@@ -528,8 +569,10 @@ namespace nkentseu {
 
 			// Blocs de transformée d'un bloc de prédiction : prédiction intra (si
 			// reconstruction active) + tokens + transformée inverse ajoutée.
-			// `skip` : pas de résidus — prédiction seule.
-			void DecodeBlockTokens(NkVp8BoolDecoder &bd, FrameParseState &st, bool skip) {
+			// `skip` : pas de résidus — prédiction seule. `isInter` : le bloc est déjà
+			// prédit par compensation de mouvement (appelant) — ne pas appeler
+			// PredictIntra ; tx_type toujours DCT_DCT ; coefProbs[ref=1].
+			void DecodeBlockTokens(NkVp8BoolDecoder &bd, FrameParseState &st, bool skip, bool isInter = false) {
 				const NkVp9FrameHeader &hdr = *st.hdr;
 				const bool recon = (st.planes[0] != nullptr);
 				int16 dqcoeff[32 * 32];
@@ -569,18 +612,20 @@ namespace nkentseu {
 								const int32 px = (((-st.mbToLeftEdge) >> (3 + ssx)) + col * 4);
 								const int32 py = (((-st.mbToTopEdge) >> (3 + ssy)) + row * 4);
 								dst = st.planes[plane] + (usize)py * (usize)st.planeStride[plane] + px;
-								const bool haveTop = (row != 0) || (st.aboveMi != nullptr);
-								const bool haveLeft = (col != 0) || (st.leftMi != nullptr);
-								const bool haveRight = (col + step) < (1 << n4wl);
-								PredictIntra(st, plane, mode, txSize, dst, st.planeStride[plane],
-											 col, row, st.planeW[plane], st.planeH[plane], haveTop,
-											 haveLeft, haveRight);
+								if (!isInter) {
+									const bool haveTop = (row != 0) || (st.aboveMi != nullptr);
+									const bool haveLeft = (col != 0) || (st.leftMi != nullptr);
+									const bool haveRight = (col + step) < (1 << n4wl);
+									PredictIntra(st, plane, mode, txSize, dst, st.planeStride[plane],
+												 col, row, st.planeW[plane], st.planeH[plane], haveTop,
+												 haveLeft, haveRight);
+								}
 							}
 							if (skip)
 								continue;
-							// Type de transformée : luma intra non-lossless → selon le mode.
+							// Type de transformée : DCT_DCT pour l'inter, sinon selon le mode intra.
 							int32 txType = 0; // DCT_DCT
-							if (plane == 0 && !hdr.lossless)
+							if (plane == 0 && !hdr.lossless && !isInter)
 								txType = (int32)kVp9IntraModeToTxType[mode];
 							const int16 *scan = nullptr, *nb = nullptr;
 							GetScan(txSize, txType, &scan, &nb);
@@ -592,8 +637,8 @@ namespace nkentseu {
 								for (int32 i = 0; i < n; ++i)
 									dqcoeff[i] = 0;
 							}
-							const int32 eob = DecodeCoefs(bd, *st.fc, plane ? 1 : 0, txSize, ctx,
-														  scan, nb, dq, dqcoeff);
+							const int32 eob = DecodeCoefs(bd, *st.fc, plane ? 1 : 0, txSize, ctx, scan, nb, dq,
+														  dqcoeff, isInter ? 1 : 0);
 							st.stats->eobTotal += eob;
 							if (recon && eob > 0) {
 								if (hdr.lossless) {
@@ -621,7 +666,205 @@ namespace nkentseu {
 				}
 			}
 
-			// decode_block : un bloc feuille (modes + tokens).
+			// Déclarations anticipées (définies plus bas, brique 6 modes/MV) — utilisées
+			// par ReadInterFrameModeInfo/PredictInterRegion définis avant dans le fichier.
+			int32 ClampI(int32 v, int32 lo, int32 hi);
+			int32 ReadIsInterBlock(NkVp8BoolDecoder &bd, FrameParseState &st, int32 segId);
+			void ReadInterBlockModeInfo(NkVp8BoolDecoder &bd, FrameParseState &st, int32 miRow, int32 miCol);
+
+			// read_intra_block_mode_info (non-kf) : modes intra dans une trame INTER —
+			// contexte size_group_lookup (pas d'arbre à voisins comme en kf).
+			void ReadIntraBlockModeInfoNonKf(NkVp8BoolDecoder &bd, FrameParseState &st) {
+				MiCell &mi = st.cur;
+				const NkVp9FrameContext &fc = *st.fc;
+				switch (mi.sbType) {
+					case 0: // BLOCK_4X4
+						for (int32 i = 0; i < 4; ++i)
+							mi.bmi[i] = (uint8)bd.GetTree(kVp9IntraModeTree, fc.yModeProb[0]);
+						mi.mode = mi.bmi[3];
+						break;
+					case 1: // BLOCK_4X8
+						mi.bmi[0] = mi.bmi[2] = (uint8)bd.GetTree(kVp9IntraModeTree, fc.yModeProb[0]);
+						mi.bmi[1] = mi.bmi[3] = mi.mode = (uint8)bd.GetTree(kVp9IntraModeTree, fc.yModeProb[0]);
+						break;
+					case 2: // BLOCK_8X4
+						mi.bmi[0] = mi.bmi[1] = (uint8)bd.GetTree(kVp9IntraModeTree, fc.yModeProb[0]);
+						mi.bmi[2] = mi.bmi[3] = mi.mode = (uint8)bd.GetTree(kVp9IntraModeTree, fc.yModeProb[0]);
+						break;
+					default:
+						mi.mode = (uint8)bd.GetTree(kVp9IntraModeTree, fc.yModeProb[kVp9SizeGroupLookup[mi.sbType]]);
+						mi.bmi[0] = mi.bmi[1] = mi.bmi[2] = mi.bmi[3] = mi.mode;
+						break;
+				}
+				mi.uvMode = (uint8)bd.GetTree(kVp9IntraModeTree, fc.uvModeProb[mi.mode]);
+				mi.interpFilter = 3; // SWITCHABLE_FILTERS (sentinelle)
+				mi.refFrame[0] = 0;	 // INTRA_FRAME
+				mi.refFrame[1] = -1; // NO_REF_FRAME
+			}
+
+			// read_inter_frame_mode_info : segment id + skip + is_inter + tx_size, puis
+			// délègue au chemin intra (non-kf) ou inter selon read_is_inter_block.
+			void ReadInterFrameModeInfo(NkVp8BoolDecoder &bd, FrameParseState &st, int32 miRow, int32 miCol) {
+				const NkVp9FrameHeader &hdr = *st.hdr;
+				MiCell &mi = st.cur;
+				// Segment id (limite documentée : pas de carte persistante inter-trames —
+				// équivaut à predicted_segment_id=0 / pas de mise à jour temporelle).
+				mi.segId = 0;
+				if (hdr.segEnabled && hdr.segUpdateMap)
+					mi.segId = (uint8)bd.GetTree(kVp9SegmentTree, hdr.segTreeProbs);
+				// Skip.
+				const bool segSkip = hdr.segEnabled && hdr.segFeatureEnabled[mi.segId][3];
+				if (segSkip) {
+					mi.skip = 1;
+				} else {
+					const int32 aSkip = st.aboveMi ? st.aboveMi->skip : 0;
+					const int32 lSkip = st.leftMi ? st.leftMi->skip : 0;
+					mi.skip = (uint8)bd.GetBool(st.fc->skipProbs[aSkip + lSkip]);
+					if (mi.skip)
+						++st.stats->skipBlocks;
+				}
+				const int32 isInterBlock = ReadIsInterBlock(bd, st, mi.segId);
+				// tx_size : select_tx_size si (!skip || !inter_block).
+				const int32 maxTx = (int32)kVp9MaxTxsizeLookup[mi.sbType];
+				const int32 txModeBiggest[5] = {0, 1, 2, 3, 3};
+				if (st.txMode == 4 && mi.sbType >= kBlock8x8 && (!mi.skip || !isInterBlock)) {
+					mi.txSize = (uint8)ReadTxSize(bd, st, maxTx);
+				} else {
+					mi.txSize = (uint8)IMin(maxTx, txModeBiggest[st.txMode]);
+				}
+				if (isInterBlock)
+					ReadInterBlockModeInfo(bd, st, miRow, miCol);
+				else
+					ReadIntraBlockModeInfoNonKf(bd, st);
+			}
+
+			// =================================================================
+			// BRIQUE 6c — COMPENSATION DE MOUVEMENT (port fidèle vpx_convolve.c +
+			// vp9_reconinter.c, cas NON-SCALÉ uniquement : x_step_q4=y_step_q4=16).
+			// =================================================================
+
+			inline uint8 ClipPixelU8(int32 v) {
+				return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v));
+			}
+			inline int32 RoundPow2(int32 v, int32 n) {
+				return (v + (1 << (n - 1))) >> n;
+			}
+
+			// vpx_convolve8_c (non scalé) : horizontal puis vertical, 8 taps Q7.
+			void Vp9Convolve8(const uint8 *src, int32 srcStride, uint8 *dst, int32 dstStride,
+							  const int16 kernel[16][8], int32 x0q4, int32 y0q4, int32 w, int32 h, bool avgMode) {
+				uint8 temp[64 * 80];
+				const int32 interH = (((h - 1) * 16 + y0q4) >> 4) + 8;
+				const uint8 *s = src - srcStride * 3 - 3;
+				for (int32 y = 0; y < interH; ++y) {
+					int32 xq4 = x0q4;
+					for (int32 x = 0; x < w; ++x) {
+						const uint8 *sx = s + (xq4 >> 4);
+						const int16 *f = kernel[xq4 & 15];
+						int32 sum = 0;
+						for (int32 k = 0; k < 8; ++k)
+							sum += sx[k] * f[k];
+						temp[y * 64 + x] = ClipPixelU8(RoundPow2(sum, 7));
+						xq4 += 16;
+					}
+					s += srcStride;
+				}
+				for (int32 x = 0; x < w; ++x) {
+					int32 yq4 = y0q4;
+					for (int32 y = 0; y < h; ++y) {
+						const uint8 *ty = temp + (yq4 >> 4) * 64 + x;
+						const int16 *f = kernel[yq4 & 15];
+						int32 sum = 0;
+						for (int32 k = 0; k < 8; ++k)
+							sum += ty[k * 64] * f[k];
+						const uint8 v = ClipPixelU8(RoundPow2(sum, 7));
+						dst[y * dstStride + x] = avgMode ? (uint8)((dst[y * dstStride + x] + v + 1) >> 1) : v;
+						yq4 += 16;
+					}
+				}
+			}
+
+			int32 RoundMvCompQ2(int32 v) {
+				return (v < 0 ? v - 1 : v + 1) / 2;
+			}
+			int32 RoundMvCompQ4(int32 v) {
+				return (v < 0 ? v - 2 : v + 2) / 4;
+			}
+			// average_split_mvs (reconinter.c) : MV chroma sous-échantillonnée depuis
+			// les MV des sous-blocs 4x4 luma couverts.
+			SimpleMv AverageSplitMvs(const MiCell &mi, int32 ref, int32 block, int32 ssx, int32 ssy) {
+				const int32 ssIdx = ((ssx > 0) ? 2 : 0) | ((ssy > 0) ? 1 : 0);
+				switch (ssIdx) {
+					case 0:
+						return mi.bmiMv[block][ref];
+					case 1:
+						return SimpleMv{(int16)RoundMvCompQ2(mi.bmiMv[block][ref].row + mi.bmiMv[block + 2][ref].row),
+										(int16)RoundMvCompQ2(mi.bmiMv[block][ref].col + mi.bmiMv[block + 2][ref].col)};
+					case 2:
+						return SimpleMv{(int16)RoundMvCompQ2(mi.bmiMv[block][ref].row + mi.bmiMv[block + 1][ref].row),
+										(int16)RoundMvCompQ2(mi.bmiMv[block][ref].col + mi.bmiMv[block + 1][ref].col)};
+					default: {
+						int32 r = 0, c = 0;
+						for (int32 k = 0; k < 4; ++k) {
+							r += mi.bmiMv[k][ref].row;
+							c += mi.bmiMv[k][ref].col;
+						}
+						return SimpleMv{(int16)RoundMvCompQ4(r), (int16)RoundMvCompQ4(c)};
+					}
+				}
+			}
+
+			// build_inter_predictors (une région rectangulaire d'UN plan, UN sous-bloc
+			// si sbType<8x8). `x,y,w,h` en pixels du PLAN ; `dst` déjà positionné.
+			void PredictInterRegion(const FrameParseState &st, int32 plane, int32 bw, int32 bh, int32 x, int32 y,
+									int32 w, int32 h, int32 block, uint8 *dst, int32 dstStride) {
+				const MiCell &mi = st.cur;
+				const bool isCompound = mi.HasSecondRef();
+				const int32 ssx = plane ? st.hdr->subsamplingX : 0;
+				const int32 ssy = plane ? st.hdr->subsamplingY : 0;
+				for (int32 ref = 0; ref < (isCompound ? 2 : 1); ++ref) {
+					const SimpleMv mv =
+						(mi.sbType < kBlock8x8) ? AverageSplitMvs(mi, ref, block, ssx, ssy) : mi.mv[ref];
+					// clamp_mv_to_umv_border_sb : MV → Q4 (échelle luma/chroma) + clamp UMV.
+					SimpleMv mvQ4{(int16)(mv.row * (1 << (1 - ssy))), (int16)(mv.col * (1 << (1 - ssx)))};
+					constexpr int32 kInterpExtend = 4;
+					const int32 spelLeft = (kInterpExtend + bw) << 4, spelRight = spelLeft - 16;
+					const int32 spelTop = (kInterpExtend + bh) << 4, spelBottom = spelTop - 16;
+					mvQ4.col = (int16)ClampI(mvQ4.col, st.mbToLeftEdge * (1 << (1 - ssx)) - spelLeft,
+											 st.mbToRightEdge * (1 << (1 - ssx)) + spelRight);
+					mvQ4.row = (int16)ClampI(mvQ4.row, st.mbToTopEdge * (1 << (1 - ssy)) - spelTop,
+											 st.mbToBottomEdge * (1 << (1 - ssy)) + spelBottom);
+					const int32 subpelX = mvQ4.col & 15, subpelY = mvQ4.row & 15;
+					const uint8 *refPlane = st.refPlanes[mi.refFrame[ref] - 1][plane];
+					const int32 refStride = st.refStride[mi.refFrame[ref] - 1][plane];
+					const uint8 *pre = refPlane + (usize)y * (usize)refStride + (usize)x;
+					pre += (mvQ4.row >> 4) * refStride + (mvQ4.col >> 4);
+					Vp9Convolve8(pre, refStride, dst, dstStride, kVp9FilterKernels[mi.interpFilter], subpelX,
+								subpelY, w, h, ref == 1);
+				}
+			}
+
+			// build_inter_predictors_for_planes : dispatch par plan, sous-blocs 4x4 si
+			// sbType<8x8 (chaque sous-bloc peut avoir un MV distinct).
+			void PredictInter(const FrameParseState &st, int32 plane, uint8 *dst, int32 dstStride) {
+				const MiCell &mi = st.cur;
+				const int32 ssx = plane ? st.hdr->subsamplingX : 0;
+				const int32 ssy = plane ? st.hdr->subsamplingY : 0;
+				const int32 num4w = st.n4w[plane], num4h = st.n4h[plane];
+				const int32 bw = 4 * num4w, bh = 4 * num4h;
+				if (mi.sbType < kBlock8x8) {
+					int32 i = 0;
+					for (int32 yy = 0; yy < num4h; ++yy)
+						for (int32 xx = 0; xx < num4w; ++xx)
+							PredictInterRegion(st, plane, bw, bh, 4 * xx, 4 * yy, 4, 4, i++, dst + 4 * yy * dstStride + 4 * xx,
+											   dstStride);
+				} else {
+					PredictInterRegion(st, plane, bw, bh, 0, 0, bw, bh, 0, dst, dstStride);
+				}
+				(void)ssx;
+				(void)ssy;
+			}
+
 			void DecodeLeafBlock(NkVp8BoolDecoder &bd, FrameParseState &st, int32 miRow, int32 miCol,
 								 int32 bsize, int32 bwl, int32 bhl) {
 				const NkVp9FrameHeader &hdr = *st.hdr;
@@ -653,65 +896,72 @@ namespace nkentseu {
 				cell = MiCell{};
 				cell.sbType = (uint8)bsize;
 
-				// --- read_intra_frame_mode_info ---
-				// Segment id.
-				cell.segId = 0;
-				if (hdr.segEnabled && hdr.segUpdateMap)
-					cell.segId = (uint8)bd.GetTree(kVp9SegmentTree, hdr.segTreeProbs);
-				// Skip.
-				const bool segSkip = hdr.segEnabled && hdr.segFeatureEnabled[cell.segId][3];
-				if (segSkip) {
-					cell.skip = 1;
+				if (st.isInterFrame) {
+					// --- read_inter_frame_mode_info (brique 6) ---
+					ReadInterFrameModeInfo(bd, st, miRow, miCol);
 				} else {
-					const int32 aSkip = st.aboveMi ? st.aboveMi->skip : 0;
-					const int32 lSkip = st.leftMi ? st.leftMi->skip : 0;
-					cell.skip = (uint8)bd.GetBool(fc.skipProbs[aSkip + lSkip]);
-					if (cell.skip)
-						++st.stats->skipBlocks;
+					// --- read_intra_frame_mode_info (trame clé) ---
+					// Segment id.
+					cell.segId = 0;
+					if (hdr.segEnabled && hdr.segUpdateMap)
+						cell.segId = (uint8)bd.GetTree(kVp9SegmentTree, hdr.segTreeProbs);
+					// Skip.
+					const bool segSkip = hdr.segEnabled && hdr.segFeatureEnabled[cell.segId][3];
+					if (segSkip) {
+						cell.skip = 1;
+					} else {
+						const int32 aSkip = st.aboveMi ? st.aboveMi->skip : 0;
+						const int32 lSkip = st.leftMi ? st.leftMi->skip : 0;
+						cell.skip = (uint8)bd.GetBool(fc.skipProbs[aSkip + lSkip]);
+						if (cell.skip)
+							++st.stats->skipBlocks;
+					}
+					// tx_size.
+					const int32 maxTx = (int32)kVp9MaxTxsizeLookup[bsize];
+					const int32 txModeBiggest[5] = {0, 1, 2, 3, 3};
+					const int32 txMode = st.txMode;
+					if (txMode == 4 && bsize >= kBlock8x8) {
+						cell.txSize = (uint8)ReadTxSize(bd, st, maxTx);
+					} else {
+						cell.txSize = (uint8)IMin(maxTx, txModeBiggest[txMode]);
+					}
+					// Modes intra kf (arbres à voisins).
+					switch (bsize) {
+						case 0: // BLOCK_4X4 : 4 sous-modes
+							for (int32 i = 0; i < 4; ++i)
+								cell.bmi[i] = (uint8)bd.GetTree(
+									kVp9IntraModeTree,
+									kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, i)]
+												   [LeftBlockMode(cell, st.leftMi, i)]);
+							cell.mode = cell.bmi[3];
+							break;
+						case 1: // BLOCK_4X8
+							cell.bmi[0] = cell.bmi[2] = (uint8)bd.GetTree(
+								kVp9IntraModeTree, kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, 0)]
+																  [LeftBlockMode(cell, st.leftMi, 0)]);
+							cell.bmi[1] = cell.bmi[3] = cell.mode = (uint8)bd.GetTree(
+								kVp9IntraModeTree, kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, 1)]
+																  [LeftBlockMode(cell, st.leftMi, 1)]);
+							break;
+						case 2: // BLOCK_8X4
+							cell.bmi[0] = cell.bmi[1] = (uint8)bd.GetTree(
+								kVp9IntraModeTree, kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, 0)]
+																  [LeftBlockMode(cell, st.leftMi, 0)]);
+							cell.bmi[2] = cell.bmi[3] = cell.mode = (uint8)bd.GetTree(
+								kVp9IntraModeTree, kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, 2)]
+																  [LeftBlockMode(cell, st.leftMi, 2)]);
+							break;
+						default:
+							cell.mode = (uint8)bd.GetTree(
+								kVp9IntraModeTree, kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, 0)]
+																  [LeftBlockMode(cell, st.leftMi, 0)]);
+							cell.bmi[0] = cell.bmi[1] = cell.bmi[2] = cell.bmi[3] = cell.mode;
+							break;
+					}
+					cell.uvMode = (uint8)bd.GetTree(kVp9IntraModeTree, kVp9KfUvModeProb[cell.mode]);
+					cell.refFrame[0] = 0; // INTRA_FRAME
+					cell.refFrame[1] = -1;
 				}
-				// tx_size.
-				const int32 maxTx = (int32)kVp9MaxTxsizeLookup[bsize];
-				const int32 txModeBiggest[5] = {0, 1, 2, 3, 3};
-				const int32 txMode = st.txMode;
-				if (txMode == 4 && bsize >= kBlock8x8) {
-					cell.txSize = (uint8)ReadTxSize(bd, st, maxTx);
-				} else {
-					cell.txSize = (uint8)IMin(maxTx, txModeBiggest[txMode]);
-				}
-				// Modes intra kf (arbres à voisins).
-				switch (bsize) {
-					case 0: // BLOCK_4X4 : 4 sous-modes
-						for (int32 i = 0; i < 4; ++i)
-							cell.bmi[i] = (uint8)bd.GetTree(
-								kVp9IntraModeTree,
-								kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, i)]
-											   [LeftBlockMode(cell, st.leftMi, i)]);
-						cell.mode = cell.bmi[3];
-						break;
-					case 1: // BLOCK_4X8
-						cell.bmi[0] = cell.bmi[2] = (uint8)bd.GetTree(
-							kVp9IntraModeTree, kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, 0)]
-															  [LeftBlockMode(cell, st.leftMi, 0)]);
-						cell.bmi[1] = cell.bmi[3] = cell.mode = (uint8)bd.GetTree(
-							kVp9IntraModeTree, kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, 1)]
-															  [LeftBlockMode(cell, st.leftMi, 1)]);
-						break;
-					case 2: // BLOCK_8X4
-						cell.bmi[0] = cell.bmi[1] = (uint8)bd.GetTree(
-							kVp9IntraModeTree, kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, 0)]
-															  [LeftBlockMode(cell, st.leftMi, 0)]);
-						cell.bmi[2] = cell.bmi[3] = cell.mode = (uint8)bd.GetTree(
-							kVp9IntraModeTree, kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, 2)]
-															  [LeftBlockMode(cell, st.leftMi, 2)]);
-						break;
-					default:
-						cell.mode = (uint8)bd.GetTree(
-							kVp9IntraModeTree, kVp9KfYModeProb[AboveBlockMode(cell, st.aboveMi, 0)]
-															  [LeftBlockMode(cell, st.leftMi, 0)]);
-						cell.bmi[0] = cell.bmi[1] = cell.bmi[2] = cell.bmi[3] = cell.mode;
-						break;
-				}
-				cell.uvMode = (uint8)bd.GetTree(kVp9IntraModeTree, kVp9KfUvModeProb[cell.mode]);
 
 				// Propagation de la cellule sur l'emprise (voisinage des blocs suivants).
 				for (int32 y = 0; y < yMis; ++y)
@@ -728,8 +978,641 @@ namespace nkentseu {
 							st.leftEntCtx[p][st.leftOff[p] + i] = 0;
 					}
 				}
-				// La prédiction intra a toujours lieu ; les tokens seulement si !skip.
-				DecodeBlockTokens(bd, st, cell.skip != 0);
+				if (cell.IsInter()) {
+					// Compensation de mouvement : une fois par plan (pas par bloc de
+					// transformée), AVANT le résidu — contrairement à l'intra.
+					if (st.planes[0] != nullptr) {
+						for (int32 p = 0; p < 3; ++p) {
+							const int32 ssx = p ? hdr.subsamplingX : 0;
+							const int32 ssy = p ? hdr.subsamplingY : 0;
+							const int32 px = (-st.mbToLeftEdge) >> (3 + ssx);
+							const int32 py = (-st.mbToTopEdge) >> (3 + ssy);
+							uint8 *dst = st.planes[p] + (usize)py * (usize)st.planeStride[p] + px;
+							PredictInter(st, p, dst, st.planeStride[p]);
+						}
+					}
+					DecodeBlockTokens(bd, st, cell.skip != 0, true);
+				} else {
+					// La prédiction intra a toujours lieu ; les tokens seulement si !skip.
+					DecodeBlockTokens(bd, st, cell.skip != 0, false);
+				}
+			}
+
+			// =================================================================
+			// BRIQUE 6 — MODES INTER + VECTEURS DE MOUVEMENT (port fidèle de
+			// vp9_decodemv.c + vp9_mvref_common.c + vp9_pred_common.c).
+			// =================================================================
+
+			constexpr int32 kMvBorder = 16 << 3;	// MV_BORDER
+			constexpr int32 kMvRefThresh = 64;		// use_mv_hp
+			constexpr int32 kMvUpp = (1 << 14) - 1; // MV_UPP
+			constexpr int32 kMvLow = -(1 << 14);	 // MV_LOW
+
+			int32 ClampI(int32 v, int32 lo, int32 hi) {
+				return v < lo ? lo : (v > hi ? hi : v);
+			}
+			bool UseMvHp(const SimpleMv &ref) {
+				return (ref.row < kMvRefThresh && ref.row > -kMvRefThresh) &&
+					   (ref.col < kMvRefThresh && ref.col > -kMvRefThresh);
+			}
+			void ClampMvRef(SimpleMv &mv, const FrameParseState &st) {
+				mv.col = (int16)ClampI(mv.col, st.mbToLeftEdge - kMvBorder, st.mbToRightEdge + kMvBorder);
+				mv.row = (int16)ClampI(mv.row, st.mbToTopEdge - kMvBorder, st.mbToBottomEdge + kMvBorder);
+			}
+
+			// idx_n_column_to_subblock (mvref_common.c) : sous-bloc source des 2
+			// voisins immédiats (dessus/gauche) selon block_idx et search_col==0.
+			const int32 kIdxNColumnToSubblock[4][2] = {{1, 2}, {1, 3}, {3, 2}, {3, 3}};
+
+			// get_sub_block_mv : MV du voisin, en tenant compte des sous-blocs 4x4.
+			SimpleMv GetSubBlockMv(const MiCell &cand, int32 which, int32 searchCol, int32 block) {
+				if (block >= 0 && cand.sbType < kBlock8x8)
+					return cand.bmiMv[kIdxNColumnToSubblock[block][searchCol == 0 ? 1 : 0]][which];
+				return cand.mv[which];
+			}
+			// scale_mv : inverse le signe si le sign bias diffère entre la réf du
+			// candidat et la réf recherchée.
+			SimpleMv ScaleMv(const MiCell &mi, int32 ref, int32 thisRefFrame, const int32 *signBias) {
+				SimpleMv mv = mi.mv[ref];
+				if (signBias[mi.refFrame[ref]] != signBias[thisRefFrame]) {
+					mv.row = (int16)(-mv.row);
+					mv.col = (int16)(-mv.col);
+				}
+				return mv;
+			}
+
+			bool IsInsideTile(const FrameParseState &st, int32 miRow, int32 miCol, int32 posRow, int32 posCol) {
+				return !(miRow + posRow < 0 || miCol + posCol < st.tileMiColStart || miRow + posRow >= st.miRows ||
+						 miCol + posCol >= st.tileMiColEnd);
+			}
+
+			// ADD_MV_REF_LIST / _EB : ajoute mv à la liste si absent ; renvoie true si on
+			// doit s'arrêter (2e MV trouvée, ou early_break sur la 1re).
+			bool AddMvRefList(const SimpleMv &mv, int32 &refmvCount, SimpleMv mvList[2], bool earlyBreak) {
+				if (refmvCount) {
+					if (mv != mvList[0]) {
+						mvList[refmvCount] = mv;
+						++refmvCount;
+						return true;
+					}
+					return false;
+				}
+				mvList[refmvCount++] = mv;
+				return earlyBreak;
+			}
+
+			// dec_find_mv_refs (vp9_decodemv.c) : recherche des MV candidats pour un
+			// bloc/référence donnés. `block` >= 0 pour les sous-blocs 4x4 (sub8x8),
+			// -1 pour un bloc >=8x8. Renvoie refmvCount (1 sauf NEARMV : 2).
+			int32 DecFindMvRefs(const FrameParseState &st, int32 mode, int32 refFrame,
+								const int8 mvRefSearch[8][2], SimpleMv mvList[2], int32 miRow, int32 miCol,
+								int32 block) {
+				int32 refmvCount = 0;
+				bool differentRefFound = false;
+				const bool earlyBreak = (mode != 11); // NEARMV=11 (NEARESTMV=10,ZEROMV=12,NEWMV=13)
+				mvList[0] = SimpleMv{};
+				mvList[1] = SimpleMv{};
+
+				int32 i = 0;
+				if (block >= 0) {
+					for (; i < 2; ++i) {
+						const int32 pr = mvRefSearch[i][0], pc = mvRefSearch[i][1];
+						if (!IsInsideTile(st, miRow, miCol, pr, pc))
+							continue;
+						const MiCell &cand = st.mi[(miRow + pr) * st.miCols + (miCol + pc)];
+						differentRefFound = true;
+						if (cand.refFrame[0] == refFrame) {
+							if (AddMvRefList(GetSubBlockMv(cand, 0, pc, block), refmvCount, mvList, earlyBreak))
+								goto Done;
+						} else if (cand.refFrame[1] == refFrame) {
+							if (AddMvRefList(GetSubBlockMv(cand, 1, pc, block), refmvCount, mvList, earlyBreak))
+								goto Done;
+						}
+					}
+				}
+				for (; i < 8; ++i) {
+					const int32 pr = mvRefSearch[i][0], pc = mvRefSearch[i][1];
+					if (!IsInsideTile(st, miRow, miCol, pr, pc))
+						continue;
+					const MiCell &cand = st.mi[(miRow + pr) * st.miCols + (miCol + pc)];
+					differentRefFound = true;
+					if (cand.refFrame[0] == refFrame) {
+						if (AddMvRefList(cand.mv[0], refmvCount, mvList, earlyBreak))
+							goto Done;
+					} else if (cand.refFrame[1] == refFrame) {
+						if (AddMvRefList(cand.mv[1], refmvCount, mvList, earlyBreak))
+							goto Done;
+					}
+				}
+				if (st.usePrevFrameMvs && st.prevMvs) {
+					const NkVp9MvRef &pm = st.prevMvs[miRow * st.miCols + miCol];
+					if (pm.refFrame[0] == refFrame) {
+						if (AddMvRefList(SimpleMv{pm.mvRow[0], pm.mvCol[0]}, refmvCount, mvList, earlyBreak))
+							goto Done;
+					} else if (pm.refFrame[1] == refFrame) {
+						if (AddMvRefList(SimpleMv{pm.mvRow[1], pm.mvCol[1]}, refmvCount, mvList, earlyBreak))
+							goto Done;
+					}
+				}
+				if (differentRefFound) {
+					for (i = 0; i < 8; ++i) {
+						const int32 pr = mvRefSearch[i][0], pc = mvRefSearch[i][1];
+						if (!IsInsideTile(st, miRow, miCol, pr, pc))
+							continue;
+						const MiCell &cand = st.mi[(miRow + pr) * st.miCols + (miCol + pc)];
+						if (!cand.IsInter())
+							continue;
+						if (cand.refFrame[0] != refFrame) {
+							if (AddMvRefList(ScaleMv(cand, 0, refFrame, st.signBias), refmvCount, mvList,
+											 earlyBreak))
+								goto Done;
+						}
+						if (cand.HasSecondRef() && cand.refFrame[1] != refFrame && cand.mv[1] != cand.mv[0]) {
+							if (AddMvRefList(ScaleMv(cand, 1, refFrame, st.signBias), refmvCount, mvList,
+											 earlyBreak))
+								goto Done;
+						}
+					}
+				}
+				if (st.usePrevFrameMvs && st.prevMvs) {
+					const NkVp9MvRef &pm = st.prevMvs[miRow * st.miCols + miCol];
+					if (pm.refFrame[0] != refFrame && pm.refFrame[0] > 0) {
+						SimpleMv mv{pm.mvRow[0], pm.mvCol[0]};
+						if (st.signBias[pm.refFrame[0]] != st.signBias[refFrame]) {
+							mv.row = (int16)(-mv.row);
+							mv.col = (int16)(-mv.col);
+						}
+						if (AddMvRefList(mv, refmvCount, mvList, earlyBreak))
+							goto Done;
+					}
+					if (pm.refFrame[1] > 0 && pm.refFrame[1] != refFrame &&
+						!(pm.mvRow[1] == pm.mvRow[0] && pm.mvCol[1] == pm.mvCol[0])) {
+						SimpleMv mv{pm.mvRow[1], pm.mvCol[1]};
+						if (st.signBias[pm.refFrame[1]] != st.signBias[refFrame]) {
+							mv.row = (int16)(-mv.row);
+							mv.col = (int16)(-mv.col);
+						}
+						if (AddMvRefList(mv, refmvCount, mvList, earlyBreak))
+							goto Done;
+					}
+				}
+				refmvCount = (mode == 11) ? 2 : 1; // NEARMV : 2 candidats, sinon 1 (nearestmv)
+			Done:
+				for (i = 0; i < refmvCount; ++i)
+					ClampMvRef(mvList[i], st);
+				return refmvCount;
+			}
+
+			// append_sub8x8_mvs_for_idx : MV candidate pour un sous-bloc <8x8 donné.
+			void AppendSub8x8Mvs(const FrameParseState &st, const int8 mvRefSearch[8][2], int32 bMode,
+								 int32 block, int32 ref, int32 miRow, int32 miCol, SimpleMv &bestSub8x8) {
+				const MiCell &mi = st.cur;
+				SimpleMv mvList[2];
+				if (block == 0) {
+					const int32 n = DecFindMvRefs(st, bMode, mi.refFrame[ref], mvRefSearch, mvList, miRow, miCol, 0);
+					bestSub8x8 = mvList[n - 1];
+				} else if (block == 1 || block == 2) {
+					if (bMode == 10) { // NEARESTMV
+						bestSub8x8 = mi.bmiMv[0][ref];
+					} else {
+						DecFindMvRefs(st, bMode, mi.refFrame[ref], mvRefSearch, mvList, miRow, miCol, block);
+						bestSub8x8 = SimpleMv{};
+						for (int32 n = 0; n < 2; ++n)
+							if (mi.bmiMv[0][ref] != mvList[n]) {
+								bestSub8x8 = mvList[n];
+								break;
+							}
+					}
+				} else { // block == 3
+					if (bMode == 10) {
+						bestSub8x8 = mi.bmiMv[2][ref];
+					} else {
+						bestSub8x8 = SimpleMv{};
+						if (mi.bmiMv[2][ref] != mi.bmiMv[1][ref]) {
+							bestSub8x8 = mi.bmiMv[1][ref];
+						} else if (mi.bmiMv[2][ref] != mi.bmiMv[0][ref]) {
+							bestSub8x8 = mi.bmiMv[0][ref];
+						} else {
+							DecFindMvRefs(st, bMode, mi.refFrame[ref], mvRefSearch, mvList, miRow, miCol, 3);
+							for (int32 n = 0; n < 2; ++n)
+								if (mi.bmiMv[2][ref] != mvList[n]) {
+									bestSub8x8 = mvList[n];
+									break;
+								}
+						}
+					}
+				}
+			}
+
+			// --- Contextes de prédiction (vp9_pred_common.h/.c) ---
+
+			int32 GetIntraInterContext(const MiCell *above, const MiCell *left) {
+				const bool hasAbove = above != nullptr, hasLeft = left != nullptr;
+				if (hasAbove && hasLeft) {
+					const bool aIntra = !above->IsInter(), lIntra = !left->IsInter();
+					return (lIntra && aIntra) ? 3 : (lIntra || aIntra ? 1 : 0);
+				}
+				if (hasAbove || hasLeft)
+					return 2 * (!(hasAbove ? above : left)->IsInter() ? 1 : 0);
+				return 0;
+			}
+
+			int32 GetSwitchableInterpContext(const MiCell *above, const MiCell *left) {
+				const int32 leftType = left ? left->interpFilter : 3;
+				const int32 aboveType = above ? above->interpFilter : 3;
+				if (leftType == aboveType)
+					return leftType;
+				if (leftType == 3)
+					return aboveType;
+				if (aboveType == 3)
+					return leftType;
+				return 3;
+			}
+
+			int32 GetReferenceModeContext(const FrameParseState &st) {
+				const MiCell *a = st.aboveMi, *l = st.leftMi;
+				const bool hasA = a != nullptr, hasL = l != nullptr;
+				if (hasA && hasL) {
+					if (!a->HasSecondRef() && !l->HasSecondRef())
+						return (a->refFrame[0] == st.compFixedRef) ^ (l->refFrame[0] == st.compFixedRef);
+					if (!a->HasSecondRef())
+						return 2 + ((a->refFrame[0] == st.compFixedRef || !a->IsInter()) ? 1 : 0);
+					if (!l->HasSecondRef())
+						return 2 + ((l->refFrame[0] == st.compFixedRef || !l->IsInter()) ? 1 : 0);
+					return 4;
+				}
+				if (hasA || hasL) {
+					const MiCell *e = hasA ? a : l;
+					return e->HasSecondRef() ? 3 : (e->refFrame[0] == st.compFixedRef ? 1 : 0);
+				}
+				return 1;
+			}
+
+			int32 GetPredContextCompRefP(const FrameParseState &st) {
+				const MiCell *a = st.aboveMi, *l = st.leftMi;
+				const bool hasA = a != nullptr, hasL = l != nullptr;
+				const int32 fixRefIdx = st.signBias[st.compFixedRef];
+				const int32 varRefIdx = fixRefIdx ? 0 : 1;
+				if (hasA && hasL) {
+					const bool aIntra = !a->IsInter(), lIntra = !l->IsInter();
+					if (aIntra && lIntra)
+						return 2;
+					if (aIntra || lIntra) {
+						const MiCell *e = aIntra ? l : a;
+						if (!e->HasSecondRef())
+							return 1 + 2 * (e->refFrame[0] != st.compVarRef[1] ? 1 : 0);
+						return 1 + 2 * (e->refFrame[varRefIdx] != st.compVarRef[1] ? 1 : 0);
+					}
+					const bool lSg = !l->HasSecondRef(), aSg = !a->HasSecondRef();
+					const int32 vrfa = aSg ? a->refFrame[0] : a->refFrame[varRefIdx];
+					const int32 vrfl = lSg ? l->refFrame[0] : l->refFrame[varRefIdx];
+					if (vrfa == vrfl && st.compVarRef[1] == vrfa)
+						return 0;
+					if (lSg && aSg) {
+						if ((vrfa == st.compFixedRef && vrfl == st.compVarRef[0]) ||
+							(vrfl == st.compFixedRef && vrfa == st.compVarRef[0]))
+							return 4;
+						return (vrfa == vrfl) ? 3 : 1;
+					}
+					if (lSg || aSg) {
+						const int32 vrfc = lSg ? vrfa : vrfl;
+						const int32 rfs = aSg ? vrfa : vrfl;
+						if (vrfc == st.compVarRef[1] && rfs != st.compVarRef[1])
+							return 1;
+						if (rfs == st.compVarRef[1] && vrfc != st.compVarRef[1])
+							return 2;
+						return 4;
+					}
+					return (vrfa == vrfl) ? 4 : 2;
+				}
+				if (hasA || hasL) {
+					const MiCell *e = hasA ? a : l;
+					if (!e->IsInter())
+						return 2;
+					if (e->HasSecondRef())
+						return 4 * (e->refFrame[varRefIdx] != st.compVarRef[1] ? 1 : 0);
+					return 3 * (e->refFrame[0] != st.compVarRef[1] ? 1 : 0);
+				}
+				return 2;
+			}
+
+			int32 GetPredContextSingleRefP1(const MiCell *above, const MiCell *left) {
+				const bool hasA = above != nullptr, hasL = left != nullptr;
+				const int32 kLast = 1;
+				if (hasA && hasL) {
+					const bool aI = !above->IsInter(), lI = !left->IsInter();
+					if (aI && lI)
+						return 2;
+					if (aI || lI) {
+						const MiCell *e = aI ? left : above;
+						if (!e->HasSecondRef())
+							return 4 * (e->refFrame[0] == kLast ? 1 : 0);
+						return 1 + ((e->refFrame[0] == kLast || e->refFrame[1] == kLast) ? 1 : 0);
+					}
+					const bool aSec = above->HasSecondRef(), lSec = left->HasSecondRef();
+					if (aSec && lSec) {
+						return 1 + ((above->refFrame[0] == kLast || above->refFrame[1] == kLast ||
+									 left->refFrame[0] == kLast || left->refFrame[1] == kLast)
+										? 1
+										: 0);
+					}
+					if (aSec || lSec) {
+						const int32 rfs = !aSec ? above->refFrame[0] : left->refFrame[0];
+						const int32 crf1 = aSec ? above->refFrame[0] : left->refFrame[0];
+						const int32 crf2 = aSec ? above->refFrame[1] : left->refFrame[1];
+						if (rfs == kLast)
+							return 3 + ((crf1 == kLast || crf2 == kLast) ? 1 : 0);
+						return (crf1 == kLast || crf2 == kLast) ? 1 : 0;
+					}
+					return 2 * (above->refFrame[0] == kLast ? 1 : 0) + 2 * (left->refFrame[0] == kLast ? 1 : 0);
+				}
+				if (hasA || hasL) {
+					const MiCell *e = hasA ? above : left;
+					if (!e->IsInter())
+						return 2;
+					if (!e->HasSecondRef())
+						return 4 * (e->refFrame[0] == kLast ? 1 : 0);
+					return 1 + ((e->refFrame[0] == kLast || e->refFrame[1] == kLast) ? 1 : 0);
+				}
+				return 2;
+			}
+
+			int32 GetPredContextSingleRefP2(const MiCell *above, const MiCell *left) {
+				const bool hasA = above != nullptr, hasL = left != nullptr;
+				const int32 kLast = 1, kGolden = 2, kAltref = 3;
+				if (hasA && hasL) {
+					const bool aI = !above->IsInter(), lI = !left->IsInter();
+					if (aI && lI)
+						return 2;
+					if (aI || lI) {
+						const MiCell *e = aI ? left : above;
+						if (!e->HasSecondRef()) {
+							if (e->refFrame[0] == kLast)
+								return 3;
+							return 4 * (e->refFrame[0] == kGolden ? 1 : 0);
+						}
+						return 1 + 2 * ((e->refFrame[0] == kGolden || e->refFrame[1] == kGolden) ? 1 : 0);
+					}
+					const bool aSec = above->HasSecondRef(), lSec = left->HasSecondRef();
+					const int32 a0 = above->refFrame[0], a1 = above->refFrame[1];
+					const int32 l0 = left->refFrame[0], l1 = left->refFrame[1];
+					if (aSec && lSec) {
+						if (a0 == l0 && a1 == l1)
+							return 3 * ((a0 == kGolden || a1 == kGolden || l0 == kGolden || l1 == kGolden) ? 1 : 0);
+						return 2;
+					}
+					if (aSec || lSec) {
+						const int32 rfs = !aSec ? a0 : l0;
+						const int32 crf1 = aSec ? a0 : l0;
+						const int32 crf2 = aSec ? a1 : l1;
+						if (rfs == kGolden)
+							return 3 + ((crf1 == kGolden || crf2 == kGolden) ? 1 : 0);
+						if (rfs == kAltref)
+							return (crf1 == kGolden || crf2 == kGolden) ? 1 : 0;
+						return 1 + 2 * ((crf1 == kGolden || crf2 == kGolden) ? 1 : 0);
+					}
+					if (a0 == kLast && l0 == kLast)
+						return 3;
+					if (a0 == kLast || l0 == kLast) {
+						const int32 edge0 = (a0 == kLast) ? l0 : a0;
+						return 4 * (edge0 == kGolden ? 1 : 0);
+					}
+					return 2 * (a0 == kGolden ? 1 : 0) + 2 * (l0 == kGolden ? 1 : 0);
+				}
+				if (hasA || hasL) {
+					const MiCell *e = hasA ? above : left;
+					if (!e->IsInter() || (e->refFrame[0] == kLast && !e->HasSecondRef()))
+						return 2;
+					if (!e->HasSecondRef())
+						return 4 * (e->refFrame[0] == kGolden ? 1 : 0);
+					return 3 * ((e->refFrame[0] == kGolden || e->refFrame[1] == kGolden) ? 1 : 0);
+				}
+				return 2;
+			}
+
+			// --- Lecture des modes/MV/refs (vp9_decodemv.c) ---
+
+			int32 ReadInterMode(NkVp8BoolDecoder &bd, const NkVp9FrameContext &fc, int32 ctx) {
+				return 10 + bd.GetTree(kVp9InterModeTree, fc.interModeProbs[ctx]); // NEARESTMV=10
+			}
+
+			void ReadRefFrames(NkVp8BoolDecoder &bd, FrameParseState &st, int32 segId, int8 refFrame[2]) {
+				if (st.hdr->segEnabled && st.hdr->segFeatureEnabled[segId][2]) { // SEG_LVL_REF_FRAME
+					refFrame[0] = (int8)st.hdr->segFeatureData[segId][2];
+					refFrame[1] = -1;
+					return;
+				}
+				int32 mode = st.referenceMode;
+				if (mode == kVp9ReferenceModeSelect)
+					mode = bd.GetBool(st.fc->compInterProb[GetReferenceModeContext(st)]);
+				if (mode == kVp9CompoundReference) {
+					const int32 idx = st.signBias[st.compFixedRef];
+					const int32 ctx = GetPredContextCompRefP(st);
+					const int32 bit = bd.GetBool(st.fc->compRefProb[ctx]);
+					refFrame[idx] = (int8)st.compFixedRef;
+					refFrame[idx ? 0 : 1] = (int8)st.compVarRef[bit];
+				} else {
+					const int32 ctx0 = GetPredContextSingleRefP1(st.aboveMi, st.leftMi);
+					const int32 bit0 = bd.GetBool(st.fc->singleRefProb[ctx0][0]);
+					if (bit0) {
+						const int32 ctx1 = GetPredContextSingleRefP2(st.aboveMi, st.leftMi);
+						const int32 bit1 = bd.GetBool(st.fc->singleRefProb[ctx1][1]);
+						refFrame[0] = (int8)(bit1 ? 3 : 2); // ALTREF : GOLDEN
+					} else {
+						refFrame[0] = 1; // LAST
+					}
+					refFrame[1] = -1;
+				}
+			}
+
+			int32 ReadIsInterBlock(NkVp8BoolDecoder &bd, FrameParseState &st, int32 segId) {
+				if (st.hdr->segEnabled && st.hdr->segFeatureEnabled[segId][2])
+					return st.hdr->segFeatureData[segId][2] != 0; // != INTRA_FRAME(0)
+				const int32 ctx = GetIntraInterContext(st.aboveMi, st.leftMi);
+				return bd.GetBool(st.fc->intraInterProb[ctx]);
+			}
+
+			int32 ReadSwitchableInterpFilter(NkVp8BoolDecoder &bd, FrameParseState &st) {
+				const int32 ctx = GetSwitchableInterpContext(st.aboveMi, st.leftMi);
+				return bd.GetTree(kVp9SwitchableInterpTree, st.fc->switchableInterpProb[ctx]);
+			}
+
+			int32 ReadMvComponent(NkVp8BoolDecoder &bd, const NkVp9NmvComponent &c, bool useHp) {
+				const int32 sign = bd.GetBool(c.sign);
+				const int32 cls = bd.GetTree(kVp9MvClassTree, c.classes);
+				const bool class0 = (cls == 0);
+				int32 d, mag;
+				if (class0) {
+					d = bd.GetBool(c.class0[0]);
+					mag = 0;
+				} else {
+					const int32 n = cls + 1 - 1; // MV_CLASS + CLASS0_BITS - 1 = cls
+					d = 0;
+					for (int32 i = 0; i < n; ++i)
+						d |= bd.GetBool(c.bits[i]) << i;
+					mag = 2 << (cls + 2); // CLASS0_SIZE << (cls+2)
+				}
+				const int32 fr = bd.GetTree(kVp9MvFrTree, class0 ? c.class0Fr[d] : c.fr);
+				const int32 hp = useHp ? bd.GetBool(class0 ? c.class0Hp : c.hp) : 1;
+				mag += ((d << 3) | (fr << 1) | hp) + 1;
+				return sign ? -mag : mag;
+			}
+
+			void ReadMv(NkVp8BoolDecoder &bd, const NkVp9FrameContext &fc, SimpleMv &mv, const SimpleMv &ref,
+					   bool allowHp) {
+				const int32 joint = bd.GetTree(kVp9MvJointTree, fc.nmvJoints);
+				const bool useHp = allowHp && UseMvHp(ref);
+				int32 dr = 0, dc = 0;
+				if (joint == 2 || joint == 3) // HZVNZ, HNZVNZ : composante verticale
+					dr = ReadMvComponent(bd, fc.nmvComps[0], useHp);
+				if (joint == 1 || joint == 3) // HNZVZ, HNZVNZ : composante horizontale
+					dc = ReadMvComponent(bd, fc.nmvComps[1], useHp);
+				mv.row = (int16)(ref.row + dr);
+				mv.col = (int16)(ref.col + dc);
+			}
+
+			bool IsMvValid(const SimpleMv &mv) {
+				return mv.row > kMvLow && mv.row < kMvUpp && mv.col > kMvLow && mv.col < kMvUpp;
+			}
+
+			// assign_mv : NEWMV lit un delta ; NEAR(EST)MV recopie le candidat ; ZEROMV = 0.
+			bool AssignMv(NkVp8BoolDecoder &bd, const NkVp9FrameContext &fc, int32 mode, SimpleMv mv[2],
+						 SimpleMv refMv[2], SimpleMv nearNearestMv[2], bool isCompound, bool allowHp) {
+				switch (mode) {
+					case 13: // NEWMV
+						for (int32 i = 0; i < (isCompound ? 2 : 1); ++i) {
+							ReadMv(bd, fc, mv[i], refMv[i], allowHp);
+							if (!IsMvValid(mv[i]))
+								return false;
+						}
+						return true;
+					case 11: // NEARMV
+					case 10: // NEARESTMV
+						mv[0] = nearNearestMv[0];
+						mv[1] = nearNearestMv[1];
+						return true;
+					case 12: // ZEROMV
+						mv[0] = SimpleMv{};
+						mv[1] = SimpleMv{};
+						return true;
+					default:
+						return false;
+				}
+			}
+
+			// get_mode_context (decodemv.c) : contexte inter_mode depuis les 2 voisins
+			// immédiats (mode_2_counter/counter_to_context, tables extraites).
+			int32 GetModeContext(const FrameParseState &st, const int8 mvRefSearch[8][2], int32 miRow,
+								 int32 miCol) {
+				int32 counter = 0;
+				for (int32 i = 0; i < 2; ++i) {
+					const int32 pr = mvRefSearch[i][0], pc = mvRefSearch[i][1];
+					if (!IsInsideTile(st, miRow, miCol, pr, pc))
+						continue;
+					const MiCell &cand = st.mi[(miRow + pr) * st.miCols + (miCol + pc)];
+					counter += kVp9Mode2Counter[cand.mode];
+				}
+				return kVp9CounterToContext[counter];
+			}
+
+			// read_inter_block_mode_info : modes + MV d'un bloc inter (>=8x8 et sub8x8).
+			void ReadInterBlockModeInfo(NkVp8BoolDecoder &bd, FrameParseState &st, int32 miRow, int32 miCol) {
+				MiCell &mi = st.cur;
+				const bool allowHp = st.allowHighPrecisionMv;
+				SimpleMv bestRefMvs[2];
+				ReadRefFrames(bd, st, mi.segId, mi.refFrame);
+				const bool isCompound = mi.HasSecondRef();
+				const int8(*mvRefSearch)[2] = kVp9MvRefBlocks[mi.sbType];
+				const int32 interModeCtx = GetModeContext(st, mvRefSearch, miRow, miCol);
+
+				const bool segSkip = st.hdr->segEnabled && st.hdr->segFeatureEnabled[mi.segId][3];
+				if (segSkip) {
+					mi.mode = 12; // ZEROMV
+				} else if (mi.sbType >= kBlock8x8) {
+					mi.mode = (uint8)ReadInterMode(bd, *st.fc, interModeCtx);
+				}
+
+				mi.interpFilter = (st.interpFilterHdr == 4) ? (uint8)ReadSwitchableInterpFilter(bd, st)
+															 : (uint8)st.interpFilterHdr;
+
+				if (mi.sbType < kBlock8x8) {
+					int32 bModeLast = 0;
+					bool gotMvRefsForNew = false;
+					SimpleMv bestSub8x8[2] = {SimpleMv{}, SimpleMv{}};
+					// Dimensions du bloc en unités 4x4 (BLOCK_4X4=0 : 1x1, BLOCK_4X8=1 : 1
+					// col × 2 rangées, BLOCK_8X4=2 : 2 col × 1 rangée).
+					const int32 num4x4w = (mi.sbType == 2) ? 2 : 1;
+					const int32 num4x4h = (mi.sbType == 1) ? 2 : 1;
+					for (int32 idy = 0; idy < 2; idy += num4x4h) {
+						for (int32 idx = 0; idx < 2; idx += num4x4w) {
+							const int32 j = idy * 2 + idx;
+							const int32 bMode = ReadInterMode(bd, *st.fc, interModeCtx);
+							bModeLast = bMode;
+							if (bMode == 10 || bMode == 11) { // NEARESTMV/NEARMV
+								for (int32 ref = 0; ref < (isCompound ? 2 : 1); ++ref)
+									AppendSub8x8Mvs(st, mvRefSearch, bMode, j, ref, miRow, miCol, bestSub8x8[ref]);
+							} else if (bMode == 13 && !gotMvRefsForNew) { // NEWMV
+								for (int32 ref = 0; ref < (isCompound ? 2 : 1); ++ref) {
+									SimpleMv tmp[2];
+									DecFindMvRefs(st, 13, mi.refFrame[ref], mvRefSearch, tmp, miRow, miCol, -1);
+									// lower_mv_precision.
+									if (!(allowHp && UseMvHp(tmp[0]))) {
+										if (tmp[0].row & 1)
+											tmp[0].row += (tmp[0].row > 0 ? -1 : 1);
+										if (tmp[0].col & 1)
+											tmp[0].col += (tmp[0].col > 0 ? -1 : 1);
+									}
+									bestRefMvs[ref] = tmp[0];
+								}
+								gotMvRefsForNew = true;
+							}
+							SimpleMv mvOut[2];
+							if (!AssignMv(bd, *st.fc, bMode, mvOut, bestRefMvs, bestSub8x8, isCompound, allowHp)) {
+								mvOut[0] = SimpleMv{};
+								mvOut[1] = SimpleMv{};
+							}
+							mi.bmiMv[j][0] = mvOut[0];
+							mi.bmiMv[j][1] = mvOut[1];
+							mi.bmi[j] = (uint8)bMode;
+							if (num4x4h == 2) {
+								mi.bmiMv[j + 2][0] = mvOut[0];
+								mi.bmiMv[j + 2][1] = mvOut[1];
+								mi.bmi[j + 2] = (uint8)bMode;
+							}
+							if (num4x4w == 2) {
+								mi.bmiMv[j + 1][0] = mvOut[0];
+								mi.bmiMv[j + 1][1] = mvOut[1];
+								mi.bmi[j + 1] = (uint8)bMode;
+							}
+						}
+					}
+					mi.mode = (uint8)bModeLast;
+					mi.mv[0] = mi.bmiMv[3][0];
+					mi.mv[1] = mi.bmiMv[3][1];
+				} else {
+					if (mi.mode != 12) { // != ZEROMV
+						for (int32 ref = 0; ref < (isCompound ? 2 : 1); ++ref) {
+							SimpleMv tmp[2];
+							const int32 n =
+								DecFindMvRefs(st, mi.mode, mi.refFrame[ref], mvRefSearch, tmp, miRow, miCol, -1);
+							SimpleMv &best = tmp[n - 1];
+							if (!(allowHp && UseMvHp(best))) {
+								if (best.row & 1)
+									best.row += (best.row > 0 ? -1 : 1);
+								if (best.col & 1)
+									best.col += (best.col > 0 ? -1 : 1);
+							}
+							bestRefMvs[ref] = best;
+						}
+					}
+					SimpleMv mvOut[2];
+					if (!AssignMv(bd, *st.fc, mi.mode, mvOut, bestRefMvs, bestRefMvs, isCompound, allowHp)) {
+						mvOut[0] = SimpleMv{};
+						mvOut[1] = SimpleMv{};
+					}
+					mi.mv[0] = mvOut[0];
+					mi.mv[1] = mvOut[1];
+				}
 			}
 
 			// =================================================================
@@ -1416,8 +2299,14 @@ namespace nkentseu {
 				}
 			}
 
+			// mode_lf_lut (loopfilter.c) : 0 pour les 10 modes intra + ZEROMV, 1 pour
+			// NEARESTMV/NEARMV/NEWMV (modes 10,11,13).
+			const uint8 kModeLfLut[14] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1};
+
 			// vp9_filter_block_plane_non420 : masques à la volée par superbloc, un plane.
-			void FilterBlockPlane(const FrameParseState &st, int32 plane, const uint8 *lvlBySeg,
+			// `lvlTable[seg][refFrame][modeLfLut]` : niveau par bloc (constant pour les
+			// trames clés puisque refFrame=INTRA_FRAME(0)/mode intra→lut=0 partout).
+			void FilterBlockPlane(const FrameParseState &st, int32 plane, const uint8 lvlTable[8][4][2],
 								  const LfThresholds &thr, int32 miRow, int32 miCol) {
 				const NkVp9FrameHeader &hdr = *st.hdr;
 				const int32 ssx = plane ? hdr.subsamplingX : 0;
@@ -1436,8 +2325,7 @@ namespace nkentseu {
 					for (int32 c = 0; c < 8 && miCol + c < st.miCols; c += colStep) {
 						const MiCell &mi = st.mi[(miRow + r) * st.miCols + (miCol + c)];
 						const int32 sbType = mi.sbType;
-						// (trame clé : jamais inter → le skip ne saute pas le filtre)
-						const bool skipThis = false;
+						const bool skipThis = mi.skip != 0 && mi.IsInter();
 						const int32 blockEdgeLeft =
 							(kVp9Num4x4BlocksWide[sbType] > 1)
 								? !(c & (kVp9Num8x8BlocksWide[sbType] - 1))
@@ -1457,7 +2345,7 @@ namespace nkentseu {
 						const bool skipBorder4x4C = ssx && (miCol + c == st.miCols - 1);
 						const bool skipBorder4x4R = ssy && (miRow + r == st.miRows - 1);
 
-						const uint8 level = lvlBySeg[mi.segId];
+						const uint8 level = lvlTable[mi.segId][mi.refFrame[0]][kModeLfLut[mi.mode]];
 						lfl[(r << 3) + (c >> ssx)] = level;
 						if (!level)
 							continue;
@@ -1532,21 +2420,29 @@ namespace nkentseu {
 				}
 			}
 
-			// Niveaux par segment (trame clé : ref INTRA, mode delta 0).
-			void BuildLfLevels(const NkVp9FrameHeader &hdr, uint8 *lvlBySeg) {
+			// vp9_loop_filter_frame_init : niveaux par [segment][ref_frame][mode_lf_lut].
+			// Trame clé : seul [s][INTRA_FRAME=0][0] est jamais lu (mode intra → lut=0).
+			void BuildLfLevels(const NkVp9FrameHeader &hdr, uint8 lvlTable[8][4][2]) {
 				const int32 scale = 1 << (hdr.lfLevel >> 5);
+				auto Clamp63 = [](int32 v) { return v < 0 ? 0 : (v > 63 ? 63 : v); };
 				for (int32 s = 0; s < 8; ++s) {
-					int32 lvl = hdr.lfLevel;
+					int32 lvlSeg = hdr.lfLevel;
 					if (hdr.segEnabled && hdr.segFeatureEnabled[s][1]) { // ALT_LF
 						const int32 data = hdr.segFeatureData[s][1];
-						lvl = hdr.segAbsDelta ? data : hdr.lfLevel + data;
-						lvl = lvl < 0 ? 0 : (lvl > 63 ? 63 : lvl);
+						lvlSeg = Clamp63(hdr.segAbsDelta ? data : hdr.lfLevel + data);
 					}
-					if (hdr.lfDeltaEnabled) {
-						lvl = lvl + hdr.lfRefDeltas[0] * scale; // INTRA_FRAME
-						lvl = lvl < 0 ? 0 : (lvl > 63 ? 63 : lvl);
+					if (!hdr.lfDeltaEnabled) {
+						for (int32 r = 0; r < 4; ++r)
+							for (int32 m = 0; m < 2; ++m)
+								lvlTable[s][r][m] = (uint8)lvlSeg;
+						continue;
 					}
-					lvlBySeg[s] = (uint8)lvl;
+					lvlTable[s][0][0] = (uint8)Clamp63(lvlSeg + hdr.lfRefDeltas[0] * scale); // INTRA_FRAME
+					lvlTable[s][0][1] = lvlTable[s][0][0];
+					for (int32 ref = 1; ref < 4; ++ref)
+						for (int32 m = 0; m < 2; ++m)
+							lvlTable[s][ref][m] =
+								(uint8)Clamp63(lvlSeg + hdr.lfRefDeltas[ref] * scale + hdr.lfModeDeltas[m] * scale);
 				}
 			}
 
@@ -1557,12 +2453,12 @@ namespace nkentseu {
 					return;
 				LfThresholds thr;
 				thr.Build(hdr.lfSharpness);
-				uint8 lvlBySeg[8];
-				BuildLfLevels(hdr, lvlBySeg);
+				uint8 lvlTable[8][4][2];
+				BuildLfLevels(hdr, lvlTable);
 				for (int32 miRow = 0; miRow < st.miRows; miRow += 8)
 					for (int32 miCol = 0; miCol < st.miCols; miCol += 8)
 						for (int32 plane = 0; plane < 3; ++plane)
-							FilterBlockPlane(st, plane, lvlBySeg, thr, miRow, miCol);
+							FilterBlockPlane(st, plane, lvlTable, thr, miRow, miCol);
 			}
 
 			// read_partition : arbre complet ou lecture partielle aux bords.
@@ -1572,7 +2468,7 @@ namespace nkentseu {
 				const int32 above = (st.aboveSegCtx[miCol] >> bsl) & 1;
 				const int32 left = (st.leftSegCtx[miRow & 7] >> bsl) & 1;
 				const int32 ctx = (left * 2 + above) + bsl * 4; // PARTITION_PLOFFSET = 4
-				const uint8 *probs = kVp9KfPartitionProbs[ctx]; // trame clé
+				const uint8 *probs = st.isInterFrame ? st.fc->partitionProb[ctx] : kVp9KfPartitionProbs[ctx];
 				if (hasRows && hasCols)
 					return bd.GetTree(kVp9PartitionTree, probs);
 				if (!hasRows && hasCols)
@@ -2134,6 +3030,179 @@ namespace nkentseu {
 				memory::NkFree(st.aboveEntCtx[q]);
 			return ok;
 			}
+
+			// Regroupe l'état inter préparé par DecodeInterFrame (refs + probas dérivées)
+			// avant l'appel au corps commun de parcours des tiles.
+			struct InterFrameCtx {
+					const uint8 *refPlanes[3][3] = {{nullptr}};
+					int32 refStride[3][3] = {{0}};
+					int32 signBias[4] = {0, 0, 0, 0};
+					int32 compFixedRef = 0, compVarRef[2] = {0, 0};
+					int32 referenceMode = 0;
+					bool allowHighPrecisionMv = false;
+					int32 interpFilterHdr = 4;
+					bool usePrevFrameMvs = false;
+					const NkVp9MvRef *prevMvs = nullptr;
+			};
+
+			// Corps commun brique 6 : parse+reconstruit une trame INTER (miroir de
+			// ParseOrDecodeKeyContent). `img==nullptr` : parse seul (validation
+			// consommation, pas encore utilisé par un harnais dédié mais réutilisable).
+			bool ParseOrDecodeInterContent(const uint8 *tileData, usize tileSize, const NkVp9FrameHeader &hdr,
+										   const NkVp9FrameContext &fc, const NkVp9CompressedHeader &chdr,
+										   const InterFrameCtx &ictx, NkVp9Decoder::NkTileParseStats &stats,
+										   NkVp9Image *img, bool applyLoopFilter = true) {
+				stats = NkVp9Decoder::NkTileParseStats{};
+				if (tileData == nullptr || tileSize == 0 || hdr.width <= 0 || hdr.height <= 0)
+					return false;
+				if (hdr.frameType == kVp9KeyFrame || hdr.intraOnly)
+					return false; // trames clés/intra-only = ParseOrDecodeKeyContent
+
+				FrameParseState st;
+				st.hdr = &hdr;
+				st.fc = &fc;
+				st.miCols = (hdr.width + 7) >> 3;
+				st.miRows = (hdr.height + 7) >> 3;
+				st.sbCols = (st.miCols + 7) >> 3;
+				st.txMode = chdr.txMode;
+				st.isInterFrame = true;
+				for (int32 i = 0; i < 3; ++i) {
+					for (int32 p = 0; p < 3; ++p) {
+						st.refPlanes[i][p] = ictx.refPlanes[i][p];
+						st.refStride[i][p] = ictx.refStride[i][p];
+					}
+					st.signBias[i + 1] = ictx.signBias[i + 1];
+				}
+				st.compFixedRef = ictx.compFixedRef;
+				st.compVarRef[0] = ictx.compVarRef[0];
+				st.compVarRef[1] = ictx.compVarRef[1];
+				st.referenceMode = ictx.referenceMode;
+				st.allowHighPrecisionMv = ictx.allowHighPrecisionMv;
+				st.interpFilterHdr = ictx.interpFilterHdr;
+				st.usePrevFrameMvs = ictx.usePrevFrameMvs;
+				st.prevMvs = ictx.prevMvs;
+
+				if (img != nullptr) {
+					img->width = hdr.width;
+					img->height = hdr.height;
+					img->uvWidth = (hdr.width + hdr.subsamplingX) >> hdr.subsamplingX;
+					img->uvHeight = (hdr.height + hdr.subsamplingY) >> hdr.subsamplingY;
+					img->yStride = hdr.width + 64;
+					img->uvStride = img->uvWidth + 64;
+					img->y.Resize((usize)img->yStride * (usize)(img->height + 64));
+					img->u.Resize((usize)img->uvStride * (usize)(img->uvHeight + 64));
+					img->v.Resize((usize)img->uvStride * (usize)(img->uvHeight + 64));
+					st.planes[0] = img->y.Data();
+					st.planes[1] = img->u.Data();
+					st.planes[2] = img->v.Data();
+					st.planeStride[0] = img->yStride;
+					st.planeStride[1] = st.planeStride[2] = img->uvStride;
+					st.planeW[0] = img->width;
+					st.planeH[0] = img->height;
+					st.planeW[1] = st.planeW[2] = img->uvWidth;
+					st.planeH[1] = st.planeH[2] = img->uvHeight;
+					for (int32 s = 0; s < 8; ++s) {
+						int32 q = hdr.baseQIdx;
+						if (hdr.segEnabled && hdr.segFeatureEnabled[s][0]) {
+							const int32 data = hdr.segFeatureData[s][0];
+							q = hdr.segAbsDelta ? data : hdr.baseQIdx + data;
+							q = q < 0 ? 0 : (q > 255 ? 255 : q);
+						}
+						auto ClampQ = [](int32 v) { return v < 0 ? 0 : (v > 255 ? 255 : v); };
+						st.yDequant[s][0] = kVp9DcQLookup[ClampQ(q + hdr.deltaQYDc)];
+						st.yDequant[s][1] = kVp9AcQLookup[q];
+						st.uvDequant[s][0] = kVp9DcQLookup[ClampQ(q + hdr.deltaQUvDc)];
+						st.uvDequant[s][1] = kVp9AcQLookup[ClampQ(q + hdr.deltaQUvAc)];
+					}
+				}
+
+				const int32 miAligned = st.sbCols * kMiBlockSize;
+				st.mi = (MiCell *)memory::NkAlloc((size_t)st.miRows * (size_t)st.miCols * sizeof(MiCell));
+				st.aboveSegCtx = (uint8 *)memory::NkAlloc((size_t)miAligned);
+				for (int32 p = 0; p < 3; ++p)
+					st.aboveEntCtx[p] = (uint8 *)memory::NkAlloc((size_t)miAligned * 2);
+				if (!st.mi || !st.aboveSegCtx || !st.aboveEntCtx[0] || !st.aboveEntCtx[1] || !st.aboveEntCtx[2]) {
+					memory::NkFree(st.mi);
+					memory::NkFree(st.aboveSegCtx);
+					for (int32 p = 0; p < 3; ++p)
+						memory::NkFree(st.aboveEntCtx[p]);
+					return false;
+				}
+				for (int32 i = 0; i < st.miRows * st.miCols; ++i)
+					st.mi[i] = MiCell{};
+				for (int32 i = 0; i < miAligned; ++i)
+					st.aboveSegCtx[i] = 0;
+				for (int32 p = 0; p < 3; ++p)
+					for (int32 i = 0; i < miAligned * 2; ++i)
+						st.aboveEntCtx[p][i] = 0;
+				st.stats = &stats;
+
+				const int32 tileCols = 1 << hdr.tileColsLog2;
+				const int32 tileRows = 1 << hdr.tileRowsLog2;
+				const int32 sbRows = (st.miRows + 7) >> 3;
+				auto TileOffset = [](int32 idx, int32 sbDim, int32 log2, int32 miDim) -> int32 {
+					const int32 off = ((idx * sbDim) >> log2) << 3;
+					return off < miDim ? off : miDim;
+				};
+
+				bool ok = true;
+				const uint8 *p = tileData;
+				usize remaining = tileSize;
+				for (int32 tr = 0; tr < tileRows && ok; ++tr) {
+					const int32 miRowStart = TileOffset(tr, sbRows, hdr.tileRowsLog2, st.miRows);
+					const int32 miRowEnd = TileOffset(tr + 1, sbRows, hdr.tileRowsLog2, st.miRows);
+					for (int32 tc = 0; tc < tileCols && ok; ++tc) {
+						const bool last = (tr == tileRows - 1) && (tc == tileCols - 1);
+						usize sz = remaining;
+						if (!last) {
+							if (remaining < 4) {
+								ok = false;
+								break;
+							}
+							sz = ((usize)p[0] << 24) | ((usize)p[1] << 16) | ((usize)p[2] << 8) | (usize)p[3];
+							p += 4;
+							remaining -= 4;
+							if (sz > remaining) {
+								ok = false;
+								break;
+							}
+						}
+						st.tileMiColStart = TileOffset(tc, st.sbCols, hdr.tileColsLog2, st.miCols);
+						st.tileMiColEnd = TileOffset(tc + 1, st.sbCols, hdr.tileColsLog2, st.miCols);
+
+						NkVp8BoolDecoder bd(p, sz);
+						if (bd.GetFlag() != 0) {
+							ok = false;
+							break;
+						}
+						for (int32 miRow = miRowStart; miRow < miRowEnd && ok; miRow += kMiBlockSize) {
+							for (int32 q = 0; q < 3; ++q)
+								for (int32 i = 0; i < 16; ++i)
+									st.leftEntCtx[q][i] = 0;
+							for (int32 i = 0; i < 8; ++i)
+								st.leftSegCtx[i] = 0;
+							for (int32 miCol = st.tileMiColStart; miCol < st.tileMiColEnd; miCol += kMiBlockSize)
+								DecodePartition(bd, st, miRow, miCol, kBlock64x64, 4);
+						}
+						if (bd.overreadBytes > 2 || bd.pos < sz)
+							ok = false;
+						if (bd.overreadBytes > stats.maxOverread)
+							stats.maxOverread = bd.overreadBytes;
+						++stats.tiles;
+						p += sz;
+						remaining -= sz;
+					}
+				}
+
+				if (ok && img != nullptr && applyLoopFilter)
+					LoopFilterFrame(st);
+
+				memory::NkFree(st.mi);
+				memory::NkFree(st.aboveSegCtx);
+				for (int32 q = 0; q < 3; ++q)
+					memory::NkFree(st.aboveEntCtx[q]);
+				return ok;
+			}
 		} // namespace
 
 		bool NkVp9Decoder::ParseKeyFrameContent(const uint8 *tileData, usize tileSize,
@@ -2162,6 +3231,120 @@ namespace nkentseu {
 			NkTileParseStats stats;
 			const bool ok = ParseOrDecodeKeyContent(frame + hdrBytes, size - hdrBytes, hdr, fc, chdr,
 													stats, &out, applyLoopFilter);
+			if (statsOut)
+				*statsOut = stats;
+			return ok;
+		}
+
+		void NkVp9RefBuffer::Build(const NkVp9Image &img, NkVp9RefBuffer &out) {
+			const int32 B = kMcBorder;
+			out.width = img.width;
+			out.height = img.height;
+			out.uvWidth = img.uvWidth;
+			out.uvHeight = img.uvHeight;
+			out.yStride = img.width + 2 * B;
+			out.uvStride = img.uvWidth + 2 * B;
+			out.yBuf.Resize((usize)out.yStride * (usize)(img.height + 2 * B));
+			out.uBuf.Resize((usize)out.uvStride * (usize)(img.uvHeight + 2 * B));
+			out.vBuf.Resize((usize)out.uvStride * (usize)(img.uvHeight + 2 * B));
+			out.yOrigin = out.yBuf.Data() + B * out.yStride + B;
+			out.uOrigin = out.uBuf.Data() + B * out.uvStride + B;
+			out.vOrigin = out.vBuf.Data() + B * out.uvStride + B;
+
+			auto Extend = [B](const uint8 *src, int32 srcStride, int32 w, int32 h, uint8 *origin,
+							  int32 dstStride) {
+				for (int32 y = 0; y < h; ++y)
+					for (int32 x = 0; x < w; ++x)
+						origin[y * dstStride + x] = src[y * srcStride + x];
+				for (int32 y = 0; y < h; ++y) {
+					uint8 *row = origin + y * dstStride;
+					const uint8 l = row[0], r = row[w - 1];
+					for (int32 x = 1; x <= B; ++x) {
+						row[-x] = l;
+						row[w - 1 + x] = r;
+					}
+				}
+				const uint8 *firstRow = origin - B;
+				const uint8 *lastRow = origin + (h - 1) * dstStride - B;
+				const int32 fullW = w + 2 * B;
+				for (int32 i = 1; i <= B; ++i) {
+					uint8 *top = origin - i * dstStride - B;
+					uint8 *bot = origin + (h - 1 + i) * dstStride - B;
+					for (int32 x = 0; x < fullW; ++x) {
+						top[x] = firstRow[x];
+						bot[x] = lastRow[x];
+					}
+				}
+			};
+			Extend(img.y.Data(), img.yStride, img.width, img.height, out.yOrigin, out.yStride);
+			Extend(img.u.Data(), img.uvStride, img.uvWidth, img.uvHeight, out.uOrigin, out.uvStride);
+			Extend(img.v.Data(), img.uvStride, img.uvWidth, img.uvHeight, out.vOrigin, out.uvStride);
+		}
+
+		bool NkVp9Decoder::DecodeInterFrame(const uint8 *frame, usize size, const NkVp9Image *refImages[3],
+											NkVp9Image &out, NkTileParseStats *statsOut, bool applyLoopFilter,
+											bool usePrevFrameMvs, const NkVp9MvRef *prevMvs) {
+			// Dimensions héritées d'une réf (frame_size_with_refs) : on suppose que les 3
+			// références partagent la même résolution (cas courant — un flux qui change
+			// de résolution par référence est une fonctionnalité avancée non gérée) et
+			// on fournit celle de LAST (refImages[0]) comme candidate d'héritage.
+			const int32 guessW = refImages[0] ? refImages[0]->width : 0;
+			const int32 guessH = refImages[0] ? refImages[0]->height : 0;
+			NkVp9FrameHeader hdr;
+			if (!ParseUncompressedHeader(frame, size, hdr, guessW, guessH))
+				return false;
+			if (hdr.showExistingFrame || hdr.frameType == kVp9KeyFrame || hdr.intraOnly)
+				return false;
+			if (hdr.width <= 0 || hdr.height <= 0)
+				return false; // taille héritée non résolue (sentinelle négative)
+			const usize hdrBytes = (usize)hdr.uncompressedBytes + (usize)hdr.headerSizeBytes;
+			if (hdrBytes >= size || hdr.headerSizeBytes <= 0)
+				return false;
+
+			NkVp9FrameContext fc;
+			InitDefaultFrameContext(fc);
+			NkVp9CompressedHeader chdr;
+			if (!ParseCompressedHeader(frame + hdr.uncompressedBytes, (usize)hdr.headerSizeBytes, hdr, fc, chdr))
+				return false;
+
+			// Bordures étendues des 3 références (LAST/GOLDEN/ALTREF).
+			NkVp9RefBuffer bufs[3];
+			InterFrameCtx ictx;
+			for (int32 i = 0; i < 3; ++i) {
+				if (refImages[i] == nullptr || refImages[i]->width != hdr.width ||
+					refImages[i]->height != hdr.height)
+					return false; // référence manquante ou de taille différente (non géré)
+				NkVp9RefBuffer::Build(*refImages[i], bufs[i]);
+				ictx.refPlanes[i][0] = bufs[i].yOrigin;
+				ictx.refPlanes[i][1] = bufs[i].uOrigin;
+				ictx.refPlanes[i][2] = bufs[i].vOrigin;
+				ictx.refStride[i][0] = bufs[i].yStride;
+				ictx.refStride[i][1] = ictx.refStride[i][2] = bufs[i].uvStride;
+				ictx.signBias[i + 1] = hdr.refFrameSignBias[i] ? 1 : 0;
+			}
+			// vp9_setup_compound_reference_mode.
+			if (ictx.signBias[1] == ictx.signBias[2]) {
+				ictx.compFixedRef = 3; // ALTREF
+				ictx.compVarRef[0] = 1;
+				ictx.compVarRef[1] = 2; // LAST,GOLDEN
+			} else if (ictx.signBias[1] == ictx.signBias[3]) {
+				ictx.compFixedRef = 2; // GOLDEN
+				ictx.compVarRef[0] = 1;
+				ictx.compVarRef[1] = 3; // LAST,ALTREF
+			} else {
+				ictx.compFixedRef = 1; // LAST
+				ictx.compVarRef[0] = 2;
+				ictx.compVarRef[1] = 3; // GOLDEN,ALTREF
+			}
+			ictx.referenceMode = chdr.referenceMode;
+			ictx.allowHighPrecisionMv = hdr.allowHighPrecisionMv;
+			ictx.interpFilterHdr = hdr.interpFilter;
+			ictx.usePrevFrameMvs = usePrevFrameMvs;
+			ictx.prevMvs = prevMvs;
+
+			NkTileParseStats stats;
+			const bool ok = ParseOrDecodeInterContent(frame + hdrBytes, size - hdrBytes, hdr, fc, chdr, ictx,
+													  stats, &out, applyLoopFilter);
 			if (statsOut)
 				*statsOut = stats;
 			return ok;
