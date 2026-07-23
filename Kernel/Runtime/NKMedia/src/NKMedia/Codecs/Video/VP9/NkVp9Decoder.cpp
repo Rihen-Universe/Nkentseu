@@ -337,6 +337,9 @@ namespace nkentseu {
 					int32 n4w[3] = {0}, n4h[3] = {0};			 // unités 4x4 du bloc par plane
 					int32 aboveOff[3] = {0}, leftOff[3] = {0};	 // offsets contextes entropie
 					NkVp9Decoder::NkTileParseStats *stats = nullptr;
+					// Compteurs d'adaptation backward (nullptr = pas de comptage, ex. brique 3
+					// parse-seul via ParseKeyFrameContent).
+					NkVp9FrameCounts *counts = nullptr;
 
 					// --- Inter (brique 6) : nullptr/false = trame clé (comportement inchangé). ---
 					bool isInterFrame = false;
@@ -403,32 +406,45 @@ namespace nkentseu {
 			// (ordre du scan). dq = {DC, AC} ; dqShift = 1 pour les 32x32. Renvoie l'EOB.
 			int32 DecodeCoefs(NkVp8BoolDecoder &bd, const NkVp9FrameContext &fc, int32 planeType,
 							  int32 txSize, int32 ctx, const int16 *scan, const int16 *nb,
-							  const int16 *dq, int16 *dqcoeff, int32 refIdx = 0) {
+							  const int16 *dq, int16 *dqcoeff, int32 refIdx,
+							  NkVp9FrameCounts *counts) {
 				const int32 maxEob = 16 << (txSize << 1);
 				const int32 dqShift = (txSize == 3) ? 1 : 0;
 				const uint8(*coefProbs)[6][3] = fc.coefProbs[txSize][planeType][refIdx]; // 0=intra,1=inter
+				uint32(*coefCounts)[6][4] = counts ? counts->coef[txSize][planeType][refIdx] : nullptr;
+				uint32(*eobCounts)[6] = counts ? counts->eobBranch[txSize][planeType][refIdx] : nullptr;
 				uint8 tokenCache[32 * 32];
 				const uint8 *bandTranslate = (txSize == 0) ? kVp9CoefbandTrans4x4 : kVp9CoefbandTrans8x8Plus;
 				int32 dqv = dq[0];
 				int32 c = 0;
 				while (c < maxEob) {
-					const int32 band = (int32)bandTranslate[c];
+					int32 band = (int32)bandTranslate[c];
 					const uint8 *prob = coefProbs[band][ctx];
-					if (!bd.GetBool(prob[0])) // EOB
+					if (eobCounts)
+						++eobCounts[band][ctx];
+					if (!bd.GetBool(prob[0])) { // EOB
+						if (coefCounts)
+							++coefCounts[band][ctx][3]; // EOB_MODEL_TOKEN
 						break;
+					}
 					// Suite de zéros.
 					while (!bd.GetBool(prob[1])) {
+						if (coefCounts)
+							++coefCounts[band][ctx][0]; // ZERO_TOKEN
 						tokenCache[scan[c]] = 0;
 						dqv = dq[1];
 						++c;
 						if (c >= maxEob)
 							return c; // zéros jusqu'au bout (pas de token EOB)
 						ctx = (1 + tokenCache[nb[2 * c]] + tokenCache[nb[2 * c + 1]]) >> 1;
-						prob = coefProbs[(int32)bandTranslate[c]][ctx];
+						band = (int32)bandTranslate[c];
+						prob = coefProbs[band][ctx];
 					}
 					// Valeur.
 					int32 v;
 					if (bd.GetBool(prob[2])) {
+						if (coefCounts)
+							++coefCounts[band][ctx][2]; // TWO_TOKEN
 						const uint8 *p = kVp9Pareto8Full[prob[2] - 1];
 						int32 val;
 						if (bd.GetBool(p[0])) {
@@ -462,6 +478,8 @@ namespace nkentseu {
 							}
 						}
 					} else {
+						if (coefCounts)
+							++coefCounts[band][ctx][1]; // ONE_TOKEN
 						tokenCache[scan[c]] = 1; // ONE
 						v = dqv >> dqShift;
 					}
@@ -559,6 +577,14 @@ namespace nkentseu {
 					if (txSize != 1 && maxTxSize >= 3)
 						txSize += bd.GetBool(probs[2]);
 				}
+				if (st.counts) {
+					if (maxTxSize == 1)
+						++st.counts->txP8x8[ctx][txSize];
+					else if (maxTxSize == 2)
+						++st.counts->txP16x16[ctx][txSize];
+					else
+						++st.counts->txP32x32[ctx][txSize];
+				}
 				return txSize;
 			}
 
@@ -638,7 +664,7 @@ namespace nkentseu {
 									dqcoeff[i] = 0;
 							}
 							const int32 eob = DecodeCoefs(bd, *st.fc, plane ? 1 : 0, txSize, ctx, scan, nb, dq,
-														  dqcoeff, isInter ? 1 : 0);
+														  dqcoeff, isInter ? 1 : 0, st.counts);
 							st.stats->eobTotal += eob;
 							if (recon && eob > 0) {
 								if (hdr.lossless) {
@@ -679,24 +705,41 @@ namespace nkentseu {
 				const NkVp9FrameContext &fc = *st.fc;
 				switch (mi.sbType) {
 					case 0: // BLOCK_4X4
-						for (int32 i = 0; i < 4; ++i)
+						for (int32 i = 0; i < 4; ++i) {
 							mi.bmi[i] = (uint8)bd.GetTree(kVp9IntraModeTree, fc.yModeProb[0]);
+							if (st.counts)
+								++st.counts->yMode[0][mi.bmi[i]];
+						}
 						mi.mode = mi.bmi[3];
 						break;
 					case 1: // BLOCK_4X8
 						mi.bmi[0] = mi.bmi[2] = (uint8)bd.GetTree(kVp9IntraModeTree, fc.yModeProb[0]);
+						if (st.counts)
+							++st.counts->yMode[0][mi.bmi[0]];
 						mi.bmi[1] = mi.bmi[3] = mi.mode = (uint8)bd.GetTree(kVp9IntraModeTree, fc.yModeProb[0]);
+						if (st.counts)
+							++st.counts->yMode[0][mi.mode];
 						break;
 					case 2: // BLOCK_8X4
 						mi.bmi[0] = mi.bmi[1] = (uint8)bd.GetTree(kVp9IntraModeTree, fc.yModeProb[0]);
+						if (st.counts)
+							++st.counts->yMode[0][mi.bmi[0]];
 						mi.bmi[2] = mi.bmi[3] = mi.mode = (uint8)bd.GetTree(kVp9IntraModeTree, fc.yModeProb[0]);
+						if (st.counts)
+							++st.counts->yMode[0][mi.mode];
 						break;
-					default:
-						mi.mode = (uint8)bd.GetTree(kVp9IntraModeTree, fc.yModeProb[kVp9SizeGroupLookup[mi.sbType]]);
+					default: {
+						const int32 sg = kVp9SizeGroupLookup[mi.sbType];
+						mi.mode = (uint8)bd.GetTree(kVp9IntraModeTree, fc.yModeProb[sg]);
+						if (st.counts)
+							++st.counts->yMode[sg][mi.mode];
 						mi.bmi[0] = mi.bmi[1] = mi.bmi[2] = mi.bmi[3] = mi.mode;
 						break;
+					}
 				}
 				mi.uvMode = (uint8)bd.GetTree(kVp9IntraModeTree, fc.uvModeProb[mi.mode]);
+				if (st.counts)
+					++st.counts->uvMode[mi.mode][mi.uvMode];
 				mi.interpFilter = 3; // SWITCHABLE_FILTERS (sentinelle)
 				mi.refFrame[0] = 0;	 // INTRA_FRAME
 				mi.refFrame[1] = -1; // NO_REF_FRAME
@@ -719,7 +762,10 @@ namespace nkentseu {
 				} else {
 					const int32 aSkip = st.aboveMi ? st.aboveMi->skip : 0;
 					const int32 lSkip = st.leftMi ? st.leftMi->skip : 0;
-					mi.skip = (uint8)bd.GetBool(st.fc->skipProbs[aSkip + lSkip]);
+					const int32 skipCtx = aSkip + lSkip;
+					mi.skip = (uint8)bd.GetBool(st.fc->skipProbs[skipCtx]);
+					if (st.counts)
+						++st.counts->skip[skipCtx][mi.skip];
 					if (mi.skip)
 						++st.stats->skipBlocks;
 				}
@@ -822,6 +868,14 @@ namespace nkentseu {
 				const bool isCompound = mi.HasSecondRef();
 				const int32 ssx = plane ? st.hdr->subsamplingX : 0;
 				const int32 ssy = plane ? st.hdr->subsamplingY : 0;
+				// Origine GLOBALE (dans le plan) du bloc courant — `x,y` ci-dessus ne sont
+				// que des offsets LOCAUX au bloc (0 pour un bloc entier, 4*sous-bloc pour
+				// sbType<8x8). Sans cette addition, la lecture référence restait bloquée
+				// à l'origine (0,0) du plan de référence pour TOUT bloc (fonctionnait par
+				// coïncidence en (0,0), corrompait tout le reste — bug diagnostiqué en
+				// comparant la prédiction MV=0 au pixel de la trame clé référencée).
+				const int32 blockX = (-st.mbToLeftEdge) >> (3 + ssx);
+				const int32 blockY = (-st.mbToTopEdge) >> (3 + ssy);
 				for (int32 ref = 0; ref < (isCompound ? 2 : 1); ++ref) {
 					const SimpleMv mv =
 						(mi.sbType < kBlock8x8) ? AverageSplitMvs(mi, ref, block, ssx, ssy) : mi.mv[ref];
@@ -837,7 +891,7 @@ namespace nkentseu {
 					const int32 subpelX = mvQ4.col & 15, subpelY = mvQ4.row & 15;
 					const uint8 *refPlane = st.refPlanes[mi.refFrame[ref] - 1][plane];
 					const int32 refStride = st.refStride[mi.refFrame[ref] - 1][plane];
-					const uint8 *pre = refPlane + (usize)y * (usize)refStride + (usize)x;
+					const uint8 *pre = refPlane + (usize)(blockY + y) * (usize)refStride + (usize)(blockX + x);
 					pre += (mvQ4.row >> 4) * refStride + (mvQ4.col >> 4);
 					Vp9Convolve8(pre, refStride, dst, dstStride, kVp9FilterKernels[mi.interpFilter], subpelX,
 								subpelY, w, h, ref == 1);
@@ -978,6 +1032,7 @@ namespace nkentseu {
 							st.leftEntCtx[p][st.leftOff[p] + i] = 0;
 					}
 				}
+				const int64 eobBefore = st.stats->eobTotal;
 				if (cell.IsInter()) {
 					// Compensation de mouvement : une fois par plan (pas par bloc de
 					// transformée), AVANT le résidu — contrairement à l'intra.
@@ -992,6 +1047,19 @@ namespace nkentseu {
 						}
 					}
 					DecodeBlockTokens(bd, st, cell.skip != 0, true);
+					// decode_block (vp9_decodeframe.c) : un bloc inter NON-skip >=8x8 dont
+					// TOUS les résidus sont nuls (eobtotal==0) devient skip=1 A POSTERIORI
+					// — pas pour l'entropie (déjà lue), mais pour le LOOP FILTER et surtout
+					// pour le CONTEXTE skip des voisins SUIVANTS (vp9_get_skip_context lit
+					// mi.skip depuis la grille). Sans cette mise à jour, le contexte skip
+					// diverge dès le premier bloc concerné et désynchronise tout le reste
+					// du tile (bug diagnostiqué via trace croisée avec vpxdec instrumenté).
+					if (!cell.skip && cell.sbType >= kBlock8x8 && st.stats->eobTotal == eobBefore) {
+						cell.skip = 1;
+						for (int32 y = 0; y < yMis; ++y)
+							for (int32 x = 0; x < xMis; ++x)
+								st.mi[(miRow + y) * st.miCols + (miCol + x)].skip = 1;
+					}
 				} else {
 					// La prédiction intra a toujours lieu ; les tokens seulement si !skip.
 					DecodeBlockTokens(bd, st, cell.skip != 0, false);
@@ -1392,8 +1460,11 @@ namespace nkentseu {
 
 			// --- Lecture des modes/MV/refs (vp9_decodemv.c) ---
 
-			int32 ReadInterMode(NkVp8BoolDecoder &bd, const NkVp9FrameContext &fc, int32 ctx) {
-				return 10 + bd.GetTree(kVp9InterModeTree, fc.interModeProbs[ctx]); // NEARESTMV=10
+			int32 ReadInterMode(NkVp8BoolDecoder &bd, FrameParseState &st, int32 ctx) {
+				const int32 idx = bd.GetTree(kVp9InterModeTree, st.fc->interModeProbs[ctx]);
+				if (st.counts)
+					++st.counts->interMode[ctx][idx];
+				return 10 + idx; // NEARESTMV=10
 			}
 
 			void ReadRefFrames(NkVp8BoolDecoder &bd, FrameParseState &st, int32 segId, int8 refFrame[2]) {
@@ -1403,20 +1474,30 @@ namespace nkentseu {
 					return;
 				}
 				int32 mode = st.referenceMode;
-				if (mode == kVp9ReferenceModeSelect)
-					mode = bd.GetBool(st.fc->compInterProb[GetReferenceModeContext(st)]);
+				if (mode == kVp9ReferenceModeSelect) {
+					const int32 rmCtx = GetReferenceModeContext(st);
+					mode = bd.GetBool(st.fc->compInterProb[rmCtx]);
+					if (st.counts)
+						++st.counts->compInter[rmCtx][mode];
+				}
 				if (mode == kVp9CompoundReference) {
 					const int32 idx = st.signBias[st.compFixedRef];
 					const int32 ctx = GetPredContextCompRefP(st);
 					const int32 bit = bd.GetBool(st.fc->compRefProb[ctx]);
+					if (st.counts)
+						++st.counts->compRef[ctx][bit];
 					refFrame[idx] = (int8)st.compFixedRef;
 					refFrame[idx ? 0 : 1] = (int8)st.compVarRef[bit];
 				} else {
 					const int32 ctx0 = GetPredContextSingleRefP1(st.aboveMi, st.leftMi);
 					const int32 bit0 = bd.GetBool(st.fc->singleRefProb[ctx0][0]);
+					if (st.counts)
+						++st.counts->singleRef[ctx0][0][bit0];
 					if (bit0) {
 						const int32 ctx1 = GetPredContextSingleRefP2(st.aboveMi, st.leftMi);
 						const int32 bit1 = bd.GetBool(st.fc->singleRefProb[ctx1][1]);
+						if (st.counts)
+							++st.counts->singleRef[ctx1][1][bit1];
 						refFrame[0] = (int8)(bit1 ? 3 : 2); // ALTREF : GOLDEN
 					} else {
 						refFrame[0] = 1; // LAST
@@ -1429,15 +1510,22 @@ namespace nkentseu {
 				if (st.hdr->segEnabled && st.hdr->segFeatureEnabled[segId][2])
 					return st.hdr->segFeatureData[segId][2] != 0; // != INTRA_FRAME(0)
 				const int32 ctx = GetIntraInterContext(st.aboveMi, st.leftMi);
-				return bd.GetBool(st.fc->intraInterProb[ctx]);
+				const int32 isInter = bd.GetBool(st.fc->intraInterProb[ctx]);
+				if (st.counts)
+					++st.counts->intraInter[ctx][isInter];
+				return isInter;
 			}
 
 			int32 ReadSwitchableInterpFilter(NkVp8BoolDecoder &bd, FrameParseState &st) {
 				const int32 ctx = GetSwitchableInterpContext(st.aboveMi, st.leftMi);
-				return bd.GetTree(kVp9SwitchableInterpTree, st.fc->switchableInterpProb[ctx]);
+				const int32 type = bd.GetTree(kVp9SwitchableInterpTree, st.fc->switchableInterpProb[ctx]);
+				if (st.counts)
+					++st.counts->switchableInterp[ctx][type];
+				return type;
 			}
 
-			int32 ReadMvComponent(NkVp8BoolDecoder &bd, const NkVp9NmvComponent &c, bool useHp) {
+			int32 ReadMvComponent(NkVp8BoolDecoder &bd, const NkVp9NmvComponent &c, bool useHp,
+								  NkVp9NmvComponentCounts *cc) {
 				const int32 sign = bd.GetBool(c.sign);
 				const int32 cls = bd.GetTree(kVp9MvClassTree, c.classes);
 				const bool class0 = (cls == 0);
@@ -1448,25 +1536,46 @@ namespace nkentseu {
 				} else {
 					const int32 n = cls + 1 - 1; // MV_CLASS + CLASS0_BITS - 1 = cls
 					d = 0;
-					for (int32 i = 0; i < n; ++i)
-						d |= bd.GetBool(c.bits[i]) << i;
+					for (int32 i = 0; i < n; ++i) {
+						const int32 bit = bd.GetBool(c.bits[i]);
+						d |= bit << i;
+						if (cc)
+							++cc->bits[i][bit];
+					}
 					mag = 2 << (cls + 2); // CLASS0_SIZE << (cls+2)
 				}
 				const int32 fr = bd.GetTree(kVp9MvFrTree, class0 ? c.class0Fr[d] : c.fr);
 				const int32 hp = useHp ? bd.GetBool(class0 ? c.class0Hp : c.hp) : 1;
+				if (cc) {
+					++cc->sign[sign];
+					++cc->classes[cls];
+					if (class0) {
+						++cc->class0[d];
+						++cc->class0Fr[d][fr];
+						if (useHp)
+							++cc->class0Hp[hp];
+					} else {
+						++cc->fr[fr];
+						if (useHp)
+							++cc->hp[hp];
+					}
+				}
 				mag += ((d << 3) | (fr << 1) | hp) + 1;
 				return sign ? -mag : mag;
 			}
 
-			void ReadMv(NkVp8BoolDecoder &bd, const NkVp9FrameContext &fc, SimpleMv &mv, const SimpleMv &ref,
+			void ReadMv(NkVp8BoolDecoder &bd, FrameParseState &st, SimpleMv &mv, const SimpleMv &ref,
 					   bool allowHp) {
+				const NkVp9FrameContext &fc = *st.fc;
 				const int32 joint = bd.GetTree(kVp9MvJointTree, fc.nmvJoints);
+				if (st.counts)
+					++st.counts->mvJoints[joint];
 				const bool useHp = allowHp && UseMvHp(ref);
 				int32 dr = 0, dc = 0;
 				if (joint == 2 || joint == 3) // HZVNZ, HNZVNZ : composante verticale
-					dr = ReadMvComponent(bd, fc.nmvComps[0], useHp);
+					dr = ReadMvComponent(bd, fc.nmvComps[0], useHp, st.counts ? &st.counts->mvComps[0] : nullptr);
 				if (joint == 1 || joint == 3) // HNZVZ, HNZVNZ : composante horizontale
-					dc = ReadMvComponent(bd, fc.nmvComps[1], useHp);
+					dc = ReadMvComponent(bd, fc.nmvComps[1], useHp, st.counts ? &st.counts->mvComps[1] : nullptr);
 				mv.row = (int16)(ref.row + dr);
 				mv.col = (int16)(ref.col + dc);
 			}
@@ -1476,12 +1585,12 @@ namespace nkentseu {
 			}
 
 			// assign_mv : NEWMV lit un delta ; NEAR(EST)MV recopie le candidat ; ZEROMV = 0.
-			bool AssignMv(NkVp8BoolDecoder &bd, const NkVp9FrameContext &fc, int32 mode, SimpleMv mv[2],
+			bool AssignMv(NkVp8BoolDecoder &bd, FrameParseState &st, int32 mode, SimpleMv mv[2],
 						 SimpleMv refMv[2], SimpleMv nearNearestMv[2], bool isCompound, bool allowHp) {
 				switch (mode) {
 					case 13: // NEWMV
 						for (int32 i = 0; i < (isCompound ? 2 : 1); ++i) {
-							ReadMv(bd, fc, mv[i], refMv[i], allowHp);
+							ReadMv(bd, st, mv[i], refMv[i], allowHp);
 							if (!IsMvValid(mv[i]))
 								return false;
 						}
@@ -1529,7 +1638,7 @@ namespace nkentseu {
 				if (segSkip) {
 					mi.mode = 12; // ZEROMV
 				} else if (mi.sbType >= kBlock8x8) {
-					mi.mode = (uint8)ReadInterMode(bd, *st.fc, interModeCtx);
+					mi.mode = (uint8)ReadInterMode(bd, st, interModeCtx);
 				}
 
 				mi.interpFilter = (st.interpFilterHdr == 4) ? (uint8)ReadSwitchableInterpFilter(bd, st)
@@ -1546,7 +1655,7 @@ namespace nkentseu {
 					for (int32 idy = 0; idy < 2; idy += num4x4h) {
 						for (int32 idx = 0; idx < 2; idx += num4x4w) {
 							const int32 j = idy * 2 + idx;
-							const int32 bMode = ReadInterMode(bd, *st.fc, interModeCtx);
+							const int32 bMode = ReadInterMode(bd, st, interModeCtx);
 							bModeLast = bMode;
 							if (bMode == 10 || bMode == 11) { // NEARESTMV/NEARMV
 								for (int32 ref = 0; ref < (isCompound ? 2 : 1); ++ref)
@@ -1567,7 +1676,7 @@ namespace nkentseu {
 								gotMvRefsForNew = true;
 							}
 							SimpleMv mvOut[2];
-							if (!AssignMv(bd, *st.fc, bMode, mvOut, bestRefMvs, bestSub8x8, isCompound, allowHp)) {
+							if (!AssignMv(bd, st, bMode, mvOut, bestRefMvs, bestSub8x8, isCompound, allowHp)) {
 								mvOut[0] = SimpleMv{};
 								mvOut[1] = SimpleMv{};
 							}
@@ -1606,7 +1715,7 @@ namespace nkentseu {
 						}
 					}
 					SimpleMv mvOut[2];
-					if (!AssignMv(bd, *st.fc, mi.mode, mvOut, bestRefMvs, bestRefMvs, isCompound, allowHp)) {
+					if (!AssignMv(bd, st, mi.mode, mvOut, bestRefMvs, bestRefMvs, isCompound, allowHp)) {
 						mvOut[0] = SimpleMv{};
 						mvOut[1] = SimpleMv{};
 					}
@@ -2469,13 +2578,18 @@ namespace nkentseu {
 				const int32 left = (st.leftSegCtx[miRow & 7] >> bsl) & 1;
 				const int32 ctx = (left * 2 + above) + bsl * 4; // PARTITION_PLOFFSET = 4
 				const uint8 *probs = st.isInterFrame ? st.fc->partitionProb[ctx] : kVp9KfPartitionProbs[ctx];
+				int32 p;
 				if (hasRows && hasCols)
-					return bd.GetTree(kVp9PartitionTree, probs);
-				if (!hasRows && hasCols)
-					return bd.GetBool(probs[1]) ? 3 : 1; // SPLIT : HORZ
-				if (hasRows && !hasCols)
-					return bd.GetBool(probs[2]) ? 3 : 2; // SPLIT : VERT
-				return 3;								 // SPLIT forcé
+					p = bd.GetTree(kVp9PartitionTree, probs);
+				else if (!hasRows && hasCols)
+					p = bd.GetBool(probs[1]) ? 3 : 1; // SPLIT : HORZ
+				else if (hasRows && !hasCols)
+					p = bd.GetBool(probs[2]) ? 3 : 2; // SPLIT : VERT
+				else
+					p = 3; // SPLIT forcé (aucun bit lu)
+				if (st.counts)
+					++st.counts->partition[ctx][p];
+				return p;
 			}
 
 			// decode_partition récursif (n4x4_l2 : 64x64 → 4).
@@ -2873,12 +2987,226 @@ namespace nkentseu {
 		}
 
 		namespace {
+			// =============================================================
+			// ADAPTATION BACKWARD DES PROBABILITÉS (§8.4) — vp9_adapt_coef_probs /
+			// vp9_adapt_mode_probs / vp9_adapt_mv_probs + vp9_setup_past_independence.
+			// Sans ceci, chaque trame INTER repart des probabilités PAR DÉFAUT au lieu
+			// d'hériter de celles adaptées sur la trame précédente (persistées dans
+			// NkVp9EntropyState::frameContexts[frame_context_idx]) — bug diagnostiqué
+			// par trace croisée avec vpxdec instrumenté (désync bitstream dès la 1re
+			// trame inter, sur un token de coefficient dont la proba n'était PAS
+			// re-mise à jour par l'en-tête de CETTE trame).
+			// =============================================================
+
+			// get_prob/get_binary_prob/weighted_prob/merge_probs (vpx_dsp/prob.h).
+			uint8 GetProb(uint32 num, uint32 den) {
+				const int32 p = (int32)(((uint64)num * 256 + (den >> 1)) / den);
+				const int32 clipped = p | ((255 - p) >> 23) | (p == 0);
+				return (uint8)clipped;
+			}
+			uint8 GetBinaryProb(uint32 n0, uint32 n1) {
+				const uint32 den = n0 + n1;
+				if (den == 0)
+					return 128;
+				return GetProb(n0, den);
+			}
+			uint8 WeightedProb(int32 p1, int32 p2, int32 factor) {
+				return (uint8)((p1 * (256 - factor) + p2 * factor + 128) >> 8);
+			}
+			uint8 MergeProbs(uint8 preProb, const uint32 ct[2], uint32 countSat, uint32 maxUpdateFactor) {
+				const uint8 prob = GetBinaryProb(ct[0], ct[1]);
+				const uint32 count = IMin(ct[0] + ct[1], countSat);
+				const uint32 factor = maxUpdateFactor * count / countSat;
+				return WeightedProb(preProb, prob, (int32)factor);
+			}
+			// mode_mv_merge_probs + count_to_update_factor (MODE_MV_COUNT_SAT=20).
+			const int32 kCountToUpdateFactor[21] = {0,  6,  12, 19, 25, 32,  38,  44,  51,  57, 64,
+													 70, 76, 83, 89, 96, 102, 108, 115, 121, 128};
+			uint8 ModeMvMergeProbs(uint8 preProb, const uint32 ct[2]) {
+				const uint32 den = ct[0] + ct[1];
+				if (den == 0)
+					return preProb;
+				const uint32 count = IMin(den, 20u);
+				const int32 factor = kCountToUpdateFactor[count];
+				const uint8 prob = GetProb(ct[0], den);
+				return WeightedProb(preProb, prob, factor);
+			}
+			// vpx_tree_merge_probs (générique, récursif sur un arbre vpx_tree).
+			uint32 TreeMergeProbsImpl(int32 i, const nk_int8 *tree, const uint8 *preProbs, const uint32 *counts,
+									  uint8 *probs) {
+				const int32 l = tree[i];
+				const uint32 leftCount =
+					(l <= 0) ? counts[-l] : TreeMergeProbsImpl(l, tree, preProbs, counts, probs);
+				const int32 r = tree[i + 1];
+				const uint32 rightCount =
+					(r <= 0) ? counts[-r] : TreeMergeProbsImpl(r, tree, preProbs, counts, probs);
+				const uint32 ct[2] = {leftCount, rightCount};
+				probs[i >> 1] = ModeMvMergeProbs(preProbs[i >> 1], ct);
+				return leftCount + rightCount;
+			}
+			void TreeMergeProbs(const nk_int8 *tree, const uint8 *preProbs, const uint32 *counts, uint8 *probs) {
+				TreeMergeProbsImpl(0, tree, preProbs, counts, probs);
+			}
+
+			// tx_counts_to_branch_counts_{8x8,16x16,32x32} : les comptes bruts par
+			// taille sont convertis en comptes de branche binaires de la cascade de
+			// bits séquentielle (read_selected_tx_size), PAS un vpx_tree générique.
+			void TxCountsToBranchCounts8x8(const uint32 counts[2], uint32 branchCt[1][2]) {
+				branchCt[0][0] = counts[0];
+				branchCt[0][1] = counts[1];
+			}
+			void TxCountsToBranchCounts16x16(const uint32 counts[3], uint32 branchCt[2][2]) {
+				branchCt[0][0] = counts[0];
+				branchCt[0][1] = counts[1] + counts[2];
+				branchCt[1][0] = counts[1];
+				branchCt[1][1] = counts[2];
+			}
+			void TxCountsToBranchCounts32x32(const uint32 counts[4], uint32 branchCt[3][2]) {
+				branchCt[0][0] = counts[0];
+				branchCt[0][1] = counts[1] + counts[2] + counts[3];
+				branchCt[1][0] = counts[1];
+				branchCt[1][1] = counts[2] + counts[3];
+				branchCt[2][0] = counts[2];
+				branchCt[2][1] = counts[3];
+			}
+
+			// adapt_coef_probs (vp9_entropy.c) : une taille de transformée.
+			void MergeCoefProbsForTx(NkVp9FrameContext &fc, const NkVp9FrameContext &preFc,
+									 const NkVp9FrameCounts &counts, int32 txSize, uint32 countSat,
+									 uint32 updateFactor) {
+				for (int32 i = 0; i < 2; ++i)	  // plane type
+					for (int32 j = 0; j < 2; ++j) // ref (0=intra,1=inter)
+						for (int32 k = 0; k < 6; ++k) { // bande
+							const int32 nCtx = (k == 0) ? 3 : 6;
+							for (int32 l = 0; l < nCtx; ++l) {
+								const uint32 n0 = counts.coef[txSize][i][j][k][l][0];
+								const uint32 n1 = counts.coef[txSize][i][j][k][l][1];
+								const uint32 n2 = counts.coef[txSize][i][j][k][l][2];
+								const uint32 neob = counts.coef[txSize][i][j][k][l][3];
+								const uint32 eobCount = counts.eobBranch[txSize][i][j][k][l];
+								const uint32 branchCt[3][2] = {
+									{neob, eobCount - neob}, {n0, n1 + n2}, {n1, n2}};
+								for (int32 m = 0; m < 3; ++m)
+									fc.coefProbs[txSize][i][j][k][l][m] = MergeProbs(
+										preFc.coefProbs[txSize][i][j][k][l][m], branchCt[m], countSat, updateFactor);
+							}
+						}
+			}
+			// vp9_adapt_coef_probs : s'applique MÊME sur une trame intra-only (contrairement
+			// à mode/mv). `intraOnly` = trame COURANTE ; `lastFrameWasKey` = trame PRÉCÉDENTE.
+			void AdaptCoefProbs(NkVp9FrameContext &fc, const NkVp9FrameContext &preFc,
+							   const NkVp9FrameCounts &counts, bool intraOnly, bool lastFrameWasKey) {
+				const uint32 countSat = 24;
+				const uint32 updateFactor = (!intraOnly && lastFrameWasKey) ? 128 : 112;
+				for (int32 t = 0; t < 4; ++t)
+					MergeCoefProbsForTx(fc, preFc, counts, t, countSat, updateFactor);
+			}
+
+			// vp9_adapt_mode_probs : SEULEMENT si !frame_is_intra_only(cm) (appelant).
+			void AdaptModeProbs(NkVp9FrameContext &fc, const NkVp9FrameContext &preFc,
+							   const NkVp9FrameCounts &counts, int32 txMode, int32 interpFilterHdr) {
+				for (int32 i = 0; i < 4; ++i)
+					fc.intraInterProb[i] = ModeMvMergeProbs(preFc.intraInterProb[i], counts.intraInter[i]);
+				for (int32 i = 0; i < 5; ++i)
+					fc.compInterProb[i] = ModeMvMergeProbs(preFc.compInterProb[i], counts.compInter[i]);
+				for (int32 i = 0; i < 5; ++i)
+					fc.compRefProb[i] = ModeMvMergeProbs(preFc.compRefProb[i], counts.compRef[i]);
+				for (int32 i = 0; i < 5; ++i)
+					for (int32 j = 0; j < 2; ++j)
+						fc.singleRefProb[i][j] = ModeMvMergeProbs(preFc.singleRefProb[i][j], counts.singleRef[i][j]);
+
+				for (int32 i = 0; i < 7; ++i)
+					TreeMergeProbs(kVp9InterModeTree, preFc.interModeProbs[i], counts.interMode[i],
+								   fc.interModeProbs[i]);
+				for (int32 i = 0; i < 4; ++i)
+					TreeMergeProbs(kVp9IntraModeTree, preFc.yModeProb[i], counts.yMode[i], fc.yModeProb[i]);
+				for (int32 i = 0; i < 10; ++i)
+					TreeMergeProbs(kVp9IntraModeTree, preFc.uvModeProb[i], counts.uvMode[i], fc.uvModeProb[i]);
+				for (int32 i = 0; i < 16; ++i)
+					TreeMergeProbs(kVp9PartitionTree, preFc.partitionProb[i], counts.partition[i],
+								   fc.partitionProb[i]);
+
+				if (interpFilterHdr == 4) { // SWITCHABLE
+					for (int32 i = 0; i < 4; ++i)
+						TreeMergeProbs(kVp9SwitchableInterpTree, preFc.switchableInterpProb[i],
+									   counts.switchableInterp[i], fc.switchableInterpProb[i]);
+				}
+
+				if (txMode == 4) { // TX_MODE_SELECT
+					for (int32 i = 0; i < 2; ++i) {
+						uint32 b8[1][2];
+						TxCountsToBranchCounts8x8(counts.txP8x8[i], b8);
+						fc.txProbs8[i][0] = ModeMvMergeProbs(preFc.txProbs8[i][0], b8[0]);
+
+						uint32 b16[2][2];
+						TxCountsToBranchCounts16x16(counts.txP16x16[i], b16);
+						for (int32 j = 0; j < 2; ++j)
+							fc.txProbs16[i][j] = ModeMvMergeProbs(preFc.txProbs16[i][j], b16[j]);
+
+						uint32 b32[3][2];
+						TxCountsToBranchCounts32x32(counts.txP32x32[i], b32);
+						for (int32 j = 0; j < 3; ++j)
+							fc.txProbs32[i][j] = ModeMvMergeProbs(preFc.txProbs32[i][j], b32[j]);
+					}
+				}
+				for (int32 i = 0; i < 3; ++i)
+					fc.skipProbs[i] = ModeMvMergeProbs(preFc.skipProbs[i], counts.skip[i]);
+			}
+
+			// vp9_adapt_mv_probs : SEULEMENT si !frame_is_intra_only(cm) (appelant).
+			void AdaptMvProbs(NkVp9FrameContext &fc, const NkVp9FrameContext &preFc,
+							 const NkVp9FrameCounts &counts, bool allowHp) {
+				TreeMergeProbs(kVp9MvJointTree, preFc.nmvJoints, counts.mvJoints, fc.nmvJoints);
+				for (int32 i = 0; i < 2; ++i) {
+					NkVp9NmvComponent &comp = fc.nmvComps[i];
+					const NkVp9NmvComponent &preComp = preFc.nmvComps[i];
+					const NkVp9NmvComponentCounts &c = counts.mvComps[i];
+
+					const uint32 signCt[2] = {c.sign[0], c.sign[1]};
+					comp.sign = ModeMvMergeProbs(preComp.sign, signCt);
+					TreeMergeProbs(kVp9MvClassTree, preComp.classes, c.classes, comp.classes);
+					TreeMergeProbs(kVp9MvClass0Tree, preComp.class0, c.class0, comp.class0);
+					for (int32 j = 0; j < 10; ++j) {
+						const uint32 ct[2] = {c.bits[j][0], c.bits[j][1]};
+						comp.bits[j] = ModeMvMergeProbs(preComp.bits[j], ct);
+					}
+					for (int32 j = 0; j < 2; ++j)
+						TreeMergeProbs(kVp9MvFrTree, preComp.class0Fr[j], c.class0Fr[j], comp.class0Fr[j]);
+					TreeMergeProbs(kVp9MvFrTree, preComp.fr, c.fr, comp.fr);
+					if (allowHp) {
+						const uint32 hp0Ct[2] = {c.class0Hp[0], c.class0Hp[1]};
+						comp.class0Hp = ModeMvMergeProbs(preComp.class0Hp, hp0Ct);
+						const uint32 hpCt[2] = {c.hp[0], c.hp[1]};
+						comp.hp = ModeMvMergeProbs(preComp.hp, hpCt);
+					}
+				}
+			}
+
+			// vp9_setup_past_independence (partie contexte d'entropie seulement — les
+			// deltas de loop filter/segmentation sont déjà relus intégralement depuis
+			// l'en-tête à chaque trame, cf. ReadLoopFilter/ReadSegmentation). Appelé
+			// SEULEMENT si intra-only || error-resilient (sinon reset_frame_context
+			// n'est même pas censé être pris en compte).
+			void SetupPastIndependence(NkVp9EntropyState &entropy, const NkVp9FrameHeader &hdr) {
+				NkVp9FrameContext def;
+				NkVp9Decoder::InitDefaultFrameContext(def);
+				const bool intraOnly = (hdr.frameType == kVp9KeyFrame) || hdr.intraOnly;
+				if (intraOnly || hdr.errorResilient || hdr.resetFrameContext == 3) {
+					for (int32 i = 0; i < 4; ++i)
+						entropy.frameContexts[i] = def;
+				} else if (hdr.resetFrameContext == 2) {
+					entropy.frameContexts[hdr.frameContextIdx] = def;
+				}
+			}
+		} // namespace
+
+		namespace {
 			// Corps commun briques 3-4 : parse (img == nullptr) ou reconstruction.
 			bool ParseOrDecodeKeyContent(const uint8 *tileData, usize tileSize,
 										 const NkVp9FrameHeader &hdr, const NkVp9FrameContext &fc,
 										 const NkVp9CompressedHeader &chdr,
 										 NkVp9Decoder::NkTileParseStats &stats, NkVp9Image *img,
-										 bool applyLoopFilter = true) {
+										 bool applyLoopFilter = true, NkVp9FrameCounts *counts = nullptr) {
 			stats = NkVp9Decoder::NkTileParseStats{};
 			if (tileData == nullptr || tileSize == 0 || hdr.width <= 0 || hdr.height <= 0)
 				return false;
@@ -2956,6 +3284,7 @@ namespace nkentseu {
 				for (int32 i = 0; i < miAligned * 2; ++i)
 					st.aboveEntCtx[p][i] = 0;
 			st.stats = &stats;
+			st.counts = counts;
 
 			const int32 tileCols = 1 << hdr.tileColsLog2;
 			const int32 tileRows = 1 << hdr.tileRowsLog2;
@@ -3051,7 +3380,9 @@ namespace nkentseu {
 			bool ParseOrDecodeInterContent(const uint8 *tileData, usize tileSize, const NkVp9FrameHeader &hdr,
 										   const NkVp9FrameContext &fc, const NkVp9CompressedHeader &chdr,
 										   const InterFrameCtx &ictx, NkVp9Decoder::NkTileParseStats &stats,
-										   NkVp9Image *img, bool applyLoopFilter = true) {
+										   NkVp9Image *img, bool applyLoopFilter = true,
+										   NkVp9FrameCounts *counts = nullptr,
+										   NkVector<NkVp9MvRef> *outMvGrid = nullptr) {
 				stats = NkVp9Decoder::NkTileParseStats{};
 				if (tileData == nullptr || tileSize == 0 || hdr.width <= 0 || hdr.height <= 0)
 					return false;
@@ -3136,6 +3467,7 @@ namespace nkentseu {
 					for (int32 i = 0; i < miAligned * 2; ++i)
 						st.aboveEntCtx[p][i] = 0;
 				st.stats = &stats;
+				st.counts = counts;
 
 				const int32 tileCols = 1 << hdr.tileColsLog2;
 				const int32 tileRows = 1 << hdr.tileRowsLog2;
@@ -3184,7 +3516,15 @@ namespace nkentseu {
 							for (int32 miCol = st.tileMiColStart; miCol < st.tileMiColEnd; miCol += kMiBlockSize)
 								DecodePartition(bd, st, miRow, miCol, kBlock64x64, 4);
 						}
-						if (bd.overreadBytes > 2 || bd.pos < sz)
+						// Sur trame INTER, contrairement à une trame clé, l'encodeur peut
+						// laisser un reliquat d'octets NON consommés en fin de tile (le
+						// range coder n'a pas besoin de lire les derniers bits de bourrage
+						// une fois tous les symboles décodés sans ambiguïté) — libvpx ne
+						// valide d'ailleurs JAMAIS une consommation exacte par tile
+						// (seul vpx_reader_has_error, équivalent à notre overreadBytes,
+						// détecte une vraie corruption). Un sous-remplissage n'est donc
+						// PAS une erreur ; seul un dépassement (overread) l'est.
+						if (bd.overreadBytes > 2)
 							ok = false;
 						if (bd.overreadBytes > stats.maxOverread)
 							stats.maxOverread = bd.overreadBytes;
@@ -3196,6 +3536,21 @@ namespace nkentseu {
 
 				if (ok && img != nullptr && applyLoopFilter)
 					LoopFilterFrame(st);
+
+				// Grille MV/ref de CETTE trame (pour use_prev_frame_mvs de la SUIVANTE) :
+				// copie directe (même convention refFrame 0=intra/-1=aucune/1-3=LAST-ALTREF).
+				if (ok && outMvGrid != nullptr) {
+					outMvGrid->Resize((usize)st.miRows * (usize)st.miCols);
+					for (int32 i = 0; i < st.miRows * st.miCols; ++i) {
+						NkVp9MvRef &d = (*outMvGrid)[i];
+						d.refFrame[0] = st.mi[i].refFrame[0];
+						d.refFrame[1] = st.mi[i].refFrame[1];
+						d.mvRow[0] = st.mi[i].mv[0].row;
+						d.mvCol[0] = st.mi[i].mv[0].col;
+						d.mvRow[1] = st.mi[i].mv[1].row;
+						d.mvCol[1] = st.mi[i].mv[1].col;
+					}
+				}
 
 				memory::NkFree(st.mi);
 				memory::NkFree(st.aboveSegCtx);
@@ -3213,7 +3568,8 @@ namespace nkentseu {
 		}
 
 		bool NkVp9Decoder::DecodeKeyFrame(const uint8 *frame, usize size, NkVp9Image &out,
-										  NkTileParseStats *statsOut, bool applyLoopFilter) {
+										  NkVp9EntropyState &entropy, NkTileParseStats *statsOut,
+										  bool applyLoopFilter) {
 			NkVp9FrameHeader hdr;
 			if (!ParseUncompressedHeader(frame, size, hdr))
 				return false;
@@ -3222,15 +3578,35 @@ namespace nkentseu {
 			const usize hdrBytes = (usize)hdr.uncompressedBytes + (usize)hdr.headerSizeBytes;
 			if (hdrBytes >= size || hdr.headerSizeBytes <= 0)
 				return false;
-			NkVp9FrameContext fc;
-			InitDefaultFrameContext(fc);
+
+			// vp9_setup_past_independence : trame intra (clé/intra-only) → reset
+			// systématique (voir la fonction pour le détail resetFrameContext).
+			SetupPastIndependence(entropy, hdr);
+			NkVp9FrameContext fc = entropy.frameContexts[hdr.frameContextIdx];
+
 			NkVp9CompressedHeader chdr;
 			if (!ParseCompressedHeader(frame + hdr.uncompressedBytes, (usize)hdr.headerSizeBytes, hdr,
 									   fc, chdr))
 				return false;
+
+			NkVp9FrameCounts counts;
 			NkTileParseStats stats;
 			const bool ok = ParseOrDecodeKeyContent(frame + hdrBytes, size - hdrBytes, hdr, fc, chdr,
-													stats, &out, applyLoopFilter);
+													stats, &out, applyLoopFilter, &counts);
+
+			if (ok && !hdr.errorResilient && !hdr.frameParallelDecoding) {
+				// vp9_adapt_coef_probs s'applique MÊME sur les trames intra-only ; PAS
+				// mode/mv (frame_is_intra_only == true ici, toujours). `preFc` = valeur
+				// PERSISTÉE du slot (celle d'AVANT cette trame, inchangée par `fc` qui
+				// est une copie locale) — la formule de merge ignore les mises à jour
+				// forward de l'en-tête de CETTE trame (mêmes principes que libvpx).
+				const NkVp9FrameContext preFc = entropy.frameContexts[hdr.frameContextIdx];
+				AdaptCoefProbs(fc, preFc, counts, /*intraOnly=*/true, entropy.lastFrameWasKey);
+			}
+			if (hdr.refreshFrameContext)
+				entropy.frameContexts[hdr.frameContextIdx] = fc;
+			entropy.lastFrameWasKey = true;
+
 			if (statsOut)
 				*statsOut = stats;
 			return ok;
@@ -3282,8 +3658,10 @@ namespace nkentseu {
 		}
 
 		bool NkVp9Decoder::DecodeInterFrame(const uint8 *frame, usize size, const NkVp9Image *refImages[3],
-											NkVp9Image &out, NkTileParseStats *statsOut, bool applyLoopFilter,
-											bool usePrevFrameMvs, const NkVp9MvRef *prevMvs) {
+											NkVp9Image &out, NkVp9EntropyState &entropy,
+											NkTileParseStats *statsOut, bool applyLoopFilter,
+											bool usePrevFrameMvs, const NkVp9MvRef *prevMvs,
+											NkVector<NkVp9MvRef> *outMvGrid) {
 			// Dimensions héritées d'une réf (frame_size_with_refs) : on suppose que les 3
 			// références partagent la même résolution (cas courant — un flux qui change
 			// de résolution par référence est une fonctionnalité avancée non gérée) et
@@ -3301,8 +3679,11 @@ namespace nkentseu {
 			if (hdrBytes >= size || hdr.headerSizeBytes <= 0)
 				return false;
 
-			NkVp9FrameContext fc;
-			InitDefaultFrameContext(fc);
+			// vp9_setup_past_independence : une trame INTER normale (ni intra-only, ni
+			// error-resilient) ne déclenche AUCUN reset — le slot garde son adaptation.
+			SetupPastIndependence(entropy, hdr);
+			NkVp9FrameContext fc = entropy.frameContexts[hdr.frameContextIdx];
+
 			NkVp9CompressedHeader chdr;
 			if (!ParseCompressedHeader(frame + hdr.uncompressedBytes, (usize)hdr.headerSizeBytes, hdr, fc, chdr))
 				return false;
@@ -3342,9 +3723,25 @@ namespace nkentseu {
 			ictx.usePrevFrameMvs = usePrevFrameMvs;
 			ictx.prevMvs = prevMvs;
 
+			NkVp9FrameCounts counts;
 			NkTileParseStats stats;
 			const bool ok = ParseOrDecodeInterContent(frame + hdrBytes, size - hdrBytes, hdr, fc, chdr, ictx,
-													  stats, &out, applyLoopFilter);
+													  stats, &out, applyLoopFilter, &counts, outMvGrid);
+
+			if (ok && !hdr.errorResilient && !hdr.frameParallelDecoding) {
+				// `preFc` = valeur PERSISTÉE du slot (avant cette trame) — `fc` local
+				// reste une copie mutée par les updates forward de l'en-tête, jamais
+				// écrite dans `entropy` avant cette adaptation (mêmes principes que
+				// libvpx : la formule de merge ignore les updates forward de CETTE trame).
+				const NkVp9FrameContext preFc = entropy.frameContexts[hdr.frameContextIdx];
+				AdaptCoefProbs(fc, preFc, counts, /*intraOnly=*/false, entropy.lastFrameWasKey);
+				AdaptModeProbs(fc, preFc, counts, chdr.txMode, hdr.interpFilter);
+				AdaptMvProbs(fc, preFc, counts, hdr.allowHighPrecisionMv);
+			}
+			if (hdr.refreshFrameContext)
+				entropy.frameContexts[hdr.frameContextIdx] = fc;
+			entropy.lastFrameWasKey = false;
+
 			if (statsOut)
 				*statsOut = stats;
 			return ok;

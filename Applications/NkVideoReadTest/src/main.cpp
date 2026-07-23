@@ -327,9 +327,11 @@ int main(int argc, char **argv) {
 		}
 		fclose(f);
 
+		NkVp9EntropyState entropy;
 		NkVp9Image keyImg;
 		NkVp9Decoder::NkTileParseStats ts0;
-		if (!NkVp9Decoder::DecodeKeyFrame(payloads[0].Data(), (usize)payloads[0].Size(), keyImg, &ts0, true)) {
+		if (!NkVp9Decoder::DecodeKeyFrame(payloads[0].Data(), (usize)payloads[0].Size(), keyImg, entropy, &ts0,
+										  true)) {
 			printf("  [KO] DecodeKeyFrame (trame 0) a echoue\n");
 			return 1;
 		}
@@ -338,8 +340,8 @@ int main(int argc, char **argv) {
 		const NkVp9Image *refs[3] = {&keyImg, &keyImg, &keyImg};
 		NkVp9Image interImg;
 		NkVp9Decoder::NkTileParseStats ts1;
-		if (!NkVp9Decoder::DecodeInterFrame(payloads[1].Data(), (usize)payloads[1].Size(), refs, interImg, &ts1,
-											true, false, nullptr)) {
+		if (!NkVp9Decoder::DecodeInterFrame(payloads[1].Data(), (usize)payloads[1].Size(), refs, interImg, entropy,
+											&ts1, true, false, nullptr)) {
 			printf("  [KO] DecodeInterFrame (trame 1) a echoue (tiles=%d blocs=%d skip=%d eob=%lld overread=%d)\n",
 				   ts1.tiles, ts1.blocks, ts1.skipBlocks, (long long)ts1.eobTotal, ts1.maxOverread);
 			return 1;
@@ -372,6 +374,7 @@ int main(int argc, char **argv) {
 		fclose(rf);
 		int64 diffs = 0;
 		int32 maxDiff = 0, firstX = -1, firstY = -1, firstPlane = -1;
+		int32 maxDiffX = -1, maxDiffY = -1, maxDiffPlane = -1;
 		const uint8 *planes[3] = {interImg.y.Data(), interImg.u.Data(), interImg.v.Data()};
 		const uint8 *refp[3] = {ref.Data(), ref.Data() + ySz, ref.Data() + ySz + uvSz};
 		const int32 pw[3] = {interImg.width, interImg.uvWidth, interImg.uvWidth};
@@ -385,8 +388,12 @@ int main(int argc, char **argv) {
 					const int32 d = a > b ? a - b : b - a;
 					if (d) {
 						++diffs;
-						if (d > maxDiff)
+						if (d > maxDiff) {
 							maxDiff = d;
+							maxDiffX = xx;
+							maxDiffY = yy;
+							maxDiffPlane = p;
+						}
 						if (firstX < 0) {
 							firstX = xx;
 							firstY = yy;
@@ -400,8 +407,8 @@ int main(int argc, char **argv) {
 			printf("  [ OK  ] trame INTER VP9 BIT-EXACTE vs ffmpeg (%dx%d)\n", interImg.width, interImg.height);
 			return 0;
 		}
-		printf("  [ KO ] %lld pixels differents (maxdiff=%d, premier plan=%d @ %d,%d)\n", (long long)diffs,
-			   maxDiff, firstPlane, firstX, firstY);
+		printf("  [ KO ] %lld pixels differents (maxdiff=%d @ plan=%d (%d,%d), premier plan=%d @ %d,%d)\n",
+			   (long long)diffs, maxDiff, maxDiffPlane, maxDiffX, maxDiffY, firstPlane, firstX, firstY);
 		FILE *of = fopen("vp9inter_out.yuv", "wb");
 		if (of) {
 			for (int32 p = 0; p < 3; ++p)
@@ -411,6 +418,190 @@ int main(int argc, char **argv) {
 			printf("  (image decodee ecrite dans vp9inter_out.yuv)\n");
 		}
 		return 1;
+	}
+
+	// Mode reconstruction VP9 MULTI-TRAMES : --vp9multi <fichier.ivf> <reference.yuv>
+	// Décode TOUT le flux (clé + N inter, DPB 8 slots via refFrameIdx/refreshFrameFlags,
+	// show_existing_frame géré) et compare chaque trame AFFICHÉE à la référence brute
+	// ffmpeg (une image par trame montrée, dans l'ordre d'affichage). `usePrevFrameMvs`
+	// toujours faux (aucune extraction de grille MV exposée par le décodeur pour l'instant
+	// — limite documentée, cf. NkVp9Decoder.h).
+	if (argc >= 4 && strcmp(argv[1], "--vp9multi") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		uint8 ivfHdr[32];
+		if (fread(ivfHdr, 1, 32, f) != 32 || memcmp(ivfHdr, "DKIF", 4) != 0) {
+			printf("  [KO] pas un IVF\n");
+			fclose(f);
+			return 1;
+		}
+		const uint16 ivfW = (uint16)(ivfHdr[12] | (ivfHdr[13] << 8));
+		const uint16 ivfH = (uint16)(ivfHdr[14] | (ivfHdr[15] << 8));
+		FILE *rf = fopen(argv[3], "rb");
+		if (!rf) {
+			printf("  [KO] reference introuvable : %s\n", argv[3]);
+			fclose(f);
+			return 1;
+		}
+
+		NkVp9EntropyState entropy;
+		NkVp9Image slots[8];
+		bool slotValid[8] = {false, false, false, false, false, false, false, false};
+
+		auto CompareShown = [&](const NkVp9Image &img, int32 frameIdx, int32 frameType) -> bool {
+			const usize ySz = (usize)img.width * (usize)img.height;
+			const usize uvSz = (usize)img.uvWidth * (usize)img.uvHeight;
+			const usize frameBytes = ySz + 2 * uvSz;
+			NkVector<uint8> ref;
+			ref.Resize(frameBytes);
+			if (fread(ref.Data(), 1, frameBytes, rf) != frameBytes) {
+				printf("  [KO] reference trop courte a la trame affichee %d\n", frameIdx);
+				return false;
+			}
+			const uint8 *planes[3] = {img.y.Data(), img.u.Data(), img.v.Data()};
+			const uint8 *refp[3] = {ref.Data(), ref.Data() + ySz, ref.Data() + ySz + uvSz};
+			const int32 pw[3] = {img.width, img.uvWidth, img.uvWidth};
+			const int32 ph[3] = {img.height, img.uvHeight, img.uvHeight};
+			const int32 pstride[3] = {img.yStride, img.uvStride, img.uvStride};
+			int64 diffs = 0;
+			int32 maxDiff = 0;
+			for (int32 p = 0; p < 3; ++p)
+				for (int32 yy = 0; yy < ph[p]; ++yy)
+					for (int32 xx = 0; xx < pw[p]; ++xx) {
+						const int32 a = planes[p][yy * pstride[p] + xx];
+						const int32 b = refp[p][yy * pw[p] + xx];
+						const int32 d = a > b ? a - b : b - a;
+						if (d) {
+							++diffs;
+							if (d > maxDiff)
+								maxDiff = d;
+						}
+					}
+			if (diffs != 0) {
+				printf("  [KO] trame %d (type=%d) : %lld pixels differents (maxdiff=%d)\n", frameIdx, frameType,
+					   (long long)diffs, maxDiff);
+				return false;
+			}
+			return true;
+		};
+
+		// use_prev_frame_mvs (dec_api) : éligible si la trame PRÉCÉDENTE n'était pas
+		// clé/intra-only, mêmes dimensions, et la trame COURANTE n'est pas error-resilient.
+		bool prevEligibleBase = false; // "trame precedente n'etait pas intra/cle"
+		int32 prevWidth = 0, prevHeight = 0;
+		NkVector<NkVp9MvRef> mvGrid, nextMvGrid;
+
+		int32 frameIdx = 0, decodedCount = 0, shownCount = 0, bitExactCount = 0;
+		bool allOk = true;
+		for (; allOk;) {
+			uint8 frameHdr[12];
+			if (fread(frameHdr, 1, 12, f) != 12)
+				break;
+			const uint32 payloadSize = (uint32)frameHdr[0] | ((uint32)frameHdr[1] << 8) |
+									   ((uint32)frameHdr[2] << 16) | ((uint32)frameHdr[3] << 24);
+			NkVector<uint8> payload;
+			payload.Resize(payloadSize);
+			if (fread(payload.Data(), 1, payloadSize, f) != payloadSize) {
+				printf("  [KO] charge tronquee\n");
+				allOk = false;
+				break;
+			}
+			NkVp9Superframe sf;
+			if (!NkVp9Decoder::ParseSuperframe(payload.Data(), (usize)payload.Size(), sf)) {
+				printf("  [KO] superframe invalide\n");
+				allOk = false;
+				break;
+			}
+			for (int32 fr = 0; fr < sf.count && allOk; ++fr) {
+				const uint8 *fdata = payload.Data() + sf.offsets[fr];
+				const usize fsize = sf.sizes[fr];
+				NkVp9FrameHeader hdr;
+				if (!NkVp9Decoder::ParseUncompressedHeader(fdata, fsize, hdr, (int32)ivfW, (int32)ivfH)) {
+					printf("  [KO] header invalide trame %d\n", frameIdx);
+					allOk = false;
+					break;
+				}
+				if (hdr.showExistingFrame) {
+					const int32 slot = hdr.frameToShowMapIdx;
+					if (slot < 0 || slot >= 8 || !slotValid[slot]) {
+						printf("  [KO] show_existing_frame %d : slot %d non decode\n", frameIdx, slot);
+						allOk = false;
+						break;
+					}
+					++shownCount;
+					if (CompareShown(slots[slot], frameIdx, -1))
+						++bitExactCount;
+					else
+						allOk = false;
+					++frameIdx;
+					continue;
+				}
+				NkVp9Image img;
+				NkVp9Decoder::NkTileParseStats stats;
+				bool ok;
+				bool isIntra = (hdr.frameType == kVp9KeyFrame || hdr.intraOnly);
+				if (isIntra) {
+					ok = NkVp9Decoder::DecodeKeyFrame(fdata, fsize, img, entropy, &stats, true);
+				} else {
+					const NkVp9Image *refs[3];
+					bool refsOk = true;
+					for (int32 i = 0; i < 3; ++i) {
+						const int32 slot = hdr.refFrameIdx[i];
+						if (slot < 0 || slot >= 8 || !slotValid[slot]) {
+							refsOk = false;
+							break;
+						}
+						refs[i] = &slots[slot];
+					}
+					if (!refsOk) {
+						printf("  [KO] trame %d : reference(s) non decodee(s)\n", frameIdx);
+						allOk = false;
+						break;
+					}
+					const bool eligible = prevEligibleBase && !hdr.errorResilient && hdr.width == prevWidth &&
+										  hdr.height == prevHeight;
+					ok = NkVp9Decoder::DecodeInterFrame(fdata, fsize, refs, img, entropy, &stats, true, eligible,
+														eligible ? mvGrid.Data() : nullptr, &nextMvGrid);
+					if (ok)
+						mvGrid = nextMvGrid;
+				}
+				if (!ok) {
+					printf("  [KO] decode echoue trame %d (type=%d tiles=%d blocs=%d overread=%d)\n", frameIdx,
+						   hdr.frameType, stats.tiles, stats.blocks, stats.maxOverread);
+					allOk = false;
+					break;
+				}
+				for (int32 s = 0; s < 8; ++s) {
+					if (hdr.refreshFrameFlags & (1u << s)) {
+						slots[s] = img;
+						slotValid[s] = true;
+					}
+				}
+				// use_prev_frame_mvs de la trame SUIVANTE (dec_api) : cette trame doit être
+				// non intra/clé ET avoir été AFFICHÉE (cm->last_show_frame) — une trame
+				// altref invisible casse l'éligibilité pour la trame qui la suit.
+				prevEligibleBase = !isIntra && hdr.showFrame;
+				prevWidth = hdr.width;
+				prevHeight = hdr.height;
+				++decodedCount;
+				if (hdr.showFrame) {
+					++shownCount;
+					if (CompareShown(img, frameIdx, hdr.frameType))
+						++bitExactCount;
+					else
+						allOk = false;
+				}
+				++frameIdx;
+			}
+		}
+		fclose(f);
+		fclose(rf);
+		printf("  %d trames decodees, %d affichees, %d/%d bit-exactes vs ffmpeg\n", decodedCount, shownCount,
+			   bitExactCount, shownCount);
+		return (allOk && bitExactCount == shownCount && shownCount > 0) ? 0 : 1;
 	}
 
 	// Mode reconstruction VP9 (brique 4) : --vp9recon <fichier.ivf> <reference.yuv>
@@ -446,8 +637,9 @@ int main(int argc, char **argv) {
 		NkVp9Decoder::ParseSuperframe(payload.Data(), (usize)payload.Size(), sf);
 		const bool noLf = (argc >= 5 && strcmp(argv[4], "nolf") == 0);
 		NkVp9Image img;
+		NkVp9EntropyState entropy;
 		NkVp9Decoder::NkTileParseStats ts;
-		if (!NkVp9Decoder::DecodeKeyFrame(payload.Data() + sf.offsets[0], sf.sizes[0], img, &ts,
+		if (!NkVp9Decoder::DecodeKeyFrame(payload.Data() + sf.offsets[0], sf.sizes[0], img, entropy, &ts,
 										  !noLf)) {
 			printf("  [KO] DecodeKeyFrame a echoue (tiles=%d blocs=%d)\n", ts.tiles, ts.blocks);
 			return 1;

@@ -185,6 +185,54 @@ namespace nkentseu {
 				NkVp9NmvComponent nmvComps[2];
 		};
 
+		// Compteurs (FRAME_COUNTS) accumulés PENDANT le décodage d'une trame —
+		// utilisés en fin de trame par l'adaptation "backward" des probabilités
+		// (vp9_adapt_coef_probs/vp9_adapt_mode_probs/vp9_adapt_mv_probs, §8.4.1/2/3).
+		// Remis à zéro (valeurs par défaut du struct) à chaque nouvelle trame.
+		struct NkVp9NmvComponentCounts {
+				uint32 sign[2] = {0};
+				uint32 classes[11] = {0};
+				uint32 class0[2] = {0};
+				uint32 bits[10][2] = {{0}};
+				uint32 class0Fr[2][4] = {{0}};
+				uint32 fr[4] = {0};
+				uint32 class0Hp[2] = {0};
+				uint32 hp[2] = {0};
+		};
+		struct NkVp9FrameCounts {
+				uint32 yMode[4][10] = {{0}};
+				uint32 uvMode[10][10] = {{0}};
+				uint32 partition[16][4] = {{0}};
+				uint32 coef[4][2][2][6][6][4] = {}; // [tx][plane][ref][bande][ctx][token 0..3]
+				uint32 eobBranch[4][2][2][6][6] = {}; // [tx][plane][ref][bande][ctx]
+				uint32 switchableInterp[4][3] = {{0}};
+				uint32 interMode[7][4] = {{0}};
+				uint32 intraInter[4][2] = {{0}};
+				uint32 compInter[5][2] = {{0}};
+				uint32 singleRef[5][2][2] = {};
+				uint32 compRef[5][2] = {{0}};
+				uint32 txP8x8[2][2] = {{0}};
+				uint32 txP16x16[2][3] = {{0}};
+				uint32 txP32x32[2][4] = {{0}};
+				uint32 skip[3][2] = {{0}};
+				uint32 mvJoints[4] = {0};
+				NkVp9NmvComponentCounts mvComps[2];
+		};
+
+		// État d'ENTROPIE PERSISTANT entre les trames d'un même flux (4 slots
+		// FRAME_CONTEXT, §8.4). Le décodeur est composé de fonctions STATIQUES sans
+		// état propre : c'est l'APPELANT qui possède cet état et le fait persister
+		// d'une trame à l'autre (comme refImages/prevMvs) — construire une instance
+		// une fois par flux (valeurs par défaut = non initialisé ; la 1re trame doit
+		// être une trame clé, qui force un reset "past independence" complet).
+		// DecodeKeyFrame/DecodeInterFrame gèrent SEULS le reset (clé/intra-only/
+		// error-resilient) et l'adaptation backward de fin de trame ; ne JAMAIS
+		// modifier ces champs depuis l'appelant.
+		struct NkVp9EntropyState {
+				NkVp9FrameContext frameContexts[4];
+				bool lastFrameWasKey = false;
+		};
+
 		// Résultat du parse de l'en-tête compressé.
 		struct NkVp9CompressedHeader {
 				int32 txMode = 0;		 // 0..4 (4 = TX_MODE_SELECT)
@@ -246,8 +294,12 @@ namespace nkentseu {
 				// contenu + prédiction intra + déquantification + transformées
 				// inverses) → image I420. `frame` = une trame VP9 (déjà extraite de
 				// son superframe). Sans loop filter pour l'instant (brique 5).
+				// `entropy` : état d'adaptation persistant du FLUX (NkVp9EntropyState),
+				// géré ENTIÈREMENT ici (reset past-independence + adaptation backward
+				// de fin de trame) — l'appelant le fait juste persister d'un appel à
+				// l'autre, comme refImages/prevMvs.
 				static bool DecodeKeyFrame(const uint8 *frame, usize size, NkVp9Image &out,
-										   NkTileParseStats *statsOut = nullptr,
+										   NkVp9EntropyState &entropy, NkTileParseStats *statsOut = nullptr,
 										   bool applyLoopFilter = true);
 
 				// BRIQUE 6 : décode une trame INTER (non-clé, non-intra-only) référençant
@@ -259,11 +311,16 @@ namespace nkentseu {
 				// être `false` si la trame précédente n'est pas éligible (clé, intra-
 				// only, error-resilient, taille différente — § use_prev_frame_mvs de
 				// dec_api). `prevMvs` : grille MV/ref de la trame précédente
-				// (miRows*miCols), ignorée si `usePrevFrameMvs` est faux.
+				// (miRows*miCols), ignorée si `usePrevFrameMvs` est faux. `outMvGrid` :
+				// si non nul, redimensionné à miRows*miCols et rempli avec la grille
+				// MV/ref de CETTE trame (pour servir de `prevMvs` à la trame SUIVANTE,
+				// si elle est éligible).
 				static bool DecodeInterFrame(const uint8 *frame, usize size, const NkVp9Image *refImages[3],
-											NkVp9Image &out, NkTileParseStats *statsOut = nullptr,
+											NkVp9Image &out, NkVp9EntropyState &entropy,
+											NkTileParseStats *statsOut = nullptr,
 											bool applyLoopFilter = true, bool usePrevFrameMvs = false,
-											const struct NkVp9MvRef *prevMvs = nullptr);
+											const struct NkVp9MvRef *prevMvs = nullptr,
+											NkVector<struct NkVp9MvRef> *outMvGrid = nullptr);
 
 				static bool SelfTest();
 		};

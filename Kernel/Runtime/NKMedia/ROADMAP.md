@@ -20,7 +20,7 @@
 | 3quater. **Fichiers .opus (Ogg-Opus, RFC 7845)** + câblage NKAudio | ✅ | **Conteneur Ogg livré (2026-07-12)** : probe (pistes opus/vorbis depuis les pages BOS) + démux (pages → paquets, lacing, `granule`) ; `NkOpusFile` (OpusHead pre-skip/gain + décode + trim granule ; **hybride/stéréo refusés proprement** → retirer le garde quand 3ter sera fini). Harnais `--oggopus`, self-test forge Ogg (34/34). **Validé vs ffmpeg** : SILK-WB corr 0.999985 (lag +2 = délai resampler), CELT corr 0.965 lag 0. **NKAudio branché** : `AudioFormat::OPUS` décodé via `NkOpusCodec` (détection OggS+OpusHead), test `NkMicRecord --decode in.opus out.wav`. NB : NKAudio dépend de NKMedia → 10 jengas d'apps mis à jour |
 | 4. Décodeur audio AAC-LC | ✅ | *(table périmée, tenue à jour dans « Livré » ci-dessous)* MP4 → PCM, stéréo complet, bit-exact vs ffmpeg |
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅** ; puis WebM, WAV |
-| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High bit-exact** (MP4/MOV/3GP/MKV) ; VP8/VP9/AV1/H.265 restent à faire — voir « Bugs / limitations connues » |
+| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; AV1/H.265 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
 | 8. **Décodeur vidéo VP8** | ✅ | **DÉCODEUR COMPLET (clé + inter) : 325 images BIT-EXACTES vs ffmpeg sur 6 flux** (dont altref invisibles, golden frames, 4 GOPs, SPLITMV, filterLevel 0-8, résolutions impaires). Décodeur booléen, en-têtes, modes intra+inter, MV (near/nearest/new/split), MC 6-tap, résidus, WHT+IDCT, filtre de boucle. Restes mineurs : segmentation MB, partitions multiples, versions 1-3 (refus propre). **À brancher dans NkVideoReader** (WebM/IVF). |
 
@@ -554,39 +554,71 @@
   le #1 (DCT_ADST) faux de ±1-2 → chemin ADST → relecture du header → l'ordre des champs.
   Leçon : TOUJOURS vérifier la déclaration des structs à initialiseurs positionnels, pas
   seulement les tables.
-- 🔶 **Brique 6 — TRAMES INTER (2026-07-23) : infrastructure complète construite et
-  compilée, PARTIELLEMENT VALIDÉE — un bug de désynchronisation du bitstream reste ouvert
-  sur le contenu à mouvement réel.** Port fidèle (vérifié table par table et fonction par
-  fonction contre `vp9_decodemv.c`/`vp9_mvref_common.c`/`vp9_pred_common.c`/
-  `vpx_dsp/vpx_convolve.c`) : modes inter (NEARESTMV/NEARMV/ZEROMV/NEWMV, arbre
-  `inter_mode_tree`), recherche de MV candidats `dec_find_mv_refs` (voisins spatiaux via
-  `mv_ref_blocks` par taille de bloc, repli sur trame précédente **non branché dans cette
-  session** — `usePrevFrameMvs` toujours faux, normatif pour la 1re trame P après une
-  clé), sous-blocs <8x8 (`append_sub8x8_mvs_for_idx`), single/compound reference
-  (`read_ref_frames` + contextes `single_ref_p1/p2`/`comp_ref_p`/`comp_inter`), lecture MV
-  (`read_mv_component`, précision haute conditionnelle `use_mv_hp`), compensation de
-  mouvement (filtres 8-tap `vp9_filter_kernels` 4×16×8, convolution horiz/vert 2 passes,
-  compound = moyenne, MV clampé aux bords UMV, sous-échantillonnage chroma des MV sub8x8),
-  bordure étendue 96px (`NkVp9RefBuffer::Build`) sur les images de référence. API
-  `DecodeInterFrame(frame, refImages[3], ...)` + harnais `--vp9inter <ivf> <ref1.yuv>`
-  (décode trame 0 clé + trame 1 inter, réfs LAST=GOLDEN=ALTREF=trame clé — cas normatif du
-  1er P-frame après refresh_frame_flags=0xFF).
-  **Validé bit-exact** : contenu 100% statique/skip (ZEROMV partout, aucun résidu) — pipeline
-  bout-en-bout correct (en-têtes, refs, MC, reconstruction, comparaison pixel).
-  **NON validé / bug ouvert** : contenu à mouvement réel (NEWMV) — le tile ne se consomme
-  PAS exactement (sous-consommation ~9 bits/bloc en moyenne, cumulée). Chaque table utilisée
-  (mv_ref_blocks, mode_2_counter, counter_to_context, mv_class_tree, default_partition_probs)
-  et chaque fonction de contexte/lecture a été revérifiée ligne à ligne contre la référence
-  SANS trouver l'écart — couverture de la grille mi confirmée 100% (pas de trou de
-  partition), donc le bug est une divergence de VALEUR (proba/contexte/MV) qui fait dériver
-  le décodeur arithmétique, pas un trou de parcours. **Reste pour une session dédiée** :
-  debug avec trace de référence bit-à-bit (idéalement un build local de `vpxdec`/libvpx
-  instrumenté) plutôt que la relecture statique, qui a atteint ses limites ici. `use_prev_frame_mvs`
-  (MV de la trame précédente) et la boucle multi-trames avec gestion réelle des slots
-  LAST/GOLDEN/ALTREF restent aussi à câbler une fois le bug résolu.
-- **À venir** : trames inter (MC 1/8 pel 8 taps, compound, refs multiples, MV prediction),
-  superframes/altref au niveau séquence, branchement NkVideoReader (.webm/.ivf VP9) + audio
-  Opus déjà prêt.
+- ⭐⭐⭐ **Brique 6 — TRAMES INTER (2026-07-23) : RÉSOLUE — VP9 INTER BIT-EXACT sur
+  6 flux réels dont 100 trames ALTREF.** Le bug de désynchronisation laissé ouvert en fin de
+  session précédente ("le tile ne se consomme pas exactement sur contenu à mouvement réel,
+  chaque table revérifiée sans trouver l'écart") a été résolu en construisant un `vpxdec`
+  instrumenté (clone libvpx local, `ucrt64`/`--target=generic-gnu`, fprintf par bloc/tuile)
+  et en diffant trace contre trace avec notre décodeur — la relecture statique de code avait
+  atteint ses limites, la comparaison croisée a trouvé l'écart en quelques itérations. **TROIS
+  bugs distincts, tous réels et indépendants** :
+  1. **Adaptation backward des probabilités ABSENTE** — VP9 persiste 4 `FRAME_CONTEXT` entre
+     trames (`frame_contexts[frame_context_idx]`) et les adapte en fin de trame
+     (`vp9_adapt_coef_probs` toujours ; `vp9_adapt_mode_probs`/`vp9_adapt_mv_probs` si la
+     trame n'est pas intra-only) à partir des comptes de tokens/modes/MV accumulés pendant le
+     décodage — la trame suivante repart de ce contexte ADAPTÉ, pas des probas par défaut.
+     Notre décodeur réinitialisait `InitDefaultFrameContext` à CHAQUE trame, perdant tout
+     héritage. Fix : `NkVp9EntropyState` (4 `NkVp9FrameContext` + `lastFrameWasKey`) possédé
+     par l'APPELANT et passé par référence à `DecodeKeyFrame`/`DecodeInterFrame` (même
+     patron que `refImages`/`prevMvs`) ; `NkVp9FrameCounts` (comptes tokens/skip/tx/modes/MV,
+     miroir de `FRAME_COUNTS`) accumulé pendant le parse (`FrameParseState::counts`) ;
+     `AdaptCoefProbs`/`AdaptModeProbs`/`AdaptMvProbs` (formules `merge_probs`/
+     `mode_mv_merge_probs`/`vpx_tree_merge_probs` génériques sur les arbres existants) +
+     `SetupPastIndependence` (reset complet des 4 slots sur trame clé/intra-only/error-
+     resilient, ou du seul slot courant si `reset_frame_context==2`). Piège découvert :
+     l'adaptation part de `pre_fc` = valeur PERSISTÉE d'AVANT la trame — elle IGNORE les
+     mises à jour forward de l'en-tête de LA MÊME trame (qui ne servent qu'à décoder cette
+     trame, puis sont écrasées par le résultat de l'adaptation).
+  2. **`PredictInterRegion` : offset ABSOLU du bloc manquant côté source** — la compensation
+     de mouvement positionnait correctement `dst` (destination) à l'origine globale du bloc,
+     mais lisait la référence à `refPlane + y·stride + x` avec `x,y` = offsets LOCAUX au bloc
+     (0 pour un bloc entier, seulement le MV s'ajoutant) : ÇA MARCHAIT PAR COÏNCIDENCE quand
+     le bloc était en (0,0) (donc invisible sur le tout premier bloc luma testé), mais lisait
+     la MAUVAISE position (l'origine du plan de référence) pour TOUT AUTRE bloc. Diagnostiqué
+     en comparant, pour un bloc MV=0 (copie pure attendue), le pixel prédit à un pixel connu
+     de la trame de référence — écart massif révélant la lecture au mauvais endroit. Fix :
+     ajouter `blockX = (-mbToLeftEdge)>>(3+ssx)` / `blockY = (-mbToTopEdge)>>(3+ssy)` à `x,y`
+     avant l'indexation dans le plan de référence.
+  3. **Deux limites de la session précédente qui bloquaient les trames 3+** :
+     `usePrevFrameMvs` était câblé mais jamais alimenté par l'appelant (toujours faux/nul) —
+     ajouté un paramètre de sortie `outMvGrid` à `DecodeInterFrame` (grille `NkVp9MvRef`
+     recopiée depuis `FrameParseState::mi[]` en fin de parse) + suivi d'éligibilité côté
+     harnais (`!error_resilient && mêmes dimensions && trame précédente ni clé/intra-only
+     NI invisible` — le piège : une trame ALTREF invisible (`show_frame=0`) casse
+     l'éligibilité de la trame QUI LA SUIT, pas seulement les trames clés). Et le contrôle
+     "tile consommée EXACTEMENT" (hérité de la validation trame clé) est TROP STRICT pour
+     l'inter : contrairement à la trame clé, libvpx ne valide JAMAIS une consommation exacte
+     par tuile (seul un OVERREAD = vraie corruption) — un reliquat de 1-2 octets de bourrage
+     non lus en fin de tuile est légitime sur trame inter, plus qu'on ne peut se le permettre
+     de rejeter comme "sous-consommation ~9 bits/bloc" (le vrai chiffre observé n'était qu'1
+     octet, sur une tuile par ailleurs bit-exacte bloc par bloc).
+  **Nouvelle API** `NkVp9EntropyState` (état persistant, possédé par l'appelant) +
+  `DecodeKeyFrame(..., entropy, ...)` / `DecodeInterFrame(..., entropy, ..., outMvGrid=nullptr)`
+  — signatures étendues, tous les appelants du dépôt mis à jour (`NkVideoReadTest` seul).
+  Harnais `--vp9multi <ivf> <ref.yuv>` (NkVideoReadTest) : décode le flux ENTIER (DPB 8 slots
+  via `refFrameIdx`/`refreshFrameFlags`, `show_existing_frame` géré, comparaison pixel de
+  CHAQUE trame affichée dans l'ordre d'affichage). **Validé BIT-EXACT vs ffmpeg** :
+  `vp9_mov64` (10/10, altref), `vp9_p2test` (20/20, altref invisible), `vp9_arf` (**100/100**,
+  gros flux altref réaliste), `vp9_2p` (100/100, 2 GOP/2 clés), `vp9_hd` (50/50, 1280x720),
+  `vp9_static`/`vp9_odd` (10/10 chacun). **Régression key-frame confirmée non cassée** :
+  10/10 flux clés toujours bit-exacts (`--vp9recon`). **Limite connue résiduelle** :
+  `vp9_seg` (flux segmentation) diverge dès la 1re trame inter — carte de segments
+  PERSISTANTE inter-trames non implémentée (`predicted_segment_id`/mise à jour temporelle),
+  déjà documentée comme limite dans `ReadInterFrameModeInfo` (`mi.segId=0` fixe) ; chantier
+  séparé, hors périmètre de cette session.
+- **À venir** : carte de segmentation temporelle (flux `vp9_seg`), branchement
+  `NkVideoReader` (.webm/.ivf VP9) + audio Opus déjà prêt, résolution scalée des références
+  (tailles différentes par ref, non gérée), profils 1-3 (High/4:4:4/10-12 bits).
 
 ## En cours / À venir
 
