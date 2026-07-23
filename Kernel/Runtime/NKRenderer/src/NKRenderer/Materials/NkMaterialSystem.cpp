@@ -520,30 +520,15 @@ namespace nkentseu {
 		}
 
 		// ── Bind ─────────────────────────────────────────────────────────────────
-		bool NkMaterialSystem::BindInstance(NkICommandBuffer *cmd, NkMaterialInstance *inst) {
+		// Upload des descriptors/UBO d'une instance SI dirty — extrait de
+		// BindInstance pour les chemins qui bindent le set SANS le pipeline
+		// materiau (ex. passe G-buffer du DEFERRED : un seul pipeline pour tous
+		// les materiaux, mais chaque set d'instance doit etre a jour, sinon les
+		// textures ne sont jamais ecrites -> albedo blanc).
+		void NkMaterialSystem::UpdateInstanceDescriptors(NkMaterialInstance *inst) {
 			NkTextureLibrary *texLib = mTexLib;
-			if (!inst)
-				return false;
-			auto *tmplEntry = mTemplates.Find(inst->mTemplate.id);
-			if (!tmplEntry)
-				return false;
-
-			if (!tmplEntry->compiled) {
-				tmplEntry->pipeline = CompilePipeline(*tmplEntry);
-				tmplEntry->compiled = true;
-			}
-			// Mode WIREFRAME : binde la variante fil-de-fer (compilée à la demande) au
-			// lieu du pipeline plein. Même shader/layout -> descriptors compatibles.
-			NkPipelineHandle usePipe = tmplEntry->pipeline;
-			if (mWireframe) {
-				if (!tmplEntry->pipelineWire.IsValid())
-					tmplEntry->pipelineWire = CompilePipeline(*tmplEntry, /*forceWireframe*/ true);
-				if (tmplEntry->pipelineWire.IsValid())
-					usePipe = tmplEntry->pipelineWire;
-			}
-			if (usePipe.IsValid())
-				cmd->BindGraphicsPipeline(usePipe);
-
+			if (!inst || !texLib)
+				return;
 			if (inst->mDirty && inst->mDescSet.IsValid()) {
 				// Determine which params to upload based on material type.
 				//   NK_LAYERED     -> NkLayeredParams   (2 PBR + mask).
@@ -624,6 +609,33 @@ namespace nkentseu {
 				mDevice->UpdateDescriptorSets(writes, 5);
 				inst->MarkClean();
 			}
+		}
+
+		bool NkMaterialSystem::BindInstance(NkICommandBuffer *cmd, NkMaterialInstance *inst) {
+			NkTextureLibrary *texLib = mTexLib;
+			if (!inst)
+				return false;
+			auto *tmplEntry = mTemplates.Find(inst->mTemplate.id);
+			if (!tmplEntry)
+				return false;
+
+			if (!tmplEntry->compiled) {
+				tmplEntry->pipeline = CompilePipeline(*tmplEntry);
+				tmplEntry->compiled = true;
+			}
+			// Mode WIREFRAME : binde la variante fil-de-fer (compilée à la demande) au
+			// lieu du pipeline plein. Même shader/layout -> descriptors compatibles.
+			NkPipelineHandle usePipe = tmplEntry->pipeline;
+			if (mWireframe) {
+				if (!tmplEntry->pipelineWire.IsValid())
+					tmplEntry->pipelineWire = CompilePipeline(*tmplEntry, /*forceWireframe*/ true);
+				if (tmplEntry->pipelineWire.IsValid())
+					usePipe = tmplEntry->pipelineWire;
+			}
+			if (usePipe.IsValid())
+				cmd->BindGraphicsPipeline(usePipe);
+
+			UpdateInstanceDescriptors(inst);
 
 			if (inst->mDescSet.IsValid())
 				cmd->BindDescriptorSet(inst->mDescSet, 2);

@@ -473,10 +473,87 @@
   charges, toutes les sous-trames, vérifs (sync, dims clés == IVF, headerSize borné, somme
   superframe). **Validé** : self-test forgé bit à bit ; flux 1-passe 100/100 trames ; flux
   2-passes torture **108 trames dont 8 superframes et 8 altref invisibles** tous parsés.
-- **À venir** (ordre VP8-like) : bool decoder compressé (identique VP8) + en-tête compressé
-  (probas), modes intra + partitions récursives 64→4, résiduels/transformées 4x4-32x32 DCT/ADST,
-  reconstruction image clé, inter (MC 1/8 pel, compound, refs multiples), loop filter,
-  branchement NkVideoReader (.webm/.ivf VP9).
+- ⭐ **Brique 2 — EN-TÊTE COMPRESSÉ (2026-07-22)** : le bool decoder VP8 (`NkVp8BoolDecoder`)
+  est RÉUTILISÉ tel quel — l'arithmétique est identique (`(range·p+256−p)>>8` ≡
+  `1+((range−1)·p)>>8`), MAIS `vpx_reader_init` VP9 lit UN BIT MARQUEUR à l'init (doit
+  valoir 0) — LA différence d'amorçage. `NkVp9Tables.inc` GÉNÉRÉ par `vp9ref/extract.py`
+  (scratchpad) : **35 tables** extraites de libvpx avec assertions (inv_map_table[255],
+  coef probs par défaut 4×[2][2][6][6][3] avec bande 0 partielle paddée, tous les mode/mv
+  probs par défaut + kf probs, 8 arbres avec résolution PROGRAMMATIQUE des enums/#define +
+  macro INTER_OFFSET). `NkVp9FrameContext` complet + `ParseCompressedHeader` (§6.3, ordre
+  `read_compressed_header`) : tx_mode (+ tx probs p8x8→p16x16→p32x32), coef probs (flag par
+  taille, deltas subexp `decode_term_subexp` + `inv_remap_prob`), skip, et pour l'inter :
+  inter modes, filtre switchable, intra/inter, reference mode (compound ssi sign bias
+  divergents), single/comp refs, modes Y, partitions, MV (`update_mv_probs` proba 252 →
+  7 bits impairs, hp conditionnel). Taille héritée d'une réf : paramètre refW/refH.
+  **Validé : 312/312 en-têtes compressés parsés sans erreur** (bit marqueur + bornes du
+  bool decoder) sur 4 flux : 2-passes altref (108), 1-passe (100), HD 1280x720 multi-tiles
+  (54), segmentation aq-mode (50). Un désalignement d'un seul bit ferait déborder le bool
+  decoder — critère fort avant le décodage réel.
+- ⭐ **Brique 3 — CONTENU DE TRAME CLÉ (2026-07-22) : partitions + modes + TOKENS, chaque
+  tile consommée EXACTEMENT.** Particularité vs VP8 : modes et résidus sont ENTRELACÉS par
+  bloc dans les tiles (pas de partitions séparées) → la validation par consommation exige de
+  lire aussi les tokens. Livré : tiles (tailles 4 octets BE sauf la dernière, bit marqueur
+  par tile, offsets alignés superbloc `min(((idx·sbDim)>>log2)<<3, miDim)`, contextes gauche
+  remis à zéro par rangée de SB) ; partitions récursives 64→4 (arbre kf, contexte above/left
+  par bits de `partition_context_lookup`, lecture PARTIELLE aux bords : 1 seul bool
+  probs[1]/probs[2] quand rows/cols manquent, SPLIT forcé sinon) ; grille MODE_INFO (cellule
+  copiée sur l'emprise = propagation de pointeurs libvpx) ; modes intra kf (arbres
+  `kf_y_mode_prob[above][left]` par sous-bloc — 4X4 : 4 modes, 4X8/8X4 : 2, ≥8X8 : 1 ; voisins
+  `above/left_block_mode` avec bmi du bloc adjacent) + mode UV ; segment id (arbre 7 probas),
+  skip (contexte a+l), tx_size (`read_selected_tx_size`, contexte des voisins non-skip) ;
+  TOKENS (`decode_coefs`) : bandes (`coefband_trans`), contexte des voisins du scan
+  `(1+cache[nb0]+cache[nb1])>>1`, modèle de Pareto (255×8) au-delà du token ONE, catégories
+  d'extra bits CAT1-6, scans default/row/col par type de transformée intra
+  (`intra_mode_to_tx_type`), contextes d'entropie A/L par plane avec clip aux bords
+  (`vp9_set_contexts`), reset au skip. 78 tables au total dans `NkVp9Tables.inc` (2e vague :
+  scans+neighbors, pareto, bandes, cat probs, dc/ac_qlookup, lookups de blocs). **Validé :
+  10/10 trames clés/intra, TOUTES les tiles consommées EXACTEMENT** (un seul bit d'écart
+  dans les milliers de décisions par trame désaligne le bool decoder) sur 6 flux : 1-passe
+  (4 clés), 2-passes (2), HD 1280x720 multi-tiles, segmentation aq-mode, résolution IMPAIRE
+  355x289 (blocs partiels aux bords), LOSSLESS (~156k coefficients lus au total).
+- ⭐⭐ **Brique 4 — RECONSTRUCTION D'IMAGE CLÉ (2026-07-22) : BIT-EXACTE vs ffmpeg** sur les
+  flux lossless (le loop filter — qui masquerait les vraies erreurs — arrive brique 5).
+  (1) **Transformées inverses** (`NkVp9Itxfm`, port fidèle inv_txfm.c) : iDCT 4/8/16/32 +
+  iADST 4/8/16 (hybrides par type : {rows, cols} = default/row/col) + iWHT 4x4 lossless —
+  constantes cospi/sinpi Q14, arrondi Q14, stockage intermédiaire int16 (wrap normatif :
+  step[] int16 MAIS x0-x15 des iADST en int32 SANS troncature — WRAPLOW n'est une troncature
+  qu'en EMULATE_HARDWARE), passes lignes→colonnes avec shifts 4/5/6/6. 3 bugs de
+  transcription attrapés à la RELECTURE avant tout run (boucles compactes idct16/32 étape 7,
+  wraps iadst). (2) **Prédiction intra** : 10 modes génériques (motif 127/129, extensions aux
+  bords via frameW/frameH, DC 4 variantes) + ⚠ LES 6 VARIANTES 4x4 DÉDIÉES des modes
+  directionnels (D45/D63/D117/D135/D153/D207 : les coins utilisent l'above-right RÉEL E..H,
+  « differs from vp8 » — le générique `intra_pred_no_4x4` ne sert qu'aux ≥8x8) — sans elles :
+  ~2% de pixels faux, diagnostiqué en croisant blocs faux × modes (le chroma, qui n'utilise
+  jamais D45/D63 ici, était parfait). (3) **Déquantification** par segment (get_qindex ALT_Q,
+  dc/ac_qlookup, deltas, dqShift 32x32) intégrée à decode_coefs (dq[0] premier coefficient
+  puis dq[1]). (4) ⚠ **MARGE de 64 px** droite/bas des plans : les blocs PARTIELS des bords
+  écrivent leur emprise complète (normatif, libvpx alloue pareil) — sans marge, un bloc du
+  bord droit wrappe sur la bande gauche de la rangée suivante (diagnostiqué : bande de
+  360−354=6 px constants). API `DecodeKeyFrame` (en-têtes + contenu + reconstruction → I420)
+  + harnais `--vp9recon` (comparaison pixel à pixel vs ffmpeg). **VALIDÉ : 3 flux lossless
+  BIT-EXACTS (176x144, mandelbrot 320x240, 354x288 avec superblocs partiels)** ; flux non-
+  lossless : écarts = uniquement le loop filter manquant. Limite : profils 1-3 (4:4:4/sRGB/
+  haute profondeur) non gérés — refus propre, le VP9 web est profil 0.
+- ⭐⭐⭐ **Brique 5 — LOOP FILTER (2026-07-22) : L'IMAGE CLÉ VP9 EST COMPLÈTE — 8/8 FLUX
+  BIT-EXACTS vs ffmpeg**, dont HD 1280x720 MULTI-TILES, segmentation aq-mode 640x360, bords
+  partiels 354x288, et 3 lossless. Port fidèle : filtres 4/8/16 taps (arithmétique ^0x80,
+  arrondi +4/+3, masques filter/flat4/flat5/hev), seuils par niveau 0-63 (update_sharpness :
+  mblim/lim, hev = lvl>>4), niveaux par segment (ALT_LF + ref_deltas[INTRA]×scale), chemin
+  générique `filter_block_plane_non420` (masques 16/8/4/4int à la volée par superbloc,
+  verticales de tout le SB PUIS horizontales, 1re colonne/rangée d'image jamais filtrées,
+  arêtes internes 4x4, « duals » = appels adjacents). Le filtre était CORRECT DU PREMIER
+  COUP — le bug révélé par la validation était AILLEURS : ⚠⚠ **`transform_2d` libvpx =
+  `{cols, rows}` — COLS EN PREMIER** (vp9_idct.h) → mes tables hybrides IHT étaient
+  inversées (ADST appliqué aux lignes au lieu des colonnes). Invisible en lossless (tout
+  WHT) ; diagnostiqué en 2 temps : (1) `-skip_loop_filter all` côté ffmpeg + option `nolf`
+  chez nous → la BASE pré-filtre divergeait déjà → pas le filtre ; (2) dump des blocs tx :
+  le bloc #0 (DCT_DCT pur) parfait, le #1 (DCT_ADST) faux de ±1-2 → chemin ADST → relecture
+  du header → l'ordre des champs. Leçon : TOUJOURS vérifier la déclaration des structs à
+  initialiseurs positionnels, pas seulement les tables.
+- **À venir** : trames inter (MC 1/8 pel 8 taps, compound, refs multiples, MV prediction),
+  superframes/altref au niveau séquence, branchement NkVideoReader (.webm/.ivf VP9) + audio
+  Opus déjà prêt.
 
 ## En cours / À venir
 
