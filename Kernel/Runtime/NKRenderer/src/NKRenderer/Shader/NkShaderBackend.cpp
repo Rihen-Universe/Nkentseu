@@ -628,7 +628,11 @@ namespace nkentseu {
 			// atlas…) doit garder la convention non-flippée — le heuristique du
 			// générateur (inputs+varyings ⇒ flip) le classerait à tort (cf.
 			// ShadowAlpha : alpha-test d'ombre avec vUV).
-			slOpts.glFlipYPosition = (target == NkSLTarget::NK_GLSL) && !src.Contains("@gl-no-flip-y");
+			// Le même pragma s'applique aux générateurs HLSL (DX11/DX12) : leur
+			// negate Y du VS suit le même heuristique et déplacerait l'ombre
+			// alpha-testée dans l'atlas (bug DX11/DX12 « ombre pointillée déplacée »).
+			slOpts.disableAutoYFlip = src.Contains("@gl-no-flip-y");
+			slOpts.glFlipYPosition = (target == NkSLTarget::NK_GLSL) && !slOpts.disableAutoYFlip;
 			NkSLCompileResult r = nksl::GetCompiler().Compile(src, ToRHIStage(stage), target, slOpts, "nksl_renderer");
 
 			NkShaderCompileResult res;

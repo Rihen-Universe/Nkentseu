@@ -46,10 +46,15 @@ namespace nkentseu {
 			fbd.debugName = desc.name.CStr();
 			mFBO = mDevice->CreateFramebuffer(fbd);
 
-			// Readback buffer (staging CPU) si demandé
+			// Readback buffer (staging CPU) si demandé. Taille = pitch ALIGNÉ 256 ×
+			// hauteur : DX12 écrit ses lignes avec un RowPitch aligné sur
+			// D3D12_TEXTURE_DATA_PITCH_ALIGNMENT (256) — un buffer « tight »
+			// (width*4) débordait dès que width*4 n'est pas multiple de 256.
+			// Superset inoffensif pour les autres backends (écriture tight).
 			if (desc.readback) {
+				const uint32 alignedPitch = (desc.width * 4u + 255u) & ~255u;
 				NkBufferDesc bd;
-				bd.sizeBytes = desc.width * desc.height * 4; // RGBA8
+				bd.sizeBytes = (uint64)alignedPitch * desc.height; // RGBA8
 				bd.type = NkBufferType::NK_STAGING;
 				bd.usage = NkResourceUsage::NK_READBACK;
 				mReadBuf = mDevice->CreateBuffer(bd);
@@ -142,13 +147,17 @@ namespace nkentseu {
 			// lignes bottom-up ; on les inverse pour une image top-down (comme
 			// les autres backends et les formats de fichier image).
 			const bool flipY = mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+			// DX12 écrit ses lignes au pitch ALIGNÉ 256 dans le staging (exigence
+			// D3D12) ; les autres backends écrivent tight (width*4).
+			const bool isDX12 = mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12;
+			const uint32 srcPitch = isDX12 ? ((mDesc.width * 4u + 255u) & ~255u) : mDesc.width * 4u;
 			uint32 rp = (rowPitch > 0) ? rowPitch : mDesc.width * 4;
 			NkMappedMemory mapped = mDevice->MapBuffer(mReadBuf);
 			if (!mapped.IsValid())
 				return false;
 			for (uint32 row = 0; row < mDesc.height; row++) {
 				const uint32 srcRow = flipY ? (mDesc.height - 1 - row) : row;
-				memcpy(dst + row * rp, (uint8 *)mapped.ptr + srcRow * mDesc.width * 4, mDesc.width * 4);
+				memcpy(dst + row * rp, (uint8 *)mapped.ptr + (uint64)srcRow * srcPitch, mDesc.width * 4);
 			}
 			mDevice->UnmapBuffer(mReadBuf);
 			return true;

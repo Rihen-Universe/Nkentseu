@@ -1317,8 +1317,13 @@ namespace nkentseu {
 				NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
 				if (ubo.IsValid())
 					mDevice->WriteBuffer(ubo, &ob, sizeof(ob), 0);
-				if (matInst && matInst->GetDescSet().IsValid())
+				if (matInst && matInst->GetDescSet().IsValid()) {
+					// Upload UBO/textures de l'instance si dirty : on ne passe PAS
+					// par BindInstance (pipeline unique G-buffer) — sans ca les
+					// textures ne sont jamais ecrites (albedo blanc, bug panneau).
+					mMat->UpdateInstanceDescriptors(matInst);
 					cmd->BindDescriptorSet(matInst->GetDescSet(), 2);
+				}
 				if (os.IsValid())
 					cmd->BindDescriptorSet(os, 1);
 				mMesh->BindMesh(cmd, dc.mesh);
@@ -1372,7 +1377,11 @@ namespace nkentseu {
 				(dApi == NkGraphicsApi::NK_GFX_API_DX11) || (dApi == NkGraphicsApi::NK_GFX_API_DX12);
 			// VK valide capture : memes conventions que DX (sample flippe +
 			// ndcY negatif) — l'essai sample direct donnait l'image inversee.
-			pc.invResW = -1.f; // = ndcYSign (tous backends)
+			// ndcYSign PAR BACKEND (consomme par le shader, pc.invResolution.x) :
+			// le VS flippe vUV sur DX pour echantillonner le G-buffer -> le signe
+			// NDC s'inverse pour retrouver la position ECRAN. -1 fixe donnait un
+			// worldPos MIROITE sur DX -> rayons parasites du spot cookie.
+			pc.invResW = dIsDX ? 1.f : -1.f; // = ndcYSign
 			pc.invResH = 0.f;
 			pc.yFlipUV = (dIsDX || dIsVK) ? -1.f : 1.f;
 			static int sDbg = -1;

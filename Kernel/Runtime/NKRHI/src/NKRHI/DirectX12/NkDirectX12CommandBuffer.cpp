@@ -510,6 +510,17 @@ namespace nkentseu {
 			return; // sans root sig, SetRoot32BitConstants plante
 		uint32 numConstants = size / 4;
 		uint32 destOffset = offset / 4;
+		// Clamp défensif : déborder les root constants déclarés est un UB qui
+		// corrompt les root arguments suivants (table de descripteurs) → device
+		// removed aléatoire. On tronque + log plutôt que de corrompre.
+		using namespace NkDX12RootLayout;
+		if (destOffset + numConstants > NUM_ROOT_CONSTANT_DWORDS) {
+			NK_DX12_CB_LOG("[ERR] PushConstants: %u DWORDs @%u > root sig (%u) — tronqué\n", numConstants, destOffset,
+						   (unsigned)NUM_ROOT_CONSTANT_DWORDS);
+			if (destOffset >= NUM_ROOT_CONSTANT_DWORDS)
+				return;
+			numConstants = NUM_ROOT_CONSTANT_DWORDS - destOffset;
+		}
 		if (mIsCompute)
 			mCmdList->SetComputeRoot32BitConstants(0, numConstants, data, destOffset);
 		else
@@ -655,8 +666,36 @@ namespace nkentseu {
 		// Le footprint DOIT utiliser le format RÉEL de la texture source : un
 		// hardcode R8G8B8A8_UNORM corrompait toute copie d'un RT non-RGBA8
 		// (ex. HDR RGBA16F → octets mal interprétés / copie invalide).
-		dstLoc.PlacedFootprint.Footprint = {mDev->GetTextureDXGIFormat(src.id), r.width, r.height,
-											r.depth > 0 ? r.depth : 1, r.bufferRowPitch};
+		const DXGI_FORMAT fmt = mDev->GetTextureDXGIFormat(src.id);
+		// RowPitch : bufferRowPitch==0 = « tight » côté API NKRHI (convention VK),
+		// mais D3D12 EXIGE un pitch explicite ≥ width*bpp ET aligné 256
+		// (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT). Passer 0 tel quel = INVALID_CALL →
+		// DEVICE REMOVED (cause racine du crash NK_CAPTURE DX12, diag 2026-07-22).
+		uint32 texBpp = 4;
+		switch (fmt) {
+			case DXGI_FORMAT_R16G16B16A16_FLOAT:
+				texBpp = 8;
+				break;
+			case DXGI_FORMAT_R32G32B32A32_FLOAT:
+				texBpp = 16;
+				break;
+			case DXGI_FORMAT_R16_FLOAT:
+				texBpp = 2;
+				break;
+			case DXGI_FORMAT_R32_FLOAT:
+			case DXGI_FORMAT_D32_FLOAT:
+				texBpp = 4;
+				break;
+			case DXGI_FORMAT_R8_UNORM:
+				texBpp = 1;
+				break;
+			default:
+				texBpp = 4; // RGBA8/BGRA8 et co.
+				break;
+		}
+		uint32 rowPitch = r.bufferRowPitch > 0 ? r.bufferRowPitch : r.width * texBpp;
+		rowPitch = (rowPitch + (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1)) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1);
+		dstLoc.PlacedFootprint.Footprint = {fmt, r.width, r.height, r.depth > 0 ? r.depth : 1, rowPitch};
 
 		D3D12_BOX box{r.x, r.y, r.z, r.x + r.width, r.y + r.height, r.z + (r.depth > 0 ? r.depth : 1)};
 		mCmdList->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, &box);
