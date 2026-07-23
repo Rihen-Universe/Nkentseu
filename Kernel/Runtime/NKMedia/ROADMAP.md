@@ -535,22 +535,55 @@
   BIT-EXACTS (176x144, mandelbrot 320x240, 354x288 avec superblocs partiels)** ; flux non-
   lossless : écarts = uniquement le loop filter manquant. Limite : profils 1-3 (4:4:4/sRGB/
   haute profondeur) non gérés — refus propre, le VP9 web est profil 0.
-- ⭐⭐⭐ **Brique 5 — LOOP FILTER (2026-07-22) : L'IMAGE CLÉ VP9 EST COMPLÈTE — 8/8 FLUX
+- ⭐⭐⭐ **Brique 5 — LOOP FILTER (2026-07-22) : L'IMAGE CLÉ VP9 EST COMPLÈTE — 10/10 FLUX
   BIT-EXACTS vs ffmpeg**, dont HD 1280x720 MULTI-TILES, segmentation aq-mode 640x360, bords
-  partiels 354x288, et 3 lossless. Port fidèle : filtres 4/8/16 taps (arithmétique ^0x80,
-  arrondi +4/+3, masques filter/flat4/flat5/hev), seuils par niveau 0-63 (update_sharpness :
-  mblim/lim, hev = lvl>>4), niveaux par segment (ALT_LF + ref_deltas[INTRA]×scale), chemin
-  générique `filter_block_plane_non420` (masques 16/8/4/4int à la volée par superbloc,
-  verticales de tout le SB PUIS horizontales, 1re colonne/rangée d'image jamais filtrées,
-  arêtes internes 4x4, « duals » = appels adjacents). Le filtre était CORRECT DU PREMIER
-  COUP — le bug révélé par la validation était AILLEURS : ⚠⚠ **`transform_2d` libvpx =
-  `{cols, rows}` — COLS EN PREMIER** (vp9_idct.h) → mes tables hybrides IHT étaient
-  inversées (ADST appliqué aux lignes au lieu des colonnes). Invisible en lossless (tout
-  WHT) ; diagnostiqué en 2 temps : (1) `-skip_loop_filter all` côté ffmpeg + option `nolf`
-  chez nous → la BASE pré-filtre divergeait déjà → pas le filtre ; (2) dump des blocs tx :
-  le bloc #0 (DCT_DCT pur) parfait, le #1 (DCT_ADST) faux de ±1-2 → chemin ADST → relecture
-  du header → l'ordre des champs. Leçon : TOUJOURS vérifier la déclaration des structs à
-  initialiseurs positionnels, pas seulement les tables.
+  partiels 354x288, 3 lossless, 2-passes et le premier flux du fichier altref. Port fidèle :
+  filtres 4/8/16 taps (arithmétique ^0x80, arrondi +4/+3, masques filter/flat4/flat5/hev),
+  seuils par niveau 0-63 (update_sharpness : mblim/lim, hev = lvl>>4), niveaux par
+  **[segment][ref_frame][mode_lf_lut]** (table `vp9_loop_filter_frame_init`, généralisée
+  brique 6 pour les blocs inter — `mode_lf_lut` : 0 pour intra+ZEROMV, 1 pour
+  NEARESTMV/NEARMV/NEWMV ; skip_this = `mi.skip && mi.IsInter()`), chemin générique
+  `filter_block_plane_non420` (masques 16/8/4/4int à la volée par superbloc, verticales de
+  tout le SB PUIS horizontales, 1re colonne/rangée d'image jamais filtrées, arêtes internes
+  4x4, « duals » = appels adjacents). Le filtre était CORRECT DU PREMIER COUP — le bug révélé
+  par la validation était AILLEURS : ⚠⚠ **`transform_2d` libvpx = `{cols, rows}` — COLS EN
+  PREMIER** (vp9_idct.h) → mes tables hybrides IHT étaient inversées (ADST appliqué aux
+  lignes au lieu des colonnes). Invisible en lossless (tout WHT) ; diagnostiqué en 2 temps :
+  (1) `-skip_loop_filter all` côté ffmpeg + option `nolf` chez nous → la BASE pré-filtre
+  divergeait déjà → pas le filtre ; (2) dump des blocs tx : le bloc #0 (DCT_DCT pur) parfait,
+  le #1 (DCT_ADST) faux de ±1-2 → chemin ADST → relecture du header → l'ordre des champs.
+  Leçon : TOUJOURS vérifier la déclaration des structs à initialiseurs positionnels, pas
+  seulement les tables.
+- 🔶 **Brique 6 — TRAMES INTER (2026-07-23) : infrastructure complète construite et
+  compilée, PARTIELLEMENT VALIDÉE — un bug de désynchronisation du bitstream reste ouvert
+  sur le contenu à mouvement réel.** Port fidèle (vérifié table par table et fonction par
+  fonction contre `vp9_decodemv.c`/`vp9_mvref_common.c`/`vp9_pred_common.c`/
+  `vpx_dsp/vpx_convolve.c`) : modes inter (NEARESTMV/NEARMV/ZEROMV/NEWMV, arbre
+  `inter_mode_tree`), recherche de MV candidats `dec_find_mv_refs` (voisins spatiaux via
+  `mv_ref_blocks` par taille de bloc, repli sur trame précédente **non branché dans cette
+  session** — `usePrevFrameMvs` toujours faux, normatif pour la 1re trame P après une
+  clé), sous-blocs <8x8 (`append_sub8x8_mvs_for_idx`), single/compound reference
+  (`read_ref_frames` + contextes `single_ref_p1/p2`/`comp_ref_p`/`comp_inter`), lecture MV
+  (`read_mv_component`, précision haute conditionnelle `use_mv_hp`), compensation de
+  mouvement (filtres 8-tap `vp9_filter_kernels` 4×16×8, convolution horiz/vert 2 passes,
+  compound = moyenne, MV clampé aux bords UMV, sous-échantillonnage chroma des MV sub8x8),
+  bordure étendue 96px (`NkVp9RefBuffer::Build`) sur les images de référence. API
+  `DecodeInterFrame(frame, refImages[3], ...)` + harnais `--vp9inter <ivf> <ref1.yuv>`
+  (décode trame 0 clé + trame 1 inter, réfs LAST=GOLDEN=ALTREF=trame clé — cas normatif du
+  1er P-frame après refresh_frame_flags=0xFF).
+  **Validé bit-exact** : contenu 100% statique/skip (ZEROMV partout, aucun résidu) — pipeline
+  bout-en-bout correct (en-têtes, refs, MC, reconstruction, comparaison pixel).
+  **NON validé / bug ouvert** : contenu à mouvement réel (NEWMV) — le tile ne se consomme
+  PAS exactement (sous-consommation ~9 bits/bloc en moyenne, cumulée). Chaque table utilisée
+  (mv_ref_blocks, mode_2_counter, counter_to_context, mv_class_tree, default_partition_probs)
+  et chaque fonction de contexte/lecture a été revérifiée ligne à ligne contre la référence
+  SANS trouver l'écart — couverture de la grille mi confirmée 100% (pas de trou de
+  partition), donc le bug est une divergence de VALEUR (proba/contexte/MV) qui fait dériver
+  le décodeur arithmétique, pas un trou de parcours. **Reste pour une session dédiée** :
+  debug avec trace de référence bit-à-bit (idéalement un build local de `vpxdec`/libvpx
+  instrumenté) plutôt que la relecture statique, qui a atteint ses limites ici. `use_prev_frame_mvs`
+  (MV de la trame précédente) et la boucle multi-trames avec gestion réelle des slots
+  LAST/GOLDEN/ALTREF restent aussi à câbler une fois le bug résolu.
 - **À venir** : trames inter (MC 1/8 pel 8 taps, compound, refs multiples, MV prediction),
   superframes/altref au niveau séquence, branchement NkVideoReader (.webm/.ivf VP9) + audio
   Opus déjà prêt.
