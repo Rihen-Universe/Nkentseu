@@ -10,6 +10,7 @@
 #include "NKMedia/Codecs/Video/VP8/NkVp8Decoder.h"
 #include "NKMedia/Codecs/Video/VP8/NkVp8BoolDecoder.h"
 #include "NKMedia/Codecs/Video/VP9/NkVp9Decoder.h"
+#include "NKMedia/Codecs/Video/HEVC/NkHevcDecoder.h"
 
 #include <cstdio>
 #include <cstring>
@@ -31,7 +32,9 @@ int main(int argc, char **argv) {
 		printf("  [ %s ] NkH264Cavlc::SelfTest (encode->decode round-trip)\n", okCavlc ? "OK " : "KO");
 		bool okVp9 = NkVp9Decoder::SelfTest();
 		printf("  [ %s ] NkVp9Decoder::SelfTest (superframe + en-tete non compresse)\n", okVp9 ? "OK " : "KO");
-		bool all = ok && okH264 && okCavlc && okVp9;
+		bool okHevc = NkHevcDecoder::SelfTest();
+		printf("  [ %s ] NkHevcDecoder::SelfTest (NAL split en-tete 2 octets)\n", okHevc ? "OK " : "KO");
+		bool all = ok && okH264 && okCavlc && okVp9 && okHevc;
 		printf("=== %s ===\n", all ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
 		return all ? 0 : 1;
 	}
@@ -845,6 +848,80 @@ int main(int argc, char **argv) {
 			   nContentOk, nContentTotal, nContentBlocks, nContentEob);
 		printf("  [ %s ] parsing en-tetes VP9\n", allOk ? "OK " : "KO");
 		return allOk ? 0 : 1;
+	}
+
+	// Mode diagnostic HEVC (brique 1) : --hevcheader <fichier.265/.hevc Annex-B brut>
+	// Decoupe les NALs (en-tete 2 octets), parse VPS/SPS/PPS et affiche dimensions/
+	// profil/niveau/chroma/profondeur de bits — a comparer a `ffprobe` sur le meme
+	// fichier pour validation (dimensions et profil doivent correspondre exactement).
+	if (argc >= 3 && strcmp(argv[1], "--hevcheader") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		fseek(f, 0, SEEK_END);
+		long n = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		NkVector<uint8> buf;
+		buf.Resize((usize)n);
+		size_t got = fread(buf.Data(), 1, (size_t)n, f);
+		fclose(f);
+		if (got != (size_t)n) {
+			printf("  [KO] lecture incomplete\n");
+			return 1;
+		}
+		NkVector<NkHevcNal> nals;
+		NkHevcDecoder::SplitNalsAnnexB(buf.Data(), (usize)buf.Size(), nals);
+		printf("  %llu NALs (Annex-B, en-tete 2 octets)\n", (unsigned long long)nals.Size());
+		int32 nVps = 0, nSps = 0, nPps = 0, nIdr = 0, nCra = 0, nTrail = 0;
+		bool haveSps = false;
+		NkHevcSps sps;
+		for (uint64 i = 0; i < nals.Size(); ++i) {
+			const NkHevcNal &nal = nals[i];
+			const uint8 *nd = buf.Data() + nal.offset;
+			if (nal.type == kHevcNalVps) {
+				++nVps;
+				int32 vpsId;
+				NkHevcProfileTierLevel ptl;
+				if (NkHevcDecoder::ParseVps(nd, nal.size, vpsId, ptl))
+					printf("  VPS id=%d profil=%d niveau=%d.%d\n", vpsId, ptl.generalProfileIdc,
+						   ptl.generalLevelIdc / 30, (ptl.generalLevelIdc % 30) / 3);
+			} else if (nal.type == kHevcNalSps) {
+				++nSps;
+				if (NkHevcDecoder::ParseSps(nd, nal.size, sps)) {
+					haveSps = true;
+					printf("  SPS id=%d %dx%d profil=%d niveau=%d.%d chroma=%d profondeur=%d/%d "
+						   "fenetre_conformance=%d (l=%d r=%d h=%d b=%d)\n",
+						   sps.spsId, sps.width, sps.height, sps.ptl.generalProfileIdc,
+						   sps.ptl.generalLevelIdc / 30, (sps.ptl.generalLevelIdc % 30) / 3,
+						   sps.chromaFormatIdc, sps.bitDepthLuma, sps.bitDepthChroma, sps.conformanceWindow,
+						   sps.confWinLeft, sps.confWinRight, sps.confWinTop, sps.confWinBottom);
+				} else {
+					printf("  [KO] SPS %llu : parsing echoue\n", (unsigned long long)i);
+				}
+			} else if (nal.type == kHevcNalPps) {
+				++nPps;
+				NkHevcPps pps;
+				if (NkHevcDecoder::ParsePps(nd, nal.size, pps))
+					printf("  PPS id=%d sps_id=%d tuiles=%d(%dx%d) sync_entropie=%d cu_qp_delta=%d\n",
+						   pps.ppsId, pps.spsId, pps.tilesEnabled, pps.numTileColumnsMinus1 + 1,
+						   pps.numTileRowsMinus1 + 1, pps.entropyCodingSyncEnabled, pps.cuQpDeltaEnabled);
+				else
+					printf("  [KO] PPS %llu : parsing echoue\n", (unsigned long long)i);
+			} else if (nal.type == kHevcNalIdrWRadl || nal.type == kHevcNalIdrNLp) {
+				++nIdr;
+			} else if (nal.type == kHevcNalCra) {
+				++nCra;
+			} else if (nal.type <= kHevcNalRaslR) {
+				++nTrail;
+			}
+		}
+		printf("  VPS=%d SPS=%d PPS=%d IDR=%d CRA=%d TRAIL/autres_slices=%d\n", nVps, nSps, nPps, nIdr, nCra,
+			   nTrail);
+		const bool ok = haveSps && sps.width > 0 && sps.height > 0;
+		printf("  [ %s ] parsing en-tetes HEVC (brique 1 : NAL + VPS/SPS/PPS)\n", ok ? "OK " : "KO");
+		return ok ? 0 : 1;
 	}
 
 	// Mode diagnostic VP8 (chantier en cours) : --vp8header <fichier.ivf>

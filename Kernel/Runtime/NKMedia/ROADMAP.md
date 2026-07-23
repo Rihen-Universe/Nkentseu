@@ -20,7 +20,7 @@
 | 3quater. **Fichiers .opus (Ogg-Opus, RFC 7845)** + câblage NKAudio | ✅ | **Conteneur Ogg livré (2026-07-12)** : probe (pistes opus/vorbis depuis les pages BOS) + démux (pages → paquets, lacing, `granule`) ; `NkOpusFile` (OpusHead pre-skip/gain + décode + trim granule ; **hybride/stéréo refusés proprement** → retirer le garde quand 3ter sera fini). Harnais `--oggopus`, self-test forge Ogg (34/34). **Validé vs ffmpeg** : SILK-WB corr 0.999985 (lag +2 = délai resampler), CELT corr 0.965 lag 0. **NKAudio branché** : `AudioFormat::OPUS` décodé via `NkOpusCodec` (détection OggS+OpusHead), test `NkMicRecord --decode in.opus out.wav`. NB : NKAudio dépend de NKMedia → 10 jengas d'apps mis à jour |
 | 4. Décodeur audio AAC-LC | ✅ | *(table périmée, tenue à jour dans « Livré » ci-dessous)* MP4 → PCM, stéréo complet, bit-exact vs ffmpeg |
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅** ; puis WebM, WAV |
-| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; AV1/H.265 restent à faire — voir « Bugs / limitations connues » |
+| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC brique 1 démarrée** (structure NAL+VPS/SPS/PPS validée vs ffprobe, décodage image = à venir) ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
 | 8. **Décodeur vidéo VP8** | ✅ | **DÉCODEUR COMPLET (clé + inter) : 325 images BIT-EXACTES vs ffmpeg sur 6 flux** (dont altref invisibles, golden frames, 4 GOPs, SPLITMV, filterLevel 0-8, résolutions impaires). Décodeur booléen, en-têtes, modes intra+inter, MV (near/nearest/new/split), MC 6-tap, résidus, WHT+IDCT, filtre de boucle. Restes mineurs : segmentation MB, partitions multiples, versions 1-3 (refus propre). **À brancher dans NkVideoReader** (WebM/IVF). |
 
@@ -719,6 +719,58 @@
   inter + 10/10 flux clés restent bit-exacts, comme attendu si le bug n'était effectivement
   jamais exercé jusqu'ici).
 
+## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (brique 1 : structure bitstream)
+
+*(2026-07-24)* Démarré comme suite logique directe de H.264 (« évolution directe … la base de
+départ la plus naturelle », cf. section précédente) — même famille bit-exacte, complexité
+supérieure (CTU/CU/PU/TU au lieu de MB fixes, CABAC uniquement, plus de modes intra, SAO).
+Nouveau module `Kernel/Runtime/NKMedia/src/NKMedia/Codecs/Video/HEVC/` (`NkHevcDecoder.h/.cpp`),
+zero-STL, `nkentseu::media`.
+
+- ⭐ **Brique 1 livrée et validée** : découpage NAL Annex-B (en-tête **2 octets** contre 1 en
+  H.264 : `forbidden_zero_bit(1) + nal_unit_type(6) + nuh_layer_id(6) + nuh_temporal_id_plus1(3)`,
+  §7.3.1.2) + parsing structurel `VPS`/`SPS`/`PPS` (§7.3.2.x) via Exp-Golomb — **réutilise
+  directement `NkH264BitReader`** (même convention MSB-first `ue(v)`/`se(v)` bit-identique à
+  H.264, même anti-émulation `00 00 03`→`00 00`) : pas de duplication de bit reader.
+  - `profile_tier_level()` (§7.3.3) implémenté EXACTEMENT (bloc général 88 bits de
+    compatibility/constraint flags fixes quel que soit le profil + niveau 8 bits, puis les
+    mêmes 88+8 bits par sous-couche si signalés) — nécessaire pour rester synchrone dans le
+    RBSP même si seuls `general_profile_idc`/`general_level_idc` sont exposés (pas les
+    sous-couches, hors périmètre brique 1 : x265 par défaut ne signale pas de sous-couches
+    temporelles, chemin non exercé par les flux de test — noté comme limite connue).
+  - `ParseSps` : dimensions (`pic_width/height_in_luma_samples`), profil/niveau, chroma,
+    profondeurs de bits, fenêtre de conformance (`conformance_window` — crop en unités
+    `SubWidthC`/`SubHeightC`, PAS en pixels directs, §7.4.3.2.1) — s'arrête avant
+    `st_ref_pic_set()`/`scaling_list_data()`/`vui_parameters()` (hors scope structurel).
+  - `ParsePps` : tuiles, QP init, flags de contrôle CU/tuile — s'arrête avant
+    `deblocking_filter_control()`/`scaling_list_data()`/`pps_extension()`.
+  - **Validation sur 2 vrais flux ffmpeg/libx265** (`--hevcheader`, harnais diagnostic ajouté à
+    `NkVideoReadTest`, comparaison manuelle vs `ffprobe`) :
+    1. 322×242 4:2:0 8-bit profil Main (résolution impaire, exerce le crop de conformance) :
+       SPS brut 328×248 (aligné CTU), `conf_win` l=0 r=3 h=0 b=3 → crop réel
+       `r×SubWidthC=3×2=6` / `b×SubHeightC=3×2=6` → **322×242 EXACT vs `ffprobe`**
+       (`width`/`height`/`coded_width`/`coded_height`) ; profil=1 (Main) et niveau=2.0
+       (`level_idc`=60=`ffprobe level`) corrects.
+    2. 1280×720 4:2:0 10-bit profil Main10, niveau 3.1 : profil=2 (Main10) et niveau=3.1
+       (`level_idc`=93) **EXACTS vs `ffprobe`** (`profile=Main 10`, `level=93`), dimensions
+       exactes (pas de crop, résolution déjà alignée CTU), profondeur de bits 10/10 correcte.
+  - ⭐ **Bug trouvé et corrigé pendant la validation** : le harnais `--hevcheader` affichait le
+    niveau `X.YY` via `(level_idc % 30) * 10 / 3` (ex. niveau 3.1 → `level_idc`=93 →
+    affichait `3.10` au lieu de `3.1`) — erreur de formule (le chiffre décimal du niveau HEVC
+    s'obtient par `(level_idc % 30) / 3`, pas `* 10 / 3` : les niveaux sont espacés de 3 en
+    `level_idc` pour chaque incrément de 0.1). Cosmétique (harnais diagnostic uniquement,
+    aucun impact sur le parsing lui-même côté `NkHevcDecoder`) mais corrigé immédiatement par
+    cohérence — reconfirmé bit-exact sur les 2 flux après fix.
+  - `NkHevcDecoder::SelfTest()` (NAL synthétique 2 NALs VPS+SPS) intégré à la suite
+    `NkVideoReadTest` sans argument (5/5 self-tests OK : AVI MJPEG, H264, CAVLC, VP9, HEVC).
+- **Suite (briques 2+, PAS commencées)** : slice header (§7.3.6), moteur **CABAC** (contexte
+  différent d'H.264 malgré la même idée générale), quadtree **CTU→CU→PU→TU**, **35 modes
+  intra** (33 directionnels + DC + planar, contre 9 en H.264), prédiction inter
+  **merge/AMVP** (pas de skip/direct façon H.264), transformées **DST/DCT** variables
+  (4×4 à 32×32), déblocage + **SAO** (nouveau vs H.264). Gros chantier multi-session, comme
+  H.264/VP8/VP9 avant lui — à traiter brique par brique avec validation bit-exacte à chaque
+  étape (méthode déjà éprouvée 4× sur ce module).
+
 ## En cours / À venir
 
 *(MAJ 2026-07-19 — la section précédente était périmée : Opus/CELT+SILK ✅, AAC-LC stéréo ✅
@@ -865,9 +917,9 @@ déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré 
      précision déjà établie ailleurs dans le pipeline audio float32 (arrondi du aller-retour
      int↔float32, pas une régression).
   - **Codecs vidéo à décoder (nouveaux, gros chantiers)**, par ordre de proximité avec l'existant :
-    - **H.265/HEVC** : évolution directe de H.264 (même famille CABAC/transformées/déblocage en
-      plus complexe — CTU/CU/PU/TU au lieu de MB fixes, plus de modes intra, SAO) — le décodeur
-      H.264 bit-exact déjà livré est la meilleure base de départ.
+    - **H.265/HEVC** : **DÉMARRÉ (2026-07-24)** — brique 1 (structure NAL/VPS/SPS/PPS) livrée
+      et validée vs ffprobe, voir section dédiée ci-dessus. Reste : CABAC, quadtree CTU/CU/PU/TU,
+      35 modes intra, inter merge/AMVP, transformées DST/DCT variables, déblocage+SAO.
     - **VP8/VP9** (Google, libvpx) : famille différente (pas de CABAC, arithmétique booléenne
       simple pour VP8 ; VP9 plus proche de HEVC en complexité) — nécessaire pour WebM complet.
     - **AV1** : le plus gros chantier (spec récente, complexité élevée, film grain synthesis,
