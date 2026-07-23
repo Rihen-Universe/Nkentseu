@@ -17,9 +17,18 @@
 #pragma once
 
 #include "NKCore/NkTypes.h"
+#include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
 	namespace media {
+
+		// Image décodée (I420 ; strides = largeurs des plans).
+		struct NkVp9Image {
+				NkVector<nk_uint8> y, u, v;
+				int32 width = 0, height = 0;
+				int32 yStride = 0, uvStride = 0;
+				int32 uvWidth = 0, uvHeight = 0;
+		};
 
 		// --- Superframe VP9 : jusqu'à 8 trames concaténées + index final. ---
 		// Le DERNIER octet 0b110xxxxx = marqueur : bits 0-2 = nb trames - 1,
@@ -120,6 +129,53 @@ namespace nkentseu {
 				int32 uncompressedBytes = 0;
 		};
 
+		// Modes de référence de trame (§7.4.12).
+		enum NkVp9ReferenceMode : nk_int32 {
+			kVp9SingleReference = 0,
+			kVp9CompoundReference = 1,
+			kVp9ReferenceModeSelect = 2
+		};
+
+		// Composante de vecteur de mouvement (nmv_component).
+		struct NkVp9NmvComponent {
+				uint8 sign = 128;
+				uint8 classes[10] = {0};
+				uint8 class0[1] = {0};
+				uint8 bits[10] = {0};
+				uint8 class0Fr[2][3] = {{0}};
+				uint8 fr[3] = {0};
+				uint8 class0Hp = 160;
+				uint8 hp = 128;
+		};
+
+		// CONTEXTE D'ENTROPIE DE TRAME (FRAME_CONTEXT) : toutes les probabilités
+		// adaptées, initialisées aux valeurs par défaut normatives (NkVp9Tables.inc)
+		// puis mises à jour par l'en-tête compressé (diff update subexp).
+		struct NkVp9FrameContext {
+				uint8 yModeProb[4][9];
+				uint8 uvModeProb[10][9];
+				uint8 partitionProb[16][3];
+				uint8 coefProbs[4][2][2][6][6][3]; // [txSize][plane][ref][bande][ctx][nœud]
+				uint8 switchableInterpProb[4][2];
+				uint8 interModeProbs[7][3];
+				uint8 intraInterProb[4];
+				uint8 compInterProb[5];
+				uint8 singleRefProb[5][2];
+				uint8 compRefProb[5];
+				uint8 txProbs32[2][3];
+				uint8 txProbs16[2][2];
+				uint8 txProbs8[2][1];
+				uint8 skipProbs[3];
+				uint8 nmvJoints[3];
+				NkVp9NmvComponent nmvComps[2];
+		};
+
+		// Résultat du parse de l'en-tête compressé.
+		struct NkVp9CompressedHeader {
+				int32 txMode = 0;		 // 0..4 (4 = TX_MODE_SELECT)
+				int32 referenceMode = 0; // NkVp9ReferenceMode
+		};
+
 		struct NkVp9Decoder {
 			public:
 				// Découpe une charge utile (trame WebM/IVF) en trames VP9 individuelles
@@ -128,7 +184,56 @@ namespace nkentseu {
 
 				// Parse l'en-tête NON COMPRESSÉ d'une trame (§6.2). Renvoie false si le
 				// flux est invalide (marqueur/sync code/profil non gérés).
-				static bool ParseUncompressedHeader(const uint8 *data, usize size, NkVp9FrameHeader &out);
+				// `refW/refH` : dimensions à utiliser quand la taille est HÉRITÉE d'une
+				// trame de référence (flag par réf) — le décodeur complet passera celles
+				// du slot référencé ; 0 = inconnu → width/height = sentinelle négative et
+				// tile_info/headerSize ne sont pas fiables.
+				static bool ParseUncompressedHeader(const uint8 *data, usize size, NkVp9FrameHeader &out,
+													int32 refW = 0, int32 refH = 0);
+
+				// Initialise le contexte aux probabilités par défaut normatives.
+				static void InitDefaultFrameContext(NkVp9FrameContext &fc);
+
+				// Parse l'EN-TÊTE COMPRESSÉ (§6.3, read_compressed_header) : bool decoder
+				// (identique VP8 — ⚠ mais VP9 lit UN BIT MARQUEUR à l'init, qui doit
+				// valoir 0) + mises à jour de probabilités (diff update : flag proba 252
+				// puis delta subexp remappé via inv_map_table). `data` pointe sur les
+				// `size` octets de l'en-tête compressé (après l'en-tête non compressé).
+				// Renvoie false si marqueur invalide ou débordement du bool decoder.
+				static bool ParseCompressedHeader(const uint8 *data, usize size, const NkVp9FrameHeader &hdr,
+												  NkVp9FrameContext &fc, NkVp9CompressedHeader &out);
+
+				// Statistiques du parse de contenu (brique 3 : consommation, pas encore
+				// de reconstruction).
+				struct NkTileParseStats {
+						int32 tiles = 0;		// tiles décodées
+						int32 blocks = 0;		// blocs feuilles (unités de prédiction)
+						int32 skipBlocks = 0;	// blocs à skip=1 (aucun résidu)
+						int64 eobTotal = 0;		// somme des EOB (nb de coefficients lus)
+						int32 maxOverread = 0;	// pire dépassement bool decoder (≤2 = normal)
+				};
+
+				// BRIQUE 3 : parse le CONTENU d'une trame CLÉ (§8-9) — tiles (tailles 4
+				// octets BE sauf la dernière) → partitions récursives 64→4 (arbre +
+				// contextes above/left) → modes intra kf (arbres à voisins) + tx_size/
+				// skip/segment → TOKENS résiduels (decode_coefs : bandes, contexte des
+				// voisins du scan, modèle de Pareto, catégories d'extra bits). Les
+				// coefficients sont décodés puis JETÉS (reconstruction = brique 4).
+				// `tileData` = début des données de tiles (après en-têtes non compressé
+				// + compressé) ; `chdr` = résultat de ParseCompressedHeader (tx_mode).
+				// Renvoie false si une tile ne se consomme pas EXACTEMENT.
+				static bool ParseKeyFrameContent(const uint8 *tileData, usize tileSize,
+												 const NkVp9FrameHeader &hdr, const NkVp9FrameContext &fc,
+												 const NkVp9CompressedHeader &chdr,
+												 NkTileParseStats &stats);
+
+				// BRIQUE 4 : décode ENTIÈREMENT une trame clé/intra-only (en-têtes +
+				// contenu + prédiction intra + déquantification + transformées
+				// inverses) → image I420. `frame` = une trame VP9 (déjà extraite de
+				// son superframe). Sans loop filter pour l'instant (brique 5).
+				static bool DecodeKeyFrame(const uint8 *frame, usize size, NkVp9Image &out,
+										   NkTileParseStats *statsOut = nullptr,
+										   bool applyLoopFilter = true);
 
 				static bool SelfTest();
 		};
