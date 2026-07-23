@@ -184,8 +184,26 @@ namespace nkentseu {
 					auto &ctx = ec.Ui();
 					auto &dl = ctx.DL();
 					const NkRect r = dl.CurrentClip();
+					// ── PERSISTANCE PAR WORKSPACE : les chats appartiennent au workspace
+					// qui les a generes. Au changement de racine (ou 1er passage), on
+					// recharge les conversations sauvegardees de CE workspace. Jamais
+					// pendant un tour en cours (le flux ecrirait dans le mauvais chat) —
+					// le rechargement est simplement differe a la fin du tour. ──
+					{
+						const NkString root = (mS && mS->HasWorkspace()) ? mS->root.ToString() : NkString();
+						if (root != mLoadedRoot && !mBusy) {
+							mLoadedRoot = root;
+							LoadChats();
+						}
+					}
 					if (mChats.Empty())
 						NewChat(); // 1re conversation (locale correcte : posée après construction)
+					// Sauvegarde debouncee (~1,5 s) sur changement d'empreinte, hors flux.
+					if (++mSaveTick >= 90) {
+						mSaveTick = 0;
+						if (!mBusy)
+							SaveChatsIfChanged();
+					}
 					// ── Pont barre de menus -> chat (menu IA : Expliquer/Corriger/... la
 					// selection) : prompt depose dans NkCodeState, copie dans la saisie ici ;
 					// aiSend = envoi immediat (si un tour est deja en cours, le prompt reste
@@ -517,6 +535,10 @@ namespace nkentseu {
 				int32 mActiveChat = 0;
 				int32 mBusyChat = -1; // chat CIBLE de la reponse en cours (peut differer de l'actif si switch)
 				int32 mChatSeq = 0;	   // numerotation "Chat N"
+				// ── Persistance par workspace (voir SaveChatsIfChanged/LoadChats) ──
+				NkString mLoadedRoot; // racine du workspace dont les chats sont charges
+				uint32 mSavedFp = 0;  // empreinte du dernier etat sauve (anti-ecritures inutiles)
+				uint32 mSaveTick = 0; // debounce de la sauvegarde periodique
 				bool mChatListOpen = false;
 				NkRect mChatListAnchor = {0, 0, 0, 0};
 				// ── Selection de texte LIBRE dans le fil de messages : PARTIELLE (glisser) ou
@@ -784,6 +806,170 @@ namespace nkentseu {
 						mActiveChat = static_cast<int32>(mChats.Size()) - 1;
 					else if (mActiveChat > idx)
 						--mActiveChat;
+				}
+
+				// ── PERSISTANCE des conversations PAR WORKSPACE ─────────────────────
+				// Fichier : <ws>/.nkcode/ai_chats_<kind>.cfg (1 fichier par agent).
+				// Format v1 ligne-a-ligne, '\n' et '\\' echappes dans les textes.
+				NkString ChatsPath() const {
+					return mLoadedRoot + "/.nkcode/ai_chats_" + NkPrintf("%d", mKind).CStr() + ".cfg";
+				}
+				static void EscTo(NkString &o, const char *s) {
+					for (; s && *s; ++s) {
+						if (*s == '\n')
+							o += "\\n";
+						else if (*s == '\\')
+							o += "\\\\";
+						else if (*s != '\r')
+							o += *s;
+					}
+				}
+				static NkString Unesc(const char *s, usize n) {
+					NkString o;
+					for (usize i = 0; i < n; ++i) {
+						if (s[i] == '\\' && i + 1 < n) {
+							++i;
+							o += (s[i] == 'n') ? '\n' : s[i];
+						} else
+							o += s[i];
+					}
+					return o;
+				}
+				// Empreinte bon marche : detecte tout changement notable sans re-serialiser.
+				uint32 ChatsFingerprint() const {
+					uint32 h = 2166136261u;
+					auto mix = [&h](uint32 v) { h = (h ^ v) * 16777619u; };
+					mix((uint32)mChats.Size());
+					mix((uint32)mActiveChat);
+					mix((uint32)mChatSeq);
+					for (usize i = 0; i < mChats.Size(); ++i) {
+						const ChatSession &c = mChats[i];
+						mix((uint32)c.msgs.Size());
+						mix((uint32)c.title.Size());
+						mix((uint32)::strlen(c.input));
+						mix((uint32)::strlen(c.system));
+						mix((uint32)c.claudeSessionId.Size());
+						mix((uint32)(c.modelIdx | (c.mode << 4) | (c.scope << 8) | (c.editAuth << 12) |
+									 (c.effort << 16) | (c.thinking ? 1 << 20 : 0) | (c.ctxFileOn ? 1 << 21 : 0)));
+						mix((uint32)(c.temp * 1000.f));
+						mix((uint32)c.maxTokens);
+						if (!c.msgs.Empty())
+							mix((uint32)c.msgs[c.msgs.Size() - 1].text.Size());
+					}
+					return h;
+				}
+				void SaveChatsIfChanged() {
+					if (mLoadedRoot.Empty())
+						return;
+					const uint32 fp = ChatsFingerprint();
+					if (fp == mSavedFp)
+						return;
+					NkString o("v1\n");
+					o += NkPrintf("active=%d\nseq=%d\n", mActiveChat, mChatSeq).CStr();
+					for (usize i = 0; i < mChats.Size(); ++i) {
+						const ChatSession &c = mChats[i];
+						o += "[chat]\n";
+						o += "title=";
+						EscTo(o, c.title.CStr());
+						o += "\nsid=";
+						EscTo(o, c.claudeSessionId.CStr());
+						o += NkPrintf("\nprops=%d %d %d %d %d %d %d %d %d %d\n", c.modelIdx, c.mode, c.scope,
+									  c.editAuth, c.ctxFileOn ? 1 : 0, (int32)(c.temp * 1000.f), c.maxTokens,
+									  c.effort, c.thinking ? 1 : 0, c.autoSwitchFlagged ? 1 : 0)
+								 .CStr();
+						o += "system=";
+						EscTo(o, c.system);
+						o += "\ninput=";
+						EscTo(o, c.input);
+						o += "\n";
+						for (usize m = 0; m < c.msgs.Size(); ++m) {
+							o += NkPrintf("m=%d %d ", c.msgs[m].role, c.msgs[m].tool).CStr();
+							EscTo(o, c.msgs[m].text.CStr());
+							o += "\n";
+						}
+					}
+					NkDirectory::CreateRecursive(NkPath(mLoadedRoot + "/.nkcode"));
+					if (NkFile::WriteAllText(NkPath(ChatsPath().CStr()), o))
+						mSavedFp = fp;
+				}
+				void LoadChats() {
+					mChats.Clear();
+					mActiveChat = 0;
+					mChatSeq = 0;
+					mSelChat = -1;
+					if (mLoadedRoot.Empty()) {
+						mSavedFp = ChatsFingerprint();
+						return;
+					}
+					const NkString txt = NkFile::ReadAllText(NkPath(ChatsPath().CStr()));
+					const char *p = txt.CStr();
+					if (txt.Size() < 3 || ::strncmp(p, "v1\n", 3) != 0) {
+						mSavedFp = ChatsFingerprint(); // pas de fichier / version inconnue
+						return;
+					}
+					ChatSession *cur = nullptr;
+					int32 active = 0;
+					for (const char *ls = p; *ls;) {
+						const char *le = ls;
+						while (*le && *le != '\n')
+							++le;
+						const usize ln = (usize)(le - ls);
+						auto is = [&](const char *k) {
+							const usize kl = ::strlen(k);
+							return ln >= kl && ::strncmp(ls, k, kl) == 0;
+						};
+						if (is("active="))
+							active = ::atoi(ls + 7);
+						else if (is("seq="))
+							mChatSeq = ::atoi(ls + 4);
+						else if (is("[chat]")) {
+							mChats.PushBack(ChatSession());
+							cur = &mChats[mChats.Size() - 1];
+						} else if (cur && is("title="))
+							cur->title = Unesc(ls + 6, ln - 6);
+						else if (cur && is("sid="))
+							cur->claudeSessionId = Unesc(ls + 4, ln - 4);
+						else if (cur && is("props=")) {
+							int32 v[10] = {0};
+							::sscanf(ls + 6, "%d %d %d %d %d %d %d %d %d %d", &v[0], &v[1], &v[2], &v[3], &v[4],
+									 &v[5], &v[6], &v[7], &v[8], &v[9]);
+							cur->modelIdx = v[0];
+							cur->mode = v[1];
+							cur->scope = v[2];
+							cur->editAuth = v[3];
+							cur->ctxFileOn = v[4] != 0;
+							cur->temp = (float32)v[5] / 1000.f;
+							cur->maxTokens = v[6];
+							cur->effort = v[7];
+							cur->thinking = v[8] != 0;
+							cur->autoSwitchFlagged = v[9] != 0;
+						} else if (cur && is("system=")) {
+							const NkString s2 = Unesc(ls + 7, ln - 7);
+							const usize cap = sizeof(cur->system) - 1;
+							const usize n = s2.Size() < cap ? s2.Size() : cap;
+							::memcpy(cur->system, s2.CStr(), n);
+							cur->system[n] = 0;
+						} else if (cur && is("input=")) {
+							const NkString s2 = Unesc(ls + 6, ln - 6);
+							const usize cap = sizeof(cur->input) - 1;
+							const usize n = s2.Size() < cap ? s2.Size() : cap;
+							::memcpy(cur->input, s2.CStr(), n);
+							cur->input[n] = 0;
+						} else if (cur && is("m=")) {
+							Msg msg;
+							int32 role = 0, tool = 0, off = 0;
+							if (::sscanf(ls + 2, "%d %d %n", &role, &tool, &off) >= 2 && off > 0) {
+								msg.role = role;
+								msg.tool = tool;
+								msg.text = Unesc(ls + 2 + off, ln - 2 - (usize)off);
+								cur->msgs.PushBack(msg);
+							}
+						}
+						ls = *le ? le + 1 : le;
+					}
+					if (active >= 0 && active < (int32)mChats.Size())
+						mActiveChat = active;
+					mSavedFp = ChatsFingerprint(); // etat charge = etat sauve
 				}
 				// ── Identité de l'agent (profil) ──
 				int32 mKind = 0;  // 0 Assistant général, 1 Claude Code, 2 Codex, 3 NkAI
