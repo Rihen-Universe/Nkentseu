@@ -34,7 +34,7 @@ namespace nkentseu {
 
 				// ── Rendu ─────────────────────────────────────────────────────────
 				void Render(nkui::NkUIContext &ctx, nkui::NkUIWindowManager &wm, nkui::NkUIDrawList &dl,
-							nkui::NkUIFont &font, nkui::NkUILayoutStack &ls, nkui::NkUIRect rect) noexcept;
+							nkui::NkUIFont &font, nkui::NkUILayoutStack &ls, nkui::NkRect rect) noexcept;
 
 			private:
 				NkVector<NkConsoleLine> mLines;

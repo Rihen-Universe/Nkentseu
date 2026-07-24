@@ -27,7 +27,7 @@
 #include "NKRHI/Core/NkTypes.h"
 
 namespace nkentseu {
-	namespace Noge {
+	namespace noge {
 
 		// =====================================================================
 		// NkAssetType
@@ -122,5 +122,5 @@ namespace nkentseu {
 				void GenerateThumbnail(const char *path) noexcept;
 		};
 
-	} // namespace Noge
+	} // namespace noge
 } // namespace nkentseu

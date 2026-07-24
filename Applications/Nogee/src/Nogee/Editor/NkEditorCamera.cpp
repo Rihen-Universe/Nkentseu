@@ -6,7 +6,7 @@
 using namespace nkentseu::math;
 
 namespace nkentseu {
-	namespace Noge {
+	namespace noge {
 
 		void NkEditorCamera::Update(float32 dt, bool hovered) noexcept {
 			if (mode == NkEditorCameraMode::Orbit)
@@ -116,7 +116,7 @@ namespace nkentseu {
 		void NkEditorCamera::RecalcMatrices() noexcept {
 			NkVec3f up = {0.f, 1.f, 0.f};
 			// Éviter gimbal lock si exactement vertical
-			if (NkAbs(NkDot(position - target, up)) > 0.999f * orbitDist)
+			if (NkAbs((position - target).Dot(up)) > 0.999f * orbitDist)
 				up = {0.f, 0.f, 1.f};
 			viewMatrix = NkMat4f::LookAt(position, target, up);
 			projMatrix = NkMat4f::Perspective(NkAngle(fovDeg), aspect, nearClip, farClip);
@@ -129,7 +129,7 @@ namespace nkentseu {
 			float32 ndcX = (2.f * vpX / vpW) - 1.f;
 			float32 ndcY = 1.f - (2.f * vpY / vpH);
 
-			NkMat4f invVP = NkInverse(viewProjMatrix);
+			NkMat4f invVP = viewProjMatrix.Inverse();
 			NkVec4f nearH = invVP * NkVec4f(ndcX, ndcY, -1.f, 1.f);
 			NkVec4f farH = invVP * NkVec4f(ndcX, ndcY, 1.f, 1.f);
 
@@ -138,9 +138,9 @@ namespace nkentseu {
 
 			Ray r;
 			r.origin = nearP;
-			r.dir = NkNormalize(farP - nearP);
+			r.dir = (farP - nearP).Normalized();
 			return r;
 		}
 
-	} // namespace Noge
+	} // namespace noge
 } // namespace nkentseu

@@ -24,7 +24,7 @@ namespace nkentseu {
 			}
 
 			if (mLines.Size() >= kMaxLines)
-				mLines.EraseAt(0);
+				mLines.Erase(mLines.Begin());
 
 			NkConsoleLine line;
 			line.text = NkString(text);
@@ -82,7 +82,7 @@ namespace nkentseu {
 
 		// =====================================================================
 		void ConsolePanel::Render(NkUIContext &ctx, NkUIWindowManager &wm, NkUIDrawList &dl, NkUIFont &font,
-								  NkUILayoutStack &ls, NkUIRect rect) noexcept {
+								  NkUILayoutStack &ls, NkRect rect) noexcept {
 			NkUIWindow::SetNextWindowPos({rect.x, rect.y});
 			NkUIWindow::SetNextWindowSize({rect.w, rect.h});
 
@@ -137,7 +137,7 @@ namespace nkentseu {
 
 			// ── Lignes (zone scrollable) ──────────────────────────────────────
 			float32 scrollY = 0.f;
-			NkUIRect contentRect = {rect.x + 4.f, rect.y + 80.f, rect.w - 8.f, rect.h - 88.f};
+			NkRect contentRect = {rect.x + 4.f, rect.y + 80.f, rect.w - 8.f, rect.h - 88.f};
 
 			if (NkUI::BeginScrollRegion(ctx, ls, "console_scroll", contentRect, nullptr, &scrollY)) {
 				for (nk_usize i = 0; i < mLines.Size(); ++i) {

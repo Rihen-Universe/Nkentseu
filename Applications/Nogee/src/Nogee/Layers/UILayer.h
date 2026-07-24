@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Noge/Layers/UILayer.h  —  v2
+// Nogee/Layers/UILayer.h  —  v2
 // =============================================================================
 // Overlay NKUI de l'éditeur. Intègre :
 //   - MenuBar fonctionnel (Fichier, Édition, Affichage, Aide)
@@ -23,24 +23,23 @@
 //   └─────────────────────────────────────────────┘
 // =============================================================================
 
-#include "Noge/Core/Layer.h"
+#include "Noge/Core/NkLayer.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKRHI/Core/NkGraphicsApi.h"
 #include "NKUI/NKUI.h"
-#include "NKUI/NkUILayout2.h"
 #include "NKUI/NkUIMenu.h"
-#include "Noge/Panels/SceneTreePanel.h"
-#include "Noge/Panels/InspectorPanel.h"
-#include "Noge/Panels/AssetBrowser.h"
-#include "Noge/Panels/ConsolePanel.h"
-#include "Noge/Layers/EditorLayer.h"
-#include "Noge/Layers/ViewportLayer.h"
+#include "Nogee/Panels/SceneTreePanel.h"
+#include "Nogee/Panels/InspectorPanel.h"
+#include "Nogee/Panels/AssetBrowser.h"
+#include "Nogee/Panels/ConsolePanel.h"
+#include "EditorLayer.h"
+#include "ViewportLayer.h"
 
 namespace nkentseu {
 	namespace noge {
 
-		class UILayer : public Overlay {
+		class UILayer : public NkOverlay {
 			public:
 				UILayer(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd, NkGraphicsApi api) noexcept;
 				~UILayer() override;
@@ -80,7 +79,6 @@ namespace nkentseu {
 
 				// ── Input bridge ──────────────────────────────────────────────────
 				void UpdateInputState(const NkEvent *event) noexcept;
-				nkui::NkUIInputState BuildInputState() const noexcept;
 
 				// ── Layout helpers ────────────────────────────────────────────────
 				void ComputeLayout() noexcept;
@@ -110,12 +108,12 @@ namespace nkentseu {
 
 				// Rects calculés chaque frame
 				struct Layout {
-						nkui::NkUIRect menuBar;
-						nkui::NkUIRect viewport;
-						nkui::NkUIRect sceneTree;
-						nkui::NkUIRect inspector;
-						nkui::NkUIRect assetBrowser;
-						nkui::NkUIRect console;
+						nkui::NkRect menuBar;
+						nkui::NkRect viewport;
+						nkui::NkRect sceneTree;
+						nkui::NkRect inspector;
+						nkui::NkRect assetBrowser;
+						nkui::NkRect console;
 				} mLayout;
 
 				// Input state accumulé

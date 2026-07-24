@@ -1,7 +1,7 @@
 #include "NkSelectionManager.h"
 
 namespace nkentseu {
-	namespace Noge {
+	namespace noge {
 
 		void NkSelectionManager::Select(ecs::NkEntityId id) noexcept {
 			mSelected.Clear();
@@ -27,9 +27,9 @@ namespace nkentseu {
 		}
 
 		void NkSelectionManager::Deselect(ecs::NkEntityId id) noexcept {
-			for (nk_isize i = (nk_isize)mSelected.Size() - 1; i >= 0; --i) {
-				if (mSelected[i] == id) {
-					mSelected.EraseAt((nk_usize)i);
+			for (nk_int64 i = (nk_int64)mSelected.Size() - 1; i >= 0; --i) {
+				if (mSelected[(nk_usize)i] == id) {
+					mSelected.Erase(mSelected.Begin() + i);
 					break;
 				}
 			}
@@ -51,5 +51,5 @@ namespace nkentseu {
 			return false;
 		}
 
-	} // namespace Noge
+	} // namespace noge
 } // namespace nkentseu

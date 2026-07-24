@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Noge/Layers/EditorLayer.h  —  v2
+// Nogee/Layers/EditorLayer.h  —  v2
 // =============================================================================
 // Orchestre tous les systèmes éditeur.
 // N'effectue aucun rendu direct — délègue à ViewportLayer et UILayer.
@@ -13,10 +13,9 @@
 //   NkGizmoSystem      — gizmos 3D dans le viewport
 // =============================================================================
 
-#include "Noge/Core/Layer.h"
+#include "Noge/Core/NkLayer.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
-#include "Noge/Core/EventBus.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "Nogee/Editor/NkSelectionManager.h"
 #include "Nogee/Editor/NkEditorCamera.h"
@@ -25,12 +24,12 @@
 #include "Nogee/Editor/ProjectManager.h"
 #include "Nogee/Editor/AssetManager.h"
 #include "NKECS/World/NkWorld.h"
-#include "NKECS/Scene/NkSceneGraph.h"
+#include "Noge/ECS/Scene/NkSceneGraph.h"
 
 namespace nkentseu {
 	namespace noge {
 
-		class EditorLayer : public Layer {
+		class EditorLayer : public NkLayer {
 			public:
 				EditorLayer(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd) noexcept;
 				~EditorLayer() override;
@@ -102,9 +101,6 @@ namespace nkentseu {
 
 				bool mPlaying = false;
 				float mHotReloadTimer = 0.f;
-
-				// Souscriptions EventBus
-				NkEventHandlerId mSelChangedId = NK_INVALID_HANDLER_ID;
 		};
 
 	} // namespace noge
