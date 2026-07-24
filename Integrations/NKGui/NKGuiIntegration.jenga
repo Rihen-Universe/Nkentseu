@@ -7,8 +7,14 @@ Rend une UI NKGui (nkgui::NkGuiDrawList) via NKRHI/NKRenderer, sans NKCanvas.
 Sert aux applications 2D/3D (app d'animation, moteur de jeu). NKCanvas reste
 le backend de l'IDE (NKCode).
 
-Symbole expose : nkentseu::nkgui::NkGuiRHIBackend
-(Integrations/NKGui/NkGuiRHIBackend.h).
+Symboles exposes :
+  - nkentseu::nkgui::NkGuiRHIBackend (NkGuiRHIBackend.h) — backend draw-lists.
+  - nkentseu::nkgui::NkEditorRHIRenderer (NkEditorRHIRenderer.h) — impl NKRHI
+    HEADER-ONLY de editorkit::NkIEditorRenderer (frame device-level + hook
+    PreUI viewport offscreen), generalisee depuis NkAnimaEditor (2026-07-24).
+    NOTE : ce header inclut NKEditorKit/NkIEditorRenderer.h ; le CONSOMMATEUR
+    doit donc dependre de NKEditorKit. NKGuiIntegration lui-meme n'en depend
+    pas (aucun .cpp de cette lib n'inclut ce header).
 
 Branche dans Nkentseu.jenga via
 `with include("Integrations/NKGui/NKGuiIntegration.jenga"): pass`.
