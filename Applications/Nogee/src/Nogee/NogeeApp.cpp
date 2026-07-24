@@ -1,11 +1,11 @@
-#include "NogeApp.h"
+#include "NogeeApp.h"
 #include "NKLogger/NkLog.h"
 #include "Noge/ECS/Scene/NkSceneManager.h"
 
 namespace nkentseu {
 	namespace noge {
 
-		NogeApp::NogeApp(const NogeAppConfig &config) : Application(config.appConfig), mUkConfig(config) {
+		NogeApp::NogeApp(const NogeAppConfig &config) : NkApplication(config.appConfig), mUkConfig(config) {
 		}
 
 		NogeApp::~NogeApp() = default;
@@ -26,20 +26,14 @@ namespace nkentseu {
 			// 3. UILayer (Overlay) : NKUI par-dessus tout
 			auto *ui = new UILayer("UILayer", dev, cmd, api);
 
-			// ── Connexions inter-layers ───────────────────────────────────────
-			// ViewportLayer reçoit les systèmes éditeur
-			viewport->SetEditorCamera(&editor->GetGizmoSystem() == nullptr ? nullptr // recalculé dessous
-																		   : nullptr);
-
 			// On connecte directement les pointeurs après empilement
 			// (les layers vivent dans LayerStack — ownership)
 			mEditorLayer = editor;
 			mViewportLayer = viewport;
 			mUILayer = ui;
 
-			// Injecter la caméra éditeur dans ViewportLayer
-			// La caméra est dans UILayer car elle lit l'input NKUI
-			// → on crée une caméra partagée propriété de NogeApp
+			// Injecter la caméra éditeur dans ViewportLayer.
+			// La caméra est partagée : propriété de NogeApp.
 			mEditorCamera = new NkEditorCamera();
 			viewport->SetEditorCamera(mEditorCamera);
 			viewport->SetGizmoSystem(&editor->GetGizmoSystem());
@@ -55,7 +49,7 @@ namespace nkentseu {
 			PushOverlay(ui);
 
 			// ── Projet de démarrage ───────────────────────────────────────────
-			if (!mUkConfig.startupProjectPath.IsEmpty()) {
+			if (!mUkConfig.startupProjectPath.Empty()) {
 				if (editor->GetProjectManager().Load(mUkConfig.startupProjectPath.CStr())) {
 					logger.Infof("[NogeApp] Projet chargé: {}\n", mUkConfig.startupProjectPath.CStr());
 				}

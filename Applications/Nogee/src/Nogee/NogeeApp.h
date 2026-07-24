@@ -1,9 +1,9 @@
 #pragma once
 // =============================================================================
-// Noge/NogeApp.h  —  v2
+// Nogee/NogeeApp.h — application éditeur (hérite de NkApplication d'Engine/Noge)
 // =============================================================================
 
-#include "Noge/Core/Application.h"
+#include "Noge/Core/NkApplication.h"
 #include "UkConfig.h"
 #include "Layers/EditorLayer.h"
 #include "Layers/ViewportLayer.h"
@@ -13,7 +13,7 @@
 namespace nkentseu {
 	namespace noge {
 
-		class NogeApp : public Application {
+		class NogeApp : public NkApplication {
 			public:
 				explicit NogeApp(const NogeAppConfig &config);
 				~NogeApp() override;

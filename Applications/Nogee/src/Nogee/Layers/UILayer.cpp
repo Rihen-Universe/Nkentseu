@@ -1,4 +1,5 @@
 #include "UILayer.h"
+#include "Noge/Core/NkApplication.h"
 #include "NKLogger/NkLog.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
@@ -11,7 +12,7 @@ namespace nkentseu {
 		using namespace nkui;
 
 		UILayer::UILayer(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd, NkGraphicsApi api) noexcept
-			: Overlay(name), mDevice(device), mCmd(cmd), mApi(api) {
+			: NkOverlay(name), mDevice(device), mCmd(cmd), mApi(api) {
 		}
 
 		UILayer::~UILayer() = default;
@@ -118,7 +119,10 @@ namespace nkentseu {
 			if (!event)
 				return;
 
-			if (auto *mm = event->As<NkMouseMoveEvent>()) {
+			// As<T>() est non-const dans NkEvent — cast local contrôlé
+			NkEvent *ev = const_cast<NkEvent *>(event);
+
+			if (auto *mm = ev->As<NkMouseMoveEvent>()) {
 				float32 x = (float32)mm->GetX();
 				float32 y = (float32)mm->GetY();
 				mInput.SetMousePos(x, y);
@@ -138,29 +142,45 @@ namespace nkentseu {
 				return;
 			}
 
-			if (auto *mb = event->As<NkMouseButtonEvent>()) {
-				int btn = (mb->GetButton() == NkMouseButton::NK_LEFT)	  ? 0
-						  : (mb->GetButton() == NkMouseButton::NK_RIGHT)  ? 1
-						  : (mb->GetButton() == NkMouseButton::NK_MIDDLE) ? 2
-																		  : -1;
+			if (auto *mbp = ev->As<NkMouseButtonPressEvent>()) {
+				int btn = (mbp->GetButton() == NkMouseButton::NK_MB_LEFT)	  ? 0
+						  : (mbp->GetButton() == NkMouseButton::NK_MB_RIGHT)  ? 1
+						  : (mbp->GetButton() == NkMouseButton::NK_MB_MIDDLE) ? 2
+																			  : -1;
 				if (btn >= 0) {
-					bool down = mb->IsPressed();
-					mInput.SetMouseButton(btn, down);
-
+					mInput.SetMouseButton(btn, true);
 					if (mViewportLayer) {
 						auto &ms = mViewportLayer->GetMouseState();
 						if (btn == 0)
-							ms.leftDown = down;
+							ms.leftDown = true;
 						if (btn == 1)
-							ms.rightDown = down;
+							ms.rightDown = true;
 					}
 				}
 				return;
 			}
 
-			if (auto *mw = event->As<NkMouseScrollEvent>()) {
+			if (auto *mbr = ev->As<NkMouseButtonReleaseEvent>()) {
+				int btn = (mbr->GetButton() == NkMouseButton::NK_MB_LEFT)	  ? 0
+						  : (mbr->GetButton() == NkMouseButton::NK_MB_RIGHT)  ? 1
+						  : (mbr->GetButton() == NkMouseButton::NK_MB_MIDDLE) ? 2
+																			  : -1;
+				if (btn >= 0) {
+					mInput.SetMouseButton(btn, false);
+					if (mViewportLayer) {
+						auto &ms = mViewportLayer->GetMouseState();
+						if (btn == 0)
+							ms.leftDown = false;
+						if (btn == 1)
+							ms.rightDown = false;
+					}
+				}
+				return;
+			}
+
+			if (auto *mw = ev->As<NkMouseWheelVerticalEvent>()) {
 				float32 delta = (float32)mw->GetDeltaY();
-				// TODO : mInput.scroll += delta quand NkUIInputState l'expose
+				mInput.AddMouseWheel(delta);
 				if (mViewportLayer) {
 					auto &ms = mViewportLayer->GetMouseState();
 					if (ms.isHovered)
@@ -169,22 +189,26 @@ namespace nkentseu {
 				return;
 			}
 
-			if (auto *kp = event->As<NkKeyPressEvent>()) {
-				mInput.SetKey(static_cast<NkKey>(kp->GetKey()), true);
+			if (auto *kp = ev->As<NkKeyPressEvent>()) {
+				mInput.SetKey(kp->GetKey(), true);
 				// Alt pour l'orbite
 				if (mViewportLayer) {
 					auto &ms = mViewportLayer->GetMouseState();
-					ms.altDown = kp->IsAlt();
+					ms.altDown = kp->HasAlt();
 				}
 				return;
 			}
 
-			if (auto *kr = event->As<NkKeyReleaseEvent>()) {
-				mInput.SetKey(static_cast<NkKey>(kr->GetKey()), false);
+			if (auto *kr = ev->As<NkKeyReleaseEvent>()) {
+				mInput.SetKey(kr->GetKey(), false);
+				if (mViewportLayer) {
+					auto &ms = mViewportLayer->GetMouseState();
+					ms.altDown = kr->HasAlt();
+				}
 				return;
 			}
 
-			if (auto *te = event->As<NkTextEvent>()) {
+			if (auto *te = ev->As<NkTextInputEvent>()) {
 				mInput.AddInputChar(te->GetCodepoint());
 				return;
 			}
@@ -228,7 +252,7 @@ namespace nkentseu {
 
 		// =====================================================================
 		void UILayer::RenderMenuBar() noexcept {
-			NkUIFont &font = *mCtx.fontManager.GetDefault();
+			NkUIFont &font = *mCtx.fontManager.Default();
 
 			if (!NkUIMenu::BeginMenuBar(mCtx, mDL, font, mLayout.menuBar))
 				return;
@@ -251,7 +275,7 @@ namespace nkentseu {
 				}
 				NkUIMenu::Separator(mCtx, mDL);
 				if (NkUIMenu::MenuItem(mCtx, mDL, font, "Quitter", "Alt+F4")) {
-					EventBus::Dispatch(NkWindowCloseEvent{});
+					NkApplication::Get().Quit();
 				}
 				NkUIMenu::EndMenu(mCtx);
 			}
@@ -263,10 +287,14 @@ namespace nkentseu {
 
 				NkString undoLabel = "Annuler";
 				NkString redoLabel = "Rétablir";
-				if (canUndo)
-					undoLabel += " " + mEditorLayer->GetHistory().UndoName();
-				if (canRedo)
-					redoLabel += " " + mEditorLayer->GetHistory().RedoName();
+				if (canUndo) {
+					undoLabel += " ";
+					undoLabel += mEditorLayer->GetHistory().UndoName();
+				}
+				if (canRedo) {
+					redoLabel += " ";
+					redoLabel += mEditorLayer->GetHistory().RedoName();
+				}
 
 				if (NkUIMenu::MenuItem(mCtx, mDL, font, undoLabel.CStr(), "Ctrl+Z", nullptr, canUndo)) {
 					mEditorLayer->GetHistory().Undo();
@@ -277,7 +305,7 @@ namespace nkentseu {
 				NkUIMenu::Separator(mCtx, mDL);
 				if (NkUIMenu::MenuItem(mCtx, mDL, font, "Supprimer", "Suppr")) {
 					if (mEditorLayer) {
-						// Déclencher la suppression via EventBus
+						// TODO : déclencher la suppression (EditorLayer::DeleteSelectedEntity)
 					}
 				}
 				NkUIMenu::EndMenu(mCtx);
@@ -331,7 +359,7 @@ namespace nkentseu {
 
 		// =====================================================================
 		void UILayer::RenderViewport() noexcept {
-			NkUIFont &font = *mCtx.fontManager.GetDefault();
+			NkUIFont &font = *mCtx.fontManager.Default();
 			auto &r = mLayout.viewport;
 
 			NkUIWindow::SetNextWindowPos({r.x, r.y});
@@ -349,12 +377,12 @@ namespace nkentseu {
 				NkTextureHandle tex = mViewportLayer->GetOutputTexture();
 				if (tex.IsValid()) {
 					// Afficher la texture FBO plein panel
-					mDL.AddImage((nk_uint32)tex.id, {r.x, r.y, r.w, r.h}, {0.f, 0.f}, {1.f, 1.f}, NkColor::White);
+					mDL.AddImage((uint32)tex.id, {r.x, r.y, r.w, r.h}, {0.f, 0.f}, {1.f, 1.f}, NkColor::White);
 				} else {
 					// Placeholder gris
-					mDL.AddRectFilled({r.x, r.y, r.w, r.h}, {40, 40, 40, 255}, 0.f);
+					mDL.AddRectFilled({r.x, r.y, r.w, r.h}, NkColor{40, 40, 40, 255}, 0.f);
 					mDL.AddText({r.x + r.w * 0.5f - 80.f, r.y + r.h * 0.5f}, "Viewport — aucune scène",
-								{100, 100, 100, 255});
+								NkColor{100, 100, 100, 255});
 				}
 
 				// Indicateur mode gizmo (coin supérieur gauche)
@@ -374,13 +402,13 @@ namespace nkentseu {
 					char modeBuf[32];
 					snprintf(modeBuf, sizeof(modeBuf), "[%s] %s", modeStr,
 							 mEditorLayer->GetGizmoSystem().space == NkGizmoSpace::World ? "World" : "Local");
-					mDL.AddText({r.x + 8.f, r.y + 8.f}, modeBuf, {200, 200, 200, 200});
+					mDL.AddText({r.x + 8.f, r.y + 8.f}, modeBuf, NkColor{200, 200, 200, 200});
 				}
 
 				// Indicateur play/stop
 				if (mEditorLayer && mEditorLayer->IsPlaying()) {
-					mDL.AddRectFilled({r.x + r.w - 60.f, r.y + 4.f, 52.f, 18.f}, {0, 180, 0, 180}, 4.f);
-					mDL.AddText({r.x + r.w - 52.f, r.y + 6.f}, "■ PLAY", {255, 255, 255, 255});
+					mDL.AddRectFilled({r.x + r.w - 60.f, r.y + 4.f, 52.f, 18.f}, NkColor{0, 180, 0, 180}, 4.f);
+					mDL.AddText({r.x + r.w - 52.f, r.y + 6.f}, "■ PLAY", NkColor{255, 255, 255, 255});
 				}
 			}
 
@@ -391,7 +419,7 @@ namespace nkentseu {
 		void UILayer::RenderSceneTree() noexcept {
 			if (!mWorld || !mEditorLayer)
 				return;
-			mSceneTree.Render(mCtx, mWM, mDL, *mCtx.fontManager.GetDefault(), mLS, *mWorld, mScene,
+			mSceneTree.Render(mCtx, mWM, mDL, *mCtx.fontManager.Default(), mLS, *mWorld, mScene,
 							  mEditorLayer->GetSelectionManager(), &mEditorLayer->GetHistory(), mLayout.sceneTree);
 		}
 
@@ -399,18 +427,18 @@ namespace nkentseu {
 		void UILayer::RenderInspector() noexcept {
 			if (!mWorld || !mEditorLayer)
 				return;
-			mInspector.Render(mCtx, mWM, mDL, *mCtx.fontManager.GetDefault(), mLS, *mWorld,
+			mInspector.Render(mCtx, mWM, mDL, *mCtx.fontManager.Default(), mLS, *mWorld,
 							  mEditorLayer->GetSelectionManager(), &mEditorLayer->GetHistory(), mLayout.inspector);
 		}
 
 		// =====================================================================
 		void UILayer::RenderAssetBrowser() noexcept {
-			mAssetBrowser.Render(mCtx, mWM, mDL, *mCtx.fontManager.GetDefault(), mLS, mLayout.assetBrowser);
+			mAssetBrowser.Render(mCtx, mWM, mDL, *mCtx.fontManager.Default(), mLS, mLayout.assetBrowser);
 		}
 
 		// =====================================================================
 		void UILayer::RenderConsole() noexcept {
-			mConsole.Render(mCtx, mWM, mDL, *mCtx.fontManager.GetDefault(), mLS, mLayout.console);
+			mConsole.Render(mCtx, mWM, mDL, *mCtx.fontManager.Default(), mLS, mLayout.console);
 		}
 
 	} // namespace noge

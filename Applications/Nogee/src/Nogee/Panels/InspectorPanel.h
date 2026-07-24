@@ -11,7 +11,7 @@
 #include "NKUI/NKUI.h"
 #include "NKUI/NkUIWidgets.h"
 #include "NKECS/World/NkWorld.h"
-#include "NKECS/Systems/NkReflectComponents.h"
+#include "Noge/ECS/Systems/NkReflectComponents.h"
 #include "Nogee/Editor/NkSelectionManager.h"
 #include "Nogee/Editor/CommandHistory.h"
 
@@ -24,7 +24,7 @@ namespace nkentseu {
 
 				void Render(nkui::NkUIContext &ctx, nkui::NkUIWindowManager &wm, nkui::NkUIDrawList &dl,
 							nkui::NkUIFont &font, nkui::NkUILayoutStack &ls, ecs::NkWorld &world,
-							const NkSelectionManager &sel, CommandHistory *hist, nkui::NkUIRect rect) noexcept;
+							const NkSelectionManager &sel, CommandHistory *hist, nkui::NkRect rect) noexcept;
 
 			private:
 				// Rendu d'un composant complet (section pliable)

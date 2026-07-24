@@ -1,18 +1,36 @@
-#include "Noge/Core/Application.h"
-#include "Noge/UkConfig.h"
-#include "Noge/NogeApp.h"
+// =============================================================================
+// Nogee.cpp — point d'entrée de l'éditeur Nogee
+// =============================================================================
+// Pattern d'entrée réel du framework : NKWindow/NKMain.h fournit le main
+// natif cross-platform qui appelle nkmain(const NkEntryState &). L'application
+// est la classe Noge NkApplication (Engine/Noge/src/Noge/Core/NkApplication.h) :
+// Init() → Run() (boucle, fenêtre, device RHI, dispatch des événements).
+// =============================================================================
+#include "Noge/Core/NkApplication.h"
+#include "Nogee/UkConfig.h"
+#include "Nogee/NogeeApp.h"
+#include "NKWindow/NKMain.h"
+#include "NKSL/ShaderConvert/NkShaderConvert.h"
 #include "NKLogger/NkLog.h"
 
+// ── AppData global (consommé par le runtime NKWindow avant nkmain) ───────────
+nkentseu::NkAppData appData = [] {
+	nkentseu::NkAppData d{};
+	d.appName = "Nogee";
+	d.appVersion = "0.1.0";
+	return d;
+}();
+NKENTSEU_APP_DATA_DEFINED(appData);
+
 // =============================================================================
-// CreateApplication — appelé par le framework (Application.cpp / nkmain)
+// nkmain — appelé par le point d'entrée natif (NkMain.h / NkEntry.h)
 // =============================================================================
-nkentseu::Application *nkentseu::CreateApplication(const nkentseu::NkApplicationConfig &baseConfig) {
+int nkmain(const nkentseu::NkEntryState &state) {
 	using namespace nkentseu;
 	using namespace nkentseu::noge;
 
 	// ── Configuration de base ─────────────────────────────────────────────────
-	NogeAppConfig ukConfig;
-	ukConfig.appConfig = baseConfig;
+	NogeAppConfig ukConfig(state);
 
 	// Identité
 	ukConfig.appConfig.appName = "Noge";
@@ -49,6 +67,14 @@ nkentseu::Application *nkentseu::CreateApplication(const nkentseu::NkApplication
 					"pas encore cable — repli sur l'UI NKUI legacy.\n");
 	}
 
-	// ── Création de l'application ─────────────────────────────────────────────
-	return new NogeApp(ukConfig);
+	// ── Création + boucle ─────────────────────────────────────────────────────
+	NogeApp *app = new NogeApp(ukConfig);
+	if (!app->Init()) {
+		logger.Error("[Nogee] Erreur d'initialisation de l'application");
+		delete app;
+		return 2;
+	}
+	app->Run();
+	delete app;
+	return 0;
 }

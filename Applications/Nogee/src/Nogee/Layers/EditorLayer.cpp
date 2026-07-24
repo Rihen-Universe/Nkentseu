@@ -1,12 +1,12 @@
 #include "EditorLayer.h"
-#include "NKECS/Components/Core/NkCoreComponents.h"
+#include "Noge/ECS/Components/Core/NkCoreComponents.h"
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {
-	namespace Noge {
+	namespace noge {
 
 		EditorLayer::EditorLayer(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd) noexcept
-			: Layer(name), mDevice(device), mCmd(cmd) {
+			: NkLayer(name), mDevice(device), mCmd(cmd) {
 		}
 
 		EditorLayer::~EditorLayer() = default;
@@ -18,24 +18,20 @@ namespace nkentseu {
 			// Initialiser AssetManager avec le device
 			mAssets.Init(mDevice, ".");
 
-			// Souscrire à l'EventBus pour les raccourcis clavier
-			EventBus::Subscribe<NkKeyPressEvent>([this](NkKeyPressEvent *e) -> bool {
-				HandleShortcuts(e);
-				return false; // ne consomme pas — UILayer peut aussi le recevoir
-			});
-
-			// Souscrire au changement de sélection pour debug
-			mSelChangedId = EventBus::Subscribe<NkSelectionChangedEvent>([](NkSelectionChangedEvent *e) -> bool {
-				if (e->primary.IsValid())
-					logger.Infof("[Editor] Sélection: entité {}.{}\n", e->primary.index, e->primary.gen);
-				return false;
-			});
+			// Log des changements de sélection (callback direct — cf.
+			// NkSelectionManager : pas de bus d'événements pour ce type applicatif)
+			mSel.SetOnChanged(
+				[](void * /*user*/, const NkSelectionChangedEvent &e) {
+					if (e.primary.IsValid())
+						logger.Infof("[Editor] Sélection: entité {}.{}\n", e.primary.index, e.primary.gen);
+				},
+				this);
 
 			logger.Infof("[EditorLayer] Systèmes initialisés\n");
 		}
 
 		void EditorLayer::OnDetach() {
-			EventBus::Unsubscribe<NkSelectionChangedEvent>(mSelChangedId);
+			mSel.SetOnChanged(nullptr, nullptr);
 			logger.Infof("[EditorLayer] Détaché\n");
 		}
 
@@ -45,7 +41,7 @@ namespace nkentseu {
 			mHotReloadTimer += dt;
 			if (mHotReloadTimer >= 2.f) {
 				mHotReloadTimer = 0.f;
-				mAssets.CheckHotReload();
+				mAssets.ProcessHotReload();
 			}
 
 			// Les gizmos sont mis à jour depuis ViewportLayer::OnUpdate()
@@ -57,8 +53,14 @@ namespace nkentseu {
 
 		// =====================================================================
 		bool EditorLayer::OnEvent(NkEvent *event) {
-			(void)event;
-			return false;
+			if (!event)
+				return false;
+			// Raccourcis clavier — reçus via le flux d'événements des layers
+			// (NkApplication::DispatchToLayers), pas de souscription EventBus.
+			if (auto *kp = event->As<NkKeyPressEvent>()) {
+				HandleShortcuts(kp);
+			}
+			return false; // ne consomme pas — UILayer peut aussi le recevoir
 		}
 
 		// =====================================================================
@@ -67,8 +69,8 @@ namespace nkentseu {
 				return;
 
 			NkKey key = kp->GetKey();
-			bool ctrl = kp->IsCtrl();
-			bool noMod = !ctrl && !kp->IsShift() && !kp->IsAlt();
+			bool ctrl = kp->HasCtrl();
+			bool noMod = !ctrl && !kp->HasShift() && !kp->HasAlt();
 
 			// Ctrl+Z : Undo
 			if (ctrl && key == NkKey::NK_Z) {
@@ -121,8 +123,8 @@ namespace nkentseu {
 				return;
 			}
 
-			// Delete : supprimer l'entité sélectionnée
-			if (noMod && (key == NkKey::NK_DELETE || key == NkKey::NK_BACKSPACE)) {
+			// Delete / Backspace : supprimer l'entité sélectionnée
+			if (noMod && (key == NkKey::NK_DELETE || key == NkKey::NK_BACK)) {
 				DeleteSelectedEntity();
 				return;
 			}
@@ -143,7 +145,7 @@ namespace nkentseu {
 
 			// Mémoriser le nom pour le log
 			NkString name = "Entity";
-			if (auto *n = mWorld->Get<ecs::NkNameComponent>(id))
+			if (auto *n = mWorld->Get<ecs::NkName>(id))
 				name = NkString(n->Get());
 
 			mSel.Clear();
@@ -181,5 +183,5 @@ namespace nkentseu {
 			logger.Infof("[Editor] Pause\n");
 		}
 
-	} // namespace Noge
+	} // namespace noge
 } // namespace nkentseu

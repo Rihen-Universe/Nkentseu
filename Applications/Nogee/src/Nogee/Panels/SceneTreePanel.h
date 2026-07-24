@@ -11,8 +11,9 @@
 #include "NKUI/NKUI.h"
 #include "NKUI/NkUIWidgets.h"
 #include "NKECS/World/NkWorld.h"
-#include "NKECS/Scene/NkSceneGraph.h"
-#include "NKECS/Components/Core/NkCoreComponents.h"
+#include "Noge/ECS/Scene/NkSceneGraph.h"
+#include "Noge/ECS/Components/Core/NkCoreComponents.h"
+#include "Noge/ECS/Components/SceneComponent/NkSceneComponent.h"
 #include "Nogee/Editor/NkSelectionManager.h"
 #include "Nogee/Editor/CommandHistory.h"
 
@@ -32,7 +33,7 @@ namespace nkentseu {
 				void Render(nkui::NkUIContext &ctx, nkui::NkUIWindowManager &wm, nkui::NkUIDrawList &dl,
 							nkui::NkUIFont &font, nkui::NkUILayoutStack &ls, ecs::NkWorld &world,
 							ecs::NkSceneGraph *scene, NkSelectionManager &sel, CommandHistory *hist,
-							nkui::NkUIRect rect) noexcept;
+							nkui::NkRect rect) noexcept;
 
 			private:
 				// Rendu récursif d'une entité et de ses enfants

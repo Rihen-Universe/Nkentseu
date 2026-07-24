@@ -2,6 +2,7 @@
 
 #include "Noge/Core/NkApplicationConfig.h"
 #include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringView.h"
 
 namespace nkentseu {
 	namespace noge {
@@ -18,13 +19,10 @@ namespace nkentseu {
 		//    « une fenêtre = une pile », jamais NKCanvas ici).
 		//
 		// ÉCART DOCUMENTÉ (2026-07-24) : Nogee n'utilise PAS NkEditorShell
-		// aujourd'hui — son shell est Noge::Application + LayerStack + UILayer
+		// aujourd'hui — son shell est NkApplication + LayerStack + UILayer
 		// NKUI. Le branchement effectif du mode RHIShell (créer NkEditorShell +
 		// injecter NkEditorRHIRenderer via NkEditorShellConfig::renderer, comme
-		// NkAnimaEditor/main.cpp) reste à câbler lors de la reprise de Nogee :
-		// à cette date la cible Nogee ne compile pas (erreurs PRÉ-EXISTANTES
-		// indépendantes : includes "Noge/Core/Application.h" obsolètes, API
-		// NkString/Application divergée — voir Engine/Noge/ROADMAP.md pilier 6).
+		// NkAnimaEditor/main.cpp) reste à câbler lors de la reprise de Nogee.
 		// Ce flag est le point d'entrée de config de cette migration douce ;
 		// NKUI n'est pas supprimé.
 		// =====================================================================
@@ -39,6 +37,11 @@ namespace nkentseu {
 		// Étend NkApplicationConfig avec des paramètres propres à l'éditeur.
 		// =====================================================================
 		struct NogeAppConfig {
+				// NkApplicationConfig se construit depuis NkEntryState (pas de
+				// ctor par défaut sur toutes les plateformes).
+				explicit NogeAppConfig(const NkEntryState &state) : appConfig(state) {
+				}
+
 				NkApplicationConfig appConfig;
 
 				// Moteur UI de l'éditeur (--ui=nkui|rhi ; défaut : NKUI legacy)
@@ -59,15 +62,17 @@ namespace nkentseu {
 
 				// ── Parse des arguments ligne de commande ─────────────────────────
 				void Initialize() noexcept {
-					for (nk_usize i = 0; i < appConfig.entryState.GetArgCount(); ++i) {
-						const char *arg = appConfig.entryState.GetArg(i);
+					const NkVector<NkString> &args = appConfig.entryState.GetArgs();
+					for (nk_usize i = 0; i < args.Size(); ++i) {
+						const NkString &argStr = args[i];
+						const char *arg = argStr.CStr();
 						if (!arg)
 							continue;
 
-						if (NkString(arg) == "--debug") {
+						if (argStr == "--debug") {
 							appConfig.debugMode = true;
 							appConfig.logLevel = NkLogLevel::NK_DEBUG;
-						} else if (NkString(arg) == "--play") {
+						} else if (argStr == "--play") {
 							startInPlayMode = true;
 						}
 						// --project=path/to/project.nkproj

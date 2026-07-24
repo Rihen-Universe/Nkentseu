@@ -14,6 +14,12 @@ namespace nkentseu {
 	// Portée : fenêtre, device GPU, boucle temps réel, log, debug.
 	// =========================================================================
 	struct NkApplicationConfig {
+			// NkEntryState n'a pas de constructeur par défaut sur toutes les
+			// plateformes (Windows : handles natifs requis) → la config se
+			// construit à partir de l'état d'entrée fourni par nkmain().
+			explicit NkApplicationConfig(const NkEntryState &state) : entryState(state) {
+			}
+
 			// ── Identité ─────────────────────────────────────────────────────────
 			NkString appName = "NkApp";
 			NkString appVersion = "1.0.0";

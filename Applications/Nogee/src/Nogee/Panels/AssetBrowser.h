@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Noge/Panels/AssetBrowser.h
+// Nogee/Panels/AssetBrowser.h
 // =============================================================================
 // Navigateur d'assets du projet : dossiers, fichiers, thumbnails.
 // Double-clic sur une texture → importe dans la scène.
@@ -12,7 +12,6 @@
 #include "NKUI/NkUIWidgets.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
-#include "NKFileSystem/NkFileSystem.h"
 #include "Nogee/Editor/AssetManager.h"
 
 namespace nkentseu {
@@ -34,7 +33,7 @@ namespace nkentseu {
 				void Init(AssetManager *assetMgr, const char *projectDir) noexcept;
 
 				void Render(nkui::NkUIContext &ctx, nkui::NkUIWindowManager &wm, nkui::NkUIDrawList &dl,
-							nkui::NkUIFont &font, nkui::NkUILayoutStack &ls, nkui::NkUIRect rect) noexcept;
+							nkui::NkUIFont &font, nkui::NkUILayoutStack &ls, nkui::NkRect rect) noexcept;
 
 				// Chemin sélectionné (pour Import, LoadScene, etc.)
 				const NkString &SelectedPath() const noexcept {
@@ -42,7 +41,7 @@ namespace nkentseu {
 				}
 
 				bool HasSelection() const noexcept {
-					return !mSelectedPath.IsEmpty();
+					return !mSelectedPath.Empty();
 				}
 
 			private:
