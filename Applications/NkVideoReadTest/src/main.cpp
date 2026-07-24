@@ -877,7 +877,8 @@ int main(int argc, char **argv) {
 		NkVector<NkHevcNal> nals;
 		NkHevcDecoder::SplitNalsAnnexB(buf.Data(), (usize)buf.Size(), nals);
 		printf("  %llu NALs (Annex-B, en-tete 2 octets)\n", (unsigned long long)nals.Size());
-		int32 nVps = 0, nSps = 0, nPps = 0, nIdr = 0, nCra = 0, nTrail = 0, sliceHeaderCount = 0;
+		int32 nVps = 0, nSps = 0, nPps = 0, nIdr = 0, nCra = 0, nTrail = 0, sliceHeaderCount = 0,
+			  sliceParseFailures = 0;
 		bool haveSps = false, havePps = false;
 		NkHevcSps sps;
 		NkHevcPps pps;
@@ -921,30 +922,37 @@ int main(int argc, char **argv) {
 			} else if (nal.type <= kHevcNalRaslR) {
 				++nTrail;
 			}
-			// Slice header (brique 2) : affiche la PREMIERE slice ET la 1re slice NON-IDR
-			// rencontrees (les flux x265 sans tuiles n'ont qu'une slice/image) — la 2e sert
-			// a valider le chemin slice_pic_order_cnt_lsb/short_term_ref_pic_set_sps_flag,
-			// jamais emprunte par une slice IDR (non exerce par le self-test synthetique).
-			if (sliceHeaderCount < 2 && nal.type <= 31 && haveSps && havePps) {
+			// Slice headers (briques 2+3) : parse et affiche TOUTES les slices — champs
+			// alignes sur la sortie de `ffmpeg -bsf:v trace_headers` (slice_type, poc_lsb,
+			// num_negative/positive_pics, five_minus_max_num_merge_cand->max_merge,
+			// slice_qp_delta->qp) pour comparaison directe avec l'oracle.
+			if (nal.type <= 31 && haveSps && havePps) {
 				NkHevcSliceHeader sh;
-				if (NkHevcDecoder::ParseSliceHeader(nd, nal.size, sps, pps, sh) &&
-					(sliceHeaderCount == 0 || !sh.isIdr)) {
-					const char *label = sliceHeaderCount == 0 ? "1ere slice" : "1ere slice non-IDR";
+				if (NkHevcDecoder::ParseSliceHeader(nd, nal.size, sps, pps, sh)) {
 					++sliceHeaderCount;
 					static const char *kTypeNames[3] = {"B", "P", "I"};
 					const char *typeName =
 						(sh.sliceType >= 0 && sh.sliceType <= 2) ? kTypeNames[sh.sliceType] : "?";
-					printf("  %s : nal_type=%d premiere_dans_image=%d pps_id=%d type=%s "
-						   "(%d) idr=%d poc_lsb=%d rps_depuis_sps=%d\n",
-						   label, sh.nalType, sh.firstSliceSegmentInPic, sh.ppsId, typeName, sh.sliceType,
-						   sh.isIdr, sh.picOrderCntLsb, sh.shortTermRefPicSetSpsFlag);
+					printf("  slice %2d : nal=%2d type=%s poc_lsb=%3d rps(neg=%d pos=%d) "
+						   "tmvp=%d sao(y=%d c=%d) refs(l0=%d l1=%d) merge=%d qp=%d\n",
+						   sliceHeaderCount, sh.nalType, typeName, sh.picOrderCntLsb,
+						   sh.rps.numNegativePics, sh.rps.numPositivePics, sh.sliceTemporalMvpEnabled,
+						   sh.saoLuma, sh.saoChroma, sh.numRefIdxL0Active, sh.numRefIdxL1Active,
+						   sh.maxNumMergeCand, sh.sliceQp);
+				} else {
+					++sliceParseFailures;
+					printf("  [KO] slice NAL %llu (type=%d) : parsing echoue\n", (unsigned long long)i,
+						   nal.type);
 				}
 			}
 		}
 		printf("  VPS=%d SPS=%d PPS=%d IDR=%d CRA=%d TRAIL/autres_slices=%d\n", nVps, nSps, nPps, nIdr, nCra,
 			   nTrail);
-		const bool ok = haveSps && sps.width > 0 && sps.height > 0 && sliceHeaderCount > 0;
-		printf("  [ %s ] parsing en-tetes HEVC (brique 1+2 : NAL + VPS/SPS/PPS + slice header)\n",
+		const bool ok =
+			haveSps && sps.width > 0 && sps.height > 0 && sliceHeaderCount > 0 && sliceParseFailures == 0;
+		printf("  slices parsees : %d (echecs=%d)\n", sliceHeaderCount, sliceParseFailures);
+		printf("  [ %s ] parsing en-tetes HEVC (briques 1-3 : NAL + VPS/SPS/PPS + slice header "
+			   "complet RPS+QP)\n",
 			   ok ? "OK " : "KO");
 		return ok ? 0 : 1;
 	}

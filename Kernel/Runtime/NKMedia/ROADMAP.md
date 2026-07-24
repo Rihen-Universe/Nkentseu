@@ -20,7 +20,7 @@
 | 3quater. **Fichiers .opus (Ogg-Opus, RFC 7845)** + câblage NKAudio | ✅ | **Conteneur Ogg livré (2026-07-12)** : probe (pistes opus/vorbis depuis les pages BOS) + démux (pages → paquets, lacing, `granule`) ; `NkOpusFile` (OpusHead pre-skip/gain + décode + trim granule ; **hybride/stéréo refusés proprement** → retirer le garde quand 3ter sera fini). Harnais `--oggopus`, self-test forge Ogg (34/34). **Validé vs ffmpeg** : SILK-WB corr 0.999985 (lag +2 = délai resampler), CELT corr 0.965 lag 0. **NKAudio branché** : `AudioFormat::OPUS` décodé via `NkOpusCodec` (détection OggS+OpusHead), test `NkMicRecord --decode in.opus out.wav`. NB : NKAudio dépend de NKMedia → 10 jengas d'apps mis à jour |
 | 4. Décodeur audio AAC-LC | ✅ | *(table périmée, tenue à jour dans « Livré » ci-dessous)* MP4 → PCM, stéréo complet, bit-exact vs ffmpeg |
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅ + WAV (RIFF) ✅** ; reste WebM |
-| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC briques 1+2** (structure NAL+VPS/SPS/PPS+slice header validées vs ffprobe/manuel, décodage image CABAC/CTU = à venir) ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
+| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC briques 1-3** (NAL+VPS/SPS/PPS+slice header COMPLET avec RPS, 50/50 slices bit-exactes vs oracle trace_headers ; décodage image CABAC/CTU = à venir) ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
 | 8. **Décodeur vidéo VP8** | ✅ | **DÉCODEUR COMPLET (clé + inter) : 325 images BIT-EXACTES vs ffmpeg sur 6 flux** (dont altref invisibles, golden frames, 4 GOPs, SPLITMV, filterLevel 0-8, résolutions impaires). Décodeur booléen, en-têtes, modes intra+inter, MV (near/nearest/new/split), MC 6-tap, résidus, WHT+IDCT, filtre de boucle. Restes mineurs : segmentation MB, partitions multiples, versions 1-3 (refus propre). **À brancher dans NkVideoReader** (WebM/IVF). |
 
@@ -731,7 +731,7 @@
   inter + 10/10 flux clés restent bit-exacts, comme attendu si le bug n'était effectivement
   jamais exercé jusqu'ici).
 
-## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (briques 1+2 : structure bitstream + slice header)
+## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (briques 1-3 : structure + slice header complet)
 
 *(2026-07-24)* Démarré comme suite logique directe de H.264 (« évolution directe … la base de
 départ la plus naturelle », cf. section précédente) — même famille bit-exacte, complexité
@@ -801,15 +801,44 @@ zero-STL, `nkentseu::media`.
       seul) ; POC=4 en 2e position de DÉCODAGE est cohérent avec la structure B-pyramid par
       défaut de x265 (`bframes=4` : l'ancre P décode en 2e, les B intermédiaires après,
       affichage 0,1,2,3,4,... ≠ ordre de décodage 0,4,1,2,3,...).
-- **Suite (briques 3+, PAS commencées)** : moteur **CABAC** (contexte différent d'H.264 malgré
+- ⭐ **Brique 3 livrée et validée BIT-EXACT vs oracle `trace_headers` (2026-07-24)** : slice
+  header COMPLET jusqu'à `slice_qp_delta` inclus + tous les syntax elements SPS/PPS qu'il
+  gate. Oracle de validation : **`ffmpeg -bsf:v trace_headers`** (dump champ par champ du
+  parse de référence ffmpeg) — **50/50 slices identiques** (25 par flux : type I/P/B, POC lsb,
+  RPS `num_negative/positive_pics`, merge cand, **QP absolu**) sur les 2 flux réels x265.
+  Le QP qui matche prouve la synchronisation bit-exacte de TOUT l'en-tête (dernier champ lu).
+  - **`short_term_ref_pic_set()`** (§7.3.7) avec la dérivation inter-RPS COMPLÈTE (§7.4.8,
+    éq. 7-59 à 7-71 : reconstruction des listes S0/S1 triées par décalage `deltaRps` de celles
+    du jeu de référence) — struct `NkHevcShortTermRps` (deltas POC cumulés + flags used).
+    Les deux chemins : jeux candidats du SPS (`num_short_term_ref_pic_sets` + index par slice)
+    ET RPS inline par slice (cas x265 par défaut : num=0, chaque slice porte le sien —
+    `stRpsIdx == numRps`, seul cas où `delta_idx_minus1` est présent).
+  - **SPS complété** : TU-tree sizes, `scaling_list_enabled` (refus propre si data présente),
+    AMP, **SAO enabled** (gate des flags par slice), PCM, RPS candidats, refs long terme,
+    **`sps_temporal_mvp_enabled`**, strong intra smoothing — s'arrête avant VUI (informatif).
+  - **PPS complété jusqu'au bout** (hors extensions) : `weighted_pred/bipred` (exposés),
+    loop filter across slices, contrôle de déblocage (override/disabled/beta/tc), scaling
+    list (refus), `lists_modification_present`, parallel merge level, slice header extension.
+  - **Slice header** : RPS inline/index, refs long terme, `slice_temporal_mvp_enabled`,
+    SAO luma/chroma, listes de références (override ou défauts PPS), `mvd_l1_zero`,
+    `cabac_init`, collocated ref, **`pred_weight_table()` consommée** (§7.3.6.3),
+    `five_minus_max_num_merge_cand`, `slice_qp_delta` → QP absolu borné.
+  - ⭐ **Piège trouvé à la validation** : premier passage = les 25 slices B passaient mais
+    TOUTES les P échouaient — **x265 active `--weightp` par défaut** → `weighted_pred_flag=1`
+    → le refus propre initial sur `pred_weight_table()` bloquait toutes les P. Table
+    implémentée (consommée, poids pas encore utilisés — brique décodage inter) avec
+    l'hypothèse documentée Main/Main10 mono-couche (les flags `luma/chroma_weight_lX_flag`
+    sont toujours présents ; la condition §7.3.6.3 qui les ferait sauter n'existe qu'en
+    SHVC/SCC). Après fix : 50/50 bit-exact.
+- **Suite (briques 4+, PAS commencées)** : moteur **CABAC** (contexte différent d'H.264 malgré
   la même idée générale), quadtree **CTU→CU→PU→TU**, **35 modes intra** (33 directionnels +
   DC + planar, contre 9 en H.264), prédiction inter **merge/AMVP** (pas de skip/direct façon
   H.264), transformées **DST/DCT** variables (4×4 à 32×32), déblocage + **SAO** (nouveau vs
-  H.264) — et, dans le slice header lui-même : `short_term_ref_pic_set()` (syntaxe récursive
-  avec prédiction inter-RPS), listes de références long terme, `ref_pic_lists_modification()`,
-  `pred_weight_table()`, overrides de déblocage. Gros chantier multi-session, comme
-  H.264/VP8/VP9 avant lui — à traiter brique par brique avec validation bit-exacte à chaque
-  étape (méthode déjà éprouvée 4× sur ce module).
+  H.264). Restes slice header (mineurs, refus propre en place) : `ref_pic_lists_modification()`
+  (jamais émis par x265), `scaling_list_data()`, offsets QP chroma/overrides SAO-déblocage par
+  slice, points d'entrée tuiles/WPP. Gros chantier multi-session, comme H.264/VP8/VP9 avant
+  lui — à traiter brique par brique avec validation bit-exacte à chaque étape (méthode déjà
+  éprouvée 4× sur ce module ; oracle `trace_headers` désormais disponible pour les en-têtes).
 
 ## En cours / À venir
 
