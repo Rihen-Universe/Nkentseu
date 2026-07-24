@@ -19,7 +19,7 @@
 | 3ter. **Dispatcher Opus** (`NkOpusDecoder`) | 🔶 | Route le TOC → **CELT-only ✅ + SILK-only ✅ (bit-exact, identique au direct)** → PCM 48 kHz. Harnais `NKMediaTest --opus`. Reste : **mode hybride** (config 12-15 : SILK bande basse + CELT bande haute, nécessite une bande de départ dans NkCeltDecoder) ; **calibrer l'échelle de sortie CELT** (~3× trop fort, invisible en corrélation) |
 | 3quater. **Fichiers .opus (Ogg-Opus, RFC 7845)** + câblage NKAudio | ✅ | **Conteneur Ogg livré (2026-07-12)** : probe (pistes opus/vorbis depuis les pages BOS) + démux (pages → paquets, lacing, `granule`) ; `NkOpusFile` (OpusHead pre-skip/gain + décode + trim granule ; **hybride/stéréo refusés proprement** → retirer le garde quand 3ter sera fini). Harnais `--oggopus`, self-test forge Ogg (34/34). **Validé vs ffmpeg** : SILK-WB corr 0.999985 (lag +2 = délai resampler), CELT corr 0.965 lag 0. **NKAudio branché** : `AudioFormat::OPUS` décodé via `NkOpusCodec` (détection OggS+OpusHead), test `NkMicRecord --decode in.opus out.wav`. NB : NKAudio dépend de NKMedia → 10 jengas d'apps mis à jour |
 | 4. Décodeur audio AAC-LC | ✅ | *(table périmée, tenue à jour dans « Livré » ci-dessous)* MP4 → PCM, stéréo complet, bit-exact vs ffmpeg |
-| 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅** ; puis WebM, WAV |
+| 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅ + WAV (RIFF) ✅** ; reste WebM |
 | 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC briques 1+2** (structure NAL+VPS/SPS/PPS+slice header validées vs ffprobe/manuel, décodage image CABAC/CTU = à venir) ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
 | 8. **Décodeur vidéo VP8** | ✅ | **DÉCODEUR COMPLET (clé + inter) : 325 images BIT-EXACTES vs ffmpeg sur 6 flux** (dont altref invisibles, golden frames, 4 GOPs, SPLITMV, filterLevel 0-8, résolutions impaires). Décodeur booléen, en-têtes, modes intra+inter, MV (near/nearest/new/split), MC 6-tap, résidus, WHT+IDCT, filtre de boucle. Restes mineurs : segmentation MB, partitions multiples, versions 1-3 (refus propre). **À brancher dans NkVideoReader** (WebM/IVF). |
@@ -456,6 +456,18 @@
     test ne l'active) ; partitions de tokens multiples (>1) ; versions de bitstream 1-3
     (bilinéaire/fullpel) ; Opus multicanal >2 (mapping) ; paquets TOC-mono à composante CELT dans
     un flux stéréo (sautés proprement — jamais émis par libopus).
+- ⭐ **Muxer WAV/RIFF (2026-07-24)** : `Audio/Containers/NkWavWriter.h/.cpp`, calqué directement
+  sur `NkAviWriter` (même famille RIFF, mêmes helpers `PutU32/PutU16/PutBytes/PatchU32`,
+  réutilise son `NkFourCC`). En-tête canonique 44 octets (RIFF/`fmt `16o/`data`), PCM entier
+  8/16/24/32-bit OU IEEE float 32/64-bit (`WAVE_FORMAT_PCM`=1/`WAVE_FORMAT_IEEE_FLOAT`=3),
+  `WriteSamples` streamable (plusieurs appels, chunk `data` grandit). Ne dépend PAS de NKAudio
+  (accepte des octets PCM déjà entrelacés, comme `NkAviWriter::WriteFrame` accepte des octets
+  déjà encodés) — distinct de `AudioLoader::SaveWAV` (NKAudio, hardcodé 16-bit, fonction statique
+  non réutilisable en streaming, pas dans NKMedia). **Validé** : `NkWavWriter::SelfTest()`
+  (round-trip bit-exact PCM 16-bit mono, en-tête + échantillons vérifiés octet par octet) +
+  fichier réel confirmé par `ffprobe` (`codec_name=pcm_s16le`, dimensions/débit corrects) et
+  `ffmpeg -f s16le` (échantillons décodés IDENTIQUES à ceux écrits, y compris valeurs négatives
+  et `INT16_MAX`).
 
 ## Décodeur VP9 from-scratch (spec VP9 v0.7 + libvpx comme oracle) — CHANTIER EN COURS
 

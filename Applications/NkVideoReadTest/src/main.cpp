@@ -11,6 +11,7 @@
 #include "NKMedia/Codecs/Video/VP8/NkVp8BoolDecoder.h"
 #include "NKMedia/Codecs/Video/VP9/NkVp9Decoder.h"
 #include "NKMedia/Codecs/Video/HEVC/NkHevcDecoder.h"
+#include "NKMedia/Audio/Containers/NkWavWriter.h"
 
 #include <cstdio>
 #include <cstring>
@@ -34,7 +35,9 @@ int main(int argc, char **argv) {
 		printf("  [ %s ] NkVp9Decoder::SelfTest (superframe + en-tete non compresse)\n", okVp9 ? "OK " : "KO");
 		bool okHevc = NkHevcDecoder::SelfTest();
 		printf("  [ %s ] NkHevcDecoder::SelfTest (NAL split en-tete 2 octets)\n", okHevc ? "OK " : "KO");
-		bool all = ok && okH264 && okCavlc && okVp9 && okHevc;
+		bool okWav = NkWavWriter::SelfTest();
+		printf("  [ %s ] NkWavWriter::SelfTest (RIFF/WAVE round-trip)\n", okWav ? "OK " : "KO");
+		bool all = ok && okH264 && okCavlc && okVp9 && okHevc && okWav;
 		printf("=== %s ===\n", all ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
 		return all ? 0 : 1;
 	}
