@@ -10,6 +10,7 @@
 #include "NKMedia/Codecs/Video/VP8/NkVp8Decoder.h"
 #include "NKMedia/Codecs/Video/VP8/NkVp8BoolDecoder.h"
 #include "NKMedia/Codecs/Video/VP9/NkVp9Decoder.h"
+#include "NKMedia/Codecs/Video/HEVC/NkHevcDecoder.h"
 
 #include <cstdio>
 #include <cstring>
@@ -31,7 +32,9 @@ int main(int argc, char **argv) {
 		printf("  [ %s ] NkH264Cavlc::SelfTest (encode->decode round-trip)\n", okCavlc ? "OK " : "KO");
 		bool okVp9 = NkVp9Decoder::SelfTest();
 		printf("  [ %s ] NkVp9Decoder::SelfTest (superframe + en-tete non compresse)\n", okVp9 ? "OK " : "KO");
-		bool all = ok && okH264 && okCavlc && okVp9;
+		bool okHevc = NkHevcDecoder::SelfTest();
+		printf("  [ %s ] NkHevcDecoder::SelfTest (NAL split en-tete 2 octets)\n", okHevc ? "OK " : "KO");
+		bool all = ok && okH264 && okCavlc && okVp9 && okHevc;
 		printf("=== %s ===\n", all ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
 		return all ? 0 : 1;
 	}
@@ -290,6 +293,320 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
+	// Mode reconstruction VP9 INTER (brique 6) : --vp9inter <fichier.ivf> <ref_frame1.yuv>
+	// Décode la trame 0 (clé, DecodeKeyFrame) PUIS la trame 1 (DecodeInterFrame, réfs
+	// LAST=GOLDEN=ALTREF=trame clé — vrai juste après un refresh_frame_flags=0xFF, cas
+	// normatif du tout premier P-frame) et compare la trame 1 pixel à pixel à la
+	// référence ffmpeg (2e frame brute du flux). Pas de use_prev_frame_mvs (garanti
+	// faux pour ce cas par la spec : last_frame_type==KEY_FRAME).
+	if (argc >= 4 && strcmp(argv[1], "--vp9inter") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		uint8 ivfHdr[32];
+		if (fread(ivfHdr, 1, 32, f) != 32 || memcmp(ivfHdr, "DKIF", 4) != 0) {
+			printf("  [KO] pas un IVF\n");
+			fclose(f);
+			return 1;
+		}
+		NkVector<uint8> payloads[2];
+		for (int32 fr = 0; fr < 2; ++fr) {
+			uint8 frameHdr[12];
+			if (fread(frameHdr, 1, 12, f) != 12) {
+				printf("  [KO] IVF tronque (frame %d)\n", fr);
+				fclose(f);
+				return 1;
+			}
+			const uint32 sz = (uint32)frameHdr[0] | ((uint32)frameHdr[1] << 8) | ((uint32)frameHdr[2] << 16) |
+							  ((uint32)frameHdr[3] << 24);
+			payloads[fr].Resize(sz);
+			if (fread(payloads[fr].Data(), 1, sz, f) != sz) {
+				printf("  [KO] frame %d tronquee\n", fr);
+				fclose(f);
+				return 1;
+			}
+		}
+		fclose(f);
+
+		NkVp9EntropyState entropy;
+		NkVp9Image keyImg;
+		NkVp9Decoder::NkTileParseStats ts0;
+		if (!NkVp9Decoder::DecodeKeyFrame(payloads[0].Data(), (usize)payloads[0].Size(), keyImg, entropy, &ts0,
+										  true)) {
+			printf("  [KO] DecodeKeyFrame (trame 0) a echoue\n");
+			return 1;
+		}
+		printf("  trame 0 (cle) : %dx%d, %d blocs\n", keyImg.width, keyImg.height, ts0.blocks);
+
+		const NkVp9Image *refs[3] = {&keyImg, &keyImg, &keyImg};
+		NkVp9Image interImg;
+		NkVp9Decoder::NkTileParseStats ts1;
+		if (!NkVp9Decoder::DecodeInterFrame(payloads[1].Data(), (usize)payloads[1].Size(), refs, interImg, entropy,
+											&ts1, true, false, nullptr)) {
+			printf("  [KO] DecodeInterFrame (trame 1) a echoue (tiles=%d blocs=%d skip=%d eob=%lld overread=%d)\n",
+				   ts1.tiles, ts1.blocks, ts1.skipBlocks, (long long)ts1.eobTotal, ts1.maxOverread);
+			return 1;
+		}
+		printf("  trame 1 (inter) : %dx%d, %d blocs, eob=%lld\n", interImg.width, interImg.height, ts1.blocks,
+			   (long long)ts1.eobTotal);
+
+		FILE *rf = fopen(argv[3], "rb");
+		if (!rf) {
+			printf("  [KO] reference introuvable : %s\n", argv[3]);
+			return 1;
+		}
+		const usize ySz = (usize)interImg.width * (usize)interImg.height;
+		const usize uvSz = (usize)interImg.uvWidth * (usize)interImg.uvHeight;
+		const usize frameBytes = ySz + 2 * uvSz;
+		// La reference brute contient TOUTES les frames concatenees : on saute la
+		// frame 0 (cle) pour comparer a la frame 1 (inter).
+		if (fseek(rf, (long)frameBytes, SEEK_SET) != 0) {
+			printf("  [KO] reference trop courte (seek frame 1)\n");
+			fclose(rf);
+			return 1;
+		}
+		NkVector<uint8> ref;
+		ref.Resize(frameBytes);
+		if (fread(ref.Data(), 1, frameBytes, rf) != frameBytes) {
+			printf("  [KO] reference trop courte\n");
+			fclose(rf);
+			return 1;
+		}
+		fclose(rf);
+		int64 diffs = 0;
+		int32 maxDiff = 0, firstX = -1, firstY = -1, firstPlane = -1;
+		int32 maxDiffX = -1, maxDiffY = -1, maxDiffPlane = -1;
+		const uint8 *planes[3] = {interImg.y.Data(), interImg.u.Data(), interImg.v.Data()};
+		const uint8 *refp[3] = {ref.Data(), ref.Data() + ySz, ref.Data() + ySz + uvSz};
+		const int32 pw[3] = {interImg.width, interImg.uvWidth, interImg.uvWidth};
+		const int32 ph[3] = {interImg.height, interImg.uvHeight, interImg.uvHeight};
+		const int32 pstride[3] = {interImg.yStride, interImg.uvStride, interImg.uvStride};
+		for (int32 p = 0; p < 3; ++p) {
+			for (int32 yy = 0; yy < ph[p]; ++yy) {
+				for (int32 xx = 0; xx < pw[p]; ++xx) {
+					const int32 a = planes[p][yy * pstride[p] + xx];
+					const int32 b = refp[p][yy * pw[p] + xx];
+					const int32 d = a > b ? a - b : b - a;
+					if (d) {
+						++diffs;
+						if (d > maxDiff) {
+							maxDiff = d;
+							maxDiffX = xx;
+							maxDiffY = yy;
+							maxDiffPlane = p;
+						}
+						if (firstX < 0) {
+							firstX = xx;
+							firstY = yy;
+							firstPlane = p;
+						}
+					}
+				}
+			}
+		}
+		if (diffs == 0) {
+			printf("  [ OK  ] trame INTER VP9 BIT-EXACTE vs ffmpeg (%dx%d)\n", interImg.width, interImg.height);
+			return 0;
+		}
+		printf("  [ KO ] %lld pixels differents (maxdiff=%d @ plan=%d (%d,%d), premier plan=%d @ %d,%d)\n",
+			   (long long)diffs, maxDiff, maxDiffPlane, maxDiffX, maxDiffY, firstPlane, firstX, firstY);
+		FILE *of = fopen("vp9inter_out.yuv", "wb");
+		if (of) {
+			for (int32 p = 0; p < 3; ++p)
+				for (int32 yy = 0; yy < ph[p]; ++yy)
+					fwrite(planes[p] + (usize)yy * (usize)pstride[p], 1, (usize)pw[p], of);
+			fclose(of);
+			printf("  (image decodee ecrite dans vp9inter_out.yuv)\n");
+		}
+		return 1;
+	}
+
+	// Mode reconstruction VP9 MULTI-TRAMES : --vp9multi <fichier.ivf> <reference.yuv>
+	// Décode TOUT le flux (clé + N inter, DPB 8 slots via refFrameIdx/refreshFrameFlags,
+	// show_existing_frame géré) et compare chaque trame AFFICHÉE à la référence brute
+	// ffmpeg (une image par trame montrée, dans l'ordre d'affichage). `usePrevFrameMvs`
+	// toujours faux (aucune extraction de grille MV exposée par le décodeur pour l'instant
+	// — limite documentée, cf. NkVp9Decoder.h).
+	if (argc >= 4 && strcmp(argv[1], "--vp9multi") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		uint8 ivfHdr[32];
+		if (fread(ivfHdr, 1, 32, f) != 32 || memcmp(ivfHdr, "DKIF", 4) != 0) {
+			printf("  [KO] pas un IVF\n");
+			fclose(f);
+			return 1;
+		}
+		const uint16 ivfW = (uint16)(ivfHdr[12] | (ivfHdr[13] << 8));
+		const uint16 ivfH = (uint16)(ivfHdr[14] | (ivfHdr[15] << 8));
+		FILE *rf = fopen(argv[3], "rb");
+		if (!rf) {
+			printf("  [KO] reference introuvable : %s\n", argv[3]);
+			fclose(f);
+			return 1;
+		}
+
+		NkVp9EntropyState entropy;
+		NkVp9Image slots[8];
+		bool slotValid[8] = {false, false, false, false, false, false, false, false};
+
+		auto CompareShown = [&](const NkVp9Image &img, int32 frameIdx, int32 frameType) -> bool {
+			const usize ySz = (usize)img.width * (usize)img.height;
+			const usize uvSz = (usize)img.uvWidth * (usize)img.uvHeight;
+			const usize frameBytes = ySz + 2 * uvSz;
+			NkVector<uint8> ref;
+			ref.Resize(frameBytes);
+			if (fread(ref.Data(), 1, frameBytes, rf) != frameBytes) {
+				printf("  [KO] reference trop courte a la trame affichee %d\n", frameIdx);
+				return false;
+			}
+			const uint8 *planes[3] = {img.y.Data(), img.u.Data(), img.v.Data()};
+			const uint8 *refp[3] = {ref.Data(), ref.Data() + ySz, ref.Data() + ySz + uvSz};
+			const int32 pw[3] = {img.width, img.uvWidth, img.uvWidth};
+			const int32 ph[3] = {img.height, img.uvHeight, img.uvHeight};
+			const int32 pstride[3] = {img.yStride, img.uvStride, img.uvStride};
+			int64 diffs = 0;
+			int32 maxDiff = 0;
+			for (int32 p = 0; p < 3; ++p)
+				for (int32 yy = 0; yy < ph[p]; ++yy)
+					for (int32 xx = 0; xx < pw[p]; ++xx) {
+						const int32 a = planes[p][yy * pstride[p] + xx];
+						const int32 b = refp[p][yy * pw[p] + xx];
+						const int32 d = a > b ? a - b : b - a;
+						if (d) {
+							++diffs;
+							if (d > maxDiff)
+								maxDiff = d;
+						}
+					}
+			if (diffs != 0) {
+				printf("  [KO] trame %d (type=%d) : %lld pixels differents (maxdiff=%d)\n", frameIdx, frameType,
+					   (long long)diffs, maxDiff);
+				return false;
+			}
+			return true;
+		};
+
+		// use_prev_frame_mvs (dec_api) : éligible si la trame PRÉCÉDENTE n'était pas
+		// clé/intra-only, mêmes dimensions, et la trame COURANTE n'est pas error-resilient.
+		bool prevEligibleBase = false; // "trame precedente n'etait pas intra/cle"
+		int32 prevWidth = 0, prevHeight = 0;
+		NkVector<NkVp9MvRef> mvGrid, nextMvGrid;
+
+		int32 frameIdx = 0, decodedCount = 0, shownCount = 0, bitExactCount = 0;
+		bool allOk = true;
+		for (; allOk;) {
+			uint8 frameHdr[12];
+			if (fread(frameHdr, 1, 12, f) != 12)
+				break;
+			const uint32 payloadSize = (uint32)frameHdr[0] | ((uint32)frameHdr[1] << 8) |
+									   ((uint32)frameHdr[2] << 16) | ((uint32)frameHdr[3] << 24);
+			NkVector<uint8> payload;
+			payload.Resize(payloadSize);
+			if (fread(payload.Data(), 1, payloadSize, f) != payloadSize) {
+				printf("  [KO] charge tronquee\n");
+				allOk = false;
+				break;
+			}
+			NkVp9Superframe sf;
+			if (!NkVp9Decoder::ParseSuperframe(payload.Data(), (usize)payload.Size(), sf)) {
+				printf("  [KO] superframe invalide\n");
+				allOk = false;
+				break;
+			}
+			for (int32 fr = 0; fr < sf.count && allOk; ++fr) {
+				const uint8 *fdata = payload.Data() + sf.offsets[fr];
+				const usize fsize = sf.sizes[fr];
+				NkVp9FrameHeader hdr;
+				if (!NkVp9Decoder::ParseUncompressedHeader(fdata, fsize, hdr, (int32)ivfW, (int32)ivfH)) {
+					printf("  [KO] header invalide trame %d\n", frameIdx);
+					allOk = false;
+					break;
+				}
+				if (hdr.showExistingFrame) {
+					const int32 slot = hdr.frameToShowMapIdx;
+					if (slot < 0 || slot >= 8 || !slotValid[slot]) {
+						printf("  [KO] show_existing_frame %d : slot %d non decode\n", frameIdx, slot);
+						allOk = false;
+						break;
+					}
+					++shownCount;
+					if (CompareShown(slots[slot], frameIdx, -1))
+						++bitExactCount;
+					else
+						allOk = false;
+					++frameIdx;
+					continue;
+				}
+				NkVp9Image img;
+				NkVp9Decoder::NkTileParseStats stats;
+				bool ok;
+				bool isIntra = (hdr.frameType == kVp9KeyFrame || hdr.intraOnly);
+				if (isIntra) {
+					ok = NkVp9Decoder::DecodeKeyFrame(fdata, fsize, img, entropy, &stats, true);
+				} else {
+					const NkVp9Image *refs[3];
+					bool refsOk = true;
+					for (int32 i = 0; i < 3; ++i) {
+						const int32 slot = hdr.refFrameIdx[i];
+						if (slot < 0 || slot >= 8 || !slotValid[slot]) {
+							refsOk = false;
+							break;
+						}
+						refs[i] = &slots[slot];
+					}
+					if (!refsOk) {
+						printf("  [KO] trame %d : reference(s) non decodee(s)\n", frameIdx);
+						allOk = false;
+						break;
+					}
+					const bool eligible = prevEligibleBase && !hdr.errorResilient && hdr.width == prevWidth &&
+										  hdr.height == prevHeight;
+					ok = NkVp9Decoder::DecodeInterFrame(fdata, fsize, refs, img, entropy, &stats, true, eligible,
+														eligible ? mvGrid.Data() : nullptr, &nextMvGrid);
+					if (ok)
+						mvGrid = nextMvGrid;
+				}
+				if (!ok) {
+					printf("  [KO] decode echoue trame %d (type=%d tiles=%d blocs=%d overread=%d)\n", frameIdx,
+						   hdr.frameType, stats.tiles, stats.blocks, stats.maxOverread);
+					allOk = false;
+					break;
+				}
+				for (int32 s = 0; s < 8; ++s) {
+					if (hdr.refreshFrameFlags & (1u << s)) {
+						slots[s] = img;
+						slotValid[s] = true;
+					}
+				}
+				// use_prev_frame_mvs de la trame SUIVANTE (dec_api) : cette trame doit être
+				// non intra/clé ET avoir été AFFICHÉE (cm->last_show_frame) — une trame
+				// altref invisible casse l'éligibilité pour la trame qui la suit.
+				prevEligibleBase = !isIntra && hdr.showFrame;
+				prevWidth = hdr.width;
+				prevHeight = hdr.height;
+				++decodedCount;
+				if (hdr.showFrame) {
+					++shownCount;
+					if (CompareShown(img, frameIdx, hdr.frameType))
+						++bitExactCount;
+					else
+						allOk = false;
+				}
+				++frameIdx;
+			}
+		}
+		fclose(f);
+		fclose(rf);
+		printf("  %d trames decodees, %d affichees, %d/%d bit-exactes vs ffmpeg\n", decodedCount, shownCount,
+			   bitExactCount, shownCount);
+		return (allOk && bitExactCount == shownCount && shownCount > 0) ? 0 : 1;
+	}
+
 	// Mode reconstruction VP9 (brique 4) : --vp9recon <fichier.ivf> <reference.yuv>
 	// Décode la PREMIÈRE trame clé (prédiction intra + déquant + transformées) et la
 	// compare pixel à pixel à la référence ffmpeg (I420). Objectif : BIT-EXACT.
@@ -323,8 +640,9 @@ int main(int argc, char **argv) {
 		NkVp9Decoder::ParseSuperframe(payload.Data(), (usize)payload.Size(), sf);
 		const bool noLf = (argc >= 5 && strcmp(argv[4], "nolf") == 0);
 		NkVp9Image img;
+		NkVp9EntropyState entropy;
 		NkVp9Decoder::NkTileParseStats ts;
-		if (!NkVp9Decoder::DecodeKeyFrame(payload.Data() + sf.offsets[0], sf.sizes[0], img, &ts,
+		if (!NkVp9Decoder::DecodeKeyFrame(payload.Data() + sf.offsets[0], sf.sizes[0], img, entropy, &ts,
 										  !noLf)) {
 			printf("  [KO] DecodeKeyFrame a echoue (tiles=%d blocs=%d)\n", ts.tiles, ts.blocks);
 			return 1;
@@ -530,6 +848,80 @@ int main(int argc, char **argv) {
 			   nContentOk, nContentTotal, nContentBlocks, nContentEob);
 		printf("  [ %s ] parsing en-tetes VP9\n", allOk ? "OK " : "KO");
 		return allOk ? 0 : 1;
+	}
+
+	// Mode diagnostic HEVC (brique 1) : --hevcheader <fichier.265/.hevc Annex-B brut>
+	// Decoupe les NALs (en-tete 2 octets), parse VPS/SPS/PPS et affiche dimensions/
+	// profil/niveau/chroma/profondeur de bits — a comparer a `ffprobe` sur le meme
+	// fichier pour validation (dimensions et profil doivent correspondre exactement).
+	if (argc >= 3 && strcmp(argv[1], "--hevcheader") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		fseek(f, 0, SEEK_END);
+		long n = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		NkVector<uint8> buf;
+		buf.Resize((usize)n);
+		size_t got = fread(buf.Data(), 1, (size_t)n, f);
+		fclose(f);
+		if (got != (size_t)n) {
+			printf("  [KO] lecture incomplete\n");
+			return 1;
+		}
+		NkVector<NkHevcNal> nals;
+		NkHevcDecoder::SplitNalsAnnexB(buf.Data(), (usize)buf.Size(), nals);
+		printf("  %llu NALs (Annex-B, en-tete 2 octets)\n", (unsigned long long)nals.Size());
+		int32 nVps = 0, nSps = 0, nPps = 0, nIdr = 0, nCra = 0, nTrail = 0;
+		bool haveSps = false;
+		NkHevcSps sps;
+		for (uint64 i = 0; i < nals.Size(); ++i) {
+			const NkHevcNal &nal = nals[i];
+			const uint8 *nd = buf.Data() + nal.offset;
+			if (nal.type == kHevcNalVps) {
+				++nVps;
+				int32 vpsId;
+				NkHevcProfileTierLevel ptl;
+				if (NkHevcDecoder::ParseVps(nd, nal.size, vpsId, ptl))
+					printf("  VPS id=%d profil=%d niveau=%d.%d\n", vpsId, ptl.generalProfileIdc,
+						   ptl.generalLevelIdc / 30, (ptl.generalLevelIdc % 30) / 3);
+			} else if (nal.type == kHevcNalSps) {
+				++nSps;
+				if (NkHevcDecoder::ParseSps(nd, nal.size, sps)) {
+					haveSps = true;
+					printf("  SPS id=%d %dx%d profil=%d niveau=%d.%d chroma=%d profondeur=%d/%d "
+						   "fenetre_conformance=%d (l=%d r=%d h=%d b=%d)\n",
+						   sps.spsId, sps.width, sps.height, sps.ptl.generalProfileIdc,
+						   sps.ptl.generalLevelIdc / 30, (sps.ptl.generalLevelIdc % 30) / 3,
+						   sps.chromaFormatIdc, sps.bitDepthLuma, sps.bitDepthChroma, sps.conformanceWindow,
+						   sps.confWinLeft, sps.confWinRight, sps.confWinTop, sps.confWinBottom);
+				} else {
+					printf("  [KO] SPS %llu : parsing echoue\n", (unsigned long long)i);
+				}
+			} else if (nal.type == kHevcNalPps) {
+				++nPps;
+				NkHevcPps pps;
+				if (NkHevcDecoder::ParsePps(nd, nal.size, pps))
+					printf("  PPS id=%d sps_id=%d tuiles=%d(%dx%d) sync_entropie=%d cu_qp_delta=%d\n",
+						   pps.ppsId, pps.spsId, pps.tilesEnabled, pps.numTileColumnsMinus1 + 1,
+						   pps.numTileRowsMinus1 + 1, pps.entropyCodingSyncEnabled, pps.cuQpDeltaEnabled);
+				else
+					printf("  [KO] PPS %llu : parsing echoue\n", (unsigned long long)i);
+			} else if (nal.type == kHevcNalIdrWRadl || nal.type == kHevcNalIdrNLp) {
+				++nIdr;
+			} else if (nal.type == kHevcNalCra) {
+				++nCra;
+			} else if (nal.type <= kHevcNalRaslR) {
+				++nTrail;
+			}
+		}
+		printf("  VPS=%d SPS=%d PPS=%d IDR=%d CRA=%d TRAIL/autres_slices=%d\n", nVps, nSps, nPps, nIdr, nCra,
+			   nTrail);
+		const bool ok = haveSps && sps.width > 0 && sps.height > 0;
+		printf("  [ %s ] parsing en-tetes HEVC (brique 1 : NAL + VPS/SPS/PPS)\n", ok ? "OK " : "KO");
+		return ok ? 0 : 1;
 	}
 
 	// Mode diagnostic VP8 (chantier en cours) : --vp8header <fichier.ivf>
