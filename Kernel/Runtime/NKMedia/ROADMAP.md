@@ -20,7 +20,7 @@
 | 3quater. **Fichiers .opus (Ogg-Opus, RFC 7845)** + câblage NKAudio | ✅ | **Conteneur Ogg livré (2026-07-12)** : probe (pistes opus/vorbis depuis les pages BOS) + démux (pages → paquets, lacing, `granule`) ; `NkOpusFile` (OpusHead pre-skip/gain + décode + trim granule ; **hybride/stéréo refusés proprement** → retirer le garde quand 3ter sera fini). Harnais `--oggopus`, self-test forge Ogg (34/34). **Validé vs ffmpeg** : SILK-WB corr 0.999985 (lag +2 = délai resampler), CELT corr 0.965 lag 0. **NKAudio branché** : `AudioFormat::OPUS` décodé via `NkOpusCodec` (détection OggS+OpusHead), test `NkMicRecord --decode in.opus out.wav`. NB : NKAudio dépend de NKMedia → 10 jengas d'apps mis à jour |
 | 4. Décodeur audio AAC-LC | ✅ | *(table périmée, tenue à jour dans « Livré » ci-dessous)* MP4 → PCM, stéréo complet, bit-exact vs ffmpeg |
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅** ; puis WebM, WAV |
-| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC brique 1 démarrée** (structure NAL+VPS/SPS/PPS validée vs ffprobe, décodage image = à venir) ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
+| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC briques 1+2** (structure NAL+VPS/SPS/PPS+slice header validées vs ffprobe/manuel, décodage image CABAC/CTU = à venir) ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
 | 8. **Décodeur vidéo VP8** | ✅ | **DÉCODEUR COMPLET (clé + inter) : 325 images BIT-EXACTES vs ffmpeg sur 6 flux** (dont altref invisibles, golden frames, 4 GOPs, SPLITMV, filterLevel 0-8, résolutions impaires). Décodeur booléen, en-têtes, modes intra+inter, MV (near/nearest/new/split), MC 6-tap, résidus, WHT+IDCT, filtre de boucle. Restes mineurs : segmentation MB, partitions multiples, versions 1-3 (refus propre). **À brancher dans NkVideoReader** (WebM/IVF). |
 
@@ -719,7 +719,7 @@
   inter + 10/10 flux clés restent bit-exacts, comme attendu si le bug n'était effectivement
   jamais exercé jusqu'ici).
 
-## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (brique 1 : structure bitstream)
+## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (briques 1+2 : structure bitstream + slice header)
 
 *(2026-07-24)* Démarré comme suite logique directe de H.264 (« évolution directe … la base de
 départ la plus naturelle », cf. section précédente) — même famille bit-exacte, complexité
@@ -761,13 +761,41 @@ zero-STL, `nkentseu::media`.
     `level_idc` pour chaque incrément de 0.1). Cosmétique (harnais diagnostic uniquement,
     aucun impact sur le parsing lui-même côté `NkHevcDecoder`) mais corrigé immédiatement par
     cohérence — reconfirmé bit-exact sur les 2 flux après fix.
-  - `NkHevcDecoder::SelfTest()` (NAL synthétique 2 NALs VPS+SPS) intégré à la suite
-    `NkVideoReadTest` sans argument (5/5 self-tests OK : AVI MJPEG, H264, CAVLC, VP9, HEVC).
-- **Suite (briques 2+, PAS commencées)** : slice header (§7.3.6), moteur **CABAC** (contexte
-  différent d'H.264 malgré la même idée générale), quadtree **CTU→CU→PU→TU**, **35 modes
-  intra** (33 directionnels + DC + planar, contre 9 en H.264), prédiction inter
-  **merge/AMVP** (pas de skip/direct façon H.264), transformées **DST/DCT** variables
-  (4×4 à 32×32), déblocage + **SAO** (nouveau vs H.264). Gros chantier multi-session, comme
+  - `NkHevcDecoder::SelfTest()` (NAL synthétique 2 NALs VPS+SPS pour `SplitNalsAnnexB`, PUIS
+    VPS/SPS/PPS/slice IDR RÉELS de libx265 pour valider `ParseVps`/`ParseSps`/`ParsePps` —
+    mêmes octets que le flux 322×242 validé vs `ffprobe`) intégré à la suite `NkVideoReadTest`
+    sans argument (5/5 self-tests OK : AVI MJPEG, H264, CAVLC, VP9, HEVC).
+- ⭐ **Brique 2 livrée et validée** : `slice_segment_header()` (§7.3.6.1), sous-ensemble
+  structurel — `first_slice_segment_in_pic_flag`, `no_output_of_prior_pics_flag` (NAL IRAP
+  16-23), `slice_pic_parameter_set_id`, `dependent_slice_segment_flag`/`slice_segment_address`
+  (si pas la 1re slice), `slice_type` (I/P/B), `pic_output_flag`, `colour_plane_id` (4:4:4
+  séparé), et — si PAS IDR — `slice_pic_order_cnt_lsb` + `short_term_ref_pic_set_sps_flag`.
+  S'ARRÊTE juste après (avant `short_term_ref_pic_set()`/`ref_pic_lists_modification()`/
+  `pred_weight_table()`/deblocking overrides — chacun un chantier propre).
+  - `slice_segment_address` a une largeur en bits **dépendante du contenu**
+    (`Ceil(Log2(PicSizeInCtbsY))`, §7.4.7.1) → a nécessité d'étendre `ParseSps` avec les champs
+    manquants pour dériver `PicSizeInCtbsY` : boucle `sps_sub_layer_ordering_info` (consommée,
+    pas exposée) puis `log2_min_luma_coding_block_size_minus3`/`log2_diff_max_min_luma_coding_
+    block_size` (nouveaux champs `NkHevcSps::log2MinCbSizeY`/`log2DiffMaxMinCbSizeY`) — Ctb
+    LogSize = somme des deux, `PicSizeInCtbsY` = ⌈largeur/CtbSize⌉ × ⌈hauteur/CtbSize⌉.
+  - **Validé sur les 2 mêmes flux réels** (`--hevcheader` étendu pour afficher la 1re slice
+    ET la 1re slice NON-IDR d'un fichier) :
+    - 1re slice (IDR, NAL type 20) : `premiere_dans_image=1 type=I idr=1 poc_lsb=0
+      rps_depuis_sps=0` — cohérent (POC/RPS jamais lus pour une IDR, restent aux valeurs par
+      défaut de la structure, marqués "valides seulement si !isIdr").
+    - 1re slice NON-IDR (NAL type 1 = TRAIL_R, sur les 2 flux) : `type=P idr=0 poc_lsb=4` —
+      exerce pour la première fois le chemin `slice_pic_order_cnt_lsb`/`short_term_ref_pic_
+      set_sps_flag` (jamais emprunté par une IDR, donc PAS couvert par le self-test synthétique
+      seul) ; POC=4 en 2e position de DÉCODAGE est cohérent avec la structure B-pyramid par
+      défaut de x265 (`bframes=4` : l'ancre P décode en 2e, les B intermédiaires après,
+      affichage 0,1,2,3,4,... ≠ ordre de décodage 0,4,1,2,3,...).
+- **Suite (briques 3+, PAS commencées)** : moteur **CABAC** (contexte différent d'H.264 malgré
+  la même idée générale), quadtree **CTU→CU→PU→TU**, **35 modes intra** (33 directionnels +
+  DC + planar, contre 9 en H.264), prédiction inter **merge/AMVP** (pas de skip/direct façon
+  H.264), transformées **DST/DCT** variables (4×4 à 32×32), déblocage + **SAO** (nouveau vs
+  H.264) — et, dans le slice header lui-même : `short_term_ref_pic_set()` (syntaxe récursive
+  avec prédiction inter-RPS), listes de références long terme, `ref_pic_lists_modification()`,
+  `pred_weight_table()`, overrides de déblocage. Gros chantier multi-session, comme
   H.264/VP8/VP9 avant lui — à traiter brique par brique avec validation bit-exacte à chaque
   étape (méthode déjà éprouvée 4× sur ce module).
 

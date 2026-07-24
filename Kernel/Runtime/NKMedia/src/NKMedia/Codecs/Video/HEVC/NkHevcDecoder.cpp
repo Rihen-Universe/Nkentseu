@@ -66,6 +66,20 @@ namespace nkentseu {
 				}
 			}
 
+			// Ceil(Log2(x)) — utilisé pour la largeur en bits de slice_segment_address
+			// (§7.4.7.1 : Ceil(Log2(PicSizeInCtbsY))). x<=1 -> 0 (aucun bit nécessaire).
+			int32 CeilLog2(uint32 x) {
+				if (x < 2)
+					return 0;
+				int32 r = 0;
+				uint32 v = 1;
+				while (v < x) {
+					v <<= 1;
+					++r;
+				}
+				return r;
+			}
+
 		} // namespace
 
 		void NkHevcDecoder::SplitNalsAnnexB(const uint8 *data, usize size, NkVector<NkHevcNal> &out) {
@@ -162,10 +176,25 @@ namespace nkentseu {
 			out.bitDepthLuma = (int32)br.UE() + 8;
 			out.bitDepthChroma = (int32)br.UE() + 8;
 			out.log2MaxPocLsb = (int32)br.UE() + 4;
-			// S'ARRÊTE ICI (brique 1) : sps_sub_layer_ordering_info/CTU-CU-TU sizes/
-			// scaling_list_data()/st_ref_pic_set()/vui_parameters() restent à porter
-			// pour les briques suivantes (contenu réel), pas nécessaires aux infos
-			// structurelles (dimensions/profil/niveau/chroma/profondeur de bits).
+			// sps_max_dec_pic_buffering/num_reorder_pics/latency_increase par sous-couche
+			// (§7.3.2.2.1) — consommés (bit-exactement) mais pas exposés, non nécessaires
+			// hors gestion DPB (brique décodage image).
+			const bool subLayerOrderingInfoPresent = br.U1() != 0;
+			const int32 startIdx = subLayerOrderingInfoPresent ? 0 : out.maxSubLayersMinus1;
+			for (int32 i = startIdx; i <= out.maxSubLayersMinus1; ++i) {
+				br.UE(); // sps_max_dec_pic_buffering_minus1[i]
+				br.UE(); // sps_max_num_reorder_pics[i]
+				br.UE(); // sps_max_latency_increase_plus1[i]
+			}
+			// Taille des CTU — nécessaire à PicSizeInCtbsY (largeur en bits de
+			// slice_segment_address, cf. NkHevcDecoder::ParseSliceHeader) : voir champs
+			// log2MinCbSizeY/log2DiffMaxMinCbSizeY dans NkHevcSps.
+			out.log2MinCbSizeY = (int32)br.UE() + 3;
+			out.log2DiffMaxMinCbSizeY = (int32)br.UE();
+			// S'ARRÊTE ICI (brique 2) : TU-tree sizes/scaling_list_data()/amp/sao/pcm/
+			// st_ref_pic_set()/long_term_ref/temporal_mvp/strong_intra_smoothing/
+			// vui_parameters() restent à porter pour les briques suivantes (contenu réel
+			// et slice header complet), pas nécessaires aux infos structurelles.
 			out.valid = (out.width > 0 && out.height > 0);
 			return out.valid;
 		}
@@ -224,6 +253,57 @@ namespace nkentseu {
 			return true;
 		}
 
+		bool NkHevcDecoder::ParseSliceHeader(const uint8 *nal, usize size, const NkHevcSps &sps, const NkHevcPps &pps,
+											 NkHevcSliceHeader &out) {
+			out = NkHevcSliceHeader{};
+			if (!nal || size < 4 || !sps.valid || !pps.valid)
+				return false;
+			const int32 nalType = (nal[0] >> 1) & 0x3F;
+			if (nalType > 31) // au-delà de 31 = non-VCL (VPS/SPS/PPS/SEI/…), pas une slice
+				return false;
+			out.nalType = nalType;
+			out.isIdr = (nalType == kHevcNalIdrWRadl || nalType == kHevcNalIdrNLp);
+			NkVector<uint8> rbsp;
+			Deemulate(nal + 2, size - 2, rbsp);
+			if (rbsp.Size() < 1)
+				return false;
+			NkH264BitReader br(rbsp.Data(), (usize)rbsp.Size());
+			out.firstSliceSegmentInPic = br.U1() != 0;
+			if (nalType >= kHevcNalBlaWLp && nalType <= 23) // BLA_W_LP(16)..RSV_IRAP_VCL23(23)
+				out.noOutputOfPriorPics = br.U1() != 0;
+			out.ppsId = (int32)br.UE();
+			if (!out.firstSliceSegmentInPic) {
+				if (pps.dependentSliceSegmentsEnabled)
+					out.dependentSliceSegment = br.U1() != 0;
+				// slice_segment_address u(v) : Ceil(Log2(PicSizeInCtbsY)) bits (§7.4.7.1).
+				const int32 ctbLog2Size = sps.log2MinCbSizeY + sps.log2DiffMaxMinCbSizeY;
+				const int32 ctbSize = 1 << ctbLog2Size;
+				const int32 picWidthInCtbs = (sps.width + ctbSize - 1) / ctbSize;
+				const int32 picHeightInCtbs = (sps.height + ctbSize - 1) / ctbSize;
+				const int32 picSizeInCtbs = picWidthInCtbs * picHeightInCtbs;
+				const int32 addrBits = CeilLog2((uint32)picSizeInCtbs);
+				out.sliceSegmentAddress = addrBits > 0 ? (int32)br.U(addrBits) : 0;
+			}
+			if (!out.dependentSliceSegment) {
+				for (int32 i = 0; i < pps.numExtraSliceHeaderBits; ++i)
+					br.U1(); // slice_reserved_flag[i] (discarde)
+				out.sliceType = (int32)br.UE();
+				if (pps.outputFlagPresent)
+					out.picOutputFlag = br.U1() != 0;
+				if (sps.separateColourPlane)
+					out.colourPlaneId = (int32)br.U(2);
+				if (!out.isIdr) {
+					out.picOrderCntLsb = (int32)br.U(sps.log2MaxPocLsb);
+					out.shortTermRefPicSetSpsFlag = br.U1() != 0;
+					// S'ARRÊTE ICI (brique 2) : short_term_ref_pic_set()/long-term ref/
+					// ref_pic_lists_modification()/pred_weight_table()/deblocking
+					// overrides restent à porter pour les briques suivantes.
+				}
+			}
+			out.valid = true;
+			return true;
+		}
+
 		bool NkHevcDecoder::SelfTest() {
 			// SplitNalsAnnexB : 2 NALs synthétiques (VPS type=32, SPS type=33), en-tête
 			// 2 octets HEVC (contre 1 en H.264) — vérifie l'extraction type/layer/temporal.
@@ -242,6 +322,56 @@ namespace nkentseu {
 			if (nals[1].type != kHevcNalSps || nals[1].layerId != 0 || nals[1].temporalId != 0)
 				return false;
 			if (nals[0].size != 4 || nals[1].size != 5) // en-tête (2) + charge utile factice
+				return false;
+
+			// VPS/SPS/PPS/slice(IDR) RÉELS (322x242 4:2:0 8-bit profil Main, produits par
+			// ffmpeg/libx265 — cf. validation --hevcheader vs ffprobe). Slice tronquée à 24
+			// octets : le slice header tient dans les tout premiers octets du NAL, le reste
+			// (slice_data CABAC) n'est pas nécessaire à ce test structurel.
+			static const uint8 kVps[] = {0x40, 0x01, 0x0c, 0x01, 0xff, 0xff, 0x01, 0x60, 0x00, 0x00,
+										 0x03, 0x00, 0x90, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00,
+										 0x3c, 0x95, 0x98, 0x09};
+			static const uint8 kSpsReal[] = {0x42, 0x01, 0x01, 0x01, 0x60, 0x00, 0x00, 0x03, 0x00, 0x90,
+											 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x3c, 0xa0, 0x0a,
+											 0x48, 0x0f, 0x9c, 0x92, 0x65, 0x95, 0x9a, 0x49, 0x32, 0xbc,
+											 0x05, 0xa0, 0x20, 0x00, 0x00, 0x03, 0x00, 0x20, 0x00, 0x00,
+											 0x03, 0x03, 0x21};
+			static const uint8 kPpsReal[] = {0x44, 0x01, 0xc1, 0x72, 0xb4, 0x62, 0x40};
+			static const uint8 kIdrReal[] = {0x28, 0x01, 0xaf, 0x1d, 0x20, 0xab, 0x19, 0x8e, 0xb4, 0x20,
+											 0xb3, 0xdb, 0xdf, 0x8c, 0x6e, 0x90, 0x4f, 0xff, 0xeb, 0x9d,
+											 0x3d, 0x33, 0x81, 0xb4};
+
+			int32 vpsId;
+			NkHevcProfileTierLevel ptl;
+			if (!ParseVps(kVps, sizeof(kVps), vpsId, ptl) || vpsId != 0 || ptl.generalProfileIdc != 1)
+				return false;
+
+			NkHevcSps sps;
+			if (!ParseSps(kSpsReal, sizeof(kSpsReal), sps))
+				return false;
+			if (!sps.valid || sps.width != 328 || sps.height != 248 || sps.ptl.generalProfileIdc != 1)
+				return false;
+			if (sps.chromaFormatIdc != 1 || sps.bitDepthLuma != 8 || sps.bitDepthChroma != 8)
+				return false;
+			if (!sps.conformanceWindow || sps.confWinRight != 3 || sps.confWinBottom != 3)
+				return false;
+
+			NkHevcPps pps;
+			if (!ParsePps(kPpsReal, sizeof(kPpsReal), pps))
+				return false;
+			if (!pps.valid || pps.ppsId != 0 || pps.spsId != 0 || !pps.cuQpDeltaEnabled)
+				return false;
+			if (!pps.entropyCodingSyncEnabled || pps.tilesEnabled)
+				return false;
+
+			// Slice header IDR -> premiere slice (couvre toute l'image), I-slice, PPS 0,
+			// aucune "sortie des images anterieures" supprimee (flux mono-GOP).
+			NkHevcSliceHeader sh;
+			if (!ParseSliceHeader(kIdrReal, sizeof(kIdrReal), sps, pps, sh))
+				return false;
+			if (!sh.valid || !sh.firstSliceSegmentInPic || sh.noOutputOfPriorPics)
+				return false;
+			if (sh.ppsId != 0 || sh.sliceType != kHevcSliceI || !sh.isIdr)
 				return false;
 			return true;
 		}

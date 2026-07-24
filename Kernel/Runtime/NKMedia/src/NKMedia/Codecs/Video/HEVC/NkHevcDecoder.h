@@ -93,6 +93,38 @@ namespace nkentseu {
 				int32 bitDepthLuma = 8;   // bit_depth_luma_minus8 + 8
 				int32 bitDepthChroma = 8; // bit_depth_chroma_minus8 + 8
 				int32 log2MaxPocLsb = 4;  // log2_max_pic_order_cnt_lsb_minus4 + 4
+				// Taille des CTU (arbre de codage) — nécessaire pour dériver PicSizeInCtbsY,
+				// qui fixe la largeur en bits de slice_segment_address dans le slice header
+				// (§7.4.7.1) : CtbLog2SizeY = log2MinCbSizeY + log2DiffMaxMinCbSizeY.
+				int32 log2MinCbSizeY = 3;		 // log2_min_luma_coding_block_size_minus3 + 3
+				int32 log2DiffMaxMinCbSizeY = 0; // log2_diff_max_min_luma_coding_block_size
+		};
+
+		// Type de slice (§7.4.7.1, Table 7-7) — même convention numérique que H.264
+		// (0=B, 1=P, 2=I) bien que ce soit une coïncidence de la spec, pas un partage.
+		enum NkHevcSliceType : nk_int32 {
+			kHevcSliceB = 0,
+			kHevcSliceP = 1,
+			kHevcSliceI = 2,
+		};
+
+		// En-tête de slice — brique 2 : champs lisibles SANS porter short_term_ref_pic_set()
+		// ni scaling_list_data() (RPS/scaling restent des chantiers séparés). S'ARRÊTE juste
+		// après short_term_ref_pic_set_sps_flag (cf. NkHevcDecoder::ParseSliceHeader).
+		struct NkHevcSliceHeader {
+				bool valid = false;
+				int32 nalType = 0;
+				bool firstSliceSegmentInPic = false;
+				bool noOutputOfPriorPics = false; // valide seulement si IRAP (BLA/IDR/CRA)
+				int32 ppsId = 0;
+				bool dependentSliceSegment = false;
+				int32 sliceSegmentAddress = 0;
+				int32 sliceType = 0; // NkHevcSliceType
+				bool picOutputFlag = true;
+				int32 colourPlaneId = 0;
+				bool isIdr = false;
+				int32 picOrderCntLsb = 0;			 // valide seulement si !isIdr
+				bool shortTermRefPicSetSpsFlag = false; // valide seulement si !isIdr
 		};
 
 		// Infos extraites d'un PPS. §7.3.2.3 (sous-ensemble structurel — brique 1).
@@ -131,16 +163,25 @@ namespace nkentseu {
 				static bool ParseVps(const uint8 *nal, usize size, int32 &outVpsId,
 									 NkHevcProfileTierLevel &outPtl);
 
-				// Parse un SPS (§7.3.2.2) : s'arrête après bit_depth/POC (dimensions,
-				// profil, niveau, chroma, profondeur de bits) — ne consomme PAS
-				// st_ref_pic_set()/scaling_list_data()/vui_parameters() (pas nécessaires
-				// à la brique 1, et chacun de ces syntax elements est un chantier propre).
+				// Parse un SPS (§7.3.2.2) : dimensions/profil/niveau/chroma/profondeur de
+				// bits + taille des CTU (log2MinCbSizeY/log2DiffMaxMinCbSizeY, nécessaire
+				// pour dériver PicSizeInCtbsY côté slice header) — ne consomme PAS
+				// scaling_list_data()/TU-tree/PCM/st_ref_pic_set()/vui_parameters() (pas
+				// nécessaires ici, chacun un chantier propre pour les briques suivantes).
 				static bool ParseSps(const uint8 *nal, usize size, NkHevcSps &out);
 
 				// Parse un PPS (§7.3.2.3) : sous-ensemble structurel (tuiles, QP init,
 				// flags de contrôle) — s'arrête avant deblocking_filter_control /
 				// scaling_list_data / pps_extension.
 				static bool ParsePps(const uint8 *nal, usize size, NkHevcPps &out);
+
+				// Parse un slice_segment_header() (§7.3.6.1) — brique 2 : s'arrête juste
+				// après short_term_ref_pic_set_sps_flag, AVANT short_term_ref_pic_set()/
+				// ref_pic_lists_modification()/pred_weight_table()/deblocking overrides
+				// (chacun un chantier propre). Nécessite le SPS/PPS déjà résolus via
+				// slice_pic_parameter_set_id (à faire par l'appelant, comme pour H.264).
+				static bool ParseSliceHeader(const uint8 *nal, usize size, const NkHevcSps &sps,
+											 const NkHevcPps &pps, NkHevcSliceHeader &out);
 
 				static bool SelfTest();
 		};
