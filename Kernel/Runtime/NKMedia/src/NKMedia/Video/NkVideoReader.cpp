@@ -8,6 +8,7 @@
 #include "NKImage/Codecs/JPEG/NkJPEGCodec.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Decoder.h"
 #include "NKMedia/Codecs/Video/VP8/NkVp8Decoder.h"
+#include "NKMedia/Codecs/Video/VP9/NkVp9Decoder.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKMemory/NKMemory.h"
@@ -41,7 +42,7 @@ namespace nkentseu {
 			}
 
 			enum class Backend { NONE, AVI, MOV, WEBM, TS, FLV, IVF, SEQUENCE };
-			enum class Codec { NONE, MJPEG, RAWRGB, H264, VP8 };
+			enum class Codec { NONE, MJPEG, RAWRGB, H264, VP8, VP9 };
 
 			// Référence d'une image encodée dans le buffer fichier (offset+taille).
 			struct FrameRef {
@@ -342,6 +343,84 @@ namespace nkentseu {
 				NkVector<nk_int32> vp8DisplayBlocks;
 				NkVector<bool> vp8Keyframe; // parallèle à vp8DisplayBlocks (image clé ?)
 				int32 vp8PrevIndex = -2;	 // dernier index AFFICHÉ décodé (séquentialité)
+
+				// ── VP9 ─────────────────────────────────────────────────────────────
+				// Contrairement à VP8/H264, un bloc conteneur (bloc EBML SimpleBlock ou
+				// trame IVF) peut contenir une SUPERFRAME VP9 (jusqu'à 8 sous-trames
+				// concaténées, cf. Annexe B) : `frames[]` reste la table des blocs bruts,
+				// mais l'unité de décodage VP9 est la SOUS-TRAME — `vp9Units[]` (une
+				// entrée par sous-trame, en ordre de décodage) et `vp9DisplayUnits[]`
+				// (indices dans vp9Units des sous-trames AFFICHÉES — show_frame OU
+				// show_existing_frame —, en ordre d'affichage) sont donc distincts de
+				// `frames`/`vp8DisplayBlocks`. Les champs d'en-tête utiles au décodage
+				// (refFrameIdx/refreshFrameFlags/dims/errorResilient) sont mis en cache
+				// à l'analyse (Vp9ScanUnits) pour ne jamais re-parser l'en-tête pendant
+				// Decode(). Pas de réordonnancement d'affichage (comme VP8, contrairement
+				// à H264) : ordre d'affichage = sous-suite monotone de l'ordre de décodage.
+				struct Vp9Unit {
+						int32 blockIdx = -1;			// index dans `frames`
+						usize subOffset = 0, subSize = 0; // sous-région DANS ce bloc
+						bool showFrame = false;
+						bool showExistingFrame = false;
+						int32 frameToShowMapIdx = 0;
+						bool isKeyOrIntraOnly = false;
+						bool errorResilient = false;
+						int32 refFrameIdx[3] = {0, 0, 0};
+						uint32 refreshFrameFlags = 0;
+						int32 width = 0, height = 0;
+				};
+				NkVector<Vp9Unit> vp9Units;
+				NkVector<nk_int32> vp9DisplayUnits;
+				NkVp9EntropyState vp9Entropy;			// état persistant (frame_contexts + segmentation)
+				NkVp9Image vp9RefSlots[8];				// DPB VP9 : 8 slots explicites (refresh_frame_flags)
+				bool vp9SlotValid[8] = {false, false, false, false, false, false, false, false};
+				int32 vp9PrevIndex = -2;				// dernier index AFFICHÉ décodé (séquentialité)
+				bool vp9PrevEligibleBase = false;		// use_prev_frame_mvs : trame précédente non clé/intra
+				int32 vp9PrevWidth = 0, vp9PrevHeight = 0;
+				NkVector<NkVp9MvRef> vp9MvGrid;		// grille MV de la dernière trame (use_prev_frame_mvs)
+
+				// Découpe chaque bloc en sous-trames VP9 (ParseSuperframe) puis lit l'en-tête
+				// non compressé de chacune (ParseUncompressedHeader, SANS décoder) pour
+				// classer clé/inter, affichée/masquée, et mettre en cache les champs requis
+				// au décodage. `info.width/height` doivent déjà être posés (guess pour les
+				// trames à taille héritée d'une référence, normatif seulement pour l'inter).
+				bool Vp9ScanUnits() {
+					vp9Units.Clear();
+					vp9DisplayUnits.Clear();
+					for (uint64 i = 0; i < frames.Size(); ++i) {
+						const uint8 *blockData = bytes.Data() + frames[i].offset;
+						const usize blockSize = frames[i].size;
+						NkVp9Superframe sf;
+						if (!NkVp9Decoder::ParseSuperframe(blockData, blockSize, sf))
+							return false;
+						for (int32 fr = 0; fr < sf.count; ++fr) {
+							NkVp9FrameHeader hdr;
+							if (!NkVp9Decoder::ParseUncompressedHeader(blockData + sf.offsets[fr], sf.sizes[fr],
+																	   hdr, info.width, info.height))
+								return false;
+							Vp9Unit u;
+							u.blockIdx = (int32)i;
+							u.subOffset = sf.offsets[fr];
+							u.subSize = sf.sizes[fr];
+							u.showFrame = hdr.showFrame;
+							u.showExistingFrame = hdr.showExistingFrame;
+							u.frameToShowMapIdx = hdr.frameToShowMapIdx;
+							u.isKeyOrIntraOnly =
+								!hdr.showExistingFrame && (hdr.frameType == kVp9KeyFrame || hdr.intraOnly);
+							u.errorResilient = hdr.errorResilient;
+							u.refFrameIdx[0] = hdr.refFrameIdx[0];
+							u.refFrameIdx[1] = hdr.refFrameIdx[1];
+							u.refFrameIdx[2] = hdr.refFrameIdx[2];
+							u.refreshFrameFlags = hdr.refreshFrameFlags;
+							u.width = hdr.width;
+							u.height = hdr.height;
+							vp9Units.PushBack(u);
+							if (hdr.showFrame || hdr.showExistingFrame)
+								vp9DisplayUnits.PushBack((int32)(vp9Units.Size() - 1));
+						}
+					}
+					return vp9DisplayUnits.Size() > 0;
+				}
 
 				// Parse un AVCDecoderConfigurationRecord (mêmes octets pour la boîte `avcC` ISOBMFF
 				// ET `CodecPrivate` EBML/Matroska V_MPEG4/ISO/AVC — seul le wrapper de boîte diffère,
@@ -810,9 +889,10 @@ namespace nkentseu {
 					if (found.num < 0 || found.codecId.Empty())
 						return false;
 					const bool isVp8 = found.codecId.Contains("VP8");
-					if (!isVp8 && !found.codecId.Contains("AVC") && !found.codecId.Contains("MPEG4"))
-						return false; // VP9/AV1 etc. : pas de décodeur -> échec propre
-					if (!isVp8) {
+					const bool isVp9 = found.codecId.Contains("VP9");
+					if (!isVp8 && !isVp9 && !found.codecId.Contains("AVC") && !found.codecId.Contains("MPEG4"))
+						return false; // AV1 etc. : pas de décodeur -> échec propre
+					if (!isVp8 && !isVp9) {
 						if (found.codecPriv.Size() < 7)
 							return false;
 						ParseAvcCBytes(found.codecPriv.Data(), (usize)found.codecPriv.Size());
@@ -838,6 +918,12 @@ namespace nkentseu {
 						if (!Vp8ScanBlocks())
 							return false;
 						info.frameCount = (int32)vp8DisplayBlocks.Size();
+					} else if (isVp9) {
+						codec = Codec::VP9;
+						info.codec = NkString("vp9");
+						if (!Vp9ScanUnits())
+							return false;
+						info.frameCount = (int32)vp9DisplayUnits.Size();
 					} else {
 						codec = Codec::H264;
 						info.codec = NkString("h264");
@@ -847,14 +933,16 @@ namespace nkentseu {
 					return true;
 				}
 
-				// --- Parse IVF : conteneur brut minimal (DKIF), typiquement VP8/VP9 ---
+				// --- Parse IVF : conteneur brut minimal (DKIF), VP8 (VP80) ou VP9 (VP90) ---
 				bool ParseIvf() {
 					const uint8 *d = bytes.Data();
 					const usize n = (usize)bytes.Size();
 					if (n < 32 || d[0] != 'D' || d[1] != 'K' || d[2] != 'I' || d[3] != 'F')
 						return false;
-					if (!Tag(d + 8, 'V', 'P', '8', '0'))
-						return false; // VP90/AV01… : pas de décodeur -> échec propre
+					const bool isVp8 = Tag(d + 8, 'V', 'P', '8', '0');
+					const bool isVp9 = Tag(d + 8, 'V', 'P', '9', '0');
+					if (!isVp8 && !isVp9)
+						return false; // AV01… : pas de décodeur -> échec propre
 					const int32 w = (int32)(d[12] | (d[13] << 8));
 					const int32 h = (int32)(d[14] | (d[15] << 8));
 					const uint32 rate = RdU32LE(d + 16);  // framerate numerator
@@ -870,15 +958,25 @@ namespace nkentseu {
 						frames.PushBack(fr);
 						pos += 12 + (usize)sz;
 					}
-					if (frames.Size() == 0 || !Vp8ScanBlocks())
+					if (frames.Size() == 0)
 						return false;
-					codec = Codec::VP8;
-					info.codec = NkString("vp8");
 					info.container = NkString("ivf");
 					info.width = w;
 					info.height = h;
-					info.frameCount = (int32)vp8DisplayBlocks.Size();
 					info.fps = (scale > 0) ? ((double)rate / (double)scale) : 25.0;
+					if (isVp9) {
+						if (!Vp9ScanUnits())
+							return false;
+						codec = Codec::VP9;
+						info.codec = NkString("vp9");
+						info.frameCount = (int32)vp9DisplayUnits.Size();
+					} else {
+						if (!Vp8ScanBlocks())
+							return false;
+						codec = Codec::VP8;
+						info.codec = NkString("vp8");
+						info.frameCount = (int32)vp8DisplayBlocks.Size();
+					}
 					return true;
 				}
 
@@ -1380,6 +1478,128 @@ namespace nkentseu {
 								const int32 Y = img.Y()[(int64)y * img.yStride + x];
 								const int32 U = img.U()[(int64)(y / 2) * img.uvStride + (x / 2)];
 								const int32 V = img.V()[(int64)(y / 2) * img.uvStride + (x / 2)];
+								const int32 C = Y - 16, D = U - 128, E = V - 128;
+								auto cl = [](int32 v) -> uint8 {
+									return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v));
+								};
+								const usize oi = ((usize)y * (usize)w + (usize)x) * 4;
+								o[oi + 0] = cl((298 * C + 409 * E + 128) >> 8);
+								o[oi + 1] = cl((298 * C - 100 * D - 208 * E + 128) >> 8);
+								o[oi + 2] = cl((298 * C + 516 * D + 128) >> 8);
+								o[oi + 3] = 255;
+							}
+						out.index = index;
+						return true;
+					}
+
+					if (codec == Codec::VP9) {
+						if (index < 0 || index >= (int32)vp9DisplayUnits.Size())
+							return false;
+						// Séquentiel : continuer juste après la dernière sous-trame AFFICHÉE
+						// décodée (les altref invisibles/masquées intermédiaires mettent à
+						// jour les références). Saut : repartir de la dernière sous-trame
+						// CLÉ/intra-only <= la cible (état inter dépendant de toute la
+						// chaîne) — reset complet de l'état persistant (entropie, DPB 8
+						// slots, éligibilité use_prev_frame_mvs).
+						int32 startUnit;
+						if (index == vp9PrevIndex + 1 && vp9PrevIndex >= 0) {
+							startUnit = vp9DisplayUnits[(uint64)vp9PrevIndex] + 1;
+						} else {
+							const int32 targetForReset = vp9DisplayUnits[(uint64)index];
+							int32 kf = 0;
+							for (int32 u = 0; u <= targetForReset; ++u)
+								if (vp9Units[(uint64)u].isKeyOrIntraOnly)
+									kf = u;
+							startUnit = kf;
+							vp9Entropy = NkVp9EntropyState();
+							for (int32 s = 0; s < 8; ++s)
+								vp9SlotValid[s] = false;
+							vp9PrevEligibleBase = false;
+							vp9MvGrid.Resize(0);
+						}
+						const int32 targetUnit = vp9DisplayUnits[(uint64)index];
+						NkVp9Image img;
+						for (int32 u = startUnit; u <= targetUnit; ++u) {
+							const Vp9Unit &vu = vp9Units[(uint64)u];
+							if (vu.showExistingFrame) {
+								// Réaffiche un slot déjà décodé : PAS de nouvelle décode, et
+								// n'affecte ni l'éligibilité use_prev_frame_mvs ni les slots
+								// (vp9_decoder.c : last_show_frame/swap sautés si
+								// show_existing_frame).
+								if (vu.frameToShowMapIdx < 0 || vu.frameToShowMapIdx >= 8 ||
+									!vp9SlotValid[vu.frameToShowMapIdx])
+									return false;
+								img = vp9RefSlots[vu.frameToShowMapIdx];
+								continue;
+							}
+							const uint8 *fdata = bytes.Data() + frames[(uint64)vu.blockIdx].offset + vu.subOffset;
+							const usize fsize = vu.subSize;
+							NkVp9Image decoded;
+							bool ok;
+							if (vu.isKeyOrIntraOnly) {
+								ok = NkVp9Decoder::DecodeKeyFrame(fdata, fsize, decoded, vp9Entropy);
+							} else {
+								const NkVp9Image *refs[3];
+								bool refsOk = true;
+								for (int32 i = 0; i < 3; ++i) {
+									const int32 slot = vu.refFrameIdx[i];
+									if (slot < 0 || slot >= 8 || !vp9SlotValid[slot]) {
+										refsOk = false;
+										break;
+									}
+									refs[i] = &vp9RefSlots[slot];
+								}
+								if (!refsOk)
+									return false;
+								const bool eligible = vp9PrevEligibleBase && !vu.errorResilient &&
+													  vu.width == vp9PrevWidth && vu.height == vp9PrevHeight;
+								NkVector<NkVp9MvRef> nextMvGrid;
+								ok = NkVp9Decoder::DecodeInterFrame(fdata, fsize, refs, decoded, vp9Entropy,
+																	nullptr, true, eligible,
+																	eligible ? vp9MvGrid.Data() : nullptr,
+																	&nextMvGrid);
+								if (ok)
+									vp9MvGrid = traits::NkMove(nextMvGrid);
+							}
+							if (!ok)
+								return false;
+							img = decoded; // copie pour affichage AVANT le déplacement ci-dessous
+							int32 lastSlot = -1;
+							for (int32 s = 0; s < 8; ++s)
+								if (vu.refreshFrameFlags & (1u << s))
+									lastSlot = s;
+							for (int32 s = 0; s < 8; ++s) {
+								if (vu.refreshFrameFlags & (1u << s)) {
+									vp9RefSlots[s] = (s == lastSlot) ? traits::NkMove(decoded) : decoded;
+									vp9SlotValid[s] = true;
+								}
+							}
+							// use_prev_frame_mvs (dec_api) exige aussi que la trame précédente ait
+							// été AFFICHÉE (cm->last_show_frame) — une altref invisible casse
+							// l'éligibilité de la trame qui la suit (piège déjà rencontré et
+							// documenté dans le harnais --vp9multi de NkVideoReadTest).
+							vp9PrevEligibleBase = !vu.isKeyOrIntraOnly && vu.showFrame;
+							vp9PrevWidth = vu.width;
+							vp9PrevHeight = vu.height;
+						}
+						vp9PrevIndex = index;
+
+						const int32 w = img.width, h = img.height;
+						if (w <= 0 || h <= 0)
+							return false;
+						// YUV 4:2:0 -> RGBA (BT.601 limited-range, chroma nearest) — même
+						// conversion que les chemins H264/VP8.
+						out.width = w;
+						out.height = h;
+						out.rgba.Resize((uint64)w * (uint64)h * 4u);
+						uint8 *o = out.rgba.Data();
+						for (int32 y = 0; y < h; ++y)
+							for (int32 x = 0; x < w; ++x) {
+								const int32 Y = img.y.Data()[(usize)y * (usize)img.yStride + (usize)x];
+								const int32 U =
+									img.u.Data()[(usize)(y >> 1) * (usize)img.uvStride + (usize)(x >> 1)];
+								const int32 V =
+									img.v.Data()[(usize)(y >> 1) * (usize)img.uvStride + (usize)(x >> 1)];
 								const int32 C = Y - 16, D = U - 128, E = V - 128;
 								auto cl = [](int32 v) -> uint8 {
 									return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v));
