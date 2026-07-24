@@ -80,6 +80,104 @@ namespace nkentseu {
 				return r;
 			}
 
+			// st_ref_pic_set(stRpsIdx) (§7.3.7) + dérivation des deltas de POC (§7.4.8).
+			// `stRpsIdx` = index du jeu en cours ; `numRps` = num_short_term_ref_pic_sets du
+			// SPS (stRpsIdx == numRps <=> RPS signalé INLINE dans un slice header, seul cas où
+			// delta_idx_minus1 est présent) ; `sets` = jeux déjà décodés (prédiction inter-RPS).
+			bool ReadShortTermRps(NkH264BitReader &br, int32 stRpsIdx, int32 numRps,
+								  const NkHevcShortTermRps *sets, NkHevcShortTermRps &out) {
+				out = NkHevcShortTermRps{};
+				bool interPred = false;
+				if (stRpsIdx != 0)
+					interPred = br.U1() != 0;
+				if (interPred) {
+					int32 deltaIdxMinus1 = 0;
+					if (stRpsIdx == numRps)
+						deltaIdxMinus1 = (int32)br.UE();
+					const int32 refIdx = stRpsIdx - (deltaIdxMinus1 + 1);
+					if (refIdx < 0 || refIdx >= numRps)
+						return false;
+					const NkHevcShortTermRps &ref = sets[refIdx];
+					const int32 numDeltaPocsRef = ref.numNegativePics + ref.numPositivePics;
+					if (numDeltaPocsRef > 32)
+						return false;
+					const bool sign = br.U1() != 0;
+					const int32 absDelta = (int32)br.UE() + 1;
+					const int32 deltaRps = sign ? -absDelta : absDelta;
+					bool usedByCurr[33];
+					bool useDelta[33];
+					for (int32 j = 0; j <= numDeltaPocsRef; ++j) {
+						usedByCurr[j] = br.U1() != 0;
+						useDelta[j] = usedByCurr[j] ? true : (br.U1() != 0);
+					}
+					// Dérivation §7.4.8 (éq. 7-59 à 7-71) : reconstruit les listes S0/S1 du jeu
+					// courant en décalant celles du jeu de référence de deltaRps, en gardant
+					// l'ordre trié (S0 décroissant depuis 0, S1 croissant depuis 0).
+					int32 i = 0;
+					for (int32 j = ref.numPositivePics - 1; j >= 0; --j) {
+						const int32 dPoc = ref.deltaPocS1[j] + deltaRps;
+						if (dPoc < 0 && useDelta[ref.numNegativePics + j]) {
+							out.deltaPocS0[i] = dPoc;
+							out.usedS0[i++] = usedByCurr[ref.numNegativePics + j];
+						}
+					}
+					if (deltaRps < 0 && useDelta[numDeltaPocsRef]) {
+						out.deltaPocS0[i] = deltaRps;
+						out.usedS0[i++] = usedByCurr[numDeltaPocsRef];
+					}
+					for (int32 j = 0; j < ref.numNegativePics; ++j) {
+						const int32 dPoc = ref.deltaPocS0[j] + deltaRps;
+						if (dPoc < 0 && useDelta[j]) {
+							if (i >= 16)
+								return false;
+							out.deltaPocS0[i] = dPoc;
+							out.usedS0[i++] = usedByCurr[j];
+						}
+					}
+					out.numNegativePics = i;
+					i = 0;
+					for (int32 j = ref.numNegativePics - 1; j >= 0; --j) {
+						const int32 dPoc = ref.deltaPocS0[j] + deltaRps;
+						if (dPoc > 0 && useDelta[j]) {
+							out.deltaPocS1[i] = dPoc;
+							out.usedS1[i++] = usedByCurr[j];
+						}
+					}
+					if (deltaRps > 0 && useDelta[numDeltaPocsRef]) {
+						out.deltaPocS1[i] = deltaRps;
+						out.usedS1[i++] = usedByCurr[numDeltaPocsRef];
+					}
+					for (int32 j = 0; j < ref.numPositivePics; ++j) {
+						const int32 dPoc = ref.deltaPocS1[j] + deltaRps;
+						if (dPoc > 0 && useDelta[ref.numNegativePics + j]) {
+							if (i >= 16)
+								return false;
+							out.deltaPocS1[i] = dPoc;
+							out.usedS1[i++] = usedByCurr[ref.numNegativePics + j];
+						}
+					}
+					out.numPositivePics = i;
+				} else {
+					out.numNegativePics = (int32)br.UE();
+					out.numPositivePics = (int32)br.UE();
+					if (out.numNegativePics > 16 || out.numPositivePics > 16)
+						return false;
+					int32 prev = 0;
+					for (int32 i = 0; i < out.numNegativePics; ++i) {
+						prev -= (int32)br.UE() + 1; // delta_poc_s0_minus1 (deltas CUMULÉS)
+						out.deltaPocS0[i] = prev;
+						out.usedS0[i] = br.U1() != 0;
+					}
+					prev = 0;
+					for (int32 i = 0; i < out.numPositivePics; ++i) {
+						prev += (int32)br.UE() + 1; // delta_poc_s1_minus1
+						out.deltaPocS1[i] = prev;
+						out.usedS1[i] = br.U1() != 0;
+					}
+				}
+				return true;
+			}
+
 		} // namespace
 
 		void NkHevcDecoder::SplitNalsAnnexB(const uint8 *data, usize size, NkVector<NkHevcNal> &out) {
@@ -191,10 +289,46 @@ namespace nkentseu {
 			// log2MinCbSizeY/log2DiffMaxMinCbSizeY dans NkHevcSps.
 			out.log2MinCbSizeY = (int32)br.UE() + 3;
 			out.log2DiffMaxMinCbSizeY = (int32)br.UE();
-			// S'ARRÊTE ICI (brique 2) : TU-tree sizes/scaling_list_data()/amp/sao/pcm/
-			// st_ref_pic_set()/long_term_ref/temporal_mvp/strong_intra_smoothing/
-			// vui_parameters() restent à porter pour les briques suivantes (contenu réel
-			// et slice header complet), pas nécessaires aux infos structurelles.
+			br.UE(); // log2_min_luma_transform_block_size_minus2
+			br.UE(); // log2_diff_max_min_luma_transform_block_size
+			br.UE(); // max_transform_hierarchy_depth_inter
+			br.UE(); // max_transform_hierarchy_depth_intra
+			out.scalingListEnabled = br.U1() != 0;
+			if (out.scalingListEnabled) {
+				const bool dataPresent = br.U1() != 0;
+				if (dataPresent)
+					return false; // scaling_list_data() pas encore porté (refus propre)
+			}
+			out.ampEnabled = br.U1() != 0;
+			out.sampleAdaptiveOffsetEnabled = br.U1() != 0;
+			out.pcmEnabled = br.U1() != 0;
+			if (out.pcmEnabled) {
+				br.Skip(4 + 4); // pcm_sample_bit_depth_luma/chroma_minus1
+				br.UE();		// log2_min_pcm_luma_coding_block_size_minus3
+				br.UE();		// log2_diff_max_min_pcm_luma_coding_block_size
+				br.Skip(1);		// pcm_loop_filter_disabled_flag
+			}
+			out.numShortTermRefPicSets = (int32)br.UE();
+			if (out.numShortTermRefPicSets > 64)
+				return false;
+			for (int32 i = 0; i < out.numShortTermRefPicSets; ++i)
+				if (!ReadShortTermRps(br, i, out.numShortTermRefPicSets, out.shortTermRps,
+									  out.shortTermRps[i]))
+					return false;
+			out.longTermRefPicsPresent = br.U1() != 0;
+			if (out.longTermRefPicsPresent) {
+				out.numLongTermRefPicsSps = (int32)br.UE();
+				if (out.numLongTermRefPicsSps > 32)
+					return false;
+				for (int32 i = 0; i < out.numLongTermRefPicsSps; ++i) {
+					br.Skip(out.log2MaxPocLsb); // lt_ref_pic_poc_lsb_sps
+					br.Skip(1);					// used_by_curr_pic_lt_sps_flag
+				}
+			}
+			out.spsTemporalMvpEnabled = br.U1() != 0;
+			out.strongIntraSmoothingEnabled = br.U1() != 0;
+			// S'ARRÊTE ICI (briques 1-3) : vui_parameters()/sps_extension restent à porter
+			// (informatif seulement, pas nécessaire au décodage des slices).
 			out.valid = (out.width > 0 && out.height > 0);
 			return out.valid;
 		}
@@ -229,8 +363,8 @@ namespace nkentseu {
 			br.SE();	 // pps_cb_qp_offset
 			br.SE();	 // pps_cr_qp_offset
 			br.U1();	 // pps_slice_chroma_qp_offsets_present_flag
-			br.U1();	 // weighted_pred_flag
-			br.U1();	 // weighted_bipred_flag
+			out.weightedPred = br.U1() != 0;
+			out.weightedBipred = br.U1() != 0;
 			br.U1();	 // transquant_bypass_enabled_flag
 			out.tilesEnabled = br.U1() != 0;
 			out.entropyCodingSyncEnabled = br.U1() != 0;
@@ -246,9 +380,23 @@ namespace nkentseu {
 				}
 				out.loopFilterAcrossTiles = br.U1() != 0;
 			}
-			// S'ARRÊTE ICI (brique 1) : pps_loop_filter_across_slices/deblocking_filter_
-			// control/scaling_list_data/pps_extension restent à porter pour les briques
-			// suivantes.
+			out.loopFilterAcrossSlices = br.U1() != 0;
+			out.deblockingFilterControlPresent = br.U1() != 0;
+			if (out.deblockingFilterControlPresent) {
+				out.deblockingFilterOverrideEnabled = br.U1() != 0;
+				out.ppsDeblockingFilterDisabled = br.U1() != 0;
+				if (!out.ppsDeblockingFilterDisabled) {
+					out.ppsBetaOffsetDiv2 = (int32)br.SE();
+					out.ppsTcOffsetDiv2 = (int32)br.SE();
+				}
+			}
+			if (br.U1()) // pps_scaling_list_data_present_flag
+				return false; // scaling_list_data() pas encore porté (refus propre)
+			out.listsModificationPresent = br.U1() != 0;
+			out.log2ParallelMergeLevel = (int32)br.UE() + 2;
+			out.sliceSegmentHeaderExtensionPresent = br.U1() != 0;
+			// S'ARRÊTE ICI : pps_extension (range/multilayer/3D) non porté — jamais présent
+			// dans les flux Main/Main10 classiques.
 			out.valid = true;
 			return true;
 		}
@@ -292,13 +440,128 @@ namespace nkentseu {
 					out.picOutputFlag = br.U1() != 0;
 				if (sps.separateColourPlane)
 					out.colourPlaneId = (int32)br.U(2);
+				int32 ltUsedCount = 0; // refs long terme "used by curr" (pour NumPicTotalCurr)
 				if (!out.isIdr) {
 					out.picOrderCntLsb = (int32)br.U(sps.log2MaxPocLsb);
 					out.shortTermRefPicSetSpsFlag = br.U1() != 0;
-					// S'ARRÊTE ICI (brique 2) : short_term_ref_pic_set()/long-term ref/
-					// ref_pic_lists_modification()/pred_weight_table()/deblocking
-					// overrides restent à porter pour les briques suivantes.
+					if (!out.shortTermRefPicSetSpsFlag) {
+						// RPS signalé INLINE (cas x265 par défaut : num_short_term_ref_pic_sets
+						// SPS = 0, chaque slice porte le sien) — stRpsIdx == numRps.
+						if (!ReadShortTermRps(br, sps.numShortTermRefPicSets, sps.numShortTermRefPicSets,
+											  sps.shortTermRps, out.rps))
+							return false;
+					} else if (sps.numShortTermRefPicSets > 1) {
+						out.shortTermRefPicSetIdx =
+							(int32)br.U(CeilLog2((uint32)sps.numShortTermRefPicSets));
+						if (out.shortTermRefPicSetIdx >= sps.numShortTermRefPicSets)
+							return false;
+						out.rps = sps.shortTermRps[out.shortTermRefPicSetIdx];
+					} else if (sps.numShortTermRefPicSets == 1) {
+						out.rps = sps.shortTermRps[0];
+					}
+					if (sps.longTermRefPicsPresent) {
+						int32 numLtSps = 0;
+						if (sps.numLongTermRefPicsSps > 0)
+							numLtSps = (int32)br.UE();
+						const int32 numLtPics = (int32)br.UE();
+						if (numLtSps + numLtPics > 32)
+							return false;
+						for (int32 i = 0; i < numLtSps + numLtPics; ++i) {
+							if (i < numLtSps) {
+								if (sps.numLongTermRefPicsSps > 1)
+									br.U(CeilLog2((uint32)sps.numLongTermRefPicsSps)); // lt_idx_sps
+								// used_by_curr est porté par le SPS pour ces entrées — non
+								// suivi ici (x265 n'émet pas de refs long terme) : approximé
+								// "used" pour rester conservateur sur NumPicTotalCurr.
+								++ltUsedCount;
+							} else {
+								br.U(sps.log2MaxPocLsb); // poc_lsb_lt
+								if (br.U1())			 // used_by_curr_pic_lt_flag
+									++ltUsedCount;
+							}
+							if (br.U1())	// delta_poc_msb_present_flag
+								br.UE();	// delta_poc_msb_cycle_lt
+						}
+					}
+					if (sps.spsTemporalMvpEnabled)
+						out.sliceTemporalMvpEnabled = br.U1() != 0;
 				}
+				if (sps.sampleAdaptiveOffsetEnabled) {
+					out.saoLuma = br.U1() != 0;
+					if (sps.chromaFormatIdc != 0 && !sps.separateColourPlane) // ChromaArrayType != 0
+						out.saoChroma = br.U1() != 0;
+				}
+				if (out.sliceType == kHevcSliceP || out.sliceType == kHevcSliceB) {
+					const bool isB = (out.sliceType == kHevcSliceB);
+					out.numRefIdxL0Active = pps.numRefIdxL0DefaultActive;
+					out.numRefIdxL1Active = isB ? pps.numRefIdxL1DefaultActive : 0;
+					if (br.U1()) { // num_ref_idx_active_override_flag
+						out.numRefIdxL0Active = (int32)br.UE() + 1;
+						if (isB)
+							out.numRefIdxL1Active = (int32)br.UE() + 1;
+					}
+					int32 numPicTotalCurr = ltUsedCount;
+					for (int32 i = 0; i < out.rps.numNegativePics; ++i)
+						if (out.rps.usedS0[i])
+							++numPicTotalCurr;
+					for (int32 i = 0; i < out.rps.numPositivePics; ++i)
+						if (out.rps.usedS1[i])
+							++numPicTotalCurr;
+					if (pps.listsModificationPresent && numPicTotalCurr > 1)
+						return false; // ref_pic_lists_modification() pas encore porté (x265 : jamais émis)
+					if (isB)
+						out.mvdL1Zero = br.U1() != 0;
+					if (pps.cabacInitPresent)
+						out.cabacInit = br.U1() != 0;
+					if (out.sliceTemporalMvpEnabled) {
+						if (isB)
+							out.collocatedFromL0 = br.U1() != 0;
+						if ((out.collocatedFromL0 && out.numRefIdxL0Active > 1) ||
+							(!out.collocatedFromL0 && out.numRefIdxL1Active > 1))
+							out.collocatedRefIdx = (int32)br.UE();
+					}
+					if ((pps.weightedPred && !isB) || (pps.weightedBipred && isB)) {
+						// pred_weight_table() (§7.3.6.3) — CONSOMMÉE (poids pas encore utilisés,
+						// brique décodage inter). x265 active weightp par défaut sur les P →
+						// indispensable pour parser slice_qp_delta derrière. Hypothèse Main/
+						// Main10 mono-couche : les flags luma/chroma_weight_lX_flag sont
+						// toujours présents (la condition §7.3.6.3 "même couche ET même POC"
+						// qui les ferait sauter n'existe qu'en SHVC/SCC).
+						const bool hasChroma = (sps.chromaFormatIdc != 0 && !sps.separateColourPlane);
+						br.UE(); // luma_log2_weight_denom
+						if (hasChroma)
+							br.SE(); // delta_chroma_log2_weight_denom
+						for (int32 list = 0; list < (isB ? 2 : 1); ++list) {
+							const int32 numRefs = (list == 0) ? out.numRefIdxL0Active : out.numRefIdxL1Active;
+							if (numRefs > 16)
+								return false;
+							bool lumaFlag[16], chromaFlag[16];
+							for (int32 i = 0; i < numRefs; ++i)
+								lumaFlag[i] = br.U1() != 0;
+							for (int32 i = 0; i < numRefs; ++i)
+								chromaFlag[i] = hasChroma ? (br.U1() != 0) : false;
+							for (int32 i = 0; i < numRefs; ++i) {
+								if (lumaFlag[i]) {
+									br.SE(); // delta_luma_weight
+									br.SE(); // luma_offset
+								}
+								if (chromaFlag[i])
+									for (int32 j = 0; j < 2; ++j) {
+										br.SE(); // delta_chroma_weight
+										br.SE(); // delta_chroma_offset
+									}
+							}
+						}
+				}
+					out.maxNumMergeCand = 5 - (int32)br.UE(); // five_minus_max_num_merge_cand
+					if (out.maxNumMergeCand < 1 || out.maxNumMergeCand > 5)
+						return false;
+				}
+				out.sliceQp = pps.initQp + (int32)br.SE(); // slice_qp_delta
+				if (out.sliceQp < -12 || out.sliceQp > 51)  // borne basse = -QpBdOffsetY max (profondeur 14)
+					return false;
+				// S'ARRÊTE ICI (brique 3) : slice_cb/cr_qp_offset, overrides SAO/déblocage
+				// par slice, points d'entrée tuiles/WPP — briques suivantes (décodage CTU).
 			}
 			out.valid = true;
 			return true;
