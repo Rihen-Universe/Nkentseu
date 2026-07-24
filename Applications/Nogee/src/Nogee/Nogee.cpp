@@ -1,6 +1,7 @@
 #include "Noge/Core/Application.h"
 #include "Noge/UkConfig.h"
 #include "Noge/NogeApp.h"
+#include "NKLogger/NkLog.h"
 
 // =============================================================================
 // CreateApplication — appelé par le framework (Application.cpp / nkmain)
@@ -34,6 +35,19 @@ nkentseu::Application *nkentseu::CreateApplication(const nkentseu::NkApplication
 
 	// ── Parse des arguments CLI ───────────────────────────────────────────────
 	ukConfig.Initialize();
+
+	// ── Migration douce UI (2026-07-24) ──────────────────────────────────────
+	// --ui=rhi demande la coquille NkEditorShell (NKEditorKit) rendue par le
+	// renderer RHI GÉNÉRALISÉ nkentseu::nkgui::NkEditorRHIRenderer
+	// (Integrations/NKGui/NkEditorRHIRenderer.h). Le câblage effectif (modèle :
+	// Applications/NkAnimaEditor/src/NkAnimaEditor/main.cpp — NkEditorShellConfig
+	// cfg; cfg.renderer = &rhi; + SetPreUI pour le viewport offscreen) sera fait
+	// à la reprise de Nogee ; en attendant on reste sur l'UILayer NKUI legacy
+	// (voir NogeeUiBackend dans UkConfig.h pour l'écart documenté).
+	if (ukConfig.uiBackend == NogeeUiBackend::RHIShell) {
+		logger.Warn("[Nogee] --ui=rhi demande : chemin NkEditorShell+NkEditorRHIRenderer "
+					"pas encore cable — repli sur l'UI NKUI legacy.\n");
+	}
 
 	// ── Création de l'application ─────────────────────────────────────────────
 	return new NogeApp(ukConfig);
