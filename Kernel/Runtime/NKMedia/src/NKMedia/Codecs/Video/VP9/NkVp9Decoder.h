@@ -30,6 +30,21 @@ namespace nkentseu {
 				int32 uvWidth = 0, uvHeight = 0;
 		};
 
+		// Copie d'une NkVp9Image avec BORDURE ÉTENDUE (réplication des pixels de bord,
+		// 96 px sur les 4 côtés, sur Y/U/V) — nécessaire pour la compensation de
+		// mouvement (les MV clampés peuvent pointer légèrement hors image). `yOrigin`/
+		// `uOrigin`/`vOrigin` pointent le pixel (0,0) logique ; lire à des offsets
+		// négatifs (jusqu'à -96) ou au-delà de width/height (jusqu'à +96) est valide.
+		struct NkVp9RefBuffer {
+				NkVector<nk_uint8> yBuf, uBuf, vBuf;
+				nk_uint8 *yOrigin = nullptr, *uOrigin = nullptr, *vOrigin = nullptr;
+				int32 yStride = 0, uvStride = 0;
+				int32 width = 0, height = 0, uvWidth = 0, uvHeight = 0;
+
+				// Construit la bordure à partir d'une image décodée (BuildRefBuffer).
+				static void Build(const NkVp9Image &img, NkVp9RefBuffer &out);
+		};
+
 		// --- Superframe VP9 : jusqu'à 8 trames concaténées + index final. ---
 		// Le DERNIER octet 0b110xxxxx = marqueur : bits 0-2 = nb trames - 1,
 		// bits 3-4 = taille des entrées - 1. L'index complet (même octet au début
@@ -95,12 +110,17 @@ namespace nkentseu {
 				bool frameParallelDecoding = false;
 				int32 frameContextIdx = 0;
 
-				// Filtre de boucle (§6.2.8).
+				// Filtre de boucle (§6.2.8). lfRefDeltas/lfModeDeltas PERSISTENT entre trames
+				// (voir ReadLoopFilter) — lfXxxDeltaUpdated indique quelles entrées viennent
+				// d'être relues CETTE trame ; les autres doivent être restaurées depuis l'état
+				// persistant (NkVp9EntropyState) par l'appelant, pas laissées au défaut struct.
 				int32 lfLevel = 0;
 				int32 lfSharpness = 0;
 				bool lfDeltaEnabled = false;
 				int32 lfRefDeltas[4] = {1, 0, -1, -1};
 				int32 lfModeDeltas[2] = {0, 0};
+				bool lfRefDeltaUpdated[4] = {false, false, false, false};
+				bool lfModeDeltaUpdated[2] = {false, false};
 
 				// Quantification (§6.2.9).
 				int32 baseQIdx = 0;
@@ -115,6 +135,12 @@ namespace nkentseu {
 				bool segTemporalUpdate = false;
 				uint8 segTreeProbs[7] = {255, 255, 255, 255, 255, 255, 255};
 				uint8 segPredProbs[3] = {255, 255, 255};
+				// segAbsDelta/segFeatureEnabled/segFeatureData ne sont RÉ-ÉCRITS par
+				// ReadSegmentation QUE si segUpdateData est vrai — sinon ils PERSISTENT
+				// depuis la trame précédente (setup_segmentation côté libvpx ne les touche
+				// pas du tout hors de ce cas) : DecodeKeyFrame/DecodeInterFrame restaurent
+				// ces 3 champs depuis NkVp9EntropyState quand segUpdateData est faux.
+				bool segUpdateData = false;
 				bool segAbsDelta = false;
 				bool segFeatureEnabled[8][4] = {{false}};
 				int32 segFeatureData[8][4] = {{0}};
@@ -168,6 +194,72 @@ namespace nkentseu {
 				uint8 skipProbs[3];
 				uint8 nmvJoints[3];
 				NkVp9NmvComponent nmvComps[2];
+		};
+
+		// Compteurs (FRAME_COUNTS) accumulés PENDANT le décodage d'une trame —
+		// utilisés en fin de trame par l'adaptation "backward" des probabilités
+		// (vp9_adapt_coef_probs/vp9_adapt_mode_probs/vp9_adapt_mv_probs, §8.4.1/2/3).
+		// Remis à zéro (valeurs par défaut du struct) à chaque nouvelle trame.
+		struct NkVp9NmvComponentCounts {
+				uint32 sign[2] = {0};
+				uint32 classes[11] = {0};
+				uint32 class0[2] = {0};
+				uint32 bits[10][2] = {{0}};
+				uint32 class0Fr[2][4] = {{0}};
+				uint32 fr[4] = {0};
+				uint32 class0Hp[2] = {0};
+				uint32 hp[2] = {0};
+		};
+		struct NkVp9FrameCounts {
+				uint32 yMode[4][10] = {{0}};
+				uint32 uvMode[10][10] = {{0}};
+				uint32 partition[16][4] = {{0}};
+				uint32 coef[4][2][2][6][6][4] = {}; // [tx][plane][ref][bande][ctx][token 0..3]
+				uint32 eobBranch[4][2][2][6][6] = {}; // [tx][plane][ref][bande][ctx]
+				uint32 switchableInterp[4][3] = {{0}};
+				uint32 interMode[7][4] = {{0}};
+				uint32 intraInter[4][2] = {{0}};
+				uint32 compInter[5][2] = {{0}};
+				uint32 singleRef[5][2][2] = {};
+				uint32 compRef[5][2] = {{0}};
+				uint32 txP8x8[2][2] = {{0}};
+				uint32 txP16x16[2][3] = {{0}};
+				uint32 txP32x32[2][4] = {{0}};
+				uint32 skip[3][2] = {{0}};
+				uint32 mvJoints[4] = {0};
+				NkVp9NmvComponentCounts mvComps[2];
+		};
+
+		// État d'ENTROPIE PERSISTANT entre les trames d'un même flux (4 slots
+		// FRAME_CONTEXT, §8.4). Le décodeur est composé de fonctions STATIQUES sans
+		// état propre : c'est l'APPELANT qui possède cet état et le fait persister
+		// d'une trame à l'autre (comme refImages/prevMvs) — construire une instance
+		// une fois par flux (valeurs par défaut = non initialisé ; la 1re trame doit
+		// être une trame clé, qui force un reset "past independence" complet).
+		// DecodeKeyFrame/DecodeInterFrame gèrent SEULS le reset (clé/intra-only/
+		// error-resilient) et l'adaptation backward de fin de trame ; ne JAMAIS
+		// modifier ces champs depuis l'appelant.
+		struct NkVp9EntropyState {
+				NkVp9FrameContext frameContexts[4];
+				bool lastFrameWasKey = false;
+				// Carte de SEGMENTATION persistante (segment_id par unité mi 8x8, taille
+				// miRows*miCols de la DERNIÈRE trame décodée avec segEnabled) — utilisée pour
+				// la prédiction temporelle (read_inter_segment_id). Vide = indisponible (→ 0
+				// pour toute prédiction). Mise à jour par DecodeKeyFrame/DecodeInterFrame
+				// UNIQUEMENT si la trame décodée avait segEnabled (sinon inchangée, comme
+				// vp9_swap_current_and_last_seg_map côté libvpx).
+				NkVector<uint8> lastFrameSegMap;
+				// Données de features de segmentation (quantizer/loop-filter/ref/skip par
+				// segment) — PERSISTANTES entre trames tant que segUpdateData reste faux
+				// (voir NkVp9FrameHeader::segUpdateData). Reset par SetupPastIndependence.
+				bool segAbsDelta = false;
+				bool segFeatureEnabled[8][4] = {{false}};
+				int32 segFeatureData[8][4] = {{0}};
+				// Deltas de loop filter (§6.2.8) — PERSISTANTS entre trames (voir
+				// NkVp9FrameHeader::lfRefDeltaUpdated/lfModeDeltaUpdated). Reset par
+				// SetupPastIndependence (mêmes valeurs par défaut que set_default_lf_deltas).
+				int32 lfRefDeltas[4] = {1, 0, -1, -1};
+				int32 lfModeDeltas[2] = {0, 0};
 		};
 
 		// Résultat du parse de l'en-tête compressé.
@@ -231,11 +323,43 @@ namespace nkentseu {
 				// contenu + prédiction intra + déquantification + transformées
 				// inverses) → image I420. `frame` = une trame VP9 (déjà extraite de
 				// son superframe). Sans loop filter pour l'instant (brique 5).
+				// `entropy` : état d'adaptation persistant du FLUX (NkVp9EntropyState),
+				// géré ENTIÈREMENT ici (reset past-independence + adaptation backward
+				// de fin de trame) — l'appelant le fait juste persister d'un appel à
+				// l'autre, comme refImages/prevMvs.
 				static bool DecodeKeyFrame(const uint8 *frame, usize size, NkVp9Image &out,
-										   NkTileParseStats *statsOut = nullptr,
+										   NkVp9EntropyState &entropy, NkTileParseStats *statsOut = nullptr,
 										   bool applyLoopFilter = true);
 
+				// BRIQUE 6 : décode une trame INTER (non-clé, non-intra-only) référençant
+				// jusqu'à 3 images déjà décodées. `refImages[i]` : LAST(0)/GOLDEN(1)/
+				// ALTREF(2) — l'appelant résout `hdr.refFrameIdx` en amont (slots 0-7) ;
+				// le sign bias est lu directement dans l'en-tête (`refFrameSignBias`),
+				// pas besoin de le fournir. Limites documentées : références de MÊME
+				// taille uniquement (pas de mise à l'échelle) ; `usePrevFrameMvs` doit
+				// être `false` si la trame précédente n'est pas éligible (clé, intra-
+				// only, error-resilient, taille différente — § use_prev_frame_mvs de
+				// dec_api). `prevMvs` : grille MV/ref de la trame précédente
+				// (miRows*miCols), ignorée si `usePrevFrameMvs` est faux. `outMvGrid` :
+				// si non nul, redimensionné à miRows*miCols et rempli avec la grille
+				// MV/ref de CETTE trame (pour servir de `prevMvs` à la trame SUIVANTE,
+				// si elle est éligible).
+				static bool DecodeInterFrame(const uint8 *frame, usize size, const NkVp9Image *refImages[3],
+											NkVp9Image &out, NkVp9EntropyState &entropy,
+											NkTileParseStats *statsOut = nullptr,
+											bool applyLoopFilter = true, bool usePrevFrameMvs = false,
+											const struct NkVp9MvRef *prevMvs = nullptr,
+											NkVector<struct NkVp9MvRef> *outMvGrid = nullptr);
+
 				static bool SelfTest();
+		};
+
+		// Grille MV + réf sauvegardée après décodage d'une trame (pour use_prev_frame_mvs
+		// de la trame SUIVANTE). Une entrée par unité 8x8 (mi).
+		struct NkVp9MvRef {
+				int8 refFrame[2] = {-1, -1}; // -1 = NONE ; 0=INTRA (non stocké, cf note)
+				int16 mvRow[2] = {0, 0};
+				int16 mvCol[2] = {0, 0};
 		};
 
 	} // namespace media

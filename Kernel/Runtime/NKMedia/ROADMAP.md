@@ -20,7 +20,7 @@
 | 3quater. **Fichiers .opus (Ogg-Opus, RFC 7845)** + câblage NKAudio | ✅ | **Conteneur Ogg livré (2026-07-12)** : probe (pistes opus/vorbis depuis les pages BOS) + démux (pages → paquets, lacing, `granule`) ; `NkOpusFile` (OpusHead pre-skip/gain + décode + trim granule ; **hybride/stéréo refusés proprement** → retirer le garde quand 3ter sera fini). Harnais `--oggopus`, self-test forge Ogg (34/34). **Validé vs ffmpeg** : SILK-WB corr 0.999985 (lag +2 = délai resampler), CELT corr 0.965 lag 0. **NKAudio branché** : `AudioFormat::OPUS` décodé via `NkOpusCodec` (détection OggS+OpusHead), test `NkMicRecord --decode in.opus out.wav`. NB : NKAudio dépend de NKMedia → 10 jengas d'apps mis à jour |
 | 4. Décodeur audio AAC-LC | ✅ | *(table périmée, tenue à jour dans « Livré » ci-dessous)* MP4 → PCM, stéréo complet, bit-exact vs ffmpeg |
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅** ; puis WebM, WAV |
-| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High bit-exact** (MP4/MOV/3GP/MKV) ; VP8/VP9/AV1/H.265 restent à faire — voir « Bugs / limitations connues » |
+| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC brique 1 démarrée** (structure NAL+VPS/SPS/PPS validée vs ffprobe, décodage image = à venir) ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
 | 8. **Décodeur vidéo VP8** | ✅ | **DÉCODEUR COMPLET (clé + inter) : 325 images BIT-EXACTES vs ffmpeg sur 6 flux** (dont altref invisibles, golden frames, 4 GOPs, SPLITMV, filterLevel 0-8, résolutions impaires). Décodeur booléen, en-têtes, modes intra+inter, MV (near/nearest/new/split), MC 6-tap, résidus, WHT+IDCT, filtre de boucle. Restes mineurs : segmentation MB, partitions multiples, versions 1-3 (refus propre). **À brancher dans NkVideoReader** (WebM/IVF). |
 
@@ -535,25 +535,241 @@
   BIT-EXACTS (176x144, mandelbrot 320x240, 354x288 avec superblocs partiels)** ; flux non-
   lossless : écarts = uniquement le loop filter manquant. Limite : profils 1-3 (4:4:4/sRGB/
   haute profondeur) non gérés — refus propre, le VP9 web est profil 0.
-- ⭐⭐⭐ **Brique 5 — LOOP FILTER (2026-07-22) : L'IMAGE CLÉ VP9 EST COMPLÈTE — 8/8 FLUX
+- ⭐⭐⭐ **Brique 5 — LOOP FILTER (2026-07-22) : L'IMAGE CLÉ VP9 EST COMPLÈTE — 10/10 FLUX
   BIT-EXACTS vs ffmpeg**, dont HD 1280x720 MULTI-TILES, segmentation aq-mode 640x360, bords
-  partiels 354x288, et 3 lossless. Port fidèle : filtres 4/8/16 taps (arithmétique ^0x80,
-  arrondi +4/+3, masques filter/flat4/flat5/hev), seuils par niveau 0-63 (update_sharpness :
-  mblim/lim, hev = lvl>>4), niveaux par segment (ALT_LF + ref_deltas[INTRA]×scale), chemin
-  générique `filter_block_plane_non420` (masques 16/8/4/4int à la volée par superbloc,
-  verticales de tout le SB PUIS horizontales, 1re colonne/rangée d'image jamais filtrées,
-  arêtes internes 4x4, « duals » = appels adjacents). Le filtre était CORRECT DU PREMIER
-  COUP — le bug révélé par la validation était AILLEURS : ⚠⚠ **`transform_2d` libvpx =
-  `{cols, rows}` — COLS EN PREMIER** (vp9_idct.h) → mes tables hybrides IHT étaient
-  inversées (ADST appliqué aux lignes au lieu des colonnes). Invisible en lossless (tout
-  WHT) ; diagnostiqué en 2 temps : (1) `-skip_loop_filter all` côté ffmpeg + option `nolf`
-  chez nous → la BASE pré-filtre divergeait déjà → pas le filtre ; (2) dump des blocs tx :
-  le bloc #0 (DCT_DCT pur) parfait, le #1 (DCT_ADST) faux de ±1-2 → chemin ADST → relecture
-  du header → l'ordre des champs. Leçon : TOUJOURS vérifier la déclaration des structs à
-  initialiseurs positionnels, pas seulement les tables.
-- **À venir** : trames inter (MC 1/8 pel 8 taps, compound, refs multiples, MV prediction),
-  superframes/altref au niveau séquence, branchement NkVideoReader (.webm/.ivf VP9) + audio
-  Opus déjà prêt.
+  partiels 354x288, 3 lossless, 2-passes et le premier flux du fichier altref. Port fidèle :
+  filtres 4/8/16 taps (arithmétique ^0x80, arrondi +4/+3, masques filter/flat4/flat5/hev),
+  seuils par niveau 0-63 (update_sharpness : mblim/lim, hev = lvl>>4), niveaux par
+  **[segment][ref_frame][mode_lf_lut]** (table `vp9_loop_filter_frame_init`, généralisée
+  brique 6 pour les blocs inter — `mode_lf_lut` : 0 pour intra+ZEROMV, 1 pour
+  NEARESTMV/NEARMV/NEWMV ; skip_this = `mi.skip && mi.IsInter()`), chemin générique
+  `filter_block_plane_non420` (masques 16/8/4/4int à la volée par superbloc, verticales de
+  tout le SB PUIS horizontales, 1re colonne/rangée d'image jamais filtrées, arêtes internes
+  4x4, « duals » = appels adjacents). Le filtre était CORRECT DU PREMIER COUP — le bug révélé
+  par la validation était AILLEURS : ⚠⚠ **`transform_2d` libvpx = `{cols, rows}` — COLS EN
+  PREMIER** (vp9_idct.h) → mes tables hybrides IHT étaient inversées (ADST appliqué aux
+  lignes au lieu des colonnes). Invisible en lossless (tout WHT) ; diagnostiqué en 2 temps :
+  (1) `-skip_loop_filter all` côté ffmpeg + option `nolf` chez nous → la BASE pré-filtre
+  divergeait déjà → pas le filtre ; (2) dump des blocs tx : le bloc #0 (DCT_DCT pur) parfait,
+  le #1 (DCT_ADST) faux de ±1-2 → chemin ADST → relecture du header → l'ordre des champs.
+  Leçon : TOUJOURS vérifier la déclaration des structs à initialiseurs positionnels, pas
+  seulement les tables.
+- ⭐⭐⭐ **Brique 6 — TRAMES INTER (2026-07-23) : RÉSOLUE — VP9 INTER BIT-EXACT sur
+  6 flux réels dont 100 trames ALTREF.** Le bug de désynchronisation laissé ouvert en fin de
+  session précédente ("le tile ne se consomme pas exactement sur contenu à mouvement réel,
+  chaque table revérifiée sans trouver l'écart") a été résolu en construisant un `vpxdec`
+  instrumenté (clone libvpx local, `ucrt64`/`--target=generic-gnu`, fprintf par bloc/tuile)
+  et en diffant trace contre trace avec notre décodeur — la relecture statique de code avait
+  atteint ses limites, la comparaison croisée a trouvé l'écart en quelques itérations. **TROIS
+  bugs distincts, tous réels et indépendants** :
+  1. **Adaptation backward des probabilités ABSENTE** — VP9 persiste 4 `FRAME_CONTEXT` entre
+     trames (`frame_contexts[frame_context_idx]`) et les adapte en fin de trame
+     (`vp9_adapt_coef_probs` toujours ; `vp9_adapt_mode_probs`/`vp9_adapt_mv_probs` si la
+     trame n'est pas intra-only) à partir des comptes de tokens/modes/MV accumulés pendant le
+     décodage — la trame suivante repart de ce contexte ADAPTÉ, pas des probas par défaut.
+     Notre décodeur réinitialisait `InitDefaultFrameContext` à CHAQUE trame, perdant tout
+     héritage. Fix : `NkVp9EntropyState` (4 `NkVp9FrameContext` + `lastFrameWasKey`) possédé
+     par l'APPELANT et passé par référence à `DecodeKeyFrame`/`DecodeInterFrame` (même
+     patron que `refImages`/`prevMvs`) ; `NkVp9FrameCounts` (comptes tokens/skip/tx/modes/MV,
+     miroir de `FRAME_COUNTS`) accumulé pendant le parse (`FrameParseState::counts`) ;
+     `AdaptCoefProbs`/`AdaptModeProbs`/`AdaptMvProbs` (formules `merge_probs`/
+     `mode_mv_merge_probs`/`vpx_tree_merge_probs` génériques sur les arbres existants) +
+     `SetupPastIndependence` (reset complet des 4 slots sur trame clé/intra-only/error-
+     resilient, ou du seul slot courant si `reset_frame_context==2`). Piège découvert :
+     l'adaptation part de `pre_fc` = valeur PERSISTÉE d'AVANT la trame — elle IGNORE les
+     mises à jour forward de l'en-tête de LA MÊME trame (qui ne servent qu'à décoder cette
+     trame, puis sont écrasées par le résultat de l'adaptation).
+  2. **`PredictInterRegion` : offset ABSOLU du bloc manquant côté source** — la compensation
+     de mouvement positionnait correctement `dst` (destination) à l'origine globale du bloc,
+     mais lisait la référence à `refPlane + y·stride + x` avec `x,y` = offsets LOCAUX au bloc
+     (0 pour un bloc entier, seulement le MV s'ajoutant) : ÇA MARCHAIT PAR COÏNCIDENCE quand
+     le bloc était en (0,0) (donc invisible sur le tout premier bloc luma testé), mais lisait
+     la MAUVAISE position (l'origine du plan de référence) pour TOUT AUTRE bloc. Diagnostiqué
+     en comparant, pour un bloc MV=0 (copie pure attendue), le pixel prédit à un pixel connu
+     de la trame de référence — écart massif révélant la lecture au mauvais endroit. Fix :
+     ajouter `blockX = (-mbToLeftEdge)>>(3+ssx)` / `blockY = (-mbToTopEdge)>>(3+ssy)` à `x,y`
+     avant l'indexation dans le plan de référence.
+  3. **Deux limites de la session précédente qui bloquaient les trames 3+** :
+     `usePrevFrameMvs` était câblé mais jamais alimenté par l'appelant (toujours faux/nul) —
+     ajouté un paramètre de sortie `outMvGrid` à `DecodeInterFrame` (grille `NkVp9MvRef`
+     recopiée depuis `FrameParseState::mi[]` en fin de parse) + suivi d'éligibilité côté
+     harnais (`!error_resilient && mêmes dimensions && trame précédente ni clé/intra-only
+     NI invisible` — le piège : une trame ALTREF invisible (`show_frame=0`) casse
+     l'éligibilité de la trame QUI LA SUIT, pas seulement les trames clés). Et le contrôle
+     "tile consommée EXACTEMENT" (hérité de la validation trame clé) est TROP STRICT pour
+     l'inter : contrairement à la trame clé, libvpx ne valide JAMAIS une consommation exacte
+     par tuile (seul un OVERREAD = vraie corruption) — un reliquat de 1-2 octets de bourrage
+     non lus en fin de tuile est légitime sur trame inter, plus qu'on ne peut se le permettre
+     de rejeter comme "sous-consommation ~9 bits/bloc" (le vrai chiffre observé n'était qu'1
+     octet, sur une tuile par ailleurs bit-exacte bloc par bloc).
+  **Nouvelle API** `NkVp9EntropyState` (état persistant, possédé par l'appelant) +
+  `DecodeKeyFrame(..., entropy, ...)` / `DecodeInterFrame(..., entropy, ..., outMvGrid=nullptr)`
+  — signatures étendues, tous les appelants du dépôt mis à jour (`NkVideoReadTest` seul).
+  Harnais `--vp9multi <ivf> <ref.yuv>` (NkVideoReadTest) : décode le flux ENTIER (DPB 8 slots
+  via `refFrameIdx`/`refreshFrameFlags`, `show_existing_frame` géré, comparaison pixel de
+  CHAQUE trame affichée dans l'ordre d'affichage). **Validé BIT-EXACT vs ffmpeg sur 8 flux,
+  443 trames inter au total** : `vp9_mov64` (10/10, altref), `vp9_p2test` (20/20, altref
+  invisible), `vp9_arf` (**100/100**, gros flux altref réaliste), `vp9_2p` (100/100, 2 GOP/2
+  clés), `vp9_hd` (50/50, 1280x720), `vp9_static`/`vp9_odd` (10/10 chacun), **`vp9_seg`
+  (50/50, flux segmentation — voir ci-dessous)**. **Régression key-frame confirmée non
+  cassée** : 10/10 flux clés toujours bit-exacts (`--vp9recon`), self-tests verts.
+
+  **Segmentation temporelle (`vp9_seg`) — RÉSOLUE dans un 2e passage** (même session,
+  après un premier rapport marquant ce cas comme « limite connue »). Deux bugs distincts,
+  DIFFÉRENTS de l'hypothèse initiale (« carte de segments non implémentée ») :
+  1. **`read_inter_segment_id`/`read_intra_segment_id` absents** — le code ne faisait que
+     `segId=0; if (segEnabled && segUpdateMap) segId=lire l'arbre;`, ignorant totalement la
+     PRÉDICTION TEMPORELLE (`predicted_segment_id`, lu depuis la carte de la trame
+     précédente via un MIN sur l'emprise du bloc — `dec_get_segment_id`) et le cas
+     `!segUpdateMap` (copie pure sans lecture de bit). Fix : `NkVp9EntropyState::
+     lastFrameSegMap` (carte persistante, sortie via un nouveau paramètre `outSegMap` sur
+     `ParseOrDecodeKeyContent`/`ParseOrDecodeInterContent`, miroir de `outMvGrid`) +
+     `DecGetSegmentId`/`SetSegmentId`/`CopySegmentId`/`GetPredContextSegId` +
+     `ReadIntraSegmentId`/`ReadInterSegmentId` (port fidèle, y compris le bit
+     `seg_id_predicted` sous `segTemporalUpdate` avec son propre contexte de proba
+     `segPredProbs[above.segIdPredicted + left.segIdPredicted]`).
+  2. **Le vrai bloquant du test `vp9_seg`** (diagnostiqué en dumpant les champs d'en-tête :
+     `updateMap=0` dès la 1re trame inter) — **`segFeatureEnabled`/`segFeatureData`/
+     `segAbsDelta` (deltas de quantizer/filtre par segment) ne PERSISTAIENT PAS entre
+     trames** quand `update_data=0` : `ReadSegmentation` ne les réécrit QUE si
+     `update_data=1`, sinon `NkVp9FrameHeader` fraîchement construit à chaque trame les
+     laissait à leur défaut struct (0/faux), perdant les deltas légitimement signalés par
+     la trame clé. **Même classe de bug que `lfRefDeltas`/`lfModeDeltas`** (déjà repéré
+     comme non persistant dans une session antérieure, jamais corrigé — à vérifier/fixer
+     de la même façon si un flux l'exerce un jour). Fix : `segUpdateData` exposé dans
+     `NkVp9FrameHeader`, 3 champs persistés dans `NkVp9EntropyState`, `SyncSegmentFeatures`
+     (restaure depuis l'état persistant si `!segUpdateData`, sinon sauvegarde les valeurs
+     fraîches) appelée juste après `SetupPastIndependence` dans `DecodeKeyFrame`/
+     `DecodeInterFrame`. Reset (comme la carte) inconditionnel dès que
+     `SetupPastIndependence` s'exécute (intra-only/error-resilient), PAS soumis à
+     `resetFrameContext`.
+  Les deux bugs coexistaient et masquaient l'un l'autre au diagnostic superficiel — corriger
+  seulement le premier (prédiction temporelle du segment_id) ne suffisait PAS à faire passer
+  `vp9_seg` (diff identique avant/après), il fallait les deux.
+- **Aucune limite connue restante** sur le décodeur VP9 clé+inter profil 0 4:2:0 8-bit,
+  résolution fixe (mêmes dimensions sur toutes les références). **À venir** (hors scope
+  actuel, pas des bugs) : résolution scalée des références (tailles différentes par ref, non
+  gérée — cas rare) ; profils 1-3 (High/4:4:4/10-12 bits).
+
+- ⭐⭐⭐ **VP8/VP9 BRANCHÉS dans `NkVideoReader`** (2026-07-24) : les deux décodeurs
+  complets dormaient sans être accessibles depuis le lecteur haut niveau (seuls les harnais
+  dédiés `--vp9recon`/`--vp9multi` les exerçaient). VP8 était en fait DÉJÀ branché depuis une
+  session antérieure (`.webm` + `.ivf`) — seul **VP9 restait à câbler**, suivant le même
+  patron (`Codec::VP9` ajouté, détection `V_VP9`/`VP90` dans `ParseWebm`/`ParseIvf`).
+  **Différence structurelle clé avec VP8/H264** : VP9 encode des **SUPERFRAMES** — un seul
+  bloc conteneur (SimpleBlock EBML ou trame IVF) peut contenir jusqu'à 8 sous-trames VP9
+  concaténées (Annexe B). `frames[]` (table des blocs bruts, réutilisée telle quelle) ne
+  suffit donc plus comme unité de décodage : nouvelle table `vp9Units[]` (une entrée par
+  SOUS-TRAME, via `NkVp9Decoder::ParseSuperframe` + `ParseUncompressedHeader` au scan,
+  refFrameIdx/refreshFrameFlags/dims mis en cache pour ne jamais reparser pendant `Decode()`)
+  + `vp9DisplayUnits[]` (sous-suite des unités AFFICHÉES — `show_frame` OU
+  `show_existing_frame` —, en ordre d'affichage). `Impl` porte désormais l'état persistant
+  VP9 complet : `NkVp9EntropyState vp9Entropy`, **DPB à 8 slots explicites**
+  `NkVp9Image vp9RefSlots[8]` (contrairement à VP8 dont les 3 slots LAST/GOLDEN/ALTREF sont
+  gérés EN INTERNE par le décodeur — VP9 laisse `refImages[3]` à la charge de l'appelant),
+  suivi d'éligibilité `use_prev_frame_mvs` (`vp9PrevEligibleBase`/`vp9PrevWidth/Height`/
+  `vp9MvGrid`, chaînant `outMvGrid`↔`prevMvs` d'un appel à l'autre). Pas de réordonnancement
+  d'affichage à gérer (contrairement à H264/POC) : comme VP8, l'ordre d'affichage est une
+  sous-suite monotone de l'ordre de décodage — `ReadFrame`/`SeekFrame` n'ont eu besoin
+  d'AUCUNE modification, ils retombent déjà sur le chemin générique à curseur (`m->cursor`)
+  partagé avec VP8/MJPEG/RAWRGB. `show_existing_frame` (réaffiche un slot déjà décodé, PAS de
+  nouvelle décode) traité comme un cas à part, distinct de l'altref invisible VP8.
+  **⚠ Bug trouvé PENDANT le branchement** (pas une régression du décodeur lui-même) :
+  `vp9PrevEligibleBase` ne vérifiait QUE `!isKeyOrIntraOnly`, oubliant la condition
+  `cm->last_show_frame` de la formule `use_prev_frame_mvs` — **exactement le même piège déjà
+  trouvé et corrigé UNE FOIS dans le harnais `--vp9multi`** pendant la session précédente,
+  mais pas répliqué dans ce nouveau code de branchement (copier-coller incomplet plutôt
+  qu'oubli de la règle elle-même). Symptôme : `vp9_hd`/`vp9_2p`/`vp9_p2test` (tous avec des
+  trames altref invisibles ou 2 GOP) s'arrêtaient silencieusement à 1/50, 13/100, 2/20 images
+  (`ReadFrame` retourne juste `false`, sans message d'erreur) ; `vp9_mov64`/`vp9_arf`/`vp9_seg`
+  (sans ce piège dans leur structure) fonctionnaient déjà. Fix : `vp9PrevEligibleBase =
+  !vu.isKeyOrIntraOnly && vu.showFrame;`. **Leçon** : un correctif trouvé une fois dans UN
+  harnais de test doit être vérifié dans TOUT autre code qui réimplémente la même logique
+  (pas de fonction partagée entre `--vp9multi` et `NkVideoReader::Impl::Decode` ici — dette
+  à surveiller si un 3e endroit venait à réimplémenter cette éligibilité).
+  **Validé BIT-EXACT-ÉQUIVALENT** (maxPixDiff=3, tolérance de conversion YUV→RGBA déjà connue,
+  0 image mal ordonnée) vs référence RGBA ffmpeg sur les 8 flux (`mov64`/`arf`/`seg`/`hd`
+  testés explicitement, tous les autres passent par le même chemin de code) — IVF ET WebM
+  (remux `.webm` de `arf.ivf`, checksum RGBA identique aux deux conteneurs, confirmant le
+  partage intégral du décodage) ; `SeekFrame` fonctionne exactement (offset 0 à 4 positions
+  testées, dont fin de flux) via le même mécanisme générique que VP8 (pas de logique dédiée
+  nécessaire). **Régression confirmée non cassée** : self-tests, VP8 (smoke test 100/100),
+  H264 (smoke test 100/100), 10/10 flux clés VP9, 8/8 flux inter VP9 (`--vp9multi`/
+  `--vp9recon`) tous toujours verts.
+
+- ⭐ **Persistance `lfRefDeltas`/`lfModeDeltas` (loop filter) — vérifiée et corrigée
+  PROACTIVEMENT** (2026-07-24, sur demande explicite après le fix de segmentation temporelle,
+  qui avait révélé EXACTEMENT la même classe de bug ailleurs dans le code). Confirmé : même
+  défaut que la segmentation — `ReadLoopFilter` ne réécrit `hdr.lfRefDeltas[i]`/
+  `lfModeDeltas[i]` QUE si le bit de mise à jour de CETTE entrée est à 1 (imbriqué sous
+  `delta_update`), mais `hdr` repart des valeurs par défaut struct (`{1,0,-1,-1}`/`{0,0}`) à
+  CHAQUE trame — perdant les deltas légitimement signalés par une trame antérieure et jamais
+  re-signalés depuis. **Différence avec la segmentation** : granularité PAR ENTRÉE (4 refs +
+  2 modes indépendamment), pas un flag global `update_data` — nécessite un tableau
+  `lfRefDeltaUpdated[4]`/`lfModeDeltaUpdated[2]` (nouveau, `NkVp9FrameHeader`) plutôt qu'un
+  simple bouléen, et une fonction `SyncLoopFilterDeltas` (miroir de `SyncSegmentFeatures`,
+  entrée par entrée : mise à jour cette trame → sauvegarde dans `NkVp9EntropyState` ; pas mise
+  à jour → restauration depuis l'état persistant) appelée au même endroit
+  (`DecodeKeyFrame`/`DecodeInterFrame`, juste après `SetupPastIndependence`). Reset
+  (`set_default_lf_deltas`) sur trame clé/intra-only/error-resilient, même gate que la
+  segmentation. **Aucun flux de test actuel n'exerce cette combinaison précise** (deltas
+  signalés puis PAS re-signalés sur une trame où ils affectent réellement le filtre) — fix
+  appliqué à titre PRÉVENTIF (même risque que la segmentation, coût de fix minime, cohérence
+  du modèle de persistance) ; **régression confirmée intégralement non cassée** (les 8/8 flux
+  inter + 10/10 flux clés restent bit-exacts, comme attendu si le bug n'était effectivement
+  jamais exercé jusqu'ici).
+
+## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (brique 1 : structure bitstream)
+
+*(2026-07-24)* Démarré comme suite logique directe de H.264 (« évolution directe … la base de
+départ la plus naturelle », cf. section précédente) — même famille bit-exacte, complexité
+supérieure (CTU/CU/PU/TU au lieu de MB fixes, CABAC uniquement, plus de modes intra, SAO).
+Nouveau module `Kernel/Runtime/NKMedia/src/NKMedia/Codecs/Video/HEVC/` (`NkHevcDecoder.h/.cpp`),
+zero-STL, `nkentseu::media`.
+
+- ⭐ **Brique 1 livrée et validée** : découpage NAL Annex-B (en-tête **2 octets** contre 1 en
+  H.264 : `forbidden_zero_bit(1) + nal_unit_type(6) + nuh_layer_id(6) + nuh_temporal_id_plus1(3)`,
+  §7.3.1.2) + parsing structurel `VPS`/`SPS`/`PPS` (§7.3.2.x) via Exp-Golomb — **réutilise
+  directement `NkH264BitReader`** (même convention MSB-first `ue(v)`/`se(v)` bit-identique à
+  H.264, même anti-émulation `00 00 03`→`00 00`) : pas de duplication de bit reader.
+  - `profile_tier_level()` (§7.3.3) implémenté EXACTEMENT (bloc général 88 bits de
+    compatibility/constraint flags fixes quel que soit le profil + niveau 8 bits, puis les
+    mêmes 88+8 bits par sous-couche si signalés) — nécessaire pour rester synchrone dans le
+    RBSP même si seuls `general_profile_idc`/`general_level_idc` sont exposés (pas les
+    sous-couches, hors périmètre brique 1 : x265 par défaut ne signale pas de sous-couches
+    temporelles, chemin non exercé par les flux de test — noté comme limite connue).
+  - `ParseSps` : dimensions (`pic_width/height_in_luma_samples`), profil/niveau, chroma,
+    profondeurs de bits, fenêtre de conformance (`conformance_window` — crop en unités
+    `SubWidthC`/`SubHeightC`, PAS en pixels directs, §7.4.3.2.1) — s'arrête avant
+    `st_ref_pic_set()`/`scaling_list_data()`/`vui_parameters()` (hors scope structurel).
+  - `ParsePps` : tuiles, QP init, flags de contrôle CU/tuile — s'arrête avant
+    `deblocking_filter_control()`/`scaling_list_data()`/`pps_extension()`.
+  - **Validation sur 2 vrais flux ffmpeg/libx265** (`--hevcheader`, harnais diagnostic ajouté à
+    `NkVideoReadTest`, comparaison manuelle vs `ffprobe`) :
+    1. 322×242 4:2:0 8-bit profil Main (résolution impaire, exerce le crop de conformance) :
+       SPS brut 328×248 (aligné CTU), `conf_win` l=0 r=3 h=0 b=3 → crop réel
+       `r×SubWidthC=3×2=6` / `b×SubHeightC=3×2=6` → **322×242 EXACT vs `ffprobe`**
+       (`width`/`height`/`coded_width`/`coded_height`) ; profil=1 (Main) et niveau=2.0
+       (`level_idc`=60=`ffprobe level`) corrects.
+    2. 1280×720 4:2:0 10-bit profil Main10, niveau 3.1 : profil=2 (Main10) et niveau=3.1
+       (`level_idc`=93) **EXACTS vs `ffprobe`** (`profile=Main 10`, `level=93`), dimensions
+       exactes (pas de crop, résolution déjà alignée CTU), profondeur de bits 10/10 correcte.
+  - ⭐ **Bug trouvé et corrigé pendant la validation** : le harnais `--hevcheader` affichait le
+    niveau `X.YY` via `(level_idc % 30) * 10 / 3` (ex. niveau 3.1 → `level_idc`=93 →
+    affichait `3.10` au lieu de `3.1`) — erreur de formule (le chiffre décimal du niveau HEVC
+    s'obtient par `(level_idc % 30) / 3`, pas `* 10 / 3` : les niveaux sont espacés de 3 en
+    `level_idc` pour chaque incrément de 0.1). Cosmétique (harnais diagnostic uniquement,
+    aucun impact sur le parsing lui-même côté `NkHevcDecoder`) mais corrigé immédiatement par
+    cohérence — reconfirmé bit-exact sur les 2 flux après fix.
+  - `NkHevcDecoder::SelfTest()` (NAL synthétique 2 NALs VPS+SPS) intégré à la suite
+    `NkVideoReadTest` sans argument (5/5 self-tests OK : AVI MJPEG, H264, CAVLC, VP9, HEVC).
+- **Suite (briques 2+, PAS commencées)** : slice header (§7.3.6), moteur **CABAC** (contexte
+  différent d'H.264 malgré la même idée générale), quadtree **CTU→CU→PU→TU**, **35 modes
+  intra** (33 directionnels + DC + planar, contre 9 en H.264), prédiction inter
+  **merge/AMVP** (pas de skip/direct façon H.264), transformées **DST/DCT** variables
+  (4×4 à 32×32), déblocage + **SAO** (nouveau vs H.264). Gros chantier multi-session, comme
+  H.264/VP8/VP9 avant lui — à traiter brique par brique avec validation bit-exacte à chaque
+  étape (méthode déjà éprouvée 4× sur ce module).
 
 ## En cours / À venir
 
@@ -701,9 +917,9 @@ déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré 
      précision déjà établie ailleurs dans le pipeline audio float32 (arrondi du aller-retour
      int↔float32, pas une régression).
   - **Codecs vidéo à décoder (nouveaux, gros chantiers)**, par ordre de proximité avec l'existant :
-    - **H.265/HEVC** : évolution directe de H.264 (même famille CABAC/transformées/déblocage en
-      plus complexe — CTU/CU/PU/TU au lieu de MB fixes, plus de modes intra, SAO) — le décodeur
-      H.264 bit-exact déjà livré est la meilleure base de départ.
+    - **H.265/HEVC** : **DÉMARRÉ (2026-07-24)** — brique 1 (structure NAL/VPS/SPS/PPS) livrée
+      et validée vs ffprobe, voir section dédiée ci-dessus. Reste : CABAC, quadtree CTU/CU/PU/TU,
+      35 modes intra, inter merge/AMVP, transformées DST/DCT variables, déblocage+SAO.
     - **VP8/VP9** (Google, libvpx) : famille différente (pas de CABAC, arithmétique booléenne
       simple pour VP8 ; VP9 plus proche de HEVC en complexité) — nécessaire pour WebM complet.
     - **AV1** : le plus gros chantier (spec récente, complexité élevée, film grain synthesis,
