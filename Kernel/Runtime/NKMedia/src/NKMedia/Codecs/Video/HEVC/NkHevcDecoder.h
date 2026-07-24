@@ -75,6 +75,17 @@ namespace nkentseu {
 				int32 generalLevelIdc = 0; // = level_idc réel * 30 (ex. niveau 5.0 -> 150)
 		};
 
+		// short_term_ref_pic_set() DÉRIVÉ (§7.4.8) : deltas de POC CUMULÉS (négatifs pour
+		// S0, positifs pour S1), après résolution éventuelle de la prédiction inter-RPS.
+		struct NkHevcShortTermRps {
+				int32 numNegativePics = 0;
+				int32 numPositivePics = 0;
+				int32 deltaPocS0[16] = {0}; // valeurs NÉGATIVES, ordre POC décroissant
+				bool usedS0[16] = {false};
+				int32 deltaPocS1[16] = {0}; // valeurs POSITIVES, ordre POC croissant
+				bool usedS1[16] = {false};
+		};
+
 		// Infos extraites d'un SPS. §7.3.2.2.
 		struct NkHevcSps {
 				bool valid = false;
@@ -98,6 +109,18 @@ namespace nkentseu {
 				// (§7.4.7.1) : CtbLog2SizeY = log2MinCbSizeY + log2DiffMaxMinCbSizeY.
 				int32 log2MinCbSizeY = 3;		 // log2_min_luma_coding_block_size_minus3 + 3
 				int32 log2DiffMaxMinCbSizeY = 0; // log2_diff_max_min_luma_coding_block_size
+				bool scalingListEnabled = false;
+				bool ampEnabled = false;
+				bool sampleAdaptiveOffsetEnabled = false; // gate des flags SAO du slice header
+				bool pcmEnabled = false;
+				// Jeux de RPS candidats signalés dans le SPS (une slice les référence par index,
+				// ou signale le sien inline — x265 par défaut : num=0, RPS inline par slice).
+				int32 numShortTermRefPicSets = 0; // <= 64
+				NkHevcShortTermRps shortTermRps[64];
+				bool longTermRefPicsPresent = false;
+				int32 numLongTermRefPicsSps = 0;
+				bool spsTemporalMvpEnabled = false; // gate de slice_temporal_mvp_enabled_flag
+				bool strongIntraSmoothingEnabled = false;
 		};
 
 		// Type de slice (§7.4.7.1, Table 7-7) — même convention numérique que H.264
@@ -108,9 +131,10 @@ namespace nkentseu {
 			kHevcSliceI = 2,
 		};
 
-		// En-tête de slice — brique 2 : champs lisibles SANS porter short_term_ref_pic_set()
-		// ni scaling_list_data() (RPS/scaling restent des chantiers séparés). S'ARRÊTE juste
-		// après short_term_ref_pic_set_sps_flag (cf. NkHevcDecoder::ParseSliceHeader).
+		// En-tête de slice — briques 2+3 : parsing COMPLET jusqu'à slice_qp_delta inclus
+		// (avant les offsets QP chroma/SAO-déblocage par slice/points d'entrée tuiles).
+		// Refus propre (return false) sur : pred_weight_table (pondération explicite),
+		// ref_pic_lists_modification (si réellement présent), scaling_list_data.
 		struct NkHevcSliceHeader {
 				bool valid = false;
 				int32 nalType = 0;
@@ -123,8 +147,20 @@ namespace nkentseu {
 				bool picOutputFlag = true;
 				int32 colourPlaneId = 0;
 				bool isIdr = false;
-				int32 picOrderCntLsb = 0;			 // valide seulement si !isIdr
+				int32 picOrderCntLsb = 0;				// valide seulement si !isIdr
 				bool shortTermRefPicSetSpsFlag = false; // valide seulement si !isIdr
+				// RPS effectif de la slice (inline décodé, ou copié du SPS via l'index).
+				NkHevcShortTermRps rps;
+				int32 shortTermRefPicSetIdx = 0;
+				bool sliceTemporalMvpEnabled = false;
+				bool saoLuma = false, saoChroma = false;
+				int32 numRefIdxL0Active = 0, numRefIdxL1Active = 0; // résolus (override ou défauts PPS)
+				bool mvdL1Zero = false;
+				bool cabacInit = false;
+				bool collocatedFromL0 = true;
+				int32 collocatedRefIdx = 0;
+				int32 maxNumMergeCand = 5; // 5 - five_minus_max_num_merge_cand
+				int32 sliceQp = 26;		   // 26 + init_qp_minus26 (PPS) + slice_qp_delta
 		};
 
 		// Infos extraites d'un PPS. §7.3.2.3 (sous-ensemble structurel — brique 1).
@@ -143,10 +179,20 @@ namespace nkentseu {
 				bool constrainedIntraPred = false;
 				bool transformSkipEnabled = false;
 				bool cuQpDeltaEnabled = false;
+				bool weightedPred = false;	 // weighted_pred_flag (P) — gate de pred_weight_table
+				bool weightedBipred = false; // weighted_bipred_flag (B)
 				bool tilesEnabled = false;
 				bool entropyCodingSyncEnabled = false;
 				int32 numTileColumnsMinus1 = 0, numTileRowsMinus1 = 0;
 				bool loopFilterAcrossTiles = true;
+				bool loopFilterAcrossSlices = false;
+				bool deblockingFilterControlPresent = false;
+				bool deblockingFilterOverrideEnabled = false;
+				bool ppsDeblockingFilterDisabled = false;
+				int32 ppsBetaOffsetDiv2 = 0, ppsTcOffsetDiv2 = 0;
+				bool listsModificationPresent = false;
+				int32 log2ParallelMergeLevel = 2; // log2_parallel_merge_level_minus2 + 2
+				bool sliceSegmentHeaderExtensionPresent = false;
 		};
 
 		struct NkHevcDecoder {
@@ -175,10 +221,11 @@ namespace nkentseu {
 				// scaling_list_data / pps_extension.
 				static bool ParsePps(const uint8 *nal, usize size, NkHevcPps &out);
 
-				// Parse un slice_segment_header() (§7.3.6.1) — brique 2 : s'arrête juste
-				// après short_term_ref_pic_set_sps_flag, AVANT short_term_ref_pic_set()/
-				// ref_pic_lists_modification()/pred_weight_table()/deblocking overrides
-				// (chacun un chantier propre). Nécessite le SPS/PPS déjà résolus via
+				// Parse un slice_segment_header() (§7.3.6.1) — briques 2+3 : COMPLET jusqu'à
+				// slice_qp_delta inclus (RPS inline via st_ref_pic_set() ou par index SPS,
+				// refs long terme, temporal MVP, SAO, listes de références, merge cand, QP).
+				// Refus propre sur pred_weight_table/ref_pic_lists_modification/scaling lists
+				// (jamais émis par x265 par défaut). Nécessite le SPS/PPS déjà résolus via
 				// slice_pic_parameter_set_id (à faire par l'appelant, comme pour H.264).
 				static bool ParseSliceHeader(const uint8 *nal, usize size, const NkHevcSps &sps,
 											 const NkHevcPps &pps, NkHevcSliceHeader &out);
