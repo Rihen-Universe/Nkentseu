@@ -902,11 +902,13 @@ int main(int argc, char **argv) {
 				if (NkHevcDecoder::ParseSps(nd, nal.size, sps)) {
 					haveSps = true;
 					printf("  SPS id=%d %dx%d profil=%d niveau=%d.%d chroma=%d profondeur=%d/%d "
-						   "fenetre_conformance=%d (l=%d r=%d h=%d b=%d)\n",
+						   "fenetre_conformance=%d (l=%d r=%d h=%d b=%d) minCb=%d ctb=%d amp=%d\n",
 						   sps.spsId, sps.width, sps.height, sps.ptl.generalProfileIdc,
 						   sps.ptl.generalLevelIdc / 30, (sps.ptl.generalLevelIdc % 30) / 3,
 						   sps.chromaFormatIdc, sps.bitDepthLuma, sps.bitDepthChroma, sps.conformanceWindow,
-						   sps.confWinLeft, sps.confWinRight, sps.confWinTop, sps.confWinBottom);
+						   sps.confWinLeft, sps.confWinRight, sps.confWinTop, sps.confWinBottom,
+						   1 << sps.log2MinCbSizeY, 1 << (sps.log2MinCbSizeY + sps.log2DiffMaxMinCbSizeY),
+						   sps.ampEnabled ? 1 : 0);
 				} else {
 					printf("  [KO] SPS %llu : parsing echoue\n", (unsigned long long)i);
 				}
@@ -1115,14 +1117,14 @@ int main(int argc, char **argv) {
 		return ok ? 0 : 1;
 	}
 
-	// Mode validation HEVC (brique 10) : --hevcinter <fichier.265> <ref.yuv>
-	// Decode la 1re trame I puis la 1re trame P qui suit (reference UNIQUE = l'image
-	// I, comme prevu par le perimetre de la brique : candidat temporel absent car
-	// aucune trame precedente n'a de champ de MV stocke). Compare en PIXELS a la
-	// reference ffmpeg (flux encode SANS deblocage/SAO/pondSration explicite,
-	// bframes=0 ref=1). La position de la trame P dans le flux YUV brut est
-	// retrouvee via son POC (ComputePoc), pas par index sequentiel (robuste a un
-	// GOP a B-pyramide eventuel).
+	// Mode validation HEVC (brique 11) : --hevcinter <fichier.265> <ref.yuv>
+	// Decode la trame I PUIS TOUTES les trames P qui suivent, en chaine, avec un DPB
+	// minimal (vecteur de trames deja decodees, recherche par POC) et les VRAIES
+	// listes de reference (BuildRefPicLists, brique 9) resolues en pointeurs — donc
+	// multi-reference reellement exerce des la 2e trame P (ref=2/3 dans le flux).
+	// Compare en PIXELS chaque trame P a la reference ffmpeg (flux SANS deblocage/
+	// SAO/ponderation explicite forcement, mais peut etre active). Position dans le
+	// flux YUV brut retrouvee via le POC (ComputePoc), pas un index sequentiel.
 	if (argc >= 4 && strcmp(argv[1], "--hevcinter") == 0) {
 		FILE *f = fopen(argv[2], "rb");
 		if (!f) {
@@ -1149,11 +1151,19 @@ int main(int argc, char **argv) {
 		NkHevcDecoder::SplitNalsAnnexB(buf.Data(), (usize)buf.Size(), nals);
 		NkHevcSps sps;
 		NkHevcPps pps;
-		bool haveSps = false, havePps = false, haveI = false;
-		NkHevcFrame iFrame;
-		int32 iPoc = 0;
-		bool ok = false;
-		for (uint64 i = 0; i < nals.Size() && !ok; ++i) {
+		bool haveSps = false, havePps = false;
+		NkVector<NkHevcFrame> dpb;
+		dpb.Reserve(256);
+		int32 prevPocTid0 = 0;
+		int32 pFrames = 0, pFramesOk = 0, worstDiff = 0;
+		bool hardFail = false;
+		auto findByPoc = [&](int32 poc) -> const NkHevcFrame * {
+			for (uint64 k = 0; k < dpb.Size(); ++k)
+				if (dpb[k].poc == poc)
+					return &dpb[k];
+			return nullptr;
+		};
+		for (uint64 i = 0; i < nals.Size() && !hardFail; ++i) {
 			const NkHevcNal &nal = nals[i];
 			const uint8 *nd = buf.Data() + nal.offset;
 			if (nal.type == kHevcNalSps) {
@@ -1169,71 +1179,104 @@ int main(int argc, char **argv) {
 			NkHevcSliceHeader sh;
 			if (!NkHevcDecoder::ParseSliceHeader(nd, nal.size, sps, pps, sh))
 				continue;
+			if (sh.sliceType == kHevcSliceB)
+				continue; // bi-prediction : brique suivante — non attendu (bframes=0)
 			const bool isIdr = nal.type == kHevcNalIdrWRadl || nal.type == kHevcNalIdrNLp;
-			if (!haveI) {
-				if (sh.sliceType != kHevcSliceI)
-					continue;
+			const int32 poc =
+				NkHevcDecoder::ComputePoc(sh.picOrderCntLsb, sps.log2MaxPocLsb, isIdr, prevPocTid0);
+			if (sh.sliceType == kHevcSliceI) {
+				NkHevcFrame frame;
+				frame.poc = poc;
 				NkHevcSliceDataStats ds;
-				if (!NkHevcDecoder::DecodeSliceIntra(nd, nal.size, sps, pps, sh, iFrame, ds)) {
-					printf("  [KO] decode trame I echoue\n");
+				if (!NkHevcDecoder::DecodeSliceIntra(nd, nal.size, sps, pps, sh, frame, ds)) {
+					printf("  [KO] decode trame I echoue (poc=%d)\n", poc);
+					hardFail = true;
 					break;
 				}
-				iPoc = NkHevcDecoder::ComputePoc(sh.picOrderCntLsb, sps.log2MaxPocLsb, isIdr, 0);
-				iFrame.poc = iPoc;
-				haveI = true;
-				printf("  trame I : poc=%d %dx%d ctus=%d\n", iPoc, iFrame.cropW, iFrame.cropH,
-					   ds.ctusParsed);
+				printf("  trame I : poc=%d crop=%dx%d coded=%dx%d ctus=%d\n", poc, frame.cropW,
+					   frame.cropH, frame.lumaW, frame.lumaH, ds.ctusParsed);
+				prevPocTid0 = poc;
+				dpb.PushBack(frame);
 				continue;
 			}
 			if (sh.sliceType != kHevcSliceP)
 				continue;
-			const int32 pPoc = NkHevcDecoder::ComputePoc(sh.picOrderCntLsb, sps.log2MaxPocLsb, isIdr, iPoc);
-			NkHevcFrame pFrame;
-			NkHevcSliceDataStats ds;
-			if (!NkHevcDecoder::DecodeSliceP(nd, nal.size, sps, pps, sh, iFrame, pFrame, ds)) {
-				printf("  [KO] decode 1re trame P echoue (poc=%d)\n", pPoc);
+			NkHevcRefPicLists rpl;
+			NkHevcDecoder::BuildRefPicLists(sh.rps, poc, sh.numRefIdxL0Active, 0, false, rpl);
+			if (rpl.numL0 < sh.numRefIdxL0Active) {
+				printf("  [KO] RefPicList0 incomplete (poc=%d)\n", poc);
+				hardFail = true;
 				break;
 			}
-			pFrame.poc = pPoc;
-			const int32 cw = pFrame.cropW, ch = pFrame.cropH;
+			const NkHevcFrame *refsL0[16];
+			bool resolveOk = true;
+			for (int32 r = 0; r < sh.numRefIdxL0Active; ++r) {
+				refsL0[r] = findByPoc(rpl.l0[r]);
+				if (!refsL0[r])
+					resolveOk = false;
+			}
+			if (!resolveOk) {
+				printf("  [KO] resolution POC->trame echouee (poc=%d)\n", poc);
+				hardFail = true;
+				break;
+			}
+			NkHevcFrame frame;
+			frame.poc = poc; // lu PAR DecodeSliceP (curPoc AMVP) : DOIT etre pose avant l'appel
+			NkHevcSliceDataStats ds;
+			if (!NkHevcDecoder::DecodeSliceP(nd, nal.size, sps, pps, sh, refsL0,
+											 sh.numRefIdxL0Active, frame, ds)) {
+				printf("  [KO] decode trame P echoue (poc=%d)\n", poc);
+				hardFail = true;
+				break;
+			}
+			prevPocTid0 = poc;
+			++pFrames;
+			const int32 cw = frame.cropW, ch = frame.cropH;
 			const int32 ccw = cw >> 1, cch = ch >> 1;
 			const usize frameSize = (usize)(cw * ch + 2 * ccw * cch);
-			if (fseek(fr, (long)((usize)pPoc * frameSize), SEEK_SET) != 0) {
-				printf("  [KO] seek reference echoue (poc=%d)\n", pPoc);
-				break;
+			int32 maxDiff = -1;
+			if (fseek(fr, (long)((usize)poc * frameSize), SEEK_SET) != 0) {
+				printf("  [KO] seek reference echoue (poc=%d)\n", poc);
+			} else {
+				NkVector<uint8> ref;
+				ref.Resize(frameSize);
+				if (fread(ref.Data(), 1, frameSize, fr) != frameSize) {
+					printf("  [KO] reference trop courte (poc=%d)\n", poc);
+				} else {
+					maxDiff = 0;
+					auto cmpPlane = [&](const nk_uint16 *plane, int32 stride, int32 w, int32 h,
+										const uint8 *rp) {
+						for (int32 y = 0; y < h; ++y)
+							for (int32 x = 0; x < w; ++x) {
+								const int32 ours = (int32)plane[y * stride + x];
+								const int32 theirs = (int32)rp[y * w + x];
+								const int32 d = ours > theirs ? ours - theirs : theirs - ours;
+								if (d > maxDiff)
+									maxDiff = d;
+							}
+					};
+					const uint8 *rp = ref.Data();
+					cmpPlane(frame.y.Data(), frame.lumaW, cw, ch, rp);
+					rp += (usize)(cw * ch);
+					cmpPlane(frame.cb.Data(), frame.chromaW, ccw, cch, rp);
+					rp += (usize)(ccw * cch);
+					cmpPlane(frame.cr.Data(), frame.chromaW, ccw, cch, rp);
+				}
 			}
-			NkVector<uint8> ref;
-			ref.Resize(frameSize);
-			if (fread(ref.Data(), 1, frameSize, fr) != frameSize) {
-				printf("  [KO] reference trop courte (poc=%d)\n", pPoc);
-				break;
-			}
-			int32 maxDiff = 0;
-			auto cmpPlane = [&](const nk_uint16 *plane, int32 stride, int32 w, int32 h,
-								const uint8 *rp) {
-				for (int32 y = 0; y < h; ++y)
-					for (int32 x = 0; x < w; ++x) {
-						const int32 ours = (int32)plane[y * stride + x];
-						const int32 theirs = (int32)rp[y * w + x];
-						const int32 d = ours > theirs ? ours - theirs : theirs - ours;
-						if (d > maxDiff)
-							maxDiff = d;
-					}
-			};
-			const uint8 *rp = ref.Data();
-			cmpPlane(pFrame.y.Data(), pFrame.lumaW, cw, ch, rp);
-			rp += (usize)(cw * ch);
-			cmpPlane(pFrame.cb.Data(), pFrame.chromaW, ccw, cch, rp);
-			rp += (usize)(ccw * cch);
-			cmpPlane(pFrame.cr.Data(), pFrame.chromaW, ccw, cch, rp);
-			printf("  trame P : poc=%d %dx%d ctus=%d coeffs=%lld maxdiff=%d %s\n", pPoc, cw, ch,
-				   ds.ctusParsed, (long long)ds.nonZeroCoeffs, maxDiff,
+			if (maxDiff > worstDiff)
+				worstDiff = maxDiff;
+			if (maxDiff == 0)
+				++pFramesOk;
+			printf("  trame P : poc=%d refs=%d ctus=%d coeffs=%lld maxdiff=%d %s\n", poc,
+				   sh.numRefIdxL0Active, ds.ctusParsed, (long long)ds.nonZeroCoeffs, maxDiff,
 				   maxDiff == 0 ? "BIT-EXACT" : "[KO]");
-			ok = maxDiff == 0;
-			break;
+			dpb.PushBack(frame);
 		}
 		fclose(fr);
-		printf("  [ %s ] decode HEVC P mono-reference vs ffmpeg (brique 10 : MV spatiaux + MC, sans filtres en boucle)\n",
+		const bool ok = !hardFail && pFrames > 0 && pFramesOk == pFrames;
+		printf("  trames P decodees : %d, bit-exactes : %d/%d (pire ecart=%d)\n", pFrames, pFramesOk,
+			   pFrames, worstDiff);
+		printf("  [ %s ] decode HEVC P multi-reference vs ffmpeg (brique 11 : MV merge/AMVP + mise a l'echelle, sans filtres en boucle)\n",
 			   ok ? "OK " : "KO");
 		return ok ? 0 : 1;
 	}

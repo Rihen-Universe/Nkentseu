@@ -327,31 +327,42 @@ namespace nkentseu {
 											 const NkHevcPps &pps, const NkHevcSliceHeader &sh,
 											 NkHevcFrame &frame, NkHevcSliceDataStats &out);
 
-				// Brique 10 : DÉCODE une slice P en pixels — réf UNIQUE L0
-				// (num_ref_idx_l0_active_minus1==0 exigé, refus propre sinon) : dérivation
-				// des MV par fusion spatiale (§8.5.3.2.2, positions A1/B1/B0/A0/B2 +
-				// exclusions de partition + élagage anti-doublon + repli MV nul) ou AMVP
-				// spatial (§8.5.3.2.6/7, groupe gauche A0/A1 + groupe haut B0/B1/B2,
-				// PAS de mise à l'échelle temporelle : réf unique -> toujours même
-				// distance POC), candidat temporel VOLONTAIREMENT absent (valide pour la
-				// 1re P après l'IDR : aucune trame précédente n'a de champ de MV stocké,
-				// donc ffmpeg non plus à cet endroit précis — bit-exact attendu
-				// uniquement sur ce cas). Puis compensation de mouvement (§8.5.4.2.2 :
+				// ⚠️ BRIQUE 11 EN COURS — WIP NON VALIDÉ (2026-07-25) : le chaînage
+				// P-sur-P (2e trame P décodée d'une séquence, quelle que soit la
+				// référence, y compris réf UNIQUE) diverge légèrement puis l'écart
+				// s'accumule sur les trames suivantes. La 1re P après l'IDR (réf =
+				// l'I, scope validé de la brique 10) reste bit-exacte et NON régressée
+				// (65361b6f). 13 pistes vérifiées correctes (formules identiques au
+				// source ffmpeg, bit-à-bit) sans trouver la cause exacte — voir mémoire
+				// project_nkmedia_hevc_p_multiref_bug (piège, cas de test minimal,
+				// prochaine étape recommandée). NE PAS considérer cette fonction
+				// fiable au-delà du cas brique-10 tant que ce bug n'est pas résolu.
+				// Brique 10+11 : DÉCODE une slice P en pixels — MULTI-référence L0
+				// (`refsL0`/`numRefsL0` = références déjà résolues par l'appelant, dans
+				// l'ORDRE de RefPicList0 — cf. NkHevcRefPicLists/BuildRefPicLists — chaque
+				// `.poc` DOIT être renseigné, ainsi que `frame.poc`, tous deux via
+				// ComputePoc) : dérivation des MV par fusion spatiale (§8.5.3.2.2,
+				// positions A1/B1/B0/A0/B2 + exclusions de partition + élagage anti-
+				// doublon + repli MV nul avec refIdx cyclé) ou AMVP spatial (§8.5.3.2.6/7,
+				// groupe gauche A0/A1 + groupe haut B0/B1/B2, AVEC mise à l'échelle réelle
+				// par distance POC §8.5.3.2.8 quand le voisin choisi référence un POC
+				// différent de la cible). Candidat temporel VOLONTAIREMENT absent
+				// (nécessite un DPB avec champ de MV stocké d'une trame précédente —
+				// brique suivante). Puis compensation de mouvement (§8.5.4.2.2 :
 				// interpolation qpel luma 8 taps / epel chroma 4 taps séparables,
 				// échantillonnage hors-image étendu par bord ; pondération explicite
 				// §8.5.3.3.4.2/8.5.4.2.3 si pps.weightedPred). Résidu ajouté PAR-DESSUS
-				// par le même pipeline transform_tree/residual_coding que l'intra.
-				// `ref0.poc`/`frame.poc` DOIVENT être renseignés par l'appelant
-				// (ComputePoc) — ce décodeur ne stocke aucun DPB (cf. NkHevcRefPicLists).
+				// par le même pipeline transform_tree/residual_coding que l'intra. Ce
+				// décodeur ne stocke aucun DPB lui-même (cf. NkHevcRefPicLists) : c'est à
+				// l'appelant de résoudre POC→pointeur avant chaque appel.
 				// PAS de filtres en boucle cette brique (déblocage BS inter + SAO :
 				// brique suivante) — comparer à ffmpeg SANS déblocage/SAO (précédent
-				// brique 6). Refus propre : B, multi-référence, tuiles, PCM, 4:2:2/4:4:4,
-				// bit depth != 8, log2ParallelMergeLevel > 2 (règle CU 8x8 non
-				// implémentée).
+				// brique 6). Refus propre : B, tuiles, PCM, 4:2:2/4:4:4, bit depth != 8,
+				// log2ParallelMergeLevel > 2 (règle CU 8x8 non implémentée).
 				static bool DecodeSliceP(const uint8 *nal, usize size, const NkHevcSps &sps,
 										const NkHevcPps &pps, const NkHevcSliceHeader &sh,
-										const NkHevcFrame &ref0, NkHevcFrame &frame,
-										NkHevcSliceDataStats &out);
+										const NkHevcFrame *const *refsL0, int32 numRefsL0,
+										NkHevcFrame &frame, NkHevcSliceDataStats &out);
 
 				// Brique 9 : dérive le POC réel (§8.3.1, PicOrderCntVal) — cas SIMPLIFIÉ
 				// mono-couche (TemporalId toujours 0, pas de sous-couches temporelles —
