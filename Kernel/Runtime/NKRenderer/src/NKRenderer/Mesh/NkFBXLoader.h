@@ -13,8 +13,14 @@
 //     LayerElementNormal/Normals, LayerElementUV/UV (+UVIndex).
 //   - 1 sous-mesh par Geometry. Normales recalculees si absentes.
 //
-// NON supporte : FBX ASCII, materiaux/textures, skinning/anim, transforms de
-// noeuds Model (les Geometry sont en espace local -> orientation = celle bakee
+// Materiaux Phong (Properties70 : DiffuseColor/DiffuseFactor/
+// TransparencyFactor/EmissiveColor/EmissiveFactor/ShininessExponent) +
+// textures externes connectees (DiffuseColor/NormalMap ou Bump/EmissiveColor,
+// resolues via Objects/Connections : Geometry -> Model proprietaire -> 1er
+// Material connecte ; RelativeFilename/FileName resolus par rapport au
+// dossier du .fbx). NON supporte : textures FBX EMBARQUEES (Video binaire),
+// skinning/anim (Deformer/Cluster, AnimationCurve), transforms de noeuds
+// Model (les Geometry sont en espace local -> orientation = celle bakee
 // dans les sommets). UpAxis lu depuis GlobalSettings (Z-up -> Y-up auto). Les
 // exports 3ds Max ont parfois une geometrie Z-up mal etiquetee Y-up : variable
 // d'env NK_FBX_ZUP pour forcer la conversion. Sortie : NkGLTFMeshData.

@@ -7,6 +7,7 @@
 
 #include "NKLogger/NkLog.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKFileSystem/NkPath.h" // GetDirectory() — resolution des textures relatives
 #include "NKImage/Core/NkImage.h" // NkDeflate::Decompress (zlib)
 #include "NKContainers/Sequential/NkVector.h"
 
@@ -19,6 +20,9 @@ namespace nkentseu {
 			struct FbxProp {
 					char type = 0;
 					float64 scalar = 0.0;
+					int64 scalarI = 0; // Y/C/I/L en ENTIER exact (scalar en perd la precision
+									   // au-dela de 2^53 — critique pour les ID d'objets FBX,
+									   // souvent de grands entiers 64-bit non representables en double).
 					NkVector<float64> arrF; // arrays f/d (en f64)
 					NkVector<int64> arrI;	// arrays i/l/b
 					NkString str;			// S/R
@@ -80,14 +84,17 @@ namespace nkentseu {
 							c.ok = false;
 							return false;
 						}
-						pr.scalar = (float64)(int16)ReadU16LE(c.p);
+						pr.scalarI = (int16)ReadU16LE(c.p);
+						pr.scalar = (float64)pr.scalarI;
 						c.p += 2;
 					} break;
 					case 'C': {
-						pr.scalar = (float64)RU8(c);
+						pr.scalarI = RU8(c);
+						pr.scalar = (float64)pr.scalarI;
 					} break;
 					case 'I': {
-						pr.scalar = (float64)(int32)RU32(c);
+						pr.scalarI = (int32)RU32(c);
+						pr.scalar = (float64)pr.scalarI;
 					} break;
 					case 'F': {
 						if (c.p + 4 > c.end) {
@@ -106,7 +113,8 @@ namespace nkentseu {
 						c.p += 8;
 					} break;
 					case 'L': {
-						pr.scalar = (float64)(int64)RU64(c);
+						pr.scalarI = (int64)RU64(c);
+						pr.scalar = (float64)pr.scalarI;
 					} break;
 					case 'S':
 					case 'R': {
@@ -243,6 +251,237 @@ namespace nkentseu {
 						if (!n->props[(NkVector<FbxProp>::SizeType)i].str.Empty())
 							return n->props[(NkVector<FbxProp>::SizeType)i].str;
 				return NkString("");
+			}
+
+			// ════════════════════════════════════════════════════════════════
+			//  Materiaux/textures FBX — graphe d'objets (Objects/Connections).
+			// ════════════════════════════════════════════════════════════════
+
+			// ID d'un objet FBX (Model/Geometry/Material/Texture...) : 1re prop
+			// entiere (I/L/Y/C, stockee en scalarI EXACT — cf. FbxProp — un ID
+			// FBX peut depasser 2^53 et perdrait sa precision en double).
+			int64 FbxIdOf(const FbxNode &n) {
+				for (uint32 i = 0; i < (uint32)n.props.Size(); ++i) {
+					const char t = n.props[(NkVector<FbxProp>::SizeType)i].type;
+					if (t == 'L' || t == 'I' || t == 'Y' || t == 'C')
+						return n.props[(NkVector<FbxProp>::SizeType)i].scalarI;
+				}
+				return -1;
+			}
+
+			struct FbxIdEntry {
+					int64 id = -1;
+					const FbxNode *node = nullptr;
+			};
+
+			const FbxNode *FindById(const NkVector<FbxIdEntry> &list, int64 id) {
+				if (id < 0)
+					return nullptr;
+				for (uint32 i = 0; i < (uint32)list.Size(); ++i)
+					if (list[(NkVector<FbxIdEntry>::SizeType)i].id == id)
+						return list[(NkVector<FbxIdEntry>::SizeType)i].node;
+				return nullptr;
+			}
+			bool HasId(const NkVector<FbxIdEntry> &list, int64 id) {
+				return FindById(list, id) != nullptr;
+			}
+
+			// Connexions FBX (section racine "Connections", noeuds "C") : relient
+			// deux objets (OO, ex. Geometry -> Model proprietaire, Material ->
+			// Model) ou un objet a une PROPRIETE nommee d'un autre objet (OP, ex.
+			// Texture -> Material."DiffuseColor").
+			struct FbxConn {
+					int64 child = -1, parent = -1;
+					NkString prop; // seulement pour OP
+					bool isProp = false;
+			};
+
+			void ParseConnections(const NkVector<FbxNode> &roots, NkVector<FbxConn> &out) {
+				for (uint32 i = 0; i < (uint32)roots.Size(); ++i) {
+					if (!(roots[(NkVector<FbxNode>::SizeType)i].name == NkString("Connections")))
+						continue;
+					const FbxNode &conns = roots[(NkVector<FbxNode>::SizeType)i];
+					for (uint32 j = 0; j < (uint32)conns.children.Size(); ++j) {
+						const FbxNode &c = conns.children[(NkVector<FbxNode>::SizeType)j];
+						if (!(c.name == NkString("C")) || c.props.Size() < 3)
+							continue;
+						FbxConn fc;
+						fc.isProp = (c.props[0].str == NkString("OP"));
+						fc.child = c.props[(NkVector<FbxProp>::SizeType)1].scalarI;
+						fc.parent = c.props[(NkVector<FbxProp>::SizeType)2].scalarI;
+						if (fc.isProp && c.props.Size() >= 4)
+							fc.prop = c.props[(NkVector<FbxProp>::SizeType)3].str;
+						out.PushBack(static_cast<FbxConn &&>(fc));
+					}
+					break;
+				}
+			}
+
+			// Parent OO de `childId` (ex. Model proprietaire d'une Geometry),
+			// filtre sur les objets presents dans `candidates` (pour ignorer les
+			// relations vers d'autres types quand plusieurs existent).
+			int64 FindOwnerOO(const NkVector<FbxConn> &conns, int64 childId, const NkVector<FbxIdEntry> &candidates) {
+				for (uint32 i = 0; i < (uint32)conns.Size(); ++i) {
+					const FbxConn &c = conns[(NkVector<FbxConn>::SizeType)i];
+					if (c.isProp || c.child != childId)
+						continue;
+					if (HasId(candidates, c.parent))
+						return c.parent;
+				}
+				return -1;
+			}
+
+			// Tous les enfants OO de `parentId`, filtres sur `candidates`.
+			void FindChildrenOO(const NkVector<FbxConn> &conns, int64 parentId, const NkVector<FbxIdEntry> &candidates,
+								NkVector<int64> &out) {
+				for (uint32 i = 0; i < (uint32)conns.Size(); ++i) {
+					const FbxConn &c = conns[(NkVector<FbxConn>::SizeType)i];
+					if (c.isProp || c.parent != parentId)
+						continue;
+					if (HasId(candidates, c.child))
+						out.PushBack(c.child);
+				}
+			}
+
+			// Texture connectee a la propriete nommee `propName` du materiau
+			// `materialId` (ex. "DiffuseColor", "NormalMap", "Bump").
+			int64 FindTextureForProp(const NkVector<FbxConn> &conns, int64 materialId, const char *propName,
+									 const NkVector<FbxIdEntry> &textures) {
+				for (uint32 i = 0; i < (uint32)conns.Size(); ++i) {
+					const FbxConn &c = conns[(NkVector<FbxConn>::SizeType)i];
+					if (!c.isProp || c.parent != materialId || !(c.prop == NkString(propName)))
+						continue;
+					if (HasId(textures, c.child))
+						return c.child;
+				}
+				return -1;
+			}
+
+			// Properties70 : noeuds "P" { nom, type, label, flags, val1 [,val2,val3] }
+			// (meme disposition que la lecture UpAxis dans FinishFBX). `outVals`
+			// doit pouvoir contenir `minVals` float32.
+			bool GetP70(const FbxNode &obj, const char *propName, int32 minVals, float32 *outVals) {
+				const FbxNode *p70 = obj.Find("Properties70");
+				if (!p70)
+					return false;
+				for (uint32 i = 0; i < (uint32)p70->children.Size(); ++i) {
+					const FbxNode &pn = p70->children[(NkVector<FbxNode>::SizeType)i];
+					if (!(pn.name == NkString("P")) || (int32)pn.props.Size() < 4 + minVals)
+						continue;
+					if (!(pn.props[0].str == NkString(propName)))
+						continue;
+					for (int32 v = 0; v < minVals; ++v)
+						outVals[v] = (float32)pn.props[(NkVector<FbxProp>::SizeType)(4 + v)].scalar;
+					return true;
+				}
+				return false;
+			}
+
+			// Charge (avec cache par ID) la texture FBX `texId` -> index dans
+			// out.images. `RelativeFilename`/`FileName` peuvent contenir un chemin
+			// ABSOLU de la machine d'export (Windows) : on ne garde que le nom de
+			// fichier, resolu par rapport au dossier du .fbx (comme les .bin glTF
+			// externes, cf. ResolveBufferURI). Echec de chargement = warning +
+			// slot invalide (jamais d'invention de pixels).
+			int32 LoadFbxTexture(int64 texId, const NkVector<FbxIdEntry> &textures, const NkString &baseDir,
+								 NkGLTFMeshData &out, NkVector<int64> &texIdCache, NkVector<int32> &texImgCache) {
+				for (uint32 i = 0; i < (uint32)texIdCache.Size(); ++i)
+					if (texIdCache[(NkVector<int64>::SizeType)i] == texId)
+						return texImgCache[(NkVector<int32>::SizeType)i];
+				const FbxNode *tex = FindById(textures, texId);
+				NkString rel = tex ? StrOf(tex->Find("RelativeFilename")) : NkString("");
+				if (rel.Empty() && tex)
+					rel = StrOf(tex->Find("FileName"));
+				int32 idx = -1;
+				if (tex && !rel.Empty()) {
+					NkString fname = rel;
+					for (nk_size p = fname.Length(); p > 0; --p) {
+						char ch = fname.CStr()[p - 1];
+						if (ch == '/' || ch == '\\') {
+							fname = NkString(fname.CStr() + p);
+							break;
+						}
+					}
+					NkString full = baseDir;
+					if (!full.Empty() && !full.EndsWith('/') && !full.EndsWith('\\'))
+						full.Append('/');
+					full.Append(fname);
+					NkGLTFImage img;
+					img.uri = rel;
+					if (img.decoded.Load(full.CStr(), 4))
+						img.valid = img.decoded.IsValid();
+					if (!img.valid)
+						NkLog::Instance().Warnf("[NkFBXLoader] texture introuvable : %s (relatif='%s')",
+												full.CStr(), rel.CStr());
+					idx = (int32)out.images.Size();
+					out.images.PushBack(static_cast<NkGLTFImage &&>(img));
+				}
+				texIdCache.PushBack(texId);
+				texImgCache.PushBack(idx);
+				return idx;
+			}
+
+			// Construit (avec cache par ID) un NkGLTFMaterial depuis un noeud
+			// Material FBX (Properties70 : DiffuseColor/DiffuseFactor/
+			// TransparencyFactor/EmissiveColor/EmissiveFactor/ShininessExponent) +
+			// textures connectees (DiffuseColor/NormalMap ou Bump/EmissiveColor).
+			// Le modele Phong FBX n'a pas de notion PBR metal/rugosite native :
+			// non-metallique par defaut, rugosite approximee depuis l'exposant de
+			// brillance Phong si present (heuristique grossiere assumee, PAS une
+			// conversion physique — aucune meilleure donnee cote FBX classique).
+			int32 LoadFbxMaterial(int64 matId, const NkVector<FbxIdEntry> &materials,
+								  const NkVector<FbxIdEntry> &textures, const NkVector<FbxConn> &conns,
+								  const NkString &baseDir, NkGLTFMeshData &out, NkVector<int64> &matIdCache,
+								  NkVector<int32> &matIdxCache, NkVector<int64> &texIdCache,
+								  NkVector<int32> &texImgCache) {
+				for (uint32 i = 0; i < (uint32)matIdCache.Size(); ++i)
+					if (matIdCache[(NkVector<int64>::SizeType)i] == matId)
+						return matIdxCache[(NkVector<int32>::SizeType)i];
+				const FbxNode *mat = FindById(materials, matId);
+				int32 idx = -1;
+				if (mat) {
+					NkGLTFMaterial gm;
+					gm.name = StrOf(mat);
+					float32 rgb[3];
+					float32 factor;
+					if (GetP70(*mat, "DiffuseColor", 3, rgb))
+						gm.baseColorFactor = {rgb[0], rgb[1], rgb[2], 1.f};
+					if (GetP70(*mat, "DiffuseFactor", 1, &factor))
+						gm.baseColorFactor = {gm.baseColorFactor.x * factor, gm.baseColorFactor.y * factor,
+											 gm.baseColorFactor.z * factor, gm.baseColorFactor.w};
+					if (GetP70(*mat, "TransparencyFactor", 1, &factor))
+						gm.baseColorFactor.w = 1.f - factor;
+					if (GetP70(*mat, "EmissiveColor", 3, rgb)) {
+						gm.emissiveFactor = {rgb[0], rgb[1], rgb[2]};
+						if (GetP70(*mat, "EmissiveFactor", 1, &factor))
+							gm.emissiveFactor = {gm.emissiveFactor.x * factor, gm.emissiveFactor.y * factor,
+												gm.emissiveFactor.z * factor};
+					}
+					gm.metallicFactor = 0.f;
+					gm.roughnessFactor = 0.5f;
+					float32 shininess;
+					if (GetP70(*mat, "ShininessExponent", 1, &shininess) ||
+						GetP70(*mat, "Shininess", 1, &shininess)) {
+						float32 r = 1.f - shininess / 100.f;
+						gm.roughnessFactor = r < 0.f ? 0.f : (r > 1.f ? 1.f : r);
+					}
+					int64 diffTex = FindTextureForProp(conns, matId, "DiffuseColor", textures);
+					if (diffTex >= 0)
+						gm.baseColorImage = LoadFbxTexture(diffTex, textures, baseDir, out, texIdCache, texImgCache);
+					int64 normTex = FindTextureForProp(conns, matId, "NormalMap", textures);
+					if (normTex < 0)
+						normTex = FindTextureForProp(conns, matId, "Bump", textures);
+					if (normTex >= 0)
+						gm.normalImage = LoadFbxTexture(normTex, textures, baseDir, out, texIdCache, texImgCache);
+					int64 emisTex = FindTextureForProp(conns, matId, "EmissiveColor", textures);
+					if (emisTex >= 0)
+						gm.emissiveImage = LoadFbxTexture(emisTex, textures, baseDir, out, texIdCache, texImgCache);
+					idx = (int32)out.materials.Size();
+					out.materials.PushBack(static_cast<NkGLTFMaterial &&>(gm));
+				}
+				matIdCache.PushBack(matId);
+				matIdxCache.PushBack(idx);
+				return idx;
 			}
 
 			// ── Extrait une Geometry FBX dans out (un sous-mesh). ─────────────
@@ -464,8 +703,24 @@ namespace nkentseu {
 						hasArray = true; // compteur ignore
 					} else if ((ch >= '0' && ch <= '9') || ch == '-' || ch == '+' || ch == '.') {
 						FbxProp pr;
-						pr.type = 'D';
-						pr.scalar = ParseDouble(p, end);
+						// Entier (ID d'objet FBX potentiellement grand) vs flottant : detecte
+						// AVANT de consommer, comme ReadArrayBody — un ID parse via
+						// ParseDouble perdrait sa precision au-dela de 2^53.
+						bool isFloat = false;
+						for (const char *q = p;
+							 q < end && *q != ',' && *q != '{' && *q != '\n' && *q != ' ' && *q != '\t'; ++q)
+							if (*q == '.' || *q == 'e' || *q == 'E') {
+								isFloat = true;
+								break;
+							}
+						if (isFloat) {
+							pr.type = 'D';
+							pr.scalar = ParseDouble(p, end);
+						} else {
+							pr.type = 'L';
+							pr.scalarI = ParseInt64(p, end);
+							pr.scalar = (float64)pr.scalarI;
+						}
 						node.props.PushBack(static_cast<FbxProp &&>(pr));
 					} else {
 						const char *s = p;
@@ -551,17 +806,57 @@ namespace nkentseu {
 			bool FinishFBX(NkVector<FbxNode> &roots, uint32 version, bool ascii, NkGLTFMeshData &out,
 						   const NkString &path) {
 				uint32 geoCount = 0;
+				// Passe 1 : indexe les objets par ID (Geometry/Model/Material/
+				// Texture) — necessaire pour resoudre Geometry -> Model
+				// proprietaire -> Material(s) via les Connections (passe 2).
+				NkVector<FbxIdEntry> geometries, models, materials, textures;
 				for (uint32 i = 0; i < (uint32)roots.Size(); ++i) {
 					if (!(roots[(NkVector<FbxNode>::SizeType)i].name == NkString("Objects")))
 						continue;
 					const FbxNode &objs = roots[(NkVector<FbxNode>::SizeType)i];
 					for (uint32 j = 0; j < (uint32)objs.children.Size(); ++j) {
 						const FbxNode &ch = objs.children[(NkVector<FbxNode>::SizeType)j];
-						if (ch.name == NkString("Geometry")) {
-							ExtractGeometry(ch, out);
-							++geoCount;
-						}
+						const int64 id = FbxIdOf(ch);
+						if (ch.name == NkString("Geometry"))
+							geometries.PushBack(FbxIdEntry{id, &ch});
+						else if (ch.name == NkString("Model"))
+							models.PushBack(FbxIdEntry{id, &ch});
+						else if (ch.name == NkString("Material"))
+							materials.PushBack(FbxIdEntry{id, &ch});
+						else if (ch.name == NkString("Texture"))
+							textures.PushBack(FbxIdEntry{id, &ch});
 					}
+					break; // une seule section Objects
+				}
+				NkVector<FbxConn> conns;
+				ParseConnections(roots, conns);
+				NkPath fp(path);
+				NkString baseDir = fp.GetDirectory();
+				NkVector<int64> matIdCache, texIdCache;
+				NkVector<int32> matIdxCache, texImgCache;
+
+				// Passe 2 : geometrie + resolution materiau par sous-mesh (via le
+				// Model proprietaire de la Geometry — 1er materiau connecte si
+				// plusieurs, cf. note LoadFbxMaterial/limitation ci-dessus).
+				for (uint32 g = 0; g < (uint32)geometries.Size(); ++g) {
+					const FbxIdEntry &ge = geometries[(NkVector<FbxIdEntry>::SizeType)g];
+					const uint32 smBefore = (uint32)out.subMeshes.Size();
+					ExtractGeometry(*ge.node, out);
+					++geoCount;
+					if ((uint32)out.subMeshes.Size() <= smBefore)
+						continue; // geometrie vide/invalide : rien ajoute
+					const int64 modelId = FindOwnerOO(conns, ge.id, models);
+					if (modelId < 0)
+						continue;
+					NkVector<int64> matIds;
+					FindChildrenOO(conns, modelId, materials, matIds);
+					if (matIds.Empty())
+						continue;
+					const int32 matIdx =
+						LoadFbxMaterial(matIds[0], materials, textures, conns, baseDir, out, matIdCache,
+										matIdxCache, texIdCache, texImgCache);
+					if (matIdx >= 0)
+						out.subMeshMaterial[(NkVector<int32>::SizeType)(out.subMeshMaterial.Size() - 1)] = matIdx;
 				}
 				if (out.vertices.Empty() || out.indices.Empty()) {
 					NkLog::Instance().Warnf("[NkFBXLoader] aucune geometrie exploitable dans %s", path.CStr());
@@ -596,9 +891,11 @@ namespace nkentseu {
 				ComputeBounds(out);
 				out.debugName = path;
 				NkLog::Instance().Infof(
-					"[NkFBXLoader] OK '%s' (%s v%u) : %u geometries, %u verts, %u indices, %u sous-meshes", path.CStr(),
-					ascii ? "ascii" : "binaire", version, geoCount, (uint32)out.vertices.Size(),
-					(uint32)out.indices.Size(), (uint32)out.subMeshes.Size());
+					"[NkFBXLoader] OK '%s' (%s v%u) : %u geometries, %u verts, %u indices, %u sous-meshes, "
+					"%u materiaux, %u textures",
+					path.CStr(), ascii ? "ascii" : "binaire", version, geoCount, (uint32)out.vertices.Size(),
+					(uint32)out.indices.Size(), (uint32)out.subMeshes.Size(), (uint32)out.materials.Size(),
+					(uint32)out.images.Size());
 				return true;
 			}
 		} // namespace
