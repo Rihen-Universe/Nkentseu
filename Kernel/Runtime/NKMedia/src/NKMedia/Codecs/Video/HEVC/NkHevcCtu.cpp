@@ -141,6 +141,19 @@ namespace nkentseu {
 
 			enum { kScanDiag = 0, kScanHoriz = 1, kScanVert = 2 };
 
+			// part_mode (Table 7-10) — valeurs locales, ordre sans importance (pas de
+			// table indexée dessus, juste des comparaisons).
+			enum {
+				kPart2Nx2N = 0,
+				kPart2NxN,
+				kPartNx2N,
+				kPartNxN,
+				kPart2NxnU,
+				kPart2NxnD,
+				kPartnLx2N,
+				kPartnRx2N,
+			};
+
 			// ---- Transformées inverses (§8.6.4) -----------------------------------
 			// Matrice DCT entière 32×32 normative (lignes = bases ; les tailles 4/8/16
 			// sous-échantillonnent les lignes k*(32/N), N premières colonnes). Valeurs
@@ -298,14 +311,18 @@ namespace nkentseu {
 					// Voisinage (parse).
 					NkVector<uint8> ctDepth;	   // par min-CB
 					NkVector<uint8> intraModeY;	   // par bloc 4x4
+					NkVector<uint8> skipFlagMap;   // par min-CB (P/B, brique 8)
 					bool isCuQpDeltaCoded = false; // par groupe de quantification
 
 					// CU courant.
 					bool cuTransquantBypass = false;
 					bool intraSplit = false; // part NxN
+					bool cuIsIntra = true;	 // faux = CU inter (brique 8, parse structurel seul)
 					int32 curIntraModeY[4] = {1, 1, 1, 1};
 					int32 curIntraModeC = 1;
 					int32 curCuX = 0, curCuY = 0, curCuLog2 = 3;
+					int32 curPartMode = 0; // kPart2Nx2N — nécessaire au split forcé inter (§7.4.9.8)
+					int32 maxTrafoDepthInter = 0;
 
 					// ---- Reconstruction (brique 6) — active si frame != nullptr ------
 					NkHevcFrame *frame = nullptr;
@@ -497,11 +514,17 @@ namespace nkentseu {
 						cuQpDeltaVal = 0;
 						qpYPrev = lastCuQpY;
 						int32 qpA = qpYPrev, qpB = qpYPrev;
-						// Disponible seulement dans le MÊME CTB (sinon qPY_PREV).
-						if (xQg > 0 && ((xQg - 1) >> ctbLog2) == (xQg >> ctbLog2))
-							qpA = qpMap[(usize)((yQg >> minCbLog2) * minCbWidth + ((xQg - 1) >> minCbLog2))];
-						if (yQg > 0 && ((yQg - 1) >> ctbLog2) == (yQg >> ctbLog2))
-							qpB = qpMap[(usize)(((yQg - 1) >> minCbLog2) * minCbWidth + (xQg >> minCbLog2))];
+						// `qpMap` n'est alloué que si `frame` (reconstruction) : en parse
+						// structurel seul (brique 8, P/B), qgQpYPred n'affecte AUCUN bit
+						// consommé (seule sa VALEUR servirait à CurrentQpY(), lui-même non
+						// lu hors reconstruction) — sans danger de rester à qPY_PREV ici.
+						if (frame) {
+							// Disponible seulement dans le MÊME CTB (sinon qPY_PREV).
+							if (xQg > 0 && ((xQg - 1) >> ctbLog2) == (xQg >> ctbLog2))
+								qpA = qpMap[(usize)((yQg >> minCbLog2) * minCbWidth + ((xQg - 1) >> minCbLog2))];
+							if (yQg > 0 && ((yQg - 1) >> ctbLog2) == (yQg >> ctbLog2))
+								qpB = qpMap[(usize)(((yQg - 1) >> minCbLog2) * minCbWidth + (xQg >> minCbLog2))];
+						}
 						qgQpYPred = (qpA + qpB + 1) >> 1;
 					}
 					int32 CurrentQpY() const {
@@ -1315,12 +1338,23 @@ namespace nkentseu {
 						if (!okFlag)
 							return;
 						bool split;
-						const int32 maxDepth = maxTrafoDepthIntra + (intraSplit ? 1 : 0);
+						// §7.4.9.8 : max_trafo_depth vient de max_transform_hierarchy_depth_
+						// INTRA (+1 si intra_split_flag) OU _INTER selon CuPredMode — PAS
+						// toujours la variante intra (bug corrigé : les deux valeurs peuvent
+						// différer, même si elles coïncident souvent à 0 chez x265).
+						const int32 maxDepth =
+							cuIsIntra ? (maxTrafoDepthIntra + (intraSplit ? 1 : 0)) : maxTrafoDepthInter;
 						if (log2Size <= maxTbLog2 && log2Size > minTbLog2 && depth < maxDepth &&
 							!(intraSplit && depth == 0)) {
 							split = Bin(kHevcCtxSplitTransform + 5 - log2Size) != 0;
 						} else {
-							split = (log2Size > maxTbLog2) || (intraSplit && depth == 0);
+							// inter_split (référence ffmpeg hls_transform_tree) : quand la
+							// profondeur inter max est 0 et le CU inter n'est PAS 2Nx2N, le
+							// split à la profondeur 0 est FORCÉ (pour aligner l'arbre de
+							// transformées sur les limites de PU) — AUCUN bit lu pour ce cas.
+							const bool interSplit = !cuIsIntra && maxTrafoDepthInter == 0 &&
+													curPartMode != kPart2Nx2N && depth == 0;
+							split = (log2Size > maxTbLog2) || (intraSplit && depth == 0) || interSplit;
 						}
 						bool cbfCb = parentCbfCb, cbfCr = parentCbfCr;
 						if (log2Size > 2) { // 4:2:0
@@ -1346,8 +1380,12 @@ namespace nkentseu {
 											   pbSplitLevel ? 3 : pbIdx, cbfCb, cbfCr);
 							return;
 						}
-						// Feuille : cbf_luma (toujours signalé en intra) puis transform_unit.
-						const bool cbfLuma = Bin(kHevcCtxCbfLuma + (depth == 0 ? 1 : 0)) != 0;
+						// Feuille : cbf_luma — INFÉRÉ à 1 (PAS lu) pour un CU INTER à la
+						// profondeur 0 SANS cbf chroma (§7.3.8.8 : le résidu luma est alors
+						// implicitement présent, cf. hls_transform_unit de la référence).
+						bool cbfLuma = true;
+						if (cuIsIntra || depth != 0 || cbfCb || cbfCr)
+							cbfLuma = Bin(kHevcCtxCbfLuma + (depth == 0 ? 1 : 0)) != 0;
 						if ((cbfLuma || cbfCb || cbfCr) && pps->cuQpDeltaEnabled && !isCuQpDeltaCoded) {
 							// cu_qp_delta_abs : préfixe TR contexté (bin0 ctx+0, suite ctx+1,
 							// cMax 5) + suffixe EG0 bypass, puis signe bypass si non nul.
@@ -1379,51 +1417,177 @@ namespace nkentseu {
 							isCuQpDeltaCoded = true;
 							++stats->qpDeltaCount;
 						}
-						// Mode intra luma du bloc courant (partition couvrante).
-						const int32 lumaMode = curIntraModeY[intraSplit ? pbIdx : 0];
-						// Reconstruction luma : prédiction TOUJOURS, résidu si cbf.
-						if (frame) {
+						// Mode intra luma du bloc courant (partition couvrante) — -1 pour un
+						// CU INTER (brique 8) : force le scan résidus en diagonal (§7.4.9.11,
+						// la sélection horiz/vert selon le mode intra ne s'applique QUE si
+						// CuPredMode == MODE_INTRA), et interdit toute prédiction intra tant
+						// que la reconstruction inter (MC) n'est pas implémentée.
+						const int32 lumaMode = cuIsIntra ? curIntraModeY[intraSplit ? pbIdx : 0] : -1;
+						const int32 chromaMode = cuIsIntra ? curIntraModeC : -1;
+						// Reconstruction luma : prédiction TOUJOURS (intra seulement pour
+						// l'instant), résidu si cbf (parse — reconstruit seulement si frame).
+						if (frame && cuIsIntra) {
 							PredictIntra(0, x0, y0, log2Size, lumaMode);
 							MarkLumaEdges(x0, y0, 1 << log2Size);
 						}
 						if (cbfLuma)
 							ParseResidual(x0, y0, log2Size, 0, lumaMode);
-						if (frame)
+						if (frame && cuIsIntra)
 							MarkLumaRecon(x0, y0, 1 << log2Size);
 						// Chroma (4:2:0).
 						if (log2Size > 2) {
 							const int32 cx = x0 >> 1, cy = y0 >> 1;
-							if (frame) {
-								PredictIntra(1, cx, cy, log2Size - 1, curIntraModeC);
+							if (frame && cuIsIntra) {
+								PredictIntra(1, cx, cy, log2Size - 1, chromaMode);
 								MarkChromaEdges(cx, cy, 1 << (log2Size - 1));
 							}
 							if (cbfCb)
-								ParseResidual(cx, cy, log2Size - 1, 1, curIntraModeC);
-							if (frame)
-								PredictIntra(2, cx, cy, log2Size - 1, curIntraModeC);
+								ParseResidual(cx, cy, log2Size - 1, 1, chromaMode);
+							if (frame && cuIsIntra)
+								PredictIntra(2, cx, cy, log2Size - 1, chromaMode);
 							if (cbfCr)
-								ParseResidual(cx, cy, log2Size - 1, 2, curIntraModeC);
-							if (frame)
+								ParseResidual(cx, cy, log2Size - 1, 2, chromaMode);
+							if (frame && cuIsIntra)
 								MarkChromaRecon(cx, cy, 1 << (log2Size - 1));
 						} else if (blkIdx == 3) {
 							const int32 cx = xBase >> 1, cy = yBase >> 1;
-							if (frame) {
-								PredictIntra(1, cx, cy, 2, curIntraModeC);
+							if (frame && cuIsIntra) {
+								PredictIntra(1, cx, cy, 2, chromaMode);
 								MarkChromaEdges(cx, cy, 4);
 							}
 							if (parentCbfCb)
-								ParseResidual(cx, cy, 2, 1, curIntraModeC);
-							if (frame)
-								PredictIntra(2, cx, cy, 2, curIntraModeC);
+								ParseResidual(cx, cy, 2, 1, chromaMode);
+							if (frame && cuIsIntra)
+								PredictIntra(2, cx, cy, 2, chromaMode);
 							if (parentCbfCr)
-								ParseResidual(cx, cy, 2, 2, curIntraModeC);
-							if (frame)
+								ParseResidual(cx, cy, 2, 2, chromaMode);
+							if (frame && cuIsIntra)
 								MarkChromaRecon(cx, cy, 4);
 						}
 					}
 
-					// ---- coding_unit intra (§7.3.8.5) ---------------------------------
-					void ParseCodingUnit(int32 x0, int32 y0, int32 log2CbSize) {
+					// ---- part_mode (§9.3.3.7 — CU inter, cf. ff_hevc_part_mode_decode) -
+					int32 DecodePartMode(int32 log2CbSize) {
+						if (Bin(kHevcCtxPartMode + 0))
+							return kPart2Nx2N;
+						if (log2CbSize == minCbLog2) {
+							if (cuIsIntra)
+								return kPartNxN;
+							if (Bin(kHevcCtxPartMode + 1))
+								return kPart2NxN;
+							if (log2CbSize == 3)
+								return kPartNx2N;
+							if (Bin(kHevcCtxPartMode + 2))
+								return kPartNx2N;
+							return kPartNxN;
+						}
+						if (!sps->ampEnabled) {
+							if (Bin(kHevcCtxPartMode + 1))
+								return kPart2NxN;
+							return kPartNx2N;
+						}
+						if (Bin(kHevcCtxPartMode + 1)) {
+							if (Bin(kHevcCtxPartMode + 3))
+								return kPart2NxN;
+							return Bypass() ? kPart2NxnD : kPart2NxnU;
+						}
+						if (Bin(kHevcCtxPartMode + 3))
+							return kPartNx2N;
+						return Bypass() ? kPartnRx2N : kPartnLx2N;
+					}
+
+					// ref_idx_lx (§9.3.3.13) — ffmpeg n'utilise QU'UN SEUL jeu de contextes
+					// (REF_IDX_L0_OFFSET) pour L0 ET L1 (vérifié dans la référence :
+					// ff_hevc_ref_idx_lx_decode ne reçoit jamais l'offset L1) — reproduit
+					// à l'identique pour rester bit-exact (les contextes ref_idx_l1
+					// existent dans la table mais ne sont JAMAIS référencés).
+					int32 DecodeRefIdx(int32 numRefIdxActive) {
+						int32 i = 0;
+						const int32 maxV = numRefIdxActive - 1;
+						const int32 maxCtx = Min32(maxV, 2);
+						while (i < maxCtx && Bin(kHevcCtxRefIdxL0 + i))
+							++i;
+						if (i == 2)
+							while (i < maxV && Bypass())
+								++i;
+						return i;
+					}
+
+					// mvd_coding() (§7.3.8.9/9.3.3.9) — la VALEUR n'importe pas ici (parse
+					// structurel seul, brique 8) : seul le nombre de bits comptE.
+					void DecodeMvdComponent(int32 gt0, int32 gt1) {
+						if (!gt0)
+							return; // valeur 0, rien de plus à lire
+						if (!gt1) {
+							Bypass(); // signe seul, |valeur|=1
+							return;
+						}
+						// mvd_decode() : préfixe unaire bypass (k part de 1) puis k bits de
+						// suffixe puis signe — la longueur du préfixe est elle-même lue
+						// depuis le flux (ne peut pas être précalculée).
+						int32 k = 1;
+						while (k < 31 && Bypass())
+							++k;
+						int32 kk = k;
+						while (kk--)
+							Bypass();
+						Bypass(); // signe
+					}
+					void DecodeMvd() {
+						const int32 gt0x = (int32)Bin(kHevcCtxAbsMvdGreater0 + 0);
+						const int32 gt0y = (int32)Bin(kHevcCtxAbsMvdGreater0 + 0);
+						const int32 gt1x = gt0x ? (int32)Bin(kHevcCtxAbsMvdGreater1 + 1) : 0;
+						const int32 gt1y = gt0y ? (int32)Bin(kHevcCtxAbsMvdGreater1 + 1) : 0;
+						DecodeMvdComponent(gt0x, gt1x);
+						DecodeMvdComponent(gt0y, gt1y);
+					}
+
+					// prediction_unit() (§7.3.8.6/7) — parse structurel seul (brique 8) :
+					// pas de dérivation de candidats merge/AMVP, pas de MV résolu — rien de
+					// tout cela n'affecte le nombre de bits CABAC consommés (seule la
+					// syntaxe importe pour la synchronisation). Retourne `merge_flag`
+					// (ou true si skip, merge inféré sans lecture de bit — §7.3.8.6).
+					bool ParsePredictionUnit(int32 pw, int32 ph, int32 depth, bool isSkip) {
+						bool mergeFlag = isSkip;
+						if (!isSkip)
+							mergeFlag = Bin(kHevcCtxMergeFlag) != 0;
+						if (mergeFlag) {
+							if (sh->maxNumMergeCand > 1) {
+								int32 idx = (int32)Bin(kHevcCtxMergeIdx);
+								if (idx != 0)
+									while (idx < sh->maxNumMergeCand - 1 && Bypass())
+										++idx;
+							}
+							return true;
+						}
+						int32 interPredIdc = 0; // 0=L0, 1=L1, 2=BI (NkHevcSliceType kHevcSliceB)
+						if (sh->sliceType == kHevcSliceB) {
+							if (pw + ph == 12)
+								interPredIdc = (int32)Bin(kHevcCtxInterPredIdc + 4);
+							else if (Bin(kHevcCtxInterPredIdc + depth))
+								interPredIdc = 2;
+							else
+								interPredIdc = (int32)Bin(kHevcCtxInterPredIdc + 4);
+						}
+						if (interPredIdc != 1) { // L0 présent
+							DecodeRefIdx(sh->numRefIdxL0Active);
+							DecodeMvd();
+							Bin(kHevcCtxMvpLxFlag);
+						}
+						if (interPredIdc != 0) { // L1 présent
+							DecodeRefIdx(sh->numRefIdxL1Active);
+							if (!(sh->mvdL1Zero && interPredIdc == 2))
+								DecodeMvd();
+							Bin(kHevcCtxMvpLxFlag);
+						}
+						return false;
+					}
+
+					// ---- coding_unit (§7.3.8.5) — commun I/P/B (brique 8 : parse
+					// structurel des CU inter — skip/merge/AMVP/mvd — SANS dérivation de
+					// MV ni reconstruction ; validé comme la brique 5 CTU intra, via la
+					// synchronisation CABAC). ---------------------------------------------
+					void ParseCodingUnit(int32 x0, int32 y0, int32 log2CbSize, int32 depth) {
 						if (!okFlag)
 							return;
 						++stats->cuCount;
@@ -1433,55 +1597,151 @@ namespace nkentseu {
 						cuTransquantBypass = false;
 						if (pps->transquantBypassEnabled)
 							cuTransquantBypass = Bin(kHevcCtxCuTransquantBypass) != 0;
-						intraSplit = false;
-						if (log2CbSize == minCbLog2) {
-							// part_mode intra : 1 bin (1 = 2Nx2N, 0 = NxN).
-							if (Bin(kHevcCtxPartMode) == 0)
-								intraSplit = true;
+
+						const int32 xCb = x0 >> minCbLog2, yCb = y0 >> minCbLog2;
+						const int32 nMinCu = (1 << log2CbSize) >> minCbLog2;
+						bool skipFlag = false;
+						if (sh->sliceType != kHevcSliceI) {
+							int32 inc = 0;
+							if (x0 > 0)
+								inc += skipFlagMap[(usize)(yCb * minCbWidth + xCb - 1)];
+							if (y0 > 0)
+								inc += skipFlagMap[(usize)((yCb - 1) * minCbWidth + xCb)];
+							skipFlag = Bin(kHevcCtxSkipFlag + inc) != 0;
 						}
-						const int32 nParts = intraSplit ? 4 : 1;
-						const int32 pbSize = (1 << log2CbSize) >> (intraSplit ? 1 : 0);
-						bool prevFlag[4] = {false, false, false, false};
-						int32 mpmIdx[4] = {0, 0, 0, 0};
-						int32 rem[4] = {0, 0, 0, 0};
-						for (int32 p = 0; p < nParts; ++p)
-							prevFlag[p] = Bin(kHevcCtxPrevIntraLumaPred) != 0;
-						for (int32 p = 0; p < nParts; ++p) {
-							if (prevFlag[p]) {
-								int32 v = 0;
-								while (v < 2 && Bypass())
-									++v;
-								mpmIdx[p] = v;
+						for (int32 j = 0; j < nMinCu; ++j)
+							for (int32 i = 0; i < nMinCu; ++i) {
+								const int32 px = xCb + i, py = yCb + j;
+								if (px < minCbWidth && py < minCbHeight)
+									skipFlagMap[(usize)(py * minCbWidth + px)] = skipFlag ? 1 : 0;
+							}
+
+						intraSplit = false;
+						cuIsIntra = true;
+						int32 partMode = kPart2Nx2N;
+						bool rqtRootCbf = true;
+
+						if (skipFlag) {
+							cuIsIntra = false;
+							const int32 cb = 1 << log2CbSize;
+							ParsePredictionUnit(cb, cb, depth, true);
+							rqtRootCbf = false; // un CU skip n'a JAMAIS de résidu
+						} else {
+							if (sh->sliceType != kHevcSliceI)
+								cuIsIntra = Bin(kHevcCtxPredModeFlag) != 0; // 1 = MODE_INTRA
+							if (!cuIsIntra || log2CbSize == minCbLog2)
+								partMode = DecodePartMode(log2CbSize);
+							intraSplit = (partMode == kPartNxN && cuIsIntra);
+
+							if (cuIsIntra) {
+								const int32 nParts = intraSplit ? 4 : 1;
+								const int32 pbSize = (1 << log2CbSize) >> (intraSplit ? 1 : 0);
+								bool prevFlag[4] = {false, false, false, false};
+								int32 mpmIdx[4] = {0, 0, 0, 0};
+								int32 rem[4] = {0, 0, 0, 0};
+								for (int32 p = 0; p < nParts; ++p)
+									prevFlag[p] = Bin(kHevcCtxPrevIntraLumaPred) != 0;
+								for (int32 p = 0; p < nParts; ++p) {
+									if (prevFlag[p]) {
+										int32 v = 0;
+										while (v < 2 && Bypass())
+											++v;
+										mpmIdx[p] = v;
+									} else {
+										rem[p] = (int32)BypassBits(5);
+									}
+								}
+								for (int32 p = 0; p < nParts; ++p) {
+									const int32 xPb = x0 + (p & 1) * pbSize;
+									const int32 yPb = y0 + (p >> 1) * pbSize;
+									const int32 mode = DeriveIntraMode(xPb, yPb, prevFlag[p], mpmIdx[p], rem[p]);
+									curIntraModeY[p] = mode;
+									StoreModes(xPb, yPb, pbSize, mode);
+								}
+								// intra_chroma_pred_mode (4:2:0 : un seul pour le CU).
+								if (Bin(kHevcCtxIntraChromaPredMode) == 0) {
+									curIntraModeC = curIntraModeY[0]; // DM
+								} else {
+									static const int32 kChromaModes[4] = {0, 26, 10, 1};
+									const int32 idx = (int32)BypassBits(2);
+									curIntraModeC = kChromaModes[idx];
+									if (curIntraModeC == curIntraModeY[0])
+										curIntraModeC = 34;
+								}
 							} else {
-								rem[p] = (int32)BypassBits(5);
+								// Géométrie des PU selon part_mode (§7.4.9.5) — seule la
+								// somme largeur+hauteur importe (contexte inter_pred_idc),
+								// et le nombre de PU (1 pour 2Nx2N, sinon 2 ou 4 pour NxN).
+								struct PuRect {
+										int32 w, h;
+								};
+								PuRect pu[4];
+								int32 nPu = 0;
+								const int32 cb = 1 << log2CbSize;
+								switch (partMode) {
+									case kPart2Nx2N:
+										nPu = 1;
+										pu[0] = {cb, cb};
+										break;
+									case kPart2NxN:
+										nPu = 2;
+										pu[0] = {cb, cb / 2};
+										pu[1] = {cb, cb / 2};
+										break;
+									case kPartNx2N:
+										nPu = 2;
+										pu[0] = {cb / 2, cb};
+										pu[1] = {cb / 2, cb};
+										break;
+									case kPart2NxnU:
+										nPu = 2;
+										pu[0] = {cb, cb / 4};
+										pu[1] = {cb, cb * 3 / 4};
+										break;
+									case kPart2NxnD:
+										nPu = 2;
+										pu[0] = {cb, cb * 3 / 4};
+										pu[1] = {cb, cb / 4};
+										break;
+									case kPartnLx2N:
+										nPu = 2;
+										pu[0] = {cb / 4, cb};
+										pu[1] = {cb * 3 / 4, cb};
+										break;
+									case kPartnRx2N:
+										nPu = 2;
+										pu[0] = {cb * 3 / 4, cb};
+										pu[1] = {cb / 4, cb};
+										break;
+									case kPartNxN:
+										nPu = 4;
+										pu[0] = pu[1] = pu[2] = pu[3] = {cb / 2, cb / 2};
+										break;
+								}
+								bool firstMerge = false;
+								for (int32 i = 0; i < nPu; ++i) {
+									const bool m = ParsePredictionUnit(pu[i].w, pu[i].h, depth, false);
+									if (i == 0)
+										firstMerge = m;
+								}
+								if (!(partMode == kPart2Nx2N && firstMerge))
+									rqtRootCbf = Bin(kHevcCtxNoResidualData) != 0;
+								// (sinon rqtRootCbf reste à sa valeur par défaut TRUE, inférée
+								// sans lecture de bit — §7.4.9.8.)
 							}
 						}
-						for (int32 p = 0; p < nParts; ++p) {
-							const int32 xPb = x0 + (p & 1) * pbSize;
-							const int32 yPb = y0 + (p >> 1) * pbSize;
-							const int32 mode = DeriveIntraMode(xPb, yPb, prevFlag[p], mpmIdx[p], rem[p]);
-							curIntraModeY[p] = mode;
-							StoreModes(xPb, yPb, pbSize, mode);
-						}
-						// intra_chroma_pred_mode (4:2:0 : un seul pour le CU).
-						if (Bin(kHevcCtxIntraChromaPredMode) == 0) {
-							curIntraModeC = curIntraModeY[0]; // DM
-						} else {
-							static const int32 kChromaModes[4] = {0, 26, 10, 1};
-							const int32 idx = (int32)BypassBits(2);
-							curIntraModeC = kChromaModes[idx];
-							if (curIntraModeC == curIntraModeY[0])
-								curIntraModeC = 34;
-						}
-						ParseTransformTree(x0, y0, x0, y0, log2CbSize, 0, 0, 0, false, false);
-						// QP final du CU -> carte de voisinage + qPY_PREV du prochain groupe.
+
+						curPartMode = partMode;
+						if (rqtRootCbf)
+							ParseTransformTree(x0, y0, x0, y0, log2CbSize, 0, 0, 0, false, false);
+
+						// QP final du CU -> carte de voisinage + qPY_PREV du prochain groupe
+						// (calculé même pour un CU skip/inter sans résidu, §8.6.1).
 						if (frame) {
 							const int32 qpY = CurrentQpY();
 							lastCuQpY = qpY;
-							const int32 nMin = (1 << log2CbSize) >> minCbLog2;
-							const int32 xCb = x0 >> minCbLog2, yCb = y0 >> minCbLog2;
-							for (int32 j = 0; j < nMin; ++j)
-								for (int32 i = 0; i < nMin; ++i) {
+							for (int32 j = 0; j < nMinCu; ++j)
+								for (int32 i = 0; i < nMinCu; ++i) {
 									const int32 px = xCb + i, py = yCb + j;
 									if (px < minCbWidth && py < minCbHeight)
 										qpMap[(usize)(py * minCbWidth + px)] = (int8)qpY;
@@ -1529,7 +1789,7 @@ namespace nkentseu {
 								if (px < minCbWidth && py < minCbHeight)
 									ctDepth[(usize)(py * minCbWidth + px)] = (uint8)depth;
 							}
-						ParseCodingUnit(x0, y0, log2CbSize);
+						ParseCodingUnit(x0, y0, log2CbSize, depth);
 					}
 			};
 
@@ -1540,8 +1800,11 @@ namespace nkentseu {
 				out = NkHevcSliceDataStats{};
 				if (!nal || size < 4 || !sps.valid || !pps.valid || !sh.valid)
 					return false;
-				if (sh.sliceType != kHevcSliceI || sh.dependentSliceSegment || !sh.firstSliceSegmentInPic)
-					return false; // P/B et slices multiples : briques suivantes
+				if (sh.dependentSliceSegment || !sh.firstSliceSegmentInPic)
+					return false; // slices multiples : brique suivante
+				if (sh.sliceType != kHevcSliceI && frame)
+					return false; // reconstruction P/B (MC) : brique suivante — le parse
+								  // structurel seul (frame==nullptr) est supporté (brique 8)
 				if (pps.tilesEnabled || sps.pcmEnabled || sps.chromaFormatIdc != 1 ||
 					sps.separateColourPlane)
 					return false;
@@ -1593,6 +1856,7 @@ namespace nkentseu {
 				p.minTbLog2 = sps.log2MinTbSizeY;
 				p.maxTbLog2 = sps.log2MinTbSizeY + sps.log2DiffMaxMinTbSizeY;
 				p.maxTrafoDepthIntra = sps.maxTransformHierarchyDepthIntra;
+				p.maxTrafoDepthInter = sps.maxTransformHierarchyDepthInter;
 				p.picW = sps.width;
 				p.picH = sps.height;
 				const int32 ctbSize = 1 << p.ctbLog2;
@@ -1607,6 +1871,9 @@ namespace nkentseu {
 				p.intraModeY.Resize((usize)(p.minPuWidth * p.minPuHeight));
 				for (uint64 i = 0; i < p.intraModeY.Size(); ++i)
 					p.intraModeY[i] = 1; // DC par défaut
+				p.skipFlagMap.Resize((usize)(p.minCbWidth * p.minCbHeight));
+				for (uint64 i = 0; i < p.skipFlagMap.Size(); ++i)
+					p.skipFlagMap[i] = 0;
 				const int32 picSizeInCtbs = p.picWidthInCtbs * p.picHeightInCtbs;
 
 				if (frame) {

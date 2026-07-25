@@ -20,7 +20,7 @@
 | 3quater. **Fichiers .opus (Ogg-Opus, RFC 7845)** + câblage NKAudio | ✅ | **Conteneur Ogg livré (2026-07-12)** : probe (pistes opus/vorbis depuis les pages BOS) + démux (pages → paquets, lacing, `granule`) ; `NkOpusFile` (OpusHead pre-skip/gain + décode + trim granule ; **hybride/stéréo refusés proprement** → retirer le garde quand 3ter sera fini). Harnais `--oggopus`, self-test forge Ogg (34/34). **Validé vs ffmpeg** : SILK-WB corr 0.999985 (lag +2 = délai resampler), CELT corr 0.965 lag 0. **NKAudio branché** : `AudioFormat::OPUS` décodé via `NkOpusCodec` (détection OggS+OpusHead), test `NkMicRecord --decode in.opus out.wav`. NB : NKAudio dépend de NKMedia → 10 jengas d'apps mis à jour |
 | 4. Décodeur audio AAC-LC | ✅ | *(table périmée, tenue à jour dans « Livré » ci-dessous)* MP4 → PCM, stéréo complet, bit-exact vs ffmpeg |
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅ + WAV (RIFF) ✅** ; reste WebM |
-| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC briques 1-7 : INTRA + déblocage + SAO, pixels bit-exacts vs ffmpeg** (8-bit + Main10, flux standard ET sans filtres) ; reste inter P/B ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
+| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC briques 1-8** : INTRA+déblocage+SAO pixels bit-exacts (8-bit+Main10) + **syntaxe CU inter I/P/B validée structurellement (25/25 slices, 2 flux)** ; reste MC/DPB pour les pixels P/B ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
 | 8. **Décodeur vidéo VP8** | ✅ | **DÉCODEUR COMPLET (clé + inter) : 325 images BIT-EXACTES vs ffmpeg sur 6 flux** (dont altref invisibles, golden frames, 4 GOPs, SPLITMV, filterLevel 0-8, résolutions impaires). Décodeur booléen, en-têtes, modes intra+inter, MV (near/nearest/new/split), MC 6-tap, résidus, WHT+IDCT, filtre de boucle. Restes mineurs : segmentation MB, partitions multiples, versions 1-3 (refus propre). **À brancher dans NkVideoReader** (WebM/IVF). |
 
@@ -731,7 +731,7 @@
   inter + 10/10 flux clés restent bit-exacts, comme attendu si le bug n'était effectivement
   jamais exercé jusqu'ici).
 
-## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (briques 1-7 : INTRA + déblocage + SAO, pixels bit-exacts vs ffmpeg)
+## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (briques 1-8 : INTRA complet + syntaxe CU inter structurelle)
 
 *(2026-07-24)* Démarré comme suite logique directe de H.264 (« évolution directe … la base de
 départ la plus naturelle », cf. section précédente) — même famille bit-exacte, complexité
@@ -944,10 +944,53 @@ zero-STL, `nkentseu::media`.
     générés cette fois AVEC filtres par défaut (5×322×242 8-bit + 5×1280×720 Main10) :
     **10/10 + 2/2 trames bit-exactes**, non-régression confirmée sur les flux SANS filtres
     de la brique 6 (10/10 toujours OK). Réussi dès le premier build.
-- **Suite (briques 8+, PAS commencées)** : slices **P/B** (syntaxe inter merge/AMVP +
-  compensation de mouvement + DPB/RPS), branchement `NkVideoReader` (.265/MP4/MKV). Restes
-  mineurs (refus propre en place) : tuiles, PCM, 4:2:2/4:4:4, `ref_pic_lists_modification()`,
-  `scaling_list_data()`.
+- ⭐⭐⭐ **Brique 8 livrée et validée (2026-07-25) : syntaxe CU INTER structurelle complète
+  (skip/merge/AMVP), sur les slices P ET B réelles** — `ParseSliceDataIntra` (nom historique
+  gardé) accepte désormais I/P/B en mode PARSE SEUL (`frame == nullptr`) ; la reconstruction
+  pixel (`DecodeSliceIntra`) reste I-only (brique suivante = MC). Couvre : `cu_skip_flag`
+  (contexte voisins gauche/dessus, carte dédiée), `pred_mode_flag` (CU intra MIXÉ dans une
+  slice P/B, cas réel rencontré et géré), `part_mode` inter complet (2Nx2N/2NxN/Nx2N/NxN/AMP —
+  `DecodePartMode`, port fidèle de `ff_hevc_part_mode_decode`), `prediction_unit()` par PU
+  (merge_flag/merge_idx, ou AMVP : `inter_pred_idc` (B seulement, contexte par profondeur CU),
+  `ref_idx_lx` — **1 SEUL jeu de contextes partagé L0/L1** (vérifié dans ffmpeg : `ref_idx_l1`
+  n'est JAMAIS référencé, reproduit à l'identique), `mvd_coding()` (greater0/greater1 + préfixe
+  unaire bypass + suffixe + signe — la longueur est elle-même dans le flux, pas
+  précalculable), `mvp_lx_flag` (1 contexte partagé L0/L1)), `rqt_root_cbf` (inféré à 1 sans
+  lecture pour 2Nx2N+merge).
+  ⭐ **Aucune dérivation de candidats merge/AMVP ni résolution de MV n'est nécessaire à ce
+  stade** : ces calculs ne changent AUCUN bit consommé (seule leur VALEUR servirait à la MC,
+  future brique) — insight qui a permis de scoper cette brique à la seule SYNTAXE.
+  - ⭐⭐ **2 bugs trouvés et corrigés — spécifiques à `transform_tree` pour CU INTER**, invisibles
+    tant qu'on ne teste que l'intra (briques 5-7) : (1) **split de transformée FORCÉ implicite**
+    quand `max_transform_hierarchy_depth_inter == 0` ET le CU inter n'est PAS 2Nx2N ET
+    profondeur 0 (`inter_split` de la référence ffmpeg) — jamais lu comme bit, la transformée
+    DOIT alors s'aligner sur les limites de PU ; (2) **`cbf_luma` INFÉRÉ à 1** (pas lu) pour un
+    CU inter à profondeur 0 SANS cbf chroma. Les deux découverts par **bissection empirique**
+    (traces CU-par-CU comparant la position d'octet consommée) après qu'une relecture manuelle
+    exhaustive du code n'ait rien trouvé — la vraie cause n'est apparue qu'en comparant
+    directement au code source de `hls_transform_tree` (ffmpeg), pas en re-dérivant depuis la
+    spec. Corrigé aussi au passage : `max_transform_hierarchy_depth_INTER` était utilisé nulle
+    part (toujours la variante intra) — sans effet dans NOS flux de test (les deux valent 0)
+    mais latent pour d'autres flux.
+  - ⭐ **Bug préexistant (brique 6) découvert en creusant** : `StartQuantGroup` lisait `qpMap`
+    (alloué SEULEMENT si `frame`) SANS le garder derrière `if (frame)` — lecture hors-borne
+    silencieuse en Release (indice hors-bornes toléré par UB, aucun effet sur le nombre de
+    bits consommés donc jamais remarqué), mais **assert immédiat en build Debug**. Trouvé en
+    lançant le harnais sous `gdb`/build Debug pour CETTE brique — corrigé (gate `if (frame)`).
+    Leçon : **valider aussi en Debug** (asserts actifs), pas seulement en Release.
+  - **Validation** : les 2 flux réels (322×242 + 1280×720 Main10, 25 slices chacune, GOP mixte
+    I/P/B avec AMP désactivé, WPP actif) passent **25/25 en structurel**, en Debug (asserts) ET
+    Release. **Non-régression pixel confirmée sur TOUTES les briques précédentes** (6/7) :
+    10/10 + 10/10 trames intra bit-exactes (sans et avec filtres), 2/2 flux historiques
+    bit-exacts — les fixes de `transform_tree` ne touchent QUE le chemin inter, zéro
+    changement pour l'intra.
+- **Suite (briques 9+, PAS commencées)** : compensation de mouvement (**MC**, filtres qpel
+  luma 8-tap / epel chroma 4-tap, prédiction bi/uni pondérée — `pred_weight_table` déjà
+  consommée depuis la brique 3), **DPB + construction des listes de référence** (RefPicList0/1
+  depuis les RPS, gestion des slots), reconstruction PIXELS des slices P/B (validation vs
+  ffmpeg, le vrai juge de paix — comme pour l'intra), branchement `NkVideoReader`
+  (.265/MP4/MKV). Restes mineurs (refus propre en place) : tuiles, PCM, 4:2:2/4:4:4,
+  `ref_pic_lists_modification()`, `scaling_list_data()`.
 
 ## En cours / À venir
 
