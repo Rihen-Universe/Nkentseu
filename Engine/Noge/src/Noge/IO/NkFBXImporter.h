@@ -15,15 +15,22 @@
 // CE QUE LE LOADER RÉEL SUPPORTE (donc ce qui est réellement importé) :
 //   ✅ Géométrie (Vertices/PolygonVertexIndex/Normals/UV, 1 sous-mesh par
 //      Geometry FBX, triangulation fan, normales recalculées si absentes).
-// CE QUE LE LOADER RÉEL NE SUPPORTE PAS (donc jamais rempli ici — pas
-// d'invention, `NkFBXScene::skeletons/animations/materials` restent VIDES) :
-//   ❌ Matériaux/textures FBX.
-//   ❌ Skinning / animations FBX.
+//   ✅ Matériaux Phong (Properties70 : DiffuseColor/DiffuseFactor/
+//      TransparencyFactor/EmissiveColor/EmissiveFactor/ShininessExponent) +
+//      textures connectées (DiffuseColor/NormalMap ou Bump/EmissiveColor,
+//      résolues par rapport au dossier du .fbx) — `NkFBXScene::materials`
+//      rempli si `importMaterials` (résolution du graphe Objects/Connections :
+//      Geometry -> Model propriétaire -> 1er Material connecté).
+// CE QUE LE LOADER RÉEL NE SUPPORTE PAS ENCORE (donc jamais rempli ici — pas
+// d'invention, `NkFBXScene::skeletons/animations` restent VIDES) :
+//   ❌ Skinning / animations FBX (Deformer/Cluster, AnimationCurve).
 //   ❌ Transforms de nœuds Model (les Geometry FBX sont déjà en espace local,
 //      orientation bakée dans les sommets — voir NkFBXLoader.h).
+//   ❌ Textures FBX embarquées (Video binaire) — seuls les fichiers externes
+//      (RelativeFilename/FileName) sont résolus.
 // En conséquence, `NkFBXImportOptions::importSkeleton/importAnimation/
-// importMaterials/importLights/importCameras` sont des no-ops honnêtes (log
-// d'avertissement si demandés à true) : rien à importer côté loader réel.
+// importLights/importCameras` restent des no-ops honnêtes (log d'avertissement
+// si demandés à true) : rien à importer côté loader réel pour ces aspects.
 //
 // OPTIONS RÉELLEMENT HONORÉES (post-traitement trivial sur les données déjà
 // parsées, pas une nouvelle logique de parsing) :
@@ -49,7 +56,7 @@ namespace nkentseu {
 			bool importMeshes = true;
 			bool importSkeleton = true;	 ///< no-op honnête (loader réel : pas de skinning)
 			bool importAnimation = true;	 ///< no-op honnête (loader réel : pas d'animation)
-			bool importMaterials = true;	 ///< no-op honnête (loader réel : pas de matériaux)
+			bool importMaterials = true;	 ///< réellement importé (Phong + textures, cf. NkFBXScene::materials)
 			bool importLights = false;		 ///< no-op honnête (loader réel : géométrie uniquement)
 			bool importCameras = false;	 ///< no-op honnête (loader réel : géométrie uniquement)
 			float32 scaleFactor = 0.01f;	 // FBX en cm → metres
@@ -70,7 +77,7 @@ namespace nkentseu {
 					float32 roughness = 0.5f, metallic = 0.f;
 			};
 
-			NkVector<MaterialData> materials; ///< toujours vide (non supporté par le loader réel)
+			NkVector<MaterialData> materials; ///< rempli si importMaterials (Phong + textures externes)
 			NkString lastError;
 	};
 
