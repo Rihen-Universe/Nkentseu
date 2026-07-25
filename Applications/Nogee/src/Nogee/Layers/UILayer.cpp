@@ -29,9 +29,12 @@ namespace nkentseu {
 			fontCfg.defaultFontSize = 14.f;
 
 			if (!mCtx.Init((nk_int32)W, (nk_int32)H, fontCfg)) {
-				logger.Errorf("[UILayer] NkUIContext::Init échoué\n");
-				return;
+				logger.Errorf("[UILayer] NkUIContext::Init échoué — UI désactivée (pas de police par défaut)\n");
+				return; // mUIReady reste false → OnUIRender ne dessine rien
 			}
+			// Garantie post-Init : fontManager.Default() != nullptr (police
+			// bitmap intégrée ajoutée par NkUIFontManager::Init/AddBuiltin).
+			mUIReady = true;
 			mCtx.SetTheme(NkUITheme::Dark());
 			mWM.Init();
 
@@ -70,7 +73,7 @@ namespace nkentseu {
 
 		// =====================================================================
 		void UILayer::OnUIRender() {
-			if (!mDevice)
+			if (!mDevice || !mUIReady)
 				return;
 
 			nk_uint32 W = mDevice->GetSwapchainWidth();

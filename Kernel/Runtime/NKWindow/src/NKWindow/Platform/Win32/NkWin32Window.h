@@ -33,7 +33,15 @@ namespace nkentseu {
 			HINSTANCE mHInstance = nullptr;
 			DWORD mDwStyle = 0;
 			DWORD mDwExStyle = 0;
-			DEVMODE mDmScreen = {};
+			// [FIX 2026-07-25] DEVMODEW EXPLICITE, jamais le macro DEVMODE :
+			// DEVMODE = DEVMODEA (156 o) ou DEVMODEW (220 o) selon que la TU
+			// définit UNICODE. Ce struct est embarqué par valeur dans NkWindow
+			// (donc dans NkApplication) : un projet compilé avec UNICODE (Nogee,
+			// NKWindow) et un sans (Engine/Noge) voyaient deux layouts décalés
+			// de 64 octets → ODR violation, GetDevice() lisait mDevice au
+			// mauvais offset → crash aléatoire au démarrage de Nogee.
+			// Le layout doit être indépendant des macros de la TU incluante.
+			DEVMODEW mDmScreen = {};
 			ITaskbarList3 *mTaskbarList = nullptr;
 			NkWin32DropTarget *mDropTarget = nullptr;
 			HICON mIconSmall = nullptr;

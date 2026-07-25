@@ -82,11 +82,12 @@ namespace nkentseu {
 						e.relativePath = e.relativePath.SubStr(1);
 				}
 
-				// Charger thumbnail pour les textures
-				if (!e.isDirectory && e.type == NkAssetType::Texture && mAssetMgr) {
-					NkTextureHandle th = mAssetMgr->GetThumbnail(e.relativePath.CStr());
-					e.thumbnailHandle = th.id;
-				}
+				// [PERF 2026-07-25] Thumbnails PARESSEUX : plus aucun chargement
+				// ici. L'ancien code chargeait synchroneusement chaque texture du
+				// dossier (load disque + upload GPU) → l'attache de l'UILayer
+				// prenait plusieurs secondes sur un dossier riche en images.
+				// La génération se fait désormais au rendu, étalée par frame
+				// (cf. RenderEntry + THUMB_LOADS_PER_FRAME).
 
 				mEntries.PushBack(e);
 			}
@@ -122,9 +123,12 @@ namespace nkentseu {
 			float32 panelW = rect.w - ctx.GetPaddingX() * 2.f;
 			int32 columns = math::NkMax(1, (int32)(panelW / (mThumbnailSize + 8.f)));
 
+			// Budget de thumbnails paresseux pour cette frame
+			mThumbBudget = THUMB_LOADS_PER_FRAME;
+
 			if (NkUI::BeginGrid(ctx, ls, columns)) {
 				for (nk_usize i = 0; i < mEntries.Size(); ++i) {
-					const auto &e = mEntries[i];
+					auto &e = mEntries[i];
 
 					// Filtre texte
 					if (mFilterBuf[0] != '\0' && !ContainsInsensitive(e.name, mFilterBuf))
@@ -185,8 +189,19 @@ namespace nkentseu {
 		}
 
 		void AssetBrowser::RenderEntry(NkUIContext &ctx, NkUIDrawList &dl, NkUIFont &font, NkUILayoutStack &ls,
-									   const NkAssetBrowserEntry &entry, float32 ts) noexcept {
+									   NkAssetBrowserEntry &entry, float32 ts) noexcept {
 			(void)font;
+
+			// [PERF 2026-07-25] Génération paresseuse du thumbnail : uniquement
+			// pour les entrées effectivement rendues, avec budget par frame.
+			if (!entry.isDirectory && entry.type == NkAssetType::Texture && !entry.thumbnailTried && mAssetMgr &&
+				mThumbBudget > 0) {
+				--mThumbBudget;
+				entry.thumbnailTried = true;
+				NkTextureHandle th = mAssetMgr->GetThumbnail(entry.relativePath.CStr());
+				entry.thumbnailHandle = th.id;
+			}
+
 			bool isSelected = (mSelectedPath == entry.fullPath);
 
 			// Fond coloré si sélectionné
