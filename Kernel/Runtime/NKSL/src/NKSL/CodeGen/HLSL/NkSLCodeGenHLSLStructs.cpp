@@ -203,6 +203,9 @@ namespace nkentseu {
 					continue;
 				EmitLine(TypeToHLSL(v->type) + " " + v->name + " : " + sem + ";");
 			}
+			// Valeur système rasterizer (APRÈS les varyings utilisateur) : permet
+			// gl_FrontFacing → input.IsFrontFace (two-sided lighting). Parité DX12.
+			EmitLine("bool   IsFrontFace : SV_IsFrontFace;");
 			IndentPop();
 			EmitLine("};");
 			EmitNewLine();

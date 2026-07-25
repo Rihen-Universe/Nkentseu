@@ -8,6 +8,7 @@
 #include "Core/NkRendererTypes.h"
 #include "Core/NkRendererConfig.h"
 #include "NKRHI/Core/NkIDevice.h"
+#include "NKContainers/Functional/NkFunction.h"
 
 // Forward declarations — évite de tout inclure
 namespace nkentseu {
@@ -34,6 +35,13 @@ namespace nkentseu {
 
 namespace nkentseu {
 	namespace renderer {
+
+		// Callback UI applicative enregistré dans la passe Overlay2D du render
+		// graph (cmd est DANS une render pass active ciblant la sortie finale).
+		// Permet à une app (ex. éditeur Nogee) de soumettre ses draw lists NKUI
+		// via un backend RHI (Integrations/NKUI/NkUIRHIBackend) sans que
+		// NKRenderer connaisse NKUI. [AJOUT 2026-07-25]
+		using NkUIOverlayCallback = NkFunction<void(NkICommandBuffer *)>;
 
 		// =========================================================================
 		// NkRenderer — interface pure
@@ -112,6 +120,16 @@ namespace nkentseu {
 				virtual void SetRenderSizeOverride(uint32 w, uint32 h) {
 					(void)w;
 					(void)h;
+				}
+
+				// ── Overlay UI applicatif ─────────────────────────────────────────────
+				// Enregistre un callback exécuté en FIN de passe Overlay2D (après
+				// Render2D/OverlayRenderer), dans une render pass active sur la
+				// sortie finale. Reconstruit le graph (la passe Overlay2D est créée
+				// même sans Render2D si un callback est présent). Callback vide =
+				// désenregistrement. [AJOUT 2026-07-25 — câblage NKUI de Nogee]
+				virtual void SetUIOverlayCallback(const NkUIOverlayCallback &cb) {
+					(void)cb;
 				}
 
 				// ── Planar reflections (auto) ─────────────────────────────────────────

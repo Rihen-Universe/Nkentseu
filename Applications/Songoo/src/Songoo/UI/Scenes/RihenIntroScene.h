@@ -7,9 +7,10 @@
 
 #include "Songoo/UI/Scene.h"
 #include "Songoo/Render/Texture2D.h"
-#include <atomic>
-#include <mutex>
-#include <thread>
+#include "NKCore/NkAtomic.h"
+#include "NKThreading/NkThread.h"
+#include "NKThreading/NkMutex.h"
+#include "NKThreading/NkScopedLock.h"
 
 namespace nkentseu {
 	class NkImage;
@@ -55,11 +56,11 @@ namespace nkentseu {
 				int mCurrentFrame = 0;
 				float mFrameAccum = 0.0f;
 
-				std::thread mWorker;
-				std::atomic<bool> mWorkerStop{false};
-				std::atomic<bool> mWorkerDone{false};
-				std::atomic<int> mWorkerLastAttempted{-1};
-				std::mutex mQueueMutex;
+				threading::NkThread mWorker;
+				NkAtomic<bool> mWorkerStop{false};
+				NkAtomic<bool> mWorkerDone{false};
+				NkAtomic<int> mWorkerLastAttempted{-1};
+				threading::NkMutex mQueueMutex;
 
 				struct PendingFrame {
 						int index;

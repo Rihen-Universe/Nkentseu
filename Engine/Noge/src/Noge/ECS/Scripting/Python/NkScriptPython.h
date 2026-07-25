@@ -38,6 +38,7 @@
 #include "NKECS/NkECSDefines.h"
 #include "../NkScriptComponent.h"
 #include "../NkScriptBridge.h"
+#include "NKFileSystem/NkFileSystem.h"
 #include <functional>
 #include <memory>
 #include <cstring>
@@ -162,9 +163,11 @@ namespace nkentseu {
 						return false;
 					}
 
-					// Enregistre le chemin pour le hot-reload
+					// Enregistre le chemin + l'horodatage de modification pour le hot-reload
 					if (mScriptCount < kMaxScripts) {
-						std::strncpy(mScriptPaths[mScriptCount++], path, 511);
+						std::strncpy(mScriptPaths[mScriptCount], path, 511);
+						mScriptTimestamps[mScriptCount] = static_cast<uint64>(NkFileSystem::GetLastWriteTime(path));
+						++mScriptCount;
 					}
 
 					return true;
@@ -188,10 +191,20 @@ namespace nkentseu {
 				// Hot-reload automatique (vérifie les timestamps)
 				void HotReload(NkWorld &world) noexcept {
 					(void)world;
-					// Vérifier les timestamps de chaque .py et recharger si modifié
+					// Vérifie les timestamps de chaque .py (via NkFileSystem, déjà une dépendance
+					// de Noge) et recharge si modifié depuis le dernier LoadScript()/ReloadScript().
+					// NOTE : ReloadScript() délègue à LoadScript(), qui ré-enregistre le chemin sans
+					// vérifier de doublon dans mScriptPaths[] (limitation préexistante, hors périmètre
+					// de ce correctif) — sur de nombreux hot-reloads successifs, cela peut accumuler
+					// des entrées dupliquées jusqu'à kMaxScripts. Sans impact fonctionnel immédiat
+					// (le hot-reload reste correct), mais à corriger si ce chemin devient chaud.
 					for (uint32 i = 0; i < mScriptCount; ++i) {
-						// uint64 mtime = GetFileModTime(mScriptPaths[i]);
-						// if (mtime > mScriptTimestamps[i]) ReloadScript(mScriptPaths[i]);
+						uint64 mtime = static_cast<uint64>(NkFileSystem::GetLastWriteTime(mScriptPaths[i]));
+						if (mtime > mScriptTimestamps[i]) {
+							if (ReloadScript(mScriptPaths[i])) {
+								mScriptTimestamps[i] = mtime;
+							}
+						}
 					}
 				}
 

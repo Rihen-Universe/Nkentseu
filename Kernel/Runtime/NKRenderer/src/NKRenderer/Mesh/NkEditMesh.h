@@ -198,6 +198,12 @@ namespace nkentseu {
 		//     maillage de base (mirror/array/subsurf = des commandes paramétrées).
 		//   • IA (NKAI) : espace d'actions + données d'IMITATION (on enregistre les
 		//     sessions de modélisation, on rejoue / on apprend une policy).
+// X11 (Xlib) définit `None` en macro (0) et casserait NkMeshEditOp::None sur le
+// chemin Linux/XLib — même famille de pollution que `Bool` (cf. #undef Bool ailleurs).
+#ifdef None
+#undef None
+#endif
+
 		enum class NkMeshEditOp : uint8 {
 			None = 0,
 			Extrude,

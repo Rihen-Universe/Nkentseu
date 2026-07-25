@@ -171,6 +171,20 @@ namespace nkentseu {
 					// Certains drivers preferent l'array-suffix
 					if (loc < 0)
 						loc = glGetUniformLocation(mCurrentProgram, "_PushConstants[0]");
+#if defined(NK_OPENGL_ES)
+					// Diagnostic temporaire (enquete ecran noir Tuto02Renderer Android) :
+					// si loc<0 le matrice ortho n'est JAMAIS envoyee au shader -> gl_Position
+					// reste (0,0,0,0) -> geometrie degenerescente invisible, sans la moindre
+					// erreur GL. A retirer une fois la cause confirmee.
+					static int sPCLogCount = 0;
+					if (sPCLogCount < 8) {
+						sPCLogCount++;
+						const float *f = (const float *)buf.Data();
+						logger.Infof("[NkRHI_GL][ES] PushConstants prog=%u loc=%d size=%u m00=%f m11=%f m30=%f "
+									 "m31=%f m33=%f\n",
+									 mCurrentProgram, loc, size, f[0], f[5], f[12], f[13], f[15]);
+					}
+#endif
 					if (loc >= 0)
 						glUniform4fv(loc, (GLsizei)(buf.size() / 16), (const GLfloat *)buf.Data());
 				});
@@ -228,8 +242,75 @@ namespace nkentseu {
 																	  instCnt, vtxOff, firstInst);
 #endif
 					} else {
+#if defined(NK_OPENGL_ES)
+						// glDrawElementsBaseVertex n'existe QUE depuis GLES 3.2 core (ou
+						// extension EXT/OES_draw_elements_base_vertex) — absent sur
+						// nombre de drivers ES 3.0/3.1 (dont certains émulateurs). Le
+						// binaire y résout ce symbole a NULL -> crash au premier appel.
+						// NkRender2D (et la plupart des dessinateurs 2D) appellent
+						// TOUJOURS DrawIndexed avec vtxOff=0 : dans ce cas glDrawElements
+						// est strictement équivalent et disponible partout (ES 2.0+).
+						if (vtxOff == 0) {
+							glDrawElements(mPrimitive, idxCnt, idxFmt, (const void *)byteOff);
+						} else {
+							glDrawElementsBaseVertex(mPrimitive, idxCnt, idxFmt, (const void *)byteOff, vtxOff);
+						}
+#else
 						glDrawElementsBaseVertex(mPrimitive, idxCnt, idxFmt, (const void *)byteOff, vtxOff);
+#endif
 					}
+#if defined(NK_OPENGL_ES)
+					// Diagnostic temporaire : les erreurs GL par-draw sont invisibles
+					// depuis qu'InstallGLDebugCallback s'auto-desactive sur ES (KHR_debug
+					// pas fiable sur certains drivers mobiles) — cf. enquete ecran noir
+					// Tuto02Renderer Android. A retirer une fois la cause confirmee.
+					GLenum ndErr = glGetError();
+					if (ndErr != GL_NO_ERROR)
+						logger.Errorf("[NkRHI_GL][ES] DrawIndexed idxCnt=%u vtxOff=%d error=0x%X\n", idxCnt, vtxOff,
+									  ndErr);
+					// Sondes readback (diagnostic temporaire, enquete ecran noir) : apres
+					// chaque draw des premieres frames, lire 3 pixels du framebuffer
+					// COURANT — 2 dans la zone du panneau overlay de Tuto02 (rect 330x70
+					// place a ~(20,20) coin haut-gauche => yGL = vpH-1-yEcran) + 1 au
+					// centre (controle). Tranche entre « rien ne se rasterise » (tout
+					// reste a la couleur de clear) et « ca se rasterise mais en noir »
+					// (rect visible a ~(0,0,0,153) sur fond different). A retirer.
+					else {
+						static int sProbeLog = 0;
+						if (sProbeLog < 12) {
+							sProbeLog++;
+							GLint vp[4] = {0, 0, 0, 0};
+							glGetIntegerv(GL_VIEWPORT, vp);
+							// Bloc 320x70 couvrant tout le panneau de Tuto02 (rect+texte,
+							// ecran (20,20)-(350,90) => yGL = vpH-90..vpH-20) : max par
+							// canal => un SEUL pixel de glyphe blanc rasterise suffit a
+							// faire monter maxRGB a ~255, ou qu'il soit tombe.
+							const GLint bx = 20, bw = 320, bh = 70;
+							GLint by = vp[3] - 90;
+							if (by < 0)
+								by = 0;
+							static GLubyte sBlock[320 * 70 * 4];
+							glReadPixels(bx, by, bw, bh, GL_RGBA, GL_UNSIGNED_BYTE, sBlock);
+							GLenum readErr = glGetError();
+							uint32 maxc[4] = {0, 0, 0, 0}, nonBlack = 0;
+							for (uint32 i = 0; i < (uint32)(bw * bh); ++i) {
+								const GLubyte *p = &sBlock[i * 4];
+								if (p[0] | p[1] | p[2])
+									++nonBlack;
+								for (int c = 0; c < 4; ++c)
+									if (p[c] > maxc[c])
+										maxc[c] = p[c];
+							}
+							GLubyte center[4] = {0};
+							glReadPixels(vp[2] / 2, vp[3] / 2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, center);
+							logger.Infof("[NkRHI_GL][ES] post-draw idx=%u vp=%dx%d panelMax=(%u,%u,%u,%u) "
+										 "nonBlack=%u/%u center=(%u,%u,%u,%u) readErr=0x%X\n",
+										 idxCnt, vp[2], vp[3], maxc[0], maxc[1], maxc[2], maxc[3], nonBlack,
+										 (uint32)(bw * bh), center[0], center[1], center[2], center[3],
+										 (unsigned)readErr);
+						}
+					}
+#endif
 				});
 			}
 

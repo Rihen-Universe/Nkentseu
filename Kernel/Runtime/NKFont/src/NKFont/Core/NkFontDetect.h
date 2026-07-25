@@ -36,7 +36,10 @@ namespace nkentseu {
 		Unknown = 0,   ///< Inconnu (non analysé).
 		Bitmap = 1,	   ///< Police bitmap (ex: ProggyClean, Terminus, Fixedsys).
 		Vector = 2,	   ///< Police vectorielle TrueType avec courbes (ex: Roboto).
-		VectorCFF = 3, ///< Police vectorielle OTF/CFF (non supporté pour l'instant).
+		VectorCFF = 3, ///< Police vectorielle OTF/CFF Type 2 (contours décodés via
+					   ///< l'interpréteur charstring de NkFontParser.cpp). Limitation connue :
+					   ///< callsubr/callgsubr ne sont pas exécutés (subroutines locales/globales
+					   ///< non résolues) — voir NKFont/ROADMAP.md, section « CFF — état réel ».
 	};
 
 	// ============================================================
@@ -68,7 +71,7 @@ namespace nkentseu {
 			nkft_float32 curveRatio = 0.f;	///< curveGlyphCount / sampleGlyphCount.
 
 			// ── Capacités ─────────────────────────────────────────────────────────
-			bool isCFF = false;			   ///< true si OTF/CFF (non supporté).
+			bool isCFF = false;			   ///< true si OTF/CFF (supporté, avec limitation : voir NkFontKind::VectorCFF).
 			bool hasBitmapStrikes = false; ///< true si table EBDT/CBDT présente.
 	};
 

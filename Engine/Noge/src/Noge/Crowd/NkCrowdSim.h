@@ -1,7 +1,7 @@
 
 #pragma once
 // =============================================================================
-// Nkentseu/Anim3D/NkCrowdSim.h — Simulation de foules (agents)
+// Nkentseu/Crowd/NkCrowdSim.h — Simulation de foules (agents)
 // Voir NkLocomotion.h pour NkCrowdAgent et NkCrowdSystem.
 // Ce fichier contient les utilitaires de navigation spatiale.
 // =============================================================================

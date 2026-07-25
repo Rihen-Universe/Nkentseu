@@ -335,6 +335,20 @@ namespace nkentseu {
 			// =========================================================================
 			virtual void OnResize(uint32 width, uint32 height) = 0;
 
+			// Mobile (Android/HarmonyOS) : l'OS peut DETRUIRE et RECREER la fenetre
+			// native (mise en arriere-plan, relayout plein ecran/immersif, splash).
+			// La surface de presentation du device (surface EGL, swapchain) pointe
+			// alors sur une fenetre morte : le rendu continue "avec succes" mais
+			// plus rien n'atteint l'ecran. L'application doit rappeler cette
+			// methode avec le NkSurfaceDesc COURANT (window.GetSurfaceDesc()) a
+			// chaque NkWindowShownEvent ; le device re-attache sa surface si la
+			// fenetre native a change (no-op sinon, et no-op sur desktop ou la
+			// surface ne change jamais).
+			virtual bool RecreateSurface(const NkSurfaceDesc &surf) {
+				(void)surf;
+				return true;
+			}
+
 			// =========================================================================
 			// Queries GPU (timing, stats pipeline)
 			// =========================================================================

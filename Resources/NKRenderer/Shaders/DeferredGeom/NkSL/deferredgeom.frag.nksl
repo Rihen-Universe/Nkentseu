@@ -55,6 +55,11 @@ void main() {
         N = normalize(mix(N, nMapped, uObj.normalStrength));
     }
 
+    // Two-sided lighting (miroir du pbr.frag) : back-face NoCull -> N retournee
+    // AVANT ecriture au G-buffer, la passe lighting recoit la bonne normale.
+    if (!gl_FrontFacing)
+        N = -N;
+
     oAlbedoMetal = vec4(albedo.rgb, uObj.metallic);
     oNormalRough = vec4(N * 0.5 + 0.5, uObj.roughness);
     oEmissiveAO  = vec4(albedo.rgb * uObj.emissiveStrength, uObj.aoStrength);

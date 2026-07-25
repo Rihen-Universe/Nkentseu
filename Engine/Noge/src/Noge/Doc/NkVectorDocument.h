@@ -25,12 +25,40 @@
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
-#include "NkVectorPath.h"
-#include "Nkentseu/Design/NkLayerStack.h"
-#include "Nkentseu/Design/Color/NkColorManager.h"
+// [FIX 2026-07-24] Les 3 includes ci-dessous étaient cassés (chemins jamais
+// résolus par le compilateur -- includedirs Noge.jenga = "src", racine réelle
+// des fichiers = "src/Noge/...") :
+//   - "NkVectorPath.h" (relatif, mais le fichier n'est pas dans Doc/) ->
+//     "Noge/Design/Vector/NkVectorPath.h"
+//   - "Nkentseu/Design/NkLayerStack.h" (préfixe "Nkentseu/" inexistant) ->
+//     "Noge/Design/NkLayerStack.h"
+//   - "Nkentseu/Design/Color/NkColorManager.h" (double erreur : préfixe +
+//     "Design/Color/" alors que le fichier réel est sous "Noge/Color/") ->
+//     "Noge/Color/NkColorManager.h"
+#include "Noge/Design/Vector/NkVectorPath.h"
+#include "Noge/Design/NkLayerStack.h"
+#include "Noge/Color/NkColorManager.h"
+// [FIX 2026-07-24] Include manquant : `undoStack` (membre par valeur plus
+// bas) est de type NkUndoStack, jamais inclus nulle part dans ce fichier ni
+// dans sa chaîne d'includes -> type incomplet à la compilation sans cette
+// ligne.
+#include "Noge/Modeling/NkUndoStack.h"
 
 namespace nkentseu {
-	using namespace math;
+	// [FIX 2026-07-24] `using namespace math;` remplacé par des `using`
+	// ciblés (voir le commentaire complet dans Noge/Color/NkColorManager.h) :
+	// un using-directive en portée namespace fuit vers le reste de la unité
+	// de compilation, y compris VERS L'ARRIÈRE dans les fichiers inclus après
+	// lui -- c'est précisément ce qui rendait `NkColor` ambigu à l'intérieur
+	// même de Noge/Color/NkColorManager.h (inclus juste au-dessus) tant que
+	// NkVectorPath.h/NkLayerStack.h faisaient encore `using namespace math;`
+	// avant lui dans la même unité de compilation. `NkColor` lui-même N'EST
+	// PAS importé ici : toutes ses utilisations dans ce fichier (NkGuide,
+	// NkGrid, NkArtboard::background) sont qualifiées explicitement en
+	// `nkentseu::NkColor`.
+	using math::NkVec2f;
+	using math::NkMat3f;
+	using math::NkAABB2f;
 
 	// =========================================================================
 	// NkVectorObject — objet vectoriel (chemin, texte, image)
@@ -150,7 +178,14 @@ namespace nkentseu {
 			enum class Orientation : uint8 { Horizontal, Vertical };
 			Orientation orientation = Orientation::Horizontal;
 			float32 position = 0.f; ///< Position en unités document
-			NkColor color = NkColor::FromSRGB(0.3f, 0.6f, 1.f);
+			// [FIX 2026-07-24] `NkColor` qualifié explicitement : ambigu sinon
+			// entre `nkentseu::NkColor` (Color/NkColorManager.h, inclus plus
+			// haut) et `nkentseu::math::NkColor` (NKMath/NkColor.h, visible via
+			// `using namespace math;` ligne ~48 de ce fichier) -- seul
+			// `nkentseu::NkColor` a `FromSRGB()`, mais la résolution du NOM
+			// `NkColor` lui-même échoue (ambigu) avant même de regarder ses
+			// membres, d'où la qualification explicite.
+			nkentseu::NkColor color = nkentseu::NkColor::FromSRGB(0.3f, 0.6f, 1.f);
 			bool locked = false;
 			bool visible = true;
 	};
@@ -163,8 +198,9 @@ namespace nkentseu {
 			Type type = Type::Lines;
 			float32 spacing = 10.f; ///< Espacement en unités document
 			uint32 divisions = 4;	///< Subdivisions de la grille principale
-			NkColor color = NkColor::FromSRGB(0.7f, 0.7f, 0.9f, 0.5f);
-			NkColor subColor = NkColor::FromSRGB(0.8f, 0.8f, 0.95f, 0.3f);
+			// [FIX 2026-07-24] Qualification explicite -- même raison que NkGuide::color ci-dessus.
+			nkentseu::NkColor color = nkentseu::NkColor::FromSRGB(0.7f, 0.7f, 0.9f, 0.5f);
+			nkentseu::NkColor subColor = nkentseu::NkColor::FromSRGB(0.8f, 0.8f, 0.95f, 0.3f);
 			bool visible = true;
 			bool snapEnabled = true;
 			float32 snapRadius = 8.f; ///< Rayon de snap en pixels écran
@@ -194,7 +230,8 @@ namespace nkentseu {
 			NkString name;
 			float32 width = 1920.f;
 			float32 height = 1080.f;
-			NkColor background = NkColor::White();
+			// [FIX 2026-07-24] Qualification explicite -- même raison que NkGuide::color plus haut.
+			nkentseu::NkColor background = nkentseu::NkColor::White();
 			bool clipContent = true; ///< Écrête le contenu aux bords
 
 			// ── Calques ──────────────────────────────────────────────────────

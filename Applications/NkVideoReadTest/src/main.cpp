@@ -993,6 +993,111 @@ int main(int argc, char **argv) {
 		return ok ? 0 : 1;
 	}
 
+	// Mode validation HEVC (brique 6) : --hevcdecode <fichier.265> <ref.yuv>
+	// Decode chaque slice I en PIXELS (prediction intra + dequant + transformees
+	// inverses) et compare BIT-EXACT a la reference YUV produite par ffmpeg sur le
+	// meme flux (yuv420p 8-bit ou yuv420p10le selon le SPS). Le flux doit etre
+	// encode SANS deblocage ni SAO (les filtres en boucle = briques suivantes).
+	if (argc >= 4 && strcmp(argv[1], "--hevcdecode") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		fseek(f, 0, SEEK_END);
+		long n = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		NkVector<uint8> buf;
+		buf.Resize((usize)n);
+		if (fread(buf.Data(), 1, (size_t)n, f) != (size_t)n) {
+			fclose(f);
+			printf("  [KO] lecture incomplete\n");
+			return 1;
+		}
+		fclose(f);
+		FILE *fr = fopen(argv[3], "rb");
+		if (!fr) {
+			printf("  [KO] reference introuvable : %s\n", argv[3]);
+			return 1;
+		}
+		NkVector<NkHevcNal> nals;
+		NkHevcDecoder::SplitNalsAnnexB(buf.Data(), (usize)buf.Size(), nals);
+		NkHevcSps sps;
+		NkHevcPps pps;
+		bool haveSps = false, havePps = false;
+		int32 frames = 0, framesOk = 0;
+		int32 worstDiff = 0;
+		for (uint64 i = 0; i < nals.Size(); ++i) {
+			const NkHevcNal &nal = nals[i];
+			const uint8 *nd = buf.Data() + nal.offset;
+			if (nal.type == kHevcNalSps) {
+				haveSps = NkHevcDecoder::ParseSps(nd, nal.size, sps);
+			} else if (nal.type == kHevcNalPps) {
+				havePps = NkHevcDecoder::ParsePps(nd, nal.size, pps);
+			} else if (nal.type <= 31 && haveSps && havePps) {
+				NkHevcSliceHeader sh;
+				if (!NkHevcDecoder::ParseSliceHeader(nd, nal.size, sps, pps, sh) ||
+					sh.sliceType != kHevcSliceI)
+					continue;
+				NkHevcFrame frame;
+				NkHevcSliceDataStats ds;
+				++frames;
+				if (!NkHevcDecoder::DecodeSliceIntra(nd, nal.size, sps, pps, sh, frame, ds)) {
+					printf("  trame %d : [KO] decode echoue\n", frames);
+					continue;
+				}
+				// Lit la trame de reference (dimensions CROPPEES, 4:2:0, 8 ou 10 bits LE).
+				const int32 cw = frame.cropW, ch = frame.cropH;
+				const int32 ccw = cw >> 1, cch = ch >> 1;
+				const int32 bytesPerSample = frame.bitDepth > 8 ? 2 : 1;
+				const usize refSize = (usize)(cw * ch + 2 * ccw * cch) * bytesPerSample;
+				NkVector<uint8> ref;
+				ref.Resize(refSize);
+				if (fread(ref.Data(), 1, refSize, fr) != refSize) {
+					printf("  trame %d : [KO] reference trop courte\n", frames);
+					break;
+				}
+				int32 maxDiff = 0;
+				auto cmpPlane = [&](const nk_uint16 *plane, int32 stride, int32 w, int32 h,
+									const uint8 *rp) {
+					for (int32 y = 0; y < h; ++y)
+						for (int32 x = 0; x < w; ++x) {
+							const int32 ours = (int32)plane[y * stride + x];
+							int32 theirs;
+							if (bytesPerSample == 2)
+								theirs = (int32)rp[(y * w + x) * 2] |
+										 ((int32)rp[(y * w + x) * 2 + 1] << 8);
+							else
+								theirs = (int32)rp[y * w + x];
+							const int32 d = ours > theirs ? ours - theirs : theirs - ours;
+							if (d > maxDiff)
+								maxDiff = d;
+						}
+				};
+				const uint8 *rp = ref.Data();
+				cmpPlane(frame.y.Data(), frame.lumaW, cw, ch, rp);
+				rp += (usize)(cw * ch) * bytesPerSample;
+				cmpPlane(frame.cb.Data(), frame.chromaW, ccw, cch, rp);
+				rp += (usize)(ccw * cch) * bytesPerSample;
+				cmpPlane(frame.cr.Data(), frame.chromaW, ccw, cch, rp);
+				if (maxDiff > worstDiff)
+					worstDiff = maxDiff;
+				if (maxDiff == 0)
+					++framesOk;
+				printf("  trame %2d : %dx%d %d-bit CTU=%d coeffs=%lld maxdiff=%d %s\n", frames, cw, ch,
+					   frame.bitDepth, ds.ctusParsed, (long long)ds.nonZeroCoeffs, maxDiff,
+					   maxDiff == 0 ? "BIT-EXACT" : "[KO]");
+			}
+		}
+		fclose(fr);
+		const bool ok = frames > 0 && framesOk == frames;
+		printf("  trames I decodees : %d, bit-exactes : %d/%d (pire ecart=%d)\n", frames, framesOk,
+			   frames, worstDiff);
+		printf("  [ %s ] decode HEVC intra vs ffmpeg (brique 6 : reconstruction pixels)\n",
+			   ok ? "OK " : "KO");
+		return ok ? 0 : 1;
+	}
+
 	// Mode diagnostic VP8 (chantier en cours) : --vp8header <fichier.ivf>
 	// Lit le frame tag (en-tête non compressé) + démarre le décodeur booléen sur la 1ère
 	// partition pour décoder color_space/clamping_type (2 premiers bits du header compressé,

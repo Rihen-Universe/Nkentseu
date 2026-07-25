@@ -48,8 +48,46 @@ CONDITION (image / texte / forme cible) ─┐
    📢 Publication + article : `D:\Rihen\Rodolf\Publications\12_2026-07-07_ia-modelisation\`
    (post multi-plateforme + article scientifique avec équations ; vidéo-preuve à enregistrer,
    cf. `captures/SHOT_LIST.md`).
-2. ⬜ **Apprendre depuis de VRAIES sessions `.nkmec`** (imitation humaine) — désérialiser le
+2. 🟡 **Apprendre depuis de VRAIES sessions `.nkmec`** (imitation humaine) — désérialiser le
    journal → paires (état avant commande, commande) → entraîner à prédire l'action + ses params.
+   **Livré (2026-07-23), PIPELINE seul — PAS d'entraînement réel encore** : ajouté dans
+   `NKMeshAITest` (même app, section « Étape 2 », réutilise `Encode()`/NKTensor/NKNN de
+   l'étape 1) :
+   - Désérialiseur = **réutilisation directe** de `renderer::NkMeshEditRecorder::Deserialize`
+     (déjà zero-STL dans le moteur, format `NMEC` v1 : magic+version+count, par commande
+     op(u8)+selection(u32×n)+extrude+merge+subdiv+plan bisect+xform 4×4+moveDeltas) — aucune
+     réimplémentation du parseur binaire, tel que demandé.
+   - Nouveau : `BuildImitationPairsFromRecorder` — rejoue un journal réel depuis un mesh de
+     BASE et produit, pour chaque commande, (features `Encode()` de l'état AVANT, label
+     `NkMeshEditOp` réel 0..8, commande complète). Vocabulaire d'actions **différent** de
+     l'étape 1 (Subdiv/Extrude/Mirror/Array = actions du *modificateur* heuristique) : ici
+     c'est le vocabulaire **réel de l'éditeur** (Extrude/Delete/Merge/MakeFace/Subdivide/
+     LoopCut/Bisect/Move).
+   - **[A] Testé sur un VRAI fichier trouvé dans le dépôt** : `edit_session.nkmec` (612 o, 4
+     commandes, enregistré par un humain via Demo3D **F5**, PAS généré par cette tâche) →
+     désérialisé OK, 4 paires extraites, params affichés. ⚠️ **Limite honnête** : le format
+     `.nkmec` ne stocke pas le maillage de base ; la base a été **reconstruite au mieux**
+     (sphère UV 32×32 quadifiée, algorithme recopié de `NkMeshSystem::BuildSphereData`, déduit
+     du code Demo3D `sel<16 ⇒ sphère`) — 2/4 commandes s'appliquent sur cette base reconstruite
+     (Extrude no-op deux fois : la sélection [12..15] ne forme probablement pas exactement une
+     face de CETTE base précise). Le pipeline de désérialisation/extraction est prouvé correct ;
+     la **fidélité de la base pour ce fichier précis** ne l'est pas à 100 %.
+   - **[B] Round-trip bout-en-bout avec base CONNUE (sans ambiguïté)** : cube connu → 3 vraies
+     commandes (Subdivide/Extrude/Move) via le **chemin moteur exact**
+     (`NkMeshEditCommand::Apply` + `NkMeshEditRecorder::Push/Serialize`, identique à Demo3D
+     F5/F6, non réimplémenté) → écrit sur disque → relu → **round-trip binaire EXACT, octet
+     pour octet** → 3/3 paires extraites correctement → plomberie ML vérifiée (features →
+     `NkTensor` → `NkVar`/`NKNN`, logits `[3,9]`, **pas un entraînement**).
+   - Build réel (`jenga build --target NKMeshAITest`) + run réel confirmés (`Build/Bin/
+     Debug-Windows/NKMeshAITest/NKMeshAITest.exe`), sortie visible dans la console pour les
+     deux preuves [A] et [B].
+   - **Reste à faire pour un vrai "🟡→✅"** : (1) un **corpus de vraies sessions humaines**
+     (une poignée de commandes ne suffit pas à entraîner un MLP qui généralise — actuellement
+     UN SEUL fichier réel de 4 commandes existe dans le dépôt) ; (2) stocker/associer la base de
+     chaque session (le format actuel ne le fait pas → embarquer un identifiant de primitive ou
+     un snapshot de la base serait plus robuste que la déduction "best-effort") ; (3)
+     entraînement réel + régression des paramètres continus (offset, deltas), pas seulement la
+     classe d'action.
 3. ⬜ **Conditionnement CIBLE** (forme visée) → modéliser **vers un but** (RL via NKRL, ou
    imitation conditionnée) : reward = distance à la cible.
 4. ⬜ **Encodeur IMAGE / TEXTE** en conditionnement → la vision complète (image/texte → 3D).
@@ -269,17 +307,60 @@ en conflit avec ce module. Cette couche s'appelle ici **pont directeur** (NkAnim
 - ✅ **NKRL** : interface d'environnement + monde-grille + **Q-learning tabulaire**
   (ε-greedy, TD). Prouvé (`NKRLTest`) : l'agent passe de 7.9% à **100%** de réussite,
   politique optimale apprise. ⬜ DQN (Jalon 2, réutilisera NKNN/NKOptim).
-- ⬜ NKAgent : agent avec mémoire (passé), perception (présent), politique de décision.
+- 🟡 **NKAgent** (2026-07-23) : premier agent réel livré — `NkAgentMemory` (buffer borné de
+  transitions), `NkAgentPerception` (état `NkGridWorld` → 4 features, spécialisé grille pour
+  l'instant), `NkAgentPolicy` (enveloppe `rl::NkQLearning`, ne réimplémente pas le RL). Prouvé
+  par `NKAgentTest` (build + run Debug/Windows réels) : évaluation gloutonne **200/200 (100%)**
+  sur le même monde-grille que NKRLTest, via la nouvelle couche.
+  - ✅ **Jalon 2 COMPLET (2026-07-25) — importance + memory replay** : transitions pondérées
+    par **|erreur TD|** (proxy de « surprise », exact sur Q tabulaire), oubli par **moindre
+    importance** (plus FIFO pur ; le souvenir le plus récent est toujours accepté) ;
+    `NkAgent::Replay` rejoue des lots uniformes de la mémoire via `NkQLearning::Update`
+    (opt-in `NkAgentConfig.replayEnabled/BatchSize/Interval`, défaut inchangé). **Ablation
+    réelle** (`NKAgentTest` test 2, 5 graines, budget réduit à **80 épisodes** vs 4000) :
+    SANS replay **20 %** de moyenne en éval gloutonne, AVEC replay **100 %** (~6 400
+    transitions rejouées/agent) — accélération d'apprentissage prouvée. (Mesuré : à ≥200
+    épisodes les deux bras saturent déjà à 100 % sur cette grille 5×5.) Reste :
+    buts/planification, personnalité (Jalons 3-4 de `NKAgent/ROADMAP.md`).
 - 🎯 ✅ **Jalon « ça vit » atteint** : un agent apprend tout seul à résoudre un
   environnement simple.
 
-## Phase 5 — La vie et l'émergence
+## Phase 5 — La vie et l'émergence — 🟡 en cours (NKCivilization Jalon 1 sur NKECS ✅ 2026-07-25)
 
 **Modules : NKEvolve, NKCivilization.**
-- ⬜ NKEvolve : génomes, sélection, mutation, croisement → population qui évolue.
-- ⬜ NKCivilization : monde + temps + plusieurs agents qui interagissent (sur NKECS).
+- 🟡 **NKEvolve** (2026-07-23) : moteur génétique RÉEL — `NkGenome` (gènes réels + fitness),
+  `NkPopulation` (init aléatoire LCG déterministe), `NkEvolution` (élitisme + **sélection par
+  tournoi** + **croisement arithmétique** + **mutation gaussienne** Box-Muller ; fitness =
+  pointeur de fonction fourni par l'appelant, zéro `std::function`). Prouvé par `NKEvolveTest`
+  (build+run réels Debug/Windows) : population de 80 individus / 6 gènes faisant évoluer un
+  vecteur vers une cible fixe — **fitness moyen 0,013 → 0,91** sur 200 générations, **meilleur
+  génome jamais vu → fitness 1,0** (erreur max/gène 0,0005). Reste : neuroévolution (poids
+  `nn::NkDense`), suivi de diversité, couplage à un vrai problème d'agent (cf
+  `NKEvolve/ROADMAP.md`).
+- 🟡 **NKCivilization** — Jalon 1 ✅ sur le **VRAI substrat NKECS** (2026-07-25) :
+  - ⚠️ Correction du constat du 2026-07-23 (« NKECS pas branché au workspace ») : il était
+    **FAUX/dépassé** — `Nkentseu.jenga` inclut bien `Kernel/Runtime/NKECS/NKECS.jenga` (avant
+    Noge qui en dépend), et Noge l'utilise déjà (pont `NkAgentComponent`/`NkAgentSystem` +
+    démo `NkAgentEcsDemo`, 100 % éval).
+  - **Lib `NKCivilization`** (`Kernel/AI/NKCivilization/src/`, enregistrée modules + workspace,
+    zéro STL côté NKAI) : composants `NkCivPosition` + `NkCivAgentRef` (pointeur non possédant
+    vers `agent::NkAgent` — même philosophie que le pont Noge, mais rebâtie sur **NKECS pur**
+    car Kernel/AI ne doit pas dépendre d'Engine/Noge — inversion de couches), substrat
+    `NkCivGridState` (grille, trous, but, **ressources consommables premier-arrivé**), system
+    `NkCivAgentSystem` (un `ecs::NkSystem` : query → ordre de tour déterministe → politique
+    apprise gloutonne → collision/ressources).
+  - **Preuves réelles** (`NKCivilizationTest` étendu, build+run, exit 0, 3/3 OK) : 3 agents =
+    3 entités ECS, départs choisis pour croiser les chemins ⇒ **collision DÉCLENCHÉE** (1
+    blocage au tick 0, jamais observé dans le prototype du 23/07), **4/4 ressources
+    consommées** avec **répartition divergente 1/1/2** (la case contestée 14 va au premier
+    passé), **3/3 agents au but** (5/3/4 pas) via leurs politiques apprises (98,5/98/100 % en
+    fin d'entraînement individuel). Reste : tick sous `NkScheduler` (multi-systèmes), temps
+    continu, ressources renouvelables, observation/rejeu (cf `NKCivilization/ROADMAP.md`).
 - ⬜ Outils d'observation : enregistrer, rejouer, analyser les trajectoires.
-- 🎯 **Jalon « ça émerge » : des comportements de société non scriptés apparaissent.**
+- 🎯 **Jalon « ça émerge » : des comportements de société non scriptés apparaissent.** *(pas
+  encore atteint : le prototype actuel exécute des politiques individuelles apprises isolément,
+  sans émergence de comportement social non scripté — la seule règle collective est la
+  collision).*
 
 ## Phase 6 — Génération & incarnation
 
@@ -480,13 +561,22 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
   `D:/Projets/Camrail/AI/checkpoint_palier2.nkgp` (154 Mo) → reprise PARFAITE possible.
   ⚠️ Le Palier 2 avait chargé son corpus AVANT l'écriture des derniers `dev_ag_*` : le corpus niche
   complet (1 684 paires Q→R grounded générées par sous-agents) sert au Palier 3.
-- 🟡 **PALIER 3 EN COURS (lancé 2026-07-20 08:04, arrière-plan)** : reprise parfaite validée au log
-  (`Etat optimiseur repris : pas 6000, 102 moments`, schedule continué sans warmup) depuis
-  `checkpoint_palier2.nkgp` sur `Palier2Data` COMPLET (10 tags, dev enrichi 1684 paires). 6000 pas
-  supplémentaires (horizon 12000). Config `palier3.cfg`, exe isolé `palier_run3/`, checkpoint
-  `checkpoint_palier3.nkgp`. **RÈGLE DE RÉGIME (Rihen, 2026-07-20)** : les paliers NKAI tournent **EN
-  ARRIÈRE-PLAN** pendant que le travail actif est sur la chaîne MÉDIA (premier plan) ; à chaque palier
-  fini → lancer le suivant.
+- ✅ **PALIER 3 TERMINÉ (2026-07-21 04:09)** : reprise parfaite depuis `checkpoint_palier2.nkgp`
+  (`Etat optimiseur repris : pas 6000, 102 moments`, schedule sans warmup) sur `Palier2Data` COMPLET
+  (10 tags, dev enrichi 1684 paires), 6000 pas (global 12000). Perte train **2,145 → 2,080**, verdict
+  `[ OK ]`, checkpoint v4 `checkpoint_palier3.nkgp` (154 Mo). ⚠️ **Constat de PLATEAU** : gain train
+  modeste (0,065), **val bruitée** (2,30→2,58, finale held-out **2,384**, écart train/val ~0,30 =
+  début de mémorisation) ; échantillons encore « token-soup » francisé. Cause probable :
+  `NK_GPT_CHARS=15M` → chaque palier ne voyait que **~15 Mo des 109 Mo** du corpus (mêmes données
+  re-vues). **RÈGLE DE RÉGIME (Rihen, 2026-07-20)** : les paliers NKAI tournent **EN ARRIÈRE-PLAN**
+  pendant que le travail actif est sur la chaîne MÉDIA (premier plan) ; à chaque palier fini →
+  lancer le suivant.
+- 🟡 **PALIER 4 EN COURS (lancé 2026-07-22, arrière-plan, PID → `palier4_pid.txt`)** : reprise
+  parfaite depuis `checkpoint_palier3.nkgp`, 6000 pas supplémentaires (global 12000 → 18000).
+  **Levier anti-plateau = données fraîches** : fenêtre corpus **doublée 15M → 30M chars**
+  (`NK_GPT_CHARS=30000000`) sur les mêmes 10 tags. Config `palier4.cfg`, exe isolé `palier_run4/`,
+  checkpoint `checkpoint_palier4.nkgp`, log `palier_run4/logs/app.log`. À la fin : comparer la
+  perte val (2,384 au P3) pour juger l'effet données-fraîches, puis Palier 5.
 - ⬜ **Restes** : mixed precision FP16 (per-backend : Metal/Vulkan/DX12 ok, DX11 approx, GL patchy) ;
   éval qualitative sérieuse (les pertes descendent mais le SENS n'émerge qu'avec l'échelle) ; couche multi-GPU.
   ⚠️ Ne pas lancer un 2ᵉ entraînement GPU pendant qu'un run tourne (contention Vulkan sur 8 Go → crash
@@ -501,11 +591,29 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
 ## Phase 7 — Montée en échelle (plus tard)
 
 - ⬜ **LLM** dans NKInfer : reprendre le **petit GPT** ci-dessus → inférence optimisée, fine-tune, quantization, contexte plus long, entraînement distribué (multi-GPU) quand les moyens le permettront.
+- ⬜ **Échelle VRAM → modèles open-weight locaux (décidé 2026-07-22)** : à mesure que la mémoire
+  vidéo dédiée augmente, des modèles « professeurs » open-weight de plus en plus forts deviennent
+  accessibles **en local** (via Ollama d'abord, puis NKInfer/loader GGUF maison) pour générer nos
+  corpus et assister nos entraînements :
+  - **8 Go (RTX 3070 actuelle)** : modèles 7-8B quantifiés Q4 (Qwen2.5 7B, DeepSeek-R1-distill 7/8B,
+    Qwen2.5-Coder 7B) — bulk dialogues/traductions/code.
+  - **16 Go** : 14B Q4 (Qwen2.5 14B, DeepSeek-R1-distill 14B) — nette marche de qualité.
+  - **24 Go (RTX 4090/5090)** : 32B Q4 (Qwen2.5 32B, DeepSeek-R1-distill 32B, QwQ) — qualité proche
+    des API pour beaucoup de tâches de génération de données.
+  - **48 Go (2× GPU ou carte pro)** : 70B Q4 (Llama 3.x 70B, DeepSeek-R1-distill 70B).
+  - **~200-400 Go+ (serveur multi-GPU)** : **DeepSeek complet** (V3/R1, ~671B MoE, open-weight) —
+    le « vrai » DeepSeek tourne chez nous, souveraineté totale.
+  - ⚠️ **Claude : jamais en local** (poids fermés, quelle que soit la VRAM) → accès **API uniquement**
+    (c'est le rôle « cerveau API » du harnais d'agents, cf. track Agents). Les modèles ouverts
+    (DeepSeek/Qwen/Llama) sont la voie « possédée » ; leurs licences autorisent l'entraînement de
+    nos modèles sur leurs sorties (contrairement aux CGU OpenAI).
+  - ⚠️ Règle de cohabitation : l'inférence locale ne doit **jamais** disputer la VRAM à un palier
+    d'entraînement en cours (8 Go = contention fatale) → générer entre les paliers ou en CPU-only.
 - ⬜ Grande civilisation : plus d'agents, mémoire/réflexion/planification riches (style *generative agents*), prospective.
 - ⬜ Robotique réelle / objets intelligents sur **Kernel/Bare**.
 - ⬜ Modèles génératifs 3D / animation.
 
-## Phase 8 — Parole : reconnaissance (ASR) + synthèse (TTS) — 🟡 SCAFFOLD (2026-07-10)
+## Phase 8 — Parole : reconnaissance (ASR) + synthèse (TTS) — 🟡 EN COURS (màj 2026-07-23)
 
 > Demandé par Rihen (2026-07-10) : **transcription audio→texte (ASR)** et **synthèse texte→audio (TTS)**,
 > from-scratch zero-STL comme le reste de NKAI. S'appuie sur la **capture micro** (NKAudio `NkAudioCapture`,
@@ -535,8 +643,26 @@ pour les modèles). Scaffold posé (spec headers) ; impl staged ci-dessous.
    **4/4 mots transcrits correctement** (suites de symboles de longueurs variées, sans alignement fourni ;
    SGD en ligne par énoncé + scheduler LR A.1). Reste : **beam search** + **corpus voix→texte réel** (mots isolés).
 3. ⬜ **Lexique/décodage** — dictionnaire + modèle de langue n-gram (réutilise le GPT/BPE) pour re-scorer.
-4. ⬜ **TTS front-end** (`NkTTS`) — normalisation texte (nombres, ponctuation) → **G2P** (texte→phonèmes,
-   table par langue : fr/en/**bbj**) → durées.
+4. 🟡 **TTS front-end** — **✅ G2P rule-based livré (2026-07-23)** : `NkG2P` (`NKSpeech/NkG2P.h/.cpp`,
+   zero-STL) = texte → phonèmes (+ tons) par table de règles écrites à la main, **AUCUNE donnée ni
+   génération LLM** (règle du projet pour les langues peu dotées). **bbj (ghomala') = implémentation
+   principale**, tracée à des sources RÉELLES vérifiées : Wikipedia EN/FR « Ghomala' language »
+   (citant Nissim 1981, ISBN 978-2-85297-104-2 : inventaire phonémique, **5 tons** aigu/grave/non
+   marqué/caron/circonflexe, règle d'affrication p/b/t/d/k+h), Wikipédia FR « Alphabet général des
+   langues camerounaises » (AGLC/ALCAM, Tadadjeu & Sadembouo 1978/1979), + analyse EMPIRIQUE des
+   codepoints Unicode du **corpus NT ghomala' déjà présent** (`AI/corpus/lamba/bbj_ghomala_nt.txt`,
+   © 2002 Bible Society of Cameroon) pour confirmer les graphèmes/diacritiques réellement utilisés.
+   Matching sur CODEPOINTS Unicode (pas de littéraux non-ASCII dans le `.cpp`) : 10 voyelles
+   (a ɑ e ɛ ə i o ɔ u ʉ), 5 tons + nasalisation (combining marks + précomposés), 6 affriquées
+   (p͡f t͡s t͡ʃ b͡v d͡z d͡ʒ), digraphes gh/zh/sh + affrication ph/bh/th/dh/kh, apostrophe = occlusive
+   glottale ʔ. **Prouvé** (`NKSpeechTest`, self-test + démo) sur des **mots RÉELS bbj** : lexique
+   lamba-africa.com (« dɔ̀mnyə̀ » = « impasse », « lɛtə̌ » = « solide », traductions fr vérifiées) +
+   premier mot du NT (Matio 1:1). fr/en = règles orthographiques simplifiées (best-effort, non
+   sourcées académiquement, cf. avertissement dans `NkG2P.h`). ⚠️ Recherché mais écarté comme source
+   directe : l'appli **Bibala** (existe réellement, lancée 2026-06-25, couvre le ghomala') — c'est
+   une appli de leçons, pas un dictionnaire/corpus exploitable. Détails + sources complètes :
+   `NKSpeech/README.md` et bas de `NKSpeech/NkG2P.h`. Reste : normalisation texte (nombres,
+   ponctuation), durées, table fr/en plus rigoureuse.
 5. 🟡 **TTS acoustique + vocodeur** — **✅ vocodeur Griffin-Lim livré** (Option B.2 brique 1, 2026-07-12) :
    `NkGriffinLim` (`NKSpeech/NkGriffinLim.h/.cpp`) = STFT/iSTFT overlap-add (FFT radix-2 avant/arrière, Hann,
    normalisation COLA) + **reconstruction de phase itérative** → spectrogramme magnitude → onde, SANS donnée ni

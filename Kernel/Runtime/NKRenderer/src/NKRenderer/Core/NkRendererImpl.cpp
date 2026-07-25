@@ -418,6 +418,18 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
+		// SetUIOverlayCallback — overlay UI applicatif (cf. NkRenderer.h).
+		// Reconstruit le graph : la passe Overlay2D dépend de la présence du
+		// callback quand ni Render2D ni OverlayRenderer ne sont actifs.
+		// [AJOUT 2026-07-25]
+		// =====================================================================
+		void NkRendererImpl::SetUIOverlayCallback(const NkUIOverlayCallback &cb) {
+			mUIOverlayCb = cb;
+			if (mInitialized)
+				RebuildRenderGraph();
+		}
+
+		// =====================================================================
 		// Reconstruction du render graph (apres enable/disable runtime ou resize).
 		// =====================================================================
 		void NkRendererImpl::RebuildRenderGraph() {
@@ -915,7 +927,10 @@ namespace nkentseu {
 
 			// ── 2D + UI overlay ───────────────────────────────────────────────
 			// Si aucune passe 3D ne clear le swapchain (config 2D-only), on clear ici.
-			if (has2D || hasOverlay) {
+			// [AJOUT 2026-07-25] La passe existe aussi si un callback UI applicatif
+			// est enregistré (SetUIOverlayCallback — ex. NKUI de l'éditeur Nogee) ;
+			// il est invoqué en fin de passe, render pass active sur la sortie finale.
+			if (has2D || hasOverlay || mUIOverlayCb.IsValid()) {
 				auto &ov = g.AddPass("Overlay2D", NkPassType::NK_UI_OVERLAY);
 				const auto loadOp = has3D ? NkLoadOp::NK_LOAD : NkLoadOp::NK_CLEAR;
 				ov.SetColor(0, colorId, loadOp, {0.05f, 0.05f, 0.07f, 1.f});
@@ -924,6 +939,8 @@ namespace nkentseu {
 						mRender2D->FlushPending(cmd);
 					if (mOverlay)
 						mOverlay->FlushPending(cmd);
+					if (mUIOverlayCb.IsValid())
+						mUIOverlayCb(cmd);
 				});
 			}
 

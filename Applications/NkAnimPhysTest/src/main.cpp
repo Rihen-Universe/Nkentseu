@@ -10,6 +10,7 @@
 #include "NKRenderer/Tools/Animation/NkAutoPose.h"
 #include "NKRenderer/Tools/Animation/NkMotionPath.h"
 #include "NKRenderer/Tools/Animation/NkPhysAnimBridge.h"
+#include "NKRenderer/Tools/Director/NkRoleContext.h"
 #include "NKAudio/NkAudioCapture.h"
 #include "NKAudio/NkDenoiser.h"
 
@@ -59,6 +60,11 @@ int main() {
 	// M3.6 — pont vers l'anim existante : correction physique non destructive d'un clip + lissage.
 	Report("M3.6 NkPhysAnimBridge", "clip qui bascule -> corrige frame par frame (equilibre), pieds fixes, lissage borne",
 		   renderer::NkPhysAnimBridge::SelfTest(), nbOk, nbTotal);
+
+	// M4bis.1 — contexte de role (personnage/personnalite/emotion/objectif/historique),
+	// round-trip Archive+JSON, schema strict rejette les variantes malformees (anti texte-libre).
+	Report("M4bis.1 NkRoleContext", "FIFO historique, round-trip Archive+JSON, schema accepte/rejette",
+		   renderer::NkRoleContext::SelfTest(), nbOk, nbTotal);
 
 	// NKAudio — enregistrement : ring buffer SPSC de la capture (headless, sans micro).
 	Report("NKAudio NkAudioCapture", "ring buffer SPSC : write/read/wrap/overflow",

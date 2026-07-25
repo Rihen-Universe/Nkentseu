@@ -147,14 +147,20 @@ namespace nkentseu {
 
 			// ── SPIR-V → texte ────────────────────────────────────────────────────────
 			// Requiert NK_RHI_SPIRVCROSS_ENABLED.
-			static NkShaderConvertResult SpirvToGlsl(const uint32 *spirvWords, uint32 wordCount, NkSLStage stage);
+			// targetES : cible OpenGL ES (Android/HarmonyOS/Web) au lieu du GL desktop.
+			// Sans ce paramètre, le GLSL généré était TOUJOURS desktop (#version 450
+			// core) même sur mobile -> échec de compilation shader sur ES, avalé
+			// silencieusement en aval (écran noir sans erreur détectable).
+			static NkShaderConvertResult SpirvToGlsl(const uint32 *spirvWords, uint32 wordCount, NkSLStage stage,
+													 bool targetES = false);
 			static NkShaderConvertResult SpirvToHlsl(const uint32 *spirvWords, uint32 wordCount, NkSLStage stage,
 													 uint32 hlslShaderModel = 50);
 			static NkShaderConvertResult SpirvToMsl(const uint32 *spirvWords, uint32 wordCount, NkSLStage stage);
 
 			// ── Helpers SPIR-V via NkShaderConvertResult ──────────────────────────────
-			static NkShaderConvertResult SpirvToGlsl(const NkShaderConvertResult &spirv, NkSLStage s) {
-				return SpirvToGlsl(spirv.SpirvWords(), spirv.SpirvWordCount(), s);
+			static NkShaderConvertResult SpirvToGlsl(const NkShaderConvertResult &spirv, NkSLStage s,
+													 bool targetES = false) {
+				return SpirvToGlsl(spirv.SpirvWords(), spirv.SpirvWordCount(), s, targetES);
 			}
 
 			static NkShaderConvertResult SpirvToHlsl(const NkShaderConvertResult &spirv, NkSLStage s, uint32 sm = 50) {
@@ -197,7 +203,7 @@ namespace nkentseu {
 			static NkShaderConvertResult GlslToMsl(const NkString &glslSource, NkSLStage stage,
 												   const NkString &debugName = "shader");
 			static NkShaderConvertResult GlslToGlsl(const NkString &glslSource, NkSLStage stage,
-													const NkString &debugName = "shader");
+													const NkString &debugName = "shader", bool targetES = false);
 	};
 
 	// =============================================================================

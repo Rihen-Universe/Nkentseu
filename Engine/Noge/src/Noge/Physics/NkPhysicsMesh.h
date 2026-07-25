@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Nkentseu/Physics/NkClothSim.h
+// Nkentseu/Physics/NkPhysicsMesh.h
 // =============================================================================
 // Simulation de tissu par GPU Compute (Verlet + Position-Based Dynamics).
 //

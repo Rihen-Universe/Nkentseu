@@ -94,6 +94,15 @@ jenga build --platform android --config Release      # Android APK
 ## Key Architecture Decisions
 
 1. **No STL or External Libs** - Uses Nkentseu containers (NkVector, etc.)
+   - ⚠️ **Audit 2026-07** : cette affirmation ne correspondait pas au code. `SceneManager`
+     utilisait `std::vector`, et `RihenIntroScene` utilisait `std::thread`/`std::atomic`/
+     `std::mutex`. Corrigé → `NkVector` (NKContainers), `threading::NkThread`/`NkMutex`/
+     `NkLockGuard` (NKThreading), `NkAtomic<T>` (NKCore). Il reste des appels
+     `std::snprintf`/`std::strncpy` (libc, pas STL au sens conteneurs, mais toujours du
+     `std::` interdit par la règle du projet) dans `GameplayScene.cpp` et
+     `RihenIntroScene.cpp` pour formater des `char[]` de taille fixe — non corrigés ici
+     (nécessite de migrer ces buffers vers `NkString`/`NkStringBuilder`, hors périmètre
+     de cette correction ponctuelle ; TODO laissé en commentaire dans les fichiers).
 2. **Scene-Based UI** - Matches Pong pattern, familiar to team
 3. **AppContext POD** - Simple passthrough, avoids deep parameter chains
 4. **Lazy Initialization** - Audio, GL resources init only when needed
@@ -121,3 +130,12 @@ jenga build --platform android --config Release      # Android APK
 
 **Status**: Foundation complete, ready for gameplay implementation.  
 **Target**: Full playable game on Windows + Android by [TBD]
+
+**⚠️ Note d'audit (2026-07)** : `Songoo` est actuellement **désactivé** du build workspace
+(`Nkentseu.jenga`, `with include("Applications/Songoo/Songoo.jenga")` sous un `if False:`)
+car `src/Songoo/Render/{GLRenderer2D,Texture2D,GLContext,FontAtlas}.h/.cpp` — inclus par
+`StoryScene`, `GameplayScene`, `RihenIntroScene`, etc. — n'existent plus dans le dossier
+(migration vers NKCanvas non terminée, cf. commentaire TODO dans `Nkentseu.jenga`).
+`jenga build --target Songoo` ne construira donc rien tant que ces fichiers ne sont pas
+restaurés ou que la migration NKCanvas n'est pas finie ; ce n'est pas lié aux corrections
+std:: / chemins / nommage de cet audit.

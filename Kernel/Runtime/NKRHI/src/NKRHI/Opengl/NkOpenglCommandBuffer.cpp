@@ -33,6 +33,21 @@ namespace nkentseu {
 		GLuint fboId = NkOpenglGetFBOID(mDev, fb.id);
 		glBindFramebuffer(GL_FRAMEBUFFER, fboId);
 		glViewport(area.x, area.y, (GLsizei)area.width, (GLsizei)area.height);
+#if defined(NK_OPENGL_ES)
+		// Diagnostic temporaire (enquete ecran noir Tuto02Renderer Android) : ordre
+		// et cible reels des BeginRenderPass/clear execute (le swapchain FBO0 est
+		// partage par TOUTES les passes qui y ecrivent -> confirme ici si la passe
+		// Overlay2D clear/dessine bien APRES FXAA_Final sur le MEME fbo, et avec
+		// quelles valeurs de clear. A retirer une fois la cause confirmee.
+		static int sRPLogCount = 0;
+		if (sRPLogCount < 24) {
+			sRPLogCount++;
+			logger.Infof("[NkRHI_GL][ES] BeginRenderPass fbo=%u area=%d,%d,%ux%u clearColorPending=%d "
+						 "clear=(%f,%f,%f,%f)\n",
+						 fboId, area.x, area.y, area.width, area.height, (int)mClearColorPending, mClearR, mClearG,
+						 mClearB, mClearA);
+		}
+#endif
 
 		// Desactive scissor pour s'assurer que le clear ci-dessous affecte tout le
 		// framebuffer (sinon une SetScissor laissee active par une passe precedente
@@ -119,12 +134,10 @@ namespace nkentseu {
 		if (stride == 0)
 			stride = 1;
 #if defined(NK_OPENGL_ES)
-		// Sur ES, on doit binder le buffer et configurer l'attribut manuellement
-		glBindBuffer(GL_ARRAY_BUFFER, bufId);
-		// Le stride et offset sont configurés via glVertexAttribPointer dans le pipeline
-		// On doit répéter l'appel pour chaque attribut de ce binding
-		// Simplification : on suppose que le VAO stocke déjà ces infos (ce qui n'est pas le cas en ES)
-		// Pour une implémentation complète, il faudrait stocker les descriptions d'attributs.
+		// Le format (composantes/type/relativeoffset) est fixé une fois dans le VAO
+		// à la création du pipeline (glVertexAttribFormat/IFormat + glVertexAttribBinding,
+		// cf. NkOpenGLDevice::CreateGraphicsPipeline) ; glBindVertexBuffer ici ne fournit
+		// QUE le buffer + stride réels pour ce binding, à chaque tirage.
 		glBindVertexBuffer(binding, bufId, (GLintptr)off, (GLsizei)stride);
 #else
 		glBindVertexBuffer((GLuint)binding, bufId, (GLintptr)off, (GLsizei)stride);

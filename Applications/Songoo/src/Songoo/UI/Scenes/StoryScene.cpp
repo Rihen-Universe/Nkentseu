@@ -28,20 +28,20 @@ namespace nkentseu {
 	namespace songoo {
 
 		const StoryScene::StoryFrame StoryScene::kFrames[kFrameCount] = {
-			{"Resources/Songo/assets/story_01.png", 11.f, 0.3f, 1.0f,
+			{"Resources/Songoo/assets/story_01.png", 11.f, 0.3f, 1.0f,
 			 "In the heart of Cameroon, under the great silk-cotton tree, the elders played Songo'o to settle "
 			 "disputes."},
-			{"Resources/Songo/assets/story_02.png", 8.f, 0.8f, 0.8f,
+			{"Resources/Songoo/assets/story_02.png", 8.f, 0.8f, 0.8f,
 			 "The seeds, carved from baobab wood, were sown with wisdom \xe2\x80\x94 each move a silent prayer to the "
 			 "ancestors."},
-			{"Resources/Songo/assets/story_03.png", 11.f, 1.2f, 1.0f,
+			{"Resources/Songoo/assets/story_03.png", 11.f, 1.2f, 1.0f,
 			 "Two warriors face each other at the board. Only patience and cunning will lead to victory."},
-			{"Resources/Songo/assets/story_04.png", 9.f, 0.8f, 0.8f,
+			{"Resources/Songoo/assets/story_04.png", 9.f, 0.8f, 0.8f,
 			 "The village gathers at sunset. The rhythm of the game echoes the rhythm of life itself."},
-			{"Resources/Songo/assets/story_05.png", 9.f, 1.0f, 1.0f,
+			{"Resources/Songoo/assets/story_05.png", 9.f, 1.0f, 1.0f,
 			 "To capture your opponent's seeds is to earn respect \xe2\x80\x94 not just from men, but from the spirits "
 			 "of the land."},
-			{"Resources/Songo/assets/story_06.png", 8.5f, 1.0f, 1.5f,
+			{"Resources/Songoo/assets/story_06.png", 8.5f, 1.0f, 1.5f,
 			 "Songo'o lives on. Passed from father to child, it binds generations in a shared heritage of strategy and "
 			 "soul."},
 		};
