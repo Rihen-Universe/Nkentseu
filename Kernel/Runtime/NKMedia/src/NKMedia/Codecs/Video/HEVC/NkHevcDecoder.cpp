@@ -180,6 +180,13 @@ namespace nkentseu {
 
 		} // namespace
 
+		void NkHevcDecoder::DeemulateRbsp(const uint8 *nal, usize size, NkVector<uint8> &out) {
+			out.Clear();
+			if (!nal || size < 2)
+				return;
+			Deemulate(nal + 2, size - 2, out);
+		}
+
 		void NkHevcDecoder::SplitNalsAnnexB(const uint8 *data, usize size, NkVector<NkHevcNal> &out) {
 			out.Clear();
 			if (!data || size < 5) // start code (3) + en-tête NAL (2 octets, contre 1 en H.264)
@@ -362,7 +369,7 @@ namespace nkentseu {
 				br.UE(); // diff_cu_qp_delta_depth
 			br.SE();	 // pps_cb_qp_offset
 			br.SE();	 // pps_cr_qp_offset
-			br.U1();	 // pps_slice_chroma_qp_offsets_present_flag
+			out.sliceChromaQpOffsetsPresent = br.U1() != 0;
 			out.weightedPred = br.U1() != 0;
 			out.weightedBipred = br.U1() != 0;
 			br.U1();	 // transquant_bypass_enabled_flag
@@ -560,9 +567,61 @@ namespace nkentseu {
 				out.sliceQp = pps.initQp + (int32)br.SE(); // slice_qp_delta
 				if (out.sliceQp < -12 || out.sliceQp > 51)  // borne basse = -QpBdOffsetY max (profondeur 14)
 					return false;
-				// S'ARRÊTE ICI (brique 3) : slice_cb/cr_qp_offset, overrides SAO/déblocage
-				// par slice, points d'entrée tuiles/WPP — briques suivantes (décodage CTU).
+				if (pps.sliceChromaQpOffsetsPresent) {
+					out.sliceCbQpOffset = (int32)br.SE();
+					out.sliceCrQpOffset = (int32)br.SE();
+				}
+				// Déblocage : défauts PPS, remplacés si la slice signale un override.
+				out.deblockingFilterDisabled = pps.ppsDeblockingFilterDisabled;
+				out.sliceBetaOffsetDiv2 = pps.ppsBetaOffsetDiv2;
+				out.sliceTcOffsetDiv2 = pps.ppsTcOffsetDiv2;
+				bool deblockingOverride = false;
+				if (pps.deblockingFilterOverrideEnabled)
+					deblockingOverride = br.U1() != 0;
+				if (deblockingOverride) {
+					out.deblockingFilterDisabled = br.U1() != 0;
+					if (!out.deblockingFilterDisabled) {
+						out.sliceBetaOffsetDiv2 = (int32)br.SE();
+						out.sliceTcOffsetDiv2 = (int32)br.SE();
+					}
+				}
+				out.loopFilterAcrossSlices = pps.loopFilterAcrossSlices;
+				if (pps.loopFilterAcrossSlices &&
+					(out.saoLuma || out.saoChroma || !out.deblockingFilterDisabled))
+					out.loopFilterAcrossSlices = br.U1() != 0;
 			}
+			// Points d'entrée (§7.4.7.1) — HORS du bloc !dependent (les slices dépendantes
+			// en ont aussi). x265 par défaut : WPP (entropy_coding_sync) → 1 offset par
+			// rangée de CTU au-delà de la première.
+			if (pps.tilesEnabled || pps.entropyCodingSyncEnabled) {
+				out.numEntryPointOffsets = (int32)br.UE();
+				if (out.numEntryPointOffsets > 4096)
+					return false;
+				if (out.numEntryPointOffsets > 0) {
+					const int32 offsetLen = (int32)br.UE() + 1;
+					if (offsetLen < 1 || offsetLen > 32)
+						return false;
+					for (int32 i = 0; i < out.numEntryPointOffsets; ++i)
+						out.entryPointOffsets.PushBack(br.U(offsetLen) + 1u);
+				}
+			}
+			if (pps.sliceSegmentHeaderExtensionPresent) {
+				const int32 extLen = (int32)br.UE();
+				if (extLen > 256)
+					return false;
+				br.Skip(extLen * 8); // slice_segment_header_extension_data_byte[]
+			}
+			// byte_alignment() (§7.3.2.11) : un bit à 1 obligatoire puis des zéros jusqu'à
+			// l'octet — vérifié STRICTEMENT (excellent détecteur de désynchronisation : si
+			// un seul champ au-dessus a été mal lu, ce bit a 1 chance sur 2 d'être faux).
+			if (br.U1() != 1)
+				return false;
+			while ((br.pos & 7) != 0)
+				if (br.U1() != 0)
+					return false;
+			if (br.pos > br.sizeBits)
+				return false;
+			out.dataByteOffset = br.pos >> 3; // début de slice_data() dans le RBSP dé-émulé
 			out.valid = true;
 			return true;
 		}
