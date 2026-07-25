@@ -731,7 +731,7 @@
   inter + 10/10 flux clés restent bit-exacts, comme attendu si le bug n'était effectivement
   jamais exercé jusqu'ici).
 
-## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (briques 1-9 : INTRA complet + syntaxe CU inter + POC/RefPicList)
+## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (briques 1-10 : INTRA complet + P mono-référence en pixels)
 
 *(2026-07-24)* Démarré comme suite logique directe de H.264 (« évolution directe … la base de
 départ la plus naturelle », cf. section précédente) — même famille bit-exacte, complexité
@@ -1008,16 +1008,58 @@ zero-STL, `nkentseu::media`.
     →... jusqu'à B(POC22,L0=[21,19],L1=[23,24]) en fin de GOP, voisinage POC cohérent partout.
     25/25 + 25/25 slices OK (Debug asserts + Release), **non-régression totale confirmée**
     (7/7 self-tests, pixels intra 10+10+1+1 trames toujours bit-exacts).
-- **Suite (briques 10+, PAS commencées)** : dérivation des VECTEURS DE MOUVEMENT réels
-  (candidats merge spatiaux A1/B1/B0/A0/B2 + redondance, candidat temporel via image
-  colocalisée, candidats bi-prédictifs combinés ; prédicteurs AMVP spatiaux + temporel avec
-  mise à l'échelle) — nécessaire car brique 8 ne fait QUE consommer les bits sans dériver de
-  MV réel (insight qui l'a scopée). Puis **compensation de mouvement** (filtres qpel luma
-  8-tap / epel chroma 4-tap, prédiction bi/uni pondérée — `pred_weight_table` déjà consommée
-  depuis la brique 3) → reconstruction PIXELS des slices P/B (validation vs ffmpeg sur un
-  DPB minimal 2 images, comme l'intra), puis branchement `NkVideoReader` (.265/MP4/MKV, DPB
-  réel multi-images). Restes mineurs (refus propre en place) : tuiles, PCM, 4:2:2/4:4:4,
-  `ref_pic_lists_modification()`, `scaling_list_data()`.
+- ⭐⭐⭐ **Brique 10 livrée et validée BIT-EXACT vs ffmpeg (2026-07-25) : slices P mono-référence
+  en PIXELS** — `NkHevcDecoder::DecodeSliceP` (`num_ref_idx_l0_active==1` exigé, refus propre
+  sinon) : dérivation des VECTEURS DE MOUVEMENT réels + compensation de mouvement, scopées
+  volontairement à la 1re P après l'IDR (candidat temporel naturellement indisponible —
+  aucune trame précédente n'a de champ de MV stocké, ffmpeg non plus à cet endroit précis).
+  - **Fusion spatiale** (§8.5.3.2.2) : positions A1/B1/B0/A0/B2, exclusions de partition
+    (2e PU des partitions empilées horizontalement/verticalement), élagage anti-doublon
+    (paires EXACTES du spec : B1~A1, B0~B1, A0~A1, B2~{A1,B1}), repli MV nul. **AMVP spatial**
+    (§8.5.3.2.6/7) : groupe gauche A0 sinon A1, groupe haut B0 sinon B1 sinon B2, dédoublonné —
+    réf UNIQUE cette brique donc AUCUNE mise à l'échelle temporelle possible (tout voisin
+    inter dispo utilise nécessairement la même réf, la passe "non mise à l'échelle" du spec
+    suffit toujours). Voisinage (§6.4.1) simplifié EXACTEMENT (pas une approximation, vérifié
+    par dérivation) pour le cas mono-tuile/mono-slice : `cand_left=(x0>0)`, `cand_up=(y0>0)`,
+    `cand_up_left=(x0>0 && y0>0)` ; `cand_up_right_sap`/`cand_bottom_left` gardent leur
+    dépendance exacte aux limites de CTB/image.
+  - **Compensation de mouvement** (§8.5.4.2.2, port fidèle de `h2656_inter_template.c`) :
+    interpolation qpel luma 8 taps / epel chroma 4 taps séparables (4:2:0 : `mv&7` directement,
+    `hshift=vshift=1` → aucune mise à l'échelle de fraction supplémentaire), précision
+    intermédiaire 14-bit (2 passes H puis V, `>>6` après chaque filtre), pondération explicite
+    si `pps.weightedPred` (§8.5.3.3.4.2/8.5.4.2.3, poids/offsets déjà résolus depuis la
+    brique 3). Échantillonnage hors-image = étendu par bord (clamp direct dans l'échantillonneur,
+    équivalent à `emulated_edge_mc` sans buffer intermédiaire). `mvd_coding()` : formule de
+    valeur EGk (k=1) dérivée par concordance de consommation de bits avec la brique 8
+    (`abs_mvd = (1<<k) + suffixe`).
+  - ⭐ **Bug trouvé et corrigé — disponibilité intra cassée pour un voisin INTER** : une P-slice
+    peut mélanger CU intra et inter (`pred_mode_flag`), mais `lumaRecon`/`chromaRecon` (cartes
+    de disponibilité §8.4.4.2.1 consommées par `PredictIntra`) n'étaient marquées QUE par le
+    chemin intra depuis la brique 6 — un voisin inter fraîchement reconstruit par MC restait vu
+    comme ABSENT par une CU intra adjacente, déclenchant la substitution/padding à tort (blocs
+    plats à valeur constante erronée, symptôme observé : `maxdiff=127/128` alors que les valeurs
+    de poids semblaient plausibles). Trouvé en isolant le bug via un flux SANS pondération
+    (contrôle) qui échouait À L'IDENTIQUE, prouvant que la pondération n'était pas en cause,
+    puis en localisant les pixels fautifs (aplats constants = signature classique de
+    substitution intra). Fix : `ApplyMotionCompensation` marque désormais `lumaRecon`/
+    `chromaRecon` sur le rectangle PU, comme le fait `MarkLumaRecon`/`MarkChromaRecon` côté intra.
+  - **Validation** : 4 flux ffmpeg/libx265 dédiés (générés dans cette brique, `bframes=0:ref=1`,
+    SANS déblocage/SAO — reconstruction PURE comparée, même précédent que la brique 6 avant la
+    brique 7) — petit (96×64, 3 coeffs), riche+AMP (320×240, 20 CTU, 801 coefficients non
+    nuls), et 2 flux à fondu de luminosité (160×128) l'un SANS l'autre AVEC pondération
+    explicite (`weightp=1`, confirmé "Weighted P-Frames: Y:100.0% UV:100.0%" par x265) :
+    **4/4 trames P bit-exactes vs `ffmpeg -f rawvideo`**, Debug (asserts) ET Release,
+    **non-régression totale** (intra briques 6-7 : 10/10 toujours bit-exact ; structurel
+    briques 1-5+8-9 : 25/25 + 25/25 slices OK sur les 2 flux réels ; 7/7 self-tests).
+- **Suite (briques 11+, PAS commencées)** : candidat temporel (merge + AMVP, nécessite une
+  image colocalisée avec champ de MV stocké — donc un DPB réel, pas juste 2 trames), multi-
+  référence P (`num_ref_idx_l0_active>1`, mise à l'échelle AMVP réellement exercée), slices B
+  (bi-prédiction, candidats combinés, `inter_pred_idc`), déblocage BS inter (§8.7.2.4, dérivé
+  du MV/refIdx de part et d'autre de l'arête — actuellement seul le cas intra BS=2 est
+  implémenté) + SAO sur P/B, règle CU 8×8 forcé-2Nx2N si `log2ParallelMergeLevel>2`. Puis
+  branchement `NkVideoReader` (.265/MP4/MKV, DPB réel multi-images). Restes mineurs (refus
+  propre en place) : tuiles, PCM, 4:2:2/4:4:4, `ref_pic_lists_modification()`,
+  `scaling_list_data()`, bit depth >8 pour l'inter (10-bit MC pas encore branché).
 
 ## En cours / À venir
 

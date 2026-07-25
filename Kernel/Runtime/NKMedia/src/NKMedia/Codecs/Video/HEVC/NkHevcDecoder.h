@@ -163,6 +163,14 @@ namespace nkentseu {
 				bool cabacInit = false;
 				bool collocatedFromL0 = true;
 				int32 collocatedRefIdx = 0;
+				// pred_weight_table() (§7.3.6.3/§8.5.3.3.4.2 pour la dérivation des defauts)
+				// — brique 10 : poids/offsets RÉSOLUS (pas les flags bruts). Poids par
+				// défaut = 1<<denom, offset 0, quand le flag correspondant est à 0.
+				int32 lumaLog2WeightDenom = 0, chromaLog2WeightDenom = 0;
+				int32 lumaWeightL0[16] = {0}, lumaOffsetL0[16] = {0};
+				int32 chromaWeightL0[16][2] = {{0}}, chromaOffsetL0[16][2] = {{0}};
+				int32 lumaWeightL1[16] = {0}, lumaOffsetL1[16] = {0};
+				int32 chromaWeightL1[16][2] = {{0}}, chromaOffsetL1[16][2] = {{0}};
 				int32 maxNumMergeCand = 5; // 5 - five_minus_max_num_merge_cand
 				int32 sliceQp = 26;		   // 26 + init_qp_minus26 (PPS) + slice_qp_delta
 				int32 sliceCbQpOffset = 0, sliceCrQpOffset = 0;
@@ -318,6 +326,32 @@ namespace nkentseu {
 				static bool DecodeSliceIntra(const uint8 *nal, usize size, const NkHevcSps &sps,
 											 const NkHevcPps &pps, const NkHevcSliceHeader &sh,
 											 NkHevcFrame &frame, NkHevcSliceDataStats &out);
+
+				// Brique 10 : DÉCODE une slice P en pixels — réf UNIQUE L0
+				// (num_ref_idx_l0_active_minus1==0 exigé, refus propre sinon) : dérivation
+				// des MV par fusion spatiale (§8.5.3.2.2, positions A1/B1/B0/A0/B2 +
+				// exclusions de partition + élagage anti-doublon + repli MV nul) ou AMVP
+				// spatial (§8.5.3.2.6/7, groupe gauche A0/A1 + groupe haut B0/B1/B2,
+				// PAS de mise à l'échelle temporelle : réf unique -> toujours même
+				// distance POC), candidat temporel VOLONTAIREMENT absent (valide pour la
+				// 1re P après l'IDR : aucune trame précédente n'a de champ de MV stocké,
+				// donc ffmpeg non plus à cet endroit précis — bit-exact attendu
+				// uniquement sur ce cas). Puis compensation de mouvement (§8.5.4.2.2 :
+				// interpolation qpel luma 8 taps / epel chroma 4 taps séparables,
+				// échantillonnage hors-image étendu par bord ; pondération explicite
+				// §8.5.3.3.4.2/8.5.4.2.3 si pps.weightedPred). Résidu ajouté PAR-DESSUS
+				// par le même pipeline transform_tree/residual_coding que l'intra.
+				// `ref0.poc`/`frame.poc` DOIVENT être renseignés par l'appelant
+				// (ComputePoc) — ce décodeur ne stocke aucun DPB (cf. NkHevcRefPicLists).
+				// PAS de filtres en boucle cette brique (déblocage BS inter + SAO :
+				// brique suivante) — comparer à ffmpeg SANS déblocage/SAO (précédent
+				// brique 6). Refus propre : B, multi-référence, tuiles, PCM, 4:2:2/4:4:4,
+				// bit depth != 8, log2ParallelMergeLevel > 2 (règle CU 8x8 non
+				// implémentée).
+				static bool DecodeSliceP(const uint8 *nal, usize size, const NkHevcSps &sps,
+										const NkHevcPps &pps, const NkHevcSliceHeader &sh,
+										const NkHevcFrame &ref0, NkHevcFrame &frame,
+										NkHevcSliceDataStats &out);
 
 				// Brique 9 : dérive le POC réel (§8.3.1, PicOrderCntVal) — cas SIMPLIFIÉ
 				// mono-couche (TemporalId toujours 0, pas de sous-couches temporelles —
