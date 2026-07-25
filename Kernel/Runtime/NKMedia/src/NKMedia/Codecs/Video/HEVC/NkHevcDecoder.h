@@ -234,6 +234,21 @@ namespace nkentseu {
 				int32 bitDepth = 8;
 				int32 poc = 0;			// PicOrderCntVal (§8.3.1) — ordre d'AFFICHAGE, pas décodage
 				bool isReference = true; // faux pour TRAIL_N/TSA_N/STSA_N/RADL_N/RASL_N (non gardées au DPB)
+
+				// ---- Champ de MV persistant (brique 12, §8.5.3.2.8/9) — par bloc 4x4,
+				// rempli par DecodeSliceP/DecodeSliceIntra APRÈS reconstruction de CETTE
+				// trame ; consommé au décodage de la trame SUIVANTE quand celle-ci l'utilise
+				// comme "collocated picture" (refsL0[collocated_ref_idx]) pour le candidat
+				// temporel AMVP/merge. La compression normative à 16x16 (note §8.3.1) n'a
+				// pas besoin d'être appliquée explicitement : la position d'échantillonnage
+				// est TOUJOURS ré-alignée sur 16 avant indexation (xColPb=(xColBr>>4)<<4),
+				// donc conserver le champ complet 4x4 donne un résultat identique. Vide
+				// (mvColValid.IsEmpty()) pour une trame intra (I) : aucun MV, le candidat
+				// temporel y est authentiquement indisponible.
+				NkVector<int16> mvColX, mvColY; // MV L0 par bloc 4x4 (grille mvColPuWidth x mvColPuHeight)
+				NkVector<int32> mvColRefPoc;	 // POC de la référence utilisée par ce bloc
+				NkVector<uint8> mvColValid;		 // 1 si le bloc 4x4 est INTER avec MV résolu
+				int32 mvColPuWidth = 0, mvColPuHeight = 0;
 		};
 
 		// Listes de références résolues en POC (brique 9) — RefPicList0/1 (§8.3.4),
@@ -327,40 +342,39 @@ namespace nkentseu {
 											 const NkHevcPps &pps, const NkHevcSliceHeader &sh,
 											 NkHevcFrame &frame, NkHevcSliceDataStats &out);
 
-				// ⚠️ BRIQUE 11 EN COURS — WIP NON VALIDÉ (2026-07-25) : le chaînage
-				// P-sur-P (2e trame P décodée d'une séquence) diverge légèrement puis
-				// l'écart s'accumule. CAUSE IDENTIFIÉE (pas un bug de ce qui est écrit
-				// ici — confirmé par cross-check indépendant, cf. mémoire
-				// project_nkmedia_hevc_p_multiref_bug) : le CANDIDAT TEMPOREL AMVP/
-				// merge (§8.5.3.2.8/9) est requis dès que la référence est elle-même
-				// une trame inter avec un vrai champ de MV (donc dès poc≥2, PAS
-				// seulement une amélioration future) — cette fonction l'omet
-				// totalement (voir commentaire ci-dessous "candidat temporel...
-				// absent"), remplissant le slot par un zero-fill au lieu du vrai
-				// candidat temporel, d'où un MV parfois faux via mvp_lx_flag/merge_idx.
-				// La 1re P après l'IDR (réf = l'I, AUCUN champ de MV côté intra, scope
-				// validé de la brique 10) reste bit-exacte et NON régressée (65361b6f)
-				// car le candidat temporel y est authentiquement indisponible aussi
-				// chez un décodeur conforme. Brique 12 = implémenter le candidat
-				// temporel (DPB + champ de MV persistant, cf. mémoire pour le plan).
-				// Brique 10+11 : DÉCODE une slice P en pixels — MULTI-référence L0
+				// ✅ BRIQUE 12 VALIDÉE (2026-07-26) — candidat temporel AMVP/merge
+				// implémenté (§8.5.3.2.8/9, DeriveTemporalCand dans NkHevcCtu.cpp) via le
+				// champ de MV persistant `NkHevcFrame::mvColX/Y/RefPoc/Valid` rempli par
+				// CETTE fonction et consommé au décodage de la trame SUIVANTE comme
+				// "collocated picture" (refsL0[collocated_ref_idx]). Chaînage P-sur-P
+				// (brique 11, précédemment WIP) validé BIT-EXACT bout-en-bout sur 3/4 flux
+				// de test (37 trames P chaînées, dont le cas qui divergeait) — cf. mémoire
+				// project_nkmedia_hevc_p_multiref_bug pour le diagnostic complet (cross-
+				// check Python indépendant ayant confirmé que le CABAC/mvd était déjà
+				// correct, la vraie cause étant ce candidat manquant). ⚠️ RESTE : un 4e
+				// flux avec pondération explicite (pred_weight_table) diverge en CHROMA à
+				// partir de la 10e trame P — bug DISTINCT, confirmé indépendant du candidat
+				// temporel (désactiver ce dernier aggrave la divergence au lieu de la faire
+				// disparaître) : chantier séparé, cf. mémoire pour le détail.
+				// Brique 10+11+12 : DÉCODE une slice P en pixels — MULTI-référence L0
 				// (`refsL0`/`numRefsL0` = références déjà résolues par l'appelant, dans
 				// l'ORDRE de RefPicList0 — cf. NkHevcRefPicLists/BuildRefPicLists — chaque
 				// `.poc` DOIT être renseigné, ainsi que `frame.poc`, tous deux via
 				// ComputePoc) : dérivation des MV par fusion spatiale (§8.5.3.2.2,
 				// positions A1/B1/B0/A0/B2 + exclusions de partition + élagage anti-
-				// doublon + repli MV nul avec refIdx cyclé) ou AMVP spatial (§8.5.3.2.6/7,
+				// doublon) + candidat TEMPOREL (§8.5.3.2.9, via le champ de MV persistant
+				// de la trame collocalisée) + repli MV nul, ou AMVP spatial (§8.5.3.2.6/7,
 				// groupe gauche A0/A1 + groupe haut B0/B1/B2, AVEC mise à l'échelle réelle
 				// par distance POC §8.5.3.2.8 quand le voisin choisi référence un POC
-				// différent de la cible). Candidat temporel VOLONTAIREMENT absent
-				// (nécessite un DPB avec champ de MV stocké d'une trame précédente —
-				// brique suivante). Puis compensation de mouvement (§8.5.4.2.2 :
+				// différent de la cible) + candidat temporel (§8.5.3.2.8) si les 2 spatiaux
+				// ne suffisent pas. Puis compensation de mouvement (§8.5.4.2.2 :
 				// interpolation qpel luma 8 taps / epel chroma 4 taps séparables,
 				// échantillonnage hors-image étendu par bord ; pondération explicite
 				// §8.5.3.3.4.2/8.5.4.2.3 si pps.weightedPred). Résidu ajouté PAR-DESSUS
 				// par le même pipeline transform_tree/residual_coding que l'intra. Ce
 				// décodeur ne stocke aucun DPB lui-même (cf. NkHevcRefPicLists) : c'est à
-				// l'appelant de résoudre POC→pointeur avant chaque appel.
+				// l'appelant de résoudre POC→pointeur avant chaque appel (mais le champ de
+				// MV colocalisé, lui, est porté par NkHevcFrame — pas d'état externe requis).
 				// PAS de filtres en boucle cette brique (déblocage BS inter + SAO :
 				// brique suivante) — comparer à ffmpeg SANS déblocage/SAO (précédent
 				// brique 6). Refus propre : B, tuiles, PCM, 4:2:2/4:4:4, bit depth != 8,
