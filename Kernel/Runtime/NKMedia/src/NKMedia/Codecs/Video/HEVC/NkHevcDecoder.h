@@ -224,6 +224,19 @@ namespace nkentseu {
 				int32 chromaW = 0, chromaH = 0;
 				int32 cropW = 0, cropH = 0;
 				int32 bitDepth = 8;
+				int32 poc = 0;			// PicOrderCntVal (§8.3.1) — ordre d'AFFICHAGE, pas décodage
+				bool isReference = true; // faux pour TRAIL_N/TSA_N/STSA_N/RADL_N/RASL_N (non gardées au DPB)
+		};
+
+		// Listes de références résolues en POC (brique 9) — RefPicList0/1 (§8.3.4),
+		// AVANT résolution en pointeurs d'image réels (rôle du futur appelant
+		// NkVideoReader, comme h264Dpb/vp9RefSlots : ce décodeur ne stocke aucune
+		// image, seulement les POC). Max 16 (limite spec num_ref_idx_active).
+		struct NkHevcRefPicLists {
+				int32 l0[16] = {0};
+				int32 numL0 = 0;
+				int32 l1[16] = {0};
+				int32 numL1 = 0;
 		};
 
 		// Statistiques structurelles du parsing de slice_segment_data() (brique 5) —
@@ -305,6 +318,25 @@ namespace nkentseu {
 				static bool DecodeSliceIntra(const uint8 *nal, usize size, const NkHevcSps &sps,
 											 const NkHevcPps &pps, const NkHevcSliceHeader &sh,
 											 NkHevcFrame &frame, NkHevcSliceDataStats &out);
+
+				// Brique 9 : dérive le POC réel (§8.3.1, PicOrderCntVal) — cas SIMPLIFIÉ
+				// mono-couche (TemporalId toujours 0, pas de sous-couches temporelles —
+				// vrai pour tous nos flux de test x265 : maxSubLayersMinus1=0). `prevPocTid0`
+				// = POC complet de la dernière image décodée AVANT celle-ci (0 au début) ;
+				// l'appelant le met à jour avec le POC retourné après CHAQUE image (IDR
+				// incluse). Ne gère PAS RASL/BLA-avec-NoRaslOutputFlag (aucun de nos flux
+				// de test n'a de CRA/BLA — IDR unique en tête de flux).
+				static int32 ComputePoc(int32 picOrderCntLsb, int32 log2MaxPocLsb, bool isIdr,
+										int32 prevPocTid0);
+
+				// Brique 9 : construit RefPicList0 (et RefPicList1 si `isB`) en POC, à
+				// partir du RPS déjà résolu de la slice (§8.3.2 PocStCurrBefore/After) et
+				// du POC courant (§8.3.4 — construction + repli modulo si NumPicTotalCurr
+				// < num_ref_idx_active). Ne résout PAS les POC en images réelles (ni
+				// ref_pic_lists_modification, refusé au parsing — jamais émis par x265).
+				static void BuildRefPicLists(const NkHevcShortTermRps &rps, int32 poc,
+											 int32 numRefIdxL0Active, int32 numRefIdxL1Active, bool isB,
+											 NkHevcRefPicLists &out);
 
 				static bool SelfTest();
 		};
