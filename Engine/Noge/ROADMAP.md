@@ -846,6 +846,36 @@ référencés.
   logge toujours son repli NKUI. Validation visuelle du rendu RHI dans Nogee
   reportée pour contrainte matérielle (extinctions sur pics GPU —
   aucune app fenêtrée exécutée dans cette passe ; jalon = compilation).
+  **Validation exécution Nogee (2026-07-25, faite)** : le crash au démarrage
+  constaté par Rihen le 24 au soir (log muet après « [EditorLayer] Systemes
+  initialises », access violation 0xc0000005, fault offset 0xd1a3) est
+  **corrigé et prouvé au débogueur**. Cause racine (gdb : SIGSEGV à
+  `ViewportLayer::OnAttach`, `mDevice = 0xbaadf000`) : **violation ODR de
+  layout** — `NkWindowData::mDmScreen` était déclaré `DEVMODE`, macro Win32
+  qui vaut `DEVMODEW` (220 o) avec `UNICODE` (Nogee, NKWindow) et `DEVMODEA`
+  (156 o) sans (Engine/Noge) → les membres de `NkApplication` après `mWindow`
+  étaient décalés de 64 octets selon la TU ; le `GetDevice()` inline gardé
+  par le linker lisait `mDevice` à `this+0x880` alors que `InitDevice()`
+  l'écrivait à `this+0x840` → pointeur poubelle (crash aléatoire : null les
+  jours de chance → device silencieusement absent des layers, FBO jamais
+  créé). Fix : `DEVMODEW` explicite dans `NkWin32Window.h/.cpp` (layout
+  indépendant des macros de la TU incluante). Corollaires corrigés :
+  suppression du **double OnAttach** de tous les layers
+  (`NkApplication::Init` re-parcourait la stack alors que `PushLayer`
+  attache déjà — double init NkUIContext + double FBO) et garde `mUIReady`
+  dans `UILayer` (si `NkUIContext::Init` échoue, `OnUIRender` ne déréférence
+  plus `fontManager.Default()` nul). **Démarrage mesuré (Debug, runs bornés,
+  cache shaders en place)** : lancement → boucle principale **0,41 s**
+  (device 192 ms, NKRenderer init + 51 shaders 173 ms, layers 17 ms) ;
+  cache shaders froid : **0,52 s** (le cache disque `.nksc` de NkSL marche
+  déjà, la compilation n'a jamais été le poste dominant). Le vrai poste
+  dominant après le fix du device était l'**AssetBrowser** : chargement
+  synchrone de TOUTES les textures du dossier courant au boot (≈ 3,8 s sur
+  un dossier riche en images) → **thumbnails paresseux** (génération au
+  premier rendu visible, budget 2/frame, `AssetBrowser.h/.cpp`). Bilan :
+  boot ≈ 4,2 s → **0,41 s (~10×)**. L'exe tourne 25 s sans crash (fenêtre,
+  render graph 19 passes, 1600×900), y compris sous gdb (debug heap, où le
+  crash était 100 % reproductible avant le fix).
 - **Terrain** : uniquement si un jeu du portfolio en exprime un jour le besoin
   explicite (cf. « Hors scope assumé »).
 - **Export packagé complet** (APK signé, bundle HAP, wasm+html) au-delà du

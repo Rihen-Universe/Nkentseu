@@ -120,6 +120,12 @@ namespace nkentseu {
 				nkui::NkUIInputState mInput;
 				float32 mPrevMouseX = 0.f, mPrevMouseY = 0.f;
 
+				// Garde : NKUI initialisé avec succès (contexte + police par
+				// défaut garantie par NkUIFontManager::Init/AddBuiltin). Si
+				// l'init échoue, OnUIRender ne doit RIEN dessiner — sinon
+				// *fontManager.Default() serait un déréférencement de nullptr.
+				bool mUIReady = false;
+
 				// Visibilité des panels
 				bool mShowSceneTree = true;
 				bool mShowInspector = true;
