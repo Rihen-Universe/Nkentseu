@@ -883,6 +883,7 @@ int main(int argc, char **argv) {
 		printf("  %llu NALs (Annex-B, en-tete 2 octets)\n", (unsigned long long)nals.Size());
 		int32 nVps = 0, nSps = 0, nPps = 0, nIdr = 0, nCra = 0, nTrail = 0, sliceHeaderCount = 0,
 			  sliceParseFailures = 0;
+		int32 prevPocTid0 = 0; // brique 9 : POC de la derniere image decodee (ComputePoc)
 		bool haveSps = false, havePps = false;
 		NkHevcSps sps;
 		NkHevcPps pps;
@@ -951,15 +952,29 @@ int main(int argc, char **argv) {
 						sh.dataByteOffset < (usize)rbsp.Size() && eng.codIOffset < eng.codIRange;
 					if (!cabacOk)
 						++sliceParseFailures;
-					printf("  slice %2d : nal=%2d type=%s poc_lsb=%3d rps(neg=%d pos=%d) "
-						   "tmvp=%d sao(y=%d c=%d) refs(l0=%d l1=%d) merge=%d qp=%d "
+					// Brique 9 : POC reel (pas juste picOrderCntLsb) + RefPicList0/1 en POC
+					// (pas encore resolus en images -> brique DPB/NkVideoReader a venir).
+					const int32 poc = NkHevcDecoder::ComputePoc(sh.picOrderCntLsb, sps.log2MaxPocLsb,
+																 sh.isIdr, prevPocTid0);
+					NkHevcRefPicLists refLists;
+					NkHevcDecoder::BuildRefPicLists(sh.rps, poc, sh.numRefIdxL0Active, sh.numRefIdxL1Active,
+													sh.sliceType == kHevcSliceB, refLists);
+					char l0Buf[128] = "", l1Buf[128] = "";
+					for (int32 k = 0; k < refLists.numL0; ++k)
+						snprintf(l0Buf + strlen(l0Buf), sizeof(l0Buf) - strlen(l0Buf), "%s%d",
+								 k ? "," : "", refLists.l0[k]);
+					for (int32 k = 0; k < refLists.numL1; ++k)
+						snprintf(l1Buf + strlen(l1Buf), sizeof(l1Buf) - strlen(l1Buf), "%s%d",
+								 k ? "," : "", refLists.l1[k]);
+					printf("  slice %2d : nal=%2d type=%s poc=%3d rps(neg=%d pos=%d) "
+						   "tmvp=%d sao(y=%d c=%d) refs(l0=%d l1=%d) L0=[%s] L1=[%s] merge=%d qp=%d "
 						   "entrees=%d data_off=%u cabac(init_type=%d offset9=%u %s)\n",
-						   sliceHeaderCount, sh.nalType, typeName, sh.picOrderCntLsb,
-						   sh.rps.numNegativePics, sh.rps.numPositivePics, sh.sliceTemporalMvpEnabled,
-						   sh.saoLuma, sh.saoChroma, sh.numRefIdxL0Active, sh.numRefIdxL1Active,
-						   sh.maxNumMergeCand, sh.sliceQp, sh.numEntryPointOffsets,
-						   (unsigned)sh.dataByteOffset, initType, (unsigned)eng.codIOffset,
-						   cabacOk ? "ok" : "INVALIDE");
+						   sliceHeaderCount, sh.nalType, typeName, poc, sh.rps.numNegativePics,
+						   sh.rps.numPositivePics, sh.sliceTemporalMvpEnabled, sh.saoLuma, sh.saoChroma,
+						   sh.numRefIdxL0Active, sh.numRefIdxL1Active, l0Buf, l1Buf, sh.maxNumMergeCand,
+						   sh.sliceQp, sh.numEntryPointOffsets, (unsigned)sh.dataByteOffset, initType,
+						   (unsigned)eng.codIOffset, cabacOk ? "ok" : "INVALIDE");
+					prevPocTid0 = poc;
 					// Brique 5 (I) + brique 8 (P/B) : decode STRUCTUREL complet du
 					// slice_data (sao + quadtree + intra OU inter skip/merge/AMVP + residus
 					// + WPP). Toute desynchronisation CABAC ferait echouer les
