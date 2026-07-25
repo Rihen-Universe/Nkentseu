@@ -1417,6 +1417,51 @@ SVG/NkSVGCodec.h` (réel, mais raster + vue vectorielle en lecture seule).
 
 ---
 
+### ⭐ Incrément — Matériaux Phong FBX + textures externes (2026-07-25)
+
+`renderer::LoadFBX` (`Kernel/Runtime/NKRenderer/src/NKRenderer/Mesh/NkFBXLoader.cpp`)
+résout désormais le graphe d'objets FBX (`Objects`/`Connections`) pour importer
+les matériaux, en plus de la géométrie déjà livrée :
+
+- **Graphe d'objets** : indexation par ID (`FbxIdOf`, ID stocké en `int64`
+  EXACT — un ID FBX dépasse souvent 2^53 et perdrait sa précision en
+  `double`, un piège qui aurait cassé toute résolution de connexion) +
+  parsing de la section `Connections` (`C "OO"`/`C "OP"`, objet-objet et
+  objet-propriété-nommée). Résolution `Geometry -> Model propriétaire -> 1er
+  Material connecté -> textures connectées` (limite assumée : 1 seul
+  matériau par sous-mesh, comme la géométrie qui fusionne déjà toutes les
+  `Geometry` — pas de `LayerElementMaterial` par-polygone).
+- **Matériau** (`Properties70`) : `DiffuseColor`/`DiffuseFactor` ->
+  `baseColorFactor`, `TransparencyFactor` -> alpha, `EmissiveColor`/
+  `EmissiveFactor`, `ShininessExponent`/`Shininess` -> rugosité (heuristique
+  Phong→PBR grossière assumée, pas de conversion physique — le Phong FBX n'a
+  pas de notion metal/rugosité native, matériau non-métallique par défaut).
+- **Textures** (`Objects/Texture`, connexions `OP` vers `DiffuseColor`/
+  `NormalMap`/`Bump`/`EmissiveColor`) : `RelativeFilename`/`FileName`
+  résolus par rapport au dossier du `.fbx` (le chemin peut être absolu côté
+  machine d'export — ne garde que le nom de fichier, même précédent que la
+  résolution des `.bin` externes glTF). Échec de chargement = warning + slot
+  invalide, jamais d'invention de pixels. Non supporté : textures FBX
+  EMBARQUÉES (`Video` binaire).
+- **Adaptateur Noge** (`NkFBXImporter.cpp`) : `NkFBXScene::materials`
+  réellement rempli si `importMaterials` (conversion directe
+  `NkGLTFMaterial` -> `NkFBXScene::MaterialData` ; `NkSubMesh::material`
+  reste invalide — `NkMaterialSystem` en cours de réécriture, même
+  limitation déjà documentée côté loader glTF).
+- Corrections de commentaires obsolètes trouvées au passage :
+  `NkFBXLoader.h` affirmait « FBX ASCII non supporté » alors que le loader
+  supporte binaire ET ascii depuis la revision précédente (résidu).
+- Validé : compilation propre `NKRenderer` (67/67) et `Noge` (35/35, seul
+  échec du build global = `NkHybridDocument.cpp`, fichier non lié, include
+  cassé pré-existant `Nkentseu/Design/NkLayerStack.h`).
+- **Reste (chantier séparé, plus gros)** : skeleton/skinning (`Deformer`
+  `Skin`/`Cluster`, hiérarchie `Model`, `BindPose`) et animation
+  (`AnimationCurveNode`/`AnimationCurve`) — `NkFBXScene::skeletons/
+  animations` restent vides, `importSkeleton/importAnimation` restent des
+  no-ops honnêtes.
+
+---
+
 ## Phase A — CPU-only (priorité immédiate, pendant l'entraînement NKAI)
 
 Tout ce qui ne nécessite aucun contexte GPU actif. Ordre suggéré par valeur
