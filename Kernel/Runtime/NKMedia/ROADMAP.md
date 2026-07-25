@@ -1051,15 +1051,33 @@ zero-STL, `nkentseu::media`.
     **4/4 trames P bit-exactes vs `ffmpeg -f rawvideo`**, Debug (asserts) ET Release,
     **non-régression totale** (intra briques 6-7 : 10/10 toujours bit-exact ; structurel
     briques 1-5+8-9 : 25/25 + 25/25 slices OK sur les 2 flux réels ; 7/7 self-tests).
-- **Suite (briques 11+, PAS commencées)** : candidat temporel (merge + AMVP, nécessite une
-  image colocalisée avec champ de MV stocké — donc un DPB réel, pas juste 2 trames), multi-
-  référence P (`num_ref_idx_l0_active>1`, mise à l'échelle AMVP réellement exercée), slices B
-  (bi-prédiction, candidats combinés, `inter_pred_idc`), déblocage BS inter (§8.7.2.4, dérivé
-  du MV/refIdx de part et d'autre de l'arête — actuellement seul le cas intra BS=2 est
-  implémenté) + SAO sur P/B, règle CU 8×8 forcé-2Nx2N si `log2ParallelMergeLevel>2`. Puis
-  branchement `NkVideoReader` (.265/MP4/MKV, DPB réel multi-images). Restes mineurs (refus
-  propre en place) : tuiles, PCM, 4:2:2/4:4:4, `ref_pic_lists_modification()`,
-  `scaling_list_data()`, bit depth >8 pour l'inter (10-bit MC pas encore branché).
+- ⚠️ **Brique 11 (P multi-référence) EN COURS — WIP non validé, commit `85932da3`** :
+  plumbing multi-référence construit (`refIdx` par bloc 4×4, mise à l'échelle AMVP par
+  distance POC `ScaleMv` vérifiée exacte vs `ffmpeg_hevc_mvs.c::mv_scale`, harnais chaînant
+  toutes les trames P d'un flux via un DPB minimal) — **le chaînage P-sur-P (2e trame P
+  décodée) diverge légèrement puis l'écart s'accumule**. Investigation exhaustive (13 pistes
+  formules/index/tables toutes vérifiées correctes bit-à-bit vs source ffmpeg) PUIS
+  **cross-check décisif par mini-parseur HEVC Python totalement indépendant** (CABAC +
+  navigation CU transcrits depuis `ffmpeg_hevc_cabac.c`, aucun code partagé) qui confirme
+  EXACTEMENT le même résultat bit-à-bit que le C++ — prouvant que ce n'est PAS un bug
+  d'implémentation. **CAUSE RÉELLE** : le **candidat TEMPOREL** AMVP/merge (§8.5.3.2.8/9,
+  volontairement omis depuis la brique 10 sous l'hypothèse "valide pour la 1re P après
+  l'IDR") s'avère en réalité **requis dès la 2e trame P** (`tmvp=1` sur ces flux + la
+  référence est elle-même une P avec un vrai champ de MV stocké → le candidat temporel y est
+  réellement disponible et utilisé par un décodeur conforme ; seule la 1re P — référençant
+  l'I, sans champ de MV côté intra — a authentiquement AUCUN candidat temporel, ce qui
+  explique pourquoi seule la brique 10 validait). Détail complet, cas de test minimal et
+  script Python réutilisable : mémoire `project_nkmedia_hevc_p_multiref_bug`.
+- **Suite (brique 12, PAS commencée)** : implémenter le candidat temporel (DPB réel avec
+  champ de MV persistant compressé 16×16 par trame — actuellement jeté après chaque appel —
+  + `derive_temporal_colocated_mvs`/`check_mvset`, réutilise `ScaleMv` déjà écrit). Puis
+  multi-référence P réellement exercée (`num_ref_idx_l0_active>1`), slices B (bi-prédiction,
+  candidats combinés, `inter_pred_idc`), déblocage BS inter (§8.7.2.4, dérivé du MV/refIdx de
+  part et d'autre de l'arête — actuellement seul le cas intra BS=2 est implémenté) + SAO sur
+  P/B, règle CU 8×8 forcé-2Nx2N si `log2ParallelMergeLevel>2`. Puis branchement
+  `NkVideoReader` (.265/MP4/MKV, DPB réel multi-images). Restes mineurs (refus propre en
+  place) : tuiles, PCM, 4:2:2/4:4:4, `ref_pic_lists_modification()`, `scaling_list_data()`,
+  bit depth >8 pour l'inter (10-bit MC pas encore branché).
 
 ## En cours / À venir
 

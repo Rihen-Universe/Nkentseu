@@ -328,15 +328,21 @@ namespace nkentseu {
 											 NkHevcFrame &frame, NkHevcSliceDataStats &out);
 
 				// ⚠️ BRIQUE 11 EN COURS — WIP NON VALIDÉ (2026-07-25) : le chaînage
-				// P-sur-P (2e trame P décodée d'une séquence, quelle que soit la
-				// référence, y compris réf UNIQUE) diverge légèrement puis l'écart
-				// s'accumule sur les trames suivantes. La 1re P après l'IDR (réf =
-				// l'I, scope validé de la brique 10) reste bit-exacte et NON régressée
-				// (65361b6f). 13 pistes vérifiées correctes (formules identiques au
-				// source ffmpeg, bit-à-bit) sans trouver la cause exacte — voir mémoire
-				// project_nkmedia_hevc_p_multiref_bug (piège, cas de test minimal,
-				// prochaine étape recommandée). NE PAS considérer cette fonction
-				// fiable au-delà du cas brique-10 tant que ce bug n'est pas résolu.
+				// P-sur-P (2e trame P décodée d'une séquence) diverge légèrement puis
+				// l'écart s'accumule. CAUSE IDENTIFIÉE (pas un bug de ce qui est écrit
+				// ici — confirmé par cross-check indépendant, cf. mémoire
+				// project_nkmedia_hevc_p_multiref_bug) : le CANDIDAT TEMPOREL AMVP/
+				// merge (§8.5.3.2.8/9) est requis dès que la référence est elle-même
+				// une trame inter avec un vrai champ de MV (donc dès poc≥2, PAS
+				// seulement une amélioration future) — cette fonction l'omet
+				// totalement (voir commentaire ci-dessous "candidat temporel...
+				// absent"), remplissant le slot par un zero-fill au lieu du vrai
+				// candidat temporel, d'où un MV parfois faux via mvp_lx_flag/merge_idx.
+				// La 1re P après l'IDR (réf = l'I, AUCUN champ de MV côté intra, scope
+				// validé de la brique 10) reste bit-exacte et NON régressée (65361b6f)
+				// car le candidat temporel y est authentiquement indisponible aussi
+				// chez un décodeur conforme. Brique 12 = implémenter le candidat
+				// temporel (DPB + champ de MV persistant, cf. mémoire pour le plan).
 				// Brique 10+11 : DÉCODE une slice P en pixels — MULTI-référence L0
 				// (`refsL0`/`numRefsL0` = références déjà résolues par l'appelant, dans
 				// l'ORDRE de RefPicList0 — cf. NkHevcRefPicLists/BuildRefPicLists — chaque
