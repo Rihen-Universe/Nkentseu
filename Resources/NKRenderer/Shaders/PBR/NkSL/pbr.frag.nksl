@@ -237,6 +237,14 @@ void main() {
         N = normalize(TBN * nTs);
     }
 
+    // Two-sided lighting : sur un pixel BACK-FACE (materiaux NoCull : panneaux,
+    // feuillage), la normale interpolee est celle de la face AVANT -> la face
+    // arriere etait eclairee (et ombree) comme l'avant. On retourne N pour que
+    // N.L coupe naturellement la lumiere du mauvais cote. Sans effet sur les
+    // objets fermes (back-faces cullees -> gl_FrontFacing toujours vrai).
+    if (!gl_FrontFacing)
+        N = -N;
+
     // Geometric Specular AA (Kaplanyan/Tokuyoshi). Là où la normale N varie vite en
     // écran (silhouettes / forte courbure des sphères), le reflet spéculaire sharp est
     // sous-échantillonné -> il SCINTILLE au mouvement de la caméra (aliasing de shading,

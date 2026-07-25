@@ -34,6 +34,23 @@
 #endif
 #endif
 
+// ── Contexte EGL (Android/HarmonyOS) ────────────────────────────────────────
+// glad/gles2.h ne peut PAS être inclus ici : son garde `__gl3_h_` entre en
+// conflit avec glad/gl.h (déjà inclus par NkOpenglDevice.h, utilisé partout
+// dans ce fichier via le define NK_OPENGL_ES) et déclenche un #error "already
+// included". Les DEUX headers glad déclarent pourtant les MÊMES symboles
+// globaux (glad_glGetIntegerv, etc. — même convention de nommage, indépendante
+// du dialecte) : seule l'implémentation change selon qui est linké (gl.c sur
+// desktop, gles2.c sur mobile/web). Il suffit donc de déclarer localement le
+// point d'entrée du LOADER ES (gladLoadGLES2, défini dans gles2.c, qui remplit
+// ces globaux) sans inclure gles2.h. glad/egl.h n'a pas ce conflit (namespace
+// EGL_*/EGLxxx séparé) et peut s'inclure normalement.
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+#include <glad/egl.h>
+#include <unistd.h> // usleep (repli eglCreateWindowSurface, cf. commentaire plus bas)
+extern "C" int gladLoadGLES2(GLADloadfunc load);
+#endif
+
 #define NK_GL_LOG(...) logger_src.Infof("[NkRHI_GL] " __VA_ARGS__)
 #define NK_GL_ERR(...) logger_src.Infof("[NkRHI_GL][ERR] " __VA_ARGS__)
 #define NK_GL_CHECK()                                                                                                  \
@@ -144,6 +161,17 @@ namespace nkentseu {
 		}
 
 		static void InstallGLDebugCallback(uint32 minSeverity) {
+#if defined(NK_OPENGL_ES)
+			// GL_KHR_debug est nominalement core en ES 3.2, mais certains pilotes ES
+			// émulés (observé : goldfish/Adreno virtualisé, MEmu) annoncent le support
+			// (fonctions résolues non-null par gladLoadGLES2) sans l'implémenter
+			// réellement côté serveur -> glEnable(GL_DEBUG_OUTPUT)/glDebugMessageCallback
+			// répondent "called unimplemented OpenGL ES API". Purement diagnostique
+			// (RenderDoc/logs), sans impact sur le rendu voulu : désactivé sur ES,
+			// comme NKCanvas qui n'utilise pas du tout cette API.
+			(void)minSeverity;
+			return;
+#else
 			if (!glDebugMessageCallback || !glDebugMessageControl)
 				return;
 			gGLDebugMinSeverity = minSeverity;
@@ -157,6 +185,7 @@ namespace nkentseu {
 			glDebugMessageCallback(GlDebugCallback, nullptr);
 			// Activer tout, le filtrage fin est fait cote callback via gGLDebugMinSeverity.
 			glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
+#endif
 		}
 	} // namespace
 
@@ -506,6 +535,182 @@ namespace nkentseu {
 			if (glXSwapIntervalEXT_)
 				glXSwapIntervalEXT_(dpy, win, static_cast<int>(init.context.opengl.swapInterval));
 		}
+
+#elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+		// ── Contexte EGL (Android/HarmonyOS) ────────────────────────────────────
+		// Sans ce bloc, AUCUN pointeur de fonction glad n'était jamais chargé sur
+		// mobile (aucun eglCreateContext ni gladLoadGLES2 nulle part dans NKRHI) :
+		// les appels gl* suivants (glGetIntegerv, QueryCaps, etc.) sautaient à une
+		// adresse 0 -> SIGSEGV fault addr 0x0 au premier lancement réel sur device.
+		void *nativeWindow = nullptr;
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+		nativeWindow = reinterpret_cast<void *>(init.surface.nativeWindow);
+#else // HarmonyOS
+		nativeWindow = reinterpret_cast<void *>(init.surface.ohNativeWindow);
+#endif
+		if (!nativeWindow) {
+			NK_GL_ERR("Native window (ANativeWindow*/OHNativeWindow*) manquant dans surface\n");
+			return false;
+		}
+
+		// gladLoaderLoadEGL(EGL_NO_DISPLAY) : bootstrap sans display (dlopen libEGL),
+		// nécessaire car eglGetProcAddress lui-même est un pointeur glad NULL tant
+		// que rien ne l'a chargé (même oeuf-poule que GLX plus haut).
+		if (!gladLoaderLoadEGL(nullptr)) {
+			NK_GL_ERR("gladLoaderLoadEGL(EGL_NO_DISPLAY) failed\n");
+			return false;
+		}
+
+		EGLDisplay eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+		if (eglDisplay == EGL_NO_DISPLAY) {
+			NK_GL_ERR("eglGetDisplay failed\n");
+			return false;
+		}
+		EGLint eglMaj = 0, eglMin = 0;
+		if (!eglInitialize(eglDisplay, &eglMaj, &eglMin)) {
+			NK_GL_ERR("eglInitialize failed\n");
+			return false;
+		}
+		// Recharge glad EGL avec le display : charge les fonctions dépendantes de celui-ci.
+		gladLoaderLoadEGL(eglDisplay);
+
+		// Config : ES3 d'abord, repli ES2 (drivers/émulateurs EGL 1.4 qui n'exposent
+		// pas EGL_OPENGL_ES3_BIT), puis énumération complète en dernier recours —
+		// même cascade que NKCanvas (NkOpenGLContext::InitEGL, éprouvée en prod).
+		EGLConfig eglConfig = nullptr;
+		EGLint numCfg = 0;
+		const EGLint cfgAttribs[] = {EGL_RENDERABLE_TYPE,
+									 EGL_OPENGL_ES3_BIT,
+									 EGL_SURFACE_TYPE,
+									 EGL_WINDOW_BIT,
+									 EGL_RED_SIZE,
+									 8,
+									 EGL_GREEN_SIZE,
+									 8,
+									 EGL_BLUE_SIZE,
+									 8,
+									 EGL_ALPHA_SIZE,
+									 8,
+									 EGL_DEPTH_SIZE,
+									 24,
+									 EGL_STENCIL_SIZE,
+									 8,
+									 EGL_NONE};
+		eglChooseConfig(eglDisplay, cfgAttribs, &eglConfig, 1, &numCfg);
+		if (numCfg == 0) {
+			const EGLint fbAttribs[] = {EGL_RENDERABLE_TYPE,
+										EGL_OPENGL_ES2_BIT,
+										EGL_SURFACE_TYPE,
+										EGL_WINDOW_BIT,
+										EGL_RED_SIZE,
+										8,
+										EGL_GREEN_SIZE,
+										8,
+										EGL_BLUE_SIZE,
+										8,
+										EGL_DEPTH_SIZE,
+										16,
+										EGL_NONE};
+			eglChooseConfig(eglDisplay, fbAttribs, &eglConfig, 1, &numCfg);
+		}
+		if (numCfg == 0) {
+			EGLint total = 0;
+			eglGetConfigs(eglDisplay, nullptr, 0, &total);
+			if (total > 0) {
+				if (total > 256)
+					total = 256;
+				EGLConfig all[256];
+				EGLint got = 0;
+				eglGetConfigs(eglDisplay, all, total, &got);
+				for (EGLint i = 0; i < got; ++i) {
+					EGLint st = 0, rt = 0, rs = 0, gs = 0, bs = 0;
+					eglGetConfigAttrib(eglDisplay, all[i], EGL_SURFACE_TYPE, &st);
+					eglGetConfigAttrib(eglDisplay, all[i], EGL_RENDERABLE_TYPE, &rt);
+					eglGetConfigAttrib(eglDisplay, all[i], EGL_RED_SIZE, &rs);
+					eglGetConfigAttrib(eglDisplay, all[i], EGL_GREEN_SIZE, &gs);
+					eglGetConfigAttrib(eglDisplay, all[i], EGL_BLUE_SIZE, &bs);
+					const bool windowOk = (st & EGL_WINDOW_BIT) != 0;
+					const bool esOk = (rt & (EGL_OPENGL_ES2_BIT | EGL_OPENGL_ES3_BIT)) != 0;
+					if (windowOk && esOk && rs >= 8 && gs >= 8 && bs >= 8) {
+						eglConfig = all[i];
+						numCfg = 1;
+						break;
+					}
+				}
+			}
+		}
+		if (numCfg == 0) {
+			NK_GL_ERR("eglChooseConfig failed (aucune config ES compatible)\n");
+			return false;
+		}
+
+		// Repli avec ré-essais : juste après le démarrage d'une NativeActivity,
+		// le splash screen système (Android 12+) peut encore tenir la connexion
+		// EGL sur CE MÊME ANativeWindow pendant quelques dizaines de ms ->
+		// eglCreateWindowSurface échoue une fois avec EGL_BAD_ALLOC / "already
+		// connected to another API" (native_window_api_connect). Le système
+		// libère la fenêtre très vite ; quelques tentatives espacées suffisent
+		// (comportement observé et contourné de la même façon par les moteurs
+		// natifs Android usuels).
+		EGLSurface eglSurface = EGL_NO_SURFACE;
+		for (int attempt = 0; attempt < 10; ++attempt) {
+			eglSurface = eglCreateWindowSurface(eglDisplay, eglConfig, reinterpret_cast<EGLNativeWindowType>(nativeWindow),
+												nullptr);
+			if (eglSurface != EGL_NO_SURFACE)
+				break;
+			NK_GL_LOG("eglCreateWindowSurface essai %d/10 echoue (0x%x), nouvelle tentative...\n", attempt + 1,
+					  (int)eglGetError());
+			usleep(50000); // 50 ms
+		}
+		if (eglSurface == EGL_NO_SURFACE) {
+			NK_GL_ERR("eglCreateWindowSurface failed apres 10 tentatives\n");
+			return false;
+		}
+
+		eglBindAPI(EGL_OPENGL_ES_API);
+		const EGLint ctxAttribs3[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+		EGLContext eglContext = eglCreateContext(eglDisplay, eglConfig, EGL_NO_CONTEXT, ctxAttribs3);
+		if (eglContext == EGL_NO_CONTEXT) {
+			// Repli ES2 : certains émulateurs EGL 1.4 refusent un contexte ES3
+			// même sur une config qui l'annonçait.
+			const EGLint ctxAttribs2[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
+			eglContext = eglCreateContext(eglDisplay, eglConfig, EGL_NO_CONTEXT, ctxAttribs2);
+		}
+		if (eglContext == EGL_NO_CONTEXT) {
+			eglDestroySurface(eglDisplay, eglSurface);
+			NK_GL_ERR("eglCreateContext failed\n");
+			return false;
+		}
+
+		if (!eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) {
+			eglDestroyContext(eglDisplay, eglContext);
+			eglDestroySurface(eglDisplay, eglSurface);
+			NK_GL_ERR("eglMakeCurrent failed\n");
+			return false;
+		}
+
+		mEglDisplay = eglDisplay;
+		mEglSurface = eglSurface;
+		mEglContext = eglContext;
+		mEglConfig = eglConfig;
+		mEglNativeWindow = nativeWindow;
+		NK_GL_LOG("EGL surface creee sur ANativeWindow=%p\n", nativeWindow);
+
+#ifndef NK_NO_GLAD2
+		// gladLoadGLES2 (défini dans gles2.c, forward-déclaré plus haut) remplit
+		// les MÊMES globaux glad_gl* que ceux déclarés par glad/gl.h.
+		if (!gladLoadGLES2((GLADloadfunc)eglGetProcAddress)) {
+			NK_GL_ERR("gladLoadGLES2 failed\n");
+			eglMakeCurrent(eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+			eglDestroyContext(eglDisplay, eglContext);
+			eglDestroySurface(eglDisplay, eglSurface);
+			mEglContext = nullptr;
+			mEglSurface = nullptr;
+			return false;
+		}
+#endif
+		eglSwapInterval(eglDisplay, static_cast<EGLint>(init.context.opengl.swapInterval));
+		NK_GL_LOG("EGL OK (%d.%d)\n", (int)eglMaj, (int)eglMin);
 #endif
 
 		// Vérifier GL 4.3 minimum (compute shaders) ou OpenGL ES 3.1+
@@ -543,10 +748,15 @@ namespace nkentseu {
 
 		QueryCaps();
 
+#if !defined(NK_OPENGL_ES)
 		// Aligner la plage de profondeur sur Vulkan ([0,1] au lieu du [-1,1] OpenGL par défaut).
 		// Le Y est corrigé par flip_vert_y dans SPIRV-Cross pour les vertex shaders géométrie.
+		// Desktop seulement : glClipControl n'existe pas en GLES et son symbole glad
+		// (glad_debug_glClipControl, défini dans gl.c) n'est pas linké sur mobile/web —
+		// le null-check runtime ne suffit pas, il faut aussi garder le site au link.
 		if (glClipControl)
 			glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+#endif
 
 		// Créer le render pass et framebuffer swapchain virtuels
 		{
@@ -561,6 +771,20 @@ namespace nkentseu {
 
 		mIsValid = true;
 		NK_GL_LOG("Initialized (GL %d.%d, %s)\n", major, minor, (const char *)glGetString(GL_RENDERER));
+#if defined(NK_OPENGL_ES)
+		// Diagnostic temporaire (enquete ecran noir Tuto02Renderer Android) :
+		// glDrawElementsBaseVertex n'est core qu'a partir de GLES 3.2 (extension
+		// EXT/OES_draw_elements_base_vertex sinon) — si le driver ne negocie que
+		// 3.0/3.1 et n'expose pas l'extension, tout DrawIndexed avec vtxOff!=0
+		// appelait un symbole absent. On journalise ici de quoi trancher.
+		const char *glslv = (const char *)glGetString(GL_SHADING_LANGUAGE_VERSION);
+		const char *ext = (const char *)glGetString(GL_EXTENSIONS);
+		bool hasBaseVtx = ext && (strstr(ext, "draw_elements_base_vertex") != nullptr);
+		bool hasVAB = ext && (strstr(ext, "vertex_attrib_binding") != nullptr);
+		NK_GL_LOG("ES caps: GLSL=%s draw_elements_base_vertex(ext)=%d vertex_attrib_binding(ext)=%d (3.1+ core "
+				  "sinon)\n",
+				  glslv ? glslv : "?", (int)hasBaseVtx, (int)hasVAB);
+#endif
 		return true;
 	}
 
@@ -622,6 +846,22 @@ namespace nkentseu {
 		// Display appartient au backend NKWindow (surface) : ne pas XCloseDisplay ici.
 		mGlxDisplay = nullptr;
 		mGlxWindow = 0;
+#elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+		if (mEglDisplay) {
+			EGLDisplay dpy = reinterpret_cast<EGLDisplay>(mEglDisplay);
+			eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+			if (mEglContext) {
+				eglDestroyContext(dpy, reinterpret_cast<EGLContext>(mEglContext));
+				mEglContext = nullptr;
+			}
+			if (mEglSurface) {
+				eglDestroySurface(dpy, reinterpret_cast<EGLSurface>(mEglSurface));
+				mEglSurface = nullptr;
+			}
+			// Le display EGL_DEFAULT_DISPLAY est un singleton process-wide : ne pas
+			// eglTerminate ici (d'autres devices/contextes peuvent le partager).
+			mEglDisplay = nullptr;
+		}
 #endif
 
 		mIsValid = false;
@@ -705,9 +945,16 @@ namespace nkentseu {
 		glNamedBufferData(id, (GLsizeiptr)desc.sizeBytes, desc.initialData, usage);
 #endif
 
+#if !defined(NK_OPENGL_ES)
+		// Purement diagnostique (RenderDoc/débogueur) : sans impact voulu sur le
+		// rendu. GL_KHR_debug est core en ES 3.2, mais certains pilotes ES émulés
+		// (observé : goldfish/Adreno virtualisé) ne l'implémentent pas vraiment et
+		// répondent "called unimplemented OpenGL ES API" — désactivé sur mobile/ES
+		// par précaution (même choix que NKCanvas, qui n'utilise pas cette API).
 		if (desc.debugName) {
 			glObjectLabel(GL_BUFFER, id, -1, desc.debugName);
 		}
+#endif
 
 		uint64 hid = NextId();
 		mBuffers[hid] = {id, desc.sizeBytes, desc.usage, desc.bindFlags};
@@ -949,8 +1196,11 @@ namespace nkentseu {
 		glBindTexture(target, 0);
 #endif
 
+#if !defined(NK_OPENGL_ES)
+		// Cf. commentaire de CreateBuffer : diagnostic seul, désactivé sur ES.
 		if (desc.debugName)
 			glObjectLabel(GL_TEXTURE, id, -1, desc.debugName);
+#endif
 
 		uint64 hid = NextId();
 		mTextures[hid] = {id, target, desc};
@@ -1132,8 +1382,11 @@ namespace nkentseu {
 			glDeleteProgram(prog);
 			return {};
 		}
+#if !defined(NK_OPENGL_ES)
+		// Cf. commentaire de CreateBuffer : diagnostic seul, désactivé sur ES.
 		if (desc.debugName)
 			glObjectLabel(GL_PROGRAM, prog, -1, desc.debugName);
+#endif
 
 		uint64 hid = NextId();
 		mShaders[hid] = {prog};
@@ -1255,33 +1508,46 @@ namespace nkentseu {
 				default:
 					break;
 			}
+			// IMPORTANT (ES) : glVertexAttribPointer/IPointer classiques exigent un
+			// buffer DEJA lie sur GL_ARRAY_BUFFER au moment de l'appel — hors, ici,
+			// à la création du pipeline, AUCUN vertex buffer n'est encore lié (il ne
+			// l'est que plus tard, par tirage, via glBindVertexBuffer). Les appeler
+			// ici capturait `offset` comme un POINTEUR CPU brut invalide dans le VAO
+			// -> GL_INVALID_OPERATION (0x502) puis crash au premier draw. On utilise
+			// donc le modele "vertex attrib binding" (ES 3.1+, disponible : nos
+			// contextes ES sont créés en 3.2) : Format = géométrie de l'attribut
+			// SEULE (sans buffer), Binding = association attribut<->binding index,
+			// et c'est glBindVertexBuffer (déjà correct, cf. NkOpenglCommandBuffer)
+			// qui fournit le buffer réel à chaque tirage. Exactement le pendant non-DSA
+			// du chemin desktop (glVertexArrayAttribFormat/Binding) juste en-dessous.
 			if (isInteger) {
 #if defined(NK_OPENGL_ES)
-				glVertexAttribIPointer(a.location, compCount, compType, (GLsizei)stride,
-									   (const void *)(uintptr_t)a.offset);
+				glVertexAttribIFormat(a.location, compCount, compType, (GLuint)a.offset);
 #else
 				glVertexArrayAttribIFormat(p.vao, a.location, compCount, compType, (GLuint)a.offset);
 #endif
 			} else {
 #if defined(NK_OPENGL_ES)
-				glVertexAttribPointer(a.location, compCount, compType, norm, (GLsizei)stride,
-									  (const void *)(uintptr_t)a.offset);
+				glVertexAttribFormat(a.location, compCount, compType, norm, (GLuint)a.offset);
 #else
 				glVertexArrayAttribFormat(p.vao, a.location, compCount, compType, norm, (GLuint)a.offset);
 #endif
 			}
-#if !defined(NK_OPENGL_ES)
+#if defined(NK_OPENGL_ES)
+			glVertexAttribBinding(a.location, a.binding);
+#else
 			glVertexArrayAttribBinding(p.vao, a.location, a.binding);
 #endif
 		}
 		for (uint32 i = 0; i < d.vertexLayout.bindings.Size(); i++) {
 			auto &b = d.vertexLayout.bindings[i];
+			if (b.perInstance) {
 #if defined(NK_OPENGL_ES)
-			// Sur ES, on configure le binding lors du BindVertexBuffer
+				glVertexBindingDivisor(b.binding, 1);
 #else
-			if (b.perInstance)
 				glVertexArrayBindingDivisor(p.vao, b.binding, 1);
 #endif
+			}
 		}
 #if defined(NK_OPENGL_ES)
 		glBindVertexArray(0);
@@ -1413,8 +1679,11 @@ namespace nkentseu {
 		if (status != GL_FRAMEBUFFER_COMPLETE)
 			NK_GL_ERR("Framebuffer incomplete: 0x%X\n", (unsigned)status);
 
+#if !defined(NK_OPENGL_ES)
+		// Cf. commentaire de CreateBuffer : diagnostic seul, désactivé sur ES.
 		if (d.debugName)
 			glObjectLabel(GL_FRAMEBUFFER, fbo, -1, d.debugName);
+#endif
 
 		uint64 hid = NextId();
 		mFramebuffers[hid] = {fbo, d.width, d.height};
@@ -1591,8 +1860,101 @@ namespace nkentseu {
 		if (mGlxDisplay && mGlxWindow) {
 			glXSwapBuffers(reinterpret_cast<Display *>(mGlxDisplay), static_cast<::Window>(mGlxWindow));
 		}
+#elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+		if (mEglDisplay && mEglSurface) {
+			// Diagnostic temporaire (enquete ecran noir Tuto02Renderer) : la sonde
+			// readback prouve que le texte EST rasterise dans le back buffer du FBO 0
+			// — si l'ecran reste noir, c'est la PRESENTATION qui echoue. On verifie
+			// donc le retour d'eglSwapBuffers (jamais controle jusqu'ici : un swap
+			// sur une surface EGL liee a un ANativeWindow recree par Android echoue
+			// en silence, EGL_BAD_SURFACE/BAD_NATIVE_WINDOW) + la taille que EGL
+			// croit avoir pour la surface. A retirer une fois la cause confirmee.
+			EGLDisplay dpy = reinterpret_cast<EGLDisplay>(mEglDisplay);
+			EGLSurface surf = reinterpret_cast<EGLSurface>(mEglSurface);
+			EGLBoolean swapOk = eglSwapBuffers(dpy, surf);
+			static int sSwapLog = 0;
+			if (!swapOk || sSwapLog < 8) {
+				sSwapLog++;
+				EGLint sw = -1, sh = -1;
+				eglQuerySurface(dpy, surf, EGL_WIDTH, &sw);
+				eglQuerySurface(dpy, surf, EGL_HEIGHT, &sh);
+				logger.Infof("[NkRHI_GL][ES] eglSwapBuffers ok=%d eglErr=0x%X surf=%p natWin=%p surfSize=%dx%d "
+							 "curCtx=%p curSurf=%p\n",
+							 (int)swapOk, (unsigned)eglGetError(), mEglSurface, mEglNativeWindow, (int)sw, (int)sh,
+							 (void *)eglGetCurrentContext(), (void *)eglGetCurrentSurface(EGL_DRAW));
+			}
+		}
 #endif
 	}
+
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+	// Re-attache la surface EGL quand l'OS a recree la fenetre native (cf. le
+	// contrat dans NkIDevice.h). Pattern eprouve de NKCanvas
+	// (NkOpenGLContext::SurfaceRecreated) : release current -> destroy surface ->
+	// create sur la nouvelle fenetre (meme config) -> re-make-current. Le contexte
+	// GL (et donc TOUTES les ressources : textures, buffers, programmes, VAOs)
+	// survit — seul le point de presentation change.
+	bool NkOpenGLDevice::RecreateSurface(const NkSurfaceDesc &surf) {
+		if (!mIsValid || !mEglDisplay || !mEglContext || !mEglConfig)
+			return false;
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+		void *newWin = reinterpret_cast<void *>(surf.nativeWindow);
+#else // HarmonyOS
+		void *newWin = reinterpret_cast<void *>(surf.ohNativeWindow);
+#endif
+		if (!newWin) {
+			// Fenetre pas (encore) disponible : app en arriere-plan. On garde
+			// l'ancienne surface ; l'appelant retentera au prochain Shown.
+			return false;
+		}
+		if (newWin == mEglNativeWindow && mEglSurface) {
+			return true; // meme fenetre native -> rien a faire (cas ultra-courant)
+		}
+		logger.Infof("[NkRHI_GL][ES] RecreateSurface : ANativeWindow %p -> %p\n", mEglNativeWindow, newWin);
+
+		EGLDisplay dpy = reinterpret_cast<EGLDisplay>(mEglDisplay);
+		// 1. Liberer le current (eglDestroySurface est interdit sur une surface
+		//    encore courante).
+		eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+		// 2. Detruire l'ancienne surface (pointait sur la fenetre morte).
+		if (mEglSurface) {
+			eglDestroySurface(dpy, reinterpret_cast<EGLSurface>(mEglSurface));
+			mEglSurface = nullptr;
+		}
+		// 3. Creer la nouvelle surface sur la fenetre courante (meme retry que
+		//    l'init : le splash/system peut tenir la connexion quelques ms).
+		EGLSurface newSurf = EGL_NO_SURFACE;
+		for (int attempt = 0; attempt < 10; ++attempt) {
+			newSurf = eglCreateWindowSurface(dpy, reinterpret_cast<EGLConfig>(mEglConfig),
+											 reinterpret_cast<EGLNativeWindowType>(newWin), nullptr);
+			if (newSurf != EGL_NO_SURFACE)
+				break;
+			NK_GL_LOG("RecreateSurface : eglCreateWindowSurface essai %d/10 echoue (0x%x)\n", attempt + 1,
+					  (int)eglGetError());
+			usleep(50000);
+		}
+		if (newSurf == EGL_NO_SURFACE) {
+			NK_GL_ERR("RecreateSurface : eglCreateWindowSurface failed\n");
+			return false;
+		}
+		// 4. Re-lier le contexte existant sur la nouvelle surface.
+		if (!eglMakeCurrent(dpy, newSurf, newSurf, reinterpret_cast<EGLContext>(mEglContext))) {
+			NK_GL_ERR("RecreateSurface : eglMakeCurrent failed (0x%x)\n", (int)eglGetError());
+			eglDestroySurface(dpy, newSurf);
+			return false;
+		}
+		mEglSurface = newSurf;
+		mEglNativeWindow = newWin;
+		// Taille de la nouvelle surface -> swapchain virtuelle.
+		EGLint sw = 0, sh = 0;
+		eglQuerySurface(dpy, newSurf, EGL_WIDTH, &sw);
+		eglQuerySurface(dpy, newSurf, EGL_HEIGHT, &sh);
+		if (sw > 0 && sh > 0 && ((uint32)sw != mWidth || (uint32)sh != mHeight))
+			OnResize((uint32)sw, (uint32)sh);
+		logger.Infof("[NkRHI_GL][ES] RecreateSurface OK (%dx%d)\n", (int)sw, (int)sh);
+		return true;
+	}
+#endif
 
 	NkFenceHandle NkOpenGLDevice::CreateFence(bool signaled) {
 		threading::NkScopedLockMutex lock(mMutex);

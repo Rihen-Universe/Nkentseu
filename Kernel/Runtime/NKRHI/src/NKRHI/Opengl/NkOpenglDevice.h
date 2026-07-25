@@ -160,6 +160,9 @@ namespace nkentseu {
 			}
 
 			void OnResize(uint32 w, uint32 h) override;
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+			bool RecreateSurface(const NkSurfaceDesc &surf) override;
+#endif
 
 			void *GetNativeDevice() const override {
 				return nullptr;
@@ -305,6 +308,17 @@ namespace nkentseu {
 			void *mGlxDisplay = nullptr;  // Display*
 			unsigned long mGlxWindow = 0; // ::Window
 			void *mGlxContext = nullptr;  // GLXContext
+#elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+			// Contexte EGL (Android/HarmonyOS). Types opaques (void*) pour NE PAS tirer
+			// <EGL/egl.h> dans ce header (mêmes raisons que GLX ci-dessus : le .cpp caste).
+			void *mEglDisplay = nullptr; // EGLDisplay
+			void *mEglSurface = nullptr; // EGLSurface
+			void *mEglContext = nullptr; // EGLContext
+			void *mEglConfig = nullptr;  // EGLConfig
+			// ANativeWindow*/OHNativeWindow* sur lequel mEglSurface a ete creee —
+			// compare au NkSurfaceDesc courant dans RecreateSurface() pour detecter
+			// une fenetre native recreee par l'OS (cf. NkIDevice::RecreateSurface).
+			void *mEglNativeWindow = nullptr;
 #endif
 
 			// Compile un shader GL stage

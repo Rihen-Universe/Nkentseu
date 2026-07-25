@@ -567,7 +567,19 @@ namespace nkentseu {
 		VkPhysicalDeviceVulkan12Features feats12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
 		VkPhysicalDeviceFeatures2 feats2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
 		feats2.pNext = &feats12;
-		vkGetPhysicalDeviceFeatures2(mPhysicalDevice, &feats2);
+		// Résolution DYNAMIQUE : vkGetPhysicalDeviceFeatures2 (core 1.1) n'est pas
+		// exporté par le loader Android avant l'API 26 -> un appel direct casse le
+		// LINK des .so minSdk 24. On passe par vkGetInstanceProcAddr (core + suffixe
+		// KHR de l'extension VK_KHR_get_physical_device_properties2 en repli).
+		auto pGetFeatures2 =
+			(PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(mInstance, "vkGetPhysicalDeviceFeatures2");
+		if (!pGetFeatures2)
+			pGetFeatures2 =
+				(PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(mInstance, "vkGetPhysicalDeviceFeatures2KHR");
+		if (pGetFeatures2)
+			pGetFeatures2(mPhysicalDevice, &feats2);
+		// Sans features2 (loader trop vieux) : feats12 reste à zéro -> aucune feature
+		// 1.2 activée, chemin identique à un GPU qui ne les supporte pas.
 
 		VkPhysicalDeviceVulkan12Features enabled12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
 		// descriptorIndexing parent flag : requis par VUID-VkDeviceCreateInfo-ppEnabledExtensionNames-02833
@@ -661,6 +673,23 @@ namespace nkentseu {
 		if (mDebugMessenger != VK_NULL_HANDLE) {
 			DestroyVkDebugMessenger(mInstance, mDebugMessenger);
 			mDebugMessenger = VK_NULL_HANDLE;
+		}
+		// mSurface n'était JAMAIS détruit ici : sur Android, la connexion du
+		// producer natif (native_window_api_connect, API_EGL — le WSI Vulkan
+		// Android réutilise cet identifiant pour compat historique) restait
+		// active à vie sur l'ANativeWindow. Résultat : si l'auto-détection
+		// (Vulkan → OpenGL → Software) essayait Vulkan EN PREMIER et qu'il
+		// échouait plus loin (device logique, extensions...), la fenêtre native
+		// restait "already connected" -> eglCreateWindowSurface du backend
+		// OpenGL suivant échouait indéfiniment (EGL_BAD_ALLOC), même en
+		// réessayant : écran noir permanent, pas seulement un crash.
+		if (mSurface != VK_NULL_HANDLE) {
+			vkDestroySurfaceKHR(mInstance, mSurface, nullptr);
+			mSurface = VK_NULL_HANDLE;
+		}
+		if (mInstance != VK_NULL_HANDLE) {
+			vkDestroyInstance(mInstance, nullptr);
+			mInstance = VK_NULL_HANDLE;
 		}
 		mDevice = VK_NULL_HANDLE;
 		mGraphicsQueue = VK_NULL_HANDLE;

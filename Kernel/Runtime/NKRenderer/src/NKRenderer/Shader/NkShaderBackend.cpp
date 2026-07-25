@@ -283,8 +283,13 @@ namespace nkentseu {
 			NkString glslGL;
 			const char *stageName = (stage == NkShaderStage::NK_VERTEX) ? "VS" : "FS";
 			if (LooksLikeVulkanGlsl(src)) {
+#if defined(NK_OPENGL_ES)
+				const bool targetES = true;
+#else
+				const bool targetES = false;
+#endif
 				::nkentseu::NkShaderConvertResult conv =
-					::nkentseu::NkShaderConverter::GlslToGlsl(src, ToNkSLStage(stage), "shader");
+					::nkentseu::NkShaderConverter::GlslToGlsl(src, ToNkSLStage(stage), "shader", targetES);
 				if (!conv.success) {
 					res.success = false;
 					res.errors = NkString("VK->GL conversion failed: ") + conv.errors;
