@@ -345,8 +345,8 @@ namespace nkentseu {
 					int32 curPartMode = 0; // kPart2Nx2N — nécessaire au split forcé inter (§7.4.9.8)
 					int32 maxTrafoDepthInter = 0;
 
-					// ---- Inter P (briques 10+11) — multi-référence L0, pas de candidat
-					// temporel (brique suivante, nécessite un DPB avec champ de MV stocké).
+					// ---- Inter P (briques 10-12) — multi-référence L0 + candidat temporel
+					// (§8.5.3.2.8/9, brique 12 : champ de MV persistant via NkHevcFrame).
 					const NkHevcFrame *const *refsL0 = nullptr; // .poc DOIT être renseigné par l'appelant
 					int32 numRefsL0 = 0;
 					NkVector<int16> mvL0x, mvL0y; // MV par bloc 4x4 (grille minPuWidth x minPuHeight)
@@ -1676,13 +1676,14 @@ namespace nkentseu {
 						outY = scaleOne(mvy);
 					}
 
-					// ---- Fusion spatiale (§8.5.3.2.2, multi-référence — brique 11 : le
-					// candidat garde le refIdx du VOISIN tel quel, AUCUNE mise à l'échelle
-					// n'est jamais appliquée à un candidat spatial ; seul le candidat
-					// temporel se met à l'échelle, absent cette brique). Ordre A1,B1,B0,
+					// ---- Fusion spatiale + temporelle (§8.5.3.2.2, multi-référence — brique
+					// 11 : le candidat spatial garde le refIdx du VOISIN tel quel, AUCUNE
+					// mise à l'échelle n'est jamais appliquée à un candidat spatial ; seul
+					// le candidat temporel se met à l'échelle, brique 12). Ordre A1,B1,B0,
 					// A0,B2 avec exclusions de partition (§8.5.3.2.3) et élagage anti-
 					// doublon (paires EXACTES du spec : B1~A1, B0~B1, A0~A1, B2~{A1,B1}),
-					// puis repli MV nul (refIdx cyclé 0..numRefsL0-1, §8.5.3.2.9).
+					// puis temporel (toujours refsL0[0]), puis repli MV nul (refIdx cyclé
+					// 0..numRefsL0-1, §8.5.3.2.9).
 					void DeriveMergeCandidates(int32 x0, int32 y0, int32 nPbW, int32 nPbH,
 											   int32 partIdx, int32 partMode, int32 (&candX)[5],
 											   int32 (&candY)[5], int32 (&candRef)[5],
@@ -1723,8 +1724,17 @@ namespace nkentseu {
 							push(a0);
 						if (numCand < 4 && b2.avail && !SameMv(b2, a1) && !SameMv(b2, b1))
 							push(b2);
-						// Candidat temporel volontairement absent (nécessite un DPB avec
-						// champ de MV stocké d'une trame précédente — brique suivante).
+						// Candidat temporel (§8.5.3.2.9, brique 12) — toujours vers refsL0[0]
+						// (refIdxL0Col=0 normatif), ajouté APRÈS les spatiaux, AVANT le repli nul.
+						if (numCand < 5) {
+							int32 tx = 0, ty = 0;
+							if (DeriveTemporalCand(x0, y0, nPbW, nPbH, RefPoc(0), tx, ty)) {
+								candX[numCand] = tx;
+								candY[numCand] = ty;
+								candRef[numCand] = 0;
+								++numCand;
+							}
+						}
 						int32 zeroIdx = 0;
 						while (numCand < sh->maxNumMergeCand && numCand < 5) {
 							candX[numCand] = 0;
@@ -1772,6 +1782,62 @@ namespace nkentseu {
 						ScaleMv(c.mx, c.my, td, tb, outX, outY);
 						return true;
 					}
+					// ---- Candidat temporel (§8.5.3.2.8/9, brique 12) — dérivé du champ de MV
+					// PERSISTANT de la trame collocalisée (colPic = refsL0[collocated_ref_idx],
+					// toujours L0 : ce décodeur ne traite que des slices P). Position bas-
+					// droite du PU d'abord (repliée si hors CTB courant ou hors image), sinon
+					// position centrale (toujours dans l'image) ; bloc INTRA côté colPic (ou
+					// colPic lui-même intra, donc SANS champ de MV) -> candidat indisponible.
+					// `targetRefIdx`/`targetPoc` = référence VERS LAQUELLE mettre le MV à
+					// l'échelle (AMVP : le refIdx signalé par le bitstream ; merge : toujours
+					// refsL0[0], §8.5.3.2.1 "refIdxL0Col is set equal to 0").
+					bool DeriveTemporalCand(int32 x0, int32 y0, int32 nPbW, int32 nPbH,
+											 int32 targetPoc, int32 &outX, int32 &outY) const {
+						if (!sh->sliceTemporalMvpEnabled)
+							return false;
+						const int32 colIdx = sh->collocatedRefIdx;
+						if (colIdx < 0 || colIdx >= numRefsL0 || !refsL0[colIdx])
+							return false;
+						const NkHevcFrame *colPic = refsL0[colIdx];
+						if (colPic->mvColValid.IsEmpty() || colPic->mvColPuWidth != minPuWidth ||
+							colPic->mvColPuHeight != minPuHeight)
+							return false; // colPic intra (I), ou résolution différente
+						auto sampleCol = [&](int32 xCol, int32 yCol, int32 &mx, int32 &my,
+											  int32 &refPoc) -> bool {
+							const int32 px = xCol >> 2, py = yCol >> 2;
+							if (px < 0 || py < 0 || px >= colPic->mvColPuWidth ||
+								py >= colPic->mvColPuHeight)
+								return false;
+							const usize idx = (usize)(py * colPic->mvColPuWidth + px);
+							if (!colPic->mvColValid[idx])
+								return false;
+							mx = colPic->mvColX[idx];
+							my = colPic->mvColY[idx];
+							refPoc = colPic->mvColRefPoc[idx];
+							return true;
+						};
+						int32 mvColX = 0, mvColY = 0, colRefPoc = 0;
+						bool have = false;
+						const int32 xColBr = x0 + nPbW, yColBr = y0 + nPbH;
+						if (((yColBr >> ctbLog2) == (y0 >> ctbLog2)) && yColBr < picH && xColBr < picW) {
+							const int32 xColPb = (xColBr >> 4) << 4, yColPb = (yColBr >> 4) << 4;
+							have = sampleCol(xColPb, yColPb, mvColX, mvColY, colRefPoc);
+						}
+						if (!have) {
+							const int32 xColCtr = x0 + (nPbW >> 1), yColCtr = y0 + (nPbH >> 1);
+							const int32 xColPb = (xColCtr >> 4) << 4, yColPb = (yColCtr >> 4) << 4;
+							have = sampleCol(xColPb, yColPb, mvColX, mvColY, colRefPoc);
+						}
+						if (!have)
+							return false;
+						int32 td = colPic->poc - colRefPoc;
+						if (td == 0)
+							td = 1; // garde-fou mv_scale (poc_diff nul -> division par zéro)
+						const int32 tb = frame->poc - targetPoc;
+						ScaleMv(mvColX, mvColY, td, tb, outX, outY);
+						return true;
+					}
+
 					void DeriveAmvp(int32 x0, int32 y0, int32 nPbW, int32 nPbH, int32 targetRefIdx,
 									int32 (&mvpX)[2], int32 (&mvpY)[2]) {
 						const int32 curPoc = frame->poc;
@@ -1815,6 +1881,16 @@ namespace nkentseu {
 							mvpX[n] = bx;
 							mvpY[n] = by;
 							++n;
+						}
+						// Candidat temporel (§8.5.3.2.6, brique 12) — seulement si les 2
+						// spatiaux ne suffisent pas déjà, mis à l'échelle vers targetRefIdx.
+						if (n < 2) {
+							int32 tx = 0, ty = 0;
+							if (DeriveTemporalCand(x0, y0, nPbW, nPbH, targetPoc, tx, ty)) {
+								mvpX[n] = tx;
+								mvpY[n] = ty;
+								++n;
+							}
 						}
 						while (n < 2) {
 							mvpX[n] = 0;
@@ -2301,10 +2377,10 @@ namespace nkentseu {
 				if (sh.dependentSliceSegment || !sh.firstSliceSegmentInPic)
 					return false; // slices multiples : brique suivante
 				if (sh.sliceType != kHevcSliceI && frame) {
-					// Brique 11 : reconstruction P multi-référence (MC + MV spatiaux merge/
-					// AMVP avec mise à l'échelle réelle) — candidat temporel toujours
-					// absent (DPB avec champ de MV stocké : brique suivante). B : brique
-					// suivante (bi-prédiction).
+					// Briques 11+12 : reconstruction P multi-référence (MC + MV spatiaux
+					// merge/AMVP avec mise à l'échelle réelle) + candidat temporel
+					// (§8.5.3.2.8/9, via le champ de MV persistant de la trame collocalisée).
+					// B : brique suivante (bi-prédiction).
 					if (sh.sliceType != kHevcSliceP || !refsL0 || numRefsL0 < sh.numRefIdxL0Active)
 						return false;
 					if (pps.log2ParallelMergeLevel > 2)
@@ -2523,6 +2599,29 @@ namespace nkentseu {
 						NkVector<nk_uint16> srcCb = frame->cb;
 						NkVector<nk_uint16> srcCr = frame->cr;
 						p.ApplySao(srcY, srcCb, srcCr);
+					}
+				}
+				// Persistance du champ de MV (brique 12, §8.5.3.2.8/9) — cette trame
+				// devient une "collocated picture" possible pour le décodage de la
+				// SUIVANTE. Pour une trame I, p.mvValid reste entièrement à 0 (aucun bloc
+				// inter) : mvColValid en sortie est donc entièrement à 0 aussi, ce qui
+				// rend le candidat temporel authentiquement indisponible via elle — sans
+				// cas particulier à coder.
+				if (frame) {
+					frame->mvColPuWidth = p.minPuWidth;
+					frame->mvColPuHeight = p.minPuHeight;
+					frame->mvColX = p.mvL0x;
+					frame->mvColY = p.mvL0y;
+					frame->mvColValid = p.mvValid;
+					frame->mvColRefPoc.Resize(p.refIdxL0.Size());
+					for (uint64 i = 0; i < p.refIdxL0.Size(); ++i) {
+						if (!p.mvValid[i]) {
+							frame->mvColRefPoc[i] = 0;
+							continue;
+						}
+						const int8 ri = p.refIdxL0[i];
+						frame->mvColRefPoc[i] =
+							(ri >= 0 && ri < p.numRefsL0 && p.refsL0[ri]) ? p.refsL0[ri]->poc : 0;
 					}
 				}
 				return true;
