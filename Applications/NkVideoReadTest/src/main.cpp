@@ -11,6 +11,7 @@
 #include "NKMedia/Codecs/Video/VP8/NkVp8BoolDecoder.h"
 #include "NKMedia/Codecs/Video/VP9/NkVp9Decoder.h"
 #include "NKMedia/Codecs/Video/HEVC/NkHevcDecoder.h"
+#include "NKMedia/Codecs/Video/HEVC/NkHevcCabac.h"
 #include "NKMedia/Audio/Containers/NkWavWriter.h"
 
 #include <cstdio>
@@ -35,9 +36,12 @@ int main(int argc, char **argv) {
 		printf("  [ %s ] NkVp9Decoder::SelfTest (superframe + en-tete non compresse)\n", okVp9 ? "OK " : "KO");
 		bool okHevc = NkHevcDecoder::SelfTest();
 		printf("  [ %s ] NkHevcDecoder::SelfTest (NAL split en-tete 2 octets)\n", okHevc ? "OK " : "KO");
+		bool okHevcCabac = NkHevcCabacState::SelfTest();
+		printf("  [ %s ] NkHevcCabacState::SelfTest (tables init + formule + moteur known-answer)\n",
+			   okHevcCabac ? "OK " : "KO");
 		bool okWav = NkWavWriter::SelfTest();
 		printf("  [ %s ] NkWavWriter::SelfTest (RIFF/WAVE round-trip)\n", okWav ? "OK " : "KO");
-		bool all = ok && okH264 && okCavlc && okVp9 && okHevc && okWav;
+		bool all = ok && okH264 && okCavlc && okVp9 && okHevc && okHevcCabac && okWav;
 		printf("=== %s ===\n", all ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
 		return all ? 0 : 1;
 	}
@@ -933,12 +937,29 @@ int main(int argc, char **argv) {
 					static const char *kTypeNames[3] = {"B", "P", "I"};
 					const char *typeName =
 						(sh.sliceType >= 0 && sh.sliceType <= 2) ? kTypeNames[sh.sliceType] : "?";
+					// Init CABAC réelle (brique 4) : contextes (§9.3.2.2) + moteur au début
+					// de slice_data() dans le RBSP dé-émulé. Un flux valide exige
+					// codIOffset < codIRange après l'init 9 bits (§9.3.1.2).
+					NkVector<uint8> rbsp;
+					NkHevcDecoder::DeemulateRbsp(nd, nal.size, rbsp);
+					NkHevcCabacState cst;
+					const int32 initType = NkHevcCabacState::InitTypeFor(sh.sliceType, sh.cabacInit);
+					cst.Init(sh.sliceQp, initType);
+					NkCabacEngine eng;
+					eng.InitEngine(rbsp.Data(), (usize)rbsp.Size(), sh.dataByteOffset);
+					const bool cabacOk =
+						sh.dataByteOffset < (usize)rbsp.Size() && eng.codIOffset < eng.codIRange;
+					if (!cabacOk)
+						++sliceParseFailures;
 					printf("  slice %2d : nal=%2d type=%s poc_lsb=%3d rps(neg=%d pos=%d) "
-						   "tmvp=%d sao(y=%d c=%d) refs(l0=%d l1=%d) merge=%d qp=%d\n",
+						   "tmvp=%d sao(y=%d c=%d) refs(l0=%d l1=%d) merge=%d qp=%d "
+						   "entrees=%d data_off=%u cabac(init_type=%d offset9=%u %s)\n",
 						   sliceHeaderCount, sh.nalType, typeName, sh.picOrderCntLsb,
 						   sh.rps.numNegativePics, sh.rps.numPositivePics, sh.sliceTemporalMvpEnabled,
 						   sh.saoLuma, sh.saoChroma, sh.numRefIdxL0Active, sh.numRefIdxL1Active,
-						   sh.maxNumMergeCand, sh.sliceQp);
+						   sh.maxNumMergeCand, sh.sliceQp, sh.numEntryPointOffsets,
+						   (unsigned)sh.dataByteOffset, initType, (unsigned)eng.codIOffset,
+						   cabacOk ? "ok" : "INVALIDE");
 				} else {
 					++sliceParseFailures;
 					printf("  [KO] slice NAL %llu (type=%d) : parsing echoue\n", (unsigned long long)i,
@@ -951,8 +972,8 @@ int main(int argc, char **argv) {
 		const bool ok =
 			haveSps && sps.width > 0 && sps.height > 0 && sliceHeaderCount > 0 && sliceParseFailures == 0;
 		printf("  slices parsees : %d (echecs=%d)\n", sliceHeaderCount, sliceParseFailures);
-		printf("  [ %s ] parsing en-tetes HEVC (briques 1-3 : NAL + VPS/SPS/PPS + slice header "
-			   "complet RPS+QP)\n",
+		printf("  [ %s ] parsing en-tetes HEVC (briques 1-4 : NAL + VPS/SPS/PPS + slice header "
+			   "complet + entry points WPP + init CABAC)\n",
 			   ok ? "OK " : "KO");
 		return ok ? 0 : 1;
 	}

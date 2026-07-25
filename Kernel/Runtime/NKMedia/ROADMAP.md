@@ -20,7 +20,7 @@
 | 3quater. **Fichiers .opus (Ogg-Opus, RFC 7845)** + câblage NKAudio | ✅ | **Conteneur Ogg livré (2026-07-12)** : probe (pistes opus/vorbis depuis les pages BOS) + démux (pages → paquets, lacing, `granule`) ; `NkOpusFile` (OpusHead pre-skip/gain + décode + trim granule ; **hybride/stéréo refusés proprement** → retirer le garde quand 3ter sera fini). Harnais `--oggopus`, self-test forge Ogg (34/34). **Validé vs ffmpeg** : SILK-WB corr 0.999985 (lag +2 = délai resampler), CELT corr 0.965 lag 0. **NKAudio branché** : `AudioFormat::OPUS` décodé via `NkOpusCodec` (détection OggS+OpusHead), test `NkMicRecord --decode in.opus out.wav`. NB : NKAudio dépend de NKMedia → 10 jengas d'apps mis à jour |
 | 4. Décodeur audio AAC-LC | ✅ | *(table périmée, tenue à jour dans « Livré » ci-dessous)* MP4 → PCM, stéréo complet, bit-exact vs ffmpeg |
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅ + WAV (RIFF) ✅** ; reste WebM |
-| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC briques 1-3** (NAL+VPS/SPS/PPS+slice header COMPLET avec RPS, 50/50 slices bit-exactes vs oracle trace_headers ; décodage image CABAC/CTU = à venir) ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
+| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC briques 1-4** (NAL+VPS/SPS/PPS+slice header COMPLET+entry points WPP+init CABAC — 50/50 slices vs oracle trace_headers, tables CABAC 537/537 vs ffmpeg ; décodage CTU = à venir) ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
 | 8. **Décodeur vidéo VP8** | ✅ | **DÉCODEUR COMPLET (clé + inter) : 325 images BIT-EXACTES vs ffmpeg sur 6 flux** (dont altref invisibles, golden frames, 4 GOPs, SPLITMV, filterLevel 0-8, résolutions impaires). Décodeur booléen, en-têtes, modes intra+inter, MV (near/nearest/new/split), MC 6-tap, résidus, WHT+IDCT, filtre de boucle. Restes mineurs : segmentation MB, partitions multiples, versions 1-3 (refus propre). **À brancher dans NkVideoReader** (WebM/IVF). |
 
@@ -731,7 +731,7 @@
   inter + 10/10 flux clés restent bit-exacts, comme attendu si le bug n'était effectivement
   jamais exercé jusqu'ici).
 
-## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (briques 1-3 : structure + slice header complet)
+## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (briques 1-4 : structure + slice header + init CABAC)
 
 *(2026-07-24)* Démarré comme suite logique directe de H.264 (« évolution directe … la base de
 départ la plus naturelle », cf. section précédente) — même famille bit-exacte, complexité
@@ -830,15 +830,48 @@ zero-STL, `nkentseu::media`.
     l'hypothèse documentée Main/Main10 mono-couche (les flags `luma/chroma_weight_lX_flag`
     sont toujours présents ; la condition §7.3.6.3 qui les ferait sauter n'existe qu'en
     SHVC/SCC). Après fix : 50/50 bit-exact.
-- **Suite (briques 4+, PAS commencées)** : moteur **CABAC** (contexte différent d'H.264 malgré
-  la même idée générale), quadtree **CTU→CU→PU→TU**, **35 modes intra** (33 directionnels +
-  DC + planar, contre 9 en H.264), prédiction inter **merge/AMVP** (pas de skip/direct façon
-  H.264), transformées **DST/DCT** variables (4×4 à 32×32), déblocage + **SAO** (nouveau vs
-  H.264). Restes slice header (mineurs, refus propre en place) : `ref_pic_lists_modification()`
-  (jamais émis par x265), `scaling_list_data()`, offsets QP chroma/overrides SAO-déblocage par
-  slice, points d'entrée tuiles/WPP. Gros chantier multi-session, comme H.264/VP8/VP9 avant
-  lui — à traiter brique par brique avec validation bit-exacte à chaque étape (méthode déjà
-  éprouvée 4× sur ce module ; oracle `trace_headers` désormais disponible pour les en-têtes).
+- ⭐ **Brique 4 livrée et validée (2026-07-25) : fin du slice header + CABAC initialisé** —
+  `NkHevcCabac.h/.cpp` + queue du slice header jusqu'au `byte_alignment()`.
+  - **Fin du slice header** : offsets QP chroma par slice, overrides de déblocage (défauts
+    PPS puis override), `slice_loop_filter_across_slices`, **points d'entrée tuiles/WPP**
+    (§7.4.7.1 — x265 par défaut = WPP via `entropy_coding_sync`), extension d'en-tête,
+    `byte_alignment()` **vérifié STRICTEMENT** (bit à 1 obligatoire + zéros : excellent
+    détecteur de désynchronisation — 1 champ mal lu au-dessus = 1 chance sur 2 d'échouer) →
+    expose `dataByteOffset` (départ de `slice_data()` dans le RBSP dé-émulé, exposé aussi
+    via le nouveau `NkHevcDecoder::DeemulateRbsp` public). ⚠ Les offsets de points d'entrée
+    sont dans le domaine NAL ÉMULÉ (les octets 00 00 03 comptent, §7.4.7.1) — conversion à
+    faire à la brique WPP.
+  - **CABAC (§9.3)** : le MOTEUR arithmétique est STRICTEMENT identique à H.264 (mêmes
+    tables 9-44/9-45, même init 510/9 bits, mêmes DecodeDecision/Bypass/Terminate) →
+    **`NkCabacEngine` de NkH264Cabac.h réutilisé TEL QUEL** (déjà validé bit-exact via le
+    décodage H.264 Main/High complet). Spécifique HEVC fourni : init des contextes §9.3.2.2
+    (`initValue` 8 bits → (m,n) → même formule `NkCabacInitOne` qu'H.264), choix d'initType
+    par slice (I→0 ; P→cabac_init?2:1 ; B→cabac_init?1:2), et **tables d'initValues 3×179**
+    (enum d'offsets CHAÎNÉS `kHevcCtx*` — zéro arithmétique manuelle).
+  - ⭐ **Anti-piège « table normative mal transcrite » (leçon H.264 ×5) appliqué en amont** :
+    les 3×179 initValues sont alignées sur la référence ffmpeg (`libavcodec/hevc/cabac.c`,
+    téléchargée) et **cross-checkées NUMÉRIQUEMENT** par script (extraction des deux tables
+    depuis les deux fichiers sources + diff élément par élément) : **537/537 valeurs
+    identiques**. Le self-test embarque les sommes de contrôle par initType.
+  - **Validation** : `NkHevcCabacState::SelfTest()` (7/7 suite) = layout 179 contextes +
+    sommes vs ffmpeg + formule d'init (spot-checks calculés à la main : 154→équiprobable,
+    200@QP33→état 14) + **moteur known-answer** (init/8 bypass/4 decisions/terminate sur
+    octets fixes, valeurs attendues calculées par une implémentation Python INDÉPENDANTE de
+    l'algorithme de la spec). Sur flux réels : **50/50 slices** avec en-tête complet jusqu'à
+    l'alignement, init CABAC valide partout (offset 9 bits < 510), et **nombre de points
+    d'entrée WPP IDENTIQUE à l'oracle `trace_headers`** (25×3 pour 322×242 = 4 rangées de
+    CTU 64 ; 25×11 pour 1280×720 = 12 rangées — cohérence géométrique confirmée).
+- **Suite (briques 5+, PAS commencées)** : décodage des éléments de syntaxe CTU au-dessus du
+  CABAC désormais prêt — `sao()`, quadtree **CTU→CU→PU→TU** (`coding_quadtree`), **35 modes
+  intra** (33 directionnels + DC + planar, contre 9 en H.264), prédiction inter **merge/AMVP**
+  (pas de skip/direct façon H.264), `residual_coding` (last_sig/sig_flag/greater1-2/bypass),
+  transformées **DST/DCT** variables (4×4 à 32×32), déblocage + **SAO** (nouveau vs H.264),
+  WPP (copie d'état CABAC après le 2e CTB de chaque rangée + conversion des offsets d'entrée
+  vers le domaine dé-émulé). Restes slice header (mineurs, refus propre en place) :
+  `ref_pic_lists_modification()` (jamais émis par x265), `scaling_list_data()`. Gros chantier
+  multi-session — brique par brique avec validation bit-exacte (oracle `trace_headers` pour
+  les en-têtes ; la 1re validation CTU sera structurelle : nombre de CTU décodés =
+  PicSizeInCtbsY + `end_of_slice_segment_flag` exactement au dernier, comme les tiles VP9).
 
 ## En cours / À venir
 
