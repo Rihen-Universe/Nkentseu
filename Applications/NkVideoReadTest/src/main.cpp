@@ -1093,7 +1093,7 @@ int main(int argc, char **argv) {
 		const bool ok = frames > 0 && framesOk == frames;
 		printf("  trames I decodees : %d, bit-exactes : %d/%d (pire ecart=%d)\n", frames, framesOk,
 			   frames, worstDiff);
-		printf("  [ %s ] decode HEVC intra vs ffmpeg (brique 6 : reconstruction pixels)\n",
+		printf("  [ %s ] decode HEVC intra vs ffmpeg (briques 6-7 : reconstruction + deblocage + SAO)\n",
 			   ok ? "OK " : "KO");
 		return ok ? 0 : 1;
 	}

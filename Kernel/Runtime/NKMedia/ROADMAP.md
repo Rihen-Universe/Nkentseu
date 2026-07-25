@@ -20,7 +20,7 @@
 | 3quater. **Fichiers .opus (Ogg-Opus, RFC 7845)** + câblage NKAudio | ✅ | **Conteneur Ogg livré (2026-07-12)** : probe (pistes opus/vorbis depuis les pages BOS) + démux (pages → paquets, lacing, `granule`) ; `NkOpusFile` (OpusHead pre-skip/gain + décode + trim granule ; **hybride/stéréo refusés proprement** → retirer le garde quand 3ter sera fini). Harnais `--oggopus`, self-test forge Ogg (34/34). **Validé vs ffmpeg** : SILK-WB corr 0.999985 (lag +2 = délai resampler), CELT corr 0.965 lag 0. **NKAudio branché** : `AudioFormat::OPUS` décodé via `NkOpusCodec` (détection OggS+OpusHead), test `NkMicRecord --decode in.opus out.wav`. NB : NKAudio dépend de NKMedia → 10 jengas d'apps mis à jour |
 | 4. Décodeur audio AAC-LC | ✅ | *(table périmée, tenue à jour dans « Livré » ci-dessous)* MP4 → PCM, stéréo complet, bit-exact vs ffmpeg |
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅ + WAV (RIFF) ✅** ; reste WebM |
-| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC briques 1-6 : INTRA COMPLET, 10/10 trames PIXELS BIT-EXACTS vs ffmpeg (8-bit + Main10)** ; reste déblocage/SAO + inter P/B ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
+| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC briques 1-7 : INTRA + déblocage + SAO, pixels bit-exacts vs ffmpeg** (8-bit + Main10, flux standard ET sans filtres) ; reste inter P/B ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
 | 8. **Décodeur vidéo VP8** | ✅ | **DÉCODEUR COMPLET (clé + inter) : 325 images BIT-EXACTES vs ffmpeg sur 6 flux** (dont altref invisibles, golden frames, 4 GOPs, SPLITMV, filterLevel 0-8, résolutions impaires). Décodeur booléen, en-têtes, modes intra+inter, MV (near/nearest/new/split), MC 6-tap, résidus, WHT+IDCT, filtre de boucle. Restes mineurs : segmentation MB, partitions multiples, versions 1-3 (refus propre). **À brancher dans NkVideoReader** (WebM/IVF). |
 
@@ -731,7 +731,7 @@
   inter + 10/10 flux clés restent bit-exacts, comme attendu si le bug n'était effectivement
   jamais exercé jusqu'ici).
 
-## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (briques 1-6 : INTRA COMPLET, pixels bit-exacts vs ffmpeg)
+## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (briques 1-7 : INTRA + déblocage + SAO, pixels bit-exacts vs ffmpeg)
 
 *(2026-07-24)* Démarré comme suite logique directe de H.264 (« évolution directe … la base de
 départ la plus naturelle », cf. section précédente) — même famille bit-exacte, complexité
@@ -921,11 +921,33 @@ zero-STL, `nkentseu::media`.
   - Reconstruction PAR TU dans l'ordre de décodage (prédiction TOUJOURS, résidu si cbf ;
     chroma du cas 4×4 au blkIdx 3), signes réellement appliqués (y compris **sign hiding** :
     signe caché = parité de la somme des niveaux du sous-bloc).
-- **Suite (briques 7+, PAS commencées)** : **déblocage + SAO d'application** (pour décoder
-  les flux standard — nos 2 flux de test historiques les activent), puis slices **P/B**
-  (syntaxe inter merge/AMVP + compensation de mouvement + DPB/RPS), branchement
-  `NkVideoReader` (.265/MP4/MKV). Restes mineurs (refus propre en place) : tuiles, PCM,
-  4:2:2/4:4:4, `ref_pic_lists_modification()`, `scaling_list_data()`.
+- ⭐⭐ **Brique 7 livrée et validée BIT-EXACT vs ffmpeg (2026-07-25) : déblocage + SAO
+  d'application** — les flux STANDARD (filtres activés par défaut) décodent maintenant
+  pixel-parfait, y compris les 2 flux de test historiques (`test_hevc.265`/`test_hevc_hd10.265`)
+  qui servent depuis la brique 1 et qui ACTIVENT ces filtres.
+  - **Déblocage** (§8.7.2, BS=2 partout car décodeur 100% intra) : cartes d'arêtes TU sur
+    grille 8×8 (luma) / 8×8 chroma (marquées pendant `transform_tree`, jamais les arêtes 4×4
+    internes), 2 passes IMAGE ENTIÈRE (toutes les verticales, PUIS toutes les horizontales —
+    lit les échantillons déjà filtrés verticalement, ordre normatif), tables `tC`/`β`
+    (Table 8-12, décalées `<<(bitDepth−8)`), décision forte/faible par segment de 4 lignes,
+    filtre chroma (QP moyen des blocs luma co-localisés, offset PPS SEULEMENT — l'offset de
+    slice ne s'applique PAS au déblocage, piège classique évité en amont).
+  - **SAO** (§8.7.3) : paramètres capturés PENDANT le parsing CABAC de `sao()` (merge
+    left/up propage la structure du CTB voisin), bande (table de 32 offsets indexée par les
+    5 bits de poids fort + position) et contour (4 classes de direction, table `edge_idx`,
+    échantillon hors image = non modifié). **Appliqué sur une COPIE de l'image DÉBLOQUÉE**
+    (source figée, jamais la destination en cours d'écriture — sinon un CTB contaminerait
+    son voisin non encore traité).
+  - **Validation** : les 2 flux historiques **redeviennent utiles** — 1re trame de chacun
+    bit-exacte vs `ffmpeg -f rawvideo` (mêmes fichiers de référence que la validation
+    `--hevcheader`/`trace_headers` depuis la brique 1) — PLUS 2 nouveaux flux intra-only
+    générés cette fois AVEC filtres par défaut (5×322×242 8-bit + 5×1280×720 Main10) :
+    **10/10 + 2/2 trames bit-exactes**, non-régression confirmée sur les flux SANS filtres
+    de la brique 6 (10/10 toujours OK). Réussi dès le premier build.
+- **Suite (briques 8+, PAS commencées)** : slices **P/B** (syntaxe inter merge/AMVP +
+  compensation de mouvement + DPB/RPS), branchement `NkVideoReader` (.265/MP4/MKV). Restes
+  mineurs (refus propre en place) : tuiles, PCM, 4:2:2/4:4:4, `ref_pic_lists_modification()`,
+  `scaling_list_data()`.
 
 ## En cours / À venir
 

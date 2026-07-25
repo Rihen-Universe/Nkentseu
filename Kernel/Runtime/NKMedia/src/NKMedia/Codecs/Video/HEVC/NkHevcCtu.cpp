@@ -226,6 +226,27 @@ namespace nkentseu {
 			// Table 8-10 : mapping qPi -> QpC pour 4:2:0 (plage 30..43).
 			const uint8 kQpC[14] = {29, 30, 31, 32, 33, 33, 34, 34, 35, 35, 36, 36, 37, 37};
 
+			// Déblocage (§8.7.2) : tables normatives tC (Table 8-12, idx 0..53) et
+			// β (idx 0..51) — identiques à la référence ffmpeg.
+			const uint8 kTcTable[54] = {0, 0, 0, 0, 0, 0, 0, 0,	 0,	 0,	 0,	 0,	 0,	 0,
+										0, 0, 0, 0, 1, 1, 1, 1,	 1,	 1,	 1,	 1,	 1,	 2,
+										2, 2, 2, 3, 3, 3, 3, 4,	 4,	 4,	 5,	 5,	 6,	 6,
+										7, 8, 9, 10, 11, 13, 14, 16, 18, 20, 22, 24};
+			const uint8 kBetaTable[52] = {0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+										  0,  0,  0,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15,
+										  16, 17, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38,
+										  40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64};
+
+			// Paramètres SAO d'UN CTB (résolus après merge left/up). type : 0=aucun,
+			// 1=bande, 2=contour. Offsets SIGNÉS finaux (bande : signe explicite ;
+			// contour : catégories 1-2 positives, 3-4 négatives, §7.3.8.3).
+			struct SaoCtb {
+					uint8 type[3] = {0, 0, 0};
+					int16 offset[3][4] = {{0}, {0}, {0}};
+					uint8 bandPos[3] = {0, 0, 0};
+					uint8 eoClass[3] = {0, 0, 0};
+			};
+
 			// Transformée inverse générique deux passes (verticale puis horizontale),
 			// écrêtage 16 bits entre passes (§8.6.4.2). dst = résidus.
 			void InverseTransform(const int32 *coeff, int32 *res, int32 n, int32 bitDepth, bool dst4) {
@@ -292,7 +313,15 @@ namespace nkentseu {
 					int32 qpBdOffsetY = 0, qpBdOffsetC = 0;
 					NkVector<uint8> lumaRecon;	 // TU luma reconstruits (grille 4x4 luma)
 					NkVector<uint8> chromaRecon; // TU chroma reconstruits (grille 4x4 chroma)
-					NkVector<int8> qpMap;		 // QpY par min-CB (voisinage §8.6.1)
+					NkVector<int8> qpMap;		 // QpY par min-CB (voisinage §8.6.1 + déblocage)
+					// Filtres en boucle (brique 7) : cartes d'arêtes TU (le déblocage ne
+					// filtre que les frontières TU/CU sur la grille 8×8 luma / 8×8 chroma)
+					// + paramètres SAO par CTB.
+					NkVector<uint8> vEdgeL, hEdgeL; // [y4 * w8 + x8] / [y8 * w4 + x4] luma
+					NkVector<uint8> vEdgeC, hEdgeC; // idem en coordonnées chroma
+					NkVector<SaoCtb> saoCtb;		// par CTB (rx + ry*picWidthInCtbs)
+					int32 w8L = 0, h4L = 0, w4L = 0, h8L = 0;
+					int32 w8C = 0, h4C = 0, w4C = 0, h8C = 0;
 					int32 qpYPrev = 26;			 // qPY_PREV (reset slice/rangée WPP)
 					int32 lastCuQpY = 26;		 // QpY du dernier CU décodé
 					int32 qgQpYPred = 26;		 // qPY_PRED du groupe de quantification courant
@@ -320,16 +349,21 @@ namespace nkentseu {
 						return eng.DecodeTerminate();
 					}
 
-					// ---- sao() (§7.3.8.3) ---------------------------------------------
+					// ---- sao() (§7.3.8.3) — parse ET stocke les paramètres par CTB -----
 					void ParseSao(int32 rx, int32 ry) {
+						SaoCtb *cur = frame ? &saoCtb[(usize)(ry * picWidthInCtbs + rx)] : nullptr;
 						bool mergeLeft = false, mergeUp = false;
 						if (rx > 0)
 							mergeLeft = Bin(kHevcCtxSaoMergeFlag) != 0;
 						if (!mergeLeft && ry > 0)
 							mergeUp = Bin(kHevcCtxSaoMergeFlag) != 0;
-						if (mergeLeft || mergeUp)
+						if (mergeLeft || mergeUp) {
+							if (cur)
+								*cur = mergeLeft ? saoCtb[(usize)(ry * picWidthInCtbs + rx - 1)]
+												 : saoCtb[(usize)((ry - 1) * picWidthInCtbs + rx)];
 							return;
-						int32 typeChroma = 0;
+						}
+						int32 typeChroma = 0, eoChroma = 0;
 						for (int32 cIdx = 0; cIdx < 3; ++cIdx) {
 							const bool present = (cIdx == 0) ? sh->saoLuma : sh->saoChroma;
 							if (!present)
@@ -345,6 +379,8 @@ namespace nkentseu {
 							} else {
 								type = typeChroma; // cIdx 2 hérite de cIdx 1
 							}
+							if (cur)
+								cur->type[cIdx] = (uint8)type;
 							if (type == 0)
 								continue;
 							const int32 cMax = (1 << (Min32(sps->bitDepthLuma, 10) - 5)) - 1;
@@ -355,16 +391,36 @@ namespace nkentseu {
 									++v;
 								offsetAbs[i] = v;
 							}
-							if (type == 1) { // bande
-								for (int32 i = 0; i < 4; ++i)
-									if (offsetAbs[i] != 0)
-										Bypass(); // sao_offset_sign
-								BypassBits(5);	  // sao_band_position
-							} else {
-								if (cIdx == 0)
-									BypassBits(2); // sao_eo_class_luma
-								if (cIdx == 1)
-									BypassBits(2); // sao_eo_class_chroma (cIdx 2 hérite)
+							if (type == 1) { // bande : signes explicites + position
+								for (int32 i = 0; i < 4; ++i) {
+									int32 v = offsetAbs[i];
+									if (v != 0 && Bypass())
+										v = -v; // sao_offset_sign
+									if (cur)
+										cur->offset[cIdx][i] = (int16)v;
+								}
+								const int32 pos = (int32)BypassBits(5); // sao_band_position
+								if (cur)
+									cur->bandPos[cIdx] = (uint8)pos;
+							} else { // contour : signes implicites (cat 1-2 : +, cat 3-4 : −)
+								if (cur) {
+									cur->offset[cIdx][0] = (int16)offsetAbs[0];
+									cur->offset[cIdx][1] = (int16)offsetAbs[1];
+									cur->offset[cIdx][2] = (int16)(-offsetAbs[2]);
+									cur->offset[cIdx][3] = (int16)(-offsetAbs[3]);
+								}
+								if (cIdx == 0) {
+									const int32 eo = (int32)BypassBits(2); // sao_eo_class_luma
+									if (cur)
+										cur->eoClass[0] = (uint8)eo;
+								}
+								if (cIdx == 1) {
+									eoChroma = (int32)BypassBits(2); // sao_eo_class_chroma
+									if (cur)
+										cur->eoClass[1] = (uint8)eoChroma;
+								}
+								if (cIdx == 2 && cur)
+									cur->eoClass[2] = (uint8)eoChroma; // hérite
 							}
 						}
 					}
@@ -733,6 +789,25 @@ namespace nkentseu {
 							}
 					}
 
+					// Arêtes de TU pour le déblocage (grille 8×8 ; les arêtes internes 4×4
+					// des TU/PU N×N ne sont jamais filtrées car hors grille).
+					void MarkLumaEdges(int32 x0, int32 y0, int32 n) {
+						if ((x0 & 7) == 0 && x0 > 0)
+							for (int32 j = 0; j < n; j += 4)
+								vEdgeL[(usize)(((y0 + j) >> 2) * w8L + (x0 >> 3))] = 1;
+						if ((y0 & 7) == 0 && y0 > 0)
+							for (int32 i = 0; i < n; i += 4)
+								hEdgeL[(usize)((y0 >> 3) * w4L + ((x0 + i) >> 2))] = 1;
+					}
+					void MarkChromaEdges(int32 cx, int32 cy, int32 n) {
+						if ((cx & 7) == 0 && cx > 0)
+							for (int32 j = 0; j < n; j += 4)
+								vEdgeC[(usize)(((cy + j) >> 2) * w8C + (cx >> 3))] = 1;
+						if ((cy & 7) == 0 && cy > 0)
+							for (int32 i = 0; i < n; i += 4)
+								hEdgeC[(usize)((cy >> 3) * w4C + ((cx + i) >> 2))] = 1;
+					}
+
 					void MarkLumaRecon(int32 x0, int32 y0, int32 n) {
 						for (int32 j = 0; j < n; j += 4)
 							for (int32 i = 0; i < n; i += 4) {
@@ -749,6 +824,222 @@ namespace nkentseu {
 								const int32 px = (x0 + i) >> 2, py = (y0 + j) >> 2;
 								if (px < cw4 && py < ch4)
 									chromaRecon[(usize)(py * cw4 + px)] = 1;
+							}
+					}
+
+					// ---- Déblocage (§8.7.2) — intra : BS = 2 sur toutes les arêtes ----
+					int32 QpAt(int32 lx, int32 ly) const {
+						return qpMap[(usize)((ly >> minCbLog2) * minCbWidth + (lx >> minCbLog2))];
+					}
+
+					// Filtre un segment de 4 lignes/colonnes LUMA. `vert` : arête verticale
+					// en x=xE (P à gauche), sinon horizontale en y=yE (P au-dessus).
+					void LumaDeblockSeg(bool vert, int32 xE, int32 yE) {
+						nk_uint16 *Y = frame->y.Data();
+						const int32 stride = frame->lumaW;
+						const int32 betaOff = sh->sliceBetaOffsetDiv2 * 2;
+						const int32 tcOff = sh->sliceTcOffsetDiv2 * 2;
+						const int32 qpP = vert ? QpAt(xE - 1, yE) : QpAt(xE, yE - 1);
+						const int32 qpQ = QpAt(xE, yE);
+						const int32 qp = (qpP + qpQ + 1) >> 1;
+						const int32 beta = (int32)kBetaTable[Clip3i(0, 51, qp + betaOff)]
+										   << (bitDepth - 8);
+						const int32 tc = (int32)kTcTable[Clip3i(0, 53, qp + 2 + tcOff)]
+										 << (bitDepth - 8); // BS=2 -> +2 (intra)
+						if (beta == 0)
+							return;
+						// Accès : s(i, d) = échantillon à distance i de l'arête (négatif = P),
+						// ligne d du segment.
+						auto S = [&](int32 i, int32 d) -> nk_uint16 & {
+							return vert ? Y[(yE + d) * stride + (xE + i)]
+										: Y[(yE + i) * stride + (xE + d)];
+						};
+						const int32 p0r0 = S(-1, 0), p1r0 = S(-2, 0), p2r0 = S(-3, 0);
+						const int32 q0r0 = S(0, 0), q1r0 = S(1, 0), q2r0 = S(2, 0);
+						const int32 p0r3 = S(-1, 3), p1r3 = S(-2, 3), p2r3 = S(-3, 3);
+						const int32 q0r3 = S(0, 3), q1r3 = S(1, 3), q2r3 = S(2, 3);
+						const int32 dp0 = Abs32(p2r0 - 2 * p1r0 + p0r0);
+						const int32 dq0 = Abs32(q2r0 - 2 * q1r0 + q0r0);
+						const int32 dp3 = Abs32(p2r3 - 2 * p1r3 + p0r3);
+						const int32 dq3 = Abs32(q2r3 - 2 * q1r3 + q0r3);
+						const int32 d0 = dp0 + dq0, d3 = dp3 + dq3;
+						if (d0 + d3 >= beta)
+							return;
+						const int32 tc25 = (tc * 5 + 1) >> 1;
+						const bool strong =
+							(Abs32((int32)S(-4, 0) - p0r0) + Abs32(q0r0 - (int32)S(3, 0)) < (beta >> 3)) &&
+							Abs32(p0r0 - q0r0) < tc25 &&
+							(Abs32((int32)S(-4, 3) - p0r3) + Abs32(q0r3 - (int32)S(3, 3)) < (beta >> 3)) &&
+							Abs32(p0r3 - q0r3) < tc25 && (d0 << 1) < (beta >> 2) &&
+							(d3 << 1) < (beta >> 2);
+						if (strong) {
+							const int32 tc2 = tc << 1;
+							for (int32 d = 0; d < 4; ++d) {
+								const int32 p3 = S(-4, d), p2 = S(-3, d), p1 = S(-2, d), p0 = S(-1, d);
+								const int32 q0 = S(0, d), q1 = S(1, d), q2 = S(2, d), q3 = S(3, d);
+								S(-1, d) = (nk_uint16)(p0 + Clip3i(-tc2, tc2,
+																  ((p2 + 2 * p1 + 2 * p0 + 2 * q0 + q1 + 4) >> 3) - p0));
+								S(-2, d) = (nk_uint16)(p1 + Clip3i(-tc2, tc2,
+																  ((p2 + p1 + p0 + q0 + 2) >> 2) - p1));
+								S(-3, d) = (nk_uint16)(p2 + Clip3i(-tc2, tc2,
+																  ((2 * p3 + 3 * p2 + p1 + p0 + q0 + 4) >> 3) - p2));
+								S(0, d) = (nk_uint16)(q0 + Clip3i(-tc2, tc2,
+																 ((p1 + 2 * p0 + 2 * q0 + 2 * q1 + q2 + 4) >> 3) - q0));
+								S(1, d) = (nk_uint16)(q1 + Clip3i(-tc2, tc2,
+																 ((p0 + q0 + q1 + q2 + 2) >> 2) - q1));
+								S(2, d) = (nk_uint16)(q2 + Clip3i(-tc2, tc2,
+																 ((2 * q3 + 3 * q2 + q1 + q0 + p0 + 4) >> 3) - q2));
+							}
+						} else if (tc > 0) {
+							const bool ndP = (dp0 + dp3) < ((beta + (beta >> 1)) >> 3);
+							const bool ndQ = (dq0 + dq3) < ((beta + (beta >> 1)) >> 3);
+							const int32 tcHalf = tc >> 1;
+							for (int32 d = 0; d < 4; ++d) {
+								const int32 p2 = S(-3, d), p1 = S(-2, d), p0 = S(-1, d);
+								const int32 q0 = S(0, d), q1 = S(1, d), q2 = S(2, d);
+								int32 delta = (9 * (q0 - p0) - 3 * (q1 - p1) + 8) >> 4;
+								if (Abs32(delta) >= 10 * tc)
+									continue;
+								delta = Clip3i(-tc, tc, delta);
+								S(-1, d) = (nk_uint16)Clip3i(0, maxVal, p0 + delta);
+								S(0, d) = (nk_uint16)Clip3i(0, maxVal, q0 - delta);
+								if (ndP) {
+									const int32 dp1 = Clip3i(-tcHalf, tcHalf,
+															 (((p2 + p0 + 1) >> 1) - p1 + delta) >> 1);
+									S(-2, d) = (nk_uint16)Clip3i(0, maxVal, p1 + dp1);
+								}
+								if (ndQ) {
+									const int32 dq1 = Clip3i(-tcHalf, tcHalf,
+															 (((q2 + q0 + 1) >> 1) - q1 - delta) >> 1);
+									S(1, d) = (nk_uint16)Clip3i(0, maxVal, q1 + dq1);
+								}
+							}
+						}
+					}
+
+					// Filtre un segment de 4 lignes/colonnes CHROMA (BS=2, §8.7.2.5.5).
+					// Le QP vient des blocs LUMA co-localisés ; offset chroma = PPS seulement
+					// (l'offset de slice ne s'applique PAS au déblocage).
+					void ChromaDeblockSeg(bool vert, int32 cIdx, int32 xE, int32 yE) {
+						nk_uint16 *C = (cIdx == 1) ? frame->cb.Data() : frame->cr.Data();
+						const int32 stride = frame->chromaW;
+						const int32 tcOff = sh->sliceTcOffsetDiv2 * 2;
+						const int32 lx = xE << 1, ly = yE << 1;
+						const int32 qpP = vert ? QpAt(lx - 1, ly) : QpAt(lx, ly - 1);
+						const int32 qpQ = QpAt(lx, ly);
+						const int32 qpAvg = (qpP + qpQ + 1) >> 1;
+						const int32 off = (cIdx == 1) ? pps->ppsCbQpOffset : pps->ppsCrQpOffset;
+						const int32 qPi = Clip3i(0, 57, qpAvg + off);
+						int32 qPc;
+						if (qPi < 30)
+							qPc = qPi;
+						else if (qPi > 43)
+							qPc = qPi - 6;
+						else
+							qPc = kQpC[qPi - 30];
+						const int32 tc = (int32)kTcTable[Clip3i(0, 53, qPc + 2 + tcOff)]
+										 << (bitDepth - 8);
+						if (tc <= 0)
+							return;
+						auto S = [&](int32 i, int32 d) -> nk_uint16 & {
+							return vert ? C[(yE + d) * stride + (xE + i)]
+										: C[(yE + i) * stride + (xE + d)];
+						};
+						const int32 mv = (1 << sps->bitDepthChroma) - 1;
+						for (int32 d = 0; d < 4; ++d) {
+							const int32 p1 = S(-2, d), p0 = S(-1, d);
+							const int32 q0 = S(0, d), q1 = S(1, d);
+							const int32 delta =
+								Clip3i(-tc, tc, (((q0 - p0) * 4) + p1 - q1 + 4) >> 3);
+							S(-1, d) = (nk_uint16)Clip3i(0, mv, p0 + delta);
+							S(0, d) = (nk_uint16)Clip3i(0, mv, q0 - delta);
+						}
+					}
+
+					void DeblockPicture() {
+						// Ordre normatif : TOUTES les arêtes verticales de l'image, PUIS
+						// toutes les horizontales (qui lisent les échantillons déjà filtrés
+						// verticalement).
+						for (int32 x8 = 1; x8 < (picW >> 3); ++x8)
+							for (int32 y4 = 0; y4 < (picH >> 2); ++y4)
+								if (vEdgeL[(usize)(y4 * w8L + x8)])
+									LumaDeblockSeg(true, x8 << 3, y4 << 2);
+						for (int32 y8 = 1; y8 < (picH >> 3); ++y8)
+							for (int32 x4 = 0; x4 < (picW >> 2); ++x4)
+								if (hEdgeL[(usize)(y8 * w4L + x4)])
+									LumaDeblockSeg(false, x4 << 2, y8 << 3);
+						const int32 cw = picW >> 1, ch = picH >> 1;
+						for (int32 x8 = 1; x8 < ((cw + 7) >> 3); ++x8)
+							for (int32 y4 = 0; y4 < (ch >> 2); ++y4)
+								if (vEdgeC[(usize)(y4 * w8C + x8)]) {
+									ChromaDeblockSeg(true, 1, x8 << 3, y4 << 2);
+									ChromaDeblockSeg(true, 2, x8 << 3, y4 << 2);
+								}
+						for (int32 y8 = 1; y8 < ((ch + 7) >> 3); ++y8)
+							for (int32 x4 = 0; x4 < (cw >> 2); ++x4)
+								if (hEdgeC[(usize)(y8 * w4C + x4)]) {
+									ChromaDeblockSeg(false, 1, x4 << 2, y8 << 3);
+									ChromaDeblockSeg(false, 2, x4 << 2, y8 << 3);
+								}
+					}
+
+					// ---- SAO d'application (§8.7.3) -----------------------------------
+					// Entrée = image DÉBLOQUÉE (copie source), sortie écrite dans les plans.
+					void ApplySaoComponent(int32 cIdx, const nk_uint16 *src, nk_uint16 *dst,
+										   int32 stride, int32 w, int32 h, const SaoCtb &s,
+										   int32 x0, int32 y0, int32 nW, int32 nH) {
+						const int32 bd = (cIdx == 0) ? bitDepth : sps->bitDepthChroma;
+						const int32 mv = (1 << bd) - 1;
+						if (s.type[cIdx] == 1) { // bande
+							int32 table[32] = {0};
+							for (int32 k = 0; k < 4; ++k)
+								table[(k + s.bandPos[cIdx]) & 31] = s.offset[cIdx][k];
+							for (int32 y = y0; y < y0 + nH && y < h; ++y)
+								for (int32 x = x0; x < x0 + nW && x < w; ++x) {
+									const int32 v = src[y * stride + x];
+									dst[y * stride + x] =
+										(nk_uint16)Clip3i(0, mv, v + table[(v >> (bd - 5)) & 31]);
+								}
+						} else if (s.type[cIdx] == 2) { // contour
+							static const int32 kPos[4][2][2] = {
+								{{-1, 0}, {1, 0}}, {{0, -1}, {0, 1}}, {{-1, -1}, {1, 1}}, {{1, -1}, {-1, 1}}};
+							static const int32 kEdgeIdx[5] = {1, 2, 0, 3, 4};
+							const int32 eo = s.eoClass[cIdx];
+							const int32 ax = kPos[eo][0][0], ay = kPos[eo][0][1];
+							const int32 bx = kPos[eo][1][0], by = kPos[eo][1][1];
+							for (int32 y = y0; y < y0 + nH && y < h; ++y)
+								for (int32 x = x0; x < x0 + nW && x < w; ++x) {
+									// Voisin hors image -> échantillon non modifié (§8.7.3).
+									if (x + ax < 0 || x + ax >= w || y + ay < 0 || y + ay >= h ||
+										x + bx < 0 || x + bx >= w || y + by < 0 || y + by >= h)
+										continue;
+									const int32 c = src[y * stride + x];
+									const int32 a = src[(y + ay) * stride + (x + ax)];
+									const int32 b = src[(y + by) * stride + (x + bx)];
+									const int32 sgnA = (c > a) - (c < a);
+									const int32 sgnB = (c > b) - (c < b);
+									const int32 m = kEdgeIdx[2 + sgnA + sgnB];
+									if (m == 0)
+										continue;
+									dst[y * stride + x] =
+										(nk_uint16)Clip3i(0, mv, c + s.offset[cIdx][m - 1]);
+								}
+						}
+					}
+
+					void ApplySao(const NkVector<nk_uint16> &srcY, const NkVector<nk_uint16> &srcCb,
+								  const NkVector<nk_uint16> &srcCr) {
+						const int32 ctbSize = 1 << ctbLog2;
+						for (int32 ry = 0; ry < picHeightInCtbs; ++ry)
+							for (int32 rx = 0; rx < picWidthInCtbs; ++rx) {
+								const SaoCtb &s = saoCtb[(usize)(ry * picWidthInCtbs + rx)];
+								ApplySaoComponent(0, srcY.Data(), frame->y.Data(), frame->lumaW, picW,
+												  picH, s, rx * ctbSize, ry * ctbSize, ctbSize, ctbSize);
+								const int32 cs = ctbSize >> 1;
+								ApplySaoComponent(1, srcCb.Data(), frame->cb.Data(), frame->chromaW,
+												  picW >> 1, picH >> 1, s, rx * cs, ry * cs, cs, cs);
+								ApplySaoComponent(2, srcCr.Data(), frame->cr.Data(), frame->chromaW,
+												  picW >> 1, picH >> 1, s, rx * cs, ry * cs, cs, cs);
 							}
 					}
 
@@ -1091,8 +1382,10 @@ namespace nkentseu {
 						// Mode intra luma du bloc courant (partition couvrante).
 						const int32 lumaMode = curIntraModeY[intraSplit ? pbIdx : 0];
 						// Reconstruction luma : prédiction TOUJOURS, résidu si cbf.
-						if (frame)
+						if (frame) {
 							PredictIntra(0, x0, y0, log2Size, lumaMode);
+							MarkLumaEdges(x0, y0, 1 << log2Size);
+						}
 						if (cbfLuma)
 							ParseResidual(x0, y0, log2Size, 0, lumaMode);
 						if (frame)
@@ -1100,8 +1393,10 @@ namespace nkentseu {
 						// Chroma (4:2:0).
 						if (log2Size > 2) {
 							const int32 cx = x0 >> 1, cy = y0 >> 1;
-							if (frame)
+							if (frame) {
 								PredictIntra(1, cx, cy, log2Size - 1, curIntraModeC);
+								MarkChromaEdges(cx, cy, 1 << (log2Size - 1));
+							}
 							if (cbfCb)
 								ParseResidual(cx, cy, log2Size - 1, 1, curIntraModeC);
 							if (frame)
@@ -1112,8 +1407,10 @@ namespace nkentseu {
 								MarkChromaRecon(cx, cy, 1 << (log2Size - 1));
 						} else if (blkIdx == 3) {
 							const int32 cx = xBase >> 1, cy = yBase >> 1;
-							if (frame)
+							if (frame) {
 								PredictIntra(1, cx, cy, 2, curIntraModeC);
+								MarkChromaEdges(cx, cy, 4);
+							}
 							if (parentCbfCb)
 								ParseResidual(cx, cy, 2, 1, curIntraModeC);
 							if (frame)
@@ -1341,6 +1638,27 @@ namespace nkentseu {
 					p.qpYPrev = sh.sliceQp;
 					p.lastCuQpY = sh.sliceQp;
 					p.qgQpYPred = sh.sliceQp;
+					// Filtres en boucle : cartes d'arêtes + paramètres SAO par CTB.
+					const int32 cw = p.picW >> 1, ch = p.picH >> 1;
+					p.w8L = p.picW >> 3;
+					p.w4L = p.picW >> 2;
+					p.w8C = (cw + 7) >> 3;
+					p.w4C = (cw + 3) >> 2;
+					p.vEdgeL.Resize((usize)(p.w8L * (p.picH >> 2)));
+					p.hEdgeL.Resize((usize)(p.w4L * ((p.picH + 7) >> 3)));
+					p.vEdgeC.Resize((usize)(p.w8C * (ch >> 2)));
+					p.hEdgeC.Resize((usize)(p.w4C * ((ch + 7) >> 3)));
+					for (uint64 i = 0; i < p.vEdgeL.Size(); ++i)
+						p.vEdgeL[i] = 0;
+					for (uint64 i = 0; i < p.hEdgeL.Size(); ++i)
+						p.hEdgeL[i] = 0;
+					for (uint64 i = 0; i < p.vEdgeC.Size(); ++i)
+						p.vEdgeC[i] = 0;
+					for (uint64 i = 0; i < p.hEdgeC.Size(); ++i)
+						p.hEdgeC[i] = 0;
+					p.saoCtb.Resize((usize)(p.picWidthInCtbs * p.picHeightInCtbs));
+					for (uint64 i = 0; i < p.saoCtb.Size(); ++i)
+						p.saoCtb[i] = SaoCtb{};
 				}
 
 				// WPP : rangées attendues et offsets de sous-ensembles (dé-émulés).
@@ -1408,7 +1726,21 @@ namespace nkentseu {
 					}
 				}
 				out.rows += 1; // la dernière rangée (pas de end_of_subset après elle)
-				return out.ctusParsed == picSizeInCtbs;
+				if (out.ctusParsed != picSizeInCtbs)
+					return false;
+				// Filtres en boucle (brique 7) : déblocage (2 passes image entière) PUIS
+				// SAO (entrée = image débloquée -> copie source, sortie dans les plans).
+				if (frame) {
+					if (!sh.deblockingFilterDisabled)
+						p.DeblockPicture();
+					if (sh.saoLuma || sh.saoChroma) {
+						NkVector<nk_uint16> srcY = frame->y;
+						NkVector<nk_uint16> srcCb = frame->cb;
+						NkVector<nk_uint16> srcCr = frame->cr;
+						p.ApplySao(srcY, srcCb, srcCr);
+					}
+				}
+				return true;
 			}
 
 		} // namespace
