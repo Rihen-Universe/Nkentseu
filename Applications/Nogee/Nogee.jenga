@@ -41,10 +41,14 @@ with project("Nogee"):
          "NKGLSlang", "NKSPIRVCross", "NKGlad", "NKUI", "NKFont", "NKImage",
          "NKEvent", "NKWindow", "NKLogger", "NKMath", "NKTime", "NKStream",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
-        extra_includes=["src", "%{Noge.location}/src"]
+        extra_includes=["src", "%{Noge.location}/src", "%{wks.location}/Integrations"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
         extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
     )
+    # Rendu des draw-lists NKUI via NKRHI (Integrations/NKUI) — les integrations ne
+    # sont PAS dans le registre nkentseudependson : dependance projet brute (meme
+    # pattern que NkAnimaEditor.jenga avec NKGuiIntegration).
+    dependson(["NKUIIntegration"])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")

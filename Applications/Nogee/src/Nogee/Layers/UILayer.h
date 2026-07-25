@@ -29,6 +29,7 @@
 #include "NKRHI/Core/NkGraphicsApi.h"
 #include "NKUI/NKUI.h"
 #include "NKUI/NkUIMenu.h"
+#include "NKUI/NkUIRHIBackend.h" // Integrations/NKUI — rendu des draw lists via NKRHI
 #include "Nogee/Panels/SceneTreePanel.h"
 #include "Nogee/Panels/InspectorPanel.h"
 #include "Nogee/Panels/AssetBrowser.h"
@@ -92,7 +93,21 @@ namespace nkentseu {
 				nkui::NkUIWindowManager mWM;
 				nkui::NkUIDockManager mDock;
 				nkui::NkUILayoutStack mLS;
-				nkui::NkUIDrawList mDL;
+
+				// [FIX 2026-07-25] Liste de dessin COURANTE du contexte
+				// (mCtx.layers[LAYER_WINDOWS], pointée par mCtx.dl après
+				// BeginFrame). L'ancienne NkUIDrawList membre était une liste
+				// ORPHELINE : NkUIRHIBackend::Submit ne rend QUE ctx.layers[]
+				// → l'UI était construite mais jamais dessinée (écran gris).
+				nkui::NkUIDrawList *mDL = nullptr;
+
+				// [FIX 2026-07-25] Backend NKUI→NKRHI (Integrations/NKUI) :
+				// soumet ctx.layers[] au device dans la passe Overlay2D du
+				// render graph, via renderer->SetUIOverlayCallback.
+				nkui::NkUIRHIBackend mBackend;
+				bool mBackendReady = false;
+				// Texture FBO viewport enregistrée auprès du backend (id RHI)
+				nk_uint64 mRegisteredViewportTex = 0;
 
 				// Panels
 				SceneTreePanel mSceneTree;

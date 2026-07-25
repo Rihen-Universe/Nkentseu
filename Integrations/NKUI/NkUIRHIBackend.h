@@ -72,6 +72,18 @@ namespace nkentseu {
                 // de police) identifiee par texId (!= 0). Convertie en RGBA8 (blanc + alpha).
                 bool UploadTextureGray8(uint32 texId, const uint8* data, int32 width, int32 height);
 
+                // [AJOUT 2026-07-25] Enregistre une texture RHI EXTERNE (deja creee
+                // par l'appelant — ex. la couleur d'un FBO offscreen de viewport
+                // editeur) pour qu'un AddImage(texId) puisse la dessiner. Le backend
+                // NE possede PAS la texture : seul le descriptor set est cree/libere
+                // ici, jamais la texture. Idempotent si (texId, handle) inchanges ;
+                // re-enregistrer avec un autre handle remplace proprement l'ancien.
+                bool RegisterExternalTexture(uint32 texId, NkTextureHandle texture, int32 width, int32 height);
+
+                // [AJOUT 2026-07-25] Desenregistre une texture externe (libere le
+                // descriptor set en differe, ne touche pas la texture).
+                void UnregisterExternalTexture(uint32 texId);
+
                 // True si texId est connu et pret (ou si texId == 0, la texture blanche).
                 bool HasTexture(uint32 texId) const noexcept;
 
@@ -103,6 +115,9 @@ namespace nkentseu {
                     NkDescSetHandle descSet;
                     int32 width = 0;
                     int32 height = 0;
+                    // true = texture possedee par l'appelant (RegisterExternalTexture) :
+                    // le backend ne la detruit JAMAIS (descriptor set seulement).
+                    bool external = false;
                 };
 
                 struct RetiredTextureEntry {
