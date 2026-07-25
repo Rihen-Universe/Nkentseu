@@ -857,6 +857,76 @@ int main(int argc, char **argv) {
 		return allOk ? 0 : 1;
 	}
 
+	// Mode diagnostic TEMPORAIRE (cross-check independant) :
+	// --hevcdump <fichier.265> <poc cible> <sortie.bin>
+	// Ecrit [u32 dataByteOffset LE][u32 taille RBSP LE][RBSP dé-émulé] de la
+	// PREMIERE slice P dont le POC calculé == poc cible, pour qu'un script
+	// externe (Python) puisse reprendre le decodage CABAC EXACTEMENT au bon
+	// octet sans avoir a reimplementer le parsing du slice header.
+	if (argc >= 5 && strcmp(argv[1], "--hevcdump") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		fseek(f, 0, SEEK_END);
+		long n = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		NkVector<uint8> buf;
+		buf.Resize((usize)n);
+		if (fread(buf.Data(), 1, (size_t)n, f) != (size_t)n) {
+			fclose(f);
+			return 1;
+		}
+		fclose(f);
+		const int32 targetPoc = atoi(argv[3]);
+		NkVector<NkHevcNal> nals;
+		NkHevcDecoder::SplitNalsAnnexB(buf.Data(), (usize)buf.Size(), nals);
+		NkHevcSps sps;
+		NkHevcPps pps;
+		bool haveSps = false, havePps = false;
+		int32 prevPocTid0 = 0;
+		bool done = false;
+		for (uint64 i = 0; i < nals.Size() && !done; ++i) {
+			const NkHevcNal &nal = nals[i];
+			const uint8 *nd = buf.Data() + nal.offset;
+			if (nal.type == kHevcNalSps) {
+				haveSps = NkHevcDecoder::ParseSps(nd, nal.size, sps);
+				continue;
+			}
+			if (nal.type == kHevcNalPps) {
+				havePps = NkHevcDecoder::ParsePps(nd, nal.size, pps);
+				continue;
+			}
+			if (nal.type > 31 || !haveSps || !havePps)
+				continue;
+			NkHevcSliceHeader sh;
+			if (!NkHevcDecoder::ParseSliceHeader(nd, nal.size, sps, pps, sh))
+				continue;
+			const bool isIdr = nal.type == kHevcNalIdrWRadl || nal.type == kHevcNalIdrNLp;
+			const int32 poc =
+				NkHevcDecoder::ComputePoc(sh.picOrderCntLsb, sps.log2MaxPocLsb, isIdr, prevPocTid0);
+			prevPocTid0 = poc;
+			if (poc != targetPoc || sh.sliceType != kHevcSliceP)
+				continue;
+			NkVector<uint8> rbsp;
+			NkHevcDecoder::DeemulateRbsp(nd, nal.size, rbsp);
+			FILE *out = fopen(argv[4], "wb");
+			if (!out) {
+				printf("  [KO] ecriture impossible : %s\n", argv[4]);
+				return 1;
+			}
+			uint32 off = (uint32)sh.dataByteOffset, sz = (uint32)rbsp.Size();
+			fwrite(&off, 4, 1, out);
+			fwrite(&sz, 4, 1, out);
+			fwrite(rbsp.Data(), 1, sz, out);
+			fclose(out);
+			printf("  [OK] poc=%d dataByteOffset=%u rbspSize=%u -> %s\n", poc, off, sz, argv[4]);
+			done = true;
+		}
+		return done ? 0 : 1;
+	}
+
 	// Mode diagnostic HEVC (brique 1) : --hevcheader <fichier.265/.hevc Annex-B brut>
 	// Decoupe les NALs (en-tete 2 octets), parse VPS/SPS/PPS et affiche dimensions/
 	// profil/niveau/chroma/profondeur de bits — a comparer a `ffprobe` sur le meme
@@ -902,13 +972,16 @@ int main(int argc, char **argv) {
 				if (NkHevcDecoder::ParseSps(nd, nal.size, sps)) {
 					haveSps = true;
 					printf("  SPS id=%d %dx%d profil=%d niveau=%d.%d chroma=%d profondeur=%d/%d "
-						   "fenetre_conformance=%d (l=%d r=%d h=%d b=%d) minCb=%d ctb=%d amp=%d\n",
+						   "fenetre_conformance=%d (l=%d r=%d h=%d b=%d) minCb=%d ctb=%d amp=%d "
+						   "minTb=%d maxTb=%d maxTrafoIntra=%d maxTrafoInter=%d\n",
 						   sps.spsId, sps.width, sps.height, sps.ptl.generalProfileIdc,
 						   sps.ptl.generalLevelIdc / 30, (sps.ptl.generalLevelIdc % 30) / 3,
 						   sps.chromaFormatIdc, sps.bitDepthLuma, sps.bitDepthChroma, sps.conformanceWindow,
 						   sps.confWinLeft, sps.confWinRight, sps.confWinTop, sps.confWinBottom,
 						   1 << sps.log2MinCbSizeY, 1 << (sps.log2MinCbSizeY + sps.log2DiffMaxMinCbSizeY),
-						   sps.ampEnabled ? 1 : 0);
+						   sps.ampEnabled ? 1 : 0, 1 << sps.log2MinTbSizeY,
+						   1 << (sps.log2MinTbSizeY + sps.log2DiffMaxMinTbSizeY),
+						   sps.maxTransformHierarchyDepthIntra, sps.maxTransformHierarchyDepthInter);
 				} else {
 					printf("  [KO] SPS %llu : parsing echoue\n", (unsigned long long)i);
 				}
@@ -916,9 +989,13 @@ int main(int argc, char **argv) {
 				++nPps;
 				if (NkHevcDecoder::ParsePps(nd, nal.size, pps)) {
 					havePps = true;
-					printf("  PPS id=%d sps_id=%d tuiles=%d(%dx%d) sync_entropie=%d cu_qp_delta=%d\n",
+					printf("  PPS id=%d sps_id=%d tuiles=%d(%dx%d) sync_entropie=%d cu_qp_delta=%d "
+						   "diffQgDepth=%d signHide=%d tSkip=%d tqBypass=%d mergeLvl=%d wp=%d\n",
 						   pps.ppsId, pps.spsId, pps.tilesEnabled, pps.numTileColumnsMinus1 + 1,
-						   pps.numTileRowsMinus1 + 1, pps.entropyCodingSyncEnabled, pps.cuQpDeltaEnabled);
+						   pps.numTileRowsMinus1 + 1, pps.entropyCodingSyncEnabled, pps.cuQpDeltaEnabled,
+						   pps.diffCuQpDeltaDepth, pps.signDataHiding ? 1 : 0,
+						   pps.transformSkipEnabled ? 1 : 0, pps.transquantBypassEnabled ? 1 : 0,
+						   pps.log2ParallelMergeLevel, pps.weightedPred ? 1 : 0);
 				} else {
 					printf("  [KO] PPS %llu : parsing echoue\n", (unsigned long long)i);
 				}
