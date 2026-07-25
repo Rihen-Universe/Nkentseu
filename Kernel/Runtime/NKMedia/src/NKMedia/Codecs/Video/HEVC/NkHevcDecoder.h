@@ -161,6 +161,19 @@ namespace nkentseu {
 				int32 collocatedRefIdx = 0;
 				int32 maxNumMergeCand = 5; // 5 - five_minus_max_num_merge_cand
 				int32 sliceQp = 26;		   // 26 + init_qp_minus26 (PPS) + slice_qp_delta
+				int32 sliceCbQpOffset = 0, sliceCrQpOffset = 0;
+				// Déblocage effectif (override de slice OU valeurs PPS par défaut).
+				bool deblockingFilterDisabled = false;
+				int32 sliceBetaOffsetDiv2 = 0, sliceTcOffsetDiv2 = 0;
+				bool loopFilterAcrossSlices = false;
+				// Points d'entrée (tuiles/WPP §7.4.7.1). ⚠ Offsets BRUTS du bitstream, en
+				// octets du flux NAL ÉMULÉ (les octets d'anti-émulation comptent) — la brique
+				// de décodage WPP devra les convertir vers le domaine RBSP dé-émulé.
+				int32 numEntryPointOffsets = 0;
+				NkVector<uint32> entryPointOffsets; // entry_point_offset_minus1[i] + 1
+				// Début de slice_data() : offset en OCTETS dans le RBSP dé-émulé (après
+				// byte_alignment()) — point d'initialisation du moteur CABAC.
+				usize dataByteOffset = 0;
 		};
 
 		// Infos extraites d'un PPS. §7.3.2.3 (sous-ensemble structurel — brique 1).
@@ -179,6 +192,7 @@ namespace nkentseu {
 				bool constrainedIntraPred = false;
 				bool transformSkipEnabled = false;
 				bool cuQpDeltaEnabled = false;
+				bool sliceChromaQpOffsetsPresent = false; // gate de slice_cb/cr_qp_offset
 				bool weightedPred = false;	 // weighted_pred_flag (P) — gate de pred_weight_table
 				bool weightedBipred = false; // weighted_bipred_flag (B)
 				bool tilesEnabled = false;
@@ -202,6 +216,12 @@ namespace nkentseu {
 				// forbidden_zero_bit(1) + nal_unit_type(6) + nuh_layer_id(6) +
 				// nuh_temporal_id_plus1(3).
 				static void SplitNalsAnnexB(const uint8 *data, usize size, NkVector<NkHevcNal> &out);
+
+				// Extrait le RBSP dé-émulé d'une unité NAL (saute l'en-tête 2 octets puis
+				// retire les 00 00 03 -> 00 00). C'est le buffer dans lequel pointent les
+				// offsets de NkHevcSliceHeader::dataByteOffset (départ CABAC) — exposé pour
+				// que l'appelant travaille sur EXACTEMENT le même buffer que le parseur.
+				static void DeemulateRbsp(const uint8 *nal, usize size, NkVector<uint8> &out);
 
 				// Parse un VPS (§7.3.2.1) — validation structurelle minimale (id +
 				// profile_tier_level) : le VPS complet (couches/sous-couches HRD) sert aux
