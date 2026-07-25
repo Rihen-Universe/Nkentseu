@@ -37,11 +37,33 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NKRenderer/src/Tools/Render2D/NkRender2D.h"
+// [FIX 2026-07-24] Include manquant : `NkSpan<uint8>` (type de retour de
+// GetTilePixels() plus bas) est `nkentseu::NkSpan` de NKContainers -- jamais
+// inclus ici, seule `ecs::NkSpan` (interne NKECS) était visible, d'où
+// "no template named 'NkSpan'" à la compilation.
+#include "NKContainers/Views/NkSpan.h"
+// [FIX 2026-07-24] Include cassé : "src/" en trop (NKRenderer.location pointe
+// déjà sur .../NKRenderer/src, cf. Noge.jenga _INCLUDE_DIRS) -- ne résolvait
+// jamais.
+#include "NKRenderer/Tools/Render2D/NkRender2D.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
+// [FIX 2026-07-24] NkIRect / NkIVec2 (utilisés ci-dessous par Fill/Erase/
+// FloodFill/Blit) n'existaient nulle part dans le repo -- voir
+// NkDesignGeomTypes.h pour le détail.
+#include "Noge/Design/NkDesignGeomTypes.h"
 
 namespace nkentseu {
-	using namespace math;
+	// [FIX 2026-07-24] `using namespace math;` remplacé par des `using`
+	// ciblés -- même raison que Noge/Design/Vector/NkVectorPath.h (voir le
+	// commentaire complet dans Noge/Color/NkColorManager.h) : un
+	// using-directive en portée namespace fuit vers le reste de la unité de
+	// compilation et rend `NkColor` ambigu dès que NkColorManager.h est
+	// inclus plus loin dans le même .cpp.
+	using math::NkVec2f;
+	using math::NkVec4f;
+	using math::NkRectF;
+	using math::NkIRect;
+	using math::NkIVec2;
 
 	// =========================================================================
 	// NkColorRGBA — couleur raster 8-bit par canal

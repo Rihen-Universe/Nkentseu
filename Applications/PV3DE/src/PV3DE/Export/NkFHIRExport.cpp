@@ -70,6 +70,14 @@ namespace nkentseu {
 				 EscapeJson(mPatient.firstName) + "\"] }],\n";
 			char age[32];
 			snprintf(age, sizeof(age), "%u", mPatient.ageYears);
+			// NOTE : `age` était calculé mais jamais concaténé dans `r` — le champ
+			// âge était donc absent du JSON FHIR final malgré le calcul effectué.
+			// FHIR R4 n'a pas de champ "age" natif sur Patient (il utilise
+			// birthDate, que PV3DE ne calcule pas) ; on l'expose donc via une
+			// extension, en conservant aussi ageYears lisible directement.
+			r += "      \"extension\": [{ \"url\": \"http://pv3de.local/fhir/StructureDefinition/age-years\", "
+				 "\"valueInteger\": " +
+				 NkString(age) + " }],\n";
 			r += "      \"gender\": \"" + EscapeJson(mPatient.gender) + "\"\n";
 			r += "    }";
 			return r;

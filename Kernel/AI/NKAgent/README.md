@@ -1,7 +1,10 @@
 # NKAgent — agent cognitif
 
-> ⚠️ Squelette : pas encore de code. Voir la [ROADMAP](ROADMAP.md) et l'[architecture de la
-> couche](../ARCHITECTURE.md).
+> 🟡 En cours (2026-07-25) : premier `NkAgent` réel livré (2026-07-23, mémoire + perception +
+> politique) ; **Jalon 2 mémoire COMPLET** (2026-07-25) : importance des souvenirs (|erreur
+> TD|, oubli par moindre importance) + **memory replay** (prouvé par ablation : 20 % → 100 %
+> de réussite à budget d'épisodes réduit). Voir l'état détaillé dans la [ROADMAP](ROADMAP.md)
+> et l'[architecture de la couche](../ARCHITECTURE.md).
 
 ## Rôle
 

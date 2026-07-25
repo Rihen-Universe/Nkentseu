@@ -4,6 +4,25 @@
 // =============================================================================
 // Interpolation de propriétés (style GSAP/LeanTween/DOTween) pour animation 2D.
 //
+// [NOTE 2026-07-23] Vérification faite dans le cadre de Engine/Noge/ROADMAP.md
+// item G1.4 (pont animation) : il existe une fondation RÉELLE et UTILISÉE
+// partielle — nkui::NkUIAnimator / nkui::NkUIEasing (Kernel/Runtime/NKUI/src/
+// NKUI/NkUIAnimation.h/.cpp, ~24 fonctions d'easing + pool de tweens float par
+// id, exploité par des démos NKUI réelles). Elle ne couvre cependant QUE le
+// cas float/id-pool : ni tweens Vec3/Vec4 typés, ni séquences (Append/Join),
+// ni callbacks OnStart/OnComplete/OnUpdate, ni API Kill/Complete/Restart —
+// toute la mécanique de NkTween/NkTweenSequence/NkTweenManager ci-dessous
+// reste donc À ÉCRIRE, pas un simple ré-branchement comme NkIKSolver/
+// NkLocomotion (qui, eux, s'adossent à un système COMPLET et déjà équivalent
+// à l'API attendue). Adosser correctement NkTween à NkUIAnimator demanderait
+// de fusionner deux modèles d'API différents (OOP par objet vs pool par id) —
+// travail de conception à part entière. Laissé EN SPEC (0 .cpp, non instancié
+// ailleurs dans le moteur — confirmé par grep, donc aucune régression) :
+// hors-scope de cette passe, documenté honnêtement plutôt que réimplémenté à
+// la hâte. Piste pour une passe dédiée : NkEaseEval() pourrait déléguer à
+// nkui::NkUIEasing::Apply() pour les familles communes (Quad/Cubic/Sine/Expo/
+// Elastic/Bounce/Back) — seul Circ n'a pas d'équivalent côté NKUI.
+//
 // USAGE :
 //   // Déplacer un objet vers (100, 200) en 1 seconde avec ease OutCubic
 //   auto& tw = NkTweenManager::Get().To(&pos, NkVec3f{100,200,0}, 1.f)

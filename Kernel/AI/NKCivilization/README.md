@@ -1,7 +1,12 @@
 # NKCivilization — simulation de civilisation virtuelle
 
-> ⚠️ Squelette : pas encore de code. Voir la [ROADMAP](ROADMAP.md) et l'[architecture de la
-> couche](../ARCHITECTURE.md).
+> 🟡 Jalon 1 ✅ sur le **vrai substrat NKECS** (2026-07-25) : la lib `NKCivilization`
+> (`src/NKCivilization/`) fournit composants (`NkCivPosition`, `NkCivAgentRef`), substrat
+> partagé (`NkCivGridState` : grille, trous, but commun, ressources consommables) et system
+> (`NkCivAgentSystem`, un `ecs::NkSystem`). Prouvé par `Applications/NKCivilizationTest/`
+> (build+run réels) : 3 agents = 3 entités ECS, collision déclenchée (mesurée), compétition de
+> ressources premier-arrivé (répartition divergente), 3/3 au but via politiques apprises. Voir
+> la [ROADMAP](ROADMAP.md) et l'[architecture de la couche](../ARCHITECTURE.md).
 
 ## Rôle
 

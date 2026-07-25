@@ -190,6 +190,11 @@ namespace nkentseu {
 				case NkViseme::TH:
 					fc.SetAUTarget(NkActionUnitId::AU25, 0.15f * intensity);
 					break;
+				case NkViseme::SH:
+					// Chuintante : lèvres légèrement projetées/arrondies (proche WW/OO, moins marqué)
+					fc.SetAUTarget(NkActionUnitId::AU18, 0.5f * intensity);
+					fc.SetAUTarget(NkActionUnitId::AU25, 0.2f * intensity);
+					break;
 				case NkViseme::Silence:
 				default:
 					break;

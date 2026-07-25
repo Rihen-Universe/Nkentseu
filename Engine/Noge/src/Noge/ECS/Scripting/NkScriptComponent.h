@@ -6,8 +6,9 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/World/NkWorld.h"
 #include "NKECS/System/NkSystem.h"
-#include <memory>
-#include <vector>
+#include "NKMemory/NkAllocator.h" // NkAllocator, NkGetDefaultAllocator (zéro new/delete bruts)
+#include "NKMemory/NkSharedPtr.h" // memory::NkSharedPtr (remplace std::shared_ptr — zéro STL)
+#include <cstring>				  // std::strncpy / std::strcmp (libc, pas STL)
 #include <type_traits>
 
 namespace nkentseu {
@@ -83,24 +84,43 @@ namespace nkentseu {
 				friend class NkScriptSystem;
 		};
 
+		// Pointeur partagé NKMemory vers un script (remplace std::shared_ptr).
+		// L'instance est allouée via NkGetDefaultAllocator() et détruite via
+		// allocator->Delete (destructeur virtuel -> destruction polymorphe sûre).
+		using NkScriptPtr = memory::NkSharedPtr<NkScriptComponent>;
+
+		// Fabrique un NkScriptPtr en allouant T via NKMemory (jamais new/delete bruts)
+		template <typename T, typename... Args> [[nodiscard]] inline NkScriptPtr NkMakeScript(Args &&...args) noexcept {
+			static_assert(std::is_base_of<NkScriptComponent, T>::value, "T doit hériter de NkScriptComponent");
+			memory::NkAllocator &alloc = memory::NkGetDefaultAllocator();
+			T *raw = alloc.New<T>(std::forward<Args>(args)...);
+			if (!raw) {
+				return NkScriptPtr();
+			}
+			return NkScriptPtr(static_cast<NkScriptComponent *>(raw), &alloc);
+		}
+
 		// ============================================================================
 		// NkScriptHost — Composant ECS hébergeant plusieurs scripts par entité
 		// ============================================================================
 		struct NkScriptHost {
 				static constexpr uint32 kMaxScripts = 32u;
-				std::shared_ptr<NkScriptComponent> scripts[kMaxScripts] = {};
+				NkScriptPtr scripts[kMaxScripts] = {};
 				uint32 count = 0;
 				bool pendingStart = true;
 				bool started = false;
 
-				// Attache un script de type T
+				// Attache un script de type T (alloué via NKMemory)
 				template <typename T, typename... Args> T *Attach(Args &&...args) noexcept {
 					if (count >= kMaxScripts) {
 						return nullptr;
 					}
-					auto script = std::make_shared<T>(std::forward<Args>(args)...);
-					T *raw = script.get();
-					scripts[count++] = std::move(script);
+					NkScriptPtr script = NkMakeScript<T>(std::forward<Args>(args)...);
+					if (!script) {
+						return nullptr;
+					}
+					T *raw = static_cast<T *>(script.Get());
+					scripts[count++] = script;
 					pendingStart = true;
 					return raw;
 				}
@@ -108,7 +128,7 @@ namespace nkentseu {
 				// Récupère le premier script du type T
 				template <typename T> [[nodiscard]] T *Get() noexcept {
 					for (uint32 i = 0; i < count; ++i) {
-						if (auto *ptr = dynamic_cast<T *>(scripts[i].get())) {
+						if (auto *ptr = dynamic_cast<T *>(scripts[i].Get())) {
 							return ptr;
 						}
 					}
@@ -118,7 +138,7 @@ namespace nkentseu {
 				// Vérifie la présence d'un script du type T
 				template <typename T> [[nodiscard]] bool Has() const noexcept {
 					for (uint32 i = 0; i < count; ++i) {
-						if (dynamic_cast<const T *>(scripts[i].get())) {
+						if (dynamic_cast<const T *>(scripts[i].Get())) {
 							return true;
 						}
 					}
@@ -141,7 +161,9 @@ namespace nkentseu {
 		// ============================================================================
 		class NkScriptRegistry {
 			public:
-				using FactoryFn = std::function<std::shared_ptr<NkScriptComponent>()>;
+				// Pointeur de fonction pur (les fabriques générées sont sans capture) :
+				// évite std::function (STL) tout en gardant l'instanciation par nom.
+				using FactoryFn = NkScriptPtr (*)();
 
 				[[nodiscard]] static NkScriptRegistry &Global() noexcept {
 					static NkScriptRegistry instance;
@@ -155,16 +177,16 @@ namespace nkentseu {
 					}
 					Entry &e = reg.mEntries[reg.mCount++];
 					std::strncpy(e.name, name, 127);
-					e.factory = [] { return std::make_shared<T>(); };
+					e.factory = []() -> NkScriptPtr { return NkMakeScript<T>(); };
 				}
 
-				[[nodiscard]] std::shared_ptr<NkScriptComponent> Instantiate(const char *name) const noexcept {
+				[[nodiscard]] NkScriptPtr Instantiate(const char *name) const noexcept {
 					for (uint32 i = 0; i < mCount; ++i) {
-						if (std::strcmp(mEntries[i].name, name) == 0) {
+						if (std::strcmp(mEntries[i].name, name) == 0 && mEntries[i].factory) {
 							return mEntries[i].factory();
 						}
 					}
-					return nullptr;
+					return NkScriptPtr();
 				}
 
 				[[nodiscard]] uint32 Count() const noexcept {
@@ -176,7 +198,7 @@ namespace nkentseu {
 
 				struct Entry {
 						char name[128] = {};
-						FactoryFn factory;
+						FactoryFn factory = nullptr;
 				};
 
 				Entry mEntries[kMaxEntries] = {};
@@ -243,8 +265,8 @@ void Exemple_DynamicInstantiation(nkentseu::ecs::NkWorld& world) {
 	auto go = world.CreateGameObject("DynamicEntity");
 	auto* host = world.Get<nkentseu::ecs::NkScriptHost>(go.Id());
 	if (host) {
-		auto script = nkentseu::ecs::NkScriptRegistry::Global().Instantiate("PlayerMovement");
-		if (script) {
+		nkentseu::ecs::NkScriptPtr script = nkentseu::ecs::NkScriptRegistry::Global().Instantiate("PlayerMovement");
+		if (script && host->count < nkentseu::ecs::NkScriptHost::kMaxScripts) {
 			host->scripts[host->count++] = script;
 			host->pendingStart = true;
 		}

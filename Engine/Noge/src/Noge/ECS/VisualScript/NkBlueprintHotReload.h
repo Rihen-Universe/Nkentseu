@@ -5,6 +5,7 @@
 #pragma once
 #include "NkBlueprint.h"
 #include "../Serialization/NkJsonSerialization.h"
+#include "NKFileSystem/NkFileSystem.h"
 #include <unordered_map>
 #include <chrono>
 #include <functional>
@@ -65,20 +66,20 @@ namespace nkentseu {
 
 					NkBlueprintStateSnapshot CaptureState(NkBlueprintGraph &oldGraph) noexcept {
 						NkBlueprintStateSnapshot snap;
-						for (size_t i = 0; i < oldGraph.nodes.size(); ++i) {
-							if (!oldGraph.nodes[i])
+						for (size_t i = 0; i < oldGraph.Nodes.size(); ++i) {
+							if (!oldGraph.Nodes[i])
 								continue;
-							const auto &node = *oldGraph.nodes[i];
-							for (size_t p = 0; p < node.inputs.size(); ++p) {
-								std::string key = node.name + "_" + std::to_string(p);
-								snap.pinDefaults[key] = node.inputs[p].defaultValue;
+							const auto &node = *oldGraph.Nodes[i];
+							for (size_t p = 0; p < node.Inputs.size(); ++p) {
+								std::string key = node.Name + "_" + std::to_string(p);
+								snap.pinDefaults[key] = node.Inputs[p].DefaultValue;
 							}
 						}
 						return snap;
 					}
 
 					void ReloadGraph(NkBlueprintComponent *comp, NkWorld &world, NkEntityId self) noexcept {
-						NkBlueprintGraph &oldGraph = comp->graph;
+						NkBlueprintGraph &oldGraph = comp->Graph;
 						NkBlueprintStateSnapshot state = CaptureState(oldGraph);
 
 						NkBlueprintGraph newGraph;
@@ -87,22 +88,22 @@ namespace nkentseu {
 
 						if (success) {
 							// Migration des valeurs par défaut vers le nouveau graphe
-							for (size_t i = 0; i < newGraph.nodes.size(); ++i) {
-								if (!newGraph.nodes[i])
+							for (size_t i = 0; i < newGraph.Nodes.size(); ++i) {
+								if (!newGraph.Nodes[i])
 									continue;
-								const auto &newNode = *newGraph.nodes[i];
-								for (size_t p = 0; p < newNode.inputs.size(); ++p) {
-									std::string key = newNode.name + "_" + std::to_string(p);
+								const auto &newNode = *newGraph.Nodes[i];
+								for (size_t p = 0; p < newNode.Inputs.size(); ++p) {
+									std::string key = newNode.Name + "_" + std::to_string(p);
 									auto it = state.pinDefaults.find(key);
 									if (it != state.pinDefaults.end()) {
-										newGraph.nodes[i]->inputs[p].defaultValue = it->second;
-										newGraph.nodes[i]->inputs[p].isConnected = true;
+										newGraph.Nodes[i]->Inputs[p].DefaultValue = it->second;
+										newGraph.Nodes[i]->Inputs[p].IsConnected = true;
 									}
 								}
 							}
 							// Remplacement atomique
 							oldGraph = std::move(newGraph);
-							oldGraph.entryNodeIndex = 0; // Reset point d'entrée sécurisé
+							oldGraph.EntryNodeIndex = 0; // Reset point d'entrée sécurisé
 						}
 
 						if (mOnReloaded) {
@@ -111,9 +112,10 @@ namespace nkentseu {
 					}
 
 					static uint64 GetFileTime(const std::string &path) noexcept {
-						// Stub cross-platform : utiliser std::filesystem::last_write_time en prod
-						(void)path;
-						return static_cast<uint64>(std::chrono::system_clock::now().time_since_epoch().count());
+						// Horodatage réel de dernière écriture via NKFileSystem (déjà une dépendance
+						// de Noge, voir Noge.jenga : "NKFileSystem/NkFile.h (NkSceneSerializer)").
+						// nk_int64 en epoch Unix ; 0 si le fichier est introuvable/inaccessible.
+						return static_cast<uint64>(nkentseu::NkFileSystem::GetLastWriteTime(path.c_str()));
 					}
 			};
 
@@ -134,9 +136,9 @@ void Exemple_BlueprintHotReload(nkentseu::ecs::NkWorld& world) {
 
 	auto go = world.CreateGameObject("Player");
 	auto* bp = go.Add<NkBlueprintComponent>();
-	bp->graph.AddNode(std::make_unique<NkNodeEventBeginPlay>());
-	bp->graph.AddNode(std::make_unique<NkNodePrintString>());
-	bp->graph.Link(0, 0, 1, 0);
+	bp->Graph.AddNode(std::make_unique<NkNodeEventBeginPlay>());
+	bp->Graph.AddNode(std::make_unique<NkNodeCallFunction>());
+	bp->Graph.Link(0, 0, 1, 0);
 
 	// Enregistrer pour surveillance
 	NkBlueprintHotReloadManager& hotReload = NkBlueprintHotReloadManager::Instance();

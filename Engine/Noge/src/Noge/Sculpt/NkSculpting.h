@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Nkentseu/Modeling/NkSculpting.h
+// Nkentseu/Sculpt/NkSculpting.h
 // =============================================================================
 // Système de sculpt 3D en temps réel.
 //
@@ -59,7 +59,7 @@ namespace nkentseu {
 			float32 radius = 0.5f;	 ///< Rayon en unités monde
 			float32 strength = 0.5f; ///< Force [0..1]
 			float32 hardness = 0.7f; ///< Falloff du brush [0=doux, 1=dur]
-			bool autosmooth = 0.2f;	 ///< Lissage automatique post-déformation
+			float32 autosmooth = 0.2f; ///< Intensité du lissage automatique post-déformation [0=désactivé..1=maximal]
 			bool symmetryX = false;	 ///< Symétrie axe X
 			bool symmetryY = false;
 			bool symmetryZ = false;

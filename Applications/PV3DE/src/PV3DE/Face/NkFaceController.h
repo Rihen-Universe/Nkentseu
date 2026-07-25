@@ -65,6 +65,17 @@ namespace nkentseu {
 				// Direction du regard (yaw/pitch en degrés)
 				void SetGazeDirection(nk_float32 yawDeg, nk_float32 pitchDeg);
 
+				// Direction du regard courante (yaw/pitch en degrés, telle que clampée
+				// par SetGazeDirection) — consommée par NkPatientRenderer pour l'offset
+				// du regard dans le shader des yeux.
+				nk_float32 GetGazeYaw() const noexcept {
+					return mGazeYaw;
+				}
+
+				nk_float32 GetGazePitch() const noexcept {
+					return mGazePitch;
+				}
+
 				// ── Update ────────────────────────────────────────────────────────
 				void Update(nk_float32 dt);
 

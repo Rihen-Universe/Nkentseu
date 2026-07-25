@@ -30,7 +30,21 @@
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
-	using namespace math;
+	// [FIX 2026-07-24] `using namespace math;` rendait `NkColor` AMBIGU dans
+	// tout ce fichier : ce fichier définit sa PROPRE `class NkColor` (juste en
+	// dessous, ligne ~50) directement dans le namespace `nkentseu`, alors que
+	// `NKMath/NkColor.h` définit une AUTRE `class NkColor` dans
+	// `nkentseu::math` -- les deux se retrouvent visibles sans qualification
+	// au même niveau (règle [namespace.udir] du standard : les membres d'un
+	// namespace nominé par `using namespace` sont considérés comme apparaissant
+	// dans le plus proche namespace englobant commun, ici `nkentseu` lui-même).
+	// Résultat : `error: reference to 'NkColor' is ambiguous` dès qu'un .cpp
+	// inclut réellement ce fichier (jamais arrivé avant cet incrément -- 0 %
+	// de code compilé sur Design/Doc). Seul `NkVec4f` est réellement utilisé
+	// bare dans ce fichier -> on importe uniquement les noms réellement
+	// utilisés (NkVec4f, NkClamp), pas tout `math`.
+	using math::NkVec4f;
+	using math::NkClamp;
 
 	// =========================================================================
 	// NkColorSpace — espace colorimétrique

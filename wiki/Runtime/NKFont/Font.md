@@ -566,8 +566,9 @@ flou en agrandissement.
 
 Toutes les polices ne veulent pas le même traitement, et `NkFontDetector` automatise le choix.
 `NkFontKind` classe la police : `Bitmap` (taille native, à afficher au pixel, filtre *nearest*),
-`Vector` (TrueType à courbes, toute taille), `VectorCFF` (OTF/CFF, marqué « non supporté pour
-l'instant » dans le commentaire), `Unknown` (non analysée). `NkFontProfile` porte le verdict :
+`Vector` (TrueType à courbes, toute taille), `VectorCFF` (OTF/CFF Type 2, décodé par
+l'interpréteur charstring intégré — limitation connue : `callsubr`/`callgsubr` non exécutés,
+voir `NKFont/ROADMAP.md`), `Unknown` (non analysée). `NkFontProfile` porte le verdict :
 le `kind`, les réglages déduits (`oversampleH/V`, `pixelSnapH`, `useNearestFilter`), les tailles
 recommandées (`nativeSizePx`, min/max), et les statistiques de courbes (`curveRatio`) qui ont
 servi à décider.

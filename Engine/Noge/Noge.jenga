@@ -76,6 +76,9 @@ with project("Noge"):
         "%{NKRenderer.location}/src",  # NKRenderer/NkRenderer.h (moteur 2D/3D Noge)
         "%{NKCollision.location}/src", # NKCollision (pont physique ECS)
         "%{NKPhysics.location}/src",   # NKPhysics/NkPhysicsWorld.h (NkPhysicsSystem)
+        "%{NKNavigation.location}/src", # NKNavigation/NkNavMesh.h (NkNavAgentComponent/NkNavigationSystem)
+        "%{NKRL.location}/src",        # NKRL/NkGridWorld.h (NkAgentComponent/NkAgentSystem)
+        "%{NKAgent.location}/src",     # NKAgent/NkAgent.h (pont ECS -> IA de gameplay)
         "%{NKSerialization.location}/src",  # NKSerialization/NkSerializer.h (NkSceneSerializer)
         "%{NKFileSystem.location}/src",     # NKFileSystem/NkFile.h (NkSceneSerializer)
         "%{NKFont.location}/src",
@@ -83,7 +86,10 @@ with project("Noge"):
         "%{NKStream.location}/src",   # NKIResource.h via NkImage.h
         "%{NKECS.location}/src",
         "%{NKUI.location}/src",
-        "%{NKGlad.location}/include"
+        "%{NKGlad.location}/include",
+        "%{NKAudio.location}/src",    # NKAudio/NkAudio.h (pont ECS NkAudioSystem)
+        "%{NKMedia.location}/src",    # dependance transitive de NKAudio (codec Opus)
+        "%{NKNetwork.location}/src",  # NKNetwork/Replication/NkNetWorld.h (pont ECS NkNetSystem)
     ]
     if _VULKAN_INCLUDE:
         _INCLUDE_DIRS.append(_VULKAN_INCLUDE)
@@ -92,7 +98,7 @@ with project("Noge"):
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
 
-    _DEPS = ["NKGlad", "NKUI", "NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKSL", "NKRenderer", "NKCollision", "NKPhysics", "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKECS"]
+    _DEPS = ["NKGlad", "NKUI", "NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKSL", "NKRenderer", "NKCollision", "NKPhysics", "NKNavigation", "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKECS", "NKRL", "NKAgent", "NKAudio", "NKMedia", "NKNetwork"]
    
     dependson(_DEPS)
     _RENDERER_DEFINES = [
@@ -204,7 +210,10 @@ with project("Noge"):
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
-            _TEST_LINKS = ["Nkentseu", "NKCanvas", "NKWindow", "NKTime"]
+            # FIX 2026-07-23 : "Nkentseu" ne correspond a aucun projet du workspace
+            # (le lib produit par ce module s'appelle "Noge", cf. project("Noge")
+            # plus haut) — jenga test echouait au link avant ce correctif.
+            _TEST_LINKS = ["Noge", "NKCanvas", "NKWindow", "NKTime"]
             if _USE_NKGLAD:
                 _TEST_LINKS.append("NKGlad")
             links(_TEST_LINKS)

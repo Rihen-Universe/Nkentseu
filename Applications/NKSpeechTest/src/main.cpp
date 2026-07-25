@@ -5,6 +5,8 @@
 #include "NKSpeech/NkAudioFeatures.h"
 #include "NKSpeech/NkGriffinLim.h"
 #include "NKSpeech/NkVoiceSynth.h"
+#include "NKSpeech/NkG2P.h"
+#include "NKContainers/String/Encoding/NkUTF8.h"
 
 #include <cstdio>
 
@@ -32,6 +34,31 @@ static void WriteWavPcm16(const char *path, const float *samples, int n, int sam
 	fclose(fp);
 }
 
+// Construit un NkString UTF-8 depuis une suite de codepoints Unicode (évite tout
+// littéral non-ASCII dans ce fichier .cpp : portable quel que soit le charset
+// source du compilateur). Utilisé pour les mots ghomala' RÉELS de la démo G2P.
+static NkString Utf8FromCodepoints(const uint32 *cps, int n) {
+	char buf[128];
+	usize p = 0;
+	for (int i = 0; i < n; ++i)
+		p += encoding::utf8::NkEncodeChar(cps[i], buf + p);
+	return NkString(buf, (NkString::SizeType)p);
+}
+
+// Affiche une suite de phonèmes G2P (symbole + ton + nasalisation) façon
+// "d oh(L) m n y eu(L)". Debug/démo uniquement (labels ASCII, cf. NkG2P::SymbolLabel).
+static void PrintPhonemes(const NkVector<ai::NkPhonemeUnit> &ph) {
+	for (nk_size i = 0; i < ph.Size(); ++i) {
+		const ai::NkPhonemeUnit &u = ph[i];
+		printf("%s", ai::NkG2P::SymbolLabel(u.symbol));
+		if (u.tone != ai::NkTone::None && u.tone != ai::NkTone::Mid)
+			printf("(%s)", ai::NkG2P::ToneLabel(u.tone));
+		if (u.nasalized)
+			printf("~");
+		printf(" ");
+	}
+}
+
 int main() {
 	printf("=== NKSpeechTest — parole from-scratch (NKAI, headless) ===\n\n");
 
@@ -54,6 +81,61 @@ int main() {
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
+	}
+
+	{
+		++nbTotal;
+		const bool ok = ai::NkG2P::SelfTest();
+		printf("[ %s ] NkG2P : G2P rule-based fr/en/bbj (mots REELS ghomala' verifies "
+			   "lamba-africa.com \"dommnye\"=impasse/\"letee\"=solide + NT \"Ngkhenye\" + apostrophe glottale)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+
+	// Demo lisible du G2P : mots REELS bbj (voir NkG2P.h SOURCES) -> phonemes.
+	{
+		printf("\n-- NkG2P demo (bbj = ghomala', mots reels sources verifiees) --\n");
+
+		// "dɔ̀mnyə̀" = « impasse » (lamba-africa.com, lexique deja utilise par le projet).
+		const uint32 cpDomnye[] = {'d', 0x0254, 0x0300, 'm', 'n', 'y', 0x0259, 0x0300};
+		NkString wDomnye = Utf8FromCodepoints(cpDomnye, 8);
+		printf("  \"dommnye\" (bbj, = \"impasse\" en fr) -> ");
+		PrintPhonemes(ai::NkG2P::ToPhonemesBbj(wDomnye));
+		printf("\n");
+
+		// "lɛtə̌" = « solide » (lamba-africa.com).
+		const uint32 cpLetee[] = {'l', 0x025B, 't', 0x0259, 0x030C};
+		NkString wLetee = Utf8FromCodepoints(cpLetee, 5);
+		printf("  \"letee\" (bbj, = \"solide\" en fr) -> ");
+		PrintPhonemes(ai::NkG2P::ToPhonemesBbj(wLetee));
+		printf("\n");
+
+		// "Ŋkhənyə" — premier mot de Matio 1:1 (Nouveau Testament ghomala', corpus reel
+		// du projet AI/corpus/lamba/bbj_ghomala_nt.txt). Traduction non revalidee ici :
+		// on ne teste que la transcription G2P, pas le sens.
+		const uint32 cpNkhenye[] = {0x014A, 'k', 'h', 0x0259, 'n', 'y', 0x0259};
+		NkString wNkhenye = Utf8FromCodepoints(cpNkhenye, 7);
+		printf("  \"Ngkhenye\" (bbj, mot reel du NT, Matio 1:1) -> ");
+		PrintPhonemes(ai::NkG2P::ToPhonemesBbj(wNkhenye));
+		printf("\n");
+
+		// "gʉ'" — occlusive glottale finale (forme attestee dans le NT, ex. Matio 1:18).
+		const uint32 cpGu[] = {'g', 0x0289, '\''};
+		NkString wGu = Utf8FromCodepoints(cpGu, 3);
+		printf("  \"gu'\" (bbj, apostrophe = occlusive glottale finale) -> ");
+		PrintPhonemes(ai::NkG2P::ToPhonemesBbj(wGu));
+		printf("\n");
+
+		printf("  \"bonjour\" (fr) -> ");
+		PrintPhonemes(ai::NkG2P::ToPhonemesFr(NkString("bonjour")));
+		printf("\n  \"maison\" (fr) -> ");
+		PrintPhonemes(ai::NkG2P::ToPhonemesFr(NkString("maison")));
+		printf("\n  \"church\" (en) -> ");
+		PrintPhonemes(ai::NkG2P::ToPhonemesEn(NkString("church")));
+		printf("\n  \"think\" (en) -> ");
+		PrintPhonemes(ai::NkG2P::ToPhonemesEn(NkString("think")));
+		printf("\n\n");
 	}
 
 	{

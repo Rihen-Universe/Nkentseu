@@ -5,7 +5,7 @@
 // =============================================================================
 
 #include "AppContext.h"
-#include <vector>
+#include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
 	class NkEvent;
@@ -47,7 +47,7 @@ namespace nkentseu {
 				void OnResume(AppContext &ctx);
 
 			private:
-				std::vector<Scene *> mStack;
+				NkVector<Scene *> mStack;
 
 				// Commandes différées (pour éviter mutation pendant dispatch)
 				enum class CmdType { Push, Pop, Replace, PopToRoot, Clear };
@@ -57,7 +57,7 @@ namespace nkentseu {
 						Scene *scene;
 				};
 
-				std::vector<Cmd> mPending;
+				NkVector<Cmd> mPending;
 
 				void FlushPending(AppContext &ctx);
 				void DoPush(AppContext &ctx, Scene *s);

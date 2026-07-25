@@ -367,8 +367,8 @@ namespace nkentseu {
 			out.cuQpDeltaEnabled = br.U1() != 0;
 			if (out.cuQpDeltaEnabled)
 				out.diffCuQpDeltaDepth = (int32)br.UE();
-			br.SE();	 // pps_cb_qp_offset
-			br.SE();	 // pps_cr_qp_offset
+			out.ppsCbQpOffset = (int32)br.SE();
+			out.ppsCrQpOffset = (int32)br.SE();
 			out.sliceChromaQpOffsetsPresent = br.U1() != 0;
 			out.weightedPred = br.U1() != 0;
 			out.weightedBipred = br.U1() != 0;

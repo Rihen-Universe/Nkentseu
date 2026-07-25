@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Nkentseu/Design/Raster/NkSelectionSystem.h
+// Nkentseu/Selection/NkSelectionSystem.h
 // =============================================================================
 // Système de sélection raster pour les applications de peinture numérique.
 //

@@ -21,6 +21,15 @@
 #include <cstdio>
 #include <cstring>
 
+// TODO (audit std:: — hors scope de cette correction) : std::snprintf/std::strncpy
+// restent utilises ci-dessous pour formater des char[] de taille fixe (mStatusMsg,
+// chemins d'assets). Ce sont des fonctions libc (pas de conteneur STL), mais elles
+// violent quand meme la regle "pas de std::" du projet (voir Nkentseu/CLAUDE.md).
+// Nkentseu expose NkFormatTo/NkStringBuilder (NKContainers/String/) mais ceux-ci
+// ecrivent dans un NkString, pas dans un char[] fixe existant : les remplacer proprement
+// demande de migrer mStatusMsg (et les buffers de chemin) vers NkString/NkStringBuilder,
+// ce qui deborde le perimetre de cet audit ponctuel. Laisse en l'etat, corrige ici.
+
 namespace nkentseu {
 	namespace songoo {
 
@@ -69,17 +78,17 @@ namespace nkentseu {
 			// ── CORRECTION BUG 1 : chargement unique dans OnEnter ─────────────────
 			char path[128];
 			for (int i = 0; i < 16; i++) {
-				std::snprintf(path, sizeof(path), "Resources/Songo/assets/trou%d.png", i);
+				std::snprintf(path, sizeof(path), "Resources/Songoo/assets/trou%d.png", i);
 				mTrouTex[i].LoadFromFile(path);
 				if (!mTrouTex[i].IsValid())
 					logger.Warn("[Gameplay] trou{}.png manquant", i);
 			}
 
-			mBgTex.LoadFromFile("Resources/Songo/assets/Background.png");
+			mBgTex.LoadFromFile("Resources/Songoo/assets/Background.png");
 			if (!mBgTex.IsValid())
 				logger.Warn("[Gameplay] Background.png manquant");
 
-			mHandTex.LoadFromFile("Resources/Songo/assets/hand.png");
+			mHandTex.LoadFromFile("Resources/Songoo/assets/hand.png");
 			if (!mHandTex.IsValid())
 				logger.Warn("[Gameplay] hand.png manquant");
 			// ─────────────────────────────────────────────────────────────────────
@@ -141,7 +150,7 @@ namespace nkentseu {
 			for (int i = 0; i < 14; i++) {
 				float dx = px - mPitGeo[i].cx;
 				float dy = py - mPitGeo[i].cy;
-				if (std::sqrtf(dx * dx + dy * dy) <= mPitGeo[i].radius * 1.15f)
+				if (math::NkSqrt(dx * dx + dy * dy) <= mPitGeo[i].radius * 1.15f)
 					return i;
 			}
 			return -1;
@@ -261,7 +270,7 @@ namespace nkentseu {
 
 			float dx = mAnim.targetX - mAnim.handX;
 			float dy = mAnim.targetY - mAnim.handY;
-			float dist = std::sqrtf(dx * dx + dy * dy);
+			float dist = math::NkSqrt(dx * dx + dy * dy);
 			float step = mAnim.speed * dt;
 
 			if (dist <= step || dist < 1.f) {

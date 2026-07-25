@@ -26,6 +26,29 @@
 //   dans une base de données de frames d'animation la frame qui
 //   correspond le mieux à l'état courant du personnage (position, vélocité,
 //   trajectoire désirée). C'est la technique d'Ubisoft (For Honor, etc.)
+//
+// [RÉVISION 2026-07-23] — Pont animation (Engine/Noge/ROADMAP.md, item G1.4) :
+//   • NkFootIKSystem délègue désormais la résolution jambe (hanche→genou→
+//     pied) à NkIKSolver::SolveTwoBone (lui-même adaptateur fin sur
+//     renderer::NkIKSystem::NK_TWO_BONE, voir Rigging/NkIKSolver.h) — zéro
+//     réimplémentation FABRIK/TwoBone locale. Le raycast sol délègue à
+//     physics::NkPhysicsWorld::Raycast (NKPhysics, déjà réel) quand un monde
+//     physique est fourni (SetPhysicsWorld) ; sinon un plan de sol plat
+//     (fallback CPU-only honnête, PAS une réimplémentation de raycast contre
+//     un mesh de terrain) sert de repli pour les démos sans monde physique.
+//   • NkLocomotionSystem possède un renderer::NkBlendTree1D (ConfigureBlend)
+//     qui mélange RÉELLEMENT deux clips (ex. Walk/Run) via
+//     NkBlendTree1D::SetParameter/Update — zéro réimplémentation de blend.
+//     Limitation assumée : le blend écrit une pose NON hiérarchique dans
+//     ecs::NkSkeleton (chaque os = sa propre transform monde, DecomposeTRS
+//     direct) ; cohérent pour un squelette PLAT (bones[i].parent == -1, cf.
+//     démo Applications/NkLocomotionDemo) mais pas pour un squelette
+//     hiérarchique complet (aucun re-FK des enfants) — voir NkLocomotion.cpp.
+//   • NkMotionMatchSystem / NkCrowdSystem (Motion Matching, foule) restent
+//     hors-scope de cette passe : specs déclarées, 0 .cpp, mais NON
+//     instanciées ailleurs dans le moteur (confirmé par grep) — donc pas de
+//     régression. Motion Matching et crowd steering sont des chantiers à part
+//     entière, indépendants de la délégation IK/blend demandée par G1.4.
 // =============================================================================
 
 #include "NKECS/NkECSDefines.h"
@@ -34,7 +57,10 @@
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "Noge/ECS/Components/Animation/NkAnimation.h"
-#include "Nkentseu/Rigging/NkIKSolver.h"
+#include "Noge/Rigging/NkIKSolver.h"
+#include "NKRenderer/Tools/Animation/NkAnimationSystem.h"
+#include "NKPhysics/NkPhysicsWorld.h"
+#include "NKCollision/NkColTypes.h"
 
 namespace nkentseu {
 	using namespace math;
@@ -261,6 +287,12 @@ namespace nkentseu {
 	// Systèmes ECS de locomotion
 	// =========================================================================
 
+	// NkFootIKSystem : la jambe (hanche→genou→pied) est résolue par
+	// NkIKSolver::SolveTwoBone (adaptateur -> renderer::NkIKSystem::NK_TWO_BONE,
+	// voir Rigging/NkIKSolver.h) — zéro FABRIK/TwoBone réimplémenté ici. Le
+	// raycast sol délègue à physics::NkPhysicsWorld::Raycast (NKPhysics réel)
+	// quand SetPhysicsWorld() a été appelé ; sinon repli plan-plat honnête
+	// (voir RaycastGround dans NkLocomotion.cpp).
 	class NkFootIKSystem final : public NkSystem {
 		public:
 			[[nodiscard]] NkSystemDesc Describe() const override {
@@ -275,12 +307,36 @@ namespace nkentseu {
 
 			void Execute(NkWorld &world, float32 dt) noexcept override;
 
+			// Monde physique à interroger pour le raycast sol (NON possédé —
+			// typiquement &NkPhysicsSystem::World()). Laissé nul = repli plan-
+			// plat CPU-only (voir tête de fichier + NkLocomotion.cpp).
+			void SetPhysicsWorld(physics::NkPhysicsWorld *w) noexcept {
+				mPhysWorld = w;
+			}
+
+			// Hauteur du plan de sol utilisé UNIQUEMENT quand aucun monde
+			// physique n'est fourni (démo / tests CPU-only sans NKPhysics).
+			void SetFallbackGroundY(float32 y) noexcept {
+				mFallbackGroundY = y;
+			}
+
 		private:
 			NkIKSolver mSolver;
+			physics::NkPhysicsWorld *mPhysWorld = nullptr; // non possédé
+			float32 mFallbackGroundY = 0.f;
+
 			bool RaycastGround(NkWorld &world, const NkVec3f &from, float32 len, uint32 mask,
 							   NkFootContact &out) const noexcept;
 	};
 
+	// NkLocomotionSystem : le blend Walk/Run est un renderer::NkBlendTree1D
+	// RÉEL (ConfigureBlend fournit les clips, SetParameter/Update font le
+	// mélange bone-local ou legacy matriciel selon le clip -- voir
+	// NKRenderer/Tools/Animation/NkAnimationSystem.h) — zéro blend
+	// réimplémenté ici. Limitation assumée : la pose résultante est écrite
+	// dans ecs::NkSkeleton comme transform MONDE indépendante par os
+	// (DecomposeTRS direct, pas de re-FK) -- correct pour un squelette PLAT
+	// (bones[i].parent == -1), voir NkLocomotion.cpp.
 	class NkLocomotionSystem final : public NkSystem {
 		public:
 			[[nodiscard]] NkSystemDesc Describe() const override {
@@ -288,12 +344,31 @@ namespace nkentseu {
 					.Writes<NkLocomotion>()
 					.Writes<NkTransform>()
 					.Writes<NkAnimator>()
+					.Writes<NkSkeleton>()
 					.InGroup(NkSystemGroup::Update)
 					.WithPriority(200.f)
 					.Named("NkLocomotionSystem");
 			}
 
 			void Execute(NkWorld &world, float32 dt) noexcept override;
+
+			// Configure le blend-space 1D Walk(pos=0)/Run(pos=1). Les clips ne
+			// sont PAS possédés (durée de vie gérée par l'appelant, comme pour
+			// NkBlendTree1D::AddClip côté NKRenderer).
+			void ConfigureBlend(const renderer::NkAnimationClip *walk, const renderer::NkAnimationClip *run) noexcept;
+
+			[[nodiscard]] const renderer::NkAnimationState &GetBlendedState() const noexcept {
+				return mBlend.GetState();
+			}
+
+			[[nodiscard]] const renderer::NkBlendTree1D &GetBlendTree() const noexcept {
+				return mBlend;
+			}
+
+		private:
+			renderer::NkBlendTree1D mBlend; // partagé par le système -- suffisant pour une démo
+											 // mono-personnage ; un jeu multi-personnages voudrait
+											 // une instance par entité (table NkHashMap<NkEntityId,...>).
 	};
 
 	class NkMotionMatchSystem final : public NkSystem {

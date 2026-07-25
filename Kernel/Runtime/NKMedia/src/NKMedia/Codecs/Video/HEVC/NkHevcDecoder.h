@@ -197,6 +197,7 @@ namespace nkentseu {
 				bool transformSkipEnabled = false;
 				bool cuQpDeltaEnabled = false;
 				int32 diffCuQpDeltaDepth = 0;			  // taille des groupes de quantification
+				int32 ppsCbQpOffset = 0, ppsCrQpOffset = 0; // offsets QP chroma (déquant)
 				bool transquantBypassEnabled = false;	  // gate de cu_transquant_bypass_flag
 				bool sliceChromaQpOffsetsPresent = false; // gate de slice_cb/cr_qp_offset
 				bool weightedPred = false;	 // weighted_pred_flag (P) — gate de pred_weight_table
@@ -213,6 +214,16 @@ namespace nkentseu {
 				bool listsModificationPresent = false;
 				int32 log2ParallelMergeLevel = 2; // log2_parallel_merge_level_minus2 + 2
 				bool sliceSegmentHeaderExtensionPresent = false;
+		};
+
+		// Image décodée en plans YUV 4:2:0, échantillons uint16 (8 ou 10 bits selon le
+		// SPS). Dimensions CODÉES (multiples de CTU) ; cropW/H = fenêtre de conformance.
+		struct NkHevcFrame {
+				NkVector<nk_uint16> y, cb, cr;
+				int32 lumaW = 0, lumaH = 0;
+				int32 chromaW = 0, chromaH = 0;
+				int32 cropW = 0, cropH = 0;
+				int32 bitDepth = 8;
 		};
 
 		// Statistiques structurelles du parsing de slice_segment_data() (brique 5) —
@@ -281,6 +292,19 @@ namespace nkentseu {
 				static bool ParseSliceDataIntra(const uint8 *nal, usize size, const NkHevcSps &sps,
 												const NkHevcPps &pps, const NkHevcSliceHeader &sh,
 												NkHevcSliceDataStats &out);
+
+				// Brique 6 : DÉCODE une slice INTRA en pixels — même parsing que
+				// ParseSliceDataIntra + reconstruction complète : dérivation du QP par
+				// groupe de quantification (§8.6.1, offsets chroma inclus), déquant
+				// (§8.6.3), transformées inverses (DST 4×4 luma intra + DCT 4-32, deux
+				// passes avec écrêtage 16 bits, §8.6.4), prédiction intra 35 modes
+				// (référence + substitution §8.4.4.2.2, lissage [1 2 1] et lissage fort
+				// 32×32, Planar/DC/angulaire avec filtres de bord §8.4.4.2.3-6).
+				// À valider vs ffmpeg sur flux SANS déblocage/SAO (comme H.264 :
+				// la reconstruction pure d'abord, les filtres en brique suivante).
+				static bool DecodeSliceIntra(const uint8 *nal, usize size, const NkHevcSps &sps,
+											 const NkHevcPps &pps, const NkHevcSliceHeader &sh,
+											 NkHevcFrame &frame, NkHevcSliceDataStats &out);
 
 				static bool SelfTest();
 		};

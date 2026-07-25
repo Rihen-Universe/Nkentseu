@@ -3,13 +3,27 @@
 // Nkentseu/Anim2D/NkAtlas2D.h
 // =============================================================================
 // Atlas de sprites avec frames nommées et animations (style TexturePacker).
+//
+// [NOTE 2026-07-23] Vérification faite dans le cadre de Engine/Noge/ROADMAP.md
+// item G1.4 (pont animation) : AUCUNE fondation réelle équivalente n'existe
+// ailleurs dans le moteur pour un atlas de sprites à frames NOMMÉES + clips
+// d'animation 2D (recherché : NKCanvas — NkSprite.h n'est qu'un quad texturé
+// unique avec un seul NkRect2i de découpe, pas un atlas multi-frames ; aucun
+// parseur TexturePacker/LibGDX nulle part dans le repo). Contrairement à
+// NkIKSolver/NkLocomotion (adossés à renderer::NkIKSystem /
+// renderer::NkAnimationSystem, réels et testés), NkAtlas2D.h reste donc une
+// SPEC SANS BACKEND À ADOSSER — hors-scope de cette passe, laissé tel quel
+// (0 .cpp, non instancié ailleurs dans le moteur — confirmé par grep, donc
+// aucune régression). Seul l'include cassé ci-dessous a été corrigé (le
+// fichier "NKRenderer/src/Core/NkRendererTypes.h" n'existe pas ; le vrai
+// chemin est "NKRenderer/Core/NkRendererTypes.h", sans le "src/").
 // =============================================================================
 #include "NKECS/NkECSDefines.h"
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Associative/NkUnorderedMap.h"
-#include "NKRenderer/src/Core/NkRendererTypes.h"
+#include "NKRenderer/Core/NkRendererTypes.h"
 
 namespace nkentseu {
 	using namespace math;

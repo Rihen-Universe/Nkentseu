@@ -27,11 +27,22 @@
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
-#include "Design/Raster/NkRasterCanvas.h"
-#include "Design/Vector/NkVectorPath.h"
+// [FIX 2026-07-24] Includes cassés : chemin relatif à la racine "src" du
+// projet Noge (Noge.jenga : includedirs=["src", ...]) attend un préfixe
+// "Noge/", pas "Design/" -- ne résolvaient jamais (fichiers réels sous
+// Engine/Noge/src/Noge/Design/...).
+#include "Noge/Design/Raster/NkRasterCanvas.h"
+#include "Noge/Design/Vector/NkVectorPath.h"
 
 namespace nkentseu {
-	using namespace math;
+	// [FIX 2026-07-24] `using namespace math;` remplacé par des `using`
+	// ciblés -- même raison que Noge/Design/Vector/NkVectorPath.h (voir le
+	// commentaire complet dans Noge/Color/NkColorManager.h) : un
+	// using-directive en portée namespace fuit vers le reste de la unité de
+	// compilation et rend `NkColor` ambigu dès que NkColorManager.h est
+	// inclus plus loin dans le même .cpp.
+	using math::NkVec2f;
+	using math::NkRectF;
 
 	// =========================================================================
 	// NkBlendMode — 24 modes de fusion

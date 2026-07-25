@@ -273,7 +273,8 @@ namespace nkentseu {
 	// NkShaderConverter::SpirvToGlsl
 	// =============================================================================
 
-	NkShaderConvertResult NkShaderConverter::SpirvToGlsl(const uint32 *spirvWords, uint32 wordCount, NkSLStage stage) {
+	NkShaderConvertResult NkShaderConverter::SpirvToGlsl(const uint32 *spirvWords, uint32 wordCount, NkSLStage stage,
+														 bool targetES) {
 		NkShaderConvertResult out;
 
 #ifdef NK_RHI_SPIRVCROSS_ENABLED
@@ -284,8 +285,18 @@ namespace nkentseu {
 			auto resources = compiler.get_shader_resources();
 
 			spirv_cross::CompilerGLSL::Options opts;
-			opts.version = 450;
-			opts.es = false;
+			// targetES=false (desktop) codé en dur ici auparavant, quelle que soit la
+			// plateforme réelle : le GLSL généré pour Android/HarmonyOS/Web était
+			// donc TOUJOURS du GL desktop (#version 450 core, sans precision
+			// qualifiers) -> échec de compilation sur ES, avalé silencieusement en
+			// aval (handle shader "valide" retourné quand même) -> écran noir sans
+			// la moindre erreur détectable au runtime.
+			// ES : viser 320 es (nos contextes mobiles sont crees en ES 3.2, cf.
+			// NkOpenglDevice). 300 es faisait echouer SPIRV-Cross sur tout shader
+			// utilisant des features 310/320 (SSBO, image load/store, sampler
+			// binding explicite...) -> cascade de "no GLSL stage provided".
+			opts.version = targetES ? 320 : 450;
+			opts.es = targetES;
 			// flip_vert_y : pour les VS géométrie dont les matrices sont en convention
 			// VK (NDC Y=-1 au top). Deux exceptions ne doivent PAS être flippées :
 			//
@@ -699,11 +710,11 @@ namespace nkentseu {
 	}
 
 	NkShaderConvertResult NkShaderConverter::GlslToGlsl(const NkString &glslSource, NkSLStage stage,
-														const NkString &debugName) {
+														const NkString &debugName, bool targetES) {
 		NkShaderConvertResult spv = GlslToSpirv(glslSource, stage, debugName);
 		if (!spv.success)
 			return spv;
-		return SpirvToGlsl(spv, stage);
+		return SpirvToGlsl(spv, stage, targetES);
 	}
 
 	// =============================================================================

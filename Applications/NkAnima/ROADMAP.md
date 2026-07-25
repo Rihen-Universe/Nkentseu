@@ -4,6 +4,20 @@
 > la nouvelle direction. À LIRE au démarrage d'une session NkAnima.
 > Nom de travail **NkAnima** (à valider). Lié depuis `CLAUDE.md`.
 
+> **État honnête au 2026-07-23** (audit avant increment) : M0 (IK) ✅ terminé.
+> M1 (pose/timeline) très avancé, quelques items UI restants. M2 (blend
+> 1D/2D + HFSM) **était marqué ⏳ mais en fait déjà implémenté et self-testé**
+> dans `NkAnimationSystem` — correction de doc faite ci-dessous ; retargeting +
+> mouvement secondaire de M2 restent, eux, réellement non commencés. M3
+> (physique de pose façon Cascadeur) ✅ terminé, 6/6 briques, 9/9 tests headless.
+> M4 (IA auto-pose) non commencé. **M4bis (couche acteur/directeur) : 1re brique
+> sur 5 livrée aujourd'hui — `NkRoleContext` (contexte de rôle + schéma strict),
+> testée headless, 10/10 suites OK** (voir détail dans la section M4bis).
+> Le pont directeur (inférence LLM réelle, ex-mal-nommé "NKAI" dans des docs
+> antérieures — bien distinct du vrai module Kernel/AI/NKAI) n'est PAS câblé :
+> seule la structure de données + validation qui le recevra existe. M5 non
+> commencé.
+
 ## Vision
 
 Un outil d'animation **physiquement correct + assisté par IA**, à la **Cascadeur**,
@@ -299,19 +313,27 @@ NKRenderer compile (mon code OK). Demo à relancer une fois le font réparé par
 Transitions, blend de poses, appliquer une anim à un autre rig (retargeting).
 (= NKRenderer Tier 3 #10 « animation avancée ».)
 Détail cible (fusion corpus IA 2026-07-09) :
-- ⏳ Blend linéaire 1D (idle↔walk) → blend space 2D directionnel (locomotion) →
-  blend additif (couches : locomotion + overlay haut du corps) → crossfade avec
-  courbes d'easing configurables.
-- ⏳ HFSM (machine à états hiérarchique) : états + transitions par événement,
-  conditions paramétrables (seuils/timers), sous-états imbriqués, interface de
-  données pour pilotage externe (préparation couche acteur, cf. M4bis).
-  Édition visuelle future (anim graph node-based) = consommateur de **NKGraph**
-  (`Kernel/Runtime/NKGraph/ROADMAP.md`, décision 2026-07-09).
-- ⏳ Retargeting : mapping bone-à-bone + normalisation de la pose de repos.
-- ⏳ Mouvement secondaire (après le primaire) : jiggle/spring bones (cheveux,
-  tissus légers — meilleur ratio effort/résultat), ragdoll partiel puis complet
-  (transition anim→physique via NKPhysics), cloth verlet léger (capes). LOD
-  physique par distance caméra.
+- **✅ CORRECTION D'AUDIT (2026-07-23)** : cette section était marquée ⏳ partout
+  mais le code existe déjà et est SELF-TESTÉ — la doc n'avait simplement pas été
+  remise à jour. Vérifié en lisant `NkAnimationSystem.h/.cpp` (pas seulement les
+  déclarations) :
+  - **✅ `NkBlendTree1D`** — blend space 1D (N clips sur un axe, TRS-NLerp
+    bone-local AVANT FK, phases synchronisées sur durée interpolée).
+  - **✅ `NkBlendTree2D`** — blend space 2D (pondération inverse-distance/Shepard,
+    même discipline bone-local + phases synchro).
+  - **✅ `NkAnimStateMachine`** — HFSM : états (clip OU blend tree 1D/2D),
+    transitions par condition (bool / seuil float), crossfade bone-local
+    `fadeDur`, callback début/fin de transition, any-state transitions (from=-1).
+  Self-tests headless dans `Applications/Sandbox/src/Demo/DemoAnim.cpp`
+  (gate `NK_ANIM_SMTEST`, nécessite un modèle multi-anim type Fox) : state
+  machine idle→walk→retour idle + comptage d'événements OK, blend 2D mix/exact
+  OK. **Reste non couvert par cette correction** (toujours ⏳, non commencé) :
+  - ⏳ Blend ADDITIF (couches locomotion + overlay haut du corps) — les 1D/2D
+    actuels sont des blends de REMPLACEMENT, pas additifs.
+  - ⏳ Édition visuelle (anim graph node-based, consommateur **NKGraph**).
+  - ⏳ Retargeting : mapping bone-à-bone + normalisation de la pose de repos.
+  - ⏳ Mouvement secondaire : jiggle/spring bones, ragdoll partiel→complet
+    (transition anim→physique via NKPhysics), cloth verlet léger, LOD physique.
 
 ### M3 — Physique d'animation : solveur de pose façon Cascadeur
 Contraintes/ragdoll + **trajectoires physiquement correctes** (centre de masse
@@ -405,11 +427,32 @@ Le personnage reçoit un **rôle** et le joue. Principe clé : **le modèle de
 langage reste HORS de la boucle temps réel** — appelé une fois par « beat » de
 scène, jamais par frame ; sortie **structurée validée par schéma** (jamais du
 texte libre) ; cache + fallback règles si indisponible.
-- ❌ **Contexte de rôle** — structure rôle/personnalité/état émotionnel/objectif
-  de scène + historique court, sérialisation (NKSerialization), schéma strict.
+- **✅ Contexte de rôle (V1 — 2026-07-23)** — module
+  `NKRenderer/Tools/Director/NkRoleContext.{h,cpp}` (pur Foundation, AUCUN GPU,
+  AUCUN réseau/LLM ici). `NkRoleContext` : nom de rôle, traits de personnalité
+  nommés `[0,1]`, état émotionnel (`NkEmotion` — 6 émotions + neutre, cf. bullet
+  "Traducteur de performance" ci-dessous qui en consommera 5-6), objectif de
+  scène (description + priorité + urgence), **historique COURT FIFO** borné
+  (`maxHistory`, le plus ancien événement est éjecté). Sérialisation
+  (NKSerialization) : `ToArchive/FromArchive` (`NkArchive`) + `ToJSON/FromJSON`
+  (texte, via `NkJSONWriter/NkJSONReader` — la forme que produirait/consommerait
+  le futur pont directeur). **`NkRoleContextSchema::Validate`** = validateur de
+  schéma STRICT (champs requis + bornes numériques + émotion whitelist) —
+  c'est la porte anti-texte-libre : toute sortie IA malformée (champ manquant,
+  valeur hors `[0,1]`, émotion halluciné type "furieux" au lieu de "anger",
+  JSON syntaxiquement invalide) est **rejetée avec message d'erreur**, jamais
+  silencieusement acceptée. Testé HEADLESS (`NkAnimPhysTest` → **M4bis.1 OK** :
+  FIFO d'historique, round-trip Archive ET JSON texte, schéma accepte le
+  bien-formé, rejette 5 variantes malformées distinctes). Build vérifié
+  (`jenga build --target NkAnimPhysTest`, 0 erreur/0 warning) + exécution réelle
+  (`NkAnimPhysTest.exe` → 10/10 suites OK, exit code 0).
+  ⏳ Reste (hors scope V1) : bibliothèque de rôles réutilisables (presets),
+  câblage éditeur (inspecteur de rôle), historique multi-personnage partagé.
 - ❌ **Pont directeur** — inférence **locale via NkGPT** (NKAI, souverain,
   from-scratch) en priorité ; API externe optionnelle. Asynchrone (thread dédié,
-  ne bloque jamais le rendu), cache de réponses, fallback règles.
+  ne bloque jamais le rendu), cache de réponses, fallback règles. PRODUIRA le
+  JSON que `NkRoleContext::FromJSON` + `NkRoleContextSchema::Validate`
+  consomment déjà (brique ci-dessus prête à recevoir une vraie sortie LLM).
 - ❌ **Traducteur de performance** (la pièce charnière) — sortie IA → paramètres
   concrets : intention → sélection clip/blend tree (M2), émotion → poids de blend
   + posture, timing/beats → durées de transition. Démarrer avec 5-6 émotions →

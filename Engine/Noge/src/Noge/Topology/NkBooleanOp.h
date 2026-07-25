@@ -1,7 +1,7 @@
 
 #pragma once
 // =============================================================================
-// Nkentseu/Modeling/NkBooleanOp.h — Opérations booléennes mesh (BSP-based)
+// Nkentseu/Topology/NkBooleanOp.h — Opérations booléennes mesh (BSP-based)
 // =============================================================================
 #include "NKECS/NkECSDefines.h"
 #include "Nkentseu/Modeling/NkHalfEdge.h"

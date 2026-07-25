@@ -31,7 +31,6 @@
 #include "ECS/Components/Core/NkCoreComponents.h" // NkTransform, NkName, NkTag, NkParent, NkChildren
 #include "ECS/Components/NkComponentHandle.h"	  // NkComponentHandle, NkRequiredComponent, NkOptionalComponent
 #include "ECS/Components/Rendering/NkRenderComponents.h"
-#include "ECS/Components/Physics/NkPhysicsComponents.h"
 #include "ECS/Components/Audio/NkAudioComponents.h"
 #include "ECS/Components/Animation/NkAnimation.h"
 #include "ECS/Components/UI/NkUIComponent.h"
@@ -62,6 +61,7 @@
 // ── ECS - Scripting ───────────────────────────────────────
 #include "ECS/Scripting/NkScriptComponent.h"
 #include "ECS/Scripting/NkScriptSystem.h"
+#include "ECS/Scripting/NkScriptBridge.h" // scripts C++ hot-reload (DLL)
 
 // ── ECS - Visual Scripting ────────────────────────────────
 #include "ECS/VisualScript/NkBlueprint.h"

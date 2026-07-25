@@ -20,8 +20,21 @@ namespace nkentseu {
 		//    (cf. NkOpenglCommandBuffer::PushConstants).
 		//  - Texture sampler : layout(binding=0) — pas de "set" Vulkan.
 		// =========================================================================
-		static const char *kRender2D_VS = R"GLSL(
-#version 460 core
+		// En-tete conditionnel (ES vs desktop) : ces sources ne sont JAMAIS
+		// detectees comme "GLSL Vulkan-style" par LooksLikeVulkanGlsl (voulu) ->
+		// compilees TELLES QUELLES, sans passer par la conversion SPIRV-Cross.
+		// Sans cet en-tete ES, "#version 460 core" est invalide en GLSL ES sur
+		// Android/HarmonyOS/Web -> echec de compilation AVALE SILENCIEUSEMENT en
+		// aval (handle "valide" retourne quand meme) -> ecran noir sans la
+		// moindre erreur detectable. Le corps (layout/UBO std140/flat/bitwise
+		// uint) est deja valide en GLSL ES 3.2 (contexte reel sur mobile) : seul
+		// l'en-tete differe, via concatenation de litteraux C adjacents.
+#if defined(NK_OPENGL_ES)
+#define NK_R2D_SHADER_HEADER "#version 320 es\nprecision highp float;\nprecision highp int;\n"
+#else
+#define NK_R2D_SHADER_HEADER "#version 460 core\n"
+#endif
+		static const char *kRender2D_VS = NK_R2D_SHADER_HEADER R"GLSL(
 layout(location=0) in vec2  aPos;
 layout(location=1) in vec2  aUV;
 layout(location=2) in uint  aColor;
@@ -48,8 +61,7 @@ void main() {
 }
 )GLSL";
 
-		static const char *kRender2D_FS = R"GLSL(
-#version 460 core
+		static const char *kRender2D_FS = NK_R2D_SHADER_HEADER R"GLSL(
 layout(location=0) in vec2  vUV;
 layout(location=1) in vec4  vColor;
 layout(location=2) in flat uint vFlags;
@@ -794,6 +806,20 @@ void main() {
 			if (mVerts.Empty() || !mCmd)
 				return;
 
+#if defined(NK_OPENGL_ES)
+			// Diagnostic temporaire (enquete ecran noir Tuto02Renderer Android) :
+			// confirme que Flush() recoit bien des batches non vides sur ce
+			// backend, et avec quel pipeline/texture/descriptor-set. A retirer
+			// une fois la cause du texte invisible confirmee.
+			static int sR2DFlushLogCount = 0;
+			bool doLog = sR2DFlushLogCount < 5;
+			if (doLog) {
+				sR2DFlushLogCount++;
+				logger.Infof("[NkRender2D][ES] Flush verts=%u batches=%u\n", (uint32)mVerts.Size(),
+							 (uint32)mBatches.Size());
+			}
+#endif
+
 			mDevice->WriteBuffer(mVBO, mVerts.Data(), (uint64)mVerts.Size() * sizeof(Vert2D));
 
 			// NB sur OpenGL : le VAO est attache au pipeline. BindGraphicsPipeline
@@ -853,6 +879,13 @@ void main() {
 
 				uint32 triIdx = b.vStart / 4 * 6;
 				uint32 triCount = b.vCount / 4 * 6;
+#if defined(NK_OPENGL_ES)
+				if (doLog) {
+					logger.Infof("[NkRender2D][ES]   batch pipeValid=%d texValid=%d dsValid=%d triIdx=%u "
+								 "triCount=%u\n",
+								 (int)pipe.IsValid(), (int)src.IsValid(), (int)ds.IsValid(), triIdx, triCount);
+				}
+#endif
 				mCmd->DrawIndexed(triCount, 1, triIdx, 0, 0);
 			}
 			mBatchCount += (uint32)mBatches.Size();
