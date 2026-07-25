@@ -626,6 +626,63 @@ namespace nkentseu {
 			return true;
 		}
 
+		int32 NkHevcDecoder::ComputePoc(int32 picOrderCntLsb, int32 log2MaxPocLsb, bool isIdr,
+										int32 prevPocTid0) {
+			if (isIdr)
+				return 0; // IDR : PicOrderCntMsb=0 ET picOrderCntLsb=0 (jamais lu, §7.4.7.1)
+			const int32 maxLsb = 1 << log2MaxPocLsb;
+			// prevPocTid0 = Msb+Lsb par construction -> Lsb = prevPocTid0 mod maxLsb (positif).
+			const int32 prevLsb = ((prevPocTid0 % maxLsb) + maxLsb) % maxLsb;
+			const int32 prevMsb = prevPocTid0 - prevLsb;
+			int32 msb = prevMsb;
+			if (picOrderCntLsb < prevLsb && (prevLsb - picOrderCntLsb) >= maxLsb / 2)
+				msb = prevMsb + maxLsb;
+			else if (picOrderCntLsb > prevLsb && (picOrderCntLsb - prevLsb) > maxLsb / 2)
+				msb = prevMsb - maxLsb;
+			return msb + picOrderCntLsb;
+		}
+
+		void NkHevcDecoder::BuildRefPicLists(const NkHevcShortTermRps &rps, int32 poc,
+											 int32 numRefIdxL0Active, int32 numRefIdxL1Active, bool isB,
+											 NkHevcRefPicLists &out) {
+			out = NkHevcRefPicLists{};
+			// PocStCurrBefore/After (§8.3.2) : deltas CUMULÉS déjà résolus dans le RPS
+			// (S0 = négatifs, ordre proximité croissante ; S1 = positifs, idem).
+			int32 before[16], nBefore = 0;
+			int32 after[16], nAfter = 0;
+			for (int32 i = 0; i < rps.numNegativePics && i < 16; ++i)
+				if (rps.usedS0[i])
+					before[nBefore++] = poc + rps.deltaPocS0[i];
+			for (int32 i = 0; i < rps.numPositivePics && i < 16; ++i)
+				if (rps.usedS1[i])
+					after[nAfter++] = poc + rps.deltaPocS1[i];
+			// §8.3.4 : TempList0 = before puis after (refs long terme non supportées —
+			// jamais émises par x265) ; repli MODULO si NumPicTotalCurr < num_ref_idx_active
+			// (spec : RefPicListTemp0[rIdx] = TempList0[rIdx % NumPicTotalCurr]).
+			int32 temp0[32], n0 = 0;
+			for (int32 i = 0; i < nBefore; ++i)
+				temp0[n0++] = before[i];
+			for (int32 i = 0; i < nAfter; ++i)
+				temp0[n0++] = after[i];
+			if (n0 > 0) {
+				out.numL0 = numRefIdxL0Active < 16 ? numRefIdxL0Active : 16;
+				for (int32 i = 0; i < out.numL0; ++i)
+					out.l0[i] = temp0[i % n0];
+			}
+			if (isB) {
+				int32 temp1[32], n1 = 0;
+				for (int32 i = 0; i < nAfter; ++i)
+					temp1[n1++] = after[i];
+				for (int32 i = 0; i < nBefore; ++i)
+					temp1[n1++] = before[i];
+				if (n1 > 0) {
+					out.numL1 = numRefIdxL1Active < 16 ? numRefIdxL1Active : 16;
+					for (int32 i = 0; i < out.numL1; ++i)
+						out.l1[i] = temp1[i % n1];
+				}
+			}
+		}
+
 		bool NkHevcDecoder::SelfTest() {
 			// SplitNalsAnnexB : 2 NALs synthétiques (VPS type=32, SPS type=33), en-tête
 			// 2 octets HEVC (contre 1 en H.264) — vérifie l'extraction type/layer/temporal.
@@ -694,6 +751,40 @@ namespace nkentseu {
 			if (!sh.valid || !sh.firstSliceSegmentInPic || sh.noOutputOfPriorPics)
 				return false;
 			if (sh.ppsId != 0 || sh.sliceType != kHevcSliceI || !sh.isIdr)
+				return false;
+
+			// ComputePoc (brique 9) : IDR -> 0 ; sans wraparound (poc = lsb direct, cas de
+			// TOUS nos flux de test réels — log2MaxPocLsb=8, GOP de 25 images) ; AVEC
+			// wraparound (maxLsb=16, prevPocTid0=14 -> lsb=2 doit redevenir POC=18, pas 2).
+			if (ComputePoc(0, 8, true, 999) != 0)
+				return false;
+			if (ComputePoc(4, 8, false, 0) != 4) // P après l'IDR (poc_lsb=4 réel, brique 3)
+				return false;
+			if (ComputePoc(2, 8, false, 4) != 2) // B suivant (poc_lsb=2 réel)
+				return false;
+			if (ComputePoc(2, 4, false, 14) != 18) // wraparound : lsb 14->2 = +4 en POC réel
+				return false;
+
+			// BuildRefPicLists (brique 9) : 1 seule réf disponible (delta -4, POC courant 8
+			// -> réf attendue POC 4), num_ref_idx_l0_active=3 -> répétition modulo (§8.3.4).
+			NkHevcShortTermRps rps;
+			rps.numNegativePics = 1;
+			rps.deltaPocS0[0] = -4;
+			rps.usedS0[0] = true;
+			NkHevcRefPicLists lists;
+			BuildRefPicLists(rps, 8, 3, 0, false, lists);
+			if (lists.numL0 != 3 || lists.l0[0] != 4 || lists.l0[1] != 4 || lists.l0[2] != 4)
+				return false;
+			if (lists.numL1 != 0)
+				return false;
+			// Cas B : 2 refs (avant + après), L0 = before puis after, L1 = after puis before.
+			rps.numPositivePics = 1;
+			rps.deltaPocS1[0] = 2;
+			rps.usedS1[0] = true;
+			BuildRefPicLists(rps, 8, 2, 2, true, lists);
+			if (lists.numL0 != 2 || lists.l0[0] != 4 || lists.l0[1] != 10)
+				return false;
+			if (lists.numL1 != 2 || lists.l1[0] != 10 || lists.l1[1] != 4)
 				return false;
 			return true;
 		}

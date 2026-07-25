@@ -20,7 +20,7 @@
 | 3quater. **Fichiers .opus (Ogg-Opus, RFC 7845)** + câblage NKAudio | ✅ | **Conteneur Ogg livré (2026-07-12)** : probe (pistes opus/vorbis depuis les pages BOS) + démux (pages → paquets, lacing, `granule`) ; `NkOpusFile` (OpusHead pre-skip/gain + décode + trim granule ; **hybride/stéréo refusés proprement** → retirer le garde quand 3ter sera fini). Harnais `--oggopus`, self-test forge Ogg (34/34). **Validé vs ffmpeg** : SILK-WB corr 0.999985 (lag +2 = délai resampler), CELT corr 0.965 lag 0. **NKAudio branché** : `AudioFormat::OPUS` décodé via `NkOpusCodec` (détection OggS+OpusHead), test `NkMicRecord --decode in.opus out.wav`. NB : NKAudio dépend de NKMedia → 10 jengas d'apps mis à jour |
 | 4. Décodeur audio AAC-LC | ✅ | *(table périmée, tenue à jour dans « Livré » ci-dessous)* MP4 → PCM, stéréo complet, bit-exact vs ffmpeg |
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅ + WAV (RIFF) ✅** ; reste WebM |
-| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC briques 1-8** : INTRA+déblocage+SAO pixels bit-exacts (8-bit+Main10) + **syntaxe CU inter I/P/B validée structurellement (25/25 slices, 2 flux)** ; reste MC/DPB pour les pixels P/B ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
+| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC briques 1-9** : INTRA+déblocage+SAO pixels bit-exacts (8-bit+Main10) + syntaxe CU inter I/P/B validée structurellement + **POC réel/RefPicList0/1 (structure GOP B-pyramide plausible, 25/25 slices)** ; reste dérivation MV + MC pour les pixels P/B ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
 | 8. **Décodeur vidéo VP8** | ✅ | **DÉCODEUR COMPLET (clé + inter) : 325 images BIT-EXACTES vs ffmpeg sur 6 flux** (dont altref invisibles, golden frames, 4 GOPs, SPLITMV, filterLevel 0-8, résolutions impaires). Décodeur booléen, en-têtes, modes intra+inter, MV (near/nearest/new/split), MC 6-tap, résidus, WHT+IDCT, filtre de boucle. Restes mineurs : segmentation MB, partitions multiples, versions 1-3 (refus propre). **À brancher dans NkVideoReader** (WebM/IVF). |
 
@@ -731,7 +731,7 @@
   inter + 10/10 flux clés restent bit-exacts, comme attendu si le bug n'était effectivement
   jamais exercé jusqu'ici).
 
-## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (briques 1-8 : INTRA complet + syntaxe CU inter structurelle)
+## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (briques 1-9 : INTRA complet + syntaxe CU inter + POC/RefPicList)
 
 *(2026-07-24)* Démarré comme suite logique directe de H.264 (« évolution directe … la base de
 départ la plus naturelle », cf. section précédente) — même famille bit-exacte, complexité
@@ -984,12 +984,39 @@ zero-STL, `nkentseu::media`.
     10/10 + 10/10 trames intra bit-exactes (sans et avec filtres), 2/2 flux historiques
     bit-exacts — les fixes de `transform_tree` ne touchent QUE le chemin inter, zéro
     changement pour l'intra.
-- **Suite (briques 9+, PAS commencées)** : compensation de mouvement (**MC**, filtres qpel
-  luma 8-tap / epel chroma 4-tap, prédiction bi/uni pondérée — `pred_weight_table` déjà
-  consommée depuis la brique 3), **DPB + construction des listes de référence** (RefPicList0/1
-  depuis les RPS, gestion des slots), reconstruction PIXELS des slices P/B (validation vs
-  ffmpeg, le vrai juge de paix — comme pour l'intra), branchement `NkVideoReader`
-  (.265/MP4/MKV). Restes mineurs (refus propre en place) : tuiles, PCM, 4:2:2/4:4:4,
+- ⭐ **Brique 9 livrée et validée (2026-07-25) : POC réel + construction RefPicList0/1**
+  (bookkeeping pur, AUCUNE image manipulée) — `NkHevcDecoder::ComputePoc`/`BuildRefPicLists`,
+  fonctions statiques autonomes réutilisables telles quelles par le futur branchement
+  `NkVideoReader` (même split architectural que H.264 (`h264Dpb`)/VP9 (`vp9RefSlots[8]`),
+  confirmé par relecture des deux avant d'écrire cette brique : le décodeur bas niveau ne
+  stocke JAMAIS d'image, il reçoit des références déjà résolues — ici on prépare juste la
+  liste des POC à résoudre, la résolution POC→pixels sera le rôle du lecteur).
+  - `ComputePoc` (§8.3.1, PicOrderCntVal) : cas simplifié mono-couche (`TemporalId` toujours
+    0, pas de sous-couches — vrai pour tous nos flux x265, `maxSubLayersMinus1=0`) : IDR→0 ;
+    sinon dérivation `PicOrderCntMsb` par comparaison au POC complet de la dernière image
+    décodée (`prevPocTid0`, mis à jour par l'appelant après CHAQUE image), avec le
+    rebasculement ±`MaxPicOrderCntLsb` normatif en cas de wraparound du LSB.
+  - `BuildRefPicLists` (§8.3.2/8.3.4) : `PocStCurrBefore/After` = POC courant + deltas déjà
+    résolus du RPS (brique 3, `usedS0`/`usedS1`) ; listes temporaires L0=before+after,
+    L1=after+before (B seulement) ; **repli MODULO normatif** si `NumPicTotalCurr <
+    num_ref_idx_active` (ex. juste après l'IDR : 1 seule réf disponible mais 3 demandées →
+    répétition `[POC,POC,POC]`, comportement spec-correct, pas un bug).
+  - **Validation** : self-test (IDR→0, cas réels de nos flux `poc_lsb=4`→POC4/`poc_lsb=2`
+    après→POC2, wraparound synthétique `lsb 14→2` = `POC 14→18`, RefPicList P avec repli
+    modulo, RefPicList B avant/après) + **sur les 2 flux réels (25 slices chacun)** : structure
+    de GOP en pyramide B EXACTEMENT plausible — I(POC0)→P(POC4,L0=[0])→B(POC2,L0=[0],L1=[4])
+    →... jusqu'à B(POC22,L0=[21,19],L1=[23,24]) en fin de GOP, voisinage POC cohérent partout.
+    25/25 + 25/25 slices OK (Debug asserts + Release), **non-régression totale confirmée**
+    (7/7 self-tests, pixels intra 10+10+1+1 trames toujours bit-exacts).
+- **Suite (briques 10+, PAS commencées)** : dérivation des VECTEURS DE MOUVEMENT réels
+  (candidats merge spatiaux A1/B1/B0/A0/B2 + redondance, candidat temporel via image
+  colocalisée, candidats bi-prédictifs combinés ; prédicteurs AMVP spatiaux + temporel avec
+  mise à l'échelle) — nécessaire car brique 8 ne fait QUE consommer les bits sans dériver de
+  MV réel (insight qui l'a scopée). Puis **compensation de mouvement** (filtres qpel luma
+  8-tap / epel chroma 4-tap, prédiction bi/uni pondérée — `pred_weight_table` déjà consommée
+  depuis la brique 3) → reconstruction PIXELS des slices P/B (validation vs ffmpeg sur un
+  DPB minimal 2 images, comme l'intra), puis branchement `NkVideoReader` (.265/MP4/MKV, DPB
+  réel multi-images). Restes mineurs (refus propre en place) : tuiles, PCM, 4:2:2/4:4:4,
   `ref_pic_lists_modification()`, `scaling_list_data()`.
 
 ## En cours / À venir
