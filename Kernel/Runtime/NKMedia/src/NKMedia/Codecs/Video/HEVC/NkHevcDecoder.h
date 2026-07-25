@@ -109,6 +109,10 @@ namespace nkentseu {
 				// (§7.4.7.1) : CtbLog2SizeY = log2MinCbSizeY + log2DiffMaxMinCbSizeY.
 				int32 log2MinCbSizeY = 3;		 // log2_min_luma_coding_block_size_minus3 + 3
 				int32 log2DiffMaxMinCbSizeY = 0; // log2_diff_max_min_luma_coding_block_size
+				int32 log2MinTbSizeY = 2;		 // log2_min_luma_transform_block_size_minus2 + 2
+				int32 log2DiffMaxMinTbSizeY = 3; // log2_diff_max_min_luma_transform_block_size
+				int32 maxTransformHierarchyDepthInter = 0;
+				int32 maxTransformHierarchyDepthIntra = 0;
 				bool scalingListEnabled = false;
 				bool ampEnabled = false;
 				bool sampleAdaptiveOffsetEnabled = false; // gate des flags SAO du slice header
@@ -192,6 +196,8 @@ namespace nkentseu {
 				bool constrainedIntraPred = false;
 				bool transformSkipEnabled = false;
 				bool cuQpDeltaEnabled = false;
+				int32 diffCuQpDeltaDepth = 0;			  // taille des groupes de quantification
+				bool transquantBypassEnabled = false;	  // gate de cu_transquant_bypass_flag
 				bool sliceChromaQpOffsetsPresent = false; // gate de slice_cb/cr_qp_offset
 				bool weightedPred = false;	 // weighted_pred_flag (P) — gate de pred_weight_table
 				bool weightedBipred = false; // weighted_bipred_flag (B)
@@ -207,6 +213,19 @@ namespace nkentseu {
 				bool listsModificationPresent = false;
 				int32 log2ParallelMergeLevel = 2; // log2_parallel_merge_level_minus2 + 2
 				bool sliceSegmentHeaderExtensionPresent = false;
+		};
+
+		// Statistiques structurelles du parsing de slice_segment_data() (brique 5) —
+		// la validation est du même type que les tiles VP9 : TOUT le flux CABAC de la
+		// slice doit être consommé exactement (nb de CTU, terminaisons aux bons endroits).
+		struct NkHevcSliceDataStats {
+				int32 ctusParsed = 0;
+				int32 rows = 0;			  // rangées de CTU (WPP : doit valoir numEntryPointOffsets+1)
+				int32 cuCount = 0;		  // CU feuilles parsées
+				int32 tuCount = 0;		  // blocs de résidus décodés (residual_coding)
+				nk_int64 nonZeroCoeffs = 0; // coefficients non nuls décodés
+				int32 qpDeltaCount = 0;	  // cu_qp_delta_abs lus
+				int32 maxSubsetDeviation = 0; // écart max (octets) fin de rangée vs entry point
 		};
 
 		struct NkHevcDecoder {
@@ -249,6 +268,19 @@ namespace nkentseu {
 				// slice_pic_parameter_set_id (à faire par l'appelant, comme pour H.264).
 				static bool ParseSliceHeader(const uint8 *nal, usize size, const NkHevcSps &sps,
 											 const NkHevcPps &pps, NkHevcSliceHeader &out);
+
+				// Brique 5 : parse la TOTALITÉ de slice_segment_data() d'une slice INTRA (I)
+				// au-dessus du CABAC — sao(), coding_quadtree (CTU→CU), modes intra (MPM),
+				// transform_tree, residual_coding (coefficients complets), WPP (rangées via
+				// entry points + copie d'état des contextes après le 2e CTB). Les valeurs
+				// décodées ne sont PAS encore reconstruites en pixels (brique suivante) :
+				// la validation est STRUCTURELLE (implémentée dans NkHevcCtu.cpp) —
+				// end_of_slice_segment_flag/end_of_subset_one_bit aux positions exactes,
+				// nb de CTU == PicSizeInCtbsY, rangées == entry points + 1.
+				// Refus propre : slices P/B (brique 6), tuiles, PCM, 4:2:2/4:4:4.
+				static bool ParseSliceDataIntra(const uint8 *nal, usize size, const NkHevcSps &sps,
+												const NkHevcPps &pps, const NkHevcSliceHeader &sh,
+												NkHevcSliceDataStats &out);
 
 				static bool SelfTest();
 		};

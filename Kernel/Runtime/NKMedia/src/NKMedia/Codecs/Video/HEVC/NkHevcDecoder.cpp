@@ -296,10 +296,10 @@ namespace nkentseu {
 			// log2MinCbSizeY/log2DiffMaxMinCbSizeY dans NkHevcSps.
 			out.log2MinCbSizeY = (int32)br.UE() + 3;
 			out.log2DiffMaxMinCbSizeY = (int32)br.UE();
-			br.UE(); // log2_min_luma_transform_block_size_minus2
-			br.UE(); // log2_diff_max_min_luma_transform_block_size
-			br.UE(); // max_transform_hierarchy_depth_inter
-			br.UE(); // max_transform_hierarchy_depth_intra
+			out.log2MinTbSizeY = (int32)br.UE() + 2;
+			out.log2DiffMaxMinTbSizeY = (int32)br.UE();
+			out.maxTransformHierarchyDepthInter = (int32)br.UE();
+			out.maxTransformHierarchyDepthIntra = (int32)br.UE();
 			out.scalingListEnabled = br.U1() != 0;
 			if (out.scalingListEnabled) {
 				const bool dataPresent = br.U1() != 0;
@@ -366,13 +366,13 @@ namespace nkentseu {
 			out.transformSkipEnabled = br.U1() != 0;
 			out.cuQpDeltaEnabled = br.U1() != 0;
 			if (out.cuQpDeltaEnabled)
-				br.UE(); // diff_cu_qp_delta_depth
+				out.diffCuQpDeltaDepth = (int32)br.UE();
 			br.SE();	 // pps_cb_qp_offset
 			br.SE();	 // pps_cr_qp_offset
 			out.sliceChromaQpOffsetsPresent = br.U1() != 0;
 			out.weightedPred = br.U1() != 0;
 			out.weightedBipred = br.U1() != 0;
-			br.U1();	 // transquant_bypass_enabled_flag
+			out.transquantBypassEnabled = br.U1() != 0;
 			out.tilesEnabled = br.U1() != 0;
 			out.entropyCodingSyncEnabled = br.U1() != 0;
 			if (out.tilesEnabled) {

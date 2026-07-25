@@ -20,7 +20,7 @@
 | 3quater. **Fichiers .opus (Ogg-Opus, RFC 7845)** + câblage NKAudio | ✅ | **Conteneur Ogg livré (2026-07-12)** : probe (pistes opus/vorbis depuis les pages BOS) + démux (pages → paquets, lacing, `granule`) ; `NkOpusFile` (OpusHead pre-skip/gain + décode + trim granule ; **hybride/stéréo refusés proprement** → retirer le garde quand 3ter sera fini). Harnais `--oggopus`, self-test forge Ogg (34/34). **Validé vs ffmpeg** : SILK-WB corr 0.999985 (lag +2 = délai resampler), CELT corr 0.965 lag 0. **NKAudio branché** : `AudioFormat::OPUS` décodé via `NkOpusCodec` (détection OggS+OpusHead), test `NkMicRecord --decode in.opus out.wav`. NB : NKAudio dépend de NKMedia → 10 jengas d'apps mis à jour |
 | 4. Décodeur audio AAC-LC | ✅ | *(table périmée, tenue à jour dans « Livré » ci-dessous)* MP4 → PCM, stéréo complet, bit-exact vs ffmpeg |
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅ + WAV (RIFF) ✅** ; reste WebM |
-| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC briques 1-4** (NAL+VPS/SPS/PPS+slice header COMPLET+entry points WPP+init CABAC — 50/50 slices vs oracle trace_headers, tables CABAC 537/537 vs ffmpeg ; décodage CTU = à venir) ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
+| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC briques 1-5** (structure+slice header+CABAC+**syntaxe CTU intra complète avec résidus et WPP**, validation structurelle 24/24+240/240 CTU ; reconstruction pixels = à venir) ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
 | 8. **Décodeur vidéo VP8** | ✅ | **DÉCODEUR COMPLET (clé + inter) : 325 images BIT-EXACTES vs ffmpeg sur 6 flux** (dont altref invisibles, golden frames, 4 GOPs, SPLITMV, filterLevel 0-8, résolutions impaires). Décodeur booléen, en-têtes, modes intra+inter, MV (near/nearest/new/split), MC 6-tap, résidus, WHT+IDCT, filtre de boucle. Restes mineurs : segmentation MB, partitions multiples, versions 1-3 (refus propre). **À brancher dans NkVideoReader** (WebM/IVF). |
 
@@ -731,7 +731,7 @@
   inter + 10/10 flux clés restent bit-exacts, comme attendu si le bug n'était effectivement
   jamais exercé jusqu'ici).
 
-## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (briques 1-4 : structure + slice header + init CABAC)
+## Décodeur HEVC/H.265 from-scratch — CHANTIER EN COURS (briques 1-5 : structure + slice header + CABAC + syntaxe CTU intra)
 
 *(2026-07-24)* Démarré comme suite logique directe de H.264 (« évolution directe … la base de
 départ la plus naturelle », cf. section précédente) — même famille bit-exacte, complexité
@@ -861,17 +861,41 @@ zero-STL, `nkentseu::media`.
     l'alignement, init CABAC valide partout (offset 9 bits < 510), et **nombre de points
     d'entrée WPP IDENTIQUE à l'oracle `trace_headers`** (25×3 pour 322×242 = 4 rangées de
     CTU 64 ; 25×11 pour 1280×720 = 12 rangées — cohérence géométrique confirmée).
-- **Suite (briques 5+, PAS commencées)** : décodage des éléments de syntaxe CTU au-dessus du
-  CABAC désormais prêt — `sao()`, quadtree **CTU→CU→PU→TU** (`coding_quadtree`), **35 modes
-  intra** (33 directionnels + DC + planar, contre 9 en H.264), prédiction inter **merge/AMVP**
-  (pas de skip/direct façon H.264), `residual_coding` (last_sig/sig_flag/greater1-2/bypass),
-  transformées **DST/DCT** variables (4×4 à 32×32), déblocage + **SAO** (nouveau vs H.264),
-  WPP (copie d'état CABAC après le 2e CTB de chaque rangée + conversion des offsets d'entrée
-  vers le domaine dé-émulé). Restes slice header (mineurs, refus propre en place) :
-  `ref_pic_lists_modification()` (jamais émis par x265), `scaling_list_data()`. Gros chantier
-  multi-session — brique par brique avec validation bit-exacte (oracle `trace_headers` pour
-  les en-têtes ; la 1re validation CTU sera structurelle : nombre de CTU décodés =
-  PicSizeInCtbsY + `end_of_slice_segment_flag` exactement au dernier, comme les tiles VP9).
+- ⭐ **Brique 5 livrée et validée STRUCTURELLEMENT (2026-07-25) : syntaxe CTU INTRA complète**
+  (`NkHevcCtu.cpp`, `ParseSliceDataIntra`) — la TOTALITÉ de `slice_segment_data()` d'une
+  slice I est décodée au-dessus du CABAC : `sao()` (merge/type/offsets/bande/contour),
+  `coding_quadtree` (split_cu avec contexte des profondeurs voisines), `coding_unit` intra
+  (part_mode 2N×2N/N×N, **modes luma réels via la dérivation MPM §8.4.2** — indispensables
+  car le SCAN des résidus 4×4/8×8 dépend du mode intra —, mode chroma DM/table),
+  `transform_tree` (split contexté, cbf luma/chroma par profondeur), `transform_unit`
+  (cu_qp_delta_abs TR+EG0 par groupe de quantification) et **`residual_coding` COMPLET**
+  (last_sig prefixes/suffixes, sous-blocs 4×4 avec `coded_sub_block_flag` contexté par
+  voisins, `sig_coeff_flag` avec les cartes de contexte composées par scan, greater1
+  (jeux de contextes + compteur c1)/greater2, signes bypass avec **sign hiding**, restes
+  **Rice/EGk** avec mise à jour du paramètre sur le NIVEAU COMPLET). **WPP intégral** :
+  conversion des entry points du domaine NAL émulé vers le RBSP dé-émulé (positions des
+  00 00 03 enregistrées à la dé-émulation), ré-init moteur par rangée, **restauration des
+  contextes sauvés après le 2e CTB de la rangée au-dessus** (§9.3.1).
+  - Tables de scan **GÉNÉRÉES par le procédé normatif §6.5.3** (diag up-right 2×2/4×4/8×8 +
+    inverses + raster/composé horizontal) — vérifiées IDENTIQUES aux tables littérales de
+    ffmpeg par script AVANT écriture du C++ (zéro risque de transcription). Dérivations de
+    contexte des résidus alignées sur `libavcodec/hevc/cabac.c` (validé bit-exact).
+  - **Validation structurelle type tiles VP9** : sur les 2 slices I réelles x265,
+    **24/24 CTU** (6×4, 322×242) et **240/240 CTU** (20×12, 720p Main10) consommés avec
+    `end_of_slice_segment_flag` UNIQUEMENT au dernier CTU et `end_of_subset_one_bit`=1 à
+    CHAQUE fin de rangée (4 et 12 rangées), écart consommation vs entry points ≤ 1 octet
+    (prélecture moteur attendue). À travers ~16 Ko de bins, un seul bin mal décodé
+    n'importe où aurait désynchronisé les terminaisons — probabilité de faux positif
+    infinitésimale. Stats : 650/2106 CU, 628/1503 TU, 2970/7360 coeffs non nuls,
+    60/219 cu_qp_delta (cohérent avec `--qg-size 32` par défaut de x265).
+  - SPS/PPS complétés au passage (champs exposés au lieu de consommés) : tailles d'arbre TU
+    (`log2MinTbSizeY`/`log2DiffMaxMinTbSizeY`), profondeurs TU inter/intra,
+    `diff_cu_qp_delta_depth`, `transquant_bypass_enabled`.
+- **Suite (briques 6+, PAS commencées)** : **reconstruction intra** (prédiction 35 modes +
+  déquant + transformées DST 4×4/DCT 4-32 + reconstruction → validation PIXELS vs ffmpeg,
+  le vrai juge de paix), puis slices **P/B** (syntaxe inter merge/AMVP + MC), déblocage +
+  SAO d'application, branchement `NkVideoReader`. Restes mineurs (refus propre en place) :
+  tuiles, PCM, 4:2:2/4:4:4, `ref_pic_lists_modification()`, `scaling_list_data()`.
 
 ## En cours / À venir
 

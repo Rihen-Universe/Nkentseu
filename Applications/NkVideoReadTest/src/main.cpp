@@ -960,6 +960,21 @@ int main(int argc, char **argv) {
 						   sh.maxNumMergeCand, sh.sliceQp, sh.numEntryPointOffsets,
 						   (unsigned)sh.dataByteOffset, initType, (unsigned)eng.codIOffset,
 						   cabacOk ? "ok" : "INVALIDE");
+					// Brique 5 : decode STRUCTUREL complet du slice_data des slices I
+					// (sao + quadtree + intra + residus + WPP). Toute desynchronisation
+					// CABAC ferait echouer les terminaisons -> echec compte comme KO.
+					if (sh.sliceType == kHevcSliceI) {
+						NkHevcSliceDataStats ds;
+						if (NkHevcDecoder::ParseSliceDataIntra(nd, nal.size, sps, pps, sh, ds)) {
+							printf("    slice_data I : CTU=%d/%d rangees=%d CU=%d TU=%d "
+								   "coeffs_nz=%lld qp_delta=%d ecart_entrees_max=%d octets\n",
+								   ds.ctusParsed, ds.ctusParsed, ds.rows, ds.cuCount, ds.tuCount,
+								   (long long)ds.nonZeroCoeffs, ds.qpDeltaCount, ds.maxSubsetDeviation);
+						} else {
+							++sliceParseFailures;
+							printf("    [KO] slice_data I : decode CTU echoue (desynchronisation)\n");
+						}
+					}
 				} else {
 					++sliceParseFailures;
 					printf("  [KO] slice NAL %llu (type=%d) : parsing echoue\n", (unsigned long long)i,
@@ -972,8 +987,8 @@ int main(int argc, char **argv) {
 		const bool ok =
 			haveSps && sps.width > 0 && sps.height > 0 && sliceHeaderCount > 0 && sliceParseFailures == 0;
 		printf("  slices parsees : %d (echecs=%d)\n", sliceHeaderCount, sliceParseFailures);
-		printf("  [ %s ] parsing en-tetes HEVC (briques 1-4 : NAL + VPS/SPS/PPS + slice header "
-			   "complet + entry points WPP + init CABAC)\n",
+		printf("  [ %s ] parsing HEVC (briques 1-5 : NAL + VPS/SPS/PPS + slice header + "
+			   "slice_data I complet : CTU/intra/residus/WPP)\n",
 			   ok ? "OK " : "KO");
 		return ok ? 0 : 1;
 	}
