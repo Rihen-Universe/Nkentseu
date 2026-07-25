@@ -12,6 +12,10 @@ namespace nkentseu {
 
 		namespace {
 
+			int32 Clip3i(int32 lo, int32 hi, int32 v) {
+				return v < lo ? lo : (v > hi ? hi : v);
+			}
+
 			// Retire les octets anti-émulation 00 00 03 -> 00 00 d'un RBSP (§7.3.1.1,
 			// identique à H.264 : NAL header exclu, appelé sur les octets APRÈS lui).
 			void Deemulate(const uint8 *src, usize n, NkVector<uint8> &out) {
@@ -528,34 +532,51 @@ namespace nkentseu {
 							out.collocatedRefIdx = (int32)br.UE();
 					}
 					if ((pps.weightedPred && !isB) || (pps.weightedBipred && isB)) {
-						// pred_weight_table() (§7.3.6.3) — CONSOMMÉE (poids pas encore utilisés,
-						// brique décodage inter). x265 active weightp par défaut sur les P →
-						// indispensable pour parser slice_qp_delta derrière. Hypothèse Main/
-						// Main10 mono-couche : les flags luma/chroma_weight_lX_flag sont
-						// toujours présents (la condition §7.3.6.3 "même couche ET même POC"
-						// qui les ferait sauter n'existe qu'en SHVC/SCC).
+						// pred_weight_table() (§7.3.6.3) — poids/offsets RÉSOLUS (brique 10,
+						// §8.5.3.3.4.2 pour les valeurs par défaut). x265 active weightp par
+						// défaut sur les P. Hypothèse Main/Main10 mono-couche : les flags
+						// luma/chroma_weight_lX_flag sont toujours présents (la condition
+						// §7.3.6.3 "même couche ET même POC" qui les ferait sauter n'existe
+						// qu'en SHVC/SCC).
 						const bool hasChroma = (sps.chromaFormatIdc != 0 && !sps.separateColourPlane);
-						br.UE(); // luma_log2_weight_denom
+						out.lumaLog2WeightDenom = (int32)br.UE();
+						out.chromaLog2WeightDenom = out.lumaLog2WeightDenom;
 						if (hasChroma)
-							br.SE(); // delta_chroma_log2_weight_denom
+							out.chromaLog2WeightDenom += (int32)br.SE();
+						const int32 lumaDefault = 1 << out.lumaLog2WeightDenom;
+						const int32 chromaDefault = 1 << out.chromaLog2WeightDenom;
 						for (int32 list = 0; list < (isB ? 2 : 1); ++list) {
 							const int32 numRefs = (list == 0) ? out.numRefIdxL0Active : out.numRefIdxL1Active;
 							if (numRefs > 16)
 								return false;
+							int32 *lumaW = (list == 0) ? out.lumaWeightL0 : out.lumaWeightL1;
+							int32 *lumaO = (list == 0) ? out.lumaOffsetL0 : out.lumaOffsetL1;
+							int32 (*chromaW)[2] = (list == 0) ? out.chromaWeightL0 : out.chromaWeightL1;
+							int32 (*chromaO)[2] = (list == 0) ? out.chromaOffsetL0 : out.chromaOffsetL1;
 							bool lumaFlag[16], chromaFlag[16];
 							for (int32 i = 0; i < numRefs; ++i)
 								lumaFlag[i] = br.U1() != 0;
 							for (int32 i = 0; i < numRefs; ++i)
 								chromaFlag[i] = hasChroma ? (br.U1() != 0) : false;
 							for (int32 i = 0; i < numRefs; ++i) {
+								lumaW[i] = lumaDefault;
+								lumaO[i] = 0;
 								if (lumaFlag[i]) {
-									br.SE(); // delta_luma_weight
-									br.SE(); // luma_offset
+									lumaW[i] = lumaDefault + (int32)br.SE(); // delta_luma_weight
+									lumaO[i] = (int32)br.SE();				 // luma_offset (signé direct)
 								}
+								chromaW[i][0] = chromaW[i][1] = chromaDefault;
+								chromaO[i][0] = chromaO[i][1] = 0;
 								if (chromaFlag[i])
 									for (int32 j = 0; j < 2; ++j) {
-										br.SE(); // delta_chroma_weight
-										br.SE(); // delta_chroma_offset
+										chromaW[i][j] = chromaDefault + (int32)br.SE(); // delta_chroma_weight
+										const int32 deltaOffset = (int32)br.SE();
+										// §7.4.7.3 : offset final recentré sur le poids (évite le
+										// biais qu'introduirait un simple decalage additif quand
+										// le poids diffère du défaut).
+										chromaO[i][j] = Clip3i(-128, 127,
+																deltaOffset + 128 -
+																	((128 * chromaW[i][j]) >> out.chromaLog2WeightDenom));
 									}
 							}
 						}

@@ -1115,6 +1115,129 @@ int main(int argc, char **argv) {
 		return ok ? 0 : 1;
 	}
 
+	// Mode validation HEVC (brique 10) : --hevcinter <fichier.265> <ref.yuv>
+	// Decode la 1re trame I puis la 1re trame P qui suit (reference UNIQUE = l'image
+	// I, comme prevu par le perimetre de la brique : candidat temporel absent car
+	// aucune trame precedente n'a de champ de MV stocke). Compare en PIXELS a la
+	// reference ffmpeg (flux encode SANS deblocage/SAO/pondSration explicite,
+	// bframes=0 ref=1). La position de la trame P dans le flux YUV brut est
+	// retrouvee via son POC (ComputePoc), pas par index sequentiel (robuste a un
+	// GOP a B-pyramide eventuel).
+	if (argc >= 4 && strcmp(argv[1], "--hevcinter") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		fseek(f, 0, SEEK_END);
+		long n = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		NkVector<uint8> buf;
+		buf.Resize((usize)n);
+		if (fread(buf.Data(), 1, (size_t)n, f) != (size_t)n) {
+			fclose(f);
+			printf("  [KO] lecture incomplete\n");
+			return 1;
+		}
+		fclose(f);
+		FILE *fr = fopen(argv[3], "rb");
+		if (!fr) {
+			printf("  [KO] reference introuvable : %s\n", argv[3]);
+			return 1;
+		}
+		NkVector<NkHevcNal> nals;
+		NkHevcDecoder::SplitNalsAnnexB(buf.Data(), (usize)buf.Size(), nals);
+		NkHevcSps sps;
+		NkHevcPps pps;
+		bool haveSps = false, havePps = false, haveI = false;
+		NkHevcFrame iFrame;
+		int32 iPoc = 0;
+		bool ok = false;
+		for (uint64 i = 0; i < nals.Size() && !ok; ++i) {
+			const NkHevcNal &nal = nals[i];
+			const uint8 *nd = buf.Data() + nal.offset;
+			if (nal.type == kHevcNalSps) {
+				haveSps = NkHevcDecoder::ParseSps(nd, nal.size, sps);
+				continue;
+			}
+			if (nal.type == kHevcNalPps) {
+				havePps = NkHevcDecoder::ParsePps(nd, nal.size, pps);
+				continue;
+			}
+			if (nal.type > 31 || !haveSps || !havePps)
+				continue;
+			NkHevcSliceHeader sh;
+			if (!NkHevcDecoder::ParseSliceHeader(nd, nal.size, sps, pps, sh))
+				continue;
+			const bool isIdr = nal.type == kHevcNalIdrWRadl || nal.type == kHevcNalIdrNLp;
+			if (!haveI) {
+				if (sh.sliceType != kHevcSliceI)
+					continue;
+				NkHevcSliceDataStats ds;
+				if (!NkHevcDecoder::DecodeSliceIntra(nd, nal.size, sps, pps, sh, iFrame, ds)) {
+					printf("  [KO] decode trame I echoue\n");
+					break;
+				}
+				iPoc = NkHevcDecoder::ComputePoc(sh.picOrderCntLsb, sps.log2MaxPocLsb, isIdr, 0);
+				iFrame.poc = iPoc;
+				haveI = true;
+				printf("  trame I : poc=%d %dx%d ctus=%d\n", iPoc, iFrame.cropW, iFrame.cropH,
+					   ds.ctusParsed);
+				continue;
+			}
+			if (sh.sliceType != kHevcSliceP)
+				continue;
+			const int32 pPoc = NkHevcDecoder::ComputePoc(sh.picOrderCntLsb, sps.log2MaxPocLsb, isIdr, iPoc);
+			NkHevcFrame pFrame;
+			NkHevcSliceDataStats ds;
+			if (!NkHevcDecoder::DecodeSliceP(nd, nal.size, sps, pps, sh, iFrame, pFrame, ds)) {
+				printf("  [KO] decode 1re trame P echoue (poc=%d)\n", pPoc);
+				break;
+			}
+			pFrame.poc = pPoc;
+			const int32 cw = pFrame.cropW, ch = pFrame.cropH;
+			const int32 ccw = cw >> 1, cch = ch >> 1;
+			const usize frameSize = (usize)(cw * ch + 2 * ccw * cch);
+			if (fseek(fr, (long)((usize)pPoc * frameSize), SEEK_SET) != 0) {
+				printf("  [KO] seek reference echoue (poc=%d)\n", pPoc);
+				break;
+			}
+			NkVector<uint8> ref;
+			ref.Resize(frameSize);
+			if (fread(ref.Data(), 1, frameSize, fr) != frameSize) {
+				printf("  [KO] reference trop courte (poc=%d)\n", pPoc);
+				break;
+			}
+			int32 maxDiff = 0;
+			auto cmpPlane = [&](const nk_uint16 *plane, int32 stride, int32 w, int32 h,
+								const uint8 *rp) {
+				for (int32 y = 0; y < h; ++y)
+					for (int32 x = 0; x < w; ++x) {
+						const int32 ours = (int32)plane[y * stride + x];
+						const int32 theirs = (int32)rp[y * w + x];
+						const int32 d = ours > theirs ? ours - theirs : theirs - ours;
+						if (d > maxDiff)
+							maxDiff = d;
+					}
+			};
+			const uint8 *rp = ref.Data();
+			cmpPlane(pFrame.y.Data(), pFrame.lumaW, cw, ch, rp);
+			rp += (usize)(cw * ch);
+			cmpPlane(pFrame.cb.Data(), pFrame.chromaW, ccw, cch, rp);
+			rp += (usize)(ccw * cch);
+			cmpPlane(pFrame.cr.Data(), pFrame.chromaW, ccw, cch, rp);
+			printf("  trame P : poc=%d %dx%d ctus=%d coeffs=%lld maxdiff=%d %s\n", pPoc, cw, ch,
+				   ds.ctusParsed, (long long)ds.nonZeroCoeffs, maxDiff,
+				   maxDiff == 0 ? "BIT-EXACT" : "[KO]");
+			ok = maxDiff == 0;
+			break;
+		}
+		fclose(fr);
+		printf("  [ %s ] decode HEVC P mono-reference vs ffmpeg (brique 10 : MV spatiaux + MC, sans filtres en boucle)\n",
+			   ok ? "OK " : "KO");
+		return ok ? 0 : 1;
+	}
+
 	// Mode diagnostic VP8 (chantier en cours) : --vp8header <fichier.ivf>
 	// Lit le frame tag (en-tête non compressé) + démarre le décodeur booléen sur la 1ère
 	// partition pour décoder color_space/clamping_type (2 premiers bits du header compressé,
