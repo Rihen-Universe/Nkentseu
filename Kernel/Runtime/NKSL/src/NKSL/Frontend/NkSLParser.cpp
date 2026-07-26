@@ -128,6 +128,8 @@ namespace nkentseu {
 				return NkSLBaseType::NK_FLOAT;
 			case NkSLTokenKind::NK_KW_DOUBLE:
 				return NkSLBaseType::NK_DOUBLE;
+			case NkSLTokenKind::NK_KW_HALF: // FP16 natif (additif)
+				return NkSLBaseType::NK_HALF;
 			case NkSLTokenKind::NK_KW_IVEC2:
 				return NkSLBaseType::NK_IVEC2;
 			case NkSLTokenKind::NK_KW_IVEC3:

@@ -7,6 +7,7 @@ namespace nkentseu {
 	namespace pv3de {
 
 		using namespace nkui;
+			using namespace nkentseu::math;
 
 		const char *PatientStatePanel::EmotionName(EmotionState s) noexcept {
 			switch (s) {
@@ -85,7 +86,7 @@ namespace nkentseu {
 
 		// =====================================================================
 		void PatientStatePanel::Render(NkUIContext &ctx, NkUIWindowManager &wm, NkUIDrawList &dl, NkUIFont &font,
-									   NkUILayoutStack &ls, const PatientLayer &patient, NkUIRect rect) noexcept {
+									   NkUILayoutStack &ls, const PatientLayer &patient, NkRect rect) noexcept {
 			NkUIWindow::SetNextWindowPos({rect.x, rect.y});
 			NkUIWindow::SetNextWindowSize({rect.w, rect.h});
 
@@ -97,8 +98,8 @@ namespace nkentseu {
 
 			// Animation clignotement alarmes
 			mAlarmBlink += ctx.input.dt * 2.f;
-			if (mAlarmBlink > NkTwoPi)
-				mAlarmBlink -= NkTwoPi;
+			if (mAlarmBlink > (2.0f * (float32)NkPi))
+				mAlarmBlink -= (2.0f * (float32)NkPi);
 			bool blinkOn = NkSin(mAlarmBlink) > 0.f;
 
 			const NkClinicalState &state = patient.GetClinicalState();
@@ -155,9 +156,9 @@ namespace nkentseu {
 			// Barre d'intensité
 			NkUI::BeginRow(ctx, ls, 12.f);
 			NkUI::SetNextGrow(ctx, ls);
-			ctx.PushStyleColor(NkStyleVar::ProgressFill, col);
+			// NOTE (Phase R1) : NkStyleVar::ProgressFill n'existe pas dans NKUI réel
+			// (aucun hook de couleur par widget sur ProgressBar aujourd'hui).
 			NkUI::ProgressBar(ctx, ls, dl, em.intensity, {0.f, 10.f});
-			ctx.PopStyle();
 			NkUI::EndRow(ctx, ls);
 		}
 
@@ -172,9 +173,10 @@ namespace nkentseu {
 			NkUI::SetNextWidth(ctx, ls, 80.f);
 			NkUI::Text(ctx, ls, dl, font, buf, {180, 180, 180, 255});
 			NkUI::SetNextGrow(ctx, ls);
-			ctx.PushStyleColor(NkStyleVar::ProgressFill, color);
+			// NOTE (Phase R1) : NkStyleVar::ProgressFill n'existe pas dans NKUI réel
+			// (aucun hook de couleur par widget sur ProgressBar aujourd'hui).
+			(void)color;
 			NkUI::ProgressBar(ctx, ls, dl, norm, {0.f, 14.f});
-			ctx.PopStyle();
 			NkUI::EndRow(ctx, ls);
 		}
 

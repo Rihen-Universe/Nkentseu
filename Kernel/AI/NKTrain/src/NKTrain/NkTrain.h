@@ -17,16 +17,12 @@
 #include "NKData/NkData.h"
 #include "NKTensor/NkTensor.h"
 #include "NKMath/NkFunctions.h" // NkCos (scheduler LR cosine)
+#include "NKTrain/NkCallback.h" // EpochStats + NkTrainCallback (boucle Fit générique, callbacks)
+#include "NKTrain/NkCheckpoint.h" // NkTrainState (reprise après interruption)
 
 namespace nkentseu {
 	namespace ai {
 		namespace train {
-
-			// Statistiques d'une époque.
-			struct EpochStats {
-					double loss = 0.0; // perte moyenne (pondérée par la taille des lots)
-					double acc = 0.0;  // exactitude d'entraînement (argmax)
-			};
 
 			// ---- Helpers compilés (NkTrain.cpp) -----------------------------
 			// Exactitude d'un lot de logits [B,C] vs étiquettes [B] (argmax par ligne).
@@ -90,30 +86,8 @@ namespace nkentseu {
 				// NkGptTrainer, Option A.1) — pour tout entraîneur (parole, gen, agents).
 				// -----------------------------------------------------------------
 
-				// Planificateur LR : warmup linéaire (0 → pic sur `warmupSteps`) puis
-				// décroissance cosine jusqu'au plancher `minLrRatio·peak` sur `totalSteps`.
-				// Le pas est GLOBAL (reprise sans re-warmup).
-				struct NkLRSchedule {
-						float peakLr = 1e-3f;
-						int64 warmupSteps = 0;
-						int64 totalSteps = 1;
-						double minLrRatio = 0.1;
-
-						float LrAt(int64 globalStep) const {
-							if (globalStep < 1)
-								globalStep = 1;
-							if (warmupSteps > 0 && globalStep <= warmupSteps)
-								return peakLr * (float)globalStep / (float)warmupSteps;
-							const int64 horizon = (totalSteps > warmupSteps) ? totalSteps : (warmupSteps + 1);
-							double prog = (double)(globalStep - warmupSteps) / (double)(horizon - warmupSteps);
-							if (prog < 0.0)
-								prog = 0.0;
-							else if (prog > 1.0)
-								prog = 1.0;
-							const double cosv = 0.5 * (1.0 + (double)math::NkCos((float)(3.14159265358979323846 * prog)));
-							return (float)(peakLr * (minLrRatio + (1.0 - minLrRatio) * cosv));
-						}
-				};
+				// NkLRSchedule (warmup+cosine) déplacé dans NkCallback.h (nécessaire à
+				// NkLRSchedulerCallback, inclus PAR ce fichier — évite un cycle d'include).
 
 				// Loss par défaut : entropie croisée softmax sur cibles one-hot.
 				struct NkCrossEntropyLoss {
@@ -186,6 +160,115 @@ namespace nkentseu {
 						total += batch.size;
 					}
 					return (total > 0) ? sumLoss / (double)total : 0.0;
+				}
+
+				// -----------------------------------------------------------------
+				// Métriques de VALIDATION génériques : perte + exactitude en UN SEUL passage
+				// (évite de reparcourir le loader deux fois comme EvalLoss+Accuracy séparés).
+				// -----------------------------------------------------------------
+				struct EvalMetrics {
+						double loss = 0.0;
+						double acc = 0.0;
+				};
+
+				template <typename Forward, typename Loss = NkCrossEntropyLoss>
+				EvalMetrics Evaluate(Forward &&forward, data::NkDataLoader &loader, Loss &&lossFn = Loss{}) {
+					double sumLoss = 0.0;
+					uint32 correct = 0, total = 0;
+					for (uint32 b = 0; b < loader.NumBatches(); ++b) {
+						data::NkBatch batch = loader.GetBatch(b);
+						if (batch.size == 0)
+							continue;
+						NkVar x = NkVar::Leaf(batch.inputs, false);
+						NkVar t = NkVar::Leaf(batch.targets, false);
+						NkVar logits = forward(x);
+						NkVar loss = lossFn(logits, t);
+						sumLoss += LossScalar(loss) * (double)batch.size;
+						correct += CountCorrect(logits.Value(), batch.labels);
+						total += batch.size;
+					}
+					EvalMetrics m;
+					m.loss = (total > 0) ? sumLoss / (double)total : 0.0;
+					m.acc = (total > 0) ? (double)correct / (double)total : 0.0;
+					return m;
+				}
+
+				// -----------------------------------------------------------------
+				// BOUCLE D'ENTRAÎNEMENT GÉNÉRIQUE PILOTÉE PAR CALLBACKS (Jalon 3).
+				// Exécute les époques [fromEpoch, toEpoch] (INCLUS) sur `trainLoader`,
+				// appelant les callbacks aux points fixes définis par `NkTrainCallback`
+				// (avant/après entraînement, avant/après époque, avant/après lot).
+				// S'arrête PLUS TÔT (fin d'époque) dès qu'une callback demande l'arrêt
+				// (`StopRequested()` — ex. NkEarlyStopping). `valLoader` optionnel (nullptr
+				// => `valLoss` transmis aux callbacks vaut -1). `globalStep` optionnel :
+				// compteur de pas de gradient PERSISTANT (repris depuis un checkpoint pour
+				// une reprise fidèle du LR schedule, cf NkLRSchedulerCallback).
+				// `fromEpoch` > 1 => REPRISE après interruption (avec `globalStep` restauré
+				// depuis `NkTrainState::globalStep` et les callbacks depuis leur propre état,
+				// ex. `NkEarlyStopping::RestoreState`).
+				// -----------------------------------------------------------------
+				template <typename Forward, typename Opt, typename Loss = NkCrossEntropyLoss>
+				EpochStats Fit(Forward &&forward, Opt &opt, data::NkDataLoader &trainLoader,
+							   data::NkDataLoader *valLoader, int64 fromEpoch, int64 toEpoch,
+							   NkVector<NkTrainCallback *> &callbacks, int64 *globalStep = nullptr,
+							   Loss &&lossFn = Loss{}) {
+					EpochStats last;
+					for (uint32 i = 0; i < callbacks.Size(); ++i)
+						callbacks[i]->OnTrainBegin();
+
+					bool stop = false;
+					for (int64 epoch = fromEpoch; epoch <= toEpoch && !stop; ++epoch) {
+						for (uint32 i = 0; i < callbacks.Size(); ++i)
+							callbacks[i]->OnEpochBegin(epoch);
+
+						double sumLoss = 0.0;
+						uint32 correct = 0, total = 0;
+						const uint32 nb = trainLoader.NumBatches();
+						for (uint32 b = 0; b < nb; ++b) {
+							const int64 gs = globalStep ? *globalStep : (int64)b;
+							for (uint32 i = 0; i < callbacks.Size(); ++i)
+								callbacks[i]->OnBatchBegin(gs);
+
+							data::NkBatch batch = trainLoader.GetBatch(b);
+							if (batch.size == 0)
+								continue;
+							NkVar x = NkVar::Leaf(batch.inputs, false);
+							NkVar t = NkVar::Leaf(batch.targets, false);
+							NkVar logits = forward(x);
+							NkVar loss = lossFn(logits, t);
+							loss.Backward();
+							opt.Step();
+
+							const double lv = LossScalar(loss);
+							sumLoss += lv * (double)batch.size;
+							correct += CountCorrect(logits.Value(), batch.labels);
+							total += batch.size;
+
+							for (uint32 i = 0; i < callbacks.Size(); ++i)
+								callbacks[i]->OnBatchEnd(gs, lv);
+							if (globalStep)
+								++(*globalStep);
+						}
+						trainLoader.Shuffle();
+						last.loss = (total > 0) ? sumLoss / (double)total : 0.0;
+						last.acc = (total > 0) ? (double)correct / (double)total : 0.0;
+
+						double valLoss = -1.0;
+						if (valLoader)
+							valLoss = EvalLoss(forward, *valLoader, lossFn);
+
+						for (uint32 i = 0; i < callbacks.Size(); ++i)
+							callbacks[i]->OnEpochEnd(epoch, last, valLoss);
+						for (uint32 i = 0; i < callbacks.Size(); ++i)
+							if (callbacks[i]->StopRequested()) {
+								stop = true;
+								break;
+							}
+					}
+
+					for (uint32 i = 0; i < callbacks.Size(); ++i)
+						callbacks[i]->OnTrainEnd();
+					return last;
 				}
 
 				// Auto-test des utilitaires (schedule LR : warmup, pic, plancher, monotonie).

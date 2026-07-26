@@ -65,7 +65,7 @@ namespace nkentseu {
 		NkString NkFHIRExport::BuildPatientResource() const {
 			NkString r = "{\n";
 			r += "      \"resourceType\": \"Patient\",\n";
-			r += "      \"id\": \"" + EscapeJson(mPatient.id.IsEmpty() ? NkString("pv3de-001") : mPatient.id) + "\",\n";
+			r += "      \"id\": \"" + EscapeJson(mPatient.id.Empty() ? NkString("pv3de-001") : mPatient.id) + "\",\n";
 			r += "      \"name\": [{ \"family\": \"" + EscapeJson(mPatient.lastName) + "\", \"given\": [\"" +
 				 EscapeJson(mPatient.firstName) + "\"] }],\n";
 			char age[32];

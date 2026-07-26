@@ -10,7 +10,7 @@
 //   - NkFaceControllerV2 remplace NkFaceController (micro-expressions + asymétrie)
 // =============================================================================
 
-#include "Noge/Core/Layer.h"
+#include "Noge/Core/NkLayer.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "PV3DE/Core/NkClinicalState.h"
@@ -31,7 +31,7 @@ using namespace nkentseu::humanoid;
 namespace nkentseu {
 	namespace pv3de {
 
-		class PatientLayerV3 : public nkentseu::Layer {
+		class PatientLayerV3 : public nkentseu::NkLayer {
 			public:
 				PatientLayerV3(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd) noexcept;
 				~PatientLayerV3() override;

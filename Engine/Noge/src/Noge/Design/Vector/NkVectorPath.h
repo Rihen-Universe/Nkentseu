@@ -28,15 +28,12 @@
 #include "Noge/Design/NkDesignGeomTypes.h"
 
 namespace nkentseu {
-	// [FIX 2026-07-24] `using namespace math;` remplacé par des `using`
-	// ciblés : un using-directive en portée namespace reste actif pour TOUT
-	// le reste de la unité de compilation (pas seulement ce fichier) --
-	// laissé tel quel, il rend `NkColor` ambigu partout où
-	// Noge/Color/NkColorManager.h est inclus ensuite dans le même .cpp
-	// (nkentseu::NkColor vs nkentseu::math::NkColor). Voir le commentaire
-	// complet dans Noge/Color/NkColorManager.h pour le détail de la règle
-	// [namespace.udir]. Seuls les symboles réellement utilisés bare
-	// ci-dessous sont importés.
+	// [FIX 2026-07-24, résolu 2026-07-25] `using namespace math;` remplacé
+	// par des `using` ciblés : la classe dupliquée `nkentseu::NkColor`
+	// (Color/NkColorManager.h) qui rendait `NkColor` ambigu avec
+	// `nkentseu::math::NkColor` a été supprimée le 2026-07-25. Les `using`
+	// ciblés sont conservés par choix de style (évite la pollution
+	// `using namespace` dans le reste de l'unité de compilation).
 	using math::NkVec2f;
 	using math::NkVec4f;
 	using math::NkMat3f;

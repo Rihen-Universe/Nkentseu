@@ -28,14 +28,73 @@
   **artefacts supprimés, VÉRIFIÉ** (traits lisses ; BCE **0.135 en 35 époques**, mieux que
   0.145 en 55 avec ConvTranspose). (Constat : MNIST simple = dense suffit ; le conv paie sur
   images riches multi-canaux, là où le GPU conv est indispensable.)
-- ⬜ Diffusion (débruitage itératif) ; Conv3D im2col (génératif 3D convolutionnel accéléré).
+- ✅ **Diffusion (débruitage itératif) — PROTOTYPE JOUET 2D CPU livré** (`gen::NkDiffusion`,
+  `src/NKGen/NkDiffusion.{h,cpp}` ; app `NKDiffusionTest`) : DDPM au sens de **Ho, Jain,
+  Abbeel, « Denoising Diffusion Probabilistic Models », NeurIPS 2020, arXiv:2006.11239**
+  (cité en tête de fichier, algorithme suivi au pied de la lettre — forward fermé éq. 4,
+  paramétrisation **ε-prediction** §3.2, échantillonnage Algorithme 2). Forward : schedule
+  de bruit **linéaire** (`gen::NkDiffusionSchedule::Linear`, forme du papier §4, constantes
+  réadaptées à un T réduit pour que ᾱ_T→0). Reverse : petit **MLP** (`Dense→relu→Dense→relu
+  →Dense`) prédisant le bruit, conditionné sur le pas de temps via un **embedding sinusoïdal
+  fixe** (encodage positionnel Transformer, Vaswani et al. 2017) concaténé **à la main** au
+  point bruité (pas d'opérateur de concat « axe features » dans NKAutograd, seulement
+  `Concat0` sur l'axe batch). Dataset synthétique **2D (cercle, rayon 2 ± jitter 0.08, 300
+  points)**, généré en C++, aucun fichier externe. **Mesure chiffrée AVANT/APRÈS
+  entraînement** (`NKDiffusionTest`, `jenga build --target NKDiffusionTest --config Debug
+  --platform Windows` puis exécution réelle) : distance moyenne au plus proche voisin
+  d'entraînement **147.8 (avant, poids aléatoires) → 0.109 (après, 4000 époques)** ; rayon
+  généré mean/std **149.9/100.6 (avant) → 1.971/0.169 (après)**, à comparer au rayon
+  d'entraînement mesuré 2.001/0.047. Perte L2(bruit prédit, bruit réel) 0.99 → **~0.24-0.3**
+  (bruitée par le tirage aléatoire de pas de temps par lot, mais tendance nette à la baisse).
+  ⚠️ **Prototype jouet strict** : 2D seulement, aucun conditionnement, aucune sortie
+  image/3D, aucun branchement NKImage/NKRHI (hors scope de ce jalon). Conditionnement et
+  extension 3D toy : cf mises a jour ci-dessous et Jalon 2.
+- ✅ Diffusion etendue a un nuage de points 3D JOUET (sphere, `NKDiffusionTest` section 3,
+  `main.cpp`) : `gen::NkDiffusion` est generique sur `dataDim` (deja le cas avant cette
+  extension), donc le meme code reverse/forward generalise directement a 3 dimensions sans
+  modifier la classe. Dataset synthetique sphere 3D (rayon 2, jitter radial 0.08, 300
+  points, direction uniforme via 3 gaussiennes normalisees, Marsaglia 1972). Mesure
+  chiffree AVANT/APRES (4000 epoques) : distance moyenne au plus proche voisin 575.5 ->
+  0.293 ; rayon genere mean/std 577.5/589.8 (avant) -> 2.017/0.230 (apres), a comparer au
+  rayon d'entrainement mesure 2.000/0.047. 4/4 verifications chiffrees OK. AVERTISSEMENT :
+  ceci est un NUAGE DE POINTS BRUT (positions 3D independantes), PAS un maillage -- aucune
+  topologie/face, aucune extraction de surface. Pas de Conv3D (le MLP dense generalise tel
+  quel). Pas de sortie image/voxel.
+- ⬜ Marching cubes (extraction de surface, Lorensen & Cline 1987) sur un champ de densite
+  -- NON traite dans cette passe : table de correspondance 256 cas trop volumineuse/sujette
+  a erreur a reproduire fiablement sans reference a verifier visuellement ; juge plus
+  honnete de ne pas le tenter que de livrer une implementation non verifiee (risque de
+  maillage non-manifold/troue silencieux). Reste a faire.
+- ⬜ Conv3D im2col (generatif 3D convolutionnel accelere) ; diffusion etendue a l'image/voxel
+  dense (au-dela du nuage de points jouet ci-dessus).
 - ⬜ Sortie exploitable comme **texture/asset** dans le moteur (brancher NKImage/NKRHI).
 - 🎯 ✅ Générer une image — reste : l'**afficher dans Nkentseu** via le pipeline d'assets
   (le pont maillage→moteur est déjà prouvé côté 3D).
 
 ## Jalon 2 — guidage & contrôle
-- ⬜ Conditionnement (générer selon une consigne / une classe).
-- ⬜ Variations contrôlées (graine, intensité).
+- ✅ **Conditionnement par classe PROUVÉ** (`gen::NkDiffusion`, `NkDiffusion.{h,cpp}` ;
+  `NKDiffusionTest` section 2, `main.cpp`) : conditionnement simple par **concaténation
+  manuelle d'un one-hot de classe** à l'entrée du MLP epsilon_theta, en plus de l'embedding
+  temporel déjà existant (constructeur `NkDiffusion(dataDim, timeEmbedDim, hidden, seed,
+  numClasses)`, `numClasses=0` = comportement inconditionnel d'origine inchangé). Pattern
+  cf **Mirza & Osindero, « Conditional Generative Adversarial Nets », 2014,
+  arXiv:1411.1784** (concaténation d'un label à l'entrée). ⚠️ **PAS** le *classifier-free
+  guidance* de **Ho & Salimans, 2022, arXiv:2207.12598** (documenté honnêtement dans
+  `NkDiffusion.h`) : pas de dropout du label à l'entraînement, pas d'échelle de guidage au
+  sampling — conditionnement direct simple. Dataset 3 classes/formes 2D (cercle rayon 2,
+  carré demi-côté 2, spirale d'Archimède, jitter 0.08, 300 points/classe). **Mesure
+  chiffrée PAR CLASSE** (matrice 3×3 distance moyenne au plus proche voisin
+  généré(classe c) vs train(classe c'), 6000 époques) : diagonale (bonne classe)
+  **0.115 (cercle) / 0.116 (carré) / 0.198 (spirale)**, très inférieure aux distances
+  hors-diagonale (classe demandée ≠ classe train, **0.20 à 0.81**) — **6/6 vérifications
+  chiffrées OK** : pour chaque label demandé, la distance minimale de la ligne est bien
+  sur la diagonale (le label pilote effectivement la forme produite) ET la distance
+  intra-classe est < 0.5 (forme proche de sa classe réelle).
+- ⬜ Variations contrôlées (intensité/échelle de guidage — non traité). Note : la
+  **graine** (seed) de l'échantillonnage est déjà un paramètre exposé (`Sample(...,
+  rngSeed, ...)`), donc des tirages différents à label fixé sont déjà possibles
+  trivialement ; ce qui manque est un contrôle explicite de l'**intensité**
+  (ex. guidance scale à la Ho & Salimans 2022) — non implémenté.
 
 ## Jalon 3 — 3D & animation
 - 🟡 Génération de **formes 3D** (procédural guidé par apprentissage) : représentations

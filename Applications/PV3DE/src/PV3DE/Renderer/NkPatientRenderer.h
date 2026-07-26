@@ -75,30 +75,21 @@ namespace nkentseu {
 				}
 
 			private:
-				void DrawBody(NkICommandBuffer *cmd, const NkMat4f &viewProj, const NkMat4f &model,
-							  const NkVec3f &cameraPos) noexcept;
-
-				void DrawEyes(NkICommandBuffer *cmd, const NkMat4f &viewProj, const NkMat4f &model,
-							  const NkVec3f &cameraPos) noexcept;
-
-				void UploadSkinUniforms(NkICommandBuffer *cmd, const NkMat4f &viewProj, const NkMat4f &model,
-										const NkVec3f &cameraPos) noexcept;
-
-				void UploadEyeUniforms(NkICommandBuffer *cmd, const NkMat4f &viewProj, const NkMat4f &model,
-									   const NkVec3f &cameraPos) noexcept;
-
 				NkIDevice *mDevice = nullptr;
 				bool mReady = false;
 
 				NkBSDriver mBSDriver;
 
-				// GPU resources
-				NkShaderHandle mSkinShader;
-				NkShaderHandle mEyeShader;
-				NkMeshHandle mBodyMesh;
-				NkMeshHandle mEyeMesh;
-				NkTextureHandle mAlbedo, mNormal, mORM, mSSS, mEmissive;
-				NkTextureHandle mSclera, mIrisDetail;
+				// ── STUB Phase R1 (2026-07-25) ──────────────────────────────────
+				// Les anciens membres GPU (shaders/meshes/textures) appelaient une
+				// API RHI de convenance qui n'existe pas sur NkIDevice/NkICommandBuffer
+				// réels (LoadMesh, LoadTexture, BindShader, DrawMesh, SetUniform*...
+				// cf. ROADMAP.md "Rendu 3D"). Ils sont retirés ici plutôt que corrigés
+				// à la marge : la réécriture réelle se fait en Phase R3, directement
+				// sur NKRenderer (renderer::LoadOBJ/LoadGLTF, matériaux Skin/Eye,
+				// pipelines réels) une fois accessible via NkApplication::GetRenderer().
+				// Le type imaginaire `NkMeshHandle` n'existe nulle part dans NKRHI ;
+				// il n'y a donc rien de valide à conserver ici pour l'instant.
 
 				// Paramètres shaders courants (mis à jour depuis UpdateFromSystems)
 				struct SkinParams {

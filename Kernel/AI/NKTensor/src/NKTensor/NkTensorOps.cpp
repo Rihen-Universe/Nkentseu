@@ -84,7 +84,7 @@ namespace nkentseu {
 				}
 				return x;
 			}
-			enum class UnOp { Neg, Abs, Exp, Sqrt, Relu, Sigmoid, Tanh };
+			enum class UnOp { Neg, Abs, Exp, Sqrt, Log, Relu, Sigmoid, Tanh };
 
 			template <typename T> static inline T ApplyUn(UnOp op, T x) {
 				switch (op) {
@@ -96,6 +96,10 @@ namespace nkentseu {
 						return (T)exp((double)x);
 					case UnOp::Sqrt:
 						return (T)sqrt((double)x);
+					case UnOp::Log: { // log(max(x,eps)) : stabilise log(0) (eps=1e-8, cf NkVar::Log)
+						const double xd = (double)x;
+						return (T)log(xd > 1e-8 ? xd : 1e-8);
+					}
 					case UnOp::Relu:
 						return x > (T)0 ? x : (T)0;
 					case UnOp::Sigmoid:
@@ -264,6 +268,11 @@ namespace nkentseu {
 				if (a.Device() == NkDevice::NK_GPU)
 					return NkGpuSqrt(a);
 				return Unary(a, UnOp::Sqrt, true);
+			}
+
+			NkTensor Log(const NkTensor &a) {
+				// Pas de noyau GPU dédié : Unary() fait l'aller-retour CPU en préservant le device.
+				return Unary(a, UnOp::Log, true);
 			}
 
 			NkTensor Relu(const NkTensor &a) {

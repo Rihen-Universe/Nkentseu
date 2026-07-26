@@ -67,6 +67,8 @@ namespace nkentseu {
 				return "float4";
 			case NkSLBaseType::NK_DOUBLE:
 				return "float"; // Metal ne supporte pas double sur GPU
+			case NkSLBaseType::NK_HALF: // FP16 natif (additif) — mot-clé MSL natif
+				return "half";
 			case NkSLBaseType::NK_DVEC2:
 				return "float2";
 			case NkSLBaseType::NK_DVEC3:

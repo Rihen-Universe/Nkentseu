@@ -137,6 +137,8 @@ namespace nkentseu {
 				return "float4";
 			case NkSLBaseType::NK_DOUBLE:
 				return "double";
+			case NkSLBaseType::NK_HALF: // FP16 natif (additif) — mot-clé HLSL natif
+				return "half";
 			case NkSLBaseType::NK_DVEC2:
 				return "double2";
 			case NkSLBaseType::NK_DVEC3:

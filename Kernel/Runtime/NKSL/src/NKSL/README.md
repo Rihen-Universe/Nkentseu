@@ -286,11 +286,19 @@ target_link_libraries(MyApp PRIVATE NkSL)
 4. **double en MSL** : automatiquement downgradé en `float`.
 5. **Analyse sémantique incomplète** : les déclarations de variables non déclarées peuvent passer sans erreur.
 6. **#define avec paramètres** : le préprocesseur ne supporte pas les macros paramétriques.
+7. **`half` (FP16 natif, ajouté 2026-07-25)** : scalaire uniquement (pas de `hvec2/3/4`) ;
+   conversions **toujours explicites** (`half(x)` / `float(x)`, pas d'implicite float↔half,
+   à l'image du vrai GLSL `float16_t`). GLSL/GLSL-Vulkan → `float16_t` (+ `#extension
+   GL_EXT_shader_explicit_arithmetic_types_float16` injectée si utilisé) ; SPIR-V → capacité
+   `Float16` (émise par glslang) ; HLSL-DX11/DX12 et MSL → `half` natif. Backend C++ software
+   rasterizer et bytecode NkSLVM : retombent sur `float32` (comme `double` sur MSL), non
+   couverts par la validation actuelle (hors des 5 cibles GPU visées par cette passe).
 
 ---
 
 ## Roadmap
 
+- [x] Type `half` (FP16) natif — GLSL/GLSL-Vulkan/SPIR-V/HLSL/MSL (2026-07-25, cf limitation 7 ci-dessus)
 - [ ] Optimiseur IR (élimination du code mort, constant folding)
 - [ ] Support WGSL (WebGPU)
 - [ ] Analyse sémantique complète (type checking exhaustif)
@@ -298,3 +306,6 @@ target_link_libraries(MyApp PRIVATE NkSL)
 - [ ] Specialization constants Vulkan (`layout(constant_id=N)`)
 - [ ] Geometry shaders DX12 SM6
 - [ ] Tests unitaires (corpus de shaders de référence)
+- [ ] Vecteurs `hvec2/hvec3/hvec4` (FP16 vectoriel) — non fait dans cette passe (scalaire only)
+- [ ] Validation `half` sur device GPU réel (Vulkan/GL) — bloquée tant qu'un palier NKAI tourne
+      sur le GPU (cf `Kernel/AI/ROADMAP.md`, section FP16)

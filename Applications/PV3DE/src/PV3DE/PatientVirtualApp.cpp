@@ -1,11 +1,13 @@
 #include "PatientVirtualApp.h"
-#include "Noge/Core/Application.h"
+#include "Noge/Core/NkApplication.h"
+#include "NKWindow/NKMain.h"
+#include "NKSL/ShaderConvert/NkShaderConvert.h"
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {
 	namespace pv3de {
 
-		PatientVirtualApp::PatientVirtualApp(const NkApplicationConfig &config) : Application(config) {
+		PatientVirtualApp::PatientVirtualApp(const NkApplicationConfig &config) : NkApplication(config) {
 		}
 
 		PatientVirtualApp::~PatientVirtualApp() = default;
@@ -59,12 +61,18 @@ namespace nkentseu {
 } // namespace nkentseu
 
 // =============================================================================
-// CreateApplication — point d'entrée du framework
+// nkmain — point d'entrée natif du framework (appelé par WinMain/EntryPoints,
+// cf. NKWindow/Core/NkMain.h). Même pattern que Applications/Nogee/Nogee.cpp
+// (Phase R0 2026-07-25) : construction directe de NkApplicationConfig depuis
+// NkEntryState — l'ancien contrat libre `nkentseu::CreateApplication(config)`
+// n'existe plus côté framework (classe Application supprimée au profit de
+// NkApplication), ce n'était qu'un renommage de surface non détecté par
+// l'audit initial (le fichier échouait avant sur les includes Noge/*).
 // =============================================================================
-nkentseu::Application *nkentseu::CreateApplication(const nkentseu::NkApplicationConfig &baseConfig) {
+int nkmain(const nkentseu::NkEntryState &state) {
 	using namespace nkentseu;
 
-	NkApplicationConfig config = baseConfig;
+	NkApplicationConfig config(state);
 
 	config.appName = "PatientVirtuel3D";
 	config.appVersion = "0.1.0";
@@ -82,5 +90,13 @@ nkentseu::Application *nkentseu::CreateApplication(const nkentseu::NkApplication
 
 	NkShaderCache::Global().SetCacheDir("Build/ShaderCache");
 
-	return new pv3de::PatientVirtualApp(config);
+	pv3de::PatientVirtualApp *app = new pv3de::PatientVirtualApp(config);
+	if (!app->Init()) {
+		logger.Error("[PV3DE] Erreur d'initialisation de l'application");
+		delete app;
+		return 2;
+	}
+	app->Run();
+	delete app;
+	return 0;
 }

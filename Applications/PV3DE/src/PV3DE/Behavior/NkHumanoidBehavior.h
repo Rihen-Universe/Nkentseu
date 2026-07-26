@@ -31,11 +31,13 @@
 //   EmitBehaviors()        ← sortie : émotions, AUs, postures, discours
 // =============================================================================
 
-#include "NkPersonality.h"
+#include "PV3DE/Core/NkPersonality.h"
 #include "NKCore/NkTypes.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKMath/NKMath.h"
+
+using namespace nkentseu::math;
 
 namespace nkentseu {
 	namespace humanoid {

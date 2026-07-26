@@ -28,6 +28,8 @@ namespace nkentseu {
 				return 4;
 			case NkSLBaseType::NK_DOUBLE:
 				return 8;
+			case NkSLBaseType::NK_HALF: // FP16 natif (additif) — 2 octets
+				return 2;
 			case NkSLBaseType::NK_IVEC2:
 			case NkSLBaseType::NK_UVEC2:
 			case NkSLBaseType::NK_VEC2:
@@ -83,6 +85,32 @@ namespace nkentseu {
 			default:
 				return 1;
 		}
+	}
+
+	// =============================================================================
+	// FP16 natif (additif) — injection d'un #extension GLSL après coup.
+	//
+	// Les générateurs GLSL / GLSL-Vulkan émettent leur en-tête (#version, puis
+	// éventuellement d'autres #extension) AVANT de générer le corps ; au moment
+	// d'écrire l'en-tête on ne sait pas encore si `float16_t` sera utilisé plus
+	// loin dans le shader. Plutôt que de complexifier le flux d'émission existant
+	// (pré-passe de scan de l'AST), on post-traite le texte déjà généré : si le
+	// jeton `needle` apparaît quelque part dans la sortie, on insère la ligne
+	// d'extension juste après la ligne `#version`. Pur post-traitement additif,
+	// ne modifie aucun chemin d'émission existant.
+	// =============================================================================
+	inline NkString NkSLInjectExtensionIfUsed(const NkString &src, const char *needle, const char *extensionLine) {
+		if (!src.Contains(needle) || src.Contains(extensionLine))
+			return src;
+		NkString::SizeType verPos = src.Find("#version");
+		if (verPos == NkString::npos)
+			return NkString(extensionLine) + "\n" + src;
+		NkString::SizeType eol = src.Find('\n', verPos);
+		if (eol == NkString::npos)
+			return src + "\n" + NkString(extensionLine) + "\n";
+		NkString out = src;
+		out.Insert(eol + 1, NkString(extensionLine) + NkString("\n"));
+		return out;
 	}
 
 	// =============================================================================

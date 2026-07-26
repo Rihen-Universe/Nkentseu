@@ -475,6 +475,37 @@ namespace nkentseu {
 	// =============================================================================
 	// Navigation dans le fichier via fseek/ftell.
 
+	// ---------------------------------------------------------------------
+	// Seek/tell 64-bit portables.
+	//
+	// BUG CORRIGÉ (2026-07-25, découvert en chargeant un blob GGUF Ollama de
+	// 4.68 Go pour NKInfer/NkGGUFLoader) : `fseek`/`ftell` standards prennent
+	// un `long`, qui vaut 32 bits sur Windows (MSVC ET MinGW/UCRT, même en
+	// build 64-bit) — donc plafonné à ~2 Go. Tout fichier plus gros
+	// (modèle ML, vidéo, gros paquet d'assets) faisait retourner un GetSize()
+	// erroné (silencieusement tronqué/négatif), qui cassait ensuite toute
+	// validation de taille en aval. Fix : primitives 64-bit dédiées par
+	// plateforme (`_fseeki64`/`_ftelli64` sur Windows, `fseeko`/`ftello` —
+	// déjà 64-bit via `off_t` — ailleurs).
+	// ---------------------------------------------------------------------
+	namespace {
+#if defined(_WIN32) || defined(_WIN64)
+		nk_int64 PortableFTell64(FILE *f) {
+			return static_cast<nk_int64>(_ftelli64(f));
+		}
+		bool PortableFSeek64(FILE *f, nk_int64 offset, int whence) {
+			return _fseeki64(f, static_cast<__int64>(offset), whence) == 0;
+		}
+#else
+		nk_int64 PortableFTell64(FILE *f) {
+			return static_cast<nk_int64>(ftello(f));
+		}
+		bool PortableFSeek64(FILE *f, nk_int64 offset, int whence) {
+			return fseeko(f, static_cast<off_t>(offset), whence) == 0;
+		}
+#endif
+	} // namespace
+
 	nk_int64 NkFile::Tell() const {
 		if (!mIsOpen) {
 			return -1;
@@ -487,7 +518,7 @@ namespace nkentseu {
 			return static_cast<nk_int64>(total - remaining);
 		}
 #endif
-		return static_cast<nk_int64>(ftell(static_cast<FILE *>(mHandle)));
+		return PortableFTell64(static_cast<FILE *>(mHandle));
 	}
 
 	bool NkFile::Seek(nk_int64 offset, NkSeekOrigin origin) {
@@ -517,7 +548,7 @@ namespace nkentseu {
 			return pos != (off_t)-1;
 		}
 #endif
-		return fseek(static_cast<FILE *>(mHandle), static_cast<long>(offset), whence) == 0;
+		return PortableFSeek64(static_cast<FILE *>(mHandle), offset, whence);
 	}
 
 	bool NkFile::SeekToBegin() {
@@ -539,10 +570,11 @@ namespace nkentseu {
 			return static_cast<nk_int64>(AAsset_getLength(static_cast<AAsset *>(mHandle)));
 		}
 #endif
-		const nk_int64 current = Tell();
-		fseek(static_cast<FILE *>(mHandle), 0, SEEK_END);
-		const nk_int64 size = static_cast<nk_int64>(ftell(static_cast<FILE *>(mHandle)));
-		fseek(static_cast<FILE *>(mHandle), static_cast<long>(current), SEEK_SET);
+		FILE *fp = static_cast<FILE *>(mHandle);
+		const nk_int64 current = PortableFTell64(fp);
+		PortableFSeek64(fp, 0, SEEK_END);
+		const nk_int64 size = PortableFTell64(fp);
+		PortableFSeek64(fp, current, SEEK_SET);
 		return size;
 	}
 

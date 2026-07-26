@@ -66,16 +66,26 @@ _REGISTRY: dict = {
     "NKNN"           : _m("NKENTSEU_NN",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd"]),
     "NKOptim"        : _m("NKENTSEU_OPTIM",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd"]),
     "NKData"         : _m("NKENTSEU_DATA",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor"]),
-    "NKTrain"        : _m("NKENTSEU_TRAIN",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN", "NKData"]),
+    "NKTrain"        : _m("NKENTSEU_TRAIN",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN", "NKData", "NKOptim"]),
     "NKInfer"        : _m("NKENTSEU_INFER",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd"]),
     "NKRL"           : _m("NKENTSEU_RL",            ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor"]),
-    "NKAgent"        : _m("NKENTSEU_AGENT",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKRL"]),
+    # Jalon 4 (personnalite + raisonnement LLM) : ajoute NKInfer (NkAgentLLMReasoning
+    # pont vers NkQwen2Block/NkKVCache/NkGGUFDequant, poids GGUF reels). NKFileSystem
+    # (lecture selective de lignes de tenseur, cf NkAgentLLMReasoning.cpp) est un
+    # dep de BUILD de NKAgent (ajoute dans NKAgent.jenga) mais pas expose ici, meme
+    # asymetrie que l'entree NKInfer ci-dessus (ses headers publics n'exposent pas
+    # NkFile.h aux consommateurs).
+    "NKAgent"        : _m("NKENTSEU_AGENT",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKRL", "NKInfer"]),
     "NKEvolve"       : _m("NKENTSEU_EVOLVE",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger"]),
     # NKCivilization (Phase 5) : agents Phase 4 comme entites NKECS — depend de
     # NKECS (Runtime) et NKAgent, JAMAIS d'Engine/Noge (pas de remontee de couche).
     "NKCivilization" : _m("NKENTSEU_CIVILIZATION",  ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKRL", "NKAgent", "NKECS"]),
+    # NKEmbodied (Phase 6) : abstraction capteurs/actionneurs + corps simule,
+    # boucle perception -> decision (NKAgent) -> action. Ne depend PAS de
+    # Kernel/Bare au Jalon 1 (cf ROADMAP : Jalon 3 = branchement reel).
+    "NKEmbodied"     : _m("NKENTSEU_EMBODIED",      ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKRL", "NKAgent"]),
     "NKGen"          : _m("NKENTSEU_GEN",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN"]),
-    "NKGpt"          : _m("NKENTSEU_GPT",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN", "NKOptim", "NKFileSystem", "NKTime"]),
+    "NKGpt"          : _m("NKENTSEU_GPT",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN", "NKOptim", "NKFileSystem", "NKTime", "NKData"]),
     "NKSpeech"       : _m("NKENTSEU_SPEECH",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger"]),
 
     # ---- System --------------------------------------------------------------

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Noge/Core/Application.h"
+#include "Noge/Core/NkApplication.h"
 #include "Noge/Core/NkApplicationConfig.h"
 #include "Layers/PatientLayer.h"
 
@@ -10,9 +10,9 @@ namespace nkentseu {
 		// =====================================================================
 		// PatientVirtualApp
 		// Application principale du Patient Virtuel 3D Emotif.
-		// Hérite de Application, configure les layers PV3DE.
+		// Hérite de NkApplication, configure les layers PV3DE.
 		// =====================================================================
-		class PatientVirtualApp : public nkentseu::Application {
+		class PatientVirtualApp : public nkentseu::NkApplication {
 			public:
 				explicit PatientVirtualApp(const NkApplicationConfig &config);
 				~PatientVirtualApp() override;

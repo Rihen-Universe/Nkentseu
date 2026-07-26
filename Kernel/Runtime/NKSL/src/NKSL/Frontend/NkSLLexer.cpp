@@ -24,6 +24,7 @@ namespace nkentseu {
 		{"uint", NkSLTokenKind::NK_KW_UINT},
 		{"float", NkSLTokenKind::NK_KW_FLOAT},
 		{"double", NkSLTokenKind::NK_KW_DOUBLE},
+		{"half", NkSLTokenKind::NK_KW_HALF}, // FP16 natif (additif)
 		// Vecteurs bool
 		{"bvec2", NkSLTokenKind::NK_KW_BVEC2},
 		{"bvec3", NkSLTokenKind::NK_KW_BVEC3},

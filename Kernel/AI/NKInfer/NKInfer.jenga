@@ -16,7 +16,7 @@ with project("NKInfer"):
 
     nkentseudependson(
         ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKMath", "NKLogger",
-         "NKTensor", "NKAutograd"],
+         "NKTensor", "NKAutograd", "NKFileSystem"],
         selfexport="NKInfer",
         extra_includes=["src", "%{wks.location}/Externals"],
     )

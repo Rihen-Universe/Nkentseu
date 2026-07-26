@@ -5,6 +5,8 @@
 #include "PV3DE/Emotion/NkEmotionFSM.h"
 #include "PV3DE/Body/NkBreathController.h"
 
+using namespace nkentseu::math;
+
 namespace nkentseu {
 	namespace pv3de {
 

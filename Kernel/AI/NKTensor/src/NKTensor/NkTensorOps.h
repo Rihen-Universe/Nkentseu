@@ -28,6 +28,9 @@ namespace nkentseu {
 			NkTensor Abs(const NkTensor &a);
 			NkTensor Exp(const NkTensor &a);  // flottants
 			NkTensor Sqrt(const NkTensor &a); // flottants
+				// log(max(x, eps)) élément par élément, eps=1e-8 (stabilise log(0)) — flottants.
+				// Ajouté pour NKRL/Jalon 3 (PPO) : log-probabilité d'une action (log-softmax discret).
+				NkTensor Log(const NkTensor &a);
 			NkTensor Relu(const NkTensor &a);
 			NkTensor Sigmoid(const NkTensor &a);
 			NkTensor Tanh(const NkTensor &a);
