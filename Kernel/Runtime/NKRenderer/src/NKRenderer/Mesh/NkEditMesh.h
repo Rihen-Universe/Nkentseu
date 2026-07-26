@@ -7,6 +7,15 @@
 // est un cache : on TRIANGULE (fan) pour produire un mesh de rendu classique.
 // Les faces restent des n-gons côté édition ; la triangulation est un détail
 // d'affichage/export (choix, comme Blender).
+//
+// TODO (topologie avancée) — [2026-07-26] Une 2e structure demi-arête parallèle
+// (Noge/Topology/NkHalfEdge.h::NkHalfEdgeMesh + NkBooleanOp.h, header-only, jamais
+// implémentées ni incluses) a été supprimée au profit de CE maillage, mature et en
+// production. Elle déclarait des capacités UNIQUES restées non implémentées : ops
+// booléennes mesh BSP (Union/Subtract/Intersect), décimation QEM, subdivision
+// Catmull-Clark, lissage Laplacien, analyse genus/caractéristique d'Euler. Si ces
+// opérations sont voulues un jour, les implémenter comme FONCTIONS LIBRES opérant sur
+// renderer::NkEditMesh (cette classe), et NON via une structure demi-arête concurrente.
 // =============================================================================
 #pragma once
 

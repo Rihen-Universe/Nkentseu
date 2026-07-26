@@ -3,16 +3,18 @@
 // DESCRIPTION: Système de Scripting Visuel (Blueprints) Dynamique & Extensible.
 // =============================================================================
 #pragma once
-#include "../NkECSDefines.h"
-#include "../Core/NkTypeRegistry.h"
+#include "NKECS/NkECSDefines.h"
+#include "NKECS/Core/NkTypeRegistry.h"
 #include "NKECS/World/NkWorld.h"
-#include "../GameObject/NkGameObject.h"
-#include "../Components/Physics/NkPhysics.h"
-#include <vector>
-#include <string>
-#include <memory>
-#include <functional>
-#include <cstring>
+#include "Noge/ECS/Entities/NkGameObject.h"
+#include "Noge/ECS/Components/Physics/NkPhysics.h"
+#include "Noge/ECS/Scripting/NkScriptComponent.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/Functional/NkFunction.h"
+#include "NKMemory/NkUniquePtr.h"
+#include "NKMemory/NkUtils.h"
+#include "NKCore/NkTraits.h"
 
 namespace nkentseu {
 	namespace ecs {
@@ -88,10 +90,13 @@ namespace nkentseu {
 							NkVec3 v3;
 							uint64 entityId; // Packé
 							void *ptr;		 // Pour Struct*, Object*, Event*
+
+							Data() noexcept {
+							}
 					} data;
 
 					NkValue() noexcept {
-						std::memset(this, 0, sizeof(NkValue));
+						memory::NkMemSet(this, 0, sizeof(NkValue));
 					}
 
 					// Helpers de construction rapide
@@ -179,7 +184,7 @@ namespace nkentseu {
 			// 3. DÉFINITION DES PINS
 			// ============================================================================
 			struct NkBlueprintPin {
-					std::string Name;
+					NkString Name;
 					NkPinType Type;
 					NkPinDirection Direction;
 					NkValue DefaultValue; // Valeur par défaut si non connectée
@@ -191,12 +196,12 @@ namespace nkentseu {
 			// ============================================================================
 			class NkBlueprintNode {
 				public:
-					std::string Name;
+					NkString Name;
 					NkTypeId NodeTypeId; // Identifiant du type de nœud
 					bool Enabled = true;
 
-					std::vector<NkBlueprintPin> Inputs;
-					std::vector<NkBlueprintPin> Outputs;
+					NkVector<NkBlueprintPin> Inputs;
+					NkVector<NkBlueprintPin> Outputs;
 
 					virtual ~NkBlueprintNode() noexcept = default;
 
@@ -226,7 +231,7 @@ namespace nkentseu {
 			// ============================================================================
 			class NkNodeRegistry {
 				public:
-					using FactoryFn = std::function<std::unique_ptr<NkBlueprintNode>()>;
+					using FactoryFn = NkFunction<memory::NkUniquePtr<NkBlueprintNode>()>;
 
 					[[nodiscard]] static NkNodeRegistry &Global() noexcept {
 						static NkNodeRegistry instance;
@@ -239,23 +244,41 @@ namespace nkentseu {
 						if (reg.mCount >= 512)
 							return;
 						Entry &e = reg.mEntries[reg.mCount++];
-						std::strncpy(e.Name, name, 127);
-						e.Factory = [] { return std::make_unique<T>(); };
+						uint32 ci = 0;
+						while (ci < 127 && name[ci] != '\0') {
+							e.Name[ci] = name[ci];
+							ci++;
+						}
+						e.Name[ci] = '\0';
+						e.Factory = []() noexcept -> memory::NkUniquePtr<NkBlueprintNode> {
+							return memory::NkUniquePtr<NkBlueprintNode>(memory::NkMakeUnique<T>().Release());
+						};
 					}
 
 					// Crée une instance
-					[[nodiscard]] std::unique_ptr<NkBlueprintNode> Create(const char *name) noexcept {
+					[[nodiscard]] memory::NkUniquePtr<NkBlueprintNode> Create(const char *name) noexcept {
 						for (uint32 i = 0; i < mCount; ++i) {
-							if (std::strcmp(mEntries[i].Name, name) == 0)
+							if (NkNameEquals(mEntries[i].Name, name))
 								return mEntries[i].Factory();
 						}
-						return nullptr;
+						return {};
+					}
+
+					// Comparaison de chaînes C-style (remplace std::strcmp, zéro-STL)
+					[[nodiscard]] static bool NkNameEquals(const char *a, const char *b) noexcept {
+						uint32 i = 0;
+						while (a[i] != '\0' && b[i] != '\0') {
+							if (a[i] != b[i])
+								return false;
+							i++;
+						}
+						return a[i] == b[i];
 					}
 
 				private:
 					struct Entry {
 							char Name[128] = {};
-							FactoryFn Factory;
+							FactoryFn Factory{};
 					};
 
 					Entry mEntries[512] = {};
@@ -281,7 +304,7 @@ namespace nkentseu {
 				public:
 					NkNodeEventBeginPlay() noexcept {
 						Name = "EventBeginPlay";
-						Outputs.push_back({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
 					}
 
 					void Execute(NkWorld &, NkEntityId, float) noexcept override {
@@ -298,9 +321,9 @@ namespace nkentseu {
 				public:
 					NkNodeEventCustom() noexcept {
 						Name = "EventCustom";
-						Outputs.push_back({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
 						// Exemple : Pin de donnée custom "Damage"
-						Inputs.push_back({"Damage", NkPinType{NkPinPrimitiveType::Float}, NkPinDirection::Input});
+						Inputs.PushBack({"Damage", NkPinType{NkPinPrimitiveType::Float}, NkPinDirection::Input});
 					}
 
 					void Execute(NkWorld &, NkEntityId, float) noexcept override {
@@ -318,9 +341,9 @@ namespace nkentseu {
 				public:
 					NkNodeCallFunction() noexcept {
 						Name = "PrintString";
-						Inputs.push_back({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
-						Inputs.push_back({"InString", NkPinType{NkPinPrimitiveType::String}, NkPinDirection::Input});
-						Outputs.push_back({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Inputs.PushBack({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
+						Inputs.PushBack({"InString", NkPinType{NkPinPrimitiveType::String}, NkPinDirection::Input});
+						Outputs.PushBack({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
 					}
 
 					void Execute(NkWorld &, NkEntityId, float) noexcept override {
@@ -341,13 +364,13 @@ namespace nkentseu {
 				public:
 					NkNodeMakeVector3() noexcept {
 						Name = "MakeVector3";
-						Inputs.push_back(
+						Inputs.PushBack(
 							{"X", NkPinType{NkPinPrimitiveType::Float}, NkPinDirection::Input, NkValue::Float(0)});
-						Inputs.push_back(
+						Inputs.PushBack(
 							{"Y", NkPinType{NkPinPrimitiveType::Float}, NkPinDirection::Input, NkValue::Float(0)});
-						Inputs.push_back(
+						Inputs.PushBack(
 							{"Z", NkPinType{NkPinPrimitiveType::Float}, NkPinDirection::Input, NkValue::Float(0)});
-						Outputs.push_back({"ReturnValue", NkPinType{NkPinPrimitiveType::Vec3}, NkPinDirection::Output});
+						Outputs.PushBack({"ReturnValue", NkPinType{NkPinPrimitiveType::Vec3}, NkPinDirection::Output});
 					}
 
 					void Execute(NkWorld &, NkEntityId, float) noexcept override {
@@ -368,14 +391,14 @@ namespace nkentseu {
 				public:
 					NkNodeSwitchInt() noexcept {
 						Name = "SwitchInt";
-						Inputs.push_back({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
-						Inputs.push_back(
+						Inputs.PushBack({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
+						Inputs.PushBack(
 							{"Selection", NkPinType{NkPinPrimitiveType::Int}, NkPinDirection::Input, NkValue::Int(0)});
 
 						// Sorties Exec : 0, 1, Default
-						Outputs.push_back({"0", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
-						Outputs.push_back({"1", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
-						Outputs.push_back({"Default", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack({"0", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack({"1", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack({"Default", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
 					}
 
 					void Execute(NkWorld &, NkEntityId, float) noexcept override {
@@ -398,11 +421,11 @@ namespace nkentseu {
 				public:
 					NkNodeAddFloat() noexcept {
 						Name = "AddFloat";
-						Inputs.push_back(
+						Inputs.PushBack(
 							{"A", NkPinType{NkPinPrimitiveType::Float}, NkPinDirection::Input, NkValue::Float(0)});
-						Inputs.push_back(
+						Inputs.PushBack(
 							{"B", NkPinType{NkPinPrimitiveType::Float}, NkPinDirection::Input, NkValue::Float(0)});
-						Outputs.push_back({"Result", NkPinType{NkPinPrimitiveType::Float}, NkPinDirection::Output});
+						Outputs.PushBack({"Result", NkPinType{NkPinPrimitiveType::Float}, NkPinDirection::Output});
 					}
 
 					void Execute(NkWorld &, NkEntityId, float) noexcept override {
@@ -420,13 +443,13 @@ namespace nkentseu {
 				public:
 					NkNodeRaycast() noexcept {
 						Name = "Raycast";
-						Inputs.push_back({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
-						Inputs.push_back({"Start", NkPinType{NkPinPrimitiveType::Vec3}, NkPinDirection::Input});
-						Inputs.push_back({"End", NkPinType{NkPinPrimitiveType::Vec3}, NkPinDirection::Input});
+						Inputs.PushBack({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
+						Inputs.PushBack({"Start", NkPinType{NkPinPrimitiveType::Vec3}, NkPinDirection::Input});
+						Inputs.PushBack({"End", NkPinType{NkPinPrimitiveType::Vec3}, NkPinDirection::Input});
 
-						Outputs.push_back({"Hit", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
-						Outputs.push_back({"Miss", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
-						Outputs.push_back(
+						Outputs.PushBack({"Hit", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack({"Miss", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack(
 							{"HitActor", NkPinType{NkPinPrimitiveType::GameObject}, NkPinDirection::Output});
 					}
 
@@ -459,14 +482,14 @@ namespace nkentseu {
 				public:
 					NkNodeSpawnActor() noexcept {
 						Name = "SpawnActor";
-						Inputs.push_back({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
-						Inputs.push_back({"Class/Name", NkPinType{NkPinPrimitiveType::String}, NkPinDirection::Input,
+						Inputs.PushBack({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
+						Inputs.PushBack({"Class/Name", NkPinType{NkPinPrimitiveType::String}, NkPinDirection::Input,
 										  NkValue::String("DefaultActor")});
-						Inputs.push_back({"Location", NkPinType{NkPinPrimitiveType::Vec3}, NkPinDirection::Input,
+						Inputs.PushBack({"Location", NkPinType{NkPinPrimitiveType::Vec3}, NkPinDirection::Input,
 										  NkValue::Vec3(NkVec3::Zero())});
 
-						Outputs.push_back({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
-						Outputs.push_back(
+						Outputs.PushBack({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack(
 							{"NewActor", NkPinType{NkPinPrimitiveType::GameObject}, NkPinDirection::Output});
 					}
 
@@ -503,16 +526,16 @@ namespace nkentseu {
 
 			class NkBlueprintGraph {
 				public:
-					std::vector<std::unique_ptr<NkBlueprintNode>> Nodes;
-					std::vector<NkBlueprintConnection> Connections;
+					NkVector<memory::NkUniquePtr<NkBlueprintNode>> Nodes;
+					NkVector<NkBlueprintConnection> Connections;
 					uint32 EntryNodeIndex = 0; // Index du nœud de départ (ex: EventBeginPlay)
 
-					void AddNode(std::unique_ptr<NkBlueprintNode> node) noexcept {
-						Nodes.push_back(std::move(node));
+					void AddNode(memory::NkUniquePtr<NkBlueprintNode> node) noexcept {
+						Nodes.PushBack(traits::NkMove(node));
 					}
 
 					void Link(uint32 srcNode, uint32 srcPin, uint32 tgtNode, uint32 tgtPin) noexcept {
-						Connections.push_back({srcNode, srcPin, tgtNode, tgtPin});
+						Connections.PushBack({srcNode, srcPin, tgtNode, tgtPin});
 						// Marquer la pin cible comme connectée (logique simplifiée)
 						if (tgtNode < Nodes.size() && tgtPin < Nodes[tgtNode]->Inputs.size()) {
 							Nodes[tgtNode]->Inputs[tgtPin].IsConnected = true;
@@ -525,16 +548,16 @@ namespace nkentseu {
 							return;
 
 						// Pile d'exécution (Stack) pour le flux "Exec"
-						std::vector<uint32> execStack;
-						execStack.push_back(EntryNodeIndex);
+						NkVector<uint32> execStack;
+						execStack.PushBack(EntryNodeIndex);
 
 						while (!execStack.empty()) {
-							uint32 currentNodeIdx = execStack.back();
-							execStack.pop_back();
+							uint32 currentNodeIdx = execStack.Back();
+							execStack.PopBack();
 
 							if (currentNodeIdx >= Nodes.size())
 								continue;
-							NkBlueprintNode *node = Nodes[currentNodeIdx].get();
+							NkBlueprintNode *node = Nodes[currentNodeIdx].Get();
 							if (!node || !node->Enabled)
 								continue;
 
@@ -554,7 +577,7 @@ namespace nkentseu {
 
 									uint32 nextNode = FindTargetNode(currentNodeIdx, i);
 									if (nextNode < Nodes.size())
-										execStack.push_back(nextNode);
+										execStack.PushBack(nextNode);
 								}
 							}
 						}
@@ -564,7 +587,7 @@ namespace nkentseu {
 					void ResolveInputs(uint32 nodeIdx) noexcept {
 						// Pour chaque pin d'entrée, vérifier si connectée.
 						// Si oui, exécuter le nœud source pour remplir la pin de sortie, puis copier.
-						NkBlueprintNode *node = Nodes[nodeIdx].get();
+						NkBlueprintNode *node = Nodes[nodeIdx].Get();
 						if (!node)
 							return;
 
@@ -639,8 +662,8 @@ namespace nkentseu {
 				public:
 					NkNodeCastIntToFloat() noexcept {
 						Name = "CastIntToFloat";
-						Inputs.push_back({"Input", NkPinType{NkPinPrimitiveType::Int}, NkPinDirection::Input});
-						Outputs.push_back({"Output", NkPinType{NkPinPrimitiveType::Float}, NkPinDirection::Output});
+						Inputs.PushBack({"Input", NkPinType{NkPinPrimitiveType::Int}, NkPinDirection::Input});
+						Outputs.PushBack({"Output", NkPinType{NkPinPrimitiveType::Float}, NkPinDirection::Output});
 					}
 
 					void Execute(NkWorld &, NkEntityId, float) noexcept override {
@@ -658,8 +681,8 @@ namespace nkentseu {
 				public:
 					NkNodeCastFloatToInt() noexcept {
 						Name = "CastFloatToInt";
-						Inputs.push_back({"Input", NkPinType{NkPinPrimitiveType::Float}, NkPinDirection::Input});
-						Outputs.push_back({"Output", NkPinType{NkPinPrimitiveType::Int}, NkPinDirection::Output});
+						Inputs.PushBack({"Input", NkPinType{NkPinPrimitiveType::Float}, NkPinDirection::Input});
+						Outputs.PushBack({"Output", NkPinType{NkPinPrimitiveType::Int}, NkPinDirection::Output});
 					}
 
 					void Execute(NkWorld &, NkEntityId, float) noexcept override {
@@ -677,12 +700,12 @@ namespace nkentseu {
 				public:
 					NkNodeCastEntityToGameObject() noexcept {
 						Name = "CastEntityToGameObject";
-						Inputs.push_back({"Input", NkPinType{NkPinPrimitiveType::EntityId}, NkPinDirection::Input});
-						Inputs.push_back({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
-						Outputs.push_back(
+						Inputs.PushBack({"Input", NkPinType{NkPinPrimitiveType::EntityId}, NkPinDirection::Input});
+						Inputs.PushBack({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
+						Outputs.PushBack(
 							{"AsGameObject", NkPinType{NkPinPrimitiveType::GameObject}, NkPinDirection::Output});
-						Outputs.push_back({"Success", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
-						Outputs.push_back({"Failed", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack({"Success", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack({"Failed", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
 					}
 
 					void Execute(NkWorld &world, NkEntityId, float) noexcept override {
@@ -709,13 +732,13 @@ namespace nkentseu {
 
 					explicit NkNodeCastToType(const NkTypeId &targetType) noexcept : TargetType(targetType) {
 						Name = "CastToType";
-						Inputs.push_back(
+						Inputs.PushBack(
 							{"Input", NkPinType{NkPinPrimitiveType::None, NkTypeId("void*")}, NkPinDirection::Input});
-						Inputs.push_back({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
-						Outputs.push_back(
+						Inputs.PushBack({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
+						Outputs.PushBack(
 							{"AsType", NkPinType{NkPinPrimitiveType::None, TargetType}, NkPinDirection::Output});
-						Outputs.push_back({"Success", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
-						Outputs.push_back({"Failed", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack({"Success", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack({"Failed", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
 					}
 
 					void Execute(NkWorld &, NkEntityId, float) noexcept override {
@@ -740,14 +763,14 @@ namespace nkentseu {
 			template <typename T> class NkNodeCastToComponent : public NkBlueprintNode {
 				public:
 					NkNodeCastToComponent() noexcept {
-						Name = "CastTo" + std::string(typeid(T).name());
-						Inputs.push_back({"Target", NkPinType{NkPinPrimitiveType::EntityId}, NkPinDirection::Input});
-						Inputs.push_back({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
-						Outputs.push_back({"AsComponent",
+						Name = NkString("CastTo") + NkString(typeid(T).name());
+						Inputs.PushBack({"Target", NkPinType{NkPinPrimitiveType::EntityId}, NkPinDirection::Input});
+						Inputs.PushBack({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
+						Outputs.PushBack({"AsComponent",
 										   NkPinType{NkPinPrimitiveType::None, NkTypeId(typeid(T).name())},
 										   NkPinDirection::Output});
-						Outputs.push_back({"Success", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
-						Outputs.push_back({"Failed", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack({"Success", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack({"Failed", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
 					}
 
 					void Execute(NkWorld &world, NkEntityId, float) noexcept override {
@@ -776,12 +799,12 @@ namespace nkentseu {
 
 					explicit NkNodeCastActorToClass(const NkTypeId &targetType) noexcept : TargetClassType(targetType) {
 						Name = "CastActorToClass";
-						Inputs.push_back({"Actor", NkPinType{NkPinPrimitiveType::GameObject}, NkPinDirection::Input});
-						Inputs.push_back({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
-						Outputs.push_back(
+						Inputs.PushBack({"Actor", NkPinType{NkPinPrimitiveType::GameObject}, NkPinDirection::Input});
+						Inputs.PushBack({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
+						Outputs.PushBack(
 							{"AsClass", NkPinType{NkPinPrimitiveType::None, TargetClassType}, NkPinDirection::Output});
-						Outputs.push_back({"Success", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
-						Outputs.push_back({"Failed", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack({"Success", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+						Outputs.PushBack({"Failed", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
 					}
 
 					void Execute(NkWorld &world, NkEntityId, float) noexcept override {
@@ -831,16 +854,16 @@ void Exemple_BlueprintMathSpawn(nkentseu::ecs::NkWorld& world) {
 	auto* bp = go.Add<NkBlueprintComponent>();
 
 	// 1. Node Event
-	auto eventTick = std::make_unique<NkNode_EventBeginPlay>();
-	bp->Graph.Nodes.push_back(std::move(eventTick)); // Index 0
+	auto eventTick = memory::NkMakeUnique<NkNode_EventBeginPlay>();
+	bp->Graph.Nodes.PushBack(traits::NkMove(eventTick)); // Index 0
 
 	// 2. Node Math (Add 100.0f)
-	auto addNode = std::make_unique<NkNode_AddFloat>();
-	bp->Graph.Nodes.push_back(std::move(addNode));   // Index 1
+	auto addNode = memory::NkMakeUnique<NkNode_AddFloat>();
+	bp->Graph.Nodes.PushBack(traits::NkMove(addNode));   // Index 1
 
 	// 3. Node Spawn (Spawn à la position X=100)
-	auto spawnNode = std::make_unique<NkNode_SpawnActor>();
-	bp->Graph.Nodes.push_back(std::move(spawnNode)); // Index 2
+	auto spawnNode = memory::NkMakeUnique<NkNode_SpawnActor>();
+	bp->Graph.Nodes.PushBack(traits::NkMove(spawnNode)); // Index 2
 
 	// Connexions : Event -> Spawn
 	bp->Graph.Link(0, 0, 2, 0); // Event.OutExec -> Spawn.InExec
@@ -869,9 +892,9 @@ class NkNode_ApplyDamage : public NkBlueprintNode {
 		NkNode_ApplyDamage() noexcept {
 			Name = "ApplyDamage";
 			// Pin d'entrée de type Custom (Struct MyDamageEvent)
-			Inputs.push_back({"Event", NkPinType{NkTypeId("MyDamageEvent")}, NkPinDirection::Input});
-			Inputs.push_back({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
-			Outputs.push_back({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
+			Inputs.PushBack({"Event", NkPinType{NkTypeId("MyDamageEvent")}, NkPinDirection::Input});
+			Inputs.PushBack({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Input});
+			Outputs.PushBack({"Exec", NkPinType{NkPinPrimitiveType::Exec}, NkPinDirection::Output});
 		}
 		void Execute(NkWorld& world, NkEntityId self, float) noexcept override {
 			// Récupérer la struct via le pointeur générique

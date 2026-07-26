@@ -10,8 +10,7 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/Core/NkTypeRegistry.h"
 #include "../Core/NkTransform.h"
-#include <cstring>
-#include <cmath>
+#include "NKMath/NKMath.h" // NkTan, NkAtan, constants::kPiF (remplace <cmath>)
 
 namespace nkentseu {
 	namespace ecs {
@@ -90,28 +89,28 @@ namespace nkentseu {
 					if (aspect > 0.f)
 						aspectRatio = aspect;
 					if (projectionMode == NkProjectionMode::Perspective) {
-						const float32 f = 1.f / std::tan(fieldOfViewDeg * 0.5f * (3.14159265f / 180.f));
+						const float32 f = 1.f / math::NkTan(fieldOfViewDeg * 0.5f * (math::constants::kPiF / 180.f));
 						const float32 nd = nearClip, fd = farClip;
-						projMatrix.m[0] = f / aspectRatio;
-						projMatrix.m[5] = f;
-						projMatrix.m[10] = (fd + nd) / (nd - fd);
-						projMatrix.m[11] = -1.f;
-						projMatrix.m[14] = (2.f * fd * nd) / (nd - fd);
-						projMatrix.m[15] = 0.f;
-						projMatrix.m[1] = projMatrix.m[2] = projMatrix.m[3] = 0;
-						projMatrix.m[4] = projMatrix.m[6] = projMatrix.m[7] = 0;
-						projMatrix.m[8] = projMatrix.m[9] = 0;
-						projMatrix.m[12] = projMatrix.m[13] = 0;
+						projMatrix.data[0] = f / aspectRatio;
+						projMatrix.data[5] = f;
+						projMatrix.data[10] = (fd + nd) / (nd - fd);
+						projMatrix.data[11] = -1.f;
+						projMatrix.data[14] = (2.f * fd * nd) / (nd - fd);
+						projMatrix.data[15] = 0.f;
+						projMatrix.data[1] = projMatrix.data[2] = projMatrix.data[3] = 0;
+						projMatrix.data[4] = projMatrix.data[6] = projMatrix.data[7] = 0;
+						projMatrix.data[8] = projMatrix.data[9] = 0;
+						projMatrix.data[12] = projMatrix.data[13] = 0;
 					} else {
 						// Orthographique
 						const float32 hw = orthographicSize * aspectRatio * zoom;
 						const float32 hh = orthographicSize * zoom;
 						const float32 nd = nearClip, fd = farClip;
 						projMatrix = NkMat4::Identity();
-						projMatrix.m[0] = 1.f / hw;
-						projMatrix.m[5] = 1.f / hh;
-						projMatrix.m[10] = -2.f / (fd - nd);
-						projMatrix.m[14] = -(fd + nd) / (fd - nd);
+						projMatrix.data[0] = 1.f / hw;
+						projMatrix.data[5] = 1.f / hh;
+						projMatrix.data[10] = -2.f / (fd - nd);
+						projMatrix.data[14] = -(fd + nd) / (fd - nd);
 					}
 				}
 
@@ -124,9 +123,9 @@ namespace nkentseu {
 				Ray ScreenToWorldRay(float32 ndcX, float32 ndcY) const noexcept {
 					// inverse-project from NDC to world (simplified)
 					const float32 aspect = aspectRatio;
-					const float32 tanHalf = std::tan(fieldOfViewDeg * 0.5f * (3.14159265f / 180.f));
+					const float32 tanHalf = math::NkTan(fieldOfViewDeg * 0.5f * (math::constants::kPiF / 180.f));
 					const NkVec3 dir = NkVec3{ndcX * aspect * tanHalf, ndcY * tanHalf, -1.f}.Normalized();
-					return {{viewMatrix.m[12], viewMatrix.m[13], viewMatrix.m[14]}, dir};
+					return {{viewMatrix.data[12], viewMatrix.data[13], viewMatrix.data[14]}, dir};
 				}
 
 				void SetOrthographic(float32 size) noexcept {
@@ -136,12 +135,12 @@ namespace nkentseu {
 					RecalcProjection();
 				}
 
-				void SetPerspective(float32 fovDeg, float32 near = 0.1f, float32 far = 1000.f) noexcept {
+				void SetPerspective(float32 fovDeg, float32 nearZ = 0.1f, float32 farZ = 1000.f) noexcept {
 					projectionMode = NkProjectionMode::Perspective;
 					isOrthographic = false;
 					fieldOfViewDeg = fovDeg;
-					nearClip = near;
-					farClip = far;
+					nearClip = nearZ;
+					farClip = farZ;
 					RecalcProjection();
 				}
 		};
@@ -207,7 +206,7 @@ namespace nkentseu {
 				// FOV calculé depuis les paramètres physiques (équivalent 35mm)
 				[[nodiscard]] float32 ComputeFOVDegrees() const noexcept {
 					if (sensorHeight > 0.f && focalLength > 0.f)
-						return 2.f * std::atan(sensorHeight * 0.5f / focalLength) * (180.f / 3.14159265f);
+						return 2.f * math::NkAtan(sensorHeight * 0.5f / focalLength) * (180.f / math::constants::kPiF);
 					return 60.f;
 				}
 

@@ -53,6 +53,10 @@ namespace nkentseu {
 				virtual void OnDestroy(NkWorld & /*world*/, NkEntityId /*self*/) noexcept {
 				}
 
+				// Callback de collision (les ponts de script Python/C# le surchargent).
+				virtual void OnCollisionEnter(NkWorld & /*world*/, NkEntityId /*self*/, NkEntityId /*other*/) noexcept {
+				}
+
 				// ── État ────────────────────────────────────────────────────────────
 				void SetEnabled(bool enabled) noexcept {
 					mEnabled = enabled;

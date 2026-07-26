@@ -28,9 +28,11 @@
 // =============================================================================
 
 #include "NKECS/NkECSDefines.h"
+#include "NKECS/Core/NkTypeRegistry.h" // NK_COMPONENT(Type) — pas transitif via NkECSDefines.h
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "Nkentseu/Modeling/NkEditableMesh.h"
+#include "Noge/Modeling/NkEditableMesh.h"
+#include "Noge/ECS/Components/Animation/NkAnimation.h" // NkSkeleton
 
 namespace nkentseu {
 	using namespace math;

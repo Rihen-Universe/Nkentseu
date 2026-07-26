@@ -72,6 +72,11 @@ namespace nkentseu {
 				// ── Sélection + gizmo (composant moteur réutilisable NkGizmo3D) ──
 				bool pickPending = false;	// front montant du clic gauche (callback)
 				int32 pickX = 0, pickY = 0; // position écran du clic (pixels)
+				// Delta souris RÉEL par frame = (pos courante - pos précédente). NE PAS utiliser
+				// NkInput.MouseDelta*() : ce delta d'événement n'est PAS remis à 0 sans mouvement
+				// (valeur périmée conservée) -> le gizmo continuait de transformer souris immobile.
+				float32 lastMouseX = 0.f, lastMouseY = 0.f;
+				bool mouseTracked = false; // 1re frame : pas de delta
 				// Indices des cibles : 16 sphères, 1 cube, 2 colonnes, 64 instanciés = 83.
 				static const int32 kNumObj = 16 + 1 + 2 + 64;
 				renderer::NkGizmo3D gizmo; // sélection multiple + translate/rotate/scale/combiné
@@ -1182,6 +1187,26 @@ namespace nkentseu {
 
 		void Demo3D_Frame(DemoCtx &ctx, float32 dt) {
 			auto *st = (Demo3DState *)ctx.userData;
+			// Delta souris RÉEL de la frame = (courant - précédent) -> vaut 0 sans mouvement
+			// (contrairement à NkInput.MouseDelta*() périmé). Alimente les 2 gizmos (objet + edit).
+			const float32 curMouseX = (float32)NkInput.MouseX();
+			const float32 curMouseY = (float32)NkInput.MouseY();
+			float32 frameMDX = 0.f, frameMDY = 0.f;
+			if (st->mouseTracked) {
+				frameMDX = curMouseX - st->lastMouseX;
+				frameMDY = curMouseY - st->lastMouseY;
+			}
+			st->lastMouseX = curMouseX;
+			st->lastMouseY = curMouseY;
+			st->mouseTracked = true;
+			// NK_GRID_CLEAN=1 : capture « grille SEULE » -> pas de sol opaque, pas d'axes debug
+			// 3D épais ; on montre la VRAIE grille infinie (lignes fines AA + axes sol fins du
+			// shader X=rouge/Z=bleu). Sert à juger le shader infinitegrid à l'œil.
+			static int gridClean = -1;
+			if (gridClean == -1) {
+				const char *v = getenv("NK_GRID_CLEAN");
+				gridClean = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
 			// DIAG (gated NK_FIX_CAM) : fige la caméra + le temps pour comparer DX12/VK
 			// au MÊME angle/pose. Pose déterministe identique sur les 2 backends.
 			static int fixcam = -1;
@@ -1463,7 +1488,21 @@ namespace nkentseu {
 			// NB : sans sol, pas de récepteur d'ombres au sol dans cette démo (les casters
 			// castent quand même dans l'atlas). Pour ré-afficher les ombres au sol, remettre
 			// un sol ET décaler la grille (planeY) ou la rendre en depth-bias constant.
-			if (true) {
+			// NK_GRID_CLEAN : on saute le sol opaque + on active les axes fins du shader
+			// (X rouge / Z bleu) pour voir clairement la grille infinie.
+			if (gridClean) {
+				static bool gclInit = false;
+				if (!gclInit) {
+					gclInit = true;
+					auto &g = r3d->GetInfiniteGridParams();
+					g.showAxes = true;						   // axes sol FINS AA du shader
+					g.axisXColor = {0.90f, 0.20f, 0.25f, 1.f}; // X rouge
+					g.axisZColor = {0.20f, 0.45f, 0.90f, 1.f}; // Z bleu
+					g.lineColor = {0.55f, 0.58f, 0.66f, 1.0f}; // lignes un peu plus lisibles
+					g.cellColor = {0.10f, 0.11f, 0.13f, 0.0f}; // pas de remplissage opaque
+				}
+			}
+			if (!gridClean) {
 				NkDrawCall3D dc;
 				dc.mesh = st->meshPlane;
 				dc.transform = NkMat4f::Scale({40.f, 1.f, 40.f}); // sol AGRANDI (80x80)
@@ -1752,8 +1791,11 @@ namespace nkentseu {
 				renderer::NkGizmoInput gin;
 				gin.mouseX = (float32)NkInput.MouseX();
 				gin.mouseY = (float32)NkInput.MouseY();
-				gin.mouseDX = (float32)NkInput.MouseDeltaX();
-				gin.mouseDY = (float32)NkInput.MouseDeltaY();
+				// Delta RECALCULÉ par frame (pos - posPrécédente), pas MouseDeltaX() qui
+				// reste figé à sa dernière valeur non nulle quand la souris s'arrête —
+				// sinon le gizmo d'édition dérive à souris immobile (même bug que l'objet).
+				gin.mouseDX = frameMDX;
+				gin.mouseDY = frameMDY;
 				gin.leftPressed = st->pickPending;
 				st->pickPending = false;
 				gin.leftDown = NkInput.IsMouseDown(NkMouseButton::NK_MB_LEFT);
@@ -2187,13 +2229,32 @@ namespace nkentseu {
 
 				// Gizmo OBJET actif UNIQUEMENT hors Edit Mode (sinon c'est le gizmo vertices).
 				if (!st->editMode) {
+					// NK_GIZMO_SHOW=<mode> : sélectionne le cube central + fixe le mode
+					// (0=Translate 1=Rotate 2=Scale 3=Combine) pour une CAPTURE headless du
+					// gizmo (sans souris). One-shot. Sans cette variable : comportement normal.
+					static bool gizShowInit = false;
+					if (!gizShowInit) {
+						gizShowInit = true;
+						if (const char *gv = getenv("NK_GIZMO_SHOW")) {
+							// NK_GIZMO_OBJ=<idx> : objet à sélectionner (défaut 14 = sphère mate
+							// avant, hors halo de la lumière centrale -> gizmo bien lisible).
+							int32 gobj = 14;
+							if (const char *go = getenv("NK_GIZMO_OBJ"))
+								gobj = atoi(go);
+							st->gizmo.Select(gobj);
+							st->gizmo.SetMode(atoi(gv) & 3);
+						}
+						// NK_GIZMO_OBB=0 : masque la cage OBB de sélection (gizmo SEUL, épuré).
+						if (const char *ob = getenv("NK_GIZMO_OBB"))
+							st->gizmo.SetDrawObjectBounds(!(ob[0] == '0'));
+					}
 					st->gizmo.SetCamera(cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width,
 										(float32)ctx.height);
 					renderer::NkGizmoInput gin;
 					gin.mouseX = (float32)NkInput.MouseX();
 					gin.mouseY = (float32)NkInput.MouseY();
-					gin.mouseDX = (float32)NkInput.MouseDeltaX();
-					gin.mouseDY = (float32)NkInput.MouseDeltaY();
+					gin.mouseDX = frameMDX;
+					gin.mouseDY = frameMDY;
 					gin.leftPressed = st->pickPending;
 					st->pickPending = false;
 					gin.leftDown = NkInput.IsMouseDown(NkMouseButton::NK_MB_LEFT);
@@ -2209,7 +2270,15 @@ namespace nkentseu {
 							gin.lockAxis = 2;
 					}
 					st->gizmo.Update(targets, n, gin);
-					st->gizmo.Draw([&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); });
+					// Rendu PLEIN (façon Blender solide) : lignes fines (tiges/liserés) via
+					// DrawDebugLine + formes PLEINES (cônes/cubes/rubans) via DrawDebugTriangle,
+					// toutes en overlay (au-dessus de la scène, alpha-blend). Le 2e callback active
+					// la surcharge Draw(drawLine, drawTri) du gizmo.
+					st->gizmo.Draw(
+						[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
+						[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
+							r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
+						});
 				}
 			}
 
@@ -2220,7 +2289,9 @@ namespace nkentseu {
 			// (perspective, ancrés à l'origine, parallèles aux objets verticaux, top/bottom OK).
 			// Remplace les axes du SHADER grille (désactivés via g.showAxes=false à l'Init) qui
 			// avaient des artefacts de projection sur l'axe Y. Étendus loin -> effet "infini".
-			{
+			// NK_GRID_CLEAN : on masque ces axes debug 3D épais (la grille du shader dessine
+			// alors ses PROPRES axes sol fins AA -> rendu épuré pour juger la grille).
+			if (!gridClean) {
 				const float32 A = 1000.f;
 				const float32 h = 0.02f; // légèrement au-dessus du sol/grille -> pas de z-fight (pointillés)
 				r3d->DrawDebugLine({-A, h, 0.f}, {A, h, 0.f}, {1.f, 0.f, 0.f, 1.f});	 // X rouge

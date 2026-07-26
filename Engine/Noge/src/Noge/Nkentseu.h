@@ -74,7 +74,7 @@
 #include "NKSerialization/Asset/NkAssetMetadata.h"
 
 // ── Maths ─────────────────────────────────────────────────
-#include "Maths/NkTransform.h"
+#include "Noge/ECS/Components/Core/NkTransform.h"
 
 // ── Aliases de commodité ──────────────────────────────────
 namespace nkentseu {

@@ -212,7 +212,7 @@ namespace nkentseu {
 
 				// Crée une instance Python d'une classe de script
 				// Retourne un adapter NkScriptComponent
-				std::shared_ptr<NkScriptComponent> CreatePythonScript(const char *className) noexcept {
+				NkScriptPtr CreatePythonScript(const char *className) noexcept {
 #ifdef NKECS_PYTHON_AVAILABLE
 					if (!mInitialized)
 						return nullptr;
@@ -231,7 +231,7 @@ namespace nkentseu {
 						return nullptr;
 					}
 
-					return std::make_shared<NkPythonScriptAdapter>(instance, className);
+					return NkMakeScript<NkPythonScriptAdapter>(instance, className);
 #else
 					(void)className;
 					return nullptr;
@@ -531,9 +531,9 @@ print("[NkECS] Module Python 'nkecs' initialisé")
 			auto script = NkPythonBridge::Global().CreatePythonScript(className);
 			if (!script)
 				return false;
-			if (host.scriptCount >= NkScriptHost::kMaxScripts)
+			if (host.count >= NkScriptHost::kMaxScripts)
 				return false;
-			host.scripts[host.scriptCount++] = script;
+			host.scripts[host.count++] = script;
 			host.pendingStart = true;
 			return true;
 		}

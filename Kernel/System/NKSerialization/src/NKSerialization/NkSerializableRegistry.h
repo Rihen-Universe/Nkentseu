@@ -26,6 +26,28 @@ namespace nkentseu {
 	// NkComponentSerializableRegistry
 	// Registre dédié aux composants ECS (indépendant de NkSerializableRegistry
 	// qui gère les objets polymorphiques par nom de type).
+	//
+	// Design (STL-free) :
+	//  - NkVector + pointeurs de fonctions au lieu de std::unordered_map/std::function
+	//    (pas d'allocation dynamique de foncteurs, recherche linéaire optimisée <1000
+	//    composants).
+	//  - Clé = NkTypeId (via NkTypeOf<T>()), cohérent avec NkSchemaVersioning ; lookup
+	//    additionnel par nom (FindByName, strcmp) pour le chargement dynamique.
+	//  - Fallback DefaultSerialize/DefaultDeserialize : délègue à NkISerializable si le
+	//    type en dérive, sinon sérialisation binaire brute en hexadécimal (portable mais
+	//    non lisible — préférer NkReflect ou des fonctions custom pour du lisible).
+	//
+	// Thread-safety :
+	//  - Singleton Global() thread-safe via Meyer (initialisation C++11 garantie).
+	//  - Lectures (Find/Serialize/Deserialize) concurrentes sûres APRÈS initialisation.
+	//  - Register/Unregister NE sont PAS thread-safe : à faire au démarrage, mono-thread,
+	//    avant tout accès concurrent.
+	//
+	// [FUSION 2026-07-26] Ce fichier est la version canonique. Une COPIE orpheline
+	// (Engine/Noge/src/Noge/ECS/Components/NkComponentRegistry.h — même classe, mêmes
+	// macros NK_REGISTER_COMPONENT[_CUSTOM], même namespace, incluse nulle part) a été
+	// supprimée pour lever le risque ODR / redéfinition de macros. La doc ci-dessus
+	// rapatrie l'intention de conception documentée dans cette copie.
 	// =============================================================================
 	class NkComponentRegistry {
 		public:

@@ -14,9 +14,11 @@
 //       return new MyApp(cfg);
 //  }
 // =========================================================================
-NkApplication *NkMainApplication(const NkApplicationConfig &config);
 
 namespace nkentseu {
+	// Fonction fournie par l'utilisateur (voir exemple ci-dessus).
+	NkApplication *NkMainApplication(const NkApplicationConfig &config);
+
 	// =============================================================================
 	// nkmain — point d'entrée cross-platform
 	// Le framework appelle nkmain() depuis NkMain.h / NkEntry.h
