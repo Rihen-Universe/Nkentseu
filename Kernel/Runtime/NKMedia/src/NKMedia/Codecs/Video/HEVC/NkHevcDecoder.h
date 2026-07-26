@@ -342,21 +342,23 @@ namespace nkentseu {
 											 const NkHevcPps &pps, const NkHevcSliceHeader &sh,
 											 NkHevcFrame &frame, NkHevcSliceDataStats &out);
 
-				// ✅ BRIQUE 12 VALIDÉE (2026-07-26) — candidat temporel AMVP/merge
-				// implémenté (§8.5.3.2.8/9, DeriveTemporalCand dans NkHevcCtu.cpp) via le
-				// champ de MV persistant `NkHevcFrame::mvColX/Y/RefPoc/Valid` rempli par
-				// CETTE fonction et consommé au décodage de la trame SUIVANTE comme
-				// "collocated picture" (refsL0[collocated_ref_idx]). Chaînage P-sur-P
-				// (brique 11, précédemment WIP) validé BIT-EXACT bout-en-bout sur 3/4 flux
-				// de test (37 trames P chaînées, dont le cas qui divergeait) — cf. mémoire
-				// project_nkmedia_hevc_p_multiref_bug pour le diagnostic complet (cross-
-				// check Python indépendant ayant confirmé que le CABAC/mvd était déjà
-				// correct, la vraie cause étant ce candidat manquant). ⚠️ RESTE : un 4e
-				// flux avec pondération explicite (pred_weight_table) diverge en CHROMA à
-				// partir de la 10e trame P — bug DISTINCT, confirmé indépendant du candidat
-				// temporel (désactiver ce dernier aggrave la divergence au lieu de la faire
-				// disparaître) : chantier séparé, cf. mémoire pour le détail.
-				// Brique 10+11+12 : DÉCODE une slice P en pixels — MULTI-référence L0
+				// ✅ BRIQUES 11+12+13 VALIDÉES (2026-07-26) — chaînage P-sur-P COMPLET,
+				// **4/4 flux de test BIT-EXACTS bout-en-bout** (51 trames P chaînées).
+				// Brique 12 : candidat temporel AMVP/merge (§8.5.3.2.8/9, DeriveTemporalCand
+				// dans NkHevcCtu.cpp) via le champ de MV persistant
+				// `NkHevcFrame::mvColX/Y/RefPoc/Valid` rempli par CETTE fonction et consommé
+				// au décodage de la trame SUIVANTE comme "collocated picture"
+				// (refsL0[collocated_ref_idx]) — cf. mémoire project_nkmedia_hevc_p_multiref_bug
+				// pour le diagnostic complet (cross-check Python indépendant ayant confirmé que
+				// le CABAC/mvd était déjà correct, la vraie cause étant ce candidat manquant).
+				// Brique 13 : `CandUpRight` (voisinage merge/AMVP, NkHevcCtu.cpp) ne vérifiait
+				// pas que le voisin bas-droit `(x0+nPbW, y0-1)` reste DANS L'IMAGE (§6.4.1) pour
+				// les CU forcé-scindés en bord droit (une colonne de CTU partielle peut avoir
+				// `x0+nPbW==picW` sans toucher un bord de CTB) — un voisin fantôme hors image
+				// s'indexait par ALIASING SILENCIEUX dans le champ de MV (`px==minPuWidth`
+				// retombe exactement sur la ligne suivante), renvoyant un MV plausible mais
+				// faux. Fix : vérification picture-bounds en tout premier dans `CandUpRight`.
+				// Brique 10+11+12+13 : DÉCODE une slice P en pixels — MULTI-référence L0
 				// (`refsL0`/`numRefsL0` = références déjà résolues par l'appelant, dans
 				// l'ORDRE de RefPicList0 — cf. NkHevcRefPicLists/BuildRefPicLists — chaque
 				// `.poc` DOIT être renseigné, ainsi que `frame.poc`, tous deux via
