@@ -1137,12 +1137,35 @@ zero-STL, `nkentseu::media`.
     **Non-régression totale** : P 4/4, intra 4/4 toujours bit-exacts. Harnais `--hevcinter` étendu
     (décode P ET B, résolution POC→pointeurs L0/L1). Implémentée dans un worktree isolé puis
     ré-validée intégralement dans le dépôt principal avant intégration.
-- **Suite (brique 15, PAS commencée)** : déblocage BS inter (§8.7.2.4, dérivé du MV/refIdx de part
-  et d'autre de l'arête — actuellement seul le cas intra BS=2 est implémenté) + SAO sur P/B (le
-  parsing SAO tourne déjà pour P/B, seul le garde final `sliceType==kHevcSliceI` bloque
-  l'application), règle CU 8×8 forcé-2Nx2N si `log2ParallelMergeLevel>2`. Puis branchement
-  `NkVideoReader` (.265/MP4/MKV, DPB réel multi-images, éviction par RPS §8.3.2, réordonnancement
-  POC). Restes mineurs (refus propre en place) : tuiles, PCM, 4:2:2/4:4:4,
+- ⭐⭐⭐ **Brique 15 livrée et validée BIT-EXACT vs ffmpeg (2026-07-26) : déblocage in-loop INTER
+  (Boundary Strength §8.7.2.4) + SAO branché sur P et B** — jusqu'ici déblocage/SAO n'étaient
+  appliqués qu'aux slices I ; maintenant I, P ET B sont filtrées (gate final `sliceType==kHevcSliceI`
+  → `if (frame)`, le déblocage restant gaté par `deblockingFilterDisabled` et le SAO par
+  `saoLuma/saoChroma` normatifs).
+  - **Dérivation BS §8.7.2.4** (`DeriveDeblockBs`, transcription de `ff_hevc_deblocking_boundary_
+    strengths`/`boundary_strength`) : aux frontières TU par segment 4×4 — `bs=2` si un côté intra
+    (`predFlag==0`), sinon `bs=1` si cbf luma non nul d'un côté, sinon dérivé du MV (`bs=1` si
+    refs — comparées par POC POINTÉ, pas refIdx — diffèrent ou `|Δmv|>=4` en 1/4-pel, sinon 0).
+    **Cas bi-prédiction** (`BoundaryStrengthMv`, croisement L0/L1) désormais couvert grâce au champ
+    `MvField` bi de la brique 14. Frontières PU internes d'un TU inter traitées SANS le test cbf.
+  - **Nouvelles cartes 4×4** : `bsVert`/`bsHoriz` (BS 0/1/2 par bloc) remplacent les cartes d'arêtes
+    booléennes ; `cbfLuma4` (cbf luma par min-TU). `DeriveDeblockBs` appelée aux feuilles de
+    `transform_tree` (après cbf) ET sur CU skip / CU inter sans résidu (`rqtRootCbf==0`).
+  - **Consommation** : `LumaDeblockSeg` prend `bs` → `tc = kTcTable[qp + 2*(bs-1) + tcOff]` (le `+2`
+    intra codé en dur devient `2*(bs-1)`) ; décision strong/weak et beta inchangés. Luma filtré si
+    bs≥1, **chroma uniquement si bs==2** (comme ffmpeg — le chroma lit les mêmes cartes BS luma).
+    Ordre normatif conservé (toutes arêtes verticales puis toutes horizontales).
+  - **Validation** : 7 flux dédiés AVEC filtres — P déblocage seul, P déblocage+SAO (dont 320×240),
+    B déblocage seul, B déblocage+SAO, B `weightb`+AMP+pyramide (exerce le cas BS bi) — **tous
+    bit-exacts** (maxdiff=0), Debug (asserts) ET Release. **Non-régression totale** : intra 4/4,
+    P/B SANS filtres tous bit-exacts. Implémentée en worktree isolé puis ré-validée intégralement
+    dans le dépôt principal.
+- **Suite (brique 16, PAS commencée)** : branchement `NkVideoReader` — Phase A `.265` Annex-B I+P+B
+  (nouveau `ParseHevcAnnexB` + détection ES brut, chemin curseur ou réordonnancement POC pour B),
+  puis Phase B MP4 (`hvc1`/`hev1` + box `hvcC` — `ParseHvcCBytes` distinct de l'avcC) et MKV
+  (`V_MPEGH/ISO/HEVC`). DPB réel avec éviction par RPS §8.3.2. Un VRAI fichier x265 (B + déblocage
+  + SAO par défaut) est désormais décodable correctement. Règle CU 8×8 forcé-2Nx2N si
+  `log2ParallelMergeLevel>2`. Restes mineurs (refus propre en place) : tuiles, PCM, 4:2:2/4:4:4,
   `ref_pic_lists_modification()`, `scaling_list_data()`, bit depth >8 pour l'inter (10-bit MC pas
   encore branché).
 

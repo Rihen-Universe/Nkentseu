@@ -380,9 +380,8 @@ namespace nkentseu {
 				// décodeur ne stocke aucun DPB lui-même (cf. NkHevcRefPicLists) : c'est à
 				// l'appelant de résoudre POC→pointeur avant chaque appel (mais le champ de
 				// MV colocalisé, lui, est porté par NkHevcFrame — pas d'état externe requis).
-				// PAS de filtres en boucle cette brique (déblocage BS inter + SAO :
-				// brique suivante) — comparer à ffmpeg SANS déblocage/SAO (précédent
-				// brique 6). Refus propre : B, tuiles, PCM, 4:2:2/4:4:4, bit depth != 8,
+				// Filtres en boucle APPLIQUÉS (brique 14) : déblocage (BS inter §8.7.2.4)
+				// + SAO, gatés par les drapeaux de slice. Refus propre : tuiles, PCM, 4:2:2/4:4:4, bit depth != 8,
 				// log2ParallelMergeLevel > 2 (règle CU 8x8 non implémentée).
 				static bool DecodeSliceP(const uint8 *nal, usize size, const NkHevcSps &sps,
 										const NkHevcPps &pps, const NkHevcSliceHeader &sh,
@@ -395,8 +394,8 @@ namespace nkentseu {
 				// (§8.5.3.2.6/7 avec dérivation L0/L1 par voisin), candidat temporel bi-liste
 				// (§8.5.3.2.8/9, collocated_from_l0 + check_diffpicount), compensation de
 				// mouvement uni L0/uni L1/bi (§8.5.3.3.3/4, pondération explicite si
-				// pps.weightedBipred). PAS de filtres en boucle (comme P) — comparer SANS
-				// déblocage/SAO. Refus propre : tuiles, PCM, 4:2:2/4:4:4, bit depth != 8,
+				// pps.weightedBipred). Filtres en boucle APPLIQUÉS (déblocage BS bi §8.7.2.4
+				// + SAO). Refus propre : tuiles, PCM, 4:2:2/4:4:4, bit depth != 8,
 				// log2ParallelMergeLevel > 2. DecodeSliceP délègue à la même routine interne
 				// (refsL1=nullptr/0).
 				static bool DecodeSliceB(const uint8 *nal, usize size, const NkHevcSps &sps,
