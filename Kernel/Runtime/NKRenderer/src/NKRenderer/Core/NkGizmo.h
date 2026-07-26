@@ -191,6 +191,27 @@ namespace nkentseu {
 					return mDragging;
 				}
 
+				// Centroïde (barycentre) des cibles sélectionnées, calculé au dernier
+				// Update(). Sert de PIVOT d'orbite caméra « autour de la sélection »
+				// (façon Blender). Valeur d'une frame de retard (Update tourne après la
+				// navigation caméra dans la démo) — sans impact perceptible.
+				NkVec3f GetPivot() const {
+					return mPivot;
+				}
+
+				// TEST/API : injecte un décalage utilisateur FIGÉ sur la sélection, par
+				// le MÊME chemin interne que le drag (mTr/mRot/mScale). Utilisé par la
+				// capture headless de non-régression du contour de sélection
+				// (NK_SEL_TEST_XFORM) : reproduit un objet transformé sans souris.
+				void SetSelectedTransform(NkVec3f translate, NkMat4f rot, NkVec3f scaleDelta) {
+					for (int32 i = 0; i < kMax; i++)
+						if (mSel[i]) {
+							mTr[i] = translate;
+							mRot[i] = rot;
+							mScale[i] = scaleDelta;
+						}
+				}
+
 				void ClearSelection() {
 					for (int32 i = 0; i < kMax; i++)
 						mSel[i] = false;

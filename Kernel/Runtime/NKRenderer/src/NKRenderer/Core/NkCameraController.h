@@ -49,6 +49,58 @@ namespace nkentseu {
 					mResetPitch = pitch;
 				}
 
+				// Orbite RIGIDE autour de `pivot` (comportement Blender « orbit around
+				// selection ») : fait tourner ENSEMBLE la position ET la cible autour du
+				// pivot, sans JAMAIS re-viser -> AUCUN saut de vue au premier orbit.
+				// (Un simple mTarget=pivot re-viserait le pivot : la direction de vue
+				// changerait d'un coup à la 1re frame = le saut signalé.) dx/dy = delta
+				// souris BRUT ; la sensibilité mRotateSpeed est appliquée ICI, UNE fois.
+				// Réduction exacte à Rotate() quand pivot == mTarget (même sens/feel).
+				void OrbitAroundPivot(NkVec3f pivot, float32 dx, float32 dy) {
+					const float32 kLimit = 1.553f; // ~89°, cohérent avec ClampPitch
+					float32 dyaw = dx * mRotateSpeed;
+					float32 dpitch = dy * mRotateSpeed;
+					// Borne le pas de pitch pour ne pas basculer par-dessus le pôle
+					// (sinon yaw flip = saut). Exact quand pivot == cible.
+					const float32 targetPitch = mPitch + dpitch;
+					if (targetPitch > kLimit)
+						dpitch = kLimit - mPitch;
+					if (targetPitch < -kLimit)
+						dpitch = -kLimit - mPitch;
+
+					NkVec3f P = GetPosition();
+					NkVec3f T = mTarget;
+
+					// 1) Yaw : rotation rigide de P ET T autour de l'axe vertical world-Y
+					//    passant par pivot (angle -dyaw -> reproduit le sens de Rotate()).
+					const NkVec3f U = {0.f, 1.f, 0.f};
+					P = RotateAxis(P - pivot, U, -dyaw) + pivot;
+					T = RotateAxis(T - pivot, U, -dyaw) + pivot;
+
+					// 2) Pitch : rotation rigide autour de l'axe camera-right passant par
+					//    pivot (recalculé APRÈS le yaw pour rester cohérent).
+					const NkVec3f fwd = Norm(T - P);
+					const NkVec3f rgt = Norm(Cross(fwd, U));
+					P = RotateAxis(P - pivot, rgt, -dpitch) + pivot;
+					T = RotateAxis(T - pivot, rgt, -dpitch) + pivot;
+
+					// 3) Ré-dérive l'état orbit depuis P/T tournés. On NE re-vise PAS le
+					//    pivot : mTarget = ancienne cible TOURNÉE -> aucun changement brutal.
+					mTarget = T;
+					const NkVec3f d = {P.x - T.x, P.y - T.y, P.z - T.z};
+					mDistance = Length(d);
+					if (mDistance < 1e-5f)
+						return;
+					float32 sy = d.y / mDistance;
+					if (sy > 1.f)
+						sy = 1.f;
+					if (sy < -1.f)
+						sy = -1.f;
+					mPitch = asinf(sy);
+					mYaw = atan2f(d.z, d.x);
+					ClampPitch();
+				}
+
 				// Reset a la derniere position passee a SetCenter.
 				void Recenter() {
 					mTarget = mResetTarget;
@@ -211,6 +263,25 @@ namespace nkentseu {
 
 				static float32 Length(NkVec3f v) {
 					return sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+				}
+
+				// Produit vectoriel BRUT (non normalisé) — pour OrbitAroundPivot.
+				static NkVec3f Cross(NkVec3f a, NkVec3f b) {
+					return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+				}
+
+				static NkVec3f Norm(NkVec3f v) {
+					const float32 l = Length(v);
+					return (l > 1e-6f) ? v * (1.f / l) : v;
+				}
+
+				// Rotation de Rodrigues de v autour de l'axe UNITAIRE k, angle ang (rad).
+				static NkVec3f RotateAxis(NkVec3f v, NkVec3f k, float32 ang) {
+					const float32 c = cosf(ang), s = sinf(ang);
+					const NkVec3f kxv = Cross(k, v);
+					const float32 kv = k.x * v.x + k.y * v.y + k.z * v.z;
+					return {v.x * c + kxv.x * s + k.x * kv * (1.f - c), v.y * c + kxv.y * s + k.y * kv * (1.f - c),
+							v.z * c + kxv.z * s + k.z * kv * (1.f - c)};
 				}
 
 				// Etat orbit
