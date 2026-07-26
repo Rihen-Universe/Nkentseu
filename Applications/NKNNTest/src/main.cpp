@@ -9,6 +9,7 @@
 #include "NKOptim/NkOptim.h"
 #include "NKAutograd/NkVar.h"
 #include "NKTensor/NkTensor.h"
+#include "NKLogger/NkLog.h"
 
 #include <cstdio>
 #include <cmath>
@@ -141,7 +142,209 @@ int main() {
 	printf("  [ %s ] classification (%d/%d = %.1f%% exactitude, perte CE %.6f)\n", clsOk ? "OK" : "KO", good, (int)NP,
 		   acc * 100.0, clsLoss);
 
-	const int pass = (xorOk ? 1 : 0) + (clsOk ? 1 : 0);
-	printf("\n=== Résultat : %d OK, %d échec(s) ===\n", pass, 2 - pass);
-	return (pass == 2) ? 0 : 1;
+	// =========================================================================
+	// NKOptim : clipping de gradient (Pascanu, Mikolov & Bengio, ICML 2013).
+	// =========================================================================
+	logger.Info("-- NKOptim : clipping de gradient --");
+
+	bool clipByValueOk = false;
+	{
+		// 1) Clip PAR VALEUR : gradient volontairement énorme -> ramené sous le seuil,
+		//    élément par élément (assertion numérique réelle sur chaque composante).
+		NkVar p = NkVar::Leaf(NkTensor::Zeros(NkShape{4}), true);
+		float gd[4] = {1000.0f, -500.0f, 50.0f, -2000.0f};
+		p.SetGrad(NkTensor::FromData(NkShape{4}, gd, NkDType::NK_F32));
+
+		NkVector<NkVar> params1;
+		params1.PushBack(p);
+		const float clipVal = 5.0f;
+		optim::ClipGradients(params1, clipVal, optim::NkGradClipMode::NK_CLIP_BY_VALUE);
+
+		NkTensor g2 = p.Grad().Contiguous();
+		const float *gp = g2.DataAs<float>();
+		bool inRange = true;
+		for (int i = 0; i < 4; ++i)
+			if (gp[i] > clipVal + 1e-4f || gp[i] < -clipVal - 1e-4f)
+				inRange = false;
+		// La composante non saturante (50 -> clippée à +5, mais signe/borne exacts) doit
+		// être EXACTEMENT sur le seuil (signe positif préservé).
+		const bool sat = std::fabs(gp[2] - clipVal) < 1e-4f;
+		clipByValueOk = inRange && sat;
+		logger.Info("  [ {0} ] clip PAR VALEUR (seuil={1}) : brut=[{2},{3},{4},{5}] -> clippe=[{6},{7},{8},{9}]",
+					clipByValueOk ? "OK" : "KO", clipVal, gd[0], gd[1], gd[2], gd[3], gp[0], gp[1], gp[2], gp[3]);
+	}
+
+	bool clipByNormOk = false;
+	{
+		// 2) Clip PAR NORME GLOBALE : deux paramètres, norme globale énorme -> ramenée
+		//    sous le seuil, la DIRECTION relative entre les gradients est préservée.
+		float g1d[2] = {30.0f, 40.0f};		 // norme = 50
+		float g2d[3] = {0.0f, 0.0f, 60.0f}; // norme = 60 -> norme globale = sqrt(50^2+60^2)
+		NkVar p1 = NkVar::Leaf(NkTensor::Zeros(NkShape{2}), true);
+		NkVar p2 = NkVar::Leaf(NkTensor::Zeros(NkShape{3}), true);
+		p1.SetGrad(NkTensor::FromData(NkShape{2}, g1d, NkDType::NK_F32));
+		p2.SetGrad(NkTensor::FromData(NkShape{3}, g2d, NkDType::NK_F32));
+
+		NkVector<NkVar> params2;
+		params2.PushBack(p1);
+		params2.PushBack(p2);
+		const float clipVal2 = 10.0f;
+		const double preNorm =
+			optim::ClipGradients(params2, clipVal2, optim::NkGradClipMode::NK_CLIP_BY_GLOBAL_NORM);
+
+		NkTensor g1a = p1.Grad().Contiguous();
+		NkTensor g2a = p2.Grad().Contiguous();
+		double sumSq = 0.0;
+		{
+			const float *gp = g1a.DataAs<float>();
+			for (int i = 0; i < 2; ++i)
+				sumSq += (double)gp[i] * (double)gp[i];
+		}
+		{
+			const float *gp = g2a.DataAs<float>();
+			for (int i = 0; i < 3; ++i)
+				sumSq += (double)gp[i] * (double)gp[i];
+		}
+		const double postNorm = std::sqrt(sumSq);
+		const double expectedPreNorm = std::sqrt(50.0 * 50.0 + 60.0 * 60.0);
+		const bool preNormOk = std::fabs(preNorm - expectedPreNorm) < 1e-2;
+		const bool postNormOk = (postNorm <= clipVal2 + 1e-2) && (postNorm > clipVal2 * 0.99);
+
+		const float *gp1 = g1a.DataAs<float>();
+		const bool dirOk = std::fabs(((double)gp1[1] / (double)gp1[0]) - (40.0 / 30.0)) < 1e-3;
+
+		clipByNormOk = preNormOk && postNormOk && dirOk;
+		logger.Info("  [ {0} ] clip PAR NORME GLOBALE : norme avant={1:.4} (attendu {2:.4}), norme apres={3:.4} "
+					"(seuil={4}), direction preservee={5}",
+					clipByNormOk ? "OK" : "KO", preNorm, expectedPreNorm, postNorm, clipVal2, dirOk);
+	}
+
+	bool clipRegressionOk = false;
+	{
+		// 3) Non-régression : Step() SANS jamais toucher au clipping (comportement
+		//    historique) doit produire EXACTEMENT la même trajectoire que Step() avec
+		//    le clipping explicitement désactivé (NK_CLIP_NONE, la valeur par défaut) —
+		//    prouve que l'ajout du clipping n'a AUCUN effet de bord quand il n'est pas activé.
+		auto trainXorOnce = [](bool touchClipApiButDisabled) -> double {
+			const float Xd2[8] = {0, 0, 0, 1, 1, 0, 1, 1};
+			const float Yd2[4] = {0, 1, 1, 0};
+			NkTensor X2 = NkTensor::FromData(NkShape{4, 2}, Xd2, NkDType::NK_F32);
+			NkTensor Y2 = NkTensor::FromData(NkShape{4, 1}, Yd2, NkDType::NK_F32);
+			nn::NkDense d1(2, 8, 42u);
+			nn::NkDense d2(8, 1, 43u);
+			NkVector<NkVar> ps;
+			d1.Parameters(ps);
+			d2.Parameters(ps);
+			optim::NkSGD sgd(ps, 0.5f, 0.9f);
+			if (touchClipApiButDisabled)
+				sgd.SetGradClip(optim::NkGradClipMode::NK_CLIP_NONE, 1.0f); // désactivé explicitement
+			NkVar xin3 = NkVar::Leaf(X2, false), yt3 = NkVar::Leaf(Y2, false);
+			double lastLoss = 0.0;
+			for (int e = 0; e <= 500; ++e) {
+				NkVar h3 = nn::Tanh(d1.Forward(xin3));
+				NkVar o3 = nn::Sigmoid(d2.Forward(h3));
+				NkVar loss3 = nn::MSELoss(o3, yt3);
+				loss3.Backward();
+				sgd.Step();
+				lastLoss = loss3.Value().GetItem(NkShape{(int64)0});
+			}
+			return lastLoss;
+		};
+		const double lossA = trainXorOnce(false);
+		const double lossB = trainXorOnce(true);
+		clipRegressionOk = std::fabs(lossA - lossB) < 1e-12;
+		logger.Info("  [ {0} ] non-regression : perte sans toucher l'API clip = {1:.8}, perte avec "
+					"SetGradClip(NONE) explicite = {2:.8} (doivent etre IDENTIQUES)",
+					clipRegressionOk ? "OK" : "KO", lossA, lossB);
+	}
+
+	// =========================================================================
+	// NKNN : Dropout (masque Bernoulli inversé) — taux de zéros + no-op en éval.
+	// =========================================================================
+	logger.Info("-- NKNN : Dropout --");
+	bool dropoutOk = false;
+	{
+		const int64 N = 200000;
+		NkVar x = NkVar::Leaf(NkTensor::Full(NkShape{N}, 1.0), false);
+		const float p = 0.3f;
+		nn::NkDropout drop(p, 999u);
+
+		// Mode ENTRAÎNEMENT (par défaut) : vérifie le taux de zéros statistiquement.
+		NkVar y = drop.Forward(x);
+		NkTensor yc = y.Value().Contiguous();
+		const float *yp = yc.DataAs<float>();
+		int64 zeroCount = 0;
+		double sum = 0.0;
+		for (int64 i = 0; i < N; ++i) {
+			if (yp[i] == 0.0f)
+				++zeroCount;
+			sum += yp[i];
+		}
+		const double zeroRate = (double)zeroCount / (double)N;
+		const double mean = sum / (double)N; // doit rester ~1.0 (inversion : pas de biais d'échelle)
+		const bool trainStatsOk = (std::fabs(zeroRate - (double)p) < 0.01) && (std::fabs(mean - 1.0) < 0.02);
+
+		// Mode ÉVALUATION : NO-OP strict, zéro drop.
+		drop.SetTraining(false);
+		NkVar yEval = drop.Forward(x);
+		NkTensor ye = yEval.Value().Contiguous();
+		const float *yep = ye.DataAs<float>();
+		int64 zeroEval = 0;
+		for (int64 i = 0; i < N; ++i)
+			if (yep[i] == 0.0f)
+				++zeroEval;
+		const bool evalOk = (zeroEval == 0);
+
+		dropoutOk = trainStatsOk && evalOk;
+		logger.Info("  [ {0} ] Dropout(p={1}) : taux de zeros mesure={2:.4} (attendu ~{3}), moyenne={4:.4} "
+					"(attendu ~1.0) ; mode eval zeros={5}/{6}",
+					dropoutOk ? "OK" : "KO", p, zeroRate, p, mean, zeroEval, N);
+	}
+
+	// =========================================================================
+	// NKNN : NkMLP prêt à l'emploi (Sequential) — entraîné sur la classification 3
+	// classes déjà construite plus haut (Xc/labels/Oh, xin2/yoh) : résultat RÉEL.
+	// =========================================================================
+	logger.Info("-- NKNN : NkMLP pret a l'emploi (NkSequential) --");
+	bool mlpOk = false;
+	{
+		nn::NkMLP mlp(NkVector<uint32>{2, 16, 16, (uint32)NC}, /*dropoutP*/ 0.0f, 3131u);
+		NkVector<NkVar> mparams;
+		mlp.Parameters(mparams);
+		optim::NkAdam adamMlp(mparams, 0.02f);
+
+		double mlpLoss = 0.0;
+		for (int e = 0; e <= 2000; ++e) {
+			NkVar logitsMlp = mlp.Forward(xin2);
+			NkVar lossMlp = nn::CrossEntropyLoss(logitsMlp, yoh);
+			lossMlp.Backward();
+			adamMlp.Step();
+			mlpLoss = lossMlp.Value().GetItem(NkShape{(int64)0});
+		}
+
+		NkTensor logitsF = mlp.Forward(xin2).Value().Contiguous();
+		const float *flp = logitsF.DataAs<float>();
+		int mlpGood = 0;
+		for (uint32 i = 0; i < NP; ++i) {
+			int best = 0;
+			float bv = flp[i * NC];
+			for (uint32 c = 1; c < NC; ++c)
+				if (flp[i * NC + c] > bv) {
+					bv = flp[i * NC + c];
+					best = (int)c;
+				}
+			if (best == labels[i])
+				++mlpGood;
+		}
+		const double mlpAcc = (double)mlpGood / (double)NP;
+		mlpOk = (mlpAcc >= 0.95) && (mparams.Size() == 6); // 3 couches Dense (W+b chacune) = 6 tenseurs
+		logger.Info("  [ {0} ] NkMLP({1} parametres) : {2}/{3} = {4:.4}% exactitude (perte finale {5:.6})",
+					mlpOk ? "OK" : "KO", mparams.Size(), mlpGood, (int)NP, mlpAcc * 100.0, mlpLoss);
+	}
+
+	const int totalTests = 7;
+	const int pass = (xorOk ? 1 : 0) + (clsOk ? 1 : 0) + (clipByValueOk ? 1 : 0) + (clipByNormOk ? 1 : 0) +
+					  (clipRegressionOk ? 1 : 0) + (dropoutOk ? 1 : 0) + (mlpOk ? 1 : 0);
+	printf("\n=== Résultat : %d OK, %d échec(s) ===\n", pass, totalTests - pass);
+	return (pass == totalTests) ? 0 : 1;
 }

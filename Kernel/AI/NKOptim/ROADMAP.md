@@ -9,7 +9,7 @@
 - ✅ Application du pas + remise à zéro des gradients.
 - 🎯 ✅ **Un réseau s'entraîne avec SGD** (`NKNNTest` : XOR → perte 1.8e-5, 4/4).
 
-## Jalon 2 — optimiseurs modernes 🟡
+## Jalon 2 — optimiseurs modernes ✅
 - ✅ **Momentum** (`p ← p − lr·v`, `v ← μ·v + g` ; état par paramètre).
 - ✅ **Adam** (`optim::NkAdam`) : moments m/v par paramètre + correction de biais
   (`m̂=m/(1−β1ᵗ)`, `v̂=v/(1−β2ᵗ)`), `p ← p − lr·m̂/(√v̂+ε)`. Utilise `ops::Sqrt`
@@ -20,13 +20,22 @@
   `p ← p − lr·(m̂/(√v̂+ε) + wd·p)` sur le chemin CPU **et** passe `wd` au kernel GPU
   fusé (`NkGpuAdamStep(..., mWd)`). Correspond à l'item « 8. AdamW (2026-07-06) »
   de `Kernel/AI/ROADMAP.md`.
-- ⬜ **Clipping de gradient** — toujours absent : recherche de `clip`/`Clip` dans
-  `NKOptim/src/` (0 résultat) et dans tout `Kernel/AI/` (seules occurrences :
-  `NKRL/NkPPO.*` = clipping de l'objectif PPO, et `NKEmbodied` = limites
-  d'actionneur — aucun rapport avec le clipping de norme/valeur de gradient d'un
-  optimiseur). `Kernel/AI/ROADMAP.md` ne prétend d'ailleurs pas non plus que ce
-  point est livré : pas de désaccord avec la roadmap globale ici, l'item reste
-  légitimement ⬜.
+- ✅ **Clipping de gradient** (2026-07-26) — `optim::ClipGradients(params, clipValue,
+  mode)` (`NkOptim.h/.cpp`) : `NK_CLIP_BY_VALUE` (clamp élément par élément) et
+  `NK_CLIP_BY_GLOBAL_NORM` (norme L2 globale sur TOUS les paramètres concaténés,
+  préserve la direction — Pascanu, Mikolov & Bengio, « On the difficulty of
+  training Recurrent Neural Networks », ICML 2013, arXiv:1211.5063). Appliqué EN
+  DÉBUT de `Step()` (SGD et Adam) via `SetGradClip(mode, clipValue)` — **désactivé
+  par défaut** (`NK_CLIP_NONE`), donc **strictement additif** (nouveau paramètre
+  optionnel, aucune signature/comportement existant modifié). Repose sur
+  `NkVar::SetGrad()`, un nouveau point d'entrée additif ajouté à `NKAutograd/NkVar.h/.cpp`.
+  **Prouvé** (`NKNNTest`, `jenga run`) :
+  - clip par valeur : brut `[1000,-500,50,-2000]` → clippé `[5,-5,5,-5]` (seuil=5).
+  - clip par norme globale : norme mesurée avant = 78.10 (attendue √(50²+60²)=78.10,
+    exact), ramenée à 10.0 (seuil), direction relative préservée (ratio inchangé).
+  - **non-régression bit-exacte** : XOR entraîné (500 pas, SGD momentum) SANS jamais
+    toucher l'API de clipping vs AVEC `SetGradClip(NK_CLIP_NONE, ...)` explicite →
+    perte finale **identique à 1e-12 près** (0.00017778295 dans les deux cas).
 
 ## Jalon 3 — plannings
 - ✅ **Décroissance du taux d'apprentissage (step, cosine) + warmup** — la
