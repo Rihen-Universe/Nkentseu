@@ -29,7 +29,7 @@ namespace nkentseu {
 
 				void Render(nkui::NkUIContext &ctx, nkui::NkUIWindowManager &wm, nkui::NkUIDrawList &dl,
 							nkui::NkUIFont &font, nkui::NkUILayoutStack &ls, PatientLayer &patient,
-							nkui::NkUIRect rect) noexcept;
+							nkui::NkRect rect) noexcept;
 
 				// Constantes vitales saisies
 				nk_float32 GetHeartRate() const noexcept {

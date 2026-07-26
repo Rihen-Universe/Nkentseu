@@ -5,6 +5,19 @@
 namespace nkentseu {
 	namespace pv3de {
 
+		using namespace nkentseu::math;
+
+		// =====================================================================
+		// STUB Phase R1 (2026-07-25) — cf. ROADMAP.md "Rendu 3D". L'ancien code
+		// appelait NkBufferDesc::size/usage/cpuAccess (champs inexistants — le
+		// vrai NkBufferDesc utilise sizeBytes/type(NkBufferType)/usage
+		// (NkResourceUsage)/bindFlags) et cmd->BindUniformBuffer(handle, slot)
+		// (inexistant sur NkICommandBuffer — le vrai BindUniformBuffer vit sur
+		// NkIDevice et prend un NkDescSetHandle, pas un slot brut). Le CPU-side
+		// (poids blendshapes) reste fonctionnel ; le trajet GPU réel est reporté
+		// à la Phase R3 (réécriture sur le vrai NkBufferDesc/MapBuffer, branché
+		// comme entrée uniforme d'un matériau custom NKRenderer).
+		// =====================================================================
 		bool NkBSDriver::Init(NkIDevice *device, nk_uint32 count) noexcept {
 			mDevice = device;
 			mCount = NkMin(count, kMaxBlendshapes);
@@ -13,29 +26,14 @@ namespace nkentseu {
 			if (!mDevice)
 				return false;
 
-			// Créer un buffer GPU pour les poids
-			// Taille : kMaxBlendshapes * sizeof(float) aligné sur 16 bytes (std140)
-			NkBufferDesc bd;
-			bd.size = kMaxBlendshapes * sizeof(nk_float32);
-			bd.usage = NkBufferUsage::NK_UNIFORM_BUFFER;
-			bd.cpuAccess = NkCPUAccess::NK_CPU_WRITE;
-			bd.debugName = "BlendshapeWeights";
-			mGPUBuffer = mDevice->CreateBuffer(bd);
-
-			if (!mGPUBuffer.IsValid()) {
-				logger.Errorf("[NkBSDriver] CreateBuffer échoué\n");
-				return false;
-			}
-
-			logger.Infof("[NkBSDriver] Init — {} blendshapes\n", mCount);
+			logger.Warnf("[NkBSDriver] Upload GPU stubé (Phase R1) — {} blendshapes calculés en CPU "
+						 "uniquement, en attente de la réécriture NKRenderer (Phase R3)\n",
+						 mCount);
 			return true;
 		}
 
 		void NkBSDriver::Shutdown() noexcept {
-			if (mDevice && mGPUBuffer.IsValid()) {
-				mDevice->DestroyBuffer(mGPUBuffer);
-				mGPUBuffer = {};
-			}
+			mGPUBuffer = {};
 		}
 
 		void NkBSDriver::SetWeights(const nk_float32 *weights, nk_uint32 count) noexcept {
@@ -50,22 +48,15 @@ namespace nkentseu {
 		}
 
 		void NkBSDriver::Flush(NkICommandBuffer *cmd) noexcept {
-			if (!mDirty || !mDevice || !mGPUBuffer.IsValid())
-				return;
 			(void)cmd;
-			// Upload CPU → GPU via Map/Unmap
-			void *ptr = mDevice->MapBuffer(mGPUBuffer);
-			if (ptr) {
-				memcpy(ptr, mWeightsCPU, kMaxBlendshapes * sizeof(nk_float32));
-				mDevice->UnmapBuffer(mGPUBuffer);
-			}
+			// Stub Phase R1 : pas de buffer GPU réel tant que R3 n'a pas branché
+			// NkBSDriver sur le vrai NkBufferDesc/MapBuffer de NKRHI.
 			mDirty = false;
 		}
 
 		void NkBSDriver::Bind(NkICommandBuffer *cmd) noexcept {
-			if (!mGPUBuffer.IsValid())
-				return;
-			cmd->BindUniformBuffer(mGPUBuffer, kBindingSlot);
+			(void)cmd;
+			// Stub Phase R1 — no-op, cf. Flush().
 		}
 
 		void NkBSDriver::Unbind(NkICommandBuffer *cmd) noexcept {

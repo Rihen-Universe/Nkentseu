@@ -5,6 +5,8 @@
 namespace nkentseu {
 	namespace pv3de {
 
+		using namespace nkentseu::math;
+
 		void NkDiagnosticEngine::Init() {
 			RegisterBuiltinData();
 			logger.Infof("[NkDiagnosticEngine] Init — {} symptômes, {} pathologies\n", mSymptoms.Size(),
@@ -113,9 +115,9 @@ namespace nkentseu {
 		}
 
 		void NkDiagnosticEngine::RemoveSymptom(NkSymptomId id) {
-			for (nk_isize i = (nk_isize)mActiveSymptoms.Size() - 1; i >= 0; --i) {
+			for (isize i = (isize)mActiveSymptoms.Size() - 1; i >= 0; --i) {
 				if (mActiveSymptoms[i] == id) {
-					mActiveSymptoms.EraseAt(i);
+					mActiveSymptoms.RemoveAt(i);
 					break;
 				}
 			}
@@ -210,9 +212,9 @@ namespace nkentseu {
 			}
 
 			// Tri décroissant par probabilité (insertion sort — liste courte)
-			for (nk_isize i = 1; i < (nk_isize)state.differentialRanking.Size(); ++i) {
+			for (isize i = 1; i < (isize)state.differentialRanking.Size(); ++i) {
 				NkDiagnosisEntry key = state.differentialRanking[i];
-				nk_isize j = i - 1;
+				isize j = i - 1;
 				while (j >= 0 && state.differentialRanking[j].probability < key.probability) {
 					state.differentialRanking[j + 1] = state.differentialRanking[j];
 					--j;

@@ -25,9 +25,15 @@ namespace nkentseu {
 		// =====================================================================
 		// NkVarNode — cycle de vie refcompté
 		// =====================================================================
+
+		// Compteur de nœuds VIVANTS (diagnostic/tests — ex. prouver que le mode
+		// sans-gradient ne fait pas grossir le graphe). Thread-UNSAFE, documenté.
+		static int64 g_liveVarNodes = 0;
+
 		NkVarNode *NkVarNode::New() {
 			NkVarNode *n = Alloc().New<NkVarNode>();
 			n->refcount = 1;
+			++g_liveVarNodes;
 			return n;
 		}
 
@@ -43,7 +49,35 @@ namespace nkentseu {
 				Release(n->a);
 				Release(n->b);
 				Alloc().Delete(n);
+				--g_liveVarNodes;
 			}
+		}
+
+		int64 NkVarNode::LiveCount() {
+			return g_liveVarNodes;
+		}
+
+		// =====================================================================
+		// Mode « sans gradient » (inférence pure) — façon torch.no_grad().
+		// =====================================================================
+
+		// Flag global (thread-unsafe, documenté dans NkVar.h).
+		static bool g_gradEnabled = true;
+
+		bool IsGradEnabled() {
+			return g_gradEnabled;
+		}
+
+		void SetGradEnabled(bool enabled) {
+			g_gradEnabled = enabled;
+		}
+
+		NkNoGradGuard::NkNoGradGuard() : mPrevEnabled(g_gradEnabled) {
+			g_gradEnabled = false;
+		}
+
+		NkNoGradGuard::~NkNoGradGuard() {
+			g_gradEnabled = mPrevEnabled;
 		}
 
 		// =====================================================================
@@ -106,11 +140,35 @@ namespace nkentseu {
 				mNode->value = v;
 		}
 
+		void NkVar::SetGrad(const NkTensor &g) {
+			if (mNode)
+				mNode->grad = g;
+		}
+
+		NkVar NkVar::Detach() const {
+			NkVarNode *n = NkVarNode::New();
+			n->value = mNode ? mNode->value : kEmptyTensor; // copie légère (storage partagé)
+			n->op = NkAutoOp::NK_LEAF;
+			n->requiresGrad = false; // coupé du graphe : jamais de gradient au-delà
+			return NkVar(n);
+		}
+
 		// Construit un nœud d'opération : forward déjà calculé (`value`), parents
 		// retenus, requiresGrad propagé si un parent l'exige.
+		//
+		// Mode sans-gradient actif (SetGradEnabled(false)) : le résultat est une
+		// feuille ISOLÉE — aucun parent retenu, requiresGrad=false. La valeur (déjà
+		// calculée par l'appelant via ops::) reste correcte, mais rien n'est ajouté au
+		// graphe : les nœuds parents ne sont plus maintenus vivants par cette op et
+		// sont libérés dès que leurs propres handles NkVar sortent de portée.
 		NkVar NkMakeOp(NkAutoOp op, const NkTensor &value, NkVarNode *a, NkVarNode *b) {
 			NkVarNode *n = NkVarNode::New();
 			n->value = value;
+			if (!g_gradEnabled) {
+				n->op = NkAutoOp::NK_LEAF;
+				n->requiresGrad = false;
+				return NkVar(n);
+			}
 			n->op = op;
 			n->a = a;
 			NkVarNode::Retain(a);
@@ -750,6 +808,22 @@ namespace nkentseu {
 				case NkAutoOp::NK_EXP: // d/dx exp(x) = exp(x) = value
 					AccumGrad(n->a, ops::Mul(g, n->value));
 					break;
+
+				case NkAutoOp::NK_LOG: { // d/dx log(max(x,eps)) = 1/max(x,eps) (même eps que le forward, 1e-8)
+					NkTensor xc = ToCpuT(n->a->value).Contiguous();
+					NkTensor gc = ToCpuT(g).Contiguous();
+					NkTensor dx = NkTensor::Empty(xc.Shape());
+					const float *xp = xc.DataAs<float>();
+					const float *gp = gc.DataAs<float>();
+					float *dp = dx.DataAs<float>();
+					const int64 n2 = NkShapeNumel(xc.Shape());
+					for (int64 i = 0; i < n2; ++i) {
+						const float xi = xp[i] > 1e-8f ? xp[i] : 1e-8f;
+						dp[i] = gp[i] / xi;
+					}
+					AccumGrad(n->a, ToDevOf(dx, n->a->value));
+					break;
+				}
 				case NkAutoOp::NK_MULSCALAR: // d/dx (x·s) = s
 					AccumGrad(n->a, ops::MulScalar(g, n->fparam));
 					break;
@@ -1412,6 +1486,10 @@ namespace nkentseu {
 
 			NkVar Exp(const NkVar &a) {
 				return NkMakeOp(NkAutoOp::NK_EXP, ops::Exp(a.Value()), a.Node(), nullptr);
+			}
+
+			NkVar Log(const NkVar &a) {
+				return NkMakeOp(NkAutoOp::NK_LOG, ops::Log(a.Value()), a.Node(), nullptr);
 			}
 
 			NkVar MulScalar(const NkVar &a, double s) {

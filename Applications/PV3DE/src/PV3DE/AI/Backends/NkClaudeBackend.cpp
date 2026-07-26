@@ -26,7 +26,7 @@ namespace nkentseu {
 					mApiKey = NkString(envKey);
 			}
 
-			mApiKeySet = !mApiKey.IsEmpty();
+			mApiKeySet = !mApiKey.Empty();
 
 			if (mApiKeySet) {
 				logger.Infof("[ClaudeBackend] Clé API trouvée — modèle: {}\n", mModel.CStr());
@@ -81,7 +81,7 @@ namespace nkentseu {
 			}
 			json += "]";
 
-			if (!systemContent.IsEmpty()) {
+			if (!systemContent.Empty()) {
 				json += ",\"system\":\"";
 				const char *c = systemContent.CStr();
 				while (*c) {
@@ -145,7 +145,7 @@ namespace nkentseu {
 			}
 
 			out.text = content;
-			out.success = !content.IsEmpty();
+			out.success = !content.Empty();
 			return out.success;
 		}
 

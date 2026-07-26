@@ -490,6 +490,8 @@ namespace nkentseu {
 				return "imageCube";
 			case NkSLBaseType::NK_IMAGE2D_ARRAY:
 				return "image2DArray";
+			case NkSLBaseType::NK_HALF: // FP16 natif (additif)
+				return "half";
 			default:
 				return "unknown";
 		}
@@ -647,6 +649,11 @@ namespace nkentseu {
 				NkSLBaseType t;
 		} kConstructors[] = {{"float", NkSLBaseType::NK_FLOAT},	  {"int", NkSLBaseType::NK_INT},
 							 {"uint", NkSLBaseType::NK_UINT},	  {"bool", NkSLBaseType::NK_BOOL},
+							 // FP16 natif (additif) — conversion EXPLICITE uniquement (pas
+							 // d'entrée dans IsImplicitlyConvertible) : mirrors le comportement
+							 // réel GLSL float16_t (narrowing float->half toujours explicite ;
+							 // on reste conservateur aussi pour le widening half->float ici).
+							 {"half", NkSLBaseType::NK_HALF},
 							 {"vec2", NkSLBaseType::NK_VEC2},	  {"vec3", NkSLBaseType::NK_VEC3},
 							 {"vec4", NkSLBaseType::NK_VEC4},	  {"ivec2", NkSLBaseType::NK_IVEC2},
 							 {"ivec3", NkSLBaseType::NK_IVEC3},	  {"ivec4", NkSLBaseType::NK_IVEC4},

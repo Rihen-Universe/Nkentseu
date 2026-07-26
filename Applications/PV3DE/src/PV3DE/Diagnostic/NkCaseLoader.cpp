@@ -1,5 +1,6 @@
 #include "NkCaseLoader.h"
 #include "NKSerialization/JSON/NkJSONReader.h"
+#include "NKSerialization/JSON/NkJSONWriter.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKLogger/NkLog.h"
@@ -9,12 +10,23 @@
 namespace nkentseu {
 	namespace pv3de {
 
+		using namespace nkentseu::math;
+
 		// =====================================================================
 		bool NkCaseLoader::Load(const char *path, NkCaseData &out) noexcept {
-			NkJSONReader reader;
-			NkArchive archive;
-			if (!reader.Read(archive, path)) {
+			// API réelle : NkJSONReader::ReadArchive() est statique et parse du texte
+			// JSON déjà en mémoire (pas un chemin fichier) — on lit d'abord le fichier
+			// via NkFile::ReadAllText, cf. NKSerialization/JSON/NkJSONReader.h.
+			NkString content = NkFile::ReadAllText(path);
+			if (content.Empty()) {
 				logger.Errorf("[NkCaseLoader] Lecture échouée: {}\n", path);
+				return false;
+			}
+
+			NkArchive archive;
+			NkString err;
+			if (!NkJSONReader::ReadArchive(content.View(), archive, &err)) {
+				logger.Errorf("[NkCaseLoader] Parse JSON échoué: {} ({})\n", path, err.CStr());
 				return false;
 			}
 
@@ -27,83 +39,83 @@ namespace nkentseu {
 				out.name = s;
 			if (archive.GetString("author", s))
 				out.author = s;
-			if (archive.GetInt("difficulty", i64))
+			if (archive.GetInt64("difficulty", i64))
 				out.difficulty = (nk_uint32)i64;
-			if (archive.GetInt("correct_diagnosis", i64))
+			if (archive.GetInt64("correct_diagnosis", i64))
 				out.correctDiagnosis = (NkDiseaseId)i64;
 
 			// Patient
 			NkArchive patArc;
-			if (archive.GetNode("patient", patArc)) {
+			if (archive.GetObject("patient", patArc)) {
 				if (patArc.GetString("name", s))
 					out.patient.name = s;
 				if (patArc.GetString("gender", s))
 					out.patient.gender = s;
-				if (patArc.GetInt("age", i64))
+				if (patArc.GetInt64("age", i64))
 					out.patient.age = (nk_uint32)i64;
 			}
 
 			// Initial state
 			NkArchive initArc;
-			if (archive.GetNode("initial_state", initArc)) {
+			if (archive.GetObject("initial_state", initArc)) {
 				nk_float32 fv = 0.f;
-				if (initArc.GetFloat("heart_rate", fv))
+				if (initArc.GetFloat32("heart_rate", fv))
 					out.initialState.heartRate = fv;
-				if (initArc.GetFloat("temperature", fv))
+				if (initArc.GetFloat32("temperature", fv))
 					out.initialState.temperature = fv;
-				if (initArc.GetFloat("spo2", fv))
+				if (initArc.GetFloat32("spo2", fv))
 					out.initialState.spo2 = fv;
-				if (initArc.GetFloat("pain_level", fv))
+				if (initArc.GetFloat32("pain_level", fv))
 					out.initialState.painLevel = fv;
 
 				nk_int64 symCount = 0;
-				initArc.GetInt("symptom_count", symCount);
+				(void)initArc.GetInt64("symptom_count", symCount);
 				for (nk_int64 k = 0; k < symCount; ++k) {
 					NkString key = NkFormat("symptom_{}", k);
 					nk_int64 sid = 0;
-					if (initArc.GetInt(key.CStr(), sid))
+					if (initArc.GetInt64(key.CStr(), sid))
 						out.initialState.symptoms.PushBack((NkSymptomId)sid);
 				}
 			}
 
 			// Events
 			nk_int64 evCount = 0;
-			archive.GetInt("event_count", evCount);
+			(void)archive.GetInt64("event_count", evCount);
 			for (nk_int64 k = 0; k < evCount; ++k) {
 				NkString key = NkFormat("event_{}", k);
 				NkArchive evArc;
-				if (!archive.GetNode(key.CStr(), evArc))
+				if (!archive.GetObject(key.CStr(), evArc))
 					continue;
 
 				NkCaseEvent ev;
 				nk_float32 fv = 0.f;
 				NkString sv;
-				if (evArc.GetFloat("time_s", fv))
+				if (evArc.GetFloat32("time_s", fv))
 					ev.timeSeconds = fv;
 				if (evArc.GetString("type", sv))
 					ev.type = ParseEventType(sv.CStr());
-				if (evArc.GetFloat("value", fv))
+				if (evArc.GetFloat32("value", fv))
 					ev.floatValue = fv;
 				if (evArc.GetString("value_str", sv))
 					ev.stringValue = sv;
-				if (evArc.GetInt("symptom_id", i64))
+				if (evArc.GetInt64("symptom_id", i64))
 					ev.symptomId = (NkSymptomId)i64;
-				if (evArc.GetFloat("heart_rate", fv))
+				if (evArc.GetFloat32("heart_rate", fv))
 					ev.heartRate = fv;
-				if (evArc.GetFloat("temperature", fv))
+				if (evArc.GetFloat32("temperature", fv))
 					ev.temperature = fv;
-				if (evArc.GetFloat("spo2", fv))
+				if (evArc.GetFloat32("spo2", fv))
 					ev.spo2 = fv;
 				out.events.PushBack(ev);
 			}
 
 			// QA pairs
 			nk_int64 qaCount = 0;
-			archive.GetInt("qa_count", qaCount);
+			(void)archive.GetInt64("qa_count", qaCount);
 			for (nk_int64 k = 0; k < qaCount; ++k) {
 				NkString key = NkFormat("qa_{}", k);
 				NkArchive qaArc;
-				if (!archive.GetNode(key.CStr(), qaArc))
+				if (!archive.GetObject(key.CStr(), qaArc))
 					continue;
 
 				NkQAPair qa;
@@ -112,14 +124,14 @@ namespace nkentseu {
 				if (qaArc.GetString("answer", s))
 					qa.answer = s;
 				nk_float32 fv = 0.f;
-				if (qaArc.GetFloat("emotion_intensity", fv))
+				if (qaArc.GetFloat32("emotion_intensity", fv))
 					qa.emotionIntensity = fv;
 				out.qaPairs.PushBack(qa);
 			}
 
 			// Objectives
 			nk_int64 objCount = 0;
-			archive.GetInt("objective_count", objCount);
+			(void)archive.GetInt64("objective_count", objCount);
 			for (nk_int64 k = 0; k < objCount; ++k) {
 				NkString key = NkFormat("obj_{}", k);
 				if (archive.GetString(key.CStr(), s))
@@ -135,23 +147,25 @@ namespace nkentseu {
 		bool NkCaseLoader::Validate(const char *path) const noexcept {
 			NkCaseData tmp;
 			NkCaseLoader loader;
-			return loader.Load(path, tmp) && !tmp.id.IsEmpty();
+			return loader.Load(path, tmp) && !tmp.id.Empty();
 		}
 
 		void NkCaseLoader::ScanDirectory(const char *dir, NkVector<NkString> &out) const noexcept {
-			NkDirectory d;
-			if (!d.Open(dir))
+			// API réelle : NkDirectory expose des méthodes statiques (pas d'instance
+			// à Open()) — GetFiles(path, pattern) retourne directement les chemins.
+			if (!NkDirectory::Exists(dir))
 				return;
-			NkVector<NkString> files;
-			d.GetFiles(files, ".nkcase");
+			NkVector<NkString> files = NkDirectory::GetFiles(dir, "*.nkcase");
 			for (nk_usize i = 0; i < files.Size(); ++i)
 				out.PushBack(files[i]);
 		}
 
 		bool NkCaseLoader::LoadMeta(const char *path, NkCaseData &out) const noexcept {
-			NkJSONReader reader;
+			NkString content = NkFile::ReadAllText(path);
+			if (content.Empty())
+				return false;
 			NkArchive archive;
-			if (!reader.Read(archive, path))
+			if (!NkJSONReader::ReadArchive(content.View(), archive))
 				return false;
 			NkString s;
 			nk_int64 i64 = 0;
@@ -161,7 +175,7 @@ namespace nkentseu {
 				out.name = s;
 			if (archive.GetString("author", s))
 				out.author = s;
-			if (archive.GetInt("difficulty", i64))
+			if (archive.GetInt64("difficulty", i64))
 				out.difficulty = (nk_uint32)i64;
 			return true;
 		}
@@ -172,37 +186,37 @@ namespace nkentseu {
 			archive.SetString("id", c.id.CStr());
 			archive.SetString("name", c.name.CStr());
 			archive.SetString("author", c.author.CStr());
-			archive.SetInt("difficulty", (nk_int64)c.difficulty);
-			archive.SetInt("correct_diagnosis", (nk_int64)c.correctDiagnosis);
+			archive.SetInt64("difficulty", (nk_int64)c.difficulty);
+			archive.SetInt64("correct_diagnosis", (nk_int64)c.correctDiagnosis);
 
 			// Patient
 			NkArchive patArc;
 			patArc.SetString("name", c.patient.name.CStr());
 			patArc.SetString("gender", c.patient.gender.CStr());
-			patArc.SetInt("age", (nk_int64)c.patient.age);
-			archive.SetNode("patient", patArc);
+			patArc.SetInt64("age", (nk_int64)c.patient.age);
+			archive.SetObject("patient", patArc);
 
 			// Initial state
 			NkArchive initArc;
-			initArc.SetFloat("heart_rate", c.initialState.heartRate);
-			initArc.SetFloat("temperature", c.initialState.temperature);
-			initArc.SetFloat("spo2", c.initialState.spo2);
-			initArc.SetFloat("pain_level", c.initialState.painLevel);
-			initArc.SetInt("symptom_count", (nk_int64)c.initialState.symptoms.Size());
+			initArc.SetFloat32("heart_rate", c.initialState.heartRate);
+			initArc.SetFloat32("temperature", c.initialState.temperature);
+			initArc.SetFloat32("spo2", c.initialState.spo2);
+			initArc.SetFloat32("pain_level", c.initialState.painLevel);
+			initArc.SetInt64("symptom_count", (nk_int64)c.initialState.symptoms.Size());
 			for (nk_usize i = 0; i < c.initialState.symptoms.Size(); ++i) {
 				NkString k = NkFormat("symptom_{}", i);
-				initArc.SetInt(k.CStr(), (nk_int64)c.initialState.symptoms[i]);
+				initArc.SetInt64(k.CStr(), (nk_int64)c.initialState.symptoms[i]);
 			}
-			archive.SetNode("initial_state", initArc);
+			archive.SetObject("initial_state", initArc);
 
 			// Events
-			archive.SetInt("event_count", (nk_int64)c.events.Size());
+			archive.SetInt64("event_count", (nk_int64)c.events.Size());
 			for (nk_usize i = 0; i < c.events.Size(); ++i) {
 				const auto &ev = c.events[i];
 				NkArchive evArc;
-				evArc.SetFloat("time_s", ev.timeSeconds);
-				evArc.SetFloat("value", ev.floatValue);
-				evArc.SetInt("symptom_id", (nk_int64)ev.symptomId);
+				evArc.SetFloat32("time_s", ev.timeSeconds);
+				evArc.SetFloat32("value", ev.floatValue);
+				evArc.SetInt64("symptom_id", (nk_int64)ev.symptomId);
 				// Type en string
 				switch (ev.type) {
 					case NkCaseEventType::AddSymptom:
@@ -229,29 +243,32 @@ namespace nkentseu {
 				}
 				evArc.SetString("value_str", ev.stringValue.CStr());
 				NkString k = NkFormat("event_{}", i);
-				archive.SetNode(k.CStr(), evArc);
+				archive.SetObject(k.CStr(), evArc);
 			}
 
 			// QA
-			archive.SetInt("qa_count", (nk_int64)c.qaPairs.Size());
+			archive.SetInt64("qa_count", (nk_int64)c.qaPairs.Size());
 			for (nk_usize i = 0; i < c.qaPairs.Size(); ++i) {
 				NkArchive qa;
 				qa.SetString("question", c.qaPairs[i].question.CStr());
 				qa.SetString("answer", c.qaPairs[i].answer.CStr());
-				qa.SetFloat("emotion_intensity", c.qaPairs[i].emotionIntensity);
+				qa.SetFloat32("emotion_intensity", c.qaPairs[i].emotionIntensity);
 				NkString k = NkFormat("qa_{}", i);
-				archive.SetNode(k.CStr(), qa);
+				archive.SetObject(k.CStr(), qa);
 			}
 
 			// Objectives
-			archive.SetInt("objective_count", (nk_int64)c.objectives.Size());
+			archive.SetInt64("objective_count", (nk_int64)c.objectives.Size());
 			for (nk_usize i = 0; i < c.objectives.Size(); ++i) {
 				NkString k = NkFormat("obj_{}", i);
 				archive.SetString(k.CStr(), c.objectives[i].CStr());
 			}
 
-			NkJSONWriter writer;
-			return writer.Write(archive, path);
+			// API réelle : NkJSONWriter::WriteArchive() est statique et retourne le
+			// texte JSON en mémoire (pas d'écriture fichier intégrée) — on écrit
+			// nous-mêmes via NkFile::WriteAllText, cf. NKSerialization/JSON/NkJSONWriter.h.
+			NkString json = NkJSONWriter::WriteArchive(archive, true);
+			return NkFile::WriteAllText(path, json);
 		}
 
 		// =====================================================================
@@ -276,10 +293,12 @@ namespace nkentseu {
 				// Tokeniser par ','
 				const char *p = keys.CStr();
 				while (p && *p) {
-					const char *comma = NkStrChr(p, ',');
-					nk_usize len = comma ? (nk_usize)(comma - p) : NkStrLen(p);
+					const char *comma = strchr(p, ',');
+					nk_usize len = comma ? (nk_usize)(comma - p) : strlen(p);
 					char keyword[64] = {};
-					NkStrNCpy(keyword, p, NkMin(len, (nk_usize)63));
+					nk_usize copyLen = NkMin(len, (nk_usize)63);
+					strncpy(keyword, p, copyLen);
+					keyword[copyLen] = '\0';
 					if (q.Contains(keyword))
 						return &c.qaPairs[i];
 					p = comma ? comma + 1 : nullptr;
@@ -289,19 +308,19 @@ namespace nkentseu {
 		}
 
 		NkCaseEventType NkCaseLoader::ParseEventType(const char *type) const noexcept {
-			if (NkStrEqual(type, "add_symptom"))
+			if (strcmp(type, "add_symptom") == 0)
 				return NkCaseEventType::AddSymptom;
-			if (NkStrEqual(type, "remove_symptom"))
+			if (strcmp(type, "remove_symptom") == 0)
 				return NkCaseEventType::RemoveSymptom;
-			if (NkStrEqual(type, "set_pain"))
+			if (strcmp(type, "set_pain") == 0)
 				return NkCaseEventType::SetPain;
-			if (NkStrEqual(type, "set_vitals"))
+			if (strcmp(type, "set_vitals") == 0)
 				return NkCaseEventType::SetVitals;
-			if (NkStrEqual(type, "force_emotion"))
+			if (strcmp(type, "force_emotion") == 0)
 				return NkCaseEventType::ForceEmotion;
-			if (NkStrEqual(type, "play_speech"))
+			if (strcmp(type, "play_speech") == 0)
 				return NkCaseEventType::PlaySpeech;
-			if (NkStrEqual(type, "set_breath"))
+			if (strcmp(type, "set_breath") == 0)
 				return NkCaseEventType::SetBreathPattern;
 			return NkCaseEventType::AddSymptom;
 		}

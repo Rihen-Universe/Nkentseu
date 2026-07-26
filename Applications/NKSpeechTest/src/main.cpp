@@ -6,6 +6,7 @@
 #include "NKSpeech/NkGriffinLim.h"
 #include "NKSpeech/NkVoiceSynth.h"
 #include "NKSpeech/NkG2P.h"
+#include "NKSpeech/NkTextNorm.h"
 #include "NKContainers/String/Encoding/NkUTF8.h"
 
 #include <cstdio>
@@ -91,6 +92,44 @@ int main() {
 			   ok ? "OK " : "FAIL");
 		if (ok)
 			++nbOk;
+	}
+
+	{
+		++nbTotal;
+		const bool ok = ai::NkTextNorm::SelfTest();
+		printf("[ %s ] NkTextNorm : normalisation texte front-end TTS fr/en (nombres cardinaux "
+			   "entiers/decimaux/negatifs sources Wikipedia \"Names of large numbers\" + regles "
+			   "d'accord francaises sourcees, ponctuation -> pauses, abreviations sourcees)\n",
+			   ok ? "OK " : "FAIL");
+		if (ok)
+			++nbOk;
+	}
+
+	// Demo lisible de NkTextNorm : nombres/ponctuation -> texte "parlable", puis
+	// CHAINAGE reel avec NkG2P::ToPhonemes (pas de methode "Convert" dans NkG2P :
+	// verifie, l'API reelle est ToPhonemes(NkString, NkG2PLang)).
+	{
+		printf("\n-- NkTextNorm demo (fr/en, chaine avec NkG2P::ToPhonemes) --\n");
+
+		struct DemoCase {
+			const char *text;
+			ai::NkTextNormLang lang;
+			ai::NkG2PLang g2pLang;
+		};
+		DemoCase demos[4] = {
+			{"J'ai 21 ans.", ai::NkTextNormLang::Fr, ai::NkG2PLang::Fr},
+			{"Le prix est 3,14 euros !", ai::NkTextNormLang::Fr, ai::NkG2PLang::Fr},
+			{"I have 123 books.", ai::NkTextNormLang::En, ai::NkG2PLang::En},
+			{"Dr Smith paid 3.5 dollars, thanks.", ai::NkTextNormLang::En, ai::NkG2PLang::En},
+		};
+		for (int k = 0; k < 4; ++k) {
+			NkString flat = ai::NkTextNorm::NormalizeToText(NkString(demos[k].text), demos[k].lang);
+			printf("  \"%s\" -> normalise: \"%s\"\n", demos[k].text, flat.CStr());
+			printf("           -> G2P: ");
+			PrintPhonemes(ai::NkG2P::ToPhonemes(flat, demos[k].g2pLang));
+			printf("\n");
+		}
+		printf("\n");
 	}
 
 	// Demo lisible du G2P : mots REELS bbj (voir NkG2P.h SOURCES) -> phonemes.

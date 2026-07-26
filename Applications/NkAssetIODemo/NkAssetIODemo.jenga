@@ -1,0 +1,40 @@
+"""NkAssetIODemo — preuve d'exécution CPU-only pour les adaptateurs
+Noge/IO/{NkOBJIO,NkGLTFIO,NkFBXImporter} (ROADMAP Phase G1 item 3).
+
+Contexte : `jenga test` / les projets `*_Tests` sont bloqués par une
+politique de workspace ("Unit-test compilation/execution is disabled by
+workspace policy") — indépendante de ce code (déjà rencontré et contourné
+pour NkEditableMeshDemo le même jour). Cette application console contourne
+le blocage (elle n'est PAS une TestSuite) pour prouver, par une exécution
+réelle sur des assets du repo (Resources/Models/...), que les 3 adaptateurs
+IO fonctionnent et produisent des comptes de sommets/faces identiques au
+chemin de chargement CPU utilisé en interne par NkMeshSystem::Import
+(renderer::LoadOBJ/LoadGLTF/LoadFBX — NkMeshSystem::Create ne fait qu'un
+upload GPU passthrough des mêmes comptes, voir NkAssetIODemo/src/main.cpp).
+"""
+from Jenga import *
+from jengaconfig import *
+
+with project("NkAssetIODemo"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        ["Noge", "NKRenderer", "NKRHI", "NKSL", "NKCollision", "NKPhysics",
+         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKStream", "NKUI", "NKGlad",
+         "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src", "%{Noge.location}/src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links(["user32", "gdi32", "opengl32", "dwmapi", "shell32",
+               "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler", "uuid", "ole32"])

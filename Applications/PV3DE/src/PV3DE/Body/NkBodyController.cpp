@@ -5,6 +5,8 @@
 namespace nkentseu {
 	namespace pv3de {
 
+		using namespace nkentseu::math;
+
 		void NkBodyController::Init() {
 			mBreath.rate = 16.f;
 			mBreath.amplitude = 0.30f;
@@ -77,9 +79,9 @@ namespace nkentseu {
 
 			// Avancement de la phase (cycle sinusoïdal)
 			nk_float32 freq = mBreath.rate / 60.f; // cycles/s
-			mBreathPhase += NkTwoPi * freq * dt;
-			if (mBreathPhase > NkTwoPi)
-				mBreathPhase -= NkTwoPi;
+			mBreathPhase += (2.0f * (float32)NkPi) * freq * dt;
+			if (mBreathPhase > (2.0f * (float32)NkPi))
+				mBreathPhase -= (2.0f * (float32)NkPi);
 
 			// Déplacement thoracique : sin déphasé pour effet organique
 			mChestDisp = mBreath.amplitude * (0.6f * NkSin(mBreathPhase) + 0.3f * NkSin(mBreathPhase * 2.f + 0.4f) +

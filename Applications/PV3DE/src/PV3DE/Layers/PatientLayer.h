@@ -12,7 +12,7 @@
 //        → CaseRunner      (cas cliniques scriptés)
 // =============================================================================
 
-#include "Noge/Core/Layer.h"
+#include "Noge/Core/NkLayer.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKMath/NKMath.h"
@@ -31,7 +31,7 @@ using namespace nkentseu::math;
 namespace nkentseu {
 	namespace pv3de {
 
-		class PatientLayer : public nkentseu::Layer {
+		class PatientLayer : public nkentseu::NkLayer {
 			public:
 				PatientLayer(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd) noexcept;
 				~PatientLayer() override;

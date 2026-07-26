@@ -45,17 +45,15 @@
 #include "Noge/Modeling/NkUndoStack.h"
 
 namespace nkentseu {
-	// [FIX 2026-07-24] `using namespace math;` remplacé par des `using`
-	// ciblés (voir le commentaire complet dans Noge/Color/NkColorManager.h) :
-	// un using-directive en portée namespace fuit vers le reste de la unité
-	// de compilation, y compris VERS L'ARRIÈRE dans les fichiers inclus après
-	// lui -- c'est précisément ce qui rendait `NkColor` ambigu à l'intérieur
-	// même de Noge/Color/NkColorManager.h (inclus juste au-dessus) tant que
-	// NkVectorPath.h/NkLayerStack.h faisaient encore `using namespace math;`
-	// avant lui dans la même unité de compilation. `NkColor` lui-même N'EST
-	// PAS importé ici : toutes ses utilisations dans ce fichier (NkGuide,
-	// NkGrid, NkArtboard::background) sont qualifiées explicitement en
-	// `nkentseu::NkColor`.
+	// [FIX 2026-07-24, résolu 2026-07-25] `using namespace math;` avait été
+	// remplacé par des `using` ciblés car l'ancienne classe dupliquée
+	// `nkentseu::NkColor` (Color/NkColorManager.h) rendait `NkColor` ambigu
+	// avec `nkentseu::math::NkColor` dès qu'un using-directive namespace était
+	// actif (voir historique -- doublon supprimé le 2026-07-25, la classe
+	// couleur du moteur est maintenant uniquement `nkentseu::math::NkColor`/
+	// `NkColorF`). Les `using` ciblés sont conservés par choix de style (évite
+	// la pollution `using namespace`) : NkGuide/NkGrid/NkArtboard::background
+	// qualifient désormais explicitement `math::NkColorF`.
 	using math::NkVec2f;
 	using math::NkMat3f;
 	using math::NkAABB2f;
@@ -178,14 +176,11 @@ namespace nkentseu {
 			enum class Orientation : uint8 { Horizontal, Vertical };
 			Orientation orientation = Orientation::Horizontal;
 			float32 position = 0.f; ///< Position en unités document
-			// [FIX 2026-07-24] `NkColor` qualifié explicitement : ambigu sinon
-			// entre `nkentseu::NkColor` (Color/NkColorManager.h, inclus plus
-			// haut) et `nkentseu::math::NkColor` (NKMath/NkColor.h, visible via
-			// `using namespace math;` ligne ~48 de ce fichier) -- seul
-			// `nkentseu::NkColor` a `FromSRGB()`, mais la résolution du NOM
-			// `NkColor` lui-même échoue (ambigu) avant même de regarder ses
-			// membres, d'où la qualification explicite.
-			nkentseu::NkColor color = nkentseu::NkColor::FromSRGB(0.3f, 0.6f, 1.f);
+			// [FUSION 2026-07-25] L'ancienne classe dupliquée `nkentseu::NkColor`
+			// (Color/NkColorManager.h) a été supprimée -- plus d'ambiguïté avec
+			// `nkentseu::math::NkColor`. `FromSRGB()` vit maintenant sur
+			// `math::NkColorF` (seule classe couleur flottante du moteur).
+			math::NkColorF color = math::NkColorF::FromSRGB(0.3f, 0.6f, 1.f);
 			bool locked = false;
 			bool visible = true;
 	};
@@ -198,9 +193,9 @@ namespace nkentseu {
 			Type type = Type::Lines;
 			float32 spacing = 10.f; ///< Espacement en unités document
 			uint32 divisions = 4;	///< Subdivisions de la grille principale
-			// [FIX 2026-07-24] Qualification explicite -- même raison que NkGuide::color ci-dessus.
-			nkentseu::NkColor color = nkentseu::NkColor::FromSRGB(0.7f, 0.7f, 0.9f, 0.5f);
-			nkentseu::NkColor subColor = nkentseu::NkColor::FromSRGB(0.8f, 0.8f, 0.95f, 0.3f);
+			// [FUSION 2026-07-25] Même raison que NkGuide::color ci-dessus.
+			math::NkColorF color = math::NkColorF::FromSRGB(0.7f, 0.7f, 0.9f, 0.5f);
+			math::NkColorF subColor = math::NkColorF::FromSRGB(0.8f, 0.8f, 0.95f, 0.3f);
 			bool visible = true;
 			bool snapEnabled = true;
 			float32 snapRadius = 8.f; ///< Rayon de snap en pixels écran
@@ -230,8 +225,9 @@ namespace nkentseu {
 			NkString name;
 			float32 width = 1920.f;
 			float32 height = 1080.f;
-			// [FIX 2026-07-24] Qualification explicite -- même raison que NkGuide::color plus haut.
-			nkentseu::NkColor background = nkentseu::NkColor::White();
+			// [FUSION 2026-07-25] Même raison que NkGuide::color plus haut ;
+			// `White()` (factory Noge) -> `math::NkColor::White` (constante 8-bit) convertie.
+			math::NkColorF background = math::NkColor::White.ToColorF();
 			bool clipContent = true; ///< Écrête le contenu aux bords
 
 			// ── Calques ──────────────────────────────────────────────────────

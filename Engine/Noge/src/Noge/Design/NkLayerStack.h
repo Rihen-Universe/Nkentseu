@@ -35,12 +35,11 @@
 #include "Noge/Design/Vector/NkVectorPath.h"
 
 namespace nkentseu {
-	// [FIX 2026-07-24] `using namespace math;` remplacé par des `using`
-	// ciblés -- même raison que Noge/Design/Vector/NkVectorPath.h (voir le
-	// commentaire complet dans Noge/Color/NkColorManager.h) : un
-	// using-directive en portée namespace fuit vers le reste de la unité de
-	// compilation et rend `NkColor` ambigu dès que NkColorManager.h est
-	// inclus plus loin dans le même .cpp.
+	// [FIX 2026-07-24, résolu 2026-07-25] `using namespace math;` remplacé
+	// par des `using` ciblés -- même raison que Noge/Design/Vector/
+	// NkVectorPath.h. La classe dupliquée `nkentseu::NkColor` (Color/
+	// NkColorManager.h) qui causait l'ambiguïté a été supprimée le
+	// 2026-07-25 ; les `using` ciblés sont conservés par choix de style.
 	using math::NkVec2f;
 	using math::NkRectF;
 

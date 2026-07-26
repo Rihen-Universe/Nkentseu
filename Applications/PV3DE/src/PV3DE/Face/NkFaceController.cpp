@@ -7,6 +7,8 @@
 namespace nkentseu {
 	namespace pv3de {
 
+		using namespace nkentseu::math;
+
 		NkFaceController::NkFaceController() {
 			for (nk_uint32 i = 0; i < kAUCount; ++i) {
 				mAUs[i].id = static_cast<NkActionUnitId>(i + 1);

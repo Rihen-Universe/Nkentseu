@@ -68,6 +68,10 @@ AAC/Opus from-scratch dans NKAudio = travail futur.
 - `src/NKSpeech/NkAsrModel.h` — ASR acoustique (BiGRU + CTC), header-only. ✅
 - `src/NKSpeech/NkG2P.h/.cpp` — **G2P rule-based fr/en/bbj** (texte → phonèmes + tons). bbj = implémentation
   principale, sources vérifiées (voir section dédiée ci-dessus et bas de `NkG2P.h`). ✅
+- `src/NKSpeech/NkTextNorm.h/.cpp` — **normalisation de texte front-end TTS fr/en** (nombres cardinaux
+  entiers/décimaux/négatifs en toutes lettres, ponctuation → pauses symboliques avec durée, quelques
+  abréviations sourcées) — EN AMONT du G2P (`NkG2P` ignore les chiffres, cf. sources en tête de
+  `NkTextNorm.h`). bbj hors périmètre (numération non sourcée). ✅
 - `src/NKSpeech/NkGriffinLim.h/.cpp` — vocodeur Griffin-Lim (spectrogramme → onde). ✅
 - `src/NKSpeech/NkVoiceSynth.h/.cpp` — synthèse par formants (source-filtre) → onde audible. ✅
 - `src/NKSpeech/NkASR.h` — spec haut-niveau (lexique/LM, scaffold restant).
@@ -76,7 +80,8 @@ AAC/Opus from-scratch dans NKAudio = travail futur.
 
 ## Ordre d'implémentation (cf. ROADMAP Phase 8)
 1. ✅ `NkAudioFeatures` (MFCC). 2. ✅ `NkAsrModel` acoustique (BiGRU+CTC). 3. ⬜ Lexique/LM.
-4. 🟡 `NkTTS` front-end — ✅ **G2P** (`NkG2P`) livré ; reste normalisation texte + durées.
+4. 🟡 `NkTTS` front-end — ✅ **G2P** (`NkG2P`) livré ; ✅ **normalisation texte** (`NkTextNorm`,
+   nombres/ponctuation) livrée ; reste durées de phonèmes (timing model) et l'assemblage `NkTTS` complet.
 5. 🟡 `NkTTS` acoustique + vocodeur — ✅ Griffin-Lim + synthèse par formants ; reste modèle appris.
 6. ⬜ Boucle voix (micro→ASR→TTS). 7. ⬜ Corpus langues locales (ghomala') à enrichir au-delà du NT.
 

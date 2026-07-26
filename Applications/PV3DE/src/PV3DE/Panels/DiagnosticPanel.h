@@ -22,7 +22,7 @@ namespace nkentseu {
 
 				void Render(nkui::NkUIContext &ctx, nkui::NkUIWindowManager &wm, nkui::NkUIDrawList &dl,
 							nkui::NkUIFont &font, nkui::NkUILayoutStack &ls, const PatientLayer &patient,
-							nkui::NkUIRect rect) noexcept;
+							nkui::NkRect rect) noexcept;
 
 			private:
 				static nkui::NkColor ProbabilityColor(nk_float32 prob) noexcept;

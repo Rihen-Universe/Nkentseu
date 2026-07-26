@@ -33,7 +33,8 @@ with project("NKRLTest"):
     files(["src/main.cpp"])
 
     nkentseudependson(
-        ["NKRL", "NKTensor", "NKRHI", "NKSL", "NKWindow", "NKGlad", "NKMath", "NKTime", "NKStream",
+        ["NKRL", "NKAutograd", "NKNN", "NKOptim", "NKTensor", "NKRHI", "NKSL", "NKWindow", "NKGlad", "NKMath",
+         "NKTime", "NKStream",
          "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
          "NKThreading", "NKGLSlang", "NKSPIRVCross"],
         extra_includes=["src", "%{NKGlad.location}/include"]
