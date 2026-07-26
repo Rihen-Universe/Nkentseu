@@ -1334,8 +1334,13 @@ namespace nkentseu {
 			const float32 wheel = (float32)st->wheelAccum;
 			st->wheelAccum = 0.0;
 			if (!fixcam) {
-				const float32 mdx = (float32)NkInput.MouseDeltaX();
-				const float32 mdy = (float32)NkInput.MouseDeltaY();
+				// FIX drift caméra : delta RECALCULÉ par frame (frameMDX/MDY = pos courante -
+				// pos précédente, = 0 sans mouvement), et NON NkInput.MouseDelta*() qui reste
+				// FIGÉ à sa dernière valeur non nulle quand la souris s'arrête -> sinon
+				// clic-milieu/droit maintenu SANS bouger faisait dériver orbit/pan/look.
+				// (Même correctif que les 2 gizmos, cf. gin.mouseDX = frameMDX plus bas.)
+				const float32 mdx = frameMDX;
+				const float32 mdy = frameMDY;
 				const bool shift = NkInput.IsKeyDown(NkKey::NK_LSHIFT);
 				if (st->useSimCam) {
 					if (NkInput.IsMouseDown(NkMouseButton::NK_MB_RIGHT))
@@ -1360,13 +1365,35 @@ namespace nkentseu {
 					st->simCam.Apply(cam);
 				} else {
 					const bool ctrl = NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
+					// FIX 2 : pivot d'orbite = CENTROÏDE de la sélection (façon Blender
+					// « orbit around selection »). Le centroïde vient du gizmo actif (objet
+					// hors édit mode, vertices en édit mode) — barycentre calculé au dernier
+					// Update() (GetPivot()). Sans sélection -> pivot inchangé (cible courante).
+					bool haveSelPivot = false;
+					NkVec3f selPivot = {0.f, 0.f, 0.f};
+					if (st->editMode) {
+						if (st->editGizmo.HasSelection()) {
+							selPivot = st->editGizmo.GetPivot();
+							haveSelPivot = true;
+						}
+					} else if (st->gizmo.HasSelection()) {
+						selPivot = st->gizmo.GetPivot();
+						haveSelPivot = true;
+					}
 					if (NkInput.IsMouseDown(NkMouseButton::NK_MB_MIDDLE)) {
 						if (shift)
 							st->editorCam.Pan(-mdx, -mdy); // "grab" façon Blender : on tire la scène (axes inversés)
 						else {
 							if (mdx != 0.f || mdy != 0.f)
 								st->orthoView = false; // orbite libre -> perspective (Blender)
-							st->editorCam.Rotate(mdx, mdy);
+							// Orbite RIGIDE autour du centroïde de la sélection (position ET
+							// cible tournent ENSEMBLE) : aucun re-visée du pivot -> AUCUN saut
+							// au premier orbit. Sans sélection : orbite normale autour de la
+							// cible courante. Le pan (ci-dessus) reste intact (jamais re-pivoté).
+							if (haveSelPivot)
+								st->editorCam.OrbitAroundPivot(selPivot, mdx, mdy);
+							else
+								st->editorCam.Rotate(mdx, mdy);
 						}
 					}
 					// Molette façon Blender : seule = ZOOM ; Shift+molette = PAN VERTICAL ;
@@ -1462,7 +1489,25 @@ namespace nkentseu {
 
 			// Transform utilisateur (décalage gizmo) appliqué à un objet : délégué au
 			// composant NkGizmo3D (source unique : draw calls ET pick/marqueur passent par lui).
-			auto userXform = [st](int32 idx, const NkMat4f &base) { return st->gizmo.Apply(idx, base); };
+			// FIX 1 (contour de sélection qui suit l'objet) : on MÉMORISE la matrice EXACTE
+			// utilisée pour dessiner l'objet actif, afin de la réutiliser telle quelle pour le
+			// masque de contour (SubmitSelection). Sinon le contour recalculait userXform APRÈS
+			// gizmo.Update() (qui applique le drag) alors que l'objet a été dessiné AVANT ->
+			// l'objet et son liseré utilisaient deux états de transform décalés d'une frame
+			// pendant translate/scale/rotate (et, pour le cube central animé, la base figée
+			// Demo3D_ObjBase au lieu de sa matrice animée). Capturer la matrice dessinée garantit
+			// que l'objet ET le contour partagent EXACTEMENT la même transform.
+			const int32 selDrawIdx = st->gizmo.ActiveIndex();
+			NkMat4f selDrawXform = NkMat4f::Identity();
+			bool selDrawValid = false;
+			auto userXform = [&](int32 idx, const NkMat4f &base) {
+				const NkMat4f m = st->gizmo.Apply(idx, base);
+				if (idx == selDrawIdx) {
+					selDrawXform = m;
+					selDrawValid = true;
+				}
+				return m;
+			};
 
 			// Couleur EFFECTIVE d'un objet : la couleur uniforme (gris/custom) est une
 			// propriété du MODE D'AFFICHAGE SOLID/WIREFRAME UNIQUEMENT (façon Blender), PAS
@@ -2244,6 +2289,21 @@ namespace nkentseu {
 							st->gizmo.Select(gobj);
 							st->gizmo.SetMode(atoi(gv) & 3);
 						}
+						// NK_SEL_TEST_XFORM=1 : non-régression du FIX 1 (contour qui suit
+						// l'objet). Sélectionne un objet (NK_GIZMO_OBJ, défaut 14) et lui
+						// applique une transform NON-IDENTITÉ FIGÉE (translation + rotation Y
+						// connues) par le MÊME chemin interne que le drag gizmo
+						// (SetSelectedTransform -> mTr/mRot). En capture, le liseré orange DOIT
+						// épouser l'objet à sa position TRANSFORMÉE (pas à l'origine).
+						if (getenv("NK_SEL_TEST_XFORM")) {
+							int32 tobj = 14;
+							if (const char *go = getenv("NK_GIZMO_OBJ"))
+								tobj = atoi(go);
+							st->gizmo.Select(tobj);
+							st->gizmo.SetSelectedTransform({1.4f, 0.6f, 0.f},
+														   NkMat4f::RotationY(NkAngle::FromRad(0.9f)),
+														   {0.f, 0.f, 0.f});
+						}
 						// NK_GIZMO_OBB=0 : masque la cage OBB de sélection (gizmo SEUL, épuré).
 						if (const char *ob = getenv("NK_GIZMO_OBB"))
 							st->gizmo.SetDrawObjectBounds(!(ob[0] == '0'));
@@ -2305,7 +2365,12 @@ namespace nkentseu {
 						if (sel >= 0 && sel < 19) {
 							NkDrawCall3D sdc;
 							sdc.mesh = meshFor(sel, (sel < 16) ? st->meshSphere : st->meshCube);
-							sdc.transform = userXform(sel, Demo3D_ObjBase(sel));
+							// FIX 1 : réutilise la matrice EXACTE ayant servi à dessiner l'objet
+							// actif (capturée AVANT gizmo.Update). Fallback (nouveau pick cette
+							// frame, indices désynchronisés) : recalcul depuis la base de repos.
+							sdc.transform = (selDrawValid && sel == selDrawIdx)
+												? selDrawXform
+												: userXform(sel, Demo3D_ObjBase(sel));
 							r3d->SubmitSelection(sdc);
 						}
 					}
