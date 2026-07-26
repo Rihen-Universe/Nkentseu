@@ -26,8 +26,6 @@
 // =============================================================================
 #include "NKMedia/Codecs/Video/HEVC/NkHevcDecoder.h"
 #include "NKMedia/Codecs/Video/HEVC/NkHevcCabac.h"
-#include <cstdio>  // DEBUG TEMP (brique 13)
-#include <cstdlib> // DEBUG TEMP (brique 13)
 
 namespace nkentseu {
 	namespace media {
@@ -836,20 +834,10 @@ namespace nkentseu {
 							stride = frame->chromaW;
 						}
 						const int32 mv = (cIdx == 0) ? maxVal : (1 << sps->bitDepthChroma) - 1;
-						const char *dbgPoc = getenv("NK_DBG_POC");
-						const char *dbgX = getenv("NK_DBG_X");
-						const char *dbgY = getenv("NK_DBG_Y");
-						const bool dbg = dbgPoc && dbgX && dbgY && frame->poc == atoi(dbgPoc) &&
-										 cIdx == 2 && atoi(dbgX) >= x0 && atoi(dbgX) < x0 + n &&
-										 atoi(dbgY) >= y0 && atoi(dbgY) < y0 + n;
 						for (int32 y = 0; y < n; ++y)
 							for (int32 x = 0; x < n; ++x) {
 								nk_uint16 &px = plane[(y0 + y) * stride + (x0 + x)];
-								const int32 pred = (int32)px;
 								px = (nk_uint16)Clip3i(0, mv, (int32)px + res[y * n + x]);
-								if (dbg && x0 + x == atoi(dbgX) && y0 + y == atoi(dbgY))
-									printf("[RES] poc=%d cIdx=%d tu=(%d,%d,n=%d) pred=%d res=%d final=%d qp=%d\n",
-										   frame->poc, cIdx, x0, y0, n, pred, res[y * n + x], (int32)px, qp);
 							}
 					}
 
@@ -1621,7 +1609,16 @@ namespace nkentseu {
 					// touche le bord droit de son CTB, le voisin est le CTB diagonal
 					// (déjà décodé ssi rangée précédente ET colonne suivante existent, et
 					// le PU est en haut de son propre CTB) ; sinon simple cand_up.
+					// ⚠️ Le voisin (x0+nPbW, y0-1) doit d'abord être DANS L'IMAGE (§6.4.1,
+					// tout candidat hors image est indisponible) — un CU forcé-scindé par
+					// la fenêtre d'image (dernière colonne de CTU partielle) peut avoir son
+					// bord droit EXACTEMENT sur `picW` sans que x0b+nPbW touche le bord de
+					// CTB (le CU est plus petit que le CTB à cause du split forcé, pas d'un
+					// split volontaire) : la branche générique retournait alors `y0>0` sans
+					// vérifier `x0+nPbW<picW`, un voisin hors image passait pour disponible.
 					bool CandUpRight(int32 x0, int32 y0, int32 nPbW) const {
+						if (x0 + nPbW >= picW || y0 <= 0)
+							return false;
 						const int32 ctb = 1 << ctbLog2;
 						const int32 x0b = x0 & (ctb - 1), y0b = y0 & (ctb - 1);
 						const int32 rx = x0 >> ctbLog2, ry = y0 >> ctbLog2;
@@ -1629,7 +1626,7 @@ namespace nkentseu {
 							const bool ctbUpRight = (ry > 0) && (rx + 1 < picWidthInCtbs);
 							return ctbUpRight && (y0b == 0);
 						}
-						return y0 > 0;
+						return true;
 					}
 					bool CandBottomLeft(int32 x0, int32 y0, int32 nPbH) const {
 						if (y0 + nPbH >= picH)
@@ -2017,21 +2014,9 @@ namespace nkentseu {
 							};
 							if (xFrac == 0 && yFrac == 0) {
 								for (int32 j = 0; j < ch; ++j)
-									for (int32 i = 0; i < cw; ++i) {
-										const int32 raw = SrcC(xInt + i, yInt + j);
-										const int32 val = FinalizeSample(raw, true, false, ci);
-										dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)val;
-										if (getenv("NK_DBG_POC") && getenv("NK_DBG_X") &&
-											getenv("NK_DBG_Y") && cIdx == 2 &&
-											frame->poc == atoi(getenv("NK_DBG_POC")) &&
-											cx0 + i == atoi(getenv("NK_DBG_X")) &&
-											cy0 + j == atoi(getenv("NK_DBG_Y")))
-											printf("[MC] poc=%d Cr direct cx=%d cy=%d src=(%d,%d) raw=%d val=%d "
-												   "denom=%d w=%d o=%d\n",
-												   frame->poc, cx0 + i, cy0 + j, xInt + i, yInt + j, raw, val,
-												   sh->chromaLog2WeightDenom, sh->chromaWeightL0[0][ci],
-												   sh->chromaOffsetL0[0][ci]);
-									}
+									for (int32 i = 0; i < cw; ++i)
+										dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)FinalizeSample(
+											SrcC(xInt + i, yInt + j), true, false, ci);
 							} else if (yFrac == 0) {
 								for (int32 j = 0; j < ch; ++j)
 									for (int32 i = 0; i < cw; ++i) {
@@ -2127,9 +2112,6 @@ namespace nkentseu {
 								StoreMv(x0, y0, pw, ph, mvx, mvy, mvRef);
 								ApplyMotionCompensation(x0, y0, pw, ph, mvx, mvy, mvRef);
 							}
-							if (frame && getenv("NK_DBG_POC") && frame->poc == atoi(getenv("NK_DBG_POC")))
-								printf("[PU] poc=%d MERGE x0=%d y0=%d w=%d h=%d idx=%d mv=(%d,%d) ref=%d\n",
-									   frame->poc, x0, y0, pw, ph, idx, mvx, mvy, mvRef);
 							return true;
 						}
 						int32 interPredIdc = 0; // 0=L0, 1=L1, 2=BI (NkHevcSliceType kHevcSliceB)
@@ -2169,9 +2151,6 @@ namespace nkentseu {
 							StoreMv(x0, y0, pw, ph, mvx, mvy, mvRef);
 							ApplyMotionCompensation(x0, y0, pw, ph, mvx, mvy, mvRef);
 						}
-						if (frame && getenv("NK_DBG_POC") && frame->poc == atoi(getenv("NK_DBG_POC")))
-							printf("[PU] poc=%d AMVP  x0=%d y0=%d w=%d h=%d mvpFlag=%d mvd=(%d,%d) mv=(%d,%d) ref=%d\n",
-								   frame->poc, x0, y0, pw, ph, mvpFlag, mvdX, mvdY, mvx, mvy, mvRef);
 						return false;
 					}
 

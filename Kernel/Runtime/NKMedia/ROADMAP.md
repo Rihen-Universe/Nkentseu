@@ -1083,19 +1083,43 @@ zero-STL, `nkentseu::media`.
     Contrôle négatif : désactiver le candidat temporel fait RÉGRESSER (pas disparaître) la
     divergence — passe de 9/14 à 1/14 bit-exact sur le 4e flux, confirmant que le candidat
     temporel corrige bien un vrai manque et n'est pas la cause du reste.
-  - ⚠️ **Reste (chantier séparé, PAS bloquant)** : le 4e flux (pondération explicite
-    `pred_weight_table`) diverge en CHROMA à partir de la 10e trame P (`maxdiff` croissant
-    puis décroissant, localisé près du bord droit de l'image) — bug DISTINCT du candidat
-    temporel (confirmé indépendant par le test de désactivation ci-dessus), cause encore
-    inconnue (poids/offsets varient pourtant en douceur frame à frame, pas de saut visible).
-    Détail complet, cas de test et pistes : mémoire `project_nkmedia_hevc_p_multiref_bug`.
-- **Suite (brique 13, PAS commencée)** : élucider le bug chroma pondéré ci-dessus. Puis slices
-  B (bi-prédiction, candidats combinés, `inter_pred_idc`), déblocage BS inter (§8.7.2.4, dérivé
-  du MV/refIdx de part et d'autre de l'arête — actuellement seul le cas intra BS=2 est
-  implémenté) + SAO sur P/B, règle CU 8×8 forcé-2Nx2N si `log2ParallelMergeLevel>2`. Puis
-  branchement `NkVideoReader` (.265/MP4/MKV, DPB réel multi-images). Restes mineurs (refus
-  propre en place) : tuiles, PCM, 4:2:2/4:4:4, `ref_pic_lists_modification()`,
-  `scaling_list_data()`, bit depth >8 pour l'inter (10-bit MC pas encore branché).
+- ⭐⭐⭐ **Brique 13 livrée et validée BIT-EXACT vs ffmpeg (2026-07-26) : voisin `CandUpRight`
+  hors-image sur les CU forcé-scindés en bord droit d'image** — root cause du reste laissé par
+  la brique 12 (flux `hevc_p_wp.265`, divergence chroma dès la 10e trame P). Diagnostic mené en
+  4 étapes : 1) tracé de tous les PU inter de la trame fautive (instrumentation temporaire) pour
+  localiser le PU couvrant le pixel qui diverge → CU `(128,64,32,32)` merge idx=0 mv=(0,0) ; 2)
+  vérification manuelle (extraction directe des pixels de la référence YUV brute + application
+  à la main de la formule de pondération explicite `§8.5.3.3.4.3`) confirmant que la formule et
+  le pixel source `mv=(0,0)` étaient individuellement corrects mais que le VRAI MV attendu était
+  `(0,-8)` — les lignes de la trame cible correspondent EXACTEMENT à la trame précédente décalée
+  d'1 ligne chroma (donc -8 en 1/4-pel luma), pas à un décalage nul ; 3) analyse du voisinage
+  spatial merge/AMVP pour ce CU précis : `CandUpRight(x0=128,y0=64,nPbW=32)` — `x0b+nPbW=32 ≠
+  ctb(64)` (le CU ne touche pas un bord de CTB, car il est plus PETIT que son CTB nominal 64×64
+  suite à un split FORCÉ par la fenêtre d'image, la colonne de CTU 128-159 n'ayant que 32 pixels
+  valides sur 160) → la branche générique retournait `y0>0` = **vrai**, SANS jamais vérifier que
+  `x0+nPbW=160` est justement `== picW` (donc **hors image**) ; 4) le voisin fantôme B0 en
+  `(160,63)` indexait dans le champ de MV via `px=160>>2=40`, exactement égal à `minPuWidth`
+  (40 pour une image de 160 px) — un ALIASING SILENCIEUX (`idx = py*minPuWidth+px` déborde
+  d'exactement une colonne, retombant sur `(px=0, py+1)`) qui renvoie un MV plausible mais FAUX
+  au lieu de crasher ou d'être détecté par les asserts Debug.
+  - **Fix** : `CandUpRight` vérifie maintenant `x0+nPbW>=picW || y0<=0` en tout premier (candidat
+    hors image = indisponible, §6.4.1), avant même la logique d'alignement CTB — la branche
+    générique devient alors un simple `return true` (le `y0>0` est déjà garanti par le nouveau
+    garde-fou). Symétrique de la vérification déjà présente et correcte dans `CandBottomLeft`.
+  - **Validation** : **4/4 flux P dorénavant BIT-EXACTS bout-en-bout** (51 trames P chaînées au
+    total), Debug (asserts) ET Release, non-régression totale (intra 4/4 flux toujours
+    bit-exacts). Le bug était latent dans les 3 autres flux aussi (même condition générique de
+    voisinage) mais invisible par coïncidence de contenu/partitionnement (jamais sélectionné par
+    `merge_idx`/`mvp_lx_flag` à ces endroits précis) — donc un vrai risque resté caché, pas
+    spécifique à la pondération explicite qui n'a fait que l'exposer en premier. Détail complet :
+    mémoire `project_nkmedia_hevc_p_multiref_bug`.
+- **Suite (brique 14, PAS commencée)** : slices B (bi-prédiction, candidats combinés,
+  `inter_pred_idc`), déblocage BS inter (§8.7.2.4, dérivé du MV/refIdx de part et d'autre de
+  l'arête — actuellement seul le cas intra BS=2 est implémenté) + SAO sur P/B, règle CU 8×8
+  forcé-2Nx2N si `log2ParallelMergeLevel>2`. Puis branchement `NkVideoReader` (.265/MP4/MKV, DPB
+  réel multi-images). Restes mineurs (refus propre en place) : tuiles, PCM, 4:2:2/4:4:4,
+  `ref_pic_lists_modification()`, `scaling_list_data()`, bit depth >8 pour l'inter (10-bit MC
+  pas encore branché).
 
 ## En cours / À venir
 
