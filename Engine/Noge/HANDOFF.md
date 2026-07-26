@@ -49,6 +49,24 @@ Toute app qui rend en 3D via `NkRender3D` peut appeler la MÊME API. Consommateu
 
 **➡️ Prochaine étape recommandée pour un « drop-in » réel** : packager ce câblage dans un **composant « viewport éditeur » réutilisable** (dans `NKEditorKit` ou `Engine/Noge`), pour que NkAnima/PV3DE/Nogee obtiennent gizmo + grille + contour de sélection + orbite-autour-sélection en quelques lignes au lieu de recopier la colle. C'est aligné avec la vision « simplicité d'utilisation ».
 
+## Direction d'architecture à développer (viewports éditeur + caméras gameplay multiples)
+
+Décision de cap (Rihen, 2026-07-26) — à développer plus tard, documenté ici :
+
+1. **Câbler un composant « viewport éditeur » réutilisable dans NKEditorKit** (2D et 3D). Il encapsule le câblage par frame décrit ci-dessus (caméra outil `NkOrbitCameraController3D` + `NkGizmo3D` + grille + contour de sélection + input souris) pour que Nogee / NkAnima / NKCode instancient un viewport éditeur en quelques lignes. Prévoir le **multi-vues** (quad-view façon Blender).
+2. **Distinguer clairement caméra ÉDITEUR vs caméra GAMEPLAY** (pendant de la distinction UI éditeur vs UI de jeu) :
+   - Caméra éditeur = outil de navigation/édition, dans NKEditorKit, **jamais shippée**.
+   - Caméra gameplay = **composant ECS** (`ecs::NkCameraComponent`), donnée de scène sérialisée, **plusieurs par scène**.
+3. **Supporter plusieurs caméras / viewports en gameplay** → minimap, caméra de surveillance (« voir ce que voit une caméra à tel endroit »), split-screen, écran vidéo in-world, picture-in-picture.
+
+**Fondations déjà présentes (le chantier n'est pas from-scratch) :** `NkOffscreenTarget`/`NkRenderTarget` (offscreen RT), et `NkPlanarReflectionSystem` qui **rend déjà la scène depuis un autre point de vue vers une texture** = exactement la brique « ce que voit la caméra C → texture » (minimap = rendre depuis C vers une texture → afficher en UI ou sur un matériau d'écran).
+
+**À faire dans ce chantier :**
+- Consolider le **doublon interne de composant caméra ECS** : `ecs::NkCamera` (`ECS/Components/Rendering/NkCamera.h`) ET `ecs::NkCameraComponent` (`.../NkRenderComponents.h`) coexistent → garder un seul canonique (fusionner le meilleur des deux).
+- Ajouter une **API propre « rendre la scène depuis caméra C vers cible T »** dans `NkRender3D` (au-dessus de l'offscreen existant) — brique du multi-viewport.
+- Un **système de composition de viewports** gameplay : liste (caméra, cible = rect écran ou texture, priorité/active), le renderer rend chaque vue active.
+- Perf : plusieurs caméras = plusieurs rendus de scène/frame → prévoir résolution réduite / rafraîchissement à N frames pour minimaps/surveillance.
+
 ## Comment travailler / vérifier
 
 - **Vérifier qu'un en-tête compile isolément** (utile pour les spec-headers jamais buildés) : extraire les flags d'un .cpp Noge depuis `.nkcode/compile_commands.json` (34 `-I`, 8 `-D` ; convertir les `\` en `/` pour un fichier-réponse clang), puis `clang++ -std=c++17 @rsp -fsyntax-only -x c++ <header>`. Racine d'include Noge = `Engine/Noge/src` → chemins `Noge/Sousdossier/Fichier.h`.
