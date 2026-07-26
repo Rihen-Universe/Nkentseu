@@ -1178,8 +1178,13 @@ dans `NkVideoReader`/`NkVideoPlayer`. **HEVC est désormais lisible bout-en-bout
 brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
 
 1. **Perf temps-réel** (le gros chantier restant si objectif lecteur fluide HD/4K) : les décodeurs
-   sont **scalaires, jamais optimisés** (H264 ~8→30 fps après fix copie-profonde ; HEVC pas mesuré).
-   Optimisation SIMD/multithread = travail conséquent, séparé de la correction.
+   sont scalaires. **H.264 : 1re passe d'optim livrée (2026-07-26)** — MC luma/chroma chemin rapide
+   sans-clamp (template `if(CLAMP)`) + SSE2 chroma + dédup bS déblocage → **décodeur ×1,25 (−20% de
+   cycles), ~38→45 fps en 720p**, bit-exactness préservée (19/19 flux octet-identiques). ⚠️
+   Découverte : l'artefact « H264 lent » venait d'une copie profonde du DPB **dans le harnais de
+   test** ; le vrai chemin `NkVideoReader` utilise déjà `NkMove` (pas de copie). Levier restant #1 =
+   CABAC + parsing coefficients (~51% du décodage, bit-serial — risqué). HEVC pas encore optimisé.
+   SIMD déblocage luma / multithread = pistes suivantes.
 2. **HEVC — features de bord restantes** (INVÉRIFIABLES faute d'oracle x265, ou refactor lourd —
    pas des bugs) : tuiles, 4:2:2/4:4:4, PCM (code dormant écrit), `ref_pic_lists_modification`,
    `scaling_list_data`, CU 8×8 `log2ParallelMergeLevel>2`. **10-bit inter (Main10) ✅ livré.**
