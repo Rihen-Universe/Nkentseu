@@ -9,6 +9,7 @@
 #include "NKMedia/Codecs/Video/H264/NkH264Decoder.h"
 #include "NKMedia/Codecs/Video/VP8/NkVp8Decoder.h"
 #include "NKMedia/Codecs/Video/VP9/NkVp9Decoder.h"
+#include "NKMedia/Codecs/Video/HEVC/NkHevcDecoder.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKMemory/NKMemory.h"
@@ -41,8 +42,39 @@ namespace nkentseu {
 				return ((uint64)RdU32BE(p) << 32) | (uint64)RdU32BE(p + 4);
 			}
 
-			enum class Backend { NONE, AVI, MOV, WEBM, TS, FLV, IVF, SEQUENCE };
-			enum class Codec { NONE, MJPEG, RAWRGB, H264, VP8, VP9 };
+			enum class Backend { NONE, AVI, MOV, WEBM, TS, FLV, IVF, HEVC_ANNEXB, SEQUENCE };
+			enum class Codec { NONE, MJPEG, RAWRGB, H264, VP8, VP9, HEVC };
+
+			// Détecte un flux élémentaire HEVC Annex-B brut (.265/.hevc) : start code
+			// (00 00 01 / 00 00 00 01) suivi d'un en-tête NAL HEVC (2 octets) — on exige la
+			// présence d'un VPS (type 32) ou d'un SPS (type 33) en couche de base pour
+			// distinguer d'un ES H.264 (dont les octets d'en-tête NAL, 1 seul, ne donnent
+			// jamais ces types HEVC), et de tout autre format. nal_unit_type = (byte0>>1)&0x3F,
+			// nuh_layer_id = ((byte0&1)<<5)|(byte1>>3) — on n'accepte que la couche 0.
+			bool LooksLikeHevcAnnexB(const uint8 *d, usize n) {
+				usize p = 0;
+				int32 checked = 0;
+				while (p + 5 < n && checked < 256) {
+					const bool sc3 = (d[p] == 0 && d[p + 1] == 0 && d[p + 2] == 1);
+					const bool sc4 = (d[p] == 0 && d[p + 1] == 0 && d[p + 2] == 0 && d[p + 3] == 1);
+					if (!sc3 && !sc4) {
+						++p;
+						continue;
+					}
+					const usize ns = sc4 ? p + 4 : p + 3;
+					if (ns + 1 >= n)
+						break;
+					const uint8 b0 = d[ns], b1 = d[ns + 1];
+					const int32 forbidden = b0 >> 7;
+					const int32 type = (b0 >> 1) & 0x3F;
+					const int32 layer = ((b0 & 1) << 5) | (b1 >> 3);
+					if (forbidden == 0 && layer == 0 && (type == 32 || type == 33))
+						return true;
+					p = ns;
+					++checked;
+				}
+				return false;
+			}
 
 			// Référence d'une image encodée dans le buffer fichier (offset+taille).
 			struct FrameRef {
@@ -378,6 +410,245 @@ namespace nkentseu {
 				bool vp9PrevEligibleBase = false;		// use_prev_frame_mvs : trame précédente non clé/intra
 				int32 vp9PrevWidth = 0, vp9PrevHeight = 0;
 				NkVector<NkVp9MvRef> vp9MvGrid;		// grille MV de la dernière trame (use_prev_frame_mvs)
+
+				// ── HEVC/H.265 ───────────────────────────────────────────────────────
+				// Le décodeur HEVC ne stocke AUCUN DPB (comme aucun de nos décodeurs) :
+				// c'est le reader qui résout POC→pointeur d'image avant chaque appel. Les B
+				// (bi-prédiction) imposent un réordonnancement décodage→affichage EXACT, ici
+				// piloté par une clé d'affichage GLOBALE monotone précalculée par image
+				// (`hevcGlobalKey[]` = gopBase par IDR + POC) : le POC min restant à décoder
+				// borne quand on peut sortir la plus petite clé du buffer (pas d'heuristique
+				// « profondeur B », cf. `hevcSuffixMinKey[]`). SPS/PPS/POC/type de slice sont
+				// tous PRÉCALCULÉS à l'ouverture (HevcBuildPocTables) — Decode() n'a plus
+				// qu'à résoudre les références dans `hevcDpb` et déquantifier/reconstruire.
+				NkHevcSps hevcSps;
+				NkHevcPps hevcPps;
+				bool hevcHaveSps = false, hevcHavePps = false;
+				int32 hevcNalLenSize = 4;			  // longueur préfixe NALU (MP4/MKV) ; 0 = Annex-B
+				NkVector<nk_int32> hevcPoc;			  // POC intra-GOP par image (ordre décodage) — clé DPB
+				NkVector<nk_int64> hevcGlobalKey;	  // clé d'affichage globale monotone (tri réordo)
+				NkVector<nk_int64> hevcSuffixMinKey;  // min(hevcGlobalKey[i..fin]) — borne de sortie exacte
+				NkVector<bool> hevcIsIdr;			  // image IDR (vide le DPB, POC repart à 0)
+				NkVector<bool> hevcKeyframe;		  // IRAP (IDR/BLA/CRA) — point de resynchro SeekFrame
+				NkVector<NkHevcFrame> hevcDpb;		  // DPB : images de référence décodées (résolues par POC)
+				int32 hevcDecodeCursor = 0;			  // prochaine image à décoder (ordre bitstream)
+				int32 hevcOutCount = 0;				  // images sorties (ordre d'affichage)
+				NkVector<NkVideoFrame> hevcReorder;	  // RGBA décodées en attente d'affichage
+				NkVector<nk_int64> hevcReorderKey;	  // clé d'affichage globale parallèle
+
+				const NkHevcFrame *HevcFindByPoc(int32 poc) const {
+					for (uint64 k = 0; k < hevcDpb.Size(); ++k)
+						if (hevcDpb[k].poc == poc)
+							return &hevcDpb[k];
+					return nullptr;
+				}
+
+				// Dimensions d'AFFICHAGE = pic_width/height - fenêtre de conformance
+				// (×SubWidthC/SubHeightC, §7.4.3.2.1 ; 4:2:0 -> ×2 sur les deux axes).
+				void HevcSetDimsFromSps() {
+					const int32 subW =
+						(hevcSps.chromaFormatIdc == 1 || hevcSps.chromaFormatIdc == 2) ? 2 : 1;
+					const int32 subH = (hevcSps.chromaFormatIdc == 1) ? 2 : 1;
+					info.width = hevcSps.width - subW * (hevcSps.confWinLeft + hevcSps.confWinRight);
+					info.height = hevcSps.height - subH * (hevcSps.confWinTop + hevcSps.confWinBottom);
+				}
+
+				// Parse un HEVCDecoderConfigurationRecord (mêmes octets pour la boîte `hvcC`
+				// ISOBMFF ET le `CodecPrivate` EBML V_MPEGH/ISO/HEVC) : lengthSizeMinusOne +
+				// tableaux de NAL (VPS/SPS/PPS) regroupés par type. On n'extrait QUE les
+				// structures SPS/PPS (le décodeur les prend en paramètre — pas besoin de
+				// reconstruire un Annex-B ; le VPS n'est pas consommé par le décodeur).
+				void ParseHvcCBytes(const uint8 *p, usize n) {
+					if (n < 23)
+						return;
+					hevcNalLenSize = (p[21] & 3) + 1;
+					const int32 numArrays = p[22];
+					usize pos = 23;
+					for (int32 a = 0; a < numArrays && pos + 3 <= n; ++a) {
+						const int32 nalType = p[pos] & 0x3F;
+						const int32 numNalus = ((int32)p[pos + 1] << 8) | p[pos + 2];
+						pos += 3;
+						for (int32 u = 0; u < numNalus && pos + 2 <= n; ++u) {
+							const int32 len = ((int32)p[pos] << 8) | p[pos + 1];
+							pos += 2;
+							if (pos + (usize)len > n)
+								return;
+							if (nalType == 33) {
+								NkHevcSps s;
+								if (NkHevcDecoder::ParseSps(p + pos, (usize)len, s)) {
+									hevcSps = s;
+									hevcHaveSps = true;
+								}
+							} else if (nalType == 34) {
+								NkHevcPps pp;
+								if (NkHevcDecoder::ParsePps(p + pos, (usize)len, pp)) {
+									hevcPps = pp;
+									hevcHavePps = true;
+								}
+							}
+							pos += (usize)len;
+						}
+					}
+				}
+
+				// Précalcule, image par image en ORDRE DE DÉCODAGE (sur `frames[]` = NAL de
+				// slice VCL, un par image), le POC réel (§8.3.1, prevPocTid0 mis à jour
+				// seulement par les images TemporalId==0 non-RASL/RADL/sous-couche-non-ref) et
+				// une clé d'affichage GLOBALE monotone (gopBase incrémenté à chaque IDR + POC),
+				// puis le min suffixe des clés (borne de sortie du réordonnancement). SPS/PPS
+				// doivent déjà être résolus (`hevcSps`/`hevcPps`). Un en-tête de slice qui ne
+				// parse pas (cas non géré) fait échouer l'ouverture proprement.
+				bool HevcBuildPocTables() {
+					const uint64 nf = frames.Size();
+					if (nf == 0 || !hevcHaveSps || !hevcHavePps)
+						return false;
+					hevcPoc.Resize(nf);
+					hevcGlobalKey.Resize(nf);
+					hevcSuffixMinKey.Resize(nf);
+					hevcIsIdr.Resize(nf);
+					hevcKeyframe.Resize(nf);
+					int32 prevPocTid0 = 0;
+					int64 gopBase = 0;
+					bool first = true;
+					for (uint64 i = 0; i < nf; ++i) {
+						const uint8 *nd = bytes.Data() + frames[i].offset;
+						const usize nsz = frames[i].size;
+						const int32 nalType = (nd[0] >> 1) & 0x3F;
+						const int32 temporalId = (nd[1] & 0x7) - 1;
+						NkHevcSliceHeader sh;
+						if (!NkHevcDecoder::ParseSliceHeader(nd, nsz, hevcSps, hevcPps, sh))
+							return false;
+						const bool isIdr = (nalType == kHevcNalIdrWRadl || nalType == kHevcNalIdrNLp);
+						const bool isIrap = (nalType >= 16 && nalType <= 23);
+						const int32 poc = NkHevcDecoder::ComputePoc(sh.picOrderCntLsb, hevcSps.log2MaxPocLsb,
+																	isIdr, prevPocTid0);
+						if (isIdr && !first)
+							gopBase += 1000000; // nouvelle clé de GOP : le GOP suivant s'affiche APRÈS
+						hevcPoc[i] = poc;
+						hevcIsIdr[i] = isIdr;
+						hevcKeyframe[i] = isIrap;
+						hevcGlobalKey[i] = gopBase + (int64)poc;
+						const bool subNonRef = (nalType == kHevcNalTrailN || nalType == kHevcNalTsaN ||
+												nalType == kHevcNalStsaN || nalType == kHevcNalRadlN ||
+												nalType == kHevcNalRaslN);
+						const bool raslRadl = (nalType == kHevcNalRadlN || nalType == kHevcNalRadlR ||
+											   nalType == kHevcNalRaslN || nalType == kHevcNalRaslR);
+						if (temporalId == 0 && !subNonRef && !raslRadl)
+							prevPocTid0 = poc;
+						first = false;
+					}
+					int64 mn = 0x7FFFFFFFFFFFFFFFLL;
+					for (uint64 j = nf; j-- > 0;) {
+						if (hevcGlobalKey[j] < mn)
+							mn = hevcGlobalKey[j];
+						hevcSuffixMinKey[j] = mn;
+					}
+					return true;
+				}
+
+				// Remplace `frames[]` (une entrée par ÉCHANTILLON MP4/MKV = access unit, NALU
+				// longueur-préfixées) par une entrée par NAL de SLICE VCL (la 1re de chaque
+				// échantillon), pointant DIRECTEMENT sur l'en-tête NAL dans `bytes` : le
+				// décodeur prend ce NAL tel quel (pas de reconstruction Annex-B nécessaire —
+				// il reçoit SPS/PPS en paramètre). Récupère aussi SPS/PPS en bande (hev1) si
+				// le hvcC ne les portait pas. Retourne false si aucune slice trouvée.
+				bool HevcSliceNalsFromSamples() {
+					NkVector<FrameRef> out;
+					for (uint64 i = 0; i < frames.Size(); ++i) {
+						const usize base = frames[i].offset;
+						const usize end = base + frames[i].size;
+						usize p = base;
+						bool tookSlice = false;
+						while (p + (usize)hevcNalLenSize <= end) {
+							uint32 len = 0;
+							for (int32 k = 0; k < hevcNalLenSize; ++k)
+								len = (len << 8) | bytes.Data()[p + k];
+							p += (usize)hevcNalLenSize;
+							if (p + len > end || len < 2)
+								break;
+							const int32 nalType = (bytes.Data()[p] >> 1) & 0x3F;
+							if (nalType == 33 && !hevcHaveSps) {
+								NkHevcSps s;
+								if (NkHevcDecoder::ParseSps(bytes.Data() + p, len, s)) {
+									hevcSps = s;
+									hevcHaveSps = true;
+								}
+							} else if (nalType == 34 && !hevcHavePps) {
+								NkHevcPps pp;
+								if (NkHevcDecoder::ParsePps(bytes.Data() + p, len, pp)) {
+									hevcPps = pp;
+									hevcHavePps = true;
+								}
+							} else if (nalType <= 31 && !tookSlice) {
+								FrameRef fr;
+								fr.offset = p;
+								fr.size = len;
+								out.PushBack(fr);
+								tookSlice = true;
+							}
+							p += len;
+						}
+					}
+					if (out.Size() == 0)
+						return false;
+					frames = traits::NkMove(out);
+					return true;
+				}
+
+				// --- Parse un flux élémentaire HEVC Annex-B brut (.265/.hevc) ---
+				// Découpe tous les NAL (en-tête 2 octets), parse VPS/SPS/PPS en bande, puis
+				// regroupe en IMAGES : une image commence à un NAL VCL avec
+				// first_slice_segment_in_pic_flag=1 ; `frames[i]` pointe sur cette 1re slice VCL
+				// (en-tête NAL inclus). Les slices dépendantes / 2e slices d'une même image
+				// (x265 par défaut n'en émet pas) sont ignorées.
+				bool ParseHevcAnnexB() {
+					NkVector<NkHevcNal> nals;
+					NkHevcDecoder::SplitNalsAnnexB(bytes.Data(), (usize)bytes.Size(), nals);
+					for (uint64 i = 0; i < nals.Size(); ++i) {
+						const uint8 *nd = bytes.Data() + nals[i].offset;
+						if (nals[i].type == kHevcNalSps && !hevcHaveSps) {
+							NkHevcSps s;
+							if (NkHevcDecoder::ParseSps(nd, nals[i].size, s)) {
+								hevcSps = s;
+								hevcHaveSps = true;
+							}
+						} else if (nals[i].type == kHevcNalPps && !hevcHavePps) {
+							NkHevcPps pp;
+							if (NkHevcDecoder::ParsePps(nd, nals[i].size, pp)) {
+								hevcPps = pp;
+								hevcHavePps = true;
+							}
+						}
+					}
+					if (!hevcHaveSps || !hevcHavePps)
+						return false;
+					for (uint64 i = 0; i < nals.Size(); ++i) {
+						if (nals[i].type > 31 || nals[i].layerId != 0)
+							continue; // pas un NAL VCL de couche de base
+						const uint8 *nd = bytes.Data() + nals[i].offset;
+						NkHevcSliceHeader sh;
+						if (!NkHevcDecoder::ParseSliceHeader(nd, nals[i].size, hevcSps, hevcPps, sh))
+							continue;
+						if (!sh.firstSliceSegmentInPic)
+							continue; // 2e slice / slice dépendante de l'image courante
+						FrameRef fr;
+						fr.offset = nals[i].offset;
+						fr.size = nals[i].size;
+						frames.PushBack(fr);
+					}
+					if (frames.Size() == 0)
+						return false;
+					hevcNalLenSize = 0; // Annex-B : NAL déjà isolés dans `frames[]`
+					codec = Codec::HEVC;
+					info.codec = NkString("hevc");
+					info.container = NkString("hevc");
+					info.fps = 25.0; // Annex-B : pas de cadence en bande -> repli 25
+					HevcSetDimsFromSps();
+					if (!HevcBuildPocTables())
+						return false;
+					info.frameCount = (int32)frames.Size();
+					return true;
+				}
 
 				// Découpe chaque bloc en sous-trames VP9 (ParseSuperframe) puis lit l'en-tête
 				// non compressé de chacune (ParseUncompressedHeader, SANS décoder) pour
@@ -752,7 +1023,8 @@ namespace nkentseu {
 					const bool isMjpeg = Tag(etype, 'm', 'j', 'p', 'a') || Tag(etype, 'j', 'p', 'e', 'g') ||
 										 Tag(etype, 'M', 'J', 'P', 'G');
 					const bool isAvc = Tag(etype, 'a', 'v', 'c', '1') || Tag(etype, 'a', 'v', 'c', '3');
-					if (!isMjpeg && !isAvc)
+					const bool isHevc = Tag(etype, 'h', 'v', 'c', '1') || Tag(etype, 'h', 'e', 'v', '1');
+					if (!isMjpeg && !isAvc && !isHevc)
 						return false;
 
 					// H264 : extrait SPS/PPS de la box avcC (enfant de l'entrée avc1, après 78 octets fixes).
@@ -763,6 +1035,15 @@ namespace nkentseu {
 						if (entS + 8 + 78 <= avc1End && Box(d, entS + 8 + 78, avc1End, "avcC", acS, acE) &&
 							acE - acS >= 7)
 							ParseAvcCBytes(d + acS, acE - acS);
+					}
+					// HEVC : extrait SPS/PPS de la box hvcC (même position que avcC, après 78 octets).
+					if (isHevc) {
+						const uint32 entrySize = RdU32BE(d + entS);
+						const usize hvEnd = entS + (usize)entrySize;
+						usize hcS, hcE;
+						if (entS + 8 + 78 <= hvEnd && Box(d, entS + 8 + 78, hvEnd, "hvcC", hcS, hcE) &&
+							hcE - hcS >= 23)
+							ParseHvcCBytes(d + hcS, hcE - hcS);
 					}
 
 					// Assemble la table des samples via stsz + stco/co64 + stsc.
@@ -838,13 +1119,24 @@ namespace nkentseu {
 							fps = (double)timescale * (double)nsamp / (double)total;
 					}
 
-					codec = isMjpeg ? Codec::MJPEG : Codec::H264;
-					info.codec = NkString(isMjpeg ? "mjpeg" : "h264");
+					codec = isMjpeg ? Codec::MJPEG : (isHevc ? Codec::HEVC : Codec::H264);
+					info.codec = NkString(isMjpeg ? "mjpeg" : (isHevc ? "hevc" : "h264"));
 					info.container = NkString("mov");
 					info.width = w;
 					info.height = h;
 					info.frameCount = (int32)frames.Size();
 					info.fps = fps;
+					if (codec == Codec::HEVC) {
+						// `frames[]` = échantillons (AU) : les remplacer par les NAL de slice VCL,
+						// puis précalculer POC + clés d'affichage (réordonnancement B).
+						if (!hevcHaveSps || !hevcHavePps || !HevcSliceNalsFromSamples())
+							return false;
+						HevcSetDimsFromSps();
+						if (!HevcBuildPocTables())
+							return false;
+						info.frameCount = (int32)frames.Size();
+						return true;
+					}
 					if (codec == Codec::H264)
 						ScanH264Keyframes();
 					// Dimensions manquantes + MJPEG : on décode la 1re image pour les obtenir.
@@ -890,9 +1182,16 @@ namespace nkentseu {
 						return false;
 					const bool isVp8 = found.codecId.Contains("VP8");
 					const bool isVp9 = found.codecId.Contains("VP9");
-					if (!isVp8 && !isVp9 && !found.codecId.Contains("AVC") && !found.codecId.Contains("MPEG4"))
+					const bool isHevc = found.codecId.Contains("HEVC") || found.codecId.Contains("MPEGH");
+					if (!isVp8 && !isVp9 && !isHevc && !found.codecId.Contains("AVC") &&
+						!found.codecId.Contains("MPEG4"))
 						return false; // AV1 etc. : pas de décodeur -> échec propre
-					if (!isVp8 && !isVp9) {
+					if (isHevc) {
+						if (found.codecPriv.Size() >= 23)
+							ParseHvcCBytes(found.codecPriv.Data(), (usize)found.codecPriv.Size());
+						// SPS/PPS peuvent aussi arriver en bande (hev1) -> résolus dans
+						// HevcSliceNalsFromSamples ci-dessous ; échec propre si toujours absents.
+					} else if (!isVp8 && !isVp9) {
 						if (found.codecPriv.Size() < 7)
 							return false;
 						ParseAvcCBytes(found.codecPriv.Data(), (usize)found.codecPriv.Size());
@@ -912,7 +1211,16 @@ namespace nkentseu {
 					info.width = found.width;
 					info.height = found.height;
 					info.fps = fps;
-					if (isVp8) {
+					if (isHevc) {
+						codec = Codec::HEVC;
+						info.codec = NkString("hevc");
+						if (!HevcSliceNalsFromSamples() || !hevcHaveSps || !hevcHavePps)
+							return false;
+						HevcSetDimsFromSps();
+						if (!HevcBuildPocTables())
+							return false;
+						info.frameCount = (int32)frames.Size();
+					} else if (isVp8) {
 						codec = Codec::VP8;
 						info.codec = NkString("vp8");
 						if (!Vp8ScanBlocks())
@@ -1614,6 +1922,116 @@ namespace nkentseu {
 						return true;
 					}
 
+					if (codec == Codec::HEVC) {
+						// `frames[index]` = NAL de slice VCL (en-tête 2 octets inclus). Le décodeur
+						// ne stocke aucun DPB : on résout les références (POC->pointeur) dans
+						// `hevcDpb`. POC/type sont PRÉCALCULÉS (HevcBuildPocTables). Appelé en
+						// ORDRE DE DÉCODAGE (ordre bitstream) par ReadFrame -> `hevcDpb` évolue
+						// correctement (comme le DPB H.264).
+						const uint8 *nalPtr = bytes.Data() + fr.offset;
+						const usize nalSize = fr.size;
+						const int32 nalType = (nalPtr[0] >> 1) & 0x3F;
+						NkHevcSliceHeader sh;
+						if (!NkHevcDecoder::ParseSliceHeader(nalPtr, nalSize, hevcSps, hevcPps, sh))
+							return false;
+						const int32 poc = hevcPoc[(uint64)index];
+						NkHevcFrame frame;
+						frame.poc = poc; // lu par DecodeSliceP/B (curPoc AMVP) : posé AVANT l'appel
+						NkHevcSliceDataStats ds;
+						bool decOk = false;
+						if (sh.sliceType == kHevcSliceI) {
+							decOk = NkHevcDecoder::DecodeSliceIntra(nalPtr, nalSize, hevcSps, hevcPps, sh,
+																	frame, ds);
+						} else {
+							const bool isB = (sh.sliceType == kHevcSliceB);
+							NkHevcRefPicLists rpl;
+							NkHevcDecoder::BuildRefPicLists(sh.rps, poc, sh.numRefIdxL0Active,
+															sh.numRefIdxL1Active, isB, rpl);
+							if (rpl.numL0 < sh.numRefIdxL0Active ||
+								(isB && rpl.numL1 < sh.numRefIdxL1Active))
+								return false;
+							const NkHevcFrame *refsL0[16];
+							const NkHevcFrame *refsL1[16];
+							for (int32 r = 0; r < sh.numRefIdxL0Active; ++r) {
+								refsL0[r] = HevcFindByPoc(rpl.l0[r]);
+								if (!refsL0[r])
+									return false;
+							}
+							if (isB)
+								for (int32 r = 0; r < sh.numRefIdxL1Active; ++r) {
+									refsL1[r] = HevcFindByPoc(rpl.l1[r]);
+									if (!refsL1[r])
+										return false;
+								}
+							decOk = isB ? NkHevcDecoder::DecodeSliceB(nalPtr, nalSize, hevcSps, hevcPps, sh,
+																	  refsL0, sh.numRefIdxL0Active, refsL1,
+																	  sh.numRefIdxL1Active, frame, ds)
+										: NkHevcDecoder::DecodeSliceP(nalPtr, nalSize, hevcSps, hevcPps, sh,
+																	  refsL0, sh.numRefIdxL0Active, frame, ds);
+						}
+						if (!decOk)
+							return false;
+
+						// YUV 4:2:0 (uint16, 8 bits) -> RGBA (BT.601 limited-range, chroma nearest)
+						// — même conversion que les chemins H264/VP8/VP9. Fait AVANT le stockage
+						// DPB ci-dessous (qui DÉPLACE `frame`), lit encore frame.y/cb/cr valides ici.
+						const int32 w = frame.cropW, h = frame.cropH;
+						out.width = w;
+						out.height = h;
+						out.rgba.Resize((uint64)w * (uint64)h * 4u);
+						uint8 *o = out.rgba.Data();
+						for (int32 y = 0; y < h; ++y)
+							for (int32 x = 0; x < w; ++x) {
+								const int32 Y = frame.y[(usize)y * (usize)frame.lumaW + (usize)x];
+								const int32 U =
+									frame.cb[(usize)(y >> 1) * (usize)frame.chromaW + (usize)(x >> 1)];
+								const int32 V =
+									frame.cr[(usize)(y >> 1) * (usize)frame.chromaW + (usize)(x >> 1)];
+								const int32 C = Y - 16, D = U - 128, E = V - 128;
+								auto cl = [](int32 v) -> uint8 {
+									return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v));
+								};
+								const usize oi = ((usize)y * (usize)w + (usize)x) * 4;
+								o[oi + 0] = cl((298 * C + 409 * E + 128) >> 8);
+								o[oi + 1] = cl((298 * C - 100 * D - 208 * E + 128) >> 8);
+								o[oi + 2] = cl((298 * C + 516 * D + 128) >> 8);
+								o[oi + 3] = 255;
+							}
+
+						// isReference d'après le type NAL (TRAIL_N/TSA_N/STSA_N/RADL_N/RASL_N =
+						// non-référence, jamais gardés au DPB). Éviction DPB par le RPS de la
+						// slice courante (§8.3.2 : le RPS énumère l'ENSEMBLE des images à
+						// conserver) : on garde les POC listés, on ajoute la courante si ref.
+						const bool nonRef = (nalType == kHevcNalTrailN || nalType == kHevcNalTsaN ||
+											 nalType == kHevcNalStsaN || nalType == kHevcNalRadlN ||
+											 nalType == kHevcNalRaslN);
+						frame.isReference = !nonRef;
+						{
+							int32 keep[64];
+							int32 nk = 0;
+							for (int32 k = 0; k < sh.rps.numNegativePics && nk < 64; ++k)
+								keep[nk++] = poc + sh.rps.deltaPocS0[k];
+							for (int32 k = 0; k < sh.rps.numPositivePics && nk < 64; ++k)
+								keep[nk++] = poc + sh.rps.deltaPocS1[k];
+							NkVector<NkHevcFrame> nd;
+							for (uint64 di = 0; di < hevcDpb.Size(); ++di) {
+								bool keepIt = false;
+								for (int32 k = 0; k < nk; ++k)
+									if (hevcDpb[di].poc == keep[k]) {
+										keepIt = true;
+										break;
+									}
+								if (keepIt)
+									nd.PushBack(traits::NkMove(hevcDpb[di]));
+							}
+							hevcDpb = traits::NkMove(nd);
+							if (frame.isReference)
+								hevcDpb.PushBack(traits::NkMove(frame)); // NkMove : plans+MV LOURDS
+						}
+						out.index = index;
+						return true;
+					}
+
 					return false;
 				}
 		};
@@ -1658,6 +2076,8 @@ namespace nkentseu {
 			// rattrapé (cause réelle de la lenteur perçue, indépendante du débit du décodeur).
 			if (mImpl->codec == Codec::H264)
 				return mImpl->h264OutCount;
+			if (mImpl->codec == Codec::HEVC)
+				return mImpl->hevcOutCount;
 			return mImpl->cursor;
 		}
 
@@ -1744,6 +2164,18 @@ namespace nkentseu {
 				return false;
 			}
 
+				// Flux élémentaire HEVC/H.265 Annex-B brut (.265/.hevc) : start code + en-tête NAL
+				// HEVC 2 octets, distingué d'un ES H.264 par la présence d'un VPS/SPS HEVC (type
+				// 32/33). Placé en dernier : aucun magic de conteneur ci-dessus n'est masqué.
+				if (LooksLikeHevcAnnexB(d, mImpl->bytes.Size())) {
+					if (mImpl->ParseHevcAnnexB()) {
+						mImpl->backend = Backend::HEVC_ANNEXB;
+						mImpl->cursor = 0;
+						return true;
+					}
+					return false;
+				}
+
 			return false;
 		}
 
@@ -1809,6 +2241,59 @@ namespace nkentseu {
 				}
 			}
 
+			// ── Chemin HEVC : réordonnancement décodage→affichage par clé POC globale ──
+			// Les B (bi-prédiction) se décodent dans le désordre. On bufferise les images RGBA
+			// décodées et on sort la plus petite clé d'affichage dès qu'aucune image restant à
+			// décoder ne peut avoir une clé plus petite (min suffixe précalculé) — réordonnancement
+			// EXACT, sans heuristique de profondeur B. `Decode` est appelé en ORDRE DÉCODAGE (donc
+			// le DPB HEVC évolue correctement, comme pour H264).
+			if (m->codec == Codec::HEVC) {
+				const int32 count = m->info.frameCount;
+				for (;;) {
+					const bool noMoreInput = (m->hevcDecodeCursor >= count);
+					int64 minRemaining = 0x7FFFFFFFFFFFFFFFLL;
+					if (!noMoreInput)
+						minRemaining = m->hevcSuffixMinKey[(uint64)m->hevcDecodeCursor];
+					uint64 best = 0;
+					bool canOutput = false;
+					if (m->hevcReorder.Size() > 0) {
+						for (uint64 k = 1; k < m->hevcReorderKey.Size(); ++k)
+							if (m->hevcReorderKey[k] < m->hevcReorderKey[best])
+								best = k;
+						if (noMoreInput || m->hevcReorderKey[best] < minRemaining)
+							canOutput = true;
+					}
+					if (canOutput) {
+						// NkMove : `out` et les éléments décalés embarquent le buffer RGBA complet.
+						out = traits::NkMove(m->hevcReorder[best]);
+						for (uint64 k = best + 1; k < m->hevcReorder.Size(); ++k) {
+							m->hevcReorder[k - 1] = traits::NkMove(m->hevcReorder[k]);
+							m->hevcReorderKey[k - 1] = m->hevcReorderKey[k];
+						}
+						m->hevcReorder.Resize(m->hevcReorder.Size() - 1);
+						m->hevcReorderKey.Resize(m->hevcReorderKey.Size() - 1);
+						out.index = m->hevcOutCount; // ordre d'AFFICHAGE
+						out.timestampMs = (m->info.fps > 0.0)
+											? (int64)((double)m->hevcOutCount * 1000.0 / m->info.fps)
+											: 0;
+						++m->hevcOutCount;
+						return true;
+					}
+					if (noMoreInput)
+						return false; // buffer vide et plus d'entrée -> fin
+					NkVideoFrame f;
+					const int32 idx = m->hevcDecodeCursor;
+					if (!m->Decode(idx, f)) {
+						++m->hevcDecodeCursor;
+						continue; // image non décodable -> on saute
+					}
+					f.timestampMs = 0;
+					m->hevcReorder.PushBack(traits::NkMove(f));
+					m->hevcReorderKey.PushBack(m->hevcGlobalKey[(uint64)idx]);
+					++m->hevcDecodeCursor;
+				}
+			}
+
 			// ── Autres codecs (MJPEG, RAWRGB, séquences) : ordre décodage == affichage ──
 			if (m->cursor >= m->info.frameCount)
 				return false;
@@ -1841,6 +2326,20 @@ namespace nkentseu {
 				m->h264Reorder.Resize(0);
 				m->h264ReorderKey.Resize(0);
 				m->lastIsIdr = false; // redécouvert au 1er ReadFrame (décodera l'IDR -> vide h264Dpb)
+			}
+			if (m->codec == Codec::HEVC) {
+				// Comme H264 : repart de la DERNIÈRE image IRAP (IDR/CRA/BLA) à un index de décodage
+				// <= `index` (approximation ordre-décodage ≈ ordre-affichage), vide le DPB + le buffer
+				// de réordonnancement, puis redécode en avant.
+				int32 kf = 0;
+				for (int32 i = 0; i <= index && i < (int32)m->hevcKeyframe.Size(); ++i)
+					if (m->hevcKeyframe[(uint64)i])
+						kf = i;
+				m->hevcDecodeCursor = kf;
+				m->hevcOutCount = kf; // exact à la limite de GOP (l'IRAP est la 1re image affichée)
+				m->hevcReorder.Resize(0);
+				m->hevcReorderKey.Resize(0);
+				m->hevcDpb.Clear(); // les références du GOP précédent ne valent plus après resynchro
 			}
 			m->cursor = index;
 			return true;
