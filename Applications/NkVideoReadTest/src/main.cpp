@@ -12,6 +12,7 @@
 #include "NKMedia/Codecs/Video/VP9/NkVp9Decoder.h"
 #include "NKMedia/Codecs/Video/HEVC/NkHevcDecoder.h"
 #include "NKMedia/Codecs/Video/HEVC/NkHevcCabac.h"
+#include "NKMedia/Codecs/Video/Mpeg2/NkMpeg2Decoder.h"
 #include "NKMedia/Audio/Containers/NkWavWriter.h"
 #include "NKMedia/Video/Containers/NkWebmWriter.h"
 
@@ -1420,6 +1421,89 @@ int main(int argc, char **argv) {
 			   "slice_data I/P/B complet : CTU/intra/inter skip-merge-AMVP/residus/WPP)\n",
 			   ok ? "OK " : "KO");
 		return ok ? 0 : 1;
+	}
+
+	// Mode decodeur MPEG-2 : --mpeg2 <fichier.m2v> <ref.yuv>
+	// Decode TOUT le flux elementaire MPEG-2 (I/P/B) en pixels YUV 4:2:0, reordonne
+	// les images en ordre d'affichage (les B sont reculees), puis compare CHAQUE image
+	// a la reference ffmpeg (I420 concatene, decode de preference avec `-idct simple`
+	// pour matcher l'IDCT). Affiche le maxdiff par image (0 = bit-exact).
+	if (argc >= 4 && strcmp(argv[1], "--mpeg2") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		fseek(f, 0, SEEK_END);
+		long n = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		NkVector<uint8> buf;
+		buf.Resize((usize)n);
+		if (fread(buf.Data(), 1, (size_t)n, f) != (size_t)n) {
+			fclose(f);
+			printf("  [KO] lecture incomplete\n");
+			return 1;
+		}
+		fclose(f);
+		FILE *fr = fopen(argv[3], "rb");
+		if (!fr) {
+			printf("  [KO] reference introuvable : %s\n", argv[3]);
+			return 1;
+		}
+		NkVector<NkMpeg2Frame> frames;
+		char errmsg[256] = {0};
+		bool ok = NkMpeg2Decoder::DecodeAll(buf.Data(), (usize)buf.Size(), frames, errmsg, sizeof(errmsg));
+		if (!ok && frames.Size() == 0) {
+			fclose(fr);
+			printf("  [KO] decode echoue : %s\n", errmsg[0] ? errmsg : "(raison inconnue)");
+			return 1;
+		}
+		if (errmsg[0])
+			printf("  [!] avertissement : %s\n", errmsg);
+		int32 worstDiff = 0, framesOk = 0;
+		const char *typeName[4] = {"?", "I", "P", "B"};
+		for (uint64 i = 0; i < frames.Size(); ++i) {
+			const NkMpeg2Frame &fr2 = frames[i];
+			const int32 cw = fr2.width, ch = fr2.height;
+			const int32 ccw = fr2.dispChromaW, cch = fr2.dispChromaH;
+			const usize refSize = (usize)(cw * ch + 2 * ccw * cch);
+			NkVector<uint8> ref;
+			ref.Resize(refSize);
+			if (fread(ref.Data(), 1, refSize, fr) != refSize) {
+				printf("  image %llu : [KO] reference trop courte\n", (unsigned long long)i);
+				break;
+			}
+			int32 maxDiff = 0;
+			auto cmpPlane = [&](const uint8 *plane, int32 stride, int32 w, int32 h, const uint8 *rp) {
+				for (int32 y = 0; y < h; ++y)
+					for (int32 x = 0; x < w; ++x) {
+						const int32 a = (int32)plane[y * stride + x];
+						const int32 b = (int32)rp[y * w + x];
+						const int32 d = a > b ? a - b : b - a;
+						if (d > maxDiff)
+							maxDiff = d;
+					}
+			};
+			const uint8 *rp = ref.Data();
+			cmpPlane(fr2.y.Data(), fr2.lumaW, cw, ch, rp);
+			rp += (usize)(cw * ch);
+			cmpPlane(fr2.cb.Data(), fr2.chromaW, ccw, cch, rp);
+			rp += (usize)(ccw * cch);
+			cmpPlane(fr2.cr.Data(), fr2.chromaW, ccw, cch, rp);
+			if (maxDiff > worstDiff)
+				worstDiff = maxDiff;
+			if (maxDiff == 0)
+				++framesOk;
+			printf("  image %2llu : %s %dx%d tref=%d maxdiff=%d %s\n", (unsigned long long)i,
+				   typeName[fr2.pictType & 3], cw, ch, fr2.temporalRef, maxDiff,
+				   maxDiff == 0 ? "BIT-EXACT" : (maxDiff <= 2 ? "~quasi" : "[KO]"));
+		}
+		fclose(fr);
+		const bool allOk = frames.Size() > 0 && framesOk == (int32)frames.Size();
+		printf("  images decodees : %llu, bit-exactes : %d/%llu (pire ecart=%d)\n",
+			   (unsigned long long)frames.Size(), framesOk, (unsigned long long)frames.Size(), worstDiff);
+		printf("  [ %s ] decode MPEG-2 vs ffmpeg\n", allOk ? "OK " : "KO");
+		return allOk ? 0 : 1;
 	}
 
 	// Mode validation HEVC (brique 6) : --hevcdecode <fichier.265> <ref.yuv>

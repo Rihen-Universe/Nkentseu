@@ -1188,10 +1188,17 @@ brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
 2. **HEVC — features de bord restantes** (INVÉRIFIABLES faute d'oracle x265, ou refactor lourd —
    pas des bugs) : tuiles, 4:2:2/4:4:4, PCM (code dormant écrit), `ref_pic_lists_modification`,
    `scaling_list_data`, CU 8×8 `log2ParallelMergeLevel>2`. **10-bit inter (Main10) ✅ livré.**
-3. **Nouveaux codecs (optionnels, chacun un chantier dédié)** : AV1, MPEG-2 vidéo, Theora/OGV, AMR-NB/WB.
+3. **Nouveaux codecs (optionnels, chacun un chantier dédié)** : AV1, Theora/OGV, AMR-NB/WB.
+   **MPEG-2 vidéo ✅ livré (2026-07-26)** — `NkMpeg2Decoder` (I/P/B, DPB forward+backward, demi-pel,
+   réordonnancement B) : **bit-exact sur contenu flat/basse-fréquence, ±1 sur haute-fréquence**
+   (tolérance de conformité IDCT IEEE-1180 permise par la norme — 4/25 trames I à maxdiff=0, toutes
+   les autres ≤1). Refusés proprement : entrelacé, table VLC B-15 (`intra_vlc_format=1`), 4:2:2/4:4:4,
+   quantif non-linéaire (chemin écrit, non validé faute de flux ffmpeg). Harnais `--mpeg2`. ⚠️ Bug
+   latent identifié : table `kAcLevel` incomplète dans `NkMpeg1Tables.cpp` (inoffensif — l'encodeur
+   MPEG-1 n'émet jamais les runs 28-31).
 4. **Expansion encodeur (optionnel)** : profils H.264 avancés au-delà du baseline déjà livré.
 
-*(Muxer WebM ✅ livré 2026-07-26 — `NkWebmWriter`, voir brique 5.)*
+*(Muxer WebM ✅ + MPEG-2 décode ✅ livrés 2026-07-26.)*
 
 *(Historique — MAJ 2026-07-19 : Opus/CELT+SILK ✅, AAC-LC stéréo ✅ (CPE/M/S/IS/PNS/TNS, corr
 1.000000 vs ffmpeg), décodeur H264 Main+High COMPLET bit-exact avec déblocage ✅, NkVideoReader avec
