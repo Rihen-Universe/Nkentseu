@@ -13,6 +13,7 @@
 #include "NKMedia/Codecs/Video/HEVC/NkHevcDecoder.h"
 #include "NKMedia/Codecs/Video/HEVC/NkHevcCabac.h"
 #include "NKMedia/Audio/Containers/NkWavWriter.h"
+#include "NKMedia/Video/Containers/NkWebmWriter.h"
 
 #include <cstdio>
 #include <cstring>
@@ -20,6 +21,208 @@
 
 using namespace nkentseu;
 using namespace nkentseu::media;
+
+// =============================================================================
+// Petit démux EBML/WebM AUTONOME pour le mode --webmmux : extrait les paquets
+// vidéo (VP8/VP9) bruts d'un .webm (numéro de piste, dimensions, horodatage,
+// flag image-clé) sans passer par le décodeur. Sert à la fois à lire le fichier
+// d'ENTRÉE (à re-muxer) et à re-lire la SORTIE de NkWebmWriter (round-trip).
+// La logique VINT est identique à NkVideoReader::EbmlReadVint.
+// =============================================================================
+namespace {
+	struct WebmPkt {
+			const uint8 *data;
+			usize size;
+			int64 ts;
+			bool key;
+			int64 track; // numéro de piste d'origine
+	};
+	struct WebmDump {
+			// Piste vidéo.
+			int64 videoNum = -1;
+			int32 videoType = 0; // 1 = vidéo
+			NkString codecId;
+			int32 width = 0, height = 0;
+			// Piste audio (optionnelle).
+			int64 audioNum = -1;
+			NkString audioCodecId;
+			NkVector<uint8> audioPriv;
+			int32 audioRate = 48000, audioCh = 2;
+			// Tous les paquets (vidéo + audio), dans l'ordre du fichier.
+			NkVector<WebmPkt> pkts;
+	};
+
+	int32 EbmlVint(const uint8 *p, usize avail, uint64 &value, bool keepMarker) {
+		if (avail == 0)
+			return 0;
+		uint8 b = p[0];
+		int32 len = 0;
+		uint8 mask = 0x80;
+		for (int32 i = 0; i < 8; ++i) {
+			if (b & mask) {
+				len = i + 1;
+				break;
+			}
+			mask >>= 1;
+		}
+		if (len == 0 || (usize)len > avail)
+			return 0;
+		uint64 v = keepMarker ? b : (uint64)(b & (0xFF >> len));
+		for (int32 i = 1; i < len; ++i)
+			v = (v << 8) | p[i];
+		value = v;
+		return len;
+	}
+	uint64 EbmlUint(const uint8 *p, usize len) {
+		uint64 v = 0;
+		for (usize i = 0; i < len && i < 8; ++i)
+			v = (v << 8) | p[i];
+		return v;
+	}
+
+	// Passe 1 : piste vidéo (num, codec, dimensions).
+	void WebmWalkTracks(const uint8 *base, usize start, usize end, WebmDump *out, WebmDump *cur,
+						int32 depth) {
+		if (depth > 12 || (out && out->videoNum >= 0 && out->audioNum >= 0))
+			return;
+		usize pos = start;
+		while (pos < end) {
+			uint64 id = 0, sz = 0;
+			int32 il = EbmlVint(base + pos, end - pos, id, true);
+			if (il <= 0)
+				break;
+			int32 sl = EbmlVint(base + pos + il, end - pos - il, sz, false);
+			if (sl <= 0)
+				break;
+			const usize ds = pos + il + sl;
+			const uint64 allOnes = (1ULL << (7 * sl)) - 1;
+			const usize de = (sz == allOnes || ds + (usize)sz > end) ? end : ds + (usize)sz;
+			if (id == 0x18538067ULL || id == 0x1654AE6BULL) { // Segment / Tracks
+				WebmWalkTracks(base, ds, de, out, nullptr, depth + 1);
+			} else if (id == 0xAEULL) { // TrackEntry
+				WebmDump t;
+				WebmWalkTracks(base, ds, de, out, &t, depth + 1);
+				if (t.videoType == 1 && t.videoNum >= 0 && out && out->videoNum < 0) {
+					out->videoNum = t.videoNum;
+					out->codecId = t.codecId;
+					out->width = t.width;
+					out->height = t.height;
+				} else if (t.videoType == 2 && t.videoNum >= 0 && out && out->audioNum < 0) {
+					out->audioNum = t.videoNum;
+					out->audioCodecId = t.codecId;
+					out->audioPriv = t.audioPriv;
+					out->audioRate = t.audioRate;
+					out->audioCh = t.audioCh;
+				}
+			} else if (id == 0xE0ULL || id == 0xE1ULL) { // Video / Audio
+				WebmWalkTracks(base, ds, de, out, cur, depth + 1);
+			} else if (cur != nullptr) {
+				if (id == 0x83ULL)
+					cur->videoType = (int32)EbmlUint(base + ds, de - ds);
+				else if (id == 0xD7ULL)
+					cur->videoNum = (int64)EbmlUint(base + ds, de - ds);
+				else if (id == 0x86ULL) {
+					usize l = de - ds;
+					if (l > 63)
+						l = 63;
+					char buf[64];
+					for (usize i = 0; i < l; ++i)
+						buf[i] = (char)base[ds + i];
+					buf[l] = 0;
+					cur->codecId = NkString(buf);
+				} else if (id == 0xB0ULL)
+					cur->width = (int32)EbmlUint(base + ds, de - ds);
+				else if (id == 0xBAULL)
+					cur->height = (int32)EbmlUint(base + ds, de - ds);
+				else if (id == 0x63A2ULL) { // CodecPrivate (audio Opus : OpusHead)
+					for (usize i = ds; i < de; ++i)
+						cur->audioPriv.PushBack(base[i]);
+				} else if (id == 0x9FULL) // Channels
+					cur->audioCh = (int32)EbmlUint(base + ds, de - ds);
+				else if (id == 0xB5ULL) { // SamplingFrequency (float)
+					const usize l = de - ds;
+					if (l == 8) {
+						union {
+								double dd;
+								uint64 uu;
+						} cv;
+						cv.uu = EbmlUint(base + ds, 8);
+						cur->audioRate = (int32)cv.dd;
+					} else if (l == 4) {
+						union {
+								float ff;
+								uint32 uu;
+						} cv;
+						cv.uu = (uint32)EbmlUint(base + ds, 4);
+						cur->audioRate = (int32)cv.ff;
+					}
+				}
+			}
+			pos = de;
+		}
+	}
+
+	// Passe 2 : SimpleBlock/Block des pistes vidéo ET audio (payload + ts + flag),
+	// dans l'ordre du fichier.
+	void WebmWalkBlocks(const uint8 *base, usize start, usize end, int64 videoNum, int64 audioNum,
+						uint64 clusterTs, WebmDump *out, int32 depth) {
+		if (depth > 12)
+			return;
+		usize pos = start;
+		uint64 curTs = clusterTs;
+		while (pos < end) {
+			uint64 id = 0, sz = 0;
+			int32 il = EbmlVint(base + pos, end - pos, id, true);
+			if (il <= 0)
+				break;
+			int32 sl = EbmlVint(base + pos + il, end - pos - il, sz, false);
+			if (sl <= 0)
+				break;
+			const usize ds = pos + il + sl;
+			const uint64 allOnes = (1ULL << (7 * sl)) - 1;
+			const usize de = (sz == allOnes || ds + (usize)sz > end) ? end : ds + (usize)sz;
+			if (id == 0x18538067ULL) { // Segment
+				WebmWalkBlocks(base, ds, de, videoNum, audioNum, curTs, out, depth + 1);
+			} else if (id == 0x1F43B675ULL) { // Cluster
+				WebmWalkBlocks(base, ds, de, videoNum, audioNum, 0, out, depth + 1);
+			} else if (id == 0xE7ULL) { // Timestamp
+				curTs = EbmlUint(base + ds, de - ds);
+			} else if (id == 0xA0ULL) { // BlockGroup
+				WebmWalkBlocks(base, ds, de, videoNum, audioNum, curTs, out, depth + 1);
+			} else if (id == 0xA3ULL || id == 0xA1ULL) { // SimpleBlock / Block
+				uint64 trackNum = 0;
+				int32 tl = EbmlVint(base + ds, de - ds, trackNum, false);
+				const bool isVideo = (int64)trackNum == videoNum;
+				const bool isAudio = (int64)trackNum == audioNum;
+				if (tl > 0 && ds + (usize)tl + 3 <= de && (isVideo || isAudio)) {
+					const usize hp = ds + (usize)tl;
+					const int16 rel = (int16)(((uint16)base[hp] << 8) | (uint16)base[hp + 1]);
+					const uint8 flags = base[hp + 2];
+					const usize frameStart = hp + 3;
+					if (frameStart < de) {
+						WebmPkt pk;
+						pk.data = base + frameStart;
+						pk.size = de - frameStart;
+						pk.ts = (int64)curTs + (int64)rel;
+						pk.track = (int64)trackNum;
+						// SimpleBlock : bit 0x80 = image-clé. L'audio Opus est toujours clé.
+						pk.key = isAudio ? true : ((id == 0xA3ULL) ? ((flags & 0x80) != 0) : false);
+						out->pkts.PushBack(pk);
+					}
+				}
+			}
+			pos = de;
+		}
+	}
+
+	bool WebmDemux(const uint8 *d, usize n, WebmDump &out) {
+		WebmWalkTracks(d, 0, n, &out, nullptr, 0);
+		if (out.videoNum < 0)
+			return false;
+		WebmWalkBlocks(d, 0, n, out.videoNum, out.audioNum, 0, &out, 0);
+		return out.pkts.Size() > 0;
+	}
+} // namespace
 
 int main(int argc, char **argv) {
 	printf("=== NkVideoReadTest — lecture video NKMedia ===\n\n");
@@ -41,9 +244,139 @@ int main(int argc, char **argv) {
 			   okHevcCabac ? "OK " : "KO");
 		bool okWav = NkWavWriter::SelfTest();
 		printf("  [ %s ] NkWavWriter::SelfTest (RIFF/WAVE round-trip)\n", okWav ? "OK " : "KO");
-		bool all = ok && okH264 && okCavlc && okVp9 && okHevc && okHevcCabac && okWav;
+		bool okWebm = NkWebmWriter::SelfTest();
+		printf("  [ %s ] NkWebmWriter::SelfTest (EBML/WebM VP9 round-trip)\n", okWebm ? "OK " : "KO");
+		bool all = ok && okH264 && okCavlc && okVp9 && okHevc && okHevcCabac && okWav && okWebm;
 		printf("=== %s ===\n", all ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
 		return all ? 0 : 1;
+	}
+
+	// Mode MUX WebM : --webmmux <entree.webm> <sortie.webm>
+	// Démuxe les paquets vidéo VP8/VP9 bruts de l'entrée, les re-muxe avec
+	// NkWebmWriter, puis re-démuxe la sortie et vérifie le round-trip (mêmes
+	// dimensions, même nombre de paquets, mêmes octets, mêmes flags image-clé).
+	// ffprobe/ffmpeg externes valident ensuite le fichier produit.
+	if (argc >= 4 && strcmp(argv[1], "--webmmux") == 0) {
+		NkVector<uint8> inBytes = NkFile::ReadAllBytes(argv[2]);
+		if (inBytes.Size() == 0) {
+			printf("  [KO] entree introuvable/vide : %s\n", argv[2]);
+			return 1;
+		}
+		WebmDump in;
+		if (!WebmDemux(inBytes.Data(), (usize)inBytes.Size(), in)) {
+			printf("  [KO] demux WebM entree echoue\n");
+			return 1;
+		}
+		const bool isVp8 = in.codecId.Contains("VP8");
+		const bool isVp9 = in.codecId.Contains("VP9");
+		if (!isVp8 && !isVp9) {
+			printf("  [KO] codec entree non VP8/VP9 : %s\n", in.codecId.CStr());
+			return 1;
+		}
+		const bool hasOpus = in.audioNum >= 0 && in.audioCodecId.Contains("OPUS") &&
+							 in.audioPriv.Size() >= 8;
+		printf("  entree : video=%s %dx%d", in.codecId.CStr(), in.width, in.height);
+		if (hasOpus)
+			printf("  audio=%s %d Hz %d ch (OpusHead %llu o)", in.audioCodecId.CStr(), in.audioRate,
+				   in.audioCh, (unsigned long long)in.audioPriv.Size());
+		printf("  paquets=%llu\n", (unsigned long long)in.pkts.Size());
+
+		NkWebmConfig cfg;
+		cfg.videoCodec = isVp8 ? NkWebmVideoCodec::VP8 : NkWebmVideoCodec::VP9;
+		cfg.width = in.width;
+		cfg.height = in.height;
+		if (hasOpus) {
+			cfg.audioCodec = NkWebmAudioCodec::OPUS;
+			cfg.audioSampleRate = in.audioRate;
+			cfg.audioChannels = in.audioCh;
+			cfg.audioCodecPrivate = in.audioPriv.Data();
+			cfg.audioCodecPrivateSize = (usize)in.audioPriv.Size();
+		}
+
+		NkWebmWriter wr;
+		if (!wr.Open(argv[3], cfg)) {
+			printf("  [KO] ouverture sortie echouee : %s\n", argv[3]);
+			return 1;
+		}
+		// Ré-injecte les paquets DANS L'ORDRE DU FICHIER (interleaving vidéo/audio préservé).
+		for (uint64 i = 0; i < in.pkts.Size(); ++i) {
+			const WebmPkt &p = in.pkts[i];
+			bool okAdd = true;
+			if (p.track == in.videoNum)
+				okAdd = wr.AddVideoFrame(p.data, p.size, p.ts, p.key);
+			else if (hasOpus && p.track == in.audioNum)
+				okAdd = wr.AddAudioFrame(p.data, p.size, p.ts);
+			if (!okAdd) {
+				printf("  [KO] Add(track=%lld) paquet %llu\n", (long long)p.track,
+					   (unsigned long long)i);
+				return 1;
+			}
+		}
+		if (!wr.Finalize()) {
+			printf("  [KO] Finalize\n");
+			return 1;
+		}
+		printf("  sortie ecrite : %s  (video=%d, audio=%d)\n", argv[3], wr.VideoFrameCount(),
+			   wr.AudioFrameCount());
+
+		// --- Round-trip : re-demux de la SORTIE et comparaison octet-a-octet, par piste. ---
+		NkVector<uint8> outBytes = NkFile::ReadAllBytes(argv[3]);
+		WebmDump rt;
+		if (!WebmDemux(outBytes.Data(), (usize)outBytes.Size(), rt)) {
+			printf("  [KO] re-demux de la sortie echoue\n");
+			return 1;
+		}
+		// Compare piste par piste (les numéros de piste 1/2 sont conservés par le writer).
+		bool ok = (rt.width == in.width) && (rt.height == in.height) &&
+				  rt.codecId.Contains(isVp8 ? "VP8" : "VP9") && (rt.pkts.Size() == in.pkts.Size());
+		int32 vIn = 0, vOut = 0, aIn = 0, aOut = 0, keyIn = 0, keyOut = 0;
+		for (uint64 i = 0; i < in.pkts.Size(); ++i) {
+			if (in.pkts[i].track == in.videoNum) {
+				++vIn;
+				if (in.pkts[i].key)
+					++keyIn;
+			} else
+				++aIn;
+		}
+		if (ok) {
+			// Les paquets sortent avec track=1 (vidéo) / track=2 (audio) ; on les compare
+			// dans le même ordre en s'appuyant sur l'ordre de fichier préservé.
+			uint64 j = 0;
+			for (uint64 i = 0; i < in.pkts.Size() && ok; ++i) {
+				// avance rt.pkts en parallèle
+				const WebmPkt &a = in.pkts[i];
+				const WebmPkt &b = rt.pkts[j++];
+				if (b.track == 1) {
+					++vOut;
+					if (b.key)
+						++keyOut;
+				} else
+					++aOut;
+				if (a.size != b.size) {
+					ok = false;
+					printf("  [KO] taille paquet %llu differe (%llu vs %llu)\n",
+						   (unsigned long long)i, (unsigned long long)a.size,
+						   (unsigned long long)b.size);
+					break;
+				}
+				for (usize k = 0; k < a.size; ++k) {
+					if (a.data[k] != b.data[k]) {
+						ok = false;
+						printf("  [KO] octet %llu du paquet %llu differe\n", (unsigned long long)k,
+							   (unsigned long long)i);
+						break;
+					}
+				}
+			}
+		}
+		printf("  round-trip : %dx%d  video in/out=%d/%d  audio in/out=%d/%d  keyframes in/out=%d/%d\n",
+			   rt.width, rt.height, vIn, vOut, aIn, aOut, keyIn, keyOut);
+		if (ok && vIn == vOut && aIn == aOut && keyIn == keyOut) {
+			printf("=== WEBM MUX OK (round-trip bit-exact) ===\n");
+			return 0;
+		}
+		printf("=== WEBM MUX ECHEC ===\n");
+		return 1;
 	}
 
 	// Mode VP8 sequence COMPLETE (cle + inter) : --vp8seq <fichier.ivf> <reference.yuv>
