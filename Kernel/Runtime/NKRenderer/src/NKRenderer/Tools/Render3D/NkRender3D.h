@@ -309,6 +309,49 @@ namespace nkentseu {
 				void DrawDebugGrid(NkVec3f origin, float32 spacing, int32 lines, NkVec4f color);
 				void DrawDebugArrow(NkVec3f from, NkVec3f to, NkVec4f color);
 
+				// ── Sélection « outline silhouette » façon Blender ───────────────────
+				// OPTION DISTINCTE des marqueurs AABB du gizmo (SetDrawObjectBounds /
+				// NK_GIZMO_OBB, qui restent disponibles en parallèle). Un fin liseré
+				// (défaut orange ~{1,0.45,0.05}) SUIT LA SILHOUETTE des maillages soumis
+				// via SubmitSelection, obtenu par un post-process de détection de bord :
+				//   1) passe MASQUE : les objets sélectionnés sont rendus SEULS (blanc plein)
+				//      dans une cible offscreen R8 (silhouette) ;
+				//   2) passe PLEIN ÉCRAN : dilatation-différence du masque -> liseré composité
+				//      par-dessus l'image finale (alpha-blend), épaisseur constante en pixels.
+				// Les deux passes sont ajoutées au RenderGraph (SelectionMask + SelectionOutline)
+				// quand l'option est active ; un changement d'état déclenche un rebuild du graph
+				// (cf. ConsumeSelOutlineGraphDirty, consommé par NkRendererImpl::BeginFrame).
+				void SetSelectionOutline(bool enabled, NkVec4f color = {1.f, 0.45f, 0.05f, 1.f},
+										 float32 thicknessPx = 2.5f);
+				bool IsSelectionOutlineEnabled() const {
+					return mSelOutline;
+				}
+				NkVec4f SelectionOutlineColor() const {
+					return mSelOutlineColor;
+				}
+				float32 SelectionOutlineThickness() const {
+					return mSelOutlineThickness;
+				}
+				// Soumet un mesh à la file de sélection de la frame (rendu SEUL dans le
+				// masque de silhouette). À rappeler chaque frame : la file est vidée par
+				// BeginScene comme les autres files de soumission.
+				void SubmitSelection(const NkDrawCall3D &dc);
+				bool HasSelection() const {
+					return !mSelection.Empty();
+				}
+				// true si l'état enable a changé depuis le dernier appel (consommé par
+				// NkRendererImpl::BeginFrame pour rebuild le RenderGraph au bon moment).
+				bool ConsumeSelOutlineGraphDirty() {
+					bool d = mSelOutlineGraphDirty;
+					mSelOutlineGraphDirty = false;
+					return d;
+				}
+				// Appelées par le RenderGraph (NkRendererImpl) :
+				//  - RenderSelectionMask : rend la file de sélection (blanc) dans la cible masque.
+				//  - CompositeSelectionOutline : liseré plein écran sur la cible finale (maskTex lu).
+				void RenderSelectionMask(NkICommandBuffer *cmd);
+				void CompositeSelectionOutline(NkICommandBuffer *cmd, NkTextureHandle maskTex);
+
 			private:
 				struct SortedDC {
 						NkDrawCall3D dc;
@@ -614,6 +657,30 @@ namespace nkentseu {
 				// stride en OCTETS d'un vertex (7*float lignes/tris, 9*float points sprite).
 				void UploadEditBuf(NkBufferHandle &buf, uint32 &cap, const float *v, uint32 vcount, uint32 strideBytes);
 				bool EnsureDebugLinePipeline(NkRenderPassHandle currentRP);
+
+				// ── Sélection « outline silhouette » (post-process edge-detect) ──────
+				// DÉFAUT = true : le liseré silhouette est l'indicateur de sélection PAR
+				// DÉFAUT (à la place de l'AABB/OBB du gizmo, désormais opt-in). Ne coûte
+				// rien tant que rien n'est soumis via SubmitSelection (masque vide). Les
+				// passes SelectionMask/SelectionOutline sont ajoutées au graph tant que
+				// cette option est active (cf. NkRendererImpl::BuildDefaultRenderGraph).
+				bool mSelOutline = true;
+				bool mSelOutlineGraphDirty = false; // enable a changé -> rebuild du graph
+				NkVec4f mSelOutlineColor = {1.f, 0.45f, 0.05f, 1.f};
+				float32 mSelOutlineThickness = 2.5f;
+				NkVector<NkDrawCall3D> mSelection; // file de la frame (vidée par BeginScene)
+				// Passe MASQUE : rend les objets sélectionnés en blanc (silhouette).
+				::nkentseu::NkShaderHandle mSelMaskShader;
+				NkPipelineHandle mSelMaskPipeline;
+				NkRenderPassHandle mSelMaskPipelineRP{};
+				// Passe OUTLINE : fullscreen edge-detect du masque -> liseré composité.
+				::nkentseu::NkShaderHandle mSelOutlineShader;
+				NkPipelineHandle mSelOutlinePipeline;
+				NkRenderPassHandle mSelOutlinePipelineRP{};
+				NkDescSetHandle mSelTexLayout; // 1 sampler (le masque)
+				NkDescSetHandle mSelTexSet;
+				bool EnsureSelMaskPipeline(NkRenderPassHandle currentRP);
+				bool EnsureSelOutlinePipeline(NkRenderPassHandle currentRP);
 		};
 
 	} // namespace renderer

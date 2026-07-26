@@ -1,0 +1,10 @@
+// selmask.frag.nksl — NKRenderer — Passe MASQUE de sélection (silhouette).
+// Écrit du blanc plein : le canal rouge de la cible (R8) porte le masque
+// (1 = pixel sélectionné, 0 = fond). Consommé par seloutline.frag.nksl.
+@location(0) out vec4 oColor;
+
+@stage(fragment)
+@entry
+void main() {
+    oColor = vec4(1.0, 1.0, 1.0, 1.0);
+}

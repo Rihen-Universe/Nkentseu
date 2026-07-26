@@ -1054,7 +1054,11 @@ namespace nkentseu {
 				// Survol (hover) : poignée sous le curseur hors drag (surbrillance visuelle).
 				bool mHovValid = false;
 				int32 mHovOp = -1, mHovMask = 0, mHovKind = 0;
-				bool mDrawOBB = true; // marqueur OBB discret, masquable (SetDrawObjectBounds)
+				// OBB/AABB : marqueur de boîte du gizmo — désormais OPT-IN (défaut OFF).
+				// L'indicateur de sélection PAR DÉFAUT est le liseré silhouette qui épouse
+				// le mesh (NkRender3D::SetSelectionOutline, ON par défaut). Réactiver la
+				// boîte explicitement via SetDrawObjectBounds(true) si souhaité.
+				bool mDrawOBB = false; // marqueur OBB discret, opt-in (SetDrawObjectBounds)
 				float32 mLastAngle = 0.f;
 				// Snap (quand ctrlDown) : pas + résidus accumulés par drag (quantification).
 				float32 mSnapT = 0.5f, mSnapRdeg = 15.f, mSnapS = 0.1f;
