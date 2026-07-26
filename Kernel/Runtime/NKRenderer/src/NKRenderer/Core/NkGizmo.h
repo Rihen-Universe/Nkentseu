@@ -78,6 +78,17 @@ namespace nkentseu {
 					mMode = (mMode + 1) % 4;
 				}
 
+				// Marqueur OBB (cage englobante) autour de chaque objet sélectionné. Discret
+				// par défaut (fin liseré) ; peut être MASQUÉ (façon Blender épuré, ou pour des
+				// captures où l'on veut voir le gizmo SEUL). Défaut : affiché mais discret.
+				void SetDrawObjectBounds(bool e) {
+					mDrawOBB = e;
+				}
+
+				bool DrawObjectBounds() const {
+					return mDrawOBB;
+				}
+
 				void CycleOrientation() {
 					mOrient = (mOrient + 1) % 3;
 				}
@@ -193,6 +204,18 @@ namespace nkentseu {
 						mSelId = mCount - 1;
 				}
 
+				// Sélection EXCLUSIVE d'une seule cible par index (désélectionne les autres).
+				// Pratique pour piloter le gizmo par programme (tests, captures headless, API éditeur).
+				void Select(int32 i) {
+					for (int32 k = 0; k < kMax; k++)
+						mSel[k] = false;
+					if (i >= 0 && i < kMax) {
+						mSel[i] = true;
+						mSelId = i;
+					} else
+						mSelId = -1;
+				}
+
 				void ResetSelected() {
 					for (int32 i = 0; i < kMax; i++)
 						if (mSel[i]) {
@@ -281,6 +304,11 @@ namespace nkentseu {
 						else
 							DoDrag(in);
 					}
+					// Survol (feedback Blender) : calculé hors drag, sinon suit la poignée tirée.
+					if (mHaveSel && !mDragging)
+						ComputeHover(in);
+					else
+						mHovValid = false;
 				}
 
 				// ── Dessin (via callback de ligne) ────────────────────────────────
@@ -294,40 +322,210 @@ namespace nkentseu {
 						const NkVec4f col = HandleColor(hs[hi]);
 						const bool active =
 							mDragging && mGOp == hs[hi].op && mGMask == hs[hi].mask && mGKind == hs[hi].kind;
-						const int32 tPx = active ? 7 : 4;
+						const bool hovered =
+							mHovValid && mHovOp == hs[hi].op && mHovMask == hs[hi].mask && mHovKind == hs[hi].kind;
+						// Lignes FINES par défaut (façon Blender épuré) ; épaissies seulement
+						// à l'interaction (survol -> 3, drag -> 5).
+						const int32 tPx = active ? 5 : (hovered ? 3 : 2);
 						ForEachSeg(hs[hi], mPivot, mGL,
 								   [&](NkVec3f A, NkVec3f B) { ThickLine(A, B, col, tPx, drawLine); });
 					}
-					// Marqueurs OBB (par objet sélectionné).
-					for (int32 i = 0; i < mCount; i++)
-						if (mSel[i]) {
-							const NkMat4f &M = mComposed[i];
-							NkVec3f hh = mHalf[i];
-							const NkVec4f Y =
-								(i == mSelId) ? NkVec4f{1.f, 0.6f, 0.05f, 1.f} : NkVec4f{1.f, 0.85f, 0.1f, 1.f};
-							NkVec3f c000 = Corner(M, hh, -1, -1, -1), c100 = Corner(M, hh, +1, -1, -1),
-									c010 = Corner(M, hh, -1, +1, -1), c110 = Corner(M, hh, +1, +1, -1);
-							NkVec3f c001 = Corner(M, hh, -1, -1, +1), c101 = Corner(M, hh, +1, -1, +1),
-									c011 = Corner(M, hh, -1, +1, +1), c111 = Corner(M, hh, +1, +1, +1);
-							ThickLine(c000, c100, Y, 2, drawLine);
-							ThickLine(c010, c110, Y, 2, drawLine);
-							ThickLine(c001, c101, Y, 2, drawLine);
-							ThickLine(c011, c111, Y, 2, drawLine);
-							ThickLine(c000, c010, Y, 2, drawLine);
-							ThickLine(c100, c110, Y, 2, drawLine);
-							ThickLine(c001, c011, Y, 2, drawLine);
-							ThickLine(c101, c111, Y, 2, drawLine);
-							ThickLine(c000, c001, Y, 2, drawLine);
-							ThickLine(c100, c101, Y, 2, drawLine);
-							ThickLine(c010, c011, Y, 2, drawLine);
-							ThickLine(c110, c111, Y, 2, drawLine);
+					// Cercle de VUE blanc (Blender) : anneau extérieur face-caméra en mode
+					// Rotate/Combine. Purement visuel (non pickable), fin et discret.
+					if (mMode == MODE_ROTATE || mMode == MODE_COMBINE) {
+						const float32 Rv = ((mMode == MODE_COMBINE) ? 0.90f : 1.12f) * mGL;
+						const NkVec4f wc = {0.90f, 0.90f, 0.90f, 0.55f};
+						NkVec3f prev{};
+						for (int32 k = 0; k <= 64; k++) {
+							float32 t = (float32)k / 64.f * 6.2831853f;
+							NkVec3f P = mPivot + (mRgt * cosf(t) + mUp * sinf(t)) * Rv;
+							if (k > 0)
+								ThickLine(prev, P, wc, 2, drawLine);
+							prev = P;
 						}
+					}
+					// Marqueur OBB discret (fin liseré), masquable via SetDrawObjectBounds(false).
+					DrawOBBMarkers(drawLine);
+				}
+
+				// ── Dessin PLEIN (façon Blender) : pointes/cubes/anneaux SOLIDES ──────
+				// Surcharge à 2 callbacks : drawLine(a,b,color) pour les tiges/liserés fins,
+				// drawTri(a,b,c,color) pour les formes PLEINES (branché sur DrawDebugTriangle).
+				// L'app fournit drawTri ; les call-sites qui ne passent QUE drawLine tombent sur
+				// la surcharge à 1 argument (rendu FIL DE FER, inchangé) -> zéro régression.
+				template <class DrawLine, class DrawTri> void Draw(DrawLine drawLine, DrawTri drawTri) const {
+					if (!mHaveSel)
+						return;
+					GH hs[32];
+					int32 nh = BuildHandles(hs);
+					for (int32 hi = 0; hi < nh; hi++) {
+						const NkVec4f col = HandleColor(hs[hi]);
+						DrawHandleSolid(hs[hi], mPivot, mGL, col, drawLine, drawTri);
+					}
+					// Cercle de VUE blanc (Blender) : reste une FINE ligne (pas de plein).
+					if (mMode == MODE_ROTATE || mMode == MODE_COMBINE) {
+						const float32 Rv = ((mMode == MODE_COMBINE) ? 0.90f : 1.12f) * mGL;
+						const NkVec4f wc = {0.90f, 0.90f, 0.90f, 0.55f};
+						NkVec3f prev{};
+						for (int32 k = 0; k <= 64; k++) {
+							float32 t = (float32)k / 64.f * 6.2831853f;
+							NkVec3f P = mPivot + (mRgt * cosf(t) + mUp * sinf(t)) * Rv;
+							if (k > 0)
+								ThickLine(prev, P, wc, 2, drawLine);
+							prev = P;
+						}
+					}
+					DrawOBBMarkers(drawLine);
 				}
 
 			private:
 				struct GH {
 						int32 op, mask, kind;
 				}; // op:0=T 1=R 2=S ; kind:0=axe 1=plan 2=centre 3=anneau
+
+				// Cage OBB : fin liseré DISCRET (1 px, alpha bas, orange atténué) autour de
+				// chaque objet sélectionné. Masquée si mDrawOBB=false.
+				template <class DrawLine> void DrawOBBMarkers(DrawLine &drawLine) const {
+					if (!mDrawOBB)
+						return;
+					for (int32 i = 0; i < mCount; i++)
+						if (mSel[i]) {
+							const NkMat4f &M = mComposed[i];
+							NkVec3f hh = mHalf[i];
+							const NkVec4f Y = (i == mSelId) ? NkVec4f{1.f, 0.55f, 0.05f, 0.30f}
+															: NkVec4f{1.f, 0.75f, 0.1f, 0.25f};
+							NkVec3f c000 = Corner(M, hh, -1, -1, -1), c100 = Corner(M, hh, +1, -1, -1),
+									c010 = Corner(M, hh, -1, +1, -1), c110 = Corner(M, hh, +1, +1, -1);
+							NkVec3f c001 = Corner(M, hh, -1, -1, +1), c101 = Corner(M, hh, +1, -1, +1),
+									c011 = Corner(M, hh, -1, +1, +1), c111 = Corner(M, hh, +1, +1, +1);
+							ThickLine(c000, c100, Y, 1, drawLine);
+							ThickLine(c010, c110, Y, 1, drawLine);
+							ThickLine(c001, c101, Y, 1, drawLine);
+							ThickLine(c011, c111, Y, 1, drawLine);
+							ThickLine(c000, c010, Y, 1, drawLine);
+							ThickLine(c100, c110, Y, 1, drawLine);
+							ThickLine(c001, c011, Y, 1, drawLine);
+							ThickLine(c101, c111, Y, 1, drawLine);
+							ThickLine(c000, c001, Y, 1, drawLine);
+							ThickLine(c100, c101, Y, 1, drawLine);
+							ThickLine(c010, c011, Y, 1, drawLine);
+							ThickLine(c110, c111, Y, 1, drawLine);
+						}
+				}
+
+				// Rendu PLEIN d'une poignée via triangles (drawTri), façon Blender solide.
+				// - back-face culling + ombrage par la normale -> aspect SOLIDE correct SANS
+				//   depth-test (overlay), et alpha ~opaque -> indépendant de l'ordre de tri.
+				template <class DrawLine, class DrawTri>
+				void DrawHandleSolid(const GH &h, NkVec3f C, float32 L, NkVec4f col, DrawLine &drawLine,
+									 DrawTri &drawTri) const {
+					// Triangle PLEIN : ref = point interne -> normale sortante ; cull si face arrière.
+					auto emitSolid = [&](NkVec3f a, NkVec3f b, NkVec3f c3, NkVec3f ref) {
+						NkVec3f n = Norm(Cross(b - a, c3 - a));
+						NkVec3f ctr = (a + b + c3) * (1.f / 3.f);
+						if (Dot(n, ctr - ref) < 0.f) {
+							n = NkVec3f{-n.x, -n.y, -n.z};
+							NkVec3f tmp = b;
+							b = c3;
+							c3 = tmp;
+						}
+						NkVec3f toCam = mCamPos - ctr;
+						if (Dot(n, toCam) <= 0.f)
+							return; // face arrière -> cull
+						float32 sh = 0.66f + 0.34f * Clamp01(Dot(n, Norm(toCam)));
+						drawTri(a, b, c3, NkVec4f{col.x * sh, col.y * sh, col.z * sh, col.w});
+					};
+					// Triangle PLAT bi-face (plans/disques/rubans) : pas de cull, ombrage constant.
+					auto emitFlat = [&](NkVec3f a, NkVec3f b, NkVec3f c3, float32 sh, float32 alpha) {
+						drawTri(a, b, c3, NkVec4f{col.x * sh, col.y * sh, col.z * sh, alpha});
+					};
+					const bool combine = (mMode == 3);
+
+					if (h.kind == 0) {
+						int32 a = AxisOf(h.mask);
+						NkVec3f dir = mGB[a], u = mGB[(a + 1) % 3], w = mGB[(a + 2) % 3];
+						float32 Lt = L, Ls = combine ? 0.55f * L : L;
+						float32 len = (h.op == 0) ? Lt : Ls;
+						NkVec3f E = C + dir * len;
+						ThickLine(C, E, col, 2, drawLine); // tige fine
+						if (h.op == 0) {
+							// TÊTE DE FLÈCHE CONIQUE PLEINE (côtés + base fermée), PETITE.
+							const float32 hl = 0.22f * L, hw = 0.075f * L;
+							NkVec3f b = E - dir * hl;	  // centre de la base
+							NkVec3f ref = (E + b) * 0.5f;  // milieu de l'axe du cône
+							const int32 N = 14;
+							NkVec3f prev{};
+							for (int32 k = 0; k <= N; k++) {
+								float32 t = (float32)k / (float32)N * 6.2831853f;
+								NkVec3f p = b + (u * cosf(t) + w * sinf(t)) * hw;
+								if (k > 0) {
+									emitSolid(E, prev, p, ref); // face latérale
+									emitSolid(b, prev, p, ref); // base (cap)
+								}
+								prev = p;
+							}
+						} else {
+							// PETIT CUBE PLEIN (6 faces = 12 triangles).
+							const float32 hb = 0.06f * L;
+							NkVec3f cc[8];
+							for (int32 j = 0; j < 8; j++)
+								cc[j] = E + u * ((j & 1) ? hb : -hb) + w * ((j & 2) ? hb : -hb) +
+										dir * ((j & 4) ? hb : -hb);
+							static const int32 fq[6][4] = {{0, 1, 3, 2}, {4, 6, 7, 5}, {0, 4, 5, 1},
+														   {2, 3, 7, 6}, {0, 2, 6, 4}, {1, 5, 7, 3}};
+							for (int32 f = 0; f < 6; f++) {
+								emitSolid(cc[fq[f][0]], cc[fq[f][1]], cc[fq[f][2]], E);
+								emitSolid(cc[fq[f][0]], cc[fq[f][2]], cc[fq[f][3]], E);
+							}
+						}
+					} else if (h.kind == 1) {
+						// POIGNÉE DE PLAN : quad PLEIN semi-transparent + fin liseré.
+						int32 i, j;
+						PlaneAx(h.mask, i, j);
+						NkVec3f di = mGB[i], dj = mGB[j];
+						float32 a0 = (h.op == 0) ? 0.22f * L : 0.32f * L,
+								b0 = (h.op == 0) ? 0.45f * L : 0.58f * L;
+						NkVec3f p00 = C + di * a0 + dj * a0, p10 = C + di * b0 + dj * a0,
+								p11 = C + di * b0 + dj * b0, p01 = C + di * a0 + dj * b0;
+						float32 al = col.w; // ~0.55 (semi-transparent, cf. HandleColor)
+						emitFlat(p00, p10, p11, 0.9f, al);
+						emitFlat(p00, p11, p01, 0.9f, al);
+						NkVec4f edge = {col.x, col.y, col.z, 0.9f};
+						ThickLine(p00, p10, edge, 1, drawLine);
+						ThickLine(p10, p11, edge, 1, drawLine);
+						ThickLine(p11, p01, edge, 1, drawLine);
+						ThickLine(p01, p00, edge, 1, drawLine);
+					} else if (h.kind == 2) {
+						// CENTRE : petit DISQUE PLEIN face-caméra (déplacement/échelle libre).
+						float32 rU = CenterR(h.op, L);
+						NkVec3f prev{};
+						for (int32 k = 0; k <= 24; k++) {
+							float32 t = (float32)k / 24.f * 6.2831853f;
+							NkVec3f P = C + (mRgt * cosf(t) + mUp * sinf(t)) * rU;
+							if (k > 0)
+								emitFlat(C, prev, P, 1.f, 0.35f);
+							prev = P;
+						}
+					} else {
+						// ROTATE : RUBAN PLEIN (bande de triangles) le long du cercle de l'axe.
+						int32 a = AxisOf(h.mask);
+						NkVec3f u = mGB[(a + 1) % 3], w = mGB[(a + 2) % 3];
+						float32 Lr = combine ? 0.90f * L : L;
+						float32 bw = 0.022f * L; // demi-largeur du ruban
+						NkVec3f pin{}, pout{};
+						for (int32 k = 0; k <= 64; k++) {
+							float32 t = (float32)k / 64.f * 6.2831853f;
+							NkVec3f rad = u * cosf(t) + w * sinf(t);
+							NkVec3f Ri = C + rad * (Lr - bw), Ro = C + rad * (Lr + bw);
+							if (k > 0) {
+								emitFlat(pin, pout, Ro, 0.92f, col.w);
+								emitFlat(pin, Ro, Ri, 0.92f, col.w);
+							}
+							pin = Ri;
+							pout = Ro;
+						}
+					}
+				}
 
 				// ── Maths de base ─────────────────────────────────────────────────
 				static float32 Dot(NkVec3f a, NkVec3f b) {
@@ -349,6 +547,10 @@ namespace nkentseu {
 
 				static float32 NkGMax(float32 a, float32 b) {
 					return a > b ? a : b;
+				}
+
+				static float32 Clamp01(float32 v) {
+					return v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
 				}
 
 				static char Lower0(const char *s) {
@@ -457,20 +659,23 @@ namespace nkentseu {
 						NkVec3f E = C + dir * len;
 						cb(C, E);
 						if (h.op == 0) {
-							float32 hl = 0.20f * L, hw = 0.07f * L;
-							NkVec3f b = E - dir * hl;
-							NkVec3f q0 = b + u * hw + w * hw, q1 = b - u * hw + w * hw, q2 = b - u * hw - w * hw,
-									q3 = b + u * hw - w * hw;
-							cb(E, q0);
-							cb(E, q1);
-							cb(E, q2);
-							cb(E, q3);
-							cb(q0, q1);
-							cb(q1, q2);
-							cb(q2, q3);
-							cb(q3, q0);
+							// TRANSLATE : petite pointe de flèche CONIQUE (silhouette + cercle de
+							// base), tessellée ~10 segments façon Blender. Discrète, pas énorme.
+							const float32 hl = 0.18f * L, hw = 0.055f * L;
+							NkVec3f b = E - dir * hl; // centre de la base du cône
+							const int32 N = 10;
+							NkVec3f prevB{};
+							for (int32 k = 0; k <= N; k++) {
+								float32 t = (float32)k / (float32)N * 6.2831853f;
+								NkVec3f Pb = b + (u * cosf(t) + w * sinf(t)) * hw;
+								if (k > 0)
+									cb(prevB, Pb); // cercle de base du cône
+								cb(E, Pb);		   // arête apex->base (silhouette conique)
+								prevB = Pb;
+							}
 						} else {
-							float32 hb = 0.06f * L;
+							// SCALE : petit CUBE plein au bout (12 arêtes), discret.
+							float32 hb = 0.05f * L;
 							NkVec3f cc[8];
 							for (int32 j = 0; j < 8; j++)
 								cc[j] = E + u * ((j & 1 ? 1.f : -1.f) * hb) + w * ((j & 2 ? 1.f : -1.f) * hb) +
@@ -502,11 +707,12 @@ namespace nkentseu {
 							prev = P;
 						}
 					} else {
+						// ROTATE : anneau LISSE (bien tessellé, 64 segments) autour de l'axe.
 						int32 a = AxisOf(h.mask);
 						NkVec3f u = mGB[(a + 1) % 3], w = mGB[(a + 2) % 3];
 						NkVec3f prev{};
-						for (int32 k = 0; k <= 48; k++) {
-							float32 t = (float32)k / 48.f * 6.2831853f;
+						for (int32 k = 0; k <= 64; k++) {
+							float32 t = (float32)k / 64.f * 6.2831853f;
 							NkVec3f P = C + (u * cosf(t) + w * sinf(t)) * Lr;
 							if (k > 0)
 								cb(prev, P);
@@ -516,15 +722,23 @@ namespace nkentseu {
 				}
 
 				NkVec4f HandleColor(const GH &h) const {
+					// Couleurs d'axe FRANCHES façon Blender : X ROUGE, Y VERT, Z BLEU.
 					const NkVec4f ACOL[3] = {
-						{1.00f, 0.15f, 0.20f, 1.f}, {0.35f, 0.95f, 0.10f, 1.f}, {0.15f, 0.45f, 1.00f, 1.f}};
+						{0.90f, 0.20f, 0.25f, 1.f}, {0.40f, 0.80f, 0.20f, 1.f}, {0.20f, 0.45f, 0.90f, 1.f}};
+					// Drag actif -> JAUNE vif (priorité max).
 					if (mDragging && mGOp == h.op && mGMask == h.mask && mGKind == h.kind)
 						return {1.f, 0.92f, 0.15f, 1.f};
+					// Survol (hover) -> blanc-jaune lumineux (feedback Blender).
+					if (mHovValid && mHovOp == h.op && mHovMask == h.mask && mHovKind == h.kind)
+						return {1.f, 1.f, 0.55f, 1.f};
 					if (h.kind == 2)
 						return {0.95f, 0.95f, 0.95f, 1.f};
 					if (h.kind == 1) {
+						// Poignées de PLAN : couleur de l'axe normal, SEMI-TRANSPARENTES (discrètes).
 						int32 nrm = (h.mask == 3) ? 2 : (h.mask == 6) ? 0 : 1;
-						return ACOL[nrm];
+						NkVec4f c = ACOL[nrm];
+						c.w = 0.55f;
+						return c;
 					}
 					return ACOL[AxisOf(h.mask)];
 				}
@@ -555,39 +769,61 @@ namespace nkentseu {
 				}
 
 				// ── Pick : poignée gizmo, sinon (dé)sélection objet ───────────────
-				void DoPick(const NkGizmoInput &in) {
+				// Renvoie l'index (dans l'ordre BuildHandles) de la poignée la plus proche
+				// du curseur (px), ou -1 si aucune sous le seuil. Partagé par le pick (clic)
+				// ET le hover (survol) -> géométrie/seuil strictement identiques.
+				int32 PickHandle(float32 cur, float32 curY, const GH *hs, int32 nh) const {
+					float32 cpx, cpy;
+					bool cok = Project(mPivot, cpx, cpy);
+					float32 pxPerW = mVpH / (2.f * mThY * NkGMax(mPivDist, 1e-3f));
+					float32 best = 13.f;
 					int32 hit = -1;
+					for (int32 hi = 0; hi < nh; hi++) {
+						float32 d = 1e30f;
+						if (hs[hi].kind == 2) {
+							if (cok) {
+								float32 dc = sqrtf((cur - cpx) * (cur - cpx) + (curY - cpy) * (curY - cpy));
+								float32 rpx = CenterR(hs[hi].op, mGL) * pxPerW;
+								if (dc < rpx)
+									d = dc * 0.4f;
+							}
+						} else
+							ForEachSeg(hs[hi], mPivot, mGL, [&](NkVec3f P0, NkVec3f P1) {
+								float32 ax, ay, bx, by;
+								if (Project(P0, ax, ay) && Project(P1, bx, by)) {
+									float32 dd = SegDist(cur, curY, ax, ay, bx, by);
+									if (dd < d)
+										d = dd;
+								}
+							});
+						if (d < best) {
+							best = d;
+							hit = hi;
+						}
+					}
+					return hit;
+				}
+
+				// Survol : calcule la poignée sous le curseur CHAQUE frame (hors drag) pour le
+				// feedback visuel (surbrillance jaune/blanc). N'altère PAS la sélection/drag.
+				void ComputeHover(const NkGizmoInput &in) {
+					GH hs[32];
+					int32 nh = BuildHandles(hs);
+					int32 hit = PickHandle(in.mouseX, in.mouseY, hs, nh);
+					if (hit >= 0) {
+						mHovValid = true;
+						mHovOp = hs[hit].op;
+						mHovMask = hs[hit].mask;
+						mHovKind = hs[hit].kind;
+					} else
+						mHovValid = false;
+				}
+
+				void DoPick(const NkGizmoInput &in) {
 					if (mHaveSel) {
-						const float32 cur = in.mouseX, curY = in.mouseY;
-						float32 cpx, cpy;
-						bool cok = Project(mPivot, cpx, cpy);
-						float32 pxPerW = mVpH / (2.f * mThY * NkGMax(mPivDist, 1e-3f));
-						float32 best = 13.f;
 						GH hs[32];
 						int32 nh = BuildHandles(hs);
-						for (int32 hi = 0; hi < nh; hi++) {
-							float32 d = 1e30f;
-							if (hs[hi].kind == 2) {
-								if (cok) {
-									float32 dc = sqrtf((cur - cpx) * (cur - cpx) + (curY - cpy) * (curY - cpy));
-									float32 rpx = CenterR(hs[hi].op, mGL) * pxPerW;
-									if (dc < rpx)
-										d = dc * 0.4f;
-								}
-							} else
-								ForEachSeg(hs[hi], mPivot, mGL, [&](NkVec3f P0, NkVec3f P1) {
-									float32 ax, ay, bx, by;
-									if (Project(P0, ax, ay) && Project(P1, bx, by)) {
-										float32 dd = SegDist(cur, curY, ax, ay, bx, by);
-										if (dd < d)
-											d = dd;
-									}
-								});
-							if (d < best) {
-								best = d;
-								hit = hi;
-							}
-						}
+						int32 hit = PickHandle(in.mouseX, in.mouseY, hs, nh);
 						if (hit >= 0) {
 							mDragging = true;
 							mGOp = hs[hit].op;
@@ -664,6 +900,14 @@ namespace nkentseu {
 
 				// ── Drag : applique à tous les sélectionnés (repère/pivot par orientation) ──
 				void DoDrag(const NkGizmoInput &in) {
+					// GARDE ANTI-DÉRIVE : si la souris n'a PAS bougé cette frame (delta nul),
+					// AUCUNE transformation ne doit avancer — même poignée pressée/maintenue.
+					// La transfo ne progresse QUE sur un vrai mouvement. Corrige le bug « le
+					// modèle continue de bouger alors que la souris est immobile mais le bouton
+					// reste pressé » (delta périmé conservé entre frames côté input). Vaut pour
+					// translate ET scale (basés sur mouseDX/DY) ET rotate (garde l'angle figé).
+					if (in.mouseDX == 0.f && in.mouseDY == 0.f)
+						return;
 					const int32 op = mGOp;
 					int32 mask = mGMask, kind = mGKind;
 					// VERROU d'axe (X/Y/Z) : force l'axe unique + chemin par-axe.
@@ -807,6 +1051,10 @@ namespace nkentseu {
 				int32 mMode = 0, mOrient = 0;
 				bool mDragging = false;
 				int32 mGOp = 0, mGMask = 0, mGKind = 0;
+				// Survol (hover) : poignée sous le curseur hors drag (surbrillance visuelle).
+				bool mHovValid = false;
+				int32 mHovOp = -1, mHovMask = 0, mHovKind = 0;
+				bool mDrawOBB = true; // marqueur OBB discret, masquable (SetDrawObjectBounds)
 				float32 mLastAngle = 0.f;
 				// Snap (quand ctrlDown) : pas + résidus accumulés par drag (quantification).
 				float32 mSnapT = 0.5f, mSnapRdeg = 15.f, mSnapS = 0.1f;
