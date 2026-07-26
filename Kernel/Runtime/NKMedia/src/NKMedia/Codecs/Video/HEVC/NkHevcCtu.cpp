@@ -854,6 +854,71 @@ namespace nkentseu {
 							}
 					}
 
+					// ---- I_PCM (§7.3.8.5 pcm_sample + §8.4.4.1) -----------------------
+					// Le bin pcm_flag (terminate) a laissé notre moteur bit-à-bit EXACTEMENT
+					// après le flush arithmétique (cf. I_PCM H.264 validé) : on aligne à
+					// l'octet (pcm_alignment_zero_bit), on lit les échantillons bruts
+					// (pcmBitDepth bits, MSB-first), on reconstruit sample<<(bd-pcmBd), puis on
+					// RÉ-INITIALISE CABAC à l'octet suivant (les contextes SURVIVENT, §9.3.1).
+					void DecodePcm(int32 x0, int32 y0, int32 log2CbSize) {
+						const int32 nY = 1 << log2CbSize;
+						const int32 subW =
+							(sps->chromaFormatIdc == 1 || sps->chromaFormatIdc == 2) ? 1 : 0;
+						const int32 subH = (sps->chromaFormatIdc == 1) ? 1 : 0;
+						const int32 nCx = nY >> subW, nCy = nY >> subH;
+						const int32 bdY = bitDepth, bdC = sps->bitDepthChroma;
+						const int32 pbY = sps->pcmBitDepthLuma, pbC = sps->pcmBitDepthChroma;
+						usize pos = eng.bytePos;
+						if (eng.bitPos != 0)
+							++pos; // pcm_alignment_zero_bit(s) -> octet suivant
+						const uint8 *bas = eng.data;
+						const usize sz = eng.size;
+						usize bit = pos * 8; // curseur de bit ABSOLU dans le RBSP dé-émulé
+						auto readBits = [&](int32 nb) -> int32 {
+							int32 v = 0;
+							for (int32 k = 0; k < nb; ++k) {
+								const usize by = bit >> 3;
+								const int32 shb = 7 - (int32)(bit & 7);
+								const int32 b = (by < sz) ? ((bas[by] >> shb) & 1) : 0;
+								v = (v << 1) | b;
+								++bit;
+							}
+							return v;
+						};
+						// Luma (nY×nY).
+						for (int32 y = 0; y < nY; ++y)
+							for (int32 x = 0; x < nY; ++x) {
+								const int32 s = readBits(pbY);
+								if (frame)
+									frame->y[(usize)((y0 + y) * frame->lumaW + (x0 + x))] =
+										(nk_uint16)(s << (bdY - pbY));
+							}
+						// Chroma Cb puis Cr (si ChromaArrayType != 0).
+						if (sps->chromaFormatIdc != 0 && !sps->separateColourPlane) {
+							const int32 cx0 = x0 >> subW, cy0 = y0 >> subH;
+							for (int32 pl = 0; pl < 2; ++pl) {
+								nk_uint16 *dst =
+									frame ? ((pl == 0) ? frame->cb.Data() : frame->cr.Data()) : nullptr;
+								const int32 stride = frame ? frame->chromaW : 0;
+								for (int32 y = 0; y < nCy; ++y)
+									for (int32 x = 0; x < nCx; ++x) {
+										const int32 s = readBits(pbC);
+										if (frame)
+											dst[(usize)((cy0 + y) * stride + (cx0 + x))] =
+												(nk_uint16)(s << (bdC - pbC));
+									}
+							}
+						}
+						// Ré-init CABAC à l'octet suivant la dernière donnée PCM.
+						const usize endByte = (bit + 7) >> 3; // = pos + ceil(totalBits/8)
+						eng.InitEngine(eng.data, eng.size, endByte);
+						if (frame) {
+							MarkLumaRecon(x0, y0, nY);
+							if (sps->chromaFormatIdc != 0 && !sps->separateColourPlane)
+								MarkChromaRecon(x0 >> subW, y0 >> subH, nCx);
+						}
+					}
+
 					// Marque cbf_luma=1 sur tous les min-TU 4×4 d'un TU luma (§8.7.2.4,
 					// consommé par la dérivation de BS ci-dessous — condition bs=1).
 					void MarkCbfLuma(int32 x0, int32 y0, int32 n) {
@@ -2251,8 +2316,9 @@ namespace nkentseu {
 					// SANS finalisation) : (0,0)->src<<6 ; H->Σhf·src ; V->Σvf·src ;
 					// HV->(Σvf·tmp)>>6 (tmp = passe horizontale). Luma qpel 8 taps (mv&3,
 					// mv>>2, centre -3) ; chroma epel 4 taps (mv&7, mv>>3, centre -1, 4:2:0).
-					// Écrit `out[j*outStride+i]` (int16) pour j∈[0,h), i∈[0,w). 8 bits
-					// uniquement (bitDepth=8 : le décalage >>(bd-8) est nul).
+					// Écrit `out[j*outStride+i]` (int16) pour j∈[0,h), i∈[0,w). Générique
+					// bit-depth (§8.5.4.2) : pel <<(14-bd) ; H/V et 1re passe HV >>(bd-8)=shift1
+					// (bd=8 -> shifts nuls). shift1=Min(4,bd-8) mais bd∈{8,10,12} -> bd-8.
 					void ComputeInterp(const NkVector<nk_uint16> &refPlane, int32 planeW, int32 planeH,
 									   int32 baseX, int32 baseY, int32 mvx, int32 mvy, int32 w, int32 h,
 									   bool isLuma, int16 *out, int32 outStride) const {
@@ -2260,6 +2326,8 @@ namespace nkentseu {
 						const int32 ish = isLuma ? 2 : 3;
 						const int32 taps = isLuma ? 8 : 4;
 						const int32 ctr = isLuma ? 3 : 1;
+						const int32 shift1 = bitDepth - 8;
+						const int32 shiftP = 14 - bitDepth;
 						const int32 xFrac = mvx & mask, yFrac = mvy & mask;
 						const int32 xInt = baseX + (mvx >> ish), yInt = baseY + (mvy >> ish);
 						const int8 *hf = isLuma ? kHevcQpelFilters[xFrac] : kHevcEpelFilters[xFrac];
@@ -2272,14 +2340,14 @@ namespace nkentseu {
 						if (xFrac == 0 && yFrac == 0) {
 							for (int32 j = 0; j < h; ++j)
 								for (int32 i = 0; i < w; ++i)
-									out[j * outStride + i] = (int16)(S(xInt + i, yInt + j) << 6);
+									out[j * outStride + i] = (int16)(S(xInt + i, yInt + j) << shiftP);
 						} else if (yFrac == 0) {
 							for (int32 j = 0; j < h; ++j)
 								for (int32 i = 0; i < w; ++i) {
 									int32 sum = 0;
 									for (int32 k = 0; k < taps; ++k)
 										sum += hf[k] * S(xInt + i + k - ctr, yInt + j);
-									out[j * outStride + i] = (int16)sum;
+									out[j * outStride + i] = (int16)(sum >> shift1);
 								}
 						} else if (xFrac == 0) {
 							for (int32 j = 0; j < h; ++j)
@@ -2287,7 +2355,7 @@ namespace nkentseu {
 									int32 sum = 0;
 									for (int32 k = 0; k < taps; ++k)
 										sum += vf[k] * S(xInt + i, yInt + j + k - ctr);
-									out[j * outStride + i] = (int16)sum;
+									out[j * outStride + i] = (int16)(sum >> shift1);
 								}
 						} else {
 							int32 tmp[(64 + 7) * 64];
@@ -2297,7 +2365,7 @@ namespace nkentseu {
 									int32 sum = 0;
 									for (int32 k = 0; k < taps; ++k)
 										sum += hf[k] * S(xInt + i + k - ctr, yInt + j - ctr);
-									tmp[j * ts + i] = sum;
+									tmp[j * ts + i] = sum >> shift1;
 								}
 							for (int32 j = 0; j < h; ++j)
 								for (int32 i = 0; i < w; ++i) {
@@ -2320,6 +2388,7 @@ namespace nkentseu {
 						if (refIdx < 0 || refIdx >= nRefs || !refs || !refs[refIdx])
 							return;
 						const NkHevcFrame *ref0 = refs[refIdx];
+						const int32 shift1 = bitDepth - 8; // 1re/seule passe filtre (§8.5.4.2)
 						// ---- Luma ----
 						{
 							const int32 xFrac = mvx & 3, yFrac = mvy & 3;
@@ -2344,8 +2413,8 @@ namespace nkentseu {
 										int32 sum = 0;
 										for (int32 k = 0; k < 8; ++k)
 											sum += hf[k] * SrcY(xInt + i + k - 3, yInt + j);
-										dst[(y0 + j) * stride + (x0 + i)] =
-											(nk_uint16)FinalizeSample(sum, false, true, 0, listX, refIdx);
+										dst[(y0 + j) * stride + (x0 + i)] = (nk_uint16)FinalizeSample(
+											sum >> shift1, false, true, 0, listX, refIdx);
 									}
 							} else if (xFrac == 0) {
 								for (int32 j = 0; j < h; ++j)
@@ -2353,8 +2422,8 @@ namespace nkentseu {
 										int32 sum = 0;
 										for (int32 k = 0; k < 8; ++k)
 											sum += vf[k] * SrcY(xInt + i, yInt + j + k - 3);
-										dst[(y0 + j) * stride + (x0 + i)] =
-											(nk_uint16)FinalizeSample(sum, false, true, 0, listX, refIdx);
+										dst[(y0 + j) * stride + (x0 + i)] = (nk_uint16)FinalizeSample(
+											sum >> shift1, false, true, 0, listX, refIdx);
 									}
 							} else {
 								int32 tmp[(64 + 7) * 64];
@@ -2363,7 +2432,7 @@ namespace nkentseu {
 										int32 sum = 0;
 										for (int32 k = 0; k < 8; ++k)
 											sum += hf[k] * SrcY(xInt + i + k - 3, yInt + j - 3);
-										tmp[j * 64 + i] = sum;
+										tmp[j * 64 + i] = sum >> shift1;
 									}
 								for (int32 j = 0; j < h; ++j)
 									for (int32 i = 0; i < w; ++i) {
@@ -2402,8 +2471,8 @@ namespace nkentseu {
 										int32 sum = 0;
 										for (int32 k = 0; k < 4; ++k)
 											sum += hf[k] * SrcC(xInt + i + k - 1, yInt + j);
-										dst[(cy0 + j) * stride + (cx0 + i)] =
-											(nk_uint16)FinalizeSample(sum, false, false, ci, listX, refIdx);
+										dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)FinalizeSample(
+											sum >> shift1, false, false, ci, listX, refIdx);
 									}
 							} else if (xFrac == 0) {
 								for (int32 j = 0; j < ch; ++j)
@@ -2411,8 +2480,8 @@ namespace nkentseu {
 										int32 sum = 0;
 										for (int32 k = 0; k < 4; ++k)
 											sum += vf[k] * SrcC(xInt + i, yInt + j + k - 1);
-										dst[(cy0 + j) * stride + (cx0 + i)] =
-											(nk_uint16)FinalizeSample(sum, false, false, ci, listX, refIdx);
+										dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)FinalizeSample(
+											sum >> shift1, false, false, ci, listX, refIdx);
 									}
 							} else {
 								int32 tmp[(32 + 3) * 32];
@@ -2421,7 +2490,7 @@ namespace nkentseu {
 										int32 sum = 0;
 										for (int32 k = 0; k < 4; ++k)
 											sum += hf[k] * SrcC(xInt + i + k - 1, yInt + j - 1);
-										tmp[j * 32 + i] = sum;
+										tmp[j * 32 + i] = sum >> shift1;
 									}
 								for (int32 j = 0; j < ch; ++j)
 									for (int32 i = 0; i < cw; ++i) {
@@ -2674,7 +2743,17 @@ namespace nkentseu {
 							// le partMode du CU PRÉCÉDENT pour toute CU non-2Nx2N.
 							curPartMode = partMode;
 
-							if (cuIsIntra) {
+							// pcm_flag (§7.3.8.5) : CU intra 2Nx2N dans les bornes de taille PCM.
+							bool pcmFlag = false;
+							if (cuIsIntra && partMode == kPart2Nx2N && sps->pcmEnabled &&
+								log2CbSize >= sps->log2MinPcmCbSize &&
+								log2CbSize <= sps->log2MaxPcmCbSize) {
+								pcmFlag = Terminate() != 0; // décodé via le bin de terminaison
+							}
+							if (pcmFlag) {
+								DecodePcm(x0, y0, log2CbSize);
+								rqtRootCbf = false; // aucun transform_tree pour un bloc I_PCM
+							} else if (cuIsIntra) {
 								const int32 nParts = intraSplit ? 4 : 1;
 								const int32 pbSize = (1 << log2CbSize) >> (intraSplit ? 1 : 0);
 								bool prevFlag[4] = {false, false, false, false};
@@ -2866,9 +2945,12 @@ namespace nkentseu {
 						return false;
 					if (pps.log2ParallelMergeLevel > 2)
 						return false; // règle CU 8x8 forcé-2Nx2N (§7.3.8.6) non implémentée
-					if (sps.bitDepthLuma != 8)
-						return false; // formules MC de cette brique scopées 8 bits
 				}
+				// PCM (I_PCM) : le chemin de décodage EST implémenté (DecodePcm + pcm_flag,
+				// calqué sur le I_PCM H.264 validé bit-exact) mais reste GATÉ ici car
+				// INVÉRIFIABLE : aucun encodeur disponible (x265/libx265) n'émet de bloc
+				// I_PCM, donc impossible de prouver le bit-exact vs ffmpeg. Retirer ce refus
+				// dès qu'un flux de conformance I_PCM est disponible.
 				if (pps.tilesEnabled || sps.pcmEnabled || sps.chromaFormatIdc != 1 ||
 					sps.separateColourPlane)
 					return false;

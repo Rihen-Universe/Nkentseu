@@ -1666,8 +1666,12 @@ int main(int argc, char **argv) {
 			}
 			++pFrames;
 			const int32 cw = frame.cropW, ch = frame.cropH;
-			const int32 ccw = cw >> 1, cch = ch >> 1;
-			const usize frameSize = (usize)(cw * ch + 2 * ccw * cch);
+			// Sous-echantillonnage chroma selon chromaFormatIdc (1=4:2:0,2=4:2:2,3=4:4:4).
+			const int32 subW = (sps.chromaFormatIdc == 1 || sps.chromaFormatIdc == 2) ? 1 : 0;
+			const int32 subH = (sps.chromaFormatIdc == 1) ? 1 : 0;
+			const int32 ccw = cw >> subW, cch = ch >> subH;
+			const int32 bps = frame.bitDepth > 8 ? 2 : 1; // octets par echantillon (ref YUV)
+			const usize frameSize = (usize)(cw * ch + 2 * ccw * cch) * bps;
 			int32 maxDiff = -1;
 			if (fseek(fr, (long)((usize)poc * frameSize), SEEK_SET) != 0) {
 				printf("  [KO] seek reference echoue (poc=%d)\n", poc);
@@ -1683,7 +1687,12 @@ int main(int argc, char **argv) {
 						for (int32 y = 0; y < h; ++y)
 							for (int32 x = 0; x < w; ++x) {
 								const int32 ours = (int32)plane[y * stride + x];
-								const int32 theirs = (int32)rp[y * w + x];
+								int32 theirs;
+								if (bps == 2)
+									theirs = (int32)rp[(y * w + x) * 2] |
+											 ((int32)rp[(y * w + x) * 2 + 1] << 8);
+								else
+									theirs = (int32)rp[y * w + x];
 								const int32 d = ours > theirs ? ours - theirs : theirs - ours;
 								if (d > maxDiff)
 									maxDiff = d;
@@ -1691,9 +1700,9 @@ int main(int argc, char **argv) {
 					};
 					const uint8 *rp = ref.Data();
 					cmpPlane(frame.y.Data(), frame.lumaW, cw, ch, rp);
-					rp += (usize)(cw * ch);
+					rp += (usize)(cw * ch) * bps;
 					cmpPlane(frame.cb.Data(), frame.chromaW, ccw, cch, rp);
-					rp += (usize)(ccw * cch);
+					rp += (usize)(ccw * cch) * bps;
 					cmpPlane(frame.cr.Data(), frame.chromaW, ccw, cch, rp);
 				}
 			}
