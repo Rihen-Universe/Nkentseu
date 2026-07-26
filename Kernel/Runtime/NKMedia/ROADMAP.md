@@ -1195,8 +1195,13 @@ brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
 2. **HEVC — features de bord restantes** (INVÉRIFIABLES faute d'oracle x265, ou refactor lourd —
    pas des bugs) : tuiles, 4:2:2/4:4:4, PCM (code dormant écrit), `ref_pic_lists_modification`,
    `scaling_list_data`, CU 8×8 `log2ParallelMergeLevel>2`. **10-bit inter (Main10) ✅ livré.**
-3. **Nouveaux codecs (optionnels, chacun un chantier dédié, TOUS from-scratch)** : Theora/OGV, AMR-NB/WB ;
-   **AV1 : fondation posée (briques 1-2, 2026-07-26)** — `NkAv1Decoder` from-scratch (OBU parsing §5.2-5.6
+3. **Nouveaux codecs (optionnels, chacun un chantier dédié, TOUS from-scratch)** : AMR-NB/WB ;
+   **Theora/OGV ✅ livré (2026-07-26)** — `NkTheoraDecoder` from-scratch (VP3, conteneur Ogg réutilisé) :
+   **INTRA keyframes 25/25 BIT-EXACT** (vérifié) + **INTER luma bit-exact tous modes** + INTER chroma
+   bit-exact SAUF sous-mode `INTER_MV_FOUR` (arrondi MV chroma 4:2:0, ~1% pixels chroma concernés,
+   documenté). iDCT VP3 entière bit-exacte, filtre de boucle, 80 arbres Huffman. Harnais `--theora`.
+   ⚠️ Oracle limité : le décodeur Theora natif de ffmpeg est bogué sur l'inter libtheora → inter validé
+   sur flux courts isolés. **AV1 : fondation posée (briques 1-2, 2026-07-26)** — `NkAv1Decoder` from-scratch (OBU parsing §5.2-5.6
    `consume=exact`, sequence header, frame header keyframe, tile group qui partitionne exactement, +
    **symbol decoder arithmétique multi-symbole CDF §8.2** `NkAv1Symbol.h` invariants tenus), validé
    STRUCTURELLEMENT sur 4 flux libaom (10/10 TU parsés exacts). Harnais `--av1`. **PAS de pixels** :

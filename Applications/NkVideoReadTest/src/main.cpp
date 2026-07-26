@@ -14,6 +14,7 @@
 #include "NKMedia/Codecs/Video/HEVC/NkHevcDecoder.h"
 #include "NKMedia/Codecs/Video/HEVC/NkHevcCabac.h"
 #include "NKMedia/Codecs/Video/Mpeg2/NkMpeg2Decoder.h"
+#include "NKMedia/Codecs/Video/Theora/NkTheoraDecoder.h"
 #include "NKMedia/Audio/Containers/NkWavWriter.h"
 #include "NKMedia/Video/Containers/NkWebmWriter.h"
 
@@ -253,6 +254,115 @@ int main(int argc, char **argv) {
 		bool all = ok && okH264 && okCavlc && okVp9 && okAv1 && okHevc && okHevcCabac && okWav && okWebm;
 		printf("=== %s ===\n", all ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
 		return all ? 0 : 1;
+	}
+
+	// =========================================================================
+	// Mode THEORA : --theora <fichier.ogv> <reference.yuv>
+	// Décode TOUTES les images du flux Ogg-Theora (from-scratch) et compare
+	// CHAQUE image affichée (ordre d'affichage) à la référence ffmpeg (I420
+	// concaténé, yuv420p). maxdiff par image + total. [bloc ISOLÉ — à splicer]
+	// =========================================================================
+	if (argc >= 4 && strcmp(argv[1], "--theora") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		fseek(f, 0, SEEK_END);
+		long fsz = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		NkVector<uint8> buf;
+		buf.Resize((uint64)fsz);
+		if (fread(buf.Data(), 1, (size_t)fsz, f) != (size_t)fsz) {
+			printf("  [KO] lecture echouee : %s\n", argv[2]);
+			fclose(f);
+			return 1;
+		}
+		fclose(f);
+
+		FILE *rf = fopen(argv[3], "rb");
+		if (!rf) {
+			printf("  [KO] reference introuvable : %s\n", argv[3]);
+			return 1;
+		}
+
+		NkTheoraDecoder dec;
+		NkString err;
+		if (!dec.Open(buf.Data(), (usize)buf.Size(), &err)) {
+			printf("  [KO] Open a echoue : %s\n", err.Data());
+			fclose(rf);
+			return 1;
+		}
+		printf("  Theora ouvert : %dx%d MB, picture %dx%d, PF=%d\n", dec.FrameWidthMBs(),
+			   dec.FrameHeightMBs(), dec.PictureWidth(), dec.PictureHeight(), dec.PixelFormat());
+
+		int32 shownIdx = 0, badFrames = 0;
+		int64 grandDiff = 0, grandMax = 0;
+		NkTheoraFrame fr;
+		while (dec.HasMoreFrames()) {
+			if (!dec.DecodeNextFrame(fr, &err)) {
+				printf("  [KO] DecodeNextFrame a echoue a l'image %d : %s\n", shownIdx, err.Data());
+				fclose(rf);
+				return 1;
+			}
+			const int32 w = fr.width, h = fr.height;
+			const int32 cw = fr.chromaWidth, ch = fr.chromaHeight;
+			NkVector<uint8> ref;
+			ref.Resize((uint64)(w * h + 2 * cw * ch));
+			if (fread(ref.Data(), 1, (size_t)ref.Size(), rf) != (size_t)ref.Size()) {
+				printf("  [KO] reference epuisee a l'image affichee %d\n", shownIdx);
+				fclose(rf);
+				return 1;
+			}
+			int64 nDiff = 0, maxD = 0;
+			for (int32 i = 0; i < w * h; ++i) {
+				int32 d = (int32)fr.y[(usize)i] - (int32)ref[(usize)i];
+				if (d < 0)
+					d = -d;
+				if (d) {
+					++nDiff;
+					if (d > maxD)
+						maxD = d;
+				}
+			}
+			const uint8 *refU = ref.Data() + (int64)w * h;
+			const uint8 *refV = refU + (int64)cw * ch;
+			for (int32 i = 0; i < cw * ch; ++i) {
+				int32 du = (int32)fr.cb[(usize)i] - (int32)refU[i];
+				int32 dv = (int32)fr.cr[(usize)i] - (int32)refV[i];
+				if (du < 0)
+					du = -du;
+				if (dv < 0)
+					dv = -dv;
+				if (du) {
+					++nDiff;
+					if (du > maxD)
+						maxD = du;
+				}
+				if (dv) {
+					++nDiff;
+					if (dv > maxD)
+						maxD = dv;
+				}
+			}
+			grandDiff += nDiff;
+			if (maxD > grandMax)
+				grandMax = maxD;
+			if (nDiff == 0)
+				printf("  image %3d (%s) : BIT-EXACT\n", shownIdx, fr.isKeyFrame ? "CLE  " : "inter");
+			else {
+				printf("  image %3d (%s) : %lld px diff (max %lld)\n", shownIdx,
+					   fr.isKeyFrame ? "CLE  " : "inter", (long long)nDiff, (long long)maxD);
+				++badFrames;
+			}
+			++shownIdx;
+		}
+		fclose(rf);
+		printf("  TOTAL : %d images, %d avec ecarts, %lld px diff (max %lld)\n", shownIdx, badFrames,
+			   (long long)grandDiff, (long long)grandMax);
+		printf("  [ %s ] sequence Theora %s\n", badFrames == 0 ? "OK " : "KO",
+			   badFrames == 0 ? "BIT-EXACTE vs ffmpeg" : "avec ecarts");
+		return badFrames == 0 ? 0 : 1;
 	}
 
 	// Mode MUX WebM : --webmmux <entree.webm> <sortie.webm>
