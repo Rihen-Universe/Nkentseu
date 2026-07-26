@@ -153,8 +153,8 @@ void Exemple_BlueprintHotReload(nkentseu::ecs::NkWorld& world) {
 
 	auto go = world.CreateGameObject("Player");
 	auto* bp = go.Add<NkBlueprintComponent>();
-	bp->Graph.AddNode(std::make_unique<NkNodeEventBeginPlay>());
-	bp->Graph.AddNode(std::make_unique<NkNodeCallFunction>());
+	bp->Graph.AddNode(memory::NkMakeUnique<NkNodeEventBeginPlay>());
+	bp->Graph.AddNode(memory::NkMakeUnique<NkNodeCallFunction>());
 	bp->Graph.Link(0, 0, 1, 0);
 
 	// Enregistrer pour surveillance

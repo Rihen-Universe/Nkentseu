@@ -33,6 +33,7 @@
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
+#include "Noge/ECS/NkEcsUtil.h" // nkentseu::NkStrNCpy (remplace strncpy libc — zéro STL)
 #include "Noge/ECS/Components/Animation/NkAnimation.h"
 #include "Noge/ECS/Components/Rendering/NkRenderComponents.h"
 
@@ -153,7 +154,7 @@ namespace nkentseu {
 			NkExpression() noexcept = default;
 
 			explicit NkExpression(const char *n) noexcept {
-				std::strncpy(name, n, kMaxName - 1);
+				NkStrNCpy(name, n, kMaxName - 1);
 			}
 
 			// Expressions prédéfinies (built-in)

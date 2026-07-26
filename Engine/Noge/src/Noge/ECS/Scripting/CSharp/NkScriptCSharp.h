@@ -69,7 +69,7 @@ using NkMonoMethod = void;
 namespace nkentseu {
 	namespace ecs {
 
-		// Utilitaires C-string zéro-STL (remplacent std::strncpy / std::strrchr).
+		// Utilitaires C-string zéro-STL (remplacent strncpy / strrchr de la libc).
 		inline void NkCSStrNCpy(char *dst, const char *src, uint32 maxLen) noexcept {
 			uint32 i = 0;
 			while (i < maxLen && src[i] != '\0') {

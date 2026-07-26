@@ -39,9 +39,9 @@
 #include "../NkScriptComponent.h"
 #include "../NkScriptBridge.h"
 #include "NKFileSystem/NkFileSystem.h"
-#include <functional>
-#include <memory>
-#include <cstring>
+#include "NKFileSystem/NkFile.h"			  // NkFile::ReadAllText (remplace fopen libc — zéro STL)
+#include "NKContainers/String/NkString.h"	  // NkString / NkString::Format (remplace snprintf libc)
+#include "Noge/ECS/NkEcsUtil.h"				  // nkentseu::NkStrNCpy (remplace strncpy libc — source unique Noge)
 
 // Détection de Python
 #ifdef NKECS_PYTHON_AVAILABLE
@@ -148,15 +148,16 @@ namespace nkentseu {
 					if (!mInitialized)
 						return false;
 
-					FILE *f = std::fopen(path, "r");
-					if (!f)
+					// Lecture du fichier via NKFileSystem (zéro STL, pas de fopen libc)
+					NkString source = NkFile::ReadAllText(path);
+					if (source.Empty())
 						return false;
 
-					// Exécute le fichier dans le module __main__
+					// Exécute le contenu dans le module __main__ (PyRun_String au lieu de
+					// PyRun_File : évite d'avoir à manipuler un FILE* libc).
 					PyObject *mainModule = PyImport_AddModule("__main__");
 					PyObject *globalDict = PyModule_GetDict(mainModule);
-					PyRun_File(f, path, Py_file_input, globalDict, globalDict);
-					std::fclose(f);
+					PyRun_String(source.CStr(), Py_file_input, globalDict, globalDict);
 
 					if (PyErr_Occurred()) {
 						PyErr_Print();
@@ -165,7 +166,7 @@ namespace nkentseu {
 
 					// Enregistre le chemin + l'horodatage de modification pour le hot-reload
 					if (mScriptCount < kMaxScripts) {
-						std::strncpy(mScriptPaths[mScriptCount], path, 511);
+						NkStrNCpy(mScriptPaths[mScriptCount], path, 511);
 						mScriptTimestamps[mScriptCount] = static_cast<uint64>(NkFileSystem::GetLastWriteTime(path));
 						++mScriptCount;
 					}
@@ -379,7 +380,7 @@ print("[NkECS] Module Python 'nkecs' initialisé")
 			public:
 #ifdef NKECS_PYTHON_AVAILABLE
 				NkPythonScriptAdapter(PyObject *instance, const char *typeName) noexcept : mInstance(instance) {
-					std::strncpy(mTypeName, typeName, 127);
+					NkStrNCpy(mTypeName, typeName, 127);
 				}
 
 				~NkPythonScriptAdapter() noexcept override {
@@ -390,7 +391,7 @@ print("[NkECS] Module Python 'nkecs' initialisé")
 				}
 #else
 				NkPythonScriptAdapter(void *, const char *typeName) noexcept {
-					std::strncpy(mTypeName, typeName, 127);
+					NkStrNCpy(mTypeName, typeName, 127);
 				}
 #endif
 
@@ -436,7 +437,7 @@ print("[NkECS] Module Python 'nkecs' initialisé")
 					if (repr) {
 						const char *s = PyUnicode_AsUTF8(repr);
 						if (s)
-							std::strncpy(buf, s, bufSize - 1);
+							NkStrNCpy(buf, s, bufSize - 1);
 						Py_DECREF(repr);
 					}
 					Py_DECREF(result);
@@ -451,12 +452,11 @@ print("[NkECS] Module Python 'nkecs' initialisé")
 					if (!mInstance || !json)
 						return;
 					// Exécute : self.deserialize(eval(json))
-					char code[2048];
-					std::snprintf(code, sizeof(code),
-								  "import ast\n"
-								  "_nk_tmp_data = ast.literal_eval(%s)\n",
-								  json);
-					PyRun_SimpleString(code);
+					// NkString::Format remplace snprintf libc (zéro STL).
+					NkString code = NkString::Format("import ast\n"
+													 "_nk_tmp_data = ast.literal_eval(%s)\n",
+													 json);
+					PyRun_SimpleString(code.CStr());
 #else
 					(void)json;
 #endif

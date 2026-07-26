@@ -264,7 +264,7 @@ namespace nkentseu {
 						return {};
 					}
 
-					// Comparaison de chaînes C-style (remplace std::strcmp, zéro-STL)
+					// Comparaison de chaînes C-style (remplace strcmp de la libc, zéro-STL)
 					[[nodiscard]] static bool NkNameEquals(const char *a, const char *b) noexcept {
 						uint32 i = 0;
 						while (a[i] != '\0' && b[i] != '\0') {
