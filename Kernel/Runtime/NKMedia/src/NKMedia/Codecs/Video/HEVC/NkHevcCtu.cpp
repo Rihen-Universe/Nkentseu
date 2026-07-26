@@ -2332,49 +2332,62 @@ namespace nkentseu {
 						const int32 xInt = baseX + (mvx >> ish), yInt = baseY + (mvy >> ish);
 						const int8 *hf = isLuma ? kHevcQpelFilters[xFrac] : kHevcEpelFilters[xFrac];
 						const int8 *vf = isLuma ? kHevcQpelFilters[yFrac] : kHevcEpelFilters[yFrac];
-						auto S = [&](int32 xx, int32 yy) -> int32 {
-							const int32 cx = Clip3i(0, planeW - 1, xx);
-							const int32 cy = Clip3i(0, planeH - 1, yy);
-							return refPlane[(usize)(cy * planeW + cx)];
+						const nk_uint16 *srcBase = refPlane.Data();
+						// Corps unique (arithmetique BIT-EXACTE) ; `S` fournit l'echantillon.
+						// Interieur -> indexation directe sans clamp (vectorisable) ; bord -> clamp.
+						auto body = [&](auto S) {
+							if (xFrac == 0 && yFrac == 0) {
+								for (int32 j = 0; j < h; ++j)
+									for (int32 i = 0; i < w; ++i)
+										out[j * outStride + i] = (int16)(S(xInt + i, yInt + j) << shiftP);
+							} else if (yFrac == 0) {
+								for (int32 j = 0; j < h; ++j)
+									for (int32 i = 0; i < w; ++i) {
+										int32 sum = 0;
+										for (int32 k = 0; k < taps; ++k)
+											sum += hf[k] * S(xInt + i + k - ctr, yInt + j);
+										out[j * outStride + i] = (int16)(sum >> shift1);
+									}
+							} else if (xFrac == 0) {
+								for (int32 j = 0; j < h; ++j)
+									for (int32 i = 0; i < w; ++i) {
+										int32 sum = 0;
+										for (int32 k = 0; k < taps; ++k)
+											sum += vf[k] * S(xInt + i, yInt + j + k - ctr);
+										out[j * outStride + i] = (int16)(sum >> shift1);
+									}
+							} else {
+								int32 tmp[(64 + 7) * 64];
+								const int32 ts = 64;
+								for (int32 j = 0; j < h + taps - 1; ++j)
+									for (int32 i = 0; i < w; ++i) {
+										int32 sum = 0;
+										for (int32 k = 0; k < taps; ++k)
+											sum += hf[k] * S(xInt + i + k - ctr, yInt + j - ctr);
+										tmp[j * ts + i] = sum >> shift1;
+									}
+								for (int32 j = 0; j < h; ++j)
+									for (int32 i = 0; i < w; ++i) {
+										int32 sum = 0;
+										for (int32 k = 0; k < taps; ++k)
+											sum += vf[k] * tmp[(j + k) * ts + i];
+										out[j * outStride + i] = (int16)(sum >> 6);
+									}
+							}
 						};
-						if (xFrac == 0 && yFrac == 0) {
-							for (int32 j = 0; j < h; ++j)
-								for (int32 i = 0; i < w; ++i)
-									out[j * outStride + i] = (int16)(S(xInt + i, yInt + j) << shiftP);
-						} else if (yFrac == 0) {
-							for (int32 j = 0; j < h; ++j)
-								for (int32 i = 0; i < w; ++i) {
-									int32 sum = 0;
-									for (int32 k = 0; k < taps; ++k)
-										sum += hf[k] * S(xInt + i + k - ctr, yInt + j);
-									out[j * outStride + i] = (int16)(sum >> shift1);
-								}
-						} else if (xFrac == 0) {
-							for (int32 j = 0; j < h; ++j)
-								for (int32 i = 0; i < w; ++i) {
-									int32 sum = 0;
-									for (int32 k = 0; k < taps; ++k)
-										sum += vf[k] * S(xInt + i, yInt + j + k - ctr);
-									out[j * outStride + i] = (int16)(sum >> shift1);
-								}
-						} else {
-							int32 tmp[(64 + 7) * 64];
-							const int32 ts = 64;
-							for (int32 j = 0; j < h + taps - 1; ++j)
-								for (int32 i = 0; i < w; ++i) {
-									int32 sum = 0;
-									for (int32 k = 0; k < taps; ++k)
-										sum += hf[k] * S(xInt + i + k - ctr, yInt + j - ctr);
-									tmp[j * ts + i] = sum >> shift1;
-								}
-							for (int32 j = 0; j < h; ++j)
-								for (int32 i = 0; i < w; ++i) {
-									int32 sum = 0;
-									for (int32 k = 0; k < taps; ++k)
-										sum += vf[k] * tmp[(j + k) * ts + i];
-									out[j * outStride + i] = (int16)(sum >> 6);
-								}
-						}
+						const bool interior = xInt - ctr >= 0 && yInt - ctr >= 0 &&
+											   xInt + w + taps - 1 - ctr <= planeW &&
+											   yInt + h + taps - 1 - ctr <= planeH;
+						if (interior)
+							body([srcBase, planeW](int32 xx, int32 yy) -> int32 {
+								return srcBase[(usize)yy * planeW + xx];
+							});
+						else
+							body([&](int32 xx, int32 yy) -> int32 {
+								const int32 cx = Clip3i(0, planeW - 1, xx);
+								const int32 cy = Clip3i(0, planeH - 1, yy);
+								return srcBase[(usize)(cy * planeW + cx)];
+							});
 					}
 
 					// ---- Compensation de mouvement UNI (§8.5.3.3.3, luma qpel 8 taps + chroma
@@ -2395,54 +2408,70 @@ namespace nkentseu {
 							const int32 xInt = x0 + (mvx >> 2), yInt = y0 + (mvy >> 2);
 							const int8 *hf = kHevcQpelFilters[xFrac];
 							const int8 *vf = kHevcQpelFilters[yFrac];
-							auto SrcY = [&](int32 xx, int32 yy) -> int32 {
-								const int32 cx = Clip3i(0, ref0->lumaW - 1, xx);
-								const int32 cy = Clip3i(0, ref0->lumaH - 1, yy);
-								return ref0->y[(usize)(cy * ref0->lumaW + cx)];
-							};
 							nk_uint16 *dst = frame->y.Data();
 							const int32 stride = frame->lumaW;
-							if (xFrac == 0 && yFrac == 0) {
-								for (int32 j = 0; j < h; ++j)
-									for (int32 i = 0; i < w; ++i)
-										dst[(y0 + j) * stride + (x0 + i)] = (nk_uint16)FinalizeSample(
-											SrcY(xInt + i, yInt + j), true, true, 0, listX, refIdx);
-							} else if (yFrac == 0) {
-								for (int32 j = 0; j < h; ++j)
-									for (int32 i = 0; i < w; ++i) {
-										int32 sum = 0;
-										for (int32 k = 0; k < 8; ++k)
-											sum += hf[k] * SrcY(xInt + i + k - 3, yInt + j);
-										dst[(y0 + j) * stride + (x0 + i)] = (nk_uint16)FinalizeSample(
-											sum >> shift1, false, true, 0, listX, refIdx);
-									}
-							} else if (xFrac == 0) {
-								for (int32 j = 0; j < h; ++j)
-									for (int32 i = 0; i < w; ++i) {
-										int32 sum = 0;
-										for (int32 k = 0; k < 8; ++k)
-											sum += vf[k] * SrcY(xInt + i, yInt + j + k - 3);
-										dst[(y0 + j) * stride + (x0 + i)] = (nk_uint16)FinalizeSample(
-											sum >> shift1, false, true, 0, listX, refIdx);
-									}
-							} else {
-								int32 tmp[(64 + 7) * 64];
-								for (int32 j = 0; j < h + 7; ++j)
-									for (int32 i = 0; i < w; ++i) {
-										int32 sum = 0;
-										for (int32 k = 0; k < 8; ++k)
-											sum += hf[k] * SrcY(xInt + i + k - 3, yInt + j - 3);
-										tmp[j * 64 + i] = sum >> shift1;
-									}
-								for (int32 j = 0; j < h; ++j)
-									for (int32 i = 0; i < w; ++i) {
-										int32 sum = 0;
-										for (int32 k = 0; k < 8; ++k)
-											sum += vf[k] * tmp[(j + k) * 64 + i];
-										dst[(y0 + j) * stride + (x0 + i)] = (nk_uint16)FinalizeSample(
-											sum >> 6, false, true, 0, listX, refIdx);
-									}
-							}
+							const nk_uint16 *srcBase = ref0->y.Data();
+							const int32 rw = ref0->lumaW, rh = ref0->lumaH;
+							// Corps unique (arithmetique BIT-EXACTE preservee) ; `fetch` fournit
+							// l'echantillon source. Deux instanciations : chemin interieur SANS
+							// clamp (indexation directe -> vectorisable) et bord AVEC clamp.
+							auto doLuma = [&](auto fetch) {
+								if (xFrac == 0 && yFrac == 0) {
+									for (int32 j = 0; j < h; ++j)
+										for (int32 i = 0; i < w; ++i)
+											dst[(y0 + j) * stride + (x0 + i)] = (nk_uint16)FinalizeSample(
+												fetch(xInt + i, yInt + j), true, true, 0, listX, refIdx);
+								} else if (yFrac == 0) {
+									for (int32 j = 0; j < h; ++j)
+										for (int32 i = 0; i < w; ++i) {
+											int32 sum = 0;
+											for (int32 k = 0; k < 8; ++k)
+												sum += hf[k] * fetch(xInt + i + k - 3, yInt + j);
+											dst[(y0 + j) * stride + (x0 + i)] = (nk_uint16)FinalizeSample(
+												sum >> shift1, false, true, 0, listX, refIdx);
+										}
+								} else if (xFrac == 0) {
+									for (int32 j = 0; j < h; ++j)
+										for (int32 i = 0; i < w; ++i) {
+											int32 sum = 0;
+											for (int32 k = 0; k < 8; ++k)
+												sum += vf[k] * fetch(xInt + i, yInt + j + k - 3);
+											dst[(y0 + j) * stride + (x0 + i)] = (nk_uint16)FinalizeSample(
+												sum >> shift1, false, true, 0, listX, refIdx);
+										}
+								} else {
+									int32 tmp[(64 + 7) * 64];
+									for (int32 j = 0; j < h + 7; ++j)
+										for (int32 i = 0; i < w; ++i) {
+											int32 sum = 0;
+											for (int32 k = 0; k < 8; ++k)
+												sum += hf[k] * fetch(xInt + i + k - 3, yInt + j - 3);
+											tmp[j * 64 + i] = sum >> shift1;
+										}
+									for (int32 j = 0; j < h; ++j)
+										for (int32 i = 0; i < w; ++i) {
+											int32 sum = 0;
+											for (int32 k = 0; k < 8; ++k)
+												sum += vf[k] * tmp[(j + k) * 64 + i];
+											dst[(y0 + j) * stride + (x0 + i)] = (nk_uint16)FinalizeSample(
+												sum >> 6, false, true, 0, listX, refIdx);
+										}
+								}
+							};
+							// Fenetre source luma requise (conservatrice, couvre les 4 sous-cas) :
+							// x in [xInt-3, xInt+w+3], y in [yInt-3, yInt+h+3].
+							const bool interior =
+								xInt >= 3 && yInt >= 3 && xInt + w + 4 <= rw && yInt + h + 4 <= rh;
+							if (interior)
+								doLuma([srcBase, rw](int32 xx, int32 yy) -> int32 {
+									return srcBase[(usize)yy * rw + xx];
+								});
+							else
+								doLuma([&](int32 xx, int32 yy) -> int32 {
+									const int32 cx = Clip3i(0, rw - 1, xx);
+									const int32 cy = Clip3i(0, rh - 1, yy);
+									return srcBase[(usize)(cy * rw + cx)];
+								});
 						}
 						// ---- Chroma (Cb=1, Cr=2) ----
 						for (int32 cIdx = 1; cIdx <= 2; ++cIdx) {
@@ -2455,52 +2484,64 @@ namespace nkentseu {
 							nk_uint16 *dst = (cIdx == 1) ? frame->cb.Data() : frame->cr.Data();
 							const int32 stride = frame->chromaW;
 							const int32 ci = cIdx - 1;
-							auto SrcC = [&](int32 xx, int32 yy) -> int32 {
-								const int32 cx = Clip3i(0, ref0->chromaW - 1, xx);
-								const int32 cy = Clip3i(0, ref0->chromaH - 1, yy);
-								return refPlane[(usize)(cy * ref0->chromaW + cx)];
+							const nk_uint16 *srcBase = refPlane.Data();
+							const int32 rw = ref0->chromaW, rh = ref0->chromaH;
+							auto doChroma = [&](auto fetch) {
+								if (xFrac == 0 && yFrac == 0) {
+									for (int32 j = 0; j < ch; ++j)
+										for (int32 i = 0; i < cw; ++i)
+											dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)FinalizeSample(
+												fetch(xInt + i, yInt + j), true, false, ci, listX, refIdx);
+								} else if (yFrac == 0) {
+									for (int32 j = 0; j < ch; ++j)
+										for (int32 i = 0; i < cw; ++i) {
+											int32 sum = 0;
+											for (int32 k = 0; k < 4; ++k)
+												sum += hf[k] * fetch(xInt + i + k - 1, yInt + j);
+											dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)FinalizeSample(
+												sum >> shift1, false, false, ci, listX, refIdx);
+										}
+								} else if (xFrac == 0) {
+									for (int32 j = 0; j < ch; ++j)
+										for (int32 i = 0; i < cw; ++i) {
+											int32 sum = 0;
+											for (int32 k = 0; k < 4; ++k)
+												sum += vf[k] * fetch(xInt + i, yInt + j + k - 1);
+											dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)FinalizeSample(
+												sum >> shift1, false, false, ci, listX, refIdx);
+										}
+								} else {
+									int32 tmp[(32 + 3) * 32];
+									for (int32 j = 0; j < ch + 3; ++j)
+										for (int32 i = 0; i < cw; ++i) {
+											int32 sum = 0;
+											for (int32 k = 0; k < 4; ++k)
+												sum += hf[k] * fetch(xInt + i + k - 1, yInt + j - 1);
+											tmp[j * 32 + i] = sum >> shift1;
+										}
+									for (int32 j = 0; j < ch; ++j)
+										for (int32 i = 0; i < cw; ++i) {
+											int32 sum = 0;
+											for (int32 k = 0; k < 4; ++k)
+												sum += vf[k] * tmp[(j + k) * 32 + i];
+											dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)FinalizeSample(
+												sum >> 6, false, false, ci, listX, refIdx);
+										}
+								}
 							};
-							if (xFrac == 0 && yFrac == 0) {
-								for (int32 j = 0; j < ch; ++j)
-									for (int32 i = 0; i < cw; ++i)
-										dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)FinalizeSample(
-											SrcC(xInt + i, yInt + j), true, false, ci, listX, refIdx);
-							} else if (yFrac == 0) {
-								for (int32 j = 0; j < ch; ++j)
-									for (int32 i = 0; i < cw; ++i) {
-										int32 sum = 0;
-										for (int32 k = 0; k < 4; ++k)
-											sum += hf[k] * SrcC(xInt + i + k - 1, yInt + j);
-										dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)FinalizeSample(
-											sum >> shift1, false, false, ci, listX, refIdx);
-									}
-							} else if (xFrac == 0) {
-								for (int32 j = 0; j < ch; ++j)
-									for (int32 i = 0; i < cw; ++i) {
-										int32 sum = 0;
-										for (int32 k = 0; k < 4; ++k)
-											sum += vf[k] * SrcC(xInt + i, yInt + j + k - 1);
-										dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)FinalizeSample(
-											sum >> shift1, false, false, ci, listX, refIdx);
-									}
-							} else {
-								int32 tmp[(32 + 3) * 32];
-								for (int32 j = 0; j < ch + 3; ++j)
-									for (int32 i = 0; i < cw; ++i) {
-										int32 sum = 0;
-										for (int32 k = 0; k < 4; ++k)
-											sum += hf[k] * SrcC(xInt + i + k - 1, yInt + j - 1);
-										tmp[j * 32 + i] = sum >> shift1;
-									}
-								for (int32 j = 0; j < ch; ++j)
-									for (int32 i = 0; i < cw; ++i) {
-										int32 sum = 0;
-										for (int32 k = 0; k < 4; ++k)
-											sum += vf[k] * tmp[(j + k) * 32 + i];
-										dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)FinalizeSample(
-											sum >> 6, false, false, ci, listX, refIdx);
-									}
-							}
+							// Fenetre chroma requise : x in [xInt-1, xInt+cw+1], y in [yInt-1, yInt+ch+1].
+							const bool interior =
+								xInt >= 1 && yInt >= 1 && xInt + cw + 2 <= rw && yInt + ch + 2 <= rh;
+							if (interior)
+								doChroma([srcBase, rw](int32 xx, int32 yy) -> int32 {
+									return srcBase[(usize)yy * rw + xx];
+								});
+							else
+								doChroma([&](int32 xx, int32 yy) -> int32 {
+									const int32 cx = Clip3i(0, rw - 1, xx);
+									const int32 cy = Clip3i(0, rh - 1, yy);
+									return srcBase[(usize)(cy * rw + cx)];
+								});
 						}
 						MarkRecon(x0, y0, w, h);
 					}
@@ -3161,10 +3202,23 @@ namespace nkentseu {
 					if (!sh.deblockingFilterDisabled)
 						p.DeblockPicture();
 					if (sh.saoLuma || sh.saoChroma) {
-						NkVector<nk_uint16> srcY = frame->y;
-						NkVector<nk_uint16> srcCb = frame->cb;
-						NkVector<nk_uint16> srcCr = frame->cr;
-						p.ApplySao(srcY, srcCb, srcCr);
+						// SAO lit les échantillons PRÉ-SAO (déblocés) et écrit `frame`. On en fait
+						// un instantané. Le copy-ctor de NkVector copie ÉLÉMENT PAR ÉLÉMENT
+						// (PushBack) — ~35 % du temps de décodage sur un flux avec SAO. Ici :
+						// tampons SOURCE réutilisés (thread_local) + NkCopy bloc (memcpy AVX2).
+						// Sémantique identique : `frame` conserve ses valeurs pré-SAO, ApplySao
+						// n'écrase que les CTB effectivement filtrés en lisant la source.
+						static thread_local NkVector<nk_uint16> saoSrcY, saoSrcCb, saoSrcCr;
+						saoSrcY.Resize(frame->y.Size());
+						saoSrcCb.Resize(frame->cb.Size());
+						saoSrcCr.Resize(frame->cr.Size());
+						memory::NkCopy(saoSrcY.Data(), frame->y.Data(),
+									   (usize)frame->y.Size() * sizeof(nk_uint16));
+						memory::NkCopy(saoSrcCb.Data(), frame->cb.Data(),
+									   (usize)frame->cb.Size() * sizeof(nk_uint16));
+						memory::NkCopy(saoSrcCr.Data(), frame->cr.Data(),
+									   (usize)frame->cr.Size() * sizeof(nk_uint16));
+						p.ApplySao(saoSrcY, saoSrcCb, saoSrcCr);
 					}
 				}
 				// Persistance du champ de MV bi-liste (§8.5.3.2.8/9) — cette trame devient
@@ -3174,12 +3228,14 @@ namespace nkentseu {
 				if (frame) {
 					frame->mvColPuWidth = p.minPuWidth;
 					frame->mvColPuHeight = p.minPuHeight;
-					frame->mvColX = p.mvL0x;
-					frame->mvColY = p.mvL0y;
-					frame->mvColL1X = p.mvL1x;
-					frame->mvColL1Y = p.mvL1y;
-					frame->mvColPredFlag = p.predFlag;
-					frame->mvColValid = p.mvValid;
+					// `p` detruit juste apres : TRANSFERT (move O(1)) au lieu du copy-ctor NkVector
+					// (copie element par element). predFlag encore lu par la boucle refPoc
+					// ci-dessous -> deplace APRES la boucle.
+					frame->mvColX = traits::NkMove(p.mvL0x);
+					frame->mvColY = traits::NkMove(p.mvL0y);
+					frame->mvColL1X = traits::NkMove(p.mvL1x);
+					frame->mvColL1Y = traits::NkMove(p.mvL1y);
+					frame->mvColValid = traits::NkMove(p.mvValid);
 					frame->mvColRefPocL0.Resize(p.refIdxL0.Size());
 					frame->mvColRefPocL1.Resize(p.refIdxL0.Size());
 					for (uint64 i = 0; i < p.refIdxL0.Size(); ++i) {
@@ -3200,6 +3256,7 @@ namespace nkentseu {
 						frame->mvColRefPocL0[i] = rp0;
 						frame->mvColRefPocL1[i] = rp1;
 					}
+					frame->mvColPredFlag = traits::NkMove(p.predFlag);
 				}
 				return true;
 			}
