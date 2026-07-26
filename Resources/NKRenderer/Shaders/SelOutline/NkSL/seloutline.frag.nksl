@@ -1,0 +1,80 @@
+// seloutline.frag.nksl — NKRenderer — Passe OUTLINE silhouette (plein écran).
+//
+// Liseré de sélection façon Blender : un fin contour orange qui ÉPOUSE la
+// silhouette du/des maillage(s) sélectionné(s). Technique standard = détection
+// de bord sur un MASQUE de sélection par DILATATION-DIFFÉRENCE : un pixel HORS
+// de la silhouette qui possède un voisin DANS la silhouette (dans un rayon de R
+// px) appartient au liseré. Résultat = anneau fin, d'épaisseur ~constante à
+// l'écran, composité par-dessus l'image finale (alpha-blend).
+//
+// (cf. outline via edge-detection sur masque de sélection — technique classique.)
+//
+// NB : échantillonnage DÉROULÉ (pas de boucle for) — 16 taps sur deux anneaux
+// (rayon R et R/2, 8 directions chacun). Le générateur NkSL->GLSL produit ainsi
+// un code trivialement correct sur tous les backends (une boucle for avec
+// condition interne ne dilatait pas correctement le masque sur le chemin GL).
+@location(0) in vec2 vUV;
+@location(0) out vec4 oColor;
+
+@binding(set=0, binding=0) uniform sampler2D uMask;
+
+layout(push_constant) uniform PC {
+    vec4 params;  // .x=invResW .y=invResH .z=thicknessPx .w=yFlipUV
+    vec4 color;   // rgba du liseré
+} pc;
+
+float NkMaskAt(vec2 uv) {
+    return texture(uMask, uv).r;
+}
+
+@stage(fragment)
+@entry
+void main() {
+    float c  = NkMaskAt(vUV);       // masque au pixel courant
+    float px = pc.params.x;          // 1/largeur
+    float py = pc.params.y;          // 1/hauteur
+    float R  = pc.params.z;          // épaisseur (rayon de recherche, px)
+
+    // DILATATION : max du masque sur un DISQUE de rayon R px. Échantillonnage
+    // DÉROULÉ, DENSE (16 directions à rayon R + 8 à R/2) -> bande extérieure
+    // PLEINE et CONTINUE (pas de trous entre directions, même à R élevé) -> le
+    // liseré épouse toute la silhouette sans pointillés.
+    float m = 0.0;
+    // Anneau externe : 16 directions (tous les 22.5°) à rayon R.
+    m = max(m, NkMaskAt(vUV + vec2( px * R * 1.00000,  py * R * 0.00000)));
+    m = max(m, NkMaskAt(vUV + vec2( px * R * 0.92388,  py * R * 0.38268)));
+    m = max(m, NkMaskAt(vUV + vec2( px * R * 0.70711,  py * R * 0.70711)));
+    m = max(m, NkMaskAt(vUV + vec2( px * R * 0.38268,  py * R * 0.92388)));
+    m = max(m, NkMaskAt(vUV + vec2( px * R * 0.00000,  py * R * 1.00000)));
+    m = max(m, NkMaskAt(vUV + vec2(-px * R * 0.38268,  py * R * 0.92388)));
+    m = max(m, NkMaskAt(vUV + vec2(-px * R * 0.70711,  py * R * 0.70711)));
+    m = max(m, NkMaskAt(vUV + vec2(-px * R * 0.92388,  py * R * 0.38268)));
+    m = max(m, NkMaskAt(vUV + vec2(-px * R * 1.00000,  py * R * 0.00000)));
+    m = max(m, NkMaskAt(vUV + vec2(-px * R * 0.92388, -py * R * 0.38268)));
+    m = max(m, NkMaskAt(vUV + vec2(-px * R * 0.70711, -py * R * 0.70711)));
+    m = max(m, NkMaskAt(vUV + vec2(-px * R * 0.38268, -py * R * 0.92388)));
+    m = max(m, NkMaskAt(vUV + vec2( px * R * 0.00000, -py * R * 1.00000)));
+    m = max(m, NkMaskAt(vUV + vec2( px * R * 0.38268, -py * R * 0.92388)));
+    m = max(m, NkMaskAt(vUV + vec2( px * R * 0.70711, -py * R * 0.70711)));
+    m = max(m, NkMaskAt(vUV + vec2( px * R * 0.92388, -py * R * 0.38268)));
+    // Anneau interne : 8 directions à rayon R/2 -> comble la bande.
+    float h = R * 0.5;
+    m = max(m, NkMaskAt(vUV + vec2( px * h * 1.00000,  py * h * 0.00000)));
+    m = max(m, NkMaskAt(vUV + vec2( px * h * 0.70711,  py * h * 0.70711)));
+    m = max(m, NkMaskAt(vUV + vec2( px * h * 0.00000,  py * h * 1.00000)));
+    m = max(m, NkMaskAt(vUV + vec2(-px * h * 0.70711,  py * h * 0.70711)));
+    m = max(m, NkMaskAt(vUV + vec2(-px * h * 1.00000,  py * h * 0.00000)));
+    m = max(m, NkMaskAt(vUV + vec2(-px * h * 0.70711, -py * h * 0.70711)));
+    m = max(m, NkMaskAt(vUV + vec2( px * h * 0.00000, -py * h * 1.00000)));
+    m = max(m, NkMaskAt(vUV + vec2( px * h * 0.70711, -py * h * 0.70711)));
+
+    float inside = step(0.5, c);     // 1 si dans la silhouette
+    float dil    = step(0.5, m);     // 1 si un voisin (<=R px) est dans la silhouette
+    float edge   = dil * (1.0 - inside); // liseré = extérieur touchant l'intérieur
+
+    // Liseré OPAQUE là où edge=1 (le contour existe), transparent ailleurs.
+    // NB : on N'utilise PAS pc.color.a comme facteur — sur le chemin GL le 4e
+    // composant du 2e vec4 de push-constant n'est pas fiablement livré (le rgb
+    // l'est). `edge` étant binaire (step), l'alpha est franc -> liseré net.
+    oColor = vec4(pc.color.rgb, edge);
+}

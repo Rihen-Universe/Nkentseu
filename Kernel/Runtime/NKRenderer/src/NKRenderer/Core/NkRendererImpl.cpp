@@ -292,6 +292,13 @@ namespace nkentseu {
 				NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkRender3D::Init failed");
 				return false;
 			}
+			// Initialise la taille courante du Render3D à la résolution configurée :
+			// OnResize n'est appelé QUE sur un vrai changement de taille (cf. BeginFrame
+			// auto-resize) ; si la fenêtre s'ouvre pile à la taille config, mW/mH
+			// resteraient à 0. Or CompositeSelectionOutline dérive la taille du pixel
+			// (1/w, 1/h) de mW/mH pour l'edge-detect du liseré de sélection — à 0, les
+			// offsets d'échantillonnage explosent (1.0 en UV) et le liseré disparaît.
+			mRender3D->OnResize(mCfg.width, mCfg.height);
 			// Wire la connexion inverse : NkShadowSystem itere les opaques de
 			// mRender3D dans sa passe shadow. Necessaire pour D.3b.
 			if (mShadow)
@@ -925,6 +932,38 @@ namespace nkentseu {
 				});
 			}
 
+			// ── Sélection « outline silhouette » façon Blender ────────────────
+			// Option DISTINCTE de l'AABB du gizmo. Deux passes, ajoutées seulement
+			// quand l'option est active (NkRender3D::SetSelectionOutline -> rebuild) :
+			//   1) SelectionMask : les objets sélectionnés rendus SEULS (blanc) dans une
+			//      cible R8 -> silhouette pleine.
+			//   2) SelectionOutline : plein écran, dilatation-différence du masque ->
+			//      fin liseré orange composité (LOAD) sur l'image finale (colorId).
+			// Placées APRÈS le post-process et AVANT l'overlay 2D : le liseré se dessine
+			// par-dessus la scène finale (façon Blender, overlay), sous l'UI.
+			if (has3D && mRender3D && mRender3D->IsSelectionOutlineEnabled()) {
+				NkGraphResId selMask = g.CreateTransient(
+					"SelMask", NkTextureDesc::RenderTarget(mCfg.width, mCfg.height, NkGPUFormat::NK_R8_UNORM));
+
+				// Color-only (pas de depth) : silhouette pleine, ordre de rasterisation
+				// indifférent -> type POST_PROCESS comme les autres passes color-only.
+				auto &mp = g.AddPass("SelectionMask", NkPassType::NK_POST_PROCESS);
+				mp.SetColor(0, selMask, NkLoadOp::NK_CLEAR, {0.f, 0.f, 0.f, 1.f});
+				mp.Execute([this](NkICommandBuffer *cmd) {
+					if (mRender3D)
+						mRender3D->RenderSelectionMask(cmd);
+				});
+
+				auto &op = g.AddPass("SelectionOutline", NkPassType::NK_UI_OVERLAY);
+				op.Reads(selMask);
+				op.SetColor(0, colorId, NkLoadOp::NK_LOAD);
+				NkGraphResId maskId = selMask;
+				op.Execute([this, maskId](NkICommandBuffer *cmd) {
+					if (mRender3D)
+						mRender3D->CompositeSelectionOutline(cmd, mRenderGraph->GetResourceTexture(maskId));
+				});
+			}
+
 			// ── 2D + UI overlay ───────────────────────────────────────────────
 			// Si aucune passe 3D ne clear le swapchain (config 2D-only), on clear ici.
 			// [AJOUT 2026-07-25] La passe existe aussi si un callback UI applicatif
@@ -981,6 +1020,12 @@ namespace nkentseu {
 				if ((sw != mCfg.width || sh != mCfg.height) && sw > 0 && sh > 0)
 					OnResize(sw, sh);
 			}
+
+			// Sélection « outline silhouette » : (dés)activer l'option ajoute/retire les
+			// passes SelectionMask + SelectionOutline du graph -> rebuild à l'aplomb de
+			// la frame (avant l'exécution du graph dans Present), comme pour un resize.
+			if (mRender3D.Get() && mRender3D->ConsumeSelOutlineGraphDirty())
+				RebuildRenderGraph();
 
 			// FlushCompilations() retire de BeginFrame : il compilait tous les
 			// pipelines avec mCurrentRP={} (avant le 1er Flush qui le set), donc

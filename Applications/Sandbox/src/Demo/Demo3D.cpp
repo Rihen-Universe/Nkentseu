@@ -2247,6 +2247,29 @@ namespace nkentseu {
 						// NK_GIZMO_OBB=0 : masque la cage OBB de sélection (gizmo SEUL, épuré).
 						if (const char *ob = getenv("NK_GIZMO_OBB"))
 							st->gizmo.SetDrawObjectBounds(!(ob[0] == '0'));
+						// NK_SELECT_OUTLINE=1 : liseré silhouette façon Blender (OPTION
+						// distincte de l'AABB) — fin contour orange qui épouse le maillage
+						// sélectionné, via post-process de détection de bord. Couleur/épaisseur
+						// surchargeables (NK_OUTLINE_THICK). L'AABB reste dispo en parallèle.
+						// NB : le liseré silhouette est désormais ACTIF PAR DÉFAUT (indicateur
+						// de sélection par défaut, à la place de l'AABB). NK_SELECT_OUTLINE=0
+						// le désactive ; NK_OUTLINE_THICK règle l'épaisseur.
+						if (const char *so = getenv("NK_SELECT_OUTLINE")) {
+							float32 thick = 3.f;
+							if (const char *ot = getenv("NK_OUTLINE_THICK"))
+								thick = (float32)atof(ot);
+							r3d->SetSelectionOutline(!(so[0] == '0'), {1.f, 0.45f, 0.05f, 1.f}, thick);
+						} else if (const char *ot = getenv("NK_OUTLINE_THICK")) {
+							r3d->SetSelectionOutline(true, {1.f, 0.45f, 0.05f, 1.f}, (float32)atof(ot));
+						}
+						// NK_SHADING=<0..5> : force le mode d'affichage (0=RENDERED, 1=SOLID
+						// unlit, 2=WIREFRAME, 3=NORMAL, 4=UV, 5=AO) pour une capture headless.
+						if (const char *sh = getenv("NK_SHADING")) {
+							st->shadingMode = atoi(sh) % 6;
+							const int32 vm[6] = {0, 1, 1, 2, 3, 4};
+							r3d->SetWireframe(st->shadingMode == 2);
+							r3d->SetViewMode(vm[st->shadingMode]);
+						}
 					}
 					st->gizmo.SetCamera(cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width,
 										(float32)ctx.height);
@@ -2270,15 +2293,40 @@ namespace nkentseu {
 							gin.lockAxis = 2;
 					}
 					st->gizmo.Update(targets, n, gin);
+
+					// ── Sélection « outline silhouette » (option NK_SELECT_OUTLINE) ──
+					// Soumet l'objet ACTIF au masque de silhouette : le liseré orange
+					// épousera son maillage (post-process edge-detect). Limité aux objets
+					// NON instanciés (spheres 0-15, cube 16, colonnes 17-18) ; les cubes
+					// instanciés (19+) n'ont pas de transform per-instance côté drawcall
+					// simple -> hors périmètre de cette démo.
+					if (r3d->IsSelectionOutlineEnabled() && st->gizmo.HasSelection()) {
+						const int32 sel = st->gizmo.ActiveIndex();
+						if (sel >= 0 && sel < 19) {
+							NkDrawCall3D sdc;
+							sdc.mesh = meshFor(sel, (sel < 16) ? st->meshSphere : st->meshCube);
+							sdc.transform = userXform(sel, Demo3D_ObjBase(sel));
+							r3d->SubmitSelection(sdc);
+						}
+					}
+
 					// Rendu PLEIN (façon Blender solide) : lignes fines (tiges/liserés) via
 					// DrawDebugLine + formes PLEINES (cônes/cubes/rubans) via DrawDebugTriangle,
 					// toutes en overlay (au-dessus de la scène, alpha-blend). Le 2e callback active
 					// la surcharge Draw(drawLine, drawTri) du gizmo.
-					st->gizmo.Draw(
-						[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
-						[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
-							r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
-						});
+					// NK_OUTLINE_ONLY=1 : masque le gizmo pour une capture « liseré silhouette
+					// SEUL » (le contour devient l'unique indicateur de sélection à l'écran).
+					static int outlineOnly = -1;
+					if (outlineOnly == -1) {
+						const char *v = getenv("NK_OUTLINE_ONLY");
+						outlineOnly = (v && v[0] && v[0] != '0') ? 1 : 0;
+					}
+					if (!outlineOnly)
+						st->gizmo.Draw(
+							[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
+							[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
+								r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
+							});
 				}
 			}
 

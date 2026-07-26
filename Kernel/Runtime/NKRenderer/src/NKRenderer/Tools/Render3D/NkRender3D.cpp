@@ -948,6 +948,186 @@ namespace nkentseu {
 			cmd->Draw(3, 1, 0, 0); // 1 triangle plein-écran (reconstruction de rayon)
 		}
 
+		// ═════════════════════════════════════════════════════════════════════════
+		// Sélection « outline silhouette » façon Blender (post-process edge-detect).
+		// Passe 1 (RenderSelectionMask) : objets sélectionnés rendus SEULS en blanc
+		//   dans une cible offscreen R8 -> silhouette pleine.
+		// Passe 2 (CompositeSelectionOutline) : plein écran, dilatation-différence du
+		//   masque -> fin liseré orange composité par-dessus l'image finale.
+		// ═════════════════════════════════════════════════════════════════════════
+		void NkRender3D::SetSelectionOutline(bool enabled, NkVec4f color, float32 thicknessPx) {
+			if (enabled != mSelOutline)
+				mSelOutlineGraphDirty = true; // (dé)active les passes -> rebuild du graph
+			mSelOutline = enabled;
+			mSelOutlineColor = color;
+			mSelOutlineThickness = (thicknessPx > 0.f) ? thicknessPx : 1.f;
+			if (mSelOutlineThickness > 8.f)
+				mSelOutlineThickness = 8.f; // borne raisonnable (rayon de recherche en px)
+		}
+
+		void NkRender3D::SubmitSelection(const NkDrawCall3D &dc) {
+			if (dc.mesh.IsValid())
+				mSelection.PushBack(dc);
+		}
+
+		// Pipeline MASQUE : shader trivial (VS = viewProj*model, FS = blanc), sans
+		// depth (silhouette pleine), NoCull (les deux faces -> masque plein). Set 0 =
+		// CameraUBO (même UBO que la scène -> alignement exact) ; model en push const.
+		bool NkRender3D::EnsureSelMaskPipeline(NkRenderPassHandle currentRP) {
+			if (mSelMaskPipeline.IsValid() && mSelMaskPipelineRP == currentRP)
+				return true;
+			if (!mShaderLib)
+				return false;
+			if (!mSelMaskShader.IsValid()) {
+				auto prog = mShaderLib->LoadOrCompileVF("SelMask", "", "");
+				if (!prog.IsValid()) {
+					logger.Errorf("[NkR3D::SelMask] shader compile FAIL\n");
+					return false;
+				}
+				mSelMaskShader = mShaderLib->GetRHIHandle(prog);
+			}
+			if (!mSelMaskShader.IsValid())
+				return false;
+			if (mSelMaskPipeline.IsValid()) {
+				mDevice->DestroyPipeline(mSelMaskPipeline);
+				mSelMaskPipeline = {};
+			}
+			NkGraphicsPipelineDesc pd;
+			pd.shader = mSelMaskShader;
+			pd.depthStencil = NkDepthStencilDesc::NoDepth();
+			pd.rasterizer = NkRasterizerDesc::NoCull();
+			pd.blend = NkBlendDesc::Opaque();
+			pd.debugName = "SelMask";
+			pd.renderPass = currentRP;
+			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f)); // model
+			pd.descriptorSetLayouts.PushBack(mGlobalLayout);								   // set 0 = CameraUBO
+			pd.vertexLayout.AddBinding(0, sizeof(NkVertex3D), false)
+				.AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0, "POSITION", 0);
+			mSelMaskPipeline = mDevice->CreateGraphicsPipeline(pd);
+			mSelMaskPipelineRP = currentRP;
+			logger.Info("[NkRender3D] SelMask pipeline create: shader_valid={0} pipeline_valid={1} rp.id={2}\n",
+						mSelMaskShader.IsValid() ? 1 : 0, mSelMaskPipeline.IsValid() ? 1 : 0, currentRP.id);
+			return mSelMaskPipeline.IsValid();
+		}
+
+		void NkRender3D::RenderSelectionMask(NkICommandBuffer *cmd) {
+			if (!cmd || !mSelOutline || mSelection.Empty() || !mMesh)
+				return;
+			NkRenderPassHandle rp{};
+			if (mGraph)
+				rp = mGraph->GetPassRenderPass("SelectionMask");
+			if (!EnsureSelMaskPipeline(rp))
+				return;
+			cmd->BindGraphicsPipeline(mSelMaskPipeline);
+			// set 0 = per-frame (CameraUBO). Même slot que le Flush principal (déjà
+			// uploadé cette frame) -> viewProj identique -> masque aligné pixel-exact.
+			NkDescSetHandle gs = (mFrameSlot < mGlobalSetRing.Size()) ? mGlobalSetRing[mFrameSlot] : NkDescSetHandle{};
+			if (gs.IsValid())
+				cmd->BindDescriptorSet(gs, 0);
+			for (auto &dc : mSelection) {
+				if (!dc.mesh.IsValid())
+					continue;
+				NkMat4f model = dc.transform;
+				cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f), &model);
+				mMesh->BindMesh(cmd, dc.mesh);
+				if (dc.subMeshIdx == 0xFFFFFFFFu)
+					mMesh->DrawAll(cmd, dc.mesh);
+				else
+					mMesh->DrawSubMesh(cmd, dc.mesh, dc.subMeshIdx);
+			}
+		}
+
+		// Pipeline OUTLINE : fullscreen triangle (comme Blit/FXAA), lit le masque au
+		// binding 0, alpha-blend du liseré sur la cible finale. Layout+set du sampler
+		// créés paresseusement ici (dédiés : pas de partage -> pas d'écrasement au
+		// Submit sur les backends à commandes différées, cf. NkPostProcessStack).
+		bool NkRender3D::EnsureSelOutlinePipeline(NkRenderPassHandle currentRP) {
+			if (mSelOutlinePipeline.IsValid() && mSelOutlinePipelineRP == currentRP)
+				return true;
+			if (!mShaderLib)
+				return false;
+			if (!mSelOutlineShader.IsValid()) {
+				auto prog = mShaderLib->LoadOrCompileVF("SelOutline", "", "");
+				if (!prog.IsValid()) {
+					logger.Errorf("[NkR3D::SelOutline] shader compile FAIL\n");
+					return false;
+				}
+				mSelOutlineShader = mShaderLib->GetRHIHandle(prog);
+			}
+			if (!mSelOutlineShader.IsValid())
+				return false;
+			if (!mSelTexLayout.IsValid()) {
+				NkDescriptorSetLayoutDesc layout;
+				layout.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+				mSelTexLayout = mDevice->CreateDescriptorSetLayout(layout);
+				mSelTexSet = mDevice->AllocateDescriptorSet(mSelTexLayout);
+			}
+			if (mSelOutlinePipeline.IsValid()) {
+				mDevice->DestroyPipeline(mSelOutlinePipeline);
+				mSelOutlinePipeline = {};
+			}
+			NkGraphicsPipelineDesc pd;
+			pd.shader = mSelOutlineShader;
+			pd.depthStencil = NkDepthStencilDesc::NoDepth();
+			pd.rasterizer = NkRasterizerDesc::NoCull();
+			pd.blend = NkBlendDesc::Alpha(); // liseré composité par dessus l'image finale
+			pd.debugName = "SelOutline";
+			pd.renderPass = currentRP;
+			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkVec4f) * 2); // params + color
+			if (mSelTexLayout.IsValid())
+				pd.descriptorSetLayouts.PushBack(mSelTexLayout);
+			// Pas de vertex layout (triangle plein-écran généré via gl_VertexID).
+			mSelOutlinePipeline = mDevice->CreateGraphicsPipeline(pd);
+			mSelOutlinePipelineRP = currentRP;
+			logger.Info("[NkRender3D] SelOutline pipeline create: shader_valid={0} pipeline_valid={1} rp.id={2}\n",
+						mSelOutlineShader.IsValid() ? 1 : 0, mSelOutlinePipeline.IsValid() ? 1 : 0, currentRP.id);
+			return mSelOutlinePipeline.IsValid();
+		}
+
+		void NkRender3D::CompositeSelectionOutline(NkICommandBuffer *cmd, NkTextureHandle maskTex) {
+			if (!cmd || !mSelOutline || !maskTex.IsValid())
+				return;
+			NkRenderPassHandle rp{};
+			if (mGraph)
+				rp = mGraph->GetPassRenderPass("SelectionOutline");
+			if (!EnsureSelOutlinePipeline(rp))
+				return;
+			// Filet de sécurité : si aucune propagation de taille n'a eu lieu (mW/mH
+			// à 0), l'edge-detect diviserait par 1 -> offsets d'échantillonnage à
+			// l'échelle de tout l'écran -> liseré invisible. On retombe alors sur la
+			// taille swapchain (== taille de rendu hors mode SetRenderSizeOverride).
+			if ((mW == 0 || mH == 0) && mDevice) {
+				uint32 sw = mDevice->GetSwapchainWidth();
+				uint32 sh = mDevice->GetSwapchainHeight();
+				if (sw > 0 && sh > 0) {
+					mW = sw;
+					mH = sh;
+				}
+			}
+			if (mSelTexSet.IsValid() && mResources) {
+				NkSamplerHandle samp = mResources->GetSamplerLinearClamp();
+				if (samp.IsValid())
+					mDevice->BindTextureSampler(mSelTexSet, 0, maskTex, samp);
+			}
+			cmd->BindGraphicsPipeline(mSelOutlinePipeline);
+			if (mSelTexSet.IsValid())
+				cmd->BindDescriptorSet(mSelTexSet, 0);
+
+			// yFlipUV : le masque et la cible finale sont des offscreens de MÊME
+			// orientation. Sur GL (origine bas-gauche partout) l'UV direct aligne le
+			// masque sur la scène ; VK/DX rendent la cible Y-flippée -> flip vertical.
+			const bool isGL = mDevice && mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+			struct OutlinePC {
+					NkVec4f params; // .x=invResW .y=invResH .z=thicknessPx .w=yFlipUV
+					NkVec4f color;
+			} pc;
+			pc.params = {1.f / (float32)(mW > 0 ? mW : 1), 1.f / (float32)(mH > 0 ? mH : 1), mSelOutlineThickness,
+						 isGL ? 1.f : -1.f};
+			pc.color = mSelOutlineColor;
+			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+			cmd->Draw(3, 1, 0, 0);
+		}
+
 		void NkRender3D::Shutdown() {
 			if (mSkyboxPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mSkyboxPipeline);
@@ -976,6 +1156,23 @@ namespace nkentseu {
 			if (mPBRPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mPBRPipeline);
 				mPBRPipeline = {};
+			}
+			// Sélection outline silhouette : pipelines + layout/set du sampler masque.
+			if (mSelMaskPipeline.IsValid()) {
+				mDevice->DestroyPipeline(mSelMaskPipeline);
+				mSelMaskPipeline = {};
+			}
+			if (mSelOutlinePipeline.IsValid()) {
+				mDevice->DestroyPipeline(mSelOutlinePipeline);
+				mSelOutlinePipeline = {};
+			}
+			if (mSelTexSet.IsValid()) {
+				mDevice->FreeDescriptorSet(mSelTexSet);
+				mSelTexSet = {};
+			}
+			if (mSelTexLayout.IsValid()) {
+				mDevice->DestroyDescriptorSetLayout(mSelTexLayout);
+				mSelTexLayout = {};
 			}
 			// Les shader handles sont detenus par NkShaderLibrary, pas a detruire ici.
 			for (auto &s : mGlobalSetRing)
@@ -1154,6 +1351,7 @@ namespace nkentseu {
 			mShadowCasters.Clear();
 			mInstanced.Clear();
 			mSkinned.Clear();
+			mSelection.Clear(); // file de sélection (outline silhouette) : re-soumise par frame
 			mCullStats = NkCullStats{}; // stats de culling : nouvelles soumissions
 			// mObjectDrawIdx N'EST PAS reset ici — voir ResetFrame() ci-dessus.
 		}

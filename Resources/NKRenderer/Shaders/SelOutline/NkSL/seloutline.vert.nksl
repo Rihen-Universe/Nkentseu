@@ -1,0 +1,21 @@
+// seloutline.vert.nksl — NKRenderer — Passe OUTLINE silhouette (plein écran).
+// Triangle plein-écran (3 verts sans VBO, même pattern que Blit/FXAA). Émet
+// l'UV écran consommé par le fragment shader pour échantillonner le masque de
+// sélection. yFlipUV (push constant) gère l'orientation de la cible offscreen
+// selon le backend (GL : direct ; VK/DX : flip vertical).
+@location(0) out vec2 vUV;
+
+layout(push_constant) uniform PC {
+    vec4 params;  // .x=invResW .y=invResH .z=thicknessPx .w=yFlipUV
+    vec4 color;   // rgba du liseré
+} pc;
+
+@stage(vertex)
+@entry
+void main() {
+    vec2 pos = vec2((gl_VertexID == 1) ? 3.0 : -1.0,
+                    (gl_VertexID == 2) ? 3.0 : -1.0);
+    gl_Position = vec4(pos, 0.0, 1.0);
+    vec2 uv = pos * 0.5 + 0.5;
+    vUV = (pc.params.w < 0.0) ? vec2(uv.x, 1.0 - uv.y) : uv;
+}
