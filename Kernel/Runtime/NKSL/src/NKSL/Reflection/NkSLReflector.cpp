@@ -200,6 +200,8 @@ namespace nkentseu {
 					return 4;
 				case NkSLBaseType::NK_DOUBLE:
 					return 8;
+				case NkSLBaseType::NK_HALF: // FP16 natif (additif) — 2 octets
+					return 2;
 				case NkSLBaseType::NK_IVEC2:
 				case NkSLBaseType::NK_UVEC2:
 				case NkSLBaseType::NK_VEC2:

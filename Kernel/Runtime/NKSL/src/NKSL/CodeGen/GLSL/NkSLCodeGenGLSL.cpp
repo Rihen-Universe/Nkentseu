@@ -50,6 +50,8 @@ namespace nkentseu {
 				return "vec4";
 			case NkSLBaseType::NK_DOUBLE:
 				return "double";
+			case NkSLBaseType::NK_HALF: // FP16 natif (additif) — GL_EXT_shader_explicit_arithmetic_types_float16
+				return "float16_t";
 			case NkSLBaseType::NK_DVEC2:
 				return "dvec2";
 			case NkSLBaseType::NK_DVEC3:
@@ -226,6 +228,12 @@ namespace nkentseu {
 		mErrors.Clear();
 
 		GenProgram(ast);
+
+		// FP16 natif (additif) : si `float16_t` apparaît dans le texte généré,
+		// injecter l'extension requise juste après #version (post-traitement,
+		// cf commentaire de NkSLInjectExtensionIfUsed).
+		mOutput = NkSLInjectExtensionIfUsed(mOutput, "float16_t",
+											"#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require");
 
 		NkSLCompileResult res;
 		res.success = mErrors.Empty();
@@ -835,6 +843,9 @@ namespace nkentseu {
 	NkString NkSLCodeGenGLSL::GenCall(NkSLCallNode *call) {
 		// GLSL : appels identiques au NkSL sauf quelques intrinsèques
 		NkString callee = call->calleeExpr ? GenExpr(call->calleeExpr) : call->callee;
+		// FP16 natif (additif) : constructeur `half(x)` NkSL -> `float16_t(x)` GLSL.
+		if (callee == "half")
+			callee = "float16_t";
 		NkString args;
 		for (uint32 i = 0; i < (uint32)call->args.Size(); i++) {
 			if (i > 0)
@@ -964,6 +975,8 @@ namespace nkentseu {
 				return "iimage2D";
 			case NkSLBaseType::NK_UIMAGE2D:
 				return "uimage2D";
+			case NkSLBaseType::NK_HALF: // FP16 natif (additif) — GL_EXT_shader_explicit_arithmetic_types_float16
+				return "float16_t";
 			default:
 				return "float";
 		}
