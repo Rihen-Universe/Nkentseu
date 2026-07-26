@@ -10,6 +10,7 @@
 #include "NKMedia/Codecs/Video/VP8/NkVp8Decoder.h"
 #include "NKMedia/Codecs/Video/VP8/NkVp8BoolDecoder.h"
 #include "NKMedia/Codecs/Video/VP9/NkVp9Decoder.h"
+#include "NKMedia/Codecs/Video/AV1/NkAv1Decoder.h"
 #include "NKMedia/Codecs/Video/HEVC/NkHevcDecoder.h"
 #include "NKMedia/Codecs/Video/HEVC/NkHevcCabac.h"
 #include "NKMedia/Codecs/Video/Mpeg2/NkMpeg2Decoder.h"
@@ -238,6 +239,8 @@ int main(int argc, char **argv) {
 		printf("  [ %s ] NkH264Cavlc::SelfTest (encode->decode round-trip)\n", okCavlc ? "OK " : "KO");
 		bool okVp9 = NkVp9Decoder::SelfTest();
 		printf("  [ %s ] NkVp9Decoder::SelfTest (superframe + en-tete non compresse)\n", okVp9 ? "OK " : "KO");
+		bool okAv1 = NkAv1Decoder::SelfTest();
+		printf("  [ %s ] NkAv1Decoder::SelfTest (leb128 + su/ns + symbol decoder + literal)\n", okAv1 ? "OK " : "KO");
 		bool okHevc = NkHevcDecoder::SelfTest();
 		printf("  [ %s ] NkHevcDecoder::SelfTest (NAL split en-tete 2 octets)\n", okHevc ? "OK " : "KO");
 		bool okHevcCabac = NkHevcCabacState::SelfTest();
@@ -247,7 +250,7 @@ int main(int argc, char **argv) {
 		printf("  [ %s ] NkWavWriter::SelfTest (RIFF/WAVE round-trip)\n", okWav ? "OK " : "KO");
 		bool okWebm = NkWebmWriter::SelfTest();
 		printf("  [ %s ] NkWebmWriter::SelfTest (EBML/WebM VP9 round-trip)\n", okWebm ? "OK " : "KO");
-		bool all = ok && okH264 && okCavlc && okVp9 && okHevc && okHevcCabac && okWav && okWebm;
+		bool all = ok && okH264 && okCavlc && okVp9 && okAv1 && okHevc && okHevcCabac && okWav && okWebm;
 		printf("=== %s ===\n", all ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
 		return all ? 0 : 1;
 	}
@@ -1048,6 +1051,89 @@ int main(int argc, char **argv) {
 			printf("  (image decodee ecrite dans vp9recon_out.yuv)\n");
 		}
 		return 1;
+	}
+
+	// =========================================================================
+	// Mode AV1 (from-scratch) : --av1 <fichier.ivf> [ref.yuv]
+	// Parse le conteneur IVF, itère chaque "temporal unit", décode les OBU
+	// (temporal delimiter / sequence header / frame header / frame), affiche les
+	// champs des en-têtes (seq + frame keyframe) et valide que les OBU consomment
+	// EXACTEMENT la charge IVF. Si <ref.yuv> fourni : tente DecodeKeyFrame et
+	// compare (la reconstruction pixel est une brique en cours — voir rapport).
+	// Bloc ISOLÉ (comme --vp9recon / --hevcdecode).
+	// =========================================================================
+	if (argc >= 3 && strcmp(argv[1], "--av1") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		uint8 ivfHdr[32];
+		if (fread(ivfHdr, 1, 32, f) != 32 || memcmp(ivfHdr, "DKIF", 4) != 0) {
+			printf("  [KO] pas un fichier IVF valide\n");
+			fclose(f);
+			return 1;
+		}
+		char fourcc[5] = {(char)ivfHdr[8], (char)ivfHdr[9], (char)ivfHdr[10], (char)ivfHdr[11], 0};
+		const uint16 ivfW = (uint16)(ivfHdr[12] | (ivfHdr[13] << 8));
+		const uint16 ivfH = (uint16)(ivfHdr[14] | (ivfHdr[15] << 8));
+		printf("  IVF : fourcc=%s dims=%ux%u\n", fourcc, ivfW, ivfH);
+		if (strcmp(fourcc, "AV01") != 0)
+			printf("  [!!] fourcc != AV01\n");
+
+		NkAv1SequenceHeader seq;   // persistant sur le flux
+		NkAv1FrameHeader frame;
+		int32 tu = 0, tuOk = 0, seqSeen = 0, framesSeen = 0;
+		bool printedSeq = false, printedFrame = false;
+		while (true) {
+			uint8 fhdr[12];
+			if (fread(fhdr, 1, 12, f) != 12)
+				break;
+			const uint32 payloadSize = (uint32)fhdr[0] | ((uint32)fhdr[1] << 8) |
+									   ((uint32)fhdr[2] << 16) | ((uint32)fhdr[3] << 24);
+			NkVector<uint8> payload;
+			payload.Resize(payloadSize);
+			if (payloadSize && fread(payload.Data(), 1, payloadSize, f) != payloadSize)
+				break;
+			++tu;
+			NkAv1ParseStats st;
+			const bool consumed = NkAv1Decoder::ParseTemporalUnit(payload.Data(), (usize)payloadSize, seq,
+																  frame, st);
+			if (consumed && !st.overran)
+				++tuOk;
+			if (seq.valid)
+				++seqSeen;
+			if (frame.valid)
+				++framesSeen;
+			if (seq.valid && !printedSeq) {
+				printedSeq = true;
+				printf("  [SEQ] profile=%d bitdepth=%d mono=%d ss=%d,%d 128sb=%d cdef=%d restor=%d "
+					   "superres=%d filmgrain=%d maxdim=%dx%d\n",
+					   seq.seqProfile, seq.bitDepth, (int)seq.mono, seq.subsamplingX, seq.subsamplingY,
+					   (int)seq.use128x128Superblock, (int)seq.enableCdef, (int)seq.enableRestoration,
+					   (int)seq.enableSuperres, (int)seq.filmGrainParamsPresent, seq.maxFrameWidthMinus1 + 1,
+					   seq.maxFrameHeightMinus1 + 1);
+			}
+			if (frame.valid && !printedFrame) {
+				printedFrame = true;
+				printf("  [FRM] type=%d show=%d intrabc=%d dim=%dx%d(up=%d) mi=%dx%d baseQ=%d lossless=%d "
+					   "txmode=%d tiles=%dx%d cdefbits=%d lrY=%d hdrEnd=%zu\n",
+					   frame.frameType, (int)frame.showFrame, (int)frame.allowIntrabc, frame.frameWidth,
+					   frame.frameHeight, frame.upscaledWidth, frame.miCols, frame.miRows, frame.quant.baseQIdx,
+					   (int)frame.codedLossless, frame.txMode, frame.tiles.tileCols, frame.tiles.tileRows,
+					   frame.cdef.bits, frame.lr.frameRestorationType[0], frame.headerEndByte);
+			}
+			if (tu <= 3 || (tu % 10) == 0)
+				printf("    TU %3d : %u octets, OBU=%d (td=%d seq=%d fhdr=%d frame=%d tg=%d) tiles=%d consume=%s\n",
+					   tu, payloadSize, st.obuCount, st.tdCount, st.seqHdrCount, st.frameHdrCount,
+					   st.frameObuCount, st.tileGroupCount, st.tilesParsed,
+					   (consumed && !st.overran) ? "exact" : "PARTIEL");
+		}
+		fclose(f);
+		printf("  bilan : %d temporal units, %d parses exacts, seq vues=%d, frame headers=%d\n", tu, tuOk,
+			   seqSeen, framesSeen);
+		printf("=== %s ===\n", (tu > 0 && tuOk == tu) ? "AV1 OBU + HEADERS OK (structurel)" : "AV1 PARSE INCOMPLET");
+		return (tu > 0 && tuOk == tu) ? 0 : 1;
 	}
 
 	// Mode diagnostic VP9 (brique 1) : --vp9header <fichier.ivf>
