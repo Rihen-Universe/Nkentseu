@@ -20,9 +20,10 @@
 | 3quater. **Fichiers .opus (Ogg-Opus, RFC 7845)** + câblage NKAudio | ✅ | **Conteneur Ogg livré (2026-07-12)** : probe (pistes opus/vorbis depuis les pages BOS) + démux (pages → paquets, lacing, `granule`) ; `NkOpusFile` (OpusHead pre-skip/gain + décode + trim granule ; **hybride/stéréo refusés proprement** → retirer le garde quand 3ter sera fini). Harnais `--oggopus`, self-test forge Ogg (34/34). **Validé vs ffmpeg** : SILK-WB corr 0.999985 (lag +2 = délai resampler), CELT corr 0.965 lag 0. **NKAudio branché** : `AudioFormat::OPUS` décodé via `NkOpusCodec` (détection OggS+OpusHead), test `NkMicRecord --decode in.opus out.wav`. NB : NKAudio dépend de NKMedia → 10 jengas d'apps mis à jour |
 | 4. Décodeur audio AAC-LC | ✅ | *(table périmée, tenue à jour dans « Livré » ci-dessous)* MP4 → PCM, stéréo complet, bit-exact vs ffmpeg |
 | 5. Muxers (écriture) | 🔶 EN COURS | **AVI (RIFF) ✅ + MOV/MP4 (ISOBMFF) ✅ + WAV (RIFF) ✅** ; reste WebM |
-| 6. Vidéo (décode) | ✅ | *(table périmée)* **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC briques 1-9** : INTRA+déblocage+SAO pixels bit-exacts (8-bit+Main10) + syntaxe CU inter I/P/B validée structurellement + **POC réel/RefPicList0/1 (structure GOP B-pyramide plausible, 25/25 slices)** ; reste dérivation MV + MC pour les pixels P/B ; AV1/MPEG-2 restent à faire — voir « Bugs / limitations connues » |
-| 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. Prochaine brique codec : H.263 → **H.264** (même machinerie DCT/VLC/motion). Puis audio A/V |
-| 8. **Décodeur vidéo VP8** | ✅ | **DÉCODEUR COMPLET (clé + inter) : 325 images BIT-EXACTES vs ffmpeg sur 6 flux** (dont altref invisibles, golden frames, 4 GOPs, SPLITMV, filterLevel 0-8, résolutions impaires). Décodeur booléen, en-têtes, modes intra+inter, MV (near/nearest/new/split), MC 6-tap, résidus, WHT+IDCT, filtre de boucle. Restes mineurs : segmentation MB, partitions multiples, versions 1-3 (refus propre). **À brancher dans NkVideoReader** (WebM/IVF). |
+| 6. Vidéo (décode) | ✅ | **H.264 Main+High + VP8 + VP9 (clé+inter) bit-exacts, branchés `NkVideoReader`** (MP4/MOV/3GP/MKV, WebM/IVF) ; **H.265/HEVC DÉCODEUR COMPLET (briques 1-15) : I + P + B (bi-prédiction) en PIXELS + déblocage in-loop inter + SAO, BIT-EXACT vs ffmpeg** (8-bit + Main10 intra), MV merge/AMVP/temporel spatiaux+temporels, MC uni/bi pondérée — 🔶 branchement `NkVideoReader` (.265/MP4-hvc1/MKV) en cours (brique 16) ; restes mineurs HEVC refusés proprement (tuiles, 4:2:2/4:4:4, 10-bit inter, `ref_pic_lists_modification`, `scaling_list_data`) ; AV1/MPEG-2/Theora restent à faire — voir « Bugs / limitations connues » |
+| 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. **Encodeur H.264 baseline from-scratch livré (BIT-EXACT vs ffmpeg : I_16×16 + I_4×4 + P MC quart-pel + déblocage)**. Prochaines briques codec (optionnelles) : profils H.264 avancés, puis mux audio A/V |
+| 8. **Décodeur vidéo VP8** | ✅ | **DÉCODEUR COMPLET (clé + inter) : 325 images BIT-EXACTES vs ffmpeg sur 6 flux** (dont altref invisibles, golden frames, 4 GOPs, SPLITMV, filterLevel 0-8, résolutions impaires). Décodeur booléen, en-têtes, modes intra+inter, MV (near/nearest/new/split), MC 6-tap, résidus, WHT+IDCT, filtre de boucle. **Branché dans `NkVideoReader`** (WebM/IVF). Restes mineurs : segmentation MB, partitions multiples, versions 1-3 (refus propre). |
+| 9. **Décodeur vidéo HEVC/H.265** | ✅ | **DÉCODEUR COMPLET, briques 1-15 (2026-07-26)** : NAL/VPS/SPS/PPS + slice header + CABAC + quadtree CTU/CU/PU/TU ; **INTRA** 35 modes + DST/DCT + déblocage + SAO (bit-exact 8-bit & Main10) ; **P** mono/multi-référence (merge/AMVP spatiaux + candidat temporel §8.5.3.2.8/9 + MC qpel/epel + pondération explicite) ; **B** bi-prédiction (MvField bi-liste, merge combiné-bi, AMVP par liste, MC bi pondérée) ; **déblocage in-loop inter** (BS §8.7.2.4, P+B dont bi-préd) + **SAO P/B** — **TOUT bit-exact vs ffmpeg** (I/P/B avec et sans filtres, ~30 flux). 🔶 branchement `NkVideoReader` en cours (brique 16). Restes refusés proprement : tuiles, PCM, 4:2:2/4:4:4, 10-bit inter, `ref_pic_lists_modification`, `scaling_list_data`, CU 8×8 `log2ParallelMergeLevel>2`. |
 
 ## Livré
 - **Brique 1 (2026-07-10)** — `NkMediaProbe` (`NkMediaProbe.{h,cpp}`) : détection de conteneur + parseurs
@@ -1169,11 +1170,26 @@ zero-STL, `nkentseu::media`.
   `ref_pic_lists_modification()`, `scaling_list_data()`, bit depth >8 pour l'inter (10-bit MC pas
   encore branché).
 
-## En cours / À venir
+## Reste à faire — synthèse (MAJ 2026-07-26)
 
-*(MAJ 2026-07-19 — la section précédente était périmée : Opus/CELT+SILK ✅, AAC-LC stéréo ✅
-(CPE/M/S/IS/PNS/TNS, corr 1.000000 vs ffmpeg), décodeur H264 Main+High COMPLET bit-exact avec
-déblocage ✅, NkVideoReader avec réordonnancement POC ✅ — voir « Livré ».)*
+Le CŒUR de NKMedia est **fonctionnellement complet** : lire/décoder/jouer les formats du monde réel
+(MP4/MKV/WebM/3GP/TS/FLV/AVI en **H.264/HEVC/VP8/VP9** + **AAC/Opus/MP3**) est bit-exact et branché
+dans `NkVideoReader`/`NkVideoPlayer`. Ce qui reste, par ordre d'utilité réelle :
+
+1. **HEVC → `NkVideoReader`** (brique 16, EN COURS) : `.265` Annex-B + MP4 `hvc1`/`hev1` + MKV
+   `V_MPEGH/ISO/HEVC`, DPB réel + réordonnancement POC. Dernière étape pour lire un vrai fichier x265.
+2. **Perf temps-réel** (le gros chantier restant si objectif lecteur fluide HD/4K) : les décodeurs
+   sont **scalaires, jamais optimisés** (H264 ~8→30 fps après fix copie-profonde ; HEVC pas mesuré).
+   Optimisation SIMD/multithread = travail conséquent, séparé de la correction.
+3. **HEVC — features de bord** (refusées proprement aujourd'hui, pas des bugs) : tuiles, 4:2:2/4:4:4,
+   10-bit inter, `ref_pic_lists_modification`, `scaling_list_data`, règle CU 8×8 `log2ParallelMergeLevel>2`.
+4. **Muxer WebM** (seul conteneur d'écriture manquant — brique 5).
+5. **Nouveaux codecs (optionnels, chacun un chantier dédié)** : AV1, MPEG-2 vidéo, Theora/OGV, AMR-NB/WB.
+6. **Expansion encodeur (optionnel)** : profils H.264 avancés au-delà du baseline déjà livré.
+
+*(Historique — MAJ 2026-07-19 : Opus/CELT+SILK ✅, AAC-LC stéréo ✅ (CPE/M/S/IS/PNS/TNS, corr
+1.000000 vs ffmpeg), décodeur H264 Main+High COMPLET bit-exact avec déblocage ✅, NkVideoReader avec
+réordonnancement POC ✅ — voir « Livré ».)*
 
 - ✅ **Sync A/V dans NkVideoPlayer** (2026-07-20, commits 88c3dcb2 puis a801de04) : l'audio DU
   conteneur cadence la vidéo. **Étape 2 (a801de04) : audio STREAMÉ, jamais tout en RAM** —
