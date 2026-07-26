@@ -372,14 +372,15 @@ namespace nkentseu {
 					NkVector<uint8> lumaRecon;	 // TU luma reconstruits (grille 4x4 luma)
 					NkVector<uint8> chromaRecon; // TU chroma reconstruits (grille 4x4 chroma)
 					NkVector<int8> qpMap;		 // QpY par min-CB (voisinage §8.6.1 + déblocage)
-					// Filtres en boucle (brique 7) : cartes d'arêtes TU (le déblocage ne
-					// filtre que les frontières TU/CU sur la grille 8×8 luma / 8×8 chroma)
-					// + paramètres SAO par CTB.
-					NkVector<uint8> vEdgeL, hEdgeL; // [y4 * w8 + x8] / [y8 * w4 + x4] luma
-					NkVector<uint8> vEdgeC, hEdgeC; // idem en coordonnées chroma
-					NkVector<SaoCtb> saoCtb;		// par CTB (rx + ry*picWidthInCtbs)
-					int32 w8L = 0, h4L = 0, w4L = 0, h8L = 0;
-					int32 w8C = 0, h4C = 0, w4C = 0, h8C = 0;
+					// Filtres en boucle (briques 7/14) : Boundary Strength §8.7.2.4 par
+					// segment 4×4 LUMA (0=aucune, 1=résidu/MV, 2=intra) + carte cbf_luma par
+					// min-TU 4×4 (dérivation BS inter). Le déblocage CHROMA réutilise ces
+					// mêmes cartes luma (filtré uniquement si BS==2, §8.7.2.5.5), comme la
+					// référence ffmpeg — pas de cartes chroma distinctes. + paramètres SAO/CTB.
+					NkVector<uint8> bsVert, bsHoriz; // BS de l'arête gauche/haute du 4×4 [y4*w4L + x4]
+					NkVector<uint8> cbfLuma4;		 // cbf_luma par min-TU 4×4 luma [y4*w4L + x4]
+					NkVector<SaoCtb> saoCtb;		 // par CTB (rx + ry*picWidthInCtbs)
+					int32 w4L = 0;					 // stride grille 4×4 luma (= picW>>2)
 					int32 qpYPrev = 26;			 // qPY_PREV (reset slice/rangée WPP)
 					int32 lastCuQpY = 26;		 // QpY du dernier CU décodé
 					int32 qgQpYPred = 26;		 // qPY_PRED du groupe de quantification courant
@@ -853,23 +854,15 @@ namespace nkentseu {
 							}
 					}
 
-					// Arêtes de TU pour le déblocage (grille 8×8 ; les arêtes internes 4×4
-					// des TU/PU N×N ne sont jamais filtrées car hors grille).
-					void MarkLumaEdges(int32 x0, int32 y0, int32 n) {
-						if ((x0 & 7) == 0 && x0 > 0)
-							for (int32 j = 0; j < n; j += 4)
-								vEdgeL[(usize)(((y0 + j) >> 2) * w8L + (x0 >> 3))] = 1;
-						if ((y0 & 7) == 0 && y0 > 0)
-							for (int32 i = 0; i < n; i += 4)
-								hEdgeL[(usize)((y0 >> 3) * w4L + ((x0 + i) >> 2))] = 1;
-					}
-					void MarkChromaEdges(int32 cx, int32 cy, int32 n) {
-						if ((cx & 7) == 0 && cx > 0)
-							for (int32 j = 0; j < n; j += 4)
-								vEdgeC[(usize)(((cy + j) >> 2) * w8C + (cx >> 3))] = 1;
-						if ((cy & 7) == 0 && cy > 0)
-							for (int32 i = 0; i < n; i += 4)
-								hEdgeC[(usize)((cy >> 3) * w4C + ((cx + i) >> 2))] = 1;
+					// Marque cbf_luma=1 sur tous les min-TU 4×4 d'un TU luma (§8.7.2.4,
+					// consommé par la dérivation de BS ci-dessous — condition bs=1).
+					void MarkCbfLuma(int32 x0, int32 y0, int32 n) {
+						for (int32 j = 0; j < n; j += 4)
+							for (int32 i = 0; i < n; i += 4) {
+								const int32 x4 = (x0 + i) >> 2, y4 = (y0 + j) >> 2;
+								if (x4 < w4L && y4 < (picH >> 2))
+									cbfLuma4[(usize)(y4 * w4L + x4)] = 1;
+							}
 					}
 
 					void MarkLumaRecon(int32 x0, int32 y0, int32 n) {
@@ -891,14 +884,162 @@ namespace nkentseu {
 							}
 					}
 
-					// ---- Déblocage (§8.7.2) — intra : BS = 2 sur toutes les arêtes ----
+					// ---- Boundary Strength §8.7.2.4 (transcription ffmpeg boundary_strength
+					// + ff_hevc_deblocking_boundary_strengths) ---------------------------
+					struct MvField; // défini plus bas (champ de MV par bloc 4×4)
+					// POC de l'image référencée par la liste `li` d'un MvField (via les
+					// listes résolues de CETTE slice — voisin et courant partagent les mêmes
+					// listes en mono-slice, cf. ffmpeg neigh_refPicList == cur refPicList).
+					// Valeur distincte "impossible" si l'index est hors-liste (sécurité).
+					int32 RefPoc(const MvField &f, int32 li) const {
+						const NkHevcFrame *const *refs = (li == 0) ? refsL0 : refsL1;
+						const int32 num = (li == 0) ? numRefsL0 : numRefsL1;
+						const int32 ri = f.refIdx[li];
+						if (ri >= 0 && ri < num && refs && refs[ri])
+							return refs[ri]->poc;
+						return 0x40000000; // POC impossible -> "références différentes"
+					}
+
+					// boundary_strength(curr, neigh) — les DEUX côtés sont INTER (le cas
+					// intra bs=2 et le cas cbf bs=1 sont traités par l'appelant). Compare les
+					// POC POINTÉS (pas les refIdx) : bit-exact même si un POC est dupliqué
+					// dans la liste. mv en 1/4-pel : seuil de différence = 4 (=1 pixel luma).
+					int32 BoundaryStrengthMv(const MvField &curr, const MvField &neigh) const {
+						if (curr.predFlag == 3 && neigh.predFlag == 3) {
+							const int32 cP0 = RefPoc(curr, 0), cP1 = RefPoc(curr, 1);
+							const int32 nP0 = RefPoc(neigh, 0), nP1 = RefPoc(neigh, 1);
+							if (cP0 == nP0 && cP0 == cP1 && nP0 == nP1) {
+								// mêmes L0 et L1 des deux côtés -> double comparaison croisée.
+								const bool a = Abs32(neigh.mvx[0] - curr.mvx[0]) >= 4 ||
+											   Abs32(neigh.mvy[0] - curr.mvy[0]) >= 4 ||
+											   Abs32(neigh.mvx[1] - curr.mvx[1]) >= 4 ||
+											   Abs32(neigh.mvy[1] - curr.mvy[1]) >= 4;
+								const bool b = Abs32(neigh.mvx[1] - curr.mvx[0]) >= 4 ||
+											   Abs32(neigh.mvy[1] - curr.mvy[0]) >= 4 ||
+											   Abs32(neigh.mvx[0] - curr.mvx[1]) >= 4 ||
+											   Abs32(neigh.mvy[0] - curr.mvy[1]) >= 4;
+								return (a && b) ? 1 : 0;
+							} else if (nP0 == cP0 && nP1 == cP1) {
+								return (Abs32(neigh.mvx[0] - curr.mvx[0]) >= 4 ||
+										Abs32(neigh.mvy[0] - curr.mvy[0]) >= 4 ||
+										Abs32(neigh.mvx[1] - curr.mvx[1]) >= 4 ||
+										Abs32(neigh.mvy[1] - curr.mvy[1]) >= 4)
+										   ? 1
+										   : 0;
+							} else if (nP1 == cP0 && nP0 == cP1) {
+								return (Abs32(neigh.mvx[1] - curr.mvx[0]) >= 4 ||
+										Abs32(neigh.mvy[1] - curr.mvy[0]) >= 4 ||
+										Abs32(neigh.mvx[0] - curr.mvx[1]) >= 4 ||
+										Abs32(neigh.mvy[0] - curr.mvy[1]) >= 4)
+										   ? 1
+										   : 0;
+							}
+							return 1;
+						}
+						if (curr.predFlag != 3 && neigh.predFlag != 3) {
+							int32 Ax, Ay, refA, Bx, By, refB;
+							if (curr.predFlag & 1) {
+								Ax = curr.mvx[0];
+								Ay = curr.mvy[0];
+								refA = RefPoc(curr, 0);
+							} else {
+								Ax = curr.mvx[1];
+								Ay = curr.mvy[1];
+								refA = RefPoc(curr, 1);
+							}
+							if (neigh.predFlag & 1) {
+								Bx = neigh.mvx[0];
+								By = neigh.mvy[0];
+								refB = RefPoc(neigh, 0);
+							} else {
+								Bx = neigh.mvx[1];
+								By = neigh.mvy[1];
+								refB = RefPoc(neigh, 1);
+							}
+							if (refA == refB)
+								return (Abs32(Ax - Bx) >= 4 || Abs32(Ay - By) >= 4) ? 1 : 0;
+							return 1;
+						}
+						return 1; // exactement un côté bi
+					}
+
+					// Dérive la BS des arêtes GAUCHE et HAUTE (8-alignées) d'un bloc TU/CU +
+					// des frontières PU INTERNES (TU inter plus large qu'un PU). Appelée aux
+					// feuilles de transform_tree ET sur CU skip / CU inter sans résidu.
+					// L'écriture se fait sur la grille 4×4 luma (bsVert/bsHoriz). Un côté
+					// INTRA se lit predFlag==0 (jamais écrit par StoreMv) ; cbfLuma4 déjà posé.
+					void DeriveDeblockBs(int32 x0, int32 y0, int32 log2Size) {
+						const int32 size = 1 << log2Size;
+						// log2 de la granularité PU = grille MV 4×4 -> 2.
+						const int32 log2MinPu = 2;
+						const bool isIntra = GetMvField(x0, y0).predFlag == 0;
+
+						// Arête HAUTE (frontière TU horizontale).
+						if (y0 > 0 && !(y0 & 7)) {
+							for (int32 i = 0; i < size; i += 4) {
+								const MvField top = GetMvField(x0 + i, y0 - 1);
+								const MvField cur = GetMvField(x0 + i, y0);
+								const int32 xt = (x0 + i) >> 2;
+								int32 bs;
+								if (cur.predFlag == 0 || top.predFlag == 0)
+									bs = 2;
+								else if (cbfLuma4[(usize)((y0 >> 2) * w4L + xt)] ||
+										 cbfLuma4[(usize)(((y0 - 1) >> 2) * w4L + xt)])
+									bs = 1;
+								else
+									bs = BoundaryStrengthMv(cur, top);
+								bsHoriz[(usize)((y0 >> 2) * w4L + xt)] = (uint8)bs;
+							}
+						}
+						// Arête GAUCHE (frontière TU verticale).
+						if (x0 > 0 && !(x0 & 7)) {
+							for (int32 i = 0; i < size; i += 4) {
+								const MvField left = GetMvField(x0 - 1, y0 + i);
+								const MvField cur = GetMvField(x0, y0 + i);
+								const int32 yt = (y0 + i) >> 2;
+								int32 bs;
+								if (cur.predFlag == 0 || left.predFlag == 0)
+									bs = 2;
+								else if (cbfLuma4[(usize)(yt * w4L + (x0 >> 2))] ||
+										 cbfLuma4[(usize)(yt * w4L + ((x0 - 1) >> 2))])
+									bs = 1;
+								else
+									bs = BoundaryStrengthMv(cur, left);
+								bsVert[(usize)(yt * w4L + (x0 >> 2))] = (uint8)bs;
+							}
+						}
+						// Frontières PU internes (TU inter, taille > min PU) — pas de test cbf.
+						if (log2Size > log2MinPu && !isIntra) {
+							for (int32 j = 8; j < size; j += 8)
+								for (int32 i = 0; i < size; i += 4) {
+									const MvField top = GetMvField(x0 + i, y0 + j - 1);
+									const MvField cur = GetMvField(x0 + i, y0 + j);
+									const int32 bs = BoundaryStrengthMv(cur, top);
+									bsHoriz[(usize)(((y0 + j) >> 2) * w4L + ((x0 + i) >> 2))] =
+										(uint8)bs;
+								}
+							for (int32 j = 0; j < size; j += 4)
+								for (int32 i = 8; i < size; i += 8) {
+									const MvField left = GetMvField(x0 + i - 1, y0 + j);
+									const MvField cur = GetMvField(x0 + i, y0 + j);
+									const int32 bs = BoundaryStrengthMv(cur, left);
+									bsVert[(usize)(((y0 + j) >> 2) * w4L + ((x0 + i) >> 2))] =
+										(uint8)bs;
+								}
+						}
+					}
+
+					// ---- Déblocage (§8.7.2) — luma : BS 1 ou 2 ; chroma : BS 2 seulement ---
 					int32 QpAt(int32 lx, int32 ly) const {
 						return qpMap[(usize)((ly >> minCbLog2) * minCbWidth + (lx >> minCbLog2))];
 					}
 
 					// Filtre un segment de 4 lignes/colonnes LUMA. `vert` : arête verticale
-					// en x=xE (P à gauche), sinon horizontale en y=yE (P au-dessus).
-					void LumaDeblockSeg(bool vert, int32 xE, int32 yE) {
+					// en x=xE (P à gauche), sinon horizontale en y=yE (P au-dessus). `bs` =
+					// Boundary Strength (1 ou 2) : tc = kTcTable[qp + 2*(bs-1) + tcOff]
+					// (TC_CALC §8.7.2.5.3). beta indépendant de bs. Décision strong/weak
+					// inchangée (par seuils beta/tc, identique intra/inter).
+					void LumaDeblockSeg(bool vert, int32 xE, int32 yE, int32 bs) {
 						nk_uint16 *Y = frame->y.Data();
 						const int32 stride = frame->lumaW;
 						const int32 betaOff = sh->sliceBetaOffsetDiv2 * 2;
@@ -908,8 +1049,8 @@ namespace nkentseu {
 						const int32 qp = (qpP + qpQ + 1) >> 1;
 						const int32 beta = (int32)kBetaTable[Clip3i(0, 51, qp + betaOff)]
 										   << (bitDepth - 8);
-						const int32 tc = (int32)kTcTable[Clip3i(0, 53, qp + 2 + tcOff)]
-										 << (bitDepth - 8); // BS=2 -> +2 (intra)
+						const int32 tc = (int32)kTcTable[Clip3i(0, 53, qp + 2 * (bs - 1) + tcOff)]
+										 << (bitDepth - 8);
 						if (beta == 0)
 							return;
 						// Accès : s(i, d) = échantillon à distance i de l'arête (négatif = P),
@@ -1023,27 +1164,36 @@ namespace nkentseu {
 					void DeblockPicture() {
 						// Ordre normatif : TOUTES les arêtes verticales de l'image, PUIS
 						// toutes les horizontales (qui lisent les échantillons déjà filtrés
-						// verticalement).
-						for (int32 x8 = 1; x8 < (picW >> 3); ++x8)
-							for (int32 y4 = 0; y4 < (picH >> 2); ++y4)
-								if (vEdgeL[(usize)(y4 * w8L + x8)])
-									LumaDeblockSeg(true, x8 << 3, y4 << 2);
-						for (int32 y8 = 1; y8 < (picH >> 3); ++y8)
-							for (int32 x4 = 0; x4 < (picW >> 2); ++x4)
-								if (hEdgeL[(usize)(y8 * w4L + x4)])
-									LumaDeblockSeg(false, x4 << 2, y8 << 3);
-						const int32 cw = picW >> 1, ch = picH >> 1;
-						for (int32 x8 = 1; x8 < ((cw + 7) >> 3); ++x8)
-							for (int32 y4 = 0; y4 < (ch >> 2); ++y4)
-								if (vEdgeC[(usize)(y4 * w8C + x8)]) {
-									ChromaDeblockSeg(true, 1, x8 << 3, y4 << 2);
-									ChromaDeblockSeg(true, 2, x8 << 3, y4 << 2);
+						// verticalement). Luma filtré si BS>=1 (tc dépend de BS) ; chroma
+						// filtré UNIQUEMENT si BS==2 (§8.7.2.5.5), à partir des MÊMES cartes
+						// de BS luma que la référence ffmpeg (grille 8-chroma = 16-luma).
+						// Arêtes verticales luma (x 8-aligné, segment de 4 lignes).
+						for (int32 x = 8; x < picW; x += 8)
+							for (int32 y = 0; y < picH; y += 4) {
+								const int32 bs = bsVert[(usize)((y >> 2) * w4L + (x >> 2))];
+								if (bs)
+									LumaDeblockSeg(true, x, y, bs);
+							}
+						// Arêtes horizontales luma (y 8-aligné, segment de 4 colonnes).
+						for (int32 y = 8; y < picH; y += 8)
+							for (int32 x = 0; x < picW; x += 4) {
+								const int32 bs = bsHoriz[(usize)((y >> 2) * w4L + (x >> 2))];
+								if (bs)
+									LumaDeblockSeg(false, x, y, bs);
+							}
+						// Arêtes verticales chroma (luma x 16-aligné ; 4 lignes chroma = 8 luma).
+						for (int32 x = 16; x < picW; x += 16)
+							for (int32 y = 0; y < picH; y += 8)
+								if (bsVert[(usize)((y >> 2) * w4L + (x >> 2))] == 2) {
+									ChromaDeblockSeg(true, 1, x >> 1, y >> 1);
+									ChromaDeblockSeg(true, 2, x >> 1, y >> 1);
 								}
-						for (int32 y8 = 1; y8 < ((ch + 7) >> 3); ++y8)
-							for (int32 x4 = 0; x4 < (cw >> 2); ++x4)
-								if (hEdgeC[(usize)(y8 * w4C + x4)]) {
-									ChromaDeblockSeg(false, 1, x4 << 2, y8 << 3);
-									ChromaDeblockSeg(false, 2, x4 << 2, y8 << 3);
+						// Arêtes horizontales chroma (luma y 16-aligné ; 4 colonnes chroma = 8 luma).
+						for (int32 y = 16; y < picH; y += 16)
+							for (int32 x = 0; x < picW; x += 8)
+								if (bsHoriz[(usize)((y >> 2) * w4L + (x >> 2))] == 2) {
+									ChromaDeblockSeg(false, 1, x >> 1, y >> 1);
+									ChromaDeblockSeg(false, 2, x >> 1, y >> 1);
 								}
 					}
 
@@ -1467,10 +1617,8 @@ namespace nkentseu {
 						const int32 chromaMode = cuIsIntra ? curIntraModeC : -1;
 						// Reconstruction luma : prédiction TOUJOURS (intra seulement pour
 						// l'instant), résidu si cbf (parse — reconstruit seulement si frame).
-						if (frame && cuIsIntra) {
+						if (frame && cuIsIntra)
 							PredictIntra(0, x0, y0, log2Size, lumaMode);
-							MarkLumaEdges(x0, y0, 1 << log2Size);
-						}
 						if (cbfLuma)
 							ParseResidual(x0, y0, log2Size, 0, lumaMode);
 						if (frame && cuIsIntra)
@@ -1478,10 +1626,8 @@ namespace nkentseu {
 						// Chroma (4:2:0).
 						if (log2Size > 2) {
 							const int32 cx = x0 >> 1, cy = y0 >> 1;
-							if (frame && cuIsIntra) {
+							if (frame && cuIsIntra)
 								PredictIntra(1, cx, cy, log2Size - 1, chromaMode);
-								MarkChromaEdges(cx, cy, 1 << (log2Size - 1));
-							}
 							if (cbfCb)
 								ParseResidual(cx, cy, log2Size - 1, 1, chromaMode);
 							if (frame && cuIsIntra)
@@ -1492,10 +1638,8 @@ namespace nkentseu {
 								MarkChromaRecon(cx, cy, 1 << (log2Size - 1));
 						} else if (blkIdx == 3) {
 							const int32 cx = xBase >> 1, cy = yBase >> 1;
-							if (frame && cuIsIntra) {
+							if (frame && cuIsIntra)
 								PredictIntra(1, cx, cy, 2, chromaMode);
-								MarkChromaEdges(cx, cy, 4);
-							}
 							if (parentCbfCb)
 								ParseResidual(cx, cy, 2, 1, chromaMode);
 							if (frame && cuIsIntra)
@@ -1504,6 +1648,13 @@ namespace nkentseu {
 								ParseResidual(cx, cy, 2, 2, chromaMode);
 							if (frame && cuIsIntra)
 								MarkChromaRecon(cx, cy, 4);
+						}
+						// Déblocage §8.7.2.4 : marque cbf_luma du TU puis dérive la BS de ses
+						// arêtes (intra ET inter). L'ordre importe (la BS lit cbf_luma).
+						if (frame && !sh->deblockingFilterDisabled) {
+							if (cbfLuma)
+								MarkCbfLuma(x0, y0, 1 << log2Size);
+							DeriveDeblockBs(x0, y0, log2Size);
 						}
 					}
 
@@ -2626,8 +2777,14 @@ namespace nkentseu {
 							}
 						}
 
-						if (rqtRootCbf)
+						if (rqtRootCbf) {
 							ParseTransformTree(x0, y0, x0, y0, log2CbSize, 0, 0, 0, false, false);
+						} else if (frame && !sh->deblockingFilterDisabled) {
+							// CU skip / CU inter sans résidu (pas de transform_tree, donc pas
+							// de feuille) : la BS des arêtes du CU se dérive ici (§8.7.2.4,
+							// cbf_luma implicitement 0 pour tout le CU).
+							DeriveDeblockBs(x0, y0, log2CbSize);
+						}
 
 						// QP final du CU -> carte de voisinage + qPY_PREV du prochain groupe
 						// (calculé même pour un CU skip/inter sans résidu, §8.6.1).
@@ -2829,24 +2986,18 @@ namespace nkentseu {
 					p.qpYPrev = sh.sliceQp;
 					p.lastCuQpY = sh.sliceQp;
 					p.qgQpYPred = sh.sliceQp;
-					// Filtres en boucle : cartes d'arêtes + paramètres SAO par CTB.
-					const int32 cw = p.picW >> 1, ch = p.picH >> 1;
-					p.w8L = p.picW >> 3;
+					// Filtres en boucle : cartes de Boundary Strength (grille 4×4 luma)
+					// + cbf_luma par min-TU + paramètres SAO par CTB.
 					p.w4L = p.picW >> 2;
-					p.w8C = (cw + 7) >> 3;
-					p.w4C = (cw + 3) >> 2;
-					p.vEdgeL.Resize((usize)(p.w8L * (p.picH >> 2)));
-					p.hEdgeL.Resize((usize)(p.w4L * ((p.picH + 7) >> 3)));
-					p.vEdgeC.Resize((usize)(p.w8C * (ch >> 2)));
-					p.hEdgeC.Resize((usize)(p.w4C * ((ch + 7) >> 3)));
-					for (uint64 i = 0; i < p.vEdgeL.Size(); ++i)
-						p.vEdgeL[i] = 0;
-					for (uint64 i = 0; i < p.hEdgeL.Size(); ++i)
-						p.hEdgeL[i] = 0;
-					for (uint64 i = 0; i < p.vEdgeC.Size(); ++i)
-						p.vEdgeC[i] = 0;
-					for (uint64 i = 0; i < p.hEdgeC.Size(); ++i)
-						p.hEdgeC[i] = 0;
+					const usize bsCount = (usize)(p.w4L * (p.picH >> 2));
+					p.bsVert.Resize(bsCount);
+					p.bsHoriz.Resize(bsCount);
+					p.cbfLuma4.Resize(bsCount);
+					for (uint64 i = 0; i < bsCount; ++i) {
+						p.bsVert[i] = 0;
+						p.bsHoriz[i] = 0;
+						p.cbfLuma4[i] = 0;
+					}
 					p.saoCtb.Resize((usize)(p.picWidthInCtbs * p.picHeightInCtbs));
 					for (uint64 i = 0; i < p.saoCtb.Size(); ++i)
 						p.saoCtb[i] = SaoCtb{};
@@ -2919,12 +3070,12 @@ namespace nkentseu {
 				out.rows += 1; // la dernière rangée (pas de end_of_subset après elle)
 				if (out.ctusParsed != picSizeInCtbs)
 					return false;
-				// Filtres en boucle (brique 7, INTRA seul) : déblocage (2 passes image
-				// entière) PUIS SAO. Brique 10 (P) : PAS de filtres — le déblocage
-				// existant suppose BS=2 partout (règle intra, §8.7.2.4 pas implémenté
-				// pour l'inter) ; la reconstruction P est donc validée PURE (MC+résidu),
-				// même précédent que la brique 6 intra avant la brique 7.
-				if (frame && sh.sliceType == kHevcSliceI) {
+				// Filtres en boucle (brique 14) : déblocage (2 passes image entière,
+				// Boundary Strength §8.7.2.4 dérivée pendant le parse pour I ET P/B via
+				// DeriveDeblockBs) PUIS SAO. Appliqué à I, P et B ; gaté UNIQUEMENT par les
+				// drapeaux normatifs (deblockingFilterDisabled / saoLuma / saoChroma) — les
+				// flux sans filtres portent ces drapeaux à 0, donc rien n''est filtré chez eux.
+				if (frame) {
 					if (!sh.deblockingFilterDisabled)
 						p.DeblockPicture();
 					if (sh.saoLuma || sh.saoChroma) {
