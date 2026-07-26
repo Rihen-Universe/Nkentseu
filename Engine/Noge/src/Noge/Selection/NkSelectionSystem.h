@@ -23,7 +23,7 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NkRasterCanvas.h"
+#include "Noge/Design/Raster/NkRasterCanvas.h"
 
 namespace nkentseu {
 	using namespace math;

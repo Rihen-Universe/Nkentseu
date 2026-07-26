@@ -4,11 +4,21 @@
 // =============================================================================
 #pragma once
 #include "NkBlueprint.h"
-#include "../Serialization/NkJsonSerialization.h"
 #include "NKFileSystem/NkFileSystem.h"
-#include <unordered_map>
-#include <chrono>
-#include <functional>
+#include "NKContainers/Associative/NkHashMap.h"
+#include "NKContainers/String/NkFormat.h"
+
+namespace nkentseu {
+	namespace ecs {
+		namespace serialization {
+
+			// Déclaration anticipée : le corps réside dans un .cpp de sérialisation
+			// absent du build isolé. Une déclaration sans définition est légale.
+			bool LoadBlueprintFromFile(const NkString &path, blueprint::NkBlueprintGraph &outGraph) noexcept;
+
+		} // namespace serialization
+	}	  // namespace ecs
+} // namespace nkentseu
 
 namespace nkentseu {
 	namespace ecs {
@@ -18,7 +28,7 @@ namespace nkentseu {
 			// Snapshot d'état pour migration
 			// ============================================================================
 			struct NkBlueprintStateSnapshot {
-					std::unordered_map<std::string, NkValue> pinDefaults; // "NodeName_PinIndex" → valeur
+					NkHashMap<NkString, NkValue> pinDefaults; // "NodeName_PinIndex" → valeur
 					bool wasPlaying = false;
 					float32 executionTime = 0.f;
 			};
@@ -28,16 +38,16 @@ namespace nkentseu {
 			// ============================================================================
 			class NkBlueprintHotReloadManager {
 				public:
-					using OnReloadedFn = std::function<void(NkBlueprintComponent &, bool success)>;
+					using OnReloadedFn = NkFunction<void(NkBlueprintComponent &, bool success)>;
 
-					void RegisterComponent(NkBlueprintComponent *comp, const std::string &filePath) noexcept {
-						if (comp && !filePath.empty()) {
-							mRegistry[comp] = {filePath, GetFileTime(filePath), false};
+					void RegisterComponent(NkBlueprintComponent *comp, const NkString &filePath) noexcept {
+						if (comp && !filePath.Empty()) {
+							mRegistry.Insert(comp, {filePath, GetFileTime(filePath), false});
 						}
 					}
 
 					void UnregisterComponent(NkBlueprintComponent *comp) noexcept {
-						mRegistry.erase(comp);
+						mRegistry.Erase(comp);
 					}
 
 					void Poll(NkWorld &world, NkEntityId self) noexcept {
@@ -51,28 +61,35 @@ namespace nkentseu {
 					}
 
 					void SetOnReloaded(OnReloadedFn fn) noexcept {
-						mOnReloaded = std::move(fn);
+						mOnReloaded = traits::NkMove(fn);
 					}
 
 				private:
 					struct Entry {
-							std::string filePath;
+							NkString filePath;
 							uint64 lastModTime = 0;
 							bool pendingReload = false;
 					};
 
-					std::unordered_map<NkBlueprintComponent *, Entry> mRegistry;
+					// Hachage de clé pointeur (NkHash n'est pas spécialisé pour les pointeurs).
+					struct NkComponentPtrHasher {
+							usize operator()(NkBlueprintComponent *ptr) const noexcept {
+								return static_cast<usize>(reinterpret_cast<nk_uintptr>(ptr));
+							}
+					};
+
+					NkHashMap<NkBlueprintComponent *, Entry, memory::NkAllocator, NkComponentPtrHasher> mRegistry;
 					OnReloadedFn mOnReloaded;
 
 					NkBlueprintStateSnapshot CaptureState(NkBlueprintGraph &oldGraph) noexcept {
 						NkBlueprintStateSnapshot snap;
-						for (size_t i = 0; i < oldGraph.Nodes.size(); ++i) {
+						for (uint32 i = 0; i < oldGraph.Nodes.size(); ++i) {
 							if (!oldGraph.Nodes[i])
 								continue;
 							const auto &node = *oldGraph.Nodes[i];
-							for (size_t p = 0; p < node.Inputs.size(); ++p) {
-								std::string key = node.Name + "_" + std::to_string(p);
-								snap.pinDefaults[key] = node.Inputs[p].DefaultValue;
+							for (uint32 p = 0; p < node.Inputs.size(); ++p) {
+								NkString key = node.Name + "_" + NkFormat("{0}", p);
+								snap.pinDefaults.Insert(key, node.Inputs[p].DefaultValue);
 							}
 						}
 						return snap;
@@ -84,25 +101,25 @@ namespace nkentseu {
 
 						NkBlueprintGraph newGraph;
 						bool success =
-							nkentseu::ecs::serialization::LoadBlueprintFromFile(mRegistry[comp].filePath, newGraph);
+							nkentseu::ecs::serialization::LoadBlueprintFromFile(mRegistry.At(comp).filePath, newGraph);
 
 						if (success) {
 							// Migration des valeurs par défaut vers le nouveau graphe
-							for (size_t i = 0; i < newGraph.Nodes.size(); ++i) {
+							for (uint32 i = 0; i < newGraph.Nodes.size(); ++i) {
 								if (!newGraph.Nodes[i])
 									continue;
 								const auto &newNode = *newGraph.Nodes[i];
-								for (size_t p = 0; p < newNode.Inputs.size(); ++p) {
-									std::string key = newNode.Name + "_" + std::to_string(p);
-									auto it = state.pinDefaults.find(key);
-									if (it != state.pinDefaults.end()) {
-										newGraph.Nodes[i]->Inputs[p].DefaultValue = it->second;
+								for (uint32 p = 0; p < newNode.Inputs.size(); ++p) {
+									NkString key = newNode.Name + "_" + NkFormat("{0}", p);
+									NkValue *it = state.pinDefaults.Find(key);
+									if (it) {
+										newGraph.Nodes[i]->Inputs[p].DefaultValue = *it;
 										newGraph.Nodes[i]->Inputs[p].IsConnected = true;
 									}
 								}
 							}
 							// Remplacement atomique
-							oldGraph = std::move(newGraph);
+							oldGraph = traits::NkMove(newGraph);
 							oldGraph.EntryNodeIndex = 0; // Reset point d'entrée sécurisé
 						}
 
@@ -111,11 +128,11 @@ namespace nkentseu {
 						}
 					}
 
-					static uint64 GetFileTime(const std::string &path) noexcept {
+					static uint64 GetFileTime(const NkString &path) noexcept {
 						// Horodatage réel de dernière écriture via NKFileSystem (déjà une dépendance
 						// de Noge, voir Noge.jenga : "NKFileSystem/NkFile.h (NkSceneSerializer)").
 						// nk_int64 en epoch Unix ; 0 si le fichier est introuvable/inaccessible.
-						return static_cast<uint64>(nkentseu::NkFileSystem::GetLastWriteTime(path.c_str()));
+						return static_cast<uint64>(nkentseu::NkFileSystem::GetLastWriteTime(path.CStr()));
 					}
 			};
 

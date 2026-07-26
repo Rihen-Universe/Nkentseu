@@ -28,6 +28,8 @@
 
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/World/NkWorld.h"
+#include "NKECS/System/NkSystem.h"		 // NkSystem, NkSystemDesc, NkSystemGroup
+#include "NKRHI/Commands/NkICommandBuffer.h" // NkICommandBuffer
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"

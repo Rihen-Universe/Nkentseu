@@ -8,7 +8,9 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "Nkentseu/Anim3D/NkLocomotion.h"
+#include "NKContainers/Heterogeneous/NkPair.h"
+#include "NKCollision/NkColTypes.h"
+#include "Noge/Anim/NkLocomotion.h"
 
 namespace nkentseu {
 	using namespace math;
@@ -16,15 +18,15 @@ namespace nkentseu {
 	// Spatial grid for crowd queries (agents cherchent leurs voisins)
 	class NkCrowdGrid {
 		public:
-			void Init(float32 cellSize, NkAABB worldBounds) noexcept;
+			void Init(float32 cellSize, collision::NkAABB3D worldBounds) noexcept;
 			void Clear() noexcept;
 			void Insert(NkEntityId entity, NkVec3f pos) noexcept;
 			void QueryNeighbors(NkVec3f pos, float32 radius, NkVector<NkEntityId> &out) const noexcept;
 
 		private:
 			float32 mCellSize = 2.f;
-			NkAABB mBounds;
-			NkVector<NkVector<std::pair<NkEntityId, NkVec3f>>> mCells;
+			collision::NkAABB3D mBounds;
+			NkVector<NkVector<NkPair<NkEntityId, NkVec3f>>> mCells;
 			uint32 mCellsX = 0, mCellsZ = 0;
 			uint32 CellIdx(NkVec3f pos) const noexcept;
 	};

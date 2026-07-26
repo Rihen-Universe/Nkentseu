@@ -19,6 +19,7 @@
 // chemin est "NKRenderer/Core/NkRendererTypes.h", sans le "src/").
 // =============================================================================
 #include "NKECS/NkECSDefines.h"
+#include "NKECS/Core/NkTypeRegistry.h" // NK_COMPONENT(Type)
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
@@ -66,7 +67,7 @@ namespace nkentseu {
 				return static_cast<uint32>(mAnims.Size());
 			}
 
-			NkTextureHandle textureHandle; // Texture GPU de l'atlas
+			NkTexHandle textureHandle; // Texture GPU de l'atlas
 			NkString texturePath;
 
 		private:

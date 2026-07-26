@@ -17,8 +17,9 @@
 
 #include "NKECS/System/NkSystem.h"
 #include "NKECS/World/NkWorld.h"
-#include "NkPhysicsMesh.h"
+#include "Noge/Physics/NkPhysicsMesh.h"
 #include "Noge/ECS/Components/Animation/NkAnimation.h"
+#include "Noge/Facial/NkFacialRig.h" // NkFacialRig
 #include "NKRHI/Commands/NkICommandBuffer.h"
 
 namespace nkentseu {

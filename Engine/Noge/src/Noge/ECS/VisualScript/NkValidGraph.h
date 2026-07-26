@@ -3,6 +3,7 @@
 // DESCRIPTION: Implémentations complémentaires et logique de graphes avancés
 // =============================================================================
 #include "NkBlueprint.h"
+#include "NKContainers/String/NkFormat.h"
 
 namespace nkentseu {
 	namespace ecs {
@@ -32,15 +33,20 @@ namespace nkentseu {
 
 			// Nettoie les nœuds désactivés et compacte le graphe
 			void CompactGraph(NkBlueprintGraph &graph) noexcept {
-				// Supprime les connexions pointant vers des nœuds invalides
-				graph.Connections.erase(std::remove_if(graph.Connections.begin(), graph.Connections.end(),
-													   [&](const NkBlueprintConnection &c) {
-														   return c.SourceNode >= graph.Nodes.size() ||
-																  c.TargetNode >= graph.Nodes.size() ||
-																  !graph.Nodes[c.SourceNode] ||
-																  !graph.Nodes[c.TargetNode];
-													   }),
-										graph.Connections.end());
+				// Supprime les connexions pointant vers des nœuds invalides (zéro-STL).
+				uint32 i = 0;
+				while (i < graph.Connections.size()) {
+					const NkBlueprintConnection &c = graph.Connections[i];
+					bool invalid = c.SourceNode >= graph.Nodes.size() ||
+								   c.TargetNode >= graph.Nodes.size() ||
+								   !graph.Nodes[c.SourceNode] ||
+								   !graph.Nodes[c.TargetNode];
+					if (invalid) {
+						graph.Connections.Erase(graph.Connections.Begin() + i);
+					} else {
+						i++;
+					}
+				}
 				// Réindexation des connections si nécessaire (omise pour performance en runtime)
 			}
 
@@ -52,8 +58,16 @@ namespace nkentseu {
 				if (!buffer || bufSize == 0)
 					return false;
 				// Stub : en production, utiliser une lib JSON (nlohmann, RapidJSON, etc.)
-				std::snprintf(buffer, bufSize, "{\"nodes\":%u,\"connections\":%u}",
-							  static_cast<uint32>(graph.Nodes.size()), static_cast<uint32>(graph.Connections.size()));
+				NkString formatted = NkFormat("{{\"nodes\":{0},\"connections\":{1}}}",
+											  static_cast<uint32>(graph.Nodes.size()),
+											  static_cast<uint32>(graph.Connections.size()));
+				const char *src = formatted.CStr();
+				uint32 j = 0;
+				while (j + 1 < bufSize && src[j] != '\0') {
+					buffer[j] = src[j];
+					j++;
+				}
+				buffer[j] = '\0';
 				return true;
 			}
 
