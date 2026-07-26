@@ -118,6 +118,7 @@ namespace nkentseu {
 				float32 editObjMetallic = 0.f;
 				float32 editObjRoughness = 0.7f;
 				int32 editSelMask = 1;			  // bits : 1=VERTEX 2=EDGE 4=FACE (touches 1/2/3 ; Shift+ = combiner)
+				int32 editActiveVert = -1;		  // sommet ACTIF (dernier sélectionné) = rendu BLANC façon Blender
 				bool editXray = false;			  // Alt+Z : voir/sélectionner à travers (façon Blender)
 				bool editMode = false;			  // TAB : bascule objet <-> édition
 				bool editTogglePending = false;	  // TAB traité côté frame (accès meshSys)
@@ -213,6 +214,7 @@ namespace nkentseu {
 			// même quand des modificateurs sont affichés (façon cage Blender : la cage = la base).
 			st->editHE.Triangulate(st->editRest, st->editIdx, st->editTriFace);
 			st->editLive = st->editRest;
+			st->editActiveVert = -1; // la topologie a pu changer -> l'index actif n'est plus fiable
 			st->editHE.GetUniqueEdges(st->editEdges);
 			if ((uint32)st->vertSel.Size() != st->editHE.VertCount())
 				st->vertSel.Resize(st->editHE.VertCount());
@@ -1245,6 +1247,100 @@ namespace nkentseu {
 				return;
 			}
 
+			// ── PILOTE HEADLESS D'EDIT MODE (captures agents/CI, sans souris) ────────────
+			// NK_EDIT_MODE=1 : entre en EDIT MODE sur un objet (NK_GIZMO_OBJ, défaut 16 = cube
+			// central), sélectionne un sous-ensemble façon démo, et applique éventuellement UNE
+			// opération pour une capture avant/après :
+			//   NK_EDIT_SELMASK=<1..7> : modes de sél. RENDUS (1=V 2=E 4=F ; défaut 1=vertex).
+			//   NK_EDIT_SEL=top|all     : sous-ensemble sélectionné (défaut top = faces +Y).
+			//   NK_EDIT_OP=extrude|subdivide|loopcut|none : op déclenchée (défaut none).
+			//   NK_SHADING=<0..5>       : mode d'affichage (0=RENDERED 1=SOLID …), comme en objet.
+			// Séquence multi-frames : frame0 entrer -> frame1 sélectionner -> frame2 (op).
+			{
+				static int32 gEditDrv = -2;
+				if (gEditDrv == -2)
+					gEditDrv = getenv("NK_EDIT_MODE") ? 0 : -1;
+				if (gEditDrv == 0) {
+					int32 obj = 16;
+					if (const char *go = getenv("NK_GIZMO_OBJ"))
+						obj = atoi(go);
+					st->gizmo.Select(obj);
+					st->gizmo.SetMode(0);		  // gizmo d'édition en TRANSLATE (flèches pleines)
+					st->editTogglePending = true; // consommé juste après -> entre en édition ce frame
+					if (const char *sm = getenv("NK_EDIT_SELMASK")) {
+						int32 m = atoi(sm) & 7;
+						if (m)
+							st->editSelMask = m;
+					}
+					if (const char *sh = getenv("NK_SHADING")) {
+						st->shadingMode = atoi(sh) % 6;
+						const int32 vm[6] = {0, 1, 1, 2, 3, 4};
+						r3d->SetWireframe(st->shadingMode == 2);
+						r3d->SetViewMode(vm[st->shadingMode]);
+					}
+					gEditDrv = 1;
+				} else if (gEditDrv == 1 && st->editMode) {
+					// Sélection démo : faces orientées +Y ("top"), ou TOUT le maillage.
+					const char *sel = getenv("NK_EDIT_SEL");
+					const bool selAll = (sel && (sel[0] == 'a' || sel[0] == 'A'));
+					const uint32 vc = st->editHE.VertCount();
+					for (uint32 i = 0; i < vc && i < (uint32)st->vertSel.Size(); i++)
+						st->vertSel[i] = 0;
+					st->editActiveVert = -1;
+					const uint32 fcnt = (uint32)st->editHE.faces.Size();
+					NkVector<renderer::NkEmId> fvv;
+					int32 nsel = 0;
+					for (uint32 f = 0; f < fcnt; f++) {
+						if (!st->editHE.faces[f].alive)
+							continue;
+						if (!selAll && st->editHE.faces[f].normal.y < 0.5f)
+							continue; // "top" = faces tournées vers le haut (+Y)
+						fvv.Clear();
+						st->editHE.GetFaceVerts(f, fvv);
+						for (uint32 k = 0; k < (uint32)fvv.Size(); k++) {
+							const uint32 vi = fvv[k];
+							if (vi < (uint32)st->vertSel.Size()) {
+								if (!st->vertSel[vi])
+									nsel++;
+								st->vertSel[vi] = 1;
+								st->editActiveVert = (int32)vi;
+							}
+						}
+					}
+					st->editOverlayDirty = true;
+					logger.Info("[Demo3D] NK_EDIT_MODE: selection {0} -> {1} sommets (mask={2})\n",
+								selAll ? "all" : "top", nsel, st->editSelMask);
+					gEditDrv = 2;
+				} else if (gEditDrv == 2) {
+					if (const char *op = getenv("NK_EDIT_OP")) {
+						if (op[0] == 'e' || op[0] == 'E')
+							st->editExtrudePending = true; // Extrude
+						else if (op[0] == 's' || op[0] == 'S')
+							st->editSubdivPending = true; // Subdivide
+						else if (op[0] == 'l' || op[0] == 'L')
+							st->editLoopCutPending = true; // Loop cut
+					}
+					gEditDrv = 3;
+				} else if (gEditDrv == 3 && st->editMode) {
+					// NK_EDIT_MOVE=<dy> : après l'op, déplace la sélection le long de +Y (local)
+					// -> illustre le « grab » qui SUIT l'extrude façon Blender (et rend le
+					// résultat nettement visible en capture). Applique directement sur l'autorité
+					// editHE puis resynchronise (undo hors périmètre de ce pilote de capture).
+					if (const char *mv = getenv("NK_EDIT_MOVE")) {
+						const float32 dy = (float32)atof(mv);
+						auto *msMv = ctx.renderer->GetMeshSystem();
+						const uint32 hv = st->editHE.VertCount();
+						for (uint32 i = 0; i < hv && i < (uint32)st->vertSel.Size(); i++)
+							if (st->vertSel[i])
+								st->editHE.verts[i].pos.y += dy;
+						st->editHE.RecomputeNormals();
+						if (msMv)
+							Demo3D_SyncFromHE(st, msMv);
+					}
+					gEditDrv = 4;
+				}
+			}
+
 			// ── Volet 2 : TAB traité ici (accès meshSys) : entre/sort d'EDIT MODE ──
 			// Entrée : CLONE les données CPU de l'objet sélectionné (modèle Blender) en
 			// un mesh dynamique propre + capture son ancre (transform monde). Sortie :
@@ -2004,11 +2100,13 @@ namespace nkentseu {
 					const int32 bestFt = (st->editSelMask & 4) ? nearestTri : -1;
 					// Élection PAR PRIORITÉ façon Blender : vertex (près d'un sommet) > arête
 					// (près d'une arête) > face (rayon). Chacun n'est retenu que dans son seuil.
-					if (bestV >= 0)
+					if (bestV >= 0) {
 						st->vertSel[bestV] = gin.shiftDown ? (uint8)(1 - st->vertSel[bestV]) : 1;
-					else if (bestEa >= 0) {
+						st->editActiveVert = st->vertSel[bestV] ? bestV : -1; // actif = dernier sélectionné (blanc)
+					} else if (bestEa >= 0) {
 						st->vertSel[bestEa] = 1;
 						st->vertSel[bestEb] = 1;
+						st->editActiveVert = bestEb;
 					} else if (bestFt >= 0) {
 						// FACE N-GON : triangle touché -> sa face n-gon (quadify) -> tous ses sommets.
 						renderer::NkEmId f = Demo3D_FaceOfTri(st, (uint32)bestFt / 3u);
@@ -2163,47 +2261,18 @@ namespace nkentseu {
 					// chaque sommet porte {centre monde, coin en PIXELS, couleur} (9 floats) ;
 					// le vertex shader billboarde en espace écran. Mode VERTEX actif seulement.
 					(void)dotS;
-					NkVector<float> P;
-					if (st->editSelMask & 1) {
-						auto pushPt = [&](NkVec3f w, NkVec2f corner, NkVec4f c) {
-							P.PushBack(w.x);
-							P.PushBack(w.y);
-							P.PushBack(w.z);
-							P.PushBack(corner.x);
-							P.PushBack(corner.y);
-							P.PushBack(c.x);
-							P.PushBack(c.y);
-							P.PushBack(c.z);
-							P.PushBack(c.w);
-						};
-						auto quad = [&](NkVec3f w, float32 s, NkVec4f c) {
-							NkVec2f q0{-s, -s}, q1{s, -s}, q2{s, s}, q3{-s, s};
-							pushPt(w, q0, c);
-							pushPt(w, q1, c);
-							pushPt(w, q2, c);
-							pushPt(w, q0, c);
-							pushPt(w, q2, c);
-							pushPt(w, q3, c);
-						};
-						P.Reserve((uint32)nv * 12 * 9);
-						for (int32 i = 0; i < nv; i++) {
-							NkVec3f w = liveW(i);
-							const bool sel = st->vertSel[i] != 0;
-							// Chaque vertex = NOIR par défaut (orange si sélectionné) + un CONTOUR
-							// clair légèrement plus grand -> TOUJOURS visible (surface sombre ou
-							// claire), façon Blender. Le contour est dessiné D'ABORD (dessous).
-							const float32 sCore = sel ? 4.2f : 3.2f;
-							quad(w, sCore + 1.4f, NkVec4f{0.9f, 0.9f, 0.92f, 1.f}); // contour clair
-							quad(w, sCore, sel ? NkVec4f{1.f, 0.6f, 0.05f, 1.f} : NkVec4f{0.f, 0.f, 0.f, 1.f}); // coeur
-						}
-					}
-					r3d->SetEditOverlayPoints(P.Empty() ? nullptr : P.Data(), (uint32)(P.Size() / 9));
-					// FACES : UN seul triangle coplanaire translucide (pas de géométrie ajoutée,
-					// juste un overlay). Le pipeline de fill (LESS_EQUAL + biais vers la caméra)
-					// le rend visible des DEUX CÔTÉS façon Blender, sans créer de second plan.
+					// Les marqueurs de VERTICES / centres de face NE passent PLUS par l'overlay
+					// point-sprite (rendu « carré CREUX / crochet d'angle » peu fiable, surtout en
+					// DX12). Ils sont dessinés en QUADS PLEINS face-caméra via DrawDebugTriangle (MÊME
+					// chemin overlay no-depth que le gizmo solide -> correct OpenGL ET DX12), plus bas,
+					// chaque frame, hors du batch persistant. On vide donc le batch de points.
+					r3d->SetEditOverlayPoints(nullptr, 0);
+					// FACES : léger surlignage semi-transparent (façon Blender, discret) des faces
+					// sélectionnées. UN triangle coplanaire translucide (pas de géométrie ajoutée).
+					// Le pipeline de fill (LESS_EQUAL + biais caméra) le rend visible des 2 côtés.
 					NkVector<float> F;
 					if (st->editSelMask & 4) {
-						const NkVec4f faceFill{1.f, 0.55f, 0.05f, 0.5f};
+						const NkVec4f faceFill{1.f, 0.55f, 0.05f, 0.28f}; // surlignage LÉGER
 						for (uint32 t = 0; t + 2 < (uint32)st->editIdx.Size(); t += 3) {
 							const uint32 a = st->editIdx[t], b = st->editIdx[t + 1], c = st->editIdx[t + 2];
 							if (!(st->vertSel[a] && st->vertSel[b] && st->vertSel[c]))
@@ -2216,8 +2285,83 @@ namespace nkentseu {
 					r3d->SetEditOverlayTris(F.Empty() ? nullptr : F.Data(), (uint32)(F.Size() / 7));
 					r3d->SetEditOverlayXray(st->editXray);
 				}
+				// ── Marqueurs VERTEX / centre-de-FACE façon Blender : petits QUADS PLEINS ──────
+				// Carré PLEIN (2 triangles) face-caméra, taille ÉCRAN-CONSTANTE (~3 px de côté),
+				// via DrawDebugTriangle en overlay no-depth (même chemin que le gizmo solide ->
+				// rendu identique OpenGL / DX12). Non sél. = sombre, sél. = orange, actif = blanc ;
+				// PLEIN dans tous les cas (fin liseré sombre dessous pour la lisibilité). Rendu
+				// chaque frame (suit la caméra pour rester écran-constant).
+				{
+					auto liveWv = [&](int32 i) { return st->editAnchor * st->editLive[i].pos; };
+					// px (demi-côté écran) -> demi-taille MONDE à la profondeur du point.
+					const float32 pxToWorld = (2.f * thY) / VH;
+					auto fillQuad = [&](NkVec3f w, float32 halfPx, NkVec4f col) {
+						float32 d = (w - camPos).Dot(fwd);
+						if (d < 1e-3f)
+							d = 1e-3f;
+						const float32 h = halfPx * pxToWorld * d;
+						const NkVec3f rx = rgt * h, uy = upv * h;
+						const NkVec3f c00 = w - rx - uy, c10 = w + rx - uy, c11 = w + rx + uy, c01 = w - rx + uy;
+						r3d->DrawDebugTriangle(c00, c10, c11, col, 0.f, true);
+						r3d->DrawDebugTriangle(c00, c11, c01, col, 0.f, true);
+					};
+					// Carré PLEIN + fin liseré sombre dessous (les 2 sont PLEINS -> jamais creux).
+					const NkVec4f rim{0.f, 0.f, 0.f, 0.9f};
+					auto dot = [&](NkVec3f w, float32 core, NkVec4f col) {
+						fillQuad(w, core + 0.7f, rim); // liseré sombre (dessous)
+						fillQuad(w, core, col);		   // coeur PLEIN (dessus)
+					};
+					// VERTICES (mode VERTEX) : ~3 px de côté (half ~1.5), discret.
+					if (st->editSelMask & 1) {
+						for (int32 i = 0; i < nv; i++) {
+							NkVec3f w = liveWv(i);
+							if (i == st->editActiveVert)
+								dot(w, 1.9f, NkVec4f{1.f, 1.f, 1.f, 1.f}); // actif = BLANC
+							else if (st->vertSel[i])
+								dot(w, 1.7f, NkVec4f{1.f, 0.6f, 0.05f, 1.f}); // sél. = ORANGE
+							else
+								dot(w, 1.5f, NkVec4f{0.1f, 0.1f, 0.11f, 1.f}); // non sél. = SOMBRE
+						}
+					}
+					// CENTRES DE FACE (mode FACE) : petit carré plein au barycentre de chaque face.
+					if (st->editSelMask & 4) {
+						const uint32 fcnt = (uint32)st->editHE.faces.Size();
+						NkVector<renderer::NkEmId> fvd;
+						for (uint32 f = 0; f < fcnt; f++) {
+							if (!st->editHE.faces[f].alive)
+								continue;
+							fvd.Clear();
+							st->editHE.GetFaceVerts(f, fvd);
+							const uint32 fn = (uint32)fvd.Size();
+							if (fn < 3)
+								continue;
+							NkVec3f cW{0.f, 0.f, 0.f};
+							bool allSel = true;
+							for (uint32 k = 0; k < fn; k++) {
+								const uint32 vi = fvd[k];
+								if (vi < (uint32)st->editLive.Size())
+									cW = cW + liveWv((int32)vi);
+								if (vi >= (uint32)st->vertSel.Size() || !st->vertSel[vi])
+									allSel = false;
+							}
+							cW = cW * (1.f / (float32)fn);
+							if (allSel)
+								dot(cW, 1.7f, NkVec4f{1.f, 0.6f, 0.05f, 1.f}); // face sél. = orange
+							else
+								dot(cW, 1.4f, NkVec4f{0.1f, 0.1f, 0.11f, 1.f}); // face = point sombre
+						}
+					}
+				}
 				// Poignées du gizmo (OVERLAY) — rendu chaque frame (peu de lignes, négligeable).
-				st->editGizmo.Draw([&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); });
+				// Rendu PLEIN (façon Blender solide) IDENTIQUE au gizmo objet : 2 callbacks
+				// (drawLine pour tiges/liserés fins + drawTri pour formes PLEINES : cônes/cubes/
+				// rubans). Le 2e callback active la surcharge Draw(drawLine, drawTri) du gizmo —
+				// mêmes couleurs d'axe (X rouge, Y vert, Z bleu) et mêmes formes que l'objet.
+				st->editGizmo.Draw(
+					[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
+					[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
+						r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
+					});
 			}
 
 			// ── Gizmo éditeur (composant réutilisable NkGizmo3D) ────────────────────
