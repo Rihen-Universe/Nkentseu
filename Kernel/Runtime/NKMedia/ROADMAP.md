@@ -1195,7 +1195,11 @@ brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
 2. **HEVC — features de bord restantes** (INVÉRIFIABLES faute d'oracle x265, ou refactor lourd —
    pas des bugs) : tuiles, 4:2:2/4:4:4, PCM (code dormant écrit), `ref_pic_lists_modification`,
    `scaling_list_data`, CU 8×8 `log2ParallelMergeLevel>2`. **10-bit inter (Main10) ✅ livré.**
-3. **Nouveaux codecs (optionnels, chacun un chantier dédié)** : AV1, Theora/OGV, AMR-NB/WB.
+3. **Nouveaux codecs (optionnels, chacun un chantier dédié, TOUS from-scratch)** : AV1, Theora/OGV,
+   AMR-NB/WB. ⚠️ **AMR : NE PAS porter/amalgamer opencore-amr** (tentative rejetée 2026-07-26 —
+   viole le principe from-scratch + licence Apache-2.0 tierce) → à écrire à la main depuis 3GPP TS
+   26.073 (ACELP) si un jour, comme tous les autres codecs. L'oracle (ffmpeg/libopencore) sert
+   UNIQUEMENT à valider, jamais à copier du code.
    **MPEG-2 vidéo ✅ livré (2026-07-26)** — `NkMpeg2Decoder` (I/P/B, DPB forward+backward, demi-pel,
    réordonnancement B) : **bit-exact sur contenu flat/basse-fréquence, ±1 sur haute-fréquence**
    (tolérance de conformité IDCT IEEE-1180 permise par la norme — 4/25 trames I à maxdiff=0, toutes
