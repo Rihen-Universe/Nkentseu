@@ -69,6 +69,13 @@ namespace nkentseu {
 				{-2, 10, 58, -2},
 			};
 
+			// Ordre de génération des candidats de fusion bi combinés (§8.5.3.2.4,
+			// ffmpeg mvs.c l0_l1_cand_idx) — [comb_idx] -> {idx candidat L0, idx candidat L1}.
+			const uint8 kHevcL0L1CandIdx[12][2] = {
+				{0, 1}, {1, 0}, {0, 2}, {2, 0}, {1, 2}, {2, 1},
+				{0, 3}, {3, 0}, {1, 3}, {3, 1}, {2, 3}, {3, 2},
+			};
+
 			// ---- Tables de scan (générées, procédé normatif §6.5.3) ----------------
 			struct ScanTables {
 					uint8 diag4x4X[16], diag4x4Y[16];
@@ -349,9 +356,14 @@ namespace nkentseu {
 					// (§8.5.3.2.8/9, brique 12 : champ de MV persistant via NkHevcFrame).
 					const NkHevcFrame *const *refsL0 = nullptr; // .poc DOIT être renseigné par l'appelant
 					int32 numRefsL0 = 0;
-					NkVector<int16> mvL0x, mvL0y; // MV par bloc 4x4 (grille minPuWidth x minPuHeight)
+					const NkHevcFrame *const *refsL1 = nullptr; // RefPicList1 (slices B) — nullptr en P
+					int32 numRefsL1 = 0;
+					NkVector<int16> mvL0x, mvL0y; // MV L0 par bloc 4x4 (grille minPuWidth x minPuHeight)
+					NkVector<int16> mvL1x, mvL1y; // MV L1 par bloc 4x4 (bi-prédiction)
 					NkVector<int8> refIdxL0;	   // index dans refsL0, par bloc 4x4
-					NkVector<uint8> mvValid;	   // 1 si le bloc 4x4 est INTER avec MV résolu
+					NkVector<int8> refIdxL1;	   // index dans refsL1, par bloc 4x4
+					NkVector<uint8> predFlag;	   // bit0=L0, bit1=L1 par bloc 4x4 (0=intra)
+					NkVector<uint8> mvValid;	   // 1 si le bloc 4x4 est INTER (predFlag != 0)
 
 					// ---- Reconstruction (brique 6) — active si frame != nullptr ------
 					NkHevcFrame *frame = nullptr;
@@ -1571,27 +1583,45 @@ namespace nkentseu {
 						dy = DecodeMvdComponent(gt0y, gt1y);
 					}
 
-					// ---- Champ de MV par bloc 4x4 (voisinage merge/AMVP, briques 10+11) ----
-					void StoreMv(int32 x0, int32 y0, int32 w, int32 h, int32 mvx, int32 mvy,
-								 int32 refIdx) {
+					// ---- Champ de MV par bloc 4x4 (voisinage merge/AMVP) — bi-liste ----
+					// MvField complet (POD, copié par valeur, ffmpeg struct MvField) :
+					// `avail` = position/bloc disponible (inter) ; `predFlag` bit0=L0,
+					// bit1=L1 (3=BI) ; mv/refIdx par liste.
+					struct MvField {
+							bool avail = false;
+							uint8 predFlag = 0;
+							int32 mvx[2] = {0, 0}, mvy[2] = {0, 0};
+							int32 refIdx[2] = {0, 0};
+					};
+					void StoreMv(int32 x0, int32 y0, int32 w, int32 h, const MvField &f) {
 						for (int32 j = 0; j < h; j += 4)
 							for (int32 i = 0; i < w; i += 4) {
 								const int32 px = (x0 + i) >> 2, py = (y0 + j) >> 2;
 								const usize idx = (usize)(py * minPuWidth + px);
-								mvL0x[idx] = (int16)mvx;
-								mvL0y[idx] = (int16)mvy;
-								refIdxL0[idx] = (int8)refIdx;
+								mvL0x[idx] = (int16)f.mvx[0];
+								mvL0y[idx] = (int16)f.mvy[0];
+								mvL1x[idx] = (int16)f.mvx[1];
+								mvL1y[idx] = (int16)f.mvy[1];
+								refIdxL0[idx] = (int8)f.refIdx[0];
+								refIdxL1[idx] = (int8)f.refIdx[1];
+								predFlag[idx] = f.predFlag;
 								mvValid[idx] = 1;
 							}
 					}
-					bool GetMv(int32 x, int32 y, int32 &mvx, int32 &mvy, int32 &refIdx) const {
+					MvField GetMvField(int32 x, int32 y) const {
+						MvField f;
 						const usize idx = (usize)((y >> 2) * minPuWidth + (x >> 2));
-						if (!mvValid[idx])
-							return false;
-						mvx = mvL0x[idx];
-						mvy = mvL0y[idx];
-						refIdx = refIdxL0[idx];
-						return true;
+						if (!mvValid[idx] || predFlag[idx] == 0)
+							return f; // intra / indisponible
+						f.avail = true;
+						f.predFlag = predFlag[idx];
+						f.mvx[0] = mvL0x[idx];
+						f.mvy[0] = mvL0y[idx];
+						f.refIdx[0] = refIdxL0[idx];
+						f.mvx[1] = mvL1x[idx];
+						f.mvy[1] = mvL1y[idx];
+						f.refIdx[1] = refIdxL1[idx];
+						return f;
 					}
 
 					// ---- Voisinage inter (§6.4.1, simplifié tuile unique/slice unique) -
@@ -1638,33 +1668,42 @@ namespace nkentseu {
 						return ((x0 >> pl) != (xN >> pl)) || ((y0 >> pl) != (yN >> pl));
 					}
 
-					struct MvCand {
-							bool avail = false;
-							int32 mx = 0, my = 0, refIdx = 0;
-					};
-					MvCand GetCand(int32 xN, int32 yN, bool posOk) const {
-						MvCand c;
+					MvField GetCand(int32 xN, int32 yN, bool posOk) const {
 						if (!posOk)
-							return c;
-						int32 mx, my, ri;
-						if (GetMv(xN, yN, mx, my, ri)) {
-							c.avail = true;
-							c.mx = mx;
-							c.my = my;
-							c.refIdx = ri;
-						}
-						return c;
+							return MvField{};
+						return GetMvField(xN, yN);
 					}
-					// Élagage anti-doublon merge (§8.5.3.2.3, compare_mv_ref_idx restreint à
-					// P/L0 seul) : MV et référence identiques.
-					static bool SameMv(const MvCand &a, const MvCand &b) {
-						return a.avail && b.avail && a.mx == b.mx && a.my == b.my &&
-							   a.refIdx == b.refIdx;
+					// compare_mv_ref_idx (§8.5.3.2.3, ffmpeg mvs.c) — élagage merge : deux
+					// MvField égaux si même predFlag ET (par liste active) mêmes refIdx+MV.
+					// Comparaison sur refIdx BRUT (toutes les cand viennent de la trame
+					// courante -> mêmes listes L0/L1, donc refIdx == POC équivalents).
+					static bool CompareMvRefIdx(const MvField &a, const MvField &b) {
+						if (!a.avail || !b.avail || a.predFlag != b.predFlag)
+							return false;
+						if (a.predFlag == 3)
+							return a.refIdx[0] == b.refIdx[0] && a.mvx[0] == b.mvx[0] &&
+								   a.mvy[0] == b.mvy[0] && a.refIdx[1] == b.refIdx[1] &&
+								   a.mvx[1] == b.mvx[1] && a.mvy[1] == b.mvy[1];
+						if (a.predFlag == 1)
+							return a.refIdx[0] == b.refIdx[0] && a.mvx[0] == b.mvx[0] &&
+								   a.mvy[0] == b.mvy[0];
+						if (a.predFlag == 2)
+							return a.refIdx[1] == b.refIdx[1] && a.mvx[1] == b.mvx[1] &&
+								   a.mvy[1] == b.mvy[1];
+						return false;
 					}
-					// Dérive td/tb depuis les POC réels (§8.5.3.2.8) : mise à l'échelle
-					// AMVP quand le voisin utilise une réf différente de la cible.
-					int32 RefPoc(int32 refIdx) const {
-						return (refIdx >= 0 && refIdx < numRefsL0) ? refsL0[refIdx]->poc : 0;
+					// POC de la référence refPicList[listX].list[refIdx] (§8.3.4).
+					int32 RefPocL(int32 listX, int32 refIdx) const {
+						if (listX == 0)
+							return (refIdx >= 0 && refIdx < numRefsL0 && refsL0[refIdx]) ? refsL0[refIdx]->poc
+																						  : 0;
+						return (refIdx >= 0 && refIdx < numRefsL1 && refsL1[refIdx]) ? refsL1[refIdx]->poc : 0;
+					}
+					// Régime de pondération actif (§8.5.3.3.4.2/3) : P -> weighted_pred_flag,
+					// B -> weighted_bipred_flag.
+					bool WeightedActive() const {
+						return (sh->sliceType == kHevcSliceP && pps->weightedPred) ||
+							   (sh->sliceType == kHevcSliceB && pps->weightedBipred);
 					}
 					// mv_scale (ffmpeg mvs.c) — reproduit à l'identique : clip td/tb sur 8
 					// bits, scaleFactor sur 12 bits SIGNÉS ([-2048,2047], PAS [-4096,4095]),
@@ -1685,189 +1724,282 @@ namespace nkentseu {
 						outY = scaleOne(mvy);
 					}
 
-					// ---- Fusion spatiale + temporelle (§8.5.3.2.2, multi-référence — brique
-					// 11 : le candidat spatial garde le refIdx du VOISIN tel quel, AUCUNE
-					// mise à l'échelle n'est jamais appliquée à un candidat spatial ; seul
-					// le candidat temporel se met à l'échelle, brique 12). Ordre A1,B1,B0,
-					// A0,B2 avec exclusions de partition (§8.5.3.2.3) et élagage anti-
-					// doublon (paires EXACTES du spec : B1~A1, B0~B1, A0~A1, B2~{A1,B1}),
-					// puis temporel (toujours refsL0[0]), puis repli MV nul (refIdx cyclé
-					// 0..numRefsL0-1, §8.5.3.2.9).
+					// ---- Fusion spatiale + temporelle + combinée bi (§8.5.3.2.2, ffmpeg
+					// derive_spatial_merge_candidates) — produit MvField[5]. Ordre spatial
+					// A1,B1,B0,A0,B2 (exclusions de partition §8.5.3.2.3 + élagage
+					// CompareMvRefIdx paires B1~A1,B0~B1,A0~A1,B2~{A1,B1}), puis temporel
+					// (deux passes L0/L1), puis candidats combinés bi (B), puis nuls bi.
 					void DeriveMergeCandidates(int32 x0, int32 y0, int32 nPbW, int32 nPbH,
-											   int32 partIdx, int32 partMode, int32 (&candX)[5],
-											   int32 (&candY)[5], int32 (&candRef)[5],
+											   int32 partIdx, int32 partMode, MvField (&list)[5],
 											   int32 &numCand) {
+						const bool isB = (sh->sliceType == kHevcSliceB);
 						const bool a1Excl = (partIdx == 1) && (partMode == kPartNx2N ||
 																partMode == kPartnLx2N ||
 																partMode == kPartnRx2N);
 						const bool b1Excl = (partIdx == 1) && (partMode == kPart2NxN ||
 																partMode == kPart2NxnU ||
 																partMode == kPart2NxnD);
-						const MvCand a1 =
-							a1Excl ? MvCand{} : GetCand(x0 - 1, y0 + nPbH - 1, CandLeft(x0));
-						const MvCand b1 =
-							b1Excl ? MvCand{} : GetCand(x0 + nPbW - 1, y0 - 1, CandUp(y0));
-						const MvCand b0 = GetCand(x0 + nPbW, y0 - 1,
+						const MvField a1 =
+							a1Excl ? MvField{} : GetCand(x0 - 1, y0 + nPbH - 1, CandLeft(x0));
+						const MvField b1 =
+							b1Excl ? MvField{} : GetCand(x0 + nPbW - 1, y0 - 1, CandUp(y0));
+						const MvField b0 = GetCand(x0 + nPbW, y0 - 1,
 												   CandUpRight(x0, y0, nPbW) &&
 													   IsDiffMer(x0, y0, x0 + nPbW, y0 - 1));
-						const MvCand a0 = GetCand(x0 - 1, y0 + nPbH,
+						const MvField a0 = GetCand(x0 - 1, y0 + nPbH,
 												   CandBottomLeft(x0, y0, nPbH) &&
 													   IsDiffMer(x0, y0, x0 - 1, y0 + nPbH));
-						const MvCand b2 = GetCand(
+						const MvField b2 = GetCand(
 							x0 - 1, y0 - 1, CandUpLeft(x0, y0) && IsDiffMer(x0, y0, x0 - 1, y0 - 1));
 
 						numCand = 0;
-						auto push = [&](const MvCand &c) {
-							candX[numCand] = c.mx;
-							candY[numCand] = c.my;
-							candRef[numCand] = c.refIdx;
-							++numCand;
-						};
 						if (a1.avail)
-							push(a1);
-						if (b1.avail && !SameMv(b1, a1))
-							push(b1);
-						if (b0.avail && !SameMv(b0, b1))
-							push(b0);
-						if (a0.avail && !SameMv(a0, a1))
-							push(a0);
-						if (numCand < 4 && b2.avail && !SameMv(b2, a1) && !SameMv(b2, b1))
-							push(b2);
-						// Candidat temporel (§8.5.3.2.9, brique 12) — toujours vers refsL0[0]
-						// (refIdxL0Col=0 normatif), ajouté APRÈS les spatiaux, AVANT le repli nul.
-						if (numCand < 5) {
-							int32 tx = 0, ty = 0;
-							if (DeriveTemporalCand(x0, y0, nPbW, nPbH, RefPoc(0), tx, ty)) {
-								candX[numCand] = tx;
-								candY[numCand] = ty;
-								candRef[numCand] = 0;
+							list[numCand++] = a1;
+						if (b1.avail && !CompareMvRefIdx(b1, a1))
+							list[numCand++] = b1;
+						if (b0.avail && !CompareMvRefIdx(b0, b1))
+							list[numCand++] = b0;
+						if (a0.avail && !CompareMvRefIdx(a0, a1))
+							list[numCand++] = a0;
+						if (numCand != 4 && b2.avail && !CompareMvRefIdx(b2, a1) &&
+							!CompareMvRefIdx(b2, b1))
+							list[numCand++] = b2;
+						// Candidat temporel (§8.5.3.2.9) — deux passes X=0 puis X=1 (refIdx=0),
+						// predFlag = availL0 | (availL1 << 1).
+						if (sh->sliceTemporalMvpEnabled && numCand < sh->maxNumMergeCand) {
+							int32 l0x = 0, l0y = 0, l1x = 0, l1y = 0;
+							const bool aL0 = DeriveTemporalColocatedMv(x0, y0, nPbW, nPbH, 0, 0, l0x, l0y);
+							const bool aL1 =
+								isB ? DeriveTemporalColocatedMv(x0, y0, nPbW, nPbH, 1, 0, l1x, l1y) : false;
+							if (aL0 || aL1) {
+								MvField &c = list[numCand];
+								c = MvField{};
+								c.avail = true;
+								c.predFlag = (uint8)((aL0 ? 1 : 0) | (aL1 ? 2 : 0));
+								c.mvx[0] = l0x;
+								c.mvy[0] = l0y;
+								c.mvx[1] = l1x;
+								c.mvy[1] = l1y;
 								++numCand;
 							}
 						}
+						const int32 numOrig = numCand;
+						// Candidats de fusion bi combinés (§8.5.3.2.4, B uniquement).
+						if (isB && numOrig > 1 && numOrig < sh->maxNumMergeCand) {
+							for (int32 comb = 0; numCand < sh->maxNumMergeCand &&
+												 comb < numOrig * (numOrig - 1);
+								 ++comb) {
+								const int32 l0i = kHevcL0L1CandIdx[comb][0];
+								const int32 l1i = kHevcL0L1CandIdx[comb][1];
+								const MvField &l0c = list[l0i];
+								const MvField &l1c = list[l1i];
+								if ((l0c.predFlag & 1) && (l1c.predFlag & 2) &&
+									(RefPocL(0, l0c.refIdx[0]) != RefPocL(1, l1c.refIdx[1]) ||
+									 l0c.mvx[0] != l1c.mvx[1] || l0c.mvy[0] != l1c.mvy[1])) {
+									MvField &c = list[numCand];
+									c = MvField{};
+									c.avail = true;
+									c.predFlag = 3;
+									c.refIdx[0] = l0c.refIdx[0];
+									c.refIdx[1] = l1c.refIdx[1];
+									c.mvx[0] = l0c.mvx[0];
+									c.mvy[0] = l0c.mvy[0];
+									c.mvx[1] = l1c.mvx[1];
+									c.mvy[1] = l1c.mvy[1];
+									++numCand;
+								}
+							}
+						}
+						// Candidats nuls (§8.5.3.2.5) : predFlag L0 (P) ou BI (B), refIdx cyclé.
+						const int32 nbRefs = isB ? Min32(numRefsL0, numRefsL1) : numRefsL0;
 						int32 zeroIdx = 0;
-						while (numCand < sh->maxNumMergeCand && numCand < 5) {
-							candX[numCand] = 0;
-							candY[numCand] = 0;
-							candRef[numCand] = (zeroIdx < numRefsL0) ? zeroIdx : 0;
+						while (numCand < sh->maxNumMergeCand) {
+							MvField &c = list[numCand];
+							c = MvField{};
+							c.avail = true;
+							c.predFlag = (uint8)(isB ? 3 : 1);
+							c.refIdx[0] = (zeroIdx < nbRefs) ? zeroIdx : 0;
+							c.refIdx[1] = (zeroIdx < nbRefs) ? zeroIdx : 0;
 							++numCand;
 							++zeroIdx;
 						}
 					}
 
-					// ---- AMVP spatial (§8.5.3.2.6/7, multi-référence — brique 11) : pour
-					// CHAQUE groupe (gauche = A0/A1, haut = B0/B1/B2), passe 1 = 1er voisin
-					// dont le refIdx pointe EXACTEMENT vers le même POC que la cible (MV
-					// utilisé tel quel) ; si aucun match exact dans le groupe gauche, passe
-					// 2 = 1er voisin dispo du groupe gauche, MIS À L'ÉCHELLE (§8.5.3.2.8).
-					// Le groupe haut ne prend sa propre passe 2 QUE si le groupe gauche est
-					// TOTALEMENT indisponible (A0 et A1 absents), auquel cas son résultat de
-					// passe 1 est en plus promu en slot A (comportement exact ffmpeg
-					// `ff_hevc_luma_mv_mvp_mode`, `isScaledFlag_L0`/promotion mxB->mxA).
-					// Dédoublonnage final sur la VALEUR de MV seule (pas le refIdx : à ce
-					// stade A et B sont déjà résolus/mis à l'échelle), puis repli nul.
-					bool MatchExact(const MvCand &c, int32 targetPoc, int32 &outX, int32 &outY) const {
-						if (!c.avail)
+					// ---- AMVP par liste (§8.5.3.2.6/7, ffmpeg ff_hevc_luma_mv_mvp_mode) :
+					// chaque voisin peut fournir le candidat via SA liste L0 OU L1 (test des
+					// deux via MpMx/MpMxLt). Ordre exact : A0-exact-l0,A0-exact-l1,A1-exact-
+					// l0,A1-exact-l1 ; A0-scaled..A1-scaled ; groupe B exact ; scaled B
+					// seulement si !isScaledFlagL0 (+ promotion mxB->mxA). Candidat temporel
+					// AMVP (§8.5.3.2.8) si < 2. `listX`/`refIdxLx` = liste et référence cible.
+					// MP_MX : voisin dispose de la liste `predIdx` ET son POC == targetPoc.
+					bool MpMx(const MvField &c, int32 predIdx, int32 targetPoc, int32 &mx,
+							  int32 &my) const {
+						if (!c.avail || !(c.predFlag & (1 << predIdx)))
 							return false;
-						if (RefPoc(c.refIdx) != targetPoc)
+						if (RefPocL(predIdx, c.refIdx[predIdx]) != targetPoc)
 							return false;
-						outX = c.mx;
-						outY = c.my;
+						mx = c.mvx[predIdx];
+						my = c.mvy[predIdx];
 						return true;
 					}
-					bool MatchScaled(const MvCand &c, int32 curPoc, int32 targetPoc, int32 &outX,
-									 int32 &outY) const {
-						if (!c.avail)
+					// MP_MX_LT : voisin dispose de la liste `predIdx` (n'importe quelle réf) ->
+					// MV mis à l'échelle vers targetPoc (dist_scale, court-terme uniquement).
+					bool MpMxLt(const MvField &c, int32 predIdx, int32 curPoc, int32 targetPoc,
+								int32 &mx, int32 &my) const {
+						if (!c.avail || !(c.predFlag & (1 << predIdx)))
 							return false;
-						const int32 neighborPoc = RefPoc(c.refIdx);
+						const int32 nx = c.mvx[predIdx], ny = c.mvy[predIdx];
+						const int32 neighborPoc = RefPocL(predIdx, c.refIdx[predIdx]);
 						if (neighborPoc == targetPoc) {
-							outX = c.mx;
-							outY = c.my;
+							mx = nx;
+							my = ny;
 							return true;
 						}
 						int32 td = curPoc - neighborPoc;
 						if (td == 0)
-							td = 1; // garde-fou mv_scale (poc_diff nul -> division par zéro)
+							td = 1;
 						const int32 tb = curPoc - targetPoc;
-						ScaleMv(c.mx, c.my, td, tb, outX, outY);
+						ScaleMv(nx, ny, td, tb, mx, my);
 						return true;
 					}
-					// ---- Candidat temporel (§8.5.3.2.8/9, brique 12) — dérivé du champ de MV
-					// PERSISTANT de la trame collocalisée (colPic = refsL0[collocated_ref_idx],
-					// toujours L0 : ce décodeur ne traite que des slices P). Position bas-
-					// droite du PU d'abord (repliée si hors CTB courant ou hors image), sinon
-					// position centrale (toujours dans l'image) ; bloc INTRA côté colPic (ou
-					// colPic lui-même intra, donc SANS champ de MV) -> candidat indisponible.
-					// `targetRefIdx`/`targetPoc` = référence VERS LAQUELLE mettre le MV à
-					// l'échelle (AMVP : le refIdx signalé par le bitstream ; merge : toujours
-					// refsL0[0], §8.5.3.2.1 "refIdxL0Col is set equal to 0").
-					bool DeriveTemporalCand(int32 x0, int32 y0, int32 nPbW, int32 nPbH,
-											 int32 targetPoc, int32 &outX, int32 &outY) const {
+					// ---- Candidat temporel bi-liste (§8.5.3.2.8/9, ffmpeg
+					// derive_temporal_colocated_mvs + check_mvset + mv_scale). colPic =
+					// (collocatedFromL0 ? refsL0 : refsL1)[collocatedRefIdx]. Position bas-
+					// droite du PU d'abord (repliée si hors CTB/image), sinon centre. Le champ
+					// colocalisé stocke le POC de CHAQUE liste (mvColRefPocL0/L1). `listX` =
+					// liste cible, `targetRefIdx` = réf cible vers laquelle mettre à l'échelle.
+					struct ColMv {
+							uint8 predFlag = 0;
+							int32 mvx[2] = {0, 0}, mvy[2] = {0, 0}, refPoc[2] = {0, 0};
+					};
+					static bool SampleColField(const NkHevcFrame *colPic, int32 xCol, int32 yCol,
+											   ColMv &out) {
+						const int32 px = xCol >> 2, py = yCol >> 2;
+						if (px < 0 || py < 0 || px >= colPic->mvColPuWidth ||
+							py >= colPic->mvColPuHeight)
+							return false;
+						const usize idx = (usize)(py * colPic->mvColPuWidth + px);
+						out.predFlag = colPic->mvColPredFlag[idx];
+						out.mvx[0] = colPic->mvColX[idx];
+						out.mvy[0] = colPic->mvColY[idx];
+						out.refPoc[0] = colPic->mvColRefPocL0[idx];
+						out.mvx[1] = colPic->mvColL1X[idx];
+						out.mvy[1] = colPic->mvColL1Y[idx];
+						out.refPoc[1] = colPic->mvColRefPocL1[idx];
+						return true;
+					}
+					// check_mvset + mv_scale (court-terme : cur_lt==col_lt==0).
+					bool CheckMvSet(int32 mvx, int32 mvy, int32 colPoc, int32 colRefPoc,
+									int32 listX, int32 targetRefIdx, int32 &outX, int32 &outY) const {
+						const int32 colPocDiff = colPoc - colRefPoc;
+						const int32 targetPoc = RefPocL(listX, targetRefIdx);
+						const int32 curPocDiff = frame->poc - targetPoc;
+						if (colPocDiff == curPocDiff || colPocDiff == 0) {
+							outX = mvx;
+							outY = mvy;
+						} else {
+							ScaleMv(mvx, mvy, colPocDiff, curPocDiff, outX, outY);
+						}
+						return true;
+					}
+					// derive_temporal_colocated_mvs : sélectionne la liste du bloc colocalisé
+					// selon son predFlag et check_diffpicount (low-delay).
+					bool DeriveColMv(const ColMv &tc, int32 colPoc, int32 listX, int32 targetRefIdx,
+									 int32 &outX, int32 &outY) const {
+						if (tc.predFlag == 0)
+							return false; // intra
+						int32 useList;
+						if (!(tc.predFlag & 1))
+							useList = 1; // L1 seul
+						else if (tc.predFlag == 1)
+							useList = 0; // L0 seul
+						else {
+							// BI : check_diffpicount — une réf des listes courantes a-t-elle un
+							// POC > POC courant ? (sinon low-delay).
+							int32 checkDiff = 0;
+							for (int32 j = 0; j < 2; ++j) {
+								const NkHevcFrame *const *lst = (j == 0) ? refsL0 : refsL1;
+								const int32 nn = (j == 0) ? numRefsL0 : numRefsL1;
+								for (int32 i = 0; i < nn; ++i)
+									if (lst && lst[i] && lst[i]->poc > frame->poc) {
+										++checkDiff;
+										break;
+									}
+							}
+							if (checkDiff == 0)
+								useList = (listX == 0) ? 0 : 1;
+							else
+								useList = (!sh->collocatedFromL0) ? 0 : 1;
+						}
+						return CheckMvSet(tc.mvx[useList], tc.mvy[useList], colPoc, tc.refPoc[useList],
+										  listX, targetRefIdx, outX, outY);
+					}
+					bool DeriveTemporalColocatedMv(int32 x0, int32 y0, int32 nPbW, int32 nPbH,
+												   int32 listX, int32 targetRefIdx, int32 &outX,
+												   int32 &outY) const {
 						if (!sh->sliceTemporalMvpEnabled)
 							return false;
-						const int32 colIdx = sh->collocatedRefIdx;
-						if (colIdx < 0 || colIdx >= numRefsL0 || !refsL0[colIdx])
+						const NkHevcFrame *const *colList = sh->collocatedFromL0 ? refsL0 : refsL1;
+						const int32 colN = sh->collocatedFromL0 ? numRefsL0 : numRefsL1;
+						const int32 ci = sh->collocatedRefIdx;
+						if (ci < 0 || ci >= colN || !colList || !colList[ci])
 							return false;
-						const NkHevcFrame *colPic = refsL0[colIdx];
-						if (colPic->mvColValid.IsEmpty() || colPic->mvColPuWidth != minPuWidth ||
+						const NkHevcFrame *colPic = colList[ci];
+						if (colPic->mvColPredFlag.IsEmpty() || colPic->mvColPuWidth != minPuWidth ||
 							colPic->mvColPuHeight != minPuHeight)
-							return false; // colPic intra (I), ou résolution différente
-						auto sampleCol = [&](int32 xCol, int32 yCol, int32 &mx, int32 &my,
-											  int32 &refPoc) -> bool {
-							const int32 px = xCol >> 2, py = yCol >> 2;
-							if (px < 0 || py < 0 || px >= colPic->mvColPuWidth ||
-								py >= colPic->mvColPuHeight)
-								return false;
-							const usize idx = (usize)(py * colPic->mvColPuWidth + px);
-							if (!colPic->mvColValid[idx])
-								return false;
-							mx = colPic->mvColX[idx];
-							my = colPic->mvColY[idx];
-							refPoc = colPic->mvColRefPoc[idx];
-							return true;
-						};
-						int32 mvColX = 0, mvColY = 0, colRefPoc = 0;
+							return false; // colPic intra (I) ou résolution différente
+						const int32 colPoc = colPic->poc;
+						ColMv tc;
 						bool have = false;
 						const int32 xColBr = x0 + nPbW, yColBr = y0 + nPbH;
 						if (((yColBr >> ctbLog2) == (y0 >> ctbLog2)) && yColBr < picH && xColBr < picW) {
 							const int32 xColPb = (xColBr >> 4) << 4, yColPb = (yColBr >> 4) << 4;
-							have = sampleCol(xColPb, yColPb, mvColX, mvColY, colRefPoc);
+							if (SampleColField(colPic, xColPb, yColPb, tc))
+								have = DeriveColMv(tc, colPoc, listX, targetRefIdx, outX, outY);
 						}
 						if (!have) {
 							const int32 xColCtr = x0 + (nPbW >> 1), yColCtr = y0 + (nPbH >> 1);
 							const int32 xColPb = (xColCtr >> 4) << 4, yColPb = (yColCtr >> 4) << 4;
-							have = sampleCol(xColPb, yColPb, mvColX, mvColY, colRefPoc);
+							if (SampleColField(colPic, xColPb, yColPb, tc))
+								have = DeriveColMv(tc, colPoc, listX, targetRefIdx, outX, outY);
 						}
-						if (!have)
-							return false;
-						int32 td = colPic->poc - colRefPoc;
-						if (td == 0)
-							td = 1; // garde-fou mv_scale (poc_diff nul -> division par zéro)
-						const int32 tb = frame->poc - targetPoc;
-						ScaleMv(mvColX, mvColY, td, tb, outX, outY);
-						return true;
+						return have;
 					}
 
-					void DeriveAmvp(int32 x0, int32 y0, int32 nPbW, int32 nPbH, int32 targetRefIdx,
-									int32 (&mvpX)[2], int32 (&mvpY)[2]) {
+					void DeriveAmvpLx(int32 x0, int32 y0, int32 nPbW, int32 nPbH, int32 listX,
+									  int32 refIdxLx, int32 (&mvpX)[2], int32 (&mvpY)[2]) {
 						const int32 curPoc = frame->poc;
-						const int32 targetPoc = RefPoc(targetRefIdx);
-						const MvCand a0 = GetCand(x0 - 1, y0 + nPbH, CandBottomLeft(x0, y0, nPbH));
-						const MvCand a1 = GetCand(x0 - 1, y0 + nPbH - 1, CandLeft(x0));
+						const int32 targetPoc = RefPocL(listX, refIdxLx);
+						const int32 pL0 = listX, pL1 = 1 - listX;
+
+						const MvField a0 = GetCand(x0 - 1, y0 + nPbH, CandBottomLeft(x0, y0, nPbH));
+						const MvField a1 = GetCand(x0 - 1, y0 + nPbH - 1, CandLeft(x0));
 						const bool isScaledFlagL0 = a0.avail || a1.avail;
 
 						bool availA = false;
 						int32 ax = 0, ay = 0;
-						availA = MatchExact(a0, targetPoc, ax, ay) || MatchExact(a1, targetPoc, ax, ay) ||
-								 MatchScaled(a0, curPoc, targetPoc, ax, ay) ||
-								 MatchScaled(a1, curPoc, targetPoc, ax, ay);
+						if (a0.avail)
+							availA = MpMx(a0, pL0, targetPoc, ax, ay) || MpMx(a0, pL1, targetPoc, ax, ay);
+						if (!availA && a1.avail)
+							availA = MpMx(a1, pL0, targetPoc, ax, ay) || MpMx(a1, pL1, targetPoc, ax, ay);
+						if (!availA && a0.avail)
+							availA = MpMxLt(a0, pL0, curPoc, targetPoc, ax, ay) ||
+									 MpMxLt(a0, pL1, curPoc, targetPoc, ax, ay);
+						if (!availA && a1.avail)
+							availA = MpMxLt(a1, pL0, curPoc, targetPoc, ax, ay) ||
+									 MpMxLt(a1, pL1, curPoc, targetPoc, ax, ay);
 
-						const MvCand b0 = GetCand(x0 + nPbW, y0 - 1, CandUpRight(x0, y0, nPbW));
-						const MvCand b1 = GetCand(x0 + nPbW - 1, y0 - 1, CandUp(y0));
-						const MvCand b2 = GetCand(x0 - 1, y0 - 1, CandUpLeft(x0, y0));
+						const MvField b0 = GetCand(x0 + nPbW, y0 - 1, CandUpRight(x0, y0, nPbW));
+						const MvField b1 = GetCand(x0 + nPbW - 1, y0 - 1, CandUp(y0));
+						const MvField b2 = GetCand(x0 - 1, y0 - 1, CandUpLeft(x0, y0));
 						bool availB = false;
 						int32 bx = 0, by = 0;
-						availB = MatchExact(b0, targetPoc, bx, by) || MatchExact(b1, targetPoc, bx, by) ||
-								 MatchExact(b2, targetPoc, bx, by);
+						if (b0.avail)
+							availB = MpMx(b0, pL0, targetPoc, bx, by) || MpMx(b0, pL1, targetPoc, bx, by);
+						if (!availB && b1.avail)
+							availB = MpMx(b1, pL0, targetPoc, bx, by) || MpMx(b1, pL1, targetPoc, bx, by);
+						if (!availB && b2.avail)
+							availB = MpMx(b2, pL0, targetPoc, bx, by) || MpMx(b2, pL1, targetPoc, bx, by);
 
 						if (!isScaledFlagL0) {
 							if (availB) {
@@ -1875,9 +2007,16 @@ namespace nkentseu {
 								ax = bx;
 								ay = by;
 							}
-							availB = MatchScaled(b0, curPoc, targetPoc, bx, by) ||
-									 MatchScaled(b1, curPoc, targetPoc, bx, by) ||
-									 MatchScaled(b2, curPoc, targetPoc, bx, by);
+							availB = false;
+							if (b0.avail)
+								availB = MpMxLt(b0, pL0, curPoc, targetPoc, bx, by) ||
+										 MpMxLt(b0, pL1, curPoc, targetPoc, bx, by);
+							if (!availB && b1.avail)
+								availB = MpMxLt(b1, pL0, curPoc, targetPoc, bx, by) ||
+										 MpMxLt(b1, pL1, curPoc, targetPoc, bx, by);
+							if (!availB && b2.avail)
+								availB = MpMxLt(b2, pL0, curPoc, targetPoc, bx, by) ||
+										 MpMxLt(b2, pL1, curPoc, targetPoc, bx, by);
 						}
 
 						int32 n = 0;
@@ -1891,11 +2030,9 @@ namespace nkentseu {
 							mvpY[n] = by;
 							++n;
 						}
-						// Candidat temporel (§8.5.3.2.6, brique 12) — seulement si les 2
-						// spatiaux ne suffisent pas déjà, mis à l'échelle vers targetRefIdx.
 						if (n < 2) {
 							int32 tx = 0, ty = 0;
-							if (DeriveTemporalCand(x0, y0, nPbW, nPbH, targetPoc, tx, ty)) {
+							if (DeriveTemporalColocatedMv(x0, y0, nPbW, nPbH, listX, refIdxLx, tx, ty)) {
 								mvpX[n] = tx;
 								mvpY[n] = ty;
 								++n;
@@ -1908,13 +2045,15 @@ namespace nkentseu {
 						}
 					}
 
-					// ---- Finalisation d'un échantillon MC (§8.5.4.2.3/8.5.3.3.4.2) —
+					// ---- Finalisation d'un échantillon MC UNI (§8.5.3.3.3/8.5.3.3.4.2) —
 					// `raw` = pixel source direct (isDirect) OU sortie du dernier filtre
 					// (H, V, ou V-du-HV déjà >>6) ; pondération explicite si présente
-					// (P uniquement cette brique : gate = pps->weightedPred).
-					int32 FinalizeSample(int32 raw, bool isDirect, bool isLuma, int32 chromaIdx) {
+					// (WeightedActive : P->weightedPred, B->weightedBipred), avec les
+					// poids/offsets de la LISTE et du refIdx effectifs.
+					int32 FinalizeSample(int32 raw, bool isDirect, bool isLuma, int32 chromaIdx,
+										 int32 listX, int32 refIdx) {
 						const int32 mx = isLuma ? maxVal : (1 << sps->bitDepthChroma) - 1;
-						if (!pps->weightedPred) {
+						if (!WeightedActive()) {
 							if (isDirect)
 								return raw;
 							const int32 shift = 14 - bitDepth;
@@ -1923,24 +2062,113 @@ namespace nkentseu {
 						}
 						const int32 denom =
 							isLuma ? sh->lumaLog2WeightDenom : sh->chromaLog2WeightDenom;
-						const int32 wx = isLuma ? sh->lumaWeightL0[0] : sh->chromaWeightL0[0][chromaIdx];
-						const int32 ox = isLuma ? sh->lumaOffsetL0[0] : sh->chromaOffsetL0[0][chromaIdx];
+						int32 wx, ox;
+						if (listX == 0) {
+							wx = isLuma ? sh->lumaWeightL0[refIdx] : sh->chromaWeightL0[refIdx][chromaIdx];
+							ox = isLuma ? sh->lumaOffsetL0[refIdx] : sh->chromaOffsetL0[refIdx][chromaIdx];
+						} else {
+							wx = isLuma ? sh->lumaWeightL1[refIdx] : sh->chromaWeightL1[refIdx][chromaIdx];
+							ox = isLuma ? sh->lumaOffsetL1[refIdx] : sh->chromaOffsetL1[refIdx][chromaIdx];
+						}
 						const int32 shift = denom + 14 - bitDepth;
 						const int32 offset = shift > 0 ? (1 << (shift - 1)) : 0;
 						const int32 v = isDirect ? (raw << (14 - bitDepth)) : raw;
 						return Clip3i(0, mx, ((v * wx + offset) >> shift) + ox);
 					}
 
-					// ---- Compensation de mouvement (§8.5.4) — luma qpel 8 taps, chroma
-					// epel 4 taps (4:2:0 : mv&7 directement, hshift=vshift=1 -> aucune
-					// mise à l'échelle de fraction supplémentaire, cf. chroma_mc_uni
-					// ffmpeg). Échantillonnage hors-image = étendu par bord (clamp),
-					// équivalent à emulated_edge_mc.
+					// Marque la zone PU comme reconstruite (§8.4.4.2.1 : une slice P/B mélange
+					// CU intra et inter ; sans ce marquage, un voisin inter serait vu comme
+					// absent par une CU intra adjacente -> substitution/padding erronés).
+					void MarkRecon(int32 x0, int32 y0, int32 w, int32 h) {
+						for (int32 j = 0; j < h; j += 4)
+							for (int32 i = 0; i < w; i += 4) {
+								const int32 px = (x0 + i) >> 2, py = (y0 + j) >> 2;
+								if (px < minPuWidth && py < minPuHeight)
+									lumaRecon[(usize)(py * minPuWidth + px)] = 1;
+							}
+						const int32 cw4 = ((picW >> 1) + 3) >> 2, ch4 = ((picH >> 1) + 3) >> 2;
+						const int32 cx0b = x0 >> 1, cy0b = y0 >> 1, cwb = w >> 1, chb = h >> 1;
+						for (int32 j = 0; j < chb; j += 4)
+							for (int32 i = 0; i < cwb; i += 4) {
+								const int32 px = (cx0b + i) >> 2, py = (cy0b + j) >> 2;
+								if (px < cw4 && py < ch4)
+									chromaRecon[(usize)(py * cw4 + px)] = 1;
+							}
+					}
+
+					// ---- Interpolation MC -> intermédiaire 14 bits (§8.5.4.2, DSP put_hevc_*
+					// SANS finalisation) : (0,0)->src<<6 ; H->Σhf·src ; V->Σvf·src ;
+					// HV->(Σvf·tmp)>>6 (tmp = passe horizontale). Luma qpel 8 taps (mv&3,
+					// mv>>2, centre -3) ; chroma epel 4 taps (mv&7, mv>>3, centre -1, 4:2:0).
+					// Écrit `out[j*outStride+i]` (int16) pour j∈[0,h), i∈[0,w). 8 bits
+					// uniquement (bitDepth=8 : le décalage >>(bd-8) est nul).
+					void ComputeInterp(const NkVector<nk_uint16> &refPlane, int32 planeW, int32 planeH,
+									   int32 baseX, int32 baseY, int32 mvx, int32 mvy, int32 w, int32 h,
+									   bool isLuma, int16 *out, int32 outStride) const {
+						const int32 mask = isLuma ? 3 : 7;
+						const int32 ish = isLuma ? 2 : 3;
+						const int32 taps = isLuma ? 8 : 4;
+						const int32 ctr = isLuma ? 3 : 1;
+						const int32 xFrac = mvx & mask, yFrac = mvy & mask;
+						const int32 xInt = baseX + (mvx >> ish), yInt = baseY + (mvy >> ish);
+						const int8 *hf = isLuma ? kHevcQpelFilters[xFrac] : kHevcEpelFilters[xFrac];
+						const int8 *vf = isLuma ? kHevcQpelFilters[yFrac] : kHevcEpelFilters[yFrac];
+						auto S = [&](int32 xx, int32 yy) -> int32 {
+							const int32 cx = Clip3i(0, planeW - 1, xx);
+							const int32 cy = Clip3i(0, planeH - 1, yy);
+							return refPlane[(usize)(cy * planeW + cx)];
+						};
+						if (xFrac == 0 && yFrac == 0) {
+							for (int32 j = 0; j < h; ++j)
+								for (int32 i = 0; i < w; ++i)
+									out[j * outStride + i] = (int16)(S(xInt + i, yInt + j) << 6);
+						} else if (yFrac == 0) {
+							for (int32 j = 0; j < h; ++j)
+								for (int32 i = 0; i < w; ++i) {
+									int32 sum = 0;
+									for (int32 k = 0; k < taps; ++k)
+										sum += hf[k] * S(xInt + i + k - ctr, yInt + j);
+									out[j * outStride + i] = (int16)sum;
+								}
+						} else if (xFrac == 0) {
+							for (int32 j = 0; j < h; ++j)
+								for (int32 i = 0; i < w; ++i) {
+									int32 sum = 0;
+									for (int32 k = 0; k < taps; ++k)
+										sum += vf[k] * S(xInt + i, yInt + j + k - ctr);
+									out[j * outStride + i] = (int16)sum;
+								}
+						} else {
+							int32 tmp[(64 + 7) * 64];
+							const int32 ts = 64;
+							for (int32 j = 0; j < h + taps - 1; ++j)
+								for (int32 i = 0; i < w; ++i) {
+									int32 sum = 0;
+									for (int32 k = 0; k < taps; ++k)
+										sum += hf[k] * S(xInt + i + k - ctr, yInt + j - ctr);
+									tmp[j * ts + i] = sum;
+								}
+							for (int32 j = 0; j < h; ++j)
+								for (int32 i = 0; i < w; ++i) {
+									int32 sum = 0;
+									for (int32 k = 0; k < taps; ++k)
+										sum += vf[k] * tmp[(j + k) * ts + i];
+									out[j * outStride + i] = (int16)(sum >> 6);
+								}
+						}
+					}
+
+					// ---- Compensation de mouvement UNI (§8.5.3.3.3, luma qpel 8 taps + chroma
+					// epel 4 taps 4:2:0). `listX`/`refIdx` = liste et référence effectives
+					// (L0 ou L1). Échantillonnage hors-image = étendu par bord (clamp,
+					// équivalent emulated_edge_mc). Pondération explicite -> FinalizeSample.
 					void ApplyMotionCompensation(int32 x0, int32 y0, int32 w, int32 h, int32 mvx,
-												  int32 mvy, int32 refIdx) {
-						if (refIdx < 0 || refIdx >= numRefsL0 || !refsL0[refIdx])
+												  int32 mvy, int32 listX, int32 refIdx) {
+						const NkHevcFrame *const *refs = (listX == 0) ? refsL0 : refsL1;
+						const int32 nRefs = (listX == 0) ? numRefsL0 : numRefsL1;
+						if (refIdx < 0 || refIdx >= nRefs || !refs || !refs[refIdx])
 							return;
-						const NkHevcFrame *ref0 = refsL0[refIdx];
+						const NkHevcFrame *ref0 = refs[refIdx];
 						// ---- Luma ----
 						{
 							const int32 xFrac = mvx & 3, yFrac = mvy & 3;
@@ -1958,7 +2186,7 @@ namespace nkentseu {
 								for (int32 j = 0; j < h; ++j)
 									for (int32 i = 0; i < w; ++i)
 										dst[(y0 + j) * stride + (x0 + i)] = (nk_uint16)FinalizeSample(
-											SrcY(xInt + i, yInt + j), true, true, 0);
+											SrcY(xInt + i, yInt + j), true, true, 0, listX, refIdx);
 							} else if (yFrac == 0) {
 								for (int32 j = 0; j < h; ++j)
 									for (int32 i = 0; i < w; ++i) {
@@ -1966,7 +2194,7 @@ namespace nkentseu {
 										for (int32 k = 0; k < 8; ++k)
 											sum += hf[k] * SrcY(xInt + i + k - 3, yInt + j);
 										dst[(y0 + j) * stride + (x0 + i)] =
-											(nk_uint16)FinalizeSample(sum, false, true, 0);
+											(nk_uint16)FinalizeSample(sum, false, true, 0, listX, refIdx);
 									}
 							} else if (xFrac == 0) {
 								for (int32 j = 0; j < h; ++j)
@@ -1975,7 +2203,7 @@ namespace nkentseu {
 										for (int32 k = 0; k < 8; ++k)
 											sum += vf[k] * SrcY(xInt + i, yInt + j + k - 3);
 										dst[(y0 + j) * stride + (x0 + i)] =
-											(nk_uint16)FinalizeSample(sum, false, true, 0);
+											(nk_uint16)FinalizeSample(sum, false, true, 0, listX, refIdx);
 									}
 							} else {
 								int32 tmp[(64 + 7) * 64];
@@ -1992,7 +2220,7 @@ namespace nkentseu {
 										for (int32 k = 0; k < 8; ++k)
 											sum += vf[k] * tmp[(j + k) * 64 + i];
 										dst[(y0 + j) * stride + (x0 + i)] = (nk_uint16)FinalizeSample(
-											sum >> 6, false, true, 0);
+											sum >> 6, false, true, 0, listX, refIdx);
 									}
 							}
 						}
@@ -2016,7 +2244,7 @@ namespace nkentseu {
 								for (int32 j = 0; j < ch; ++j)
 									for (int32 i = 0; i < cw; ++i)
 										dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)FinalizeSample(
-											SrcC(xInt + i, yInt + j), true, false, ci);
+											SrcC(xInt + i, yInt + j), true, false, ci, listX, refIdx);
 							} else if (yFrac == 0) {
 								for (int32 j = 0; j < ch; ++j)
 									for (int32 i = 0; i < cw; ++i) {
@@ -2024,7 +2252,7 @@ namespace nkentseu {
 										for (int32 k = 0; k < 4; ++k)
 											sum += hf[k] * SrcC(xInt + i + k - 1, yInt + j);
 										dst[(cy0 + j) * stride + (cx0 + i)] =
-											(nk_uint16)FinalizeSample(sum, false, false, ci);
+											(nk_uint16)FinalizeSample(sum, false, false, ci, listX, refIdx);
 									}
 							} else if (xFrac == 0) {
 								for (int32 j = 0; j < ch; ++j)
@@ -2033,7 +2261,7 @@ namespace nkentseu {
 										for (int32 k = 0; k < 4; ++k)
 											sum += vf[k] * SrcC(xInt + i, yInt + j + k - 1);
 										dst[(cy0 + j) * stride + (cx0 + i)] =
-											(nk_uint16)FinalizeSample(sum, false, false, ci);
+											(nk_uint16)FinalizeSample(sum, false, false, ci, listX, refIdx);
 									}
 							} else {
 								int32 tmp[(32 + 3) * 32];
@@ -2050,30 +2278,103 @@ namespace nkentseu {
 										for (int32 k = 0; k < 4; ++k)
 											sum += vf[k] * tmp[(j + k) * 32 + i];
 										dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)FinalizeSample(
-											sum >> 6, false, false, ci);
+											sum >> 6, false, false, ci, listX, refIdx);
 									}
 							}
 						}
-						// Marque la zone comme reconstruite : une P-slice peut mélanger CU
-						// intra et inter, et la disponibilité des échantillons de référence
-						// intra (§8.4.4.2.1) restait câblée sur cuIsIntra seul (brique 6) —
-						// sans ce marquage, un voisin inter était vu comme absent par une
-						// CU intra adjacente (substitution/padding erronés au lieu des
-						// pixels MC réellement écrits).
-						for (int32 j = 0; j < h; j += 4)
-							for (int32 i = 0; i < w; i += 4) {
-								const int32 px = (x0 + i) >> 2, py = (y0 + j) >> 2;
-								if (px < minPuWidth && py < minPuHeight)
-									lumaRecon[(usize)(py * minPuWidth + px)] = 1;
+						MarkRecon(x0, y0, w, h);
+					}
+
+					// ---- Compensation de mouvement BI (§8.5.3.3.4) : deux intermédiaires
+					// L0/L1 combinés. Non pondéré : (predL0+predL1+64)>>7. Pondéré
+					// (weighted_bipred) : (predL0·w0+predL1·w1+((o0+o1+1)<<log2Wd))>>(log2Wd+1),
+					// log2Wd = denom+14-bd (8 bits : o<<(bd-8) = o).
+					void ApplyMotionCompensationBi(int32 x0, int32 y0, int32 w, int32 h, int32 refL0,
+												   int32 mvx0, int32 mvy0, int32 refL1, int32 mvx1,
+												   int32 mvy1) {
+						if (refL0 < 0 || refL0 >= numRefsL0 || !refsL0 || !refsL0[refL0])
+							return;
+						if (refL1 < 0 || refL1 >= numRefsL1 || !refsL1 || !refsL1[refL1])
+							return;
+						const NkHevcFrame *r0 = refsL0[refL0];
+						const NkHevcFrame *r1 = refsL1[refL1];
+						const bool weighted = WeightedActive();
+						// ---- Luma ----
+						{
+							int16 iL0[64 * 64], iL1[64 * 64];
+							ComputeInterp(r0->y, r0->lumaW, r0->lumaH, x0, y0, mvx0, mvy0, w, h, true, iL0, w);
+							ComputeInterp(r1->y, r1->lumaW, r1->lumaH, x0, y0, mvx1, mvy1, w, h, true, iL1, w);
+							nk_uint16 *dst = frame->y.Data();
+							const int32 stride = frame->lumaW;
+							if (!weighted) {
+								const int32 shift2 = 15 - bitDepth;
+								const int32 off2 = 1 << (shift2 - 1);
+								for (int32 j = 0; j < h; ++j)
+									for (int32 i = 0; i < w; ++i)
+										dst[(y0 + j) * stride + (x0 + i)] = (nk_uint16)Clip3i(
+											0, maxVal, (iL0[j * w + i] + iL1[j * w + i] + off2) >> shift2);
+							} else {
+								const int32 denom = sh->lumaLog2WeightDenom;
+								const int32 log2Wd = denom + 14 - bitDepth;
+								const int32 w0 = sh->lumaWeightL0[refL0], w1 = sh->lumaWeightL1[refL1];
+								const int32 o0 = sh->lumaOffsetL0[refL0], o1 = sh->lumaOffsetL1[refL1];
+								const int32 add = (o0 + o1 + 1) << log2Wd;
+								for (int32 j = 0; j < h; ++j)
+									for (int32 i = 0; i < w; ++i)
+										dst[(y0 + j) * stride + (x0 + i)] = (nk_uint16)Clip3i(
+											0, maxVal,
+											(iL0[j * w + i] * w0 + iL1[j * w + i] * w1 + add) >> (log2Wd + 1));
 							}
-						const int32 cw4 = ((picW >> 1) + 3) >> 2, ch4 = ((picH >> 1) + 3) >> 2;
-						const int32 cx0b = x0 >> 1, cy0b = y0 >> 1, cwb = w >> 1, chb = h >> 1;
-						for (int32 j = 0; j < chb; j += 4)
-							for (int32 i = 0; i < cwb; i += 4) {
-								const int32 px = (cx0b + i) >> 2, py = (cy0b + j) >> 2;
-								if (px < cw4 && py < ch4)
-									chromaRecon[(usize)(py * cw4 + px)] = 1;
+						}
+						// ---- Chroma (Cb=1, Cr=2) ----
+						const int32 maxC = (1 << sps->bitDepthChroma) - 1;
+						const int32 cx0 = x0 >> 1, cy0 = y0 >> 1, cw = w >> 1, ch = h >> 1;
+						for (int32 cIdx = 1; cIdx <= 2; ++cIdx) {
+							const int32 ci = cIdx - 1;
+							const NkVector<nk_uint16> &p0 = (cIdx == 1) ? r0->cb : r0->cr;
+							const NkVector<nk_uint16> &p1 = (cIdx == 1) ? r1->cb : r1->cr;
+							int16 iC0[32 * 32], iC1[32 * 32];
+							ComputeInterp(p0, r0->chromaW, r0->chromaH, cx0, cy0, mvx0, mvy0, cw, ch, false,
+										  iC0, cw);
+							ComputeInterp(p1, r1->chromaW, r1->chromaH, cx0, cy0, mvx1, mvy1, cw, ch, false,
+										  iC1, cw);
+							nk_uint16 *dst = (cIdx == 1) ? frame->cb.Data() : frame->cr.Data();
+							const int32 stride = frame->chromaW;
+							if (!weighted) {
+								const int32 shift2 = 15 - bitDepth;
+								const int32 off2 = 1 << (shift2 - 1);
+								for (int32 j = 0; j < ch; ++j)
+									for (int32 i = 0; i < cw; ++i)
+										dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)Clip3i(
+											0, maxC, (iC0[j * cw + i] + iC1[j * cw + i] + off2) >> shift2);
+							} else {
+								const int32 denom = sh->chromaLog2WeightDenom;
+								const int32 log2Wd = denom + 14 - bitDepth;
+								const int32 w0 = sh->chromaWeightL0[refL0][ci];
+								const int32 w1 = sh->chromaWeightL1[refL1][ci];
+								const int32 o0 = sh->chromaOffsetL0[refL0][ci];
+								const int32 o1 = sh->chromaOffsetL1[refL1][ci];
+								const int32 add = (o0 + o1 + 1) << log2Wd;
+								for (int32 j = 0; j < ch; ++j)
+									for (int32 i = 0; i < cw; ++i)
+										dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)Clip3i(
+											0, maxC,
+											(iC0[j * cw + i] * w0 + iC1[j * cw + i] * w1 + add) >> (log2Wd + 1));
 							}
+						}
+						MarkRecon(x0, y0, w, h);
+					}
+
+					// Aiguillage MC selon predFlag (§8.5.3.3.2) : L0 -> uni L0, L1 -> uni L1,
+					// BI -> bi.
+					void ApplyMc(int32 x0, int32 y0, int32 w, int32 h, const MvField &f) {
+						if (f.predFlag == 1)
+							ApplyMotionCompensation(x0, y0, w, h, f.mvx[0], f.mvy[0], 0, f.refIdx[0]);
+						else if (f.predFlag == 2)
+							ApplyMotionCompensation(x0, y0, w, h, f.mvx[1], f.mvy[1], 1, f.refIdx[1]);
+						else if (f.predFlag == 3)
+							ApplyMotionCompensationBi(x0, y0, w, h, f.refIdx[0], f.mvx[0], f.mvy[0],
+													  f.refIdx[1], f.mvx[1], f.mvy[1]);
 					}
 
 					// prediction_unit() (§7.3.8.6/7) — parse CABAC identique brique 8 +
@@ -2088,7 +2389,7 @@ namespace nkentseu {
 						bool mergeFlag = isSkip;
 						if (!isSkip)
 							mergeFlag = Bin(kHevcCtxMergeFlag) != 0;
-						int32 mvx = 0, mvy = 0, mvRef = 0;
+						MvField mvf;
 						bool haveMv = false;
 						if (mergeFlag) {
 							int32 idx = 0;
@@ -2099,18 +2400,19 @@ namespace nkentseu {
 										++idx;
 							}
 							if (frame) {
-								int32 candX[5], candY[5], candRef[5], numCand;
-								DeriveMergeCandidates(x0, y0, pw, ph, partIdx, curPartMode, candX,
-													  candY, candRef, numCand);
+								MvField list[5];
+								int32 numCand;
+								DeriveMergeCandidates(x0, y0, pw, ph, partIdx, curPartMode, list, numCand);
 								const int32 useIdx = Min32(idx, numCand - 1);
-								mvx = candX[useIdx];
-								mvy = candY[useIdx];
-								mvRef = candRef[useIdx];
+								mvf = list[useIdx];
+								// Règle 8x4/4x8 (§8.5.3.2.2) : bi interdit -> forcé L0.
+								if (mvf.predFlag == 3 && (pw + ph) == 12)
+									mvf.predFlag = 1;
 								haveMv = true;
 							}
-							if (frame) {
-								StoreMv(x0, y0, pw, ph, mvx, mvy, mvRef);
-								ApplyMotionCompensation(x0, y0, pw, ph, mvx, mvy, mvRef);
+							if (frame && haveMv) {
+								StoreMv(x0, y0, pw, ph, mvf);
+								ApplyMc(x0, y0, pw, ph, mvf);
 							}
 							return true;
 						}
@@ -2123,33 +2425,43 @@ namespace nkentseu {
 							else
 								interPredIdc = (int32)Bin(kHevcCtxInterPredIdc + 4);
 						}
-						int32 mvdX = 0, mvdY = 0;
-						int32 mvpFlag = 0;
-						int32 refIdxL0Dec = 0;
+						int32 refIdxL0Dec = 0, refIdxL1Dec = 0;
+						int32 mvdX0 = 0, mvdY0 = 0, mvdX1 = 0, mvdY1 = 0;
+						int32 mvpFlag0 = 0, mvpFlag1 = 0;
 						if (interPredIdc != 1) { // L0 présent
 							refIdxL0Dec = DecodeRefIdx(sh->numRefIdxL0Active);
-							DecodeMvd(mvdX, mvdY);
-							mvpFlag = (int32)Bin(kHevcCtxMvpLxFlag);
+							DecodeMvd(mvdX0, mvdY0);
+							mvpFlag0 = (int32)Bin(kHevcCtxMvpLxFlag);
 						}
-						if (interPredIdc != 0) { // L1 présent (B — jamais reconstruit ici)
-							DecodeRefIdx(sh->numRefIdxL1Active);
-							if (!(sh->mvdL1Zero && interPredIdc == 2)) {
-								int32 dx2, dy2;
-								DecodeMvd(dx2, dy2);
+						if (interPredIdc != 0) { // L1 présent
+							refIdxL1Dec = DecodeRefIdx(sh->numRefIdxL1Active);
+							if (!(sh->mvdL1Zero && interPredIdc == 2))
+								DecodeMvd(mvdX1, mvdY1); // sinon mvd L1 = (0,0)
+							mvpFlag1 = (int32)Bin(kHevcCtxMvpLxFlag);
+						}
+						if (frame) {
+							mvf.predFlag =
+								(uint8)((interPredIdc == 0) ? 1 : (interPredIdc == 1) ? 2 : 3);
+							if (interPredIdc != 1) { // L0
+								int32 mvpX[2], mvpY[2];
+								DeriveAmvpLx(x0, y0, pw, ph, 0, refIdxL0Dec, mvpX, mvpY);
+								mvf.mvx[0] = mvpX[mvpFlag0] + mvdX0;
+								mvf.mvy[0] = mvpY[mvpFlag0] + mvdY0;
+								mvf.refIdx[0] = refIdxL0Dec;
 							}
-							Bin(kHevcCtxMvpLxFlag);
-						}
-						if (frame && interPredIdc != 1) {
-							int32 mvpX[2], mvpY[2];
-							DeriveAmvp(x0, y0, pw, ph, refIdxL0Dec, mvpX, mvpY);
-							mvx = mvpX[mvpFlag] + mvdX;
-							mvy = mvpY[mvpFlag] + mvdY;
-							mvRef = refIdxL0Dec;
+							if (interPredIdc != 0) { // L1
+								int32 mvpX[2], mvpY[2];
+								DeriveAmvpLx(x0, y0, pw, ph, 1, refIdxL1Dec, mvpX, mvpY);
+								mvf.mvx[1] = mvpX[mvpFlag1] + mvdX1;
+								mvf.mvy[1] = mvpY[mvpFlag1] + mvdY1;
+								mvf.refIdx[1] = refIdxL1Dec;
+							}
+							mvf.avail = true;
 							haveMv = true;
 						}
 						if (frame && haveMv) {
-							StoreMv(x0, y0, pw, ph, mvx, mvy, mvRef);
-							ApplyMotionCompensation(x0, y0, pw, ph, mvx, mvy, mvRef);
+							StoreMv(x0, y0, pw, ph, mvf);
+							ApplyMc(x0, y0, pw, ph, mvf);
 						}
 						return false;
 					}
@@ -2379,6 +2691,7 @@ namespace nkentseu {
 			bool RunSliceIntra(const uint8 *nal, usize size, const NkHevcSps &sps, const NkHevcPps &pps,
 							   const NkHevcSliceHeader &sh, NkHevcFrame *frame,
 							   const NkHevcFrame *const *refsL0, int32 numRefsL0,
+							   const NkHevcFrame *const *refsL1, int32 numRefsL1,
 							   NkHevcSliceDataStats &out) {
 				out = NkHevcSliceDataStats{};
 				if (!nal || size < 4 || !sps.valid || !pps.valid || !sh.valid)
@@ -2386,11 +2699,13 @@ namespace nkentseu {
 				if (sh.dependentSliceSegment || !sh.firstSliceSegmentInPic)
 					return false; // slices multiples : brique suivante
 				if (sh.sliceType != kHevcSliceI && frame) {
-					// Briques 11+12 : reconstruction P multi-référence (MC + MV spatiaux
-					// merge/AMVP avec mise à l'échelle réelle) + candidat temporel
-					// (§8.5.3.2.8/9, via le champ de MV persistant de la trame collocalisée).
-					// B : brique suivante (bi-prédiction).
-					if (sh.sliceType != kHevcSliceP || !refsL0 || numRefsL0 < sh.numRefIdxL0Active)
+					// Reconstruction inter P/B : MC + MV spatiaux merge/AMVP (mise à l'échelle
+					// réelle) + candidat temporel bi-liste (§8.5.3.2.8/9) + bi-prédiction (B).
+					if (sh.sliceType != kHevcSliceP && sh.sliceType != kHevcSliceB)
+						return false;
+					if (!refsL0 || numRefsL0 < sh.numRefIdxL0Active)
+						return false;
+					if (sh.sliceType == kHevcSliceB && (!refsL1 || numRefsL1 < sh.numRefIdxL1Active))
 						return false;
 					if (pps.log2ParallelMergeLevel > 2)
 						return false; // règle CU 8x8 forcé-2Nx2N (§7.3.8.6) non implémentée
@@ -2472,16 +2787,25 @@ namespace nkentseu {
 					p.frame = frame;
 					p.refsL0 = refsL0;
 					p.numRefsL0 = numRefsL0;
+					p.refsL1 = refsL1;
+					p.numRefsL1 = numRefsL1;
 					p.bitDepth = sps.bitDepthLuma;
 					p.maxVal = (1 << p.bitDepth) - 1;
 					p.qpBdOffsetY = 6 * (sps.bitDepthLuma - 8);
 					p.qpBdOffsetC = 6 * (sps.bitDepthChroma - 8);
-					p.mvL0x.Resize((usize)(p.minPuWidth * p.minPuHeight));
-					p.mvL0y.Resize((usize)(p.minPuWidth * p.minPuHeight));
-					p.refIdxL0.Resize((usize)(p.minPuWidth * p.minPuHeight));
-					p.mvValid.Resize((usize)(p.minPuWidth * p.minPuHeight));
-					for (uint64 i = 0; i < p.mvValid.Size(); ++i)
+					const usize puCount = (usize)(p.minPuWidth * p.minPuHeight);
+					p.mvL0x.Resize(puCount);
+					p.mvL0y.Resize(puCount);
+					p.mvL1x.Resize(puCount);
+					p.mvL1y.Resize(puCount);
+					p.refIdxL0.Resize(puCount);
+					p.refIdxL1.Resize(puCount);
+					p.predFlag.Resize(puCount);
+					p.mvValid.Resize(puCount);
+					for (uint64 i = 0; i < p.mvValid.Size(); ++i) {
 						p.mvValid[i] = 0;
+						p.predFlag[i] = 0;
+					}
 					frame->lumaW = p.picW;
 					frame->lumaH = p.picH;
 					frame->chromaW = p.picW >> 1;
@@ -2610,27 +2934,38 @@ namespace nkentseu {
 						p.ApplySao(srcY, srcCb, srcCr);
 					}
 				}
-				// Persistance du champ de MV (brique 12, §8.5.3.2.8/9) — cette trame
-				// devient une "collocated picture" possible pour le décodage de la
-				// SUIVANTE. Pour une trame I, p.mvValid reste entièrement à 0 (aucun bloc
-				// inter) : mvColValid en sortie est donc entièrement à 0 aussi, ce qui
-				// rend le candidat temporel authentiquement indisponible via elle — sans
-				// cas particulier à coder.
+				// Persistance du champ de MV bi-liste (§8.5.3.2.8/9) — cette trame devient
+				// une "collocated picture" possible pour le décodage de la SUIVANTE. Pour
+				// une trame I, p.predFlag reste entièrement à 0 (aucun bloc inter) : le
+				// candidat temporel y est authentiquement indisponible, sans cas particulier.
 				if (frame) {
 					frame->mvColPuWidth = p.minPuWidth;
 					frame->mvColPuHeight = p.minPuHeight;
 					frame->mvColX = p.mvL0x;
 					frame->mvColY = p.mvL0y;
+					frame->mvColL1X = p.mvL1x;
+					frame->mvColL1Y = p.mvL1y;
+					frame->mvColPredFlag = p.predFlag;
 					frame->mvColValid = p.mvValid;
-					frame->mvColRefPoc.Resize(p.refIdxL0.Size());
+					frame->mvColRefPocL0.Resize(p.refIdxL0.Size());
+					frame->mvColRefPocL1.Resize(p.refIdxL0.Size());
 					for (uint64 i = 0; i < p.refIdxL0.Size(); ++i) {
-						if (!p.mvValid[i]) {
-							frame->mvColRefPoc[i] = 0;
-							continue;
+						const uint8 pf = p.predFlag[i];
+						int32 rp0 = 0, rp1 = 0;
+						if (pf & 1) {
+							const int8 ri = p.refIdxL0[i];
+							rp0 = (ri >= 0 && ri < p.numRefsL0 && p.refsL0 && p.refsL0[ri])
+									  ? p.refsL0[ri]->poc
+									  : 0;
 						}
-						const int8 ri = p.refIdxL0[i];
-						frame->mvColRefPoc[i] =
-							(ri >= 0 && ri < p.numRefsL0 && p.refsL0[ri]) ? p.refsL0[ri]->poc : 0;
+						if (pf & 2) {
+							const int8 ri = p.refIdxL1[i];
+							rp1 = (ri >= 0 && ri < p.numRefsL1 && p.refsL1 && p.refsL1[ri])
+									  ? p.refsL1[ri]->poc
+									  : 0;
+						}
+						frame->mvColRefPocL0[i] = rp0;
+						frame->mvColRefPocL1[i] = rp1;
 					}
 				}
 				return true;
@@ -2641,20 +2976,29 @@ namespace nkentseu {
 		bool NkHevcDecoder::ParseSliceDataIntra(const uint8 *nal, usize size, const NkHevcSps &sps,
 												const NkHevcPps &pps, const NkHevcSliceHeader &sh,
 												NkHevcSliceDataStats &out) {
-			return RunSliceIntra(nal, size, sps, pps, sh, nullptr, nullptr, 0, out);
+			return RunSliceIntra(nal, size, sps, pps, sh, nullptr, nullptr, 0, nullptr, 0, out);
 		}
 
 		bool NkHevcDecoder::DecodeSliceIntra(const uint8 *nal, usize size, const NkHevcSps &sps,
 											 const NkHevcPps &pps, const NkHevcSliceHeader &sh,
 											 NkHevcFrame &frame, NkHevcSliceDataStats &out) {
-			return RunSliceIntra(nal, size, sps, pps, sh, &frame, nullptr, 0, out);
+			return RunSliceIntra(nal, size, sps, pps, sh, &frame, nullptr, 0, nullptr, 0, out);
 		}
 
 		bool NkHevcDecoder::DecodeSliceP(const uint8 *nal, usize size, const NkHevcSps &sps,
 										 const NkHevcPps &pps, const NkHevcSliceHeader &sh,
 										 const NkHevcFrame *const *refsL0, int32 numRefsL0,
 										 NkHevcFrame &frame, NkHevcSliceDataStats &out) {
-			return RunSliceIntra(nal, size, sps, pps, sh, &frame, refsL0, numRefsL0, out);
+			return RunSliceIntra(nal, size, sps, pps, sh, &frame, refsL0, numRefsL0, nullptr, 0, out);
+		}
+
+		bool NkHevcDecoder::DecodeSliceB(const uint8 *nal, usize size, const NkHevcSps &sps,
+										 const NkHevcPps &pps, const NkHevcSliceHeader &sh,
+										 const NkHevcFrame *const *refsL0, int32 numRefsL0,
+										 const NkHevcFrame *const *refsL1, int32 numRefsL1,
+										 NkHevcFrame &frame, NkHevcSliceDataStats &out) {
+			return RunSliceIntra(nal, size, sps, pps, sh, &frame, refsL0, numRefsL0, refsL1, numRefsL1,
+								 out);
 		}
 
 	} // namespace media

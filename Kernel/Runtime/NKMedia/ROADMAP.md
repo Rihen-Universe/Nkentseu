@@ -1113,13 +1113,38 @@ zero-STL, `nkentseu::media`.
     `merge_idx`/`mvp_lx_flag` à ces endroits précis) — donc un vrai risque resté caché, pas
     spécifique à la pondération explicite qui n'a fait que l'exposer en premier. Détail complet :
     mémoire `project_nkmedia_hevc_p_multiref_bug`.
-- **Suite (brique 14, PAS commencée)** : slices B (bi-prédiction, candidats combinés,
-  `inter_pred_idc`), déblocage BS inter (§8.7.2.4, dérivé du MV/refIdx de part et d'autre de
-  l'arête — actuellement seul le cas intra BS=2 est implémenté) + SAO sur P/B, règle CU 8×8
-  forcé-2Nx2N si `log2ParallelMergeLevel>2`. Puis branchement `NkVideoReader` (.265/MP4/MKV, DPB
-  réel multi-images). Restes mineurs (refus propre en place) : tuiles, PCM, 4:2:2/4:4:4,
-  `ref_pic_lists_modification()`, `scaling_list_data()`, bit depth >8 pour l'inter (10-bit MC
-  pas encore branché).
+- ⭐⭐⭐ **Brique 14 livrée et validée BIT-EXACT vs ffmpeg (2026-07-26) : slices B (bi-prédiction)
+  en PIXELS** — `NkHevcDecoder::DecodeSliceB` (RefPicList0 ET RefPicList1 résolues par l'appelant).
+  Le PARSING B était déjà fait depuis la brique 8 (inter_pred_idc, refIdx/mvd/mvp L1,
+  pred_weight_table L0+L1, collocated) ; cette brique ajoute la RECONSTRUCTION complète.
+  - **Champ de MV bi-liste** : `MvField` complet (predFlag L0/L1, mv[2], refIdx[2]) par bloc 4×4,
+    persisté dans `NkHevcFrame::mvColL1X/Y` + `mvColRefPocL0/L1` + `mvColPredFlag` (le champ
+    colocalisé porte les DEUX listes + leurs POC pour la mise à l'échelle temporelle cross-trame).
+  - **Merge bi** (§8.5.3.2.2-4) : candidats spatiaux (MvField complet du voisin, élagage
+    `CompareMvRefIdx` sur les listes actives), temporel 2-passes L0/L1, **candidats combinés
+    bi-prédictifs** (table `kHevcL0L1CandIdx[12][2]`, appariement l0/l1 de POC/MV distincts),
+    candidats nuls bi, règle 8×4/4×8 (BI→L0 si nPbW+nPbH==12).
+  - **Candidat temporel bi-liste** (§8.5.3.2.8/9) : `DeriveTemporalColocatedMv(listX,refIdx)` avec
+    sélection `collocated_from_l0`, `check_diffpicount` (low-delay), `check_mvset`/`mv_scale`.
+  - **AMVP par liste** (§8.5.3.2.6/7) : `DeriveAmvpLx` — chaque voisin peut fournir le candidat via
+    SA liste L0 OU L1 (`MpMx`/`MpMxLt`, match sur POC pointé), `mvd_l1_zero`.
+  - **MC bi** (§8.5.3.3.3/4) : intermédiaires 14-bit par liste (`ComputeInterp`), combinaison
+    non pondérée `(predL0+predL1+64)>>7` ou pondérée explicite (`pps.weightedBipred`,
+    `log2Wd`/w0/w1/o0/o1). Le chemin uni P validé bit-exact n'est PAS touché (généralisation
+    `FinalizeSample`/`ApplyMotionCompensation` par (listX, refIdx), identique pour L0 en 8-bit).
+  - **Validation** : 7 flux B dédiés (b-pyramid, multi-réf L0+L1, `weightb=1` pondération bi, AMP,
+    no-temporal-mvp) — **toutes les trames B bit-exactes** (maxdiff=0), Debug (asserts) ET Release.
+    **Non-régression totale** : P 4/4, intra 4/4 toujours bit-exacts. Harnais `--hevcinter` étendu
+    (décode P ET B, résolution POC→pointeurs L0/L1). Implémentée dans un worktree isolé puis
+    ré-validée intégralement dans le dépôt principal avant intégration.
+- **Suite (brique 15, PAS commencée)** : déblocage BS inter (§8.7.2.4, dérivé du MV/refIdx de part
+  et d'autre de l'arête — actuellement seul le cas intra BS=2 est implémenté) + SAO sur P/B (le
+  parsing SAO tourne déjà pour P/B, seul le garde final `sliceType==kHevcSliceI` bloque
+  l'application), règle CU 8×8 forcé-2Nx2N si `log2ParallelMergeLevel>2`. Puis branchement
+  `NkVideoReader` (.265/MP4/MKV, DPB réel multi-images, éviction par RPS §8.3.2, réordonnancement
+  POC). Restes mineurs (refus propre en place) : tuiles, PCM, 4:2:2/4:4:4,
+  `ref_pic_lists_modification()`, `scaling_list_data()`, bit depth >8 pour l'inter (10-bit MC pas
+  encore branché).
 
 ## En cours / À venir
 
