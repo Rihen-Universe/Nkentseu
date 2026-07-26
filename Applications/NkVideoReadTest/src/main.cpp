@@ -1256,8 +1256,6 @@ int main(int argc, char **argv) {
 			NkHevcSliceHeader sh;
 			if (!NkHevcDecoder::ParseSliceHeader(nd, nal.size, sps, pps, sh))
 				continue;
-			if (sh.sliceType == kHevcSliceB)
-				continue; // bi-prediction : brique suivante — non attendu (bframes=0)
 			const bool isIdr = nal.type == kHevcNalIdrWRadl || nal.type == kHevcNalIdrNLp;
 			const int32 poc =
 				NkHevcDecoder::ComputePoc(sh.picOrderCntLsb, sps.log2MaxPocLsb, isIdr, prevPocTid0);
@@ -1276,37 +1274,63 @@ int main(int argc, char **argv) {
 				dpb.PushBack(frame);
 				continue;
 			}
-			if (sh.sliceType != kHevcSliceP)
+			if (sh.sliceType != kHevcSliceP && sh.sliceType != kHevcSliceB)
 				continue;
+			const bool isB = (sh.sliceType == kHevcSliceB);
 			NkHevcRefPicLists rpl;
-			NkHevcDecoder::BuildRefPicLists(sh.rps, poc, sh.numRefIdxL0Active, 0, false, rpl);
-			if (rpl.numL0 < sh.numRefIdxL0Active) {
-				printf("  [KO] RefPicList0 incomplete (poc=%d)\n", poc);
+			NkHevcDecoder::BuildRefPicLists(sh.rps, poc, sh.numRefIdxL0Active, sh.numRefIdxL1Active, isB,
+											rpl);
+			if (rpl.numL0 < sh.numRefIdxL0Active || (isB && rpl.numL1 < sh.numRefIdxL1Active)) {
+				printf("  [KO] RefPicList incomplete (poc=%d)\n", poc);
 				hardFail = true;
 				break;
 			}
 			const NkHevcFrame *refsL0[16];
+			const NkHevcFrame *refsL1[16];
 			bool resolveOk = true;
 			for (int32 r = 0; r < sh.numRefIdxL0Active; ++r) {
 				refsL0[r] = findByPoc(rpl.l0[r]);
 				if (!refsL0[r])
 					resolveOk = false;
 			}
+			if (isB)
+				for (int32 r = 0; r < sh.numRefIdxL1Active; ++r) {
+					refsL1[r] = findByPoc(rpl.l1[r]);
+					if (!refsL1[r])
+						resolveOk = false;
+				}
 			if (!resolveOk) {
 				printf("  [KO] resolution POC->trame echouee (poc=%d)\n", poc);
 				hardFail = true;
 				break;
 			}
 			NkHevcFrame frame;
-			frame.poc = poc; // lu PAR DecodeSliceP (curPoc AMVP) : DOIT etre pose avant l'appel
+			frame.poc = poc; // lu PAR DecodeSliceP/B (curPoc AMVP) : DOIT etre pose avant l'appel
 			NkHevcSliceDataStats ds;
-			if (!NkHevcDecoder::DecodeSliceP(nd, nal.size, sps, pps, sh, refsL0,
-											 sh.numRefIdxL0Active, frame, ds)) {
-				printf("  [KO] decode trame P echoue (poc=%d)\n", poc);
+			const bool decOk =
+				isB ? NkHevcDecoder::DecodeSliceB(nd, nal.size, sps, pps, sh, refsL0,
+												  sh.numRefIdxL0Active, refsL1, sh.numRefIdxL1Active,
+												  frame, ds)
+					: NkHevcDecoder::DecodeSliceP(nd, nal.size, sps, pps, sh, refsL0,
+												  sh.numRefIdxL0Active, frame, ds);
+			if (!decOk) {
+				printf("  [KO] decode trame %c echoue (poc=%d)\n", isB ? 'B' : 'P', poc);
 				hardFail = true;
 				break;
 			}
-			prevPocTid0 = poc;
+			// prevPocTid0 : mis à jour SEULEMENT par les images TemporalId==0 non
+			// RASL/RADL/sous-couche-non-ref (§8.3.1) — sinon les B de la pyramide
+			// (TemporalId>0) fausseraient la dérivation MSB des images suivantes.
+			{
+				const int32 nt = nal.type;
+				const bool subNonRef = (nt == kHevcNalTrailN || nt == kHevcNalTsaN ||
+										nt == kHevcNalStsaN || nt == kHevcNalRadlN ||
+										nt == kHevcNalRaslN);
+				const bool raslRadl = (nt == kHevcNalRadlN || nt == kHevcNalRadlR ||
+									   nt == kHevcNalRaslN || nt == kHevcNalRaslR);
+				if (nal.temporalId == 0 && !subNonRef && !raslRadl)
+					prevPocTid0 = poc;
+			}
 			++pFrames;
 			const int32 cw = frame.cropW, ch = frame.cropH;
 			const int32 ccw = cw >> 1, cch = ch >> 1;
@@ -1344,16 +1368,17 @@ int main(int argc, char **argv) {
 				worstDiff = maxDiff;
 			if (maxDiff == 0)
 				++pFramesOk;
-			printf("  trame P : poc=%d refs=%d ctus=%d coeffs=%lld maxdiff=%d %s\n", poc,
-				   sh.numRefIdxL0Active, ds.ctusParsed, (long long)ds.nonZeroCoeffs, maxDiff,
+			printf("  trame %c : poc=%d refs=L0:%d/L1:%d ctus=%d coeffs=%lld maxdiff=%d %s\n",
+				   isB ? 'B' : 'P', poc, sh.numRefIdxL0Active, isB ? sh.numRefIdxL1Active : 0,
+				   ds.ctusParsed, (long long)ds.nonZeroCoeffs, maxDiff,
 				   maxDiff == 0 ? "BIT-EXACT" : "[KO]");
 			dpb.PushBack(frame);
 		}
 		fclose(fr);
 		const bool ok = !hardFail && pFrames > 0 && pFramesOk == pFrames;
-		printf("  trames P decodees : %d, bit-exactes : %d/%d (pire ecart=%d)\n", pFrames, pFramesOk,
-			   pFrames, worstDiff);
-		printf("  [ %s ] decode HEVC P multi-reference vs ffmpeg (brique 11 : MV merge/AMVP + mise a l'echelle, sans filtres en boucle)\n",
+		printf("  trames inter (P/B) decodees : %d, bit-exactes : %d/%d (pire ecart=%d)\n", pFrames,
+			   pFramesOk, pFrames, worstDiff);
+		printf("  [ %s ] decode HEVC P/B vs ffmpeg (MV merge/AMVP/temporel + bi-prediction, sans filtres en boucle)\n",
 			   ok ? "OK " : "KO");
 		return ok ? 0 : 1;
 	}

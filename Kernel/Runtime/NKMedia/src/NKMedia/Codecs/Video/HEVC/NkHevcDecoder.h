@@ -245,9 +245,12 @@ namespace nkentseu {
 				// donc conserver le champ complet 4x4 donne un résultat identique. Vide
 				// (mvColValid.IsEmpty()) pour une trame intra (I) : aucun MV, le candidat
 				// temporel y est authentiquement indisponible.
-				NkVector<int16> mvColX, mvColY; // MV L0 par bloc 4x4 (grille mvColPuWidth x mvColPuHeight)
-				NkVector<int32> mvColRefPoc;	 // POC de la référence utilisée par ce bloc
-				NkVector<uint8> mvColValid;		 // 1 si le bloc 4x4 est INTER avec MV résolu
+				NkVector<int16> mvColX, mvColY;		// MV L0 par bloc 4x4 (grille mvColPuWidth x mvColPuHeight)
+				NkVector<int16> mvColL1X, mvColL1Y; // MV L1 par bloc 4x4 (bi-prédiction, brique B)
+				NkVector<int32> mvColRefPocL0;		// POC de la référence L0 utilisée par ce bloc
+				NkVector<int32> mvColRefPocL1;		// POC de la référence L1 utilisée par ce bloc (bi)
+				NkVector<uint8> mvColPredFlag;		// bit0=L0, bit1=L1 (0=intra/none)
+				NkVector<uint8> mvColValid;			// 1 si le bloc 4x4 est INTER (= mvColPredFlag != 0)
 				int32 mvColPuWidth = 0, mvColPuHeight = 0;
 		};
 
@@ -384,6 +387,22 @@ namespace nkentseu {
 				static bool DecodeSliceP(const uint8 *nal, usize size, const NkHevcSps &sps,
 										const NkHevcPps &pps, const NkHevcSliceHeader &sh,
 										const NkHevcFrame *const *refsL0, int32 numRefsL0,
+										NkHevcFrame &frame, NkHevcSliceDataStats &out);
+
+				// Brique B : DÉCODE une slice B (bi-prédiction) en pixels — RefPicList0 ET
+				// RefPicList1 résolues par l'appelant (chaque `.poc` renseigné, ainsi que
+				// `frame.poc`). Merge (spatiaux/temporel/combiné-bi/nuls bi), AMVP par liste
+				// (§8.5.3.2.6/7 avec dérivation L0/L1 par voisin), candidat temporel bi-liste
+				// (§8.5.3.2.8/9, collocated_from_l0 + check_diffpicount), compensation de
+				// mouvement uni L0/uni L1/bi (§8.5.3.3.3/4, pondération explicite si
+				// pps.weightedBipred). PAS de filtres en boucle (comme P) — comparer SANS
+				// déblocage/SAO. Refus propre : tuiles, PCM, 4:2:2/4:4:4, bit depth != 8,
+				// log2ParallelMergeLevel > 2. DecodeSliceP délègue à la même routine interne
+				// (refsL1=nullptr/0).
+				static bool DecodeSliceB(const uint8 *nal, usize size, const NkHevcSps &sps,
+										const NkHevcPps &pps, const NkHevcSliceHeader &sh,
+										const NkHevcFrame *const *refsL0, int32 numRefsL0,
+										const NkHevcFrame *const *refsL1, int32 numRefsL1,
 										NkHevcFrame &frame, NkHevcSliceDataStats &out);
 
 				// Brique 9 : dérive le POC réel (§8.3.1, PicOrderCntVal) — cas SIMPLIFIÉ
