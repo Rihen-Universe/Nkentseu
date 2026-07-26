@@ -117,6 +117,13 @@ namespace nkentseu {
 				bool ampEnabled = false;
 				bool sampleAdaptiveOffsetEnabled = false; // gate des flags SAO du slice header
 				bool pcmEnabled = false;
+				// PCM (I_PCM, §7.3.8.5/8.4.4.1) — profondeurs des échantillons bruts et
+				// bornes de taille de bloc PCM (en log2 luma). Valides si pcmEnabled.
+				int32 pcmBitDepthLuma = 8;			 // pcm_sample_bit_depth_luma_minus1 + 1
+				int32 pcmBitDepthChroma = 8;		 // pcm_sample_bit_depth_chroma_minus1 + 1
+				int32 log2MinPcmCbSize = 3;			 // log2_min_pcm_luma_..._minus3 + 3
+				int32 log2MaxPcmCbSize = 3;			 // + log2_diff_max_min_pcm_...
+				bool pcmLoopFilterDisabled = false;	 // pcm_loop_filter_disabled_flag
 				// Jeux de RPS candidats signalés dans le SPS (une slice les référence par index,
 				// ou signale le sien inline — x265 par défaut : num=0, RPS inline par slice).
 				int32 numShortTermRefPicSets = 0; // <= 64

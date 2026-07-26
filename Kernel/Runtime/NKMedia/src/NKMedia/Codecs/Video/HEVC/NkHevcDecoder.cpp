@@ -314,10 +314,11 @@ namespace nkentseu {
 			out.sampleAdaptiveOffsetEnabled = br.U1() != 0;
 			out.pcmEnabled = br.U1() != 0;
 			if (out.pcmEnabled) {
-				br.Skip(4 + 4); // pcm_sample_bit_depth_luma/chroma_minus1
-				br.UE();		// log2_min_pcm_luma_coding_block_size_minus3
-				br.UE();		// log2_diff_max_min_pcm_luma_coding_block_size
-				br.Skip(1);		// pcm_loop_filter_disabled_flag
+				out.pcmBitDepthLuma = (int32)br.U(4) + 1;   // pcm_sample_bit_depth_luma_minus1
+				out.pcmBitDepthChroma = (int32)br.U(4) + 1; // pcm_sample_bit_depth_chroma_minus1
+				out.log2MinPcmCbSize = (int32)br.UE() + 3;  // log2_min_pcm_..._minus3
+				out.log2MaxPcmCbSize = out.log2MinPcmCbSize + (int32)br.UE();
+				out.pcmLoopFilterDisabled = br.U1() != 0;   // pcm_loop_filter_disabled_flag
 			}
 			out.numShortTermRefPicSets = (int32)br.UE();
 			if (out.numShortTermRefPicSets > 64)
