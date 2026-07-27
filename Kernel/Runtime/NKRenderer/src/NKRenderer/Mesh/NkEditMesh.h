@@ -151,6 +151,20 @@ namespace nkentseu {
 				// Renvoie le nombre de faces trouvées (0..2).
 				uint32 EdgeFaces(uint32 a, uint32 b, NkEmId &f0, NkEmId &f1) const;
 
+				// ── BOUCLES / ANNEAUX (Alt+clic façon Blender) ───────────────────────
+				// Ces parcours EXIGENT des twins corrects entre faces voisines : ils ne sont
+				// possibles que grâce à la soudure topologique (cf. BuildVertexMerge).
+				//
+				// EDGE LOOP : depuis l'arête (a,b), suit la boucle qui CONTINUE TOUT DROIT à
+				// travers les sommets (l'arête alignée dans la face voisine), dans les DEUX
+				// sens, jusqu'à reboucler ou atteindre un bord. Sort des paires de sommets
+				// (même format que GetUniqueEdges). Ne progresse qu'à travers des QUADS —
+				// s'arrête proprement sur un pôle, un n-gon ou un bord.
+				void GetEdgeLoop(uint32 a, uint32 b, NkVector<uint32> &outPairs) const;
+				// FACE LOOP : anneau des faces TRAVERSÉES par l'arête (a,b) — de proche en
+				// proche via l'arête opposée du quad (même parcours que le loop cut).
+				void GetFaceLoop(uint32 a, uint32 b, NkVector<NkEmId> &outFaces) const;
+
 				// Fusionne les paires de triangles CONSÉCUTIFS (2k,2k+1) adjacents et
 				// coplanaires en QUADS. Adapté aux meshes triangulés quad-par-quad
 				// (primitives, grilles). coplanarDot ~0.9995 (cube) à 0.98 (sphère fine).

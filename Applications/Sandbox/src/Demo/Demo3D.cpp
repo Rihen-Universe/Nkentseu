@@ -131,6 +131,17 @@ namespace nkentseu {
 				bool editSubdivPending = false;	  // W : subdivise les faces sélectionnées
 				bool editLoopCutPending = false;  // Ctrl+R : boucle d'arêtes (loop cut)
 			int32 loopCuts = 1;				  // Ctrl+Shift+R : nb de boucles insérées (1..5)
+				// ── OUTILS DE SÉLECTION façon Blender ────────────────────────────
+				// selTool : 0=aucun · 1=RECTANGLE (armé par B) · 2=LASSO (Ctrl+glisser) ·
+				// 3=CERCLE (C, modal : on « peint » en maintenant le clic).
+				int32 selTool = 0;
+				bool selDragging = false;		  // tracé en cours
+				float32 selX0 = 0.f, selY0 = 0.f; // origine du tracé (pixels écran)
+				float32 selX1 = 0.f, selY1 = 0.f; // point courant
+				NkVector<NkVec2f> selLasso;		  // contour libre (lasso)
+				float32 selCircleR = 40.f;		  // rayon du cercle (pixels)
+				int32 selMode = 0;				  // 0=remplacer · 1=ajouter (Shift) · 2=retirer (Ctrl)
+				float32 lastWheel = 0.f;		  // molette de la frame (rayon du cercle)
 				bool editUndoPending = false;	  // Ctrl+Z : annuler (traité côté frame)
 				bool editRedoPending = false;	  // Ctrl+Shift+Z / Ctrl+Y : rétablir
 				bool editReplayPending = false;	  // P : rejoue le journal depuis la base
@@ -363,6 +374,130 @@ namespace nkentseu {
 		static void Demo3D_NormalizeSel(Demo3DState *st) {
 			Demo3D_PushSel(st);
 			Demo3D_PullSel(st);
+		}
+
+		// ── SÉLECTION PAR ZONE ÉCRAN (rectangle / lasso / cercle) ────────────────────
+		// Cœur COMMUN aux 3 outils : seul le PRÉDICAT « ce point écran est-il dans la zone »
+		// change. Parcourt les éléments selon le MODE ACTIF (V/E/F) :
+		//   • VERTEX : le sommet est dans la zone ;
+		//   • EDGE   : le MILIEU de l'arête est dans la zone (approximation Blender usuelle) ;
+		//   • FACE   : le CENTRE de la face est dans la zone.
+		// mode : 0 = remplacer · 1 = ajouter (Shift) · 2 = retirer (Ctrl).
+		// Hors X-ray, seuls les éléments TOURNÉS VERS LA CAMÉRA sont touchés (Blender ne
+		// sélectionne pas à travers le maillage sans X-ray).
+		template <class InZone, class Project>
+		static void Demo3D_SelectInZone(Demo3DState *st, int32 mode, NkVec3f camPos, InZone inZone, Project project) {
+			const uint32 nv = (uint32)st->editRest.Size();
+			if ((uint32)st->vertSel.Size() < nv)
+				st->vertSel.Resize(nv);
+			if (mode == 0)
+				for (uint32 i = 0; i < nv; i++)
+					st->vertSel[i] = 0;
+			const NkVec3f orgW = st->editAnchor * NkVec3f{0.f, 0.f, 0.f};
+			auto wpos = [&](uint32 i) { return st->editAnchor * st->editRest[i].pos; };
+			auto faces = [&](NkVec3f w, NkVec3f nLocal) {
+				if (st->editXray)
+					return true;
+				return ((st->editAnchor * nLocal) - orgW).Dot(camPos - w) > 0.f;
+			};
+			auto hit = [&](NkVec3f w) {
+				float32 px, py;
+				return project(w, px, py) && inZone(px, py);
+			};
+			const uint8 on = (mode == 2) ? (uint8)0 : (uint8)1;
+			auto apply = [&](uint32 vi) {
+				if (vi < (uint32)st->vertSel.Size())
+					st->vertSel[vi] = on;
+			};
+			if (st->editSelMask & 1) { // VERTEX
+				for (uint32 i = 0; i < nv; i++)
+					if (faces(wpos(i), st->editRest[i].normal) && hit(wpos(i)))
+						apply(i);
+			}
+			if (st->editSelMask & 2) { // EDGE (par le milieu)
+				for (uint32 e = 0; e + 1 < (uint32)st->editEdges.Size(); e += 2) {
+					const uint32 a = st->editEdges[e], b = st->editEdges[e + 1];
+					if (a >= nv || b >= nv)
+						continue;
+					const NkVec3f wa = wpos(a), wb = wpos(b), mid = (wa + wb) * 0.5f;
+					if (!faces(mid, st->editRest[a].normal) && !faces(mid, st->editRest[b].normal))
+						continue;
+					if (hit(mid)) {
+						apply(a);
+						apply(b);
+					}
+				}
+			}
+			if (st->editSelMask & 4) { // FACE (par le centre)
+				NkVector<renderer::NkEmId> fvz;
+				for (uint32 f = 0; f < (uint32)st->editHE.faces.Size(); f++) {
+					if (!st->editHE.faces[f].alive)
+						continue;
+					fvz.Clear();
+					st->editHE.GetFaceVerts(f, fvz);
+					if (fvz.Size() < 3)
+						continue;
+					NkVec3f c{0.f, 0.f, 0.f};
+					for (uint32 k = 0; k < (uint32)fvz.Size(); k++)
+						c = c + wpos(fvz[k]);
+					c = c * (1.f / (float32)fvz.Size());
+					if (!faces(c, st->editHE.faces[f].normal))
+						continue;
+					if (hit(c))
+						for (uint32 k = 0; k < (uint32)fvz.Size(); k++)
+							apply(fvz[k]);
+				}
+			}
+			Demo3D_NormalizeSel(st);
+			st->editOverlayDirty = true;
+		}
+
+		// Point dans polygone (lancer de rayon horizontal, règle pair/impair) — lasso.
+		static bool Demo3D_PointInPoly(const NkVector<NkVec2f> &poly, float32 px, float32 py) {
+			bool in = false;
+			const uint32 n = (uint32)poly.Size();
+			for (uint32 i = 0, j = n - 1; i < n; j = i++) {
+				const NkVec2f &A = poly[i], &B = poly[j];
+				if (((A.y > py) != (B.y > py)) &&
+					(px < (B.x - A.x) * (py - A.y) / ((B.y - A.y) != 0.f ? (B.y - A.y) : 1e-6f) + A.x))
+					in = !in;
+			}
+			return in;
+		}
+
+		// ── BOUCLE D'ARÊTES / DE FACES (Alt+clic façon Blender) ─────────────────────
+		// Rendue possible par la SOUDURE topologique (twins entre faces voisines).
+		// add=false -> remplace la sélection ; add=true (Shift+Alt) -> l'ajoute.
+		static void Demo3D_SelectLoop(Demo3DState *st, uint32 a, uint32 b, bool faceLoop, bool add) {
+			const uint32 nv = (uint32)st->vertSel.Size();
+			if (!add)
+				for (uint32 i = 0; i < nv; i++)
+					st->vertSel[i] = 0;
+			if (faceLoop) {
+				NkVector<renderer::NkEmId> loopF;
+				st->editHE.GetFaceLoop(a, b, loopF);
+				NkVector<renderer::NkEmId> fvl;
+				for (uint32 k = 0; k < (uint32)loopF.Size(); k++) {
+					fvl.Clear();
+					st->editHE.GetFaceVerts(loopF[k], fvl);
+					for (uint32 j = 0; j < (uint32)fvl.Size(); j++)
+						if (fvl[j] < nv)
+							st->vertSel[fvl[j]] = 1;
+				}
+				logger.Info("[Demo3D] Alt+clic : boucle de FACES -> {0} faces\n", (uint32)loopF.Size());
+			} else {
+				NkVector<uint32> loopE;
+				st->editHE.GetEdgeLoop(a, b, loopE);
+				for (uint32 k = 0; k + 1 < (uint32)loopE.Size(); k += 2) {
+					if (loopE[k] < nv)
+						st->vertSel[loopE[k]] = 1;
+					if (loopE[k + 1] < nv)
+						st->vertSel[loopE[k + 1]] = 1;
+				}
+				logger.Info("[Demo3D] Alt+clic : boucle d'ARETES -> {0} aretes\n", (uint32)(loopE.Size() / 2));
+			}
+			Demo3D_NormalizeSel(st);
+			st->editOverlayDirty = true;
 		}
 
 		// Applique UNE commande d'édition (DONNÉE) : capture la sélection courante dans la
@@ -1047,6 +1182,31 @@ namespace nkentseu {
 							return;
 						}
 					}
+					// ── OUTILS DE SÉLECTION (façon Blender) ────────────────────────
+					// B = arme la sélection RECTANGLE (le prochain glisser trace la boîte).
+					// C = bascule le mode CERCLE (on « peint » en maintenant le clic ;
+					//     molette = rayon). Échap = quitte l'outil courant.
+					// (Le LASSO n'a pas de touche : Ctrl + glisser, comme dans Blender.)
+					if (k == NkKey::NK_B) {
+						st->selTool = (st->selTool == 1) ? 0 : 1;
+						st->selDragging = false;
+						logger.Info("[Demo3D] Selection RECTANGLE : {0}\n", st->selTool == 1 ? "ARMEE (glisser)" : "off");
+						return;
+					}
+					if (k == NkKey::NK_C) {
+						st->selTool = (st->selTool == 3) ? 0 : 3;
+						st->selDragging = false;
+						logger.Info("[Demo3D] Selection CERCLE : {0}\n",
+									st->selTool == 3 ? "ON (clic=peindre, molette=rayon)" : "off");
+						return;
+					}
+					if (k == NkKey::NK_ESCAPE && st->selTool != 0) {
+						st->selTool = 0;
+						st->selDragging = false;
+						st->selLasso.Clear();
+						logger.Info("[Demo3D] Outil de selection : annule\n");
+						return;
+					}
 					// Alt+Z : toggle X-RAY (voir/sélectionner à travers le mesh), façon Blender.
 					if (k == NkKey::NK_Z && alt) {
 						st->editXray = !st->editXray;
@@ -1557,6 +1717,26 @@ namespace nkentseu {
 								: selOneVert ? "vert"
 											 : "top",
 								nsel, st->editSelMask);
+					// La sélection scriptée ci-dessus ne touche qu'UNE copie de chaque sommet
+					// coïncident : on la normalise (comme après un pick souris) pour que les
+					// arêtes de la cage soient reconnues comme sélectionnées.
+					Demo3D_NormalizeSel(st);
+					// NK_SEL_LOOP=edge|face : applique une SÉLECTION DE BOUCLE (équivalent
+					// Alt+clic) depuis la 1re arête sélectionnée -> preuve en capture headless
+					// que le parcours de boucle fonctionne (il dépend de la soudure).
+					if (const char *sl = getenv("NK_SEL_LOOP")) {
+						int32 ea = -1, eb = -1;
+						for (uint32 e = 0; e + 1 < (uint32)st->editEdges.Size() && ea < 0; e += 2) {
+							const uint32 a2 = st->editEdges[e], b2 = st->editEdges[e + 1];
+							if (a2 < (uint32)st->vertSel.Size() && b2 < (uint32)st->vertSel.Size() &&
+								st->vertSel[a2] && st->vertSel[b2]) {
+								ea = (int32)a2;
+								eb = (int32)b2;
+							}
+						}
+						if (ea >= 0)
+							Demo3D_SelectLoop(st, (uint32)ea, (uint32)eb, (sl[0] == 'f' || sl[0] == 'F'), false);
+					}
 					gEditDrv = 2;
 				} else if (gEditDrv == 2) {
 					if (const char *op = getenv("NK_EDIT_OP")) {
@@ -1676,6 +1856,9 @@ namespace nkentseu {
 
 			const float32 wheel = (float32)st->wheelAccum;
 			st->wheelAccum = 0.0;
+			// En mode CERCLE de sélection, la molette règle le RAYON (façon Blender) et ne
+			// doit donc PAS zoomer la caméra : on la met de côté pour le bloc Edit Mode.
+			st->lastWheel = (st->editMode && st->selTool == 3) ? wheel : 0.f;
 			if (!fixcam) {
 				// FIX drift caméra : delta RECALCULÉ par frame (frameMDX/MDY = pos courante -
 				// pos précédente, = 0 sans mouvement), et NON NkInput.MouseDelta*() qui reste
@@ -1742,7 +1925,8 @@ namespace nkentseu {
 					// Molette façon Blender : seule = ZOOM ; Shift+molette = PAN VERTICAL ;
 					// Ctrl+molette = PAN HORIZONTAL. (mdx/mdy pixels ~10-20 ; une crantée de
 					// molette ~1 -> multiplier pour un pan comparable.)
-					if (wheel != 0.f) {
+					// (En mode CERCLE de sélection, la molette est réservée au rayon.)
+					if (wheel != 0.f && !(st->editMode && st->selTool == 3)) {
 						const float32 step = wheel * 22.f;
 						if (shift)
 							st->editorCam.Pan(0.f, step); // vertical
@@ -2233,9 +2417,78 @@ namespace nkentseu {
 					}
 					st->editOverlayDirty = true;
 				}
+				// ── OUTILS DE SÉLECTION PAR ZONE (rectangle / lasso / cercle) ─────────
+				// Traités AVANT le pick ponctuel : tant qu'un outil est actif, il consomme
+				// le clic. Modificateurs façon Blender : Shift = ajouter, Ctrl = retirer.
+				bool zoneToolConsumed = false;
+				const bool altDown = NkInput.IsKeyDown(NkKey::NK_LALT) || NkInput.IsKeyDown(NkKey::NK_RALT);
+				if (st->selTool == 3) { // CERCLE modal : on peint tant que le bouton est tenu
+					st->selX1 = gin.mouseX;
+					st->selY1 = gin.mouseY;
+					if (st->lastWheel != 0.f) {
+						st->selCircleR += st->lastWheel * 6.f;
+						st->selCircleR = NkMax(6.f, NkMin(400.f, st->selCircleR));
+					}
+					if (gin.leftDown) {
+						const float32 cx = gin.mouseX, cy = gin.mouseY, r2 = st->selCircleR * st->selCircleR;
+						Demo3D_SelectInZone(
+							st, gin.ctrlDown ? 2 : 1, camPos,
+							[&](float32 px, float32 py) {
+								return (px - cx) * (px - cx) + (py - cy) * (py - cy) <= r2;
+							},
+							project);
+					}
+					zoneToolConsumed = true;
+				} else if (gin.leftPressed && !grabbedHandle && !st->knifeArmed && !altDown &&
+						   (st->selTool == 1 || gin.ctrlDown)) {
+					// Démarre un tracé : RECTANGLE si armé par B, sinon LASSO (Ctrl+glisser).
+					st->selDragging = true;
+					st->selTool = (st->selTool == 1) ? 1 : 2;
+					st->selX0 = st->selX1 = gin.mouseX;
+					st->selY0 = st->selY1 = gin.mouseY;
+					st->selLasso.Clear();
+					st->selLasso.PushBack(NkVec2f{gin.mouseX, gin.mouseY});
+					// Rectangle : Shift=ajouter, Ctrl=retirer. Lasso (déjà Ctrl) : Shift=retirer.
+					st->selMode = (st->selTool == 1) ? (gin.shiftDown ? 1 : (gin.ctrlDown ? 2 : 0))
+													 : (gin.shiftDown ? 2 : 1);
+					zoneToolConsumed = true;
+				}
+				if (st->selDragging) {
+					st->selX1 = gin.mouseX;
+					st->selY1 = gin.mouseY;
+					if (st->selTool == 2) {
+						// Lasso : on n'ajoute un point que s'il s'éloigne (contour léger).
+						const NkVec2f &lp = st->selLasso[(uint32)st->selLasso.Size() - 1];
+						if (fabsf(lp.x - gin.mouseX) + fabsf(lp.y - gin.mouseY) > 3.f)
+							st->selLasso.PushBack(NkVec2f{gin.mouseX, gin.mouseY});
+					}
+					if (!gin.leftDown) { // relâché -> on applique la zone
+						if (st->selTool == 1) {
+							const float32 x0 = NkMin(st->selX0, st->selX1), x1 = NkMax(st->selX0, st->selX1);
+							const float32 y0 = NkMin(st->selY0, st->selY1), y1 = NkMax(st->selY0, st->selY1);
+							Demo3D_SelectInZone(
+								st, st->selMode, camPos,
+								[&](float32 px, float32 py) { return px >= x0 && px <= x1 && py >= y0 && py <= y1; },
+								project);
+							logger.Info("[Demo3D] Selection RECTANGLE appliquee\n");
+						} else if (st->selTool == 2 && st->selLasso.Size() >= 3) {
+							Demo3D_SelectInZone(
+								st, st->selMode, camPos,
+								[&](float32 px, float32 py) { return Demo3D_PointInPoly(st->selLasso, px, py); },
+								project);
+							logger.Info("[Demo3D] Selection LASSO appliquee ({0} points)\n",
+										(uint32)st->selLasso.Size());
+						}
+						st->selDragging = false;
+						st->selTool = 0; // one-shot, comme Blender
+						st->selLasso.Clear();
+					}
+					zoneToolConsumed = true;
+				}
+
 				// Pick sur la BASE (editRest/editIdx = editHE), même sous modificateurs -> on
 				// sélectionne/édite la cage de base et le résultat modifié se recalcule.
-				if (gin.leftPressed && !grabbedHandle && !st->knifeArmed) {
+				if (gin.leftPressed && !grabbedHandle && !st->knifeArmed && !zoneToolConsumed) {
 					st->editOverlayDirty = true; // la sélection va changer -> reconstruire l'overlay
 					const float32 mx = gin.mouseX, my = gin.mouseY;
 					// TOGGLE façon Blender : on mémorise l'état AVANT le nettoyage pour savoir
@@ -2358,7 +2611,38 @@ namespace nkentseu {
 					const int32 bestFt = (st->editSelMask & 4) ? nearestTri : -1;
 					// Élection PAR PRIORITÉ façon Blender : vertex (près d'un sommet) > arête
 					// (près d'une arête) > face (rayon). Chacun n'est retenu que dans son seuil.
-					if (bestV >= 0) {
+					// ── ALT+CLIC : BOUCLE (edge loop / face loop) façon Blender ──────
+					// Alt+clic sur une ARÊTE -> toute la boucle d'arêtes ; sur une FACE ->
+					// l'anneau de faces. Shift+Alt+clic ajoute à la sélection existante.
+					// Ce parcours n'est possible que grâce à la SOUDURE topologique.
+					bool loopDone = false;
+					if (altDown && (bestEa >= 0 || bestFt >= 0)) {
+						uint32 la = 0, lb = 0;
+						bool faceLoop = false, ok = false;
+						if (bestEa >= 0) { // une arête est sous le curseur -> edge loop
+							la = (uint32)bestEa;
+							lb = (uint32)bestEb;
+							ok = true;
+						} else { // sinon la face touchée -> anneau de faces
+							renderer::NkEmId f = Demo3D_FaceOfTri(st, (uint32)bestFt / 3u);
+							NkVector<renderer::NkEmId> fvl;
+							if (f != renderer::NK_EM_INVALID)
+								st->editHE.GetFaceVerts(f, fvl);
+							if (fvl.Size() >= 2) {
+								la = fvl[0];
+								lb = fvl[1];
+								faceLoop = true;
+								ok = true;
+							}
+						}
+						if (ok) {
+							Demo3D_SelectLoop(st, la, lb, faceLoop, gin.shiftDown);
+							loopDone = true;
+						}
+					}
+					if (loopDone) {
+						// sélection déjà posée + normalisée par Demo3D_SelectLoop
+					} else if (bestV >= 0) {
 						// Déjà sélectionné -> DÉSÉLECTION (toggle), sinon sélection.
 						const uint8 on = wasSel((uint32)bestV) ? (uint8)0 : (uint8)1;
 						st->vertSel[bestV] = on;
@@ -2998,6 +3282,13 @@ namespace nkentseu {
 															 : "center",
 									  st->subdivCuts, st->loopCuts,
 									  st->knifeArmed ? (st->knifeHasP0 ? "[2e pt]" : "[1er pt]") : "");
+					// Outils de sélection : rappel des raccourcis + outil modal actif.
+					const char *stName[4] = {"-", "RECTANGLE", "LASSO", "CERCLE"};
+					overlay->DrawText({20.f, 136.f},
+									  "Selection: B=rect  Ctrl+glisser=lasso  C=cercle(molette=rayon)  "
+									  "Alt+clic=boucle  |  outil: %s%s",
+									  stName[st->selTool & 3],
+									  (st->selTool == 3) ? "  (clic=peindre, Echap=sortir)" : "");
 				} else {
 					overlay->DrawText(
 						{20.f, 100.f},
@@ -3005,6 +3296,45 @@ namespace nkentseu {
 						gmName[st->gizmo.Mode() & 3], orName[st->gizmo.Orientation() % 3]);
 					overlay->DrawText({20.f, 118.f}, "clic=sel  Shift+clic=multi  A/Alt+A=tout/rien  Alt+G/R/S=clear  "
 													 "|  Ctrl=snap  X/Y/Z=verrou axe");
+				}
+
+				// ── Tracé des OUTILS DE SÉLECTION (overlay 2D, façon Blender) ──────
+				// Rectangle en POINTILLÉS, lasso en ligne fine, cercle en contour.
+				if (st->editMode && st->selTool != 0) {
+					if (auto *r2dS = ctx.renderer->GetRender2D()) {
+						const NkVec4f col{1.f, 1.f, 1.f, 0.85f};
+						if (st->selTool == 1 && st->selDragging) {
+							const float32 x0 = NkMin(st->selX0, st->selX1), x1 = NkMax(st->selX0, st->selX1);
+							const float32 y0 = NkMin(st->selY0, st->selY1), y1 = NkMax(st->selY0, st->selY1);
+							// Pointillés : segments de 6 px espacés de 6 px sur les 4 bords.
+							for (float32 x = x0; x < x1; x += 12.f) {
+								const float32 xe = NkMin(x + 6.f, x1);
+								r2dS->DrawLine({x, y0}, {xe, y0}, col, 1.f);
+								r2dS->DrawLine({x, y1}, {xe, y1}, col, 1.f);
+							}
+							for (float32 y = y0; y < y1; y += 12.f) {
+								const float32 ye = NkMin(y + 6.f, y1);
+								r2dS->DrawLine({x0, y}, {x0, ye}, col, 1.f);
+								r2dS->DrawLine({x1, y}, {x1, ye}, col, 1.f);
+							}
+						} else if (st->selTool == 2 && st->selLasso.Size() >= 2) {
+							for (uint32 i = 1; i < (uint32)st->selLasso.Size(); i++)
+								r2dS->DrawLine(st->selLasso[i - 1], st->selLasso[i], col, 1.f);
+							r2dS->DrawLine(st->selLasso[(uint32)st->selLasso.Size() - 1], st->selLasso[0], col, 1.f);
+						} else if (st->selTool == 3) {
+							// Cercle : 48 segments autour du curseur.
+							const int32 kSeg = 48;
+							float32 pxp = st->selX1 + st->selCircleR, pyp = st->selY1;
+							for (int32 i = 1; i <= kSeg; i++) {
+								const float32 a = (float32)i * 6.2831853f / (float32)kSeg;
+								const float32 nx = st->selX1 + cosf(a) * st->selCircleR;
+								const float32 ny = st->selY1 + sinf(a) * st->selCircleR;
+								r2dS->DrawLine({pxp, pyp}, {nx, ny}, col, 1.f);
+								pxp = nx;
+								pyp = ny;
+							}
+						}
+					}
 				}
 
 				// ── Debug panel : params shadow live-tunable ───────────────────────

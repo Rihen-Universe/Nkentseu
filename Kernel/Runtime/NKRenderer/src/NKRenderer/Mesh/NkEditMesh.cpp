@@ -246,6 +246,99 @@ namespace nkentseu {
 			}
 		}
 
+		// Demi-arête vivante correspondant à l'arête (a,b), comparée sur l'IDENTITÉ
+		// TOPOLOGIQUE (sommets soudés) : deux faces voisines n'emploient pas les mêmes
+		// indices pour l'arête qu'elles partagent.
+		static NkEmId NkEmFindHedge(const NkEditMesh &m, const NkVector<uint32> &canon, uint32 a, uint32 b) {
+			const uint32 n = (uint32)canon.Size();
+			auto C = [&](uint32 v) { return (v < n) ? canon[v] : v; };
+			const uint32 ca = C(a), cb = C(b);
+			for (uint32 h = 0; h < (uint32)m.hedges.Size(); ++h) {
+				if (!m.hedges[h].alive || m.hedges[h].next == NK_EM_INVALID)
+					continue;
+				const uint32 o = C(m.hedges[h].origin), d = C(m.hedges[m.hedges[h].next].origin);
+				if ((o == ca && d == cb) || (o == cb && d == ca))
+					return (NkEmId)h;
+			}
+			return NK_EM_INVALID;
+		}
+
+		void NkEditMesh::GetEdgeLoop(uint32 a, uint32 b, NkVector<uint32> &outPairs) const {
+			outPairs.Clear();
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			const NkEmId h0 = NkEmFindHedge(*this, canon, a, b);
+			if (h0 == NK_EM_INVALID)
+				return;
+			const uint32 nc = (uint32)canon.Size();
+			auto C = [&](uint32 v) { return (v < nc) ? canon[v] : v; };
+			NkHashMap<uint64, uint8> seen;
+			auto emit = [&](NkEmId h) -> bool { // false si l'arête était DÉJÀ dans la boucle
+				const uint32 o = hedges[h].origin, d = hedges[hedges[h].next].origin;
+				const uint32 co = C(o), cd = C(d);
+				const uint32 lo = co < cd ? co : cd, hi = co < cd ? cd : co;
+				const uint64 key = ((uint64)lo << 32) | hi;
+				if (seen.Find(key))
+					return false;
+				seen.InsertOrAssign(key, (uint8)1);
+				outPairs.PushBack(o);
+				outPairs.PushBack(d);
+				return true;
+			};
+			// Progression « tout droit » : depuis h (… -> v), on prend la sortante de v qui
+			// PROLONGE h, soit next(twin(next(h))). Valable sur un maillage de quads.
+			auto step = [&](NkEmId h) -> NkEmId {
+				if (h == NK_EM_INVALID || FaceSize(hedges[h].face) != 4)
+					return NK_EM_INVALID;
+				const NkEmId hn = hedges[h].next;
+				if (hn == NK_EM_INVALID)
+					return NK_EM_INVALID;
+				const NkEmId tw = hedges[hn].twin;
+				if (tw == NK_EM_INVALID)
+					return NK_EM_INVALID; // bord -> boucle ouverte
+				return hedges[tw].next;
+			};
+			emit(h0);
+			// Sens avant, puis sens arrière (depuis le twin) : couvre aussi les boucles ouvertes.
+			for (int32 dir = 0; dir < 2; ++dir) {
+				NkEmId h = (dir == 0) ? h0 : hedges[h0].twin;
+				uint32 guard = 0;
+				while (h != NK_EM_INVALID && ++guard < 100000u) {
+					h = step(h);
+					if (h == NK_EM_INVALID || !emit(h))
+						break; // bord atteint, ou boucle refermée
+				}
+			}
+		}
+
+		void NkEditMesh::GetFaceLoop(uint32 a, uint32 b, NkVector<NkEmId> &outFaces) const {
+			outFaces.Clear();
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			NkEmId h = NkEmFindHedge(*this, canon, a, b);
+			if (h == NK_EM_INVALID)
+				return;
+			const NkEmId h0 = h;
+			NkHashMap<uint64, uint8> seenF;
+			uint32 guard = 0;
+			do {
+				const NkEmId f = hedges[h].face;
+				if (f == NK_EM_INVALID || f >= (NkEmId)faces.Size() || !faces[f].alive)
+					break;
+				if (!seenF.Find((uint64)f)) {
+					seenF.InsertOrAssign((uint64)f, (uint8)1);
+					outFaces.PushBack(f);
+				}
+				if (FaceSize(f) != 4)
+					break;										 // l'anneau ne traverse que des quads
+				const NkEmId hOpp = hedges[hedges[h].next].next; // arête opposée du quad
+				const NkEmId tw = hedges[hOpp].twin;
+				if (tw == NK_EM_INVALID)
+					break; // bord -> anneau ouvert
+				h = tw;
+			} while (h != h0 && ++guard < 100000u);
+		}
+
 		bool NkEditMesh::FaceIsSelected(NkEmId f) const {
 			if (f >= (NkEmId)faces.Size() || !faces[f].alive)
 				return false;
