@@ -116,19 +116,81 @@ namespace nkentseu {
 			RecomputeNormals();
 		}
 
+		// Grille de hachage spatiale : positions quantifiées au pas `eps` puis hachées. Les
+		// sommets STRICTEMENT identiques (cas des primitives, qui réutilisent les mêmes
+		// coordonnées pour chaque face) tombent forcément dans la même cellule. O(n) : aucune
+		// comparaison par paires.
+		void NkEditMesh::BuildVertexMerge(NkVector<uint32> &canon, float32 eps) const {
+			const uint32 n = (uint32)verts.Size();
+			canon.Resize(n);
+			if (eps <= 0.f)
+				eps = 1e-4f;
+			const float32 inv = 1.f / eps;
+			NkHashMap<uint64, uint32> cell;
+			cell.Reserve(n);
+			for (uint32 i = 0; i < n; ++i) {
+				const NkVec3f p = verts[i].pos;
+				// Arrondi (et non plancher) : deux coordonnées EXACTEMENT égales donnent la
+				// même clé quel que soit leur signe.
+				const int64 qx = (int64)(p.x * inv + (p.x >= 0.f ? 0.5f : -0.5f));
+				const int64 qy = (int64)(p.y * inv + (p.y >= 0.f ? 0.5f : -0.5f));
+				const int64 qz = (int64)(p.z * inv + (p.z >= 0.f ? 0.5f : -0.5f));
+				const uint64 key = ((uint64)(qx & 0x1FFFFF)) | (((uint64)(qy & 0x1FFFFF)) << 21) |
+								   (((uint64)(qz & 0x1FFFFF)) << 42);
+				uint32 *found = cell.Find(key);
+				if (found)
+					canon[i] = *found; // rattaché au représentant du groupe
+				else {
+					canon[i] = i;
+					cell.InsertOrAssign(key, i);
+				}
+			}
+		}
+
+		void NkEditMesh::PropagateSelectionToCoincident() {
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			const uint32 n = (uint32)verts.Size();
+			NkVector<uint8> repSel;
+			repSel.Resize(n);
+			for (uint32 i = 0; i < n; ++i)
+				repSel[i] = 0;
+			for (uint32 i = 0; i < n; ++i)
+				if (verts[i].sel)
+					repSel[canon[i]] = 1;
+			for (uint32 i = 0; i < n; ++i)
+				verts[i].sel = repSel[canon[i]];
+		}
+
 		void NkEditMesh::LinkTwins() {
+			// ⚠ Les jumeaux sont appariés sur l'IDENTITÉ TOPOLOGIQUE (position soudée), PAS
+			// sur les indices bruts : sinon, avec des sommets dupliqués par face (primitives),
+			// aucune demi-arête ne trouve son opposée dans la face voisine et le maillage
+			// reste une collection de faces isolées (loop cut qui ne boucle pas, cage qui
+			// compte les arêtes en double). Les attributs par coin ne sont pas touchés
+			// -> rendu strictement inchangé.
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			const uint32 nv = (uint32)canon.Size();
+			auto C = [&](uint32 v) -> uint64 { return (uint64)((v < nv) ? canon[v] : v); };
+			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h)
+				hedges[h].twin = NK_EM_INVALID;
 			NkHashMap<uint64, NkEmId> map;
 			map.Reserve((uint32)hedges.Size());
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h) {
-				const uint32 o = hedges[h].origin;
-				const uint32 d = hedges[hedges[h].next].origin;
-				const uint64 opp = ((uint64)d << 32) | (uint64)o; // demi-arête opposée (d->o)
+				if (!hedges[h].alive || hedges[h].next == NK_EM_INVALID)
+					continue;
+				const uint64 o = C(hedges[h].origin);
+				const uint64 d = C(hedges[hedges[h].next].origin);
+				if (o == d)
+					continue; // arête dégénérée
+				const uint64 opp = (d << 32) | o; // demi-arête opposée (d->o)
 				NkEmId *found = map.Find(opp);
-				if (found) {
+				if (found && hedges[*found].twin == NK_EM_INVALID) {
 					hedges[h].twin = *found;
 					hedges[*found].twin = h;
-				} else {
-					map.InsertOrAssign(((uint64)o << 32) | (uint64)d, h);
+				} else if (!found) {
+					map.InsertOrAssign((o << 32) | d, h);
 				}
 			}
 		}
@@ -910,8 +972,16 @@ namespace nkentseu {
 			}
 			if (h0 == NK_EM_INVALID)
 				return false;
+			// L'anneau est identifié sur l'IDENTITÉ TOPOLOGIQUE (sommets soudés) : deux faces
+			// voisines n'utilisent pas les mêmes INDICES pour l'arête qu'elles partagent
+			// (attributs par coin), mais bien le même représentant canonique.
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			const uint32 ncv = (uint32)canon.Size();
+			auto CV = [&](uint32 v) -> uint32 { return (v < ncv) ? canon[v] : v; };
 			NkHashMap<uint64, uint8> ring;
-			auto addE = [&](uint32 a, uint32 b) {
+			auto addE = [&](uint32 a0, uint32 b0) {
+				const uint32 a = CV(a0), b = CV(b0);
 				uint32 lo = a < b ? a : b, hi = a < b ? b : a;
 				ring.InsertOrAssign(((uint64)lo << 32) | hi, (uint8)1);
 			};
@@ -932,7 +1002,8 @@ namespace nkentseu {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
 			ToPolygons(pv, fs, fv);
-			auto isRing = [&](uint32 a, uint32 b) -> bool {
+			auto isRing = [&](uint32 a0, uint32 b0) -> bool {
+				const uint32 a = CV(a0), b = CV(b0);
 				uint32 lo = a < b ? a : b, hi = a < b ? b : a;
 				return ring.Find(((uint64)lo << 32) | hi) != nullptr;
 			};
@@ -940,7 +1011,10 @@ namespace nkentseu {
 			// DE `lo` VERS `hi` (ordre canonique) -> les 2 quads voisins d'une même arête
 			// retrouvent EXACTEMENT les mêmes sommets : la boucle est soudée, pas dédoublée.
 			NkHashMap<uint64, uint32> emid;
-			auto edgeCutBase = [&](uint32 a, uint32 b) -> uint32 {
+			auto edgeCutBase = [&](uint32 a0, uint32 b0) -> uint32 {
+				// Clé CANONIQUE : les deux faces voisines qui partagent l'arête retrouvent les
+				// MÊMES sommets de coupe -> la boucle insérée est soudée, pas dédoublée.
+				const uint32 a = CV(a0), b = CV(b0);
 				uint32 lo = a < b ? a : b, hi = a < b ? b : a;
 				uint64 key = ((uint64)lo << 32) | hi;
 				uint32 *q = emid.Find(key);
@@ -961,7 +1035,7 @@ namespace nkentseu {
 			auto edgeCutsDir = [&](uint32 a, uint32 b, NkVector<uint32> &out) {
 				out.Clear();
 				const uint32 base = edgeCutBase(a, b);
-				const bool fwd = (a < b); // les sommets sont stockés de lo vers hi
+				const bool fwd = (CV(a) < CV(b)); // les sommets sont stockés de lo vers hi
 				for (int32 c = 0; c < cuts; c++)
 					out.PushBack(base + (uint32)(fwd ? c : (cuts - 1 - c)));
 			};

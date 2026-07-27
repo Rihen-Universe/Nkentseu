@@ -844,8 +844,21 @@ namespace nkentseu {
 							if (cok) {
 								float32 dc = sqrtf((cur - cpx) * (cur - cpx) + (curY - cpy) * (curY - cpy));
 								float32 rpx = CenterR(hs[hi].op, mGL) * pxPerW;
-								if (dc < rpx)
-									d = dc * 0.4f;
+								// ⚠ Le gizmo ne doit JAMAIS avaler un clic destiné au maillage
+								// DERRIÈRE lui (sélection sommet/arête/face en Edit Mode).
+								// AVANT : tout point situé DANS le disque était capturé, avec en
+								// prime un bonus (dc * 0.4) qui le faisait gagner contre toutes
+								// les autres poignées -> un grand disque autour du pivot bloquait
+								// la sélection sur une bonne partie de l'écran.
+								// MAINTENANT :
+								//  • petit disque central (translate/scale uniforme) : reste
+								//    plein mais SANS bonus — il ne gagne que s'il est réellement
+								//    le plus proche du curseur ;
+								//  • grand cercle (rotation / cercle de vue) : COURONNE — seul le
+								//    voisinage du CONTOUR est pickable, l'intérieur laisse passer
+								//    le clic (comportement Blender).
+								const float32 kSmallDiscPx = 18.f;
+								d = (rpx <= kSmallDiscPx) ? ((dc < rpx) ? dc : 1e30f) : fabsf(dc - rpx);
 							}
 						} else
 							ForEachSeg(hs[hi], mPivot, mGL, [&](NkVec3f P0, NkVec3f P1) {

@@ -116,6 +116,26 @@ namespace nkentseu {
 				void BuildFromPolygons(const NkVertex3D *v, uint32 vc, const uint32 *faceStart, uint32 faceCount,
 									   const uint32 *faceVerts);
 
+				// ── SOUDURE (weld) DES SOMMETS COÏNCIDENTS ──────────────────────────
+				// Les primitives et les imports DUPLIQUENT les sommets PAR FACE (cube = 24
+				// sommets) pour porter des normales/UV distinctes. Conséquence : la topologie
+				// n'est PAS manifold — aucune demi-arête n'a de `twin` vers la face voisine —
+				// donc tout parcours qui TRAVERSE les faces échoue (anneau du loop cut,
+				// boucles d'arêtes, futur knife) et la cage compte chaque arête en double.
+				//
+				// canon[i] = index du REPRÉSENTANT du groupe de sommets coïncidents de i (le
+				// plus petit indice du groupe). Construit par GRILLE DE HACHAGE spatiale ->
+				// O(n), jamais O(n²). C'est une IDENTITÉ TOPOLOGIQUE : deux coins coïncidents
+				// sont « le même sommet » pour l'ADJACENCE, tandis que leurs ATTRIBUTS
+				// (normale, UV) restent SÉPARÉS. Le rendu est donc strictement inchangé (pas
+				// de lissage parasite, UV intacts) — c'est exactement le modèle de Blender :
+				// maillage soudé + attributs portés par les coins (loops).
+				void BuildVertexMerge(NkVector<uint32> &canon, float32 eps = 1e-4f) const;
+				// Étend la sélection à TOUS les sommets coïncidents d'un sommet sélectionné :
+				// sans ça, cliquer un coin ne sélectionne qu'une des N copies et les faces
+				// voisines ne suivent pas (arête « à moitié » sélectionnée).
+				void PropagateSelectionToCoincident();
+
 				// Arêtes uniques (paires de sommets) pour la cage d'affichage.
 				// ⚠ CAGE D'ÉDITION = CES arêtes-là (topologie n-gon), JAMAIS les arêtes des
 				// triangles de rendu : sur un quad, la DIAGONALE de triangulation ne doit pas

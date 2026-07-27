@@ -342,6 +342,12 @@ namespace nkentseu {
 			const uint32 n = st->editHE.VertCount();
 			for (uint32 i = 0; i < n && i < (uint32)st->vertSel.Size(); ++i)
 				st->editHE.verts[i].sel = st->vertSel[i];
+			// Les primitives dupliquent leurs sommets PAR FACE : un coin cliqué n'est qu'UNE
+			// des N copies coïncidentes. Sans propagation, la face/l'arête voisine ne se voit
+			// pas sélectionnée ET la copie retenue peut appartenir à une face qui tourne le
+			// dos à la caméra -> le marqueur orange serait masqué et « rien n'aurait l'air
+			// sélectionné ». On étend donc la sélection à tous les sommets coïncidents.
+			st->editHE.PropagateSelectionToCoincident();
 		}
 
 		static void Demo3D_PullSel(Demo3DState *st) {
@@ -350,6 +356,13 @@ namespace nkentseu {
 				st->vertSel.Resize(n);
 			for (uint32 i = 0; i < n; ++i)
 				st->vertSel[i] = st->editHE.verts[i].sel;
+		}
+
+		// Normalise la sélection de l'UI après un pick (ou une sélection scriptée) : passe par
+		// l'AUTORITÉ (editHE) pour l'étendre aux sommets coïncidents, puis la relit.
+		static void Demo3D_NormalizeSel(Demo3DState *st) {
+			Demo3D_PushSel(st);
+			Demo3D_PullSel(st);
 		}
 
 		// Applique UNE commande d'édition (DONNÉE) : capture la sélection courante dans la
@@ -2381,6 +2394,26 @@ namespace nkentseu {
 						}
 						if (!on)
 							st->editActiveVert = -1;
+					}
+					// Sélection étendue à tous les sommets COÏNCIDENTS : sans ça, le coin retenu
+					// peut appartenir à une face qui tourne le dos à la caméra -> son marqueur
+					// serait masqué et le sommet paraîtrait NON sélectionné (régression vue par
+					// l'auteur). Après propagation, au moins une copie visible passe en orange.
+					Demo3D_NormalizeSel(st);
+					// L'ACTIF (marqueur BLANC) doit lui aussi être une copie VISIBLE : on le
+					// recale sur le sommet coïncident dont la normale fait face à la caméra.
+					if (st->editActiveVert >= 0 && st->editActiveVert < nv) {
+						const NkVec3f aw = worldV(st->editActiveVert);
+						const NkVec3f orgA = st->editAnchor * NkVec3f{0.f, 0.f, 0.f};
+						for (int32 i = 0; i < nv; i++) {
+							if (!st->vertSel[i] || (worldV(i) - aw).Len() > 1e-4f)
+								continue;
+							const NkVec3f nW = (st->editAnchor * st->editRest[i].normal) - orgA;
+							if (nW.Dot(camPos - aw) > 0.f) {
+								st->editActiveVert = i;
+								break;
+							}
+						}
 					}
 					// L'ACTIF ne doit jamais rester « fantôme » : s'il vient d'être désélectionné
 					// (ou n'existe plus), on retombe sur le dernier sommet encore sélectionné.
