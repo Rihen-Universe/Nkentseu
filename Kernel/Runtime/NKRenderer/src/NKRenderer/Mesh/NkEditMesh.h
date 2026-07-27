@@ -30,10 +30,14 @@ namespace nkentseu {
 
 		// ── Paramètres des commandes d'édition (niveau namespace : réutilisables par les
 		//    modificateurs / l'IA, et défauts utilisables comme arguments par défaut). ──
+		// offset < 0 => AUTO (8 % de la diagonale de bbox). offset == 0 => comportement
+		// BLENDER (défaut) : la géométrie extrudée naît EXACTEMENT sur l'originale, elle
+		// est SÉLECTIONNÉE, et c'est l'utilisateur qui la déplace ensuite (gizmo G/R/S,
+		// axe normal par défaut ou contrainte X/Y/Z). Aucun déplacement automatique.
 		struct NkExtrudeParams {
 				bool individual = false;
-				float32 offset = -1.f;
-		}; // offset<0 => auto (8 % bbox)
+				float32 offset = 0.f;
+		};
 
 		struct NkMergeParams {
 				enum Mode { Center = 0, First = 1, Last = 2 };
@@ -44,6 +48,12 @@ namespace nkentseu {
 		struct NkSubdivideParams {
 				int32 cuts = 1;
 		}; // faces sélectionnées, ou TOUT si rien n'est sélectionné
+
+		// LOOP CUT : nombre de boucles insérées dans l'anneau de quads (façon Blender,
+		// molette / touches). cuts=1 => une boucle au milieu.
+		struct NkLoopCutParams {
+				int32 cuts = 1;
+		};
 
 		class NkEditMesh {
 			public:
@@ -107,11 +117,19 @@ namespace nkentseu {
 									   const uint32 *faceVerts);
 
 				// Arêtes uniques (paires de sommets) pour la cage d'affichage.
+				// ⚠ CAGE D'ÉDITION = CES arêtes-là (topologie n-gon), JAMAIS les arêtes des
+				// triangles de rendu : sur un quad, la DIAGONALE de triangulation ne doit pas
+				// apparaître (un quad = 4 arêtes, un n-gon = N arêtes), exactement comme Blender.
 				void GetUniqueEdges(NkVector<uint32> &outPairs) const;
 
 				// Sommets (dans l'ordre du bord) d'une face n-gon.
 				void GetFaceVerts(NkEmId f, NkVector<NkEmId> &out) const;
 				uint32 FaceSize(NkEmId f) const; // nombre de sommets du bord
+				// Une face est SÉLECTIONNÉE si TOUS ses sommets le sont (convention Blender).
+				bool FaceIsSelected(NkEmId f) const;
+				// Les (au plus 2) faces incidentes à l'arête (a,b) — pour la normale d'arête.
+				// Renvoie le nombre de faces trouvées (0..2).
+				uint32 EdgeFaces(uint32 a, uint32 b, NkEmId &f0, NkEmId &f1) const;
 
 				// Fusionne les paires de triangles CONSÉCUTIFS (2k,2k+1) adjacents et
 				// coplanaires en QUADS. Adapté aux meshes triangulés quad-par-quad
@@ -134,12 +152,20 @@ namespace nkentseu {
 				void SelectNone();
 				bool AnyVertSelected() const;
 
+				// EXTRUDE façon Blender : la nouvelle géométrie est créée À L'OFFSET DEMANDÉ
+				// (0 par défaut = collée sur l'originale) et devient la SÉLECTION. Aucun
+				// déplacement implicite : c'est l'utilisateur qui bouge ensuite.
 				bool ExtrudeSelectedFaces(const NkExtrudeParams &p = NkExtrudeParams{});
+				// Sommet sélectionné -> nouveau sommet + ARÊTE reliante (arête « fil », face
+				// dégénérée à 2 sommets : pas de surface, mais une vraie arête éditable).
+				bool ExtrudeSelectedVertices(const NkExtrudeParams &p = NkExtrudeParams{});
+				// Arête sélectionnée -> nouvelle arête + FACE (quad) reliante.
+				bool ExtrudeSelectedEdges(const NkExtrudeParams &p = NkExtrudeParams{});
 				bool DeleteSelectedFaces();
 				bool MergeSelectedVerts(const NkMergeParams &p = NkMergeParams{});
 				bool MakeFaceFromSelected();
 				bool SubdivideSelectedFaces(const NkSubdivideParams &p = NkSubdivideParams{});
-				bool LoopCutFromSelectedEdge();
+				bool LoopCutFromSelectedEdge(const NkLoopCutParams &p = NkLoopCutParams{});
 				// planePoint / planeNormal sont exprimés dans l'espace de `localToPlaneSpace`
 				// (= matrice modèle→monde côté éditeur ; identité pour une op locale pure IA).
 				bool BisectByPlane(const NkVec3f &planePoint, const NkVec3f &planeNormal,
@@ -222,15 +248,20 @@ namespace nkentseu {
 			Subdivide,
 			LoopCut,
 			Bisect,
-			Move
+			Move,
+			// AJOUTÉS EN FIN d'énumération (l'op est sérialisée en uint8 : ne jamais
+			// réordonner, sinon les sessions .nkmec existantes deviendraient fausses).
+			ExtrudeVerts,
+			ExtrudeEdges
 		};
 
 		struct NkMeshEditCommand {
 				NkMeshEditOp op = NkMeshEditOp::None;
 				NkVector<uint32> selection;			  // sommets sélectionnés à l'application
-				NkExtrudeParams extrude;			  // (op == Extrude)
+				NkExtrudeParams extrude;			  // (op == Extrude / ExtrudeVerts / ExtrudeEdges)
 				NkMergeParams merge;				  // (op == Merge)
 				NkSubdivideParams subdiv;			  // (op == Subdivide)
+				NkLoopCutParams loopcut;			  // (op == LoopCut) nombre de coupes
 				NkVec3f planePoint = {0.f, 0.f, 0.f}; // (op == Bisect)
 				NkVec3f planeNormal = {0.f, 1.f, 0.f};
 				NkMat4f bisectXform = NkMat4f::Identity();

@@ -102,6 +102,40 @@ namespace nkentseu {
 					mOrient = ((o % 3) + 3) % 3;
 				}
 
+				// ── Orientation « NORMAL » (façon Blender, Edit Mode) ─────────────
+				// L'éditeur de maillage fournit le REPÈRE de l'élément sélectionné :
+				//   normal  -> axe Z du gizmo (direction d'extrusion),
+				//   tangent -> axe X (une arête de la face / la direction de l'arête).
+				// Y est reconstruit (Z x X). Tant qu'un repère est posé, ORIENT_NORMAL
+				// l'utilise ; sans repère, ORIENT_NORMAL retombe sur le comportement
+				// Local (base de la matrice composée de la cible active).
+				void SetNormalFrame(NkVec3f normal, NkVec3f tangent) {
+					NkVec3f z = Norm(normal);
+					if (Len(z) < 0.5f)
+						return; // normale dégénérée -> on garde l'ancien repère
+					NkVec3f x = tangent;
+					// Orthogonalisation de Gram-Schmidt de la tangente contre la normale.
+					const float32 d = Dot(x, z);
+					x = NkVec3f{x.x - z.x * d, x.y - z.y * d, x.z - z.z * d};
+					if (Len(x) < 1e-5f) { // tangente colinéaire -> axe de secours
+						NkVec3f a = (fabsf(z.y) < 0.9f) ? NkVec3f{0.f, 1.f, 0.f} : NkVec3f{1.f, 0.f, 0.f};
+						x = Cross(a, z);
+					}
+					x = Norm(x);
+					mNFrameX = x;
+					mNFrameZ = z;
+					mNFrameY = Norm(Cross(z, x));
+					mHasNFrame = true;
+				}
+
+				void ClearNormalFrame() {
+					mHasNFrame = false;
+				}
+
+				bool HasNormalFrame() const {
+					return mHasNFrame;
+				}
+
 				// Choix EXPLICITE par NOM (insensible à la casse, 1re lettre) :
 				//   mode   : "translate" | "rotate" | "scale" | "combine"
 				//   orient : "global" | "local" | "normal"
@@ -308,7 +342,12 @@ namespace nkentseu {
 					mGB[0] = {1, 0, 0};
 					mGB[1] = {0, 1, 0};
 					mGB[2] = {0, 0, 1};
-					if (mOrient != ORIENT_GLOBAL && mSelId >= 0 && mSelId < count) {
+					if (mOrient == ORIENT_NORMAL && mHasNFrame) {
+						// Repère fourni par l'éditeur de maillage (normale de l'élément).
+						mGB[0] = mNFrameX;
+						mGB[1] = mNFrameY;
+						mGB[2] = mNFrameZ;
+					} else if (mOrient != ORIENT_GLOBAL && mSelId >= 0 && mSelId < count) {
 						const NkMat4f &M = mComposed[mSelId];
 						NkVec3f o = M * NkVec3f{0.f, 0.f, 0.f};
 						mGB[0] = Norm((M * NkVec3f{1, 0, 0}) - o);
@@ -1053,6 +1092,16 @@ namespace nkentseu {
 				}
 
 				void BasisPivot(int32 i, bool localOri, NkVec3f B[3], NkVec3f &Pi) const {
+					// Orientation NORMAL avec repère fourni (Edit Mode) : le DRAG suit les
+					// mêmes axes que ceux DESSINÉS (sinon tirer la flèche Z ne déplacerait
+					// pas le long de la normale).
+					if (localOri && mOrient == ORIENT_NORMAL && mHasNFrame) {
+						B[0] = mNFrameX;
+						B[1] = mNFrameY;
+						B[2] = mNFrameZ;
+						Pi = Ctr(i);
+						return;
+					}
 					if (!localOri) {
 						B[0] = {1, 0, 0};
 						B[1] = {0, 1, 0};
@@ -1070,6 +1119,10 @@ namespace nkentseu {
 
 				// ── État ──────────────────────────────────────────────────────────
 				int32 mMode = 0, mOrient = 0;
+				// Repère « Normal » posé par l'éditeur de maillage (SetNormalFrame) :
+				// Z = normale de l'élément, X = tangente, Y = Z x X.
+				bool mHasNFrame = false;
+				NkVec3f mNFrameX = {1.f, 0.f, 0.f}, mNFrameY = {0.f, 1.f, 0.f}, mNFrameZ = {0.f, 0.f, 1.f};
 				bool mDragging = false;
 				int32 mGOp = 0, mGMask = 0, mGKind = 0;
 				// Survol (hover) : poignée sous le curseur hors drag (surbrillance visuelle).
