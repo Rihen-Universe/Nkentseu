@@ -67,6 +67,32 @@ Décision de cap (Rihen, 2026-07-26) — à développer plus tard, documenté ic
 - Un **système de composition de viewports** gameplay : liste (caméra, cible = rect écran ou texture, priorité/active), le renderer rend chaque vue active.
 - Perf : plusieurs caméras = plusieurs rendus de scène/frame → prévoir résolution réduite / rafraîchissement à N frames pour minimaps/surveillance.
 
+## Mode édition de maillage façon Blender — état et reste à faire (2026-07-28)
+
+Tout vit dans **NKRenderer** (`Mesh/NkEditMesh.*`, `Core/NkGizmo.h`, `Tools/Render3D/NkRender3D.*`) ; le câblage de démo est dans `Applications/Sandbox/src/Demo/Demo3D.cpp` (cible `renderdemo`, `--demo=2`).
+
+**Livré et vérifié en capture** : wireframe **n-gon** en édition (un quad = 4 arêtes, plus de diagonale de triangulation) ; visualisation Blender (arêtes noires + petits points noirs ; sélection orange, sommet actif blanc, **faces sélectionnées en remplissage orange translucide**) ; **arêtes à couleur interpolée par sommet** (effet « semi-sélectionné ») ; **flushing** de sélection (sommets = source de vérité → arêtes → faces) ; gizmo **solide** identique en objet et en édition, orientations **Global/Local/Normal** (touche `,`), repère Normal aligné sur l'élément ; **extrude** faces/arêtes/sommets avec comportement Blender (offset 0, sélectionne, l'utilisateur transforme) ; **subdivide** ; **soudure topologique** à l'entrée en édition (cube 24→12 arêtes, twins corrects, normales par coin donc pas de lissage) qui débloque tout parcours traversant les faces ; **loop cut** qui fait le tour, avec nombre de coupes ; **4 outils de sélection** (Alt+clic boucle, `B` rectangle, `Ctrl+glisser` lasso, `C` cercle, avec Shift=ajouter / Ctrl=retirer) ; **overlay respectant la profondeur** piloté par le X-ray existant (`editXray`, Alt+Z), le gizmo restant toujours visible.
+
+**Bugs connus à corriger** :
+- **Cage d'édition détachée du maillage** sur un objet à transformation non uniforme + translation (visible sur la colonne, objet #18) : la cage flotte sans surface dedans. Pistes : incohérence d'espace entre la matrice du drawcall et celle de la cage/marqueurs ; ou le « lift » anti-z-fighting (`rad * 0.0035f`) calculé en local puis déformé par une échelle non uniforme.
+- **Boucle Alt+clic incomplète** : sur un cube (coins de valence 3) la boucle dérive (7 arêtes au lieu des 4 de l'anneau). Règles de valence de Blender à appliquer (arrêt aux pôles), pour cube ET grille de quads.
+- **Wireframe hors édition encore triangulé** : le mode d'affichage wireframe passe par le rasteriseur, qui ne connaît que les triangles. Le correctif propre demande un **batch GPU persistant d'arêtes n-gon par primitive + rendu instancié** (mesuré : ~2048 arêtes par sphère × 83 objets = >100 000 lignes/frame si on passe par le chemin immédiat `DrawDebugLine`, non viable). Limite intrinsèque : un mesh purement triangulé n'a pas de diagonales à cacher (vrai aussi dans Blender).
+- **Scale** : calculé sur le delta brut de souris ; Blender utilise un **ratio de distances écran au pivot** (s'éloigner agrandit, traverser le centre inverse). Vérifier aussi que la **poignée centrale** reste pickable après le resserrement du pick.
+
+**Fonctionnalités demandées, pas encore faites** (backlog priorisé) :
+1. Ombrage **Flat / Smooth**.
+2. **Points de pivot** façon Blender : Median Point, Individual Origins, 3D Cursor, Active Element, Bounding Box Center.
+3. **Bevel** sommet et arête ; **Inset Faces** ; **Edge Split** ; **Spin**.
+4. **Variantes d'extrude** : Region, Manifold, Along Normals, Individual, To Cursor.
+5. **Proportional editing** (influence dégressive avec courbes).
+6. **Symétrie de maillage** sur 1..3 axes.
+7. **Snapping d'éléments** (vertex / edge / face / centres / volume) avec repère visuel — aujourd'hui seul un snap de grille existe (`Ctrl`).
+8. **Séparer (P) / Joindre (Ctrl+J) / Merge (M) / Rip (V)** — la soudure doit rester un choix utilisateur, flux Blender « on commence en édition, on finit en objet ».
+9. **Loop cut interactif** : aperçu au survol montrant où la coupe passera, molette = nombre de coupes, clic confirme, Échap annule.
+10. **Knife** (couteau le long d'un tracé) — un bisect par plan existe déjà (`K`).
+
+**Cap applicatif décidé** : une fois cette base saine, **extraire le câblage viewport dans NKEditorKit** (composant réutilisable avec une **table de raccourcis** configurable, pas de raccourcis en dur), puis créer l'application **NK3DModeler** par-dessus, avec GUI et raccourcis identiques à Blender. NkAnima, PV3DE et Nogee héritent du même socle — pas de duplication.
+
 ## Comment travailler / vérifier
 
 - **Vérifier qu'un en-tête compile isolément** (utile pour les spec-headers jamais buildés) : extraire les flags d'un .cpp Noge depuis `.nkcode/compile_commands.json` (34 `-I`, 8 `-D` ; convertir les `\` en `/` pour un fichier-réponse clang), puis `clang++ -std=c++17 @rsp -fsyntax-only -x c++ <header>`. Racine d'include Noge = `Engine/Noge/src` → chemins `Noge/Sousdossier/Fichier.h`.
