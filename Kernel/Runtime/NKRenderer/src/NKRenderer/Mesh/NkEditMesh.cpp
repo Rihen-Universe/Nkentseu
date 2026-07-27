@@ -150,6 +150,16 @@ namespace nkentseu {
 			} while (h != start && h != NK_EM_INVALID);
 		}
 
+		// CONVENTION DE WINDING — le moteur rend en FRONT = HORAIRE (cf. primitives
+		// NkMeshSystem : le cube déclare n[4]={0,1,0} pour la face du dessus dont la
+		// boucle {3,7,6,2} donne (p1-p0)x(p2-p0) = -Y). Le produit vectoriel « CCW »
+		// standard sort donc des normales INVERSÉES : on prend l'opposé (p2-p0)x(p1-p0).
+		// Sans ça : éclairage retourné sur le maillage édité, extrusions vers l'INTÉRIEUR
+		// et orientation « Normal » du gizmo à l'envers.
+		static inline NkVec3f NkEmFaceCross(const NkVec3f &p0, const NkVec3f &p1, const NkVec3f &p2) {
+			return (p2 - p0).Cross(p1 - p0);
+		}
+
 		void NkEditMesh::RecomputeNormals() {
 			for (uint32 i = 0; i < (uint32)verts.Size(); ++i)
 				verts[i].normal = {0.f, 0.f, 0.f};
@@ -162,7 +172,7 @@ namespace nkentseu {
 				if (loop.Size() < 3)
 					continue;
 				const NkVec3f p0 = verts[loop[0]].pos, p1 = verts[loop[1]].pos, p2 = verts[loop[2]].pos;
-				NkVec3f n = (p1 - p0).Cross(p2 - p0); // pondéré par l'aire (non normalisé)
+				NkVec3f n = NkEmFaceCross(p0, p1, p2); // pondéré par l'aire (non normalisé)
 				float32 l = n.Len();
 				faces[f].normal = (l > 1e-8f) ? n * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
 				for (uint32 k = 0; k < (uint32)loop.Size(); ++k)
@@ -172,6 +182,50 @@ namespace nkentseu {
 				float32 l = verts[i].normal.Len();
 				verts[i].normal = (l > 1e-8f) ? verts[i].normal * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
 			}
+		}
+
+		bool NkEditMesh::FaceIsSelected(NkEmId f) const {
+			if (f >= (NkEmId)faces.Size() || !faces[f].alive)
+				return false;
+			const NkEmId start = faces[f].hedge;
+			if (start == NK_EM_INVALID)
+				return false;
+			NkEmId h = start;
+			uint32 guard = 0, n = 0;
+			do {
+				const uint32 o = hedges[h].origin;
+				if (o >= (uint32)verts.Size() || !verts[o].sel)
+					return false;
+				++n;
+				h = hedges[h].next;
+				if (++guard > 100000u)
+					break;
+			} while (h != start && h != NK_EM_INVALID);
+			return n >= 3;
+		}
+
+		uint32 NkEditMesh::EdgeFaces(uint32 a, uint32 b, NkEmId &f0, NkEmId &f1) const {
+			f0 = NK_EM_INVALID;
+			f1 = NK_EM_INVALID;
+			uint32 n = 0;
+			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h) {
+				if (!hedges[h].alive || hedges[h].next == NK_EM_INVALID)
+					continue;
+				const uint32 o = hedges[h].origin, d = hedges[hedges[h].next].origin;
+				if (!((o == a && d == b) || (o == b && d == a)))
+					continue;
+				const NkEmId f = hedges[h].face;
+				if (f == NK_EM_INVALID || f >= (NkEmId)faces.Size() || !faces[f].alive)
+					continue;
+				if (n == 0) {
+					f0 = f;
+					n = 1;
+				} else if (f != f0) {
+					f1 = f;
+					return 2;
+				}
+			}
+			return n;
 		}
 
 		void NkEditMesh::GetUniqueEdges(NkVector<uint32> &outPairs) const {
@@ -244,7 +298,11 @@ namespace nkentseu {
 					continue;
 				loop.Clear();
 				GetFaceVerts(f, loop);
-				if (loop.Size() < 3)
+				// >= 2 : les « faces » à 2 sommets sont des ARÊTES FIL (extrusion de sommet,
+				// façon Blender). Elles ne produisent pas de surface (Triangulate les ignore)
+				// mais doivent survivre à l'aller-retour polygones (sinon elles disparaissent
+				// dès la commande d'édition suivante).
+				if (loop.Size() < 2)
 					continue;
 				for (uint32 k = 0; k < (uint32)loop.Size(); ++k)
 					ofaceVerts.PushBack(loop[k]);
@@ -265,8 +323,8 @@ namespace nkentseu {
 			}
 			for (uint32 f = 0; f < faceCount; ++f) {
 				const uint32 s = faceStart[f], e = faceStart[f + 1], n = e - s;
-				if (n < 3)
-					continue;
+				if (n < 2)
+					continue; // n == 2 => ARÊTE FIL (cf. ToPolygons)
 				const NkEmId h0 = (NkEmId)hedges.Size();
 				for (uint32 k = 0; k < n; ++k) {
 					Hedge he;
@@ -324,9 +382,12 @@ namespace nkentseu {
 				verts[i].sel = (i < (uint32)vsel.Size()) ? vsel[i] : (uint8)0;
 		}
 
-		// EXTRUDE : duplique les faces sélectionnées (cap), crée des quads latéraux sur les
-		// arêtes de BORD, décale le cap le long de la normale. p.individual = chaque face le
-		// long de SA normale (caps séparés). Préserve les n-gons.
+		// EXTRUDE FACES : duplique les faces sélectionnées (cap), crée des quads latéraux sur
+		// les arêtes de BORD, décale le cap le long de la normale. p.individual = chaque face
+		// le long de SA normale (caps séparés). Préserve les n-gons.
+		// ⚠ COMPORTEMENT BLENDER (défaut p.offset == 0) : le cap naît EXACTEMENT sur la face
+		// d'origine et la SÉLECTION passe dessus. Rien ne bouge : l'utilisateur déplace/
+		// tourne/redimensionne ensuite lui-même (gizmo, axe normal ou contrainte X/Y/Z).
 		bool NkEditMesh::ExtrudeSelectedFaces(const NkExtrudeParams &p) {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
@@ -338,11 +399,12 @@ namespace nkentseu {
 			faceSel.Resize(fc);
 			for (uint32 f = 0; f < fc; f++) {
 				const uint32 s = fs[f], e = fs[f + 1];
-				const bool sel = PolyFaceSelected(fv, s, e);
+				// Les arêtes FIL (2 sommets) ne sont pas des faces extrudables.
+				const bool sel = (e - s >= 3) && PolyFaceSelected(fv, s, e);
 				faceSel[f] = sel ? 1 : 0;
-				if (sel && e - s >= 3) {
+				if (sel) {
 					selCount++;
-					avgN = avgN + (pv[fv[s + 1]].pos - pv[fv[s]].pos).Cross(pv[fv[s + 2]].pos - pv[fv[s]].pos);
+					avgN = avgN + NkEmFaceCross(pv[fv[s]].pos, pv[fv[s + 1]].pos, pv[fv[s + 2]].pos);
 				}
 			}
 			if (selCount == 0)
@@ -384,7 +446,7 @@ namespace nkentseu {
 					if (!faceSel[f])
 						continue;
 					const uint32 s = fs[f], e = fs[f + 1], n = e - s;
-					NkVec3f fn = (pv[fv[s + 1]].pos - pv[fv[s]].pos).Cross(pv[fv[s + 2]].pos - pv[fv[s]].pos);
+					NkVec3f fn = NkEmFaceCross(pv[fv[s]].pos, pv[fv[s + 1]].pos, pv[fv[s + 2]].pos);
 					{
 						float32 l = fn.Len();
 						fn = (l > 1e-6f) ? fn * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
@@ -481,6 +543,100 @@ namespace nkentseu {
 				}
 			}
 			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			ApplyVertSel(vsel);
+			return true;
+		}
+
+		// EXTRUDE SOMMETS (mode VERTEX) : chaque sommet sélectionné est DUPLIQUÉ et relié à
+		// son original par une ARÊTE FIL (« face » à 2 sommets : pas de surface, mais une
+		// vraie arête de la topologie, affichée dans la cage et éditable). La sélection passe
+		// sur les NOUVEAUX sommets — à offset 0 ils sont confondus avec les originaux, comme
+		// dans Blender : c'est l'utilisateur qui les déplace ensuite.
+		bool NkEditMesh::ExtrudeSelectedVertices(const NkExtrudeParams &p) {
+			NkVector<NkVertex3D> pv;
+			NkVector<uint32> fs, fv;
+			ToPolygons(pv, fs, fv);
+			const uint32 baseVerts = (uint32)pv.Size();
+			NkVector<uint32> src; // sommets sélectionnés
+			for (uint32 i = 0; i < (uint32)verts.Size() && i < baseVerts; i++)
+				if (verts[i].sel)
+					src.PushBack(i);
+			if (src.Empty())
+				return false;
+			const float32 off = (p.offset > 0.f) ? p.offset : 0.f;
+			NkVector<uint8> vsel;
+			vsel.Resize(baseVerts);
+			for (uint32 i = 0; i < baseVerts; i++)
+				vsel[i] = 0;
+			for (uint32 k = 0; k < (uint32)src.Size(); k++) {
+				const uint32 a = src[k];
+				NkVertex3D nv = pv[a];
+				nv.pos = nv.pos + verts[a].normal * off;
+				const uint32 b = (uint32)pv.Size();
+				pv.PushBack(nv);
+				vsel.PushBack(1);
+				fv.PushBack(a); // arête fil a-b
+				fv.PushBack(b);
+				fs.PushBack((uint32)fv.Size());
+			}
+			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), (uint32)fs.Size() - 1, fv.Data());
+			ApplyVertSel(vsel);
+			return true;
+		}
+
+		// EXTRUDE ARÊTES (mode EDGE) : chaque arête dont les 2 extrémités sont sélectionnées
+		// engendre une NOUVELLE arête (sommets dupliqués, partagés entre arêtes voisines) et
+		// une FACE quad reliante (a,b,b',a'). Sélection = les nouveaux sommets. Offset 0 par
+		// défaut (comportement Blender : le quad est plat tant que l'utilisateur n'a pas bougé).
+		bool NkEditMesh::ExtrudeSelectedEdges(const NkExtrudeParams &p) {
+			NkVector<uint32> pairs;
+			GetUniqueEdges(pairs);
+			NkVector<uint32> selA, selB;
+			for (uint32 e = 0; e + 1 < (uint32)pairs.Size(); e += 2) {
+				const uint32 a = pairs[e], b = pairs[e + 1];
+				if (a >= (uint32)verts.Size() || b >= (uint32)verts.Size())
+					continue;
+				if (verts[a].sel && verts[b].sel) {
+					selA.PushBack(a);
+					selB.PushBack(b);
+				}
+			}
+			if (selA.Empty())
+				return false;
+			NkVector<NkVertex3D> pv;
+			NkVector<uint32> fs, fv;
+			ToPolygons(pv, fs, fv);
+			const uint32 baseVerts = (uint32)pv.Size();
+			const float32 off = (p.offset > 0.f) ? p.offset : 0.f;
+			NkVector<int32> dup; // sommet d'origine -> son duplicata (partagé)
+			dup.Resize(baseVerts);
+			for (uint32 i = 0; i < baseVerts; i++)
+				dup[i] = -1;
+			NkVector<uint8> vsel;
+			vsel.Resize(baseVerts);
+			for (uint32 i = 0; i < baseVerts; i++)
+				vsel[i] = 0;
+			auto dupOf = [&](uint32 v) -> uint32 {
+				if (dup[v] >= 0)
+					return (uint32)dup[v];
+				NkVertex3D nv = pv[v];
+				nv.pos = nv.pos + verts[v].normal * off;
+				const uint32 id = (uint32)pv.Size();
+				pv.PushBack(nv);
+				vsel.PushBack(1);
+				dup[v] = (int32)id;
+				return id;
+			};
+			for (uint32 k = 0; k < (uint32)selA.Size(); k++) {
+				const uint32 a = selA[k], b = selB[k];
+				const uint32 na = dupOf(a), nb = dupOf(b);
+				fv.PushBack(a);
+				fv.PushBack(b);
+				fv.PushBack(nb);
+				fv.PushBack(na);
+				fs.PushBack((uint32)fv.Size());
+			}
+			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), fs.Data(), (uint32)fs.Size() - 1, fv.Data());
 			ApplyVertSel(vsel);
 			return true;
 		}
@@ -734,9 +890,13 @@ namespace nkentseu {
 			return true;
 		}
 
-		// LOOP CUT : depuis une ARÊTE sélectionnée, traverse l'ANNEAU de quads et insère une
-		// boucle d'arêtes aux MILIEUX partagés. Maillages quad fermés (façon Blender).
-		bool NkEditMesh::LoopCutFromSelectedEdge() {
+		// LOOP CUT : depuis une ARÊTE sélectionnée, traverse l'ANNEAU de quads et insère
+		// p.cuts boucles d'arêtes RÉGULIÈREMENT ESPACÉES (sommets PARTAGÉS entre quads
+		// voisins de l'anneau). Maillages quad (façon Blender, Ctrl+R).
+		// Limite assumée : pas d'aperçu au survol ni de « slide » modal — les coupes sont
+		// posées aux fractions k/(cuts+1) de l'anneau, comme un Ctrl+R validé sans slide.
+		bool NkEditMesh::LoopCutFromSelectedEdge(const NkLoopCutParams &p) {
+			const int32 cuts = (p.cuts < 1) ? 1 : ((p.cuts > 32) ? 32 : p.cuts);
 			// Arête de départ = 1re demi-arête vivante dont les 2 extrémités sont sélectionnées.
 			NkEmId h0 = NK_EM_INVALID;
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h) {
@@ -776,20 +936,34 @@ namespace nkentseu {
 				uint32 lo = a < b ? a : b, hi = a < b ? b : a;
 				return ring.Find(((uint64)lo << 32) | hi) != nullptr;
 			};
+			// Chaque arête de l'anneau reçoit `cuts` sommets, créés d'un bloc et INDEXÉS
+			// DE `lo` VERS `hi` (ordre canonique) -> les 2 quads voisins d'une même arête
+			// retrouvent EXACTEMENT les mêmes sommets : la boucle est soudée, pas dédoublée.
 			NkHashMap<uint64, uint32> emid;
-			auto edgeMid = [&](uint32 a, uint32 b) -> uint32 {
+			auto edgeCutBase = [&](uint32 a, uint32 b) -> uint32 {
 				uint32 lo = a < b ? a : b, hi = a < b ? b : a;
 				uint64 key = ((uint64)lo << 32) | hi;
 				uint32 *q = emid.Find(key);
 				if (q)
 					return *q;
-				uint32 idx = (uint32)pv.Size();
-				NkVertex3D nv = pv[a];
-				nv.pos = (pv[a].pos + pv[b].pos) * 0.5f;
-				nv.uv = (pv[a].uv + pv[b].uv) * 0.5f;
-				pv.PushBack(nv);
-				emid.InsertOrAssign(key, idx);
-				return idx;
+				const uint32 base = (uint32)pv.Size();
+				for (int32 c = 0; c < cuts; c++) {
+					const float32 t = (float32)(c + 1) / (float32)(cuts + 1);
+					NkVertex3D nv = pv[lo];
+					nv.pos = pv[lo].pos + (pv[hi].pos - pv[lo].pos) * t;
+					nv.uv = pv[lo].uv + (pv[hi].uv - pv[lo].uv) * t;
+					pv.PushBack(nv);
+				}
+				emid.InsertOrAssign(key, base);
+				return base;
+			};
+			// Les `cuts` sommets de l'arête (a,b) RANGÉS DANS LE SENS a -> b.
+			auto edgeCutsDir = [&](uint32 a, uint32 b, NkVector<uint32> &out) {
+				out.Clear();
+				const uint32 base = edgeCutBase(a, b);
+				const bool fwd = (a < b); // les sommets sont stockés de lo vers hi
+				for (int32 c = 0; c < cuts; c++)
+					out.PushBack(base + (uint32)(fwd ? c : (cuts - 1 - c)));
 			};
 			NkVector<uint32> nfs, nfv;
 			nfs.PushBack(0);
@@ -815,22 +989,45 @@ namespace nkentseu {
 					uint32 k0 = (uint32)re0;
 					uint32 q0 = fv[s + k0], q1 = fv[s + (k0 + 1) % 4], q2 = fv[s + (k0 + 2) % 4],
 						   q3 = fv[s + (k0 + 3) % 4];
-					uint32 m0 = edgeMid(q0, q1), m1 = edgeMid(q2, q3);
-					uint32 mx = (m0 > m1 ? m0 : m1);
+					// A = coupes de l'arête (q0,q1) dans le sens q0->q1 ;
+					// B = coupes de l'arête opposée (q2,q3) dans le sens q2->q3.
+					// La boucle du quad étant q0->q1->q2->q3, A[i] fait face à B[cuts-1-i].
+					NkVector<uint32> A, B;
+					edgeCutsDir(q0, q1, A);
+					edgeCutsDir(q2, q3, B);
+					uint32 mx = 0;
+					for (int32 c = 0; c < cuts; c++) {
+						if (A[(uint32)c] > mx)
+							mx = A[(uint32)c];
+						if (B[(uint32)c] > mx)
+							mx = B[(uint32)c];
+					}
 					if ((uint32)vsel.Size() <= mx)
 						vsel.Resize(mx + 1);
-					vsel[m0] = 1;
-					vsel[m1] = 1;
+					for (int32 c = 0; c < cuts; c++) {
+						vsel[A[(uint32)c]] = 1;
+						vsel[B[(uint32)c]] = 1;
+					}
 					changed = true;
+					// Bande 0 : q0, A0, B(cuts-1), q3
 					nfv.PushBack(q0);
-					nfv.PushBack(m0);
-					nfv.PushBack(m1);
+					nfv.PushBack(A[0]);
+					nfv.PushBack(B[(uint32)(cuts - 1)]);
 					nfv.PushBack(q3);
 					nfs.PushBack((uint32)nfv.Size());
-					nfv.PushBack(m0);
+					// Bandes intermédiaires : Ai, Ai+1, B(cuts-2-i), B(cuts-1-i)
+					for (int32 c = 0; c + 1 < cuts; c++) {
+						nfv.PushBack(A[(uint32)c]);
+						nfv.PushBack(A[(uint32)(c + 1)]);
+						nfv.PushBack(B[(uint32)(cuts - 2 - c)]);
+						nfv.PushBack(B[(uint32)(cuts - 1 - c)]);
+						nfs.PushBack((uint32)nfv.Size());
+					}
+					// Bande finale : A(cuts-1), q1, q2, B0
+					nfv.PushBack(A[(uint32)(cuts - 1)]);
 					nfv.PushBack(q1);
 					nfv.PushBack(q2);
-					nfv.PushBack(m1);
+					nfv.PushBack(B[0]);
 					nfs.PushBack((uint32)nfv.Size());
 				} else {
 					for (uint32 k = s; k < e; k++)
@@ -985,6 +1182,10 @@ namespace nkentseu {
 			switch (op) {
 				case NkMeshEditOp::Extrude:
 					return m.ExtrudeSelectedFaces(extrude);
+				case NkMeshEditOp::ExtrudeVerts:
+					return m.ExtrudeSelectedVertices(extrude);
+				case NkMeshEditOp::ExtrudeEdges:
+					return m.ExtrudeSelectedEdges(extrude);
 				case NkMeshEditOp::Delete:
 					return m.DeleteSelectedFaces();
 				case NkMeshEditOp::Merge:
@@ -994,7 +1195,7 @@ namespace nkentseu {
 				case NkMeshEditOp::Subdivide:
 					return m.SubdivideSelectedFaces(subdiv);
 				case NkMeshEditOp::LoopCut:
-					return m.LoopCutFromSelectedEdge();
+					return m.LoopCutFromSelectedEdge(loopcut);
 				case NkMeshEditOp::Bisect:
 					return m.BisectByPlane(planePoint, planeNormal, bisectXform);
 				case NkMeshEditOp::Move: {
@@ -1104,7 +1305,7 @@ namespace nkentseu {
 			out.Clear();
 			EmW w{out};
 			w.U32(NK_EMREC_MAGIC);
-			w.U32(1u);
+			w.U32(2u); // v2 : + NkLoopCutParams::cuts en fin d'enregistrement
 			w.U32((uint32)mCommands.Size());
 			for (uint32 i = 0; i < (uint32)mCommands.Size(); ++i) {
 				const NkMeshEditCommand &c = mCommands[i];
@@ -1131,6 +1332,7 @@ namespace nkentseu {
 					w.F32(c.moveDeltas[k].y);
 					w.F32(c.moveDeltas[k].z);
 				}
+				w.I32(c.loopcut.cuts); // v2
 			}
 		}
 
@@ -1242,7 +1444,7 @@ namespace nkentseu {
 			EmR r(data, size);
 			if (r.U32() != NK_EMREC_MAGIC)
 				return false;
-			(void)r.U32(); // version
+			const uint32 ver = r.U32(); // 1 = sans loopcut.cuts, 2 = avec
 			const uint32 count = r.U32();
 			for (uint32 i = 0; i < count && r.ok; ++i) {
 				NkMeshEditCommand c;
@@ -1271,6 +1473,8 @@ namespace nkentseu {
 					NkVec3f d = {x, y, z};
 					c.moveDeltas.PushBack(d);
 				}
+				if (ver >= 2u)
+					c.loopcut.cuts = r.I32();
 				if (r.ok)
 					mCommands.PushBack(c);
 			}
