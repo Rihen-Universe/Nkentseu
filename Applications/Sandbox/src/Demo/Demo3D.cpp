@@ -2836,6 +2836,7 @@ namespace nkentseu {
 					// Palette Blender Edit Mode : cage NOIRE fine, sélection JAUNE-ORANGE VIF.
 					const NkVec4f cageCol{0.015f, 0.015f, 0.02f, 1.f}; // arête non sélectionnée
 					const NkVec4f selEdgeCol{1.f, 0.70f, 0.13f, 1.f};  // arête sélectionnée (vif)
+					const NkVec4f actVertCol{1.f, 1.f, 1.f, 1.f};	   // extrémité = sommet ACTIF
 					// ── P0 — CAGE = ARÊTES RÉELLES DU N-GON ──────────────────────────────
 					// st->editEdges vient de NkEditMesh::GetUniqueEdges (topologie demi-arête,
 					// chaque arête UNE SEULE FOIS, arêtes internes dissoutes par Quadify
@@ -2851,7 +2852,12 @@ namespace nkentseu {
 					// sommets coïncidents, donc les copies restent superposées. Indépendant de
 					// la caméra : l'orbite ne reconstruit toujours rien.
 					const NkVec3f bctr = (bmin + bmax) * 0.5f;
-					const float32 edgeLift = rad * 0.006f;
+					// Décalage MINIMAL : il ne sert plus qu'à départager le z-fight contre la
+					// PROPRE surface du modèle (le depth-bias du pipeline fait l'essentiel).
+					// Il était à 0.006 * rayon, assez pour faire DÉPASSER la cage DEVANT une
+					// géométrie voisine (une colonne fine paraissait « en fil de fer par
+					// dessus tout »). 0.0015 suffit à supprimer les pointillés sans déborder.
+					const float32 edgeLift = rad * 0.0035f;
 					auto liftW = [&](int32 i) {
 						const NkVec3f w = liveW(i);
 						NkVec3f d = w - bctr;
@@ -2867,11 +2873,25 @@ namespace nkentseu {
 							const uint32 a = st->editEdges[e], b = st->editEdges[e + 1];
 							if (a >= (uint32)st->vertSel.Size() || b >= (uint32)st->vertSel.Size())
 								continue;
-							const bool sel = (st->vertSel[a] != 0 && st->vertSel[b] != 0);
-							if (sel != (pass == 1))
-								continue;
-							pushV(L, liftW((int32)a), sel ? selEdgeCol : cageCol);
-							pushV(L, liftW((int32)b), sel ? selEdgeCol : cageCol);
+							// ── COULEUR PAR EXTRÉMITÉ (interpolation, façon Blender) ──────
+							// Le buffer de lignes porte une couleur PAR SOMMET (pos3 + rgba4) :
+							// le GPU interpole donc le long de l'arête, sans surcoût ni
+							// découpage en segments. Effet : une arête dont UNE SEULE extrémité
+							// est sélectionnée apparaît en DÉGRADÉ orange -> noir (« arête
+							// semi-sélectionnée ») ; avec ses DEUX extrémités sélectionnées elle
+							// est entièrement orange (cas « arête sélectionnée » du flushing) ;
+							// sans aucune, elle reste noire. Le sommet ACTIF tire vers le BLANC.
+							const bool selA = (st->vertSel[a] != 0), selB = (st->vertSel[b] != 0);
+							const bool any = (selA || selB);
+							if (any != (pass == 1))
+								continue; // passe 0 = arêtes neutres, passe 1 = arêtes touchées
+							auto vcol = [&](uint32 v, bool s) {
+								if (s && (int32)v == st->editActiveVert)
+									return actVertCol; // extrémité ACTIVE -> blanc
+								return s ? selEdgeCol : cageCol;
+							};
+							pushV(L, liftW((int32)a), vcol(a, selA));
+							pushV(L, liftW((int32)b), vcol(b, selB));
 						}
 					}
 					r3d->SetEditOverlayLines(L.Empty() ? nullptr : L.Data(), (uint32)(L.Size() / 7));
@@ -2957,8 +2977,13 @@ namespace nkentseu {
 						const float32 h = halfPx * pxToWorld * d;
 						const NkVec3f rx = rgt * h, uy = upv * h;
 						const NkVec3f c00 = w - rx - uy, c10 = w + rx - uy, c11 = w + rx + uy, c01 = w - rx + uy;
-						r3d->DrawDebugTriangle(c00, c10, c11, col, 0.f, true);
-						r3d->DrawDebugTriangle(c00, c11, c01, col, 0.f, true);
+						// ⚠ OVERLAY vs DEPTH : les marqueurs suivent le X-RAY, exactement comme
+						// le remplissage de face. X-ray OFF -> depth-test : le marqueur est
+						// OCCLUS par ce qui est devant (autre objet de la scène, ou le modèle
+						// lui-même). X-ray ON -> no-depth : on voit à travers (façon Blender).
+						// Le GIZMO, lui, reste no-depth dans TOUS les cas (dessiné plus bas).
+						r3d->DrawDebugTriangle(c00, c10, c11, col, 0.f, st->editXray);
+						r3d->DrawDebugTriangle(c00, c11, c01, col, 0.f, st->editXray);
 					};
 					// Carré PLEIN + fin liseré sombre dessous (les 2 sont PLEINS -> jamais creux).
 					const NkVec4f rim{0.f, 0.f, 0.f, 0.9f};
