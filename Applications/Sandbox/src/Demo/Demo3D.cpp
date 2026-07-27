@@ -1293,7 +1293,14 @@ namespace nkentseu {
 				if (v > 0.5f)
 					camRadius = v;
 			}
-			st->editorCam.SetCenter({0.f, 0.5f, 0.f}, camRadius, 0.7f, 0.4f);
+			// NK_CAM_YAW / NK_CAM_PITCH (radians) : pose d'orbite déterministe pour les
+			// captures — indispensable pour reproduire un bug « dépendant de l'angle de vue ».
+			float32 camYaw = 0.7f, camPitch = 0.4f;
+			if (const char *cy = getenv("NK_CAM_YAW"))
+				camYaw = (float32)atof(cy);
+			if (const char *cp = getenv("NK_CAM_PITCH"))
+				camPitch = (float32)atof(cp);
+			st->editorCam.SetCenter({0.f, 0.5f, 0.f}, camRadius, camYaw, camPitch);
 			st->simCam.SetPose({0.f, 1.5f, 6.f}, -1.5708f, -0.15f);
 
 			logger.Info("[Demo3D] Init OK — meshes : sphere={0} plane={1} cube={2}\n", (uint64)st->meshSphere.id,
@@ -2218,6 +2225,12 @@ namespace nkentseu {
 				if (gin.leftPressed && !grabbedHandle && !st->knifeArmed) {
 					st->editOverlayDirty = true; // la sélection va changer -> reconstruire l'overlay
 					const float32 mx = gin.mouseX, my = gin.mouseY;
+					// TOGGLE façon Blender : on mémorise l'état AVANT le nettoyage pour savoir
+					// si l'élément cliqué était DÉJÀ sélectionné -> dans ce cas le clic le
+					// DÉSÉLECTIONNE (au lieu de le re-sélectionner). Shift+clic = toggle sans
+					// vider le reste de la sélection.
+					NkVector<uint8> prevSel = st->vertSel;
+					auto wasSel = [&](uint32 i) { return i < (uint32)prevSel.Size() && prevSel[i] != 0; };
 					if (!gin.shiftDown)
 						for (int32 i = 0; i < nv; i++)
 							st->vertSel[i] = 0;
@@ -2333,25 +2346,51 @@ namespace nkentseu {
 					// Élection PAR PRIORITÉ façon Blender : vertex (près d'un sommet) > arête
 					// (près d'une arête) > face (rayon). Chacun n'est retenu que dans son seuil.
 					if (bestV >= 0) {
-						st->vertSel[bestV] = gin.shiftDown ? (uint8)(1 - st->vertSel[bestV]) : 1;
-						st->editActiveVert = st->vertSel[bestV] ? bestV : -1; // actif = dernier sélectionné (blanc)
+						// Déjà sélectionné -> DÉSÉLECTION (toggle), sinon sélection.
+						const uint8 on = wasSel((uint32)bestV) ? (uint8)0 : (uint8)1;
+						st->vertSel[bestV] = on;
+						st->editActiveVert = on ? bestV : -1; // actif = dernier sélectionné (blanc)
 					} else if (bestEa >= 0) {
-						st->vertSel[bestEa] = 1;
-						st->vertSel[bestEb] = 1;
-						st->editActiveVert = bestEb;
+						// Une arête est « déjà sélectionnée » si ses DEUX extrémités l'étaient.
+						const uint8 on = (wasSel((uint32)bestEa) && wasSel((uint32)bestEb)) ? (uint8)0 : (uint8)1;
+						st->vertSel[bestEa] = on;
+						st->vertSel[bestEb] = on;
+						st->editActiveVert = on ? bestEb : -1;
 					} else if (bestFt >= 0) {
 						// FACE N-GON : triangle touché -> sa face n-gon (quadify) -> tous ses sommets.
+						// Face « déjà sélectionnée » = TOUS ses sommets l'étaient (même convention
+						// que le remplissage orange) -> le clic la vide.
 						renderer::NkEmId f = Demo3D_FaceOfTri(st, (uint32)bestFt / 3u);
+						NkVector<renderer::NkEmId> fv;
 						if (f != renderer::NK_EM_INVALID) {
-							NkVector<renderer::NkEmId> fv;
 							st->editHE.GetFaceVerts(f, fv);
-							for (uint32 k = 0; k < (uint32)fv.Size(); k++)
-								st->vertSel[fv[k]] = 1;
 						} else {
-							st->vertSel[st->editIdx[bestFt]] = 1;
-							st->vertSel[st->editIdx[bestFt + 1]] = 1;
-							st->vertSel[st->editIdx[bestFt + 2]] = 1;
+							fv.PushBack(st->editIdx[bestFt]);
+							fv.PushBack(st->editIdx[bestFt + 1]);
+							fv.PushBack(st->editIdx[bestFt + 2]);
 						}
+						bool allWere = fv.Size() > 0;
+						for (uint32 k = 0; k < (uint32)fv.Size(); k++)
+							if (!wasSel(fv[k]))
+								allWere = false;
+						const uint8 on = allWere ? (uint8)0 : (uint8)1;
+						for (uint32 k = 0; k < (uint32)fv.Size(); k++) {
+							st->vertSel[fv[k]] = on;
+							if (on)
+								st->editActiveVert = (int32)fv[k];
+						}
+						if (!on)
+							st->editActiveVert = -1;
+					}
+					// L'ACTIF ne doit jamais rester « fantôme » : s'il vient d'être désélectionné
+					// (ou n'existe plus), on retombe sur le dernier sommet encore sélectionné.
+					if (st->editActiveVert < 0 || st->editActiveVert >= nv || !st->vertSel[st->editActiveVert]) {
+						st->editActiveVert = -1;
+						for (int32 i = nv - 1; i >= 0; i--)
+							if (st->vertSel[i]) {
+								st->editActiveVert = i;
+								break;
+							}
 					}
 				}
 				// Garder la cible-0 sélectionnée pour que les poignées s'affichent.
