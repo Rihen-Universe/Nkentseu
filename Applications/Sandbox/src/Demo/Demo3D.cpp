@@ -213,6 +213,10 @@ namespace nkentseu {
 				// 3=CERCLE (C, modal : on « peint » en maintenant le clic).
 				int32 selTool = 0;
 				bool selDragging = false;		  // tracé en cours
+				// Front montant du clic gauche en MODE OBJET. Le mode édition a son propre
+				// détecteur ; en mode objet il n'y en avait pas, faute d'outil qui en ait eu
+				// besoin jusqu'ici (le gizmo gère son clic lui-même).
+				bool prevLeftDownObj = false;
 				float32 selX0 = 0.f, selY0 = 0.f; // origine du tracé (pixels écran)
 				float32 selX1 = 0.f, selY1 = 0.f; // point courant
 				NkVector<NkVec2f> selLasso;		  // contour libre (lasso)
@@ -879,6 +883,76 @@ namespace nkentseu {
 		static void Demo3D_NormalizeSel(Demo3DState *st) {
 			Demo3D_PushSel(st);
 			Demo3D_PullSel(st);
+		}
+
+		// ── PROJECTION MONDE -> ÉCRAN, AUTONOME ─────────────────────────────────────
+		// Même convention que le gizmo, mais SANS dépendre des variables locales du bloc
+		// d'édition : c'est ce qui permet de servir le mode OBJET autant que le mode
+		// ÉDITION avec un seul code. Auparavant la projection était une lambda capturant
+		// le contexte d'édition, ce qui enfermait de fait les outils de sélection par
+		// zone dans le mode édition.
+		struct Demo3D_ScreenProj {
+				NkVec3f camPos{}, fwd{}, rgt{}, upv{};
+				float32 thX = 1.f, thY = 1.f, vw = 1.f, vh = 1.f;
+
+				static Demo3D_ScreenProj Make(NkVec3f pos, NkVec3f target, float32 fovYDeg, float32 w, float32 h) {
+					Demo3D_ScreenProj p;
+					p.camPos = pos;
+					p.fwd = (target - pos).Normalized();
+					p.rgt = p.fwd.Cross(NkVec3f{0.f, 1.f, 0.f}).Normalized();
+					p.upv = p.rgt.Cross(p.fwd).Normalized();
+					p.thY = tanf(fovYDeg * 0.5f * 3.14159265f / 180.f);
+					p.thX = p.thY * (h > 0.f ? (w / h) : 1.f);
+					p.vw = w;
+					p.vh = h;
+					return p;
+				}
+
+				// false si le point est DERRIÈRE la caméra : sans ce test, un objet dans le
+				// dos se projetterait à l'écran par symétrie et serait sélectionné par une
+				// zone qui ne le contient pas visuellement.
+				bool operator()(NkVec3f P, float32 &px, float32 &py) const {
+					const NkVec3f v = P - camPos;
+					const float32 zc = v.Dot(fwd);
+					if (zc <= 1e-3f)
+						return false;
+					const float32 nx = v.Dot(rgt) / (zc * thX), ny = v.Dot(upv) / (zc * thY);
+					px = (nx * 0.5f + 0.5f) * vw;
+					py = (0.5f - ny * 0.5f) * vh;
+					return true;
+				}
+		};
+
+		// ── SÉLECTION PAR ZONE, MODE OBJET ──────────────────────────────────────────
+		// Pendant de Demo3D_SelectInZone (qui opère sur les sommets du maillage édité).
+		// Ici la cible est l'OBJET : on teste le centre de son transform monde.
+		// mode : 0 = remplacer · 1 = ajouter (Shift) · 2 = retirer (Ctrl).
+		// LIMITE ASSUMÉE : test sur le CENTRE, pas sur la silhouette. Un objet très
+		// étendu dont le centre est hors zone ne sera pas pris, alors que Blender le
+		// prendrait dès qu'un de ses pixels est dans la zone. Traiter la silhouette
+		// demanderait de lire le masque de sélection — à faire si la gêne se manifeste.
+		template <class InZone>
+		static void Demo3D_SelectObjectsInZone(Demo3DState *st, int32 mode, InZone inZone,
+											   const Demo3D_ScreenProj &proj) {
+			if (mode == 0)
+				st->gizmo.ClearSelection();
+			for (int32 i = 0; i < (int32)Demo3DState::kNumObj && i < renderer::NkGizmo3D::kMax; i++) {
+				// Centre monde = colonne de translation du transform de la frame.
+				const NkMat4f &X = st->objXform[i];
+				const NkVec3f c = X * NkVec3f{0.f, 0.f, 0.f};
+				float32 px = 0.f, py = 0.f;
+				if (!proj(c, px, py))
+					continue;
+				if (!inZone(px, py))
+					continue;
+				if (mode == 2) {
+					// ToggleSelection sur un objet DÉJÀ sélectionné = le retirer, en
+					// réaffectant l'actif si c'est lui qu'on enlève.
+					if (st->gizmo.IsSelected(i))
+						st->gizmo.ToggleSelection(i);
+				} else
+					st->gizmo.AddToSelection(i);
+			}
 		}
 
 		// ── SÉLECTION PAR ZONE ÉCRAN (rectangle / lasso / cercle) ────────────────────
@@ -3349,7 +3423,10 @@ namespace nkentseu {
 			// La molette : ZOOM camera en temps normal, parametre ENTIER de l'op quand une op
 			// modale tourne (et RAYON du cercle en outil de selection cercle).
 			const float32 wheel = modalLock ? 0.f : wheelRaw;
-			st->lastWheel = (st->editMode && (st->selTool == 3 || modalLock)) ? modalWheelRaw : 0.f;
+			// La molette alimente le RAYON du cercle de selection dans LES DEUX modes :
+			// l'outil cercle existe desormais aussi en mode objet, et sans cette ligne son
+			// rayon y serait fige (la molette repartirait au zoom camera).
+			st->lastWheel = ((st->selTool == 3) || (st->editMode && modalLock)) ? modalWheelRaw : 0.f;
 			if (!fixcam) {
 				// FIX drift caméra : delta RECALCULÉ par frame (frameMDX/MDY = pos courante -
 				// pos précédente, = 0 sans mouvement), et NON NkInput.MouseDelta*() qui reste
@@ -3418,7 +3495,7 @@ namespace nkentseu {
 					// molette ~1 -> multiplier pour un pan comparable.)
 					// (En mode CERCLE de sélection, la molette est réservée au rayon ; pendant
 					// une op MODALE, `wheel` vaut deja 0 — cf. le verrou souris unique.)
-					if (wheel != 0.f && !(st->editMode && st->selTool == 3)) {
+					if (wheel != 0.f && st->selTool != 3) { // l'outil CERCLE capte la molette (rayon)
 						const float32 step = wheel * 22.f;
 						if (shift)
 							st->editorCam.Pan(0.f, step); // vertical
@@ -5328,6 +5405,125 @@ namespace nkentseu {
 							gin.lockAxis = 2;
 					}
 					st->gizmo.Update(targets, n, gin);
+
+					// ── OUTILS DE SÉLECTION PAR ZONE, MODE OBJET ─────────────────────
+					// B = rectangle, Ctrl+glisser = lasso, C = cercle — exactement les
+					// mêmes touches qu'en mode édition, et la même logique de zone.
+					// Ces outils n'existaient QU'EN ÉDITION : tout leur code avait été
+					// écrit à l'intérieur du bloc `if (st->editMode && ...)`, donc en mode
+					// objet il n'était jamais atteint. Ce n'était ni un choix ni une
+					// limite technique — juste l'endroit où ils avaient été développés.
+					// Blender les propose dans les deux modes : seule la CIBLE change
+					// (sommets/arêtes/faces en édition, objets ici).
+					{
+						const Demo3D_ScreenProj proj = Demo3D_ScreenProj::Make(
+							cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width, (float32)ctx.height);
+						// NK_OBJ_ZONE="x0,y0,x1,y1" : applique UNE FOIS un rectangle de
+						// sélection en mode objet, sans souris. Sans ce levier, la sélection
+						// par zone ne serait vérifiable qu'à la main — donc pas en capture,
+						// donc pas de façon reproductible.
+						static bool objZoneDone = false;
+						if (!objZoneDone) {
+							objZoneDone = true;
+							if (const char *oz = getenv("NK_OBJ_ZONE")) {
+								float32 zv[4] = {0.f, 0.f, 0.f, 0.f};
+								int32 zk = 0;
+								const char *pz = oz;
+								while (zk < 4 && *pz) {
+									zv[zk++] = (float32)atof(pz);
+									while (*pz && *pz != ',')
+										pz++;
+									if (*pz == ',')
+										pz++;
+								}
+								const float32 zx0 = NkMin(zv[0], zv[2]), zx1 = NkMax(zv[0], zv[2]);
+								const float32 zy0 = NkMin(zv[1], zv[3]), zy1 = NkMax(zv[1], zv[3]);
+								Demo3D_SelectObjectsInZone(
+									st, 0,
+									[&](float32 px, float32 py) {
+										return px >= zx0 && px <= zx1 && py >= zy0 && py <= zy1;
+									},
+									proj);
+								int32 nSel = 0;
+								for (int32 q = 0; q < (int32)Demo3DState::kNumObj; q++)
+									if (st->gizmo.IsSelected(q))
+										nSel++;
+								logger.Info("[Demo3D][ZONE OBJET] rectangle -> {0} objets selectionnes, "
+											"actif={1}\n",
+											nSel, st->gizmo.ActiveIndex());
+							}
+						}
+						const bool clickNowObj = gin.leftDown && !st->prevLeftDownObj;
+						st->prevLeftDownObj = gin.leftDown;
+						const bool altDownObj =
+							NkInput.IsKeyDown(NkKey::NK_LALT) || NkInput.IsKeyDown(NkKey::NK_RALT);
+						// Le gizmo a la priorité : si une poignée est saisie, on ne démarre
+						// pas de zone (sinon tout déplacement tracerait un rectangle).
+						const bool gizmoBusy = st->gizmo.IsDragging();
+
+						if (st->selTool == 3) { // CERCLE : on peint tant que le bouton est tenu
+							st->selX1 = gin.mouseX;
+							st->selY1 = gin.mouseY;
+							if (st->lastWheel != 0.f) {
+								st->selCircleR += st->lastWheel * 6.f;
+								st->selCircleR = NkMax(6.f, NkMin(400.f, st->selCircleR));
+							}
+							if (gin.leftDown && !gizmoBusy) {
+								const float32 cx = gin.mouseX, cy = gin.mouseY;
+								const float32 r2 = st->selCircleR * st->selCircleR;
+								Demo3D_SelectObjectsInZone(
+									st, gin.ctrlDown ? 2 : 1,
+									[&](float32 px, float32 py) {
+										return (px - cx) * (px - cx) + (py - cy) * (py - cy) <= r2;
+									},
+									proj);
+							}
+						} else if (clickNowObj && !gizmoBusy && !altDownObj &&
+								   (st->selTool == 1 || gin.ctrlDown)) {
+							st->selDragging = true;
+							st->selTool = (st->selTool == 1) ? 1 : 2; // 1=rectangle, 2=lasso
+							st->selX0 = st->selX1 = gin.mouseX;
+							st->selY0 = st->selY1 = gin.mouseY;
+							st->selLasso.Clear();
+							st->selLasso.PushBack(NkVec2f{gin.mouseX, gin.mouseY});
+							st->selMode = (st->selTool == 1) ? (gin.shiftDown ? 1 : (gin.ctrlDown ? 2 : 0))
+															 : (gin.shiftDown ? 2 : 1);
+						}
+						if (st->selDragging) {
+							st->selX1 = gin.mouseX;
+							st->selY1 = gin.mouseY;
+							if (st->selTool == 2) {
+								const NkVec2f &lp = st->selLasso[(uint32)st->selLasso.Size() - 1];
+								if (fabsf(lp.x - gin.mouseX) + fabsf(lp.y - gin.mouseY) > 3.f)
+									st->selLasso.PushBack(NkVec2f{gin.mouseX, gin.mouseY});
+							}
+							if (!gin.leftDown) { // relâché -> on applique la zone
+								if (st->selTool == 1) {
+									const float32 x0 = NkMin(st->selX0, st->selX1), x1 = NkMax(st->selX0, st->selX1);
+									const float32 y0 = NkMin(st->selY0, st->selY1), y1 = NkMax(st->selY0, st->selY1);
+									Demo3D_SelectObjectsInZone(
+										st, st->selMode,
+										[&](float32 px, float32 py) {
+											return px >= x0 && px <= x1 && py >= y0 && py <= y1;
+										},
+										proj);
+									logger.Info("[Demo3D] OBJET : selection RECTANGLE appliquee\n");
+								} else if (st->selTool == 2 && st->selLasso.Size() >= 3) {
+									Demo3D_SelectObjectsInZone(
+										st, st->selMode,
+										[&](float32 px, float32 py) {
+											return Demo3D_PointInPoly(st->selLasso, px, py);
+										},
+										proj);
+									logger.Info("[Demo3D] OBJET : selection LASSO appliquee ({0} points)\n",
+												(uint32)st->selLasso.Size());
+								}
+								st->selDragging = false;
+								st->selTool = 0; // one-shot, comme Blender
+								st->selLasso.Clear();
+							}
+						}
+					}
 
 					// ── Sélection « outline silhouette » (option NK_SELECT_OUTLINE) ──
 					// Soumet l'objet ACTIF au masque de silhouette : le liseré orange
