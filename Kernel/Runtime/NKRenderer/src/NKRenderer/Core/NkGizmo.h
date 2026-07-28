@@ -55,6 +55,25 @@ namespace nkentseu {
 
 				enum { ORIENT_GLOBAL = 0, ORIENT_LOCAL = 1, ORIENT_NORMAL = 2 };
 
+				// ── POINTS DE PIVOT (Blender : « Transform Pivot Point », touche `.`) ──
+				// Détermine AUTOUR DE QUOI s'appliquent la ROTATION et l'ÉCHELLE, et où le
+				// gizmo se DESSINE :
+				//   MEDIAN     : barycentre des éléments sélectionnés (défaut Blender).
+				//   BBOX       : centre de la BOÎTE ENGLOBANTE de la sélection (≠ barycentre
+				//                dès que la répartition est inégale).
+				//   CURSOR     : le CURSEUR 3D (position monde libre, cf. Set3DCursor).
+				//   INDIVIDUAL : chaque élément est transformé autour de SON PROPRE centre
+				//                (le gizmo, lui, reste dessiné au barycentre — comme Blender).
+				//   ACTIVE     : tout est transformé autour de l'élément ACTIF (dernier
+				//                sélectionné = ActiveIndex()).
+				enum {
+					PIVOT_MEDIAN = 0,
+					PIVOT_BBOX = 1,
+					PIVOT_CURSOR = 2,
+					PIVOT_INDIVIDUAL = 3,
+					PIVOT_ACTIVE = 4
+				};
+
 				static const int32 kMax = 256;
 
 				NkGizmo3D() {
@@ -91,6 +110,43 @@ namespace nkentseu {
 
 				void CycleOrientation() {
 					mOrient = (mOrient + 1) % 3;
+				}
+
+				// ── Point de pivot (façon Blender, touche `.`) ────────────────────
+				void CyclePivot() {
+					mPivotMode = (mPivotMode + 1) % 5;
+				}
+
+				void SetPivotMode(int32 p) {
+					mPivotMode = ((p % 5) + 5) % 5;
+				}
+
+				int32 PivotMode() const {
+					return mPivotMode;
+				}
+
+				static const char *PivotName(int32 p) {
+					static const char *kN[5] = {"MEDIAN", "BOITE ENGLOBANTE", "CURSEUR 3D",
+												"ORIGINES INDIVIDUELLES", "ELEMENT ACTIF"};
+					return kN[((p % 5) + 5) % 5];
+				}
+
+				const char *PivotName() const {
+					return PivotName(mPivotMode);
+				}
+
+				// CURSEUR 3D (position MONDE). Sert de pivot en mode PIVOT_CURSOR ; c'est
+				// l'application qui le place (clic) et qui le DESSINE dans la scène.
+				void Set3DCursor(NkVec3f p) {
+					mCursor = p;
+				}
+
+				NkVec3f Get3DCursor() const {
+					return mCursor;
+				}
+
+				void Reset3DCursor() {
+					mCursor = {0.f, 0.f, 0.f};
 				}
 
 				// Choix EXPLICITE du mode/orientation par valeur (enum/entier) — pas de cycle.
@@ -311,6 +367,22 @@ namespace nkentseu {
 					return NkMat4f::Translate(t) * about * base;
 				}
 
+				// Même décalage utilisateur (translation, rotation, échelle) que Apply(),
+				// mais composé AUTOUR D'UN POINT MONDE ARBITRAIRE au lieu du centre de la
+				// cible i. La matrice renvoyée s'applique à des POINTS MONDE (pas à une
+				// matrice de base) : P' = ApplyAbout(i, about) * P.
+				// C'est ce que consomme l'Edit Mode : pivot commun (median/bbox/curseur/
+				// actif) en passant `about` = ce pivot, ou pivot « ORIGINES INDIVIDUELLES »
+				// en passant l'origine PROPRE de chaque élément.
+				NkMat4f ApplyAbout(int32 i, NkVec3f about) const {
+					if (i < 0 || i >= kMax)
+						return NkMat4f::Identity();
+					const NkVec3f t = mTr[i], s = mScale[i];
+					return NkMat4f::Translate(t) * NkMat4f::Translate(about) * mRot[i] *
+						   NkMat4f::Scale({1.f + s.x, 1.f + s.y, 1.f + s.z}) *
+						   NkMat4f::Translate({-about.x, -about.y, -about.z});
+				}
+
 				// ── Boucle par frame : pick + drag ────────────────────────────────
 				void Update(const NkGizmoTarget *targets, int32 count, const NkGizmoInput &in) {
 					if (count > kMax)
@@ -321,16 +393,40 @@ namespace nkentseu {
 						mHalf[i] = targets[i].localHalf;
 						mPickR[i] = targets[i].pickRadius;
 					}
-					// Pivot (barycentre des centres sélectionnés) + orientation.
+					// ── PIVOT (façon Blender) : dépend du MODE DE PIVOT courant ───────
+					// MEDIAN = barycentre des centres sélectionnés ; BBOX = centre de la
+					// boîte englobante (coins OBB de chaque sélectionné) ; CURSOR = curseur
+					// 3D ; ACTIVE = centre de l'élément actif ; INDIVIDUAL = le gizmo se
+					// DESSINE au barycentre (comme Blender) et chaque objet est transformé
+					// autour de son propre centre (cf. PivotOf).
 					int32 selCount = 0;
 					NkVec3f pivot = {0.f, 0.f, 0.f};
+					NkVec3f bbMin = {1e30f, 1e30f, 1e30f}, bbMax = {-1e30f, -1e30f, -1e30f};
 					for (int32 i = 0; i < count; i++)
 						if (mSel[i]) {
 							selCount++;
 							pivot = pivot + Ctr(i);
+							for (int32 c = 0; c < 8; c++) {
+								const NkVec3f p = Corner(mComposed[i], mHalf[i], (c & 1) ? 1.f : -1.f,
+														 (c & 2) ? 1.f : -1.f, (c & 4) ? 1.f : -1.f);
+								bbMin.x = (p.x < bbMin.x) ? p.x : bbMin.x;
+								bbMin.y = (p.y < bbMin.y) ? p.y : bbMin.y;
+								bbMin.z = (p.z < bbMin.z) ? p.z : bbMin.z;
+								bbMax.x = (p.x > bbMax.x) ? p.x : bbMax.x;
+								bbMax.y = (p.y > bbMax.y) ? p.y : bbMax.y;
+								bbMax.z = (p.z > bbMax.z) ? p.z : bbMax.z;
+							}
 						}
 					if (selCount > 0)
 						pivot = pivot * (1.f / (float32)selCount);
+					if (selCount > 0) {
+						if (mPivotMode == PIVOT_BBOX)
+							pivot = (bbMin + bbMax) * 0.5f;
+						else if (mPivotMode == PIVOT_ACTIVE && mSelId >= 0 && mSelId < count)
+							pivot = Ctr(mSelId);
+					}
+					if (mPivotMode == PIVOT_CURSOR)
+						pivot = mCursor; // le curseur 3D existe même sans sélection
 					mPivot = pivot;
 					mHaveSel = (selCount > 0);
 					mPivDist = Len(NkVec3f{pivot.x - mCamPos.x, pivot.y - mCamPos.y, pivot.z - mCamPos.z});
@@ -1104,6 +1200,15 @@ namespace nkentseu {
 					}
 				}
 
+				// Pivot RÉEL appliqué à la cible i (rotation / échelle). Séparé de
+				// l'ORIENTATION : c'est le MODE DE PIVOT qui décide, exactement comme dans
+				// Blender (avant, « Local » impliquait implicitement des origines
+				// individuelles — les deux notions sont désormais indépendantes ; pour une
+				// sélection UNIQUE le résultat est identique, Ctr(i) == mPivot).
+				NkVec3f PivotOf(int32 i) const {
+					return (mPivotMode == PIVOT_INDIVIDUAL) ? Ctr(i) : mPivot;
+				}
+
 				void BasisPivot(int32 i, bool localOri, NkVec3f B[3], NkVec3f &Pi) const {
 					// Orientation NORMAL avec repère fourni (Edit Mode) : le DRAG suit les
 					// mêmes axes que ceux DESSINÉS (sinon tirer la flèche Z ne déplacerait
@@ -1112,26 +1217,26 @@ namespace nkentseu {
 						B[0] = mNFrameX;
 						B[1] = mNFrameY;
 						B[2] = mNFrameZ;
-						Pi = Ctr(i);
-						return;
-					}
-					if (!localOri) {
+					} else if (!localOri) {
 						B[0] = {1, 0, 0};
 						B[1] = {0, 1, 0};
 						B[2] = {0, 0, 1};
-						Pi = mPivot;
 					} else {
 						const NkMat4f &M = mComposed[i];
 						NkVec3f o = M * NkVec3f{0.f, 0.f, 0.f};
 						B[0] = Norm((M * NkVec3f{1, 0, 0}) - o);
 						B[1] = Norm((M * NkVec3f{0, 1, 0}) - o);
 						B[2] = Norm((M * NkVec3f{0, 0, 1}) - o);
-						Pi = o;
 					}
+					Pi = PivotOf(i);
 				}
 
 				// ── État ──────────────────────────────────────────────────────────
 				int32 mMode = 0, mOrient = 0;
+				// Point de pivot (Blender) + curseur 3D monde. Défaut = MEDIAN (barycentre),
+				// comportement historique.
+				int32 mPivotMode = PIVOT_MEDIAN;
+				NkVec3f mCursor = {0.f, 0.f, 0.f};
 				// Repère « Normal » posé par l'éditeur de maillage (SetNormalFrame) :
 				// Z = normale de l'élément, X = tangente, Y = Z x X.
 				bool mHasNFrame = false;
