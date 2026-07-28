@@ -1183,15 +1183,19 @@ brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
    cycles), ~38→45 fps en 720p**, bit-exactness préservée (19/19 flux octet-identiques). ⚠️
    Découverte : l'artefact « H264 lent » venait d'une copie profonde du DPB **dans le harnais de
    test** ; le vrai chemin `NkVideoReader` utilise déjà `NkMove` (pas de copie). Levier restant #1 =
-   CABAC + parsing coefficients (~51% du décodage, bit-serial — risqué). **HEVC : 1re passe livrée
-   (2026-07-26) — décodeur ×2,17 (−54% de cycles, ~67→148 fps 720p single-thread), bit-exact
-   préservé (maxdiff=0 tous flux).** ⭐ Trouvaille majeure (transversale) : `NkVector`'s copie
-   élément-par-élément (via PushBack) est pathologiquement lente sur les plans de pixels POD — le
-   snapshot SAO pré-filtre valait **35% du temps de décodage HEVC** ; fixé via `NkMove`/`NkCopy`
-   (memcpy AVX2). **À généraliser moteur : la copie de `NkVector<T>` trivialement-copiable devrait
-   utiliser `NkCopy`** (footgun affectant tout code copiant de gros vecteurs POD). Restant HEVC :
-   SIMD explicite sur MC 8/4-taps (~40% du total réduit), IDCT, SAO. SIMD déblocage luma /
-   multithread = pistes suivantes.
+   CABAC + parsing coefficients (~51% du décodage, bit-serial — risqué). **HEVC : décodeur ~×2,5
+   cumulé vs baseline scalaire.** Passe 1 (2026-07-26) : ×2,17 (−54% cycles, ~67→148 fps 720p) via
+   NkMove/NkCopy sur les copies (snapshot SAO valait 35% du décodage !) + chemins MC sans-clamp.
+   Passe 2 (2026-07-26) : **SIMD SSE2/AVX2 (dispatch runtime) sur la MC 8-tap luma/4-tap chroma
+   séparable** → **−14% de cycles/frame supplémentaires** (720p, mesuré `QueryThreadCycleTime`).
+   IDCT/SAO restés SCALAIRES par choix délibéré (IDCT accumule en int64 pour éviter un dépassement
+   int32 sur DCT-32/QP extrêmes non couverts par les tests ; SAO = ROI plus faible + gather
+   data-dépendant coûteux à vectoriser correctement) — « en cas de doute, garde le scalaire ».
+   **Bit-exact préservé sur les 17 flux de test, Release ET Debug, aux deux passes.** ⭐ Fix moteur
+   transversal appliqué : **`NkVector<T>` trivialement-copiable copie désormais via `NkCopy`
+   (memcpy AVX2)** au lieu de PushBack élément-par-élément (Kernel/Foundation/NKContainers) —
+   bénéficie à tout code copiant de gros vecteurs POD, pas seulement HEVC. Restant : SIMD IDCT/SAO
+   (int64, prudence dépassement), CABAC (risqué), déblocage luma, multithread.
 2. **HEVC — features de bord restantes** (INVÉRIFIABLES faute d'oracle x265, ou refactor lourd —
    pas des bugs) : tuiles, 4:2:2/4:4:4, PCM (code dormant écrit), `ref_pic_lists_modification`,
    `scaling_list_data`, CU 8×8 `log2ParallelMergeLevel>2`. **10-bit inter (Main10) ✅ livré.**
