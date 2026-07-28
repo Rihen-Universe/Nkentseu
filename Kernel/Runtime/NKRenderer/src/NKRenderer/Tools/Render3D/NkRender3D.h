@@ -659,20 +659,34 @@ namespace nkentseu {
 				NkPipelineHandle mLinePipeline;
 				NkRenderPassHandle mLinePipelineRP{};
 				NkPipelineHandle mLinePipelineNoDepth; // depth-test OFF (overlay gizmo)
-				NkBufferHandle mLineVBO;			   // dynamique
-				uint32 mLineVBOCapVerts = 0;
+				// RING PAR FRAME EN VOL : ce VBO est reecrit A CHAQUE FRAME (les gizmos /
+				// marqueurs sont des primitives « une frame »). Un buffer unique = le CPU
+				// memcpy dans le buffer que le GPU lit encore pour une frame precedente
+				// (jusqu'a framesInFlight-1 frames en vol) -> lignes dechirees. Un buffer
+				// par slot supprime la course. Cf. NgonWireBufferForFrame.
+				NkVector<NkBufferHandle> mLineVBORing;
+				NkVector<uint32> mLineVBORingCap;
 				// Triangles debug pleins (alpha-blend) : mêmes shader/VBO logique que
 				// les lignes mais topologie TRIANGLE_LIST + blend.
 				NkPipelineHandle mTriPipeline;
 				NkPipelineHandle mTriPipelineNoDepth;
 				NkRenderPassHandle mTriPipelineRP{};
-				NkBufferHandle mTriVBO;
-				uint32 mTriVBOCapVerts = 0;
+				// Meme ring par frame en vol que mLineVBORing (reecrit chaque frame).
+				NkVector<NkBufferHandle> mTriVBORing;
+				NkVector<uint32> mTriVBORingCap;
 				bool EnsureDebugTriOverlayPipeline(NkRenderPassHandle currentRP);
+				// Helper commun aux deux rings ci-dessus : rend le buffer du SLOT COURANT,
+				// (re)cree si trop petit, puis y ecrit `vcount` vertices.
+				NkBufferHandle DebugRingUpload(NkVector<NkBufferHandle> &ring, NkVector<uint32> &caps, const void *v,
+											   uint32 vcount, uint32 strideBytes);
 				// Edit overlay persistant (uploadé seulement au changement).
-				NkBufferHandle mEditLineBuf, mEditTriBuf, mEditPointBuf;
+				// Egalement RINGE : pendant un drag/une operation modale il est reconstruit
+				// a chaque frame, donc soumis a la meme course que les VBO debug.
+				NkVector<NkBufferHandle> mEditLineRing, mEditTriRing, mEditPointRing;
+				NkVector<uint32> mEditLineRingCap, mEditTriRingCap, mEditPointRingCap;
+				NkVector<float32> mEditLineCPU, mEditTriCPU, mEditPointCPU; // copie CPU = autorite
+				NkVector<uint8> mEditLineDirty, mEditTriDirty, mEditPointDirty; // 1 = slot perime
 				uint32 mEditLineN = 0, mEditTriN = 0, mEditPointN = 0;		 // vertices actifs
-				uint32 mEditLineCap = 0, mEditTriCap = 0, mEditPointCap = 0; // capacité (vertices)
 				// ── Batch persistant d'aretes n-gon (wireframe sans diagonales) ──────────
 				// RING PAR FRAME EN VOL (même idiome que mUBOCameraRing / mUBOBonesRing /
 				// mGlobalSetRing). CAUSE DU CLIGNOTEMENT corrigée ici : le batch était UN
@@ -699,7 +713,13 @@ namespace nkentseu {
 				NkRenderPassHandle mEditPointPipelineRP{};
 				bool EnsureEditPointPipeline(NkRenderPassHandle currentRP);
 				// stride en OCTETS d'un vertex (7*float lignes/tris, 9*float points sprite).
-				void UploadEditBuf(NkBufferHandle &buf, uint32 &cap, const float *v, uint32 vcount, uint32 strideBytes);
+				// Copie dans la copie CPU (autorite) et marque TOUS les slots perimes.
+				void UploadEditBuf(NkVector<float32> &cpu, NkVector<uint8> &dirty, const float *v, uint32 vcount,
+								   uint32 floatsPerVertex);
+				// Slot courant remis a niveau depuis la copie CPU, juste avant le draw.
+				NkBufferHandle EditBufForFrame(NkVector<NkBufferHandle> &ring, NkVector<uint32> &caps,
+											   NkVector<uint8> &dirty, const NkVector<float32> &cpu, uint32 vcount,
+											   uint32 floatsPerVertex);
 				bool EnsureDebugLinePipeline(NkRenderPassHandle currentRP);
 
 				// ── Sélection « outline silhouette » (post-process edge-detect) ──────

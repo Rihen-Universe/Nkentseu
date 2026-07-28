@@ -71,6 +71,32 @@ namespace nkentseu {
 			}
 			logger.Info("[NkRendererImpl] Initialize start (api={0})\n", (int)mCfg.api);
 
+			// ── CORRECTIF course CPU/GPU (2026-07-28) : la PROFONDEUR DES RINGS DOIT
+			//    ÊTRE CELLE DU DEVICE, pas une valeur de config indépendante. ────────
+			// Tous les rings du renderer (UBO camera/lights/objets/bones/instances,
+			// descriptor sets, batch d'arêtes n-gon, UBO d'ombres) choisissent leur slot
+			// par `mDevice->GetFrameIndex() % framesInFlight`. Or GetFrameIndex() est
+			// CYCLIQUE MODULO LA PROFONDEUR DU DEVICE (MAX_FRAMES = 3 sur GL/VK/DX11/DX12)
+			// et c'est la fence de CE slot-là que BeginFrame attend.
+			// Avec framesInFlight = 2 et un device à 3, la suite de slots devient
+			// 0,1,0 | 0,1,0 | ... : le slot 0 revient sur DEUX FRAMES CONSÉCUTIVES.
+			// Une frame sur trois, le CPU réécrit donc (memcpy en mémoire mappée) le
+			// buffer que le GPU est encore en train de lire pour la frame précédente
+			// -> vertices/UBO déchirés -> CLIGNOTEMENT rapide (mesuré : 13 collisions
+			// sur 40 frames, exactement 1/3). Prendre la profondeur du device rend
+			// `GetFrameIndex() % framesInFlight` BIJECTIF : deux frames consécutives ne
+			// partagent plus jamais un slot, et chaque slot est couvert par sa fence.
+			{
+				const uint32 devFIF = mDevice->GetMaxFramesInFlight();
+				if (devFIF > 0 && mCfg.framesInFlight != devFIF) {
+					logger.Info("[NkRendererImpl] framesInFlight config={0} -> {1} (profondeur REELLE du "
+								"device : les rings doivent la suivre, sinon deux frames consecutives "
+								"partagent un slot)\n",
+								mCfg.framesInFlight, devFIF);
+					mCfg.framesInFlight = devFIF;
+				}
+			}
+
 			// Cap FPS par défaut = 0 (DESACTIVE). Le rythme + la protection thermique
 			// sont assurés par le VSYNC (GL wglSwapIntervalEXT / VK FIFO) : la présentation
 			// se cale sur le vblank de l'écran -> pas de tearing, pas de GPU 100%.
