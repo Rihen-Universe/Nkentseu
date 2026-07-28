@@ -25,7 +25,13 @@ uniform CameraUBO {
     float matcapId;
     mat4  mirrorViewProj;
     vec4  reflectionFlags;
+    vec4  viewOpts;      // non lu ici, mais OBLIGATOIRE : cf. note ci-dessous
 } uCam;
+// NOTE : en OpenGL, les deux etages d'un MEME programme doivent declarer un bloc
+// uniforme A L'IDENTIQUE. Omettre viewOpts cote vertex fait echouer le LINK avec
+// « struct type mismatch between shaders for uniform (named CameraUBO) », alors que
+// chaque etage compile parfaitement de son cote. Toute evolution de CameraUBO doit
+// donc etre appliquee AUX DEUX fichiers, meme si un seul s'en sert.
 
 @binding(set=1, binding=1)
 uniform ObjectUBO {

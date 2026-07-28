@@ -10,6 +10,7 @@
 #include "NKRenderer/Core/NkResources.h"
 #include "NKRenderer/Core/NkRendererConfig.h" // NkUnits() pour triplanar
 #include "NKRenderer/Materials/NkMaterialCollection.h"
+#include "NKRenderer/Materials/NkMatcapLibrary.h"
 #include "NkRender3D_PBRShaders.inl"
 #include "NKLogger/NkLog.h"
 #include <cstring>
@@ -167,55 +168,29 @@ namespace nkentseu {
 				}
 			}
 
-			// ── MatCap texture (boule chrome studio) ──────────────────────────────
-			// Génère une "boule matcap" 128x128 : chaque pixel = normale de sphère,
-			// colorée par un éclairage chrome/studio. Échantillonnée par la normale-vue
-			// en mode SOLID/WIREFRAME (matcap TEXTURE). Base pour charger de vrais
-			// matcaps .exr/.png plus tard (remplacer la génération par un Load).
+			// ── ATLAS MATCAP (30 boules, façon Blender) ──────────────────────────
+			// Une matcap est une image de BOULE éclairée, échantillonnée par la normale
+			// en ESPACE VUE : uv = normaleVue.xy * 0.5 + 0.5. L'éclairage est peint dans
+			// la texture — aucune lumière de scène, aucune ombre, aucun IBL.
+			//
+			// Les 30 boules tiennent dans UN atlas 6x5 (cf. NkMatcapLibrary) plutôt que
+			// dans 30 textures ou un tableau de textures : un seul binding, un seul
+			// sampler, aucun changement de descripteur quand l'utilisateur change de
+			// matcap. Le shader calcule lui-même l'offset de tuile depuis matcapId, donc
+			// AUCUN uniforme supplémentaire n'est nécessaire.
+			//
+			// UNE SEULE MIP : une matcap est déjà lisse à l'écran, et des mips
+			// mélangeraient les tuiles voisines entre elles.
 			{
-				const uint32 S = 128;
-				auto td = NkTextureDesc::Tex2D(S, S, NkGPUFormat::NK_RGBA8_UNORM, 1);
-				td.debugName = "MatcapChrome";
+				const uint32 W = NkMatcapLibrary::kAtlasW, H = NkMatcapLibrary::kAtlasH;
+				auto td = NkTextureDesc::Tex2D(W, H, NkGPUFormat::NK_RGBA8_UNORM, 1);
+				td.debugName = "MatcapAtlas30";
 				mMatcapTex = mDevice->CreateTexture(td);
 				if (mMatcapTex.IsValid()) {
 					NkVector<uint8> px;
-					px.Resize(S * S * 4);
-					auto norm3 = [](float a, float b, float c) {
-						float l = sqrtf(a * a + b * b + c * c);
-						return l > 1e-6f ? 1.f / l : 0.f;
-					};
-					const float kl = norm3(0.40f, 0.50f, 0.77f), fl = norm3(-0.5f, 0.15f, 0.85f);
-					for (uint32 y = 0; y < S; ++y)
-						for (uint32 x = 0; x < S; ++x) {
-							float nx = ((float)x / (float)(S - 1)) * 2.f - 1.f;
-							float ny = 1.f - ((float)y / (float)(S - 1)) * 2.f;
-							float r2 = nx * nx + ny * ny;
-							float s;
-							if (r2 > 1.f) {
-								s = 0.05f;
-							} // hors sphère : fond sombre
-							else {
-								float nz = sqrtf(1.f - r2);
-								float key = nx * 0.40f * kl + ny * 0.50f * kl + nz * 0.77f * kl;
-								if (key < 0.f)
-									key = 0.f;
-								float spec = powf(key, 42.f);
-								float fill = nx * (-0.5f) * fl + ny * 0.15f * fl + nz * 0.85f * fl;
-								if (fill < 0.f)
-									fill = 0.f;
-								float fres = powf(1.f - nz, 3.f);
-								s = 0.12f + 0.45f * key + 0.9f * spec + 0.22f * fill + 0.32f * fres;
-								if (s > 1.f)
-									s = 1.f;
-							}
-							uint8 v = (uint8)(s * 255.f);
-							uint32 i = (y * S + x) * 4;
-							px[i] = v;
-							px[i + 1] = v;
-							px[i + 2] = v;
-							px[i + 3] = 255; // chrome = niveaux de gris
-						}
-					mDevice->WriteTextureRegion(mMatcapTex, px.Data(), 0, 0, 0, S, S, 1, 0, 0);
+					px.Resize(W * H * 4);
+					NkMatcapLibrary::GenerateAtlas(px.Data());
+					mDevice->WriteTextureRegion(mMatcapTex, px.Data(), 0, 0, 0, W, H, 1, 0, 0);
 				}
 			}
 
@@ -1873,7 +1848,11 @@ namespace nkentseu {
 		// Remplace À CHAUD la boule matcap (binding 28). Permet à l'utilisateur de charger
 		// sa propre texture matcap (.exr/.png décodé) et de la changer au runtime.
 		void NkRender3D::SetMatcapTexture(NkTextureHandle tex) {
-			NkTextureHandle bind = tex.IsValid() ? tex : mMatcapTex; // fallback = chrome généré
+			// Une texture utilisateur est une boule SEULE, pas un atlas 6x5 : le shader
+			// doit cesser d'appliquer la transformation de tuile, sinon il n'en lirait
+			// qu'un trentieme. C'est le role de mMatcapCustom (-> uCam.viewOpts.x).
+			mMatcapCustom = tex.IsValid();
+			NkTextureHandle bind = tex.IsValid() ? tex : mMatcapTex; // fallback = atlas genere
 			if (!bind.IsValid() || !mResources)
 				return;
 			NkSamplerHandle samp = mResources->GetSamplerLinearClamp();
@@ -1966,6 +1945,12 @@ namespace nkentseu {
 					// sample le shadow map a la mauvaise position -> reflets faux.
 					// .x = isMirrorPass (0=normal, 1=mirror), .yzw = reserve.
 					NkVec4f reflectionFlags; // offset 384
+					// Options du viewport (offset 400). .x = 1 si une matcap PERSONNALISEE
+					// (texture unique chargee par l'utilisateur) a remplace l'atlas des 30 :
+					// le shader doit alors echantillonner la texture ENTIERE au lieu d'une
+					// tuile. .yzw reserves. Ajoute EN FIN de struct : les shaders qui
+					// declarent un CameraUBO plus court ignorent simplement ces octets.
+					NkVec4f viewOpts;
 			};
 
 			PBRCamUBO cb{};
@@ -2010,7 +1995,10 @@ namespace nkentseu {
 			cb.deltaTime = mCtx.deltaTime;
 			cb.iblStrength = mIBLStrength;
 			cb.viewMode = (float32)mViewMode; // 0=rendered(PBR) 1=solid/unlit (indépendant du wireframe)
-			cb.matcapId = (float32)mMatcapId; // preset matcap en mode SOLID/WIREFRAME
+			cb.matcapId = (float32)mMatcapId; // index 0..29 dans l'atlas des 30 matcaps
+			// .x = 1 si une matcap PERSONNALISEE remplace l'atlas (cf. SetMatcapTexture) :
+			// le shader echantillonne alors la texture entiere au lieu d'une tuile.
+			cb.viewOpts = {mMatcapCustom ? 1.f : 0.f, 0.f, 0.f, 0.f};
 			// yFlipNDC : UNIQUEMENT consommé par le SKYBOX (reconstruction du view-ray à
 			// partir de vNDC). C'est l'orientation Y du VS PLEIN ÉCRAN du skybox, qui
 			// n'a PAS d'inputs → le générateur HLSL ne le Y-négate PAS sur DX (il ne
