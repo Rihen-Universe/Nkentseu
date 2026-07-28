@@ -31,6 +31,15 @@ namespace nkentseu {
 			ID3D11ShaderResourceView *srv = nullptr;
 			ID3D11UnorderedAccessView *uav = nullptr;
 			NkBufferDesc desc;
+			// Miroir CPU des buffers NK_UPLOAD (D3D11_USAGE_DYNAMIC).
+			// RAISON : sur DX11 une ecriture partielle passe par Map(WRITE_DISCARD),
+			// qui JETTE la TOTALITE du contenu precedent (renommage de ressource) et
+			// ne reecrit que [off, off+sz) -> tout le reste devient indefini. Les
+			// autres backends (VK/DX12/GL) ecrivent dans un mapping persistant et
+			// PRESERVENT le reste. Le miroir retablit cette semantique : on patche
+			// la tranche cote CPU puis on reuploade le buffer COMPLET en DISCARD
+			// (on garde ainsi la garantie de renommage, seule barriere GPU de DX11).
+			NkVector<uint8> shadow;
 	};
 
 	struct NkDX11Texture {

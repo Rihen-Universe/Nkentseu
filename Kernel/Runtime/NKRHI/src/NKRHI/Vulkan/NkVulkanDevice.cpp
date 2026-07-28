@@ -1682,7 +1682,29 @@ namespace nkentseu {
 		VkPipelineRasterizationStateCreateInfo rsci{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
 		rsci.polygonMode = ToVkPolygonMode(d.rasterizer.fillMode);
 		rsci.cullMode = ToVkCullMode(d.rasterizer.cullMode);
-		rsci.frontFace = ToVkFrontFace(d.rasterizer.frontFace);
+		// COMPENSATION Y VULKAN — coherence viewport / winding.
+		// Le moteur inverse Y sur Vulkan via un viewport a HAUTEUR NEGATIVE
+		// (NkViewport::flipY, cf. NkVulkanCommandBuffer::SetViewport). Vulkan
+		// determine le sens d'enroulement (winding) en coordonnees de FRAMEBUFFER,
+		// APRES la transformation viewport : une hauteur negative inverse le signe
+		// de l'aire signee, donc un triangle CCW en NDC devient CW a l'ecran.
+		// Sans compensation, `frontFace` transmis tel quel fait culler les faces
+		// AVANT au lieu des faces ARRIERE : on voit l'interieur des objets, donc
+		// des normales opposees -> le dessus du sol s'eclaire comme son dessous
+		// (bug d'eclairage Vulkan). GL/DX11/DX12 n'ont pas ce viewport inverse.
+		// On inverse donc frontFace ICI, dans l'etat de RASTERISATION uniquement :
+		// ni la projection, ni la vue, ni les normales ne sont touchees.
+		// NK_VK_NOFACEFIX=1 retablit l'ancien comportement (A/B sans recompiler).
+		static int32 sNoFaceFix = -1;
+		if (sNoFaceFix == -1) {
+			const char *vff = getenv("NK_VK_NOFACEFIX");
+			sNoFaceFix = (vff && vff[0] && vff[0] != '0') ? 1 : 0;
+		}
+		const NkFrontFace wantedFace = d.rasterizer.frontFace;
+		const NkFrontFace effectiveFace =
+			sNoFaceFix ? wantedFace
+					   : (wantedFace == NkFrontFace::NK_CCW ? NkFrontFace::NK_CW : NkFrontFace::NK_CCW);
+		rsci.frontFace = ToVkFrontFace(effectiveFace);
 		rsci.depthClampEnable = d.rasterizer.depthClip ? VK_FALSE : VK_TRUE;
 		rsci.depthBiasEnable = d.rasterizer.depthBiasConst != 0.f || d.rasterizer.depthBiasSlope != 0.f;
 		rsci.depthBiasConstantFactor = d.rasterizer.depthBiasConst;
