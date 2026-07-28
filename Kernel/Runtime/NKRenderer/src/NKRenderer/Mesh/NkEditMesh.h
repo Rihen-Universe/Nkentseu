@@ -168,6 +168,19 @@ namespace nkentseu {
 						NkVec3f pos = {0.f, 0.f, 0.f};
 						NkVec3f normal = {0.f, 1.f, 0.f};
 						NkVec2f uv = {0.f, 0.f};
+						// ── ATTRIBUTS CONSERVÉS POUR L'ALLER-RETOUR ───────────────────
+						// Ces trois champs ne servent PAS à l'édition topologique. Ils
+						// existent pour qu'entrer en mode édition puis en ressortir soit
+						// une IDENTITÉ. Sans eux, Triangulate() les RÉINVENTAIT à la
+						// sortie (tangent={1,0,0}, color=blanc) : la géométrie restait
+						// intacte au micron près, mais le repère tangent de tout le
+						// maillage changeait, donc son rendu aussi. Constaté sur les
+						// sphères ET les cubes de la démo (écart max 220 sur 255).
+						// Règle générale : ce que la structure ne sait pas représenter,
+						// elle le perd SILENCIEUSEMENT.
+						NkVec3f tangent = {1.f, 0.f, 0.f};
+						NkVec2f uv2 = {0.f, 0.f};
+						uint32 color = 0xFFFFFFFFu;
 						NkEmId hedge = NK_EM_INVALID; // une demi-arête SORTANTE
 						uint8 sel = 0;
 				};
