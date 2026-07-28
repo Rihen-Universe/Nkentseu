@@ -15,14 +15,75 @@
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKMemory/NKMemory.h"
+#include "NKCore/NkAtomic.h"
+#include "NKThreading/NkThreadPool.h"
 
 #include <cstring>
 #include <new>
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+#include <emmintrin.h> // _mm_pause (attente active courte du parallel-for local)
+#define NK_VIDEOREADER_X86_PAUSE 1
+#endif
 
 namespace nkentseu {
 	namespace media {
 
 		namespace {
+
+			// =================================================================
+			// Parallel-for local (même pattern que NkHevcCtu) — conversion
+			// YUV→RGBA par BANDES de lignes : chaque bande écrit des lignes de
+			// sortie DISJOINTES à partir d'une entrée en lecture seule → le
+			// résultat est identique quel que soit l'ordonnancement (bit-exact,
+			// déterministe). Pool dédié au lecteur vidéo.
+			// =================================================================
+			threading::NkThreadPool &ReaderPool() {
+				static threading::NkThreadPool pool(0u); // 0 = auto (cœurs logiques)
+				return pool;
+			}
+
+			inline void ReaderCpuRelax() {
+#ifdef NK_VIDEOREADER_X86_PAUSE
+				_mm_pause();
+#endif
+			}
+
+			template <typename F>
+			void ReaderParallelRun(int32 count, int32 threadsTotal, F &&fn) {
+				if (count <= 0)
+					return;
+				const int32 maxT = (int32)ReaderPool().GetNumWorkers() + 1;
+				if (threadsTotal > maxT)
+					threadsTotal = maxT;
+				const int32 helpers = (threadsTotal < count ? threadsTotal : count) - 1;
+				if (helpers <= 0) {
+					for (int32 i = 0; i < count; ++i)
+						fn(i);
+					return;
+				}
+				NkAtomic<int32> next(0);
+				NkAtomic<int32> done(0);
+				NkAtomic<int32> exited(0);
+				auto work = [&]() {
+					for (;;) {
+						const int32 i = next.FetchAdd(1);
+						if (i >= count)
+							break;
+						fn(i);
+						done.FetchAdd(1);
+					}
+				};
+				for (int32 h = 0; h < helpers; ++h) {
+					ReaderPool().Enqueue([&work, &exited]() {
+						work();
+						exited.FetchAdd(1);
+					});
+				}
+				work();
+				// Les helpers référencent la pile de cet appel : attendre leur SORTIE.
+				while (done.Load() < count || exited.Load() < helpers)
+					ReaderCpuRelax();
+			}
 
 			inline uint32 RdU32LE(const uint8 *p) {
 				return (uint32)p[0] | ((uint32)p[1] << 8) | ((uint32)p[2] << 16) | ((uint32)p[3] << 24);
@@ -497,6 +558,33 @@ namespace nkentseu {
 				int32 hevcOutCount = 0;				  // images sorties (ordre d'affichage)
 				NkVector<NkVideoFrame> hevcReorder;	  // RGBA décodées en attente d'affichage
 				NkVector<nk_int64> hevcReorderKey;	  // clé d'affichage globale parallèle
+
+				// ── Décodage-anticipé HEVC ──────────────────────────────────────────
+				// UN décodage d'avance lancé en tâche de fond quand ReadFrame RETOURNE
+				// une image : le décodage de l'image suivante (ordre bitstream)
+				// chevauche le travail de l'appelant (conversion/affichage).
+				// DÉTERMINISTE ET BIT-EXACT : c'est EXACTEMENT le décodage qui aurait
+				// eu lieu au prochain ReadFrame (mêmes entrées, même DPB) — seule
+				// l'heure d'exécution change. La tâche a l'EXCLUSIVITÉ de Impl entre
+				// deux appels de l'API (l'appelant re-synchronise via
+				// HevcPrefetchWait avant tout autre accès : ReadFrame/Seek/dtor).
+				bool hevcPrefetchPending = false; // tâche en vol (à récolter)
+				NkAtomic<int32> hevcPrefetchDone; // 1 = terminé (publie ok+frame)
+				bool hevcPrefetchOk = false;
+				int32 hevcPrefetchIdx = -1;
+				NkVideoFrame hevcPrefetchFrame;
+
+				void HevcPrefetchWait() {
+					if (!hevcPrefetchPending)
+						return;
+					while (hevcPrefetchDone.Load() == 0)
+						ReaderCpuRelax();
+				}
+
+				Impl() = default;
+				~Impl() {
+					HevcPrefetchWait(); // la tâche référence cet Impl : la joindre AVANT destruction
+				}
 
 				// ── MPEG-2 (ES .m2v ou piste vidéo TS stream_type 0x02) ─────────────
 				// NkMpeg2Decoder::DecodeAll consomme le flux élémentaire ENTIER et rend
@@ -2051,24 +2139,36 @@ namespace nkentseu {
 
 						// YUV 4:2:0 -> RGBA (BT.601 limited-range, chroma nearest). Fait AVANT le
 						// stockage DPB ci-dessous (qui DEPLACE f) : lit encore f.y/f.cb/f.cr valides ici.
+						// MULTITHREAD par BANDES de lignes (entrée lecture seule, lignes de sortie
+						// disjointes → bit-exact et déterministe, cf. chemin HEVC).
 						const int32 w = f.cropW, h = f.cropH;
 						out.width = w;
 						out.height = h;
 						out.rgba.Resize((uint64)w * (uint64)h * 4u);
 						uint8 *o = out.rgba.Data();
-						for (int32 y = 0; y < h; ++y)
-							for (int32 x = 0; x < w; ++x) {
-								const int32 Y = f.y[(usize)y * f.lumaW + x];
-								const int32 U = f.cb[(usize)(y / 2) * f.chromaW + (x / 2)];
-								const int32 V = f.cr[(usize)(y / 2) * f.chromaW + (x / 2)];
-								const int32 C = Y - 16, D = U - 128, E = V - 128;
-								auto cl = [](int32 v) -> uint8 { return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v)); };
-								const usize oi = ((usize)y * (usize)w + (usize)x) * 4;
-								o[oi + 0] = cl((298 * C + 409 * E + 128) >> 8);
-								o[oi + 1] = cl((298 * C - 100 * D - 208 * E + 128) >> 8);
-								o[oi + 2] = cl((298 * C + 516 * D + 128) >> 8);
-								o[oi + 3] = 255;
-							}
+						{
+							const int32 convThreads = NkHevcDecoder::GetThreadCount();
+							const int32 bandRows = 64;
+							const int32 nBands = (h + bandRows - 1) / bandRows;
+							const NkH264Frame &ff = f;
+							ReaderParallelRun(nBands, convThreads, [&](int32 b) {
+								const int32 y0 = b * bandRows;
+								const int32 y1 = (y0 + bandRows < h) ? y0 + bandRows : h;
+								for (int32 y = y0; y < y1; ++y)
+									for (int32 x = 0; x < w; ++x) {
+										const int32 Y = ff.y[(usize)y * ff.lumaW + x];
+										const int32 U = ff.cb[(usize)(y / 2) * ff.chromaW + (x / 2)];
+										const int32 V = ff.cr[(usize)(y / 2) * ff.chromaW + (x / 2)];
+										const int32 C = Y - 16, D = U - 128, E = V - 128;
+										auto cl = [](int32 v) -> uint8 { return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v)); };
+										const usize oi = ((usize)y * (usize)w + (usize)x) * 4;
+										o[oi + 0] = cl((298 * C + 409 * E + 128) >> 8);
+										o[oi + 1] = cl((298 * C - 100 * D - 208 * E + 128) >> 8);
+										o[oi + 2] = cl((298 * C + 516 * D + 128) >> 8);
+										o[oi + 3] = 255;
+									}
+							});
+						}
 						// ⚠️ SEULES les images de RÉFÉRENCE entrent dans le DPB (nal_ref_idc != 0).
 						// Une B non-référencée ne doit PAS y figurer (sinon l'état POC / le mouvement
 						// co-localisé de la frame suivante serait faussé).
@@ -2317,28 +2417,41 @@ namespace nkentseu {
 						// YUV 4:2:0 (uint16, 8 bits) -> RGBA (BT.601 limited-range, chroma nearest)
 						// — même conversion que les chemins H264/VP8/VP9. Fait AVANT le stockage
 						// DPB ci-dessous (qui DÉPLACE `frame`), lit encore frame.y/cb/cr valides ici.
+						// MULTITHREAD par BANDES de lignes (entrée lecture seule, lignes de sortie
+						// disjointes → bit-exact et déterministe quel que soit l'ordonnancement).
 						const int32 w = frame.cropW, h = frame.cropH;
 						out.width = w;
 						out.height = h;
 						out.rgba.Resize((uint64)w * (uint64)h * 4u);
 						uint8 *o = out.rgba.Data();
-						for (int32 y = 0; y < h; ++y)
-							for (int32 x = 0; x < w; ++x) {
-								const int32 Y = frame.y[(usize)y * (usize)frame.lumaW + (usize)x];
-								const int32 U =
-									frame.cb[(usize)(y >> 1) * (usize)frame.chromaW + (usize)(x >> 1)];
-								const int32 V =
-									frame.cr[(usize)(y >> 1) * (usize)frame.chromaW + (usize)(x >> 1)];
-								const int32 C = Y - 16, D = U - 128, E = V - 128;
-								auto cl = [](int32 v) -> uint8 {
-									return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v));
-								};
-								const usize oi = ((usize)y * (usize)w + (usize)x) * 4;
-								o[oi + 0] = cl((298 * C + 409 * E + 128) >> 8);
-								o[oi + 1] = cl((298 * C - 100 * D - 208 * E + 128) >> 8);
-								o[oi + 2] = cl((298 * C + 516 * D + 128) >> 8);
-								o[oi + 3] = 255;
-							}
+						{
+							const int32 convThreads = NkHevcDecoder::GetThreadCount();
+							const int32 bandRows = 64;
+							const int32 nBands = (h + bandRows - 1) / bandRows;
+							const nk_uint16 *py = frame.y.Data();
+							const nk_uint16 *pcb = frame.cb.Data();
+							const nk_uint16 *pcr = frame.cr.Data();
+							const int32 ls = frame.lumaW, cs = frame.chromaW;
+							ReaderParallelRun(nBands, convThreads, [&](int32 b) {
+								const int32 y0 = b * bandRows;
+								const int32 y1 = (y0 + bandRows < h) ? y0 + bandRows : h;
+								for (int32 y = y0; y < y1; ++y)
+									for (int32 x = 0; x < w; ++x) {
+										const int32 Y = py[(usize)y * (usize)ls + (usize)x];
+										const int32 U = pcb[(usize)(y >> 1) * (usize)cs + (usize)(x >> 1)];
+										const int32 V = pcr[(usize)(y >> 1) * (usize)cs + (usize)(x >> 1)];
+										const int32 C = Y - 16, D = U - 128, E = V - 128;
+										auto cl = [](int32 v) -> uint8 {
+											return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v));
+										};
+										const usize oi = ((usize)y * (usize)w + (usize)x) * 4;
+										o[oi + 0] = cl((298 * C + 409 * E + 128) >> 8);
+										o[oi + 1] = cl((298 * C - 100 * D - 208 * E + 128) >> 8);
+										o[oi + 2] = cl((298 * C + 516 * D + 128) >> 8);
+										o[oi + 3] = 255;
+									}
+							});
+						}
 
 						// isReference d'après le type NAL (TRAIL_N/TSA_N/STSA_N/RADL_N/RASL_N =
 						// non-référence, jamais gardés au DPB). Éviction DPB par le RPS de la
@@ -2615,6 +2728,23 @@ namespace nkentseu {
 			// le DPB HEVC évolue correctement, comme pour H264).
 			if (m->codec == Codec::HEVC) {
 				const int32 count = m->info.frameCount;
+				// Récolte du décodage-anticipé lancé au retour précédent : le résultat
+				// est intégré EXACTEMENT comme l'aurait fait le décodage synchrone
+				// ci-dessous (mêmes données, même ordre) — le préfetch ne change que
+				// l'heure d'exécution, jamais la sortie.
+				if (m->hevcPrefetchPending) {
+					m->HevcPrefetchWait();
+					m->hevcPrefetchPending = false;
+					if (m->hevcPrefetchIdx == m->hevcDecodeCursor) {
+						if (m->hevcPrefetchOk) {
+							m->hevcPrefetchFrame.timestampMs = 0;
+							m->hevcReorder.PushBack(traits::NkMove(m->hevcPrefetchFrame));
+							m->hevcReorderKey.PushBack(
+								m->hevcGlobalKey[(uint64)m->hevcPrefetchIdx]);
+						}
+						++m->hevcDecodeCursor; // échec inclus : on saute, comme le chemin synchrone
+					}
+				}
 				for (;;) {
 					const bool noMoreInput = (m->hevcDecodeCursor >= count);
 					int64 minRemaining = 0x7FFFFFFFFFFFFFFFLL;
@@ -2643,6 +2773,25 @@ namespace nkentseu {
 											? (int64)((double)m->hevcOutCount * 1000.0 / m->info.fps)
 											: 0;
 						++m->hevcOutCount;
+						// Décodage-anticipé : lancer le PROCHAIN décodage (ordre
+						// bitstream) pendant que l'appelant consomme `out`. La tâche a
+						// l'exclusivité de Impl jusqu'à la récolte (tout point d'entrée
+						// re-synchronise via HevcPrefetchWait). Réservé aux pools d'au
+						// moins 2 workers : le parallel-for interne de la conversion a
+						// besoin d'un worker libre pour ses helpers.
+						if (m->hevcDecodeCursor < count && !m->hevcPrefetchPending &&
+							ReaderPool().GetNumWorkers() >= 2 &&
+							NkHevcDecoder::GetThreadCount() > 1) {
+							m->hevcPrefetchPending = true;
+							m->hevcPrefetchDone.Store(0);
+							m->hevcPrefetchIdx = m->hevcDecodeCursor;
+							Impl *im = m;
+							ReaderPool().Enqueue([im]() {
+								im->hevcPrefetchOk =
+									im->Decode(im->hevcPrefetchIdx, im->hevcPrefetchFrame);
+								im->hevcPrefetchDone.Store(1);
+							});
+						}
 						return true;
 					}
 					if (noMoreInput)
@@ -2694,6 +2843,11 @@ namespace nkentseu {
 				m->lastIsIdr = false; // redécouvert au 1er ReadFrame (décodera l'IDR -> vide h264Dpb)
 			}
 			if (m->codec == Codec::HEVC) {
+				// Joindre + JETER un éventuel décodage-anticipé en vol : le DPB est
+				// vidé juste en dessous, l'état redevient cohérent quel que soit
+				// l'avancement de la tâche (elle ne touche que hevcDpb/prefetch*).
+				m->HevcPrefetchWait();
+				m->hevcPrefetchPending = false;
 				// Comme H264 : repart de la DERNIÈRE image IRAP (IDR/CRA/BLA) à un index de décodage
 				// <= `index` (approximation ordre-décodage ≈ ordre-affichage), vide le DPB + le buffer
 				// de réordonnancement, puis redécode en avant.

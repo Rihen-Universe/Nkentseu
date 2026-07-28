@@ -1177,12 +1177,22 @@ Le CŒUR de NKMedia est **fonctionnellement complet** : lire/décoder/jouer les 
 dans `NkVideoReader`/`NkVideoPlayer`. **HEVC est désormais lisible bout-en-bout** (.265/MP4-hvc1/MKV,
 brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
 
-1. **Perf temps-réel** (le gros chantier restant si objectif lecteur fluide HD/4K) : les décodeurs
-   sont scalaires. **H.264 : 1re passe d'optim livrée (2026-07-26)** — MC luma/chroma chemin rapide
-   sans-clamp (template `if(CLAMP)`) + SSE2 chroma + dédup bS déblocage → **décodeur ×1,25 (−20% de
-   cycles), ~38→45 fps en 720p**, bit-exactness préservée (19/19 flux octet-identiques). ⚠️
-   Découverte : l'artefact « H264 lent » venait d'une copie profonde du DPB **dans le harnais de
-   test** ; le vrai chemin `NkVideoReader` utilise déjà `NkMove` (pas de copie). Levier restant #1 =
+1. **Perf temps-réel ✅ MULTITHREAD LIVRÉ (2026-07-28) — le 1080p temps réel est atteint** :
+   décodeur HEVC **46→115 fps en 1080p (×2,5), ~218 fps en 720p** (16 cœurs, cap déterministe),
+   lecteur bout-en-bout 1080p ×2,1. Stratégies (toutes bit-exactes ET déterministes — checksums
+   identiques 1/4/8/16 threads, Release/Debug, multi-lancements) : **WPP wavefront** (un parseur
+   CABAC par rangée via les entry points x265, héritage d'état après le 2e CTB, porte de
+   progression atomique rangée-1 ≥ rx+1, cap threads (rows+1)/2), **SAO par CTB** (snapshot
+   pré-filtre → tâches disjointes), **déblocage par bandes** (barrière entre passes V/H ; arêtes
+   espacées de 8, empreintes ±3/±4 → aucun pixel partagé), **lecteur** : conversion YUV→RGBA par
+   bandes (HEVC+H264) + décodage-anticipé HEVC (1 trame d'avance, join sur Seek/dtor). API
+   `NkHevcDecoder::SetThreadCount(0=auto/1/N)` + env `NK_HEVC_THREADS` + harnais `--hevcperf`
+   (médiane QPC + checksum FNV = test de déterminisme). Pool NKThreading dédié. ⚠️ Déblocage
+   H.264 volontairement NON threadé (entrelacé MB par MB avec la reconstruction — un découpage en
+   bandes serait incorrect ; wavefront dédié = piste future). Historique single-thread : H.264
+   ×1,25 (MC no-clamp+SSE2 chroma, 2026-07-26 — l'artefact « H264 lent » venait d'une copie DPB
+   du harnais, le lecteur utilisait déjà NkMove) ; HEVC ×2,5 (NkCopy/no-clamp/SIMD MC). Levier
+   restant #1 =
    CABAC + parsing coefficients (~51% du décodage, bit-serial — risqué). **HEVC : décodeur ~×2,5
    cumulé vs baseline scalaire.** Passe 1 (2026-07-26) : ×2,17 (−54% cycles, ~67→148 fps 720p) via
    NkMove/NkCopy sur les copies (snapshot SAO valait 35% du décodage !) + chemins MC sans-clamp.

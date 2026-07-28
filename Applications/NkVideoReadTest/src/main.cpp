@@ -25,6 +25,15 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <cstdlib>
+#include <ctime>
+
+// Horloge murale haute résolution pour --hevcperf (sans inclure windows.h :
+// LARGE_INTEGER* est ABI-compatible long long*).
+#ifdef _WIN32
+extern "C" __declspec(dllimport) int __stdcall QueryPerformanceCounter(long long *);
+extern "C" __declspec(dllimport) int __stdcall QueryPerformanceFrequency(long long *);
+#endif
 
 using namespace nkentseu;
 using namespace nkentseu::media;
@@ -233,6 +242,12 @@ namespace {
 
 int main(int argc, char **argv) {
 	printf("=== NkVideoReadTest — lecture video NKMedia ===\n\n");
+
+	// NK_HEVC_THREADS : nombre de threads du decodeur HEVC pour TOUS les modes
+	// (0/absent = auto, 1 = sequentiel). Le mode --hevcperf a son propre argument
+	// qui prend le dessus (SetThreadCount rappele dans le mode).
+	if (const char *envT = getenv("NK_HEVC_THREADS"))
+		NkHevcDecoder::SetThreadCount((int32)atoi(envT));
 
 	if (argc < 2) {
 		printf("  [self-test] ecrire AVI MJPEG -> relire -> verifier...\n");
@@ -2121,6 +2136,209 @@ int main(int argc, char **argv) {
 		printf("  [ %s ] decode HEVC intra vs ffmpeg (briques 6-7 : reconstruction + deblocage + SAO)\n",
 			   ok ? "OK " : "KO");
 		return ok ? 0 : 1;
+	}
+
+	// Mode PERF HEVC : --hevcperf <fichier.265> [reps=3] [threads=0]
+	// threads : 0 = auto (coeurs logiques), 1 = sequentiel, N = N threads.
+	// Decode TOUTES les trames (I/P/B, DPB glissant borne, PAS de comparaison YUV)
+	// et mesure le debit du DECODEUR SEUL au wall-clock (QueryPerformanceCounter,
+	// temps cumule autour des appels DecodeSlice*). Imprime une somme de controle
+	// FNV-1a 64 bits du contenu decode (plans codes entiers, ordre de DECODAGE) :
+	//   - 3 executions consecutives => MEME checksum = determinisme ;
+	//   - checksum identique entre threads=1 et threads=N = bit-exact multithread.
+	if (argc >= 3 && strcmp(argv[1], "--hevcperf") == 0) {
+		const int32 reps = (argc >= 4) ? (int32)atoi(argv[3]) : 3;
+		const int32 threadsArg = (argc >= 5) ? (int32)atoi(argv[4]) : 0;
+		NkHevcDecoder::SetThreadCount(threadsArg);
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		fseek(f, 0, SEEK_END);
+		long n = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		NkVector<uint8> buf;
+		buf.Resize((usize)n);
+		if (fread(buf.Data(), 1, (size_t)n, f) != (size_t)n) {
+			fclose(f);
+			printf("  [KO] lecture incomplete\n");
+			return 1;
+		}
+		fclose(f);
+		NkVector<NkHevcNal> nals;
+		NkHevcDecoder::SplitNalsAnnexB(buf.Data(), (usize)buf.Size(), nals);
+
+		// Horloge murale haute resolution (QPC) — sans inclure windows.h.
+#ifdef _WIN32
+		auto nowSec = []() -> double {
+			static long long freq = 0;
+			long long c;
+			if (freq == 0)
+				QueryPerformanceFrequency(&freq);
+			QueryPerformanceCounter(&c);
+			return (double)c / (double)freq;
+		};
+#else
+		auto nowSec = []() -> double { return (double)clock() / (double)CLOCKS_PER_SEC; };
+#endif
+		// FNV-1a 64 sur unites 16 bits (plans codes complets, ordre de decodage).
+		auto hashPlane = [](nk_uint64 &h, const NkVector<nk_uint16> &plane) {
+			const nk_uint16 *p = plane.Data();
+			const usize cnt = plane.Size();
+			for (usize i = 0; i < cnt; ++i) {
+				h ^= (nk_uint64)p[i];
+				h *= 1099511628211ull;
+			}
+		};
+
+		enum { kRing = 32 }; // DPB glissant (les refs HEVC restent tres proches)
+		static NkHevcFrame ring[kRing]; // static : gros objets, reutilises entre reps
+		bool ringUsed[kRing];
+		double repFps[64];
+		nk_uint64 repHash[64];
+		int32 repFrames = 0;
+		bool allOk = true;
+		const int32 nreps = reps < 1 ? 1 : (reps > 64 ? 64 : reps);
+		for (int32 rep = 0; rep < nreps; ++rep) {
+			for (int32 k = 0; k < kRing; ++k)
+				ringUsed[k] = false;
+			int32 ringNext = 0;
+			NkHevcSps sps;
+			NkHevcPps pps;
+			bool haveSps = false, havePps = false;
+			int32 prevPocTid0 = 0;
+			int32 frames = 0;
+			nk_uint64 hash = 14695981039346656037ull;
+			double decSec = 0.0;
+			bool fail = false;
+			auto findByPoc = [&](int32 poc) -> const NkHevcFrame * {
+				for (int32 k = 0; k < kRing; ++k)
+					if (ringUsed[k] && ring[k].poc == poc)
+						return &ring[k];
+				return nullptr;
+			};
+			for (uint64 i = 0; i < nals.Size() && !fail; ++i) {
+				const NkHevcNal &nal = nals[i];
+				const uint8 *nd = buf.Data() + nal.offset;
+				if (nal.type == kHevcNalSps) {
+					haveSps = NkHevcDecoder::ParseSps(nd, nal.size, sps);
+					continue;
+				}
+				if (nal.type == kHevcNalPps) {
+					havePps = NkHevcDecoder::ParsePps(nd, nal.size, pps);
+					continue;
+				}
+				if (nal.type > 31 || !haveSps || !havePps)
+					continue;
+				NkHevcSliceHeader sh;
+				if (!NkHevcDecoder::ParseSliceHeader(nd, nal.size, sps, pps, sh))
+					continue;
+				const bool isIdr = nal.type == kHevcNalIdrWRadl || nal.type == kHevcNalIdrNLp;
+				const int32 poc = NkHevcDecoder::ComputePoc(sh.picOrderCntLsb, sps.log2MaxPocLsb,
+															isIdr, prevPocTid0);
+				NkHevcFrame &frame = ring[ringNext];
+				frame.poc = poc;
+				NkHevcSliceDataStats ds;
+				bool decOk = false;
+				if (sh.sliceType == kHevcSliceI) {
+					const double t0 = nowSec();
+					decOk = NkHevcDecoder::DecodeSliceIntra(nd, nal.size, sps, pps, sh, frame, ds);
+					decSec += nowSec() - t0;
+				} else if (sh.sliceType == kHevcSliceP || sh.sliceType == kHevcSliceB) {
+					const bool isB = (sh.sliceType == kHevcSliceB);
+					NkHevcRefPicLists rpl;
+					NkHevcDecoder::BuildRefPicLists(sh.rps, poc, sh.numRefIdxL0Active,
+													sh.numRefIdxL1Active, isB, rpl);
+					const NkHevcFrame *refsL0[16];
+					const NkHevcFrame *refsL1[16];
+					bool resolveOk = rpl.numL0 >= sh.numRefIdxL0Active &&
+									 (!isB || rpl.numL1 >= sh.numRefIdxL1Active);
+					for (int32 r = 0; resolveOk && r < sh.numRefIdxL0Active; ++r) {
+						refsL0[r] = findByPoc(rpl.l0[r]);
+						if (!refsL0[r])
+							resolveOk = false;
+					}
+					if (isB)
+						for (int32 r = 0; resolveOk && r < sh.numRefIdxL1Active; ++r) {
+							refsL1[r] = findByPoc(rpl.l1[r]);
+							if (!refsL1[r])
+								resolveOk = false;
+						}
+					if (!resolveOk) {
+						printf("  [KO] resolution POC->trame echouee (poc=%d)\n", poc);
+						fail = true;
+						break;
+					}
+					const double t0 = nowSec();
+					decOk = isB ? NkHevcDecoder::DecodeSliceB(nd, nal.size, sps, pps, sh, refsL0,
+															  sh.numRefIdxL0Active, refsL1,
+															  sh.numRefIdxL1Active, frame, ds)
+								: NkHevcDecoder::DecodeSliceP(nd, nal.size, sps, pps, sh, refsL0,
+															  sh.numRefIdxL0Active, frame, ds);
+					decSec += nowSec() - t0;
+				} else {
+					continue;
+				}
+				if (!decOk) {
+					printf("  [KO] decode echoue (poc=%d)\n", poc);
+					fail = true;
+					break;
+				}
+				ringUsed[ringNext] = true;
+				ringNext = (ringNext + 1) % kRing;
+				++frames;
+				// prevPocTid0 : cf. --hevcinter (images TemporalId==0 non RASL/RADL/N).
+				{
+					const int32 nt = nal.type;
+					const bool subNonRef = (nt == kHevcNalTrailN || nt == kHevcNalTsaN ||
+											nt == kHevcNalStsaN || nt == kHevcNalRadlN ||
+											nt == kHevcNalRaslN);
+					const bool raslRadl = (nt == kHevcNalRadlN || nt == kHevcNalRadlR ||
+										   nt == kHevcNalRaslN || nt == kHevcNalRaslR);
+					if (nal.temporalId == 0 && !subNonRef && !raslRadl)
+						prevPocTid0 = poc;
+				}
+				hashPlane(hash, frame.y);
+				hashPlane(hash, frame.cb);
+				hashPlane(hash, frame.cr);
+			}
+			if (fail || frames == 0) {
+				allOk = false;
+				break;
+			}
+			repFrames = frames;
+			repFps[rep] = (decSec > 0.0) ? (double)frames / decSec : 0.0;
+			repHash[rep] = hash;
+			printf("  run %d : %d trames en %.3f s -> %.2f fps  checksum=%016llx\n", rep + 1,
+				   frames, decSec, repFps[rep], (unsigned long long)hash);
+		}
+		if (!allOk) {
+			printf("  [ KO  ] perf HEVC : echec de decodage\n");
+			return 1;
+		}
+		// Mediane des fps + verification du determinisme (checksums identiques).
+		double sorted[64];
+		for (int32 r = 0; r < nreps; ++r)
+			sorted[r] = repFps[r];
+		for (int32 a = 0; a < nreps; ++a)
+			for (int32 b = a + 1; b < nreps; ++b)
+				if (sorted[b] < sorted[a]) {
+					const double t = sorted[a];
+					sorted[a] = sorted[b];
+					sorted[b] = t;
+				}
+		const double median = sorted[nreps / 2];
+		bool deterministic = true;
+		for (int32 r = 1; r < nreps; ++r)
+			if (repHash[r] != repHash[0])
+				deterministic = false;
+		printf("  threads=%d  trames=%d  fps(mediane de %d runs)=%.2f  checksum=%016llx\n",
+			   NkHevcDecoder::GetThreadCount(), repFrames, nreps, median,
+			   (unsigned long long)repHash[0]);
+		printf("  [ %s ] determinisme (checksums identiques sur %d runs)\n",
+			   deterministic ? "OK " : "KO", nreps);
+		return deterministic ? 0 : 1;
 	}
 
 	// Mode validation HEVC (brique 11) : --hevcinter <fichier.265> <ref.yuv>
