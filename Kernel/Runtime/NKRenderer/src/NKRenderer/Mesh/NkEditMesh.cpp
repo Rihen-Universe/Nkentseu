@@ -263,6 +263,69 @@ namespace nkentseu {
 			return NK_EM_INVALID;
 		}
 
+		// -- ADJACENCE TOPOLOGIQUE POUR LES BOUCLES ---------------------------------
+		// Valence (nb d'ARETES uniques incidentes) et « sur un bord » de chaque sommet
+		// CANONIQUE (soude). Ces deux informations sont ce qui distingue, facon Blender,
+		// un coin de cube (ferme, valence 3) d'un bord de grille (ouvert, valence 3 lui
+		// aussi) : sans elles, la boucle derive sur l'un ou deborde sur l'autre.
+		struct NkEmVertAdj {
+				NkVector<uint16> valence;   // nb d'aretes uniques au sommet canonique
+				NkVector<uint8> onBoundary; // 1 = au moins une arete incidente sans jumeau
+		};
+
+		static void NkEmBuildVertAdj(const NkEditMesh &m, const NkVector<uint32> &canon, NkEmVertAdj &out) {
+			const uint32 nv = (uint32)m.verts.Size();
+			const uint32 nc = (uint32)canon.Size();
+			auto C = [&](uint32 v) { return (v < nc) ? canon[v] : v; };
+			out.valence.Resize(nv);
+			out.onBoundary.Resize(nv);
+			for (uint32 i = 0; i < nv; ++i) {
+				out.valence[i] = 0;
+				out.onBoundary[i] = 0;
+			}
+			NkHashMap<uint64, uint8> seen;
+			seen.Reserve((uint32)m.hedges.Size());
+			for (uint32 h = 0; h < (uint32)m.hedges.Size(); ++h) {
+				if (!m.hedges[h].alive || m.hedges[h].next == NK_EM_INVALID)
+					continue;
+				const uint32 o = C(m.hedges[h].origin), d = C(m.hedges[m.hedges[h].next].origin);
+				if (o == d || o >= nv || d >= nv)
+					continue;
+				if (m.hedges[h].twin == NK_EM_INVALID) { // arete de BORD (maillage ouvert)
+					out.onBoundary[o] = 1;
+					out.onBoundary[d] = 1;
+				}
+				const uint32 lo = o < d ? o : d, hi = o < d ? d : o;
+				const uint64 key = ((uint64)lo << 32) | hi;
+				if (seen.Find(key))
+					continue; // arete deja comptee (l'autre demi-arete)
+				seen.InsertOrAssign(key, (uint8)1);
+				out.valence[o] = (uint16)(out.valence[o] + 1);
+				out.valence[d] = (uint16)(out.valence[d] + 1);
+			}
+		}
+
+		// -- EDGE LOOP (Alt+clic) : REGLES DE BLENDER --------------------------------
+		// La boucle avance d'arete en arete ; a chaque sommet traverse, la regle depend de
+		// sa VALENCE (c'est exactement ce que fait le « loop walker » de Blender) :
+		//
+		//  - valence 4, sommet INTERIEUR (grille de quads reguliere) -> on CONTINUE TOUT
+		//    DROIT : l'arete opposee a celle d'ou l'on vient, via next(twin(next(h))). La
+		//    boucle file donc tout droit jusqu'au bord du maillage.
+		//
+		//  - valence 3, sommet INTERIEUR (coin ferme : TOUS les coins d'un cube brut) :
+		//    « tout droit » n'existe pas. Blender ne derive PAS au hasard, la boucle suit
+		//    le BORD DE LA FACE courante, c.-a-d. next(h). Sur un cube elle referme donc
+		//    l'ANNEAU DE 4 ARETES qui fait le tour (le contour de la face cliquee) - au
+		//    lieu des 7 aretes que donnait next(twin(next(h))) : cette regle-la tournait
+		//    d'une face a chaque coin, puis repartait dans l'autre sens au 2e passage, en
+		//    cumulant DEUX anneaux distincts moins l'arete de depart (4 + 4 - 1 = 7).
+		//
+		//  - sommet de BORD (une arete incidente sans jumeau : bord d'une grille ouverte),
+		//    POLE (valence != 3 et != 4), ou face non-quad -> la boucle S'ARRETE.
+		//    ATTENTION : c'est ici que la distinction bord/interieur est indispensable, un
+		//    sommet du bord d'une grille est AUSSI de valence 3 mais ne doit surtout pas
+		//    partir le long du bord - Blender s'y arrete.
 		void NkEditMesh::GetEdgeLoop(uint32 a, uint32 b, NkVector<uint32> &outPairs) const {
 			outPairs.Clear();
 			NkVector<uint32> canon;
@@ -272,8 +335,10 @@ namespace nkentseu {
 				return;
 			const uint32 nc = (uint32)canon.Size();
 			auto C = [&](uint32 v) { return (v < nc) ? canon[v] : v; };
+			NkEmVertAdj adj;
+			NkEmBuildVertAdj(*this, canon, adj);
 			NkHashMap<uint64, uint8> seen;
-			auto emit = [&](NkEmId h) -> bool { // false si l'arête était DÉJÀ dans la boucle
+			auto emit = [&](NkEmId h) -> bool { // false si l'arete etait DEJA dans la boucle
 				const uint32 o = hedges[h].origin, d = hedges[hedges[h].next].origin;
 				const uint32 co = C(o), cd = C(d);
 				const uint32 lo = co < cd ? co : cd, hi = co < cd ? cd : co;
@@ -285,58 +350,107 @@ namespace nkentseu {
 				outPairs.PushBack(d);
 				return true;
 			};
-			// Progression « tout droit » : depuis h (… -> v), on prend la sortante de v qui
-			// PROLONGE h, soit next(twin(next(h))). Valable sur un maillage de quads.
+			// Avance d'un cran : h va (u -> v) ; renvoie la demi-arete sortante de v qui
+			// prolonge la boucle selon les regles ci-dessus. NK_EM_INVALID = fin de boucle.
 			auto step = [&](NkEmId h) -> NkEmId {
 				if (h == NK_EM_INVALID || FaceSize(hedges[h].face) != 4)
-					return NK_EM_INVALID;
-				const NkEmId hn = hedges[h].next;
+					return NK_EM_INVALID; // on ne progresse qu'a travers des QUADS
+				const NkEmId hn = hedges[h].next; // v -> w, dans la MEME face
 				if (hn == NK_EM_INVALID)
 					return NK_EM_INVALID;
-				const NkEmId tw = hedges[hn].twin;
-				if (tw == NK_EM_INVALID)
-					return NK_EM_INVALID; // bord -> boucle ouverte
-				return hedges[tw].next;
+				const uint32 v = C(hedges[hn].origin); // sommet traverse
+				if (v >= (uint32)adj.valence.Size())
+					return NK_EM_INVALID;
+				if (adj.onBoundary[v])
+					return NK_EM_INVALID; // bord du maillage -> Blender s'arrete
+				const uint16 val = adj.valence[v];
+				if (val == 4) {
+					const NkEmId tw = hedges[hn].twin; // w -> v, face voisine
+					if (tw == NK_EM_INVALID)
+						return NK_EM_INVALID;
+					return hedges[tw].next; // v -> x : l'arete OPPOSEE a celle d'ou l'on vient
+				}
+				if (val == 3)
+					return hn; // coin ferme : on suit le contour de la face (anneau du cube)
+				return NK_EM_INVALID; // pole -> arret
 			};
 			emit(h0);
-			// Sens avant, puis sens arrière (depuis le twin) : couvre aussi les boucles ouvertes.
-			for (int32 dir = 0; dir < 2; ++dir) {
-				NkEmId h = (dir == 0) ? h0 : hedges[h0].twin;
+			// Sens AVANT. Si l'on retombe sur une arete deja emise, la boucle est FERMEE :
+			// inutile (et nuisible) d'explorer le sens arriere - c'est exactement ce qui
+			// faisait cumuler deux anneaux sur un cube.
+			bool closed = false;
+			{
+				NkEmId h = h0;
 				uint32 guard = 0;
 				while (h != NK_EM_INVALID && ++guard < 100000u) {
 					h = step(h);
-					if (h == NK_EM_INVALID || !emit(h))
-						break; // bord atteint, ou boucle refermée
+					if (h == NK_EM_INVALID)
+						break; // bord / pole atteint : boucle OUVERTE
+					if (!emit(h)) {
+						closed = true; // on a reboucle
+						break;
+					}
 				}
+			}
+			if (closed)
+				return;
+			// Sens ARRIERE (boucle ouverte : grille, bord de maillage) - on repart du jumeau,
+			// qui pointe dans l'autre sens.
+			NkEmId h = hedges[h0].twin;
+			uint32 guard = 0;
+			while (h != NK_EM_INVALID && ++guard < 100000u) {
+				h = step(h);
+				if (h == NK_EM_INVALID || !emit(h))
+					break;
 			}
 		}
 
+		// -- FACE LOOP / EDGE RING (Alt+clic en mode FACE) ---------------------------
+		// Anneau des faces traversees par l'arete (a,b) : de quad en quad par l'arete
+		// OPPOSEE (meme parcours que le loop cut). Sur un cube brut cela donne bien les 4
+		// faces qui font le tour. Si l'anneau bute sur un BORD, on repart dans l'AUTRE
+		// sens depuis l'arete de depart, pour ne pas rendre une demi-boucle.
 		void NkEditMesh::GetFaceLoop(uint32 a, uint32 b, NkVector<NkEmId> &outFaces) const {
 			outFaces.Clear();
 			NkVector<uint32> canon;
 			BuildVertexMerge(canon);
-			NkEmId h = NkEmFindHedge(*this, canon, a, b);
-			if (h == NK_EM_INVALID)
+			const NkEmId hStart = NkEmFindHedge(*this, canon, a, b);
+			if (hStart == NK_EM_INVALID)
 				return;
-			const NkEmId h0 = h;
 			NkHashMap<uint64, uint8> seenF;
-			uint32 guard = 0;
-			do {
-				const NkEmId f = hedges[h].face;
-				if (f == NK_EM_INVALID || f >= (NkEmId)faces.Size() || !faces[f].alive)
-					break;
-				if (!seenF.Find((uint64)f)) {
-					seenF.InsertOrAssign((uint64)f, (uint8)1);
-					outFaces.PushBack(f);
+			// Parcourt l'anneau depuis h ; renvoie true si l'anneau s'est REFERME sur h0.
+			auto walk = [&](NkEmId h, NkEmId h0) -> bool {
+				uint32 guard = 0;
+				while (h != NK_EM_INVALID && ++guard < 100000u) {
+					const NkEmId f = hedges[h].face;
+					if (f == NK_EM_INVALID || f >= (NkEmId)faces.Size() || !faces[f].alive)
+						return false;
+					if (!seenF.Find((uint64)f)) {
+						seenF.InsertOrAssign((uint64)f, (uint8)1);
+						outFaces.PushBack(f);
+					}
+					if (FaceSize(f) != 4)
+						return false; // l'anneau ne traverse que des quads
+					const NkEmId hn = hedges[h].next;
+					if (hn == NK_EM_INVALID)
+						return false;
+					const NkEmId hOpp = hedges[hn].next; // arete opposee du quad
+					if (hOpp == NK_EM_INVALID)
+						return false;
+					const NkEmId tw = hedges[hOpp].twin;
+					if (tw == NK_EM_INVALID)
+						return false; // bord -> anneau ouvert de ce cote
+					if (tw == h0)
+						return true; // anneau referme
+					h = tw;
 				}
-				if (FaceSize(f) != 4)
-					break;										 // l'anneau ne traverse que des quads
-				const NkEmId hOpp = hedges[hedges[h].next].next; // arête opposée du quad
-				const NkEmId tw = hedges[hOpp].twin;
-				if (tw == NK_EM_INVALID)
-					break; // bord -> anneau ouvert
-				h = tw;
-			} while (h != h0 && ++guard < 100000u);
+				return false;
+			};
+			if (walk(hStart, hStart))
+				return; // anneau complet
+			const NkEmId back = hedges[hStart].twin;
+			if (back != NK_EM_INVALID)
+				walk(back, back);
 		}
 
 		bool NkEditMesh::FaceIsSelected(NkEmId f) const {
