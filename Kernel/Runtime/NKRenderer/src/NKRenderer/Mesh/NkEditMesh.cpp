@@ -4,6 +4,8 @@
 #include "NkEditMesh.h"
 #include "NKContainers/Associative/NkHashMap.h"
 
+#include <cmath> // cosf / sinf / atan2f — profils d'arc du bevel, rotations du spin
+
 namespace nkentseu {
 	namespace renderer {
 
@@ -1497,6 +1499,1194 @@ namespace nkentseu {
 			return true;
 		}
 
+		// =====================================================================
+		// OUTILS COMMUNS AUX OPÉRATIONS « TOPOLOGIE SOUDÉE » (bevel, inset, split, spin)
+		// ---------------------------------------------------------------------
+		// Ces opérations ont besoin d'une VRAIE adjacence : savoir quelles faces bordent
+		// une arête, tourner autour d'un sommet. Or les primitives/imports dupliquent les
+		// coins PAR FACE (cube = 24 sommets pour 8 positions) : dans l'espace des INDICES
+		// bruts, deux faces voisines ne partagent aucun sommet. On travaille donc sur une
+		// copie SOUDÉE (un sommet par position, cf. BuildVertexMerge) — exactement le
+		// modèle Blender : maillage soudé, attributs portés par les coins.
+		// =====================================================================
+		static inline NkVec3f EM_Norm(const NkVec3f &v) {
+			const float32 l = v.Len();
+			return (l > 1e-8f) ? v * (1.f / l) : NkVec3f{0.f, 0.f, 0.f};
+		}
+
+		// Diagonale de la boîte englobante = ÉCHELLE du maillage (offsets AUTO).
+		static float32 EM_BBoxDiag(const NkVector<NkVertex3D> &pv) {
+			if (pv.Empty())
+				return 0.f;
+			NkVec3f mn = pv[0].pos, mx = pv[0].pos;
+			for (uint32 i = 1; i < (uint32)pv.Size(); ++i) {
+				const NkVec3f q = pv[i].pos;
+				mn.x = (q.x < mn.x) ? q.x : mn.x;
+				mn.y = (q.y < mn.y) ? q.y : mn.y;
+				mn.z = (q.z < mn.z) ? q.z : mn.z;
+				mx.x = (q.x > mx.x) ? q.x : mx.x;
+				mx.y = (q.y > mx.y) ? q.y : mx.y;
+				mx.z = (q.z > mx.z) ? q.z : mx.z;
+			}
+			return (mx - mn).Len();
+		}
+
+		// Polygones SOUDÉS : un sommet par position (représentant du groupe coïncident).
+		// vsel = sélection soudée (OU logique du groupe) ; wmap[i] = indice soudé de i.
+		static void EM_ToWeldedPolygons(const NkEditMesh &m, NkVector<NkVertex3D> &pv, NkVector<uint32> &fs,
+										NkVector<uint32> &fv, NkVector<uint8> &vsel, NkVector<uint32> &wmap) {
+			NkVector<NkVertex3D> rv;
+			NkVector<uint32> rfs, rfv;
+			m.ToPolygons(rv, rfs, rfv);
+			NkVector<uint32> canon;
+			m.BuildVertexMerge(canon);
+			const uint32 n = (uint32)rv.Size();
+			NkVector<int32> newIdx;
+			newIdx.Resize(n);
+			for (uint32 i = 0; i < n; ++i)
+				newIdx[i] = -1;
+			pv.Clear();
+			vsel.Clear();
+			wmap.Resize(n);
+			for (uint32 i = 0; i < n; ++i) {
+				const uint32 c = (i < (uint32)canon.Size()) ? canon[i] : i;
+				if (newIdx[c] < 0) {
+					newIdx[c] = (int32)pv.Size();
+					pv.PushBack(rv[c]);
+					vsel.PushBack(0);
+				}
+				wmap[i] = (uint32)newIdx[c];
+				if (i < m.VertCount() && m.verts[i].sel)
+					vsel[wmap[i]] = 1;
+			}
+			fs.Clear();
+			fv.Clear();
+			fs.PushBack(0);
+			const uint32 fc = (rfs.Size() > 0) ? (uint32)rfs.Size() - 1 : 0;
+			for (uint32 f = 0; f < fc; ++f) {
+				const uint32 s = rfs[f], e = rfs[f + 1];
+				const uint32 st = (uint32)fv.Size();
+				const bool wire = (e - s) < 3u; // arête FIL : à préserver telle quelle
+				for (uint32 k = s; k < e; ++k) {
+					const uint32 w = wmap[rfv[k]];
+					if ((uint32)fv.Size() > st && fv[(uint32)fv.Size() - 1] == w)
+						continue; // doublon consécutif né de la soudure
+					fv.PushBack(w);
+				}
+				while ((uint32)fv.Size() > st + 1u && fv[(uint32)fv.Size() - 1] == fv[st])
+					fv.Resize((uint32)fv.Size() - 1);
+				const uint32 got = (uint32)fv.Size() - st;
+				if (got < 2u || (!wire && got < 3u)) {
+					fv.Resize(st);
+					continue;
+				} // face effondrée
+				fs.PushBack((uint32)fv.Size());
+			}
+		}
+
+		// =====================================================================
+		// BEVEL / CHANFREIN (Ctrl+B · Ctrl+Shift+B) — algorithme PAR COIN
+		// ---------------------------------------------------------------------
+		// Idée : chaque COIN (face, sommet) est remplacé par 1 ou 2 points, selon que ses
+		// deux arêtes sont chanfreinées ou non :
+		//   • aucune des deux, sommet non touché      -> 1 point : le sommet lui-même ;
+		//   • aucune des deux, sommet TOUCHÉ          -> 2 points, reculés le long des deux
+		//                                                arêtes (c'est ce qui transforme la
+		//                                                face « du bout » en n-gon) ;
+		//   • une seule chanfreinée                   -> 1 point, reculé le long de l'AUTRE ;
+		//   • les deux chanfreinées                   -> 1 point INTÉRIEUR à la face.
+		// Les points « reculés le long d'une arête » sont MÉMORISÉS par clé (sommet, arête) :
+		// les deux faces qui partagent une arête non chanfreinée obtiennent donc le MÊME
+		// point -> aucune fissure. Ensuite :
+		//   (a) chaque face d'origine est ré-émise avec ses coins remplacés ;
+		//   (b) chaque arête chanfreinée engendre une BANDE de `segments` quads ;
+		//   (c) chaque sommet touché engendre une face de RACCORD si l'anneau de points
+		//       autour de lui n'est pas dégénéré (coin où >= 3 arêtes sont chanfreinées,
+		//       bevel de sommet, ou bevel arrondi dont l'arc creuse le coin).
+		// Le bevel de SOMMET est le MÊME code avec « aucune arête chanfreinée, sommets
+		// sélectionnés touchés » : chaque face incidente gagne un point, l'anneau devient
+		// la petite face de coin.
+		// =====================================================================
+		bool NkEditMesh::BevelSelected(const NkBevelParams &p) {
+			NkVector<NkVertex3D> wv;
+			NkVector<uint32> wfs, wfv;
+			NkVector<uint8> wsel;
+			NkVector<uint32> wmap;
+			EM_ToWeldedPolygons(*this, wv, wfs, wfv, wsel, wmap);
+			const uint32 wfc = (wfs.Size() > 0) ? (uint32)wfs.Size() - 1 : 0;
+			if (wfc == 0)
+				return false;
+			NkEditMesh W;
+			W.BuildFromPolygons(wv.Data(), (uint32)wv.Size(), wfs.Data(), wfc, wfv.Data());
+			const uint32 NV = W.VertCount();
+			for (uint32 i = 0; i < NV && i < (uint32)wsel.Size(); ++i)
+				W.verts[i].sel = wsel[i];
+			const uint32 HC = (uint32)W.hedges.Size();
+			if (HC == 0 || NV == 0)
+				return false;
+
+			// prevOf[h] : demi-arête précédente dans la boucle de face. Le COIN « h » est
+			// délimité par prevOf[h] (arête entrante) et h (arête sortante).
+			NkVector<NkEmId> prevOf;
+			prevOf.Resize(HC);
+			for (uint32 i = 0; i < HC; ++i)
+				prevOf[i] = NK_EM_INVALID;
+			for (uint32 f = 0; f < (uint32)W.faces.Size(); ++f) {
+				if (!W.faces[f].alive || W.faces[f].hedge == NK_EM_INVALID)
+					continue;
+				const NkEmId s = W.faces[f].hedge;
+				NkEmId h = s;
+				uint32 g = 0;
+				do {
+					const NkEmId nx = W.hedges[h].next;
+					if (nx == NK_EM_INVALID)
+						break;
+					prevOf[nx] = h;
+					h = nx;
+				} while (h != s && ++g < 100000u);
+			}
+
+			auto dstOf = [&](NkEmId h) -> uint32 {
+				const NkEmId nx = W.hedges[h].next;
+				return (nx == NK_EM_INVALID) ? W.hedges[h].origin : W.hedges[nx].origin;
+			};
+			auto ekey = [](uint32 a, uint32 b) -> uint64 {
+				const uint32 lo = (a < b) ? a : b, hi = (a < b) ? b : a;
+				return ((uint64)lo << 32) | (uint64)hi;
+			};
+
+			// Arêtes CHANFREINÉES (les deux extrémités sélectionnées + un jumeau) et
+			// sommets TOUCHÉS (mode sommet : simplement les sommets sélectionnés).
+			NkHashMap<uint64, uint8> selE;
+			NkVector<uint8> touched;
+			touched.Resize(NV);
+			for (uint32 i = 0; i < NV; ++i)
+				touched[i] = 0;
+			if (p.vertexOnly) {
+				for (uint32 i = 0; i < NV; ++i)
+					touched[i] = W.verts[i].sel ? (uint8)1 : (uint8)0;
+			} else {
+				for (uint32 h = 0; h < HC; ++h) {
+					if (!W.hedges[h].alive || W.hedges[h].twin == NK_EM_INVALID)
+						continue; // arête de BORD -> non chanfreinable (limite assumée)
+					const uint32 a = W.hedges[h].origin, b = dstOf((NkEmId)h);
+					if (a == b || a >= NV || b >= NV)
+						continue;
+					if (!W.verts[a].sel || !W.verts[b].sel)
+						continue;
+					selE.InsertOrAssign(ekey(a, b), (uint8)1);
+					touched[a] = 1;
+					touched[b] = 1;
+				}
+			}
+			bool anyTouched = false;
+			for (uint32 i = 0; i < NV && !anyTouched; ++i)
+				anyTouched = (touched[i] != 0);
+			if (!anyTouched)
+				return false;
+
+			float32 off = p.offset;
+			if (off <= 0.f)
+				off = EM_BBoxDiag(wv) * 0.06f;
+			if (off <= 1e-7f)
+				return false;
+			int32 seg = (p.segments < 1) ? 1 : ((p.segments > 16) ? 16 : p.segments);
+			if (p.vertexOnly)
+				seg = 1; // un bevel de sommet produit UNE face de coin
+
+			// ── Nuage de points de sortie (mémorisation par clé -> pas de fissure) ──
+			NkVector<NkVertex3D> np;
+			NkVector<uint8> nsel;
+			NkHashMap<uint64, uint32> origPt, edgePt;
+			auto pushPt = [&](const NkVertex3D &v, uint8 s) -> uint32 {
+				const uint32 id = (uint32)np.Size();
+				np.PushBack(v);
+				nsel.PushBack(s);
+				return id;
+			};
+			auto tAlong = [&](uint32 v, uint32 w) -> float32 {
+				const float32 lim = (W.verts[w].pos - W.verts[v].pos).Len() * 0.45f;
+				return (off > lim) ? lim : off; // jamais plus de 45 % de l'arête
+			};
+			auto getOrig = [&](uint32 v) -> uint32 {
+				uint32 *q = origPt.Find((uint64)v);
+				if (q)
+					return *q;
+				const uint32 id = pushPt(wv[v], W.verts[v].sel);
+				origPt.InsertOrAssign((uint64)v, id);
+				return id;
+			};
+			auto getEdgePt = [&](uint32 v, uint32 w) -> uint32 {
+				const uint64 k = ((uint64)v << 32) | (uint64)w;
+				uint32 *q = edgePt.Find(k);
+				if (q)
+					return *q;
+				NkVertex3D nv = wv[v];
+				nv.pos = W.verts[v].pos + EM_Norm(W.verts[w].pos - W.verts[v].pos) * tAlong(v, w);
+				const uint32 id = pushPt(nv, (uint8)1);
+				edgePt.InsertOrAssign(k, id);
+				return id;
+			};
+
+			NkVector<uint32> ptPrev, ptNext;
+			ptPrev.Resize(HC);
+			ptNext.Resize(HC);
+			for (uint32 h = 0; h < HC; ++h) {
+				ptPrev[h] = 0;
+				ptNext[h] = 0;
+			}
+			for (uint32 h = 0; h < HC; ++h) {
+				if (!W.hedges[h].alive || W.hedges[h].face == NK_EM_INVALID)
+					continue;
+				const uint32 v = W.hedges[h].origin;
+				const NkEmId hp = prevOf[h];
+				if (v >= NV || hp == NK_EM_INVALID)
+					continue;
+				const uint32 pv2 = W.hedges[hp].origin, nv2 = dstOf((NkEmId)h);
+				if (!touched[v]) {
+					const uint32 id = getOrig(v);
+					ptPrev[h] = id;
+					ptNext[h] = id;
+					continue;
+				}
+				const bool sp = (selE.Find(ekey(pv2, v)) != nullptr);
+				const bool sn = (selE.Find(ekey(v, nv2)) != nullptr);
+				if (!sp && !sn) {
+					ptPrev[h] = getEdgePt(v, pv2);
+					ptNext[h] = getEdgePt(v, nv2);
+				} else if (sp && !sn) {
+					const uint32 id = getEdgePt(v, nv2);
+					ptPrev[h] = id;
+					ptNext[h] = id;
+				} else if (!sp && sn) {
+					const uint32 id = getEdgePt(v, pv2);
+					ptPrev[h] = id;
+					ptNext[h] = id;
+				} else {
+					// Les deux arêtes du coin reculent : le point est l'INTERSECTION des deux
+					// droites décalées. Pour un coin droit, cela vaut v + t1*u1 + t2*u2.
+					const NkVec3f u1 = EM_Norm(W.verts[pv2].pos - W.verts[v].pos);
+					const NkVec3f u2 = EM_Norm(W.verts[nv2].pos - W.verts[v].pos);
+					float32 s = u1.Cross(u2).Len(); // sin de l'angle du coin
+					if (s < 0.2f)
+						s = 0.2f; // coin très aigu : on borne l'étirement
+					NkVertex3D nvx = wv[v];
+					nvx.pos = W.verts[v].pos + (u1 * tAlong(v, pv2) + u2 * tAlong(v, nv2)) * (1.f / s);
+					const uint32 id = pushPt(nvx, (uint8)1);
+					ptPrev[h] = id;
+					ptNext[h] = id;
+				}
+			}
+
+			// ── ARCS (segments > 1) : points intermédiaires du profil arrondi. Calculés
+			// UNE SEULE FOIS par demi-arête chanfreinée, donc PARTAGÉS entre la bande et la
+			// face de raccord -> pas de fissure. Slerp autour du sommet = arc de cercle.
+			NkVector<int32> arcBase;
+			arcBase.Resize(HC);
+			for (uint32 h = 0; h < HC; ++h)
+				arcBase[h] = -1;
+			NkVector<uint32> arcData;
+			if (seg > 1) {
+				for (uint32 h = 0; h < HC; ++h) {
+					if (!W.hedges[h].alive || W.hedges[h].face == NK_EM_INVALID)
+						continue;
+					const NkEmId tw = W.hedges[h].twin;
+					if (tw == NK_EM_INVALID)
+						continue;
+					const uint32 v = W.hedges[h].origin, w2 = dstOf((NkEmId)h);
+					if (!selE.Find(ekey(v, w2)))
+						continue;
+					const NkEmId rot = W.hedges[tw].next; // demi-arête suivante autour de v
+					if (rot == NK_EM_INVALID)
+						continue;
+					const uint32 iA = ptNext[h], iB = ptPrev[rot];
+					// CENTRE de l'arc : surtout PAS le sommet lui-même (le profil bomberait
+					// HORS de la surface). C'est le « coin intérieur » : le point d'où les deux
+					// extrémités du profil sont à la MÊME distance = la largeur du chanfrein.
+					// Les deux extrémités valent v + Σ t*u sur des sous-ensembles d'arêtes ; leur
+					// centre commun est v + Σ t*u sur l'UNION, soit P0 + P1 - v, moins la part
+					// COMMUNE (la direction de l'arête chanfreinée) quand les deux extrémités
+					// sont des points intérieurs de face.
+					const NkEmId hp2 = prevOf[h];
+					const bool p0Int = (hp2 != NK_EM_INVALID) && (selE.Find(ekey(W.hedges[hp2].origin, v)) != nullptr);
+					const bool p1Int = (selE.Find(ekey(v, dstOf(rot))) != nullptr);
+					NkVec3f c = np[iA].pos + np[iB].pos - W.verts[v].pos;
+					if (p0Int && p1Int)
+						c = c - EM_Norm(W.verts[w2].pos - W.verts[v].pos) * tAlong(v, w2);
+					const NkVec3f r0 = np[iA].pos - c, r1 = np[iB].pos - c;
+					const float32 l0 = r0.Len(), l1 = r1.Len();
+					const NkVec3f e0 = EM_Norm(r0), e1 = EM_Norm(r1);
+					NkVec3f ax = e0.Cross(e1);
+					const float32 sn = ax.Len();
+					float32 cs = e0.Dot(e1);
+					cs = (cs > 1.f) ? 1.f : ((cs < -1.f) ? -1.f : cs);
+					const bool arcOk = (l0 > 1e-6f && l1 > 1e-6f && sn > 1e-5f);
+					if (arcOk)
+						ax = ax * (1.f / sn);
+					const float32 ang = atan2f(sn, cs);
+					arcBase[h] = (int32)arcData.Size();
+					for (int32 j = 1; j < seg; ++j) {
+						const float32 t = (float32)j / (float32)seg;
+						NkVertex3D nvx = np[iA];
+						if (arcOk) { // Rodrigues : rotation de e0 autour de ax
+							const float32 a = ang * t, ca = cosf(a), sa = sinf(a);
+							const NkVec3f er = e0 * ca + ax.Cross(e0) * sa + ax * (ax.Dot(e0) * (1.f - ca));
+							nvx.pos = c + er * (l0 + (l1 - l0) * t);
+						} else {
+							nvx.pos = np[iA].pos + (np[iB].pos - np[iA].pos) * t;
+						}
+						arcData.PushBack(pushPt(nvx, (uint8)1));
+					}
+				}
+			}
+
+			// ── Faces de sortie ──────────────────────────────────────────────
+			NkVector<uint32> nfs, nfv;
+			nfs.PushBack(0);
+			auto pushCorner = [&](uint32 st, uint32 id) {
+				if ((uint32)nfv.Size() > st && nfv[(uint32)nfv.Size() - 1] == id)
+					return; // doublon consécutif
+				nfv.PushBack(id);
+			};
+			auto endFace = [&](uint32 st, uint32 minN) -> bool {
+				while ((uint32)nfv.Size() > st + 1u && nfv[(uint32)nfv.Size() - 1] == nfv[st])
+					nfv.Resize((uint32)nfv.Size() - 1);
+				if ((uint32)nfv.Size() - st < minN) {
+					nfv.Resize(st); // anneau dégénéré -> pas de face
+					return false;
+				}
+				nfs.PushBack((uint32)nfv.Size());
+				return true;
+			};
+			// (a) faces d'origine, coins remplacés
+			for (uint32 f = 0; f < (uint32)W.faces.Size(); ++f) {
+				if (!W.faces[f].alive || W.faces[f].hedge == NK_EM_INVALID)
+					continue;
+				const uint32 minN = (W.FaceSize((NkEmId)f) >= 3u) ? 3u : 2u; // 2 = arête FIL
+				const NkEmId s = W.faces[f].hedge;
+				const uint32 st = (uint32)nfv.Size();
+				NkEmId h = s;
+				uint32 g = 0;
+				do {
+					pushCorner(st, ptPrev[h]);
+					pushCorner(st, ptNext[h]);
+					h = W.hedges[h].next;
+				} while (h != s && h != NK_EM_INVALID && ++g < 100000u);
+				endFace(st, minN);
+			}
+			// (b) BANDES de chanfrein (une par arête chanfreinée, `seg` quads chacune)
+			NkVector<uint32> A, B;
+			for (uint32 h = 0; h < HC; ++h) {
+				if (!W.hedges[h].alive || W.hedges[h].face == NK_EM_INVALID)
+					continue;
+				const NkEmId tw = W.hedges[h].twin;
+				if (tw == NK_EM_INVALID || (uint32)tw < h)
+					continue; // une seule fois par arête
+				const uint32 a = W.hedges[h].origin, b = dstOf((NkEmId)h);
+				if (!selE.Find(ekey(a, b)))
+					continue;
+				const NkEmId rotA = W.hedges[tw].next, rotB = W.hedges[h].next;
+				if (rotA == NK_EM_INVALID || rotB == NK_EM_INVALID)
+					continue;
+				A.Clear();
+				B.Clear();
+				A.PushBack(ptNext[h]); // côté A : a0 -> … -> a1
+				if (arcBase[h] >= 0)
+					for (int32 j = 0; j < seg - 1; ++j)
+						A.PushBack(arcData[(uint32)arcBase[h] + (uint32)j]);
+				A.PushBack(ptPrev[rotA]);
+				B.PushBack(ptNext[tw]); // côté B : b1 -> … -> b0 (sens du tour autour de b)
+				if (arcBase[tw] >= 0)
+					for (int32 j = 0; j < seg - 1; ++j)
+						B.PushBack(arcData[(uint32)arcBase[tw] + (uint32)j]);
+				B.PushBack(ptPrev[rotB]);
+				if ((int32)A.Size() != seg + 1 || (int32)B.Size() != seg + 1)
+					continue;
+				for (int32 j = 0; j < seg; ++j) {
+					const uint32 st = (uint32)nfv.Size();
+					pushCorner(st, B[(uint32)(seg - j)]);
+					pushCorner(st, A[(uint32)j]);
+					pushCorner(st, A[(uint32)(j + 1)]);
+					pushCorner(st, B[(uint32)(seg - j - 1)]);
+					endFace(st, 3u);
+				}
+			}
+			// (c) faces de RACCORD aux sommets (anneau des points autour du sommet, parcouru
+			//     à l'ENVERS pour que la face regarde vers l'extérieur).
+			NkVector<uint32> ring, rr;
+			for (uint32 v = 0; v < NV; ++v) {
+				if (!touched[v] || W.verts[v].hedge == NK_EM_INVALID)
+					continue;
+				ring.Clear();
+				bool open = false;
+				const NkEmId h0 = W.verts[v].hedge;
+				NkEmId h = h0;
+				uint32 g = 0;
+				do {
+					ring.PushBack(ptPrev[h]);
+					ring.PushBack(ptNext[h]);
+					if (arcBase[h] >= 0)
+						for (int32 j = 0; j < seg - 1; ++j)
+							ring.PushBack(arcData[(uint32)arcBase[h] + (uint32)j]);
+					const NkEmId tw = W.hedges[h].twin;
+					if (tw == NK_EM_INVALID) {
+						open = true;
+						break;
+					}
+					h = W.hedges[tw].next;
+					if (h == NK_EM_INVALID) {
+						open = true;
+						break;
+					}
+				} while (h != h0 && ++g < 4096u);
+				if (open)
+					continue; // sommet de BORD : pas de raccord (limite assumée)
+				// Anneau parcouru à l'ENVERS (orientation sortante), compacté.
+				rr.Clear();
+				for (uint32 k = (uint32)ring.Size(); k > 0; --k) {
+					const uint32 id = ring[k - 1];
+					if (!rr.Empty() && rr[(uint32)rr.Size() - 1] == id)
+						continue;
+					rr.PushBack(id);
+				}
+				while (rr.Size() > 1u && rr[(uint32)rr.Size() - 1] == rr[0])
+					rr.Resize((uint32)rr.Size() - 1);
+				const uint32 rn = (uint32)rr.Size();
+				if (rn < 3u)
+					continue; // anneau dégénéré -> le coin est déjà fermé par les faces voisines
+				if (rn <= 4u) {
+					const uint32 st = (uint32)nfv.Size();
+					for (uint32 k = 0; k < rn; ++k)
+						nfv.PushBack(rr[k]);
+					nfs.PushBack((uint32)nfv.Size());
+					continue;
+				}
+				// COIN ARRONDI (bevel à plusieurs segments) : l'anneau est très NON PLAN.
+				// Une seule n-gon serait triangulée en éventail depuis un de ses coins ->
+				// bosses visibles. On pose donc un point central sur la sphère du coin et on
+				// raccorde en éventail : coin lisse, faces quasi équilatérales.
+				{
+					// Le « coin intérieur » (centre de la sphère du coin) : v reculé le long de
+					// TOUTES ses arêtes. Les points de l'anneau sont à peu près à distance
+					// `offset` de ce point — on y pose donc le point central du raccord.
+					NkVec3f ic = W.verts[v].pos;
+					{
+						NkEmId hh = W.verts[v].hedge;
+						uint32 gg = 0;
+						do {
+							const uint32 dv = dstOf(hh);
+							ic = ic + EM_Norm(W.verts[dv].pos - W.verts[v].pos) * tAlong(v, dv);
+							const NkEmId tw2 = W.hedges[hh].twin;
+							if (tw2 == NK_EM_INVALID)
+								break;
+							hh = W.hedges[tw2].next;
+						} while (hh != W.verts[v].hedge && hh != NK_EM_INVALID && ++gg < 4096u);
+					}
+					NkVec3f cen{0.f, 0.f, 0.f};
+					float32 rad = 0.f;
+					for (uint32 k = 0; k < rn; ++k) {
+						cen = cen + np[rr[k]].pos;
+						rad += (np[rr[k]].pos - ic).Len();
+					}
+					cen = cen * (1.f / (float32)rn);
+					rad /= (float32)rn;
+					NkVertex3D nvc = wv[v];
+					const NkVec3f dir = EM_Norm(cen - ic);
+					nvc.pos = (dir.LenSq() > 0.f) ? (ic + dir * rad) : cen;
+					const uint32 cid = pushPt(nvc, (uint8)1);
+					for (uint32 k = 0; k < rn; ++k) {
+						nfv.PushBack(cid);
+						nfv.PushBack(rr[k]);
+						nfv.PushBack(rr[(k + 1u) % rn]);
+						nfs.PushBack((uint32)nfv.Size());
+					}
+				}
+			}
+
+			if (nfs.Size() < 2u || np.Empty())
+				return false;
+			BuildFromPolygons(np.Data(), (uint32)np.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			ApplyVertSel(nsel);
+			return true;
+		}
+
+		// =====================================================================
+		// INSET FACES (I) — face plus petite à l'intérieur + bande de raccord
+		// ---------------------------------------------------------------------
+		// INDIVIDUAL : chaque face sélectionnée reçoit son propre contour intérieur
+		//   (rétréci par bissectrice de coin dans le plan de la face) ; la bande relie
+		//   les 4 côtés. Deux faces voisines gardent leur contour extérieur COMMUN
+		//   (maillage soudé) mais obtiennent des intérieurs séparés — exactement Blender.
+		// REGION : la sélection est un bloc. Seules les arêtes de BORD de la région
+		//   (celles qui n'ont qu'UNE face sélectionnée) engendrent la bande ; les arêtes
+		//   intérieures restent partagées. Le déplacement d'un sommet de bord est la
+		//   SOMME des directions « vers l'intérieur » de ses arêtes de bord (sur un coin
+		//   droit, cela recule bien de `thickness` sur chaque côté).
+		// =====================================================================
+		bool NkEditMesh::InsetSelectedFaces(const NkInsetParams &p) {
+			NkVector<NkVertex3D> pv;
+			NkVector<uint32> fs, fv;
+			NkVector<uint8> vsel;
+			NkVector<uint32> wmap;
+			EM_ToWeldedPolygons(*this, pv, fs, fv, vsel, wmap);
+			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
+			if (fc == 0)
+				return false;
+			NkVector<uint8> faceSel;
+			faceSel.Resize(fc);
+			uint32 selCount = 0;
+			for (uint32 f = 0; f < fc; ++f) {
+				const uint32 s = fs[f], e = fs[f + 1];
+				bool sel = (e - s) >= 3u;
+				for (uint32 k = s; k < e && sel; ++k)
+					sel = (fv[k] < (uint32)vsel.Size()) && (vsel[fv[k]] != 0);
+				faceSel[f] = sel ? (uint8)1 : (uint8)0;
+				selCount += sel ? 1u : 0u;
+			}
+			if (selCount == 0)
+				return false;
+			float32 thick = p.thickness;
+			if (thick <= 0.f)
+				thick = EM_BBoxDiag(pv) * 0.08f;
+			if (thick <= 1e-7f && p.depth == 0.f)
+				return false;
+
+			// Normale d'une face (convention moteur : cf. NkEmFaceCross).
+			auto faceNormal = [&](uint32 f) -> NkVec3f {
+				const uint32 s = fs[f], e = fs[f + 1];
+				NkVec3f n{0.f, 0.f, 0.f};
+				for (uint32 k = s + 1; k + 1 < e; ++k)
+					n = n + NkEmFaceCross(pv[fv[s]].pos, pv[fv[k]].pos, pv[fv[k + 1]].pos);
+				return EM_Norm(n);
+			};
+
+			NkVector<uint32> nfs, nfv;
+			nfs.PushBack(0);
+			NkVector<uint8> nsel;
+			nsel.Resize((uint32)pv.Size());
+			for (uint32 i = 0; i < (uint32)nsel.Size(); ++i)
+				nsel[i] = 0;
+			for (uint32 f = 0; f < fc; ++f) { // faces NON sélectionnées : recopiées telles quelles
+				if (faceSel[f])
+					continue;
+				for (uint32 k = fs[f]; k < fs[f + 1]; ++k)
+					nfv.PushBack(fv[k]);
+				nfs.PushBack((uint32)nfv.Size());
+			}
+
+			if (p.individual) {
+				NkVector<uint32> inner;
+				for (uint32 f = 0; f < fc; ++f) {
+					if (!faceSel[f])
+						continue;
+					const uint32 s = fs[f], e = fs[f + 1], n = e - s;
+					const NkVec3f fn = faceNormal(f);
+					inner.Clear();
+					for (uint32 k = 0; k < n; ++k) {
+						const uint32 v = fv[s + k], pr = fv[s + (k + n - 1u) % n], nx = fv[s + (k + 1u) % n];
+						const NkVec3f d1 = pv[pr].pos - pv[v].pos, d2 = pv[nx].pos - pv[v].pos;
+						const NkVec3f u1 = EM_Norm(d1), u2 = EM_Norm(d2);
+						float32 t1 = thick, t2 = thick;
+						const float32 l1 = d1.Len() * 0.45f, l2 = d2.Len() * 0.45f;
+						if (t1 > l1)
+							t1 = l1;
+						if (t2 > l2)
+							t2 = l2;
+						float32 sn = u1.Cross(u2).Len();
+						if (sn < 0.2f)
+							sn = 0.2f;
+						NkVertex3D nv = pv[v];
+						nv.pos = pv[v].pos + (u1 * t1 + u2 * t2) * (1.f / sn) + fn * p.depth;
+						inner.PushBack((uint32)pv.Size());
+						pv.PushBack(nv);
+						nsel.PushBack(1);
+					}
+					for (uint32 k = 0; k < n; ++k) // face INTÉRIEURE (même winding)
+						nfv.PushBack(inner[k]);
+					nfs.PushBack((uint32)nfv.Size());
+					for (uint32 k = 0; k < n; ++k) { // BANDE de raccord
+						nfv.PushBack(fv[s + k]);
+						nfv.PushBack(fv[s + (k + 1u) % n]);
+						nfv.PushBack(inner[(k + 1u) % n]);
+						nfv.PushBack(inner[k]);
+						nfs.PushBack((uint32)nfv.Size());
+					}
+				}
+				if (nfs.Size() < 2u)
+					return false;
+				BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+				ApplyVertSel(nsel);
+				return true;
+			}
+
+			// ── MODE RÉGION ──────────────────────────────────────────────────
+			const uint32 baseVC = (uint32)pv.Size();
+			NkHashMap<uint64, uint8> dirEdge; // arêtes ORIENTÉES des faces sélectionnées
+			for (uint32 f = 0; f < fc; ++f) {
+				if (!faceSel[f])
+					continue;
+				const uint32 s = fs[f], e = fs[f + 1], n = e - s;
+				for (uint32 k = 0; k < n; ++k)
+					dirEdge.InsertOrAssign(((uint64)fv[s + k] << 32) | (uint64)fv[s + (k + 1u) % n], (uint8)1);
+			}
+			NkVector<NkVec3f> disp, nrm;
+			disp.Resize(baseVC);
+			nrm.Resize(baseVC);
+			for (uint32 i = 0; i < baseVC; ++i) {
+				disp[i] = {0.f, 0.f, 0.f};
+				nrm[i] = {0.f, 0.f, 0.f};
+			}
+			NkVector<uint8> inRegion;
+			inRegion.Resize(baseVC);
+			for (uint32 i = 0; i < baseVC; ++i)
+				inRegion[i] = 0;
+			bool anyBoundary = false;
+			for (uint32 f = 0; f < fc; ++f) {
+				if (!faceSel[f])
+					continue;
+				const uint32 s = fs[f], e = fs[f + 1], n = e - s;
+				const NkVec3f fn = faceNormal(f);
+				NkVec3f cen{0.f, 0.f, 0.f};
+				for (uint32 k = 0; k < n; ++k) {
+					cen = cen + pv[fv[s + k]].pos;
+					inRegion[fv[s + k]] = 1;
+					nrm[fv[s + k]] = nrm[fv[s + k]] + fn;
+				}
+				cen = cen * (1.f / (float32)n);
+				for (uint32 k = 0; k < n; ++k) {
+					const uint32 a = fv[s + k], b = fv[s + (k + 1u) % n];
+					if (dirEdge.Find(((uint64)b << 32) | (uint64)a))
+						continue; // arête INTÉRIEURE à la région
+					anyBoundary = true;
+					// Direction « vers l'intérieur de la face », perpendiculaire à l'arête.
+					const NkVec3f d = EM_Norm(pv[b].pos - pv[a].pos);
+					const NkVec3f m = (pv[a].pos + pv[b].pos) * 0.5f;
+					NkVec3f w = cen - m;
+					w = EM_Norm(w - d * w.Dot(d));
+					disp[a] = disp[a] + w;
+					disp[b] = disp[b] + w;
+				}
+			}
+			if (!anyBoundary && p.depth == 0.f)
+				return false; // région fermée sans profondeur -> rien à faire
+			NkVector<int32> innerOf;
+			innerOf.Resize(baseVC);
+			for (uint32 i = 0; i < baseVC; ++i)
+				innerOf[i] = -1;
+			for (uint32 i = 0; i < baseVC; ++i) {
+				if (!inRegion[i])
+					continue;
+				NkVertex3D nv = pv[i];
+				nv.pos = pv[i].pos + disp[i] * thick + EM_Norm(nrm[i]) * p.depth;
+				innerOf[i] = (int32)pv.Size();
+				pv.PushBack(nv);
+				nsel.PushBack(1);
+			}
+			for (uint32 f = 0; f < fc; ++f) { // faces sélectionnées -> version intérieure
+				if (!faceSel[f])
+					continue;
+				for (uint32 k = fs[f]; k < fs[f + 1]; ++k)
+					nfv.PushBack((uint32)innerOf[fv[k]]);
+				nfs.PushBack((uint32)nfv.Size());
+			}
+			for (uint32 f = 0; f < fc; ++f) { // BANDE sur les seules arêtes de BORD
+				if (!faceSel[f])
+					continue;
+				const uint32 s = fs[f], e = fs[f + 1], n = e - s;
+				for (uint32 k = 0; k < n; ++k) {
+					const uint32 a = fv[s + k], b = fv[s + (k + 1u) % n];
+					if (dirEdge.Find(((uint64)b << 32) | (uint64)a))
+						continue;
+					nfv.PushBack(a);
+					nfv.PushBack(b);
+					nfv.PushBack((uint32)innerOf[b]);
+					nfv.PushBack((uint32)innerOf[a]);
+					nfs.PushBack((uint32)nfv.Size());
+				}
+			}
+			if (nfs.Size() < 2u)
+				return false;
+			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			ApplyVertSel(nsel);
+			return true;
+		}
+
+		// =====================================================================
+		// EDGE SPLIT (V) — dé-soudure locale le long des arêtes sélectionnées
+		// ---------------------------------------------------------------------
+		// Autour de chaque sommet touché, on parcourt le VENTILATEUR de faces
+		// (rot(h) = twin(h).next). Chaque traversée d'une arête SÉLECTIONNÉE ouvre un
+		// nouveau GROUPE ; chaque groupe reçoit sa propre copie du sommet, décalée d'un
+		// demi-`gap` le long de la normale moyenne de ses faces. Après reconstruction,
+		// LinkTwins n'apparie plus les demi-arêtes de part et d'autre (positions
+		// différentes) : la déchirure est réelle et les twins restent cohérents.
+		// =====================================================================
+		bool NkEditMesh::SplitSelectedEdges(const NkEdgeSplitParams &p) {
+			NkVector<NkVertex3D> wv;
+			NkVector<uint32> wfs, wfv;
+			NkVector<uint8> wsel;
+			NkVector<uint32> wmap;
+			EM_ToWeldedPolygons(*this, wv, wfs, wfv, wsel, wmap);
+			const uint32 wfc = (wfs.Size() > 0) ? (uint32)wfs.Size() - 1 : 0;
+			if (wfc == 0)
+				return false;
+			NkEditMesh W;
+			W.BuildFromPolygons(wv.Data(), (uint32)wv.Size(), wfs.Data(), wfc, wfv.Data());
+			const uint32 NV = W.VertCount(), HC = (uint32)W.hedges.Size();
+			if (NV == 0 || HC == 0)
+				return false;
+			for (uint32 i = 0; i < NV && i < (uint32)wsel.Size(); ++i)
+				W.verts[i].sel = wsel[i];
+
+			NkVector<NkEmId> prevOf;
+			prevOf.Resize(HC);
+			for (uint32 i = 0; i < HC; ++i)
+				prevOf[i] = NK_EM_INVALID;
+			for (uint32 f = 0; f < (uint32)W.faces.Size(); ++f) {
+				if (!W.faces[f].alive || W.faces[f].hedge == NK_EM_INVALID)
+					continue;
+				const NkEmId s = W.faces[f].hedge;
+				NkEmId h = s;
+				uint32 g = 0;
+				do {
+					const NkEmId nx = W.hedges[h].next;
+					if (nx == NK_EM_INVALID)
+						break;
+					prevOf[nx] = h;
+					h = nx;
+				} while (h != s && ++g < 100000u);
+			}
+			auto dstOf = [&](NkEmId h) -> uint32 {
+				const NkEmId nx = W.hedges[h].next;
+				return (nx == NK_EM_INVALID) ? W.hedges[h].origin : W.hedges[nx].origin;
+			};
+			auto ekey = [](uint32 a, uint32 b) -> uint64 {
+				const uint32 lo = (a < b) ? a : b, hi = (a < b) ? b : a;
+				return ((uint64)lo << 32) | (uint64)hi;
+			};
+			NkHashMap<uint64, uint8> selE;
+			NkVector<uint8> touched;
+			touched.Resize(NV);
+			for (uint32 i = 0; i < NV; ++i)
+				touched[i] = 0;
+			for (uint32 h = 0; h < HC; ++h) {
+				if (!W.hedges[h].alive || W.hedges[h].twin == NK_EM_INVALID)
+					continue; // arête de BORD : déjà ouverte
+				const uint32 a = W.hedges[h].origin, b = dstOf((NkEmId)h);
+				if (a == b || a >= NV || b >= NV || !W.verts[a].sel || !W.verts[b].sel)
+					continue;
+				selE.InsertOrAssign(ekey(a, b), (uint8)1);
+				touched[a] = 1;
+				touched[b] = 1;
+			}
+			if (selE.Empty())
+				return false;
+			float32 gap = p.gap;
+			if (gap <= 0.f)
+				gap = EM_BBoxDiag(wv) * 0.01f;
+
+			NkVector<NkVertex3D> np = wv;
+			NkVector<uint8> nsel;
+			nsel.Resize((uint32)np.Size());
+			for (uint32 i = 0; i < (uint32)nsel.Size(); ++i)
+				nsel[i] = 0;
+			NkVector<int32> cornerOf; // coin (demi-arête) -> sommet de sortie
+			cornerOf.Resize(HC);
+			for (uint32 i = 0; i < HC; ++i)
+				cornerOf[i] = -1;
+			bool splitAny = false;
+			NkVector<NkEmId> fanH;
+			NkVector<int32> fanG;
+			NkVector<NkVec3f> gN;
+			NkVector<int32> gIdx;
+			for (uint32 v = 0; v < NV; ++v) {
+				if (!touched[v] || W.verts[v].hedge == NK_EM_INVALID)
+					continue;
+				const NkEmId h0 = W.verts[v].hedge;
+				// 1) point de départ : le bord du ventilateur s'il est OUVERT, sinon la
+				//    demi-arête qui suit immédiatement une arête sélectionnée (sans quoi le
+				//    1er et le dernier groupe du tour seraient comptés deux fois).
+				NkEmId start = h0;
+				bool closed = true;
+				{
+					NkEmId x = h0;
+					uint32 g = 0;
+					while (++g < 4096u) {
+						const NkEmId pr = prevOf[x];
+						const NkEmId tw = (pr == NK_EM_INVALID) ? NK_EM_INVALID : W.hedges[pr].twin;
+						if (tw == NK_EM_INVALID) {
+							start = x;
+							closed = false;
+							break;
+						}
+						x = tw;
+						if (x == h0)
+							break;
+					}
+				}
+				if (closed) {
+					NkEmId x = h0;
+					uint32 g = 0;
+					do {
+						const NkEmId tw = W.hedges[x].twin;
+						if (tw == NK_EM_INVALID)
+							break;
+						if (selE.Find(ekey(v, dstOf(x)))) {
+							start = W.hedges[tw].next;
+							break;
+						}
+						x = W.hedges[tw].next;
+					} while (x != h0 && x != NK_EM_INVALID && ++g < 4096u);
+				}
+				// 2) parcours du ventilateur : groupe incrémenté à chaque arête sélectionnée.
+				fanH.Clear();
+				fanG.Clear();
+				gN.Clear();
+				gIdx.Clear();
+				gN.PushBack({0.f, 0.f, 0.f});
+				gIdx.PushBack((int32)v); // groupe 0 = le sommet d'origine
+				int32 grp = 0;
+				NkEmId x = start;
+				uint32 g = 0;
+				while (x != NK_EM_INVALID && ++g < 4096u) {
+					fanH.PushBack(x);
+					fanG.PushBack(grp);
+					if (W.hedges[x].face != NK_EM_INVALID)
+						gN[(uint32)grp] = gN[(uint32)grp] + W.faces[W.hedges[x].face].normal;
+					const NkEmId tw = W.hedges[x].twin;
+					if (tw == NK_EM_INVALID)
+						break; // fin d'un ventilateur ouvert
+					const NkEmId nx = W.hedges[tw].next;
+					if (nx == NK_EM_INVALID || nx == start)
+						break; // tour complet
+					if (selE.Find(ekey(v, dstOf(x)))) {
+						++grp;
+						gN.PushBack({0.f, 0.f, 0.f});
+						gIdx.PushBack(-1);
+					}
+					x = nx;
+				}
+				// 3) un seul groupe -> le sommet reste partagé (arête isolée : cf. limites).
+				if (gIdx.Size() > 1u) {
+					splitAny = true;
+					for (uint32 q = 1; q < (uint32)gIdx.Size(); ++q) {
+						gIdx[q] = (int32)np.Size();
+						np.PushBack(wv[v]);
+						nsel.PushBack(1); // les morceaux DÉTACHÉS deviennent la sélection
+					}
+					for (uint32 q = 0; q < (uint32)gIdx.Size(); ++q) {
+						const uint32 id = (uint32)gIdx[q];
+						np[id].pos = np[id].pos + EM_Norm(gN[q]) * (gap * 0.5f);
+					}
+				}
+				for (uint32 q = 0; q < (uint32)fanH.Size(); ++q)
+					cornerOf[fanH[q]] = gIdx[(uint32)fanG[q]];
+			}
+			if (!splitAny)
+				return false;
+
+			NkVector<uint32> nfs, nfv;
+			nfs.PushBack(0);
+			for (uint32 f = 0; f < (uint32)W.faces.Size(); ++f) {
+				if (!W.faces[f].alive || W.faces[f].hedge == NK_EM_INVALID)
+					continue;
+				const NkEmId s = W.faces[f].hedge;
+				NkEmId h = s;
+				uint32 g = 0;
+				do {
+					nfv.PushBack((cornerOf[h] >= 0) ? (uint32)cornerOf[h] : W.hedges[h].origin);
+					h = W.hedges[h].next;
+				} while (h != s && h != NK_EM_INVALID && ++g < 100000u);
+				nfs.PushBack((uint32)nfv.Size());
+			}
+			BuildFromPolygons(np.Data(), (uint32)np.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			ApplyVertSel(nsel);
+			return true;
+		}
+
+		// =====================================================================
+		// SPIN / RÉVOLUTION (J) — le profil sélectionné tourne autour d'un axe
+		// ---------------------------------------------------------------------
+		// Le centre et l'axe arrivent dans l'espace du CURSEUR 3D (monde éditeur) : on les
+		// ramène en local par l'inverse de `localToSpin` (l'axe est une DIRECTION : on le
+		// transforme comme une différence de deux points, ce qui reste juste sous une
+		// transform à rotation/échelle quelconque).
+		// =====================================================================
+		bool NkEditMesh::SpinSelected(const NkSpinParams &p, const NkMat4f &localToSpin) {
+			NkVector<NkVertex3D> pv;
+			NkVector<uint32> fs, fv;
+			NkVector<uint8> vsel;
+			NkVector<uint32> wmap;
+			EM_ToWeldedPolygons(*this, pv, fs, fv, vsel, wmap);
+			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
+			const uint32 baseVC = (uint32)pv.Size();
+			if (baseVC == 0)
+				return false;
+			const NkMat4f inv = localToSpin.Inverse();
+			const NkVec3f ctr = inv * p.center;
+			NkVec3f ax = EM_Norm((inv * (p.center + p.axis)) - ctr);
+			if (ax.LenSq() < 1e-12f)
+				ax = {0.f, 1.f, 0.f};
+			const int32 steps = (p.steps < 1) ? 1 : ((p.steps > 256) ? 256 : p.steps);
+
+			// Profil : sommets sélectionnés + arêtes dont les DEUX extrémités le sont.
+			NkVector<int32> slot;
+			slot.Resize(baseVC);
+			NkVector<uint32> prof;
+			for (uint32 i = 0; i < baseVC; ++i) {
+				slot[i] = -1;
+				if (i < (uint32)vsel.Size() && vsel[i]) {
+					slot[i] = (int32)prof.Size();
+					prof.PushBack(i);
+				}
+			}
+			if (prof.Empty())
+				return false;
+			NkVector<uint32> eA, eB;
+			NkVector<uint8> faceSel;
+			faceSel.Resize(fc);
+			{
+				NkHashMap<uint64, uint8> seen;
+				for (uint32 f = 0; f < fc; ++f) {
+					const uint32 s = fs[f], e = fs[f + 1], n = e - s;
+					bool allSel = (n >= 3u);
+					for (uint32 k = 0; k < n; ++k) {
+						const uint32 a = fv[s + k], b = fv[s + (k + 1u) % n];
+						if (slot[a] < 0 || slot[b] < 0) {
+							allSel = false;
+							continue;
+						}
+						const uint32 lo = (a < b) ? a : b, hi = (a < b) ? b : a;
+						const uint64 key = ((uint64)lo << 32) | (uint64)hi;
+						if (seen.Find(key))
+							continue;
+						seen.InsertOrAssign(key, (uint8)1);
+						eA.PushBack(a);
+						eB.PushBack(b);
+					}
+					faceSel[f] = allSel ? (uint8)1 : (uint8)0;
+				}
+			}
+			if (eA.Empty() && !p.duplicate)
+				return false; // pas d'arête à balayer
+
+			// Anneaux successifs du balayage : ring[k * pn + j].
+			const uint32 pn = (uint32)prof.Size();
+			NkVector<uint32> ring;
+			ring.Resize((uint32)(steps + 1) * pn);
+			for (uint32 j = 0; j < pn; ++j)
+				ring[j] = prof[j];
+			for (int32 k = 1; k <= steps; ++k) {
+				const float32 t = p.angle * (float32)k / (float32)steps;
+				const float32 cs = cosf(t), sn = sinf(t);
+				for (uint32 j = 0; j < pn; ++j) {
+					const NkVec3f r = pv[prof[j]].pos - ctr;
+					NkVertex3D nv = pv[prof[j]];
+					nv.pos = ctr + r * cs + ax.Cross(r) * sn + ax * (ax.Dot(r) * (1.f - cs)); // Rodrigues
+					ring[(uint32)k * pn + j] = (uint32)pv.Size();
+					pv.PushBack(nv);
+				}
+			}
+
+			NkVector<uint32> nfs, nfv;
+			nfs.PushBack(0);
+			for (uint32 f = 0; f < fc; ++f) { // la géométrie d'origine est CONSERVÉE
+				for (uint32 k = fs[f]; k < fs[f + 1]; ++k)
+					nfv.PushBack(fv[k]);
+				nfs.PushBack((uint32)nfv.Size());
+			}
+			if (p.duplicate) { // copies ISOLÉES des faces sélectionnées à chaque pas
+				for (int32 k = 1; k <= steps; ++k)
+					for (uint32 f = 0; f < fc; ++f) {
+						if (!faceSel[f])
+							continue;
+						for (uint32 q = fs[f]; q < fs[f + 1]; ++q)
+							nfv.PushBack(ring[(uint32)k * pn + (uint32)slot[fv[q]]]);
+						nfs.PushBack((uint32)nfv.Size());
+					}
+			} else { // bandes reliant les anneaux consécutifs
+				for (int32 k = 0; k < steps; ++k) {
+					for (uint32 e = 0; e < (uint32)eA.Size(); ++e) {
+						const uint32 a0 = ring[(uint32)k * pn + (uint32)slot[eA[e]]];
+						const uint32 b0 = ring[(uint32)k * pn + (uint32)slot[eB[e]]];
+						const uint32 a1 = ring[(uint32)(k + 1) * pn + (uint32)slot[eA[e]]];
+						const uint32 b1 = ring[(uint32)(k + 1) * pn + (uint32)slot[eB[e]]];
+						// ORIENTATION : la normale du quad doit FUIR l'axe (surface de
+						// révolution vue de l'extérieur) ; sinon on inverse la boucle.
+						const NkVec3f n4 = NkEmFaceCross(pv[a0].pos, pv[b0].pos, pv[b1].pos);
+						const NkVec3f cq = (pv[a0].pos + pv[b0].pos + pv[a1].pos + pv[b1].pos) * 0.25f;
+						NkVec3f rad = cq - ctr;
+						rad = rad - ax * rad.Dot(ax);
+						if ((rad.LenSq() > 1e-12f) && (n4.Dot(rad) < 0.f)) {
+							nfv.PushBack(a1);
+							nfv.PushBack(b1);
+							nfv.PushBack(b0);
+							nfv.PushBack(a0);
+						} else {
+							nfv.PushBack(a0);
+							nfv.PushBack(b0);
+							nfv.PushBack(b1);
+							nfv.PushBack(a1);
+						}
+						nfs.PushBack((uint32)nfv.Size());
+					}
+				}
+			}
+			NkVector<uint8> nsel;
+			nsel.Resize((uint32)pv.Size());
+			for (uint32 i = 0; i < (uint32)nsel.Size(); ++i)
+				nsel[i] = 0;
+			for (uint32 j = 0; j < pn; ++j) // sélection = DERNIER anneau (façon Blender)
+				nsel[ring[(uint32)steps * pn + j]] = 1;
+			BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			ApplyVertSel(nsel);
+			return true;
+		}
+
+		// =====================================================================
+		// DISSOLVE (Ctrl+X) — retire des éléments SANS trouer : les faces voisines
+		// fusionnent en n-gon. C'est l'opposé de « supprimer » (X).
+		// ---------------------------------------------------------------------
+		// UN SEUL algorithme pour les trois modes : on marque les arêtes à RETIRER, puis
+		// on reparcourt les contours. Pour une demi-arête de contour h, la suivante est
+		// obtenue en avançant dans la face et, TANT QUE l'arête rencontrée est retirée, en
+		// passant chez le voisin par le jumeau :  x = next(h) ; while(retiree(x)) x = next(twin(x)).
+		// Ce parcours saute naturellement les sommets devenus intérieurs à la région —
+		// c'est ce qui rend le dissolve de SOMMET et de FACE identiques à celui d'ARÊTE.
+		// =====================================================================
+		bool NkEditMesh::DissolveSelected(const NkDissolveParams &p) {
+			NkVector<NkVertex3D> wv;
+			NkVector<uint32> wfs, wfv;
+			NkVector<uint8> wsel;
+			NkVector<uint32> wmap;
+			EM_ToWeldedPolygons(*this, wv, wfs, wfv, wsel, wmap);
+			const uint32 wfc = (wfs.Size() > 0) ? (uint32)wfs.Size() - 1 : 0;
+			if (wfc == 0)
+				return false;
+			NkEditMesh W;
+			W.BuildFromPolygons(wv.Data(), (uint32)wv.Size(), wfs.Data(), wfc, wfv.Data());
+			const uint32 NV = W.VertCount(), HC = (uint32)W.hedges.Size();
+			if (NV == 0 || HC == 0)
+				return false;
+			for (uint32 i = 0; i < NV && i < (uint32)wsel.Size(); ++i)
+				W.verts[i].sel = wsel[i];
+			auto dstOf = [&](NkEmId h) -> uint32 {
+				const NkEmId nx = W.hedges[h].next;
+				return (nx == NK_EM_INVALID) ? W.hedges[h].origin : W.hedges[nx].origin;
+			};
+
+			// ── 1) Arêtes à RETIRER, selon le mode ───────────────────────────
+			NkVector<uint8> gone; // par demi-arête (symétrique avec son jumeau)
+			gone.Resize(HC);
+			for (uint32 i = 0; i < HC; ++i)
+				gone[i] = 0;
+			const int32 mode = (p.mode < 0 || p.mode > 2) ? 1 : p.mode;
+			NkVector<uint8> faceSel;
+			if (mode == 2) {
+				faceSel.Resize((uint32)W.faces.Size());
+				for (uint32 f = 0; f < (uint32)W.faces.Size(); ++f)
+					faceSel[f] = (W.faces[f].alive && W.FaceIsSelected((NkEmId)f)) ? (uint8)1 : (uint8)0;
+			}
+			uint32 removedCount = 0;
+			for (uint32 h = 0; h < HC; ++h) {
+				const NkEmId tw = W.hedges[h].twin;
+				if (!W.hedges[h].alive || tw == NK_EM_INVALID)
+					continue; // arête de BORD : rien à fusionner
+				if (W.hedges[h].face == NK_EM_INVALID || W.hedges[tw].face == NK_EM_INVALID)
+					continue;
+				if (W.hedges[h].face == W.hedges[tw].face)
+					continue; // même face des deux côtés : dégénéré
+				const uint32 a = W.hedges[h].origin, b = dstOf((NkEmId)h);
+				if (a >= NV || b >= NV)
+					continue;
+				bool kill = false;
+				if (mode == 0)
+					kill = (W.verts[a].sel != 0) || (W.verts[b].sel != 0); // Verts
+				else if (mode == 1)
+					kill = (W.verts[a].sel != 0) && (W.verts[b].sel != 0); // Edges
+				else
+					kill = (faceSel[W.hedges[h].face] != 0) && (faceSel[W.hedges[tw].face] != 0); // Faces
+				if (!kill)
+					continue;
+				if (!gone[h])
+					++removedCount;
+				gone[h] = 1;
+				gone[tw] = 1;
+			}
+			if (removedCount == 0)
+				return false;
+
+			// ── 2) Contours des régions fusionnées ───────────────────────────
+			NkVector<uint8> seen;
+			seen.Resize(HC);
+			for (uint32 i = 0; i < HC; ++i)
+				seen[i] = 0;
+			NkVector<uint32> nfs, nfv;
+			nfs.PushBack(0);
+			NkVector<uint8> touchedV; // sommets du contour d'une région fusionnée -> sélection
+			touchedV.Resize(NV);
+			for (uint32 i = 0; i < NV; ++i)
+				touchedV[i] = 0;
+			for (uint32 h0 = 0; h0 < HC; ++h0) {
+				if (seen[h0] || gone[h0] || !W.hedges[h0].alive || W.hedges[h0].face == NK_EM_INVALID)
+					continue;
+				const uint32 st = (uint32)nfv.Size();
+				bool merged = false;
+				NkEmId h = (NkEmId)h0;
+				uint32 g = 0;
+				bool bad = false;
+				do {
+					seen[h] = 1;
+					nfv.PushBack(W.hedges[h].origin);
+					NkEmId x = W.hedges[h].next;
+					uint32 g2 = 0;
+					while (x != NK_EM_INVALID && gone[x] && ++g2 < 100000u) {
+						merged = true;
+						const NkEmId tx = W.hedges[x].twin;
+						if (tx == NK_EM_INVALID) {
+							bad = true;
+							break;
+						}
+						x = W.hedges[tx].next;
+					}
+					if (bad || x == NK_EM_INVALID)
+						break;
+					h = x;
+				} while (h != (NkEmId)h0 && ++g < 100000u);
+				const uint32 n = (uint32)nfv.Size() - st;
+				if (bad || n < 3u) {
+					nfv.Resize(st); // contour dégénéré -> abandonné
+					continue;
+				}
+				if (merged)
+					for (uint32 k = st; k < (uint32)nfv.Size(); ++k)
+						touchedV[nfv[k]] = 1;
+				nfs.PushBack((uint32)nfv.Size());
+			}
+			if (nfs.Size() < 2u)
+				return false;
+
+			// ── 3) COMPACTAGE : on ne garde que les sommets réellement utilisés ──
+			NkVector<int32> remap;
+			remap.Resize(NV);
+			for (uint32 i = 0; i < NV; ++i)
+				remap[i] = -1;
+			NkVector<NkVertex3D> np;
+			NkVector<uint8> nsel;
+			for (uint32 k = 0; k < (uint32)nfv.Size(); ++k) {
+				const uint32 v = nfv[k];
+				if (remap[v] < 0) {
+					remap[v] = (int32)np.Size();
+					np.PushBack(wv[v]);
+					nsel.PushBack(touchedV[v]);
+				}
+				nfv[k] = (uint32)remap[v];
+			}
+			BuildFromPolygons(np.Data(), (uint32)np.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			ApplyVertSel(nsel);
+			return true;
+		}
+
 		// BISECT / KNIFE : coupe le maillage par un PLAN. Chaque arête traversante reçoit un
 		// sommet d'intersection (partagé) et chaque face traversée est coupée en 2. planePoint/
 		// planeNormal dans l'espace de `xform` (modèle->monde éditeur, ou identité IA).
@@ -1653,6 +2843,16 @@ namespace nkentseu {
 					return m.LoopCutFromSelectedEdge(loopcut);
 				case NkMeshEditOp::Bisect:
 					return m.BisectByPlane(planePoint, planeNormal, bisectXform);
+				case NkMeshEditOp::Bevel:
+					return m.BevelSelected(bevel);
+				case NkMeshEditOp::Inset:
+					return m.InsetSelectedFaces(inset);
+				case NkMeshEditOp::EdgeSplit:
+					return m.SplitSelectedEdges(esplit);
+				case NkMeshEditOp::Spin:
+					return m.SpinSelected(spin, spinXform);
+				case NkMeshEditOp::Dissolve:
+					return m.DissolveSelected(dissolve);
 				case NkMeshEditOp::Move: {
 					bool changed = false;
 					for (uint32 k = 0; k < (uint32)selection.Size() && k < (uint32)moveDeltas.Size(); ++k) {
@@ -1760,7 +2960,7 @@ namespace nkentseu {
 			out.Clear();
 			EmW w{out};
 			w.U32(NK_EMREC_MAGIC);
-			w.U32(2u); // v2 : + NkLoopCutParams::cuts en fin d'enregistrement
+			w.U32(7u); // v7 : + NkDissolveParams (v6 : spin · v5 : split · v4 : inset · v3 : bevel)
 			w.U32((uint32)mCommands.Size());
 			for (uint32 i = 0; i < (uint32)mCommands.Size(); ++i) {
 				const NkMeshEditCommand &c = mCommands[i];
@@ -1788,6 +2988,26 @@ namespace nkentseu {
 					w.F32(c.moveDeltas[k].z);
 				}
 				w.I32(c.loopcut.cuts); // v2
+				w.F32(c.bevel.offset); // v3
+				w.I32(c.bevel.segments);
+				w.U8((uint8)(c.bevel.vertexOnly ? 1 : 0));
+				w.F32(c.inset.thickness); // v4
+				w.F32(c.inset.depth);
+				w.U8((uint8)(c.inset.individual ? 1 : 0));
+				w.F32(c.esplit.gap); // v5
+				w.F32(c.spin.center.x); // v6
+				w.F32(c.spin.center.y);
+				w.F32(c.spin.center.z);
+				w.F32(c.spin.axis.x);
+				w.F32(c.spin.axis.y);
+				w.F32(c.spin.axis.z);
+				w.F32(c.spin.angle);
+				w.I32(c.spin.steps);
+				w.U8((uint8)(c.spin.duplicate ? 1 : 0));
+				for (int32 col = 0; col < 4; ++col)
+					for (int32 row = 0; row < 4; ++row)
+						w.F32(c.spinXform[col][row]);
+				w.I32(c.dissolve.mode); // v7
 			}
 		}
 
@@ -1930,6 +3150,32 @@ namespace nkentseu {
 				}
 				if (ver >= 2u)
 					c.loopcut.cuts = r.I32();
+				if (ver >= 3u) {
+					c.bevel.offset = r.F32();
+					c.bevel.segments = r.I32();
+					c.bevel.vertexOnly = (r.U8() != 0);
+				}
+				if (ver >= 4u) {
+					c.inset.thickness = r.F32();
+					c.inset.depth = r.F32();
+					c.inset.individual = (r.U8() != 0);
+				}
+				if (ver >= 5u)
+					c.esplit.gap = r.F32();
+				if (ver >= 6u) {
+					float32 cx = r.F32(), cy = r.F32(), cz = r.F32();
+					c.spin.center = {cx, cy, cz};
+					float32 axx = r.F32(), axy = r.F32(), axz = r.F32();
+					c.spin.axis = {axx, axy, axz};
+					c.spin.angle = r.F32();
+					c.spin.steps = r.I32();
+					c.spin.duplicate = (r.U8() != 0);
+					for (int32 col = 0; col < 4; ++col)
+						for (int32 row = 0; row < 4; ++row)
+							c.spinXform[col][row] = r.F32();
+				}
+				if (ver >= 7u)
+					c.dissolve.mode = r.I32();
 				if (r.ok)
 					mCommands.PushBack(c);
 			}

@@ -136,6 +136,37 @@ namespace nkentseu {
 				bool editSubdivPending = false;	  // W : subdivise les faces sélectionnées
 				bool editLoopCutPending = false;  // Ctrl+R : boucle d'arêtes (loop cut)
 			int32 loopCuts = 1;				  // Ctrl+Shift+R : nb de boucles insérées (1..5)
+				// ── BEVEL / CHANFREIN (façon Blender) ───────────────────────────
+				// Ctrl+B = bevel d'ARÊTE · Ctrl+Shift+B = bevel de SOMMET.
+				// Alt+B = cycle les SEGMENTS (1/2/3/4/6) · Alt+Shift+B = cycle la LARGEUR.
+				// 0 = rien · 1 = bevel d'arête · 2 = bevel de sommet.
+				int32 editBevelPending = 0;
+				int32 bevelSegments = 1;   // 1 = chanfrein plat, N = arrondi
+				float32 bevelOffset = 0.f; // 0 = AUTO (6 % de la diagonale de bbox)
+				// ── INSET FACES (I) ─────────────────────────────────────────────
+				// I = inset · Shift+I = bascule INDIVIDUEL / RÉGION · Alt+I = cycle la
+				// profondeur (0 / creux / bossage), comme les propriétés d'outil Blender.
+				bool editInsetPending = false;
+				bool insetIndividual = true;
+				float32 insetThickness = 0.f; // 0 = AUTO (8 % de la diagonale de bbox)
+				float32 insetDepth = 0.f;
+				// ── EDGE SPLIT / RIP (V) ────────────────────────────────────────
+				// V = dé-soude les arêtes sélectionnées (déchirure). Shift+V = cycle
+				// l'écartement (AUTO 1 % / 10 % / 25 % de la diagonale de bbox).
+				bool editSplitPending = false;
+				float32 splitGap = 0.f; // 0 = AUTO
+				// ── SPIN / RÉVOLUTION (J) ───────────────────────────────────────
+				// J = spin autour du CURSEUR 3D (comme Blender), axe vertical par défaut.
+				// Shift+J = cycle les pas (6/12/24/32) · Alt+J = cycle l'angle (360/180/90).
+				// ── DISSOLVE (Ctrl+X) ───────────────────────────────────────────
+				// Contextuel comme Blender : dissout des SOMMETS / ARÊTES / FACES selon le
+				// mode de sélection actif (1/2/3). 0 = rien, sinon 1 + mode (1..3).
+				int32 editDissolvePending = 0;
+				bool editSpinPending = false;
+				int32 spinSteps = 12;
+				float32 spinAngleDeg = 360.f;
+				int32 spinAxis = 1; // 0=X 1=Y 2=Z
+				bool spinDuplicate = false;
 				// ── OUTILS DE SÉLECTION façon Blender ────────────────────────────
 				// selTool : 0=aucun · 1=RECTANGLE (armé par B) · 2=LASSO (Ctrl+glisser) ·
 				// 3=CERCLE (C, modal : on « peint » en maintenant le clic).
@@ -658,6 +689,64 @@ namespace nkentseu {
 			renderer::NkMeshEditCommand c;
 			c.op = renderer::NkMeshEditOp::LoopCut;
 			c.loopcut.cuts = st->loopCuts;
+			Demo3D_ApplyCmd(st, ms, c);
+		}
+
+		// BEVEL / CHANFREIN (Ctrl+B arête · Ctrl+Shift+B sommet) — cf. NkEditMesh.
+		// Les paramètres (largeur, segments) vivent dans l'état de la démo, façon « propriétés
+		// d'outil » Blender : Alt+B cycle les segments, Alt+Shift+B cycle la largeur.
+		static void Demo3D_BevelHE(Demo3DState *st, renderer::NkMeshSystem *ms, bool vertexMode) {
+			renderer::NkMeshEditCommand c;
+			c.op = renderer::NkMeshEditOp::Bevel;
+			c.bevel.offset = st->bevelOffset;
+			c.bevel.segments = st->bevelSegments;
+			c.bevel.vertexOnly = vertexMode;
+			Demo3D_ApplyCmd(st, ms, c);
+		}
+
+		// INSET FACES (I) — face plus petite à l'intérieur des faces sélectionnées.
+		static void Demo3D_InsetHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
+			renderer::NkMeshEditCommand c;
+			c.op = renderer::NkMeshEditOp::Inset;
+			c.inset.thickness = st->insetThickness;
+			c.inset.depth = st->insetDepth;
+			c.inset.individual = st->insetIndividual;
+			Demo3D_ApplyCmd(st, ms, c);
+		}
+
+		// EDGE SPLIT (V) — dé-soude les arêtes sélectionnées (déchirure) — cf. NkEditMesh.
+		static void Demo3D_EdgeSplitHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
+			renderer::NkMeshEditCommand c;
+			c.op = renderer::NkMeshEditOp::EdgeSplit;
+			c.esplit.gap = st->splitGap;
+			Demo3D_ApplyCmd(st, ms, c);
+		}
+
+		// DISSOLVE (Ctrl+X) — retire l'élément SANS trouer (fusion en n-gon), contrairement
+		// à X = supprimer. Le mode suit la sélection active : FACE (bit 4) > EDGE (bit 2) >
+		// VERTEX (bit 1), exactement comme le Ctrl+X contextuel de Blender.
+		static void Demo3D_DissolveHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
+			renderer::NkMeshEditCommand c;
+			c.op = renderer::NkMeshEditOp::Dissolve;
+			c.dissolve.mode = (st->editSelMask & 4) ? 2 : ((st->editSelMask & 2) ? 1 : 0);
+			Demo3D_ApplyCmd(st, ms, c);
+		}
+
+		// SPIN / RÉVOLUTION (J) — le profil sélectionné tourne autour du CURSEUR 3D.
+		// Centre et axe sont donnés en MONDE (le curseur 3D l'est), la matrice editAnchor
+		// (modèle->monde) permet à NkEditMesh de les ramener en local — même schéma que
+		// le bisect. Façon Blender : le curseur 3D est le centre par défaut du spin.
+		static void Demo3D_SpinHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
+			renderer::NkMeshEditCommand c;
+			c.op = renderer::NkMeshEditOp::Spin;
+			c.spin.center = st->cursor3D;
+			c.spin.axis = (st->spinAxis == 0)   ? NkVec3f{1.f, 0.f, 0.f}
+						  : (st->spinAxis == 2) ? NkVec3f{0.f, 0.f, 1.f}
+												: NkVec3f{0.f, 1.f, 0.f};
+			c.spin.angle = st->spinAngleDeg * 0.01745329f;
+			c.spin.steps = st->spinSteps;
+			c.spin.duplicate = st->spinDuplicate;
+			c.spinXform = st->editAnchor;
 			Demo3D_ApplyCmd(st, ms, c);
 		}
 
@@ -1290,6 +1379,42 @@ namespace nkentseu {
 							return;
 						}
 					}
+					// ── BEVEL / CHANFREIN (façon Blender) ──────────────────────────
+					// Ctrl+B = bevel d'ARÊTE · Ctrl+Shift+B = bevel de SOMMET (Blender à
+					// l'identique). B SEULE reste la sélection RECTANGLE : on intercepte donc
+					// AVANT elle, et on ajoute Alt+B / Alt+Shift+B pour régler les propriétés
+					// de l'outil (segments / largeur), à la place de la molette modale.
+					if (k == NkKey::NK_B) {
+						const bool shiftB = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
+						const bool ctrlB = NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
+						if (ctrlB) {
+							st->editBevelPending = shiftB ? 2 : 1;
+							return;
+						}
+						if (alt) {
+							if (shiftB) {
+								// Largeur : AUTO (0) -> 3 % -> 6 % -> 10 % -> AUTO. Les valeurs sont
+								// des fractions de la diagonale de bbox, résolues côté NkEditMesh.
+								const float32 cyc[4] = {0.f, 0.05f, 0.12f, 0.25f};
+								int32 i = 0;
+								for (int32 j = 0; j < 4; j++)
+									if (st->bevelOffset == cyc[j])
+										i = j;
+								st->bevelOffset = cyc[(i + 1) % 4];
+								logger.Info("[Demo3D] Bevel largeur = {0}\n",
+											st->bevelOffset <= 0.f ? "AUTO (6% bbox)" : "manuelle");
+							} else {
+								const int32 cyc[5] = {1, 2, 3, 4, 6};
+								int32 i = 0;
+								for (int32 j = 0; j < 5; j++)
+									if (st->bevelSegments == cyc[j])
+										i = j;
+								st->bevelSegments = cyc[(i + 1) % 5];
+								logger.Info("[Demo3D] Bevel segments = {0}\n", st->bevelSegments);
+							}
+							return;
+						}
+					}
 					// ── OUTILS DE SÉLECTION (façon Blender) ────────────────────────
 					// B = arme la sélection RECTANGLE (le prochain glisser trace la boîte).
 					// C = bascule le mode CERCLE (on « peint » en maintenant le clic ;
@@ -1418,7 +1543,12 @@ namespace nkentseu {
 							return;
 						}
 						if (k == NkKey::NK_X) {
-							st->editDeletePending = true;
+							// Ctrl+X = DISSOLVE contextuel (Blender) : fusionne au lieu de trouer.
+							// X seule reste « supprimer les faces » (déjà en place).
+							if (ctrlK)
+								st->editDissolvePending = 1;
+							else
+								st->editDeletePending = true;
 							return;
 						}
 						if (k == NkKey::NK_M) {
@@ -1432,6 +1562,65 @@ namespace nkentseu {
 						}
 						if (k == NkKey::NK_F) {
 							st->editMakeFacePending = true;
+							return;
+						}
+						// J = SPIN / RÉVOLUTION. Blender n'a PAS de raccourci par défaut pour
+						// Spin (menu Mesh > Spin) : on prend J, libre chez nous. Shift+J = pas,
+						// Alt+J = angle. Le centre est le CURSEUR 3D, comme dans Blender.
+						if (k == NkKey::NK_J) {
+							if (shiftK) {
+								const int32 cyc[4] = {6, 12, 24, 32};
+								int32 i = 0;
+								for (int32 j = 0; j < 4; j++)
+									if (st->spinSteps == cyc[j])
+										i = j;
+								st->spinSteps = cyc[(i + 1) % 4];
+								logger.Info("[Demo3D] Spin pas = {0}\n", st->spinSteps);
+							} else if (alt) {
+								const float32 cyc[3] = {360.f, 180.f, 90.f};
+								int32 i = 0;
+								for (int32 j = 0; j < 3; j++)
+									if (st->spinAngleDeg == cyc[j])
+										i = j;
+								st->spinAngleDeg = cyc[(i + 1) % 3];
+								logger.Info("[Demo3D] Spin angle = {0} deg\n", st->spinAngleDeg);
+							} else
+								st->editSpinPending = true;
+							return;
+						}
+						// V = EDGE SPLIT (Blender met « rip » sur V ; V était libre chez nous,
+						// on y place la dé-soudure d'arêtes, qui en est la variante topologique).
+						// Shift+V = cycle l'écartement de la déchirure.
+						if (k == NkKey::NK_V) {
+							if (shiftK) {
+								const float32 cyc[3] = {0.f, 0.15f, 0.35f};
+								int32 i = 0;
+								for (int32 j = 0; j < 3; j++)
+									if (st->splitGap == cyc[j])
+										i = j;
+								st->splitGap = cyc[(i + 1) % 3];
+								logger.Info("[Demo3D] Edge split ecart = {0}\n",
+											st->splitGap <= 0.f ? "AUTO (1% bbox)" : "large");
+							} else
+								st->editSplitPending = true;
+							return;
+						}
+						// I = INSET FACES (Blender à l'identique — I était libre chez nous).
+						// Shift+I = bascule INDIVIDUEL / RÉGION · Alt+I = cycle la profondeur.
+						if (k == NkKey::NK_I) {
+							if (shiftK) {
+								st->insetIndividual = !st->insetIndividual;
+								logger.Info("[Demo3D] Inset = {0}\n", st->insetIndividual ? "INDIVIDUEL" : "REGION");
+							} else if (alt) {
+								const float32 cyc[3] = {0.f, -0.2f, 0.2f}; // plat · creux · bossage
+								int32 i = 0;
+								for (int32 j = 0; j < 3; j++)
+									if (st->insetDepth == cyc[j])
+										i = j;
+								st->insetDepth = cyc[(i + 1) % 3];
+								logger.Info("[Demo3D] Inset profondeur = {0}\n", st->insetDepth);
+							} else
+								st->editInsetPending = true;
 							return;
 						}
 						if (k == NkKey::NK_W) {
@@ -1755,6 +1944,42 @@ namespace nkentseu {
 						if (c >= 1)
 							st->loopCuts = c;
 					}
+					// Paramètres du BEVEL pour les captures headless (Ctrl+B / Ctrl+Shift+B).
+					//   NK_BEVEL_OFF=<largeur locale>  (0 / absent => AUTO 6 % de la bbox)
+					//   NK_BEVEL_SEG=<1..16>           (1 = chanfrein plat, N = arrondi)
+					if (const char *bo = getenv("NK_BEVEL_OFF"))
+						st->bevelOffset = (float32)atof(bo);
+					if (const char *bs = getenv("NK_BEVEL_SEG")) {
+						const int32 s = atoi(bs);
+						if (s >= 1)
+							st->bevelSegments = s;
+					}
+					// Paramètres de l'INSET (touche I).
+					//   NK_INSET_THICK=<épaisseur> (0/absent => AUTO 8 % de la bbox)
+					//   NK_INSET_DEPTH=<profondeur le long de la normale, signé>
+					//   NK_INSET_MODE=individual|region
+					if (const char *it = getenv("NK_INSET_THICK"))
+						st->insetThickness = (float32)atof(it);
+					if (const char *id = getenv("NK_INSET_DEPTH"))
+						st->insetDepth = (float32)atof(id);
+					if (const char *im = getenv("NK_INSET_MODE"))
+						st->insetIndividual = (im[0] != 'r' && im[0] != 'R');
+					// NK_SPLIT_GAP=<ecart> : écartement de la déchirure (0 => AUTO 1 % bbox).
+					if (const char *sg = getenv("NK_SPLIT_GAP"))
+						st->splitGap = (float32)atof(sg);
+					// SPIN : NK_SPIN_AXIS=x|y|z · NK_SPIN_ANGLE=<deg> · NK_SPIN_STEPS=<n> ·
+					// NK_SPIN_DUP=1 (copies isolées). Le CENTRE est le curseur 3D (NK_CURSOR3D).
+					if (const char *sa = getenv("NK_SPIN_AXIS"))
+						st->spinAxis = (sa[0] == 'x' || sa[0] == 'X') ? 0 : ((sa[0] == 'z' || sa[0] == 'Z') ? 2 : 1);
+					if (const char *sang = getenv("NK_SPIN_ANGLE"))
+						st->spinAngleDeg = (float32)atof(sang);
+					if (const char *sst = getenv("NK_SPIN_STEPS")) {
+						const int32 n = atoi(sst);
+						if (n >= 1)
+							st->spinSteps = n;
+					}
+					if (const char *sd = getenv("NK_SPIN_DUP"))
+						st->spinDuplicate = (sd[0] != '0');
 					if (const char *or_ = getenv("NK_EDIT_ORIENT"))
 						st->editGizmo.SetOrientationByName(or_);
 					gEditDrv = 1;
@@ -1767,6 +1992,22 @@ namespace nkentseu {
 					const bool selOneFace = (s0 == 'f' || s0 == 'F');
 					const bool selOneEdge = (s0 == 'e' || s0 == 'E');
 					const bool selOneVert = (s0 == 'v' || s0 == 'V');
+					// NK_EDIT_PRESUB=<n> : SUBDIVISE tout le maillage n fois AVANT la sélection
+					// et l'opération -> permet des captures « arête/sommet INTÉRIEUR » (dissolve)
+					// sans avoir à enchaîner deux opérations dans le pilote headless.
+					if (const char *psb = getenv("NK_EDIT_PRESUB")) {
+						const int32 n = atoi(psb);
+						if (n >= 1) {
+							st->editHE.SelectNone();
+							renderer::NkSubdivideParams sp;
+							sp.cuts = n;
+							st->editHE.SubdivideSelectedFaces(sp);
+							if (auto *msP = ctx.renderer->GetMeshSystem())
+								Demo3D_SyncFromHE(st, msP);
+							st->editHistory.Clear();
+							st->editBase = st->editHE;
+						}
+					}
 					const uint32 vc = st->editHE.VertCount();
 					for (uint32 i = 0; i < vc && i < (uint32)st->vertSel.Size(); i++)
 						st->vertSel[i] = 0;
@@ -1917,7 +2158,31 @@ namespace nkentseu {
 					gEditDrv = 2;
 				} else if (gEditDrv == 2) {
 					if (const char *op = getenv("NK_EDIT_OP")) {
-						if (op[0] == 'e' || op[0] == 'E')
+						// Comparaison de préfixe (pas de <string.h> ici) : les nouvelles ops ont
+						// des noms longs, l'initiale ne suffit plus à les distinguer.
+						auto isOp = [](const char *s, const char *pre) -> bool {
+							while (*pre) {
+								char a = *s++, b = *pre++;
+								if (a >= 'A' && a <= 'Z')
+									a = (char)(a - 'A' + 'a');
+								if (a != b)
+									return false;
+							}
+							return true;
+						};
+						if (isOp(op, "bevelvert")) {
+							st->editBevelPending = 2; // Bevel de SOMMET
+						} else if (isOp(op, "bevel")) {
+							st->editBevelPending = 1; // Bevel d'ARÊTE
+						} else if (isOp(op, "inset")) {
+							st->editInsetPending = true; // Inset faces
+						} else if (isOp(op, "edgesplit") || isOp(op, "split")) {
+							st->editSplitPending = true; // Edge split / rip
+						} else if (isOp(op, "spin")) {
+							st->editSpinPending = true; // Spin / révolution
+						} else if (isOp(op, "dissolve")) {
+							st->editDissolvePending = 1; // Dissolve contextuel
+						} else if (op[0] == 'e' || op[0] == 'E')
 							st->editExtrudePending = true; // Extrude
 						else if (op[0] == 's' || op[0] == 'S')
 							st->editSubdivPending = true; // Subdivide
@@ -2506,6 +2771,58 @@ namespace nkentseu {
 						st->editLoopCutPending = false;
 						Demo3D_LoopCutHE(st, meshSysT);
 						logger.Info("[Demo3D] Loop cut -> {0} faces\n", (int32)st->editHE.FaceCount());
+					}
+					if (st->editDissolvePending != 0) {
+						st->editDissolvePending = 0;
+						const int32 v0 = (int32)st->editHE.VertCount(), f0 = (int32)st->editHE.FaceCount();
+						NkVector<uint32> e0;
+						st->editHE.GetUniqueEdges(e0);
+						const char *dm = (st->editSelMask & 4) ? "FACES" : ((st->editSelMask & 2) ? "ARETES" : "SOMMETS");
+						Demo3D_DissolveHE(st, meshSysT);
+						NkVector<uint32> e1;
+						st->editHE.GetUniqueEdges(e1);
+						logger.Info("[Demo3D] Dissolve {0} : {1} sommets/{2} aretes/{3} faces -> "
+									"{4} sommets/{5} aretes/{6} faces (fusion en n-gon, PAS un trou)\n",
+									dm, v0, (int32)(e0.Size() / 2), f0, (int32)st->editHE.VertCount(),
+									(int32)(e1.Size() / 2), (int32)st->editHE.FaceCount());
+					}
+					if (st->editSpinPending) {
+						st->editSpinPending = false;
+						const int32 v0 = (int32)st->editHE.VertCount(), f0 = (int32)st->editHE.FaceCount();
+						Demo3D_SpinHE(st, meshSysT);
+						const char *axn[3] = {"X", "Y", "Z"};
+						logger.Info("[Demo3D] Spin (axe={0} angle={1}deg pas={2} {3}) : {4} sommets/{5} faces "
+									"-> {6} sommets/{7} faces\n",
+									axn[st->spinAxis % 3], st->spinAngleDeg, st->spinSteps,
+									st->spinDuplicate ? "duplique" : "relie", v0, f0,
+									(int32)st->editHE.VertCount(), (int32)st->editHE.FaceCount());
+					}
+					if (st->editSplitPending) {
+						st->editSplitPending = false;
+						const int32 v0 = (int32)st->editHE.VertCount(), f0 = (int32)st->editHE.FaceCount();
+						Demo3D_EdgeSplitHE(st, meshSysT);
+						logger.Info("[Demo3D] Edge split (ecart={0}) : {1} sommets/{2} faces -> {3} sommets/{4} faces\n",
+									st->splitGap, v0, f0, (int32)st->editHE.VertCount(),
+									(int32)st->editHE.FaceCount());
+					}
+					if (st->editInsetPending) {
+						st->editInsetPending = false;
+						const int32 v0 = (int32)st->editHE.VertCount(), f0 = (int32)st->editHE.FaceCount();
+						Demo3D_InsetHE(st, meshSysT);
+						logger.Info("[Demo3D] Inset {0} (epaisseur={1} profondeur={2}) : {3} sommets/{4} faces "
+									"-> {5} sommets/{6} faces\n",
+									st->insetIndividual ? "INDIVIDUEL" : "REGION", st->insetThickness, st->insetDepth,
+									v0, f0, (int32)st->editHE.VertCount(), (int32)st->editHE.FaceCount());
+					}
+					if (st->editBevelPending != 0) {
+						const bool vmode = (st->editBevelPending == 2);
+						st->editBevelPending = 0;
+						const int32 v0 = (int32)st->editHE.VertCount(), f0 = (int32)st->editHE.FaceCount();
+						Demo3D_BevelHE(st, meshSysT, vmode);
+						logger.Info("[Demo3D] Bevel {0} (largeur={1} segments={2}) : {3} sommets/{4} faces "
+									"-> {5} sommets/{6} faces\n",
+									vmode ? "SOMMET" : "ARETE", st->bevelOffset, st->bevelSegments, v0, f0,
+									(int32)st->editHE.VertCount(), (int32)st->editHE.FaceCount());
 					}
 					if (st->editBisectPending) {
 						st->editBisectPending = false;
@@ -3711,6 +4028,18 @@ namespace nkentseu {
 									  "Alt+clic=boucle  |  outil: %s%s",
 									  stName[st->selTool & 3],
 									  (st->selTool == 3) ? "  (clic=peindre, Echap=sortir)" : "");
+					// Nouvelles opérations de maillage (lot 2) — sur DEUX lignes : la barre
+					// d'aide dépasserait la largeur de l'écran sur une seule.
+					overlay->DrawText({20.f, 172.f},
+									  "Ctrl+B=bevel ARETE  Ctrl+Shift+B=bevel SOMMET (Alt+B=segments x%d, "
+									  "Alt+Shift+B=largeur %s)  |  I=inset %s (Shift=mode, Alt=prof %.2f)",
+									  st->bevelSegments, st->bevelOffset <= 0.f ? "AUTO" : "manuelle",
+									  st->insetIndividual ? "indiv" : "region", st->insetDepth);
+					overlay->DrawText({20.f, 190.f},
+									  "V=edge split (Shift=ecart %s)  |  J=spin %d pas / %.0f deg "
+									  "(Shift=pas, Alt=angle, centre=curseur 3D)  |  Ctrl+X=dissolve %s",
+									  st->splitGap <= 0.f ? "AUTO" : "large", st->spinSteps, st->spinAngleDeg,
+									  (st->editSelMask & 4) ? "FACES" : ((st->editSelMask & 2) ? "ARETES" : "SOMMETS"));
 					// Ombrage courant (Shift+S / Shift+F) + point de pivot (.) + curseur 3D.
 					const bool anySm = st->editHE.AnyFaceSmooth();
 					const bool allSm = st->editHE.AllFacesSmooth();

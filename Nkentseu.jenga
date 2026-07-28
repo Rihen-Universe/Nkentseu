@@ -936,6 +936,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Kernel/AI/NKEmbodied/NKEmbodied.jenga"):
+
+        pass
+
+
+
     with include("Kernel/AI/NKGen/NKGen.jenga"):
 
         pass
@@ -1058,6 +1064,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKFp16Test/NKFp16Test.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKRnnCtcTest/NKRnnCtcTest.jenga"):
 
         pass
@@ -1110,6 +1122,10 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Applications/NkVoiceLoopDemo/NkVoiceLoopDemo.jenga"):
+
+        pass
+
     with include("Applications/NKSpeechFeatureDemo/NKSpeechFeatureDemo.jenga"):
 
         pass
@@ -1146,6 +1162,18 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKGGUFInspectTest/NKGGUFInspectTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKLLMInferTest/NKLLMInferTest.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKRLTest/NKRLTest.jenga"):
 
         pass
@@ -1157,7 +1185,19 @@ with workspace("Nkentseu", location="."):
         pass
 
 
+
+    with include("Applications/NKAgentLLMTest/NKAgentLLMTest.jenga"):
+
+        pass
+
+
     with include("Applications/NkAgentEcsDemo/NkAgentEcsDemo.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKEmbodiedTest/NKEmbodiedTest.jenga"):
 
         pass
 
@@ -1169,7 +1209,25 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKEvolveNNTest/NKEvolveNNTest.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKCivilizationTest/NKCivilizationTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKCivilizationSocialTest/NKCivilizationSocialTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKCivilizationScaleTest/NKCivilizationScaleTest.jenga"):
 
         pass
 
@@ -1200,6 +1258,12 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/NKConvVAETest/NKConvVAETest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKDiffusionTest/NKDiffusionTest.jenga"):
 
         pass
 
