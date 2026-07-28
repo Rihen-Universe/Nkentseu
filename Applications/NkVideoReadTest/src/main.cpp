@@ -16,6 +16,9 @@
 #include "NKMedia/Codecs/Video/Mpeg2/NkMpeg2Decoder.h"
 #include "NKMedia/Codecs/Video/Theora/NkTheoraDecoder.h"
 #include "NKMedia/Audio/Containers/NkWavWriter.h"
+#include "NKMedia/Codecs/Audio/AMR/NkAmrDecoder.h"
+#include "NKMath/NkFunctions.h"
+
 #include "NKMedia/Video/Containers/NkWebmWriter.h"
 #include "NKMedia/Video/NkVideoWriter.h" // [bloc ISOLÉ --avmux — à splicer]
 
@@ -355,6 +358,121 @@ int main(int argc, char **argv) {
 		}
 		printf("=== AVMUX %s ===\n", allOk ? "OK" : "ECHEC");
 		return allOk ? 0 : 1;
+	}
+
+	// =========================================================================
+	// Mode AMR-NB : --amr <fichier.amr> <reference.pcm> [sortie.pcm]
+	// Décode le fichier de stockage RFC 4867 avec le décodeur from-scratch
+	// (3GPP TS 26.090) et compare au PCM s16le 8 kHz de référence (ffmpeg /
+	// opencore en boîte noire) : corrélation, RMS, maxdiff. [bloc ISOLÉ]
+	// =========================================================================
+	if (argc >= 4 && strcmp(argv[1], "--amr") == 0) {
+		FILE *f = fopen(argv[2], "rb");
+		if (!f) {
+			printf("  [KO] fichier introuvable : %s\n", argv[2]);
+			return 1;
+		}
+		fseek(f, 0, SEEK_END);
+		long fsz = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		NkVector<uint8> buf;
+		buf.Resize((uint64)fsz);
+		if (fread(buf.Data(), 1, (size_t)fsz, f) != (size_t)fsz) {
+			printf("  [KO] lecture echouee : %s\n", argv[2]);
+			fclose(f);
+			return 1;
+		}
+		fclose(f);
+
+		NkAmrFileReader rd;
+		if (!rd.Attach(buf.Data(), buf.Size())) {
+			printf("  [KO] magic #!AMR absent : %s\n", argv[2]);
+			return 1;
+		}
+		NkAmrDecoder dec;
+		dec.Init();
+		NkVector<nk_int16> pcm;
+		int32 ft = 0;
+		const uint8 *payload = nullptr;
+		int32 nFrames = 0, nSid = 0, nNoData = 0;
+		int32 modeSeen = -1;
+		bool multiMode = false;
+		nk_int16 frame[NkAmrDecoder::kFrameSamples];
+		while (rd.NextFrame(ft, payload)) {
+			if (!dec.DecodeFrame(ft, payload, frame)) {
+				printf("  [KO] trame %d : FT=%d non decodable\n", nFrames, ft);
+				return 1;
+			}
+			if (ft <= 7) {
+				if (modeSeen >= 0 && modeSeen != ft)
+					multiMode = true;
+				modeSeen = ft;
+			} else if (ft == 8) {
+				++nSid;
+			} else {
+				++nNoData;
+			}
+			// Parité avec la référence ffmpeg : les trames SID/NO_DATA ne
+			// produisent aucun échantillon (pas de CNG TS 26.092).
+			if (ft <= 7)
+				for (int32 i = 0; i < NkAmrDecoder::kFrameSamples; ++i)
+					pcm.PushBack(frame[i]);
+			++nFrames;
+		}
+		static const char *kModeNames[8] = {"4.75", "5.15", "5.90", "6.70", "7.40", "7.95", "10.2", "12.2"};
+		printf("  [AMR] %d trames (mode %s%s, %d SID, %d NO_DATA) -> %d echantillons @ 8 kHz\n", nFrames,
+			   modeSeen >= 0 ? kModeNames[modeSeen] : "?", multiMode ? "+" : "", nSid, nNoData, (int)pcm.Size());
+
+		// Sortie optionnelle.
+		if (argc >= 5) {
+			FILE *of = fopen(argv[4], "wb");
+			if (of) {
+				fwrite(pcm.Data(), sizeof(nk_int16), pcm.Size(), of);
+				fclose(of);
+				printf("  [AMR] PCM ecrit : %s\n", argv[4]);
+			}
+		}
+
+		// Référence.
+		FILE *rf = fopen(argv[3], "rb");
+		if (!rf) {
+			printf("  [KO] reference introuvable : %s\n", argv[3]);
+			return 1;
+		}
+		fseek(rf, 0, SEEK_END);
+		long rsz = ftell(rf);
+		fseek(rf, 0, SEEK_SET);
+		NkVector<nk_int16> ref;
+		ref.Resize((uint64)(rsz / 2));
+		if (fread(ref.Data(), 2, (size_t)(rsz / 2), rf) != (size_t)(rsz / 2)) {
+			printf("  [KO] lecture reference echouee\n");
+			fclose(rf);
+			return 1;
+		}
+		fclose(rf);
+
+		const uint64 n = pcm.Size() < ref.Size() ? pcm.Size() : ref.Size();
+		float64 sxy = 0.0, sxx = 0.0, syy = 0.0, sr2 = 0.0, sd2 = 0.0;
+		int32 maxdiff = 0;
+		for (uint64 i = 0; i < n; ++i) {
+			const float64 x = (float64)pcm[i];
+			const float64 y = (float64)ref[i];
+			sxy += x * y;
+			sxx += x * x;
+			syy += y * y;
+			sr2 += y * y;
+			const int32 d = (int32)(x - y >= 0 ? x - y : y - x);
+			sd2 += (x - y) * (x - y);
+			if (d > maxdiff)
+				maxdiff = d;
+		}
+		const float64 corr = (sxx > 0.0 && syy > 0.0) ? sxy / (math::NkSqrt(sxx) * math::NkSqrt(syy)) : 0.0;
+		printf("  [AMR] n=%d corr=%.6f rmsRef=%.1f rmsErr=%.1f maxdiff=%d (tailles: nous=%d ref=%d)\n", (int)n,
+			   corr, math::NkSqrt(sr2 / (float64)(n ? n : 1)), math::NkSqrt(sd2 / (float64)(n ? n : 1)), maxdiff,
+			   (int)pcm.Size(), (int)ref.Size());
+		const bool pass = corr >= 0.95;
+		printf("=== %s ===\n", pass ? "AMR OK" : "AMR ECART");
+		return pass ? 0 : 1;
 	}
 
 	// =========================================================================
