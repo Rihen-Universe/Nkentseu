@@ -40,6 +40,12 @@ namespace nkentseu {
 				verts[i].pos = v[i].pos;
 				verts[i].normal = v[i].normal;
 				verts[i].uv = v[i].uv;
+				// Attributs TRANSPORTES tels quels : ils ne servent pas a l'edition
+				// topologique, mais sans eux l'aller-retour n'est pas une identite
+				// (le repere tangent serait reinvente a la sortie) — cf. struct Vert.
+				verts[i].tangent = v[i].tangent;
+				verts[i].uv2 = v[i].uv2;
+				verts[i].color = v[i].color;
 				verts[i].hedge = NK_EM_INVALID;
 				verts[i].sel = 0;
 			}
@@ -99,6 +105,21 @@ namespace nkentseu {
 			RecomputeNormals();
 			if (quadify)
 				Quadify();
+			// ── NORMALES DE SOMMET : on REND celles de la SOURCE ────────────────
+			// RecomputeNormals() (ci-dessus, et de nouveau depuis Quadify) recalcule
+			// chaque normale de sommet comme la moyenne, ponderee par l'aire, des faces
+			// incidentes. C'est indispensable pour les FACES (Face::normal sert aux
+			// operations topologiques) et pour la geometrie CREEE par l'edition — mais
+			// c'est FAUX pour une primitive dont les normales sont ANALYTIQUES : sur une
+			// sphere UV, la moyenne des facettes n'est pas la normale exacte de la sphere.
+			// Mesure : 1040 sommets sur 1089 changeaient au simple fait d'entrer en mode
+			// edition et d'en ressortir, d'ou l'impression que le materiau avait change
+			// alors que la geometrie n'avait pas bouge d'un micron.
+			// Les operations d'edition rappellent RecomputeNormals() apres coup : la
+			// geometrie nouvelle obtient bien des normales recalculees ; seule l'ENTREE
+			// en edition reste neutre.
+			for (uint32 i = 0; i < vc && i < (uint32)verts.Size(); i++)
+				verts[i].normal = v[i].normal;
 		}
 
 		uint32 NkEditMesh::FaceSize(NkEmId f) const {
@@ -676,10 +697,13 @@ namespace nkentseu {
 				NkVertex3D nv{};
 				nv.pos = verts[i].pos;
 				nv.normal = verts[i].normal;
-				nv.tangent = {1.f, 0.f, 0.f};
+				// RESTITUES depuis le sommet, jamais reinventes : ecrire ici une
+				// tangente en dur changeait le repere tangent de tout le maillage a
+				// chaque aller-retour en edition (cf. struct Vert).
+				nv.tangent = verts[i].tangent;
 				nv.uv = verts[i].uv;
-				nv.uv2 = {0.f, 0.f};
-				nv.color = 0xFFFFFFFFu;
+				nv.uv2 = verts[i].uv2;
+				nv.color = verts[i].color;
 				outV[i] = nv;
 			}
 			NkVector<NkEmId> loop;
@@ -697,9 +721,24 @@ namespace nkentseu {
 					outTriFace.PushBack((NkEmId)f);
 				}
 			}
-			// Tangentes ORTHOGONALES aux normales finales (cf. NkEmOrthoTangent).
-			for (uint32 i = 0; i < (uint32)outV.Size(); ++i)
-				outV[i].tangent = NkEmOrthoTangent(outV[i].normal);
+			// ORTHOGONALISATION de la tangente, sans la REMPLACER.
+			// Historique : cette boucle ecrasait la tangente par NkEmOrthoTangent(normal),
+			// ce qui annulait la tangente d'origine transportee depuis la source — un
+			// aller-retour en edition changeait donc le repere tangent de tout le maillage.
+			// (Correctif initial du bug « carres blancs » : une tangente COLINEAIRE a la
+			// normale donnait normalize(0) = NaN. Le probleme etait la colinearite, pas la
+			// tangente elle-meme.)
+			// On conserve donc la DIRECTION fournie et on retire seulement sa composante
+			// le long de la normale (Gram-Schmidt) ; on ne fabrique une tangente de toutes
+			// pieces que si le residu est degenere — c'est-a-dire exactement le cas qui
+			// produisait le NaN.
+			for (uint32 i = 0; i < (uint32)outV.Size(); ++i) {
+				const NkVec3f n = outV[i].normal;
+				NkVec3f t = outV[i].tangent;
+				t = t - n * n.Dot(t);
+				const float32 l2 = t.Dot(t);
+				outV[i].tangent = (l2 > 1e-12f) ? t * (1.f / sqrtf(l2)) : NkEmOrthoTangent(n);
+			}
 		}
 
 		void NkEditMesh::TriangulateShaded(NkVector<NkVertex3D> &outV, NkVector<uint32> &outIdx,
@@ -713,10 +752,10 @@ namespace nkentseu {
 				NkVertex3D nvx{};
 				nvx.pos = verts[i].pos;
 				nvx.normal = verts[i].normal;
-				nvx.tangent = {1.f, 0.f, 0.f};
+				nvx.tangent = verts[i].tangent;   // restitue, cf. Triangulate
 				nvx.uv = verts[i].uv;
-				nvx.uv2 = {0.f, 0.f};
-				nvx.color = 0xFFFFFFFFu;
+				nvx.uv2 = verts[i].uv2;
+				nvx.color = verts[i].color;
 				outV[i] = nvx;
 			}
 			// claimed[v] = 1 -> le slot 1:1 du sommet v porte DÉJÀ la normale d'une face FLAT :
@@ -771,10 +810,24 @@ namespace nkentseu {
 					outTriFace.PushBack((NkEmId)f);
 				}
 			}
-			// Tangentes ORTHOGONALES : recalculées APRÈS coup, car les normales des coins
-			// (flat/smooth, sommets dédoublés) ne sont figées qu'ici. (cf. NkEmOrthoTangent)
-			for (uint32 i = 0; i < (uint32)outV.Size(); ++i)
-				outV[i].tangent = NkEmOrthoTangent(outV[i].normal);
+			// ORTHOGONALISATION de la tangente, sans la REMPLACER.
+			// Historique : cette boucle ecrasait la tangente par NkEmOrthoTangent(normal),
+			// ce qui annulait la tangente d'origine transportee depuis la source — un
+			// aller-retour en edition changeait donc le repere tangent de tout le maillage.
+			// (Correctif initial du bug « carres blancs » : une tangente COLINEAIRE a la
+			// normale donnait normalize(0) = NaN. Le probleme etait la colinearite, pas la
+			// tangente elle-meme.)
+			// On conserve donc la DIRECTION fournie et on retire seulement sa composante
+			// le long de la normale (Gram-Schmidt) ; on ne fabrique une tangente de toutes
+			// pieces que si le residu est degenere — c'est-a-dire exactement le cas qui
+			// produisait le NaN.
+			for (uint32 i = 0; i < (uint32)outV.Size(); ++i) {
+				const NkVec3f n = outV[i].normal;
+				NkVec3f t = outV[i].tangent;
+				t = t - n * n.Dot(t);
+				const float32 l2 = t.Dot(t);
+				outV[i].tangent = (l2 > 1e-12f) ? t * (1.f / sqrtf(l2)) : NkEmOrthoTangent(n);
+			}
 		}
 
 		void NkEditMesh::ToPolygons(NkVector<NkVertex3D> &ov, NkVector<uint32> &ofaceStart,
@@ -784,10 +837,15 @@ namespace nkentseu {
 				NkVertex3D nv{};
 				nv.pos = verts[i].pos;
 				nv.normal = verts[i].normal;
-				nv.tangent = NkEmOrthoTangent(verts[i].normal);
+				// Tangente STOCKEE si elle est utilisable, sinon repli construit a
+				// partir de la normale (sommets NES d'une operation d'edition, qui
+				// n'en portent pas encore).
+				nv.tangent = (verts[i].tangent.Dot(verts[i].tangent) > 1e-12f)
+								 ? verts[i].tangent
+								 : NkEmOrthoTangent(verts[i].normal);
 				nv.uv = verts[i].uv;
-				nv.uv2 = {0.f, 0.f};
-				nv.color = 0xFFFFFFFFu;
+				nv.uv2 = verts[i].uv2;
+				nv.color = verts[i].color;
 				ov[i] = nv;
 			}
 			ofaceStart.Clear();
@@ -819,6 +877,12 @@ namespace nkentseu {
 				verts[i].pos = v[i].pos;
 				verts[i].normal = v[i].normal;
 				verts[i].uv = v[i].uv;
+				// Attributs TRANSPORTES tels quels : ils ne servent pas a l'edition
+				// topologique, mais sans eux l'aller-retour n'est pas une identite
+				// (le repere tangent serait reinvente a la sortie) — cf. struct Vert.
+				verts[i].tangent = v[i].tangent;
+				verts[i].uv2 = v[i].uv2;
+				verts[i].color = v[i].color;
 				verts[i].hedge = NK_EM_INVALID;
 				verts[i].sel = 0;
 			}
