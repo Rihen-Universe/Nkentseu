@@ -220,6 +220,12 @@ namespace nkentseu {
 				bool tilesEnabled = false;
 				bool entropyCodingSyncEnabled = false;
 				int32 numTileColumnsMinus1 = 0, numTileRowsMinus1 = 0;
+				// Géométrie des tuiles (§6.5.1) : espacement uniforme, ou largeurs/hauteurs
+				// EXPLICITES en CTB (column_width_minus1[i]+1 ; la dernière colonne/rangée
+				// prend le reste de l'image). Bornées à 24 (au-delà : refus au parsing).
+				bool tileUniformSpacing = true;
+				int32 tileColWidth[24] = {0};  // explicite : largeur des colonnes 0..numTileColumnsMinus1-1
+				int32 tileRowHeight[24] = {0}; // explicite : hauteur des rangées 0..numTileRowsMinus1-1
 				bool loopFilterAcrossTiles = true;
 				bool loopFilterAcrossSlices = false;
 				bool deblockingFilterControlPresent = false;
@@ -334,7 +340,7 @@ namespace nkentseu {
 				// la validation est STRUCTURELLE (implémentée dans NkHevcCtu.cpp) —
 				// end_of_slice_segment_flag/end_of_subset_one_bit aux positions exactes,
 				// nb de CTU == PicSizeInCtbsY, rangées == entry points + 1.
-				// Refus propre : slices P/B (brique 6), tuiles, PCM, 4:2:2/4:4:4.
+				// Refus propre : slices P/B (brique 6), 4:2:2/4:4:4. Tuiles et PCM gérés.
 				static bool ParseSliceDataIntra(const uint8 *nal, usize size, const NkHevcSps &sps,
 												const NkHevcPps &pps, const NkHevcSliceHeader &sh,
 												NkHevcSliceDataStats &out);
@@ -388,8 +394,11 @@ namespace nkentseu {
 				// l'appelant de résoudre POC→pointeur avant chaque appel (mais le champ de
 				// MV colocalisé, lui, est porté par NkHevcFrame — pas d'état externe requis).
 				// Filtres en boucle APPLIQUÉS (brique 14) : déblocage (BS inter §8.7.2.4)
-				// + SAO, gatés par les drapeaux de slice. Refus propre : tuiles, PCM, 4:2:2/4:4:4, bit depth != 8,
-				// log2ParallelMergeLevel > 2 (règle CU 8x8 non implémentée).
+				// + SAO, gatés par les drapeaux de slice. Tuiles, I_PCM et
+				// log2ParallelMergeLevel > 2 (liste de fusion partagée des CU 8x8
+				// §8.5.3.2.1) GÉRÉS — validés bit-exact sur les flux de conformance JCT-VC
+				// TILES_A_Cisco_2 / ipcm_A+B_NEC_3 / PMERGE_B_TI_3 (2026-07-28).
+				// Refus propre : 4:2:2/4:4:4, pcm_loop_filter_disabled=1.
 				static bool DecodeSliceP(const uint8 *nal, usize size, const NkHevcSps &sps,
 										const NkHevcPps &pps, const NkHevcSliceHeader &sh,
 										const NkHevcFrame *const *refsL0, int32 numRefsL0,
@@ -402,9 +411,9 @@ namespace nkentseu {
 				// (§8.5.3.2.8/9, collocated_from_l0 + check_diffpicount), compensation de
 				// mouvement uni L0/uni L1/bi (§8.5.3.3.3/4, pondération explicite si
 				// pps.weightedBipred). Filtres en boucle APPLIQUÉS (déblocage BS bi §8.7.2.4
-				// + SAO). Refus propre : tuiles, PCM, 4:2:2/4:4:4, bit depth != 8,
-				// log2ParallelMergeLevel > 2. DecodeSliceP délègue à la même routine interne
-				// (refsL1=nullptr/0).
+				// + SAO). Tuiles, I_PCM et log2ParallelMergeLevel > 2 gérés (cf.
+				// DecodeSliceP). Refus propre : 4:2:2/4:4:4, pcm_loop_filter_disabled=1.
+				// DecodeSliceP délègue à la même routine interne (refsL1=nullptr/0).
 				static bool DecodeSliceB(const uint8 *nal, usize size, const NkHevcSps &sps,
 										const NkHevcPps &pps, const NkHevcSliceHeader &sh,
 										const NkHevcFrame *const *refsL0, int32 numRefsL0,

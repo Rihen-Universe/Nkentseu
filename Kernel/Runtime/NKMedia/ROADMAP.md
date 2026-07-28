@@ -1196,9 +1196,20 @@ brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
    (memcpy AVX2)** au lieu de PushBack élément-par-élément (Kernel/Foundation/NKContainers) —
    bénéficie à tout code copiant de gros vecteurs POD, pas seulement HEVC. Restant : SIMD IDCT/SAO
    (int64, prudence dépassement), CABAC (risqué), déblocage luma, multithread.
-2. **HEVC — features de bord restantes** (INVÉRIFIABLES faute d'oracle x265, ou refactor lourd —
-   pas des bugs) : tuiles, 4:2:2/4:4:4, PCM (code dormant écrit), `ref_pic_lists_modification`,
-   `scaling_list_data`, CU 8×8 `log2ParallelMergeLevel>2`. **10-bit inter (Main10) ✅ livré.**
+2. **HEVC/MPEG-2 — features de bord ✅ DÉBLOQUÉES par les flux de conformance (2026-07-28)** —
+   6 features bit-exact via JCT-VC officiels (itu.int) + options ffmpeg méconnues :
+   **HEVC : tuiles** (TILES_A Cisco 1080p, 5×5 non uniformes aléatoires/trame, 99/99 bit-exact —
+   géométrie §6.5.1, tile-scan, réinit CABAC/qPY par tuile, dispo §6.4.1, filtres gatés
+   `loop_filter_across_tiles`), **I_PCM** (ipcm_A/B NEC, code dormant activé tel quel),
+   **`log2_parallel_merge_level>2`** (PMERGE_B TI : liste de fusion partagée CU 8×8 + MER étendu).
+   **MPEG-2 : table B-15** (`-intra_vlc 1`, transcrite du texte ISO 13818-2 Annexe B),
+   **alternate_scan**, **entrelacé frame-pictures** (`+ildct+ilme` : field-DCT, field-prediction
+   16×8/8×4, PMV complet). ⭐ Bonus : **alignement IDCT → toute la suite MPEG-2 strictement
+   BIT-EXACTE** (le ±1 historique éliminé). ⭐ **Bug latent corrigé : la DST 4×4 était appliquée
+   aux TU luma 4×4 INTER** (norme : intra seul, §8.6.4.2) — invisible avec x265, révélé par les
+   flux HM. Restent refusés proprement (sans oracle ou hors périmètre) : slices multiples/image
+   (TILES_B), 4:2:2/4:4:4, `pcm_loop_filter_disabled`, field pictures MPEG-2, dual-prime,
+   `ref_pic_lists_modification`, `scaling_list_data`. **10-bit inter (Main10) ✅ livré.**
 3. **Nouveaux codecs (optionnels, chacun un chantier dédié, TOUS from-scratch)** :
    **Theora/OGV ✅ livré (2026-07-26) + branché `NkVideoReader` (2026-07-27 : `.ogv` lisible
    bout-en-bout, détection OggS+Probe, fps depuis l'en-tête, seek=ré-Open+redécodage, piste Vorbis
@@ -1242,12 +1253,13 @@ brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
    détection `00 00 01 B3`, fps du sequence header, seek O(1) — ET TS `stream_type 0x02` via le
    réassemblage PES existant ; 25/25 trames ordre exact, maxPixDiff 3-4 = arrondi RGBA + ±1 IDCT)**
    — `NkMpeg2Decoder` (I/P/B, DPB forward+backward, demi-pel,
-   réordonnancement B) : **bit-exact sur contenu flat/basse-fréquence, ±1 sur haute-fréquence**
-   (tolérance de conformité IDCT IEEE-1180 permise par la norme — 4/25 trames I à maxdiff=0, toutes
-   les autres ≤1). Refusés proprement : entrelacé, table VLC B-15 (`intra_vlc_format=1`), 4:2:2/4:4:4,
-   quantif non-linéaire (chemin écrit, non validé faute de flux ffmpeg). Harnais `--mpeg2`. ⚠️ Bug
-   latent identifié : table `kAcLevel` incomplète dans `NkMpeg1Tables.cpp` (inoffensif — l'encodeur
-   MPEG-1 n'émet jamais les runs 28-31).
+   réordonnancement B) : **STRICTEMENT BIT-EXACT depuis 2026-07-28** (alignement sur l'IDCT de
+   référence `-idct simple` — le ±1 IEEE-1180 historique éliminé sur toute la suite) ; **+ table
+   B-15, alternate_scan et ENTRELACÉ frame-pictures livrés bit-exact** (voir « features de bord
+   débloquées » ci-dessus). Refusés proprement : field pictures (pas d'oracle ffmpeg), dual-prime,
+   4:2:2/4:4:4, quantif non-linéaire (chemin écrit, non validé). Harnais `--mpeg2`. ⚠️ Bug latent
+   identifié : table `kAcLevel` incomplète dans `NkMpeg1Tables.cpp` (inoffensif — l'encodeur MPEG-1
+   n'émet jamais les runs 28-31).
 4. **Expansion encodeur (optionnel)** : profils H.264 avancés au-delà du baseline déjà livré.
 
 *(Muxer WebM ✅ + MPEG-2 décode ✅ livrés 2026-07-26.)*

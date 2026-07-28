@@ -9,10 +9,15 @@
 // alternative des coefficients (B-15, intra_vlc_format), balayage alternatif,
 // reconstruction I/P/B avec DPB (forward + backward pour les B), demi-pel bilinéaire.
 //
-// Périmètre actuel : Main Profile progressif, prédiction et DCT « frame-based »
-// (frame_pred_frame_dct=1, picture_structure=Frame). Les flux entrelacés (champs,
-// field/dual-prime motion, DCT de champ) sont refusés proprement (RefusedInterlace()).
-// Chroma 4:2:0 (et 4:2:2 partiel). Zero-STL, namespace nkentseu::media.
+// Périmètre actuel : Main Profile, images FRAME progressives ET entrelacées —
+// prédiction de champ (frame_motion_type=field, motion_vertical_field_select,
+// prédicteur vertical PMV/2 §7.6.3.1), DCT de champ (dct_type=1, blocs luma par
+// champ §6.3.17.1), balayage alternatif (Figure 7-3) et Table B-15
+// (intra_vlc_format=1) — le tout validé BIT-EXACT vs ffmpeg (flux
+// -flags +ildct+ilme / -alternate_scan 1 / -intra_vlc 1, 2026-07-28). Restent
+// refusés proprement : FIELD PICTURES (picture_structure != Frame — jamais émis
+// par l'encodeur mpeg2video de ffmpeg), dual-prime, et le chemin entrelacé en
+// chroma != 4:2:0. Zero-STL, namespace nkentseu::media.
 //
 // AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
