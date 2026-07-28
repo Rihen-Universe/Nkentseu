@@ -20,7 +20,7 @@
 
 layout(push_constant) uniform PC {
     vec4 params;  // .x=invResW .y=invResH .z=thicknessPx .w=yFlipUV
-    vec4 color;   // rgba du liseré
+    vec4 color;   // rgb du liseré (teinte de base)
 } pc;
 
 float NkMaskAt(vec2 uv) {
@@ -68,13 +68,34 @@ void main() {
     m = max(m, NkMaskAt(vUV + vec2( px * h * 0.00000, -py * h * 1.00000)));
     m = max(m, NkMaskAt(vUV + vec2( px * h * 0.70711, -py * h * 0.70711)));
 
-    float inside = step(0.5, c);     // 1 si dans la silhouette
-    float dil    = step(0.5, m);     // 1 si un voisin (<=R px) est dans la silhouette
+    // Seuils a 0.25 : le masque porte desormais TROIS niveaux (0 = fond,
+    // 0.5 = selectionne, 1.0 = ACTIF) et non plus deux. Un seuil a 0.5 aurait
+    // rejete les pixels « selectionne non actif », qui valent exactement 0.5 —
+    // seul l'objet actif aurait garde son lisere.
+    float inside = step(0.25, c);    // 1 si dans la silhouette
+    float dil    = step(0.25, m);    // 1 si un voisin (<=R px) est dans la silhouette
     float edge   = dil * (1.0 - inside); // liseré = extérieur touchant l'intérieur
+
+    // m = niveau MAXIMAL du voisinage. Au-dela de 0.75 le voisin qui a declenche
+    // la dilatation appartient a l'objet ACTIF. Quand deux silhouettes se
+    // touchent, l'actif l'emporte donc : il reste lisible au lieu de se noyer
+    // dans le groupe.
+    //
+    // La teinte de l'actif est DERIVEE de la couleur de base, elle n'est PAS
+    // passee en push-constant. Raison : sur le chemin OpenGL, au-dela des deux
+    // premiers vec4 de push-constant les valeurs ne sont pas livrees de facon
+    // fiable (limite deja constatee sur pc.color.a, cf. note plus bas). Un 3e
+    // vec4 arrivait a zero -> lisere NOIR, donc invisible sur fond sombre.
+    // Actif = couleur eclaircie vers le blanc ; selectionne = couleur assombrie.
+    // Le rapport entre les deux est ce qui les rend distinguables, pas la valeur
+    // absolue : le reglage reste donc pilote par la seule couleur de base.
+    vec3 colActive = mix(pc.color.rgb, vec3(1.0), 0.55);
+    vec3 colSel    = pc.color.rgb * 0.72;
+    vec3 lineCol   = (m > 0.75) ? colActive : colSel;
 
     // Liseré OPAQUE là où edge=1 (le contour existe), transparent ailleurs.
     // NB : on N'utilise PAS pc.color.a comme facteur — sur le chemin GL le 4e
     // composant du 2e vec4 de push-constant n'est pas fiablement livré (le rgb
     // l'est). `edge` étant binaire (step), l'alpha est franc -> liseré net.
-    oColor = vec4(pc.color.rgb, edge);
+    oColor = vec4(lineCol, edge);
 }

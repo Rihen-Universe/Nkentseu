@@ -953,9 +953,14 @@ namespace nkentseu {
 				mSelOutlineThickness = 8.f; // borne raisonnable (rayon de recherche en px)
 		}
 
-		void NkRender3D::SubmitSelection(const NkDrawCall3D &dc) {
-			if (dc.mesh.IsValid())
-				mSelection.PushBack(dc);
+		void NkRender3D::SubmitSelection(const NkDrawCall3D &dc, bool isActive) {
+			if (!dc.mesh.IsValid())
+				return;
+			mSelection.PushBack(dc);
+			// Niveau ecrit dans le masque : 1.0 = ACTIF, 0.5 = selectionne. C'est ce
+			// niveau qui permet au shader de contour de distinguer les deux, comme
+			// Blender le fait. Un masque binaire ne pouvait pas porter l'information.
+			mSelectionActive.PushBack(isActive ? (uint8)1 : (uint8)0);
 		}
 
 		// Pipeline MASQUE : shader trivial (VS = viewProj*model, FS = blanc), sans
@@ -987,7 +992,13 @@ namespace nkentseu {
 			pd.blend = NkBlendDesc::Opaque();
 			pd.debugName = "SelMask";
 			pd.renderPass = currentRP;
-			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f)); // model
+			// model (mat4) + level (vec4). La plage DOIT couvrir les deux : declaree a
+			// sizeof(NkMat4f) seul, le niveau pousse au-dela de la plage etait rejete et
+			// le masque ressortait VIDE — plus aucun lisere, sans le moindre message
+			// d'erreur. Toute evolution du push-constant d'un shader doit etre reportee
+			// ICI, sous peine d'une disparition silencieuse.
+			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0,
+							   (uint32)(sizeof(NkMat4f) + sizeof(NkVec4f)));
 			pd.descriptorSetLayouts.PushBack(mGlobalLayout);								   // set 0 = CameraUBO
 			pd.vertexLayout.AddBinding(0, sizeof(NkVertex3D), false)
 				.AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0, "POSITION", 0);
@@ -1015,8 +1026,15 @@ namespace nkentseu {
 			for (auto &dc : mSelection) {
 				if (!dc.mesh.IsValid())
 					continue;
-				NkMat4f model = dc.transform;
-				cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f), &model);
+				struct MaskPC {
+						NkMat4f model;
+						NkVec4f level; // .x = 1.0 (actif) ou 0.5 (selectionne)
+				} mpc;
+				mpc.model = dc.transform;
+				const uint32 di = (uint32)(&dc - mSelection.Data());
+				const bool act = (di < (uint32)mSelectionActive.Size()) && mSelectionActive[di] != 0;
+				mpc.level = {act ? 1.f : 0.5f, 0.f, 0.f, 0.f};
+				cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(mpc), &mpc);
 				mMesh->BindMesh(cmd, dc.mesh);
 				if (dc.subMeshIdx == 0xFFFFFFFFu)
 					mMesh->DrawAll(cmd, dc.mesh);
@@ -1061,7 +1079,10 @@ namespace nkentseu {
 			pd.blend = NkBlendDesc::Alpha(); // liseré composité par dessus l'image finale
 			pd.debugName = "SelOutline";
 			pd.renderPass = currentRP;
-			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkVec4f) * 2); // params + color
+			// params + color : DEUX vec4, pas plus. Sur le chemin OpenGL, au-dela de
+			// cette taille les valeurs ne sont pas livrees de facon fiable — le shader
+			// derive donc lui-meme la teinte de l'objet actif.
+			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkVec4f) * 2);
 			if (mSelTexLayout.IsValid())
 				pd.descriptorSetLayouts.PushBack(mSelTexLayout);
 			// Pas de vertex layout (triangle plein-écran généré via gl_VertexID).
@@ -1107,7 +1128,7 @@ namespace nkentseu {
 			const bool isGL = mDevice && mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
 			struct OutlinePC {
 					NkVec4f params; // .x=invResW .y=invResH .z=thicknessPx .w=yFlipUV
-					NkVec4f color;
+					NkVec4f color; // teinte de base ; le shader en derive l'actif
 			} pc;
 			pc.params = {1.f / (float32)(mW > 0 ? mW : 1), 1.f / (float32)(mH > 0 ? mH : 1), mSelOutlineThickness,
 						 isGL ? 1.f : -1.f};
@@ -1357,6 +1378,7 @@ namespace nkentseu {
 			mInstanced.Clear();
 			mSkinned.Clear();
 			mSelection.Clear(); // file de sélection (outline silhouette) : re-soumise par frame
+			mSelectionActive.Clear(); // marqueur d'objet actif, parallèle à mSelection
 			mCullStats = NkCullStats{}; // stats de culling : nouvelles soumissions
 			// mObjectDrawIdx N'EST PAS reset ici — voir ResetFrame() ci-dessus.
 		}

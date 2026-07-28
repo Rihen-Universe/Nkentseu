@@ -31,6 +31,11 @@ uniform CameraUBO {
 
 layout(push_constant) uniform PC {
     mat4 model;
+    // .x = NIVEAU ecrit dans le masque : 1.0 = objet ACTIF, 0.5 = simplement
+    // selectionne. C'est ce niveau qui permet au shader de contour de donner a
+    // l'actif une couleur differente, comme Blender. Un masque binaire ne
+    // pouvait pas porter cette distinction.
+    vec4 level;
 } pc;
 
 @stage(vertex)

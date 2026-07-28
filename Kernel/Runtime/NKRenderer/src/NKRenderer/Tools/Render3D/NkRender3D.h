@@ -349,6 +349,11 @@ namespace nkentseu {
 				// Les deux passes sont ajoutées au RenderGraph (SelectionMask + SelectionOutline)
 				// quand l'option est active ; un changement d'état déclenche un rebuild du graph
 				// (cf. ConsumeSelOutlineGraphDirty, consommé par NkRendererImpl::BeginFrame).
+				// color : teinte de BASE du liseré. Le shader en dérive deux nuances —
+				// l'objet ACTIF (dernier sélectionné) ressort plus clair, les autres plus
+				// sombres, comme dans Blender. La dérivation se fait côté shader et non
+				// par un second push-constant : au-delà de deux vec4, les push-constants
+				// ne sont pas livrés de façon fiable sur le chemin OpenGL.
 				void SetSelectionOutline(bool enabled, NkVec4f color = {1.f, 0.45f, 0.05f, 1.f},
 										 float32 thicknessPx = 2.5f);
 				bool IsSelectionOutlineEnabled() const {
@@ -363,7 +368,9 @@ namespace nkentseu {
 				// Soumet un mesh à la file de sélection de la frame (rendu SEUL dans le
 				// masque de silhouette). À rappeler chaque frame : la file est vidée par
 				// BeginScene comme les autres files de soumission.
-				void SubmitSelection(const NkDrawCall3D &dc);
+				// isActive : true pour l'objet ACTIF (dernier sélectionné) -> liseré de
+				// couleur distincte. Un seul actif à la fois, comme dans Blender.
+				void SubmitSelection(const NkDrawCall3D &dc, bool isActive = false);
 				bool HasSelection() const {
 					return !mSelection.Empty();
 				}
@@ -737,6 +744,10 @@ namespace nkentseu {
 				NkVec4f mSelOutlineColor = {1.f, 0.45f, 0.05f, 1.f};
 				float32 mSelOutlineThickness = 2.5f;
 				NkVector<NkDrawCall3D> mSelection; // file de la frame (vidée par BeginScene)
+				// Parallele a mSelection : 1 = objet ACTIF. Tableau separe plutot qu'un champ
+				// dans NkDrawCall3D — « etre actif » est une propriete de la SELECTION, pas du
+				// drawcall, et NkDrawCall3D est partage par tous les chemins de rendu.
+				NkVector<uint8> mSelectionActive;
 				// Passe MASQUE : rend les objets sélectionnés en blanc (silhouette).
 				::nkentseu::NkShaderHandle mSelMaskShader;
 				NkPipelineHandle mSelMaskPipeline;
