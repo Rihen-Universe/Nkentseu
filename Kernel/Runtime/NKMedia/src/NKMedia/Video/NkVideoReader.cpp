@@ -10,6 +10,8 @@
 #include "NKMedia/Codecs/Video/VP8/NkVp8Decoder.h"
 #include "NKMedia/Codecs/Video/VP9/NkVp9Decoder.h"
 #include "NKMedia/Codecs/Video/HEVC/NkHevcDecoder.h"
+#include "NKMedia/Codecs/Video/Mpeg2/NkMpeg2Decoder.h"
+#include "NKMedia/Codecs/Video/Theora/NkTheoraDecoder.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKMemory/NKMemory.h"
@@ -42,8 +44,62 @@ namespace nkentseu {
 				return ((uint64)RdU32BE(p) << 32) | (uint64)RdU32BE(p + 4);
 			}
 
-			enum class Backend { NONE, AVI, MOV, WEBM, TS, FLV, IVF, HEVC_ANNEXB, SEQUENCE };
-			enum class Codec { NONE, MJPEG, RAWRGB, H264, VP8, VP9, HEVC };
+			enum class Backend { NONE, AVI, MOV, WEBM, TS, FLV, IVF, HEVC_ANNEXB, MPEG2_ES, OGV, SEQUENCE };
+			enum class Codec { NONE, MJPEG, RAWRGB, H264, VP8, VP9, HEVC, MPEG2, THEORA };
+
+			// Table 6-4 ISO/IEC 13818-2 : frame_rate_code (sequence header) -> cadence.
+			double Mpeg2FrameRateFromCode(int32 code) {
+				switch (code) {
+					case 1:
+						return 24000.0 / 1001.0;
+					case 2:
+						return 24.0;
+					case 3:
+						return 25.0;
+					case 4:
+						return 30000.0 / 1001.0;
+					case 5:
+						return 30.0;
+					case 6:
+						return 50.0;
+					case 7:
+						return 60000.0 / 1001.0;
+					case 8:
+						return 60.0;
+				}
+				return 0.0;
+			}
+
+			// ── Ogg — parse minimal d'une page (pour compter les paquets Theora + lire le
+			// fps de l'en-tête d'identification ; le DÉCODAGE passe par NkTheoraDecoder qui
+			// a son propre parseur Ogg complet). En-tête fixe 27 octets + table de lacing.
+			struct OggPageView {
+					uint32 serial = 0;
+					uint8 headerType = 0;
+					int32 nsegs = 0;
+					const uint8 *segTable = nullptr;
+					usize payloadOffset = 0;
+					usize next = 0;
+			};
+			bool OggReadPage(const uint8 *d, usize n, usize pos, OggPageView &pg) {
+				if (pos + 27 > n || d[pos] != 'O' || d[pos + 1] != 'g' || d[pos + 2] != 'g' ||
+					d[pos + 3] != 'S')
+					return false;
+				pg.headerType = d[pos + 5];
+				pg.serial = RdU32LE(d + pos + 14);
+				pg.nsegs = (int32)d[pos + 26];
+				if (pos + 27 + (usize)pg.nsegs > n)
+					return false;
+				pg.segTable = d + pos + 27;
+				usize payload = 0;
+				for (int32 i = 0; i < pg.nsegs; ++i)
+					payload += pg.segTable[i];
+				pg.payloadOffset = pos + 27 + (usize)pg.nsegs;
+				if (pg.payloadOffset + payload > n)
+					return false;
+				pg.next = pg.payloadOffset + payload;
+				return true;
+			}
 
 			// Détecte un flux élémentaire HEVC Annex-B brut (.265/.hevc) : start code
 			// (00 00 01 / 00 00 00 01) suivi d'un en-tête NAL HEVC (2 octets) — on exige la
@@ -295,9 +351,12 @@ namespace nkentseu {
 				return -1;
 			}
 
-			// Cherche le PID vidéo H264 (stream_type 0x1B) en parsant le PMT du programme trouvé
-			// ci-dessus. Autres stream_types (HEVC 0x24, MPEG-2 0x02…) ignorés (pas de décodeur).
-			int32 FindVideoPid(const uint8 *d, usize n, int32 pktSize, int32 syncOff, int32 pmtPid) {
+			// Cherche le PID vidéo en parsant le PMT du programme trouvé ci-dessus :
+			// stream_type 0x1B (H.264/AVC) ou 0x02 (MPEG-2 Video) — le type trouvé est rendu
+			// via `outStreamType` pour router vers le bon décodeur. Autres stream_types
+			// (HEVC 0x24…) ignorés (pas branchés en TS).
+			int32 FindVideoPid(const uint8 *d, usize n, int32 pktSize, int32 syncOff, int32 pmtPid,
+							   int32 *outStreamType) {
 				for (usize p = (usize)syncOff; p + 188 <= n; p += (usize)pktSize) {
 					if (d[p] != 0x47)
 						continue;
@@ -327,8 +386,11 @@ namespace nkentseu {
 						const int32 streamType = d[q];
 						const int32 elemPid = (((int32)(d[q + 1] & 0x1F)) << 8) | d[q + 2];
 						const int32 esInfoLen = (((int32)(d[q + 3] & 0x0F)) << 8) | d[q + 4];
-						if (streamType == 0x1B) // H.264/AVC
+						if (streamType == 0x1B || streamType == 0x02) { // H.264/AVC ou MPEG-2 Video
+							if (outStreamType)
+								*outStreamType = streamType;
 							return elemPid;
+						}
 						q += 5 + (usize)esInfoLen;
 					}
 					break;
@@ -435,6 +497,26 @@ namespace nkentseu {
 				int32 hevcOutCount = 0;				  // images sorties (ordre d'affichage)
 				NkVector<NkVideoFrame> hevcReorder;	  // RGBA décodées en attente d'affichage
 				NkVector<nk_int64> hevcReorderKey;	  // clé d'affichage globale parallèle
+
+				// ── MPEG-2 (ES .m2v ou piste vidéo TS stream_type 0x02) ─────────────
+				// NkMpeg2Decoder::DecodeAll consomme le flux élémentaire ENTIER et rend
+				// les images DÉJÀ réordonnancées (DPB + recul des B gérés par le
+				// décodeur) : le reader décode tout à l'ouverture et garde les plans
+				// YUV — Decode(index) n'est plus qu'une conversion RGBA, le curseur
+				// générique (ReadFrame/SeekFrame/CurrentIndex) suffit, et le seek est
+				// O(1) (pas de redécodage depuis le dernier I/GOP).
+				NkVector<NkMpeg2Frame> mpeg2Frames; // toutes les images (ordre d'AFFICHAGE)
+
+				// ── Theora (Ogg .ogv) ───────────────────────────────────────────────
+				// Le décodeur consomme le conteneur Ogg ENTIER (Open + DecodeNextFrame
+				// séquentiel ; pas de B en Theora : ordre décodage == ordre affichage
+				// -> curseur générique). Retour arrière (SeekFrame) : ré-Open (reset
+				// complet golden/previous) puis redécodage en avant depuis le début en
+				// jetant les images intermédiaires (l'API ne repart pas d'une image
+				// arbitraire). La piste audio (Vorbis) est ignorée par le décodeur
+				// (il ne suit que le flux logique Theora).
+				NkTheoraDecoder theoraDec;
+				int32 theoraNextIndex = 0; // prochaine image que DecodeNextFrame produira
 
 				const NkHevcFrame *HevcFindByPoc(int32 poc) const {
 					for (uint64 k = 0; k < hevcDpb.Size(); ++k)
@@ -1306,9 +1388,61 @@ namespace nkentseu {
 					const int32 pmtPid = FindPmtPid(d, n, pktSize, syncOff);
 					if (pmtPid < 0)
 						return false;
-					const int32 vpid = FindVideoPid(d, n, pktSize, syncOff, pmtPid);
+					int32 streamType = 0;
+					const int32 vpid = FindVideoPid(d, n, pktSize, syncOff, pmtPid, &streamType);
 					if (vpid < 0)
-						return false; // pas de piste H264 (HEVC/MPEG-2 non gérés) -> échec propre
+						return false; // pas de piste H264/MPEG-2 (HEVC non branché) -> échec propre
+
+					// ── MPEG-2 Video (stream_type 0x02) : réassemble l'ES complet (PES headers
+					// retirés, payloads concaténés — pas de découpage par image nécessaire :
+					// NkMpeg2Decoder::DecodeAll consomme le flux entier), puis MÊME chemin que
+					// le .m2v (FinishMpeg2Es : fps du sequence header + décodage complet).
+					if (streamType == 0x02) {
+						NkVector<nk_uint8> esBytes;
+						NkVector<nk_uint8> curPes;
+						bool havePes = false;
+						auto flushPesM2 = [&]() {
+							// PES vidéo : 00 00 01 <stream_id E0..EF>, en-tête 9 + PES_header_data_length.
+							if (curPes.Size() >= 9 && curPes[0] == 0 && curPes[1] == 0 && curPes[2] == 1 &&
+								curPes[3] >= 0xE0 && curPes[3] <= 0xEF) {
+								const usize esStart = 9 + (usize)curPes[8];
+								for (usize k = esStart; k < curPes.Size(); ++k)
+									esBytes.PushBack(curPes[k]);
+							}
+							curPes.Resize(0);
+						};
+						for (usize p = (usize)syncOff; p + 188 <= n; p += (usize)pktSize) {
+							if (d[p] != 0x47)
+								continue;
+							const int32 pid = (((int32)(d[p + 1] & 0x1F)) << 8) | d[p + 2];
+							if (pid != vpid)
+								continue;
+							const bool pusi = (d[p + 1] & 0x40) != 0;
+							const int32 afc = (d[p + 3] >> 4) & 0x3;
+							usize payload = p + 4;
+							if (afc == 2)
+								continue; // adaptation seule, pas de payload
+							if (afc == 3) {
+								const int32 al = d[payload];
+								payload += 1 + (usize)al;
+							}
+							if (payload > p + 188)
+								continue;
+							if (pusi) {
+								flushPesM2();
+								havePes = true;
+							}
+							if (havePes)
+								for (usize i = payload; i < p + 188; ++i)
+									curPes.PushBack(d[i]);
+						}
+						flushPesM2();
+						if (esBytes.Size() == 0)
+							return false;
+						bytes = traits::NkMove(esBytes); // remplace les paquets TS bruts par l'ES
+						backend = Backend::TS;
+						return FinishMpeg2Es(bytes.Data(), (usize)bytes.Size(), "ts");
+					}
 
 					NkVector<nk_uint8> outBytes;
 					NkVector<nk_uint8> curPes;
@@ -1423,6 +1557,114 @@ namespace nkentseu {
 					// en l'absence de métadonnée exacte.
 					info.fps = 25.0;
 					ScanH264Keyframes();
+					return true;
+				}
+
+				// Termine l'ouverture d'un flux élémentaire MPEG-2 (.m2v direct OU ES
+				// réassemblé depuis un TS) : fps/dimensions depuis le sequence header
+				// (00 00 01 B3), puis décodage COMPLET via NkMpeg2Decoder::DecodeAll (le
+				// décodeur gère le DPB + le réordonnancement des B et rend les images en
+				// ORDRE D'AFFICHAGE). `containerName` = "m2v" ou "ts".
+				bool FinishMpeg2Es(const uint8 *es, usize esSize, const char *containerName) {
+					double fps = 0.0;
+					int32 seqW = 0, seqH = 0;
+					for (usize p = 0; p + 8 <= esSize; ++p) {
+						if (es[p] == 0 && es[p + 1] == 0 && es[p + 2] == 1 && es[p + 3] == 0xB3) {
+							seqW = ((int32)es[p + 4] << 4) | (es[p + 5] >> 4);
+							seqH = (((int32)es[p + 5] & 0x0F) << 8) | es[p + 6];
+							fps = Mpeg2FrameRateFromCode(es[p + 7] & 0x0F);
+							break;
+						}
+					}
+					char errmsg[256] = {0};
+					if (!NkMpeg2Decoder::DecodeAll(es, esSize, mpeg2Frames, errmsg, sizeof(errmsg)) &&
+						mpeg2Frames.Size() == 0)
+						return false; // échec dur sans aucune image (ex. flux entrelacé refusé)
+					if (mpeg2Frames.Size() == 0)
+						return false;
+					codec = Codec::MPEG2;
+					info.codec = NkString("mpeg2");
+					info.container = NkString(containerName);
+					info.width = mpeg2Frames[0].width > 0 ? mpeg2Frames[0].width : seqW;
+					info.height = mpeg2Frames[0].height > 0 ? mpeg2Frames[0].height : seqH;
+					info.frameCount = (int32)mpeg2Frames.Size();
+					info.fps = fps > 0.0 ? fps : 25.0;
+					return true;
+				}
+
+				// --- Parse un flux élémentaire MPEG-2 Video brut (.m2v) ---
+				bool ParseMpeg2Es() {
+					return FinishMpeg2Es(bytes.Data(), (usize)bytes.Size(), "m2v");
+				}
+
+				// --- Parse Ogg/Theora (.ogv) ---
+				// NkTheoraDecoder consomme le conteneur Ogg ENTIER (Open + boucle
+				// DecodeNextFrame) et ignore les autres flux logiques (Vorbis…). Le reader
+				// ne re-démuxe donc PAS les pages pour décoder — il fait seulement un
+				// parcours Ogg minimal pour connaître `frameCount` à l'avance (nombre de
+				// paquets DONNÉES du flux Theora = paquets terminés par le lacing, moins
+				// les 3 en-têtes) et lire la cadence FRN/FRD (en-tête d'identification,
+				// big-endian, offsets 22/26).
+				bool ParseOgv() {
+					const uint8 *d = bytes.Data();
+					const usize n = (usize)bytes.Size();
+					if (!NkTheoraDecoder::Probe(d, n))
+						return false; // Ogg sans flux Theora (ex. .ogg audio pur) -> échec propre
+					NkString err;
+					if (!theoraDec.Open(d, n, &err))
+						return false;
+					// Passe 1 : serial du flux Theora + fps depuis l'en-tête d'identification
+					// (1er paquet de la page BOS : 0x80 "theora" … FRN@22 FRD@26, big-endian).
+					uint32 serial = 0;
+					bool haveSerial = false;
+					double fps = 0.0;
+					{
+						usize pos = 0;
+						OggPageView pg;
+						while (pos < n && OggReadPage(d, n, pos, pg)) {
+							if ((pg.headerType & 0x02) != 0 && pg.next - pg.payloadOffset >= 30) {
+								const uint8 *pl = d + pg.payloadOffset;
+								if (pl[0] == 0x80 && pl[1] == 't' && pl[2] == 'h' && pl[3] == 'e' &&
+									pl[4] == 'o' && pl[5] == 'r' && pl[6] == 'a') {
+									serial = pg.serial;
+									haveSerial = true;
+									const uint32 frn = RdU32BE(pl + 22);
+									const uint32 frd = RdU32BE(pl + 26);
+									if (frn > 0 && frd > 0)
+										fps = (double)frn / (double)frd;
+									break;
+								}
+							}
+							pos = pg.next;
+						}
+					}
+					if (!haveSerial)
+						return false;
+					// Passe 2 : compte les paquets du flux (un paquet se termine à une valeur
+					// de lacing < 255 ; un paquet multi-pages n'est compté qu'une fois, à sa
+					// terminaison). Paquets données = total - 3 en-têtes (0x80/0x81/0x82).
+					int32 packetCount = 0;
+					{
+						usize pos = 0;
+						OggPageView pg;
+						while (pos < n && OggReadPage(d, n, pos, pg)) {
+							if (pg.serial == serial)
+								for (int32 i = 0; i < pg.nsegs; ++i)
+									if (pg.segTable[i] < 255)
+										++packetCount;
+							pos = pg.next;
+						}
+					}
+					if (packetCount <= 3)
+						return false;
+					codec = Codec::THEORA;
+					info.codec = NkString("theora");
+					info.container = NkString("ogv");
+					info.width = theoraDec.PictureWidth();
+					info.height = theoraDec.PictureHeight();
+					info.frameCount = packetCount - 3;
+					info.fps = fps > 0.0 ? fps : 25.0;
+					theoraNextIndex = 0;
 					return true;
 				}
 
@@ -1577,6 +1819,106 @@ namespace nkentseu {
 							return false;
 						return LoadImageFile(seqPaths[(uint64)index].CStr(), index, out);
 					}
+
+					// ── MPEG-2 : toutes les images sont DÉJÀ décodées (ordre d'affichage,
+					// FinishMpeg2Es) — il ne reste que la conversion YUV -> RGBA. Accès
+					// direct par index : Seek O(1), pas de contrainte de séquentialité.
+					// (Placé AVANT le garde-fou `frames[]` : ce codec ne remplit pas la
+					// table des FrameRef, comme le chemin SEQUENCE.)
+					if (codec == Codec::MPEG2) {
+						if (index < 0 || index >= (int32)mpeg2Frames.Size())
+							return false;
+						const NkMpeg2Frame &f = mpeg2Frames[(uint64)index];
+						const int32 w = f.width, h = f.height;
+						const int32 cw = f.dispChromaW, chh = f.dispChromaH;
+						if (w <= 0 || h <= 0 || cw <= 0 || chh <= 0)
+							return false;
+						// YUV -> RGBA (BT.601 limited-range, chroma nearest) — même conversion
+						// que les chemins H264/VP8/VP9/HEVC. Décalages chroma dérivés des dims
+						// d'affichage (4:2:0 : les deux axes ; 4:2:2 : horizontal seulement).
+						const int32 sx = (cw < w) ? 1 : 0, sy = (chh < h) ? 1 : 0;
+						out.width = w;
+						out.height = h;
+						out.rgba.Resize((uint64)w * (uint64)h * 4u);
+						uint8 *o = out.rgba.Data();
+						for (int32 y = 0; y < h; ++y)
+							for (int32 x = 0; x < w; ++x) {
+								const int32 Y = f.y[(usize)y * (usize)f.lumaW + (usize)x];
+								const int32 U =
+									f.cb[(usize)(y >> sy) * (usize)f.chromaW + (usize)(x >> sx)];
+								const int32 V =
+									f.cr[(usize)(y >> sy) * (usize)f.chromaW + (usize)(x >> sx)];
+								const int32 C = Y - 16, D = U - 128, E = V - 128;
+								auto cl = [](int32 v) -> uint8 {
+									return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v));
+								};
+								const usize oi = ((usize)y * (usize)w + (usize)x) * 4;
+								o[oi + 0] = cl((298 * C + 409 * E + 128) >> 8);
+								o[oi + 1] = cl((298 * C - 100 * D - 208 * E + 128) >> 8);
+								o[oi + 2] = cl((298 * C + 516 * D + 128) >> 8);
+								o[oi + 3] = 255;
+							}
+						out.index = index;
+						return true;
+					}
+
+					// ── Theora : décodage strictement séquentiel via NkTheoraDecoder (pas de
+					// B : ordre décodage == ordre affichage). Saut en AVANT : décoder en
+					// jetant les images intermédiaires. Retour ARRIÈRE : ré-Open (reset
+					// complet de l'état golden/previous du décodeur, qui ne sait pas
+					// repartir d'une image arbitraire) puis redécodage depuis le début.
+					// (Placé AVANT le garde-fou `frames[]`, comme MPEG-2.)
+					if (codec == Codec::THEORA) {
+						if (index < 0 || index >= info.frameCount)
+							return false;
+						if (index != theoraNextIndex) {
+							if (index < theoraNextIndex) {
+								if (!theoraDec.Open(bytes.Data(), (usize)bytes.Size()))
+									return false;
+								theoraNextIndex = 0;
+							}
+							NkTheoraFrame skipf;
+							while (theoraNextIndex < index) {
+								if (!theoraDec.DecodeNextFrame(skipf))
+									return false;
+								++theoraNextIndex;
+							}
+						}
+						NkTheoraFrame f;
+						if (!theoraDec.DecodeNextFrame(f))
+							return false;
+						++theoraNextIndex;
+						const int32 w = f.width, h = f.height;
+						const int32 cw = f.chromaWidth, chh = f.chromaHeight;
+						if (w <= 0 || h <= 0 || cw <= 0 || chh <= 0)
+							return false;
+						// YUV -> RGBA (BT.601 limited-range, chroma nearest) — même conversion
+						// que les autres codecs. Plans rognés à la picture region, stride = dims
+						// affichées. Décalages chroma dérivés (gère 4:2:0 / 4:2:2 / 4:4:4).
+						const int32 sx = (cw < w) ? 1 : 0, sy = (chh < h) ? 1 : 0;
+						out.width = w;
+						out.height = h;
+						out.rgba.Resize((uint64)w * (uint64)h * 4u);
+						uint8 *o = out.rgba.Data();
+						for (int32 y = 0; y < h; ++y)
+							for (int32 x = 0; x < w; ++x) {
+								const int32 Y = f.y[(usize)y * (usize)w + (usize)x];
+								const int32 U = f.cb[(usize)(y >> sy) * (usize)cw + (usize)(x >> sx)];
+								const int32 V = f.cr[(usize)(y >> sy) * (usize)cw + (usize)(x >> sx)];
+								const int32 C = Y - 16, D = U - 128, E = V - 128;
+								auto cl = [](int32 v) -> uint8 {
+									return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v));
+								};
+								const usize oi = ((usize)y * (usize)w + (usize)x) * 4;
+								o[oi + 0] = cl((298 * C + 409 * E + 128) >> 8);
+								o[oi + 1] = cl((298 * C - 100 * D - 208 * E + 128) >> 8);
+								o[oi + 2] = cl((298 * C + 516 * D + 128) >> 8);
+								o[oi + 3] = 255;
+							}
+						out.index = index;
+						return true;
+					}
+
 					if (index < 0 || index >= (int32)frames.Size())
 						return false;
 					const FrameRef &fr = frames[(uint64)index];
@@ -2154,8 +2496,32 @@ namespace nkentseu {
 				return false;
 			}
 
-			// TS/M2TS : paquets 188 (ou 192 avec préfixe M2TS) de sync byte 0x47. Piste vidéo H264
-			// uniquement pour l'instant (HEVC/MPEG-2 -> ParseTs échoue proprement, pas de décodeur).
+			// Ogg (magie "OggS") : flux logique Theora (piste Vorbis ignorée). Un Ogg
+			// audio pur (sans Theora) -> ParseOgv échoue proprement (Probe négatif).
+			if (mImpl->bytes.Size() >= 27 && d[0] == 'O' && d[1] == 'g' && d[2] == 'g' && d[3] == 'S') {
+				if (mImpl->ParseOgv()) {
+					mImpl->backend = Backend::OGV;
+					mImpl->cursor = 0;
+					return true;
+				}
+				return false;
+			}
+
+			// Flux élémentaire MPEG-2 Video brut (.m2v) : start code de sequence header
+			// (00 00 01 B3) en tête de fichier. Décodé ENTIÈREMENT à l'ouverture
+			// (NkMpeg2Decoder::DecodeAll rend les images en ordre d'affichage).
+			if (mImpl->bytes.Size() >= 8 && d[0] == 0x00 && d[1] == 0x00 && d[2] == 0x01 &&
+				d[3] == 0xB3) {
+				if (mImpl->ParseMpeg2Es()) {
+					mImpl->backend = Backend::MPEG2_ES;
+					mImpl->cursor = 0;
+					return true;
+				}
+				return false;
+			}
+
+			// TS/M2TS : paquets 188 (ou 192 avec préfixe M2TS) de sync byte 0x47. Pistes vidéo
+			// H264 (stream_type 0x1B) et MPEG-2 (0x02) ; HEVC -> ParseTs échoue proprement.
 			if (DetectTsPacketSize(d, mImpl->bytes.Size()) != 0) {
 				if (mImpl->ParseTs()) {
 					mImpl->cursor = 0; // backend déjà posé par ParseTs (avant ScanH264Keyframes)
