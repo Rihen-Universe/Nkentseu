@@ -928,11 +928,23 @@ namespace nkentseu {
 				// Renvoie l'index (dans l'ordre BuildHandles) de la poignée la plus proche
 				// du curseur (px), ou -1 si aucune sous le seuil. Partagé par le pick (clic)
 				// ET le hover (survol) -> géométrie/seuil strictement identiques.
-				int32 PickHandle(float32 cur, float32 curY, const GH *hs, int32 nh) const {
+				// SEUIL DE PICK PAR TYPE DE POIGNEE (pixels ecran).
+				// Les AXES (tiges/fleches/cubes) et le petit DISQUE central sont les poignees
+				// que l'on vise reellement -> seuil genereux (13 px, ordre de grandeur Blender).
+				// Les POIGNEES DE PLAN (lisere du quad) et les RUBANS DE ROTATION sont de grandes
+				// courbes qui TRAVERSENT le maillage : a 13 px elles avalaient des clics destines
+				// a un sommet/arete situe dessous. Resserrees a 9 px -> toujours confortables a
+				// attraper, mais elles laissent passer la selection de maillage.
+				static float32 KindPickPx(int32 kind) {
+					return (kind == 1 || kind == 3) ? 9.f : 13.f;
+				}
+
+				int32 PickHandle(float32 cur, float32 curY, const GH *hs, int32 nh,
+									 float32 *outDist = nullptr) const {
 					float32 cpx, cpy;
 					bool cok = Project(mPivot, cpx, cpy);
 					float32 pxPerW = mVpH / (2.f * mThY * NkGMax(mPivDist, 1e-3f));
-					float32 best = 13.f;
+					float32 best = 1e30f;
 					int32 hit = -1;
 					for (int32 hi = 0; hi < nh; hi++) {
 						float32 d = 1e30f;
@@ -965,14 +977,32 @@ namespace nkentseu {
 										d = dd;
 								}
 							});
-						if (d < best) {
+						if (d < KindPickPx(hs[hi].kind) && d < best) {
 							best = d;
 							hit = hi;
 						}
 					}
+					if (outDist)
+						*outDist = (hit >= 0) ? best : 1e30f;
 					return hit;
 				}
 
+			public:
+				// DISTANCE ECRAN (px) a la poignee de gizmo la plus proche du curseur, ou 1e30
+				// si aucune n'est sous son seuil. Sert a ARBITRER gizmo vs maillage : l'editeur
+				// compare cette distance a celle de son meilleur candidat sommet/arete et ne
+				// laisse le clic au gizmo que si le gizmo est REELLEMENT plus proche.
+				float32 HandlePickDistPx(float32 mouseX, float32 mouseY) const {
+					if (!mHaveSel)
+						return 1e30f;
+					GH hs[32];
+					int32 nh = BuildHandles(hs);
+					float32 d = 1e30f;
+					PickHandle(mouseX, mouseY, hs, nh, &d);
+					return d;
+				}
+
+			private:
 				// Survol : calcule la poignée sous le curseur CHAQUE frame (hors drag) pour le
 				// feedback visuel (surbrillance jaune/blanc). N'altère PAS la sélection/drag.
 				void ComputeHover(const NkGizmoInput &in) {

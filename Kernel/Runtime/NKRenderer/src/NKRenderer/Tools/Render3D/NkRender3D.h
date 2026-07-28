@@ -164,6 +164,31 @@ namespace nkentseu {
 					return mWireframe;
 				}
 
+				// ── WIREFRAME N-GON (sans diagonales de triangulation) ──────────────
+				// Le wireframe RASTERISEUR (SetWireframe) ne connait que des triangles : il
+				// dessine donc la DIAGONALE de chaque quad, ce que Blender ne montre pas.
+				// Ce mode-ci remplace le rendu des maillages opaques/instancies/skinnes par
+				// un BATCH PERSISTANT d'aretes N-GON fourni par l'application
+				// (SetNgonWireLines) : les aretes d'une primitive sont calculees UNE fois
+				// (quadify) puis re-emises pour chacune de ses instances, et le buffer GPU
+				// n'est reecrit que pour les objets dont la transform a change.
+				// LIMITE INTRINSEQUE (vraie aussi dans Blender) : un maillage purement
+				// TRIANGULE n'a aucune diagonale a cacher — toutes ses aretes sont reelles.
+				void SetNgonWireframe(bool e) {
+					mNgonWire = e;
+				}
+
+				bool IsNgonWireframe() const {
+					return mNgonWire;
+				}
+
+				// Batch complet (vertices = { x,y,z, r,g,b,a }, stride 28) — (re)cree le buffer.
+				void SetNgonWireLines(const float *verts, uint32 vertexCount);
+				// Mise a jour PARTIELLE d'une tranche (un objet qui a bouge) : aucune
+				// reconstruction du reste du batch.
+				void UpdateNgonWireLines(const float *verts, uint32 firstVertex, uint32 vertexCount);
+				void ClearNgonWire();
+
 				// Mode de shading (indépendant du wireframe) : 0=RENDERED (PBR éclairé),
 				// 1=SOLID/UNLIT (plat, phare caméra, sans lumières de scène). Écrit dans
 				// le CameraUBO (uCam.viewMode) et consommé par pbr.frag.
@@ -648,6 +673,10 @@ namespace nkentseu {
 				NkBufferHandle mEditLineBuf, mEditTriBuf, mEditPointBuf;
 				uint32 mEditLineN = 0, mEditTriN = 0, mEditPointN = 0;		 // vertices actifs
 				uint32 mEditLineCap = 0, mEditTriCap = 0, mEditPointCap = 0; // capacité (vertices)
+				// Batch persistant d'aretes n-gon (mode wireframe sans diagonales).
+				NkBufferHandle mNgonWireBuf;
+				uint32 mNgonWireN = 0, mNgonWireCap = 0;
+				bool mNgonWire = false;
 				bool mEditOverlayNoDepth = false;							 // X-ray
 				// Point sprite écran-constant (marqueurs de vertices façon Blender).
 				::nkentseu::NkShaderHandle mEditPointShader;

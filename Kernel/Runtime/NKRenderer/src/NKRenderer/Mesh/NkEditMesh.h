@@ -112,6 +112,32 @@ namespace nkentseu {
 				bool duplicate = false;
 		};
 
+		// ── TO SPHERE (Shift+Alt+S) façon Blender ─────────────────────────────────
+		// Deforme progressivement la selection vers une SPHERE : chaque sommet est
+		// interpole entre sa position et sa projection sur la sphere centree sur
+		// `center`, de rayon = distance MOYENNE des sommets selectionnes au centre :
+		//     P' = lerp(P, center + normalize(P - center) * rayonMoyen, factor)
+		// factor = 0 -> inchange · 1 -> sphere parfaite · > 1 autorise (comme Blender).
+		// `center` est exprime dans l'espace du MAILLAGE (l'editeur y ramene son pivot
+		// courant : median / boite englobante / curseur 3D / element actif).
+		// individual = true : chaque FACE entierement selectionnee est spherisee autour
+		// de SON propre barycentre (equivalent « origines individuelles »).
+		struct NkToSphereParams {
+			NkVec3f center = {0.f, 0.f, 0.f};
+			float32 factor = 1.f;
+			bool individual = false;
+		};
+
+		// ── SHRINK / FATTEN (Alt+S dans Blender) ──────────────────────────────────
+		// Deplace les sommets selectionnes LE LONG DE LEUR NORMALE. La normale est
+		// calculee sur l'identite SOUDEE (moyenne, ponderee par l'aire, des faces
+		// incidentes a TOUTES les copies coincidentes du sommet) : sans cela un coin
+		// duplique par face partirait dans 3 directions differentes et le maillage se
+		// dechirerait. offset > 0 = gonfler · offset < 0 = retrecir.
+		struct NkShrinkFattenParams {
+			float32 offset = 0.f;
+		};
+
 		// ── DISSOLVE (Ctrl+X) façon Blender ────────────────────────────────────────
 		// À NE PAS CONFONDRE AVEC « SUPPRIMER » (X) : le dissolve retire l'élément en
 		// GARDANT la surface connectée — les faces voisines fusionnent en un n-gon —,
@@ -280,6 +306,11 @@ namespace nkentseu {
 				// fine ; l'alternative « par l'angle au sommet » n'apporte rien sur des
 				// maillages quad/n-gon réguliers et coûte un acos par coin.
 				void RecomputeNormals();
+
+				// TO SPHERE (Shift+Alt+S) : spherise la selection autour de `center`.
+				bool ToSphereSelected(const NkToSphereParams &p);
+				// SHRINK / FATTEN : deplace la selection le long des normales SOUDEES.
+				bool ShrinkFattenSelected(const NkShrinkFattenParams &p);
 
 				// ── OMBRAGE FLAT / SMOOTH (façon Blender : Object > Shade Flat/Smooth, ou
 				//    Mesh > Shading en Edit Mode sur les faces sélectionnées) ───────────────
@@ -482,7 +513,9 @@ namespace nkentseu {
 			Inset,
 			EdgeSplit,
 			Spin,
-			Dissolve
+			Dissolve,
+			ToSphere,
+			ShrinkFatten
 		};
 
 		struct NkMeshEditCommand {
@@ -498,6 +531,8 @@ namespace nkentseu {
 				NkSpinParams spin;					  // (op == Spin) centre / axe / angle / pas
 				NkMat4f spinXform = NkMat4f::Identity(); // (op == Spin) modèle -> espace du spin
 				NkDissolveParams dissolve;			  // (op == Dissolve) mode Verts/Edges/Faces
+				NkToSphereParams tosphere;			  // (op == ToSphere) centre / facteur
+				NkShrinkFattenParams shrinkfatten;	  // (op == ShrinkFatten) deplacement le long des normales
 				NkVec3f planePoint = {0.f, 0.f, 0.f}; // (op == Bisect)
 				NkVec3f planeNormal = {0.f, 1.f, 0.f};
 				NkMat4f bisectXform = NkMat4f::Identity();
