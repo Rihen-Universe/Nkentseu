@@ -113,6 +113,11 @@ namespace nkentseu {
 				NkVector<uint8> vertSel;				 // 1 = vertex sélectionné (taille = nb vertices)
 				NkMat4f editAnchor = NkMat4f::Identity(); // transform monde de l'objet
 				NkMat4f editAnchorInv = NkMat4f::Identity();
+				// AABB LOCALE du mesh de RENDU édité (inclut le résultat des modificateurs).
+				// Recalculée à chaque Demo3D_SyncFromHE ; transformée par editAnchor au moment
+				// du draw call pour produire l'AABB MONDE attendue par NkRender3D::Submit.
+				NkVec3f editLocalMin = {-1.f, -1.f, -1.f};
+				NkVec3f editLocalMax = {1.f, 1.f, 1.f};
 				int32 editObjIdx = -1;						 // objet en cours d'édition (index gizmo)
 				NkVec3f editObjTint = {0.75f, 0.78f, 0.85f}; // matériau capturé de l'objet
 				float32 editObjMetallic = 0.f;
@@ -247,6 +252,28 @@ namespace nkentseu {
 				dvCount = (uint32)evV.Size();
 				diData = evI.Data();
 				diCount = (uint32)evI.Size();
+			}
+			// AABB LOCALE des vertices RÉELLEMENT affichés (base OU sortie des modificateurs).
+			// Indispensable : NkRender3D::Submit fait son frustum culling sur dc.aabb, qui doit
+			// être en espace MONDE -> on garde ici la boîte LOCALE et on la transforme par
+			// l'ancre au moment du draw call.
+			{
+				NkVec3f mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+				for (uint32 i = 0; i < dvCount; i++) {
+					const NkVec3f &p = dvData[i].pos;
+					mn.x = NkMin(mn.x, p.x);
+					mn.y = NkMin(mn.y, p.y);
+					mn.z = NkMin(mn.z, p.z);
+					mx.x = NkMax(mx.x, p.x);
+					mx.y = NkMax(mx.y, p.y);
+					mx.z = NkMax(mx.z, p.z);
+				}
+				if (dvCount == 0) {
+					mn = {-1.f, -1.f, -1.f};
+					mx = {1.f, 1.f, 1.f};
+				}
+				st->editLocalMin = mn;
+				st->editLocalMax = mx;
 			}
 			if (st->editMesh.IsValid())
 				ms->Release(st->editMesh);
@@ -1473,7 +1500,25 @@ namespace nkentseu {
 				camYaw = (float32)atof(cy);
 			if (const char *cp = getenv("NK_CAM_PITCH"))
 				camPitch = (float32)atof(cp);
-			st->editorCam.SetCenter({0.f, 0.5f, 0.f}, camRadius, camYaw, camPitch);
+			// NK_CAM_TARGET="x,y,z" : recentre l'orbite sur un point donné (défaut (0,0.5,0)).
+			// Indispensable pour capturer un objet ÉLOIGNÉ de l'origine (ex. colonne #18 en
+			// (1,1,4)) au même cadrage que l'utilisateur, donc pour reproduire les bugs
+			// dépendants de la position de l'objet.
+			NkVec3f camCenter{0.f, 0.5f, 0.f};
+			if (const char *ct = getenv("NK_CAM_TARGET")) {
+				float32 tv[3] = {camCenter.x, camCenter.y, camCenter.z};
+				int32 k = 0;
+				const char *p = ct;
+				while (k < 3 && *p) {
+					tv[k++] = (float32)atof(p);
+					while (*p && *p != ',')
+						p++;
+					if (*p == ',')
+						p++;
+				}
+				camCenter = {tv[0], tv[1], tv[2]};
+			}
+			st->editorCam.SetCenter(camCenter, camRadius, camYaw, camPitch);
 			st->simCam.SetPose({0.f, 1.5f, 6.f}, -1.5708f, -0.15f);
 
 			logger.Info("[Demo3D] Init OK — meshes : sphere={0} plane={1} cube={2}\n", (uint64)st->meshSphere.id,
@@ -2782,11 +2827,35 @@ namespace nkentseu {
 				st->editWasDragging = st->editGizmo.IsDragging();
 
 				// Dessin du mesh édité à son ancre (les vertices sont en espace LOCAL).
+				// ⚠ dc.aabb doit être en espace MONDE : NkRender3D::Submit() frustum-cull le
+				// draw call avec camera.IsAABBVisible(dc.aabb) SANS lui appliquer dc.transform
+				// (comme tous les autres draw calls de la démo, qui passent déjà du monde).
+				// Une AABB LOCALE ici décrivait une boîte au voisinage de l'ORIGINE : sur un
+				// objet éloigné (colonne #18 en (1,1,4)) le mesh était cullé dès que l'origine
+				// sortait du champ -> cage + marqueurs visibles (dessinés en debug, non cullés)
+				// mais AUCUNE surface solide. On transforme donc les 8 coins de l'AABB locale
+				// par l'ancre, fusionnés avec la position live des sommets (déformation en cours
+				// de drag, où le mesh GPU est mis à jour sans repasser par Demo3D_SyncFromHE).
 				{
 					NkDrawCall3D dc;
 					dc.mesh = st->editMesh;
 					dc.transform = st->editAnchor;
-					dc.aabb = {{-1.f, -1.f, -1.f}, {1.f, 1.f, 1.f}};
+					NkVec3f amin{1e30f, 1e30f, 1e30f}, amax{-1e30f, -1e30f, -1e30f};
+					auto growW = [&](NkVec3f w) {
+						amin.x = NkMin(amin.x, w.x);
+						amin.y = NkMin(amin.y, w.y);
+						amin.z = NkMin(amin.z, w.z);
+						amax.x = NkMax(amax.x, w.x);
+						amax.y = NkMax(amax.y, w.y);
+						amax.z = NkMax(amax.z, w.z);
+					};
+					const NkVec3f lmn = st->editLocalMin, lmx = st->editLocalMax;
+					for (int32 c = 0; c < 8; c++)
+						growW(st->editAnchor * NkVec3f{(c & 1) ? lmx.x : lmn.x, (c & 2) ? lmx.y : lmn.y,
+													   (c & 4) ? lmx.z : lmn.z});
+					for (int32 i = 0; i < nv; i++)
+						growW(st->editAnchor * st->editLive[i].pos);
+					dc.aabb = {amin, amax};
 					dc.tint = effTint(st->editObjTint); // matériau de l'objet (gris en SOLID/WIREFRAME)
 					dc.metallic = st->editObjMetallic;
 					dc.roughness = st->editObjRoughness;
@@ -2843,27 +2912,18 @@ namespace nkentseu {
 					// exclues). On ne dessine JAMAIS les arêtes des triangles de RENDU : sur
 					// un quad la diagonale de triangulation n'existe pas (cube = 12 arêtes,
 					// pas 18), exactement comme Blender.
-					// Micro-décalage RADIAL (depuis le centre de la bbox) pour tuer le
-					// z-fighting qui affichait la cage en POINTILLÉS. Radial et NON le long de
-					// la normale du sommet : dans une primitive, une arête vive porte DEUX
-					// copies de ses sommets (une par face, avec des normales différentes) — un
-					// décalage par normale ÉCARTERAIT les deux copies de la même arête et la
-					// dédoublerait à l'écran. Le décalage radial est identique pour tous les
-					// sommets coïncidents, donc les copies restent superposées. Indépendant de
-					// la caméra : l'orbite ne reconstruit toujours rien.
-					const NkVec3f bctr = (bmin + bmax) * 0.5f;
-					// Décalage MINIMAL : il ne sert plus qu'à départager le z-fight contre la
-					// PROPRE surface du modèle (le depth-bias du pipeline fait l'essentiel).
-					// Il était à 0.006 * rayon, assez pour faire DÉPASSER la cage DEVANT une
-					// géométrie voisine (une colonne fine paraissait « en fil de fer par
-					// dessus tout »). 0.0015 suffit à supprimer les pointillés sans déborder.
-					const float32 edgeLift = rad * 0.0035f;
-					auto liftW = [&](int32 i) {
-						const NkVec3f w = liveW(i);
-						NkVec3f d = w - bctr;
-						const float32 l = d.Len();
-						return (l > 1e-5f) ? (w + d * (edgeLift / l)) : (w + normW(i) * edgeLift);
-					};
+					// ⚠ PLUS AUCUN décalage géométrique de la cage. Il valait rad * 0.0035 le long de
+					// la radiale depuis le centre de la bbox, donc PROPORTIONNEL À LA TAILLE de
+					// l'objet : sur la colonne #18 (bbox monde 0.3 x 2 x 0.3 -> rayon 2.05) il faisait
+					// 0.0072 alors que la demi-épaisseur n'est que de 0.3 — soit 2,4 % de décollement
+					// latéral : la cage ne suivait donc pas exactement la silhouette. Pire, marqueurs de
+					// sommets et remplissage de face sont tracés SANS ce décalage -> les trois ne
+					// coïncidaient pas. Le z-fighting est déjà traité côté pipeline par le depth-bias des
+					// passes overlay (« DebugLine » / « DebugTriFill » : depthBiasConst = depthBiasSlope
+					// = -1.5). Cage, marqueurs et fill sont maintenant STRICTEMENT coplanaires à la
+					// surface -> tout COLLE au modèle, exactement comme dans Blender.
+					auto liftW = [&](int32 i) { return liveW(i); };
+					(void)normW;
 					NkVector<float> L;
 					L.Reserve((uint32)st->editEdges.Size() * 7);
 					// Passe 0 = arêtes non sélectionnées, passe 1 = sélectionnées (tracées
