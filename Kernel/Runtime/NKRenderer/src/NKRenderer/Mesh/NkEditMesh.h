@@ -51,8 +51,17 @@ namespace nkentseu {
 
 		// LOOP CUT : nombre de boucles insérées dans l'anneau de quads (façon Blender,
 		// molette / touches). cuts=1 => une boucle au milieu.
+		// slide : GLISSEMENT des boucles insérées LE LONG de l'anneau (le « edge slide »
+		//   qui suit Ctrl+R dans Blender). 0 = position médiane (comportement historique) ;
+		//   +1 / -1 = boucles rabattues sur l'une ou l'autre des deux boucles bordantes.
+		//   Le SENS est cohérent sur TOUT l'anneau : il est établi en le parcourant (chaque
+		//   arête de l'anneau retient si son sens « positif » va de son sommet canonique bas
+		//   vers le haut, ou l'inverse) — sans quoi une arête sur deux glisserait à
+		//   contresens, l'ordre canonique lo->hi n'ayant aucune raison d'être aligné sur la
+		//   direction de l'anneau.
 		struct NkLoopCutParams {
 				int32 cuts = 1;
+				float32 slide = 0.f; // -1 .. +1
 		};
 
 		// ── BEVEL (chanfrein) façon Blender — Ctrl+B (arêtes) / Ctrl+Shift+B (sommets) ──
