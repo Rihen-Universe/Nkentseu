@@ -26,6 +26,7 @@
 // =============================================================================
 #include "NKMedia/Codecs/Video/HEVC/NkHevcDecoder.h"
 #include "NKMedia/Codecs/Video/HEVC/NkHevcCabac.h"
+#include "NKPlatform/NkCPUFeatures.h"
 
 namespace nkentseu {
 	namespace media {
@@ -68,6 +69,243 @@ namespace nkentseu {
 				{-2, 16, 54, -4},
 				{-2, 10, 58, -2},
 			};
+
+			// =====================================================================
+			// SIMD SSE2 (x86/x86-64 uniquement, repli scalaire ailleurs — ARM/etc.)
+			// pour la SOMMATION des filtres separables MC (§8.5.4.2, qpel luma 8 taps
+			// / epel chroma 4 taps). Utilise UNIQUEMENT sur la fenetre INTERIEURE
+			// (deja garantie dans les bornes du plan par l'appelant, cf. `interior`
+			// dans ComputeInterp/ApplyMotionCompensation) — le bord (clamp) reste
+			// scalaire (volume negligeable). BIT-EXACT : l'addition entiere est
+			// associative/commutative sans arrondi -> accumuler les `taps` termes
+			// dans un ordre different (vectorise par colonne plutot que somme par
+			// pixel) produit un int32 IDENTIQUE au calcul scalaire `sum += ...`, tant
+			// qu'aucun depassement ne se produit (memes bornes que le scalaire,
+			// §8.5.4.2 : la somme tient largement dans int32 jusqu'a 14 bits + bit
+			// depth). Le >> final reste une division entiere arithmetique (signee),
+			// reproduite via un decalage arithmetique SIMD (`_mm_srai_epi32`) ou,
+			// pour le repli scalaire, `>>` standard (deja arithmetique sur int32).
+			// =====================================================================
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+#define NK_HEVC_MC_SIMD_X86 1
+#endif
+#ifdef NK_HEVC_MC_SIMD_X86
+#include <emmintrin.h>
+#include <immintrin.h>
+#if defined(__clang__) || defined(__GNUC__)
+#define NK_HEVC_MC_AVX2_TARGET __attribute__((target("avx2")))
+#endif
+#endif
+
+			enum { kMcMaxDim = 64 }; // PU luma max 64x64 ; chroma max 32x32 (sous-ensemble).
+
+#ifdef NK_HEVC_MC_SIMD_X86
+			// Détection AVX2 en cache (1 seul CPUID, cf. NKPlatform/NkCPUFeatures) — SSE2
+			// est TOUJOURS disponible sur x86-64 (ABI de base), donc jamais testé ici ;
+			// seul AVX2 (optionnel) déclenche un dispatch runtime.
+			inline bool McHasAvx2() {
+				static const bool has = nkentseu::platform::NkHasAVX2();
+				return has;
+			}
+
+			// acc[i] += coeff * rowPtr[i] pour i=0..w-1 (rowPtr = échantillons source
+			// nk_uint16 CONTIGUS, coeff = tap filtre int8 signé). Widen 16→32 EXACT
+			// (aucune perte, aucun arrondi) via l'astuce standard SSE2 mullo/mulhi :
+			// low16=mullo(a,b), high16=mulhi(a,b) signé -> (low16 | high16<<16) = le
+			// vrai produit 32 bits signé, reconstruit par unpacklo/unpackhi. Valide
+			// car les échantillons HEVC (<= 14 bits, ici <=12) et les coeffs (<=64 en
+			// valeur absolue) sont very largement dans la plage int16 utilisée comme
+			// opérande — aucun repliement (wrap) possible sur l'un ou l'autre facteur.
+			inline void SimdMacRowU16Sse2(const nk_uint16 *rowPtr, int32 w, int32 coeff, int32 *acc) {
+				const __m128i b = _mm_set1_epi16((int16)coeff);
+				int32 i = 0;
+				for (; i + 8 <= w; i += 8) {
+					const __m128i a = _mm_loadu_si128((const __m128i *)(rowPtr + i));
+					const __m128i lo16 = _mm_mullo_epi16(a, b);
+					const __m128i hi16 = _mm_mulhi_epi16(a, b);
+					const __m128i prodLo = _mm_unpacklo_epi16(lo16, hi16);
+					const __m128i prodHi = _mm_unpackhi_epi16(lo16, hi16);
+					__m128i accLo = _mm_loadu_si128((const __m128i *)(acc + i));
+					__m128i accHi = _mm_loadu_si128((const __m128i *)(acc + i + 4));
+					accLo = _mm_add_epi32(accLo, prodLo);
+					accHi = _mm_add_epi32(accHi, prodHi);
+					_mm_storeu_si128((__m128i *)(acc + i), accLo);
+					_mm_storeu_si128((__m128i *)(acc + i + 4), accHi);
+				}
+				for (; i < w; ++i)
+					acc[i] += coeff * (int32)rowPtr[i];
+			}
+
+			// Variante source int32 DÉJÀ élargie (passe verticale de la diagonale H+V,
+			// lit le tampon intermédiaire `tmp`). Multiplie 32×32→32 signé (bits bas —
+			// exact car la vraie somme tient dans int32, §8.5.4.2) via l'émulation SSE2
+			// standard pré-SSE4.1 de `_mm_mullo_epi32` (mul_epu32 + shuffle/unpack ;
+			// les bits bas d'un produit 32×32 mod 2^32 sont identiques en non-signé et
+			// en complément à deux, donc correcte même pour des opérandes négatifs).
+			inline void SimdMacRowI32Sse2(const int32 *rowPtr, int32 w, int32 coeff, int32 *acc) {
+				const __m128i b = _mm_set1_epi32(coeff);
+				int32 i = 0;
+				for (; i + 4 <= w; i += 4) {
+					const __m128i a = _mm_loadu_si128((const __m128i *)(rowPtr + i));
+					const __m128i evens = _mm_mul_epu32(a, b);
+					const __m128i odds =
+						_mm_mul_epu32(_mm_srli_si128(a, 4), _mm_srli_si128(b, 4));
+					const __m128i prod = _mm_unpacklo_epi32(
+						_mm_shuffle_epi32(evens, _MM_SHUFFLE(0, 0, 2, 0)),
+						_mm_shuffle_epi32(odds, _MM_SHUFFLE(0, 0, 2, 0)));
+					__m128i accV = _mm_loadu_si128((const __m128i *)(acc + i));
+					accV = _mm_add_epi32(accV, prod);
+					_mm_storeu_si128((__m128i *)(acc + i), accV);
+				}
+				for (; i < w; ++i)
+					acc[i] += coeff * rowPtr[i];
+			}
+
+#ifdef NK_HEVC_MC_AVX2_TARGET
+			// Variantes AVX2 (16/8 voies) — même algorithme, largeur double. Utilisées
+			// UNIQUEMENT si `McHasAvx2()` ET w multiple de la largeur vectorielle (les
+			// dimensions HEVC sont des puissances de 2 >= 4, donc w>=16 => w%16==0, et
+			// w>=8 => w%8==0 : jamais de reste partiel à gérer dans ce chemin). Widen
+			// 16->32 EXACT via VPMOVZXWD (extension non signée native, pas d'astuce
+			// requise) ; multiplie 32x32->32 EXACT via VPMULLD (natif AVX2, pas
+			// d'émulation) — mêmes valeurs entières que le scalaire/SSE2.
+			NK_HEVC_MC_AVX2_TARGET
+			inline void SimdMacRowU16Avx2(const nk_uint16 *rowPtr, int32 w, int32 coeff, int32 *acc) {
+				const __m256i cvec = _mm256_set1_epi32(coeff);
+				int32 i = 0;
+				for (; i + 16 <= w; i += 16) {
+					const __m256i a = _mm256_loadu_si256((const __m256i *)(rowPtr + i));
+					const __m256i aLo = _mm256_cvtepu16_epi32(_mm256_castsi256_si128(a));
+					const __m256i aHi = _mm256_cvtepu16_epi32(_mm256_extracti128_si256(a, 1));
+					const __m256i prodLo = _mm256_mullo_epi32(aLo, cvec);
+					const __m256i prodHi = _mm256_mullo_epi32(aHi, cvec);
+					__m256i accLo = _mm256_loadu_si256((const __m256i *)(acc + i));
+					__m256i accHi = _mm256_loadu_si256((const __m256i *)(acc + i + 8));
+					accLo = _mm256_add_epi32(accLo, prodLo);
+					accHi = _mm256_add_epi32(accHi, prodHi);
+					_mm256_storeu_si256((__m256i *)(acc + i), accLo);
+					_mm256_storeu_si256((__m256i *)(acc + i + 8), accHi);
+				}
+				for (; i < w; ++i)
+					acc[i] += coeff * (int32)rowPtr[i];
+			}
+
+			NK_HEVC_MC_AVX2_TARGET
+			inline void SimdMacRowI32Avx2(const int32 *rowPtr, int32 w, int32 coeff, int32 *acc) {
+				const __m256i cvec = _mm256_set1_epi32(coeff);
+				int32 i = 0;
+				for (; i + 8 <= w; i += 8) {
+					const __m256i a = _mm256_loadu_si256((const __m256i *)(rowPtr + i));
+					const __m256i prod = _mm256_mullo_epi32(a, cvec);
+					__m256i accV = _mm256_loadu_si256((const __m256i *)(acc + i));
+					accV = _mm256_add_epi32(accV, prod);
+					_mm256_storeu_si256((__m256i *)(acc + i), accV);
+				}
+				for (; i < w; ++i)
+					acc[i] += coeff * rowPtr[i];
+			}
+#endif // NK_HEVC_MC_AVX2_TARGET
+
+			// Dispatch runtime : AVX2 (si dispo + largeur suffisante) -> SSE2 (toujours
+			// dispo x86-64) -> reste scalaire géré par les variantes SSE2 elles-mêmes.
+			inline void SimdMacRowU16(const nk_uint16 *rowPtr, int32 w, int32 coeff, int32 *acc) {
+#ifdef NK_HEVC_MC_AVX2_TARGET
+				if (w >= 16 && McHasAvx2()) {
+					SimdMacRowU16Avx2(rowPtr, w, coeff, acc);
+					return;
+				}
+#endif
+				SimdMacRowU16Sse2(rowPtr, w, coeff, acc);
+			}
+			inline void SimdMacRowI32(const int32 *rowPtr, int32 w, int32 coeff, int32 *acc) {
+#ifdef NK_HEVC_MC_AVX2_TARGET
+				if (w >= 8 && McHasAvx2()) {
+					SimdMacRowI32Avx2(rowPtr, w, coeff, acc);
+					return;
+				}
+#endif
+				SimdMacRowI32Sse2(rowPtr, w, coeff, acc);
+			}
+#else
+			inline void SimdMacRowU16(const nk_uint16 *rowPtr, int32 w, int32 coeff, int32 *acc) {
+				for (int32 i = 0; i < w; ++i)
+					acc[i] += coeff * (int32)rowPtr[i];
+			}
+			inline void SimdMacRowI32(const int32 *rowPtr, int32 w, int32 coeff, int32 *acc) {
+				for (int32 i = 0; i < w; ++i)
+					acc[i] += coeff * rowPtr[i];
+			}
+#endif
+
+			// Filtre horizontal SEUL (yFrac==0, xFrac!=0), fenêtre INTÉRIEURE (aucun
+			// clamp — accès direct garanti dans les bornes par l'appelant). Écrit dans
+			// `sums[j*w+i]` la valeur `(Σ_k filt[k]*S(xBase+i+k-ctr, yBase+j)) >>
+			// shift1`, identique bit-exact à la boucle scalaire correspondante.
+			void McFilterHInterior(const nk_uint16 *srcBase, int32 srcStride, int32 xBase,
+									int32 yBase, int32 w, int32 h, const int8 *filt, int32 taps,
+									int32 ctr, int32 shift1, int32 *sums) {
+				int32 acc[kMcMaxDim];
+				for (int32 j = 0; j < h; ++j) {
+					for (int32 i = 0; i < w; ++i)
+						acc[i] = 0;
+					const nk_uint16 *row =
+						srcBase + (usize)(yBase + j) * srcStride + (xBase - ctr);
+					for (int32 k = 0; k < taps; ++k)
+						SimdMacRowU16(row + k, w, filt[k], acc);
+					for (int32 i = 0; i < w; ++i)
+						sums[j * w + i] = acc[i] >> shift1;
+				}
+			}
+
+			// Filtre vertical SEUL (xFrac==0, yFrac!=0), fenêtre INTÉRIEURE. Écrit
+			// `sums[j*w+i] = (Σ_k filt[k]*S(xBase+i, yBase+j+k-ctr)) >> shift1`.
+			void McFilterVInterior(const nk_uint16 *srcBase, int32 srcStride, int32 xBase,
+									int32 yBase, int32 w, int32 h, const int8 *filt, int32 taps,
+									int32 ctr, int32 shift1, int32 *sums) {
+				int32 acc[kMcMaxDim];
+				for (int32 j = 0; j < h; ++j) {
+					for (int32 i = 0; i < w; ++i)
+						acc[i] = 0;
+					for (int32 k = 0; k < taps; ++k) {
+						const nk_uint16 *row =
+							srcBase + (usize)(yBase + j + k - ctr) * srcStride + xBase;
+						SimdMacRowU16(row, w, filt[k], acc);
+					}
+					for (int32 i = 0; i < w; ++i)
+						sums[j * w + i] = acc[i] >> shift1;
+				}
+			}
+
+			// Diagonal (xFrac!=0 ET yFrac!=0), fenêtre INTÉRIEURE — deux passes
+			// (§8.5.4.2) : horizontale -> tampon intermédiaire (déjà >>shift1), puis
+			// verticale sur ce tampon -> `sums` (>>6 fixe, indépendant du bit depth,
+			// identique au scalaire). Tampon local dimensionné au pire cas luma
+			// (kMcMaxDim+7)×kMcMaxDim, réutilisé (sous-dimensionné) pour la chroma.
+			void McFilterHVInterior(const nk_uint16 *srcBase, int32 srcStride, int32 xBase,
+									 int32 yBase, int32 w, int32 h, const int8 *hf, const int8 *vf,
+									 int32 taps, int32 ctr, int32 shift1, int32 *sums) {
+				int32 tmpBuf[(kMcMaxDim + 7) * kMcMaxDim];
+				int32 acc[kMcMaxDim];
+				const int32 rows = h + taps - 1;
+				for (int32 j = 0; j < rows; ++j) {
+					for (int32 i = 0; i < w; ++i)
+						acc[i] = 0;
+					const nk_uint16 *row =
+						srcBase + (usize)(yBase + j - ctr) * srcStride + (xBase - ctr);
+					for (int32 k = 0; k < taps; ++k)
+						SimdMacRowU16(row + k, w, hf[k], acc);
+					for (int32 i = 0; i < w; ++i)
+						tmpBuf[j * w + i] = acc[i] >> shift1;
+				}
+				for (int32 j = 0; j < h; ++j) {
+					for (int32 i = 0; i < w; ++i)
+						acc[i] = 0;
+					for (int32 k = 0; k < taps; ++k)
+						SimdMacRowI32(tmpBuf + (usize)(j + k) * w, w, vf[k], acc);
+					for (int32 i = 0; i < w; ++i)
+						sums[j * w + i] = acc[i] >> 6;
+				}
+			}
 
 			// Ordre de génération des candidats de fusion bi combinés (§8.5.3.2.4,
 			// ffmpeg mvs.c l0_l1_cand_idx) — [comb_idx] -> {idx candidat L0, idx candidat L1}.
@@ -2378,7 +2616,24 @@ namespace nkentseu {
 						const bool interior = xInt - ctr >= 0 && yInt - ctr >= 0 &&
 											   xInt + w + taps - 1 - ctr <= planeW &&
 											   yInt + h + taps - 1 - ctr <= planeH;
-						if (interior)
+						// Fenêtre intérieure -> chemin SIMD sur accès direct (mêmes valeurs
+						// bit-exactes que `body` ci-dessus, cf. commentaire SIMD en tête de
+						// fichier) ; bord -> chemin générique clampé inchangé (scalaire).
+						if (interior && !(xFrac == 0 && yFrac == 0)) {
+							int32 sums[kMcMaxDim * kMcMaxDim];
+							if (yFrac == 0)
+								McFilterHInterior(srcBase, planeW, xInt, yInt, w, h, hf, taps, ctr,
+												  shift1, sums);
+							else if (xFrac == 0)
+								McFilterVInterior(srcBase, planeW, xInt, yInt, w, h, vf, taps, ctr,
+												  shift1, sums);
+							else
+								McFilterHVInterior(srcBase, planeW, xInt, yInt, w, h, hf, vf, taps,
+												   ctr, shift1, sums);
+							for (int32 j = 0; j < h; ++j)
+								for (int32 i = 0; i < w; ++i)
+									out[j * outStride + i] = (int16)sums[j * w + i];
+						} else if (interior)
 							body([srcBase, planeW](int32 xx, int32 yy) -> int32 {
 								return srcBase[(usize)yy * planeW + xx];
 							});
@@ -2462,7 +2717,22 @@ namespace nkentseu {
 							// x in [xInt-3, xInt+w+3], y in [yInt-3, yInt+h+3].
 							const bool interior =
 								xInt >= 3 && yInt >= 3 && xInt + w + 4 <= rw && yInt + h + 4 <= rh;
-							if (interior)
+							if (interior && !(xFrac == 0 && yFrac == 0)) {
+								int32 sums[kMcMaxDim * kMcMaxDim];
+								if (yFrac == 0)
+									McFilterHInterior(srcBase, rw, xInt, yInt, w, h, hf, 8, 3, shift1,
+													  sums);
+								else if (xFrac == 0)
+									McFilterVInterior(srcBase, rw, xInt, yInt, w, h, vf, 8, 3, shift1,
+													  sums);
+								else
+									McFilterHVInterior(srcBase, rw, xInt, yInt, w, h, hf, vf, 8, 3,
+													   shift1, sums);
+								for (int32 j = 0; j < h; ++j)
+									for (int32 i = 0; i < w; ++i)
+										dst[(y0 + j) * stride + (x0 + i)] = (nk_uint16)FinalizeSample(
+											sums[j * w + i], false, true, 0, listX, refIdx);
+							} else if (interior)
 								doLuma([srcBase, rw](int32 xx, int32 yy) -> int32 {
 									return srcBase[(usize)yy * rw + xx];
 								});
@@ -2532,7 +2802,22 @@ namespace nkentseu {
 							// Fenetre chroma requise : x in [xInt-1, xInt+cw+1], y in [yInt-1, yInt+ch+1].
 							const bool interior =
 								xInt >= 1 && yInt >= 1 && xInt + cw + 2 <= rw && yInt + ch + 2 <= rh;
-							if (interior)
+							if (interior && !(xFrac == 0 && yFrac == 0)) {
+								int32 sums[kMcMaxDim * kMcMaxDim];
+								if (yFrac == 0)
+									McFilterHInterior(srcBase, rw, xInt, yInt, cw, ch, hf, 4, 1, shift1,
+													  sums);
+								else if (xFrac == 0)
+									McFilterVInterior(srcBase, rw, xInt, yInt, cw, ch, vf, 4, 1, shift1,
+													  sums);
+								else
+									McFilterHVInterior(srcBase, rw, xInt, yInt, cw, ch, hf, vf, 4, 1,
+													   shift1, sums);
+								for (int32 j = 0; j < ch; ++j)
+									for (int32 i = 0; i < cw; ++i)
+										dst[(cy0 + j) * stride + (cx0 + i)] = (nk_uint16)FinalizeSample(
+											sums[j * cw + i], false, false, ci, listX, refIdx);
+							} else if (interior)
 								doChroma([srcBase, rw](int32 xx, int32 yy) -> int32 {
 									return srcBase[(usize)yy * rw + xx];
 								});
