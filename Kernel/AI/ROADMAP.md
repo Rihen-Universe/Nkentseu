@@ -97,6 +97,51 @@ CONDITION (image / texte / forme cible) ─┐
 imiter des gestes de modélisation », jamais « text-to-3D frontière ». Chaque étape = publication
 + article (cf. section Communication).
 
+#### Stratégie de DONNÉES (décidée 2026-07-28) — comment débloquer l'étape 2
+
+L'étape 2 est bloquée par une seule chose : **il n'existe pas de corpus** (un unique `.nkmec`
+réel de 4 commandes). Trois sources complémentaires, par ordre de faisabilité :
+
+1. **Agent-professeur pilotant le modeleur** (débloque tout de suite). Les opérations d'édition
+   sont des **données typées** (`NkMeshEditCommand` + journal `.nkmec`), donc un agent LLM qui
+   pilote l'éditeur produit directement des trajectoires état→action apprenables, à l'échelle,
+   sans intervention humaine. C'est le chaînon manquant du corpus.
+   ⚠️ **Limite honnête** : on apprend alors *le style de l'agent*, pas le geste humain. Un agent
+   LLM est crédible sur le **hard-surface / procédural** (mobilier, bâtiments, pièces mécaniques,
+   props, low-poly) qu'il peut décrire en séquences d'opérations et vérifier géométriquement
+   (symétrie, dimensions). Il est **mauvais sur l'organique** (personnage, humain, animal), qui
+   exige un ajustement visuel continu et un jugement de proportions qu'il ne peut pas
+   s'auto-appliquer de façon fiable. Ne pas prétendre le contraire.
+2. **Cible de référence** (résout la limite ci-dessus, = étape 3). Donner un maillage cible et
+   demander de le reproduire par opérations d'édition transforme la tâche en problème **bien posé
+   et auto-évaluable** (reward = distance à la cible) : plus besoin de jugement esthétique,
+   parallélisable, y compris pour l'organique. C'est la voie viable pour les formes complexes.
+3. **Corpus de maillages existants** pour l'organique. ⚠️ **Contraintes réelles** : (a)
+   **provenance et licence** — n'utiliser que des modèles dont la licence autorise explicitement
+   l'entraînement (CC0, domaine public, créations propres, scans possédés) ; ne pas utiliser
+   d'assets propriétaires ou récupérés sans droit. (b) **échelle** — « quelques centaines de
+   modèles » reste **petit** ; l'état de l'art en génération organique s'entraîne sur des ordres
+   de grandeur supérieurs. Attendre des résultats limités et le dire, conformément au principe
+   d'honnêteté ci-dessus.
+
+#### Suite (retopologie, UV/texturing, rig) — cadrage honnête
+
+Ces étages sont déjà listés (NKGen jalon 3, § « Pipeline de production » ci-dessous). Précision
+d'ambition : **retopologie apprise**, **dépliage UV appris** et **texturing appris** sont des
+sujets de **niveau recherche**, pas des incréments de quelques jours. Ordre réaliste : d'abord
+les versions **algorithmiques** (décimation QEM, quad field-aligned, unwrap par seams + bake),
+qui donnent un pipeline utilisable ; l'apprentissage vient **enrichir** ces briques ensuite,
+jamais les remplacer d'emblée. Cohérent avec « technique solide d'abord, IA générative ensuite ».
+
+#### Effet de bord vertueux (à garder en tête)
+
+Chaque opération ajoutée au modeleur (bevel, inset, spin, dissolve, loop cut…) **élargit l'espace
+d'actions** de l'agent, donc la complexité des modèles atteignables. NK3DModeler n'est pas
+seulement un outil pour l'utilisateur : c'est aussi **l'environnement d'entraînement** de la
+modélisation par IA. C'est ce qui justifie l'exigence « toute opération doit être une commande
+typée, avec undo et topologie cohérente » — sans quoi les trajectoires ne seraient ni rejouables
+ni apprenables.
+
 ### Pipeline de production autour de la modélisation IA (fusion corpus 2026-07-09)
 
 Complément « qualité production » des étapes 1-5 ci-dessus : un mesh généré/construit par IA
