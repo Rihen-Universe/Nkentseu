@@ -1270,10 +1270,15 @@ namespace nkentseu {
 				mDevice->DestroyBuffer(mTriVBO);
 				mTriVBO = {};
 			}
-			if (mNgonWireBuf.IsValid()) {
-				mDevice->DestroyBuffer(mNgonWireBuf);
-				mNgonWireBuf = {};
-			}
+			for (uint32 s = 0; s < (uint32)mNgonWireRing.Size(); s++)
+				if (mNgonWireRing[s].IsValid())
+					mDevice->DestroyBuffer(mNgonWireRing[s]);
+			mNgonWireRing.Clear();
+			mNgonWireRingCap.Clear();
+			mNgonWireDirtyLo.Clear();
+			mNgonWireDirtyHi.Clear();
+			mNgonWireCPU.Clear();
+			mNgonWireN = 0;
 			if (mEditLineBuf.IsValid()) {
 				mDevice->DestroyBuffer(mEditLineBuf);
 				mEditLineBuf = {};
@@ -3054,11 +3059,16 @@ namespace nkentseu {
 			// Un seul draw, buffer garde d'une frame sur l'autre. Depth-teste : les
 			// aretes s'occultent correctement contre la grille/le sol.
 			if (mNgonWire && mNgonWireN && EnsureDebugLinePipeline(currentRP) && mLinePipeline.IsValid()) {
-				cmd->BindGraphicsPipeline(mLinePipeline);
-				if (gs.IsValid())
-					cmd->BindDescriptorSet(gs, 0);
-				cmd->BindVertexBuffer(0, mNgonWireBuf, 0);
-				cmd->Draw(mNgonWireN);
+				// Buffer du slot de CETTE frame (remis a niveau ici, jamais pendant qu'une
+				// frame precedente le lit) -> plus de scintillement du fil de fer.
+				const NkBufferHandle wb = NgonWireBufferForFrame();
+				if (wb.IsValid()) {
+					cmd->BindGraphicsPipeline(mLinePipeline);
+					if (gs.IsValid())
+						cmd->BindDescriptorSet(gs, 0);
+					cmd->BindVertexBuffer(0, wb, 0);
+					cmd->Draw(mNgonWireN);
+				}
 			}
 			// ── Edit overlay PERSISTANT (cage/faces/points) : rendu chaque frame depuis
 			//    des buffers GPU gardés (aucune reconstruction CPU tant que rien ne
@@ -3315,20 +3325,93 @@ namespace nkentseu {
 			mEditPointN = n;
 		}
 
-		// ── Batch d'aretes n-gon ───────────────────────────────────────────────────
+		// ── Batch d'aretes n-gon — RING PAR FRAME EN VOL ──────────────────────────
+		// Marque la plage [firstVertex, firstVertex+count) comme perimee POUR TOUS LES
+		// SLOTS : chaque frame en vol a son propre buffer, chacun doit donc recevoir la
+		// modification, mais a son propre rythme (au moment ou il est dessine).
+		void NkRender3D::NgonWireMarkDirty(uint32 firstVertex, uint32 count) {
+			if (count == 0)
+				return;
+			const uint32 lo = firstVertex, hi = firstVertex + count;
+			for (uint32 s = 0; s < (uint32)mNgonWireDirtyLo.Size(); s++) {
+				if (mNgonWireDirtyHi[s] <= mNgonWireDirtyLo[s]) { // slot propre -> nouvelle plage
+					mNgonWireDirtyLo[s] = lo;
+					mNgonWireDirtyHi[s] = hi;
+				} else { // coalesce (une seule plage par slot : simple et suffisant ici)
+					mNgonWireDirtyLo[s] = (lo < mNgonWireDirtyLo[s]) ? lo : mNgonWireDirtyLo[s];
+					mNgonWireDirtyHi[s] = (hi > mNgonWireDirtyHi[s]) ? hi : mNgonWireDirtyHi[s];
+				}
+			}
+		}
+
+		// Buffer du slot COURANT, remis a niveau depuis la copie CPU juste avant le draw.
+		// C'est le SEUL endroit qui ecrit dans un buffer du ring -> on n'ecrit jamais dans
+		// celui qu'une frame encore en vol est en train de lire (cause du clignotement).
+		NkBufferHandle NkRender3D::NgonWireBufferForFrame() {
+			const uint32 slots = (mFramesInFlight < 1u) ? 1u : mFramesInFlight;
+			if ((uint32)mNgonWireRing.Size() != slots) {
+				for (uint32 s = 0; s < (uint32)mNgonWireRing.Size(); s++)
+					if (mNgonWireRing[s].IsValid())
+						mDevice->DestroyBuffer(mNgonWireRing[s]);
+				mNgonWireRing.Clear();
+				mNgonWireRingCap.Clear();
+				mNgonWireDirtyLo.Clear();
+				mNgonWireDirtyHi.Clear();
+				mNgonWireRing.Resize(slots);
+				mNgonWireRingCap.Resize(slots);
+				mNgonWireDirtyLo.Resize(slots);
+				mNgonWireDirtyHi.Resize(slots);
+				for (uint32 s = 0; s < slots; s++) {
+					mNgonWireRing[s] = NkBufferHandle{};
+					mNgonWireRingCap[s] = 0;
+					mNgonWireDirtyLo[s] = 0;
+					mNgonWireDirtyHi[s] = mNgonWireN; // tout est a uploader
+				}
+			}
+			const uint32 slot = (mFrameSlot < slots) ? mFrameSlot : 0u;
+			if (mNgonWireN == 0)
+				return mNgonWireRing[slot];
+			if (!mNgonWireRing[slot].IsValid() || mNgonWireRingCap[slot] < mNgonWireN) {
+				if (mNgonWireRing[slot].IsValid())
+					mDevice->DestroyBuffer(mNgonWireRing[slot]);
+				mNgonWireRingCap[slot] = mNgonWireN + 256u;
+				mNgonWireRing[slot] = mDevice->CreateBuffer(
+					NkBufferDesc::VertexDynamic((uint64)mNgonWireRingCap[slot] * 7 * sizeof(float)));
+				mNgonWireDirtyLo[slot] = 0; // buffer neuf -> contenu COMPLET a ecrire
+				mNgonWireDirtyHi[slot] = mNgonWireN;
+			}
+			uint32 lo = mNgonWireDirtyLo[slot], hi = mNgonWireDirtyHi[slot];
+			if (hi > mNgonWireN)
+				hi = mNgonWireN;
+			if (hi > lo && (uint64)hi * 7 <= (uint64)mNgonWireCPU.Size())
+				mDevice->WriteBuffer(mNgonWireRing[slot], mNgonWireCPU.Data() + (uint64)lo * 7,
+									 (uint64)(hi - lo) * 7 * sizeof(float), (uint64)lo * 7 * sizeof(float));
+			mNgonWireDirtyLo[slot] = 0;
+			mNgonWireDirtyHi[slot] = 0; // slot a jour
+			return mNgonWireRing[slot];
+		}
+
 		void NkRender3D::SetNgonWireLines(const float *v, uint32 n) {
-			UploadEditBuf(mNgonWireBuf, mNgonWireCap, v, n, 7 * sizeof(float));
+			mNgonWireCPU.Resize(n * 7u);
+			if (n > 0 && v)
+				memcpy(mNgonWireCPU.Data(), v, (size_t)n * 7 * sizeof(float));
 			mNgonWireN = n;
+			// Batch entierement reconstruit -> TOUT est perime dans CHAQUE slot.
+			for (uint32 s = 0; s < (uint32)mNgonWireDirtyLo.Size(); s++) {
+				mNgonWireDirtyLo[s] = 0;
+				mNgonWireDirtyHi[s] = n;
+			}
 		}
 
 		// Reecrit UNIQUEMENT la tranche [firstVertex, firstVertex+count) : les aretes
 		// d'une primitive sont calculees une fois pour toutes, seule la transform d'un
-		// objet qui bouge oblige a re-transformer SA tranche.
+		// objet qui bouge oblige a re-transformer SA tranche. On patche la copie CPU
+		// (autorite) et on marque la plage perimee dans TOUS les slots du ring.
 		void NkRender3D::UpdateNgonWireLines(const float *v, uint32 firstVertex, uint32 count) {
-			if (!mNgonWireBuf.IsValid() || count == 0 || firstVertex + count > mNgonWireCap)
+			if (!v || count == 0 || (uint64)(firstVertex + count) * 7 > (uint64)mNgonWireCPU.Size())
 				return;
-			mDevice->WriteBuffer(mNgonWireBuf, v, (uint64)count * 7 * sizeof(float),
-								 (uint64)firstVertex * 7 * sizeof(float));
+			memcpy(mNgonWireCPU.Data() + (uint64)firstVertex * 7, v, (size_t)count * 7 * sizeof(float));
+			NgonWireMarkDirty(firstVertex, count);
 		}
 
 		void NkRender3D::ClearNgonWire() {

@@ -673,10 +673,25 @@ namespace nkentseu {
 				NkBufferHandle mEditLineBuf, mEditTriBuf, mEditPointBuf;
 				uint32 mEditLineN = 0, mEditTriN = 0, mEditPointN = 0;		 // vertices actifs
 				uint32 mEditLineCap = 0, mEditTriCap = 0, mEditPointCap = 0; // capacité (vertices)
-				// Batch persistant d'aretes n-gon (mode wireframe sans diagonales).
-				NkBufferHandle mNgonWireBuf;
-				uint32 mNgonWireN = 0, mNgonWireCap = 0;
+				// ── Batch persistant d'aretes n-gon (wireframe sans diagonales) ──────────
+				// RING PAR FRAME EN VOL (même idiome que mUBOCameraRing / mUBOBonesRing /
+				// mGlobalSetRing). CAUSE DU CLIGNOTEMENT corrigée ici : le batch était UN
+				// SEUL buffer, réécrit CHAQUE FRAME (la scène contient un cube animé, donc sa
+				// tranche est retransformée à chaque image). Avec framesInFlight = 2, la frame
+				// N+1 écrivait dans le buffer que le GPU était encore en train de lire pour la
+				// frame N -> lignes corrompues une image sur deux = scintillement rapide.
+				// Désormais chaque frame en vol a SON buffer ; la copie CPU du batch est
+				// l'autorité, et chaque slot est remis à niveau (uniquement sur la PLAGE
+				// modifiée) juste avant d'être dessiné.
+				NkVector<NkBufferHandle> mNgonWireRing;
+				NkVector<uint32> mNgonWireRingCap; // capacité (vertices) par slot
+				NkVector<uint32> mNgonWireDirtyLo; // plage à re-uploader par slot (en vertices)
+				NkVector<uint32> mNgonWireDirtyHi; // hi <= lo => slot à jour
+				NkVector<float32> mNgonWireCPU;	   // copie CPU = autorité du batch
+				uint32 mNgonWireN = 0;
 				bool mNgonWire = false;
+				void NgonWireMarkDirty(uint32 firstVertex, uint32 count); // marque TOUS les slots
+				NkBufferHandle NgonWireBufferForFrame();				  // slot courant, remis à niveau
 				bool mEditOverlayNoDepth = false;							 // X-ray
 				// Point sprite écran-constant (marqueurs de vertices façon Blender).
 				::nkentseu::NkShaderHandle mEditPointShader;
