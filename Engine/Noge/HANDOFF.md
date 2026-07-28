@@ -91,6 +91,24 @@ Tout vit dans **NKRenderer** (`Mesh/NkEditMesh.*`, `Core/NkGizmo.h`, `Tools/Rend
 9. **Loop cut interactif** : aperçu au survol montrant où la coupe passera, molette = nombre de coupes, clic confirme, Échap annule.
 10. **Knife** (couteau le long d'un tracé) — un bisect par plan existe déjà (`K`).
 
+### Morphing (shape keys) — où ça doit vivre (audit 2026-07-28)
+
+Découpage correct, en trois responsabilités distinctes (modèle Blender) :
+- **Donnée** (morph target = deltas de sommets) → couche mesh/asset.
+- **Authoring** (créer/sculpter une variante) → **MODELEUR**, en mode édition.
+- **Playback** (pondérer les poids, les animer) → **ANIMATION**.
+
+État réel : le **playback existe** et est bien placé — `NKRenderer/Tools/Animation/NkAnimationSystem` porte `morphTracks`, `morphNames`, `morphWeights` et les morph targets CPU/GPU ; l'**import** existe aussi (`NkGLTFLoader` lit les morph targets glTF). En revanche l'**authoring est ABSENT** : aucun outil pour créer une shape key (rien dans `NkEditMesh` ni dans l'éditeur). C'est la pièce à ajouter, et sa place est le modeleur (NK3DModeler / mode édition), pas l'animation.
+
+### Retopologie — DUPLICATION à résorber (audit 2026-07-28)
+
+Trois implémentations concurrentes de la même chose :
+1. `NKRenderer/Mesh/NkEditMesh` — `Quadify()` ; l'en-tête mentionne la décimation QEM.
+2. `Kernel/AI/NKGen/src/NKGen/NkMesh` — `DecimateClustering()`, décrit dans son propre commentaire comme « plus grossier que QEM/quad field-aligned ».
+3. `Engine/Noge/src/Noge/Modeling/NkMeshModifier.h` — `NkDecimateModifier` (viole en plus le zéro-STL : `std::strncpy`).
+
+**Décision** : **source unique dans `NkEditMesh`** — c'est le seul endroit qui possède la topologie demi-arête **soudée**, condition nécessaire pour un QEM ou un quad field-aligned corrects. NKGen (IA) doit **appeler** ces fonctions au lieu de réimplémenter une variante dégradée ; `NkDecimateModifier` (Noge) doit être fusionné puis supprimé — il figurait déjà comme doublon Tier 2 dans l'analyse de duplication de cette session. Même motif que le doublon `NkColor` déjà résorbé.
+
 **Cap applicatif décidé** : une fois cette base saine, **extraire le câblage viewport dans NKEditorKit** (composant réutilisable avec une **table de raccourcis** configurable, pas de raccourcis en dur), puis créer l'application **NK3DModeler** par-dessus, avec GUI et raccourcis identiques à Blender. NkAnima, PV3DE et Nogee héritent du même socle — pas de duplication.
 
 ## Comment travailler / vérifier
