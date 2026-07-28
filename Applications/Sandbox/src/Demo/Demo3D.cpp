@@ -5344,8 +5344,15 @@ namespace nkentseu {
 						// claire ; ici le masque de silhouette est monochrome, donc tous
 						// ressortent de la même couleur (distinction actif/sélectionné à
 						// faire plus tard, elle demande un second canal de masque).
+						const int32 activeIdx = st->gizmo.ActiveIndex();
 						int32 nOut = 0;
-						for (int32 i = 0; i < 19 && i < renderer::NkGizmo3D::kMax; i++) {
+						// Les cubes INSTANCIÉS (19..82) sont inclus : ils n'ont pas de drawcall
+						// individuel dans la passe principale (un seul draw instancié), mais le
+						// masque de silhouette, lui, accepte un draw par objet — leur transform
+						// est connue (objXform, renseignée à la construction du batch). Il n'y
+						// avait donc aucune raison de les exclure : c'était une limite de
+						// commodité, pas une contrainte technique.
+						for (int32 i = 0; i < (int32)Demo3DState::kNumObj && i < renderer::NkGizmo3D::kMax; i++) {
 							if (!st->gizmo.IsSelected(i))
 								continue;
 							NkDrawCall3D sdc;
@@ -5359,12 +5366,12 @@ namespace nkentseu {
 												? selDrawXform
 												: ((i < (int32)Demo3DState::kNumObj) ? st->objXform[i]
 																					 : userXform(i, Demo3D_ObjBase(i)));
-							r3d->SubmitSelection(sdc);
+							// L'objet ACTIF reçoit un liseré de teinte plus claire (façon
+							// Blender) : sans cette distinction, impossible de savoir sur quel
+							// objet porteront les opérations qui ne visent que l'actif.
+							r3d->SubmitSelection(sdc, i == activeIdx);
 							nOut++;
 						}
-						// Les cubes INSTANCIÉS (19+) restent hors périmètre : ils n'ont pas de
-						// drawcall individuel porteur de transform, donc rien à soumettre au
-						// masque. À traiter avec le liseré des instances, pas ici.
 						(void)nOut;
 					}
 
