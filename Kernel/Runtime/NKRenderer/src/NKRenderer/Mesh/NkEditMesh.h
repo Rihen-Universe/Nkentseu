@@ -55,6 +55,78 @@ namespace nkentseu {
 				int32 cuts = 1;
 		};
 
+		// ── BEVEL (chanfrein) façon Blender — Ctrl+B (arêtes) / Ctrl+Shift+B (sommets) ──
+		// offset : largeur du chanfrein, MESURÉE LE LONG des arêtes incidentes (proche du
+		//   `offset_type='OFFSET'` de Blender). <= 0 => AUTO (6 % de la diagonale de bbox).
+		//   Écrêtée par coin à 45 % de la longueur de l'arête -> jamais de repli.
+		// segments : 1 = chanfrein PLAT (une bande de faces) ; N > 1 = ARRONDI (N bandes,
+		//   profil circulaire obtenu par slerp autour du sommet — profil 0.5 de Blender).
+		// vertexOnly : bevel de SOMMET (le coin devient une petite face) au lieu du bevel
+		//   d'ARÊTE (chaque arête sélectionnée devient une bande de faces).
+		struct NkBevelParams {
+				float32 offset = 0.f;
+				int32 segments = 1;
+				bool vertexOnly = false;
+		};
+
+		// ── INSET FACES (I) façon Blender ──────────────────────────────────────────
+		// thickness : rétrécissement dans le PLAN de la face. <= 0 => AUTO (8 % de la
+		//   diagonale de bbox). Écrêté par coin à 45 % des arêtes incidentes.
+		// depth : décalage de la face intérieure LE LONG DE LA NORMALE (creux si < 0).
+		// individual : true = chaque face séparément (I puis I dans Blender) ; false =
+		//   RÉGION (la sélection est traitée comme un bloc : seules les arêtes de BORD de
+		//   la région engendrent la bande, les arêtes intérieures restent partagées).
+		struct NkInsetParams {
+				float32 thickness = 0.f;
+				float32 depth = 0.f;
+				bool individual = true;
+		};
+
+		// ── EDGE SPLIT / RIP (V) façon Blender ─────────────────────────────────────
+		// gap : ÉCARTEMENT appliqué à chaque morceau détaché, le long de la normale
+		//   moyenne de son groupe de faces. <= 0 => AUTO (1 % de la diagonale de bbox).
+		// ⚠ POURQUOI UN ÉCART EST NÉCESSAIRE ICI : l'adjacence de ce maillage est
+		//   POSITIONNELLE (LinkTwins apparie les demi-arêtes sur l'identité soudée, cf.
+		//   BuildVertexMerge). Deux sommets laissés EXACTEMENT à la même place seraient
+		//   donc immédiatement re-soudés — la déchirure ne survivrait pas au rebuild.
+		//   L'écart par défaut est minuscule (1 %) : la topologie est réellement séparée
+		//   sans déformation visible, et l'utilisateur écarte ensuite au gizmo (G).
+		struct NkEdgeSplitParams {
+				float32 gap = 0.f;
+		};
+
+		// ── SPIN / RÉVOLUTION (J) façon Blender ────────────────────────────────────
+		// Duplique la SÉLECTION en la faisant tourner autour d'un AXE, sur un ANGLE, en
+		// N pas, et relie les copies successives par des faces (profil -> surface de
+		// révolution : anneau, cylindre, tore…).
+		// center / axis sont exprimés dans l'espace de la matrice passée à SpinSelected
+		// (= modèle->monde côté éditeur, pour que le CURSEUR 3D serve de centre comme
+		// dans Blender ; identité pour une op locale pure).
+		// duplicate : true = copies ISOLÉES à chaque pas (Blender « Use Duplicates »),
+		//   false (défaut) = copies RELIÉES par une bande de faces.
+		struct NkSpinParams {
+				NkVec3f center = {0.f, 0.f, 0.f};
+				NkVec3f axis = {0.f, 1.f, 0.f};
+				float32 angle = 6.2831853f; // radians (360° par défaut)
+				int32 steps = 12;
+				bool duplicate = false;
+		};
+
+		// ── DISSOLVE (Ctrl+X) façon Blender ────────────────────────────────────────
+		// À NE PAS CONFONDRE AVEC « SUPPRIMER » (X) : le dissolve retire l'élément en
+		// GARDANT la surface connectée — les faces voisines fusionnent en un n-gon —,
+		// là où la suppression laisse un TROU.
+		//   Verts : les faces autour de chaque sommet sélectionné fusionnent en une seule.
+		//   Edges : les deux faces de chaque arête sélectionnée fusionnent (exact inverse
+		//           d'une subdivision d'arête).
+		//   Faces : les faces sélectionnées CONTIGUËS fusionnent (arêtes intérieures
+		//           retirées) en un seul n-gon.
+		// mode : 0 = Verts, 1 = Edges, 2 = Faces (l'appelant le choisit selon le mode de
+		// sélection actif V/E/F, comme le Ctrl+X contextuel de Blender).
+		struct NkDissolveParams {
+				int32 mode = 1;
+		};
+
 		class NkEditMesh {
 			public:
 				struct Vert {
@@ -246,6 +318,79 @@ namespace nkentseu {
 				bool MakeFaceFromSelected();
 				bool SubdivideSelectedFaces(const NkSubdivideParams &p = NkSubdivideParams{});
 				bool LoopCutFromSelectedEdge(const NkLoopCutParams &p = NkLoopCutParams{});
+
+				// ── BEVEL / CHANFREIN (Ctrl+B, Ctrl+Shift+B) ────────────────────────
+				// p.vertexOnly == false : BEVEL D'ARÊTE. Chaque arête dont les DEUX
+				//   extrémités sont sélectionnées (et qui possède bien deux faces) est
+				//   remplacée par une BANDE de p.segments face(s) ; les faces voisines
+				//   reculent de p.offset le long de leurs arêtes. Les coins où plusieurs
+				//   arêtes chanfreinées se rejoignent reçoivent une face de RACCORD.
+				// p.vertexOnly == true : BEVEL DE SOMMET. Chaque sommet sélectionné est
+				//   remplacé par une petite face (le coin est coupé), chaque face
+				//   incidente gagnant un sommet supplémentaire.
+				// ⚠ LIMITES ASSUMÉES : opère sur une copie SOUDÉE du maillage (les copies
+				//   coïncidentes d'un coin fusionnent — c'est le modèle Blender) ; les
+				//   sommets/arêtes de BORD (sans jumeau) sont ignorés pour les faces de
+				//   raccord ; l'offset est mesuré LE LONG des arêtes (sur un coin non
+				//   perpendiculaire la largeur perçue diffère donc légèrement de Blender) ;
+				//   aucun traitement particulier des arêtes CONCAVES ni des auto-
+				//   intersections quand l'offset est grand (l'écrêtage à 45 % l'évite).
+				bool BevelSelected(const NkBevelParams &p = NkBevelParams{});
+
+				// ── INSET FACES (I) ─────────────────────────────────────────────────
+				// Insère une face plus PETITE à l'intérieur de chaque face sélectionnée,
+				// reliée au contour d'origine par une BANDE de quads. Modes individual /
+				// region (cf. NkInsetParams). La sélection passe sur la face intérieure,
+				// comme dans Blender (on peut enchaîner I, ou E pour extruder).
+				// ⚠ LIMITE : le rétrécissement est calculé par bissectrice de coin (exact
+				//   sur les faces CONVEXES ; une face très concave peut s'auto-intersecter
+				//   pour une épaisseur proche du rayon inscrit).
+				bool InsetSelectedFaces(const NkInsetParams &p = NkInsetParams{});
+
+				// ── EDGE SPLIT (V) — DÉ-SOUDURE LOCALE ──────────────────────────────
+				// Sépare les arêtes sélectionnées : autour de chaque sommet touché, le
+				// « ventilateur » de faces est découpé en GROUPES délimités par les arêtes
+				// sélectionnées, et chaque groupe reçoit sa PROPRE copie du sommet. Les
+				// faces de part et d'autre ne partagent donc plus rien le long de ces
+				// arêtes (twins recalculés : ces demi-arêtes deviennent des bords).
+				// ⚠ CAS PARTICULIERS / LIMITES :
+				//   • une arête SEULE au milieu d'un ventilateur fermé ne coupe pas le
+				//     ventilateur (on peut encore en faire le tour) : la topologie reste
+				//     connexe, comme dans Blender. Il faut une CHAÎNE/BOUCLE d'arêtes pour
+				//     détacher réellement une région ;
+				//   • les arêtes de BORD (sans jumeau) sont déjà « ouvertes » -> ignorées ;
+				//   • l'écart `gap` est obligatoire (cf. NkEdgeSplitParams).
+				bool SplitSelectedEdges(const NkEdgeSplitParams &p = NkEdgeSplitParams{});
+
+				// ── SPIN / RÉVOLUTION (J) ───────────────────────────────────────────
+				// Le PROFIL tourné = les arêtes dont les deux extrémités sont
+				// sélectionnées (mode relié) ou les faces sélectionnées (mode duplicate).
+				// La géométrie d'origine est CONSERVÉE (comme Blender) ; la sélection
+				// passe sur le DERNIER anneau, pour enchaîner un autre spin ou un merge.
+				// Sur 360° le dernier anneau retombe exactement sur le premier : la
+				// soudure positionnelle (LinkTwins) referme le volume automatiquement.
+				// localToSpin : matrice modèle->espace de p.center/p.axis (éditeur : la
+				// transform monde de l'objet, pour utiliser le curseur 3D comme centre).
+				// ⚠ LIMITE : l'orientation des faces créées est décidée par un test RADIAL
+				//   (normale sortante par rapport à l'axe), ce qui convient aux profils de
+				//   révolution usuels ; un profil qui croise l'axe peut sortir retourné.
+				bool SpinSelected(const NkSpinParams &p, const NkMat4f &localToSpin = NkMat4f::Identity());
+
+				// ── DISSOLVE (Ctrl+X) — fusion en n-gon, PAS un trou ────────────────
+				// Principe unique aux trois modes : on marque un ensemble d'arêtes à
+				// RETIRER, puis on reparcourt le CONTOUR de chaque région ainsi fusionnée
+				// (en sautant les arêtes retirées via les jumeaux) — ce qui reconstruit
+				// directement un cycle de demi-arêtes propre, donc un n-gon manifold.
+				// ⚠ LIMITES ASSUMÉES :
+				//   • arête de BORD (sans jumeau) : rien à fusionner -> ignorée ;
+				//   • arête dont les deux côtés sont la MÊME face : ignorée (dégénérée) ;
+				//   • une région fusionnée qui possède un TROU produit deux contours, donc
+				//     deux faces distinctes (le n-gon à trou n'existe pas ici, ni dans un
+				//     maillage polygonal classique) ;
+				//   • la face résultante peut être NON PLANE (autorisé, comme Blender) ;
+				//   • sommet de bord ou de valence < 3 en mode Verts : ignoré ;
+				//   • les sommets devenus inutilisés sont COMPACTÉS (pas de sommet isolé).
+				bool DissolveSelected(const NkDissolveParams &p = NkDissolveParams{});
 				// planePoint / planeNormal sont exprimés dans l'espace de `localToPlaneSpace`
 				// (= matrice modèle→monde côté éditeur ; identité pour une op locale pure IA).
 				bool BisectByPlane(const NkVec3f &planePoint, const NkVec3f &planeNormal,
@@ -332,7 +477,12 @@ namespace nkentseu {
 			// AJOUTÉS EN FIN d'énumération (l'op est sérialisée en uint8 : ne jamais
 			// réordonner, sinon les sessions .nkmec existantes deviendraient fausses).
 			ExtrudeVerts,
-			ExtrudeEdges
+			ExtrudeEdges,
+			Bevel,
+			Inset,
+			EdgeSplit,
+			Spin,
+			Dissolve
 		};
 
 		struct NkMeshEditCommand {
@@ -342,6 +492,12 @@ namespace nkentseu {
 				NkMergeParams merge;				  // (op == Merge)
 				NkSubdivideParams subdiv;			  // (op == Subdivide)
 				NkLoopCutParams loopcut;			  // (op == LoopCut) nombre de coupes
+				NkBevelParams bevel;				  // (op == Bevel) largeur / segments / mode sommet
+				NkInsetParams inset;				  // (op == Inset) épaisseur / profondeur / individual
+				NkEdgeSplitParams esplit;			  // (op == EdgeSplit) écartement de la déchirure
+				NkSpinParams spin;					  // (op == Spin) centre / axe / angle / pas
+				NkMat4f spinXform = NkMat4f::Identity(); // (op == Spin) modèle -> espace du spin
+				NkDissolveParams dissolve;			  // (op == Dissolve) mode Verts/Edges/Faces
 				NkVec3f planePoint = {0.f, 0.f, 0.f}; // (op == Bisect)
 				NkVec3f planeNormal = {0.f, 1.f, 0.f};
 				NkMat4f bisectXform = NkMat4f::Identity();
