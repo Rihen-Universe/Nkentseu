@@ -3228,7 +3228,21 @@ namespace nkentseu {
 							st->editWasDragging = false;
 							st->editOverlayDirty = true;
 							st->editMode = true;
-							logger.Info("[Demo3D] EDIT MODE objet #{0} ({1} vertices).\n", sel, vc);
+							// Compte flat/smooth : l'ombrage est DEDUIT des normales source par
+							// BuildFromIndexed. Le tracer ici permet de verifier sans capture
+							// qu'un aller-retour en edition ne rabat pas tout le modele en FLAT.
+							uint32 nSmooth = 0, nFlat = 0;
+							for (uint32 fi = 0; fi < (uint32)st->editHE.faces.Size(); fi++) {
+								if (!st->editHE.faces[fi].alive)
+									continue;
+								if (st->editHE.faces[fi].smooth)
+									nSmooth++;
+								else
+									nFlat++;
+							}
+							logger.Info("[Demo3D] EDIT MODE objet #{0} ({1} vertices, ombrage : {2} faces "
+										"smooth / {3} faces flat).\n",
+										sel, vc, nSmooth, nFlat);
 						}
 					}
 				}
